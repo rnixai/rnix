@@ -1,0 +1,7 @@
+.agent/
+.claude/
+.cursor/
+_bmad/
+.playwright-mcp/
+.gemini/
+.codex/skills/
