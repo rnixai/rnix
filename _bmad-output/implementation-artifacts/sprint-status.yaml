@@ -42,7 +42,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   # Epic 1: 第一个智能体运行（First Agent Runs）
   epic-1: in-progress
-  1-1-project-initialization-and-infrastructure: ready-for-dev
+  1-1-project-initialization-and-infrastructure: review
   1-2-process-model-and-lifecycle-state-machine: backlog
   1-3-vfs-framework-and-device-registration: backlog
   1-4-context-management: backlog

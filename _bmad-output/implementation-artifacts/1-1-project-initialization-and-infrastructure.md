@@ -1,6 +1,6 @@
 # Story 1.1: 项目初始化与基础设施
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -19,35 +19,35 @@ So that 后续所有模块可以在标准化的 Go 项目结构上构建。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 初始化 Go 模块与项目骨架 (AC: #1, #2)
-  - [ ] 1.1 执行 `go mod init github.com/decker/crux`，设置 Go 1.26
-  - [ ] 1.2 创建完整目录结构（所有包目录 + 占位文件）
-  - [ ] 1.3 创建 `cmd/crux/main.go`（cobra 根命令 + `version` 子命令）
-  - [ ] 1.4 创建 `.gitignore`（Go 项目标准 + 二进制）
-- [ ] Task 2: 实现共享类型 `internal/types/types.go` (AC: #3)
-  - [ ] 2.1 定义 `PID`（`uint64`）、`FD`（`int`）、`CtxID`（`uint64`）类型
-  - [ ] 2.2 定义 `ErrCode`（`string`）类型及常量：`ErrTimeout`、`ErrNotFound`、`ErrPermission`、`ErrInternal`、`ErrDriver`
-  - [ ] 2.3 定义 `Signal`（`int`）类型及常量：`SIGTERM`、`SIGKILL`
-  - [ ] 2.4 定义 `ProcessState`（`int`）类型及常量：`StateCreated`、`StateRunning`、`StateZombie`、`StateDead`
-  - [ ] 2.5 定义 `SyscallEvent` 结构体（Timestamp、PID、Syscall、Args、Result、Err、Duration）
-- [ ] Task 3: 实现泛型工具包 `internal/xsync/` (AC: #4)
-  - [ ] 3.1 实现 `Registry[T]`（Register/Get/List，RWMutex 保护）→ `registry.go`
-  - [ ] 3.2 实现 `SyncMap[K,V]`（Load/Store/Delete/Range/Len，RWMutex 保护）→ `syncmap.go`
-  - [ ] 3.3 实现 `Future[T]`（Await 阻塞等待，sync.Once 保证单次解析）→ `future.go`
-  - [ ] 3.4 实现 `Result[T]`（Ok/Err/Unwrap/Map/IsOk/IsErr）→ `future.go` 同文件
-  - [ ] 3.5 编写完整单元测试（含 `-race` 并发测试）→ `registry_test.go`、`syncmap_test.go`、`future_test.go`
-- [ ] Task 4: 实现 SyscallError `kernel/errors.go` (AC: #5)
-  - [ ] 4.1 定义 `SyscallError` 结构体（Syscall、PID、Device、Err、Code 字段）
-  - [ ] 4.2 实现 `Error() string` 方法：`[Code] PID N Syscall: Device (Err)`
-  - [ ] 4.3 实现 `Unwrap() error` 方法（支持 `errors.Is`/`errors.As`）
-  - [ ] 4.4 实现辅助构造函数 `NewSyscallError(syscall, pid, device, err, code)`
-  - [ ] 4.5 编写单元测试 → `kernel/errors_test.go`
-- [ ] Task 5: 构建工具链 (AC: #6)
-  - [ ] 5.1 创建 `Makefile`（build/install/test/lint/vet/clean/all 目标）
-  - [ ] 5.2 创建 `.golangci.yml`（启用常用 linter：errcheck、govet、staticcheck、unused、gosimple）
-  - [ ] 5.3 验证 `make build` 编译成功
-  - [ ] 5.4 验证 `make test` 运行通过（含 `-race`）
-  - [ ] 5.5 验证 `make lint` 无警告
+- [x] Task 1: 初始化 Go 模块与项目骨架 (AC: #1, #2)
+  - [x] 1.1 执行 `go mod init github.com/decker/crux`，设置 Go 1.26
+  - [x] 1.2 创建完整目录结构（所有包目录 + 占位文件）
+  - [x] 1.3 创建 `cmd/crux/main.go`（cobra 根命令 + `version` 子命令）
+  - [x] 1.4 创建 `.gitignore`（Go 项目标准 + 二进制）
+- [x] Task 2: 实现共享类型 `internal/types/types.go` (AC: #3)
+  - [x] 2.1 定义 `PID`（`uint64`）、`FD`（`int`）、`CtxID`（`uint64`）类型
+  - [x] 2.2 定义 `ErrCode`（`string`）类型及常量：`ErrTimeout`、`ErrNotFound`、`ErrPermission`、`ErrInternal`、`ErrDriver`
+  - [x] 2.3 定义 `Signal`（`int`）类型及常量：`SIGTERM`、`SIGKILL`
+  - [x] 2.4 定义 `ProcessState`（`int`）类型及常量：`StateCreated`、`StateRunning`、`StateZombie`、`StateDead`
+  - [x] 2.5 定义 `SyscallEvent` 结构体（Timestamp、PID、Syscall、Args、Result、Err、Duration）
+- [x] Task 3: 实现泛型工具包 `internal/xsync/` (AC: #4)
+  - [x] 3.1 实现 `Registry[T]`（Register/Get/List，RWMutex 保护）→ `registry.go`
+  - [x] 3.2 实现 `SyncMap[K,V]`（Load/Store/Delete/Range/Len，RWMutex 保护）→ `syncmap.go`
+  - [x] 3.3 实现 `Future[T]`（Await 阻塞等待，sync.Once 保证单次解析）→ `future.go`
+  - [x] 3.4 实现 `Result[T]`（Ok/Err/Unwrap/Map/IsOk/IsErr）→ `future.go` 同文件
+  - [x] 3.5 编写完整单元测试（含 `-race` 并发测试）→ `registry_test.go`、`syncmap_test.go`、`future_test.go`
+- [x] Task 4: 实现 SyscallError `kernel/errors.go` (AC: #5)
+  - [x] 4.1 定义 `SyscallError` 结构体（Syscall、PID、Device、Err、Code 字段）
+  - [x] 4.2 实现 `Error() string` 方法：`[Code] PID N Syscall: Device (Err)`
+  - [x] 4.3 实现 `Unwrap() error` 方法（支持 `errors.Is`/`errors.As`）
+  - [x] 4.4 实现辅助构造函数 `NewSyscallError(syscall, pid, device, err, code)`
+  - [x] 4.5 编写单元测试 → `kernel/errors_test.go`
+- [x] Task 5: 构建工具链 (AC: #6)
+  - [x] 5.1 创建 `Makefile`（build/install/test/lint/vet/clean/all 目标）
+  - [x] 5.2 创建 `.golangci.yml`（启用常用 linter：errcheck、govet、staticcheck、unused、gosimple）
+  - [x] 5.3 验证 `make build` 编译成功
+  - [x] 5.4 验证 `make test` 运行通过（含 `-race`）
+  - [x] 5.5 验证 `make lint` 无警告
 
 ## Dev Notes
 
@@ -217,8 +217,47 @@ crux/
 
 ### Agent Model Used
 
+Claude Opus 4.6
+
 ### Debug Log References
+
+- Future[T] 初始实现使用 channel 重建方式在 Await 中存在 data race，已改为 `chan struct{}` + `sync.Once` 模式修复
 
 ### Completion Notes List
 
+- Task 1: 初始化 Go 1.26 模块，创建完整 OS 隐喻目录结构（11 个包目录），cobra CLI 入口 `crux version` 输出 0.1.0
+- Task 2: 实现 `internal/types/types.go`，定义 PID/FD/CtxID/ErrCode/Signal/ProcessState/SyscallEvent，零外部依赖
+- Task 3: 实现 `internal/xsync/` 泛型工具包（Registry[T]、SyncMap[K,V]、Future[T]、Result[T]），21 个单元测试全部通过含 `-race`
+- Task 4: 实现 `kernel/errors.go` SyscallError（Error/Unwrap/NewSyscallError），5 个单元测试覆盖格式化、errors.Is/As、所有 ErrCode 常量
+- Task 5: 创建 Makefile（7 个目标）和 .golangci.yml（5 个 linter），`make build` 和 `make test -race` 验证通过
+
+### Change Log
+
+- 2026-02-23: Story 1-1 全部 5 个 Task 实现完成，26 个测试通过（含 -race），状态更新为 review
+
 ### File List
+
+- cmd/crux/main.go (新增)
+- internal/types/types.go (新增)
+- internal/xsync/registry.go (新增)
+- internal/xsync/syncmap.go (新增)
+- internal/xsync/future.go (新增)
+- internal/xsync/registry_test.go (新增)
+- internal/xsync/syncmap_test.go (新增)
+- internal/xsync/future_test.go (新增)
+- kernel/errors.go (新增)
+- kernel/errors_test.go (新增)
+- go.mod (新增)
+- go.sum (新增)
+- Makefile (新增)
+- .golangci.yml (新增)
+- .gitignore (修改)
+- internal/ui/.gitkeep (新增)
+- vfs/.gitkeep (新增)
+- drivers/llm/.gitkeep (新增)
+- drivers/shell/.gitkeep (新增)
+- drivers/fs/.gitkeep (新增)
+- context/.gitkeep (新增)
+- skills/.gitkeep (新增)
+- debug/.gitkeep (新增)
+- lib/skills/code-analyst/.gitkeep (新增)
