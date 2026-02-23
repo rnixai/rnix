@@ -3,7 +3,7 @@ stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
 inputDocuments:
   - '_bmad-output/planning-artifacts/product-brief-2026-02-23.md'
   - '_bmad-output/planning-artifacts/prd.md'
-  - '_bmad-output/planning-artifacts/agent-os-architecture.md'
+  - '_bmad-output/planning-artifacts/architecture.md'
 date: '2026-02-23'
 author: Decker
 projectName: Crux
@@ -120,7 +120,7 @@ $ crux "分析这段代码的性能瓶颈"
 **3. 错误即指引**
 每条错误信息都是一个行动指南：
 ```
-✗ /dev/llm/claude-sonnet: request timeout (30s)
+✗ /dev/llm/claude: request timeout (30s)
   → PID 3 state: running → zombie (exit code: 1)
   → 建议: crux "分析 ./src/scheduler.go"  重新执行
 ```
@@ -606,7 +606,7 @@ $ crux "分析 ./kernel/scheduler.go 并找出性能瓶颈"
 
 失败时：
 ```
-✗ /dev/llm/claude-sonnet: request timeout (30s)
+✗ /dev/llm/claude: request timeout (30s)
   → PID 1 state: running → zombie (exit code: 1)
   → 建议: crux "分析 ./kernel/scheduler.go"  重新执行
 ```
@@ -751,7 +751,7 @@ PID   STATE     SKILL          TOKENS   ELAPSED
 [0.012s] Open("/dev/fs/kernel/scheduler.go", O_RDONLY) → fd=3
 [0.015s] Read(fd=3, len=4096) → 2,847 bytes
 [0.018s] CtxWrite(cid=1, data=<file content>) → ok
-[1.204s] Open("/dev/llm/claude-sonnet", O_RDWR) → fd=4
+[1.204s] Open("/dev/llm/claude", O_RDWR) → fd=4
 [1.205s] Write(fd=4, data=<prompt 3,421 tokens>) → ok
 [7.891s] Read(fd=4, len=max) → 847 tokens    ← LLM 调用
 [7.893s] Close(fd=4) → ok
@@ -947,7 +947,7 @@ flowchart TD
     C --> D["[agent/1] reading /dev/fs/scheduler.go..."]
     D --> E["[agent/1] reasoning step 1/3..."]
     E --> F{LLM 超时}
-    F --> G["✗ /dev/llm/claude-sonnet: request timeout (30s)"]
+    F --> G["✗ /dev/llm/claude: request timeout (30s)"]
     G --> H["  → PID 1 state: running → zombie (exit code: 1)"]
     H --> I["  → 建议: crux \"分析 ./src/scheduler.go\"  重新执行"]
     I --> J{用户选择}
@@ -1147,7 +1147,7 @@ flowchart TD
 **出现旅程：** 0, 2
 
 ```
-✗ /dev/llm/claude-sonnet: request timeout (30s)
+✗ /dev/llm/claude: request timeout (30s)
   → PID 1 state: running → zombie (exit code: 1)
   → 建议: crux "分析 ./src/scheduler.go"  重新执行
 ```
@@ -1339,7 +1339,7 @@ internal/ui/
 - 三行缺一不可——发生了什么 + 影响 + 下一步
 - 示例：
 ```
-✗ /dev/llm/claude-sonnet: request timeout (30s)
+✗ /dev/llm/claude: request timeout (30s)
   → PID 3 state: running → zombie (exit code: 1)
   → 建议: crux "分析 ./src/scheduler.go"  重新执行
 ```
@@ -1401,7 +1401,7 @@ internal/ui/
 
 **3. Spinner 等待式（不可预测耗时）**
 ```
-[agent/1] calling /dev/llm/claude-sonnet ⠋
+[agent/1] calling /dev/llm/claude ⠋
 ```
 - 适用：LLM 调用期间（耗时不可预测，通常 3-20 秒）
 - spinner 动画字符在行尾转动，表示系统活跃

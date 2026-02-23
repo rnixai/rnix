@@ -109,7 +109,7 @@ editHistory:
 |--------|---------|
 | 进程生命周期 | spawn → running → zombie → dead 完整流转 |
 | VFS 读写 | 通过 `/dev/fs` 读取宿主文件系统文件 |
-| LLM 调用 | 通过 `/dev/llm/claude-sonnet` 完成推理 |
+| LLM 调用 | 通过 `/dev/llm/claude` 完成推理 |
 | Skill 加载 | `code-analyst` Skill 正确注入 system prompt |
 | reasonStep 循环 | tool_call → 执行 → 追加结果 → 继续推理 → text → 完成 |
 | astrace 追踪 | `crux astrace 1` 输出完整 syscall 链路（名称、耗时、token）|
@@ -163,7 +163,7 @@ editHistory:
 
 陈明在跑一个复杂的代码分析任务。智能体需要读取一个 500 行的文件并分析性能瓶颈。中途，Claude API 超时了。
 
-他看终端：`[agent/3] error: /dev/llm/claude-sonnet: request timeout (30s)`。然后：`[kernel] PID 3 state: running → zombie (exit code: 1, reason: llm_timeout)`。
+他看终端：`[agent/3] error: /dev/llm/claude: request timeout (30s)`。然后：`[kernel] PID 3 state: running → zombie (exit code: 1, reason: llm_timeout)`。
 
 进程没有卡死。状态正确转入了 Zombie。他运行 `crux ps`，看到 PID 3 标记为 Zombie，等待 wait 回收。资源没有泄漏。
 
@@ -508,7 +508,7 @@ lib/skills/code-analyst/
 - **FR14:** 系统可以通过 `/proc/{pid}/` 动态暴露每个智能体的运行时状态（status、intent、context）
 - **FR15:** 系统可以通过 `/dev/` 路径注册和路由设备驱动（LLM、Shell、文件系统）
 - **FR16:** 智能体可以通过 `/dev/fs` 读取宿主文件系统上的文件
-- **FR17:** 智能体可以通过 `/dev/llm/claude-sonnet` 访问 LLM 推理能力
+- **FR17:** 智能体可以通过 `/dev/llm/claude` 访问 LLM 推理能力
 - **FR18:** 智能体可以通过 `/dev/shell` 执行宿主系统的 shell 命令
 
 ### Context Management（上下文管理）
