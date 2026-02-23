@@ -1,6 +1,6 @@
 # Story 1.3: VFS 框架与设备注册
 
-Status: ready-for-dev
+Status: complete
 
 ## Story
 
@@ -18,45 +18,45 @@ So that 我不需要知道底层实现细节，只需操作文件描述符。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 定义 VFSFile 接口与核心类型 (AC: #1)
-  - [ ] 1.1 在 `vfs/vfs.go` 中定义 `VFSFile` 接口（`Read(length int) ([]byte, error)`、`Write(data []byte) error`、`Close() error`、`Stat() (FileStat, error)`）
-  - [ ] 1.2 定义 `FileStat` 结构体（`Name string`、`Size int64`、`IsDevice bool`、`DevicePath string`）
-  - [ ] 1.3 定义 `OpenFlag int` 常量（`O_RDONLY`、`O_WRONLY`、`O_RDWR`）
-  - [ ] 1.4 定义 `VFSFileFactory func(flags OpenFlag) (VFSFile, error)` 工厂函数类型
-- [ ] Task 2: 实现 DeviceRegistry (AC: #2)
-  - [ ] 2.1 在 `vfs/dev.go` 中定义 `DeviceRegistry` 结构体，内部基于 `xsync.Registry[VFSFileFactory]`
-  - [ ] 2.2 实现 `NewDeviceRegistry() *DeviceRegistry`
-  - [ ] 2.3 实现 `Register(path string, factory VFSFileFactory) error`（委托给 `Registry[T].Register`，路径重复返回错误）
-  - [ ] 2.4 实现 `Open(path string, flags OpenFlag) (VFSFile, error)`（查找 factory → 调用 factory(flags) → 返回 VFSFile；未找到返回 `*SyscallError{Code: ErrNotFound}`）
-  - [ ] 2.5 实现路径前缀匹配：`Open("/dev/fs/path/to/file")` 应匹配注册的 `/dev/fs` 前缀，并将剩余路径传递给驱动（通过 factory 参数或 VFSFile 内部设置）
-- [ ] Task 3: 实现 VFS 核心结构体 (AC: #1, #3, #4, #5)
-  - [ ] 3.1 在 `vfs/vfs.go` 中定义 `VFS` 结构体（持有 `devRegistry *DeviceRegistry`）
-  - [ ] 3.2 实现 `NewVFS(devRegistry *DeviceRegistry) *VFS`
-  - [ ] 3.3 实现 `Open(pid types.PID, path string, flags OpenFlag) (types.FD, error)`：通过 devRegistry.Open 获取 VFSFile → 分配 FD → 存入 fdTable → 返回 FD
-  - [ ] 3.4 实现 `Read(pid types.PID, fd types.FD, length int) ([]byte, error)`：从 fdTable 查找 VFSFile → 调用 file.Read
-  - [ ] 3.5 实现 `Write(pid types.PID, fd types.FD, data []byte) error`：从 fdTable 查找 VFSFile → 调用 file.Write
-  - [ ] 3.6 实现 `Close(pid types.PID, fd types.FD) error`：调用 file.Close → 从 fdTable 移除 FD
-  - [ ] 3.7 实现 `Stat(path string) (FileStat, error)`：通过 devRegistry 查询设备信息
-  - [ ] 3.8 FD 分配策略：每进程维护 `fdCounter`，递增分配，从 FD(3) 开始（0/1/2 保留给 stdin/stdout/stderr 惯例）
-- [ ] Task 4: FDTable 管理 (AC: #3, #5)
-  - [ ] 4.1 在 VFS 中实现每进程 FDTable 管理：`fdTables map[types.PID]*fdTable` 或 `SyncMap[types.PID, *fdTable]`
-  - [ ] 4.2 `fdTable` 结构：`files map[types.FD]VFSFile` + `nextFD types.FD` + `mu sync.Mutex`
-  - [ ] 4.3 实现 `allocFD(pid) types.FD`（递增分配）
-  - [ ] 4.4 实现 `getFD(pid, fd) (VFSFile, error)`（未找到返回 `*SyscallError{Code: ErrNotFound}`）
-  - [ ] 4.5 实现 `removeFD(pid, fd) error`（移除后后续访问返回错误）
-  - [ ] 4.6 实现 `closeAll(pid) error`（进程退出时关闭所有 FD，Story 1.6/4.1 回收时调用）
-- [ ] Task 5: 更新 Process.FDTable 类型 (AC: #3)
-  - [ ] 5.1 将 `kernel/process.go` 中 `FDTable map[types.FD]any` 改为 `FDTable map[types.FD]vfs.VFSFile`
-  - [ ] 5.2 更新 `NewProcess` 构造函数中 FDTable 初始化
-  - [ ] 5.3 确保 `kernel/process_test.go` 中不依赖 `any` 类型的 FDTable 赋值（如有，需改为 mock VFSFile）
-  - [ ] 5.4 验证 `kernel/` 导入 `vfs/` 符合依赖方向（kernel → vfs ✓）
-- [ ] Task 6: 编写完整单元测试 (AC: all)
-  - [ ] 6.1 `vfs/dev_test.go` — DeviceRegistry 测试：注册、获取、重复注册错误、未注册路径返回 ErrNotFound、路径前缀匹配
-  - [ ] 6.2 `vfs/vfs_test.go` — VFS 集成测试：Open 返回递增 FD、Read/Write 委托给 VFSFile、Close 后再访问返回错误、Stat 正常工作
-  - [ ] 6.3 使用 mock VFSFile 实现（`vfs/vfs_test.go` 中定义 `mockFile struct` 实现 VFSFile 接口）
-  - [ ] 6.4 FDTable 并发安全测试：多 goroutine 并发 Open/Read/Write/Close
-  - [ ] 6.5 全部测试通过 `go test -race ./vfs/...`
-  - [ ] 6.6 全量回归 `go test -race ./...` 确保不破坏已有测试
+- [x] Task 1: 定义 VFSFile 接口与核心类型 (AC: #1)
+  - [x] 1.1 在 `vfs/vfs.go` 中定义 `VFSFile` 接口（`Read(length int) ([]byte, error)`、`Write(data []byte) error`、`Close() error`、`Stat() (FileStat, error)`）
+  - [x] 1.2 定义 `FileStat` 结构体（`Name string`、`Size int64`、`IsDevice bool`、`DevicePath string`）
+  - [x] 1.3 定义 `OpenFlag int` 常量（`O_RDONLY`、`O_WRONLY`、`O_RDWR`）
+  - [x] 1.4 定义 `VFSFileFactory func(flags OpenFlag) (VFSFile, error)` 工厂函数类型
+- [x] Task 2: 实现 DeviceRegistry (AC: #2)
+  - [x] 2.1 在 `vfs/dev.go` 中定义 `DeviceRegistry` 结构体，内部基于 `xsync.Registry[VFSFileFactory]`
+  - [x] 2.2 实现 `NewDeviceRegistry() *DeviceRegistry`
+  - [x] 2.3 实现 `Register(path string, factory VFSFileFactory) error`（委托给 `Registry[T].Register`，路径重复返回错误）
+  - [x] 2.4 实现 `Open(path string, flags OpenFlag) (VFSFile, error)`（查找 factory → 调用 factory(flags) → 返回 VFSFile；未找到返回 `*SyscallError{Code: ErrNotFound}`）
+  - [x] 2.5 实现路径前缀匹配：`Open("/dev/fs/path/to/file")` 应匹配注册的 `/dev/fs` 前缀，并将剩余路径传递给驱动（通过 factory 参数或 VFSFile 内部设置）
+- [x] Task 3: 实现 VFS 核心结构体 (AC: #1, #3, #4, #5)
+  - [x] 3.1 在 `vfs/vfs.go` 中定义 `VFS` 结构体（持有 `devRegistry *DeviceRegistry`）
+  - [x] 3.2 实现 `NewVFS(devRegistry *DeviceRegistry) *VFS`
+  - [x] 3.3 实现 `Open(pid types.PID, path string, flags OpenFlag) (types.FD, error)`：通过 devRegistry.Open 获取 VFSFile → 分配 FD → 存入 fdTable → 返回 FD
+  - [x] 3.4 实现 `Read(pid types.PID, fd types.FD, length int) ([]byte, error)`：从 fdTable 查找 VFSFile → 调用 file.Read
+  - [x] 3.5 实现 `Write(pid types.PID, fd types.FD, data []byte) error`：从 fdTable 查找 VFSFile → 调用 file.Write
+  - [x] 3.6 实现 `Close(pid types.PID, fd types.FD) error`：调用 file.Close → 从 fdTable 移除 FD
+  - [x] 3.7 实现 `Stat(path string) (FileStat, error)`：通过 devRegistry 查询设备信息
+  - [x] 3.8 FD 分配策略：每进程维护 `fdCounter`，递增分配，从 FD(3) 开始（0/1/2 保留给 stdin/stdout/stderr 惯例）
+- [x] Task 4: FDTable 管理 (AC: #3, #5)
+  - [x] 4.1 在 VFS 中实现每进程 FDTable 管理：`fdTables map[types.PID]*fdTable` 或 `SyncMap[types.PID, *fdTable]`
+  - [x] 4.2 `fdTable` 结构：`files map[types.FD]VFSFile` + `nextFD types.FD` + `mu sync.Mutex`
+  - [x] 4.3 实现 `allocFD(pid) types.FD`（递增分配）
+  - [x] 4.4 实现 `getFD(pid, fd) (VFSFile, error)`（未找到返回 `*SyscallError{Code: ErrNotFound}`）
+  - [x] 4.5 实现 `removeFD(pid, fd) error`（移除后后续访问返回错误）
+  - [x] 4.6 实现 `closeAll(pid) error`（进程退出时关闭所有 FD，Story 1.6/4.1 回收时调用）
+- [x] Task 5: 更新 Process.FDTable 类型 (AC: #3)
+  - [x] 5.1 将 `kernel/process.go` 中 `FDTable map[types.FD]any` 改为 `FDTable map[types.FD]vfs.VFSFile`
+  - [x] 5.2 更新 `NewProcess` 构造函数中 FDTable 初始化
+  - [x] 5.3 确保 `kernel/process_test.go` 中不依赖 `any` 类型的 FDTable 赋值（如有，需改为 mock VFSFile）
+  - [x] 5.4 验证 `kernel/` 导入 `vfs/` 符合依赖方向（kernel → vfs ✓）
+- [x] Task 6: 编写完整单元测试 (AC: all)
+  - [x] 6.1 `vfs/dev_test.go` — DeviceRegistry 测试：注册、获取、重复注册错误、未注册路径返回 ErrNotFound、路径前缀匹配
+  - [x] 6.2 `vfs/vfs_test.go` — VFS 集成测试：Open 返回递增 FD、Read/Write 委托给 VFSFile、Close 后再访问返回错误、Stat 正常工作
+  - [x] 6.3 使用 mock VFSFile 实现（`vfs/vfs_test.go` 中定义 `mockFile struct` 实现 VFSFile 接口）
+  - [x] 6.4 FDTable 并发安全测试：多 goroutine 并发 Open/Read/Write/Close
+  - [x] 6.5 全部测试通过 `go test -race ./vfs/...`
+  - [x] 6.6 全量回归 `go test -race ./...` 确保不破坏已有测试
 
 ## Dev Notes
 
@@ -329,10 +329,39 @@ kernel/
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6 (claude-opus-4-6)
 
 ### Debug Log References
 
+无。全部测试一次通过，无调试迭代。
+
 ### Completion Notes List
 
+1. **依赖方向决策**：VFS 不导入 kernel/，定义了 `VFSError` 替代 `SyscallError`。VFSError 包含 Op/PID/Device/Err/Code 字段并实现 Unwrap()。kernel 层在后续 Story 中可通过 errors.As 提取 VFSError 信息。
+2. **VFSFileFactory 签名扩展**：采用 `func(subpath string, flags OpenFlag) (VFSFile, error)` 以显式支持前缀匹配后的子路径传递。
+3. **Registry[T] 扩展**：为 `xsync.Registry` 添加了 `Range(fn func(name string, item T) bool)` 方法，支持 DeviceRegistry 的前缀匹配遍历，与 SyncMap.Range API 保持一致。
+4. **FDTable 管理**：采用方案 A+B 组合——VFS 方法接受 PID 参数，内部通过 `xsync.SyncMap[types.PID, *fdTable]` 管理每进程 FD。fdTable 使用 sync.RWMutex 保护，读操作（get）使用 RLock，写操作（alloc/getAndRemove/closeAll）使用 Lock。
+5. **Process.FDTable 类型更新**：从 `map[types.FD]any` 改为 `map[types.FD]vfs.VFSFile`，kernel → vfs 依赖方向合法。该字段按架构文档保留，实际 FD 状态由 VFS 内部管理。
+6. **测试覆盖**：15 个测试用例覆盖所有 AC，包括并发安全测试（50 goroutine race 测试通过 `-race` 检测）。
+
+### Code Review Fixes (2026-02-24)
+
+1. **[H1] Close TOCTOU 竞态修复**：新增 `fdTable.getAndRemove` 原子操作，替代 `get` + `remove` 两步操作，防止双重 Close。
+2. **[H2] Read/Write 裸 error 修复**：VFS.Read/Write 底层文件操作失败时现在包装为 `*VFSError`（Code: ErrDriver），不再返回裸 error。
+3. **[H3] Open/Stat 错误码区分**：引入 `errDeviceNotFound` sentinel error，VFS.Open/Stat 区分"设备未注册"（ErrNotFound）和"factory 创建失败"（ErrDriver）。
+4. **[H4] VFS.fdTables 改用 SyncMap**：从 `map + sync.Mutex` 改为 `xsync.SyncMap[types.PID, *fdTable]`，符合项目规则。同时为 SyncMap 新增 `LoadOrStore` 和 `LoadAndDelete` 方法。
+5. **[M1] Process.FDTable 注释**：添加注释说明该字段按架构文档保留，实际 FD 状态由 VFS 内部管理。
+6. **[M2] closeAll 持锁优化**：先在锁内收集文件引用并清空 map，释放锁后再逐个关闭文件，避免阻塞其他 FD 操作。
+7. **[M3] fdTable 改用 RWMutex**：从 `sync.Mutex` 改为 `sync.RWMutex`，`get` 读操作使用 `RLock`，减少高并发读场景下的锁竞争。
+
 ### File List
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `vfs/vfs.go` | 新增 | VFSFile 接口、FileStat、OpenFlag、VFSFileFactory、VFSError、fdTable、VFS 结构体及全部方法 |
+| `vfs/dev.go` | 新增 | DeviceRegistry：Register、Open（精确+前缀匹配）、Stat、errDeviceNotFound sentinel |
+| `vfs/dev_test.go` | 新增 | DeviceRegistry 单元测试：注册、重复注册、Open、前缀匹配、Stat、并发注册 |
+| `vfs/vfs_test.go` | 新增 | VFS 集成测试：Open FD 递增、Read/Write 委托、Close 后失效、InvalidFD、多进程隔离、CloseAll、并发安全 |
+| `kernel/process.go` | 修改 | FDTable 类型 `map[types.FD]any` → `map[types.FD]vfs.VFSFile`，添加注释 |
+| `internal/xsync/registry.go` | 修改 | 新增 `Range(fn func(name string, item T) bool)` 方法 |
+| `internal/xsync/syncmap.go` | 修改 | 新增 `LoadOrStore` 和 `LoadAndDelete` 方法 |
