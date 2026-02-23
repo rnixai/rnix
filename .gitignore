@@ -5,3 +5,32 @@ _bmad/
 .playwright-mcp/
 .gemini/
 .codex/skills/
+
+# Binaries
+crux
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
