@@ -1,6 +1,6 @@
 # Story 1.5: LLM 驱动层（Claude Code CLI）
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -20,37 +20,37 @@ So that 我可以获得 LLM 的结构化响应来完成任务。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 定义 LLM 驱动核心类型与接口 (AC: #1, #3)
-  - [ ] 1.1 在 `drivers/llm/driver.go` 中定义 `LLMRequest` 结构体（`Intent string`、`SystemPrompt string`、`Model string`、`MaxTurns int`、`Timeout time.Duration`）
-  - [ ] 1.2 定义 `LLMResponse` 结构体（`Content string`、`TokensUsed int`）
-  - [ ] 1.3 定义 `StreamEvent` 结构体（`Type string`（"content"/"done"/"error"）、`Content string`、`TokensUsed int`、`Err error`）
-  - [ ] 1.4 定义 `DriverInfo` 结构体（`Name string`、`Provider string`、`DefaultModel string`）
-  - [ ] 1.5 定义 `LLMDriver` 接口：`Call(ctx context.Context, req LLMRequest) (*LLMResponse, error)`、`Stream(ctx context.Context, req LLMRequest) (<-chan StreamEvent, error)`、`Info() DriverInfo`
-- [ ] Task 2: 实现 ClaudeCliDriver (AC: #2, #3, #4)
-  - [ ] 2.1 在 `drivers/llm/claude_cli.go` 中定义 `ClaudeCliDriver` 结构体（`defaultModel string`、`defaultTimeout time.Duration`、`cmdBuilder CommandBuilder`）
-  - [ ] 2.2 定义 `CommandBuilder` 函数类型 `func(ctx context.Context, name string, args ...string) *exec.Cmd`，用于测试注入
-  - [ ] 2.3 实现 `NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver`（函数选项模式，默认 model="sonnet"、timeout=30s、cmdBuilder=exec.CommandContext）
-  - [ ] 2.4 实现 `Call(ctx, req)` 方法：构建 `claude -p <intent> --output-format json` 命令，条件追加 `--system-prompt`（非空时）、`--model`（req.Model 或 defaultModel）、`--max-turns`（req.MaxTurns 或默认 1），用 `context.WithTimeout` 包装，执行命令捕获 stdout/stderr，解析 JSON 输出为 `LLMResponse`，超时时返回 timeout 错误
-  - [ ] 2.5 实现 `Stream(ctx, req)` 方法：基于 `--output-format stream-json` + `bufio.Scanner` 的基础实现，为 Story 3.1 astrace 集成打基础
-  - [ ] 2.6 实现 `Info()` 方法：返回 `DriverInfo{Name: "claude-cli", Provider: "claude", DefaultModel: d.defaultModel}`
-  - [ ] 2.7 定义 `ClaudeCliOption` 函数选项类型及实现（`WithModel`、`WithTimeout`、`WithCommandBuilder`）
-- [ ] Task 3: 实现 VFSFile 适配器 (AC: #1, #2)
-  - [ ] 3.1 在 `drivers/llm/vfsfile.go` 中定义 `LLMFile` 结构体（`driver LLMDriver`、`request []byte` 缓冲请求、`response []byte` 缓冲响应、`closed bool`）
-  - [ ] 3.2 实现 `Write(data []byte) error`：JSON 解析 data 为 LLMRequest，调用 `driver.Call()`，将 LLMResponse 序列化为 JSON 缓冲到 response
-  - [ ] 3.3 实现 `Read(length int) ([]byte, error)`：返回缓冲的响应数据（截取 length 长度）
-  - [ ] 3.4 实现 `Close() error`：标记 closed，清理缓冲
-  - [ ] 3.5 实现 `Stat() (vfs.FileStat, error)`：返回 `FileStat{Name: devicePath, IsDevice: true, DevicePath: devicePath}`
-  - [ ] 3.6 实现 `FileFactory(driver LLMDriver) vfs.VFSFileFactory`：返回工厂闭包供 DeviceRegistry 注册
-- [ ] Task 4: 实现 LLM 驱动注册表 (AC: #5)
-  - [ ] 4.1 在 `drivers/llm/registry.go` 中定义 `DriverRegistry` 结构体（封装 `xsync.Registry[LLMDriver]`）
-  - [ ] 4.2 实现 `NewDriverRegistry() *DriverRegistry`
-  - [ ] 4.3 实现 `Register(path string, driver LLMDriver) error`
-  - [ ] 4.4 实现 `Get(path string) (LLMDriver, bool)`
-- [ ] Task 5: 编写完整单元测试 (AC: all)
-  - [ ] 5.1 `drivers/llm/claude_cli_test.go` — ClaudeCliDriver 测试：Mock CommandBuilder 注入（TestHelperProcess 模式），正常调用 + 超时 + CLI 错误 + 参数验证 + 默认参数
-  - [ ] 5.2 `drivers/llm/vfsfile_test.go` — VFSFile 适配器测试：Write+Read 流程、Close 后访问、FileFactory 创建
-  - [ ] 5.3 `drivers/llm/registry_test.go` — 注册表测试：注册/查找/重复注册/未注册
-  - [ ] 5.4 全量回归 `go test -race ./...` 确保不破坏已有测试
+- [x] Task 1: 定义 LLM 驱动核心类型与接口 (AC: #1, #3)
+  - [x] 1.1 在 `drivers/llm/driver.go` 中定义 `LLMRequest` 结构体（`Intent string`、`SystemPrompt string`、`Model string`、`MaxTurns int`、`Timeout time.Duration`）
+  - [x] 1.2 定义 `LLMResponse` 结构体（`Content string`、`TokensUsed int`）
+  - [x] 1.3 定义 `StreamEvent` 结构体（`Type string`（"content"/"done"/"error"）、`Content string`、`TokensUsed int`、`Err error`）
+  - [x] 1.4 定义 `DriverInfo` 结构体（`Name string`、`Provider string`、`DefaultModel string`）
+  - [x] 1.5 定义 `LLMDriver` 接口：`Call(ctx context.Context, req LLMRequest) (*LLMResponse, error)`、`Stream(ctx context.Context, req LLMRequest) (<-chan StreamEvent, error)`、`Info() DriverInfo`
+- [x] Task 2: 实现 ClaudeCliDriver (AC: #2, #3, #4)
+  - [x] 2.1 在 `drivers/llm/claude_cli.go` 中定义 `ClaudeCliDriver` 结构体（`defaultModel string`、`defaultTimeout time.Duration`、`cmdBuilder CommandBuilder`）
+  - [x] 2.2 定义 `CommandBuilder` 函数类型 `func(ctx context.Context, name string, args ...string) *exec.Cmd`，用于测试注入
+  - [x] 2.3 实现 `NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver`（函数选项模式，默认 model="sonnet"、timeout=30s、cmdBuilder=exec.CommandContext）
+  - [x] 2.4 实现 `Call(ctx, req)` 方法：构建 `claude -p <intent> --output-format json` 命令，条件追加 `--system-prompt`（非空时）、`--model`（req.Model 或 defaultModel）、`--max-turns`（req.MaxTurns 或默认 1），用 `context.WithTimeout` 包装，执行命令捕获 stdout/stderr，解析 JSON 输出为 `LLMResponse`，超时时返回 timeout 错误
+  - [x] 2.5 实现 `Stream(ctx, req)` 方法：基于 `--output-format stream-json` + `bufio.Scanner` 的基础实现，为 Story 3.1 astrace 集成打基础
+  - [x] 2.6 实现 `Info()` 方法：返回 `DriverInfo{Name: "claude-cli", Provider: "claude", DefaultModel: d.defaultModel}`
+  - [x] 2.7 定义 `ClaudeCliOption` 函数选项类型及实现（`WithModel`、`WithTimeout`、`WithCommandBuilder`）
+- [x] Task 3: 实现 VFSFile 适配器 (AC: #1, #2)
+  - [x] 3.1 在 `drivers/llm/vfsfile.go` 中定义 `LLMFile` 结构体（`driver LLMDriver`、`request []byte` 缓冲请求、`response []byte` 缓冲响应、`closed bool`）
+  - [x] 3.2 实现 `Write(data []byte) error`：JSON 解析 data 为 LLMRequest，调用 `driver.Call()`，将 LLMResponse 序列化为 JSON 缓冲到 response
+  - [x] 3.3 实现 `Read(length int) ([]byte, error)`：返回缓冲的响应数据（截取 length 长度）
+  - [x] 3.4 实现 `Close() error`：标记 closed，清理缓冲
+  - [x] 3.5 实现 `Stat() (vfs.FileStat, error)`：返回 `FileStat{Name: devicePath, IsDevice: true, DevicePath: devicePath}`
+  - [x] 3.6 实现 `FileFactory(driver LLMDriver) vfs.VFSFileFactory`：返回工厂闭包供 DeviceRegistry 注册
+- [x] Task 4: 实现 LLM 驱动注册表 (AC: #5)
+  - [x] 4.1 在 `drivers/llm/registry.go` 中定义 `DriverRegistry` 结构体（封装 `xsync.Registry[LLMDriver]`）
+  - [x] 4.2 实现 `NewDriverRegistry() *DriverRegistry`
+  - [x] 4.3 实现 `Register(path string, driver LLMDriver) error`
+  - [x] 4.4 实现 `Get(path string) (LLMDriver, bool)`
+- [x] Task 5: 编写完整单元测试 (AC: all)
+  - [x] 5.1 `drivers/llm/claude_cli_test.go` — ClaudeCliDriver 测试：Mock CommandBuilder 注入（TestHelperProcess 模式），正常调用 + 超时 + CLI 错误 + 参数验证 + 默认参数
+  - [x] 5.2 `drivers/llm/vfsfile_test.go` — VFSFile 适配器测试：Write+Read 流程、Close 后访问、FileFactory 创建
+  - [x] 5.3 `drivers/llm/registry_test.go` — 注册表测试：注册/查找/重复注册/未注册
+  - [x] 5.4 全量回归 `go test -race ./...` 确保不破坏已有测试
 
 ## Dev Notes
 
@@ -540,10 +540,34 @@ drivers/llm/
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+无调试问题。
+
 ### Completion Notes List
 
+- ✅ Task 1: `drivers/llm/driver.go` — 定义 LLMRequest、LLMResponse、StreamEvent、DriverInfo 结构体和 LLMDriver 接口，所有字段含 JSON tag
+- ✅ Task 2: `drivers/llm/claude_cli.go` — 实现 ClaudeCliDriver，含 Call（exec.CommandContext + JSON 解析）、Stream（stream-json + bufio.Scanner + goroutine）、Info 方法；CommandBuilder 注入支持测试；函数选项模式（WithModel/WithTimeout/WithCommandBuilder）；超时通过 context.WithTimeout 控制
+- ✅ Task 3: `drivers/llm/vfsfile.go` — 实现 LLMFile 满足 vfs.VFSFile 接口，Write-then-Read 语义（Write 触发 driver.Call 并缓冲响应，Read 返回缓冲数据支持分段读取）；FileFactory 返回 VFSFileFactory 闭包
+- ✅ Task 4: `drivers/llm/registry.go` — 实现 DriverRegistry 封装 xsync.Registry[LLMDriver]，支持 Register/Get
+- ✅ Task 5: 17 个测试全部通过（含 -race 竞态检测），覆盖 Call 成功/超时/CLI错误/无效JSON/is_error/参数验证/默认参数、Info、Options、VFSFile Write+Read/ReadBeforeWrite/ClosedAccess/Stat/ReadPartial/WriteDriverError/FileFactory、Registry 注册/重复/未找到
+- ✅ 全量回归 `go test -race ./...` 通过，无任何已有测试被破坏
+- ✅ 删除 `drivers/llm/.gitkeep` 占位文件
+- 依赖方向正确：`drivers/llm/` 仅导入标准库 + `vfs/`（类型引用）+ `internal/xsync/`，未导入 `kernel/` 或 `context/`
+
+### Change Log
+
+- 2026-02-24: Story 1-5 完整实现 — LLM 驱动层（LLMDriver 接口 + ClaudeCliDriver + VFSFile 适配器 + DriverRegistry），17 个单元测试全部通过
+
 ### File List
+
+- `drivers/llm/driver.go` (新增)
+- `drivers/llm/claude_cli.go` (新增)
+- `drivers/llm/vfsfile.go` (新增)
+- `drivers/llm/registry.go` (新增)
+- `drivers/llm/claude_cli_test.go` (新增)
+- `drivers/llm/vfsfile_test.go` (新增)
+- `drivers/llm/registry_test.go` (新增)
+- `drivers/llm/.gitkeep` (删除)
