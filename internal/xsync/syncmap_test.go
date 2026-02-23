@@ -1,7 +1,6 @@
 package xsync
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 )
@@ -91,5 +90,5 @@ func TestSyncMap_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	fmt.Printf("SyncMap concurrent test: %d items remaining\n", m.Len())
+	t.Logf("SyncMap concurrent test: %d items remaining", m.Len())
 }

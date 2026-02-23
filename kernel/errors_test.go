@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/decker/crux/internal/types"
+	"github.com/gonewx/crux/internal/types"
 )
 
 func TestSyscallError_Error(t *testing.T) {

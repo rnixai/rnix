@@ -1,6 +1,6 @@
 # Story 1.1: 项目初始化与基础设施
 
-Status: review
+Status: done
 
 ## Story
 
@@ -10,8 +10,8 @@ So that 后续所有模块可以在标准化的 Go 项目结构上构建。
 
 ## Acceptance Criteria
 
-1. **Go 模块与安装** — Given 用户已安装 Go 1.26，When 执行 `go install github.com/decker/crux/cmd/crux@latest`，Then 获得 `crux` 二进制文件，`crux version` 输出版本号，二进制无额外运行时依赖（除 Claude Code CLI）
-2. **OS 隐喻目录结构** — Given 项目目录已创建，When 查看目录结构，Then 遵循架构文档定义的领域驱动结构（`cmd/crux/`、`kernel/`、`vfs/`、`drivers/`、`context/`、`skills/`、`debug/`、`internal/types/`、`internal/xsync/`、`internal/ui/`），And 包含 `go.mod`（`github.com/decker/crux`）、`Makefile`、`.golangci.yml`、`.gitignore`
+1. **Go 模块与安装** — Given 用户已安装 Go 1.26，When 执行 `go install github.com/gonewx/crux/cmd/crux@latest`，Then 获得 `crux` 二进制文件，`crux version` 输出版本号，二进制无额外运行时依赖（除 Claude Code CLI）
+2. **OS 隐喻目录结构** — Given 项目目录已创建，When 查看目录结构，Then 遵循架构文档定义的领域驱动结构（`cmd/crux/`、`kernel/`、`vfs/`、`drivers/`、`context/`、`skills/`、`debug/`、`internal/types/`、`internal/xsync/`、`internal/ui/`），And 包含 `go.mod`（`github.com/gonewx/crux`）、`Makefile`、`.golangci.yml`、`.gitignore`
 3. **共享类型** — Given `internal/types/types.go` 已实现，When 其他包导入共享类型，Then 可使用 `PID`、`FD`、`CtxID`、`ErrCode`、`Signal`、`ProcessState` 等类型，And 无循环依赖（`internal/types/` 零外部依赖）
 4. **泛型工具包** — Given `internal/xsync/` 已实现，When 使用泛型工具，Then `Registry[T]` 支持注册/获取/列出操作，`SyncMap[K,V]` 支持并发安全的 Load/Store/Delete/Range，`Future[T]` 支持 Await 阻塞等待结果，`Result[T]` 支持 Ok/Err/Unwrap/Map 操作，And 所有泛型类型通过 `-race` 测试
 5. **错误类型** — Given `kernel/errors.go` 已实现，When syscall 产生错误，Then 返回 `*SyscallError` 类型（含 `Syscall`、`PID`、`Device`、`Err`、`Code` 字段），And `ErrCode` 常量包含 `ErrTimeout`、`ErrNotFound`、`ErrPermission`、`ErrInternal`、`ErrDriver`
@@ -20,7 +20,7 @@ So that 后续所有模块可以在标准化的 Go 项目结构上构建。
 ## Tasks / Subtasks
 
 - [x] Task 1: 初始化 Go 模块与项目骨架 (AC: #1, #2)
-  - [x] 1.1 执行 `go mod init github.com/decker/crux`，设置 Go 1.26
+  - [x] 1.1 执行 `go mod init github.com/gonewx/crux`，设置 Go 1.26
   - [x] 1.2 创建完整目录结构（所有包目录 + 占位文件）
   - [x] 1.3 创建 `cmd/crux/main.go`（cobra 根命令 + `version` 子命令）
   - [x] 1.4 创建 `.gitignore`（Go 项目标准 + 二进制）
@@ -138,7 +138,7 @@ func (e *SyscallError) Error() string {
 
 ```makefile
 BINARY := crux
-PKG := github.com/decker/crux
+PKG := github.com/gonewx/crux
 
 .PHONY: build install test lint vet clean all
 
@@ -201,7 +201,7 @@ crux/
 - 与统一项目结构完全对齐（架构文档最终版目录结构）
 - 所有占位目录使用 `.gitkeep` 文件保持 Git 跟踪
 - `cmd/crux/main.go` 是唯一入口点和依赖注入点
-- 模块路径 `github.com/decker/crux` 与架构文档一致
+- 模块路径 `github.com/gonewx/crux` 与架构文档一致
 
 ### References
 
@@ -234,17 +234,23 @@ Claude Opus 4.6
 ### Change Log
 
 - 2026-02-23: Story 1-1 全部 5 个 Task 实现完成，26 个测试通过（含 -race），状态更新为 review
+- 2026-02-23: [Code Review] 修复 5 个问题（2 HIGH + 3 MEDIUM），28 个测试通过，状态更新为 done
+  - H1: SyscallEvent.Timestamp 类型由 time.Time 修正为 time.Duration（对齐架构文档）
+  - H2: SyscallEvent.Args 类型由 []any 修正为 map[string]any（对齐架构文档）
+  - M1: Future[T] 新增 Then 方法 + 2 个测试（对齐架构规范）
+  - M2: syncmap_test.go 中 fmt.Printf 替换为 t.Logf
+  - M3: make lint 已标记为环境依赖（golangci-lint 需安装）
 
 ### File List
 
 - cmd/crux/main.go (新增)
-- internal/types/types.go (新增)
+- internal/types/types.go (新增, review 修改: Timestamp→Duration, Args→map)
 - internal/xsync/registry.go (新增)
 - internal/xsync/syncmap.go (新增)
-- internal/xsync/future.go (新增)
+- internal/xsync/future.go (新增, review 修改: 新增 Then 方法)
 - internal/xsync/registry_test.go (新增)
-- internal/xsync/syncmap_test.go (新增)
-- internal/xsync/future_test.go (新增)
+- internal/xsync/syncmap_test.go (新增, review 修改: fmt.Printf→t.Logf)
+- internal/xsync/future_test.go (新增, review 修改: 新增 Then 测试)
 - kernel/errors.go (新增)
 - kernel/errors_test.go (新增)
 - go.mod (新增)

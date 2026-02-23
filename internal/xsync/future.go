@@ -32,6 +32,20 @@ func (f *Future[T]) Await() (T, error) {
 	return f.res.value, f.res.err
 }
 
+// Then returns a new Future that applies fn to the resolved value.
+// If the original future resolves with an error, fn is not called and the error propagates.
+func (f *Future[T]) Then(fn func(T)) *Future[T] {
+	next, resolve := NewFuture[T]()
+	go func() {
+		v, err := f.Await()
+		if err == nil {
+			fn(v)
+		}
+		resolve(v, err)
+	}()
+	return next
+}
+
 // Result represents a value-or-error container.
 type Result[T any] struct {
 	value T

@@ -302,7 +302,7 @@ Crux 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来�
 | `go install` | MVP | 唯一安装方式，单二进制，零依赖 |
 | 预编译二进制 / brew / docker | Phase 2+ | 根据社区需求扩展 |
 
-**MVP 安装体验目标：** `go install github.com/decker/crux/cmd/crux@latest` → 可用。不需要配置文件、不需要额外依赖、不需要 Docker。
+**MVP 安装体验目标：** `go install github.com/gonewx/crux/cmd/crux@latest` → 可用。不需要配置文件、不需要额外依赖、不需要 Docker。
 
 ### API Surface (Syscall ABI)
 
