@@ -45,3 +45,14 @@ func (r *Registry[T]) List() []T {
 	}
 	return result
 }
+
+// Range calls fn sequentially for each name-item pair. If fn returns false, iteration stops.
+func (r *Registry[T]) Range(fn func(name string, item T) bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for name, item := range r.items {
+		if !fn(name, item) {
+			break
+		}
+	}
+}

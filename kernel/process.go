@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gonewx/crux/internal/types"
+	"github.com/gonewx/crux/vfs"
 )
 
 // pidCounter is the global PID allocator. PIDs start at 1 and monotonically
@@ -35,7 +36,7 @@ type Process struct {
 	Intent    string             // immutable after creation
 	Skills    []string
 	Children  []types.PID
-	FDTable   map[types.FD]any // placeholder, replaced by VFSFile in Story 1.3
+	FDTable   map[types.FD]vfs.VFSFile // per architecture doc; VFS manages actual FD state internally
 	DebugChan chan types.SyscallEvent
 	Done      chan ExitStatus
 	CreatedAt time.Time
@@ -55,7 +56,7 @@ func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 		Intent:    intent,
 		Skills:    skills,
 		Children:  []types.PID{},
-		FDTable:   make(map[types.FD]any),
+		FDTable:   make(map[types.FD]vfs.VFSFile),
 		Done:      make(chan ExitStatus, 1),
 		CreatedAt: time.Now(),
 	}

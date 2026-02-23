@@ -46,6 +46,30 @@ func (s *SyncMap[K, V]) Range(fn func(K, V) bool) {
 	}
 }
 
+// LoadOrStore returns the existing value if the key exists, or stores and returns the given value.
+// The loaded boolean is true if the value was already present.
+func (s *SyncMap[K, V]) LoadOrStore(key K, value V) (actual V, loaded bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.m[key]
+	if ok {
+		return v, true
+	}
+	s.m[key] = value
+	return value, false
+}
+
+// LoadAndDelete atomically loads and deletes a key. The loaded boolean is true if the key was found.
+func (s *SyncMap[K, V]) LoadAndDelete(key K) (V, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.m[key]
+	if ok {
+		delete(s.m, key)
+	}
+	return v, ok
+}
+
 // Len returns the number of entries in the map.
 func (s *SyncMap[K, V]) Len() int {
 	s.mu.RLock()
