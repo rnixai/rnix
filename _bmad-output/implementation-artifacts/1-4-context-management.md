@@ -1,6 +1,6 @@
 # Story 1.4: 上下文管理
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -367,3 +367,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 ### Change Log
 
 - 2026-02-24: 实现 Story 1-4 上下文管理 — 完成所有 5 个 Task（核心类型、Manager、CtxRead/CtxWrite、BuildPrompt、完整单元测试）。全量回归通过。
+- 2026-02-24: 代码审查修复 — 6 个问题（2 HIGH + 4 MEDIUM）。H1: 性能测试增加 time.Since 计时断言验证 NFR5; H2: 新增 TestManager_CtxWriteOverwrite 覆盖覆写路径; M1: getContext 接受 op 参数，消除错误重复包装; M2: CtxWrite/CtxRead 文档注释明确 offset 语义差异; M3: MaxSize 字段注释说明仅限消息数量; M4: 并发测试验证 append 成功/失败精确计数。全量回归通过。

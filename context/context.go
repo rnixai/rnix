@@ -33,7 +33,7 @@ type Context struct {
 	ID           types.CtxID
 	SystemPrompt string
 	Messages     []Message
-	MaxSize      int
+	MaxSize      int // Max message count; MVP does not limit content byte size
 	mu           sync.RWMutex
 }
 
@@ -109,11 +109,12 @@ func (m *Manager) CtxFree(cid types.CtxID) error {
 }
 
 // getContext retrieves the context for the given CtxID.
-func (m *Manager) getContext(cid types.CtxID) (*Context, error) {
+// op is the caller's operation name, used in the error if the context is not found.
+func (m *Manager) getContext(op string, cid types.CtxID) (*Context, error) {
 	ctx, ok := m.contexts.Load(cid)
 	if !ok {
 		return nil, &ContextError{
-			Op:   "getContext",
+			Op:   op,
 			CID:  cid,
 			Err:  fmt.Errorf("context not found"),
 			Code: types.ErrNotFound,
@@ -123,17 +124,13 @@ func (m *Manager) getContext(cid types.CtxID) (*Context, error) {
 }
 
 // CtxWrite writes raw byte data to the context.
-// offset=0 means append (data is JSON-serialized Message).
-// Other offset values overwrite the message at that index.
+// offset=0 means append a new message (data is JSON-serialized Message).
+// offset=1..N overwrites the message at that 1-based index (1 = first message).
+// Note: CtxRead uses 0-based indexing for offset; CtxWrite reserves 0 for append.
 func (m *Manager) CtxWrite(cid types.CtxID, offset int, data []byte) error {
-	ctx, err := m.getContext(cid)
+	ctx, err := m.getContext("CtxWrite", cid)
 	if err != nil {
-		return &ContextError{
-			Op:   "CtxWrite",
-			CID:  cid,
-			Err:  fmt.Errorf("context not found"),
-			Code: types.ErrNotFound,
-		}
+		return err
 	}
 
 	var msg Message
@@ -175,17 +172,12 @@ func (m *Manager) CtxWrite(cid types.CtxID, offset int, data []byte) error {
 }
 
 // CtxRead reads raw byte representation of the context content.
-// offset and length operate on message indices (0-based).
-// offset=0, length=0 reads all content.
+// offset and length operate on 0-based message indices.
+// offset=0, length=0 reads all content (system prompt + all messages).
 func (m *Manager) CtxRead(cid types.CtxID, offset int, length int) ([]byte, error) {
-	ctx, err := m.getContext(cid)
+	ctx, err := m.getContext("CtxRead", cid)
 	if err != nil {
-		return nil, &ContextError{
-			Op:   "CtxRead",
-			CID:  cid,
-			Err:  fmt.Errorf("context not found"),
-			Code: types.ErrNotFound,
-		}
+		return nil, err
 	}
 
 	ctx.mu.RLock()
@@ -225,14 +217,9 @@ func (m *Manager) CtxRead(cid types.CtxID, offset int, length int) ([]byte, erro
 
 // SetSystemPrompt sets or updates the system prompt for the context.
 func (m *Manager) SetSystemPrompt(cid types.CtxID, prompt string) error {
-	ctx, err := m.getContext(cid)
+	ctx, err := m.getContext("SetSystemPrompt", cid)
 	if err != nil {
-		return &ContextError{
-			Op:   "SetSystemPrompt",
-			CID:  cid,
-			Err:  fmt.Errorf("context not found"),
-			Code: types.ErrNotFound,
-		}
+		return err
 	}
 
 	ctx.mu.Lock()
@@ -243,14 +230,9 @@ func (m *Manager) SetSystemPrompt(cid types.CtxID, prompt string) error {
 
 // AppendMessage appends a conversation message with the given role and content.
 func (m *Manager) AppendMessage(cid types.CtxID, role Role, content string) error {
-	ctx, err := m.getContext(cid)
+	ctx, err := m.getContext("AppendMessage", cid)
 	if err != nil {
-		return &ContextError{
-			Op:   "AppendMessage",
-			CID:  cid,
-			Err:  fmt.Errorf("context not found"),
-			Code: types.ErrNotFound,
-		}
+		return err
 	}
 
 	ctx.mu.Lock()
@@ -274,14 +256,9 @@ func (m *Manager) AppendMessage(cid types.CtxID, role Role, content string) erro
 
 // AppendToolResult appends a tool execution result message.
 func (m *Manager) AppendToolResult(cid types.CtxID, toolCallID string, content string) error {
-	ctx, err := m.getContext(cid)
+	ctx, err := m.getContext("AppendToolResult", cid)
 	if err != nil {
-		return &ContextError{
-			Op:   "AppendToolResult",
-			CID:  cid,
-			Err:  fmt.Errorf("context not found"),
-			Code: types.ErrNotFound,
-		}
+		return err
 	}
 
 	ctx.mu.Lock()
@@ -307,14 +284,9 @@ func (m *Manager) AppendToolResult(cid types.CtxID, toolCallID string, content s
 // BuildPrompt assembles the full LLM prompt from the context.
 // Returns SystemPrompt separately and Messages in append order.
 func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
-	ctx, err := m.getContext(cid)
+	ctx, err := m.getContext("BuildPrompt", cid)
 	if err != nil {
-		return nil, &ContextError{
-			Op:   "BuildPrompt",
-			CID:  cid,
-			Err:  fmt.Errorf("context not found"),
-			Code: types.ErrNotFound,
-		}
+		return nil, err
 	}
 
 	ctx.mu.RLock()
