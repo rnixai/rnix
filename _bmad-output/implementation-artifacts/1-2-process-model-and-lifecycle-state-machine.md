@@ -1,6 +1,6 @@
 # Story 1.2: 进程模型与生命周期状态机
 
-Status: in-progress
+Status: review
 
 ## Story
 
@@ -19,27 +19,27 @@ So that 智能体进程可以在 Created → Running → Zombie → Dead 之间�
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 实现 Process 结构体与 ExitStatus (AC: #1)
-  - [ ] 1.1 定义 `ExitStatus` 结构体（`Code int`、`Reason string`、`Err error`）→ `kernel/process.go`
-  - [ ] 1.2 定义 `Process` 结构体（PID、PPID、State、Intent、Skills、Children、FDTable、DebugChan、Done、CreatedAt、ExitStatus、mu、cancel、wg）→ `kernel/process.go`
-  - [ ] 1.3 实现包级 PID 分配器（`atomic.AddUint64` 全局递增，不回收），PID 从 1 开始
-  - [ ] 1.4 实现 `NewProcess(ppid PID, intent string, skills []string) *Process` 构造函数，初始状态 `StateCreated`，自动分配 PID
-- [ ] Task 2: 实现状态机转移逻辑 (AC: #2, #3, #4, #5)
-  - [ ] 2.1 定义合法转移表 `var validTransitions map[ProcessState][]ProcessState`
-  - [ ] 2.2 实现 `(p *Process) Transition(target ProcessState) error` 方法，通过 `sync.Mutex` 保护状态转移原子性
-  - [ ] 2.3 非法转移返回 `*SyscallError`（Code: `ErrInternal`，Syscall: "transition"）
-  - [ ] 2.4 实现便捷方法 `Start() error`（Created→Running）、`Terminate(exit ExitStatus) error`（Running→Zombie，记录 ExitStatus）、`Reap() error`（Zombie→Dead）
-- [ ] Task 3: 实现进程表与 KernelImpl 基础 (AC: #6)
-  - [ ] 3.1 定义 `KernelImpl` 结构体（`procTable *xsync.SyncMap[types.PID, *Process]`、`pidCounter *atomic.Uint64`）→ `kernel/kernel.go`
-  - [ ] 3.2 实现 `NewKernel() *KernelImpl` 构造函数
-  - [ ] 3.3 实现 `(k *KernelImpl) AddProcess(p *Process)`、`GetProcess(pid PID) (*Process, bool)`、`RemoveProcess(pid PID)`、`ListProcesses() []*Process`
-- [ ] Task 4: 编写完整单元测试 (AC: all)
-  - [ ] 4.1 状态机合法转移测试（Created→Running→Zombie→Dead 完整路径）→ `kernel/process_test.go`
-  - [ ] 4.2 状态机非法转移测试（Running→Created、Zombie→Running、Dead→任何状态 均返回错误且状态不变）
-  - [ ] 4.3 PID 唯一性和单调递增测试（并发分配 100 个 PID，全部唯一且递增）
-  - [ ] 4.4 Process 字段初始化测试（Intent 不可变、初始状态 Created、Children 为空切片）
-  - [ ] 4.5 进程表并发安全测试（100 个 goroutine 并发 Add/Get/Remove/List）→ `kernel/kernel_test.go`
-  - [ ] 4.6 全部测试通过 `go test -race ./kernel/...`
+- [x] Task 1: 实现 Process 结构体与 ExitStatus (AC: #1)
+  - [x] 1.1 定义 `ExitStatus` 结构体（`Code int`、`Reason string`、`Err error`）→ `kernel/process.go`
+  - [x] 1.2 定义 `Process` 结构体（PID、PPID、State、Intent、Skills、Children、FDTable、DebugChan、Done、CreatedAt、ExitStatus、mu、cancel、wg）→ `kernel/process.go`
+  - [x] 1.3 实现包级 PID 分配器（`atomic.AddUint64` 全局递增，不回收），PID 从 1 开始
+  - [x] 1.4 实现 `NewProcess(ppid PID, intent string, skills []string) *Process` 构造函数，初始状态 `StateCreated`，自动分配 PID
+- [x] Task 2: 实现状态机转移逻辑 (AC: #2, #3, #4, #5)
+  - [x] 2.1 定义合法转移表 `var validTransitions map[ProcessState][]ProcessState`
+  - [x] 2.2 实现 `(p *Process) Transition(target ProcessState) error` 方法，通过 `sync.Mutex` 保护状态转移原子性
+  - [x] 2.3 非法转移返回 `*SyscallError`（Code: `ErrInternal`，Syscall: "transition"）
+  - [x] 2.4 实现便捷方法 `Start() error`（Created→Running）、`Terminate(exit ExitStatus) error`（Running→Zombie，记录 ExitStatus）、`Reap() error`（Zombie→Dead）
+- [x] Task 3: 实现进程表与 KernelImpl 基础 (AC: #6)
+  - [x] 3.1 定义 `KernelImpl` 结构体（`procTable *xsync.SyncMap[types.PID, *Process]`、`pidCounter *atomic.Uint64`）→ `kernel/kernel.go`
+  - [x] 3.2 实现 `NewKernel() *KernelImpl` 构造函数
+  - [x] 3.3 实现 `(k *KernelImpl) AddProcess(p *Process)`、`GetProcess(pid PID) (*Process, bool)`、`RemoveProcess(pid PID)`、`ListProcesses() []*Process`
+- [x] Task 4: 编写完整单元测试 (AC: all)
+  - [x] 4.1 状态机合法转移测试（Created→Running→Zombie→Dead 完整路径）→ `kernel/process_test.go`
+  - [x] 4.2 状态机非法转移测试（Running→Created、Zombie→Running、Dead→任何状态 均返回错误且状态不变）
+  - [x] 4.3 PID 唯一性和单调递增测试（并发分配 100 个 PID，全部唯一且递增）
+  - [x] 4.4 Process 字段初始化测试（Intent 不可变、初始状态 Created、Children 为空切片）
+  - [x] 4.5 进程表并发安全测试（100 个 goroutine 并发 Add/Get/Remove/List）→ `kernel/kernel_test.go`
+  - [x] 4.6 全部测试通过 `go test -race ./kernel/...`
 
 ## Dev Notes
 
@@ -309,3 +309,38 @@ kernel/
 - [Source: architecture.md#Implementation Patterns > 命名模式] — Go 代码命名规则
 - [Source: epics.md#Story 1.2] — 原始用户故事和 AC
 - [Source: 1-1-project-initialization-and-infrastructure.md] — 前序 Story 产出、经验教训、已建立的代码模式
+
+## Dev Agent Record
+
+### Implementation Plan
+
+- Task 1-2: `kernel/process.go` — ExitStatus 结构体、Process 结构体（含所有指定字段）、包级 `atomic.Uint64` PID 分配器（从 1 开始单调递增不回收）、`NewProcess` 构造函数
+- Task 2: 同文件 — `validTransitions` 合法转移表、`Transition` 通用方法（`sync.Mutex` 保护）、`Start`/`Terminate`/`Reap` 便捷方法，非法转移返回 `*SyscallError`
+- Task 3: `kernel/kernel.go` — `KernelImpl` 使用 `xsync.SyncMap[PID, *Process]` 作为进程表，`AddProcess`/`GetProcess`/`RemoveProcess`/`ListProcesses` 四个操作方法
+- Task 4: 完整测试覆盖全部 6 个 AC
+
+### Debug Log
+
+无阻塞问题。lint 提示循环可用 `slices.Contains` 简化，已采纳。
+
+### Completion Notes
+
+- 全部 4 个 Task、16 个 Subtask 完成
+- 20 个测试全部通过（含 Story 1-1 的 5 个 errors 测试 + 本 Story 15 个新增测试）
+- `go test -race ./kernel/...` 零数据竞争
+- `go test -race ./...` 全量回归通过
+- KernelImpl 中未放 pidCounter 字段（PID 分配器为包级全局变量，符合 MVP 单 Kernel 实例设计，story Dev Notes 已说明）
+- `Transition` 和 `Terminate` 使用 `slices.Contains` 简化合法转移检查
+
+## File List
+
+| 文件 | 操作 |
+|------|------|
+| `kernel/process.go` | 新增 |
+| `kernel/process_test.go` | 新增 |
+| `kernel/kernel.go` | 新增 |
+| `kernel/kernel_test.go` | 新增 |
+
+## Change Log
+
+- 2026-02-23: 实现 Story 1.2 — Process 结构体、生命周期状态机（Created→Running→Zombie→Dead）、KernelImpl 进程表、完整单元测试（20 个测试，-race 通过）
