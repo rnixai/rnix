@@ -44,7 +44,7 @@ development_status:
   epic-1: in-progress
   1-1-project-initialization-and-infrastructure: done
   1-2-process-model-and-lifecycle-state-machine: done
-  1-3-vfs-framework-and-device-registration: backlog
+  1-3-vfs-framework-and-device-registration: ready-for-dev
   1-4-context-management: backlog
   1-5-llm-driver-claude-code-cli: backlog
   1-6-kernel-reasoning-loop-spawn-reasonstep: backlog
