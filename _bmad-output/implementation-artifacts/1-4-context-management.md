@@ -1,6 +1,6 @@
 # Story 1.4: 上下文管理
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -19,35 +19,35 @@ So that 每轮 LLM 调用都能获得完整的推理上下文。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 定义上下文核心类型与消息模型 (AC: #1, #2, #3)
-  - [ ] 1.1 在 `context/context.go` 中定义 `Role` 类型和常量（`RoleSystem`、`RoleUser`、`RoleAssistant`、`RoleTool`）
-  - [ ] 1.2 定义 `Message` 结构体（`Role Role`、`Content string`、`ToolCallID string`（可选，工具结果关联用））
-  - [ ] 1.3 定义 `Context` 结构体（`ID types.CtxID`、`SystemPrompt string`、`Messages []Message`、`MaxSize int`（上下文容量上限）、`mu sync.RWMutex`）
-  - [ ] 1.4 定义 `PromptResult` 结构体（`SystemPrompt string`、`Messages []Message`）— BuildPrompt 的返回值，供 LLM 驱动消费
-- [ ] Task 2: 实现 ContextManager 上下文管理器 (AC: #1, #4)
-  - [ ] 2.1 定义 `Manager` 结构体（`contexts *xsync.SyncMap[types.CtxID, *Context]`、`nextID atomic.Uint64`）
-  - [ ] 2.2 实现 `NewManager() *Manager`
-  - [ ] 2.3 实现 `CtxAlloc(size int) (types.CtxID, error)`：分配唯一 CtxID（`atomic.Uint64` 递增，从 1 开始），创建 Context 存入 SyncMap，返回 CtxID
-  - [ ] 2.4 实现 `CtxFree(cid types.CtxID) error`：从 SyncMap 删除，后续访问返回错误
-  - [ ] 2.5 实现内部 `getContext(cid) (*Context, error)` 辅助方法：查找 Context，未找到返回带 `ErrNotFound` 的错误
-- [ ] Task 3: 实现 CtxRead/CtxWrite 操作 (AC: #2)
-  - [ ] 3.1 实现 `CtxWrite(cid types.CtxID, offset int, data []byte) error`：将原始字节数据写入上下文。offset 语义：0=追加消息，其他值=特定位置覆写（MVP 阶段主要使用追加模式）
-  - [ ] 3.2 实现 `CtxRead(cid types.CtxID, offset int, length int) ([]byte, error)`：读取上下文内容的原始字节表示
-  - [ ] 3.3 实现高层便利方法 `SetSystemPrompt(cid types.CtxID, prompt string) error`：设置/更新 system prompt
-  - [ ] 3.4 实现高层便利方法 `AppendMessage(cid types.CtxID, role Role, content string) error`：追加对话消息
-  - [ ] 3.5 实现高层便利方法 `AppendToolResult(cid types.CtxID, toolCallID string, content string) error`：追加工具执行结果
-- [ ] Task 4: 实现 BuildPrompt 组装 (AC: #3)
-  - [ ] 4.1 实现 `BuildPrompt(cid types.CtxID) (*PromptResult, error)`：读取 Context 中的 SystemPrompt 和 Messages，按正确顺序组装
-  - [ ] 4.2 组装顺序：system prompt 单独提取 → Messages 按追加顺序排列（用户意图 → LLM 响应 → 工具结果 → LLM 响应 → ...循环）
-  - [ ] 4.3 验证组装性能：≤ 1 秒（NFR5），应该轻松满足（纯内存操作）
-- [ ] Task 5: 编写完整单元测试 (AC: all)
-  - [ ] 5.1 `context/context_test.go` — CtxAlloc 测试：分配返回递增 CtxID、size 参数正确存储
-  - [ ] 5.2 CtxWrite/CtxRead 测试：写入后可读回、offset 语义正确
-  - [ ] 5.3 高层方法测试：SetSystemPrompt、AppendMessage、AppendToolResult 正确追加
-  - [ ] 5.4 BuildPrompt 测试：组装顺序正确（system prompt + messages 按追加顺序）、空上下文返回空结果
-  - [ ] 5.5 CtxFree 测试：释放后 Read/Write/BuildPrompt 返回错误
-  - [ ] 5.6 并发安全测试：多 goroutine 并发 Alloc/Write/Read/Free，通过 `-race` 检测
-  - [ ] 5.7 全量回归 `go test -race ./...` 确保不破坏已有测试
+- [x] Task 1: 定义上下文核心类型与消息模型 (AC: #1, #2, #3)
+  - [x] 1.1 在 `context/context.go` 中定义 `Role` 类型和常量（`RoleSystem`、`RoleUser`、`RoleAssistant`、`RoleTool`）
+  - [x] 1.2 定义 `Message` 结构体（`Role Role`、`Content string`、`ToolCallID string`（可选，工具结果关联用））
+  - [x] 1.3 定义 `Context` 结构体（`ID types.CtxID`、`SystemPrompt string`、`Messages []Message`、`MaxSize int`（上下文容量上限）、`mu sync.RWMutex`）
+  - [x] 1.4 定义 `PromptResult` 结构体（`SystemPrompt string`、`Messages []Message`）— BuildPrompt 的返回值，供 LLM 驱动消费
+- [x] Task 2: 实现 ContextManager 上下文管理器 (AC: #1, #4)
+  - [x] 2.1 定义 `Manager` 结构体（`contexts *xsync.SyncMap[types.CtxID, *Context]`、`nextID atomic.Uint64`）
+  - [x] 2.2 实现 `NewManager() *Manager`
+  - [x] 2.3 实现 `CtxAlloc(size int) (types.CtxID, error)`：分配唯一 CtxID（`atomic.Uint64` 递增，从 1 开始），创建 Context 存入 SyncMap，返回 CtxID
+  - [x] 2.4 实现 `CtxFree(cid types.CtxID) error`：从 SyncMap 删除，后续访问返回错误
+  - [x] 2.5 实现内部 `getContext(cid) (*Context, error)` 辅助方法：查找 Context，未找到返回带 `ErrNotFound` 的错误
+- [x] Task 3: 实现 CtxRead/CtxWrite 操作 (AC: #2)
+  - [x] 3.1 实现 `CtxWrite(cid types.CtxID, offset int, data []byte) error`：将原始字节数据写入上下文。offset 语义：0=追加消息，其他值=特定位置覆写（MVP 阶段主要使用追加模式）
+  - [x] 3.2 实现 `CtxRead(cid types.CtxID, offset int, length int) ([]byte, error)`：读取上下文内容的原始字节表示
+  - [x] 3.3 实现高层便利方法 `SetSystemPrompt(cid types.CtxID, prompt string) error`：设置/更新 system prompt
+  - [x] 3.4 实现高层便利方法 `AppendMessage(cid types.CtxID, role Role, content string) error`：追加对话消息
+  - [x] 3.5 实现高层便利方法 `AppendToolResult(cid types.CtxID, toolCallID string, content string) error`：追加工具执行结果
+- [x] Task 4: 实现 BuildPrompt 组装 (AC: #3)
+  - [x] 4.1 实现 `BuildPrompt(cid types.CtxID) (*PromptResult, error)`：读取 Context 中的 SystemPrompt 和 Messages，按正确顺序组装
+  - [x] 4.2 组装顺序：system prompt 单独提取 → Messages 按追加顺序排列（用户意图 → LLM 响应 → 工具结果 → LLM 响应 → ...循环）
+  - [x] 4.3 验证组装性能：≤ 1 秒（NFR5），应该轻松满足（纯内存操作）
+- [x] Task 5: 编写完整单元测试 (AC: all)
+  - [x] 5.1 `context/context_test.go` — CtxAlloc 测试：分配返回递增 CtxID、size 参数正确存储
+  - [x] 5.2 CtxWrite/CtxRead 测试：写入后可读回、offset 语义正确
+  - [x] 5.3 高层方法测试：SetSystemPrompt、AppendMessage、AppendToolResult 正确追加
+  - [x] 5.4 BuildPrompt 测试：组装顺序正确（system prompt + messages 按追加顺序）、空上下文返回空结果
+  - [x] 5.5 CtxFree 测试：释放后 Read/Write/BuildPrompt 返回错误
+  - [x] 5.6 并发安全测试：多 goroutine 并发 Alloc/Write/Read/Free，通过 `-race` 检测
+  - [x] 5.7 全量回归 `go test -race ./...` 确保不破坏已有测试
 
 ## Dev Notes
 
@@ -338,10 +338,32 @@ context/
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6 (claude-opus-4-6)
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- ✅ Task 1: 在 `context/context.go` 中定义了 `Role` 类型及 4 个常量、`Message` 结构体（含 JSON tag）、`Context` 结构体（含 `sync.RWMutex` 保护并发）、`PromptResult` 结构体、`ContextError` 类型（含 `Error()` 和 `Unwrap()` 方法，与 VFSError 模式一致）
+- ✅ Task 2: 实现了 `Manager` 结构体，使用 `xsync.SyncMap[types.CtxID, *Context]` 管理上下文映射。`CtxAlloc` 使用 `atomic.Uint64` 递增分配 ID（从 1 开始），`CtxFree` 使用 `LoadAndDelete` 原子删除避免 TOCTOU 竞态
+- ✅ Task 3: 实现了底层 `CtxWrite`（offset=0 追加 JSON Message，非零 offset 覆写指定位置）和 `CtxRead`（读取上下文 JSON 序列化内容）。实现了高层便利方法 `SetSystemPrompt`、`AppendMessage`、`AppendToolResult`，全部使用 `sync.RWMutex` 保护并发安全
+- ✅ Task 4: 实现了 `BuildPrompt`，按追加顺序组装 SystemPrompt + Messages，返回 `*PromptResult` 的深拷贝。10000 条消息的组装性能测试通过（远低于 1 秒）
+- ✅ Task 5: 编写了 12 个测试函数覆盖所有 AC：CtxAlloc 递增 ID + size 验证、CtxAllocMultiple 互不冲突、CtxFree 释放后返回 ErrNotFound、CtxFreeNotFound、CtxWriteRead 写入读回 + JSON 验证 + 容量上限、SetSystemPrompt 设置/更新/释放后错误、AppendMessage 多角色追加 + 满容量、AppendToolResult 关联 toolCallID、BuildPrompt 组装顺序验证、BuildPromptEmpty 空上下文、BuildPromptPerformance NFR5 性能、ConcurrentAccess 50 goroutine 并发 + `-race` 通过、ContextError 格式化和 Unwrap
+- ✅ 全量回归 `go test -race ./...` 通过：context、xsync、kernel、vfs 全部 PASS，零失败零回归
+
+### Implementation Plan
+
+**双层 API 设计决策**：底层 CtxRead/CtxWrite 使用 JSON 序列化操作原始字节，高层 SetSystemPrompt/AppendMessage/AppendToolResult/BuildPrompt 面向实际使用场景。reasonStep 循环（Story 1.6）将主要使用高层 API。
+
+**并发安全策略**：Manager 级别通过 SyncMap 保护，每个 Context 内部使用 RWMutex（写操作用写锁，读操作用读锁）。CtxFree 使用 LoadAndDelete 原子删除，吸收 Story 1-3 的 TOCTOU 经验教训。
+
+**依赖方向**：context/ → internal/types/ ✓、context/ → internal/xsync/ ✓。未导入 kernel/、vfs/ 或标准库 context 包（当前不需要）。
+
 ### File List
+
+- `context/context.go` (新增) — 上下文管理核心实现：类型定义、Manager、CtxAlloc/CtxFree/CtxRead/CtxWrite、SetSystemPrompt/AppendMessage/AppendToolResult、BuildPrompt、ContextError
+- `context/context_test.go` (新增) — 12 个测试函数，覆盖所有 AC，包含并发安全和性能测试
+
+### Change Log
+
+- 2026-02-24: 实现 Story 1-4 上下文管理 — 完成所有 5 个 Task（核心类型、Manager、CtxRead/CtxWrite、BuildPrompt、完整单元测试）。全量回归通过。
