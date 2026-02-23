@@ -69,12 +69,16 @@ var validTransitions = map[types.ProcessState][]types.ProcessState{
 	// StateDead has no valid transitions
 }
 
-// Transition attempts to move the process to the target state.
-// Returns *SyscallError if the transition is illegal.
-func (p *Process) Transition(target types.ProcessState) error {
+// GetState returns the current process state in a thread-safe manner.
+func (p *Process) GetState() types.ProcessState {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.State
+}
 
+// transitionLocked attempts to move the process to the target state.
+// Caller must hold p.mu.
+func (p *Process) transitionLocked(target types.ProcessState) error {
 	if slices.Contains(validTransitions[p.State], target) {
 		p.State = target
 		return nil
@@ -89,6 +93,14 @@ func (p *Process) Transition(target types.ProcessState) error {
 	)
 }
 
+// Transition attempts to move the process to the target state.
+// Returns *SyscallError if the transition is illegal.
+func (p *Process) Transition(target types.ProcessState) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.transitionLocked(target)
+}
+
 // Start transitions the process from Created to Running.
 func (p *Process) Start() error {
 	return p.Transition(types.StateRunning)
@@ -99,19 +111,11 @@ func (p *Process) Terminate(exit ExitStatus) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if slices.Contains(validTransitions[p.State], types.StateZombie) {
-		p.State = types.StateZombie
-		p.Exit = &exit
-		return nil
+	if err := p.transitionLocked(types.StateZombie); err != nil {
+		return err
 	}
-
-	return NewSyscallError(
-		"transition",
-		p.PID,
-		"",
-		fmt.Errorf("illegal transition: %d → %d", p.State, types.StateZombie),
-		types.ErrInternal,
-	)
+	p.Exit = &exit
+	return nil
 }
 
 // Reap transitions the process from Zombie to Dead.

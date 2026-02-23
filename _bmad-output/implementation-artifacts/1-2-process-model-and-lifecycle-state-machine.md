@@ -1,6 +1,6 @@
 # Story 1.2: 进程模型与生命周期状态机
 
-Status: review
+Status: done
 
 ## Story
 
@@ -340,7 +340,9 @@ kernel/
 | `kernel/process_test.go` | 新增 |
 | `kernel/kernel.go` | 新增 |
 | `kernel/kernel_test.go` | 新增 |
+| `_bmad-output/implementation-artifacts/sprint-status.yaml` | 修改 |
 
 ## Change Log
 
 - 2026-02-23: 实现 Story 1.2 — Process 结构体、生命周期状态机（Created→Running→Zombie→Dead）、KernelImpl 进程表、完整单元测试（20 个测试，-race 通过）
+- 2026-02-23: Code Review 修复 — 添加 GetState() 线程安全读取方法、抽取 transitionLocked 消除代码重复、添加并发状态转移测试（同一 Process 100 goroutine 竞争）、添加错误退出路径测试、补充 File List 遗漏项（24 个测试，-race 通过）

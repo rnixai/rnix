@@ -1,7 +1,9 @@
 package kernel
 
 import (
+	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gonewx/crux/internal/types"
@@ -131,6 +133,32 @@ func TestTerminate(t *testing.T) {
 	}
 	if p.Exit.Reason != "done" {
 		t.Fatalf("expected reason 'done', got %q", p.Exit.Reason)
+	}
+}
+
+func TestTerminateWithError(t *testing.T) {
+	p := NewProcess(0, "test", nil)
+	_ = p.Start()
+
+	underlying := errors.New("timeout exceeded")
+	exit := ExitStatus{Code: 1, Reason: "llm timeout", Err: underlying}
+	if err := p.Terminate(exit); err != nil {
+		t.Fatalf("Terminate failed: %v", err)
+	}
+	if p.GetState() != types.StateZombie {
+		t.Fatalf("expected StateZombie, got %d", p.GetState())
+	}
+	if p.Exit == nil {
+		t.Fatal("Exit should be set after Terminate")
+	}
+	if p.Exit.Code != 1 {
+		t.Fatalf("expected exit code 1, got %d", p.Exit.Code)
+	}
+	if p.Exit.Reason != "llm timeout" {
+		t.Fatalf("expected reason 'llm timeout', got %q", p.Exit.Reason)
+	}
+	if p.Exit.Err != underlying {
+		t.Fatalf("expected underlying error preserved, got %v", p.Exit.Err)
 	}
 }
 
@@ -318,5 +346,89 @@ func TestPIDMonotonic(t *testing.T) {
 	}
 	if p3.PID <= p2.PID {
 		t.Fatalf("PID should increase: p2=%d p3=%d", p2.PID, p3.PID)
+	}
+}
+
+func TestGetState(t *testing.T) {
+	p := NewProcess(0, "test", nil)
+	if p.GetState() != types.StateCreated {
+		t.Fatalf("expected StateCreated, got %d", p.GetState())
+	}
+	_ = p.Start()
+	if p.GetState() != types.StateRunning {
+		t.Fatalf("expected StateRunning, got %d", p.GetState())
+	}
+}
+
+func TestConcurrentStartSameProcess(t *testing.T) {
+	const n = 100
+	p := NewProcess(0, "test", nil)
+	var wg sync.WaitGroup
+	var successCount atomic.Int32
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.Start(); err == nil {
+				successCount.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if successCount.Load() != 1 {
+		t.Fatalf("expected exactly 1 successful Start, got %d", successCount.Load())
+	}
+	if p.GetState() != types.StateRunning {
+		t.Fatalf("expected StateRunning, got %d", p.GetState())
+	}
+}
+
+func TestConcurrentTransitionsSameProcess(t *testing.T) {
+	const n = 100
+	p := NewProcess(0, "test", nil)
+	_ = p.Start()
+
+	var wg sync.WaitGroup
+	var terminateOK atomic.Int32
+	var reapOK atomic.Int32
+
+	// n goroutines race to Terminate
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.Terminate(ExitStatus{Code: 0, Reason: "done"}); err == nil {
+				terminateOK.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if terminateOK.Load() != 1 {
+		t.Fatalf("expected exactly 1 successful Terminate, got %d", terminateOK.Load())
+	}
+	if p.GetState() != types.StateZombie {
+		t.Fatalf("expected StateZombie, got %d", p.GetState())
+	}
+
+	// n goroutines race to Reap
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.Reap(); err == nil {
+				reapOK.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if reapOK.Load() != 1 {
+		t.Fatalf("expected exactly 1 successful Reap, got %d", reapOK.Load())
+	}
+	if p.GetState() != types.StateDead {
+		t.Fatalf("expected StateDead, got %d", p.GetState())
 	}
 }
