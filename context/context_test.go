@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gonewx/crux/internal/types"
 )
@@ -44,7 +45,7 @@ func TestManager_CtxAlloc(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CtxAlloc failed: %v", err)
 		}
-		ctx, err := m.getContext(cid)
+		ctx, err := m.getContext("test", cid)
 		if err != nil {
 			t.Fatalf("getContext failed: %v", err)
 		}
@@ -285,6 +286,93 @@ func TestManager_CtxWriteRead(t *testing.T) {
 		}
 		if ctxErr.Code != types.ErrInternal {
 			t.Fatalf("expected ErrInternal, got %s", ctxErr.Code)
+		}
+	})
+}
+
+func TestManager_CtxWriteOverwrite(t *testing.T) {
+	m := NewManager()
+	cid, err := m.CtxAlloc(100)
+	if err != nil {
+		t.Fatalf("CtxAlloc failed: %v", err)
+	}
+
+	// Seed with two messages
+	msg1 := Message{Role: RoleUser, Content: "first"}
+	msg2 := Message{Role: RoleAssistant, Content: "second"}
+	data1, _ := json.Marshal(msg1)
+	data2, _ := json.Marshal(msg2)
+	if err := m.CtxWrite(cid, 0, data1); err != nil {
+		t.Fatalf("CtxWrite append 1 failed: %v", err)
+	}
+	if err := m.CtxWrite(cid, 0, data2); err != nil {
+		t.Fatalf("CtxWrite append 2 failed: %v", err)
+	}
+
+	t.Run("overwrite first message with offset=1", func(t *testing.T) {
+		replacement := Message{Role: RoleUser, Content: "replaced-first"}
+		data, _ := json.Marshal(replacement)
+		if err := m.CtxWrite(cid, 1, data); err != nil {
+			t.Fatalf("CtxWrite overwrite failed: %v", err)
+		}
+
+		result, err := m.BuildPrompt(cid)
+		if err != nil {
+			t.Fatalf("BuildPrompt failed: %v", err)
+		}
+		if result.Messages[0].Content != "replaced-first" {
+			t.Fatalf("expected overwritten content 'replaced-first', got '%s'", result.Messages[0].Content)
+		}
+		if result.Messages[1].Content != "second" {
+			t.Fatalf("second message should be unchanged, got '%s'", result.Messages[1].Content)
+		}
+	})
+
+	t.Run("overwrite second message with offset=2", func(t *testing.T) {
+		replacement := Message{Role: RoleAssistant, Content: "replaced-second"}
+		data, _ := json.Marshal(replacement)
+		if err := m.CtxWrite(cid, 2, data); err != nil {
+			t.Fatalf("CtxWrite overwrite failed: %v", err)
+		}
+
+		result, err := m.BuildPrompt(cid)
+		if err != nil {
+			t.Fatalf("BuildPrompt failed: %v", err)
+		}
+		if result.Messages[1].Content != "replaced-second" {
+			t.Fatalf("expected overwritten content 'replaced-second', got '%s'", result.Messages[1].Content)
+		}
+	})
+
+	t.Run("offset out of range returns error", func(t *testing.T) {
+		msg := Message{Role: RoleUser, Content: "oob"}
+		data, _ := json.Marshal(msg)
+
+		// offset=3 with only 2 messages
+		err := m.CtxWrite(cid, 3, data)
+		if err == nil {
+			t.Fatal("expected error for out-of-range offset")
+		}
+		var ctxErr *ContextError
+		if !errors.As(err, &ctxErr) {
+			t.Fatalf("expected *ContextError, got %T", err)
+		}
+		if ctxErr.Code != types.ErrInternal {
+			t.Fatalf("expected ErrInternal, got %s", ctxErr.Code)
+		}
+	})
+
+	t.Run("negative offset returns error", func(t *testing.T) {
+		msg := Message{Role: RoleUser, Content: "neg"}
+		data, _ := json.Marshal(msg)
+
+		err := m.CtxWrite(cid, -1, data)
+		if err == nil {
+			t.Fatal("expected error for negative offset")
+		}
+		var ctxErr *ContextError
+		if !errors.As(err, &ctxErr) {
+			t.Fatalf("expected *ContextError, got %T", err)
 		}
 	})
 }
@@ -531,15 +619,20 @@ func TestManager_BuildPromptPerformance(t *testing.T) {
 		m.AppendMessage(cid, RoleAssistant, "This is an assistant response with some content to simulate real conversation.")
 	}
 
-	// BuildPrompt should complete in under 1 second (NFR5)
-	// Pure in-memory copy, should be very fast
+	// BuildPrompt must complete in under 1 second (NFR5)
+	start := time.Now()
 	result, err := m.BuildPrompt(cid)
+	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("BuildPrompt failed: %v", err)
 	}
 	if len(result.Messages) != 10000 {
 		t.Fatalf("expected 10000 messages, got %d", len(result.Messages))
 	}
+	if elapsed > time.Second {
+		t.Fatalf("BuildPrompt took %v, exceeds NFR5 limit of 1s", elapsed)
+	}
+	t.Logf("BuildPrompt with 10000 messages completed in %v", elapsed)
 }
 
 func TestManager_ConcurrentAccess(t *testing.T) {
@@ -581,20 +674,61 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrent Write/Read on the same context
+	// MaxSize=100, goroutines*opsPerGoroutine=1000 appends total.
+	// Early appends succeed, later ones return "context full" — both outcomes are valid.
 	cid := allocatedIDs[0]
 	var wg2 sync.WaitGroup
+	var appendOK, appendFull, readOK, readErr, buildOK, buildErr int64
+	var mu sync.Mutex
 	for i := 0; i < goroutines; i++ {
 		wg2.Add(1)
 		go func(idx int) {
 			defer wg2.Done()
+			var localAppendOK, localAppendFull, localReadOK, localReadErr, localBuildOK, localBuildErr int64
 			for j := 0; j < opsPerGoroutine; j++ {
-				m.AppendMessage(cid, RoleUser, "concurrent write")
-				m.CtxRead(cid, 0, 0)
-				m.BuildPrompt(cid)
+				if err := m.AppendMessage(cid, RoleUser, "concurrent write"); err != nil {
+					localAppendFull++
+				} else {
+					localAppendOK++
+				}
+				if _, err := m.CtxRead(cid, 0, 0); err != nil {
+					localReadErr++
+				} else {
+					localReadOK++
+				}
+				if _, err := m.BuildPrompt(cid); err != nil {
+					localBuildErr++
+				} else {
+					localBuildOK++
+				}
 			}
+			mu.Lock()
+			appendOK += localAppendOK
+			appendFull += localAppendFull
+			readOK += localReadOK
+			readErr += localReadErr
+			buildOK += localBuildOK
+			buildErr += localBuildErr
+			mu.Unlock()
 		}(i)
 	}
 	wg2.Wait()
+
+	// Verify: exactly 100 appends succeeded (MaxSize), rest failed
+	if appendOK != 100 {
+		t.Errorf("expected exactly 100 successful appends (MaxSize), got %d", appendOK)
+	}
+	if appendFull != int64(goroutines*opsPerGoroutine)-100 {
+		t.Errorf("expected %d context-full errors, got %d", goroutines*opsPerGoroutine-100, appendFull)
+	}
+	// All reads and builds should succeed (context still exists)
+	if readErr != 0 {
+		t.Errorf("expected 0 read errors, got %d", readErr)
+	}
+	if buildErr != 0 {
+		t.Errorf("expected 0 build errors, got %d", buildErr)
+	}
+	t.Logf("Concurrent results: append OK=%d full=%d, read OK=%d, build OK=%d", appendOK, appendFull, readOK, buildOK)
 
 	// Concurrent Free
 	var wg3 sync.WaitGroup
