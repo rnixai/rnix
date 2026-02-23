@@ -42,10 +42,10 @@ const (
 
 // SyscallEvent records a single syscall invocation for tracing.
 type SyscallEvent struct {
-	Timestamp time.Time
+	Timestamp time.Duration
 	PID       PID
 	Syscall   string
-	Args      []any
+	Args      map[string]any
 	Result    any
 	Err       error
 	Duration  time.Duration

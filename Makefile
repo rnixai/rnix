@@ -1,5 +1,5 @@
 BINARY := crux
-PKG := github.com/decker/crux
+PKG := github.com/gonewx/crux
 
 .PHONY: build install test lint vet clean all
 

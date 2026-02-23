@@ -3,6 +3,7 @@ package xsync
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -103,5 +104,40 @@ func TestResult_Map_Err(t *testing.T) {
 	r := Err[int](errors.New("fail")).Map(func(v int) int { return v * 2 })
 	if r.IsOk() {
 		t.Fatal("Map on Err should propagate error")
+	}
+}
+
+func TestFuture_Then_Ok(t *testing.T) {
+	f, resolve := NewFuture[int]()
+	var called atomic.Bool
+	next := f.Then(func(v int) {
+		if v != 42 {
+			t.Errorf("Then callback got %d, want 42", v)
+		}
+		called.Store(true)
+	})
+	resolve(42, nil)
+	v, err := next.Await()
+	if err != nil || v != 42 {
+		t.Fatalf("Then result: got (%d, %v), want (42, nil)", v, err)
+	}
+	if !called.Load() {
+		t.Fatal("Then callback was not called")
+	}
+}
+
+func TestFuture_Then_Err(t *testing.T) {
+	f, resolve := NewFuture[int]()
+	var called atomic.Bool
+	next := f.Then(func(v int) {
+		called.Store(true)
+	})
+	resolve(0, errors.New("fail"))
+	_, err := next.Await()
+	if err == nil || err.Error() != "fail" {
+		t.Fatalf("Then error: got %v, want 'fail'", err)
+	}
+	if called.Load() {
+		t.Fatal("Then callback should not be called on error")
 	}
 }
