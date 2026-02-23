@@ -1,0 +1,86 @@
+# generated: 2026-02-23
+# project: newxv6
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-02-23
+project: newxv6
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # Epic 1: 第一个智能体运行（First Agent Runs）
+  epic-1: backlog
+  1-1-project-initialization-and-infrastructure: backlog
+  1-2-process-model-and-lifecycle-state-machine: backlog
+  1-3-vfs-framework-and-device-registration: backlog
+  1-4-context-management: backlog
+  1-5-llm-driver-claude-code-cli: backlog
+  1-6-kernel-reasoning-loop-spawn-reasonstep: backlog
+  1-7-cli-entry-and-ui-components: backlog
+  1-8-end-to-end-integration-and-acceptance: backlog
+  epic-1-retrospective: optional
+
+  # Epic 2: Skill 能力与文件访问（Skills & File Access）
+  epic-2: backlog
+  2-1-skill-loader-and-manifest-parsing: backlog
+  2-2-host-filesystem-driver-dev-fs: backlog
+  2-3-shell-driver-dev-shell: backlog
+  2-4-skill-injection-and-device-permission-whitelist: backlog
+  2-5-code-analyst-reference-skill: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: 调试追踪（Debug Tracing — astrace）
+  epic-3: backlog
+  3-1-syscallevent-recording-infrastructure: backlog
+  3-2-astrace-event-consumption-and-formatting: backlog
+  3-3-astrace-cli-command: backlog
+  3-4-syscall-trace-line-ui-component: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: 进程管理与可靠性（Process Management & Reliability）
+  epic-4: backlog
+  4-1-kill-and-wait-syscalls: backlog
+  4-2-orphan-process-reparent-and-zombie-auto-reap: backlog
+  4-3-proc-dynamic-filesystem: backlog
+  4-4-crux-ps-command-and-process-table-ui: backlog
+  4-5-context-release-ctx-free: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: 文档体系（Documentation）
+  epic-5: backlog
+  5-1-concept-documentation: backlog
+  5-2-quick-start-guide: backlog
+  5-3-reference-manual: backlog
+  epic-5-retrospective: optional
