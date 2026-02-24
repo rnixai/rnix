@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	gocontext "context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -24,7 +25,7 @@ type mockLLMFile struct {
 	readErr   error
 }
 
-func (f *mockLLMFile) Write(data []byte) error {
+func (f *mockLLMFile) Write(_ gocontext.Context, data []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.writeErr != nil {
@@ -62,7 +63,7 @@ type mockToolFile struct {
 	closed    bool
 }
 
-func (f *mockToolFile) Write(data []byte) error {
+func (f *mockToolFile) Write(_ gocontext.Context, data []byte) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.writeData = data
@@ -495,7 +496,7 @@ type sequenceLLMFile struct {
 	closed    bool
 }
 
-func (f *sequenceLLMFile) Write(data []byte) error {
+func (f *sequenceLLMFile) Write(_ gocontext.Context, data []byte) error {
 	return nil
 }
 
@@ -622,7 +623,7 @@ type blockingLLMFile struct {
 	closed  bool
 }
 
-func (f *blockingLLMFile) Write(data []byte) error {
+func (f *blockingLLMFile) Write(_ gocontext.Context, data []byte) error {
 	<-f.blockCh
 	return nil
 }

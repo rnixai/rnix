@@ -1,6 +1,7 @@
 package vfs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -94,7 +95,7 @@ func TestVFS_ReadWrite(t *testing.T) {
 		pid := types.PID(1)
 
 		fd, _ := v.Open(pid, "/dev/test", O_WRONLY)
-		err := v.Write(pid, fd, []byte("world"))
+		err := v.Write(context.Background(), pid, fd, []byte("world"))
 		if err != nil {
 			t.Fatalf("Write failed: %v", err)
 		}
@@ -129,7 +130,7 @@ func TestVFS_Close(t *testing.T) {
 		}
 
 		// Write after Close should fail
-		err = v.Write(pid, fd, []byte("x"))
+		err = v.Write(context.Background(), pid, fd, []byte("x"))
 		if err == nil {
 			t.Fatal("expected error writing closed FD")
 		}
@@ -173,7 +174,7 @@ func TestVFS_InvalidFD(t *testing.T) {
 	})
 
 	t.Run("Write invalid FD", func(t *testing.T) {
-		err := v.Write(pid, 99, []byte("x"))
+		err := v.Write(context.Background(), pid, 99, []byte("x"))
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -314,7 +315,7 @@ func TestVFS_ConcurrentAccess(t *testing.T) {
 				return
 			}
 
-			err = v.Write(pid, fd, []byte("data"))
+			err = v.Write(context.Background(), pid, fd, []byte("data"))
 			if err != nil {
 				t.Errorf("goroutine %d: Write failed: %v", i, err)
 				return

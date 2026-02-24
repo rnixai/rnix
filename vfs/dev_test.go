@@ -1,6 +1,7 @@
 package vfs
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -214,6 +215,6 @@ type mockFile struct {
 }
 
 func (m *mockFile) Read(length int) ([]byte, error)  { return m.readData, m.readErr }
-func (m *mockFile) Write(data []byte) error           { m.writeData = data; return m.writeErr }
+func (m *mockFile) Write(_ context.Context, data []byte) error { m.writeData = data; return m.writeErr }
 func (m *mockFile) Close() error                      { m.closed = true; return m.closeErr }
 func (m *mockFile) Stat() (FileStat, error)           { return m.stat, m.statErr }

@@ -18,7 +18,7 @@ type LLMFile struct {
 }
 
 // Write accepts a JSON-encoded LLMRequest, invokes the driver, and buffers the response.
-func (f *LLMFile) Write(data []byte) error {
+func (f *LLMFile) Write(ctx context.Context, data []byte) error {
 	if f.closed {
 		return fmt.Errorf("write to closed llm file")
 	}
@@ -28,7 +28,7 @@ func (f *LLMFile) Write(data []byte) error {
 		return fmt.Errorf("failed to parse llm request: %w", err)
 	}
 
-	resp, err := f.driver.Call(context.Background(), req)
+	resp, err := f.driver.Call(ctx, req)
 	if err != nil {
 		return err
 	}
