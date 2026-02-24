@@ -11,6 +11,7 @@ import (
 	"time"
 
 	cruxctx "github.com/gonewx/crux/context"
+	"github.com/gonewx/crux/drivers/fs"
 	"github.com/gonewx/crux/drivers/llm"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
@@ -181,6 +182,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	vfsInst := vfs.NewVFS(devReg)
 	claudeDriver := llm.NewClaudeCliDriver()
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(claudeDriver, "/dev/llm/claude"))
+	_ = devReg.Register("/dev/fs", fs.FileFactory())
 	ctxMgr := cruxctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 

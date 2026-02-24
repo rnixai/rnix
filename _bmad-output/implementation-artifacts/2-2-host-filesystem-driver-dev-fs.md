@@ -1,6 +1,6 @@
 # Story 2.2: 宿主文件系统驱动（/dev/fs）
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -20,64 +20,64 @@ So that 我可以分析用户的源代码和文档。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 drivers/fs/hostfs.go — HostFS 驱动核心实现 (AC: #1, #2, #3, #4)
-  - [ ] 1.1 创建 `drivers/fs/hostfs.go` 文件，包名 `fs`
-  - [ ] 1.2 定义 `HostFSFile` 结构体，实现 `vfs.VFSFile` 接口
+- [x] Task 1: 创建 drivers/fs/hostfs.go — HostFS 驱动核心实现 (AC: #1, #2, #3, #4)
+  - [x] 1.1 创建 `drivers/fs/hostfs.go` 文件，包名 `fs`
+  - [x] 1.2 定义 `HostFSFile` 结构体，实现 `vfs.VFSFile` 接口
     - 字段：`file *os.File`（底层文件句柄）、`path string`（完整文件路径）、`closed bool`（关闭状态标志）
-  - [ ] 1.3 实现 `HostFSFile.Read(length int) ([]byte, error)`
+  - [x] 1.3 实现 `HostFSFile.Read(length int) ([]byte, error)`
     - 使用 `io.ReadAll` 或 `io.LimitReader` 读取文件内容
     - 已关闭时返回错误
-  - [ ] 1.4 实现 `HostFSFile.Write(ctx context.Context, data []byte) error`
+  - [x] 1.4 实现 `HostFSFile.Write(ctx context.Context, data []byte) error`
     - MVP 阶段返回 `ErrPermission` 错误（/dev/fs 为只读设备）
     - 符合 VFSFile 接口要求，Write 方法签名必须接受 `context.Context`
-  - [ ] 1.5 实现 `HostFSFile.Close() error`
+  - [x] 1.5 实现 `HostFSFile.Close() error`
     - 关闭底层 `os.File`
     - 设置 `closed = true`
     - 重复 Close 返回错误
-  - [ ] 1.6 实现 `HostFSFile.Stat() (vfs.FileStat, error)`
+  - [x] 1.6 实现 `HostFSFile.Stat() (vfs.FileStat, error)`
     - 调用 `os.File.Stat()` 获取文件信息
     - 映射为 `vfs.FileStat{Name, Size, IsDevice: false, DevicePath: "/dev/fs"}`
 
-- [ ] Task 2: 创建 FileFactory 工厂函数 (AC: #1, #3, #4, #5)
-  - [ ] 2.1 实现 `FileFactory() vfs.VFSFileFactory` 函数
+- [x] Task 2: 创建 FileFactory 工厂函数 (AC: #1, #3, #4, #5)
+  - [x] 2.1 实现 `FileFactory() vfs.VFSFileFactory` 函数
     - 返回闭包 `func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error)`
     - `subpath` 参数来自 DeviceRegistry 的前缀匹配（如 `/dev/fs/path/to/file` → subpath = `/path/to/file`）
-  - [ ] 2.2 路径处理：
+  - [x] 2.2 路径处理：
     - subpath 是以 `/` 开头的绝对路径，直接作为宿主文件系统路径使用
     - 验证路径不为空
-  - [ ] 2.3 错误映射：
+  - [x] 2.3 错误映射：
     - `os.IsNotExist(err)` → `*kernel.SyscallError{Syscall: "Open", Code: ErrNotFound}`
     - `os.IsPermission(err)` → `*kernel.SyscallError{Syscall: "Open", Code: ErrPermission}`
     - 其他 OS 错误 → `*kernel.SyscallError{Syscall: "Open", Code: ErrDriver}`
-  - [ ] 2.4 OpenFlag 处理：
+  - [x] 2.4 OpenFlag 处理：
     - `O_RDONLY` → `os.O_RDONLY`
     - `O_WRONLY` / `O_RDWR` → MVP 阶段返回 `ErrPermission`（/dev/fs 只读）
 
-- [ ] Task 3: 创建 drivers/fs/hostfs_test.go — 单元测试 (AC: #1-5)
-  - [ ] 3.1 创建 `drivers/fs/hostfs_test.go` 文件
-  - [ ] 3.2 `TestFileFactory_ReadSuccess` — 使用 testdata 文件验证 Open → Read → Close 流程
-  - [ ] 3.3 `TestFileFactory_FileNotFound` — 不存在的路径返回 `*kernel.SyscallError` + `ErrNotFound`
-  - [ ] 3.4 `TestFileFactory_PermissionDenied` — 无权限文件返回 `*kernel.SyscallError` + `ErrPermission`（在 CI 环境中可能需要 skip）
-  - [ ] 3.5 `TestHostFSFile_Stat` — 验证 Stat 返回正确的 FileStat 字段
-  - [ ] 3.6 `TestHostFSFile_Write_ReadOnly` — 对只读设备执行 Write 返回 `ErrPermission`
-  - [ ] 3.7 `TestHostFSFile_Close_DoubleClose` — 重复 Close 返回错误
-  - [ ] 3.8 `TestHostFSFile_Read_AfterClose` — Close 后 Read 返回错误
-  - [ ] 3.9 `TestFileFactory_EmptySubpath` — 空 subpath 返回错误
-  - [ ] 3.10 `TestFileFactory_WriteFlag_Rejected` — O_WRONLY / O_RDWR flag 被拒绝
+- [x] Task 3: 创建 drivers/fs/hostfs_test.go — 单元测试 (AC: #1-5)
+  - [x] 3.1 创建 `drivers/fs/hostfs_test.go` 文件
+  - [x] 3.2 `TestFileFactory_ReadSuccess` — 使用 testdata 文件验证 Open → Read → Close 流程
+  - [x] 3.3 `TestFileFactory_FileNotFound` — 不存在的路径返回 `*kernel.SyscallError` + `ErrNotFound`
+  - [x] 3.4 `TestFileFactory_PermissionDenied` — 无权限文件返回 `*kernel.SyscallError` + `ErrPermission`（在 CI 环境中可能需要 skip）
+  - [x] 3.5 `TestHostFSFile_Stat` — 验证 Stat 返回正确的 FileStat 字段
+  - [x] 3.6 `TestHostFSFile_Write_ReadOnly` — 对只读设备执行 Write 返回 `ErrPermission`
+  - [x] 3.7 `TestHostFSFile_Close_DoubleClose` — 重复 Close 返回错误
+  - [x] 3.8 `TestHostFSFile_Read_AfterClose` — Close 后 Read 返回错误
+  - [x] 3.9 `TestFileFactory_EmptySubpath` — 空 subpath 返回错误
+  - [x] 3.10 `TestFileFactory_WriteFlag_Rejected` — O_WRONLY / O_RDWR flag 被拒绝
 
-- [ ] Task 4: 创建 testdata 测试夹具 (AC: #1, #2)
-  - [ ] 4.1 创建 `drivers/fs/testdata/sample.txt`，包含已知内容用于读取验证
-  - [ ] 4.2 创建 `drivers/fs/testdata/nested/deep.txt`，验证嵌套路径访问
+- [x] Task 4: 创建 testdata 测试夹具 (AC: #1, #2)
+  - [x] 4.1 创建 `drivers/fs/testdata/sample.txt`，包含已知内容用于读取验证
+  - [x] 4.2 创建 `drivers/fs/testdata/nested/deep.txt`，验证嵌套路径访问
 
-- [ ] Task 5: 集成到 CLI 入口 — 设备注册 (AC: #5)
-  - [ ] 5.1 在 `cmd/crux/main.go` 中导入 `drivers/fs` 包
-  - [ ] 5.2 在设备注册区域添加：`devReg.Register("/dev/fs", fs.FileFactory())`
-  - [ ] 5.3 确认注册顺序与其他设备一致
+- [x] Task 5: 集成到 CLI 入口 — 设备注册 (AC: #5)
+  - [x] 5.1 在 `cmd/crux/main.go` 中导入 `drivers/fs` 包
+  - [x] 5.2 在设备注册区域添加：`devReg.Register("/dev/fs", fs.FileFactory())`
+  - [x] 5.3 确认注册顺序与其他设备一致
 
-- [ ] Task 6: 全量回归测试 (AC: #1-5)
-  - [ ] 6.1 `go test -race ./drivers/fs/...` 全部通过
-  - [ ] 6.2 `go test -race ./...` 全量通过（确认无回归）
-  - [ ] 6.3 `go vet ./...` 无警告
+- [x] Task 6: 全量回归测试 (AC: #1-5)
+  - [x] 6.1 `go test -race ./drivers/fs/...` 全部通过
+  - [x] 6.2 `go test -race ./...` 全量通过（确认无回归）
+  - [x] 6.3 `go vet ./...` 无警告
 
 ## Dev Notes
 
@@ -275,10 +275,31 @@ drivers/fs/
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6 (claude-opus-4-6)
 
 ### Debug Log References
 
+无调试问题。
+
 ### Completion Notes List
 
+- ✅ Task 1: 创建 `drivers/fs/hostfs.go`，实现 `HostFSFile` 结构体，精确匹配 `vfs.VFSFile` 接口（Read/Write/Close/Stat）
+- ✅ Task 2: 实现 `FileFactory()` 工厂函数，包含完整错误映射（NotFound/Permission/Driver）、空路径验证、目录拒绝（吸收 Story 2.1 Code Review 经验）、写入标志拒绝
+- ✅ Task 3: 创建 10 个单元测试，100% 通过：ReadSuccess、FileNotFound、PermissionDenied（root 跳过）、Stat、Write_ReadOnly、DoubleClose、Read_AfterClose、EmptySubpath、WriteFlag_Rejected、NestedPath
+- ✅ Task 4: 创建 testdata 夹具：sample.txt（已知内容）、nested/deep.txt（嵌套路径）
+- ✅ Task 5: 在 `cmd/crux/main.go` 注册 `/dev/fs` 设备（import + Register 调用）
+- ✅ Task 6: `go test -race ./...` 全量通过，`go vet ./...` 无警告，零回归
+
+**关键设计决策：**
+- 吸收 Story 2.1 经验，在 FileFactory 中添加 `IsDir()` 检查，拒绝打开目录
+- Read(length<=0) 使用 `io.ReadAll` 读取全部内容；Read(length>0) 使用 `io.ReadAtLeast` 读取指定长度
+- Write 返回 `*kernel.SyscallError` 而非普通 error，保持错误类型一致性
+- PermissionDenied 测试在 root 用户下自动跳过
+
 ### File List
+
+- `drivers/fs/hostfs.go` — 新建：HostFSFile 结构体 + FileFactory 工厂 + mapOSError 辅助
+- `drivers/fs/hostfs_test.go` — 新建：10 个单元测试
+- `drivers/fs/testdata/sample.txt` — 新建：读取验证 fixture
+- `drivers/fs/testdata/nested/deep.txt` — 新建：嵌套路径验证 fixture
+- `cmd/crux/main.go` — 修改：新增 `drivers/fs` import 和 `/dev/fs` 设备注册

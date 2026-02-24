@@ -1,0 +1,2 @@
+Hello, HostFS!
+This is a test file for reading verification.
