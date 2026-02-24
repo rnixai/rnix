@@ -30,20 +30,24 @@ type ExitStatus struct {
 
 // Process represents an agent process.
 type Process struct {
-	PID       types.PID
-	PPID      types.PID
-	State     types.ProcessState // guarded by mu
-	Intent    string             // immutable after creation
-	Skills    []string
-	Children  []types.PID
-	FDTable   map[types.FD]vfs.VFSFile // per architecture doc; VFS manages actual FD state internally
-	DebugChan chan types.SyscallEvent
-	Done      chan ExitStatus
-	CreatedAt time.Time
-	Exit      *ExitStatus // non-nil in Zombie/Dead
+	PID        types.PID
+	PPID       types.PID
+	State      types.ProcessState        // guarded by mu
+	Intent     string                    // immutable after creation
+	Skills     []string
+	Children   []types.PID
+	FDTable    map[types.FD]vfs.VFSFile  // per architecture doc; VFS manages actual FD state internally
+	DebugChan  chan types.SyscallEvent
+	Done       chan ExitStatus
+	CreatedAt  time.Time
+	Exit       *ExitStatus               // non-nil in Zombie/Dead
+	CtxID      types.CtxID               // context allocated by Spawn
+	Result     string                    // final output from reasoning
+	TokensUsed int                       // cumulative token consumption
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
+	ctx    context.Context
 	wg     sync.WaitGroup
 }
 

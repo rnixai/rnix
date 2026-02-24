@@ -1,20 +1,385 @@
 package kernel
 
 import (
+	"encoding/json"
+	gocontext "context"
+	"time"
+
+	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/xsync"
+	"github.com/gonewx/crux/vfs"
 )
+
+// DefaultMaxSteps is the maximum number of reasoning steps before forced completion.
+const DefaultMaxSteps = 10
+
+// DefaultCtxSize is the default context size (message count) for new contexts.
+const DefaultCtxSize = 64
+
+// SpawnOpts configures optional parameters for Spawn.
+type SpawnOpts struct {
+	Model        string
+	SystemPrompt string
+	MaxTurns     int
+	TimeoutMs    int64
+}
+
+// ActionType classifies LLM response actions.
+type ActionType string
+
+const (
+	ActionText     ActionType = "text"
+	ActionToolCall ActionType = "tool_call"
+	ActionSpawn    ActionType = "spawn"
+)
+
+// ReasonAction represents a parsed action from an LLM response.
+type ReasonAction struct {
+	Type     ActionType
+	Content  string
+	ToolPath string
+	ToolData []byte
+}
+
+// llmRequest is the JSON payload written to the LLM VFS device.
+// Field names and json tags are compatible with drivers/llm.LLMRequest.
+type llmRequest struct {
+	Intent       string `json:"intent"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	Model        string `json:"model,omitempty"`
+	MaxTurns     int    `json:"max_turns,omitempty"`
+	TimeoutMs    int64  `json:"timeout_ms,omitempty"`
+}
+
+// llmResponse is the JSON payload read from the LLM VFS device.
+// Field names and json tags are compatible with drivers/llm.LLMResponse.
+type llmResponse struct {
+	Content    string `json:"content"`
+	TokensUsed int    `json:"tokens_used"`
+}
 
 // KernelImpl is the core microkernel implementation.
 type KernelImpl struct {
 	procTable *xsync.SyncMap[types.PID, *Process]
+	vfs       *vfs.VFS
+	ctxMgr    *cruxctx.Manager
 }
 
-// NewKernel creates a new KernelImpl with an empty process table.
-func NewKernel() *KernelImpl {
+// NewKernel creates a new KernelImpl with the given VFS and context manager.
+func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager) *KernelImpl {
 	return &KernelImpl{
 		procTable: xsync.NewSyncMap[types.PID, *Process](),
+		vfs:       v,
+		ctxMgr:    ctxMgr,
 	}
+}
+
+// Spawn creates a new agent process that automatically executes the reasonStep loop.
+func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (types.PID, error) {
+	start := time.Now()
+
+	proc := NewProcess(0, intent, skills)
+
+	// Allocate context
+	cid, err := k.ctxMgr.CtxAlloc(DefaultCtxSize)
+	if err != nil {
+		return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
+	}
+	proc.CtxID = cid
+
+	// Set system prompt if provided
+	if opts.SystemPrompt != "" {
+		if err := k.ctxMgr.SetSystemPrompt(cid, opts.SystemPrompt); err != nil {
+			_ = k.ctxMgr.CtxFree(cid)
+			return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
+		}
+	}
+
+	// Append initial intent as user message
+	if err := k.ctxMgr.AppendMessage(cid, cruxctx.RoleUser, intent); err != nil {
+		_ = k.ctxMgr.CtxFree(cid)
+		return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
+	}
+
+	// Open LLM device via VFS
+	llmFD, err := k.vfs.Open(proc.PID, "/dev/llm/claude", vfs.O_RDWR)
+	if err != nil {
+		_ = k.ctxMgr.CtxFree(cid)
+		return 0, NewSyscallError("Spawn", proc.PID, "/dev/llm/claude", err, types.ErrDriver)
+	}
+	proc.FDTable[llmFD] = nil // FD tracked by VFS internally; placeholder in process FDTable
+
+	// Set up goroutine context for cancellation
+	ctx, cancel := gocontext.WithCancel(gocontext.Background())
+	proc.cancel = cancel
+	proc.ctx = ctx
+
+	// Register process in table
+	k.AddProcess(proc)
+
+	// Emit Spawn syscall event
+	k.emitEvent(proc, "Spawn", map[string]any{
+		"intent": intent,
+		"skills": skills,
+	}, proc.PID, nil, time.Since(start))
+
+	// Launch reasoning goroutine
+	proc.wg.Add(1)
+	go func() {
+		defer proc.wg.Done()
+		defer k.vfs.CloseAll(proc.PID)
+		_ = proc.Start() // Created → Running
+		k.reasonStep(proc, llmFD, opts)
+	}()
+
+	return proc.PID, nil
+}
+
+// emitEvent sends a SyscallEvent to the process DebugChan (non-blocking).
+func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]any, result any, err error, duration time.Duration) {
+	if proc.DebugChan == nil {
+		return
+	}
+	event := types.SyscallEvent{
+		Timestamp: time.Since(proc.CreatedAt),
+		PID:       proc.PID,
+		Syscall:   syscall,
+		Args:      args,
+		Result:    result,
+		Err:       err,
+		Duration:  duration,
+	}
+	select {
+	case proc.DebugChan <- event:
+	default: // buffer full, drop event
+	}
+}
+
+// reasonStep executes the reasoning loop for a process.
+func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
+	maxSteps := DefaultMaxSteps
+	if opts.MaxTurns > 0 {
+		maxSteps = opts.MaxTurns
+	}
+
+	defer func() {
+		// Ensure process always transitions to Zombie
+		if proc.GetState() == types.StateRunning {
+			exit := ExitStatus{Code: 1, Reason: "unexpected exit"}
+			_ = proc.Terminate(exit)
+			select {
+			case proc.Done <- exit:
+			default:
+			}
+		}
+	}()
+
+	for step := 1; step <= maxSteps; step++ {
+		stepStart := time.Now()
+
+		// Check context cancellation
+		select {
+		case <-proc.ctx.Done():
+			exit := ExitStatus{Code: 1, Reason: "context cancelled"}
+			_ = proc.Terminate(exit)
+			select {
+			case proc.Done <- exit:
+			default:
+			}
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "cancelled",
+			}, nil, proc.ctx.Err(), time.Since(stepStart))
+			return
+		default:
+		}
+
+		// Build prompt from context
+		promptResult, err := k.ctxMgr.BuildPrompt(proc.CtxID)
+		if err != nil {
+			exit := ExitStatus{Code: 1, Reason: "build prompt failed", Err: err}
+			_ = proc.Terminate(exit)
+			select {
+			case proc.Done <- exit:
+			default:
+			}
+			return
+		}
+
+		// Construct LLM request
+		req := llmRequest{
+			Intent:       proc.Intent,
+			SystemPrompt: promptResult.SystemPrompt,
+			Model:        opts.Model,
+			MaxTurns:     1,
+			TimeoutMs:    opts.TimeoutMs,
+		}
+		reqJSON, err := json.Marshal(req)
+		if err != nil {
+			exit := ExitStatus{Code: 1, Reason: "marshal request failed", Err: err}
+			_ = proc.Terminate(exit)
+			select {
+			case proc.Done <- exit:
+			default:
+			}
+			return
+		}
+
+		// Write request to LLM device
+		if err := k.vfs.Write(proc.PID, llmFD, reqJSON); err != nil {
+			exit := ExitStatus{Code: 1, Reason: "llm write failed", Err: err}
+			_ = proc.Terminate(exit)
+			select {
+			case proc.Done <- exit:
+			default:
+			}
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "error",
+			}, nil, err, time.Since(stepStart))
+			return
+		}
+
+		// Read response from LLM device
+		respData, err := k.vfs.Read(proc.PID, llmFD, 1<<20) // 1MB max
+		if err != nil {
+			exit := ExitStatus{Code: 1, Reason: "llm read failed", Err: err}
+			_ = proc.Terminate(exit)
+			select {
+			case proc.Done <- exit:
+			default:
+			}
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "error",
+			}, nil, err, time.Since(stepStart))
+			return
+		}
+
+		// Parse LLM response
+		var resp llmResponse
+		if err := json.Unmarshal(respData, &resp); err != nil {
+			exit := ExitStatus{Code: 1, Reason: "unmarshal response failed", Err: err}
+			_ = proc.Terminate(exit)
+			select {
+			case proc.Done <- exit:
+			default:
+			}
+			return
+		}
+
+		proc.TokensUsed += resp.TokensUsed
+
+		// Parse action
+		action := parseAction(&resp)
+
+		switch action.Type {
+		case ActionText:
+			proc.Result = action.Content
+			exit := ExitStatus{Code: 0, Reason: "completed"}
+			_ = proc.Terminate(exit)
+			select {
+			case proc.Done <- exit:
+			default:
+			}
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "text",
+			}, action.Content, nil, time.Since(stepStart))
+			return
+
+		case ActionToolCall:
+			// Open tool device
+			toolFD, err := k.vfs.Open(proc.PID, action.ToolPath, vfs.O_RDWR)
+			if err != nil {
+				exit := ExitStatus{Code: 1, Reason: "tool open failed: " + action.ToolPath, Err: err}
+				_ = proc.Terminate(exit)
+				select {
+				case proc.Done <- exit:
+				default:
+				}
+				return
+			}
+
+			// Write tool data
+			if err := k.vfs.Write(proc.PID, toolFD, action.ToolData); err != nil {
+				_ = k.vfs.Close(proc.PID, toolFD)
+				exit := ExitStatus{Code: 1, Reason: "tool write failed", Err: err}
+				_ = proc.Terminate(exit)
+				select {
+				case proc.Done <- exit:
+				default:
+				}
+				return
+			}
+
+			// Read tool result
+			toolResult, err := k.vfs.Read(proc.PID, toolFD, 1<<20)
+			if err != nil {
+				_ = k.vfs.Close(proc.PID, toolFD)
+				exit := ExitStatus{Code: 1, Reason: "tool read failed", Err: err}
+				_ = proc.Terminate(exit)
+				select {
+				case proc.Done <- exit:
+				default:
+				}
+				return
+			}
+
+			_ = k.vfs.Close(proc.PID, toolFD)
+
+			// Append tool result to context
+			if err := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, string(toolResult)); err != nil {
+				exit := ExitStatus{Code: 1, Reason: "append tool result failed", Err: err}
+				_ = proc.Terminate(exit)
+				select {
+				case proc.Done <- exit:
+				default:
+				}
+				return
+			}
+
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "tool_call",
+				"tool":   action.ToolPath,
+			}, string(toolResult), nil, time.Since(stepStart))
+			continue
+		}
+	}
+
+	// Max steps exceeded — force completion
+	exit := ExitStatus{Code: 0, Reason: "max steps exceeded"}
+	_ = proc.Terminate(exit)
+	select {
+	case proc.Done <- exit:
+	default:
+	}
+}
+
+// parseAction determines the action type from an LLM response.
+func parseAction(resp *llmResponse) ReasonAction {
+	// Try structured JSON action
+	var structured struct {
+		Action  string         `json:"action"`
+		Content string         `json:"content,omitempty"`
+		Tool    string         `json:"tool,omitempty"`
+		Data    map[string]any `json:"data,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(resp.Content), &structured); err == nil {
+		if structured.Action == "tool_call" && structured.Tool != "" {
+			toolData, _ := json.Marshal(structured.Data)
+			return ReasonAction{
+				Type:     ActionToolCall,
+				ToolPath: structured.Tool,
+				ToolData: toolData,
+			}
+		}
+	}
+
+	// Default: plain text output
+	return ReasonAction{Type: ActionText, Content: resp.Content}
 }
 
 // AddProcess registers a process in the kernel's process table.

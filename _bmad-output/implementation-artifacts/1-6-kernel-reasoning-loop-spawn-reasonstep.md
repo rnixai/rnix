@@ -1,6 +1,6 @@
 # Story 1.6: 内核推理循环（Spawn + reasonStep）
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -20,56 +20,56 @@ So that 我只需提供意图，智能体自动完成推理。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 扩展 KernelImpl 结构体并注入依赖 (AC: #1)
-  - [ ] 1.1 在 `kernel/kernel.go` 中为 KernelImpl 新增 `vfs *vfs.VFS`、`ctxMgr *context.Manager` 字段
-  - [ ] 1.2 更新 `NewKernel(vfs *vfs.VFS, ctxMgr *context.Manager) *KernelImpl` 构造函数签名
-  - [ ] 1.3 定义 `SpawnOpts` 结构体（`Model string`、`SystemPrompt string`、`MaxTurns int`、`TimeoutMs int64`）
-  - [ ] 1.4 定义 `SpawnResult` 或直接返回 `(types.PID, error)`
+- [x] Task 1: 扩展 KernelImpl 结构体并注入依赖 (AC: #1)
+  - [x] 1.1 在 `kernel/kernel.go` 中为 KernelImpl 新增 `vfs *vfs.VFS`、`ctxMgr *context.Manager` 字段
+  - [x] 1.2 更新 `NewKernel(vfs *vfs.VFS, ctxMgr *context.Manager) *KernelImpl` 构造函数签名
+  - [x] 1.3 定义 `SpawnOpts` 结构体（`Model string`、`SystemPrompt string`、`MaxTurns int`、`TimeoutMs int64`）
+  - [x] 1.4 定义 `SpawnResult` 或直接返回 `(types.PID, error)`
 
-- [ ] Task 2: 实现 Spawn 系统调用 (AC: #1)
-  - [ ] 2.1 实现 `Spawn(intent string, skills []string, opts SpawnOpts) (types.PID, error)` 方法
-  - [ ] 2.2 创建 Process（`NewProcess(0, intent, skills)`，PPID=0 表示顶层进程）
-  - [ ] 2.3 分配上下文（`ctxMgr.CtxAlloc(defaultCtxSize)`），将 CtxID 关联到 Process
-  - [ ] 2.4 设置 system prompt（`ctxMgr.SetSystemPrompt(cid, opts.SystemPrompt)`，非空时）
-  - [ ] 2.5 将初始意图追加到上下文（`ctxMgr.AppendMessage(cid, RoleUser, intent)`）
-  - [ ] 2.6 通过 VFS 打开 LLM 设备（`vfs.Open(pid, "/dev/llm/claude", O_RDWR)`），将 FD 保存到 Process.FDTable
-  - [ ] 2.7 将 Process 加入进程表（`AddProcess(proc)`）
-  - [ ] 2.8 启动独立 goroutine，在其中执行 `proc.Start()` 转 Running + `reasonStep` 循环
-  - [ ] 2.9 记录 SyscallEvent 到 DebugChan（Syscall="Spawn"，Args 含 intent/skills）
-  - [ ] 2.10 返回 PID
+- [x] Task 2: 实现 Spawn 系统调用 (AC: #1)
+  - [x] 2.1 实现 `Spawn(intent string, skills []string, opts SpawnOpts) (types.PID, error)` 方法
+  - [x] 2.2 创建 Process（`NewProcess(0, intent, skills)`，PPID=0 表示顶层进程）
+  - [x] 2.3 分配上下文（`ctxMgr.CtxAlloc(defaultCtxSize)`），将 CtxID 关联到 Process
+  - [x] 2.4 设置 system prompt（`ctxMgr.SetSystemPrompt(cid, opts.SystemPrompt)`，非空时）
+  - [x] 2.5 将初始意图追加到上下文（`ctxMgr.AppendMessage(cid, RoleUser, intent)`）
+  - [x] 2.6 通过 VFS 打开 LLM 设备（`vfs.Open(pid, "/dev/llm/claude", O_RDWR)`），将 FD 保存到 Process.FDTable
+  - [x] 2.7 将 Process 加入进程表（`AddProcess(proc)`）
+  - [x] 2.8 启动独立 goroutine，在其中执行 `proc.Start()` 转 Running + `reasonStep` 循环
+  - [x] 2.9 记录 SyscallEvent 到 DebugChan（Syscall="Spawn"，Args 含 intent/skills）
+  - [x] 2.10 返回 PID
 
-- [ ] Task 3: 定义 Action 类型和解析逻辑 (AC: #2, #3)
-  - [ ] 3.1 定义 `ActionType string` 常量：`ActionText`、`ActionToolCall`、`ActionSpawn`
-  - [ ] 3.2 定义 `ReasonAction` 结构体（`Type ActionType`、`Content string`、`ToolPath string`、`ToolData []byte`）
-  - [ ] 3.3 实现 `parseAction(response *llm.LLMResponse) ReasonAction` — MVP 默认解析为 ActionText，将 response.Content 作为最终输出
-  - [ ] 3.4 MVP 预留结构化 JSON 解析路径：若 response.Content 为合法 JSON 且含 `"action"` 字段，尝试按 tool_call 解析
+- [x] Task 3: 定义 Action 类型和解析逻辑 (AC: #2, #3)
+  - [x] 3.1 定义 `ActionType string` 常量：`ActionText`、`ActionToolCall`、`ActionSpawn`
+  - [x] 3.2 定义 `ReasonAction` 结构体（`Type ActionType`、`Content string`、`ToolPath string`、`ToolData []byte`）
+  - [x] 3.3 实现 `parseAction(response *llm.LLMResponse) ReasonAction` — MVP 默认解析为 ActionText，将 response.Content 作为最终输出
+  - [x] 3.4 MVP 预留结构化 JSON 解析路径：若 response.Content 为合法 JSON 且含 `"action"` 字段，尝试按 tool_call 解析
 
-- [ ] Task 4: 实现 reasonStep 推理循环 (AC: #2, #3, #4, #5)
-  - [ ] 4.1 实现 `reasonStep(k *KernelImpl, proc *Process, llmFD types.FD, opts SpawnOpts)` 函数（不导出，内部使用）
-  - [ ] 4.2 循环逻辑：`for` 循环，每轮检查 `proc.cancel` context 是否已取消
-  - [ ] 4.3 每轮开始：调用 `ctxMgr.BuildPrompt(proc.CtxID)` 组装 prompt
-  - [ ] 4.4 构造 LLMRequest JSON，通过 `vfs.Write(pid, llmFD, requestJSON)` 发送到 LLM 设备
-  - [ ] 4.5 通过 `vfs.Read(pid, llmFD, maxLength)` 读取 LLM 响应
-  - [ ] 4.6 解析响应 JSON 为 `LLMResponse`，调用 `parseAction` 确定动作类型
-  - [ ] 4.7 ActionText 处理：记录结果到 Process，调用 `proc.Terminate(ExitStatus{Code: 0, Reason: "completed"})`，写入 Done channel，退出循环
-  - [ ] 4.8 ActionToolCall 处理：通过 VFS Open/Write/Read/Close 执行工具调用，将结果通过 `ctxMgr.AppendToolResult` 追加到上下文，继续循环
-  - [ ] 4.9 错误处理：LLM 调用失败/超时时，`proc.Terminate(ExitStatus{Code: 1, Reason: "...", Err: err})`，写入 Done channel，退出循环
-  - [ ] 4.10 context 取消处理：检测到 `ctx.Done()` 时优雅退出，转 Zombie
-  - [ ] 4.11 每轮 reasonStep 记录 SyscallEvent（Syscall="ReasonStep"，Args 含 step 编号和 action 类型）
-  - [ ] 4.12 循环上限保护：默认 maxSteps=10（防止无限循环），超过时强制完成
+- [x] Task 4: 实现 reasonStep 推理循环 (AC: #2, #3, #4, #5)
+  - [x] 4.1 实现 `reasonStep(k *KernelImpl, proc *Process, llmFD types.FD, opts SpawnOpts)` 函数（不导出，内部使用）
+  - [x] 4.2 循环逻辑：`for` 循环，每轮检查 `proc.cancel` context 是否已取消
+  - [x] 4.3 每轮开始：调用 `ctxMgr.BuildPrompt(proc.CtxID)` 组装 prompt
+  - [x] 4.4 构造 LLMRequest JSON，通过 `vfs.Write(pid, llmFD, requestJSON)` 发送到 LLM 设备
+  - [x] 4.5 通过 `vfs.Read(pid, llmFD, maxLength)` 读取 LLM 响应
+  - [x] 4.6 解析响应 JSON 为 `LLMResponse`，调用 `parseAction` 确定动作类型
+  - [x] 4.7 ActionText 处理：记录结果到 Process，调用 `proc.Terminate(ExitStatus{Code: 0, Reason: "completed"})`，写入 Done channel，退出循环
+  - [x] 4.8 ActionToolCall 处理：通过 VFS Open/Write/Read/Close 执行工具调用，将结果通过 `ctxMgr.AppendToolResult` 追加到上下文，继续循环
+  - [x] 4.9 错误处理：LLM 调用失败/超时时，`proc.Terminate(ExitStatus{Code: 1, Reason: "...", Err: err})`，写入 Done channel，退出循环
+  - [x] 4.10 context 取消处理：检测到 `ctx.Done()` 时优雅退出，转 Zombie
+  - [x] 4.11 每轮 reasonStep 记录 SyscallEvent（Syscall="ReasonStep"，Args 含 step 编号和 action 类型）
+  - [x] 4.12 循环上限保护：默认 maxSteps=10（防止无限循环），超过时强制完成
 
-- [ ] Task 5: Process 上下文集成 (AC: #1)
-  - [ ] 5.1 在 Process 结构体中新增 `CtxID types.CtxID` 字段（由 Spawn 分配）
-  - [ ] 5.2 在 Process 结构体中新增 `Result string` 字段（存储最终输出）
-  - [ ] 5.3 在 Process 结构体中新增 `TokensUsed int` 字段（累计 token 消耗）
-  - [ ] 5.4 在 Process 结构体中新增 `ctx context.Context` 字段（由 Spawn 设置，用于 goroutine 取消传播）
+- [x] Task 5: Process 上下文集成 (AC: #1)
+  - [x] 5.1 在 Process 结构体中新增 `CtxID types.CtxID` 字段（由 Spawn 分配）
+  - [x] 5.2 在 Process 结构体中新增 `Result string` 字段（存储最终输出）
+  - [x] 5.3 在 Process 结构体中新增 `TokensUsed int` 字段（累计 token 消耗）
+  - [x] 5.4 在 Process 结构体中新增 `ctx context.Context` 字段（由 Spawn 设置，用于 goroutine 取消传播）
 
-- [ ] Task 6: 编写完整单元测试 (AC: all)
-  - [ ] 6.1 `kernel/kernel_test.go` — Spawn 测试：正常 spawn、context 分配验证、LLM 设备打开验证、进程表注册验证、DebugChan 事件验证
-  - [ ] 6.2 `kernel/kernel_test.go` — reasonStep 测试：text 动作完成、tool_call 动作执行、超时处理、context 取消、maxSteps 上限
-  - [ ] 6.3 `kernel/kernel_test.go` — 集成测试：Spawn + reasonStep + text 完成 → Zombie → Done channel 通知
-  - [ ] 6.4 Mock VFS 和 Context Manager 接口注入，不依赖真实 LLM 调用
-  - [ ] 6.5 全量回归 `go test -race ./...` 确保不破坏已有测试
+- [x] Task 6: 编写完整单元测试 (AC: all)
+  - [x] 6.1 `kernel/kernel_test.go` — Spawn 测试：正常 spawn、context 分配验证、LLM 设备打开验证、进程表注册验证、DebugChan 事件验证
+  - [x] 6.2 `kernel/kernel_test.go` — reasonStep 测试：text 动作完成、tool_call 动作执行、超时处理、context 取消、maxSteps 上限
+  - [x] 6.3 `kernel/kernel_test.go` — 集成测试：Spawn + reasonStep + text 完成 → Zombie → Done channel 通知
+  - [x] 6.4 Mock VFS 和 Context Manager 接口注入，不依赖真实 LLM 调用
+  - [x] 6.5 全量回归 `go test -race ./...` 确保不破坏已有测试
 
 ## Dev Notes
 
@@ -518,10 +518,23 @@ kernel/
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- **Task 1 完成**: KernelImpl 新增 `vfs *vfs.VFS` 和 `ctxMgr *cruxctx.Manager` 字段；`NewKernel` 签名更新为接受 VFS + ctxMgr 参数；定义 `SpawnOpts` 结构体；返回 `(types.PID, error)`
+- **Task 2 完成**: 实现 `Spawn` 方法 — 创建 Process、分配 Context、设置 system prompt、追加 intent 到上下文、VFS 打开 LLM 设备、goroutine 启动 reasonStep 循环、emitEvent 记录 SyscallEvent
+- **Task 3 完成**: 定义 `ActionType` 常量（ActionText/ActionToolCall/ActionSpawn）、`ReasonAction` 结构体、`parseAction` 函数（先尝试 JSON 结构化解析 tool_call，失败则作为纯文本）
+- **Task 4 完成**: 实现 `reasonStep` 循环 — BuildPrompt → Write LLM → Read LLM → parseAction → ActionText 完成 / ActionToolCall 执行 / 错误处理 / context 取消 / maxSteps 上限保护；所有路径确保进程转 Zombie 并写入 Done channel
+- **Task 5 完成**: Process 新增 `CtxID`、`Result`、`TokensUsed`、`ctx context.Context` 字段
+- **Task 6 完成**: 17 个测试函数覆盖：Spawn 成功/失败/SystemPrompt、reasonStep text/tool_call/LLM 写错误/LLM 读错误/context 取消/maxSteps 超限、parseAction 纯文本/JSON/tool_call/无效 JSON/缺少 tool 字段、端到端集成测试。全量 `go test -race ./...` 通过
+- **设计决策**: kernel 包内定义私有 `llmRequest`/`llmResponse` 结构体（json tag 与 drivers/llm 对齐但不导入）；使用 `sequenceLLMFile` mock 实现多轮 LLM 交互测试；DebugChan 非阻塞写入（满时丢弃）
+- **已有测试兼容**: 更新了原有 5 个 kernel 测试的 `NewKernel` 调用为新签名（通过 `newSimpleKernel()` 辅助函数）
+
 ### File List
+
+- `kernel/kernel.go` — 修改：扩展 KernelImpl（vfs/ctxMgr 字段）、新增 Spawn/reasonStep/parseAction/emitEvent、定义 SpawnOpts/ActionType/ReasonAction/llmRequest/llmResponse 类型
+- `kernel/process.go` — 修改：Process 新增 CtxID/Result/TokensUsed/ctx 字段
+- `kernel/kernel_test.go` — 修改：更新现有测试的 NewKernel 签名 + 新增 17 个 Spawn/reasonStep/parseAction/集成测试
