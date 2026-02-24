@@ -48,7 +48,7 @@ development_status:
   1-4-context-management: done
   1-5-llm-driver-claude-code-cli: done
   1-6-kernel-reasoning-loop-spawn-reasonstep: done
-  1-7-cli-entry-and-ui-components: review
+  1-7-cli-entry-and-ui-components: done
   1-8-end-to-end-integration-and-acceptance: backlog
   epic-1-retrospective: optional
 

@@ -7,7 +7,7 @@ _bmad/
 .codex/skills/
 
 # Binaries
-crux
+/crux
 *.exe
 *.exe~
 *.dll

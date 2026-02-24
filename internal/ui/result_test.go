@@ -98,6 +98,18 @@ func TestRenderResult_QuietMode(t *testing.T) {
 	}
 }
 
+func TestRenderResult_JSONMode(t *testing.T) {
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeJSON, Profile: TerminalProfile{Width: 80, ColorLevel: 0}}
+
+	RenderResult(r, "Title", "content")
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no output in JSON mode, got %q", buf.String())
+	}
+}
+
 func TestRenderResult_MultilineContent(t *testing.T) {
 	InitStyles(TerminalProfile{ColorLevel: 0})
 	var buf bytes.Buffer

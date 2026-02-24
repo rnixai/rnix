@@ -11,7 +11,7 @@ import (
 //
 //	[kernel] PID {N} exited({code}) | tokens: {N} | elapsed: {N}s
 func RenderSummary(r *Renderer, pid types.PID, exitCode int, tokens int, elapsed time.Duration) {
-	if r.OutputMode == ModeQuiet {
+	if r.OutputMode == ModeQuiet || r.OutputMode == ModeJSON {
 		return
 	}
 

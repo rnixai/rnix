@@ -1,6 +1,6 @@
 # Story 1.7: CLI 入口与 UI 组件
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -542,7 +542,7 @@ Claude Opus 4.6
 - ✅ Task 7: CLI 入口扩展。完整依赖注入链（DevReg→VFS→Claude→Register→CtxMgr→Kernel），根命令意图处理，`--json`/`--verbose`/`--quiet` flags，`JSONResponse` 输出，退出码 0/1/2。
 - ✅ Task 8: Kernel 回调机制。`KernelCallbacks` 接口 4 方法，`NewKernel` 签名扩展（nil 兼容），Spawn/reasonStep/finishProcess 中回调集成。已有 42 个 kernel 测试全部通过。
 - ✅ Task 9: 信号处理。SIGINT/SIGTERM 注册，首次信号调用 `proc.Cancel()` 优雅退出，2 秒内二次信号 `os.Exit(130)` 强制退出。新增 `Process.Cancel()` 导出方法。
-- ✅ Task 10: 完整测试覆盖。7 个测试文件，全量 `go test -race ./...` 通过（cmd/crux 8 个测试 + internal/ui 27 个测试 + kernel 42 个测试 = 77+ 测试全部通过）。
+- ✅ Task 10: 完整测试覆盖。7 个测试文件，全量 `go test -race ./...` 通过（cmd/crux 12 个测试 + internal/ui 30 个测试 + kernel 42 个测试 = 84+ 测试全部通过）。
 
 ### Implementation Plan
 
@@ -561,22 +561,24 @@ Claude Opus 4.6
 - `internal/ui/styles_test.go` — 3 个测试
 - `internal/ui/progress.go` — ProgressReporter + KernelMessage/AgentMessage/AgentStep
 - `internal/ui/progress_test.go` — 5 个测试
-- `internal/ui/result.go` — RenderResult + 双线边框
-- `internal/ui/result_test.go` — 5 个测试
+- `internal/ui/result.go` — RenderResult + 双线边框 + runewidth CJK 宽度
+- `internal/ui/result_test.go` — 6 个测试（+1 JSON mode）
 - `internal/ui/error.go` — RenderError + 三行结构
-- `internal/ui/error_test.go` — 4 个测试
+- `internal/ui/error_test.go` — 5 个测试（+1 JSON mode）
 - `internal/ui/summary.go` — RenderSummary + 退出码着色
-- `internal/ui/summary_test.go` — 4 个测试
-- `cmd/crux/main_test.go` — 8 个测试
+- `internal/ui/summary_test.go` — 5 个测试（+1 JSON mode）
+- `cmd/crux/main_test.go` — 12 个测试（含 JSON error/exitCode 测试）
 
 **修改文件：**
-- `cmd/crux/main.go` — 大幅扩展：依赖注入 + 意图命令 + flags + 信号处理 + cliCallbacks + JSONResponse
+- `cmd/crux/main.go` — 大幅扩展：依赖注入 + 意图命令 + flags + 信号处理 + cliCallbacks + JSONResponse + exitCode 统一管理
 - `kernel/kernel.go` — 新增 KernelCallbacks 接口 + callbacks 字段 + NewKernel 签名扩展 + 回调调用点
 - `kernel/kernel_test.go` — 更新所有 NewKernel 调用传 nil callbacks（7 处）
 - `kernel/process.go` — 新增导出的 Cancel() 方法
 - `go.mod` — 新增 lipgloss + golang.org/x/term + 传递依赖
 - `go.sum` — 自动更新
+- `.gitignore` — 修复 `crux` → `/crux` 防止忽略 cmd/crux/ 目录
 
 ## Change Log
 
 - 2026-02-24: Story 1.7 完整实现 — CLI 入口扩展 + 6 个 UI 组件 + Kernel 回调机制 + 信号处理 + 完整测试覆盖
+- 2026-02-24: Code Review 修复 — .gitignore 修复(C1)、退出码统一管理(H1/H2)、CJK 字符宽度修正(M1)、UI 组件 JSON 模式抑制(M2)、JSON error 补充 syscall/device 字段(M3)、新增 7 个测试

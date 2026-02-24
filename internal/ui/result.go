@@ -3,12 +3,14 @@ package ui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/mattn/go-runewidth"
 )
 
 // RenderResult outputs a result box with a double-line border.
 // Border color is success green; width adapts to min(termWidth, 120).
 func RenderResult(r *Renderer, title string, content string) {
-	if r.OutputMode == ModeQuiet {
+	if r.OutputMode == ModeQuiet || r.OutputMode == ModeJSON {
 		return
 	}
 
@@ -40,7 +42,7 @@ func RenderResult(r *Renderer, title string, content string) {
 	}
 }
 
-// runeLen returns the display width of a string (rune count).
+// runeLen returns the display width of a string, accounting for double-width CJK characters.
 func runeLen(s string) int {
-	return len([]rune(s))
+	return runewidth.StringWidth(s)
 }
