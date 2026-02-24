@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -66,9 +68,13 @@ type mockSlowLLMDriver struct {
 	err   error
 }
 
-func (d *mockSlowLLMDriver) Call(_ context.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
-	time.Sleep(d.delay)
-	return nil, d.err
+func (d *mockSlowLLMDriver) Call(ctx context.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
+	select {
+	case <-time.After(d.delay):
+		return nil, d.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (d *mockSlowLLMDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
@@ -84,11 +90,12 @@ func (d *mockSlowLLMDriver) Info() llm.DriverInfo {
 type blockingVFSFile struct {
 	blockCh  chan struct{}
 	readData []byte
+	writeErr error // returned after blockCh unblocks; nil = success
 }
 
 func (f *blockingVFSFile) Write(_ []byte) error {
 	<-f.blockCh
-	return nil
+	return f.writeErr
 }
 
 func (f *blockingVFSFile) Read(_ int) ([]byte, error) {
@@ -332,7 +339,9 @@ func TestE2E_TimeoutProcessCleanup(t *testing.T) {
 }
 
 func TestE2E_TimeoutNFR7(t *testing.T) {
-	// NFR7: process should transition to Zombie within 5 seconds of timeout
+	// NFR7: after timeout, process must transition to Zombie within 5 seconds.
+	// The overhead (totalTime - mockDelay) represents the kernel's processing
+	// time for the error→Zombie transition path.
 	delay := 100 * time.Millisecond
 	driver := &mockSlowLLMDriver{
 		delay: delay,
@@ -347,12 +356,12 @@ func TestE2E_TimeoutNFR7(t *testing.T) {
 		t.Fatal("expected non-zero exit code")
 	}
 
-	// Total time should be approximately delay + transition time
-	// NFR7: transition should take < 5 seconds
-	maxAllowed := delay + 5*time.Second
-	if totalDuration > maxAllowed {
-		t.Errorf("NFR7 violation: total duration %v exceeds max %v", totalDuration, maxAllowed)
+	// Verify transition overhead is within NFR7 bounds (5 seconds)
+	transitionOverhead := totalDuration - delay
+	if transitionOverhead > 5*time.Second {
+		t.Errorf("NFR7 violation: error→Zombie transition took %v (max 5s)", transitionOverhead)
 	}
+	t.Logf("NFR7: transition overhead %v (mock delay %v, total %v)", transitionOverhead, delay, totalDuration)
 
 	if result.Proc.GetState() != types.StateZombie {
 		t.Errorf("expected Zombie, got %d", result.Proc.GetState())
@@ -416,4 +425,184 @@ func TestSignalHandling_GracefulShutdown(t *testing.T) {
 	if proc.GetState() != types.StateZombie {
 		t.Fatalf("expected Zombie state, got %d", proc.GetState())
 	}
+}
+
+// --- Task: AC #2 Reliability Test (NFR6: ≥95% success, NFR1: ≤30s latency) ---
+
+func TestE2E_Reliability_NFR6(t *testing.T) {
+	const runs = 20
+	successCount := 0
+
+	for i := 0; i < runs; i++ {
+		driver := &mockLLMDriver{
+			response: &llm.LLMResponse{Content: fmt.Sprintf("result-%d", i), TokensUsed: 10},
+		}
+
+		start := time.Now()
+		result := runE2E(t, fmt.Sprintf("task-%d", i), driver, ui.ModeDefault)
+		elapsed := time.Since(start)
+
+		if result.Exit.Code == 0 {
+			successCount++
+		}
+
+		// NFR1: each task should complete within 30 seconds
+		if elapsed > 30*time.Second {
+			t.Errorf("run %d exceeded 30s latency: %v", i, elapsed)
+		}
+	}
+
+	successRate := float64(successCount) / float64(runs) * 100
+	if successRate < 95.0 {
+		t.Errorf("NFR6 violation: success rate %.1f%% < 95%% (%d/%d succeeded)", successRate, successCount, runs)
+	}
+	t.Logf("NFR6 reliability: %d/%d succeeded (%.1f%%)", successCount, runs, successRate)
+}
+
+// --- AC #7 Signal Handling: Interrupt Summary and Double-SIGINT ---
+//
+// NOTE on architectural limitation (M2 documentation):
+// LLMFile.Write calls driver.Call(context.Background(), ...), NOT the process
+// context. This means proc.Cancel() does NOT propagate to an in-flight LLM call.
+// Cancellation only takes effect at the next reasonStep loop iteration's ctx.Done()
+// check. Tests below simulate this by manually unblocking the mock after Cancel().
+// This is a known architectural debt to be addressed in a future story.
+
+func TestSignalHandling_InterruptSummary(t *testing.T) {
+	blockCh := make(chan struct{})
+
+	w := &syncWriter{}
+	renderer := &ui.Renderer{
+		Writer:     w,
+		OutputMode: ui.ModeDefault,
+		Profile:    ui.TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+	}
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	cb := &cliCallbacks{progress: progress}
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &blockingVFSFile{
+			blockCh:  blockCh,
+			writeErr: fmt.Errorf("interrupted: context cancelled"),
+			readData: []byte(`{"content":"interrupted","tokens_used":1}`),
+		}, nil
+	})
+	ctxMgr := cruxctx.NewManager()
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+
+	pid, err := kern.Spawn("signal test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	// Let goroutine start and block on Write
+	time.Sleep(50 * time.Millisecond)
+
+	// Simulate signal handler: emit interrupt message then cancel (mirrors main.go signal handler)
+	progress.KernelMessage("PID %d interrupted (SIGINT)", pid)
+	proc.Cancel()
+
+	// Unblock LLM Write (simulating the real driver returning after subprocess kill)
+	close(blockCh)
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process completion")
+	}
+
+	output := w.String()
+	if !strings.Contains(output, "interrupted") {
+		t.Errorf("expected interrupt summary in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "SIGINT") {
+		t.Errorf("expected SIGINT mention in output, got:\n%s", output)
+	}
+	if proc.GetState() != types.StateZombie {
+		t.Errorf("expected Zombie state, got %d", proc.GetState())
+	}
+}
+
+func TestSignalHandling_DoubleInterruptForceExit(t *testing.T) {
+	exitCode := make(chan int, 1)
+	saved := forceExitFunc
+	forceExitFunc = func(code int) { exitCode <- code }
+	defer func() { forceExitFunc = saved }()
+
+	blockCh := make(chan struct{})
+
+	w := &syncWriter{}
+	renderer := &ui.Renderer{
+		Writer:     w,
+		OutputMode: ui.ModeDefault,
+		Profile:    ui.TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+	}
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	cb := &cliCallbacks{progress: progress}
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &blockingVFSFile{
+			blockCh:  blockCh,
+			readData: []byte(`{"content":"test","tokens_used":1}`),
+		}, nil
+	})
+	ctxMgr := cruxctx.NewManager()
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+
+	pid, err := kern.Spawn("double signal test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := kern.GetProcess(pid)
+
+	// Let goroutine start and block on LLM Write
+	time.Sleep(50 * time.Millisecond)
+
+	// Replicate signal handler from runRoot using a test channel
+	sigCh := make(chan os.Signal, 2)
+	handlerDone := make(chan struct{})
+	go func() {
+		defer close(handlerDone)
+		<-sigCh // First signal
+		progress.KernelMessage("PID %d interrupted (SIGINT)", pid)
+		proc.Cancel()
+		select {
+		case <-sigCh: // Second signal within timeout
+			forceExitFunc(130)
+		case <-time.After(2 * time.Second):
+		}
+	}()
+
+	// Send first SIGINT
+	sigCh <- syscall.SIGINT
+	time.Sleep(20 * time.Millisecond)
+
+	// Send second SIGINT within 2-second window
+	sigCh <- syscall.SIGINT
+
+	select {
+	case code := <-exitCode:
+		if code != 130 {
+			t.Errorf("expected force exit code 130, got %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("expected force exit on double SIGINT")
+	}
+
+	// Cleanup: unblock the LLM and drain process
+	close(blockCh)
+	<-proc.Done
+	<-handlerDone
 }

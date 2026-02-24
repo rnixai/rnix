@@ -5,6 +5,7 @@ _bmad/
 .playwright-mcp/
 .gemini/
 .codex/skills/
+.agents/
 
 # Binaries
 /crux

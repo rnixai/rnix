@@ -939,7 +939,7 @@ func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
 	}
 
 	// Verify each process has correct state
-	for i, pid := range pids {
+	for _, pid := range pids {
 		p, ok := k.GetProcess(pid)
 		if !ok {
 			t.Errorf("PID %d not found in process table", pid)
@@ -954,7 +954,6 @@ func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
 		if p.Result != "multi" {
 			t.Errorf("PID %d: expected result 'multi', got %q", pid, p.Result)
 		}
-		_ = i
 	}
 
 	assertProcessTableConsistency(t, k)
