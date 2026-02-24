@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/gonewx/crux/internal/types"
@@ -276,5 +277,70 @@ func TestHostFSFile_Read_PartialLength(t *testing.T) {
 	}
 	if string(data2) != ", " {
 		t.Errorf("Read(2) = %q, want %q", string(data2), ", ")
+	}
+}
+
+func TestHostFSFile_Write_AfterClose(t *testing.T) {
+	dir := testdataDir(t)
+	factory := FileFactory()
+
+	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	err = file.Write(context.Background(), []byte("data"))
+	if err == nil {
+		t.Fatal("expected error on Write after Close, got nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "closed") {
+		t.Errorf("expected closed error, got: %s", got)
+	}
+}
+
+func TestHostFSFile_Write_ReturnsDriverError(t *testing.T) {
+	dir := testdataDir(t)
+	factory := FileFactory()
+
+	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	err = file.Write(context.Background(), []byte("data"))
+	if err == nil {
+		t.Fatal("expected error on Write to read-only device, got nil")
+	}
+
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) {
+		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+	}
+	if drvErr.Code != types.ErrPermission {
+		t.Errorf("expected ErrPermission, got %s", drvErr.Code)
+	}
+}
+
+func TestHostFSFile_Stat_AfterClose(t *testing.T) {
+	dir := testdataDir(t)
+	factory := FileFactory()
+
+	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	if err := file.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	_, err = file.Stat()
+	if err == nil {
+		t.Fatal("expected error on Stat after Close, got nil")
 	}
 }

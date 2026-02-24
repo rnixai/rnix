@@ -298,21 +298,21 @@ Claude Opus 4.6 (claude-opus-4-6)
 
 ### File List
 
-- `drivers/fs/hostfs.go` — 新建：HostFSFile 结构体 + FileFactory 工厂 + mapOSError 辅助
-- `drivers/fs/hostfs_test.go` — 新建：12 个单元测试
+- `drivers/fs/hostfs.go` — 新建：HostFSFile 结构体 + FileFactory 工厂 + mapOSError 辅助（R2: Write 返回 DriverError + closed 检查）
+- `drivers/fs/hostfs_test.go` — 新建：15 个单元测试（R2: +3 新增 Write_AfterClose、Write_ReturnsDriverError、Stat_AfterClose）
 - `drivers/fs/testdata/sample.txt` — 新建：读取验证 fixture
 - `drivers/fs/testdata/nested/deep.txt` — 新建：嵌套路径验证 fixture
 - `cmd/crux/main.go` — 修改：新增 `drivers/fs` import 和 `/dev/fs` 设备注册
 - `internal/types/types.go` — 修改：新增 `DriverError` 类型（供驱动层使用，避免 drivers/ → kernel/ 依赖）
-- `vfs/vfs.go` — 修改：VFS.Open 新增 `DriverError` 错误码提取，传播驱动层错误码
+- `vfs/vfs.go` — 修改：新增 `driverErrCode()` 辅助函数，Open/Read/Write/Close 统一提取 DriverError 错误码
 
 ## Senior Developer Review (AI)
 
 **Reviewer:** Decker | **Date:** 2026-02-24 | **Model:** Claude Opus 4.6
 
-### Review Outcome: Approved with Fixes Applied
+### Review Round 1: Approved with Fixes Applied
 
-### Issues Found & Fixed (4 HIGH/MEDIUM)
+#### Issues Found & Fixed (4 HIGH/MEDIUM)
 
 | ID | Severity | Issue | Fix |
 |----|----------|-------|-----|
@@ -322,16 +322,34 @@ Claude Opus 4.6 (claude-opus-4-6)
 | M2 | MEDIUM | `Read(length > 0)` 部分读取路径零测试覆盖 | 新增 `TestHostFSFile_Read_PartialLength` |
 | M3 | MEDIUM | VFS.Open 将驱动错误码覆盖为 `ErrDriver` | VFS.Open 新增 `types.DriverError` 错误码提取逻辑 |
 
-### Remaining LOW Issues (Not Fixed)
+### Review Round 2: Approved with Fixes Applied
+
+#### Issues Found & Fixed (3 MEDIUM)
+
+| ID | Severity | Issue | Fix |
+|----|----------|-------|-----|
+| R2-M1 | MEDIUM | `HostFSFile.Write` 返回 `fmt.Errorf`，VFS 层错误码降级为 `ErrDriver` 而非 `ErrPermission` | Write 返回 `*types.DriverError{Code: ErrPermission}` |
+| R2-M2 | MEDIUM | VFS.Read/Write/Close 硬编码 `ErrDriver`，未提取 DriverError 码（仅 Open 有提取） | 新增 `driverErrCode()` 辅助函数，统一用于 Open/Read/Write/Close |
+| R2-M3 | MEDIUM | `HostFSFile.Write` 不检查 `closed` 状态（Read/Close/Stat 均有检查） | 添加 `f.closed` 检查，返回 "write to closed" 错误 |
+
+#### New Tests Added (Round 2)
+
+- `TestHostFSFile_Write_AfterClose` — 关闭后 Write 返回 closed 错误
+- `TestHostFSFile_Write_ReturnsDriverError` — Write 返回 `*types.DriverError{Code: ErrPermission}`
+- `TestHostFSFile_Stat_AfterClose` — 关闭后 Stat 返回错误
+
+#### Remaining LOW Issues (Not Fixed)
 
 | ID | Severity | Issue |
 |----|----------|-------|
 | L1 | LOW | `testdataDir` 使用 `runtime.Caller` 可简化为相对路径 |
-| L2 | LOW | 缺少 `Stat()` closed 状态测试 |
-| L3 | LOW | 空 subpath 使用 `ErrNotFound` 语义不精确 |
+| L2 | LOW | 空 subpath 使用 `ErrNotFound` 语义不精确 |
+| L3 | LOW | `Read` 中 `io.ErrUnexpectedEOF` 检查为不可达代码（min=1 时不可能触发） |
+| L4 | LOW | `FileStat.Name` 语义不一致（HostFS 返回 basename，LLM 返回 full path） |
+| L5 | LOW | Dev Notes "不需要修改的文件" 声明 vfs/ 不修改，实际已修改 |
 
-### Test Results Post-Fix
+### Test Results Post-Fix (Round 2)
 
-- `go test -race ./drivers/fs/...` — 12/12 PASS
+- `go test -race ./drivers/fs/...` — 15/15 PASS
 - `go test -race ./...` — 全量通过，零回归
 - `go vet ./...` — 无警告

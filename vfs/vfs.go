@@ -162,18 +162,22 @@ func (v *VFS) getFDTable(pid types.PID) *fdTable {
 	return t
 }
 
+// driverErrCode extracts the error code from a *types.DriverError, defaulting to ErrDriver.
+func driverErrCode(err error) types.ErrCode {
+	var drvErr *types.DriverError
+	if errors.As(err, &drvErr) {
+		return drvErr.Code
+	}
+	return types.ErrDriver
+}
+
 // Open opens a device path and returns a new FD for the process.
 func (v *VFS) Open(pid types.PID, path string, flags OpenFlag) (types.FD, error) {
 	file, err := v.devRegistry.Open(path, flags)
 	if err != nil {
-		code := types.ErrDriver
+		code := driverErrCode(err)
 		if errors.Is(err, errDeviceNotFound) {
 			code = types.ErrNotFound
-		} else {
-			var drvErr *types.DriverError
-			if errors.As(err, &drvErr) {
-				code = drvErr.Code
-			}
 		}
 		return 0, newVFSError("Open", pid, path, err, code)
 	}
@@ -194,7 +198,7 @@ func (v *VFS) Read(pid types.PID, fd types.FD, length int) ([]byte, error) {
 	}
 	data, err := file.Read(length)
 	if err != nil {
-		return nil, newVFSError("Read", pid, "", err, types.ErrDriver)
+		return nil, newVFSError("Read", pid, "", err, driverErrCode(err))
 	}
 	return data, nil
 }
@@ -210,7 +214,7 @@ func (v *VFS) Write(ctx context.Context, pid types.PID, fd types.FD, data []byte
 		return newVFSError("Write", pid, "", fmt.Errorf("invalid fd: %d", fd), types.ErrNotFound)
 	}
 	if err := file.Write(ctx, data); err != nil {
-		return newVFSError("Write", pid, "", err, types.ErrDriver)
+		return newVFSError("Write", pid, "", err, driverErrCode(err))
 	}
 	return nil
 }
@@ -226,7 +230,7 @@ func (v *VFS) Close(pid types.PID, fd types.FD) error {
 		return newVFSError("Close", pid, "", fmt.Errorf("invalid fd: %d", fd), types.ErrNotFound)
 	}
 	if err := file.Close(); err != nil {
-		return newVFSError("Close", pid, "", err, types.ErrDriver)
+		return newVFSError("Close", pid, "", err, driverErrCode(err))
 	}
 	return nil
 }
