@@ -1,6 +1,6 @@
 # Story 2.5: code-analyst 参考 Skill
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -310,3 +310,4 @@ Claude Opus 4.6 (claude-opus-4-6)
 ### Change Log
 
 - 2026-02-24: Story 2.5 实现完成 — 创建 code-analyst 参考 Skill（manifest.yaml + instructions.md），新增 2 组测试验证加载和端到端流程
+- 2026-02-24: Code Review 修复 — [M1] 修复 `time.Since(time.Now())` 虚假耗时 bug（integration_test.go 两处）; [L1] 新增 Models.Fallback 断言（loader_test.go）; [L2+L3] instructions.md 移除 Go 偏向、增加 shell 安全约束; [L4] capturingMockLLMDriver 加 sync.Mutex 并发保护
