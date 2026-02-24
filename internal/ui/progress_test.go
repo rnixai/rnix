@@ -52,7 +52,7 @@ func TestAgentStep_Format(t *testing.T) {
 	if !strings.Contains(output, "[agent/1]") {
 		t.Errorf("expected [agent/1] prefix, got %q", output)
 	}
-	if !strings.Contains(output, "reasoning step 2/3...") {
+	if !strings.Contains(output, "reasoning step 2...") {
 		t.Errorf("expected reasoning step format, got %q", output)
 	}
 }

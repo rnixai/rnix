@@ -26,6 +26,8 @@ var (
 	flagJSON    bool
 	flagVerbose bool
 	flagQuiet   bool
+	flagModel    string
+	flagMaxSteps int
 )
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
@@ -142,6 +144,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "Output in JSON format")
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Quiet output")
+	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
+	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
 	rootCmd.AddCommand(versionCmd)
 }
 
@@ -182,7 +186,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 
 	start := time.Now()
 
-	pid, err := kern.Spawn(intent, nil, kernel.SpawnOpts{})
+	pid, err := kern.Spawn(intent, nil, kernel.SpawnOpts{Model: flagModel, MaxTurns: flagMaxSteps})
 	if err != nil {
 		outputError(renderer, mode, "/dev/llm/claude", err.Error(), "智能体启动失败", "检查 Claude Code CLI 是否已安装")
 		exitCode = 1
