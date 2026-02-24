@@ -1,6 +1,6 @@
 # Story 2.5: code-analyst 参考 Skill
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -20,36 +20,36 @@ So that 我可以立即使用 Crux 分析代码并作为编写自定义 Skill �
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 code-analyst manifest.yaml (AC: #1, #5)
-  - [ ] 1.1 在 `lib/skills/code-analyst/manifest.yaml` 中定义完整的 Skill 元信息
-  - [ ] 1.2 删除 `lib/skills/code-analyst/.gitkeep`（manifest.yaml 替代占位）
-  - [ ] 1.3 验证 manifest 格式符合 `SkillManifest` 类型定义（skills/types.go:10-17）
+- [x] Task 1: 创建 code-analyst manifest.yaml (AC: #1, #5)
+  - [x] 1.1 在 `lib/skills/code-analyst/manifest.yaml` 中定义完整的 Skill 元信息
+  - [x] 1.2 删除 `lib/skills/code-analyst/.gitkeep`（manifest.yaml 替代占位）
+  - [x] 1.3 验证 manifest 格式符合 `SkillManifest` 类型定义（skills/types.go:10-17）
 
-- [ ] Task 2: 创建 code-analyst instructions.md (AC: #2)
-  - [ ] 2.1 在 `lib/skills/code-analyst/instructions.md` 中编写专业的代码分析 system prompt
-  - [ ] 2.2 instructions 必须包含：角色定义、分析维度、输出格式模板、工具使用指南
-  - [ ] 2.3 instructions 中明确指导 LLM 使用 `/dev/fs` 读取文件和 `/dev/shell` 执行命令
-  - [ ] 2.4 输出格式要求结构化（问题分类、严重等级、代码位置、修复建议）
+- [x] Task 2: 创建 code-analyst instructions.md (AC: #2)
+  - [x] 2.1 在 `lib/skills/code-analyst/instructions.md` 中编写专业的代码分析 system prompt
+  - [x] 2.2 instructions 必须包含：角色定义、分析维度、输出格式模板、工具使用指南
+  - [x] 2.3 instructions 中明确指导 LLM 使用 `/dev/fs` 读取文件和 `/dev/shell` 执行命令
+  - [x] 2.4 输出格式要求结构化（问题分类、严重等级、代码位置、修复建议）
 
-- [ ] Task 3: Skill 加载单元测试 (AC: #4, #5)
-  - [ ] 3.1 `skills/loader_test.go` 新增 `TestSkillLoader_Load_RealCodeAnalyst` — 验证真实 code-analyst Skill 的完整加载流程
-  - [ ] 3.2 验证 manifest 字段值正确（name="code-analyst"、tools=["/dev/fs", "/dev/shell"]）
-  - [ ] 3.3 验证 instructions 非空且包含关键指令关键词
-  - [ ] 3.4 使用相对路径 `../lib/skills` 作为 basePath 加载
+- [x] Task 3: Skill 加载单元测试 (AC: #4, #5)
+  - [x] 3.1 `skills/loader_test.go` 新增 `TestSkillLoader_Load_RealCodeAnalyst` — 验证真实 code-analyst Skill 的完整加载流程
+  - [x] 3.2 验证 manifest 字段值正确（name="code-analyst"、tools=["/dev/fs", "/dev/shell"]）
+  - [x] 3.3 验证 instructions 非空且包含关键指令关键词
+  - [x] 3.4 使用相对路径 `../lib/skills` 作为 basePath 加载
 
-- [ ] Task 4: 集成测试 (AC: #3)
-  - [ ] 4.1 `cmd/crux/integration_test.go` 新增 `TestE2E_CodeAnalystSkill` — 验证端到端流程
-  - [ ] 4.2 使用 mock LLM 驱动模拟 code-analyst 行为（不依赖真实 Claude Code CLI）
-  - [ ] 4.3 验证 Skill instructions 被正确注入到 LLM 请求的 system prompt
-  - [ ] 4.4 验证 AllowedDevices 限制为 ["/dev/fs", "/dev/shell"]
-  - [ ] 4.5 验证模型自动选择为 "sonnet"（来自 manifest.models.preferred）
+- [x] Task 4: 集成测试 (AC: #3)
+  - [x] 4.1 `cmd/crux/integration_test.go` 新增 `TestE2E_CodeAnalystSkill` — 验证端到端流程
+  - [x] 4.2 使用 mock LLM 驱动模拟 code-analyst 行为（不依赖真实 Claude Code CLI）
+  - [x] 4.3 验证 Skill instructions 被正确注入到 LLM 请求的 system prompt
+  - [x] 4.4 验证 AllowedDevices 限制为 ["/dev/fs", "/dev/shell"]
+  - [x] 4.5 验证模型自动选择为 "sonnet"（来自 manifest.models.preferred）
 
-- [ ] Task 5: 全量回归测试 (AC: #1-5)
-  - [ ] 5.1 `go test -race ./skills/...` 通过
-  - [ ] 5.2 `go test -race ./kernel/...` 通过
-  - [ ] 5.3 `go test -race ./cmd/crux/...` 通过
-  - [ ] 5.4 `go test -race ./...` 全量通过
-  - [ ] 5.5 `go vet ./...` 无警告
+- [x] Task 5: 全量回归测试 (AC: #1-5)
+  - [x] 5.1 `go test -race ./skills/...` 通过
+  - [x] 5.2 `go test -race ./kernel/...` 通过
+  - [x] 5.3 `go test -race ./cmd/crux/...` 通过
+  - [x] 5.4 `go test -race ./...` 全量通过
+  - [x] 5.5 `go vet ./...` 无警告
 
 ## Dev Notes
 
@@ -283,10 +283,30 @@ cmd/crux/integration_test.go             (修改 — 新增 1 个集成测试)
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6 (claude-opus-4-6)
 
 ### Debug Log References
 
+无异常。集成测试首次运行因缺少 `outputSuccess` 调用导致输出验证失败，添加后一次通过。
+
 ### Completion Notes List
 
+- Task 1: 创建 `lib/skills/code-analyst/manifest.yaml`，包含 name、description、tools(["/dev/fs", "/dev/shell"])、models(provider: claude, preferred: sonnet, fallback: haiku)、context_budget: 8192。删除 .gitkeep 占位文件。
+- Task 2: 创建 `lib/skills/code-analyst/instructions.md`，包含角色定义（高级代码审查工程师）、5 个分析维度（Bug/安全/性能/可维护性/风格）、工具使用指南（/dev/fs + /dev/shell）、工作流程、严重等级定义（Critical/Warning/Info）、结构化输出格式模板。
+- Task 3: `skills/loader_test.go` 新增 `TestSkillLoader_Load_RealCodeAnalyst`，使用 `../lib/skills` 路径加载真实 code-analyst Skill，验证所有 manifest 字段和 instructions 关键词。9/9 tests PASS。
+- Task 4: `cmd/crux/integration_test.go` 新增 `capturingMockLLMDriver`（捕获请求以验证注入内容）和 `TestE2E_CodeAnalystSkill`，验证 system prompt 注入、AllowedDevices=["/dev/fs", "/dev/shell"]、model="sonnet"。
+- Task 5: `go test -race ./...` 全量通过，`go vet ./...` 无警告，零回归。
+
 ### File List
+
+- `lib/skills/code-analyst/manifest.yaml` — 新建：Skill 元信息定义
+- `lib/skills/code-analyst/instructions.md` — 新建：代码分析 system prompt
+- `lib/skills/code-analyst/.gitkeep` — 删除：被实际内容文件替代
+- `skills/loader_test.go` — 修改：新增 TestSkillLoader_Load_RealCodeAnalyst
+- `cmd/crux/integration_test.go` — 修改：新增 capturingMockLLMDriver + TestE2E_CodeAnalystSkill
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改：2-5 状态更新
+- `_bmad-output/implementation-artifacts/2-5-code-analyst-reference-skill.md` — 修改：任务标记完成
+
+### Change Log
+
+- 2026-02-24: Story 2.5 实现完成 — 创建 code-analyst 参考 Skill（manifest.yaml + instructions.md），新增 2 组测试验证加载和端到端流程

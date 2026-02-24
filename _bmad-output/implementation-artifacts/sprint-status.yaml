@@ -59,7 +59,7 @@ development_status:
   2-2-host-filesystem-driver-dev-fs: done
   2-3-shell-driver-dev-shell: done
   2-4-skill-injection-and-device-permission-whitelist: done
-  2-5-code-analyst-reference-skill: ready-for-dev
+  2-5-code-analyst-reference-skill: review
   epic-2-retrospective: optional
 
   # Epic 3: 调试追踪（Debug Tracing — astrace）
