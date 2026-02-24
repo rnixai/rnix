@@ -57,7 +57,7 @@ development_status:
   2-0-tech-debt-llm-driver-error-handling: done
   2-1-skill-loader-and-manifest-parsing: done
   2-2-host-filesystem-driver-dev-fs: done
-  2-3-shell-driver-dev-shell: review
+  2-3-shell-driver-dev-shell: done
   2-4-skill-injection-and-device-permission-whitelist: backlog
   2-5-code-analyst-reference-skill: backlog
   epic-2-retrospective: optional
