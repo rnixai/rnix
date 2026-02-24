@@ -1,6 +1,6 @@
 # Story 2.3: Shell 驱动（/dev/shell）
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -19,16 +19,16 @@ So that 我可以运行构建工具、检查环境、执行脚本。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 drivers/shell/shell.go — ShellFile VFSFile 实现 + ShellDriver + FileFactory (AC: #1, #2, #3, #4)
-  - [ ] 1.1 创建 `drivers/shell/shell.go` 文件，包名 `shell`
-  - [ ] 1.2 定义 `ShellDriver` 结构体及构造函数
+- [x] Task 1: 创建 drivers/shell/shell.go — ShellFile VFSFile 实现 + ShellDriver + FileFactory (AC: #1, #2, #3, #4)
+  - [x] 1.1 创建 `drivers/shell/shell.go` 文件，包名 `shell`
+  - [x] 1.2 定义 `ShellDriver` 结构体及构造函数
     - 字段：`defaultTimeout time.Duration`（默认 30 秒）、`cmdBuilder CommandBuilder`（可注入，用于测试）
     - `CommandBuilder` 类型：`func(ctx context.Context, name string, args ...string) *exec.Cmd`
     - `defaultCommandBuilder` 包装 `exec.CommandContext`
     - `NewDriver()` 使用默认配置创建、`NewDriverWithOptions(opts DriverOpts)` 支持自定义配置
-  - [ ] 1.3 定义 `ShellFile` 结构体，实现 `vfs.VFSFile` 接口
+  - [x] 1.3 定义 `ShellFile` 结构体，实现 `vfs.VFSFile` 接口
     - 字段：`driver *ShellDriver`、`devicePath string`、`response []byte`（缓冲的命令输出）、`offset int`（读取偏移）、`closed bool`
-  - [ ] 1.4 实现 `ShellFile.Write(ctx context.Context, data []byte) error` — **Write-then-Read 语义**
+  - [x] 1.4 实现 `ShellFile.Write(ctx context.Context, data []byte) error` — **Write-then-Read 语义**
     - 接收命令字符串（`data` 即 shell 命令文本，UTF-8 编码）
     - 已关闭时返回 `*types.DriverError{Code: ErrDriver}`（closed 错误）
     - 空命令时返回 `*types.DriverError{Code: ErrDriver}`（empty command 错误）
@@ -38,54 +38,54 @@ So that 我可以运行构建工具、检查环境、执行脚本。
     - 超时时（`ctx.Err() == context.DeadlineExceeded`）返回 `*types.DriverError{Code: ErrTimeout}`
     - 命令执行完成后将输出缓冲到 `f.response`，重置 `f.offset = 0`
     - **注意：** 非零退出码 **不是** 驱动层错误——命令正常执行但返回非零退出码是合法的，输出仍然缓冲到 response，exitCode 信息包含在输出中
-  - [ ] 1.5 实现 `ShellFile.Read(length int) ([]byte, error)` — 读取缓冲的命令输出
+  - [x] 1.5 实现 `ShellFile.Read(length int) ([]byte, error)` — 读取缓冲的命令输出
     - 已关闭时返回错误
     - `f.response == nil` 时返回错误（"no output available: write a command first"）
     - `length <= 0` 时返回剩余全部输出
     - `length > 0` 时返回指定长度，维护 `offset`
     - 模式参考 `drivers/llm/vfsfile.go` 的 Read 实现
-  - [ ] 1.6 实现 `ShellFile.Close() error`
+  - [x] 1.6 实现 `ShellFile.Close() error`
     - 设置 `f.closed = true`
     - 清空 `f.response`
     - 重复 Close 返回错误
-  - [ ] 1.7 实现 `ShellFile.Stat() (vfs.FileStat, error)`
+  - [x] 1.7 实现 `ShellFile.Stat() (vfs.FileStat, error)`
     - 已关闭时返回错误
     - 返回 `vfs.FileStat{Name: f.devicePath, Size: int64(len(f.response)), IsDevice: true, DevicePath: "/dev/shell"}`
-  - [ ] 1.8 实现 `FileFactory(driver *ShellDriver, basePath string) vfs.VFSFileFactory`
+  - [x] 1.8 实现 `FileFactory(driver *ShellDriver, basePath string) vfs.VFSFileFactory`
     - 返回闭包 `func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error)`
     - `/dev/shell` 支持 `O_RDWR`（读写模式：Write 命令 + Read 结果）
     - `O_RDONLY` 和 `O_WRONLY` 也可接受（允许灵活使用）
     - 返回 `&ShellFile{driver: driver, devicePath: basePath + subpath}`
 
-- [ ] Task 2: 创建 drivers/shell/shell_test.go — 单元测试 (AC: #1-4)
-  - [ ] 2.1 创建 `drivers/shell/shell_test.go` 文件
-  - [ ] 2.2 创建 mock CommandBuilder 用于测试
+- [x] Task 2: 创建 drivers/shell/shell_test.go — 单元测试 (AC: #1-4)
+  - [x] 2.1 创建 `drivers/shell/shell_test.go` 文件
+  - [x] 2.2 创建 mock CommandBuilder 用于测试
     - 使用 `exec.Command("echo", "mock output")` 或自定义脚本模拟成功/失败/超时
     - 参考 `drivers/llm/claude_cli_test.go` 的 CommandBuilder mock 模式
-  - [ ] 2.3 `TestShellFile_WriteAndRead_Success` — Write 命令 → Read 输出，验证端到端流程
-  - [ ] 2.4 `TestShellFile_Write_EmptyCommand` — 空命令返回 DriverError
-  - [ ] 2.5 `TestShellFile_Write_Timeout` — 超时返回 `ErrTimeout`（使用 mock 执行 `sleep` 命令）
-  - [ ] 2.6 `TestShellFile_Read_BeforeWrite` — 未执行命令时 Read 返回错误
-  - [ ] 2.7 `TestShellFile_Read_PartialLength` — 指定 length 读取部分输出
-  - [ ] 2.8 `TestShellFile_Close_DoubleClose` — 重复 Close 返回错误
-  - [ ] 2.9 `TestShellFile_Write_AfterClose` — Close 后 Write 返回错误
-  - [ ] 2.10 `TestShellFile_Read_AfterClose` — Close 后 Read 返回错误
-  - [ ] 2.11 `TestShellFile_Stat` — 验证 Stat 返回正确的 FileStat 字段
-  - [ ] 2.12 `TestShellFile_Stat_AfterClose` — Close 后 Stat 返回错误
-  - [ ] 2.13 `TestShellFile_Write_NonZeroExitCode` — 非零退出码不是驱动错误，输出正常缓冲
-  - [ ] 2.14 `TestShellDriver_InheritsEnv` — 验证命令继承当前环境变量（`echo $HOME`）
-  - [ ] 2.15 `TestFileFactory_ReturnsShellFile` — FileFactory 返回正确的 ShellFile 实例
+  - [x] 2.3 `TestShellFile_WriteAndRead_Success` — Write 命令 → Read 输出，验证端到端流程
+  - [x] 2.4 `TestShellFile_Write_EmptyCommand` — 空命令返回 DriverError
+  - [x] 2.5 `TestShellFile_Write_Timeout` — 超时返回 `ErrTimeout`（使用 mock 执行 `sleep` 命令）
+  - [x] 2.6 `TestShellFile_Read_BeforeWrite` — 未执行命令时 Read 返回错误
+  - [x] 2.7 `TestShellFile_Read_PartialLength` — 指定 length 读取部分输出
+  - [x] 2.8 `TestShellFile_Close_DoubleClose` — 重复 Close 返回错误
+  - [x] 2.9 `TestShellFile_Write_AfterClose` — Close 后 Write 返回错误
+  - [x] 2.10 `TestShellFile_Read_AfterClose` — Close 后 Read 返回错误
+  - [x] 2.11 `TestShellFile_Stat` — 验证 Stat 返回正确的 FileStat 字段
+  - [x] 2.12 `TestShellFile_Stat_AfterClose` — Close 后 Stat 返回错误
+  - [x] 2.13 `TestShellFile_Write_NonZeroExitCode` — 非零退出码不是驱动错误，输出正常缓冲
+  - [x] 2.14 `TestShellDriver_InheritsEnv` — 验证命令继承当前环境变量（`echo $HOME`）
+  - [x] 2.15 `TestFileFactory_ReturnsShellFile` — FileFactory 返回正确的 ShellFile 实例
 
-- [ ] Task 3: 集成到 CLI 入口 — 设备注册 (AC: #4)
-  - [ ] 3.1 在 `cmd/crux/main.go` 中导入 `drivers/shell` 包
-  - [ ] 3.2 创建 ShellDriver 实例：`shellDriver := shell.NewDriver()`
-  - [ ] 3.3 注册设备：`_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))`
-  - [ ] 3.4 确认注册顺序与其他设备一致（在 `/dev/llm/claude` 和 `/dev/fs` 之后）
+- [x] Task 3: 集成到 CLI 入口 — 设备注册 (AC: #4)
+  - [x] 3.1 在 `cmd/crux/main.go` 中导入 `drivers/shell` 包
+  - [x] 3.2 创建 ShellDriver 实例：`shellDriver := shell.NewDriver()`
+  - [x] 3.3 注册设备：`_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))`
+  - [x] 3.4 确认注册顺序与其他设备一致（在 `/dev/llm/claude` 和 `/dev/fs` 之后）
 
-- [ ] Task 4: 全量回归测试 (AC: #1-4)
-  - [ ] 4.1 `go test -race ./drivers/shell/...` 全部通过
-  - [ ] 4.2 `go test -race ./...` 全量通过（确认无回归）
-  - [ ] 4.3 `go vet ./...` 无警告
+- [x] Task 4: 全量回归测试 (AC: #1-4)
+  - [x] 4.1 `go test -race ./drivers/shell/...` 全部通过
+  - [x] 4.2 `go test -race ./...` 全量通过（确认无回归）
+  - [x] 4.3 `go vet ./...` 无警告
 
 ## Dev Notes
 
@@ -346,10 +346,31 @@ drivers/shell/
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+无异常。
+
 ### Completion Notes List
 
+- ✅ Task 1: 创建 `drivers/shell/shell.go`，实现 ShellDriver + ShellFile (VFSFile) + FileFactory
+  - ShellDriver 含可注入 CommandBuilder，默认 30s 超时
+  - ShellFile 实现 Write-then-Read 语义：Write 接收命令字符串，通过 `sh -c` 执行，缓冲 stdout+stderr 合并输出
+  - 非零退出码不返回错误，将 exit_code 信息追加到输出
+  - 超时返回 `*types.DriverError{Code: ErrTimeout}`
+  - 所有方法（Read/Write/Close/Stat）统一检查 closed 状态
+  - 错误统一使用 `*types.DriverError`，不导入 kernel 包（吸收 Story 2.2 H1 教训）
+- ✅ Task 2: 创建 `drivers/shell/shell_test.go`，15 个测试全部通过
+  - 使用 TestHelperProcess + mockCmdBuilder 模式（与 claude_cli_test.go 一致）
+  - 覆盖：成功执行、空命令、超时、Write前Read、部分长度Read、双重Close、Close后操作、Stat、非零退出码、环境变量继承、FileFactory
+- ✅ Task 3: `cmd/crux/main.go` 添加 import + NewDriver + Register（3 行），在 /dev/fs 之后注册
+- ✅ Task 4: `go vet ./...` 零警告，`go test -race ./...` 全量通过，零回归
+
 ### File List
+
+- `drivers/shell/shell.go` — 新建（ShellDriver + ShellFile + FileFactory，161 行）
+- `drivers/shell/shell_test.go` — 新建（15 个测试用例，292 行）
+- `cmd/crux/main.go` — 修改（新增 import + 2 行设备注册）
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改（状态更新）
+- `_bmad-output/implementation-artifacts/2-3-shell-driver-dev-shell.md` — 修改（任务标记 + Dev Agent Record）
