@@ -126,3 +126,45 @@ func TestSkillLoader_Load_NoInstructions(t *testing.T) {
 		t.Fatal("expected error for missing instructions.md, got nil")
 	}
 }
+
+func TestSkillLoader_Load_RealCodeAnalyst(t *testing.T) {
+	loader := NewSkillLoader("../lib/skills")
+	info, err := loader.Load("code-analyst")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	// 3.2 验证 manifest 字段值
+	if info.Manifest.Name != "code-analyst" {
+		t.Errorf("Name = %q, want %q", info.Manifest.Name, "code-analyst")
+	}
+	if len(info.Manifest.Tools) != 2 {
+		t.Fatalf("Tools length = %d, want 2", len(info.Manifest.Tools))
+	}
+	if info.Manifest.Tools[0] != "/dev/fs" {
+		t.Errorf("Tools[0] = %q, want %q", info.Manifest.Tools[0], "/dev/fs")
+	}
+	if info.Manifest.Tools[1] != "/dev/shell" {
+		t.Errorf("Tools[1] = %q, want %q", info.Manifest.Tools[1], "/dev/shell")
+	}
+	if info.Manifest.Models.Provider != "claude" {
+		t.Errorf("Models.Provider = %q, want %q", info.Manifest.Models.Provider, "claude")
+	}
+	if info.Manifest.Models.Preferred != "sonnet" {
+		t.Errorf("Models.Preferred = %q, want %q", info.Manifest.Models.Preferred, "sonnet")
+	}
+	if info.Manifest.ContextBudget != 8192 {
+		t.Errorf("ContextBudget = %d, want %d", info.Manifest.ContextBudget, 8192)
+	}
+
+	// 3.3 验证 instructions 非空且包含关键指令关键词
+	if info.Instructions == "" {
+		t.Fatal("Instructions is empty")
+	}
+	keywords := []string{"Code Analyst", "/dev/fs", "/dev/shell", "Critical", "Warning", "Info"}
+	for _, kw := range keywords {
+		if !strings.Contains(info.Instructions, kw) {
+			t.Errorf("Instructions missing keyword %q", kw)
+		}
+	}
+}

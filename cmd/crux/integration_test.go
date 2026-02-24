@@ -608,6 +608,25 @@ func TestSignalHandling_DoubleInterruptForceExit(t *testing.T) {
 
 // --- Story 2.4: Skill Injection E2E Test ---
 
+// capturingMockLLMDriver records the last request for assertion.
+type capturingMockLLMDriver struct {
+	response    *llm.LLMResponse
+	lastRequest llm.LLMRequest
+}
+
+func (d *capturingMockLLMDriver) Call(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+	d.lastRequest = req
+	return d.response, nil
+}
+
+func (d *capturingMockLLMDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+	return nil, fmt.Errorf("not supported")
+}
+
+func (d *capturingMockLLMDriver) Info() llm.DriverInfo {
+	return llm.DriverInfo{Name: "mock-capturing", Provider: "test", DefaultModel: "mock"}
+}
+
 func TestE2E_WithSkill_InjectsInstructions(t *testing.T) {
 	driver := &mockLLMDriver{
 		response: &llm.LLMResponse{Content: "skill result", TokensUsed: 50},
@@ -658,5 +677,82 @@ func TestE2E_WithSkill_InjectsInstructions(t *testing.T) {
 	output := w.String()
 	if !strings.Contains(output, "skill result") {
 		t.Errorf("expected 'skill result' in output, got:\n%s", output)
+	}
+}
+
+// --- Story 2.5: Real code-analyst Skill E2E Test ---
+
+func TestE2E_CodeAnalystSkill(t *testing.T) {
+	driver := &capturingMockLLMDriver{
+		response: &llm.LLMResponse{Content: "分析完成: 发现 1 个 Warning 级别问题", TokensUsed: 200},
+	}
+
+	w := &syncWriter{}
+	renderer := &ui.Renderer{
+		Writer:     w,
+		OutputMode: ui.ModeDefault,
+		Profile:    ui.TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+	}
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	cb := &cliCallbacks{progress: progress}
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
+	ctxMgr := cruxctx.NewManager()
+	sl := skills.NewSkillLoader("../../lib/skills")
+	kern := kernel.NewKernel(vfsInst, ctxMgr, sl, cb)
+
+	skillsList := []string{"code-analyst"}
+	pid, err := kern.Spawn("分析 ./kernel/kernel.go", skillsList, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	exit := <-proc.Done
+	if exit.Code != 0 {
+		t.Fatalf("expected exit code 0, got %d: %s (err: %v)", exit.Code, exit.Reason, exit.Err)
+	}
+
+	elapsed := time.Since(time.Now())
+	outputSuccess(renderer, ui.ModeDefault, pid, proc, elapsed)
+
+	// 4.3 验证 Skill instructions 被正确注入到 LLM 请求的 system prompt
+	if !strings.Contains(driver.lastRequest.SystemPrompt, "Code Analyst") {
+		t.Errorf("SystemPrompt missing 'Code Analyst', got: %q", driver.lastRequest.SystemPrompt)
+	}
+	if !strings.Contains(driver.lastRequest.SystemPrompt, "/dev/fs") {
+		t.Errorf("SystemPrompt missing '/dev/fs' tool guide")
+	}
+	if !strings.Contains(driver.lastRequest.SystemPrompt, "/dev/shell") {
+		t.Errorf("SystemPrompt missing '/dev/shell' tool guide")
+	}
+
+	// 4.4 验证 AllowedDevices 限制为 ["/dev/fs", "/dev/shell"]
+	if len(proc.AllowedDevices) != 2 {
+		t.Fatalf("expected 2 AllowedDevices, got %d: %v", len(proc.AllowedDevices), proc.AllowedDevices)
+	}
+	if proc.AllowedDevices[0] != "/dev/fs" {
+		t.Errorf("AllowedDevices[0] = %q, want %q", proc.AllowedDevices[0], "/dev/fs")
+	}
+	if proc.AllowedDevices[1] != "/dev/shell" {
+		t.Errorf("AllowedDevices[1] = %q, want %q", proc.AllowedDevices[1], "/dev/shell")
+	}
+
+	// 4.5 验证模型自动选择为 "sonnet"（来自 manifest.models.preferred）
+	if driver.lastRequest.Model != "sonnet" {
+		t.Errorf("Model = %q, want %q", driver.lastRequest.Model, "sonnet")
+	}
+
+	// Verify output contains result
+	output := w.String()
+	if !strings.Contains(output, "分析完成") {
+		t.Errorf("expected '分析完成' in output, got:\n%s", output)
 	}
 }
