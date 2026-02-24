@@ -45,11 +45,12 @@ type ReasonAction struct {
 // llmRequest is the JSON payload written to the LLM VFS device.
 // Field names and json tags are compatible with drivers/llm.LLMRequest.
 type llmRequest struct {
-	Intent       string `json:"intent"`
-	SystemPrompt string `json:"system_prompt,omitempty"`
-	Model        string `json:"model,omitempty"`
-	MaxTurns     int    `json:"max_turns,omitempty"`
-	TimeoutMs    int64  `json:"timeout_ms,omitempty"`
+	Intent       string            `json:"intent"`
+	SystemPrompt string            `json:"system_prompt,omitempty"`
+	Model        string            `json:"model,omitempty"`
+	MaxTurns     int               `json:"max_turns,omitempty"`
+	TimeoutMs    int64             `json:"timeout_ms,omitempty"`
+	Messages     []cruxctx.Message `json:"messages,omitempty"`
 }
 
 // llmResponse is the JSON payload read from the LLM VFS device.
@@ -108,7 +109,7 @@ func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (type
 		_ = k.ctxMgr.CtxFree(cid)
 		return 0, NewSyscallError("Spawn", proc.PID, "/dev/llm/claude", err, types.ErrDriver)
 	}
-	proc.FDTable[llmFD] = nil // FD tracked by VFS internally; placeholder in process FDTable
+	proc.FDTable[llmFD] = nil // VFS manages actual file internally; tracks FD existence for process inspection
 
 	// Set up goroutine context for cancellation
 	ctx, cancel := gocontext.WithCancel(gocontext.Background())
@@ -125,6 +126,7 @@ func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (type
 	}, proc.PID, nil, time.Since(start))
 
 	// Launch reasoning goroutine
+	// Note: CtxFree deferred to Wait/Reap (Story 4.1) per resource release order
 	proc.wg.Add(1)
 	go func() {
 		defer proc.wg.Done()
@@ -156,6 +158,15 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 	}
 }
 
+// finishProcess terminates the process and writes the exit status to the Done channel.
+func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
+	_ = proc.Terminate(exit)
+	select {
+	case proc.Done <- exit:
+	default:
+	}
+}
+
 // reasonStep executes the reasoning loop for a process.
 func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	maxSteps := DefaultMaxSteps
@@ -166,12 +177,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	defer func() {
 		// Ensure process always transitions to Zombie
 		if proc.GetState() == types.StateRunning {
-			exit := ExitStatus{Code: 1, Reason: "unexpected exit"}
-			_ = proc.Terminate(exit)
-			select {
-			case proc.Done <- exit:
-			default:
-			}
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "unexpected exit"})
 		}
 	}()
 
@@ -181,16 +187,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// Check context cancellation
 		select {
 		case <-proc.ctx.Done():
-			exit := ExitStatus{Code: 1, Reason: "context cancelled"}
-			_ = proc.Terminate(exit)
-			select {
-			case proc.Done <- exit:
-			default:
-			}
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "cancelled",
 			}, nil, proc.ctx.Err(), time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "context cancelled"})
 			return
 		default:
 		}
@@ -198,74 +199,62 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// Build prompt from context
 		promptResult, err := k.ctxMgr.BuildPrompt(proc.CtxID)
 		if err != nil {
-			exit := ExitStatus{Code: 1, Reason: "build prompt failed", Err: err}
-			_ = proc.Terminate(exit)
-			select {
-			case proc.Done <- exit:
-			default:
-			}
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "error",
+			}, nil, err, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "build prompt failed", Err: err})
 			return
 		}
 
-		// Construct LLM request
+		// Construct LLM request with full conversation history
 		req := llmRequest{
 			Intent:       proc.Intent,
 			SystemPrompt: promptResult.SystemPrompt,
 			Model:        opts.Model,
 			MaxTurns:     1,
 			TimeoutMs:    opts.TimeoutMs,
+			Messages:     promptResult.Messages,
 		}
 		reqJSON, err := json.Marshal(req)
 		if err != nil {
-			exit := ExitStatus{Code: 1, Reason: "marshal request failed", Err: err}
-			_ = proc.Terminate(exit)
-			select {
-			case proc.Done <- exit:
-			default:
-			}
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "error",
+			}, nil, err, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "marshal request failed", Err: err})
 			return
 		}
 
 		// Write request to LLM device
 		if err := k.vfs.Write(proc.PID, llmFD, reqJSON); err != nil {
-			exit := ExitStatus{Code: 1, Reason: "llm write failed", Err: err}
-			_ = proc.Terminate(exit)
-			select {
-			case proc.Done <- exit:
-			default:
-			}
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "error",
 			}, nil, err, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm write failed", Err: err})
 			return
 		}
 
 		// Read response from LLM device
 		respData, err := k.vfs.Read(proc.PID, llmFD, 1<<20) // 1MB max
 		if err != nil {
-			exit := ExitStatus{Code: 1, Reason: "llm read failed", Err: err}
-			_ = proc.Terminate(exit)
-			select {
-			case proc.Done <- exit:
-			default:
-			}
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "error",
 			}, nil, err, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm read failed", Err: err})
 			return
 		}
 
 		// Parse LLM response
 		var resp llmResponse
 		if err := json.Unmarshal(respData, &resp); err != nil {
-			exit := ExitStatus{Code: 1, Reason: "unmarshal response failed", Err: err}
-			_ = proc.Terminate(exit)
-			select {
-			case proc.Done <- exit:
-			default:
-			}
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "error",
+			}, nil, err, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "unmarshal response failed", Err: err})
 			return
 		}
 
@@ -277,40 +266,31 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		switch action.Type {
 		case ActionText:
 			proc.Result = action.Content
-			exit := ExitStatus{Code: 0, Reason: "completed"}
-			_ = proc.Terminate(exit)
-			select {
-			case proc.Done <- exit:
-			default:
-			}
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "text",
 			}, action.Content, nil, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
 			return
 
 		case ActionToolCall:
+			// Append LLM response as assistant message to maintain conversation history
+			if err := k.ctxMgr.AppendMessage(proc.CtxID, cruxctx.RoleAssistant, resp.Content); err != nil {
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append assistant message failed", Err: err})
+				return
+			}
+
 			// Open tool device
 			toolFD, err := k.vfs.Open(proc.PID, action.ToolPath, vfs.O_RDWR)
 			if err != nil {
-				exit := ExitStatus{Code: 1, Reason: "tool open failed: " + action.ToolPath, Err: err}
-				_ = proc.Terminate(exit)
-				select {
-				case proc.Done <- exit:
-				default:
-				}
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool open failed: " + action.ToolPath, Err: err})
 				return
 			}
 
 			// Write tool data
 			if err := k.vfs.Write(proc.PID, toolFD, action.ToolData); err != nil {
 				_ = k.vfs.Close(proc.PID, toolFD)
-				exit := ExitStatus{Code: 1, Reason: "tool write failed", Err: err}
-				_ = proc.Terminate(exit)
-				select {
-				case proc.Done <- exit:
-				default:
-				}
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool write failed", Err: err})
 				return
 			}
 
@@ -318,12 +298,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			toolResult, err := k.vfs.Read(proc.PID, toolFD, 1<<20)
 			if err != nil {
 				_ = k.vfs.Close(proc.PID, toolFD)
-				exit := ExitStatus{Code: 1, Reason: "tool read failed", Err: err}
-				_ = proc.Terminate(exit)
-				select {
-				case proc.Done <- exit:
-				default:
-				}
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool read failed", Err: err})
 				return
 			}
 
@@ -331,12 +306,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 			// Append tool result to context
 			if err := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, string(toolResult)); err != nil {
-				exit := ExitStatus{Code: 1, Reason: "append tool result failed", Err: err}
-				_ = proc.Terminate(exit)
-				select {
-				case proc.Done <- exit:
-				default:
-				}
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append tool result failed", Err: err})
 				return
 			}
 
@@ -349,13 +319,8 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 	}
 
-	// Max steps exceeded — force completion
-	exit := ExitStatus{Code: 0, Reason: "max steps exceeded"}
-	_ = proc.Terminate(exit)
-	select {
-	case proc.Done <- exit:
-	default:
-	}
+	// Max steps exceeded — incomplete reasoning
+	k.finishProcess(proc, ExitStatus{Code: 1, Reason: "max steps exceeded"})
 }
 
 // parseAction determines the action type from an LLM response.

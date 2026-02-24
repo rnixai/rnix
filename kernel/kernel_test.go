@@ -356,19 +356,10 @@ func TestSpawn_VFSOpenFailure(t *testing.T) {
 }
 
 func TestSpawn_DebugChanEvents(t *testing.T) {
-	// DebugChan must be set before Spawn to avoid data race.
-	// We initialize it in NewProcess by modifying the process after creation
-	// but before Spawn. Since Spawn creates the process internally,
-	// we test via the integration path where DebugChan is initialized in NewProcess.
-	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
-		return &mockLLMFile{
-			readData: makeLLMResponse("debug result", 10),
-		}, nil
-	})
-	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr)
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("debug result", 10),
+	}
+	k, _, _ := newTestKernel(llmFile)
 
 	pid, err := k.Spawn("debug intent", []string{"s1"}, SpawnOpts{})
 	if err != nil {
@@ -382,11 +373,40 @@ func TestSpawn_DebugChanEvents(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	if proc.GetState() != types.StateZombie {
-		t.Fatalf("expected Zombie, got %d", proc.GetState())
+	// Drain DebugChan and verify events were recorded
+	var events []types.SyscallEvent
+	draining := true
+	for draining {
+		select {
+		case ev := <-proc.DebugChan:
+			events = append(events, ev)
+		default:
+			draining = false
+		}
 	}
-	if proc.Result != "debug result" {
-		t.Fatalf("expected 'debug result', got %q", proc.Result)
+
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events (Spawn + ReasonStep), got %d", len(events))
+	}
+
+	foundSpawn := false
+	foundReasonStep := false
+	for _, ev := range events {
+		if ev.Syscall == "Spawn" {
+			foundSpawn = true
+			if ev.PID != pid {
+				t.Errorf("Spawn event PID: got %d, want %d", ev.PID, pid)
+			}
+		}
+		if ev.Syscall == "ReasonStep" {
+			foundReasonStep = true
+		}
+	}
+	if !foundSpawn {
+		t.Error("missing Spawn syscall event")
+	}
+	if !foundReasonStep {
+		t.Error("missing ReasonStep syscall event")
 	}
 }
 
@@ -643,6 +663,9 @@ func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 	proc, _ := k.GetProcess(pid)
 	select {
 	case exit := <-proc.Done:
+		if exit.Code != 1 {
+			t.Fatalf("expected exit code 1 for max steps exceeded, got %d", exit.Code)
+		}
 		if exit.Reason != "max steps exceeded" {
 			t.Fatalf("expected 'max steps exceeded', got %q", exit.Reason)
 		}
