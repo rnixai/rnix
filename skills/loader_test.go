@@ -153,6 +153,9 @@ func TestSkillLoader_Load_RealCodeAnalyst(t *testing.T) {
 	if info.Manifest.Models.Preferred != "sonnet" {
 		t.Errorf("Models.Preferred = %q, want %q", info.Manifest.Models.Preferred, "sonnet")
 	}
+	if info.Manifest.Models.Fallback != "haiku" {
+		t.Errorf("Models.Fallback = %q, want %q", info.Manifest.Models.Fallback, "haiku")
+	}
 	if info.Manifest.ContextBudget != 8192 {
 		t.Errorf("ContextBudget = %d, want %d", info.Manifest.ContextBudget, 8192)
 	}

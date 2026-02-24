@@ -610,13 +610,22 @@ func TestSignalHandling_DoubleInterruptForceExit(t *testing.T) {
 
 // capturingMockLLMDriver records the last request for assertion.
 type capturingMockLLMDriver struct {
+	mu          sync.Mutex
 	response    *llm.LLMResponse
 	lastRequest llm.LLMRequest
 }
 
 func (d *capturingMockLLMDriver) Call(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+	d.mu.Lock()
 	d.lastRequest = req
+	d.mu.Unlock()
 	return d.response, nil
+}
+
+func (d *capturingMockLLMDriver) LastRequest() llm.LLMRequest {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.lastRequest
 }
 
 func (d *capturingMockLLMDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
@@ -650,6 +659,7 @@ func TestE2E_WithSkill_InjectsInstructions(t *testing.T) {
 	kern := kernel.NewKernel(vfsInst, ctxMgr, sl, cb)
 
 	skillsList := []string{"mock-skill"}
+	start := time.Now()
 	pid, err := kern.Spawn("analyze code", skillsList, kernel.SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
@@ -665,7 +675,7 @@ func TestE2E_WithSkill_InjectsInstructions(t *testing.T) {
 		t.Fatalf("expected exit code 0, got %d: %s (err: %v)", exit.Code, exit.Reason, exit.Err)
 	}
 
-	elapsed := time.Since(time.Now())
+	elapsed := time.Since(start)
 	outputSuccess(renderer, ui.ModeDefault, pid, proc, elapsed)
 
 	// Verify skill AllowedDevices set from manifest
@@ -705,6 +715,7 @@ func TestE2E_CodeAnalystSkill(t *testing.T) {
 	kern := kernel.NewKernel(vfsInst, ctxMgr, sl, cb)
 
 	skillsList := []string{"code-analyst"}
+	start := time.Now()
 	pid, err := kern.Spawn("分析 ./kernel/kernel.go", skillsList, kernel.SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
@@ -720,17 +731,18 @@ func TestE2E_CodeAnalystSkill(t *testing.T) {
 		t.Fatalf("expected exit code 0, got %d: %s (err: %v)", exit.Code, exit.Reason, exit.Err)
 	}
 
-	elapsed := time.Since(time.Now())
+	elapsed := time.Since(start)
 	outputSuccess(renderer, ui.ModeDefault, pid, proc, elapsed)
 
 	// 4.3 验证 Skill instructions 被正确注入到 LLM 请求的 system prompt
-	if !strings.Contains(driver.lastRequest.SystemPrompt, "Code Analyst") {
-		t.Errorf("SystemPrompt missing 'Code Analyst', got: %q", driver.lastRequest.SystemPrompt)
+	lastReq := driver.LastRequest()
+	if !strings.Contains(lastReq.SystemPrompt, "Code Analyst") {
+		t.Errorf("SystemPrompt missing 'Code Analyst', got: %q", lastReq.SystemPrompt)
 	}
-	if !strings.Contains(driver.lastRequest.SystemPrompt, "/dev/fs") {
+	if !strings.Contains(lastReq.SystemPrompt, "/dev/fs") {
 		t.Errorf("SystemPrompt missing '/dev/fs' tool guide")
 	}
-	if !strings.Contains(driver.lastRequest.SystemPrompt, "/dev/shell") {
+	if !strings.Contains(lastReq.SystemPrompt, "/dev/shell") {
 		t.Errorf("SystemPrompt missing '/dev/shell' tool guide")
 	}
 
@@ -746,8 +758,8 @@ func TestE2E_CodeAnalystSkill(t *testing.T) {
 	}
 
 	// 4.5 验证模型自动选择为 "sonnet"（来自 manifest.models.preferred）
-	if driver.lastRequest.Model != "sonnet" {
-		t.Errorf("Model = %q, want %q", driver.lastRequest.Model, "sonnet")
+	if lastReq.Model != "sonnet" {
+		t.Errorf("Model = %q, want %q", lastReq.Model, "sonnet")
 	}
 
 	// Verify output contains result
