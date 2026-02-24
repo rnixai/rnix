@@ -36,11 +36,11 @@ func (p *ProgressReporter) AgentMessage(pid types.PID, format string, args ...an
 	fmt.Fprintf(p.renderer.Writer, "%s %s\n", prefix, msg)
 }
 
-// AgentStep outputs a reasoning step progress line: [agent/{pid}] reasoning step {step}/{total}...
+// AgentStep outputs a reasoning step progress line: [agent/{pid}] reasoning step {step}...
 func (p *ProgressReporter) AgentStep(pid types.PID, step, total int) {
 	if p.renderer.OutputMode == ModeQuiet || p.renderer.OutputMode == ModeJSON {
 		return
 	}
 	prefix := AgentStyle.Render(fmt.Sprintf("[agent/%d]", pid))
-	fmt.Fprintf(p.renderer.Writer, "%s reasoning step %d/%d...\n", prefix, step, total)
+	fmt.Fprintf(p.renderer.Writer, "%s reasoning step %d...\n", prefix, step)
 }

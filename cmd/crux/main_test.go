@@ -81,7 +81,7 @@ func TestCliCallbacks_OnStep(t *testing.T) {
 	if !strings.Contains(output, "[agent/1]") {
 		t.Errorf("expected [agent/1] prefix, got %q", output)
 	}
-	if !strings.Contains(output, "reasoning step 2/3") {
+	if !strings.Contains(output, "reasoning step 2") {
 		t.Errorf("expected step progress, got %q", output)
 	}
 }
