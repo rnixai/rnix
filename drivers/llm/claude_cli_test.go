@@ -37,6 +37,16 @@ func TestHelperProcess(t *testing.T) {
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"hello world","is_error":false,"num_turns":1}`)
 	case "stream_error":
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error","result":"stream error message","is_error":true}`)
+	case "exit1_with_json":
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"error","result":"API rate limited","is_error":true}`)
+		os.Exit(1)
+	case "exit1_no_json":
+		fmt.Fprint(os.Stderr, "Error: network failure")
+		os.Exit(1)
+	case "empty_result":
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"","is_error":false}`)
+	case "stream_empty_result":
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"","is_error":false}`)
 	}
 	os.Exit(0)
 }
@@ -166,8 +176,8 @@ func TestClaudeCliDriver_Call_DefaultArgs(t *testing.T) {
 	if !strings.Contains(argsStr, "--model sonnet") {
 		t.Errorf("expected default model 'sonnet', got: %s", argsStr)
 	}
-	if !strings.Contains(argsStr, "--max-turns 1") {
-		t.Errorf("expected default max-turns 1, got: %s", argsStr)
+	if strings.Contains(argsStr, "--max-turns") {
+		t.Errorf("expected no --max-turns in default args, got: %s", argsStr)
 	}
 	// system-prompt should NOT be present when empty
 	if strings.Contains(argsStr, "--system-prompt") {
@@ -271,5 +281,73 @@ func TestClaudeCliDriver_Stream_Error(t *testing.T) {
 	}
 	if !strings.Contains(events[0].Err.Error(), "stream error message") {
 		t.Errorf("expected error content, got: %v", events[0].Err)
+	}
+}
+
+func TestClaudeCliDriver_Call_ExitCodeWithJSON(t *testing.T) {
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("exit1_with_json")))
+	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "llm returned error") {
+		t.Errorf("expected 'llm returned error', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "API rate limited") {
+		t.Errorf("expected 'API rate limited' in error, got: %v", err)
+	}
+}
+
+func TestClaudeCliDriver_Call_ExitCodeNoJSON(t *testing.T) {
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("exit1_no_json")))
+	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "claude cli failed") {
+		t.Errorf("expected 'claude cli failed', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Error: network failure") {
+		t.Errorf("expected stderr content in error, got: %v", err)
+	}
+}
+
+func TestClaudeCliDriver_Call_EmptyResult(t *testing.T) {
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("empty_result")))
+	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
+	if err == nil {
+		t.Fatal("expected error for empty result, got nil")
+	}
+	if !strings.Contains(err.Error(), "llm response truncated") {
+		t.Errorf("expected truncation error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "max_turns") {
+		t.Errorf("expected max_turns hint in error, got: %v", err)
+	}
+}
+
+func TestClaudeCliDriver_Stream_EmptyResult(t *testing.T) {
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_empty_result")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != "error" {
+		t.Fatalf("expected error event, got type=%q", events[0].Type)
+	}
+	if events[0].Err == nil {
+		t.Fatal("expected non-nil error")
+	}
+	if !strings.Contains(events[0].Err.Error(), "truncated") {
+		t.Errorf("expected truncation error, got: %v", events[0].Err)
 	}
 }

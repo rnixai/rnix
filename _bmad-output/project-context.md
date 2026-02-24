@@ -52,7 +52,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 #### VFS 设备模型
 - **设备注册在 `cmd/crux/main.go`**：依赖注入点，所有驱动在此创建和注册
 - **VFS 路径约定**：`/proc/{pid}/` 动态进程信息、`/dev/llm/claude` LLM 驱动、`/dev/shell` Shell 驱动、`/dev/fs` 宿主文件系统
-- **VFSFile 接口**：所有设备驱动必须实现 `Read/Write/Close/Stat` 四个方法
+- **VFSFile 接口**：所有设备驱动必须实现 `Read/Write(ctx)/Close/Stat` 四个方法，Write 接受 `context.Context` 支持取消传播
 - **FD 管理**：每进程独立 `FDTable map[FD]VFSFile`，FD 为进程内递增整数
 
 #### 进程状态机
@@ -62,7 +62,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 #### Claude Code CLI 集成
 - **调用模式**：每次 LLM 调用 = 一次 `exec.CommandContext`，不维持长连接
-- **MVP 参数**：`claude -p <intent> --output-format json --system-prompt <instructions> --model <model> --max-turns 1`
+- **MVP 参数**：`claude -p <intent> --output-format json --system-prompt <instructions> --model <model>`（不传递 `--max-turns`，让 CLI 使用自身默认值；内核通过 reasonStep 循环自管理推理步骤）
 - **stream-json 模式**：`--output-format stream-json`，`bufio.Scanner` 逐行读取 stdout，每行解析为 `StreamEvent`
 - **超时处理**：`context.WithTimeout` 包装，超时后 `cmd.Process.Kill()`，进程转 Zombie
 

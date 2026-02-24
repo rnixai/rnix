@@ -93,7 +93,7 @@ type blockingVFSFile struct {
 	writeErr error // returned after blockCh unblocks; nil = success
 }
 
-func (f *blockingVFSFile) Write(_ []byte) error {
+func (f *blockingVFSFile) Write(_ context.Context, _ []byte) error {
 	<-f.blockCh
 	return f.writeErr
 }

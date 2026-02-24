@@ -243,7 +243,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			Intent:       proc.Intent,
 			SystemPrompt: promptResult.SystemPrompt,
 			Model:        opts.Model,
-			MaxTurns:     1,
+			MaxTurns:     0,
 			TimeoutMs:    opts.TimeoutMs,
 			Messages:     promptResult.Messages,
 		}
@@ -258,7 +258,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 
 		// Write request to LLM device
-		if err := k.vfs.Write(proc.PID, llmFD, reqJSON); err != nil {
+		if err := k.vfs.Write(proc.ctx, proc.PID, llmFD, reqJSON); err != nil {
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "error",
@@ -319,7 +319,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 
 			// Write tool data
-			if err := k.vfs.Write(proc.PID, toolFD, action.ToolData); err != nil {
+			if err := k.vfs.Write(proc.ctx, proc.PID, toolFD, action.ToolData); err != nil {
 				_ = k.vfs.Close(proc.PID, toolFD)
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool write failed", Err: err})
 				return

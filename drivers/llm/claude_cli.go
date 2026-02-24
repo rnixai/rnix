@@ -16,8 +16,6 @@ const (
 	DefaultModel = "sonnet"
 	// DefaultTimeout is the default timeout for LLM calls.
 	DefaultTimeout = 30 * time.Second
-	// defaultMaxTurns is the default max turns for LLM calls.
-	defaultMaxTurns = 1
 	// streamChanBuffer is the buffer size for stream event channels.
 	streamChanBuffer = 64
 )
@@ -107,23 +105,28 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, fmt.Errorf("llm call timed out after %v", timeout)
 	}
+
+	// Try parsing stdout JSON even when exit code is non-zero (AC #1, #2)
+	var cliResp claudeCliResponse
+	if parseErr := json.Unmarshal(stdout.Bytes(), &cliResp); parseErr == nil {
+		if cliResp.IsError {
+			return nil, fmt.Errorf("llm returned error: %s", cliResp.Result)
+		}
+		if cliResp.Result == "" {
+			return nil, fmt.Errorf("llm response truncated: no result (possible max_turns limit)")
+		}
+		return &LLMResponse{
+			Content:    cliResp.Result,
+			TokensUsed: cliResp.NumTurns,
+		}, nil
+	}
+
+	// stdout has no valid JSON — fall back to stderr
 	if err != nil {
 		return nil, fmt.Errorf("claude cli failed (exit %d): %s", cmd.ProcessState.ExitCode(), stderr.String())
 	}
 
-	var cliResp claudeCliResponse
-	if err := json.Unmarshal(stdout.Bytes(), &cliResp); err != nil {
-		return nil, fmt.Errorf("failed to parse llm response: %w", err)
-	}
-
-	if cliResp.IsError {
-		return nil, fmt.Errorf("llm returned error: %s", cliResp.Result)
-	}
-
-	return &LLMResponse{
-		Content:    cliResp.Result,
-		TokensUsed: cliResp.NumTurns,
-	}, nil
+	return nil, fmt.Errorf("failed to parse llm response: invalid json in stdout")
 }
 
 // claudeStreamEvent is the JSON structure for a single stream-json line.
@@ -204,6 +207,9 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 				if evt.IsError {
 					se.Type = "error"
 					se.Err = fmt.Errorf("llm returned error: %s", evt.Result)
+				} else if evt.Result == "" {
+					se.Type = "error"
+					se.Err = fmt.Errorf("llm response truncated: no result (possible max_turns limit)")
 				}
 				select {
 				case ch <- se:
@@ -247,11 +253,9 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []strin
 	}
 	args = append(args, "--model", model)
 
-	maxTurns := req.MaxTurns
-	if maxTurns <= 0 {
-		maxTurns = defaultMaxTurns
+	if req.MaxTurns > 0 {
+		args = append(args, "--max-turns", strconv.Itoa(req.MaxTurns))
 	}
-	args = append(args, "--max-turns", strconv.Itoa(maxTurns))
 
 	return args
 }

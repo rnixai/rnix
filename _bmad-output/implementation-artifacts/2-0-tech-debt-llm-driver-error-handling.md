@@ -1,6 +1,6 @@
 # Story 2.0: 技术债务 — LLM 驱动层错误处理修复
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- 来源: Epic 1 回顾 (epic-1-retro-2026-02-24.md) — 3 个 HIGH 级 + 1 个 MED 级技术债务 -->
@@ -23,42 +23,42 @@ So that 端到端体验不会因为驱动层的错误吞没而产生无法调试
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 修复 Call() exit code 非零时的错误处理 (AC: #1, #2)
-  - [ ] 1.1 修改 `drivers/llm/claude_cli.go:106-112`：当 `cmd.Run()` 返回 error 时，先尝试解析 stdout JSON
-  - [ ] 1.2 如果 stdout JSON 解析成功且 `is_error: true`，返回 `fmt.Errorf("llm returned error: %s", cliResp.Result)`
-  - [ ] 1.3 如果 stdout JSON 解析失败，降级返回当前的 stderr 错误信息
-  - [ ] 1.4 新增测试用例 `TestClaudeCliDriver_Call_ExitCodeWithJSON`：exit code 1 + stdout 有效 JSON → 提取 result 错误
-  - [ ] 1.5 新增测试用例 `TestClaudeCliDriver_Call_ExitCodeNoJSON`：exit code 1 + stdout 无效 → 降级 stderr
-  - [ ] 1.6 更新已有 `TestClaudeCliDriver_Call_CLIError` 用例（如有影响）
+- [x] Task 1: 修复 Call() exit code 非零时的错误处理 (AC: #1, #2)
+  - [x] 1.1 修改 `drivers/llm/claude_cli.go:106-112`：当 `cmd.Run()` 返回 error 时，先尝试解析 stdout JSON
+  - [x] 1.2 如果 stdout JSON 解析成功且 `is_error: true`，返回 `fmt.Errorf("llm returned error: %s", cliResp.Result)`
+  - [x] 1.3 如果 stdout JSON 解析失败，降级返回当前的 stderr 错误信息
+  - [x] 1.4 新增测试用例 `TestClaudeCliDriver_Call_ExitCodeWithJSON`：exit code 1 + stdout 有效 JSON → 提取 result 错误
+  - [x] 1.5 新增测试用例 `TestClaudeCliDriver_Call_ExitCodeNoJSON`：exit code 1 + stdout 无效 → 降级 stderr
+  - [x] 1.6 更新已有 `TestClaudeCliDriver_Call_CLIError` 用例（如有影响）
 
-- [ ] Task 2: 修复 result 缺失时的 graceful fallback (AC: #3, #4)
-  - [ ] 2.1 在 `Call()` 方法中，JSON 解析成功后检查 `cliResp.Result == ""` 且 `!cliResp.IsError`：返回截断错误
-  - [ ] 2.2 在 `Stream()` 方法中，`type: "result"` 事件处理时检查 `evt.Result == ""` 且 `!evt.IsError`：发送 error StreamEvent
-  - [ ] 2.3 新增测试用例 `TestClaudeCliDriver_Call_EmptyResult`：正常 JSON 但 result 为空 → 截断错误
-  - [ ] 2.4 新增测试用例 `TestClaudeCliDriver_Stream_EmptyResult`：stream result 事件 result 为空 → error 事件
-  - [ ] 2.5 新增 `TestHelperProcess` case `"empty_result"`：`{"type":"result","subtype":"success","result":"","is_error":false}`
-  - [ ] 2.6 新增 `TestHelperProcess` case `"stream_empty_result"`：stream 模式空 result 事件
+- [x] Task 2: 修复 result 缺失时的 graceful fallback (AC: #3, #4)
+  - [x] 2.1 在 `Call()` 方法中，JSON 解析成功后检查 `cliResp.Result == ""` 且 `!cliResp.IsError`：返回截断错误
+  - [x] 2.2 在 `Stream()` 方法中，`type: "result"` 事件处理时检查 `evt.Result == ""` 且 `!evt.IsError`：发送 error StreamEvent
+  - [x] 2.3 新增测试用例 `TestClaudeCliDriver_Call_EmptyResult`：正常 JSON 但 result 为空 → 截断错误
+  - [x] 2.4 新增测试用例 `TestClaudeCliDriver_Stream_EmptyResult`：stream result 事件 result 为空 → error 事件
+  - [x] 2.5 新增 `TestHelperProcess` case `"empty_result"`：`{"type":"result","subtype":"success","result":"","is_error":false}`
+  - [x] 2.6 新增 `TestHelperProcess` case `"stream_empty_result"`：stream 模式空 result 事件
 
-- [ ] Task 3: 调整 max_turns 语义——移除驱动层 --max-turns 参数 (AC: #5)
-  - [ ] 3.1 删除 `drivers/llm/claude_cli.go:20` 的 `defaultMaxTurns` 常量
-  - [ ] 3.2 修改 `buildArgs()` 方法：当 `req.MaxTurns > 0` 时传递 `--max-turns`，否则不传递此参数
-  - [ ] 3.3 修改 `kernel/kernel.go:246`：将 `MaxTurns: 1` 改为 `MaxTurns: 0`（表示不限制 CLI 内部工具循环）
-  - [ ] 3.4 更新 `TestClaudeCliDriver_Call_DefaultArgs`：验证默认不传递 `--max-turns`
-  - [ ] 3.5 更新 `TestClaudeCliDriver_Call_Args`：验证显式 MaxTurns > 0 时传递 `--max-turns`
-  - [ ] 3.6 更新 `project-context.md` 的 Claude Code CLI 集成节：移除 `--max-turns 1` 描述
+- [x] Task 3: 调整 max_turns 语义——移除驱动层 --max-turns 参数 (AC: #5)
+  - [x] 3.1 删除 `drivers/llm/claude_cli.go:20` 的 `defaultMaxTurns` 常量
+  - [x] 3.2 修改 `buildArgs()` 方法：当 `req.MaxTurns > 0` 时传递 `--max-turns`，否则不传递此参数
+  - [x] 3.3 修改 `kernel/kernel.go:246`：将 `MaxTurns: 1` 改为 `MaxTurns: 0`（表示不限制 CLI 内部工具循环）
+  - [x] 3.4 更新 `TestClaudeCliDriver_Call_DefaultArgs`：验证默认不传递 `--max-turns`
+  - [x] 3.5 更新 `TestClaudeCliDriver_Call_Args`：验证显式 MaxTurns > 0 时传递 `--max-turns`
+  - [x] 3.6 更新 `project-context.md` 的 Claude Code CLI 集成节：移除 `--max-turns 1` 描述
 
-- [ ] Task 4: LLMFile.Write 传播进程 context (AC: #6)
-  - [ ] 4.1 修改 `drivers/llm/vfsfile.go` 的 `LLMFile` 结构体：存储调用时的 context（或通过 WriteOpt 传递）
-  - [ ] 4.2 修改 `LLMFile.Write` 方法：使用存储的 context 替代 `context.Background()`
-  - [ ] 4.3 确定 context 传递机制（选项：VFSFile.Write 扩展签名 vs FileFactory 注入 vs Write opts）
-  - [ ] 4.4 更新 `vfsfile_test.go`：验证 context 取消时 Write 返回错误
-  - [ ] 4.5 注意：此修改可能影响 `kernel/kernel.go` 中 vfs.Write 的调用方式
+- [x] Task 4: LLMFile.Write 传播进程 context (AC: #6)
+  - [x] 4.1 修改 `drivers/llm/vfsfile.go` 的 `LLMFile` 结构体：存储调用时的 context（或通过 WriteOpt 传递）
+  - [x] 4.2 修改 `LLMFile.Write` 方法：使用存储的 context 替代 `context.Background()`
+  - [x] 4.3 确定 context 传递机制（选项：VFSFile.Write 扩展签名 vs FileFactory 注入 vs Write opts）
+  - [x] 4.4 更新 `vfsfile_test.go`：验证 context 取消时 Write 返回错误
+  - [x] 4.5 注意：此修改可能影响 `kernel/kernel.go` 中 vfs.Write 的调用方式
 
-- [ ] Task 5: 全量回归测试 (AC: #7)
-  - [ ] 5.1 `go test -race ./...` 全部通过
-  - [ ] 5.2 `go vet ./...` 无警告
-  - [ ] 5.3 验证 `cmd/crux/integration_test.go` 中的 E2E 测试不受影响
-  - [ ] 5.4 验证 `kernel/kernel_test.go` 中 mock LLM 行为与修改一致
+- [x] Task 5: 全量回归测试 (AC: #7)
+  - [x] 5.1 `go test -race ./...` 全部通过
+  - [x] 5.2 `go vet ./...` 无警告
+  - [x] 5.3 验证 `cmd/crux/integration_test.go` 中的 E2E 测试不受影响
+  - [x] 5.4 验证 `kernel/kernel_test.go` 中 mock LLM 行为与修改一致
 
 ## Dev Notes
 
@@ -257,10 +257,32 @@ kernel/kernel_test.go           (可能 — 如果 newTestKernel mock 需要适�
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- Task 1: 重构 Call() 方法 — 先尝试解析 stdout JSON 再检查 exit code，保证 exit code 非零时也能提取 LLM 错误信息。新增 `exit1_with_json`、`exit1_no_json` 两个 TestHelperProcess case。
+- Task 2: Call() 中 JSON 解析成功后新增 `result == ""` 检查返回截断错误；Stream() 中 result 事件新增相同检查发送 error StreamEvent。新增 `empty_result`、`stream_empty_result` 两个 TestHelperProcess case。
+- Task 3: 删除 `defaultMaxTurns` 常量，`buildArgs()` 仅在 `MaxTurns > 0` 时传递 `--max-turns`。kernel.go 中 `MaxTurns: 1` 改为 `MaxTurns: 0`。更新 project-context.md 文档。
+- Task 4: 选择 VFSFile.Write 扩展签名方案 — `Write(ctx context.Context, data []byte) error`。更新所有实现和调用点：VFS.Write 新增 ctx 参数，kernel.go 传递 proc.ctx，LLMFile.Write 直接使用 ctx 调用 driver.Call。新增 context 取消和传播测试。
+- Task 5: `go test -race ./...` 全部通过，`go vet ./...` 无警告，E2E 和 kernel 测试均适配新签名。
+
+### Implementation Decisions
+
+- **Context 传递机制选择**：选择扩展 VFSFile.Write 签名为 `Write(ctx context.Context, data []byte) error`，而非 FileFactory 注入或 Write opts。理由：(1) 最干净的长期方案；(2) context 是 per-call 的，不应与文件实例绑定；(3) 所有 mock 实现只需简单加 `_ context.Context` 参数。
+
 ### File List
+
+- drivers/llm/claude_cli.go (修改 — Call() 错误处理重构、buildArgs() max_turns 逻辑、Stream() 空 result 处理)
+- drivers/llm/claude_cli_test.go (修改 — 新增 4 个 TestHelperProcess cases + 4 个测试函数，更新 DefaultArgs 测试)
+- drivers/llm/vfsfile.go (修改 — Write 签名增加 context.Context 参数)
+- drivers/llm/vfsfile_test.go (修改 — 适配新 Write 签名 + 新增 context 取消/传播测试)
+- kernel/kernel.go (修改 — MaxTurns: 0 + vfs.Write 传递 proc.ctx)
+- kernel/kernel_test.go (修改 — 所有 mock Write 签名适配 context.Context)
+- vfs/vfs.go (修改 — VFSFile.Write 接口增加 context.Context + VFS.Write 增加 ctx 参数)
+- vfs/vfs_test.go (修改 — 适配新 Write 签名)
+- vfs/dev_test.go (修改 — mockFile.Write 适配 context.Context)
+- cmd/crux/integration_test.go (修改 — blockingVFSFile.Write 适配 context.Context)
+- _bmad-output/project-context.md (修改 — 更新 CLI 参数描述和 VFSFile 接口描述)

@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 )
@@ -32,7 +33,7 @@ func TestLLMFile_WriteRead(t *testing.T) {
 	f := &LLMFile{driver: driver, devicePath: "/dev/llm/claude"}
 
 	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
-	if err := f.Write(reqJSON); err != nil {
+	if err := f.Write(context.Background(), reqJSON); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -74,7 +75,7 @@ func TestLLMFile_ClosedAccess(t *testing.T) {
 	}
 
 	t.Run("WriteAfterClose", func(t *testing.T) {
-		err := f.Write([]byte(`{"intent":"test"}`))
+		err := f.Write(context.Background(), []byte(`{"intent":"test"}`))
 		if err == nil {
 			t.Error("expected error on write after close")
 		}
@@ -121,7 +122,7 @@ func TestLLMFile_ReadPartial(t *testing.T) {
 	f := &LLMFile{driver: driver, devicePath: "/dev/llm/claude"}
 
 	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
-	if err := f.Write(reqJSON); err != nil {
+	if err := f.Write(context.Background(), reqJSON); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -158,7 +159,7 @@ func TestLLMFile_WriteDriverError(t *testing.T) {
 	f := &LLMFile{driver: driver, devicePath: "/dev/llm/claude"}
 
 	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
-	err := f.Write(reqJSON)
+	err := f.Write(context.Background(), reqJSON)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -177,7 +178,7 @@ func TestFileFactory(t *testing.T) {
 
 	// Verify it's a working VFSFile
 	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
-	if err := file.Write(reqJSON); err != nil {
+	if err := file.Write(context.Background(), reqJSON); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 	data, err := file.Read(0)
@@ -192,3 +193,60 @@ func TestFileFactory(t *testing.T) {
 		t.Errorf("expected content 'factory test', got %q", resp.Content)
 	}
 }
+
+// contextDriver captures the context passed to Call for verification.
+type contextDriver struct {
+	callCtx context.Context
+}
+
+func (d *contextDriver) Call(ctx context.Context, _ LLMRequest) (*LLMResponse, error) {
+	d.callCtx = ctx
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+		return &LLMResponse{Content: "ok", TokensUsed: 1}, nil
+	}
+}
+
+func (d *contextDriver) Stream(_ context.Context, _ LLMRequest) (<-chan StreamEvent, error) {
+	return nil, nil
+}
+
+func (d *contextDriver) Info() DriverInfo {
+	return DriverInfo{Name: "ctx-test", Provider: "test", DefaultModel: "test"}
+}
+
+func TestLLMFile_Write_ContextCancelled(t *testing.T) {
+	driver := &contextDriver{}
+	f := &LLMFile{driver: driver, devicePath: "/dev/llm/claude"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
+	err := f.Write(ctx, reqJSON)
+	if err == nil {
+		t.Fatal("expected error for cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled error, got: %v", err)
+	}
+}
+
+func TestLLMFile_Write_ContextPropagated(t *testing.T) {
+	driver := &contextDriver{}
+	f := &LLMFile{driver: driver, devicePath: "/dev/llm/claude"}
+
+	ctx := context.WithValue(context.Background(), contextKey("test"), "value")
+	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
+	err := f.Write(ctx, reqJSON)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if driver.callCtx != ctx {
+		t.Error("expected driver.Call to receive the same context passed to Write")
+	}
+}
+
+type contextKey string

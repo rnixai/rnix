@@ -2,6 +2,7 @@
 package vfs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -30,7 +31,7 @@ type FileStat struct {
 // VFSFile is the interface that all device drivers must implement.
 type VFSFile interface {
 	Read(length int) ([]byte, error)
-	Write(data []byte) error
+	Write(ctx context.Context, data []byte) error
 	Close() error
 	Stat() (FileStat, error)
 }
@@ -194,7 +195,7 @@ func (v *VFS) Read(pid types.PID, fd types.FD, length int) ([]byte, error) {
 }
 
 // Write writes data to the file associated with the given FD.
-func (v *VFS) Write(pid types.PID, fd types.FD, data []byte) error {
+func (v *VFS) Write(ctx context.Context, pid types.PID, fd types.FD, data []byte) error {
 	t := v.getFDTable(pid)
 	if t == nil {
 		return newVFSError("Write", pid, "", fmt.Errorf("invalid fd: %d", fd), types.ErrNotFound)
@@ -203,7 +204,7 @@ func (v *VFS) Write(pid types.PID, fd types.FD, data []byte) error {
 	if !ok {
 		return newVFSError("Write", pid, "", fmt.Errorf("invalid fd: %d", fd), types.ErrNotFound)
 	}
-	if err := file.Write(data); err != nil {
+	if err := file.Write(ctx, data); err != nil {
 		return newVFSError("Write", pid, "", err, types.ErrDriver)
 	}
 	return nil
