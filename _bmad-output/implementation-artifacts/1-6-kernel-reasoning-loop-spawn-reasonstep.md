@@ -1,6 +1,6 @@
 # Story 1.6: 内核推理循环（Spawn + reasonStep）
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -532,6 +532,17 @@ Claude Opus 4.6
 - **Task 6 完成**: 17 个测试函数覆盖：Spawn 成功/失败/SystemPrompt、reasonStep text/tool_call/LLM 写错误/LLM 读错误/context 取消/maxSteps 超限、parseAction 纯文本/JSON/tool_call/无效 JSON/缺少 tool 字段、端到端集成测试。全量 `go test -race ./...` 通过
 - **设计决策**: kernel 包内定义私有 `llmRequest`/`llmResponse` 结构体（json tag 与 drivers/llm 对齐但不导入）；使用 `sequenceLLMFile` mock 实现多轮 LLM 交互测试；DebugChan 非阻塞写入（满时丢弃）
 - **已有测试兼容**: 更新了原有 5 个 kernel 测试的 `NewKernel` 调用为新签名（通过 `newSimpleKernel()` 辅助函数）
+
+### Code Review Fixes (2026-02-24)
+
+- **[H1] TestSpawn_DebugChanEvents 修复**: NewProcess 初始化 DebugChan（缓冲 256），测试实际读取并验证 Spawn + ReasonStep 事件
+- **[H2] 助手消息追加到上下文**: tool_call 路径中 AppendToolResult 前先 AppendMessage(RoleAssistant, resp.Content)，保持对话历史完整
+- **[H3] llmRequest 包含 Messages**: llmRequest 新增 Messages 字段，BuildPrompt 返回的完整对话历史传递给 LLM 请求 JSON
+- **[M1] maxSteps 退出码修正**: 超限退出码从 0 改为 1，测试增加退出码断言
+- **[M2] CtxFree 生命周期文档**: goroutine 中添加注释说明 CtxFree 延迟到 Wait/Reap（Story 4.1）
+- **[M3] FDTable nil 注释**: 明确 VFS 内部管理文件，FDTable 仅跟踪 FD 存在性
+- **[L1] 补全 emitEvent**: BuildPrompt 失败和 JSON 反序列化失败路径增加 emitEvent 记录
+- **[L2] finishProcess 辅助函数**: 提取 terminate + Done channel 写入为 finishProcess，消除 8 处重复代码
 
 ### File List
 

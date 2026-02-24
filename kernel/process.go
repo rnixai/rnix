@@ -61,6 +61,7 @@ func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 		Skills:    skills,
 		Children:  []types.PID{},
 		FDTable:   make(map[types.FD]vfs.VFSFile),
+		DebugChan: make(chan types.SyscallEvent, 256),
 		Done:      make(chan ExitStatus, 1),
 		CreatedAt: time.Now(),
 	}
