@@ -110,7 +110,14 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	var cliResp claudeCliResponse
 	if parseErr := json.Unmarshal(stdout.Bytes(), &cliResp); parseErr == nil {
 		if cliResp.IsError {
-			return nil, fmt.Errorf("llm returned error: %s", cliResp.Result)
+			errMsg := cliResp.Result
+			if errMsg == "" {
+				errMsg = "unknown error (empty result)"
+			}
+			if err != nil {
+				return nil, fmt.Errorf("llm returned error (exit %d): %s", cmd.ProcessState.ExitCode(), errMsg)
+			}
+			return nil, fmt.Errorf("llm returned error: %s", errMsg)
 		}
 		if cliResp.Result == "" {
 			return nil, fmt.Errorf("llm response truncated: no result (possible max_turns limit)")
@@ -206,7 +213,11 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 				se := StreamEvent{Type: "done", Content: evt.Result, TokensUsed: evt.NumTurns}
 				if evt.IsError {
 					se.Type = "error"
-					se.Err = fmt.Errorf("llm returned error: %s", evt.Result)
+					errMsg := evt.Result
+					if errMsg == "" {
+						errMsg = "unknown error (empty result)"
+					}
+					se.Err = fmt.Errorf("llm returned error: %s", errMsg)
 				} else if evt.Result == "" {
 					se.Type = "error"
 					se.Err = fmt.Errorf("llm response truncated: no result (possible max_turns limit)")

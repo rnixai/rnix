@@ -1,6 +1,6 @@
 # Story 2.0: 技术债务 — LLM 驱动层错误处理修复
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- 来源: Epic 1 回顾 (epic-1-retro-2026-02-24.md) — 3 个 HIGH 级 + 1 个 MED 级技术债务 -->
@@ -272,6 +272,13 @@ Claude Opus 4.6
 ### Implementation Decisions
 
 - **Context 传递机制选择**：选择扩展 VFSFile.Write 签名为 `Write(ctx context.Context, data []byte) error`，而非 FileFactory 注入或 Write opts。理由：(1) 最干净的长期方案；(2) context 是 per-call 的，不应与文件实例绑定；(3) 所有 mock 实现只需简单加 `_ context.Context` 参数。
+
+### Code Review Fixes (Amelia — CR Agent)
+
+- **[H1] 修复过时注释** `cmd/crux/integration_test.go:462-469`：更新 context 传播架构债务注释，反映 Story 2.0 已修复此问题
+- **[M1] IsError+空Result边界处理** `claude_cli.go` Call()+Stream()：当 `IsError=true` 且 `Result=""` 时，返回 `"unknown error (empty result)"` 而非空内容
+- **[M2] 新增缺失测试覆盖**：`TestClaudeCliDriver_Call_ExitCodeWithValidResult` 覆盖 exit code 非零+有效JSON+非错误路径；`TestClaudeCliDriver_Call_IsErrorEmptyResult` 和 `TestClaudeCliDriver_Stream_IsErrorEmptyResult` 覆盖 IsError+空Result 边界
+- **[M3] exit code 纳入错误信息** `claude_cli.go` Call()：当 exit code 非零且 JSON 可解析时，错误消息格式改为 `"llm returned error (exit %d): %s"`
 
 ### File List
 
