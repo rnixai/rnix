@@ -89,8 +89,8 @@ type claudeCliResponse struct {
 
 // Call executes a synchronous LLM request via the Claude Code CLI.
 func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse, error) {
-	timeout := req.Timeout
-	if timeout == 0 {
+	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
 		timeout = d.defaultTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -145,8 +145,8 @@ type claudeStreamEvent struct {
 
 // Stream executes a streaming LLM request via the Claude Code CLI.
 func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan StreamEvent, error) {
-	timeout := req.Timeout
-	if timeout == 0 {
+	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
 		timeout = d.defaultTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -169,6 +169,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 	go func() {
 		defer close(ch)
+		defer func() { _ = cmd.Wait() }()
 		defer cancel()
 
 		scanner := bufio.NewScanner(stdoutPipe)
@@ -218,8 +219,6 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 			case <-ctx.Done():
 			}
 		}
-
-		_ = cmd.Wait()
 	}()
 
 	return ch, nil

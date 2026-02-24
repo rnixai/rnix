@@ -3,7 +3,6 @@ package llm
 
 import (
 	"context"
-	"time"
 )
 
 // LLMRequest represents a request to an LLM driver.
@@ -12,7 +11,7 @@ type LLMRequest struct {
 	SystemPrompt string        `json:"system_prompt,omitempty"`
 	Model        string        `json:"model,omitempty"`
 	MaxTurns     int           `json:"max_turns,omitempty"`
-	Timeout      time.Duration `json:"timeout_ms,omitempty"`
+	TimeoutMs int64 `json:"timeout_ms,omitempty"`
 }
 
 // LLMResponse represents a response from an LLM driver.

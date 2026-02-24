@@ -168,7 +168,7 @@ func TestFileFactory(t *testing.T) {
 	driver := &mockDriver{
 		callResp: &LLMResponse{Content: "factory test", TokensUsed: 1},
 	}
-	factory := FileFactory(driver)
+	factory := FileFactory(driver, "/dev/llm/claude")
 
 	file, err := factory("", 0)
 	if err != nil {

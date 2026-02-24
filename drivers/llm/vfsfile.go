@@ -91,11 +91,12 @@ func (f *LLMFile) Stat() (vfs.FileStat, error) {
 }
 
 // FileFactory returns a VFSFileFactory that creates LLMFile instances for the given driver.
-func FileFactory(driver LLMDriver) vfs.VFSFileFactory {
+// basePath is the device mount path (e.g., "/dev/llm/claude").
+func FileFactory(driver LLMDriver, basePath string) vfs.VFSFileFactory {
 	return func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
 		return &LLMFile{
 			driver:     driver,
-			devicePath: "/dev/llm/claude",
+			devicePath: basePath + subpath,
 		}, nil
 	}
 }

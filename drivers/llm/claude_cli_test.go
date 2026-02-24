@@ -31,6 +31,12 @@ func TestHelperProcess(t *testing.T) {
 	case "args_echo":
 		fmt.Fprint(os.Stderr, strings.Join(os.Args, " "))
 		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"ok","is_error":false}`)
+	case "stream_success":
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"hello "}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"world"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"hello world","is_error":false,"num_turns":1}`)
+	case "stream_error":
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error","result":"stream error message","is_error":true}`)
 	}
 	os.Exit(0)
 }
@@ -210,4 +216,60 @@ func TestClaudeCliDriver_Options(t *testing.T) {
 			t.Error("custom command builder was not called")
 		}
 	})
+}
+
+func TestClaudeCliDriver_Stream_Success(t *testing.T) {
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_success")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+
+	if events[0].Type != "content" || events[0].Content != "hello " {
+		t.Errorf("event[0]: expected content 'hello ', got type=%q content=%q", events[0].Type, events[0].Content)
+	}
+	if events[1].Type != "content" || events[1].Content != "world" {
+		t.Errorf("event[1]: expected content 'world', got type=%q content=%q", events[1].Type, events[1].Content)
+	}
+	if events[2].Type != "done" || events[2].Content != "hello world" {
+		t.Errorf("event[2]: expected done 'hello world', got type=%q content=%q", events[2].Type, events[2].Content)
+	}
+	if events[2].TokensUsed != 1 {
+		t.Errorf("expected tokens_used 1, got %d", events[2].TokensUsed)
+	}
+}
+
+func TestClaudeCliDriver_Stream_Error(t *testing.T) {
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_error")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != "error" {
+		t.Errorf("expected error event, got type=%q", events[0].Type)
+	}
+	if events[0].Err == nil {
+		t.Error("expected non-nil error")
+	}
+	if !strings.Contains(events[0].Err.Error(), "stream error message") {
+		t.Errorf("expected error content, got: %v", events[0].Err)
+	}
 }
