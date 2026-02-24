@@ -2,12 +2,15 @@ package kernel
 
 import (
 	"encoding/json"
+	"fmt"
 	gocontext "context"
+	"strings"
 	"time"
 
 	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/xsync"
+	"github.com/gonewx/crux/skills"
 	"github.com/gonewx/crux/vfs"
 )
 
@@ -71,20 +74,23 @@ type KernelCallbacks interface {
 
 // KernelImpl is the core microkernel implementation.
 type KernelImpl struct {
-	procTable *xsync.SyncMap[types.PID, *Process]
-	vfs       *vfs.VFS
-	ctxMgr    *cruxctx.Manager
-	callbacks KernelCallbacks
+	procTable   *xsync.SyncMap[types.PID, *Process]
+	vfs         *vfs.VFS
+	ctxMgr      *cruxctx.Manager
+	skillLoader *skills.SkillLoader
+	callbacks   KernelCallbacks
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
 // Pass nil for cb to run in silent mode (no progress notifications).
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl {
+// Pass nil for skillLoader when skills are not needed (backward compatible).
+func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, skillLoader *skills.SkillLoader, cb KernelCallbacks) *KernelImpl {
 	return &KernelImpl{
-		procTable: xsync.NewSyncMap[types.PID, *Process](),
-		vfs:       v,
-		ctxMgr:    ctxMgr,
-		callbacks: cb,
+		procTable:   xsync.NewSyncMap[types.PID, *Process](),
+		vfs:         v,
+		ctxMgr:      ctxMgr,
+		skillLoader: skillLoader,
+		callbacks:   cb,
 	}
 }
 
@@ -93,6 +99,25 @@ func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (type
 	start := time.Now()
 
 	proc := NewProcess(0, intent, skills)
+
+	// Load Skill if specified (AC #1, #3, #4)
+	if len(skills) > 0 && k.skillLoader != nil {
+		skillInfo, err := k.skillLoader.Load(skills[0])
+		if err != nil {
+			return 0, NewSyscallError("Spawn", proc.PID, "skill:"+skills[0], err, types.ErrNotFound)
+		}
+		proc.AllowedDevices = skillInfo.Manifest.Tools
+		// Inject instructions into system prompt
+		if opts.SystemPrompt == "" {
+			opts.SystemPrompt = skillInfo.Instructions
+		} else {
+			opts.SystemPrompt = opts.SystemPrompt + "\n\n" + skillInfo.Instructions
+		}
+		// Model selection priority: CLI --model > Skill manifest > driver default
+		if opts.Model == "" && skillInfo.Manifest.Models.Preferred != "" {
+			opts.Model = skillInfo.Manifest.Models.Preferred
+		}
+	}
 
 	// Allocate context
 	cid, err := k.ctxMgr.CtxAlloc(DefaultCtxSize)
@@ -132,10 +157,14 @@ func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (type
 	k.AddProcess(proc)
 
 	// Emit Spawn syscall event
-	k.emitEvent(proc, "Spawn", map[string]any{
+	spawnArgs := map[string]any{
 		"intent": intent,
 		"skills": skills,
-	}, proc.PID, nil, time.Since(start))
+	}
+	if len(skills) > 0 {
+		spawnArgs["loaded_skill"] = skills[0]
+	}
+	k.emitEvent(proc, "Spawn", spawnArgs, proc.PID, nil, time.Since(start))
 
 	// Launch reasoning goroutine
 	// Note: CtxFree deferred to Wait/Reap (Story 4.1) per resource release order
@@ -309,6 +338,27 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			if err := k.ctxMgr.AppendMessage(proc.CtxID, cruxctx.RoleAssistant, resp.Content); err != nil {
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append assistant message failed", Err: err})
 				return
+			}
+
+			// Device permission whitelist check (AC #2, #4)
+			if len(proc.AllowedDevices) > 0 {
+				allowed := false
+				for _, dev := range proc.AllowedDevices {
+					if action.ToolPath == dev || strings.HasPrefix(action.ToolPath, dev+"/") {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					permErr := fmt.Sprintf("permission denied: device %s not in allowed list %v", action.ToolPath, proc.AllowedDevices)
+					_ = k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, permErr)
+					k.emitEvent(proc, "ReasonStep", map[string]any{
+						"step":   step,
+						"action": "permission_denied",
+						"tool":   action.ToolPath,
+					}, nil, fmt.Errorf("%s", permErr), time.Since(stepStart))
+					continue
+				}
 			}
 
 			// Open tool device

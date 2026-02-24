@@ -137,7 +137,7 @@ func runE2E(t *testing.T, intent string, driver llm.LLMDriver, mode ui.OutputMod
 	vfsInst := vfs.NewVFS(devReg)
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
 	ctxMgr := cruxctx.NewManager()
-	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, nil, cb)
 
 	start := time.Now()
 	pid, err := kern.Spawn(intent, nil, kernel.SpawnOpts{})
@@ -392,7 +392,7 @@ func TestSignalHandling_GracefulShutdown(t *testing.T) {
 		}, nil
 	})
 	ctxMgr := cruxctx.NewManager()
-	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, nil, cb)
 
 	pid, err := kern.Spawn("signal test", nil, kernel.SpawnOpts{})
 	if err != nil {
@@ -489,7 +489,7 @@ func TestSignalHandling_InterruptSummary(t *testing.T) {
 		}, nil
 	})
 	ctxMgr := cruxctx.NewManager()
-	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, nil, cb)
 
 	pid, err := kern.Spawn("signal test", nil, kernel.SpawnOpts{})
 	if err != nil {
@@ -556,7 +556,7 @@ func TestSignalHandling_DoubleInterruptForceExit(t *testing.T) {
 		}, nil
 	})
 	ctxMgr := cruxctx.NewManager()
-	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, nil, cb)
 
 	pid, err := kern.Spawn("double signal test", nil, kernel.SpawnOpts{})
 	if err != nil {

@@ -44,6 +44,7 @@ type Process struct {
 	CtxID      types.CtxID               // context allocated by Spawn
 	Result     string                    // final output from reasoning
 	TokensUsed int                       // cumulative token consumption
+	AllowedDevices []string              // nil/empty = all devices allowed; non-empty = whitelist only
 
 	mu     sync.Mutex
 	cancel context.CancelFunc

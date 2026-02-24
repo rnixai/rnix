@@ -1,6 +1,6 @@
 # Story 2.4: Skill 注入与设备权限白名单
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -20,66 +20,66 @@ So that 智能体获得专业指令同时只能访问 Skill 声明的设备。
 
 ## Tasks / Subtasks
 
-- [ ] Task 0: 修复循环依赖 — skills 包移除 kernel 导入 (AC: 前置条件)
-  - [ ] 0.1 在 `skills/loader.go` 中移除 `kernel` 导入，将 `kernel.NewSyscallError` 替换为 `fmt.Errorf` 或自定义错误
-  - [ ] 0.2 运行 `go build ./...` 确认编译通过
-  - [ ] 0.3 运行 `go test -race ./skills/...` 确认测试通过
+- [x] Task 0: 修复循环依赖 — skills 包移除 kernel 导入 (AC: 前置条件)
+  - [x] 0.1 在 `skills/loader.go` 中移除 `kernel` 导入，将 `kernel.NewSyscallError` 替换为 `fmt.Errorf` 或自定义错误
+  - [x] 0.2 运行 `go build ./...` 确认编译通过
+  - [x] 0.3 运行 `go test -race ./skills/...` 确认测试通过
 
-- [ ] Task 1: Process 添加 AllowedDevices 字段 (AC: #2, #4)
-  - [ ] 1.1 在 `kernel/process.go` 的 `Process` 结构体中添加 `AllowedDevices []string` 字段
-  - [ ] 1.2 `AllowedDevices` 为 nil 或空时表示"所有设备可访问"（通用模式，AC #4）
-  - [ ] 1.3 `AllowedDevices` 非空时仅允许白名单中的设备路径
+- [x] Task 1: Process 添加 AllowedDevices 字段 (AC: #2, #4)
+  - [x] 1.1 在 `kernel/process.go` 的 `Process` 结构体中添加 `AllowedDevices []string` 字段
+  - [x] 1.2 `AllowedDevices` 为 nil 或空时表示"所有设备可访问"（通用模式，AC #4）
+  - [x] 1.3 `AllowedDevices` 非空时仅允许白名单中的设备路径
 
-- [ ] Task 2: KernelImpl 添加 SkillLoader 依赖 (AC: #1, #3)
-  - [ ] 2.1 `kernel/kernel.go` 添加 `import "github.com/gonewx/crux/skills"`
-  - [ ] 2.2 `KernelImpl` 结构体添加 `skillLoader *skills.SkillLoader` 字段
-  - [ ] 2.3 修改 `NewKernel` 签名：添加 `skillLoader *skills.SkillLoader` 参数（放在 `ctxMgr` 和 `cb` 之间）
-  - [ ] 2.4 在 `NewKernel` 中存储 `skillLoader` 到结构体
+- [x] Task 2: KernelImpl 添加 SkillLoader 依赖 (AC: #1, #3)
+  - [x] 2.1 `kernel/kernel.go` 添加 `import "github.com/gonewx/crux/skills"`
+  - [x] 2.2 `KernelImpl` 结构体添加 `skillLoader *skills.SkillLoader` 字段
+  - [x] 2.3 修改 `NewKernel` 签名：添加 `skillLoader *skills.SkillLoader` 参数（放在 `ctxMgr` 和 `cb` 之间）
+  - [x] 2.4 在 `NewKernel` 中存储 `skillLoader` 到结构体
 
-- [ ] Task 3: Spawn 中加载 Skill 并注入 (AC: #1, #3, #4)
-  - [ ] 3.1 在 `Spawn()` 中，创建 Process 之后、分配上下文之前，检查 `len(skills) > 0`
-  - [ ] 3.2 如果有 Skill，调用 `k.skillLoader.Load(skills[0])` 加载第一个 Skill
-  - [ ] 3.3 加载失败时返回 `*SyscallError{Syscall: "Spawn", Code: ErrNotFound}`
-  - [ ] 3.4 加载成功后，将 `skillInfo.Manifest.Tools` 赋值给 `proc.AllowedDevices`
-  - [ ] 3.5 注入 instructions 到 system prompt：如果 `opts.SystemPrompt` 为空，直接设为 `skillInfo.Instructions`；如果非空，追加到现有 SystemPrompt 后面（`\n\n` 分隔）
-  - [ ] 3.6 模型选择优先级：CLI `--model` > Skill `manifest.models.preferred` > 驱动默认值。如果 `opts.Model` 为空且 Skill 有 `Models.Preferred`，设置 `opts.Model = skillInfo.Manifest.Models.Preferred`
-  - [ ] 3.7 将 Skill 名称记录到 Spawn 的 emitEvent args 中
+- [x] Task 3: Spawn 中加载 Skill 并注入 (AC: #1, #3, #4)
+  - [x] 3.1 在 `Spawn()` 中，创建 Process 之后、分配上下文之前，检查 `len(skills) > 0`
+  - [x] 3.2 如果有 Skill，调用 `k.skillLoader.Load(skills[0])` 加载第一个 Skill
+  - [x] 3.3 加载失败时返回 `*SyscallError{Syscall: "Spawn", Code: ErrNotFound}`
+  - [x] 3.4 加载成功后，将 `skillInfo.Manifest.Tools` 赋值给 `proc.AllowedDevices`
+  - [x] 3.5 注入 instructions 到 system prompt：如果 `opts.SystemPrompt` 为空，直接设为 `skillInfo.Instructions`；如果非空，追加到现有 SystemPrompt 后面（`\n\n` 分隔）
+  - [x] 3.6 模型选择优先级：CLI `--model` > Skill `manifest.models.preferred` > 驱动默认值。如果 `opts.Model` 为空且 Skill 有 `Models.Preferred`，设置 `opts.Model = skillInfo.Manifest.Models.Preferred`
+  - [x] 3.7 将 Skill 名称记录到 Spawn 的 emitEvent args 中
 
-- [ ] Task 4: reasonStep 添加设备权限检查 (AC: #2, #4)
-  - [ ] 4.1 在 `reasonStep()` 的 `case ActionToolCall:` 分支中，`k.vfs.Open()` 调用之前添加权限检查
-  - [ ] 4.2 权限检查逻辑：如果 `proc.AllowedDevices` 非空，检查 `action.ToolPath` 是否在白名单中
-  - [ ] 4.3 匹配规则：精确匹配（`/dev/fs` == `/dev/fs`）或前缀匹配（`/dev/fs/path/to/file` 以 `/dev/fs` 为前缀）
-  - [ ] 4.4 不匹配时：不直接终止进程，而是将权限错误作为工具结果追加到上下文，让 LLM 知道该工具不可用（更优雅的处理方式，参考 AC 描述的语义）
-  - [ ] 4.5 发送 emitEvent 记录权限拒绝事件
-  - [ ] 4.6 AllowedDevices 为空时跳过检查（通用模式，AC #4）
+- [x] Task 4: reasonStep 添加设备权限检查 (AC: #2, #4)
+  - [x] 4.1 在 `reasonStep()` 的 `case ActionToolCall:` 分支中，`k.vfs.Open()` 调用之前添加权限检查
+  - [x] 4.2 权限检查逻辑：如果 `proc.AllowedDevices` 非空，检查 `action.ToolPath` 是否在白名单中
+  - [x] 4.3 匹配规则：精确匹配（`/dev/fs` == `/dev/fs`）或前缀匹配（`/dev/fs/path/to/file` 以 `/dev/fs` 为前缀）
+  - [x] 4.4 不匹配时：不直接终止进程，而是将权限错误作为工具结果追加到上下文，让 LLM 知道该工具不可用（更优雅的处理方式，参考 AC 描述的语义）
+  - [x] 4.5 发送 emitEvent 记录权限拒绝事件
+  - [x] 4.6 AllowedDevices 为空时跳过检查（通用模式，AC #4）
 
-- [ ] Task 5: CLI 添加 --skill 标志 (AC: #1)
-  - [ ] 5.1 在 `cmd/crux/main.go` 中添加 `flagSkill string` 变量
-  - [ ] 5.2 在 `init()` 中注册：`rootCmd.Flags().StringVar(&flagSkill, "skill", "", "Skill to load (e.g., code-analyst)")`
-  - [ ] 5.3 在 `runRoot()` 中初始化 SkillLoader：`skillLoader := skills.NewSkillLoader("lib/skills")`
-  - [ ] 5.4 修改 `kernel.NewKernel()` 调用：传入 `skillLoader`
-  - [ ] 5.5 构建 skills 列表并传入 Spawn：`var skillsList []string; if flagSkill != "" { skillsList = []string{flagSkill} }`
-  - [ ] 5.6 添加 `import "github.com/gonewx/crux/skills"`
+- [x] Task 5: CLI 添加 --skill 标志 (AC: #1)
+  - [x] 5.1 在 `cmd/crux/main.go` 中添加 `flagSkill string` 变量
+  - [x] 5.2 在 `init()` 中注册：`rootCmd.Flags().StringVar(&flagSkill, "skill", "", "Skill to load (e.g., code-analyst)")`
+  - [x] 5.3 在 `runRoot()` 中初始化 SkillLoader：`skillLoader := skills.NewSkillLoader("lib/skills")`
+  - [x] 5.4 修改 `kernel.NewKernel()` 调用：传入 `skillLoader`
+  - [x] 5.5 构建 skills 列表并传入 Spawn：`var skillsList []string; if flagSkill != "" { skillsList = []string{flagSkill} }`
+  - [x] 5.6 添加 `import "github.com/gonewx/crux/skills"`
 
-- [ ] Task 6: 单元测试 (AC: #1-5)
-  - [ ] 6.1 `kernel/kernel_test.go` — 新增测试：
+- [x] Task 6: 单元测试 (AC: #1-5)
+  - [x] 6.1 `kernel/kernel_test.go` — 新增测试：
     - `TestSpawn_WithSkill_InjectsInstructions` — 验证 Skill instructions 注入到 context 的 system prompt
     - `TestSpawn_WithSkill_SetsAllowedDevices` — 验证 AllowedDevices 从 manifest.Tools 设置
     - `TestSpawn_WithSkill_ModelSelection` — 验证模型优先级（CLI > Skill > 默认）
     - `TestSpawn_WithSkill_NotFound` — 验证 Skill 不存在时返回 ErrNotFound
     - `TestSpawn_WithoutSkill_AllDevicesAllowed` — 验证无 Skill 时 AllowedDevices 为空
-  - [ ] 6.2 `kernel/kernel_test.go` — 权限检查测试：
+  - [x] 6.2 `kernel/kernel_test.go` — 权限检查测试：
     - `TestReasonStep_PermissionDenied_WhenDeviceNotInWhitelist` — 验证白名单外设备被拒绝
     - `TestReasonStep_PermissionAllowed_WhenDeviceInWhitelist` — 验证白名单内设备可访问
     - `TestReasonStep_PrefixMatch_AllowsSubpath` — 验证 `/dev/fs/path/to/file` 匹配 `/dev/fs` 白名单
     - `TestReasonStep_NoWhitelist_AllowsAll` — 验证无白名单时所有设备可访问
-  - [ ] 6.3 使用 mock SkillLoader 或 testdata fixture，不依赖真实 Skill 文件
+  - [x] 6.3 使用 mock SkillLoader 或 testdata fixture，不依赖真实 Skill 文件
 
-- [ ] Task 7: 全量回归测试 (AC: #1-5)
-  - [ ] 7.1 `go test -race ./skills/...` 通过（确认循环依赖修复后 skills 包无回归）
-  - [ ] 7.2 `go test -race ./kernel/...` 通过（新增测试 + 现有测试无回归）
-  - [ ] 7.3 `go test -race ./...` 全量通过
-  - [ ] 7.4 `go vet ./...` 无警告
+- [x] Task 7: 全量回归测试 (AC: #1-5)
+  - [x] 7.1 `go test -race ./skills/...` 通过（确认循环依赖修复后 skills 包无回归）
+  - [x] 7.2 `go test -race ./kernel/...` 通过（新增测试 + 现有测试无回归）
+  - [x] 7.3 `go test -race ./...` 全量通过
+  - [x] 7.4 `go vet ./...` 无警告
 
 ## Dev Notes
 
@@ -422,10 +422,31 @@ kernel/kernel_test.go         (修改 — 新增 ~9 个测试用例)
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- ✅ Task 0: 移除 `skills/loader.go` 对 `kernel` 包的导入，`kernel.NewSyscallError` 替换为 `fmt.Errorf`，同步更新 `skills/loader_test.go` 中的错误断言
+- ✅ Task 1: `Process` 结构体添加 `AllowedDevices []string` 字段，nil/空=全部可访问，非空=白名单
+- ✅ Task 2: `KernelImpl` 添加 `skillLoader *skills.SkillLoader` 字段，`NewKernel` 签名新增 `skillLoader` 参数，同步更新所有调用点（kernel_test.go、main.go、integration_test.go）
+- ✅ Task 3: `Spawn()` 中实现 Skill 加载逻辑 — instructions 注入到 SystemPrompt、AllowedDevices 从 manifest.Tools 设置、模型优先级 CLI > Skill > 默认、emitEvent 记录 loaded_skill
+- ✅ Task 4: `reasonStep()` ActionToolCall 分支添加设备权限检查 — 精确匹配 + 前缀匹配（dev+"/")），拒绝时将错误追加到上下文（不终止进程），emitEvent 记录 permission_denied
+- ✅ Task 5: CLI 添加 `--skill` 标志，初始化 `SkillLoader("lib/skills")`，构建 skillsList 传入 Spawn
+- ✅ Task 6: 新增 9 个单元测试 — 5 个 Spawn/Skill 测试 + 4 个权限检查测试，使用 `skills/testdata/mock-skill` fixture 和 `capturingLLMFile` mock
+- ✅ Task 7: 全量回归通过 — `go test -race ./...` 全部 PASS，`go vet ./...` 无警告
+
 ### File List
+
+- `skills/loader.go` — 修改：移除 kernel/types 导入，NewSyscallError 替换为 fmt.Errorf
+- `skills/loader_test.go` — 修改：移除 kernel/types 导入，更新 DirNotFound 测试断言
+- `kernel/process.go` — 修改：Process 结构体添加 AllowedDevices 字段
+- `kernel/kernel.go` — 修改：添加 skills/fmt/strings 导入，KernelImpl 添加 skillLoader，NewKernel 签名变更，Spawn 添加 Skill 加载注入，reasonStep 添加权限检查
+- `kernel/kernel_test.go` — 修改：添加 errors/strings/skills 导入，更新 NewKernel 调用，新增 9 个测试和 2 个辅助类型
+- `cmd/crux/main.go` — 修改：添加 skills 导入，新增 flagSkill 变量和 --skill 标志，初始化 SkillLoader，Spawn 传入 skillsList
+- `cmd/crux/integration_test.go` — 修改：更新 NewKernel 调用签名
+
+## Change Log
+
+- 2026-02-24: 实现 Story 2.4 — Skill 注入与设备权限白名单。修复 skills 包循环依赖，实现 Spawn 中 Skill 加载/instructions 注入/模型选择，实现 reasonStep 中设备权限白名单检查，添加 CLI --skill 标志，新增 9 个单元测试。

@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/kernel"
 	"github.com/goccy/go-yaml"
 )
 
@@ -44,7 +42,7 @@ func (l *SkillLoader) Load(skillName string) (*SkillInfo, error) {
 	fi, err := os.Stat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, kernel.NewSyscallError("Load", 0, dir, err, types.ErrNotFound)
+			return nil, fmt.Errorf("skill %q not found: %w", skillName, err)
 		}
 		return nil, fmt.Errorf("stat skill directory %q: %w", dir, err)
 	}
