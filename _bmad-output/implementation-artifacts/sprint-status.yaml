@@ -49,7 +49,7 @@ development_status:
   1-5-llm-driver-claude-code-cli: done
   1-6-kernel-reasoning-loop-spawn-reasonstep: done
   1-7-cli-entry-and-ui-components: done
-  1-8-end-to-end-integration-and-acceptance: ready-for-dev
+  1-8-end-to-end-integration-and-acceptance: review
   epic-1-retrospective: optional
 
   # Epic 2: Skill 能力与文件访问（Skills & File Access）

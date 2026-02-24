@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/kernel"
+	"github.com/spf13/cobra"
 )
 
 func TestResolveOutputMode(t *testing.T) {
@@ -287,5 +289,179 @@ func TestExitCode_InitialZero(t *testing.T) {
 	exitCode = 0
 	if exitCode != 0 {
 		t.Errorf("expected initial exitCode 0, got %d", exitCode)
+	}
+}
+
+// --- Version command tests (Task 1 / AC #5) ---
+
+func TestVersion_WithClaude(t *testing.T) {
+	saved := claudeVersionChecker
+	defer func() { claudeVersionChecker = saved }()
+
+	claudeVersionChecker = func() (string, error) {
+		return "1.0.34", nil
+	}
+
+	savedJSON := flagJSON
+	defer func() { flagJSON = savedJSON }()
+	flagJSON = false
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetOut(&buf)
+	runVersion(cmd, nil)
+
+	output := buf.String()
+	if !strings.Contains(output, "crux v") {
+		t.Errorf("expected crux version, got %q", output)
+	}
+	if !strings.Contains(output, "claude-code: 1.0.34") {
+		t.Errorf("expected claude-code version, got %q", output)
+	}
+}
+
+func TestVersion_WithoutClaude(t *testing.T) {
+	saved := claudeVersionChecker
+	defer func() { claudeVersionChecker = saved }()
+
+	claudeVersionChecker = func() (string, error) {
+		return "", fmt.Errorf("exec: not found")
+	}
+
+	savedJSON := flagJSON
+	defer func() { flagJSON = savedJSON }()
+	flagJSON = false
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetOut(&buf)
+	runVersion(cmd, nil)
+
+	output := buf.String()
+	if !strings.Contains(output, "crux v") {
+		t.Errorf("expected crux version, got %q", output)
+	}
+	if !strings.Contains(output, "✗ claude-code CLI not found") {
+		t.Errorf("expected not found message, got %q", output)
+	}
+	if !strings.Contains(output, "npm install -g @anthropic-ai/claude-code") {
+		t.Errorf("expected install suggestion, got %q", output)
+	}
+}
+
+func TestVersion_JSON(t *testing.T) {
+	saved := claudeVersionChecker
+	defer func() { claudeVersionChecker = saved }()
+
+	claudeVersionChecker = func() (string, error) {
+		return "1.0.34", nil
+	}
+
+	savedJSON := flagJSON
+	defer func() { flagJSON = savedJSON }()
+	flagJSON = true
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetOut(&buf)
+	runVersion(cmd, nil)
+
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true")
+	}
+
+	data, _ := json.Marshal(resp.Data)
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("failed to parse data: %v", err)
+	}
+	if m["version"] != version {
+		t.Errorf("expected version %q, got %v", version, m["version"])
+	}
+	if m["claude_code_available"] != true {
+		t.Errorf("expected claude_code_available true, got %v", m["claude_code_available"])
+	}
+	if m["claude_code"] != "1.0.34" {
+		t.Errorf("expected claude_code 1.0.34, got %v", m["claude_code"])
+	}
+}
+
+func TestVersion_JSON_WithoutClaude(t *testing.T) {
+	saved := claudeVersionChecker
+	defer func() { claudeVersionChecker = saved }()
+
+	claudeVersionChecker = func() (string, error) {
+		return "", fmt.Errorf("not found")
+	}
+
+	savedJSON := flagJSON
+	defer func() { flagJSON = savedJSON }()
+	flagJSON = true
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetOut(&buf)
+	runVersion(cmd, nil)
+
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true for version even without claude")
+	}
+
+	data, _ := json.Marshal(resp.Data)
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("failed to parse data: %v", err)
+	}
+	if m["claude_code_available"] != false {
+		t.Errorf("expected claude_code_available false, got %v", m["claude_code_available"])
+	}
+	if _, exists := m["claude_code"]; exists {
+		t.Errorf("expected no claude_code field when not available, got %v", m["claude_code"])
+	}
+}
+
+// --- Help output tests (Task 2 / AC #6) ---
+
+func TestHelp_ContainsUsage(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"--help"})
+	_ = rootCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "Usage:") && !strings.Contains(output, "Usage") {
+		t.Errorf("expected Usage in help output, got %q", output)
+	}
+	if !strings.Contains(output, "version") {
+		t.Errorf("expected version subcommand in help, got %q", output)
+	}
+	if !strings.Contains(output, "--json") {
+		t.Errorf("expected --json flag in help, got %q", output)
+	}
+	if !strings.Contains(output, "--verbose") {
+		t.Errorf("expected --verbose flag in help, got %q", output)
+	}
+	if !strings.Contains(output, "--quiet") {
+		t.Errorf("expected --quiet flag in help, got %q", output)
+	}
+}
+
+func TestHelp_ContainsExample(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"--help"})
+	_ = rootCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "分析 ./README.md") {
+		t.Errorf("expected example in help output, got %q", output)
 	}
 }
