@@ -79,6 +79,18 @@ func TestRenderError_QuietMode(t *testing.T) {
 	}
 }
 
+func TestRenderError_JSONMode(t *testing.T) {
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeJSON, Profile: TerminalProfile{Width: 80, ColorLevel: 0}}
+
+	RenderError(r, "/dev/llm/claude", "error", "impact", "suggestion")
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no output in JSON mode, got %q", buf.String())
+	}
+}
+
 func TestRenderError_ASCIIArrow(t *testing.T) {
 	InitStyles(TerminalProfile{ColorLevel: 0})
 	var buf bytes.Buffer

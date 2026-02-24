@@ -10,7 +10,7 @@ import (
 //	  → {impact}
 //	  → 建议: {suggestion}
 func RenderError(r *Renderer, device string, reason string, impact string, suggestion string) {
-	if r.OutputMode == ModeQuiet {
+	if r.OutputMode == ModeQuiet || r.OutputMode == ModeJSON {
 		return
 	}
 
