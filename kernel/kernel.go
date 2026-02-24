@@ -60,19 +60,31 @@ type llmResponse struct {
 	TokensUsed int    `json:"tokens_used"`
 }
 
+// KernelCallbacks allows the CLI layer to receive progress notifications
+// from the kernel without introducing a reverse dependency on internal/ui.
+type KernelCallbacks interface {
+	OnSpawn(pid types.PID, intent string)
+	OnStep(pid types.PID, step int, total int)
+	OnComplete(pid types.PID, result string, exit ExitStatus)
+	OnError(pid types.PID, err error)
+}
+
 // KernelImpl is the core microkernel implementation.
 type KernelImpl struct {
 	procTable *xsync.SyncMap[types.PID, *Process]
 	vfs       *vfs.VFS
 	ctxMgr    *cruxctx.Manager
+	callbacks KernelCallbacks
 }
 
-// NewKernel creates a new KernelImpl with the given VFS and context manager.
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager) *KernelImpl {
+// NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
+// Pass nil for cb to run in silent mode (no progress notifications).
+func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl {
 	return &KernelImpl{
 		procTable: xsync.NewSyncMap[types.PID, *Process](),
 		vfs:       v,
 		ctxMgr:    ctxMgr,
+		callbacks: cb,
 	}
 }
 
@@ -135,6 +147,11 @@ func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (type
 		k.reasonStep(proc, llmFD, opts)
 	}()
 
+	// Notify callback after process is registered and goroutine launched
+	if k.callbacks != nil {
+		k.callbacks.OnSpawn(proc.PID, intent)
+	}
+
 	return proc.PID, nil
 }
 
@@ -161,6 +178,15 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 // finishProcess terminates the process and writes the exit status to the Done channel.
 func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	_ = proc.Terminate(exit)
+
+	// Notify callbacks
+	if k.callbacks != nil {
+		if exit.Err != nil {
+			k.callbacks.OnError(proc.PID, exit.Err)
+		}
+		k.callbacks.OnComplete(proc.PID, proc.Result, exit)
+	}
+
 	select {
 	case proc.Done <- exit:
 	default:
@@ -183,6 +209,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 	for step := 1; step <= maxSteps; step++ {
 		stepStart := time.Now()
+
+		// Notify step progress callback
+		if k.callbacks != nil {
+			k.callbacks.OnStep(proc.PID, step, maxSteps)
+		}
 
 		// Check context cancellation
 		select {
