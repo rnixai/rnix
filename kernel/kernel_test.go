@@ -1413,6 +1413,64 @@ func TestReasonStep_NoWhitelist_AllowsAll(t *testing.T) {
 	}
 }
 
+func TestReasonStep_PathTraversal_Blocked(t *testing.T) {
+	// LLM tries path traversal: /dev/fs/../llm/claude resolves to /dev/llm/claude
+	// mock-skill allows ["/dev/fs", "/dev/shell"], so /dev/llm/claude should be denied
+	seqFile := &sequenceLLMFile{
+		responses: [][]byte{
+			makeToolCallResponse("/dev/fs/../llm/claude", map[string]any{}, 10),
+			makeLLMResponse("traversal blocked", 5),
+		},
+	}
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return seqFile, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	sl := skills.NewSkillLoader("../skills/testdata")
+	k := NewKernel(v, ctxMgr, sl, nil)
+
+	pid, err := k.Spawn("test traversal", []string{"mock-skill"}, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s", exit.Code, exit.Reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if proc.Result != "traversal blocked" {
+		t.Errorf("expected 'traversal blocked', got %q", proc.Result)
+	}
+
+	// Verify permission_denied event was emitted for the traversal attempt
+	var foundPermDenied bool
+	for {
+		select {
+		case ev := <-proc.DebugChan:
+			if ev.Syscall == "ReasonStep" {
+				if action, ok := ev.Args["action"]; ok && action == "permission_denied" {
+					foundPermDenied = true
+				}
+			}
+		default:
+			goto drained
+		}
+	}
+drained:
+	if !foundPermDenied {
+		t.Error("expected permission_denied event for path traversal attempt")
+	}
+}
+
 // capturingLLMFile wraps an LLM file and captures the request JSON.
 type capturingLLMFile struct {
 	inner       *mockLLMFile

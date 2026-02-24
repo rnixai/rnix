@@ -16,6 +16,7 @@ import (
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/kernel"
+	"github.com/gonewx/crux/skills"
 	"github.com/gonewx/crux/vfs"
 )
 
@@ -603,4 +604,59 @@ func TestSignalHandling_DoubleInterruptForceExit(t *testing.T) {
 	close(blockCh)
 	<-proc.Done
 	<-handlerDone
+}
+
+// --- Story 2.4: Skill Injection E2E Test ---
+
+func TestE2E_WithSkill_InjectsInstructions(t *testing.T) {
+	driver := &mockLLMDriver{
+		response: &llm.LLMResponse{Content: "skill result", TokensUsed: 50},
+	}
+
+	w := &syncWriter{}
+	renderer := &ui.Renderer{
+		Writer:     w,
+		OutputMode: ui.ModeDefault,
+		Profile:    ui.TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+	}
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	cb := &cliCallbacks{progress: progress}
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
+	ctxMgr := cruxctx.NewManager()
+	sl := skills.NewSkillLoader("../../skills/testdata")
+	kern := kernel.NewKernel(vfsInst, ctxMgr, sl, cb)
+
+	skillsList := []string{"mock-skill"}
+	pid, err := kern.Spawn("analyze code", skillsList, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	exit := <-proc.Done
+	if exit.Code != 0 {
+		t.Fatalf("expected exit code 0, got %d: %s (err: %v)", exit.Code, exit.Reason, exit.Err)
+	}
+
+	elapsed := time.Since(time.Now())
+	outputSuccess(renderer, ui.ModeDefault, pid, proc, elapsed)
+
+	// Verify skill AllowedDevices set from manifest
+	if len(proc.AllowedDevices) != 2 {
+		t.Errorf("expected 2 AllowedDevices from mock-skill, got %d: %v", len(proc.AllowedDevices), proc.AllowedDevices)
+	}
+
+	// Verify result in output
+	output := w.String()
+	if !strings.Contains(output, "skill result") {
+		t.Errorf("expected 'skill result' in output, got:\n%s", output)
+	}
 }
