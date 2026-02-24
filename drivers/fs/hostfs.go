@@ -37,7 +37,10 @@ func (f *HostFSFile) Read(length int) ([]byte, error) {
 
 // Write returns an error because /dev/fs is a read-only device in MVP.
 func (f *HostFSFile) Write(_ context.Context, _ []byte) error {
-	return fmt.Errorf("read-only device: /dev/fs%s", f.path)
+	if f.closed {
+		return fmt.Errorf("write to closed hostfs file: %s", f.path)
+	}
+	return &types.DriverError{Op: "Write", Device: "/dev/fs" + f.path, Err: fmt.Errorf("read-only device"), Code: types.ErrPermission}
 }
 
 // Close closes the underlying os.File.
