@@ -1,6 +1,6 @@
 # Story 2.1: Skill 加载器与 manifest 解析
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -20,53 +20,53 @@ So that 智能体可以获得专业化的能力和指令。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 引入 YAML 依赖 (AC: #5)
-  - [ ] 1.1 执行 `go get gopkg.in/yaml.v3` 引入 YAML 解析库
-  - [ ] 1.2 验证 `go mod tidy` 成功，无冲突
+- [x] Task 1: 引入 YAML 依赖 (AC: #5)
+  - [x] 1.1 执行 `go get github.com/goccy/go-yaml` 引入 YAML 解析库（替换已停止维护的 `gopkg.in/yaml.v3`）
+  - [x] 1.2 验证 `go mod tidy` 成功，无冲突
 
-- [ ] Task 2: 创建 skills/types.go — 类型定义 (AC: #1)
-  - [ ] 2.1 创建 `skills/types.go` 文件，包名 `skills`
-  - [ ] 2.2 定义 `SkillManifest` 结构体，字段：`Name string`、`Description string`、`Tools []string`、`Models SkillModels`、`ContextBudget int`
-  - [ ] 2.3 定义 `SkillModels` 结构体，字段：`Provider string`、`Preferred string`、`Fallback string`
-  - [ ] 2.4 定义 `SkillInfo` 结构体，字段：`Manifest SkillManifest`、`Instructions string`
-  - [ ] 2.5 所有 YAML 字段使用 `yaml:"snake_case"` tag（与 manifest.yaml 格式一致）
+- [x] Task 2: 创建 skills/types.go — 类型定义 (AC: #1)
+  - [x] 2.1 创建 `skills/types.go` 文件，包名 `skills`
+  - [x] 2.2 定义 `SkillManifest` 结构体，字段：`Name string`、`Description string`、`Tools []string`、`Models SkillModels`、`ContextBudget int`
+  - [x] 2.3 定义 `SkillModels` 结构体，字段：`Provider string`、`Preferred string`、`Fallback string`
+  - [x] 2.4 定义 `SkillInfo` 结构体，字段：`Manifest SkillManifest`、`Instructions string`
+  - [x] 2.5 所有 YAML 字段使用 `yaml:"snake_case"` tag（与 manifest.yaml 格式一致）
 
-- [ ] Task 3: 创建 skills/loader.go — 加载器实现 (AC: #2, #3, #4, #5)
-  - [ ] 3.1 创建 `skills/loader.go` 文件
-  - [ ] 3.2 实现泛型函数 `LoadYAML[T any](path string) (T, error)` — 读取文件 + `yaml.Unmarshal` 到泛型目标
-  - [ ] 3.3 实现 `SkillLoader` 结构体，字段：`basePath string`（skills 根目录）
-  - [ ] 3.4 实现 `NewSkillLoader(basePath string) *SkillLoader` 构造函数
-  - [ ] 3.5 实现 `SkillLoader.Load(skillName string) (*SkillInfo, error)` 方法：
+- [x] Task 3: 创建 skills/loader.go — 加载器实现 (AC: #2, #3, #4, #5)
+  - [x] 3.1 创建 `skills/loader.go` 文件
+  - [x] 3.2 实现泛型函数 `LoadYAML[T any](path string) (T, error)` — 读取文件 + `yaml.Unmarshal` 到泛型目标
+  - [x] 3.3 实现 `SkillLoader` 结构体，字段：`basePath string`（skills 根目录）
+  - [x] 3.4 实现 `NewSkillLoader(basePath string) *SkillLoader` 构造函数
+  - [x] 3.5 实现 `SkillLoader.Load(skillName string) (*SkillInfo, error)` 方法：
     - 构建 skill 目录路径：`filepath.Join(basePath, skillName)`
     - 检查目录是否存在（不存在返回 `*kernel.SyscallError` + `ErrNotFound`）
     - 调用 `LoadYAML[SkillManifest]` 加载 `manifest.yaml`
     - 验证必填字段（Name 非空），缺失返回描述性错误
     - 读取 `instructions.md` 为原始文本（`os.ReadFile`）
     - 组装并返回 `*SkillInfo`
-  - [ ] 3.6 instructions.md 不存在时返回描述性错误（不是 SyscallError，因为目录存在但缺少文件）
+  - [x] 3.6 instructions.md 不存在时返回描述性错误（不是 SyscallError，因为目录存在但缺少文件）
 
-- [ ] Task 4: 创建测试 fixtures (AC: #2, #3, #4)
-  - [ ] 4.1 创建 `skills/testdata/mock-skill/manifest.yaml`，包含完整有效字段
-  - [ ] 4.2 创建 `skills/testdata/mock-skill/instructions.md`，包含示例指令文本
-  - [ ] 4.3 创建 `skills/testdata/invalid-manifest/manifest.yaml`，包含格式无效的 YAML 内容
-  - [ ] 4.4 创建 `skills/testdata/missing-fields/manifest.yaml`，缺少 Name 必填字段
-  - [ ] 4.5 创建 `skills/testdata/no-instructions/manifest.yaml`，有效 manifest 但无 instructions.md
+- [x] Task 4: 创建测试 fixtures (AC: #2, #3, #4)
+  - [x] 4.1 创建 `skills/testdata/mock-skill/manifest.yaml`，包含完整有效字段
+  - [x] 4.2 创建 `skills/testdata/mock-skill/instructions.md`，包含示例指令文本
+  - [x] 4.3 创建 `skills/testdata/invalid-manifest/manifest.yaml`，包含格式无效的 YAML 内容
+  - [x] 4.4 创建 `skills/testdata/missing-fields/manifest.yaml`，缺少 Name 必填字段
+  - [x] 4.5 创建 `skills/testdata/no-instructions/manifest.yaml`，有效 manifest 但无 instructions.md
 
-- [ ] Task 5: 创建 skills/loader_test.go — 单元测试 (AC: #1-5)
-  - [ ] 5.1 `TestLoadYAML_Success` — 泛型 YAML 加载成功
-  - [ ] 5.2 `TestLoadYAML_FileNotFound` — 文件不存在返回错误
-  - [ ] 5.3 `TestLoadYAML_InvalidYAML` — YAML 格式无效返回解析错误
-  - [ ] 5.4 `TestSkillLoader_Load_Success` — 完整加载 mock-skill，验证所有字段
-  - [ ] 5.5 `TestSkillLoader_Load_DirNotFound` — 目录不存在返回 `*kernel.SyscallError` + `ErrNotFound`
-  - [ ] 5.6 `TestSkillLoader_Load_InvalidManifest` — 无效 YAML 返回解析错误
-  - [ ] 5.7 `TestSkillLoader_Load_MissingRequiredFields` — 缺少 Name 返回验证错误
-  - [ ] 5.8 `TestSkillLoader_Load_NoInstructions` — 缺少 instructions.md 返回错误
-  - [ ] 5.9 所有测试函数命名遵循 `Test<Type>_<Method>` 格式
+- [x] Task 5: 创建 skills/loader_test.go — 单元测试 (AC: #1-5)
+  - [x] 5.1 `TestLoadYAML_Success` — 泛型 YAML 加载成功
+  - [x] 5.2 `TestLoadYAML_FileNotFound` — 文件不存在返回错误
+  - [x] 5.3 `TestLoadYAML_InvalidYAML` — YAML 格式无效返回解析错误
+  - [x] 5.4 `TestSkillLoader_Load_Success` — 完整加载 mock-skill，验证所有字段
+  - [x] 5.5 `TestSkillLoader_Load_DirNotFound` — 目录不存在返回 `*kernel.SyscallError` + `ErrNotFound`
+  - [x] 5.6 `TestSkillLoader_Load_InvalidManifest` — 无效 YAML 返回解析错误
+  - [x] 5.7 `TestSkillLoader_Load_MissingRequiredFields` — 缺少 Name 返回验证错误
+  - [x] 5.8 `TestSkillLoader_Load_NoInstructions` — 缺少 instructions.md 返回错误
+  - [x] 5.9 所有测试函数命名遵循 `Test<Type>_<Method>` 格式
 
-- [ ] Task 6: 全量回归测试 (AC: #1-5)
-  - [ ] 6.1 `go test -race ./skills/...` 全部通过
-  - [ ] 6.2 `go test -race ./...` 全量通过（确认无回归）
-  - [ ] 6.3 `go vet ./...` 无警告
+- [x] Task 6: 全量回归测试 (AC: #1-5)
+  - [x] 6.1 `go test -race ./skills/...` 全部通过
+  - [x] 6.2 `go test -race ./...` 全量通过（确认无回归）
+  - [x] 6.3 `go vet ./...` 无警告
 
 ## Dev Notes
 
@@ -242,10 +242,28 @@ skills/
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- Task 1: YAML 库选择变更 — 原 Story 指定 `gopkg.in/yaml.v3`（已停止维护），经用户确认后替换为 `github.com/goccy/go-yaml v1.19.2`（活跃维护，API 兼容）
+- Task 2: `skills/types.go` — 定义 SkillManifest、SkillModels、SkillInfo 三个结构体，所有 YAML 字段使用 `yaml:"snake_case"` tag
+- Task 3: `skills/loader.go` — 实现泛型 `LoadYAML[T]` 和 `SkillLoader.Load`，错误处理严格遵循架构约束：目录不存在用 `*kernel.SyscallError`，其他用 `fmt.Errorf`
+- Task 4: 创建 4 组 testdata fixtures 覆盖成功、无效 YAML、缺少必填字段、缺少 instructions.md 场景
+- Task 5: 8 个单元测试全部通过，覆盖 AC #1-#5 全部验收标准
+- Task 6: `go test -race ./...` 全量通过（零回归），`go vet ./...` 无警告
+
 ### File List
+
+- `skills/types.go` (新建)
+- `skills/loader.go` (新建)
+- `skills/loader_test.go` (新建)
+- `skills/testdata/mock-skill/manifest.yaml` (新建)
+- `skills/testdata/mock-skill/instructions.md` (新建)
+- `skills/testdata/invalid-manifest/manifest.yaml` (新建)
+- `skills/testdata/missing-fields/manifest.yaml` (新建)
+- `skills/testdata/no-instructions/manifest.yaml` (新建)
+- `go.mod` (修改 — 新增 `github.com/goccy/go-yaml v1.19.2`)
+- `go.sum` (修改)
