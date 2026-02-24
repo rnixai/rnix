@@ -1,6 +1,6 @@
 # Story 2.2: 宿主文件系统驱动（/dev/fs）
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -285,7 +285,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 
 - ✅ Task 1: 创建 `drivers/fs/hostfs.go`，实现 `HostFSFile` 结构体，精确匹配 `vfs.VFSFile` 接口（Read/Write/Close/Stat）
 - ✅ Task 2: 实现 `FileFactory()` 工厂函数，包含完整错误映射（NotFound/Permission/Driver）、空路径验证、目录拒绝（吸收 Story 2.1 Code Review 经验）、写入标志拒绝
-- ✅ Task 3: 创建 10 个单元测试，100% 通过：ReadSuccess、FileNotFound、PermissionDenied（root 跳过）、Stat、Write_ReadOnly、DoubleClose、Read_AfterClose、EmptySubpath、WriteFlag_Rejected、NestedPath
+- ✅ Task 3: 创建 12 个单元测试，100% 通过：ReadSuccess、FileNotFound、PermissionDenied（root 跳过）、Stat、Write_ReadOnly、DoubleClose、Read_AfterClose、EmptySubpath、WriteFlag_Rejected、NestedPath、DirectoryRejected、Read_PartialLength
 - ✅ Task 4: 创建 testdata 夹具：sample.txt（已知内容）、nested/deep.txt（嵌套路径）
 - ✅ Task 5: 在 `cmd/crux/main.go` 注册 `/dev/fs` 设备（import + Register 调用）
 - ✅ Task 6: `go test -race ./...` 全量通过，`go vet ./...` 无警告，零回归
@@ -299,7 +299,39 @@ Claude Opus 4.6 (claude-opus-4-6)
 ### File List
 
 - `drivers/fs/hostfs.go` — 新建：HostFSFile 结构体 + FileFactory 工厂 + mapOSError 辅助
-- `drivers/fs/hostfs_test.go` — 新建：10 个单元测试
+- `drivers/fs/hostfs_test.go` — 新建：12 个单元测试
 - `drivers/fs/testdata/sample.txt` — 新建：读取验证 fixture
 - `drivers/fs/testdata/nested/deep.txt` — 新建：嵌套路径验证 fixture
 - `cmd/crux/main.go` — 修改：新增 `drivers/fs` import 和 `/dev/fs` 设备注册
+- `internal/types/types.go` — 修改：新增 `DriverError` 类型（供驱动层使用，避免 drivers/ → kernel/ 依赖）
+- `vfs/vfs.go` — 修改：VFS.Open 新增 `DriverError` 错误码提取，传播驱动层错误码
+
+## Senior Developer Review (AI)
+
+**Reviewer:** Decker | **Date:** 2026-02-24 | **Model:** Claude Opus 4.6
+
+### Review Outcome: Approved with Fixes Applied
+
+### Issues Found & Fixed (4 HIGH/MEDIUM)
+
+| ID | Severity | Issue | Fix |
+|----|----------|-------|-----|
+| H1 | HIGH | `drivers/fs/` 导入 `kernel/` 违反架构规则 `drivers/ 不导入 kernel/` | 新增 `types.DriverError` 替代 `kernel.SyscallError`，移除 kernel 依赖 |
+| H2 | HIGH→MEDIUM | Write 用 `*kernel.SyscallError`，Read/Close/Stat 用 `fmt.Errorf`，错误类型不一致 | Write 改为 `fmt.Errorf`（与 LLM 驱动一致），FileFactory 用 `*types.DriverError` |
+| M1 | MEDIUM | FileFactory 的 `IsDir()` 检查无测试覆盖 | 新增 `TestFileFactory_DirectoryRejected` |
+| M2 | MEDIUM | `Read(length > 0)` 部分读取路径零测试覆盖 | 新增 `TestHostFSFile_Read_PartialLength` |
+| M3 | MEDIUM | VFS.Open 将驱动错误码覆盖为 `ErrDriver` | VFS.Open 新增 `types.DriverError` 错误码提取逻辑 |
+
+### Remaining LOW Issues (Not Fixed)
+
+| ID | Severity | Issue |
+|----|----------|-------|
+| L1 | LOW | `testdataDir` 使用 `runtime.Caller` 可简化为相对路径 |
+| L2 | LOW | 缺少 `Stat()` closed 状态测试 |
+| L3 | LOW | 空 subpath 使用 `ErrNotFound` 语义不精确 |
+
+### Test Results Post-Fix
+
+- `go test -race ./drivers/fs/...` — 12/12 PASS
+- `go test -race ./...` — 全量通过，零回归
+- `go vet ./...` — 无警告

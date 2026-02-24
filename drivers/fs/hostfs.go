@@ -8,7 +8,6 @@ import (
 	"os"
 
 	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/kernel"
 	"github.com/gonewx/crux/vfs"
 )
 
@@ -36,9 +35,9 @@ func (f *HostFSFile) Read(length int) ([]byte, error) {
 	return buf[:n], nil
 }
 
-// Write returns ErrPermission because /dev/fs is a read-only device in MVP.
+// Write returns an error because /dev/fs is a read-only device in MVP.
 func (f *HostFSFile) Write(_ context.Context, _ []byte) error {
-	return kernel.NewSyscallError("Write", 0, "/dev/fs"+f.path, fmt.Errorf("read-only device"), types.ErrPermission)
+	return fmt.Errorf("read-only device: /dev/fs%s", f.path)
 }
 
 // Close closes the underlying os.File.
@@ -73,12 +72,12 @@ func FileFactory() vfs.VFSFileFactory {
 		device := "/dev/fs" + subpath
 
 		if subpath == "" {
-			return nil, kernel.NewSyscallError("Open", 0, "/dev/fs", fmt.Errorf("empty subpath"), types.ErrNotFound)
+			return nil, types.NewDriverError("Open", "/dev/fs", fmt.Errorf("empty subpath"), types.ErrNotFound)
 		}
 
 		// MVP: /dev/fs is read-only
 		if flags != vfs.O_RDONLY {
-			return nil, kernel.NewSyscallError("Open", 0, device, fmt.Errorf("read-only device"), types.ErrPermission)
+			return nil, types.NewDriverError("Open", device, fmt.Errorf("read-only device"), types.ErrPermission)
 		}
 
 		f, err := os.Open(subpath)
@@ -94,7 +93,7 @@ func FileFactory() vfs.VFSFileFactory {
 		}
 		if info.IsDir() {
 			f.Close()
-			return nil, kernel.NewSyscallError("Open", 0, device, fmt.Errorf("is a directory"), types.ErrPermission)
+			return nil, types.NewDriverError("Open", device, fmt.Errorf("is a directory"), types.ErrPermission)
 		}
 
 		return &HostFSFile{
@@ -104,14 +103,14 @@ func FileFactory() vfs.VFSFileFactory {
 	}
 }
 
-// mapOSError converts an os-level error to a *kernel.SyscallError.
-func mapOSError(syscall, device string, err error) *kernel.SyscallError {
+// mapOSError converts an os-level error to a *types.DriverError.
+func mapOSError(op, device string, err error) *types.DriverError {
 	switch {
 	case os.IsNotExist(err):
-		return kernel.NewSyscallError(syscall, 0, device, err, types.ErrNotFound)
+		return types.NewDriverError(op, device, err, types.ErrNotFound)
 	case os.IsPermission(err):
-		return kernel.NewSyscallError(syscall, 0, device, err, types.ErrPermission)
+		return types.NewDriverError(op, device, err, types.ErrPermission)
 	default:
-		return kernel.NewSyscallError(syscall, 0, device, err, types.ErrDriver)
+		return types.NewDriverError(op, device, err, types.ErrDriver)
 	}
 }

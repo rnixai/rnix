@@ -169,6 +169,11 @@ func (v *VFS) Open(pid types.PID, path string, flags OpenFlag) (types.FD, error)
 		code := types.ErrDriver
 		if errors.Is(err, errDeviceNotFound) {
 			code = types.ErrNotFound
+		} else {
+			var drvErr *types.DriverError
+			if errors.As(err, &drvErr) {
+				code = drvErr.Code
+			}
 		}
 		return 0, newVFSError("Open", pid, path, err, code)
 	}
