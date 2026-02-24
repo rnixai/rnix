@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // PID represents a process identifier.
 type PID uint64
@@ -39,6 +42,30 @@ const (
 	StateZombie
 	StateDead
 )
+
+// DriverError represents an error from a device driver with a categorized error code.
+// Used by drivers instead of kernel.SyscallError to avoid drivers/ → kernel/ dependency.
+type DriverError struct {
+	Op     string
+	Device string
+	Err    error
+	Code   ErrCode
+}
+
+// Error returns a formatted error string.
+func (e *DriverError) Error() string {
+	return fmt.Sprintf("[%s] %s: %s (%v)", e.Code, e.Op, e.Device, e.Err)
+}
+
+// Unwrap returns the underlying error for use with errors.Is and errors.As.
+func (e *DriverError) Unwrap() error {
+	return e.Err
+}
+
+// NewDriverError creates a new DriverError.
+func NewDriverError(op, device string, err error, code ErrCode) *DriverError {
+	return &DriverError{Op: op, Device: device, Err: err, Code: code}
+}
 
 // SyscallEvent records a single syscall invocation for tracing.
 type SyscallEvent struct {
