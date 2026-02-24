@@ -37,12 +37,19 @@ func NewSkillLoader(basePath string) *SkillLoader {
 // Load reads a skill's manifest.yaml and instructions.md from the given skill
 // directory name under the loader's base path. It returns a populated SkillInfo
 // or an error describing what went wrong.
-func (sl *SkillLoader) Load(skillName string) (*SkillInfo, error) {
-	dir := filepath.Join(sl.basePath, skillName)
+func (l *SkillLoader) Load(skillName string) (*SkillInfo, error) {
+	dir := filepath.Join(l.basePath, skillName)
 
-	// Check if skill directory exists.
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return nil, kernel.NewSyscallError("Load", 0, dir, err, types.ErrNotFound)
+	// Check if skill directory exists and is a directory.
+	fi, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, kernel.NewSyscallError("Load", 0, dir, err, types.ErrNotFound)
+		}
+		return nil, fmt.Errorf("stat skill directory %q: %w", dir, err)
+	}
+	if !fi.IsDir() {
+		return nil, fmt.Errorf("skill path %q is not a directory", dir)
 	}
 
 	// Load and parse manifest.yaml.
@@ -54,7 +61,7 @@ func (sl *SkillLoader) Load(skillName string) (*SkillInfo, error) {
 
 	// Validate required fields.
 	if manifest.Name == "" {
-		return nil, fmt.Errorf("skill %q manifest missing required field: Name", skillName)
+		return nil, fmt.Errorf("skill %q manifest missing required field: name", skillName)
 	}
 
 	// Read instructions.md.
