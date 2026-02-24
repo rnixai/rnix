@@ -47,6 +47,13 @@ func TestHelperProcess(t *testing.T) {
 		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"","is_error":false}`)
 	case "stream_empty_result":
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"","is_error":false}`)
+	case "is_error_empty_result":
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"error","result":"","is_error":true}`)
+	case "exit1_valid_result":
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"partial output","is_error":false,"num_turns":1}`)
+		os.Exit(1)
+	case "stream_is_error_empty":
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error","result":"","is_error":true}`)
 	}
 	os.Exit(0)
 }
@@ -296,6 +303,9 @@ func TestClaudeCliDriver_Call_ExitCodeWithJSON(t *testing.T) {
 	if !strings.Contains(err.Error(), "API rate limited") {
 		t.Errorf("expected 'API rate limited' in error, got: %v", err)
 	}
+	if !strings.Contains(err.Error(), "exit 1") {
+		t.Errorf("expected exit code in error, got: %v", err)
+	}
 }
 
 func TestClaudeCliDriver_Call_ExitCodeNoJSON(t *testing.T) {
@@ -349,5 +359,56 @@ func TestClaudeCliDriver_Stream_EmptyResult(t *testing.T) {
 	}
 	if !strings.Contains(events[0].Err.Error(), "truncated") {
 		t.Errorf("expected truncation error, got: %v", events[0].Err)
+	}
+}
+
+func TestClaudeCliDriver_Call_IsErrorEmptyResult(t *testing.T) {
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("is_error_empty_result")))
+	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "llm returned error") {
+		t.Errorf("expected 'llm returned error', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "unknown error") {
+		t.Errorf("expected 'unknown error' fallback, got: %v", err)
+	}
+}
+
+func TestClaudeCliDriver_Call_ExitCodeWithValidResult(t *testing.T) {
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("exit1_valid_result")))
+	resp, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("expected success despite exit code 1, got error: %v", err)
+	}
+	if resp.Content != "partial output" {
+		t.Errorf("expected 'partial output', got %q", resp.Content)
+	}
+	if resp.TokensUsed != 1 {
+		t.Errorf("expected tokens_used 1, got %d", resp.TokensUsed)
+	}
+}
+
+func TestClaudeCliDriver_Stream_IsErrorEmptyResult(t *testing.T) {
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_is_error_empty")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != "error" {
+		t.Fatalf("expected error event, got type=%q", events[0].Type)
+	}
+	if !strings.Contains(events[0].Err.Error(), "unknown error") {
+		t.Errorf("expected 'unknown error' fallback, got: %v", events[0].Err)
 	}
 }

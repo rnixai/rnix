@@ -461,12 +461,10 @@ func TestE2E_Reliability_NFR6(t *testing.T) {
 
 // --- AC #7 Signal Handling: Interrupt Summary and Double-SIGINT ---
 //
-// NOTE on architectural limitation (M2 documentation):
-// LLMFile.Write calls driver.Call(context.Background(), ...), NOT the process
-// context. This means proc.Cancel() does NOT propagate to an in-flight LLM call.
-// Cancellation only takes effect at the next reasonStep loop iteration's ctx.Done()
-// check. Tests below simulate this by manually unblocking the mock after Cancel().
-// This is a known architectural debt to be addressed in a future story.
+// NOTE: Story 2.0 resolved the context propagation debt — LLMFile.Write now
+// accepts and passes context.Context to driver.Call(). proc.Cancel() propagates
+// to in-flight LLM calls. Tests below still use blockingVFSFile (which ignores
+// context) to test the signal handling flow at the kernel level.
 
 func TestSignalHandling_InterruptSummary(t *testing.T) {
 	blockCh := make(chan struct{})
