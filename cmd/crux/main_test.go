@@ -434,6 +434,10 @@ func TestHelp_ContainsUsage(t *testing.T) {
 	var buf bytes.Buffer
 	rootCmd.SetOut(&buf)
 	rootCmd.SetArgs([]string{"--help"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetArgs(nil)
+	})
 	_ = rootCmd.Execute()
 
 	output := buf.String()
@@ -458,6 +462,10 @@ func TestHelp_ContainsExample(t *testing.T) {
 	var buf bytes.Buffer
 	rootCmd.SetOut(&buf)
 	rootCmd.SetArgs([]string{"--help"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetArgs(nil)
+	})
 	_ = rootCmd.Execute()
 
 	output := buf.String()

@@ -31,6 +31,9 @@ var (
 // exitCode is set by runRoot and read by main() to determine the process exit code.
 var exitCode int
 
+// forceExitFunc is called on double-SIGINT for force exit. Package-level variable for test injection.
+var forceExitFunc = os.Exit
+
 // claudeVersionChecker returns the Claude Code CLI version string, or an error if not available.
 // Package-level variable to allow test injection.
 var claudeVersionChecker = defaultClaudeVersionChecker
@@ -202,7 +205,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		proc.Cancel()
 		select {
 		case <-sigCh: // Second signal within timeout
-			os.Exit(130)
+			forceExitFunc(130)
 		case <-time.After(2 * time.Second):
 			// Timeout elapsed, let normal exit flow handle it
 		}
