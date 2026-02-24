@@ -820,3 +820,219 @@ func TestSpawn_Integration(t *testing.T) {
 		t.Fatalf("expected first message to be intent, got %q", prompt.Messages[0].Content)
 	}
 }
+
+// --- Process Table Consistency Tests (Story 1.8, Task 5, AC #4) ---
+
+// assertProcessTableConsistency verifies all processes in the table have consistent state.
+func assertProcessTableConsistency(t *testing.T, k *KernelImpl) {
+	t.Helper()
+	procs := k.ListProcesses()
+	for _, p := range procs {
+		state := p.GetState()
+		if state == types.StateRunning {
+			t.Errorf("PID %d still Running after expected completion", p.PID)
+		}
+		if state == types.StateZombie && p.Exit == nil {
+			t.Errorf("PID %d is Zombie but Exit is nil", p.PID)
+		}
+	}
+}
+
+func TestProcessTableConsistency_AfterNormalExit(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("normal exit", 50),
+	}
+	k, _, _ := newTestKernel(llmFile)
+
+	pid, err := k.Spawn("test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found after spawn")
+	}
+
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0, got %d", exit.Code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// Verify consistency
+	if proc.GetState() != types.StateZombie {
+		t.Errorf("expected Zombie, got %d", proc.GetState())
+	}
+	if proc.Exit == nil {
+		t.Error("expected non-nil Exit")
+	}
+	assertProcessTableConsistency(t, k)
+
+	// Process should still be in table (Zombie, not yet reaped)
+	_, ok = k.GetProcess(pid)
+	if !ok {
+		t.Error("Zombie process should still be in process table")
+	}
+}
+
+func TestProcessTableConsistency_AfterError(t *testing.T) {
+	llmFile := &mockLLMFile{
+		writeErr: fmt.Errorf("device error"),
+	}
+	k, _, _ := newTestKernel(llmFile)
+
+	pid, err := k.Spawn("error test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case exit := <-proc.Done:
+		if exit.Code == 0 {
+			t.Fatal("expected non-zero exit code for error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// Verify no dangling PID, state consistency
+	if proc.GetState() != types.StateZombie {
+		t.Errorf("expected Zombie, got %d", proc.GetState())
+	}
+	assertProcessTableConsistency(t, k)
+}
+
+func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
+	const n = 5
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &mockLLMFile{readData: makeLLMResponse("multi", 10)}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+
+	var pids []types.PID
+	var procs []*Process
+	for i := 0; i < n; i++ {
+		pid, err := k.Spawn(fmt.Sprintf("proc-%d", i), nil, SpawnOpts{})
+		if err != nil {
+			t.Fatalf("Spawn %d failed: %v", i, err)
+		}
+		proc, _ := k.GetProcess(pid)
+		pids = append(pids, pid)
+		procs = append(procs, proc)
+	}
+
+	// Wait for all processes to complete
+	for i, proc := range procs {
+		select {
+		case <-proc.Done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("process %d timed out", i)
+		}
+	}
+
+	// Verify each process has correct state
+	for i, pid := range pids {
+		p, ok := k.GetProcess(pid)
+		if !ok {
+			t.Errorf("PID %d not found in process table", pid)
+			continue
+		}
+		if p.GetState() != types.StateZombie {
+			t.Errorf("PID %d: expected Zombie, got %d", pid, p.GetState())
+		}
+		if p.Exit == nil {
+			t.Errorf("PID %d: expected non-nil Exit", pid)
+		}
+		if p.Result != "multi" {
+			t.Errorf("PID %d: expected result 'multi', got %q", pid, p.Result)
+		}
+		_ = i
+	}
+
+	assertProcessTableConsistency(t, k)
+
+	// Verify total process count
+	listed := k.ListProcesses()
+	if len(listed) != n {
+		t.Errorf("expected %d processes in table, got %d", n, len(listed))
+	}
+}
+
+func TestProcessTableConsistency_ConcurrentSpawn(t *testing.T) {
+	const n = 10
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &mockLLMFile{readData: makeLLMResponse("concurrent", 5)}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+
+	var wg sync.WaitGroup
+	pidCh := make(chan types.PID, n)
+	errCh := make(chan error, n)
+
+	// Spawn n processes concurrently
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			pid, err := k.Spawn(fmt.Sprintf("concurrent-%d", i), nil, SpawnOpts{})
+			if err != nil {
+				errCh <- fmt.Errorf("spawn %d: %w", i, err)
+				return
+			}
+			pidCh <- pid
+		}(i)
+	}
+	wg.Wait()
+	close(pidCh)
+	close(errCh)
+
+	for err := range errCh {
+		t.Fatalf("concurrent spawn error: %v", err)
+	}
+
+	var pids []types.PID
+	for pid := range pidCh {
+		pids = append(pids, pid)
+	}
+
+	if len(pids) != n {
+		t.Fatalf("expected %d PIDs, got %d", n, len(pids))
+	}
+
+	// Wait for all processes to finish
+	for _, pid := range pids {
+		proc, ok := k.GetProcess(pid)
+		if !ok {
+			t.Errorf("PID %d not in table", pid)
+			continue
+		}
+		select {
+		case <-proc.Done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("PID %d timed out", pid)
+		}
+	}
+
+	// Verify no data race issues (test runs with -race)
+	assertProcessTableConsistency(t, k)
+
+	// Verify unique PIDs
+	seen := make(map[types.PID]bool)
+	for _, pid := range pids {
+		if seen[pid] {
+			t.Errorf("duplicate PID %d", pid)
+		}
+		seen[pid] = true
+	}
+}

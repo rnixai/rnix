@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -29,6 +30,18 @@ var (
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
 var exitCode int
+
+// claudeVersionChecker returns the Claude Code CLI version string, or an error if not available.
+// Package-level variable to allow test injection.
+var claudeVersionChecker = defaultClaudeVersionChecker
+
+func defaultClaudeVersionChecker() (string, error) {
+	out, err := exec.Command("claude", "--version").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
 
 // JSONResponse is the standard JSON output wrapper.
 type JSONResponse struct {
@@ -79,16 +92,47 @@ var rootCmd = &cobra.Command{
 	Use:   "crux [intent]",
 	Short: "Crux — Agent OS for AI agents",
 	Long:  "Crux is an operating system for AI agents. Pass an intent string to spawn an agent.",
-	Args:  cobra.ArbitraryArgs,
-	RunE:  runRoot,
+	Example: `  crux "分析 ./README.md"
+  crux "重构 main.go 中的错误处理"
+  crux version
+  crux --json "分析项目结构"`,
+	Args: cobra.ArbitraryArgs,
+	RunE: runRoot,
 }
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version and dependencies",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("crux v%s\n", version)
-	},
+	Run:   runVersion,
+}
+
+func runVersion(cmd *cobra.Command, args []string) {
+	w := cmd.OutOrStdout()
+
+	claudeVersion, err := claudeVersionChecker()
+	claudeAvailable := err == nil
+
+	if flagJSON {
+		data := map[string]any{
+			"version":              version,
+			"claude_code_available": claudeAvailable,
+		}
+		if claudeAvailable {
+			data["claude_code"] = claudeVersion
+		}
+		resp := JSONResponse{OK: true, Data: data}
+		out, _ := json.Marshal(resp)
+		fmt.Fprintln(w, string(out))
+		return
+	}
+
+	fmt.Fprintf(w, "crux v%s\n", version)
+	if !claudeAvailable {
+		fmt.Fprintln(w, "✗ claude-code CLI not found")
+		fmt.Fprintln(w, "  → 建议: npm install -g @anthropic-ai/claude-code")
+		return
+	}
+	fmt.Fprintf(w, "claude-code: %s\n", claudeVersion)
 }
 
 func init() {
