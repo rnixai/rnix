@@ -1,6 +1,6 @@
 # Story 2.1: Skill 加载器与 manifest 解析
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -254,6 +254,23 @@ Claude Opus 4.6
 - Task 4: 创建 4 组 testdata fixtures 覆盖成功、无效 YAML、缺少必填字段、缺少 instructions.md 场景
 - Task 5: 8 个单元测试全部通过，覆盖 AC #1-#5 全部验收标准
 - Task 6: `go test -race ./...` 全量通过（零回归），`go vet ./...` 无警告
+
+### Code Review Record (2026-02-24)
+
+**Reviewer:** Amelia (Dev Agent) — Code Review 工作流
+**Model:** Claude Opus 4.6
+
+**发现与修复：**
+
+- [M1] `loader.go:44` — `os.Stat` 非 NotExist 错误被静默丢弃 → 已修复：增加完整错误分支处理
+- [M2] `loader_test.go` — 自定义 `containsSubstring` 替代 `strings.Contains` → 已修复：删除自定义函数，使用标准库
+- [M3] `loader.go:57` — 错误消息使用 Go 字段名 "Name" 而非 YAML 字段名 "name" → 已修复
+- [M4] `loader_test.go:99` — 硬编码 `"NOT_FOUND"` → 已修复：使用 `types.ErrNotFound` 常量
+- [L1] `loader_test.go` — Instructions 断言过弱 → 已修复：验证包含 "Code Analyst" 关键字
+- [L2] `loader.go` — 未验证路径是目录 → 已修复：增加 `fi.IsDir()` 检查
+- [L3] `loader.go` — 方法接收器 `sl` → 已修复：改为单字母 `l`
+
+**结果：** 全部 4 个 MEDIUM + 3 个 LOW 问题已修复，`go test -race ./...` 全量通过，`go vet ./...` 无警告
 
 ### File List
 

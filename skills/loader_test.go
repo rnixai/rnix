@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/kernel"
 )
 
@@ -80,9 +82,9 @@ func TestSkillLoader_Load_Success(t *testing.T) {
 		t.Errorf("ContextBudget = %d, want %d", info.Manifest.ContextBudget, 4096)
 	}
 
-	// Verify instructions loaded.
-	if info.Instructions == "" {
-		t.Error("Instructions is empty, expected content")
+	// Verify instructions loaded with expected content.
+	if !strings.Contains(info.Instructions, "Code Analyst") {
+		t.Errorf("Instructions does not contain expected content, got: %q", info.Instructions)
 	}
 }
 
@@ -96,8 +98,8 @@ func TestSkillLoader_Load_DirNotFound(t *testing.T) {
 	if !errors.As(err, &sysErr) {
 		t.Fatalf("expected *kernel.SyscallError, got %T: %v", err, err)
 	}
-	if sysErr.Code != "NOT_FOUND" {
-		t.Errorf("Code = %q, want %q", sysErr.Code, "NOT_FOUND")
+	if sysErr.Code != types.ErrNotFound {
+		t.Errorf("Code = %q, want %q", sysErr.Code, types.ErrNotFound)
 	}
 }
 
@@ -115,8 +117,8 @@ func TestSkillLoader_Load_MissingRequiredFields(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing Name field, got nil")
 	}
-	expected := `missing required field: Name`
-	if !containsSubstring(err.Error(), expected) {
+	expected := `missing required field: name`
+	if !strings.Contains(err.Error(), expected) {
 		t.Errorf("error = %q, want substring %q", err.Error(), expected)
 	}
 }
@@ -127,18 +129,4 @@ func TestSkillLoader_Load_NoInstructions(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing instructions.md, got nil")
 	}
-}
-
-// containsSubstring checks if s contains substr.
-func containsSubstring(s, substr string) bool {
-	return len(s) >= len(substr) && searchSubstring(s, substr)
-}
-
-func searchSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
