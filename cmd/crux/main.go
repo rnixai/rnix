@@ -17,6 +17,7 @@ import (
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/kernel"
+	"github.com/gonewx/crux/skills"
 	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
 )
@@ -25,11 +26,12 @@ var version = "0.1.0"
 
 // Global flags
 var (
-	flagJSON    bool
-	flagVerbose bool
-	flagQuiet   bool
+	flagJSON     bool
+	flagVerbose  bool
+	flagQuiet    bool
 	flagModel    string
 	flagMaxSteps int
+	flagSkill    string
 )
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
@@ -148,6 +150,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Quiet output")
 	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
+	rootCmd.Flags().StringVar(&flagSkill, "skill", "", "Skill to load (e.g., code-analyst)")
 	rootCmd.AddCommand(versionCmd)
 }
 
@@ -187,11 +190,16 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	shellDriver := shell.NewDriver()
 	_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))
 	ctxMgr := cruxctx.NewManager()
-	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+	skillLoader := skills.NewSkillLoader("lib/skills")
+	kern := kernel.NewKernel(vfsInst, ctxMgr, skillLoader, cb)
 
 	start := time.Now()
 
-	pid, err := kern.Spawn(intent, nil, kernel.SpawnOpts{Model: flagModel, MaxTurns: flagMaxSteps})
+	var skillsList []string
+	if flagSkill != "" {
+		skillsList = []string{flagSkill}
+	}
+	pid, err := kern.Spawn(intent, skillsList, kernel.SpawnOpts{Model: flagModel, MaxTurns: flagMaxSteps})
 	if err != nil {
 		outputError(renderer, mode, "/dev/llm/claude", err.Error(), "智能体启动失败", "检查 Claude Code CLI 是否已安装")
 		exitCode = 1

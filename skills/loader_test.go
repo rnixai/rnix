@@ -6,9 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/kernel"
 )
 
 func TestLoadYAML_Success(t *testing.T) {
@@ -94,12 +91,11 @@ func TestSkillLoader_Load_DirNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nonexistent directory, got nil")
 	}
-	var sysErr *kernel.SyscallError
-	if !errors.As(err, &sysErr) {
-		t.Fatalf("expected *kernel.SyscallError, got %T: %v", err, err)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected os.ErrNotExist in chain, got: %v", err)
 	}
-	if sysErr.Code != types.ErrNotFound {
-		t.Errorf("Code = %q, want %q", sysErr.Code, types.ErrNotFound)
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention 'not found', got: %v", err)
 	}
 }
 

@@ -3,13 +3,16 @@ package kernel
 import (
 	gocontext "context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/internal/types"
+	"github.com/gonewx/crux/skills"
 	"github.com/gonewx/crux/vfs"
 )
 
@@ -95,7 +98,7 @@ func newTestKernel(llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manage
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
+	k := NewKernel(v, ctxMgr, nil, nil)
 	return k, v, ctxMgr
 }
 
@@ -123,7 +126,7 @@ func newSimpleKernel() *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	return NewKernel(v, ctxMgr, nil)
+	return NewKernel(v, ctxMgr, nil, nil)
 }
 
 func TestNewKernel(t *testing.T) {
@@ -348,7 +351,7 @@ func TestSpawn_VFSOpenFailure(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
+	k := NewKernel(v, ctxMgr, nil, nil)
 
 	_, err := k.Spawn("test", nil, SpawnOpts{})
 	if err == nil {
@@ -463,7 +466,7 @@ func TestReasonStep_ToolCallAction(t *testing.T) {
 
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
+	k := NewKernel(v, ctxMgr, nil, nil)
 
 	pid, err := k.Spawn("read a file", nil, SpawnOpts{})
 	if err != nil {
@@ -583,7 +586,7 @@ func TestReasonStep_ContextCancellation(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
+	k := NewKernel(v, ctxMgr, nil, nil)
 
 	pid, err := k.Spawn("test cancel", nil, SpawnOpts{})
 	if err != nil {
@@ -654,7 +657,7 @@ func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
+	k := NewKernel(v, ctxMgr, nil, nil)
 
 	pid, err := k.Spawn("loop forever", nil, SpawnOpts{MaxTurns: 3})
 	if err != nil {
@@ -748,7 +751,7 @@ func TestSpawn_Integration(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
+	k := NewKernel(v, ctxMgr, nil, nil)
 
 	pid, err := k.Spawn("integration test", []string{"skill-a", "skill-b"}, SpawnOpts{
 		SystemPrompt: "You are a test agent",
@@ -916,7 +919,7 @@ func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
+	k := NewKernel(v, ctxMgr, nil, nil)
 
 	var pids []types.PID
 	var procs []*Process
@@ -974,7 +977,7 @@ func TestProcessTableConsistency_ConcurrentSpawn(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
+	k := NewKernel(v, ctxMgr, nil, nil)
 
 	var wg sync.WaitGroup
 	pidCh := make(chan types.PID, n)
@@ -1035,4 +1038,400 @@ func TestProcessTableConsistency_ConcurrentSpawn(t *testing.T) {
 		}
 		seen[pid] = true
 	}
+}
+
+// --- Story 2.4: Skill Injection and Device Permission Whitelist Tests ---
+
+// newTestKernelWithSkill creates a kernel with mock LLM device and a real SkillLoader.
+func newTestKernelWithSkill(llmFile vfs.VFSFile, extraDevices map[string]vfs.VFSFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manager) {
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		return llmFile, nil
+	})
+	for path, file := range extraDevices {
+		f := file // capture for closure
+		_ = reg.Register(path, func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+			return f, nil
+		})
+	}
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	sl := skills.NewSkillLoader("../skills/testdata")
+	k := NewKernel(v, ctxMgr, sl, nil)
+	return k, v, ctxMgr
+}
+
+// Task 6.1: Spawn with Skill tests
+
+func TestSpawn_WithSkill_InjectsInstructions(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("done", 10),
+	}
+	k, _, ctxMgr := newTestKernelWithSkill(llmFile, nil)
+
+	pid, err := k.Spawn("analyze code", []string{"mock-skill"}, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// Verify instructions were injected into system prompt
+	prompt, err := ctxMgr.BuildPrompt(proc.CtxID)
+	if err != nil {
+		t.Fatalf("BuildPrompt failed: %v", err)
+	}
+	if !strings.Contains(prompt.SystemPrompt, "Code Analyst") {
+		t.Errorf("expected system prompt to contain 'Code Analyst', got %q", prompt.SystemPrompt)
+	}
+}
+
+func TestSpawn_WithSkill_SetsAllowedDevices(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("done", 10),
+	}
+	k, _, _ := newTestKernelWithSkill(llmFile, nil)
+
+	pid, err := k.Spawn("test", []string{"mock-skill"}, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// mock-skill manifest declares tools: ["/dev/fs", "/dev/shell"]
+	if len(proc.AllowedDevices) != 2 {
+		t.Fatalf("expected 2 AllowedDevices, got %d: %v", len(proc.AllowedDevices), proc.AllowedDevices)
+	}
+	if proc.AllowedDevices[0] != "/dev/fs" || proc.AllowedDevices[1] != "/dev/shell" {
+		t.Errorf("unexpected AllowedDevices: %v", proc.AllowedDevices)
+	}
+}
+
+func TestSpawn_WithSkill_ModelSelection(t *testing.T) {
+	// Test 1: Skill preferred model used when CLI model is empty
+	var capturedReq llmRequest
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("done", 10),
+	}
+	// Override Write to capture the request
+	captureLLM := &capturingLLMFile{
+		inner:       llmFile,
+		capturedReq: &capturedReq,
+	}
+	k, _, _ := newTestKernelWithSkill(captureLLM, nil)
+
+	pid, err := k.Spawn("test model", []string{"mock-skill"}, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// mock-skill manifest has models.preferred: "sonnet"
+	if capturedReq.Model != "sonnet" {
+		t.Errorf("expected model 'sonnet' from skill manifest, got %q", capturedReq.Model)
+	}
+
+	// Test 2: CLI model overrides Skill model
+	llmFile2 := &mockLLMFile{
+		readData: makeLLMResponse("done", 10),
+	}
+	var capturedReq2 llmRequest
+	captureLLM2 := &capturingLLMFile{
+		inner:       llmFile2,
+		capturedReq: &capturedReq2,
+	}
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return captureLLM2, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	sl := skills.NewSkillLoader("../skills/testdata")
+	k2 := NewKernel(v, ctxMgr, sl, nil)
+
+	pid2, err := k2.Spawn("test model override", []string{"mock-skill"}, SpawnOpts{Model: "opus"})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+	proc2, _ := k2.GetProcess(pid2)
+	select {
+	case <-proc2.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if capturedReq2.Model != "opus" {
+		t.Errorf("expected CLI model 'opus' to override skill, got %q", capturedReq2.Model)
+	}
+}
+
+func TestSpawn_WithSkill_NotFound(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("done", 10),
+	}
+	k, _, _ := newTestKernelWithSkill(llmFile, nil)
+
+	_, err := k.Spawn("test", []string{"nonexistent-skill"}, SpawnOpts{})
+	if err == nil {
+		t.Fatal("expected error for nonexistent skill")
+	}
+	var sysErr *SyscallError
+	if !errors.As(err, &sysErr) {
+		t.Fatalf("expected *SyscallError, got %T: %v", err, err)
+	}
+	if sysErr.Code != types.ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %q", sysErr.Code)
+	}
+}
+
+func TestSpawn_WithoutSkill_AllDevicesAllowed(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("done", 10),
+	}
+	k, _, _ := newTestKernelWithSkill(llmFile, nil)
+
+	pid, err := k.Spawn("test no skill", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if len(proc.AllowedDevices) != 0 {
+		t.Errorf("expected empty AllowedDevices for no-skill mode, got %v", proc.AllowedDevices)
+	}
+}
+
+// Task 6.2: Permission check tests
+
+func TestReasonStep_PermissionDenied_WhenDeviceNotInWhitelist(t *testing.T) {
+	// LLM tries to use /dev/llm/claude (not in allowed list [/dev/fs, /dev/shell])
+	// First response: tool_call to /dev/llm/claude (denied)
+	// Second response: text (completes)
+	seqFile := &sequenceLLMFile{
+		responses: [][]byte{
+			makeToolCallResponse("/dev/llm/claude", map[string]any{}, 10),
+			makeLLMResponse("permission handled", 5),
+		},
+	}
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return seqFile, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	sl := skills.NewSkillLoader("../skills/testdata")
+	k := NewKernel(v, ctxMgr, sl, nil)
+
+	pid, err := k.Spawn("test perm denied", []string{"mock-skill"}, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0 (graceful denial), got %d: %s", exit.Code, exit.Reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if proc.Result != "permission handled" {
+		t.Errorf("expected 'permission handled', got %q", proc.Result)
+	}
+
+	// Verify permission denied event was emitted
+	var foundPermDenied bool
+	for {
+		select {
+		case ev := <-proc.DebugChan:
+			if ev.Syscall == "ReasonStep" {
+				if action, ok := ev.Args["action"]; ok && action == "permission_denied" {
+					foundPermDenied = true
+				}
+			}
+		default:
+			goto drained
+		}
+	}
+drained:
+	if !foundPermDenied {
+		t.Error("expected permission_denied event in DebugChan")
+	}
+}
+
+func TestReasonStep_PermissionAllowed_WhenDeviceInWhitelist(t *testing.T) {
+	// LLM calls /dev/fs (in allowed list), then returns text
+	seqFile := &sequenceLLMFile{
+		responses: [][]byte{
+			makeToolCallResponse("/dev/fs", map[string]any{"path": "/test"}, 10),
+			makeLLMResponse("tool result processed", 5),
+		},
+	}
+
+	mockFS := &mockToolFile{readData: []byte("file content")}
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return seqFile, nil
+	})
+	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return mockFS, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	sl := skills.NewSkillLoader("../skills/testdata")
+	k := NewKernel(v, ctxMgr, sl, nil)
+
+	pid, err := k.Spawn("test perm allowed", []string{"mock-skill"}, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s (err: %v)", exit.Code, exit.Reason, exit.Err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if proc.Result != "tool result processed" {
+		t.Errorf("expected 'tool result processed', got %q", proc.Result)
+	}
+}
+
+func TestReasonStep_PrefixMatch_AllowsSubpath(t *testing.T) {
+	// LLM calls /dev/fs/path/to/file (prefix matches /dev/fs in whitelist)
+	seqFile := &sequenceLLMFile{
+		responses: [][]byte{
+			makeToolCallResponse("/dev/fs/path/to/file", map[string]any{}, 10),
+			makeLLMResponse("subpath ok", 5),
+		},
+	}
+
+	mockFS := &mockToolFile{readData: []byte("content")}
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return seqFile, nil
+	})
+	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return mockFS, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	sl := skills.NewSkillLoader("../skills/testdata")
+	k := NewKernel(v, ctxMgr, sl, nil)
+
+	pid, err := k.Spawn("test prefix match", []string{"mock-skill"}, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s (err: %v)", exit.Code, exit.Reason, exit.Err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if proc.Result != "subpath ok" {
+		t.Errorf("expected 'subpath ok', got %q", proc.Result)
+	}
+}
+
+func TestReasonStep_NoWhitelist_AllowsAll(t *testing.T) {
+	// No skill → AllowedDevices is empty → all devices allowed
+	seqFile := &sequenceLLMFile{
+		responses: [][]byte{
+			makeToolCallResponse("/dev/any/device", map[string]any{}, 10),
+			makeLLMResponse("all allowed", 5),
+		},
+	}
+
+	mockDevice := &mockToolFile{readData: []byte("result")}
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return seqFile, nil
+	})
+	_ = reg.Register("/dev/any/device", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return mockDevice, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil, nil) // No skill loader
+
+	pid, err := k.Spawn("test no whitelist", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s (err: %v)", exit.Code, exit.Reason, exit.Err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if proc.Result != "all allowed" {
+		t.Errorf("expected 'all allowed', got %q", proc.Result)
+	}
+}
+
+// capturingLLMFile wraps an LLM file and captures the request JSON.
+type capturingLLMFile struct {
+	inner       *mockLLMFile
+	capturedReq *llmRequest
+}
+
+func (f *capturingLLMFile) Write(_ gocontext.Context, data []byte) error {
+	_ = json.Unmarshal(data, f.capturedReq)
+	return f.inner.Write(gocontext.Background(), data)
+}
+
+func (f *capturingLLMFile) Read(length int) ([]byte, error) {
+	return f.inner.Read(length)
+}
+
+func (f *capturingLLMFile) Close() error {
+	return f.inner.Close()
+}
+
+func (f *capturingLLMFile) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
