@@ -96,10 +96,13 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("command timed out after %v", f.driver.defaultTimeout), Code: types.ErrTimeout}
 	}
 
-	// Non-zero exit code is NOT a driver error — append exit code info to output
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Non-zero exit code is NOT a driver error — append exit code info to output
 			fmt.Fprintf(&combined, "\nexit_code: %d", exitErr.ExitCode())
+		} else {
+			// Non-ExitError failures (command not found, I/O errors) are driver errors
+			return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("command execution failed: %w", err), Code: types.ErrDriver}
 		}
 	}
 
@@ -139,6 +142,7 @@ func (f *ShellFile) Close() error {
 	}
 	f.closed = true
 	f.response = nil
+	f.offset = 0
 	return nil
 }
 

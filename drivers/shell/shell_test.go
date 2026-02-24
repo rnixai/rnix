@@ -331,6 +331,69 @@ func TestShellDriver_InheritsEnv(t *testing.T) {
 	}
 }
 
+// CR-M2: TestDefaultCommandBuilder_InheritsEnv verifies the production CommandBuilder
+// creates a Cmd with nil Env, which is Go's contract for inheriting parent environment (NFR14).
+func TestDefaultCommandBuilder_InheritsEnv(t *testing.T) {
+	cmd := defaultCommandBuilder(context.Background(), "echo", "test")
+	if cmd.Env != nil {
+		t.Errorf("expected Cmd.Env to be nil (inherits parent env), got %v", cmd.Env)
+	}
+}
+
+// CR-M3: TestShellFile_Read_EOF verifies Read returns nil,nil after all output is consumed.
+func TestShellFile_Read_EOF(t *testing.T) {
+	driver := NewDriverWithOptions(DriverOpts{
+		CmdBuilder: mockCmdBuilder("echo_hello"),
+	})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	err := f.Write(context.Background(), []byte("echo hello"))
+	if err != nil {
+		t.Fatalf("unexpected Write error: %v", err)
+	}
+
+	// Consume all output
+	_, err = f.Read(0)
+	if err != nil {
+		t.Fatalf("unexpected Read error: %v", err)
+	}
+
+	// Subsequent Read should return nil, nil (EOF)
+	data, err := f.Read(0)
+	if err != nil {
+		t.Fatalf("expected nil error on EOF, got: %v", err)
+	}
+	if data != nil {
+		t.Errorf("expected nil data on EOF, got %q", string(data))
+	}
+}
+
+// CR-H1: TestShellFile_Write_CmdExecutionFailure verifies non-ExitError failures
+// return *types.DriverError instead of being silently ignored.
+func TestShellFile_Write_CmdExecutionFailure(t *testing.T) {
+	// Create a CommandBuilder that returns a command for a non-existent binary
+	failBuilder := func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "/nonexistent/binary/path")
+	}
+	driver := NewDriverWithOptions(DriverOpts{
+		CmdBuilder: failBuilder,
+	})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	err := f.Write(context.Background(), []byte("anything"))
+	if err == nil {
+		t.Fatal("expected error for command execution failure, got nil")
+	}
+
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) {
+		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+	}
+	if drvErr.Code != types.ErrDriver {
+		t.Errorf("expected ErrDriver code, got %q", drvErr.Code)
+	}
+}
+
 // Task 2.15: TestFileFactory_ReturnsShellFile
 func TestFileFactory_ReturnsShellFile(t *testing.T) {
 	driver := NewDriver()

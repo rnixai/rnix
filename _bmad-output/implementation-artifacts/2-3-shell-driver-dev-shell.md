@@ -361,16 +361,51 @@ Claude Opus 4.6
   - 超时返回 `*types.DriverError{Code: ErrTimeout}`
   - 所有方法（Read/Write/Close/Stat）统一检查 closed 状态
   - 错误统一使用 `*types.DriverError`，不导入 kernel 包（吸收 Story 2.2 H1 教训）
-- ✅ Task 2: 创建 `drivers/shell/shell_test.go`，15 个测试全部通过
+- ✅ Task 2: 创建 `drivers/shell/shell_test.go`，18 个测试全部通过
   - 使用 TestHelperProcess + mockCmdBuilder 模式（与 claude_cli_test.go 一致）
-  - 覆盖：成功执行、空命令、超时、Write前Read、部分长度Read、双重Close、Close后操作、Stat、非零退出码、环境变量继承、FileFactory
+  - 覆盖：成功执行、空命令、超时、Write前Read、部分长度Read、双重Close、Close后操作、Stat、非零退出码、环境变量继承、FileFactory、EOF行为、命令执行失败、生产CommandBuilder环境继承
 - ✅ Task 3: `cmd/crux/main.go` 添加 import + NewDriver + Register（3 行），在 /dev/fs 之后注册
 - ✅ Task 4: `go vet ./...` 零警告，`go test -race ./...` 全量通过，零回归
 
 ### File List
 
-- `drivers/shell/shell.go` — 新建（ShellDriver + ShellFile + FileFactory，161 行）
-- `drivers/shell/shell_test.go` — 新建（15 个测试用例，292 行）
+- `drivers/shell/shell.go` — 新建（ShellDriver + ShellFile + FileFactory，171 行）
+- `drivers/shell/shell_test.go` — 新建（18 个测试用例，435 行）
 - `cmd/crux/main.go` — 修改（新增 import + 2 行设备注册）
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改（状态更新）
 - `_bmad-output/implementation-artifacts/2-3-shell-driver-dev-shell.md` — 修改（任务标记 + Dev Agent Record）
+
+## Senior Developer Review (AI)
+
+**审查日期:** 2026-02-24
+**审查模型:** Claude Opus 4.6
+**审查结果:** ✅ Approve（附修复）
+
+### 发现与修复
+
+| ID | 严重度 | 描述 | 状态 |
+|----|--------|------|------|
+| H1 | HIGH | Write 静默忽略非 ExitError 的 cmd.Run() 错误（如命令不存在、I/O 错误），返回 nil 伪装成功 | ✅ 已修复：非 ExitError 错误现在返回 `*types.DriverError{Code: ErrDriver}` |
+| M1 | MEDIUM | File List 行数声明不准确（shell.go 差 6 行，shell_test.go 差 80 行） | ✅ 已修复：更新为实际行数 |
+| M2 | MEDIUM | TestShellDriver_InheritsEnv 只测 mock 路径，未验证生产 defaultCommandBuilder 的 NFR14 合规 | ✅ 已修复：新增 TestDefaultCommandBuilder_InheritsEnv 验证 Cmd.Env == nil |
+| M3 | MEDIUM | 缺少 Read EOF 行为测试（所有输出读完后 Read 返回 nil,nil） | ✅ 已修复：新增 TestShellFile_Read_EOF |
+| L1 | LOW | exit_code 输出格式 `\nexit_code: %d` 未标准化 | 📝 已知限制，不影响功能 |
+| L2 | LOW | Close 不重置 offset（与 LLMFile 不一致） | ✅ 已修复：添加 `f.offset = 0` |
+| L3 | LOW | Stat 中 response==nil 与 response==[]byte{} 都返回 Size=0，语义混淆 | 📝 已知限制，与 LLMFile 一致 |
+
+### 测试验证
+
+- `go test -race -count=1 ./drivers/shell/...` — 18/18 PASS (6.3s)
+- `go test -race -count=1 ./...` — 全量 PASS，零回归
+- `go vet ./...` — 零警告
+
+### Change Log
+
+| 日期 | 变更 | 文件 |
+|------|------|------|
+| 2026-02-24 | CR-H1: Write 非 ExitError 错误返回 DriverError | `drivers/shell/shell.go:99-106` |
+| 2026-02-24 | CR-L2: Close 重置 offset=0 | `drivers/shell/shell.go:143` |
+| 2026-02-24 | CR-M2: 新增 TestDefaultCommandBuilder_InheritsEnv | `drivers/shell/shell_test.go` |
+| 2026-02-24 | CR-M3: 新增 TestShellFile_Read_EOF | `drivers/shell/shell_test.go` |
+| 2026-02-24 | CR-H1: 新增 TestShellFile_Write_CmdExecutionFailure | `drivers/shell/shell_test.go` |
+| 2026-02-24 | CR-M1: 修正 File List 行数声明 | story 文件 |
