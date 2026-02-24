@@ -14,8 +14,10 @@ import (
 const (
 	// DefaultModel is the default Claude model to use.
 	DefaultModel = "sonnet"
-	// DefaultTimeout is the default timeout for LLM calls.
-	DefaultTimeout = 30 * time.Second
+	// DefaultTimeout is the default timeout for a single LLM CLI invocation.
+	// Claude Code CLI tasks vary widely (simple: ~5s, complex with tool use: 2-3min).
+	// 5 minutes provides headroom for multi-turn agentic tasks.
+	DefaultTimeout = 5 * time.Minute
 	// streamChanBuffer is the buffer size for stream event channels.
 	streamChanBuffer = 64
 )
