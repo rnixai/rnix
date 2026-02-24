@@ -128,3 +128,12 @@ func (p *Process) Terminate(exit ExitStatus) error {
 func (p *Process) Reap() error {
 	return p.Transition(types.StateDead)
 }
+
+// Cancel cancels the process context, signaling the reasoning goroutine to stop.
+func (p *Process) Cancel() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cancel != nil {
+		p.cancel()
+	}
+}

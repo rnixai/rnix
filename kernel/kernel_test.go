@@ -94,7 +94,7 @@ func newTestKernel(llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manage
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr)
+	k := NewKernel(v, ctxMgr, nil)
 	return k, v, ctxMgr
 }
 
@@ -122,7 +122,7 @@ func newSimpleKernel() *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	return NewKernel(v, ctxMgr)
+	return NewKernel(v, ctxMgr, nil)
 }
 
 func TestNewKernel(t *testing.T) {
@@ -347,7 +347,7 @@ func TestSpawn_VFSOpenFailure(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr)
+	k := NewKernel(v, ctxMgr, nil)
 
 	_, err := k.Spawn("test", nil, SpawnOpts{})
 	if err == nil {
@@ -462,7 +462,7 @@ func TestReasonStep_ToolCallAction(t *testing.T) {
 
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr)
+	k := NewKernel(v, ctxMgr, nil)
 
 	pid, err := k.Spawn("read a file", nil, SpawnOpts{})
 	if err != nil {
@@ -582,7 +582,7 @@ func TestReasonStep_ContextCancellation(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr)
+	k := NewKernel(v, ctxMgr, nil)
 
 	pid, err := k.Spawn("test cancel", nil, SpawnOpts{})
 	if err != nil {
@@ -653,7 +653,7 @@ func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr)
+	k := NewKernel(v, ctxMgr, nil)
 
 	pid, err := k.Spawn("loop forever", nil, SpawnOpts{MaxTurns: 3})
 	if err != nil {
@@ -747,7 +747,7 @@ func TestSpawn_Integration(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr)
+	k := NewKernel(v, ctxMgr, nil)
 
 	pid, err := k.Spawn("integration test", []string{"skill-a", "skill-b"}, SpawnOpts{
 		SystemPrompt: "You are a test agent",

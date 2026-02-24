@@ -1,6 +1,6 @@
 # Story 1.7: CLI 入口与 UI 组件
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -23,75 +23,75 @@ So that 我全程知道智能体在做什么、结果是什么。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 实现 TerminalProfile 检测和 Renderer 抽象 (AC: #2)
-  - [ ] 1.1 创建 `internal/ui/renderer.go`：定义 `TerminalProfile` 结构体（Width int、IsTTY bool、ColorLevel int、IsUnicode bool）
-  - [ ] 1.2 实现 `DetectProfile(w io.Writer) TerminalProfile`：通过 `golang.org/x/term` 获取终端宽度、通过 `isatty` 检测 TTY、通过 `NO_COLOR` 和 `CRUX_ASCII` 环境变量检测降级
-  - [ ] 1.3 定义 `Renderer` 结构体（Profile TerminalProfile、Writer io.Writer、OutputMode OutputMode），`OutputMode` 枚举：`ModeDefault`、`ModeQuiet`、`ModeVerbose`、`ModeJSON`
-  - [ ] 1.4 实现 `NewRenderer(w io.Writer, mode OutputMode) *Renderer`
+- [x] Task 1: 实现 TerminalProfile 检测和 Renderer 抽象 (AC: #2)
+  - [x] 1.1 创建 `internal/ui/renderer.go`：定义 `TerminalProfile` 结构体（Width int、IsTTY bool、ColorLevel int、IsUnicode bool）
+  - [x] 1.2 实现 `DetectProfile(w io.Writer) TerminalProfile`：通过 `golang.org/x/term` 获取终端宽度、通过 `isatty` 检测 TTY、通过 `NO_COLOR` 和 `CRUX_ASCII` 环境变量检测降级
+  - [x] 1.3 定义 `Renderer` 结构体（Profile TerminalProfile、Writer io.Writer、OutputMode OutputMode），`OutputMode` 枚举：`ModeDefault`、`ModeQuiet`、`ModeVerbose`、`ModeJSON`
+  - [x] 1.4 实现 `NewRenderer(w io.Writer, mode OutputMode) *Renderer`
 
-- [ ] Task 2: 实现 lipgloss 样式集中定义 (AC: #3)
-  - [ ] 2.1 创建 `internal/ui/styles.go`：定义颜色常量（`ColorKernel #888888`、`ColorAgent #5B9BD5`、`ColorSuccess #6BCB77`、`ColorWarning #FFD93D`、`ColorError #FF6B6B`、`ColorMuted #666666`）
-  - [ ] 2.2 定义 lipgloss 样式集（`KernelStyle`、`AgentStyle`、`SuccessStyle`、`ErrorStyle`、`WarningStyle`、`MutedStyle`、`BoldStyle`）
-  - [ ] 2.3 实现 `InitStyles(profile TerminalProfile)`：根据 ColorLevel 选择完整色彩/16 色/无色模式
-  - [ ] 2.4 `NO_COLOR` 环境变量时所有样式降级为纯文本
+- [x] Task 2: 实现 lipgloss 样式集中定义 (AC: #3)
+  - [x] 2.1 创建 `internal/ui/styles.go`：定义颜色常量（`ColorKernel #888888`、`ColorAgent #5B9BD5`、`ColorSuccess #6BCB77`、`ColorWarning #FFD93D`、`ColorError #FF6B6B`、`ColorMuted #666666`）
+  - [x] 2.2 定义 lipgloss 样式集（`KernelStyle`、`AgentStyle`、`SuccessStyle`、`ErrorStyle`、`WarningStyle`、`MutedStyle`、`BoldStyle`）
+  - [x] 2.3 实现 `InitStyles(profile TerminalProfile)`：根据 ColorLevel 选择完整色彩/16 色/无色模式
+  - [x] 2.4 `NO_COLOR` 环境变量时所有样式降级为纯文本
 
-- [ ] Task 3: 实现 Agent Progress Reporter 组件 (AC: #4)
-  - [ ] 3.1 创建 `internal/ui/progress.go`：定义 `ProgressReporter` 结构体（renderer *Renderer）
-  - [ ] 3.2 实现 `KernelMessage(format string, args ...any)`：输出 `[kernel] {message}` 格式，前缀灰色
-  - [ ] 3.3 实现 `AgentMessage(pid types.PID, format string, args ...any)`：输出 `[agent/{pid}] {message}` 格式，前缀蓝色
-  - [ ] 3.4 实现 `AgentStep(pid types.PID, step, total int)`：输出 `[agent/{pid}] reasoning step {step}/{total}...` 格式
+- [x] Task 3: 实现 Agent Progress Reporter 组件 (AC: #4)
+  - [x] 3.1 创建 `internal/ui/progress.go`：定义 `ProgressReporter` 结构体（renderer *Renderer）
+  - [x] 3.2 实现 `KernelMessage(format string, args ...any)`：输出 `[kernel] {message}` 格式，前缀灰色
+  - [x] 3.3 实现 `AgentMessage(pid types.PID, format string, args ...any)`：输出 `[agent/{pid}] {message}` 格式，前缀蓝色
+  - [x] 3.4 实现 `AgentStep(pid types.PID, step, total int)`：输出 `[agent/{pid}] reasoning step {step}/{total}...` 格式
 
-- [ ] Task 4: 实现 Result Box 组件 (AC: #5)
-  - [ ] 4.1 创建 `internal/ui/result.go`：定义 `RenderResult(r *Renderer, title string, content string)`
-  - [ ] 4.2 实现双线边框渲染：上边框 `══ {title} ══...══`，下边框纯 `══...══`
-  - [ ] 4.3 内容 2 空格缩进，宽度自适应 `min(termWidth, 120)`
-  - [ ] 4.4 边框颜色：成功=绿色，`NO_COLOR` 时保留 `══` 字符但无颜色
+- [x] Task 4: 实现 Result Box 组件 (AC: #5)
+  - [x] 4.1 创建 `internal/ui/result.go`：定义 `RenderResult(r *Renderer, title string, content string)`
+  - [x] 4.2 实现双线边框渲染：上边框 `══ {title} ══...══`，下边框纯 `══...══`
+  - [x] 4.3 内容 2 空格缩进，宽度自适应 `min(termWidth, 120)`
+  - [x] 4.4 边框颜色：成功=绿色，`NO_COLOR` 时保留 `══` 字符但无颜色
 
-- [ ] Task 5: 实现 Error Block 组件 (AC: #6)
-  - [ ] 5.1 创建 `internal/ui/error.go`：定义 `RenderError(r *Renderer, device string, reason string, impact string, suggestion string)`
-  - [ ] 5.2 实现三行结构：`✗ {device}: {reason}` → `  → {impact}` → `  → 建议: {suggestion}`
-  - [ ] 5.3 `✗` 前缀红色，`→` 前缀暗灰色
-  - [ ] 5.4 `NO_COLOR` 时 `✗` 替换为 `[ERR]`
+- [x] Task 5: 实现 Error Block 组件 (AC: #6)
+  - [x] 5.1 创建 `internal/ui/error.go`：定义 `RenderError(r *Renderer, device string, reason string, impact string, suggestion string)`
+  - [x] 5.2 实现三行结构：`✗ {device}: {reason}` → `  → {impact}` → `  → 建议: {suggestion}`
+  - [x] 5.3 `✗` 前缀红色，`→` 前缀暗灰色
+  - [x] 5.4 `NO_COLOR` 时 `✗` 替换为 `[ERR]`
 
-- [ ] Task 6: 实现 Summary Footer 组件 (AC: #7)
-  - [ ] 6.1 创建 `internal/ui/summary.go`：定义 `RenderSummary(r *Renderer, pid types.PID, exitCode int, tokens int, elapsed time.Duration)`
-  - [ ] 6.2 实现格式：`[kernel] PID {N} exited({code}) | tokens: {N} | elapsed: {N}s`
-  - [ ] 6.3 exit(0) 灰色，exit(non-0) 黄色警告色；token 数和耗时白色加粗
+- [x] Task 6: 实现 Summary Footer 组件 (AC: #7)
+  - [x] 6.1 创建 `internal/ui/summary.go`：定义 `RenderSummary(r *Renderer, pid types.PID, exitCode int, tokens int, elapsed time.Duration)`
+  - [x] 6.2 实现格式：`[kernel] PID {N} exited({code}) | tokens: {N} | elapsed: {N}s`
+  - [x] 6.3 exit(0) 灰色，exit(non-0) 黄色警告色；token 数和耗时白色加粗
 
-- [ ] Task 7: 扩展 CLI 入口并实现依赖注入 (AC: #1)
-  - [ ] 7.1 修改 `cmd/crux/main.go`：在 `main()` 或 `init()` 中创建完整的依赖注入链
-  - [ ] 7.2 依赖注入顺序：DeviceRegistry → VFS → ClaudeCliDriver → 注册 `/dev/llm/claude` → Context Manager → Kernel
-  - [ ] 7.3 实现根命令 `crux "意图"` 处理：解析 args[0] 为意图文本、调用 `kernel.Spawn(intent, nil, opts)` 启动智能体
-  - [ ] 7.4 Spawn 后阻塞等待 `proc.Done` channel，获取 ExitStatus
-  - [ ] 7.5 成功时：通过 ProgressReporter 输出进度 + ResultBox 输出结果 + SummaryFooter 输出汇总
-  - [ ] 7.6 失败时：通过 ErrorBlock 输出错误信息
-  - [ ] 7.7 添加全局 flags 注册：`--json`、`--verbose/-v`、`--quiet/-q`
-  - [ ] 7.8 根据 flags 设置 Renderer 的 OutputMode
-  - [ ] 7.9 `--json` 模式：输出 `JSONResponse[T]` 格式的 JSON，无颜色无装饰
-  - [ ] 7.10 程序退出码：成功=0，智能体失败=1，参数错误=2
+- [x] Task 7: 扩展 CLI 入口并实现依赖注入 (AC: #1)
+  - [x] 7.1 修改 `cmd/crux/main.go`：在 `main()` 或 `init()` 中创建完整的依赖注入链
+  - [x] 7.2 依赖注入顺序：DeviceRegistry → VFS → ClaudeCliDriver → 注册 `/dev/llm/claude` → Context Manager → Kernel
+  - [x] 7.3 实现根命令 `crux "意图"` 处理：解析 args[0] 为意图文本、调用 `kernel.Spawn(intent, nil, opts)` 启动智能体
+  - [x] 7.4 Spawn 后阻塞等待 `proc.Done` channel，获取 ExitStatus
+  - [x] 7.5 成功时：通过 ProgressReporter 输出进度 + ResultBox 输出结果 + SummaryFooter 输出汇总
+  - [x] 7.6 失败时：通过 ErrorBlock 输出错误信息
+  - [x] 7.7 添加全局 flags 注册：`--json`、`--verbose/-v`、`--quiet/-q`
+  - [x] 7.8 根据 flags 设置 Renderer 的 OutputMode
+  - [x] 7.9 `--json` 模式：输出 `JSONResponse[T]` 格式的 JSON，无颜色无装饰
+  - [x] 7.10 程序退出码：成功=0，智能体失败=1，参数错误=2
 
-- [ ] Task 8: 实现 Kernel 回调机制（进度通知） (AC: #4)
-  - [ ] 8.1 在 `kernel/kernel.go` 中定义 `KernelCallbacks` 接口（`OnSpawn(pid PID, intent string)`、`OnStep(pid PID, step int, total int)`、`OnComplete(pid PID, result string, exit ExitStatus)`、`OnError(pid PID, err error)`）
-  - [ ] 8.2 为 KernelImpl 新增 `callbacks KernelCallbacks` 字段
-  - [ ] 8.3 更新 `NewKernel` 签名接受 `KernelCallbacks` 参数（可为 nil）
-  - [ ] 8.4 在 Spawn、reasonStep 的关键节点调用 callbacks（nil 安全检查）
-  - [ ] 8.5 在 `cmd/crux/main.go` 中实现 `cliCallbacks` 结构体，将回调转发到 ProgressReporter
+- [x] Task 8: 实现 Kernel 回调机制（进度通知） (AC: #4)
+  - [x] 8.1 在 `kernel/kernel.go` 中定义 `KernelCallbacks` 接口（`OnSpawn(pid PID, intent string)`、`OnStep(pid PID, step int, total int)`、`OnComplete(pid PID, result string, exit ExitStatus)`、`OnError(pid PID, err error)`）
+  - [x] 8.2 为 KernelImpl 新增 `callbacks KernelCallbacks` 字段
+  - [x] 8.3 更新 `NewKernel` 签名接受 `KernelCallbacks` 参数（可为 nil）
+  - [x] 8.4 在 Spawn、reasonStep 的关键节点调用 callbacks（nil 安全检查）
+  - [x] 8.5 在 `cmd/crux/main.go` 中实现 `cliCallbacks` 结构体，将回调转发到 ProgressReporter
 
-- [ ] Task 9: 信号处理 (AC: #1)
-  - [ ] 9.1 在 `cmd/crux/main.go` 中注册 SIGINT/SIGTERM 信号处理
-  - [ ] 9.2 首次 SIGINT：调用 kernel 取消当前进程的 context，等待优雅退出
-  - [ ] 9.3 二次 SIGINT（2 秒内）：调用 `os.Exit(130)` 强制退出
-  - [ ] 9.4 输出中断摘要：`[kernel] PID {N} interrupted (SIGINT)` + 状态变化 + 建议
+- [x] Task 9: 信号处理 (AC: #1)
+  - [x] 9.1 在 `cmd/crux/main.go` 中注册 SIGINT/SIGTERM 信号处理
+  - [x] 9.2 首次 SIGINT：调用 kernel 取消当前进程的 context，等待优雅退出
+  - [x] 9.3 二次 SIGINT（2 秒内）：调用 `os.Exit(130)` 强制退出
+  - [x] 9.4 输出中断摘要：`[kernel] PID {N} interrupted (SIGINT)` + 状态变化 + 建议
 
-- [ ] Task 10: 编写完整单元测试 (AC: all)
-  - [ ] 10.1 `internal/ui/renderer_test.go`：TerminalProfile 检测测试（TTY/非 TTY/NO_COLOR/CRUX_ASCII）
-  - [ ] 10.2 `internal/ui/styles_test.go`：颜色降级测试
-  - [ ] 10.3 `internal/ui/progress_test.go`：KernelMessage、AgentMessage、AgentStep 输出格式验证（写入 bytes.Buffer 后检查内容）
-  - [ ] 10.4 `internal/ui/result_test.go`：ResultBox 渲染、宽度自适应、NO_COLOR 降级
-  - [ ] 10.5 `internal/ui/error_test.go`：ErrorBlock 三行结构、NO_COLOR 降级
-  - [ ] 10.6 `internal/ui/summary_test.go`：SummaryFooter 格式、退出码着色
-  - [ ] 10.7 `cmd/crux/main_test.go`：集成测试（mock kernel + 验证 CLI 输出格式）
-  - [ ] 10.8 全量回归 `go test -race ./...` 确保不破坏已有测试
+- [x] Task 10: 编写完整单元测试 (AC: all)
+  - [x] 10.1 `internal/ui/renderer_test.go`：TerminalProfile 检测测试（TTY/非 TTY/NO_COLOR/CRUX_ASCII）
+  - [x] 10.2 `internal/ui/styles_test.go`：颜色降级测试
+  - [x] 10.3 `internal/ui/progress_test.go`：KernelMessage、AgentMessage、AgentStep 输出格式验证（写入 bytes.Buffer 后检查内容）
+  - [x] 10.4 `internal/ui/result_test.go`：ResultBox 渲染、宽度自适应、NO_COLOR 降级
+  - [x] 10.5 `internal/ui/error_test.go`：ErrorBlock 三行结构、NO_COLOR 降级
+  - [x] 10.6 `internal/ui/summary_test.go`：SummaryFooter 格式、退出码着色
+  - [x] 10.7 `cmd/crux/main_test.go`：集成测试（mock kernel + 验证 CLI 输出格式）
+  - [x] 10.8 全量回归 `go test -race ./...` 确保不破坏已有测试
 
 ## Dev Notes
 
@@ -533,4 +533,50 @@ Claude Opus 4.6
 
 ### Completion Notes List
 
+- ✅ Task 1: TerminalProfile 检测 + Renderer 抽象。`DetectProfile` 通过 `golang.org/x/term` 获取终端宽度，`go-isatty` 检测 TTY，支持 `NO_COLOR` 和 `CRUX_ASCII` 环境变量降级。7 个测试通过。
+- ✅ Task 2: lipgloss 样式集中定义。6 个颜色常量 + 7 个样式变量 + `InitStyles` 根据 ColorLevel 降级。3 个测试通过。
+- ✅ Task 3: ProgressReporter 组件。`KernelMessage`、`AgentMessage`、`AgentStep` 三个方法，Quiet/JSON 模式静默。5 个测试通过。
+- ✅ Task 4: Result Box 组件。双线边框 `══`，宽度自适应 `min(termWidth, 120)`，NO_COLOR 降级保留字符。5 个测试通过。
+- ✅ Task 5: Error Block 组件。三行结构 `✗/→/→`，NO_COLOR 时 `✗` 替换为 `[ERR]`，ASCII 模式 `→` 替换为 `->`。4 个测试通过。
+- ✅ Task 6: Summary Footer 组件。`[kernel] PID N exited(code) | tokens: N | elapsed: Ns` 格式，exit(0) 灰色/exit(non-0) 黄色。4 个测试通过。
+- ✅ Task 7: CLI 入口扩展。完整依赖注入链（DevReg→VFS→Claude→Register→CtxMgr→Kernel），根命令意图处理，`--json`/`--verbose`/`--quiet` flags，`JSONResponse` 输出，退出码 0/1/2。
+- ✅ Task 8: Kernel 回调机制。`KernelCallbacks` 接口 4 方法，`NewKernel` 签名扩展（nil 兼容），Spawn/reasonStep/finishProcess 中回调集成。已有 42 个 kernel 测试全部通过。
+- ✅ Task 9: 信号处理。SIGINT/SIGTERM 注册，首次信号调用 `proc.Cancel()` 优雅退出，2 秒内二次信号 `os.Exit(130)` 强制退出。新增 `Process.Cancel()` 导出方法。
+- ✅ Task 10: 完整测试覆盖。7 个测试文件，全量 `go test -race ./...` 通过（cmd/crux 8 个测试 + internal/ui 27 个测试 + kernel 42 个测试 = 77+ 测试全部通过）。
+
+### Implementation Plan
+
+1. 先实现底层 UI 组件（Task 1-6）：renderer → styles → progress → result → error → summary
+2. 再实现 Kernel 回调机制（Task 8）作为 Task 7 的前置
+3. 最后扩展 CLI 入口（Task 7）+ 信号处理（Task 9）+ 补充测试（Task 10）
+4. 每个 Task 遵循 red-green-refactor：先写测试 → 实现 → 验证通过
+5. `NewKernel` 签名变更后立即更新所有已有测试（传 `nil` callbacks）
+
 ### File List
+
+**新增文件：**
+- `internal/ui/renderer.go` — TerminalProfile + Renderer + OutputMode + DetectProfile
+- `internal/ui/renderer_test.go` — 7 个测试
+- `internal/ui/styles.go` — lipgloss 颜色常量 + 样式集 + InitStyles
+- `internal/ui/styles_test.go` — 3 个测试
+- `internal/ui/progress.go` — ProgressReporter + KernelMessage/AgentMessage/AgentStep
+- `internal/ui/progress_test.go` — 5 个测试
+- `internal/ui/result.go` — RenderResult + 双线边框
+- `internal/ui/result_test.go` — 5 个测试
+- `internal/ui/error.go` — RenderError + 三行结构
+- `internal/ui/error_test.go` — 4 个测试
+- `internal/ui/summary.go` — RenderSummary + 退出码着色
+- `internal/ui/summary_test.go` — 4 个测试
+- `cmd/crux/main_test.go` — 8 个测试
+
+**修改文件：**
+- `cmd/crux/main.go` — 大幅扩展：依赖注入 + 意图命令 + flags + 信号处理 + cliCallbacks + JSONResponse
+- `kernel/kernel.go` — 新增 KernelCallbacks 接口 + callbacks 字段 + NewKernel 签名扩展 + 回调调用点
+- `kernel/kernel_test.go` — 更新所有 NewKernel 调用传 nil callbacks（7 处）
+- `kernel/process.go` — 新增导出的 Cancel() 方法
+- `go.mod` — 新增 lipgloss + golang.org/x/term + 传递依赖
+- `go.sum` — 自动更新
+
+## Change Log
+
+- 2026-02-24: Story 1.7 完整实现 — CLI 入口扩展 + 6 个 UI 组件 + Kernel 回调机制 + 信号处理 + 完整测试覆盖
