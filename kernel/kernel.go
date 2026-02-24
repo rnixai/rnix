@@ -2,8 +2,10 @@ package kernel
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	gocontext "context"
+	"path"
 	"strings"
 	"time"
 
@@ -342,21 +344,25 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 			// Device permission whitelist check (AC #2, #4)
 			if len(proc.AllowedDevices) > 0 {
+				cleanPath := path.Clean(action.ToolPath)
 				allowed := false
 				for _, dev := range proc.AllowedDevices {
-					if action.ToolPath == dev || strings.HasPrefix(action.ToolPath, dev+"/") {
+					if cleanPath == dev || strings.HasPrefix(cleanPath, dev+"/") {
 						allowed = true
 						break
 					}
 				}
 				if !allowed {
 					permErr := fmt.Sprintf("permission denied: device %s not in allowed list %v", action.ToolPath, proc.AllowedDevices)
-					_ = k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, permErr)
+					if err := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, permErr); err != nil {
+						k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append permission error failed", Err: err})
+						return
+					}
 					k.emitEvent(proc, "ReasonStep", map[string]any{
 						"step":   step,
 						"action": "permission_denied",
 						"tool":   action.ToolPath,
-					}, nil, fmt.Errorf("%s", permErr), time.Since(stepStart))
+					}, nil, errors.New(permErr), time.Since(stepStart))
 					continue
 				}
 			}
