@@ -55,7 +55,7 @@ development_status:
   # Epic 2: Skill 能力与文件访问（Skills & File Access）
   epic-2: in-progress
   2-0-tech-debt-llm-driver-error-handling: done
-  2-1-skill-loader-and-manifest-parsing: backlog
+  2-1-skill-loader-and-manifest-parsing: ready-for-dev
   2-2-host-filesystem-driver-dev-fs: backlog
   2-3-shell-driver-dev-shell: backlog
   2-4-skill-injection-and-device-permission-whitelist: backlog
