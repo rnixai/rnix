@@ -224,6 +224,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 // This is a convenience wrapper that auto-fills process info (PID, Timestamp)
 // and delegates to debug.EmitEvent for the actual non-blocking write.
 func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]any, result any, err error, duration time.Duration) {
+	if proc.DebugChan == nil {
+		return
+	}
 	event := debug.NewEvent(proc.PID, proc.CreatedAt, syscall, args)
 	debug.CompleteEvent(&event, result, err, duration)
 	debug.EmitEvent(proc.DebugChan, event)
