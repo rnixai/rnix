@@ -53,13 +53,14 @@ development_status:
   epic-1-retrospective: done
 
   # Epic 2: Skill 能力与文件访问（Skills & File Access）
-  epic-2: done
+  epic-2: in-progress
   2-0-tech-debt-llm-driver-error-handling: done
   2-1-skill-loader-and-manifest-parsing: done
   2-2-host-filesystem-driver-dev-fs: done
   2-3-shell-driver-dev-shell: done
   2-4-skill-injection-and-device-permission-whitelist: done
   2-5-code-analyst-reference-skill: done
+  2-6-agent-abstraction-and-skill-standardization: backlog  # Sprint Change Proposal 2026-02-25
   epic-2-retrospective: done
 
   # Epic 3: 调试追踪（Debug Tracing — astrace）

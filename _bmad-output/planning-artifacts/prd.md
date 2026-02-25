@@ -28,8 +28,10 @@ classification:
   complexity: high
   projectContext: greenfield
 workflowType: 'prd'
-lastEdited: '2026-02-23'
+lastEdited: '2026-02-25'
 editHistory:
+  - date: '2026-02-25'
+    changes: '根据已批准的 Sprint 变更提案引入 Agent 抽象层 + Skill 对齐行业标准：FR23-FR27 重写为 Agent Management + Skill Management 双层需求，11 个章节联动更新（Executive Summary、Success Criteria、旅程 1、Journey Summary、Innovation、Developer Tool 接口表、Code Examples、MVP Feature Set、LLM Driver 映射、NFR16/17）'
   - date: '2026-02-23'
     changes: '基于验证报告修复 11 处问题：4 处实现泄露解耦（FR9/NFR11/NFR12/NFR20）、1 处 NFR 量化（NFR4）、4 处 FR 格式统一（FR13/FR38/FR39/FR40）、2 处可测量性增强（FR27/FR31）'
 ---
@@ -57,7 +59,7 @@ editHistory:
 
 **OS 级调试工具链（杀手级入口）：** `astrace` 追踪所有 syscall，将多智能体 bug 定位时间从"天级"降至"分钟级"。这是用户进门的钩子——因为调试黑盒是开发者在现有框架中最大的痛点，且没有任何现有框架提供 OS 级追踪能力。
 
-**正确的抽象层级（留下的理由）：** 多智能体系统的问题不是"缺一个更好的框架"，而是"缺一个操作系统"。Crux 的进程模型、VFS 一切皆文件、Skills 共享库生态、45 个标准 syscall 构成了一个完整的 OS 范式——框架在应用层只能模拟这些能力，而 Crux 在 OS 层原生提供。
+**正确的抽象层级（留下的理由）：** 多智能体系统的问题不是"缺一个更好的框架"，而是"缺一个操作系统"。Crux 的进程模型、VFS 一切皆文件、Agent + Skill 双层能力体系（Skill 遵循 Agent Skills 行业标准，可与 30+ AI 工具生态互操作）、45 个标准 syscall 构成了一个完整的 OS 范式——框架在应用层只能模拟这些能力，而 Crux 在 OS 层原生提供。
 
 **时机：** 2024-2025 年多智能体框架百花齐放但全部撞上应用层天花板。行业正处于需要一个 OS 层统一抽象的临界点。
 
@@ -110,7 +112,7 @@ editHistory:
 | 进程生命周期 | spawn → running → zombie → dead 完整流转 |
 | VFS 读写 | 通过 `/dev/fs` 读取宿主文件系统文件 |
 | LLM 调用 | 通过 `/dev/llm/claude` 完成推理 |
-| Skill 加载 | `code-analyst` Skill 正确注入 system prompt |
+| Skill 加载 | `code-analyst` Agent 加载 agent.yaml + 引用的 Skill SKILL.md 正确注入 system prompt |
 | reasonStep 循环 | tool_call → 执行 → 追加结果 → 继续推理 → text → 完成 |
 | astrace 追踪 | `crux astrace 1` 输出完整 syscall 链路（名称、耗时、token）|
 | 自举验证 | 用 Crux 分析 Crux 自身源码，识别出真实存在的代码问题 |
@@ -139,7 +141,7 @@ editHistory:
 
 然后他在 GitHub 上看到了 Crux。README 里的一句话抓住了他："astrace — 像 strace 一样追踪智能体的每一个 syscall"。他决定试试。
 
-`go install` 安装 Crux。把他的代码审查逻辑迁移到一个 `code-analyst` Skill——写 `manifest.yaml` 定义工具依赖，写 `instructions.md` 注入审查策略。`crux "审查这段代码"` 启动第一个智能体。跑通了。
+`go install` 安装 Crux。他创建了一个 `code-analyst` Agent——写 `agent.yaml` 定义模型偏好和 Skill 引用，写 `instructions.md` 注入审查策略。然后写了一个 `code-analysis` Skill 的 `SKILL.md`（遵循 Agent Skills 行业标准），定义工具依赖和分析流程。`crux "审查这段代码" --agent=code-analyst` 启动第一个智能体。跑通了。
 
 然后他复现了那个偶现 bug。这次，他运行 `crux astrace 1`。
 
@@ -151,8 +153,9 @@ editHistory:
 
 **旅程揭示的能力需求：**
 - `go install` 级别的零配置安装体验
-- Skill 编写流程（manifest.yaml + instructions.md）
-- `crux spawn` 单命令启动
+- Agent 定义编写流程（agent.yaml + instructions.md）
+- Skill 编写流程（SKILL.md，遵循 Agent Skills 行业标准）
+- `crux spawn --agent=<name>` 单命令启动
 - `astrace` syscall 追踪输出（名称、参数、返回值、耗时）
 - VFS `/dev/fs` 文件读取路径透明可见
 - Skill 发布到 skillpkg 的流程
@@ -244,8 +247,9 @@ agents:
 | 能力领域 | 旅程来源 | MVP 必需 | Post-MVP |
 |---------|---------|---------|----------|
 | 安装体验（go install） | 旅程 1 | ✓ | |
-| Skill 编写（manifest + instructions） | 旅程 1 | ✓ | |
-| `crux spawn` 单命令 | 旅程 1, 2 | ✓ | |
+| Agent 定义编写（agent.yaml + instructions.md） | 旅程 1 | ✓ | |
+| Skill 编写（SKILL.md，Agent Skills 行业标准） | 旅程 1 | ✓ | |
+| `crux spawn --agent=<name>` 单命令 | 旅程 1, 2 | ✓ | |
 | `astrace` syscall 追踪 | 旅程 1 | ✓ | |
 | VFS `/dev/fs` 文件读取 | 旅程 1 | ✓ | |
 | LLM 超时处理 + 进程状态正确转移 | 旅程 2 | ✓ | |
@@ -269,7 +273,7 @@ agents:
 1. **智能体即进程：** spawn/kill/wait/signal 进程语义，进程树管理，生命周期状态机。现有框架没有这个抽象层。
 2. **一切皆文件 VFS：** 工具 = `/dev/` 设备，MCP = `/mnt/mcp/` 挂载，智能体状态 = `/proc/` 文件。统一接口消除了工具/服务/状态的碎片化。
 3. **OS 级调试（astrace）：** syscall 级追踪能力，在任何现有多智能体框架中都不存在。
-4. **Skills 即共享库：** 领域知识包像 npm 包一样安装、版本管理、依赖解析——填补了 Tools（太底层）和 MCP（太外部）之间的空白。
+4. **四层能力模型（双标准兼容）：** Agent → Skill → MCP → Device 四层架构，每层职责清晰：Agent 定义"我是谁"（身份+策略+模型），Skill 定义"如何做 X"（程序性知识+工具权限，遵循 Agent Skills 行业标准），MCP 提供外部服务集成（MCP 标准，Phase 2），Device 提供原生 I/O 能力（`/dev/`）。Skill 与 MCP 互补而非重叠——Skill 提供领域级程序性知识，MCP Prompts 提供服务级交互模板。
 5. **AgentShell DSL：** 类 Unix 语法操作智能体，管道组合 `spawn "分析" | spawn "写文档"` 取代硬编码编排。
 
 ### Validation Approach
@@ -290,8 +294,9 @@ Crux 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来�
 
 | 接口层 | 格式 | 用途 | 阶段 |
 |--------|------|------|------|
-| **AgentShell CLI** | 命令行 | `crux "意图"`、`crux astrace`、`crux ps` | MVP |
-| **Skill 定义** | YAML + Markdown | `manifest.yaml` + `instructions.md` | MVP |
+| **AgentShell CLI** | 命令行 | `crux "意图" --agent=<name>`、`crux astrace`、`crux ps` | MVP |
+| **Agent 定义** | YAML + Markdown | `agent.yaml`（身份+模型+Skill引用）+ `instructions.md`（角色策略） | MVP |
+| **Skill 定义** | Markdown（Agent Skills 标准） | `SKILL.md`（YAML frontmatter + 程序性知识） | MVP |
 | **Agent Compose** | YAML | `crux-compose.yaml` 多智能体编排 | Phase 2 |
 | **Go SDK（待定）** | Go | 嵌入式使用，根据用户反馈决策 | Phase 2+ |
 
@@ -321,23 +326,37 @@ Crux 的"API"不是 REST 端点或 Go 函数——而是 **~15 个核心 syscall
 |---------|------|------|
 | **概念文档** | 为什么是 Agent OS、核心概念（进程、VFS、Skill、syscall）、与现有框架对比 | MVP |
 | **快速上手** | 安装 → spawn 第一个智能体 → 看 astrace 输出（≤ 15 分钟目标） | MVP |
-| **参考手册** | syscall 列表、VFS 路径规范、manifest.yaml 字段、CLI 命令 | MVP |
+| **参考手册** | syscall 列表、VFS 路径规范、agent.yaml / SKILL.md 字段、CLI 命令 | MVP |
 | **教程** | 写第一个 Skill、调试第一个 bug、组合多智能体 | Phase 2 |
 | **架构文档** | 微内核设计、进程模型、驱动层、上下文管理 | Phase 2 |
 
-### Code Examples & First Skill
+### Code Examples & First Agent + Skill
 
-MVP 交付一个完整的示例 Skill——`code-analyst`：
+MVP 交付一个完整的参考 Agent + 参考 Skill：
+
+**参考 Agent（`lib/agents/code-analyst/`）：**
 
 ```
-lib/skills/code-analyst/
-├── manifest.yaml        # 元信息：工具依赖、模型偏好、上下文预算
-└── instructions.md      # 核心指令：注入 system prompt
+lib/agents/code-analyst/
+├── agent.yaml        # Agent 配置：身份、模型偏好、上下文预算、Skill 引用
+└── instructions.md   # Agent 角色定义 + 行为策略
 ```
 
-这个 Skill 同时承担三个角色：
-1. **自举验证的载体**——用它来分析 Crux 自身源码
-2. **Skill 格式的参考实现**——开发者照着它写自己的 Skill
+**参考 Skill（`lib/skills/code-analysis/`，遵循 Agent Skills 行业标准）：**
+
+```
+lib/skills/code-analysis/
+├── SKILL.md          # 标准格式：YAML frontmatter（name/description/allowed-tools）+ Markdown 程序性知识
+├── scripts/          # 可选：可执行脚本
+├── references/       # 可选：参考文档
+└── assets/           # 可选：模板、资源
+```
+
+Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定义"如何做 X"（程序性知识 + 工具权限）。Skill 遵循 Agent Skills 开放标准（agentskills.io，由 Anthropic 发起，30+ AI 工具采用），可与生态互操作。
+
+这对参考实现同时承担三个角色：
+1. **自举验证的载体**——用 code-analyst Agent 分析 Crux 自身源码
+2. **Agent + Skill 格式的参考实现**——开发者照着它写自己的 Agent 和 Skill
 3. **快速上手文档的素材**——demo 中直接使用
 
 ### Implementation Considerations
@@ -384,13 +403,13 @@ lib/skills/code-analyst/
 |----------------|---------|------|
 | `claude -p "query"` | `reasonStep` 非交互调用 | MVP |
 | `--output-format json` | 解析 action（tool_call/text/spawn） | MVP |
-| `--system-prompt` | Skill `instructions.md` 注入 | MVP |
-| `--tools` / `--allowedTools` | `/dev/` 设备权限，Skill manifest tools 声明 | MVP |
-| `--model sonnet/haiku` | Skill manifest `models.preferred` | MVP |
+| `--system-prompt` | Agent `instructions.md` + Skill `SKILL.md` body 组合注入 | MVP |
+| `--tools` / `--allowedTools` | `/dev/` 设备权限，Skill `SKILL.md` `allowed-tools` 聚合 | MVP |
+| `--model sonnet/haiku` | Agent `agent.yaml` `models.preferred` | MVP |
 | `--max-turns` | reasonStep 循环上限 | MVP |
 | `--stream-json` | `astrace` 实时追踪数据源 | MVP |
 | `--max-budget-usd` | Token 预算控制 | Phase 2 |
-| `--mcp-config` | `/mnt/mcp/` 挂载实现 | Phase 2 |
+| `--mcp-config` | `/mnt/mcp/` 挂载实现，agent.yaml `mcp:` 字段引用 MCP 服务器 | Phase 2 |
 | `--agents` | 多智能体子进程 spawn | Phase 2+ |
 
 **安装前置条件：** Crux MVP 要求用户已安装 Claude Code CLI。
@@ -416,8 +435,10 @@ lib/skills/code-analyst/
 | LLM 驱动 | `drivers/llm/claude.go` | 通过 Claude Code CLI (`claude -p`) 交互 + 超时处理 + 错误上报 |
 | Shell 驱动 | `drivers/shell/shell.go` | Shell 执行驱动 |
 | 上下文管理 | `context/context.go` | ctx_alloc/ctx_read/ctx_write/prompt 组装 |
-| Skill 加载 | `skills/loader.go` | manifest.yaml → `--system-prompt` + `--tools` 参数映射 |
-| 示例 Skill | `lib/skills/code-analyst/` | 自举验证载体 + 参考实现 |
+| Agent 加载 | `agents/loader.go` | agent.yaml + instructions.md → AgentInfo（模型偏好 + Skill 引用 + 聚合权限） |
+| Skill 加载 | `skills/loader.go` | SKILL.md 解析（渐进式加载）→ `--system-prompt` + `--tools` 参数映射 |
+| 参考 Agent | `lib/agents/code-analyst/` | 自举验证载体 + Agent 参考实现 |
+| 参考 Skill | `lib/skills/code-analysis/` | SKILL.md 标准格式参考实现 |
 | CLI 入口 | `cmd/crux/main.go` | `crux "意图"` + `crux astrace <pid>` + `crux ps` |
 | astrace | `debug/astrace.go` | syscall 追踪（基于 `--stream-json` 实时数据） |
 
@@ -435,7 +456,7 @@ lib/skills/code-analyst/
 
 | 能力 | 说明 |
 |------|------|
-| 完整 Tools/MCP/Skills 三层能力栈 | Tools `/dev/` + MCP `/mnt/mcp/`（复用 `--mcp-config`）+ Skills `/lib/skills/` |
+| 完整四层能力栈 | Agent → Skill（Agent Skills 标准）→ MCP（`/mnt/mcp/`，复用 `--mcp-config`）→ Device（`/dev/`）；agent.yaml 扩展 `mcp:` 字段引用 MCP 服务器 |
 | skillpkg 包管理器 | `skill install/search/update` + 社区仓库 |
 | AgentShell 完整语法 | 管道、变量、脚本 |
 | Agent Compose | `crux-compose.yaml` + `crux compose up` |
@@ -466,7 +487,7 @@ lib/skills/code-analyst/
 | Claude Code CLI 接口变更破坏 Crux 驱动层 | 驱动层抽象隔离，CLI 交互封装在 `drivers/llm/claude.go` 单文件中，变更时只改一处 |
 | reasonStep 循环与 CLI 交互不稳定 | 可靠性验收要求 20 次连续成功率 ≥ 95% |
 | ABI 设计不够前瞻，Phase 2 需要破坏性变更 | MVP 的 15 个 syscall 严格遵循架构文档的 45 syscall 子集 |
-| Go 单二进制对 Skill 动态加载的限制 | Skill 是文本注入（YAML + Markdown → `--system-prompt`），不是 Go plugin |
+| Go 单二进制对 Skill 动态加载的限制 | Agent + Skill 是文本注入（agent.yaml + instructions.md + SKILL.md → `--system-prompt` + `--tools`），不是 Go plugin |
 
 **市场风险：**
 
@@ -518,13 +539,18 @@ lib/skills/code-analyst/
 - **FR21:** 系统可以将上下文内容组装为完整的 LLM prompt（包含 system prompt + 对话历史 + 工具结果）
 - **FR22:** 系统可以在进程退出后释放其上下文空间（ctx_free）
 
-### Skill Management（Skill 能力管理）
+### Agent Management（智能体定义管理）
 
-- **FR23:** 系统可以从 `manifest.yaml` 读取 Skill 的元信息（名称、工具依赖、模型偏好、上下文预算）
-- **FR24:** 系统可以从 `instructions.md` 读取 Skill 的核心指令并注入智能体的 system prompt
-- **FR25:** 用户可以在 spawn 时指定加载一个或多个 Skill
-- **FR26:** Skill 的 tools 声明可以映射为智能体的可用 `/dev/` 设备权限
-- **FR27:** 系统交付一个完整的参考 Skill（code-analyst），能够分析代码并识别至少 1 个可验证的真实代码问题（与 Success Criteria 中自举验证标准对齐）
+- **FR23:** 系统可以从 `agent.yaml` 读取 Agent 的元信息（名称、描述、模型偏好、上下文预算、Skill 引用列表）
+- **FR24:** 系统可以从 Agent 的 `instructions.md` 读取角色定义并注入智能体的 system prompt
+- **FR25:** 用户可以在 spawn 时通过 `--agent=<name>` 指定 Agent 定义
+
+### Skill Management（能力模块管理，遵循 Agent Skills 行业标准）
+
+- **FR25a:** 系统可以从 `SKILL.md` 解析 Skill 元信息（name、description、allowed-tools），格式遵循 Agent Skills 开放标准（agentskills.io）
+- **FR25b:** 系统支持 Skill 的渐进式加载——启动时仅加载 frontmatter（~100 tokens/skill），激活时加载完整 SKILL.md body（< 5000 tokens），执行时按需加载 scripts/references/assets
+- **FR26:** Agent 引用的所有 Skill 的 `allowed-tools` 聚合后映射为智能体的可用 `/dev/` 设备权限白名单
+- **FR27:** 系统交付参考 Agent（code-analyst）+ 参考 Skill（code-analysis），能够分析代码并识别至少 1 个可验证的真实代码问题（与 Success Criteria 中自举验证标准对齐）
 
 ### Debugging & Observability（调试与可观测性）
 
@@ -576,8 +602,8 @@ lib/skills/code-analyst/
 ### Security
 
 - **NFR15:** `/dev/shell` 执行的命令继承当前用户权限，不提供额外提权能力
-- **NFR16:** Skill 的 `manifest.yaml` 中 tools 声明作为智能体可访问设备的白名单——未声明的设备不可访问
-- **NFR17:** MVP 阶段不实现完整 Capability 权限系统，但 Skill tools 白名单作为最小安全边界
+- **NFR16:** Skill 的 `SKILL.md` 中 `allowed-tools` 声明作为智能体可访问设备的白名单——Agent 引用的所有 Skill 的 `allowed-tools` 聚合后，未声明的设备不可访问
+- **NFR17:** MVP 阶段不实现完整 Capability 权限系统，但 Skill `allowed-tools` 聚合白名单作为最小安全边界
 
 ### Maintainability（可维护性）
 
