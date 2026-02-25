@@ -11,6 +11,7 @@ import (
 
 	"github.com/gonewx/crux/agents"
 	cruxctx "github.com/gonewx/crux/context"
+	"github.com/gonewx/crux/debug"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/xsync"
 	"github.com/gonewx/crux/vfs"
@@ -125,7 +126,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 
 	// Allocate context
+	ctxAllocStart := time.Now()
 	cid, err := k.ctxMgr.CtxAlloc(DefaultCtxSize)
+	k.emitEvent(proc, "CtxAlloc", map[string]any{
+		"size": DefaultCtxSize,
+	}, cid, err, time.Since(ctxAllocStart))
 	if err != nil {
 		return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
 	}
@@ -133,20 +138,45 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	// Set system prompt if provided
 	if opts.SystemPrompt != "" {
+		setPromptStart := time.Now()
 		if err := k.ctxMgr.SetSystemPrompt(cid, opts.SystemPrompt); err != nil {
+			k.emitEvent(proc, "CtxWrite", map[string]any{
+				"cid": cid,
+				"op":  "SetSystemPrompt",
+			}, nil, err, time.Since(setPromptStart))
 			_ = k.ctxMgr.CtxFree(cid)
 			return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
 		}
+		k.emitEvent(proc, "CtxWrite", map[string]any{
+			"cid": cid,
+			"op":  "SetSystemPrompt",
+		}, nil, nil, time.Since(setPromptStart))
 	}
 
 	// Append initial intent as user message
+	appendStart := time.Now()
 	if err := k.ctxMgr.AppendMessage(cid, cruxctx.RoleUser, intent); err != nil {
+		k.emitEvent(proc, "CtxWrite", map[string]any{
+			"cid":  cid,
+			"op":   "AppendMessage",
+			"role": string(cruxctx.RoleUser),
+		}, nil, err, time.Since(appendStart))
 		_ = k.ctxMgr.CtxFree(cid)
 		return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
 	}
+	k.emitEvent(proc, "CtxWrite", map[string]any{
+		"cid":  cid,
+		"op":   "AppendMessage",
+		"role": string(cruxctx.RoleUser),
+	}, nil, nil, time.Since(appendStart))
 
 	// Open LLM device via VFS
+	openStart := time.Now()
 	llmFD, err := k.vfs.Open(proc.PID, "/dev/llm/claude", vfs.O_RDWR)
+	k.emitEvent(proc, "Open", map[string]any{
+		"path":  "/dev/llm/claude",
+		"flags": vfs.O_RDWR,
+	}, llmFD, err, time.Since(openStart))
 	if err != nil {
 		_ = k.ctxMgr.CtxFree(cid)
 		return 0, NewSyscallError("Spawn", proc.PID, "/dev/llm/claude", err, types.ErrDriver)
@@ -191,23 +221,12 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 }
 
 // emitEvent sends a SyscallEvent to the process DebugChan (non-blocking).
+// This is a convenience wrapper that auto-fills process info (PID, Timestamp)
+// and delegates to debug.EmitEvent for the actual non-blocking write.
 func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]any, result any, err error, duration time.Duration) {
-	if proc.DebugChan == nil {
-		return
-	}
-	event := types.SyscallEvent{
-		Timestamp: time.Since(proc.CreatedAt),
-		PID:       proc.PID,
-		Syscall:   syscall,
-		Args:      args,
-		Result:    result,
-		Err:       err,
-		Duration:  duration,
-	}
-	select {
-	case proc.DebugChan <- event:
-	default: // buffer full, drop event
-	}
+	event := debug.NewEvent(proc.PID, proc.CreatedAt, syscall, args)
+	debug.CompleteEvent(&event, result, err, duration)
+	debug.EmitEvent(proc.DebugChan, event)
 }
 
 // finishProcess terminates the process and writes the exit status to the Done channel.
@@ -263,7 +282,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 
 		// Build prompt from context
+		buildPromptStart := time.Now()
 		promptResult, err := k.ctxMgr.BuildPrompt(proc.CtxID)
+		k.emitEvent(proc, "CtxRead", map[string]any{
+			"cid": proc.CtxID,
+			"op":  "BuildPrompt",
+		}, nil, err, time.Since(buildPromptStart))
 		if err != nil {
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
@@ -293,7 +317,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 
 		// Write request to LLM device
+		writeStart := time.Now()
 		if err := k.vfs.Write(proc.ctx, proc.PID, llmFD, reqJSON); err != nil {
+			k.emitEvent(proc, "Write", map[string]any{
+				"fd":   llmFD,
+				"size": len(reqJSON),
+			}, nil, err, time.Since(writeStart))
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "error",
@@ -301,9 +330,18 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm write failed", Err: err})
 			return
 		}
+		k.emitEvent(proc, "Write", map[string]any{
+			"fd":   llmFD,
+			"size": len(reqJSON),
+		}, nil, nil, time.Since(writeStart))
 
 		// Read response from LLM device
+		readStart := time.Now()
 		respData, err := k.vfs.Read(proc.PID, llmFD, 1<<20) // 1MB max
+		k.emitEvent(proc, "Read", map[string]any{
+			"fd":     llmFD,
+			"length": 1 << 20,
+		}, len(respData), err, time.Since(readStart))
 		if err != nil {
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
@@ -341,10 +379,21 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		case ActionToolCall:
 			// Append LLM response as assistant message to maintain conversation history
+			appendAssistantStart := time.Now()
 			if err := k.ctxMgr.AppendMessage(proc.CtxID, cruxctx.RoleAssistant, resp.Content); err != nil {
+				k.emitEvent(proc, "CtxWrite", map[string]any{
+					"cid":  proc.CtxID,
+					"op":   "AppendMessage",
+					"role": string(cruxctx.RoleAssistant),
+				}, nil, err, time.Since(appendAssistantStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append assistant message failed", Err: err})
 				return
 			}
+			k.emitEvent(proc, "CtxWrite", map[string]any{
+				"cid":  proc.CtxID,
+				"op":   "AppendMessage",
+				"role": string(cruxctx.RoleAssistant),
+			}, nil, nil, time.Since(appendAssistantStart))
 
 			// Device permission whitelist check (AC #2, #4)
 			if len(proc.AllowedDevices) > 0 {
@@ -358,10 +407,21 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				}
 				if !allowed {
 					permErr := fmt.Sprintf("permission denied: device %s not in allowed list %v", action.ToolPath, proc.AllowedDevices)
+					appendPermStart := time.Now()
 					if err := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, permErr); err != nil {
+						k.emitEvent(proc, "CtxWrite", map[string]any{
+							"cid":  proc.CtxID,
+							"op":   "AppendToolResult",
+							"tool": action.ToolPath,
+						}, nil, err, time.Since(appendPermStart))
 						k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append permission error failed", Err: err})
 						return
 					}
+					k.emitEvent(proc, "CtxWrite", map[string]any{
+						"cid":  proc.CtxID,
+						"op":   "AppendToolResult",
+						"tool": action.ToolPath,
+					}, nil, nil, time.Since(appendPermStart))
 					k.emitEvent(proc, "ReasonStep", map[string]any{
 						"step":   step,
 						"action": "permission_denied",
@@ -372,34 +432,69 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 
 			// Open tool device
+			toolOpenStart := time.Now()
 			toolFD, err := k.vfs.Open(proc.PID, action.ToolPath, vfs.O_RDWR)
+			k.emitEvent(proc, "Open", map[string]any{
+				"path":  action.ToolPath,
+				"flags": vfs.O_RDWR,
+			}, toolFD, err, time.Since(toolOpenStart))
 			if err != nil {
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool open failed: " + action.ToolPath, Err: err})
 				return
 			}
 
 			// Write tool data
+			toolWriteStart := time.Now()
 			if err := k.vfs.Write(proc.ctx, proc.PID, toolFD, action.ToolData); err != nil {
+				k.emitEvent(proc, "Write", map[string]any{
+					"fd":   toolFD,
+					"size": len(action.ToolData),
+				}, nil, err, time.Since(toolWriteStart))
 				_ = k.vfs.Close(proc.PID, toolFD)
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool write failed", Err: err})
 				return
 			}
+			k.emitEvent(proc, "Write", map[string]any{
+				"fd":   toolFD,
+				"size": len(action.ToolData),
+			}, nil, nil, time.Since(toolWriteStart))
 
 			// Read tool result
+			toolReadStart := time.Now()
 			toolResult, err := k.vfs.Read(proc.PID, toolFD, 1<<20)
+			k.emitEvent(proc, "Read", map[string]any{
+				"fd":     toolFD,
+				"length": 1 << 20,
+			}, len(toolResult), err, time.Since(toolReadStart))
 			if err != nil {
 				_ = k.vfs.Close(proc.PID, toolFD)
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool read failed", Err: err})
 				return
 			}
 
-			_ = k.vfs.Close(proc.PID, toolFD)
+			// Close tool device
+			closeStart := time.Now()
+			closeErr := k.vfs.Close(proc.PID, toolFD)
+			k.emitEvent(proc, "Close", map[string]any{
+				"fd": toolFD,
+			}, nil, closeErr, time.Since(closeStart))
 
 			// Append tool result to context
+			appendToolStart := time.Now()
 			if err := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, string(toolResult)); err != nil {
+				k.emitEvent(proc, "CtxWrite", map[string]any{
+					"cid": proc.CtxID,
+					"op":  "AppendToolResult",
+					"tool": action.ToolPath,
+				}, nil, err, time.Since(appendToolStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append tool result failed", Err: err})
 				return
 			}
+			k.emitEvent(proc, "CtxWrite", map[string]any{
+				"cid": proc.CtxID,
+				"op":  "AppendToolResult",
+				"tool": action.ToolPath,
+			}, nil, nil, time.Since(appendToolStart))
 
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,

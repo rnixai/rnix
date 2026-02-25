@@ -1483,3 +1483,248 @@ func (f *capturingLLMFile) Close() error {
 func (f *capturingLLMFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
+
+// --- Story 3.1: SyscallEvent Recording Infrastructure Tests ---
+
+// drainEvents collects all events from a DebugChan.
+func drainEvents(ch chan types.SyscallEvent) []types.SyscallEvent {
+	var events []types.SyscallEvent
+	for {
+		select {
+		case ev := <-ch:
+			events = append(events, ev)
+		default:
+			return events
+		}
+	}
+}
+
+// eventNames extracts the Syscall names from a list of events.
+func eventNames(events []types.SyscallEvent) []string {
+	names := make([]string, len(events))
+	for i, ev := range events {
+		names[i] = ev.Syscall
+	}
+	return names
+}
+
+// containsEvent checks if any event has the given syscall name.
+func containsEvent(events []types.SyscallEvent, syscall string) bool {
+	for _, ev := range events {
+		if ev.Syscall == syscall {
+			return true
+		}
+	}
+	return false
+}
+
+func TestSpawn_VFSEvents_OpenWriteRead(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("vfs events test", 10),
+	}
+	k, _, _ := newTestKernel(llmFile)
+
+	pid, err := k.Spawn("vfs test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	events := drainEvents(proc.DebugChan)
+
+	// Expect: CtxAlloc, CtxWrite (AppendMessage), Open, Spawn, CtxRead (BuildPrompt), Write, Read, ReasonStep
+	if !containsEvent(events, "Open") {
+		t.Errorf("missing Open event; got events: %v", eventNames(events))
+	}
+	if !containsEvent(events, "Write") {
+		t.Errorf("missing Write event; got events: %v", eventNames(events))
+	}
+	if !containsEvent(events, "Read") {
+		t.Errorf("missing Read event; got events: %v", eventNames(events))
+	}
+
+	// Verify Open event has correct args
+	for _, ev := range events {
+		if ev.Syscall == "Open" {
+			if ev.Args["path"] != "/dev/llm/claude" {
+				t.Errorf("Open event path: got %v, want /dev/llm/claude", ev.Args["path"])
+			}
+			if ev.PID != pid {
+				t.Errorf("Open event PID: got %d, want %d", ev.PID, pid)
+			}
+			if ev.Duration <= 0 {
+				t.Errorf("Open event Duration should be positive, got %v", ev.Duration)
+			}
+			break
+		}
+	}
+}
+
+func TestSpawn_ContextEvents_CtxAllocCtxWriteCtxRead(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("ctx events test", 10),
+	}
+	k, _, _ := newTestKernel(llmFile)
+
+	pid, err := k.Spawn("ctx test", nil, SpawnOpts{SystemPrompt: "test prompt"})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	events := drainEvents(proc.DebugChan)
+
+	if !containsEvent(events, "CtxAlloc") {
+		t.Errorf("missing CtxAlloc event; got events: %v", eventNames(events))
+	}
+	if !containsEvent(events, "CtxWrite") {
+		t.Errorf("missing CtxWrite event; got events: %v", eventNames(events))
+	}
+	if !containsEvent(events, "CtxRead") {
+		t.Errorf("missing CtxRead event; got events: %v", eventNames(events))
+	}
+
+	// Verify CtxAlloc event
+	for _, ev := range events {
+		if ev.Syscall == "CtxAlloc" {
+			if ev.Args["size"] != DefaultCtxSize {
+				t.Errorf("CtxAlloc size: got %v, want %d", ev.Args["size"], DefaultCtxSize)
+			}
+			if ev.PID != pid {
+				t.Errorf("CtxAlloc PID: got %d, want %d", ev.PID, pid)
+			}
+			break
+		}
+	}
+
+	// Verify CtxWrite events include SetSystemPrompt and AppendMessage
+	var foundSetPrompt, foundAppendMsg bool
+	for _, ev := range events {
+		if ev.Syscall == "CtxWrite" {
+			op, _ := ev.Args["op"].(string)
+			if op == "SetSystemPrompt" {
+				foundSetPrompt = true
+			}
+			if op == "AppendMessage" {
+				foundAppendMsg = true
+			}
+		}
+	}
+	if !foundSetPrompt {
+		t.Error("missing CtxWrite/SetSystemPrompt event")
+	}
+	if !foundAppendMsg {
+		t.Error("missing CtxWrite/AppendMessage event")
+	}
+
+	// Verify CtxRead (BuildPrompt) event
+	for _, ev := range events {
+		if ev.Syscall == "CtxRead" {
+			op, _ := ev.Args["op"].(string)
+			if op != "BuildPrompt" {
+				t.Errorf("CtxRead op: got %q, want BuildPrompt", op)
+			}
+			break
+		}
+	}
+}
+
+func TestToolCall_VFSAndContextEvents(t *testing.T) {
+	seqFile := &sequenceLLMFile{
+		responses: [][]byte{
+			makeToolCallResponse("/dev/tools/echo", map[string]any{"msg": "hi"}, 10),
+			makeLLMResponse("tool done", 5),
+		},
+	}
+	mockTool := &mockToolFile{readData: []byte("echoed")}
+
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return seqFile, nil
+	})
+	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return mockTool, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+
+	pid, err := k.Spawn("tool test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	events := drainEvents(proc.DebugChan)
+
+	// Tool call path should produce: Open (tool), Write (tool), Read (tool), Close (tool)
+	openCount := 0
+	writeCount := 0
+	readCount := 0
+	closeCount := 0
+	ctxWriteCount := 0
+	for _, ev := range events {
+		switch ev.Syscall {
+		case "Open":
+			openCount++
+		case "Write":
+			writeCount++
+		case "Read":
+			readCount++
+		case "Close":
+			closeCount++
+		case "CtxWrite":
+			ctxWriteCount++
+		}
+	}
+
+	// At least 2 Opens (LLM + tool), 2 Writes, 2 Reads, 1 Close (tool)
+	if openCount < 2 {
+		t.Errorf("expected at least 2 Open events, got %d", openCount)
+	}
+	if writeCount < 2 {
+		t.Errorf("expected at least 2 Write events, got %d", writeCount)
+	}
+	if readCount < 2 {
+		t.Errorf("expected at least 2 Read events, got %d", readCount)
+	}
+	if closeCount < 1 {
+		t.Errorf("expected at least 1 Close event, got %d", closeCount)
+	}
+	// CtxWrite: AppendMessage (initial) + AppendMessage (assistant) + AppendToolResult
+	if ctxWriteCount < 3 {
+		t.Errorf("expected at least 3 CtxWrite events, got %d", ctxWriteCount)
+	}
+}
+
+func TestNilDebugChan_ZeroOverhead(t *testing.T) {
+	// Verify emitEvent with nil DebugChan does not panic.
+	// AC #10: DebugChan 为 nil 时零开销（无 astrace 附着）
+	k := newSimpleKernel()
+	proc := NewProcess(0, "nil chan test", nil)
+	proc.DebugChan = nil // simulate no astrace attached
+
+	// Direct call to emitEvent — must not panic or block.
+	k.emitEvent(proc, "Open", map[string]any{"path": "/dev/null"}, 1, nil, time.Millisecond)
+	k.emitEvent(proc, "Write", map[string]any{"fd": 1, "size": 42}, nil, nil, time.Millisecond)
+	k.emitEvent(proc, "Read", map[string]any{"fd": 1, "length": 100}, 100, nil, time.Millisecond)
+	k.emitEvent(proc, "CtxAlloc", map[string]any{"size": 64}, types.CtxID(1), nil, time.Millisecond)
+}
