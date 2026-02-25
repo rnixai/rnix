@@ -18,6 +18,7 @@ func TestWait_NormalCompletion(t *testing.T) {
 		readData: makeLLMResponse("wait result", 10),
 	}
 	k, _, ctxMgr := newTestKernel(llmFile)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("wait test", nil, SpawnOpts{})
 	if err != nil {
@@ -60,6 +61,7 @@ func TestWait_KillThenWait(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("kill-wait test", nil, SpawnOpts{})
 	if err != nil {
@@ -104,6 +106,7 @@ func TestWait_KillThenWait(t *testing.T) {
 
 func TestWait_PIDNotFound(t *testing.T) {
 	k := newSimpleKernel()
+	defer k.Shutdown()
 
 	_, err := k.Wait(9999)
 	if err == nil {
@@ -128,6 +131,7 @@ func TestWait_ResourceRelease(t *testing.T) {
 		readData: makeLLMResponse("release test", 5),
 	}
 	k, _, ctxMgr := newTestKernel(llmFile)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("resource test", nil, SpawnOpts{})
 	if err != nil {
@@ -188,6 +192,7 @@ func TestWait_ConcurrentSafe(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("concurrent test", nil, SpawnOpts{})
 	if err != nil {
@@ -229,6 +234,7 @@ func TestWait_SyscallEvent(t *testing.T) {
 		readData: makeLLMResponse("event wait", 1),
 	}
 	k, _, _ := newTestKernel(llmFile)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("wait event test", nil, SpawnOpts{})
 	if err != nil {
@@ -278,5 +284,630 @@ drained:
 	exitArgs := waitEvents[len(waitEvents)-1].Args
 	if exitArgs["action"] != "completed" {
 		t.Errorf("exit event action: got %v, want %q", exitArgs["action"], "completed")
+	}
+}
+
+// --- Story 4.2: Orphan reparent tests ---
+
+func TestOrphanReparent_RunningChild(t *testing.T) {
+	// Parent exits while child is still running → child reparented to PID 0
+	parentBlockCh := make(chan struct{})
+	childBlockCh := make(chan struct{})
+
+	callCount := 0
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		callCount++
+		if callCount == 1 {
+			// Parent: completes immediately when unblocked
+			return &blockingLLMFile{blockCh: parentBlockCh}, nil
+		}
+		// Child: blocks until test releases
+		return &blockingLLMFile{blockCh: childBlockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	// Spawn parent
+	parentPID, err := k.Spawn("parent", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("parent Spawn failed: %v", err)
+	}
+
+	// Let parent start Running
+	time.Sleep(50 * time.Millisecond)
+
+	// Spawn child with ParentPID
+	childPID, err := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
+	if err != nil {
+		t.Fatalf("child Spawn failed: %v", err)
+	}
+
+	// Let child start Running
+	time.Sleep(50 * time.Millisecond)
+
+	// Let parent complete
+	close(parentBlockCh)
+
+	// Wait for parent → triggers reparent of child
+	_, err = k.Wait(parentPID)
+	if err != nil {
+		t.Fatalf("Wait parent failed: %v", err)
+	}
+
+	// Verify child reparented to PID 0
+	child, ok := k.GetProcess(childPID)
+	if !ok {
+		t.Fatal("child should still be in process table")
+	}
+	child.mu.Lock()
+	ppid := child.PPID
+	child.mu.Unlock()
+	if ppid != 0 {
+		t.Errorf("child PPID: got %d, want 0 (reparented to init)", ppid)
+	}
+
+	// Cleanup: let child finish
+	close(childBlockCh)
+	_, _ = k.Wait(childPID)
+}
+
+func TestOrphanReparent_ZombieChild(t *testing.T) {
+	// Parent exits while child is zombie → child auto-reaped
+	reg := vfs.NewDeviceRegistry()
+	parentBlockCh := make(chan struct{})
+	callCount := 0
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		callCount++
+		if callCount == 1 {
+			return &blockingLLMFile{blockCh: parentBlockCh}, nil
+		}
+		// Child: completes immediately
+		return &mockLLMFile{readData: makeLLMResponse("child done", 1)}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	// Spawn parent
+	parentPID, err := k.Spawn("parent", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("parent Spawn failed: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Spawn child — it will complete immediately and become Zombie
+	childPID, err := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
+	if err != nil {
+		t.Fatalf("child Spawn failed: %v", err)
+	}
+
+	// Wait for child to become Zombie
+	child, _ := k.GetProcess(childPID)
+	select {
+	case <-child.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for child to finish")
+	}
+
+	// Parent finishes → handleOrphanChildren should push zombie child to reapCh
+	close(parentBlockCh)
+	_, err = k.Wait(parentPID)
+	if err != nil {
+		t.Fatalf("Wait parent failed: %v", err)
+	}
+
+	// Wait for reaper to auto-reap the zombie child
+	deadline := time.After(5 * time.Second)
+	for {
+		if _, ok := k.GetProcess(childPID); !ok {
+			break // child successfully reaped
+		}
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for zombie child to be auto-reaped")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func TestOrphanReparent_SyscallEvent(t *testing.T) {
+	// Verify Reparent SyscallEvent is emitted
+	parentBlockCh := make(chan struct{})
+	childBlockCh := make(chan struct{})
+
+	callCount := 0
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		callCount++
+		if callCount == 1 {
+			return &blockingLLMFile{blockCh: parentBlockCh}, nil
+		}
+		return &blockingLLMFile{blockCh: childBlockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	parentPID, _ := k.Spawn("parent", nil, SpawnOpts{})
+	time.Sleep(50 * time.Millisecond)
+
+	childPID, _ := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
+	time.Sleep(50 * time.Millisecond)
+
+	child, _ := k.GetProcess(childPID)
+	debugCh := child.DebugChan
+
+	// Parent completes → reparent
+	close(parentBlockCh)
+	_, _ = k.Wait(parentPID)
+
+	// Drain child's DebugChan for Reparent event
+	var found bool
+	deadline := time.After(2 * time.Second)
+	for !found {
+		select {
+		case ev := <-debugCh:
+			if ev.Syscall == "Reparent" {
+				found = true
+				if ev.Args["child_pid"] != childPID {
+					t.Errorf("Reparent child_pid: got %v, want %d", ev.Args["child_pid"], childPID)
+				}
+				if ev.Args["old_ppid"] != parentPID {
+					t.Errorf("Reparent old_ppid: got %v, want %d", ev.Args["old_ppid"], parentPID)
+				}
+				if ev.Args["new_ppid"] != types.PID(0) {
+					t.Errorf("Reparent new_ppid: got %v, want 0", ev.Args["new_ppid"])
+				}
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for Reparent SyscallEvent")
+		}
+	}
+
+	// Cleanup
+	close(childBlockCh)
+	_, _ = k.Wait(childPID)
+}
+
+// --- Story 4.2: Auto-reap tests ---
+
+func TestAutoReap_ChildFinishesAfterParentRemoved(t *testing.T) {
+	// Scenario: Parent is Wait-ed and removed first.
+	// Then child finishes → finishProcess detects parent gone → auto-reap via reapCh.
+	parentBlockCh := make(chan struct{})
+	childBlockCh := make(chan struct{})
+	callCount := 0
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		callCount++
+		if callCount == 1 {
+			return &blockingLLMFile{blockCh: parentBlockCh}, nil
+		}
+		return &blockingLLMFile{blockCh: childBlockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	// Spawn parent, let it start
+	parentPID, err := k.Spawn("parent", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn parent failed: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Spawn child
+	childPID, err := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
+	if err != nil {
+		t.Fatalf("Spawn child failed: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Parent finishes first → reparents running child to PID 0
+	close(parentBlockCh)
+	_, _ = k.Wait(parentPID)
+
+	// Now child finishes → since PPID=0 (reparented), finishProcess won't auto-reap (PPID=0 excluded)
+	// But let's verify via explicit Wait
+	close(childBlockCh)
+	_, err = k.Wait(childPID)
+	if err != nil {
+		t.Fatalf("Wait child failed: %v", err)
+	}
+
+	_, ok := k.GetProcess(childPID)
+	if ok {
+		t.Error("child should be removed from table after Wait")
+	}
+}
+
+func TestAutoReap_OrphanChildFinishes_ParentAlreadyGone(t *testing.T) {
+	// Spawn parent, spawn child, remove parent manually (simulating Wait completion),
+	// then child finishes → finishProcess orphan detection auto-reaps.
+	parentBlockCh := make(chan struct{})
+	childBlockCh := make(chan struct{})
+	callCount := 0
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		callCount++
+		if callCount == 1 {
+			return &blockingLLMFile{blockCh: parentBlockCh}, nil
+		}
+		return &blockingLLMFile{blockCh: childBlockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	parentPID, _ := k.Spawn("parent", nil, SpawnOpts{})
+	time.Sleep(50 * time.Millisecond)
+
+	childPID, _ := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
+	time.Sleep(50 * time.Millisecond)
+
+	// Complete and reap parent
+	close(parentBlockCh)
+	_, _ = k.Wait(parentPID)
+
+	// Verify parent is gone
+	_, ok := k.GetProcess(parentPID)
+	if ok {
+		t.Fatal("parent should be removed")
+	}
+
+	// Child's PPID is now 0 (reparented by handleOrphanChildren)
+	child, ok := k.GetProcess(childPID)
+	if !ok {
+		t.Fatal("child should still exist")
+	}
+	child.mu.Lock()
+	ppid := child.PPID
+	child.mu.Unlock()
+	if ppid != 0 {
+		t.Errorf("child PPID should be 0 (reparented), got %d", ppid)
+	}
+
+	// Let child finish — PPID=0 so no auto-reap, need explicit Wait
+	close(childBlockCh)
+	_, err := k.Wait(childPID)
+	if err != nil {
+		t.Fatalf("Wait child failed: %v", err)
+	}
+}
+
+func TestAutoReap_Reaper_ProcessesMultiplePIDs(t *testing.T) {
+	// Reaper goroutine processes multiple zombie PIDs from reapCh
+	reg := vfs.NewDeviceRegistry()
+	parentBlockCh := make(chan struct{})
+	childCompletedCount := 0
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		childCompletedCount++
+		if childCompletedCount == 1 {
+			return &blockingLLMFile{blockCh: parentBlockCh}, nil
+		}
+		// All children complete immediately
+		return &mockLLMFile{readData: makeLLMResponse("child done", 1)}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	parentPID, _ := k.Spawn("parent", nil, SpawnOpts{})
+	time.Sleep(50 * time.Millisecond)
+
+	// Spawn 3 children that complete immediately → become zombies
+	childPIDs := make([]types.PID, 3)
+	for i := 0; i < 3; i++ {
+		pid, err := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
+		if err != nil {
+			t.Fatalf("Spawn child %d failed: %v", i, err)
+		}
+		childPIDs[i] = pid
+	}
+
+	// Wait for all children to become Zombie
+	for _, pid := range childPIDs {
+		child, _ := k.GetProcess(pid)
+		select {
+		case <-child.Done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("child %d did not finish", pid)
+		}
+	}
+
+	// Parent finishes → handleOrphanChildren pushes zombie children to reapCh
+	close(parentBlockCh)
+	_, _ = k.Wait(parentPID)
+
+	// All zombie children should be auto-reaped
+	deadline := time.After(5 * time.Second)
+	for _, pid := range childPIDs {
+		for {
+			if _, ok := k.GetProcess(pid); !ok {
+				break
+			}
+			select {
+			case <-deadline:
+				t.Fatalf("child %d was not auto-reaped", pid)
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}
+}
+
+// --- Story 4.2: Comprehensive integration tests (Task 6) ---
+
+func TestIntegration_FullLifecycle(t *testing.T) {
+	// 6.1: Parent Spawn Child → Parent Finish → Child Reparent → Child Finish → Auto-Reap
+	parentBlockCh := make(chan struct{})
+	childBlockCh := make(chan struct{})
+	callCount := 0
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		callCount++
+		if callCount == 1 {
+			return &blockingLLMFile{blockCh: parentBlockCh}, nil
+		}
+		return &blockingLLMFile{blockCh: childBlockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	// 1. Spawn parent
+	parentPID, err := k.Spawn("parent", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn parent: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// 2. Spawn child under parent
+	childPID, err := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
+	if err != nil {
+		t.Fatalf("Spawn child: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify parent-child link
+	parent, _ := k.GetProcess(parentPID)
+	if children := parent.GetChildren(); len(children) != 1 || children[0] != childPID {
+		t.Fatalf("parent children: got %v, want [%d]", children, childPID)
+	}
+
+	// 3. Parent finishes → child reparented to PID 0
+	close(parentBlockCh)
+	_, err = k.Wait(parentPID)
+	if err != nil {
+		t.Fatalf("Wait parent: %v", err)
+	}
+
+	// Verify parent removed
+	if _, ok := k.GetProcess(parentPID); ok {
+		t.Fatal("parent should be removed")
+	}
+
+	// Verify child reparented
+	child, ok := k.GetProcess(childPID)
+	if !ok {
+		t.Fatal("child should still exist")
+	}
+	child.mu.Lock()
+	if child.PPID != 0 {
+		t.Errorf("child PPID: got %d, want 0", child.PPID)
+	}
+	child.mu.Unlock()
+
+	// 4. Child finishes
+	close(childBlockCh)
+	_, err = k.Wait(childPID)
+	if err != nil {
+		t.Fatalf("Wait child: %v", err)
+	}
+
+	// 5. Both removed from table
+	if _, ok := k.GetProcess(childPID); ok {
+		t.Error("child should be removed from table")
+	}
+}
+
+func TestIntegration_MultipleChildren(t *testing.T) {
+	// 6.2: Parent with 3 children: 1 Running + 1 Zombie + 1 already Dead
+	parentBlockCh := make(chan struct{})
+	runningBlockCh := make(chan struct{})
+	callCount := 0
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		callCount++
+		switch callCount {
+		case 1: // parent
+			return &blockingLLMFile{blockCh: parentBlockCh}, nil
+		case 2: // child1: completes immediately (→ Zombie, no one Wait)
+			return &mockLLMFile{readData: makeLLMResponse("done", 1)}, nil
+		case 3: // child2: running (blocked)
+			return &blockingLLMFile{blockCh: runningBlockCh}, nil
+		default: // child3: completes immediately
+			return &mockLLMFile{readData: makeLLMResponse("done", 1)}, nil
+		}
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	parentPID, _ := k.Spawn("parent", nil, SpawnOpts{})
+	time.Sleep(50 * time.Millisecond)
+
+	// Child 1: zombie (completes but not Wait-ed)
+	zombiePID, _ := k.Spawn("zombie-child", nil, SpawnOpts{ParentPID: parentPID})
+	zombieProc, _ := k.GetProcess(zombiePID)
+	select {
+	case <-zombieProc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("zombie child didn't finish")
+	}
+
+	// Child 2: running (blocked)
+	runningPID, _ := k.Spawn("running-child", nil, SpawnOpts{ParentPID: parentPID})
+	time.Sleep(50 * time.Millisecond)
+
+	// Child 3: Dead (completed and Wait-ed)
+	deadPID, _ := k.Spawn("dead-child", nil, SpawnOpts{ParentPID: parentPID})
+	_, _ = k.Wait(deadPID)
+
+	// Parent exits → handleOrphanChildren:
+	// - zombie child → pushed to reapCh
+	// - running child → reparented to PID 0
+	// - dead child → already removed, skipped
+	close(parentBlockCh)
+	_, _ = k.Wait(parentPID)
+
+	// Verify zombie child auto-reaped
+	deadline := time.After(5 * time.Second)
+	for {
+		if _, ok := k.GetProcess(zombiePID); !ok {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("zombie child not auto-reaped")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	// Verify running child reparented
+	runChild, ok := k.GetProcess(runningPID)
+	if !ok {
+		t.Fatal("running child should still exist")
+	}
+	runChild.mu.Lock()
+	if runChild.PPID != 0 {
+		t.Errorf("running child PPID: got %d, want 0", runChild.PPID)
+	}
+	runChild.mu.Unlock()
+
+	// Cleanup
+	close(runningBlockCh)
+	_, _ = k.Wait(runningPID)
+}
+
+func TestIntegration_ProcessTableConsistency(t *testing.T) {
+	// 6.3: After abnormal exit, no dangling PIDs (NFR9)
+	blockCh := make(chan struct{})
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &blockingLLMFile{blockCh: blockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, _ := k.Spawn("crash test", nil, SpawnOpts{})
+	time.Sleep(50 * time.Millisecond)
+
+	// Kill (abnormal exit)
+	_ = k.Kill(pid, types.SIGKILL)
+	close(blockCh)
+
+	_, _ = k.Wait(pid)
+
+	// Verify process table is clean
+	procs := k.ListProcesses()
+	for _, p := range procs {
+		if p.PID == pid {
+			t.Errorf("dangling PID %d found in process table after abnormal exit", pid)
+		}
+	}
+}
+
+func TestIntegration_ResourceReleaseTimeliness(t *testing.T) {
+	// 6.4: Verify goroutine/context released within 10 seconds (NFR8)
+	llmFile := &mockLLMFile{readData: makeLLMResponse("nfr8 test", 1)}
+	k, _, ctxMgr := newTestKernel(llmFile)
+	defer k.Shutdown()
+
+	pid, _ := k.Spawn("nfr8", nil, SpawnOpts{})
+	proc, _ := k.GetProcess(pid)
+	ctxID := proc.CtxID
+
+	start := time.Now()
+	_, _ = k.Wait(pid)
+	elapsed := time.Since(start)
+
+	// Context should be freed
+	_, err := ctxMgr.BuildPrompt(ctxID)
+	if err == nil {
+		t.Error("context should be freed after Wait")
+	}
+
+	// Should complete well within 10 seconds
+	if elapsed > 10*time.Second {
+		t.Errorf("resource release took %v (NFR8 requires < 10s)", elapsed)
+	}
+}
+
+func TestIntegration_ConcurrentExits(t *testing.T) {
+	// 6.5: Multiple processes exit simultaneously, reaper handles concurrently
+	const n = 5
+	reg := vfs.NewDeviceRegistry()
+	parentBlockCh := make(chan struct{})
+	callCount := 0
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		callCount++
+		if callCount == 1 {
+			return &blockingLLMFile{blockCh: parentBlockCh}, nil
+		}
+		return &mockLLMFile{readData: makeLLMResponse("done", 1)}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	parentPID, _ := k.Spawn("parent", nil, SpawnOpts{})
+	time.Sleep(50 * time.Millisecond)
+
+	childPIDs := make([]types.PID, n)
+	for i := 0; i < n; i++ {
+		pid, _ := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
+		childPIDs[i] = pid
+	}
+
+	// Wait for all children to become Zombie
+	for _, pid := range childPIDs {
+		child, _ := k.GetProcess(pid)
+		select {
+		case <-child.Done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("child %d didn't finish", pid)
+		}
+	}
+
+	// Parent exits → all zombie children auto-reaped
+	close(parentBlockCh)
+	_, _ = k.Wait(parentPID)
+
+	// All should be reaped
+	deadline := time.After(5 * time.Second)
+	for _, pid := range childPIDs {
+		for {
+			if _, ok := k.GetProcess(pid); !ok {
+				break
+			}
+			select {
+			case <-deadline:
+				t.Fatalf("child %d not auto-reaped", pid)
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
 	}
 }

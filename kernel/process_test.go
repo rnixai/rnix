@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -430,5 +431,103 @@ func TestConcurrentTransitionsSameProcess(t *testing.T) {
 	}
 	if p.GetState() != types.StateDead {
 		t.Fatalf("expected StateDead, got %d", p.GetState())
+	}
+}
+
+// --- Story 4.2: Children management tests ---
+
+func TestAddChild(t *testing.T) {
+	p := NewProcess(0, "parent", nil)
+	p.AddChild(10)
+	p.AddChild(20)
+
+	children := p.GetChildren()
+	if len(children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(children))
+	}
+	if !slices.Contains(children, types.PID(10)) {
+		t.Error("expected child PID 10")
+	}
+	if !slices.Contains(children, types.PID(20)) {
+		t.Error("expected child PID 20")
+	}
+}
+
+func TestRemoveChild(t *testing.T) {
+	p := NewProcess(0, "parent", nil)
+	p.AddChild(10)
+	p.AddChild(20)
+	p.AddChild(30)
+
+	p.RemoveChild(20)
+
+	children := p.GetChildren()
+	if len(children) != 2 {
+		t.Fatalf("expected 2 children after remove, got %d", len(children))
+	}
+	if slices.Contains(children, types.PID(20)) {
+		t.Error("child PID 20 should have been removed")
+	}
+}
+
+func TestRemoveChild_NotPresent(t *testing.T) {
+	p := NewProcess(0, "parent", nil)
+	p.AddChild(10)
+
+	// Removing non-existent child should not panic
+	p.RemoveChild(999)
+
+	children := p.GetChildren()
+	if len(children) != 1 {
+		t.Fatalf("expected 1 child, got %d", len(children))
+	}
+}
+
+func TestGetChildren_ReturnsCopy(t *testing.T) {
+	p := NewProcess(0, "parent", nil)
+	p.AddChild(10)
+
+	children := p.GetChildren()
+	children[0] = 999 // modify returned slice
+
+	original := p.GetChildren()
+	if original[0] != 10 {
+		t.Error("GetChildren should return a copy, not a reference")
+	}
+}
+
+func TestChildren_ConcurrentSafe(t *testing.T) {
+	p := NewProcess(0, "parent", nil)
+	var wg sync.WaitGroup
+	const n = 100
+
+	// Concurrent AddChild
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(pid types.PID) {
+			defer wg.Done()
+			p.AddChild(pid)
+		}(types.PID(i + 1))
+	}
+	wg.Wait()
+
+	children := p.GetChildren()
+	if len(children) != n {
+		t.Fatalf("expected %d children, got %d", n, len(children))
+	}
+
+	// Concurrent RemoveChild
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(pid types.PID) {
+			defer wg.Done()
+			p.RemoveChild(pid)
+		}(types.PID(i + 1))
+	}
+	wg.Wait()
+
+	children = p.GetChildren()
+	if len(children) != 0 {
+		t.Fatalf("expected 0 children after removal, got %d", len(children))
 	}
 }

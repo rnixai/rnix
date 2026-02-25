@@ -7,6 +7,7 @@ import (
 	gocontext "context"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gonewx/crux/agents"
@@ -29,6 +30,7 @@ type SpawnOpts struct {
 	SystemPrompt string
 	MaxTurns     int
 	TimeoutMs    int64
+	ParentPID    types.PID // parent process PID; 0 = top-level/CLI spawn
 }
 
 // ActionType classifies LLM response actions.
@@ -92,17 +94,26 @@ type KernelImpl struct {
 	vfs       *vfs.VFS
 	ctxMgr    *cruxctx.Manager
 	callbacks KernelCallbacks
+
+	// Reaper infrastructure (Story 4.2)
+	reapCh   chan types.PID  // PIDs pending auto-reap
+	stopCh   chan struct{}   // signals reaper goroutine to stop
+	reaperWg sync.WaitGroup // waits for reaper goroutine exit
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
 // Pass nil for cb to run in silent mode (no progress notifications).
 func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl {
-	return &KernelImpl{
+	k := &KernelImpl{
 		procTable: xsync.NewSyncMap[types.PID, *Process](),
 		vfs:       v,
 		ctxMgr:    ctxMgr,
 		callbacks: cb,
+		reapCh:    make(chan types.PID, 64),
+		stopCh:    make(chan struct{}),
 	}
+	k.startReaper()
+	return k
 }
 
 // Spawn creates a new agent process that automatically executes the reasonStep loop.
@@ -115,7 +126,16 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			skillNames = append(skillNames, s.Manifest.Name)
 		}
 	}
-	proc := NewProcess(0, intent, skillNames)
+	proc := NewProcess(opts.ParentPID, intent, skillNames)
+
+	// Maintain parent-child tracking
+	if opts.ParentPID > 0 {
+		parent, ok := k.GetProcess(opts.ParentPID)
+		if !ok {
+			return 0, NewSyscallError("Spawn", opts.ParentPID, "", fmt.Errorf("parent process %d not found", opts.ParentPID), types.ErrNotFound)
+		}
+		parent.AddChild(proc.PID)
+	}
 
 	// Load Agent information if specified
 	if agent != nil {
@@ -262,6 +282,19 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	select {
 	case proc.Done <- exit:
 	default:
+	}
+
+	// Story 4.2: Orphan detection
+	// If parent process no longer exists in table, push to reapCh for auto-reap.
+	// PPID=0 processes (CLI spawn) are NOT auto-reaped — CLI handles them via Wait.
+	if proc.PPID > 0 {
+		if _, parentExists := k.GetProcess(proc.PPID); !parentExists {
+			select {
+			case k.reapCh <- proc.PID:
+			default:
+				go k.reapProcess(proc)
+			}
+		}
 	}
 }
 

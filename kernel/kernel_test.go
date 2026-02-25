@@ -1943,3 +1943,78 @@ func TestKill_SyscallEvent(t *testing.T) {
 		t.Errorf("Kill event signal: got %v, want %d", args["signal"], types.SIGTERM)
 	}
 }
+
+// --- Story 4.2: Spawn parent-child tracking tests ---
+
+func TestSpawn_ParentPID(t *testing.T) {
+	// Spawn parent, then spawn child with ParentPID set
+	llmFile := &mockLLMFile{readData: makeLLMResponse("ok", 1)}
+	k, _, _ := newTestKernel(llmFile)
+	defer k.Shutdown()
+
+	parentPID, err := k.Spawn("parent", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("parent Spawn failed: %v", err)
+	}
+
+	childPID, err := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
+	if err != nil {
+		t.Fatalf("child Spawn failed: %v", err)
+	}
+
+	child, ok := k.GetProcess(childPID)
+	if !ok {
+		t.Fatal("child process not found")
+	}
+	if child.PPID != parentPID {
+		t.Errorf("child PPID: got %d, want %d", child.PPID, parentPID)
+	}
+
+	parent, ok := k.GetProcess(parentPID)
+	if !ok {
+		t.Fatal("parent process not found")
+	}
+	children := parent.GetChildren()
+	if len(children) != 1 || children[0] != childPID {
+		t.Errorf("parent children: got %v, want [%d]", children, childPID)
+	}
+}
+
+func TestSpawn_ParentNotFound(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("ok", 1)}
+	k, _, _ := newTestKernel(llmFile)
+	defer k.Shutdown()
+
+	_, err := k.Spawn("orphan", nil, SpawnOpts{ParentPID: 9999})
+	if err == nil {
+		t.Fatal("expected error for non-existent parent")
+	}
+
+	var syscallErr *SyscallError
+	if !errors.As(err, &syscallErr) {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if syscallErr.Code != types.ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %s", syscallErr.Code)
+	}
+}
+
+func TestSpawn_ZeroParentPID_NoTracking(t *testing.T) {
+	// Default ParentPID=0 should not attempt parent lookup
+	llmFile := &mockLLMFile{readData: makeLLMResponse("ok", 1)}
+	k, _, _ := newTestKernel(llmFile)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("top-level", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+	if proc.PPID != 0 {
+		t.Errorf("expected PPID 0, got %d", proc.PPID)
+	}
+}
