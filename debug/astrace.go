@@ -53,7 +53,9 @@ func Attach(ctx context.Context, ch <-chan types.SyscallEvent, w io.Writer, opts
 				return nil // process done, channel closed
 			}
 			line := FormatEvent(event, opts)
-			fmt.Fprintln(w, line)
+			if _, err := fmt.Fprintln(w, line); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -73,8 +75,10 @@ func FormatEvent(event types.SyscallEvent, opts Options) string {
 	annotations := ""
 
 	// Slow operation (duration > 1s)
+	// Note: gray color is only applied when NOT an error line, because error lines
+	// wrap the entire output in red — an intermediate ansiReset would break that.
 	if event.Duration > time.Second {
-		if opts.ColorEnabled {
+		if opts.ColorEnabled && event.Err == nil {
 			annotations += "  " + ansiGray + "← 慢操作" + ansiReset
 		} else {
 			annotations += "  ← 慢操作"

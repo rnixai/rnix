@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +48,10 @@ func TestFormatEvent_BasicFormat(t *testing.T) {
 	// Verify duration
 	if !strings.Contains(got, "1ms") {
 		t.Fatalf("expected '1ms' in output, got %q", got)
+	}
+	// Verify exact 4-space separator between result and duration (AC#2)
+	if !strings.Contains(got, "→ FD(3)    1ms") {
+		t.Fatalf("expected '→ FD(3)    1ms' (4-space separator), got %q", got)
 	}
 	// Verify no annotations
 	if strings.Contains(got, "← 慢操作") {
@@ -149,6 +154,7 @@ func TestFormatEvent_Error_NoColor(t *testing.T) {
 }
 
 func TestFormatEvent_LLMAnnotation(t *testing.T) {
+	// Test with "path" key
 	event := types.SyscallEvent{
 		Timestamp: 2 * time.Millisecond,
 		PID:       1,
@@ -162,7 +168,22 @@ func TestFormatEvent_LLMAnnotation(t *testing.T) {
 
 	got := FormatEvent(event, opts)
 	if !strings.Contains(got, "← LLM 调用") {
-		t.Fatalf("expected LLM annotation, got %q", got)
+		t.Fatalf("expected LLM annotation for path key, got %q", got)
+	}
+
+	// Test with "tool" key
+	event2 := types.SyscallEvent{
+		Timestamp: 3 * time.Millisecond,
+		PID:       1,
+		Syscall:   "Exec",
+		Args:      map[string]any{"tool": "/dev/llm/gpt"},
+		Result:    nil,
+		Err:       nil,
+		Duration:  0,
+	}
+	got2 := FormatEvent(event2, opts)
+	if !strings.Contains(got2, "← LLM 调用") {
+		t.Fatalf("expected LLM annotation for tool key, got %q", got2)
 	}
 }
 
@@ -421,5 +442,57 @@ func TestDefaultOptions_NoColor(t *testing.T) {
 	}
 	if opts.Verbose {
 		t.Fatal("expected Verbose=false by default")
+	}
+}
+
+func TestDefaultOptions_Default(t *testing.T) {
+	// Ensure NO_COLOR is not set so ColorEnabled defaults to true.
+	old, hadOld := os.LookupEnv("NO_COLOR")
+	os.Unsetenv("NO_COLOR")
+	if hadOld {
+		t.Cleanup(func() { os.Setenv("NO_COLOR", old) })
+	}
+
+	opts := DefaultOptions()
+	if !opts.ColorEnabled {
+		t.Fatal("expected ColorEnabled=true when NO_COLOR is not set")
+	}
+	if opts.Verbose {
+		t.Fatal("expected Verbose=false by default")
+	}
+}
+
+func TestFormatEvent_ErrorSlowColor_NoGrayLeak(t *testing.T) {
+	// Verify M1 fix: when error + slow + color enabled, the gray ANSI code
+	// should NOT appear (entire line is red, gray would break the red wrapping).
+	event := types.SyscallEvent{
+		Timestamp: 5 * time.Second,
+		PID:       1,
+		Syscall:   "Read",
+		Args:      map[string]any{"fd": 3, "path": "/dev/llm/claude"},
+		Result:    nil,
+		Err:       errors.New("timeout"),
+		Duration:  30 * time.Second,
+	}
+	opts := Options{ColorEnabled: true, Verbose: false}
+	got := FormatEvent(event, opts)
+
+	// Entire line must be wrapped in red
+	if !strings.HasPrefix(got, ansiRed) {
+		t.Fatalf("expected red ANSI prefix, got %q", got)
+	}
+	if !strings.HasSuffix(got, ansiReset) {
+		t.Fatalf("expected ANSI reset suffix, got %q", got)
+	}
+	// Gray must NOT appear (would break the red wrapping)
+	if strings.Contains(got, ansiGray) {
+		t.Fatalf("gray ANSI code found in error+slow line, would break red wrapping: %q", got)
+	}
+	// Slow and LLM annotations must still be present (as plain text within the red line)
+	if !strings.Contains(got, "← 慢操作") {
+		t.Fatalf("expected slow annotation, got %q", got)
+	}
+	if !strings.Contains(got, "← LLM 调用") {
+		t.Fatalf("expected LLM annotation, got %q", got)
 	}
 }
