@@ -60,7 +60,7 @@ development_status:
   2-3-shell-driver-dev-shell: done
   2-4-skill-injection-and-device-permission-whitelist: done
   2-5-code-analyst-reference-skill: done
-  2-6-agent-abstraction-and-skill-standardization: backlog  # Sprint Change Proposal 2026-02-25
+  2-6-agent-abstraction-and-skill-standardization: ready-for-dev  # Sprint Change Proposal 2026-02-25
   epic-2-retrospective: done
 
   # Epic 3: 调试追踪（Debug Tracing — astrace）
