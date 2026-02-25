@@ -1,6 +1,6 @@
 # Story 3.2: astrace 事件消费与格式化
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -407,10 +407,23 @@ Claude Sonnet 4.6 (claude-sonnet-4-6)
 - 初始实现中 TestFormatArgs_Truncation 和 TestFormatArgs_Verbose_NoTruncation 失败：测试用 string 类型值但期望无引号输出，实际 formatArgs 对 string 用 %q 格式化。引入 rawValue 类型测试 %v 路径，同时增加 string 类型截断验证。
 - TestAttach_Latency 竞态条件：bytes.Buffer 非线程安全，Attach goroutine 写入同时主 goroutine 轮询 buf.Len()。替换为 channel 信号通知的 writerFunc 实现，消除竞态。
 
+### Code Review Findings (Opus 4.6)
+
+**已修复：**
+- **M1**: ANSI 颜色嵌套 Bug — error+slow+color 时，灰色标注的 `ansiReset` 打断外层红色包裹，导致后续标注（如 `← LLM 调用`）失去红色。修复：error 存在时慢操作标注跳过灰色着色，整行统一红色。
+- **M2**: `Attach` 静默丢弃 `fmt.Fprintln` 写入错误（如 broken pipe）。修复：返回 write error 给调用方。
+- **L1**: `isLLMSyscall` 的 `tool` key 路径无测试覆盖。修复：`TestFormatEvent_LLMAnnotation` 增加 tool key 场景。
+- **L4**: `TestFormatEvent_BasicFormat` 未验证结果与耗时之间的 4 空格精确间距。修复：添加 `"→ FD(3)    1ms"` 精确匹配。
+- **L5**: 缺少 `DefaultOptions` 正向测试（NO_COLOR 未设置时 ColorEnabled=true）。修复：新增 `TestDefaultOptions_Default`。
+
+**不修复（边缘场景，风险可接受）：**
+- **L2**: `formatTimestamp` 超过 999.999s 时超出 7 字符固定宽度 — Go `%7.3f` 设计行为，进程运行 >16 分钟为极端场景。
+- **L3**: 字符串 `%q` 截断可能切断转义序列 — Dev Notes 显式定义的实现，实际参数极少含特殊字符。
+
 ### Completion Notes List
 
 - ✅ Task 1: 创建 `debug/astrace.go` — 实现了 Options、DefaultOptions、Attach、FormatEvent 及 5 个内部辅助函数（formatTimestamp、formatArgs、formatResult、formatDuration、isLLMSyscall），严格遵循 Dev Notes 中的 API 设计和格式规范
-- ✅ Task 2: 创建 `debug/astrace_test.go` — 14 个测试用例全部通过，覆盖基础格式、慢操作标注、错误高亮（颜色/无颜色）、LLM 标注、组合场景、参数截断、排序、Attach 消费/取消/关闭/延迟、NO_COLOR 检测
+- ✅ Task 2: 创建 `debug/astrace_test.go` — 17 个测试用例全部通过（原 14 + 代码审查后新增 3：TestDefaultOptions_Default、TestFormatEvent_ErrorSlowColor_NoGrayLeak、LLM tool key 场景），覆盖基础格式、慢操作标注、错误高亮（颜色/无颜色）、LLM 标注、组合场景、参数截断、排序、Attach 消费/取消/关闭/延迟、NO_COLOR 检测
 - ✅ Task 3: sprint-status.yaml 状态更新 ready-for-dev → in-progress → review
 - ✅ 全项目 `go test -race ./...` 通过（13 个包），`go vet ./...` 无警告
 - ✅ 依赖约束合规：debug/ 仅导入 standard library + internal/types/，无禁止导入
@@ -418,7 +431,7 @@ Claude Sonnet 4.6 (claude-sonnet-4-6)
 
 ### File List
 
-- `debug/astrace.go` — 新增：Attach 消费循环 + FormatEvent 格式化器 + Options + 辅助函数
-- `debug/astrace_test.go` — 新增：14 个测试用例
+- `debug/astrace.go` — 新增：Attach 消费循环 + FormatEvent 格式化器 + Options + 辅助函数（代码审查后修复：颜色嵌套 Bug + 写入错误处理）
+- `debug/astrace_test.go` — 新增：17 个测试用例（原 14 + 代码审查新增 3）
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改：3-2 状态 ready-for-dev → review
 - `_bmad-output/implementation-artifacts/3-2-astrace-event-consumption-and-formatting.md` — 修改：任务标记完成、Dev Agent Record、File List、Status
