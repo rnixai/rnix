@@ -386,14 +386,23 @@ func runAstrace(cmd *cobra.Command, args []string) error {
 	opts.Verbose = flagVerbose
 	opts.JSON = flagJSON
 
-	// 5. Output attach confirmation (non-JSON mode)
+	// 5. Output writer and UI formatter injection
 	w := cmd.OutOrStdout()
+	if !flagJSON {
+		renderer := ui.NewRenderer(w, resolveOutputMode())
+		ui.InitStyles(renderer.Profile)
+		opts.Formatter = func(event types.SyscallEvent) string {
+			return ui.FormatTraceLine(renderer, event, flagVerbose)
+		}
+	}
+
+	// 6. Output attach confirmation (non-JSON mode)
 	if !flagJSON {
 		state := proc.GetState()
 		fmt.Fprintf(w, "[astrace] attached to PID %d (state: %s)\n", pid, processStateName(state))
 	}
 
-	// 6. Set up astrace-specific context (SIGINT only detaches, never kills process)
+	// 7. Set up astrace-specific context (SIGINT only detaches, never kills process)
 	astraceCtx, astraceCancel := context.WithCancel(cmd.Context())
 	defer astraceCancel()
 
@@ -406,10 +415,10 @@ func runAstrace(cmd *cobra.Command, args []string) error {
 		astraceCancel() // Only cancel astrace, do not affect traced process
 	}()
 
-	// 7. Execute Attach
+	// 8. Execute Attach
 	err = debug.Attach(astraceCtx, proc.DebugChan, w, opts)
 
-	// 8. Output detach summary (non-JSON mode)
+	// 9. Output detach summary (non-JSON mode)
 	if !flagJSON {
 		if err == nil {
 			fmt.Fprintf(w, "[astrace] detached from PID %d (process exited)\n", pid)

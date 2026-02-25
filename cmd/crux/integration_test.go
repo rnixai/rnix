@@ -1084,3 +1084,185 @@ func TestAstraceCmd_MissingPID(t *testing.T) {
 		t.Errorf("expected usage help in output, got %q", output)
 	}
 }
+
+// --- Story 3.4: Astrace UI TraceLine Integration Tests ---
+
+func TestAstraceCmd_UIFormatterIntegration(t *testing.T) {
+	// AC #6: non-JSON mode uses ui.FormatTraceLine via opts.Formatter
+	savedKern := kern
+	savedJSON := flagJSON
+	savedVerbose := flagVerbose
+	defer func() {
+		kern = savedKern
+		flagJSON = savedJSON
+		flagVerbose = savedVerbose
+	}()
+	flagJSON = false
+	flagVerbose = false
+
+	driver := &mockLLMDriver{
+		response: &llm.LLMResponse{Content: "ui test", TokensUsed: 1},
+	}
+	kern = astraceTestKernel(t, driver)
+
+	pid, err := kern.Spawn("astrace ui test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	// Wait for process to complete so events are emitted
+	<-proc.Done
+
+	// Close DebugChan so Attach returns
+	close(proc.DebugChan)
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "astrace"}
+	cmd.SetOut(&buf)
+	cmd.SetContext(context.Background())
+
+	err = runAstrace(cmd, []string{fmt.Sprintf("%d", pid)})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	output := buf.String()
+
+	// Verify attach/detach headers
+	if !strings.Contains(output, "[astrace] attached to PID") {
+		t.Errorf("expected attach header, got %q", output)
+	}
+	if !strings.Contains(output, "[astrace] detached from PID") {
+		t.Errorf("expected detach summary, got %q", output)
+	}
+
+	// Verify UI formatter is used: output should contain → separator (from FormatTraceLine)
+	// and syscall events from the process
+	if !strings.Contains(output, "→") {
+		t.Errorf("expected '→' separator from UI formatter, got %q", output)
+	}
+}
+
+func TestAstraceCmd_UIFormatterNoColor(t *testing.T) {
+	// AC #4: NO_COLOR mode degrades correctly with UI formatter
+	savedKern := kern
+	savedJSON := flagJSON
+	savedVerbose := flagVerbose
+	defer func() {
+		kern = savedKern
+		flagJSON = savedJSON
+		flagVerbose = savedVerbose
+	}()
+	flagJSON = false
+	flagVerbose = false
+
+	driver := &mockLLMDriver{
+		response: &llm.LLMResponse{Content: "nocolor test", TokensUsed: 1},
+	}
+	kern = astraceTestKernel(t, driver)
+
+	pid, err := kern.Spawn("astrace nocolor test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	<-proc.Done
+	close(proc.DebugChan)
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "astrace"}
+	cmd.SetOut(&buf)
+	cmd.SetContext(context.Background())
+
+	err = runAstrace(cmd, []string{fmt.Sprintf("%d", pid)})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	output := buf.String()
+
+	// In test environment (non-TTY), ColorLevel=0, so no ANSI codes in trace lines
+	// Remove attach/detach headers which are plain fmt.Fprintf
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "[astrace]") || line == "" {
+			continue
+		}
+		// Trace lines should not contain ANSI codes in no-color mode
+		if strings.Contains(line, "\x1b[") {
+			t.Errorf("unexpected ANSI codes in no-color trace line: %q", line)
+		}
+	}
+}
+
+func TestAstraceCmd_JSONModeBypassesFormatter(t *testing.T) {
+	// AC #6: JSON mode should NOT use UI formatter
+	savedKern := kern
+	savedJSON := flagJSON
+	savedVerbose := flagVerbose
+	defer func() {
+		kern = savedKern
+		flagJSON = savedJSON
+		flagVerbose = savedVerbose
+	}()
+	flagJSON = true
+	flagVerbose = false
+
+	driver := &mockLLMDriver{
+		response: &llm.LLMResponse{Content: "json bypass test", TokensUsed: 1},
+	}
+	kern = astraceTestKernel(t, driver)
+
+	pid, err := kern.Spawn("astrace json bypass test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	<-proc.Done
+	close(proc.DebugChan)
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "astrace"}
+	cmd.SetOut(&buf)
+	cmd.SetContext(context.Background())
+
+	err = runAstrace(cmd, []string{fmt.Sprintf("%d", pid)})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	output := buf.String()
+
+	// JSON mode: no [astrace] headers
+	if strings.Contains(output, "[astrace]") {
+		t.Errorf("expected no [astrace] headers in JSON mode, got %q", output)
+	}
+
+	// Each non-empty line should be valid JSON
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(line), &parsed); err != nil {
+			t.Fatalf("line %d is not valid JSON: %v\nline: %s", i, err, line)
+		}
+	}
+}

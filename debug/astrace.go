@@ -31,6 +31,10 @@ type Options struct {
 
 	// JSON enables JSON output mode (one JSON object per line).
 	JSON bool
+
+	// Formatter overrides FormatEvent with a custom formatting function.
+	// When non-nil and JSON is false, Attach uses this instead of FormatEvent.
+	Formatter func(types.SyscallEvent) string
 }
 
 // DefaultOptions returns Options with sensible defaults:
@@ -59,6 +63,8 @@ func Attach(ctx context.Context, ch <-chan types.SyscallEvent, w io.Writer, opts
 			var line string
 			if opts.JSON {
 				line = FormatEventJSON(event)
+			} else if opts.Formatter != nil {
+				line = opts.Formatter(event)
 			} else {
 				line = FormatEvent(event, opts)
 			}

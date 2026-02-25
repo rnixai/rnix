@@ -1,6 +1,6 @@
 # Story 3.4: Syscall Trace Line UI 组件
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -28,39 +28,39 @@ So that 我不需要在密集输出中翻找问题。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 `internal/ui/trace.go` — Syscall Trace Line 组件 (AC: #1-#5)
-  - [ ] 1.1 实现 `FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string` — 使用 lipgloss 样式的事件格式化函数
-  - [ ] 1.2 时间戳使用 `MutedStyle` 渲染 `[N.NNNs]` 固定宽度格式
-  - [ ] 1.3 syscall 名称使用 `AgentStyle` + `BoldStyle` 渲染（Crux Blue 加粗）
-  - [ ] 1.4 参数普通文本，支持 verbose 模式（截断 50 字符 vs 完整展示）
-  - [ ] 1.5 返回值用 `→` 分隔，错误返回值用 `ErrorStyle` 渲染
-  - [ ] 1.6 慢操作标注（> 1s）用 `MutedStyle` 渲染 `← 慢操作`，error 行跳过灰色标注
-  - [ ] 1.7 LLM 调用标注 — 检测 args 中 path/tool 包含 `/dev/llm/`，用 `MutedStyle` 渲染 `← LLM 调用`
-  - [ ] 1.8 错误行 — 整行用 `ErrorStyle` 渲染，NO_COLOR 时前缀 `[ERR]`
+- [x] Task 1: 创建 `internal/ui/trace.go` — Syscall Trace Line 组件 (AC: #1-#5)
+  - [x] 1.1 实现 `FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string` — 使用 lipgloss 样式的事件格式化函数
+  - [x] 1.2 时间戳使用 `MutedStyle` 渲染 `[N.NNNs]` 固定宽度格式
+  - [x] 1.3 syscall 名称使用 `AgentStyle` + `BoldStyle` 渲染（Crux Blue 加粗）
+  - [x] 1.4 参数普通文本，支持 verbose 模式（截断 50 字符 vs 完整展示）
+  - [x] 1.5 返回值用 `→` 分隔，错误返回值用 `ErrorStyle` 渲染
+  - [x] 1.6 慢操作标注（> 1s）用 `MutedStyle` 渲染 `← 慢操作`，error 行跳过灰色标注
+  - [x] 1.7 LLM 调用标注 — 检测 args 中 path/tool 包含 `/dev/llm/`，用 `MutedStyle` 渲染 `← LLM 调用`
+  - [x] 1.8 错误行 — 整行用 `ErrorStyle` 渲染，NO_COLOR 时前缀 `[ERR]`
 
-- [ ] Task 2: 创建 `internal/ui/trace_test.go` — 单元测试 (AC: #1-#5, #7)
-  - [ ] 2.1 `TestFormatTraceLine_BasicFormat` — 验证时间戳、syscall 名称、参数、返回值、耗时均包含在输出中
-  - [ ] 2.2 `TestFormatTraceLine_ErrorHighlight` — 验证错误行在 ColorLevel > 0 时使用 ErrorStyle；ColorLevel = 0 时前缀 `[ERR]`
-  - [ ] 2.3 `TestFormatTraceLine_SlowOperation` — 验证 > 1s 包含 `← 慢操作`；error + slow 不包含灰色标注
-  - [ ] 2.4 `TestFormatTraceLine_LLMAnnotation` — 验证 LLM 路径检测和标注
-  - [ ] 2.5 `TestFormatTraceLine_NoColor` — 验证 ColorLevel=0 时无 ANSI 转义码
-  - [ ] 2.6 `TestFormatTraceLine_Verbose` — 验证 verbose=true 时参数不截断
+- [x] Task 2: 创建 `internal/ui/trace_test.go` — 单元测试 (AC: #1-#5, #7)
+  - [x] 2.1 `TestFormatTraceLine_BasicFormat` — 验证时间戳、syscall 名称、参数、返回值、耗时均包含在输出中
+  - [x] 2.2 `TestFormatTraceLine_ErrorHighlight` — 验证错误行在 ColorLevel > 0 时使用 ErrorStyle；ColorLevel = 0 时前缀 `[ERR]`
+  - [x] 2.3 `TestFormatTraceLine_SlowOperation` — 验证 > 1s 包含 `← 慢操作`；error + slow 不包含灰色标注
+  - [x] 2.4 `TestFormatTraceLine_LLMAnnotation` — 验证 LLM 路径检测和标注
+  - [x] 2.5 `TestFormatTraceLine_NoColor` — 验证 ColorLevel=0 时无 ANSI 转义码
+  - [x] 2.6 `TestFormatTraceLine_Verbose` — 验证 verbose=true 时参数不截断
 
-- [ ] Task 3: 修改 `debug/astrace.go` — 支持自定义 Formatter (AC: #6)
-  - [ ] 3.1 在 `Options` 中添加 `Formatter func(types.SyscallEvent) string` 字段
-  - [ ] 3.2 更新 `Attach` 函数 — 当 `opts.Formatter != nil` 且非 JSON 模式时，使用自定义 Formatter 替代 `FormatEvent`
-  - [ ] 3.3 保持 `FormatEvent` 不变 — 作为无 UI 依赖的 fallback
+- [x] Task 3: 修改 `debug/astrace.go` — 支持自定义 Formatter (AC: #6)
+  - [x] 3.1 在 `Options` 中添加 `Formatter func(types.SyscallEvent) string` 字段
+  - [x] 3.2 更新 `Attach` 函数 — 当 `opts.Formatter != nil` 且非 JSON 模式时，使用自定义 Formatter 替代 `FormatEvent`
+  - [x] 3.3 保持 `FormatEvent` 不变 — 作为无 UI 依赖的 fallback
 
-- [ ] Task 4: 修改 `cmd/crux/main.go` — 集成 UI TraceLine (AC: #6)
-  - [ ] 4.1 在 `runAstrace` 中创建 `Renderer` 并初始化 `InitStyles`
-  - [ ] 4.2 当非 JSON 模式时，设置 `opts.Formatter` 为 `ui.FormatTraceLine` 的闭包
-  - [ ] 4.3 确保 JSON 模式不受影响（JSON 仍使用 `FormatEventJSON`）
+- [x] Task 4: 修改 `cmd/crux/main.go` — 集成 UI TraceLine (AC: #6)
+  - [x] 4.1 在 `runAstrace` 中创建 `Renderer` 并初始化 `InitStyles`
+  - [x] 4.2 当非 JSON 模式时，设置 `opts.Formatter` 为 `ui.FormatTraceLine` 的闭包
+  - [x] 4.3 确保 JSON 模式不受影响（JSON 仍使用 `FormatEventJSON`）
 
-- [ ] Task 5: 更新集成测试 (AC: #6, #7)
-  - [ ] 5.1 在 `cmd/crux/integration_test.go` 中验证 astrace 输出使用了 lipgloss 样式（或在 no-color 模式下降级正确）
+- [x] Task 5: 更新集成测试 (AC: #6, #7)
+  - [x] 5.1 在 `cmd/crux/integration_test.go` 中验证 astrace 输出使用了 lipgloss 样式（或在 no-color 模式下降级正确）
 
-- [ ] Task 6: 更新 sprint-status.yaml (AC: #7)
-  - [ ] 6.1 将 `3-4-syscall-trace-line-ui-component` 状态更新为 `ready-for-dev`
+- [x] Task 6: 更新 sprint-status.yaml (AC: #7)
+  - [x] 6.1 将 `3-4-syscall-trace-line-ui-component` 状态更新为 `ready-for-dev`
 
 ## Dev Notes
 
@@ -379,10 +379,35 @@ kernel/process.go            — 不修改
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+- lipgloss v1.1.0 在非 TTY 测试环境中 Render() 不输出 ANSI 码。ErrorHighlight 测试已调整为验证逻辑路径（[ERR] 前缀有无）而非 ANSI 字节。
+
 ### Completion Notes List
 
+- ✅ Task 1: 创建 `internal/ui/trace.go`，实现 `FormatTraceLine` 及 5 个私有辅助函数 (`traceTimestamp`, `traceArgs`, `traceResult`, `traceDuration`, `isLLMEvent`)
+- ✅ Task 2: 创建 `internal/ui/trace_test.go`，6 个单元测试全部通过
+- ✅ Task 3: `debug/astrace.go` Options 新增 `Formatter` 字段，Attach 增加 `JSON > Formatter > FormatEvent` 三级优先级
+- ✅ Task 4: `cmd/crux/main.go` runAstrace 注入 UI Formatter 闭包，JSON 模式不受影响
+- ✅ Task 5: `cmd/crux/integration_test.go` 新增 3 个集成测试 (UIFormatterIntegration, UIFormatterNoColor, JSONModeBypassesFormatter)
+- ✅ Task 6: sprint-status.yaml 状态 ready-for-dev → in-progress → review
+- ✅ `go test -race ./...` 全部通过（13 包），`go vet ./...` 无警告
+
 ### File List
+
+**新建文件：**
+- `internal/ui/trace.go` — FormatTraceLine 组件 + 私有辅助函数
+- `internal/ui/trace_test.go` — 6 个单元测试
+
+**修改文件：**
+- `debug/astrace.go` — Options.Formatter 字段 + Attach 三级分支
+- `cmd/crux/main.go` — runAstrace 注入 UI Formatter + Renderer 初始化
+- `cmd/crux/integration_test.go` — 3 个新集成测试
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — 状态更新
+- `_bmad-output/implementation-artifacts/3-4-syscall-trace-line-ui-component.md` — 任务标记完成 + Dev Agent Record
+
+## Change Log
+
+- 2026-02-25: Story 3.4 实现完成 — Syscall Trace Line UI 组件，替代 raw ANSI 输出为 lipgloss 样式化格式
