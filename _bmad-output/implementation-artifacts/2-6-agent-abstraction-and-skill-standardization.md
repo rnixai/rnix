@@ -1,6 +1,6 @@
 # Story 2.6: Agent 抽象层与 Skill 标准化
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -689,7 +689,7 @@ This is a mock skill for testing purposes.
 **新增依赖：**
 ```
 cmd/ → agents/ → skills/   (新增 agents 包)
-cmd/ → kernel/              (kernel 不再依赖 skills)
+cmd/ → kernel/              (kernel 依赖 agents，不再直接依赖 skills)
 ```
 
 **完整依赖图：**
@@ -700,11 +700,12 @@ internal/ui/     ← 仅 cmd/ 导入
 
 cmd/ → kernel/ → vfs/     → drivers/{llm,shell,fs}
                 → context/
+                → agents/ → skills/
 cmd/ → agents/ → skills/
 cmd/ → debug/（仅依赖 internal/types/）
 ```
 
-**关键变化：** `kernel/` 不再依赖 `skills/`。Skill 加载在 `agents/` 包中完成，kernel 只接收已解析好的 AgentInfo。这简化了 kernel 的职责，也消除了一条不必要的依赖链。
+**关键变化：** `kernel/` 不再直接依赖 `skills/`，改为依赖 `agents/`（通过 Spawn 函数签名中的 `*agents.AgentInfo` 类型）。Skill 加载在 `agents/` 包中完成，kernel 只接收已解析好的 AgentInfo。这简化了 kernel 的职责——kernel 仅知道 Agent 抽象，不需要了解 Skill 细节。
 
 ### 实施顺序建议
 
@@ -844,24 +845,28 @@ N/A
 - AllowedToolsRaw 字段 + AllowedTools() 方法方案避免了 goccy/go-yaml 自定义 unmarshaler 兼容问题
 - AllowedTools() 返回排序结果确保测试断言的确定性
 - 旧 code-analyst Skill 内容按职责拆分：角色/策略 → Agent instructions.md，程序性知识/工具指南 → Skill SKILL.md body
-- KernelImpl 不再依赖 skills/ 包，简化了 kernel 职责边界
+- KernelImpl 不再直接依赖 skills/ 包（通过 agents/ 间接依赖），简化了 kernel 职责边界
 - skills/testdata/no-instructions/ 需保留空目录（含 .gitkeep）用于测试 SKILL.md 缺失场景
+- [Code Review Fix] M1: AgentLoader/SkillLoader 添加路径逃逸防护（absPath containment check）
+- [Code Review Fix] M2/M3: 修正 project-context.md 和 Story 中的依赖图，补充 kernel → agents 边
+- [Code Review Fix] M4: parseSKILLMD 增加 extractBody 参数，LoadMetadata 不再构建 body 字符串
+- [Code Review Fix] L1: Spawn debug 事件增加 allowed_devices 字段
 
 ### Change Log
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
 | `agents/types.go` | 新增 | AgentManifest、AgentModels、AgentInfo 类型定义 + AllowedTools()/SystemPrompt() 方法 |
-| `agents/loader.go` | 新增 | AgentLoader 加载 agent.yaml + instructions.md + Skill 引用解析 |
-| `agents/loader_test.go` | 新增 | 12 个测试用例覆盖 Agent 加载和辅助方法 |
+| `agents/loader.go` | 新增 | AgentLoader 加载 agent.yaml + instructions.md + Skill 引用解析 + 路径逃逸防护 |
+| `agents/loader_test.go` | 新增 | 13 个测试用例覆盖 Agent 加载、辅助方法和路径遍历 |
 | `agents/testdata/mock-agent/` | 新增 | agent.yaml + instructions.md 测试 fixture |
 | `agents/testdata/invalid-agent/` | 新增 | 无效 YAML 测试 fixture |
 | `agents/testdata/missing-instructions/` | 新增 | 缺少 instructions.md 测试 fixture |
 | `agents/testdata/missing-name/` | 新增 | 缺少 name 字段测试 fixture |
 | `agents/testdata/bad-skill-ref/` | 新增 | 引用不存在 Skill 的测试 fixture |
 | `skills/types.go` | 重写 | 简化为 Name/Description/AllowedToolsRaw/Metadata，移除 SkillModels |
-| `skills/loader.go` | 重写 | parseSKILLMD() + LoadMetadata() + LoadFull() |
-| `skills/loader_test.go` | 重写 | 适配 SKILL.md 格式的 13 个测试用例 |
+| `skills/loader.go` | 重写 | parseSKILLMD(extractBody) + 路径逃逸防护 + LoadMetadata(false) + LoadFull(true) |
+| `skills/loader_test.go` | 重写 | 适配 SKILL.md 格式的 16 个测试用例（含 MetadataOnly 和 PathTraversal） |
 | `skills/testdata/mock-skill/SKILL.md` | 新增 | 替代旧 manifest.yaml + instructions.md |
 | `skills/testdata/invalid-manifest/SKILL.md` | 新增 | 无效 YAML frontmatter 测试 |
 | `skills/testdata/missing-fields/SKILL.md` | 新增 | 缺少 name 字段测试 |
@@ -869,10 +874,11 @@ N/A
 | `lib/agents/code-analyst/agent.yaml` | 新增 | 参考 Agent 配置 |
 | `lib/agents/code-analyst/instructions.md` | 新增 | 参考 Agent 角色定义 |
 | `lib/skills/code-analysis/SKILL.md` | 新增 | 参考 Skill 标准格式 |
-| `kernel/kernel.go` | 修改 | NewKernel 3 参数，Spawn 接受 *agents.AgentInfo |
+| `kernel/kernel.go` | 修改 | NewKernel 3 参数，Spawn 接受 *agents.AgentInfo，debug 事件含 allowed_devices |
 | `kernel/kernel_test.go` | 重写 | 所有 Spawn 调用适配 AgentInfo，新增 testAgentInfo() 辅助函数 |
 | `cmd/crux/main.go` | 修改 | --skill → --agent flag，AgentLoader 注入 |
 | `cmd/crux/integration_test.go` | 修改 | NewKernel 调用适配，两个 Skill 测试重写为 Agent 测试 |
+| `_bmad-output/project-context.md` | 修改 | 依赖图更新：kernel → agents → skills |
 | `skills/testdata/mock-skill/manifest.yaml` | 删除 | 被 SKILL.md 替代 |
 | `skills/testdata/mock-skill/instructions.md` | 删除 | 被 SKILL.md 替代 |
 | `skills/testdata/invalid-manifest/manifest.yaml` | 删除 | 被 SKILL.md 替代 |

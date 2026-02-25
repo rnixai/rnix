@@ -69,9 +69,12 @@ _This file contains critical rules and patterns that AI agents must follow when 
 #### 依赖方向（严格单向）
 - `internal/types/` ← 所有包均可导入（零外部依赖）
 - `internal/xsync/` ← 所有包均可导入（仅依赖 internal/types/）
-- `cmd/` → kernel/ → vfs/ → drivers/{llm,shell,fs}、context/、skills/
+- `cmd/` → kernel/ → vfs/ → drivers/{llm,shell,fs}
+- `cmd/` → kernel/ → context/
+- `cmd/` → kernel/ → agents/ → skills/
+- `cmd/` → agents/ → skills/
 - `cmd/` → debug/（仅依赖 internal/types/）
-- **绝对禁止**：kernel/ 不导入 cmd/、vfs/ 不导入 kernel/、drivers/ 不导入 kernel/、任何包不导入 cmd/crux/
+- **绝对禁止**：kernel/ 不导入 cmd/、vfs/ 不导入 kernel/、drivers/ 不导入 kernel/、agents/ 不导入 kernel/、任何包不导入 cmd/crux/
 
 ### 测试规则
 
