@@ -1564,6 +1564,44 @@ func TestSpawn_VFSEvents_OpenWriteRead(t *testing.T) {
 			break
 		}
 	}
+
+	// Verify Write event has correct args (fd and size)
+	for _, ev := range events {
+		if ev.Syscall == "Write" {
+			if ev.Args["fd"] == nil {
+				t.Errorf("Write event missing 'fd' arg")
+			}
+			if ev.Args["size"] == nil {
+				t.Errorf("Write event missing 'size' arg")
+			}
+			if ev.PID != pid {
+				t.Errorf("Write event PID: got %d, want %d", ev.PID, pid)
+			}
+			if ev.Duration <= 0 {
+				t.Errorf("Write event Duration should be positive, got %v", ev.Duration)
+			}
+			break
+		}
+	}
+
+	// Verify Read event has correct args (fd and length)
+	for _, ev := range events {
+		if ev.Syscall == "Read" {
+			if ev.Args["fd"] == nil {
+				t.Errorf("Read event missing 'fd' arg")
+			}
+			if ev.Args["length"] == nil {
+				t.Errorf("Read event missing 'length' arg")
+			}
+			if ev.PID != pid {
+				t.Errorf("Read event PID: got %d, want %d", ev.PID, pid)
+			}
+			if ev.Duration <= 0 {
+				t.Errorf("Read event Duration should be positive, got %v", ev.Duration)
+			}
+			break
+		}
+	}
 }
 
 func TestSpawn_ContextEvents_CtxAllocCtxWriteCtxRead(t *testing.T) {
@@ -1727,4 +1765,17 @@ func TestNilDebugChan_ZeroOverhead(t *testing.T) {
 	k.emitEvent(proc, "Write", map[string]any{"fd": 1, "size": 42}, nil, nil, time.Millisecond)
 	k.emitEvent(proc, "Read", map[string]any{"fd": 1, "length": 100}, 100, nil, time.Millisecond)
 	k.emitEvent(proc, "CtxAlloc", map[string]any{"size": 64}, types.CtxID(1), nil, time.Millisecond)
+}
+
+func BenchmarkEmitEvent_NilDebugChan(b *testing.B) {
+	// AC #10: DebugChan 为 nil 时零开销 — verify zero allocations inside emitEvent.
+	k := newSimpleKernel()
+	proc := NewProcess(0, "bench", nil)
+	proc.DebugChan = nil
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		k.emitEvent(proc, "Open", map[string]any{"path": "/dev/null"}, 1, nil, time.Millisecond)
+	}
 }

@@ -1,6 +1,6 @@
 # Story 3.1: SyscallEvent 记录基础设施
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -17,10 +17,10 @@ So that astrace 可以消费完整的调用链路数据。
 3. **VFS Read 事件** — Given 进程的 DebugChan 非 nil，When 调用 Read(fd, length)，Then 记录事件包含 `Syscall: "Read"`, `Args: {"fd": fd, "length": length}`, `Result: bytesRead`, `Duration: 耗时`
 4. **VFS Write 事件** — Given 进程的 DebugChan 非 nil，When 调用 Write(fd, data)，Then 记录事件包含 `Syscall: "Write"`, `Args: {"fd": fd, "size": len(data)}`, `Duration: 耗时`
 5. **VFS Close 事件** — Given 进程的 DebugChan 非 nil，When 调用 Close(fd)，Then 记录事件包含 `Syscall: "Close"`, `Args: {"fd": fd}`, `Duration: 耗时`
-6. **VFS Stat 事件** — Given 进程的 DebugChan 非 nil，When 调用 Stat(path)，Then 记录事件包含 `Syscall: "Stat"`, `Args: {"path": path}`, `Result: fileStat`, `Duration: 耗时`
+6. **VFS Stat 事件** — N/A：kernel 层当前不调用 `k.vfs.Stat()`，故无事件记录点。VFS 接口有 Stat 方法但未在 kernel syscall 路径中使用。若未来添加 Stat syscall，需补充事件记录。
 7. **CtxAlloc 事件** — Given 进程的 DebugChan 非 nil，When 调用 CtxAlloc(size)，Then 记录事件包含 `Syscall: "CtxAlloc"`, `Args: {"size": size}`, `Result: ctxID`, `Duration: 耗时`
-8. **CtxRead 事件** — Given 进程的 DebugChan 非 nil，When 调用 CtxRead(cid, offset, length)，Then 记录事件包含 `Syscall: "CtxRead"`, `Args: {"cid": cid, "offset": offset, "length": length}`, `Result: bytesRead`, `Duration: 耗时`
-9. **CtxWrite 事件** — Given 进程的 DebugChan 非 nil，When 调用 CtxWrite(cid, offset, data)，Then 记录事件包含 `Syscall: "CtxWrite"`, `Args: {"cid": cid, "offset": offset, "size": len(data)}`, `Duration: 耗时`
+8. **CtxRead 事件** — Given 进程的 DebugChan 非 nil，When 调用 BuildPrompt(cid)，Then 记录事件包含 `Syscall: "CtxRead"`, `Args: {"cid": cid, "op": "BuildPrompt"}`, `Duration: 耗时`（注：实际 API 为 BuildPrompt 而非 CtxRead(cid, offset, length)）
+9. **CtxWrite 事件** — Given 进程的 DebugChan 非 nil，When 调用 SetSystemPrompt/AppendMessage/AppendToolResult，Then 记录事件包含 `Syscall: "CtxWrite"`, `Args: {"cid": cid, "op": "<操作名>", ...}`, `Duration: 耗时`（注：实际 API 按操作类型区分，而非统一的 CtxWrite(cid, offset, data)）
 10. **DebugChan 为 nil 时零开销** — Given 进程的 DebugChan 为 nil（无 astrace 附着），When syscall 执行，Then 跳过事件记录（零开销，无额外 allocation）
 11. **DebugChan 缓冲满时不阻塞** — Given DebugChan 缓冲已满（256），When 写入新事件，Then 不阻塞 syscall 执行（非阻塞写入，丢弃事件）
 12. **所有测试通过** — Given 实现完成，When 执行 `go test -race ./...`，Then 所有新增和现有测试通过，无竞态条件
@@ -196,22 +196,22 @@ func EmitEvent(ch chan<- types.SyscallEvent, event types.SyscallEvent) {
     }
 }
 
-// RecordSyscall 记录一次完整的 syscall 调用（入口到出口）。
-// 在 syscall 出口处调用，自动计算 Duration。
-func RecordSyscall(ch chan<- types.SyscallEvent, pid types.PID, createdAt time.Time,
-    syscall string, args map[string]any, result any, err error, duration time.Duration) {
-    if ch == nil {
-        return
-    }
-    EmitEvent(ch, types.SyscallEvent{
+// NewEvent 构造 SyscallEvent，填充入口侧字段（Timestamp, PID, Syscall, Args）。
+// Result, Err, Duration 留空，由 CompleteEvent 在 syscall 返回后填充。
+func NewEvent(pid types.PID, createdAt time.Time, syscall string, args map[string]any) types.SyscallEvent {
+    return types.SyscallEvent{
         Timestamp: time.Since(createdAt),
         PID:       pid,
         Syscall:   syscall,
         Args:      args,
-        Result:    result,
-        Err:       err,
-        Duration:  duration,
-    })
+    }
+}
+
+// CompleteEvent 填充出口侧字段：Result, Err, Duration。
+func CompleteEvent(event *types.SyscallEvent, result any, err error, duration time.Duration) {
+    event.Result = result
+    event.Err = err
+    event.Duration = duration
 }
 ```
 
@@ -315,6 +315,7 @@ Claude Opus 4.6
 ### Change Log
 
 - 2026-02-25: Story 3.1 实现完成 — SyscallEvent 记录基础设施
+- 2026-02-25: Code Review 修复 — 恢复 emitEvent nil 检查（H1），添加 benchmark 测试（H2），更新 AC #6/#8/#9 描述（M1-M3），补充 File List（M4），增强 VFS 事件测试断言（M5），更新 Dev Notes 设计文档（L2）
 
 ### File List
 
@@ -322,4 +323,4 @@ Claude Opus 4.6
 - debug/event_test.go (新建)
 - kernel/kernel.go (修改)
 - kernel/kernel_test.go (修改)
-- debug/.gitkeep (待删除)
+- _bmad-output/implementation-artifacts/sprint-status.yaml (修改)
