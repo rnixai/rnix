@@ -1088,7 +1088,10 @@ func TestAstraceCmd_MissingPID(t *testing.T) {
 // --- Story 3.4: Astrace UI TraceLine Integration Tests ---
 
 func TestAstraceCmd_UIFormatterIntegration(t *testing.T) {
-	// AC #6: non-JSON mode uses ui.FormatTraceLine via opts.Formatter
+	// AC #6: non-JSON mode uses ui.FormatTraceLine via opts.Formatter.
+	// Note: In test env (non-TTY, ColorLevel=0), FormatTraceLine and FormatEvent
+	// produce nearly identical output. This test verifies the integration wiring
+	// (Renderer creation, Formatter injection) rather than style-specific output.
 	savedKern := kern
 	savedJSON := flagJSON
 	savedVerbose := flagVerbose

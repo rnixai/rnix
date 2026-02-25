@@ -1,6 +1,6 @@
 # Story 3.4: Syscall Trace Line UI 组件
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -399,9 +399,10 @@ Claude Opus 4.6
 
 **新建文件：**
 - `internal/ui/trace.go` — FormatTraceLine 组件 + 私有辅助函数
-- `internal/ui/trace_test.go` — 6 个单元测试
+- `internal/ui/trace_test.go` — 7 个单元测试
 
 **修改文件：**
+- `internal/ui/styles.go` — 新增 AgentBoldStyle 预计算样式
 - `debug/astrace.go` — Options.Formatter 字段 + Attach 三级分支
 - `cmd/crux/main.go` — runAstrace 注入 UI Formatter + Renderer 初始化
 - `cmd/crux/integration_test.go` — 3 个新集成测试
@@ -411,3 +412,4 @@ Claude Opus 4.6
 ## Change Log
 
 - 2026-02-25: Story 3.4 实现完成 — Syscall Trace Line UI 组件，替代 raw ANSI 输出为 lipgloss 样式化格式
+- 2026-02-25: Code Review 修复 — [H1] 错误行 ANSI 嵌套冲突（ErrorStyle 内嵌 MutedStyle/AgentStyle 导致非均匀红色），重构为 plain text + ErrorStyle 包裹；[M1] 消除错误结果 ErrorStyle 双重包裹；[M2] 新增 AgentBoldStyle 预计算避免每次调用创建样式对象；[M3] 新增 SlowAndLLM 边界测试；[M4] 集成测试添加说明注释
