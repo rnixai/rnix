@@ -32,7 +32,8 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | 智能体推理 | FR8-FR12 | reasonStep 循环是系统心跳——LLM 调用→解析 action→工具执行→上下文追加→循环。关键依赖：Claude Code CLI |
 | 文件系统与资源 | FR13-FR18 | VFS 是统一抽象层——`/proc/{pid}/`、`/dev/`、`/dev/fs`、`/dev/llm/`、`/dev/shell` 通过同一接口 |
 | 上下文管理 | FR19-FR22 | 每个智能体独立上下文空间——分配/读写/组装 prompt/释放 |
-| Skill 管理 | FR23-FR27 | manifest.yaml + instructions.md 注入 system prompt，tools 声明映射为 `/dev/` 权限白名单 |
+| Agent 管理 | FR23-FR25 | agent.yaml + instructions.md 定义智能体身份、模型偏好、Skill 引用，注入 system prompt |
+| Skill 管理 | FR25a-FR27 | SKILL.md（Agent Skills 行业标准格式）渐进式加载，allowed-tools 聚合映射为 `/dev/` 权限白名单 |
 | 调试与可观测 | FR28-FR32 | astrace 差异化核心——实时 syscall 追踪，DebugRecord 数据采集贯穿所有 syscall |
 | CLI | FR33-FR37 | 三命令入口（`crux "意图"` / `crux astrace` / `crux ps`），go install 单二进制 |
 | 文档 | FR38-FR40 | 概念文档 + 快速上手 + 参考手册 |
@@ -44,7 +45,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | 性能 | NFR1: spawn→完成 ≤30s；NFR2: ps ≤100ms；NFR3: astrace ≤500ms | 进程表须内存数据结构，astrace 需低延迟事件通道 |
 | 可靠性 | NFR6: 20 次连续 ≥95%；NFR7: 超时 5s 内转 zombie；NFR8: 退出 10s 内释放资源 | 健壮的错误传播 + goroutine 生命周期管理 + context.Context 取消 |
 | 集成 | NFR11-12: Claude Code CLI 参数 + stream-json | 驱动层封装 CLI 交互，stream-json 为 astrace 数据源 |
-| 安全 | NFR15-17: 继承用户权限，Skill tools 白名单 | MVP 无完整 Capability，Skill manifest tools 为最小安全边界 |
+| 安全 | NFR15-17: 继承用户权限，Skill allowed-tools 白名单 | MVP 无完整 Capability，Agent 聚合 Skill allowed-tools 为最小安全边界 |
 | 可维护性 | NFR19: ABI 兼容 Phase 2；NFR20: LLM 驱动单文件封装 | syscall 接口可扩展（15→45），驱动层抽象干净 |
 
 **UX 架构含义：**
@@ -145,8 +146,11 @@ crux/
 │   └── shell/shell.go             # Shell 执行驱动
 ├── context/                       # 上下文管理
 │   └── context.go                 # ctx_alloc/read/write/free + prompt 组装
+├── agents/                        # Agent 加载器
+│   ├── types.go                   # AgentManifest + AgentModels + AgentInfo 类型定义
+│   └── loader.go                  # agent.yaml 解析 + instructions.md 读取 + Skill 引用解析 + tools 聚合
 ├── skills/                        # Skill 加载器
-│   └── loader.go                  # manifest.yaml 解析 + instructions.md 注入
+│   └── loader.go                  # SKILL.md 解析（Agent Skills 标准格式）+ 渐进式加载
 ├── debug/                         # 调试工具
 │   └── astrace.go                 # syscall 追踪（stream-json 消费）
 ├── internal/ui/                   # CLI 输出组件
@@ -157,9 +161,11 @@ crux/
 │   ├── summary.go                 # Summary Footer
 │   ├── trace.go                   # Syscall Trace Line
 │   └── table.go                   # Process Table
-├── lib/skills/code-analyst/       # 第一个 Skill（参考实现）
-│   ├── manifest.yaml
-│   └── instructions.md
+├── lib/agents/code-analyst/        # 参考 Agent 定义
+│   ├── agent.yaml                 # Agent 配置：身份 + 模型 + Skill 引用
+│   └── instructions.md            # Agent 角色定义 + 行为策略
+├── lib/skills/code-analysis/      # 参考 Skill（Agent Skills 标准格式）
+│   └── SKILL.md                   # name + description + allowed-tools + 程序性知识
 ├── go.mod
 ├── go.sum
 ├── Makefile                       # 构建 + 测试 + lint
@@ -194,17 +200,20 @@ k.vfs.Write(fd, prompt, WriteOpts{Model: "sonnet"})
 response := k.vfs.Read(fd, MaxTokens)
 ```
 
-Skill manifest 映射：
+Agent manifest 映射（模型偏好属于 Agent 层）：
 
 ```yaml
+# agent.yaml
 models:
   provider: claude          # → /dev/llm/claude
   preferred: sonnet         # → 调用参数
   fallback: haiku           # → 失败时降级
+skills:
+  - code-analysis           # → 引用 Skill 名称
 ```
 
 **CLI 框架：** Cobra（`github.com/spf13/cobra`）
-- 根命令：`crux "意图"` — spawn 智能体
+- 根命令：`crux "意图"` — spawn 智能体（`--agent=<name>` 指定 Agent 定义）
 - 子命令：`astrace`、`ps`、`kill`、`version`
 - 全局 flags：`--json`、`--verbose`、`--quiet`
 
@@ -245,7 +254,7 @@ models:
 ```go
 // 进程管理（5 个 syscall）
 type ProcessManager interface {
-    Spawn(intent string, skills []string, opts SpawnOpts) (PID, error)
+    Spawn(intent string, agent AgentInfo, opts SpawnOpts) (PID, error)
     Kill(pid PID, signal Signal) error
     Wait(pid PID) (ExitStatus, error)
     GetPID() PID
@@ -283,7 +292,7 @@ type Kernel interface {
 }
 ```
 
-**Phase 2 扩展路径：** 新增 `IPCManager`（Send/Recv/Pipe）、`CapManager`（CapGrant/Revoke/Check）、`SkillManager`（SkillLoad/Invoke/Unload）等子接口，Kernel 接口嵌入新子接口即可。
+**Phase 2 扩展路径：** 新增 `IPCManager`（Send/Recv/Pipe）、`CapManager`（CapGrant/Revoke/Check）等子接口，Kernel 接口嵌入新子接口即可。Agent Compose 通过 `agents/` 包扩展多 Agent 编排能力。
 
 ### Decision 2: 进程模型与并发
 
@@ -295,7 +304,8 @@ type Process struct {
     PPID      PID
     State     ProcessState          // Created → Running → Zombie → Dead
     Intent    string                // 原始意图（不可变）
-    Skills    []SkillID
+    Agent     AgentInfo             // Agent 定义（身份 + 模型 + Skill 引用）
+    Skills    []SkillInfo           // 已加载的 Skill 列表（从 Agent 引用解析）
     Ctx       *Context
     Children  []PID
     FDTable   map[FD]VFSFile        // 每进程文件描述符表
@@ -344,11 +354,13 @@ type VFSFile interface {
 ```go
 cmd := exec.CommandContext(ctx, "claude", "-p", intent,
     "--output-format", "json",
-    "--system-prompt", skillInstructions,
+    "--system-prompt", agentInstructions + skillInstructions,
     "--model", model,
     "--max-turns", "1",
 )
 ```
+
+**system prompt 组装顺序：** Agent instructions（角色定义）+ 各 Skill SKILL.md body（程序性知识），由 AgentLoader 在 Spawn 时组装。
 
 **stream-json 消费：** `--output-format stream-json` 时，通过 `bufio.Scanner` 逐行读取 stdout，每行解析为 `StreamEvent`，写入 `Process.DebugChan` 供 astrace 消费。
 
@@ -518,7 +530,8 @@ func (r Result[T]) Map(fn func(T) T) Result[T] { ... }
 | 顶级目录 | 全小写 Unix 风格 | `/proc/`, `/dev/`, `/lib/skills/` |
 | 设备名 | 全小写，连字符分隔 | `/dev/llm/claude`, `/dev/shell` |
 | PID 段 | 纯数字 | `/proc/42/status` |
-| Skill 名 | 全小写，连字符分隔 | `/lib/skills/code-analyst/` |
+| Skill 名 | 全小写，连字符分隔 | `/lib/skills/code-analysis/` |
+| Agent 名 | 全小写，连字符分隔 | `/lib/agents/code-analyst/` |
 
 **文件与目录命名：**
 
@@ -526,7 +539,8 @@ func (r Result[T]) Map(fn func(T) T) Result[T] { ... }
 |------|------|------|
 | Go 源文件 | 全小写，下划线分隔 | `kernel.go`, `claude_cli.go`, `astrace.go` |
 | 测试文件 | `_test.go` 后缀，同目录 | `kernel_test.go`, `claude_cli_test.go` |
-| YAML 配置 | 全小写，连字符分隔，`.yaml` 后缀 | `manifest.yaml`（不用 `.yml`） |
+| YAML 配置 | 全小写，连字符分隔，`.yaml` 后缀 | `agent.yaml`（不用 `.yml`） |
+| SKILL.md | 大写固定名 | `SKILL.md`（Agent Skills 标准要求） |
 | Markdown | 全小写，连字符分隔 | `instructions.md` |
 | 目录名 | 全小写单词 | `kernel/`, `drivers/`, `internal/ui/` |
 
@@ -537,7 +551,7 @@ func (r Result[T]) Map(fn func(T) T) Result[T] { ... }
 ```
 cmd/ → kernel/ → vfs/     → drivers/
                 → context/
-                → skills/
+                → agents/  → skills/
 cmd/ → debug/  → kernel/（仅类型）
 cmd/ → internal/ui/
 ```
@@ -546,6 +560,7 @@ cmd/ → internal/ui/
 - `kernel/` 不导入 `cmd/` 或 `internal/ui/`
 - `vfs/` 不导入 `kernel/`（通过接口解耦）
 - `drivers/` 不导入 `kernel/`（通过接口解耦）
+- `skills/` 不导入 `agents/`（单向：agents → skills）
 - 任何包不导入 `cmd/crux/`
 
 **文件组织规则：**
@@ -585,7 +600,9 @@ type JSONError struct {
 - 终端显示：人类可读（`6.2s`、`100ms`）
 - 日志中：RFC3339（`2026-02-23T14:30:00Z`）
 
-**manifest.yaml 格式：** 字段名全小写 `snake_case`，列表用序列语法 `- item`，缩进 2 空格。
+**agent.yaml 格式：** 字段名全小写 `snake_case`，列表用序列语法 `- item`，缩进 2 空格。
+
+**SKILL.md 格式（Agent Skills 标准）：** YAML frontmatter（`---` 包裹）+ Markdown body。frontmatter 字段名全小写连字符分隔（`allowed-tools`），body 为程序性知识指令。
 
 ### 通信模式（Communication Patterns）
 
@@ -594,7 +611,7 @@ type JSONError struct {
 **astrace 输出格式（终端）：**
 
 ```
-[  0.000] Spawn("分析代码", ["code-analyst"])     = PID(1)        12ms
+[  0.000] Spawn("分析代码", agent="code-analyst")       = PID(1)        12ms
 [  0.012] CtxAlloc(4096)                          = CtxID(1)       0ms
 [  0.013] Open("/dev/llm/claude", O_RDWR)         = FD(3)          1ms
 ```
@@ -602,7 +619,7 @@ type JSONError struct {
 **日志格式（logfmt 风格）：**
 
 ```
-[kernel] level=info msg="process spawned" pid=1 intent="分析代码" skills=["code-analyst"]
+[kernel] level=info msg="process spawned" pid=1 intent="分析代码" agent="code-analyst" skills=["code-analysis"]
 [kernel] level=error msg="llm timeout" pid=1 device="/dev/llm/claude" elapsed=30s
 ```
 
@@ -669,11 +686,11 @@ func (k *KernelImpl) Open(path string, flags int) (FD, error) {
 
 | 场景 | 用泛型 | 说明 |
 |------|--------|------|
-| Registry | ✅ | 设备、驱动、Skill 共享泛型 `Registry[T]` |
+| Registry | ✅ | 设备、驱动、Agent、Skill 共享泛型 `Registry[T]` |
 | 并发 Map | ✅ | `SyncMap[K, V]` 替代 `sync.Mutex + map` |
 | Future/Result | ✅ | 类型安全异步返回和错误处理链 |
 | JSON 响应 | ✅ | `JSONResponse[T]` |
-| 配置加载 | ✅ | `LoadYAML[T](path) (T, error)` |
+| 配置加载 | ✅ | `LoadYAML[T](path) (T, error)` agent.yaml 和配置文件反序列化；`ParseSKILLMD(path)` SKILL.md frontmatter 解析 |
 | Kernel 接口 | ❌ | 方法签名固定 |
 | Process 结构体 | ❌ | 单一具体类型 |
 | SyscallEvent | ❌ | 需运行时类型灵活性 |
@@ -739,14 +756,18 @@ crux/
 │   ├── context.go                        # Context 结构体 + Alloc/Read/Write/Free + BuildPrompt()
 │   └── context_test.go                   # 上下文管理测试
 │
+├── agents/
+│   ├── types.go                          # AgentManifest + AgentModels + AgentInfo 类型定义
+│   ├── loader.go                         # AgentLoader：加载 agent.yaml + instructions.md + 解析 Skill 引用 + 聚合 tools
+│   └── loader_test.go                    # Agent 加载器测试
+│
 ├── skills/
-│   ├── loader.go                         # SkillLoader：manifest.yaml 解析 + instructions.md 读取 + 泛型 LoadYAML[T]
-│   ├── types.go                          # SkillManifest + SkillInfo 类型定义
+│   ├── loader.go                         # SkillLoader：解析 SKILL.md（Agent Skills 标准格式）+ 渐进式加载（metadata-only / full）
+│   ├── types.go                          # SkillManifest（Name/Description/AllowedTools/Metadata）+ SkillInfo 类型定义
 │   ├── loader_test.go                    # Skill 加载测试
 │   └── testdata/                         # 测试用 Skill fixtures
 │       └── mock-skill/
-│           ├── manifest.yaml
-│           └── instructions.md
+│           └── SKILL.md
 │
 ├── debug/
 │   ├── astrace.go                        # Astrace：消费 DebugChan + 格式化输出 + stream-json 事件桥接
@@ -765,10 +786,12 @@ crux/
 │       ├── trace.go                      # TraceLine：astrace 单行格式化
 │       └── table.go                      # ProcessTable：ps 命令表格输出
 │
-├── lib/skills/
-│   └── code-analyst/
-│       ├── manifest.yaml                 # Skill 元信息：tools=[/dev/fs, /dev/shell], models.provider=claude
-│       └── instructions.md               # 代码分析 system prompt 指令
+├── lib/agents/code-analyst/
+│   ├── agent.yaml                       # Agent 配置：name + description + models + context_budget + skills 引用
+│   └── instructions.md                  # Agent 角色定义 + 行为策略
+│
+├── lib/skills/code-analysis/
+│   └── SKILL.md                         # Agent Skills 标准格式：frontmatter（name/description/allowed-tools）+ 程序性知识
 │
 ├── go.mod                                # 模块：github.com/gonewx/crux, go 1.26
 ├── go.sum
@@ -813,7 +836,11 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 
 **Kernel ↔ Context 边界：** Context 包独立于 Kernel，通过 CtxID 引用，不持有 Process 指针。
 
-**Kernel ↔ Skills 边界：** SkillLoader 返回 SkillManifest + instructions 内容，Kernel 负责注入 CLI 参数。Skills 包不导入 Kernel。
+**Kernel ↔ Agents 边界：** Kernel 通过 AgentLoader 获取 AgentInfo（包含 Agent 指令、模型偏好、聚合的设备权限白名单），Kernel 负责注入 CLI 参数。Agents 包不导入 Kernel。
+
+**Agents ↔ Skills 边界：** AgentLoader 依赖 SkillLoader 加载引用的 Skill。AgentLoader 从 agent.yaml 读取 `skills` 列表，调用 SkillLoader 逐一解析 SKILL.md，聚合所有 Skill 的 `allowed-tools` 为统一权限白名单。单向依赖：`agents/ → skills/`。
+
+**Skills 独立性：** SkillLoader 仅负责解析 SKILL.md 格式（frontmatter + body），返回 SkillManifest + instructions 内容。Skills 包不导入 Agents 或 Kernel，可独立使用。
 
 **Debug ↔ Kernel 边界：** Debug 包仅导入 `kernel/` 的类型（SyscallEvent, PID），通过 DebugChan channel 消费事件。
 
@@ -827,7 +854,8 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 | 智能体推理 | FR8-FR12 | `kernel/kernel.go`, `drivers/llm/claude_cli.go` |
 | 文件系统与资源 | FR13-FR18 | `vfs/{vfs,proc,dev}.go`, `drivers/shell/shell.go` |
 | 上下文管理 | FR19-FR22 | `context/context.go` |
-| Skill 管理 | FR23-FR27 | `skills/{loader,types}.go`, `lib/skills/code-analyst/` |
+| Agent 管理 | FR23-FR25 | `agents/{types,loader}.go`, `lib/agents/code-analyst/` |
+| Skill 管理 | FR25a-FR27 | `skills/{loader,types}.go`, `lib/skills/code-analysis/` |
 | 调试与可观测 | FR28-FR32 | `debug/{astrace,event}.go` |
 | CLI | FR33-FR37 | `cmd/crux/main.go`, `internal/ui/*` |
 | 文档 | FR38-FR40 | `README.md` |
@@ -840,15 +868,20 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 | SyscallEvent | `debug/event.go` → `kernel/kernel.go` → `debug/astrace.go` |
 | 输出格式 | `internal/ui/renderer.go` → `internal/ui/*.go` |
 | goroutine 生命周期 | `kernel/process.go` → `kernel/reap.go` |
-| 泛型工具 | `kernel/generics.go` → 所有使用 Registry/SyncMap/Future 的模块 |
+| 泛型工具 | `internal/xsync/` → 所有使用 Registry/SyncMap/Future 的模块 |
 
 ### 数据流
 
-**核心端到端流（`crux "分析代码"`）：**
+**核心端到端流（`crux "分析代码" --agent=code-analyst`）：**
 
 ```
-用户输入 → cmd/ 解析意图 → skills/ 加载 Skill
-  → kernel/ Spawn 创建 Process → context/ 分配上下文
+用户输入 → cmd/ 解析意图 + --agent 参数
+  → agents/ 加载 Agent（agent.yaml + instructions.md）
+    → skills/ 加载引用的 Skill（SKILL.md 渐进式：frontmatter → body）
+      → 聚合 Skill allowed-tools → 设备权限白名单
+  → kernel/ Spawn 创建 Process（AgentInfo + 聚合权限）
+    → context/ 分配上下文
+    → 组装 system prompt = Agent instructions + Skill instructions
     → reasonStep 循环:
       → vfs/ Open → dev/ 路由 → drivers/ 执行 → 返回结果
       → context/ 追加结果 → 继续循环或完成
@@ -887,9 +920,12 @@ func main() {
     devReg.Register("/dev/llm/claude", llm.NewClaudeCliDriver().FileFactory())
     devReg.Register("/dev/shell", shell.NewDriver().FileFactory())
     devReg.Register("/dev/fs", fs.NewHostFSDriver().FileFactory())
-    // 3. 内核
-    kernel := kernel.New(vfsInst, context.NewManager(), skills.NewLoader("./lib/skills"))
-    // 4. CLI
+    // 3. Skill + Agent 加载器
+    skillLoader := skills.NewLoader("./lib/skills")
+    agentLoader := agents.NewLoader("./lib/agents", skillLoader)
+    // 4. 内核
+    kernel := kernel.New(vfsInst, context.NewManager(), agentLoader)
+    // 5. CLI（--agent flag 由 cobra 注册）
     cmd.Execute(kernel)
 }
 ```
@@ -907,6 +943,7 @@ func main() {
 | exec.Command + stream-json | ✅ Claude Code CLI 调用模式与 astrace 数据源一致 |
 | 泛型类型 + Go 1.26 | ✅ Registry[T], SyncMap[K,V], Future[T] 均支持 |
 | SyscallError + DebugChan | ✅ 共享 syscall 边界，传播路径一致 |
+| Agent/Skill 分层 + Agent Skills 标准 | ✅ Agent 定义身份+策略，Skill 定义程序性知识+工具权限，职责清晰分离 |
 
 **模式一致性：** ✅ 命名、JSON 格式、错误处理模式全部对齐。
 
@@ -934,7 +971,7 @@ func main() {
 | NFR1-5 性能 | 内存 SyncMap、缓冲 DebugChan、context.WithTimeout |
 | NFR6-10 可靠性 | -race 测试、cancel+wg 生命周期、Goroutine Leak Profiler |
 | NFR11-14 集成 | claude_cli.go 参数映射、stream-json、os.Open 继承权限 |
-| NFR15-17 安全 | Skill manifest tools 白名单 |
+| NFR15-17 安全 | Agent 聚合 Skill allowed-tools 权限白名单 |
 | NFR18-20 可维护性 | golangci-lint、分类接口可扩展、驱动层单模块封装 |
 
 ### Gap Analysis 与修正
@@ -1017,13 +1054,17 @@ crux/
 │   ├── context.go                        # Context + Alloc/Read/Write/Free + BuildPrompt
 │   └── context_test.go
 │
+├── agents/
+│   ├── types.go                          # AgentManifest + AgentModels + AgentInfo
+│   ├── loader.go                         # AgentLoader：agent.yaml + instructions.md + Skill 引用解析 + tools 聚合
+│   └── loader_test.go
+│
 ├── skills/
-│   ├── loader.go                         # SkillLoader + LoadYAML[T]
-│   ├── types.go                          # SkillManifest + SkillInfo
+│   ├── loader.go                         # SkillLoader：SKILL.md 解析（Agent Skills 标准）+ 渐进式加载
+│   ├── types.go                          # SkillManifest（Name/Description/AllowedTools/Metadata）+ SkillInfo
 │   ├── loader_test.go
 │   └── testdata/mock-skill/
-│       ├── manifest.yaml
-│       └── instructions.md
+│       └── SKILL.md
 │
 ├── debug/
 │   ├── astrace.go                        # 消费 DebugChan + 格式化输出
@@ -1031,9 +1072,12 @@ crux/
 │   ├── astrace_test.go
 │   └── event_test.go
 │
-├── lib/skills/code-analyst/
-│   ├── manifest.yaml
-│   └── instructions.md
+├── lib/agents/code-analyst/
+│   ├── agent.yaml                       # Agent 配置：name + models + context_budget + skills
+│   └── instructions.md                  # Agent 角色定义 + 行为策略
+│
+├── lib/skills/code-analysis/
+│   └── SKILL.md                         # Agent Skills 标准格式（frontmatter + 程序性知识）
 │
 ├── go.mod                                # github.com/gonewx/crux, go 1.26
 ├── go.sum
@@ -1052,7 +1096,7 @@ internal/ui/     ← 仅 cmd/ 导入
 
 cmd/ → kernel/ → vfs/     → drivers/{llm,shell,fs}
                 → context/
-                → skills/
+                → agents/  → skills/
 cmd/ → debug/（仅依赖 internal/types/）
 ```
 
