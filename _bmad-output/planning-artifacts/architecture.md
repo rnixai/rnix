@@ -5,12 +5,15 @@ inputDocuments:
   - '_bmad-output/planning-artifacts/prd.md'
   - '_bmad-output/planning-artifacts/ux-design-specification.md'
   - '_bmad-output/planning-artifacts/agent-os-architecture.md'
+  - '_bmad-output/planning-artifacts/sprint-change-proposal-2026-02-25.md'
   - '../docs/.meta/tool.md'
   - '../docs/.meta/idea.md'
 workflowType: 'architecture'
 lastStep: 8
 status: 'complete'
 completedAt: '2026-02-23'
+updatedAt: '2026-02-25'
+updateReason: 'Sprint change proposal: Agent 抽象层 + Skill 标准化'
 project_name: 'Crux'
 user_name: 'Decker'
 date: '2026-02-23'
@@ -419,9 +422,123 @@ Driver 层错误（如 CLI 超时）
 **ErrCode 分类：**
 - `ErrTimeout` — LLM/Shell 超时
 - `ErrNotFound` — VFS 路径不存在
-- `ErrPermission` — Skill tools 白名单拒绝
+- `ErrPermission` — Skill allowed-tools 白名单拒绝
 - `ErrInternal` — 内核内部错误
 - `ErrDriver` — 驱动层错误
+
+### Decision 7: Agent 抽象层与 Skill 标准化
+
+**决策：** 引入 Agent 抽象层，将原有 Skill 的职责拆分为 Agent（智能体定义）和 Skill（能力模块）两层，且 Skill 格式遵循 Agent Skills 行业标准（agentskills.io）。
+
+**背景：** 原设计中 Skill（manifest.yaml + instructions.md）同时承担了"智能体定义"和"能力模块"双重职责。SkillManifest 包含 Models（模型偏好）和 ContextBudget（上下文预算），这些是智能体级别的配置，不应属于共享库。同时，Agent Skills 开放标准（由 Anthropic 发起，30+ AI 工具采用）定义了 Skill 的标准格式（SKILL.md），Crux 原有的双文件格式无法与生态互操作。
+
+**理由：**
+1. 概念清晰度——Agent 定义"我是谁"（身份、角色、策略、模型偏好），Skill 定义"如何做 X"（程序性知识、工具权限）
+2. 与 PRD Phase 2 Compose 设计（`agents: reviewer: skills: [pr-reviewer]`）自然对齐
+3. Skill 遵循行业标准后可跨平台复用（与 30+ AI 工具生态兼容）
+4. 渐进式加载策略减少启动时上下文消耗（~100 tokens/skill 发现阶段）
+
+**架构层次（OS 隐喻对应）：**
+
+```
+Process（运行时实例）= 进程
+  ← Agent（智能体定义）= 可执行程序
+      ← Skill(s)（能力模块）= 共享库
+```
+
+**Agent 定义（Crux 特有）：**
+
+```
+lib/agents/code-analyst/
+├── agent.yaml        # Agent 配置：身份 + 模型 + Skill 引用
+└── instructions.md   # Agent 角色定义 + 行为策略
+```
+
+```go
+// agents/types.go
+type AgentManifest struct {
+    Name          string       `yaml:"name"`
+    Description   string       `yaml:"description"`
+    Models        AgentModels  `yaml:"models"`
+    ContextBudget int          `yaml:"context_budget"`
+    Skills        []string     `yaml:"skills"`
+}
+
+type AgentModels struct {
+    Provider  string `yaml:"provider"`
+    Preferred string `yaml:"preferred"`
+    Fallback  string `yaml:"fallback"`
+}
+
+type AgentInfo struct {
+    Manifest     AgentManifest
+    Instructions string        // instructions.md 内容
+    Skills       []SkillInfo   // 已解析的 Skill 列表
+    AllowedTools []string      // 聚合所有 Skill 的 allowed-tools
+}
+```
+
+**Skill 定义（Agent Skills 行业标准）：**
+
+```
+lib/skills/code-analysis/
+├── SKILL.md          # 必需：标准格式（YAML frontmatter + Markdown 指令）
+├── scripts/          # 可选：可执行脚本
+├── references/       # 可选：参考文档
+└── assets/           # 可选：模板、资源
+```
+
+```go
+// skills/types.go
+type SkillManifest struct {
+    Name          string            `yaml:"name"`
+    Description   string            `yaml:"description"`
+    AllowedTools  string            `yaml:"allowed-tools"`  // 空格分隔工具列表
+    Metadata      map[string]string `yaml:"metadata"`
+    Compatibility string            `yaml:"compatibility"`
+    License       string            `yaml:"license"`
+}
+
+type SkillInfo struct {
+    Manifest     SkillManifest
+    Instructions string  // SKILL.md body 内容（激活阶段加载）
+    Dir          string  // Skill 目录路径
+}
+```
+
+**Agent vs Skill 职责分离：**
+
+| 维度 | Agent | Skill |
+|------|-------|-------|
+| 定义 | "我是谁"——身份、角色、策略 | "如何做 X"——程序性知识、工作流 |
+| 模型偏好 | ✅ models | ❌ |
+| 上下文预算 | ✅ context_budget | ❌ |
+| 设备权限 | ❌ 由引用的 Skill 聚合 | ✅ allowed-tools |
+| 复用性 | 特定角色 | 跨 Agent 共享，跨平台兼容 |
+| 标准 | Crux 特有 | Agent Skills 行业标准 |
+
+**渐进式加载（Progressive Disclosure）：**
+
+1. **发现**（启动时）：扫描 skill 目录，仅解析 SKILL.md frontmatter → ~100 tokens/skill
+2. **激活**（任务匹配时）：加载完整 SKILL.md body → < 5000 tokens
+3. **执行**（按需）：加载 scripts/、references/、assets/ 中的文件
+
+**Spawn 流程（更新）：**
+
+```
+crux "分析代码" --agent=code-analyst
+
+1. AgentLoader 加载 lib/agents/code-analyst/agent.yaml
+   → 获取 models、context_budget、skills 引用列表
+2. AgentLoader 加载 lib/agents/code-analyst/instructions.md
+   → 获取 Agent 角色系统提示
+3. SkillLoader 加载每个引用的 Skill（渐进式：激活阶段加载 SKILL.md body）
+4. 聚合所有 Skill 的 allowed-tools → 设备权限白名单
+5. 组装 system prompt = Agent instructions + Skill instructions
+6. Spawn Process（使用 agent 的 model 偏好 + 聚合的权限白名单）
+```
+
+**MCP Phase 2 兼容性：** Agent manifest 可扩展支持 `mcp` 字段引用 MCP 服务器，Skill `allowed-tools`（`/dev/`）与 MCP 路径（`/mnt/mcp/`）命名空间分离，无冲突。
 
 ### Go 1.26 特性利用
 
@@ -446,7 +563,7 @@ Driver 层错误（如 CLI 超时）
 | 进程表 | `SyncMap[K, V]` | 替代 `sync.RWMutex + map[PID]*Process` |
 | 事件通道 | `Chan[T]` | 带缓冲管理和零值安全的泛型 channel 封装 |
 | VFS 结果 | `Result[T]` | 统一 (T, error) 返回模式，支持链式操作 |
-| 配置解析 | `Loader[T]` | manifest.yaml 和配置文件的泛型反序列化 |
+| 配置解析 | `Loader[T]` | agent.yaml 和配置文件的泛型反序列化 |
 
 **核心泛型类型预览：**
 
@@ -951,7 +1068,7 @@ func main() {
 
 ### 需求覆盖验证
 
-**FR 覆盖：40/40** ✅
+**FR 覆盖：42/42** ✅
 
 | FR 领域 | FR 范围 | 架构支撑 |
 |---------|---------|---------|
@@ -959,7 +1076,8 @@ func main() {
 | 智能体推理 | FR8-FR12 | `kernel/kernel.go` + `drivers/llm/claude_cli.go` |
 | 文件系统与资源 | FR13-FR18 | `vfs/{vfs,proc,dev}.go` + `drivers/{fs,shell,llm}/` |
 | 上下文管理 | FR19-FR22 | `context/context.go` |
-| Skill 管理 | FR23-FR27 | `skills/{loader,types}.go` + `lib/skills/code-analyst/` |
+| Agent 管理 | FR23-FR25 | `agents/{types,loader}.go` + `lib/agents/code-analyst/` |
+| Skill 管理 | FR25a-FR27 | `skills/{loader,types}.go` + `lib/skills/code-analysis/` |
 | 调试与可观测 | FR28-FR32 | `debug/{astrace,event}.go` |
 | CLI | FR33-FR37 | `cmd/crux/main.go` + `internal/ui/*` |
 | 文档 | FR38-FR40 | `README.md` |
@@ -1104,17 +1222,18 @@ cmd/ → debug/（仅依赖 internal/types/）
 
 ### 架构完成度 Checklist
 
-- [x] 项目上下文深度分析（40 FR + 20 NFR + UX 含义 + 约束）
+- [x] 项目上下文深度分析（42 FR + 20 NFR + UX 含义 + 约束）
 - [x] 技术栈全栈确定（Go 1.26 + Cobra + Lipgloss + testify）
-- [x] 核心架构决策（6 大类：ABI/进程/VFS/CLI集成/调试/错误处理）
+- [x] 核心架构决策（7 大类：ABI/进程/VFS/CLI集成/调试/错误处理/Agent抽象层）
 - [x] 泛型策略（6 个场景 + 核心类型定义）
 - [x] 实现模式与一致性规则（命名/结构/格式/通信/过程/泛型 6 大类）
-- [x] 项目结构完整定义（含测试文件和 fixture）
-- [x] 架构边界清晰（6 组边界 + 依赖方向）
+- [x] 项目结构完整定义（含 agents/ 包、SKILL.md 格式、测试文件和 fixture）
+- [x] 架构边界清晰（8 组边界 + 依赖方向）
 - [x] 需求全覆盖映射（FR→文件 + NFR→架构 + 跨切关注点）
-- [x] 数据流定义（端到端 + astrace）
+- [x] 数据流定义（端到端含 Agent/Skill 加载 + astrace）
 - [x] 验证通过（一致性 ✅ + 覆盖 ✅ + 就绪度 ✅）
 - [x] Gap 已修正（泛型包位置 + /dev/fs 驱动 + 共享类型位置）
+- [x] Agent/Skill 分层对齐（Agent Skills 行业标准兼容 + MCP Phase 2 兼容）
 
 ### 就绪度评估
 
@@ -1128,6 +1247,7 @@ cmd/ → debug/（仅依赖 internal/types/）
 3. 泛型工具减少样板代码，提高类型安全
 4. SyscallEvent + DebugChan 贯穿式调试数据流
 5. 单向依赖 + 依赖注入模式，零循环依赖
+6. Agent/Skill 分层清晰——Agent 定义"我是谁"，Skill 定义"如何做 X"，Skill 遵循行业标准可跨平台复用
 
 **实现优先级：**
 
@@ -1136,8 +1256,8 @@ cmd/ → debug/（仅依赖 internal/types/）
 2. internal/types/ + internal/xsync/ 基础类型和泛型工具
 3. kernel/ 核心（Process 状态机 + Spawn + reasonStep 骨架）
 4. vfs/ + drivers/ 框架（VFS 接口 + DeviceRegistry + 驱动注册）
-5. context/ + skills/ 加载器
-6. 端到端集成（crux "分析代码" 跑通）
+5. context/ + skills/（SKILL.md 解析 + 渐进式加载）+ agents/（agent.yaml + instructions.md + Skill 引用解析 + tools 聚合）
+6. 端到端集成（crux "分析代码" --agent=code-analyst 跑通）
 7. debug/astrace
 8. internal/ui/ + CLI 完善
 ```
