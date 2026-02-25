@@ -1,6 +1,6 @@
 # Story 3.1: SyscallEvent 记录基础设施
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -27,42 +27,42 @@ So that astrace 可以消费完整的调用链路数据。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 debug/event.go — 事件记录辅助函数 (AC: #1, #10, #11)
-  - [ ] 1.1 实现 `EmitEvent(ch chan types.SyscallEvent, event types.SyscallEvent)` — nil 检查 + 非阻塞写入
-  - [ ] 1.2 实现 `NewEvent(pid types.PID, createdAt time.Time, syscall string, args map[string]any) types.SyscallEvent` — 构造辅助函数
-  - [ ] 1.3 实现 `CompleteEvent(event *types.SyscallEvent, result any, err error)` — 出口处填充 Result/Err/Duration
+- [x] Task 1: 创建 debug/event.go — 事件记录辅助函数 (AC: #1, #10, #11)
+  - [x] 1.1 实现 `EmitEvent(ch chan types.SyscallEvent, event types.SyscallEvent)` — nil 检查 + 非阻塞写入
+  - [x] 1.2 实现 `NewEvent(pid types.PID, createdAt time.Time, syscall string, args map[string]any) types.SyscallEvent` — 构造辅助函数
+  - [x] 1.3 实现 `CompleteEvent(event *types.SyscallEvent, result any, err error)` — 出口处填充 Result/Err/Duration
 
-- [ ] Task 2: 创建 debug/event_test.go — 事件记录测试 (AC: #10, #11, #12)
-  - [ ] 2.1 TestEmitEvent_NilChannel — nil channel 不 panic
-  - [ ] 2.2 TestEmitEvent_Success — 正常写入
-  - [ ] 2.3 TestEmitEvent_BufferFull — 缓冲满时不阻塞
-  - [ ] 2.4 TestNewEvent_Fields — 字段正确填充
-  - [ ] 2.5 TestCompleteEvent_FillsFields — 补充 Result/Err/Duration
-  - [ ] 2.6 Test 并发安全 — 多 goroutine 并发写入 DebugChan 无竞态
+- [x] Task 2: 创建 debug/event_test.go — 事件记录测试 (AC: #10, #11, #12)
+  - [x] 2.1 TestEmitEvent_NilChannel — nil channel 不 panic
+  - [x] 2.2 TestEmitEvent_Success — 正常写入
+  - [x] 2.3 TestEmitEvent_BufferFull — 缓冲满时不阻塞
+  - [x] 2.4 TestNewEvent_Fields — 字段正确填充
+  - [x] 2.5 TestCompleteEvent_FillsFields — 补充 Result/Err/Duration
+  - [x] 2.6 Test 并发安全 — 多 goroutine 并发写入 DebugChan 无竞态
 
-- [ ] Task 3: 在 kernel 层为 VFS 操作添加事件记录 (AC: #2-#6)
-  - [ ] 3.1 在 kernel.go 中 `k.vfs.Open()` 调用处包装事件记录
-  - [ ] 3.2 在 kernel.go 中 `k.vfs.Read()` 调用处包装事件记录
-  - [ ] 3.3 在 kernel.go 中 `k.vfs.Write()` 调用处包装事件记录
-  - [ ] 3.4 在 kernel.go 中 `k.vfs.Close()` 调用处包装事件记录
-  - [ ] 3.5 在 kernel.go 中 `k.vfs.Stat()` 调用处（如存在）包装事件记录
+- [x] Task 3: 在 kernel 层为 VFS 操作添加事件记录 (AC: #2-#6)
+  - [x] 3.1 在 kernel.go 中 `k.vfs.Open()` 调用处包装事件记录
+  - [x] 3.2 在 kernel.go 中 `k.vfs.Read()` 调用处包装事件记录
+  - [x] 3.3 在 kernel.go 中 `k.vfs.Write()` 调用处包装事件记录
+  - [x] 3.4 在 kernel.go 中 `k.vfs.Close()` 调用处包装事件记录
+  - [x] 3.5 在 kernel.go 中 `k.vfs.Stat()` 调用处（如存在）包装事件记录
 
-- [ ] Task 4: 在 kernel 层为 Context 操作添加事件记录 (AC: #7-#9)
-  - [ ] 4.1 在 kernel.go 中 `k.ctxMgr.CtxAlloc()` 调用处包装事件记录
-  - [ ] 4.2 在 kernel.go 中 `k.ctxMgr.BuildPrompt()` 调用处包装事件记录（作为 CtxRead 事件）
-  - [ ] 4.3 在 kernel.go 中 `k.ctxMgr.AppendMessage()` / `AppendToolResult()` 调用处包装事件记录（作为 CtxWrite 事件）
-  - [ ] 4.4 在 kernel.go 中 `k.ctxMgr.SetSystemPrompt()` 调用处包装事件记录（作为 CtxWrite 事件）
+- [x] Task 4: 在 kernel 层为 Context 操作添加事件记录 (AC: #7-#9)
+  - [x] 4.1 在 kernel.go 中 `k.ctxMgr.CtxAlloc()` 调用处包装事件记录
+  - [x] 4.2 在 kernel.go 中 `k.ctxMgr.BuildPrompt()` 调用处包装事件记录（作为 CtxRead 事件）
+  - [x] 4.3 在 kernel.go 中 `k.ctxMgr.AppendMessage()` / `AppendToolResult()` 调用处包装事件记录（作为 CtxWrite 事件）
+  - [x] 4.4 在 kernel.go 中 `k.ctxMgr.SetSystemPrompt()` 调用处包装事件记录（作为 CtxWrite 事件）
 
-- [ ] Task 5: 重构 emitEvent — 迁移到 debug 包 (AC: #1)
-  - [ ] 5.1 将 `KernelImpl.emitEvent()` 逻辑迁移为调用 `debug.EmitEvent()`
-  - [ ] 5.2 保持 KernelImpl.emitEvent 作为便捷包装（自动填充 proc 信息），内部调用 debug 包
+- [x] Task 5: 重构 emitEvent — 迁移到 debug 包 (AC: #1)
+  - [x] 5.1 将 `KernelImpl.emitEvent()` 逻辑迁移为调用 `debug.EmitEvent()`
+  - [x] 5.2 保持 KernelImpl.emitEvent 作为便捷包装（自动填充 proc 信息），内部调用 debug 包
 
-- [ ] Task 6: 测试验证 (AC: #12)
-  - [ ] 6.1 更新 kernel_test.go — 验证新增的 VFS 和 Context 事件
-  - [ ] 6.2 `go test -race ./debug/...` 通过
-  - [ ] 6.3 `go test -race ./kernel/...` 通过
-  - [ ] 6.4 `go test -race ./...` 全量通过
-  - [ ] 6.5 `go vet ./...` 无警告
+- [x] Task 6: 测试验证 (AC: #12)
+  - [x] 6.1 更新 kernel_test.go — 验证新增的 VFS 和 Context 事件
+  - [x] 6.2 `go test -race ./debug/...` 通过
+  - [x] 6.3 `go test -race ./kernel/...` 通过
+  - [x] 6.4 `go test -race ./...` 全量通过
+  - [x] 6.5 `go vet ./...` 无警告
 
 ## Dev Notes
 
@@ -299,10 +299,27 @@ debug/.gitkeep          — 被实际文件替代
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- Task 1: 创建 `debug/event.go`，实现 `EmitEvent`（nil 检查 + 非阻塞 select/default）、`NewEvent`（构造辅助函数，填充 Timestamp/PID/Syscall/Args）、`CompleteEvent`（填充 Result/Err/Duration）
+- Task 2: 创建 `debug/event_test.go`，6 个测试覆盖 nil channel、正常写入、缓冲满不阻塞、字段验证、CompleteEvent 填充、100 goroutine 并发安全
+- Task 3: 在 `kernel/kernel.go` 中为所有 VFS 操作（Open×2、Write×2、Read×2、Close×1）添加 `emitEvent` 调用，每个调用记录 start time 和 duration。Stat 不存在调用故跳过
+- Task 4: 在 `kernel/kernel.go` 中为所有 Context 操作添加事件记录：CtxAlloc、SetSystemPrompt（CtxWrite）、AppendMessage（CtxWrite）×3、BuildPrompt（CtxRead）、AppendToolResult（CtxWrite）×2
+- Task 5: 重构 `KernelImpl.emitEvent()`，内部调用 `debug.NewEvent` + `debug.CompleteEvent` + `debug.EmitEvent`，保持便捷包装接口不变
+- Task 6: 新增 4 个 kernel 测试（TestSpawn_VFSEvents_OpenWriteRead、TestSpawn_ContextEvents_CtxAllocCtxWriteCtxRead、TestToolCall_VFSAndContextEvents、TestNilDebugChan_ZeroOverhead），全量 `go test -race ./...` 和 `go vet ./...` 通过
+
+### Change Log
+
+- 2026-02-25: Story 3.1 实现完成 — SyscallEvent 记录基础设施
+
 ### File List
+
+- debug/event.go (新建)
+- debug/event_test.go (新建)
+- kernel/kernel.go (修改)
+- kernel/kernel_test.go (修改)
+- debug/.gitkeep (待删除)
