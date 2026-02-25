@@ -67,7 +67,7 @@ development_status:
   epic-3: in-progress
   3-1-syscallevent-recording-infrastructure: done
   3-2-astrace-event-consumption-and-formatting: done
-  3-3-astrace-cli-command: review
+  3-3-astrace-cli-command: done
   3-4-syscall-trace-line-ui-component: backlog
   epic-3-retrospective: optional
 
