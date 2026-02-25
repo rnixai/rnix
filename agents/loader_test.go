@@ -246,3 +246,16 @@ func TestAgentLoader_Load_RealCodeAnalyst(t *testing.T) {
 		t.Error("SystemPrompt missing 'Code Analysis' from skill body")
 	}
 }
+
+func TestAgentLoader_Load_PathTraversal(t *testing.T) {
+	sl := skills.NewSkillLoader("../skills/testdata")
+	al := NewAgentLoader("testdata", sl)
+
+	_, err := al.Load("../../../etc")
+	if err == nil {
+		t.Fatal("expected error for path traversal, got nil")
+	}
+	if !strings.Contains(err.Error(), "path escapes") {
+		t.Errorf("error = %q, want substring 'path escapes'", err.Error())
+	}
+}

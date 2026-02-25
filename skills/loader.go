@@ -19,8 +19,9 @@ func NewSkillLoader(basePath string) *SkillLoader {
 	return &SkillLoader{basePath: basePath}
 }
 
-// parseSKILLMD parses a SKILL.md file content, extracting YAML frontmatter and Markdown body.
-func parseSKILLMD(content string) (frontmatter string, body string, err error) {
+// parseSKILLMD parses a SKILL.md file content, extracting YAML frontmatter and optionally the Markdown body.
+// When extractBody is false, body string construction is skipped (used by LoadMetadata for efficiency).
+func parseSKILLMD(content string, extractBody bool) (frontmatter string, body string, err error) {
 	const sep = "---"
 	lines := strings.Split(content, "\n")
 
@@ -40,13 +41,29 @@ func parseSKILLMD(content string) (frontmatter string, body string, err error) {
 	}
 
 	frontmatter = strings.Join(lines[1:endIdx], "\n")
-	body = strings.TrimSpace(strings.Join(lines[endIdx+1:], "\n"))
+	if extractBody {
+		body = strings.TrimSpace(strings.Join(lines[endIdx+1:], "\n"))
+	}
 	return frontmatter, body, nil
 }
 
-// loadAndParse reads a SKILL.md file from disk and parses its frontmatter.
-func (l *SkillLoader) loadAndParse(skillName string) (*SkillManifest, string, error) {
+// loadAndParse reads a SKILL.md file from disk, validates the path, and parses its frontmatter.
+// When fullLoad is true, the Markdown body is also extracted.
+func (l *SkillLoader) loadAndParse(skillName string, fullLoad bool) (*SkillManifest, string, error) {
 	dir := filepath.Join(l.basePath, skillName)
+
+	// Path containment check: prevent directory traversal
+	absBase, err := filepath.Abs(l.basePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve base path: %w", err)
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve skill path: %w", err)
+	}
+	if !strings.HasPrefix(absDir, absBase+string(filepath.Separator)) {
+		return nil, "", fmt.Errorf("invalid skill name %q: path escapes base directory", skillName)
+	}
 
 	fi, err := os.Stat(dir)
 	if err != nil {
@@ -65,7 +82,7 @@ func (l *SkillLoader) loadAndParse(skillName string) (*SkillManifest, string, er
 		return nil, "", fmt.Errorf("read SKILL.md for skill %q: %w", skillName, err)
 	}
 
-	fm, body, err := parseSKILLMD(string(data))
+	fm, body, err := parseSKILLMD(string(data), fullLoad)
 	if err != nil {
 		return nil, "", fmt.Errorf("parse SKILL.md for skill %q: %w", skillName, err)
 	}
@@ -84,7 +101,7 @@ func (l *SkillLoader) loadAndParse(skillName string) (*SkillManifest, string, er
 
 // LoadMetadata reads only the YAML frontmatter of a SKILL.md file.
 func (l *SkillLoader) LoadMetadata(skillName string) (*SkillInfo, error) {
-	manifest, _, err := l.loadAndParse(skillName)
+	manifest, _, err := l.loadAndParse(skillName, false)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +110,7 @@ func (l *SkillLoader) LoadMetadata(skillName string) (*SkillInfo, error) {
 
 // LoadFull reads the complete SKILL.md file (frontmatter + body).
 func (l *SkillLoader) LoadFull(skillName string) (*SkillInfo, error) {
-	manifest, body, err := l.loadAndParse(skillName)
+	manifest, body, err := l.loadAndParse(skillName, true)
 	if err != nil {
 		return nil, err
 	}

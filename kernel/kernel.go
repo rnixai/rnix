@@ -168,6 +168,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	if agent != nil {
 		spawnArgs["agent"] = agent.Manifest.Name
 		spawnArgs["skills"] = skillNames
+		spawnArgs["allowed_devices"] = proc.AllowedDevices
 	}
 	k.emitEvent(proc, "Spawn", spawnArgs, proc.PID, nil, time.Since(start))
 

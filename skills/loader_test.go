@@ -9,7 +9,7 @@ import (
 
 func TestParseSKILLMD_Valid(t *testing.T) {
 	content := "---\nname: test\n---\n\n# Body\n\nSome content."
-	fm, body, err := parseSKILLMD(content)
+	fm, body, err := parseSKILLMD(content, true)
 	if err != nil {
 		t.Fatalf("parseSKILLMD returned error: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestParseSKILLMD_Valid(t *testing.T) {
 }
 
 func TestParseSKILLMD_MissingOpeningSep(t *testing.T) {
-	_, _, err := parseSKILLMD("name: test\n---\nbody")
+	_, _, err := parseSKILLMD("name: test\n---\nbody", true)
 	if err == nil {
 		t.Fatal("expected error for missing opening ---")
 	}
@@ -32,7 +32,7 @@ func TestParseSKILLMD_MissingOpeningSep(t *testing.T) {
 }
 
 func TestParseSKILLMD_MissingClosingSep(t *testing.T) {
-	_, _, err := parseSKILLMD("---\nname: test\nbody without closing")
+	_, _, err := parseSKILLMD("---\nname: test\nbody without closing", true)
 	if err == nil {
 		t.Fatal("expected error for missing closing ---")
 	}
@@ -204,5 +204,41 @@ func TestSkillLoader_LoadFull_Metadata(t *testing.T) {
 	}
 	if info.Manifest.Metadata["version"] != "1.0" {
 		t.Errorf("Metadata[version] = %q, want %q", info.Manifest.Metadata["version"], "1.0")
+	}
+}
+
+func TestParseSKILLMD_MetadataOnly(t *testing.T) {
+	content := "---\nname: test\n---\n\n# Body\n\nSome content."
+	fm, body, err := parseSKILLMD(content, false)
+	if err != nil {
+		t.Fatalf("parseSKILLMD returned error: %v", err)
+	}
+	if !strings.Contains(fm, "name: test") {
+		t.Errorf("frontmatter = %q, want to contain 'name: test'", fm)
+	}
+	if body != "" {
+		t.Errorf("body should be empty for metadata-only mode, got: %q", body)
+	}
+}
+
+func TestSkillLoader_LoadFull_PathTraversal(t *testing.T) {
+	loader := NewSkillLoader("testdata")
+	_, err := loader.LoadFull("../../../etc")
+	if err == nil {
+		t.Fatal("expected error for path traversal, got nil")
+	}
+	if !strings.Contains(err.Error(), "path escapes") {
+		t.Errorf("error = %q, want substring 'path escapes'", err.Error())
+	}
+}
+
+func TestSkillLoader_LoadMetadata_PathTraversal(t *testing.T) {
+	loader := NewSkillLoader("testdata")
+	_, err := loader.LoadMetadata("../../../etc")
+	if err == nil {
+		t.Fatal("expected error for path traversal, got nil")
+	}
+	if !strings.Contains(err.Error(), "path escapes") {
+		t.Errorf("error = %q, want substring 'path escapes'", err.Error())
 	}
 }
