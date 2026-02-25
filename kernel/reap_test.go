@@ -24,6 +24,10 @@ func TestWait_NormalCompletion(t *testing.T) {
 		t.Fatalf("Spawn failed: %v", err)
 	}
 
+	// Save ctxID before Wait removes process from table
+	proc, _ := k.GetProcess(pid)
+	ctxID := proc.CtxID
+
 	// Wait should block until completion and return ExitStatus
 	exit, err := k.Wait(pid)
 	if err != nil {
@@ -40,12 +44,10 @@ func TestWait_NormalCompletion(t *testing.T) {
 	}
 
 	// Verify context was freed
-	_, ctxErr := ctxMgr.BuildPrompt(types.CtxID(1))
+	_, ctxErr := ctxMgr.BuildPrompt(ctxID)
 	if ctxErr == nil {
-		// Context should have been freed — we check that BuildPrompt fails
-		// But CtxID could be any value, so check the specific one
+		t.Error("context should be freed after Wait")
 	}
-	// More reliable: the process was fully cleaned up since it's not in the table
 }
 
 func TestWait_KillThenWait(t *testing.T) {
@@ -164,11 +166,16 @@ func TestWait_ResourceRelease(t *testing.T) {
 
 	// 4. DebugChan closed — drain buffered events then verify closed
 	for {
-		_, open := <-debugCh
-		if !open {
-			break // channel closed
+		select {
+		case _, open := <-debugCh:
+			if !open {
+				goto debugChClosed
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out draining DebugChan — channel may not be closed")
 		}
 	}
+debugChClosed:
 }
 
 func TestWait_ConcurrentSafe(t *testing.T) {
@@ -217,7 +224,7 @@ func TestWait_ConcurrentSafe(t *testing.T) {
 }
 
 func TestWait_SyscallEvent(t *testing.T) {
-	// Verify Wait emits SyscallEvents — the entry event must be written before close(DebugChan)
+	// Verify Wait emits SyscallEvents — entry + exit events before close(DebugChan)
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("event wait", 1),
 	}
@@ -228,6 +235,9 @@ func TestWait_SyscallEvent(t *testing.T) {
 		t.Fatalf("Spawn failed: %v", err)
 	}
 
+	proc, _ := k.GetProcess(pid)
+	debugCh := proc.DebugChan // save ref before Wait nils it
+
 	// Wait (this also closes DebugChan)
 	exit, err := k.Wait(pid)
 	if err != nil {
@@ -237,8 +247,36 @@ func TestWait_SyscallEvent(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d", exit.Code)
 	}
 
-	// DebugChan is closed after Wait, but events were emitted before close.
-	// We cannot drain from closed channel without getting zero values.
-	// The fact that Wait completed without panic confirms events were written before close.
-	// This test verifies the ordering: emitEvent → close(DebugChan) does not panic.
+	// Drain closed DebugChan — buffered events are still readable
+	var waitEvents []types.SyscallEvent
+	for {
+		select {
+		case ev, open := <-debugCh:
+			if !open {
+				goto drained
+			}
+			if ev.Syscall == "Wait" {
+				waitEvents = append(waitEvents, ev)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out draining DebugChan")
+		}
+	}
+drained:
+
+	if len(waitEvents) < 2 {
+		t.Fatalf("expected at least 2 Wait events (entry + exit), got %d", len(waitEvents))
+	}
+
+	// Verify entry event
+	entryArgs := waitEvents[0].Args
+	if entryArgs["pid"] != pid {
+		t.Errorf("entry event pid: got %v, want %d", entryArgs["pid"], pid)
+	}
+
+	// Verify exit event has "completed" action
+	exitArgs := waitEvents[len(waitEvents)-1].Args
+	if exitArgs["action"] != "completed" {
+		t.Errorf("exit event action: got %v, want %q", exitArgs["action"], "completed")
+	}
 }

@@ -234,17 +234,16 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 // emitEvent sends a SyscallEvent to the process DebugChan (non-blocking).
 // This is a convenience wrapper that auto-fills process info (PID, Timestamp)
 // and delegates to debug.EmitEvent for the actual non-blocking write.
-// Holds proc.mu during the send to prevent races with Wait's close(DebugChan).
+// Holds proc.mu only during channel access to prevent races with Wait's close(DebugChan).
 func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]any, result any, err error, duration time.Duration) {
-	proc.mu.Lock()
-	ch := proc.DebugChan
-	if ch == nil {
-		proc.mu.Unlock()
-		return
-	}
 	event := debug.NewEvent(proc.PID, proc.CreatedAt, syscall, args)
 	debug.CompleteEvent(&event, result, err, duration)
-	debug.EmitEvent(ch, event)
+
+	proc.mu.Lock()
+	ch := proc.DebugChan
+	if ch != nil {
+		debug.EmitEvent(ch, event)
+	}
 	proc.mu.Unlock()
 }
 
