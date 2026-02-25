@@ -1061,3 +1061,26 @@ func TestAstraceCmd_VerboseOutput(t *testing.T) {
 		t.Errorf("expected PID in event output, got %q", output)
 	}
 }
+
+func TestAstraceCmd_MissingPID(t *testing.T) {
+	// AC #8: crux astrace without PID argument should show usage help.
+	var buf bytes.Buffer
+	cmd := &cobra.Command{
+		Use:  "astrace <pid>",
+		Args: cobra.ExactArgs(1),
+		RunE: runAstrace,
+	}
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for missing PID argument")
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "Usage") {
+		t.Errorf("expected usage help in output, got %q", output)
+	}
+}

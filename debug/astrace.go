@@ -212,6 +212,10 @@ func FormatEventJSON(event types.SyscallEvent) string {
 			je.Result = fmt.Sprintf("%v", event.Result)
 		}
 	}
-	data, _ := json.Marshal(je)
+	data, err := json.Marshal(je)
+	if err != nil {
+		// Fallback: return minimal valid JSON with error info.
+		return fmt.Sprintf(`{"syscall":%q,"error":"json marshal failed: %s"}`, event.Syscall, err)
+	}
 	return string(data)
 }

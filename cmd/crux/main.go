@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -315,6 +316,11 @@ func outputError(renderer *ui.Renderer, mode ui.OutputMode, device string, reaso
 	ui.RenderError(renderer, device, reason, impact, suggestion)
 }
 
+// initKernel initializes a kernel instance for subcommands (e.g., astrace).
+// TODO: astrace needs IPC to attach to a running crux instance's process table.
+// Currently creates a standalone kernel, which means astrace only works within
+// the same process (test injection). Device drivers registered here are unused
+// by astrace but required by the kernel constructor.
 func initKernel() {
 	if kern != nil {
 		return
@@ -407,7 +413,7 @@ func runAstrace(cmd *cobra.Command, args []string) error {
 	if !flagJSON {
 		if err == nil {
 			fmt.Fprintf(w, "[astrace] detached from PID %d (process exited)\n", pid)
-		} else if err == context.Canceled {
+		} else if errors.Is(err, context.Canceled) {
 			fmt.Fprintf(w, "\n[astrace] detached from PID %d (interrupted)\n", pid)
 		} else {
 			fmt.Fprintf(w, "[astrace] detached from PID %d (error: %v)\n", pid, err)
