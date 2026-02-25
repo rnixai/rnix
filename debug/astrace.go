@@ -2,6 +2,7 @@ package debug
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -27,6 +28,9 @@ type Options struct {
 
 	// Verbose disables argument truncation (default: truncate at 50 chars).
 	Verbose bool
+
+	// JSON enables JSON output mode (one JSON object per line).
+	JSON bool
 }
 
 // DefaultOptions returns Options with sensible defaults:
@@ -52,7 +56,12 @@ func Attach(ctx context.Context, ch <-chan types.SyscallEvent, w io.Writer, opts
 			if !ok {
 				return nil // process done, channel closed
 			}
-			line := FormatEvent(event, opts)
+			var line string
+			if opts.JSON {
+				line = FormatEventJSON(event)
+			} else {
+				line = FormatEvent(event, opts)
+			}
 			if _, err := fmt.Fprintln(w, line); err != nil {
 				return err
 			}
@@ -170,4 +179,39 @@ func isLLMSyscall(args map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// jsonEvent is the JSON representation of a SyscallEvent.
+type jsonEvent struct {
+	TimestampMs int64          `json:"timestamp_ms"`
+	PID         types.PID      `json:"pid"`
+	Syscall     string         `json:"syscall"`
+	Args        map[string]any `json:"args"`
+	Result      any            `json:"result"`
+	Error       string         `json:"error"`
+	DurationMs  int64          `json:"duration_ms"`
+}
+
+// FormatEventJSON formats a SyscallEvent as a single-line JSON string.
+func FormatEventJSON(event types.SyscallEvent) string {
+	je := jsonEvent{
+		TimestampMs: event.Timestamp.Milliseconds(),
+		PID:         event.PID,
+		Syscall:     event.Syscall,
+		Args:        event.Args,
+		Result:      event.Result,
+		Error:       "",
+		DurationMs:  event.Duration.Milliseconds(),
+	}
+	if event.Err != nil {
+		je.Error = event.Err.Error()
+	}
+	// Result needs special handling: error type cannot be JSON-serialized.
+	if event.Result != nil {
+		if _, ok := event.Result.(error); ok {
+			je.Result = fmt.Sprintf("%v", event.Result)
+		}
+	}
+	data, _ := json.Marshal(je)
+	return string(data)
 }

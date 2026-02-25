@@ -1,17 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gonewx/crux/agents"
 	cruxctx "github.com/gonewx/crux/context"
+	"github.com/gonewx/crux/debug"
 	"github.com/gonewx/crux/drivers/fs"
 	"github.com/gonewx/crux/drivers/llm"
 	"github.com/gonewx/crux/drivers/shell"
@@ -37,6 +40,9 @@ var (
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
 var exitCode int
+
+// kern is the global kernel instance, initialized by runRoot or runAstrace.
+var kern *kernel.KernelImpl
 
 // forceExitFunc is called on double-SIGINT for force exit. Package-level variable for test injection.
 var forceExitFunc = os.Exit
@@ -116,6 +122,17 @@ var versionCmd = &cobra.Command{
 	Run:   runVersion,
 }
 
+var astraceCmd = &cobra.Command{
+	Use:   "astrace <pid>",
+	Short: "Trace syscalls of an agent process in real-time",
+	Long:  "Attach to a running agent process and stream its syscall events in real-time.\n\nPress Ctrl+C to detach without affecting the traced process.",
+	Example: `  crux astrace 1              Trace PID 1 (default mode)
+  crux astrace 1 --verbose    Show full syscall details
+  crux astrace 1 --json       Output as JSON stream`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAstrace,
+}
+
 func runVersion(cmd *cobra.Command, args []string) {
 	w := cmd.OutOrStdout()
 
@@ -153,6 +170,7 @@ func init() {
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(astraceCmd)
 }
 
 func resolveOutputMode() ui.OutputMode {
@@ -193,7 +211,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	ctxMgr := cruxctx.NewManager()
 	skillLoader := skills.NewSkillLoader("lib/skills")
 	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader)
-	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+	kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	start := time.Now()
 
@@ -295,6 +313,108 @@ func outputError(renderer *ui.Renderer, mode ui.OutputMode, device string, reaso
 	}
 
 	ui.RenderError(renderer, device, reason, impact, suggestion)
+}
+
+func initKernel() {
+	if kern != nil {
+		return
+	}
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	claudeDriver := llm.NewClaudeCliDriver()
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(claudeDriver, "/dev/llm/claude"))
+	_ = devReg.Register("/dev/fs", fs.FileFactory())
+	shellDriver := shell.NewDriver()
+	_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))
+	ctxMgr := cruxctx.NewManager()
+
+	mode := resolveOutputMode()
+	renderer := ui.NewRenderer(os.Stdout, mode)
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	cb := &cliCallbacks{progress: progress}
+
+	kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
+}
+
+var processStateNames = map[types.ProcessState]string{
+	types.StateCreated: "created",
+	types.StateRunning: "running",
+	types.StateZombie:  "zombie",
+	types.StateDead:    "dead",
+}
+
+func processStateName(s types.ProcessState) string {
+	if name, ok := processStateNames[s]; ok {
+		return name
+	}
+	return fmt.Sprintf("unknown(%d)", s)
+}
+
+func runAstrace(cmd *cobra.Command, args []string) error {
+	// 1. Parse PID
+	pidNum, err := strconv.Atoi(args[0])
+	if err != nil {
+		return fmt.Errorf("✗ crux astrace %s: invalid PID (expected number)", args[0])
+	}
+	pid := types.PID(pidNum)
+
+	// 2. Initialize kernel if needed
+	initKernel()
+
+	// 3. Find process
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		w := cmd.OutOrStdout()
+		mode := resolveOutputMode()
+		renderer := ui.NewRenderer(w, mode)
+		ui.InitStyles(renderer.Profile)
+		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
+			"process not found", "",
+			"crux ps  查看活跃进程")
+		return nil
+	}
+
+	// 4. Build Options
+	opts := debug.DefaultOptions()
+	opts.Verbose = flagVerbose
+	opts.JSON = flagJSON
+
+	// 5. Output attach confirmation (non-JSON mode)
+	w := cmd.OutOrStdout()
+	if !flagJSON {
+		state := proc.GetState()
+		fmt.Fprintf(w, "[astrace] attached to PID %d (state: %s)\n", pid, processStateName(state))
+	}
+
+	// 6. Set up astrace-specific context (SIGINT only detaches, never kills process)
+	astraceCtx, astraceCancel := context.WithCancel(cmd.Context())
+	defer astraceCancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	go func() {
+		<-sigCh
+		astraceCancel() // Only cancel astrace, do not affect traced process
+	}()
+
+	// 7. Execute Attach
+	err = debug.Attach(astraceCtx, proc.DebugChan, w, opts)
+
+	// 8. Output detach summary (non-JSON mode)
+	if !flagJSON {
+		if err == nil {
+			fmt.Fprintf(w, "[astrace] detached from PID %d (process exited)\n", pid)
+		} else if err == context.Canceled {
+			fmt.Fprintf(w, "\n[astrace] detached from PID %d (interrupted)\n", pid)
+		} else {
+			fmt.Fprintf(w, "[astrace] detached from PID %d (error: %v)\n", pid, err)
+		}
+	}
+
+	return nil
 }
 
 func main() {
