@@ -1,6 +1,6 @@
 # Story 3.1: SyscallEvent 记录基础设施
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
