@@ -20,54 +20,49 @@ func FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string
 	isErr := event.Err != nil
 	noColor := r.Profile.ColorLevel == 0
 
-	// Style components
+	// Error lines: use plain text components so ErrorStyle wraps the entire line
+	// uniformly in red (AC #2). Per-component styles (MutedStyle, AgentBoldStyle)
+	// produce ANSI resets that would break the outer ErrorStyle wrapper.
+	if isErr {
+		line := fmt.Sprintf("%s %s(%s) → %s    %s", ts, event.Syscall, args, result, dur)
+		// LLM annotation (plain text — no MutedStyle to avoid ANSI nesting)
+		if isLLMEvent(event.Args) {
+			line += "  ← LLM 调用"
+		}
+		if noColor {
+			return "[ERR] " + line
+		}
+		return ErrorStyle.Render(line)
+	}
+
+	// Non-error lines: style individual components
 	var styledTS, styledName string
 	if noColor {
 		styledTS = ts
 		styledName = event.Syscall
 	} else {
 		styledTS = MutedStyle.Render(ts)
-		styledName = AgentStyle.Bold(true).Render(event.Syscall)
+		styledName = AgentBoldStyle.Render(event.Syscall)
 	}
 
-	// Build base line: [timestamp] Syscall(args) → result    duration
 	line := fmt.Sprintf("%s %s(%s) → %s    %s", styledTS, styledName, args, result, dur)
 
-	// Error return value styling (only the result part, when not wrapping entire line)
-	if isErr && !noColor {
-		styledResult := ErrorStyle.Render(result)
-		line = fmt.Sprintf("%s %s(%s) → %s    %s", styledTS, styledName, args, styledResult, dur)
-	}
-
-	// Annotations
-	annotations := ""
-
-	// Slow operation (duration > 1s) — skip gray annotation on error lines
-	if event.Duration > time.Second && !isErr {
+	// Slow operation annotation (duration > 1s)
+	if event.Duration > time.Second {
 		if noColor {
-			annotations += "  ← 慢操作"
+			line += "  ← 慢操作"
 		} else {
-			annotations += "  " + MutedStyle.Render("← 慢操作")
+			line += "  " + MutedStyle.Render("← 慢操作")
 		}
 	}
 
 	// LLM syscall annotation
 	if isLLMEvent(event.Args) {
 		if noColor {
-			annotations += "  ← LLM 调用"
+			line += "  ← LLM 调用"
 		} else {
-			annotations += "  " + MutedStyle.Render("← LLM 调用")
+			line += "  " + MutedStyle.Render("← LLM 调用")
 		}
-	}
-
-	line += annotations
-
-	// Error highlighting — wraps entire line
-	if isErr {
-		if noColor {
-			return "[ERR] " + line
-		}
-		return ErrorStyle.Render(line)
 	}
 
 	return line

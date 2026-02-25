@@ -152,6 +152,52 @@ func TestFormatTraceLine_SlowOperation(t *testing.T) {
 	}
 }
 
+func TestFormatTraceLine_SlowAndLLM(t *testing.T) {
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	r := &Renderer{
+		Profile:    TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+		OutputMode: ModeDefault,
+	}
+
+	// Non-error, slow, LLM event: both annotations should appear
+	event := types.SyscallEvent{
+		Timestamp: 5 * time.Second,
+		PID:       1,
+		Syscall:   "Write",
+		Args:      map[string]any{"path": "/dev/llm/claude"},
+		Result:    1024,
+		Err:       nil,
+		Duration:  2 * time.Second,
+	}
+
+	got := FormatTraceLine(r, event, false)
+	if !strings.Contains(got, "← 慢操作") {
+		t.Errorf("expected slow annotation, got %q", got)
+	}
+	if !strings.Contains(got, "← LLM 调用") {
+		t.Errorf("expected LLM annotation, got %q", got)
+	}
+
+	// Error + slow + LLM: no slow annotation, but LLM annotation present
+	eventErr := types.SyscallEvent{
+		Timestamp: 5 * time.Second,
+		PID:       1,
+		Syscall:   "Write",
+		Args:      map[string]any{"path": "/dev/llm/claude"},
+		Result:    nil,
+		Err:       errors.New("timeout"),
+		Duration:  2 * time.Second,
+	}
+
+	gotErr := FormatTraceLine(r, eventErr, false)
+	if strings.Contains(gotErr, "← 慢操作") {
+		t.Errorf("error line should NOT have slow annotation, got %q", gotErr)
+	}
+	if !strings.Contains(gotErr, "← LLM 调用") {
+		t.Errorf("error line should still have LLM annotation, got %q", gotErr)
+	}
+}
+
 func TestFormatTraceLine_LLMAnnotation(t *testing.T) {
 	InitStyles(TerminalProfile{ColorLevel: 0})
 	r := &Renderer{
