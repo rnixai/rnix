@@ -64,8 +64,8 @@ development_status:
   epic-2-retrospective: done
 
   # Epic 3: 调试追踪（Debug Tracing — astrace）
-  epic-3: backlog
-  3-1-syscallevent-recording-infrastructure: backlog
+  epic-3: in-progress
+  3-1-syscallevent-recording-infrastructure: ready-for-dev
   3-2-astrace-event-consumption-and-formatting: backlog
   3-3-astrace-cli-command: backlog
   3-4-syscall-trace-line-ui-component: backlog
