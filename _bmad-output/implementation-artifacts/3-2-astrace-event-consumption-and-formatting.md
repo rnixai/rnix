@@ -1,6 +1,6 @@
 # Story 3.2: astrace 事件消费与格式化
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -38,35 +38,35 @@ So that 我能看到智能体的每一步操作及其结果。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 `debug/astrace.go` — 核心消费与格式化 (AC: #1-#11)
-  - [ ] 1.1 定义 `Options` 结构体 — `ColorEnabled bool`, `Verbose bool`
-  - [ ] 1.2 实现 `DefaultOptions() Options` — 自动检测 `NO_COLOR` 环境变量
-  - [ ] 1.3 实现 `Attach(ctx context.Context, ch <-chan types.SyscallEvent, w io.Writer, opts Options) error` — 主消费循环，select on ctx.Done() 和 ch
-  - [ ] 1.4 实现 `FormatEvent(event types.SyscallEvent, opts Options) string` — 导出的纯函数格式化器
-  - [ ] 1.5 实现 `formatTimestamp(ts time.Duration) string` — `[  0.012s]` 固定宽度格式
-  - [ ] 1.6 实现 `formatArgs(args map[string]any, verbose bool) string` — key=value 排序输出，支持截断
-  - [ ] 1.7 实现 `formatResult(result any, err error) string` — 成功返回 `%v`，错误返回 `err(%v)`
-  - [ ] 1.8 实现 `formatDuration(d time.Duration) string` — `µs`/`ms`/`s` 自适应单位
-  - [ ] 1.9 实现 `isLLMSyscall(args map[string]any) bool` — 检查 path/tool 参数是否包含 `/dev/llm/`
+- [x] Task 1: 创建 `debug/astrace.go` — 核心消费与格式化 (AC: #1-#11)
+  - [x] 1.1 定义 `Options` 结构体 — `ColorEnabled bool`, `Verbose bool`
+  - [x] 1.2 实现 `DefaultOptions() Options` — 自动检测 `NO_COLOR` 环境变量
+  - [x] 1.3 实现 `Attach(ctx context.Context, ch <-chan types.SyscallEvent, w io.Writer, opts Options) error` — 主消费循环，select on ctx.Done() 和 ch
+  - [x] 1.4 实现 `FormatEvent(event types.SyscallEvent, opts Options) string` — 导出的纯函数格式化器
+  - [x] 1.5 实现 `formatTimestamp(ts time.Duration) string` — `[  0.012s]` 固定宽度格式
+  - [x] 1.6 实现 `formatArgs(args map[string]any, verbose bool) string` — key=value 排序输出，支持截断
+  - [x] 1.7 实现 `formatResult(result any, err error) string` — 成功返回 `%v`，错误返回 `err(%v)`
+  - [x] 1.8 实现 `formatDuration(d time.Duration) string` — `µs`/`ms`/`s` 自适应单位
+  - [x] 1.9 实现 `isLLMSyscall(args map[string]any) bool` — 检查 path/tool 参数是否包含 `/dev/llm/`
 
-- [ ] Task 2: 创建 `debug/astrace_test.go` — 全面测试 (AC: #2-#12)
-  - [ ] 2.1 `TestFormatEvent_BasicFormat` — 验证完整格式字符串
-  - [ ] 2.2 `TestFormatEvent_SlowOp` — duration > 1s 时追加慢操作标注
-  - [ ] 2.3 `TestFormatEvent_Error_WithColor` — err 非 nil 时红色前缀（验证 ANSI 码存在）
-  - [ ] 2.4 `TestFormatEvent_Error_NoColor` — err 非 nil 且禁色时 `[ERR] ` 前缀
-  - [ ] 2.5 `TestFormatEvent_LLMAnnotation` — path 包含 `/dev/llm/` 时追加 LLM 标注
-  - [ ] 2.6 `TestFormatEvent_SlowAndError` — 慢操作 + 错误同时满足时同时显示
-  - [ ] 2.7 `TestFormatArgs_Truncation` — 值超 50 字符时截断为 47 + `...`
-  - [ ] 2.8 `TestFormatArgs_Verbose_NoTruncation` — verbose=true 时不截断
-  - [ ] 2.9 `TestFormatArgs_SortedKeys` — 参数按字母排序（保证输出确定性）
-  - [ ] 2.10 `TestAttach_ConsumesEvents` — 发送若干事件，验证全部写入 writer
-  - [ ] 2.11 `TestAttach_ContextCancellation` — ctx 取消时立即返回 `ctx.Err()`
-  - [ ] 2.12 `TestAttach_ChannelClose` — channel 关闭时返回 `nil`
-  - [ ] 2.13 `TestAttach_Latency` — 从写入 channel 到 writer 收到输出的延迟 ≤ 10ms（远低于 NFR3 的 500ms，确保充裕余量）
-  - [ ] 2.14 `TestDefaultOptions_NoColor` — `NO_COLOR` 环境变量设置时 `ColorEnabled=false`
+- [x] Task 2: 创建 `debug/astrace_test.go` — 全面测试 (AC: #2-#12)
+  - [x] 2.1 `TestFormatEvent_BasicFormat` — 验证完整格式字符串
+  - [x] 2.2 `TestFormatEvent_SlowOp` — duration > 1s 时追加慢操作标注
+  - [x] 2.3 `TestFormatEvent_Error_WithColor` — err 非 nil 时红色前缀（验证 ANSI 码存在）
+  - [x] 2.4 `TestFormatEvent_Error_NoColor` — err 非 nil 且禁色时 `[ERR] ` 前缀
+  - [x] 2.5 `TestFormatEvent_LLMAnnotation` — path 包含 `/dev/llm/` 时追加 LLM 标注
+  - [x] 2.6 `TestFormatEvent_SlowAndError` — 慢操作 + 错误同时满足时同时显示
+  - [x] 2.7 `TestFormatArgs_Truncation` — 值超 50 字符时截断为 47 + `...`
+  - [x] 2.8 `TestFormatArgs_Verbose_NoTruncation` — verbose=true 时不截断
+  - [x] 2.9 `TestFormatArgs_SortedKeys` — 参数按字母排序（保证输出确定性）
+  - [x] 2.10 `TestAttach_ConsumesEvents` — 发送若干事件，验证全部写入 writer
+  - [x] 2.11 `TestAttach_ContextCancellation` — ctx 取消时立即返回 `ctx.Err()`
+  - [x] 2.12 `TestAttach_ChannelClose` — channel 关闭时返回 `nil`
+  - [x] 2.13 `TestAttach_Latency` — 从写入 channel 到 writer 收到输出的延迟 ≤ 10ms（远低于 NFR3 的 500ms，确保充裕余量）
+  - [x] 2.14 `TestDefaultOptions_NoColor` — `NO_COLOR` 环境变量设置时 `ColorEnabled=false`
 
-- [ ] Task 3: 更新 sprint-status.yaml (AC: #12)
-  - [ ] 3.1 将 `3-2-astrace-event-consumption-and-formatting` 状态从 `backlog` 更新为 `ready-for-dev`
+- [x] Task 3: 更新 sprint-status.yaml (AC: #12)
+  - [x] 3.1 将 `3-2-astrace-event-consumption-and-formatting` 状态从 `backlog` 更新为 `ready-for-dev`
 
 ## Dev Notes
 
@@ -400,10 +400,25 @@ kernel/kernel.go          — Story 3.1 已完成事件埋点，不修改
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Sonnet 4.6 (claude-sonnet-4-6)
 
 ### Debug Log References
 
+- 初始实现中 TestFormatArgs_Truncation 和 TestFormatArgs_Verbose_NoTruncation 失败：测试用 string 类型值但期望无引号输出，实际 formatArgs 对 string 用 %q 格式化。引入 rawValue 类型测试 %v 路径，同时增加 string 类型截断验证。
+- TestAttach_Latency 竞态条件：bytes.Buffer 非线程安全，Attach goroutine 写入同时主 goroutine 轮询 buf.Len()。替换为 channel 信号通知的 writerFunc 实现，消除竞态。
+
 ### Completion Notes List
 
+- ✅ Task 1: 创建 `debug/astrace.go` — 实现了 Options、DefaultOptions、Attach、FormatEvent 及 5 个内部辅助函数（formatTimestamp、formatArgs、formatResult、formatDuration、isLLMSyscall），严格遵循 Dev Notes 中的 API 设计和格式规范
+- ✅ Task 2: 创建 `debug/astrace_test.go` — 14 个测试用例全部通过，覆盖基础格式、慢操作标注、错误高亮（颜色/无颜色）、LLM 标注、组合场景、参数截断、排序、Attach 消费/取消/关闭/延迟、NO_COLOR 检测
+- ✅ Task 3: sprint-status.yaml 状态更新 ready-for-dev → in-progress → review
+- ✅ 全项目 `go test -race ./...` 通过（13 个包），`go vet ./...` 无警告
+- ✅ 依赖约束合规：debug/ 仅导入 standard library + internal/types/，无禁止导入
+- ✅ NFR3 延迟合规：TestAttach_Latency 测量延迟 ~92µs，远低于 500ms 阈值
+
 ### File List
+
+- `debug/astrace.go` — 新增：Attach 消费循环 + FormatEvent 格式化器 + Options + 辅助函数
+- `debug/astrace_test.go` — 新增：14 个测试用例
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改：3-2 状态 ready-for-dev → review
+- `_bmad-output/implementation-artifacts/3-2-astrace-event-consumption-and-formatting.md` — 修改：任务标记完成、Dev Agent Record、File List、Status
