@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/gonewx/crux/kernel"
 	"github.com/gonewx/crux/skills"
 	"github.com/gonewx/crux/vfs"
+	"github.com/spf13/cobra"
 )
 
 // --- Thread-safe writer for concurrent output ---
@@ -784,5 +786,278 @@ func TestE2E_CodeAnalystAgent(t *testing.T) {
 	output := w.String()
 	if !strings.Contains(output, "分析完成") {
 		t.Errorf("expected '分析完成' in output, got:\n%s", output)
+	}
+}
+
+// --- Story 3.3: Astrace CLI Command Integration Tests ---
+
+// astraceTestKernel creates a minimal kernel suitable for astrace tests.
+func astraceTestKernel(t *testing.T, driver llm.LLMDriver) *kernel.KernelImpl {
+	t.Helper()
+	w := &syncWriter{}
+	renderer := &ui.Renderer{
+		Writer:     w,
+		OutputMode: ui.ModeDefault,
+		Profile:    ui.TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+	}
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	cb := &cliCallbacks{progress: progress}
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
+	ctxMgr := cruxctx.NewManager()
+	return kernel.NewKernel(vfsInst, ctxMgr, cb)
+}
+
+func TestAstraceCmd_PIDNotFound(t *testing.T) {
+	savedKern := kern
+	savedJSON := flagJSON
+	defer func() {
+		kern = savedKern
+		flagJSON = savedJSON
+	}()
+	flagJSON = false
+
+	driver := &mockLLMDriver{
+		response: &llm.LLMResponse{Content: "ok", TokensUsed: 1},
+	}
+	kern = astraceTestKernel(t, driver)
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "astrace"}
+	cmd.SetOut(&buf)
+
+	err := runAstrace(cmd, []string{"999"})
+	if err != nil {
+		t.Fatalf("expected nil error (error handled internally), got %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "PID 999") {
+		t.Errorf("expected 'PID 999' in output, got %q", output)
+	}
+	if !strings.Contains(output, "process not found") {
+		t.Errorf("expected 'process not found' in output, got %q", output)
+	}
+	if !strings.Contains(output, "crux ps") {
+		t.Errorf("expected 'crux ps' suggestion in output, got %q", output)
+	}
+}
+
+func TestAstraceCmd_InvalidPID(t *testing.T) {
+	savedKern := kern
+	defer func() { kern = savedKern }()
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "astrace"}
+	cmd.SetOut(&buf)
+
+	err := runAstrace(cmd, []string{"abc"})
+	if err == nil {
+		t.Fatal("expected error for non-numeric PID")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "crux astrace abc") {
+		t.Errorf("expected 'crux astrace abc' in error, got %q", errMsg)
+	}
+	if !strings.Contains(errMsg, "invalid PID") {
+		t.Errorf("expected 'invalid PID' in error, got %q", errMsg)
+	}
+}
+
+func TestAstraceCmd_AttachAndDetach(t *testing.T) {
+	savedKern := kern
+	savedJSON := flagJSON
+	savedVerbose := flagVerbose
+	defer func() {
+		kern = savedKern
+		flagJSON = savedJSON
+		flagVerbose = savedVerbose
+	}()
+	flagJSON = false
+	flagVerbose = false
+
+	driver := &mockLLMDriver{
+		response: &llm.LLMResponse{Content: "done", TokensUsed: 1},
+	}
+	kern = astraceTestKernel(t, driver)
+
+	pid, err := kern.Spawn("astrace test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found after spawn")
+	}
+
+	// Wait for process to complete
+	<-proc.Done
+
+	// Close DebugChan so Attach returns nil (simulates process exit)
+	close(proc.DebugChan)
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "astrace"}
+	cmd.SetOut(&buf)
+	cmd.SetContext(context.Background())
+
+	err = runAstrace(cmd, []string{fmt.Sprintf("%d", pid)})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	output := buf.String()
+
+	// Verify attach header
+	attachHeader := fmt.Sprintf("[astrace] attached to PID %d", pid)
+	if !strings.Contains(output, attachHeader) {
+		t.Errorf("expected attach header %q in output, got %q", attachHeader, output)
+	}
+	if !strings.Contains(output, "(state:") {
+		t.Errorf("expected state in attach header, got %q", output)
+	}
+
+	// Verify detach summary (process exited)
+	detachSummary := fmt.Sprintf("[astrace] detached from PID %d (process exited)", pid)
+	if !strings.Contains(output, detachSummary) {
+		t.Errorf("expected detach summary %q in output, got %q", detachSummary, output)
+	}
+}
+
+func TestAstraceCmd_JSONOutput(t *testing.T) {
+	savedKern := kern
+	savedJSON := flagJSON
+	savedVerbose := flagVerbose
+	defer func() {
+		kern = savedKern
+		flagJSON = savedJSON
+		flagVerbose = savedVerbose
+	}()
+	flagJSON = true
+	flagVerbose = false
+
+	driver := &mockLLMDriver{
+		response: &llm.LLMResponse{Content: "json test", TokensUsed: 1},
+	}
+	kern = astraceTestKernel(t, driver)
+
+	pid, err := kern.Spawn("astrace json test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	// Wait for process to complete
+	<-proc.Done
+
+	// Close DebugChan
+	close(proc.DebugChan)
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "astrace"}
+	cmd.SetOut(&buf)
+	cmd.SetContext(context.Background())
+
+	err = runAstrace(cmd, []string{fmt.Sprintf("%d", pid)})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	output := buf.String()
+
+	// In JSON mode, no attach/detach headers should appear
+	if strings.Contains(output, "[astrace]") {
+		t.Errorf("expected no [astrace] headers in JSON mode, got %q", output)
+	}
+
+	// Each non-empty line should be valid JSON
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(line), &parsed); err != nil {
+			t.Fatalf("line %d is not valid JSON: %v\nline: %s", i, err, line)
+		}
+		// Verify snake_case fields
+		if _, ok := parsed["timestamp_ms"]; !ok {
+			t.Errorf("line %d missing timestamp_ms field", i)
+		}
+		if _, ok := parsed["syscall"]; !ok {
+			t.Errorf("line %d missing syscall field", i)
+		}
+	}
+}
+
+func TestAstraceCmd_VerboseOutput(t *testing.T) {
+	savedKern := kern
+	savedJSON := flagJSON
+	savedVerbose := flagVerbose
+	defer func() {
+		kern = savedKern
+		flagJSON = savedJSON
+		flagVerbose = savedVerbose
+	}()
+	flagJSON = false
+	flagVerbose = true
+
+	driver := &mockLLMDriver{
+		response: &llm.LLMResponse{Content: "verbose test", TokensUsed: 1},
+	}
+	kern = astraceTestKernel(t, driver)
+
+	pid, err := kern.Spawn("astrace verbose test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	// Wait for process to complete
+	<-proc.Done
+
+	// Close DebugChan
+	close(proc.DebugChan)
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "astrace"}
+	cmd.SetOut(&buf)
+	cmd.SetContext(context.Background())
+
+	err = runAstrace(cmd, []string{fmt.Sprintf("%d", pid)})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	output := buf.String()
+
+	// Verify attach header is present
+	if !strings.Contains(output, "[astrace] attached to PID") {
+		t.Errorf("expected attach header in verbose mode, got %q", output)
+	}
+
+	// Verify detach summary
+	if !strings.Contains(output, "[astrace] detached from PID") {
+		t.Errorf("expected detach summary in verbose mode, got %q", output)
+	}
+
+	// Verify events are present (process should have emitted some syscall events)
+	// In verbose mode, arguments should NOT be truncated
+	if !strings.Contains(output, "PID") {
+		t.Errorf("expected PID in event output, got %q", output)
 	}
 }

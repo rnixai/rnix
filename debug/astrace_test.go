@@ -3,6 +3,7 @@ package debug
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -494,5 +495,180 @@ func TestFormatEvent_ErrorSlowColor_NoGrayLeak(t *testing.T) {
 	}
 	if !strings.Contains(got, "← LLM 调用") {
 		t.Fatalf("expected LLM annotation, got %q", got)
+	}
+}
+
+func TestFormatEventJSON_BasicFormat(t *testing.T) {
+	event := types.SyscallEvent{
+		Timestamp: 12 * time.Millisecond,
+		PID:       1,
+		Syscall:   "Open",
+		Args:      map[string]any{"path": "/dev/null"},
+		Result:    "FD(3)",
+		Err:       nil,
+		Duration:  5 * time.Millisecond,
+	}
+
+	got := FormatEventJSON(event)
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("FormatEventJSON output is not valid JSON: %v\ngot: %s", err, got)
+	}
+
+	// Verify all required fields exist
+	requiredFields := []string{"timestamp_ms", "pid", "syscall", "args", "result", "error", "duration_ms"}
+	for _, field := range requiredFields {
+		if _, ok := parsed[field]; !ok {
+			t.Fatalf("missing required field %q in JSON output: %s", field, got)
+		}
+	}
+
+	// Verify field values
+	if parsed["timestamp_ms"] != float64(12) {
+		t.Fatalf("expected timestamp_ms=12, got %v", parsed["timestamp_ms"])
+	}
+	if parsed["pid"] != float64(1) {
+		t.Fatalf("expected pid=1, got %v", parsed["pid"])
+	}
+	if parsed["syscall"] != "Open" {
+		t.Fatalf("expected syscall=Open, got %v", parsed["syscall"])
+	}
+	if parsed["result"] != "FD(3)" {
+		t.Fatalf("expected result=FD(3), got %v", parsed["result"])
+	}
+	if parsed["error"] != "" {
+		t.Fatalf("expected error=\"\", got %v", parsed["error"])
+	}
+	if parsed["duration_ms"] != float64(5) {
+		t.Fatalf("expected duration_ms=5, got %v", parsed["duration_ms"])
+	}
+}
+
+func TestFormatEventJSON_Error(t *testing.T) {
+	// With error
+	event := types.SyscallEvent{
+		Timestamp: 100 * time.Millisecond,
+		PID:       2,
+		Syscall:   "Write",
+		Args:      map[string]any{"fd": 3},
+		Result:    nil,
+		Err:       errors.New("device not found"),
+		Duration:  1 * time.Millisecond,
+	}
+
+	got := FormatEventJSON(event)
+
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if parsed["error"] != "device not found" {
+		t.Fatalf("expected error='device not found', got %v", parsed["error"])
+	}
+
+	// Without error — error field should be empty string
+	event.Err = nil
+	got = FormatEventJSON(event)
+
+	if err := json.Unmarshal([]byte(got), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if parsed["error"] != "" {
+		t.Fatalf("expected error=\"\" when no error, got %v", parsed["error"])
+	}
+}
+
+func TestFormatEventJSON_SnakeCaseFields(t *testing.T) {
+	event := types.SyscallEvent{
+		Timestamp: 1 * time.Second,
+		PID:       1,
+		Syscall:   "Read",
+		Args:      map[string]any{"fd": 1},
+		Result:    256,
+		Err:       nil,
+		Duration:  10 * time.Millisecond,
+	}
+
+	got := FormatEventJSON(event)
+
+	// Verify snake_case field names exist in raw JSON
+	snakeCaseFields := []string{
+		`"timestamp_ms"`,
+		`"pid"`,
+		`"syscall"`,
+		`"args"`,
+		`"result"`,
+		`"error"`,
+		`"duration_ms"`,
+	}
+	for _, field := range snakeCaseFields {
+		if !strings.Contains(got, field) {
+			t.Fatalf("expected snake_case field %s in JSON output: %s", field, got)
+		}
+	}
+
+	// Verify NO camelCase field names
+	camelCaseFields := []string{
+		`"timestampMs"`,
+		`"durationMs"`,
+		`"TimestampMs"`,
+		`"DurationMs"`,
+	}
+	for _, field := range camelCaseFields {
+		if strings.Contains(got, field) {
+			t.Fatalf("unexpected camelCase field %s in JSON output: %s", field, got)
+		}
+	}
+}
+
+func TestAttach_JSONMode(t *testing.T) {
+	ch := make(chan types.SyscallEvent, 2)
+	var buf bytes.Buffer
+	opts := Options{ColorEnabled: false, Verbose: false, JSON: true}
+
+	events := []types.SyscallEvent{
+		{Timestamp: 0, PID: 1, Syscall: "Open", Args: map[string]any{"path": "/dev/null"}, Result: "FD(1)", Duration: time.Millisecond},
+		{Timestamp: time.Millisecond, PID: 1, Syscall: "Close", Args: map[string]any{"fd": 1}, Result: nil, Duration: 0},
+	}
+
+	for _, e := range events {
+		ch <- e
+	}
+	close(ch)
+
+	err := Attach(context.Background(), ch, &buf, opts)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	output := buf.String()
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 JSON lines, got %d: %q", len(lines), output)
+	}
+
+	// Verify each line is valid JSON
+	for i, line := range lines {
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(line), &parsed); err != nil {
+			t.Fatalf("line %d is not valid JSON: %v\nline: %s", i, err, line)
+		}
+	}
+
+	// Verify first line contains Open syscall
+	var first map[string]any
+	json.Unmarshal([]byte(lines[0]), &first)
+	if first["syscall"] != "Open" {
+		t.Fatalf("expected first line syscall=Open, got %v", first["syscall"])
+	}
+
+	// Verify second line contains Close syscall
+	var second map[string]any
+	json.Unmarshal([]byte(lines[1]), &second)
+	if second["syscall"] != "Close" {
+		t.Fatalf("expected second line syscall=Close, got %v", second["syscall"])
 	}
 }

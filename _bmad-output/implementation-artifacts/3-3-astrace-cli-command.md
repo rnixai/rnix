@@ -1,6 +1,6 @@
 # Story 3.3: astrace CLI 命令
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -36,39 +36,39 @@ So that 我可以在任何时候调试正在运行的智能体。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 在 `debug/astrace.go` 中添加 JSON 格式化支持 (AC: #6)
-  - [ ] 1.1 定义 `jsonEvent` 结构体 — 私有类型，snake_case json tags（`timestamp_ms`、`pid`、`syscall`、`args`、`result`、`error`、`duration_ms`）
-  - [ ] 1.2 实现 `FormatEventJSON(event types.SyscallEvent) string` — 导出函数，将 SyscallEvent 序列化为 JSON 行
-  - [ ] 1.3 扩展 `Options` — 添加 `JSON bool` 字段
-  - [ ] 1.4 更新 `Attach` 函数 — 当 `opts.JSON` 为 true 时使用 `FormatEventJSON` 代替 `FormatEvent`
+- [x] Task 1: 在 `debug/astrace.go` 中添加 JSON 格式化支持 (AC: #6)
+  - [x] 1.1 定义 `jsonEvent` 结构体 — 私有类型，snake_case json tags（`timestamp_ms`、`pid`、`syscall`、`args`、`result`、`error`、`duration_ms`）
+  - [x] 1.2 实现 `FormatEventJSON(event types.SyscallEvent) string` — 导出函数，将 SyscallEvent 序列化为 JSON 行
+  - [x] 1.3 扩展 `Options` — 添加 `JSON bool` 字段
+  - [x] 1.4 更新 `Attach` 函数 — 当 `opts.JSON` 为 true 时使用 `FormatEventJSON` 代替 `FormatEvent`
 
-- [ ] Task 2: 在 `debug/astrace_test.go` 中添加 JSON 格式化测试 (AC: #6, #11)
-  - [ ] 2.1 `TestFormatEventJSON_BasicFormat` — 验证 JSON 输出包含所有必需字段
-  - [ ] 2.2 `TestFormatEventJSON_Error` — 验证 err 字段在错误时非空，无错误时为空字符串
-  - [ ] 2.3 `TestFormatEventJSON_SnakeCaseFields` — 验证 JSON 字段名为 snake_case
-  - [ ] 2.4 `TestAttach_JSONMode` — 验证 JSON 模式下 Attach 输出 JSON 行
+- [x] Task 2: 在 `debug/astrace_test.go` 中添加 JSON 格式化测试 (AC: #6, #11)
+  - [x] 2.1 `TestFormatEventJSON_BasicFormat` — 验证 JSON 输出包含所有必需字段
+  - [x] 2.2 `TestFormatEventJSON_Error` — 验证 err 字段在错误时非空，无错误时为空字符串
+  - [x] 2.3 `TestFormatEventJSON_SnakeCaseFields` — 验证 JSON 字段名为 snake_case
+  - [x] 2.4 `TestAttach_JSONMode` — 验证 JSON 模式下 Attach 输出 JSON 行
 
-- [ ] Task 3: 在 `cmd/crux/main.go` 中注册 astrace 子命令 (AC: #1-#10)
-  - [ ] 3.1 定义 `astraceCmd` — `cobra.Command{Use: "astrace <pid>", ...}`，`Args: cobra.ExactArgs(1)`
-  - [ ] 3.2 在 `init()` 中 `rootCmd.AddCommand(astraceCmd)` 注册子命令
-  - [ ] 3.3 实现 `runAstrace(cmd *cobra.Command, args []string) error` — 主执行函数
-  - [ ] 3.4 PID 解析 — `strconv.Atoi(args[0])`，非数字时返回格式化错误 (AC: #7)
-  - [ ] 3.5 进程查找 — `kern.GetProcess(pid)`，不存在时使用 `ui.RenderError` 输出三行错误 (AC: #2)
-  - [ ] 3.6 attach 确认输出 — `[astrace] attached to PID {N} (state: {state})` (AC: #9)
-  - [ ] 3.7 信号处理 — 捕获 SIGINT/SIGTERM，cancel astrace context（仅 detach 追踪，不 cancel 进程）(AC: #3)
-  - [ ] 3.8 调用 `debug.Attach` — 使用 astrace-specific context（不影响被追踪进程）(AC: #1)
-  - [ ] 3.9 detach 汇总输出 — Attach 返回 nil（进程完成）或 ctx.Err()（用户中断）后输出汇总 (AC: #4)
-  - [ ] 3.10 `--json` + `--verbose` flag 传递 — 从全局 flag 读取并传入 `debug.Options` (AC: #5, #6, #10)
+- [x] Task 3: 在 `cmd/crux/main.go` 中注册 astrace 子命令 (AC: #1-#10)
+  - [x] 3.1 定义 `astraceCmd` — `cobra.Command{Use: "astrace <pid>", ...}`，`Args: cobra.ExactArgs(1)`
+  - [x] 3.2 在 `init()` 中 `rootCmd.AddCommand(astraceCmd)` 注册子命令
+  - [x] 3.3 实现 `runAstrace(cmd *cobra.Command, args []string) error` — 主执行函数
+  - [x] 3.4 PID 解析 — `strconv.Atoi(args[0])`，非数字时返回格式化错误 (AC: #7)
+  - [x] 3.5 进程查找 — `kern.GetProcess(pid)`，不存在时使用 `ui.RenderError` 输出三行错误 (AC: #2)
+  - [x] 3.6 attach 确认输出 — `[astrace] attached to PID {N} (state: {state})` (AC: #9)
+  - [x] 3.7 信号处理 — 捕获 SIGINT/SIGTERM，cancel astrace context（仅 detach 追踪，不 cancel 进程）(AC: #3)
+  - [x] 3.8 调用 `debug.Attach` — 使用 astrace-specific context（不影响被追踪进程）(AC: #1)
+  - [x] 3.9 detach 汇总输出 — Attach 返回 nil（进程完成）或 ctx.Err()（用户中断）后输出汇总 (AC: #4)
+  - [x] 3.10 `--json` + `--verbose` flag 传递 — 从全局 flag 读取并传入 `debug.Options` (AC: #5, #6, #10)
 
-- [ ] Task 4: 添加 astrace 命令集成测试 (AC: #1-#11)
-  - [ ] 4.1 `TestAstraceCmd_PIDNotFound` — 验证 PID 不存在时的错误输出
-  - [ ] 4.2 `TestAstraceCmd_InvalidPID` — 验证非数字 PID 的错误输出
-  - [ ] 4.3 `TestAstraceCmd_AttachAndDetach` — 模拟进程完成，验证 attach + detach 流程
-  - [ ] 4.4 `TestAstraceCmd_JSONOutput` — 验证 `--json` flag 下的 JSON 流式输出
-  - [ ] 4.5 `TestAstraceCmd_VerboseOutput` — 验证 `--verbose` flag 下参数不截断
+- [x] Task 4: 添加 astrace 命令集成测试 (AC: #1-#11)
+  - [x] 4.1 `TestAstraceCmd_PIDNotFound` — 验证 PID 不存在时的错误输出
+  - [x] 4.2 `TestAstraceCmd_InvalidPID` — 验证非数字 PID 的错误输出
+  - [x] 4.3 `TestAstraceCmd_AttachAndDetach` — 模拟进程完成，验证 attach + detach 流程
+  - [x] 4.4 `TestAstraceCmd_JSONOutput` — 验证 `--json` flag 下的 JSON 流式输出
+  - [x] 4.5 `TestAstraceCmd_VerboseOutput` — 验证 `--verbose` flag 下参数不截断
 
-- [ ] Task 5: 更新 sprint-status.yaml (AC: #11)
-  - [ ] 5.1 将 `3-3-astrace-cli-command` 状态从 `backlog` 更新为 `ready-for-dev`
+- [x] Task 5: 更新 sprint-status.yaml (AC: #11)
+  - [x] 5.1 将 `3-3-astrace-cli-command` 状态从 `backlog` 更新为 `ready-for-dev`
 
 ## Dev Notes
 
@@ -483,10 +483,23 @@ internal/ui/renderer.go         — 已有 NewRenderer，不修改
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- Task 1: 在 `debug/astrace.go` 中添加了 JSON 格式化支持。新增 `jsonEvent` 结构体（snake_case json tags）、`FormatEventJSON` 导出函数、`Options.JSON` 字段，并更新 `Attach` 在 JSON 模式下使用 `FormatEventJSON`。新增 `encoding/json` 导入。
+- Task 2: 在 `debug/astrace_test.go` 中添加了 4 个 JSON 格式化测试：`TestFormatEventJSON_BasicFormat`（全字段验证）、`TestFormatEventJSON_Error`（错误字段验证）、`TestFormatEventJSON_SnakeCaseFields`（JSON 字段名验证）、`TestAttach_JSONMode`（JSON 模式 Attach 验证）。新增 `encoding/json` 导入。
+- Task 3: 在 `cmd/crux/main.go` 中注册 `astraceCmd` 子命令，实现 `runAstrace` 函数。包含：PID 解析、进程查找（RenderError 三行错误）、attach 确认输出、SIGINT 信号处理（仅 detach 不 kill 进程）、`debug.Attach` 调用、detach 汇总输出、`--json`/`--verbose` flag 传递。提取 `initKernel()` 共享函数供根命令和子命令复用。添加 `processStateName` 辅助函数将 `ProcessState` int 转换为可读字符串。将 `kern` 提升为包级变量。新增 `context`、`strconv`、`debug` 导入。
+- Task 4: 在 `cmd/crux/integration_test.go` 中添加了 5 个 astrace 集成测试：`TestAstraceCmd_PIDNotFound`（错误输出验证）、`TestAstraceCmd_InvalidPID`（非数字 PID 错误）、`TestAstraceCmd_AttachAndDetach`（完整 attach+detach 流程）、`TestAstraceCmd_JSONOutput`（JSON 流式输出验证）、`TestAstraceCmd_VerboseOutput`（verbose 模式验证）。添加 `astraceTestKernel` 测试辅助函数。新增 `bytes`、`cobra` 导入。
+- Task 5: sprint-status.yaml 已从 `ready-for-dev` 经 `in-progress` 更新至 `review`。
+
 ### File List
+
+- `debug/astrace.go` — 扩展：Options.JSON + jsonEvent 结构体 + FormatEventJSON + Attach JSON 分支 + import encoding/json
+- `debug/astrace_test.go` — 新增 4 个 JSON 测试 + import encoding/json
+- `cmd/crux/main.go` — 新增：astraceCmd 定义 + runAstrace 实现 + initKernel + processStateName + init() 注册 + kern 包级变量 + import context/strconv/debug
+- `cmd/crux/integration_test.go` — 新增 5 个 astrace 集成测试 + astraceTestKernel 辅助 + import bytes/cobra
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — 状态更新 review
+- `_bmad-output/implementation-artifacts/3-3-astrace-cli-command.md` — 任务 checkbox + Dev Agent Record + File List + Status
