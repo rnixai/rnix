@@ -3,6 +3,7 @@ package kernel
 import (
 	gocontext "context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -1777,5 +1778,168 @@ func BenchmarkEmitEvent_NilDebugChan(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		k.emitEvent(proc, "Open", map[string]any{"path": "/dev/null"}, 1, nil, time.Millisecond)
+	}
+}
+
+// --- Story 4.1: Kill syscall tests ---
+
+func TestKill_RunningProcess(t *testing.T) {
+	// Kill a running process → proc.Cancel() called, reasonStep detects cancellation, process → Zombie
+	blockCh := make(chan struct{})
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &blockingLLMFile{blockCh: blockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+
+	pid, err := k.Spawn("kill test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	// Let goroutine start and block on Write
+	time.Sleep(50 * time.Millisecond)
+
+	// Kill the running process
+	if err := k.Kill(pid, types.SIGTERM); err != nil {
+		t.Fatalf("Kill failed: %v", err)
+	}
+
+	// Unblock LLM so goroutine can detect cancellation
+	close(blockCh)
+
+	select {
+	case exit := <-proc.Done:
+		if exit.Code == 0 {
+			t.Log("process completed normally before cancellation detected")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for killed process")
+	}
+
+	if proc.GetState() != types.StateZombie {
+		t.Fatalf("expected Zombie, got %d", proc.GetState())
+	}
+}
+
+func TestKill_PIDNotFound(t *testing.T) {
+	k := newSimpleKernel()
+
+	err := k.Kill(9999, types.SIGTERM)
+	if err == nil {
+		t.Fatal("expected error for non-existent PID")
+	}
+
+	var syscallErr *SyscallError
+	if !errors.As(err, &syscallErr) {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if syscallErr.Code != types.ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %s", syscallErr.Code)
+	}
+	if syscallErr.Syscall != "Kill" {
+		t.Errorf("expected syscall 'Kill', got %q", syscallErr.Syscall)
+	}
+}
+
+func TestKill_ZombieIdempotent(t *testing.T) {
+	// Kill on a Zombie process should be a no-op (return nil)
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("done", 1),
+	}
+	k, _, _ := newTestKernel(llmFile)
+
+	pid, err := k.Spawn("zombie test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+
+	// Wait for process to complete → Zombie
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	if proc.GetState() != types.StateZombie {
+		t.Fatalf("expected Zombie, got %d", proc.GetState())
+	}
+
+	// Kill should be idempotent on Zombie
+	if err := k.Kill(pid, types.SIGTERM); err != nil {
+		t.Fatalf("Kill on Zombie should return nil, got %v", err)
+	}
+	if err := k.Kill(pid, types.SIGKILL); err != nil {
+		t.Fatalf("Kill with SIGKILL on Zombie should return nil, got %v", err)
+	}
+}
+
+func TestKill_SyscallEvent(t *testing.T) {
+	// Verify Kill emits SyscallEvents when DebugChan is non-nil
+	blockCh := make(chan struct{})
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &blockingLLMFile{blockCh: blockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+
+	pid, err := k.Spawn("event test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+
+	// Let goroutine start
+	time.Sleep(50 * time.Millisecond)
+
+	// Kill
+	_ = k.Kill(pid, types.SIGTERM)
+
+	// Unblock
+	close(blockCh)
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// Drain DebugChan and find Kill events
+	var killEvents []types.SyscallEvent
+	draining := true
+	for draining {
+		select {
+		case ev := <-proc.DebugChan:
+			if ev.Syscall == "Kill" {
+				killEvents = append(killEvents, ev)
+			}
+		default:
+			draining = false
+		}
+	}
+
+	if len(killEvents) < 2 {
+		t.Fatalf("expected at least 2 Kill events (entry + exit), got %d", len(killEvents))
+	}
+
+	// Verify first event has pid and signal args
+	args := killEvents[0].Args
+	if args["pid"] != pid {
+		t.Errorf("Kill event pid: got %v, want %d", args["pid"], pid)
+	}
+	if args["signal"] != types.SIGTERM {
+		t.Errorf("Kill event signal: got %v, want %d", args["signal"], types.SIGTERM)
 	}
 }
