@@ -1,6 +1,6 @@
 # Story 2.6: Agent 抽象层与 Skill 标准化
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -26,40 +26,40 @@ So that Agent 定义"我是谁"（身份+策略+模型），Skill 定义"如何�
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 agents/ Go 包 — 类型定义与加载器 (AC: #1, #2)
-  - [ ] 1.1 创建 `agents/types.go`：定义 AgentManifest、AgentModels、AgentInfo 类型
-  - [ ] 1.2 创建 `agents/loader.go`：AgentLoader 结构体，Load() 方法加载 agent.yaml + instructions.md + Skill 引用解析 + tools 聚合
-  - [ ] 1.3 创建 `agents/loader_test.go`：单元测试验证 Agent 加载器
+- [x] Task 1: 创建 agents/ Go 包 — 类型定义与加载器 (AC: #1, #2)
+  - [x] 1.1 创建 `agents/types.go`：定义 AgentManifest、AgentModels、AgentInfo 类型
+  - [x] 1.2 创建 `agents/loader.go`：AgentLoader 结构体，Load() 方法加载 agent.yaml + instructions.md + Skill 引用解析 + tools 聚合
+  - [x] 1.3 创建 `agents/loader_test.go`：单元测试验证 Agent 加载器
 
-- [ ] Task 2: 重构 skills/ 包 — SKILL.md 标准格式 (AC: #3, #4)
-  - [ ] 2.1 更新 `skills/types.go`：SkillManifest 简化为 Name/Description/AllowedTools/Metadata，移除 Models 和 ContextBudget
-  - [ ] 2.2 更新 `skills/loader.go`：解析 SKILL.md 格式（YAML frontmatter + Markdown body），支持渐进式加载
-  - [ ] 2.3 更新 `skills/testdata/mock-skill/`：将 manifest.yaml + instructions.md 转换为 SKILL.md 格式
-  - [ ] 2.4 更新 `skills/loader_test.go`：适配 SKILL.md 格式的测试用例
+- [x] Task 2: 重构 skills/ 包 — SKILL.md 标准格式 (AC: #3, #4)
+  - [x] 2.1 更新 `skills/types.go`：SkillManifest 简化为 Name/Description/AllowedTools/Metadata，移除 Models 和 ContextBudget
+  - [x] 2.2 更新 `skills/loader.go`：解析 SKILL.md 格式（YAML frontmatter + Markdown body），支持渐进式加载
+  - [x] 2.3 更新 `skills/testdata/mock-skill/`：将 manifest.yaml + instructions.md 转换为 SKILL.md 格式
+  - [x] 2.4 更新 `skills/loader_test.go`：适配 SKILL.md 格式的测试用例
 
-- [ ] Task 3: 创建参考 Agent 和 Skill 内容 (AC: #5, #6)
-  - [ ] 3.1 创建 `lib/agents/code-analyst/agent.yaml`：Agent 配置（name、models、context_budget、skills 引用）
-  - [ ] 3.2 创建 `lib/agents/code-analyst/instructions.md`：从现有 `lib/skills/code-analyst/instructions.md` 迁移角色定义部分
-  - [ ] 3.3 创建 `lib/skills/code-analysis/SKILL.md`：从现有内容提取程序性知识，转换为 Agent Skills 标准格式
-  - [ ] 3.4 删除旧文件：`lib/skills/code-analyst/manifest.yaml` 和 `lib/skills/code-analyst/instructions.md`
+- [x] Task 3: 创建参考 Agent 和 Skill 内容 (AC: #5, #6)
+  - [x] 3.1 创建 `lib/agents/code-analyst/agent.yaml`：Agent 配置（name、models、context_budget、skills 引用）
+  - [x] 3.2 创建 `lib/agents/code-analyst/instructions.md`：从现有 `lib/skills/code-analyst/instructions.md` 迁移角色定义部分
+  - [x] 3.3 创建 `lib/skills/code-analysis/SKILL.md`：从现有内容提取程序性知识，转换为 Agent Skills 标准格式
+  - [x] 3.4 删除旧文件：`lib/skills/code-analyst/manifest.yaml` 和 `lib/skills/code-analyst/instructions.md`
 
-- [ ] Task 4: 更新 kernel 层 — Spawn 签名调整 (AC: #7, #9)
-  - [ ] 4.1 更新 `kernel/kernel.go`：Spawn 函数签名从 `(intent, skills []string, opts)` 改为 `(intent, agent *agents.AgentInfo, opts)`
-  - [ ] 4.2 更新 Spawn 内部逻辑：从 AgentInfo 获取 Models、Instructions、AllowedTools
-  - [ ] 4.3 更新 `kernel/kernel_test.go`：适配新 Spawn 签名
+- [x] Task 4: 更新 kernel 层 — Spawn 签名调整 (AC: #7, #9)
+  - [x] 4.1 更新 `kernel/kernel.go`：Spawn 函数签名从 `(intent, skills []string, opts)` 改为 `(intent, agent *agents.AgentInfo, opts)`
+  - [x] 4.2 更新 Spawn 内部逻辑：从 AgentInfo 获取 Models、Instructions、AllowedTools
+  - [x] 4.3 更新 `kernel/kernel_test.go`：适配新 Spawn 签名
 
-- [ ] Task 5: 更新 CLI 层 — --agent flag (AC: #8, #10)
-  - [ ] 5.1 更新 `cmd/crux/main.go`：--skill flag 改为 --agent flag，初始化 AgentLoader
-  - [ ] 5.2 更新 AgentLoader 和 SkillLoader 的依赖注入：AgentLoader 持有 SkillLoader 引用
-  - [ ] 5.3 更新 `cmd/crux/integration_test.go`：适配 Agent 加载的集成测试
+- [x] Task 5: 更新 CLI 层 — --agent flag (AC: #8, #10)
+  - [x] 5.1 更新 `cmd/crux/main.go`：--skill flag 改为 --agent flag，初始化 AgentLoader
+  - [x] 5.2 更新 AgentLoader 和 SkillLoader 的依赖注入：AgentLoader 持有 SkillLoader 引用
+  - [x] 5.3 更新 `cmd/crux/integration_test.go`：适配 Agent 加载的集成测试
 
-- [ ] Task 6: 全量回归测试与验收 (AC: #11)
-  - [ ] 6.1 `go test -race ./skills/...` 通过
-  - [ ] 6.2 `go test -race ./agents/...` 通过
-  - [ ] 6.3 `go test -race ./kernel/...` 通过
-  - [ ] 6.4 `go test -race ./cmd/crux/...` 通过
-  - [ ] 6.5 `go test -race ./...` 全量通过
-  - [ ] 6.6 `go vet ./...` 无警告
+- [x] Task 6: 全量回归测试与验收 (AC: #11)
+  - [x] 6.1 `go test -race ./skills/...` 通过
+  - [x] 6.2 `go test -race ./agents/...` 通过
+  - [x] 6.3 `go test -race ./kernel/...` 通过
+  - [x] 6.4 `go test -race ./cmd/crux/...` 通过
+  - [x] 6.5 `go test -race ./...` 全量通过
+  - [x] 6.6 `go vet ./...` 无警告
 
 ## Dev Notes
 
@@ -832,10 +832,91 @@ skills/testdata/mock-skill/instructions.md  — 被 SKILL.md 替代
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+N/A
+
 ### Completion Notes List
 
+- 由于 agents/ 和 skills/ 存在交叉类型依赖，采用协调式实现而非严格按 Task 顺序
+- AllowedToolsRaw 字段 + AllowedTools() 方法方案避免了 goccy/go-yaml 自定义 unmarshaler 兼容问题
+- AllowedTools() 返回排序结果确保测试断言的确定性
+- 旧 code-analyst Skill 内容按职责拆分：角色/策略 → Agent instructions.md，程序性知识/工具指南 → Skill SKILL.md body
+- KernelImpl 不再依赖 skills/ 包，简化了 kernel 职责边界
+- skills/testdata/no-instructions/ 需保留空目录（含 .gitkeep）用于测试 SKILL.md 缺失场景
+
+### Change Log
+
+| 文件 | 操作 | 说明 |
+|------|------|------|
+| `agents/types.go` | 新增 | AgentManifest、AgentModels、AgentInfo 类型定义 + AllowedTools()/SystemPrompt() 方法 |
+| `agents/loader.go` | 新增 | AgentLoader 加载 agent.yaml + instructions.md + Skill 引用解析 |
+| `agents/loader_test.go` | 新增 | 12 个测试用例覆盖 Agent 加载和辅助方法 |
+| `agents/testdata/mock-agent/` | 新增 | agent.yaml + instructions.md 测试 fixture |
+| `agents/testdata/invalid-agent/` | 新增 | 无效 YAML 测试 fixture |
+| `agents/testdata/missing-instructions/` | 新增 | 缺少 instructions.md 测试 fixture |
+| `agents/testdata/missing-name/` | 新增 | 缺少 name 字段测试 fixture |
+| `agents/testdata/bad-skill-ref/` | 新增 | 引用不存在 Skill 的测试 fixture |
+| `skills/types.go` | 重写 | 简化为 Name/Description/AllowedToolsRaw/Metadata，移除 SkillModels |
+| `skills/loader.go` | 重写 | parseSKILLMD() + LoadMetadata() + LoadFull() |
+| `skills/loader_test.go` | 重写 | 适配 SKILL.md 格式的 13 个测试用例 |
+| `skills/testdata/mock-skill/SKILL.md` | 新增 | 替代旧 manifest.yaml + instructions.md |
+| `skills/testdata/invalid-manifest/SKILL.md` | 新增 | 无效 YAML frontmatter 测试 |
+| `skills/testdata/missing-fields/SKILL.md` | 新增 | 缺少 name 字段测试 |
+| `skills/testdata/no-instructions/.gitkeep` | 新增 | 目录存在但无 SKILL.md 测试 |
+| `lib/agents/code-analyst/agent.yaml` | 新增 | 参考 Agent 配置 |
+| `lib/agents/code-analyst/instructions.md` | 新增 | 参考 Agent 角色定义 |
+| `lib/skills/code-analysis/SKILL.md` | 新增 | 参考 Skill 标准格式 |
+| `kernel/kernel.go` | 修改 | NewKernel 3 参数，Spawn 接受 *agents.AgentInfo |
+| `kernel/kernel_test.go` | 重写 | 所有 Spawn 调用适配 AgentInfo，新增 testAgentInfo() 辅助函数 |
+| `cmd/crux/main.go` | 修改 | --skill → --agent flag，AgentLoader 注入 |
+| `cmd/crux/integration_test.go` | 修改 | NewKernel 调用适配，两个 Skill 测试重写为 Agent 测试 |
+| `skills/testdata/mock-skill/manifest.yaml` | 删除 | 被 SKILL.md 替代 |
+| `skills/testdata/mock-skill/instructions.md` | 删除 | 被 SKILL.md 替代 |
+| `skills/testdata/invalid-manifest/manifest.yaml` | 删除 | 被 SKILL.md 替代 |
+| `skills/testdata/missing-fields/manifest.yaml` | 删除 | 被 SKILL.md 替代 |
+| `skills/testdata/no-instructions/manifest.yaml` | 删除 | 被空目录 + .gitkeep 替代 |
+| `lib/skills/code-analyst/manifest.yaml` | 删除 | 被 Agent/Skill 拆分替代 |
+| `lib/skills/code-analyst/instructions.md` | 删除 | 被 Agent/Skill 拆分替代 |
+
 ### File List
+
+**新增文件：**
+- `agents/types.go`
+- `agents/loader.go`
+- `agents/loader_test.go`
+- `agents/testdata/mock-agent/agent.yaml`
+- `agents/testdata/mock-agent/instructions.md`
+- `agents/testdata/invalid-agent/agent.yaml`
+- `agents/testdata/missing-instructions/agent.yaml`
+- `agents/testdata/missing-name/agent.yaml`
+- `agents/testdata/missing-name/instructions.md`
+- `agents/testdata/bad-skill-ref/agent.yaml`
+- `agents/testdata/bad-skill-ref/instructions.md`
+- `skills/testdata/mock-skill/SKILL.md`
+- `skills/testdata/invalid-manifest/SKILL.md`
+- `skills/testdata/missing-fields/SKILL.md`
+- `skills/testdata/no-instructions/.gitkeep`
+- `lib/agents/code-analyst/agent.yaml`
+- `lib/agents/code-analyst/instructions.md`
+- `lib/skills/code-analysis/SKILL.md`
+
+**修改文件：**
+- `skills/types.go`
+- `skills/loader.go`
+- `skills/loader_test.go`
+- `kernel/kernel.go`
+- `kernel/kernel_test.go`
+- `cmd/crux/main.go`
+- `cmd/crux/integration_test.go`
+
+**删除文件：**
+- `skills/testdata/mock-skill/manifest.yaml`
+- `skills/testdata/mock-skill/instructions.md`
+- `skills/testdata/invalid-manifest/manifest.yaml`
+- `skills/testdata/missing-fields/manifest.yaml`
+- `skills/testdata/no-instructions/manifest.yaml`
+- `lib/skills/code-analyst/manifest.yaml`
+- `lib/skills/code-analyst/instructions.md`

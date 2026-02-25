@@ -1,0 +1,6 @@
+name: missing-instructions
+description: "Agent with no instructions.md"
+models:
+  provider: claude
+  preferred: sonnet
+skills: []

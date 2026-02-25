@@ -1,0 +1,9 @@
+name: mock-agent
+description: "A mock agent for testing"
+models:
+  provider: claude
+  preferred: sonnet
+  fallback: haiku
+context_budget: 4096
+skills:
+  - mock-skill

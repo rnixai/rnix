@@ -1,3 +1,4 @@
+---
 description: "A skill with no name"
-tools:
-  - "/dev/fs"
+allowed-tools: /dev/fs
+---

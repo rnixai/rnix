@@ -1,0 +1,9 @@
+name: code-analyst
+description: "分析代码质量、识别潜在问题并提供改进建议的智能体"
+models:
+  provider: claude
+  preferred: sonnet
+  fallback: haiku
+context_budget: 8192
+skills:
+  - code-analysis

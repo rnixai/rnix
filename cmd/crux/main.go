@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gonewx/crux/agents"
 	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/drivers/fs"
 	"github.com/gonewx/crux/drivers/llm"
@@ -31,7 +32,7 @@ var (
 	flagQuiet    bool
 	flagModel    string
 	flagMaxSteps int
-	flagSkill    string
+	flagAgent    string
 )
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
@@ -150,7 +151,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Quiet output")
 	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
-	rootCmd.Flags().StringVar(&flagSkill, "skill", "", "Skill to load (e.g., code-analyst)")
+	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.AddCommand(versionCmd)
 }
 
@@ -191,15 +192,22 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))
 	ctxMgr := cruxctx.NewManager()
 	skillLoader := skills.NewSkillLoader("lib/skills")
-	kern := kernel.NewKernel(vfsInst, ctxMgr, skillLoader, cb)
+	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	start := time.Now()
 
-	var skillsList []string
-	if flagSkill != "" {
-		skillsList = []string{flagSkill}
+	var agentInfo *agents.AgentInfo
+	if flagAgent != "" {
+		var err error
+		agentInfo, err = agentLoader.Load(flagAgent)
+		if err != nil {
+			outputError(renderer, mode, "agent", err.Error(), "智能体加载失败", "检查 --agent 参数")
+			exitCode = 1
+			return nil
+		}
 	}
-	pid, err := kern.Spawn(intent, skillsList, kernel.SpawnOpts{Model: flagModel, MaxTurns: flagMaxSteps})
+	pid, err := kern.Spawn(intent, agentInfo, kernel.SpawnOpts{Model: flagModel, MaxTurns: flagMaxSteps})
 	if err != nil {
 		outputError(renderer, mode, "/dev/llm/claude", err.Error(), "智能体启动失败", "检查 Claude Code CLI 是否已安装")
 		exitCode = 1
