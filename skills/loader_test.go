@@ -3,91 +3,118 @@ package skills
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestLoadYAML_Success(t *testing.T) {
-	path := filepath.Join("testdata", "mock-skill", "manifest.yaml")
-	m, err := LoadYAML[SkillManifest](path)
+func TestParseSKILLMD_Valid(t *testing.T) {
+	content := "---\nname: test\n---\n\n# Body\n\nSome content."
+	fm, body, err := parseSKILLMD(content)
 	if err != nil {
-		t.Fatalf("LoadYAML returned error: %v", err)
+		t.Fatalf("parseSKILLMD returned error: %v", err)
 	}
-	if m.Name != "code-analyst" {
-		t.Errorf("Name = %q, want %q", m.Name, "code-analyst")
+	if !strings.Contains(fm, "name: test") {
+		t.Errorf("frontmatter = %q, want to contain 'name: test'", fm)
 	}
-	if m.ContextBudget != 4096 {
-		t.Errorf("ContextBudget = %d, want %d", m.ContextBudget, 4096)
-	}
-	if m.Models.Provider != "claude" {
-		t.Errorf("Models.Provider = %q, want %q", m.Models.Provider, "claude")
+	if !strings.Contains(body, "# Body") {
+		t.Errorf("body = %q, want to contain '# Body'", body)
 	}
 }
 
-func TestLoadYAML_FileNotFound(t *testing.T) {
-	_, err := LoadYAML[SkillManifest]("testdata/nonexistent/manifest.yaml")
+func TestParseSKILLMD_MissingOpeningSep(t *testing.T) {
+	_, _, err := parseSKILLMD("name: test\n---\nbody")
 	if err == nil {
-		t.Fatal("expected error for nonexistent file, got nil")
+		t.Fatal("expected error for missing opening ---")
 	}
-	if !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("expected os.ErrNotExist in chain, got: %v", err)
+	if !strings.Contains(err.Error(), "must start with ---") {
+		t.Errorf("error = %q, want 'must start with ---'", err.Error())
 	}
 }
 
-func TestLoadYAML_InvalidYAML(t *testing.T) {
-	path := filepath.Join("testdata", "invalid-manifest", "manifest.yaml")
-	_, err := LoadYAML[SkillManifest](path)
+func TestParseSKILLMD_MissingClosingSep(t *testing.T) {
+	_, _, err := parseSKILLMD("---\nname: test\nbody without closing")
 	if err == nil {
-		t.Fatal("expected error for invalid YAML, got nil")
+		t.Fatal("expected error for missing closing ---")
+	}
+	if !strings.Contains(err.Error(), "missing closing ---") {
+		t.Errorf("error = %q, want 'missing closing ---'", err.Error())
 	}
 }
 
-func TestSkillLoader_Load_Success(t *testing.T) {
+func TestSkillManifest_AllowedTools(t *testing.T) {
+	m := SkillManifest{AllowedToolsRaw: "/dev/fs /dev/shell"}
+	tools := m.AllowedTools()
+	if len(tools) != 2 {
+		t.Fatalf("AllowedTools length = %d, want 2", len(tools))
+	}
+	if tools[0] != "/dev/fs" {
+		t.Errorf("AllowedTools[0] = %q, want %q", tools[0], "/dev/fs")
+	}
+	if tools[1] != "/dev/shell" {
+		t.Errorf("AllowedTools[1] = %q, want %q", tools[1], "/dev/shell")
+	}
+}
+
+func TestSkillManifest_AllowedTools_Empty(t *testing.T) {
+	m := SkillManifest{AllowedToolsRaw: ""}
+	tools := m.AllowedTools()
+	if tools != nil {
+		t.Errorf("AllowedTools = %v, want nil for empty raw", tools)
+	}
+}
+
+func TestSkillLoader_LoadFull_Success(t *testing.T) {
 	loader := NewSkillLoader("testdata")
-	info, err := loader.Load("mock-skill")
+	info, err := loader.LoadFull("mock-skill")
 	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
+		t.Fatalf("LoadFull returned error: %v", err)
 	}
 
 	// Verify manifest fields.
-	if info.Manifest.Name != "code-analyst" {
-		t.Errorf("Name = %q, want %q", info.Manifest.Name, "code-analyst")
+	if info.Manifest.Name != "mock-skill" {
+		t.Errorf("Name = %q, want %q", info.Manifest.Name, "mock-skill")
 	}
-	if info.Manifest.Description != "分析代码质量并识别问题" {
-		t.Errorf("Description = %q, want %q", info.Manifest.Description, "分析代码质量并识别问题")
+	if info.Manifest.Description != "A mock skill for testing" {
+		t.Errorf("Description = %q, want %q", info.Manifest.Description, "A mock skill for testing")
 	}
-	if len(info.Manifest.Tools) != 2 {
-		t.Fatalf("Tools length = %d, want 2", len(info.Manifest.Tools))
+	tools := info.Manifest.AllowedTools()
+	if len(tools) != 2 {
+		t.Fatalf("AllowedTools length = %d, want 2", len(tools))
 	}
-	if info.Manifest.Tools[0] != "/dev/fs" {
-		t.Errorf("Tools[0] = %q, want %q", info.Manifest.Tools[0], "/dev/fs")
+	if tools[0] != "/dev/fs" {
+		t.Errorf("AllowedTools[0] = %q, want %q", tools[0], "/dev/fs")
 	}
-	if info.Manifest.Tools[1] != "/dev/shell" {
-		t.Errorf("Tools[1] = %q, want %q", info.Manifest.Tools[1], "/dev/shell")
-	}
-	if info.Manifest.Models.Provider != "claude" {
-		t.Errorf("Models.Provider = %q, want %q", info.Manifest.Models.Provider, "claude")
-	}
-	if info.Manifest.Models.Preferred != "sonnet" {
-		t.Errorf("Models.Preferred = %q, want %q", info.Manifest.Models.Preferred, "sonnet")
-	}
-	if info.Manifest.Models.Fallback != "haiku" {
-		t.Errorf("Models.Fallback = %q, want %q", info.Manifest.Models.Fallback, "haiku")
-	}
-	if info.Manifest.ContextBudget != 4096 {
-		t.Errorf("ContextBudget = %d, want %d", info.Manifest.ContextBudget, 4096)
+	if tools[1] != "/dev/shell" {
+		t.Errorf("AllowedTools[1] = %q, want %q", tools[1], "/dev/shell")
 	}
 
-	// Verify instructions loaded with expected content.
-	if !strings.Contains(info.Instructions, "Code Analyst") {
-		t.Errorf("Instructions does not contain expected content, got: %q", info.Instructions)
+	// Verify body loaded with expected content.
+	if !strings.Contains(info.Body, "Mock Skill") {
+		t.Errorf("Body does not contain expected content, got: %q", info.Body)
+	}
+	if !strings.Contains(info.Body, "Responsibilities") {
+		t.Errorf("Body does not contain 'Responsibilities', got: %q", info.Body)
 	}
 }
 
-func TestSkillLoader_Load_DirNotFound(t *testing.T) {
+func TestSkillLoader_LoadMetadata_Success(t *testing.T) {
 	loader := NewSkillLoader("testdata")
-	_, err := loader.Load("nonexistent-skill")
+	info, err := loader.LoadMetadata("mock-skill")
+	if err != nil {
+		t.Fatalf("LoadMetadata returned error: %v", err)
+	}
+
+	if info.Manifest.Name != "mock-skill" {
+		t.Errorf("Name = %q, want %q", info.Manifest.Name, "mock-skill")
+	}
+	if info.Body != "" {
+		t.Errorf("Body should be empty for LoadMetadata, got: %q", info.Body)
+	}
+}
+
+func TestSkillLoader_LoadFull_DirNotFound(t *testing.T) {
+	loader := NewSkillLoader("testdata")
+	_, err := loader.LoadFull("nonexistent-skill")
 	if err == nil {
 		t.Fatal("expected error for nonexistent directory, got nil")
 	}
@@ -99,17 +126,28 @@ func TestSkillLoader_Load_DirNotFound(t *testing.T) {
 	}
 }
 
-func TestSkillLoader_Load_InvalidManifest(t *testing.T) {
+func TestSkillLoader_LoadFull_SKILLMDNotFound(t *testing.T) {
 	loader := NewSkillLoader("testdata")
-	_, err := loader.Load("invalid-manifest")
+	_, err := loader.LoadFull("no-instructions")
 	if err == nil {
-		t.Fatal("expected error for invalid manifest YAML, got nil")
+		t.Fatal("expected error for missing SKILL.md, got nil")
+	}
+	if !strings.Contains(err.Error(), "SKILL.md") {
+		t.Errorf("error should mention 'SKILL.md', got: %v", err)
 	}
 }
 
-func TestSkillLoader_Load_MissingRequiredFields(t *testing.T) {
+func TestSkillLoader_LoadFull_InvalidFrontmatter(t *testing.T) {
 	loader := NewSkillLoader("testdata")
-	_, err := loader.Load("missing-fields")
+	_, err := loader.LoadFull("invalid-manifest")
+	if err == nil {
+		t.Fatal("expected error for invalid frontmatter YAML, got nil")
+	}
+}
+
+func TestSkillLoader_LoadFull_MissingRequiredFields(t *testing.T) {
+	loader := NewSkillLoader("testdata")
+	_, err := loader.LoadFull("missing-fields")
 	if err == nil {
 		t.Fatal("expected error for missing Name field, got nil")
 	}
@@ -119,55 +157,52 @@ func TestSkillLoader_Load_MissingRequiredFields(t *testing.T) {
 	}
 }
 
-func TestSkillLoader_Load_NoInstructions(t *testing.T) {
-	loader := NewSkillLoader("testdata")
-	_, err := loader.Load("no-instructions")
-	if err == nil {
-		t.Fatal("expected error for missing instructions.md, got nil")
+func TestSkillLoader_LoadFull_RealCodeAnalysis(t *testing.T) {
+	loader := NewSkillLoader("../lib/skills")
+	info, err := loader.LoadFull("code-analysis")
+	if err != nil {
+		t.Fatalf("LoadFull returned error: %v", err)
+	}
+
+	if info.Manifest.Name != "code-analysis" {
+		t.Errorf("Name = %q, want %q", info.Manifest.Name, "code-analysis")
+	}
+
+	tools := info.Manifest.AllowedTools()
+	if len(tools) != 2 {
+		t.Fatalf("AllowedTools length = %d, want 2", len(tools))
+	}
+	if tools[0] != "/dev/fs" {
+		t.Errorf("AllowedTools[0] = %q, want %q", tools[0], "/dev/fs")
+	}
+	if tools[1] != "/dev/shell" {
+		t.Errorf("AllowedTools[1] = %q, want %q", tools[1], "/dev/shell")
+	}
+
+	if info.Body == "" {
+		t.Fatal("Body is empty")
+	}
+	keywords := []string{"Code Analysis", "/dev/fs", "/dev/shell", "Critical", "Warning", "Info"}
+	for _, kw := range keywords {
+		if !strings.Contains(info.Body, kw) {
+			t.Errorf("Body missing keyword %q", kw)
+		}
 	}
 }
 
-func TestSkillLoader_Load_RealCodeAnalyst(t *testing.T) {
-	loader := NewSkillLoader("../lib/skills")
-	info, err := loader.Load("code-analyst")
+func TestSkillLoader_LoadFull_Metadata(t *testing.T) {
+	loader := NewSkillLoader("testdata")
+	info, err := loader.LoadFull("mock-skill")
 	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
+		t.Fatalf("LoadFull returned error: %v", err)
 	}
-
-	// 3.2 验证 manifest 字段值
-	if info.Manifest.Name != "code-analyst" {
-		t.Errorf("Name = %q, want %q", info.Manifest.Name, "code-analyst")
+	if info.Manifest.Metadata == nil {
+		t.Fatal("Metadata is nil")
 	}
-	if len(info.Manifest.Tools) != 2 {
-		t.Fatalf("Tools length = %d, want 2", len(info.Manifest.Tools))
+	if info.Manifest.Metadata["author"] != "test" {
+		t.Errorf("Metadata[author] = %q, want %q", info.Manifest.Metadata["author"], "test")
 	}
-	if info.Manifest.Tools[0] != "/dev/fs" {
-		t.Errorf("Tools[0] = %q, want %q", info.Manifest.Tools[0], "/dev/fs")
-	}
-	if info.Manifest.Tools[1] != "/dev/shell" {
-		t.Errorf("Tools[1] = %q, want %q", info.Manifest.Tools[1], "/dev/shell")
-	}
-	if info.Manifest.Models.Provider != "claude" {
-		t.Errorf("Models.Provider = %q, want %q", info.Manifest.Models.Provider, "claude")
-	}
-	if info.Manifest.Models.Preferred != "sonnet" {
-		t.Errorf("Models.Preferred = %q, want %q", info.Manifest.Models.Preferred, "sonnet")
-	}
-	if info.Manifest.Models.Fallback != "haiku" {
-		t.Errorf("Models.Fallback = %q, want %q", info.Manifest.Models.Fallback, "haiku")
-	}
-	if info.Manifest.ContextBudget != 8192 {
-		t.Errorf("ContextBudget = %d, want %d", info.Manifest.ContextBudget, 8192)
-	}
-
-	// 3.3 验证 instructions 非空且包含关键指令关键词
-	if info.Instructions == "" {
-		t.Fatal("Instructions is empty")
-	}
-	keywords := []string{"Code Analyst", "/dev/fs", "/dev/shell", "Critical", "Warning", "Info"}
-	for _, kw := range keywords {
-		if !strings.Contains(info.Instructions, kw) {
-			t.Errorf("Instructions missing keyword %q", kw)
-		}
+	if info.Manifest.Metadata["version"] != "1.0" {
+		t.Errorf("Metadata[version] = %q, want %q", info.Manifest.Metadata["version"], "1.0")
 	}
 }

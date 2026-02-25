@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gonewx/crux/agents"
 	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/xsync"
-	"github.com/gonewx/crux/skills"
 	"github.com/gonewx/crux/vfs"
 )
 
@@ -76,48 +76,51 @@ type KernelCallbacks interface {
 
 // KernelImpl is the core microkernel implementation.
 type KernelImpl struct {
-	procTable   *xsync.SyncMap[types.PID, *Process]
-	vfs         *vfs.VFS
-	ctxMgr      *cruxctx.Manager
-	skillLoader *skills.SkillLoader
-	callbacks   KernelCallbacks
+	procTable *xsync.SyncMap[types.PID, *Process]
+	vfs       *vfs.VFS
+	ctxMgr    *cruxctx.Manager
+	callbacks KernelCallbacks
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
 // Pass nil for cb to run in silent mode (no progress notifications).
-// Pass nil for skillLoader when skills are not needed (backward compatible).
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, skillLoader *skills.SkillLoader, cb KernelCallbacks) *KernelImpl {
+func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl {
 	return &KernelImpl{
-		procTable:   xsync.NewSyncMap[types.PID, *Process](),
-		vfs:         v,
-		ctxMgr:      ctxMgr,
-		skillLoader: skillLoader,
-		callbacks:   cb,
+		procTable: xsync.NewSyncMap[types.PID, *Process](),
+		vfs:       v,
+		ctxMgr:    ctxMgr,
+		callbacks: cb,
 	}
 }
 
 // Spawn creates a new agent process that automatically executes the reasonStep loop.
-func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (types.PID, error) {
+func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpts) (types.PID, error) {
 	start := time.Now()
 
-	proc := NewProcess(0, intent, skills)
+	var skillNames []string
+	if agent != nil {
+		for _, s := range agent.Skills {
+			skillNames = append(skillNames, s.Manifest.Name)
+		}
+	}
+	proc := NewProcess(0, intent, skillNames)
 
-	// Load Skill if specified (AC #1, #3, #4)
-	if len(skills) > 0 && k.skillLoader != nil {
-		skillInfo, err := k.skillLoader.Load(skills[0])
-		if err != nil {
-			return 0, NewSyscallError("Spawn", proc.PID, "skill:"+skills[0], err, types.ErrNotFound)
-		}
-		proc.AllowedDevices = skillInfo.Manifest.Tools
-		// Inject instructions into system prompt
+	// Load Agent information if specified
+	if agent != nil {
+		// System prompt = Agent instructions + Skill bodies
+		agentPrompt := agent.SystemPrompt()
 		if opts.SystemPrompt == "" {
-			opts.SystemPrompt = skillInfo.Instructions
+			opts.SystemPrompt = agentPrompt
 		} else {
-			opts.SystemPrompt = opts.SystemPrompt + "\n\n" + skillInfo.Instructions
+			opts.SystemPrompt = opts.SystemPrompt + "\n\n" + agentPrompt
 		}
-		// Model selection priority: CLI --model > Skill manifest > driver default
-		if opts.Model == "" && skillInfo.Manifest.Models.Preferred != "" {
-			opts.Model = skillInfo.Manifest.Models.Preferred
+
+		// Aggregate AllowedTools from all Skills
+		proc.AllowedDevices = agent.AllowedTools()
+
+		// Model selection priority: CLI --model > Agent manifest > driver default
+		if opts.Model == "" && agent.Manifest.Models.Preferred != "" {
+			opts.Model = agent.Manifest.Models.Preferred
 		}
 	}
 
@@ -161,10 +164,10 @@ func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (type
 	// Emit Spawn syscall event
 	spawnArgs := map[string]any{
 		"intent": intent,
-		"skills": skills,
 	}
-	if len(skills) > 0 {
-		spawnArgs["loaded_skill"] = skills[0]
+	if agent != nil {
+		spawnArgs["agent"] = agent.Manifest.Name
+		spawnArgs["skills"] = skillNames
 	}
 	k.emitEvent(proc, "Spawn", spawnArgs, proc.PID, nil, time.Since(start))
 

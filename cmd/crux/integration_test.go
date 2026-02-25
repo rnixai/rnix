@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gonewx/crux/agents"
 	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/drivers/llm"
 	"github.com/gonewx/crux/internal/types"
@@ -138,7 +139,7 @@ func runE2E(t *testing.T, intent string, driver llm.LLMDriver, mode ui.OutputMod
 	vfsInst := vfs.NewVFS(devReg)
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
 	ctxMgr := cruxctx.NewManager()
-	kern := kernel.NewKernel(vfsInst, ctxMgr, nil, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	start := time.Now()
 	pid, err := kern.Spawn(intent, nil, kernel.SpawnOpts{})
@@ -393,7 +394,7 @@ func TestSignalHandling_GracefulShutdown(t *testing.T) {
 		}, nil
 	})
 	ctxMgr := cruxctx.NewManager()
-	kern := kernel.NewKernel(vfsInst, ctxMgr, nil, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	pid, err := kern.Spawn("signal test", nil, kernel.SpawnOpts{})
 	if err != nil {
@@ -490,7 +491,7 @@ func TestSignalHandling_InterruptSummary(t *testing.T) {
 		}, nil
 	})
 	ctxMgr := cruxctx.NewManager()
-	kern := kernel.NewKernel(vfsInst, ctxMgr, nil, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	pid, err := kern.Spawn("signal test", nil, kernel.SpawnOpts{})
 	if err != nil {
@@ -557,7 +558,7 @@ func TestSignalHandling_DoubleInterruptForceExit(t *testing.T) {
 		}, nil
 	})
 	ctxMgr := cruxctx.NewManager()
-	kern := kernel.NewKernel(vfsInst, ctxMgr, nil, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	pid, err := kern.Spawn("double signal test", nil, kernel.SpawnOpts{})
 	if err != nil {
@@ -636,7 +637,7 @@ func (d *capturingMockLLMDriver) Info() llm.DriverInfo {
 	return llm.DriverInfo{Name: "mock-capturing", Provider: "test", DefaultModel: "mock"}
 }
 
-func TestE2E_WithSkill_InjectsInstructions(t *testing.T) {
+func TestE2E_WithAgent_InjectsInstructions(t *testing.T) {
 	driver := &mockLLMDriver{
 		response: &llm.LLMResponse{Content: "skill result", TokensUsed: 50},
 	}
@@ -655,12 +656,24 @@ func TestE2E_WithSkill_InjectsInstructions(t *testing.T) {
 	vfsInst := vfs.NewVFS(devReg)
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
 	ctxMgr := cruxctx.NewManager()
-	sl := skills.NewSkillLoader("../../skills/testdata")
-	kern := kernel.NewKernel(vfsInst, ctxMgr, sl, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
-	skillsList := []string{"mock-skill"}
+	agentInfo := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{Name: "test-agent"},
+		Instructions: "You are a test agent.",
+		Skills: []*skills.SkillInfo{
+			{
+				Manifest: skills.SkillManifest{
+					Name:            "mock-skill",
+					AllowedToolsRaw: "/dev/fs /dev/shell",
+				},
+				Body: "Mock skill instructions",
+			},
+		},
+	}
+
 	start := time.Now()
-	pid, err := kern.Spawn("analyze code", skillsList, kernel.SpawnOpts{})
+	pid, err := kern.Spawn("analyze code", agentInfo, kernel.SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -678,9 +691,9 @@ func TestE2E_WithSkill_InjectsInstructions(t *testing.T) {
 	elapsed := time.Since(start)
 	outputSuccess(renderer, ui.ModeDefault, pid, proc, elapsed)
 
-	// Verify skill AllowedDevices set from manifest
+	// Verify skill AllowedDevices set from agent's aggregated tools
 	if len(proc.AllowedDevices) != 2 {
-		t.Errorf("expected 2 AllowedDevices from mock-skill, got %d: %v", len(proc.AllowedDevices), proc.AllowedDevices)
+		t.Errorf("expected 2 AllowedDevices from agent skills, got %d: %v", len(proc.AllowedDevices), proc.AllowedDevices)
 	}
 
 	// Verify result in output
@@ -690,9 +703,9 @@ func TestE2E_WithSkill_InjectsInstructions(t *testing.T) {
 	}
 }
 
-// --- Story 2.5: Real code-analyst Skill E2E Test ---
+// --- Story 2.6: Real code-analyst Agent E2E Test ---
 
-func TestE2E_CodeAnalystSkill(t *testing.T) {
+func TestE2E_CodeAnalystAgent(t *testing.T) {
 	driver := &capturingMockLLMDriver{
 		response: &llm.LLMResponse{Content: "分析完成: 发现 1 个 Warning 级别问题", TokensUsed: 200},
 	}
@@ -711,12 +724,17 @@ func TestE2E_CodeAnalystSkill(t *testing.T) {
 	vfsInst := vfs.NewVFS(devReg)
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
 	ctxMgr := cruxctx.NewManager()
-	sl := skills.NewSkillLoader("../../lib/skills")
-	kern := kernel.NewKernel(vfsInst, ctxMgr, sl, cb)
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
-	skillsList := []string{"code-analyst"}
+	sl := skills.NewSkillLoader("../../lib/skills")
+	al := agents.NewAgentLoader("../../lib/agents", sl)
+	agentInfo, err := al.Load("code-analyst")
+	if err != nil {
+		t.Fatalf("AgentLoader.Load failed: %v", err)
+	}
+
 	start := time.Now()
-	pid, err := kern.Spawn("分析 ./kernel/kernel.go", skillsList, kernel.SpawnOpts{})
+	pid, err := kern.Spawn("分析 ./kernel/kernel.go", agentInfo, kernel.SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -734,19 +752,19 @@ func TestE2E_CodeAnalystSkill(t *testing.T) {
 	elapsed := time.Since(start)
 	outputSuccess(renderer, ui.ModeDefault, pid, proc, elapsed)
 
-	// 4.3 验证 Skill instructions 被正确注入到 LLM 请求的 system prompt
+	// 验证 Agent instructions + Skill body 被正确注入到 LLM 请求的 system prompt
 	lastReq := driver.LastRequest()
 	if !strings.Contains(lastReq.SystemPrompt, "Code Analyst") {
-		t.Errorf("SystemPrompt missing 'Code Analyst', got: %q", lastReq.SystemPrompt)
+		t.Errorf("SystemPrompt missing 'Code Analyst' from agent instructions, got: %q", lastReq.SystemPrompt)
 	}
 	if !strings.Contains(lastReq.SystemPrompt, "/dev/fs") {
-		t.Errorf("SystemPrompt missing '/dev/fs' tool guide")
+		t.Errorf("SystemPrompt missing '/dev/fs' from skill body")
 	}
 	if !strings.Contains(lastReq.SystemPrompt, "/dev/shell") {
-		t.Errorf("SystemPrompt missing '/dev/shell' tool guide")
+		t.Errorf("SystemPrompt missing '/dev/shell' from skill body")
 	}
 
-	// 4.4 验证 AllowedDevices 限制为 ["/dev/fs", "/dev/shell"]
+	// 验证 AllowedDevices 从 Skill 聚合
 	if len(proc.AllowedDevices) != 2 {
 		t.Fatalf("expected 2 AllowedDevices, got %d: %v", len(proc.AllowedDevices), proc.AllowedDevices)
 	}
@@ -757,7 +775,7 @@ func TestE2E_CodeAnalystSkill(t *testing.T) {
 		t.Errorf("AllowedDevices[1] = %q, want %q", proc.AllowedDevices[1], "/dev/shell")
 	}
 
-	// 4.5 验证模型自动选择为 "sonnet"（来自 manifest.models.preferred）
+	// 验证模型自动选择为 "sonnet"（来自 agent.yaml models.preferred）
 	if lastReq.Model != "sonnet" {
 		t.Errorf("Model = %q, want %q", lastReq.Model, "sonnet")
 	}

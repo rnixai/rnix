@@ -3,13 +3,13 @@ package kernel
 import (
 	gocontext "context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gonewx/crux/agents"
 	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/skills"
@@ -98,7 +98,7 @@ func newTestKernel(llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manage
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil, nil)
+	k := NewKernel(v, ctxMgr, nil)
 	return k, v, ctxMgr
 }
 
@@ -120,13 +120,40 @@ func makeToolCallResponse(toolPath string, toolData map[string]any, tokens int) 
 	return makeLLMResponse(string(content), tokens)
 }
 
-// --- Existing kernel tests (updated for new NewKernel signature) ---
+// testAgentInfo creates a test AgentInfo mimicking the mock-skill behavior.
+func testAgentInfo() *agents.AgentInfo {
+	return &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Name: "test-agent",
+			Models: agents.AgentModels{
+				Provider:  "claude",
+				Preferred: "sonnet",
+				Fallback:  "haiku",
+			},
+			ContextBudget: 4096,
+			Skills:        []string{"mock-skill"},
+		},
+		Instructions: "# Code Analyst\n\nYou are a code analysis agent.",
+		Skills: []*skills.SkillInfo{
+			{
+				Manifest: skills.SkillManifest{
+					Name:            "mock-skill",
+					Description:     "A mock skill for testing",
+					AllowedToolsRaw: "/dev/fs /dev/shell",
+				},
+				Body: "# Mock Skill\n\nReview source files for quality issues.",
+			},
+		},
+	}
+}
+
+// --- Existing kernel tests ---
 
 func newSimpleKernel() *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	return NewKernel(v, ctxMgr, nil, nil)
+	return NewKernel(v, ctxMgr, nil)
 }
 
 func TestNewKernel(t *testing.T) {
@@ -274,7 +301,7 @@ func TestSpawn_Success(t *testing.T) {
 	}
 	k, _, ctxMgr := newTestKernel(llmFile)
 
-	pid, err := k.Spawn("test intent", []string{"skill1"}, SpawnOpts{})
+	pid, err := k.Spawn("test intent", nil, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -351,7 +378,7 @@ func TestSpawn_VFSOpenFailure(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
 	_, err := k.Spawn("test", nil, SpawnOpts{})
 	if err == nil {
@@ -365,7 +392,7 @@ func TestSpawn_DebugChanEvents(t *testing.T) {
 	}
 	k, _, _ := newTestKernel(llmFile)
 
-	pid, err := k.Spawn("debug intent", []string{"s1"}, SpawnOpts{})
+	pid, err := k.Spawn("debug intent", nil, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -466,7 +493,7 @@ func TestReasonStep_ToolCallAction(t *testing.T) {
 
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
 	pid, err := k.Spawn("read a file", nil, SpawnOpts{})
 	if err != nil {
@@ -586,7 +613,7 @@ func TestReasonStep_ContextCancellation(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
 	pid, err := k.Spawn("test cancel", nil, SpawnOpts{})
 	if err != nil {
@@ -657,7 +684,7 @@ func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
 	pid, err := k.Spawn("loop forever", nil, SpawnOpts{MaxTurns: 3})
 	if err != nil {
@@ -751,9 +778,9 @@ func TestSpawn_Integration(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
-	pid, err := k.Spawn("integration test", []string{"skill-a", "skill-b"}, SpawnOpts{
+	pid, err := k.Spawn("integration test", nil, SpawnOpts{
 		SystemPrompt: "You are a test agent",
 		Model:        "claude-test",
 	})
@@ -825,7 +852,7 @@ func TestSpawn_Integration(t *testing.T) {
 	}
 }
 
-// --- Process Table Consistency Tests (Story 1.8, Task 5, AC #4) ---
+// --- Process Table Consistency Tests ---
 
 // assertProcessTableConsistency verifies all processes in the table have consistent state.
 func assertProcessTableConsistency(t *testing.T, k *KernelImpl) {
@@ -919,7 +946,7 @@ func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
 	var pids []types.PID
 	var procs []*Process
@@ -977,7 +1004,7 @@ func TestProcessTableConsistency_ConcurrentSpawn(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
 	var wg sync.WaitGroup
 	pidCh := make(chan types.PID, n)
@@ -1040,36 +1067,16 @@ func TestProcessTableConsistency_ConcurrentSpawn(t *testing.T) {
 	}
 }
 
-// --- Story 2.4: Skill Injection and Device Permission Whitelist Tests ---
+// --- Story 2.6: Agent Injection and Device Permission Whitelist Tests ---
 
-// newTestKernelWithSkill creates a kernel with mock LLM device and a real SkillLoader.
-func newTestKernelWithSkill(llmFile vfs.VFSFile, extraDevices map[string]vfs.VFSFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manager) {
-	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
-		return llmFile, nil
-	})
-	for path, file := range extraDevices {
-		f := file // capture for closure
-		_ = reg.Register(path, func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
-			return f, nil
-		})
-	}
-	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
-	sl := skills.NewSkillLoader("../skills/testdata")
-	k := NewKernel(v, ctxMgr, sl, nil)
-	return k, v, ctxMgr
-}
-
-// Task 6.1: Spawn with Skill tests
-
-func TestSpawn_WithSkill_InjectsInstructions(t *testing.T) {
+func TestSpawn_WithAgent_InjectsInstructions(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("done", 10),
 	}
-	k, _, ctxMgr := newTestKernelWithSkill(llmFile, nil)
+	k, _, ctxMgr := newTestKernel(llmFile)
 
-	pid, err := k.Spawn("analyze code", []string{"mock-skill"}, SpawnOpts{})
+	agent := testAgentInfo()
+	pid, err := k.Spawn("analyze code", agent, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -1089,15 +1096,20 @@ func TestSpawn_WithSkill_InjectsInstructions(t *testing.T) {
 	if !strings.Contains(prompt.SystemPrompt, "Code Analyst") {
 		t.Errorf("expected system prompt to contain 'Code Analyst', got %q", prompt.SystemPrompt)
 	}
+	// Also verify skill body is in system prompt
+	if !strings.Contains(prompt.SystemPrompt, "Mock Skill") {
+		t.Errorf("expected system prompt to contain 'Mock Skill' from skill body, got %q", prompt.SystemPrompt)
+	}
 }
 
-func TestSpawn_WithSkill_SetsAllowedDevices(t *testing.T) {
+func TestSpawn_WithAgent_SetsAllowedDevices(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("done", 10),
 	}
-	k, _, _ := newTestKernelWithSkill(llmFile, nil)
+	k, _, _ := newTestKernel(llmFile)
 
-	pid, err := k.Spawn("test", []string{"mock-skill"}, SpawnOpts{})
+	agent := testAgentInfo()
+	pid, err := k.Spawn("test", agent, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -1109,7 +1121,7 @@ func TestSpawn_WithSkill_SetsAllowedDevices(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	// mock-skill manifest declares tools: ["/dev/fs", "/dev/shell"]
+	// AllowedDevices aggregated from agent skills (sorted)
 	if len(proc.AllowedDevices) != 2 {
 		t.Fatalf("expected 2 AllowedDevices, got %d: %v", len(proc.AllowedDevices), proc.AllowedDevices)
 	}
@@ -1118,20 +1130,26 @@ func TestSpawn_WithSkill_SetsAllowedDevices(t *testing.T) {
 	}
 }
 
-func TestSpawn_WithSkill_ModelSelection(t *testing.T) {
-	// Test 1: Skill preferred model used when CLI model is empty
+func TestSpawn_WithAgent_ModelSelection(t *testing.T) {
+	// Test 1: Agent preferred model used when CLI model is empty
 	var capturedReq llmRequest
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("done", 10),
 	}
-	// Override Write to capture the request
 	captureLLM := &capturingLLMFile{
 		inner:       llmFile,
 		capturedReq: &capturedReq,
 	}
-	k, _, _ := newTestKernelWithSkill(captureLLM, nil)
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return captureLLM, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
 
-	pid, err := k.Spawn("test model", []string{"mock-skill"}, SpawnOpts{})
+	agent := testAgentInfo()
+	pid, err := k.Spawn("test model", agent, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -1143,12 +1161,12 @@ func TestSpawn_WithSkill_ModelSelection(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	// mock-skill manifest has models.preferred: "sonnet"
+	// Agent manifest has models.preferred: "sonnet"
 	if capturedReq.Model != "sonnet" {
-		t.Errorf("expected model 'sonnet' from skill manifest, got %q", capturedReq.Model)
+		t.Errorf("expected model 'sonnet' from agent manifest, got %q", capturedReq.Model)
 	}
 
-	// Test 2: CLI model overrides Skill model
+	// Test 2: CLI model overrides Agent model
 	llmFile2 := &mockLLMFile{
 		readData: makeLLMResponse("done", 10),
 	}
@@ -1157,16 +1175,15 @@ func TestSpawn_WithSkill_ModelSelection(t *testing.T) {
 		inner:       llmFile2,
 		capturedReq: &capturedReq2,
 	}
-	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	reg2 := vfs.NewDeviceRegistry()
+	_ = reg2.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
 		return captureLLM2, nil
 	})
-	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
-	sl := skills.NewSkillLoader("../skills/testdata")
-	k2 := NewKernel(v, ctxMgr, sl, nil)
+	v2 := vfs.NewVFS(reg2)
+	ctxMgr2 := cruxctx.NewManager()
+	k2 := NewKernel(v2, ctxMgr2, nil)
 
-	pid2, err := k2.Spawn("test model override", []string{"mock-skill"}, SpawnOpts{Model: "opus"})
+	pid2, err := k2.Spawn("test model override", agent, SpawnOpts{Model: "opus"})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -1178,36 +1195,17 @@ func TestSpawn_WithSkill_ModelSelection(t *testing.T) {
 	}
 
 	if capturedReq2.Model != "opus" {
-		t.Errorf("expected CLI model 'opus' to override skill, got %q", capturedReq2.Model)
+		t.Errorf("expected CLI model 'opus' to override agent, got %q", capturedReq2.Model)
 	}
 }
 
-func TestSpawn_WithSkill_NotFound(t *testing.T) {
+func TestSpawn_WithoutAgent_AllDevicesAllowed(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("done", 10),
 	}
-	k, _, _ := newTestKernelWithSkill(llmFile, nil)
+	k, _, _ := newTestKernel(llmFile)
 
-	_, err := k.Spawn("test", []string{"nonexistent-skill"}, SpawnOpts{})
-	if err == nil {
-		t.Fatal("expected error for nonexistent skill")
-	}
-	var sysErr *SyscallError
-	if !errors.As(err, &sysErr) {
-		t.Fatalf("expected *SyscallError, got %T: %v", err, err)
-	}
-	if sysErr.Code != types.ErrNotFound {
-		t.Errorf("expected ErrNotFound, got %q", sysErr.Code)
-	}
-}
-
-func TestSpawn_WithoutSkill_AllDevicesAllowed(t *testing.T) {
-	llmFile := &mockLLMFile{
-		readData: makeLLMResponse("done", 10),
-	}
-	k, _, _ := newTestKernelWithSkill(llmFile, nil)
-
-	pid, err := k.Spawn("test no skill", nil, SpawnOpts{})
+	pid, err := k.Spawn("test no agent", nil, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -1220,16 +1218,13 @@ func TestSpawn_WithoutSkill_AllDevicesAllowed(t *testing.T) {
 	}
 
 	if len(proc.AllowedDevices) != 0 {
-		t.Errorf("expected empty AllowedDevices for no-skill mode, got %v", proc.AllowedDevices)
+		t.Errorf("expected empty AllowedDevices for no-agent mode, got %v", proc.AllowedDevices)
 	}
 }
 
-// Task 6.2: Permission check tests
+// Permission check tests
 
 func TestReasonStep_PermissionDenied_WhenDeviceNotInWhitelist(t *testing.T) {
-	// LLM tries to use /dev/llm/claude (not in allowed list [/dev/fs, /dev/shell])
-	// First response: tool_call to /dev/llm/claude (denied)
-	// Second response: text (completes)
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
 			makeToolCallResponse("/dev/llm/claude", map[string]any{}, 10),
@@ -1243,10 +1238,10 @@ func TestReasonStep_PermissionDenied_WhenDeviceNotInWhitelist(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	sl := skills.NewSkillLoader("../skills/testdata")
-	k := NewKernel(v, ctxMgr, sl, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
-	pid, err := k.Spawn("test perm denied", []string{"mock-skill"}, SpawnOpts{})
+	agent := testAgentInfo()
+	pid, err := k.Spawn("test perm denied", agent, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -1286,7 +1281,6 @@ drained:
 }
 
 func TestReasonStep_PermissionAllowed_WhenDeviceInWhitelist(t *testing.T) {
-	// LLM calls /dev/fs (in allowed list), then returns text
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
 			makeToolCallResponse("/dev/fs", map[string]any{"path": "/test"}, 10),
@@ -1305,10 +1299,10 @@ func TestReasonStep_PermissionAllowed_WhenDeviceInWhitelist(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	sl := skills.NewSkillLoader("../skills/testdata")
-	k := NewKernel(v, ctxMgr, sl, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
-	pid, err := k.Spawn("test perm allowed", []string{"mock-skill"}, SpawnOpts{})
+	agent := testAgentInfo()
+	pid, err := k.Spawn("test perm allowed", agent, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -1329,7 +1323,6 @@ func TestReasonStep_PermissionAllowed_WhenDeviceInWhitelist(t *testing.T) {
 }
 
 func TestReasonStep_PrefixMatch_AllowsSubpath(t *testing.T) {
-	// LLM calls /dev/fs/path/to/file (prefix matches /dev/fs in whitelist)
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
 			makeToolCallResponse("/dev/fs/path/to/file", map[string]any{}, 10),
@@ -1348,10 +1341,10 @@ func TestReasonStep_PrefixMatch_AllowsSubpath(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	sl := skills.NewSkillLoader("../skills/testdata")
-	k := NewKernel(v, ctxMgr, sl, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
-	pid, err := k.Spawn("test prefix match", []string{"mock-skill"}, SpawnOpts{})
+	agent := testAgentInfo()
+	pid, err := k.Spawn("test prefix match", agent, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
@@ -1372,7 +1365,6 @@ func TestReasonStep_PrefixMatch_AllowsSubpath(t *testing.T) {
 }
 
 func TestReasonStep_NoWhitelist_AllowsAll(t *testing.T) {
-	// No skill → AllowedDevices is empty → all devices allowed
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
 			makeToolCallResponse("/dev/any/device", map[string]any{}, 10),
@@ -1391,7 +1383,7 @@ func TestReasonStep_NoWhitelist_AllowsAll(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil, nil) // No skill loader
+	k := NewKernel(v, ctxMgr, nil) // No agent
 
 	pid, err := k.Spawn("test no whitelist", nil, SpawnOpts{})
 	if err != nil {
@@ -1414,8 +1406,6 @@ func TestReasonStep_NoWhitelist_AllowsAll(t *testing.T) {
 }
 
 func TestReasonStep_PathTraversal_Blocked(t *testing.T) {
-	// LLM tries path traversal: /dev/fs/../llm/claude resolves to /dev/llm/claude
-	// mock-skill allows ["/dev/fs", "/dev/shell"], so /dev/llm/claude should be denied
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
 			makeToolCallResponse("/dev/fs/../llm/claude", map[string]any{}, 10),
@@ -1429,10 +1419,10 @@ func TestReasonStep_PathTraversal_Blocked(t *testing.T) {
 	})
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	sl := skills.NewSkillLoader("../skills/testdata")
-	k := NewKernel(v, ctxMgr, sl, nil)
+	k := NewKernel(v, ctxMgr, nil)
 
-	pid, err := k.Spawn("test traversal", []string{"mock-skill"}, SpawnOpts{})
+	agent := testAgentInfo()
+	pid, err := k.Spawn("test traversal", agent, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}

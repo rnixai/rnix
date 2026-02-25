@@ -1,0 +1,7 @@
+name: bad-skill-ref
+description: "Agent referencing nonexistent skill"
+models:
+  provider: claude
+  preferred: sonnet
+skills:
+  - nonexistent-skill
