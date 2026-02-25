@@ -46,10 +46,11 @@ type Process struct {
 	TokensUsed int                       // cumulative token consumption
 	AllowedDevices []string              // nil/empty = all devices allowed; non-empty = whitelist only
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	ctx    context.Context
-	wg     sync.WaitGroup
+	mu       sync.Mutex
+	cancel   context.CancelFunc
+	ctx      context.Context
+	wg       sync.WaitGroup
+	reapOnce sync.Once // ensures reap executes at most once
 }
 
 // NewProcess creates a new process in the Created state with a unique PID.
@@ -137,4 +138,32 @@ func (p *Process) Cancel() {
 	if p.cancel != nil {
 		p.cancel()
 	}
+}
+
+// AddChild appends a child PID to the Children slice (thread-safe).
+func (p *Process) AddChild(pid types.PID) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Children = append(p.Children, pid)
+}
+
+// RemoveChild removes a child PID from the Children slice (thread-safe).
+func (p *Process) RemoveChild(pid types.PID) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i, c := range p.Children {
+		if c == pid {
+			p.Children = append(p.Children[:i], p.Children[i+1:]...)
+			return
+		}
+	}
+}
+
+// GetChildren returns a copy of the Children slice (thread-safe).
+func (p *Process) GetChildren() []types.PID {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	result := make([]types.PID, len(p.Children))
+	copy(result, p.Children)
+	return result
 }

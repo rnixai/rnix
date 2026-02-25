@@ -1,6 +1,6 @@
 # Story 4.2: 孤儿进程 reparent 与 Zombie 自动回收
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -26,51 +26,51 @@ So that 系统不会积累无主进程或资源泄漏。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 添加 Children 管理方法到 Process (AC: #1, #4)
-  - [ ] 1.1 在 `kernel/process.go` 添加 `AddChild(pid types.PID)` 方法（在 `proc.mu` 保护下追加到 Children 切片）
-  - [ ] 1.2 添加 `RemoveChild(pid types.PID)` 方法（在 `proc.mu` 保护下从 Children 切片移除）
-  - [ ] 1.3 添加 `GetChildren() []types.PID` 方法（在 `proc.mu` 保护下返回 Children 切片的副本）
-  - [ ] 1.4 在 `kernel/process_test.go` 添加 Children 管理单元测试（AddChild、RemoveChild、并发安全）
+- [x] Task 1: 添加 Children 管理方法到 Process (AC: #1, #4)
+  - [x] 1.1 在 `kernel/process.go` 添加 `AddChild(pid types.PID)` 方法（在 `proc.mu` 保护下追加到 Children 切片）
+  - [x] 1.2 添加 `RemoveChild(pid types.PID)` 方法（在 `proc.mu` 保护下从 Children 切片移除）
+  - [x] 1.3 添加 `GetChildren() []types.PID` 方法（在 `proc.mu` 保护下返回 Children 切片的副本）
+  - [x] 1.4 在 `kernel/process_test.go` 添加 Children 管理单元测试（AddChild、RemoveChild、并发安全）
 
-- [ ] Task 2: 更新 Spawn 支持父子进程追踪 (AC: #1, #4)
-  - [ ] 2.1 在 `SpawnOpts` 结构体中添加 `ParentPID types.PID` 字段（默认 0 表示顶层进程）
-  - [ ] 2.2 修改 `Spawn` 方法：当 `opts.ParentPID > 0` 时，设置 `proc.PPID = opts.ParentPID`
-  - [ ] 2.3 修改 `Spawn` 方法：当 `opts.ParentPID > 0` 时，查找父进程并调用 `parent.AddChild(proc.PID)`
-  - [ ] 2.4 验证父进程存在，不存在则返回 `*SyscallError{Code: ErrNotFound}`
-  - [ ] 2.5 在 `kernel/kernel_test.go` 添加 Spawn 父子追踪测试
+- [x] Task 2: 更新 Spawn 支持父子进程追踪 (AC: #1, #4)
+  - [x] 2.1 在 `SpawnOpts` 结构体中添加 `ParentPID types.PID` 字段（默认 0 表示顶层进程）
+  - [x] 2.2 修改 `Spawn` 方法：当 `opts.ParentPID > 0` 时，设置 `proc.PPID = opts.ParentPID`
+  - [x] 2.3 修改 `Spawn` 方法：当 `opts.ParentPID > 0` 时，查找父进程并调用 `parent.AddChild(proc.PID)`
+  - [x] 2.4 验证父进程存在，不存在则返回 `*SyscallError{Code: ErrNotFound}`
+  - [x] 2.5 在 `kernel/kernel_test.go` 添加 Spawn 父子追踪测试
 
-- [ ] Task 3: 提取 reap 逻辑为共享 helper (AC: #2, #3)
-  - [ ] 3.1 在 `kernel/reap.go` 提取 Wait 中的资源释放序列为 `reapProcess(proc *Process)` 内部方法
-  - [ ] 3.2 `reapProcess` 执行完整释放序列：cancel → wg.Wait → emitEvent → close(DebugChan) → CtxFree → Reap → RemoveProcess
-  - [ ] 3.3 `reapProcess` 检查进程是否仍在进程表中且为 Zombie，否则跳过（防止重复 reap）
-  - [ ] 3.4 重构 `Wait` 使用 `reapProcess`，保持行为不变
-  - [ ] 3.5 运行现有 Wait 测试确认重构无回归
+- [x] Task 3: 提取 reap 逻辑为共享 helper (AC: #2, #3)
+  - [x] 3.1 在 `kernel/reap.go` 提取 Wait 中的资源释放序列为 `reapProcess(proc *Process)` 内部方法
+  - [x] 3.2 `reapProcess` 执行完整释放序列：cancel → wg.Wait → emitEvent → close(DebugChan) → CtxFree → Reap → RemoveProcess
+  - [x] 3.3 `reapProcess` 检查进程是否仍在进程表中且为 Zombie，否则跳过（防止重复 reap）
+  - [x] 3.4 重构 `Wait` 使用 `reapProcess`，保持行为不变
+  - [x] 3.5 运行现有 Wait 测试确认重构无回归
 
-- [ ] Task 4: 实现孤儿进程 reparent (AC: #1, #5)
-  - [ ] 4.1 在 `kernel/reap.go` 添加 `handleOrphanChildren(proc *Process)` 内部方法
-  - [ ] 4.2 在 Wait 的资源释放序列中、RemoveProcess 之前调用 `handleOrphanChildren`
-  - [ ] 4.3 handleOrphanChildren 遍历 `proc.GetChildren()`，对每个子进程：
+- [x] Task 4: 实现孤儿进程 reparent (AC: #1, #5)
+  - [x] 4.1 在 `kernel/reap.go` 添加 `handleOrphanChildren(proc *Process)` 内部方法
+  - [x] 4.2 在 Wait 的资源释放序列中、RemoveProcess 之前调用 `handleOrphanChildren`
+  - [x] 4.3 handleOrphanChildren 遍历 `proc.GetChildren()`，对每个子进程：
     - Running 状态：设置 `child.PPID = 0`（reparent 到 init/kernel）
     - Zombie 状态：推送到 `reapCh` 通道进行自动回收
-  - [ ] 4.4 reparent 时写入 SyscallEvent（DebugChan 非 nil 时）
-  - [ ] 4.5 在 `kernel/reap_test.go` 添加孤儿 reparent 单元测试
+  - [x] 4.4 reparent 时写入 SyscallEvent（DebugChan 非 nil 时）
+  - [x] 4.5 在 `kernel/reap_test.go` 添加孤儿 reparent 单元测试
 
-- [ ] Task 5: 实现 Zombie 自动回收 Reaper (AC: #2, #3, #5)
-  - [ ] 5.1 在 `KernelImpl` 添加 `reapCh chan types.PID`（缓冲 64）、`stopCh chan struct{}`、`reaperWg sync.WaitGroup` 字段
-  - [ ] 5.2 实现 `startReaper()` 方法：启动后台 goroutine，从 `reapCh` 读取 PID 并调用 `reapProcess`
-  - [ ] 5.3 实现 `stopReaper()` 方法：关闭 `stopCh`，等待 `reaperWg.Done()`
-  - [ ] 5.4 在 `finishProcess` 中添加孤儿检测：进程变 Zombie 后，检查父进程是否在进程表中，不在则推送到 `reapCh`
-  - [ ] 5.5 在 `NewKernel` 中调用 `startReaper()`
-  - [ ] 5.6 添加 `Shutdown()` 方法到 `KernelImpl`（停止 reaper + 清理）
-  - [ ] 5.7 在 `kernel/reap_test.go` 添加自动回收单元测试
+- [x] Task 5: 实现 Zombie 自动回收 Reaper (AC: #2, #3, #5)
+  - [x] 5.1 在 `KernelImpl` 添加 `reapCh chan types.PID`（缓冲 64）、`stopCh chan struct{}`、`reaperWg sync.WaitGroup` 字段
+  - [x] 5.2 实现 `startReaper()` 方法：启动后台 goroutine，从 `reapCh` 读取 PID 并调用 `reapProcess`
+  - [x] 5.3 实现 `stopReaper()` 方法：关闭 `stopCh`，等待 `reaperWg.Done()`
+  - [x] 5.4 在 `finishProcess` 中添加孤儿检测：进程变 Zombie 后，检查父进程是否在进程表中，不在则推送到 `reapCh`
+  - [x] 5.5 在 `NewKernel` 中调用 `startReaper()`
+  - [x] 5.6 添加 `Shutdown()` 方法到 `KernelImpl`（停止 reaper + 清理）
+  - [x] 5.7 在 `kernel/reap_test.go` 添加自动回收单元测试
 
-- [ ] Task 6: 综合测试 (AC: #1, #2, #3, #4, #6)
-  - [ ] 6.1 测试完整流程：Parent Spawn Child → Parent Finish → Child Reparent → Child Finish → Auto-Reap
-  - [ ] 6.2 测试多子进程场景：父进程有 3 个子进程（1 Running + 1 Zombie + 1 已完成）
-  - [ ] 6.3 测试进程表一致性：异常退出后无悬挂 PID（NFR9）
-  - [ ] 6.4 测试资源释放时效：验证 goroutine/context 在 10 秒内释放（NFR8）
-  - [ ] 6.5 测试并发安全：多个进程同时退出，reaper 并发处理
-  - [ ] 6.6 运行 `go test -race ./...` 和 `go vet ./...` 确认全部通过
+- [x] Task 6: 综合测试 (AC: #1, #2, #3, #4, #6)
+  - [x] 6.1 测试完整流程：Parent Spawn Child → Parent Finish → Child Reparent → Child Finish → Auto-Reap
+  - [x] 6.2 测试多子进程场景：父进程有 3 个子进程（1 Running + 1 Zombie + 1 已完成）
+  - [x] 6.3 测试进程表一致性：异常退出后无悬挂 PID（NFR9）
+  - [x] 6.4 测试资源释放时效：验证 goroutine/context 在 10 秒内释放（NFR8）
+  - [x] 6.5 测试并发安全：多个进程同时退出，reaper 并发处理
+  - [x] 6.6 运行 `go test -race ./...` 和 `go vet ./...` 确认全部通过
 
 ## Dev Notes
 
@@ -694,10 +694,27 @@ cmd/crux/integration_test.go — 可选添加集成测试
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+无异常。所有测试一次通过。
+
 ### Completion Notes List
 
+- Task 1: 在 `kernel/process.go` 添加了 `AddChild`、`RemoveChild`、`GetChildren` 三个线程安全方法，以及 `reapOnce sync.Once` 字段用于后续 reap 幂等性保证。对应测试覆盖并发安全场景。
+- Task 2: 在 `SpawnOpts` 添加 `ParentPID` 字段，`Spawn` 方法在 `ParentPID > 0` 时验证父进程存在并维护 `parent.AddChild(child.PID)` 关系。不存在返回 `ErrNotFound`。
+- Task 3: 从 `Wait` 提取完整资源释放序列到 `reapProcess`（使用 `sync.Once` 保证幂等），同时实现 `handleOrphanChildren` 处理孤儿子进程。`Wait` 重构为调用 `reapProcess`，现有 6 个 Wait 测试全部无回归通过。
+- Task 4: `handleOrphanChildren` 在 reapProcess 中 RemoveProcess 之前执行。Running 子进程 reparent 到 PID 0，Zombie 子进程推送到 `reapCh` 自动回收。Reparent 操作写入 SyscallEvent。
+- Task 5: `KernelImpl` 添加 `reapCh`（缓冲 64）、`stopCh`、`reaperWg`。`NewKernel` 初始化并启动 reaper goroutine。`finishProcess` 添加孤儿检测：PPID > 0 且父进程不在表中时推送到 `reapCh`。`Shutdown` 方法停止 reaper 并排空 reapCh。
+- Task 6: 综合测试覆盖完整生命周期、多子进程场景（Running+Zombie+Dead）、进程表一致性（NFR9）、资源释放时效（NFR8）、并发安全。`go test -race ./...` 和 `go vet ./...` 全部通过。
+
 ### File List
+
+**修改文件：**
+- `kernel/process.go` — 添加 AddChild/RemoveChild/GetChildren 方法 + reapOnce 字段
+- `kernel/kernel.go` — 修改 KernelImpl（reaper 字段）、NewKernel（reaper 初始化）、SpawnOpts（ParentPID）、Spawn（父子追踪）、finishProcess（孤儿检测）+ sync import
+- `kernel/reap.go` — 重构 Wait 使用 reapProcess + 新增 reapProcess/handleOrphanChildren/startReaper/Shutdown
+- `kernel/process_test.go` — 添加 Children 管理单元测试（AddChild/RemoveChild/GetChildren/并发安全）
+- `kernel/kernel_test.go` — 添加 Spawn 父子追踪测试 + 现有 Wait 测试添加 defer k.Shutdown()
+- `kernel/reap_test.go` — 添加 defer k.Shutdown() + 孤儿 reparent 测试 + auto-reap 测试 + 综合集成测试
