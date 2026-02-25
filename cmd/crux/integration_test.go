@@ -1269,3 +1269,175 @@ func TestAstraceCmd_JSONModeBypassesFormatter(t *testing.T) {
 		}
 	}
 }
+
+// --- Story 4.1: Kill + Wait Integration Tests ---
+
+func TestE2E_KillWait_FullLifecycle(t *testing.T) {
+	// Spawn → Kill → Wait → verify full resource release
+	blockCh := make(chan struct{})
+
+	w := &syncWriter{}
+	renderer := &ui.Renderer{
+		Writer:     w,
+		OutputMode: ui.ModeDefault,
+		Profile:    ui.TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+	}
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	cb := &cliCallbacks{progress: progress}
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &blockingVFSFile{
+			blockCh:  blockCh,
+			readData: []byte(`{"content":"interrupted","tokens_used":1}`),
+		}, nil
+	})
+	ctxMgr := cruxctx.NewManager()
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+
+	pid, err := kern.Spawn("kill-wait lifecycle", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found after Spawn")
+	}
+	ctxID := proc.CtxID
+
+	// Let goroutine start and block on Write
+	time.Sleep(50 * time.Millisecond)
+
+	// Kill the process
+	if err := kern.Kill(pid, types.SIGTERM); err != nil {
+		t.Fatalf("Kill failed: %v", err)
+	}
+
+	// Unblock LLM so goroutine can detect cancellation
+	close(blockCh)
+
+	// Wait for full cleanup
+	exit, err := kern.Wait(pid)
+	if err != nil {
+		t.Fatalf("Wait failed: %v", err)
+	}
+
+	t.Logf("exit code: %d, reason: %s", exit.Code, exit.Reason)
+
+	// Verify process removed from table
+	_, ok = kern.GetProcess(pid)
+	if ok {
+		t.Error("process should be removed from table after Wait")
+	}
+
+	// Verify context freed
+	_, ctxErr := ctxMgr.BuildPrompt(ctxID)
+	if ctxErr == nil {
+		t.Error("context should be freed after Wait")
+	}
+
+	// Verify process state is Dead
+	if proc.GetState() != types.StateDead {
+		t.Errorf("expected Dead state, got %d", proc.GetState())
+	}
+}
+
+func TestE2E_KillWait_ReasonStepExits(t *testing.T) {
+	// After Kill, reasonStep loop should detect cancellation and exit
+	blockCh := make(chan struct{})
+
+	w := &syncWriter{}
+	renderer := &ui.Renderer{
+		Writer:     w,
+		OutputMode: ui.ModeDefault,
+		Profile:    ui.TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+	}
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	cb := &cliCallbacks{progress: progress}
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &blockingVFSFile{
+			blockCh:  blockCh,
+			readData: []byte(`{"content":"should not reach","tokens_used":1}`),
+		}, nil
+	})
+	ctxMgr := cruxctx.NewManager()
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+
+	pid, err := kern.Spawn("reasonstep exit test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	// Let goroutine start
+	time.Sleep(50 * time.Millisecond)
+
+	// Kill
+	_ = kern.Kill(pid, types.SIGKILL)
+	close(blockCh)
+
+	// Wait
+	exit, err := kern.Wait(pid)
+	if err != nil {
+		t.Fatalf("Wait failed: %v", err)
+	}
+
+	// The process should have been cancelled
+	t.Logf("exit: code=%d reason=%q", exit.Code, exit.Reason)
+}
+
+func TestE2E_KillWait_RaceDetection(t *testing.T) {
+	// Run go test -race: verify no data races in Kill+Wait flow
+	driver := &mockLLMDriver{
+		response: &llm.LLMResponse{Content: "race test", TokensUsed: 1},
+	}
+
+	w := &syncWriter{}
+	renderer := &ui.Renderer{
+		Writer:     w,
+		OutputMode: ui.ModeDefault,
+		Profile:    ui.TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+	}
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	cb := &cliCallbacks{progress: progress}
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
+	ctxMgr := cruxctx.NewManager()
+	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
+
+	pid, err := kern.Spawn("race test", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	// Wait with Kill running concurrently
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = kern.Wait(pid)
+	}()
+
+	// Try Kill (may or may not beat Wait)
+	_ = kern.Kill(pid, types.SIGTERM)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// Process should be cleaned up
+	_, ok := kern.GetProcess(pid)
+	if ok {
+		t.Error("process should be removed after Wait")
+	}
+}

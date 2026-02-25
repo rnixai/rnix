@@ -75,6 +75,17 @@ type KernelCallbacks interface {
 	OnError(pid types.PID, err error)
 }
 
+// ProcessManager defines the kernel's process management interface.
+// Kill and Wait are added in Story 4.1; GetPID and PS are deferred to Story 4.4.
+type ProcessManager interface {
+	Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpts) (types.PID, error)
+	Kill(pid types.PID, signal types.Signal) error
+	Wait(pid types.PID) (ExitStatus, error)
+}
+
+// Compile-time interface compliance check.
+var _ ProcessManager = (*KernelImpl)(nil)
+
 // KernelImpl is the core microkernel implementation.
 type KernelImpl struct {
 	procTable *xsync.SyncMap[types.PID, *Process]
@@ -223,13 +234,18 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 // emitEvent sends a SyscallEvent to the process DebugChan (non-blocking).
 // This is a convenience wrapper that auto-fills process info (PID, Timestamp)
 // and delegates to debug.EmitEvent for the actual non-blocking write.
+// Holds proc.mu during the send to prevent races with Wait's close(DebugChan).
 func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]any, result any, err error, duration time.Duration) {
-	if proc.DebugChan == nil {
+	proc.mu.Lock()
+	ch := proc.DebugChan
+	if ch == nil {
+		proc.mu.Unlock()
 		return
 	}
 	event := debug.NewEvent(proc.PID, proc.CreatedAt, syscall, args)
 	debug.CompleteEvent(&event, result, err, duration)
-	debug.EmitEvent(proc.DebugChan, event)
+	debug.EmitEvent(ch, event)
+	proc.mu.Unlock()
 }
 
 // finishProcess terminates the process and writes the exit status to the Done channel.
@@ -549,6 +565,45 @@ func (k *KernelImpl) GetProcess(pid types.PID) (*Process, bool) {
 // RemoveProcess removes a process from the process table.
 func (k *KernelImpl) RemoveProcess(pid types.PID) {
 	k.procTable.Delete(pid)
+}
+
+// Kill sends a signal to the target process.
+// If the process is already Zombie or Dead, Kill is a no-op (idempotent).
+// Returns *SyscallError with ErrNotFound if the PID does not exist.
+func (k *KernelImpl) Kill(pid types.PID, signal types.Signal) error {
+	start := time.Now()
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return NewSyscallError("Kill", pid, "", fmt.Errorf("process not found"), types.ErrNotFound)
+	}
+
+	// Emit entry event
+	k.emitEvent(proc, "Kill", map[string]any{
+		"pid":    pid,
+		"signal": signal,
+	}, nil, nil, 0)
+
+	state := proc.GetState()
+	if state == types.StateZombie || state == types.StateDead {
+		// Idempotent: already stopped
+		k.emitEvent(proc, "Kill", map[string]any{
+			"pid":    pid,
+			"signal": signal,
+			"action": "noop",
+		}, nil, nil, time.Since(start))
+		return nil
+	}
+
+	proc.Cancel()
+
+	k.emitEvent(proc, "Kill", map[string]any{
+		"pid":    pid,
+		"signal": signal,
+		"action": "cancelled",
+	}, nil, nil, time.Since(start))
+
+	return nil
 }
 
 // ListProcesses returns all processes currently in the process table.
