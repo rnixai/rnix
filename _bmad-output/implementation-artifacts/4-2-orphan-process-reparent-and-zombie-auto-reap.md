@@ -1,6 +1,6 @@
 # Story 4.2: 孤儿进程 reparent 与 Zombie 自动回收
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -709,12 +709,34 @@ Claude Opus 4.6
 - Task 5: `KernelImpl` 添加 `reapCh`（缓冲 64）、`stopCh`、`reaperWg`。`NewKernel` 初始化并启动 reaper goroutine。`finishProcess` 添加孤儿检测：PPID > 0 且父进程不在表中时推送到 `reapCh`。`Shutdown` 方法停止 reaper 并排空 reapCh。
 - Task 6: 综合测试覆盖完整生命周期、多子进程场景（Running+Zombie+Dead）、进程表一致性（NFR9）、资源释放时效（NFR8）、并发安全。`go test -race ./...` 和 `go vet ./...` 全部通过。
 
+### Senior Developer Review (AI)
+
+**Reviewer:** Amelia (Dev Agent — Code Review Mode)
+**Date:** 2026-02-26
+**Model:** Claude Opus 4.6
+
+**Issues Found:** 3 High, 3 Medium, 2 Low
+**Issues Fixed:** 6 (3 High + 3 Medium)
+**Action Items:** 0
+
+**Fixes Applied:**
+
+1. **H1 — finishProcess PPID 读取竞态** (`kernel/kernel.go`): `finishProcess` 中 `proc.PPID` 读取未持锁，与 `handleOrphanChildren` 的 reparent 写入存在数据竞争。修复：在 `proc.mu` 下读取 PPID 到局部变量。
+2. **H2 — 30+ 现有测试缺少 Shutdown** (`kernel/kernel_test.go`): `NewKernel` 启动 reaper goroutine，但大量 Story 1-3 遗留测试未调用 `Shutdown()` 导致 goroutine 泄漏。修复：`newTestKernel`/`newSimpleKernel` 改为接受 `testing.TB` 并注册 `t.Cleanup(k.Shutdown)`；所有直接 `NewKernel` 调用添加 `defer k.Shutdown()`。
+3. **H3 — Shutdown() 可重入 panic** (`kernel/reap.go`): `close(stopCh)` 二次调用 panic。修复：`KernelImpl` 添加 `shutdownOnce sync.Once`，`Shutdown` 在 `Once.Do` 中 close。
+4. **M1 — 缺少 reapOnce 并发测试** (`kernel/reap_test.go`): 新增 `TestReapOnce_ConcurrentReapProcess`，10 goroutine 并发 reapProcess 验证只执行一次清理。
+5. **M3 — 缺少 Shutdown 排空测试** (`kernel/reap_test.go`): 新增 `TestShutdown_DrainsReapCh`，验证 Shutdown 时 reapCh 残留 PID 被正确处理。新增 `TestShutdown_Idempotent`，验证多次调用不 panic。
+
+**Unfixed (Low, acceptable):**
+- L1: Dev Agent Record File List 声明已更正
+- L2: `blockingLLMFile.closed` 非线程安全（Story 4.1 遗留，不属本 Story 范围）
+
 ### File List
 
 **修改文件：**
 - `kernel/process.go` — 添加 AddChild/RemoveChild/GetChildren 方法 + reapOnce 字段
-- `kernel/kernel.go` — 修改 KernelImpl（reaper 字段）、NewKernel（reaper 初始化）、SpawnOpts（ParentPID）、Spawn（父子追踪）、finishProcess（孤儿检测）+ sync import
-- `kernel/reap.go` — 重构 Wait 使用 reapProcess + 新增 reapProcess/handleOrphanChildren/startReaper/Shutdown
+- `kernel/kernel.go` — 修改 KernelImpl（reaper 字段 + shutdownOnce）、NewKernel（reaper 初始化）、SpawnOpts（ParentPID）、Spawn（父子追踪）、finishProcess（孤儿检测 PPID 加锁读取）+ sync import
+- `kernel/reap.go` — 重构 Wait 使用 reapProcess + 新增 reapProcess/handleOrphanChildren/startReaper/Shutdown（幂等）
 - `kernel/process_test.go` — 添加 Children 管理单元测试（AddChild/RemoveChild/GetChildren/并发安全）
-- `kernel/kernel_test.go` — 添加 Spawn 父子追踪测试 + 现有 Wait 测试添加 defer k.Shutdown()
-- `kernel/reap_test.go` — 添加 defer k.Shutdown() + 孤儿 reparent 测试 + auto-reap 测试 + 综合集成测试
+- `kernel/kernel_test.go` — 添加 Spawn 父子追踪测试 + newTestKernel/newSimpleKernel 接受 testing.TB 并注册 t.Cleanup(k.Shutdown) + 所有直接 NewKernel 调用添加 defer k.Shutdown()
+- `kernel/reap_test.go` — 添加 defer k.Shutdown() + 孤儿 reparent 测试 + auto-reap 测试 + 综合集成测试 + reapOnce 并发测试 + Shutdown 排空测试 + Shutdown 幂等测试

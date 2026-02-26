@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ func TestWait_NormalCompletion(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("wait result", 10),
 	}
-	k, _, ctxMgr := newTestKernel(llmFile)
+	k, _, ctxMgr := newTestKernel(t, llmFile)
 	defer k.Shutdown()
 
 	pid, err := k.Spawn("wait test", nil, SpawnOpts{})
@@ -105,7 +106,7 @@ func TestWait_KillThenWait(t *testing.T) {
 }
 
 func TestWait_PIDNotFound(t *testing.T) {
-	k := newSimpleKernel()
+	k := newSimpleKernel(t)
 	defer k.Shutdown()
 
 	_, err := k.Wait(9999)
@@ -130,7 +131,7 @@ func TestWait_ResourceRelease(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("release test", 5),
 	}
-	k, _, ctxMgr := newTestKernel(llmFile)
+	k, _, ctxMgr := newTestKernel(t, llmFile)
 	defer k.Shutdown()
 
 	pid, err := k.Spawn("resource test", nil, SpawnOpts{})
@@ -233,7 +234,7 @@ func TestWait_SyscallEvent(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("event wait", 1),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 	defer k.Shutdown()
 
 	pid, err := k.Spawn("wait event test", nil, SpawnOpts{})
@@ -832,7 +833,7 @@ func TestIntegration_ProcessTableConsistency(t *testing.T) {
 func TestIntegration_ResourceReleaseTimeliness(t *testing.T) {
 	// 6.4: Verify goroutine/context released within 10 seconds (NFR8)
 	llmFile := &mockLLMFile{readData: makeLLMResponse("nfr8 test", 1)}
-	k, _, ctxMgr := newTestKernel(llmFile)
+	k, _, ctxMgr := newTestKernel(t, llmFile)
 	defer k.Shutdown()
 
 	pid, _ := k.Spawn("nfr8", nil, SpawnOpts{})
@@ -910,4 +911,97 @@ func TestIntegration_ConcurrentExits(t *testing.T) {
 			}
 		}
 	}
+}
+
+// --- Story 4.2 Review: Additional coverage tests ---
+
+func TestReapOnce_ConcurrentReapProcess(t *testing.T) {
+	// M1: Verify reapOnce prevents double resource release when
+	// multiple goroutines call reapProcess on the same process concurrently.
+	llmFile := &mockLLMFile{readData: makeLLMResponse("reaponce test", 1)}
+	k, _, ctxMgr := newTestKernel(t, llmFile)
+
+	pid, err := k.Spawn("reaponce", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	ctxID := proc.CtxID
+
+	// Wait for process to become Zombie
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process to finish")
+	}
+
+	if proc.GetState() != types.StateZombie {
+		t.Fatalf("expected Zombie, got %d", proc.GetState())
+	}
+
+	// Launch multiple goroutines to reapProcess concurrently
+	const n = 10
+	var wg sync.WaitGroup
+	for i := range n {
+		_ = i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			k.reapProcess(proc)
+		}()
+	}
+	wg.Wait()
+
+	// Verify process was reaped exactly once
+	if proc.GetState() != types.StateDead {
+		t.Errorf("expected Dead, got %d", proc.GetState())
+	}
+	if _, ok := k.GetProcess(pid); ok {
+		t.Error("process should be removed from table")
+	}
+	if _, err := ctxMgr.BuildPrompt(ctxID); err == nil {
+		t.Error("context should be freed")
+	}
+}
+
+func TestShutdown_DrainsReapCh(t *testing.T) {
+	// M3: Verify Shutdown drains remaining PIDs in reapCh before exiting.
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &mockLLMFile{readData: makeLLMResponse("drain test", 1)}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+
+	// Spawn a process, let it complete to Zombie
+	pid, err := k.Spawn("drain", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	// Manually push PID into reapCh (simulating orphan detection)
+	k.reapCh <- pid
+
+	// Shutdown should drain reapCh and reap the zombie
+	k.Shutdown()
+
+	if _, ok := k.GetProcess(pid); ok {
+		t.Error("process should be reaped during Shutdown drain")
+	}
+}
+
+func TestShutdown_Idempotent(t *testing.T) {
+	// H3: Verify Shutdown can be called multiple times without panic.
+	k := newSimpleKernel(t)
+	k.Shutdown()
+	k.Shutdown() // must not panic
+	k.Shutdown() // must not panic
 }
