@@ -2038,3 +2038,148 @@ func TestSpawn_ZeroParentPID_NoTracking(t *testing.T) {
 		t.Errorf("expected PPID 0, got %d", proc.PPID)
 	}
 }
+
+// ========== Story 4.3: GetProcInfo / ListProcs Tests ==========
+
+func TestGetProcInfo_ReturnsSnapshot(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	proc := NewProcess(0, "test intent", []string{"skill-a", "skill-b"})
+	proc.AllowedDevices = []string{"/dev/fs"}
+	_ = proc.Start()
+	k.AddProcess(proc)
+
+	info, err := k.GetProcInfo(proc.PID)
+	if err != nil {
+		t.Fatalf("GetProcInfo failed: %v", err)
+	}
+
+	if info.PID != proc.PID {
+		t.Errorf("PID: got %d, want %d", info.PID, proc.PID)
+	}
+	if info.PPID != 0 {
+		t.Errorf("PPID: got %d, want 0", info.PPID)
+	}
+	if info.State != types.StateRunning {
+		t.Errorf("State: got %d, want %d", info.State, types.StateRunning)
+	}
+	if info.Intent != "test intent" {
+		t.Errorf("Intent: got %q, want %q", info.Intent, "test intent")
+	}
+	if len(info.Skills) != 2 || info.Skills[0] != "skill-a" {
+		t.Errorf("Skills: got %v, want [skill-a, skill-b]", info.Skills)
+	}
+	if len(info.AllowedDevices) != 1 || info.AllowedDevices[0] != "/dev/fs" {
+		t.Errorf("AllowedDevices: got %v, want [/dev/fs]", info.AllowedDevices)
+	}
+}
+
+func TestGetProcInfo_NotFound(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	_, err := k.GetProcInfo(types.PID(9999))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var vfsErr *vfs.VFSError
+	if !errors.As(err, &vfsErr) {
+		t.Fatalf("expected *vfs.VFSError, got %T: %v", err, err)
+	}
+	if vfsErr.Code != types.ErrNotFound {
+		t.Errorf("code: got %q, want %q", vfsErr.Code, types.ErrNotFound)
+	}
+}
+
+func TestGetProcInfo_PID0NotFound(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	_, err := k.GetProcInfo(types.PID(0))
+	if err == nil {
+		t.Fatal("expected error for PID 0, got nil")
+	}
+}
+
+func TestGetProcInfo_MutableFieldsUnderLock(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	proc := NewProcess(0, "mutable test", nil)
+	_ = proc.Start()
+	k.AddProcess(proc)
+
+	// Modify mutable fields
+	proc.mu.Lock()
+	proc.TokensUsed = 500
+	proc.Result = "done"
+	proc.mu.Unlock()
+
+	info, err := k.GetProcInfo(proc.PID)
+	if err != nil {
+		t.Fatalf("GetProcInfo failed: %v", err)
+	}
+	if info.TokensUsed != 500 {
+		t.Errorf("TokensUsed: got %d, want 500", info.TokensUsed)
+	}
+	if info.Result != "done" {
+		t.Errorf("Result: got %q, want %q", info.Result, "done")
+	}
+}
+
+func TestListProcs_ReturnsAll(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	proc1 := NewProcess(0, "intent 1", nil)
+	_ = proc1.Start()
+	k.AddProcess(proc1)
+
+	proc2 := NewProcess(0, "intent 2", []string{"skill-x"})
+	_ = proc2.Start()
+	k.AddProcess(proc2)
+
+	infos := k.ListProcs()
+	if len(infos) != 2 {
+		t.Fatalf("ListProcs: got %d, want 2", len(infos))
+	}
+
+	pids := map[types.PID]bool{}
+	for _, info := range infos {
+		pids[info.PID] = true
+	}
+	if !pids[proc1.PID] || !pids[proc2.PID] {
+		t.Errorf("ListProcs missing PIDs: got %v", pids)
+	}
+}
+
+func TestListProcs_Empty(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	infos := k.ListProcs()
+	if len(infos) != 0 {
+		t.Errorf("ListProcs: got %d, want 0", len(infos))
+	}
+}
+
+func TestGetProcInfo_ConcurrentSafe(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	proc := NewProcess(0, "concurrent", nil)
+	_ = proc.Start()
+	k.AddProcess(proc)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			info, err := k.GetProcInfo(proc.PID)
+			if err != nil {
+				t.Errorf("GetProcInfo failed: %v", err)
+				return
+			}
+			if info.PID != proc.PID {
+				t.Errorf("unexpected PID: %d", info.PID)
+			}
+		}()
+	}
+	wg.Wait()
+}

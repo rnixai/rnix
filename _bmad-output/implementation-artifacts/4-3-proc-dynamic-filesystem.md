@@ -1,6 +1,6 @@
 # Story 4.3: /proc 动态文件系统
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -26,56 +26,56 @@ So that 我可以程序化地获取进程信息（为 `crux ps` 和未来诊断�
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 定义 ProcessInfoProvider 接口和 ProcInfo 数据结构 (AC: #5)
-  - [ ] 1.1 在 `vfs/proc.go` 中定义 `ProcessInfoProvider` 接口（`GetProcInfo(pid) (*ProcInfo, error)` + `ListProcs() []ProcInfo`）
-  - [ ] 1.2 在 `vfs/proc.go` 中定义 `ProcInfo` 结构体（PID、PPID、State、Intent、Skills、TokensUsed、CreatedAt、CtxID、Result、AllowedDevices）
-  - [ ] 1.3 定义 `ContextSummaryProvider` 接口（`GetContextSummary(ctxID types.CtxID) (string, error)`），用于获取上下文摘要
+- [x] Task 1: 定义 ProcessInfoProvider 接口和 ProcInfo 数据结构 (AC: #5)
+  - [x] 1.1 在 `vfs/proc.go` 中定义 `ProcessInfoProvider` 接口（`GetProcInfo(pid) (*ProcInfo, error)` + `ListProcs() []ProcInfo`）
+  - [x] 1.2 在 `vfs/proc.go` 中定义 `ProcInfo` 结构体（PID、PPID、State、Intent、Skills、TokensUsed、CreatedAt、CtxID、Result、AllowedDevices）
+  - [x] 1.3 定义 `ContextSummaryProvider` 接口（`GetContextSummary(ctxID types.CtxID) (string, error)`），用于获取上下文摘要
 
-- [ ] Task 2: 实现 ProcFS 驱动 (AC: #1, #2, #3, #4)
-  - [ ] 2.1 在 `vfs/proc.go` 实现 `ProcFS` 结构体，持有 `ProcessInfoProvider` 和 `ContextSummaryProvider`
-  - [ ] 2.2 实现 `NewProcFS(provider, ctxProvider)` 构造函数
-  - [ ] 2.3 实现 `FileFactory() VFSFileFactory` 方法——解析 subpath `/{pid}/{file}` 格式
-  - [ ] 2.4 实现 subpath 解析逻辑：提取 PID（字符串→数字）和文件名（status/intent/context）
-  - [ ] 2.5 无效路径格式返回 `*VFSError{Code: ErrNotFound}`
-  - [ ] 2.6 不支持的文件名（非 status/intent/context）返回 `*VFSError{Code: ErrNotFound}`
+- [x] Task 2: 实现 ProcFS 驱动 (AC: #1, #2, #3, #4)
+  - [x] 2.1 在 `vfs/proc.go` 实现 `ProcFS` 结构体，持有 `ProcessInfoProvider` 和 `ContextSummaryProvider`
+  - [x] 2.2 实现 `NewProcFS(provider, ctxProvider)` 构造函数
+  - [x] 2.3 实现 `FileFactory() VFSFileFactory` 方法——解析 subpath `/{pid}/{file}` 格式
+  - [x] 2.4 实现 subpath 解析逻辑：提取 PID（字符串→数字）和文件名（status/intent/context）
+  - [x] 2.5 无效路径格式返回 `*VFSError{Code: ErrNotFound}`
+  - [x] 2.6 不支持的文件名（非 status/intent/context）返回 `*VFSError{Code: ErrNotFound}`
 
-- [ ] Task 3: 实现 procFile（只读 VFSFile）(AC: #1, #2, #3)
-  - [ ] 3.1 实现 `procFile` 结构体——持有预计算的 `content []byte` 和读取偏移
-  - [ ] 3.2 实现 `Read(length)` — 返回内容（支持部分读取）
-  - [ ] 3.3 实现 `Write(ctx, data)` — 返回只读错误（`/proc is read-only`）
-  - [ ] 3.4 实现 `Close()` — 返回 nil（无资源需释放）
-  - [ ] 3.5 实现 `Stat()` — 返回 FileStat（Name=虚拟路径，Size=内容长度）
+- [x] Task 3: 实现 procFile（只读 VFSFile）(AC: #1, #2, #3)
+  - [x] 3.1 实现 `procFile` 结构体——持有预计算的 `content []byte` 和读取偏移
+  - [x] 3.2 实现 `Read(length)` — 返回内容（支持部分读取）
+  - [x] 3.3 实现 `Write(ctx, data)` — 返回只读错误（`/proc is read-only`）
+  - [x] 3.4 实现 `Close()` — 返回 nil（无资源需释放）
+  - [x] 3.5 实现 `Stat()` — 返回 FileStat（Name=虚拟路径，Size=内容长度）
 
-- [ ] Task 4: 实现三种虚拟文件内容生成 (AC: #1, #2, #3)
-  - [ ] 4.1 实现 `buildStatusJSON(info *ProcInfo)` — 生成 JSON 格式状态（pid、state、ppid、intent、skills、tokens_used、elapsed_ms、allowed_devices）
-  - [ ] 4.2 实现 `buildIntent(info *ProcInfo)` — 直接返回 intent 文本
-  - [ ] 4.3 实现 `buildContext(ctxProvider, ctxID)` — 调用 ContextSummaryProvider 获取上下文摘要
+- [x] Task 4: 实现三种虚拟文件内容生成 (AC: #1, #2, #3)
+  - [x] 4.1 实现 `buildStatusJSON(info *ProcInfo)` — 生成 JSON 格式状态（pid、state、ppid、intent、skills、tokens_used、elapsed_ms、allowed_devices）
+  - [x] 4.2 实现 `buildIntent(info *ProcInfo)` — 直接返回 intent 文本
+  - [x] 4.3 实现 `buildContext(ctxProvider, ctxID)` — 调用 ContextSummaryProvider 获取上下文摘要
 
-- [ ] Task 5: 在 KernelImpl 实现 ProcessInfoProvider (AC: #5)
-  - [ ] 5.1 在 `kernel/kernel.go` 添加 `GetProcInfo(pid) (*vfs.ProcInfo, error)` 方法
-  - [ ] 5.2 在 `kernel/kernel.go` 添加 `ListProcs() []vfs.ProcInfo` 方法
-  - [ ] 5.3 从 Process 字段安全提取信息（在 `proc.mu` 保护下读取可变字段）
+- [x] Task 5: 在 KernelImpl 实现 ProcessInfoProvider (AC: #5)
+  - [x] 5.1 在 `kernel/kernel.go` 添加 `GetProcInfo(pid) (*vfs.ProcInfo, error)` 方法
+  - [x] 5.2 在 `kernel/kernel.go` 添加 `ListProcs() []vfs.ProcInfo` 方法
+  - [x] 5.3 从 Process 字段安全提取信息（在 `proc.mu` 保护下读取可变字段）
 
-- [ ] Task 6: 在 Context Manager 实现 ContextSummaryProvider (AC: #3)
-  - [ ] 6.1 在 `context/context.go` 添加 `GetContextSummary(ctxID) (string, error)` 方法
-  - [ ] 6.2 返回上下文中的消息数量、system prompt 长度、最近消息预览等摘要信息
+- [x] Task 6: 在 Context Manager 实现 ContextSummaryProvider (AC: #3)
+  - [x] 6.1 在 `context/context.go` 添加 `GetContextSummary(ctxID) (string, error)` 方法
+  - [x] 6.2 返回上下文中的消息数量、system prompt 长度、最近消息预览等摘要信息
 
-- [ ] Task 7: 注册 ProcFS 到 DeviceRegistry (AC: #1, #2, #3)
-  - [ ] 7.1 在 `cmd/crux/main.go` 的 `runRoot` 中：创建 ProcFS 实例并注册到 `/proc`
-  - [ ] 7.2 在 `cmd/crux/main.go` 的 `initKernel` 中：同样注册 ProcFS（用于 astrace 等子命令）
-  - [ ] 7.3 确保注册顺序：先创建 kernel，再创建 ProcFS（需要 kernel 作为 provider）
+- [x] Task 7: 注册 ProcFS 到 DeviceRegistry (AC: #1, #2, #3)
+  - [x] 7.1 在 `cmd/crux/main.go` 的 `runRoot` 中：创建 ProcFS 实例并注册到 `/proc`
+  - [x] 7.2 在 `cmd/crux/main.go` 的 `initKernel` 中：同样注册 ProcFS（用于 astrace 等子命令）
+  - [x] 7.3 确保注册顺序：先创建 kernel，再创建 ProcFS（需要 kernel 作为 provider）
 
-- [ ] Task 8: 单元测试 (AC: #1, #2, #3, #4, #5, #6)
-  - [ ] 8.1 在 `vfs/proc_test.go` 中用 mock ProcessInfoProvider 测试 ProcFS
-  - [ ] 8.2 测试 `/proc/{pid}/status` — 验证 JSON 格式、字段完整性
-  - [ ] 8.3 测试 `/proc/{pid}/intent` — 验证返回原始意图文本
-  - [ ] 8.4 测试 `/proc/{pid}/context` — 验证返回上下文摘要
-  - [ ] 8.5 测试 PID 不存在 — 验证返回 ErrNotFound
-  - [ ] 8.6 测试无效路径格式 — 验证错误处理（非数字 PID、不支持的文件名、空路径）
-  - [ ] 8.7 测试 Write 拒绝 — 验证 /proc 只读
-  - [ ] 8.8 测试 kernel GetProcInfo/ListProcs — 在 `kernel/kernel_test.go` 中验证
-  - [ ] 8.9 测试并发读取 — 多 goroutine 同时读 /proc 无竞态
-  - [ ] 8.10 运行 `go test -race ./...` 和 `go vet ./...` 确认全部通过
+- [x] Task 8: 单元测试 (AC: #1, #2, #3, #4, #5, #6)
+  - [x] 8.1 在 `vfs/proc_test.go` 中用 mock ProcessInfoProvider 测试 ProcFS
+  - [x] 8.2 测试 `/proc/{pid}/status` — 验证 JSON 格式、字段完整性
+  - [x] 8.3 测试 `/proc/{pid}/intent` — 验证返回原始意图文本
+  - [x] 8.4 测试 `/proc/{pid}/context` — 验证返回上下文摘要
+  - [x] 8.5 测试 PID 不存在 — 验证返回 ErrNotFound
+  - [x] 8.6 测试无效路径格式 — 验证错误处理（非数字 PID、不支持的文件名、空路径）
+  - [x] 8.7 测试 Write 拒绝 — 验证 /proc 只读
+  - [x] 8.8 测试 kernel GetProcInfo/ListProcs — 在 `kernel/kernel_test.go` 中验证
+  - [x] 8.9 测试并发读取 — 多 goroutine 同时读 /proc 无竞态
+  - [x] 8.10 运行 `go test -race ./...` 和 `go vet ./...` 确认全部通过
 
 ## Dev Notes
 
@@ -579,10 +579,29 @@ debug/*                  — astrace 不变
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- Task 1-4: 在 `vfs/proc.go` 中实现了完整的 ProcFS 驱动，包括 `ProcessInfoProvider`/`ContextSummaryProvider` 接口、`ProcInfo` 结构体、`ProcFS` 驱动（FileFactory + subpath 解析）、`procFile` 只读文件（Read/Write/Close/Stat）、三种虚拟文件内容生成器（status JSON、intent 文本、context 摘要）
+- Task 5: 在 `kernel/kernel.go` 添加 `GetProcInfo`/`ListProcs` 方法，在 `proc.mu` 保护下安全读取可变字段（State、TokensUsed、Result），返回值类型快照避免并发问题
+- Task 6: 在 `context/context.go` 添加 `GetContextSummary` 方法，返回消息计数（按角色分类）、system prompt 长度、最近消息预览（截断至 80 字符）
+- Task 7: 在 `cmd/crux/main.go` 的 `runRoot` 和 `initKernel` 中注册 ProcFS 到 `/proc`，确保注册顺序（kernel 先于 ProcFS 创建）
+- Task 8: 全面的单元测试覆盖——`vfs/proc_test.go` 17 个测试用例（mock provider、JSON 验证、intent/context/错误路径/只读/并发/偏移），`kernel/kernel_test.go` 7 个新测试用例（GetProcInfo 快照/NotFound/PID0/可变字段/ListProcs/并发安全），`context/context_test.go` 5 个新测试用例（基本摘要/空上下文/NotFound/长消息截断/tool 消息）
+- 设计决策：接口定义在消费方 `vfs/` 中（Go 惯例），通过鸭子类型满足；`ProcInfo` 为值类型快照；nil skills/allowed_devices 序列化为 `[]` 而非 `null`；status JSON 使用 snake_case
+- `go test -race ./...` 全部通过，`go vet ./...` 无警告
+
 ### File List
+
+**新增文件：**
+- `vfs/proc.go` — ProcFS 驱动 + 接口定义 + ProcInfo + procFile + 内容生成器
+- `vfs/proc_test.go` — ProcFS 单元测试（17 个测试用例）
+
+**修改文件：**
+- `kernel/kernel.go` — 添加 GetProcInfo/ListProcs 方法
+- `kernel/kernel_test.go` — 添加 GetProcInfo/ListProcs 测试（7 个测试用例）
+- `context/context.go` — 添加 GetContextSummary 方法 + strings import
+- `context/context_test.go` — 添加 GetContextSummary 测试（5 个测试用例）+ strings import
+- `cmd/crux/main.go` — runRoot 和 initKernel 注册 ProcFS 到 /proc
