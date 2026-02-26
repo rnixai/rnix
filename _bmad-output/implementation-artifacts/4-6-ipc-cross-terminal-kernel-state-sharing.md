@@ -1,6 +1,6 @@
 # Story 4.6: IPC 跨终端内核状态共享
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -34,59 +34,59 @@ So that Crux 的多终端管理体验与 Unix 系统行为一致——进程在�
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: IPC 协议定义与共享类型 (AC: ALL)
-  - [ ] 1.1 创建 `ipc/` 包，定义 `protocol.go`：Request/Response 类型、Method 枚举（Ping/Spawn/ListProcs/Kill/AttachDebug/Shutdown）
-  - [ ] 1.2 定义 SpawnRequest/SpawnResponse、ListProcsResponse、KillRequest、AttachDebugRequest 等协议消息类型
-  - [ ] 1.3 定义流式消息类型：ProgressEvent（OnSpawn/OnStep/OnComplete/OnError 映射）、SyscallEvent 转发
-  - [ ] 1.4 socket 路径解析逻辑：`$XDG_RUNTIME_DIR/crux/crux.sock`，fallback `/tmp/crux-$UID/crux.sock`
+- [x] Task 1: IPC 协议定义与共享类型 (AC: ALL)
+  - [x] 1.1 创建 `ipc/` 包，定义 `protocol.go`：Request/Response 类型、Method 枚举（Ping/Spawn/ListProcs/Kill/AttachDebug/Shutdown）
+  - [x] 1.2 定义 SpawnRequest/SpawnResponse、ListProcsResponse、KillRequest、AttachDebugRequest 等协议消息类型
+  - [x] 1.3 定义流式消息类型：ProgressEvent（OnSpawn/OnStep/OnComplete/OnError 映射）、SyscallEvent 转发
+  - [x] 1.4 socket 路径解析逻辑：`$XDG_RUNTIME_DIR/crux/crux.sock`，fallback `/tmp/crux-$UID/crux.sock`
 
-- [ ] Task 2: IPC Server（daemon 端） (AC: #1, #2, #3, #6, #7)
-  - [ ] 2.1 创建 `ipc/server.go`：`Server` 结构体，持有 kernel 实例引用，监听 Unix socket
-  - [ ] 2.2 实现连接处理循环：accept → 解析请求 → 路由到 handler → 写回响应
-  - [ ] 2.3 实现 `handleSpawn`：接收 SpawnRequest，调用 kernel.Spawn，启动 goroutine 监听 Done channel 并流式推送 ProgressEvent 给客户端
-  - [ ] 2.4 实现 `handleListProcs`：调用 kernel.ListProcs，序列化为 ListProcsResponse
-  - [ ] 2.5 实现 `handleKill`：调用 kernel.Kill，返回结果
-  - [ ] 2.6 实现 `handleAttachDebug`：获取 Process.DebugChan，启动 goroutine 转发 SyscallEvent 给客户端连接
-  - [ ] 2.7 实现空闲检测与自动关闭：跟踪活跃连接数和进程数，空闲 60 秒后触发 Shutdown
-  - [ ] 2.8 实现优雅停止：SIGINT/SIGTERM → 停止接受新连接 → 等待活跃连接完成 → 清理 socket 文件
+- [x] Task 2: IPC Server（daemon 端） (AC: #1, #2, #3, #6, #7)
+  - [x] 2.1 创建 `ipc/server.go`：`Server` 结构体，持有 kernel 实例引用，监听 Unix socket
+  - [x] 2.2 实现连接处理循环：accept → 解析请求 → 路由到 handler → 写回响应
+  - [x] 2.3 实现 `handleSpawn`：接收 SpawnRequest，调用 kernel.Spawn，启动 goroutine 监听 Done channel 并流式推送 ProgressEvent 给客户端
+  - [x] 2.4 实现 `handleListProcs`：调用 kernel.ListProcs，序列化为 ListProcsResponse
+  - [x] 2.5 实现 `handleKill`：调用 kernel.Kill，返回结果
+  - [x] 2.6 实现 `handleAttachDebug`：获取 Process.DebugChan，启动 goroutine 转发 SyscallEvent 给客户端连接
+  - [x] 2.7 实现空闲检测与自动关闭：跟踪活跃连接数和进程数，空闲 60 秒后触发 Shutdown
+  - [x] 2.8 实现优雅停止：SIGINT/SIGTERM → 停止接受新连接 → 等待活跃连接完成 → 清理 socket 文件
 
-- [ ] Task 3: IPC Client (AC: #1, #2, #3, #4, #8)
-  - [ ] 3.1 创建 `ipc/client.go`：`Client` 结构体，连接到 Unix socket，发送请求/接收响应
-  - [ ] 3.2 实现 `Dial(socketPath)`：连接到 daemon socket，返回 Client
-  - [ ] 3.3 实现 `SpawnAndWatch`：发送 SpawnRequest，读取流式 ProgressEvent 直到 OnComplete/OnError
-  - [ ] 3.4 实现 `ListProcs`：发送 ListProcs 请求，返回 []ProcInfo
-  - [ ] 3.5 实现 `Kill`：发送 Kill 请求，返回 error
-  - [ ] 3.6 实现 `AttachDebug`：发送 AttachDebug 请求，返回 SyscallEvent 流（channel 或 reader）
-  - [ ] 3.7 实现 `Ping`：检测 daemon 是否存活（区分 socket 存在但 daemon 已死的情况）
+- [x] Task 3: IPC Client (AC: #1, #2, #3, #4, #8)
+  - [x] 3.1 创建 `ipc/client.go`：`Client` 结构体，连接到 Unix socket，发送请求/接收响应
+  - [x] 3.2 实现 `Dial(socketPath)`：连接到 daemon socket，返回 Client
+  - [x] 3.3 实现 `SpawnAndWatch`：发送 SpawnRequest，读取流式 ProgressEvent 直到 OnComplete/OnError
+  - [x] 3.4 实现 `ListProcs`：发送 ListProcs 请求，返回 []ProcInfo
+  - [x] 3.5 实现 `Kill`：发送 Kill 请求，返回 error
+  - [x] 3.6 实现 `AttachDebug`：发送 AttachDebug 请求，返回 SyscallEvent 流（channel 或 reader）
+  - [x] 3.7 实现 `Ping`：检测 daemon 是否存活（区分 socket 存在但 daemon 已死的情况）
 
-- [ ] Task 4: Daemon 生命周期管理 (AC: #5, #6, #9)
-  - [ ] 4.1 创建 `ipc/daemon.go`：daemon 启动/发现/连接逻辑
-  - [ ] 4.2 实现 `EnsureDaemon()`：检测 socket → Ping → 如果 daemon 不存活则启动新 daemon
-  - [ ] 4.3 实现 daemon 启动：`exec.Command(os.Args[0], "daemon", "--internal")` re-exec 模式，daemon 子命令在后台运行
-  - [ ] 4.4 实现 stale socket 检测：connect + Ping 失败 → 删除残留 socket → 启动新 daemon
-  - [ ] 4.5 实现 PID 文件写入（`crux.pid`）供诊断（非核心控制，仅日志用途）
-  - [ ] 4.6 daemon 进程与父进程解耦：设置 `cmd.SysProcAttr` 使 daemon 不随启动者退出
+- [x] Task 4: Daemon 生命周期管理 (AC: #5, #6, #9)
+  - [x] 4.1 创建 `ipc/daemon.go`：daemon 启动/发现/连接逻辑
+  - [x] 4.2 实现 `EnsureDaemon()`：检测 socket → Ping → 如果 daemon 不存活则启动新 daemon
+  - [x] 4.3 实现 daemon 启动：`exec.Command(os.Args[0], "daemon", "--internal")` re-exec 模式，daemon 子命令在后台运行
+  - [x] 4.4 实现 stale socket 检测：connect + Ping 失败 → 删除残留 socket → 启动新 daemon
+  - [x] 4.5 实现 PID 文件写入（`crux.pid`）供诊断（非核心控制，仅日志用途）
+  - [x] 4.6 daemon 进程与父进程解耦：设置 `cmd.SysProcAttr` 使 daemon 不随启动者退出
 
-- [ ] Task 5: cmd/crux/main.go 重构 (AC: ALL)
-  - [ ] 5.1 添加隐藏 `daemon` 子命令（`--internal` flag，用户不直接调用）
-  - [ ] 5.2 重构 `runRoot`：EnsureDaemon() → Client.Dial() → Client.SpawnAndWatch() → 流式输出进度和结果
-  - [ ] 5.3 重构 `runPs`：尝试 Client.Dial() → 如果连接成功则 Client.ListProcs()；如果无 daemon 则输出 "No active processes."
-  - [ ] 5.4 重构 `runKill`：尝试 Client.Dial() → Client.Kill()；无 daemon 则报错
-  - [ ] 5.5 重构 `runAstrace`：尝试 Client.Dial() → Client.AttachDebug()；无 daemon 则报错
-  - [ ] 5.6 移除 `initKernel()` 函数（被 daemon 模式取代）
-  - [ ] 5.7 信号处理适配：Ctrl+C 通过 client 发送 cancel 信号给 daemon 中的特定进程
-  - [ ] 5.8 daemon 子命令实现：初始化 kernel + VFS + drivers → 启动 IPC Server → 阻塞等待 Shutdown
+- [x] Task 5: cmd/crux/main.go 重构 (AC: ALL)
+  - [x] 5.1 添加隐藏 `daemon` 子命令（`--internal` flag，用户不直接调用）
+  - [x] 5.2 重构 `runRoot`：EnsureDaemon() → Client.Dial() → Client.SpawnAndWatch() → 流式输出进度和结果
+  - [x] 5.3 重构 `runPs`：尝试 Client.Dial() → 如果连接成功则 Client.ListProcs()；如果无 daemon 则输出 "No active processes."
+  - [x] 5.4 重构 `runKill`：尝试 Client.Dial() → Client.Kill()；无 daemon 则报错
+  - [x] 5.5 重构 `runAstrace`：尝试 Client.Dial() → Client.AttachDebug()；无 daemon 则报错
+  - [x] 5.6 移除 `initKernel()` 函数（被 daemon 模式取代）
+  - [x] 5.7 信号处理适配：Ctrl+C 通过 client 发送 cancel 信号给 daemon 中的特定进程
+  - [x] 5.8 daemon 子命令实现：初始化 kernel + VFS + drivers → 启动 IPC Server → 阻塞等待 Shutdown
 
-- [ ] Task 6: 测试 (AC: #10)
-  - [ ] 6.1 `ipc/protocol_test.go` — 协议消息序列化/反序列化测试
-  - [ ] 6.2 `ipc/server_test.go` — Server 启动/停止、连接处理、各 handler 单元测试
-  - [ ] 6.3 `ipc/client_test.go` — Client 连接/断开、各方法功能测试
-  - [ ] 6.4 `ipc/daemon_test.go` — EnsureDaemon 自动启动、stale socket 清理测试
-  - [ ] 6.5 `ipc/integration_test.go` — 端到端集成测试：Server+Client spawn→ps→kill→astrace 完整流程
-  - [ ] 6.6 `cmd/crux/main_test.go` — 现有 CLI 测试适配（从直接 kernel 调用改为 IPC 调用）
-  - [ ] 6.7 并发测试：多客户端同时 spawn、同时 ps、同时 kill 的 `-race` 测试
-  - [ ] 6.8 执行 `go test -race ./...` 确认所有包通过
-  - [ ] 6.9 执行 `go vet ./...` 确认无警告
+- [x] Task 6: 测试 (AC: #10)
+  - [x] 6.1 `ipc/protocol_test.go` — 协议消息序列化/反序列化测试
+  - [x] 6.2 `ipc/server_test.go` — Server 启动/停止、连接处理、各 handler 单元测试
+  - [x] 6.3 `ipc/client_test.go` — Client 连接/断开、各方法功能测试
+  - [x] 6.4 `ipc/daemon_test.go` — EnsureDaemon 自动启动、stale socket 清理测试
+  - [x] 6.5 `ipc/integration_test.go` — 端到端集成测试：Server+Client spawn→ps→kill→astrace 完整流程
+  - [x] 6.6 `cmd/crux/main_test.go` — 现有 CLI 测试适配（从直接 kernel 调用改为 IPC 调用）
+  - [x] 6.7 并发测试：多客户端同时 spawn、同时 ps、同时 kill 的 `-race` 测试
+  - [x] 6.8 执行 `go test -race ./...` 确认所有包通过
+  - [x] 6.9 执行 `go vet ./...` 确认无警告
 
 ## Dev Notes
 
@@ -610,10 +610,43 @@ internal/xsync/          — 泛型工具不变
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude claude-4.6-opus (Cursor IDE)
 
 ### Debug Log References
 
+- `go test -race ./... -count=1` — 14/14 packages PASS, 0 failures
+- `go vet ./...` — clean, 0 warnings
+- `go build ./cmd/crux/` — clean
+
 ### Completion Notes List
 
+- 新建 `ipc/` 包，包含 protocol.go, server.go, client.go, daemon.go 四个核心模块
+- IPC 协议基于 NDJSON (一行 JSON per request/response)，Unix domain socket 通信
+- Server 采用 one-shot 连接模型（每请求独立连接），简化并发控制
+- Daemon 自动启动通过 re-exec (`crux daemon --internal`) 实现
+- 空闲 60s 自动关闭，stale socket 自动清理
+- `callbackMux` 实现 kernel.KernelCallbacks 接口，多路复用进度事件到各连接客户端
+- `kernel.GetDebugChan()` 新增公开方法，安全暴露 unexported Process.DebugChan
+- `cmd/crux/main.go` 全面重构：所有 CLI 命令改为 IPC 客户端模式
+- 新增隐藏 `daemon` 子命令，仅由 EnsureDaemon 内部调用
+- 测试覆盖：protocol 17 tests, server 19 tests, client 6 tests, daemon 11 tests, integration 7 tests, cmd/crux 42 tests
+- 所有测试含 `-race` 通过
+
 ### File List
+
+**新增文件:**
+- `ipc/protocol.go` — IPC 协议类型定义、Method 枚举、socket 路径解析、Wire 类型转换
+- `ipc/protocol_test.go` — 协议序列化/反序列化测试 (17 tests)
+- `ipc/server.go` — IPC Server: 监听、连接处理、请求路由、流式事件推送、空闲检测
+- `ipc/server_test.go` — Server 单元测试 (19 tests)
+- `ipc/client.go` — IPC Client: Dial、Ping、ListProcs、Kill、SpawnAndWatch、AttachDebug
+- `ipc/client_test.go` — Client 单元测试 (6 tests)
+- `ipc/daemon.go` — Daemon 生命周期: EnsureDaemon、stale socket 清理、PID 文件
+- `ipc/daemon_test.go` — Daemon 单元测试 (11 tests)
+- `ipc/integration_test.go` — 端到端集成测试 (7 tests)
+
+**修改文件:**
+- `kernel/kernel.go` — 新增 `GetDebugChan(pid)` 方法
+- `cmd/crux/main.go` — 全面重构为 IPC 客户端模式 + daemon 子命令
+- `cmd/crux/main_test.go` — 适配 IPC 模式，新增 daemon 相关测试
+- `cmd/crux/integration_test.go` — 适配 outputSuccess 新签名

@@ -691,6 +691,19 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 	return info, nil
 }
 
+// GetDebugChan safely retrieves the debug channel for a process under lock.
+// Returns nil, false if the process doesn't exist or the channel is nil.
+func (k *KernelImpl) GetDebugChan(pid types.PID) (chan types.SyscallEvent, bool) {
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return nil, false
+	}
+	proc.mu.Lock()
+	ch := proc.DebugChan
+	proc.mu.Unlock()
+	return ch, ch != nil
+}
+
 // ListProcs returns snapshots of all processes in the process table.
 // Satisfies vfs.ProcessInfoProvider interface via duck typing.
 func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
