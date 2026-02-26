@@ -1388,8 +1388,14 @@ func TestE2E_KillWait_ReasonStepExits(t *testing.T) {
 		t.Fatalf("Wait failed: %v", err)
 	}
 
-	// The process should have been cancelled
-	t.Logf("exit: code=%d reason=%q", exit.Code, exit.Reason)
+	// The process should have been cancelled or completed before cancellation was detected.
+	// Kill is async: the goroutine may finish its current step before checking ctx.Done().
+	// Key assertion: Wait returns (doesn't hang) and err is nil.
+	if exit.Code != 0 {
+		t.Logf("process was cancelled: code=%d reason=%q", exit.Code, exit.Reason)
+	} else {
+		t.Logf("process completed normally before cancellation detected: code=%d reason=%q", exit.Code, exit.Reason)
+	}
 }
 
 func TestE2E_KillWait_RaceDetection(t *testing.T) {

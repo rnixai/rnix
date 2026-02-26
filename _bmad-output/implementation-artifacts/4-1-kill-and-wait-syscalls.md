@@ -1,6 +1,6 @@
 # Story 4.1: Kill 与 Wait 系统调用
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -405,10 +405,19 @@ Claude Opus 4.6
 - Task 3: ProcessManager 接口定义完成。在 `kernel/kernel.go` 添加 `ProcessManager` 接口（包含 Spawn、Kill、Wait），编译时检查 `var _ ProcessManager = (*KernelImpl)(nil)` 通过。
 - Task 4: 集成测试完成。在 `cmd/crux/integration_test.go` 添加 3 个 Kill+Wait 集成测试：完整生命周期（Spawn→Kill→Wait→资源释放验证）、reasonStep 退出验证、并发竞态检测。`go test -race ./...` 全部通过，`go vet ./...` 无警告。
 
+### Code Review Fixes (Amelia, 2026-02-26)
+
+- [M1] Kill 添加 Signal 合法性校验，非法 signal 返回 `*SyscallError{Code: ErrInvalid}`。新增 `types.ErrInvalid` 错误码和 `Signal.Valid()` 方法。
+- [M2] 新增 `TestKill_CreatedState` 测试——验证 Kill 对 Created 状态进程的安全性。
+- [M3] 新增 `TestKill_RunningProcess_SIGKILL` 测试——验证 SIGKILL 对 Running 进程的行为。
+- [M1] 新增 `TestKill_InvalidSignal` 测试——验证非法 signal 返回 ErrInvalid。
+- [L2] `TestE2E_KillWait_ReasonStepExits` 增加退出码日志注释（Kill 异步，进程可能在取消前正常完成）。
+
 ### File List
 
-- `kernel/kernel.go` — 添加 Kill 方法、ProcessManager 接口定义、编译时接口检查、emitEvent 并发安全修复（proc.mu 保护 channel 发送）
+- `kernel/kernel.go` — 添加 Kill 方法（含 Signal 校验）、ProcessManager 接口定义、编译时接口检查、emitEvent 并发安全修复（proc.mu 保护 channel 发送）
 - `kernel/reap.go` — 新建文件，Wait 方法 + 完整资源释放链实现
-- `kernel/kernel_test.go` — 添加 4 个 Kill 单元测试（TestKill_RunningProcess、TestKill_PIDNotFound、TestKill_ZombieIdempotent、TestKill_SyscallEvent）
+- `kernel/kernel_test.go` — 添加 7 个 Kill 单元测试（TestKill_RunningProcess、TestKill_PIDNotFound、TestKill_ZombieIdempotent、TestKill_SyscallEvent、TestKill_InvalidSignal、TestKill_CreatedState、TestKill_RunningProcess_SIGKILL）
 - `kernel/reap_test.go` — 新建文件，6 个 Wait 单元测试（TestWait_NormalCompletion、TestWait_KillThenWait、TestWait_PIDNotFound、TestWait_ResourceRelease、TestWait_ConcurrentSafe、TestWait_SyscallEvent）
 - `cmd/crux/integration_test.go` — 添加 3 个 Kill+Wait 集成测试（TestE2E_KillWait_FullLifecycle、TestE2E_KillWait_ReasonStepExits、TestE2E_KillWait_RaceDetection）
+- `internal/types/types.go` — 添加 ErrInvalid 错误码、Signal.Valid() 方法

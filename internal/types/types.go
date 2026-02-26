@@ -23,6 +23,7 @@ const (
 	ErrPermission ErrCode = "PERMISSION"
 	ErrInternal   ErrCode = "INTERNAL"
 	ErrDriver     ErrCode = "DRIVER"
+	ErrInvalid    ErrCode = "INVALID"
 )
 
 // Signal represents a process signal.
@@ -32,6 +33,11 @@ const (
 	SIGTERM Signal = iota + 1
 	SIGKILL
 )
+
+// Valid reports whether s is a recognized signal value.
+func (s Signal) Valid() bool {
+	return s == SIGTERM || s == SIGKILL
+}
 
 // ProcessState represents the lifecycle state of a process.
 type ProcessState int
