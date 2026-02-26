@@ -78,7 +78,7 @@ development_status:
   4-3-proc-dynamic-filesystem: done
   4-4-crux-ps-command-and-process-table-ui: done
   4-5-context-release-ctx-free: done
-  4-6-ipc-cross-terminal-kernel-state-sharing: backlog
+  4-6-ipc-cross-terminal-kernel-state-sharing: ready-for-dev
   epic-4-retrospective: done
 
   # Epic 5: 文档体系（Documentation）
