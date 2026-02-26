@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/agents"
 	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/kernel"
@@ -348,9 +347,4 @@ func TestServer_ListenAndServe_SocketDirCreation(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(sockDir, "sub")); os.IsNotExist(err) {
 		t.Error("subdirectory should have been created")
 	}
-}
-
-// Stub agent loader for tests
-func stubAgentLoader(name string) (*agents.AgentInfo, error) {
-	return nil, os.ErrNotExist
 }

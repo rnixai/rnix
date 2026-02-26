@@ -1,7 +1,33 @@
+version: "2"
+
 linters:
   enable:
     - errcheck
     - govet
     - staticcheck
     - unused
-    - gosimple
+
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      # Exclude errcheck in test files — test cleanup calls
+      # (defer .Close(), os.Setenv, json.Unmarshal) are intentionally unchecked.
+      - path: _test\.go
+        linters:
+          - errcheck
+      # defer .Close() in production code — no meaningful recovery
+      - source: "defer .+\\.Close\\(\\)"
+        linters:
+          - errcheck
+      # os.Remove in cleanup — errors are not actionable
+      - source: "os\\.Remove\\("
+        linters:
+          - errcheck

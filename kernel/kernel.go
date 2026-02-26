@@ -239,7 +239,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	proc.wg.Add(1)
 	go func() {
 		defer proc.wg.Done()
-		defer k.vfs.CloseAll(proc.PID)
+		defer func() { _ = k.vfs.CloseAll(proc.PID) }()
 		_ = proc.Start() // Created → Running
 		k.reasonStep(proc, llmFD, opts)
 	}()

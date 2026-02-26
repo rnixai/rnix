@@ -359,10 +359,6 @@ func outputError(renderer *ui.Renderer, mode ui.OutputMode, device string, reaso
 	ui.RenderError(renderer, device, reason, impact, suggestion)
 }
 
-func processStateName(s types.ProcessState) string {
-	return s.String()
-}
-
 func runPs(cmd *cobra.Command, args []string) error {
 	mode := resolveOutputMode()
 	renderer := ui.NewRenderer(os.Stdout, mode)

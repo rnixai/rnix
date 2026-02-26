@@ -55,22 +55,22 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool) {
 
 	// Build header
 	var hdr strings.Builder
-	hdr.WriteString(fmt.Sprintf("%*s", colWidthPID, "PID"))
+	fmt.Fprintf(&hdr, "%*s", colWidthPID, "PID")
 	if verbose {
 		hdr.WriteString(gap)
-		hdr.WriteString(fmt.Sprintf("%*s", colWidthPPID, "PPID"))
+		fmt.Fprintf(&hdr, "%*s", colWidthPPID, "PPID")
 	}
 	hdr.WriteString(gap)
-	hdr.WriteString(fmt.Sprintf("%-*s", colWidthState, "STATE"))
+	fmt.Fprintf(&hdr, "%-*s", colWidthState, "STATE")
 	if showSkill {
 		hdr.WriteString(gap)
-		hdr.WriteString(fmt.Sprintf("%-*s", colWidthSkill, "SKILL"))
+		fmt.Fprintf(&hdr, "%-*s", colWidthSkill, "SKILL")
 	}
 	if showMetrics {
 		hdr.WriteString(gap)
-		hdr.WriteString(fmt.Sprintf("%*s", colWidthTokens, "TOKENS"))
+		fmt.Fprintf(&hdr, "%*s", colWidthTokens, "TOKENS")
 		hdr.WriteString(gap)
-		hdr.WriteString(fmt.Sprintf("%*s", colWidthElapsed, "ELAPSED"))
+		fmt.Fprintf(&hdr, "%*s", colWidthElapsed, "ELAPSED")
 	}
 	if showIntent {
 		hdr.WriteString(gap)
@@ -116,10 +116,10 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool) {
 		}
 
 		var row strings.Builder
-		row.WriteString(fmt.Sprintf("%*d", colWidthPID, proc.PID))
+		fmt.Fprintf(&row, "%*d", colWidthPID, proc.PID)
 		if verbose {
 			row.WriteString(gap)
-			row.WriteString(fmt.Sprintf("%*d", colWidthPPID, proc.PPID))
+			fmt.Fprintf(&row, "%*d", colWidthPPID, proc.PPID)
 		}
 		row.WriteString(gap)
 		stateStr := renderState(r, proc.State, colWidthState)
@@ -127,14 +127,14 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool) {
 		if showSkill {
 			row.WriteString(gap)
 			skillStr := formatSkills(proc.Skills, colWidthSkill, dash)
-			row.WriteString(fmt.Sprintf("%-*s", colWidthSkill, skillStr))
+			fmt.Fprintf(&row, "%-*s", colWidthSkill, skillStr)
 		}
 		if showMetrics {
 			row.WriteString(gap)
-			row.WriteString(fmt.Sprintf("%*s", colWidthTokens, formatTokens(proc.TokensUsed)))
+			fmt.Fprintf(&row, "%*s", colWidthTokens, formatTokens(proc.TokensUsed))
 			row.WriteString(gap)
 			elapsed := time.Since(proc.CreatedAt)
-			row.WriteString(fmt.Sprintf("%*s", colWidthElapsed, formatDuration(elapsed)))
+			fmt.Fprintf(&row, "%*s", colWidthElapsed, formatDuration(elapsed))
 		}
 		if showIntent {
 			row.WriteString(gap)
