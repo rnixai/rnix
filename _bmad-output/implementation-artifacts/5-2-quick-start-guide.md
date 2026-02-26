@@ -1,6 +1,6 @@
 # Story 5.2: 快速上手指南
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,51 +22,51 @@ So that 我在 15 分钟内体验到 Crux 的核心价值。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 `docs/quick-start.md` 文件框架 (AC: #4)
-  - [ ] 1.1 在 `docs/` 目录下创建 `quick-start.md`
-  - [ ] 1.2 添加文档标题、简介段落（一句话说明文档目的和预计耗时）
+- [x] Task 1: 创建 `docs/quick-start.md` 文件框架 (AC: #4)
+  - [x] 1.1 在 `docs/` 目录下创建 `quick-start.md`
+  - [x] 1.2 添加文档标题、简介段落（一句话说明文档目的和预计耗时）
 
-- [ ] Task 2: 编写前置条件章节 (AC: #1, #3)
-  - [ ] 2.1 Go 1.26 环境检查：`go version` 命令及预期输出
-  - [ ] 2.2 Claude Code CLI 检查：`claude --version` 命令及预期输出，附安装链接
-  - [ ] 2.3 说明 Claude Code CLI 需要有效的 API 密钥配置
+- [x] Task 2: 编写前置条件章节 (AC: #1, #3)
+  - [x] 2.1 Go 1.26 环境检查：`go version` 命令及预期输出
+  - [x] 2.2 Claude Code CLI 检查：`claude --version` 命令及预期输出，附安装链接
+  - [x] 2.3 说明 Claude Code CLI 需要有效的 API 密钥配置
 
-- [ ] Task 3: 编写安装 Crux 章节 (AC: #1, #3)
-  - [ ] 3.1 使用 `go install github.com/gonewx/crux/cmd/crux@latest` 安装
-  - [ ] 3.2 验证安装：`crux version` 命令及预期输出
-  - [ ] 3.3 故障排查：Claude Code CLI 未找到时的错误提示和解决方法
+- [x] Task 3: 编写安装 Crux 章节 (AC: #1, #3)
+  - [x] 3.1 使用 `go install github.com/gonewx/crux/cmd/crux@latest` 安装
+  - [x] 3.2 验证安装：`crux version` 命令及预期输出
+  - [x] 3.3 故障排查：Claude Code CLI 未找到时的错误提示和解决方法
 
-- [ ] Task 4: 编写首次运行章节 (AC: #1, #2, #3)
-  - [ ] 4.1 最简用法：`crux "你好，请介绍你自己"` — 展示基础 Spawn → 推理 → 结果流程
-  - [ ] 4.2 预期输出示例：`[kernel] spawning PID 1...` → `[agent] step N/M` → `[result] ...` → `[kernel] PID 1 exited(0) | tokens: N | elapsed: Ns`
-  - [ ] 4.3 解读输出：每行含义简要说明
+- [x] Task 4: 编写首次运行章节 (AC: #1, #2, #3)
+  - [x] 4.1 最简用法：`crux "你好，请介绍你自己"` — 展示基础 Spawn → 推理 → 结果流程
+  - [x] 4.2 预期输出示例：`[kernel] spawning PID 1...` → `[agent] step N/M` → `[result] ...` → `[kernel] PID 1 exited(0) | tokens: N | elapsed: Ns`
+  - [x] 4.3 解读输出：每行含义简要说明
 
-- [ ] Task 5: 编写使用 Agent 章节 (AC: #1, #2, #3)
-  - [ ] 5.1 使用参考 Agent：`crux "分析 ./cmd/crux/main.go" --agent=code-analyst`
-  - [ ] 5.2 预期输出示例：包含文件分析结果
-  - [ ] 5.3 简要解释 `--agent` 参数的作用（引用概念文档链接）
+- [x] Task 5: 编写使用 Agent 章节 (AC: #1, #2, #3)
+  - [x] 5.1 使用参考 Agent：`crux "分析 ./cmd/crux/main.go" --agent=code-analyst`
+  - [x] 5.2 预期输出示例：包含文件分析结果
+  - [x] 5.3 简要解释 `--agent` 参数的作用（引用概念文档链接）
 
-- [ ] Task 6: 编写 astrace 调试体验章节 (AC: #1, #2, #3)
-  - [ ] 6.1 说明 astrace 的价值：实时查看智能体的每一步操作
-  - [ ] 6.2 演示命令（需要在另一个终端窗口运行长任务时使用）
-  - [ ] 6.3 预期 astrace 输出示例，展示 syscall 链路
-  - [ ] 6.4 解读关键 syscall 行的含义
+- [x] Task 6: 编写 astrace 调试体验章节 (AC: #1, #2, #3)
+  - [x] 6.1 说明 astrace 的价值：实时查看智能体的每一步操作
+  - [x] 6.2 演示命令（需要在另一个终端窗口运行长任务时使用）
+  - [x] 6.3 预期 astrace 输出示例，展示 syscall 链路
+  - [x] 6.4 解读关键 syscall 行的含义
 
-- [ ] Task 7: 编写进程管理体验章节 (AC: #1, #3)
-  - [ ] 7.1 `crux ps` — 查看进程列表
-  - [ ] 7.2 `crux ps --json` — JSON 格式输出
-  - [ ] 7.3 `crux kill <pid>` — 终止进程
+- [x] Task 7: 编写进程管理体验章节 (AC: #1, #3)
+  - [x] 7.1 `crux ps` — 查看进程列表
+  - [x] 7.2 `crux ps --json` — JSON 格式输出
+  - [x] 7.3 `crux kill <pid>` — 终止进程
 
-- [ ] Task 8: 编写下一步指引章节 (AC: #1)
-  - [ ] 8.1 链接到概念文档（`docs/concepts.md`）深入理解
-  - [ ] 8.2 链接到参考手册（`docs/reference.md`，Story 5.3 将创建）
-  - [ ] 8.3 提及 Agent 和 Skill 扩展能力
+- [x] Task 8: 编写下一步指引章节 (AC: #1)
+  - [x] 8.1 链接到概念文档（`docs/concepts.md`）深入理解
+  - [x] 8.2 链接到参考手册（`docs/reference.md`，Story 5.3 将创建）
+  - [x] 8.3 提及 Agent 和 Skill 扩展能力
 
-- [ ] Task 9: 校验与完善 (AC: #3, #4)
-  - [ ] 9.1 检查所有 CLI 命令与实际实现一致
-  - [ ] 9.2 确保所有预期输出示例格式正确
-  - [ ] 9.3 确保文档可独立阅读（不依赖概念文档前置知识）
-  - [ ] 9.4 最终审读：步骤清晰、无遗漏、15 分钟可完成
+- [x] Task 9: 校验与完善 (AC: #3, #4)
+  - [x] 9.1 检查所有 CLI 命令与实际实现一致
+  - [x] 9.2 确保所有预期输出示例格式正确
+  - [x] 9.3 确保文档可独立阅读（不依赖概念文档前置知识）
+  - [x] 9.4 最终审读：步骤清晰、无遗漏、15 分钟可完成
 
 ## Dev Notes
 
@@ -266,10 +266,20 @@ docs/concepts.md           — 已由 Story 5.1 创建，不修改
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- Task 1-9: 创建 `docs/quick-start.md` 快速上手指南，覆盖完整流程：前置条件 → 安装 → 首次运行 → Agent 使用 → astrace 调试 → 进程管理 → 下一步指引
+- 所有 CLI 命令和输出格式已通过源码交叉验证（cmd/crux/main.go, internal/ui/*.go, debug/*.go）
+- astrace 输出示例精确匹配 trace.go 实现：key=value 参数格式、`← LLM 调用`/`← 慢操作` 注解逻辑、`traceDuration` 时间格式
+- 文档完全自包含，不依赖概念文档前置知识即可独立操作
+- 渐进式结构：最简用法 → Agent → astrace → ps/kill，内容精简控制在 15 分钟可完成
+
 ### File List
+
+- docs/quick-start.md (新增) — 快速上手指南
+- _bmad-output/implementation-artifacts/5-2-quick-start-guide.md (修改) — Story 文件更新
+- _bmad-output/implementation-artifacts/sprint-status.yaml (修改) — Sprint 状态更新
