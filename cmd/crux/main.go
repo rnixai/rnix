@@ -400,16 +400,8 @@ func runPs(cmd *cobra.Command, args []string) error {
 	case ui.ModeQuiet:
 		renderPsQuiet(renderer, procs)
 	case ui.ModeVerbose:
-		if len(procs) == 0 {
-			fmt.Fprintln(renderer.Writer, "No active processes.")
-			return nil
-		}
 		ui.RenderProcessTable(renderer, procs, true)
 	default:
-		if len(procs) == 0 {
-			fmt.Fprintln(renderer.Writer, "No active processes.")
-			return nil
-		}
 		ui.RenderProcessTable(renderer, procs, false)
 	}
 
@@ -428,6 +420,7 @@ type jsonProcess struct {
 }
 
 func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
+	now := time.Now()
 	entries := make([]jsonProcess, len(procs))
 	for i, p := range procs {
 		skills := p.Skills
@@ -441,14 +434,18 @@ func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
 			Intent:     p.Intent,
 			Skills:     skills,
 			TokensUsed: p.TokensUsed,
-			ElapsedMs:  time.Since(p.CreatedAt).Milliseconds(),
+			ElapsedMs:  now.Sub(p.CreatedAt).Milliseconds(),
 		}
 	}
 	resp := JSONResponse{
 		OK:   true,
 		Data: map[string]any{"processes": entries},
 	}
-	data, _ := json.Marshal(resp)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ json marshal failed: %v\n", err)
+		return
+	}
 	fmt.Fprintln(r.Writer, string(data))
 }
 
@@ -486,10 +483,17 @@ func runKill(cmd *cobra.Command, args []string) error {
 	ui.InitStyles(renderer.Profile)
 
 	if err := kern.Kill(pid, types.SIGTERM); err != nil {
+		reason := "process not found"
+		impact := fmt.Sprintf("PID %d: no active process", pid)
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) && sysErr.Code != types.ErrNotFound {
+			reason = sysErr.Err.Error()
+			impact = fmt.Sprintf("PID %d: %s", pid, sysErr.Code)
+		}
 		ui.RenderError(renderer,
 			fmt.Sprintf("PID %d", pid),
-			"process not found",
-			fmt.Sprintf("PID %d: no active process", pid),
+			reason,
+			impact,
 			"crux ps  查看活跃进程")
 		exitCode = 1
 		return nil

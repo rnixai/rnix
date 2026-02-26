@@ -1,6 +1,6 @@
 # Story 4.4: crux ps 命令与 Process Table UI
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -482,7 +482,7 @@ Claude Opus 4.6
 - ✅ Task 1: 实现 `internal/ui/table.go` — Process Table UI 组件，包含 RenderProcessTable、renderState、formatSkills、formatDuration、formatTokens、stripAnsi 函数。支持终端宽度自适应（40/60/80/120列阈值）、Unicode/ASCII 双模式、NO_COLOR 降级、verbose 模式（含 PPID/INTENT）、Footer 统计行。
 - ✅ Task 2: 实现 `cmd/crux/main.go` 中 psCmd + runPs — 支持 ModeDefault（表格）、ModeJSON（JSONResponse 包装）、ModeQuiet（纯 PID）、ModeVerbose（全列表格）四种输出模式。空列表输出 "No active processes."。
 - ✅ Task 3: 实现 `cmd/crux/main.go` 中 killCmd + runKill — PID 解析、kernel.Kill(SIGTERM) 调用、错误处理（RenderError 三行结构）、成功输出（KernelStyle [kernel] 前缀）。
-- ✅ Task 4: 全部 35+ 单元测试通过（internal/ui/table_test.go 22 个 + cmd/crux/main_test.go 新增 6 个），`go test -race ./...` 全 13 包通过，`go vet ./...` 无警告。
+- ✅ Task 4: 全部 35+ 单元测试通过（internal/ui/table_test.go 22 个 + cmd/crux/main_test.go 新增 9 个），`go test -race ./...` 全 13 包通过，`go vet ./...` 无警告。
 - ✅ 更新 ProcessManager 接口注释（kernel/kernel.go 第 81 行）："deferred to Story 4.4" → "deferred to future story (ListProcs used instead for PS)"
 
 ### File List
@@ -493,9 +493,17 @@ Claude Opus 4.6
 
 **修改文件：**
 - `cmd/crux/main.go` — 添加 psCmd/killCmd 定义、runPs/runKill 函数、jsonProcess 结构、renderPsJSON/renderPsQuiet 辅助函数、init() 中注册 ps/kill 子命令、import sort
-- `cmd/crux/main_test.go` — 添加 6 个新测试（TestRenderPsJSON_EmptyList/WithProcs、TestRenderPsQuiet/Empty、TestJsonProcess_SnakeCase、TestHelp_ContainsPsSubcommand），import types/vfs
+- `cmd/crux/main_test.go` — 添加 9 个新测试（TestRenderPsJSON_EmptyList/WithProcs、TestRenderPsQuiet/Empty、TestJsonProcess_SnakeCase、TestHelp_ContainsPsSubcommand、TestRunKill_InvalidPID/PIDNotFound/Success），import types/vfs/cruxctx
 - `kernel/kernel.go` — 更新 ProcessManager 接口注释（第 81 行）
 
 ## Change Log
 
 - 2026-02-26: Story 4.4 实现完成 — crux ps 命令、crux kill 命令、Process Table UI 组件
+- 2026-02-26: Code Review 修复 — 7 项问题修复（2 HIGH + 5 MEDIUM）：
+  - [H1] 修复 INTENT 列宽度计算多减 colGap 的 bug（table.go:141）
+  - [H2] 补充 runKill 单元测试 3 个（InvalidPID/PIDNotFound/Success）
+  - [M1] 移除 runPs 中重复的空列表检查（信任 RenderProcessTable 内部逻辑）
+  - [M2] JSON elapsed_ms 使用一致时间快照（now := time.Now() 循环前捕获）
+  - [M3] renderPsJSON 添加 json.Marshal 错误处理
+  - [M4] 强化 StateColorCoding 测试验证不同状态使用不同样式
+  - [M5] runKill 使用 errors.As 区分 Kill 错误类型
