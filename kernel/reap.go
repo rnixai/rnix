@@ -145,7 +145,10 @@ func (k *KernelImpl) startReaper() {
 }
 
 // Shutdown stops the reaper goroutine and waits for it to exit.
+// Safe to call multiple times — only the first call closes stopCh.
 func (k *KernelImpl) Shutdown() {
-	close(k.stopCh)
+	k.shutdownOnce.Do(func() {
+		close(k.stopCh)
+	})
 	k.reaperWg.Wait()
 }

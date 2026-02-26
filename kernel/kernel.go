@@ -96,9 +96,10 @@ type KernelImpl struct {
 	callbacks KernelCallbacks
 
 	// Reaper infrastructure (Story 4.2)
-	reapCh   chan types.PID  // PIDs pending auto-reap
-	stopCh   chan struct{}   // signals reaper goroutine to stop
-	reaperWg sync.WaitGroup // waits for reaper goroutine exit
+	reapCh       chan types.PID  // PIDs pending auto-reap
+	stopCh       chan struct{}   // signals reaper goroutine to stop
+	reaperWg     sync.WaitGroup // waits for reaper goroutine exit
+	shutdownOnce sync.Once      // ensures Shutdown executes at most once
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -287,8 +288,12 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	// Story 4.2: Orphan detection
 	// If parent process no longer exists in table, push to reapCh for auto-reap.
 	// PPID=0 processes (CLI spawn) are NOT auto-reaped — CLI handles them via Wait.
-	if proc.PPID > 0 {
-		if _, parentExists := k.GetProcess(proc.PPID); !parentExists {
+	// Read PPID under lock to prevent race with handleOrphanChildren's reparent write.
+	proc.mu.Lock()
+	ppid := proc.PPID
+	proc.mu.Unlock()
+	if ppid > 0 {
+		if _, parentExists := k.GetProcess(ppid); !parentExists {
 			select {
 			case k.reapCh <- proc.PID:
 			default:

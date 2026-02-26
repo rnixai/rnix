@@ -92,7 +92,8 @@ func (f *mockToolFile) Stat() (vfs.FileStat, error) {
 }
 
 // newTestKernel creates a kernel with a VFS containing a mock LLM device.
-func newTestKernel(llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manager) {
+// Registers t.Cleanup to call Shutdown automatically.
+func newTestKernel(t testing.TB, llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manager) {
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
 		return llmFile, nil
@@ -100,6 +101,7 @@ func newTestKernel(llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manage
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	t.Cleanup(k.Shutdown)
 	return k, v, ctxMgr
 }
 
@@ -150,15 +152,17 @@ func testAgentInfo() *agents.AgentInfo {
 
 // --- Existing kernel tests ---
 
-func newSimpleKernel() *KernelImpl {
+func newSimpleKernel(t testing.TB) *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
-	return NewKernel(v, ctxMgr, nil)
+	k := NewKernel(v, ctxMgr, nil)
+	t.Cleanup(k.Shutdown)
+	return k
 }
 
 func TestNewKernel(t *testing.T) {
-	k := newSimpleKernel()
+	k := newSimpleKernel(t)
 	if k == nil {
 		t.Fatal("NewKernel returned nil")
 	}
@@ -169,7 +173,7 @@ func TestNewKernel(t *testing.T) {
 }
 
 func TestKernelAddGetRemove(t *testing.T) {
-	k := newSimpleKernel()
+	k := newSimpleKernel(t)
 	p := NewProcess(0, "test", nil)
 
 	k.AddProcess(p)
@@ -200,7 +204,7 @@ func TestKernelAddGetRemove(t *testing.T) {
 }
 
 func TestKernelGetProcessNotFound(t *testing.T) {
-	k := newSimpleKernel()
+	k := newSimpleKernel(t)
 	_, ok := k.GetProcess(9999)
 	if ok {
 		t.Fatal("expected not found for non-existent PID")
@@ -208,7 +212,7 @@ func TestKernelGetProcessNotFound(t *testing.T) {
 }
 
 func TestProcessTableConcurrent(t *testing.T) {
-	k := newSimpleKernel()
+	k := newSimpleKernel(t)
 	const n = 100
 	var wg sync.WaitGroup
 
@@ -262,7 +266,7 @@ func TestProcessTableConcurrent(t *testing.T) {
 }
 
 func TestProcessTableConcurrentMixed(t *testing.T) {
-	k := newSimpleKernel()
+	k := newSimpleKernel(t)
 	const n = 100
 	var wg sync.WaitGroup
 
@@ -300,7 +304,7 @@ func TestSpawn_Success(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("hello world", 42),
 	}
-	k, _, ctxMgr := newTestKernel(llmFile)
+	k, _, ctxMgr := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("test intent", nil, SpawnOpts{})
 	if err != nil {
@@ -350,7 +354,7 @@ func TestSpawn_WithSystemPrompt(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("done", 10),
 	}
-	k, _, ctxMgr := newTestKernel(llmFile)
+	k, _, ctxMgr := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("intent", nil, SpawnOpts{SystemPrompt: "you are a helper"})
 	if err != nil {
@@ -380,6 +384,7 @@ func TestSpawn_VFSOpenFailure(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	_, err := k.Spawn("test", nil, SpawnOpts{})
 	if err == nil {
@@ -391,7 +396,7 @@ func TestSpawn_DebugChanEvents(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("debug result", 10),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("debug intent", nil, SpawnOpts{})
 	if err != nil {
@@ -448,7 +453,7 @@ func TestReasonStep_TextAction(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("The answer is 42", 100),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("what is the answer", nil, SpawnOpts{})
 	if err != nil {
@@ -495,6 +500,7 @@ func TestReasonStep_ToolCallAction(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("read a file", nil, SpawnOpts{})
 	if err != nil {
@@ -557,7 +563,7 @@ func TestReasonStep_LLMError(t *testing.T) {
 	llmFile := &mockLLMFile{
 		writeErr: fmt.Errorf("connection refused"),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("test", nil, SpawnOpts{})
 	if err != nil {
@@ -583,7 +589,7 @@ func TestReasonStep_LLMReadError(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readErr: fmt.Errorf("read timeout"),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("test", nil, SpawnOpts{})
 	if err != nil {
@@ -615,6 +621,7 @@ func TestReasonStep_ContextCancellation(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("test cancel", nil, SpawnOpts{})
 	if err != nil {
@@ -686,6 +693,7 @@ func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("loop forever", nil, SpawnOpts{MaxTurns: 3})
 	if err != nil {
@@ -780,6 +788,7 @@ func TestSpawn_Integration(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("integration test", nil, SpawnOpts{
 		SystemPrompt: "You are a test agent",
@@ -874,7 +883,7 @@ func TestProcessTableConsistency_AfterNormalExit(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("normal exit", 50),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("test", nil, SpawnOpts{})
 	if err != nil {
@@ -915,7 +924,7 @@ func TestProcessTableConsistency_AfterError(t *testing.T) {
 	llmFile := &mockLLMFile{
 		writeErr: fmt.Errorf("device error"),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("error test", nil, SpawnOpts{})
 	if err != nil {
@@ -948,6 +957,7 @@ func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	var pids []types.PID
 	var procs []*Process
@@ -1006,6 +1016,7 @@ func TestProcessTableConsistency_ConcurrentSpawn(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	var wg sync.WaitGroup
 	pidCh := make(chan types.PID, n)
@@ -1074,7 +1085,7 @@ func TestSpawn_WithAgent_InjectsInstructions(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("done", 10),
 	}
-	k, _, ctxMgr := newTestKernel(llmFile)
+	k, _, ctxMgr := newTestKernel(t, llmFile)
 
 	agent := testAgentInfo()
 	pid, err := k.Spawn("analyze code", agent, SpawnOpts{})
@@ -1107,7 +1118,7 @@ func TestSpawn_WithAgent_SetsAllowedDevices(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("done", 10),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	agent := testAgentInfo()
 	pid, err := k.Spawn("test", agent, SpawnOpts{})
@@ -1148,6 +1159,7 @@ func TestSpawn_WithAgent_ModelSelection(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	agent := testAgentInfo()
 	pid, err := k.Spawn("test model", agent, SpawnOpts{})
@@ -1204,7 +1216,7 @@ func TestSpawn_WithoutAgent_AllDevicesAllowed(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("done", 10),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("test no agent", nil, SpawnOpts{})
 	if err != nil {
@@ -1240,6 +1252,7 @@ func TestReasonStep_PermissionDenied_WhenDeviceNotInWhitelist(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	agent := testAgentInfo()
 	pid, err := k.Spawn("test perm denied", agent, SpawnOpts{})
@@ -1301,6 +1314,7 @@ func TestReasonStep_PermissionAllowed_WhenDeviceInWhitelist(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	agent := testAgentInfo()
 	pid, err := k.Spawn("test perm allowed", agent, SpawnOpts{})
@@ -1343,6 +1357,7 @@ func TestReasonStep_PrefixMatch_AllowsSubpath(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	agent := testAgentInfo()
 	pid, err := k.Spawn("test prefix match", agent, SpawnOpts{})
@@ -1385,6 +1400,7 @@ func TestReasonStep_NoWhitelist_AllowsAll(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil) // No agent
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("test no whitelist", nil, SpawnOpts{})
 	if err != nil {
@@ -1421,6 +1437,7 @@ func TestReasonStep_PathTraversal_Blocked(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	agent := testAgentInfo()
 	pid, err := k.Spawn("test traversal", agent, SpawnOpts{})
@@ -1523,7 +1540,7 @@ func TestSpawn_VFSEvents_OpenWriteRead(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("vfs events test", 10),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("vfs test", nil, SpawnOpts{})
 	if err != nil {
@@ -1609,7 +1626,7 @@ func TestSpawn_ContextEvents_CtxAllocCtxWriteCtxRead(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("ctx events test", 10),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("ctx test", nil, SpawnOpts{SystemPrompt: "test prompt"})
 	if err != nil {
@@ -1699,6 +1716,7 @@ func TestToolCall_VFSAndContextEvents(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("tool test", nil, SpawnOpts{})
 	if err != nil {
@@ -1757,7 +1775,7 @@ func TestToolCall_VFSAndContextEvents(t *testing.T) {
 func TestNilDebugChan_ZeroOverhead(t *testing.T) {
 	// Verify emitEvent with nil DebugChan does not panic.
 	// AC #10: DebugChan 为 nil 时零开销（无 astrace 附着）
-	k := newSimpleKernel()
+	k := newSimpleKernel(t)
 	proc := NewProcess(0, "nil chan test", nil)
 	proc.DebugChan = nil // simulate no astrace attached
 
@@ -1770,7 +1788,7 @@ func TestNilDebugChan_ZeroOverhead(t *testing.T) {
 
 func BenchmarkEmitEvent_NilDebugChan(b *testing.B) {
 	// AC #10: DebugChan 为 nil 时零开销 — verify zero allocations inside emitEvent.
-	k := newSimpleKernel()
+	k := newSimpleKernel(b)
 	proc := NewProcess(0, "bench", nil)
 	proc.DebugChan = nil
 
@@ -1793,6 +1811,7 @@ func TestKill_RunningProcess(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("kill test", nil, SpawnOpts{})
 	if err != nil {
@@ -1830,7 +1849,7 @@ func TestKill_RunningProcess(t *testing.T) {
 }
 
 func TestKill_PIDNotFound(t *testing.T) {
-	k := newSimpleKernel()
+	k := newSimpleKernel(t)
 
 	err := k.Kill(9999, types.SIGTERM)
 	if err == nil {
@@ -1854,7 +1873,7 @@ func TestKill_ZombieIdempotent(t *testing.T) {
 	llmFile := &mockLLMFile{
 		readData: makeLLMResponse("done", 1),
 	}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 
 	pid, err := k.Spawn("zombie test", nil, SpawnOpts{})
 	if err != nil {
@@ -1893,6 +1912,7 @@ func TestKill_SyscallEvent(t *testing.T) {
 	v := vfs.NewVFS(reg)
 	ctxMgr := cruxctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
 
 	pid, err := k.Spawn("event test", nil, SpawnOpts{})
 	if err != nil {
@@ -1949,7 +1969,7 @@ func TestKill_SyscallEvent(t *testing.T) {
 func TestSpawn_ParentPID(t *testing.T) {
 	// Spawn parent, then spawn child with ParentPID set
 	llmFile := &mockLLMFile{readData: makeLLMResponse("ok", 1)}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 	defer k.Shutdown()
 
 	parentPID, err := k.Spawn("parent", nil, SpawnOpts{})
@@ -1982,7 +2002,7 @@ func TestSpawn_ParentPID(t *testing.T) {
 
 func TestSpawn_ParentNotFound(t *testing.T) {
 	llmFile := &mockLLMFile{readData: makeLLMResponse("ok", 1)}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 	defer k.Shutdown()
 
 	_, err := k.Spawn("orphan", nil, SpawnOpts{ParentPID: 9999})
@@ -2002,7 +2022,7 @@ func TestSpawn_ParentNotFound(t *testing.T) {
 func TestSpawn_ZeroParentPID_NoTracking(t *testing.T) {
 	// Default ParentPID=0 should not attempt parent lookup
 	llmFile := &mockLLMFile{readData: makeLLMResponse("ok", 1)}
-	k, _, _ := newTestKernel(llmFile)
+	k, _, _ := newTestKernel(t, llmFile)
 	defer k.Shutdown()
 
 	pid, err := k.Spawn("top-level", nil, SpawnOpts{})
