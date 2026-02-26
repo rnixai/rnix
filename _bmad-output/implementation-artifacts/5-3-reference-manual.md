@@ -1,6 +1,6 @@
 # Story 5.3: 参考手册
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -869,8 +869,28 @@ Claude Opus 4.6
 
 文档类 Story — 无代码修改，单一 Markdown 文件输出。所有规范数据均从源码直接提取并交叉验证。
 
+### Senior Developer Review (AI)
+
+**Reviewer:** Amelia (Dev Agent) | **Date:** 2026-02-27 | **Model:** Claude Opus 4.6
+
+**审查范围：** 全量源码交叉验证（kernel, vfs, ipc, context, agents, skills, debug, types, cmd）+ Git 提交对比
+
+**发现与修复：**
+
+| # | 严重度 | 描述 | 状态 |
+|---|--------|------|------|
+| H1 | HIGH | AC #1 违规：GetPID 缺少签名/参数/返回值/错误码/示例 | ✅ 已修复：补充预期签名、行为描述和延迟原因 |
+| M1 | MEDIUM | 概述表"子接口"计数不准确（ProcessManager 实际 interface 仅 3 方法） | ✅ 已修复：改为"功能分类"，标注"含 1 个延迟" |
+| M2 | MEDIUM | File List 遗漏 `docs/quick-start.md`（commit 464df4c 修改了链接） | ✅ 已修复：补充到 File List |
+| M3 | MEDIUM | CtxWrite offset 描述"offset-1"与"(1-based)"自相矛盾 | ✅ 已修复：改为"覆写第 offset 个消息（1-based 索引，对应 Messages[offset-1]）" |
+| L1 | LOW | Debugger 章节格式与其他 syscall 不一致（未采用标准签名→参数表→错误码格式） | 未修复（风格偏好） |
+| L2 | LOW | "4 个子接口"可能误导 Go 开发者（仅 ProcessManager 是真正的 Go interface） | ✅ 已修复（随 M1 一并改为"功能分类"） |
+
+**源码验证结果：** 14 个已实现 syscall 签名、VFS 路径、IPC 协议、类型定义、错误码 — 全部与源码 100% 一致。
+
 ### File List
 
 - `docs/reference.md` — 新建：参考手册（本 Story 唯一输出）
+- `docs/quick-start.md` — 修改：更新参考手册链接（从占位符改为实际链接）
 - `_bmad-output/implementation-artifacts/5-3-reference-manual.md` — 修改：Story 文件更新
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改：Story 状态更新
