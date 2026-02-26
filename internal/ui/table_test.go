@@ -124,8 +124,6 @@ func TestRenderProcessTable_ColumnAlignment(t *testing.T) {
 
 func TestRenderProcessTable_StateColorCoding(t *testing.T) {
 	// Test that renderState returns different styled strings for each state when color is enabled.
-	// lipgloss may not emit ANSI in test env (non-TTY writer), so we test the renderState function
-	// directly by verifying it produces the state name for all state types.
 	profile := TerminalProfile{
 		Width:      120,
 		IsTTY:      true,
@@ -141,12 +139,26 @@ func TestRenderProcessTable_StateColorCoding(t *testing.T) {
 		types.StateDead,
 		types.StateCreated,
 	}
+
+	results := make(map[types.ProcessState]string)
 	for _, s := range states {
 		result := renderState(r, s, colWidthState)
 		plain := stripAnsi(result)
 		if !strings.Contains(plain, s.String()) {
 			t.Errorf("renderState(%s) should contain state name, got: %q", s, plain)
 		}
+		results[s] = result
+	}
+
+	// Verify different states produce different styled output
+	if results[types.StateRunning] == results[types.StateZombie] {
+		t.Error("running and zombie should have different styles")
+	}
+	if results[types.StateRunning] == results[types.StateDead] {
+		t.Error("running and dead should have different styles")
+	}
+	if results[types.StateZombie] == results[types.StateDead] {
+		t.Error("zombie and dead should have different styles")
 	}
 }
 

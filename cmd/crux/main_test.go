@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/kernel"
@@ -630,5 +631,72 @@ func TestHelp_ContainsPsSubcommand(t *testing.T) {
 	}
 	if !strings.Contains(output, "kill") {
 		t.Errorf("expected 'kill' subcommand in help, got %q", output)
+	}
+}
+
+// --- crux kill tests (Story 4.4, Task 3 review fix) ---
+
+// setupTestKernel creates a minimal kernel for testing and sets the global kern.
+// Returns a cleanup function that restores the original kern and shuts down the test kernel.
+func setupTestKernel(t *testing.T) func() {
+	t.Helper()
+	savedKern := kern
+	savedExitCode := exitCode
+	exitCode = 0
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	ctxMgr := cruxctx.NewManager()
+	kern = kernel.NewKernel(vfsInst, ctxMgr, nil)
+
+	return func() {
+		kern.Shutdown()
+		kern = savedKern
+		exitCode = savedExitCode
+	}
+}
+
+func TestRunKill_InvalidPID(t *testing.T) {
+	saved := exitCode
+	defer func() { exitCode = saved }()
+	exitCode = 0
+
+	err := runKill(&cobra.Command{}, []string{"abc"})
+	if err != nil {
+		t.Fatalf("runKill should return nil (errors handled internally), got %v", err)
+	}
+	if exitCode != 1 {
+		t.Errorf("expected exitCode 1 for invalid PID, got %d", exitCode)
+	}
+}
+
+func TestRunKill_PIDNotFound(t *testing.T) {
+	cleanup := setupTestKernel(t)
+	defer cleanup()
+
+	err := runKill(&cobra.Command{}, []string{"999"})
+	if err != nil {
+		t.Fatalf("runKill should return nil, got %v", err)
+	}
+	if exitCode != 1 {
+		t.Errorf("expected exitCode 1 for non-existent PID, got %d", exitCode)
+	}
+}
+
+func TestRunKill_Success(t *testing.T) {
+	cleanup := setupTestKernel(t)
+	defer cleanup()
+
+	// Create a process and transition to Running so Kill accepts it
+	proc := kernel.NewProcess(0, "test intent", []string{"test-skill"})
+	_ = proc.Start() // Created → Running
+	kern.AddProcess(proc)
+
+	err := runKill(&cobra.Command{}, []string{fmt.Sprintf("%d", proc.PID)})
+	if err != nil {
+		t.Fatalf("runKill should return nil, got %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exitCode 0 for successful kill, got %d", exitCode)
 	}
 }
