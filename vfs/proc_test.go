@@ -3,7 +3,9 @@ package vfs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -242,7 +244,7 @@ func TestProcFS_Context(t *testing.T) {
 			t.Fatal("expected non-empty context summary")
 		}
 		// Should contain "Messages: 5"
-		if !containsStr(got, "Messages: 5") {
+		if !strings.Contains(got, "Messages: 5") {
 			t.Errorf("expected summary to contain 'Messages: 5', got: %s", got)
 		}
 	})
@@ -260,7 +262,7 @@ func TestProcFS_PIDNotFound(t *testing.T) {
 		}
 
 		var vfsErr *VFSError
-		if !asVFSError(err, &vfsErr) {
+		if !errors.As(err, &vfsErr) {
 			t.Fatalf("expected *VFSError, got %T: %v", err, err)
 		}
 		if vfsErr.Code != types.ErrNotFound {
@@ -295,7 +297,7 @@ func TestProcFS_InvalidPaths(t *testing.T) {
 			}
 
 			var vfsErr *VFSError
-			if !asVFSError(err, &vfsErr) {
+			if !errors.As(err, &vfsErr) {
 				t.Fatalf("expected *VFSError, got %T: %v", err, err)
 			}
 			if vfsErr.Code != types.ErrNotFound {
@@ -322,7 +324,7 @@ func TestProcFS_WriteRejected(t *testing.T) {
 	}
 
 	var vfsErr *VFSError
-	if !asVFSError(err, &vfsErr) {
+	if !errors.As(err, &vfsErr) {
 		t.Fatalf("expected *VFSError, got %T: %v", err, err)
 	}
 	if vfsErr.Code != types.ErrPermission {
@@ -453,7 +455,7 @@ func TestStateToString(t *testing.T) {
 		{types.StateRunning, "running"},
 		{types.StateZombie, "zombie"},
 		{types.StateDead, "dead"},
-		{types.ProcessState(99), "unknown"},
+		{types.ProcessState(99), "unknown(99)"},
 	}
 	for _, tt := range tests {
 		got := stateToString(tt.state)
@@ -499,33 +501,4 @@ func TestParseProcPath(t *testing.T) {
 			t.Errorf("parseProcPath(%q): file: got %q, want %q", tt.subpath, file, tt.file)
 		}
 	}
-}
-
-// helpers
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstr(s, substr))
-}
-
-func findSubstr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-func asVFSError(err error, target **VFSError) bool {
-	for err != nil {
-		if e, ok := err.(*VFSError); ok {
-			*target = e
-			return true
-		}
-		if u, ok := err.(interface{ Unwrap() error }); ok {
-			err = u.Unwrap()
-		} else {
-			break
-		}
-	}
-	return false
 }

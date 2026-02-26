@@ -351,18 +351,8 @@ func initKernel() {
 	_ = devReg.Register("/proc", procFS.FileFactory())
 }
 
-var processStateNames = map[types.ProcessState]string{
-	types.StateCreated: "created",
-	types.StateRunning: "running",
-	types.StateZombie:  "zombie",
-	types.StateDead:    "dead",
-}
-
 func processStateName(s types.ProcessState) string {
-	if name, ok := processStateNames[s]; ok {
-		return name
-	}
-	return fmt.Sprintf("unknown(%d)", s)
+	return s.String()
 }
 
 func runAstrace(cmd *cobra.Command, args []string) error {

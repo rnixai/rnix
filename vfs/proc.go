@@ -156,18 +156,7 @@ func (f *procFile) Stat() (FileStat, error) {
 
 // stateToString maps ProcessState constants to human-readable JSON strings.
 func stateToString(s types.ProcessState) string {
-	switch s {
-	case types.StateCreated:
-		return "created"
-	case types.StateRunning:
-		return "running"
-	case types.StateZombie:
-		return "zombie"
-	case types.StateDead:
-		return "dead"
-	default:
-		return "unknown"
-	}
+	return s.String()
 }
 
 // statusJSON is the JSON structure for /proc/{pid}/status.
