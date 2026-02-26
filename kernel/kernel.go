@@ -287,7 +287,8 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 
 	// Story 4.2: Orphan detection
 	// If parent process no longer exists in table, push to reapCh for auto-reap.
-	// PPID=0 processes (CLI spawn) are NOT auto-reaped — CLI handles them via Wait.
+	// PPID=0 processes (top-level spawn) are NOT auto-reaped here —
+	// in daemon mode, IPC Server calls kernel.Reap(pid) after spawn stream ends.
 	// Read PPID under lock to prevent race with handleOrphanChildren's reparent write.
 	proc.mu.Lock()
 	ppid := proc.PPID

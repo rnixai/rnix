@@ -309,6 +309,7 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 
 	s.callbackMux.register(pid, eventCh)
 	defer s.callbackMux.unregister(pid)
+	defer s.kern.Reap(pid) // Reap top-level process after stream ends (no CLI Wait in daemon mode)
 
 	// Compensate for OnSpawn event lost during kern.Spawn (fires before register)
 	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent}

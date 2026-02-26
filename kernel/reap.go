@@ -112,6 +112,20 @@ func (k *KernelImpl) Wait(pid types.PID) (ExitStatus, error) {
 	return exit, nil
 }
 
+// Reap triggers cleanup of a zombie process by PID.
+// Safe to call even if the process has already been reaped (idempotent via reapOnce).
+// This is used by the IPC server to reap top-level processes (PPID=0) after
+// spawn streaming completes, since no CLI Wait() call exists in daemon mode.
+func (k *KernelImpl) Reap(pid types.PID) {
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return
+	}
+	if proc.GetState() == types.StateZombie {
+		k.reapProcess(proc)
+	}
+}
+
 // startReaper launches the background goroutine that auto-reaps orphan zombies.
 func (k *KernelImpl) startReaper() {
 	k.reaperWg.Add(1)
