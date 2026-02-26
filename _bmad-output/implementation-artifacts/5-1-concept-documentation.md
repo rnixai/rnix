@@ -1,6 +1,6 @@
 # Story 5.1: 概念文档
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,60 +22,60 @@ So that 我能建立正确的心智模型来使用 Crux。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 `docs/concepts.md` 文件框架 (AC: #4)
-  - [ ] 1.1 在项目根目录的 `docs/` 文件夹中创建 `concepts.md`
-  - [ ] 1.2 添加文档标题、简介段落（一段话描述 Crux 的 OS 范式核心思想）
+- [x] Task 1: 创建 `docs/concepts.md` 文件框架 (AC: #4)
+  - [x] 1.1 在项目根目录的 `docs/` 文件夹中创建 `concepts.md`
+  - [x] 1.2 添加文档标题、简介段落（一段话描述 Crux 的 OS 范式核心思想）
 
-- [ ] Task 2: 编写进程（Process）概念章节 (AC: #1, #2, #3)
-  - [ ] 2.1 定义：智能体进程是 Crux 的一等计算单元，每个 `crux "意图"` 命令创建一个进程
-  - [ ] 2.2 Unix 类比：进程 ≈ Unix 进程，PID ≈ 进程号，状态机 ≈ 进程状态（Created→Running→Zombie→Dead），spawn ≈ fork+exec，kill ≈ signal，wait ≈ waitpid
-  - [ ] 2.3 具体示例：展示 `crux "分析代码"` 的完整进程生命周期（spawn→running→zombie→dead），包含 CLI 输出示例
-  - [ ] 2.4 描述进程树关系（PPID、Children、孤儿进程 reparent 到 PID 1）
-  - [ ] 2.5 说明进程携带的关键属性：PID、Intent（不可变）、Agent 配置、Skills、CtxID、FDTable、DebugChan
+- [x] Task 2: 编写进程（Process）概念章节 (AC: #1, #2, #3)
+  - [x] 2.1 定义：智能体进程是 Crux 的一等计算单元，每个 `crux "意图"` 命令创建一个进程
+  - [x] 2.2 Unix 类比：进程 ≈ Unix 进程，PID ≈ 进程号，状态机 ≈ 进程状态（Created→Running→Zombie→Dead），spawn ≈ fork+exec，kill ≈ signal，wait ≈ waitpid
+  - [x] 2.3 具体示例：展示 `crux "分析代码"` 的完整进程生命周期（spawn→running→zombie→dead），包含 CLI 输出示例
+  - [x] 2.4 描述进程树关系（PPID、Children、孤儿进程 reparent 到 PID 1）
+  - [x] 2.5 说明进程携带的关键属性：PID、Intent（不可变）、Agent 配置、Skills、CtxID、FDTable、DebugChan
 
-- [ ] Task 3: 编写虚拟文件系统（VFS）概念章节 (AC: #1, #2, #3)
-  - [ ] 3.1 定义：VFS 是 Crux 的统一抽象层，所有资源——LLM、文件系统、Shell、进程状态——通过统一的文件路径访问
-  - [ ] 3.2 Unix 类比："一切皆文件"哲学，`/dev/` ≈ 设备文件，`/proc/` ≈ 虚拟进程文件系统，FD ≈ 文件描述符
-  - [ ] 3.3 设备路径表：列出 MVP 所有 VFS 路径及其用途
+- [x] Task 3: 编写虚拟文件系统（VFS）概念章节 (AC: #1, #2, #3)
+  - [x] 3.1 定义：VFS 是 Crux 的统一抽象层，所有资源——LLM、文件系统、Shell、进程状态——通过统一的文件路径访问
+  - [x] 3.2 Unix 类比："一切皆文件"哲学，`/dev/` ≈ 设备文件，`/proc/` ≈ 虚拟进程文件系统，FD ≈ 文件描述符
+  - [x] 3.3 设备路径表：列出 MVP 所有 VFS 路径及其用途
     - `/dev/llm/claude` — LLM 推理设备（通过 Claude Code CLI）
     - `/dev/fs` — 宿主文件系统访问
     - `/dev/shell` — Shell 命令执行
     - `/proc/{pid}/status` — 进程状态 JSON
     - `/proc/{pid}/intent` — 进程意图文本
     - `/proc/{pid}/context` — 进程上下文摘要
-  - [ ] 3.4 具体示例：展示一个推理步骤中的 VFS 操作链（Open→Write→Read→Close）
-  - [ ] 3.5 说明 DeviceRegistry 的设备发现和前缀匹配机制
+  - [x] 3.4 具体示例：展示一个推理步骤中的 VFS 操作链（Open→Write→Read→Close）
+  - [x] 3.5 说明 DeviceRegistry 的设备发现和前缀匹配机制
 
-- [ ] Task 4: 编写 Agent 与 Skill 概念章节 (AC: #1, #2, #3)
-  - [ ] 4.1 Agent 定义："我是谁"——身份、角色定义、模型偏好、上下文预算、Skill 引用
-  - [ ] 4.2 Skill 定义："如何做 X"——程序性知识、工具权限（allowed-tools），遵循 Agent Skills 行业标准
-  - [ ] 4.3 Unix 类比：Agent ≈ 可执行程序（/usr/bin/xxx），Skill ≈ 共享库（.so/.dylib），Process ≈ 运行时实例
-  - [ ] 4.4 四层能力模型图：Process ← Agent ← Skill(s)，展示 Agent 如何引用 Skill，Skill 如何定义 allowed-tools
-  - [ ] 4.5 具体示例：展示 code-analyst Agent 的 `agent.yaml` 和 code-analysis Skill 的 `SKILL.md` 结构
-  - [ ] 4.6 说明渐进式加载策略：发现（frontmatter ~100 tokens）→ 激活（完整 body < 5000 tokens）→ 执行（scripts/assets）
-  - [ ] 4.7 说明 Agent vs Skill 的职责分离表（模型偏好属于 Agent，设备权限属于 Skill）
+- [x] Task 4: 编写 Agent 与 Skill 概念章节 (AC: #1, #2, #3)
+  - [x] 4.1 Agent 定义："我是谁"——身份、角色定义、模型偏好、上下文预算、Skill 引用
+  - [x] 4.2 Skill 定义："如何做 X"——程序性知识、工具权限（allowed-tools），遵循 Agent Skills 行业标准
+  - [x] 4.3 Unix 类比：Agent ≈ 可执行程序（/usr/bin/xxx），Skill ≈ 共享库（.so/.dylib），Process ≈ 运行时实例
+  - [x] 4.4 四层能力模型图：Process ← Agent ← Skill(s)，展示 Agent 如何引用 Skill，Skill 如何定义 allowed-tools
+  - [x] 4.5 具体示例：展示 code-analyst Agent 的 `agent.yaml` 和 code-analysis Skill 的 `SKILL.md` 结构
+  - [x] 4.6 说明渐进式加载策略：发现（frontmatter ~100 tokens）→ 激活（完整 body < 5000 tokens）→ 执行（scripts/assets）
+  - [x] 4.7 说明 Agent vs Skill 的职责分离表（模型偏好属于 Agent，设备权限属于 Skill）
 
-- [ ] Task 5: 编写系统调用（Syscall）概念章节 (AC: #1, #2, #3)
-  - [ ] 5.1 定义：Syscall 是智能体与内核交互的唯一接口，类似 Unix 进程通过 syscall 请求内核服务
-  - [ ] 5.2 Unix 类比：spawn ≈ fork+exec，kill ≈ kill(2)，wait ≈ waitpid(2)，open/read/write/close ≈ 文件 I/O syscall
-  - [ ] 5.3 MVP 15 个 syscall 分类表：
+- [x] Task 5: 编写系统调用（Syscall）概念章节 (AC: #1, #2, #3)
+  - [x] 5.1 定义：Syscall 是智能体与内核交互的唯一接口，类似 Unix 进程通过 syscall 请求内核服务
+  - [x] 5.2 Unix 类比：spawn ≈ fork+exec，kill ≈ kill(2)，wait ≈ waitpid(2)，open/read/write/close ≈ 文件 I/O syscall
+  - [x] 5.3 MVP 15 个 syscall 分类表：
     - 进程管理（5）：Spawn, Kill, Wait, GetPID, PS
     - 上下文管理（4）：CtxAlloc, CtxRead, CtxWrite, CtxFree
     - 文件系统（5）：Open, Read, Write, Close, Stat
     - 调试（1）：DebugRecord
-  - [ ] 5.4 具体示例：展示一次完整的 reasonStep 循环中涉及的 syscall 序列
-  - [ ] 5.5 说明 SyscallError 错误模型：每个 syscall 返回包含 Syscall/PID/Device/Err/Code 的结构化错误
-  - [ ] 5.6 说明 SyscallEvent 调试追踪：所有 syscall 入口/出口自动记录，供 astrace 消费
+  - [x] 5.4 具体示例：展示一次完整的 reasonStep 循环中涉及的 syscall 序列
+  - [x] 5.5 说明 SyscallError 错误模型：每个 syscall 返回包含 Syscall/PID/Device/Err/Code 的结构化错误
+  - [x] 5.6 说明 SyscallEvent 调试追踪：所有 syscall 入口/出口自动记录，供 astrace 消费
 
-- [ ] Task 6: 编写概念关系总览章节 (AC: #2)
-  - [ ] 6.1 绘制文本架构图：展示 Process → Syscall → VFS → Device/Driver 的调用链
-  - [ ] 6.2 绘制端到端数据流：`crux "分析代码" --agent=code-analyst` 从 CLI 到 LLM 响应的完整路径
-  - [ ] 6.3 说明 astrace 如何串联所有概念：syscall 事件 → DebugChan → astrace 格式化输出
+- [x] Task 6: 编写概念关系总览章节 (AC: #2)
+  - [x] 6.1 绘制文本架构图：展示 Process → Syscall → VFS → Device/Driver 的调用链
+  - [x] 6.2 绘制端到端数据流：`crux "分析代码" --agent=code-analyst` 从 CLI 到 LLM 响应的完整路径
+  - [x] 6.3 说明 astrace 如何串联所有概念：syscall 事件 → DebugChan → astrace 格式化输出
 
-- [ ] Task 7: 校验与完善 (AC: #3, #4)
-  - [ ] 7.1 检查所有 VFS 路径、syscall 名称、CLI 命令与实际代码一致
-  - [ ] 7.2 确保所有代码示例可复制运行（CLI 命令格式正确）
-  - [ ] 7.3 最终审读：行文流畅、概念层次清晰、无遗漏
+- [x] Task 7: 校验与完善 (AC: #3, #4)
+  - [x] 7.1 检查所有 VFS 路径、syscall 名称、CLI 命令与实际代码一致
+  - [x] 7.2 确保所有代码示例可复制运行（CLI 命令格式正确）
+  - [x] 7.3 最终审读：行文流畅、概念层次清晰、无遗漏
 
 ## Dev Notes
 
@@ -484,10 +484,27 @@ docs/concepts.md          — 概念文档（本 Story 唯一输出）
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+- 源码验证：阅读了 kernel/process.go, kernel/kernel.go, kernel/errors.go, kernel/reap.go, vfs/vfs.go, vfs/dev.go, vfs/proc.go, context/context.go, agents/types.go, skills/types.go, internal/types/types.go, debug/event.go, cmd/crux/main.go, lib/agents/code-analyst/agent.yaml, lib/agents/code-analyst/instructions.md, lib/skills/code-analysis/SKILL.md
+- 自动化验证：使用 Explore agent 对文档与源码进行全面交叉校验
+
 ### Completion Notes List
 
+- ✅ Task 1: 创建 docs/concepts.md 文件框架，包含标题和简介段落
+- ✅ Task 2: 编写进程章节——定义、状态机（Created→Running→Zombie→Dead）、Unix 类比表、完整生命周期示例（含 CLI 输出）、进程树（PPID/reparent）、关键属性表
+- ✅ Task 3: 编写 VFS 章节——定义、"一切皆文件"类比、6 个 MVP 设备路径表、VFS 操作链示例（8 步）、DeviceRegistry 精确匹配 + 最长前缀匹配机制、VFSFile 接口
+- ✅ Task 4: 编写 Agent 与 Skill 章节——Agent 定义、Skill 定义（含 SKILL.md 示例）、Unix 类比、四层能力模型文本图、code-analyst agent.yaml 实际示例、渐进式加载策略（3 阶段）、Agent vs Skill 职责分离表
+- ✅ Task 5: 编写 Syscall 章节——定义、12 个 Unix 类比、MVP 15 个 syscall 分类表（4 子接口）、完整 reasonStep 循环 syscall 序列示例、SyscallError 结构（含 6 个 ErrCode）、SyscallEvent 调试追踪（含 astrace 使用示例）
+- ✅ Task 6: 编写概念关系总览——调用链架构图（Kernel→VFS→Device）、端到端数据流（CLI→AgentLoader→Spawn→reasonStep→完成）、astrace 调试数据流（NewEvent→CompleteEvent→EmitEvent→消费）
+- ✅ Task 7: 校验与完善——使用 Explore agent 进行自动化交叉校验，修正 ErrCode 列表（补充 INVALID），确认所有 VFS 路径/syscall 名称/CLI 命令与代码一致
+
 ### File List
+
+- docs/concepts.md — 新增：Crux 核心概念文档（简体中文 Markdown）
+
+### Change Log
+
+- 2026-02-26: 创建 docs/concepts.md 概念文档，覆盖四个核心概念（Process/VFS/Skill/Syscall）+ 概念关系总览，所有示例与源码交叉验证通过

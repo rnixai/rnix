@@ -82,7 +82,7 @@ development_status:
 
   # Epic 5: 文档体系（Documentation）
   epic-5: in-progress
-  5-1-concept-documentation: ready-for-dev
+  5-1-concept-documentation: review
   5-2-quick-start-guide: backlog
   5-3-reference-manual: backlog
   epic-5-retrospective: optional
