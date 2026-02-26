@@ -1,6 +1,6 @@
 # Story 4.5: 上下文释放（ctx_free）
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -249,9 +249,11 @@ Claude Opus 4.6
 
 ### File List
 
-- `context/context_test.go` — 新增 3 个测试函数（CtxFreeConcurrent、CtxFreeDoubleFree、CtxFreeAllOperationsFail）
-- `kernel/reap_test.go` — 新增 1 个测试函数（TestReapProcess_CtxFreeCalledInOrder）
+- `context/context_test.go` — 新增 3 个测试函数（CtxFreeConcurrent、CtxFreeDoubleFree、CtxFreeAllOperationsFail）；CR 修复：CtxFreeConcurrent 添加成功计数断言
+- `kernel/reap_test.go` — 新增 1 个测试函数（TestReapProcess_CtxFreeCalledInOrder）；CR 修复：添加顺序验证策略说明注释
+- `kernel/kernel_test.go` — CR 修复：增强 TestSpawn_VFSOpenFailure 验证 Spawn 错误路径 CtxFree 调用
 
 ### Change Log
 
 - 2026-02-26: Story 4.5 实现完成。验证 CtxFree AC 合规性，新增 4 个专项测试覆盖并发安全、幂等性、全操作失败、释放顺序。全套测试通过。
+- 2026-02-26: Code Review（CR）完成。3 个 MEDIUM + 2 个 LOW issues 发现。修复 M1（TestReapProcess_CtxFreeCalledInOrder 添加策略说明注释）、M2（TestSpawn_VFSOpenFailure 增加 CtxFree 验证）、M3（TestManager_CtxFreeConcurrent 添加成功计数断言）。全套测试通过。Status → done。
