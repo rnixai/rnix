@@ -1,6 +1,6 @@
 # Story 4.5: 上下文释放（ctx_free）
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -24,22 +24,22 @@ So that 系统不会因为上下文累积而内存泄漏。
 
 > **重要背景：** CtxFree 核心功能已在 Story 1.4（context 包）和 Story 4.2（reapProcess 集成）中实现。本 Story 聚焦验证、补充测试、和文档完善。
 
-- [ ] Task 1: 验证现有 CtxFree 实现的 AC 合规性 (AC: #1, #2, #3)
-  - [ ] 1.1 验证 `context/context.go:99-110` 的 `CtxFree()` 方法正确使用 `LoadAndDelete` 原子操作删除上下文
-  - [ ] 1.2 验证 `kernel/reap.go:35` 在资源释放序列的正确位置调用 `k.ctxMgr.CtxFree(proc.CtxID)`（第 5 步：cancel → wg.Wait → FD → DebugChan → **CtxFree** → Reap → Remove）
-  - [ ] 1.3 验证 `context/context_test.go:99-186` 中 4 个 CtxFree 专用测试覆盖：释放后 CtxRead 失败、释放后 CtxWrite 失败、释放后 BuildPrompt 失败、不存在的 CtxID 返回 ErrNotFound
-  - [ ] 1.4 验证 `kernel/reap_test.go` 中 Wait/Kill/orphan 场景均验证 CtxFree 被调用（BuildPrompt 返回错误）
+- [x] Task 1: 验证现有 CtxFree 实现的 AC 合规性 (AC: #1, #2, #3)
+  - [x] 1.1 验证 `context/context.go:99-110` 的 `CtxFree()` 方法正确使用 `LoadAndDelete` 原子操作删除上下文
+  - [x] 1.2 验证 `kernel/reap.go:35` 在资源释放序列的正确位置调用 `k.ctxMgr.CtxFree(proc.CtxID)`（第 5 步：cancel → wg.Wait → FD → DebugChan → **CtxFree** → Reap → Remove）
+  - [x] 1.3 验证 `context/context_test.go:99-186` 中 4 个 CtxFree 专用测试覆盖：释放后 CtxRead 失败、释放后 CtxWrite 失败、释放后 BuildPrompt 失败、不存在的 CtxID 返回 ErrNotFound
+  - [x] 1.4 验证 `kernel/reap_test.go` 中 Wait/Kill/orphan 场景均验证 CtxFree 被调用（BuildPrompt 返回错误）
 
-- [ ] Task 2: 补充 CtxFree 专项集成测试 (AC: #3, #4)
-  - [ ] 2.1 在 `context/context_test.go` 中添加 `TestManager_CtxFreeConcurrent` — 启动 100 个 goroutine 并发 Alloc+Free，验证 `-race` 无竞态
-  - [ ] 2.2 在 `context/context_test.go` 中添加 `TestManager_CtxFreeDoubleFree` — 对同一 CtxID 调用两次 CtxFree，第二次返回 ErrNotFound（验证幂等安全性）
-  - [ ] 2.3 在 `context/context_test.go` 中添加 `TestManager_CtxFreeAllOperationsFail` — 释放后验证 CtxRead、CtxWrite、SetSystemPrompt、AppendMessage、AppendToolResult、BuildPrompt、GetContextSummary 全部返回 ErrNotFound
-  - [ ] 2.4 在 `kernel/reap_test.go` 中添加 `TestReapProcess_CtxFreeCalledInOrder` — 验证 CtxFree 在 DebugChan 关闭之后、Reap 状态转移之前被调用（资源释放顺序验证）
+- [x] Task 2: 补充 CtxFree 专项集成测试 (AC: #3, #4)
+  - [x] 2.1 在 `context/context_test.go` 中添加 `TestManager_CtxFreeConcurrent` — 启动 100 个 goroutine 并发 Alloc+Free，验证 `-race` 无竞态
+  - [x] 2.2 在 `context/context_test.go` 中添加 `TestManager_CtxFreeDoubleFree` — 对同一 CtxID 调用两次 CtxFree，第二次返回 ErrNotFound（验证幂等安全性）
+  - [x] 2.3 在 `context/context_test.go` 中添加 `TestManager_CtxFreeAllOperationsFail` — 释放后验证 CtxRead、CtxWrite、SetSystemPrompt、AppendMessage、AppendToolResult、BuildPrompt、GetContextSummary 全部返回 ErrNotFound
+  - [x] 2.4 在 `kernel/reap_test.go` 中添加 `TestReapProcess_CtxFreeCalledInOrder` — 验证 CtxFree 在 DebugChan 关闭之后、Reap 状态转移之前被调用（资源释放顺序验证）
 
-- [ ] Task 3: 运行完整测试套件验证 (AC: #4)
-  - [ ] 3.1 执行 `go test -race ./...` 确认所有包通过
-  - [ ] 3.2 执行 `go vet ./...` 确认无警告
-  - [ ] 3.3 如有测试失败，修复后重新验证
+- [x] Task 3: 运行完整测试套件验证 (AC: #4)
+  - [x] 3.1 执行 `go test -race ./...` 确认所有包通过
+  - [x] 3.2 执行 `go vet ./...` 确认无警告
+  - [x] 3.3 如有测试失败，修复后重新验证
 
 ## Dev Notes
 
@@ -230,10 +230,28 @@ internal/types/types.go           — CtxID 类型定义不变
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+无调试问题。所有测试一次通过。
+
 ### Completion Notes List
 
+- **Task 1（验证）：** 逐一审查 `context/context.go:99-110`、`kernel/reap.go:13-43`、`context/context_test.go:99-186`、`kernel/reap_test.go` 多处测试，确认 CtxFree 实现完全满足 AC #1-#3。`LoadAndDelete` 原子操作保证并发安全，`reapProcess` 中释放顺序正确（DebugChan 关闭后、Reap 状态转移前）。
+- **Task 2（新增测试）：** 新增 4 个专项测试：
+  - `TestManager_CtxFreeConcurrent` — 100 goroutine 并发 Alloc+Free，`-race` 无竞态
+  - `TestManager_CtxFreeDoubleFree` — 双重释放返回 ErrNotFound，验证幂等安全
+  - `TestManager_CtxFreeAllOperationsFail` — 释放后 7 个操作（CtxRead/CtxWrite/SetSystemPrompt/AppendMessage/AppendToolResult/BuildPrompt/GetContextSummary）全部返回 ErrNotFound
+  - `TestReapProcess_CtxFreeCalledInOrder` — 验证 reapProcess 完整资源释放顺序（DebugChan→CtxFree→Reap→Remove）
+- **Task 3（全套验证）：** `go test -race ./...` 全部 13 个包 PASS，`go vet ./...` 无警告
+- **无生产代码修改** — 所有 AC 已被现有实现满足，本 Story 仅新增测试
+
 ### File List
+
+- `context/context_test.go` — 新增 3 个测试函数（CtxFreeConcurrent、CtxFreeDoubleFree、CtxFreeAllOperationsFail）
+- `kernel/reap_test.go` — 新增 1 个测试函数（TestReapProcess_CtxFreeCalledInOrder）
+
+### Change Log
+
+- 2026-02-26: Story 4.5 实现完成。验证 CtxFree AC 合规性，新增 4 个专项测试覆盖并发安全、幂等性、全操作失败、释放顺序。全套测试通过。
