@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -134,6 +135,25 @@ var astraceCmd = &cobra.Command{
 	RunE: runAstrace,
 }
 
+var psCmd = &cobra.Command{
+	Use:   "ps",
+	Short: "List active processes",
+	Long:  "Display a table of all agent processes with their status, skills, tokens, and elapsed time.",
+	Example: `  crux ps              # Show process table
+  crux ps --json       # JSON output for scripting
+  crux ps --quiet      # PIDs only (one per line)
+  crux ps --verbose    # Full details including PPID and intent`,
+	Args: cobra.NoArgs,
+	RunE: runPs,
+}
+
+var killCmd = &cobra.Command{
+	Use:   "kill <pid>",
+	Short: "Terminate an agent process",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runKill,
+}
+
 func runVersion(cmd *cobra.Command, args []string) {
 	w := cmd.OutOrStdout()
 
@@ -172,6 +192,8 @@ func init() {
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(astraceCmd)
+	rootCmd.AddCommand(psCmd)
+	rootCmd.AddCommand(killCmd)
 }
 
 func resolveOutputMode() ui.OutputMode {
@@ -353,6 +375,129 @@ func initKernel() {
 
 func processStateName(s types.ProcessState) string {
 	return s.String()
+}
+
+func runPs(cmd *cobra.Command, args []string) error {
+	initKernel()
+	if kern == nil {
+		fmt.Fprintln(os.Stderr, "✗ kernel initialization failed")
+		exitCode = 1
+		return nil
+	}
+
+	procs := kern.ListProcs()
+	sort.Slice(procs, func(i, j int) bool {
+		return procs[i].PID < procs[j].PID
+	})
+
+	mode := resolveOutputMode()
+	renderer := ui.NewRenderer(os.Stdout, mode)
+	ui.InitStyles(renderer.Profile)
+
+	switch mode {
+	case ui.ModeJSON:
+		renderPsJSON(renderer, procs)
+	case ui.ModeQuiet:
+		renderPsQuiet(renderer, procs)
+	case ui.ModeVerbose:
+		if len(procs) == 0 {
+			fmt.Fprintln(renderer.Writer, "No active processes.")
+			return nil
+		}
+		ui.RenderProcessTable(renderer, procs, true)
+	default:
+		if len(procs) == 0 {
+			fmt.Fprintln(renderer.Writer, "No active processes.")
+			return nil
+		}
+		ui.RenderProcessTable(renderer, procs, false)
+	}
+
+	return nil
+}
+
+// jsonProcess is the JSON representation of a single process for crux ps --json.
+type jsonProcess struct {
+	PID        types.PID `json:"pid"`
+	PPID       types.PID `json:"ppid"`
+	State      string    `json:"state"`
+	Intent     string    `json:"intent"`
+	Skills     []string  `json:"skills"`
+	TokensUsed int       `json:"tokens_used"`
+	ElapsedMs  int64     `json:"elapsed_ms"`
+}
+
+func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
+	entries := make([]jsonProcess, len(procs))
+	for i, p := range procs {
+		skills := p.Skills
+		if skills == nil {
+			skills = []string{}
+		}
+		entries[i] = jsonProcess{
+			PID:        p.PID,
+			PPID:       p.PPID,
+			State:      p.State.String(),
+			Intent:     p.Intent,
+			Skills:     skills,
+			TokensUsed: p.TokensUsed,
+			ElapsedMs:  time.Since(p.CreatedAt).Milliseconds(),
+		}
+	}
+	resp := JSONResponse{
+		OK:   true,
+		Data: map[string]any{"processes": entries},
+	}
+	data, _ := json.Marshal(resp)
+	fmt.Fprintln(r.Writer, string(data))
+}
+
+func renderPsQuiet(r *ui.Renderer, procs []vfs.ProcInfo) {
+	for _, p := range procs {
+		fmt.Fprintln(r.Writer, p.PID)
+	}
+}
+
+func runKill(cmd *cobra.Command, args []string) error {
+	pidNum, err := strconv.ParseUint(args[0], 10, 64)
+	if err != nil {
+		mode := resolveOutputMode()
+		renderer := ui.NewRenderer(os.Stdout, mode)
+		ui.InitStyles(renderer.Profile)
+		ui.RenderError(renderer,
+			fmt.Sprintf("PID %s", args[0]),
+			"invalid PID (expected number)",
+			fmt.Sprintf("PID %s: not a valid process ID", args[0]),
+			"crux ps  查看活跃进程")
+		exitCode = 1
+		return nil
+	}
+	pid := types.PID(pidNum)
+
+	initKernel()
+	if kern == nil {
+		fmt.Fprintln(os.Stderr, "✗ kernel initialization failed")
+		exitCode = 1
+		return nil
+	}
+
+	mode := resolveOutputMode()
+	renderer := ui.NewRenderer(os.Stdout, mode)
+	ui.InitStyles(renderer.Profile)
+
+	if err := kern.Kill(pid, types.SIGTERM); err != nil {
+		ui.RenderError(renderer,
+			fmt.Sprintf("PID %d", pid),
+			"process not found",
+			fmt.Sprintf("PID %d: no active process", pid),
+			"crux ps  查看活跃进程")
+		exitCode = 1
+		return nil
+	}
+
+	prefix := ui.KernelStyle.Render("[kernel]")
+	fmt.Fprintf(renderer.Writer, "%s PID %d: signal sent (SIGTERM)\n", prefix, pid)
+	return nil
 }
 
 func runAstrace(cmd *cobra.Command, args []string) error {
