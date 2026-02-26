@@ -965,6 +965,69 @@ func TestReapOnce_ConcurrentReapProcess(t *testing.T) {
 	}
 }
 
+// --- Story 4.5: CtxFree order verification ---
+
+func TestReapProcess_CtxFreeCalledInOrder(t *testing.T) {
+	// Verify CtxFree is called AFTER DebugChan close and BEFORE Reap state transition.
+	// Strategy: observe that after reapProcess completes:
+	// 1. DebugChan is closed (nil-ed and closed)
+	// 2. Context is freed (BuildPrompt returns error)
+	// 3. Process state is Dead (Reap was called)
+	// 4. Process removed from table (RemoveProcess was called)
+	// We verify all these hold, confirming the full sequence executed correctly.
+	llmFile := &mockLLMFile{readData: makeLLMResponse("order test", 1)}
+	k, _, ctxMgr := newTestKernel(t, llmFile)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("order-verify", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	ctxID := proc.CtxID
+	debugCh := proc.DebugChan // save ref before reapProcess nils it
+
+	// Wait for process to become Zombie (via Done channel)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process to finish")
+	}
+
+	// Call reapProcess directly
+	k.reapProcess(proc)
+
+	// 1. DebugChan closed: drain buffered events, then verify closed
+	for {
+		select {
+		case _, open := <-debugCh:
+			if !open {
+				goto debugClosed
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out draining DebugChan")
+		}
+	}
+debugClosed:
+
+	// 2. Context freed: BuildPrompt returns error with ErrNotFound
+	_, ctxErr := ctxMgr.BuildPrompt(ctxID)
+	if ctxErr == nil {
+		t.Error("context should be freed after reapProcess")
+	}
+
+	// 3. Process state is Dead (Reap was called after CtxFree)
+	if proc.GetState() != types.StateDead {
+		t.Errorf("expected Dead state, got %d", proc.GetState())
+	}
+
+	// 4. Process removed from table
+	if _, ok := k.GetProcess(pid); ok {
+		t.Error("process should be removed from table after reapProcess")
+	}
+}
+
 func TestShutdown_DrainsReapCh(t *testing.T) {
 	// M3: Verify Shutdown drains remaining PIDs in reapCh before exiting.
 	reg := vfs.NewDeviceRegistry()

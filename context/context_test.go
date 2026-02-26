@@ -873,6 +873,124 @@ func TestManager_GetContextSummary_WithToolMessages(t *testing.T) {
 	}
 }
 
+// ========== Story 4.5: CtxFree Specialized Tests ==========
+
+func TestManager_CtxFreeConcurrent(t *testing.T) {
+	// 100 goroutines concurrently Alloc+Free — verify no race conditions under -race
+	m := NewManager()
+	const goroutines = 100
+
+	var wg sync.WaitGroup
+	errs := make(chan error, goroutines*2)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cid, err := m.CtxAlloc(10)
+			if err != nil {
+				errs <- err
+				return
+			}
+			// Write some data before freeing
+			if err := m.AppendMessage(cid, RoleUser, "concurrent msg"); err != nil {
+				errs <- err
+				return
+			}
+			if err := m.CtxFree(cid); err != nil {
+				errs <- err
+				return
+			}
+			// Verify freed: CtxRead should fail
+			if _, err := m.CtxRead(cid, 0, 0); err == nil {
+				errs <- errors.New("expected error after CtxFree in concurrent goroutine")
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		t.Errorf("concurrent CtxFree error: %v", err)
+	}
+}
+
+func TestManager_CtxFreeDoubleFree(t *testing.T) {
+	// Double free: second call returns ErrNotFound (idempotent safety)
+	m := NewManager()
+	cid, err := m.CtxAlloc(10)
+	if err != nil {
+		t.Fatalf("CtxAlloc failed: %v", err)
+	}
+
+	// First free succeeds
+	if err := m.CtxFree(cid); err != nil {
+		t.Fatalf("first CtxFree failed: %v", err)
+	}
+
+	// Second free returns ErrNotFound
+	err = m.CtxFree(cid)
+	if err == nil {
+		t.Fatal("expected error on double CtxFree")
+	}
+	var ctxErr *ContextError
+	if !errors.As(err, &ctxErr) {
+		t.Fatalf("expected *ContextError, got %T", err)
+	}
+	if ctxErr.Code != types.ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %s", ctxErr.Code)
+	}
+}
+
+func TestManager_CtxFreeAllOperationsFail(t *testing.T) {
+	// After free, ALL context operations return ErrNotFound
+	m := NewManager()
+	cid, err := m.CtxAlloc(100)
+	if err != nil {
+		t.Fatalf("CtxAlloc failed: %v", err)
+	}
+
+	// Populate context before freeing
+	_ = m.SetSystemPrompt(cid, "test prompt")
+	_ = m.AppendMessage(cid, RoleUser, "test message")
+
+	if err := m.CtxFree(cid); err != nil {
+		t.Fatalf("CtxFree failed: %v", err)
+	}
+
+	ops := []struct {
+		name string
+		fn   func() error
+	}{
+		{"CtxRead", func() error { _, err := m.CtxRead(cid, 0, 0); return err }},
+		{"CtxWrite", func() error {
+			data, _ := json.Marshal(Message{Role: RoleUser, Content: "x"})
+			return m.CtxWrite(cid, 0, data)
+		}},
+		{"SetSystemPrompt", func() error { return m.SetSystemPrompt(cid, "x") }},
+		{"AppendMessage", func() error { return m.AppendMessage(cid, RoleUser, "x") }},
+		{"AppendToolResult", func() error { return m.AppendToolResult(cid, "call-1", "x") }},
+		{"BuildPrompt", func() error { _, err := m.BuildPrompt(cid); return err }},
+		{"GetContextSummary", func() error { _, err := m.GetContextSummary(cid); return err }},
+	}
+
+	for _, op := range ops {
+		t.Run(op.name, func(t *testing.T) {
+			err := op.fn()
+			if err == nil {
+				t.Fatalf("%s should fail after CtxFree", op.name)
+			}
+			var ctxErr *ContextError
+			if !errors.As(err, &ctxErr) {
+				t.Fatalf("%s: expected *ContextError, got %T", op.name, err)
+			}
+			if ctxErr.Code != types.ErrNotFound {
+				t.Fatalf("%s: expected ErrNotFound, got %s", op.name, ctxErr.Code)
+			}
+		})
+	}
+}
+
 func containsStr(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
