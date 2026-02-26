@@ -200,6 +200,43 @@ func TestServer_MultipleConnections(t *testing.T) {
 	}
 }
 
+func TestServer_ConnectionReuse(t *testing.T) {
+	_, sockPath := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	// First request: Ping
+	resp := sendRequest(t, conn, MethodPing, nil)
+	if !resp.OK {
+		t.Fatalf("ping not ok: %+v", resp.Error)
+	}
+	var pr PingResponse
+	if err := json.Unmarshal(resp.Payload, &pr); err != nil {
+		t.Fatalf("unmarshal ping: %v", err)
+	}
+	if pr.Version != "0.1.0-test" {
+		t.Errorf("version = %q, want %q", pr.Version, "0.1.0-test")
+	}
+
+	// Second request on the same connection: ListProcs
+	resp = sendRequest(t, conn, MethodListProcs, nil)
+	if !resp.OK {
+		t.Fatalf("list_procs not ok: %+v", resp.Error)
+	}
+	var lr ListProcsResponse
+	if err := json.Unmarshal(resp.Payload, &lr); err != nil {
+		t.Fatalf("unmarshal list_procs: %v", err)
+	}
+	if len(lr.Processes) != 0 {
+		t.Errorf("processes = %d, want 0", len(lr.Processes))
+	}
+
+	// Third request on the same connection: Kill (expect error, but connection should still work)
+	resp = sendRequest(t, conn, MethodKill, KillRequest{PID: 999, Signal: types.SIGTERM})
+	if resp.OK {
+		t.Fatal("kill should fail for nonexistent PID")
+	}
+}
+
 func TestCallbackMux_RegisterUnregister(t *testing.T) {
 	mux := newCallbackMux()
 	ch := make(chan StreamEvent, 10)

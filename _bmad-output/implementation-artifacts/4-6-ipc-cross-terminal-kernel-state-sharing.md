@@ -42,7 +42,7 @@ So that Crux 的多终端管理体验与 Unix 系统行为一致——进程在�
 
 - [x] Task 2: IPC Server（daemon 端） (AC: #1, #2, #3, #6, #7)
   - [x] 2.1 创建 `ipc/server.go`：`Server` 结构体，持有 kernel 实例引用，监听 Unix socket
-  - [x] 2.2 实现连接处理循环：accept → 解析请求 → 路由到 handler → 写回响应
+  - [x] 2.2 实现连接处理循环：accept → 请求循环（非流式方法复用连接，流式方法终结连接）
   - [x] 2.3 实现 `handleSpawn`：接收 SpawnRequest，调用 kernel.Spawn，启动 goroutine 监听 Done channel 并流式推送 ProgressEvent 给客户端
   - [x] 2.4 实现 `handleListProcs`：调用 kernel.ListProcs，序列化为 ListProcsResponse
   - [x] 2.5 实现 `handleKill`：调用 kernel.Kill，返回结果
@@ -622,7 +622,7 @@ Claude claude-4.6-opus (Cursor IDE)
 
 - 新建 `ipc/` 包，包含 protocol.go, server.go, client.go, daemon.go 四个核心模块
 - IPC 协议基于 NDJSON (一行 JSON per request/response)，Unix domain socket 通信
-- Server 采用 one-shot 连接模型（每请求独立连接），简化并发控制
+- Server 采用请求循环连接模型，单连接支持多次非流式请求复用（Ping/ListProcs/Kill 复用连接，Spawn/AttachDebug 流式方法终结连接）
 - Daemon 自动启动通过 re-exec (`crux daemon --internal`) 实现
 - 空闲 60s 自动关闭，stale socket 自动清理
 - `callbackMux` 实现 kernel.KernelCallbacks 接口，多路复用进度事件到各连接客户端
@@ -664,6 +664,7 @@ Claude claude-4.6-opus (Cursor IDE)
 |------|------|------|
 | 2026-02-26 | Story 创建 + 全部实现 | Dev Agent (Claude) |
 | 2026-02-26 | Code Review: 修复 9 个问题 (3H+5M+1L)，新增 2 个集成测试 | Review Agent (Claude) |
+| 2026-02-26 | Bug Fix: handleConn 从 one-shot 改为请求循环，修复 EnsureDaemon Ping 消耗连接导致 Broken Pipe | Dev Agent (Claude) |
 
 ### File List
 

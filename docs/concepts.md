@@ -441,6 +441,8 @@ $ crux astrace 1
 
 daemon 是一个隐藏的后台进程（`crux daemon --internal`），在首次执行 `crux` 命令时自动启动。所有 CLI 操作（spawn、ps、kill、astrace）都是客户端请求，通过 Unix domain socket 发送给 daemon 中的 IPC Server，由 Server 路由到 kernel 执行。这种架构使得多个终端可以共享同一个内核的进程表。
 
+IPC Server 采用**请求循环连接模型**：单个连接上可以发送多次非流式请求（Ping、ListProcs、Kill），服务端处理后继续等待下一个请求。流式方法（Spawn、AttachDebug）会在 handler 内部管理连接生命周期，流结束后关闭连接。这意味着 `EnsureDaemon()` 的 Ping 探活和后续 Spawn 请求可以共用同一个连接，避免 broken pipe 错误。
+
 ### 端到端数据流
 
 以 `crux "分析代码" --agent=code-analyst` 为例，完整的请求路径：
@@ -451,8 +453,9 @@ daemon 是一个隐藏的后台进程（`crux daemon --internal`），在首次�
     ▼
 cmd/crux/main.go（CLI 客户端）
     │  1. 解析 --agent flag
-    │  2. EnsureDaemon() — 检测/启动 daemon
+    │  2. EnsureDaemon() — 检测/启动 daemon（Ping 探活复用同一连接）
     │  3. ipc.Client.Dial(socketPath) — 连接 daemon
+    │  4. Client.SpawnAndWatch() — 在同一连接上发送 Spawn 请求
     │
     │         Unix Domain Socket
     ▼

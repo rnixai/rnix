@@ -207,31 +207,33 @@ func (s *Server) handleConn(conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
 
-	if !scanner.Scan() {
-		return
-	}
+	for scanner.Scan() {
+		var req Request
+		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "malformed request"}})
+			return
+		}
 
-	var req Request
-	if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "malformed request"}})
-		return
-	}
-
-	switch req.Method {
-	case MethodPing:
-		s.handlePing(conn)
-	case MethodSpawn:
-		s.handleSpawn(conn, req.Payload)
-	case MethodListProcs:
-		s.handleListProcs(conn)
-	case MethodKill:
-		s.handleKill(conn, req.Payload)
-	case MethodAttachDebug:
-		s.handleAttachDebug(conn, req.Payload)
-	case MethodShutdown:
-		s.handleShutdown(conn)
-	default:
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: fmt.Sprintf("unknown method: %s", req.Method)}})
+		switch req.Method {
+		case MethodPing:
+			s.handlePing(conn)
+		case MethodListProcs:
+			s.handleListProcs(conn)
+		case MethodKill:
+			s.handleKill(conn, req.Payload)
+		case MethodSpawn:
+			s.handleSpawn(conn, req.Payload)
+			return // streaming method — handler manages connection lifetime
+		case MethodAttachDebug:
+			s.handleAttachDebug(conn, req.Payload)
+			return // streaming method — handler manages connection lifetime
+		case MethodShutdown:
+			s.handleShutdown(conn)
+			return
+		default:
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: fmt.Sprintf("unknown method: %s", req.Method)}})
+			return
+		}
 	}
 }
 

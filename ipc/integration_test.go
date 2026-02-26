@@ -43,7 +43,7 @@ func setupIntegrationServer(t *testing.T) (*Server, *kernel.KernelImpl, string) 
 func TestIntegration_PingListKill(t *testing.T) {
 	_, kern, sockPath := setupIntegrationServer(t)
 
-	// Each request needs its own connection (one-shot protocol).
+	// Non-streaming requests can reuse the same connection.
 	c1, err := Dial(sockPath)
 	if err != nil {
 		t.Fatalf("Dial 1: %v", err)
@@ -347,6 +347,43 @@ func TestIntegration_ConcurrentSpawn(t *testing.T) {
 	}
 	if len(seen) < numClients {
 		t.Errorf("expected %d unique PIDs, got %d", numClients, len(seen))
+	}
+}
+
+func TestIntegration_ConnectionReuse_PingThenList(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	// Add a process so ListProcs returns something meaningful.
+	proc := kernel.NewProcess(0, "reuse test", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	// Single client connection for multiple requests.
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	// First: Ping on the connection.
+	ver, err := client.Ping()
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if ver != "0.1.0-test" {
+		t.Errorf("version = %q, want %q", ver, "0.1.0-test")
+	}
+
+	// Second: ListProcs on the same connection — this is the broken-pipe scenario.
+	procs, err := client.ListProcs()
+	if err != nil {
+		t.Fatalf("ListProcs after Ping on same connection: %v", err)
+	}
+	if len(procs) != 1 {
+		t.Errorf("expected 1 proc, got %d", len(procs))
+	}
+	if len(procs) > 0 && procs[0].PID != proc.PID {
+		t.Errorf("pid = %d, want %d", procs[0].PID, proc.PID)
 	}
 }
 
