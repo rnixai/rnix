@@ -1,6 +1,6 @@
 # Story 5.2: 快速上手指南
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -110,7 +110,7 @@ So that 我在 15 分钟内体验到 Crux 的核心价值。
 
 ```
 [kernel] spawning PID 1...              ← Agent Progress Reporter
-[agent]  step 1/10                      ← Agent Progress Reporter
+[agent/1] reasoning step 1...           ← Agent Progress Reporter
 [result] 分析结果文本...                 ← Result Box (双线边框)
 [kernel] PID 1 exited(0) | tokens: 1234 | elapsed: 6.2s   ← Summary Footer
 ```
@@ -125,7 +125,7 @@ So that 我在 15 分钟内体验到 Crux 的核心价值。
 **Version 输出格式：**
 ```
 crux v0.1.0
-claude-code: v1.x.x
+claude-code: 1.x.x
 ```
 
 **Version 错误（Claude CLI 未安装）：**
@@ -280,6 +280,19 @@ Claude Opus 4.6
 
 ### File List
 
-- docs/quick-start.md (新增) — 快速上手指南
+- docs/quick-start.md (新增 + 审查修复) — 快速上手指南
 - _bmad-output/implementation-artifacts/5-2-quick-start-guide.md (修改) — Story 文件更新
 - _bmad-output/implementation-artifacts/sprint-status.yaml (修改) — Sprint 状态更新
+
+### Code Review Record (2026-02-26)
+
+**Reviewer:** Amelia (Dev Agent — Code Review Mode)
+**Model:** Claude Opus 4.6
+
+**审查发现与修复:**
+- [H1] 首次执行示例改为 `crux "分析 ./README.md"` 匹配 AC #1（docs/quick-start.md:72）
+- [M1] 补充 `crux ps --json` 预期 JSON 输出示例满足 AC #3（docs/quick-start.md:217-234）
+- [M2] Story CLI Output Reference 修正为 `[agent/1] reasoning step 1...` 匹配代码实现（story:113）
+- [L1] astrace 解读表 `← LLM 调用` 描述修正为"涉及 /dev/llm/ 设备的操作"（docs/quick-start.md:181）
+- [L2] 添加 `<nil>` 含义说明帮助非 Go 用户理解（docs/quick-start.md:184）
+- [L3] Story version 输出参考去掉 `v` 前缀匹配代码行为（story:128）
