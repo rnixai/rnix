@@ -69,7 +69,7 @@ crux v0.1.0
 向 Crux 传递一个意图字符串，即可 Spawn 一个智能体进程来完成任务：
 
 ```bash
-$ crux "你好，请介绍你自己"
+$ crux "分析 ./README.md"
 ```
 
 你将看到类似以下的输出：
@@ -77,11 +77,14 @@ $ crux "你好，请介绍你自己"
 ```
 [kernel] spawning PID 1...
 [agent/1] reasoning step 1...
+[agent/1] reasoning step 2...
 ══ Result ══════════════════════════════════════════════════════════════════════
-  你好！我是运行在 Crux 中的一个智能体进程。Crux 是一个面向 AI 智能体的操作系统，
-  我通过系统调用与内核交互，使用 VFS 设备来完成你的请求...
+  ## README.md 分析
+
+  该文件是 Crux 项目的入口说明文档，包含项目简介、安装方式和基本用法。
+  结构清晰，涵盖了新用户上手所需的关键信息...
 ════════════════════════════════════════════════════════════════════════════════
-[kernel] PID 1 exited(0) | tokens: 856 | elapsed: 4.1s
+[kernel] PID 1 exited(0) | tokens: 1024 | elapsed: 5.3s
 ```
 
 ### 解读输出
@@ -92,8 +95,8 @@ $ crux "你好，请介绍你自己"
 | `[agent/1] reasoning step 1...` | PID 1 的智能体正在执行第 1 步推理 |
 | `══ Result ══...` | 双线边框内是智能体的最终输出结果 |
 | `[kernel] PID 1 exited(0)` | 进程正常退出（退出码 0） |
-| `tokens: 856` | 本次执行消耗的 token 数量 |
-| `elapsed: 4.1s` | 总耗时 |
+| `tokens: 1024` | 本次执行消耗的 token 数量 |
+| `elapsed: 5.3s` | 总耗时 |
 
 ---
 
@@ -175,8 +178,10 @@ $ crux astrace 1
 | `Read(fd=3, ...)` | 读取 LLM 响应 |
 | `Open(path="/dev/fs/./README.md")` | 智能体请求读取文件（工具调用） |
 | `Close(fd=4)` | 关闭文件设备 |
-| `← LLM 调用` | 标注含 `/dev/llm/` 路径的 Open 操作 |
+| `← LLM 调用` | 标注涉及 `/dev/llm/` 设备的操作 |
 | `← 慢操作` | 标注耗时超过 1 秒的操作（通常是 LLM 推理） |
+
+> 💡 `<nil>` 表示操作成功且无返回值（类似其他语言中的 `null` 或 `void`）。
 
 按 `Ctrl+C` 可随时脱离 astrace，不会影响被追踪的进程。
 
@@ -205,6 +210,27 @@ $ crux ps
 
 ```bash
 $ crux ps --json
+```
+
+输出示例：
+
+```json
+{
+  "ok": true,
+  "data": {
+    "processes": [
+      {
+        "pid": 1,
+        "ppid": 0,
+        "state": "running",
+        "intent": "分析 ./README.md",
+        "skills": ["code-analysis"],
+        "tokens_used": 456,
+        "elapsed_ms": 3200
+      }
+    ]
+  }
+}
 ```
 
 ### 终止进程
