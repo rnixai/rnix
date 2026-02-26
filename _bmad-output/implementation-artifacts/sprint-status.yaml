@@ -77,7 +77,7 @@ development_status:
   4-2-orphan-process-reparent-and-zombie-auto-reap: done
   4-3-proc-dynamic-filesystem: done
   4-4-crux-ps-command-and-process-table-ui: done
-  4-5-context-release-ctx-free: backlog
+  4-5-context-release-ctx-free: ready-for-dev
   epic-4-retrospective: optional
 
   # Epic 5: 文档体系（Documentation）
