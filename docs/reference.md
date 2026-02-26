@@ -70,14 +70,14 @@
 
 ### 1.1 概述
 
-Crux 的内核接口由 4 个子接口组合而成，共定义 15 个 syscall：
+Crux 的内核接口按 4 个功能分类组织，共定义 15 个 syscall（其中 14 个已实现，GetPID 延迟实现）：
 
-| 子接口 | Syscall 数量 | 职责 |
-|--------|-------------|------|
-| ProcessManager | 5 | 进程创建、终止、等待、查询 |
-| ContextManager | 4 | 上下文空间分配、读写、释放 |
-| FileSystem | 5 | VFS 设备的打开、读写、关闭、元数据查询 |
-| Debugger | 1 | Syscall 事件的自动记录与追踪 |
+| 功能分类 | Syscall 数量 | 职责 |
+|---------|-------------|------|
+| 进程管理（ProcessManager） | 5（含 1 个延迟） | 进程创建、终止、等待、查询 |
+| 上下文管理（ContextManager） | 4 | 上下文空间分配、读写、释放 |
+| 文件系统（FileSystem） | 5 | VFS 设备的打开、读写、关闭、元数据查询 |
+| 调试（Debugger） | 1 | Syscall 事件的自动记录与追踪 |
 
 所有 syscall 在出错时返回结构化的 `*SyscallError`（见 [6.2 SyscallError](#62-syscallerror)），包含 syscall 名称、PID、设备路径、底层错误和分类错误码。
 
@@ -262,9 +262,17 @@ for _, p := range procs {
 
 #### GetPID
 
-获取当前进程 PID。
+获取当前进程 PID，类似 Unix 的 `getpid(2)` 系统调用。
 
-> **状态：** 延迟实现。当前通过 `ListProcs()` 替代。
+> **状态：** 延迟实现（未包含在当前 MVP 中）。当前通过 `ListProcs()` 遍历进程列表查找目标进程来替代。未来版本将提供直接的 PID 查询接口。
+
+**预期签名：**
+
+```
+GetPID() PID
+```
+
+**预期行为：** 返回调用者自身的进程 PID。由于当前内核的 syscall 调用方式不携带调用者身份（syscall 由内核内部 goroutine 驱动），此功能需要额外的调用者追踪机制，因此延迟至后续版本实现。
 
 ---
 
@@ -364,7 +372,7 @@ data, err := ctxMgr.CtxRead(cid, 0, 0) // 读取全部
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `cid` | `CtxID` | 上下文 ID |
-| `offset` | `int` | `0` = 追加新消息；`1..N` = 覆写第 `offset-1` 个消息（1-based） |
+| `offset` | `int` | `0` = 追加新消息；`1..N` = 覆写第 `offset` 个消息（1-based 索引，对应 `Messages[offset-1]`） |
 | `data` | `[]byte` | JSON 序列化的 `Message` |
 
 **Message 格式：**
