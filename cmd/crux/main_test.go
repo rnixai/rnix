@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/kernel"
+	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
 )
 
@@ -471,5 +473,162 @@ func TestHelp_ContainsExample(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "分析 ./README.md") {
 		t.Errorf("expected example in help output, got %q", output)
+	}
+}
+
+// --- crux ps tests (Story 4.4, Task 4) ---
+
+func TestRenderPsJSON_EmptyList(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	renderPsJSON(r, nil)
+
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true")
+	}
+
+	data, _ := json.Marshal(resp.Data)
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("failed to parse data: %v", err)
+	}
+	if string(m["processes"]) != "[]" {
+		t.Errorf("expected empty processes array, got %s", m["processes"])
+	}
+}
+
+func TestRenderPsJSON_WithProcs(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, State: types.StateRunning, Intent: "分析代码", Skills: []string{"code-analyst"}, TokensUsed: 1847, CreatedAt: time.Now().Add(-6 * time.Second)},
+		{PID: 2, PPID: 1, State: types.StateZombie, Intent: "审查", Skills: nil, TokensUsed: 423, CreatedAt: time.Now().Add(-2 * time.Second)},
+	}
+	renderPsJSON(r, procs)
+
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true")
+	}
+
+	// Verify JSON structure contains snake_case fields
+	raw := buf.String()
+	if !strings.Contains(raw, `"pid"`) {
+		t.Error("missing pid field")
+	}
+	if !strings.Contains(raw, `"ppid"`) {
+		t.Error("missing ppid field")
+	}
+	if !strings.Contains(raw, `"state"`) {
+		t.Error("missing state field")
+	}
+	if !strings.Contains(raw, `"intent"`) {
+		t.Error("missing intent field")
+	}
+	if !strings.Contains(raw, `"skills"`) {
+		t.Error("missing skills field")
+	}
+	if !strings.Contains(raw, `"tokens_used"`) {
+		t.Error("missing tokens_used field")
+	}
+	if !strings.Contains(raw, `"elapsed_ms"`) {
+		t.Error("missing elapsed_ms field")
+	}
+
+	// Verify nil skills becomes empty array (not null)
+	if strings.Contains(raw, `"skills":null`) {
+		t.Error("nil skills should serialize as [] not null")
+	}
+}
+
+func TestRenderPsQuiet(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeQuiet, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning},
+		{PID: 5, State: types.StateZombie},
+		{PID: 12, State: types.StateDead},
+	}
+	renderPsQuiet(r, procs)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d: %q", len(lines), buf.String())
+	}
+	if strings.TrimSpace(lines[0]) != "1" {
+		t.Errorf("line 0: expected '1', got %q", lines[0])
+	}
+	if strings.TrimSpace(lines[1]) != "5" {
+		t.Errorf("line 1: expected '5', got %q", lines[1])
+	}
+	if strings.TrimSpace(lines[2]) != "12" {
+		t.Errorf("line 2: expected '12', got %q", lines[2])
+	}
+}
+
+func TestRenderPsQuiet_Empty(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeQuiet, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	renderPsQuiet(r, nil)
+
+	if buf.Len() != 0 {
+		t.Errorf("expected empty output for quiet empty list, got %q", buf.String())
+	}
+}
+
+func TestJsonProcess_SnakeCase(t *testing.T) {
+	jp := jsonProcess{
+		PID:        1,
+		PPID:       0,
+		State:      "running",
+		Intent:     "test",
+		Skills:     []string{"a"},
+		TokensUsed: 100,
+		ElapsedMs:  5000,
+	}
+	data, err := json.Marshal(jp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	// Verify all snake_case
+	for _, field := range []string{"pid", "ppid", "state", "intent", "skills", "tokens_used", "elapsed_ms"} {
+		if !strings.Contains(s, fmt.Sprintf(`"%s"`, field)) {
+			t.Errorf("missing snake_case field %q in: %s", field, s)
+		}
+	}
+}
+
+func TestHelp_ContainsPsSubcommand(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"--help"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetArgs(nil)
+	})
+	_ = rootCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "ps") {
+		t.Errorf("expected 'ps' subcommand in help, got %q", output)
+	}
+	if !strings.Contains(output, "kill") {
+		t.Errorf("expected 'kill' subcommand in help, got %q", output)
 	}
 }

@@ -1,6 +1,6 @@
 # Story 4.4: crux ps 命令与 Process Table UI
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -26,48 +26,48 @@ So that 我随时了解系统中智能体的全局状态。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 实现 Process Table UI 组件 (AC: #2, #5)
-  - [ ] 1.1 创建 `internal/ui/table.go`，定义 `RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool)` 函数
-  - [ ] 1.2 实现列定义（列间距 3 空格）——PID（右对齐，5字符宽）、STATE（左对齐，9字符宽，颜色编码）、SKILL（左对齐，15字符宽）、TOKENS（右对齐，8字符宽，千分位格式）、ELAPSED（右对齐，8字符宽，人类可读）、INTENT（左对齐，截断）、PPID（右对齐，5字符宽，仅 verbose 模式显示）
-  - [ ] 1.3 实现列头 + 分隔线 `───` 渲染
-  - [ ] 1.4 实现 STATE 颜色编码：StateRunning → AgentStyle（蓝）、StateZombie → WarningStyle（黄）、StateDead → MutedStyle（灰）、StateCreated → KernelStyle（灰）（注：UX spec 仅定义 running/zombie/dead 三色，StateCreated 为本 Story 补充决策）
-  - [ ] 1.5 实现终端宽度自适应列选择（P0: PID+STATE 永远显示；P1: SKILL ≥60列；P2: TOKENS+ELAPSED ≥80列；P3: INTENT ≥120列）
-  - [ ] 1.6 实现 NO_COLOR 降级（纯文本，无 ANSI 转义）
-  - [ ] 1.7 实现非 TTY 管道模式（自动去除颜色）
-  - [ ] 1.8 实现 Footer 统计行：`{N} active, {M} zombie, {K} total`
-  - [ ] 1.9 实现 formatDuration 辅助函数（`< 1s → "Nms"`，`< 60s → "N.Ns"`，`≥ 60s → "N.Nm"`）
-  - [ ] 1.10 实现 formatTokens 辅助函数（千分位逗号格式，如 `1,847`）
+- [x] Task 1: 实现 Process Table UI 组件 (AC: #2, #5)
+  - [x] 1.1 创建 `internal/ui/table.go`，定义 `RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool)` 函数
+  - [x] 1.2 实现列定义（列间距 3 空格）——PID（右对齐，5字符宽）、STATE（左对齐，9字符宽，颜色编码）、SKILL（左对齐，15字符宽）、TOKENS（右对齐，8字符宽，千分位格式）、ELAPSED（右对齐，8字符宽，人类可读）、INTENT（左对齐，截断）、PPID（右对齐，5字符宽，仅 verbose 模式显示）
+  - [x] 1.3 实现列头 + 分隔线 `───` 渲染
+  - [x] 1.4 实现 STATE 颜色编码：StateRunning → AgentStyle（蓝）、StateZombie → WarningStyle（黄）、StateDead → MutedStyle（灰）、StateCreated → KernelStyle（灰）（注：UX spec 仅定义 running/zombie/dead 三色，StateCreated 为本 Story 补充决策）
+  - [x] 1.5 实现终端宽度自适应列选择（P0: PID+STATE 永远显示；P1: SKILL ≥60列；P2: TOKENS+ELAPSED ≥80列；P3: INTENT ≥120列）
+  - [x] 1.6 实现 NO_COLOR 降级（纯文本，无 ANSI 转义）
+  - [x] 1.7 实现非 TTY 管道模式（自动去除颜色）
+  - [x] 1.8 实现 Footer 统计行：`{N} active, {M} zombie, {K} total`
+  - [x] 1.9 实现 formatDuration 辅助函数（`< 1s → "Nms"`，`< 60s → "N.Ns"`，`≥ 60s → "N.Nm"`）
+  - [x] 1.10 实现 formatTokens 辅助函数（千分位逗号格式，如 `1,847`）
 
-- [ ] Task 2: 实现 crux ps CLI 子命令 (AC: #1, #3, #4)
-  - [ ] 2.1 在 `cmd/crux/main.go` 定义 `psCmd *cobra.Command`（Use: "ps"，Short: "List active processes"，Args: cobra.NoArgs，RunE: runPs）
-  - [ ] 2.2 在 `init()` 中 `rootCmd.AddCommand(psCmd)` 注册子命令
-  - [ ] 2.3 实现 `runPs(cmd, args)` 函数：调用 `initKernel()` → 防御性检查 `if kern == nil` → `kern.ListProcs()` → 按 PID 升序排序 → 按 OutputMode 渲染
-  - [ ] 2.4 实现 ModeDefault 渲染：创建 Renderer（参考 `runAstrace` 第 374 行的模式：`mode := resolveOutputMode()` → `renderer := ui.NewRenderer(os.Stdout, mode)` → `ui.InitStyles(renderer.Profile)`），调用 `ui.RenderProcessTable(renderer, procs, false)`
-  - [ ] 2.5 实现 ModeJSON 渲染：构造 `JSONResponse{OK: true, Data: ...}` 结构，每个进程包含 pid/ppid/state/intent/skills/tokens_used/elapsed_ms，输出 JSON
-  - [ ] 2.6 实现 ModeQuiet 渲染：每行输出一个 PID（纯数字，可供脚本消费）
-  - [ ] 2.7 实现 ModeVerbose 渲染：调用 `ui.RenderProcessTable(renderer, procs, true)` 显示所有列（含 PPID、完整 Intent）
-  - [ ] 2.8 实现空进程列表处理：输出 `No active processes.` 后返回（不渲染表格）
+- [x] Task 2: 实现 crux ps CLI 子命令 (AC: #1, #3, #4)
+  - [x] 2.1 在 `cmd/crux/main.go` 定义 `psCmd *cobra.Command`（Use: "ps"，Short: "List active processes"，Args: cobra.NoArgs，RunE: runPs）
+  - [x] 2.2 在 `init()` 中 `rootCmd.AddCommand(psCmd)` 注册子命令
+  - [x] 2.3 实现 `runPs(cmd, args)` 函数：调用 `initKernel()` → 防御性检查 `if kern == nil` → `kern.ListProcs()` → 按 PID 升序排序 → 按 OutputMode 渲染
+  - [x] 2.4 实现 ModeDefault 渲染：创建 Renderer（参考 `runAstrace` 第 374 行的模式：`mode := resolveOutputMode()` → `renderer := ui.NewRenderer(os.Stdout, mode)` → `ui.InitStyles(renderer.Profile)`），调用 `ui.RenderProcessTable(renderer, procs, false)`
+  - [x] 2.5 实现 ModeJSON 渲染：构造 `JSONResponse{OK: true, Data: ...}` 结构，每个进程包含 pid/ppid/state/intent/skills/tokens_used/elapsed_ms，输出 JSON
+  - [x] 2.6 实现 ModeQuiet 渲染：每行输出一个 PID（纯数字，可供脚本消费）
+  - [x] 2.7 实现 ModeVerbose 渲染：调用 `ui.RenderProcessTable(renderer, procs, true)` 显示所有列（含 PPID、完整 Intent）
+  - [x] 2.8 实现空进程列表处理：输出 `No active processes.` 后返回（不渲染表格）
 
-- [ ] Task 3: 实现 crux kill CLI 子命令 (**额外范围**——不在 epics AC 中，但 Story 4.1 已实现 kernel.Kill()，此处仅补充 CLI 入口)
-  - [ ] 3.1 在 `cmd/crux/main.go` 定义 `killCmd *cobra.Command`（Use: "kill <pid>"，Short: "Terminate an agent process"，Args: cobra.ExactArgs(1)，RunE: runKill）
-  - [ ] 3.2 在 `init()` 中 `rootCmd.AddCommand(killCmd)` 注册子命令
-  - [ ] 3.3 实现 `runKill(cmd, args)` 函数：解析 PID 参数 → `initKernel()` → `kern.Kill(pid, types.SIGTERM)` → 输出结果或错误
-  - [ ] 3.4 PID 不存在时使用 `ui.RenderError` 输出三行错误结构（与现有 `runAstrace` 错误处理一致）：`✗ PID N: process not found` → `→ PID N: no active process` → `→ 建议: crux ps  查看活跃进程`
-  - [ ] 3.5 成功时输出（使用 `KernelStyle` 样式渲染 `[kernel]` 前缀）：`[kernel] PID N: signal sent (SIGTERM)`
+- [x] Task 3: 实现 crux kill CLI 子命令 (**额外范围**——不在 epics AC 中，但 Story 4.1 已实现 kernel.Kill()，此处仅补充 CLI 入口)
+  - [x] 3.1 在 `cmd/crux/main.go` 定义 `killCmd *cobra.Command`（Use: "kill <pid>"，Short: "Terminate an agent process"，Args: cobra.ExactArgs(1)，RunE: runKill）
+  - [x] 3.2 在 `init()` 中 `rootCmd.AddCommand(killCmd)` 注册子命令
+  - [x] 3.3 实现 `runKill(cmd, args)` 函数：解析 PID 参数 → `initKernel()` → `kern.Kill(pid, types.SIGTERM)` → 输出结果或错误
+  - [x] 3.4 PID 不存在时使用 `ui.RenderError` 输出三行错误结构（与现有 `runAstrace` 错误处理一致）：`✗ PID N: process not found` → `→ PID N: no active process` → `→ 建议: crux ps  查看活跃进程`
+  - [x] 3.5 成功时输出（使用 `KernelStyle` 样式渲染 `[kernel]` 前缀）：`[kernel] PID N: signal sent (SIGTERM)`
 
-- [ ] Task 4: 单元测试 (AC: #1, #2, #3, #4, #5, #6)
-  - [ ] 4.1 创建 `internal/ui/table_test.go` — 测试 RenderProcessTable 基本输出格式
-  - [ ] 4.2 测试表格列对齐——PID 右对齐、STATE 左对齐、TOKENS 右对齐
-  - [ ] 4.3 测试 STATE 颜色编码——验证不同状态使用正确的样式
-  - [ ] 4.4 测试空进程列表——验证输出 "No active processes."
-  - [ ] 4.5 测试终端宽度自适应——模拟不同宽度（40/60/80/120 列），验证列数量变化
-  - [ ] 4.6 测试 NO_COLOR 模式——验证无 ANSI 转义码
-  - [ ] 4.7 测试 JSON 输出——验证 JSON 格式正确、字段名 snake_case
-  - [ ] 4.8 测试 Quiet 模式——验证仅输出 PID（一行一个）
-  - [ ] 4.9 测试 formatDuration——边界值（0ms、999ms、1s、59.9s、60s、600s）
-  - [ ] 4.10 测试 formatTokens——0、999、1000、1000000
-  - [ ] 4.11 测试进程列表按 PID 排序
-  - [ ] 4.12 运行 `go test -race ./...` 和 `go vet ./...` 确认全部通过
+- [x] Task 4: 单元测试 (AC: #1, #2, #3, #4, #5, #6)
+  - [x] 4.1 创建 `internal/ui/table_test.go` — 测试 RenderProcessTable 基本输出格式
+  - [x] 4.2 测试表格列对齐——PID 右对齐、STATE 左对齐、TOKENS 右对齐
+  - [x] 4.3 测试 STATE 颜色编码——验证不同状态使用正确的样式
+  - [x] 4.4 测试空进程列表——验证输出 "No active processes."
+  - [x] 4.5 测试终端宽度自适应——模拟不同宽度（40/60/80/120 列），验证列数量变化
+  - [x] 4.6 测试 NO_COLOR 模式——验证无 ANSI 转义码
+  - [x] 4.7 测试 JSON 输出——验证 JSON 格式正确、字段名 snake_case
+  - [x] 4.8 测试 Quiet 模式——验证仅输出 PID（一行一个）
+  - [x] 4.9 测试 formatDuration——边界值（0ms、999ms、1s、59.9s、60s、600s）
+  - [x] 4.10 测试 formatTokens——0、999、1000、1000000
+  - [x] 4.11 测试进程列表按 PID 排序
+  - [x] 4.12 运行 `go test -race ./...` 和 `go vet ./...` 确认全部通过
 
 ## Dev Notes
 
@@ -471,10 +471,31 @@ internal/ui/error.go              — RenderError 函数不变（crux kill 直�
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+无调试问题。
+
 ### Completion Notes List
 
+- ✅ Task 1: 实现 `internal/ui/table.go` — Process Table UI 组件，包含 RenderProcessTable、renderState、formatSkills、formatDuration、formatTokens、stripAnsi 函数。支持终端宽度自适应（40/60/80/120列阈值）、Unicode/ASCII 双模式、NO_COLOR 降级、verbose 模式（含 PPID/INTENT）、Footer 统计行。
+- ✅ Task 2: 实现 `cmd/crux/main.go` 中 psCmd + runPs — 支持 ModeDefault（表格）、ModeJSON（JSONResponse 包装）、ModeQuiet（纯 PID）、ModeVerbose（全列表格）四种输出模式。空列表输出 "No active processes."。
+- ✅ Task 3: 实现 `cmd/crux/main.go` 中 killCmd + runKill — PID 解析、kernel.Kill(SIGTERM) 调用、错误处理（RenderError 三行结构）、成功输出（KernelStyle [kernel] 前缀）。
+- ✅ Task 4: 全部 35+ 单元测试通过（internal/ui/table_test.go 22 个 + cmd/crux/main_test.go 新增 6 个），`go test -race ./...` 全 13 包通过，`go vet ./...` 无警告。
+- ✅ 更新 ProcessManager 接口注释（kernel/kernel.go 第 81 行）："deferred to Story 4.4" → "deferred to future story (ListProcs used instead for PS)"
+
 ### File List
+
+**新增文件：**
+- `internal/ui/table.go` — Process Table UI 组件（RenderProcessTable + 辅助函数）
+- `internal/ui/table_test.go` — Process Table 单元测试（22 个测试函数）
+
+**修改文件：**
+- `cmd/crux/main.go` — 添加 psCmd/killCmd 定义、runPs/runKill 函数、jsonProcess 结构、renderPsJSON/renderPsQuiet 辅助函数、init() 中注册 ps/kill 子命令、import sort
+- `cmd/crux/main_test.go` — 添加 6 个新测试（TestRenderPsJSON_EmptyList/WithProcs、TestRenderPsQuiet/Empty、TestJsonProcess_SnakeCase、TestHelp_ContainsPsSubcommand），import types/vfs
+- `kernel/kernel.go` — 更新 ProcessManager 接口注释（第 81 行）
+
+## Change Log
+
+- 2026-02-26: Story 4.4 实现完成 — crux ps 命令、crux kill 命令、Process Table UI 组件
