@@ -483,6 +483,9 @@ cmd/crux/main.go（CLI 客户端）
 │    ▼                                       │
 │  进程完成 → callbackMux 路由事件到客户端     │
 │    │  StreamEvent 流式推送                  │
+│    │                                       │
+│  流结束 → kern.Reap(pid)                    │
+│    │  关闭 DebugChan → CtxFree → Dead      │
 └────┼───────────────────────────────────────┘
      │  Unix Domain Socket（流式 StreamEvent）
      ▼
@@ -493,7 +496,7 @@ CLI 客户端接收 ProgressEvent → 格式化输出:
     [kernel] PID 1 exited(0) | tokens: 1234 | elapsed: 6.2s
 ```
 
-关键区别：CLI 不再直接调用 kernel，而是作为 IPC 客户端将请求发送给 daemon。daemon 中的 `callbackMux` 将每个进程的进度事件路由到对应的客户端连接，实现流式输出。
+关键区别：CLI 不再直接调用 kernel，而是作为 IPC 客户端将请求发送给 daemon。daemon 中的 `callbackMux` 将每个进程的进度事件路由到对应的客户端连接，实现流式输出。Spawn 流式结束后，IPC Server 主动调用 `kernel.Reap(pid)` 清理 Zombie 进程（关闭 DebugChan、释放上下文、移除进程表），因为 daemon 模式下没有 CLI 端的 `Wait()` 调用来触发回收。
 
 ### astrace 调试数据流
 

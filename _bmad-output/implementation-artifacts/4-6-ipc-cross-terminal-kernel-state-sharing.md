@@ -316,6 +316,7 @@ Spawn 是最复杂的 IPC 操作，需要流式传输进度事件：
 5. 通过 KernelCallbacks 捕获 OnSpawn/OnStep/OnComplete/OnError 事件
 6. 每个事件序列化为 StreamEvent 写入连接
 7. 进程完成时写入最终 StreamEvent（type="complete"）并关闭流
+8. 调用 kernel.Reap(pid) 清理 Zombie 进程（释放 DebugChan、CtxFree、移除进程表）
 
 **Client 端（SpawnAndWatch）：**
 1. 发送 SpawnRequest
@@ -627,6 +628,7 @@ Claude claude-4.6-opus (Cursor IDE)
 - 空闲 60s 自动关闭，stale socket 自动清理
 - `callbackMux` 实现 kernel.KernelCallbacks 接口，多路复用进度事件到各连接客户端
 - `kernel.GetDebugChan()` 新增公开方法，安全暴露 unexported Process.DebugChan
+- `kernel.Reap()` 新增公开方法，供 IPC Server 在 Spawn 流式结束后主动 reap 顶级进程（daemon 模式下无 CLI Wait 调用）
 - `cmd/crux/main.go` 全面重构：所有 CLI 命令改为 IPC 客户端模式
 - 新增隐藏 `daemon` 子命令，仅由 EnsureDaemon 内部调用
 - 测试覆盖：protocol 17 tests, server 15 tests, client 6 tests, daemon 11 tests, integration 9 tests, cmd/crux 42 tests
@@ -665,6 +667,7 @@ Claude claude-4.6-opus (Cursor IDE)
 | 2026-02-26 | Story 创建 + 全部实现 | Dev Agent (Claude) |
 | 2026-02-26 | Code Review: 修复 9 个问题 (3H+5M+1L)，新增 2 个集成测试 | Review Agent (Claude) |
 | 2026-02-26 | Bug Fix: handleConn 从 one-shot 改为请求循环，修复 EnsureDaemon Ping 消耗连接导致 Broken Pipe | Dev Agent (Claude) |
+| 2026-02-26 | Bug Fix: handleSpawn 流式结束后调用 kern.Reap(pid) 清理 Zombie 进程，修复 astrace 挂起（DebugChan 未关闭）；新增 kernel.Reap() 公开方法 | Dev Agent (Claude) |
 
 ### File List
 
@@ -681,6 +684,7 @@ Claude claude-4.6-opus (Cursor IDE)
 
 **修改文件:**
 - `kernel/kernel.go` — 新增 `GetDebugChan(pid)` 方法
+- `kernel/reap.go` — 新增 `Reap(pid)` 公开方法，供 IPC Server 主动触发 Zombie 进程清理
 - `cmd/crux/main.go` — 全面重构为 IPC 客户端模式 + daemon 子命令；Review 修复 spawnedPID 竞态、cancelClient 错误处理
 - `cmd/crux/main_test.go` — 适配 IPC 模式，新增 daemon 相关测试
 - `cmd/crux/integration_test.go` — 适配 outputSuccess 新签名
