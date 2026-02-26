@@ -10,6 +10,8 @@ Crux 是一个面向 AI 智能体的操作系统（Agent OS）。它借鉴 Unix 
 
 进程是 Crux 的一等计算单元。当你执行 `crux "意图"` 命令时，Crux 内核会创建一个智能体进程来完成你的意图。每个进程拥有独立的 PID、上下文空间、文件描述符表和调试通道。
 
+Crux 采用 daemon 架构管理进程：一个后台 daemon 持有唯一的内核实例和进程表，所有 CLI 命令通过 Unix domain socket 与 daemon 通信。daemon 在首次运行 `crux` 时自动启动，空闲 60 秒后自动退出。这种设计使得进程在系统级别可见——在终端 A 启动的进程，可以在终端 B 通过 `crux ps`/`crux kill`/`crux astrace` 查看和操作，与 Unix 进程的行为一致。
+
 ### Unix 类比
 
 | Crux 概念 | Unix 对应 | 说明 |
@@ -151,7 +153,7 @@ VFSFile 接口：
   Stat()            — 获取设备元数据
 ```
 
-设备注册在应用启动时（`cmd/crux/main.go`）通过依赖注入完成，所有驱动在此处创建并注册到 DeviceRegistry。
+设备注册在 daemon 启动时通过依赖注入完成——daemon 进程初始化 kernel、VFS 和所有驱动，并注册到 DeviceRegistry。CLI 命令作为客户端通过 IPC 与 daemon 通信，不直接接触 kernel 或设备。
 
 ---
 
@@ -395,37 +397,49 @@ $ crux astrace 1
 ### 调用链架构图
 
 ```
-用户 / CLI
+用户 / CLI（客户端模式）
     │
+    │  Unix Domain Socket（IPC）
     ▼
-┌───────────────────────────────────┐
-│          Kernel（内核）             │
-│  ProcessManager + ContextManager  │
-│  + FileSystem + Debugger          │
-│                                   │
-│  ┌─────────┐    ┌──────────────┐  │
-│  │ Process  │───→│ reasonStep() │  │
-│  │ 进程表    │    │ 推理循环      │  │
-│  └─────────┘    └──────┬───────┘  │
-│                        │ Syscall  │
-│                        ▼          │
-│  ┌────────────────────────────┐   │
-│  │        VFS（虚拟文件系统）    │   │
-│  │  Open / Read / Write / Close │  │
-│  └─────────────┬──────────────┘   │
-│                │ DeviceRegistry   │
-│                ▼                  │
-│  ┌──────┬──────┬───────┬───────┐  │
-│  │/dev/ │/dev/ │/dev/  │/proc/ │  │
-│  │llm/  │fs    │shell  │{pid}/ │  │
-│  │claude│      │       │status │  │
-│  └──┬───┴──┬───┴───┬───┴───┬───┘  │
-└─────┼──────┼───────┼───────┼──────┘
-      ▼      ▼       ▼       ▼
-   Claude  宿主     Shell   进程
-   Code   文件系统  命令执行  运行状态
-   CLI
+┌──────────────────────────────────────────┐
+│          Daemon（后台进程）                 │
+│                                          │
+│  ┌────────────────────────────────────┐  │
+│  │          IPC Server                │  │
+│  │  接收请求 → 路由 → 流式响应          │  │
+│  └───────────────┬────────────────────┘  │
+│                  │                       │
+│  ┌───────────────▼────────────────────┐  │
+│  │          Kernel（内核）              │  │
+│  │  ProcessManager + ContextManager   │  │
+│  │  + FileSystem + Debugger           │  │
+│  │                                    │  │
+│  │  ┌─────────┐    ┌──────────────┐   │  │
+│  │  │ Process  │───→│ reasonStep() │   │  │
+│  │  │ 进程表    │    │ 推理循环      │   │  │
+│  │  └─────────┘    └──────┬───────┘   │  │
+│  │                        │ Syscall   │  │
+│  │                        ▼           │  │
+│  │  ┌────────────────────────────┐    │  │
+│  │  │        VFS（虚拟文件系统）    │    │  │
+│  │  │  Open / Read / Write / Close │   │  │
+│  │  └─────────────┬──────────────┘    │  │
+│  │                │ DeviceRegistry    │  │
+│  │                ▼                   │  │
+│  │  ┌──────┬──────┬───────┬───────┐   │  │
+│  │  │/dev/ │/dev/ │/dev/  │/proc/ │   │  │
+│  │  │llm/  │fs    │shell  │{pid}/ │   │  │
+│  │  │claude│      │       │status │   │  │
+│  │  └──┬───┴──┬───┴───┬───┴───┬───┘   │  │
+│  └─────┼──────┼───────┼───────┼───────┘  │
+└────────┼──────┼───────┼───────┼──────────┘
+         ▼      ▼       ▼       ▼
+      Claude  宿主     Shell   进程
+      Code   文件系统  命令执行  运行状态
+      CLI
 ```
+
+daemon 是一个隐藏的后台进程（`crux daemon --internal`），在首次执行 `crux` 命令时自动启动。所有 CLI 操作（spawn、ps、kill、astrace）都是客户端请求，通过 Unix domain socket 发送给 daemon 中的 IPC Server，由 Server 路由到 kernel 执行。这种架构使得多个终端可以共享同一个内核的进程表。
 
 ### 端到端数据流
 
@@ -435,54 +449,72 @@ $ crux astrace 1
 用户输入: crux "分析代码" --agent=code-analyst
     │
     ▼
-cmd/crux/main.go（CLI 入口）
-    │  解析 --agent flag
+cmd/crux/main.go（CLI 客户端）
+    │  1. 解析 --agent flag
+    │  2. EnsureDaemon() — 检测/启动 daemon
+    │  3. ipc.Client.Dial(socketPath) — 连接 daemon
+    │
+    │         Unix Domain Socket
     ▼
-AgentLoader.Load("code-analyst")
-    │  → 读取 lib/agents/code-analyst/agent.yaml
-    │  → 读取 lib/agents/code-analyst/instructions.md
-    │  → 解析 skills: [code-analysis]
-    │  → SkillLoader.Load("code-analysis") → 读取 SKILL.md
-    │  → 聚合 AllowedTools → [/dev/fs, /dev/shell]
-    │  → 组装 SystemPrompt = instructions + skill body
-    ▼
-kernel.Spawn(intent, agentInfo, opts)
-    │  1. CtxAlloc(64) → 分配上下文空间
-    │  2. SetSystemPrompt(Agent 指令 + Skill 正文)
-    │  3. AppendMessage(user, "分析代码")
-    │  4. Open("/dev/llm/claude") → FD(3)
-    │  5. 启动 goroutine → reasonStep 循环
-    ▼
-reasonStep 循环:
-    │  BuildPrompt → Write(LLM FD) → Read(LLM FD) → 解析 Action
-    │  ├── ActionText → 最终结果，进程完成
-    │  └── ActionToolCall → AppendMessage(assistant) → 权限检查
-    │       → Open/Write/Read/Close 工具设备
-    │       → AppendToolResult → 继续下一轮推理
-    ▼
-进程完成: Running → Zombie → Wait/Reap → Dead
-    │  资源释放: cancel → wg.Wait → CloseAll FD → close(DebugChan) → CtxFree
-    ▼
-CLI 输出: [kernel] PID 1 exited(0) | tokens: 1234 | elapsed: 6.2s
+┌─── daemon（IPC Server）────────────────────┐
+│                                            │
+│  接收 SpawnRequest                          │
+│    │                                       │
+│    ▼                                       │
+│  AgentLoader.Load("code-analyst")          │
+│    │  → 读取 lib/agents/code-analyst/      │
+│    │  → 解析 skills → SkillLoader          │
+│    │  → 聚合 AllowedTools, SystemPrompt    │
+│    ▼                                       │
+│  kernel.Spawn(intent, agentInfo, opts)     │
+│    │  1. CtxAlloc → 分配上下文空间          │
+│    │  2. SetSystemPrompt                   │
+│    │  3. AppendMessage(user, "分析代码")    │
+│    │  4. Open("/dev/llm/claude") → FD(3)   │
+│    │  5. 启动 goroutine → reasonStep 循环   │
+│    ▼                                       │
+│  reasonStep 循环:                           │
+│    │  BuildPrompt → Write → Read → 解析    │
+│    │  ├── ActionText → 最终结果             │
+│    │  └── ActionToolCall → 工具调用          │
+│    ▼                                       │
+│  进程完成 → callbackMux 路由事件到客户端     │
+│    │  StreamEvent 流式推送                  │
+└────┼───────────────────────────────────────┘
+     │  Unix Domain Socket（流式 StreamEvent）
+     ▼
+CLI 客户端接收 ProgressEvent → 格式化输出:
+    [kernel] spawning PID 1...
+    [agent/1] reasoning step 1...
+    ══ Result ══...
+    [kernel] PID 1 exited(0) | tokens: 1234 | elapsed: 6.2s
 ```
+
+关键区别：CLI 不再直接调用 kernel，而是作为 IPC 客户端将请求发送给 daemon。daemon 中的 `callbackMux` 将每个进程的进度事件路由到对应的客户端连接，实现流式输出。
 
 ### astrace 调试数据流
 
-`astrace` 命令通过消费进程的 DebugChan 实现 syscall 追踪：
+`astrace` 命令通过 IPC 跨终端消费进程的 DebugChan 实现 syscall 追踪。你可以在任意终端对任意正在运行的进程执行 `crux astrace <pid>`，无需在启动进程的终端中操作：
 
 ```
-syscall 入口 → NewEvent() → 构造 SyscallEvent（填充 Timestamp/PID/Syscall/Args）
-    │
-    ▼
-syscall 执行
-    │
-    ▼
-syscall 出口 → CompleteEvent() → 填充 Result/Err/Duration
-    │
-    ▼
-EmitEvent(proc.DebugChan, event)  [非阻塞，缓冲满则丢弃]
-    │
-    ▼
-crux astrace <pid> → 消费 DebugChan → 格式化输出到终端
-    格式: [N.NNNs] SyscallName(args) → result    duration
+daemon 内部:
+  syscall 入口 → NewEvent() → 构造 SyscallEvent（填充 Timestamp/PID/Syscall/Args）
+      │
+      ▼
+  syscall 执行
+      │
+      ▼
+  syscall 出口 → CompleteEvent() → 填充 Result/Err/Duration
+      │
+      ▼
+  EmitEvent(proc.DebugChan, event)  [非阻塞，缓冲满则丢弃]
+      │
+      ▼
+  IPC Server handleAttachDebug → 读取 DebugChan → 序列化为 StreamEvent
+      │
+      │  Unix Domain Socket（流式 SyscallEvent）
+      ▼
+任意终端:
+  crux astrace <pid> → IPC Client.AttachDebug → 接收 StreamEvent → 格式化输出
+      格式: [N.NNNs] SyscallName(args) → result    duration
 ```
