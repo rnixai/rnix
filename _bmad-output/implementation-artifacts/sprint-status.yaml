@@ -76,7 +76,7 @@ development_status:
   4-1-kill-and-wait-syscalls: review
   4-2-orphan-process-reparent-and-zombie-auto-reap: done
   4-3-proc-dynamic-filesystem: done
-  4-4-crux-ps-command-and-process-table-ui: backlog
+  4-4-crux-ps-command-and-process-table-ui: ready-for-dev
   4-5-context-release-ctx-free: backlog
   epic-4-retrospective: optional
 
