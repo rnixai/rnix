@@ -259,5 +259,5 @@ $ crux kill 1
 恭喜！你已经体验了 Crux 的核心功能。以下资源帮助你进一步探索：
 
 - **[核心概念文档](concepts.md)** — 深入理解进程、VFS、Syscall、Agent 与 Skill 的设计哲学
-- **参考手册**（`docs/reference.md`，即将发布）— 完整的 CLI 命令参考、Syscall 签名和 Manifest 字段说明
+- **[参考手册](reference.md)** — 完整的 CLI 命令参考、Syscall 签名和 Manifest 字段说明
 - **Agent 和 Skill 扩展** — 创建自定义 Agent（`lib/agents/`）和 Skill（`lib/skills/`），扩展 Crux 的能力边界

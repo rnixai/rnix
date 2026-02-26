@@ -1,6 +1,6 @@
 # Story 5.3: 参考手册
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -24,79 +24,79 @@ So that 我在编写 Skill 或调试时有权威参考。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 创建 `docs/reference.md` 文件框架 (AC: #1-5)
-  - [ ] 1.1 在 `docs/` 目录下创建 `reference.md`
-  - [ ] 1.2 添加文档标题、简介段落（定位和受众说明）
-  - [ ] 1.3 添加目录结构（TOC）
+- [x] Task 1: 创建 `docs/reference.md` 文件框架 (AC: #1-5)
+  - [x] 1.1 在 `docs/` 目录下创建 `reference.md`
+  - [x] 1.2 添加文档标题、简介段落（定位和受众说明）
+  - [x] 1.3 添加目录结构（TOC）
 
-- [ ] Task 2: 编写 Syscall 参考章节 (AC: #1)
-  - [ ] 2.1 Syscall 概述：分类说明（ProcessManager / ContextManager / FileSystem / Debugger）
-  - [ ] 2.2 进程管理 syscall（5 个）：Spawn、Kill、Wait、ListProcs、GetPID
-  - [ ] 2.3 上下文管理 syscall（4 个）：CtxAlloc、CtxRead、CtxWrite、CtxFree
-  - [ ] 2.4 文件系统 syscall（5 个）：Open、Read、Write、Close、Stat
-  - [ ] 2.5 调试 syscall（1 个）：DebugRecord / SyscallEvent
-  - [ ] 2.6 每个 syscall 含签名、参数表、返回值、错误码列表、行为描述、示例
+- [x] Task 2: 编写 Syscall 参考章节 (AC: #1)
+  - [x] 2.1 Syscall 概述：分类说明（ProcessManager / ContextManager / FileSystem / Debugger）
+  - [x] 2.2 进程管理 syscall（5 个）：Spawn、Kill、Wait、ListProcs、GetPID
+  - [x] 2.3 上下文管理 syscall（4 个）：CtxAlloc、CtxRead、CtxWrite、CtxFree
+  - [x] 2.4 文件系统 syscall（5 个）：Open、Read、Write、Close、Stat
+  - [x] 2.5 调试 syscall（1 个）：DebugRecord / SyscallEvent
+  - [x] 2.6 每个 syscall 含签名、参数表、返回值、错误码列表、行为描述、示例
 
-- [ ] Task 3: 编写 VFS 路径规范章节 (AC: #2)
-  - [ ] 3.1 VFS 概述：设备模型、路径匹配机制（精确匹配 + 最长前缀匹配）
-  - [ ] 3.2 `/dev/llm/claude` — LLM 驱动设备
-  - [ ] 3.3 `/dev/fs` — 宿主文件系统设备
-  - [ ] 3.4 `/dev/shell` — Shell 执行设备
-  - [ ] 3.5 `/proc/{pid}/` — 动态进程信息（status、intent、context 三个子路径）
-  - [ ] 3.6 `/lib/agents/` 和 `/lib/skills/` — Agent 和 Skill 存储路径
-  - [ ] 3.7 VFSFile 接口和 OpenFlag 枚举
-  - [ ] 3.8 FD 分配规则（从 3 开始，单调递增）
+- [x] Task 3: 编写 VFS 路径规范章节 (AC: #2)
+  - [x] 3.1 VFS 概述：设备模型、路径匹配机制（精确匹配 + 最长前缀匹配）
+  - [x] 3.2 `/dev/llm/claude` — LLM 驱动设备
+  - [x] 3.3 `/dev/fs` — 宿主文件系统设备
+  - [x] 3.4 `/dev/shell` — Shell 执行设备
+  - [x] 3.5 `/proc/{pid}/` — 动态进程信息（status、intent、context 三个子路径）
+  - [x] 3.6 `/lib/agents/` 和 `/lib/skills/` — Agent 和 Skill 存储路径
+  - [x] 3.7 VFSFile 接口和 OpenFlag 枚举
+  - [x] 3.8 FD 分配规则（从 3 开始，单调递增）
 
-- [ ] Task 4: 编写 Agent 和 Skill 清单章节 (AC: #3)
-  - [ ] 4.1 agent.yaml 字段完整说明（AgentManifest: name、description、models、context_budget、skills）
-  - [ ] 4.2 AgentModels 子结构（provider、preferred、fallback）
-  - [ ] 4.3 instructions.md 格式和用途
-  - [ ] 4.4 Agent 加载流程说明
-  - [ ] 4.5 SKILL.md 格式（YAML frontmatter + Markdown body）
-  - [ ] 4.6 SkillManifest 字段（name、description、allowed-tools、metadata）
-  - [ ] 4.7 渐进式加载策略（LoadMetadata vs LoadFull）
-  - [ ] 4.8 完整的 agent.yaml 和 SKILL.md 示例
+- [x] Task 4: 编写 Agent 和 Skill 清单章节 (AC: #3)
+  - [x] 4.1 agent.yaml 字段完整说明（AgentManifest: name、description、models、context_budget、skills）
+  - [x] 4.2 AgentModels 子结构（provider、preferred、fallback）
+  - [x] 4.3 instructions.md 格式和用途
+  - [x] 4.4 Agent 加载流程说明
+  - [x] 4.5 SKILL.md 格式（YAML frontmatter + Markdown body）
+  - [x] 4.6 SkillManifest 字段（name、description、allowed-tools、metadata）
+  - [x] 4.7 渐进式加载策略（LoadMetadata vs LoadFull）
+  - [x] 4.8 完整的 agent.yaml 和 SKILL.md 示例
 
-- [ ] Task 5: 编写 CLI 命令参考章节 (AC: #4)
-  - [ ] 5.1 全局 flags（--json、--verbose/-v、--quiet/-q）
-  - [ ] 5.2 `crux "意图"` — 根命令（含 --model、--max-steps、--agent flags）
-  - [ ] 5.3 `crux ps` — 进程列表命令（含四种输出模式示例）
-  - [ ] 5.4 `crux kill <pid>` — 进程终止命令
-  - [ ] 5.5 `crux astrace <pid>` — Syscall 追踪命令（含三种输出模式示例）
-  - [ ] 5.6 `crux version` — 版本信息命令
-  - [ ] 5.7 JSON 响应包装格式（JSONResponse 结构）
+- [x] Task 5: 编写 CLI 命令参考章节 (AC: #4)
+  - [x] 5.1 全局 flags（--json、--verbose/-v、--quiet/-q）
+  - [x] 5.2 `crux "意图"` — 根命令（含 --model、--max-steps、--agent flags）
+  - [x] 5.3 `crux ps` — 进程列表命令（含四种输出模式示例）
+  - [x] 5.4 `crux kill <pid>` — 进程终止命令
+  - [x] 5.5 `crux astrace <pid>` — Syscall 追踪命令（含三种输出模式示例）
+  - [x] 5.6 `crux version` — 版本信息命令
+  - [x] 5.7 JSON 响应包装格式（JSONResponse 结构）
 
-- [ ] Task 6: 编写 IPC 架构章节 (AC: #5)
-  - [ ] 6.1 Daemon 生命周期（自动启动、空闲超时自动停止、stale socket 清理）
-  - [ ] 6.2 Unix domain socket 路径规则（XDG_RUNTIME_DIR 优先，/tmp 降级）
-  - [ ] 6.3 NDJSON 协议概述（Request/Response 信封格式）
-  - [ ] 6.4 Method 枚举（ping、spawn、list_procs、kill、attach_debug、shutdown）
-  - [ ] 6.5 流式 StreamEvent 协议（StreamEventType 枚举、ProgressPayload 结构）
-  - [ ] 6.6 连接复用语义（非流式复用连接，流式终结连接）
-  - [ ] 6.7 Spawn 流式协议完整示例
-  - [ ] 6.8 AttachDebug 流式协议完整示例
+- [x] Task 6: 编写 IPC 架构章节 (AC: #5)
+  - [x] 6.1 Daemon 生命周期（自动启动、空闲超时自动停止、stale socket 清理）
+  - [x] 6.2 Unix domain socket 路径规则（XDG_RUNTIME_DIR 优先，/tmp 降级）
+  - [x] 6.3 NDJSON 协议概述（Request/Response 信封格式）
+  - [x] 6.4 Method 枚举（ping、spawn、list_procs、kill、attach_debug、shutdown）
+  - [x] 6.5 流式 StreamEvent 协议（StreamEventType 枚举、ProgressPayload 结构）
+  - [x] 6.6 连接复用语义（非流式复用连接，流式终结连接）
+  - [x] 6.7 Spawn 流式协议完整示例
+  - [x] 6.8 AttachDebug 流式协议完整示例
 
-- [ ] Task 7: 编写错误处理与类型参考章节 (AC: #1)
-  - [ ] 7.1 ErrCode 枚举（TIMEOUT、NOT_FOUND、PERMISSION、INTERNAL、DRIVER、INVALID）
-  - [ ] 7.2 SyscallError 结构和格式
-  - [ ] 7.3 VFSError 结构和格式
-  - [ ] 7.4 DriverError 结构和格式
-  - [ ] 7.5 基础类型（PID、FD、CtxID、Signal、ProcessState）
+- [x] Task 7: 编写错误处理与类型参考章节 (AC: #1)
+  - [x] 7.1 ErrCode 枚举（TIMEOUT、NOT_FOUND、PERMISSION、INTERNAL、DRIVER、INVALID）
+  - [x] 7.2 SyscallError 结构和格式
+  - [x] 7.3 VFSError 结构和格式
+  - [x] 7.4 DriverError 结构和格式
+  - [x] 7.5 基础类型（PID、FD、CtxID、Signal、ProcessState）
 
-- [ ] Task 8: 编写进程模型参考章节 (AC: #1)
-  - [ ] 8.1 ProcessState 状态机（Created → Running → Zombie → Dead）
-  - [ ] 8.2 状态转移规则（合法与非法转移）
-  - [ ] 8.3 ExitStatus 结构
-  - [ ] 8.4 资源释放顺序
-  - [ ] 8.5 Signal 定义（SIGTERM=1、SIGKILL=2）
+- [x] Task 8: 编写进程模型参考章节 (AC: #1)
+  - [x] 8.1 ProcessState 状态机（Created → Running → Zombie → Dead）
+  - [x] 8.2 状态转移规则（合法与非法转移）
+  - [x] 8.3 ExitStatus 结构
+  - [x] 8.4 资源释放顺序
+  - [x] 8.5 Signal 定义（SIGTERM=1、SIGKILL=2）
 
-- [ ] Task 9: 校验与完善 (AC: #1-5)
-  - [ ] 9.1 交叉验证所有 syscall 签名与源码一致
-  - [ ] 9.2 验证所有 VFS 路径与注册代码一致
-  - [ ] 9.3 验证所有 CLI flags 与 cobra 注册一致
-  - [ ] 9.4 验证 IPC 协议与 protocol.go 定义一致
-  - [ ] 9.5 确保文档可独立阅读（不强制依赖概念文档）
-  - [ ] 9.6 最终审读：内容完整、格式一致、无遗漏
+- [x] Task 9: 校验与完善 (AC: #1-5)
+  - [x] 9.1 交叉验证所有 syscall 签名与源码一致
+  - [x] 9.2 验证所有 VFS 路径与注册代码一致
+  - [x] 9.3 验证所有 CLI flags 与 cobra 注册一致
+  - [x] 9.4 验证 IPC 协议与 protocol.go 定义一致
+  - [x] 9.5 确保文档可独立阅读（不强制依赖概念文档）
+  - [x] 9.6 最终审读：内容完整、格式一致、无遗漏
 
 ## Dev Notes
 
@@ -849,10 +849,28 @@ docs/quick-start.md        — Story 5.2 产出
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- ✅ Task 1: 创建 `docs/reference.md` 文件框架，含标题、简介、完整目录（7 章节）
+- ✅ Task 2: 编写 Syscall 参考章节 — 15 个 syscall 全部覆盖（Spawn/Kill/Wait/ListProcs/GetPID + CtxAlloc/CtxRead/CtxWrite/CtxFree + Open/Read/Write/Close/Stat + SyscallEvent），每个含签名、参数表、返回值、错误码、行为描述、示例
+- ✅ Task 3: 编写 VFS 路径规范章节 — 4 个已注册设备路径 + /lib/agents/ + /lib/skills/ + VFSFile 接口 + OpenFlag 枚举 + FD 分配规则
+- ✅ Task 4: 编写 Agent 和 Skill 清单章节 — AgentManifest/AgentModels 全字段说明 + instructions.md + 加载流程 + SKILL.md 格式/解析规则 + SkillManifest 字段 + 渐进式加载 + 完整示例
+- ✅ Task 5: 编写 CLI 命令参考章节 — 3 个全局 flags + 5 个命令（root/ps/kill/astrace/version）含所有 flags 和输出模式示例 + JSONResponse 格式
+- ✅ Task 6: 编写 IPC 架构章节 — Daemon 生命周期 + Socket 路径规则 + NDJSON 协议 + 6 个 Method + StreamEvent 协议 + 连接复用语义 + Spawn/AttachDebug 完整流式示例
+- ✅ Task 7: 编写错误处理章节 — ErrCode 6 个枚举 + SyscallError/VFSError/DriverError/ContextError 4 层错误类型 + 6 个基础类型
+- ✅ Task 8: 编写进程模型章节 — 4 态状态机 + 转移规则 + ExitStatus + 6 步资源释放顺序 + Signal 定义
+- ✅ Task 9: 交叉验证 — 所有 syscall 签名与源码比对（kernel/kernel.go, context/context.go, vfs/vfs.go）、VFS 路径与 cmd/crux/main.go 注册代码比对、CLI flags 与 cobra 注册比对、IPC 协议与 protocol.go 比对。version 输出格式确认为 `crux v0.1.0`（含 v 前缀）。文档自包含，不依赖其他文档即可查阅。
+
+### Implementation Plan
+
+文档类 Story — 无代码修改，单一 Markdown 文件输出。所有规范数据均从源码直接提取并交叉验证。
+
 ### File List
+
+- `docs/reference.md` — 新建：参考手册（本 Story 唯一输出）
+- `_bmad-output/implementation-artifacts/5-3-reference-manual.md` — 修改：Story 文件更新
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改：Story 状态更新
