@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -881,7 +882,8 @@ func TestManager_CtxFreeConcurrent(t *testing.T) {
 	const goroutines = 100
 
 	var wg sync.WaitGroup
-	errs := make(chan error, goroutines*2)
+	var successCount atomic.Int64
+	errs := make(chan error, goroutines)
 
 	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
@@ -904,7 +906,9 @@ func TestManager_CtxFreeConcurrent(t *testing.T) {
 			// Verify freed: CtxRead should fail
 			if _, err := m.CtxRead(cid, 0, 0); err == nil {
 				errs <- errors.New("expected error after CtxFree in concurrent goroutine")
+				return
 			}
+			successCount.Add(1)
 		}()
 	}
 	wg.Wait()
@@ -912,6 +916,10 @@ func TestManager_CtxFreeConcurrent(t *testing.T) {
 
 	for err := range errs {
 		t.Errorf("concurrent CtxFree error: %v", err)
+	}
+
+	if got := successCount.Load(); got != goroutines {
+		t.Errorf("expected %d successful Alloc+Free cycles, got %d", goroutines, got)
 	}
 }
 

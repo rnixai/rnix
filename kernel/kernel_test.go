@@ -390,6 +390,14 @@ func TestSpawn_VFSOpenFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when LLM device not available")
 	}
+
+	// Verify CtxFree was called on the error path (kernel.go Spawn error recovery).
+	// Spawn allocates CtxID 1 (first allocation), then fails at VFS Open.
+	// The error path must call CtxFree to prevent context leak.
+	_, ctxErr := ctxMgr.BuildPrompt(1)
+	if ctxErr == nil {
+		t.Error("context should be freed after Spawn VFS Open failure — CtxFree not called on error path")
+	}
 }
 
 func TestSpawn_DebugChanEvents(t *testing.T) {
