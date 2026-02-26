@@ -1,6 +1,6 @@
 # Story 5.1: 概念文档
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -508,3 +508,9 @@ Claude Opus 4.6
 ### Change Log
 
 - 2026-02-26: 创建 docs/concepts.md 概念文档，覆盖四个核心概念（Process/VFS/Skill/Syscall）+ 概念关系总览，所有示例与源码交叉验证通过
+- 2026-02-26: [Code Review] 修复 5 个 issues（2 HIGH, 3 MEDIUM）:
+  - H1: 修正 Syscall 示例中工具调用序列（O_RDONLY→O_RDWR，补充缺失的 Write 步骤）
+  - H2: 端到端数据流补充 AppendMessage(assistant) 步骤
+  - M1: 明确标注 MVP Syscall 中 13 个已实现 + 2 个规划中
+  - M2: VFS 操作链示例标题修正，区分进程级和步骤级操作
+  - M3: Syscall 示例标题从"一次 reasonStep 循环"改为"完整进程生命周期"

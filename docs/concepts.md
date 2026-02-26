@@ -119,9 +119,9 @@ VFS 是 Crux 的统一抽象层。所有外部资源——LLM 推理引擎、宿
 | `/proc/{pid}/intent` | 进程意图（纯文本） | ProcFS 动态生成 |
 | `/proc/{pid}/context` | 进程上下文摘要 | ProcFS 动态生成 |
 
-### 示例：一次推理步骤中的 VFS 操作链
+### 示例：推理过程中的 VFS 操作链
 
-当智能体执行一次推理步骤时，VFS 操作的完整序列如下：
+当智能体执行推理时，VFS 操作的完整序列如下（步骤 1 和 8 属于进程级操作，步骤 2-7 属于单次推理步骤）：
 
 ```
 1. Open("/dev/llm/claude", O_RDWR)     → FD(3)        打开 LLM 设备
@@ -286,9 +286,9 @@ Crux 对 Skill 采用渐进式加载，优化资源消耗：
 | CtxWrite | 写内存 | 写入上下文内容 |
 | CtxFree | munmap | 释放上下文空间 |
 
-### MVP 15 个 Syscall 分类表
+### MVP Syscall 分类表
 
-Crux 的内核接口由 4 个子接口组合而成：
+Crux 的内核接口由 4 个子接口组合而成，共定义 15 个 syscall（其中 13 个已实现，2 个为规划中）：
 
 **进程管理（ProcessManager）— 5 个**
 
@@ -297,7 +297,7 @@ Crux 的内核接口由 4 个子接口组合而成：
 | Spawn | `Spawn(intent, agent, opts) → PID` | 创建并启动智能体进程 |
 | Kill | `Kill(pid, signal) → error` | 向进程发送终止信号 |
 | Wait | `Wait(pid) → ExitStatus` | 等待进程结束，回收资源 |
-| GetPID | — | 获取当前进程 PID（预留） |
+| GetPID | — | 获取当前进程 PID（尚未实现，规划中） |
 | PS | `ListProcs() → []ProcInfo` | 列出所有进程快照 |
 
 **上下文管理（ContextManager）— 4 个**
@@ -323,11 +323,11 @@ Crux 的内核接口由 4 个子接口组合而成：
 
 | Syscall | 说明 |
 |---------|------|
-| DebugRecord | 所有 syscall 入口/出口自动记录 SyscallEvent 到 DebugChan |
+| DebugRecord | 所有 syscall 入口/出口自动记录 SyscallEvent 到 DebugChan（自动机制，非显式调用） |
 
-### 示例：一次完整的 reasonStep 循环
+### 示例：完整进程生命周期中的 Syscall 序列
 
-以 `crux "分析代码" --agent=code-analyst` 为例，整个推理过程中的 syscall 序列：
+以 `crux "分析代码" --agent=code-analyst` 为例，从进程创建到销毁的完整 syscall 序列：
 
 ```
 [  0.000s] Spawn("分析代码", agent="code-analyst")    = PID(1)       12ms
@@ -335,7 +335,8 @@ Crux 的内核接口由 4 个子接口组合而成：
 [  0.013s] Open("/dev/llm/claude", O_RDWR)             = FD(3)         1ms
 [  0.014s] Write(FD(3), <prompt>)                      = ok           5200ms  ← LLM 调用
 [  5.214s] Read(FD(3), 65536)                          = <response>     2ms
-[  5.216s] Open("/dev/fs/./src/main.go", O_RDONLY)     = FD(4)         1ms    ← 工具调用
+[  5.216s] Open("/dev/fs/./src/main.go", O_RDWR)      = FD(4)         1ms    ← 工具调用
+[  5.217s] Write(FD(4), <tool data>)                   = ok             0ms
 [  5.217s] Read(FD(4), 65536)                          = <file content> 1ms
 [  5.218s] Close(FD(4))                                = ok             0ms
 [  5.218s] CtxWrite(CtxID(1), 0, <tool result>)        = ok             0ms
@@ -455,7 +456,8 @@ kernel.Spawn(intent, agentInfo, opts)
 reasonStep 循环:
     │  BuildPrompt → Write(LLM FD) → Read(LLM FD) → 解析 Action
     │  ├── ActionText → 最终结果，进程完成
-    │  └── ActionToolCall → 权限检查 → Open/Write/Read/Close 工具设备
+    │  └── ActionToolCall → AppendMessage(assistant) → 权限检查
+    │       → Open/Write/Read/Close 工具设备
     │       → AppendToolResult → 继续下一轮推理
     ▼
 进程完成: Running → Zombie → Wait/Reap → Dead
