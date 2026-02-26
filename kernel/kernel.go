@@ -614,6 +614,10 @@ func (k *KernelImpl) RemoveProcess(pid types.PID) {
 func (k *KernelImpl) Kill(pid types.PID, signal types.Signal) error {
 	start := time.Now()
 
+	if !signal.Valid() {
+		return NewSyscallError("Kill", pid, "", fmt.Errorf("invalid signal %d", signal), types.ErrInvalid)
+	}
+
 	proc, ok := k.GetProcess(pid)
 	if !ok {
 		return NewSyscallError("Kill", pid, "", fmt.Errorf("process not found"), types.ErrNotFound)

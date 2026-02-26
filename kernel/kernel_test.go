@@ -1972,6 +1972,108 @@ func TestKill_SyscallEvent(t *testing.T) {
 	}
 }
 
+func TestKill_InvalidSignal(t *testing.T) {
+	// Kill with an invalid signal value should return ErrInvalid
+	k := newSimpleKernel(t)
+
+	err := k.Kill(1, types.Signal(999))
+	if err == nil {
+		t.Fatal("expected error for invalid signal")
+	}
+
+	var syscallErr *SyscallError
+	if !errors.As(err, &syscallErr) {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if syscallErr.Code != types.ErrInvalid {
+		t.Errorf("expected ErrInvalid, got %s", syscallErr.Code)
+	}
+}
+
+func TestKill_CreatedState(t *testing.T) {
+	// Kill on a process in Created state (goroutine not yet started).
+	// Cancel() should be safe; goroutine detects ctx.Done() on start.
+	blockCh := make(chan struct{})
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &blockingLLMFile{blockCh: blockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("created-kill test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	// Kill immediately — process may still be in Created or just entering Running
+	if err := k.Kill(pid, types.SIGTERM); err != nil {
+		t.Fatalf("Kill on Created/Running process failed: %v", err)
+	}
+
+	// Unblock LLM so goroutine can proceed and detect cancellation
+	close(blockCh)
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		// Process may have already been reaped if finishProcess ran quickly
+		return
+	}
+
+	select {
+	case <-proc.Done:
+		// Process finished (Zombie)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for killed process")
+	}
+}
+
+func TestKill_RunningProcess_SIGKILL(t *testing.T) {
+	// Kill a running process with SIGKILL (vs SIGTERM tested in TestKill_RunningProcess)
+	blockCh := make(chan struct{})
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &blockingLLMFile{blockCh: blockCh}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := cruxctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("sigkill test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	// Let goroutine start and block on Write
+	time.Sleep(50 * time.Millisecond)
+
+	// Kill with SIGKILL
+	if err := k.Kill(pid, types.SIGKILL); err != nil {
+		t.Fatalf("Kill with SIGKILL failed: %v", err)
+	}
+
+	// Unblock LLM
+	close(blockCh)
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for SIGKILL-ed process")
+	}
+
+	if proc.GetState() != types.StateZombie {
+		t.Fatalf("expected Zombie, got %s", proc.GetState())
+	}
+}
+
 // --- Story 4.2: Spawn parent-child tracking tests ---
 
 func TestSpawn_ParentPID(t *testing.T) {
