@@ -278,47 +278,6 @@ func TestCallbackMux_ImplementsKernelCallbacks(t *testing.T) {
 	mux.OnComplete(1, "result", kernel.ExitStatus{Code: 0})
 }
 
-func TestSocketPathDir(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"/run/user/1000/crux/crux.sock", "/run/user/1000/crux"},
-		{"/tmp/crux-1000/crux.sock", "/tmp/crux-1000"},
-		{"crux.sock", "."},
-	}
-	for _, tt := range tests {
-		got := socketPathDir(tt.input)
-		if got != tt.want {
-			t.Errorf("socketPathDir(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
-
-func TestErrorAs_SyscallError(t *testing.T) {
-	sysErr := kernel.NewSyscallError("Kill", 1, "", os.ErrNotExist, types.ErrNotFound)
-	var target *kernel.SyscallError
-	if !errorAs(sysErr, &target) {
-		t.Error("errorAs should match *SyscallError")
-	}
-	if target.Code != types.ErrNotFound {
-		t.Errorf("code = %q, want %q", target.Code, types.ErrNotFound)
-	}
-}
-
-func TestErrorAs_NoMatch(t *testing.T) {
-	var target *kernel.SyscallError
-	if errorAs(os.ErrNotExist, &target) {
-		t.Error("errorAs should not match *SyscallError on os.ErrNotExist")
-	}
-}
-
-func TestErrorAs_Nil(t *testing.T) {
-	var target *kernel.SyscallError
-	if errorAs(nil, &target) {
-		t.Error("errorAs should return false for nil error")
-	}
-}
 
 // TestNewServer verifies server creation.
 func TestNewServer(t *testing.T) {

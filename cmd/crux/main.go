@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"sort"
+	"sync/atomic"
 	"strconv"
 	"strings"
 	"syscall"
@@ -250,14 +251,17 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	var spawnedPID types.PID
-	cancelClient, err := ipc.Dial(ipc.SocketPath())
+	var spawnedPID atomic.Uint64
+	cancelClient, _ := ipc.Dial(ipc.SocketPath())
+	if cancelClient != nil {
+		defer cancelClient.Close()
+	}
 
 	go func() {
 		<-sigCh
 		progress.KernelMessage("interrupted (SIGINT)")
-		if spawnedPID > 0 && cancelClient != nil {
-			_ = cancelClient.Kill(spawnedPID, types.SIGTERM)
+		if pid := types.PID(spawnedPID.Load()); pid > 0 && cancelClient != nil {
+			_ = cancelClient.Kill(pid, types.SIGTERM)
 		}
 		select {
 		case <-sigCh:
@@ -283,11 +287,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 			// handled in final
 		}
 	})
-	spawnedPID = pid
-
-	if cancelClient != nil {
-		cancelClient.Close()
-	}
+	spawnedPID.Store(uint64(pid))
 
 	if spawnErr != nil {
 		outputError(renderer, mode, "/dev/llm/claude", spawnErr.Error(), "智能体启动失败", "检查 Claude Code CLI 是否已安装")

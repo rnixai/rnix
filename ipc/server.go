@@ -3,22 +3,25 @@ package ipc
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gonewx/crux/agents"
 	"github.com/gonewx/crux/internal/types"
+	"github.com/gonewx/crux/internal/xsync"
 	"github.com/gonewx/crux/kernel"
 )
 
 const (
-	idleTimeout    = 60 * time.Second
-	idleCheckEvery = 5 * time.Second
+	DefaultIdleTimeout = 60 * time.Second
+	idleCheckEvery     = 5 * time.Second
 )
 
 // AgentLoaderFunc loads an agent by name. Matches agents.AgentLoader.Load signature.
@@ -30,6 +33,7 @@ type Server struct {
 	agentLoader AgentLoaderFunc
 	callbackMux *callbackMux
 	version     string
+	IdleTimeout time.Duration
 
 	listener    net.Listener
 	activeConns atomic.Int32
@@ -51,15 +55,23 @@ func NewServer(kern *kernel.KernelImpl, agentLoader AgentLoaderFunc, version str
 		agentLoader: agentLoader,
 		callbackMux: newCallbackMux(),
 		version:     version,
+		IdleTimeout: DefaultIdleTimeout,
 		done:        make(chan struct{}),
 	}
 	return s
 }
 
+func (s *Server) idleTimeoutDuration() time.Duration {
+	if s.IdleTimeout > 0 {
+		return s.IdleTimeout
+	}
+	return DefaultIdleTimeout
+}
+
 // ListenAndServe starts listening on the given socket path and serving requests.
 // Blocks until Shutdown is called or an error occurs.
 func (s *Server) ListenAndServe(socketPath string) error {
-	if err := os.MkdirAll(socketPathDir(socketPath), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0700); err != nil {
 		return fmt.Errorf("ipc: create socket dir: %w", err)
 	}
 
@@ -70,7 +82,7 @@ func (s *Server) ListenAndServe(socketPath string) error {
 	s.listener = ln
 
 	s.mu.Lock()
-	s.idleTimer = time.AfterFunc(idleTimeout, func() {
+	s.idleTimer = time.AfterFunc(s.idleTimeoutDuration(), func() {
 		s.tryAutoShutdown()
 	})
 	s.mu.Unlock()
@@ -99,6 +111,7 @@ func (s *Server) acceptLoop() {
 		}
 		s.activeConns.Add(1)
 		s.resetIdle()
+		s.wg.Add(1)
 		go s.handleConn(conn)
 	}
 }
@@ -125,22 +138,21 @@ func (s *Server) checkIdle() {
 			activeProcs++
 		}
 	}
-	if activeProcs == 0 && s.activeConns.Load() == 0 {
-		s.resetIdle()
-	} else {
+	if activeProcs > 0 || s.activeConns.Load() > 0 {
 		s.mu.Lock()
 		if !s.idleStopped {
 			s.idleTimer.Stop()
 		}
 		s.mu.Unlock()
 	}
+	// When idle: let the timer count down naturally from the last resetIdle call.
 }
 
 func (s *Server) resetIdle() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.idleStopped {
-		s.idleTimer.Reset(idleTimeout)
+		s.idleTimer.Reset(s.idleTimeoutDuration())
 	}
 }
 
@@ -185,6 +197,7 @@ func (s *Server) Wait() {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
+	defer s.wg.Done()
 	defer func() {
 		conn.Close()
 		s.activeConns.Add(-1)
@@ -250,7 +263,7 @@ func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {
 	if err := s.kern.Kill(req.PID, req.Signal); err != nil {
 		code := "INTERNAL"
 		var sysErr *kernel.SyscallError
-		if ok := errorAs(err, &sysErr); ok {
+		if errors.As(err, &sysErr) {
 			code = string(sysErr.Code)
 		}
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
@@ -294,6 +307,14 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 
 	s.callbackMux.register(pid, eventCh)
 	defer s.callbackMux.unregister(pid)
+
+	// Compensate for OnSpawn event lost during kern.Spawn (fires before register)
+	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent}
+	spawnPayload, _ := json.Marshal(spawnPP)
+	select {
+	case eventCh <- StreamEvent{Type: StreamProgress, Payload: spawnPayload}:
+	default:
+	}
 
 	payload, _ := json.Marshal(SpawnResponse{PID: pid})
 	writeResponse(conn, Response{OK: true, Payload: payload})
@@ -389,32 +410,25 @@ func (s *Server) handleAttachDebug(conn net.Conn, rawPayload json.RawMessage) {
 
 // callbackMux routes KernelCallbacks events to per-PID channels for streaming to clients.
 type callbackMux struct {
-	mu       sync.RWMutex
-	handlers map[types.PID]chan<- StreamEvent
+	handlers *xsync.SyncMap[types.PID, chan<- StreamEvent]
 }
 
 func newCallbackMux() *callbackMux {
 	return &callbackMux{
-		handlers: make(map[types.PID]chan<- StreamEvent),
+		handlers: xsync.NewSyncMap[types.PID, chan<- StreamEvent](),
 	}
 }
 
 func (m *callbackMux) register(pid types.PID, ch chan<- StreamEvent) {
-	m.mu.Lock()
-	m.handlers[pid] = ch
-	m.mu.Unlock()
+	m.handlers.Store(pid, ch)
 }
 
 func (m *callbackMux) unregister(pid types.PID) {
-	m.mu.Lock()
-	delete(m.handlers, pid)
-	m.mu.Unlock()
+	m.handlers.Delete(pid)
 }
 
 func (m *callbackMux) send(pid types.PID, ev StreamEvent) {
-	m.mu.RLock()
-	ch, ok := m.handlers[pid]
-	m.mu.RUnlock()
+	ch, ok := m.handlers.Load(pid)
 	if ok {
 		select {
 		case ch <- ev:
@@ -477,32 +491,3 @@ func marshalJSON(v any) json.RawMessage {
 	return data
 }
 
-func socketPathDir(socketPath string) string {
-	for i := len(socketPath) - 1; i >= 0; i-- {
-		if socketPath[i] == '/' {
-			return socketPath[:i]
-		}
-	}
-	return "."
-}
-
-// errorAs is a wrapper for errors.As (avoids importing errors package for a single call).
-func errorAs[T any](err error, target *T) bool {
-	if err == nil {
-		return false
-	}
-	for {
-		if t, ok := any(err).(T); ok {
-			*target = t
-			return true
-		}
-		u, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		err = u.Unwrap()
-		if err == nil {
-			return false
-		}
-	}
-}

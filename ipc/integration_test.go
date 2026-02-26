@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -280,4 +281,108 @@ func TestIntegration_ProcInfoWireJSON(t *testing.T) {
 
 func sendRequestRaw(c *Client, method Method, payload any) error {
 	return c.sendRequest(method, payload)
+}
+
+func TestIntegration_ConcurrentSpawn(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+	_ = kern
+
+	const numClients = 5
+	var wg sync.WaitGroup
+	pids := make(chan types.PID, numClients)
+	errs := make(chan error, numClients)
+
+	for i := 0; i < numClients; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+
+			proc := kernel.NewProcess(0, fmt.Sprintf("concurrent spawn %d", idx), nil)
+			_ = proc.Start()
+			kern.AddProcess(proc)
+
+			c, err := Dial(sockPath)
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer c.Close()
+
+			procs, err := c.ListProcs()
+			if err != nil {
+				errs <- err
+				return
+			}
+
+			found := false
+			for _, p := range procs {
+				if p.PID == proc.PID {
+					found = true
+					pids <- proc.PID
+					break
+				}
+			}
+			if !found {
+				errs <- fmt.Errorf("PID %d not found in ListProcs", proc.PID)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(pids)
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent spawn error: %v", err)
+		}
+	}
+
+	seen := make(map[types.PID]bool)
+	for pid := range pids {
+		if seen[pid] {
+			t.Errorf("duplicate PID %d — concurrent spawn should produce unique PIDs", pid)
+		}
+		seen[pid] = true
+	}
+	if len(seen) < numClients {
+		t.Errorf("expected %d unique PIDs, got %d", numClients, len(seen))
+	}
+}
+
+func TestIntegration_IdleAutoShutdown(t *testing.T) {
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+
+	srv := NewServer(nil, nil, "0.1.0-test")
+	srv.IdleTimeout = 500 * time.Millisecond
+	kern := kernel.NewKernel(vfsInst, cruxctx.NewManager(), srv.CallbackMux())
+	srv.SetKernel(kern)
+	defer kern.Shutdown()
+
+	sockDir := t.TempDir()
+	sockPath := filepath.Join(sockDir, "idle-test.sock")
+
+	if err := srv.ListenAndServe(sockPath); err != nil {
+		t.Fatalf("ListenAndServe: %v", err)
+	}
+
+	c, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	_, err = c.Ping()
+	c.Close()
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+
+	select {
+	case <-srv.Done():
+	case <-time.After(5 * time.Second):
+		srv.Shutdown()
+		t.Fatal("daemon did not auto-shutdown within 5s (expected ~500ms idle timeout)")
+	}
+
+	srv.Wait()
 }
