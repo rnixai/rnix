@@ -4,6 +4,7 @@ package context
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -299,4 +300,53 @@ func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
 		SystemPrompt: ctx.SystemPrompt,
 		Messages:     msgs,
 	}, nil
+}
+
+// GetContextSummary returns a human-readable summary of the context.
+// Satisfies vfs.ContextSummaryProvider interface via duck typing.
+func (m *Manager) GetContextSummary(ctxID types.CtxID) (string, error) {
+	ctx, err := m.getContext("GetContextSummary", ctxID)
+	if err != nil {
+		return "", err
+	}
+
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+
+	// Count messages by role
+	var systemCount, userCount, assistantCount, toolCount int
+	for _, msg := range ctx.Messages {
+		switch msg.Role {
+		case RoleSystem:
+			systemCount++
+		case RoleUser:
+			userCount++
+		case RoleAssistant:
+			assistantCount++
+		case RoleTool:
+			toolCount++
+		}
+	}
+
+	total := len(ctx.Messages)
+	promptLen := len(ctx.SystemPrompt)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Messages: %d (system: %d, user: %d, assistant: %d", total, systemCount, userCount, assistantCount)
+	if toolCount > 0 {
+		fmt.Fprintf(&sb, ", tool: %d", toolCount)
+	}
+	sb.WriteString(")\n")
+	fmt.Fprintf(&sb, "System Prompt: %d chars\n", promptLen)
+
+	if total > 0 {
+		last := ctx.Messages[total-1]
+		preview := last.Content
+		if len(preview) > 80 {
+			preview = preview[:80] + "..."
+		}
+		fmt.Fprintf(&sb, "Last Message: [%s] %s", last.Role, preview)
+	}
+
+	return sb.String(), nil
 }

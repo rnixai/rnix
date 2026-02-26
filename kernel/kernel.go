@@ -652,3 +652,57 @@ func (k *KernelImpl) ListProcesses() []*Process {
 	})
 	return procs
 }
+
+// GetProcInfo returns a snapshot of process information for the given PID.
+// Satisfies vfs.ProcessInfoProvider interface via duck typing.
+func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return nil, &vfs.VFSError{
+			Op:     "GetProcInfo",
+			Device: "/proc",
+			Err:    fmt.Errorf("process %d not found", pid),
+			Code:   types.ErrNotFound,
+		}
+	}
+
+	proc.mu.Lock()
+	info := &vfs.ProcInfo{
+		PID:            proc.PID,
+		PPID:           proc.PPID,
+		State:          proc.State,
+		Intent:         proc.Intent,
+		Skills:         proc.Skills,
+		TokensUsed:     proc.TokensUsed,
+		CreatedAt:      proc.CreatedAt,
+		CtxID:          proc.CtxID,
+		Result:         proc.Result,
+		AllowedDevices: proc.AllowedDevices,
+	}
+	proc.mu.Unlock()
+	return info, nil
+}
+
+// ListProcs returns snapshots of all processes in the process table.
+// Satisfies vfs.ProcessInfoProvider interface via duck typing.
+func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
+	var infos []vfs.ProcInfo
+	k.procTable.Range(func(_ types.PID, proc *Process) bool {
+		proc.mu.Lock()
+		infos = append(infos, vfs.ProcInfo{
+			PID:            proc.PID,
+			PPID:           proc.PPID,
+			State:          proc.State,
+			Intent:         proc.Intent,
+			Skills:         proc.Skills,
+			TokensUsed:     proc.TokensUsed,
+			CreatedAt:      proc.CreatedAt,
+			CtxID:          proc.CtxID,
+			Result:         proc.Result,
+			AllowedDevices: proc.AllowedDevices,
+		})
+		proc.mu.Unlock()
+		return true
+	})
+	return infos
+}

@@ -214,6 +214,10 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader)
 	kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
 
+	// Register ProcFS (requires kernel as ProcessInfoProvider)
+	procFS := vfs.NewProcFS(kern, ctxMgr)
+	_ = devReg.Register("/proc", procFS.FileFactory())
+
 	start := time.Now()
 
 	var agentInfo *agents.AgentInfo
@@ -341,6 +345,10 @@ func initKernel() {
 	cb := &cliCallbacks{progress: progress}
 
 	kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
+
+	// Register ProcFS (requires kernel as ProcessInfoProvider)
+	procFS := vfs.NewProcFS(kern, ctxMgr)
+	_ = devReg.Register("/proc", procFS.FileFactory())
 }
 
 var processStateNames = map[types.ProcessState]string{

@@ -3,6 +3,7 @@ package context
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -767,4 +768,111 @@ func TestContextError_Format(t *testing.T) {
 	if unwrapped == nil || unwrapped.Error() != "test error" {
 		t.Fatalf("Unwrap returned unexpected: %v", unwrapped)
 	}
+}
+
+// ========== Story 4.3: GetContextSummary Tests ==========
+
+func TestManager_GetContextSummary_Basic(t *testing.T) {
+	m := NewManager()
+	cid, _ := m.CtxAlloc(64)
+	_ = m.SetSystemPrompt(cid, "You are a test agent.")
+	_ = m.AppendMessage(cid, RoleUser, "请分析这段代码")
+	_ = m.AppendMessage(cid, RoleAssistant, "分析完成，发现 3 个问题需要修复")
+
+	summary, err := m.GetContextSummary(cid)
+	if err != nil {
+		t.Fatalf("GetContextSummary failed: %v", err)
+	}
+
+	if !containsStr(summary, "Messages: 2") {
+		t.Errorf("expected 'Messages: 2' in summary, got: %s", summary)
+	}
+	if !containsStr(summary, "user: 1") {
+		t.Errorf("expected 'user: 1' in summary, got: %s", summary)
+	}
+	if !containsStr(summary, "assistant: 1") {
+		t.Errorf("expected 'assistant: 1' in summary, got: %s", summary)
+	}
+	if !containsStr(summary, "System Prompt:") {
+		t.Errorf("expected 'System Prompt:' in summary, got: %s", summary)
+	}
+	if !containsStr(summary, "Last Message: [assistant]") {
+		t.Errorf("expected 'Last Message: [assistant]' in summary, got: %s", summary)
+	}
+}
+
+func TestManager_GetContextSummary_Empty(t *testing.T) {
+	m := NewManager()
+	cid, _ := m.CtxAlloc(64)
+
+	summary, err := m.GetContextSummary(cid)
+	if err != nil {
+		t.Fatalf("GetContextSummary failed: %v", err)
+	}
+
+	if !containsStr(summary, "Messages: 0") {
+		t.Errorf("expected 'Messages: 0' in summary, got: %s", summary)
+	}
+	if !containsStr(summary, "System Prompt: 0 chars") {
+		t.Errorf("expected 'System Prompt: 0 chars' in summary, got: %s", summary)
+	}
+}
+
+func TestManager_GetContextSummary_NotFound(t *testing.T) {
+	m := NewManager()
+
+	_, err := m.GetContextSummary(types.CtxID(999))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	var ctxErr *ContextError
+	if !errors.As(err, &ctxErr) {
+		t.Fatalf("expected *ContextError, got %T", err)
+	}
+	if ctxErr.Code != types.ErrNotFound {
+		t.Errorf("code: got %q, want %q", ctxErr.Code, types.ErrNotFound)
+	}
+}
+
+func TestManager_GetContextSummary_LongMessage(t *testing.T) {
+	m := NewManager()
+	cid, _ := m.CtxAlloc(64)
+
+	longContent := strings.Repeat("x", 200)
+	_ = m.AppendMessage(cid, RoleUser, longContent)
+
+	summary, err := m.GetContextSummary(cid)
+	if err != nil {
+		t.Fatalf("GetContextSummary failed: %v", err)
+	}
+
+	// Preview should be truncated to 80 chars + "..."
+	if !containsStr(summary, "...") {
+		t.Errorf("expected truncated preview with '...', got: %s", summary)
+	}
+}
+
+func TestManager_GetContextSummary_WithToolMessages(t *testing.T) {
+	m := NewManager()
+	cid, _ := m.CtxAlloc(64)
+	_ = m.AppendMessage(cid, RoleUser, "read file")
+	_ = m.AppendToolResult(cid, "/dev/fs", "file contents here")
+	_ = m.AppendMessage(cid, RoleAssistant, "got it")
+
+	summary, err := m.GetContextSummary(cid)
+	if err != nil {
+		t.Fatalf("GetContextSummary failed: %v", err)
+	}
+
+	if !containsStr(summary, "tool: 1") {
+		t.Errorf("expected 'tool: 1' in summary, got: %s", summary)
+	}
+	if !containsStr(summary, "Messages: 3") {
+		t.Errorf("expected 'Messages: 3' in summary, got: %s", summary)
+	}
+}
+
+func containsStr(s, substr string) bool {
+	return strings.Contains(s, substr)
 }
