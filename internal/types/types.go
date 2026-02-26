@@ -43,6 +43,22 @@ const (
 	StateDead
 )
 
+// String returns the human-readable name for the ProcessState.
+func (s ProcessState) String() string {
+	switch s {
+	case StateCreated:
+		return "created"
+	case StateRunning:
+		return "running"
+	case StateZombie:
+		return "zombie"
+	case StateDead:
+		return "dead"
+	default:
+		return fmt.Sprintf("unknown(%d)", s)
+	}
+}
+
 // DriverError represents an error from a device driver with a categorized error code.
 // Used by drivers instead of kernel.SyscallError to avoid drivers/ → kernel/ dependency.
 type DriverError struct {

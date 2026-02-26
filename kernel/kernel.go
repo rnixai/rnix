@@ -418,14 +418,18 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			return
 		}
 
+		proc.mu.Lock()
 		proc.TokensUsed += resp.TokensUsed
+		proc.mu.Unlock()
 
 		// Parse action
 		action := parseAction(&resp)
 
 		switch action.Type {
 		case ActionText:
+			proc.mu.Lock()
 			proc.Result = action.Content
+			proc.mu.Unlock()
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "text",
@@ -672,12 +676,12 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		PPID:           proc.PPID,
 		State:          proc.State,
 		Intent:         proc.Intent,
-		Skills:         proc.Skills,
+		Skills:         append([]string(nil), proc.Skills...),
 		TokensUsed:     proc.TokensUsed,
 		CreatedAt:      proc.CreatedAt,
 		CtxID:          proc.CtxID,
 		Result:         proc.Result,
-		AllowedDevices: proc.AllowedDevices,
+		AllowedDevices: append([]string(nil), proc.AllowedDevices...),
 	}
 	proc.mu.Unlock()
 	return info, nil
@@ -694,12 +698,12 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			PPID:           proc.PPID,
 			State:          proc.State,
 			Intent:         proc.Intent,
-			Skills:         proc.Skills,
+			Skills:         append([]string(nil), proc.Skills...),
 			TokensUsed:     proc.TokensUsed,
 			CreatedAt:      proc.CreatedAt,
 			CtxID:          proc.CtxID,
 			Result:         proc.Result,
-			AllowedDevices: proc.AllowedDevices,
+			AllowedDevices: append([]string(nil), proc.AllowedDevices...),
 		})
 		proc.mu.Unlock()
 		return true

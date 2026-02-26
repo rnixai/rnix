@@ -1,6 +1,6 @@
 # Story 4.3: /proc 动态文件系统
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -593,6 +593,14 @@ Claude Opus 4.6
 - 设计决策：接口定义在消费方 `vfs/` 中（Go 惯例），通过鸭子类型满足；`ProcInfo` 为值类型快照；nil skills/allowed_devices 序列化为 `[]` 而非 `null`；status JSON 使用 snake_case
 - `go test -race ./...` 全部通过，`go vet ./...` 无警告
 
+### Code Review Fixes (2026-02-26)
+
+- **[H1] 修复 reasonStep 中 TokensUsed/Result 写入的数据竞争** — `kernel/kernel.go:421,428` 的写入现在在 `proc.mu.Lock()` 保护下执行，与 `GetProcInfo` 的读取使用同一把锁
+- **[M1] 修复 GetProcInfo/ListProcs 中 Skills/AllowedDevices 的浅拷贝** — 使用 `append([]string(nil), slice...)` 创建独立副本，确保 ProcInfo 快照语义
+- **[M2] 替换自定义 asVFSError 为标准 errors.As** — 删除 `vfs/proc_test.go` 中的自定义 helper，统一使用标准库
+- **[M3] 消除重复的 ProcessState→string 映射** — 在 `internal/types/types.go` 添加 `ProcessState.String()` 方法，`vfs/proc.go` 和 `cmd/crux/main.go` 统一委托
+- **[L1] 删除自定义 containsStr/findSubstr** — 替换为 `strings.Contains`
+
 ### File List
 
 **新增文件：**
@@ -600,8 +608,9 @@ Claude Opus 4.6
 - `vfs/proc_test.go` — ProcFS 单元测试（17 个测试用例）
 
 **修改文件：**
-- `kernel/kernel.go` — 添加 GetProcInfo/ListProcs 方法
+- `kernel/kernel.go` — 添加 GetProcInfo/ListProcs 方法；修复 reasonStep 中 TokensUsed/Result 写入竞争；深拷贝 slice 字段
 - `kernel/kernel_test.go` — 添加 GetProcInfo/ListProcs 测试（7 个测试用例）
 - `context/context.go` — 添加 GetContextSummary 方法 + strings import
 - `context/context_test.go` — 添加 GetContextSummary 测试（5 个测试用例）+ strings import
-- `cmd/crux/main.go` — runRoot 和 initKernel 注册 ProcFS 到 /proc
+- `cmd/crux/main.go` — runRoot 和 initKernel 注册 ProcFS 到 /proc；消除重复 processStateNames map
+- `internal/types/types.go` — 添加 ProcessState.String() 方法
