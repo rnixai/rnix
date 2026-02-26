@@ -955,3 +955,4 @@ So that 我在编写 Skill 或调试时有权威参考。
 **And** 包含完整 VFS 路径规范（`/proc/{pid}/`、`/dev/llm/`、`/dev/fs`、`/dev/shell`、`/lib/skills/`）
 **And** 包含 manifest.yaml 全部字段说明和示例
 **And** 包含 CLI 命令完整列表（`crux "意图"`、`crux ps`、`crux astrace`、`crux kill`、`crux version`）及其 flags
+**And** 包含 IPC 架构说明：daemon 生命周期（自动启动/自动停止/stale socket 清理）、Unix domain socket 通信机制、IPC 协议概述（NDJSON 消息格式、Method 枚举、流式 StreamEvent）

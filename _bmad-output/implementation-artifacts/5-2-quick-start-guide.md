@@ -296,3 +296,11 @@ Claude Opus 4.6
 - [L1] astrace 解读表 `← LLM 调用` 描述修正为"涉及 /dev/llm/ 设备的操作"（docs/quick-start.md:181）
 - [L2] 添加 `<nil>` 含义说明帮助非 Go 用户理解（docs/quick-start.md:184）
 - [L3] Story version 输出参考去掉 `v` 前缀匹配代码行为（story:128）
+
+### Post Story 4-6 Update (2026-02-26)
+
+更新 docs/quick-start.md 反映 IPC daemon 架构变更:
+- 首次运行章节补充 daemon 自动启动/停止说明
+- astrace 章节强调跨终端操作能力（daemon 架构支持）
+- 进程管理章节补充跨终端可见性说明
+- 补充无 daemon 时的优雅降级行为说明（crux ps → "No active processes."）

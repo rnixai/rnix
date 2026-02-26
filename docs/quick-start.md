@@ -72,6 +72,8 @@ crux v0.1.0
 $ crux "分析 ./README.md"
 ```
 
+首次运行时，Crux 会自动启动一个后台 daemon 进程来管理内核和进程表。daemon 通过 Unix domain socket 与 CLI 通信，空闲 60 秒后自动退出。你无需手动管理 daemon——一切都是透明的。
+
 你将看到类似以下的输出：
 
 ```
@@ -138,17 +140,21 @@ $ crux "分析 ./cmd/crux/main.go" --agent=code-analyst
 
 `astrace`（Agent Strace）是 Crux 的调试工具，类似 Unix 的 `strace`，可以实时查看智能体进程的每一步系统调用（Syscall），帮助你理解智能体的完整执行过程。
 
+得益于 daemon 架构，`astrace` 支持跨终端操作——你可以在任意终端追踪任意正在运行的进程，无需在启动进程的终端中操作。
+
 ### 使用方法
 
 在一个终端启动一个智能体任务：
 
 ```bash
+# 终端 A
 $ crux "分析当前项目结构并给出建议"
 ```
 
-在另一个终端，用 `crux ps` 找到正在运行的进程 PID，然后 attach：
+打开另一个终端，用 `crux ps` 找到正在运行的进程 PID，然后 attach：
 
 ```bash
+# 终端 B
 $ crux astrace 1
 ```
 
@@ -188,6 +194,8 @@ $ crux astrace 1
 ---
 
 ## 进程管理
+
+Crux 的进程在系统级别可见——与 Unix 进程一样，你可以在任意终端查看和管理所有正在运行的智能体进程，无论它们是从哪个终端启动的。
 
 ### 查看进程列表
 
@@ -235,10 +243,14 @@ $ crux ps --json
 
 ### 终止进程
 
+你可以从任意终端终止正在运行的进程：
+
 ```bash
 $ crux kill 1
 [kernel] PID 1: signal sent (SIGTERM)
 ```
+
+如果没有任何 `crux` 实例运行（daemon 未启动），`crux ps` 会输出 "No active processes."，`crux kill` 会输出标准错误提示——不会崩溃或报连接错误。
 
 ---
 

@@ -514,3 +514,9 @@ Claude Opus 4.6
   - M1: 明确标注 MVP Syscall 中 13 个已实现 + 2 个规划中
   - M2: VFS 操作链示例标题修正，区分进程级和步骤级操作
   - M3: Syscall 示例标题从"一次 reasonStep 循环"改为"完整进程生命周期"
+- 2026-02-26: [Post Story 4-6] 更新 docs/concepts.md 反映 IPC daemon 架构变更:
+  - 进程章节补充 daemon 架构说明（跨终端可见性、自动启动/停止）
+  - 设备注册说明从"CLI 启动时"改为"daemon 启动时"
+  - 调用链架构图加入 IPC Server 层（CLI → Unix Socket → Daemon → Kernel）
+  - 端到端数据流重构为 daemon 模式（CLI 客户端 → IPC → daemon → kernel.Spawn）
+  - astrace 数据流加入跨终端 IPC 传输路径
