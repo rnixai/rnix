@@ -81,8 +81,8 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: 文档体系（Documentation）
-  epic-5: backlog
-  5-1-concept-documentation: backlog
+  epic-5: in-progress
+  5-1-concept-documentation: ready-for-dev
   5-2-quick-start-guide: backlog
   5-3-reference-manual: backlog
   epic-5-retrospective: optional
