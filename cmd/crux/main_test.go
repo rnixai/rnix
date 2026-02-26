@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	cruxctx "github.com/gonewx/crux/context"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
+	"github.com/gonewx/crux/ipc"
 	"github.com/gonewx/crux/kernel"
 	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
@@ -94,13 +96,7 @@ func TestOutputSuccess_JSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
 
-	proc := &kernel.Process{
-		PID:        1,
-		Result:     "test result",
-		TokensUsed: 100,
-	}
-
-	outputSuccess(renderer, ui.ModeJSON, 1, proc, 5*time.Second)
+	outputSuccess(renderer, ui.ModeJSON, 1, "test result", 100, 5*time.Second)
 
 	var resp JSONResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -137,13 +133,7 @@ func TestOutputSuccess_Default(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeDefault, Profile: ui.TerminalProfile{Width: 80, ColorLevel: 0}}
 
-	proc := &kernel.Process{
-		PID:        1,
-		Result:     "分析完成",
-		TokensUsed: 50,
-	}
-
-	outputSuccess(renderer, ui.ModeDefault, 1, proc, 2*time.Second)
+	outputSuccess(renderer, ui.ModeDefault, 1, "分析完成", 50, 2*time.Second)
 
 	output := buf.String()
 	if !strings.Contains(output, "分析完成") {
@@ -285,7 +275,6 @@ func TestCLICallbacks_QuietMode(t *testing.T) {
 }
 
 func TestExitCode_InitialZero(t *testing.T) {
-	// Verify exitCode starts at 0
 	saved := exitCode
 	defer func() { exitCode = saved }()
 
@@ -431,7 +420,7 @@ func TestVersion_JSON_WithoutClaude(t *testing.T) {
 	}
 }
 
-// --- Help output tests (Task 2 / AC #6) ---
+// --- Help output tests ---
 
 func TestHelp_ContainsUsage(t *testing.T) {
 	var buf bytes.Buffer
@@ -477,7 +466,7 @@ func TestHelp_ContainsExample(t *testing.T) {
 	}
 }
 
-// --- crux ps tests (Story 4.4, Task 4) ---
+// --- crux ps tests via IPC ---
 
 func TestRenderPsJSON_EmptyList(t *testing.T) {
 	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
@@ -523,31 +512,12 @@ func TestRenderPsJSON_WithProcs(t *testing.T) {
 		t.Error("expected ok=true")
 	}
 
-	// Verify JSON structure contains snake_case fields
 	raw := buf.String()
-	if !strings.Contains(raw, `"pid"`) {
-		t.Error("missing pid field")
+	for _, field := range []string{"pid", "ppid", "state", "intent", "skills", "tokens_used", "elapsed_ms"} {
+		if !strings.Contains(raw, fmt.Sprintf(`"%s"`, field)) {
+			t.Errorf("missing field %q in: %s", field, raw)
+		}
 	}
-	if !strings.Contains(raw, `"ppid"`) {
-		t.Error("missing ppid field")
-	}
-	if !strings.Contains(raw, `"state"`) {
-		t.Error("missing state field")
-	}
-	if !strings.Contains(raw, `"intent"`) {
-		t.Error("missing intent field")
-	}
-	if !strings.Contains(raw, `"skills"`) {
-		t.Error("missing skills field")
-	}
-	if !strings.Contains(raw, `"tokens_used"`) {
-		t.Error("missing tokens_used field")
-	}
-	if !strings.Contains(raw, `"elapsed_ms"`) {
-		t.Error("missing elapsed_ms field")
-	}
-
-	// Verify nil skills becomes empty array (not null)
 	if strings.Contains(raw, `"skills":null`) {
 		t.Error("nil skills should serialize as [] not null")
 	}
@@ -607,7 +577,6 @@ func TestJsonProcess_SnakeCase(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(data)
-	// Verify all snake_case
 	for _, field := range []string{"pid", "ppid", "state", "intent", "skills", "tokens_used", "elapsed_ms"} {
 		if !strings.Contains(s, fmt.Sprintf(`"%s"`, field)) {
 			t.Errorf("missing snake_case field %q in: %s", field, s)
@@ -634,26 +603,33 @@ func TestHelp_ContainsPsSubcommand(t *testing.T) {
 	}
 }
 
-// --- crux kill tests (Story 4.4, Task 3 review fix) ---
+// --- IPC-based CLI tests ---
 
-// setupTestKernel creates a minimal kernel for testing and sets the global kern.
-// Returns a cleanup function that restores the original kern and shuts down the test kernel.
-func setupTestKernel(t *testing.T) func() {
+// setupTestIPCServer creates a server+kernel for IPC-based CLI tests.
+func setupTestIPCServer(t *testing.T) (string, *kernel.KernelImpl) {
 	t.Helper()
-	savedKern := kern
-	savedExitCode := exitCode
-	exitCode = 0
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := cruxctx.NewManager()
-	kern = kernel.NewKernel(vfsInst, ctxMgr, nil)
 
-	return func() {
-		kern.Shutdown()
-		kern = savedKern
-		exitCode = savedExitCode
+	srv := ipc.NewServer(nil, nil, "0.1.0-test")
+	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
+	srv.SetKernel(kern)
+
+	sockDir := t.TempDir()
+	sockPath := filepath.Join(sockDir, "test.sock")
+
+	if err := srv.ListenAndServe(sockPath); err != nil {
+		t.Fatalf("ListenAndServe: %v", err)
 	}
+	t.Cleanup(func() {
+		srv.Shutdown()
+		srv.Wait()
+		kern.Shutdown()
+	})
+
+	return sockPath, kern
 }
 
 func TestRunKill_InvalidPID(t *testing.T) {
@@ -670,9 +646,19 @@ func TestRunKill_InvalidPID(t *testing.T) {
 	}
 }
 
-func TestRunKill_PIDNotFound(t *testing.T) {
-	cleanup := setupTestKernel(t)
-	defer cleanup()
+func TestRunKill_PIDNotFound_ViaIPC(t *testing.T) {
+	sockPath, _ := setupTestIPCServer(t)
+
+	saved := exitCode
+	defer func() { exitCode = saved }()
+	exitCode = 0
+
+	origSocketPath := ipc.SocketPath
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() {
+		ipc.SocketPathOverride = ""
+		_ = origSocketPath
+	})
 
 	err := runKill(&cobra.Command{}, []string{"999"})
 	if err != nil {
@@ -683,13 +669,18 @@ func TestRunKill_PIDNotFound(t *testing.T) {
 	}
 }
 
-func TestRunKill_Success(t *testing.T) {
-	cleanup := setupTestKernel(t)
-	defer cleanup()
+func TestRunKill_Success_ViaIPC(t *testing.T) {
+	sockPath, kern := setupTestIPCServer(t)
 
-	// Create a process and transition to Running so Kill accepts it
+	saved := exitCode
+	defer func() { exitCode = saved }()
+	exitCode = 0
+
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() { ipc.SocketPathOverride = "" })
+
 	proc := kernel.NewProcess(0, "test intent", []string{"test-skill"})
-	_ = proc.Start() // Created → Running
+	_ = proc.Start()
 	kern.AddProcess(proc)
 
 	err := runKill(&cobra.Command{}, []string{fmt.Sprintf("%d", proc.PID)})
@@ -698,5 +689,44 @@ func TestRunKill_Success(t *testing.T) {
 	}
 	if exitCode != 0 {
 		t.Errorf("expected exitCode 0 for successful kill, got %d", exitCode)
+	}
+}
+
+func TestDaemonCmd_Hidden(t *testing.T) {
+	if !daemonCmd.Hidden {
+		t.Error("daemon command should be hidden")
+	}
+}
+
+func TestDaemonCmd_RequiresInternalFlag(t *testing.T) {
+	saved := flagDaemonInternal
+	defer func() { flagDaemonInternal = saved }()
+	flagDaemonInternal = false
+
+	err := runDaemon(&cobra.Command{}, nil)
+	if err == nil {
+		t.Fatal("should fail without --internal flag")
+	}
+}
+
+func TestWireToSyscallEvent(t *testing.T) {
+	sew := ipc.SyscallEventWire{
+		TimestampMs: 3000,
+		PID:         2,
+		Syscall:     "Spawn",
+		Args:        map[string]any{"intent": "test"},
+		DurationMs:  15.5,
+		Error:       "something failed",
+	}
+
+	event := wireToSyscallEvent(sew)
+	if event.PID != 2 {
+		t.Errorf("pid = %d, want 2", event.PID)
+	}
+	if event.Syscall != "Spawn" {
+		t.Errorf("syscall = %q, want %q", event.Syscall, "Spawn")
+	}
+	if event.Err == nil || event.Err.Error() != "something failed" {
+		t.Errorf("err = %v, want 'something failed'", event.Err)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/gonewx/crux/drivers/shell"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
+	"github.com/gonewx/crux/ipc"
 	"github.com/gonewx/crux/kernel"
 	"github.com/gonewx/crux/skills"
 	"github.com/gonewx/crux/vfs"
@@ -42,9 +43,6 @@ var (
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
 var exitCode int
-
-// kern is the global kernel instance, initialized by runRoot or runAstrace.
-var kern *kernel.KernelImpl
 
 // forceExitFunc is called on double-SIGINT for force exit. Package-level variable for test injection.
 var forceExitFunc = os.Exit
@@ -154,6 +152,14 @@ var killCmd = &cobra.Command{
 	RunE:  runKill,
 }
 
+var daemonCmd = &cobra.Command{
+	Use:    "daemon",
+	Hidden: true,
+	RunE:   runDaemon,
+}
+
+var flagDaemonInternal bool
+
 func runVersion(cmd *cobra.Command, args []string) {
 	w := cmd.OutOrStdout()
 
@@ -190,10 +196,12 @@ func init() {
 	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
+	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(astraceCmd)
 	rootCmd.AddCommand(psCmd)
 	rootCmd.AddCommand(killCmd)
+	rootCmd.AddCommand(daemonCmd)
 }
 
 func resolveOutputMode() ui.OutputMode {
@@ -219,97 +227,106 @@ func runRoot(cmd *cobra.Command, args []string) error {
 
 	renderer := ui.NewRenderer(os.Stdout, mode)
 	ui.InitStyles(renderer.Profile)
-
 	progress := ui.NewProgressReporter(renderer)
-	cb := &cliCallbacks{progress: progress}
-
-	// Dependency injection chain
-	devReg := vfs.NewDeviceRegistry()
-	vfsInst := vfs.NewVFS(devReg)
-	claudeDriver := llm.NewClaudeCliDriver()
-	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(claudeDriver, "/dev/llm/claude"))
-	_ = devReg.Register("/dev/fs", fs.FileFactory())
-	shellDriver := shell.NewDriver()
-	_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))
-	ctxMgr := cruxctx.NewManager()
-	skillLoader := skills.NewSkillLoader("lib/skills")
-	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader)
-	kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
-
-	// Register ProcFS (requires kernel as ProcessInfoProvider)
-	procFS := vfs.NewProcFS(kern, ctxMgr)
-	_ = devReg.Register("/proc", procFS.FileFactory())
 
 	start := time.Now()
 
-	var agentInfo *agents.AgentInfo
-	if flagAgent != "" {
-		var err error
-		agentInfo, err = agentLoader.Load(flagAgent)
-		if err != nil {
-			outputError(renderer, mode, "agent", err.Error(), "智能体加载失败", "检查 --agent 参数")
-			exitCode = 1
-			return nil
-		}
-	}
-	pid, err := kern.Spawn(intent, agentInfo, kernel.SpawnOpts{Model: flagModel, MaxTurns: flagMaxSteps})
+	client, err := ipc.EnsureDaemon()
 	if err != nil {
-		outputError(renderer, mode, "/dev/llm/claude", err.Error(), "智能体启动失败", "检查 Claude Code CLI 是否已安装")
+		outputError(renderer, mode, "daemon", err.Error(), "daemon 启动失败", "检查 crux 是否正确安装")
 		exitCode = 1
 		return nil
 	}
+	defer client.Close()
 
-	proc, ok := kern.GetProcess(pid)
-	if !ok {
-		outputError(renderer, mode, "kernel", "process not found after spawn", "内部错误", "请报告此问题")
-		exitCode = 1
-		return nil
+	req := ipc.SpawnRequest{
+		Intent:   intent,
+		Agent:    flagAgent,
+		Model:    flagModel,
+		MaxSteps: flagMaxSteps,
 	}
 
-	// Signal handling
 	sigCh := make(chan os.Signal, 2)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	var spawnedPID types.PID
+	cancelClient, err := ipc.Dial(ipc.SocketPath())
+
 	go func() {
-		<-sigCh // First signal
-		progress.KernelMessage("PID %d interrupted (SIGINT)", pid)
-		proc.Cancel()
+		<-sigCh
+		progress.KernelMessage("interrupted (SIGINT)")
+		if spawnedPID > 0 && cancelClient != nil {
+			_ = cancelClient.Kill(spawnedPID, types.SIGTERM)
+		}
 		select {
-		case <-sigCh: // Second signal within timeout
+		case <-sigCh:
 			forceExitFunc(130)
 		case <-time.After(2 * time.Second):
-			// Timeout elapsed, let normal exit flow handle it
 		}
 	}()
 
-	// Wait for process completion
-	var exit kernel.ExitStatus
-	exit = <-proc.Done
+	pid, final, spawnErr := client.SpawnAndWatch(req, func(ev ipc.StreamEvent) {
+		if ev.Type != ipc.StreamProgress {
+			return
+		}
+		var pp ipc.ProgressPayload
+		if err := json.Unmarshal(ev.Payload, &pp); err != nil {
+			return
+		}
+		switch pp.Event {
+		case "spawn":
+			progress.KernelMessage("spawning PID %d...", pp.PID)
+		case "step":
+			progress.AgentStep(pp.PID, pp.Step, pp.Total)
+		case "error":
+			// handled in final
+		}
+	})
+	spawnedPID = pid
+
+	if cancelClient != nil {
+		cancelClient.Close()
+	}
+
+	if spawnErr != nil {
+		outputError(renderer, mode, "/dev/llm/claude", spawnErr.Error(), "智能体启动失败", "检查 Claude Code CLI 是否已安装")
+		exitCode = 1
+		return nil
+	}
 
 	elapsed := time.Since(start)
 
-	if exit.Code == 0 {
-		outputSuccess(renderer, mode, pid, proc, elapsed)
+	if final != nil && final.ExitCode == 0 {
+		outputSuccess(renderer, mode, pid, final.Result, final.TokensUsed, elapsed)
 	} else {
-		reason := exit.Reason
-		if exit.Err != nil {
-			reason = exit.Err.Error()
+		reason := "unknown error"
+		if final != nil {
+			reason = final.ExitReason
+			if final.ErrorMessage != "" {
+				reason = final.ErrorMessage
+			}
 		}
 		outputError(renderer, mode, "/dev/llm/claude", reason, "智能体执行失败", "检查意图描述或重试")
-		ui.RenderSummary(renderer, pid, exit.Code, proc.TokensUsed, elapsed)
+		tokensUsed := 0
+		if final != nil {
+			tokensUsed = final.TokensUsed
+		}
+		ui.RenderSummary(renderer, pid, 1, tokensUsed, elapsed)
 		exitCode = 1
 	}
 
 	return nil
 }
 
-func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, proc *kernel.Process, elapsed time.Duration) {
+func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, result string, tokensUsed int, elapsed time.Duration) {
 	if mode == ui.ModeJSON {
 		resp := JSONResponse{
 			OK: true,
 			Data: jsonSuccessData{
 				PID:        pid,
-				Result:     proc.Result,
-				TokensUsed: proc.TokensUsed,
+				Result:     result,
+				TokensUsed: tokensUsed,
 				ElapsedMs:  elapsed.Milliseconds(),
 				ExitCode:   0,
 			},
@@ -319,8 +336,8 @@ func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, pro
 		return
 	}
 
-	ui.RenderResult(renderer, "Result", proc.Result)
-	ui.RenderSummary(renderer, pid, 0, proc.TokensUsed, elapsed)
+	ui.RenderResult(renderer, "Result", result)
+	ui.RenderSummary(renderer, pid, 0, tokensUsed, elapsed)
 }
 
 func outputError(renderer *ui.Renderer, mode ui.OutputMode, device string, reason string, impact string, suggestion string) {
@@ -342,57 +359,40 @@ func outputError(renderer *ui.Renderer, mode ui.OutputMode, device string, reaso
 	ui.RenderError(renderer, device, reason, impact, suggestion)
 }
 
-// initKernel initializes a kernel instance for subcommands (e.g., astrace).
-// TODO: astrace needs IPC to attach to a running crux instance's process table.
-// Currently creates a standalone kernel, which means astrace only works within
-// the same process (test injection). Device drivers registered here are unused
-// by astrace but required by the kernel constructor.
-func initKernel() {
-	if kern != nil {
-		return
-	}
-	devReg := vfs.NewDeviceRegistry()
-	vfsInst := vfs.NewVFS(devReg)
-	claudeDriver := llm.NewClaudeCliDriver()
-	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(claudeDriver, "/dev/llm/claude"))
-	_ = devReg.Register("/dev/fs", fs.FileFactory())
-	shellDriver := shell.NewDriver()
-	_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))
-	ctxMgr := cruxctx.NewManager()
-
-	mode := resolveOutputMode()
-	renderer := ui.NewRenderer(os.Stdout, mode)
-	ui.InitStyles(renderer.Profile)
-	progress := ui.NewProgressReporter(renderer)
-	cb := &cliCallbacks{progress: progress}
-
-	kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
-
-	// Register ProcFS (requires kernel as ProcessInfoProvider)
-	procFS := vfs.NewProcFS(kern, ctxMgr)
-	_ = devReg.Register("/proc", procFS.FileFactory())
-}
-
 func processStateName(s types.ProcessState) string {
 	return s.String()
 }
 
 func runPs(cmd *cobra.Command, args []string) error {
-	initKernel()
-	if kern == nil {
-		fmt.Fprintln(os.Stderr, "✗ kernel initialization failed")
+	mode := resolveOutputMode()
+	renderer := ui.NewRenderer(os.Stdout, mode)
+	ui.InitStyles(renderer.Profile)
+
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		if mode == ui.ModeJSON {
+			resp := JSONResponse{OK: true, Data: map[string]any{"processes": []any{}}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(renderer.Writer, string(data))
+		} else if mode != ui.ModeQuiet {
+			fmt.Fprintln(renderer.Writer, "No active processes.")
+		}
+		return nil
+	}
+	defer client.Close()
+
+	procs, err := client.ListProcs()
+	if err != nil {
+		if mode != ui.ModeQuiet {
+			fmt.Fprintf(os.Stderr, "✗ failed to list processes: %v\n", err)
+		}
 		exitCode = 1
 		return nil
 	}
 
-	procs := kern.ListProcs()
 	sort.Slice(procs, func(i, j int) bool {
 		return procs[i].PID < procs[j].PID
 	})
-
-	mode := resolveOutputMode()
-	renderer := ui.NewRenderer(os.Stdout, mode)
-	ui.InitStyles(renderer.Profile)
 
 	switch mode {
 	case ui.ModeJSON:
@@ -471,24 +471,28 @@ func runKill(cmd *cobra.Command, args []string) error {
 	}
 	pid := types.PID(pidNum)
 
-	initKernel()
-	if kern == nil {
-		fmt.Fprintln(os.Stderr, "✗ kernel initialization failed")
-		exitCode = 1
-		return nil
-	}
-
 	mode := resolveOutputMode()
 	renderer := ui.NewRenderer(os.Stdout, mode)
 	ui.InitStyles(renderer.Profile)
 
-	if err := kern.Kill(pid, types.SIGTERM); err != nil {
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		ui.RenderError(renderer,
+			fmt.Sprintf("PID %d", pid),
+			"no active daemon (process not found)",
+			fmt.Sprintf("PID %d: no active process", pid),
+			"crux ps  查看活跃进程")
+		exitCode = 1
+		return nil
+	}
+	defer client.Close()
+
+	if err := client.Kill(pid, types.SIGTERM); err != nil {
 		reason := "process not found"
 		impact := fmt.Sprintf("PID %d: no active process", pid)
-		var sysErr *kernel.SyscallError
-		if errors.As(err, &sysErr) && sysErr.Code != types.ErrNotFound {
-			reason = sysErr.Err.Error()
-			impact = fmt.Sprintf("PID %d: %s", pid, sysErr.Code)
+		if !strings.Contains(err.Error(), "NOT_FOUND") {
+			reason = err.Error()
+			impact = fmt.Sprintf("PID %d: kill failed", pid)
 		}
 		ui.RenderError(renderer,
 			fmt.Sprintf("PID %d", pid),
@@ -505,51 +509,30 @@ func runKill(cmd *cobra.Command, args []string) error {
 }
 
 func runAstrace(cmd *cobra.Command, args []string) error {
-	// 1. Parse PID
 	pidNum, err := strconv.Atoi(args[0])
 	if err != nil {
 		return fmt.Errorf("✗ crux astrace %s: invalid PID (expected number)", args[0])
 	}
 	pid := types.PID(pidNum)
 
-	// 2. Initialize kernel if needed
-	initKernel()
+	w := cmd.OutOrStdout()
+	mode := resolveOutputMode()
 
-	// 3. Find process
-	proc, ok := kern.GetProcess(pid)
-	if !ok {
-		w := cmd.OutOrStdout()
-		mode := resolveOutputMode()
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
 		renderer := ui.NewRenderer(w, mode)
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
-			"process not found", "",
+			"no active daemon (process not found)", "",
 			"crux ps  查看活跃进程")
 		return nil
 	}
+	defer client.Close()
 
-	// 4. Build Options
-	opts := debug.DefaultOptions()
-	opts.Verbose = flagVerbose
-	opts.JSON = flagJSON
-
-	// 5. Output writer and UI formatter injection
-	w := cmd.OutOrStdout()
 	if !flagJSON {
-		renderer := ui.NewRenderer(w, resolveOutputMode())
-		ui.InitStyles(renderer.Profile)
-		opts.Formatter = func(event types.SyscallEvent) string {
-			return ui.FormatTraceLine(renderer, event, flagVerbose)
-		}
+		fmt.Fprintf(w, "[astrace] attached to PID %d\n", pid)
 	}
 
-	// 6. Output attach confirmation (non-JSON mode)
-	if !flagJSON {
-		state := proc.GetState()
-		fmt.Fprintf(w, "[astrace] attached to PID %d (state: %s)\n", pid, processStateName(state))
-	}
-
-	// 7. Set up astrace-specific context (SIGINT only detaches, never kills process)
 	astraceCtx, astraceCancel := context.WithCancel(cmd.Context())
 	defer astraceCancel()
 
@@ -559,22 +542,115 @@ func runAstrace(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		<-sigCh
-		astraceCancel() // Only cancel astrace, do not affect traced process
+		astraceCancel()
 	}()
 
-	// 8. Execute Attach
-	err = debug.Attach(astraceCtx, proc.DebugChan, w, opts)
-
-	// 9. Output detach summary (non-JSON mode)
+	var opts debug.Options
 	if !flagJSON {
-		if err == nil {
-			fmt.Fprintf(w, "[astrace] detached from PID %d (process exited)\n", pid)
-		} else if errors.Is(err, context.Canceled) {
-			fmt.Fprintf(w, "\n[astrace] detached from PID %d (interrupted)\n", pid)
-		} else {
-			fmt.Fprintf(w, "[astrace] detached from PID %d (error: %v)\n", pid, err)
+		renderer := ui.NewRenderer(w, resolveOutputMode())
+		ui.InitStyles(renderer.Profile)
+		opts.Formatter = func(event types.SyscallEvent) string {
+			return ui.FormatTraceLine(renderer, event, flagVerbose)
 		}
 	}
+	opts.Verbose = flagVerbose
+	opts.JSON = flagJSON
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.AttachDebug(pid, func(sew ipc.SyscallEventWire) {
+			select {
+			case <-astraceCtx.Done():
+				return
+			default:
+			}
+
+			event := wireToSyscallEvent(sew)
+
+			if flagJSON {
+				data, _ := json.Marshal(sew)
+				fmt.Fprintln(w, string(data))
+			} else if opts.Formatter != nil {
+				fmt.Fprintln(w, opts.Formatter(event))
+			} else {
+				fmt.Fprintln(w, debug.FormatEvent(event, opts))
+			}
+		})
+	}()
+
+	select {
+	case err := <-errCh:
+		if !flagJSON {
+			if err == nil {
+				fmt.Fprintf(w, "[astrace] detached from PID %d (process exited)\n", pid)
+			} else {
+				fmt.Fprintf(w, "[astrace] detached from PID %d (error: %v)\n", pid, err)
+			}
+		}
+	case <-astraceCtx.Done():
+		if !flagJSON {
+			fmt.Fprintf(w, "\n[astrace] detached from PID %d (interrupted)\n", pid)
+		}
+	}
+
+	return nil
+}
+
+func wireToSyscallEvent(sew ipc.SyscallEventWire) types.SyscallEvent {
+	e := types.SyscallEvent{
+		Timestamp: time.Duration(sew.TimestampMs) * time.Millisecond,
+		PID:       sew.PID,
+		Syscall:   sew.Syscall,
+		Args:      sew.Args,
+		Result:    sew.Result,
+		Duration:  time.Duration(sew.DurationMs * float64(time.Millisecond)),
+	}
+	if sew.Error != "" {
+		e.Err = errors.New(sew.Error)
+	}
+	return e
+}
+
+func runDaemon(cmd *cobra.Command, args []string) error {
+	if !flagDaemonInternal {
+		return fmt.Errorf("daemon command is for internal use only; use 'crux \"intent\"' to run agents")
+	}
+
+	devReg := vfs.NewDeviceRegistry()
+	vfsInst := vfs.NewVFS(devReg)
+	claudeDriver := llm.NewClaudeCliDriver()
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(claudeDriver, "/dev/llm/claude"))
+	_ = devReg.Register("/dev/fs", fs.FileFactory())
+	shellDriver := shell.NewDriver()
+	_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))
+	ctxMgr := cruxctx.NewManager()
+	skillLoader := skills.NewSkillLoader("lib/skills")
+	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader)
+
+	srv := ipc.NewServer(nil, agentLoader.Load, version)
+	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
+	srv.SetKernel(k)
+
+	procFS := vfs.NewProcFS(k, ctxMgr)
+	_ = devReg.Register("/proc", procFS.FileFactory())
+
+	socketPath := ipc.SocketPath()
+	if err := srv.ListenAndServe(socketPath); err != nil {
+		return fmt.Errorf("daemon: listen failed: %w", err)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case <-sigCh:
+		srv.Shutdown()
+	case <-srv.Done():
+	}
+
+	srv.Wait()
+	k.Shutdown()
+	os.Remove(socketPath)
 
 	return nil
 }
