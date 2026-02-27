@@ -1,0 +1,138 @@
+# Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
+
+`crux top` 实时面板 + `crux log` 分类日志 + Supervisor 容错树 + init 引导——生产级运维能力全集。
+
+## Story 10.1: crux top 实时监控 TUI
+
+As a 用户,
+I want 通过 `crux top` 实时查看所有智能体的树状关系、状态和 token 消耗,
+So that 我随时掌握系统全局运行态。
+
+**Acceptance Criteria:**
+
+**Given** `cmd/crux/top.go` 已实现（bubbletea TUI）
+**When** 执行 `crux top`
+**Then** 全屏显示实时监控面板
+**And** 上方汇总区：活跃进程数、总 token 消耗、系统运行时间
+**And** 下方进程列表：PID、PPID（树状缩进）、STATE、AGENT、TOKENS、ELAPSED
+
+**Given** TUI 运行中
+**When** 进程状态变化
+**Then** 刷新间隔 ≤ 500ms（NFR28）
+**And** 单核 CPU 占用 ≤ 5%（10 个并发进程场景）
+
+**Given** 用户在 TUI 中选中进程
+**When** 按 `k` 键
+**Then** Kill 选中的进程（FR62）
+
+**Given** 用户在 TUI 中选中进程
+**When** 按 `Enter` 键
+**Then** 显示进程详情（intent、skills、context 摘要）（FR62）
+
+**Given** 按 `q` 键
+**When** 退出 TUI
+**Then** 恢复终端状态，不影响运行中的进程
+
+## Story 10.2: crux log 分类推理日志
+
+As a 用户,
+I want 通过 `crux log <pid>` 查看智能体的推理日志，按类别分类显示,
+So that 我无需深入内核就能排查问题。
+
+**Acceptance Criteria:**
+
+**Given** `cmd/crux/log.go` 已实现
+**When** 执行 `crux log 5`
+**Then** 输出 PID 5 的推理日志
+**And** 按 `[think]`（推理过程）、`[tool]`（工具调用）、`[output]`（最终输出）三段式分类显示（FR60）
+
+**Given** 使用过滤
+**When** 执行 `crux log 5 --filter tool`
+**Then** 仅显示 `[tool]` 类别的日志条目
+
+**Given** 日志输出
+**When** 从推理事件发生到终端显示
+**Then** 延迟 ≤ 200ms（NFR29）
+
+**Given** PID 不存在
+**When** 执行 `crux log 999`
+**Then** 输出 `✗ PID 999: process not found` + 建议
+
+## Story 10.3: Token 预算管理
+
+As a 用户,
+I want 为智能体设置 token 预算上限，超限时系统自动终止推理,
+So that 我可以控制 LLM 调用的成本。
+
+**Acceptance Criteria:**
+
+**Given** `context/budget.go` 已实现
+**When** Agent 的 agent.yaml 设置 `context_budget: 5000`
+**Then** 系统在智能体消耗达到 5000 token 时终止推理（FR61）
+**And** 进程转 Zombie，ExitStatus 记录原因为 `budget_exceeded`
+
+**Given** Compose 中覆盖预算
+**When** compose.yaml 中为特定智能体设置 `context_budget: 10000`
+**Then** 使用 compose 中的值覆盖 agent.yaml 中的默认值
+
+**Given** 预算即将耗尽（剩余 < 10%）
+**When** 推理循环继续
+**Then** 在 crux top 中显示黄色警告标记
+
+## Story 10.4: Supervisor 树与重启策略
+
+As a 平台构建者,
+I want 系统提供 Supervisor 树管理子智能体，自动重启异常退出的子进程,
+So that 多智能体系统具备容错能力。
+
+**Acceptance Criteria:**
+
+**Given** `kernel/supervisor.go` 已实现
+**When** 创建 Supervisor 进程
+**Then** Supervisor 监控其子智能体的健康状态
+
+**Given** 子智能体异常退出
+**When** Supervisor 检测到
+**Then** 在 5 秒内按配置的策略自动重启（FR63）
+
+**Given** 重启策略为 `one_for_one`
+**When** 子进程 B 崩溃
+**Then** 仅重启 B
+
+**Given** 重启策略为 `one_for_all`
+**When** 子进程 B 崩溃
+**Then** 重启所有子进程
+
+**Given** 重启策略为 `rest_for_one`
+**When** 子进程 B 崩溃（B 是第 2 个启动的）
+**Then** 重启 B 及其之后按启动顺序的所有子进程（FR64）
+
+**Given** 子进程短时间内反复崩溃
+**When** 超过重启频率阈值
+**Then** Supervisor 自身退出，上报错误（避免重启风暴）
+
+## Story 10.5: init 引导序列
+
+As a 系统,
+I want daemon 启动时按配置初始化系统级服务和 Supervisor 树,
+So that 系统启动后所有基础设施就位。
+
+**Acceptance Criteria:**
+
+**Given** `kernel/init.go` 已实现
+**When** daemon 启动
+**Then** 按配置文件初始化系统级服务（FR65）：
+**And** 日志聚合服务启动
+**And** Skill 注册表初始化（扫描 `lib/skills/`）
+**And** MCP 服务管理器初始化
+**And** Supervisor 树按配置构建
+
+**Given** 初始化过程中某服务启动失败
+**When** 为必须服务
+**Then** daemon 启动失败，输出具体错误信息和恢复建议
+
+**Given** 初始化过程中某服务启动失败
+**When** 为可选服务
+**Then** 记录警告，继续启动其余服务
+
+---
