@@ -124,9 +124,9 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **安装方式**：`go install ./cmd/crux/`，用户通过 `go install github.com/gonewx/crux/cmd/crux@latest` 安装
 
 #### CLI 命令结构
-- **根命令**：`crux "意图"` — spawn 智能体（意图作为 positional arg）
+- **根命令**：`crux -i "意图"` — spawn 智能体（意图通过 `-i/--intent` flag 传递）
 - **子命令**：`astrace`、`ps`、`kill`、`version`
-- **全局 flags**：`--json`（JSON 输出）、`--verbose`（详细模式）、`--quiet`（静默模式）
+- **全局 flags**：`--json`（JSON 输出）、`--verbose`（详细模式）、`--quiet`（静默模式）、`-i/--intent`（意图字符串）
 - **输出模式检测**：启动时通过 `TerminalProfile` 检测 TTY/Pipe/JSON，自动切换输出格式
 
 #### Channel 使用规则
