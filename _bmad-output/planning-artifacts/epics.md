@@ -9,7 +9,7 @@ inputDocuments:
   - '_bmad-output/planning-artifacts/architecture.md'
   - '_bmad-output/planning-artifacts/ux-design-specification.md'
 project_name: Crux
-date: '2026-02-23'
+date: '2026-02-27'
 ---
 
 # Crux - Epic Breakdown
@@ -56,13 +56,18 @@ date: '2026-02-23'
 - FR21: 系统可以将上下文内容组装为完整的 LLM prompt（包含 system prompt + 对话历史 + 工具结果）
 - FR22: 系统可以在进程退出后释放其上下文空间（ctx_free）
 
-**Skill 能力管理（FR23-FR27）**
+**智能体定义管理（FR23-FR25）**
 
-- FR23: 系统可以从 `manifest.yaml` 读取 Skill 的元信息（名称、工具依赖、模型偏好、上下文预算）
-- FR24: 系统可以从 `instructions.md` 读取 Skill 的核心指令并注入智能体的 system prompt
-- FR25: 用户可以在 spawn 时指定加载一个或多个 Skill
-- FR26: Skill 的 tools 声明可以映射为智能体的可用 `/dev/` 设备权限白名单
-- FR27: 系统交付一个完整的参考 Skill（code-analyst），能够分析代码并识别至少 1 个可验证的真实代码问题
+- FR23: 系统可以从 `agent.yaml` 读取 Agent 的元信息（名称、描述、模型偏好、上下文预算、Skill 引用列表）
+- FR24: 系统可以从 Agent 的 `instructions.md` 读取角色定义并注入智能体的 system prompt
+- FR25: 用户可以在 spawn 时通过 `--agent=<name>` 指定 Agent 定义
+
+**能力模块管理（FR25a-FR27，遵循 Agent Skills 行业标准）**
+
+- FR25a: 系统可以从 `SKILL.md` 解析 Skill 元信息（name、description、allowed-tools），格式遵循 Agent Skills 开放标准（agentskills.io）
+- FR25b: 系统支持 Skill 的渐进式加载——启动时仅加载 frontmatter（~100 tokens/skill），激活时加载完整 SKILL.md body（< 5000 tokens），执行时按需加载 scripts/references/assets
+- FR26: Agent 引用的所有 Skill 的 `allowed-tools` 聚合后映射为智能体的可用 `/dev/` 设备权限白名单
+- FR27: 系统交付参考 Agent（code-analyst）+ 参考 Skill（code-analysis），能够分析代码并识别至少 1 个可验证的真实代码问题
 
 **调试与可观测性（FR28-FR32）**
 
@@ -84,7 +89,7 @@ date: '2026-02-23'
 
 - FR38: 系统可以提供概念文档，覆盖进程、VFS、Skill、syscall 四个核心概念，每个概念含定义和至少一个示例
 - FR39: 系统可以提供快速上手指南，引导用户从安装到跑通第一个 demo（目标 ≤ 15 分钟）
-- FR40: 系统可以提供参考手册，覆盖 syscall 列表、VFS 路径规范、manifest.yaml 字段、CLI 命令
+- FR40: 系统可以提供参考手册，覆盖 syscall 列表、VFS 路径规范、agent.yaml / SKILL.md 字段、CLI 命令
 
 ### NonFunctional Requirements
 
@@ -114,8 +119,8 @@ date: '2026-02-23'
 **安全（NFR15-17）**
 
 - NFR15: `/dev/shell` 执行的命令继承当前用户权限，不提供额外提权能力
-- NFR16: Skill 的 `manifest.yaml` 中 tools 声明作为智能体可访问设备的白名单——未声明的设备不可访问
-- NFR17: MVP 阶段不实现完整 Capability 权限系统，但 Skill tools 白名单作为最小安全边界
+- NFR16: Skill 的 `SKILL.md` 中 `allowed-tools` 声明作为智能体可访问设备的白名单——Agent 引用的所有 Skill 的 `allowed-tools` 聚合后，未声明的设备不可访问
+- NFR17: MVP 阶段不实现完整 Capability 权限系统，但 Skill `allowed-tools` 聚合白名单作为最小安全边界
 
 **可维护性（NFR18-20）**
 
@@ -140,6 +145,9 @@ date: '2026-02-23'
 - 构建工具：Makefile（build/install/test/lint/vet/clean）+ golangci-lint（`.golangci.yml`）
 - 测试策略：`go test -race` 默认开启，接口 mock，testify assertions，Goroutine Leak Profiler 验证 NFR8
 - 依赖注入点：`cmd/crux/main.go` 是唯一组装点
+- Agent/Skill 双层架构：Agent（agent.yaml + instructions.md）定义身份+策略，Skill（SKILL.md，Agent Skills 行业标准）定义程序性知识+工具权限
+- Spawn 流程：AgentLoader 加载 agent.yaml → 读 instructions.md → SkillLoader 加载引用的 Skill → 聚合 allowed-tools → 组装 system prompt
+- 渐进式 Skill 加载：发现（frontmatter ~100 tokens）→ 激活（body < 5000 tokens）→ 执行（scripts/references/assets 按需加载）
 
 **来自 UX 设计规范的实现需求：**
 
@@ -178,11 +186,13 @@ date: '2026-02-23'
 - FR20: Epic 1 — 读写智能体上下文内容
 - FR21: Epic 1 — 将上下文组装为完整 LLM prompt
 - FR22: Epic 4 — 进程退出后释放上下文空间
-- FR23: Epic 2 — 从 manifest.yaml 读取 Skill 元信息
-- FR24: Epic 2 — 从 instructions.md 注入 system prompt
-- FR25: Epic 2 — spawn 时指定加载 Skill
-- FR26: Epic 2 — Skill tools 声明映射为设备权限白名单
-- FR27: Epic 2 — 交付 code-analyst 参考 Skill
+- FR23: Epic 2 — 从 agent.yaml 读取 Agent 元信息（名称、Skill 引用列表等）
+- FR24: Epic 2 — 从 Agent 的 instructions.md 注入 system prompt
+- FR25: Epic 2 — spawn 时通过 --agent=<name> 指定 Agent 定义
+- FR25a: Epic 2 — 从 SKILL.md 解析 Skill 元信息（Agent Skills 行业标准）
+- FR25b: Epic 2 — Skill 渐进式加载（frontmatter → body → assets）
+- FR26: Epic 2 — Agent 引用的所有 Skill 的 allowed-tools 聚合为设备权限白名单
+- FR27: Epic 2 — 交付参考 Agent（code-analyst）+ 参考 Skill（code-analysis）
 - FR28: Epic 3 — astrace 实时追踪所有 syscall
 - FR29: Epic 3 — astrace 输出含名称、参数、返回值、耗时
 - FR30: Epic 3 — 记录 syscall 调用数据（DebugRecord）
@@ -203,9 +213,9 @@ date: '2026-02-23'
 用户安装 Crux 后，输入 `crux "意图"` 即可看到一个智能体启动、调用 LLM 推理、返回结果——完整的端到端体验。包含项目初始化、内核核心（进程模型 + Spawn + reasonStep）、VFS 框架、LLM 驱动（Claude Code CLI）、上下文管理、CLI 入口和基础 UI 组件。
 **FRs covered:** FR1, FR2, FR8, FR9, FR10, FR11, FR13, FR15, FR17, FR19, FR20, FR21, FR32, FR33, FR36, FR37
 
-### Epic 2: Skill 能力与文件访问（Skills & File Access）
-用户可以通过 Skill 赋予智能体专业能力（如代码分析），智能体可以读取宿主文件系统文件、执行 shell 命令——从"能说话"升级到"能干活"。包含 Skill 加载器、宿主 FS 驱动、Shell 驱动、权限白名单和 code-analyst 参考 Skill。
-**FRs covered:** FR12, FR16, FR18, FR23, FR24, FR25, FR26, FR27
+### Epic 2: Agent 能力与文件访问（Agent Skills & File Access）
+用户可以通过 Agent 定义赋予智能体专业能力（如代码分析），Agent 引用的 Skill 决定智能体可访问的工具和知识——从"能说话"升级到"能干活"。包含 Agent 加载器、Skill 加载器（SKILL.md，Agent Skills 行业标准）、宿主 FS 驱动、Shell 驱动、allowed-tools 聚合白名单和 code-analyst 参考 Agent + code-analysis 参考 Skill。
+**FRs covered:** FR12, FR16, FR18, FR23, FR24, FR25, FR25a, FR25b, FR26, FR27
 
 ### Epic 3: 调试追踪（Debug Tracing — astrace）
 当智能体输出不符合预期时，用户运行 `crux astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Crux 的差异化核心体验。包含 SyscallEvent 记录、DebugChan 事件管道、astrace 命令和 Trace Line UI。
@@ -507,33 +517,43 @@ So that 我确认整个系统协同工作正常。
 
 ---
 
-## Epic 2: Skill 能力与文件访问（Skills & File Access）
+## Epic 2: Agent 能力与文件访问（Agent Skills & File Access）
 
-智能体可以通过 Skill 获得专业能力，读取宿主文件系统文件、执行 shell 命令——从"能说话"升级到"能干活"。
+智能体可以通过 Agent 定义获得专业能力，Agent 引用的 Skill（遵循 Agent Skills 行业标准）决定工具权限和程序性知识——从"能说话"升级到"能干活"。
 
-### Story 2.1: Skill 加载器与 manifest 解析
+### Story 2.1: Agent 加载器与 Skill 加载器
 
 As a 用户,
-I want 系统能从 `manifest.yaml` 和 `instructions.md` 加载 Skill 定义,
-So that 智能体可以获得专业化的能力和指令。
+I want 系统能从 `agent.yaml` + `instructions.md` 加载 Agent 定义，并从 `SKILL.md` 加载 Skill 定义,
+So that 智能体可以获得身份、策略和专业化能力。
 
 **Acceptance Criteria:**
 
+**Given** `agents/types.go` 已实现
+**When** 查看 AgentManifest 类型
+**Then** 包含 `Name`、`Description`、`Skills`（[]string Skill 引用列表）、`Models`（provider/preferred/fallback）、`ContextBudget` 字段
+
+**Given** `agents/loader.go` 已实现
+**When** 调用 `AgentLoader.Load("lib/agents/code-analyst")`
+**Then** 解析 `agent.yaml` 为 `AgentManifest` 结构（使用泛型 `LoadYAML[AgentManifest]`）
+**And** 读取 `instructions.md` 为原始文本
+**And** 返回完整的 `AgentInfo`（manifest + instructions 内容）
+
 **Given** `skills/types.go` 已实现
 **When** 查看 SkillManifest 类型
-**Then** 包含 `Name`、`Description`、`Tools`（[]string 设备路径列表）、`Models`（provider/preferred/fallback）、`ContextBudget` 字段
+**Then** 包含 `Name`、`Description`、`AllowedTools`（[]string 设备路径列表）字段，遵循 Agent Skills 行业标准（SKILL.md YAML frontmatter 格式）
 
 **Given** `skills/loader.go` 已实现
-**When** 调用 `SkillLoader.Load("lib/skills/code-analyst")`
-**Then** 解析 `manifest.yaml` 为 `SkillManifest` 结构（使用泛型 `LoadYAML[SkillManifest]`）
-**And** 读取 `instructions.md` 为原始文本
-**And** 返回完整的 `SkillInfo`（manifest + instructions 内容）
+**When** 调用 `SkillLoader.Load("lib/skills/code-analysis")`
+**Then** 解析 `SKILL.md` 的 YAML frontmatter 为 `SkillManifest` 结构
+**And** 读取 SKILL.md body 为 Skill 指令内容
+**And** 支持渐进式加载：发现（仅 frontmatter ~100 tokens）→ 激活（body < 5000 tokens）→ 执行（scripts/references/assets 按需加载）（FR25b）
 
-**Given** manifest.yaml 格式无效或缺少必填字段
+**Given** agent.yaml 或 SKILL.md 格式无效或缺少必填字段
 **When** 调用 Load
 **Then** 返回清晰的错误信息，标注具体缺失字段
 
-**Given** Skill 目录不存在
+**Given** Agent 或 Skill 目录不存在
 **When** 调用 Load
 **Then** 返回 `*SyscallError`，`Code` 为 `ErrNotFound`
 
@@ -593,59 +613,65 @@ So that 我可以运行构建工具、检查环境、执行脚本。
 **When** 在 `cmd/crux/main.go` 中注册
 **Then** `devRegistry.Register("/dev/shell", shellDriver.FileFactory())`
 
-### Story 2.4: Skill 注入与设备权限白名单
+### Story 2.4: Agent 注入与设备权限白名单
 
 As a 用户,
-I want Spawn 时指定 Skill，系统自动注入 instructions 并限制设备访问范围,
-So that 智能体获得专业指令同时只能访问 Skill 声明的设备。
+I want Spawn 时指定 Agent，系统自动加载 Agent 定义和引用的 Skill，注入 instructions 并限制设备访问范围,
+So that 智能体获得身份和专业指令，同时只能访问 Skill 声明的设备。
 
 **Acceptance Criteria:**
 
-**Given** 用户执行 `crux "分析代码" --skill=code-analyst`
+**Given** 用户执行 `crux "分析代码" --agent=code-analyst`
 **When** Spawn 创建进程
-**Then** 加载 code-analyst Skill 的 instructions.md 内容
-**And** 注入到 LLM 调用的 `--system-prompt` 参数中
+**Then** 加载 code-analyst Agent 的 `agent.yaml` + `instructions.md`
+**And** 加载 agent.yaml 中引用的所有 Skill（如 code-analysis）
+**And** 将 Agent instructions + Skill 指令注入到 LLM 调用的 `--system-prompt` 参数中
 
-**Given** Skill manifest 声明 `tools: ["/dev/fs", "/dev/shell"]`
+**Given** Agent 引用的 Skill 声明 `allowed-tools: ["/dev/fs", "/dev/shell"]`
 **When** 智能体尝试 `Open("/dev/llm/claude")`
-**Then** 如果 `/dev/llm/claude` 不在 tools 白名单中，返回 `*SyscallError`，`Code` 为 `ErrPermission`（NFR16）
+**Then** 如果 `/dev/llm/claude` 不在所有 Skill 的 `allowed-tools` 聚合白名单中，返回 `*SyscallError`，`Code` 为 `ErrPermission`（NFR16）
 
-**Given** Skill manifest 声明 `models.provider: claude`、`models.preferred: sonnet`
+**Given** Agent 的 agent.yaml 声明 `models.provider: claude`、`models.preferred: sonnet`
 **When** Spawn 创建进程
 **Then** LLM 调用自动使用 `/dev/llm/claude` 驱动和 `sonnet` 模型
 
-**Given** 用户未指定 `--skill`
+**Given** 用户未指定 `--agent`
 **When** Spawn 创建进程
-**Then** 使用通用模式（无 Skill instructions 注入），所有设备可访问（NFR17 最小安全边界）
+**Then** 使用通用模式（无 Agent/Skill 注入），所有设备可访问（NFR17 最小安全边界）
 
 **Given** 工具执行产生结果
 **When** reasonStep 处理 tool_call 返回值
 **Then** 结果追加到智能体上下文中（CtxWrite）供后续推理使用（FR12）
 
-### Story 2.5: code-analyst 参考 Skill
+### Story 2.5: code-analyst 参考 Agent 与 code-analysis 参考 Skill
 
 As a 用户,
-I want 一个预装的 code-analyst Skill 作为参考实现,
-So that 我可以立即使用 Crux 分析代码并作为编写自定义 Skill 的模板。
+I want 一个预装的 code-analyst Agent 和 code-analysis Skill 作为参考实现,
+So that 我可以立即使用 Crux 分析代码并作为编写自定义 Agent/Skill 的模板。
 
 **Acceptance Criteria:**
 
-**Given** `lib/skills/code-analyst/manifest.yaml` 已创建
-**When** 查看 manifest 内容
-**Then** 包含 `name: code-analyst`、`tools: ["/dev/fs", "/dev/shell"]`、`models.provider: claude`、`models.preferred: sonnet`
+**Given** `lib/agents/code-analyst/agent.yaml` 已创建
+**When** 查看 agent.yaml 内容
+**Then** 包含 `name: code-analyst`、`skills: ["code-analysis"]`、`models.provider: claude`、`models.preferred: sonnet`
 
-**Given** `lib/skills/code-analyst/instructions.md` 已创建
+**Given** `lib/agents/code-analyst/instructions.md` 已创建
 **When** 查看 instructions 内容
-**Then** 包含代码分析的系统指令（角色定义、分析策略、输出格式要求）
+**Then** 包含 code-analyst 的角色定义（身份、策略、输出格式要求）
 
-**Given** code-analyst Skill 已加载
-**When** 执行 `crux "分析 ./kernel/scheduler.go" --skill=code-analyst`
+**Given** `lib/skills/code-analysis/SKILL.md` 已创建
+**When** 查看 SKILL.md 内容
+**Then** YAML frontmatter 包含 `name: code-analysis`、`allowed-tools: ["/dev/fs", "/dev/shell"]`
+**And** body 包含代码分析的程序性知识（分析策略、步骤、输出格式）
+
+**Given** code-analyst Agent 已加载
+**When** 执行 `crux "分析 ./kernel/scheduler.go" --agent=code-analyst`
 **Then** 智能体读取目标文件，进行分析，输出结构化的分析结果
 **And** 能够识别至少 1 个可验证的真实代码问题（FR27）
 
-**Given** `skills/testdata/mock-skill/` 已创建
-**When** 运行 Skill 加载器测试
-**Then** 使用 mock-skill 作为测试 fixture，验证加载流程
+**Given** `skills/testdata/mock-skill/` 和 `agents/testdata/mock-agent/` 已创建
+**When** 运行 Agent/Skill 加载器测试
+**Then** 使用 mock 数据作为测试 fixture，验证加载流程
 
 ---
 
@@ -953,6 +979,6 @@ So that 我在编写 Skill 或调试时有权威参考。
 **When** 查阅内容
 **Then** 包含 MVP 全部 15 个 syscall 的签名、参数、返回值、错误码、示例
 **And** 包含完整 VFS 路径规范（`/proc/{pid}/`、`/dev/llm/`、`/dev/fs`、`/dev/shell`、`/lib/skills/`）
-**And** 包含 manifest.yaml 全部字段说明和示例
+**And** 包含 agent.yaml 全部字段说明和示例、SKILL.md（Agent Skills 行业标准）全部字段说明和示例
 **And** 包含 CLI 命令完整列表（`crux "意图"`、`crux ps`、`crux astrace`、`crux kill`、`crux version`）及其 flags
 **And** 包含 IPC 架构说明：daemon 生命周期（自动启动/自动停止/stale socket 清理）、Unix domain socket 通信机制、IPC 协议概述（NDJSON 消息格式、Method 枚举、流式 StreamEvent）、连接复用语义（非流式请求 Ping/ListProcs/Kill 复用同一连接，流式请求 Spawn/AttachDebug 终结连接）
