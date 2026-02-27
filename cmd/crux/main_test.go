@@ -448,6 +448,9 @@ func TestHelp_ContainsUsage(t *testing.T) {
 	if !strings.Contains(output, "--quiet") {
 		t.Errorf("expected --quiet flag in help, got %q", output)
 	}
+	if !strings.Contains(output, "--intent") {
+		t.Errorf("expected --intent flag in help, got %q", output)
+	}
 }
 
 func TestHelp_ContainsExample(t *testing.T) {
@@ -461,6 +464,9 @@ func TestHelp_ContainsExample(t *testing.T) {
 	_ = rootCmd.Execute()
 
 	output := buf.String()
+	if !strings.Contains(output, "crux -i") {
+		t.Errorf("expected 'crux -i' in example, got %q", output)
+	}
 	if !strings.Contains(output, "分析 ./README.md") {
 		t.Errorf("expected example in help output, got %q", output)
 	}
@@ -728,5 +734,238 @@ func TestWireToSyscallEvent(t *testing.T) {
 	}
 	if event.Err == nil || event.Err.Error() != "something failed" {
 		t.Errorf("err = %v, want 'something failed'", event.Err)
+	}
+}
+
+// --- Intent flag tests (Task 9) ---
+
+func TestRunRoot_IntentFlag(t *testing.T) {
+	savedIntent := flagIntent
+	savedExit := exitCode
+	defer func() {
+		flagIntent = savedIntent
+		exitCode = savedExit
+	}()
+
+	flagIntent = "test"
+	exitCode = 0
+
+	sockPath, _ := setupTestIPCServer(t)
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() { ipc.SocketPathOverride = "" })
+
+	_ = runRoot(rootCmd, []string{})
+
+	if exitCode != 1 {
+		t.Errorf("expected exitCode 1 (spawn fails without LLM driver), got %d", exitCode)
+	}
+}
+
+func TestRunRoot_NoArgsNoIntent_ShowsHelp(t *testing.T) {
+	savedIntent := flagIntent
+	defer func() { flagIntent = savedIntent }()
+	flagIntent = ""
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	defer rootCmd.SetOut(nil)
+
+	err := runRoot(rootCmd, []string{})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !strings.Contains(buf.String(), "Usage:") {
+		t.Errorf("expected help output with Usage:, got %q", buf.String())
+	}
+}
+
+func TestRunRoot_IntentWithMultipleFlags(t *testing.T) {
+	savedIntent := flagIntent
+	savedJSON := flagJSON
+	savedModel := flagModel
+	savedExit := exitCode
+	defer func() {
+		flagIntent = savedIntent
+		flagJSON = savedJSON
+		flagModel = savedModel
+		exitCode = savedExit
+	}()
+
+	flagIntent = "test"
+	flagJSON = true
+	flagModel = "opus"
+	exitCode = 0
+
+	sockPath, _ := setupTestIPCServer(t)
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() { ipc.SocketPathOverride = "" })
+
+	_ = runRoot(rootCmd, []string{})
+
+	if exitCode != 1 {
+		t.Errorf("expected exitCode 1 (spawn fails without LLM driver), got %d", exitCode)
+	}
+}
+
+// --- Bare args rejection tests (Task 10) ---
+
+func TestRejectPositionalArgs_Empty(t *testing.T) {
+	err := rejectPositionalArgs(rootCmd, []string{})
+	if err != nil {
+		t.Errorf("expected nil for empty args, got %v", err)
+	}
+}
+
+func TestRejectPositionalArgs_UnknownWord(t *testing.T) {
+	err := rejectPositionalArgs(rootCmd, []string{"top"})
+	if err == nil {
+		t.Fatal("expected error for unknown word")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `unknown command "top"`) {
+		t.Errorf("expected 'unknown command \"top\"', got %q", msg)
+	}
+	if !strings.Contains(msg, "crux -i <intent>") {
+		t.Errorf("expected usage hint, got %q", msg)
+	}
+	if strings.Contains(msg, "did you mean") {
+		t.Errorf("should not suggest for unrelated word, got %q", msg)
+	}
+}
+
+func TestRejectPositionalArgs_SuggestsClose(t *testing.T) {
+	err := rejectPositionalArgs(rootCmd, []string{"ver"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `did you mean "version"`) {
+		t.Errorf("expected suggestion for 'ver', got %q", msg)
+	}
+}
+
+func TestRejectPositionalArgs_NoSuggestion(t *testing.T) {
+	err := rejectPositionalArgs(rootCmd, []string{"zzz"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "did you mean") {
+		t.Errorf("should not suggest for 'zzz', got %q", msg)
+	}
+	if !strings.Contains(msg, `unknown command "zzz"`) {
+		t.Errorf("expected unknown command message, got %q", msg)
+	}
+}
+
+func TestRejectPositionalArgs_MultipleArgs(t *testing.T) {
+	err := rejectPositionalArgs(rootCmd, []string{"foo", "bar"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `unknown command "foo bar"`) {
+		t.Errorf("expected joined display, got %q", msg)
+	}
+}
+
+func TestRejectPositionalArgs_IntentPlusBareArgs(t *testing.T) {
+	savedIntent := flagIntent
+	defer func() { flagIntent = savedIntent }()
+	flagIntent = "foo"
+
+	err := rejectPositionalArgs(rootCmd, []string{"bar"})
+	if err == nil {
+		t.Fatal("expected error even with flagIntent set")
+	}
+}
+
+// --- --json does not affect bare args error (Task 11) ---
+
+func TestBareArgs_JsonFlagIgnored(t *testing.T) {
+	savedJSON := flagJSON
+	defer func() { flagJSON = savedJSON }()
+	flagJSON = true
+
+	// rejectPositionalArgs returns a plain fmt.Errorf regardless of flagJSON,
+	// because Cobra's Args validation runs before RunE (which has JSON logic).
+	err := rejectPositionalArgs(rootCmd, []string{"top"})
+	if err == nil {
+		t.Fatal("expected error for bare args")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `unknown command "top"`) {
+		t.Errorf("expected plain text error containing 'unknown command', got %q", msg)
+	}
+	if strings.Contains(msg, `{"ok":`) {
+		t.Errorf("expected non-JSON output, got %q", msg)
+	}
+}
+
+// --- Fuzzy matching tests (Task 12) ---
+
+func TestSuggestCommand_ExactMatch(t *testing.T) {
+	if got := suggestCommand(rootCmd, "ps"); got != "ps" {
+		t.Errorf("exact match: got %q, want %q", got, "ps")
+	}
+}
+
+func TestSuggestCommand_Prefix(t *testing.T) {
+	if got := suggestCommand(rootCmd, "ver"); got != "version" {
+		t.Errorf("prefix match: got %q, want %q", got, "version")
+	}
+}
+
+func TestSuggestCommand_Levenshtein(t *testing.T) {
+	if got := suggestCommand(rootCmd, "astrce"); got != "astrace" {
+		t.Errorf("levenshtein match: got %q, want %q", got, "astrace")
+	}
+}
+
+func TestSuggestCommand_Hidden(t *testing.T) {
+	if got := suggestCommand(rootCmd, "deamon"); got != "daemon" {
+		t.Errorf("hidden command match: got %q, want %q", got, "daemon")
+	}
+}
+
+func TestSuggestCommand_ShortInputSkipsLevenshtein(t *testing.T) {
+	if got := suggestCommand(rootCmd, "is"); got != "" {
+		t.Errorf("short input should skip levenshtein: got %q, want empty", got)
+	}
+}
+
+func TestSuggestCommand_ShortInputPrefixStillWorks(t *testing.T) {
+	if got := suggestCommand(rootCmd, "ki"); got != "kill" {
+		t.Errorf("short input prefix: got %q, want %q", got, "kill")
+	}
+}
+
+func TestSuggestCommand_Len3PrefixMatch(t *testing.T) {
+	if got := suggestCommand(rootCmd, "kil"); got != "kill" {
+		t.Errorf("len=3 prefix match: got %q, want %q", got, "kill")
+	}
+}
+
+func TestSuggestCommand_NoMatch(t *testing.T) {
+	if got := suggestCommand(rootCmd, "zzzzz"); got != "" {
+		t.Errorf("no match: got %q, want empty", got)
+	}
+}
+
+func TestLevenshtein(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want int
+	}{
+		{"ps", "ps", 0},
+		{"kil", "kill", 1},
+		{"", "abc", 3},
+		{"abc", "xyz", 3},
+		{"deamon", "daemon", 2},
+	}
+	for _, tc := range tests {
+		if got := levenshtein(tc.a, tc.b); got != tc.want {
+			t.Errorf("levenshtein(%q, %q) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
 	}
 }

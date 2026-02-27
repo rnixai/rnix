@@ -40,6 +40,7 @@ var (
 	flagModel    string
 	flagMaxSteps int
 	flagAgent    string
+	flagIntent   string
 )
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
@@ -106,14 +107,14 @@ func (c *cliCallbacks) OnError(pid types.PID, err error) {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "crux [intent]",
+	Use:   "crux [command]",
 	Short: "Crux — Agent OS for AI agents",
-	Long:  "Crux is an operating system for AI agents. Pass an intent string to spawn an agent.",
-	Example: `  crux "分析 ./README.md"
-  crux "重构 main.go 中的错误处理"
+	Long:  "Crux is an operating system for AI agents.\n\nUse -i flag to spawn an agent with an intent.",
+	Example: `  crux -i "分析 ./README.md"
+  crux -i "重构 main.go 中的错误处理"
   crux version
-  crux --json "分析项目结构"`,
-	Args: cobra.ArbitraryArgs,
+  crux -i "分析项目结构" --json`,
+	Args: rejectPositionalArgs,
 	RunE: runRoot,
 }
 
@@ -191,18 +192,106 @@ func runVersion(cmd *cobra.Command, args []string) {
 }
 
 func init() {
+	rootCmd.SilenceUsage = true
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "Output in JSON format")
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Quiet output")
 	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
+	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
 	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(astraceCmd)
 	rootCmd.AddCommand(psCmd)
 	rootCmd.AddCommand(killCmd)
 	rootCmd.AddCommand(daemonCmd)
+}
+
+// levenshtein computes the standard Levenshtein distance between two strings
+// using a dynamic programming approach (insert/delete/replace, no transposition).
+func levenshtein(a, b string) int {
+	la, lb := len(a), len(b)
+	if la == 0 {
+		return lb
+	}
+	if lb == 0 {
+		return la
+	}
+
+	prev := make([]int, lb+1)
+	curr := make([]int, lb+1)
+	for j := range prev {
+		prev[j] = j
+	}
+
+	for i := 1; i <= la; i++ {
+		curr[0] = i
+		for j := 1; j <= lb; j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			ins := curr[j-1] + 1
+			del := prev[j] + 1
+			sub := prev[j-1] + cost
+			curr[j] = min(ins, min(del, sub))
+		}
+		prev, curr = curr, prev
+	}
+	return prev[lb]
+}
+
+// suggestCommand performs fuzzy matching against all registered subcommands (including hidden).
+// Priority: exact match > prefix match > Levenshtein match (skipped for len(input) <= 3).
+func suggestCommand(cmd *cobra.Command, input string) string {
+	var prefixCandidate string
+	var levCandidate string
+	var levBest int
+
+	for _, sub := range cmd.Commands() {
+		name := sub.Name()
+
+		// Exact match: return immediately
+		if input == name {
+			return name
+		}
+
+		// Prefix match: record the first hit (alphabetical order from cmd.Commands())
+		if prefixCandidate == "" && strings.HasPrefix(name, input) {
+			prefixCandidate = name
+		}
+
+		// Levenshtein match: only for longer inputs
+		if len(input) > 3 {
+			d := levenshtein(input, name)
+			if d <= 2 && (levCandidate == "" || d < levBest) {
+				levCandidate = name
+				levBest = d
+			}
+		}
+	}
+
+	if prefixCandidate != "" {
+		return prefixCandidate
+	}
+	return levCandidate
+}
+
+// rejectPositionalArgs is a custom cobra.Args validator that rejects all positional arguments
+// with a helpful error message, optionally suggesting the closest subcommand.
+func rejectPositionalArgs(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+
+	display := strings.Join(args, " ")
+	suggestion := suggestCommand(cmd, args[0])
+
+	if suggestion != "" {
+		return fmt.Errorf("unknown command %q, did you mean %q?\n\n  Usage: crux -i <intent>\n  Run 'crux --help' for available commands.", display, suggestion) //nolint:staticcheck // user-facing CLI message requires newlines and punctuation
+	}
+	return fmt.Errorf("unknown command %q\n\n  Usage: crux -i <intent>\n  Run 'crux --help' for available commands.", display) //nolint:staticcheck // user-facing CLI message requires newlines and punctuation
 }
 
 func resolveOutputMode() ui.OutputMode {
@@ -219,11 +308,11 @@ func resolveOutputMode() ui.OutputMode {
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {
-	if len(args) == 0 {
+	if flagIntent == "" {
 		return cmd.Help()
 	}
 
-	intent := strings.Join(args, " ")
+	intent := flagIntent
 	mode := resolveOutputMode()
 
 	renderer := ui.NewRenderer(os.Stdout, mode)
@@ -609,7 +698,7 @@ func wireToSyscallEvent(sew ipc.SyscallEventWire) types.SyscallEvent {
 
 func runDaemon(cmd *cobra.Command, args []string) error {
 	if !flagDaemonInternal {
-		return fmt.Errorf("daemon command is for internal use only; use 'crux \"intent\"' to run agents")
+		return fmt.Errorf("daemon command is for internal use only; use 'crux -i \"intent\"' to run agents")
 	}
 
 	devReg := vfs.NewDeviceRegistry()
