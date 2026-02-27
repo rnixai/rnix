@@ -28,8 +28,12 @@ classification:
   complexity: high
   projectContext: greenfield
 workflowType: 'prd'
-lastEdited: '2026-02-25'
+lastEdited: '2026-02-27'
 editHistory:
+  - date: '2026-02-27'
+    changes: '验证修复：13 处 FR 格式统一为 [Actor] 可以 [capability]（FR25b/FR29/FR36/FR40/FR43/FR44/FR57/FR60/FR62/FR63/FR64/FR65/FR67），FR68 范围收窄为 if-else + on-error 最小控制结构集，Phase 2 可追溯性增强（技术验收新增 4 项 AgentShell/文档验收、Journey Summary 表标注孤儿 FR 推导来源）'
+  - date: '2026-02-27'
+    changes: 'Phase 2 需求全面展开：新增 30 条 FR（FR41-FR70）覆盖 IPC/Compose/skillpkg/MCP/监控/Supervisor/AgentShell/文档 8 个领域，新增 10 条 NFR（NFR21-NFR30），新增 Phase 2 成功指标和 Phase 2 Feature Set 详细清单，更新 Journey Summary 表 FR 映射、API Surface 扩展至 ~45 syscall'
   - date: '2026-02-25'
     changes: '根据已批准的 Sprint 变更提案引入 Agent 抽象层 + Skill 对齐行业标准：FR23-FR27 重写为 Agent Management + Skill Management 双层需求，11 个章节联动更新（Executive Summary、Success Criteria、旅程 1、Journey Summary、Innovation、Developer Tool 接口表、Code Examples、MVP Feature Set、LLM Driver 映射、NFR16/17）'
   - date: '2026-02-23'
@@ -53,7 +57,7 @@ editHistory:
 
 **实现语言：** Go（goroutine = 智能体进程，channel = IPC，interface = syscall 契约）。
 
-**架构路线：** Gamma 混合——底层微内核保可靠性，上层涌现层释放创新潜力。
+**架构路线：** Gamma 混合——底层微内核保可靠性，上层涌现层释放创新潜力。Phase 1（MVP）验证 OS 范式核心可行性（单智能体 + astrace），Phase 2（能力栈建设）实现完整多智能体编排能力（IPC + Compose + skillpkg + MCP + Supervisor）。
 
 ### What Makes This Special
 
@@ -125,13 +129,58 @@ editHistory:
 | 进程状态一致性 | LLM API 超时/错误时，进程正确转入 Zombie 状态而非卡死 |
 | 资源回收 | 进程退出后，goroutine 和 context 内存正确释放，无泄漏 |
 
-### Measurable Outcomes
+### Measurable Outcomes (Phase 1)
 
 | 维度 | 核心可测量结果 |
 |------|--------------|
 | 自举 | Crux 分析自身源码 → 输出中包含至少 1 个可验证的真实代码问题 |
 | 调试差异化 | `astrace` 输出的 syscall 链路能回溯到导致错误结果的具体步骤 |
 | 端到端延迟 | 单智能体 spawn→完成（含 LLM 调用），≤ 30 秒 |
+
+### Phase 2 Success Criteria
+
+**用户 B（应用开发者）：**
+
+| 指标 | 衡量方式 | 目标 |
+|------|---------|------|
+| 构建效率 | 完成多智能体工作流的代码量 | 20 行 YAML 替代 2000+ 行硬编码 |
+| 上手门槛 | 安装到跑通 compose 模板 | ≤ 30 分钟 |
+| 排障效率 | 通过 `crux log` 定位多智能体问题 | 无需深入内核即可完成 |
+| Skill 复用 | 社区 Skill 安装后直接可用 | 零修改引用 |
+
+**生态指标：**
+
+| 指标 | 衡量方式 | 目标 |
+|------|---------|------|
+| Skill 生态 | skillpkg 社区仓库可用 Skill 数量 | ≥ 10 个 |
+| 贡献者增长 | 外部 Skill 贡献者数量 | ≥ 3 人 |
+| MCP 集成 | 可用 MCP 服务适配器数量 | ≥ 3 个 |
+
+**Phase 2 技术验收：**
+
+| 检查项 | 通过条件 |
+|--------|---------|
+| IPC 通信 | Send/Recv/Pipe 三个 syscall 端到端跑通，两个智能体通过管道传递数据 |
+| Compose 编排 | `crux compose up` 按 DAG 依赖顺序启动 ≥ 3 个智能体并全部完成 |
+| skillpkg 安装 | `skill install <name>` 从远程仓库下载并注册 Skill，`skill search` 返回结果 |
+| MCP 挂载 | `/mnt/mcp/` 路径挂载至少 1 个 MCP 服务器，智能体可通过 VFS 访问其工具 |
+| Supervisor 容错 | 子智能体异常退出后，Supervisor 在 5 秒内按策略自动重启 |
+| crux top | 实时显示 ≥ 3 个并发智能体的状态和 token 消耗 |
+| crux log | 输出按 think/tool/output 分类，支持 --filter 过滤 |
+| 四层能力栈 | Agent → Skill → MCP → Device 端到端运行，各层职责分离验证通过 |
+| AgentShell 管道 | `spawn "A" \| spawn "B"` 管道语法执行成功，前一个智能体输出正确注入后一个上下文 |
+| AgentShell 脚本 | `if-else` + `on-error` 最小控制结构在多行脚本中正确执行 |
+| Phase 2 教程 | 三个核心教程（编写 Skill、调试 bug、多智能体工作流）各含完整可运行示例 |
+| Phase 2 架构文档 | 四个核心模块（微内核、进程模型、驱动层、上下文管理）各含设计决策和数据流说明 |
+
+### Measurable Outcomes (Phase 2)
+
+| 维度 | 核心可测量结果 |
+|------|--------------|
+| 编排效率 | 3 智能体 Compose 工作流从 YAML 到全部完成，总耗时 ≤ 90 秒 |
+| IPC 通信 | 管道连接的两个智能体，数据传递延迟 ≤ 50ms |
+| 容错恢复 | 子智能体崩溃后 Supervisor 重启并恢复执行，用户无感知 |
+| 生态可用性 | 社区 Skill install → Agent 引用 → spawn 执行，全流程 ≤ 5 分钟 |
 
 ## User Journeys
 
@@ -244,23 +293,28 @@ agents:
 
 ### Journey Requirements Summary
 
-| 能力领域 | 旅程来源 | MVP 必需 | Post-MVP |
-|---------|---------|---------|----------|
-| 安装体验（go install） | 旅程 1 | ✓ | |
-| Agent 定义编写（agent.yaml + instructions.md） | 旅程 1 | ✓ | |
-| Skill 编写（SKILL.md，Agent Skills 行业标准） | 旅程 1 | ✓ | |
-| `crux spawn --agent=<name>` 单命令 | 旅程 1, 2 | ✓ | |
-| `astrace` syscall 追踪 | 旅程 1 | ✓ | |
-| VFS `/dev/fs` 文件读取 | 旅程 1 | ✓ | |
-| LLM 超时处理 + 进程状态正确转移 | 旅程 2 | ✓ | |
-| `crux ps` 进程查看 | 旅程 2 | ✓ | |
-| Zombie 回收 | 旅程 2 | ✓ | |
-| `skill install` 包安装 | 旅程 3 | | ✓ (Phase 2) |
-| `crux-compose.yaml` 编排 | 旅程 3 | | ✓ (Phase 2) |
-| `crux top` 实时监控 | 旅程 3 | | ✓ (Phase 2) |
-| `crux log` 分类日志 | 旅程 4 | | ✓ (Phase 2) |
-| 上下文预算配置 | 旅程 4 | | ✓ (Phase 2) |
-| skillpkg 社区 Skill 生态 | 旅程 3 | | ✓ (Phase 2) |
+| 能力领域 | 旅程来源 | MVP 必需 | Post-MVP | Phase 2 FR 映射 |
+|---------|---------|---------|----------|----------------|
+| 安装体验（go install） | 旅程 1 | ✓ | | |
+| Agent 定义编写（agent.yaml + instructions.md） | 旅程 1 | ✓ | | |
+| Skill 编写（SKILL.md，Agent Skills 行业标准） | 旅程 1 | ✓ | | |
+| `crux spawn --agent=<name>` 单命令 | 旅程 1, 2 | ✓ | | |
+| `astrace` syscall 追踪 | 旅程 1 | ✓ | | |
+| VFS `/dev/fs` 文件读取 | 旅程 1 | ✓ | | |
+| LLM 超时处理 + 进程状态正确转移 | 旅程 2 | ✓ | | |
+| `crux ps` 进程查看 | 旅程 2 | ✓ | | |
+| Zombie 回收 | 旅程 2 | ✓ | | |
+| `skill install` 包安装 | 旅程 3 | | ✓ (Phase 2) | FR50-FR53 |
+| `crux-compose.yaml` 编排 | 旅程 3 | | ✓ (Phase 2) | FR46-FR49 |
+| `crux top` 实时监控 | 旅程 3 | | ✓ (Phase 2) | FR58, FR62 |
+| `crux log` 分类日志 | 旅程 4 | | ✓ (Phase 2) | FR59-FR60 |
+| 上下文预算配置 | 旅程 4 | | ✓ (Phase 2) | FR61 |
+| skillpkg 社区 Skill 生态 | 旅程 3 | | ✓ (Phase 2) | FR50-FR53 |
+| IPC 进程间通信 | 旅程 3 | | ✓ (Phase 2) | FR41-FR45 |
+| MCP 服务集成 | 架构需求推导（四层能力栈设计） | | ✓ (Phase 2) | FR54-FR57 |
+| Supervisor 容错 | 架构需求推导（进程可靠性设计） | | ✓ (Phase 2) | FR63-FR65 |
+| AgentShell 完整语法 | 架构需求推导（AgentShell DSL 设计） | | ✓ (Phase 2) | FR66-FR68 |
+| Phase 2 文档（教程 + 架构） | 生态建设需求（开发者体验） | | ✓ (Phase 2) | FR69-FR70 |
 
 ## Innovation & Novel Patterns
 
@@ -311,14 +365,25 @@ Crux 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来�
 
 ### API Surface (Syscall ABI)
 
-Crux 的"API"不是 REST 端点或 Go 函数——而是 **~15 个核心 syscall**（MVP 阶段）：
+Crux 的"API"不是 REST 端点或 Go 函数——而是 **~45 个 syscall**（Phase 1 + Phase 2）：
+
+**Phase 1（~15 个，MVP）：**
 
 **进程管理：** `Spawn`、`Kill`、`Wait`、`GetPID`、`PS`
 **上下文管理：** `CtxAlloc`、`CtxRead`、`CtxWrite`、`CtxFree`
 **文件系统：** `Open`、`Read`、`Write`、`Close`、`Stat`
 **调试：** `DebugRecord`
 
-这个 ABI 是 Crux 的"宪法"——一旦确立，所有上层组件围绕它构建。**MVP 阶段的 ABI 设计必须足够稳定，能支撑 Phase 2 扩展到 ~45 个 syscall 而不破坏向后兼容。**
+**Phase 2（~30 个，能力栈建设）：**
+
+**IPC 通信：** `Send`、`Recv`、`Pipe`、`Broadcast`、`GetProcGroup`、`JoinGroup`
+**设备与文件：** `Mount`、`Unmount`、`Ioctl`、`Fcntl`、`Seek`、`Fstat`
+**信号与事件：** `Signal`、`SigBlock`、`SigUnblock`、`SigPending`、`Watch`、`Notify`
+**时间与定时：** `Sleep`、`Timer`、`GetTime`、`WaitForEvent`
+**Capability 权限：** `CapGrant`、`CapRevoke`、`CapCheck`、`GetCaps`
+**调试增强：** `Attach`、`Detach`、`BreakPoint`、`Snapshot`
+
+这个 ABI 是 Crux 的"宪法"——Phase 1 的 15 个 syscall 是 Phase 2 完整 45 个的稳定子集，向后兼容。Phase 2 通过新增子接口（`IPCManager`、`CapManager` 等）嵌入 Kernel 接口组合，不破坏现有 ABI。
 
 ### Documentation Strategy
 
@@ -454,18 +519,41 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 **Phase 2（能力栈建设）：**
 
-| 能力 | 说明 |
-|------|------|
-| 完整四层能力栈 | Agent → Skill（Agent Skills 标准）→ MCP（`/mnt/mcp/`，复用 `--mcp-config`）→ Device（`/dev/`）；agent.yaml 扩展 `mcp:` 字段引用 MCP 服务器 |
-| skillpkg 包管理器 | `skill install/search/update` + 社区仓库 |
-| AgentShell 完整语法 | 管道、变量、脚本 |
-| Agent Compose | `crux-compose.yaml` + `crux compose up` |
-| 三级智能体模型 + IPC | 进程/线程/协程 + Send/Recv/Pipe |
-| Supervisor 树 | Erlang OTP 式容错 |
-| `crux top` / `crux log` | 实时监控 + 分类推理日志 |
-| 上下文预算管理 | 复用 `--max-budget-usd` |
-| init 引导系统 | 完整启动序列 |
-| 教程 + 架构文档 | 文档体系补完 |
+**核心旅程支持：**
+- 旅程 3（林薇的 30 分钟工作流）— 完整支持（Compose + skillpkg + crux top）
+- 旅程 4（林薇的调试时刻）— 完整支持（crux log + 上下文预算）
+
+**Must-Have 能力清单：**
+
+| 组件 | 文件 | 说明 |
+|------|------|------|
+| IPC 通信 | `kernel/ipc.go` | Send/Recv/Pipe syscall + 消息队列 + 管道实现 |
+| 进程组 | `kernel/procgroup.go` | Process Group 管理 + 批量信号 + JoinGroup/GetProcGroup |
+| 信号系统 | `kernel/signal.go` | Signal/SigBlock/SigUnblock + 信号处理器注册 |
+| Compose 引擎 | `compose/engine.go` | YAML 解析 + DAG 依赖调度 + 并行执行 |
+| Compose CLI | `cmd/crux/compose.go` | `crux compose up/down` 命令 |
+| skillpkg 客户端 | `skillpkg/client.go` | 社区仓库 API 交互 + Skill 下载 + 版本解析 |
+| skillpkg CLI | `cmd/crux/skill.go` | `skill install/search/update/list` 命令 |
+| MCP 挂载 | `vfs/mcp.go` | `/mnt/mcp/` 路径挂载 + MCP 协议适配 |
+| MCP 驱动 | `drivers/mcp/mcp.go` | MCP 服务器生命周期管理 + 工具暴露 |
+| Supervisor | `kernel/supervisor.go` | Supervisor 树 + 三种重启策略（one_for_one/all/rest_for_one） |
+| init 引导 | `kernel/init.go` | 系统启动序列 + 服务初始化 |
+| crux top | `cmd/crux/top.go` | 实时监控 TUI（bubbletea）+ 智能体树 + token 消耗 |
+| crux log | `cmd/crux/log.go` | 分类推理日志（think/tool/output）+ 过滤 |
+| 上下文预算 | `context/budget.go` | token 预算管理 + `--max-budget-usd` 映射 |
+| AgentShell 管道 | `shell/pipe.go` | `spawn "A" \| spawn "B"` 管道语法解析与执行 |
+| AgentShell 脚本 | `shell/script.go` | 变量、环境传递、多行脚本、流程控制 |
+| Capability 权限 | `kernel/capability.go` | CapGrant/Revoke/Check + 完整权限系统 |
+| VFS 扩展 | `vfs/mount.go` | Mount/Unmount syscall + 文件系统挂载表 |
+| 教程文档 | `docs/tutorials/` | 编写 Skill + 调试 bug + 多智能体工作流 |
+| 架构文档 | `docs/architecture.md` | 微内核 + 进程模型 + 驱动层 + 上下文管理 |
+
+**Phase 2 实现的 ~30 个新增 syscall：**
+详见 [API Surface (Syscall ABI)](#api-surface-syscall-abi) 中的 Phase 2 完整列表。
+
+**Phase 2 文档交付：**
+- 教程（编写第一个 Skill、调试第一个 bug、组合多智能体工作流）
+- 架构文档（微内核设计、进程模型、驱动层、上下文管理）
 
 **Phase 3（涌现与智能）：**
 
@@ -548,14 +636,14 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 ### Skill Management（能力模块管理，遵循 Agent Skills 行业标准）
 
 - **FR25a:** 系统可以从 `SKILL.md` 解析 Skill 元信息（name、description、allowed-tools），格式遵循 Agent Skills 开放标准（agentskills.io）
-- **FR25b:** 系统支持 Skill 的渐进式加载——启动时仅加载 frontmatter（~100 tokens/skill），激活时加载完整 SKILL.md body（< 5000 tokens），执行时按需加载 scripts/references/assets
+- **FR25b:** 系统可以对 Skill 进行渐进式加载——启动时仅加载 frontmatter（≤ 100 tokens/skill），激活时加载完整 SKILL.md body（≤ 5000 tokens），执行时按需加载 scripts/references/assets
 - **FR26:** Agent 引用的所有 Skill 的 `allowed-tools` 聚合后映射为智能体的可用 `/dev/` 设备权限白名单
 - **FR27:** 系统交付参考 Agent（code-analyst）+ 参考 Skill（code-analysis），能够分析代码并识别至少 1 个可验证的真实代码问题（与 Success Criteria 中自举验证标准对齐）
 
 ### Debugging & Observability（调试与可观测性）
 
 - **FR28:** 用户可以通过 `astrace` 实时追踪指定智能体的所有 syscall 调用
-- **FR29:** astrace 输出包含每个 syscall 的名称、参数、返回值和耗时
+- **FR29:** 系统可以在 astrace 输出中展示每个 syscall 的名称、参数、返回值和耗时
 - **FR30:** 系统可以记录 syscall 调用数据（DebugRecord）供 astrace 消费
 - **FR31:** 用户可以通过 astrace 输出定位到产生错误结果的具体 syscall 调用记录
 - **FR32:** 系统在智能体完成时输出汇总信息（退出码、token 消耗、总耗时）
@@ -565,14 +653,68 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 - **FR33:** 用户可以通过 `crux "意图"` 单命令启动一个智能体
 - **FR34:** 用户可以通过 `crux astrace <pid>` 追踪指定进程的 syscall
 - **FR35:** 用户可以通过 `crux ps` 查看所有进程状态
-- **FR36:** CLI 提供清晰的错误信息，包含设备路径和错误原因
+- **FR36:** 系统可以在 CLI 中输出结构化错误信息，包含设备路径、错误码和错误原因
 - **FR37:** 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI）
 
 ### Documentation（文档）
 
 - **FR38:** 系统可以提供概念文档，覆盖进程、VFS、Skill、syscall 四个核心概念，每个概念含定义和至少一个示例
 - **FR39:** 系统可以提供快速上手指南，引导用户从安装到跑通第一个 demo（目标 ≤ 15 分钟）
-- **FR40:** 系统可以提供参考手册，覆盖 syscall 列表、VFS 路径规范、manifest.yaml 字段、CLI 命令
+- **FR40:** 系统可以提供参考手册，覆盖 syscall 列表、VFS 路径规范、agent.yaml 字段 + SKILL.md frontmatter 字段、CLI 命令
+
+### IPC & Multi-Agent Communication（进程间通信与多智能体协作，Phase 2）
+
+- **FR41:** 智能体可以通过 Send/Recv syscall 向指定 PID 的进程发送消息和接收消息
+- **FR42:** 系统可以通过 Pipe syscall 创建管道，将一个智能体的输出连接为另一个智能体的输入
+- **FR43:** 系统可以管理进程组（Process Group），用户可以通过 JoinGroup/GetProcGroup 管理分组，对组内进程批量发送信号
+- **FR44:** 系统可以提供三级智能体并发模型：进程（独立上下文和 LLM 会话）、线程（共享上下文的并行执行单元）、协程（轻量协作调度单元）
+- **FR45:** 智能体可以通过 Signal syscall 向其他进程发送信号（中断、暂停、恢复），接收方可以通过 SigBlock/SigUnblock 控制信号处理
+
+### Agent Compose（多智能体编排，Phase 2）
+
+- **FR46:** 用户可以通过 `crux-compose.yaml` 声明式定义多智能体工作流，包含每个智能体的 intent、agent 引用、skills 列表和依赖关系
+- **FR47:** Compose 引擎可以解析智能体之间的 `depends_on` 依赖关系，按 DAG 拓扑顺序调度执行，自动并行化无依赖的分支
+- **FR48:** 用户可以通过 `crux compose up` 一键启动编排中定义的所有智能体
+- **FR49:** 用户可以通过 `crux compose down` 停止编排中所有智能体并释放资源（进程、上下文、文件描述符）
+
+### Skill Package Management（Skill 包管理，Phase 2）
+
+- **FR50:** 用户可以通过 `skill install <name>` 从社区仓库下载并安装 Skill 到本地 `lib/skills/` 目录
+- **FR51:** 用户可以通过 `skill search <keyword>` 搜索社区仓库中可用的 Skill，返回名称、描述、版本和下载量
+- **FR52:** 用户可以通过 `skill update [name]` 更新已安装 Skill 到最新兼容版本
+- **FR53:** 系统维护本地 Skill 注册表，记录已安装 Skill 的元信息、版本和路径，用户可通过 `skill list` 查看
+
+### MCP Integration（MCP 服务集成，Phase 2）
+
+- **FR54:** 系统可以通过 Mount/Unmount syscall 在 `/mnt/mcp/` 路径下挂载和卸载 MCP 服务器
+- **FR55:** Agent 的 `agent.yaml` 可以通过 `mcp` 字段引用 MCP 服务器名称列表，系统在 Spawn 时自动挂载对应服务
+- **FR56:** 系统可以将 MCP 服务器提供的工具和资源通过 VFS 路径暴露给智能体，智能体通过标准 Open/Read/Write 访问
+- **FR57:** 系统可以端到端运行四层能力栈：Agent（身份+策略）→ Skill（程序性知识+工具权限）→ MCP（外部服务集成）→ Device（原生 I/O），用户可以通过 astrace 验证各层调用链路的职责分离
+
+### Monitoring & Observability（监控与可观测性，Phase 2）
+
+- **FR58:** 用户可以通过 `crux top` 实时查看所有运行中智能体的树状关系、状态、token 消耗和执行进度
+- **FR59:** 用户可以通过 `crux log <pid>` 查看指定智能体的推理日志
+- **FR60:** 系统可以将 `crux log` 输出按 `[think]`/`[tool]`/`[output]` 三段式分类显示，支持 `--filter <category>` 按类别过滤
+- **FR61:** 用户可以为智能体设置 token 预算上限（通过 agent.yaml `context_budget` 或 compose 中覆盖），系统在达到上限时终止推理并上报原因
+- **FR62:** 用户可以在 `crux top` 中通过交互式操作选中进程并执行 kill 或查看详情
+
+### Supervisor & System Bootstrap（容错与系统引导，Phase 2）
+
+- **FR63:** 系统可以提供 Supervisor 树管理模式，Supervisor 进程监控子智能体的健康状态并在异常退出时自动重启
+- **FR64:** Supervisor 可以使用三种重启策略：one_for_one（仅重启崩溃的子进程）、one_for_all（全部子进程重启）、rest_for_one（崩溃进程之后按启动顺序的所有子进程重启）
+- **FR65:** 系统可以执行 init 引导序列，daemon 启动时按配置文件初始化系统级服务（日志聚合、Skill 注册表、MCP 服务管理）和 Supervisor 树
+
+### AgentShell Advanced Syntax（AgentShell 高级语法，Phase 2）
+
+- **FR66:** 用户可以在 AgentShell 中通过管道语法组合智能体执行链（`spawn "分析" | spawn "写文档"`），前一个智能体的输出自动注入后一个的上下文
+- **FR67:** 用户可以在 AgentShell 中定义变量（`export KEY=VALUE`）和传递环境，spawn 的智能体可以在 intent 和配置中引用环境变量
+- **FR68:** 用户可以在 AgentShell 中编写多行命令序列，使用最小控制结构集（`if-else` 条件判断 + `on-error` 错误处理）编排智能体执行流程（完整脚本语言能力推迟至 Phase 3）
+
+### Documentation Phase 2（Phase 2 文档）
+
+- **FR69:** 系统可以提供教程文档，覆盖"编写第一个 Skill"、"调试第一个 bug"、"组合多智能体工作流"三个核心场景，每个教程含完整可运行示例
+- **FR70:** 系统可以提供架构文档，覆盖微内核设计、进程模型、驱动层架构、上下文管理四个核心模块，每个模块含设计决策和数据流说明
 
 ## Non-Functional Requirements
 
@@ -610,3 +752,22 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 - **NFR18:** 内核代码遵循 Go 标准项目布局，通过 `go vet` 和 `golint` 无警告
 - **NFR19:** syscall ABI 设计遵循 45 syscall 架构规范的子集，确保 Phase 2 扩展时向后兼容
 - **NFR20:** LLM 驱动层封装在单一模块中，外部 LLM 接口变更时只需修改此模块
+
+### Multi-Agent Performance（多智能体性能，Phase 2）
+
+- **NFR21:** Compose 编排 N 个智能体（N ≤ 10）的启动延迟（不含 LLM 调用本身）≤ 2 秒
+- **NFR22:** IPC Send/Recv 单条消息端到端延迟 ≤ 50ms（进程间，不含 LLM 推理）
+- **NFR23:** Pipe 管道数据传递吞吐量 ≥ 1MB/s（智能体间文本数据流）
+- **NFR24:** 系统可以同时运行 ≥ 10 个智能体进程，进程表操作（PS/Spawn/Kill）延迟不超过单进程场景的 2 倍
+
+### MCP Integration Quality（MCP 集成质量，Phase 2）
+
+- **NFR25:** MCP 服务挂载延迟（从 Mount syscall 到服务可用）≤ 500ms
+- **NFR26:** MCP 服务异常退出时不影响内核稳定性，对应 VFS 路径在 3 秒内返回明确错误（`ErrServiceUnavailable`）而非卡死
+- **NFR27:** 系统兼容 MCP 协议标准版本，可接入符合 MCP 标准的第三方服务器，无需 Crux 侧代码修改
+
+### Observability & Ecosystem（可观测性与生态，Phase 2）
+
+- **NFR28:** `crux top` TUI 刷新间隔 ≤ 500ms，单核 CPU 占用 ≤ 5%（10 个并发进程场景）
+- **NFR29:** `crux log` 输出延迟 ≤ 200ms（从推理事件发生到终端显示）
+- **NFR30:** 社区 Skill 通过 `skill install` 安装后无需修改即可被任意 Agent 引用，Skill 格式兼容性通过标准 SKILL.md frontmatter 验证
