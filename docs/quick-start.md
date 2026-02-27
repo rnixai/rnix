@@ -69,7 +69,7 @@ crux v0.1.0
 向 Crux 传递一个意图字符串，即可 Spawn 一个智能体进程来完成任务：
 
 ```bash
-$ crux "分析 ./README.md"
+$ crux -i "分析 ./README.md"
 ```
 
 首次运行时，Crux 会自动启动一个后台 daemon 进程来管理内核和进程表。daemon 通过 Unix domain socket 与 CLI 通信，空闲 60 秒后自动退出。你无需手动管理 daemon——一切都是透明的。
@@ -107,7 +107,7 @@ $ crux "分析 ./README.md"
 Agent 定义了智能体的身份和角色。通过 `--agent` 参数可以使用预定义的 Agent：
 
 ```bash
-$ crux "分析 ./cmd/crux/main.go" --agent=code-analyst
+$ crux -i "分析 ./cmd/crux/main.go" --agent=code-analyst
 ```
 
 `code-analyst` 是 Crux 内置的参考 Agent，专门用于分析代码质量、识别潜在问题并提供改进建议。它引用了 `code-analysis` Skill，拥有访问文件系统（`/dev/fs`）和 Shell（`/dev/shell`）的权限。
@@ -148,7 +148,7 @@ $ crux "分析 ./cmd/crux/main.go" --agent=code-analyst
 
 ```bash
 # 终端 A
-$ crux "分析当前项目结构并给出建议"
+$ crux -i "分析当前项目结构并给出建议"
 ```
 
 打开另一个终端，用 `crux ps` 找到正在运行的进程 PID，然后 attach：

@@ -8,7 +8,7 @@ Crux 是一个面向 AI 智能体的操作系统（Agent OS）。它借鉴 Unix 
 
 ### 定义
 
-进程是 Crux 的一等计算单元。当你执行 `crux "意图"` 命令时，Crux 内核会创建一个智能体进程来完成你的意图。每个进程拥有独立的 PID、上下文空间、文件描述符表和调试通道。
+进程是 Crux 的一等计算单元。当你执行 `crux -i "意图"` 命令时，Crux 内核会创建一个智能体进程来完成你的意图。每个进程拥有独立的 PID、上下文空间、文件描述符表和调试通道。
 
 Crux 采用 daemon 架构管理进程：一个后台 daemon 持有唯一的内核实例和进程表，所有 CLI 命令通过 Unix domain socket 与 daemon 通信。daemon 在首次运行 `crux` 时自动启动，空闲 60 秒后自动退出。这种设计使得进程在系统级别可见——在终端 A 启动的进程，可以在终端 B 通过 `crux ps`/`crux kill`/`crux astrace` 查看和操作，与 Unix 进程的行为一致。
 
@@ -47,7 +47,7 @@ Created ──→ Running ──→ Zombie ──→ Dead
 ### 示例：完整的进程生命周期
 
 ```bash
-$ crux "分析代码"
+$ crux -i "分析代码"
 ```
 
 这条命令触发以下生命周期：
@@ -329,7 +329,7 @@ Crux 的内核接口由 4 个子接口组合而成，共定义 15 个 syscall（
 
 ### 示例：完整进程生命周期中的 Syscall 序列
 
-以 `crux "分析代码" --agent=code-analyst` 为例，从进程创建到销毁的完整 syscall 序列：
+以 `crux -i "分析代码" --agent=code-analyst` 为例，从进程创建到销毁的完整 syscall 序列：
 
 ```
 [  0.000s] Spawn("分析代码", agent="code-analyst")    = PID(1)       12ms
@@ -445,10 +445,10 @@ IPC Server 采用**请求循环连接模型**：单个连接上可以发送多�
 
 ### 端到端数据流
 
-以 `crux "分析代码" --agent=code-analyst` 为例，完整的请求路径：
+以 `crux -i "分析代码" --agent=code-analyst` 为例，完整的请求路径：
 
 ```
-用户输入: crux "分析代码" --agent=code-analyst
+用户输入: crux -i "分析代码" --agent=code-analyst
     │
     ▼
 cmd/crux/main.go（CLI 客户端）
