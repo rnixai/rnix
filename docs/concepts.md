@@ -299,7 +299,7 @@ Crux 的内核接口由 4 个子接口组合而成，共定义 15 个 syscall（
 | Spawn | `Spawn(intent, agent, opts) → PID` | 创建并启动智能体进程 |
 | Kill | `Kill(pid, signal) → error` | 向进程发送终止信号 |
 | Wait | `Wait(pid) → ExitStatus` | 等待进程结束，回收资源 |
-| GetPID | — | 获取当前进程 PID（尚未实现，规划中） |
+| GetPID | `Process.GetPID() → PID` | 获取当前进程 PID |
 | PS | `ListProcs() → []ProcInfo` | 列出所有进程快照 |
 
 **上下文管理（ContextManager）— 4 个**

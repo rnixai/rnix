@@ -77,6 +77,13 @@ var validTransitions = map[types.ProcessState][]types.ProcessState{
 	// StateDead has no valid transitions
 }
 
+// GetPID returns the process's own PID.
+// This is the Crux equivalent of Unix getpid(2). Since PID is immutable after
+// creation, no locking is required.
+func (p *Process) GetPID() types.PID {
+	return p.PID
+}
+
 // GetState returns the current process state in a thread-safe manner.
 func (p *Process) GetState() types.ProcessState {
 	p.mu.Lock()

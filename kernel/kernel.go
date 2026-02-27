@@ -78,7 +78,8 @@ type KernelCallbacks interface {
 }
 
 // ProcessManager defines the kernel's process management interface.
-// Kill and Wait are added in Story 4.1; GetPID deferred to future story (ListProcs used instead for PS).
+// Kill and Wait are added in Story 4.1; GetPID is implemented as a Process method (not interface method)
+// since PID is an immutable property of the process itself, not a kernel-level query.
 type ProcessManager interface {
 	Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpts) (types.PID, error)
 	Kill(pid types.PID, signal types.Signal) error

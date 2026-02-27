@@ -361,6 +361,20 @@ func TestGetState(t *testing.T) {
 	}
 }
 
+func TestGetPID(t *testing.T) {
+	p := NewProcess(0, "test-getpid", nil)
+	if p.GetPID() != p.PID {
+		t.Fatalf("GetPID() = %d, want %d", p.GetPID(), p.PID)
+	}
+
+	// Verify consistency across multiple calls
+	pid1 := p.GetPID()
+	pid2 := p.GetPID()
+	if pid1 != pid2 {
+		t.Fatalf("GetPID() not stable: %d vs %d", pid1, pid2)
+	}
+}
+
 func TestConcurrentStartSameProcess(t *testing.T) {
 	const n = 100
 	p := NewProcess(0, "test", nil)
