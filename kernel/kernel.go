@@ -8,6 +8,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gonewx/crux/agents"
@@ -101,6 +102,10 @@ type KernelImpl struct {
 	stopCh       chan struct{}   // signals reaper goroutine to stop
 	reaperWg     sync.WaitGroup // waits for reaper goroutine exit
 	shutdownOnce sync.Once      // ensures Shutdown executes at most once
+
+	// IPC messaging (Story 6.1)
+	msgQueues *xsync.SyncMap[types.PID, *MessageQueue]
+	msgSeq    atomic.Uint64
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -113,6 +118,7 @@ func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelI
 		callbacks: cb,
 		reapCh:    make(chan types.PID, 64),
 		stopCh:    make(chan struct{}),
+		msgQueues: xsync.NewSyncMap[types.PID, *MessageQueue](),
 	}
 	k.startReaper()
 	return k
@@ -223,6 +229,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	// Register process in table
 	k.AddProcess(proc)
+
+	// Initialize IPC message queue for the new process (Story 6.1)
+	k.msgQueues.Store(proc.PID, newMessageQueue())
 
 	// Emit Spawn syscall event
 	spawnArgs := map[string]any{
