@@ -42,13 +42,19 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		// 6. ClearSignalState — clean up signal handlers/blocked/pending/resume (Story 6.4)
 		proc.ClearSignalState()
 
-		// 7. CtxFree(CtxID) — release context space
+		// 7. ClearThreads — cancel all threads and wait for completion (Story 6.5)
+		proc.ClearThreads()
+
+		// 8. ClearCoroutines — clean up all coroutines (Story 6.5)
+		proc.ClearCoroutines()
+
+		// 9. CtxFree(CtxID) — release context space
 		_ = k.ctxMgr.CtxFree(proc.CtxID)
 
-		// 8. Reap() — Zombie → Dead state transition
+		// 10. Reap() — Zombie → Dead state transition
 		_ = proc.Reap()
 
-		// 9. RemoveProcess(pid) — remove from process table
+		// 11. RemoveProcess(pid) — remove from process table
 		k.RemoveProcess(proc.PID)
 	})
 }

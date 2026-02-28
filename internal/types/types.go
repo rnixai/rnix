@@ -20,6 +20,12 @@ type MsgSeq uint64
 // PGID represents a process group identifier.
 type PGID uint64
 
+// TID represents a thread identifier (process-local).
+type TID uint64
+
+// CoID represents a coroutine identifier (process-local).
+type CoID uint64
+
 // ErrCode represents a categorized error code.
 type ErrCode string
 

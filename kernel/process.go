@@ -54,6 +54,14 @@ type Process struct {
 	pendingSignals map[types.Signal]struct{}
 	resumeCh       chan struct{} // nil=not paused; non-nil=paused, close to resume
 
+	// Thread system (mu protected for threads map, atomic for counter)
+	threads    map[types.TID]*Thread
+	tidCounter atomic.Uint64
+
+	// Coroutine system (mu protected for coroutines map, atomic for counter)
+	coroutines  map[types.CoID]*Coroutine
+	coIDCounter atomic.Uint64
+
 	mu       sync.Mutex
 	cancel   context.CancelFunc
 	ctx      context.Context
@@ -394,5 +402,126 @@ func (p *Process) ClearSignalState() {
 	if p.resumeCh != nil {
 		close(p.resumeCh)
 		p.resumeCh = nil
+	}
+}
+
+// --- Thread management methods (all thread-safe via mu) ---
+
+// AddThread registers a thread in the process's thread table.
+func (p *Process) AddThread(t *Thread) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.threads == nil {
+		p.threads = make(map[types.TID]*Thread)
+	}
+	p.threads[t.TID] = t
+}
+
+// GetThread retrieves a thread by TID from the process's thread table.
+func (p *Process) GetThread(tid types.TID) (*Thread, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.threads == nil {
+		return nil, false
+	}
+	t, ok := p.threads[tid]
+	return t, ok
+}
+
+// RemoveThread removes a thread from the process's thread table.
+func (p *Process) RemoveThread(tid types.TID) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.threads != nil {
+		delete(p.threads, tid)
+	}
+}
+
+// ClearThreads cancels all threads and waits for them to finish.
+// Used during process reap.
+func (p *Process) ClearThreads() {
+	p.mu.Lock()
+	threads := make([]*Thread, 0, len(p.threads))
+	for _, t := range p.threads {
+		threads = append(threads, t)
+	}
+	p.threads = nil
+	p.mu.Unlock()
+
+	for _, t := range threads {
+		t.cancel()
+		<-t.Done
+	}
+}
+
+// --- Coroutine management methods (all thread-safe via mu) ---
+
+// AddCoroutine registers a coroutine in the process's coroutine table.
+func (p *Process) AddCoroutine(c *Coroutine) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.coroutines == nil {
+		p.coroutines = make(map[types.CoID]*Coroutine)
+	}
+	p.coroutines[c.CoID] = c
+}
+
+// GetCoroutine retrieves a coroutine by CoID from the process's coroutine table.
+func (p *Process) GetCoroutine(coID types.CoID) (*Coroutine, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.coroutines == nil {
+		return nil, false
+	}
+	c, ok := p.coroutines[coID]
+	return c, ok
+}
+
+// RemoveCoroutine removes a coroutine from the process's coroutine table.
+func (p *Process) RemoveCoroutine(coID types.CoID) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.coroutines != nil {
+		delete(p.coroutines, coID)
+	}
+}
+
+// ClearCoroutines cleans up all coroutines by closing their resume channels.
+// Used during process reap.
+//
+// Coroutine goroutines can be blocked at two points:
+//  1. co.yieldCh <- value (inside yield closure, waiting for caller to read)
+//  2. <-co.resumeCh (inside yield closure, waiting for caller to resume)
+//
+// Closing resumeCh unblocks case 2. For case 1, the goroutine will panic
+// on send to closed channel if we close yieldCh, so we use a drain goroutine
+// to consume from yieldCh, which unblocks the sender, then the coroutine
+// proceeds to <-resumeCh which returns zero value (closed channel).
+func (p *Process) ClearCoroutines() {
+	p.mu.Lock()
+	coroutines := make([]*Coroutine, 0, len(p.coroutines))
+	for _, c := range p.coroutines {
+		coroutines = append(coroutines, c)
+	}
+	p.coroutines = nil
+	p.mu.Unlock()
+
+	for _, c := range coroutines {
+		c.mu.Lock()
+		if c.State != coDone {
+			// Close resumeCh to unblock coroutines waiting at <-co.resumeCh.
+			// This also causes yield closure to return (resume receives zero value),
+			// then the coroutine continues and eventually completes or blocks at
+			// the next yieldCh send, which the drain goroutine handles.
+			close(c.resumeCh)
+
+			// Drain yieldCh to unblock coroutines blocked at co.yieldCh <- value.
+			// The goroutine exits when yieldCh is closed (coroutine completes).
+			go func(ch chan any) {
+				for range ch {
+				}
+			}(c.yieldCh)
+		}
+		c.mu.Unlock()
 	}
 }
