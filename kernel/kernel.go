@@ -340,6 +340,31 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			k.callbacks.OnStep(proc.PID, step, maxSteps)
 		}
 
+		// Check pause state (Story 6.4: Signal System)
+		if ch := proc.WaitIfPaused(); ch != nil {
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "paused",
+			}, nil, nil, 0)
+
+			select {
+			case <-ch:
+				// Resumed, continue execution
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "resumed",
+				}, nil, nil, time.Since(stepStart))
+			case <-proc.ctx.Done():
+				// Cancelled while paused (Kill can terminate a paused process)
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "cancelled_while_paused",
+				}, nil, proc.ctx.Err(), time.Since(stepStart))
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "context cancelled while paused"})
+				return
+			}
+		}
+
 		// Check context cancellation
 		select {
 		case <-proc.ctx.Done():
@@ -641,7 +666,7 @@ func (k *KernelImpl) Kill(pid types.PID, signal types.Signal) error {
 	// Emit entry event
 	k.emitEvent(proc, "Kill", map[string]any{
 		"pid":    pid,
-		"signal": signal,
+		"signal": signal.String(),
 	}, nil, nil, 0)
 
 	state := proc.GetState()
@@ -649,18 +674,19 @@ func (k *KernelImpl) Kill(pid types.PID, signal types.Signal) error {
 		// Idempotent: already stopped
 		k.emitEvent(proc, "Kill", map[string]any{
 			"pid":    pid,
-			"signal": signal,
+			"signal": signal.String(),
 			"action": "noop",
 		}, nil, nil, time.Since(start))
 		return nil
 	}
 
-	proc.Cancel()
+	// Delegate to deliverSignal for actual dispatch (handler/blocking/default logic)
+	action := k.deliverSignal(proc, signal)
 
 	k.emitEvent(proc, "Kill", map[string]any{
 		"pid":    pid,
-		"signal": signal,
-		"action": "cancelled",
+		"signal": signal.String(),
+		"action": action,
 	}, nil, nil, time.Since(start))
 
 	return nil
