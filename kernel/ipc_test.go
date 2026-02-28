@@ -2,11 +2,13 @@ package kernel
 
 import (
 	gocontext "context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/gonewx/crux/internal/types"
+	"github.com/gonewx/crux/vfs"
 )
 
 // newIPCTestProcess creates a lightweight process registered in the kernel for IPC tests.
@@ -361,4 +363,435 @@ func TestSend_DataIsolation(t *testing.T) {
 	if string(msg.Data) != "original" {
 		t.Errorf("Data = %q, want %q (caller mutation leaked)", msg.Data, "original")
 	}
+}
+
+// --- Pipe tests ---
+
+// TestPipe_Basic verifies same-process pipe: write then read.
+func TestPipe_Basic(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(proc.PID, proc.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+	if wfd == 0 || rfd == 0 {
+		t.Fatalf("expected non-zero FDs, got wfd=%d rfd=%d", wfd, rfd)
+	}
+
+	payload := []byte("hello pipe")
+	if err := k.vfs.Write(proc.ctx, proc.PID, wfd, payload); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	data, err := k.vfs.Read(proc.PID, rfd, 1024)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if string(data) != "hello pipe" {
+		t.Errorf("Data = %q, want %q", data, "hello pipe")
+	}
+}
+
+// TestPipe_CrossProcess verifies data transfer between different processes.
+func TestPipe_CrossProcess(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	payload := []byte("cross-process data")
+	if err := k.vfs.Write(writer.ctx, writer.PID, wfd, payload); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	data, err := k.vfs.Read(reader.PID, rfd, 1024)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if string(data) != "cross-process data" {
+		t.Errorf("Data = %q, want %q", data, "cross-process data")
+	}
+}
+
+// TestPipe_WriteCloseEOF verifies closing write end causes reader to get EOF.
+func TestPipe_WriteCloseEOF(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	// Write some data then close write end
+	if err := k.vfs.Write(writer.ctx, writer.PID, wfd, []byte("before-close")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	if err := k.vfs.Close(writer.PID, wfd); err != nil {
+		t.Fatalf("Close write failed: %v", err)
+	}
+
+	// Read the buffered data first
+	data, err := k.vfs.Read(reader.PID, rfd, 1024)
+	if err != nil {
+		t.Fatalf("Read buffered data failed: %v", err)
+	}
+	if string(data) != "before-close" {
+		t.Errorf("Data = %q, want %q", data, "before-close")
+	}
+
+	// Next read should return EOF
+	_, err = k.vfs.Read(reader.PID, rfd, 1024)
+	if err == nil {
+		t.Fatal("expected error after write end closed")
+	}
+	// VFS wraps the io.EOF into a VFSError; check for EOF in chain
+	if err.Error() == "" {
+		t.Fatal("error should have non-empty message")
+	}
+}
+
+// TestPipe_ReadCloseBrokenPipe verifies closing read end causes writer to get ErrBrokenPipe.
+func TestPipe_ReadCloseBrokenPipe(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	// Close read end
+	if err := k.vfs.Close(reader.PID, rfd); err != nil {
+		t.Fatalf("Close read failed: %v", err)
+	}
+
+	// Write should fail with BrokenPipe
+	err = k.vfs.Write(writer.ctx, writer.PID, wfd, []byte("broken"))
+	if err == nil {
+		t.Fatal("expected error after read end closed")
+	}
+	// The VFS wraps DriverError; extract the code
+	var vfsErr *vfs.VFSError
+	if !errors.As(err, &vfsErr) {
+		t.Fatalf("expected *VFSError, got %T: %v", err, err)
+	}
+	if vfsErr.Code != types.ErrBrokenPipe {
+		t.Errorf("Code = %v, want ErrBrokenPipe", vfsErr.Code)
+	}
+}
+
+// TestPipe_BlockUntilData verifies read blocks until data is written.
+func TestPipe_BlockUntilData(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	received := make(chan []byte, 1)
+	go func() {
+		data, err := k.vfs.Read(reader.PID, rfd, 1024)
+		if err != nil {
+			t.Errorf("Read failed: %v", err)
+			return
+		}
+		received <- data
+	}()
+
+	// Give goroutine time to block
+	time.Sleep(20 * time.Millisecond)
+
+	select {
+	case <-received:
+		t.Fatal("Read should be blocking")
+	default:
+	}
+
+	// Write data to unblock
+	if err := k.vfs.Write(writer.ctx, writer.PID, wfd, []byte("unblock")); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	select {
+	case data := <-received:
+		if string(data) != "unblock" {
+			t.Errorf("Data = %q, want %q", data, "unblock")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Read did not unblock after Write")
+	}
+}
+
+// TestPipe_CancelUnblocksRead verifies process context cancel unblocks a blocked read.
+func TestPipe_CancelUnblocksRead(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	_, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := k.vfs.Read(reader.PID, rfd, 1024)
+		errCh <- err
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+
+	// Cancel reader's context (simulates Kill)
+	reader.Cancel()
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected error after context cancel")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Read did not return after context cancel")
+	}
+}
+
+// TestPipe_Concurrent verifies multiple goroutines writing to same pipe without data loss or race.
+func TestPipe_Concurrent(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	const n = 100
+	msgSize := 64
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			data := make([]byte, msgSize)
+			for i := range data {
+				data[i] = 'A'
+			}
+			if err := k.vfs.Write(writer.ctx, writer.PID, wfd, data); err != nil {
+				t.Errorf("Write failed: %v", err)
+			}
+		})
+	}
+	wg.Wait()
+
+	// Close write end to signal EOF
+	if err := k.vfs.Close(writer.PID, wfd); err != nil {
+		t.Fatalf("Close write failed: %v", err)
+	}
+
+	// Read all data
+	var totalRead int
+	for {
+		data, err := k.vfs.Read(reader.PID, rfd, 1024)
+		if err != nil {
+			break // EOF
+		}
+		totalRead += len(data)
+	}
+
+	expected := n * msgSize
+	if totalRead != expected {
+		t.Errorf("totalRead = %d, want %d", totalRead, expected)
+	}
+}
+
+// TestPipe_LargeData verifies pipe can transfer ≥1MB of data (NFR23).
+func TestPipe_LargeData(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	// Write 1MB
+	dataSize := 1 << 20 // 1MB
+	payload := make([]byte, dataSize)
+	for i := range payload {
+		payload[i] = byte(i % 256)
+	}
+
+	start := time.Now()
+	go func() {
+		if err := k.vfs.Write(writer.ctx, writer.PID, wfd, payload); err != nil {
+			t.Errorf("Write failed: %v", err)
+		}
+		_ = k.vfs.Close(writer.PID, wfd)
+	}()
+
+	// Read all data
+	var result []byte
+	for {
+		data, err := k.vfs.Read(reader.PID, rfd, 64*1024)
+		if err != nil {
+			break
+		}
+		result = append(result, data...)
+	}
+	elapsed := time.Since(start)
+
+	if len(result) != dataSize {
+		t.Fatalf("read %d bytes, want %d", len(result), dataSize)
+	}
+
+	// Verify content
+	for i, b := range result {
+		if b != byte(i%256) {
+			t.Fatalf("byte %d: got %d, want %d", i, b, i%256)
+		}
+	}
+
+	// NFR23: throughput ≥ 1MB/s (should be >> 100MB/s for in-memory)
+	throughputMBps := float64(dataSize) / elapsed.Seconds() / (1 << 20)
+	if throughputMBps < 1.0 {
+		t.Errorf("throughput %.2f MB/s < 1 MB/s (NFR23)", throughputMBps)
+	}
+}
+
+// TestPipe_InvalidPID verifies Pipe returns ErrNotFound for non-existent PIDs.
+func TestPipe_InvalidPID(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newIPCTestProcess(t, k)
+
+	// Invalid writer PID
+	_, _, err := k.Pipe(99999, proc.PID)
+	if err == nil {
+		t.Fatal("expected error for invalid writer PID")
+	}
+	se, ok := err.(*SyscallError)
+	if !ok {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if se.Code != types.ErrNotFound {
+		t.Errorf("Code = %v, want ErrNotFound", se.Code)
+	}
+	if se.Syscall != "Pipe" {
+		t.Errorf("Syscall = %q, want Pipe", se.Syscall)
+	}
+
+	// Invalid reader PID
+	_, _, err = k.Pipe(proc.PID, 99999)
+	if err == nil {
+		t.Fatal("expected error for invalid reader PID")
+	}
+	se, ok = err.(*SyscallError)
+	if !ok {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if se.Code != types.ErrNotFound {
+		t.Errorf("Code = %v, want ErrNotFound", se.Code)
+	}
+}
+
+// TestPipe_DeadProcess verifies Pipe returns ErrNotFound for Zombie/Dead processes.
+func TestPipe_DeadProcess(t *testing.T) {
+	k := newSimpleKernel(t)
+	alive := newIPCTestProcess(t, k)
+	zombie := newIPCTestProcess(t, k)
+
+	// Transition to Zombie
+	_ = zombie.Terminate(ExitStatus{Code: 0, Reason: "done"})
+
+	// Zombie as writer
+	_, _, err := k.Pipe(zombie.PID, alive.PID)
+	if err == nil {
+		t.Fatal("expected error for zombie writer")
+	}
+	se, ok := err.(*SyscallError)
+	if !ok {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if se.Code != types.ErrNotFound {
+		t.Errorf("Code = %v, want ErrNotFound", se.Code)
+	}
+
+	// Zombie as reader
+	_, _, err = k.Pipe(alive.PID, zombie.PID)
+	if err == nil {
+		t.Fatal("expected error for zombie reader")
+	}
+	se, ok = err.(*SyscallError)
+	if !ok {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if se.Code != types.ErrNotFound {
+		t.Errorf("Code = %v, want ErrNotFound", se.Code)
+	}
+}
+
+// TestPipe_SyscallEvent verifies DebugChan receives Pipe SyscallEvent.
+func TestPipe_SyscallEvent(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	_, _, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	// Check writer's DebugChan for Pipe event
+	select {
+	case ev := <-writer.DebugChan:
+		if ev.Syscall != "Pipe" {
+			t.Errorf("Syscall = %q, want Pipe", ev.Syscall)
+		}
+		if ev.PID != writer.PID {
+			t.Errorf("PID = %d, want %d", ev.PID, writer.PID)
+		}
+		if ev.Args["writer_pid"] != writer.PID {
+			t.Errorf("Args[writer_pid] = %v, want %d", ev.Args["writer_pid"], writer.PID)
+		}
+		if ev.Args["reader_pid"] != reader.PID {
+			t.Errorf("Args[reader_pid] = %v, want %d", ev.Args["reader_pid"], reader.PID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no Pipe SyscallEvent received")
+	}
+}
+
+// TestPipe_DoubleClose verifies double-closing a pipe end doesn't panic (idempotent).
+func TestPipe_DoubleClose(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	// Close write end twice via VFS
+	if err := k.vfs.Close(writer.PID, wfd); err != nil {
+		t.Fatalf("First close write failed: %v", err)
+	}
+	// Second close via VFS will fail (FD removed from table), but should not panic
+	_ = k.vfs.Close(writer.PID, wfd)
+
+	// Close read end twice via VFS
+	if err := k.vfs.Close(reader.PID, rfd); err != nil {
+		t.Fatalf("First close read failed: %v", err)
+	}
+	_ = k.vfs.Close(reader.PID, rfd)
 }

@@ -1,12 +1,15 @@
 package kernel
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
 	"github.com/gonewx/crux/internal/types"
+	"github.com/gonewx/crux/vfs"
 )
 
 // Message is a kernel-internal inter-process message.
@@ -22,6 +25,7 @@ type Message struct {
 type IPCManager interface {
 	Send(senderPID, targetPID types.PID, data []byte) error
 	Recv(pid types.PID) (*Message, error)
+	Pipe(writerPID, readerPID types.PID) (writeFD, readFD types.FD, err error)
 }
 
 // Compile-time interface compliance check.
@@ -171,4 +175,210 @@ func (k *KernelImpl) Recv(pid types.PID) (*Message, error) {
 	}, msg, nil, time.Since(start))
 
 	return msg, nil
+}
+
+// --- Pipe implementation ---
+
+// pipeBuffer is the shared internal buffer for a pipe.
+type pipeBuffer struct {
+	mu       sync.Mutex
+	buf      bytes.Buffer
+	notify   chan struct{}
+	wrClosed bool
+	rdClosed bool
+}
+
+func newPipeBuffer() *pipeBuffer {
+	return &pipeBuffer{
+		notify: make(chan struct{}, 1),
+	}
+}
+
+func (p *pipeBuffer) write(data []byte) (int, error) {
+	p.mu.Lock()
+	if p.rdClosed {
+		p.mu.Unlock()
+		return 0, types.NewDriverError("Write", "pipe",
+			fmt.Errorf("broken pipe"), types.ErrBrokenPipe)
+	}
+	if p.wrClosed {
+		p.mu.Unlock()
+		return 0, types.NewDriverError("Write", "pipe",
+			fmt.Errorf("write end closed"), types.ErrInvalid)
+	}
+	n, _ := p.buf.Write(data)
+	p.mu.Unlock()
+
+	select {
+	case p.notify <- struct{}{}:
+	default:
+	}
+	return n, nil
+}
+
+func (p *pipeBuffer) read(length int, cancelCh <-chan struct{}) ([]byte, error) {
+	for {
+		p.mu.Lock()
+		if p.buf.Len() > 0 {
+			data := make([]byte, min(length, p.buf.Len()))
+			n, _ := p.buf.Read(data)
+			p.mu.Unlock()
+			return data[:n], nil
+		}
+		if p.wrClosed {
+			p.mu.Unlock()
+			return nil, io.EOF
+		}
+		p.mu.Unlock()
+
+		select {
+		case <-p.notify:
+		case <-cancelCh:
+			return nil, context.Canceled
+		}
+	}
+}
+
+func (p *pipeBuffer) closeWrite() {
+	p.mu.Lock()
+	p.wrClosed = true
+	p.mu.Unlock()
+
+	select {
+	case p.notify <- struct{}{}:
+	default:
+	}
+}
+
+func (p *pipeBuffer) closeRead() {
+	p.mu.Lock()
+	p.rdClosed = true
+	p.mu.Unlock()
+
+	select {
+	case p.notify <- struct{}{}:
+	default:
+	}
+}
+
+// pipeReadEnd is the read end of a pipe, implementing vfs.VFSFile.
+type pipeReadEnd struct {
+	pipe     *pipeBuffer
+	cancelCh <-chan struct{}
+	mu       sync.Mutex
+	closed   bool
+}
+
+var _ vfs.VFSFile = (*pipeReadEnd)(nil)
+
+func (r *pipeReadEnd) Read(length int) ([]byte, error) {
+	return r.pipe.read(length, r.cancelCh)
+}
+
+func (r *pipeReadEnd) Write(_ context.Context, _ []byte) error {
+	return types.NewDriverError("Write", "pipe:read",
+		fmt.Errorf("cannot write to read end of pipe"), types.ErrInvalid)
+}
+
+func (r *pipeReadEnd) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil
+	}
+	r.closed = true
+	r.pipe.closeRead()
+	return nil
+}
+
+func (r *pipeReadEnd) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{Name: "pipe:read", IsDevice: true, DevicePath: "pipe"}, nil
+}
+
+// pipeWriteEnd is the write end of a pipe, implementing vfs.VFSFile.
+type pipeWriteEnd struct {
+	pipe   *pipeBuffer
+	mu     sync.Mutex
+	closed bool
+}
+
+var _ vfs.VFSFile = (*pipeWriteEnd)(nil)
+
+func (w *pipeWriteEnd) Read(_ int) ([]byte, error) {
+	return nil, types.NewDriverError("Read", "pipe:write",
+		fmt.Errorf("cannot read from write end of pipe"), types.ErrInvalid)
+}
+
+func (w *pipeWriteEnd) Write(ctx context.Context, data []byte) error {
+	select {
+	case <-ctx.Done():
+		return types.NewDriverError("Write", "pipe",
+			ctx.Err(), types.ErrTimeout)
+	default:
+	}
+
+	_, err := w.pipe.write(data)
+	return err
+}
+
+func (w *pipeWriteEnd) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return nil
+	}
+	w.closed = true
+	w.pipe.closeWrite()
+	return nil
+}
+
+func (w *pipeWriteEnd) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{Name: "pipe:write", IsDevice: true, DevicePath: "pipe"}, nil
+}
+
+// Pipe creates a unidirectional data channel between two processes.
+// The writeFD is registered in the writer's fdTable, and readFD in the reader's.
+func (k *KernelImpl) Pipe(writerPID, readerPID types.PID) (writeFD, readFD types.FD, err error) {
+	start := time.Now()
+
+	// Validate writer exists and is active
+	writerProc, ok := k.GetProcess(writerPID)
+	if !ok {
+		return 0, 0, NewSyscallError("Pipe", writerPID, "",
+			fmt.Errorf("writer process not found"), types.ErrNotFound)
+	}
+	if state := writerProc.GetState(); state == types.StateZombie || state == types.StateDead {
+		return 0, 0, NewSyscallError("Pipe", writerPID, "",
+			fmt.Errorf("writer process %d is %s", writerPID, state), types.ErrNotFound)
+	}
+
+	// Validate reader exists and is active
+	readerProc, ok := k.GetProcess(readerPID)
+	if !ok {
+		return 0, 0, NewSyscallError("Pipe", readerPID, "",
+			fmt.Errorf("reader process not found"), types.ErrNotFound)
+	}
+	if state := readerProc.GetState(); state == types.StateZombie || state == types.StateDead {
+		return 0, 0, NewSyscallError("Pipe", readerPID, "",
+			fmt.Errorf("reader process %d is %s", readerPID, state), types.ErrNotFound)
+	}
+
+	// Create pipe buffer and endpoints
+	pipe := newPipeBuffer()
+	writeEnd := &pipeWriteEnd{pipe: pipe}
+	readEnd := &pipeReadEnd{pipe: pipe, cancelCh: readerProc.ctx.Done()}
+
+	// Register FDs via VFS
+	wfd := k.vfs.RegisterFD(writerPID, writeEnd)
+	rfd := k.vfs.RegisterFD(readerPID, readEnd)
+
+	// Emit SyscallEvent
+	k.emitEvent(writerProc, "Pipe", map[string]any{
+		"writer_pid": writerPID,
+		"reader_pid": readerPID,
+		"write_fd":   wfd,
+		"read_fd":    rfd,
+	}, nil, nil, time.Since(start))
+
+	return wfd, rfd, nil
 }

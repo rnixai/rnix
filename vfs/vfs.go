@@ -153,6 +153,13 @@ func (v *VFS) getOrCreateFDTable(pid types.PID) *fdTable {
 	return t
 }
 
+// RegisterFD registers a pre-created VFSFile in a process's fdTable.
+// Used by the kernel to register pipe endpoints without going through device registry.
+func (v *VFS) RegisterFD(pid types.PID, file VFSFile) types.FD {
+	t := v.getOrCreateFDTable(pid)
+	return t.alloc(file)
+}
+
 // getFDTable returns the fdTable for the given PID, or nil if not found.
 func (v *VFS) getFDTable(pid types.PID) *fdTable {
 	t, ok := v.fdTables.Load(pid)
