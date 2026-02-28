@@ -91,7 +91,7 @@ development_status:
   # Epic 6: IPC 跨进程通信（Inter-Process Communication）
   epic-6: in-progress
   6-1-send-recv-messaging: done
-  6-2-pipe: backlog
+  6-2-pipe: ready-for-dev
   6-3-process-group-and-batch-signal: backlog
   6-4-signal-system: backlog
   6-5-three-level-concurrency-model: backlog
