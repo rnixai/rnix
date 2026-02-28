@@ -1967,8 +1967,8 @@ func TestKill_SyscallEvent(t *testing.T) {
 	if args["pid"] != pid {
 		t.Errorf("Kill event pid: got %v, want %d", args["pid"], pid)
 	}
-	if args["signal"] != types.SIGTERM {
-		t.Errorf("Kill event signal: got %v, want %d", args["signal"], types.SIGTERM)
+	if args["signal"] != types.SIGTERM.String() {
+		t.Errorf("Kill event signal: got %v, want %s", args["signal"], types.SIGTERM.String())
 	}
 }
 

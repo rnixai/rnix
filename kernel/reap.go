@@ -39,13 +39,17 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		// 5. removeFromAllGroups — clean up process group memberships (Story 6.3)
 		k.removeFromAllGroups(proc.PID, proc)
 
-		// 6. CtxFree(CtxID) — release context space
+		// 6. ClearSignalState — clean up signal handlers/blocked/pending/resume (Story 6.4)
+		proc.Resume() // release any goroutine blocked on WaitIfPaused
+		proc.ClearSignalState()
+
+		// 7. CtxFree(CtxID) — release context space
 		_ = k.ctxMgr.CtxFree(proc.CtxID)
 
-		// 7. Reap() — Zombie → Dead state transition
+		// 8. Reap() — Zombie → Dead state transition
 		_ = proc.Reap()
 
-		// 8. RemoveProcess(pid) — remove from process table
+		// 9. RemoveProcess(pid) — remove from process table
 		k.RemoveProcess(proc.PID)
 	})
 }

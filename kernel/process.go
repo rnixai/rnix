@@ -48,6 +48,12 @@ type Process struct {
 
 	groups []types.PGID               // guarded by mu, process group memberships
 
+	// Signal system (mu protected)
+	sigHandlers    map[types.Signal]SignalHandler
+	blockedSignals map[types.Signal]struct{}
+	pendingSignals map[types.Signal]struct{}
+	resumeCh       chan struct{} // nil=not paused; non-nil=paused, close to resume
+
 	mu       sync.Mutex
 	cancel   context.CancelFunc
 	ctx      context.Context
@@ -208,4 +214,140 @@ func (p *Process) GetGroups() []types.PGID {
 	result := make([]types.PGID, len(p.groups))
 	copy(result, p.groups)
 	return result
+}
+
+// --- Signal state methods (all thread-safe via mu) ---
+
+// SetHandler registers a custom signal handler for the given signal.
+func (p *Process) SetHandler(sig types.Signal, handler SignalHandler) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.sigHandlers == nil {
+		p.sigHandlers = make(map[types.Signal]SignalHandler)
+	}
+	p.sigHandlers[sig] = handler
+}
+
+// GetHandler returns the custom handler for the given signal, if any.
+func (p *Process) GetHandler(sig types.Signal) (SignalHandler, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.sigHandlers == nil {
+		return nil, false
+	}
+	h, ok := p.sigHandlers[sig]
+	return h, ok
+}
+
+// BlockSignal adds the signal to the blocked set.
+func (p *Process) BlockSignal(sig types.Signal) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.blockedSignals == nil {
+		p.blockedSignals = make(map[types.Signal]struct{})
+	}
+	p.blockedSignals[sig] = struct{}{}
+}
+
+// UnblockSignal removes the signal from the blocked set and returns whether
+// there was a pending signal of this type.
+func (p *Process) UnblockSignal(sig types.Signal) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.blockedSignals != nil {
+		delete(p.blockedSignals, sig)
+	}
+	_, hasPending := p.pendingSignals[sig]
+	return hasPending
+}
+
+// IsBlocked reports whether the signal is in the blocked set.
+func (p *Process) IsBlocked(sig types.Signal) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.blockedSignals == nil {
+		return false
+	}
+	_, ok := p.blockedSignals[sig]
+	return ok
+}
+
+// AddPending adds the signal to the pending set.
+func (p *Process) AddPending(sig types.Signal) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.pendingSignals == nil {
+		p.pendingSignals = make(map[types.Signal]struct{})
+	}
+	p.pendingSignals[sig] = struct{}{}
+}
+
+// HasPending reports whether the signal is in the pending set.
+func (p *Process) HasPending(sig types.Signal) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.pendingSignals == nil {
+		return false
+	}
+	_, ok := p.pendingSignals[sig]
+	return ok
+}
+
+// ClearPending removes the signal from the pending set.
+func (p *Process) ClearPending(sig types.Signal) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.pendingSignals != nil {
+		delete(p.pendingSignals, sig)
+	}
+}
+
+// Pause creates a resumeCh channel, putting the process into paused state.
+// Idempotent — if already paused, this is a no-op.
+func (p *Process) Pause() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.resumeCh == nil {
+		p.resumeCh = make(chan struct{})
+	}
+}
+
+// Resume closes the resumeCh channel, unblocking any goroutine waiting on WaitIfPaused.
+// Idempotent — if not paused, this is a no-op.
+func (p *Process) Resume() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.resumeCh != nil {
+		close(p.resumeCh)
+		p.resumeCh = nil
+	}
+}
+
+// WaitIfPaused returns the resume channel if the process is paused.
+// Returns nil if not paused (caller should skip select).
+func (p *Process) WaitIfPaused() <-chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.resumeCh
+}
+
+// IsPaused reports whether the process is currently paused.
+func (p *Process) IsPaused() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.resumeCh != nil
+}
+
+// ClearSignalState cleans up all signal state (handlers, blocked, pending, resume channel).
+// Used during process reap.
+func (p *Process) ClearSignalState() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.sigHandlers = nil
+	p.blockedSignals = nil
+	p.pendingSignals = nil
+	if p.resumeCh != nil {
+		close(p.resumeCh)
+		p.resumeCh = nil
+	}
 }

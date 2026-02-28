@@ -37,13 +37,44 @@ const (
 type Signal int
 
 const (
-	SIGTERM Signal = iota + 1
-	SIGKILL
+	SIGTERM   Signal = iota + 1 // 1 — terminate (blockable, handleable)
+	SIGKILL                     // 2 — force kill (not blockable, not handleable)
+	SIGINT                      // 3 — interrupt (blockable, handleable)
+	SIGPAUSE                    // 4 — pause reasoning loop (blockable, handleable)
+	SIGRESUME                   // 5 — resume reasoning loop (blockable, handleable)
 )
 
 // Valid reports whether s is a recognized signal value.
 func (s Signal) Valid() bool {
-	return s == SIGTERM || s == SIGKILL
+	return s >= SIGTERM && s <= SIGRESUME
+}
+
+// String returns the human-readable name for the Signal.
+func (s Signal) String() string {
+	switch s {
+	case SIGTERM:
+		return "SIGTERM"
+	case SIGKILL:
+		return "SIGKILL"
+	case SIGINT:
+		return "SIGINT"
+	case SIGPAUSE:
+		return "SIGPAUSE"
+	case SIGRESUME:
+		return "SIGRESUME"
+	default:
+		return fmt.Sprintf("Signal(%d)", s)
+	}
+}
+
+// IsTermination reports whether the signal terminates the process by default.
+func (s Signal) IsTermination() bool {
+	return s == SIGTERM || s == SIGKILL || s == SIGINT
+}
+
+// Blockable reports whether the signal can be blocked. SIGKILL cannot be blocked.
+func (s Signal) Blockable() bool {
+	return s != SIGKILL
 }
 
 // ProcessState represents the lifecycle state of a process.
