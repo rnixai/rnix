@@ -1,4 +1,4 @@
-# generated: 2026-02-23
+# generated: 2026-02-28
 # project: newxv6
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,13 +33,17 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-02-23
+generated: 2026-02-28
 project: newxv6
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 
 development_status:
+  # ═══════════════════════════════════════════════════════════
+  # Phase 1
+  # ═══════════════════════════════════════════════════════════
+
   # Epic 1: 第一个智能体运行（First Agent Runs）
   epic-1: done
   1-1-project-initialization-and-infrastructure: done
@@ -52,7 +56,7 @@ development_status:
   1-8-end-to-end-integration-and-acceptance: done
   epic-1-retrospective: done
 
-  # Epic 2: Skill 能力与文件访问（Skills & File Access）
+  # Epic 2: Agent 能力与文件访问（Agent Skills & File Access）
   epic-2: done
   2-0-tech-debt-llm-driver-error-handling: done
   2-1-skill-loader-and-manifest-parsing: done
@@ -60,7 +64,7 @@ development_status:
   2-3-shell-driver-dev-shell: done
   2-4-skill-injection-and-device-permission-whitelist: done
   2-5-code-analyst-reference-skill: done
-  2-6-agent-abstraction-and-skill-standardization: done  # Sprint Change Proposal 2026-02-25
+  2-6-agent-abstraction-and-skill-standardization: done
   epic-2-retrospective: done
 
   # Epic 3: 调试追踪（Debug Tracing — astrace）
@@ -88,10 +92,61 @@ development_status:
   5-3-reference-manual: done
   epic-5-retrospective: optional
 
+  # ═══════════════════════════════════════════════════════════
+  # Phase 2
+  # ═══════════════════════════════════════════════════════════
+
   # Epic 6: IPC 跨进程通信（Inter-Process Communication）
-  epic-6: in-progress
+  epic-6: done
   6-1-send-recv-messaging: done
   6-2-pipe: done
   6-3-process-group-and-batch-signal: done
   6-4-signal-system: done
   6-5-three-level-concurrency-model: done
+  epic-6-retrospective: optional
+
+  # Epic 7: Compose 多智能体编排（Agent Compose）
+  epic-7: backlog
+  7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine: backlog
+  7-2-crux-compose-up-command: backlog
+  7-3-crux-compose-down-command: backlog
+  7-4-compose-end-to-end-acceptance: backlog
+  epic-7-retrospective: optional
+
+  # Epic 8: Skill 包管理与生态（Skill Package Management）
+  epic-8: backlog
+  8-1-skill-install: backlog
+  8-2-skill-search: backlog
+  8-3-skill-update: backlog
+  8-4-local-skill-registry-and-skill-list: backlog
+  epic-8-retrospective: optional
+
+  # Epic 9: MCP 服务集成（MCP Integration）
+  epic-9: backlog
+  9-1-mount-unmount-syscall: backlog
+  9-2-agent-yaml-mcp-field-and-auto-mount: backlog
+  9-3-vfs-path-expose-mcp-tools: backlog
+  9-4-four-layer-capability-stack-e2e-validation: backlog
+  epic-9-retrospective: optional
+
+  # Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
+  epic-10: backlog
+  10-1-crux-top-realtime-monitoring-tui: backlog
+  10-2-crux-log-categorized-reasoning-logs: backlog
+  10-3-token-budget-management: backlog
+  10-4-supervisor-tree-and-restart-strategy: backlog
+  10-5-init-bootstrap-sequence: backlog
+  epic-10-retrospective: optional
+
+  # Epic 11: AgentShell 高级语法（AgentShell Advanced Syntax）
+  epic-11: backlog
+  11-1-pipe-syntax: backlog
+  11-2-variables-and-environment-passing: backlog
+  11-3-minimal-control-structures: backlog
+  epic-11-retrospective: optional
+
+  # Epic 12: Phase 2 文档（Phase 2 Documentation）
+  epic-12: backlog
+  12-1-tutorial-documentation: backlog
+  12-2-architecture-documentation: backlog
+  epic-12-retrospective: optional
