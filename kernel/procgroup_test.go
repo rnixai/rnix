@@ -265,6 +265,27 @@ func TestLeaveGroup_NotInGroup(t *testing.T) {
 	}
 }
 
+// TestLeaveGroup_GroupNotFound verifies leaving a non-existent group returns ErrNotFound.
+func TestLeaveGroup_GroupNotFound(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newIPCTestProcess(t, k)
+
+	err := k.LeaveGroup(proc.PID, 99999)
+	if err == nil {
+		t.Fatal("expected error for non-existent group")
+	}
+	se, ok := err.(*SyscallError)
+	if !ok {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if se.Code != types.ErrNotFound {
+		t.Errorf("Code = %v, want ErrNotFound", se.Code)
+	}
+	if se.Syscall != "LeaveGroup" {
+		t.Errorf("Syscall = %q, want LeaveGroup", se.Syscall)
+	}
+}
+
 // TestGetProcGroup_NotFound verifies querying a non-existent group returns ErrNotFound.
 func TestGetProcGroup_NotFound(t *testing.T) {
 	k := newSimpleKernel(t)
@@ -404,9 +425,9 @@ func TestReapProcess_AutoRemove(t *testing.T) {
 		t.Fatalf("JoinGroup p2 to g1 failed: %v", err)
 	}
 
-	// Simulate reap of p1: terminate then call removeFromAllGroups
+	// Reap p1 through the full reapProcess path
 	_ = p1.Terminate(ExitStatus{Code: 0, Reason: "done"})
-	k.removeFromAllGroups(p1.PID, p1)
+	k.reapProcess(p1)
 
 	// g1 should only contain p2
 	members, err := k.GetProcGroup(g1)
@@ -434,9 +455,9 @@ func TestReapProcess_GroupAutoDestroy(t *testing.T) {
 		t.Fatalf("JoinGroup failed: %v", err)
 	}
 
-	// Simulate reap
+	// Reap through the full reapProcess path
 	_ = proc.Terminate(ExitStatus{Code: 0, Reason: "done"})
-	k.removeFromAllGroups(proc.PID, proc)
+	k.reapProcess(proc)
 
 	_, err := k.GetProcGroup(groupID)
 	if err == nil {

@@ -1,6 +1,6 @@
 # Story 6.3: 进程组与批量信号
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -577,11 +577,18 @@ Claude Opus 4.6
 - ✅ Task 7: 19 个单元测试全部通过（含 `-race`），覆盖 JoinGroup/LeaveGroup/GetProcGroup/SignalGroup/reap 清理/并发/性能
 - ✅ Task 8: `make test` 全部通过、`golangci-lint` 0 issues、`go build` 成功、所有现有测试无回归
 
+### Code Review Fixes (AI)
+
+- **[M1] SignalGroup success_count 准确性修复** (`kernel/procgroup.go`): SignalGroup 在调用 Kill 前检查进程状态，跳过 Zombie/Dead 进程，使 SyscallEvent 中的 `success_count` 仅统计实际存活并收到信号的进程
+- **[M2] 组级 SyscallEvent 发射可靠性修复** (`kernel/procgroup.go`): 新增 `findGroupEventSource` 辅助方法，遍历所有成员找到第一个仍在 procTable 中的进程来发射事件，替代原来仅依赖 `members[0]` 的不可靠方式。同时修复 GetProcGroup 和 SignalGroup
+- **[M3] TestReapProcess 测试改为通过完整 reapProcess 路径** (`kernel/procgroup_test.go`): `TestReapProcess_AutoRemove` 和 `TestReapProcess_GroupAutoDestroy` 现在调用 `k.reapProcess(proc)` 而非直接调用 `removeFromAllGroups`，验证实际集成点
+- **[M4] 新增 TestLeaveGroup_GroupNotFound 测试** (`kernel/procgroup_test.go`): 覆盖 LeaveGroup 对不存在组的错误路径（`procgroup.go:109-113`）
+
 ### File List
 
 **新增文件：**
 - `kernel/procgroup.go` — ProcGroupManager 接口 + ProcGroup 结构体 + JoinGroup/LeaveGroup/GetProcGroup/SignalGroup/removeFromAllGroups 实现
-- `kernel/procgroup_test.go` — 19 个进程组单元测试
+- `kernel/procgroup_test.go` — 20 个进程组单元测试（含新增 TestLeaveGroup_GroupNotFound）
 
 **修改文件：**
 - `internal/types/types.go` — 新增 `PGID uint64` 类型
