@@ -3,6 +3,7 @@ package kernel
 import (
 	gocontext "context"
 	"errors"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -452,9 +453,9 @@ func TestPipe_WriteCloseEOF(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error after write end closed")
 	}
-	// VFS wraps the io.EOF into a VFSError; check for EOF in chain
-	if err.Error() == "" {
-		t.Fatal("error should have non-empty message")
+	// VFS wraps io.EOF into a VFSError; verify EOF in Unwrap chain
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("expected io.EOF in error chain, got: %v", err)
 	}
 }
 
@@ -794,4 +795,73 @@ func TestPipe_DoubleClose(t *testing.T) {
 		t.Fatalf("First close read failed: %v", err)
 	}
 	_ = k.vfs.Close(reader.PID, rfd)
+}
+
+// TestPipe_WrongDirection verifies writing to read-end and reading from write-end return ErrInvalid.
+func TestPipe_WrongDirection(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+
+	// Write to read-end should fail with ErrInvalid
+	err = k.vfs.Write(reader.ctx, reader.PID, rfd, []byte("wrong"))
+	if err == nil {
+		t.Fatal("expected error writing to read end")
+	}
+	var writeErr *vfs.VFSError
+	if !errors.As(err, &writeErr) {
+		t.Fatalf("expected *VFSError, got %T: %v", err, err)
+	}
+	if writeErr.Code != types.ErrInvalid {
+		t.Errorf("Code = %v, want ErrInvalid", writeErr.Code)
+	}
+
+	// Read from write-end should fail with ErrInvalid
+	_, err = k.vfs.Read(writer.PID, wfd, 1024)
+	if err == nil {
+		t.Fatal("expected error reading from write end")
+	}
+	var readErr *vfs.VFSError
+	if !errors.As(err, &readErr) {
+		t.Fatalf("expected *VFSError, got %T: %v", err, err)
+	}
+	if readErr.Code != types.ErrInvalid {
+		t.Errorf("Code = %v, want ErrInvalid", readErr.Code)
+	}
+}
+
+// TestPipe_WriteAfterWriteClose verifies writing after write-end is closed returns error.
+func TestPipe_WriteAfterWriteClose(t *testing.T) {
+	k := newSimpleKernel(t)
+	writer := newIPCTestProcess(t, k)
+	reader := newIPCTestProcess(t, k)
+
+	wfd, rfd, err := k.Pipe(writer.PID, reader.PID)
+	if err != nil {
+		t.Fatalf("Pipe failed: %v", err)
+	}
+	_ = rfd // keep reader side open
+
+	// Close write end
+	if err := k.vfs.Close(writer.PID, wfd); err != nil {
+		t.Fatalf("Close write failed: %v", err)
+	}
+
+	// Write via VFS after close → FD removed from table → ErrNotFound
+	err = k.vfs.Write(writer.ctx, writer.PID, wfd, []byte("after-close"))
+	if err == nil {
+		t.Fatal("expected error writing after write-end closed")
+	}
+	var vfsErr *vfs.VFSError
+	if !errors.As(err, &vfsErr) {
+		t.Fatalf("expected *VFSError, got %T: %v", err, err)
+	}
+	if vfsErr.Code != types.ErrNotFound {
+		t.Errorf("Code = %v, want ErrNotFound (FD removed)", vfsErr.Code)
+	}
 }

@@ -1,6 +1,6 @@
 # Story 6.2: Pipe 管道
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -18,7 +18,7 @@ So that 智能体可以流式传递数据，实现链式处理。
 
 3. **写端关闭 EOF** — Given 写端关闭，When 读端继续 Read，Then 返回 EOF，不阻塞
 
-4. **读端关闭 BrokenPipe** — Given 读端关闭，When 写端继续 Write，Then 返回 `*SyscallError`，`Code` 为 `ErrBrokenPipe`
+4. **读端关闭 BrokenPipe** — Given 读端关闭，When 写端继续 Write，Then VFS 层返回 `*VFSError`，`Code` 为 `ErrBrokenPipe`
 
 5. **Compose 集成预备** — Given 管道用于 Compose 编排，When 前置智能体完成后，Then 其输出通过管道自动注入下游智能体的上下文（注：此 AC 仅要求管道 API 设计兼容，实际 Compose 编排在 Epic 7 实现）
 
@@ -429,6 +429,10 @@ Pipe syscall 通过 `emitEvent` 记录：
 | NFR19 | 不破坏 Phase 1 ABI | IPCManager 新增方法，现有方法签名不变 |
 | NFR24 | ≥10 并发进程表操作 ≤ 2x 延迟 | 管道通过 VFS FD 系统管理，不增加进程表压力 |
 
+### Known Limitations
+
+- **pipeBuffer 无界内存增长**：`pipeBuffer.write()` 使用 `bytes.Buffer` 无容量限制，写端产生速度远超读端时内存将持续增长。这是设计决策（非阻塞写语义），生产环境如需背压需在 Epic 7+ 中扩展。
+
 ### 与 Story 6.1 的关系
 
 Story 6.1 建立了 IPC 基础：`IPCManager` 接口、`KernelImpl` 的 IPC 字段、SyscallEvent 记录模式、进程生命周期集成。Story 6.2 在此基础上扩展：
@@ -520,17 +524,18 @@ Claude Opus 4.6 (claude-opus-4-6)
 - ✅ Task 3: 实现 `pipeBuffer` 共享缓冲区，基于 `sync.Mutex` + `bytes.Buffer` + 缓冲 1 的 `chan struct{}` 信号量，支持阻塞读、非阻塞写、双向关闭通知
 - ✅ Task 4: 实现 `pipeReadEnd`/`pipeWriteEnd` 两个 `vfs.VFSFile` 实现，含编译期接口检查、幂等 Close、cancelCh 支持
 - ✅ Task 5: 实现 `Pipe` syscall，验证双方进程状态、创建管道、通过 VFS RegisterFD 注册 FD、发射 SyscallEvent，错误统一包装为 `*SyscallError`
-- ✅ Task 6: 12 个 Pipe 测试全部通过（含 `-race`）：基本读写、跨进程传递、写端关闭 EOF、读端关闭 BrokenPipe、阻塞读、context 取消、并发写、1MB 吞吐量、无效 PID、Dead 进程、SyscallEvent、双重关闭
+- ✅ Task 6: 14 个 Pipe 测试全部通过（含 `-race`）：基本读写、跨进程传递、写端关闭 EOF、读端关闭 BrokenPipe、阻塞读、context 取消、并发写、1MB 吞吐量、无效 PID、Dead 进程、SyscallEvent、双重关闭、错方向操作、Close 后写入
 - ✅ Task 7: 全量回归测试通过（kernel, vfs, context, debug, agents, skills, internal 等包），go vet 通过，编译成功
 
 ### File List
 
 - `internal/types/types.go` — 新增 `ErrBrokenPipe ErrCode`
 - `kernel/ipc.go` — 扩展 IPCManager 接口 + pipeBuffer + pipeReadEnd + pipeWriteEnd + Pipe 实现（~210 行新增）
-- `kernel/ipc_test.go` — 12 个 Pipe 测试用例 + 新增 imports（errors, vfs）
+- `kernel/ipc_test.go` — 14 个 Pipe 测试用例 + 新增 imports（errors, io, vfs）
 - `vfs/vfs.go` — 新增 `RegisterFD` 方法
 - `vfs/vfs_test.go` — 4 个 RegisterFD 子测试
 
 ### Change Log
 
 - 2026-02-28: Story 6.2 Pipe 管道实现完成，所有 7 个 Task 及子任务完成
+- 2026-02-28: Code Review 修复 — 修正 AC #4 类型声明、加强 EOF 断言、新增 WrongDirection/WriteAfterClose 测试、记录无界缓冲区 known limitation
