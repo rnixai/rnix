@@ -143,14 +143,11 @@ func (k *KernelImpl) GetProcGroup(groupID types.PGID) ([]types.PID, error) {
 
 	members := group.Members()
 
-	// Emit event using the first member if available
-	if len(members) > 0 {
-		if proc, ok := k.GetProcess(members[0]); ok {
-			k.emitEvent(proc, "GetProcGroup", map[string]any{
-				"group_id":     groupID,
-				"member_count": len(members),
-			}, nil, nil, time.Since(start))
-		}
+	if proc := k.findGroupEventSource(members); proc != nil {
+		k.emitEvent(proc, "GetProcGroup", map[string]any{
+			"group_id":     groupID,
+			"member_count": len(members),
+		}, nil, nil, time.Since(start))
 	}
 
 	return members, nil
@@ -179,13 +176,20 @@ func (k *KernelImpl) SignalGroup(groupID types.PGID, signal types.Signal) error 
 
 	successCount := 0
 	for _, pid := range members {
-		err := k.Kill(pid, signal)
-		if err == nil {
+		// Skip already-terminated processes to keep success_count accurate
+		proc, ok := k.GetProcess(pid)
+		if !ok {
+			continue
+		}
+		if state := proc.GetState(); state == types.StateZombie || state == types.StateDead {
+			continue
+		}
+		if err := k.Kill(pid, signal); err == nil {
 			successCount++
 		}
 	}
 
-	if proc, ok := k.GetProcess(members[0]); ok {
+	if proc := k.findGroupEventSource(members); proc != nil {
 		k.emitEvent(proc, "SignalGroup", map[string]any{
 			"group_id":      groupID,
 			"signal":        signal,
@@ -208,4 +212,15 @@ func (k *KernelImpl) removeFromAllGroups(pid types.PID, proc *Process) {
 			}
 		}
 	}
+}
+
+// findGroupEventSource returns the first process still in procTable from the
+// given PID list, for use as the event source in group-level SyscallEvents.
+func (k *KernelImpl) findGroupEventSource(pids []types.PID) *Process {
+	for _, pid := range pids {
+		if proc, ok := k.GetProcess(pid); ok {
+			return proc
+		}
+	}
+	return nil
 }
