@@ -40,7 +40,6 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		k.removeFromAllGroups(proc.PID, proc)
 
 		// 6. ClearSignalState — clean up signal handlers/blocked/pending/resume (Story 6.4)
-		proc.Resume() // release any goroutine blocked on WaitIfPaused
 		proc.ClearSignalState()
 
 		// 7. CtxFree(CtxID) — release context space

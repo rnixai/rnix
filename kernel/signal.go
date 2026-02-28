@@ -53,23 +53,21 @@ func (k *KernelImpl) Signal(pid types.PID, sig types.Signal) error {
 }
 
 // deliverSignal performs the actual signal dispatch logic.
-// It checks blocking, custom handlers, and default actions.
+// Uses resolveSignalDisposition for atomic check of blocked/handler/default
+// under a single lock hold, preventing TOCTOU races.
+// SIGKILL always uses default behavior (cannot be blocked or handled).
 // Returns the action string describing what happened.
 func (k *KernelImpl) deliverSignal(proc *Process, sig types.Signal) string {
-	// Check if blocked (SIGKILL is never blocked due to Blockable() check in SigBlock)
-	if proc.IsBlocked(sig) {
-		proc.AddPending(sig)
+	disp, handler := proc.resolveSignalDisposition(sig)
+	switch disp {
+	case dispBlocked:
 		return "blocked_pending"
-	}
-
-	// Check custom handler
-	if handler, ok := proc.GetHandler(sig); ok {
+	case dispHandler:
 		handler(sig)
 		return "handler"
+	default:
+		return k.defaultSignalAction(proc, sig)
 	}
-
-	// Default behavior
-	return k.defaultSignalAction(proc, sig)
 }
 
 // defaultSignalAction executes the default behavior for a signal.
@@ -109,6 +107,12 @@ func (k *KernelImpl) SigBlock(pid types.PID, sig types.Signal) error {
 			fmt.Errorf("process not found"), types.ErrNotFound)
 	}
 
+	state := proc.GetState()
+	if state == types.StateZombie || state == types.StateDead {
+		return NewSyscallError("SigBlock", pid, "",
+			fmt.Errorf("process %d is %s", pid, state), types.ErrNotFound)
+	}
+
 	proc.BlockSignal(sig)
 
 	k.emitEvent(proc, "SigBlock", map[string]any{
@@ -133,6 +137,12 @@ func (k *KernelImpl) SigUnblock(pid types.PID, sig types.Signal) error {
 	if !ok {
 		return NewSyscallError("SigUnblock", pid, "",
 			fmt.Errorf("process not found"), types.ErrNotFound)
+	}
+
+	state := proc.GetState()
+	if state == types.StateZombie || state == types.StateDead {
+		return NewSyscallError("SigUnblock", pid, "",
+			fmt.Errorf("process %d is %s", pid, state), types.ErrNotFound)
 	}
 
 	hasPending := proc.UnblockSignal(sig)
