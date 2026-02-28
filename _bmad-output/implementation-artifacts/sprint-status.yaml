@@ -93,5 +93,5 @@ development_status:
   6-1-send-recv-messaging: done
   6-2-pipe: done
   6-3-process-group-and-batch-signal: done
-  6-4-signal-system: backlog
+  6-4-signal-system: ready-for-dev
   6-5-three-level-concurrency-model: backlog
