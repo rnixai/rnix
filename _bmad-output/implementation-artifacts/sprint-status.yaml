@@ -103,7 +103,7 @@ development_status:
   6-3-process-group-and-batch-signal: done
   6-4-signal-system: done
   6-5-three-level-concurrency-model: done
-  epic-6-retrospective: optional
+  epic-6-retrospective: done
 
   # Epic 7: Compose 多智能体编排（Agent Compose）
   epic-7: backlog
