@@ -1,6 +1,6 @@
 # Story 6.2: Pipe 管道
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -24,68 +24,68 @@ So that 智能体可以流式传递数据，实现链式处理。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 新增类型和接口扩展 (AC: #1, #4)
-  - [ ] 1.1 在 `internal/types/types.go` 中新增 `ErrBrokenPipe ErrCode = "BROKEN_PIPE"`
-  - [ ] 1.2 在 `kernel/ipc.go` 的 `IPCManager` 接口中新增 `Pipe(writerPID, readerPID types.PID) (writeFD, readFD types.FD, error)` 方法
-  - [ ] 1.3 更新 `var _ IPCManager = (*KernelImpl)(nil)` 编译期检查确保新接口满足
-  - [ ] 1.4 验证 Phase 1 全部现有测试通过（`make test`）
+- [x] Task 1: 新增类型和接口扩展 (AC: #1, #4)
+  - [x] 1.1 在 `internal/types/types.go` 中新增 `ErrBrokenPipe ErrCode = "BROKEN_PIPE"`
+  - [x] 1.2 在 `kernel/ipc.go` 的 `IPCManager` 接口中新增 `Pipe(writerPID, readerPID types.PID) (writeFD, readFD types.FD, error)` 方法
+  - [x] 1.3 更新 `var _ IPCManager = (*KernelImpl)(nil)` 编译期检查确保新接口满足
+  - [x] 1.4 验证 Phase 1 全部现有测试通过（`make test`）
 
-- [ ] Task 2: VFS 扩展 — RegisterFD (AC: #1, #2)
-  - [ ] 2.1 在 `vfs/vfs.go` 中新增 `RegisterFD(pid types.PID, file VFSFile) types.FD` 方法
-  - [ ] 2.2 实现：获取或创建 pid 的 fdTable，调用 `t.alloc(file)` 分配 FD 并返回
-  - [ ] 2.3 在 `vfs/vfs_test.go` 中为 RegisterFD 添加单元测试
+- [x] Task 2: VFS 扩展 — RegisterFD (AC: #1, #2)
+  - [x] 2.1 在 `vfs/vfs.go` 中新增 `RegisterFD(pid types.PID, file VFSFile) types.FD` 方法
+  - [x] 2.2 实现：获取或创建 pid 的 fdTable，调用 `t.alloc(file)` 分配 FD 并返回
+  - [x] 2.3 在 `vfs/vfs_test.go` 中为 RegisterFD 添加单元测试
 
-- [ ] Task 3: 实现 pipeBuffer 共享缓冲区 (AC: #1, #3, #4)
-  - [ ] 3.1 在 `kernel/ipc.go` 中新增 `pipeBuffer` 结构体（`sync.Mutex` + `bytes.Buffer` + `chan struct{}` 通知 + `wrClosed`/`rdClosed` 标志）
-  - [ ] 3.2 实现 `newPipeBuffer() *pipeBuffer`
-  - [ ] 3.3 实现 `pipeBuffer.write(data []byte) (int, error)` — 写入数据并发信号，`rdClosed` 时返回 `ErrBrokenPipe`
-  - [ ] 3.4 实现 `pipeBuffer.read(length int, cancelCh <-chan struct{}) ([]byte, error)` — 阻塞读取，`wrClosed` 时缓冲区空返回 `io.EOF`，`cancelCh` 关闭时返回 `context.Canceled`
-  - [ ] 3.5 实现 `pipeBuffer.closeWrite()` — 标记写端关闭，发信号唤醒读端
-  - [ ] 3.6 实现 `pipeBuffer.closeRead()` — 标记读端关闭，发信号唤醒写端
+- [x] Task 3: 实现 pipeBuffer 共享缓冲区 (AC: #1, #3, #4)
+  - [x] 3.1 在 `kernel/ipc.go` 中新增 `pipeBuffer` 结构体（`sync.Mutex` + `bytes.Buffer` + `chan struct{}` 通知 + `wrClosed`/`rdClosed` 标志）
+  - [x] 3.2 实现 `newPipeBuffer() *pipeBuffer`
+  - [x] 3.3 实现 `pipeBuffer.write(data []byte) (int, error)` — 写入数据并发信号，`rdClosed` 时返回 `ErrBrokenPipe`
+  - [x] 3.4 实现 `pipeBuffer.read(length int, cancelCh <-chan struct{}) ([]byte, error)` — 阻塞读取，`wrClosed` 时缓冲区空返回 `io.EOF`，`cancelCh` 关闭时返回 `context.Canceled`
+  - [x] 3.5 实现 `pipeBuffer.closeWrite()` — 标记写端关闭，发信号唤醒读端
+  - [x] 3.6 实现 `pipeBuffer.closeRead()` — 标记读端关闭，发信号唤醒写端
 
-- [ ] Task 4: 实现 pipeReadEnd / pipeWriteEnd VFSFile (AC: #1, #2, #3, #4)
-  - [ ] 4.1 在 `kernel/ipc.go` 中新增 `pipeReadEnd` 结构体（`*pipeBuffer` + `cancelCh <-chan struct{}` + `closed bool` + `mu sync.Mutex`）
-  - [ ] 4.2 实现 `pipeReadEnd.Read(length int) ([]byte, error)` — 委托 `pipeBuffer.read(length, cancelCh)`
-  - [ ] 4.3 实现 `pipeReadEnd.Write(ctx, data) error` — 返回 ErrInvalid（只读端禁写）
-  - [ ] 4.4 实现 `pipeReadEnd.Close() error` — 调用 `pipeBuffer.closeRead()`，幂等
-  - [ ] 4.5 实现 `pipeReadEnd.Stat() (FileStat, error)` — 返回 `{Name: "pipe:read", IsDevice: true}`
-  - [ ] 4.6 在 `kernel/ipc.go` 中新增 `pipeWriteEnd` 结构体（`*pipeBuffer` + `closed bool` + `mu sync.Mutex`）
-  - [ ] 4.7 实现 `pipeWriteEnd.Read(length int) ([]byte, error)` — 返回 ErrInvalid（只写端禁读）
-  - [ ] 4.8 实现 `pipeWriteEnd.Write(ctx, data) error` — 委托 `pipeBuffer.write(data)`，检查 ctx 取消
-  - [ ] 4.9 实现 `pipeWriteEnd.Close() error` — 调用 `pipeBuffer.closeWrite()`，幂等
-  - [ ] 4.10 实现 `pipeWriteEnd.Stat() (FileStat, error)` — 返回 `{Name: "pipe:write", IsDevice: true}`
-  - [ ] 4.11 编译期接口检查：`var _ vfs.VFSFile = (*pipeReadEnd)(nil)` 和 `var _ vfs.VFSFile = (*pipeWriteEnd)(nil)`
+- [x] Task 4: 实现 pipeReadEnd / pipeWriteEnd VFSFile (AC: #1, #2, #3, #4)
+  - [x] 4.1 在 `kernel/ipc.go` 中新增 `pipeReadEnd` 结构体（`*pipeBuffer` + `cancelCh <-chan struct{}` + `closed bool` + `mu sync.Mutex`）
+  - [x] 4.2 实现 `pipeReadEnd.Read(length int) ([]byte, error)` — 委托 `pipeBuffer.read(length, cancelCh)`
+  - [x] 4.3 实现 `pipeReadEnd.Write(ctx, data) error` — 返回 ErrInvalid（只读端禁写）
+  - [x] 4.4 实现 `pipeReadEnd.Close() error` — 调用 `pipeBuffer.closeRead()`，幂等
+  - [x] 4.5 实现 `pipeReadEnd.Stat() (FileStat, error)` — 返回 `{Name: "pipe:read", IsDevice: true}`
+  - [x] 4.6 在 `kernel/ipc.go` 中新增 `pipeWriteEnd` 结构体（`*pipeBuffer` + `closed bool` + `mu sync.Mutex`）
+  - [x] 4.7 实现 `pipeWriteEnd.Read(length int) ([]byte, error)` — 返回 ErrInvalid（只写端禁读）
+  - [x] 4.8 实现 `pipeWriteEnd.Write(ctx, data) error` — 委托 `pipeBuffer.write(data)`，检查 ctx 取消
+  - [x] 4.9 实现 `pipeWriteEnd.Close() error` — 调用 `pipeBuffer.closeWrite()`，幂等
+  - [x] 4.10 实现 `pipeWriteEnd.Stat() (FileStat, error)` — 返回 `{Name: "pipe:write", IsDevice: true}`
+  - [x] 4.11 编译期接口检查：`var _ vfs.VFSFile = (*pipeReadEnd)(nil)` 和 `var _ vfs.VFSFile = (*pipeWriteEnd)(nil)`
 
-- [ ] Task 5: 实现 Pipe syscall (AC: #1, #2, #5)
-  - [ ] 5.1 实现 `func (k *KernelImpl) Pipe(writerPID, readerPID types.PID) (writeFD, readFD types.FD, error)`
-  - [ ] 5.2 Pipe 内部：验证 writerPID 和 readerPID 存在且非 Zombie/Dead
-  - [ ] 5.3 Pipe 内部：获取 readerPID 进程的 `ctx.Done()` 作为 cancelCh
-  - [ ] 5.4 Pipe 内部：创建 `pipeBuffer`
-  - [ ] 5.5 Pipe 内部：创建 `pipeWriteEnd` 和 `pipeReadEnd`（传入 cancelCh）
-  - [ ] 5.6 Pipe 内部：通过 `k.vfs.RegisterFD(writerPID, writeEnd)` 注册 writeFD
-  - [ ] 5.7 Pipe 内部：通过 `k.vfs.RegisterFD(readerPID, readEnd)` 注册 readFD
-  - [ ] 5.8 Pipe 入口/出口写入 SyscallEvent（emitEvent，记录双方 PID 和 FD）
-  - [ ] 5.9 所有错误包装为 `*SyscallError`（Syscall="Pipe"）
+- [x] Task 5: 实现 Pipe syscall (AC: #1, #2, #5)
+  - [x] 5.1 实现 `func (k *KernelImpl) Pipe(writerPID, readerPID types.PID) (writeFD, readFD types.FD, error)`
+  - [x] 5.2 Pipe 内部：验证 writerPID 和 readerPID 存在且非 Zombie/Dead
+  - [x] 5.3 Pipe 内部：获取 readerPID 进程的 `ctx.Done()` 作为 cancelCh
+  - [x] 5.4 Pipe 内部：创建 `pipeBuffer`
+  - [x] 5.5 Pipe 内部：创建 `pipeWriteEnd` 和 `pipeReadEnd`（传入 cancelCh）
+  - [x] 5.6 Pipe 内部：通过 `k.vfs.RegisterFD(writerPID, writeEnd)` 注册 writeFD
+  - [x] 5.7 Pipe 内部：通过 `k.vfs.RegisterFD(readerPID, readEnd)` 注册 readFD
+  - [x] 5.8 Pipe 入口/出口写入 SyscallEvent（emitEvent，记录双方 PID 和 FD）
+  - [x] 5.9 所有错误包装为 `*SyscallError`（Syscall="Pipe"）
 
-- [ ] Task 6: 单元测试 (AC: #1-4)
-  - [ ] 6.1 `kernel/ipc_test.go` — TestPipe_Basic：同进程创建管道，写入后读取验证内容
-  - [ ] 6.2 TestPipe_CrossProcess：writerPID ≠ readerPID，A 写 B 读验证数据传递
-  - [ ] 6.3 TestPipe_WriteCloseEOF：关闭写端后，读端返回 io.EOF
-  - [ ] 6.4 TestPipe_ReadCloseBrokenPipe：关闭读端后，写端返回 ErrBrokenPipe
-  - [ ] 6.5 TestPipe_BlockUntilData：读端阻塞直到写端写入数据
-  - [ ] 6.6 TestPipe_CancelUnblocksRead：进程 context 取消后，阻塞的 Read 立即返回
-  - [ ] 6.7 TestPipe_Concurrent：多 goroutine 并发写入同一管道，读端全部读取无丢失无 race
-  - [ ] 6.8 TestPipe_LargeData：写入 ≥1MB 数据验证 NFR23 吞吐量
-  - [ ] 6.9 TestPipe_InvalidPID：不存在的 PID 返回 ErrNotFound
-  - [ ] 6.10 TestPipe_DeadProcess：Zombie/Dead 进程返回 ErrNotFound
-  - [ ] 6.11 TestPipe_SyscallEvent：验证 DebugChan 收到 Pipe 的 SyscallEvent
-  - [ ] 6.12 TestPipe_DoubleClose：重复关闭同一端不 panic（幂等）
+- [x] Task 6: 单元测试 (AC: #1-4)
+  - [x] 6.1 `kernel/ipc_test.go` — TestPipe_Basic：同进程创建管道，写入后读取验证内容
+  - [x] 6.2 TestPipe_CrossProcess：writerPID ≠ readerPID，A 写 B 读验证数据传递
+  - [x] 6.3 TestPipe_WriteCloseEOF：关闭写端后，读端返回 io.EOF
+  - [x] 6.4 TestPipe_ReadCloseBrokenPipe：关闭读端后，写端返回 ErrBrokenPipe
+  - [x] 6.5 TestPipe_BlockUntilData：读端阻塞直到写端写入数据
+  - [x] 6.6 TestPipe_CancelUnblocksRead：进程 context 取消后，阻塞的 Read 立即返回
+  - [x] 6.7 TestPipe_Concurrent：多 goroutine 并发写入同一管道，读端全部读取无丢失无 race
+  - [x] 6.8 TestPipe_LargeData：写入 ≥1MB 数据验证 NFR23 吞吐量
+  - [x] 6.9 TestPipe_InvalidPID：不存在的 PID 返回 ErrNotFound
+  - [x] 6.10 TestPipe_DeadProcess：Zombie/Dead 进程返回 ErrNotFound
+  - [x] 6.11 TestPipe_SyscallEvent：验证 DebugChan 收到 Pipe 的 SyscallEvent
+  - [x] 6.12 TestPipe_DoubleClose：重复关闭同一端不 panic（幂等）
 
-- [ ] Task 7: 集成验证 (AC: #1, #2, #5)
-  - [ ] 7.1 `make test` 全部通过（含 `-race`）
-  - [ ] 7.2 `make lint` 通过
-  - [ ] 7.3 `make build` 编译成功
-  - [ ] 7.4 验证 Phase 1 + Story 6.1 所有现有测试无回归
+- [x] Task 7: 集成验证 (AC: #1, #2, #5)
+  - [x] 7.1 `make test` 全部通过（含 `-race`）
+  - [x] 7.2 `make lint` 通过
+  - [x] 7.3 `make build` 编译成功
+  - [x] 7.4 验证 Phase 1 + Story 6.1 所有现有测试无回归
 
 ## Dev Notes
 
@@ -509,10 +509,28 @@ import (
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6 (claude-opus-4-6)
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- ✅ Task 1: 新增 `ErrBrokenPipe` ErrCode，扩展 `IPCManager` 接口添加 `Pipe` 方法，编译期检查通过
+- ✅ Task 2: VFS 新增 `RegisterFD` 方法，允许内核直接注册 VFSFile 到进程 fdTable（无需通过 DeviceRegistry），含 4 个子测试
+- ✅ Task 3: 实现 `pipeBuffer` 共享缓冲区，基于 `sync.Mutex` + `bytes.Buffer` + 缓冲 1 的 `chan struct{}` 信号量，支持阻塞读、非阻塞写、双向关闭通知
+- ✅ Task 4: 实现 `pipeReadEnd`/`pipeWriteEnd` 两个 `vfs.VFSFile` 实现，含编译期接口检查、幂等 Close、cancelCh 支持
+- ✅ Task 5: 实现 `Pipe` syscall，验证双方进程状态、创建管道、通过 VFS RegisterFD 注册 FD、发射 SyscallEvent，错误统一包装为 `*SyscallError`
+- ✅ Task 6: 12 个 Pipe 测试全部通过（含 `-race`）：基本读写、跨进程传递、写端关闭 EOF、读端关闭 BrokenPipe、阻塞读、context 取消、并发写、1MB 吞吐量、无效 PID、Dead 进程、SyscallEvent、双重关闭
+- ✅ Task 7: 全量回归测试通过（kernel, vfs, context, debug, agents, skills, internal 等包），go vet 通过，编译成功
+
 ### File List
+
+- `internal/types/types.go` — 新增 `ErrBrokenPipe ErrCode`
+- `kernel/ipc.go` — 扩展 IPCManager 接口 + pipeBuffer + pipeReadEnd + pipeWriteEnd + Pipe 实现（~210 行新增）
+- `kernel/ipc_test.go` — 12 个 Pipe 测试用例 + 新增 imports（errors, vfs）
+- `vfs/vfs.go` — 新增 `RegisterFD` 方法
+- `vfs/vfs_test.go` — 4 个 RegisterFD 子测试
+
+### Change Log
+
+- 2026-02-28: Story 6.2 Pipe 管道实现完成，所有 7 个 Task 及子任务完成

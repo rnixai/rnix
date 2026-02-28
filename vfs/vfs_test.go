@@ -379,3 +379,75 @@ func TestVFSError_Unwrap(t *testing.T) {
 		t.Fatal("errors.Is should find underlying error")
 	}
 }
+
+func TestVFS_RegisterFD(t *testing.T) {
+	t.Run("registers file and returns valid FD", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		v := NewVFS(reg)
+		pid := types.PID(1)
+
+		mf := &mockFile{readData: []byte("pipe-data")}
+		fd := v.RegisterFD(pid, mf)
+		if fd < 3 {
+			t.Fatalf("expected FD >= 3, got %d", fd)
+		}
+
+		// Read via the registered FD
+		data, err := v.Read(pid, fd, 100)
+		if err != nil {
+			t.Fatalf("Read failed: %v", err)
+		}
+		if string(data) != "pipe-data" {
+			t.Errorf("Data = %q, want %q", data, "pipe-data")
+		}
+	})
+
+	t.Run("sequential FDs for same PID", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		v := NewVFS(reg)
+		pid := types.PID(1)
+
+		fd1 := v.RegisterFD(pid, &mockFile{})
+		fd2 := v.RegisterFD(pid, &mockFile{})
+		fd3 := v.RegisterFD(pid, &mockFile{})
+
+		if fd2 != fd1+1 || fd3 != fd2+1 {
+			t.Fatalf("expected sequential FDs, got %d, %d, %d", fd1, fd2, fd3)
+		}
+	})
+
+	t.Run("independent FD tables per PID", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		v := NewVFS(reg)
+
+		fd1 := v.RegisterFD(types.PID(1), &mockFile{readData: []byte("p1")})
+		fd2 := v.RegisterFD(types.PID(2), &mockFile{readData: []byte("p2")})
+
+		// Both get FD 3 (independent counters)
+		if fd1 != 3 || fd2 != 3 {
+			t.Fatalf("expected both FD 3, got %d and %d", fd1, fd2)
+		}
+
+		data1, _ := v.Read(types.PID(1), fd1, 100)
+		data2, _ := v.Read(types.PID(2), fd2, 100)
+		if string(data1) != "p1" || string(data2) != "p2" {
+			t.Errorf("data isolation failed: p1=%q p2=%q", data1, data2)
+		}
+	})
+
+	t.Run("CloseAll closes registered FDs", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		v := NewVFS(reg)
+		pid := types.PID(1)
+
+		mf := &mockFile{}
+		v.RegisterFD(pid, mf)
+
+		if err := v.CloseAll(pid); err != nil {
+			t.Fatalf("CloseAll failed: %v", err)
+		}
+		if !mf.closed {
+			t.Fatal("expected registered file to be closed by CloseAll")
+		}
+	})
+}
