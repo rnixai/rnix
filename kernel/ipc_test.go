@@ -163,14 +163,12 @@ func TestSend_Concurrent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := k.Send(senders[i].PID, target.PID, []byte("msg"))
 			if err != nil {
 				t.Errorf("Send from PID %d failed: %v", senders[i].PID, err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -317,5 +315,50 @@ func TestSend_SyscallEvent(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no Recv SyscallEvent received")
+	}
+}
+
+// TestSend_ToSelf verifies a process can send a message to itself.
+func TestSend_ToSelf(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newIPCTestProcess(t, k)
+
+	payload := []byte("self-msg")
+	if err := k.Send(proc.PID, proc.PID, payload); err != nil {
+		t.Fatalf("Send to self failed: %v", err)
+	}
+
+	msg, err := k.Recv(proc.PID)
+	if err != nil {
+		t.Fatalf("Recv from self failed: %v", err)
+	}
+	if msg.FromPID != proc.PID || msg.ToPID != proc.PID {
+		t.Errorf("FromPID=%d ToPID=%d, want both %d", msg.FromPID, msg.ToPID, proc.PID)
+	}
+	if string(msg.Data) != "self-msg" {
+		t.Errorf("Data = %q, want %q", msg.Data, "self-msg")
+	}
+}
+
+// TestSend_DataIsolation verifies Send copies data so caller mutation is safe.
+func TestSend_DataIsolation(t *testing.T) {
+	k := newSimpleKernel(t)
+	a := newIPCTestProcess(t, k)
+	b := newIPCTestProcess(t, k)
+
+	data := []byte("original")
+	if err := k.Send(a.PID, b.PID, data); err != nil {
+		t.Fatalf("Send failed: %v", err)
+	}
+
+	// Mutate caller's slice after Send
+	data[0] = 'X'
+
+	msg, err := k.Recv(b.PID)
+	if err != nil {
+		t.Fatalf("Recv failed: %v", err)
+	}
+	if string(msg.Data) != "original" {
+		t.Errorf("Data = %q, want %q (caller mutation leaked)", msg.Data, "original")
 	}
 }
