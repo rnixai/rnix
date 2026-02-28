@@ -1,6 +1,6 @@
 # Story 6.1: Send/Recv 消息传递
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -28,7 +28,7 @@ So that 多个智能体之间可以交换数据和协调工作。
   - [x] 1.1 在 `internal/types/types.go` 中添加 `MsgSeq uint64` 类型别名
   - [x] 1.2 创建 `kernel/ipc.go`，定义 `Message` 结构体（FromPID, ToPID, Seq, Data, CreatedAt）
   - [x] 1.3 定义 `IPCManager` 子接口（Send, Recv）
-  - [x] 1.4 将 `IPCManager` 嵌入现有 `Kernel` 接口（kernel/kernel.go）
+  - [x] 1.4 将 `IPCManager` 通过编译期检查（`var _ IPCManager = (*KernelImpl)(nil)`）确保 KernelImpl 满足接口
   - [x] 1.5 验证 Phase 1 全部现有测试通过（`make test`）
 
 - [x] Task 2: 实现消息队列 (AC: #1, #3)
@@ -256,14 +256,13 @@ func (q *MessageQueue) dequeue(ctx context.Context) (*Message, error) {
 **资源释放顺序更新（kernel/reap.go）：**
 
 ```
-1. cancel()           — 取消 context（Recv 解除阻塞）
-2. wg.Wait()          — 等待内部 goroutine 完成
-3. close(DebugChan)   — 关闭调试通道
-4. msgQueue.close()   — 【新增】关闭消息队列，释放阻塞的 Recv
-5. msgQueues.Delete() — 【新增】从队列表移除
-6. CtxFree(CtxID)     — 释放上下文空间
-7. Reap()             — Zombie → Dead 状态转移
-8. RemoveProcess(pid) — 从进程表移除
+1. cancel()                    — 取消 context（Recv 解除阻塞）
+2. wg.Wait()                   — 等待内部 goroutine 完成
+3. close(DebugChan)            — 关闭调试通道
+4. msgQueues.LoadAndDelete()   — 【新增】原子移除队列并关闭（queue.close()）
+5. CtxFree(CtxID)              — 释放上下文空间
+6. Reap()                      — Zombie → Dead 状态转移
+7. RemoveProcess(pid)          — 从进程表移除
 ```
 
 ### 错误码使用
@@ -275,7 +274,7 @@ func (q *MessageQueue) dequeue(ctx context.Context) (*Message, error) {
 | 发送者 PID 不存在 | Send | ErrNotFound | 调用者进程不存在 |
 | 调用者 PID 不存在 | Recv | ErrNotFound | 进程不存在 |
 | Context 取消 | Recv | ErrTimeout | Kill 或超时导致 |
-| 队列已关闭 | Recv | ErrTimeout | 进程正在退出 |
+| 目标队列已关闭 | Send | ErrNotFound | 队列在 reap 期间关闭 |
 
 ### SyscallEvent 记录规范
 
@@ -300,7 +299,7 @@ func (q *MessageQueue) dequeue(ctx context.Context) (*Message, error) {
 1. **MessageQueue 内部**：`sync.Mutex` 保护 `messages` 切片和 `closed` 标志
 2. **msgQueues 表**：`xsync.SyncMap` 提供并发安全的 PID→Queue 映射
 3. **msgSeq**：`atomic.Uint64` 保证序号全局唯一递增
-4. **notify 信号量**：使用无缓冲 `chan struct{}`，Send 时非阻塞发送（`select { case notify <- struct{}{}: default: }`）
+4. **notify 信号量**：使用缓冲 1 的 `chan struct{}`，Send 时非阻塞发送（`select { case notify <- struct{}{}: default: }`），dequeue 循环保证不丢消息
 5. **100 goroutine 并发测试**：参考 `internal/xsync/syncmap_test.go` 的并发测试模式
 
 ### NFR 合规
@@ -316,7 +315,7 @@ func (q *MessageQueue) dequeue(ctx context.Context) (*Message, error) {
 **新增文件：**
 ```
 kernel/ipc.go           — IPCManager 接口 + Message + MessageQueue + Send/Recv 实现
-kernel/ipc_test.go      — IPC 单元测试（9 个测试用例）
+kernel/ipc_test.go      — IPC 单元测试（11 个测试用例）
 ```
 
 **修改文件：**
@@ -376,14 +375,24 @@ Claude Opus 4.6
 - ✅ `tryDequeue` 因 lint unused 被移除，不影响功能（dequeue 已覆盖阻塞和非阻塞场景）
 - ✅ 全部测试通过、lint 通过、编译成功、Phase 1 无回归
 
+### Code Review Fixes (2026-02-28)
+
+- ✅ [M1] Send 复制 data 切片防止调用者修改泄漏（`append([]byte(nil), data...)`）
+- ✅ [M2] enqueue 添加 closed 检查，返回 error；Send 处理 enqueue 错误
+- ✅ [M3] Task 1.4 描述更正：编译期接口检查（非 Kernel 接口嵌入）
+- ✅ [L1] 新增 TestSend_ToSelf + TestSend_DataIsolation 测试（共 11 个测试）
+- ✅ [L3] Dev Notes 资源释放顺序更正为 LoadAndDelete 原子操作
+- ✅ 全量测试 + race 检测 + vet 通过
+
 ### Change Log
 
 - 2026-02-28: Story 6.1 实现完成 — 内核内部 IPC Send/Recv 消息传递
+- 2026-02-28: Code Review 修复 — data 复制、enqueue closed 守卫、新增 2 个测试
 
 ### File List
 
-- `kernel/ipc.go` — 新增：IPCManager 接口、Message、MessageQueue、Send/Recv 实现
-- `kernel/ipc_test.go` — 新增：9 个 IPC 单元测试
+- `kernel/ipc.go` — 新增：IPCManager 接口、Message、MessageQueue、Send/Recv 实现；Code Review: enqueue 返回 error、Send 复制 data
+- `kernel/ipc_test.go` — 新增：11 个 IPC 单元测试（Code Review 新增 TestSend_ToSelf + TestSend_DataIsolation）
 - `kernel/kernel.go` — 修改：KernelImpl 新增 msgQueues/msgSeq 字段、NewKernel 初始化、Spawn 中初始化 MessageQueue、添加 sync/atomic 导入
 - `kernel/reap.go` — 修改：reapProcess 资源释放序列新增 MessageQueue 关闭步骤（步骤 4）
 - `internal/types/types.go` — 修改：添加 MsgSeq 类型别名

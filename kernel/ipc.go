@@ -43,8 +43,13 @@ func newMessageQueue() *MessageQueue {
 }
 
 // enqueue appends a message to the queue and signals any waiting receiver.
-func (q *MessageQueue) enqueue(msg *Message) {
+// Returns an error if the queue has been closed.
+func (q *MessageQueue) enqueue(msg *Message) error {
 	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return fmt.Errorf("message queue closed")
+	}
 	q.messages = append(q.messages, msg)
 	q.mu.Unlock()
 
@@ -53,6 +58,7 @@ func (q *MessageQueue) enqueue(msg *Message) {
 	case q.notify <- struct{}{}:
 	default:
 	}
+	return nil
 }
 
 // dequeue blocks until a message is available or ctx is cancelled.
@@ -115,18 +121,21 @@ func (k *KernelImpl) Send(senderPID, targetPID types.PID, data []byte) error {
 			fmt.Errorf("target process %d is %s", targetPID, state), types.ErrNotFound)
 	}
 
-	// Build message
+	// Build message (copy data to prevent caller mutation)
 	msg := &Message{
 		FromPID:   senderPID,
 		ToPID:     targetPID,
 		Seq:       types.MsgSeq(k.msgSeq.Add(1)),
-		Data:      data,
+		Data:      append([]byte(nil), data...),
 		CreatedAt: time.Now(),
 	}
 
 	// Enqueue to target's message queue
 	queue, _ := k.msgQueues.LoadOrStore(targetPID, newMessageQueue())
-	queue.enqueue(msg)
+	if err := queue.enqueue(msg); err != nil {
+		return NewSyscallError("Send", senderPID, "",
+			fmt.Errorf("target process %d queue closed", targetPID), types.ErrNotFound)
+	}
 
 	// SyscallEvent
 	k.emitEvent(senderProc, "Send", map[string]any{
