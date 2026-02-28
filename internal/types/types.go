@@ -14,6 +14,9 @@ type FD int
 // CtxID represents a context identifier.
 type CtxID uint64
 
+// MsgSeq represents a globally unique message sequence number.
+type MsgSeq uint64
+
 // ErrCode represents a categorized error code.
 type ErrCode string
 

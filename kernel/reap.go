@@ -31,13 +31,18 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 			close(ch)
 		}
 
-		// 4. CtxFree(CtxID) — release context space
+		// 4. msgQueue.close() — close message queue, unblock pending Recv (Story 6.1)
+		if queue, ok := k.msgQueues.LoadAndDelete(proc.PID); ok {
+			queue.close()
+		}
+
+		// 5. CtxFree(CtxID) — release context space
 		_ = k.ctxMgr.CtxFree(proc.CtxID)
 
-		// 5. Reap() — Zombie → Dead state transition
+		// 6. Reap() — Zombie → Dead state transition
 		_ = proc.Reap()
 
-		// 6. RemoveProcess(pid) — remove from process table
+		// 7. RemoveProcess(pid) — remove from process table
 		k.RemoveProcess(proc.PID)
 	})
 }
