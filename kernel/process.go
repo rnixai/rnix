@@ -216,6 +216,51 @@ func (p *Process) GetGroups() []types.PGID {
 	return result
 }
 
+// --- Signal disposition (atomic check under single lock) ---
+
+// signalDisposition describes what should happen when a signal is delivered.
+type signalDisposition int
+
+const (
+	dispBlocked signalDisposition = iota // signal is blocked, added to pending
+	dispHandler                          // custom handler registered
+	dispDefault                          // no handler, use default behavior
+)
+
+// resolveSignalDisposition atomically determines the disposition for a signal
+// under a single lock hold. This prevents TOCTOU races between IsBlocked/AddPending
+// and between GetHandler checks. SIGKILL always returns dispDefault (cannot be
+// blocked or handled).
+func (p *Process) resolveSignalDisposition(sig types.Signal) (signalDisposition, SignalHandler) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Check if blocked (SIGKILL can never be blocked due to SigBlock validation)
+	if p.blockedSignals != nil {
+		if _, ok := p.blockedSignals[sig]; ok {
+			if p.pendingSignals == nil {
+				p.pendingSignals = make(map[types.Signal]struct{})
+			}
+			p.pendingSignals[sig] = struct{}{}
+			return dispBlocked, nil
+		}
+	}
+
+	// SIGKILL cannot have custom handler — force-kill semantics
+	if !sig.Blockable() {
+		return dispDefault, nil
+	}
+
+	// Check custom handler
+	if p.sigHandlers != nil {
+		if h, ok := p.sigHandlers[sig]; ok {
+			return dispHandler, h
+		}
+	}
+
+	return dispDefault, nil
+}
+
 // --- Signal state methods (all thread-safe via mu) ---
 
 // SetHandler registers a custom signal handler for the given signal.

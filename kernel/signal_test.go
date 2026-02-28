@@ -541,3 +541,76 @@ func TestSignal_PauseResumeIntegration(t *testing.T) {
 		t.Fatal("should not be paused after resume")
 	}
 }
+
+// --- Review-driven test cases (Code Review 6.4) ---
+
+// TestSignal_SIGKILL_IgnoresHandler verifies SIGKILL cannot be intercepted by custom handler.
+func TestSignal_SIGKILL_IgnoresHandler(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newSignalTestProcess(t, k)
+
+	handlerCalled := false
+	proc.SetHandler(types.SIGKILL, func(_ types.Signal) {
+		handlerCalled = true
+	})
+
+	if err := k.Signal(proc.PID, types.SIGKILL); err != nil {
+		t.Fatalf("Signal SIGKILL failed: %v", err)
+	}
+
+	if handlerCalled {
+		t.Fatal("SIGKILL handler should NOT be called — force-kill semantics")
+	}
+
+	// Context must be cancelled (default termination behavior)
+	select {
+	case <-proc.ctx.Done():
+		// expected
+	default:
+		t.Fatal("SIGKILL should terminate process even with handler registered")
+	}
+}
+
+// TestSigBlock_ZombieProcess verifies SigBlock on Zombie process returns ErrNotFound.
+func TestSigBlock_ZombieProcess(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newSignalTestProcess(t, k)
+
+	_ = proc.Terminate(ExitStatus{Code: 0, Reason: "done"})
+
+	err := k.SigBlock(proc.PID, types.SIGTERM)
+	if err == nil {
+		t.Fatal("expected error for SigBlock on zombie process")
+	}
+	se, ok := err.(*SyscallError)
+	if !ok {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if se.Code != types.ErrNotFound {
+		t.Errorf("Code = %v, want ErrNotFound", se.Code)
+	}
+}
+
+// TestSigUnblock_ZombieProcess verifies SigUnblock on Zombie process returns ErrNotFound.
+func TestSigUnblock_ZombieProcess(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newSignalTestProcess(t, k)
+
+	// Block and add pending before terminating
+	_ = k.SigBlock(proc.PID, types.SIGTERM)
+	_ = k.Signal(proc.PID, types.SIGTERM)
+
+	_ = proc.Terminate(ExitStatus{Code: 0, Reason: "done"})
+
+	err := k.SigUnblock(proc.PID, types.SIGTERM)
+	if err == nil {
+		t.Fatal("expected error for SigUnblock on zombie process")
+	}
+	se, ok := err.(*SyscallError)
+	if !ok {
+		t.Fatalf("expected *SyscallError, got %T", err)
+	}
+	if se.Code != types.ErrNotFound {
+		t.Errorf("Code = %v, want ErrNotFound", se.Code)
+	}
+}

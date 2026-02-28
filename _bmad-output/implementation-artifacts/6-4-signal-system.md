@@ -1,6 +1,6 @@
 # Story 6.4: Signal 信号系统
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -740,9 +740,10 @@ Claude Opus 4.6
 ### File List
 
 - `internal/types/types.go` — 修改：新增 SIGINT/SIGPAUSE/SIGRESUME 常量 + String()/IsTermination()/Blockable() 方法
-- `kernel/signal.go` — 新增：SignalManager 接口 + SignalHandler 类型 + Signal/SigBlock/SigUnblock/deliverSignal/defaultSignalAction 实现
-- `kernel/signal_test.go` — 新增：22 个信号系统单元测试
-- `kernel/process.go` — 修改：Process 新增 sigHandlers/blockedSignals/pendingSignals/resumeCh 字段 + 信号状态方法
+- `internal/types/types_test.go` — 新增：Signal/ProcessState 方法单元测试（Code Review 修复 M3）
+- `kernel/signal.go` — 新增：SignalManager 接口 + SignalHandler 类型 + Signal/SigBlock/SigUnblock/deliverSignal/defaultSignalAction 实现；Code Review 修复：deliverSignal 使用 resolveSignalDisposition 原子化分发（H1+M1），SigBlock/SigUnblock 添加进程状态检查（H2）
+- `kernel/signal_test.go` — 新增：25 个信号系统单元测试（含 3 个 Code Review 新增用例：SIGKILL handler 忽略、SigBlock/SigUnblock Zombie 状态检查）
+- `kernel/process.go` — 修改：Process 新增 sigHandlers/blockedSignals/pendingSignals/resumeCh 字段 + 信号状态方法 + resolveSignalDisposition 原子分发方法
 - `kernel/kernel.go` — 修改：Kill 重构使用 deliverSignal + reasonStep 新增暂停检查
 - `kernel/kernel_test.go` — 修改：TestKill_SyscallEvent 断言更新（signal 字段 int→string）
-- `kernel/reap.go` — 修改：reapProcess 新增 Resume() + ClearSignalState() 清理步骤
+- `kernel/reap.go` — 修改：reapProcess 新增 ClearSignalState() 清理步骤（移除冗余 Resume 调用，Code Review 修复 M2）
