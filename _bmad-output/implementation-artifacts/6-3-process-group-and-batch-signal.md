@@ -1,6 +1,6 @@
 # Story 6.3: 进程组与批量信号
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,73 +22,73 @@ So that 我可以高效管理多智能体工作流。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 新增类型和接口定义 (AC: #1, #2, #3)
-  - [ ] 1.1 在 `internal/types/types.go` 中新增 `PGID uint64` 类型别名
-  - [ ] 1.2 创建 `kernel/procgroup.go`，定义 `ProcGroupManager` 子接口（`JoinGroup`, `LeaveGroup`, `GetProcGroup`, `SignalGroup`）
-  - [ ] 1.3 添加编译期检查 `var _ ProcGroupManager = (*KernelImpl)(nil)`
-  - [ ] 1.4 验证 Phase 1 + Story 6.1/6.2 全部现有测试通过（`make test`）
+- [x] Task 1: 新增类型和接口定义 (AC: #1, #2, #3)
+  - [x] 1.1 在 `internal/types/types.go` 中新增 `PGID uint64` 类型别名
+  - [x] 1.2 创建 `kernel/procgroup.go`，定义 `ProcGroupManager` 子接口（`JoinGroup`, `LeaveGroup`, `GetProcGroup`, `SignalGroup`）
+  - [x] 1.3 添加编译期检查 `var _ ProcGroupManager = (*KernelImpl)(nil)`
+  - [x] 1.4 验证 Phase 1 + Story 6.1/6.2 全部现有测试通过（`make test`）
 
-- [ ] Task 2: 实现 ProcGroup 数据结构 (AC: #1, #2, #4)
-  - [ ] 2.1 在 `kernel/procgroup.go` 中定义 `ProcGroup` 结构体（`sync.RWMutex` + `id PGID` + `members map[types.PID]struct{}`）
-  - [ ] 2.2 实现 `ProcGroup.Add(pid)` — 添加成员
-  - [ ] 2.3 实现 `ProcGroup.Remove(pid)` — 移除成员
-  - [ ] 2.4 实现 `ProcGroup.Members() []PID` — 返回成员列表快照
-  - [ ] 2.5 实现 `ProcGroup.Size() int` — 返回成员数量
-  - [ ] 2.6 实现 `ProcGroup.Contains(pid) bool` — 检查是否包含
+- [x] Task 2: 实现 ProcGroup 数据结构 (AC: #1, #2, #4)
+  - [x] 2.1 在 `kernel/procgroup.go` 中定义 `ProcGroup` 结构体（`sync.RWMutex` + `id PGID` + `members map[types.PID]struct{}`）
+  - [x] 2.2 实现 `ProcGroup.Add(pid)` — 添加成员
+  - [x] 2.3 实现 `ProcGroup.Remove(pid)` — 移除成员
+  - [x] 2.4 实现 `ProcGroup.Members() []PID` — 返回成员列表快照
+  - [x] 2.5 实现 `ProcGroup.Size() int` — 返回成员数量
+  - [x] 2.6 实现 `ProcGroup.Contains(pid) bool` — 检查是否包含
 
-- [ ] Task 3: KernelImpl 扩展与 JoinGroup/LeaveGroup 实现 (AC: #1, #4)
-  - [ ] 3.1 在 `KernelImpl` 中添加 `procGroups *xsync.SyncMap[types.PGID, *ProcGroup]` 字段
-  - [ ] 3.2 在 `kernel.New()` 中初始化 `procGroups`
-  - [ ] 3.3 在 `Process` 结构体中添加 `groups []types.PGID` 字段（mu 保护）
-  - [ ] 3.4 在 `Process` 中添加 `AddGroup(pgid)`/`RemoveGroup(pgid)`/`GetGroups() []PGID` 方法
-  - [ ] 3.5 实现 `JoinGroup(pid PID, groupID PGID) error`：验证 PID 存在且活跃 → 获取或创建 ProcGroup → group.Add(pid) → proc.AddGroup(groupID) → emitEvent
-  - [ ] 3.6 实现 `LeaveGroup(pid PID, groupID PGID) error`：验证 PID 和组存在 → group.Remove(pid) → proc.RemoveGroup(groupID) → 若组空则删除 → emitEvent
-  - [ ] 3.7 所有错误包装为 `*SyscallError`
+- [x] Task 3: KernelImpl 扩展与 JoinGroup/LeaveGroup 实现 (AC: #1, #4)
+  - [x] 3.1 在 `KernelImpl` 中添加 `procGroups *xsync.SyncMap[types.PGID, *ProcGroup]` 字段
+  - [x] 3.2 在 `kernel.New()` 中初始化 `procGroups`
+  - [x] 3.3 在 `Process` 结构体中添加 `groups []types.PGID` 字段（mu 保护）
+  - [x] 3.4 在 `Process` 中添加 `AddGroup(pgid)`/`RemoveGroup(pgid)`/`GetGroups() []PGID` 方法
+  - [x] 3.5 实现 `JoinGroup(pid PID, groupID PGID) error`：验证 PID 存在且活跃 → 获取或创建 ProcGroup → group.Add(pid) → proc.AddGroup(groupID) → emitEvent
+  - [x] 3.6 实现 `LeaveGroup(pid PID, groupID PGID) error`：验证 PID 和组存在 → group.Remove(pid) → proc.RemoveGroup(groupID) → 若组空则删除 → emitEvent
+  - [x] 3.7 所有错误包装为 `*SyscallError`
 
-- [ ] Task 4: GetProcGroup 实现 (AC: #2)
-  - [ ] 4.1 实现 `GetProcGroup(groupID PGID) ([]PID, error)`：查找组 → 返回成员快照
-  - [ ] 4.2 组不存在时返回 `*SyscallError`（Code=ErrNotFound）
-  - [ ] 4.3 emitEvent 记录调用
+- [x] Task 4: GetProcGroup 实现 (AC: #2)
+  - [x] 4.1 实现 `GetProcGroup(groupID PGID) ([]PID, error)`：查找组 → 返回成员快照
+  - [x] 4.2 组不存在时返回 `*SyscallError`（Code=ErrNotFound）
+  - [x] 4.3 emitEvent 记录调用
 
-- [ ] Task 5: SignalGroup 实现 (AC: #3)
-  - [ ] 5.1 实现 `SignalGroup(groupID PGID, signal Signal) error`：获取组成员快照 → 遍历调用 `k.Kill(pid, signal)` → 收集结果
-  - [ ] 5.2 组不存在时返回 `*SyscallError`（Code=ErrNotFound）
-  - [ ] 5.3 信号无效时返回 `*SyscallError`（Code=ErrInvalid）
-  - [ ] 5.4 部分进程已退出：跳过已不存在的进程（Kill 返回 ErrNotFound 时忽略），成功发送给所有存活成员即视为成功
-  - [ ] 5.5 emitEvent 记录 SignalGroup，Args 包含 `group_id`、`signal`、`member_count`、`success_count`
-  - [ ] 5.6 验证 NFR24：遍历发信号的耗时 ≤ 单进程 Kill 的 2 倍
+- [x] Task 5: SignalGroup 实现 (AC: #3)
+  - [x] 5.1 实现 `SignalGroup(groupID PGID, signal Signal) error`：获取组成员快照 → 遍历调用 `k.Kill(pid, signal)` → 收集结果
+  - [x] 5.2 组不存在时返回 `*SyscallError`（Code=ErrNotFound）
+  - [x] 5.3 信号无效时返回 `*SyscallError`（Code=ErrInvalid）
+  - [x] 5.4 部分进程已退出：跳过已不存在的进程（Kill 返回 ErrNotFound 时忽略），成功发送给所有存活成员即视为成功
+  - [x] 5.5 emitEvent 记录 SignalGroup，Args 包含 `group_id`、`signal`、`member_count`、`success_count`
+  - [x] 5.6 验证 NFR24：遍历发信号的耗时 ≤ 单进程 Kill 的 2 倍
 
-- [ ] Task 6: reapProcess 集成 — 进程退出自动清理 (AC: #4)
-  - [ ] 6.1 在 `kernel/reap.go` 的 `reapProcess` 中，在关闭 msgQueue 之后、CtxFree 之前，添加进程组清理步骤
-  - [ ] 6.2 实现 `removeFromAllGroups(pid PID)`：获取 proc.GetGroups() → 遍历每个 PGID → group.Remove(pid) → 若组空则从 procGroups 删除
-  - [ ] 6.3 确保清理逻辑在进程表移除之前执行，避免悬挂引用
+- [x] Task 6: reapProcess 集成 — 进程退出自动清理 (AC: #4)
+  - [x] 6.1 在 `kernel/reap.go` 的 `reapProcess` 中，在关闭 msgQueue 之后、CtxFree 之前，添加进程组清理步骤
+  - [x] 6.2 实现 `removeFromAllGroups(pid PID)`：获取 proc.GetGroups() → 遍历每个 PGID → group.Remove(pid) → 若组空则从 procGroups 删除
+  - [x] 6.3 确保清理逻辑在进程表移除之前执行，避免悬挂引用
 
-- [ ] Task 7: 单元测试 (AC: #1-4)
-  - [ ] 7.1 `kernel/procgroup_test.go` — TestJoinGroup_Basic：进程加入组，GetProcGroup 返回该 PID
-  - [ ] 7.2 TestJoinGroup_MultipleProcesses：多个进程加入同一组，GetProcGroup 返回全部
-  - [ ] 7.3 TestJoinGroup_MultipleGroups：一个进程加入多个组，各组独立包含
-  - [ ] 7.4 TestJoinGroup_AutoCreate：首次 JoinGroup 自动创建组
-  - [ ] 7.5 TestJoinGroup_InvalidPID：不存在或 Dead/Zombie PID 返回 ErrNotFound
-  - [ ] 7.6 TestJoinGroup_Duplicate：重复加入同一组不报错（幂等）
-  - [ ] 7.7 TestLeaveGroup_Basic：LeaveGroup 后 GetProcGroup 不再包含该 PID
-  - [ ] 7.8 TestLeaveGroup_AutoDestroy：最后一个成员离开后组自动销毁
-  - [ ] 7.9 TestLeaveGroup_NotInGroup：离开未加入的组返回 ErrNotFound
-  - [ ] 7.10 TestGetProcGroup_NotFound：查询不存在的组返回 ErrNotFound
-  - [ ] 7.11 TestSignalGroup_Basic：组内所有进程收到信号（Kill）
-  - [ ] 7.12 TestSignalGroup_PartialExit：部分进程已退出，剩余进程仍收到信号
-  - [ ] 7.13 TestSignalGroup_EmptyGroup：空组返回 ErrNotFound（已自动销毁）
-  - [ ] 7.14 TestSignalGroup_InvalidSignal：无效信号返回 ErrInvalid
-  - [ ] 7.15 TestReapProcess_AutoRemove：进程退出后自动从所有所属组中移除
-  - [ ] 7.16 TestReapProcess_GroupAutoDestroy：最后成员退出后组自动销毁
-  - [ ] 7.17 TestProcGroup_Concurrent：100 goroutine 并发 JoinGroup/LeaveGroup/GetProcGroup，无 race
-  - [ ] 7.18 TestSignalGroup_SyscallEvent：验证 DebugChan 收到 JoinGroup/SignalGroup 的 SyscallEvent
-  - [ ] 7.19 TestSignalGroup_Performance：10 个进程组内 SignalGroup 延迟 ≤ 单进程 Kill 的 2 倍（NFR24）
+- [x] Task 7: 单元测试 (AC: #1-4)
+  - [x] 7.1 `kernel/procgroup_test.go` — TestJoinGroup_Basic：进程加入组，GetProcGroup 返回该 PID
+  - [x] 7.2 TestJoinGroup_MultipleProcesses：多个进程加入同一组，GetProcGroup 返回全部
+  - [x] 7.3 TestJoinGroup_MultipleGroups：一个进程加入多个组，各组独立包含
+  - [x] 7.4 TestJoinGroup_AutoCreate：首次 JoinGroup 自动创建组
+  - [x] 7.5 TestJoinGroup_InvalidPID：不存在或 Dead/Zombie PID 返回 ErrNotFound
+  - [x] 7.6 TestJoinGroup_Duplicate：重复加入同一组不报错（幂等）
+  - [x] 7.7 TestLeaveGroup_Basic：LeaveGroup 后 GetProcGroup 不再包含该 PID
+  - [x] 7.8 TestLeaveGroup_AutoDestroy：最后一个成员离开后组自动销毁
+  - [x] 7.9 TestLeaveGroup_NotInGroup：离开未加入的组返回 ErrNotFound
+  - [x] 7.10 TestGetProcGroup_NotFound：查询不存在的组返回 ErrNotFound
+  - [x] 7.11 TestSignalGroup_Basic：组内所有进程收到信号（Kill）
+  - [x] 7.12 TestSignalGroup_PartialExit：部分进程已退出，剩余进程仍收到信号
+  - [x] 7.13 TestSignalGroup_EmptyGroup：空组返回 ErrNotFound（已自动销毁）
+  - [x] 7.14 TestSignalGroup_InvalidSignal：无效信号返回 ErrInvalid
+  - [x] 7.15 TestReapProcess_AutoRemove：进程退出后自动从所有所属组中移除
+  - [x] 7.16 TestReapProcess_GroupAutoDestroy：最后成员退出后组自动销毁
+  - [x] 7.17 TestProcGroup_Concurrent：100 goroutine 并发 JoinGroup/LeaveGroup/GetProcGroup，无 race
+  - [x] 7.18 TestSignalGroup_SyscallEvent：验证 DebugChan 收到 JoinGroup/SignalGroup 的 SyscallEvent
+  - [x] 7.19 TestSignalGroup_Performance：10 个进程组内 SignalGroup 延迟 ≤ 单进程 Kill 的 2 倍（NFR24）
 
-- [ ] Task 8: 集成验证 (AC: #1-4)
-  - [ ] 8.1 `make test` 全部通过（含 `-race`）
-  - [ ] 8.2 `make lint` 通过
-  - [ ] 8.3 `make build` 编译成功
-  - [ ] 8.4 验证 Phase 1 + Story 6.1/6.2 所有现有测试无回归
+- [x] Task 8: 集成验证 (AC: #1-4)
+  - [x] 8.1 `make test` 全部通过（含 `-race`）
+  - [x] 8.2 `make lint` 通过
+  - [x] 8.3 `make build` 编译成功
+  - [x] 8.4 验证 Phase 1 + Story 6.1/6.2 所有现有测试无回归
 
 ## Dev Notes
 
@@ -562,10 +562,29 @@ import (
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- ✅ Task 1: 新增 `PGID` 类型到 `internal/types/types.go`，创建 `kernel/procgroup.go` 定义 `ProcGroupManager` 接口，添加编译期检查
+- ✅ Task 2: 实现 `ProcGroup` 结构体及 `Add/Remove/Members/Size/Contains` 方法，使用 `sync.RWMutex` 保护
+- ✅ Task 3: `KernelImpl` 新增 `procGroups` 字段（`xsync.SyncMap`），`Process` 新增 `groups` 字段及 `AddGroup/RemoveGroup/GetGroups` 方法，实现 `JoinGroup`（含自动创建组、幂等加入）和 `LeaveGroup`（含自动销毁空组）
+- ✅ Task 4: 实现 `GetProcGroup` 返回成员快照，组不存在返回 `ErrNotFound`
+- ✅ Task 5: 实现 `SignalGroup` 遍历成员调用 `Kill`，处理部分退出场景，记录 `SyscallEvent`
+- ✅ Task 6: 在 `reapProcess` 的资源释放序列中集成 `removeFromAllGroups`，位于 msgQueue.close() 之后、CtxFree 之前
+- ✅ Task 7: 19 个单元测试全部通过（含 `-race`），覆盖 JoinGroup/LeaveGroup/GetProcGroup/SignalGroup/reap 清理/并发/性能
+- ✅ Task 8: `make test` 全部通过、`golangci-lint` 0 issues、`go build` 成功、所有现有测试无回归
+
 ### File List
+
+**新增文件：**
+- `kernel/procgroup.go` — ProcGroupManager 接口 + ProcGroup 结构体 + JoinGroup/LeaveGroup/GetProcGroup/SignalGroup/removeFromAllGroups 实现
+- `kernel/procgroup_test.go` — 19 个进程组单元测试
+
+**修改文件：**
+- `internal/types/types.go` — 新增 `PGID uint64` 类型
+- `kernel/kernel.go` — KernelImpl 新增 `procGroups` 字段 + `NewKernel()` 初始化
+- `kernel/process.go` — Process 新增 `groups` 字段 + `AddGroup/RemoveGroup/GetGroups` 方法
+- `kernel/reap.go` — reapProcess 新增进程组清理步骤（步骤 5）

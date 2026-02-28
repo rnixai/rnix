@@ -92,6 +92,6 @@ development_status:
   epic-6: in-progress
   6-1-send-recv-messaging: done
   6-2-pipe: done
-  6-3-process-group-and-batch-signal: ready-for-dev
+  6-3-process-group-and-batch-signal: review
   6-4-signal-system: backlog
   6-5-three-level-concurrency-model: backlog

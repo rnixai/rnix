@@ -46,6 +46,8 @@ type Process struct {
 	TokensUsed int                       // cumulative token consumption
 	AllowedDevices []string              // nil/empty = all devices allowed; non-empty = whitelist only
 
+	groups []types.PGID               // guarded by mu, process group memberships
+
 	mu       sync.Mutex
 	cancel   context.CancelFunc
 	ctx      context.Context
@@ -172,5 +174,38 @@ func (p *Process) GetChildren() []types.PID {
 	defer p.mu.Unlock()
 	result := make([]types.PID, len(p.Children))
 	copy(result, p.Children)
+	return result
+}
+
+// AddGroup adds a process group ID to the process's group list (idempotent, thread-safe).
+func (p *Process) AddGroup(pgid types.PGID) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, g := range p.groups {
+		if g == pgid {
+			return
+		}
+	}
+	p.groups = append(p.groups, pgid)
+}
+
+// RemoveGroup removes a process group ID from the process's group list (thread-safe).
+func (p *Process) RemoveGroup(pgid types.PGID) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i, g := range p.groups {
+		if g == pgid {
+			p.groups = append(p.groups[:i], p.groups[i+1:]...)
+			return
+		}
+	}
+}
+
+// GetGroups returns a copy of the process's group membership list (thread-safe).
+func (p *Process) GetGroups() []types.PGID {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	result := make([]types.PGID, len(p.groups))
+	copy(result, p.groups)
 	return result
 }

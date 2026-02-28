@@ -106,6 +106,9 @@ type KernelImpl struct {
 	// IPC messaging (Story 6.1)
 	msgQueues *xsync.SyncMap[types.PID, *MessageQueue]
 	msgSeq    atomic.Uint64
+
+	// Process groups (Story 6.3)
+	procGroups *xsync.SyncMap[types.PGID, *ProcGroup]
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -118,7 +121,8 @@ func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelI
 		callbacks: cb,
 		reapCh:    make(chan types.PID, 64),
 		stopCh:    make(chan struct{}),
-		msgQueues: xsync.NewSyncMap[types.PID, *MessageQueue](),
+		msgQueues:  xsync.NewSyncMap[types.PID, *MessageQueue](),
+		procGroups: xsync.NewSyncMap[types.PGID, *ProcGroup](),
 	}
 	k.startReaper()
 	return k

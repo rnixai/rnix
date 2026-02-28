@@ -36,13 +36,16 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 			queue.close()
 		}
 
-		// 5. CtxFree(CtxID) — release context space
+		// 5. removeFromAllGroups — clean up process group memberships (Story 6.3)
+		k.removeFromAllGroups(proc.PID, proc)
+
+		// 6. CtxFree(CtxID) — release context space
 		_ = k.ctxMgr.CtxFree(proc.CtxID)
 
-		// 6. Reap() — Zombie → Dead state transition
+		// 7. Reap() — Zombie → Dead state transition
 		_ = proc.Reap()
 
-		// 7. RemoveProcess(pid) — remove from process table
+		// 8. RemoveProcess(pid) — remove from process table
 		k.RemoveProcess(proc.PID)
 	})
 }

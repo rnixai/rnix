@@ -17,6 +17,9 @@ type CtxID uint64
 // MsgSeq represents a globally unique message sequence number.
 type MsgSeq uint64
 
+// PGID represents a process group identifier.
+type PGID uint64
+
 // ErrCode represents a categorized error code.
 type ErrCode string
 
