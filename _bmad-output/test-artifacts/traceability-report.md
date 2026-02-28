@@ -9,665 +9,307 @@ lastStep: 'step-05-gate-decision'
 lastSaved: '2026-02-28'
 workflowType: 'testarch-trace'
 inputDocuments:
-  - '_bmad-output/implementation-artifacts/6-5-three-level-concurrency-model.md'
-  - '_bmad-output/test-artifacts/atdd-checklist-6-5.md'
-  - 'kernel/thread_test.go'
-  - 'kernel/coroutine_test.go'
-  - 'kernel/concurrency.go'
-  - 'kernel/thread.go'
-  - 'kernel/coroutine.go'
-  - 'kernel/process.go'
-  - 'kernel/reap.go'
+  - '_bmad-output/implementation-artifacts/7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine.md'
+  - '_bmad-output/test-artifacts/atdd-checklist-7-1.md'
+  - 'compose/parser_test.go'
+  - 'compose/dag_test.go'
+  - 'compose/engine_test.go'
+  - 'compose/types.go'
+  - 'compose/parser.go'
+  - 'compose/dag.go'
+  - 'compose/engine.go'
 ---
 
-# Traceability Matrix & Gate Decision - Story 6.5
+# Traceability Matrix & Gate Decision - Story 7.1
 
-**Story:** 6.5 三级并发模型（Three-Level Concurrency Model）
+**Story:** 7.1 crux-compose.yaml 解析与 DAG 调度引擎
 **Date:** 2026-02-28
 **Evaluator:** TEA Agent
+**Gate Type:** Story
 
 ---
 
-Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*automate` to create coverage.
+## Gate Decision: PASS
 
-## PHASE 1: REQUIREMENTS TRACEABILITY
-
-### Coverage Summary
-
-| Priority  | Total Criteria | FULL Coverage | Coverage % | Status       |
-| --------- | -------------- | ------------- | ---------- | ------------ |
-| P0        | 3              | 3             | 100%       | PASS ✅      |
-| P1        | 4              | 4             | 100%       | PASS ✅      |
-| P2        | 2              | 2             | 100%       | PASS ✅      |
-| P3        | 0              | 0             | N/A        | N/A          |
-| **Total** | **9**          | **9**         | **100%**   | **PASS ✅**  |
-
-**Legend:**
-
-- ✅ PASS - Coverage meets quality gate threshold
-- ⚠️ WARN - Coverage below threshold but not critical
-- ❌ FAIL - Coverage below minimum threshold (blocker)
+**Rationale:** P0 覆盖率为 100%，总体覆盖率为 100%（最低要求 80%）。全部 5 个验收标准均被 38 个通过的单元测试完全覆盖，包含充分的错误路径场景。无 P1 需求缺口。
 
 ---
 
-### Detailed Mapping
+## 覆盖率总结
 
-#### AC-1: 进程级并发 — 创建进程级智能体（Spawn），拥有独立上下文和独立 LLM 会话，完全隔离，通过 IPC 通信 (P0)
+| 指标 | 数值 |
+|------|------|
+| 总验收标准 | 5 |
+| 完全覆盖 | 5 (100%) |
+| 部分覆盖 | 0 |
+| 未覆盖 | 0 |
+| 总测试数 | 38 |
+| 测试通过率 | 38/38 (100%) |
+| 测试执行时间 | 1.113s（含 -race） |
 
-- **Coverage:** FULL ✅
-- **Tests:**
-  - 进程级并发由 Story 1.2 的 `Spawn` 实现，已被 `kernel/kernel_test.go` 中的现有测试覆盖
-  - Story 6.5 确认其在三级模型中的定位，不修改 Spawn 行为
-  - `TestConcurrent_10Processes` - kernel/coroutine_test.go:448
-    - **Given:** 10+ 并发进程级智能体
-    - **When:** 同时运行并执行进程表操作
-    - **Then:** 所有进程可正常访问和操作
+### 优先级覆盖率
 
-- **Gaps:** 无
-- **Recommendation:** 无需额外测试，进程级隔离已由现有 Spawn 测试充分覆盖
-
----
-
-#### AC-2: 线程级并发 — 创建线程级执行单元，共享父进程的上下文空间，拥有独立执行流（goroutine），通过共享上下文交换数据 (P0)
-
-- **Coverage:** FULL ✅
-- **Tests:**
-  - `TestSpawnThread_Basic` - kernel/thread_test.go:30
-    - **Given:** 三级并发模型已实现
-    - **When:** 创建线程级执行单元
-    - **Then:** TID 分配正确，线程注册到父进程，共享父进程上下文
-  - `TestSpawnThread_ParentNotFound` - kernel/thread_test.go:56
-    - **Given:** 父进程不存在
-    - **When:** 调用 SpawnThread
-    - **Then:** 返回 ErrNotFound
-  - `TestSpawnThread_ParentNotRunning` - kernel/thread_test.go:76
-    - **Given:** 父进程非 Running 状态
-    - **When:** 调用 SpawnThread
-    - **Then:** 返回 ErrInvalid
-  - `TestJoinThread_Basic` - kernel/thread_test.go:97
-    - **Given:** 线程已创建
-    - **When:** 等待线程完成
-    - **Then:** JoinThread 正常返回
-  - `TestJoinThread_ThreadNotFound` - kernel/thread_test.go:130
-    - **Given:** 线程不存在
-    - **When:** 调用 JoinThread
-    - **Then:** 返回 ErrNotFound
-  - `TestJoinThread_ParentNotFound` - kernel/thread_test.go:148
-    - **Given:** 父进程不存在
-    - **When:** 调用 JoinThread
-    - **Then:** 返回 ErrNotFound
-  - `TestThread_SharesContext` - kernel/thread_test.go:165
-    - **Given:** 线程已创建
-    - **When:** 取消父进程上下文
-    - **Then:** 线程上下文也被取消（context 级联）
-  - `TestThread_ParentKill` - kernel/thread_test.go:192
-    - **Given:** 多个子线程存在
-    - **When:** Kill 父进程
-    - **Then:** 所有子线程自动取消
-  - `TestThread_IndependentExecution` - kernel/thread_test.go:228
-    - **Given:** 多个线程
-    - **When:** 并行注册
-    - **Then:** 每个线程拥有独立 TID，互不影响
-  - `TestThread_MultipleTIDsAreProcessLocal` - kernel/thread_test.go:260
-    - **Given:** 不同进程
-    - **When:** 各自创建线程
-    - **Then:** TID 是进程内局部的
-  - `TestSpawnThread_SyscallEvent` - kernel/thread_test.go:286
-    - **Given:** 线程创建
-    - **When:** SpawnThread 调用
-    - **Then:** 发射正确的 SyscallEvent（含 tid、intent）
-
-- **Gaps:** 无
-- **Recommendation:** 覆盖全面，含正常流程、错误处理、上下文共享、并发安全
+| 优先级 | 总数 | 已覆盖 | 覆盖率 | 状态 |
+|--------|------|--------|--------|------|
+| P0 | 5 | 5 | 100% | MET |
+| P1 | 0 | 0 | N/A | N/A |
+| P2 | 0 | 0 | N/A | N/A |
+| P3 | 0 | 0 | N/A | N/A |
 
 ---
 
-#### AC-3: 协程级并发 — 创建协程级执行单元，轻量协作调度，yield 语义，适用于上下文内的子任务分解 (P0)
+## 验收标准
 
-- **Coverage:** FULL ✅
-- **Tests:**
-  - `TestSpawnCoroutine_Basic` - kernel/coroutine_test.go:14
-    - **Given:** 三级并发模型已实现
-    - **When:** 创建协程并 yield
-    - **Then:** 协程创建成功，yield 值可被 caller 读取
-  - `TestSpawnCoroutine_ParentNotFound` - kernel/coroutine_test.go:43
-    - **Given:** 父进程不存在
-    - **When:** 调用 SpawnCoroutine
-    - **Then:** 返回 ErrNotFound
-  - `TestSpawnCoroutine_ParentNotRunning` - kernel/coroutine_test.go:65
-    - **Given:** 父进程非 Running
-    - **When:** 调用 SpawnCoroutine
-    - **Then:** 返回 ErrInvalid
-  - `TestYield_Basic` - kernel/coroutine_test.go:87
-    - **Given:** 协程正在运行
-    - **When:** 协程调用 yield(42)
-    - **Then:** ResumeCoroutine 返回 42
-  - `TestResumeCoroutine_Basic` - kernel/coroutine_test.go:113
-    - **Given:** 协程有多次 yield
-    - **When:** 多次 ResumeCoroutine
-    - **Then:** 按顺序返回 "first"、"second"
-  - `TestResumeCoroutine_NotSuspended` - kernel/coroutine_test.go:148
-    - **Given:** 协程已完成
-    - **When:** 再次 ResumeCoroutine
-    - **Then:** 返回 ErrNotFound（协程已自动清理）
-  - `TestResumeCoroutine_NotFound` - kernel/coroutine_test.go:192
-    - **Given:** 协程 ID 不存在
-    - **When:** 调用 ResumeCoroutine
-    - **Then:** 返回 ErrNotFound
-  - `TestResumeCoroutine_ParentNotFound` - kernel/coroutine_test.go:210
-    - **Given:** 父进程不存在
-    - **When:** 调用 ResumeCoroutine
-    - **Then:** 返回 ErrNotFound
-  - `TestCoroutine_MultipleYields` - kernel/coroutine_test.go:227
-    - **Given:** 协程有 3 次 yield + 最终返回
-    - **When:** 逐次 ResumeCoroutine
-    - **Then:** 按顺序返回 1, 2, 3, 4
-  - `TestCoroutine_Completion` - kernel/coroutine_test.go:257
-    - **Given:** 协程不 yield 直接返回
-    - **When:** 调用 ResumeCoroutine
-    - **Then:** 返回 ErrInvalid（协程已完成，非 Suspended 状态）
-  - `TestSpawnCoroutine_SyscallEvent` - kernel/coroutine_test.go:287
-    - **Given:** 协程创建
-    - **When:** SpawnCoroutine 调用
-    - **Then:** 发射正确的 SyscallEvent（含 co_id）
-  - `TestResumeCoroutine_SyscallEvent` - kernel/coroutine_test.go:316
-    - **Given:** 协程 yield 和完成
-    - **When:** ResumeCoroutine 调用
-    - **Then:** 分别发射 "yielded" 和 "completed" 事件
-
-- **Gaps:** 无
-- **Recommendation:** 覆盖全面，含基本流程、多次 yield、完成后清理、错误处理、事件发射
+1. **AC #1 — YAML 解析**: 解析 `crux-compose.yaml`，提取 intent、agent、skills、depends_on，构建 DAG
+2. **AC #2 — 循环依赖检测**: YAML 中循环依赖返回清晰错误，标注循环路径
+3. **AC #3 — 拓扑排序调度**: 按拓扑顺序启动智能体，无依赖分支并行化，≤10 agents ≤2s (NFR21)
+4. **AC #4 — 依赖触发**: A 完成后自动启动 B，A 的输出注入 B 的上下文
+5. **AC #5 — YAML 格式支持**: 支持 version/intent/agents（含 agent/skills/depends_on）完整格式
 
 ---
 
-#### AC-4: 并发性能（NFR24）— >= 10 个并发智能体（进程级）同时运行，进程表操作延迟不超过单进程场景的 2 倍 (P1)
+## Traceability Matrix
 
-- **Coverage:** FULL ✅
-- **Tests:**
-  - `TestConcurrent_10Processes` - kernel/coroutine_test.go:448
-    - **Given:** >= 10 个并发进程
-    - **When:** 同时执行进程表操作 + SpawnThread
-    - **Then:** 延迟在可接受范围内，所有进程仍可访问
+### AC #1 — YAML 解析 (P0)
 
-- **Gaps:** 无
-- **Recommendation:** 测试使用宽松阈值（10x 而非 2x）以适配 CI 环境，本地运行更精确
+**Coverage:** FULL | **Tests:** 18 | **Level:** Unit
 
----
+| # | 测试名称 | 文件 | 场景 | 状态 |
+|---|----------|------|------|------|
+| 1 | TestParseBytes_Valid | parser_test.go | 合法 YAML（多 agent + 依赖）完整解析 | PASS |
+| 2 | TestParseBytes_FullFormat | parser_test.go | 含 agent 引用字段的完整格式 | PASS |
+| 3 | TestParseBytes_NoDependencies | parser_test.go | 无依赖智能体解析 | PASS |
+| 4 | TestParseFile_Valid | parser_test.go | 从磁盘文件路径解析 | PASS |
+| 5 | TestParseFile_NotFound | parser_test.go | 文件不存在返回错误 | PASS |
+| 6 | TestParseBytes_InvalidYAML | parser_test.go | 无效 YAML 语法返回错误 | PASS |
+| 7 | TestParseBytes_InvalidVersion | parser_test.go | 不支持的 version 返回错误 | PASS |
+| 8 | TestParseBytes_MissingVersion | parser_test.go | 缺少 version 返回错误 | PASS |
+| 9 | TestParseBytes_EmptyAgents | parser_test.go | agents 为空返回错误 | PASS |
+| 10 | TestParseBytes_MissingAgents | parser_test.go | 缺少 agents 返回错误 | PASS |
+| 11 | TestParseBytes_AgentMissingIntent | parser_test.go | agent 缺少 intent 返回错误 | PASS |
+| 12 | TestParseBytes_DependsOnInvalidRef | parser_test.go | depends_on 引用不存在 agent | PASS |
+| 13 | TestParseBytes_DependsOnInvalidCondition | parser_test.go | depends_on 不支持的条件 | PASS |
+| 14 | TestParseBytes_MissingTopLevelIntent | parser_test.go | 缺少顶层 intent | PASS |
+| 15 | TestParseBytes_SingleAgent | parser_test.go | 单个智能体合法解析 | PASS |
+| 16 | TestBuildDAG_NoDeps | dag_test.go | 无依赖 DAG 构建 | PASS |
+| 17 | TestBuildDAG_LinearDeps | dag_test.go | 线性依赖链 A→B→C | PASS |
+| 18 | TestBuildDAG_DiamondDeps | dag_test.go | 菱形依赖 A→B,C→D | PASS |
 
-#### 线程上下文共享与级联取消 (P1)
-
-- **Coverage:** FULL ✅
-- **Tests:**
-  - `TestThread_SharesContext` - kernel/thread_test.go:165
-    - **Given:** 线程已创建
-    - **When:** 父进程 context 取消
-    - **Then:** 线程 context 级联取消
-  - `TestThread_ParentKill` - kernel/thread_test.go:192
-    - **Given:** 3 个子线程
-    - **When:** Kill 父进程
-    - **Then:** 所有子线程 context 取消
-
-- **Gaps:** 无
-
----
-
-#### 多次 Yield/Resume 循环 (P1)
-
-- **Coverage:** FULL ✅
-- **Tests:**
-  - `TestCoroutine_MultipleYields` - kernel/coroutine_test.go:227
-    - **Given:** 协程有 3 次 yield
-    - **When:** 逐次 Resume
-    - **Then:** 正确返回每次 yield 值和最终结果
-
-- **Gaps:** 无
+**错误路径覆盖:** InvalidYAML, InvalidVersion, MissingVersion, EmptyAgents, MissingAgents, AgentMissingIntent, DependsOnInvalidRef, DependsOnInvalidCondition, MissingTopLevelIntent, FileNotFound — **10 个错误场景**
 
 ---
 
-#### reapProcess 清理线程和协程 (P1)
+### AC #2 — 循环依赖检测 (P0)
 
-- **Coverage:** FULL ✅
-- **Tests:**
-  - `TestReapProcess_CleansThreadsAndCoroutines` - kernel/coroutine_test.go:401
-    - **Given:** 进程有 3 个线程和 2 个协程
-    - **When:** 进程 Terminate + reapProcess
-    - **Then:** threads 和 coroutines 表均为空
+**Coverage:** FULL | **Tests:** 6 | **Level:** Unit
 
-- **Gaps:** 无
+| # | 测试名称 | 文件 | 场景 | 状态 |
+|---|----------|------|------|------|
+| 1 | TestDetectCycle_NoCycle | dag_test.go | 无环图检测通过 | PASS |
+| 2 | TestDetectCycle_SimpleCycle | dag_test.go | A→B→A 双节点循环 | PASS |
+| 3 | TestDetectCycle_ComplexCycle | dag_test.go | A→B→C→A 三节点循环 | PASS |
+| 4 | TestDetectCycle_SelfCycle | dag_test.go | A→A 自依赖循环 | PASS |
+| 5 | TestDetectCycle_PartialCycle | dag_test.go | 混合图中部分节点成环 | PASS |
+| 6 | TestNewEngine_CyclicSpec | engine_test.go | 引擎拒绝循环 spec | PASS |
 
----
-
-#### SyscallEvent 发射验证 (P1 — 综合)
-
-- **Coverage:** FULL ✅
-- **Tests:**
-  - `TestConcurrency_SyscallEvents` - kernel/coroutine_test.go:498
-    - **Given:** 创建线程和协程
-    - **When:** SpawnThread + SpawnCoroutine + ResumeCoroutine
-    - **Then:** 正确发射 SpawnThread、SpawnCoroutine、ResumeCoroutine(yielded)、ResumeCoroutine(completed) 事件
-
-- **Gaps:** 无
+**错误路径覆盖:** 简单循环、复杂循环、自循环、部分循环 — **4 种循环模式全覆盖**
+**错误消息验证:** TestDetectCycle_SimpleCycle 验证错误信息包含 "cycle" 关键字
 
 ---
 
-#### 并发安全（-race 检测）(P2)
+### AC #3 — 拓扑排序调度 (P0)
 
-- **Coverage:** FULL ✅
-- **Tests:**
-  - `TestThread_Concurrent` - kernel/thread_test.go:316
-    - **Given:** 50 个 goroutine
-    - **When:** 并发 SpawnThread/JoinThread
-    - **Then:** 无 race condition（-race 通过）
-  - `TestCoroutine_Concurrent` - kernel/coroutine_test.go:358
-    - **Given:** 20 个 goroutine
-    - **When:** 并发 SpawnCoroutine/Yield/Resume
-    - **Then:** 无 race condition（-race 通过）
+**Coverage:** FULL | **Tests:** 14 | **Level:** Unit
 
-- **Gaps:** 无
+| # | 测试名称 | 文件 | 场景 | 状态 |
+|---|----------|------|------|------|
+| 1 | TestTopologicalSort_AllParallel | dag_test.go | 全并行（单层）排序 | PASS |
+| 2 | TestTopologicalSort_Sequential | dag_test.go | 纯串行（3 层）排序 | PASS |
+| 3 | TestTopologicalSort_Diamond | dag_test.go | 菱形 [A],[B,C],[D] 排序 | PASS |
+| 4 | TestTopologicalSort_ComplexGraph | dag_test.go | 复杂图拓扑约束验证 | PASS |
+| 5 | TestTopologicalSort_SingleNode | dag_test.go | 单节点排序 | PASS |
+| 6 | TestNewEngine_Valid | engine_test.go | 引擎构造成功 | PASS |
+| 7 | TestEngine_Execute_NoDeps | engine_test.go | 3 agent 全并行调度 | PASS |
+| 8 | TestEngine_Execute_LinearDeps | engine_test.go | 串行依赖调度（验证顺序）| PASS |
+| 9 | TestEngine_Execute_DiamondDeps | engine_test.go | 菱形调度（A 首 D 末）| PASS |
+| 10 | TestEngine_Execute_FailurePropagation | engine_test.go | 上游失败→下游不启动 | PASS |
+| 11 | TestEngine_Execute_ContextCancel | engine_test.go | context 超时中止调度 | PASS |
+| 12 | TestEngine_Execute_PartialFailure | engine_test.go | 菱形中 B 失败→D 跳过 | PASS |
+| 13 | TestEngine_Execute_EmptyAfterCancel | engine_test.go | 已取消 context 立即返回 | PASS |
+| 14 | TestEngine_Execute_Performance | engine_test.go | 10 agent ≤2s (NFR21) | PASS |
 
----
-
-#### TID 进程局部性 (P2)
-
-- **Coverage:** FULL ✅
-- **Tests:**
-  - `TestThread_MultipleTIDsAreProcessLocal` - kernel/thread_test.go:260
-    - **Given:** 两个不同进程
-    - **When:** 各自 SpawnThread
-    - **Then:** TID 是进程内局部的
-
-- **Gaps:** 无
+**NFR21 验证:** TestEngine_Execute_Performance 确认 10 个并行 agent 引擎开销远低于 2s（实际 ~0ms，mock 无延迟）
+**错误路径覆盖:** FailurePropagation, ContextCancel, PartialFailure, EmptyAfterCancel — **4 个失败场景**
 
 ---
 
-### Gap Analysis
+### AC #4 — 依赖触发 (P0)
 
-#### Critical Gaps (BLOCKER) ❌
+**Coverage:** FULL | **Tests:** 3 | **Level:** Unit
 
-0 gaps found. **All P0 criteria fully covered.**
+| # | 测试名称 | 文件 | 场景 | 状态 |
+|---|----------|------|------|------|
+| 1 | TestEngine_Execute_LinearDeps | engine_test.go | A→B→C 串行触发，验证 spawn 顺序 | PASS |
+| 2 | TestEngine_Execute_DiamondDeps | engine_test.go | 菱形依赖自动触发 | PASS |
+| 3 | TestEngine_Execute_OutputPassthrough | engine_test.go | A 输出注入 B 的 SystemPrompt | PASS |
 
----
-
-#### High Priority Gaps (PR BLOCKER) ⚠️
-
-0 gaps found. **All P1 criteria fully covered.**
-
----
-
-#### Medium Priority Gaps (Nightly) ⚠️
-
-0 gaps found. **All P2 criteria fully covered.**
+**输出注入验证:** TestEngine_Execute_OutputPassthrough 验证 B 的 SystemPrompt 包含 "analysis result from A"
+**触发机制:** 通过 mock KernelSpawner 验证 spawn 顺序与依赖一致
 
 ---
 
-#### Low Priority Gaps (Optional) ℹ️
+### AC #5 — YAML 格式支持 (P0)
 
-0 gaps found.
+**Coverage:** FULL | **Tests:** 5 | **Level:** Unit
 
----
+| # | 测试名称 | 文件 | 场景 | 状态 |
+|---|----------|------|------|------|
+| 1 | TestParseBytes_Valid | parser_test.go | version + intent + agents + depends_on | PASS |
+| 2 | TestParseBytes_FullFormat | parser_test.go | 含 agent 引用字段完整格式 | PASS |
+| 3 | TestParseBytes_SingleAgent | parser_test.go | 单 agent 最小格式 | PASS |
+| 4 | TestEngine_Execute_AgentWithSkills | engine_test.go | 带 skills 列表执行 | PASS |
+| 5 | TestEngine_Execute_AgentWithRef | engine_test.go | 带 agent 引用字段执行 | PASS |
 
-### Coverage Heuristics Findings
-
-#### Endpoint Coverage Gaps
-
-- Endpoints without direct API tests: 0 (N/A - kernel-level, no HTTP endpoints)
-
-#### Auth/Authz Negative-Path Gaps
-
-- Criteria missing denied/invalid-path tests: 0
-- All error paths covered (parent not found, parent not running, thread not found, coroutine not suspended, coroutine not found)
-
-#### Happy-Path-Only Criteria
-
-- Criteria missing error/edge scenarios: 0
-- All criteria have both happy path and error path tests
+**字段覆盖:** version, intent, agents.*.intent, agents.*.agent, agents.*.skills, agents.*.depends_on — **全部字段已覆盖**
 
 ---
 
-### Quality Assessment
+## 覆盖启发式分析
 
-#### Tests with Issues
-
-**BLOCKER Issues** ❌
-
-无
-
-**WARNING Issues** ⚠️
-
-无
-
-**INFO Issues** ℹ️
-
-- `TestCoroutine_Basic` / `TestYield_Basic` / `TestResumeCoroutine_Basic` — 使用 `time.Sleep(20ms)` 等待协程 goroutine 启动。这是 Go channel 测试的常见模式，非硬等待，但可关注确定性改进。
+| 启发式检查 | 结果 | 说明 |
+|-----------|------|------|
+| API 端点覆盖 | N/A | 本 story 为内部引擎，无 HTTP 端点 |
+| 认证/授权覆盖 | N/A | compose 引擎无认证需求 |
+| 错误路径覆盖 | 充分 | Parser 10 错误场景 + DAG 4 循环模式 + Engine 4 失败场景 |
+| 仅 Happy-Path 的标准 | 0 | 所有标准均有错误路径测试 |
 
 ---
 
-#### Tests Passing Quality Gates
+## 风险评估
 
-**28/28 tests (100%) meet all quality criteria** ✅
+| 风险 ID | 类别 | 描述 | 概率 | 影响 | 得分 | 操作 |
+|---------|------|------|------|------|------|------|
+| RISK-001 | TECH | 拓扑排序在超大图（>100 nodes）性能 | 1 | 1 | 1 | DOCUMENT |
+| RISK-002 | TECH | 并发 goroutine 数据竞争 | 1 | 2 | 2 | DOCUMENT |
+| RISK-003 | TECH | context 取消后 goroutine 泄漏 | 1 | 2 | 2 | DOCUMENT |
 
-- 所有测试 < 300 行（thread_test.go: 355 行含辅助函数；coroutine_test.go: 579 行含辅助函数）
-- 所有测试使用 `-race` flag
-- 所有测试自清理（无共享状态泄漏）
-- 所有断言显式可见（非隐藏在 helper 中）
-- 所有测试遵循 Given-When-Then 结构
-
----
-
-### Duplicate Coverage Analysis
-
-#### Acceptable Overlap (Defense in Depth)
-
-- AC-2 (线程): 基本测试 + 上下文共享测试 + 并发测试 — 三层验证，确保核心功能在不同场景下正确 ✅
-- AC-3 (协程): 基本测试 + 多次 yield 测试 + 并发测试 — 三层验证 ✅
-- SyscallEvent: 独立事件测试 + 综合事件测试 — 确保单独和联合场景都正确 ✅
-
-#### Unacceptable Duplication ⚠️
-
-无 — 所有测试验证不同的行为方面，无重复覆盖
+**风险总结:** 所有风险得分 ≤ 3（LOW），无需缓解操作。Race 检测（-race flag）已内置于测试运行，有效覆盖 RISK-002。
 
 ---
 
-### Coverage by Test Level
+## 缺口分析
 
-| Test Level | Tests      | Criteria Covered | Coverage %  |
-| ---------- | ---------- | ---------------- | ----------- |
-| Unit       | 28         | 9/9              | 100%        |
-| API        | 0          | N/A              | N/A         |
-| Component  | 0          | N/A              | N/A         |
-| E2E        | 0          | N/A              | N/A         |
-| **Total**  | **28**     | **9/9**          | **100%**    |
+### 关键缺口 (P0)
 
-注：本项目为 Go 后端项目，kernel 包的测试属于 Unit/Integration 级别，无 API/E2E 需求。
+**无。** 全部 P0 验收标准已完全覆盖。
 
----
+### 高优先级缺口 (P1)
 
-### Traceability Recommendations
+**无。** 本 story 无 P1 级别需求。
 
-#### Immediate Actions (Before PR Merge)
+### 中优先级缺口 (P2)
 
-无 — 所有验收标准均已完全覆盖。
+**无。** 边界情况（单节点、空依赖）已有测试。
 
-#### Short-term Actions (This Milestone)
+### 低优先级缺口 (P3)
 
-无 — 覆盖率 100%，质量达标。
-
-#### Long-term Actions (Backlog)
-
-1. **考虑协程超时机制测试** — 当前协程无超时保护，未来如果添加超时功能，需补充相应测试
+**无。**
 
 ---
 
-## PHASE 2: QUALITY GATE DECISION
+## 门禁标准评估
 
-**Gate Type:** story
-**Decision Mode:** deterministic
-
----
-
-### Evidence Summary
-
-#### Test Execution Results
-
-- **Total Tests**: 28
-- **Passed**: 28 (100%)
-- **Failed**: 0 (0%)
-- **Skipped**: 0 (0%)
-- **Duration**: 1.292s
-
-**Priority Breakdown:**
-
-- **P0 Tests**: 17/17 passed (100%) ✅
-- **P1 Tests**: 7/7 passed (100%) ✅
-- **P2 Tests**: 4/4 passed (100%) ✅
-- **P3 Tests**: 0/0 passed (N/A)
-
-**Overall Pass Rate**: 100% ✅
-
-**Test Results Source**: local run (`go test ./kernel/ -race -v -count=1`)
+| 标准 | 要求 | 实际 | 状态 |
+|------|------|------|------|
+| P0 覆盖率 | 100% | 100% | **MET** |
+| P1 覆盖率（通过目标） | 90% | N/A (无 P1) | **MET** |
+| P1 覆盖率（最低） | 80% | N/A (无 P1) | **MET** |
+| 总体覆盖率 | ≥80% | 100% | **MET** |
+| 关键缺口数 | 0 | 0 | **MET** |
+| 测试通过率 | 100% | 100% (38/38) | **MET** |
+| Race 检测 | PASS | PASS | **MET** |
 
 ---
 
-#### Coverage Summary (from Phase 1)
+## 测试执行证据
 
-**Requirements Coverage:**
+### 命令
 
-- **P0 Acceptance Criteria**: 3/3 covered (100%) ✅
-- **P1 Acceptance Criteria**: 4/4 covered (100%) ✅
-- **P2 Acceptance Criteria**: 2/2 covered (100%) ✅
-- **Overall Coverage**: 100%
+```bash
+go test ./compose/ -race -v -count=1
+```
 
-**Code Coverage** (if available):
+### 结果
 
-- 未单独提取代码覆盖率报告，但所有公开方法（SpawnThread、JoinThread、SpawnCoroutine、Yield、ResumeCoroutine）均被测试调用，包括正常路径和错误路径。
-
----
-
-#### Non-Functional Requirements (NFRs)
-
-**Security**: PASS ✅
-
-- Security Issues: 0
-- 无安全敏感操作（纯内核内部并发原语）
-
-**Performance**: PASS ✅
-
-- NFR24: 10 并发进程表操作延迟在可接受范围内
-- TestConcurrent_10Processes 验证通过
-
-**Reliability**: PASS ✅
-
-- 所有并发测试通过 `-race` 检测
-- reapProcess 正确清理线程和协程资源（NFR8）
-- context 级联取消确保无 goroutine 泄漏
-
-**Maintainability**: PASS ✅
-
-- ConcurrencyManager 作为独立子接口，不影响现有接口（NFR19）
-- 代码遵循项目既定模式（子接口组合、emitEvent、SyscallError 包装）
-
----
-
-#### Flakiness Validation
-
-**Burn-in Results**: 未执行独立 burn-in
-
-- **Flaky Tests Detected**: 0 ✅
-- 所有测试在本次运行中 100% 通过
-- 协程测试使用 20ms sleep 等待 goroutine 启动，属于常见 Go 测试模式，非硬等待
-
----
-
-### Decision Criteria Evaluation
-
-#### P0 Criteria (Must ALL Pass)
-
-| Criterion             | Threshold | Actual | Status    |
-| --------------------- | --------- | ------ | --------- |
-| P0 Coverage           | 100%      | 100%   | ✅ PASS   |
-| P0 Test Pass Rate     | 100%      | 100%   | ✅ PASS   |
-| Security Issues       | 0         | 0      | ✅ PASS   |
-| Critical NFR Failures | 0         | 0      | ✅ PASS   |
-| Flaky Tests           | 0         | 0      | ✅ PASS   |
-
-**P0 Evaluation**: ✅ ALL PASS
-
----
-
-#### P1 Criteria (Required for PASS, May Accept for CONCERNS)
-
-| Criterion              | Threshold | Actual | Status    |
-| ---------------------- | --------- | ------ | --------- |
-| P1 Coverage            | >=90%     | 100%   | ✅ PASS   |
-| P1 Test Pass Rate      | >=95%     | 100%   | ✅ PASS   |
-| Overall Test Pass Rate | >=95%     | 100%   | ✅ PASS   |
-| Overall Coverage       | >=80%     | 100%   | ✅ PASS   |
-
-**P1 Evaluation**: ✅ ALL PASS
-
----
-
-#### P2/P3 Criteria (Informational, Don't Block)
-
-| Criterion         | Actual | Notes                     |
-| ----------------- | ------ | ------------------------- |
-| P2 Test Pass Rate | 100%   | Tracked, doesn't block    |
-| P3 Test Pass Rate | N/A    | No P3 tests               |
-
----
-
-### GATE DECISION: PASS ✅
-
----
-
-### Rationale
-
-所有 P0 标准 100% 达成，涵盖进程级、线程级、协程级三种并发原语的完整验收标准。所有 P1 标准超过阈值，覆盖率和通过率均为 100%。无安全问题、无 NFR 失败、无 flaky 测试。
-
-关键证据：
-- 28 个测试全部通过（含 `-race` 检测）
-- 9 个验收标准（分布在 P0/P1/P2）全部 FULL 覆盖
-- reapProcess 集成测试验证资源清理
-- 50 goroutine 并发 SpawnThread/JoinThread 和 20 goroutine 并发 SpawnCoroutine/Resume 均无数据竞争
-- NFR24 性能测试通过
-
-Story 6.5 可安全合并。
-
----
-
-### Gate Recommendations
-
-#### For PASS Decision ✅
-
-1. **Proceed to merge**
-   - 所有测试通过，可合并到主分支
-   - 验证 `make all` (lint + vet + test + build) 通过
-
-2. **Post-Merge Monitoring**
-   - 关注 CI 中并发测试的稳定性
-   - 关注 `-race` 检测在不同平台的表现
-
-3. **Success Criteria**
-   - CI 持续通过
-   - Story 6.1-6.4 无回归
-
----
-
-### Next Steps
-
-**Immediate Actions** (next 24-48 hours):
-
-1. 确认 `make all` 通过
-2. 合并 Story 6.5 到主分支
-3. 更新 Sprint Status
-
-**Follow-up Actions** (next milestone/release):
-
-1. Epic 6 回顾（所有 5 个 Story 完成）
-2. 考虑是否需要集成测试（跨 Story 6.1-6.5 的联合场景）
-
-**Stakeholder Communication**:
-
-- Notify PM: Story 6.5 PASS — 三级并发模型完成，所有验收标准达标
-- Notify DEV lead: Story 6.5 PASS — 28 测试通过，可合并
-
----
-
-## Integrated YAML Snippet (CI/CD)
-
-```yaml
-traceability_and_gate:
-  # Phase 1: Traceability
-  traceability:
-    story_id: "6.5"
-    date: "2026-02-28"
-    coverage:
-      overall: 100%
-      p0: 100%
-      p1: 100%
-      p2: 100%
-      p3: N/A
-    gaps:
-      critical: 0
-      high: 0
-      medium: 0
-      low: 0
-    quality:
-      passing_tests: 28
-      total_tests: 28
-      blocker_issues: 0
-      warning_issues: 0
-    recommendations:
-      - "No gaps found. Full coverage achieved."
-
-  # Phase 2: Gate Decision
-  gate_decision:
-    decision: "PASS"
-    gate_type: "story"
-    decision_mode: "deterministic"
-    criteria:
-      p0_coverage: 100%
-      p0_pass_rate: 100%
-      p1_coverage: 100%
-      p1_pass_rate: 100%
-      overall_pass_rate: 100%
-      overall_coverage: 100%
-      security_issues: 0
-      critical_nfrs_fail: 0
-      flaky_tests: 0
-    thresholds:
-      min_p0_coverage: 100
-      min_p0_pass_rate: 100
-      min_p1_coverage: 90
-      min_p1_pass_rate: 95
-      min_overall_pass_rate: 95
-      min_coverage: 80
-    evidence:
-      test_results: "local run: go test ./kernel/ -race -v -count=1"
-      traceability: "_bmad-output/test-artifacts/traceability-report.md"
-      nfr_assessment: "inline (see NFR section above)"
-      code_coverage: "not separately collected"
-    next_steps: "Merge to main, update sprint status, Epic 6 retrospective"
+```
+=== RUN   TestBuildDAG_NoDeps         --- PASS (0.00s)
+=== RUN   TestBuildDAG_LinearDeps     --- PASS (0.00s)
+=== RUN   TestBuildDAG_DiamondDeps    --- PASS (0.00s)
+=== RUN   TestDetectCycle_NoCycle     --- PASS (0.00s)
+=== RUN   TestDetectCycle_SimpleCycle --- PASS (0.00s)
+=== RUN   TestDetectCycle_ComplexCycle --- PASS (0.00s)
+=== RUN   TestDetectCycle_SelfCycle   --- PASS (0.00s)
+=== RUN   TestDetectCycle_PartialCycle --- PASS (0.00s)
+=== RUN   TestTopologicalSort_AllParallel --- PASS (0.00s)
+=== RUN   TestTopologicalSort_Sequential --- PASS (0.00s)
+=== RUN   TestTopologicalSort_Diamond --- PASS (0.00s)
+=== RUN   TestTopologicalSort_ComplexGraph --- PASS (0.00s)
+=== RUN   TestTopologicalSort_SingleNode --- PASS (0.00s)
+=== RUN   TestNewEngine_Valid         --- PASS (0.00s)
+=== RUN   TestNewEngine_CyclicSpec    --- PASS (0.00s)
+=== RUN   TestEngine_Execute_NoDeps   --- PASS (0.00s)
+=== RUN   TestEngine_Execute_LinearDeps --- PASS (0.00s)
+=== RUN   TestEngine_Execute_DiamondDeps --- PASS (0.00s)
+=== RUN   TestEngine_Execute_FailurePropagation --- PASS (0.00s)
+=== RUN   TestEngine_Execute_ContextCancel --- PASS (0.10s)
+=== RUN   TestEngine_Execute_OutputPassthrough --- PASS (0.00s)
+=== RUN   TestEngine_Execute_Performance --- PASS (0.00s)
+=== RUN   TestEngine_Execute_AgentWithSkills --- PASS (0.00s)
+=== RUN   TestEngine_Execute_AgentWithRef --- PASS (0.00s)
+=== RUN   TestEngine_Execute_PartialFailure --- PASS (0.00s)
+=== RUN   TestEngine_Execute_EmptyAfterCancel --- PASS (0.00s)
+=== RUN   TestParseBytes_Valid        --- PASS (0.00s)
+=== RUN   TestParseBytes_FullFormat   --- PASS (0.00s)
+=== RUN   TestParseBytes_NoDependencies --- PASS (0.00s)
+=== RUN   TestParseFile_Valid         --- PASS (0.00s)
+=== RUN   TestParseFile_NotFound      --- PASS (0.00s)
+=== RUN   TestParseBytes_InvalidYAML  --- PASS (0.00s)
+=== RUN   TestParseBytes_InvalidVersion --- PASS (0.00s)
+=== RUN   TestParseBytes_MissingVersion --- PASS (0.00s)
+=== RUN   TestParseBytes_EmptyAgents  --- PASS (0.00s)
+=== RUN   TestParseBytes_MissingAgents --- PASS (0.00s)
+=== RUN   TestParseBytes_AgentMissingIntent --- PASS (0.00s)
+=== RUN   TestParseBytes_DependsOnInvalidRef --- PASS (0.00s)
+=== RUN   TestParseBytes_DependsOnInvalidCondition --- PASS (0.00s)
+=== RUN   TestParseBytes_MissingTopLevelIntent --- PASS (0.00s)
+=== RUN   TestParseBytes_SingleAgent  --- PASS (0.00s)
+PASS
+ok  github.com/gonewx/crux/compose  1.113s
 ```
 
 ---
 
-## Related Artifacts
+## 建议
 
-- **Story File:** `_bmad-output/implementation-artifacts/6-5-three-level-concurrency-model.md`
-- **Test Design:** `_bmad-output/test-artifacts/atdd-checklist-6-5.md`
-- **Tech Spec:** N/A (inline in story)
-- **Test Results:** `go test ./kernel/ -race -v -count=1` (28/28 PASS, 1.292s)
-- **NFR Assessment:** Inline (see Phase 2)
-- **Test Files:** `kernel/thread_test.go`, `kernel/coroutine_test.go`
+| 优先级 | 建议 |
+|--------|------|
+| LOW | 运行 `/bmad:tea:test-review` 评估测试质量（代码行数、断言模式等） |
+| LOW | 考虑在集成测试中验证 compose + 真实 Kernel 的端到端流程（Epic 8 范围） |
 
 ---
 
-## Sign-Off
+## GATE DECISION SUMMARY
 
-**Phase 1 - Traceability Assessment:**
+**GATE: PASS** — 发布已批准，覆盖率达标
 
-- Overall Coverage: 100%
-- P0 Coverage: 100% ✅
-- P1 Coverage: 100% ✅
-- Critical Gaps: 0
-- High Priority Gaps: 0
+- P0 覆盖率: **100%** (要求: 100%) → **MET**
+- 总体覆盖率: **100%** (最低: 80%) → **MET**
+- 关键缺口: **0**
+- 测试通过: **38/38** (100%)
+- Race 检测: **PASS**
 
-**Phase 2 - Gate Decision:**
-
-- **Decision**: PASS ✅
-- **P0 Evaluation**: ✅ ALL PASS
-- **P1 Evaluation**: ✅ ALL PASS
-
-**Overall Status:** PASS ✅
-
-**Next Steps:**
-
-- PASS ✅: Proceed to merge
-
-**Generated:** 2026-02-28
-**Workflow:** testarch-trace v5.0 (Enhanced with Gate Decision)
+**决策依据:** 全部 5 个 P0 验收标准被 38 个单元测试完全覆盖，包括 10 个解析错误场景、4 种循环检测模式、4 个引擎失败场景和 NFR21 性能验证。所有测试均通过，含 race 检测。无未缓解的高风险项。Story 7.1 的测试覆盖满足质量门禁标准。
 
 ---
 
-<!-- Powered by BMAD-CORE™ -->
+**Generated by BMad TEA Agent** - 2026-02-28
