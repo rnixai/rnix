@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/skills"
@@ -41,6 +42,18 @@ var skillSearchCmd = &cobra.Command{
 	RunE: runSkillSearch,
 }
 
+var skillUpdateCmd = &cobra.Command{
+	Use:   "update [name...]",
+	Short: "Update installed skills to the latest version",
+	Long:  "Check for updates and update one or more installed skills from the community registry. Run without arguments to update all installed community skills.",
+	Example: `  crux skill update code-analysis          # Update a single skill
+  crux skill update code-analysis pr-reviewer  # Update multiple skills
+  crux skill update                        # Update all installed skills
+  crux skill update code-analysis --json   # JSON output`,
+	Args: cobra.ArbitraryArgs,
+	RunE: runSkillUpdate,
+}
+
 var flagSkillForce bool
 
 // skillRegistryURL can be overridden for testing.
@@ -50,6 +63,7 @@ func init() {
 	skillInstallCmd.Flags().BoolVar(&flagSkillForce, "force", false, "Force install even if already installed")
 	skillCmd.AddCommand(skillInstallCmd)
 	skillCmd.AddCommand(skillSearchCmd)
+	skillCmd.AddCommand(skillUpdateCmd)
 }
 
 func runSkillInstall(cmd *cobra.Command, args []string) error {
@@ -223,6 +237,137 @@ func renderSkillSearchJSON(r *ui.Renderer, results []skillpkg.SearchResult) {
 	resp := JSONResponse{
 		OK:   true,
 		Data: searchJSONData{Results: results},
+	}
+	data, _ := json.Marshal(resp)
+	fmt.Fprintln(r.Writer, string(data))
+}
+
+// --- Story 8.3: skill update ---
+
+func runSkillUpdate(cmd *cobra.Command, args []string) error {
+	mode := resolveOutputMode()
+	renderer := ui.NewRenderer(os.Stdout, mode)
+	ui.InitStyles(renderer.Profile)
+
+	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
+	basePath := "lib/skills"
+	registry := skillpkg.NewLocalRegistry(basePath)
+	skillLoader := skills.NewSkillLoader(basePath)
+	installer := skillpkg.NewInstaller(client, registry, skillLoader, basePath)
+
+	var results []skillpkg.UpdateResult
+	var updateErrors []updateErrorEntry
+
+	if len(args) > 0 {
+		// Update specific skills
+		for _, name := range args {
+			if mode != ui.ModeJSON && mode != ui.ModeQuiet {
+				prefix := ui.KernelStyle.Render("[skill]")
+				fmt.Fprintf(renderer.Writer, "%s Checking %s...\n", prefix, name)
+			}
+
+			result, err := installer.Update(name, skillpkg.UpdateOpts{})
+			if err != nil {
+				code := "UPDATE_ERROR"
+				if strings.Contains(err.Error(), "is not installed") {
+					code = "NOT_INSTALLED"
+				}
+				updateErrors = append(updateErrors, updateErrorEntry{
+					Name:    name,
+					Code:    code,
+					Message: err.Error(),
+				})
+				if mode != ui.ModeJSON && mode != ui.ModeQuiet {
+					prefix := ui.KernelStyle.Render("[skill]")
+					fmt.Fprintf(renderer.Writer, "%s Error: %s\n", prefix, err.Error())
+				}
+				continue
+			}
+
+			results = append(results, *result)
+			switch mode {
+			case ui.ModeQuiet:
+				if result.Updated {
+					fmt.Fprintln(renderer.Writer, name)
+				}
+			case ui.ModeJSON:
+				// JSON output handled after loop
+			default:
+				prefix := ui.KernelStyle.Render("[skill]")
+				if result.Updated {
+					fmt.Fprintf(renderer.Writer, "%s Updated %s v%s → v%s\n", prefix, result.Name, result.OldVersion, result.NewVersion)
+				} else {
+					fmt.Fprintf(renderer.Writer, "%s %s is already up to date (v%s).\n", prefix, result.Name, result.OldVersion)
+				}
+			}
+		}
+	} else {
+		// Update all installed community skills
+		allResults, err := installer.UpdateAll(skillpkg.UpdateOpts{})
+		if err != nil {
+			if mode == ui.ModeJSON {
+				resp := JSONResponse{OK: false, Error: map[string]string{"code": "UPDATE_ERROR", "message": err.Error()}}
+				data, _ := json.Marshal(resp)
+				fmt.Fprintln(renderer.Writer, string(data))
+			} else {
+				prefix := ui.KernelStyle.Render("[skill]")
+				fmt.Fprintf(renderer.Writer, "%s Failed to update: %s\n", prefix, err.Error())
+			}
+			exitCode = 1
+			return nil
+		}
+		results = allResults
+
+		for _, result := range results {
+			switch mode {
+			case ui.ModeQuiet:
+				if result.Updated {
+					fmt.Fprintln(renderer.Writer, result.Name)
+				}
+			case ui.ModeJSON:
+				// JSON output handled after loop
+			default:
+				prefix := ui.KernelStyle.Render("[skill]")
+				if result.Updated {
+					fmt.Fprintf(renderer.Writer, "%s Updated %s v%s → v%s\n", prefix, result.Name, result.OldVersion, result.NewVersion)
+				} else {
+					fmt.Fprintf(renderer.Writer, "%s %s is already up to date (v%s).\n", prefix, result.Name, result.OldVersion)
+				}
+			}
+		}
+	}
+
+	if mode == ui.ModeJSON {
+		renderSkillUpdateJSON(renderer, results, updateErrors)
+	}
+
+	if len(updateErrors) > 0 {
+		exitCode = 1
+	}
+
+	return nil
+}
+
+type updateErrorEntry struct {
+	Name    string `json:"name"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type skillUpdateJSONData struct {
+	Results []skillpkg.UpdateResult `json:"results"`
+	Errors  []updateErrorEntry     `json:"errors,omitempty"`
+}
+
+func renderSkillUpdateJSON(r *ui.Renderer, results []skillpkg.UpdateResult, errs []updateErrorEntry) {
+	if results == nil {
+		results = []skillpkg.UpdateResult{}
+	}
+
+	ok := len(errs) == 0
+	resp := JSONResponse{
+		OK:   ok,
+		Data: skillUpdateJSONData{Results: results, Errors: errs},
 	}
 	data, _ := json.Marshal(resp)
 	fmt.Fprintln(r.Writer, string(data))
