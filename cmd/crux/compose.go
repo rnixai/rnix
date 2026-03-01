@@ -225,15 +225,13 @@ func runComposeUp(cmd *cobra.Command, args []string) error {
 	ui.RenderComposeHeader(renderer, spec.Intent)
 
 	// 8. Execute orchestration
-	start := time.Now()
 	results, execErr := engine.Execute(ctx)
-	elapsed := time.Since(start)
 
 	// 9. Output summary
 	if mode == ui.ModeJSON {
 		renderComposeJSON(renderer, results, execErr, spawner)
 	} else {
-		renderComposeResults(renderer, results, elapsed, spawner)
+		renderComposeResults(renderer, results, spawner)
 	}
 
 	// 10. Set exit code
@@ -252,7 +250,7 @@ func runComposeUp(cmd *cobra.Command, args []string) error {
 }
 
 // renderComposeResults outputs per-agent results and the summary table.
-func renderComposeResults(r *ui.Renderer, results []compose.ScheduleResult, elapsed time.Duration, spawner *ipcKernelSpawner) {
+func renderComposeResults(r *ui.Renderer, results []compose.ScheduleResult, spawner *ipcKernelSpawner) {
 	total := len(results)
 	for i, res := range results {
 		idx := i + 1
