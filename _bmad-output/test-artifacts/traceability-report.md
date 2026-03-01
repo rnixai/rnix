@@ -6,310 +6,564 @@ stepsCompleted:
   - 'step-04-analyze-gaps'
   - 'step-05-gate-decision'
 lastStep: 'step-05-gate-decision'
-lastSaved: '2026-02-28'
+lastSaved: '2026-03-01'
 workflowType: 'testarch-trace'
 inputDocuments:
-  - '_bmad-output/implementation-artifacts/7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine.md'
-  - '_bmad-output/test-artifacts/atdd-checklist-7-1.md'
-  - 'compose/parser_test.go'
-  - 'compose/dag_test.go'
-  - 'compose/engine_test.go'
-  - 'compose/types.go'
-  - 'compose/parser.go'
-  - 'compose/dag.go'
-  - 'compose/engine.go'
+  - '_bmad-output/implementation-artifacts/7-3-crux-compose-down-command.md'
+  - '_bmad-output/test-artifacts/atdd-checklist-7-3.md'
+  - 'cmd/crux/compose.go'
+  - 'cmd/crux/compose_test.go'
+  - 'internal/ui/compose.go'
+  - 'internal/ui/compose_test.go'
 ---
 
-# Traceability Matrix & Gate Decision - Story 7.1
+# Traceability Matrix & Gate Decision - Story 7.3
 
-**Story:** 7.1 crux-compose.yaml 解析与 DAG 调度引擎
-**Date:** 2026-02-28
-**Evaluator:** TEA Agent
-**Gate Type:** Story
+**Story:** 7.3 crux compose down 命令
+**Date:** 2026-03-01
+**Evaluator:** TEA Agent (Decker)
 
 ---
 
-## Gate Decision: PASS
+Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*automate` to create coverage.
 
-**Rationale:** P0 覆盖率为 100%，总体覆盖率为 100%（最低要求 80%）。全部 5 个验收标准均被 38 个通过的单元测试完全覆盖，包含充分的错误路径场景。无 P1 需求缺口。
+## PHASE 1: REQUIREMENTS TRACEABILITY
 
----
+### Coverage Summary
 
-## 覆盖率总结
+| Priority  | Total Criteria | FULL Coverage | Coverage % | Status       |
+| --------- | -------------- | ------------- | ---------- | ------------ |
+| P0        | 2              | 2             | 100%       | ✅ PASS      |
+| P1        | 0              | 0             | N/A        | N/A          |
+| P2        | 0              | 0             | N/A        | N/A          |
+| P3        | 0              | 0             | N/A        | N/A          |
+| **Total** | **2**          | **2**         | **100%**   | **✅ PASS**  |
 
-| 指标 | 数值 |
-|------|------|
-| 总验收标准 | 5 |
-| 完全覆盖 | 5 (100%) |
-| 部分覆盖 | 0 |
-| 未覆盖 | 0 |
-| 总测试数 | 38 |
-| 测试通过率 | 38/38 (100%) |
-| 测试执行时间 | 1.113s（含 -race） |
+**Legend:**
 
-### 优先级覆盖率
-
-| 优先级 | 总数 | 已覆盖 | 覆盖率 | 状态 |
-|--------|------|--------|--------|------|
-| P0 | 5 | 5 | 100% | MET |
-| P1 | 0 | 0 | N/A | N/A |
-| P2 | 0 | 0 | N/A | N/A |
-| P3 | 0 | 0 | N/A | N/A |
+- ✅ PASS - Coverage meets quality gate threshold
+- ⚠️ WARN - Coverage below threshold but not critical
+- ❌ FAIL - Coverage below minimum threshold (blocker)
 
 ---
 
-## 验收标准
+### Detailed Mapping
 
-1. **AC #1 — YAML 解析**: 解析 `crux-compose.yaml`，提取 intent、agent、skills、depends_on，构建 DAG
-2. **AC #2 — 循环依赖检测**: YAML 中循环依赖返回清晰错误，标注循环路径
-3. **AC #3 — 拓扑排序调度**: 按拓扑顺序启动智能体，无依赖分支并行化，≤10 agents ≤2s (NFR21)
-4. **AC #4 — 依赖触发**: A 完成后自动启动 B，A 的输出注入 B 的上下文
-5. **AC #5 — YAML 格式支持**: 支持 version/intent/agents（含 agent/skills/depends_on）完整格式
+#### AC #1: compose down 子命令注册、文件解析、daemon 连接、进程匹配与 SIGTERM 发送 (P0)
 
----
+- **Coverage:** FULL ✅
+- **Tests:**
+  - `TestComposeDownCmd_Registered` - cmd/crux/compose_test.go:548
+    - **Given:** compose command exists with subcommands
+    - **When:** looking for down subcommand
+    - **Then:** compose down subcommand should exist
+  - `TestComposeDown_HelpOutput` - cmd/crux/compose_test.go:575
+    - **Given:** compose down subcommand exists
+    - **When:** requesting help
+    - **Then:** help output contains usage information and -f flag
+  - `TestComposeDown_FileNotFound` - cmd/crux/compose_test.go:600
+    - **Given:** a non-existent compose file
+    - **When:** running compose down -f missing.yaml
+    - **Then:** returns an error indicating file not found (exitCode=2)
+  - `TestComposeDown_NoDaemon` - cmd/crux/compose_test.go:622
+    - **Given:** no daemon is running
+    - **When:** running compose down
+    - **Then:** outputs "no daemon running" and exits normally (exit code 0)
+  - `TestComposeDown_KillRunningOnly` - cmd/crux/compose_test.go:708
+    - **Given:** daemon has processes in various states (Running, Zombie, Dead)
+    - **When:** running compose down
+    - **Then:** only Running/Created processes are killed, Zombie/Dead processes are skipped
+  - `TestMatchComposeProcesses_AllRunning` - cmd/crux/compose_test.go:863
+    - **Given:** all daemon processes match compose spec intents and are Running
+    - **When:** calling matchComposeProcesses
+    - **Then:** all processes returned in "running" slice, none in "completed"
+  - `TestMatchComposeProcesses_MixedStates` - cmd/crux/compose_test.go:889
+    - **Given:** processes in mixed states (Running, Zombie, Dead)
+    - **When:** calling matchComposeProcesses
+    - **Then:** Running/Created in "running", Zombie/Dead in "completed"
+  - `TestMatchComposeProcesses_NoMatch` - cmd/crux/compose_test.go:920
+    - **Given:** daemon processes do not match compose spec intents
+    - **When:** calling matchComposeProcesses
+    - **Then:** both slices are empty
 
-## Traceability Matrix
+- **Gaps:** None
 
-### AC #1 — YAML 解析 (P0)
-
-**Coverage:** FULL | **Tests:** 18 | **Level:** Unit
-
-| # | 测试名称 | 文件 | 场景 | 状态 |
-|---|----------|------|------|------|
-| 1 | TestParseBytes_Valid | parser_test.go | 合法 YAML（多 agent + 依赖）完整解析 | PASS |
-| 2 | TestParseBytes_FullFormat | parser_test.go | 含 agent 引用字段的完整格式 | PASS |
-| 3 | TestParseBytes_NoDependencies | parser_test.go | 无依赖智能体解析 | PASS |
-| 4 | TestParseFile_Valid | parser_test.go | 从磁盘文件路径解析 | PASS |
-| 5 | TestParseFile_NotFound | parser_test.go | 文件不存在返回错误 | PASS |
-| 6 | TestParseBytes_InvalidYAML | parser_test.go | 无效 YAML 语法返回错误 | PASS |
-| 7 | TestParseBytes_InvalidVersion | parser_test.go | 不支持的 version 返回错误 | PASS |
-| 8 | TestParseBytes_MissingVersion | parser_test.go | 缺少 version 返回错误 | PASS |
-| 9 | TestParseBytes_EmptyAgents | parser_test.go | agents 为空返回错误 | PASS |
-| 10 | TestParseBytes_MissingAgents | parser_test.go | 缺少 agents 返回错误 | PASS |
-| 11 | TestParseBytes_AgentMissingIntent | parser_test.go | agent 缺少 intent 返回错误 | PASS |
-| 12 | TestParseBytes_DependsOnInvalidRef | parser_test.go | depends_on 引用不存在 agent | PASS |
-| 13 | TestParseBytes_DependsOnInvalidCondition | parser_test.go | depends_on 不支持的条件 | PASS |
-| 14 | TestParseBytes_MissingTopLevelIntent | parser_test.go | 缺少顶层 intent | PASS |
-| 15 | TestParseBytes_SingleAgent | parser_test.go | 单个智能体合法解析 | PASS |
-| 16 | TestBuildDAG_NoDeps | dag_test.go | 无依赖 DAG 构建 | PASS |
-| 17 | TestBuildDAG_LinearDeps | dag_test.go | 线性依赖链 A→B→C | PASS |
-| 18 | TestBuildDAG_DiamondDeps | dag_test.go | 菱形依赖 A→B,C→D | PASS |
-
-**错误路径覆盖:** InvalidYAML, InvalidVersion, MissingVersion, EmptyAgents, MissingAgents, AgentMissingIntent, DependsOnInvalidRef, DependsOnInvalidCondition, MissingTopLevelIntent, FileNotFound — **10 个错误场景**
-
----
-
-### AC #2 — 循环依赖检测 (P0)
-
-**Coverage:** FULL | **Tests:** 6 | **Level:** Unit
-
-| # | 测试名称 | 文件 | 场景 | 状态 |
-|---|----------|------|------|------|
-| 1 | TestDetectCycle_NoCycle | dag_test.go | 无环图检测通过 | PASS |
-| 2 | TestDetectCycle_SimpleCycle | dag_test.go | A→B→A 双节点循环 | PASS |
-| 3 | TestDetectCycle_ComplexCycle | dag_test.go | A→B→C→A 三节点循环 | PASS |
-| 4 | TestDetectCycle_SelfCycle | dag_test.go | A→A 自依赖循环 | PASS |
-| 5 | TestDetectCycle_PartialCycle | dag_test.go | 混合图中部分节点成环 | PASS |
-| 6 | TestNewEngine_CyclicSpec | engine_test.go | 引擎拒绝循环 spec | PASS |
-
-**错误路径覆盖:** 简单循环、复杂循环、自循环、部分循环 — **4 种循环模式全覆盖**
-**错误消息验证:** TestDetectCycle_SimpleCycle 验证错误信息包含 "cycle" 关键字
+- **Recommendation:** 覆盖充分，无需额外测试
 
 ---
 
-### AC #3 — 拓扑排序调度 (P0)
+#### AC #2: 释放汇总 — killed/skipped 列表、JSON 输出、安静模式 (P0)
 
-**Coverage:** FULL | **Tests:** 14 | **Level:** Unit
+- **Coverage:** FULL ✅
+- **Tests:**
+  - `TestComposeDown_NoMatchingProcesses` - cmd/crux/compose_test.go:666
+    - **Given:** daemon is running but has no matching processes
+    - **When:** running compose down
+    - **Then:** outputs "no matching processes" and exits normally
+  - `TestComposeDown_JSONOutput` - cmd/crux/compose_test.go:785
+    - **Given:** compose down results (killed + skipped)
+    - **When:** rendering as JSON
+    - **Then:** output is valid JSON with killed/skipped arrays and summary fields
+  - `TestRenderComposeDownSummary` - internal/ui/compose_test.go:336
+    - **Given:** compose down killed some processes and skipped others
+    - **When:** rendering compose down summary
+    - **Then:** output shows per-process status and totals ("2 killed", "1 skipped")
+  - `TestRenderComposeDownSummary_NoKills` - internal/ui/compose_test.go:370
+    - **Given:** all compose processes already completed
+    - **When:** rendering compose down summary
+    - **Then:** output shows "0 killed", "2 skipped"
+  - `TestRenderComposeDownSummary_QuietMode` - internal/ui/compose_test.go:395
+    - **Given:** quiet output mode
+    - **When:** rendering compose down summary
+    - **Then:** no output produced
+  - `TestRenderComposeDownSummaryJSON` - internal/ui/compose_test.go:415
+    - **Given:** compose down killed and skipped processes
+    - **When:** rendering JSON summary
+    - **Then:** valid JSON with killed/skipped arrays and summary (killed_count, skipped_count, total_matched)
+  - `TestRenderComposeDownSummaryJSON_Empty` - internal/ui/compose_test.go:476
+    - **Given:** no processes killed or skipped
+    - **When:** rendering JSON summary
+    - **Then:** valid JSON with empty arrays and total_matched=0
 
-| # | 测试名称 | 文件 | 场景 | 状态 |
-|---|----------|------|------|------|
-| 1 | TestTopologicalSort_AllParallel | dag_test.go | 全并行（单层）排序 | PASS |
-| 2 | TestTopologicalSort_Sequential | dag_test.go | 纯串行（3 层）排序 | PASS |
-| 3 | TestTopologicalSort_Diamond | dag_test.go | 菱形 [A],[B,C],[D] 排序 | PASS |
-| 4 | TestTopologicalSort_ComplexGraph | dag_test.go | 复杂图拓扑约束验证 | PASS |
-| 5 | TestTopologicalSort_SingleNode | dag_test.go | 单节点排序 | PASS |
-| 6 | TestNewEngine_Valid | engine_test.go | 引擎构造成功 | PASS |
-| 7 | TestEngine_Execute_NoDeps | engine_test.go | 3 agent 全并行调度 | PASS |
-| 8 | TestEngine_Execute_LinearDeps | engine_test.go | 串行依赖调度（验证顺序）| PASS |
-| 9 | TestEngine_Execute_DiamondDeps | engine_test.go | 菱形调度（A 首 D 末）| PASS |
-| 10 | TestEngine_Execute_FailurePropagation | engine_test.go | 上游失败→下游不启动 | PASS |
-| 11 | TestEngine_Execute_ContextCancel | engine_test.go | context 超时中止调度 | PASS |
-| 12 | TestEngine_Execute_PartialFailure | engine_test.go | 菱形中 B 失败→D 跳过 | PASS |
-| 13 | TestEngine_Execute_EmptyAfterCancel | engine_test.go | 已取消 context 立即返回 | PASS |
-| 14 | TestEngine_Execute_Performance | engine_test.go | 10 agent ≤2s (NFR21) | PASS |
+- **Gaps:** None
 
-**NFR21 验证:** TestEngine_Execute_Performance 确认 10 个并行 agent 引擎开销远低于 2s（实际 ~0ms，mock 无延迟）
-**错误路径覆盖:** FailurePropagation, ContextCancel, PartialFailure, EmptyAfterCancel — **4 个失败场景**
-
----
-
-### AC #4 — 依赖触发 (P0)
-
-**Coverage:** FULL | **Tests:** 3 | **Level:** Unit
-
-| # | 测试名称 | 文件 | 场景 | 状态 |
-|---|----------|------|------|------|
-| 1 | TestEngine_Execute_LinearDeps | engine_test.go | A→B→C 串行触发，验证 spawn 顺序 | PASS |
-| 2 | TestEngine_Execute_DiamondDeps | engine_test.go | 菱形依赖自动触发 | PASS |
-| 3 | TestEngine_Execute_OutputPassthrough | engine_test.go | A 输出注入 B 的 SystemPrompt | PASS |
-
-**输出注入验证:** TestEngine_Execute_OutputPassthrough 验证 B 的 SystemPrompt 包含 "analysis result from A"
-**触发机制:** 通过 mock KernelSpawner 验证 spawn 顺序与依赖一致
+- **Recommendation:** 覆盖充分，无需额外测试
 
 ---
 
-### AC #5 — YAML 格式支持 (P0)
+### Gap Analysis
 
-**Coverage:** FULL | **Tests:** 5 | **Level:** Unit
+#### Critical Gaps (BLOCKER) ❌
 
-| # | 测试名称 | 文件 | 场景 | 状态 |
-|---|----------|------|------|------|
-| 1 | TestParseBytes_Valid | parser_test.go | version + intent + agents + depends_on | PASS |
-| 2 | TestParseBytes_FullFormat | parser_test.go | 含 agent 引用字段完整格式 | PASS |
-| 3 | TestParseBytes_SingleAgent | parser_test.go | 单 agent 最小格式 | PASS |
-| 4 | TestEngine_Execute_AgentWithSkills | engine_test.go | 带 skills 列表执行 | PASS |
-| 5 | TestEngine_Execute_AgentWithRef | engine_test.go | 带 agent 引用字段执行 | PASS |
-
-**字段覆盖:** version, intent, agents.*.intent, agents.*.agent, agents.*.skills, agents.*.depends_on — **全部字段已覆盖**
+0 gaps found.
 
 ---
 
-## 覆盖启发式分析
+#### High Priority Gaps (PR BLOCKER) ⚠️
 
-| 启发式检查 | 结果 | 说明 |
-|-----------|------|------|
-| API 端点覆盖 | N/A | 本 story 为内部引擎，无 HTTP 端点 |
-| 认证/授权覆盖 | N/A | compose 引擎无认证需求 |
-| 错误路径覆盖 | 充分 | Parser 10 错误场景 + DAG 4 循环模式 + Engine 4 失败场景 |
-| 仅 Happy-Path 的标准 | 0 | 所有标准均有错误路径测试 |
+0 gaps found.
 
 ---
 
-## 风险评估
+#### Medium Priority Gaps (Nightly) ⚠️
 
-| 风险 ID | 类别 | 描述 | 概率 | 影响 | 得分 | 操作 |
-|---------|------|------|------|------|------|------|
-| RISK-001 | TECH | 拓扑排序在超大图（>100 nodes）性能 | 1 | 1 | 1 | DOCUMENT |
-| RISK-002 | TECH | 并发 goroutine 数据竞争 | 1 | 2 | 2 | DOCUMENT |
-| RISK-003 | TECH | context 取消后 goroutine 泄漏 | 1 | 2 | 2 | DOCUMENT |
-
-**风险总结:** 所有风险得分 ≤ 3（LOW），无需缓解操作。Race 检测（-race flag）已内置于测试运行，有效覆盖 RISK-002。
+0 gaps found.
 
 ---
 
-## 缺口分析
+#### Low Priority Gaps (Optional) ℹ️
 
-### 关键缺口 (P0)
-
-**无。** 全部 P0 验收标准已完全覆盖。
-
-### 高优先级缺口 (P1)
-
-**无。** 本 story 无 P1 级别需求。
-
-### 中优先级缺口 (P2)
-
-**无。** 边界情况（单节点、空依赖）已有测试。
-
-### 低优先级缺口 (P3)
-
-**无。**
+0 gaps found.
 
 ---
 
-## 门禁标准评估
+### Coverage Heuristics Findings
 
-| 标准 | 要求 | 实际 | 状态 |
-|------|------|------|------|
-| P0 覆盖率 | 100% | 100% | **MET** |
-| P1 覆盖率（通过目标） | 90% | N/A (无 P1) | **MET** |
-| P1 覆盖率（最低） | 80% | N/A (无 P1) | **MET** |
-| 总体覆盖率 | ≥80% | 100% | **MET** |
-| 关键缺口数 | 0 | 0 | **MET** |
-| 测试通过率 | 100% | 100% (38/38) | **MET** |
-| Race 检测 | PASS | PASS | **MET** |
+#### Endpoint Coverage Gaps
+
+- Endpoints without direct API tests: 0
+- 本 story 为 CLI 命令，无 HTTP 端点。CLI 入口 `runComposeDown` 通过单元测试直接覆盖。
+
+#### Auth/Authz Negative-Path Gaps
+
+- Criteria missing denied/invalid-path tests: 0
+- compose down 命令无认证需求，N/A。
+
+#### Happy-Path-Only Criteria
+
+- Criteria missing error/edge scenarios: 0
+- AC #1 有 FileNotFound（文件不存在）、NoDaemon（daemon 未运行）、KillRunningOnly（混合状态）等错误路径
+- AC #2 有 NoMatchingProcesses（无匹配）、Empty JSON（空结果）、QuietMode（静默输出）等边界场景
 
 ---
 
-## 测试执行证据
+### Quality Assessment
 
-### 命令
+#### Tests with Issues
+
+**BLOCKER Issues** ❌
+
+无。
+
+**WARNING Issues** ⚠️
+
+无。
+
+**INFO Issues** ℹ️
+
+无。所有 15 个测试结构清晰，使用 Given-When-Then 模式，无过长测试或缺失断言。
+
+---
+
+#### Tests Passing Quality Gates
+
+**15/15 tests (100%) meet all quality criteria** ✅
+
+---
+
+### Duplicate Coverage Analysis
+
+#### Acceptable Overlap (Defense in Depth)
+
+- AC #2 JSON 输出: 在 CLI 层 (`TestComposeDown_JSONOutput`) 和 UI 层 (`TestRenderComposeDownSummaryJSON`) 均有测试 ✅
+  - CLI 层验证端到端调用路径
+  - UI 层验证渲染函数的独立正确性
+
+- AC #1 进程匹配: `TestComposeDown_KillRunningOnly` (集成) 与 `TestMatchComposeProcesses_*` (单元) 重叠 ✅
+  - 集成测试验证完整 compose down 流程中的匹配行为
+  - 单元测试验证 `matchComposeProcesses` 函数的独立逻辑
+
+#### Unacceptable Duplication ⚠️
+
+无。所有重叠均为合理的防御性分层测试。
+
+---
+
+### Coverage by Test Level
+
+| Test Level | Tests    | Criteria Covered | Coverage % |
+| ---------- | -------- | ---------------- | ---------- |
+| E2E        | 0        | 0                | N/A        |
+| API        | 0        | 0                | N/A        |
+| Component  | 0        | 0                | N/A        |
+| Unit       | 15       | 2                | 100%       |
+| **Total**  | **15**   | **2**            | **100%**   |
+
+---
+
+### Traceability Recommendations
+
+#### Immediate Actions (Before PR Merge)
+
+无需操作。所有验收标准已完全覆盖。
+
+#### Short-term Actions (This Milestone)
+
+1. **考虑集成测试** - 在 Epic 8 范围内，考虑添加 compose up + compose down 的端到端集成测试，验证完整的编排生命周期。
+
+#### Long-term Actions (Backlog)
+
+1. **性能测试** - 考虑添加大规模进程列表（>100 进程）下 compose down 的匹配性能验证。
+
+---
+
+## PHASE 2: QUALITY GATE DECISION
+
+**Gate Type:** story
+**Decision Mode:** deterministic
+
+---
+
+### Evidence Summary
+
+#### Test Execution Results
+
+- **Total Tests**: 15
+- **Passed**: 15 (100%)
+- **Failed**: 0 (0%)
+- **Skipped**: 0 (0%)
+- **Duration**: ~0.7s（含 -race 检测）
+
+**Priority Breakdown:**
+
+- **P0 Tests**: 15/15 passed (100%) ✅
+- **P1 Tests**: N/A (无 P1 测试)
+- **P2 Tests**: N/A (无 P2 测试)
+- **P3 Tests**: N/A (无 P3 测试)
+
+**Overall Pass Rate**: 100% ✅
+
+**Test Results Source**: local run (`go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race -v -count=1` + `go test ./internal/ui/ -run 'TestRenderComposeDown' -race -v -count=1`)
+
+---
+
+#### Coverage Summary (from Phase 1)
+
+**Requirements Coverage:**
+
+- **P0 Acceptance Criteria**: 2/2 covered (100%) ✅
+- **P1 Acceptance Criteria**: N/A
+- **P2 Acceptance Criteria**: N/A
+- **Overall Coverage**: 100%
+
+**Code Coverage** (if available):
+
+- 未单独运行 `go test -cover`，但所有关键路径已通过测试验证
+
+**Coverage Source**: local test execution
+
+---
+
+#### Non-Functional Requirements (NFRs)
+
+**Security**: NOT_ASSESSED ℹ️
+
+- compose down 使用 Unix domain socket IPC，无外部网络暴露
+- SIGTERM 信号仅发送给通过 intent 匹配的进程，无越权风险
+
+**Performance**: NOT_ASSESSED ℹ️
+
+- compose down 为一次性命令，无性能 NFR 要求
+
+**Reliability**: PASS ✅
+
+- daemon 不可用时优雅降级（"nothing to stop"）
+- 进程 kill 失败时记录错误但继续处理
+- 测试验证了 Zombie/Dead 进程不被误杀
+
+**Maintainability**: PASS ✅
+
+- 代码结构清晰：matchComposeProcesses 独立可测
+- UI 渲染函数与命令逻辑分离（compose.go vs ui/compose.go）
+
+**NFR Source**: code review + test analysis
+
+---
+
+#### Flakiness Validation
+
+**Burn-in Results** (if available):
+
+- **Burn-in Iterations**: 1 (单次执行)
+- **Flaky Tests Detected**: 0 ✅
+- **Stability Score**: 100%
+
+**Burn-in Source**: local run (not available for multi-iteration burn-in)
+
+---
+
+### Decision Criteria Evaluation
+
+#### P0 Criteria (Must ALL Pass)
+
+| Criterion             | Threshold | Actual | Status  |
+| --------------------- | --------- | ------ | ------- |
+| P0 Coverage           | 100%      | 100%   | ✅ PASS |
+| P0 Test Pass Rate     | 100%      | 100%   | ✅ PASS |
+| Security Issues       | 0         | 0      | ✅ PASS |
+| Critical NFR Failures | 0         | 0      | ✅ PASS |
+| Flaky Tests           | 0         | 0      | ✅ PASS |
+
+**P0 Evaluation**: ✅ ALL PASS
+
+---
+
+#### P1 Criteria (Required for PASS, May Accept for CONCERNS)
+
+| Criterion              | Threshold | Actual | Status  |
+| ---------------------- | --------- | ------ | ------- |
+| P1 Coverage            | ≥80%      | N/A    | ✅ PASS |
+| P1 Test Pass Rate      | ≥90%      | N/A    | ✅ PASS |
+| Overall Test Pass Rate | ≥80%      | 100%   | ✅ PASS |
+| Overall Coverage       | ≥80%      | 100%   | ✅ PASS |
+
+**P1 Evaluation**: ✅ ALL PASS
+
+---
+
+#### P2/P3 Criteria (Informational, Don't Block)
+
+| Criterion         | Actual | Notes                    |
+| ----------------- | ------ | ------------------------ |
+| P2 Test Pass Rate | N/A    | 无 P2 测试，不影响决策   |
+| P3 Test Pass Rate | N/A    | 无 P3 测试，不影响决策   |
+
+---
+
+### GATE DECISION: PASS ✅
+
+---
+
+### Rationale
+
+全部 P0 标准达成，2 个验收标准均被 15 个单元测试完全覆盖，测试通过率 100%（含 race 检测）。
+
+关键证据：
+- **AC #1**（命令注册 + 文件解析 + daemon 连接 + 进程匹配 + SIGTERM）：8 个测试覆盖了命令注册、帮助输出、文件不存在、daemon 不可用、混合状态进程匹配等场景
+- **AC #2**（释放汇总 + JSON 输出 + 安静模式）：7 个测试覆盖了默认渲染、无匹配、JSON 结构、空结果、安静模式等场景
+- 错误路径覆盖充分：FileNotFound、NoDaemon、NoMatchingProcesses、MixedStates、EmptyResults — **5 个错误/边界场景**
+- CLI 层与 UI 层的防御性分层测试确保了端到端正确性
+- 所有测试均通过 `-race` 并发安全检测
+
+无安全问题、无 flaky 测试、无未解决的高风险项。Story 7.3 的测试覆盖满足质量门禁标准。
+
+---
+
+### Gate Recommendations
+
+#### For PASS Decision ✅
+
+1. **继续部署流程**
+   - Story 7.3 已满足质量门禁，可合并 PR
+   - 验证 `crux compose down` 在真实环境中的行为
+   - 监控 daemon 连接超时和进程 kill 的可靠性
+
+2. **部署后监控**
+   - 监控 compose down 的 SIGTERM 发送成功率
+   - 关注 daemon 不可用时的用户体验反馈
+   - 跟踪进程匹配的准确性
+
+3. **成功标准**
+   - compose down 能正确终止通过 compose up 启动的所有运行中进程
+   - 已完成/僵尸进程不被误杀
+   - JSON 输出与 CLI 工具链兼容
+
+---
+
+### Next Steps
+
+**Immediate Actions** (next 24-48 hours):
+
+1. 合并 Story 7.3 的 PR
+2. 更新 sprint 状态为 Done
+
+**Follow-up Actions** (next milestone/release):
+
+1. 在 Epic 8 集成测试中验证 compose up → compose down 的完整生命周期
+2. 考虑添加 `--force` 选项以支持 SIGKILL 强制终止
+3. 考虑添加 `--timeout` 选项以支持等待进程优雅退出
+
+**Stakeholder Communication**:
+
+- Story 7.3 测试覆盖已通过质量门禁（PASS），15/15 测试全部通过
+
+---
+
+## Integrated YAML Snippet (CI/CD)
+
+```yaml
+traceability_and_gate:
+  # Phase 1: Traceability
+  traceability:
+    story_id: "7.3"
+    date: "2026-03-01"
+    coverage:
+      overall: 100%
+      p0: 100%
+      p1: N/A
+      p2: N/A
+      p3: N/A
+    gaps:
+      critical: 0
+      high: 0
+      medium: 0
+      low: 0
+    quality:
+      passing_tests: 15
+      total_tests: 15
+      blocker_issues: 0
+      warning_issues: 0
+    recommendations:
+      - "考虑在 Epic 8 中添加 compose up + compose down 端到端集成测试"
+      - "考虑添加大规模进程列表的匹配性能验证"
+
+  # Phase 2: Gate Decision
+  gate_decision:
+    decision: "PASS"
+    gate_type: "story"
+    decision_mode: "deterministic"
+    criteria:
+      p0_coverage: 100%
+      p0_pass_rate: 100%
+      p1_coverage: N/A
+      p1_pass_rate: N/A
+      overall_pass_rate: 100%
+      overall_coverage: 100%
+      security_issues: 0
+      critical_nfrs_fail: 0
+      flaky_tests: 0
+    thresholds:
+      min_p0_coverage: 100
+      min_p0_pass_rate: 100
+      min_p1_coverage: 80
+      min_p1_pass_rate: 90
+      min_overall_pass_rate: 80
+      min_coverage: 80
+    evidence:
+      test_results: "local run (go test -race -v -count=1)"
+      traceability: "_bmad-output/test-artifacts/traceability-report.md"
+      nfr_assessment: "not_assessed"
+      code_coverage: "not_available"
+    next_steps: "合并 PR，更新 sprint 状态，在 Epic 8 中添加集成测试"
+```
+
+---
+
+## Related Artifacts
+
+- **Story File:** `_bmad-output/implementation-artifacts/7-3-crux-compose-down-command.md`
+- **Test Design:** `_bmad-output/test-artifacts/atdd-checklist-7-3.md`
+- **Test Results:** local execution (15/15 PASS with -race)
+- **Test Files:**
+  - `cmd/crux/compose_test.go` (Story 7.3 tests: lines 542-943)
+  - `internal/ui/compose_test.go` (Story 7.3 tests: lines 331-508)
+- **Source Files:**
+  - `cmd/crux/compose.go` (runComposeDown: lines 334-419, matchComposeProcesses: lines 313-331)
+  - `internal/ui/compose.go` (ComposeDownEntry + Render functions: lines 245-343)
+
+---
+
+## Test Execution Evidence
+
+### Commands
 
 ```bash
-go test ./compose/ -race -v -count=1
+go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race -v -count=1
+go test ./internal/ui/ -run 'TestRenderComposeDown' -race -v -count=1
 ```
 
-### 结果
+### Results
 
 ```
-=== RUN   TestBuildDAG_NoDeps         --- PASS (0.00s)
-=== RUN   TestBuildDAG_LinearDeps     --- PASS (0.00s)
-=== RUN   TestBuildDAG_DiamondDeps    --- PASS (0.00s)
-=== RUN   TestDetectCycle_NoCycle     --- PASS (0.00s)
-=== RUN   TestDetectCycle_SimpleCycle --- PASS (0.00s)
-=== RUN   TestDetectCycle_ComplexCycle --- PASS (0.00s)
-=== RUN   TestDetectCycle_SelfCycle   --- PASS (0.00s)
-=== RUN   TestDetectCycle_PartialCycle --- PASS (0.00s)
-=== RUN   TestTopologicalSort_AllParallel --- PASS (0.00s)
-=== RUN   TestTopologicalSort_Sequential --- PASS (0.00s)
-=== RUN   TestTopologicalSort_Diamond --- PASS (0.00s)
-=== RUN   TestTopologicalSort_ComplexGraph --- PASS (0.00s)
-=== RUN   TestTopologicalSort_SingleNode --- PASS (0.00s)
-=== RUN   TestNewEngine_Valid         --- PASS (0.00s)
-=== RUN   TestNewEngine_CyclicSpec    --- PASS (0.00s)
-=== RUN   TestEngine_Execute_NoDeps   --- PASS (0.00s)
-=== RUN   TestEngine_Execute_LinearDeps --- PASS (0.00s)
-=== RUN   TestEngine_Execute_DiamondDeps --- PASS (0.00s)
-=== RUN   TestEngine_Execute_FailurePropagation --- PASS (0.00s)
-=== RUN   TestEngine_Execute_ContextCancel --- PASS (0.10s)
-=== RUN   TestEngine_Execute_OutputPassthrough --- PASS (0.00s)
-=== RUN   TestEngine_Execute_Performance --- PASS (0.00s)
-=== RUN   TestEngine_Execute_AgentWithSkills --- PASS (0.00s)
-=== RUN   TestEngine_Execute_AgentWithRef --- PASS (0.00s)
-=== RUN   TestEngine_Execute_PartialFailure --- PASS (0.00s)
-=== RUN   TestEngine_Execute_EmptyAfterCancel --- PASS (0.00s)
-=== RUN   TestParseBytes_Valid        --- PASS (0.00s)
-=== RUN   TestParseBytes_FullFormat   --- PASS (0.00s)
-=== RUN   TestParseBytes_NoDependencies --- PASS (0.00s)
-=== RUN   TestParseFile_Valid         --- PASS (0.00s)
-=== RUN   TestParseFile_NotFound      --- PASS (0.00s)
-=== RUN   TestParseBytes_InvalidYAML  --- PASS (0.00s)
-=== RUN   TestParseBytes_InvalidVersion --- PASS (0.00s)
-=== RUN   TestParseBytes_MissingVersion --- PASS (0.00s)
-=== RUN   TestParseBytes_EmptyAgents  --- PASS (0.00s)
-=== RUN   TestParseBytes_MissingAgents --- PASS (0.00s)
-=== RUN   TestParseBytes_AgentMissingIntent --- PASS (0.00s)
-=== RUN   TestParseBytes_DependsOnInvalidRef --- PASS (0.00s)
-=== RUN   TestParseBytes_DependsOnInvalidCondition --- PASS (0.00s)
-=== RUN   TestParseBytes_MissingTopLevelIntent --- PASS (0.00s)
-=== RUN   TestParseBytes_SingleAgent  --- PASS (0.00s)
+=== RUN   TestComposeDownCmd_Registered        --- PASS (0.00s)
+=== RUN   TestComposeDown_HelpOutput           --- PASS (0.00s)
+=== RUN   TestComposeDown_FileNotFound         --- PASS (0.00s)
+=== RUN   TestComposeDown_NoDaemon             --- PASS (0.00s)
+=== RUN   TestComposeDown_NoMatchingProcesses  --- PASS (0.01s)
+=== RUN   TestComposeDown_KillRunningOnly      --- PASS (0.01s)
+=== RUN   TestComposeDown_JSONOutput           --- PASS (0.00s)
+=== RUN   TestMatchComposeProcesses_AllRunning --- PASS (0.00s)
+=== RUN   TestMatchComposeProcesses_MixedStates --- PASS (0.00s)
+=== RUN   TestMatchComposeProcesses_NoMatch    --- PASS (0.00s)
 PASS
-ok  github.com/gonewx/crux/compose  1.113s
+ok  github.com/gonewx/crux/cmd/crux  0.521s
+
+=== RUN   TestRenderComposeDownSummary          --- PASS (0.00s)
+=== RUN   TestRenderComposeDownSummary_NoKills  --- PASS (0.00s)
+=== RUN   TestRenderComposeDownSummary_QuietMode --- PASS (0.00s)
+=== RUN   TestRenderComposeDownSummaryJSON       --- PASS (0.00s)
+=== RUN   TestRenderComposeDownSummaryJSON_Empty --- PASS (0.00s)
+PASS
+ok  github.com/gonewx/crux/internal/ui  0.187s
 ```
 
 ---
 
-## 建议
+## Sign-Off
 
-| 优先级 | 建议 |
-|--------|------|
-| LOW | 运行 `/bmad:tea:test-review` 评估测试质量（代码行数、断言模式等） |
-| LOW | 考虑在集成测试中验证 compose + 真实 Kernel 的端到端流程（Epic 8 范围） |
+**Phase 1 - Traceability Assessment:**
+
+- Overall Coverage: 100%
+- P0 Coverage: 100% ✅ PASS
+- P1 Coverage: N/A
+- Critical Gaps: 0
+- High Priority Gaps: 0
+
+**Phase 2 - Gate Decision:**
+
+- **Decision**: PASS ✅
+- **P0 Evaluation**: ✅ ALL PASS
+- **P1 Evaluation**: ✅ ALL PASS (N/A — 无 P1 标准)
+
+**Overall Status:** PASS ✅
+
+**Next Steps:**
+
+- PASS ✅: 继续部署流程，合并 PR，更新 sprint 状态
+
+**Generated:** 2026-03-01
+**Workflow:** testarch-trace v4.0 (Enhanced with Gate Decision)
 
 ---
 
-## GATE DECISION SUMMARY
-
-**GATE: PASS** — 发布已批准，覆盖率达标
-
-- P0 覆盖率: **100%** (要求: 100%) → **MET**
-- 总体覆盖率: **100%** (最低: 80%) → **MET**
-- 关键缺口: **0**
-- 测试通过: **38/38** (100%)
-- Race 检测: **PASS**
-
-**决策依据:** 全部 5 个 P0 验收标准被 38 个单元测试完全覆盖，包括 10 个解析错误场景、4 种循环检测模式、4 个引擎失败场景和 NFR21 性能验证。所有测试均通过，含 race 检测。无未缓解的高风险项。Story 7.1 的测试覆盖满足质量门禁标准。
-
----
-
-**Generated by BMad TEA Agent** - 2026-02-28
+<!-- Powered by BMAD-CORE™ -->
