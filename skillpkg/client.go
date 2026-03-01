@@ -159,3 +159,29 @@ func (c *RegistryClient) Verify(pkg *SkillPackage) error {
 	}
 	return nil
 }
+
+// Search searches the registry index for skills matching the given keyword.
+// An empty keyword returns all skills (browse all). Matching is case-insensitive
+// substring match against Name and Description fields.
+func (c *RegistryClient) Search(keyword string) ([]SearchResult, error) {
+	index, err := c.FetchIndex()
+	if err != nil {
+		return nil, fmt.Errorf("search skills: %w", err)
+	}
+
+	keyword = strings.ToLower(keyword)
+	results := make([]SearchResult, 0)
+	for _, entry := range index.Skills {
+		if keyword == "" ||
+			strings.Contains(strings.ToLower(entry.Name), keyword) ||
+			strings.Contains(strings.ToLower(entry.Description), keyword) {
+			results = append(results, SearchResult{
+				Name:        entry.Name,
+				Description: entry.Description,
+				Version:     entry.Latest,
+				Downloads:   entry.Downloads,
+			})
+		}
+	}
+	return results, nil
+}

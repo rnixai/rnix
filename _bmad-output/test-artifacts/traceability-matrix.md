@@ -4,59 +4,82 @@ lastStep: 'step-05-gate-decision'
 lastSaved: '2026-03-01'
 workflowType: 'testarch-trace'
 inputDocuments:
-  - '_bmad-output/implementation-artifacts/8-1-skill-install.md'
-  - '_bmad-output/test-artifacts/atdd-checklist-8-1.md'
+  - '_bmad-output/implementation-artifacts/8-2-skill-search.md'
+  - '_bmad-output/test-artifacts/atdd-checklist-8-2.md'
+  - 'skillpkg/client.go'
   - 'skillpkg/client_test.go'
-  - 'skillpkg/registry_test.go'
-  - 'skillpkg/installer_test.go'
+  - 'skillpkg/types.go'
+  - 'cmd/crux/skill.go'
   - 'cmd/crux/skill_test.go'
 ---
 
-# 可追溯性矩阵 - Story 8.1: skill install 安装
+# 可追溯性矩阵 - Story 8.2: skill search 搜索
 
-**Story:** 8.1 - skill install 安装
+**Story:** 8.2 - skill search 搜索
 **日期:** 2026-03-01
 **评估者:** Decker (TEA Agent)
 **门禁决策:** PASS ✅
 
-## 需求-测试映射矩阵
-
-| AC # | 验收标准 | 优先级 | 测试 ID | 测试文件 | 覆盖状态 |
-|------|----------|--------|---------|----------|----------|
-| AC-1 | 社区仓库客户端：Skill 下载 | P0 | 8.1-UNIT-001~003 | skillpkg/client_test.go | FULL ✅ |
-| AC-1 | 社区仓库客户端：版本解析 | P0 | 8.1-UNIT-002 | skillpkg/client_test.go | FULL ✅ |
-| AC-1 | 社区仓库客户端：完整性验证 | P0 | 8.1-UNIT-004~006 | skillpkg/client_test.go | FULL ✅ |
-| AC-1 | 社区仓库客户端：错误处理 | P1 | 8.1-UNIT-007~008 | skillpkg/client_test.go | FULL ✅ |
-| AC-1 | 本地注册表：CRUD 操作 | P0 | 8.1-UNIT-009~013 | skillpkg/registry_test.go | FULL ✅ |
-| AC-1 | 本地注册表：边界情况 | P1 | 8.1-UNIT-014~015 | skillpkg/registry_test.go | FULL ✅ |
-| AC-2 | 单个 Skill 安装 | P0 | 8.1-INTG-001~002 | skillpkg/installer_test.go | FULL ✅ |
-| AC-2 | CLI 命令注册 | P0 | 8.1-CLI-001~002 | cmd/crux/skill_test.go | FULL ✅ |
-| AC-2 | JSON 输出 | P1 | 8.1-CLI-003 | cmd/crux/skill_test.go | FULL ✅ |
-| AC-3 | 批量安装 | P1 | 8.1-CLI-004 | cmd/crux/skill_test.go | FULL ✅ |
-| AC-4 | 重复安装提示 | P1 | 8.1-INTG-003~004, 8.1-CLI-005 | installer_test.go, skill_test.go | FULL ✅ |
-| AC-5 | 安装后可用 (NFR30) | P1 | 8.1-INTG-005 | skillpkg/installer_test.go | FULL ✅ |
-| - | 安全：校验和失败回滚 | P1 | 8.1-INTG-006 | skillpkg/installer_test.go | FULL ✅ |
-| - | CLI 边界情况 | P2 | 8.1-CLI-006~010 | cmd/crux/skill_test.go | FULL ✅ |
+---
 
 ## 覆盖概要
 
-- **P0**: 4/4 (100%) ✅
-- **P1**: 6/6 (100%) ✅
-- **P2**: 3/3 (100%) ✅
-- **总计**: 13/13 (100%) ✅
-- **缺口**: 0
+| 优先级    | 标准总数 | 完全覆盖 | 覆盖率 | 状态         |
+| --------- | -------- | -------- | ------ | ------------ |
+| P0        | 4        | 4        | 100%   | PASS ✅      |
+| P1        | 4        | 4        | 100%   | PASS ✅      |
+| P2        | 0        | 0        | N/A    | N/A          |
+| P3        | 0        | 0        | N/A    | N/A          |
+| **总计**  | **8**    | **8**    | **100%** | **PASS ✅** |
 
-## 测试统计
+---
 
-- **总测试数**: 31
-- **通过**: 31 (100%)
-- **失败**: 0
-- **跳过**: 0
-- **不稳定**: 0
+## 需求-测试映射矩阵
+
+| 标准 ID | 描述 | 优先级 | 测试 ID | 测试文件 | 测试级别 | 覆盖状态 |
+|---------|------|--------|---------|----------|----------|----------|
+| AC-1a | search 子命令注册 | P0 | 8.2-CLI-001 | cmd/crux/skill_test.go:240 | CLI | FULL ✅ |
+| AC-1b | 按名称匹配 Skill | P0 | 8.2-UNIT-001 | skillpkg/client_test.go:251 | Unit | FULL ✅ |
+| AC-1c | 按描述匹配 Skill | P0 | 8.2-UNIT-002 | skillpkg/client_test.go:287 | Unit | FULL ✅ |
+| AC-1d | 结果字段完整（名称/描述/版本/下载量） | P0 | 8.2-UNIT-006 | skillpkg/client_test.go:375 | Unit | FULL ✅ |
+| AC-1e | 大小写不敏感匹配 | P1 | 8.2-UNIT-003 | skillpkg/client_test.go:309 | Unit | FULL ✅ |
+| AC-1f | 空 keyword 浏览全部 | P1 | 8.2-UNIT-005, 8.2-CLI-004 | skillpkg/client_test.go:356, cmd/crux/skill_test.go:334 | Unit, CLI | FULL ✅ |
+| AC-2 | 无结果友好提示 | P1 | 8.2-UNIT-004, 8.2-CLI-003 | skillpkg/client_test.go:337, cmd/crux/skill_test.go:308 | Unit, CLI | FULL ✅ |
+| AC-3 | JSON 输出 snake_case | P0 | 8.2-CLI-002, 8.2-CLI-003 | cmd/crux/skill_test.go:266, cmd/crux/skill_test.go:308 | CLI | FULL ✅ |
+
+---
+
+## 测试清单
+
+| 测试 ID | 测试名称 | 文件 | 级别 | 优先级 | 状态 |
+|---------|----------|------|------|--------|------|
+| 8.2-UNIT-001 | TestRegistryClient_Search_MatchByName | skillpkg/client_test.go:251 | Unit | P0 | PASS ✅ |
+| 8.2-UNIT-002 | TestRegistryClient_Search_MatchByDescription | skillpkg/client_test.go:287 | Unit | P0 | PASS ✅ |
+| 8.2-UNIT-003 | TestRegistryClient_Search_CaseInsensitive | skillpkg/client_test.go:309 | Unit | P1 | PASS ✅ |
+| 8.2-UNIT-004 | TestRegistryClient_Search_NoMatch | skillpkg/client_test.go:337 | Unit | P1 | PASS ✅ |
+| 8.2-UNIT-005 | TestRegistryClient_Search_EmptyKeyword | skillpkg/client_test.go:356 | Unit | P1 | PASS ✅ |
+| 8.2-UNIT-006 | TestRegistryClient_Search_ResultFields | skillpkg/client_test.go:375 | Unit | P0 | PASS ✅ |
+| 8.2-CLI-001 | TestSkillSearchCmd_Registered | cmd/crux/skill_test.go:240 | CLI | P0 | PASS ✅ |
+| 8.2-CLI-002 | TestSkillSearch_JSONOutput | cmd/crux/skill_test.go:266 | CLI | P0 | PASS ✅ |
+| 8.2-CLI-003 | TestSkillSearch_EmptyResult_JSONOutput | cmd/crux/skill_test.go:308 | CLI | P1 | PASS ✅ |
+| 8.2-CLI-004 | TestSkillSearch_NoArgs_BrowseAll | cmd/crux/skill_test.go:334 | CLI | P1 | PASS ✅ |
+
+---
+
+## 缺口分析
+
+**关键缺口 (P0):** 0
+**高优先级缺口 (P1):** 0
+**中优先级缺口 (P2):** 0
+**低优先级缺口 (P3):** 0
+
+**总结:** 所有 8 个验收标准均有 FULL 覆盖，无缺口。
+
+---
 
 ## 门禁决策: PASS ✅
 
-详细报告见: `_bmad-output/test-artifacts/traceability-report.md`
+**决策理由:** P0 覆盖 100%，P1 覆盖 100%，总体覆盖 100%。10/10 测试全部通过。无安全问题，无不稳定测试，无回归。
 
 ---
 

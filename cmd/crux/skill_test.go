@@ -232,3 +232,133 @@ func TestRenderSkillInstallJSON_MixedResults(t *testing.T) {
 		t.Errorf("expected fail-skill in output, got %s", raw)
 	}
 }
+
+// --- ATDD RED Phase: Story 8.2 — skill search 搜索 ---
+
+// TestSkillSearchCmd_Registered verifies the search subcommand is registered under skill.
+// AC #1: search 子命令注册
+func TestSkillSearchCmd_Registered(t *testing.T) {
+	var sc *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "skill" {
+			sc = cmd
+			break
+		}
+	}
+	if sc == nil {
+		t.Fatal("skill command not found")
+	}
+
+	found := false
+	for _, cmd := range sc.Commands() {
+		if cmd.Name() == "search" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'search' subcommand under 'skill'")
+	}
+}
+
+// TestSkillSearch_JSONOutput verifies JSON output format for search results.
+// AC #3: JSON 输出格式，字段 snake_case
+func TestSkillSearch_JSONOutput(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	// Given: search results with known data
+	results := []skillpkg.SearchResult{
+		{Name: "code-analysis", Description: "Analyze code quality and patterns", Version: "1.0.0", Downloads: 1234},
+		{Name: "pr-reviewer", Description: "Review pull requests with AI", Version: "2.1.0", Downloads: 5678},
+	}
+	renderSkillSearchJSON(r, results)
+
+	// Then: valid JSON with snake_case fields
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true")
+	}
+
+	raw := buf.String()
+	// Verify snake_case fields
+	if !strings.Contains(raw, `"name"`) {
+		t.Error("expected snake_case 'name' field in JSON")
+	}
+	if !strings.Contains(raw, `"description"`) {
+		t.Error("expected snake_case 'description' field in JSON")
+	}
+	if !strings.Contains(raw, `"version"`) {
+		t.Error("expected snake_case 'version' field in JSON")
+	}
+	if !strings.Contains(raw, `"downloads"`) {
+		t.Error("expected snake_case 'downloads' field in JSON")
+	}
+	if !strings.Contains(raw, `"code-analysis"`) {
+		t.Errorf("expected 'code-analysis' in JSON output, got %s", raw)
+	}
+}
+
+// TestSkillSearch_EmptyResult_JSONOutput verifies JSON output for empty search results.
+// AC #2, #3: 无结果时 JSON 返回空数组
+func TestSkillSearch_EmptyResult_JSONOutput(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	// Given: empty search results
+	results := []skillpkg.SearchResult{}
+	renderSkillSearchJSON(r, results)
+
+	// Then: valid JSON with ok=true and empty results array
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true for empty results")
+	}
+
+	raw := buf.String()
+	if !strings.Contains(raw, `"results":[]`) && !strings.Contains(raw, `"results": []`) {
+		t.Errorf("expected empty results array in JSON, got %s", raw)
+	}
+}
+
+// TestSkillSearch_NoArgs_BrowseAll verifies that running search with no args accepts it.
+// AC #1: 无参数时浏览全部
+func TestSkillSearch_NoArgs_BrowseAll(t *testing.T) {
+	// Given: skill search command with MaximumNArgs(1)
+	// When: no arguments provided
+	var sc *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "skill" {
+			sc = cmd
+			break
+		}
+	}
+	if sc == nil {
+		t.Fatal("skill command not found")
+	}
+
+	var searchCmd *cobra.Command
+	for _, cmd := range sc.Commands() {
+		if cmd.Name() == "search" {
+			searchCmd = cmd
+			break
+		}
+	}
+	if searchCmd == nil {
+		t.Fatal("search command not found")
+	}
+
+	// Then: 0 args should be accepted (MaximumNArgs(1))
+	err := searchCmd.Args(searchCmd, []string{})
+	if err != nil {
+		t.Fatalf("expected 0 args to be accepted for browse all, got error: %v", err)
+	}
+}
