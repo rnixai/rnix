@@ -54,6 +54,17 @@ var skillUpdateCmd = &cobra.Command{
 	RunE: runSkillUpdate,
 }
 
+var skillListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all installed skills",
+	Long:  "List all locally available skills, including system built-in skills and community-installed skills.",
+	Example: `  crux skill list          # List all skills
+  crux skill list --json   # JSON output
+  crux skill list --quiet  # Only skill names`,
+	Args: cobra.NoArgs,
+	RunE: runSkillList,
+}
+
 var flagSkillForce bool
 
 // skillRegistryURL can be overridden for testing.
@@ -64,6 +75,7 @@ func init() {
 	skillCmd.AddCommand(skillInstallCmd)
 	skillCmd.AddCommand(skillSearchCmd)
 	skillCmd.AddCommand(skillUpdateCmd)
+	skillCmd.AddCommand(skillListCmd)
 }
 
 func runSkillInstall(cmd *cobra.Command, args []string) error {
@@ -368,6 +380,82 @@ func renderSkillUpdateJSON(r *ui.Renderer, results []skillpkg.UpdateResult, errs
 	resp := JSONResponse{
 		OK:   ok,
 		Data: skillUpdateJSONData{Results: results, Errors: errs},
+	}
+	data, _ := json.Marshal(resp)
+	fmt.Fprintln(r.Writer, string(data))
+}
+
+// --- Story 8.4: skill list ---
+
+func runSkillList(cmd *cobra.Command, args []string) error {
+	mode := resolveOutputMode()
+	renderer := ui.NewRenderer(os.Stdout, mode)
+	ui.InitStyles(renderer.Profile)
+
+	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
+	basePath := "lib/skills"
+	registry := skillpkg.NewLocalRegistry(basePath)
+	skillLoader := skills.NewSkillLoader(basePath)
+	installer := skillpkg.NewInstaller(client, registry, skillLoader, basePath)
+
+	entries, err := installer.ListAll()
+	if err != nil {
+		if mode == ui.ModeJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"code": "LIST_ERROR", "message": err.Error()}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(renderer.Writer, string(data))
+		} else {
+			prefix := ui.KernelStyle.Render("[skill]")
+			fmt.Fprintf(renderer.Writer, "%s Failed to list skills: %s\n", prefix, err.Error())
+		}
+		exitCode = 1
+		return nil
+	}
+
+	switch mode {
+	case ui.ModeJSON:
+		renderSkillListJSON(renderer, entries)
+	case ui.ModeQuiet:
+		for _, e := range entries {
+			fmt.Fprintln(renderer.Writer, e.Name)
+		}
+	default:
+		prefix := ui.KernelStyle.Render("[skill]")
+		fmt.Fprintf(renderer.Writer, "%s %-20s %-10s %-11s %s\n", prefix, "NAME", "VERSION", "SOURCE", "DESCRIPTION")
+		for _, e := range entries {
+			desc := e.Description
+			if len([]rune(desc)) > 40 {
+				desc = string([]rune(desc)[:37]) + "..."
+			}
+			fmt.Fprintf(renderer.Writer, "%s %-20s %-10s %-11s %s\n", prefix, e.Name, e.Version, e.Source, desc)
+		}
+		// Show tip if no community skills installed
+		hasCommunity := false
+		for _, e := range entries {
+			if e.Source == "community" {
+				hasCommunity = true
+				break
+			}
+		}
+		if !hasCommunity {
+			fmt.Fprintf(renderer.Writer, "%s Tip: skill search <keyword> to discover more skills.\n", prefix)
+		}
+	}
+
+	return nil
+}
+
+type skillListJSONData struct {
+	Skills []skillpkg.ListEntry `json:"skills"`
+}
+
+func renderSkillListJSON(r *ui.Renderer, entries []skillpkg.ListEntry) {
+	if entries == nil {
+		entries = []skillpkg.ListEntry{}
+	}
+	resp := JSONResponse{
+		OK:   true,
+		Data: skillListJSONData{Skills: entries},
 	}
 	data, _ := json.Marshal(resp)
 	fmt.Fprintln(r.Writer, string(data))
