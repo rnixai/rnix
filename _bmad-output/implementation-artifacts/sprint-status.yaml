@@ -109,7 +109,7 @@ development_status:
   epic-7: in-progress
   7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine: done
   7-2-crux-compose-up-command: done
-  7-3-crux-compose-down-command: backlog
+  7-3-crux-compose-down-command: done
   7-4-compose-end-to-end-acceptance: backlog
   epic-7-retrospective: optional
 

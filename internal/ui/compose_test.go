@@ -327,3 +327,182 @@ func TestRenderComposeProgress_QuietMode(t *testing.T) {
 		t.Errorf("expected no output in quiet mode, got %q", buf.String())
 	}
 }
+
+// --- Story 7.3: Compose Down UI Tests ---
+// These tests verify AC #2 (释放汇总) of Story 7.3.
+// Tests reference RenderComposeDownSummary and RenderComposeDownSummaryJSON which will be
+// created in internal/ui/compose.go during implementation.
+
+func TestRenderComposeDownSummary(t *testing.T) {
+	// Given: compose down killed some processes and skipped others
+	// When: rendering compose down summary
+	// Then: output shows per-process status and totals
+
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 80, ColorLevel: 0}}
+
+	killed := []ComposeDownEntry{
+		{PID: 3, Intent: "审查 PR 变更"},
+		{PID: 4, Intent: "分析代码质量"},
+	}
+	skipped := []ComposeDownEntry{
+		{PID: 5, Intent: "生成变更文档", State: "zombie"},
+	}
+
+	RenderComposeDownSummary(r, killed, skipped, nil)
+
+	output := buf.String()
+	if !strings.Contains(output, "killed") {
+		t.Errorf("expected 'killed' in output, got %q", output)
+	}
+	if !strings.Contains(output, "skipped") {
+		t.Errorf("expected 'skipped' in output, got %q", output)
+	}
+	if !strings.Contains(output, "2 killed") {
+		t.Errorf("expected '2 killed' count in output, got %q", output)
+	}
+	if !strings.Contains(output, "1 skipped") {
+		t.Errorf("expected '1 skipped' count in output, got %q", output)
+	}
+}
+
+func TestRenderComposeDownSummary_NoKills(t *testing.T) {
+	// Given: all compose processes already completed
+	// When: rendering compose down summary
+	// Then: output shows 0 killed, N skipped
+
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 80, ColorLevel: 0}}
+
+	skipped := []ComposeDownEntry{
+		{PID: 1, Intent: "review code", State: "zombie"},
+		{PID: 2, Intent: "analyze code", State: "dead"},
+	}
+
+	RenderComposeDownSummary(r, nil, skipped, nil)
+
+	output := buf.String()
+	if !strings.Contains(output, "0 killed") {
+		t.Errorf("expected '0 killed' in output, got %q", output)
+	}
+	if !strings.Contains(output, "2 skipped") {
+		t.Errorf("expected '2 skipped' in output, got %q", output)
+	}
+}
+
+func TestRenderComposeDownSummary_QuietMode(t *testing.T) {
+	// Given: quiet output mode
+	// When: rendering compose down summary
+	// Then: no output produced
+
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeQuiet, Profile: TerminalProfile{ColorLevel: 0}}
+
+	killed := []ComposeDownEntry{
+		{PID: 1, Intent: "review code"},
+	}
+
+	RenderComposeDownSummary(r, killed, nil, nil)
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no output in quiet mode, got %q", buf.String())
+	}
+}
+
+func TestRenderComposeDownSummaryJSON(t *testing.T) {
+	// Given: compose down killed and skipped processes
+	// When: rendering JSON summary
+	// Then: output is valid JSON with killed, skipped arrays and summary
+
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeJSON, Profile: TerminalProfile{ColorLevel: 0}}
+
+	killed := []ComposeDownEntry{
+		{PID: 3, Intent: "审查 PR 变更"},
+		{PID: 4, Intent: "分析代码质量"},
+	}
+	skipped := []ComposeDownEntry{
+		{PID: 5, Intent: "生成变更文档", State: "zombie"},
+	}
+
+	RenderComposeDownSummaryJSON(r, killed, skipped, nil)
+
+	var parsed map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, buf.String())
+	}
+
+	if parsed["ok"] != true {
+		t.Error("expected ok=true")
+	}
+
+	data, ok := parsed["data"].(map[string]any)
+	if !ok {
+		t.Fatal("expected data to be object")
+	}
+
+	killedArr, ok := data["killed"].([]any)
+	if !ok {
+		t.Fatal("expected killed to be array")
+	}
+	if len(killedArr) != 2 {
+		t.Errorf("expected 2 killed, got %d", len(killedArr))
+	}
+
+	skippedArr, ok := data["skipped"].([]any)
+	if !ok {
+		t.Fatal("expected skipped to be array")
+	}
+	if len(skippedArr) != 1 {
+		t.Errorf("expected 1 skipped, got %d", len(skippedArr))
+	}
+
+	summary, ok := data["summary"].(map[string]any)
+	if !ok {
+		t.Fatal("expected summary to be object")
+	}
+
+	for _, field := range []string{"killed_count", "skipped_count", "total_matched"} {
+		if _, ok := summary[field]; !ok {
+			t.Errorf("summary missing field %q", field)
+		}
+	}
+}
+
+func TestRenderComposeDownSummaryJSON_Empty(t *testing.T) {
+	// Given: no processes killed or skipped
+	// When: rendering JSON summary
+	// Then: valid JSON with empty arrays
+
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeJSON, Profile: TerminalProfile{ColorLevel: 0}}
+
+	RenderComposeDownSummaryJSON(r, nil, nil, nil)
+
+	var parsed map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, buf.String())
+	}
+
+	data := parsed["data"].(map[string]any)
+
+	killed := data["killed"].([]any)
+	if len(killed) != 0 {
+		t.Errorf("expected empty killed array, got %d items", len(killed))
+	}
+
+	skipped := data["skipped"].([]any)
+	if len(skipped) != 0 {
+		t.Errorf("expected empty skipped array, got %d items", len(skipped))
+	}
+
+	summary := data["summary"].(map[string]any)
+	if summary["total_matched"].(float64) != 0 {
+		t.Errorf("expected total_matched=0, got %v", summary["total_matched"])
+	}
+}

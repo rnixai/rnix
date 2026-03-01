@@ -18,6 +18,8 @@ import (
 	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/internal/xsync"
 	"github.com/gonewx/crux/ipc"
+	"github.com/gonewx/crux/kernel"
+	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
 )
 
@@ -535,4 +537,407 @@ func (m *mockComposeSpawner) getSpawnedIntents() []string {
 	result := make([]string, len(m.spawned))
 	copy(result, m.spawned)
 	return result
+}
+
+// --- Story 7.3: crux compose down Command Tests ---
+// These tests verify AC #1-2 of Story 7.3.
+// Tests reference cmd/crux/compose.go types and functions that will be created during implementation.
+
+// --- AC #1: compose down 子命令注册 ---
+
+func TestComposeDownCmd_Registered(t *testing.T) {
+	// Given: compose command exists with subcommands
+	// When: looking for down subcommand
+	// Then: compose down subcommand should exist
+	var composeParent *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "compose" {
+			composeParent = cmd
+			break
+		}
+	}
+	if composeParent == nil {
+		t.Fatal("compose command not found")
+	}
+
+	found := false
+	for _, cmd := range composeParent.Commands() {
+		if cmd.Name() == "down" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'down' subcommand under 'compose'")
+	}
+}
+
+func TestComposeDown_HelpOutput(t *testing.T) {
+	// Given: compose down subcommand exists
+	// When: requesting help
+	// Then: help output contains usage information and -f flag
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"compose", "down", "--help"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetArgs(nil)
+	})
+
+	_ = rootCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "down") {
+		t.Errorf("expected 'down' in help output, got %q", output)
+	}
+	if !strings.Contains(output, "--file") || !strings.Contains(output, "-f") {
+		t.Errorf("expected -f/--file flag in help output, got %q", output)
+	}
+}
+
+// --- AC #1: compose down 文件不存在 ---
+
+func TestComposeDown_FileNotFound(t *testing.T) {
+	// Given: a non-existent compose file
+	// When: running compose down -f missing.yaml
+	// Then: returns an error indicating file not found
+
+	savedFile := flagComposeDownFile
+	savedExit := exitCode
+	t.Cleanup(func() {
+		flagComposeDownFile = savedFile
+		exitCode = savedExit
+	})
+	flagComposeDownFile = "/nonexistent/path/missing.yaml"
+	exitCode = 0
+
+	err := runComposeDown(&cobra.Command{}, []string{})
+	if err == nil && exitCode == 0 {
+		t.Fatal("expected error or non-zero exit code for missing compose file")
+	}
+}
+
+// --- AC #1: compose down daemon 未运行 ---
+
+func TestComposeDown_NoDaemon(t *testing.T) {
+	// Given: no daemon is running
+	// When: running compose down
+	// Then: outputs "no daemon running" and exits normally (exit code 0)
+
+	tmpDir := t.TempDir()
+	composeYAML := `version: "1.0"
+intent: "test"
+agents:
+  worker:
+    intent: "do work"
+`
+	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
+		t.Fatalf("write compose file: %v", err)
+	}
+
+	savedFile := flagComposeDownFile
+	savedExit := exitCode
+	savedOverride := ipc.SocketPathOverride
+	t.Cleanup(func() {
+		flagComposeDownFile = savedFile
+		exitCode = savedExit
+		ipc.SocketPathOverride = savedOverride
+	})
+
+	flagComposeDownFile = composePath
+	exitCode = 0
+	// Point to a non-existent socket — daemon is not running
+	ipc.SocketPathOverride = filepath.Join(tmpDir, "nonexistent.sock")
+
+	err := runComposeDown(&cobra.Command{}, []string{})
+	// compose down should NOT error when daemon is not running;
+	// it should output a message and exit normally (exit code 0)
+	if err != nil {
+		t.Fatalf("compose down should not return error when daemon is absent, got: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0 when no daemon running, got %d", exitCode)
+	}
+}
+
+// --- AC #2: compose down 无匹配进程 ---
+
+func TestComposeDown_NoMatchingProcesses(t *testing.T) {
+	// Given: daemon is running but has no matching processes
+	// When: running compose down
+	// Then: outputs "no matching processes" and exits normally
+
+	tmpDir := t.TempDir()
+	composeYAML := `version: "1.0"
+intent: "test workflow"
+agents:
+  analyzer:
+    intent: "analyze code"
+`
+	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
+		t.Fatalf("write compose file: %v", err)
+	}
+
+	sockPath, _ := setupTestIPCServer(t)
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() { ipc.SocketPathOverride = "" })
+
+	savedFile := flagComposeDownFile
+	savedExit := exitCode
+	t.Cleanup(func() {
+		flagComposeDownFile = savedFile
+		exitCode = savedExit
+	})
+
+	flagComposeDownFile = composePath
+	exitCode = 0
+
+	err := runComposeDown(&cobra.Command{}, []string{})
+	if err != nil {
+		t.Fatalf("compose down should not error with no matching processes: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+}
+
+// --- AC #1, #2: compose down 仅终止运行中的进程 ---
+
+func TestComposeDown_KillRunningOnly(t *testing.T) {
+	// Given: daemon has processes in various states (Running, Zombie, Dead)
+	// When: running compose down
+	// Then: only Running/Created processes are killed
+	// And: Zombie/Dead processes are skipped
+
+	tmpDir := t.TempDir()
+	composeYAML := `version: "1.0"
+intent: "kill test"
+agents:
+  reviewer:
+    intent: "review code"
+  writer:
+    intent: "write docs"
+`
+	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
+		t.Fatalf("write compose file: %v", err)
+	}
+
+	sockPath, kern := setupTestIPCServer(t)
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() { ipc.SocketPathOverride = "" })
+
+	// Add processes to the kernel to populate the process table
+	proc1 := kernel.NewProcess(0, "review code", nil)
+	_ = proc1.Start()
+	kern.AddProcess(proc1)
+
+	proc2 := kernel.NewProcess(0, "write docs", nil)
+	_ = proc2.Start()
+	// Transition proc2 to Zombie to simulate an already-completed process
+	_ = proc2.Terminate(kernel.ExitStatus{Code: 0, Reason: "completed"})
+	kern.AddProcess(proc2)
+
+	savedFile := flagComposeDownFile
+	savedExit := exitCode
+	t.Cleanup(func() {
+		flagComposeDownFile = savedFile
+		exitCode = savedExit
+	})
+
+	flagComposeDownFile = composePath
+	exitCode = 0
+
+	err := runComposeDown(&cobra.Command{}, []string{})
+	if err != nil {
+		t.Fatalf("compose down error: %v", err)
+	}
+
+	// compose down sends Kill(SIGTERM) to matching running processes.
+	// Verify that compose down completed successfully (exit code 0 = all kills sent).
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	// Verify via IPC that the already-completed (Zombie) process was NOT affected (M3 fix)
+	verifyClient, dialErr := ipc.Dial(sockPath)
+	if dialErr != nil {
+		t.Fatalf("dial for verification: %v", dialErr)
+	}
+	defer verifyClient.Close()
+
+	procsAfter, listErr := verifyClient.ListProcs()
+	if listErr != nil {
+		t.Fatalf("list procs after compose down: %v", listErr)
+	}
+
+	for _, p := range procsAfter {
+		if p.Intent == "write docs" && p.State != types.StateZombie {
+			t.Errorf("expected 'write docs' (already completed) to remain Zombie, got %s", p.State)
+		}
+	}
+}
+
+// --- AC #2: compose down JSON 输出 ---
+
+func TestComposeDown_JSONOutput(t *testing.T) {
+	// Given: compose down results
+	// When: rendering as JSON
+	// Then: output is valid JSON with killed/skipped arrays and summary
+
+	killed := []ui.ComposeDownEntry{
+		{PID: 3, Intent: "review code"},
+		{PID: 4, Intent: "analyze quality"},
+	}
+	skipped := []ui.ComposeDownEntry{
+		{PID: 5, Intent: "generate docs", State: "zombie"},
+	}
+
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	renderer := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	ui.RenderComposeDownSummaryJSON(renderer, killed, skipped, nil)
+
+	var resp map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON output: %v\nraw: %s", err, buf.String())
+	}
+
+	if resp["ok"] != true {
+		t.Error("expected ok=true")
+	}
+
+	data, ok := resp["data"].(map[string]any)
+	if !ok {
+		t.Fatal("expected data to be object")
+	}
+
+	killedArr, ok := data["killed"].([]any)
+	if !ok {
+		t.Fatal("expected killed to be array")
+	}
+	if len(killedArr) != 2 {
+		t.Errorf("expected 2 killed entries, got %d", len(killedArr))
+	}
+
+	// Verify killed entry content (M4 fix)
+	firstKilled := killedArr[0].(map[string]any)
+	if firstKilled["intent"] != "review code" {
+		t.Errorf("expected first killed intent 'review code', got %v", firstKilled["intent"])
+	}
+	if _, hasState := firstKilled["state"]; hasState {
+		t.Error("killed entry should not have 'state' field (omitempty)")
+	}
+
+	skippedArr, ok := data["skipped"].([]any)
+	if !ok {
+		t.Fatal("expected skipped to be array")
+	}
+	if len(skippedArr) != 1 {
+		t.Errorf("expected 1 skipped entry, got %d", len(skippedArr))
+	}
+
+	// Verify skipped entry has state field
+	firstSkipped := skippedArr[0].(map[string]any)
+	if firstSkipped["state"] != "zombie" {
+		t.Errorf("expected skipped state 'zombie', got %v", firstSkipped["state"])
+	}
+
+	summary, ok := data["summary"].(map[string]any)
+	if !ok {
+		t.Fatal("expected summary to be object")
+	}
+
+	for _, field := range []string{"killed_count", "skipped_count", "total_matched"} {
+		if _, ok := summary[field]; !ok {
+			t.Errorf("summary missing field %q", field)
+		}
+	}
+}
+
+// --- Helper function tests: matchComposeProcesses ---
+
+func TestMatchComposeProcesses_AllRunning(t *testing.T) {
+	// Given: all daemon processes match compose spec intents and are Running
+	// When: calling matchComposeProcesses
+	// Then: all processes returned in "running" slice, none in "completed"
+
+	spec := &compose.ComposeSpec{
+		Agents: map[string]*compose.AgentSpec{
+			"reviewer": {Intent: "review code"},
+			"analyst":  {Intent: "analyze quality"},
+		},
+	}
+
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, Intent: "review code"},
+		{PID: 2, State: types.StateRunning, Intent: "analyze quality"},
+	}
+
+	running, completed := matchComposeProcesses(procs, spec)
+	if len(running) != 2 {
+		t.Errorf("expected 2 running, got %d", len(running))
+	}
+	if len(completed) != 0 {
+		t.Errorf("expected 0 completed, got %d", len(completed))
+	}
+}
+
+func TestMatchComposeProcesses_MixedStates(t *testing.T) {
+	// Given: processes in mixed states (Running, Zombie, Dead)
+	// When: calling matchComposeProcesses
+	// Then: Running/Created in "running", Zombie/Dead in "completed"
+
+	spec := &compose.ComposeSpec{
+		Agents: map[string]*compose.AgentSpec{
+			"reviewer": {Intent: "review code"},
+			"analyst":  {Intent: "analyze quality"},
+			"writer":   {Intent: "write docs"},
+		},
+	}
+
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, Intent: "review code"},
+		{PID: 2, State: types.StateZombie, Intent: "analyze quality"},
+		{PID: 3, State: types.StateDead, Intent: "write docs"},
+	}
+
+	running, completed := matchComposeProcesses(procs, spec)
+	if len(running) != 1 {
+		t.Errorf("expected 1 running, got %d", len(running))
+	}
+	if running[0].PID != 1 {
+		t.Errorf("expected running PID 1, got %d", running[0].PID)
+	}
+	if len(completed) != 2 {
+		t.Errorf("expected 2 completed, got %d", len(completed))
+	}
+}
+
+func TestMatchComposeProcesses_NoMatch(t *testing.T) {
+	// Given: daemon processes do not match compose spec intents
+	// When: calling matchComposeProcesses
+	// Then: both slices are empty
+
+	spec := &compose.ComposeSpec{
+		Agents: map[string]*compose.AgentSpec{
+			"reviewer": {Intent: "review code"},
+		},
+	}
+
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, Intent: "unrelated task"},
+		{PID: 2, State: types.StateRunning, Intent: "other work"},
+	}
+
+	running, completed := matchComposeProcesses(procs, spec)
+	if len(running) != 0 {
+		t.Errorf("expected 0 running, got %d", len(running))
+	}
+	if len(completed) != 0 {
+		t.Errorf("expected 0 completed, got %d", len(completed))
+	}
 }

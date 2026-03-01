@@ -16,6 +16,7 @@ import (
 	"github.com/gonewx/crux/internal/xsync"
 	"github.com/gonewx/crux/ipc"
 	"github.com/gonewx/crux/skills"
+	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
 )
 
@@ -37,9 +38,23 @@ var composeUpCmd = &cobra.Command{
 
 var flagComposeFile string
 
+var composeDownCmd = &cobra.Command{
+	Use:   "down",
+	Short: "Stop all agents defined in compose file",
+	Long:  "Stop all running agents from the compose orchestration and release resources.",
+	Example: `  crux compose down                      # Stop agents from crux-compose.yaml
+  crux compose down -f my-workflow.yaml   # Stop agents from specified file
+  crux compose down --json                # JSON output mode`,
+	RunE: runComposeDown,
+}
+
+var flagComposeDownFile string
+
 func init() {
 	composeUpCmd.Flags().StringVarP(&flagComposeFile, "file", "f", "crux-compose.yaml", "Compose file path")
 	composeCmd.AddCommand(composeUpCmd)
+	composeDownCmd.Flags().StringVarP(&flagComposeDownFile, "file", "f", "crux-compose.yaml", "Compose file path")
+	composeCmd.AddCommand(composeDownCmd)
 }
 
 // ipcKernelSpawner adapts IPC Client to compose.KernelSpawner interface.
@@ -292,4 +307,113 @@ func renderComposeJSON(r *ui.Renderer, results []compose.ScheduleResult, execErr
 	}
 
 	ui.RenderComposeSummaryJSON(r, results, tokenMap)
+}
+
+// matchComposeProcesses filters processes that match a compose spec's agent intents.
+func matchComposeProcesses(procs []vfs.ProcInfo, spec *compose.ComposeSpec) (running []vfs.ProcInfo, completed []vfs.ProcInfo) {
+	// Build a set of intents from the compose spec
+	intentSet := make(map[string]bool)
+	for _, agent := range spec.Agents {
+		intentSet[agent.Intent] = true
+	}
+
+	for _, p := range procs {
+		if !intentSet[p.Intent] {
+			continue
+		}
+		if p.State == types.StateRunning || p.State == types.StateCreated {
+			running = append(running, p)
+		} else {
+			completed = append(completed, p)
+		}
+	}
+	return running, completed
+}
+
+// runComposeDown implements the `crux compose down` command.
+func runComposeDown(cmd *cobra.Command, args []string) error {
+	mode := resolveOutputMode()
+	renderer := ui.NewRenderer(os.Stdout, mode)
+	ui.InitStyles(renderer.Profile)
+
+	// 1. Parse compose file
+	spec, err := compose.ParseFile(flagComposeDownFile)
+	if err != nil {
+		outputError(renderer, mode, "compose", err.Error(),
+			"compose file parse failed", "check crux-compose.yaml syntax")
+		exitCode = 2
+		return nil
+	}
+
+	// 2. Connect to daemon (do NOT use EnsureDaemon — compose down should not start a daemon)
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		// Daemon not running: nothing to stop
+		if mode == ui.ModeJSON {
+			ui.RenderComposeDownSummaryJSON(renderer, nil, nil, nil)
+		} else if mode != ui.ModeQuiet {
+			prefix := ui.KernelStyle.Render("[compose]")
+			fmt.Fprintf(renderer.Writer, "%s No daemon running, nothing to stop\n", prefix)
+		}
+		return nil
+	}
+	defer client.Close()
+
+	// 3. List all daemon processes
+	procs, err := client.ListProcs()
+	if err != nil {
+		outputError(renderer, mode, "compose", err.Error(),
+			"failed to list processes", "check daemon status")
+		exitCode = 1
+		return nil
+	}
+
+	// 4. Match compose processes
+	running, completed := matchComposeProcesses(procs, spec)
+
+	// 5. No matching processes
+	if len(running) == 0 && len(completed) == 0 {
+		if mode == ui.ModeJSON {
+			ui.RenderComposeDownSummaryJSON(renderer, nil, nil, nil)
+		} else if mode != ui.ModeQuiet {
+			prefix := ui.KernelStyle.Render("[compose]")
+			fmt.Fprintf(renderer.Writer, "%s No matching processes found for compose file\n", prefix)
+		}
+		return nil
+	}
+
+	// 5.5 Output header
+	ui.RenderComposeDownHeader(renderer, flagComposeDownFile)
+
+	// 6. Kill running processes (best-effort)
+	var killed []ui.ComposeDownEntry
+	var killErrors []string
+	for _, p := range running {
+		killErr := client.Kill(p.PID, types.SIGTERM)
+		if killErr != nil {
+			killErrors = append(killErrors, fmt.Sprintf("PID %d: %v", p.PID, killErr))
+		} else {
+			killed = append(killed, ui.ComposeDownEntry{PID: p.PID, Intent: p.Intent})
+		}
+	}
+
+	// 7. Build skipped list
+	var skipped []ui.ComposeDownEntry
+	for _, p := range completed {
+		skipped = append(skipped, ui.ComposeDownEntry{PID: p.PID, Intent: p.Intent, State: p.State.String()})
+	}
+
+	// 8. Output summary
+	if mode == ui.ModeJSON {
+		ui.RenderComposeDownSummaryJSON(renderer, killed, skipped, killErrors)
+	} else {
+		ui.RenderComposeDownSummary(renderer, killed, skipped, killErrors)
+	}
+
+	// 9. Set exit code
+	if len(killErrors) > 0 {
+		exitCode = 1
+	}
+
+	return nil
 }

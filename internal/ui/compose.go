@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gonewx/crux/compose"
+	"github.com/gonewx/crux/internal/types"
 )
 
 // composeAgentStatus determines the display status for a compose agent result.
@@ -233,6 +234,106 @@ func RenderComposeSummaryJSON(r *Renderer, results []compose.ScheduleResult, tok
 				Skipped:        skipped,
 				TotalTokens:    totalTokens,
 				TotalElapsedMs: totalElapsedMs,
+			},
+		},
+	}
+
+	data, _ := json.Marshal(resp)
+	fmt.Fprintln(r.Writer, string(data))
+}
+
+// --- Compose Down UI ---
+
+// ComposeDownEntry represents a single process entry in compose down results.
+type ComposeDownEntry struct {
+	PID    types.PID
+	Intent string
+	State  string // only set for skipped (completed) processes
+}
+
+// composeDownJSONEntry is the JSON representation of a compose down process entry.
+type composeDownJSONEntry struct {
+	PID    types.PID `json:"pid"`
+	Intent string    `json:"intent"`
+	State  string    `json:"state,omitempty"`
+}
+
+// composeDownJSONSummary is the JSON summary for compose down.
+type composeDownJSONSummary struct {
+	KilledCount  int `json:"killed_count"`
+	SkippedCount int `json:"skipped_count"`
+	TotalMatched int `json:"total_matched"`
+}
+
+// composeDownJSONData holds the data section of compose down JSON response.
+type composeDownJSONData struct {
+	Killed  []composeDownJSONEntry `json:"killed"`
+	Skipped []composeDownJSONEntry `json:"skipped"`
+	Errors  []string               `json:"errors,omitempty"`
+	Summary composeDownJSONSummary `json:"summary"`
+}
+
+// composeDownJSONResponse is the top-level JSON response for compose down.
+type composeDownJSONResponse struct {
+	OK   bool                `json:"ok"`
+	Data composeDownJSONData `json:"data"`
+}
+
+// RenderComposeDownHeader outputs the compose down header line.
+func RenderComposeDownHeader(r *Renderer, file string) {
+	if r.OutputMode == ModeQuiet || r.OutputMode == ModeJSON {
+		return
+	}
+	prefix := KernelStyle.Render("[compose]")
+	fmt.Fprintf(r.Writer, "%s Stopping orchestration from %q\n", prefix, file)
+}
+
+// RenderComposeDownSummary outputs the compose down teardown summary.
+func RenderComposeDownSummary(r *Renderer, killed []ComposeDownEntry, skipped []ComposeDownEntry, errors []string) {
+	if r.OutputMode == ModeQuiet {
+		return
+	}
+
+	prefix := KernelStyle.Render("[compose]")
+
+	for _, entry := range killed {
+		fmt.Fprintf(r.Writer, "%s PID %d: killed (SIGTERM) — %q\n", prefix, entry.PID, entry.Intent)
+	}
+	for _, entry := range skipped {
+		fmt.Fprintf(r.Writer, "%s PID %d: skipped (already completed) — %q\n", prefix, entry.PID, entry.Intent)
+	}
+	for _, errMsg := range errors {
+		fmt.Fprintf(r.Writer, "%s %s: %s\n", prefix, ErrorStyle.Render("error"), errMsg)
+	}
+
+	fmt.Fprintf(r.Writer, "%s Teardown complete: %d killed, %d skipped\n", prefix, len(killed), len(skipped))
+}
+
+// RenderComposeDownSummaryJSON outputs the compose down summary as JSON.
+func RenderComposeDownSummaryJSON(r *Renderer, killed []ComposeDownEntry, skipped []ComposeDownEntry, errors []string) {
+	killedEntries := make([]composeDownJSONEntry, 0, len(killed))
+	for _, entry := range killed {
+		killedEntries = append(killedEntries, composeDownJSONEntry{
+			PID:    entry.PID,
+			Intent: entry.Intent,
+		})
+	}
+
+	skippedEntries := make([]composeDownJSONEntry, 0, len(skipped))
+	for _, entry := range skipped {
+		skippedEntries = append(skippedEntries, composeDownJSONEntry(entry))
+	}
+
+	resp := composeDownJSONResponse{
+		OK: true,
+		Data: composeDownJSONData{
+			Killed:  killedEntries,
+			Skipped: skippedEntries,
+			Errors:  errors,
+			Summary: composeDownJSONSummary{
+				KilledCount:  len(killed),
+				SkippedCount: len(skipped),
+				TotalMatched: len(killed) + len(skipped),
 			},
 		},
 	}
