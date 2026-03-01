@@ -562,3 +562,169 @@ func TestSkillSearch_NoArgs_BrowseAll(t *testing.T) {
 		t.Fatalf("expected 0 args to be accepted for browse all, got error: %v", err)
 	}
 }
+
+// --- ATDD RED Phase: Story 8.4 — skill list 本地 Skill 注册表 ---
+
+// TestSkillListCmd_Registered verifies the list subcommand is registered under skill.
+// AC #1: list 子命令注册
+func TestSkillListCmd_Registered(t *testing.T) {
+	var sc *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "skill" {
+			sc = cmd
+			break
+		}
+	}
+	if sc == nil {
+		t.Fatal("skill command not found")
+	}
+
+	found := false
+	for _, cmd := range sc.Commands() {
+		if cmd.Name() == "list" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'list' subcommand under 'skill'")
+	}
+}
+
+// TestSkillList_NoArgs_Required verifies that list command accepts zero arguments (cobra.NoArgs).
+// AC #1: list 命令不接受参数
+func TestSkillList_NoArgs_Required(t *testing.T) {
+	var sc *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "skill" {
+			sc = cmd
+			break
+		}
+	}
+	if sc == nil {
+		t.Fatal("skill command not found")
+	}
+
+	var listCmd *cobra.Command
+	for _, cmd := range sc.Commands() {
+		if cmd.Name() == "list" {
+			listCmd = cmd
+			break
+		}
+	}
+	if listCmd == nil {
+		t.Fatal("list command not found")
+	}
+
+	// Then: 0 args should be accepted
+	err := listCmd.Args(listCmd, []string{})
+	if err != nil {
+		t.Fatalf("expected 0 args to be accepted, got error: %v", err)
+	}
+
+	// Then: 1+ args should be rejected (cobra.NoArgs)
+	err = listCmd.Args(listCmd, []string{"extra-arg"})
+	if err == nil {
+		t.Fatal("expected error for extra arguments with cobra.NoArgs")
+	}
+}
+
+// TestSkillList_JSONOutput verifies JSON output format for skill list results.
+// AC #3: JSON 输出 snake_case 字段
+func TestSkillList_JSONOutput(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	// Given: list entries with known data
+	entries := []skillpkg.ListEntry{
+		{Name: "code-analysis", Version: "1.0.0", Path: "lib/skills/code-analysis/", Description: "Analyze code quality and patterns", Source: "builtin"},
+		{Name: "pr-reviewer", Version: "2.1.0", Path: "lib/skills/pr-reviewer/", Description: "Review pull requests with AI", Source: "community"},
+	}
+	renderSkillListJSON(r, entries)
+
+	// Then: valid JSON with snake_case fields
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true")
+	}
+
+	raw := buf.String()
+	// Verify snake_case fields present
+	if !strings.Contains(raw, `"name"`) {
+		t.Error("expected snake_case 'name' field in JSON")
+	}
+	if !strings.Contains(raw, `"version"`) {
+		t.Error("expected snake_case 'version' field in JSON")
+	}
+	if !strings.Contains(raw, `"path"`) {
+		t.Error("expected snake_case 'path' field in JSON")
+	}
+	if !strings.Contains(raw, `"description"`) {
+		t.Error("expected snake_case 'description' field in JSON")
+	}
+	if !strings.Contains(raw, `"source"`) {
+		t.Error("expected snake_case 'source' field in JSON")
+	}
+	if !strings.Contains(raw, `"code-analysis"`) {
+		t.Errorf("expected 'code-analysis' in JSON output, got %s", raw)
+	}
+	if !strings.Contains(raw, `"pr-reviewer"`) {
+		t.Errorf("expected 'pr-reviewer' in JSON output, got %s", raw)
+	}
+}
+
+// TestSkillList_EmptyResult_JSONOutput verifies JSON output for empty skill list (no skills at all).
+// AC #3: 空列表 JSON 返回空 skills 数组
+func TestSkillList_EmptyResult_JSONOutput(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	// Given: empty skill list
+	entries := []skillpkg.ListEntry{}
+	renderSkillListJSON(r, entries)
+
+	// Then: valid JSON with ok=true and skills=[]
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true for empty results")
+	}
+
+	raw := buf.String()
+	// Verify skills is empty array, not null
+	if strings.Contains(raw, `"skills":null`) {
+		t.Error("expected skills to be [] not null")
+	}
+}
+
+// TestSkillList_NilEntries_JSONOutput verifies JSON output handles nil entries gracefully.
+// AC #3: nil 入参时 JSON skills 为 [] 不为 null
+func TestSkillList_NilEntries_JSONOutput(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	// Given: nil entries
+	renderSkillListJSON(r, nil)
+
+	// Then: valid JSON with skills=[] not null
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true")
+	}
+
+	raw := buf.String()
+	if strings.Contains(raw, `"skills":null`) {
+		t.Error("expected skills to be [] not null when entries is nil")
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -253,4 +254,98 @@ func (inst *Installer) UpdateAll(opts UpdateOpts) ([]UpdateResult, error) {
 		results = append(results, *result)
 	}
 	return results, nil
+}
+
+// ListAll returns a combined list of all skills available locally, aggregating
+// both registry-tracked (community) skills and filesystem-only (builtin) skills.
+func (inst *Installer) ListAll() ([]ListEntry, error) {
+	// 1. Load registry entries
+	regEntries, err := inst.registry.List()
+	if err != nil {
+		return nil, fmt.Errorf("list registry: %w", err)
+	}
+
+	// 2. Build map of registered names
+	regMap := make(map[string]RegistryEntry)
+	for _, e := range regEntries {
+		regMap[e.Name] = e
+	}
+
+	// 3. Scan basePath directory for all skill subdirs
+	dirEntries, err := os.ReadDir(inst.basePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return make([]ListEntry, 0), nil
+		}
+		return nil, fmt.Errorf("read skills directory: %w", err)
+	}
+
+	// 4. Build list entries from filesystem
+	seen := make(map[string]bool)
+	result := make([]ListEntry, 0)
+
+	for _, d := range dirEntries {
+		// Skip non-directories and hidden files (e.g. .registry.yaml)
+		if !d.IsDir() || strings.HasPrefix(d.Name(), ".") {
+			continue
+		}
+
+		name := d.Name()
+		seen[name] = true
+
+		// Try to load SKILL.md metadata for description
+		var description string
+		info, err := inst.skillLoader.LoadMetadata(name)
+		if err != nil {
+			// Directory exists but SKILL.md is invalid/missing.
+			// If this skill is in the registry, still list it (with empty description).
+			// Otherwise skip unregistered directories without valid SKILL.md.
+			if regEntry, ok := regMap[name]; ok {
+				result = append(result, ListEntry{
+					Name:    name,
+					Version: regEntry.Version,
+					Path:    filepath.Join("lib/skills", name) + "/",
+					Source:  regEntry.Source,
+				})
+			}
+			continue
+		}
+		description = info.Manifest.Description
+
+		entry := ListEntry{
+			Name:        name,
+			Path:        filepath.Join("lib/skills", name) + "/",
+			Description: description,
+		}
+
+		// Use registry info if available
+		if regEntry, ok := regMap[name]; ok {
+			entry.Version = regEntry.Version
+			entry.Source = regEntry.Source
+		} else {
+			entry.Source = "builtin"
+		}
+
+		result = append(result, entry)
+	}
+
+	// 5. Add registry entries whose directories are missing (registered but dir deleted)
+	for name, regEntry := range regMap {
+		if seen[name] {
+			continue
+		}
+		result = append(result, ListEntry{
+			Name:    name,
+			Version: regEntry.Version,
+			Path:    filepath.Join("lib/skills", name) + "/",
+			Source:  regEntry.Source,
+		})
+	}
+
+	// 6. Sort by name
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
 }

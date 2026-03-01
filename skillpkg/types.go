@@ -71,3 +71,12 @@ type UpdateResult struct {
 type UpdateOpts struct {
 	Force bool // force update even if versions match
 }
+
+// ListEntry represents a skill in the combined list output.
+type ListEntry struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Path        string `json:"path"`
+	Description string `json:"description"`
+	Source      string `json:"source"` // "builtin" or "community"
+}
