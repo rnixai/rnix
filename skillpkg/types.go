@@ -33,9 +33,18 @@ type SkillIndex struct {
 
 // SkillIndexEntry represents a single entry in the skill index.
 type SkillIndexEntry struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Latest      string `yaml:"latest"`
+	Name        string `yaml:"name" json:"name"`
+	Description string `yaml:"description" json:"description"`
+	Latest      string `yaml:"latest" json:"version"`
+	Downloads   int    `yaml:"downloads" json:"downloads"`
+}
+
+// SearchResult represents a single result from a skill search.
+type SearchResult struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     string `json:"version"`
+	Downloads   int    `json:"downloads"`
 }
 
 // InstallOpts configures installation behavior.

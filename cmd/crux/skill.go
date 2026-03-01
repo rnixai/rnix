@@ -30,6 +30,17 @@ var skillInstallCmd = &cobra.Command{
 	RunE: runSkillInstall,
 }
 
+var skillSearchCmd = &cobra.Command{
+	Use:   "search <keyword>",
+	Short: "Search skills in the community registry",
+	Long:  "Search for skills in the community registry by keyword. Run without arguments to browse all available skills.",
+	Example: `  crux skill search code          # Search for skills matching "code"
+  crux skill search                # Browse all available skills
+  crux skill search code --json    # JSON output`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runSkillSearch,
+}
+
 var flagSkillForce bool
 
 // skillRegistryURL can be overridden for testing.
@@ -38,6 +49,7 @@ var skillRegistryURL = skillpkg.DefaultRegistryURL
 func init() {
 	skillInstallCmd.Flags().BoolVar(&flagSkillForce, "force", false, "Force install even if already installed")
 	skillCmd.AddCommand(skillInstallCmd)
+	skillCmd.AddCommand(skillSearchCmd)
 }
 
 func runSkillInstall(cmd *cobra.Command, args []string) error {
@@ -138,6 +150,79 @@ func renderSkillInstallJSON(r *ui.Renderer, results []skillpkg.InstallResult, er
 	resp := JSONResponse{
 		OK:   ok,
 		Data: skillInstallJSONData{Installed: results, Errors: errs},
+	}
+	data, _ := json.Marshal(resp)
+	fmt.Fprintln(r.Writer, string(data))
+}
+
+// --- Story 8.2: skill search ---
+
+func runSkillSearch(cmd *cobra.Command, args []string) error {
+	mode := resolveOutputMode()
+	renderer := ui.NewRenderer(os.Stdout, mode)
+	ui.InitStyles(renderer.Profile)
+
+	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
+
+	keyword := ""
+	if len(args) > 0 {
+		keyword = args[0]
+	}
+
+	results, err := client.Search(keyword)
+	if err != nil {
+		if mode == ui.ModeJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"code": "SEARCH_ERROR", "message": err.Error()}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(renderer.Writer, string(data))
+		} else {
+			prefix := ui.KernelStyle.Render("[skill]")
+			fmt.Fprintf(renderer.Writer, "%s Failed to search: %s\n", prefix, err.Error())
+		}
+		exitCode = 1
+		return nil
+	}
+
+	switch mode {
+	case ui.ModeJSON:
+		renderSkillSearchJSON(renderer, results)
+	case ui.ModeQuiet:
+		for _, r := range results {
+			fmt.Fprintln(renderer.Writer, r.Name)
+		}
+	default:
+		if len(results) == 0 {
+			prefix := ui.KernelStyle.Render("[skill]")
+			fmt.Fprintf(renderer.Writer, "%s No skills found for %q.\n", prefix, keyword)
+			fmt.Fprintf(renderer.Writer, "%s Tip: Check spelling or run 'skill search' to browse all skills.\n", prefix)
+			return nil
+		}
+		prefix := ui.KernelStyle.Render("[skill]")
+		fmt.Fprintf(renderer.Writer, "%s %-20s %-40s %-10s %s\n", prefix, "NAME", "DESCRIPTION", "VERSION", "DOWNLOADS")
+		for _, r := range results {
+			desc := r.Description
+			if len([]rune(desc)) > 40 {
+				desc = string([]rune(desc)[:37]) + "..."
+			}
+			fmt.Fprintf(renderer.Writer, "%s %-20s %-40s %-10s %d\n", prefix, r.Name, desc, r.Version, r.Downloads)
+		}
+	}
+
+	return nil
+}
+
+type searchJSONData struct {
+	Results []skillpkg.SearchResult `json:"results"`
+}
+
+// renderSkillSearchJSON renders search results as JSON.
+func renderSkillSearchJSON(r *ui.Renderer, results []skillpkg.SearchResult) {
+	if results == nil {
+		results = []skillpkg.SearchResult{}
+	}
+	resp := JSONResponse{
+		OK:   true,
+		Data: searchJSONData{Results: results},
 	}
 	data, _ := json.Marshal(resp)
 	fmt.Fprintln(r.Writer, string(data))
