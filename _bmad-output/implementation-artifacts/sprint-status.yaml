@@ -114,12 +114,12 @@ development_status:
   epic-7-retrospective: done
 
   # Epic 8: Skill 包管理与生态（Skill Package Management）
-  epic-8: in-progress
+  epic-8: done
   8-1-skill-install: done
   8-2-skill-search: done
   8-3-skill-update: done
   8-4-local-skill-registry-and-skill-list: done
-  epic-8-retrospective: optional
+  epic-8-retrospective: done
 
   # Epic 9: MCP 服务集成（MCP Integration）
   epic-9: backlog
