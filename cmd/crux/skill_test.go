@@ -329,6 +329,206 @@ func TestSkillSearch_EmptyResult_JSONOutput(t *testing.T) {
 	}
 }
 
+// --- ATDD RED Phase: Story 8.3 — skill update 更新 ---
+
+// TestSkillUpdateCmd_Registered verifies the update subcommand is registered under skill.
+// AC #1: update 子命令注册
+func TestSkillUpdateCmd_Registered(t *testing.T) {
+	var sc *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "skill" {
+			sc = cmd
+			break
+		}
+	}
+	if sc == nil {
+		t.Fatal("skill command not found")
+	}
+
+	found := false
+	for _, cmd := range sc.Commands() {
+		if cmd.Name() == "update" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected 'update' subcommand under 'skill'")
+	}
+}
+
+// TestSkillUpdate_JSONOutput verifies JSON output format for update results.
+// AC #1, #3: JSON 输出格式，字段 snake_case
+func TestSkillUpdate_JSONOutput(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	// Given: update results with known data
+	results := []skillpkg.UpdateResult{
+		{Name: "code-analysis", OldVersion: "1.0.0", NewVersion: "1.1.0", Updated: true},
+	}
+	renderSkillUpdateJSON(r, results, nil)
+
+	// Then: valid JSON with snake_case fields
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true")
+	}
+
+	raw := buf.String()
+	// Verify snake_case fields present
+	if !strings.Contains(raw, `"name"`) {
+		t.Error("expected snake_case 'name' field in JSON")
+	}
+	if !strings.Contains(raw, `"old_version"`) {
+		t.Error("expected snake_case 'old_version' field in JSON")
+	}
+	if !strings.Contains(raw, `"new_version"`) {
+		t.Error("expected snake_case 'new_version' field in JSON")
+	}
+	if !strings.Contains(raw, `"updated"`) {
+		t.Error("expected snake_case 'updated' field in JSON")
+	}
+	if !strings.Contains(raw, `"code-analysis"`) {
+		t.Errorf("expected 'code-analysis' in JSON output, got %s", raw)
+	}
+}
+
+// TestSkillUpdate_EmptyResult_JSONOutput verifies JSON output for empty update results (all up to date).
+// AC #2, #3: 全量更新无结果时 JSON 返回空数组
+func TestSkillUpdate_EmptyResult_JSONOutput(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	// Given: empty update results (all skills up to date)
+	results := []skillpkg.UpdateResult{}
+	renderSkillUpdateJSON(r, results, nil)
+
+	// Then: valid JSON with ok=true and empty results array
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Error("expected ok=true for empty results")
+	}
+
+	raw := buf.String()
+	if strings.Contains(raw, `"results":null`) {
+		t.Error("expected results to be [] not null")
+	}
+}
+
+// TestSkillUpdate_NoArgs_Accepted verifies that update command accepts zero arguments (update all).
+// AC #2: 不指定名称时更新全部
+func TestSkillUpdate_NoArgs_Accepted(t *testing.T) {
+	// Given: skill update command with ArbitraryArgs
+	var sc *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "skill" {
+			sc = cmd
+			break
+		}
+	}
+	if sc == nil {
+		t.Fatal("skill command not found")
+	}
+
+	var updateCmd *cobra.Command
+	for _, cmd := range sc.Commands() {
+		if cmd.Name() == "update" {
+			updateCmd = cmd
+			break
+		}
+	}
+	if updateCmd == nil {
+		t.Fatal("update command not found")
+	}
+
+	// Then: 0 args should be accepted (ArbitraryArgs)
+	err := updateCmd.Args(updateCmd, []string{})
+	if err != nil {
+		t.Fatalf("expected 0 args to be accepted for update all, got error: %v", err)
+	}
+}
+
+// TestSkillUpdate_WithArgs_Accepted verifies that update command accepts one or more arguments.
+// AC #1: 指定名称时更新指定 skill
+func TestSkillUpdate_WithArgs_Accepted(t *testing.T) {
+	var sc *cobra.Command
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Name() == "skill" {
+			sc = cmd
+			break
+		}
+	}
+	if sc == nil {
+		t.Fatal("skill command not found")
+	}
+
+	var updateCmd *cobra.Command
+	for _, cmd := range sc.Commands() {
+		if cmd.Name() == "update" {
+			updateCmd = cmd
+			break
+		}
+	}
+	if updateCmd == nil {
+		t.Fatal("update command not found")
+	}
+
+	// Then: 1+ args should be accepted
+	err := updateCmd.Args(updateCmd, []string{"code-analysis"})
+	if err != nil {
+		t.Fatalf("expected 1 arg to be accepted, got error: %v", err)
+	}
+
+	err = updateCmd.Args(updateCmd, []string{"code-analysis", "pr-reviewer"})
+	if err != nil {
+		t.Fatalf("expected 2 args to be accepted, got error: %v", err)
+	}
+}
+
+// TestSkillUpdate_MixedResults_JSONOutput verifies JSON output with both updated and errored results.
+// AC #1, #2: 混合结果（更新成功 + 错误）
+func TestSkillUpdate_MixedResults_JSONOutput(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	results := []skillpkg.UpdateResult{
+		{Name: "code-analysis", OldVersion: "1.0.0", NewVersion: "1.1.0", Updated: true},
+	}
+	errs := []updateErrorEntry{
+		{Name: "nonexistent", Code: "NOT_INSTALLED", Message: `skill "nonexistent" is not installed`},
+	}
+	renderSkillUpdateJSON(r, results, errs)
+
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON: %v\nraw: %s", err, buf.String())
+	}
+	if resp.OK {
+		t.Error("expected ok=false when there are errors")
+	}
+
+	raw := buf.String()
+	if !strings.Contains(raw, `"code-analysis"`) {
+		t.Errorf("expected code-analysis in output, got %s", raw)
+	}
+	if !strings.Contains(raw, `"nonexistent"`) {
+		t.Errorf("expected nonexistent in output, got %s", raw)
+	}
+	if !strings.Contains(raw, `"NOT_INSTALLED"`) {
+		t.Errorf("expected NOT_INSTALLED code in output, got %s", raw)
+	}
+}
+
 // TestSkillSearch_NoArgs_BrowseAll verifies that running search with no args accepts it.
 // AC #1: 无参数时浏览全部
 func TestSkillSearch_NoArgs_BrowseAll(t *testing.T) {

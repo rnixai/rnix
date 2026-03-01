@@ -58,3 +58,16 @@ type InstallResult struct {
 	Version string `json:"version"`
 	Fresh   bool   `json:"fresh"` // true if newly installed, false if overwritten
 }
+
+// UpdateResult captures the outcome of a skill update check.
+type UpdateResult struct {
+	Name       string `json:"name"`
+	OldVersion string `json:"old_version"`
+	NewVersion string `json:"new_version"`
+	Updated    bool   `json:"updated"`
+}
+
+// UpdateOpts configures update behavior.
+type UpdateOpts struct {
+	Force bool // force update even if versions match
+}

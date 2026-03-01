@@ -195,3 +195,62 @@ type AlreadyInstalledError struct {
 func (e *AlreadyInstalledError) Error() string {
 	return fmt.Sprintf("skill %q is already installed (version %s), use --force to overwrite", e.Name, e.Version)
 }
+
+// Update checks for a newer version of an installed skill and updates it if available.
+func (inst *Installer) Update(name string, opts UpdateOpts) (*UpdateResult, error) {
+	existing, err := inst.registry.Get(name)
+	if err != nil {
+		return nil, fmt.Errorf("check installed skill: %w", err)
+	}
+	if existing == nil {
+		return nil, fmt.Errorf("skill %q is not installed", name)
+	}
+
+	ver, err := inst.client.Resolve(name)
+	if err != nil {
+		return nil, fmt.Errorf("resolve latest version: %w", err)
+	}
+
+	if existing.Version == ver.Version && !opts.Force {
+		return &UpdateResult{
+			Name:       name,
+			OldVersion: existing.Version,
+			NewVersion: ver.Version,
+			Updated:    false,
+		}, nil
+	}
+
+	oldVersion := existing.Version
+	_, err = inst.Install(name, InstallOpts{Force: true})
+	if err != nil {
+		return nil, fmt.Errorf("update %s: %w", name, err)
+	}
+
+	return &UpdateResult{
+		Name:       name,
+		OldVersion: oldVersion,
+		NewVersion: ver.Version,
+		Updated:    true,
+	}, nil
+}
+
+// UpdateAll checks and updates all installed community skills.
+func (inst *Installer) UpdateAll(opts UpdateOpts) ([]UpdateResult, error) {
+	entries, err := inst.registry.List()
+	if err != nil {
+		return nil, fmt.Errorf("list installed skills: %w", err)
+	}
+
+	results := make([]UpdateResult, 0)
+	for _, entry := range entries {
+		if entry.Source != "community" {
+			continue
+		}
+		result, err := inst.Update(entry.Name, opts)
+		if err != nil {
+			continue
+		}
+		results = append(results, *result)
+	}
+	return results, nil
+}
