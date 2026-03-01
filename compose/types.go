@@ -11,6 +11,7 @@ import (
 type ComposeSpec struct {
 	Version string                `yaml:"version"`
 	Intent  string                `yaml:"intent"`
+	Model   string                `yaml:"model,omitempty"`
 	Agents  map[string]*AgentSpec `yaml:"agents"`
 }
 
@@ -18,6 +19,7 @@ type ComposeSpec struct {
 type AgentSpec struct {
 	Intent    string            `yaml:"intent"`
 	Agent     string            `yaml:"agent,omitempty"`
+	Model     string            `yaml:"model,omitempty"`
 	Skills    []string          `yaml:"skills,omitempty"`
 	DependsOn map[string]string `yaml:"depends_on,omitempty"`
 }

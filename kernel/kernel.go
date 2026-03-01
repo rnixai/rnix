@@ -416,8 +416,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		writeStart := time.Now()
 		if err := k.vfs.Write(proc.ctx, proc.PID, llmFD, reqJSON); err != nil {
 			k.emitEvent(proc, "Write", map[string]any{
-				"fd":   llmFD,
-				"size": len(reqJSON),
+				"fd":    llmFD,
+				"size":  len(reqJSON),
+				"model": opts.Model,
 			}, nil, err, time.Since(writeStart))
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
@@ -427,8 +428,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			return
 		}
 		k.emitEvent(proc, "Write", map[string]any{
-			"fd":   llmFD,
-			"size": len(reqJSON),
+			"fd":    llmFD,
+			"size":  len(reqJSON),
+			"model": opts.Model,
 		}, nil, nil, time.Since(writeStart))
 
 		// Read response from LLM device

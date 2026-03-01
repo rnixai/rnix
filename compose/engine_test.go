@@ -477,6 +477,95 @@ func TestEngine_Execute_AgentWithSkills(t *testing.T) {
 	}
 }
 
+func TestEngine_Execute_ModelPassthrough(t *testing.T) {
+	// Given: agents with different model specifications
+	spec := &ComposeSpec{
+		Version: "1.0",
+		Intent:  "model test",
+		Agents: map[string]*AgentSpec{
+			"fast":    {Intent: "quick task", Model: "haiku"},
+			"precise": {Intent: "deep analysis", Model: "opus"},
+			"default": {Intent: "normal task"},
+		},
+	}
+	ks := newMockKernelSpawner()
+	engine, err := NewEngine(spec, ks, mockAgentLoader)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+
+	// When: executing
+	results, err := engine.Execute(context.Background())
+
+	// Then: all agents succeed and models are passed through to Spawn
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// Verify models were passed correctly in spawn opts
+	modelByIntent := make(map[string]string)
+	for _, rec := range ks.spawned {
+		modelByIntent[rec.intent] = rec.opts.Model
+	}
+	if modelByIntent["quick task"] != "haiku" {
+		t.Errorf("expected model 'haiku' for 'quick task', got %q", modelByIntent["quick task"])
+	}
+	if modelByIntent["deep analysis"] != "opus" {
+		t.Errorf("expected model 'opus' for 'deep analysis', got %q", modelByIntent["deep analysis"])
+	}
+	if modelByIntent["normal task"] != "" {
+		t.Errorf("expected empty model for 'normal task', got %q", modelByIntent["normal task"])
+	}
+}
+
+func TestEngine_Execute_GlobalModelDefault(t *testing.T) {
+	// Given: a spec with global model and agents with/without overrides
+	spec := &ComposeSpec{
+		Version: "1.0",
+		Intent:  "global model test",
+		Model:   "haiku",
+		Agents: map[string]*AgentSpec{
+			"fast":     {Intent: "cheap task"},                  // inherits global "haiku"
+			"precise":  {Intent: "deep analysis", Model: "opus"}, // overrides to "opus"
+			"standard": {Intent: "normal task"},                  // inherits global "haiku"
+		},
+	}
+	ks := newMockKernelSpawner()
+	engine, err := NewEngine(spec, ks, mockAgentLoader)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+
+	// When: executing
+	results, err := engine.Execute(context.Background())
+
+	// Then: all agents succeed
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// Verify model resolution: agent model > global model
+	modelByIntent := make(map[string]string)
+	for _, rec := range ks.spawned {
+		modelByIntent[rec.intent] = rec.opts.Model
+	}
+	if modelByIntent["cheap task"] != "haiku" {
+		t.Errorf("expected global model 'haiku' for 'cheap task', got %q", modelByIntent["cheap task"])
+	}
+	if modelByIntent["deep analysis"] != "opus" {
+		t.Errorf("expected agent model 'opus' for 'deep analysis', got %q", modelByIntent["deep analysis"])
+	}
+	if modelByIntent["normal task"] != "haiku" {
+		t.Errorf("expected global model 'haiku' for 'normal task', got %q", modelByIntent["normal task"])
+	}
+}
+
 func TestEngine_Execute_AgentWithRef(t *testing.T) {
 	// Given: an agent spec with agent reference field
 	spec := &ComposeSpec{

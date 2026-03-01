@@ -73,7 +73,7 @@ agents:
 }
 
 func TestParseBytes_FullFormat(t *testing.T) {
-	// Given: a crux-compose.yaml with all supported fields including agent reference
+	// Given: a crux-compose.yaml with all supported fields including agent reference and model
 	data := []byte(`
 version: "1.0"
 intent: "PR review + analysis + documentation"
@@ -81,9 +81,11 @@ agents:
   reviewer:
     intent: "review PR changes"
     agent: "pr-reviewer"
+    model: "opus"
     skills: [pr-reviewer]
   analyst:
     intent: "analyze code quality"
+    model: "haiku"
     skills: [code-analyst]
     depends_on:
       reviewer: completed
@@ -110,10 +112,21 @@ agents:
 	if reviewer.Agent != "pr-reviewer" {
 		t.Fatalf("expected agent reference 'pr-reviewer', got %q", reviewer.Agent)
 	}
+	if reviewer.Model != "opus" {
+		t.Fatalf("expected model 'opus', got %q", reviewer.Model)
+	}
+
+	analyst := spec.Agents["analyst"]
+	if analyst.Model != "haiku" {
+		t.Fatalf("expected model 'haiku', got %q", analyst.Model)
+	}
 
 	writer := spec.Agents["writer"]
 	if len(writer.DependsOn) != 2 {
 		t.Fatalf("expected 2 dependencies for writer, got %d", len(writer.DependsOn))
+	}
+	if writer.Model != "" {
+		t.Fatalf("expected empty model for writer, got %q", writer.Model)
 	}
 }
 
@@ -385,5 +398,41 @@ agents:
 	}
 	if solo.Intent != "do everything" {
 		t.Fatalf("expected intent 'do everything', got %q", solo.Intent)
+	}
+}
+
+func TestParseBytes_GlobalModel(t *testing.T) {
+	// Given: a crux-compose.yaml with a top-level model field
+	data := []byte(`
+version: "1.0"
+intent: "cost-optimized workflow"
+model: "haiku"
+agents:
+  fast:
+    intent: "quick task"
+  precise:
+    intent: "deep analysis"
+    model: "opus"
+`)
+
+	// When: parsing the YAML
+	spec, err := ParseBytes(data)
+
+	// Then: global model is parsed correctly
+	if err != nil {
+		t.Fatalf("ParseBytes failed: %v", err)
+	}
+	if spec.Model != "haiku" {
+		t.Fatalf("expected global model 'haiku', got %q", spec.Model)
+	}
+
+	// Agent without model inherits nothing at parse level (engine handles fallback)
+	if spec.Agents["fast"].Model != "" {
+		t.Fatalf("expected empty model for 'fast', got %q", spec.Agents["fast"].Model)
+	}
+
+	// Agent with explicit model retains it
+	if spec.Agents["precise"].Model != "opus" {
+		t.Fatalf("expected model 'opus' for 'precise', got %q", spec.Agents["precise"].Model)
 	}
 }

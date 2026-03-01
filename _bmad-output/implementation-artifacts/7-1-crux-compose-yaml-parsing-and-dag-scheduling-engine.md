@@ -207,21 +207,23 @@ agents:
 ```yaml
 version: "1.0"
 intent: "PR 审查 + 代码分析 + 变更文档"
+model: "haiku"                      # 可选：全局默认模型
 agents:
   reviewer:
     intent: "审查 PR 变更"
     agent: "pr-reviewer"       # 可选：引用 lib/agents/ 下的 agent 定义
+    model: "opus"              # 可选：覆盖全局默认模型
     skills: [pr-reviewer]       # 可选：直接指定 skill 列表
     depends_on:                 # 可选：依赖关系
       other_agent: completed    # 仅支持 "completed" 条件
   analyst:
     intent: "分析代码质量"
-    skills: [code-analyst]
+    skills: [code-analyst]      # 继承全局 "haiku"
     depends_on:
       reviewer: completed
   writer:
     intent: "编写变更文档"
-    skills: [doc-writer]
+    skills: [doc-writer]        # 继承全局 "haiku"
     depends_on:
       reviewer: completed
       analyst: completed
@@ -232,9 +234,11 @@ agents:
 |------|------|------|------|
 | version | string | 是 | 必须为 "1.0" |
 | intent | string | 是 | 整体工作流意图描述 |
+| model | string | 否 | 全局默认 LLM 模型名称，未指定 agent 级 model 时使用 |
 | agents | map | 是 | 智能体定义，key 为名称 |
 | agents.*.intent | string | 是 | 单个智能体的意图 |
 | agents.*.agent | string | 否 | 引用 lib/agents/ 下的 agent 定义名 |
+| agents.*.model | string | 否 | LLM 模型名称，覆盖全局默认（优先级：agent model > 全局 model > agent.yaml preferred > 驱动默认） |
 | agents.*.skills | []string | 否 | 直接指定 skill 列表 |
 | agents.*.depends_on | map[string]string | 否 | 依赖关系，值仅支持 "completed" |
 
