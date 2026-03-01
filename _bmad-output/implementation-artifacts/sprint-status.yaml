@@ -106,12 +106,12 @@ development_status:
   epic-6-retrospective: done
 
   # Epic 7: Compose 多智能体编排（Agent Compose）
-  epic-7: in-progress
+  epic-7: done
   7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine: done
   7-2-crux-compose-up-command: done
   7-3-crux-compose-down-command: done
   7-4-compose-end-to-end-acceptance: done
-  epic-7-retrospective: optional
+  epic-7-retrospective: done
 
   # Epic 8: Skill 包管理与生态（Skill Package Management）
   epic-8: backlog
