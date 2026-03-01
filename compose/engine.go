@@ -131,7 +131,14 @@ func (e *Engine) executeNode(ctx context.Context, name string, pids *xsync.SyncM
 	}
 
 	// Build spawn options with upstream output injection
-	opts := ComposeSpawnOpts{}
+	// Model priority: agent-level model > spec-level model (global default)
+	model := agentSpec.Model
+	if model == "" {
+		model = e.spec.Model
+	}
+	opts := ComposeSpawnOpts{
+		Model: model,
+	}
 	upstreamPrompt := e.buildUpstreamPrompt(name, pids)
 	if upstreamPrompt != "" {
 		opts.SystemPrompt = upstreamPrompt
