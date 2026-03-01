@@ -1,0 +1,197 @@
+package skillpkg
+
+import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/gonewx/crux/skills"
+)
+
+const (
+	// maxFileSize limits the size of a single extracted file (10 MB).
+	maxFileSize = 10 << 20
+	// maxTotalExtractSize limits the total extracted content (50 MB).
+	maxTotalExtractSize = 50 << 20
+)
+
+// Installer orchestrates the skill installation flow: fetch -> verify -> extract -> validate -> register.
+type Installer struct {
+	client      *RegistryClient
+	registry    *LocalRegistry
+	skillLoader *skills.SkillLoader
+	basePath    string // path to lib/skills/
+}
+
+// NewInstaller creates a new Installer.
+func NewInstaller(client *RegistryClient, registry *LocalRegistry, skillLoader *skills.SkillLoader, basePath string) *Installer {
+	return &Installer{
+		client:      client,
+		registry:    registry,
+		skillLoader: skillLoader,
+		basePath:    basePath,
+	}
+}
+
+// Install installs a skill by name. It fetches from the registry, verifies integrity,
+// extracts to the local skills directory, validates SKILL.md, and updates the registry.
+func (inst *Installer) Install(name string, opts InstallOpts) (*InstallResult, error) {
+	// Check if already installed
+	existing, err := inst.registry.Get(name)
+	if err != nil {
+		return nil, fmt.Errorf("check existing installation: %w", err)
+	}
+	fresh := existing == nil
+
+	if existing != nil && !opts.Force {
+		return nil, &AlreadyInstalledError{
+			Name:    name,
+			Version: existing.Version,
+		}
+	}
+
+	// Resolve latest version
+	ver, err := inst.client.Resolve(name)
+	if err != nil {
+		return nil, fmt.Errorf("resolve version: %w", err)
+	}
+
+	// Fetch package
+	pkg, err := inst.client.Fetch(name, ver)
+	if err != nil {
+		return nil, fmt.Errorf("fetch package: %w", err)
+	}
+
+	// Verify checksum
+	if err := inst.client.Verify(pkg); err != nil {
+		return nil, fmt.Errorf("verify package: %w", err)
+	}
+
+	// Extract to target directory
+	targetDir := filepath.Join(inst.basePath, name)
+	if err := inst.extract(pkg, targetDir); err != nil {
+		// Rollback: remove partially extracted files
+		os.RemoveAll(targetDir)
+		return nil, fmt.Errorf("extract package: %w", err)
+	}
+
+	// Validate SKILL.md using existing SkillLoader
+	if _, err := inst.skillLoader.LoadMetadata(name); err != nil {
+		// Rollback: remove extracted files
+		os.RemoveAll(targetDir)
+		return nil, fmt.Errorf("validate installed skill: %w", err)
+	}
+
+	// Update registry
+	entry := RegistryEntry{
+		Name:        name,
+		Version:     ver.Version,
+		InstalledAt: time.Now().UTC(),
+		Source:      "community",
+		Checksum:    ver.Checksum,
+	}
+	if err := inst.registry.Add(entry); err != nil {
+		return nil, fmt.Errorf("update registry: %w", err)
+	}
+
+	return &InstallResult{
+		Name:    name,
+		Version: ver.Version,
+		Fresh:   fresh,
+	}, nil
+}
+
+// extract unpacks a .tar.gz skill package into the target directory.
+func (inst *Installer) extract(pkg *SkillPackage, targetDir string) error {
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return fmt.Errorf("create target directory: %w", err)
+	}
+
+	gr, err := gzip.NewReader(bytes.NewReader(pkg.Data))
+	if err != nil {
+		return fmt.Errorf("open gzip: %w", err)
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	var totalSize int64
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read tar entry: %w", err)
+		}
+
+		// Reject entries exceeding per-file size limit
+		if header.Size > maxFileSize {
+			return fmt.Errorf("file %s exceeds max size (%d > %d bytes)", header.Name, header.Size, maxFileSize)
+		}
+		totalSize += header.Size
+		if totalSize > maxTotalExtractSize {
+			return fmt.Errorf("total extracted size exceeds limit (%d bytes)", maxTotalExtractSize)
+		}
+
+		// Clean path and prevent directory traversal
+		cleanName := filepath.Clean(header.Name)
+		if strings.HasPrefix(cleanName, "..") || filepath.IsAbs(cleanName) {
+			return fmt.Errorf("invalid tar entry path: %s", header.Name)
+		}
+
+		target := filepath.Join(targetDir, cleanName)
+
+		// Verify the resolved path stays within targetDir
+		absTarget, err := filepath.Abs(target)
+		if err != nil {
+			return fmt.Errorf("resolve path: %w", err)
+		}
+		absDir, err := filepath.Abs(targetDir)
+		if err != nil {
+			return fmt.Errorf("resolve target dir: %w", err)
+		}
+		if !strings.HasPrefix(absTarget, absDir+string(filepath.Separator)) && absTarget != absDir {
+			return fmt.Errorf("tar entry escapes target directory: %s", header.Name)
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return fmt.Errorf("create directory %s: %w", cleanName, err)
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return fmt.Errorf("create parent directory: %w", err)
+			}
+			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode)&0o755)
+			if err != nil {
+				return fmt.Errorf("create file %s: %w", cleanName, err)
+			}
+			if _, err := io.Copy(f, io.LimitReader(tr, maxFileSize+1)); err != nil {
+				f.Close()
+				return fmt.Errorf("write file %s: %w", cleanName, err)
+			}
+			f.Close()
+		case tar.TypeSymlink, tar.TypeLink:
+			return fmt.Errorf("unsupported tar entry type (symlink/hardlink): %s", header.Name)
+		}
+	}
+
+	return nil
+}
+
+// AlreadyInstalledError indicates a skill is already installed.
+type AlreadyInstalledError struct {
+	Name    string
+	Version string
+}
+
+func (e *AlreadyInstalledError) Error() string {
+	return fmt.Sprintf("skill %q is already installed (version %s), use --force to overwrite", e.Name, e.Version)
+}
