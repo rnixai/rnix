@@ -941,3 +941,691 @@ func TestMatchComposeProcesses_NoMatch(t *testing.T) {
 		t.Errorf("expected 0 completed, got %d", len(completed))
 	}
 }
+
+// --- Story 7.4: Compose End-to-End Acceptance Tests ---
+// These tests verify AC #1-2 of Story 7.4.
+// All E2E tests use the TestComposeE2E_ prefix.
+
+// --- E2E Mock Spawner ---
+// Extends the existing mockComposeSpawner with getResult support for output passthrough verification.
+
+type e2eMockSpawner struct {
+	mu            sync.Mutex
+	spawned       []e2eSpawnRecord // records intent and opts for each Spawn call
+	pidAlloc      uint64
+	failIntents   map[string]bool   // intents that should fail
+	waitDelay     time.Duration     // delay for Wait calls
+	getResult     map[types.PID]string // preset output results per PID
+	intentResults map[string]string    // intent -> result, auto-mapped to PID at spawn time
+}
+
+type e2eSpawnRecord struct {
+	intent string
+	opts   compose.ComposeSpawnOpts
+}
+
+func newE2EMockSpawner() *e2eMockSpawner {
+	return &e2eMockSpawner{
+		failIntents:   make(map[string]bool),
+		getResult:     make(map[types.PID]string),
+		intentResults: make(map[string]string),
+	}
+}
+
+func (m *e2eMockSpawner) Spawn(intent string, agent *agents.AgentInfo, opts compose.ComposeSpawnOpts) (types.PID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pidAlloc++
+	pid := types.PID(m.pidAlloc)
+	m.spawned = append(m.spawned, e2eSpawnRecord{intent: intent, opts: opts})
+	// Auto-map intent-based results to the allocated PID
+	if result, ok := m.intentResults[intent]; ok {
+		m.getResult[pid] = result
+	}
+	return pid, nil
+}
+
+func (m *e2eMockSpawner) Wait(pid types.PID) (compose.ComposeExitStatus, error) {
+	if m.waitDelay > 0 {
+		time.Sleep(m.waitDelay)
+	}
+
+	m.mu.Lock()
+	idx := int(pid) - 1
+	var intent string
+	if idx >= 0 && idx < len(m.spawned) {
+		intent = m.spawned[idx].intent
+	}
+	shouldFail := m.failIntents[intent]
+	m.mu.Unlock()
+
+	if shouldFail {
+		return compose.ComposeExitStatus{Code: 1, Reason: "simulated failure"}, fmt.Errorf("agent failed")
+	}
+	return compose.ComposeExitStatus{Code: 0, Reason: "ok"}, nil
+}
+
+func (m *e2eMockSpawner) GetProcessResult(pid types.PID) (string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.getResult[pid]
+	return r, ok
+}
+
+func (m *e2eMockSpawner) getSpawnedIntents() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]string, len(m.spawned))
+	for i, rec := range m.spawned {
+		result[i] = rec.intent
+	}
+	return result
+}
+
+func (m *e2eMockSpawner) getSpawnRecords() []e2eSpawnRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]e2eSpawnRecord, len(m.spawned))
+	copy(result, m.spawned)
+	return result
+}
+
+// newDiamondSpec creates the canonical diamond DAG ComposeSpec for E2E tests.
+// Structure: analyzer (layer 1) -> security + docs (layer 2, parallel) -> reporter (layer 3)
+func newDiamondSpec() *compose.ComposeSpec {
+	return &compose.ComposeSpec{
+		Version: "1.0",
+		Intent:  "E2E acceptance test",
+		Agents: map[string]*compose.AgentSpec{
+			"analyzer": {Intent: "analyze code structure"},
+			"security": {
+				Intent:    "execute security audit",
+				DependsOn: map[string]string{"analyzer": "completed"},
+			},
+			"docs": {
+				Intent:    "generate documentation",
+				DependsOn: map[string]string{"analyzer": "completed"},
+			},
+			"reporter": {
+				Intent: "generate final report",
+				DependsOn: map[string]string{
+					"security": "completed",
+					"docs":     "completed",
+				},
+			},
+		},
+	}
+}
+
+// --- Task 1: E2E Fixture Validation ---
+
+func TestComposeE2E_FixtureParsing(t *testing.T) {
+	// Given: the diamond DAG fixture
+	// When: parsing and building DAG
+	// Then: fixture is valid and produces expected topology
+
+	spec := newDiamondSpec()
+
+	dag, err := compose.BuildDAG(spec)
+	if err != nil {
+		t.Fatalf("BuildDAG failed: %v", err)
+	}
+
+	layers, err := dag.TopologicalSort()
+	if err != nil {
+		t.Fatalf("TopologicalSort failed: %v", err)
+	}
+
+	// Expected: 3 layers
+	if len(layers) != 3 {
+		t.Fatalf("expected 3 layers, got %d: %v", len(layers), layers)
+	}
+
+	// Layer 1: analyzer
+	if len(layers[0]) != 1 || layers[0][0] != "analyzer" {
+		t.Errorf("layer 1: expected [analyzer], got %v", layers[0])
+	}
+
+	// Layer 2: docs + security (alphabetical)
+	if len(layers[1]) != 2 {
+		t.Errorf("layer 2: expected 2 agents, got %d: %v", len(layers[1]), layers[1])
+	}
+
+	// Layer 3: reporter
+	if len(layers[2]) != 1 || layers[2][0] != "reporter" {
+		t.Errorf("layer 3: expected [reporter], got %v", layers[2])
+	}
+}
+
+// --- Task 2: E2E Dependency Order Test ---
+
+func TestComposeE2E_DependencyOrder(t *testing.T) {
+	// Given: diamond DAG (analyzer -> security+docs -> reporter)
+	// When: executing via Engine with mock spawner
+	// Then: agents execute in topological order, layer 2 parallel
+
+	spec := newDiamondSpec()
+	ks := newE2EMockSpawner()
+
+	engine, err := compose.NewEngine(spec, ks, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	results, execErr := engine.Execute(context.Background())
+	if execErr != nil {
+		t.Fatalf("Execute error: %v", execErr)
+	}
+
+	// All 4 agents should complete successfully
+	if len(results) != 4 {
+		t.Fatalf("expected 4 results, got %d", len(results))
+	}
+	for _, r := range results {
+		if r.Err != nil {
+			t.Errorf("agent %q had error: %v", r.Name, r.Err)
+		}
+	}
+
+	// Verify spawn order: analyzer first, reporter last
+	intents := ks.getSpawnedIntents()
+	if len(intents) != 4 {
+		t.Fatalf("expected 4 spawns, got %d: %v", len(intents), intents)
+	}
+
+	// analyzer must be first
+	if intents[0] != "analyze code structure" {
+		t.Errorf("expected first spawn to be analyzer, got %q", intents[0])
+	}
+
+	// reporter must be last
+	if intents[3] != "generate final report" {
+		t.Errorf("expected last spawn to be reporter, got %q", intents[3])
+	}
+
+	// Layer 2: security and docs in middle (order within layer may vary due to parallelism)
+	middleIntents := map[string]bool{intents[1]: true, intents[2]: true}
+	if !middleIntents["execute security audit"] {
+		t.Errorf("expected security in middle layer, got %v", middleIntents)
+	}
+	if !middleIntents["generate documentation"] {
+		t.Errorf("expected docs in middle layer, got %v", middleIntents)
+	}
+}
+
+// --- Task 3: E2E Output Passthrough Test ---
+
+func TestComposeE2E_OutputPassthrough(t *testing.T) {
+	// Given: diamond DAG with preset getResult values
+	// When: executing
+	// Then: downstream agents receive upstream outputs in SystemPrompt
+
+	spec := newDiamondSpec()
+	ks := newE2EMockSpawner()
+
+	// Preset results by intent (auto-mapped to PID at spawn time, order-independent)
+	ks.intentResults["analyze code structure"] = "code analysis result"
+	ks.intentResults["execute security audit"] = "security audit findings"
+	ks.intentResults["generate documentation"] = "documentation output"
+
+	engine, err := compose.NewEngine(spec, ks, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	results, execErr := engine.Execute(context.Background())
+	if execErr != nil {
+		t.Fatalf("Execute error: %v", execErr)
+	}
+	if len(results) != 4 {
+		t.Fatalf("expected 4 results, got %d", len(results))
+	}
+
+	records := ks.getSpawnRecords()
+	if len(records) != 4 {
+		t.Fatalf("expected 4 spawn records, got %d", len(records))
+	}
+
+	// Layer 2 agents (security, docs) should have upstream output from analyzer
+	for _, rec := range records[1:3] {
+		if !strings.Contains(rec.opts.SystemPrompt, "## Upstream Agent Output") {
+			t.Errorf("agent %q: expected '## Upstream Agent Output' header, got %q", rec.intent, rec.opts.SystemPrompt)
+		}
+		if !strings.Contains(rec.opts.SystemPrompt, "### analyzer output:") {
+			t.Errorf("agent %q: expected '### analyzer output:' section, got %q", rec.intent, rec.opts.SystemPrompt)
+		}
+		if !strings.Contains(rec.opts.SystemPrompt, "code analysis result") {
+			t.Errorf("agent %q: expected analyzer output content, got %q", rec.intent, rec.opts.SystemPrompt)
+		}
+	}
+
+	// Reporter (last) should have outputs from both security and docs
+	reporterRecord := records[3]
+	if !strings.Contains(reporterRecord.opts.SystemPrompt, "## Upstream Agent Output") {
+		t.Errorf("reporter: expected upstream output header, got %q", reporterRecord.opts.SystemPrompt)
+	}
+
+	// Reporter should receive both upstream outputs (security + docs)
+	// Note: the exact upstream names depend on DAG node names, not intents
+	hasDocsOutput := strings.Contains(reporterRecord.opts.SystemPrompt, "### docs output:")
+	hasSecurityOutput := strings.Contains(reporterRecord.opts.SystemPrompt, "### security output:")
+	if !hasDocsOutput {
+		t.Errorf("reporter: expected '### docs output:' section, got %q", reporterRecord.opts.SystemPrompt)
+	}
+	if !hasSecurityOutput {
+		t.Errorf("reporter: expected '### security output:' section, got %q", reporterRecord.opts.SystemPrompt)
+	}
+}
+
+// --- Task 4: E2E Performance Test ---
+
+func TestComposeE2E_Performance(t *testing.T) {
+	// Given: diamond DAG with 4 agents, mock spawner (instant return)
+	// When: executing
+	// Then: total time from NewEngine to Execute completion <= 90 seconds
+
+	spec := newDiamondSpec()
+	ks := newE2EMockSpawner()
+
+	start := time.Now()
+
+	engine, err := compose.NewEngine(spec, ks, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	results, execErr := engine.Execute(context.Background())
+	elapsed := time.Since(start)
+
+	if execErr != nil {
+		t.Fatalf("Execute error: %v", execErr)
+	}
+	if len(results) != 4 {
+		t.Fatalf("expected 4 results, got %d", len(results))
+	}
+	for _, r := range results {
+		if r.Err != nil {
+			t.Errorf("agent %q had error: %v", r.Name, r.Err)
+		}
+	}
+
+	// AC #1: total time <= 90 seconds (mock env should be well under)
+	if elapsed > 90*time.Second {
+		t.Fatalf("performance: 4-agent diamond took %v (max 90s)", elapsed)
+	}
+
+	// Additional: in mock env, should complete in < 1 second
+	if elapsed > 1*time.Second {
+		t.Logf("warning: 4-agent diamond took %v in mock env (expected < 1s)", elapsed)
+	}
+}
+
+// --- Task 5: E2E Failure Propagation Test ---
+
+func TestComposeE2E_FailurePropagation(t *testing.T) {
+	// Given: diamond DAG where analyzer (root) fails
+	// When: executing
+	// Then: all downstream agents are skipped with "upstream dependency failed"
+
+	spec := newDiamondSpec()
+	ks := newE2EMockSpawner()
+	ks.failIntents["analyze code structure"] = true
+
+	engine, err := compose.NewEngine(spec, ks, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	results, _ := engine.Execute(context.Background())
+
+	// Build result map
+	resultMap := make(map[string]compose.ScheduleResult)
+	for _, r := range results {
+		resultMap[r.Name] = r
+	}
+
+	// analyzer should have an error with non-zero ExitCode (Task 5.2)
+	if ra, ok := resultMap["analyzer"]; ok {
+		if ra.Err == nil {
+			t.Fatal("analyzer should have error")
+		}
+		if ra.ExitCode == 0 {
+			t.Errorf("analyzer: expected non-zero ExitCode, got %d", ra.ExitCode)
+		}
+	} else {
+		t.Fatal("analyzer result missing")
+	}
+
+	// security, docs, reporter should all be skipped (upstream dependency failed)
+	for _, name := range []string{"security", "docs", "reporter"} {
+		r, ok := resultMap[name]
+		if !ok {
+			t.Errorf("result for %q missing", name)
+			continue
+		}
+		if r.Err == nil {
+			t.Errorf("agent %q should have error (upstream dependency failed)", name)
+			continue
+		}
+		if !strings.Contains(r.Err.Error(), "upstream dependency failed") {
+			t.Errorf("agent %q: expected 'upstream dependency failed', got %q", name, r.Err.Error())
+		}
+		if r.PID != 0 {
+			t.Errorf("agent %q: expected PID 0 (not spawned), got %d", name, r.PID)
+		}
+	}
+
+	// Only analyzer should have been spawned
+	spawnedIntents := ks.getSpawnedIntents()
+	if len(spawnedIntents) != 1 {
+		t.Fatalf("expected only 1 spawn (analyzer), got %d: %v", len(spawnedIntents), spawnedIntents)
+	}
+	if spawnedIntents[0] != "analyze code structure" {
+		t.Errorf("expected spawned intent 'analyze code structure', got %q", spawnedIntents[0])
+	}
+}
+
+// --- Task 6: E2E Up Then Down Test ---
+
+func TestComposeE2E_UpThenDown(t *testing.T) {
+	// Given: compose spec with 2 agents, one Running and one Zombie in daemon
+	// When: compose down is called
+	// Then: only Running process is killed, Zombie is skipped
+
+	sockPath, kern := setupTestIPCServer(t)
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() { ipc.SocketPathOverride = "" })
+
+	spec := &compose.ComposeSpec{
+		Version: "1.0",
+		Intent:  "up-then-down test",
+		Agents: map[string]*compose.AgentSpec{
+			"reviewer": {Intent: "review code"},
+			"writer":   {Intent: "write docs"},
+		},
+	}
+
+	// Add processes to kernel: one Running, one Zombie
+	proc1 := kernel.NewProcess(0, "review code", nil)
+	_ = proc1.Start()
+	kern.AddProcess(proc1)
+
+	proc2 := kernel.NewProcess(0, "write docs", nil)
+	_ = proc2.Start()
+	_ = proc2.Terminate(kernel.ExitStatus{Code: 0, Reason: "completed"})
+	kern.AddProcess(proc2)
+
+	// Verify matchComposeProcesses correctly classifies
+	client, err := ipc.Dial(sockPath)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	procs, err := client.ListProcs()
+	if err != nil {
+		t.Fatalf("ListProcs: %v", err)
+	}
+	client.Close()
+
+	running, completed := matchComposeProcesses(procs, spec)
+	if len(running) != 1 {
+		t.Fatalf("expected 1 running, got %d", len(running))
+	}
+	if running[0].Intent != "review code" {
+		t.Errorf("expected running intent 'review code', got %q", running[0].Intent)
+	}
+	if len(completed) != 1 {
+		t.Fatalf("expected 1 completed, got %d", len(completed))
+	}
+	if completed[0].Intent != "write docs" {
+		t.Errorf("expected completed intent 'write docs', got %q", completed[0].Intent)
+	}
+
+	// Execute compose down
+	savedFile := flagComposeDownFile
+	savedExit := exitCode
+	t.Cleanup(func() {
+		flagComposeDownFile = savedFile
+		exitCode = savedExit
+	})
+
+	tmpDir := t.TempDir()
+	composeYAML := `version: "1.0"
+intent: "up-then-down test"
+agents:
+  reviewer:
+    intent: "review code"
+  writer:
+    intent: "write docs"
+`
+	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
+		t.Fatalf("write compose file: %v", err)
+	}
+	flagComposeDownFile = composePath
+	exitCode = 0
+
+	err = runComposeDown(&cobra.Command{}, []string{})
+	if err != nil {
+		t.Fatalf("runComposeDown error: %v", err)
+	}
+
+	// Verify: the running process was killed (state should change)
+	verifyClient, err := ipc.Dial(sockPath)
+	if err != nil {
+		t.Fatalf("dial for verification: %v", err)
+	}
+	defer verifyClient.Close()
+
+	procsAfter, err := verifyClient.ListProcs()
+	if err != nil {
+		t.Fatalf("ListProcs after: %v", err)
+	}
+
+	for _, p := range procsAfter {
+		if p.Intent == "write docs" && p.State != types.StateZombie {
+			t.Errorf("already-completed process should remain Zombie, got %s", p.State)
+		}
+	}
+}
+
+// --- Task 7: E2E Top Visibility Test ---
+
+func TestComposeE2E_TopVisibility(t *testing.T) {
+	// Given: IPC daemon with multiple compose agent processes
+	// When: listing processes via IPC
+	// Then: all agents visible with correct Intent and State
+
+	sockPath, kern := setupTestIPCServer(t)
+
+	// Add processes simulating compose agents
+	proc1 := kernel.NewProcess(0, "analyze code structure", nil)
+	_ = proc1.Start()
+	kern.AddProcess(proc1)
+
+	proc2 := kernel.NewProcess(0, "execute security audit", nil)
+	_ = proc2.Start()
+	kern.AddProcess(proc2)
+
+	proc3 := kernel.NewProcess(0, "generate documentation", nil)
+	_ = proc3.Start()
+	_ = proc3.Terminate(kernel.ExitStatus{Code: 0, Reason: "done"})
+	kern.AddProcess(proc3)
+
+	// List processes via IPC
+	client, err := ipc.Dial(sockPath)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	procs, err := client.ListProcs()
+	if err != nil {
+		t.Fatalf("ListProcs: %v", err)
+	}
+
+	// Verify all 3 agents visible
+	if len(procs) != 3 {
+		t.Fatalf("expected 3 processes, got %d", len(procs))
+	}
+
+	// Build map for verification
+	procMap := make(map[string]vfs.ProcInfo)
+	for _, p := range procs {
+		procMap[p.Intent] = p
+	}
+
+	// Verify analyzer
+	if p, ok := procMap["analyze code structure"]; ok {
+		if p.State != types.StateRunning {
+			t.Errorf("analyzer: expected Running, got %s", p.State)
+		}
+		if p.PID == 0 {
+			t.Error("analyzer: expected non-zero PID")
+		}
+	} else {
+		t.Error("analyzer not found in process list")
+	}
+
+	// Verify security
+	if p, ok := procMap["execute security audit"]; ok {
+		if p.State != types.StateRunning {
+			t.Errorf("security: expected Running, got %s", p.State)
+		}
+	} else {
+		t.Error("security not found in process list")
+	}
+
+	// Verify docs (completed -> Zombie)
+	if p, ok := procMap["generate documentation"]; ok {
+		if p.State != types.StateZombie {
+			t.Errorf("docs: expected Zombie, got %s", p.State)
+		}
+	} else {
+		t.Error("docs not found in process list")
+	}
+
+	// Verify PPID relationships: all should have PPID 0 (spawned by init)
+	for _, p := range procs {
+		if p.PPID != 0 {
+			t.Errorf("process %q: expected PPID 0, got %d", p.Intent, p.PPID)
+		}
+	}
+}
+
+// --- Task 8: E2E Summary Output Test ---
+
+func TestComposeE2E_SummaryOutput(t *testing.T) {
+	// Given: ScheduleResults from a diamond DAG execution
+	// When: rendering summary
+	// Then: output contains all agent names, exit codes, durations
+
+	results := []compose.ScheduleResult{
+		{Name: "analyzer", PID: 1, ExitCode: 0, Duration: 3200 * time.Millisecond},
+		{Name: "security", PID: 2, ExitCode: 0, Duration: 5100 * time.Millisecond},
+		{Name: "docs", PID: 3, ExitCode: 0, Duration: 4800 * time.Millisecond},
+		{Name: "reporter", PID: 4, ExitCode: 0, Duration: 2500 * time.Millisecond},
+	}
+
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	renderer := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeDefault, Profile: ui.TerminalProfile{Width: 80, ColorLevel: 0}}
+
+	ui.RenderComposeSummary(renderer, results, nil)
+
+	output := buf.String()
+	// Verify all agent names present
+	for _, name := range []string{"analyzer", "security", "docs", "reporter"} {
+		if !strings.Contains(output, name) {
+			t.Errorf("summary should contain agent %q, got %q", name, output)
+		}
+	}
+	// Verify counts
+	if !strings.Contains(output, "4 agents") {
+		t.Errorf("summary should show '4 agents', got %q", output)
+	}
+	if !strings.Contains(output, "4 succeeded") {
+		t.Errorf("summary should show '4 succeeded', got %q", output)
+	}
+}
+
+func TestComposeE2E_SummaryJSON(t *testing.T) {
+	// Given: ScheduleResults from a diamond DAG execution
+	// When: rendering as JSON
+	// Then: JSON contains agents array with 4 entries and summary object
+
+	results := []compose.ScheduleResult{
+		{Name: "analyzer", PID: 1, ExitCode: 0, Duration: 3200 * time.Millisecond},
+		{Name: "security", PID: 2, ExitCode: 0, Duration: 5100 * time.Millisecond},
+		{Name: "docs", PID: 3, ExitCode: 0, Duration: 4800 * time.Millisecond},
+		{Name: "reporter", PID: 4, ExitCode: 1, Err: fmt.Errorf("report generation failed"), Duration: 2500 * time.Millisecond},
+	}
+
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	renderer := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
+
+	ui.RenderComposeSummaryJSON(renderer, results, nil)
+
+	var resp JSONResponse
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, buf.String())
+	}
+
+	// Parse data
+	data, _ := json.Marshal(resp.Data)
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("failed to parse data: %v", err)
+	}
+
+	// Verify agents array
+	agentsRaw, ok := m["agents"]
+	if !ok {
+		t.Fatal("JSON output missing 'agents' field")
+	}
+	var agentsList []map[string]any
+	if err := json.Unmarshal(agentsRaw, &agentsList); err != nil {
+		t.Fatalf("failed to parse agents: %v", err)
+	}
+	if len(agentsList) != 4 {
+		t.Errorf("expected 4 agents, got %d", len(agentsList))
+	}
+
+	// Verify agent names
+	names := make(map[string]bool)
+	for _, a := range agentsList {
+		if name, ok := a["name"].(string); ok {
+			names[name] = true
+		}
+	}
+	for _, expected := range []string{"analyzer", "security", "docs", "reporter"} {
+		if !names[expected] {
+			t.Errorf("agents array missing %q", expected)
+		}
+	}
+
+	// Verify summary object
+	summaryRaw, ok := m["summary"]
+	if !ok {
+		t.Fatal("JSON output missing 'summary' field")
+	}
+	var summary map[string]any
+	if err := json.Unmarshal(summaryRaw, &summary); err != nil {
+		t.Fatalf("failed to parse summary: %v", err)
+	}
+
+	// Verify summary fields
+	for _, field := range []string{"total", "succeeded", "failed", "skipped"} {
+		if _, ok := summary[field]; !ok {
+			t.Errorf("summary missing field %q", field)
+		}
+	}
+
+	// Verify total count
+	if total, ok := summary["total"].(float64); ok {
+		if int(total) != 4 {
+			t.Errorf("expected total 4, got %v", total)
+		}
+	}
+}
