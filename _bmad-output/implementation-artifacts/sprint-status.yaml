@@ -130,8 +130,8 @@ development_status:
   epic-9-retrospective: done
 
   # Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
-  epic-10: backlog
-  10-1-crux-top-realtime-monitoring-tui: backlog
+  epic-10: in-progress
+  10-1-crux-top-realtime-monitoring-tui: ready-for-dev
   10-2-crux-log-categorized-reasoning-logs: backlog
   10-3-token-budget-management: backlog
   10-4-supervisor-tree-and-restart-strategy: backlog
