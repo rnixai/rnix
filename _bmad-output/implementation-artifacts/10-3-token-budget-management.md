@@ -1,6 +1,6 @@
 # Story 10.3: Token 预算管理
 
-Status: review
+Status: done
 
 ## Story
 
@@ -377,6 +377,7 @@ Claude claude-4.6-opus (Cursor)
 ### Change Log
 
 - 2026-03-02: Story 10.3 Token 预算管理全量实现——内核预算检查、Compose 覆盖、ProcInfo 扩展、crux top 警告渲染。全部 17 个包测试通过。
+- 2026-03-02: Code Review 通过。修复 3 个 MEDIUM 问题：(1) budget_test.go 移除未使用的 fmt import hack；(2) 移除 TestBudgetEnforcement_MultiStep_CumulativeCheck 中未断言的 callCount 死代码；(3) 将负预算归零逻辑提前到 agent 优先级判断之前，修复 opts=-1+agent=5000 边界情况。3 个 LOW 留为已知限制。全部 17 包测试通过。
 
 ### File List
 
