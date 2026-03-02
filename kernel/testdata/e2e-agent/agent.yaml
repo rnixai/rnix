@@ -1,0 +1,11 @@
+name: e2e-test-agent
+description: "端到端测试用 Agent，引用 Skill 和 MCP"
+models:
+  provider: claude
+  preferred: sonnet
+  fallback: haiku
+context_budget: 4096
+skills:
+  - e2e-skill
+mcp:
+  - mock-server

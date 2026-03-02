@@ -122,11 +122,11 @@ development_status:
   epic-8-retrospective: done
 
   # Epic 9: MCP 服务集成（MCP Integration）
-  epic-9: in-progress
+  epic-9: done
   9-1-mount-unmount-syscall: done
   9-2-agent-yaml-mcp-field-and-auto-mount: done
   9-3-vfs-path-expose-mcp-tools: done
-  9-4-four-layer-capability-stack-e2e-validation: backlog
+  9-4-four-layer-capability-stack-e2e-validation: done
   epic-9-retrospective: optional
 
   # Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
