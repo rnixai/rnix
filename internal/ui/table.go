@@ -126,19 +126,19 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool) {
 		row.WriteString(stateStr)
 		if showSkill {
 			row.WriteString(gap)
-			skillStr := formatSkills(proc.Skills, colWidthSkill, dash)
+			skillStr := FormatSkills(proc.Skills, colWidthSkill, dash)
 			fmt.Fprintf(&row, "%-*s", colWidthSkill, skillStr)
 		}
 		if showMetrics {
 			row.WriteString(gap)
-			fmt.Fprintf(&row, "%*s", colWidthTokens, formatTokens(proc.TokensUsed))
+			fmt.Fprintf(&row, "%*s", colWidthTokens, FormatTokens(proc.TokensUsed))
 			row.WriteString(gap)
 			elapsed := time.Since(proc.CreatedAt)
-			fmt.Fprintf(&row, "%*s", colWidthElapsed, formatDuration(elapsed))
+			fmt.Fprintf(&row, "%*s", colWidthElapsed, FormatDuration(elapsed))
 		}
 		if showIntent {
 			row.WriteString(gap)
-			intentWidth := w - len(stripAnsi(row.String()))
+			intentWidth := w - len(StripAnsi(row.String()))
 			if intentWidth < 0 {
 				intentWidth = 0
 			}
@@ -182,8 +182,8 @@ func renderState(r *Renderer, state types.ProcessState, width int) string {
 	return styled
 }
 
-// formatSkills formats a skill list for display, truncating if needed.
-func formatSkills(skills []string, maxWidth int, dash string) string {
+// FormatSkills formats a skill list for display, truncating if needed.
+func FormatSkills(skills []string, maxWidth int, dash string) string {
 	if len(skills) == 0 {
 		return dash
 	}
@@ -194,8 +194,8 @@ func formatSkills(skills []string, maxWidth int, dash string) string {
 	return joined
 }
 
-// formatDuration formats a duration for human-readable display.
-func formatDuration(d time.Duration) string {
+// FormatDuration formats a duration for human-readable display.
+func FormatDuration(d time.Duration) string {
 	switch {
 	case d < time.Second:
 		return fmt.Sprintf("%dms", d.Milliseconds())
@@ -206,8 +206,8 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
-// formatTokens formats an integer with comma thousand separators.
-func formatTokens(n int) string {
+// FormatTokens formats an integer with comma thousand separators.
+func FormatTokens(n int) string {
 	s := strconv.Itoa(n)
 	if len(s) <= 3 {
 		return s
@@ -222,8 +222,8 @@ func formatTokens(n int) string {
 	return string(buf)
 }
 
-// stripAnsi removes ANSI escape sequences from a string to calculate visible width.
-func stripAnsi(s string) string {
+// StripAnsi removes ANSI escape sequences from a string to calculate visible width.
+func StripAnsi(s string) string {
 	var out strings.Builder
 	inEscape := false
 	for _, r := range s {
