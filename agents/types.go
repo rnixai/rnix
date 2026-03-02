@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/gonewx/crux/skills"
+	"github.com/gonewx/crux/vfs"
 )
 
 // AgentModels defines the LLM provider and model preferences for an agent.
@@ -20,6 +21,7 @@ type AgentManifest struct {
 	Models        AgentModels `yaml:"models"`
 	ContextBudget int         `yaml:"context_budget"`
 	Skills        []string    `yaml:"skills"`
+	MCP           []string    `yaml:"mcp,omitempty"` // MCP server references
 }
 
 // AgentInfo contains the fully loaded agent definition.
@@ -27,6 +29,7 @@ type AgentInfo struct {
 	Manifest     AgentManifest
 	Instructions string
 	Skills       []*skills.SkillInfo
+	MCPConfigs   []vfs.MCPConfig // resolved MCP configurations from global mcp.yaml
 }
 
 // AllowedTools aggregates AllowedTools from all referenced skills, deduplicated and sorted.

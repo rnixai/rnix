@@ -45,6 +45,7 @@ type Process struct {
 	Result     string                    // final output from reasoning
 	TokensUsed int                       // cumulative token consumption
 	AllowedDevices []string              // nil/empty = all devices allowed; non-empty = whitelist only
+	MCPMounts      []string              // MCP mount paths auto-mounted by Spawn
 
 	groups []types.PGID               // guarded by mu, process group memberships
 

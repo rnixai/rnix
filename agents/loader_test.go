@@ -4,12 +4,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gonewx/crux/drivers/mcp"
 	"github.com/gonewx/crux/skills"
 )
 
 func TestAgentLoader_Load_Success(t *testing.T) {
 	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl)
+	al := NewAgentLoader("testdata", sl, nil)
 
 	info, err := al.Load("mock-agent")
 	if err != nil {
@@ -58,7 +59,7 @@ func TestAgentLoader_Load_Success(t *testing.T) {
 
 func TestAgentLoader_Load_DirNotFound(t *testing.T) {
 	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl)
+	al := NewAgentLoader("testdata", sl, nil)
 
 	_, err := al.Load("nonexistent-agent")
 	if err == nil {
@@ -71,7 +72,7 @@ func TestAgentLoader_Load_DirNotFound(t *testing.T) {
 
 func TestAgentLoader_Load_InvalidManifest(t *testing.T) {
 	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl)
+	al := NewAgentLoader("testdata", sl, nil)
 
 	_, err := al.Load("invalid-agent")
 	if err == nil {
@@ -84,7 +85,7 @@ func TestAgentLoader_Load_InvalidManifest(t *testing.T) {
 
 func TestAgentLoader_Load_MissingInstructions(t *testing.T) {
 	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl)
+	al := NewAgentLoader("testdata", sl, nil)
 
 	_, err := al.Load("missing-instructions")
 	if err == nil {
@@ -97,7 +98,7 @@ func TestAgentLoader_Load_MissingInstructions(t *testing.T) {
 
 func TestAgentLoader_Load_MissingName(t *testing.T) {
 	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl)
+	al := NewAgentLoader("testdata", sl, nil)
 
 	_, err := al.Load("missing-name")
 	if err == nil {
@@ -110,7 +111,7 @@ func TestAgentLoader_Load_MissingName(t *testing.T) {
 
 func TestAgentLoader_Load_BadSkillRef(t *testing.T) {
 	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl)
+	al := NewAgentLoader("testdata", sl, nil)
 
 	_, err := al.Load("bad-skill-ref")
 	if err == nil {
@@ -200,7 +201,7 @@ func TestAgentInfo_SystemPrompt_EmptyBody(t *testing.T) {
 
 func TestAgentLoader_Load_RealCodeAnalyst(t *testing.T) {
 	sl := skills.NewSkillLoader("../lib/skills")
-	al := NewAgentLoader("../lib/agents", sl)
+	al := NewAgentLoader("../lib/agents", sl, nil)
 
 	info, err := al.Load("code-analyst")
 	if err != nil {
@@ -249,7 +250,7 @@ func TestAgentLoader_Load_RealCodeAnalyst(t *testing.T) {
 
 func TestAgentLoader_Load_PathTraversal(t *testing.T) {
 	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl)
+	al := NewAgentLoader("testdata", sl, nil)
 
 	_, err := al.Load("../../../etc")
 	if err == nil {
@@ -257,5 +258,154 @@ func TestAgentLoader_Load_PathTraversal(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "path escapes") {
 		t.Errorf("error = %q, want substring 'path escapes'", err.Error())
+	}
+}
+
+// --- Story 9.2: MCP field tests ---
+
+// testMCPGlobalConfig creates a MCPGlobalConfig for testing with github and slack servers.
+func testMCPGlobalConfig() *mcp.MCPGlobalConfig {
+	return &mcp.MCPGlobalConfig{
+		Servers: map[string]mcp.MCPServerConfig{
+			"github": {
+				Command:       "npx",
+				Args:          []string{"-y", "@mcp/server-github"},
+				Env:           map[string]string{"GITHUB_TOKEN": "test"},
+				TransportType: "stdio",
+			},
+			"slack": {
+				Command:       "npx",
+				Args:          []string{"-y", "@mcp/server-slack"},
+				Env:           map[string]string{"SLACK_TOKEN": "test"},
+				TransportType: "stdio",
+			},
+		},
+	}
+}
+
+func TestAgentLoader_Load_WithMCPField(t *testing.T) {
+	// Given: an agent.yaml with mcp: ["github", "slack"] and a valid MCPGlobalConfig
+	sl := skills.NewSkillLoader("../skills/testdata")
+	mcpCfg := testMCPGlobalConfig()
+	al := NewAgentLoader("testdata", sl, mcpCfg)
+
+	// When: loading the mcp-agent
+	info, err := al.Load("mcp-agent")
+
+	// Then: AgentManifest.MCP contains the MCP server references
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(info.Manifest.MCP) != 2 {
+		t.Fatalf("Manifest.MCP length = %d, want 2", len(info.Manifest.MCP))
+	}
+	if info.Manifest.MCP[0] != "github" {
+		t.Errorf("Manifest.MCP[0] = %q, want %q", info.Manifest.MCP[0], "github")
+	}
+	if info.Manifest.MCP[1] != "slack" {
+		t.Errorf("Manifest.MCP[1] = %q, want %q", info.Manifest.MCP[1], "slack")
+	}
+}
+
+func TestAgentLoader_Load_WithoutMCPField(t *testing.T) {
+	// Given: a standard agent.yaml without mcp field
+	sl := skills.NewSkillLoader("../skills/testdata")
+	al := NewAgentLoader("testdata", sl, nil)
+
+	// When: loading the mock-agent (no mcp field)
+	info, err := al.Load("mock-agent")
+
+	// Then: AgentManifest.MCP is nil/empty (backward compatible)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(info.Manifest.MCP) != 0 {
+		t.Errorf("Manifest.MCP = %v, want empty for agent without mcp field", info.Manifest.MCP)
+	}
+	if len(info.MCPConfigs) != 0 {
+		t.Errorf("MCPConfigs = %v, want empty for agent without mcp field", info.MCPConfigs)
+	}
+}
+
+func TestAgentLoader_Load_MCPServerNotFound(t *testing.T) {
+	// Given: an agent.yaml referencing MCP servers not in the global config
+	sl := skills.NewSkillLoader("../skills/testdata")
+	// MCPGlobalConfig only has "github", not "slack"
+	mcpCfg := &mcp.MCPGlobalConfig{
+		Servers: map[string]mcp.MCPServerConfig{
+			"github": {
+				Command:       "npx",
+				TransportType: "stdio",
+			},
+		},
+	}
+	al := NewAgentLoader("testdata", sl, mcpCfg)
+
+	// When: loading the mcp-agent which references ["github", "slack"]
+	_, err := al.Load("mcp-agent")
+
+	// Then: error is returned indicating the missing server
+	if err == nil {
+		t.Fatal("expected error for MCP server not found, got nil")
+	}
+	if !strings.Contains(err.Error(), "slack") {
+		t.Errorf("error = %q, want substring 'slack'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error = %q, want substring 'not found'", err.Error())
+	}
+}
+
+func TestAgentLoader_Load_MCPResolvesToAgentInfo(t *testing.T) {
+	// Given: an agent.yaml with mcp field and matching global config
+	sl := skills.NewSkillLoader("../skills/testdata")
+	mcpCfg := testMCPGlobalConfig()
+	al := NewAgentLoader("testdata", sl, mcpCfg)
+
+	// When: loading the mcp-agent
+	info, err := al.Load("mcp-agent")
+
+	// Then: AgentInfo.MCPConfigs is populated with resolved vfs.MCPConfig entries
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(info.MCPConfigs) != 2 {
+		t.Fatalf("MCPConfigs length = %d, want 2", len(info.MCPConfigs))
+	}
+
+	// Verify first config (github)
+	if info.MCPConfigs[0].ServerName != "github" {
+		t.Errorf("MCPConfigs[0].ServerName = %q, want %q", info.MCPConfigs[0].ServerName, "github")
+	}
+	if info.MCPConfigs[0].Command != "npx" {
+		t.Errorf("MCPConfigs[0].Command = %q, want %q", info.MCPConfigs[0].Command, "npx")
+	}
+	if info.MCPConfigs[0].TransportType != "stdio" {
+		t.Errorf("MCPConfigs[0].TransportType = %q, want %q", info.MCPConfigs[0].TransportType, "stdio")
+	}
+
+	// Verify second config (slack)
+	if info.MCPConfigs[1].ServerName != "slack" {
+		t.Errorf("MCPConfigs[1].ServerName = %q, want %q", info.MCPConfigs[1].ServerName, "slack")
+	}
+}
+
+func TestAgentLoader_Load_NilMCPConfig_SkipsMCPResolution(t *testing.T) {
+	// Given: an agent.yaml with mcp field but mcpConfig is nil (no mcp.yaml)
+	sl := skills.NewSkillLoader("../skills/testdata")
+	al := NewAgentLoader("testdata", sl, nil)
+
+	// When: loading the mcp-agent
+	info, err := al.Load("mcp-agent")
+
+	// Then: MCP field is parsed but MCPConfigs is empty (no resolution)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(info.Manifest.MCP) != 2 {
+		t.Fatalf("Manifest.MCP length = %d, want 2", len(info.Manifest.MCP))
+	}
+	if len(info.MCPConfigs) != 0 {
+		t.Errorf("MCPConfigs = %v, want empty when mcpConfig is nil", info.MCPConfigs)
 	}
 }

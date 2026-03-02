@@ -688,7 +688,7 @@ func TestE2E_CodeAnalystAgent(t *testing.T) {
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	sl := skills.NewSkillLoader("../../lib/skills")
-	al := agents.NewAgentLoader("../../lib/agents", sl)
+	al := agents.NewAgentLoader("../../lib/agents", sl, nil)
 	agentInfo, err := al.Load("code-analyst")
 	if err != nil {
 		t.Fatalf("AgentLoader.Load failed: %v", err)
