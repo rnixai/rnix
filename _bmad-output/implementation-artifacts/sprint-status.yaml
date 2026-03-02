@@ -127,7 +127,7 @@ development_status:
   9-2-agent-yaml-mcp-field-and-auto-mount: done
   9-3-vfs-path-expose-mcp-tools: done
   9-4-four-layer-capability-stack-e2e-validation: done
-  epic-9-retrospective: optional
+  epic-9-retrospective: done
 
   # Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
   epic-10: backlog
