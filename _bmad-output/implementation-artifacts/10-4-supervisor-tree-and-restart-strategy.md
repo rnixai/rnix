@@ -1,6 +1,6 @@
 # Story 10.4: Supervisor 树与重启策略
 
-Status: review
+Status: done
 
 ## Story
 
@@ -747,6 +747,8 @@ Claude Opus 4.6
 
 - stopChild 优化：原始设计使用 `<-childProc.Done` 等待子进程退出，但 monitor goroutine 也读取 Done channel 导致竞态。改用 `wg.Wait()` + 超时，避免 Done channel 被 monitor goroutine 消费后 stopChild 阻塞 5 秒。
 - SupervisorManager 接口放在 `kernel/supervisor.go` 而非 `kernel/kernel.go`，保持单文件职责。编译时接口检查同样放在 supervisor.go。
+- [CR-1 修复] childExit 结构体添加 pid 字段，handleChildExit 验证 PID 匹配当前子进程。修复 one_for_all/rest_for_one 策略下，旧 monitor goroutine 的陈旧退出事件被误归因给新子进程导致级联误重启的 CRITICAL bug。
+- [CR-2 修复] exceedsRestartLimit 中裁剪过期条目，防止 restartTimes 切片无界增长（长期运行的 Supervisor 内存泄漏）。
 
 ### Completion Notes List
 
@@ -756,14 +758,14 @@ Claude Opus 4.6
 - ✅ Task 4: 实现三种重启策略——one_for_one（仅重启崩溃子进程）、one_for_all（逆序停止→顺序重启全部）、rest_for_one（逆序停止后续→顺序重启后续）
 - ✅ Task 5: 滑动窗口重启频率保护，超限触发 SupervisorShutdown 事件并退出
 - ✅ Task 6: SupervisorStartChild/SupervisorChildExit/SupervisorRestart/SupervisorShutdown 四种事件
-- ✅ Task 7: 12 个测试用例全部通过，使用 intent-router 方案实现精确的 per-FD 崩溃控制
+- ✅ Task 7: 14 个测试用例全部通过（含 2 个 CR stale event 回归测试），使用 intent-router 方案实现精确的 per-FD 崩溃控制
 - ✅ 全部 17 个包的回归测试通过，golangci-lint kernel/ 零问题
 
 ### File List
 
 **新文件：**
 - `kernel/supervisor.go` — Supervisor 核心实现（~310 行）：类型定义 + SpawnSupervisor + run + 策略实现 + 频率保护 + 事件记录
-- `kernel/supervisor_test.go` — 12 个测试用例 + intent-router mock 基础设施
+- `kernel/supervisor_test.go` — 14 个测试用例 + intent-router mock 基础设施
 
 **修改文件：**
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — 10-4 状态更新 ready-for-dev → in-progress → review
@@ -772,3 +774,4 @@ Claude Opus 4.6
 ### Change Log
 
 - 2026-03-03: Story 10.4 implementation complete — Supervisor tree with three restart strategies (one_for_one, one_for_all, rest_for_one), restart frequency protection (sliding window), ChildRestart modes (permanent/transient/temporary), full event observability. 12 test cases passing.
+- 2026-03-03: Code review fixes — [CR-1] childExit PID 验证防止 stale event 级联误重启（CRITICAL）; [CR-2] restartTimes 裁剪防止内存泄漏（HIGH）; 新增 2 个 stale event 回归测试。14 test cases passing, 17 packages 全部通过。

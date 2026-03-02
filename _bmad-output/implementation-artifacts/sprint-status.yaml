@@ -134,7 +134,7 @@ development_status:
   10-1-crux-top-realtime-monitoring-tui: done
   10-2-crux-log-categorized-reasoning-logs: done
   10-3-token-budget-management: done
-  10-4-supervisor-tree-and-restart-strategy: review
+  10-4-supervisor-tree-and-restart-strategy: done
   10-5-init-bootstrap-sequence: backlog
   epic-10-retrospective: optional
 

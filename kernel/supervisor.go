@@ -50,6 +50,7 @@ type SupervisorSpec struct {
 // childExit carries information about a child process exiting.
 type childExit struct {
 	index int
+	pid   types.PID // identifies which generation of child sent this event
 	exit  ExitStatus
 }
 
@@ -171,7 +172,7 @@ func (s *Supervisor) run() {
 			if s.proc.GetState() != types.StateRunning {
 				return
 			}
-			s.handleChildExit(ce.index, ce.exit)
+			s.handleChildExit(ce.index, ce.pid, ce.exit)
 			if s.proc.GetState() != types.StateRunning {
 				return
 			}
@@ -210,10 +211,10 @@ func (s *Supervisor) startChild(idx int, spec ChildSpec) (types.PID, error) {
 	}, pid, nil, 0)
 
 	childProc, _ := s.kernel.GetProcess(pid)
-	go func(index int, done <-chan ExitStatus) {
+	go func(index int, childPID types.PID, done <-chan ExitStatus) {
 		exit := <-done
-		s.exitCh <- childExit{index: index, exit: exit}
-	}(idx, childProc.Done)
+		s.exitCh <- childExit{index: index, pid: childPID, exit: exit}
+	}(idx, pid, childProc.Done)
 
 	return pid, nil
 }
@@ -280,9 +281,17 @@ func (s *Supervisor) allDone() bool {
 }
 
 // handleChildExit processes a child exit event.
-func (s *Supervisor) handleChildExit(idx int, exit ExitStatus) {
+// The pid parameter filters stale events from pre-restart monitor goroutines:
+// after one_for_all/rest_for_one restart, old monitor goroutines may still send
+// exit events with the same index but a different (old) pid.
+func (s *Supervisor) handleChildExit(idx int, pid types.PID, exit ExitStatus) {
 	child := s.children[idx]
 	if child == nil || !child.alive {
+		return
+	}
+	// Filter stale events: if the PID doesn't match the current child at this
+	// index, this event came from a pre-restart monitor goroutine — ignore it.
+	if child.pid != pid {
 		return
 	}
 	child.alive = false
@@ -439,16 +448,17 @@ func (s *Supervisor) recordRestart() {
 }
 
 // exceedsRestartLimit checks if the number of restarts within the sliding window
-// exceeds MaxRestarts.
+// exceeds MaxRestarts. Prunes expired entries to prevent unbounded growth.
 func (s *Supervisor) exceedsRestartLimit() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cutoff := time.Now().Add(-s.spec.MaxWindow)
-	count := 0
+	valid := s.restartTimes[:0]
 	for _, t := range s.restartTimes {
 		if t.After(cutoff) {
-			count++
+			valid = append(valid, t)
 		}
 	}
-	return count >= s.spec.MaxRestarts
+	s.restartTimes = valid
+	return len(valid) >= s.spec.MaxRestarts
 }
