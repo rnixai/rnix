@@ -19,6 +19,13 @@ import (
 	"github.com/gonewx/crux/vfs"
 )
 
+// MountManager defines the interface for mounting/unmounting MCP servers.
+type MountManager interface {
+	Mount(path string, config vfs.MCPConfig) error
+	Unmount(path string) error
+	UnmountAll() error
+}
+
 // DefaultMaxSteps is the maximum number of reasoning steps before forced completion.
 const DefaultMaxSteps = 10
 
@@ -109,6 +116,9 @@ type KernelImpl struct {
 
 	// Process groups (Story 6.3)
 	procGroups *xsync.SyncMap[types.PGID, *ProcGroup]
+
+	// MCP mount manager (Story 9.1)
+	mountMgr MountManager
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -769,4 +779,44 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 		return true
 	})
 	return infos
+}
+
+// SetMountManager sets the MCP mount manager on the kernel.
+// Pass nil to disable MCP support.
+func (k *KernelImpl) SetMountManager(mgr MountManager) {
+	k.mountMgr = mgr
+}
+
+// Mount mounts an MCP server at the given path via the MountManager.
+// The path must start with /mnt/mcp/.
+func (k *KernelImpl) Mount(path string, config vfs.MCPConfig) error {
+	if k.mountMgr == nil {
+		return NewSyscallError("Mount", 0, path, fmt.Errorf("mount manager not initialized"), types.ErrInternal)
+	}
+	if !strings.HasPrefix(path, "/mnt/mcp/") {
+		return NewSyscallError("Mount", 0, path, fmt.Errorf("invalid mount path: must start with /mnt/mcp/"), types.ErrInvalid)
+	}
+
+	err := k.mountMgr.Mount(path, config)
+	if err != nil {
+		return NewSyscallError("Mount", 0, path, err, types.ErrDriver)
+	}
+	return nil
+}
+
+// Unmount unmounts the MCP server at the given path.
+// The path must start with /mnt/mcp/.
+func (k *KernelImpl) Unmount(path string) error {
+	if k.mountMgr == nil {
+		return NewSyscallError("Unmount", 0, path, fmt.Errorf("mount manager not initialized"), types.ErrInternal)
+	}
+	if !strings.HasPrefix(path, "/mnt/mcp/") {
+		return NewSyscallError("Unmount", 0, path, fmt.Errorf("invalid unmount path: must start with /mnt/mcp/"), types.ErrInvalid)
+	}
+
+	err := k.mountMgr.Unmount(path)
+	if err != nil {
+		return NewSyscallError("Unmount", 0, path, err, types.ErrDriver)
+	}
+	return nil
 }

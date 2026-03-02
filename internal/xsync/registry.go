@@ -46,6 +46,17 @@ func (r *Registry[T]) List() []T {
 	return result
 }
 
+// Unregister removes an item by name. Returns an error if the name is not registered.
+func (r *Registry[T]) Unregister(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.items[name]; !exists {
+		return fmt.Errorf("not registered: %s", name)
+	}
+	delete(r.items, name)
+	return nil
+}
+
 // Range calls fn sequentially for each name-item pair. If fn returns false, iteration stops.
 func (r *Registry[T]) Range(fn func(name string, item T) bool) {
 	r.mu.RLock()

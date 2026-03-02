@@ -175,10 +175,14 @@ func (k *KernelImpl) startReaper() {
 	}()
 }
 
-// Shutdown stops the reaper goroutine and waits for it to exit.
+// Shutdown stops the reaper goroutine, unmounts all MCP servers, and waits for exit.
 // Safe to call multiple times — only the first call closes stopCh.
 func (k *KernelImpl) Shutdown() {
 	k.shutdownOnce.Do(func() {
+		// Unmount all MCP servers before stopping reaper
+		if k.mountMgr != nil {
+			_ = k.mountMgr.UnmountAll()
+		}
 		close(k.stopCh)
 	})
 	k.reaperWg.Wait()
