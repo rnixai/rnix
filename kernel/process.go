@@ -43,8 +43,9 @@ type Process struct {
 	CreatedAt  time.Time
 	Exit       *ExitStatus               // non-nil in Zombie/Dead
 	CtxID      types.CtxID               // context allocated by Spawn
-	Result     string                    // final output from reasoning
-	TokensUsed int                       // cumulative token consumption
+	Result         string                    // final output from reasoning
+	TokensUsed     int                       // cumulative token consumption
+	ContextBudget  int                       // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
 	AllowedDevices []string              // nil/empty = all devices allowed; non-empty = whitelist only
 	MCPMounts      []string              // MCP mount paths auto-mounted by Spawn
 

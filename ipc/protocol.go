@@ -47,10 +47,11 @@ type ErrorPayload struct {
 
 // SpawnRequest is the payload for MethodSpawn.
 type SpawnRequest struct {
-	Intent   string `json:"intent"`
-	Agent    string `json:"agent,omitempty"`
-	Model    string `json:"model,omitempty"`
-	MaxSteps int    `json:"max_steps,omitempty"`
+	Intent        string `json:"intent"`
+	Agent         string `json:"agent,omitempty"`
+	Model         string `json:"model,omitempty"`
+	MaxSteps      int    `json:"max_steps,omitempty"`
+	ContextBudget int    `json:"context_budget,omitempty"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.
@@ -68,15 +69,16 @@ type ListProcsResponse struct {
 // ProcInfoWire is the wire-format representation of vfs.ProcInfo.
 // Times are serialized as milliseconds for JSON portability.
 type ProcInfoWire struct {
-	PID        types.PID          `json:"pid"`
-	PPID       types.PID          `json:"ppid"`
-	State      types.ProcessState `json:"state"`
-	Intent     string             `json:"intent"`
-	Skills     []string           `json:"skills"`
-	TokensUsed int                `json:"tokens_used"`
-	CreatedAt  int64              `json:"created_at_ms"`
-	CtxID      types.CtxID        `json:"ctx_id"`
-	Result     string             `json:"result,omitempty"`
+	PID           types.PID          `json:"pid"`
+	PPID          types.PID          `json:"ppid"`
+	State         types.ProcessState `json:"state"`
+	Intent        string             `json:"intent"`
+	Skills        []string           `json:"skills"`
+	TokensUsed    int                `json:"tokens_used"`
+	CreatedAt     int64              `json:"created_at_ms"`
+	CtxID         types.CtxID        `json:"ctx_id"`
+	Result        string             `json:"result,omitempty"`
+	ContextBudget int                `json:"context_budget,omitempty"`
 }
 
 // ProcInfoToWire converts a vfs.ProcInfo to wire format.
@@ -86,30 +88,32 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		skills = []string{}
 	}
 	return ProcInfoWire{
-		PID:        p.PID,
-		PPID:       p.PPID,
-		State:      p.State,
-		Intent:     p.Intent,
-		Skills:     skills,
-		TokensUsed: p.TokensUsed,
-		CreatedAt:  p.CreatedAt.UnixMilli(),
-		CtxID:      p.CtxID,
-		Result:     p.Result,
+		PID:           p.PID,
+		PPID:          p.PPID,
+		State:         p.State,
+		Intent:        p.Intent,
+		Skills:        skills,
+		TokensUsed:    p.TokensUsed,
+		CreatedAt:     p.CreatedAt.UnixMilli(),
+		CtxID:         p.CtxID,
+		Result:        p.Result,
+		ContextBudget: p.ContextBudget,
 	}
 }
 
 // WireToProcInfo converts a ProcInfoWire back to vfs.ProcInfo.
 func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 	return vfs.ProcInfo{
-		PID:        w.PID,
-		PPID:       w.PPID,
-		State:      w.State,
-		Intent:     w.Intent,
-		Skills:     w.Skills,
-		TokensUsed: w.TokensUsed,
-		CreatedAt:  unixMilliToTime(w.CreatedAt),
-		CtxID:      w.CtxID,
-		Result:     w.Result,
+		PID:           w.PID,
+		PPID:          w.PPID,
+		State:         w.State,
+		Intent:        w.Intent,
+		Skills:        w.Skills,
+		TokensUsed:    w.TokensUsed,
+		CreatedAt:     unixMilliToTime(w.CreatedAt),
+		CtxID:         w.CtxID,
+		Result:        w.Result,
+		ContextBudget: w.ContextBudget,
 	}
 }
 

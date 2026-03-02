@@ -156,7 +156,14 @@ func topDetailView(info vfs.ProcInfo, allProcs []vfs.ProcInfo) string {
 	} else {
 		fmt.Fprintf(&b, "  Skills:   —\n")
 	}
-	fmt.Fprintf(&b, "  Tokens:   %s\n", ui.FormatTokens(info.TokensUsed))
+	if info.ContextBudget > 0 {
+		pct := info.TokensUsed * 100 / info.ContextBudget
+		fmt.Fprintf(&b, "  Budget:   %s/%s (%d%%)\n",
+			ui.FormatTokens(info.TokensUsed),
+			ui.FormatTokens(info.ContextBudget), pct)
+	} else {
+		fmt.Fprintf(&b, "  Tokens:   %s\n", ui.FormatTokens(info.TokensUsed))
+	}
 	fmt.Fprintf(&b, "  Elapsed:  %s\n", ui.FormatDuration(elapsed))
 	fmt.Fprintf(&b, "  Context:  CtxID=%d\n", info.CtxID)
 	if len(info.AllowedDevices) > 0 {
@@ -341,10 +348,10 @@ func (m topModel) View() tea.View {
 	}
 
 	b.WriteString("\n")
-	header := fmt.Sprintf("  %-5s %-5s %-9s %-15s %8s %8s", "PID", "PPID", "STATE", "AGENT", "TOKENS", "ELAPSED")
+	header := fmt.Sprintf("  %-5s %-5s %-9s %-15s %12s %8s", "PID", "PPID", "STATE", "AGENT", "TOKENS", "ELAPSED")
 	b.WriteString(header)
 	b.WriteString("\n")
-	b.WriteString("  " + strings.Repeat("─", 58))
+	b.WriteString("  " + strings.Repeat("─", 62))
 	b.WriteString("\n")
 
 	now := time.Now()
@@ -360,16 +367,26 @@ func (m topModel) View() tea.View {
 		}
 
 		elapsed := ui.FormatDuration(now.Sub(row.proc.CreatedAt))
-		tokens := ui.FormatTokens(row.proc.TokensUsed)
+		var tokens string
+		if row.proc.ContextBudget > 0 {
+			tokens = fmt.Sprintf("%s/%s",
+				ui.FormatTokens(row.proc.TokensUsed),
+				ui.FormatTokens(row.proc.ContextBudget))
+			if row.proc.TokensUsed >= row.proc.ContextBudget*90/100 {
+				tokens = ui.WarningStyle.Render(tokens)
+			}
+		} else {
+			tokens = ui.FormatTokens(row.proc.TokensUsed)
+		}
 		state := strings.ToLower(row.proc.State.String())
 
 		var line string
 		if row.prefix != "" {
-			line = fmt.Sprintf("%s%s%-4d %-5d %-9s %-15s %8s %8s",
+			line = fmt.Sprintf("%s%s%-4d %-5d %-9s %-15s %12s %8s",
 				cursor, row.prefix,
 				row.proc.PID, row.proc.PPID, state, agent, tokens, elapsed)
 		} else {
-			line = fmt.Sprintf("%s%-5d %-5d %-9s %-15s %8s %8s",
+			line = fmt.Sprintf("%s%-5d %-5d %-9s %-15s %12s %8s",
 				cursor,
 				row.proc.PID, row.proc.PPID, state, agent, tokens, elapsed)
 		}

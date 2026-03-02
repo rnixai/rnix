@@ -302,8 +302,9 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 	eventCh := make(chan StreamEvent, 64)
 
 	pid, err := s.kern.Spawn(req.Intent, agentInfo, kernel.SpawnOpts{
-		Model:    req.Model,
-		MaxTurns: req.MaxSteps,
+		Model:         req.Model,
+		MaxTurns:      req.MaxSteps,
+		ContextBudget: req.ContextBudget,
 	})
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})

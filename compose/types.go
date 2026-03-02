@@ -17,11 +17,12 @@ type ComposeSpec struct {
 
 // AgentSpec defines a single agent in the compose workflow.
 type AgentSpec struct {
-	Intent    string            `yaml:"intent"`
-	Agent     string            `yaml:"agent,omitempty"`
-	Model     string            `yaml:"model,omitempty"`
-	Skills    []string          `yaml:"skills,omitempty"`
-	DependsOn map[string]string `yaml:"depends_on,omitempty"`
+	Intent        string            `yaml:"intent"`
+	Agent         string            `yaml:"agent,omitempty"`
+	Model         string            `yaml:"model,omitempty"`
+	Skills        []string          `yaml:"skills,omitempty"`
+	ContextBudget int               `yaml:"context_budget,omitempty"`
+	DependsOn     map[string]string `yaml:"depends_on,omitempty"`
 }
 
 // DAG represents the directed acyclic graph of agent dependencies.
@@ -39,9 +40,10 @@ type DAGNode struct {
 
 // ComposeSpawnOpts contains spawn options for the compose engine.
 type ComposeSpawnOpts struct {
-	Model        string
-	SystemPrompt string
-	ParentPID    types.PID
+	Model         string
+	SystemPrompt  string
+	ParentPID     types.PID
+	ContextBudget int
 }
 
 // ComposeExitStatus records a process exit status for compose.

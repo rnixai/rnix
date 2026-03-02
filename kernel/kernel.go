@@ -34,11 +34,12 @@ const DefaultCtxSize = 64
 
 // SpawnOpts configures optional parameters for Spawn.
 type SpawnOpts struct {
-	Model        string
-	SystemPrompt string
-	MaxTurns     int
-	TimeoutMs    int64
-	ParentPID    types.PID // parent process PID; 0 = top-level/CLI spawn
+	Model         string
+	SystemPrompt  string
+	MaxTurns      int
+	TimeoutMs     int64
+	ParentPID     types.PID // parent process PID; 0 = top-level/CLI spawn
+	ContextBudget int       // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
 }
 
 // ActionType classifies LLM response actions.
@@ -176,7 +177,17 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		if opts.Model == "" && agent.Manifest.Models.Preferred != "" {
 			opts.Model = agent.Manifest.Models.Preferred
 		}
+
+		// Budget priority: opts (CLI/Compose) > agent manifest > 0 (no limit)
+		if opts.ContextBudget == 0 && agent.Manifest.ContextBudget > 0 {
+			opts.ContextBudget = agent.Manifest.ContextBudget
+		}
 	}
+
+	if opts.ContextBudget < 0 {
+		opts.ContextBudget = 0
+	}
+	proc.ContextBudget = opts.ContextBudget
 
 	// Allocate context
 	ctxAllocStart := time.Now()
@@ -529,7 +540,26 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		proc.mu.Lock()
 		proc.TokensUsed += resp.TokensUsed
+		budget := proc.ContextBudget
+		tokens := proc.TokensUsed
 		proc.mu.Unlock()
+
+		if budget > 0 && tokens >= budget {
+			k.emitLog(proc, step, types.LogOutput,
+				fmt.Sprintf("Token budget exceeded: %d/%d", tokens, budget), "")
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "budget_exceeded",
+				"tokens": tokens,
+				"budget": budget,
+			}, nil, nil, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{
+				Code:   2,
+				Reason: "budget_exceeded",
+				Err:    fmt.Errorf("token budget exceeded: %d/%d", tokens, budget),
+			})
+			return
+		}
 
 		// Parse action
 		action := parseAction(&resp)
@@ -805,6 +835,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		Intent:         proc.Intent,
 		Skills:         append([]string(nil), proc.Skills...),
 		TokensUsed:     proc.TokensUsed,
+		ContextBudget:  proc.ContextBudget,
 		CreatedAt:      proc.CreatedAt,
 		CtxID:          proc.CtxID,
 		Result:         proc.Result,
@@ -875,6 +906,7 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			Intent:         proc.Intent,
 			Skills:         append([]string(nil), proc.Skills...),
 			TokensUsed:     proc.TokensUsed,
+			ContextBudget:  proc.ContextBudget,
 			CreatedAt:      proc.CreatedAt,
 			CtxID:          proc.CtxID,
 			Result:         proc.Result,

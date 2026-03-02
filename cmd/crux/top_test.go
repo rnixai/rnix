@@ -567,7 +567,7 @@ func TestTopDetailView_NoBudgetOmitsBudgetLine(t *testing.T) {
 	proc := vfs.ProcInfo{
 		PID:           1,
 		State:         types.StateRunning,
-		Intent:        "no budget",
+		Intent:        "no limit set",
 		TokensUsed:    1000,
 		ContextBudget: 0,
 	}
