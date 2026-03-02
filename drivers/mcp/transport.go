@@ -89,8 +89,18 @@ func (t *StdioTransport) Connect(ctx context.Context) error {
 	t.cmd = cmd
 	t.stdin = json.NewEncoder(stdinPipe)
 	t.stdout = bufio.NewScanner(stdoutPipe)
-	t.connected = true
 
+	// Perform MCP initialize handshake (JSON-RPC initialize + initialized notification)
+	if err := t.initialize(); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.cmd = nil
+		t.stdin = nil
+		t.stdout = nil
+		return fmt.Errorf("initialize handshake: %w", err)
+	}
+
+	t.connected = true
 	return nil
 }
 
@@ -153,25 +163,73 @@ func (t *StdioTransport) Close() error {
 	return nil
 }
 
-// Ping checks if the MCP server is responsive.
+// Ping checks if the MCP server is responsive by sending a JSON-RPC ping request.
 func (t *StdioTransport) Ping(ctx context.Context) error {
-	t.mu.Lock()
-	if !t.connected {
-		t.mu.Unlock()
-		return fmt.Errorf("not connected")
+	_, err := t.Call(ctx, "ping", nil)
+	if err != nil {
+		return fmt.Errorf("ping: %w", err)
 	}
-	t.mu.Unlock()
+	return nil
+}
 
-	// Check if process is still alive
-	if t.cmd == nil || t.cmd.Process == nil {
-		return fmt.Errorf("process not running")
+// initialize performs the MCP protocol initialize handshake.
+// Sends initialize request, validates response, then sends initialized notification.
+// Must be called with mu held.
+func (t *StdioTransport) initialize() error {
+	initParams := map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]any{},
+		"clientInfo": map[string]string{
+			"name":    "crux",
+			"version": "1.0.0",
+		},
+	}
+	paramsJSON, err := json.Marshal(initParams)
+	if err != nil {
+		return fmt.Errorf("marshal init params: %w", err)
 	}
 
-	// Use context deadline for timeout
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return nil
+	id := t.nextID.Add(1)
+	req := jsonRPCRequest{
+		JSONRPC: "2.0",
+		ID:      id,
+		Method:  "initialize",
+		Params:  paramsJSON,
 	}
+
+	if err := t.stdin.Encode(req); err != nil {
+		return fmt.Errorf("send initialize: %w", err)
+	}
+
+	// Read initialize response
+	if !t.stdout.Scan() {
+		scanErr := t.stdout.Err()
+		if scanErr == nil {
+			scanErr = fmt.Errorf("unexpected EOF")
+		}
+		return fmt.Errorf("read initialize response: %w", scanErr)
+	}
+
+	var resp jsonRPCResponse
+	if err := json.Unmarshal(t.stdout.Bytes(), &resp); err != nil {
+		return fmt.Errorf("parse initialize response: %w", err)
+	}
+
+	if resp.Error != nil {
+		return fmt.Errorf("initialize rejected: %d %s", resp.Error.Code, resp.Error.Message)
+	}
+
+	// Send initialized notification (no ID, no response expected)
+	notif := struct {
+		JSONRPC string `json:"jsonrpc"`
+		Method  string `json:"method"`
+	}{
+		JSONRPC: "2.0",
+		Method:  "notifications/initialized",
+	}
+	if err := t.stdin.Encode(notif); err != nil {
+		return fmt.Errorf("send initialized notification: %w", err)
+	}
+
+	return nil
 }

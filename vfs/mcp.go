@@ -77,7 +77,7 @@ func newMCPFile(subpath string, transport MCPTransport) *mcpFile {
 // data contains the JSON arguments for the tool call.
 func (f *mcpFile) Write(ctx context.Context, data []byte) error {
 	if f.closed {
-		return fmt.Errorf("write to closed mcp file")
+		return types.NewDriverError("Write", f.subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 
 	// Parse tool name from subpath: /tools/create-issue -> create-issue
@@ -107,13 +107,13 @@ func (f *mcpFile) Write(ctx context.Context, data []byte) error {
 // Read returns the buffered response from the last Write (tool call).
 func (f *mcpFile) Read(length int) ([]byte, error) {
 	if f.closed {
-		return nil, fmt.Errorf("read from closed mcp file")
+		return nil, types.NewDriverError("Read", f.subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	if f.writeErr != nil {
 		return nil, types.NewDriverError("Read", f.subpath, f.writeErr, types.ErrServiceUnavailable)
 	}
 	if f.response == nil {
-		return nil, fmt.Errorf("no response available: write a request first")
+		return nil, types.NewDriverError("Read", f.subpath, fmt.Errorf("no response available: write a request first"), types.ErrInvalid)
 	}
 
 	data, remaining := readFromBuffer(f.response, length)
@@ -125,7 +125,7 @@ func (f *mcpFile) Read(length int) ([]byte, error) {
 // (the transport is shared across all files for the same mount).
 func (f *mcpFile) Close() error {
 	if f.closed {
-		return fmt.Errorf("mcp file already closed")
+		return types.NewDriverError("Close", f.subpath, fmt.Errorf("mcp file already closed"), types.ErrDriver)
 	}
 	f.closed = true
 	f.response = nil
@@ -135,7 +135,7 @@ func (f *mcpFile) Close() error {
 // Stat returns metadata about this MCP tool file.
 func (f *mcpFile) Stat() (FileStat, error) {
 	if f.closed {
-		return FileStat{}, fmt.Errorf("stat on closed mcp file")
+		return FileStat{}, types.NewDriverError("Stat", f.subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	return FileStat{
 		Name:     f.subpath,
@@ -207,7 +207,7 @@ func newMCPRootFile() *mcpRootFile {
 
 func (f *mcpRootFile) Read(length int) ([]byte, error) {
 	if f.closed {
-		return nil, fmt.Errorf("read from closed mcp file")
+		return nil, types.NewDriverError("Read", "/", fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	data, remaining := readFromBuffer(f.response, length)
 	f.response = remaining
@@ -221,7 +221,7 @@ func (f *mcpRootFile) Write(_ context.Context, _ []byte) error {
 
 func (f *mcpRootFile) Close() error {
 	if f.closed {
-		return fmt.Errorf("mcp file already closed")
+		return types.NewDriverError("Close", "/", fmt.Errorf("mcp file already closed"), types.ErrDriver)
 	}
 	f.closed = true
 	f.response = nil
@@ -230,7 +230,7 @@ func (f *mcpRootFile) Close() error {
 
 func (f *mcpRootFile) Stat() (FileStat, error) {
 	if f.closed {
-		return FileStat{}, fmt.Errorf("stat on closed mcp file")
+		return FileStat{}, types.NewDriverError("Stat", "/", fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	return FileStat{Name: "/", IsDevice: true}, nil
 }
@@ -250,7 +250,7 @@ func newMCPToolListFile(transport MCPTransport) *mcpToolListFile {
 
 func (f *mcpToolListFile) Read(length int) ([]byte, error) {
 	if f.closed {
-		return nil, fmt.Errorf("read from closed mcp file")
+		return nil, types.NewDriverError("Read", "/tools", fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	if !f.loaded {
 		ctx, cancel := context.WithTimeout(context.Background(), mcpCallTimeout)
@@ -269,7 +269,7 @@ func (f *mcpToolListFile) Read(length int) ([]byte, error) {
 
 func (f *mcpToolListFile) Write(_ context.Context, _ []byte) error {
 	if f.closed {
-		return fmt.Errorf("write to closed mcp file")
+		return types.NewDriverError("Write", "/tools", fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	return types.NewDriverError("Write", "/tools",
 		fmt.Errorf("tools listing is read-only"), types.ErrInvalid)
@@ -277,7 +277,7 @@ func (f *mcpToolListFile) Write(_ context.Context, _ []byte) error {
 
 func (f *mcpToolListFile) Close() error {
 	if f.closed {
-		return fmt.Errorf("mcp file already closed")
+		return types.NewDriverError("Close", "/tools", fmt.Errorf("mcp file already closed"), types.ErrDriver)
 	}
 	f.closed = true
 	f.response = nil
@@ -286,7 +286,7 @@ func (f *mcpToolListFile) Close() error {
 
 func (f *mcpToolListFile) Stat() (FileStat, error) {
 	if f.closed {
-		return FileStat{}, fmt.Errorf("stat on closed mcp file")
+		return FileStat{}, types.NewDriverError("Stat", "/tools", fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	return FileStat{Name: "/tools", IsDevice: true}, nil
 }
@@ -307,7 +307,7 @@ func newMCPResourceFile(subpath string, transport MCPTransport) *mcpResourceFile
 
 func (f *mcpResourceFile) Read(length int) ([]byte, error) {
 	if f.closed {
-		return nil, fmt.Errorf("read from closed mcp file")
+		return nil, types.NewDriverError("Read", f.subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	if !f.loaded {
 		uri := parseResourceURI(f.subpath)
@@ -328,7 +328,7 @@ func (f *mcpResourceFile) Read(length int) ([]byte, error) {
 
 func (f *mcpResourceFile) Write(_ context.Context, _ []byte) error {
 	if f.closed {
-		return fmt.Errorf("write to closed mcp file")
+		return types.NewDriverError("Write", f.subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	return types.NewDriverError("Write", f.subpath,
 		fmt.Errorf("resource read is read-only"), types.ErrInvalid)
@@ -336,7 +336,7 @@ func (f *mcpResourceFile) Write(_ context.Context, _ []byte) error {
 
 func (f *mcpResourceFile) Close() error {
 	if f.closed {
-		return fmt.Errorf("mcp file already closed")
+		return types.NewDriverError("Close", f.subpath, fmt.Errorf("mcp file already closed"), types.ErrDriver)
 	}
 	f.closed = true
 	f.response = nil
@@ -345,7 +345,7 @@ func (f *mcpResourceFile) Close() error {
 
 func (f *mcpResourceFile) Stat() (FileStat, error) {
 	if f.closed {
-		return FileStat{}, fmt.Errorf("stat on closed mcp file")
+		return FileStat{}, types.NewDriverError("Stat", f.subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	return FileStat{Name: f.subpath, IsDevice: true}, nil
 }
@@ -371,7 +371,7 @@ func newMCPResourceListFile(transport MCPTransport) *mcpResourceListFile {
 
 func (f *mcpResourceListFile) Read(length int) ([]byte, error) {
 	if f.closed {
-		return nil, fmt.Errorf("read from closed mcp file")
+		return nil, types.NewDriverError("Read", "/resources", fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	if !f.loaded {
 		ctx, cancel := context.WithTimeout(context.Background(), mcpCallTimeout)
@@ -390,7 +390,7 @@ func (f *mcpResourceListFile) Read(length int) ([]byte, error) {
 
 func (f *mcpResourceListFile) Write(_ context.Context, _ []byte) error {
 	if f.closed {
-		return fmt.Errorf("write to closed mcp file")
+		return types.NewDriverError("Write", "/resources", fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	return types.NewDriverError("Write", "/resources",
 		fmt.Errorf("resource listing is read-only"), types.ErrInvalid)
@@ -398,7 +398,7 @@ func (f *mcpResourceListFile) Write(_ context.Context, _ []byte) error {
 
 func (f *mcpResourceListFile) Close() error {
 	if f.closed {
-		return fmt.Errorf("mcp file already closed")
+		return types.NewDriverError("Close", "/resources", fmt.Errorf("mcp file already closed"), types.ErrDriver)
 	}
 	f.closed = true
 	f.response = nil
@@ -407,7 +407,7 @@ func (f *mcpResourceListFile) Close() error {
 
 func (f *mcpResourceListFile) Stat() (FileStat, error) {
 	if f.closed {
-		return FileStat{}, fmt.Errorf("stat on closed mcp file")
+		return FileStat{}, types.NewDriverError("Stat", "/resources", fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
 	return FileStat{Name: "/resources", IsDevice: true}, nil
 }

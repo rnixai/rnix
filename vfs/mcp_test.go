@@ -1055,3 +1055,128 @@ func TestParseToolName(t *testing.T) {
 		}
 	})
 }
+
+// --- Closed file DriverError assertions (bare error → DriverError fix) ---
+
+func TestMCPFile_ClosedReturnsDriverError(t *testing.T) {
+	assertDriverError := func(t *testing.T, err error, wantOp string) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var drvErr *types.DriverError
+		if !errors.As(err, &drvErr) {
+			t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+		}
+		if drvErr.Code != types.ErrDriver {
+			t.Fatalf("expected ErrDriver, got %v", drvErr.Code)
+		}
+		if drvErr.Op != wantOp {
+			t.Fatalf("expected Op=%q, got %q", wantOp, drvErr.Op)
+		}
+	}
+
+	t.Run("mcpFile closed returns DriverError", func(t *testing.T) {
+		transport := &mockMCPTransport{}
+		file := newMCPFile("/tools/test", transport)
+		_ = file.Close()
+
+		_, readErr := file.Read(1 << 20)
+		assertDriverError(t, readErr, "Read")
+
+		writeErr := file.Write(context.Background(), []byte(`{}`))
+		assertDriverError(t, writeErr, "Write")
+
+		closeErr := file.Close()
+		assertDriverError(t, closeErr, "Close")
+
+		_, statErr := file.Stat()
+		assertDriverError(t, statErr, "Stat")
+	})
+
+	t.Run("mcpRootFile closed returns DriverError", func(t *testing.T) {
+		file := newMCPRootFile()
+		_ = file.Close()
+
+		_, readErr := file.Read(1 << 20)
+		assertDriverError(t, readErr, "Read")
+
+		closeErr := file.Close()
+		assertDriverError(t, closeErr, "Close")
+
+		_, statErr := file.Stat()
+		assertDriverError(t, statErr, "Stat")
+	})
+
+	t.Run("mcpToolListFile closed returns DriverError", func(t *testing.T) {
+		transport := &mockMCPTransport{}
+		file := newMCPToolListFile(transport)
+		_ = file.Close()
+
+		_, readErr := file.Read(1 << 20)
+		assertDriverError(t, readErr, "Read")
+
+		writeErr := file.Write(context.Background(), []byte(`{}`))
+		assertDriverError(t, writeErr, "Write")
+
+		closeErr := file.Close()
+		assertDriverError(t, closeErr, "Close")
+
+		_, statErr := file.Stat()
+		assertDriverError(t, statErr, "Stat")
+	})
+
+	t.Run("mcpResourceFile closed returns DriverError", func(t *testing.T) {
+		transport := &mockMCPTransport{}
+		file := newMCPResourceFile("/resources/repo://a/b", transport)
+		_ = file.Close()
+
+		_, readErr := file.Read(1 << 20)
+		assertDriverError(t, readErr, "Read")
+
+		writeErr := file.Write(context.Background(), []byte(`{}`))
+		assertDriverError(t, writeErr, "Write")
+
+		closeErr := file.Close()
+		assertDriverError(t, closeErr, "Close")
+
+		_, statErr := file.Stat()
+		assertDriverError(t, statErr, "Stat")
+	})
+
+	t.Run("mcpResourceListFile closed returns DriverError", func(t *testing.T) {
+		transport := &mockMCPTransport{}
+		file := newMCPResourceListFile(transport)
+		_ = file.Close()
+
+		_, readErr := file.Read(1 << 20)
+		assertDriverError(t, readErr, "Read")
+
+		writeErr := file.Write(context.Background(), []byte(`{}`))
+		assertDriverError(t, writeErr, "Write")
+
+		closeErr := file.Close()
+		assertDriverError(t, closeErr, "Close")
+
+		_, statErr := file.Stat()
+		assertDriverError(t, statErr, "Stat")
+	})
+
+	t.Run("mcpFile no-response read returns DriverError ErrInvalid", func(t *testing.T) {
+		transport := &mockMCPTransport{}
+		file := newMCPFile("/tools/test", transport)
+
+		// Read without Write should return ErrInvalid
+		_, err := file.Read(1 << 20)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var drvErr *types.DriverError
+		if !errors.As(err, &drvErr) {
+			t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+		}
+		if drvErr.Code != types.ErrInvalid {
+			t.Fatalf("expected ErrInvalid, got %v", drvErr.Code)
+		}
+	})
+}
