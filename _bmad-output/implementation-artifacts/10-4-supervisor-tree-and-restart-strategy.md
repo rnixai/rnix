@@ -1,6 +1,6 @@
 # Story 10.4: Supervisor 树与重启策略
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -68,58 +68,58 @@ So that 多智能体系统具备容错能力。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Supervisor 核心类型定义 (AC: #1)
-  - [ ] 1.1 `kernel/supervisor.go`：定义 `RestartStrategy` 类型和常量 `OneForOne`/`OneForAll`/`RestForOne`
-  - [ ] 1.2 `kernel/supervisor.go`：定义 `ChildRestart` 类型和常量 `RestartPermanent`/`RestartTransient`/`RestartTemporary`
-  - [ ] 1.3 `kernel/supervisor.go`：定义 `ChildSpec` 结构体（Name, Intent, Agent, Model, ContextBudget, Restart）
-  - [ ] 1.4 `kernel/supervisor.go`：定义 `SupervisorSpec` 结构体（Strategy, MaxRestarts, MaxWindow, Children）
-  - [ ] 1.5 `kernel/supervisor.go`：定义 `Supervisor` 内部结构体（proc, spec, kernel, children, exitCh, restartTimes, mu）
-  - [ ] 1.6 `kernel/supervisor.go`：定义 `supervisedChild` 内部结构体（spec, pid, index, alive）
+- [x] Task 1: Supervisor 核心类型定义 (AC: #1)
+  - [x] 1.1 `kernel/supervisor.go`：定义 `RestartStrategy` 类型和常量 `OneForOne`/`OneForAll`/`RestForOne`
+  - [x] 1.2 `kernel/supervisor.go`：定义 `ChildRestart` 类型和常量 `RestartPermanent`/`RestartTransient`/`RestartTemporary`
+  - [x] 1.3 `kernel/supervisor.go`：定义 `ChildSpec` 结构体（Name, Intent, Agent, Model, ContextBudget, Restart）
+  - [x] 1.4 `kernel/supervisor.go`：定义 `SupervisorSpec` 结构体（Strategy, MaxRestarts, MaxWindow, Children）
+  - [x] 1.5 `kernel/supervisor.go`：定义 `Supervisor` 内部结构体（proc, spec, kernel, children, exitCh, restartTimes, mu）
+  - [x] 1.6 `kernel/supervisor.go`：定义 `supervisedChild` 内部结构体（spec, pid, index, alive）
 
-- [ ] Task 2: SpawnSupervisor 内核方法 (AC: #1)
-  - [ ] 2.1 `kernel/kernel.go`：添加 `SupervisorManager` 接口 `SpawnSupervisor(spec SupervisorSpec) (types.PID, error)`
-  - [ ] 2.2 `kernel/kernel.go`：添加编译时接口检查 `var _ SupervisorManager = (*KernelImpl)(nil)`
-  - [ ] 2.3 `kernel/supervisor.go`：实现 `SpawnSupervisor` 方法——创建 Process、设置 ctx/cancel、注册到进程表、启动 supervisor goroutine
-  - [ ] 2.4 `kernel/supervisor.go`：`newSupervisor()` 构造函数
+- [x] Task 2: SpawnSupervisor 内核方法 (AC: #1)
+  - [x] 2.1 `kernel/supervisor.go`：添加 `SupervisorManager` 接口 `SpawnSupervisor(spec SupervisorSpec) (types.PID, error)`
+  - [x] 2.2 `kernel/supervisor.go`：添加编译时接口检查 `var _ SupervisorManager = (*KernelImpl)(nil)`
+  - [x] 2.3 `kernel/supervisor.go`：实现 `SpawnSupervisor` 方法——创建 Process、设置 ctx/cancel、注册到进程表、启动 supervisor goroutine
+  - [x] 2.4 `kernel/supervisor.go`：`newSupervisor()` 构造函数
 
-- [ ] Task 3: Supervisor 启动与监控循环 (AC: #1, #2)
-  - [ ] 3.1 `kernel/supervisor.go`：`run()` 主方法——Phase 1 按序启动所有子进程，Phase 2 进入监控循环
-  - [ ] 3.2 `kernel/supervisor.go`：`startChild(idx)` 启动单个子进程——调用 `k.Spawn()`，启动 monitor goroutine 监控 Done channel 并发送到聚合 exitCh
-  - [ ] 3.3 `kernel/supervisor.go`：`stopChild(idx)` 停止单个子进程——`k.Kill(pid, SIGKILL)` + 等待 Done + `k.Reap(pid)`，超时 5 秒
-  - [ ] 3.4 `kernel/supervisor.go`：`shutdownAll()` 按逆启动顺序停止所有存活子进程
-  - [ ] 3.5 `kernel/supervisor.go`：主循环 select 监听 `exitCh` 和 `s.proc.ctx.Done()`
+- [x] Task 3: Supervisor 启动与监控循环 (AC: #1, #2)
+  - [x] 3.1 `kernel/supervisor.go`：`run()` 主方法——Phase 1 按序启动所有子进程，Phase 2 进入监控循环
+  - [x] 3.2 `kernel/supervisor.go`：`startChild(idx)` 启动单个子进程——调用 `k.Spawn()`，启动 monitor goroutine 监控 Done channel 并发送到聚合 exitCh
+  - [x] 3.3 `kernel/supervisor.go`：`stopChild(idx)` 停止单个子进程——`k.Kill(pid, SIGKILL)` + 等待 wg.Wait() + `k.Reap(pid)`，超时 5 秒
+  - [x] 3.4 `kernel/supervisor.go`：`shutdownAll()` 按逆启动顺序停止所有存活子进程
+  - [x] 3.5 `kernel/supervisor.go`：主循环 select 监听 `exitCh` 和 `s.proc.ctx.Done()`
 
-- [ ] Task 4: 重启策略实现 (AC: #3, #4, #5, #7)
-  - [ ] 4.1 `kernel/supervisor.go`：`handleChildExit(idx, exit)` 统一入口——判断 shouldRestart → 检查频率限制 → 分发策略
-  - [ ] 4.2 `kernel/supervisor.go`：`shouldRestart(spec, exit)` 根据 ChildRestart 模式和 ExitStatus 判断
-  - [ ] 4.3 `kernel/supervisor.go`：`restartOneForOne(idx)` 仅重启崩溃子进程
-  - [ ] 4.4 `kernel/supervisor.go`：`restartOneForAll()` 逆序停止全部 → 顺序重启全部
-  - [ ] 4.5 `kernel/supervisor.go`：`restartRestForOne(idx)` 逆序停止 idx 及之后 → 顺序重启 idx 及之后
+- [x] Task 4: 重启策略实现 (AC: #3, #4, #5, #7)
+  - [x] 4.1 `kernel/supervisor.go`：`handleChildExit(idx, exit)` 统一入口——判断 shouldRestart → 检查频率限制 → 分发策略
+  - [x] 4.2 `kernel/supervisor.go`：`shouldRestart(spec, exit)` 根据 ChildRestart 模式和 ExitStatus 判断
+  - [x] 4.3 `kernel/supervisor.go`：`restartOneForOne(idx)` 仅重启崩溃子进程
+  - [x] 4.4 `kernel/supervisor.go`：`restartOneForAll()` 逆序停止全部 → 顺序重启全部
+  - [x] 4.5 `kernel/supervisor.go`：`restartRestForOne(idx)` 逆序停止 idx 及之后 → 顺序重启 idx 及之后
 
-- [ ] Task 5: 重启频率保护 (AC: #6)
-  - [ ] 5.1 `kernel/supervisor.go`：`recordRestart()` 记录重启时间到 restartTimes 切片
-  - [ ] 5.2 `kernel/supervisor.go`：`exceedsRestartLimit()` 滑动窗口内计数，超过 MaxRestarts 返回 true
-  - [ ] 5.3 `kernel/supervisor.go`：超限时调用 `shutdownAll()` + `finishProcess(proc, ExitStatus{Code:1, Reason:"max_restarts_exceeded"})` + emitEvent "SupervisorShutdown"
+- [x] Task 5: 重启频率保护 (AC: #6)
+  - [x] 5.1 `kernel/supervisor.go`：`recordRestart()` 记录重启时间到 restartTimes 切片
+  - [x] 5.2 `kernel/supervisor.go`：`exceedsRestartLimit()` 滑动窗口内计数，超过 MaxRestarts 返回 true
+  - [x] 5.3 `kernel/supervisor.go`：超限时调用 `shutdownAll()` + `finishProcess(proc, ExitStatus{Code:1, Reason:"max_restarts_exceeded"})` + emitEvent "SupervisorShutdown"
 
-- [ ] Task 6: 事件记录与可观测性 (AC: #2, #6)
-  - [ ] 6.1 `kernel/supervisor.go`：每次子进程启动 emitEvent "SupervisorStartChild"
-  - [ ] 6.2 `kernel/supervisor.go`：每次子进程退出 emitEvent "SupervisorChildExit"
-  - [ ] 6.3 `kernel/supervisor.go`：每次重启 emitEvent "SupervisorRestart"（含策略、子进程名、重启计数）
-  - [ ] 6.4 `kernel/supervisor.go`：Supervisor 自身退出 emitEvent "SupervisorShutdown"（含原因）
+- [x] Task 6: 事件记录与可观测性 (AC: #2, #6)
+  - [x] 6.1 `kernel/supervisor.go`：每次子进程启动 emitEvent "SupervisorStartChild"
+  - [x] 6.2 `kernel/supervisor.go`：每次子进程退出 emitEvent "SupervisorChildExit"
+  - [x] 6.3 `kernel/supervisor.go`：每次重启 emitEvent "SupervisorRestart"（含策略、子进程名、重启计数）
+  - [x] 6.4 `kernel/supervisor.go`：Supervisor 自身退出 emitEvent "SupervisorShutdown"（含原因）
 
-- [ ] Task 7: 测试 (AC: all)
-  - [ ] 7.1 `kernel/supervisor_test.go`：one_for_one 策略——子进程 B 崩溃仅重启 B，A/C 不受影响
-  - [ ] 7.2 `kernel/supervisor_test.go`：one_for_all 策略——子进程 B 崩溃重启 A+B+C
-  - [ ] 7.3 `kernel/supervisor_test.go`：rest_for_one 策略——子进程 B 崩溃重启 B+C，A 不受影响
-  - [ ] 7.4 `kernel/supervisor_test.go`：重启频率超限——3 次快速崩溃后 Supervisor 退出，ExitStatus.Reason = "max_restarts_exceeded"
-  - [ ] 7.5 `kernel/supervisor_test.go`：permanent 模式——正常退出也重启
-  - [ ] 7.6 `kernel/supervisor_test.go`：transient 模式——正常退出不重启，异常退出重启
-  - [ ] 7.7 `kernel/supervisor_test.go`：temporary 模式——永不重启
-  - [ ] 7.8 `kernel/supervisor_test.go`：Supervisor Kill → 子进程清理 → 无重启
-  - [ ] 7.9 `kernel/supervisor_test.go`：重启时间 ≤ 5 秒验证
-  - [ ] 7.10 `kernel/supervisor_test.go`：启动阶段子进程失败 → 回滚已启动的子进程 → Supervisor 退出
-  - [ ] 7.11 `kernel/supervisor_test.go`：所有子进程正常完成（temporary）→ Supervisor 正常退出
-  - [ ] 7.12 在 `cmd/crux/main_test.go` 中确认无命令注册回归
+- [x] Task 7: 测试 (AC: all)
+  - [x] 7.1 `kernel/supervisor_test.go`：one_for_one 策略——子进程 B 崩溃仅重启 B，A/C 不受影响
+  - [x] 7.2 `kernel/supervisor_test.go`：one_for_all 策略——子进程 B 崩溃重启 A+B+C
+  - [x] 7.3 `kernel/supervisor_test.go`：rest_for_one 策略——子进程 B 崩溃重启 B+C，A 不受影响
+  - [x] 7.4 `kernel/supervisor_test.go`：重启频率超限——3 次快速崩溃后 Supervisor 退出，ExitStatus.Reason = "max_restarts_exceeded"
+  - [x] 7.5 `kernel/supervisor_test.go`：permanent 模式——正常退出也重启
+  - [x] 7.6 `kernel/supervisor_test.go`：transient 模式——正常退出不重启，异常退出重启
+  - [x] 7.7 `kernel/supervisor_test.go`：temporary 模式——永不重启
+  - [x] 7.8 `kernel/supervisor_test.go`：Supervisor Kill → 子进程清理 → 无重启
+  - [x] 7.9 `kernel/supervisor_test.go`：重启时间 ≤ 5 秒验证
+  - [x] 7.10 `kernel/supervisor_test.go`：启动阶段子进程失败 → 回滚已启动的子进程 → Supervisor 退出
+  - [x] 7.11 `kernel/supervisor_test.go`：所有子进程正常完成（temporary）→ Supervisor 正常退出
+  - [x] 7.12 在 `cmd/crux/main_test.go` 中确认无命令注册回归
 
 ## Dev Notes
 
@@ -741,10 +741,34 @@ Supervisor 的子进程可加入同一进程组（PGID）。`one_for_all` 策略
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+- stopChild 优化：原始设计使用 `<-childProc.Done` 等待子进程退出，但 monitor goroutine 也读取 Done channel 导致竞态。改用 `wg.Wait()` + 超时，避免 Done channel 被 monitor goroutine 消费后 stopChild 阻塞 5 秒。
+- SupervisorManager 接口放在 `kernel/supervisor.go` 而非 `kernel/kernel.go`，保持单文件职责。编译时接口检查同样放在 supervisor.go。
+
 ### Completion Notes List
 
+- ✅ Task 1: 定义了 RestartStrategy、ChildRestart、ChildSpec、SupervisorSpec、Supervisor、supervisedChild 六个核心类型
+- ✅ Task 2: 实现 SupervisorManager 接口 + SpawnSupervisor 方法，Supervisor 作为 kernel Process 拥有完整 PID/PPID/State 属性
+- ✅ Task 3: 实现 run() 双阶段架构（Phase 1 按序启动 + Phase 2 监控循环），使用聚合 exitCh 避免 reflect.Select
+- ✅ Task 4: 实现三种重启策略——one_for_one（仅重启崩溃子进程）、one_for_all（逆序停止→顺序重启全部）、rest_for_one（逆序停止后续→顺序重启后续）
+- ✅ Task 5: 滑动窗口重启频率保护，超限触发 SupervisorShutdown 事件并退出
+- ✅ Task 6: SupervisorStartChild/SupervisorChildExit/SupervisorRestart/SupervisorShutdown 四种事件
+- ✅ Task 7: 12 个测试用例全部通过，使用 intent-router 方案实现精确的 per-FD 崩溃控制
+- ✅ 全部 17 个包的回归测试通过，golangci-lint kernel/ 零问题
+
 ### File List
+
+**新文件：**
+- `kernel/supervisor.go` — Supervisor 核心实现（~310 行）：类型定义 + SpawnSupervisor + run + 策略实现 + 频率保护 + 事件记录
+- `kernel/supervisor_test.go` — 12 个测试用例 + intent-router mock 基础设施
+
+**修改文件：**
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — 10-4 状态更新 ready-for-dev → in-progress → review
+- `_bmad-output/implementation-artifacts/10-4-supervisor-tree-and-restart-strategy.md` — 任务完成标记 + Dev Agent Record
+
+### Change Log
+
+- 2026-03-03: Story 10.4 implementation complete — Supervisor tree with three restart strategies (one_for_one, one_for_all, rest_for_one), restart frequency protection (sliding window), ChildRestart modes (permanent/transient/temporary), full event observability. 12 test cases passing.
