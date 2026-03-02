@@ -5,9 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gonewx/crux/internal/types"
 )
+
+// mcpCallTimeout is the timeout for MCP protocol calls during VFS Read operations.
+// Applies to tools/list, resources/list, and resources/read.
+// tools/call timeout is managed by the caller's context via VFS Write.
+const mcpCallTimeout = 30 * time.Second
 
 // MCPConfig describes how to connect to an MCP server.
 type MCPConfig struct {
@@ -110,18 +116,8 @@ func (f *mcpFile) Read(length int) ([]byte, error) {
 		return nil, fmt.Errorf("no response available: write a request first")
 	}
 
-	remaining := f.response
-	if len(remaining) == 0 {
-		return nil, nil
-	}
-
-	if length <= 0 || length > len(remaining) {
-		length = len(remaining)
-	}
-
-	data := make([]byte, length)
-	copy(data, remaining[:length])
-	f.response = remaining[length:]
+	data, remaining := readFromBuffer(f.response, length)
+	f.response = remaining
 	return data, nil
 }
 
@@ -155,10 +151,263 @@ func parseToolName(subpath string) string {
 	return subpath
 }
 
-// mcpFileFactory returns a VFSFileFactory that creates mcpFile instances
-// for the given MCP transport.
+// mcpFileFactory returns a VFSFileFactory that routes subpaths to the
+// appropriate MCP VFSFile type based on subpath prefix.
 func mcpFileFactory(transport MCPTransport) VFSFileFactory {
 	return func(subpath string, flags OpenFlag) (VFSFile, error) {
-		return newMCPFile(subpath, transport), nil
+		subpath = strings.TrimRight(subpath, "/")
+		if subpath == "" {
+			subpath = "/"
+		}
+
+		switch {
+		case subpath == "/":
+			return newMCPRootFile(), nil
+		case subpath == "/tools":
+			return newMCPToolListFile(transport), nil
+		case strings.HasPrefix(subpath, "/tools/"):
+			return newMCPFile(subpath, transport), nil
+		case subpath == "/resources":
+			return newMCPResourceListFile(transport), nil
+		case strings.HasPrefix(subpath, "/resources/"):
+			return newMCPResourceFile(subpath, transport), nil
+		default:
+			return nil, types.NewDriverError("Open", subpath,
+				fmt.Errorf("unknown mcp subpath: %s (valid: /tools, /tools/{name}, /resources, /resources/{uri})", subpath),
+				types.ErrNotFound)
+		}
 	}
+}
+
+// readFromBuffer reads up to length bytes from buf. Returns the data read
+// and the remaining buffer. Returns (nil, nil) when buffer is empty.
+func readFromBuffer(buf []byte, length int) (data []byte, remaining []byte) {
+	if len(buf) == 0 {
+		return nil, nil
+	}
+	if length <= 0 || length > len(buf) {
+		length = len(buf)
+	}
+	data = make([]byte, length)
+	copy(data, buf[:length])
+	return data, buf[length:]
+}
+
+// --- mcpRootFile: read-only listing of available namespaces (AC #5) ---
+
+type mcpRootFile struct {
+	response []byte
+	closed   bool
+}
+
+func newMCPRootFile() *mcpRootFile {
+	data, _ := json.Marshal([]string{"tools", "resources"})
+	return &mcpRootFile{response: data}
+}
+
+func (f *mcpRootFile) Read(length int) ([]byte, error) {
+	if f.closed {
+		return nil, fmt.Errorf("read from closed mcp file")
+	}
+	data, remaining := readFromBuffer(f.response, length)
+	f.response = remaining
+	return data, nil
+}
+
+func (f *mcpRootFile) Write(_ context.Context, _ []byte) error {
+	return types.NewDriverError("Write", "/",
+		fmt.Errorf("root listing is read-only"), types.ErrInvalid)
+}
+
+func (f *mcpRootFile) Close() error {
+	if f.closed {
+		return fmt.Errorf("mcp file already closed")
+	}
+	f.closed = true
+	f.response = nil
+	return nil
+}
+
+func (f *mcpRootFile) Stat() (FileStat, error) {
+	if f.closed {
+		return FileStat{}, fmt.Errorf("stat on closed mcp file")
+	}
+	return FileStat{Name: "/", IsDevice: true}, nil
+}
+
+// --- mcpToolListFile: read-only tools/list call (AC #2) ---
+
+type mcpToolListFile struct {
+	transport MCPTransport
+	response  []byte
+	closed    bool
+	loaded    bool
+}
+
+func newMCPToolListFile(transport MCPTransport) *mcpToolListFile {
+	return &mcpToolListFile{transport: transport}
+}
+
+func (f *mcpToolListFile) Read(length int) ([]byte, error) {
+	if f.closed {
+		return nil, fmt.Errorf("read from closed mcp file")
+	}
+	if !f.loaded {
+		ctx, cancel := context.WithTimeout(context.Background(), mcpCallTimeout)
+		defer cancel()
+		resp, err := f.transport.Call(ctx, "tools/list", nil)
+		if err != nil {
+			return nil, types.NewDriverError("Read", "/tools", err, types.ErrServiceUnavailable)
+		}
+		f.response = resp
+		f.loaded = true
+	}
+	data, remaining := readFromBuffer(f.response, length)
+	f.response = remaining
+	return data, nil
+}
+
+func (f *mcpToolListFile) Write(_ context.Context, _ []byte) error {
+	if f.closed {
+		return fmt.Errorf("write to closed mcp file")
+	}
+	return types.NewDriverError("Write", "/tools",
+		fmt.Errorf("tools listing is read-only"), types.ErrInvalid)
+}
+
+func (f *mcpToolListFile) Close() error {
+	if f.closed {
+		return fmt.Errorf("mcp file already closed")
+	}
+	f.closed = true
+	f.response = nil
+	return nil
+}
+
+func (f *mcpToolListFile) Stat() (FileStat, error) {
+	if f.closed {
+		return FileStat{}, fmt.Errorf("stat on closed mcp file")
+	}
+	return FileStat{Name: "/tools", IsDevice: true}, nil
+}
+
+// --- mcpResourceFile: read-only resources/read call (AC #3) ---
+
+type mcpResourceFile struct {
+	subpath   string
+	transport MCPTransport
+	response  []byte
+	closed    bool
+	loaded    bool
+}
+
+func newMCPResourceFile(subpath string, transport MCPTransport) *mcpResourceFile {
+	return &mcpResourceFile{subpath: subpath, transport: transport}
+}
+
+func (f *mcpResourceFile) Read(length int) ([]byte, error) {
+	if f.closed {
+		return nil, fmt.Errorf("read from closed mcp file")
+	}
+	if !f.loaded {
+		uri := parseResourceURI(f.subpath)
+		params, _ := json.Marshal(map[string]string{"uri": uri})
+		ctx, cancel := context.WithTimeout(context.Background(), mcpCallTimeout)
+		defer cancel()
+		resp, err := f.transport.Call(ctx, "resources/read", params)
+		if err != nil {
+			return nil, types.NewDriverError("Read", f.subpath, err, types.ErrServiceUnavailable)
+		}
+		f.response = resp
+		f.loaded = true
+	}
+	data, remaining := readFromBuffer(f.response, length)
+	f.response = remaining
+	return data, nil
+}
+
+func (f *mcpResourceFile) Write(_ context.Context, _ []byte) error {
+	if f.closed {
+		return fmt.Errorf("write to closed mcp file")
+	}
+	return types.NewDriverError("Write", f.subpath,
+		fmt.Errorf("resource read is read-only"), types.ErrInvalid)
+}
+
+func (f *mcpResourceFile) Close() error {
+	if f.closed {
+		return fmt.Errorf("mcp file already closed")
+	}
+	f.closed = true
+	f.response = nil
+	return nil
+}
+
+func (f *mcpResourceFile) Stat() (FileStat, error) {
+	if f.closed {
+		return FileStat{}, fmt.Errorf("stat on closed mcp file")
+	}
+	return FileStat{Name: f.subpath, IsDevice: true}, nil
+}
+
+// parseResourceURI extracts the resource URI from a subpath.
+// e.g. "/resources/repo://owner/repo" -> "repo://owner/repo"
+func parseResourceURI(subpath string) string {
+	return strings.TrimPrefix(subpath, "/resources/")
+}
+
+// --- mcpResourceListFile: read-only resources/list call (AC #4) ---
+
+type mcpResourceListFile struct {
+	transport MCPTransport
+	response  []byte
+	closed    bool
+	loaded    bool
+}
+
+func newMCPResourceListFile(transport MCPTransport) *mcpResourceListFile {
+	return &mcpResourceListFile{transport: transport}
+}
+
+func (f *mcpResourceListFile) Read(length int) ([]byte, error) {
+	if f.closed {
+		return nil, fmt.Errorf("read from closed mcp file")
+	}
+	if !f.loaded {
+		ctx, cancel := context.WithTimeout(context.Background(), mcpCallTimeout)
+		defer cancel()
+		resp, err := f.transport.Call(ctx, "resources/list", nil)
+		if err != nil {
+			return nil, types.NewDriverError("Read", "/resources", err, types.ErrServiceUnavailable)
+		}
+		f.response = resp
+		f.loaded = true
+	}
+	data, remaining := readFromBuffer(f.response, length)
+	f.response = remaining
+	return data, nil
+}
+
+func (f *mcpResourceListFile) Write(_ context.Context, _ []byte) error {
+	if f.closed {
+		return fmt.Errorf("write to closed mcp file")
+	}
+	return types.NewDriverError("Write", "/resources",
+		fmt.Errorf("resource listing is read-only"), types.ErrInvalid)
+}
+
+func (f *mcpResourceListFile) Close() error {
+	if f.closed {
+		return fmt.Errorf("mcp file already closed")
+	}
+	f.closed = true
+	f.response = nil
+	return nil
+}
+
+func (f *mcpResourceListFile) Stat() (FileStat, error) {
+	if f.closed {
+		return FileStat{}, fmt.Errorf("stat on closed mcp file")
+	}
+	return FileStat{Name: "/resources", IsDevice: true}, nil
 }

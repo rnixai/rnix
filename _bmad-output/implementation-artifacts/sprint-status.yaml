@@ -125,7 +125,7 @@ development_status:
   epic-9: in-progress
   9-1-mount-unmount-syscall: done
   9-2-agent-yaml-mcp-field-and-auto-mount: done
-  9-3-vfs-path-expose-mcp-tools: backlog
+  9-3-vfs-path-expose-mcp-tools: done
   9-4-four-layer-capability-stack-e2e-validation: backlog
   epic-9-retrospective: optional
 

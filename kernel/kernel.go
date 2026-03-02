@@ -270,6 +270,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		}
 		proc.mu.Lock()
 		proc.MCPMounts = mountedPaths
+		proc.AllowedDevices = append(proc.AllowedDevices, mountedPaths...)
 		proc.mu.Unlock()
 	}
 

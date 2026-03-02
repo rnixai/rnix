@@ -430,6 +430,131 @@ func TestFinishProcess_AutoUnmountMCP(t *testing.T) {
 	})
 }
 
+// --- Story 9.3: AllowedDevices MCP Path Tests (AC #8) ---
+
+func TestSpawn_AllowedDevices_IncludesMCPPaths(t *testing.T) {
+	t.Run("spawn appends mcp mount paths to AllowedDevices", func(t *testing.T) {
+		// Given: a Kernel with MountManager and an agent with MCP configs
+		mm := newSpawnMockMountManager()
+		k := newSpawnTestKernel(t, mm)
+
+		mcpConfigs := []vfs.MCPConfig{
+			{ServerName: "github", Command: "npx", TransportType: "stdio"},
+			{ServerName: "slack", Command: "npx", TransportType: "stdio"},
+		}
+		agent := testAgentWithMCP(mcpConfigs)
+
+		// When: Spawn is called
+		pid, err := k.Spawn("test intent", agent, SpawnOpts{})
+		if err != nil {
+			t.Fatalf("Spawn returned error: %v", err)
+		}
+
+		// Then: AllowedDevices contains MCP mount paths
+		proc, ok := k.GetProcess(pid)
+		if !ok {
+			t.Fatal("process not found in table")
+		}
+		proc.mu.Lock()
+		devices := append([]string(nil), proc.AllowedDevices...)
+		proc.mu.Unlock()
+
+		// Check that MCP paths are in AllowedDevices
+		githubPath := fmt.Sprintf("/mnt/mcp/%d-github", pid)
+		slackPath := fmt.Sprintf("/mnt/mcp/%d-slack", pid)
+
+		foundGithub := false
+		foundSlack := false
+		for _, d := range devices {
+			if d == githubPath {
+				foundGithub = true
+			}
+			if d == slackPath {
+				foundSlack = true
+			}
+		}
+		if !foundGithub {
+			t.Errorf("AllowedDevices missing github MCP path %q, got %v", githubPath, devices)
+		}
+		if !foundSlack {
+			t.Errorf("AllowedDevices missing slack MCP path %q, got %v", slackPath, devices)
+		}
+	})
+
+	t.Run("spawn without mcp does not add mcp paths to AllowedDevices", func(t *testing.T) {
+		// Given: a Kernel with MountManager and an agent without MCP
+		mm := newSpawnMockMountManager()
+		k := newSpawnTestKernel(t, mm)
+
+		agent := testAgentWithoutMCP()
+
+		// When: Spawn is called
+		pid, err := k.Spawn("test intent", agent, SpawnOpts{})
+		if err != nil {
+			t.Fatalf("Spawn returned error: %v", err)
+		}
+
+		// Then: AllowedDevices does not contain any /mnt/mcp/ paths
+		proc, ok := k.GetProcess(pid)
+		if !ok {
+			t.Fatal("process not found")
+		}
+		proc.mu.Lock()
+		devices := append([]string(nil), proc.AllowedDevices...)
+		proc.mu.Unlock()
+
+		for _, d := range devices {
+			if strings.HasPrefix(d, "/mnt/mcp/") {
+				t.Errorf("AllowedDevices should not contain MCP paths for agent without MCP, found %q", d)
+			}
+		}
+	})
+
+	t.Run("mcp subpath matches AllowedDevices prefix check", func(t *testing.T) {
+		// Given: a process with MCP mount path in AllowedDevices
+		mm := newSpawnMockMountManager()
+		k := newSpawnTestKernel(t, mm)
+
+		mcpConfigs := []vfs.MCPConfig{
+			{ServerName: "github", Command: "npx", TransportType: "stdio"},
+		}
+		agent := testAgentWithMCP(mcpConfigs)
+
+		pid, err := k.Spawn("test intent", agent, SpawnOpts{})
+		if err != nil {
+			t.Fatalf("Spawn returned error: %v", err)
+		}
+
+		proc, ok := k.GetProcess(pid)
+		if !ok {
+			t.Fatal("process not found")
+		}
+		proc.mu.Lock()
+		devices := append([]string(nil), proc.AllowedDevices...)
+		proc.mu.Unlock()
+
+		// When: checking if MCP tool subpath matches via prefix
+		mcpToolPath := fmt.Sprintf("/mnt/mcp/%d-github/tools/create-issue", pid)
+		mcpResourcePath := fmt.Sprintf("/mnt/mcp/%d-github/resources/repo://a/b", pid)
+		mcpRootPath := fmt.Sprintf("/mnt/mcp/%d-github/", pid)
+
+		// Then: all MCP subpaths match the base mount path prefix
+		checkPaths := []string{mcpToolPath, mcpResourcePath, mcpRootPath}
+		for _, checkPath := range checkPaths {
+			matched := false
+			for _, dev := range devices {
+				if checkPath == dev || strings.HasPrefix(checkPath, dev+"/") {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				t.Errorf("path %q did not match any AllowedDevices %v", checkPath, devices)
+			}
+		}
+	})
+}
+
 // containsSyscallError is a helper to unwrap and check for *SyscallError.
 func containsSyscallError(err error, target **SyscallError) bool {
 	for err != nil {
