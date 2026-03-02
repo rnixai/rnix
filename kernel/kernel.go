@@ -534,8 +534,14 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// Parse action
 		action := parseAction(&resp)
 
+		// Emit [think] log entry with the LLM's full reasoning text
+		k.emitLog(proc, step, types.LogThink, resp.Content, "")
+
 		switch action.Type {
 		case ActionText:
+			// Emit [output] log entry with the final text
+			k.emitLog(proc, step, types.LogOutput, action.Content, "")
+
 			proc.mu.Lock()
 			proc.Result = action.Content
 			proc.mu.Unlock()
@@ -640,6 +646,13 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool read failed", Err: err})
 				return
 			}
+
+			// Emit [tool] log entry with tool path and result summary
+			toolContent := string(toolResult)
+			if len(toolContent) > 500 {
+				toolContent = toolContent[:500] + fmt.Sprintf("... (truncated, %d bytes total)", len(toolResult))
+			}
+			k.emitLog(proc, step, types.LogTool, toolContent, action.ToolPath)
 
 			// Close tool device
 			closeStart := time.Now()
@@ -799,6 +812,41 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 	}
 	proc.mu.Unlock()
 	return info, nil
+}
+
+// emitLog sends a LogEntry to the process LogChan (non-blocking).
+// Holds proc.mu only during channel access to prevent races with reapProcess close.
+func (k *KernelImpl) emitLog(proc *Process, step int, cat types.LogCategory, content, toolPath string) {
+	entry := types.LogEntry{
+		Timestamp: time.Since(proc.CreatedAt),
+		PID:       proc.PID,
+		Step:      step,
+		Category:  cat,
+		Content:   content,
+		ToolPath:  toolPath,
+	}
+	proc.mu.Lock()
+	ch := proc.LogChan
+	if ch != nil {
+		select {
+		case ch <- entry:
+		default:
+		}
+	}
+	proc.mu.Unlock()
+}
+
+// GetLogChan safely retrieves the log channel for a process under lock.
+// Returns nil, false if the process doesn't exist or the channel is nil.
+func (k *KernelImpl) GetLogChan(pid types.PID) (chan types.LogEntry, bool) {
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return nil, false
+	}
+	proc.mu.Lock()
+	ch := proc.LogChan
+	proc.mu.Unlock()
+	return ch, ch != nil
 }
 
 // GetDebugChan safely retrieves the debug channel for a process under lock.

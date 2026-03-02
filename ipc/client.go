@@ -168,6 +168,49 @@ func (c *Client) AttachDebug(pid types.PID, onEvent func(SyscallEventWire)) erro
 	return nil
 }
 
+// AttachLog streams LogEntries from the specified process.
+// The onEntry callback is called for each LogEntryWire. Blocks until the stream ends.
+func (c *Client) AttachLog(pid types.PID, onEntry func(LogEntryWire)) error {
+	if err := c.sendRequest(MethodAttachLog, AttachLogRequest{PID: pid}); err != nil {
+		return err
+	}
+
+	if !c.scanner.Scan() {
+		return fmt.Errorf("ipc: no attach_log response")
+	}
+	var resp Response
+	if err := json.Unmarshal(c.scanner.Bytes(), &resp); err != nil {
+		return fmt.Errorf("ipc: unmarshal attach_log response: %w", err)
+	}
+	if !resp.OK {
+		msg := "attach failed"
+		if resp.Error != nil {
+			msg = resp.Error.Message
+		}
+		return fmt.Errorf("ipc: %s", msg)
+	}
+
+	for c.scanner.Scan() {
+		var ev StreamEvent
+		if err := json.Unmarshal(c.scanner.Bytes(), &ev); err != nil {
+			continue
+		}
+
+		if ev.Type == StreamEOF {
+			break
+		}
+
+		if ev.Type == StreamLogEntry && onEntry != nil {
+			var lew LogEntryWire
+			if err := json.Unmarshal(ev.Payload, &lew); err == nil {
+				onEntry(lew)
+			}
+		}
+	}
+
+	return nil
+}
+
 // Shutdown requests the daemon to shut down gracefully.
 func (c *Client) Shutdown() error {
 	_, err := c.call(MethodShutdown, nil)

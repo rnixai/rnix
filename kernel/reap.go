@@ -26,9 +26,14 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		proc.mu.Lock()
 		ch := proc.DebugChan
 		proc.DebugChan = nil
+		lch := proc.LogChan
+		proc.LogChan = nil
 		proc.mu.Unlock()
 		if ch != nil {
 			close(ch)
+		}
+		if lch != nil {
+			close(lch)
 		}
 
 		// 4. msgQueue.close() — close message queue, unblock pending Recv (Story 6.1)
