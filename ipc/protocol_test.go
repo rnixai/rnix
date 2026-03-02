@@ -325,6 +325,140 @@ func TestSocketPath_Fallback(t *testing.T) {
 	}
 }
 
+// ============================================================
+// ATDD RED PHASE — Story 10.3: Token 预算管理 (AC5)
+//
+// Tests reference SpawnRequest.ContextBudget and ProcInfoWire.ContextBudget
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 10.3-UNIT-030: [P1] ProcInfoWire includes ContextBudget roundtrip ---
+
+func TestProcInfoWire_ContextBudget_RoundTrip(t *testing.T) {
+	now := time.Now()
+	p := vfs.ProcInfo{
+		PID:           5,
+		PPID:          1,
+		State:         types.StateRunning,
+		Intent:        "budget roundtrip",
+		Skills:        []string{"test"},
+		TokensUsed:    4500,
+		CreatedAt:     now,
+		CtxID:         types.CtxID(42),
+		ContextBudget: 5000,
+	}
+
+	w := ProcInfoToWire(p)
+	if w.ContextBudget != 5000 {
+		t.Errorf("wire ContextBudget: got %d, want 5000", w.ContextBudget)
+	}
+
+	back := WireToProcInfo(w)
+	if back.ContextBudget != 5000 {
+		t.Errorf("roundtrip ContextBudget: got %d, want 5000", back.ContextBudget)
+	}
+}
+
+// --- 10.3-UNIT-031: [P1] ProcInfoWire ContextBudget=0 omitted in JSON ---
+
+func TestProcInfoWire_ContextBudget_OmitEmpty(t *testing.T) {
+	w := ProcInfoWire{
+		PID:           1,
+		State:         types.StateRunning,
+		Skills:        []string{},
+		ContextBudget: 0,
+	}
+	data, err := json.Marshal(w)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if _, exists := raw["context_budget"]; exists {
+		t.Error("context_budget should be omitted when 0 (omitempty)")
+	}
+}
+
+// --- 10.3-UNIT-032: [P1] ProcInfoWire ContextBudget>0 present in JSON ---
+
+func TestProcInfoWire_ContextBudget_PresentWhenSet(t *testing.T) {
+	w := ProcInfoWire{
+		PID:           1,
+		State:         types.StateRunning,
+		Skills:        []string{},
+		ContextBudget: 10000,
+	}
+	data, err := json.Marshal(w)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	budgetJSON, exists := raw["context_budget"]
+	if !exists {
+		t.Fatal("context_budget should be present when > 0")
+	}
+
+	var budget int
+	if err := json.Unmarshal(budgetJSON, &budget); err != nil {
+		t.Fatalf("unmarshal budget: %v", err)
+	}
+	if budget != 10000 {
+		t.Errorf("context_budget: got %d, want 10000", budget)
+	}
+}
+
+// --- 10.3-UNIT-033: [P1] SpawnRequest includes ContextBudget ---
+
+func TestSpawnRequest_ContextBudget_RoundTrip(t *testing.T) {
+	sr := SpawnRequest{
+		Intent:        "budget spawn",
+		Agent:         "test-agent",
+		Model:         "sonnet",
+		ContextBudget: 8000,
+	}
+	data, err := json.Marshal(sr)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded SpawnRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.ContextBudget != 8000 {
+		t.Errorf("ContextBudget: got %d, want 8000", decoded.ContextBudget)
+	}
+}
+
+// --- 10.3-UNIT-034: [P2] SpawnRequest ContextBudget=0 omitted ---
+
+func TestSpawnRequest_ContextBudget_OmitEmpty(t *testing.T) {
+	sr := SpawnRequest{
+		Intent: "no budget",
+	}
+	data, err := json.Marshal(sr)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if _, exists := raw["context_budget"]; exists {
+		t.Error("context_budget should be omitted when 0")
+	}
+}
+
 func TestMethodConstants(t *testing.T) {
 	methods := []Method{MethodPing, MethodSpawn, MethodListProcs, MethodKill, MethodAttachDebug, MethodShutdown}
 	seen := make(map[Method]bool)

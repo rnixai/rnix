@@ -445,6 +445,135 @@ func TestProcFS_ConcurrentReads(t *testing.T) {
 	wg.Wait()
 }
 
+// ============================================================
+// ATDD RED PHASE — Story 10.3: Token 预算管理 (AC5)
+//
+// Tests reference ProcInfo.ContextBudget and statusJSON.ContextBudget
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 10.3-UNIT-050: [P1] statusJSON includes context_budget when set ---
+
+func TestProcFS_Status_IncludesContextBudget(t *testing.T) {
+	provider := &mockProcessInfoProvider{
+		procs: map[types.PID]*ProcInfo{
+			1: {
+				PID:           1,
+				PPID:          0,
+				State:         types.StateRunning,
+				Intent:        "budget test",
+				Skills:        []string{"test"},
+				TokensUsed:    3000,
+				CreatedAt:     time.Now(),
+				ContextBudget: 5000,
+			},
+		},
+	}
+	ctxProvider := &mockContextSummaryProvider{summaries: map[types.CtxID]string{}}
+	procFS := NewProcFS(provider, ctxProvider)
+	factory := procFS.FileFactory()
+
+	file, err := factory("/1/status", O_RDONLY)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer file.Close()
+
+	data, err := file.Read(1 << 20)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	var status statusJSON
+	if err := json.Unmarshal(data, &status); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, data)
+	}
+
+	if status.ContextBudget != 5000 {
+		t.Errorf("context_budget: got %d, want 5000", status.ContextBudget)
+	}
+}
+
+// --- 10.3-UNIT-051: [P1] statusJSON omits context_budget when 0 ---
+
+func TestProcFS_Status_OmitsContextBudgetWhenZero(t *testing.T) {
+	provider := &mockProcessInfoProvider{
+		procs: map[types.PID]*ProcInfo{
+			1: {
+				PID:           1,
+				State:         types.StateRunning,
+				Intent:        "no budget",
+				Skills:        []string{},
+				TokensUsed:    500,
+				CreatedAt:     time.Now(),
+				ContextBudget: 0,
+			},
+		},
+	}
+	ctxProvider := &mockContextSummaryProvider{summaries: map[types.CtxID]string{}}
+	procFS := NewProcFS(provider, ctxProvider)
+	factory := procFS.FileFactory()
+
+	file, err := factory("/1/status", O_RDONLY)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer file.Close()
+
+	data, err := file.Read(1 << 20)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if _, exists := raw["context_budget"]; exists {
+		t.Error("context_budget should be omitted when 0 (omitempty)")
+	}
+}
+
+// --- 10.3-UNIT-052: [P2] ProcInfo.ContextBudget field exists and serializes ---
+
+func TestProcInfo_ContextBudget_FieldExists(t *testing.T) {
+	info := ProcInfo{
+		PID:           1,
+		State:         types.StateRunning,
+		ContextBudget: 10000,
+	}
+	if info.ContextBudget != 10000 {
+		t.Errorf("expected ContextBudget 10000, got %d", info.ContextBudget)
+	}
+}
+
+// --- 10.3-UNIT-053: [P2] ListProcs returns ContextBudget for all processes ---
+
+func TestProcFS_ListProcs_ContextBudget(t *testing.T) {
+	provider := &mockProcessInfoProvider{
+		procs: map[types.PID]*ProcInfo{
+			1: {PID: 1, State: types.StateRunning, ContextBudget: 3000},
+			2: {PID: 2, State: types.StateRunning, ContextBudget: 0},
+			3: {PID: 3, State: types.StateRunning, ContextBudget: 8000},
+		},
+	}
+	procs := provider.ListProcs()
+	budgets := make(map[types.PID]int)
+	for _, p := range procs {
+		budgets[p.PID] = p.ContextBudget
+	}
+	if budgets[1] != 3000 {
+		t.Errorf("PID 1 budget: got %d, want 3000", budgets[1])
+	}
+	if budgets[2] != 0 {
+		t.Errorf("PID 2 budget: got %d, want 0", budgets[2])
+	}
+	if budgets[3] != 8000 {
+		t.Errorf("PID 3 budget: got %d, want 8000", budgets[3])
+	}
+}
+
 // Test stateToString mapping
 func TestStateToString(t *testing.T) {
 	tests := []struct {

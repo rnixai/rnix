@@ -629,6 +629,112 @@ func TestEngine_Execute_PartialFailure(t *testing.T) {
 	}
 }
 
+// ============================================================
+// ATDD RED PHASE — Story 10.3: Token 预算管理 (AC2)
+//
+// Tests reference AgentSpec.ContextBudget and ComposeSpawnOpts.ContextBudget
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 10.3-UNIT-020: [P0] AgentSpec.ContextBudget passed to ComposeSpawnOpts ---
+
+func TestEngine_Execute_ContextBudgetPassthrough(t *testing.T) {
+	spec := &ComposeSpec{
+		Version: "1.0",
+		Intent:  "budget passthrough",
+		Agents: map[string]*AgentSpec{
+			"worker": {Intent: "do work", ContextBudget: 5000},
+		},
+	}
+	ks := newMockKernelSpawner()
+	engine, err := NewEngine(spec, ks, mockAgentLoader)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+
+	results, err := engine.Execute(context.Background())
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if len(ks.spawned) != 1 {
+		t.Fatalf("expected 1 spawn, got %d", len(ks.spawned))
+	}
+	if ks.spawned[0].opts.ContextBudget != 5000 {
+		t.Errorf("expected ContextBudget 5000, got %d", ks.spawned[0].opts.ContextBudget)
+	}
+}
+
+// --- 10.3-UNIT-021: [P1] AgentSpec without budget passes 0 ---
+
+func TestEngine_Execute_NoBudgetPassesZero(t *testing.T) {
+	spec := &ComposeSpec{
+		Version: "1.0",
+		Intent:  "no budget",
+		Agents: map[string]*AgentSpec{
+			"worker": {Intent: "do work"},
+		},
+	}
+	ks := newMockKernelSpawner()
+	engine, err := NewEngine(spec, ks, mockAgentLoader)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+
+	_, err = engine.Execute(context.Background())
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	if len(ks.spawned) != 1 {
+		t.Fatalf("expected 1 spawn, got %d", len(ks.spawned))
+	}
+	if ks.spawned[0].opts.ContextBudget != 0 {
+		t.Errorf("expected ContextBudget 0 for no-budget agent, got %d", ks.spawned[0].opts.ContextBudget)
+	}
+}
+
+// --- 10.3-UNIT-022: [P1] Multiple agents with different budgets ---
+
+func TestEngine_Execute_MultipleBudgets(t *testing.T) {
+	spec := &ComposeSpec{
+		Version: "1.0",
+		Intent:  "mixed budgets",
+		Agents: map[string]*AgentSpec{
+			"cheap":     {Intent: "cheap task", ContextBudget: 1000},
+			"expensive": {Intent: "expensive task", ContextBudget: 50000},
+			"unlimited": {Intent: "unlimited task"},
+		},
+	}
+	ks := newMockKernelSpawner()
+	engine, err := NewEngine(spec, ks, mockAgentLoader)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+
+	_, err = engine.Execute(context.Background())
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+
+	budgetByIntent := make(map[string]int)
+	for _, rec := range ks.spawned {
+		budgetByIntent[rec.intent] = rec.opts.ContextBudget
+	}
+	if budgetByIntent["cheap task"] != 1000 {
+		t.Errorf("expected 1000 for cheap, got %d", budgetByIntent["cheap task"])
+	}
+	if budgetByIntent["expensive task"] != 50000 {
+		t.Errorf("expected 50000 for expensive, got %d", budgetByIntent["expensive task"])
+	}
+	if budgetByIntent["unlimited task"] != 0 {
+		t.Errorf("expected 0 for unlimited, got %d", budgetByIntent["unlimited task"])
+	}
+}
+
 func TestEngine_Execute_EmptyAfterCancel(t *testing.T) {
 	// Given: immediate context cancellation
 	spec := &ComposeSpec{
