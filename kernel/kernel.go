@@ -160,6 +160,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		parent.AddChild(proc.PID)
 	}
 
+	// Normalize negative budget to 0 (no limit) before priority resolution
+	if opts.ContextBudget < 0 {
+		opts.ContextBudget = 0
+	}
+
 	// Load Agent information if specified
 	if agent != nil {
 		// System prompt = Agent instructions + Skill bodies
@@ -184,9 +189,6 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		}
 	}
 
-	if opts.ContextBudget < 0 {
-		opts.ContextBudget = 0
-	}
 	proc.ContextBudget = opts.ContextBudget
 
 	// Allocate context

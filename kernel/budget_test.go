@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -386,7 +385,6 @@ func TestGetProcInfo_IncludesContextBudget(t *testing.T) {
 
 func TestBudgetEnforcement_MultiStep_CumulativeCheck(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
-	callCount := 0
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
 		return &sequenceLLMFile{
 			responses: [][]byte{
@@ -398,7 +396,6 @@ func TestBudgetEnforcement_MultiStep_CumulativeCheck(t *testing.T) {
 		}, nil
 	})
 	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
-		callCount++
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -572,5 +569,3 @@ func TestSpawn_WithAgent_UsesBudgetFromManifest(t *testing.T) {
 	}
 }
 
-// Silence unused import warning
-var _ = fmt.Sprintf
