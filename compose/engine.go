@@ -137,7 +137,8 @@ func (e *Engine) executeNode(ctx context.Context, name string, pids *xsync.SyncM
 		model = e.spec.Model
 	}
 	opts := ComposeSpawnOpts{
-		Model: model,
+		Model:         model,
+		ContextBudget: agentSpec.ContextBudget,
 	}
 	upstreamPrompt := e.buildUpstreamPrompt(name, pids)
 	if upstreamPrompt != "" {

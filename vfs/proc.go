@@ -33,6 +33,7 @@ type ProcInfo struct {
 	Intent         string
 	Skills         []string
 	TokensUsed     int
+	ContextBudget  int
 	CreatedAt      time.Time
 	CtxID          types.CtxID
 	Result         string
@@ -167,6 +168,7 @@ type statusJSON struct {
 	Intent         string    `json:"intent"`
 	Skills         []string  `json:"skills"`
 	TokensUsed     int       `json:"tokens_used"`
+	ContextBudget  int       `json:"context_budget,omitempty"`
 	ElapsedMs      int64     `json:"elapsed_ms"`
 	AllowedDevices []string  `json:"allowed_devices"`
 }
@@ -180,6 +182,7 @@ func buildStatusJSON(info *ProcInfo) ([]byte, error) {
 		Intent:         info.Intent,
 		Skills:         info.Skills,
 		TokensUsed:     info.TokensUsed,
+		ContextBudget:  info.ContextBudget,
 		ElapsedMs:      time.Since(info.CreatedAt).Milliseconds(),
 		AllowedDevices: info.AllowedDevices,
 	}

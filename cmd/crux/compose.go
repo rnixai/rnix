@@ -87,8 +87,9 @@ func (s *ipcKernelSpawner) Spawn(intent string, agent *agents.AgentInfo, opts co
 	}
 
 	req := ipc.SpawnRequest{
-		Intent: intent,
-		Model:  opts.Model,
+		Intent:        intent,
+		Model:         opts.Model,
+		ContextBudget: opts.ContextBudget,
 	}
 	if agent != nil {
 		req.Agent = agent.Manifest.Name
