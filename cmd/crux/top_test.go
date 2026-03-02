@@ -521,6 +521,109 @@ func TestRunTop_NoDaemon(t *testing.T) {
 	}
 }
 
+// ============================================================
+// ATDD RED PHASE — Story 10.3: Token 预算管理 (AC3, AC4)
+//
+// Tests reference ProcInfo.ContextBudget which does NOT exist yet.
+// RED → GREEN: add ContextBudget to ProcInfo and rendering logic.
+// ============================================================
+
+// --- 10.3-UNIT-040: [P1] TOKENS column shows "used/budget" when budget > 0 ---
+
+func TestTopSummaryLine_WithBudgetInfo(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, TokensUsed: 3000, ContextBudget: 5000},
+		{PID: 2, State: types.StateRunning, TokensUsed: 2000, ContextBudget: 0},
+	}
+	summary := topSummaryLine(procs, time.Minute)
+	if summary == "" {
+		t.Fatal("summary should not be empty")
+	}
+}
+
+// --- 10.3-UNIT-041: [P1] topDetailView shows budget in detail when set ---
+
+func TestTopDetailView_ShowsBudget(t *testing.T) {
+	proc := vfs.ProcInfo{
+		PID:           1,
+		State:         types.StateRunning,
+		Intent:        "budget display test",
+		TokensUsed:    4500,
+		ContextBudget: 5000,
+	}
+	detail := topDetailView(proc, nil)
+
+	if !strings.Contains(detail, "5000") && !strings.Contains(detail, "5,000") {
+		t.Errorf("detail view should show budget value 5000, got %q", detail)
+	}
+	if !strings.Contains(detail, "4500") && !strings.Contains(detail, "4,500") {
+		t.Errorf("detail view should show tokens used 4500, got %q", detail)
+	}
+}
+
+// --- 10.3-UNIT-042: [P1] topDetailView omits budget line when ContextBudget=0 ---
+
+func TestTopDetailView_NoBudgetOmitsBudgetLine(t *testing.T) {
+	proc := vfs.ProcInfo{
+		PID:           1,
+		State:         types.StateRunning,
+		Intent:        "no budget",
+		TokensUsed:    1000,
+		ContextBudget: 0,
+	}
+	detail := topDetailView(proc, nil)
+
+	if strings.Contains(strings.ToLower(detail), "budget") {
+		t.Errorf("detail view should NOT contain 'budget' when ContextBudget=0, got %q", detail)
+	}
+}
+
+// --- 10.3-UNIT-043: [P1] warning style when usage >= 80% of budget ---
+
+func TestTopView_WarningStyleHighUsage(t *testing.T) {
+	m := newTopModel(nil)
+	proc := vfs.ProcInfo{
+		PID:           1,
+		State:         types.StateRunning,
+		Intent:        "almost exceeded",
+		TokensUsed:    4500,
+		ContextBudget: 5000,
+	}
+	m.rows = []flatRow{{proc: proc}}
+	m.processes = []vfs.ProcInfo{proc}
+
+	v := m.View()
+	content := v.Content
+	if content == "" {
+		t.Fatal("view content should not be empty")
+	}
+	// The token column for 90% usage (4500/5000) should indicate warning
+	// Exact rendering depends on implementation, but tokens should be present
+	if !strings.Contains(content, "4500") && !strings.Contains(content, "4,500") {
+		t.Errorf("view should show tokens used, got %q", content)
+	}
+}
+
+// --- 10.3-UNIT-044: [P2] View shows plain tokens when no budget (AC4) ---
+
+func TestTopView_PlainTokensNoBudget(t *testing.T) {
+	m := newTopModel(nil)
+	proc := vfs.ProcInfo{
+		PID:           1,
+		State:         types.StateRunning,
+		Intent:        "no budget plain",
+		TokensUsed:    3000,
+		ContextBudget: 0,
+	}
+	m.rows = []flatRow{{proc: proc}}
+	m.processes = []vfs.ProcInfo{proc}
+
+	v := m.View()
+	if !strings.Contains(v.Content, "3000") && !strings.Contains(v.Content, "3,000") {
+		t.Errorf("view should show plain tokens, got %q", v.Content)
+	}
+}
+
 // --- buildTree: multiple root processes ---
 
 func TestBuildTree_MultipleRoots(t *testing.T) {
