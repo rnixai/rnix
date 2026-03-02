@@ -7,18 +7,22 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+	"github.com/gonewx/crux/drivers/mcp"
 	"github.com/gonewx/crux/skills"
+	"github.com/gonewx/crux/vfs"
 )
 
 // AgentLoader loads agent definitions from a base directory.
 type AgentLoader struct {
 	basePath    string
 	skillLoader *skills.SkillLoader
+	mcpConfig   *mcp.MCPGlobalConfig // global MCP configuration (nil = no MCP resolution)
 }
 
 // NewAgentLoader creates a new AgentLoader rooted at basePath.
-func NewAgentLoader(basePath string, sl *skills.SkillLoader) *AgentLoader {
-	return &AgentLoader{basePath: basePath, skillLoader: sl}
+// Pass nil for mcpCfg to skip MCP resolution (backward compatible).
+func NewAgentLoader(basePath string, sl *skills.SkillLoader, mcpCfg *mcp.MCPGlobalConfig) *AgentLoader {
+	return &AgentLoader{basePath: basePath, skillLoader: sl, mcpConfig: mcpCfg}
 }
 
 // Load reads an agent's agent.yaml, instructions.md, and all referenced skills.
@@ -74,9 +78,22 @@ func (l *AgentLoader) Load(agentName string) (*AgentInfo, error) {
 		loadedSkills = append(loadedSkills, skillInfo)
 	}
 
+	// Resolve MCP references from global config
+	var mcpConfigs []vfs.MCPConfig
+	if len(manifest.MCP) > 0 && l.mcpConfig != nil {
+		for _, serverName := range manifest.MCP {
+			serverCfg, ok := l.mcpConfig.Servers[serverName]
+			if !ok {
+				return nil, fmt.Errorf("mcp server %q not found in mcp.yaml", serverName)
+			}
+			mcpConfigs = append(mcpConfigs, serverCfg.ToMCPConfig(serverName))
+		}
+	}
+
 	return &AgentInfo{
 		Manifest:     manifest,
 		Instructions: string(instructionsData),
 		Skills:       loadedSkills,
+		MCPConfigs:   mcpConfigs,
 	}, nil
 }

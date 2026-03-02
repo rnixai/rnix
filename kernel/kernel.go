@@ -236,6 +236,43 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 	proc.FDTable[llmFD] = nil // VFS manages actual file internally; tracks FD existence for process inspection
 
+	// Auto-mount MCP servers referenced in agent.yaml (Story 9.2)
+	if agent != nil && len(agent.MCPConfigs) > 0 {
+		if k.mountMgr == nil {
+			_ = k.vfs.CloseAll(proc.PID)
+			_ = k.ctxMgr.CtxFree(cid)
+			return 0, NewSyscallError("Spawn", proc.PID, "",
+				fmt.Errorf("mount manager not initialized but agent requires MCP servers"), types.ErrInternal)
+		}
+		var mountedPaths []string
+		for _, mcpCfg := range agent.MCPConfigs {
+			mountPath := fmt.Sprintf("/mnt/mcp/%d-%s", proc.PID, mcpCfg.ServerName)
+			mountStart := time.Now()
+			if err := k.mountMgr.Mount(mountPath, mcpCfg); err != nil {
+				k.emitEvent(proc, "Mount", map[string]any{
+					"path": mountPath,
+					"auto": true,
+				}, nil, err, time.Since(mountStart))
+				// Rollback already-mounted paths
+				for _, p := range mountedPaths {
+					_ = k.mountMgr.Unmount(p)
+				}
+				_ = k.vfs.CloseAll(proc.PID)
+				_ = k.ctxMgr.CtxFree(cid)
+				return 0, NewSyscallError("Spawn", proc.PID, mountPath,
+					fmt.Errorf("auto-mount mcp %q failed: %w", mcpCfg.ServerName, err), types.ErrDriver)
+			}
+			k.emitEvent(proc, "Mount", map[string]any{
+				"path": mountPath,
+				"auto": true,
+			}, nil, nil, time.Since(mountStart))
+			mountedPaths = append(mountedPaths, mountPath)
+		}
+		proc.mu.Lock()
+		proc.MCPMounts = mountedPaths
+		proc.mu.Unlock()
+	}
+
 	// Set up goroutine context for cancellation
 	ctx, cancel := gocontext.WithCancel(gocontext.Background())
 	proc.cancel = cancel
@@ -255,6 +292,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		spawnArgs["agent"] = agent.Manifest.Name
 		spawnArgs["skills"] = skillNames
 		spawnArgs["allowed_devices"] = proc.AllowedDevices
+		if len(proc.MCPMounts) > 0 {
+			spawnArgs["mcp_mounts"] = proc.MCPMounts
+		}
 	}
 	k.emitEvent(proc, "Spawn", spawnArgs, proc.PID, nil, time.Since(start))
 
@@ -294,6 +334,22 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 
 // finishProcess terminates the process and writes the exit status to the Done channel.
 func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
+	// Auto-Unmount MCP servers before terminating (Story 9.2)
+	proc.mu.Lock()
+	mcpMounts := append([]string(nil), proc.MCPMounts...)
+	proc.mu.Unlock()
+	if k.mountMgr != nil {
+		for _, mountPath := range mcpMounts {
+			unmountStart := time.Now()
+			err := k.mountMgr.Unmount(mountPath)
+			k.emitEvent(proc, "Unmount", map[string]any{
+				"path": mountPath,
+				"auto": true,
+			}, nil, err, time.Since(unmountStart))
+			// Unmount failure does not block process exit
+		}
+	}
+
 	_ = proc.Terminate(exit)
 
 	// Notify callbacks

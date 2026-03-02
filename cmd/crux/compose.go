@@ -11,6 +11,7 @@ import (
 
 	"github.com/gonewx/crux/agents"
 	"github.com/gonewx/crux/compose"
+	"github.com/gonewx/crux/drivers/mcp"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/internal/xsync"
@@ -185,7 +186,17 @@ func runComposeUp(cmd *cobra.Command, args []string) error {
 
 	// 4. Create AgentLoaderFunc (local loading)
 	skillLoader := skills.NewSkillLoader("lib/skills")
-	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader)
+
+	// Load global MCP configuration (consistent with daemon behavior)
+	var mcpCfg *mcp.MCPGlobalConfig
+	if _, err := os.Stat("mcp.yaml"); err == nil {
+		mcpCfg, err = mcp.LoadMCPConfig("mcp.yaml")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[compose] warn: failed to load mcp.yaml: %v\n", err)
+		}
+	}
+
+	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader, mcpCfg)
 	agentLoaderFunc := compose.AgentLoaderFunc(agentLoader.Load)
 
 	// 5. Create Engine

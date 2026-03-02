@@ -20,6 +20,7 @@ import (
 	"github.com/gonewx/crux/debug"
 	"github.com/gonewx/crux/drivers/fs"
 	"github.com/gonewx/crux/drivers/llm"
+	"github.com/gonewx/crux/drivers/mcp"
 	"github.com/gonewx/crux/drivers/shell"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
@@ -712,10 +713,34 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))
 	ctxMgr := cruxctx.NewManager()
 	skillLoader := skills.NewSkillLoader("lib/skills")
-	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader)
+
+	// Load global MCP configuration (optional, mcp.yaml may not exist)
+	var mcpCfg *mcp.MCPGlobalConfig
+	if _, err := os.Stat("mcp.yaml"); err == nil {
+		mcpCfg, err = mcp.LoadMCPConfig("mcp.yaml")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[kernel] warn: failed to load mcp.yaml: %v\n", err)
+		}
+	}
+
+	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader, mcpCfg)
+
+	// Create MountManager with TransportFactory for MCP server mounts
+	transportFactory := func(config vfs.MCPConfig) (vfs.MCPTransport, error) {
+		tc := mcp.TransportConfig{
+			Command: config.Command,
+			Args:    config.Args,
+		}
+		for k, v := range config.Env {
+			tc.Env = append(tc.Env, k+"="+v)
+		}
+		return mcp.NewStdioTransport(tc), nil
+	}
+	mountMgr := vfs.NewMountManager(devReg, transportFactory)
 
 	srv := ipc.NewServer(nil, agentLoader.Load, version)
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
+	k.SetMountManager(mountMgr)
 	srv.SetKernel(k)
 
 	procFS := vfs.NewProcFS(k, ctxMgr)

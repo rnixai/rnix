@@ -1,0 +1,12 @@
+name: mcp-agent
+description: "Agent with MCP references for testing"
+models:
+  provider: claude
+  preferred: sonnet
+  fallback: haiku
+context_budget: 4096
+skills:
+  - mock-skill
+mcp:
+  - github
+  - slack
