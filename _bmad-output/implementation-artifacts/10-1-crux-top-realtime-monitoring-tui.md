@@ -1,6 +1,6 @@
 # Story 10.1: crux top 实时监控 TUI
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -25,7 +25,7 @@ So that 我随时掌握系统全局运行态。
 
 3. **AC3: Kill 进程**
    - Given 用户在 TUI 中选中进程
-   - When 按 `k` 键
+   - When 按 `K`（Shift+K）键
    - Then Kill 选中的进程（调用 `client.Kill(pid, SIGTERM)`）
 
 4. **AC4: 进程详情**
@@ -40,37 +40,36 @@ So that 我随时掌握系统全局运行态。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 添加 bubbletea v2 依赖 (AC: #1)
-  - [ ] 1.1 `go get charm.land/bubbletea/v2 charm.land/bubbles/v2`
-  - [ ] 1.2 验证与现有 lipgloss v1.1.0 兼容
-- [ ] Task 2: 实现 `cmd/crux/top.go` cobra 命令 (AC: #1)
-  - [ ] 2.1 注册 `top` 子命令（Use: "top", Short: "实时监控面板"）
-  - [ ] 2.2 `runTop()` 函数：建立 IPC 连接，初始化 bubbletea Program
-  - [ ] 2.3 处理 daemon 未运行场景（优雅降级提示）
-- [ ] Task 3: 实现 bubbletea Model (AC: #1, #2)
-  - [ ] 3.1 定义 `topModel` 结构体（processes、cursor、detailPID、ipcClient、ticker）
-  - [ ] 3.2 `Init()` 返回初始 tick 命令
-  - [ ] 3.3 `Update()` 处理 tickMsg（拉取 ListProcs）、KeyPressMsg、windowSizeMsg
-  - [ ] 3.4 `View()` 渲染汇总区 + 进程树
-- [ ] Task 4: 实现进程树构建 (AC: #1)
-  - [ ] 4.1 从 `[]vfs.ProcInfo` 构建 PID→Children 映射
-  - [ ] 4.2 DFS 遍历生成树状缩进列表（用 `├──` / `└──` 前缀）
-  - [ ] 4.3 处理孤儿进程（PPID 不在列表中的归到根级）
-- [ ] Task 5: 实现键盘交互 (AC: #3, #4, #5)
-  - [ ] 5.1 `q` / `ctrl+c` → `tea.Quit`
-  - [ ] 5.2 `up`/`k` / `down`/`j` → 移动光标
-  - [ ] 5.3 `k` → Kill 选中进程（需区分导航键和 Kill 键：仅单独按 `k` 且非导航状态时 Kill）
-    - **注意**：`k` 同时用于上移和 Kill，需设计明确的按键方案。建议：`K`（大写/Shift+K）或 `d`（delete）用于 Kill，`k` 仅用于上移，与 vim 习惯一致
-  - [ ] 5.4 `Enter` → 切换详情视图（显示 Intent 全文、Skills 列表、CreatedAt、TokensUsed 等）
-  - [ ] 5.5 `Esc` → 从详情视图返回列表视图
-- [ ] Task 6: 实现 IPC 轮询 (AC: #2)
-  - [ ] 6.1 使用 `tea.Tick(500*time.Millisecond, ...)` 触发定时刷新
-  - [ ] 6.2 tick 回调中调用 `client.ListProcs()` 获取快照
-  - [ ] 6.3 处理 IPC 连接断开（自动重连或显示断开状态）
-- [ ] Task 7: 测试 (AC: all)
-  - [ ] 7.1 单元测试：进程树构建逻辑
-  - [ ] 7.2 单元测试：View 输出格式
-  - [ ] 7.3 在 `cmd/crux/main_test.go` 中确认 `top` 命令注册
+- [x] Task 1: 添加 bubbletea v2 依赖 (AC: #1)
+  - [x] 1.1 `go get charm.land/bubbletea/v2`（bubbles/v2 不需要，本故事无 bubbles 组件）
+  - [x] 1.2 验证与现有 lipgloss 兼容（升级 cellbuf 解决 API 兼容性）
+- [x] Task 2: 实现 `cmd/crux/top.go` cobra 命令 (AC: #1)
+  - [x] 2.1 注册 `top` 子命令（Use: "top", Short: "实时监控面板"）
+  - [x] 2.2 `runTop()` 函数：建立 IPC 连接，初始化 bubbletea Program
+  - [x] 2.3 处理 daemon 未运行场景（优雅降级提示）
+- [x] Task 3: 实现 bubbletea Model (AC: #1, #2)
+  - [x] 3.1 定义 `topModel` 结构体（processes、cursor、detailPID、client、startTime 等）
+  - [x] 3.2 `Init()` 返回初始 tick 命令
+  - [x] 3.3 `Update()` 处理 tickMsg（拉取 ListProcs）、KeyPressMsg、WindowSizeMsg
+  - [x] 3.4 `View()` 渲染汇总区 + 进程树（使用 tea.View + AltScreen）
+- [x] Task 4: 实现进程树构建 (AC: #1)
+  - [x] 4.1 从 `[]vfs.ProcInfo` 构建 PID→Children 映射
+  - [x] 4.2 DFS 遍历生成树状缩进列表（用 `├─` / `└─` 前缀）
+  - [x] 4.3 处理孤儿进程（PPID 不在列表中的归到根级）
+- [x] Task 5: 实现键盘交互 (AC: #3, #4, #5)
+  - [x] 5.1 `q` / `ctrl+c` → `tea.Quit`
+  - [x] 5.2 `up`/`k` / `down`/`j` → 移动光标
+  - [x] 5.3 `K`（Shift+K）→ Kill 选中进程，`k` 仅用于上移导航
+  - [x] 5.4 `Enter` → 切换详情视图（显示 Intent 全文、Skills 列表、CreatedAt、TokensUsed 等）
+  - [x] 5.5 `Esc` → 从详情视图返回列表视图
+- [x] Task 6: 实现 IPC 轮询 (AC: #2)
+  - [x] 6.1 使用 `tea.Tick(500*time.Millisecond, ...)` 触发定时刷新
+  - [x] 6.2 tick 回调中调用 `client.ListProcs()` 获取快照
+  - [x] 6.3 处理 IPC 连接断开（自动重连或显示断开状态）
+- [x] Task 7: 测试 (AC: all)
+  - [x] 7.1 单元测试：进程树构建逻辑（8 个测试）
+  - [x] 7.2 单元测试：View 输出格式（topSummaryLine 3 个 + topDetailView 3 个 + bubbletea Model 10 个）
+  - [x] 7.3 在 `cmd/crux/main_test.go` 中确认 `top` 命令注册
 
 ## Dev Notes
 
@@ -303,10 +302,46 @@ TUI 运行中如果 `ListProcs()` 返回错误：
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-4.6-opus
 
 ### Debug Log References
 
+- lipgloss v1.1.0 升级 cellbuf 到 v0.0.15 以兼容 bubbletea v2 的新 ansi 依赖树
+- bubbletea v2 的 `View()` 返回 `tea.View`（非 string），通过 `tea.NewView(s)` 创建
+- bubbletea v2 使用 `View.AltScreen = true` 代替 `tea.WithAltScreen()` 程序选项
+- bubbletea v2 使用 `tea.KeyPressMsg` 代替 v1 的 `tea.KeyMsg`
+- bubbles/v2 未添加——本故事不需要任何 bubbles 组件
+
 ### Completion Notes List
 
+- ✅ 添加 charm.land/bubbletea/v2 v2.0.0 依赖，升级 cellbuf 兼容性
+- ✅ 导出 internal/ui/table.go 的 FormatDuration/FormatTokens/FormatSkills/StripAnsi，供 top.go 复用
+- ✅ 实现完整 bubbletea TUI：topModel（Init/Update/View），buildTree，flattenTree，topSummaryLine，topDetailView
+- ✅ 注册 topCmd 到 rootCmd，runTop 处理 daemon 未运行场景
+- ✅ 键盘映射：q/ctrl+c 退出，j/k 导航，K（Shift+K）Kill，Enter 详情，Esc 返回
+- ✅ IPC 轮询 500ms tick，断线自动重连，汇总区显示 [disconnected]
+- ✅ 31 个测试全部通过（19 个原有 ATDD + 12 个 bubbletea Model/detail 测试）
+- ✅ 全套回归测试通过（含 -race 竞态检测）
+- ✅ 更新 main_test.go 中 "top" 不再是 unknown command 的测试用例
+- ✅ [Code Review] 修复 View() 值接收器死代码（H1）
+- ✅ [Code Review] 修复 runTop 资源管理：使用 p.Run() 返回的 final model 关闭正确的 client（H2）
+- ✅ [Code Review] topDetailView 添加 Children 字段显示（H3）
+- ✅ [Code Review] killSelected 添加用户反馈 statusMsg（M1）
+- ✅ [Code Review] 修正 AC3 文本 k→K（M2）
+- ✅ [Code Review] 加强 TestTopSummaryLine_Content 断言为 "2 active"（M3）
+
+### Change Log
+
+- 2026-03-02: Story 10.1 完整实现 — crux top 实时监控 TUI
+- 2026-03-02: Code Review 修复 — 6 项问题（3H+3M），31 个测试全部通过
+
 ### File List
+
+- cmd/crux/top.go (新文件 — 完整 TUI 实现)
+- cmd/crux/top_test.go (修改 — 添加 bubbletea Model 测试)
+- cmd/crux/main.go (修改 — 注册 topCmd)
+- cmd/crux/main_test.go (修改 — 更新 rejectPositionalArgs 测试用例)
+- internal/ui/table.go (修改 — 导出 FormatDuration/FormatTokens/FormatSkills/StripAnsi)
+- internal/ui/table_test.go (修改 — 更新导出函数名)
+- go.mod (修改 — 添加 charm.land/bubbletea/v2 及相关依赖)
+- go.sum (修改 — 依赖校验)

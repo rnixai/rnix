@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/vfs"
 )
@@ -175,8 +177,8 @@ func TestTopSummaryLine_Content(t *testing.T) {
 	}
 	summary := topSummaryLine(procs, 5*time.Minute)
 
-	if !strings.Contains(summary, "2") {
-		t.Errorf("summary should contain active count (2 running), got %q", summary)
+	if !strings.Contains(summary, "2 active") {
+		t.Errorf("summary should contain '2 active' (2 running), got %q", summary)
 	}
 	if !strings.Contains(summary, "crux top") {
 		t.Errorf("summary should contain 'crux top' branding, got %q", summary)
@@ -248,7 +250,12 @@ func TestTopDetailView_ContainsFields(t *testing.T) {
 		CtxID:          1,
 		AllowedDevices: []string{"/dev/llm/claude", "/dev/fs"},
 	}
-	detail := topDetailView(proc)
+	allProcs := []vfs.ProcInfo{
+		proc,
+		{PID: 2, PPID: 1, State: types.StateRunning},
+		{PID: 3, PPID: 1, State: types.StateZombie},
+	}
+	detail := topDetailView(proc, allProcs)
 
 	if !strings.Contains(detail, "running") {
 		t.Errorf("detail should contain state, got %q", detail)
@@ -259,6 +266,9 @@ func TestTopDetailView_ContainsFields(t *testing.T) {
 	if !strings.Contains(detail, "code-analysis") {
 		t.Errorf("detail should contain skills, got %q", detail)
 	}
+	if !strings.Contains(detail, "PID 2") || !strings.Contains(detail, "PID 3") {
+		t.Errorf("detail should list children PID 2 and PID 3, got %q", detail)
+	}
 }
 
 func TestTopDetailView_ShowsDevices(t *testing.T) {
@@ -267,7 +277,7 @@ func TestTopDetailView_ShowsDevices(t *testing.T) {
 		State:          types.StateRunning,
 		AllowedDevices: []string{"/dev/llm/claude", "/dev/fs"},
 	}
-	detail := topDetailView(proc)
+	detail := topDetailView(proc, nil)
 
 	if !strings.Contains(detail, "/dev/llm/claude") {
 		t.Errorf("detail should list allowed devices, got %q", detail)
@@ -283,24 +293,202 @@ func TestTopDetailView_EmptySkills(t *testing.T) {
 		State:  types.StateRunning,
 		Skills: nil,
 	}
-	detail := topDetailView(proc)
+	detail := topDetailView(proc, nil)
 	if detail == "" {
 		t.Error("detail view should render even with nil skills")
 	}
 }
 
-// --- 10.1-UNIT-011 to 10.1-UNIT-020: Bubbletea-dependent tests ---
-// The following tests require bubbletea v2 dependency (Task 1 of story).
-// Test scenarios documented here; implementations added when dependency is available.
-//
-// 10.1-UNIT-011: Init() returns tick command
-// 10.1-UNIT-012: Update(tickMsg) triggers process data refresh
-// 10.1-UNIT-013: Update(K) triggers kill on selected PID
-// 10.1-UNIT-014: Cursor navigation j/k moves up/down
-// 10.1-UNIT-015: Kill on empty process list is no-op
-// 10.1-UNIT-018: Update(Esc) returns to list view from detail
-// 10.1-UNIT-019: Update(q) returns tea.Quit
-// 10.1-UNIT-020: Update(ctrl+c) returns tea.Quit
+func TestTopDetailView_NoChildren(t *testing.T) {
+	proc := vfs.ProcInfo{PID: 5, State: types.StateRunning}
+	detail := topDetailView(proc, []vfs.ProcInfo{proc})
+	if strings.Contains(detail, "Children") {
+		t.Errorf("detail should not show Children when there are none, got %q", detail)
+	}
+}
+
+// --- 10.1-UNIT-011: Init() returns tick command ---
+
+func TestTopModel_Init(t *testing.T) {
+	m := newTopModel(nil)
+	cmd := m.Init()
+	if cmd == nil {
+		t.Error("Init() should return a non-nil tick command")
+	}
+}
+
+// --- 10.1-UNIT-012: Update(tickMsg) with nil client stays disconnected ---
+
+func TestTopModel_TickNoClient(t *testing.T) {
+	m := newTopModel(nil)
+	m.connected = false
+	updated, cmd := m.Update(tickMsg(time.Now()))
+	um := updated.(topModel)
+	if um.connected {
+		t.Error("should remain disconnected when no daemon available")
+	}
+	if cmd == nil {
+		t.Error("should schedule next tick even when disconnected")
+	}
+}
+
+// --- 10.1-UNIT-013: Update(K) triggers kill intent on selected PID ---
+
+func TestTopModel_KillKey(t *testing.T) {
+	m := newTopModel(nil)
+	m.rows = []flatRow{
+		{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning}},
+		{proc: vfs.ProcInfo{PID: 2, State: types.StateRunning}},
+	}
+	m.cursor = 1
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'K', ShiftedCode: 'K', Mod: tea.ModShift})
+	um := updated.(topModel)
+	if um.cursor != 1 {
+		t.Errorf("cursor should stay at 1, got %d", um.cursor)
+	}
+}
+
+// --- 10.1-UNIT-014: Cursor navigation j/k moves up/down ---
+
+func TestTopModel_CursorNavigation(t *testing.T) {
+	m := newTopModel(nil)
+	m.rows = []flatRow{
+		{proc: vfs.ProcInfo{PID: 1}},
+		{proc: vfs.ProcInfo{PID: 2}},
+		{proc: vfs.ProcInfo{PID: 3}},
+	}
+	m.cursor = 0
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
+	um := updated.(topModel)
+	if um.cursor != 1 {
+		t.Errorf("j should move cursor down: expected 1, got %d", um.cursor)
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'j'})
+	um = updated.(topModel)
+	if um.cursor != 2 {
+		t.Errorf("j again: expected 2, got %d", um.cursor)
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'j'})
+	um = updated.(topModel)
+	if um.cursor != 2 {
+		t.Errorf("j at bottom should stay at 2, got %d", um.cursor)
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
+	um = updated.(topModel)
+	if um.cursor != 1 {
+		t.Errorf("k should move cursor up: expected 1, got %d", um.cursor)
+	}
+
+	um.cursor = 0
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
+	um = updated.(topModel)
+	if um.cursor != 0 {
+		t.Errorf("k at top should stay at 0, got %d", um.cursor)
+	}
+}
+
+// --- 10.1-UNIT-023: Kill with nil client sets no statusMsg ---
+
+func TestTopModel_KillNilClient(t *testing.T) {
+	m := newTopModel(nil)
+	m.killSelected(1)
+	if m.statusMsg != "" {
+		t.Errorf("kill with nil client should not set statusMsg, got %q", m.statusMsg)
+	}
+}
+
+// --- 10.1-UNIT-015: Kill on empty process list is no-op ---
+
+func TestTopModel_KillEmptyList(t *testing.T) {
+	m := newTopModel(nil)
+	m.rows = nil
+	m.cursor = 0
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'K', ShiftedCode: 'K', Mod: tea.ModShift})
+	um := updated.(topModel)
+	if um.cursor != 0 {
+		t.Errorf("kill on empty list should be no-op, cursor: %d", um.cursor)
+	}
+}
+
+// --- 10.1-UNIT-018: Update(Esc) returns to list view from detail ---
+
+func TestTopModel_EscFromDetail(t *testing.T) {
+	m := newTopModel(nil)
+	m.rows = []flatRow{
+		{proc: vfs.ProcInfo{PID: 1}},
+	}
+	m.detailPID = 1
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	um := updated.(topModel)
+	if um.detailPID != 0 {
+		t.Errorf("Esc should clear detailPID, got %d", um.detailPID)
+	}
+}
+
+// --- 10.1-UNIT-019: Update(q) returns tea.Quit ---
+
+func TestTopModel_QuitQ(t *testing.T) {
+	m := newTopModel(nil)
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q'})
+	if cmd == nil {
+		t.Error("q should return a non-nil quit command")
+	}
+}
+
+// --- 10.1-UNIT-020: Update(Enter) opens detail view ---
+
+func TestTopModel_EnterDetail(t *testing.T) {
+	m := newTopModel(nil)
+	m.rows = []flatRow{
+		{proc: vfs.ProcInfo{PID: 5}},
+		{proc: vfs.ProcInfo{PID: 10}},
+	}
+	m.cursor = 1
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	um := updated.(topModel)
+	if um.detailPID != 10 {
+		t.Errorf("Enter should set detailPID to selected proc (10), got %d", um.detailPID)
+	}
+}
+
+// --- 10.1-UNIT-021: View renders with AltScreen ---
+
+func TestTopModel_ViewAltScreen(t *testing.T) {
+	m := newTopModel(nil)
+	v := m.View()
+	if !v.AltScreen {
+		t.Error("View should set AltScreen = true")
+	}
+	if v.Content == "" {
+		t.Error("View content should not be empty")
+	}
+}
+
+// --- 10.1-UNIT-022: View detail mode renders process info ---
+
+func TestTopModel_ViewDetailMode(t *testing.T) {
+	m := newTopModel(nil)
+	proc := vfs.ProcInfo{PID: 1, State: types.StateRunning, Intent: "test-intent", Skills: []string{"analyzer"}}
+	m.rows = []flatRow{{proc: proc}}
+	m.processes = []vfs.ProcInfo{proc}
+	m.detailPID = 1
+
+	v := m.View()
+	if !strings.Contains(v.Content, "test-intent") {
+		t.Errorf("detail view should contain intent, got %q", v.Content)
+	}
+	if !strings.Contains(v.Content, "analyzer") {
+		t.Errorf("detail view should contain skills, got %q", v.Content)
+	}
+}
 
 // --- 10.1-INT-001: top command registered in cobra ---
 

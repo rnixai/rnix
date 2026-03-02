@@ -143,7 +143,7 @@ func TestRenderProcessTable_StateColorCoding(t *testing.T) {
 	results := make(map[types.ProcessState]string)
 	for _, s := range states {
 		result := renderState(r, s, colWidthState)
-		plain := stripAnsi(result)
+		plain := StripAnsi(result)
 		if !strings.Contains(plain, s.String()) {
 			t.Errorf("renderState(%s) should contain state name, got: %q", s, plain)
 		}
@@ -418,9 +418,9 @@ func TestFormatDuration_Boundaries(t *testing.T) {
 		{600 * time.Second, "10.0m"},
 	}
 	for _, tc := range tests {
-		got := formatDuration(tc.dur)
+		got := FormatDuration(tc.dur)
 		if got != tc.expect {
-			t.Errorf("formatDuration(%v) = %q, want %q", tc.dur, got, tc.expect)
+			t.Errorf("FormatDuration(%v) = %q, want %q", tc.dur, got, tc.expect)
 		}
 	}
 }
@@ -438,29 +438,29 @@ func TestFormatTokens(t *testing.T) {
 		{1000000, "1,000,000"},
 	}
 	for _, tc := range tests {
-		got := formatTokens(tc.n)
+		got := FormatTokens(tc.n)
 		if got != tc.expect {
-			t.Errorf("formatTokens(%d) = %q, want %q", tc.n, got, tc.expect)
+			t.Errorf("FormatTokens(%d) = %q, want %q", tc.n, got, tc.expect)
 		}
 	}
 }
 
 func TestStripAnsi(t *testing.T) {
 	// Plain text unchanged
-	if got := stripAnsi("hello"); got != "hello" {
-		t.Errorf("stripAnsi plain = %q", got)
+	if got := StripAnsi("hello"); got != "hello" {
+		t.Errorf("StripAnsi plain = %q", got)
 	}
 	// ANSI escape removed
-	if got := stripAnsi("\033[31mhello\033[0m"); got != "hello" {
-		t.Errorf("stripAnsi colored = %q", got)
+	if got := StripAnsi("\033[31mhello\033[0m"); got != "hello" {
+		t.Errorf("StripAnsi colored = %q", got)
 	}
 }
 
 func TestFormatSkills_Truncation(t *testing.T) {
 	long := []string{"very-long-skill-name", "another-one"}
-	got := formatSkills(long, 15, "—")
+	got := FormatSkills(long, 15, "—")
 	if len(got) > 15 {
-		t.Errorf("formatSkills should truncate to maxWidth, got len=%d: %q", len(got), got)
+		t.Errorf("FormatSkills should truncate to maxWidth, got len=%d: %q", len(got), got)
 	}
 	if !strings.HasSuffix(got, "...") {
 		t.Errorf("expected truncated string to end with ..., got: %q", got)
@@ -468,13 +468,13 @@ func TestFormatSkills_Truncation(t *testing.T) {
 }
 
 func TestFormatSkills_Empty(t *testing.T) {
-	got := formatSkills(nil, 15, "—")
+	got := FormatSkills(nil, 15, "—")
 	if got != "—" {
-		t.Errorf("formatSkills(nil) = %q, want '—'", got)
+		t.Errorf("FormatSkills(nil) = %q, want '—'", got)
 	}
-	got = formatSkills([]string{}, 15, "—")
+	got = FormatSkills([]string{}, 15, "—")
 	if got != "—" {
-		t.Errorf("formatSkills([]) = %q, want '—'", got)
+		t.Errorf("FormatSkills([]) = %q, want '—'", got)
 	}
 }
 

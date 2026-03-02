@@ -817,13 +817,13 @@ func TestRejectPositionalArgs_Empty(t *testing.T) {
 }
 
 func TestRejectPositionalArgs_UnknownWord(t *testing.T) {
-	err := rejectPositionalArgs(rootCmd, []string{"top"})
+	err := rejectPositionalArgs(rootCmd, []string{"foobar"})
 	if err == nil {
 		t.Fatal("expected error for unknown word")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, `unknown command "top"`) {
-		t.Errorf("expected 'unknown command \"top\"', got %q", msg)
+	if !strings.Contains(msg, `unknown command "foobar"`) {
+		t.Errorf("expected 'unknown command \"foobar\"', got %q", msg)
 	}
 	if !strings.Contains(msg, "crux -i <intent>") {
 		t.Errorf("expected usage hint, got %q", msg)
