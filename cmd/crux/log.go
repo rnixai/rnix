@@ -7,11 +7,12 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/internal/types"
+	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/ipc"
 	"github.com/spf13/cobra"
 )
@@ -116,7 +117,15 @@ func runLog(cmd *cobra.Command, args []string) error {
 
 	select {
 	case err := <-errCh:
-		if !flagJSON {
+		if err != nil && isNotFoundError(err) {
+			if renderer != nil {
+				ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
+					"process not found",
+					fmt.Sprintf("PID %d: 不存在或已退出", pid),
+					"crux ps  查看活跃进程")
+			}
+			exitCode = 1
+		} else if !flagJSON {
 			if err == nil {
 				fmt.Fprintf(w, "\n[crux log] detached from PID %d (process exited)\n", pid)
 			} else {
@@ -176,4 +185,10 @@ func FormatLogEntry(r *ui.Renderer, lew ipc.LogEntryWire) string {
 func formatLogTimestamp(d time.Duration) string {
 	secs := d.Seconds()
 	return fmt.Sprintf("%7.3f", secs)
+}
+
+// isNotFoundError checks if an IPC error indicates "process not found".
+func isNotFoundError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "NOT_FOUND")
 }

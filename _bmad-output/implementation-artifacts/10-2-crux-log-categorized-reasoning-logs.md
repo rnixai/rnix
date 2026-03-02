@@ -1,6 +1,6 @@
 # Story 10.2: crux log 分类推理日志
 
-Status: review
+Status: done
 
 ## Story
 
@@ -475,6 +475,7 @@ N/A
 ### Change Log
 
 - 2026-03-02: Story 10.2 实现完成 — crux log 分类推理日志命令
+- 2026-03-02: Code Review 修复 — AC4 PID 不存在错误格式 + exit code + 测试加固
 
 ### File List
 

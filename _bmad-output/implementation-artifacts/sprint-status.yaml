@@ -132,7 +132,7 @@ development_status:
   # Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
   epic-10: in-progress
   10-1-crux-top-realtime-monitoring-tui: done
-  10-2-crux-log-categorized-reasoning-logs: review
+  10-2-crux-log-categorized-reasoning-logs: done
   10-3-token-budget-management: backlog
   10-4-supervisor-tree-and-restart-strategy: backlog
   10-5-init-bootstrap-sequence: backlog

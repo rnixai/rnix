@@ -217,8 +217,16 @@ func TestRunLog_PIDNotFound_ViaIPC(t *testing.T) {
 	t.Cleanup(func() { ipc.SocketPathOverride = "" })
 
 	savedJSON := flagJSON
-	defer func() { flagJSON = savedJSON }()
+	savedFilter := flagFilter
+	savedExitCode := exitCode
+	defer func() {
+		flagJSON = savedJSON
+		flagFilter = savedFilter
+		exitCode = savedExitCode
+	}()
 	flagJSON = false
+	flagFilter = ""
+	exitCode = 0
 
 	cmd := logCmd
 	var buf strings.Builder
@@ -231,9 +239,10 @@ func TestRunLog_PIDNotFound_ViaIPC(t *testing.T) {
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "detached") && !strings.Contains(output, "error") {
-		if !strings.Contains(output, "[crux log]") {
-			t.Errorf("expected some output, got %q", output)
-		}
+	if !strings.Contains(output, "process not found") {
+		t.Errorf("AC4: expected 'process not found' in output, got %q", output)
+	}
+	if exitCode != 1 {
+		t.Errorf("expected exitCode=1 for PID not found, got %d", exitCode)
 	}
 }
