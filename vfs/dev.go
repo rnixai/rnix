@@ -29,6 +29,12 @@ func (d *DeviceRegistry) Register(path string, factory VFSFileFactory) error {
 	return d.registry.Register(path, factory)
 }
 
+// Unregister removes a device factory at the given path.
+// Returns an error if the path is not registered.
+func (d *DeviceRegistry) Unregister(path string) error {
+	return d.registry.Unregister(path)
+}
+
 // Open looks up the factory for the given path and creates a VFSFile.
 // Supports exact match and longest-prefix match.
 func (d *DeviceRegistry) Open(path string, flags OpenFlag) (VFSFile, error) {

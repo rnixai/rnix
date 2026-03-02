@@ -36,7 +36,9 @@ const (
 	ErrInternal   ErrCode = "INTERNAL"
 	ErrDriver     ErrCode = "DRIVER"
 	ErrInvalid    ErrCode = "INVALID"
-	ErrBrokenPipe ErrCode = "BROKEN_PIPE"
+	ErrBrokenPipe         ErrCode = "BROKEN_PIPE"
+	ErrServiceUnavailable ErrCode = "SERVICE_UNAVAILABLE"
+	ErrAlreadyMounted     ErrCode = "ALREADY_MOUNTED"
 )
 
 // Signal represents a process signal.
