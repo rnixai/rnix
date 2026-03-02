@@ -227,6 +227,9 @@ func (s *Server) handleConn(conn net.Conn) {
 		case MethodAttachDebug:
 			s.handleAttachDebug(conn, req.Payload)
 			return // streaming method — handler manages connection lifetime
+		case MethodAttachLog:
+			s.handleAttachLog(conn, req.Payload)
+			return // streaming method — handler manages connection lifetime
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -404,6 +407,33 @@ func (s *Server) handleAttachDebug(conn net.Conn, rawPayload json.RawMessage) {
 		sew := SyscallEventToWire(event)
 		payload, _ := json.Marshal(sew)
 		se := StreamEvent{Type: StreamSyscallEvent, Payload: payload}
+		if err := enc.Encode(se); err != nil {
+			return
+		}
+	}
+	_ = enc.Encode(StreamEvent{Type: StreamEOF})
+}
+
+func (s *Server) handleAttachLog(conn net.Conn, rawPayload json.RawMessage) {
+	var req AttachLogRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid attach_log request"}})
+		return
+	}
+
+	logCh, ok := s.kern.GetLogChan(req.PID)
+	if !ok || logCh == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found or no log channel"}})
+		return
+	}
+
+	writeResponse(conn, Response{OK: true})
+
+	enc := json.NewEncoder(conn)
+	for entry := range logCh {
+		lew := LogEntryToWire(entry)
+		payload, _ := json.Marshal(lew)
+		se := StreamEvent{Type: StreamLogEntry, Payload: payload}
 		if err := enc.Encode(se); err != nil {
 			return
 		}

@@ -38,6 +38,7 @@ type Process struct {
 	Children   []types.PID
 	FDTable    map[types.FD]vfs.VFSFile  // per architecture doc; VFS manages actual FD state internally
 	DebugChan  chan types.SyscallEvent
+	LogChan    chan types.LogEntry
 	Done       chan ExitStatus
 	CreatedAt  time.Time
 	Exit       *ExitStatus               // non-nil in Zombie/Dead
@@ -81,6 +82,7 @@ func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 		Children:  []types.PID{},
 		FDTable:   make(map[types.FD]vfs.VFSFile),
 		DebugChan: make(chan types.SyscallEvent, 256),
+		LogChan:   make(chan types.LogEntry, 256),
 		Done:      make(chan ExitStatus, 1),
 		CreatedAt: time.Now(),
 	}

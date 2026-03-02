@@ -145,3 +145,22 @@ type SyscallEvent struct {
 	Err       error
 	Duration  time.Duration
 }
+
+// LogCategory classifies reasoning log entries.
+type LogCategory string
+
+const (
+	LogThink  LogCategory = "think"
+	LogTool   LogCategory = "tool"
+	LogOutput LogCategory = "output"
+)
+
+// LogEntry records a single reasoning log event for high-level agent tracing.
+type LogEntry struct {
+	Timestamp time.Duration
+	PID       PID
+	Step      int
+	Category  LogCategory
+	Content   string
+	ToolPath  string // only populated for LogTool entries
+}

@@ -20,6 +20,7 @@ const (
 	MethodListProcs   Method = "list_procs"
 	MethodKill        Method = "kill"
 	MethodAttachDebug Method = "attach_debug"
+	MethodAttachLog   Method = "attach_log"
 	MethodShutdown    Method = "shutdown"
 )
 
@@ -127,6 +128,35 @@ type AttachDebugRequest struct {
 	PID types.PID `json:"pid"`
 }
 
+// --- AttachLog ---
+
+// AttachLogRequest is the payload for MethodAttachLog.
+type AttachLogRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// LogEntryWire is the wire-format representation of types.LogEntry.
+type LogEntryWire struct {
+	TimestampMs int64     `json:"timestamp_ms"`
+	PID         types.PID `json:"pid"`
+	Step        int       `json:"step"`
+	Category    string    `json:"category"`
+	Content     string    `json:"content"`
+	ToolPath    string    `json:"tool_path,omitempty"`
+}
+
+// LogEntryToWire converts a types.LogEntry to wire format.
+func LogEntryToWire(e types.LogEntry) LogEntryWire {
+	return LogEntryWire{
+		TimestampMs: e.Timestamp.Milliseconds(),
+		PID:         e.PID,
+		Step:        e.Step,
+		Category:    string(e.Category),
+		Content:     e.Content,
+		ToolPath:    e.ToolPath,
+	}
+}
+
 // --- Streaming ---
 
 // StreamEvent carries a single event on a streaming IPC connection.
@@ -143,6 +173,7 @@ const (
 	StreamComplete     StreamEventType = "complete"
 	StreamError        StreamEventType = "error"
 	StreamSyscallEvent StreamEventType = "syscall_event"
+	StreamLogEntry     StreamEventType = "log_entry"
 	StreamEOF          StreamEventType = "eof"
 )
 

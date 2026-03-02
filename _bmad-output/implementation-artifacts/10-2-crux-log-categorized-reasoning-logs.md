@@ -1,6 +1,6 @@
 # Story 10.2: crux log 分类推理日志
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -49,43 +49,43 @@ So that 我无需深入内核就能排查问题。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 定义 LogEntry 类型和 LogChan 基础设施 (AC: #1, #3)
-  - [ ] 1.1 在 `internal/types/types.go` 中定义 `LogCategory` 类型（`think`/`tool`/`output`）和 `LogEntry` 结构体
-  - [ ] 1.2 在 `kernel/process.go` 的 `Process` 中添加 `LogChan chan types.LogEntry`（缓冲 256，与 DebugChan 对齐）
-  - [ ] 1.3 在 `kernel/reap.go` 的 `reapProcess` 中添加 LogChan 关闭逻辑（与 DebugChan 相同的 nil-out-under-lock 模式）
-- [ ] Task 2: 在 reasonStep 中 emit LogEntry (AC: #1, #3)
-  - [ ] 2.1 在 `kernel/kernel.go` 添加 `emitLog` 辅助方法（与 emitEvent 并行，非阻塞写入 LogChan）
-  - [ ] 2.2 LLM 响应解析后、action 判定前：emit `[think]` 条目（Content = resp.Content，即 LLM 的完整推理文本）
-  - [ ] 2.3 工具调用执行完成后：emit `[tool]` 条目（Content = 工具路径 + 工具结果摘要）
-  - [ ] 2.4 最终文本输出时：emit `[output]` 条目（Content = 最终输出文本）
-- [ ] Task 3: IPC 协议扩展 (AC: #1, #6)
-  - [ ] 3.1 在 `ipc/protocol.go` 添加 `MethodAttachLog Method = "attach_log"`
-  - [ ] 3.2 定义 `AttachLogRequest` 和 `LogEntryWire` 类型（时间戳用毫秒）
-  - [ ] 3.3 添加 `StreamLogEntry StreamEventType = "log_entry"` 流事件类型
-- [ ] Task 4: IPC Server handler (AC: #1, #6)
-  - [ ] 4.1 在 `kernel/kernel.go` 添加 `GetLogChan(pid) (chan LogEntry, bool)` 方法（与 GetDebugChan 对齐）
-  - [ ] 4.2 在 `ipc/server.go` 的 `handleConn` switch 中添加 `case MethodAttachLog`
-  - [ ] 4.3 实现 `handleAttachLog`：获取 LogChan，流式编码 LogEntryWire（与 handleAttachDebug 模式一致）
-- [ ] Task 5: IPC Client 方法 (AC: #1, #6)
-  - [ ] 5.1 在 `ipc/client.go` 添加 `AttachLog(pid, onEntry func(LogEntryWire)) error`（与 AttachDebug 模式一致）
-- [ ] Task 6: 实现 `cmd/crux/log.go` CLI 命令 (AC: #1-#7)
-  - [ ] 6.1 创建 `cmd/crux/log.go`，定义 `logCmd` cobra 命令（Use: "log <pid>"）
-  - [ ] 6.2 添加 `--filter` string flag（合法值：think/tool/output，空=全部）
-  - [ ] 6.3 实现 `runLog`：解析 PID、Dial IPC、设置信号处理、调用 AttachLog
-  - [ ] 6.4 实现人类可读格式化：`[think]` 灰色、`[tool]` 蓝色、`[output]` 绿色（复用 `internal/ui/styles.go` 颜色）
-  - [ ] 6.5 实现 JSON 格式化：NDJSON 每行一个 LogEntryWire
-  - [ ] 6.6 实现 --filter 过滤逻辑（在 onEntry 回调中跳过不匹配的 category）
-  - [ ] 6.7 在 `cmd/crux/main.go` 的 `init()` 中注册 `rootCmd.AddCommand(logCmd)`
-- [ ] Task 7: 格式化与 UI (AC: #1, #2)
-  - [ ] 7.1 在 `internal/ui/` 中添加 `FormatLogEntry` 函数（或在 log.go 中内联，视复杂度决定）
-  - [ ] 7.2 日志输出格式：`[HH:MM:SS.sss] [category] content`（时间戳对齐 astrace 的相对时间格式）
-- [ ] Task 8: 测试 (AC: all)
-  - [ ] 8.1 单元测试：LogEntry emit 逻辑（mock Process with LogChan，验证 think/tool/output 分类正确）
-  - [ ] 8.2 单元测试：--filter 过滤逻辑（验证各 category 过滤）
-  - [ ] 8.3 单元测试：LogEntryWire 序列化/反序列化
-  - [ ] 8.4 单元测试：格式化输出（人类可读 + JSON 模式）
-  - [ ] 8.5 在 `cmd/crux/main_test.go` 中确认 `log` 命令注册
-  - [ ] 8.6 单元测试：PID 不存在场景
+- [x] Task 1: 定义 LogEntry 类型和 LogChan 基础设施 (AC: #1, #3)
+  - [x] 1.1 在 `internal/types/types.go` 中定义 `LogCategory` 类型（`think`/`tool`/`output`）和 `LogEntry` 结构体
+  - [x] 1.2 在 `kernel/process.go` 的 `Process` 中添加 `LogChan chan types.LogEntry`（缓冲 256，与 DebugChan 对齐）
+  - [x] 1.3 在 `kernel/reap.go` 的 `reapProcess` 中添加 LogChan 关闭逻辑（与 DebugChan 相同的 nil-out-under-lock 模式）
+- [x] Task 2: 在 reasonStep 中 emit LogEntry (AC: #1, #3)
+  - [x] 2.1 在 `kernel/kernel.go` 添加 `emitLog` 辅助方法（与 emitEvent 并行，非阻塞写入 LogChan）
+  - [x] 2.2 LLM 响应解析后、action 判定前：emit `[think]` 条目（Content = resp.Content，即 LLM 的完整推理文本）
+  - [x] 2.3 工具调用执行完成后：emit `[tool]` 条目（Content = 工具路径 + 工具结果摘要）
+  - [x] 2.4 最终文本输出时：emit `[output]` 条目（Content = 最终输出文本）
+- [x] Task 3: IPC 协议扩展 (AC: #1, #6)
+  - [x] 3.1 在 `ipc/protocol.go` 添加 `MethodAttachLog Method = "attach_log"`
+  - [x] 3.2 定义 `AttachLogRequest` 和 `LogEntryWire` 类型（时间戳用毫秒）
+  - [x] 3.3 添加 `StreamLogEntry StreamEventType = "log_entry"` 流事件类型
+- [x] Task 4: IPC Server handler (AC: #1, #6)
+  - [x] 4.1 在 `kernel/kernel.go` 添加 `GetLogChan(pid) (chan LogEntry, bool)` 方法（与 GetDebugChan 对齐）
+  - [x] 4.2 在 `ipc/server.go` 的 `handleConn` switch 中添加 `case MethodAttachLog`
+  - [x] 4.3 实现 `handleAttachLog`：获取 LogChan，流式编码 LogEntryWire（与 handleAttachDebug 模式一致）
+- [x] Task 5: IPC Client 方法 (AC: #1, #6)
+  - [x] 5.1 在 `ipc/client.go` 添加 `AttachLog(pid, onEntry func(LogEntryWire)) error`（与 AttachDebug 模式一致）
+- [x] Task 6: 实现 `cmd/crux/log.go` CLI 命令 (AC: #1-#7)
+  - [x] 6.1 创建 `cmd/crux/log.go`，定义 `logCmd` cobra 命令（Use: "log <pid>"）
+  - [x] 6.2 添加 `--filter` string flag（合法值：think/tool/output，空=全部）
+  - [x] 6.3 实现 `runLog`：解析 PID、Dial IPC、设置信号处理、调用 AttachLog
+  - [x] 6.4 实现人类可读格式化：`[think]` 灰色、`[tool]` 蓝色、`[output]` 绿色（复用 `internal/ui/styles.go` 颜色）
+  - [x] 6.5 实现 JSON 格式化：NDJSON 每行一个 LogEntryWire
+  - [x] 6.6 实现 --filter 过滤逻辑（在 onEntry 回调中跳过不匹配的 category）
+  - [x] 6.7 在 `cmd/crux/main.go` 的 `init()` 中注册 `rootCmd.AddCommand(logCmd)`
+- [x] Task 7: 格式化与 UI (AC: #1, #2)
+  - [x] 7.1 在 `internal/ui/` 中添加 `FormatLogEntry` 函数（或在 log.go 中内联，视复杂度决定）
+  - [x] 7.2 日志输出格式：`[HH:MM:SS.sss] [category] content`（时间戳对齐 astrace 的相对时间格式）
+- [x] Task 8: 测试 (AC: all)
+  - [x] 8.1 单元测试：LogEntry emit 逻辑（mock Process with LogChan，验证 think/tool/output 分类正确）
+  - [x] 8.2 单元测试：--filter 过滤逻辑（验证各 category 过滤）
+  - [x] 8.3 单元测试：LogEntryWire 序列化/反序列化
+  - [x] 8.4 单元测试：格式化输出（人类可读 + JSON 模式）
+  - [x] 8.5 在 `cmd/crux/main_test.go` 中确认 `log` 命令注册
+  - [x] 8.6 单元测试：PID 不存在场景
 
 ## Dev Notes
 
@@ -449,12 +449,42 @@ if err != nil {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude claude-4.6-opus (via Cursor)
 
 ### Debug Log References
 
+N/A
+
 ### Completion Notes List
+
+- LogCategory (think/tool/output) 和 LogEntry 类型添加到 internal/types/types.go
+- Process 结构体新增 LogChan（缓冲 256），NewProcess 中初始化
+- reapProcess 中 LogChan 使用与 DebugChan 相同的 nil-out-under-lock 关闭模式
+- emitLog 辅助方法实现非阻塞写入，与 emitEvent 并行
+- reasonStep 中三个 emit 位置：LLM 响应后 emit [think]，工具执行后 emit [tool]（含 500 字符截断），最终输出时 emit [output]
+- IPC 协议扩展：MethodAttachLog、AttachLogRequest、LogEntryWire、StreamLogEntry
+- handleAttachLog 服务端实现与 handleAttachDebug 完全对齐
+- AttachLog 客户端方法与 AttachDebug 模式一致
+- cmd/crux/log.go 实现完整 CLI：--filter (think/tool/output)、--json (NDJSON)、Ctrl+C 安全断开
+- FormatLogEntry 使用颜色：think=MutedStyle(灰)、tool=AgentStyle(蓝)、output=SuccessStyle(绿)
+- 时间戳格式：相对进程启动时间的秒数（7.3f 格式），与 astrace 对齐
+- 已有 red-phase 测试（kernel/log_test.go, ipc/log_test.go）全部通过
+- 新增 cmd/crux/log_test.go 覆盖格式化、过滤验证、命令注册、PID 不存在场景
+- 全套 17 个包测试通过，零回归，-race 检测通过
 
 ### Change Log
 
+- 2026-03-02: Story 10.2 实现完成 — crux log 分类推理日志命令
+
 ### File List
+
+- `internal/types/types.go` — 添加 LogCategory、LogEntry 类型
+- `kernel/process.go` — Process 添加 LogChan 字段，NewProcess 初始化
+- `kernel/kernel.go` — 添加 emitLog、GetLogChan 方法，reasonStep 中 emit [think]/[tool]/[output]
+- `kernel/reap.go` — reapProcess 中关闭 LogChan（nil-out-under-lock 模式）
+- `ipc/protocol.go` — 添加 MethodAttachLog、AttachLogRequest、LogEntryWire、StreamLogEntry、LogEntryToWire
+- `ipc/server.go` — handleConn 添加 case MethodAttachLog，实现 handleAttachLog
+- `ipc/client.go` — 添加 AttachLog 方法
+- `cmd/crux/log.go` — 新文件：logCmd、runLog、FormatLogEntry、formatLogTimestamp
+- `cmd/crux/log_test.go` — 新文件：CLI 层测试
+- `cmd/crux/main.go` — init() 注册 logCmd
