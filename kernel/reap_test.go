@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -1072,4 +1073,221 @@ func TestShutdown_Idempotent(t *testing.T) {
 	k.Shutdown()
 	k.Shutdown() // must not panic
 	k.Shutdown() // must not panic
+}
+
+// --- reapProcess integration: MCP mount cleanup (Story 9.2 / Epic 9 retro) ---
+
+func TestIntegration_ReapProcess_MCPUnmountOnExit(t *testing.T) {
+	// Integration test: Spawn with MCP mounts → process exits → finishProcess
+	// auto-unmounts → reapProcess completes full resource release chain.
+	// Validates: finishProcess calls Unmount for each MCPMount, then reapProcess
+	// cleans up DebugChan, Context, MsgQueue, Groups, Signals, Threads, Coroutines.
+
+	t.Run("process with MCP mounts auto-unmounts on normal exit", func(t *testing.T) {
+		// Given: a kernel with mock MountManager and a process with 2 MCP mounts
+		llmFile := &mockLLMFile{readData: makeLLMResponse("mcp exit", 1)}
+		k, _, ctxMgr := newTestKernel(t, llmFile)
+
+		mm := newMockMountManager()
+		k.mountMgr = mm
+
+		pid, err := k.Spawn("mcp-cleanup-test", nil, SpawnOpts{})
+		if err != nil {
+			t.Fatalf("Spawn failed: %v", err)
+		}
+
+		proc, _ := k.GetProcess(pid)
+		ctxID := proc.CtxID
+
+		// Simulate MCP mounts attached to the process
+		mountPath1 := fmt.Sprintf("/mnt/mcp/%d-github", pid)
+		mountPath2 := fmt.Sprintf("/mnt/mcp/%d-slack", pid)
+		mm.mounted[mountPath1] = true
+		mm.mounted[mountPath2] = true
+		proc.mu.Lock()
+		proc.MCPMounts = []string{mountPath1, mountPath2}
+		proc.mu.Unlock()
+
+		// When: Wait for process to complete (finishProcess + reapProcess)
+		exit, err := k.Wait(pid)
+		if err != nil {
+			t.Fatalf("Wait failed: %v", err)
+		}
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s", exit.Code, exit.Reason)
+		}
+
+		// Then: both MCP mounts are unmounted
+		if mm.mounted[mountPath1] {
+			t.Errorf("mount %s should have been unmounted", mountPath1)
+		}
+		if mm.mounted[mountPath2] {
+			t.Errorf("mount %s should have been unmounted", mountPath2)
+		}
+
+		// And: process is fully cleaned up (reapProcess completed)
+		if _, ok := k.GetProcess(pid); ok {
+			t.Error("process should be removed from table after reap")
+		}
+
+		// And: context was freed
+		_, ctxErr := ctxMgr.BuildPrompt(ctxID)
+		if ctxErr == nil {
+			t.Error("context should be freed after reap")
+		}
+
+		// And: process state is Dead
+		if proc.GetState() != types.StateDead {
+			t.Errorf("expected Dead state, got %d", proc.GetState())
+		}
+	})
+
+	t.Run("process with MCP mounts auto-unmounts on kill", func(t *testing.T) {
+		// Given: a kernel with a blocking process and MCP mounts
+		blockCh := make(chan struct{})
+		reg := vfs.NewDeviceRegistry()
+		_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+			return &blockingLLMFile{blockCh: blockCh}, nil
+		})
+		v := vfs.NewVFS(reg)
+		ctxMgr := cruxctx.NewManager()
+		k := NewKernel(v, ctxMgr, nil)
+		defer k.Shutdown()
+
+		mm := newMockMountManager()
+		k.mountMgr = mm
+
+		pid, err := k.Spawn("mcp-kill-test", nil, SpawnOpts{})
+		if err != nil {
+			t.Fatalf("Spawn failed: %v", err)
+		}
+
+		proc, _ := k.GetProcess(pid)
+
+		// Simulate MCP mount
+		mountPath := fmt.Sprintf("/mnt/mcp/%d-github", pid)
+		mm.mounted[mountPath] = true
+		proc.mu.Lock()
+		proc.MCPMounts = []string{mountPath}
+		proc.mu.Unlock()
+
+		// Let goroutine start
+		time.Sleep(50 * time.Millisecond)
+
+		// When: Kill then Wait
+		if err := k.Kill(pid, types.SIGTERM); err != nil {
+			t.Fatalf("Kill failed: %v", err)
+		}
+		close(blockCh) // unblock LLM so finishProcess can run
+
+		exit, err := k.Wait(pid)
+		if err != nil {
+			t.Fatalf("Wait failed: %v", err)
+		}
+		// Exit code may be 0 (normal completion) or non-zero (killed) depending on timing.
+		// The key assertion is that MCP mounts were cleaned up regardless.
+		_ = exit
+
+		// Then: MCP mount is unmounted
+		if mm.mounted[mountPath] {
+			t.Errorf("mount %s should have been unmounted after kill", mountPath)
+		}
+
+		// And: process is fully removed
+		if _, ok := k.GetProcess(pid); ok {
+			t.Error("process should be removed after kill+wait")
+		}
+	})
+
+	t.Run("unmount failure does not block process exit", func(t *testing.T) {
+		// Given: a kernel where Unmount always fails
+		llmFile := &mockLLMFile{readData: makeLLMResponse("unmount-fail", 1)}
+		k, _, _ := newTestKernel(t, llmFile)
+
+		mm := newMockMountManager()
+		mm.unmountFn = func(path string) error {
+			return fmt.Errorf("unmount failed: permission denied")
+		}
+		k.mountMgr = mm
+
+		pid, err := k.Spawn("unmount-fail-test", nil, SpawnOpts{})
+		if err != nil {
+			t.Fatalf("Spawn failed: %v", err)
+		}
+
+		proc, _ := k.GetProcess(pid)
+		mountPath := fmt.Sprintf("/mnt/mcp/%d-github", pid)
+		proc.mu.Lock()
+		proc.MCPMounts = []string{mountPath}
+		proc.mu.Unlock()
+
+		// When: process finishes and Wait completes (despite unmount error)
+		exit, err := k.Wait(pid)
+
+		// Then: process still exits successfully (unmount failure is non-fatal)
+		if err != nil {
+			t.Fatalf("Wait failed: %v", err)
+		}
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0, got %d", exit.Code)
+		}
+
+		// And: process is fully cleaned up
+		if _, ok := k.GetProcess(pid); ok {
+			t.Error("process should be removed despite unmount failure")
+		}
+	})
+
+	t.Run("process without MCP mounts reaps normally", func(t *testing.T) {
+		// Given: a kernel with MountManager but process has no MCP mounts
+		llmFile := &mockLLMFile{readData: makeLLMResponse("no-mcp", 1)}
+		k, _, ctxMgr := newTestKernel(t, llmFile)
+
+		k.mountMgr = newMockMountManager()
+
+		pid, err := k.Spawn("no-mcp-test", nil, SpawnOpts{})
+		if err != nil {
+			t.Fatalf("Spawn failed: %v", err)
+		}
+
+		proc, _ := k.GetProcess(pid)
+		ctxID := proc.CtxID
+
+		// When: process finishes
+		exit, err := k.Wait(pid)
+
+		// Then: normal exit with full cleanup
+		if err != nil {
+			t.Fatalf("Wait failed: %v", err)
+		}
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s", exit.Code, exit.Reason)
+		}
+		if _, ok := k.GetProcess(pid); ok {
+			t.Error("process should be removed")
+		}
+		_, ctxErr := ctxMgr.BuildPrompt(ctxID)
+		if ctxErr == nil {
+			t.Error("context should be freed")
+		}
+	})
+}
+
+func TestIntegration_ShutdownUnmountsAll(t *testing.T) {
+	// Integration: Shutdown calls mountMgr.UnmountAll() to clean up lingering mounts.
+	llmFile := &mockLLMFile{readData: makeLLMResponse("shutdown", 1)}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	mm := newMockMountManager()
+	mm.mounted["/mnt/mcp/1-github"] = true
+	mm.mounted["/mnt/mcp/2-slack"] = true
+	k.mountMgr = mm
+
+	// When: Shutdown is called
+	k.Shutdown()
+
+	// Then: all mounts are cleaned up
+	if len(mm.mounted) != 0 {
+		t.Errorf("expected all mounts cleared, got %d remaining: %v", len(mm.mounted), mm.mounted)
+	}
 }
