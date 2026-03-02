@@ -20,7 +20,8 @@ import (
 type intentRouter struct {
 	mu          sync.Mutex
 	crashIntent string
-	crashCount  int // remaining crashes for crashIntent
+	crashCount  int           // remaining crashes for crashIntent
+	slowDelay   time.Duration // delay for non-crash reads (0 = no delay)
 }
 
 func (r *intentRouter) newFile() vfs.VFSFile {
@@ -55,6 +56,7 @@ func (f *routedLLMFile) Read(length int) ([]byte, error) {
 	if shouldCrash {
 		f.router.crashCount--
 	}
+	delay := f.router.slowDelay
 	f.router.mu.Unlock()
 
 	if shouldCrash {
@@ -62,6 +64,10 @@ func (f *routedLLMFile) Read(length int) ([]byte, error) {
 			Op: "Read", Device: "/dev/llm/claude", Code: types.ErrDriver,
 			Err: fmt.Errorf("simulated crash for %s", intent),
 		}
+	}
+
+	if delay > 0 {
+		time.Sleep(delay)
 	}
 
 	resp := llmResponse{Content: "done", TokensUsed: 1}
@@ -503,4 +509,69 @@ func TestSupervisor_NoRegressionCheck(t *testing.T) {
 	_ = ChildRestart(RestartPermanent)
 	_ = ChildRestart(RestartTransient)
 	_ = ChildRestart(RestartTemporary)
+}
+
+// Test CR-1 regression: one_for_all with transient children must not cascade
+// from stale monitor goroutine events. Without the PID check in handleChildExit,
+// stopped children's exit events (code≠0) would be misattributed to newly
+// restarted children, causing false restarts and premature max_restarts_exceeded.
+func TestSupervisor_OneForAll_NoStaleEventCascade(t *testing.T) {
+	// slowDelay ensures A and C are still running when B crashes, so
+	// restartOneForAll must stop them (generating stale exit events).
+	router := &intentRouter{crashIntent: "child-B", crashCount: 1, slowDelay: 100 * time.Millisecond}
+	k := newRoutedTestKernel(t, router)
+
+	spec := SupervisorSpec{
+		Strategy:    OneForAll,
+		MaxRestarts: 2, // Tight limit: 1 real restart must suffice
+		MaxWindow:   10 * time.Second,
+		Children: []ChildSpec{
+			{Name: "child-A", Intent: "child-A", Restart: RestartTransient},
+			{Name: "child-B", Intent: "child-B", Restart: RestartTransient},
+			{Name: "child-C", Intent: "child-C", Restart: RestartTransient},
+		},
+	}
+
+	supPID, err := k.SpawnSupervisor(spec)
+	if err != nil {
+		t.Fatalf("SpawnSupervisor: %v", err)
+	}
+
+	exit := waitSupervisor(k, supPID)
+	if exit.Code != 0 {
+		t.Fatalf("exit code %d, reason: %s — stale events likely caused false restart cascade", exit.Code, exit.Reason)
+	}
+	if exit.Reason != "all children completed" {
+		t.Fatalf("reason: %q, want 'all children completed'", exit.Reason)
+	}
+}
+
+// Test CR-1 regression: rest_for_one with transient children must not cascade.
+func TestSupervisor_RestForOne_NoStaleEventCascade(t *testing.T) {
+	router := &intentRouter{crashIntent: "child-B", crashCount: 1, slowDelay: 100 * time.Millisecond}
+	k := newRoutedTestKernel(t, router)
+
+	spec := SupervisorSpec{
+		Strategy:    RestForOne,
+		MaxRestarts: 2,
+		MaxWindow:   10 * time.Second,
+		Children: []ChildSpec{
+			{Name: "child-A", Intent: "child-A", Restart: RestartTransient},
+			{Name: "child-B", Intent: "child-B", Restart: RestartTransient},
+			{Name: "child-C", Intent: "child-C", Restart: RestartTransient},
+		},
+	}
+
+	supPID, err := k.SpawnSupervisor(spec)
+	if err != nil {
+		t.Fatalf("SpawnSupervisor: %v", err)
+	}
+
+	exit := waitSupervisor(k, supPID)
+	if exit.Code != 0 {
+		t.Fatalf("exit code %d, reason: %s — stale events likely caused false restart cascade", exit.Code, exit.Reason)
+	}
+	if exit.Reason != "all children completed" {
+		t.Fatalf("reason: %q, want 'all children completed'", exit.Reason)
+	}
 }
