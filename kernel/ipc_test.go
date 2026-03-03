@@ -865,3 +865,173 @@ func TestPipe_WriteAfterWriteClose(t *testing.T) {
 		t.Errorf("Code = %v, want ErrNotFound (FD removed)", vfsErr.Code)
 	}
 }
+
+// --- Backpressure tests (bounded buffer) ---
+
+// TestPipe_WriteBlocksWhenFull verifies write blocks when buffer is at capacity
+// and unblocks after reader consumes data.
+func TestPipe_WriteBlocksWhenFull(t *testing.T) {
+	capacity := 128
+	pb := newPipeBuffer(capacity)
+	cancelCh := make(chan struct{})
+
+	// Fill buffer to capacity
+	data := make([]byte, capacity)
+	n, err := pb.write(data, cancelCh)
+	if err != nil || n != capacity {
+		t.Fatalf("initial write: n=%d err=%v", n, err)
+	}
+
+	// Next write should block
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := pb.write([]byte("overflow"), cancelCh)
+		writeDone <- err
+	}()
+
+	// Give goroutine time to block
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case <-writeDone:
+		t.Fatal("write should be blocking when buffer is full")
+	default:
+	}
+
+	// Read data to free space
+	_, err = pb.read(64, cancelCh)
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+
+	// Write should now complete
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.Fatalf("write after space freed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("write did not unblock after read")
+	}
+}
+
+// TestPipe_CancelUnblocksWrite verifies cancellation unblocks a blocked write.
+func TestPipe_CancelUnblocksWrite(t *testing.T) {
+	capacity := 128
+	pb := newPipeBuffer(capacity)
+	cancelCh := make(chan struct{})
+
+	// Fill buffer
+	data := make([]byte, capacity)
+	if _, err := pb.write(data, cancelCh); err != nil {
+		t.Fatalf("fill write: %v", err)
+	}
+
+	// Start blocking write
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := pb.write([]byte("blocked"), cancelCh)
+		writeDone <- err
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+
+	// Cancel
+	close(cancelCh)
+
+	select {
+	case err := <-writeDone:
+		if !errors.Is(err, gocontext.Canceled) {
+			t.Fatalf("expected context.Canceled, got: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("write not unblocked after cancel")
+	}
+}
+
+// TestPipe_BackpressureDataIntegrity verifies data integrity when writes exceed
+// buffer capacity (writer blocks, reader consumes, no data loss or corruption).
+func TestPipe_BackpressureDataIntegrity(t *testing.T) {
+	capacity := 256
+	pb := newPipeBuffer(capacity)
+	cancelCh := make(chan struct{})
+
+	// Write 4KB of patterned data (16x the buffer capacity)
+	dataSize := 4096
+	payload := make([]byte, dataSize)
+	for i := range payload {
+		payload[i] = byte(i % 256)
+	}
+
+	// Writer goroutine
+	writeErr := make(chan error, 1)
+	go func() {
+		_, err := pb.write(payload, cancelCh)
+		writeErr <- err
+		pb.closeWrite()
+	}()
+
+	// Reader: consume all data
+	var result []byte
+	for {
+		chunk, err := pb.read(64, cancelCh)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read error: %v", err)
+		}
+		result = append(result, chunk...)
+	}
+
+	if err := <-writeErr; err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	if len(result) != dataSize {
+		t.Fatalf("read %d bytes, want %d", len(result), dataSize)
+	}
+	for i, b := range result {
+		if b != byte(i%256) {
+			t.Fatalf("byte %d: got %d, want %d", i, b, i%256)
+		}
+	}
+}
+
+// TestPipe_ReadCloseUnblocksWrite verifies closing the read end unblocks a blocked write
+// with ErrBrokenPipe.
+func TestPipe_ReadCloseUnblocksWrite(t *testing.T) {
+	capacity := 128
+	pb := newPipeBuffer(capacity)
+	cancelCh := make(chan struct{})
+
+	// Fill buffer
+	data := make([]byte, capacity)
+	if _, err := pb.write(data, cancelCh); err != nil {
+		t.Fatalf("fill write: %v", err)
+	}
+
+	// Start blocking write
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := pb.write([]byte("after-close"), cancelCh)
+		writeDone <- err
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+
+	// Close read end
+	pb.closeRead()
+
+	select {
+	case err := <-writeDone:
+		if err == nil {
+			t.Fatal("expected error after read end closed")
+		}
+		var de *types.DriverError
+		if !errors.As(err, &de) || de.Code != types.ErrBrokenPipe {
+			t.Fatalf("expected ErrBrokenPipe, got: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("write not unblocked after read end closed")
+	}
+}
