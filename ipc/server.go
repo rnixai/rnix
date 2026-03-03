@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/xsync"
 	"github.com/gonewx/crux/kernel"
+	"github.com/gonewx/crux/shell"
 )
 
 const (
@@ -230,6 +232,9 @@ func (s *Server) handleConn(conn net.Conn) {
 		case MethodAttachLog:
 			s.handleAttachLog(conn, req.Payload)
 			return // streaming method — handler manages connection lifetime
+		case MethodSpawnPipeline:
+			s.handleSpawnPipeline(conn, req.Payload)
+			return // streaming method
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -507,6 +512,126 @@ func (s *Server) CallbackMux() kernel.KernelCallbacks {
 func (s *Server) SetKernel(k *kernel.KernelImpl) {
 	s.kern = k
 }
+
+// --- spawn pipeline ---
+
+func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) {
+	var req SpawnPipelineRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid spawn_pipeline request"}})
+		return
+	}
+	if len(req.Commands) == 0 {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "pipeline must have at least one command"}})
+		return
+	}
+
+	pipeline := &shell.Pipeline{
+		Commands: make([]shell.Command, len(req.Commands)),
+	}
+	for i, c := range req.Commands {
+		pipeline.Commands[i] = shell.Command{
+			Type:   "spawn",
+			Intent: c.Intent,
+			Agent:  c.Agent,
+			Model:  c.Model,
+		}
+	}
+
+	writeResponse(conn, Response{OK: true})
+
+	enc := json.NewEncoder(conn)
+	spawner := &ipcKernelSpawner{
+		kernel:      s.kern,
+		agentLoader: s.agentLoader,
+	}
+
+	executor := shell.NewPipelineExecutor(spawner)
+	executor.OnStageStart = func(stage, total int, intent string) {
+		pp := ProgressPayload{
+			Event: "pipeline_stage",
+			Step:  stage,
+			Total: total,
+		}
+		payload, _ := json.Marshal(pp)
+		_ = enc.Encode(StreamEvent{Type: StreamProgress, Payload: payload})
+	}
+
+	result, err := executor.Execute(context.Background(), pipeline)
+	if err != nil {
+		ep := ErrorPayload{Code: "PIPELINE_ERROR", Message: err.Error()}
+		payload, _ := json.Marshal(ep)
+		_ = enc.Encode(StreamEvent{Type: StreamError, Payload: payload})
+		return
+	}
+
+	resp := SpawnPipelineResponse{
+		Stages: make([]PipelineStageWire, len(result.Stages)),
+	}
+	for i, stage := range result.Stages {
+		var pid types.PID
+		if i < len(spawner.pids) {
+			pid = spawner.pids[i]
+		}
+		resp.Stages[i] = PipelineStageWire{
+			PID:        pid,
+			Intent:     stage.Intent,
+			Result:     stage.Result,
+			ExitCode:   stage.ExitCode,
+			TokensUsed: stage.TokensUsed,
+			ElapsedMs:  stage.Elapsed.Milliseconds(),
+		}
+	}
+
+	payload, _ := json.Marshal(resp)
+	_ = enc.Encode(StreamEvent{Type: StreamComplete, Payload: payload})
+}
+
+// ipcKernelSpawner adapts the real kernel to the shell.KernelSpawner interface.
+type ipcKernelSpawner struct {
+	kernel      *kernel.KernelImpl
+	agentLoader AgentLoaderFunc
+	pids        []types.PID
+}
+
+func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, model string) (string, int, int, error) {
+	var agentInfo *agents.AgentInfo
+	if agentName != "" && s.agentLoader != nil {
+		var err error
+		agentInfo, err = s.agentLoader(agentName)
+		if err != nil {
+			return "", 1, 0, fmt.Errorf("agent %q not found: %v", agentName, err)
+		}
+	}
+
+	pid, err := s.kernel.Spawn(intent, agentInfo, kernel.SpawnOpts{Model: model})
+	if err != nil {
+		return "", 1, 0, err
+	}
+	s.pids = append(s.pids, pid)
+
+	proc, ok := s.kernel.GetProcess(pid)
+	if !ok {
+		return "", 1, 0, fmt.Errorf("process vanished after spawn")
+	}
+
+	select {
+	case exit := <-proc.Done:
+		info, infoErr := s.kernel.GetProcInfo(pid)
+		s.kernel.Reap(pid)
+		if infoErr != nil {
+			return "", exit.Code, 0, nil
+		}
+		return info.Result, exit.Code, info.TokensUsed, nil
+	case <-ctx.Done():
+		_ = s.kernel.Kill(pid, types.SIGTERM)
+		s.kernel.Reap(pid)
+		return "", 1, 0, ctx.Err()
+	}
+}
+
+// Compile-time check that ipcKernelSpawner implements shell.KernelSpawner.
+var _ shell.KernelSpawner = (*ipcKernelSpawner)(nil)
 
 // --- helpers ---
 
