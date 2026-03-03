@@ -969,3 +969,49 @@ func TestLevenshtein(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 11.1: 管道语法 (Pipe Syntax)
+//
+// Tests reference isPipelineSyntax which does NOT exist yet
+// → compile failure = RED phase.
+// ============================================================
+
+// --- 11.1-REG-001: [P2] 管道语法检测——正确识别 spawn 管道 ---
+
+func TestIsPipelineSyntax_BasicPipe(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{`spawn "分析代码" | spawn "写文档"`, true},
+		{`spawn "A" | spawn "B" | spawn "C"`, true},
+		{`spawn "分析" --agent=analyst | spawn "写文档" --agent=writer`, true},
+	}
+	for _, tc := range tests {
+		if got := isPipelineSyntax(tc.input); got != tc.want {
+			t.Errorf("isPipelineSyntax(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
+// --- 11.1-REG-002: [P2] 非管道 intent 不误判 ---
+
+func TestIsPipelineSyntax_NonPipe(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{`分析 A | B 的差异`, false},
+		{`比较 left|right 分支`, false},
+		{`spawn "分析代码"`, false},
+		{`echo "hello | world"`, false},
+		{`|`, false},
+		{``, false},
+	}
+	for _, tc := range tests {
+		if got := isPipelineSyntax(tc.input); got != tc.want {
+			t.Errorf("isPipelineSyntax(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
