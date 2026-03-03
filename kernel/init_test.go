@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -294,6 +295,97 @@ func TestBootstrap_AgentLoaderFunc_SetsChildAgent(t *testing.T) {
 	}
 	if len(result.Started) == 0 {
 		t.Fatal("Expected at least one started entry")
+	}
+}
+
+// === LoadInitConfig Tests (CR fix: H1) ===
+
+// TestLoadInitConfig_FileNotExist: 文件不存在时返回 DefaultInitConfig
+func TestLoadInitConfig_FileNotExist(t *testing.T) {
+	cfg, err := LoadInitConfig("/nonexistent/path/crux-init.yaml")
+	if err != nil {
+		t.Fatalf("expected nil error for missing file, got: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if len(cfg.Services) != 0 {
+		t.Fatalf("expected empty services, got %d", len(cfg.Services))
+	}
+	if len(cfg.Supervisors) != 0 {
+		t.Fatalf("expected empty supervisors, got %d", len(cfg.Supervisors))
+	}
+}
+
+// TestLoadInitConfig_ValidYAML: 有效 YAML 正确解析
+func TestLoadInitConfig_ValidYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/crux-init.yaml"
+
+	content := `services:
+  - name: test-svc
+    type: log_aggregator
+    required: true
+    config:
+      key: value
+supervisors:
+  - name: test-sup
+    strategy: one_for_one
+    max_restarts: 5
+    max_window: 1m0s
+    required: false
+    children:
+      - name: child-1
+        intent: test
+        model: haiku
+        context_budget: 1000
+        restart: permanent
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadInitConfig(path)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if len(cfg.Services) != 1 {
+		t.Fatalf("expected 1 service, got %d", len(cfg.Services))
+	}
+	svc := cfg.Services[0]
+	if svc.Name != "test-svc" || svc.Type != "log_aggregator" || !svc.Required {
+		t.Fatalf("service parsed incorrectly: %+v", svc)
+	}
+	if len(cfg.Supervisors) != 1 {
+		t.Fatalf("expected 1 supervisor, got %d", len(cfg.Supervisors))
+	}
+	sup := cfg.Supervisors[0]
+	if sup.Name != "test-sup" || sup.Strategy != "one_for_one" || sup.MaxRestarts != 5 {
+		t.Fatalf("supervisor parsed incorrectly: %+v", sup)
+	}
+	if sup.MaxWindow != time.Minute {
+		t.Fatalf("expected MaxWindow 1m0s, got %v", sup.MaxWindow)
+	}
+	if len(sup.Children) != 1 || sup.Children[0].Name != "child-1" {
+		t.Fatalf("children parsed incorrectly: %+v", sup.Children)
+	}
+}
+
+// TestLoadInitConfig_InvalidYAML: 无效 YAML 返回 error
+func TestLoadInitConfig_InvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/crux-init.yaml"
+
+	if err := os.WriteFile(path, []byte("{{invalid yaml content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadInitConfig(path)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML, got nil")
+	}
+	if !strings.Contains(err.Error(), "parse init config") {
+		t.Fatalf("error should mention 'parse init config', got: %v", err)
 	}
 }
 

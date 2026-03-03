@@ -758,6 +758,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		srv.Shutdown()
 		srv.Wait()
+		k.Shutdown()
 		os.Remove(socketPath)
 		return fmt.Errorf("daemon: init config error: %w", err)
 	}
@@ -770,10 +771,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("daemon: bootstrap failed: %w", err)
 	}
 	for _, svc := range initResult.Started {
-		fmt.Fprintf(os.Stderr, "[init] started: %s\n", svc)
+		fmt.Fprintf(os.Stderr, "[init] \u2713 %s\n", svc)
 	}
 	for _, warn := range initResult.Warnings {
-		fmt.Fprintf(os.Stderr, "[init] warning: %s\n", warn)
+		fmt.Fprintf(os.Stderr, "[init] \u26a0 %s\n", warn)
 	}
 
 	sigCh := make(chan os.Signal, 1)
