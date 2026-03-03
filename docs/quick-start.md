@@ -261,3 +261,11 @@ $ crux kill 1
 - **[核心概念文档](concepts.md)** — 深入理解进程、VFS、Syscall、Agent 与 Skill 的设计哲学
 - **[参考手册](reference.md)** — 完整的 CLI 命令参考、Syscall 签名和 Manifest 字段说明
 - **Agent 和 Skill 扩展** — 创建自定义 Agent（`lib/agents/`）和 Skill（`lib/skills/`），扩展 Crux 的能力边界
+
+### 实战教程
+
+想要手把手学习 Crux 开发？查看 [教程目录](tutorials/README.md)：
+
+1. **[编写第一个 Skill](tutorials/writing-first-skill.md)** — 创建 Skill、Agent 并运行（~20 分钟）
+2. **[调试第一个 bug](tutorials/debugging-first-bug.md)** — 使用 astrace 定位和修复问题（~15 分钟）
+3. **[组合多智能体工作流](tutorials/composing-multi-agent-workflow.md)** — 用 Compose 编排多智能体协作（~25 分钟）
