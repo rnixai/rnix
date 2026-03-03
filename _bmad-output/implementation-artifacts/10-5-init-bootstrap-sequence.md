@@ -1,6 +1,6 @@
 # Story 10.5: init 引导序列
 
-Status: review
+Status: done
 
 ## Story
 
@@ -372,8 +372,22 @@ Claude Opus 4.6
 - Task 6：8 个测试全部通过（5 个 P0 单元测试 + 2 个 P1 集成测试 + 1 个 P2 回归测试）
 - 关键设计决策：`checkSupervisorStartup` 函数通过等待 goroutine 完成来检测异步 supervisor 启动失败，使用 200ms 超时避免阻塞正常启动的 supervisor
 
+### Code Review Fixes (CR-2026-03-03)
+
+- **H1 修复**: 为 `LoadInitConfig` 添加 3 个测试（文件不存在/有效YAML解析/无效YAML错误），覆盖 YAML → InitConfig 的完整解析路径，包括 `time.Duration` 反序列化验证
+- **M1 修复**: `runDaemon` init config 错误路径补充 `k.Shutdown()` 调用，与 bootstrap 失败路径对齐
+- **M2 修复**: `rollbackSupervisors` 中 `k.Kill` 错误不再静默丢弃，改为 stderr 输出 warning
+- **M4 修复**: 日志输出格式从 `[init] started:`/`[init] warning:` 改为 `[init] ✓`/`[init] ⚠`，与 Story spec 保持一致
+
+### Deferred Issues (not fixed, documented for future)
+
+- **H2**: `checkSupervisorStartup` 200ms 硬编码超时 — 真实环境可能需要可配置值，但当前 MVP 阶段可接受
+- **H3**: `serviceRegistry` 全局可变状态 — 测试注入模式可工作但脆弱，未来重构为参数注入
+- **M3**: `TestBootstrap_AgentLoaderFunc_SetsChildAgent` 不直接断言 Agent 字段 — 因 ChildSpec 在 supervisor goroutine 内部使用，外部无法直接验证
+- **M5**: 内置服务测试仅验证容错路径 — 需要 fixture 目录才能测试正常扫描逻辑
+
 ### File List
 
-- `kernel/init.go` — 新文件：Init 引导核心实现（配置类型 + Bootstrap + 内置服务 + 服务注册表 + checkSupervisorStartup）
-- `kernel/init_test.go` — 新文件：8 个测试用例（5 P0 + 2 P1 + 1 P2）
-- `cmd/crux/main.go` — 修改：runDaemon 中添加 Bootstrap 调用（~20 行新增）
+- `kernel/init.go` — 新文件：Init 引导核心实现（配置类型 + Bootstrap + 内置服务 + 服务注册表 + checkSupervisorStartup）。CR: rollbackSupervisors Kill 错误日志
+- `kernel/init_test.go` — 新文件：11 个测试用例（5 P0 + 2 P1 + 1 P2 + 3 CR-LoadInitConfig）
+- `cmd/crux/main.go` — 修改：runDaemon 中添加 Bootstrap 调用。CR: config 错误路径补充 k.Shutdown()；日志格式对齐 spec
