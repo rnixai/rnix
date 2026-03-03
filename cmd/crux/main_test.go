@@ -1015,3 +1015,91 @@ func TestIsPipelineSyntax_NonPipe(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 11.2: 变量与环境传递
+//
+// Tests reference isScriptSyntax which does NOT exist yet
+// → compile failure = RED phase.
+// ============================================================
+
+// --- 11.2-REG-001: [P1] isScriptSyntax 检测 ---
+
+func TestIsScriptSyntax_Positive(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		// Multi-line script (contains \n)
+		{"export TARGET=./src\nspawn \"分析 $TARGET\"", true},
+		// Single-line export
+		{"export KEY=value", true},
+		// Export case insensitive
+		{"Export KEY=value", true},
+		{"EXPORT KEY=value", true},
+		// Multi-line with pipeline
+		{"export OUT=./reports\nspawn \"分析\" | spawn \"保存到 $OUT\"", true},
+		// Multi-line with comments
+		{"# comment\nexport A=1\nspawn \"test\"", true},
+		// Multi-line without export
+		{"spawn \"A\"\nspawn \"B\"", true},
+	}
+	for _, tc := range tests {
+		if got := isScriptSyntax(tc.input); got != tc.want {
+			t.Errorf("isScriptSyntax(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestIsScriptSyntax_Negative(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		// Single spawn (not a script)
+		{`spawn "分析代码"`, false},
+		// Pipeline (not a script — handled by isPipelineSyntax)
+		{`spawn "A" | spawn "B"`, false},
+		// Plain intent
+		{`分析这段代码`, false},
+		// Empty
+		{``, false},
+		// Word "export" in intent but not as command
+		{`spawn "export the data to CSV"`, false},
+	}
+	for _, tc := range tests {
+		if got := isScriptSyntax(tc.input); got != tc.want {
+			t.Errorf("isScriptSyntax(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
+// --- 11.2-REG-002: [P2] 现有单 spawn/管道路径不受影响 ---
+
+func TestScriptDetection_PriorityOverPipeline(t *testing.T) {
+	// Script with export + pipeline should be detected as script, not pipeline
+	input := "export A=1\nspawn \"X\" | spawn \"Y\""
+	if !isScriptSyntax(input) {
+		t.Error("multi-line with export should be script syntax")
+	}
+}
+
+func TestExistingPaths_Unchanged(t *testing.T) {
+	// Single spawn — not script, not pipeline
+	single := `spawn "分析代码"`
+	if isScriptSyntax(single) {
+		t.Error("single spawn should NOT be script syntax")
+	}
+	if isPipelineSyntax(single) {
+		t.Error("single spawn should NOT be pipeline syntax")
+	}
+
+	// Pipeline — not script
+	pipe := `spawn "A" | spawn "B"`
+	if isScriptSyntax(pipe) {
+		t.Error("pipeline should NOT be script syntax")
+	}
+	if !isPipelineSyntax(pipe) {
+		t.Error("pipeline should be pipeline syntax")
+	}
+}
