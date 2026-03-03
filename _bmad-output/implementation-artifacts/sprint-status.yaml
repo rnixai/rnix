@@ -146,7 +146,7 @@ development_status:
   epic-11-retrospective: done
 
   # Epic 12: Phase 2 文档（Phase 2 Documentation）
-  epic-12: backlog
-  12-1-tutorial-documentation: backlog
+  epic-12: in-progress
+  12-1-tutorial-documentation: done
   12-2-architecture-documentation: backlog
   epic-12-retrospective: optional
