@@ -1241,7 +1241,100 @@ func TestParseScript_IfCaseInsensitive(t *testing.T) {
 	}
 }
 
-// --- 11.3-UNIT-EXTRA-003: 空 then body ---
+// --- 11.3-UNIT-EXTRA-003: pipeline + on-error 解析 ---
+
+func TestParseScript_PipelineOnError(t *testing.T) {
+	input := `spawn "A" | spawn "B" on-error spawn "recovery"`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(script.Statements) != 1 {
+		t.Fatalf("statements count = %d, want 1", len(script.Statements))
+	}
+
+	stmt := script.Statements[0]
+	if stmt.Kind != StmtPipeline {
+		t.Errorf("kind = %q, want %q", stmt.Kind, StmtPipeline)
+	}
+	if stmt.Pipeline == nil || len(stmt.Pipeline.Commands) != 2 {
+		t.Fatalf("expected 2-stage pipeline")
+	}
+	if stmt.OnError == nil {
+		t.Fatal("OnError should not be nil")
+	}
+	if stmt.OnError.Intent != "recovery" {
+		t.Errorf("handler intent = %q, want %q", stmt.OnError.Intent, "recovery")
+	}
+}
+
+// --- 11.3-UNIT-EXTRA-004: pipeline + on-error 执行——pipeline 失败触发 handler ---
+
+func TestScriptExecutor_PipelineOnError_Triggered(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "stage1 ok", exitCode: 0, tokens: 50},
+			{result: "stage2 fail", exitCode: 1, tokens: 50},
+			{result: "recovered", exitCode: 0, tokens: 100},
+		},
+	}
+
+	input := `spawn "A" | spawn "B" on-error spawn "recovery"`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	result, err := executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 3 {
+		t.Fatalf("calls = %d, want 3 (pipeline 2 stages + on-error handler)", len(spawner.calls))
+	}
+	if result.LastExitCode != 0 {
+		t.Errorf("exit code = %d, want 0 (handler recovered)", result.LastExitCode)
+	}
+	if result.TotalTokens != 200 {
+		t.Errorf("tokens = %d, want 200", result.TotalTokens)
+	}
+}
+
+// --- 11.3-UNIT-EXTRA-005: pipeline + on-error 执行——pipeline 成功跳过 handler ---
+
+func TestScriptExecutor_PipelineOnError_NotTriggered(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "stage1 ok", exitCode: 0, tokens: 50},
+			{result: "stage2 ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := `spawn "A" | spawn "B" on-error spawn "recovery"`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	result, err := executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 2 {
+		t.Errorf("calls = %d, want 2 (handler should not execute)", len(spawner.calls))
+	}
+	if result.LastExitCode != 0 {
+		t.Errorf("exit code = %d, want 0", result.LastExitCode)
+	}
+}
+
+// --- 11.3-UNIT-EXTRA-006: 空 then body ---
 
 func TestParseScript_EmptyThenBody(t *testing.T) {
 	input := "if $x == 1\nend"
