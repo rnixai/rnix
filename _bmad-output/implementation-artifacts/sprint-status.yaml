@@ -130,13 +130,13 @@ development_status:
   epic-9-retrospective: done
 
   # Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
-  epic-10: in-progress
+  epic-10: done
   10-1-crux-top-realtime-monitoring-tui: done
   10-2-crux-log-categorized-reasoning-logs: done
   10-3-token-budget-management: done
   10-4-supervisor-tree-and-restart-strategy: done
   10-5-init-bootstrap-sequence: done
-  epic-10-retrospective: optional
+  epic-10-retrospective: done
 
   # Epic 11: AgentShell 高级语法（AgentShell Advanced Syntax）
   epic-11: in-progress

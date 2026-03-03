@@ -179,41 +179,71 @@ func (k *KernelImpl) Recv(pid types.PID) (*Message, error) {
 
 // --- Pipe implementation ---
 
-// pipeBuffer is the shared internal buffer for a pipe.
+// DefaultPipeBufferSize is the default capacity for pipe buffers (64KB, matches Linux pipe default).
+const DefaultPipeBufferSize = 64 * 1024
+
+// pipeBuffer is the shared bounded buffer for a pipe.
+// Writers block when the buffer is full until readers consume data (backpressure).
 type pipeBuffer struct {
 	mu       sync.Mutex
 	buf      bytes.Buffer
-	notify   chan struct{}
+	capacity int
+	rdNotify chan struct{} // signals reader: data available or write closed
+	wrNotify chan struct{} // signals writer: space available or read closed
 	wrClosed bool
 	rdClosed bool
 }
 
-func newPipeBuffer() *pipeBuffer {
+func newPipeBuffer(capacity int) *pipeBuffer {
 	return &pipeBuffer{
-		notify: make(chan struct{}, 1),
+		capacity: capacity,
+		rdNotify: make(chan struct{}, 1),
+		wrNotify: make(chan struct{}, 1),
 	}
 }
 
-func (p *pipeBuffer) write(data []byte) (int, error) {
-	p.mu.Lock()
-	if p.rdClosed {
-		p.mu.Unlock()
-		return 0, types.NewDriverError("Write", "pipe",
-			fmt.Errorf("broken pipe"), types.ErrBrokenPipe)
-	}
-	if p.wrClosed {
-		p.mu.Unlock()
-		return 0, types.NewDriverError("Write", "pipe",
-			fmt.Errorf("write end closed"), types.ErrInvalid)
-	}
-	n, _ := p.buf.Write(data)
-	p.mu.Unlock()
+func (p *pipeBuffer) write(data []byte, cancelCh <-chan struct{}) (int, error) {
+	written := 0
+	for written < len(data) {
+		p.mu.Lock()
+		if p.rdClosed {
+			p.mu.Unlock()
+			return written, types.NewDriverError("Write", "pipe",
+				fmt.Errorf("broken pipe"), types.ErrBrokenPipe)
+		}
+		if p.wrClosed {
+			p.mu.Unlock()
+			return written, types.NewDriverError("Write", "pipe",
+				fmt.Errorf("write end closed"), types.ErrInvalid)
+		}
 
-	select {
-	case p.notify <- struct{}{}:
-	default:
+		available := p.capacity - p.buf.Len()
+		if available > 0 {
+			chunk := data[written:]
+			if len(chunk) > available {
+				chunk = chunk[:available]
+			}
+			n, _ := p.buf.Write(chunk)
+			written += n
+			p.mu.Unlock()
+
+			// Notify reader that data is available
+			select {
+			case p.rdNotify <- struct{}{}:
+			default:
+			}
+			continue
+		}
+		p.mu.Unlock()
+
+		// Buffer full — wait for reader to consume or cancellation
+		select {
+		case <-p.wrNotify:
+		case <-cancelCh:
+			return written, context.Canceled
+		}
 	}
-	return n, nil
+	return written, nil
 }
 
 func (p *pipeBuffer) read(length int, cancelCh <-chan struct{}) ([]byte, error) {
@@ -223,6 +253,13 @@ func (p *pipeBuffer) read(length int, cancelCh <-chan struct{}) ([]byte, error) 
 			data := make([]byte, min(length, p.buf.Len()))
 			n, _ := p.buf.Read(data)
 			p.mu.Unlock()
+
+			// Notify blocked writers that space is available
+			select {
+			case p.wrNotify <- struct{}{}:
+			default:
+			}
+
 			return data[:n], nil
 		}
 		if p.wrClosed {
@@ -232,7 +269,7 @@ func (p *pipeBuffer) read(length int, cancelCh <-chan struct{}) ([]byte, error) 
 		p.mu.Unlock()
 
 		select {
-		case <-p.notify:
+		case <-p.rdNotify:
 		case <-cancelCh:
 			return nil, context.Canceled
 		}
@@ -245,7 +282,7 @@ func (p *pipeBuffer) closeWrite() {
 	p.mu.Unlock()
 
 	select {
-	case p.notify <- struct{}{}:
+	case p.rdNotify <- struct{}{}:
 	default:
 	}
 }
@@ -256,7 +293,7 @@ func (p *pipeBuffer) closeRead() {
 	p.mu.Unlock()
 
 	select {
-	case p.notify <- struct{}{}:
+	case p.wrNotify <- struct{}{}:
 	default:
 	}
 }
@@ -297,9 +334,10 @@ func (r *pipeReadEnd) Stat() (vfs.FileStat, error) {
 
 // pipeWriteEnd is the write end of a pipe, implementing vfs.VFSFile.
 type pipeWriteEnd struct {
-	pipe   *pipeBuffer
-	mu     sync.Mutex
-	closed bool
+	pipe     *pipeBuffer
+	cancelCh <-chan struct{}
+	mu       sync.Mutex
+	closed   bool
 }
 
 var _ vfs.VFSFile = (*pipeWriteEnd)(nil)
@@ -317,7 +355,7 @@ func (w *pipeWriteEnd) Write(ctx context.Context, data []byte) error {
 	default:
 	}
 
-	_, err := w.pipe.write(data)
+	_, err := w.pipe.write(data, w.cancelCh)
 	return err
 }
 
@@ -364,8 +402,8 @@ func (k *KernelImpl) Pipe(writerPID, readerPID types.PID) (writeFD, readFD types
 	}
 
 	// Create pipe buffer and endpoints
-	pipe := newPipeBuffer()
-	writeEnd := &pipeWriteEnd{pipe: pipe}
+	pipe := newPipeBuffer(DefaultPipeBufferSize)
+	writeEnd := &pipeWriteEnd{pipe: pipe, cancelCh: writerProc.ctx.Done()}
 	readEnd := &pipeReadEnd{pipe: pipe, cancelCh: readerProc.ctx.Done()}
 
 	// Register FDs via VFS
