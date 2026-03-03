@@ -337,7 +337,7 @@ func isScriptSyntax(intent string) bool {
 		return true
 	}
 	trimmed := strings.TrimSpace(strings.ToLower(intent))
-	return strings.HasPrefix(trimmed, "export ")
+	return strings.HasPrefix(trimmed, "export ") || strings.HasPrefix(trimmed, "export\t")
 }
 
 // containsVarRef returns true if intent contains a $VAR reference.
@@ -578,17 +578,9 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 }
 
 func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time) {
-	// Collect OS environment to pass as initial env
-	osEnv := make(map[string]string)
-	for _, entry := range os.Environ() {
-		if k, v, ok := strings.Cut(entry, "="); ok {
-			osEnv[k] = v
-		}
-	}
-
 	req := ipc.ExecScriptRequest{
 		Script: intent,
-		Env:    osEnv,
+		Env:    agentshell.NewEnvironmentFromOS().All(),
 	}
 
 	sigCh := make(chan os.Signal, 2)
@@ -619,7 +611,11 @@ func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressR
 			return
 		}
 		if pp.Event == "script_step" {
-			progress.KernelMessage("script step %d/%d...", pp.Step, pp.Total)
+			if pp.Intent != "" {
+				progress.KernelMessage("script step %d/%d: %s", pp.Step, pp.Total, pp.Intent)
+			} else {
+				progress.KernelMessage("script step %d/%d...", pp.Step, pp.Total)
+			}
 		}
 	})
 	close(scriptDone)

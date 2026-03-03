@@ -677,9 +677,10 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	executor := shell.NewScriptExecutor(spawner, env)
 	executor.OnStageStart = func(stage, total int, intent string) {
 		pp := ProgressPayload{
-			Event: "script_step",
-			Step:  stage,
-			Total: total,
+			Event:  "script_step",
+			Step:   stage,
+			Total:  total,
+			Intent: intent,
 		}
 		payload, _ := json.Marshal(pp)
 		_ = enc.Encode(StreamEvent{Type: StreamProgress, Payload: payload})

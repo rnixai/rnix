@@ -1037,6 +1037,8 @@ func TestIsScriptSyntax_Positive(t *testing.T) {
 		// Export case insensitive
 		{"Export KEY=value", true},
 		{"EXPORT KEY=value", true},
+		// Export with tab separator
+		{"export\tKEY=value", true},
 		// Multi-line with pipeline
 		{"export OUT=./reports\nspawn \"分析\" | spawn \"保存到 $OUT\"", true},
 		// Multi-line with comments
