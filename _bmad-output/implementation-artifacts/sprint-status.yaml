@@ -139,11 +139,11 @@ development_status:
   epic-10-retrospective: done
 
   # Epic 11: AgentShell 高级语法（AgentShell Advanced Syntax）
-  epic-11: in-progress
+  epic-11: done
   11-1-pipe-syntax: done
   11-2-variables-and-environment-passing: done
   11-3-minimal-control-structures: done
-  epic-11-retrospective: optional
+  epic-11-retrospective: done
 
   # Epic 12: Phase 2 文档（Phase 2 Documentation）
   epic-12: backlog
