@@ -23,6 +23,7 @@ const (
 	MethodAttachLog       Method = "attach_log"
 	MethodShutdown        Method = "shutdown"
 	MethodSpawnPipeline   Method = "spawn_pipeline"
+	MethodExecScript      Method = "exec_script"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -265,6 +266,22 @@ type PipelineStageWire struct {
 	ExitCode   int       `json:"exit_code"`
 	TokensUsed int       `json:"tokens_used"`
 	ElapsedMs  int64     `json:"elapsed_ms"`
+}
+
+// --- Exec Script ---
+
+// ExecScriptRequest is the payload for MethodExecScript.
+type ExecScriptRequest struct {
+	Script string            `json:"script"`
+	Env    map[string]string `json:"env,omitempty"`
+}
+
+// ExecScriptResponse is the final result of a script execution (sent as StreamComplete payload).
+type ExecScriptResponse struct {
+	LastResult   string `json:"last_result"`
+	LastExitCode int    `json:"last_exit_code"`
+	TotalTokens  int    `json:"total_tokens"`
+	ElapsedMs    int64  `json:"elapsed_ms"`
 }
 
 // --- Socket Path ---

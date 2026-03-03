@@ -331,6 +331,33 @@ func isPipelineSyntax(intent string) bool {
 	return spawnCount >= 2
 }
 
+// isScriptSyntax returns true if intent is a multi-line script or a single-line export.
+func isScriptSyntax(intent string) bool {
+	if strings.Contains(intent, "\n") {
+		return true
+	}
+	trimmed := strings.TrimSpace(strings.ToLower(intent))
+	return strings.HasPrefix(trimmed, "export ")
+}
+
+// containsVarRef returns true if intent contains a $VAR reference.
+func containsVarRef(intent string) bool {
+	for i := 0; i < len(intent); i++ {
+		if intent[i] == '\\' && i+1 < len(intent) && intent[i+1] == '$' {
+			i++
+			continue
+		}
+		if intent[i] == '$' && i+1 < len(intent) && (isVarStartByte(intent[i+1]) || intent[i+1] == '{') {
+			return true
+		}
+	}
+	return false
+}
+
+func isVarStartByte(c byte) bool {
+	return c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
 func runRoot(cmd *cobra.Command, args []string) error {
 	if flagIntent == "" {
 		return cmd.Help()
@@ -353,9 +380,20 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
+	if isScriptSyntax(intent) {
+		runScript(renderer, mode, progress, client, intent, start)
+		return nil
+	}
+
 	if isPipelineSyntax(intent) {
 		runPipeline(renderer, mode, progress, client, intent, start)
 		return nil
+	}
+
+	// Single-line $VAR expansion from OS environment
+	if containsVarRef(intent) {
+		env := agentshell.NewEnvironmentFromOS()
+		intent = env.Expand(intent)
 	}
 
 	req := ipc.SpawnRequest{
@@ -537,6 +575,78 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 		totalTokens += s.TokensUsed
 	}
 	outputSuccess(renderer, mode, lastStage.PID, lastStage.Result, totalTokens, elapsed)
+}
+
+func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time) {
+	// Collect OS environment to pass as initial env
+	osEnv := make(map[string]string)
+	for _, entry := range os.Environ() {
+		if k, v, ok := strings.Cut(entry, "="); ok {
+			osEnv[k] = v
+		}
+	}
+
+	req := ipc.ExecScriptRequest{
+		Script: intent,
+		Env:    osEnv,
+	}
+
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	scriptDone := make(chan struct{})
+	go func() {
+		select {
+		case <-sigCh:
+			progress.KernelMessage("script interrupted (SIGINT)")
+			client.Close()
+			select {
+			case <-sigCh:
+				forceExitFunc(130)
+			case <-time.After(2 * time.Second):
+			}
+		case <-scriptDone:
+		}
+	}()
+
+	scriptResp, scriptErr := client.ExecScriptAndWatch(req, func(ev ipc.StreamEvent) {
+		if ev.Type != ipc.StreamProgress {
+			return
+		}
+		var pp ipc.ProgressPayload
+		if err := json.Unmarshal(ev.Payload, &pp); err != nil {
+			return
+		}
+		if pp.Event == "script_step" {
+			progress.KernelMessage("script step %d/%d...", pp.Step, pp.Total)
+		}
+	})
+	close(scriptDone)
+
+	if scriptErr != nil {
+		outputError(renderer, mode, "shell/script", scriptErr.Error(), "脚本执行失败", "检查脚本语法或重试")
+		exitCode = 1
+		return
+	}
+
+	elapsed := time.Since(start)
+
+	if scriptResp == nil {
+		outputError(renderer, mode, "shell/script", "no script result", "脚本返回空结果", "检查脚本内容")
+		exitCode = 1
+		return
+	}
+
+	if scriptResp.LastExitCode == 0 {
+		outputSuccess(renderer, mode, 0, scriptResp.LastResult, scriptResp.TotalTokens, elapsed)
+	} else {
+		outputError(renderer, mode, "shell/script",
+			fmt.Sprintf("script failed (exit %d)", scriptResp.LastExitCode),
+			"脚本执行中断", "检查脚本中的 spawn 命令")
+		ui.RenderSummary(renderer, 0, scriptResp.LastExitCode, scriptResp.TotalTokens, elapsed)
+		exitCode = 1
+	}
 }
 
 // jsonPipelineData holds pipeline JSON output fields.
