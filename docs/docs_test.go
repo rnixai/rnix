@@ -165,3 +165,126 @@ func TestTutorials_CrossReferences(t *testing.T) {
 		assertContainsAny(t, content, []string{"reference.md", "参考手册"}, name+" 应引用参考手册")
 	}
 }
+
+// ═══════════════════════════════════════════════════════════
+// Story 12-2: 架构文档（Architecture Documentation）
+// ═══════════════════════════════════════════════════════════
+
+func readArchDoc(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(docsDir(), "architecture.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("架构文档不存在: %s", path)
+	}
+	return string(data)
+}
+
+// --- 文件存在性测试 ---
+
+func TestArchitectureDoc_Exists(t *testing.T) {
+	path := filepath.Join(docsDir(), "architecture.md")
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("架构文档应存在: %s", path)
+	}
+}
+
+// --- AC1: 微内核设计 ---
+
+func TestArchitecture_MicrokernelDesign_HasSubInterfaces(t *testing.T) {
+	content := readArchDoc(t)
+	for _, iface := range []string{
+		"ProcessManager", "MountManager", "IPCManager",
+		"SignalManager", "ProcGroupManager", "SupervisorManager",
+	} {
+		assertContains(t, content, iface, "微内核设计应包含子接口")
+	}
+}
+
+func TestArchitecture_MicrokernelDesign_HasCallbacks(t *testing.T) {
+	content := readArchDoc(t)
+	assertContains(t, content, "KernelCallbacks", "应包含 KernelCallbacks")
+	for _, cb := range []string{"OnSpawn", "OnStep", "OnComplete", "OnError"} {
+		assertContains(t, content, cb, "KernelCallbacks 应包含回调方法")
+	}
+}
+
+func TestArchitecture_MicrokernelDesign_HasDataFlow(t *testing.T) {
+	content := readArchDoc(t)
+	assertContains(t, content, "Spawn", "数据流应包含 Spawn")
+	assertContains(t, content, "reasonStep", "数据流应包含 reasonStep")
+	assertContainsAny(t, content, []string{"数据流", "流程", "Data Flow"}, "应有数据流说明")
+}
+
+// --- AC2: 进程模型 ---
+
+func TestArchitecture_ProcessModel_HasStateMachine(t *testing.T) {
+	content := readArchDoc(t)
+	for _, state := range []string{"Created", "Running", "Zombie", "Dead"} {
+		assertContains(t, content, state, "状态机应包含状态")
+	}
+	assertContainsAny(t, content, []string{"PID", "pid"}, "应包含 PID 分配策略")
+}
+
+func TestArchitecture_ProcessModel_HasReapSequence(t *testing.T) {
+	content := readArchDoc(t)
+	assertContainsAny(t, content, []string{"reapProcess", "reap", "资源释放"}, "应包含资源释放说明")
+	assertContains(t, content, "CtxFree", "资源释放应包含 CtxFree")
+	assertContainsAny(t, content, []string{"orphan", "reparent", "孤儿", "重新指定"}, "应包含孤儿进程处理")
+}
+
+func TestArchitecture_ProcessModel_HasConcurrencyModel(t *testing.T) {
+	content := readArchDoc(t)
+	assertContains(t, content, "Thread", "并发模型应包含 Thread")
+	assertContains(t, content, "Coroutine", "并发模型应包含 Coroutine")
+	assertContainsAny(t, content, []string{"goroutine", "Goroutine"}, "应包含 goroutine 管理")
+}
+
+// --- AC3: 驱动层 ---
+
+func TestArchitecture_DriverLayer_HasDeviceRegistry(t *testing.T) {
+	content := readArchDoc(t)
+	assertContains(t, content, "DeviceRegistry", "应包含 DeviceRegistry")
+	assertContains(t, content, "VFSFileFactory", "应包含 VFSFileFactory")
+	assertContains(t, content, "VFSFile", "应包含 VFSFile 接口")
+}
+
+func TestArchitecture_DriverLayer_HasLLMDriver(t *testing.T) {
+	content := readArchDoc(t)
+	assertContains(t, content, "LLMDriver", "应包含 LLMDriver 接口")
+	assertContainsAny(t, content, []string{"Call(", "Call("}, "LLMDriver 应包含 Call 方法")
+	assertContainsAny(t, content, []string{"LLMRequest", "LLMResponse"}, "应包含请求/响应结构")
+}
+
+func TestArchitecture_DriverLayer_HasMCPMount(t *testing.T) {
+	content := readArchDoc(t)
+	assertContains(t, content, "MCPTransport", "应包含 MCPTransport")
+	assertContainsAny(t, content, []string{"Mount(", "Mount("}, "应包含 Mount 方法")
+	assertContainsAny(t, content, []string{"Unmount", "unmount"}, "应包含 Unmount")
+	assertContains(t, content, "/mnt/mcp/", "应包含 MCP 挂载路径")
+}
+
+// --- AC4: 上下文管理 ---
+
+func TestArchitecture_ContextMgmt_HasManagerMethods(t *testing.T) {
+	content := readArchDoc(t)
+	for _, method := range []string{"CtxAlloc", "CtxFree", "BuildPrompt", "AppendMessage"} {
+		assertContains(t, content, method, "上下文管理应包含方法")
+	}
+}
+
+func TestArchitecture_ContextMgmt_HasTokenBudget(t *testing.T) {
+	content := readArchDoc(t)
+	assertContains(t, content, "ContextBudget", "应包含 ContextBudget")
+	assertContains(t, content, "TokensUsed", "应包含 TokensUsed")
+	assertContainsAny(t, content, []string{"budget_exceeded", "预算", "Budget"}, "应包含预算超限说明")
+}
+
+// --- 架构文档交叉引用 ---
+
+func TestArchitecture_CrossReferences(t *testing.T) {
+	content := readArchDoc(t)
+	assertContainsAny(t, content, []string{"concepts.md", "核心概念"}, "应引用概念文档")
+	assertContainsAny(t, content, []string{"reference.md", "参考手册"}, "应引用参考手册")
+	assertContainsAny(t, content, []string{"tutorials/", "教程"}, "应引用教程")
+}
