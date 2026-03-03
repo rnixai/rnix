@@ -445,6 +445,10 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 		return
 	}
 
+	if len(pipeline.Commands) > agentshell.MaxRecommendedStages {
+		progress.KernelMessage("warning: pipeline has %d stages (recommended ≤ %d)", len(pipeline.Commands), agentshell.MaxRecommendedStages)
+	}
+
 	req := ipc.SpawnPipelineRequest{
 		Commands: make([]ipc.SpawnPipelineCommand, len(pipeline.Commands)),
 	}
@@ -455,6 +459,25 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 			Model:  cmd.Model,
 		}
 	}
+
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	pipelineDone := make(chan struct{})
+	go func() {
+		select {
+		case <-sigCh:
+			progress.KernelMessage("pipeline interrupted (SIGINT)")
+			client.Close()
+			select {
+			case <-sigCh:
+				forceExitFunc(130)
+			case <-time.After(2 * time.Second):
+			}
+		case <-pipelineDone:
+		}
+	}()
 
 	pipeResp, pipeErr := client.SpawnPipelineAndWatch(req, func(ev ipc.StreamEvent) {
 		if ev.Type != ipc.StreamProgress {
@@ -468,6 +491,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 			progress.KernelMessage("pipeline stage %d/%d...", pp.Step, pp.Total)
 		}
 	})
+	close(pipelineDone)
 
 	if pipeErr != nil {
 		outputError(renderer, mode, "shell/pipe", pipeErr.Error(), "管道执行失败", "检查管道命令或重试")
