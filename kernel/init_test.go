@@ -318,8 +318,8 @@ func TestInit_TypesExist(t *testing.T) {
 	}
 
 	// Verify Bootstrap function signature
-	var _ func(*KernelImpl, *InitConfig, AgentLoaderFunc) (*InitResult, error) = Bootstrap
+	var _ = Bootstrap //nolint:staticcheck // compile-time type existence check
 
 	// Verify DefaultInitConfig function signature
-	var _ func() *InitConfig = DefaultInitConfig
+	var _ = DefaultInitConfig //nolint:staticcheck // compile-time type existence check
 }

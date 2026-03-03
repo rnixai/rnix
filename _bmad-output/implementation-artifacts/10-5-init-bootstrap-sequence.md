@@ -1,6 +1,6 @@
 # Story 10.5: init 引导序列
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -31,48 +31,48 @@ So that 系统启动后所有基础设施就位。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Init 配置类型定义 (AC: #1)
-  - [ ] 1.1 `kernel/init.go`：定义 `InitConfig` 结构体（Services []ServiceConfig, Supervisors []SupervisorConfig）
-  - [ ] 1.2 `kernel/init.go`：定义 `ServiceConfig` 结构体（Name, Type, Required, Config map[string]any）
-  - [ ] 1.3 `kernel/init.go`：定义 `SupervisorConfig` 结构体（Name, Strategy, MaxRestarts, MaxWindow, Children []ChildConfig, Required）
-  - [ ] 1.4 `kernel/init.go`：定义 `ChildConfig` 结构体（Name, Intent, Agent, Model, ContextBudget, Restart）
-  - [ ] 1.5 `kernel/init.go`：`LoadInitConfig(path string) (*InitConfig, error)` 解析 `crux-init.yaml`
-  - [ ] 1.6 `kernel/init.go`：`DefaultInitConfig() *InitConfig` 返回无配置文件时的默认配置
+- [x] Task 1: Init 配置类型定义 (AC: #1)
+  - [x] 1.1 `kernel/init.go`：定义 `InitConfig` 结构体（Services []ServiceConfig, Supervisors []SupervisorConfig）
+  - [x] 1.2 `kernel/init.go`：定义 `ServiceConfig` 结构体（Name, Type, Required, Config map[string]any）
+  - [x] 1.3 `kernel/init.go`：定义 `SupervisorConfig` 结构体（Name, Strategy, MaxRestarts, MaxWindow, Children []ChildConfig, Required）
+  - [x] 1.4 `kernel/init.go`：定义 `ChildConfig` 结构体（Name, Intent, Agent, Model, ContextBudget, Restart）
+  - [x] 1.5 `kernel/init.go`：`LoadInitConfig(path string) (*InitConfig, error)` 解析 `crux-init.yaml`
+  - [x] 1.6 `kernel/init.go`：`DefaultInitConfig() *InitConfig` 返回无配置文件时的默认配置
 
-- [ ] Task 2: ServiceInitializer 接口与内置服务 (AC: #1, #2, #3)
-  - [ ] 2.1 `kernel/init.go`：定义 `ServiceInitializer` 接口 `Init(cfg map[string]any) error` + `Name() string`
-  - [ ] 2.2 `kernel/init.go`：定义 `InitResult` 结构体（Started []string, Warnings []string, Failed []ServiceError）
-  - [ ] 2.3 `kernel/init.go`：定义 `ServiceError` 结构体（Service string, Err error, Recovery string）
-  - [ ] 2.4 `kernel/init.go`：`skillRegistryService` 实现——扫描 `lib/skills/` 目录，预加载所有 Skill 元数据
-  - [ ] 2.5 `kernel/init.go`：`mcpManagerService` 实现——验证 `mcp.yaml` 中所有 MCP 服务器可达性
-  - [ ] 2.6 `kernel/init.go`：`logAggregatorService` 实现——初始化日志聚合通道
+- [x] Task 2: ServiceInitializer 接口与内置服务 (AC: #1, #2, #3)
+  - [x] 2.1 `kernel/init.go`：定义 `ServiceInitializer` 接口 `Init(cfg map[string]any) error` + `Name() string`
+  - [x] 2.2 `kernel/init.go`：定义 `InitResult` 结构体（Started []string, Warnings []string, Failed []ServiceError）
+  - [x] 2.3 `kernel/init.go`：定义 `ServiceError` 结构体（Service string, Err error, Recovery string）
+  - [x] 2.4 `kernel/init.go`：`skillRegistryService` 实现——扫描 `lib/skills/` 目录，预加载所有 Skill 元数据
+  - [x] 2.5 `kernel/init.go`：`mcpManagerService` 实现——验证 `mcp.yaml` 中所有 MCP 服务器可达性
+  - [x] 2.6 `kernel/init.go`：`logAggregatorService` 实现——初始化日志聚合通道
 
-- [ ] Task 3: Init 引擎核心实现 (AC: #1, #2, #3)
-  - [ ] 3.1 `kernel/init.go`：`Bootstrap(k *KernelImpl, cfg *InitConfig, agentLoader AgentLoaderFunc) (*InitResult, error)` 主入口
-  - [ ] 3.2 Phase 1：遍历 `cfg.Services`，按序调用 `ServiceInitializer.Init()`
-  - [ ] 3.3 Phase 1 错误处理：required 服务失败 → 返回 error（含恢复建议）；optional 服务失败 → 记录 warning 继续
-  - [ ] 3.4 Phase 2：遍历 `cfg.Supervisors`，调用 `k.SpawnSupervisor()` 构建 Supervisor 树
-  - [ ] 3.5 Phase 2 错误处理：required Supervisor 失败 → 回滚已启动的 Supervisor → 返回 error；optional → warning 继续
-  - [ ] 3.6 返回 `InitResult`（已启动服务列表、警告列表）
+- [x] Task 3: Init 引擎核心实现 (AC: #1, #2, #3)
+  - [x] 3.1 `kernel/init.go`：`Bootstrap(k *KernelImpl, cfg *InitConfig, agentLoader AgentLoaderFunc) (*InitResult, error)` 主入口
+  - [x] 3.2 Phase 1：遍历 `cfg.Services`，按序调用 `ServiceInitializer.Init()`
+  - [x] 3.3 Phase 1 错误处理：required 服务失败 → 返回 error（含恢复建议）；optional 服务失败 → 记录 warning 继续
+  - [x] 3.4 Phase 2：遍历 `cfg.Supervisors`，调用 `k.SpawnSupervisor()` 构建 Supervisor 树
+  - [x] 3.5 Phase 2 错误处理：required Supervisor 失败 → 回滚已启动的 Supervisor → 返回 error；optional → warning 继续
+  - [x] 3.6 返回 `InitResult`（已启动服务列表、警告列表）
 
-- [ ] Task 4: runDaemon 集成 (AC: #1, #2, #3)
-  - [ ] 4.1 `cmd/crux/main.go`：在 `runDaemon` 中 `srv.ListenAndServe()` 之后，调用 `kernel.Bootstrap()`
-  - [ ] 4.2 `cmd/crux/main.go`：Bootstrap 失败（required 服务）→ 输出错误 + 恢复建议 → srv.Shutdown() → 返回 error
-  - [ ] 4.3 `cmd/crux/main.go`：Bootstrap 成功 → 打印 InitResult 摘要（已启动服务 + 警告）到 stderr
+- [x] Task 4: runDaemon 集成 (AC: #1, #2, #3)
+  - [x] 4.1 `cmd/crux/main.go`：在 `runDaemon` 中 `srv.ListenAndServe()` 之后，调用 `kernel.Bootstrap()`
+  - [x] 4.2 `cmd/crux/main.go`：Bootstrap 失败（required 服务）→ 输出错误 + 恢复建议 → srv.Shutdown() → 返回 error
+  - [x] 4.3 `cmd/crux/main.go`：Bootstrap 成功 → 打印 InitResult 摘要（已启动服务 + 警告）到 stderr
 
-- [ ] Task 5: AgentLoaderFunc 类型桥接 (AC: #1)
-  - [ ] 5.1 `kernel/init.go`：定义 `AgentLoaderFunc` 类型 `func(name string) (*agents.AgentInfo, error)` 用于 Bootstrap 参数
-  - [ ] 5.2 `cmd/crux/main.go`：传递 `agentLoader.Load` 作为 `AgentLoaderFunc`
+- [x] Task 5: AgentLoaderFunc 类型桥接 (AC: #1)
+  - [x] 5.1 `kernel/init.go`：定义 `AgentLoaderFunc` 类型 `func(name string) (*agents.AgentInfo, error)` 用于 Bootstrap 参数
+  - [x] 5.2 `cmd/crux/main.go`：传递 `agentLoader.Load` 作为 `AgentLoaderFunc`
 
-- [ ] Task 6: 测试 (AC: all)
-  - [ ] 6.1 `kernel/init_test.go`：默认配置（无 crux-init.yaml）——Bootstrap 成功，InitResult.Started 为空
-  - [ ] 6.2 `kernel/init_test.go`：required 服务失败 → Bootstrap 返回 error，error 信息含服务名和恢复建议
-  - [ ] 6.3 `kernel/init_test.go`：optional 服务失败 → Bootstrap 成功，InitResult.Warnings 含警告信息
-  - [ ] 6.4 `kernel/init_test.go`：Supervisor 树构建——从 config 创建 SupervisorSpec → SpawnSupervisor 成功
-  - [ ] 6.5 `kernel/init_test.go`：required Supervisor 失败 → Bootstrap 返回 error
-  - [ ] 6.6 `kernel/init_test.go`：混合场景——2 个 required 服务 + 1 个 optional 服务 + 1 个 Supervisor → 全部成功
-  - [ ] 6.7 `kernel/init_test.go`：Supervisor 构建使用 AgentLoaderFunc 加载 agent 定义
-  - [ ] 6.8 `cmd/crux/main_test.go`：确认无命令注册回归
+- [x] Task 6: 测试 (AC: all)
+  - [x] 6.1 `kernel/init_test.go`：默认配置（无 crux-init.yaml）——Bootstrap 成功，InitResult.Started 为空
+  - [x] 6.2 `kernel/init_test.go`：required 服务失败 → Bootstrap 返回 error，error 信息含服务名和恢复建议
+  - [x] 6.3 `kernel/init_test.go`：optional 服务失败 → Bootstrap 成功，InitResult.Warnings 含警告信息
+  - [x] 6.4 `kernel/init_test.go`：Supervisor 树构建——从 config 创建 SupervisorSpec → SpawnSupervisor 成功
+  - [x] 6.5 `kernel/init_test.go`：required Supervisor 失败 → Bootstrap 返回 error
+  - [x] 6.6 `kernel/init_test.go`：混合场景——2 个 required 服务 + 1 个 optional 服务 + 1 个 Supervisor → 全部成功
+  - [x] 6.7 `kernel/init_test.go`：Supervisor 构建使用 AgentLoaderFunc 加载 agent 定义
+  - [x] 6.8 `cmd/crux/main_test.go`：确认无命令注册回归
 
 ## Dev Notes
 
@@ -358,10 +358,22 @@ for _, warn := range result.Warnings {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+- SpawnSupervisor 是异步的：子进程启动失败发生在 goroutine 中，Bootstrap 需要通过 `checkSupervisorStartup` 等待并检测启动失败
+- 使用 `proc.wg.Wait()` + 200ms 超时来区分启动失败（goroutine 立即退出，exit code != 0）和正常运行（goroutine 在 monitor loop 中阻塞）
+
 ### Completion Notes List
 
+- Task 1-5：在 `kernel/init.go` 中实现了所有配置类型（InitConfig, ServiceConfig, SupervisorConfig, ChildConfig）、ServiceInitializer 接口、Bootstrap 核心引擎、3 个内置服务（skillRegistryService, mcpManagerService, logAggregatorService）、服务类型注册表、AgentLoaderFunc 类型
+- Task 4：在 `cmd/crux/main.go` runDaemon 中集成 Bootstrap 调用，位于 ListenAndServe 之后、信号等待之前
+- Task 6：8 个测试全部通过（5 个 P0 单元测试 + 2 个 P1 集成测试 + 1 个 P2 回归测试）
+- 关键设计决策：`checkSupervisorStartup` 函数通过等待 goroutine 完成来检测异步 supervisor 启动失败，使用 200ms 超时避免阻塞正常启动的 supervisor
+
 ### File List
+
+- `kernel/init.go` — 新文件：Init 引导核心实现（配置类型 + Bootstrap + 内置服务 + 服务注册表 + checkSupervisorStartup）
+- `kernel/init_test.go` — 新文件：8 个测试用例（5 P0 + 2 P1 + 1 P2）
+- `cmd/crux/main.go` — 修改：runDaemon 中添加 Bootstrap 调用（~20 行新增）
