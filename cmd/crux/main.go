@@ -753,6 +753,29 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("daemon: listen failed: %w", err)
 	}
 
+	// Init bootstrap sequence (Story 10.5)
+	initCfg, err := kernel.LoadInitConfig("crux-init.yaml")
+	if err != nil {
+		srv.Shutdown()
+		srv.Wait()
+		os.Remove(socketPath)
+		return fmt.Errorf("daemon: init config error: %w", err)
+	}
+	initResult, err := kernel.Bootstrap(k, initCfg, agentLoader.Load)
+	if err != nil {
+		srv.Shutdown()
+		srv.Wait()
+		k.Shutdown()
+		os.Remove(socketPath)
+		return fmt.Errorf("daemon: bootstrap failed: %w", err)
+	}
+	for _, svc := range initResult.Started {
+		fmt.Fprintf(os.Stderr, "[init] started: %s\n", svc)
+	}
+	for _, warn := range initResult.Warnings {
+		fmt.Fprintf(os.Stderr, "[init] warning: %s\n", warn)
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
