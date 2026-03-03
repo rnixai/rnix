@@ -1105,3 +1105,26 @@ func TestExistingPaths_Unchanged(t *testing.T) {
 		t.Error("pipeline should be pipeline syntax")
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 11.3: 最小控制结构 (Minimal Control Structures)
+//
+// isScriptSyntax does NOT detect on-error yet → runtime failure = RED.
+// ============================================================
+
+// --- 11.3-REG-003: [P1] isScriptSyntax on-error 检测 ---
+
+func TestIsScriptSyntax_OnError(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{`spawn "A" on-error spawn "B"`, true},
+		{"spawn \"A\" on-error spawn \"B\"\nspawn \"C\"", true},
+	}
+	for _, tc := range tests {
+		if got := isScriptSyntax(tc.input); got != tc.want {
+			t.Errorf("isScriptSyntax(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
