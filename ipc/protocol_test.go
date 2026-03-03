@@ -486,3 +486,191 @@ func TestStreamEventType_Constants(t *testing.T) {
 		seen[et] = true
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 11.1: 管道语法 (Pipe Syntax)
+//
+// Tests reference MethodSpawnPipeline, SpawnPipelineRequest,
+// SpawnPipelineResponse, SpawnPipelineCommand, PipelineStageWire
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 11.1-INT-001a: [P1] MethodSpawnPipeline 常量存在且唯一 ---
+
+func TestMethodSpawnPipeline_Exists(t *testing.T) {
+	if MethodSpawnPipeline == "" {
+		t.Error("MethodSpawnPipeline should not be empty")
+	}
+	if MethodSpawnPipeline == MethodSpawn {
+		t.Error("MethodSpawnPipeline should differ from MethodSpawn")
+	}
+}
+
+// --- 11.1-INT-001b: [P1] SpawnPipelineRequest 序列化 roundtrip ---
+
+func TestSpawnPipelineRequest_MarshalRoundTrip(t *testing.T) {
+	req := SpawnPipelineRequest{
+		Commands: []SpawnPipelineCommand{
+			{Intent: "分析代码", Agent: "analyst", Model: "sonnet"},
+			{Intent: "写文档", Agent: "writer", Model: "opus"},
+		},
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded SpawnPipelineRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(decoded.Commands) != 2 {
+		t.Fatalf("commands count = %d, want 2", len(decoded.Commands))
+	}
+	if decoded.Commands[0].Intent != "分析代码" {
+		t.Errorf("cmd 0 intent = %q, want %q", decoded.Commands[0].Intent, "分析代码")
+	}
+	if decoded.Commands[0].Agent != "analyst" {
+		t.Errorf("cmd 0 agent = %q, want %q", decoded.Commands[0].Agent, "analyst")
+	}
+	if decoded.Commands[1].Intent != "写文档" {
+		t.Errorf("cmd 1 intent = %q, want %q", decoded.Commands[1].Intent, "写文档")
+	}
+	if decoded.Commands[1].Model != "opus" {
+		t.Errorf("cmd 1 model = %q, want %q", decoded.Commands[1].Model, "opus")
+	}
+}
+
+// --- 11.1-INT-001c: [P1] SpawnPipelineResponse 序列化 roundtrip ---
+
+func TestSpawnPipelineResponse_MarshalRoundTrip(t *testing.T) {
+	resp := SpawnPipelineResponse{
+		Stages: []PipelineStageWire{
+			{
+				PID:        1,
+				Intent:     "分析代码",
+				Result:     "代码分析报告",
+				ExitCode:   0,
+				TokensUsed: 100,
+				ElapsedMs:  5000,
+			},
+			{
+				PID:        2,
+				Intent:     "写文档",
+				Result:     "文档内容",
+				ExitCode:   0,
+				TokensUsed: 200,
+				ElapsedMs:  8000,
+			},
+		},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded SpawnPipelineResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(decoded.Stages) != 2 {
+		t.Fatalf("stages count = %d, want 2", len(decoded.Stages))
+	}
+	if decoded.Stages[0].PID != 1 {
+		t.Errorf("stage 0 pid = %d, want 1", decoded.Stages[0].PID)
+	}
+	if decoded.Stages[0].Result != "代码分析报告" {
+		t.Errorf("stage 0 result = %q, want %q", decoded.Stages[0].Result, "代码分析报告")
+	}
+	if decoded.Stages[1].TokensUsed != 200 {
+		t.Errorf("stage 1 tokens = %d, want 200", decoded.Stages[1].TokensUsed)
+	}
+	if decoded.Stages[1].ElapsedMs != 8000 {
+		t.Errorf("stage 1 elapsed = %d, want 8000", decoded.Stages[1].ElapsedMs)
+	}
+}
+
+// --- 11.1-INT-001d: [P1] PipelineStageWire ExitCode=0 保留 ---
+
+func TestPipelineStageWire_ZeroExitCode(t *testing.T) {
+	stage := PipelineStageWire{
+		PID:      1,
+		Intent:   "test",
+		ExitCode: 0,
+	}
+	data, err := json.Marshal(stage)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// exit_code should be present even when 0 (not omitempty for pipeline stages)
+	if _, exists := raw["exit_code"]; !exists {
+		t.Error("exit_code should be present even when 0")
+	}
+}
+
+// --- 11.1-INT-001e: [P1] SpawnPipelineCommand 可选字段 omitempty ---
+
+func TestSpawnPipelineCommand_OmitEmpty(t *testing.T) {
+	cmd := SpawnPipelineCommand{
+		Intent: "test",
+	}
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if _, exists := raw["agent"]; exists {
+		t.Error("agent should be omitted when empty")
+	}
+	if _, exists := raw["model"]; exists {
+		t.Error("model should be omitted when empty")
+	}
+}
+
+// --- 11.1-INT-001f: [P2] SpawnPipelineRequest IPC Request envelope ---
+
+func TestSpawnPipelineRequest_IPCEnvelope(t *testing.T) {
+	payload, _ := json.Marshal(SpawnPipelineRequest{
+		Commands: []SpawnPipelineCommand{
+			{Intent: "A"},
+			{Intent: "B"},
+		},
+	})
+	req := Request{Method: MethodSpawnPipeline, Payload: payload}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded Request
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Method != MethodSpawnPipeline {
+		t.Errorf("method = %q, want %q", decoded.Method, MethodSpawnPipeline)
+	}
+
+	var sp SpawnPipelineRequest
+	if err := json.Unmarshal(decoded.Payload, &sp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if len(sp.Commands) != 2 {
+		t.Errorf("commands = %d, want 2", len(sp.Commands))
+	}
+}
