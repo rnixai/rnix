@@ -557,7 +557,17 @@ func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) 
 		_ = enc.Encode(StreamEvent{Type: StreamProgress, Payload: payload})
 	}
 
-	result, err := executor.Execute(context.Background(), pipeline)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-s.done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	result, err := executor.Execute(ctx, pipeline)
 	if err != nil {
 		ep := ErrorPayload{Code: "PIPELINE_ERROR", Message: err.Error()}
 		payload, _ := json.Marshal(ep)

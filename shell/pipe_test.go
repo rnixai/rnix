@@ -250,10 +250,7 @@ func TestPipelineExecutor_ContextCancelled(t *testing.T) {
 		},
 	}
 
-	// Override SpawnAndWait to cancel context during second call
 	ctx, cancel := context.WithCancel(context.Background())
-	originalSpawn := spawner.SpawnAndWait
-	_ = originalSpawn // suppress unused
 
 	cancellingSpawner := &contextCancellingSpawner{
 		inner:       spawner,

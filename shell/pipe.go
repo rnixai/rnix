@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+// MaxRecommendedStages is the soft limit on pipeline depth. Exceeding it produces a
+// warning but does not block execution (as specified in Story 11.1 boundary cases).
+const MaxRecommendedStages = 10
+
 // KernelSpawner abstracts the kernel's spawn-and-wait operation for pipeline execution.
 // Implementations bridge to the real kernel (via IPC) or mock (for testing).
 type KernelSpawner interface {

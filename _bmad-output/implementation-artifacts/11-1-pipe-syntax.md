@@ -1,6 +1,6 @@
 # Story 11.1: 管道语法（Pipe Syntax）
 
-Status: review
+Status: done
 
 ## Story
 
@@ -392,6 +392,7 @@ Claude claude-4.6-opus (Cursor)
 ### Change Log
 
 - 2026-03-03: Story 11.1 完成——管道语法解析器、执行引擎、IPC 协议、CLI 集成
+- 2026-03-03: Code Review (AI) — 1 HIGH + 2 MEDIUM + 1 LOW fixed, all ACs verified, 18 packages 0 regression
 
 ### File List
 
@@ -410,3 +411,55 @@ Claude claude-4.6-opus (Cursor)
 - `shell/parser_test.go` — 12 测试全通过
 - `shell/pipe_test.go` — 8 测试全通过
 - `cmd/crux/main_test.go` — 2 管道检测测试通过 + 全量回归通过
+
+## Senior Developer Review (AI)
+
+**Reviewer:** Code Review Agent (claude-4.6-opus) | **Date:** 2026-03-03
+
+### Review Summary
+
+| Category | Count |
+|----------|-------|
+| 🔴 HIGH | 1 (fixed) |
+| 🟡 MEDIUM | 2 (fixed) |
+| 🟢 LOW | 1 (fixed) |
+| AC Coverage | 3/3 ✅ |
+| Task Audit | 5/5 [x] ✅ |
+| Test Pass | 18 packages, 0 regression |
+
+### Findings & Fixes
+
+**H1 [FIXED]: `runPipeline` 缺少 SIGINT 处理**
+- `runRoot` 中管道路径在 signal handler 注册前就 return，导致 pipeline 执行期间 Ctrl+C 无效
+- Fix: 在 `runPipeline` 中添加独立 SIGINT handler（goroutine 监听 + client.Close 中断 + 双击强退）
+- File: `cmd/crux/main.go`
+
+**M1 [FIXED]: `handleSpawnPipeline` 使用 `context.Background()` 不响应 server shutdown**
+- Server `Shutdown()` 时管道继续执行
+- Fix: 从 `s.done` channel 派生可取消 context，server 关闭时自动取消管道
+- File: `ipc/server.go`
+
+**M2 [FIXED]: >10 阶段管道缺少 warning**
+- Story 边界情况明确要求「超长管道链合理限制 10 级以内（超出提示 warning，不阻断）」
+- Fix: 新增 `MaxRecommendedStages = 10` 常量（`shell/pipe.go`），`runPipeline` 中超出时输出 warning
+- Files: `shell/pipe.go`, `cmd/crux/main.go`
+
+**L1 [FIXED]: `pipe_test.go` dead code**
+- `TestPipelineExecutor_ContextCancelled` 中 `originalSpawn` 变量赋值后未使用
+- Fix: 删除无用变量
+- File: `shell/pipe_test.go`
+
+### AC Verification
+
+| AC | Status | Evidence |
+|----|--------|----------|
+| AC1: 双智能体管道 | ✅ IMPLEMENTED | `ParsePipeline` 解析 + `PipelineExecutor.Execute` 执行 + `[PIPE_INPUT]` 注入 (`shell/pipe.go:68`) |
+| AC2: 多级管道链 | ✅ IMPLEMENTED | 三阶段测试 `TestPipelineExecutor_ThreeStages_ChainTransfer` 验证 A→B→C 链式传递 |
+| AC3: 管道错误中断 | ✅ IMPLEMENTED | `ExitCode != 0` 时 break（`shell/pipe.go:89`），两个测试覆盖首阶段/中间阶段失败 |
+
+### Notes (not fixed — design observations)
+
+- `StageResult.PID` 字段在 `Execute()` 中始终为 0（KernelSpawner 接口不返回 PID），IPC 层通过 `spawner.pids[]` 侧信道填充。可考虑从 StageResult 移除或扩展 KernelSpawner 返回值。
+- Story Dev Agent Record 声称 "pipe_test 8 测试"，实际有 9 个测试函数（多了 `TestPipelineExecutor_SpawnerError`），轻微文档偏差。
+
+### Outcome: ✅ APPROVED → done
