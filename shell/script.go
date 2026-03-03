@@ -120,13 +120,7 @@ func parseBlock(lines []string, startIdx int, insideIf bool) ([]Statement, int, 
 
 func parseIfBlock(lines []string, ifLineIdx int) (*IfBlock, int, error) {
 	ifLine := strings.TrimSpace(lines[ifLineIdx])
-	lower := strings.ToLower(ifLine)
-	var condStr string
-	if strings.HasPrefix(lower, "if ") {
-		condStr = strings.TrimSpace(ifLine[3:])
-	} else {
-		condStr = strings.TrimSpace(ifLine[3:]) // "if\t..."
-	}
+	condStr := strings.TrimSpace(ifLine[3:])
 
 	cond, err := parseCondition(condStr)
 	if err != nil {
@@ -476,26 +470,43 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 				return nil
 			}
 
-		case StmtPipeline:
+	case StmtPipeline:
+		*stageNum++
+		expanded := expandPipelineIntents(e.env, stmt.Pipeline)
+		if e.OnStageStart != nil {
+			e.OnStageStart(*stageNum, totalStages, "pipeline")
+		}
+		pExec := NewPipelineExecutor(e.spawner)
+		pResult, err := pExec.Execute(ctx, expanded)
+		if err != nil {
+			return fmt.Errorf("pipeline: %w", err)
+		}
+		if len(pResult.Stages) > 0 {
+			last := pResult.Stages[len(pResult.Stages)-1]
+			result.LastResult = last.Result
+			result.LastExitCode = last.ExitCode
+		}
+		result.TotalTokens += pResult.TotalTokens
+
+		if result.LastExitCode != 0 && stmt.OnError != nil {
 			*stageNum++
-			expanded := expandPipelineIntents(e.env, stmt.Pipeline)
+			hIntent := e.env.Expand(stmt.OnError.Intent)
 			if e.OnStageStart != nil {
-				e.OnStageStart(*stageNum, totalStages, "pipeline")
+				e.OnStageStart(*stageNum, totalStages, hIntent)
 			}
-			pExec := NewPipelineExecutor(e.spawner)
-			pResult, err := pExec.Execute(ctx, expanded)
-			if err != nil {
-				return fmt.Errorf("pipeline: %w", err)
+			hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(
+				ctx, hIntent, stmt.OnError.Agent, stmt.OnError.Model)
+			if hErr != nil {
+				return fmt.Errorf("on-error: %w", hErr)
 			}
-			if len(pResult.Stages) > 0 {
-				last := pResult.Stages[len(pResult.Stages)-1]
-				result.LastResult = last.Result
-				result.LastExitCode = last.ExitCode
-			}
-			result.TotalTokens += pResult.TotalTokens
-			if result.LastExitCode != 0 {
-				return nil
-			}
+			result.LastResult = hRes
+			result.LastExitCode = hExitCode
+			result.TotalTokens += hTokens
+		}
+
+		if result.LastExitCode != 0 {
+			return nil
+		}
 
 		case StmtIf:
 			match, err := e.evalCondition(&stmt.If.Condition)

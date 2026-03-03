@@ -1,6 +1,6 @@
 # Story 11.3: 最小控制结构（Minimal Control Structures）
 
-Status: review
+Status: done
 
 ## Story
 
@@ -828,9 +828,34 @@ Claude claude-4.6-opus (Cursor)
 - ✅ Task 5: `isScriptSyntax` 新增 on-error 检测，导出 `SplitOnError` 供 CLI 使用
 - ✅ Task 6: 25 个测试全部通过（11 个解析测试 + 12 个执行测试 + 3 个额外边界测试 + 1 个 CLI 测试），全套件 18 包零回归
 
+### Senior Developer Review (AI)
+
+**Reviewer:** Decker (via Claude claude-4.6-opus) | **Date:** 2026-03-03
+
+**Review Result:** Approve (with fixes applied)
+
+**Git vs Story 差异:** 0 (File List 与 git 一致)
+
+**Issues Found:** 0 High, 3 Medium, 1 Low
+
+| ID | Severity | Description | Resolution |
+|----|----------|-------------|------------|
+| CR-1 | MEDIUM | `executeBlock` StmtPipeline case 不检查/执行 `stmt.OnError`——pipeline on-error handler 被解析但未执行 | Fixed: 添加 pipeline on-error handler 执行逻辑 |
+| CR-2 | MEDIUM | `parseIfBlock` if/else 分支完全相同（`ifLine[3:]`），else 为死代码 | Fixed: 移除冗余分支 |
+| CR-3 | MEDIUM | Pipeline+on-error 组合缺少测试覆盖（解析和执行） | Fixed: 添加 3 个测试 |
+| CR-4 | LOW | `isAssignment` 接受 pipeline 右侧但 `parseSpawnCommand` 报错——Dev Notes 描述与代码行为不一致 | Noted: 不支持的边界情况，错误消息可接受 |
+
+**AC 验证:**
+- AC1 (if/else/end): IMPLEMENTED — 递归下降解析器 + executeBlock 条件分支
+- AC2 (on-error): IMPLEMENTED — splitOnError 引号感知分割 + 三种 spawn 中断语义
+- AC3 (嵌套): IMPLEMENTED — 递归自然支持，测试覆盖 2 层嵌套
+
+**全套件验证:** 18 包测试通过，零回归。
+
 ### Change Log
 
 - 2026-03-03: 实现 Story 11.3 最小控制结构——if/else/end 条件分支、赋值 spawn、on-error 内联错误处理
+- 2026-03-03: Code Review 修复——pipeline on-error 执行逻辑、parseIfBlock 死代码清理、补充 pipeline+on-error 测试
 
 ### File List
 
