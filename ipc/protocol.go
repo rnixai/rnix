@@ -20,8 +20,9 @@ const (
 	MethodListProcs   Method = "list_procs"
 	MethodKill        Method = "kill"
 	MethodAttachDebug Method = "attach_debug"
-	MethodAttachLog   Method = "attach_log"
-	MethodShutdown    Method = "shutdown"
+	MethodAttachLog       Method = "attach_log"
+	MethodShutdown        Method = "shutdown"
+	MethodSpawnPipeline   Method = "spawn_pipeline"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -235,6 +236,35 @@ func SyscallEventToWire(e types.SyscallEvent) SyscallEventWire {
 // PingResponse is the payload for MethodPing.
 type PingResponse struct {
 	Version string `json:"version"`
+}
+
+// --- Spawn Pipeline ---
+
+// SpawnPipelineRequest is the payload for MethodSpawnPipeline.
+type SpawnPipelineRequest struct {
+	Commands []SpawnPipelineCommand `json:"commands"`
+}
+
+// SpawnPipelineCommand describes one stage of a pipeline spawn.
+type SpawnPipelineCommand struct {
+	Intent string `json:"intent"`
+	Agent  string `json:"agent,omitempty"`
+	Model  string `json:"model,omitempty"`
+}
+
+// SpawnPipelineResponse is the final result of a pipeline spawn (sent as StreamComplete payload).
+type SpawnPipelineResponse struct {
+	Stages []PipelineStageWire `json:"stages"`
+}
+
+// PipelineStageWire is the wire-format result of a single pipeline stage.
+type PipelineStageWire struct {
+	PID        types.PID `json:"pid"`
+	Intent     string    `json:"intent"`
+	Result     string    `json:"result"`
+	ExitCode   int       `json:"exit_code"`
+	TokensUsed int       `json:"tokens_used"`
+	ElapsedMs  int64     `json:"elapsed_ms"`
 }
 
 // --- Socket Path ---

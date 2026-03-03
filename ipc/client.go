@@ -125,6 +125,59 @@ func (c *Client) SpawnAndWatch(req SpawnRequest, onEvent func(StreamEvent)) (typ
 	return sr.PID, finalPayload, nil
 }
 
+// SpawnPipelineAndWatch spawns a pipeline of processes and streams events until completion.
+// The onEvent callback is called for each StreamEvent (progress per stage).
+// Returns the SpawnPipelineResponse with all stage results.
+func (c *Client) SpawnPipelineAndWatch(req SpawnPipelineRequest, onEvent func(StreamEvent)) (*SpawnPipelineResponse, error) {
+	if err := c.sendRequest(MethodSpawnPipeline, req); err != nil {
+		return nil, err
+	}
+
+	if !c.scanner.Scan() {
+		return nil, fmt.Errorf("ipc: no initial pipeline response")
+	}
+	var resp Response
+	if err := json.Unmarshal(c.scanner.Bytes(), &resp); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal pipeline response: %w", err)
+	}
+	if !resp.OK {
+		msg := "pipeline spawn failed"
+		if resp.Error != nil {
+			msg = resp.Error.Message
+		}
+		return nil, fmt.Errorf("ipc: %s", msg)
+	}
+
+	var finalResp *SpawnPipelineResponse
+	for c.scanner.Scan() {
+		var ev StreamEvent
+		if err := json.Unmarshal(c.scanner.Bytes(), &ev); err != nil {
+			continue
+		}
+
+		if onEvent != nil {
+			onEvent(ev)
+		}
+
+		if ev.Type == StreamComplete {
+			var pr SpawnPipelineResponse
+			if err := json.Unmarshal(ev.Payload, &pr); err == nil {
+				finalResp = &pr
+			}
+			break
+		}
+		if ev.Type == StreamError {
+			var ep ErrorPayload
+			if err := json.Unmarshal(ev.Payload, &ep); err == nil {
+				return nil, fmt.Errorf("ipc: pipeline error: %s", ep.Message)
+			}
+			return nil, fmt.Errorf("ipc: pipeline failed")
+		}
+	}
+
+	return finalResp, nil
+}
+
 // AttachDebug streams SyscallEvents from the specified process.
 // The onEvent callback is called for each SyscallEventWire. Blocks until the stream ends.
 func (c *Client) AttachDebug(pid types.PID, onEvent func(SyscallEventWire)) error {

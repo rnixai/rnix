@@ -21,11 +21,12 @@ import (
 	"github.com/gonewx/crux/drivers/fs"
 	"github.com/gonewx/crux/drivers/llm"
 	"github.com/gonewx/crux/drivers/mcp"
-	"github.com/gonewx/crux/drivers/shell"
+	drivershell "github.com/gonewx/crux/drivers/shell"
 	"github.com/gonewx/crux/internal/types"
 	"github.com/gonewx/crux/internal/ui"
 	"github.com/gonewx/crux/ipc"
 	"github.com/gonewx/crux/kernel"
+	agentshell "github.com/gonewx/crux/shell"
 	"github.com/gonewx/crux/skills"
 	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
@@ -312,6 +313,24 @@ func resolveOutputMode() ui.OutputMode {
 	return ui.ModeDefault
 }
 
+// isPipelineSyntax returns true if intent looks like a pipeline: contains '|' with
+// 'spawn' keyword on at least two sides of the pipe character.
+func isPipelineSyntax(intent string) bool {
+	if !strings.Contains(intent, "|") {
+		return false
+	}
+	parts := strings.Split(intent, "|")
+	spawnCount := 0
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(strings.ToLower(part))
+		if strings.HasPrefix(trimmed, "spawn") &&
+			(len(trimmed) == 5 || trimmed[5] == ' ' || trimmed[5] == '\t' || trimmed[5] == '"' || trimmed[5] == '\'') {
+			spawnCount++
+		}
+	}
+	return spawnCount >= 2
+}
+
 func runRoot(cmd *cobra.Command, args []string) error {
 	if flagIntent == "" {
 		return cmd.Help()
@@ -333,6 +352,11 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	defer client.Close()
+
+	if isPipelineSyntax(intent) {
+		runPipeline(renderer, mode, progress, client, intent, start)
+		return nil
+	}
 
 	req := ipc.SpawnRequest{
 		Intent:   intent,
@@ -411,6 +435,128 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time) {
+	pipeline, err := agentshell.ParsePipeline(intent)
+	if err != nil {
+		outputError(renderer, mode, "shell/parser", err.Error(), "管道语法解析失败", "检查语法: spawn \"A\" | spawn \"B\"")
+		exitCode = 1
+		return
+	}
+
+	req := ipc.SpawnPipelineRequest{
+		Commands: make([]ipc.SpawnPipelineCommand, len(pipeline.Commands)),
+	}
+	for i, cmd := range pipeline.Commands {
+		req.Commands[i] = ipc.SpawnPipelineCommand{
+			Intent: cmd.Intent,
+			Agent:  cmd.Agent,
+			Model:  cmd.Model,
+		}
+	}
+
+	pipeResp, pipeErr := client.SpawnPipelineAndWatch(req, func(ev ipc.StreamEvent) {
+		if ev.Type != ipc.StreamProgress {
+			return
+		}
+		var pp ipc.ProgressPayload
+		if err := json.Unmarshal(ev.Payload, &pp); err != nil {
+			return
+		}
+		if pp.Event == "pipeline_stage" {
+			progress.KernelMessage("pipeline stage %d/%d...", pp.Step, pp.Total)
+		}
+	})
+
+	if pipeErr != nil {
+		outputError(renderer, mode, "shell/pipe", pipeErr.Error(), "管道执行失败", "检查管道命令或重试")
+		exitCode = 1
+		return
+	}
+
+	elapsed := time.Since(start)
+
+	if pipeResp == nil || len(pipeResp.Stages) == 0 {
+		outputError(renderer, mode, "shell/pipe", "no pipeline result", "管道返回空结果", "检查管道命令")
+		exitCode = 1
+		return
+	}
+
+	lastStage := pipeResp.Stages[len(pipeResp.Stages)-1]
+
+	if mode == ui.ModeJSON {
+		outputPipelineJSON(renderer, pipeResp, elapsed)
+		if lastStage.ExitCode != 0 {
+			exitCode = 1
+		}
+		return
+	}
+
+	if lastStage.ExitCode != 0 {
+		failIdx := len(pipeResp.Stages)
+		total := len(pipeline.Commands)
+		outputError(renderer, mode, "shell/pipe",
+			fmt.Sprintf("stage %d/%d failed (exit %d): %s", failIdx, total, lastStage.ExitCode, lastStage.Intent),
+			"管道执行中断", "检查失败阶段的 intent")
+		totalTokens := 0
+		for _, s := range pipeResp.Stages {
+			totalTokens += s.TokensUsed
+		}
+		ui.RenderSummary(renderer, lastStage.PID, lastStage.ExitCode, totalTokens, elapsed)
+		exitCode = 1
+		return
+	}
+
+	totalTokens := 0
+	for _, s := range pipeResp.Stages {
+		totalTokens += s.TokensUsed
+	}
+	outputSuccess(renderer, mode, lastStage.PID, lastStage.Result, totalTokens, elapsed)
+}
+
+// jsonPipelineData holds pipeline JSON output fields.
+type jsonPipelineData struct {
+	Stages      []jsonPipelineStage `json:"stages"`
+	TotalTokens int                 `json:"total_tokens"`
+	ElapsedMs   int64               `json:"elapsed_ms"`
+}
+
+type jsonPipelineStage struct {
+	PID        types.PID `json:"pid"`
+	Intent     string    `json:"intent"`
+	Result     string    `json:"result"`
+	ExitCode   int       `json:"exit_code"`
+	TokensUsed int       `json:"tokens_used"`
+	ElapsedMs  int64     `json:"elapsed_ms"`
+}
+
+func outputPipelineJSON(renderer *ui.Renderer, resp *ipc.SpawnPipelineResponse, elapsed time.Duration) {
+	stages := make([]jsonPipelineStage, len(resp.Stages))
+	totalTokens := 0
+	for i, s := range resp.Stages {
+		stages[i] = jsonPipelineStage{
+			PID:        s.PID,
+			Intent:     s.Intent,
+			Result:     s.Result,
+			ExitCode:   s.ExitCode,
+			TokensUsed: s.TokensUsed,
+			ElapsedMs:  s.ElapsedMs,
+		}
+		totalTokens += s.TokensUsed
+	}
+
+	lastStage := resp.Stages[len(resp.Stages)-1]
+	resp2 := JSONResponse{
+		OK: lastStage.ExitCode == 0,
+		Data: jsonPipelineData{
+			Stages:      stages,
+			TotalTokens: totalTokens,
+			ElapsedMs:   elapsed.Milliseconds(),
+		},
+	}
+	data, _ := json.Marshal(resp2)
+	fmt.Fprintln(renderer.Writer, string(data))
 }
 
 func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, result string, tokensUsed int, elapsed time.Duration) {
@@ -711,8 +857,8 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	claudeDriver := llm.NewClaudeCliDriver()
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(claudeDriver, "/dev/llm/claude"))
 	_ = devReg.Register("/dev/fs", fs.FileFactory())
-	shellDriver := shell.NewDriver()
-	_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))
+	shellDriver := drivershell.NewDriver()
+	_ = devReg.Register("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"))
 	ctxMgr := cruxctx.NewManager()
 	skillLoader := skills.NewSkillLoader("lib/skills")
 
