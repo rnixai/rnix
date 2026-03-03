@@ -178,6 +178,59 @@ func (c *Client) SpawnPipelineAndWatch(req SpawnPipelineRequest, onEvent func(St
 	return finalResp, nil
 }
 
+// ExecScriptAndWatch sends a script to the daemon for execution and streams events.
+// The onEvent callback is called for each StreamEvent (progress per script step).
+// Returns the ExecScriptResponse with final results.
+func (c *Client) ExecScriptAndWatch(req ExecScriptRequest, onEvent func(StreamEvent)) (*ExecScriptResponse, error) {
+	if err := c.sendRequest(MethodExecScript, req); err != nil {
+		return nil, err
+	}
+
+	if !c.scanner.Scan() {
+		return nil, fmt.Errorf("ipc: no initial exec_script response")
+	}
+	var resp Response
+	if err := json.Unmarshal(c.scanner.Bytes(), &resp); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal exec_script response: %w", err)
+	}
+	if !resp.OK {
+		msg := "exec_script failed"
+		if resp.Error != nil {
+			msg = resp.Error.Message
+		}
+		return nil, fmt.Errorf("ipc: %s", msg)
+	}
+
+	var finalResp *ExecScriptResponse
+	for c.scanner.Scan() {
+		var ev StreamEvent
+		if err := json.Unmarshal(c.scanner.Bytes(), &ev); err != nil {
+			continue
+		}
+
+		if onEvent != nil {
+			onEvent(ev)
+		}
+
+		if ev.Type == StreamComplete {
+			var sr ExecScriptResponse
+			if err := json.Unmarshal(ev.Payload, &sr); err == nil {
+				finalResp = &sr
+			}
+			break
+		}
+		if ev.Type == StreamError {
+			var ep ErrorPayload
+			if err := json.Unmarshal(ev.Payload, &ep); err == nil {
+				return nil, fmt.Errorf("ipc: script error: %s", ep.Message)
+			}
+			return nil, fmt.Errorf("ipc: script failed")
+		}
+	}
+
+	return finalResp, nil
+}
+
 // AttachDebug streams SyscallEvents from the specified process.
 // The onEvent callback is called for each SyscallEventWire. Blocks until the stream ends.
 func (c *Client) AttachDebug(pid types.PID, onEvent func(SyscallEventWire)) error {

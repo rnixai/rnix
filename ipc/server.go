@@ -235,6 +235,9 @@ func (s *Server) handleConn(conn net.Conn) {
 		case MethodSpawnPipeline:
 			s.handleSpawnPipeline(conn, req.Payload)
 			return // streaming method
+		case MethodExecScript:
+			s.handleExecScript(conn, req.Payload)
+			return // streaming method
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -642,6 +645,73 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 
 // Compile-time check that ipcKernelSpawner implements shell.KernelSpawner.
 var _ shell.KernelSpawner = (*ipcKernelSpawner)(nil)
+
+// --- exec script ---
+
+func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
+	var req ExecScriptRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid exec_script request"}})
+		return
+	}
+
+	script, err := shell.ParseScript(req.Script)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "PARSE_ERROR", Message: err.Error()}})
+		return
+	}
+
+	env := shell.NewEnvironment()
+	for k, v := range req.Env {
+		env.Set(k, v)
+	}
+
+	writeResponse(conn, Response{OK: true})
+
+	enc := json.NewEncoder(conn)
+	spawner := &ipcKernelSpawner{
+		kernel:      s.kern,
+		agentLoader: s.agentLoader,
+	}
+
+	executor := shell.NewScriptExecutor(spawner, env)
+	executor.OnStageStart = func(stage, total int, intent string) {
+		pp := ProgressPayload{
+			Event: "script_step",
+			Step:  stage,
+			Total: total,
+		}
+		payload, _ := json.Marshal(pp)
+		_ = enc.Encode(StreamEvent{Type: StreamProgress, Payload: payload})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-s.done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	result, execErr := executor.Execute(ctx, script)
+	if execErr != nil {
+		ep := ErrorPayload{Code: "SCRIPT_ERROR", Message: execErr.Error()}
+		payload, _ := json.Marshal(ep)
+		_ = enc.Encode(StreamEvent{Type: StreamError, Payload: payload})
+		return
+	}
+
+	resp := ExecScriptResponse{
+		LastResult:   result.LastResult,
+		LastExitCode: result.LastExitCode,
+		TotalTokens:  result.TotalTokens,
+		ElapsedMs:    result.Elapsed.Milliseconds(),
+	}
+	payload, _ := json.Marshal(resp)
+	_ = enc.Encode(StreamEvent{Type: StreamComplete, Payload: payload})
+}
 
 // --- helpers ---
 

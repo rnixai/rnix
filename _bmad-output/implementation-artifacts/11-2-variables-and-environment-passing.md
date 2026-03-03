@@ -1,6 +1,6 @@
 # Story 11.2: 变量与环境传递（Variables and Environment Passing）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -27,79 +27,79 @@ So that 智能体可以引用动态参数。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Shell 环境模型 (AC: #1, #3)
-  - [ ] 1.1 `shell/env.go`：`Environment` 结构体（`vars map[string]string`，线程不安全——shell 执行为顺序模型）
-  - [ ] 1.2 `shell/env.go`：`NewEnvironment() *Environment` 创建空环境
-  - [ ] 1.3 `shell/env.go`：`NewEnvironmentFromOS() *Environment` 从 `os.Environ()` 初始化（可选，允许继承宿主环境变量）
-  - [ ] 1.4 `shell/env.go`：`Set(key, value string)` / `Get(key string) (string, bool)` / `Delete(key string)`
-  - [ ] 1.5 `shell/env.go`：`Expand(input string) string` 变量展开——支持 `$VAR`、`${VAR}`、`\$` 转义
-  - [ ] 1.6 `shell/env.go`：`All() map[string]string` 返回所有变量的快照副本
+- [x] Task 1: Shell 环境模型 (AC: #1, #3)
+  - [x] 1.1 `shell/env.go`：`Environment` 结构体（`vars map[string]string`，线程不安全——shell 执行为顺序模型）
+  - [x] 1.2 `shell/env.go`：`NewEnvironment() *Environment` 创建空环境
+  - [x] 1.3 `shell/env.go`：`NewEnvironmentFromOS() *Environment` 从 `os.Environ()` 初始化（可选，允许继承宿主环境变量）
+  - [x] 1.4 `shell/env.go`：`Set(key, value string)` / `Get(key string) (string, bool)` / `Delete(key string)`
+  - [x] 1.5 `shell/env.go`：`Expand(input string) string` 变量展开——支持 `$VAR`、`${VAR}`、`\$` 转义
+  - [x] 1.6 `shell/env.go`：`All() map[string]string` 返回所有变量的快照副本
 
-- [ ] Task 2: 变量展开引擎 (AC: #2, #3)
-  - [ ] 2.1 `shell/env.go`：Expand 实现——状态机逐字符扫描，识别 `$` 开头的变量引用
-  - [ ] 2.2 `shell/env.go`：`$VAR` 语法——`$` 后连续字母/数字/下划线为变量名（`[A-Za-z_][A-Za-z0-9_]*`）
-  - [ ] 2.3 `shell/env.go`：`${VAR}` 语法——花括号包裹的变量名，支持变量名后紧跟其他字符（如 `${VAR}suffix`）
-  - [ ] 2.4 `shell/env.go`：`\$` 转义——反斜杠后的 `$` 输出字面 `$`，不展开
-  - [ ] 2.5 `shell/env.go`：未定义变量展开为空字符串（bash 默认行为）
-  - [ ] 2.6 `shell/env.go`：`$` 在字符串末尾或后跟非变量名字符时保持原样
+- [x] Task 2: 变量展开引擎 (AC: #2, #3)
+  - [x] 2.1 `shell/env.go`：Expand 实现——状态机逐字符扫描，识别 `$` 开头的变量引用
+  - [x] 2.2 `shell/env.go`：`$VAR` 语法——`$` 后连续字母/数字/下划线为变量名（`[A-Za-z_][A-Za-z0-9_]*`）
+  - [x] 2.3 `shell/env.go`：`${VAR}` 语法——花括号包裹的变量名，支持变量名后紧跟其他字符（如 `${VAR}suffix`）
+  - [x] 2.4 `shell/env.go`：`\$` 转义——反斜杠后的 `$` 输出字面 `$`，不展开
+  - [x] 2.5 `shell/env.go`：未定义变量展开为空字符串（bash 默认行为）
+  - [x] 2.6 `shell/env.go`：`$` 在字符串末尾或后跟非变量名字符时保持原样
 
-- [ ] Task 3: 脚本解析器 (AC: #1, #2, #3)
-  - [ ] 3.1 `shell/script.go`：定义 `StatementKind` 类型（`"export"` / `"spawn"` / `"pipeline"`）
-  - [ ] 3.2 `shell/script.go`：定义 `ExportStmt` 结构体（`Key string`、`Value string`）
-  - [ ] 3.3 `shell/script.go`：定义 `Statement` 结构体（`Kind StatementKind`、`Export *ExportStmt`、`Spawn *Command`、`Pipeline *Pipeline`、`Raw string`）
-  - [ ] 3.4 `shell/script.go`：定义 `Script` 结构体（`Statements []Statement`）
-  - [ ] 3.5 `shell/script.go`：`ParseScript(input string) (*Script, error)` 按行分割，逐行解析为 Statement
-  - [ ] 3.6 `shell/script.go`：`parseExport(line string) (Statement, error)` 解析 `export KEY=VALUE` 语法
-  - [ ] 3.7 `shell/script.go`：`parseStatement(line string) (Statement, error)` 分派：export / pipeline / spawn
-  - [ ] 3.8 `shell/script.go`：空行和 `#` 注释行跳过
-  - [ ] 3.9 `shell/script.go`：export 解析支持：引号包裹的值（`export KEY="value with spaces"`）、无引号值、值中包含 `=`
+- [x] Task 3: 脚本解析器 (AC: #1, #2, #3)
+  - [x] 3.1 `shell/script.go`：定义 `StatementKind` 类型（`"export"` / `"spawn"` / `"pipeline"`）
+  - [x] 3.2 `shell/script.go`：定义 `ExportStmt` 结构体（`Key string`、`Value string`）
+  - [x] 3.3 `shell/script.go`：定义 `Statement` 结构体（`Kind StatementKind`、`Export *ExportStmt`、`Spawn *Command`、`Pipeline *Pipeline`、`Raw string`）
+  - [x] 3.4 `shell/script.go`：定义 `Script` 结构体（`Statements []Statement`）
+  - [x] 3.5 `shell/script.go`：`ParseScript(input string) (*Script, error)` 按行分割，逐行解析为 Statement
+  - [x] 3.6 `shell/script.go`：`parseExport(line string) (Statement, error)` 解析 `export KEY=VALUE` 语法
+  - [x] 3.7 `shell/script.go`：`parseStatement(line string) (Statement, error)` 分派：export / pipeline / spawn
+  - [x] 3.8 `shell/script.go`：空行和 `#` 注释行跳过
+  - [x] 3.9 `shell/script.go`：export 解析支持：引号包裹的值（`export KEY="value with spaces"`）、无引号值、值中包含 `=`
 
-- [ ] Task 4: 脚本执行器 (AC: #1, #2, #3)
-  - [ ] 4.1 `shell/script.go`：定义 `ScriptResult`（`LastResult string`、`LastExitCode int`、`TotalTokens int`、`Elapsed time.Duration`）
-  - [ ] 4.2 `shell/script.go`：定义 `ScriptExecutor`（`spawner KernelSpawner`、`env *Environment`、`OnStageStart StageCallback`）
-  - [ ] 4.3 `shell/script.go`：`NewScriptExecutor(spawner KernelSpawner, env *Environment) *ScriptExecutor`
-  - [ ] 4.4 `shell/script.go`：`Execute(ctx context.Context, script *Script) (*ScriptResult, error)` 主执行函数
-  - [ ] 4.5 `shell/script.go`：export 语句——展开 Value 中的变量引用后写入 env
-  - [ ] 4.6 `shell/script.go`：spawn 语句——展开 Intent 中的变量引用后调用 spawner.SpawnAndWait
-  - [ ] 4.7 `shell/script.go`：pipeline 语句——展开每个 Command 的 Intent 后创建 PipelineExecutor 执行
-  - [ ] 4.8 `shell/script.go`：非零 ExitCode 中断脚本执行（与管道行为一致）
-  - [ ] 4.9 `shell/script.go`：context 取消检查——每条语句执行前检查 `ctx.Err()`
+- [x] Task 4: 脚本执行器 (AC: #1, #2, #3)
+  - [x] 4.1 `shell/script.go`：定义 `ScriptResult`（`LastResult string`、`LastExitCode int`、`TotalTokens int`、`Elapsed time.Duration`）
+  - [x] 4.2 `shell/script.go`：定义 `ScriptExecutor`（`spawner KernelSpawner`、`env *Environment`、`OnStageStart StageCallback`）
+  - [x] 4.3 `shell/script.go`：`NewScriptExecutor(spawner KernelSpawner, env *Environment) *ScriptExecutor`
+  - [x] 4.4 `shell/script.go`：`Execute(ctx context.Context, script *Script) (*ScriptResult, error)` 主执行函数
+  - [x] 4.5 `shell/script.go`：export 语句——展开 Value 中的变量引用后写入 env
+  - [x] 4.6 `shell/script.go`：spawn 语句——展开 Intent 中的变量引用后调用 spawner.SpawnAndWait
+  - [x] 4.7 `shell/script.go`：pipeline 语句——展开每个 Command 的 Intent 后创建 PipelineExecutor 执行
+  - [x] 4.8 `shell/script.go`：非零 ExitCode 中断脚本执行（与管道行为一致）
+  - [x] 4.9 `shell/script.go`：context 取消检查——每条语句执行前检查 `ctx.Err()`
 
-- [ ] Task 5: IPC 协议扩展——脚本执行 (AC: #1, #2)
-  - [ ] 5.1 `ipc/protocol.go`：新增 `MethodExecScript Method = "exec_script"`
-  - [ ] 5.2 `ipc/protocol.go`：定义 `ExecScriptRequest`（`Script string`、`Env map[string]string`）
-  - [ ] 5.3 `ipc/protocol.go`：定义 `ExecScriptResponse`（`LastResult string`、`LastExitCode int`、`TotalTokens int`、`ElapsedMs int64`）
-  - [ ] 5.4 `ipc/server.go`：`handleExecScript`——解析脚本、创建 Environment（合并传入 env）、构建 ScriptExecutor、执行并流式推送进度
-  - [ ] 5.5 `ipc/client.go`：`ExecScriptAndWatch(req ExecScriptRequest, onEvent func(StreamEvent)) (*ExecScriptResponse, error)`
+- [x] Task 5: IPC 协议扩展——脚本执行 (AC: #1, #2)
+  - [x] 5.1 `ipc/protocol.go`：新增 `MethodExecScript Method = "exec_script"`
+  - [x] 5.2 `ipc/protocol.go`：定义 `ExecScriptRequest`（`Script string`、`Env map[string]string`）
+  - [x] 5.3 `ipc/protocol.go`：定义 `ExecScriptResponse`（`LastResult string`、`LastExitCode int`、`TotalTokens int`、`ElapsedMs int64`）
+  - [x] 5.4 `ipc/server.go`：`handleExecScript`——解析脚本、创建 Environment（合并传入 env）、构建 ScriptExecutor、执行并流式推送进度
+  - [x] 5.5 `ipc/client.go`：`ExecScriptAndWatch(req ExecScriptRequest, onEvent func(StreamEvent)) (*ExecScriptResponse, error)`
 
-- [ ] Task 6: CLI 集成 (AC: #1, #2, #3)
-  - [ ] 6.1 `cmd/crux/main.go`：`isScriptSyntax(intent string) bool`——检测多行（含 `\n`）或以 `export ` 开头
-  - [ ] 6.2 `cmd/crux/main.go`：`runScript(renderer, mode, progress, client, intent, start)` 脚本执行路径
-  - [ ] 6.3 `cmd/crux/main.go`：`runRoot` 中在 `isPipelineSyntax` 之前插入 `isScriptSyntax` 检测
-  - [ ] 6.4 `cmd/crux/main.go`：脚本结果输出——复用 `outputSuccess` / `outputError` / `outputPipelineJSON`
-  - [ ] 6.5 `cmd/crux/main.go`：单行 intent 中的 `$VAR` 展开——从 OS 环境变量展开（无需 export），保持向后兼容
+- [x] Task 6: CLI 集成 (AC: #1, #2, #3)
+  - [x] 6.1 `cmd/crux/main.go`：`isScriptSyntax(intent string) bool`——检测多行（含 `\n`）或以 `export ` 开头
+  - [x] 6.2 `cmd/crux/main.go`：`runScript(renderer, mode, progress, client, intent, start)` 脚本执行路径
+  - [x] 6.3 `cmd/crux/main.go`：`runRoot` 中在 `isPipelineSyntax` 之前插入 `isScriptSyntax` 检测
+  - [x] 6.4 `cmd/crux/main.go`：脚本结果输出——复用 `outputSuccess` / `outputError` / `outputPipelineJSON`
+  - [x] 6.5 `cmd/crux/main.go`：单行 intent 中的 `$VAR` 展开——从 OS 环境变量展开（无需 export），保持向后兼容
 
-- [ ] Task 7: 测试 (AC: all)
-  - [ ] 7.1 `shell/env_test.go`：基本 Set/Get/Delete
-  - [ ] 7.2 `shell/env_test.go`：`$VAR` 展开——单变量、多变量、相邻变量
-  - [ ] 7.3 `shell/env_test.go`：`${VAR}` 展开——带后缀 `${VAR}suffix`
-  - [ ] 7.4 `shell/env_test.go`：`\$` 转义——不展开
-  - [ ] 7.5 `shell/env_test.go`：未定义变量展开为空字符串
-  - [ ] 7.6 `shell/env_test.go`：`$` 在字符串末尾保持原样
-  - [ ] 7.7 `shell/env_test.go`：`NewEnvironmentFromOS` 包含 `PATH` 等系统变量
-  - [ ] 7.8 `shell/script_test.go`：解析单行 export
-  - [ ] 7.9 `shell/script_test.go`：解析带引号值的 export `export KEY="val"`
-  - [ ] 7.10 `shell/script_test.go`：解析多行脚本（export + spawn）
-  - [ ] 7.11 `shell/script_test.go`：解析多行脚本（export + pipeline）
-  - [ ] 7.12 `shell/script_test.go`：跳过空行和注释行
-  - [ ] 7.13 `shell/script_test.go`：解析错误——无效 export 格式
-  - [ ] 7.14 `shell/script_test.go`：ScriptExecutor——export 设置变量后 spawn 展开
-  - [ ] 7.15 `shell/script_test.go`：ScriptExecutor——pipeline 命令中变量展开
-  - [ ] 7.16 `shell/script_test.go`：ScriptExecutor——多次 export 覆盖同名变量
-  - [ ] 7.17 `shell/script_test.go`：ScriptExecutor——非零 ExitCode 中断
-  - [ ] 7.18 `shell/script_test.go`：ScriptExecutor——context 取消
-  - [ ] 7.19 `cmd/crux/main_test.go`：`isScriptSyntax` 检测
-  - [ ] 7.20 `cmd/crux/main_test.go`：回归——现有单 spawn 和管道路径不受影响
+- [x] Task 7: 测试 (AC: all)
+  - [x] 7.1 `shell/env_test.go`：基本 Set/Get/Delete
+  - [x] 7.2 `shell/env_test.go`：`$VAR` 展开——单变量、多变量、相邻变量
+  - [x] 7.3 `shell/env_test.go`：`${VAR}` 展开——带后缀 `${VAR}suffix`
+  - [x] 7.4 `shell/env_test.go`：`\$` 转义——不展开
+  - [x] 7.5 `shell/env_test.go`：未定义变量展开为空字符串
+  - [x] 7.6 `shell/env_test.go`：`$` 在字符串末尾保持原样
+  - [x] 7.7 `shell/env_test.go`：`NewEnvironmentFromOS` 包含 `PATH` 等系统变量
+  - [x] 7.8 `shell/script_test.go`：解析单行 export
+  - [x] 7.9 `shell/script_test.go`：解析带引号值的 export `export KEY="val"`
+  - [x] 7.10 `shell/script_test.go`：解析多行脚本（export + spawn）
+  - [x] 7.11 `shell/script_test.go`：解析多行脚本（export + pipeline）
+  - [x] 7.12 `shell/script_test.go`：跳过空行和注释行
+  - [x] 7.13 `shell/script_test.go`：解析错误——无效 export 格式
+  - [x] 7.14 `shell/script_test.go`：ScriptExecutor——export 设置变量后 spawn 展开
+  - [x] 7.15 `shell/script_test.go`：ScriptExecutor——pipeline 命令中变量展开
+  - [x] 7.16 `shell/script_test.go`：ScriptExecutor——多次 export 覆盖同名变量
+  - [x] 7.17 `shell/script_test.go`：ScriptExecutor——非零 ExitCode 中断
+  - [x] 7.18 `shell/script_test.go`：ScriptExecutor——context 取消
+  - [x] 7.19 `cmd/crux/main_test.go`：`isScriptSyntax` 检测
+  - [x] 7.20 `cmd/crux/main_test.go`：回归——现有单 spawn 和管道路径不受影响
 
 ## Dev Notes
 
@@ -513,12 +513,39 @@ func (m *mockSpawner) SpawnAndWait(ctx context.Context, intent, agent, model str
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-4.6-opus (Cursor)
 
 ### Debug Log References
 
+无——所有测试一次通过。
+
 ### Completion Notes List
+
+- Task 1-2: `shell/env.go` 实现 Environment struct + 状态机 Expand 引擎（~95 行），完全匹配 Dev Notes 参考实现
+- Task 3: `shell/script.go` 行导向解析器——ParseScript/parseStatement/parseExport，复用现有 ParsePipeline/parseSpawnCommand
+- Task 4: `shell/script.go` ScriptExecutor 顺序执行——export 展开后 Set、spawn/pipeline 展开后调用 spawner
+- Task 5: `ipc/protocol.go` + `server.go` + `client.go` 新增 exec_script IPC 方法，复用 ipcKernelSpawner + StreamProgress 模式
+- Task 6: `cmd/crux/main.go` 新增 isScriptSyntax（优先于 isPipelineSyntax）、runScript、单行 $VAR 从 OS env 展开
+- Task 7: ATDD RED 阶段测试已存在（env_test.go 25 个、script_test.go 18 个、main_test.go isScriptSyntax 12 个），全部通过
+- 全量回归 18 个包 PASS，0 失败，启用 -race
 
 ### Change Log
 
+- 2026-03-03: Story 11.2 完成——变量与环境传递（Environment + Expand + ParseScript + ScriptExecutor + IPC exec_script + CLI isScriptSyntax/runScript）
+
 ### File List
+
+**新文件：**
+- `shell/env.go` — Environment struct + NewEnvironment/NewEnvironmentFromOS + Set/Get/Delete/All + Expand 状态机
+- `shell/script.go` — StatementKind/ExportStmt/Statement/Script 类型 + ParseScript + ScriptExecutor + Execute
+
+**修改文件：**
+- `ipc/protocol.go` — 新增 MethodExecScript + ExecScriptRequest/Response
+- `ipc/server.go` — 新增 handleExecScript（路由 + 实现）
+- `ipc/client.go` — 新增 ExecScriptAndWatch
+- `cmd/crux/main.go` — 新增 isScriptSyntax/containsVarRef/runScript + runRoot 中脚本检测优先级 + 单行 $VAR 展开
+
+**测试文件（ATDD RED 阶段已存在）：**
+- `shell/env_test.go` — 25 个测试用例（Set/Get/Delete/All/Expand 全覆盖）
+- `shell/script_test.go` — 18 个测试用例（ParseScript + ScriptExecutor 全覆盖）
+- `cmd/crux/main_test.go` — 12 个新测试用例（isScriptSyntax + 回归）
