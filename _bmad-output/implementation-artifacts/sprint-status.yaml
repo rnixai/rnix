@@ -142,7 +142,7 @@ development_status:
   epic-11: in-progress
   11-1-pipe-syntax: done
   11-2-variables-and-environment-passing: done
-  11-3-minimal-control-structures: ready-for-dev
+  11-3-minimal-control-structures: review
   epic-11-retrospective: optional
 
   # Epic 12: Phase 2 文档（Phase 2 Documentation）

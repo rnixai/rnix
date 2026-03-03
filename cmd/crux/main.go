@@ -331,13 +331,18 @@ func isPipelineSyntax(intent string) bool {
 	return spawnCount >= 2
 }
 
-// isScriptSyntax returns true if intent is a multi-line script or a single-line export.
+// isScriptSyntax returns true if intent is a multi-line script, a single-line export,
+// or contains an on-error handler (single-line on-error needs script execution path).
 func isScriptSyntax(intent string) bool {
 	if strings.Contains(intent, "\n") {
 		return true
 	}
 	trimmed := strings.TrimSpace(strings.ToLower(intent))
-	return strings.HasPrefix(trimmed, "export ") || strings.HasPrefix(trimmed, "export\t")
+	if strings.HasPrefix(trimmed, "export ") || strings.HasPrefix(trimmed, "export\t") {
+		return true
+	}
+	_, _, hasOnError := agentshell.SplitOnError(intent)
+	return hasOnError
 }
 
 // containsVarRef returns true if intent contains a $VAR reference.
