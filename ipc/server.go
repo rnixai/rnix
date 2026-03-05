@@ -136,7 +136,7 @@ func (s *Server) checkIdle() {
 	procs := s.kern.ListProcs()
 	activeProcs := 0
 	for _, p := range procs {
-		if p.State != types.StateDead {
+		if p.State == types.StateRunning || p.State == types.StateCreated {
 			activeProcs++
 		}
 	}
@@ -162,7 +162,7 @@ func (s *Server) tryAutoShutdown() {
 	procs := s.kern.ListProcs()
 	activeProcs := 0
 	for _, p := range procs {
-		if p.State != types.StateDead {
+		if p.State == types.StateRunning || p.State == types.StateCreated {
 			activeProcs++
 		}
 	}
@@ -313,6 +313,7 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		Model:         req.Model,
 		MaxTurns:      req.MaxSteps,
 		ContextBudget: req.ContextBudget,
+		TimeoutMs:     req.TimeoutMs,
 	})
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
@@ -430,23 +431,47 @@ func (s *Server) handleAttachLog(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	logCh, ok := s.kern.GetLogChan(req.PID)
-	if !ok || logCh == nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found or no log channel"}})
+	// Check process existence via both history and live channel
+	history, histOK := s.kern.GetLogHistory(req.PID)
+	logCh, logOK := s.kern.GetLogChan(req.PID)
+
+	if !histOK && (!logOK || logCh == nil) {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
 	writeResponse(conn, Response{OK: true})
-
 	enc := json.NewEncoder(conn)
-	for entry := range logCh {
-		lew := LogEntryToWire(entry)
-		payload, _ := json.Marshal(lew)
-		se := StreamEvent{Type: StreamLogEntry, Payload: payload}
-		if err := enc.Encode(se); err != nil {
-			return
+
+	// Replay history logs with timestamp tracking for dedup
+	var lastReplayedTs int64
+	if histOK && len(history) > 0 {
+		for _, entry := range history {
+			lew := LogEntryToWire(entry)
+			payload, _ := json.Marshal(lew)
+			se := StreamEvent{Type: StreamLogEntry, Payload: payload}
+			if err := enc.Encode(se); err != nil {
+				return
+			}
+			lastReplayedTs = lew.TimestampMs
 		}
 	}
+
+	// Stream live logs (if process is still alive)
+	if logOK && logCh != nil {
+		for entry := range logCh {
+			lew := LogEntryToWire(entry)
+			if lew.TimestampMs < lastReplayedTs {
+				continue // skip entries older than last replayed
+			}
+			payload, _ := json.Marshal(lew)
+			se := StreamEvent{Type: StreamLogEntry, Payload: payload}
+			if err := enc.Encode(se); err != nil {
+				return
+			}
+		}
+	}
+
 	_ = enc.Encode(StreamEvent{Type: StreamEOF})
 }
 

@@ -142,11 +142,11 @@ func TestComposingWorkflow_HasComposeYamlExample(t *testing.T) {
 
 func TestComposingWorkflow_HasExtendedScenarios(t *testing.T) {
 	content := readTutorial(t, "composing-multi-agent-workflow.md")
-	if !(strings.Contains(content, "spawn") && strings.Contains(content, "|")) {
+	if !strings.Contains(content, "spawn") || !strings.Contains(content, "|") {
 		t.Error("应包含管道语法示例")
 	}
 	assertContainsAny(t, content, []string{"export", "environment"}, "应包含变量/环境传递示例")
-	if !(strings.Contains(content, "if") && strings.Contains(content, "else")) {
+	if !strings.Contains(content, "if") || !strings.Contains(content, "else") {
 		t.Error("应包含条件分支示例")
 	}
 }

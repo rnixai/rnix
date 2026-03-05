@@ -1,0 +1,14 @@
+# 场景 1：Compose + IPC Pipe 联动
+# 覆盖 Epic：6（Pipe）+ 7（Compose）
+# 验证：上游 Agent 的输出能通过管道正确注入下游 Agent 的上下文
+version: "1.0"
+intent: "集成验证：Compose + Pipe 数据传递"
+model: "haiku"
+agents:
+  analyzer:
+    intent: "分析 kernel/kernel.go 的公共函数列表，列出每个函数名和签名"
+    agent: "code-analyst"
+  summarizer:
+    intent: "基于上游分析结果，总结代码的核心职责，指出最重要的 3 个函数"
+    depends_on:
+      analyzer: completed

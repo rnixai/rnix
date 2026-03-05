@@ -1,0 +1,14 @@
+# 场景 4（对照组）：管道语法的 Compose 等价形式
+# 覆盖 Epic：6（Pipe）+ 11（管道语法）
+# 验证：此 Compose 的执行结果与 spawn|spawn 管道语法语义一致
+# 对照命令：crux -i 'spawn "列出 kernel/ 目录下所有 .go 文件名" | spawn "统计文件数量并总结"'
+version: "1.0"
+intent: "集成验证：管道语法 Compose 等价"
+model: "haiku"
+agents:
+  lister:
+    intent: "列出 kernel/ 目录下所有 .go 文件名，每行一个"
+  counter:
+    intent: "统计上游提供的文件列表中有多少个文件，给出数量和简要总结"
+    depends_on:
+      lister: completed

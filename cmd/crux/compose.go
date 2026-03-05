@@ -90,6 +90,7 @@ func (s *ipcKernelSpawner) Spawn(intent string, agent *agents.AgentInfo, opts co
 		Intent:        intent,
 		Model:         opts.Model,
 		ContextBudget: opts.ContextBudget,
+		TimeoutMs:     opts.TimeoutMs,
 	}
 	if agent != nil {
 		req.Agent = agent.Manifest.Name

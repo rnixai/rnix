@@ -796,9 +796,12 @@ func TestE2E_KillWait_FullLifecycle(t *testing.T) {
 
 	t.Logf("exit code: %d, reason: %s", exit.Code, exit.Reason)
 
-	_, ok = kern.GetProcess(pid)
-	if ok {
-		t.Error("process should be removed from table after Wait")
+	// With Dead process TTL, process remains in table in Dead state
+	retainedProc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Error("process should be retained in table (Dead TTL)")
+	} else if retainedProc.GetState() != types.StateDead {
+		t.Errorf("expected Dead state, got %d", retainedProc.GetState())
 	}
 
 	_, ctxErr := ctxMgr.BuildPrompt(ctxID)
@@ -851,8 +854,11 @@ func TestE2E_KillWait_RaceDetection(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	_, ok := kern.GetProcess(pid)
-	if ok {
-		t.Error("process should be removed after Wait")
+	// With Dead process TTL, process remains in table in Dead state
+	retainedProc, ok := kern.GetProcess(pid)
+	if !ok {
+		t.Error("process should be retained in table (Dead TTL)")
+	} else if retainedProc.GetState() != types.StateDead {
+		t.Errorf("expected Dead state, got %d", retainedProc.GetState())
 	}
 }

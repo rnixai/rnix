@@ -1,0 +1,15 @@
+# 场景 3：Compose + Signal + compose down 批量终止
+# 覆盖 Epic：6（Signal/进程组）+ 7（Compose）
+# 验证：compose down 能正确终止所有正在运行的编排进程
+# 用法：先 compose up（后台），等 Agent 进入 running，再 compose down
+# 注意：两个 worker 无依赖，可并行启动；使用详细分析确保运行时间足够长
+version: "1.0"
+intent: "集成验证：compose down 批量终止"
+model: "haiku"
+agents:
+  worker-a:
+    intent: "详细分析 cmd/crux/main.go 的每一个函数，逐一给出代码审查意见，包括命名、错误处理、复杂度"
+    agent: "code-analyst"
+  worker-b:
+    intent: "详细分析 kernel/kernel.go 的每一个函数，逐一给出代码审查意见，包括命名、错误处理、复杂度"
+    agent: "code-analyst"
