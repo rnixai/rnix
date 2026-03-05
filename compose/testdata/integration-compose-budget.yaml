@@ -1,0 +1,11 @@
+# 场景 9：Token 预算 + Compose 覆盖
+# 覆盖 Epic：10（Token 预算）+ 7（Compose）
+# 验证：context_budget 限制生效，Agent 超限后被自动终止
+# 注意：故意设置极低预算（1024）+ 高要求任务，迫使 Agent 触达预算上限
+version: "1.0"
+intent: "集成验证：Token 预算限制"
+model: "haiku"
+agents:
+  limited-agent:
+    intent: "写一篇关于人工智能发展历史的详细长文，从图灵测试讲到大语言模型，至少覆盖 10 个里程碑事件"
+    context_budget: 1024

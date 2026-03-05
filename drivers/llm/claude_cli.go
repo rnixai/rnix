@@ -77,14 +77,16 @@ func NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver {
 
 // claudeCliResponse is the JSON structure returned by `claude -p ... --output-format json`.
 type claudeCliResponse struct {
-	Type       string  `json:"type"`
-	Subtype    string  `json:"subtype"`
-	Result     string  `json:"result"`
-	IsError    bool    `json:"is_error"`
-	CostUSD    float64 `json:"cost_usd"`
-	DurationMS int     `json:"duration_ms"`
-	NumTurns   int     `json:"num_turns"`
-	SessionID  string  `json:"session_id"`
+	Type         string  `json:"type"`
+	Subtype      string  `json:"subtype"`
+	Result       string  `json:"result"`
+	IsError      bool    `json:"is_error"`
+	CostUSD      float64 `json:"cost_usd"`
+	DurationMS   int     `json:"duration_ms"`
+	NumTurns     int     `json:"num_turns"`
+	SessionID    string  `json:"session_id"`
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
 }
 
 // Call executes a synchronous LLM request via the Claude Code CLI.
@@ -125,8 +127,10 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 			return nil, fmt.Errorf("llm response truncated: no result (possible max_turns limit)")
 		}
 		return &LLMResponse{
-			Content:    cliResp.Result,
-			TokensUsed: cliResp.NumTurns,
+			Content:      cliResp.Result,
+			TokensUsed:   cliResp.InputTokens + cliResp.OutputTokens,
+			InputTokens:  cliResp.InputTokens,
+			OutputTokens: cliResp.OutputTokens,
 		}, nil
 	}
 
@@ -148,11 +152,13 @@ type claudeStreamEvent struct {
 			Text string `json:"text"`
 		} `json:"content,omitempty"`
 	} `json:"message,omitzero"`
-	Result     string  `json:"result,omitempty"`
-	IsError    bool    `json:"is_error,omitempty"`
-	CostUSD    float64 `json:"cost_usd,omitempty"`
-	DurationMS int     `json:"duration_ms,omitempty"`
-	NumTurns   int     `json:"num_turns,omitempty"`
+	Result       string  `json:"result,omitempty"`
+	IsError      bool    `json:"is_error,omitempty"`
+	CostUSD      float64 `json:"cost_usd,omitempty"`
+	DurationMS   int     `json:"duration_ms,omitempty"`
+	NumTurns     int     `json:"num_turns,omitempty"`
+	InputTokens  int     `json:"input_tokens,omitempty"`
+	OutputTokens int     `json:"output_tokens,omitempty"`
 }
 
 // Stream executes a streaming LLM request via the Claude Code CLI.
@@ -212,7 +218,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					}
 				}
 			case "result":
-				se := StreamEvent{Type: "done", Content: evt.Result, TokensUsed: evt.NumTurns}
+				se := StreamEvent{Type: "done", Content: evt.Result, TokensUsed: evt.InputTokens + evt.OutputTokens, InputTokens: evt.InputTokens, OutputTokens: evt.OutputTokens}
 				if evt.IsError {
 					se.Type = "error"
 					errMsg := evt.Result

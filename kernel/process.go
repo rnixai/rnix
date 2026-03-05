@@ -41,6 +41,7 @@ type Process struct {
 	LogChan    chan types.LogEntry
 	Done       chan ExitStatus
 	CreatedAt  time.Time
+	DeadAt     time.Time                 // set by reapProcess, used for TTL cleanup
 	Exit       *ExitStatus               // non-nil in Zombie/Dead
 	CtxID      types.CtxID               // context allocated by Spawn
 	Result         string                    // final output from reasoning
@@ -48,6 +49,12 @@ type Process struct {
 	ContextBudget  int                       // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
 	AllowedDevices []string              // nil/empty = all devices allowed; non-empty = whitelist only
 	MCPMounts      []string              // MCP mount paths auto-mounted by Spawn
+	HasToolError   bool                  // true if any tool call failed (mu protected)
+
+	// Log history ring buffer (mu protected)
+	logHistory []types.LogEntry
+	logHistIdx int // ring buffer write position
+	logHistLen int // current valid entry count
 
 	groups []types.PGID               // guarded by mu, process group memberships
 
@@ -393,6 +400,36 @@ func (p *Process) IsPaused() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.resumeCh != nil
+}
+
+const logHistoryCap = 256
+
+// AppendLogHistory adds a log entry to the ring buffer. Caller must hold p.mu.
+func (p *Process) AppendLogHistory(entry types.LogEntry) {
+	if p.logHistory == nil {
+		p.logHistory = make([]types.LogEntry, logHistoryCap)
+	}
+	p.logHistory[p.logHistIdx] = entry
+	p.logHistIdx = (p.logHistIdx + 1) % logHistoryCap
+	if p.logHistLen < logHistoryCap {
+		p.logHistLen++
+	}
+}
+
+// GetLogHistory returns a time-ordered copy of the log history. Caller must hold p.mu.
+func (p *Process) GetLogHistory() []types.LogEntry {
+	if p.logHistLen == 0 {
+		return nil
+	}
+	result := make([]types.LogEntry, p.logHistLen)
+	if p.logHistLen < logHistoryCap {
+		copy(result, p.logHistory[:p.logHistLen])
+	} else {
+		start := p.logHistIdx // oldest entry
+		n := copy(result, p.logHistory[start:])
+		copy(result[n:], p.logHistory[:start])
+	}
+	return result
 }
 
 // ClearSignalState cleans up all signal state (handlers, blocked, pending, resume channel).

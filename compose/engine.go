@@ -139,6 +139,7 @@ func (e *Engine) executeNode(ctx context.Context, name string, pids *xsync.SyncM
 	opts := ComposeSpawnOpts{
 		Model:         model,
 		ContextBudget: agentSpec.ContextBudget,
+		TimeoutMs:     agentSpec.TimeoutMs,
 	}
 	upstreamPrompt := e.buildUpstreamPrompt(name, pids)
 	if upstreamPrompt != "" {

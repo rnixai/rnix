@@ -1,0 +1,31 @@
+# Crux Init Bootstrap Configuration
+# 用于 Phase 2 集成验证（场景 7 和场景 10）
+
+services:
+  - name: skill-registry
+    type: skill_registry
+    required: true
+    config:
+      scan_path: lib/skills
+
+  - name: mcp-manager
+    type: mcp_manager
+    required: false
+    config:
+      auto_load: true
+
+  - name: log-aggregator
+    type: log_aggregator
+    required: false
+
+supervisors:
+  - name: test-supervisor
+    strategy: one_for_one
+    max_restarts: 3
+    max_window: 1m0s
+    required: true
+    children:
+      - name: monitored-agent
+        intent: "持续监控：每 30 秒报告一次系统状态摘要"
+        model: haiku
+        restart: permanent

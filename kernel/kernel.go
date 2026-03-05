@@ -110,6 +110,7 @@ type KernelImpl struct {
 	stopCh       chan struct{}   // signals reaper goroutine to stop
 	reaperWg     sync.WaitGroup // waits for reaper goroutine exit
 	shutdownOnce sync.Once      // ensures Shutdown executes at most once
+	deadTicker   *time.Ticker   // periodic cleanup of expired Dead processes
 
 	// IPC messaging (Story 6.1)
 	msgQueues *xsync.SyncMap[types.PID, *MessageQueue]
@@ -576,12 +577,19 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 			proc.mu.Lock()
 			proc.Result = action.Content
+			hadError := proc.HasToolError
 			proc.mu.Unlock()
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "text",
 			}, action.Content, nil, time.Since(stepStart))
-			k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
+			exitCode := 0
+			reason := "completed"
+			if hadError {
+				exitCode = 1
+				reason = "completed_with_tool_errors"
+			}
+			k.finishProcess(proc, ExitStatus{Code: exitCode, Reason: reason})
 			return
 
 		case ActionToolCall:
@@ -646,8 +654,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"flags": vfs.O_RDWR,
 			}, toolFD, err, time.Since(toolOpenStart))
 			if err != nil {
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool open failed: " + action.ToolPath, Err: err})
-				return
+				errMsg := fmt.Sprintf("Tool error (%s): open failed: %v", action.ToolPath, err)
+				if appendErr := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, errMsg); appendErr != nil {
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append tool error failed", Err: appendErr})
+					return
+				}
+				proc.mu.Lock()
+				proc.HasToolError = true
+				proc.mu.Unlock()
+				k.emitLog(proc, step, types.LogTool, errMsg, action.ToolPath)
+				continue
 			}
 
 			// Write tool data
@@ -658,8 +674,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 					"size": len(action.ToolData),
 				}, nil, err, time.Since(toolWriteStart))
 				_ = k.vfs.Close(proc.PID, toolFD)
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool write failed", Err: err})
-				return
+				errMsg := fmt.Sprintf("Tool error (%s): write failed: %v", action.ToolPath, err)
+				if appendErr := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, errMsg); appendErr != nil {
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append tool error failed", Err: appendErr})
+					return
+				}
+				proc.mu.Lock()
+				proc.HasToolError = true
+				proc.mu.Unlock()
+				k.emitLog(proc, step, types.LogTool, errMsg, action.ToolPath)
+				continue
 			}
 			k.emitEvent(proc, "Write", map[string]any{
 				"fd":   toolFD,
@@ -675,8 +699,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}, len(toolResult), err, time.Since(toolReadStart))
 			if err != nil {
 				_ = k.vfs.Close(proc.PID, toolFD)
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "tool read failed", Err: err})
-				return
+				errMsg := fmt.Sprintf("Tool error (%s): read failed: %v", action.ToolPath, err)
+				if appendErr := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, errMsg); appendErr != nil {
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append tool error failed", Err: appendErr})
+					return
+				}
+				proc.mu.Lock()
+				proc.HasToolError = true
+				proc.mu.Unlock()
+				k.emitLog(proc, step, types.LogTool, errMsg, action.ToolPath)
+				continue
 			}
 
 			// Emit [tool] log entry with tool path and result summary
@@ -839,6 +871,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		TokensUsed:     proc.TokensUsed,
 		ContextBudget:  proc.ContextBudget,
 		CreatedAt:      proc.CreatedAt,
+		DeadAt:         proc.DeadAt,
 		CtxID:          proc.CtxID,
 		Result:         proc.Result,
 		AllowedDevices: append([]string(nil), proc.AllowedDevices...),
@@ -859,6 +892,7 @@ func (k *KernelImpl) emitLog(proc *Process, step int, cat types.LogCategory, con
 		ToolPath:  toolPath,
 	}
 	proc.mu.Lock()
+	proc.AppendLogHistory(entry)
 	ch := proc.LogChan
 	if ch != nil {
 		select {
@@ -880,6 +914,19 @@ func (k *KernelImpl) GetLogChan(pid types.PID) (chan types.LogEntry, bool) {
 	ch := proc.LogChan
 	proc.mu.Unlock()
 	return ch, ch != nil
+}
+
+// GetLogHistory returns a copy of the log history for a process.
+// Returns nil, false if the process doesn't exist.
+func (k *KernelImpl) GetLogHistory(pid types.PID) ([]types.LogEntry, bool) {
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return nil, false
+	}
+	proc.mu.Lock()
+	history := proc.GetLogHistory()
+	proc.mu.Unlock()
+	return history, true
 }
 
 // GetDebugChan safely retrieves the debug channel for a process under lock.
@@ -910,6 +957,7 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			TokensUsed:     proc.TokensUsed,
 			ContextBudget:  proc.ContextBudget,
 			CreatedAt:      proc.CreatedAt,
+			DeadAt:         proc.DeadAt,
 			CtxID:          proc.CtxID,
 			Result:         proc.Result,
 			AllowedDevices: append([]string(nil), proc.AllowedDevices...),

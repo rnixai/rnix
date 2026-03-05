@@ -18,7 +18,7 @@ func TestHelperProcess(t *testing.T) {
 	}
 	switch os.Getenv("GO_TEST_CASE") {
 	case "success":
-		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"test output","cost_usd":0.001,"is_error":false,"duration_ms":100,"num_turns":1}`)
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"test output","cost_usd":0.001,"is_error":false,"duration_ms":100,"num_turns":1,"input_tokens":80,"output_tokens":20}`)
 	case "is_error":
 		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"error","result":"LLM error message","is_error":true}`)
 	case "cli_error":
@@ -34,7 +34,7 @@ func TestHelperProcess(t *testing.T) {
 	case "stream_success":
 		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"hello "}]}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"world"}]}}`)
-		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"hello world","is_error":false,"num_turns":1}`)
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"hello world","is_error":false,"num_turns":1,"input_tokens":70,"output_tokens":30}`)
 	case "stream_error":
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error","result":"stream error message","is_error":true}`)
 	case "exit1_with_json":
@@ -50,7 +50,7 @@ func TestHelperProcess(t *testing.T) {
 	case "is_error_empty_result":
 		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"error","result":"","is_error":true}`)
 	case "exit1_valid_result":
-		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"partial output","is_error":false,"num_turns":1}`)
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"partial output","is_error":false,"num_turns":1,"input_tokens":60,"output_tokens":40}`)
 		os.Exit(1)
 	case "stream_is_error_empty":
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error","result":"","is_error":true}`)
@@ -77,8 +77,8 @@ func TestClaudeCliDriver_Call_Success(t *testing.T) {
 	if resp.Content != "test output" {
 		t.Errorf("expected content 'test output', got %q", resp.Content)
 	}
-	if resp.TokensUsed != 1 {
-		t.Errorf("expected tokens_used 1, got %d", resp.TokensUsed)
+	if resp.TokensUsed != 100 {
+		t.Errorf("expected tokens_used 100, got %d", resp.TokensUsed)
 	}
 }
 
@@ -260,8 +260,8 @@ func TestClaudeCliDriver_Stream_Success(t *testing.T) {
 	if events[2].Type != "done" || events[2].Content != "hello world" {
 		t.Errorf("event[2]: expected done 'hello world', got type=%q content=%q", events[2].Type, events[2].Content)
 	}
-	if events[2].TokensUsed != 1 {
-		t.Errorf("expected tokens_used 1, got %d", events[2].TokensUsed)
+	if events[2].TokensUsed != 100 {
+		t.Errorf("expected tokens_used 100, got %d", events[2].TokensUsed)
 	}
 }
 
@@ -385,8 +385,8 @@ func TestClaudeCliDriver_Call_ExitCodeWithValidResult(t *testing.T) {
 	if resp.Content != "partial output" {
 		t.Errorf("expected 'partial output', got %q", resp.Content)
 	}
-	if resp.TokensUsed != 1 {
-		t.Errorf("expected tokens_used 1, got %d", resp.TokensUsed)
+	if resp.TokensUsed != 100 {
+		t.Errorf("expected tokens_used 100, got %d", resp.TokensUsed)
 	}
 }
 

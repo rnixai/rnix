@@ -54,6 +54,7 @@ type SpawnRequest struct {
 	Model         string `json:"model,omitempty"`
 	MaxSteps      int    `json:"max_steps,omitempty"`
 	ContextBudget int    `json:"context_budget,omitempty"`
+	TimeoutMs     int64  `json:"timeout_ms,omitempty"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.
@@ -78,6 +79,7 @@ type ProcInfoWire struct {
 	Skills        []string           `json:"skills"`
 	TokensUsed    int                `json:"tokens_used"`
 	CreatedAt     int64              `json:"created_at_ms"`
+	DeadAt        int64              `json:"dead_at_ms,omitempty"`
 	CtxID         types.CtxID        `json:"ctx_id"`
 	Result        string             `json:"result,omitempty"`
 	ContextBudget int                `json:"context_budget,omitempty"`
@@ -89,7 +91,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 	if skills == nil {
 		skills = []string{}
 	}
-	return ProcInfoWire{
+	w := ProcInfoWire{
 		PID:           p.PID,
 		PPID:          p.PPID,
 		State:         p.State,
@@ -101,11 +103,15 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		Result:        p.Result,
 		ContextBudget: p.ContextBudget,
 	}
+	if !p.DeadAt.IsZero() {
+		w.DeadAt = p.DeadAt.UnixMilli()
+	}
+	return w
 }
 
 // WireToProcInfo converts a ProcInfoWire back to vfs.ProcInfo.
 func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
-	return vfs.ProcInfo{
+	p := vfs.ProcInfo{
 		PID:           w.PID,
 		PPID:          w.PPID,
 		State:         w.State,
@@ -117,6 +123,10 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		Result:        w.Result,
 		ContextBudget: w.ContextBudget,
 	}
+	if w.DeadAt != 0 {
+		p.DeadAt = unixMilliToTime(w.DeadAt)
+	}
+	return p
 }
 
 // --- Kill ---

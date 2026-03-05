@@ -35,6 +35,7 @@ type ProcInfo struct {
 	TokensUsed     int
 	ContextBudget  int
 	CreatedAt      time.Time
+	DeadAt         time.Time
 	CtxID          types.CtxID
 	Result         string
 	AllowedDevices []string

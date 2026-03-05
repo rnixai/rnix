@@ -1,0 +1,18 @@
+# 场景 2：Compose + crux top 实时监控
+# 覆盖 Epic：7（Compose）+ 10（监控）
+# 验证：crux top 能实时反映 3 Agent DAG 的状态变化
+# 用法：终端 1 运行 crux top，终端 2 运行 crux compose up -f <this-file>
+version: "1.0"
+intent: "集成验证：Compose + crux top 实时监控"
+model: "haiku"
+agents:
+  step-a:
+    intent: "第一步：列出当前目录的文件结构，输出目录树"
+  step-b:
+    intent: "第二步：读取 README.md 并分析其内容结构"
+    depends_on:
+      step-a: completed
+  step-c:
+    intent: "第三步：基于前两步的结果，生成一段项目简介"
+    depends_on:
+      step-b: completed

@@ -57,6 +57,16 @@ func (inst *Installer) Install(name string, opts InstallOpts) (*InstallResult, e
 		}
 	}
 
+	// Check if skill exists on filesystem but not in registry (e.g. builtin skills)
+	if existing == nil && !opts.Force {
+		skillDir := filepath.Join(inst.basePath, name)
+		if info, statErr := os.Stat(skillDir); statErr == nil && info.IsDir() {
+			if _, loadErr := inst.skillLoader.LoadMetadata(name); loadErr == nil {
+				return nil, &AlreadyInstalledError{Name: name, Version: "local"}
+			}
+		}
+	}
+
 	// Resolve latest version
 	ver, err := inst.client.Resolve(name)
 	if err != nil {

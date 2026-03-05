@@ -40,10 +40,10 @@ func TestWait_NormalCompletion(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d: %s", exit.Code, exit.Reason)
 	}
 
-	// Verify resource release: process removed from table
-	_, ok := k.GetProcess(pid)
-	if ok {
-		t.Error("process should be removed from table after Wait")
+	// Verify resource release: process Dead in table (TTL-retained)
+	waitedProc, ok := k.GetProcess(pid)
+	if !ok || waitedProc.GetState() != types.StateDead {
+		t.Error("process should be Dead in table after Wait")
 	}
 
 	// Verify context was freed
@@ -93,10 +93,10 @@ func TestWait_KillThenWait(t *testing.T) {
 	// Exit code should be non-zero (cancelled)
 	t.Logf("exit code: %d, reason: %s", exit.Code, exit.Reason)
 
-	// Verify process removed from table
-	_, ok := k.GetProcess(pid)
-	if ok {
-		t.Error("process should be removed from table after Wait")
+	// Verify process Dead in table (TTL-retained)
+	waitedProc, ok := k.GetProcess(pid)
+	if !ok || waitedProc.GetState() != types.StateDead {
+		t.Error("process should be Dead in table after Wait")
 	}
 
 	// Verify context freed
@@ -158,10 +158,10 @@ func TestWait_ResourceRelease(t *testing.T) {
 		t.Errorf("expected Dead state, got %d", proc.GetState())
 	}
 
-	// 2. Process removed from table
-	_, ok := k.GetProcess(pid)
-	if ok {
-		t.Error("process should be removed from table")
+	// 2. Process Dead in table (TTL-retained)
+	waitedProc, ok := k.GetProcess(pid)
+	if !ok || waitedProc.GetState() != types.StateDead {
+		t.Error("process should be Dead in table")
 	}
 
 	// 3. Context freed
@@ -223,10 +223,10 @@ func TestWait_ConcurrentSafe(t *testing.T) {
 		t.Fatal("timed out waiting for concurrent Kill+Wait")
 	}
 
-	// Process should be fully cleaned up
-	_, ok := k.GetProcess(pid)
-	if ok {
-		t.Error("process should be removed after Wait")
+	// Process should be fully cleaned up (Dead in table with TTL)
+	waitedProc, ok := k.GetProcess(pid)
+	if !ok || waitedProc.GetState() != types.StateDead {
+		t.Error("process should be Dead in table after Wait")
 	}
 }
 
@@ -402,10 +402,11 @@ func TestOrphanReparent_ZombieChild(t *testing.T) {
 		t.Fatalf("Wait parent failed: %v", err)
 	}
 
-	// Wait for reaper to auto-reap the zombie child
+	// Wait for reaper to auto-reap the zombie child (now Dead with TTL)
 	deadline := time.After(5 * time.Second)
 	for {
-		if _, ok := k.GetProcess(childPID); !ok {
+		childProc, ok := k.GetProcess(childPID)
+		if ok && childProc.GetState() == types.StateDead {
 			break // child successfully reaped
 		}
 		select {
@@ -523,9 +524,9 @@ func TestAutoReap_ChildFinishesAfterParentRemoved(t *testing.T) {
 		t.Fatalf("Wait child failed: %v", err)
 	}
 
-	_, ok := k.GetProcess(childPID)
-	if ok {
-		t.Error("child should be removed from table after Wait")
+	waitedChild, ok := k.GetProcess(childPID)
+	if !ok || waitedChild.GetState() != types.StateDead {
+		t.Error("child should be Dead in table after Wait")
 	}
 }
 
@@ -558,10 +559,13 @@ func TestAutoReap_OrphanChildFinishes_ParentAlreadyGone(t *testing.T) {
 	close(parentBlockCh)
 	_, _ = k.Wait(parentPID)
 
-	// Verify parent is gone
-	_, ok := k.GetProcess(parentPID)
-	if ok {
-		t.Fatal("parent should be removed")
+	// Verify parent is Dead (TTL-retained in table)
+	parentProc, ok := k.GetProcess(parentPID)
+	if !ok {
+		t.Fatal("parent should still be in table (Dead with TTL)")
+	}
+	if parentProc.GetState() != types.StateDead {
+		t.Fatalf("parent should be Dead, got %v", parentProc.GetState())
 	}
 
 	// Child's PPID is now 0 (reparented by handleOrphanChildren)
@@ -629,11 +633,12 @@ func TestAutoReap_Reaper_ProcessesMultiplePIDs(t *testing.T) {
 	close(parentBlockCh)
 	_, _ = k.Wait(parentPID)
 
-	// All zombie children should be auto-reaped
+	// All zombie children should be auto-reaped (Dead with TTL)
 	deadline := time.After(5 * time.Second)
 	for _, pid := range childPIDs {
 		for {
-			if _, ok := k.GetProcess(pid); !ok {
+			proc, ok := k.GetProcess(pid)
+			if ok && proc.GetState() == types.StateDead {
 				break
 			}
 			select {
@@ -692,9 +697,9 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 		t.Fatalf("Wait parent: %v", err)
 	}
 
-	// Verify parent removed
-	if _, ok := k.GetProcess(parentPID); ok {
-		t.Fatal("parent should be removed")
+	// Verify parent Dead (TTL-retained)
+	if parentProc, ok := k.GetProcess(parentPID); !ok || parentProc.GetState() != types.StateDead {
+		t.Fatal("parent should be Dead in table")
 	}
 
 	// Verify child reparented
@@ -715,9 +720,9 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 		t.Fatalf("Wait child: %v", err)
 	}
 
-	// 5. Both removed from table
-	if _, ok := k.GetProcess(childPID); ok {
-		t.Error("child should be removed from table")
+	// 5. Both Dead in table (TTL-retained)
+	if childProc, ok := k.GetProcess(childPID); !ok || childProc.GetState() != types.StateDead {
+		t.Error("child should be Dead in table")
 	}
 }
 
@@ -772,10 +777,11 @@ func TestIntegration_MultipleChildren(t *testing.T) {
 	close(parentBlockCh)
 	_, _ = k.Wait(parentPID)
 
-	// Verify zombie child auto-reaped
+	// Verify zombie child auto-reaped (now Dead with TTL)
 	deadline := time.After(5 * time.Second)
 	for {
-		if _, ok := k.GetProcess(zombiePID); !ok {
+		zProc, ok := k.GetProcess(zombiePID)
+		if ok && zProc.GetState() == types.StateDead {
 			break
 		}
 		select {
@@ -822,11 +828,11 @@ func TestIntegration_ProcessTableConsistency(t *testing.T) {
 
 	_, _ = k.Wait(pid)
 
-	// Verify process table is clean
+	// Verify process table: pid should be Dead (TTL-retained), not a dangling non-Dead entry
 	procs := k.ListProcesses()
 	for _, p := range procs {
-		if p.PID == pid {
-			t.Errorf("dangling PID %d found in process table after abnormal exit", pid)
+		if p.PID == pid && p.State != types.StateDead {
+			t.Errorf("dangling PID %d found in process table in state %v after abnormal exit", pid, p.State)
 		}
 	}
 }
@@ -898,11 +904,12 @@ func TestIntegration_ConcurrentExits(t *testing.T) {
 	close(parentBlockCh)
 	_, _ = k.Wait(parentPID)
 
-	// All should be reaped
+	// All should be reaped (Dead with TTL)
 	deadline := time.After(5 * time.Second)
 	for _, pid := range childPIDs {
 		for {
-			if _, ok := k.GetProcess(pid); !ok {
+			cProc, ok := k.GetProcess(pid)
+			if ok && cProc.GetState() == types.StateDead {
 				break
 			}
 			select {
@@ -958,8 +965,8 @@ func TestReapOnce_ConcurrentReapProcess(t *testing.T) {
 	if proc.GetState() != types.StateDead {
 		t.Errorf("expected Dead, got %d", proc.GetState())
 	}
-	if _, ok := k.GetProcess(pid); ok {
-		t.Error("process should be removed from table")
+	if reapedProc, ok := k.GetProcess(pid); !ok || reapedProc.GetState() != types.StateDead {
+		t.Error("process should be Dead in table (TTL-retained)")
 	}
 	if _, err := ctxMgr.BuildPrompt(ctxID); err == nil {
 		t.Error("context should be freed")
@@ -1028,9 +1035,9 @@ debugClosed:
 		t.Errorf("expected Dead state, got %d", proc.GetState())
 	}
 
-	// 4. Process removed from table
-	if _, ok := k.GetProcess(pid); ok {
-		t.Error("process should be removed from table after reapProcess")
+	// 4. Process Dead in table (TTL-retained, no longer immediately removed)
+	if deadProc, ok := k.GetProcess(pid); !ok || deadProc.GetState() != types.StateDead {
+		t.Error("process should be Dead in table after reapProcess")
 	}
 }
 
@@ -1062,8 +1069,8 @@ func TestShutdown_DrainsReapCh(t *testing.T) {
 	// Shutdown should drain reapCh and reap the zombie
 	k.Shutdown()
 
-	if _, ok := k.GetProcess(pid); ok {
-		t.Error("process should be reaped during Shutdown drain")
+	if drainProc, ok := k.GetProcess(pid); !ok || drainProc.GetState() != types.StateDead {
+		t.Error("process should be Dead in table after Shutdown drain")
 	}
 }
 
@@ -1125,9 +1132,9 @@ func TestIntegration_ReapProcess_MCPUnmountOnExit(t *testing.T) {
 			t.Errorf("mount %s should have been unmounted", mountPath2)
 		}
 
-		// And: process is fully cleaned up (reapProcess completed)
-		if _, ok := k.GetProcess(pid); ok {
-			t.Error("process should be removed from table after reap")
+		// And: process is Dead in table (TTL-retained)
+		if reapedProc, ok := k.GetProcess(pid); !ok || reapedProc.GetState() != types.StateDead {
+			t.Error("process should be Dead in table after reap")
 		}
 
 		// And: context was freed
@@ -1193,9 +1200,9 @@ func TestIntegration_ReapProcess_MCPUnmountOnExit(t *testing.T) {
 			t.Errorf("mount %s should have been unmounted after kill", mountPath)
 		}
 
-		// And: process is fully removed
-		if _, ok := k.GetProcess(pid); ok {
-			t.Error("process should be removed after kill+wait")
+		// And: process is Dead in table (TTL-retained)
+		if reapedProc, ok := k.GetProcess(pid); !ok || reapedProc.GetState() != types.StateDead {
+			t.Error("process should be Dead in table after kill+wait")
 		}
 	})
 
@@ -1232,9 +1239,9 @@ func TestIntegration_ReapProcess_MCPUnmountOnExit(t *testing.T) {
 			t.Fatalf("expected exit code 0, got %d", exit.Code)
 		}
 
-		// And: process is fully cleaned up
-		if _, ok := k.GetProcess(pid); ok {
-			t.Error("process should be removed despite unmount failure")
+		// And: process is Dead in table (TTL-retained)
+		if reapedProc, ok := k.GetProcess(pid); !ok || reapedProc.GetState() != types.StateDead {
+			t.Error("process should be Dead in table despite unmount failure")
 		}
 	})
 
@@ -1263,8 +1270,8 @@ func TestIntegration_ReapProcess_MCPUnmountOnExit(t *testing.T) {
 		if exit.Code != 0 {
 			t.Fatalf("expected exit code 0, got %d: %s", exit.Code, exit.Reason)
 		}
-		if _, ok := k.GetProcess(pid); ok {
-			t.Error("process should be removed")
+		if reapedProc, ok := k.GetProcess(pid); !ok || reapedProc.GetState() != types.StateDead {
+			t.Error("process should be Dead in table")
 		}
 		_, ctxErr := ctxMgr.BuildPrompt(ctxID)
 		if ctxErr == nil {
@@ -1289,5 +1296,45 @@ func TestIntegration_ShutdownUnmountsAll(t *testing.T) {
 	// Then: all mounts are cleaned up
 	if len(mm.mounted) != 0 {
 		t.Errorf("expected all mounts cleared, got %d remaining: %v", len(mm.mounted), mm.mounted)
+	}
+}
+
+func TestCleanupExpiredDead_RemovesAfterTTL(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("ttl-test", 1)}
+	k, _, _ := newTestKernel(t, llmFile)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("ttl process", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	exit, err := k.Wait(pid)
+	if err != nil {
+		t.Fatalf("Wait failed: %v", err)
+	}
+	if exit.Code != 0 {
+		t.Fatalf("unexpected exit code: %d", exit.Code)
+	}
+
+	// Process should be Dead but retained in table
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("Dead process should be retained in table (TTL)")
+	}
+	if proc.GetState() != types.StateDead {
+		t.Fatalf("expected Dead state, got %d", proc.GetState())
+	}
+
+	// cleanupExpiredDead with long TTL should NOT remove
+	k.cleanupExpiredDead(1 * time.Hour)
+	if _, ok := k.GetProcess(pid); !ok {
+		t.Error("process should NOT be removed when TTL has not expired")
+	}
+
+	// cleanupExpiredDead with zero TTL should remove
+	k.cleanupExpiredDead(0)
+	if _, ok := k.GetProcess(pid); ok {
+		t.Error("process should be removed after TTL expiry")
 	}
 }

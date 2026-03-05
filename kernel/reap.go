@@ -7,6 +7,9 @@ import (
 	"github.com/gonewx/crux/internal/types"
 )
 
+// DeadProcessTTL is how long a Dead process stays in the procTable before removal.
+const DeadProcessTTL = 60 * time.Second
+
 // reapProcess performs the complete resource release sequence for a zombie process.
 // It is idempotent — proc.reapOnce ensures only one caller executes the cleanup,
 // even if both Wait and the reaper goroutine try concurrently.
@@ -59,8 +62,10 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		// 10. Reap() — Zombie → Dead state transition
 		_ = proc.Reap()
 
-		// 11. RemoveProcess(pid) — remove from process table
-		k.RemoveProcess(proc.PID)
+		// 11. Set DeadAt timestamp (TTL cleanup will remove from procTable later)
+		proc.mu.Lock()
+		proc.DeadAt = time.Now()
+		proc.mu.Unlock()
 	})
 }
 
@@ -148,8 +153,10 @@ func (k *KernelImpl) Reap(pid types.PID) {
 	}
 }
 
-// startReaper launches the background goroutine that auto-reaps orphan zombies.
+// startReaper launches the background goroutine that auto-reaps orphan zombies
+// and periodically cleans up expired Dead processes.
 func (k *KernelImpl) startReaper() {
+	k.deadTicker = time.NewTicker(10 * time.Second)
 	k.reaperWg.Add(1)
 	go func() {
 		defer k.reaperWg.Done()
@@ -163,7 +170,10 @@ func (k *KernelImpl) startReaper() {
 				if proc.GetState() == types.StateZombie {
 					k.reapProcess(proc)
 				}
+			case <-k.deadTicker.C:
+				k.cleanupExpiredDead(DeadProcessTTL)
 			case <-k.stopCh:
+				k.deadTicker.Stop()
 				// Drain remaining PIDs before exiting
 				for {
 					select {
@@ -180,6 +190,24 @@ func (k *KernelImpl) startReaper() {
 	}()
 }
 
+// cleanupExpiredDead removes Dead processes whose DeadAt exceeds the TTL.
+func (k *KernelImpl) cleanupExpiredDead(ttl time.Duration) {
+	var toRemove []types.PID
+	k.procTable.Range(func(pid types.PID, proc *Process) bool {
+		proc.mu.Lock()
+		state := proc.State
+		deadAt := proc.DeadAt
+		proc.mu.Unlock()
+		if state == types.StateDead && !deadAt.IsZero() && time.Since(deadAt) > ttl {
+			toRemove = append(toRemove, pid)
+		}
+		return true
+	})
+	for _, pid := range toRemove {
+		k.RemoveProcess(pid)
+	}
+}
+
 // Shutdown stops the reaper goroutine, unmounts all MCP servers, and waits for exit.
 // Safe to call multiple times — only the first call closes stopCh.
 func (k *KernelImpl) Shutdown() {
@@ -187,6 +215,9 @@ func (k *KernelImpl) Shutdown() {
 		// Unmount all MCP servers before stopping reaper
 		if k.mountMgr != nil {
 			_ = k.mountMgr.UnmountAll()
+		}
+		if k.deadTicker != nil {
+			k.deadTicker.Stop()
 		}
 		close(k.stopCh)
 	})

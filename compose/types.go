@@ -22,6 +22,7 @@ type AgentSpec struct {
 	Model         string            `yaml:"model,omitempty"`
 	Skills        []string          `yaml:"skills,omitempty"`
 	ContextBudget int               `yaml:"context_budget,omitempty"`
+	TimeoutMs     int64             `yaml:"timeout_ms,omitempty"`
 	DependsOn     map[string]string `yaml:"depends_on,omitempty"`
 }
 
@@ -44,6 +45,7 @@ type ComposeSpawnOpts struct {
 	SystemPrompt  string
 	ParentPID     types.PID
 	ContextBudget int
+	TimeoutMs     int64
 }
 
 // ComposeExitStatus records a process exit status for compose.

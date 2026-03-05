@@ -27,7 +27,6 @@ var topCmd = &cobra.Command{
 type treeNode struct {
 	proc     vfs.ProcInfo
 	children []*treeNode
-	depth    int
 }
 
 // flatRow is a pre-rendered row from the tree, ready for display.
