@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -91,8 +92,15 @@ func TestClaudeCliDriver_Call_Timeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
-	if !strings.Contains(err.Error(), "timed out") {
-		t.Errorf("expected timeout error message, got: %v", err)
+	if !errors.Is(err, ErrTimeout) {
+		t.Errorf("expected errors.Is(err, ErrTimeout), got: %v", err)
+	}
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
+	}
+	if llmErr.Provider != "claude" {
+		t.Errorf("Provider = %q, want %q", llmErr.Provider, "claude")
 	}
 }
 
@@ -102,11 +110,18 @@ func TestClaudeCliDriver_Call_CLIError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "claude cli failed") {
-		t.Errorf("expected cli failure message, got: %v", err)
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
 	}
-	if !strings.Contains(err.Error(), "Error: invalid arguments") {
-		t.Errorf("expected stderr content in error, got: %v", err)
+	if llmErr.Provider != "claude" {
+		t.Errorf("Provider = %q, want %q", llmErr.Provider, "claude")
+	}
+	if !strings.Contains(llmErr.Error(), "cli failed") {
+		t.Errorf("expected 'cli failed' in error, got: %v", llmErr)
+	}
+	if !strings.Contains(llmErr.Error(), "Error: invalid arguments") {
+		t.Errorf("expected stderr content in error, got: %v", llmErr)
 	}
 }
 
@@ -116,8 +131,12 @@ func TestClaudeCliDriver_Call_InvalidJSON(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "failed to parse llm response") {
-		t.Errorf("expected parse error message, got: %v", err)
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
+	}
+	if !strings.Contains(llmErr.Error(), "invalid json") {
+		t.Errorf("expected 'invalid json' in error, got: %v", llmErr)
 	}
 }
 
@@ -127,11 +146,15 @@ func TestClaudeCliDriver_Call_IsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "llm returned error") {
-		t.Errorf("expected llm error message, got: %v", err)
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
 	}
-	if !strings.Contains(err.Error(), "LLM error message") {
-		t.Errorf("expected error content, got: %v", err)
+	if llmErr.Provider != "claude" {
+		t.Errorf("Provider = %q, want %q", llmErr.Provider, "claude")
+	}
+	if !strings.Contains(llmErr.Error(), "LLM error message") {
+		t.Errorf("expected error content, got: %v", llmErr)
 	}
 }
 
@@ -286,8 +309,15 @@ func TestClaudeCliDriver_Stream_Error(t *testing.T) {
 	if events[0].Err == nil {
 		t.Error("expected non-nil error")
 	}
-	if !strings.Contains(events[0].Err.Error(), "stream error message") {
-		t.Errorf("expected error content, got: %v", events[0].Err)
+	var llmErr *LLMError
+	if !errors.As(events[0].Err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError from StreamEvent.Err")
+	}
+	if llmErr.Provider != "claude" {
+		t.Errorf("Provider = %q, want %q", llmErr.Provider, "claude")
+	}
+	if !strings.Contains(llmErr.Error(), "stream error message") {
+		t.Errorf("expected error content, got: %v", llmErr)
 	}
 }
 
@@ -297,14 +327,15 @@ func TestClaudeCliDriver_Call_ExitCodeWithJSON(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "llm returned error") {
-		t.Errorf("expected 'llm returned error', got: %v", err)
+	if !errors.Is(err, ErrRateLimit) {
+		t.Errorf("expected errors.Is(err, ErrRateLimit), got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "API rate limited") {
-		t.Errorf("expected 'API rate limited' in error, got: %v", err)
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
 	}
-	if !strings.Contains(err.Error(), "exit 1") {
-		t.Errorf("expected exit code in error, got: %v", err)
+	if llmErr.StatusCode != 429 {
+		t.Errorf("StatusCode = %d, want 429", llmErr.StatusCode)
 	}
 }
 
@@ -314,11 +345,15 @@ func TestClaudeCliDriver_Call_ExitCodeNoJSON(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "claude cli failed") {
-		t.Errorf("expected 'claude cli failed', got: %v", err)
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
 	}
-	if !strings.Contains(err.Error(), "Error: network failure") {
-		t.Errorf("expected stderr content in error, got: %v", err)
+	if !strings.Contains(llmErr.Error(), "cli failed") {
+		t.Errorf("expected 'cli failed', got: %v", llmErr)
+	}
+	if !strings.Contains(llmErr.Error(), "Error: network failure") {
+		t.Errorf("expected stderr content in error, got: %v", llmErr)
 	}
 }
 
@@ -328,11 +363,15 @@ func TestClaudeCliDriver_Call_EmptyResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty result, got nil")
 	}
-	if !strings.Contains(err.Error(), "llm response truncated") {
-		t.Errorf("expected truncation error, got: %v", err)
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
 	}
-	if !strings.Contains(err.Error(), "max_turns") {
-		t.Errorf("expected max_turns hint in error, got: %v", err)
+	if !strings.Contains(llmErr.Error(), "truncated") {
+		t.Errorf("expected truncation error, got: %v", llmErr)
+	}
+	if !strings.Contains(llmErr.Error(), "max_turns") {
+		t.Errorf("expected max_turns hint in error, got: %v", llmErr)
 	}
 }
 
@@ -357,8 +396,12 @@ func TestClaudeCliDriver_Stream_EmptyResult(t *testing.T) {
 	if events[0].Err == nil {
 		t.Fatal("expected non-nil error")
 	}
-	if !strings.Contains(events[0].Err.Error(), "truncated") {
-		t.Errorf("expected truncation error, got: %v", events[0].Err)
+	var llmErr *LLMError
+	if !errors.As(events[0].Err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
+	}
+	if !strings.Contains(llmErr.Error(), "truncated") {
+		t.Errorf("expected truncation error, got: %v", llmErr)
 	}
 }
 
@@ -368,11 +411,12 @@ func TestClaudeCliDriver_Call_IsErrorEmptyResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "llm returned error") {
-		t.Errorf("expected 'llm returned error', got: %v", err)
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
 	}
-	if !strings.Contains(err.Error(), "unknown error") {
-		t.Errorf("expected 'unknown error' fallback, got: %v", err)
+	if !strings.Contains(llmErr.Error(), "unknown error") {
+		t.Errorf("expected 'unknown error' fallback, got: %v", llmErr)
 	}
 }
 
@@ -408,7 +452,11 @@ func TestClaudeCliDriver_Stream_IsErrorEmptyResult(t *testing.T) {
 	if events[0].Type != "error" {
 		t.Fatalf("expected error event, got type=%q", events[0].Type)
 	}
-	if !strings.Contains(events[0].Err.Error(), "unknown error") {
-		t.Errorf("expected 'unknown error' fallback, got: %v", events[0].Err)
+	var llmErr *LLMError
+	if !errors.As(events[0].Err, &llmErr) {
+		t.Fatal("expected errors.As to extract *LLMError")
+	}
+	if !strings.Contains(llmErr.Error(), "unknown error") {
+		t.Errorf("expected 'unknown error' fallback, got: %v", llmErr)
 	}
 }

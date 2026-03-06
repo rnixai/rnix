@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -107,10 +108,10 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
-		return nil, fmt.Errorf("llm call timed out after %v", timeout)
+		return nil, NewLLMError("claude", 0, ErrTimeout)
 	}
 
-	// Try parsing stdout JSON even when exit code is non-zero (AC #1, #2)
+	// Try parsing stdout JSON even when exit code is non-zero
 	var cliResp claudeCliResponse
 	if parseErr := json.Unmarshal(stdout.Bytes(), &cliResp); parseErr == nil {
 		if cliResp.IsError {
@@ -118,13 +119,17 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 			if errMsg == "" {
 				errMsg = "unknown error (empty result)"
 			}
-			if err != nil {
-				return nil, fmt.Errorf("llm returned error (exit %d): %s", cmd.ProcessState.ExitCode(), errMsg)
+			code, sentinel := classifyCliError(errMsg)
+			if sentinel != nil {
+				return nil, NewLLMError("claude", code, sentinel)
 			}
-			return nil, fmt.Errorf("llm returned error: %s", errMsg)
+			if err != nil {
+				return nil, NewLLMError("claude", 0, fmt.Errorf("cli error (exit %d): %s", cmd.ProcessState.ExitCode(), errMsg))
+			}
+			return nil, NewLLMError("claude", 0, fmt.Errorf("%s", errMsg))
 		}
 		if cliResp.Result == "" {
-			return nil, fmt.Errorf("llm response truncated: no result (possible max_turns limit)")
+			return nil, NewLLMError("claude", 0, fmt.Errorf("response truncated: no result (possible max_turns limit)"))
 		}
 		return &LLMResponse{
 			Content:      cliResp.Result,
@@ -136,10 +141,10 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 
 	// stdout has no valid JSON — fall back to stderr
 	if err != nil {
-		return nil, fmt.Errorf("claude cli failed (exit %d): %s", cmd.ProcessState.ExitCode(), stderr.String())
+		return nil, NewLLMError("claude", 0, fmt.Errorf("cli failed (exit %d): %s", cmd.ProcessState.ExitCode(), stderr.String()))
 	}
 
-	return nil, fmt.Errorf("failed to parse llm response: invalid json in stdout")
+	return nil, NewLLMError("claude", 0, fmt.Errorf("invalid json in stdout"))
 }
 
 // claudeStreamEvent is the JSON structure for a single stream-json line.
@@ -200,7 +205,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 			var evt claudeStreamEvent
 			if err := json.Unmarshal(line, &evt); err != nil {
 				select {
-				case ch <- StreamEvent{Type: "error", Err: fmt.Errorf("failed to parse stream event: %w", err)}:
+				case ch <- StreamEvent{Type: "error", Err: NewLLMError("claude", 0, fmt.Errorf("failed to parse stream event: %w", err))}:
 				case <-ctx.Done():
 				}
 				continue
@@ -225,10 +230,15 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					if errMsg == "" {
 						errMsg = "unknown error (empty result)"
 					}
-					se.Err = fmt.Errorf("llm returned error: %s", errMsg)
+					code, sentinel := classifyCliError(errMsg)
+					if sentinel != nil {
+						se.Err = NewLLMError("claude", code, sentinel)
+					} else {
+						se.Err = NewLLMError("claude", 0, fmt.Errorf("%s", errMsg))
+					}
 				} else if evt.Result == "" {
 					se.Type = "error"
-					se.Err = fmt.Errorf("llm response truncated: no result (possible max_turns limit)")
+					se.Err = NewLLMError("claude", 0, fmt.Errorf("response truncated: no result (possible max_turns limit)"))
 				}
 				select {
 				case ch <- se:
@@ -240,7 +250,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 		if err := scanner.Err(); err != nil {
 			select {
-			case ch <- StreamEvent{Type: "error", Err: fmt.Errorf("stream read error: %w", err)}:
+			case ch <- StreamEvent{Type: "error", Err: NewLLMError("claude", 0, fmt.Errorf("stream read error: %w", err))}:
 			case <-ctx.Done():
 			}
 		}
@@ -277,4 +287,20 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []strin
 	}
 
 	return args
+}
+
+// classifyCliError attempts to categorize an error message from the CLI
+// into a sentinel error and HTTP status code. Returns (0, nil) if no match.
+func classifyCliError(msg string) (int, error) {
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "rate limit"):
+		return 429, ErrRateLimit
+	case strings.Contains(lower, "auth") || strings.Contains(lower, "key"):
+		return 401, ErrAuth
+	case strings.Contains(lower, "too long") || strings.Contains(lower, "context"):
+		return 400, ErrContextLength
+	default:
+		return 0, nil
+	}
 }
