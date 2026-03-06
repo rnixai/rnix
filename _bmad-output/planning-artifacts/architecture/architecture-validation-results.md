@@ -57,7 +57,7 @@
 ### Phase 3 FR 覆盖（FR71-FR140）：架构决策已到位
 
 - 时间旅行录制路径 `$PROJECT/.rnix/records/` 已规划
-- agdb attach 通过 IPC 扩展，机制明确
+- gdb attach 通过 IPC 扩展，机制明确
 - 分布式追踪通过 TraceID/SpanID 自动传播
 - AgentShell Phase 3 节点类型已在 AST 设计中预留
 - 声明式意图、OODA、干细胞分化等涌现层为 Phase 3 延迟决策，不阻塞实现
@@ -163,7 +163,7 @@ cmd/ → debug/（仅依赖 internal/types/）
 6. Agent/Skill 分层清晰——Agent 定义"我是谁"，Skill 定义"如何做 X"，Skill 遵循行业标准可跨平台复用
 
 **未来增强方向：**
-- Phase 3 模块的详细目录规划（agdb/、timetravel/、dashboard/ 等）
+- Phase 3 模块的详细目录规划（gdb/、timetravel/、dashboard/ 等）
 - 分布式场景下的性能基准测试框架
 - Skill 生态的安全审计机制
 

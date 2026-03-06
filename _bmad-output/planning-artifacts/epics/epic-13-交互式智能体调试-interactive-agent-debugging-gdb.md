@@ -1,41 +1,41 @@
-# Epic 13: 交互式智能体调试（agdb）
+# Epic 13: 交互式智能体调试（gdb）
 
 用户可以附着到运行中的智能体，设置断点（syscall/推理/质量/预算四种类型）、单步执行、检查和热修改运行时参数，实现类 GDB 的交互式调试体验。
 
-## Story 13.1: agdb 调试会话管理（Attach/Detach）
+## Story 13.1: gdb 调试会话管理（Attach/Detach）
 
 As a 平台构建者,
-I want 通过 `rnix agdb <pid>` 附着到运行中的智能体进入交互式调试会话，并可随时 Detach 断开,
+I want 通过 `rnix gdb <pid>` 附着到运行中的智能体进入交互式调试会话，并可随时 Detach 断开,
 So that 我可以在不中断智能体执行的前提下进入和退出调试模式。
 
 **Acceptance Criteria:**
 
 **Given** 一个 Running 状态的智能体进程 PID=N
-**When** 用户执行 `rnix agdb N`
-**Then** 系统通过 IPC 发送 `attach_agdb` 请求，成功后进入交互式调试 TUI
+**When** 用户执行 `rnix gdb N`
+**Then** 系统通过 IPC 发送 `attach_gdb` 请求，成功后进入交互式调试 TUI
 **And** Attach 延迟 <= 200ms（NFR31）
 
-**Given** 用户处于 agdb 调试会话中
+**Given** 用户处于 gdb 调试会话中
 **When** 用户执行 `detach` 命令
 **Then** 调试会话断开，智能体继续正常执行，不受影响
 
 **Given** 目标进程不存在或已处于 Dead 状态
-**When** 用户执行 `rnix agdb N`
+**When** 用户执行 `rnix gdb N`
 **Then** 系统返回结构化错误信息：进程不存在/已终止
 
 ## Story 13.2: 断点系统
 
 As a 平台构建者,
-I want 在 agdb 中设置四种断点（syscall/推理/质量/预算），精确控制智能体暂停的时机,
+I want 在 gdb 中设置四种断点（syscall/推理/质量/预算），精确控制智能体暂停的时机,
 So that 我可以在关键执行节点检查智能体状态，定位问题根因。
 
 **Acceptance Criteria:**
 
-**Given** 用户处于 agdb 调试会话中
+**Given** 用户处于 gdb 调试会话中
 **When** 用户执行 `break syscall Read`
 **Then** 智能体在下次调用 Read syscall 前暂停，显示 syscall 参数
 
-**Given** 用户处于 agdb 调试会话中
+**Given** 用户处于 gdb 调试会话中
 **When** 用户执行 `break reasoning`
 **Then** 智能体在每次 LLM 调用前暂停，显示即将发送的 prompt 摘要
 
@@ -55,7 +55,7 @@ So that 我可以在关键执行节点检查智能体状态，定位问题根因
 ## Story 13.3: 单步执行与状态检查
 
 As a 平台构建者,
-I want 在 agdb 中逐步执行智能体的每个 syscall 或推理步骤，查看每步的参数、返回值和上下文变化,
+I want 在 gdb 中逐步执行智能体的每个 syscall 或推理步骤，查看每步的参数、返回值和上下文变化,
 So that 我可以精确追踪智能体的执行轨迹，理解每一步决策的依据。
 
 **Acceptance Criteria:**
@@ -79,7 +79,7 @@ So that 我可以精确追踪智能体的执行轨迹，理解每一步决策的
 ## Story 13.4: 运行时参数热修改
 
 As a 平台构建者,
-I want 在 agdb 中检查和修改智能体的运行时参数，修改立即生效于下一个推理步骤,
+I want 在 gdb 中检查和修改智能体的运行时参数，修改立即生效于下一个推理步骤,
 So that 我可以在调试过程中快速测试不同配置对智能体行为的影响。
 
 **Acceptance Criteria:**

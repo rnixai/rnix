@@ -1128,3 +1128,114 @@ func TestIsScriptSyntax_OnError(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.1: gdb 调试会话管理 (Attach/Detach)
+//
+// Tests reference gdbCmd and runGdb which do NOT exist yet
+// → compile failure = RED phase.
+// ============================================================
+
+// --- 13.1-CLI-001: [P0] gdb 子命令注册且可见 ---
+
+func TestHelp_ContainsGdbSubcommand(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetArgs([]string{"--help"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetArgs(nil)
+	})
+	_ = rootCmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "gdb") {
+		t.Errorf("expected 'gdb' subcommand in help, got %q", output)
+	}
+}
+
+// --- 13.1-CLI-002: [P0] gdb 要求恰好 1 个 PID 参数 ---
+
+func TestGdbCmd_RequiresExactlyOnePID(t *testing.T) {
+	if gdbCmd.Args == nil {
+		t.Fatal("gdbCmd.Args should be set (expected ExactArgs(1))")
+	}
+	// No args should fail
+	if err := gdbCmd.Args(gdbCmd, []string{}); err == nil {
+		t.Error("expected error with 0 args")
+	}
+	// 1 arg should pass
+	if err := gdbCmd.Args(gdbCmd, []string{"1"}); err != nil {
+		t.Errorf("expected success with 1 arg, got %v", err)
+	}
+	// 2 args should fail
+	if err := gdbCmd.Args(gdbCmd, []string{"1", "2"}); err == nil {
+		t.Error("expected error with 2 args")
+	}
+}
+
+// --- 13.1-CLI-003: [P0] runGdb 无效 PID 返回错误 ---
+
+func TestRunGdb_InvalidPID(t *testing.T) {
+	saved := exitCode
+	defer func() { exitCode = saved }()
+	exitCode = 0
+
+	err := runGdb(&cobra.Command{}, []string{"abc"})
+	if err != nil {
+		t.Fatalf("runGdb should return nil (errors handled internally), got %v", err)
+	}
+	if exitCode != 1 {
+		t.Errorf("expected exitCode 1 for invalid PID, got %d", exitCode)
+	}
+}
+
+// --- 13.1-CLI-004: [P0] runGdb PID 不存在 返回错误 ---
+
+func TestRunGdb_PIDNotFound_ViaIPC(t *testing.T) {
+	sockPath, _ := setupTestIPCServer(t)
+
+	saved := exitCode
+	defer func() { exitCode = saved }()
+	exitCode = 0
+
+	ipc.SocketPathOverride = sockPath
+	t.Cleanup(func() { ipc.SocketPathOverride = "" })
+
+	err := runGdb(&cobra.Command{}, []string{"999"})
+	if err != nil {
+		t.Fatalf("runGdb should return nil, got %v", err)
+	}
+	if exitCode != 1 {
+		t.Errorf("expected exitCode 1 for non-existent PID, got %d", exitCode)
+	}
+}
+
+// --- 13.1-CLI-005: [P1] gdbCmd 有正确的 Use 和 Short 描述 ---
+
+func TestGdbCmd_UsageAndDescription(t *testing.T) {
+	if !strings.Contains(gdbCmd.Use, "gdb") {
+		t.Errorf("gdbCmd.Use should contain 'gdb', got %q", gdbCmd.Use)
+	}
+	if !strings.Contains(gdbCmd.Use, "<pid>") && !strings.Contains(gdbCmd.Use, "pid") {
+		t.Errorf("gdbCmd.Use should mention pid, got %q", gdbCmd.Use)
+	}
+	if gdbCmd.Short == "" {
+		t.Error("gdbCmd.Short should not be empty")
+	}
+}
+
+// --- 13.1-CLI-006: [P1] gdbCmd 支持 --json flag ---
+
+func TestGdbCmd_SupportsJSONFlag(t *testing.T) {
+	// The --json flag should be inherited from root or registered on gdb
+	// Verify gdb can be run with --json (parsing doesn't fail)
+	f := gdbCmd.Flags().Lookup("json")
+	if f == nil {
+		// Check inherited flags from root
+		f = gdbCmd.InheritedFlags().Lookup("json")
+	}
+	if f == nil {
+		t.Error("gdb command should support --json flag (either local or inherited)")
+	}
+}

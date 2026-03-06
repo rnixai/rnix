@@ -8,7 +8,7 @@
 - AgentShell 解析器架构（手写递归下降 + 解释执行）
 
 **重要决策（塑造架构）：**
-- agdb 调试通道（IPC 扩展）
+- gdb 调试通道（IPC 扩展）
 - 时间旅行 fork-continue（普通 Spawn）
 - 分布式追踪传播（上下文自动传播）
 - skillpkg 仓库协议（Git-based）
@@ -367,8 +367,8 @@ rnix "分析代码" --agent=code-analyst
 
 ## Decision 11: 调试工具链架构
 
-**agdb Attach 机制：**
-- 决策：通过 IPC 扩展，新增 `attach_agdb` method
+**gdb Attach 机制：**
+- 决策：通过 IPC 扩展，新增 `attach_gdb` method
 - 理由：复用现有 Daemon + Unix domain socket 架构，与 `attach_debug`（strace）模式一致，保持架构统一性
 - 交互模式：客户端发送调试命令（step/breakpoint/inspect/modify），服务端在 reasonStep 循环中检查断点并暂停
 
@@ -407,15 +407,15 @@ rnix "分析代码" --agent=code-analyst
 1. Compose 引擎（DAG 调度 + ProcGroup 集成）— 依赖已有的 Spawn + ProcGroup
 2. AgentShell Phase 2 语法（管道 + if-else + on-error）— 独立模块，可并行开发
 3. skillpkg 客户端（Git-based install/search）— 依赖 Skill 加载器已稳定
-4. agdb 调试器 — 依赖 IPC 扩展 + reasonStep 断点钩子
+4. gdb 调试器 — 依赖 IPC 扩展 + reasonStep 断点钩子
 5. 时间旅行录制/回放 — 依赖 DebugRecord 完整 + 文件持久化
 6. 分布式追踪 — 依赖 Compose + IPC + TraceID 传播
 
 **跨组件依赖：**
 - Compose 依赖 ProcGroup + Spawn + DAG 调度
 - AgentShell 管道依赖 IPC Pipe
-- agdb 依赖 IPC 扩展 + 新增 KernelImpl 方法
-- 时间旅行依赖 agdb + DebugRecord + 上下文快照
+- gdb 依赖 IPC 扩展 + 新增 KernelImpl 方法
+- 时间旅行依赖 gdb + DebugRecord + 上下文快照
 - skillpkg 依赖 Skill 加载器 + Git 操作
 - 分布式追踪依赖 Compose + IPC + Process TraceID 字段
 

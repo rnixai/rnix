@@ -47,6 +47,10 @@ type Server struct {
 	mu          sync.Mutex
 	idleTimer   *time.Timer
 	idleStopped bool
+
+	// gdb session management: per-PID detach signals
+	gdbMu       sync.Mutex
+	gdbDetachCh map[types.PID]chan struct{}
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -232,6 +236,11 @@ func (s *Server) handleConn(conn net.Conn) {
 		case MethodAttachLog:
 			s.handleAttachLog(conn, req.Payload)
 			return // streaming method — handler manages connection lifetime
+		case MethodAttachGdb:
+			s.handleAttachGdb(conn, req.Payload)
+			return // streaming method — handler manages connection lifetime
+		case MethodDetachGdb:
+			s.handleDetachGdb(conn, req.Payload)
 		case MethodSpawnPipeline:
 			s.handleSpawnPipeline(conn, req.Payload)
 			return // streaming method
@@ -473,6 +482,154 @@ func (s *Server) handleAttachLog(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	_ = enc.Encode(StreamEvent{Type: StreamEOF})
+}
+
+func (s *Server) handleAttachGdb(conn net.Conn, rawPayload json.RawMessage) {
+	var req AttachGdbRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid attach_gdb request"}})
+		return
+	}
+
+	// Validate process exists and is Running
+	info, infoErr := s.kern.GetProcInfo(req.PID)
+	if infoErr != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+	if info.State != types.StateRunning {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID_STATE", Message: fmt.Sprintf("process %d is %s, not running", req.PID, info.State)}})
+		return
+	}
+
+	debugCh, debugOK := s.kern.GetDebugChan(req.PID)
+	logCh, logOK := s.kern.GetLogChan(req.PID)
+
+	if (!debugOK || debugCh == nil) && (!logOK || logCh == nil) {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found or no channels"}})
+		return
+	}
+
+	// Get process for Done channel monitoring
+	proc, procOK := s.kern.GetProcess(req.PID)
+	if !procOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	// Check if process was cancelled (Kill called but state not yet transitioned)
+	if proc.IsCancelled() {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID_STATE", Message: fmt.Sprintf("process %d has been terminated", req.PID)}})
+		return
+	}
+
+	// Build initial response with process metadata
+	skills := info.Skills
+	if skills == nil {
+		skills = []string{}
+	}
+	gdbResp := AttachGdbResponse{
+		PID:        info.PID,
+		State:      info.State,
+		Intent:     info.Intent,
+		Skills:     skills,
+		TokensUsed: info.TokensUsed,
+	}
+	payload, _ := json.Marshal(gdbResp)
+	writeResponse(conn, Response{OK: true, Payload: payload})
+
+	// Register per-PID detach channel (single-attach enforcement)
+	detachCh := make(chan struct{})
+	s.gdbMu.Lock()
+	if s.gdbDetachCh == nil {
+		s.gdbDetachCh = make(map[types.PID]chan struct{})
+	}
+	if _, exists := s.gdbDetachCh[req.PID]; exists {
+		s.gdbMu.Unlock()
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "ALREADY_ATTACHED", Message: fmt.Sprintf("process %d already has an active gdb session", req.PID)}})
+		return
+	}
+	s.gdbDetachCh[req.PID] = detachCh
+	s.gdbMu.Unlock()
+	defer func() {
+		s.gdbMu.Lock()
+		delete(s.gdbDetachCh, req.PID)
+		s.gdbMu.Unlock()
+	}()
+
+	enc := json.NewEncoder(conn)
+
+	// Get process cancellation channel for Kill detection
+	cancelledCh := proc.CancelledCh()
+
+	// Forward events from both channels using select
+	for {
+		select {
+		case event, ok := <-debugCh:
+			if !ok {
+				// Debug channel closed -- send state change and EOF
+				statePayload, _ := json.Marshal(map[string]any{"pid": req.PID, "state": "exited"})
+				_ = enc.Encode(GdbEvent{Type: StreamGdbStateChange, Payload: statePayload})
+				_ = enc.Encode(GdbEvent{Type: StreamEOF})
+				return
+			}
+			sew := SyscallEventToWire(event)
+			evPayload, _ := json.Marshal(sew)
+			if err := enc.Encode(GdbEvent{Type: StreamGdbSyscall, Payload: evPayload}); err != nil {
+				return
+			}
+		case entry, ok := <-logCh:
+			if !ok {
+				// Log channel closed -- send state change and EOF
+				statePayload, _ := json.Marshal(map[string]any{"pid": req.PID, "state": "exited"})
+				_ = enc.Encode(GdbEvent{Type: StreamGdbStateChange, Payload: statePayload})
+				_ = enc.Encode(GdbEvent{Type: StreamEOF})
+				return
+			}
+			lew := LogEntryToWire(entry)
+			evPayload, _ := json.Marshal(lew)
+			if err := enc.Encode(GdbEvent{Type: StreamGdbLog, Payload: evPayload}); err != nil {
+				return
+			}
+		case <-detachCh:
+			// Client sent detach via separate connection -- send EOF and return
+			_ = enc.Encode(GdbEvent{Type: StreamEOF})
+			return
+		case <-proc.Done:
+			// Process exited -- send state change and EOF
+			statePayload, _ := json.Marshal(map[string]any{"pid": req.PID, "state": "exited"})
+			_ = enc.Encode(GdbEvent{Type: StreamGdbStateChange, Payload: statePayload})
+			_ = enc.Encode(GdbEvent{Type: StreamEOF})
+			return
+		case <-cancelledCh:
+			// Process was killed (context cancelled) -- send state change and EOF
+			statePayload, _ := json.Marshal(map[string]any{"pid": req.PID, "state": "killed"})
+			_ = enc.Encode(GdbEvent{Type: StreamGdbStateChange, Payload: statePayload})
+			_ = enc.Encode(GdbEvent{Type: StreamEOF})
+			return
+		case <-s.done:
+			return
+		}
+	}
+}
+
+// handleDetachGdb handles detach requests sent on a separate connection.
+func (s *Server) handleDetachGdb(conn net.Conn, rawPayload json.RawMessage) {
+	var req DetachGdbRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid detach_gdb request"}})
+		return
+	}
+
+	s.gdbMu.Lock()
+	ch, ok := s.gdbDetachCh[req.PID]
+	if ok {
+		close(ch)
+		delete(s.gdbDetachCh, req.PID)
+	}
+	s.gdbMu.Unlock()
+
+	writeResponse(conn, Response{OK: true})
 }
 
 // callbackMux routes KernelCallbacks events to per-PID channels for streaming to clients.

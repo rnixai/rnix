@@ -563,7 +563,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 | OODA 自主决策 | 智能体内部感知-决策-行动循环 |
 | 干细胞分化 | 通用基底智能体通过 Skill 自适应特化 |
 | Token 经济 + 合约 SLA + 声誉系统 | 资源调度和协作治理 |
-| 完整调试工具链 | agdb、时间旅行、分布式追踪、ctx-profiler |
+| 完整调试工具链 | gdb、时间旅行、分布式追踪、ctx-profiler |
 | 可视化调试面板 | 智能体树 + 追踪时间线 + 上下文热力图 |
 
 ### Risk Mitigation Strategy

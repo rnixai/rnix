@@ -54,7 +54,7 @@
     - [Supervisor & System Bootstrap（容错与系统引导，Phase 2）](./functional-requirements.md#supervisor-system-bootstrap容错与系统引导phase-2)
     - [AgentShell Advanced Syntax（AgentShell 高级语法，Phase 2）](./functional-requirements.md#agentshell-advanced-syntaxagentshell-高级语法phase-2)
     - [Documentation Phase 2（Phase 2 文档）](./functional-requirements.md#documentation-phase-2phase-2-文档)
-    - [agdb Interactive Debugger（agdb 交互式调试器，Phase 3）](./functional-requirements.md#agdb-interactive-debuggeragdb-交互式调试器phase-3)
+    - [gdb Interactive Debugger（gdb 交互式调试器，Phase 3）](./functional-requirements.md#gdb-interactive-debuggergdb-交互式调试器phase-3)
     - [Time-Travel Debugging（时间旅行调试，Phase 3）](./functional-requirements.md#time-travel-debugging时间旅行调试phase-3)
     - [Distributed Causal Tracing（分布式因果链追踪，Phase 3）](./functional-requirements.md#distributed-causal-tracing分布式因果链追踪phase-3)
     - [Context Memory Profiler（上下文内存分析器，Phase 3）](./functional-requirements.md#context-memory-profiler上下文内存分析器phase-3)

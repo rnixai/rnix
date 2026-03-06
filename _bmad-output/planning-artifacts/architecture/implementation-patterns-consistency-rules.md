@@ -151,7 +151,7 @@ type JSONError struct {
 | Phase 2 | `compose_up`, `compose_down` | Compose 引擎 |
 | Phase 2 | `skill_install`, `skill_search`, `skill_list`, `skill_update` | Skill 包管理 |
 | Phase 2 | `send_signal`, `send_msg`, `recv_msg` | 信号 + IPC 消息 |
-| Phase 3 | `attach_agdb`, `record_start`, `record_stop`, `replay` | 调试工具链 |
+| Phase 3 | `attach_gdb`, `record_start`, `record_stop`, `replay` | 调试工具链 |
 | Phase 3 | `apply_intent`, `intent_status` | 声明式意图 |
 
 ## 过程模式（Process Patterns）

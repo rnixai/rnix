@@ -125,14 +125,14 @@
 
 ---
 
-## agdb Interactive Debugger（agdb 交互式调试器，Phase 3）
+## gdb Interactive Debugger（gdb 交互式调试器，Phase 3）
 
-- **FR71:** 用户可以通过 `rnix agdb <pid>` 附着（Attach）到一个运行中的智能体进程，进入交互式调试会话
-- **FR72:** 用户可以在 agdb 中设置断点（Breakpoint），支持四种断点类型：syscall 断点（指定 syscall 名触发）、推理断点（LLM 调用前触发）、质量断点（输出不满足条件时触发）、预算断点（token 消耗达阈值时触发）
+- **FR71:** 用户可以通过 `rnix gdb <pid>` 附着（Attach）到一个运行中的智能体进程，进入交互式调试会话
+- **FR72:** 用户可以在 gdb 中设置断点（Breakpoint），支持四种断点类型：syscall 断点（指定 syscall 名触发）、推理断点（LLM 调用前触发）、质量断点（输出不满足条件时触发）、预算断点（token 消耗达阈值时触发）
 - **FR72a:** 质量断点支持两种模式：（1）模式匹配——用户定义输出必须包含/不得包含的关键词或正则表达式；（2）LLM 评估——用户提供自然语言质量标准（如"输出必须包含代码示例"、"不得出现幻觉性断言"），系统通过轻量模型（haiku）自动评估，不满足时触发断点
-- **FR73:** 用户可以在 agdb 中单步执行（Step），逐个 syscall 或逐个推理步骤前进，查看每步的参数、返回值和上下文变化
-- **FR74:** 用户可以在 agdb 中检查和热修改智能体的运行时参数，包括上下文内容、model 偏好、Skill 引用列表和环境变量，修改立即生效于下一个推理步骤
-- **FR75:** 用户可以在 agdb 中通过 Detach 断开调试会话，智能体继续正常执行
+- **FR73:** 用户可以在 gdb 中单步执行（Step），逐个 syscall 或逐个推理步骤前进，查看每步的参数、返回值和上下文变化
+- **FR74:** 用户可以在 gdb 中检查和热修改智能体的运行时参数，包括上下文内容、model 偏好、Skill 引用列表和环境变量，修改立即生效于下一个推理步骤
+- **FR75:** 用户可以在 gdb 中通过 Detach 断开调试会话，智能体继续正常执行
 
 ## Time-Travel Debugging（时间旅行调试，Phase 3）
 
@@ -168,7 +168,7 @@
 - **FR92:** 追踪时间线窗格以时间轴形式展示选中智能体（或 Compose 编排全体）的 syscall 事件流，支持缩放、滚动和按类别过滤（LLM/Tool/IPC/VFS）
 - **FR93:** 上下文热力图窗格可视化选中智能体的上下文组成——按来源（system prompt / skill 指令 / 工具结果 / 对话历史）着色，面积正比于 token 占比，颜色深浅表示活跃度（活跃/温/冷）
 - **FR94:** 用户可以在 dashboard 中点击任意智能体节点，联动切换时间线和热力图到该智能体的数据
-- **FR95:** 用户可以在 dashboard 中直接对选中进程执行操作：kill、attach agdb、查看 log、开启录制
+- **FR95:** 用户可以在 dashboard 中直接对选中进程执行操作：kill、attach gdb、查看 log、开启录制
 - **FR96:** dashboard 支持从持久化的录制文件加载历史数据，提供离线回放和分析能力
 
 ## AgentShell Complete Scripting Language（AgentShell 完整脚本语言，Phase 3）

@@ -8,7 +8,7 @@
 |------|---------|-----------|---------|
 | Phase 1（MVP） | FR1-FR40 | 进程生命周期、推理引擎、VFS、上下文、Agent/Skill、strace、CLI、文档 | 微内核 + VFS + 单进程推理循环 + 调试通道 |
 | Phase 2（能力栈） | FR41-FR70 | IPC、Compose、skillpkg、MCP、监控、Supervisor、AgentShell、文档 | 多进程通信 + 编排引擎 + 外部服务集成 + 容错树 |
-| Phase 3（涌现） | FR71-FR140 | agdb、时间旅行、分布式追踪、脚本语言、声明式意图、OODA、干细胞分化、Token 经济、免疫安全 | 完整调试工具链 + 自主决策循环 + 涌现层服务 |
+| Phase 3（涌现） | FR71-FR140 | gdb、时间旅行、分布式追踪、脚本语言、声明式意图、OODA、干细胞分化、Token 经济、免疫安全 | 完整调试工具链 + 自主决策循环 + 涌现层服务 |
 
 **Phase 1 FR 领域细分：**
 

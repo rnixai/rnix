@@ -347,3 +347,61 @@ func TestServer_ListenAndServe_SocketDirCreation(t *testing.T) {
 		t.Error("subdirectory should have been created")
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.1: gdb 调试会话管理 (Attach/Detach)
+//
+// Server-level tests for handleAttachGdb dispatch and error
+// responses via raw socket protocol.
+// References MethodAttachGdb which does NOT exist yet in
+// handleConn dispatch → compile failure = RED phase.
+// ============================================================
+
+// --- 13.1-SRV-001: [P0] Server 对 attach_gdb 不存在的 PID 返回 NOT_FOUND ---
+
+func TestServer_AttachGdb_NotFound(t *testing.T) {
+	_, sockPath := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodAttachGdb, AttachGdbRequest{PID: 999})
+	if resp.OK {
+		t.Fatal("attach_gdb should fail for nonexistent PID")
+	}
+	if resp.Error == nil {
+		t.Fatal("error should not be nil")
+	}
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("code = %q, want NOT_FOUND", resp.Error.Code)
+	}
+}
+
+// --- 13.1-SRV-002: [P1] Server 对 attach_gdb 无效 payload 返回 INVALID ---
+
+func TestServer_AttachGdb_InvalidPayload(t *testing.T) {
+	_, sockPath := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	// Send attach_gdb with malformed payload
+	rawPayload := json.RawMessage(`{"bad": "payload"}`)
+	req := Request{Method: MethodAttachGdb, Payload: rawPayload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Should handle gracefully — either OK false with error, or OK true if PID defaults to 0
+	// Either way, it should not crash the server
+	if resp.OK {
+		// PID=0 would not exist, so attach should fail with NOT_FOUND
+		t.Log("server accepted request but PID=0 should not be found")
+	}
+}

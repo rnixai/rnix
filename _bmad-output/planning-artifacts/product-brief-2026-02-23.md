@@ -73,7 +73,7 @@ author: Decker
 
 ### 核心差异化优势
 
-1. **OS 级调试工具链**（解决调试黑盒）：`strace` 追踪所有 syscall，`agdb` 交互式断点调试，时间旅行回放支持"如果当时做了不同决定会怎样"的 what-if 分析。**这在任何现有多智能体框架中都不存在。**
+1. **OS 级调试工具链**（解决调试黑盒）：`strace` 追踪所有 syscall，`gdb` 交互式断点调试，时间旅行回放支持"如果当时做了不同决定会怎样"的 what-if 分析。**这在任何现有多智能体框架中都不存在。**
 
 2. **三层能力栈 + Skills 生态**（解决能力复用）：Tools（原子能力 `/dev/`）→ MCP（外部服务 `/mnt/mcp/`）→ Skills（领域知识 `/lib/skills/`）。Skills 像 npm 包一样安装、版本管理、依赖解析。**能力从一次性的 prompt 复制变为可积累的共享资产。**
 
@@ -96,7 +96,7 @@ author: Decker
 **日常场景：**
 - 发现团队需要一个"数据库迁移"能力，于是编写 `db-migrator` Skill，发布到 skillpkg
 - 用 `strace` 追踪某个智能体的 syscall 链路，发现它在第3步调用了错误的 Tool
-- 用 `agdb` 设断点，在智能体做出关键决策前暂停，检查上下文内容
+- 用 `gdb` 设断点，在智能体做出关键决策前暂停，检查上下文内容
 
 **当前痛点：**
 - 用现有框架构建多智能体系统，80% 时间在调试和写胶水代码
@@ -144,8 +144,8 @@ author: Decker
 |------|------|--------|
 | **发现** | 在 GitHub/技术博客上看到 Rnix，被"智能体即进程"和 OS 级调试吸引 | GitHub README、技术文章 |
 | **上手** | `go install` 安装，跑通第一个 `rnix spawn "hello"` 命令 | AgentShell、README |
-| **核心使用** | 编写 Skill，用 `strace`/`agdb` 调试，发布到 skillpkg | AgentShell、VFS、调试工具链 |
-| **顿悟时刻** | 第一次用 `strace` 在 3 分钟内定位到一个之前要花 3 天的 bug | `strace`、`agdb` |
+| **核心使用** | 编写 Skill，用 `strace`/`gdb` 调试，发布到 skillpkg | AgentShell、VFS、调试工具链 |
+| **顿悟时刻** | 第一次用 `strace` 在 3 分钟内定位到一个之前要花 3 天的 bug | `strace`、`gdb` |
 | **长期** | 成为 Skill 生态贡献者，构建的 Skill 被社区广泛使用 | skillpkg、社区 |
 
 #### 用户 B 的旅程（应用开发者）
@@ -287,7 +287,7 @@ MVP 目标是实现 Rnix 的最小可运行内核，验证"智能体即进程"�
 | 上下文 swap 换出 | Phase 2 | MVP 阶段上下文窗口足够，无需冷存储 |
 | skillpkg 包管理 | Phase 2 | MVP 手动放置 Skill 文件，不需要包管理器 |
 | AgentShell 完整语法 | Phase 2 | MVP 仅 `rnix "意图"` 和 `rnix strace <pid>` |
-| agdb 交互式调试器 | Phase 2+ | 依赖完整的 debug syscall 集合 |
+| gdb 交互式调试器 | Phase 2+ | 依赖完整的 debug syscall 集合 |
 | 时间旅行调试 | Phase 3 | 依赖 DebugRecord + CtxSnapshot + CoW |
 | 声明式意图 / Reconciler | Phase 3 | 涌现层特性 |
 | Agent Compose | Phase 2 | 依赖 Skill 系统 + 进程模型完整 |
@@ -342,7 +342,7 @@ MVP 是 Rnix 三阶段路线图的起点：
 - 声明式意图 + Reconciler 控制器
 - OODA 自主决策 + 干细胞分化
 - Token 经济 + 合约 SLA + 声誉系统
-- 完整调试工具链（agdb、时间旅行、分布式追踪、ctx-profiler）
+- 完整调试工具链（gdb、时间旅行、分布式追踪、ctx-profiler）
 - 可视化调试面板
 
 **终极愿景：** Rnix 成为 AI 时代的 Unix——一个开发者构建多智能体系统时的默认底层，一个 Skill 生态蓬勃发展的平台，一个让"构建生产级多智能体系统"从"极其困难"变为"自然而然"的操作系统。

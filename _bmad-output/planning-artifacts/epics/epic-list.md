@@ -72,7 +72,7 @@ Supervisor 容错树自动管理子智能体生命周期 + init 引导序列初�
 
 ## Phase 3 Epics
 
-## Epic 13: 交互式智能体调试（Interactive Agent Debugging — agdb）
+## Epic 13: 交互式智能体调试（Interactive Agent Debugging — gdb）
 用户可以附着到运行中的智能体，设置断点（syscall/推理/质量/预算四种类型）、单步执行、检查和热修改运行时参数，实现类 GDB 的交互式调试体验。
 **FRs covered:** FR71, FR72, FR72a, FR73, FR74, FR75
 **NFRs:** NFR31

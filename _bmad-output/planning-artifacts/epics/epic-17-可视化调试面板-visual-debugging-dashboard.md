@@ -65,7 +65,7 @@ So that 我可以高效地在多个视图间切换并快速执行操作。
 **Then** 时间线窗格和热力图窗格自动切换到该智能体的数据
 
 **Given** 用户选中一个进程
-**When** 用户按快捷键（k=kill / a=attach agdb / l=view log / r=start recording）
+**When** 用户按快捷键（k=kill / a=attach gdb / l=view log / r=start recording）
 **Then** 对应操作被执行，界面更新反映操作结果
 **And** 敏感操作（kill）需确认
 

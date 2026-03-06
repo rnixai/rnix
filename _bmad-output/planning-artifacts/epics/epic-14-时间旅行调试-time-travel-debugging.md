@@ -11,7 +11,7 @@ So that 我可以在智能体完成后离线分析其完整执行历史。
 **Acceptance Criteria:**
 
 **Given** 一个 Running 状态的智能体进程
-**When** 用户执行 `rnix record <pid>` 或在 agdb 中执行 `record start`
+**When** 用户执行 `rnix record <pid>` 或在 gdb 中执行 `record start`
 **Then** 系统开始捕获该进程的所有 DebugEvent 并写入磁盘
 
 **Given** 录制进行中

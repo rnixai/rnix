@@ -30,7 +30,7 @@ Rnix 的 UX 核心不是视觉设计，而是 **CLI 信息架构与交互反馈�
 
 **用户 A — 平台构建者（陈明，核心用户）**
 - 独立开发者 / 基础设施工程师，深度使用终端
-- 编写 Skill 包（manifest.yaml + instructions.md），用 strace/agdb 调试
+- 编写 Skill 包（manifest.yaml + instructions.md），用 strace/gdb 调试
 - 核心痛点：多智能体调试是黑盒，能力无法跨项目复用
 - UX 期望：精确、透明、可追溯——能看到智能体决策链的每一步
 - 顿悟时刻：`rnix strace 1` 三分钟定位三天找不到的 bug
@@ -369,7 +369,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 | 组件 | 库 | 用途 |
 |------|-----|------|
 | **命令框架** | `cobra` | CLI 命令注册、参数解析、帮助信息生成 |
-| **TUI 框架** | `bubbletea` | 交互式终端 UI（`rnix top`、未来的 `agdb`） |
+| **TUI 框架** | `bubbletea` | 交互式终端 UI（`rnix top`、未来的 `gdb`） |
 | **样式引擎** | `lipgloss` | 声明式终端样式（颜色、边框、对齐、间距） |
 | **表格组件** | `table`（Charm） | `rnix ps` 对齐表格输出 |
 | **预制组件** | `bubbles` | spinner、进度条、文本输入等基础组件 |
@@ -383,7 +383,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 | **生态成熟度** | Charm 是 Go CLI/TUI 工具的事实标准，bubbletea 30k+ stars，社区活跃，文档完善 |
 | **架构一致性** | bubbletea 的 Elm 架构（Model-Update-View）与 Rnix 的事件驱动设计哲学高度契合 |
 | **渐进式使用** | 不要求一开始就写 TUI——MVP 阶段可以只用 lipgloss 做样式输出，bubbletea 仅备用 |
-| **调试工具链铺垫** | Phase 2+ 的 `agdb` 交互式调试器、可视化调试面板天然需要 TUI 框架 |
+| **调试工具链铺垫** | Phase 2+ 的 `gdb` 交互式调试器、可视化调试面板天然需要 TUI 框架 |
 
 ### Implementation Approach
 
@@ -411,7 +411,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 
 | 功能 | 实现方式 |
 |------|---------|
-| `agdb` 交互式调试 | bubbletea 多面板（源码 + 变量 + 调用栈） |
+| `gdb` 交互式调试 | bubbletea 多面板（源码 + 变量 + 调用栈） |
 | 可视化调试面板 | bubbletea + 自定义绘图组件 |
 
 ### Customization Strategy
@@ -1030,7 +1030,7 @@ flowchart TD
 |---------|---------|---------|------|
 | 用户 B（林薇） | `rnix log <pid>` | 分类日志（think/tool/output） | Phase 2 |
 | 用户 A（陈明） | `rnix strace <pid>` | 完整 syscall 链路 | MVP |
-| 用户 A（高级） | `rnix agdb <pid>` | 交互式断点调试 | Phase 3 |
+| 用户 A（高级） | `rnix gdb <pid>` | 交互式断点调试 | Phase 3 |
 
 用户 B 不需要理解 syscall——`rnix log` 的 think/tool/output 分类已足够定位大多数问题。
 
@@ -1067,7 +1067,7 @@ flowchart TD
 |---|------|------|
 | 1 | **最短路径到价值** | 首次体验：安装 → 一条命令 → 看到结果。中间不插入配置、注册、教程等步骤 |
 | 2 | **错误即分叉口，不是死胡同** | 每条错误路径都有明确的恢复方向，最好是一条可复制的命令 |
-| 3 | **调试深度按需暴露** | 默认输出 → `rnix log`（分类日志）→ `rnix strace`（syscall）→ `rnix agdb`（断点），层层深入 |
+| 3 | **调试深度按需暴露** | 默认输出 → `rnix log`（分类日志）→ `rnix strace`（syscall）→ `rnix gdb`（断点），层层深入 |
 | 4 | **重复动作零额外成本** | 重跑一个任务只需要重新执行同一条命令，不需要"清理上次状态"或"重置环境" |
 | 5 | **多智能体进度可比较** | Compose 模式下，多个智能体的进度在同一终端中平行展示，依赖关系可见 |
 
@@ -1274,7 +1274,7 @@ internal/ui/
 
 | 组件 | 描述 | 依赖 |
 |------|------|------|
-| Debug Panel | agdb 多面板交互式调试器 | bubbletea 多视图 |
+| Debug Panel | gdb 多面板交互式调试器 | bubbletea 多视图 |
 | Context Heatmap | 上下文段温度可视化 | 自定义 TUI 绘图 |
 | Process Tree | 进程树可视化 | 自定义 TUI 绘图 |
 

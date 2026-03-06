@@ -58,7 +58,7 @@
 
 ## Debugging Toolchain Performance（调试工具链性能，Phase 3）
 
-- **NFR31:** agdb Attach 延迟 ≤ 200ms，断点触发到暂停延迟 ≤ 100ms
+- **NFR31:** gdb Attach 延迟 ≤ 200ms，断点触发到暂停延迟 ≤ 100ms
 - **NFR32:** 时间旅行录制开启后，智能体执行性能开销 ≤ 20%（相比无录制）
 - **NFR33:** 分布式追踪的 Trace/Span 传播不增加 IPC 消息延迟超过 10ms
 - **NFR34:** ctx-profiler 分析结果延迟 ≤ 1s（≤ 100k token 上下文）

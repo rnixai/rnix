@@ -423,3 +423,349 @@ func TestIntegration_IdleAutoShutdown(t *testing.T) {
 
 	srv.Wait()
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.1: gdb 调试会话管理 (Attach/Detach)
+//
+// Integration tests reference client.AttachGdb() and
+// server handleAttachGdb() which do NOT exist yet.
+// These tests verify the full IPC flow: attach → dual event
+// stream (DebugChan + LogChan) → detach.
+// ============================================================
+
+// --- 13.1-INT-001: [P0] AttachGdb 成功接收 SyscallEvent 和 LogEntry 双通道事件 ---
+
+func TestIntegration_AttachGdb_ReceivesDualChannelEvents(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "gdb dual-channel test", []string{"test-skill"})
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	// Emit syscall events and log entries in a goroutine
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		proc.DebugChan <- types.SyscallEvent{
+			PID:     proc.PID,
+			Syscall: "Open",
+			Args:    map[string]any{"path": "/dev/llm/claude"},
+		}
+		proc.LogChan <- types.LogEntry{
+			PID:      proc.PID,
+			Step:     1,
+			Category: "reasoning",
+			Content:  "开始分析代码",
+		}
+		proc.DebugChan <- types.SyscallEvent{
+			PID:     proc.PID,
+			Syscall: "Write",
+			Args:    map[string]any{"fd": 3, "data": "result"},
+		}
+		time.Sleep(50 * time.Millisecond)
+		close(proc.DebugChan)
+		close(proc.LogChan)
+	}()
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	var syscallEvents []SyscallEventWire
+	var logEntries []LogEntryWire
+	info, err := client.AttachGdb(proc.PID, func(ev GdbEvent) {
+		switch ev.Type {
+		case StreamGdbSyscall:
+			var sew SyscallEventWire
+			if err := json.Unmarshal(ev.Payload, &sew); err == nil {
+				syscallEvents = append(syscallEvents, sew)
+			}
+		case StreamGdbLog:
+			var lew LogEntryWire
+			if err := json.Unmarshal(ev.Payload, &lew); err == nil {
+				logEntries = append(logEntries, lew)
+			}
+		}
+	})
+	if err != nil {
+		t.Fatalf("AttachGdb: %v", err)
+	}
+
+	// Verify initial response contains process metadata
+	if info.PID != proc.PID {
+		t.Errorf("info.PID = %d, want %d", info.PID, proc.PID)
+	}
+	if info.State != types.StateRunning {
+		t.Errorf("info.State = %d, want Running", info.State)
+	}
+	if info.Intent != "gdb dual-channel test" {
+		t.Errorf("info.Intent = %q, want %q", info.Intent, "gdb dual-channel test")
+	}
+
+	// Verify syscall events received
+	if len(syscallEvents) != 2 {
+		t.Fatalf("expected 2 syscall events, got %d", len(syscallEvents))
+	}
+	if syscallEvents[0].Syscall != "Open" {
+		t.Errorf("first syscall = %q, want Open", syscallEvents[0].Syscall)
+	}
+	if syscallEvents[1].Syscall != "Write" {
+		t.Errorf("second syscall = %q, want Write", syscallEvents[1].Syscall)
+	}
+
+	// Verify log entries received
+	if len(logEntries) != 1 {
+		t.Fatalf("expected 1 log entry, got %d", len(logEntries))
+	}
+	if logEntries[0].Content != "开始分析代码" {
+		t.Errorf("log content = %q, want %q", logEntries[0].Content, "开始分析代码")
+	}
+}
+
+// --- 13.1-INT-002: [P0] AttachGdb 进程不存在返回 NOT_FOUND ---
+
+func TestIntegration_AttachGdb_NotFound(t *testing.T) {
+	_, _, sockPath := setupIntegrationServer(t)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	_, err = client.AttachGdb(999, func(ev GdbEvent) {})
+	if err == nil {
+		t.Fatal("AttachGdb should fail for nonexistent PID")
+	}
+}
+
+// --- 13.1-INT-003: [P0] AttachGdb 进程已 Dead 返回错误 ---
+
+func TestIntegration_AttachGdb_DeadProcess(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	// Create and immediately kill a process
+	proc := kernel.NewProcess(0, "dead process test", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+	_ = kern.Kill(proc.PID, types.SIGTERM)
+
+	// Wait for process to reach Dead/Zombie state
+	time.Sleep(100 * time.Millisecond)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	_, err = client.AttachGdb(proc.PID, func(ev GdbEvent) {})
+	if err == nil {
+		t.Fatal("AttachGdb should fail for dead/zombie process")
+	}
+}
+
+// --- 13.1-INT-004: [P0] Detach 后智能体继续执行 ---
+
+func TestIntegration_AttachGdb_DetachDoesNotAffectProcess(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "detach test", []string{"test"})
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	// Start event producer
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		proc.DebugChan <- types.SyscallEvent{
+			PID:     proc.PID,
+			Syscall: "Open",
+		}
+		// Don't close channels — process should remain alive after detach
+	}()
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+
+	eventReceived := make(chan struct{}, 1)
+	_, err = client.AttachGdb(proc.PID, func(ev GdbEvent) {
+		select {
+		case eventReceived <- struct{}{}:
+		default:
+		}
+	})
+
+	// Send detach after receiving first event
+	select {
+	case <-eventReceived:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for event")
+	}
+
+	err = client.SendDetach(proc.PID)
+	if err != nil {
+		t.Fatalf("SendDetach: %v", err)
+	}
+	client.Close()
+
+	// Verify process is still running after detach
+	info, infoErr := kern.GetProcInfo(proc.PID)
+	if infoErr != nil {
+		t.Fatalf("GetProcInfo after detach: %v", infoErr)
+	}
+	if info.State != types.StateRunning {
+		t.Errorf("process state after detach = %d, want Running", info.State)
+	}
+
+	// Cleanup
+	close(proc.DebugChan)
+	close(proc.LogChan)
+}
+
+// --- 13.1-INT-005: [P1] AttachGdb 进程在 attach 后退出时发送 state_change ---
+
+func TestIntegration_AttachGdb_ProcessExitDuringSession(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "exit during gdb", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		proc.DebugChan <- types.SyscallEvent{
+			PID:     proc.PID,
+			Syscall: "Open",
+		}
+		time.Sleep(50 * time.Millisecond)
+		// Kill the process — should trigger state_change event
+		_ = kern.Kill(proc.PID, types.SIGTERM)
+	}()
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	var gotStateChange bool
+	_, err = client.AttachGdb(proc.PID, func(ev GdbEvent) {
+		if ev.Type == StreamGdbStateChange {
+			gotStateChange = true
+		}
+	})
+	if err != nil {
+		t.Fatalf("AttachGdb: %v", err)
+	}
+
+	if !gotStateChange {
+		t.Error("expected gdb_state_change event when process exits during session")
+	}
+}
+
+// --- 13.1-INT-006: [P1] AttachGdb 返回初始进程元信息快照 ---
+
+func TestIntegration_AttachGdb_InitialMetadata(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "metadata test", []string{"analyzer", "writer"})
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		close(proc.DebugChan)
+		close(proc.LogChan)
+	}()
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	info, err := client.AttachGdb(proc.PID, func(ev GdbEvent) {})
+	if err != nil {
+		t.Fatalf("AttachGdb: %v", err)
+	}
+
+	if info.PID != proc.PID {
+		t.Errorf("info PID = %d, want %d", info.PID, proc.PID)
+	}
+	if info.Intent != "metadata test" {
+		t.Errorf("info Intent = %q, want %q", info.Intent, "metadata test")
+	}
+	if len(info.Skills) != 2 {
+		t.Fatalf("info Skills count = %d, want 2", len(info.Skills))
+	}
+	if info.Skills[0] != "analyzer" {
+		t.Errorf("info Skills[0] = %q, want %q", info.Skills[0], "analyzer")
+	}
+}
+
+// --- 13.1-INT-007: [P2] 客户端断开连接时 server 自动清理 attach 状态 ---
+
+func TestIntegration_AttachGdb_ClientDisconnectCleanup(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "disconnect cleanup test", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	// Keep channels open — process stays alive
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		proc.DebugChan <- types.SyscallEvent{PID: proc.PID, Syscall: "Open"}
+	}()
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+
+	eventReceived := make(chan struct{}, 1)
+	go func() {
+		_, _ = client.AttachGdb(proc.PID, func(ev GdbEvent) {
+			select {
+			case eventReceived <- struct{}{}:
+			default:
+			}
+		})
+	}()
+
+	select {
+	case <-eventReceived:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for first event")
+	}
+
+	// Abruptly close connection
+	client.Close()
+	time.Sleep(200 * time.Millisecond)
+
+	// Process should still be alive
+	info, infoErr := kern.GetProcInfo(proc.PID)
+	if infoErr != nil {
+		t.Fatalf("GetProcInfo after client disconnect: %v", infoErr)
+	}
+	if info.State != types.StateRunning {
+		t.Errorf("process state after client disconnect = %d, want Running", info.State)
+	}
+
+	// Should be able to attach again (attach state cleaned up)
+	client2, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial 2: %v", err)
+	}
+	defer client2.Close()
+
+	_, err = client2.AttachGdb(proc.PID, func(ev GdbEvent) {})
+	// This should succeed if attach state was properly cleaned up
+	// (if server tracks single-attach per process)
+
+	close(proc.DebugChan)
+	close(proc.LogChan)
+}

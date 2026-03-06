@@ -163,7 +163,7 @@ documentFiles:
 
 | ID | Category | Description |
 |---|---|---|
-| FR71-FR75, FR72a | agdb | 交互式调试器 (Attach/断点/单步/热修改/Detach) |
+| FR71-FR75, FR72a | gdb | 交互式调试器 (Attach/断点/单步/热修改/Detach) |
 | FR76-FR79, FR76a | Time-Travel | 时间旅行调试 (录制/回放/fork-continue) |
 | FR80-FR83 | Dist Tracing | 分布式因果链追踪 |
 | FR84-FR86 | Ctx Profiler | 上下文内存分析器 |
@@ -322,7 +322,7 @@ documentFiles:
 
 | FR | Epic | Description |
 |---|---|---|
-| FR71-FR75, FR72a | Epic 13 | agdb 交互式调试器 |
+| FR71-FR75, FR72a | Epic 13 | gdb 交互式调试器 |
 | FR76-FR79, FR76a | Epic 14 | 时间旅行调试 |
 | FR80-FR86 | Epic 15 | 分布式追踪 + 上下文分析 |
 | FR87-FR89 | Epic 16 | 推理回归测试 agtest |
@@ -389,7 +389,7 @@ Found: `ux-design-specification.md` (complete, 14 workflow steps completed)
 ### Minor Observations
 
 1. **SKILL.md vs manifest.yaml**: UX doc mentions `manifest.yaml` in User A description (line 33) while PRD/Architecture standardized on `SKILL.md` format. This is a minor naming inconsistency in the UX doc (cosmetic, not structural).
-2. **UX doc was created before PRD was sharded and expanded** (date: 2026-02-23, PRD expansion later). Core alignment is solid but Phase 3 UX details (agdb, dashboard, time-travel) are not yet specified in the UX doc. This is expected since those are Phase 3 features.
+2. **UX doc was created before PRD was sharded and expanded** (date: 2026-02-23, PRD expansion later). Core alignment is solid but Phase 3 UX details (gdb, dashboard, time-travel) are not yet specified in the UX doc. This is expected since those are Phase 3 features.
 
 ### Warnings
 
@@ -517,7 +517,7 @@ All 22 Epics were reviewed against best practices:
 
 #### PASSES
 
-- **Epic 13 (agdb) is the Phase 3 quality benchmark** -- clear value, good independence, well-sized Stories, concrete ACs with NFR31
+- **Epic 13 (gdb) is the Phase 3 quality benchmark** -- clear value, good independence, well-sized Stories, concrete ACs with NFR31
 - Epic 14 (Time Travel) overall good with explicit dependency declaration
 - Epic 16 (agtest) most compact Epic (3 Stories), clean structure
 - Epic 18 (AgentShell Scripting) each Story focuses on one language feature
@@ -585,7 +585,7 @@ All 22 Epics were reviewed against best practices:
 ### Recommended Next Steps
 
 1. **Proceed with Phase 2 implementation** after addressing items 1-3 above (these are documentation/planning fixes, not code changes)
-2. **Use Epic 9 (MCP) and Epic 13 (agdb) as quality templates** when writing new Stories -- they have the best balance of user value, sizing, and AC precision
+2. **Use Epic 9 (MCP) and Epic 13 (gdb) as quality templates** when writing new Stories -- they have the best balance of user value, sizing, and AC precision
 3. **Defer Phase 3 Epic 19-22 restructuring** until Phase 2 is complete -- real implementation experience will inform better decomposition
 4. **Standardize Story roles** in a batch pass -- replace "As a kernel developer" / "As a agent" with "As a Rnix user" where appropriate
 5. **Split oversized Stories** (1.1, 1.7, 2.1, 5.3, 6.5, 10.4, 10.5, 12.1, 12.2, 19.1) before starting implementation of those specific Stories

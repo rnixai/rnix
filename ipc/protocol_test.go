@@ -674,3 +674,211 @@ func TestSpawnPipelineRequest_IPCEnvelope(t *testing.T) {
 		t.Errorf("commands = %d, want 2", len(sp.Commands))
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.1: gdb 调试会话管理 (Attach/Detach)
+//
+// Tests reference MethodAttachGdb, AttachGdbRequest,
+// AttachGdbResponse, DetachGdbRequest, GdbEventType,
+// StreamGdbSyscall, StreamGdbLog, StreamGdbStateChange
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 13.1-UNIT-001: [P0] MethodAttachGdb 常量存在且唯一 ---
+
+func TestMethodAttachGdb_Exists(t *testing.T) {
+	if MethodAttachGdb == "" {
+		t.Error("MethodAttachGdb should not be empty")
+	}
+	if MethodAttachGdb == MethodAttachDebug {
+		t.Error("MethodAttachGdb should differ from MethodAttachDebug")
+	}
+	if MethodAttachGdb == MethodAttachLog {
+		t.Error("MethodAttachGdb should differ from MethodAttachLog")
+	}
+}
+
+// --- 13.1-UNIT-002: [P0] AttachGdbRequest 序列化 roundtrip ---
+
+func TestAttachGdbRequest_MarshalRoundTrip(t *testing.T) {
+	req := AttachGdbRequest{PID: 42}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded AttachGdbRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.PID != 42 {
+		t.Errorf("pid = %d, want 42", decoded.PID)
+	}
+}
+
+// --- 13.1-UNIT-003: [P0] AttachGdbResponse 序列化 roundtrip ---
+
+func TestAttachGdbResponse_MarshalRoundTrip(t *testing.T) {
+	resp := AttachGdbResponse{
+		PID:        7,
+		State:      types.StateRunning,
+		Intent:     "分析代码",
+		Skills:     []string{"code-analyst", "reviewer"},
+		TokensUsed: 500,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded AttachGdbResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.PID != 7 {
+		t.Errorf("pid = %d, want 7", decoded.PID)
+	}
+	if decoded.State != types.StateRunning {
+		t.Errorf("state = %d, want %d", decoded.State, types.StateRunning)
+	}
+	if decoded.Intent != "分析代码" {
+		t.Errorf("intent = %q, want %q", decoded.Intent, "分析代码")
+	}
+	if len(decoded.Skills) != 2 {
+		t.Fatalf("skills count = %d, want 2", len(decoded.Skills))
+	}
+	if decoded.Skills[0] != "code-analyst" {
+		t.Errorf("skill[0] = %q, want %q", decoded.Skills[0], "code-analyst")
+	}
+	if decoded.TokensUsed != 500 {
+		t.Errorf("tokens_used = %d, want 500", decoded.TokensUsed)
+	}
+}
+
+// --- 13.1-UNIT-004: [P1] AttachGdbResponse nil Skills → 空数组 ---
+
+func TestAttachGdbResponse_NilSkills(t *testing.T) {
+	resp := AttachGdbResponse{
+		PID:    1,
+		State:  types.StateRunning,
+		Skills: nil,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Skills should serialize as [] not null
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal raw: %v", err)
+	}
+	skillsJSON := string(raw["skills"])
+	if skillsJSON == "null" {
+		t.Error("skills should be [] not null for JSON portability")
+	}
+}
+
+// --- 13.1-UNIT-005: [P0] DetachGdbRequest 序列化 roundtrip ---
+
+func TestDetachGdbRequest_MarshalRoundTrip(t *testing.T) {
+	req := DetachGdbRequest{PID: 15}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded DetachGdbRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.PID != 15 {
+		t.Errorf("pid = %d, want 15", decoded.PID)
+	}
+}
+
+// --- 13.1-UNIT-006: [P0] GdbEventType 常量存在且唯一 ---
+
+func TestGdbEventType_Constants(t *testing.T) {
+	eventTypes := []StreamEventType{StreamGdbSyscall, StreamGdbLog, StreamGdbStateChange}
+	seen := make(map[StreamEventType]bool)
+	for _, et := range eventTypes {
+		if et == "" {
+			t.Error("gdb event type should not be empty")
+		}
+		if seen[et] {
+			t.Errorf("duplicate gdb event type: %q", et)
+		}
+		seen[et] = true
+	}
+
+	// Verify distinct from existing stream event types
+	existingTypes := []StreamEventType{StreamProgress, StreamComplete, StreamError, StreamSyscallEvent, StreamLogEntry, StreamEOF}
+	for _, gdbType := range eventTypes {
+		for _, existingType := range existingTypes {
+			if gdbType == existingType {
+				t.Errorf("gdb event type %q conflicts with existing type", gdbType)
+			}
+		}
+	}
+}
+
+// --- 13.1-UNIT-007: [P1] AttachGdbRequest IPC Request envelope ---
+
+func TestAttachGdbRequest_IPCEnvelope(t *testing.T) {
+	payload, _ := json.Marshal(AttachGdbRequest{PID: 99})
+	req := Request{Method: MethodAttachGdb, Payload: payload}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded Request
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Method != MethodAttachGdb {
+		t.Errorf("method = %q, want %q", decoded.Method, MethodAttachGdb)
+	}
+
+	var ar AttachGdbRequest
+	if err := json.Unmarshal(decoded.Payload, &ar); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if ar.PID != 99 {
+		t.Errorf("pid = %d, want 99", ar.PID)
+	}
+}
+
+// --- 13.1-UNIT-008: [P1] AttachGdbResponse 含完整进程元信息 ---
+
+func TestAttachGdbResponse_FullMetadata(t *testing.T) {
+	resp := AttachGdbResponse{
+		PID:        3,
+		State:      types.StateRunning,
+		Intent:     "测试意图",
+		Skills:     []string{"skill-a", "skill-b", "skill-c"},
+		TokensUsed: 12345,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal raw: %v", err)
+	}
+
+	requiredFields := []string{"pid", "state", "intent", "skills", "tokens_used"}
+	for _, field := range requiredFields {
+		if _, exists := raw[field]; !exists {
+			t.Errorf("required field %q missing from AttachGdbResponse JSON", field)
+		}
+	}
+}
