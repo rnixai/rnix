@@ -122,3 +122,119 @@
 
 - **FR69:** 系统可以提供教程文档，覆盖"编写第一个 Skill"、"调试第一个 bug"、"组合多智能体工作流"三个核心场景，每个教程含完整可运行示例
 - **FR70:** 系统可以提供架构文档，覆盖微内核设计、进程模型、驱动层架构、上下文管理四个核心模块，每个模块含设计决策和数据流说明
+
+---
+
+## agdb Interactive Debugger（agdb 交互式调试器，Phase 3）
+
+- **FR71:** 用户可以通过 `crux agdb <pid>` 附着（Attach）到一个运行中的智能体进程，进入交互式调试会话
+- **FR72:** 用户可以在 agdb 中设置断点（Breakpoint），支持四种断点类型：syscall 断点（指定 syscall 名触发）、推理断点（LLM 调用前触发）、质量断点（输出不满足条件时触发）、预算断点（token 消耗达阈值时触发）
+- **FR72a:** 质量断点支持两种模式：（1）模式匹配——用户定义输出必须包含/不得包含的关键词或正则表达式；（2）LLM 评估——用户提供自然语言质量标准（如"输出必须包含代码示例"、"不得出现幻觉性断言"），系统通过轻量模型（haiku）自动评估，不满足时触发断点
+- **FR73:** 用户可以在 agdb 中单步执行（Step），逐个 syscall 或逐个推理步骤前进，查看每步的参数、返回值和上下文变化
+- **FR74:** 用户可以在 agdb 中检查和热修改智能体的运行时参数，包括上下文内容、model 偏好、Skill 引用列表和环境变量，修改立即生效于下一个推理步骤
+- **FR75:** 用户可以在 agdb 中通过 Detach 断开调试会话，智能体继续正常执行
+
+## Time-Travel Debugging（时间旅行调试，Phase 3）
+
+- **FR76:** 系统可以对指定进程开启完整执行录制（Record），捕获每个 syscall、LLM 调用、上下文变更和工具执行结果
+- **FR76a:** 录制数据持久化到 `$PROJECT/.crux/records/<pid>-<timestamp>/` 目录，包含完整的 syscall 序列、上下文快照和 LLM 响应，格式为 JSON Lines（每行一个事件），支持离线分析
+- **FR77:** 用户可以通过 `crux replay <record-id>` 回放录制的执行轨迹，支持正向播放、反向单步和任意跳转到指定时间点
+- **FR78:** 用户可以在回放过程中查看任意时间点的完整上下文快照（context diff），对比两个时间点之间的上下文变化
+- **FR79:** 用户可以在回放的任意时间点执行 fork-continue，从该历史点创建一个新分支，修改上下文后重新执行（产生真实 LLM 调用），验证"如果当时做了不同决定会怎样"
+
+## Distributed Causal Tracing（分布式因果链追踪，Phase 3）
+
+- **FR80:** 系统可以为每个 Compose 编排生成唯一的 Trace ID，并在智能体间通过 IPC 自动传播，形成跨进程的因果链
+- **FR81:** 系统可以在每个智能体内记录 Span（起止时间、syscall 序列、token 消耗），Span 之间通过 parent-child 关系构成追踪树
+- **FR82:** 用户可以通过 `crux trace <trace-id>` 查看完整的分布式追踪视图，包含所有参与智能体的时序关系和依赖链路
+- **FR83:** 用户可以通过 `crux trace blame <trace-id>` 自动分析追踪数据，定位耗时最长、token 消耗最大或产生错误的关键路径节点
+
+## Context Memory Profiler（上下文内存分析器，Phase 3）
+
+- **FR84:** 用户可以通过 `crux ctx-profile <pid>` 查看指定智能体的上下文使用分析，将上下文内容分为活跃（当前推理引用）、温（近期使用）、冷（未引用）、泄漏（已无用但未释放）四类
+- **FR85:** 系统可以识别上下文中的最大消费者（哪个 Skill 或工具结果占用最多 token），并给出优化建议
+- **FR86:** 系统可以预测当前上下文增长趋势，在预计耗尽前发出告警
+
+## Reasoning Regression Testing — agtest（推理回归测试，Phase 3）
+
+- **FR87:** 用户可以通过声明式 YAML 文件定义智能体行为测试用例，包含输入意图、Agent 配置、预期行为断言
+- **FR88:** 系统可以在 agtest 中支持三种断言类型：推理断言（LLM 输出包含/不包含特定内容）、syscall 断言（执行了/未执行特定 syscall 序列）、质量断言（输出满足自定义评估标准）
+- **FR89:** 用户可以通过 `crux agtest [test-file]` 批量运行测试并输出结果报告（通过/失败/跳过 + 失败原因）
+
+## Visualization Dashboard（可视化调试面板，Phase 3）
+
+- **FR90:** 用户可以通过 `crux dashboard` 启动可视化调试面板，在单一 TUI 界面中展示多窗格视图：智能体树（进程关系）、追踪时间线（syscall 序列）、上下文热力图（token 使用分布）
+- **FR91:** 智能体树窗格实时显示所有进程的父子关系、状态（Running/Zombie/Dead）、当前执行阶段和 token 消耗，用户可以展开/折叠子树
+- **FR92:** 追踪时间线窗格以时间轴形式展示选中智能体（或 Compose 编排全体）的 syscall 事件流，支持缩放、滚动和按类别过滤（LLM/Tool/IPC/VFS）
+- **FR93:** 上下文热力图窗格可视化选中智能体的上下文组成——按来源（system prompt / skill 指令 / 工具结果 / 对话历史）着色，面积正比于 token 占比，颜色深浅表示活跃度（活跃/温/冷）
+- **FR94:** 用户可以在 dashboard 中点击任意智能体节点，联动切换时间线和热力图到该智能体的数据
+- **FR95:** 用户可以在 dashboard 中直接对选中进程执行操作：kill、attach agdb、查看 log、开启录制
+- **FR96:** dashboard 支持从持久化的录制文件加载历史数据，提供离线回放和分析能力
+
+## AgentShell Complete Scripting Language（AgentShell 完整脚本语言，Phase 3）
+
+- **FR97:** 用户可以在 AgentShell 脚本中使用循环结构：`for item in <list>`（遍历）和 `while <condition>`（条件循环），循环体内可嵌套 spawn 和其他控制结构
+- **FR98:** 用户可以在 AgentShell 脚本中定义和调用函数（`fn name(args) { ... }`），支持参数传递和返回值，实现脚本逻辑复用
+- **FR99:** 用户可以在 AgentShell 中使用数组和映射数据结构，支持基本的集合操作（遍历、索引、长度、追加）
+- **FR100:** AgentShell 支持 spawn 表达式返回值捕获（`result = spawn "分析" --agent=analyst`），将智能体输出绑定到变量供后续使用
+- **FR101:** 用户可以在 AgentShell 中使用并行执行块（`parallel { spawn "A"; spawn "B"; spawn "C" }`），块内所有 spawn 并行执行，块结束时等待全部完成
+- **FR102:** 用户可以在 AgentShell 脚本中通过 `source <file>` 导入其他脚本文件，实现模块化组织
+- **FR103:** AgentShell 提供内置命令集用于流程控制：`wait <pid>`（等待进程）、`sleep <duration>`（延时）、`exit <code>`（退出脚本）
+- **FR104:** AgentShell 支持字符串插值（`"分析 ${file_path} 的代码质量"`），在 intent 和参数中引用变量值
+- **FR105:** 用户可以通过 `crux run <script.ash>` 执行 AgentShell 脚本文件，脚本以 `#!/usr/bin/env crux run` 作为 shebang 也可直接执行
+
+## Declarative Intent + Reconciler（声明式意图 + 控制器调和，Phase 3）
+
+- **FR106:** 用户可以通过声明式意图描述期望状态（如 `crux apply "我要一个完整的博客系统"`），系统自动分解为子任务并分配给智能体执行
+- **FR107:** 系统维护一个意图状态模型（Intent State），包含期望状态（Desired）、当前状态（Current）和差异（Drift），Reconciler 持续监测并消除差异
+- **FR108:** Reconciler 采用事件驱动模式——当子任务完成、失败或超时时触发调和循环，自动重新规划和重试，无需用户手动干预
+- **FR109:** 用户可以在执行过程中更新期望状态（`crux apply "加上评论功能"`），Reconciler 计算增量差异并仅执行变更部分，已完成的工作不回滚
+- **FR110:** 系统可以将高层意图递归分解为子意图树（Intent Tree），每个子意图对应一个或多个智能体进程，父意图的完成取决于所有子意图的达成
+- **FR111:** 用户可以通过 `crux intent status` 查看意图树的当前状态，包含每个子意图的完成度、执行中的智能体和待解决的 drift
+
+## OODA Autonomous Decision（OODA 自主决策，Phase 3）
+
+- **FR112:** 智能体可以在推理循环中执行 OODA 感知阶段（Observe）：通过 VFS 读取环境信息（`/proc/` 系统状态、其他进程输出、文件系统变更）
+- **FR113:** 智能体可以在推理循环中执行 OODA 判断阶段（Orient）：基于感知数据和自身上下文，评估当前态势与目标的偏差
+- **FR114:** 智能体可以在推理循环中执行 OODA 决策阶段（Decide）：自主选择下一步行动策略，包括调用工具、spawn 子进程、请求协作、或调整自身计划
+- **FR115:** 智能体可以在推理循环中执行 OODA 行动阶段（Act）：执行决策并将结果反馈到下一轮 Observe，形成闭环
+- **FR116:** 系统提供 OODA 模式的 reasonStep 扩展，智能体的 `agent.yaml` 可以声明 `reasoning: ooda`，启用自主决策循环替代默认的线性推理
+- **FR117:** OODA 模式下智能体可以自主决定 spawn 子智能体（任务式指挥），只下达意图而不规定执行细节，子智能体内部同样以 OODA 循环自主执行
+
+## Stem Cell Differentiation（干细胞分化 + Skill 驱动特化，Phase 3）
+
+- **FR118:** 系统提供通用基底智能体（Stem Agent），只包含最基础的推理能力和 OODA 循环，不绑定任何特定 Skill
+- **FR119:** 基底智能体可以根据接收到的意图（环境信号），自动匹配并加载最相关的 Skill 组合，完成分化过程——从通用体变为特定领域专家
+- **FR120:** 分化过程支持渐进式特化：基底先加载核心 Skill 开始工作，执行过程中根据任务需要动态加载额外 Skill 进一步特化
+- **FR121:** 分化后的智能体保持"表观遗传"记忆——同一基底在不同项目中分化为不同专家后，分化路径（哪些 Skill 被加载、加载顺序）被记录，下次相似意图可快速复现分化
+- **FR122:** 系统维护分化谱系图（Lineage），记录从基底到特化体的完整分化路径，用户可以通过 `crux lineage <pid>` 查看
+
+## Token Economy + Contract SLA + Reputation（Token 经济 + 合约 SLA + 声誉系统，Phase 3）
+
+- **FR123:** 系统为每个 Compose 编排分配总 token 预算池，各智能体从预算池中申请 token 配额，系统按优先级和任务关键度分配
+- **FR124:** 当多个智能体竞争有限 token 预算时，系统通过价格信号机制调度——高优先级或关键路径上的智能体获得更多配额，低优先级任务被降级或排队
+- **FR125:** 智能体之间的协作通过显式合约（Contract）约束，合约定义输入格式、输出质量标准、最大 token 消耗和超时时限
+- **FR126:** 系统在合约执行完成后自动评估是否满足 SLA（输出质量、token 消耗、响应时间），评估结果记录到智能体模板的声誉分数
+- **FR127:** 声誉系统跟踪每个 Agent 模板的历史表现（成功率、平均 token 效率、SLA 达标率），用户可以通过 `crux reputation [agent]` 查看
+- **FR128:** 系统在自动选择 Agent 模板时（如 Reconciler 分解任务时），优先选择声誉高的模板，实现"自然选择"——表现好的模板被更多使用
+
+## Adaptive Immune Security（适应性免疫安全，Phase 3）
+
+- **FR129:** 系统运行安全监控守护进程（Immune Daemon），持续监控所有智能体的行为模式（syscall 频率、资源访问模式、token 消耗速率）
+- **FR130:** Immune Daemon 维护行为基线（Normal Profile），基于历史执行数据建立每种 Agent 模板的正常行为范围
+- **FR131:** 当智能体行为偏离基线超过阈值时（如异常高频文件写入、未预期的 shell 命令模式），Immune Daemon 触发告警并可自动挂起（suspend）该进程
+- **FR132:** 系统维护威胁记忆库（Antibody Memory），已识别的异常行为模式被记录，后续相同模式出现时立即拦截，无需重新检测
+- **FR133:** 用户可以通过 `crux immune status` 查看安全监控状态，包括当前告警、已挂起进程和威胁记忆库条目
+
+## Neuroplasticity — Capability Migration（神经可塑性 — 能力迁移，Phase 3）
+
+- **FR134:** 当 Compose 编排中某个智能体异常退出且 Supervisor 重启失败时，系统可以将其未完成的任务迁移到具有相似 Skill 的相邻智能体继续执行
+- **FR135:** 系统维护能力相似度矩阵——基于 Skill 重叠度和历史协作记录，计算任意两个智能体之间的功能可替代性
+- **FR136:** 高频协作路径（A 频繁 spawn B，B 频繁向 C 发送消息）被系统自动识别并记录为强化路径，在后续编排中优先复用
+- **FR137:** 用户可以通过 `crux topology` 查看智能体协作拓扑图，包含协作频率、能力重叠度和强化路径
+
+## Skill Synergy Emergence（Skill 组合涌现，Phase 3）
+
+- **FR138:** Skill 的 SKILL.md 可以声明 `synergy` 字段，定义与其他特定 Skill 同时加载时激活的涌现能力描述和额外指令
+- **FR139:** 系统在智能体加载多个 Skill 时，自动检测已声明的 synergy 组合，将涌现指令追加到 system prompt 中
+- **FR140:** 系统维护 Skill 组合矩阵，记录哪些 Skill 组合在历史执行中产生了显著优于单 Skill 的表现（基于声誉系统数据），用户可以通过 `crux synergy list` 查看已知的有效组合

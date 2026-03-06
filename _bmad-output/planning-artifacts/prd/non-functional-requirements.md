@@ -53,3 +53,33 @@
 - **NFR28:** `crux top` TUI 刷新间隔 ≤ 500ms，单核 CPU 占用 ≤ 5%（10 个并发进程场景）
 - **NFR29:** `crux log` 输出延迟 ≤ 200ms（从推理事件发生到终端显示）
 - **NFR30:** 社区 Skill 通过 `skill install` 安装后无需修改即可被任意 Agent 引用，Skill 格式兼容性通过标准 SKILL.md frontmatter 验证
+
+---
+
+## Debugging Toolchain Performance（调试工具链性能，Phase 3）
+
+- **NFR31:** agdb Attach 延迟 ≤ 200ms，断点触发到暂停延迟 ≤ 100ms
+- **NFR32:** 时间旅行录制开启后，智能体执行性能开销 ≤ 20%（相比无录制）
+- **NFR33:** 分布式追踪的 Trace/Span 传播不增加 IPC 消息延迟超过 10ms
+- **NFR34:** ctx-profiler 分析结果延迟 ≤ 1s（≤ 100k token 上下文）
+- **NFR35:** agtest 单个测试用例的框架开销（不含 LLM 调用）≤ 500ms
+
+## Visualization Dashboard Performance（可视化面板性能，Phase 3）
+
+- **NFR36:** dashboard TUI 刷新间隔 ≤ 500ms，10 个并发进程场景下单核 CPU 占用 ≤ 10%
+- **NFR37:** dashboard 智能体树渲染支持 ≥ 50 个进程节点无明显卡顿
+
+## AgentShell Scripting Performance（AgentShell 脚本性能，Phase 3）
+
+- **NFR38:** AgentShell 脚本解析时间 ≤ 50ms（≤ 1000 行脚本）
+- **NFR39:** AgentShell 循环和函数调用的运行时开销（不含 spawn/LLM）≤ 1ms/次
+
+## Emergence Layer Performance（涌现层性能，Phase 3）
+
+- **NFR40:** Reconciler 从检测到 drift 到启动调和行动的延迟 ≤ 5s（事件驱动模式）
+- **NFR41:** OODA 单轮循环（Observe→Orient→Decide→Act）的框架开销（不含 LLM）≤ 200ms
+- **NFR42:** 干细胞分化的 Skill 匹配和加载过程 ≤ 3s（≤ 10 个候选 Skill）
+- **NFR43:** Token 预算分配决策延迟 ≤ 100ms
+- **NFR44:** Immune Daemon 行为监控的 CPU 开销 ≤ 3%（10 个并发进程）
+- **NFR45:** 能力迁移（任务从崩溃进程转移到替代进程）≤ 10s
+- **NFR46:** Synergy 组合检测开销 ≤ 100ms（≤ 20 个已加载 Skill）

@@ -1,5 +1,24 @@
 # Core Architectural Decisions
 
+## 决策优先级分析
+
+**关键决策（阻塞实现）：**
+- 数据持久化策略（一切皆文件）
+- Compose DAG 调度器（自实现）
+- AgentShell 解析器架构（手写递归下降 + 解释执行）
+
+**重要决策（塑造架构）：**
+- agdb 调试通道（IPC 扩展）
+- 时间旅行 fork-continue（普通 Spawn）
+- 分布式追踪传播（上下文自动传播）
+- skillpkg 仓库协议（Git-based）
+
+**延迟决策（Phase 3+）：**
+- 声明式意图 Reconciler 的具体事件驱动框架选型
+- Token 经济的价格信号算法
+- 干细胞分化的 Skill 匹配算法
+- 可视化 Dashboard 的 TUI 布局框架（bubbletea 组件设计）
+
 ## Decision 1: Syscall ABI 设计风格 — 分类接口组合
 
 **决策：** Kernel 接口通过分类子接口组合（Categorized Interface Composition），而非单一巨型 `Kernel interface`。
@@ -297,6 +316,108 @@ crux "分析代码" --agent=code-analyst
 ```
 
 **MCP Phase 2 兼容性：** Agent manifest 可扩展支持 `mcp` 字段引用 MCP 服务器，Skill `allowed-tools`（`/dev/`）与 MCP 路径（`/mnt/mcp/`）命名空间分离，无冲突。
+
+## Decision 8: 数据持久化与状态管理
+
+**决策：一切皆文件——所有持久化通过文件系统完成，不引入嵌入式数据库。**
+
+| 数据类型 | 存储格式 | 路径 | 阶段 |
+|---------|---------|------|------|
+| Time-travel 录制 | JSON Lines（每行一个事件） | `$PROJECT/.crux/records/<pid>-<timestamp>/` | Phase 3 |
+| Skill 本地注册表 | 目录结构 + manifest 文件 | `lib/skills/` + `$CRUX_CACHE/registry.json` | Phase 2 |
+| 声誉数据 | JSON 文件 | `$PROJECT/.crux/reputation/` | Phase 3 |
+| 行为基线 | JSON 文件 | `$PROJECT/.crux/immune/` | Phase 3 |
+| Compose 状态 | 内存（进程表 + ProcGroup） | 无持久化，运行时状态 | Phase 2 |
+
+**理由：** 与 Crux 的 Unix 哲学（"一切皆文件"）完全一致。文件系统存储透明可检视、可版本控制、可用标准 Unix 工具处理。Crux 的数据规模（进程级元数据、调试录制）不需要数据库的查询能力。
+
+## Decision 9: Compose 引擎架构
+
+**DAG 调度器：**
+- 决策：自实现拓扑排序 + goroutine 并行执行
+- 理由：Go 标准库足够，DAG 拓扑排序是经典算法（~50 行代码），不需要引入第三方依赖
+- 实现：`compose/scheduler.go`——解析 `depends_on` 构建 DAG，Kahn 算法拓扑排序，无依赖节点并行 Spawn
+
+**YAML Schema 版本：**
+- 决策：`version: "1.0"` 字段 + 向前兼容检查
+- 规则：解析时检查 major version，minor version 差异向前兼容，major version 不匹配则报错并提示升级
+
+**Compose 与 ProcGroup 集成：**
+- 决策：每个 Compose 编排自动创建一个 ProcGroup
+- `compose up` → 创建 ProcGroup → 按 DAG 顺序 Spawn，每个进程自动 JoinGroup
+- `compose down` → SignalGroup(SIGTERM) → 等待全部退出 → 释放 ProcGroup
+
+## Decision 10: AgentShell 解析器架构
+
+**解析器实现：**
+- 决策：手写递归下降解析器
+- 理由：AgentShell 语法简单（非通用编程语言），手写更可控、更易调试；Go 生态 parser generator 引入额外复杂度但收益有限
+- 实现路径：`shell/lexer.go`（词法分析）+ `shell/parser.go`（语法分析）+ `shell/ast.go`（AST 定义）
+
+**AST 设计：**
+- 决策：统一 `Node` 接口 + 具体节点类型
+- Phase 2 节点：SpawnNode、PipeNode、IfNode、OnErrorNode、ExportNode、ScriptNode
+- Phase 3 新增：ForNode、WhileNode、FnNode、ParallelNode、AssignNode、SourceNode
+- 扩展方式：新增节点类型不破坏已有结构
+
+**执行模型：**
+- 决策：解释执行（AST walker）
+- 理由：AgentShell 瓶颈是 LLM 调用（秒级），解释器开销可忽略（NFR39 ≤ 1ms/次），无需编译到中间表示
+- 实现：`shell/interpreter.go`——遍历 AST 节点，递归执行
+
+## Decision 11: 调试工具链架构
+
+**agdb Attach 机制：**
+- 决策：通过 IPC 扩展，新增 `attach_agdb` method
+- 理由：复用现有 Daemon + Unix domain socket 架构，与 `attach_debug`（astrace）模式一致，保持架构统一性
+- 交互模式：客户端发送调试命令（step/breakpoint/inspect/modify），服务端在 reasonStep 循环中检查断点并暂停
+
+**时间旅行 fork-continue：**
+- 决策：作为普通进程 Spawn
+- 流程：从录制的历史时间点恢复上下文快照 → CtxAlloc + 回放消息历史 → Spawn 新进程（PPID 指向原录制进程 PID）→ 新进程进入正常 reasonStep 循环（产生真实 LLM 调用）
+- 理由：fork 出的分支与普通进程使用同一套 ps/kill/astrace 工具，不需要独立的隔离执行环境
+
+**分布式追踪传播：**
+- 决策：通过上下文自动传播
+- 机制：Process 结构体新增 `TraceID` 和 `SpanID` 字段；Spawn 子进程时自动继承父进程 TraceID + 生成新 SpanID；IPC Send/Recv 时 TraceID 作为消息元数据自动携带
+- 理由：对开发者透明，不需要手动管理 Trace 传播
+
+## Decision 12: Skill 包生态架构
+
+**仓库协议：**
+- 决策：Git-based（类似 Go modules）
+- 格式：`skill install github.com/user/skill-name@v1.2.0`
+- 机制：Git clone/fetch + tag 版本管理，不需要自建 registry 服务
+- 理由：与 Go 生态开发者心智模型一致，利用 Git 基础设施
+
+**版本解析：**
+- 决策：SemVer + 最小版本选择（MVS）
+- SKILL.md frontmatter 新增字段：`version: "1.2.0"` + `requires: ["other-skill@>=1.0.0"]`
+- 解析算法：Go modules 风格 MVS——选择满足所有约束的最小兼容版本
+
+**四层仓库查找链：**
+1. 项目本地：`lib/skills/`（最高优先级）
+2. 私有仓库：`$CRUX_PRIVATE_REGISTRY`（企业内部）
+3. 社区仓库：默认 GitHub（开源生态）
+4. 官方仓库：`github.com/gonewx/skills`（Crux 官方维护）
+
+## 决策影响分析
+
+**实现顺序：**
+1. Compose 引擎（DAG 调度 + ProcGroup 集成）— 依赖已有的 Spawn + ProcGroup
+2. AgentShell Phase 2 语法（管道 + if-else + on-error）— 独立模块，可并行开发
+3. skillpkg 客户端（Git-based install/search）— 依赖 Skill 加载器已稳定
+4. agdb 调试器 — 依赖 IPC 扩展 + reasonStep 断点钩子
+5. 时间旅行录制/回放 — 依赖 DebugRecord 完整 + 文件持久化
+6. 分布式追踪 — 依赖 Compose + IPC + TraceID 传播
+
+**跨组件依赖：**
+- Compose 依赖 ProcGroup + Spawn + DAG 调度
+- AgentShell 管道依赖 IPC Pipe
+- agdb 依赖 IPC 扩展 + 新增 KernelImpl 方法
+- 时间旅行依赖 agdb + DebugRecord + 上下文快照
+- skillpkg 依赖 Skill 加载器 + Git 操作
+- 分布式追踪依赖 Compose + IPC + Process TraceID 字段
 
 ## Go 1.26 特性利用
 

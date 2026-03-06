@@ -37,9 +37,10 @@
 **Dependencies:** Epic 6（IPC 管道用于智能体间数据传递）
 
 ## Epic 8: Skill 包管理与生态（Skill Package Management）
-用户通过 `skill install/search/update/list` 管理社区 Skill，安装即可用，零修改引用——生态系统的基石。
+用户通过 `skill install/search/update/list` 管理社区 Skill，安装即可用，零修改引用——生态系统的基石。客户端通过 HTTP API 与社区注册中心（`registry.crux.dev`）交互，注册中心服务端部署为独立运维任务。
 **FRs covered:** FR50, FR51, FR52, FR53
 **NFRs:** NFR30 (安装即可用)
+**Infra prerequisite:** 社区注册中心服务端（`/index.yaml`, `/packages/{name}/latest.yaml`, `*.tar.gz`）
 
 ## Epic 9: MCP 服务集成（MCP Integration）
 系统通过 Mount/Unmount 在 `/mnt/mcp/` 挂载 MCP 服务器，智能体通过标准 VFS 访问外部工具——完成 Agent → Skill → MCP → Device 四层能力栈。
@@ -47,10 +48,14 @@
 **NFRs:** NFR25 (挂载 ≤500ms), NFR26 (异常不影响内核), NFR27 (MCP 标准兼容)
 **Dependencies:** Epic 6（VFS 扩展）
 
-## Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
-`crux top` 实时监控面板 + `crux log` 分类日志 + token 预算管理 + Supervisor 容错树 + init 引导——生产级运维能力。
-**FRs covered:** FR58, FR59, FR60, FR61, FR62, FR63, FR64, FR65
+## Epic 10: 监控与可观测性（Monitoring & Observability）
+`crux top` 实时监控面板 + `crux log` 分类日志 + token 预算管理——生产级可观测能力。
+**FRs covered:** FR58, FR59, FR60, FR61, FR62
 **NFRs:** NFR28 (top 刷新 ≤500ms), NFR29 (log 延迟 ≤200ms)
+
+## Epic 10b: Supervisor 与系统引导（Supervisor & System Bootstrap）
+Supervisor 容错树自动管理子智能体生命周期 + init 引导序列初始化系统级服务——多智能体系统的可靠性基础。
+**FRs covered:** FR63, FR64, FR65
 **Dependencies:** Epic 6（进程组用于 Supervisor 树）
 
 ## Epic 11: AgentShell 高级语法（AgentShell Advanced Syntax）
@@ -62,5 +67,63 @@
 三个核心教程（编写 Skill、调试 bug、多智能体工作流）+ 四模块架构文档（微内核、进程模型、驱动层、上下文管理）。
 **FRs covered:** FR69, FR70
 **Dependencies:** Epic 7-11 完成后编写
+
+---
+
+## Phase 3 Epics
+
+## Epic 13: 交互式智能体调试（Interactive Agent Debugging — agdb）
+用户可以附着到运行中的智能体，设置断点（syscall/推理/质量/预算四种类型）、单步执行、检查和热修改运行时参数，实现类 GDB 的交互式调试体验。
+**FRs covered:** FR71, FR72, FR72a, FR73, FR74, FR75
+**NFRs:** NFR31
+
+## Epic 14: 时间旅行调试（Time Travel Debugging）
+用户可以录制智能体的完整执行历史并持久化，回放和反向追踪执行轨迹，查看任意时间点的上下文 diff，在历史分叉点探索替代执行路径。
+**FRs covered:** FR76, FR76a, FR77, FR78, FR79
+**NFRs:** NFR32
+**Dependencies:** Epic 13（DebugRecord 录制基础）
+
+## Epic 15: 分布式追踪与上下文分析（Distributed Tracing & Context Analysis）
+用户可以追踪跨多智能体系统的完整因果链，通过 blame 定位性能瓶颈和错误根因，分析每个智能体的上下文使用效率（活跃/温/冷/泄漏分类），识别最大消费者并获得优化建议。
+**FRs covered:** FR80, FR81, FR82, FR83, FR84, FR85, FR86
+**NFRs:** NFR33, NFR34
+**Dependencies:** Phase 2 Compose + IPC
+
+## Epic 16: 推理回归测试（Reasoning Regression Testing — agtest）
+用户可以通过声明式 YAML 编写智能体行为测试用例，使用推理断言/syscall 断言/质量断言验证行为，批量运行回归测试确保修改不破坏已有功能。
+**FRs covered:** FR87, FR88, FR89
+**NFRs:** NFR35
+
+## Epic 17: 可视化调试面板（Visual Debugging Dashboard）
+用户可以在统一的全屏 TUI 面板中同时查看智能体树、追踪时间线和上下文热力图，窗格间联动交互，直接操作进程，支持从录制文件离线回放分析。
+**FRs covered:** FR90, FR91, FR92, FR93, FR94, FR95, FR96
+**NFRs:** NFR36, NFR37
+**Dependencies:** Epic 13-15（聚合调试/追踪数据）
+
+## Epic 18: AgentShell 完整脚本语言（AgentShell Complete Scripting）
+用户可以编写包含循环（for/while）、函数定义、数据结构（数组/映射）、spawn 返回值捕获、并行执行块、模块导入的完整脚本，通过 `crux run` 执行自动化编排。
+**FRs covered:** FR97, FR98, FR99, FR100, FR101, FR102, FR103, FR104, FR105
+**NFRs:** NFR38, NFR39
+**Dependencies:** Phase 2 AgentShell 基础语法
+
+## Epic 19: 声明式意图与自动规划（Declarative Intent & Auto Planning）
+用户只需通过 `crux apply` 声明期望状态，系统自动分解为子意图树、分配智能体执行，Reconciler 持续监测差异并自动调和，支持运行中增量更新意图。
+**FRs covered:** FR106, FR107, FR108, FR109, FR110, FR111
+**NFRs:** NFR40
+
+## Epic 20: 自主智能体（Autonomous Agents — OODA + Stem Cell Differentiation）
+智能体可以通过 OODA 循环（感知-判断-决策-行动）自主执行任务，通用基底智能体根据意图自动匹配 Skill 完成分化，支持渐进式特化、分化记忆和谱系图追溯。
+**FRs covered:** FR112, FR113, FR114, FR115, FR116, FR117, FR118, FR119, FR120, FR121, FR122
+**NFRs:** NFR41, NFR42
+
+## Epic 21: Token 经济、声誉与 Skill 协同（Token Economy, Reputation & Skill Synergy）
+系统智能管理 Compose 编排的 token 预算分配，通过合约 SLA 约束协作质量，基于历史表现建立声誉评分并自动择优选择；同时自动检测 Skill 间的协同效应，维护有效组合矩阵。
+**FRs covered:** FR123, FR124, FR125, FR126, FR127, FR128, FR138, FR139, FR140
+**NFRs:** NFR43, NFR46
+
+## Epic 22: 适应性安全与自愈（Adaptive Security & Self-Healing）
+系统通过 Immune Daemon 持续监控智能体行为模式、建立基线、检测异常并自动拦截；维护威胁记忆库快速识别已知攻击模式；故障时自动将任务迁移到相似能力的智能体，维护协作拓扑和强化路径。
+**FRs covered:** FR129, FR130, FR131, FR132, FR133, FR134, FR135, FR136, FR137
+**NFRs:** NFR44, NFR45
 
 ---

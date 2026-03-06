@@ -139,6 +139,21 @@ type JSONError struct {
 | nil channel 检查 | 写入前 `if ch != nil`，零开销跳过 |
 | 关闭责任在生产者 | DebugChan 由进程退出时关闭 |
 
+**IPC Method 命名规范：**
+
+**规则：** 所有 IPC method 使用 `snake_case`，与 syscall 命名风格一致。
+
+**已确定的 method 清单：**
+
+| 阶段 | Method | 说明 |
+|------|--------|------|
+| Phase 1 | `spawn`, `kill`, `wait`, `ps`, `attach_debug` | 核心进程管理 + astrace |
+| Phase 2 | `compose_up`, `compose_down` | Compose 引擎 |
+| Phase 2 | `skill_install`, `skill_search`, `skill_list`, `skill_update` | Skill 包管理 |
+| Phase 2 | `send_signal`, `send_msg`, `recv_msg` | 信号 + IPC 消息 |
+| Phase 3 | `attach_agdb`, `record_start`, `record_stop`, `replay` | 调试工具链 |
+| Phase 3 | `apply_intent`, `intent_status` | 声明式意图 |
+
 ## 过程模式（Process Patterns）
 
 **错误处理模式：**
@@ -186,6 +201,73 @@ func (k *KernelImpl) Open(path string, flags int) (FD, error) {
 ```
 
 **资源释放顺序：** cancel() → wg.Wait() → 关闭 FD → 关闭 DebugChan → CtxFree → 状态转 Dead → 移除进程表。
+
+## Compose 引擎模式
+
+**失败策略：**
+- 默认 `fail-all`：任意节点失败 → SignalGroup(SIGTERM) 全组 → Compose 状态标记 Failed
+- 可选 `fail-fast`：仅停止依赖失败节点的下游，独立分支继续执行
+- 配置方式：`crux-compose.yaml` 顶层字段 `failure_strategy: fail-all | fail-fast`
+
+**全生命周期路径：**
+- `compose up` → 创建 ProcGroup → DAG 拓扑排序 → 按层级并行 Spawn → 等待全部完成/失败
+- `compose down` → SignalGroup(SIGTERM) → 等待超时 → 强制 Kill 残留 → 释放 ProcGroup
+- 异常路径：节点 Zombie → 触发 failure_strategy → 回调通知 → 更新 Compose 状态
+
+## AgentShell 语法模式
+
+**保留关键字（Phase 2）：**
+- `spawn`、`export`、`if`、`else`、`on-error`、`end`
+- Phase 3 追加：`for`、`in`、`while`、`fn`、`return`、`parallel`、`source`、`wait`、`sleep`、`exit`
+
+**引号规则：**
+- 双引号 `"..."` 内支持变量插值（`${VAR}`）
+- 单引号 `'...'` 内为纯文本，不展开变量
+- 无引号的文本按空格分词
+
+**管道语义：**
+- 默认 `pipefail`：管道中任意节点失败 → 整条管道标记失败
+- 管道数据流：前一进程的 `result`（文本输出）自动注入后一进程的上下文
+- 管道错误传播：失败节点的 ExitCode + ErrorMessage 传递给 `on-error` 处理器
+
+## 文件持久化路径模式
+
+**统一根目录：** `$PROJECT/.crux/`
+
+**子目录命名规则：** 全小写 + 连字符分隔
+
+| 路径 | 用途 | 阶段 |
+|------|------|------|
+| `$PROJECT/.crux/records/<pid>-<timestamp>/` | 时间旅行录制 | Phase 3 |
+| `$PROJECT/.crux/reputation/` | Agent 声誉数据 | Phase 3 |
+| `$PROJECT/.crux/immune/` | 行为基线 + 威胁记忆 | Phase 3 |
+| `$PROJECT/.crux/traces/` | 分布式追踪数据 | Phase 3 |
+| `$PROJECT/.crux/tests/` | agtest 测试结果缓存 | Phase 3 |
+
+**运行时文件：**
+- Socket：`$XDG_RUNTIME_DIR/crux/crux.sock`（备选 `/tmp/crux-$UID/crux.sock`）
+- PID：socket 目录下 `crux.pid`
+- 缓存：`$CRUX_CACHE/registry.json`（Skill 本地注册表）
+
+## Skill 元数据扩展模式
+
+**SKILL.md frontmatter 扩展规则：**
+- 只追加新字段，不修改已有字段的语义
+- 新字段必须有合理的零值默认（未声明 = 不启用）
+- 解析器忽略未知字段（前向兼容）
+
+**已规划的 frontmatter 字段演进：**
+
+| 字段 | 阶段 | 默认值 | 说明 |
+|------|------|--------|------|
+| `name` | Phase 1 | 必填 | Skill 名称 |
+| `description` | Phase 1 | 必填 | Skill 描述 |
+| `allowed-tools` | Phase 1 | `[]` | 工具白名单 |
+| `version` | Phase 2 | `"0.0.0"` | SemVer 版本号 |
+| `requires` | Phase 2 | `[]` | 依赖的其他 Skill |
+| `synergy` | Phase 3 | `[]` | 组合涌现声明 |
+| `tags` | Phase 2 | `[]` | 搜索标签 |
+| `author` | Phase 2 | `""` | 作者信息 |
 
 ## 泛型使用模式（Generics Patterns）
 

@@ -1,6 +1,6 @@
-# Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
+# Epic 10: 监控与可观测性（Monitoring & Observability）
 
-`crux top` 实时面板 + `crux log` 分类日志 + Supervisor 容错树 + init 引导——生产级运维能力全集。
+`crux top` 实时面板 + `crux log` 分类日志 + Token 预算管理——生产级可观测能力。
 
 ## Story 10.1: crux top 实时监控 TUI
 
@@ -66,7 +66,7 @@ So that 我可以控制 LLM 调用的成本。
 
 **Acceptance Criteria:**
 
-**Given** `context/budget.go` 已实现
+**Given** `kernel/kernel.go` 中预算检查已集成到推理循环
 **When** Agent 的 agent.yaml 设置 `context_budget: 5000`
 **Then** 系统在智能体消耗达到 5000 token 时终止推理（FR61）
 **And** 进程转 Zombie，ExitStatus 记录原因为 `budget_exceeded`
@@ -78,61 +78,5 @@ So that 我可以控制 LLM 调用的成本。
 **Given** 预算即将耗尽（剩余 < 10%）
 **When** 推理循环继续
 **Then** 在 crux top 中显示黄色警告标记
-
-## Story 10.4: Supervisor 树与重启策略
-
-As a 平台构建者,
-I want 系统提供 Supervisor 树管理子智能体，自动重启异常退出的子进程,
-So that 多智能体系统具备容错能力。
-
-**Acceptance Criteria:**
-
-**Given** `kernel/supervisor.go` 已实现
-**When** 创建 Supervisor 进程
-**Then** Supervisor 监控其子智能体的健康状态
-
-**Given** 子智能体异常退出
-**When** Supervisor 检测到
-**Then** 在 5 秒内按配置的策略自动重启（FR63）
-
-**Given** 重启策略为 `one_for_one`
-**When** 子进程 B 崩溃
-**Then** 仅重启 B
-
-**Given** 重启策略为 `one_for_all`
-**When** 子进程 B 崩溃
-**Then** 重启所有子进程
-
-**Given** 重启策略为 `rest_for_one`
-**When** 子进程 B 崩溃（B 是第 2 个启动的）
-**Then** 重启 B 及其之后按启动顺序的所有子进程（FR64）
-
-**Given** 子进程短时间内反复崩溃
-**When** 超过重启频率阈值
-**Then** Supervisor 自身退出，上报错误（避免重启风暴）
-
-## Story 10.5: init 引导序列
-
-As a 系统,
-I want daemon 启动时按配置初始化系统级服务和 Supervisor 树,
-So that 系统启动后所有基础设施就位。
-
-**Acceptance Criteria:**
-
-**Given** `kernel/init.go` 已实现
-**When** daemon 启动
-**Then** 按配置文件初始化系统级服务（FR65）：
-**And** 日志聚合服务启动
-**And** Skill 注册表初始化（扫描 `lib/skills/`）
-**And** MCP 服务管理器初始化
-**And** Supervisor 树按配置构建
-
-**Given** 初始化过程中某服务启动失败
-**When** 为必须服务
-**Then** daemon 启动失败，输出具体错误信息和恢复建议
-
-**Given** 初始化过程中某服务启动失败
-**When** 为可选服务
-**Then** 记录警告，继续启动其余服务
 
 ---

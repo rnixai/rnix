@@ -57,10 +57,6 @@ So that 智能体可以流式传递数据，实现链式处理。
 **When** 写端继续 Write
 **Then** 返回 `*SyscallError`，`Code` 为 `ErrBrokenPipe`
 
-**Given** 管道用于 Compose 编排
-**When** 前置智能体完成后
-**Then** 其输出通过管道自动注入下游智能体的上下文
-
 ## Story 6.3: 进程组与批量信号
 
 As a 用户,
