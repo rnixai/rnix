@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gonewx/crux/skills"
+	"github.com/usecrux/crux/skills"
 )
 
 const (

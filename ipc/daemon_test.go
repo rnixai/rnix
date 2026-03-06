@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/kernel"
-	"github.com/gonewx/crux/vfs"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/kernel"
+	"github.com/usecrux/crux/vfs"
 )
 
 func TestTryConnect_NoDaemon(t *testing.T) {

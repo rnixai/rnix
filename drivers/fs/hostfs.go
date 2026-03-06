@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/vfs"
 )
 
 // HostFSFile implements vfs.VFSFile for host filesystem file access.

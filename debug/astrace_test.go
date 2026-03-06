@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 func TestFormatEvent_BasicFormat(t *testing.T) {
@@ -280,9 +280,9 @@ type rawValue string
 
 func TestFormatArgs_SortedKeys(t *testing.T) {
 	args := map[string]any{
-		"zebra":    1,
-		"alpha":    2,
-		"middle":   3,
+		"zebra":  1,
+		"alpha":  2,
+		"middle": 3,
 	}
 
 	got := formatArgs(args, false)

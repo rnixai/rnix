@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // mcpCallTimeout is the timeout for MCP protocol calls during VFS Read operations.
@@ -41,7 +41,7 @@ type TransportFactory func(config MCPConfig) (MCPTransport, error)
 type MCPStatus int
 
 const (
-	MCPStatusConnected    MCPStatus = iota
+	MCPStatusConnected MCPStatus = iota
 	MCPStatusDisconnected
 	MCPStatusError
 )

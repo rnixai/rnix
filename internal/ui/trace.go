@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // FormatTraceLine formats a SyscallEvent into a styled trace line using lipgloss.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // --- Coroutine Tests (AC #3: Coroutine-level concurrency) ---

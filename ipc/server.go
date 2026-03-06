@@ -14,11 +14,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/xsync"
-	"github.com/gonewx/crux/kernel"
-	"github.com/gonewx/crux/shell"
+	"github.com/usecrux/crux/agents"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/xsync"
+	"github.com/usecrux/crux/kernel"
+	"github.com/usecrux/crux/shell"
 )
 
 const (
@@ -755,4 +755,3 @@ func marshalJSON(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data
 }
-

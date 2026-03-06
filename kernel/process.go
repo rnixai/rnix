@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/vfs"
 )
 
 // pidCounter is the global PID allocator. PIDs start at 1 and monotonically
@@ -30,33 +30,33 @@ type ExitStatus struct {
 
 // Process represents an agent process.
 type Process struct {
-	PID        types.PID
-	PPID       types.PID
-	State      types.ProcessState        // guarded by mu
-	Intent     string                    // immutable after creation
-	Skills     []string
-	Children   []types.PID
-	FDTable    map[types.FD]vfs.VFSFile  // per architecture doc; VFS manages actual FD state internally
-	DebugChan  chan types.SyscallEvent
-	LogChan    chan types.LogEntry
-	Done       chan ExitStatus
-	CreatedAt  time.Time
-	DeadAt     time.Time                 // set by reapProcess, used for TTL cleanup
-	Exit       *ExitStatus               // non-nil in Zombie/Dead
-	CtxID      types.CtxID               // context allocated by Spawn
-	Result         string                    // final output from reasoning
-	TokensUsed     int                       // cumulative token consumption
-	ContextBudget  int                       // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
-	AllowedDevices []string              // nil/empty = all devices allowed; non-empty = whitelist only
-	MCPMounts      []string              // MCP mount paths auto-mounted by Spawn
-	HasToolError   bool                  // true if any tool call failed (mu protected)
+	PID            types.PID
+	PPID           types.PID
+	State          types.ProcessState // guarded by mu
+	Intent         string             // immutable after creation
+	Skills         []string
+	Children       []types.PID
+	FDTable        map[types.FD]vfs.VFSFile // per architecture doc; VFS manages actual FD state internally
+	DebugChan      chan types.SyscallEvent
+	LogChan        chan types.LogEntry
+	Done           chan ExitStatus
+	CreatedAt      time.Time
+	DeadAt         time.Time   // set by reapProcess, used for TTL cleanup
+	Exit           *ExitStatus // non-nil in Zombie/Dead
+	CtxID          types.CtxID // context allocated by Spawn
+	Result         string      // final output from reasoning
+	TokensUsed     int         // cumulative token consumption
+	ContextBudget  int         // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	AllowedDevices []string    // nil/empty = all devices allowed; non-empty = whitelist only
+	MCPMounts      []string    // MCP mount paths auto-mounted by Spawn
+	HasToolError   bool        // true if any tool call failed (mu protected)
 
 	// Log history ring buffer (mu protected)
 	logHistory []types.LogEntry
 	logHistIdx int // ring buffer write position
 	logHistLen int // current valid entry count
 
-	groups []types.PGID               // guarded by mu, process group memberships
+	groups []types.PGID // guarded by mu, process group memberships
 
 	// Signal system (mu protected)
 	sigHandlers    map[types.Signal]SignalHandler

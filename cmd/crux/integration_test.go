@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/drivers/llm"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/kernel"
-	"github.com/gonewx/crux/skills"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/agents"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/drivers/llm"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/kernel"
+	"github.com/usecrux/crux/skills"
+	"github.com/usecrux/crux/vfs"
 )
 
 // --- Thread-safe writer for concurrent output ---
@@ -622,7 +622,7 @@ func TestE2E_WithAgent_InjectsInstructions(t *testing.T) {
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	agentInfo := &agents.AgentInfo{
-		Manifest: agents.AgentManifest{Name: "test-agent"},
+		Manifest:     agents.AgentManifest{Name: "test-agent"},
 		Instructions: "You are a test agent.",
 		Skills: []*skills.SkillInfo{
 			{

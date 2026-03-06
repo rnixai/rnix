@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/skillpkg"
 	"github.com/spf13/cobra"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/skillpkg"
 )
 
 // --- AC #2: skill install sub-command registration ---

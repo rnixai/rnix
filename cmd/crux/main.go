@@ -9,27 +9,27 @@ import (
 	"os/exec"
 	"os/signal"
 	"sort"
-	"sync/atomic"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/debug"
-	"github.com/gonewx/crux/drivers/fs"
-	"github.com/gonewx/crux/drivers/llm"
-	"github.com/gonewx/crux/drivers/mcp"
-	drivershell "github.com/gonewx/crux/drivers/shell"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/ipc"
-	"github.com/gonewx/crux/kernel"
-	agentshell "github.com/gonewx/crux/shell"
-	"github.com/gonewx/crux/skills"
-	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
+	"github.com/usecrux/crux/agents"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/debug"
+	"github.com/usecrux/crux/drivers/fs"
+	"github.com/usecrux/crux/drivers/llm"
+	"github.com/usecrux/crux/drivers/mcp"
+	drivershell "github.com/usecrux/crux/drivers/shell"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/ipc"
+	"github.com/usecrux/crux/kernel"
+	agentshell "github.com/usecrux/crux/shell"
+	"github.com/usecrux/crux/skills"
+	"github.com/usecrux/crux/vfs"
 )
 
 var version = "0.1.0"
@@ -172,7 +172,7 @@ func runVersion(cmd *cobra.Command, args []string) {
 
 	if flagJSON {
 		data := map[string]any{
-			"version":              version,
+			"version":               version,
 			"claude_code_available": claudeAvailable,
 		}
 		if claudeAvailable {

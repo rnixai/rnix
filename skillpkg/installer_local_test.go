@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gonewx/crux/skills"
+	"github.com/usecrux/crux/skills"
 )
 
 // --- BUG-005: Skill Install Local Filesystem Check Tests ---

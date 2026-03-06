@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/ipc"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/ipc"
 )
 
 // --- 10.2-UNIT-001: FormatLogEntry think category ---

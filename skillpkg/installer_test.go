@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gonewx/crux/skills"
+	"github.com/usecrux/crux/skills"
 )
 
 func TestInstaller_Install_Fresh(t *testing.T) {

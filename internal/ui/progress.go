@@ -3,7 +3,7 @@ package ui
 import (
 	"fmt"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // ProgressReporter outputs agent progress messages to the renderer.

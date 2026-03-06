@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/kernel"
-	"github.com/gonewx/crux/vfs"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/kernel"
+	"github.com/usecrux/crux/vfs"
 )
 
 func setupTestServer(t *testing.T) (*Server, string) {
@@ -313,7 +313,6 @@ func TestCallbackMux_ImplementsKernelCallbacks(t *testing.T) {
 
 	mux.OnComplete(1, "result", kernel.ExitStatus{Code: 0})
 }
-
 
 // TestNewServer verifies server creation.
 func TestNewServer(t *testing.T) {

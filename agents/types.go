@@ -3,8 +3,8 @@ package agents
 import (
 	"sort"
 
-	"github.com/gonewx/crux/skills"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/skills"
+	"github.com/usecrux/crux/vfs"
 )
 
 // AgentModels defines the LLM provider and model preferences for an agent.

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/xsync"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/xsync"
 )
 
 // Role represents the role of a message participant in a conversation.

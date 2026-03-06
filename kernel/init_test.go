@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/agents"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/vfs"
 )
 
 // === Init Bootstrap Test Infrastructure ===
@@ -20,7 +20,7 @@ type mockServiceInitializer struct {
 	err  error // if non-nil, Init returns this error
 }
 
-func (m *mockServiceInitializer) Name() string                 { return m.name }
+func (m *mockServiceInitializer) Name() string                  { return m.name }
 func (m *mockServiceInitializer) Init(cfg map[string]any) error { return m.err }
 
 // newInitTestKernel creates a kernel suitable for init bootstrap tests.

@@ -8,11 +8,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/ipc"
-	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/ipc"
+	"github.com/usecrux/crux/vfs"
 )
 
 var topCmd = &cobra.Command{

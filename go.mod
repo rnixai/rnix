@@ -1,4 +1,4 @@
-module github.com/gonewx/crux
+module github.com/usecrux/crux
 
 go 1.26
 

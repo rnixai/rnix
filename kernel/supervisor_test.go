@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/vfs"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/vfs"
 )
 
 // === Intent-aware mock infrastructure ===
@@ -103,8 +103,10 @@ func (f *alwaysCrashFile) Read(length int) ([]byte, error) {
 	return nil, &vfs.VFSError{Op: "Read", Device: "/dev/llm/claude", Code: types.ErrDriver,
 		Err: fmt.Errorf("always crash")}
 }
-func (f *alwaysCrashFile) Close() error                       { return nil }
-func (f *alwaysCrashFile) Stat() (vfs.FileStat, error)        { return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil }
+func (f *alwaysCrashFile) Close() error { return nil }
+func (f *alwaysCrashFile) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
+}
 
 // normalFile returns "done" on Read (children exit code 0).
 type normalFile struct{}
@@ -115,8 +117,10 @@ func (f *normalFile) Read(length int) ([]byte, error) {
 	data, _ := json.Marshal(resp)
 	return data, nil
 }
-func (f *normalFile) Close() error                       { return nil }
-func (f *normalFile) Stat() (vfs.FileStat, error)        { return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil }
+func (f *normalFile) Close() error { return nil }
+func (f *normalFile) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
+}
 
 // slowFile delays Read to simulate long-running children.
 type slowFile struct{ delay time.Duration }
@@ -128,8 +132,10 @@ func (f *slowFile) Read(length int) ([]byte, error) {
 	data, _ := json.Marshal(resp)
 	return data, nil
 }
-func (f *slowFile) Close() error                       { return nil }
-func (f *slowFile) Stat() (vfs.FileStat, error)        { return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil }
+func (f *slowFile) Close() error { return nil }
+func (f *slowFile) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
+}
 
 // newSimpleTestKernel creates a kernel with a single shared LLM file.
 func newSimpleTestKernel(t testing.TB, file vfs.VFSFile) *KernelImpl {

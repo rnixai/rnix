@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/xsync"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/xsync"
 )
 
 // OpenFlag represents file open mode flags.

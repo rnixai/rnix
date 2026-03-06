@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 func TestEmitEvent_NilChannel(t *testing.T) {

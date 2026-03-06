@@ -1124,7 +1124,7 @@ metadata:
 
 ```
 crux v0.1.0
-claude-code: 1.0.3
+claude-code: 2.1.69
 ```
 
 **Claude CLI 未安装时：**
@@ -1138,7 +1138,7 @@ crux v0.1.0
 **JSON 输出：**
 
 ```json
-{"ok": true, "data": {"version": "0.1.0", "claude_code_available": true, "claude_code": "1.0.3"}}
+{"ok": true, "data": {"version": "0.1.0", "claude_code_available": true, "claude_code": "2.1.69"}}
 ```
 
 ### 4.7 JSON 响应格式

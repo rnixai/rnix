@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
-	"github.com/gonewx/crux/agents"
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/agents"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // AgentLoaderFunc loads an agent definition by name.

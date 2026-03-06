@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // --- Task 7: Process Group Unit Tests ---

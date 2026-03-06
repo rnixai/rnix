@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/ipc"
-	"github.com/gonewx/crux/kernel"
-	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/ipc"
+	"github.com/usecrux/crux/kernel"
+	"github.com/usecrux/crux/vfs"
 )
 
 func TestResolveOutputMode(t *testing.T) {

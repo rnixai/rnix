@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	"github.com/gonewx/crux/compose"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/internal/xsync"
-	"github.com/gonewx/crux/ipc"
-	"github.com/gonewx/crux/kernel"
-	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
+	"github.com/usecrux/crux/agents"
+	"github.com/usecrux/crux/compose"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/internal/xsync"
+	"github.com/usecrux/crux/ipc"
+	"github.com/usecrux/crux/kernel"
+	"github.com/usecrux/crux/vfs"
 )
 
 // --- Story 7.2: crux compose up Command Tests ---
@@ -492,11 +492,11 @@ func TestIpcKernelSpawner_GetProcessResult_Found(t *testing.T) {
 // --- Mock compose spawner for tests ---
 
 type mockComposeSpawner struct {
-	mu           sync.Mutex
-	spawned      []string // spawned intents
-	pidAlloc     uint64
-	failIntents  map[string]bool // intents that should fail
-	waitDelay    time.Duration   // delay for Wait calls
+	mu          sync.Mutex
+	spawned     []string // spawned intents
+	pidAlloc    uint64
+	failIntents map[string]bool // intents that should fail
+	waitDelay   time.Duration   // delay for Wait calls
 }
 
 func (m *mockComposeSpawner) Spawn(intent string, agent *agents.AgentInfo, opts compose.ComposeSpawnOpts) (types.PID, error) {
@@ -953,8 +953,8 @@ type e2eMockSpawner struct {
 	mu            sync.Mutex
 	spawned       []e2eSpawnRecord // records intent and opts for each Spawn call
 	pidAlloc      uint64
-	failIntents   map[string]bool   // intents that should fail
-	waitDelay     time.Duration     // delay for Wait calls
+	failIntents   map[string]bool      // intents that should fail
+	waitDelay     time.Duration        // delay for Wait calls
 	getResult     map[types.PID]string // preset output results per PID
 	intentResults map[string]string    // intent -> result, auto-mapped to PID at spawn time
 }

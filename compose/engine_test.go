@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/agents"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // --- Story 7.1: Engine Scheduling Tests ---
@@ -528,7 +528,7 @@ func TestEngine_Execute_GlobalModelDefault(t *testing.T) {
 		Intent:  "global model test",
 		Model:   "haiku",
 		Agents: map[string]*AgentSpec{
-			"fast":     {Intent: "cheap task"},                  // inherits global "haiku"
+			"fast":     {Intent: "cheap task"},                   // inherits global "haiku"
 			"precise":  {Intent: "deep analysis", Model: "opus"}, // overrides to "opus"
 			"standard": {Intent: "normal task"},                  // inherits global "haiku"
 		},
