@@ -7,7 +7,7 @@ Status: done
 ## Story
 
 As a 用户,
-I want 在终端 A 运行 `rnix "意图"` 后，在终端 B 执行 `rnix ps`/`rnix kill`/`rnix astrace` 能看到并操作正在运行的智能体,
+I want 在终端 A 运行 `rnix "意图"` 后，在终端 B 执行 `rnix ps`/`rnix kill`/`rnix strace` 能看到并操作正在运行的智能体,
 So that Rnix 的多终端管理体验与 Unix 系统行为一致——进程在系统级别可见，不仅限于启动它的终端。
 
 ## Acceptance Criteria
@@ -16,7 +16,7 @@ So that Rnix 的多终端管理体验与 Unix 系统行为一致——进程在�
 
 2. **跨终端 kill 有效** — Given 终端 A 中 PID 1 正在运行，When 终端 B 执行 `rnix kill 1`，Then 终端 A 中的进程接收到终止信号并转为 Zombie，终端 A 显示中断摘要
 
-3. **跨终端 astrace 可用** — Given 终端 A 中 PID 1 正在运行，When 终端 B 执行 `rnix astrace 1`，Then 实时流式输出终端 A 中进程的 SyscallEvent，延迟 ≤ 500ms（NFR3）
+3. **跨终端 strace 可用** — Given 终端 A 中 PID 1 正在运行，When 终端 B 执行 `rnix strace 1`，Then 实时流式输出终端 A 中进程的 SyscallEvent，延迟 ≤ 500ms（NFR3）
 
 4. **无 daemon 时优雅降级** — Given 没有任何 `rnix` 实例运行，When 执行 `rnix ps`，Then 输出 "No active processes."（不崩溃、不报连接错误）；`rnix kill 1` 输出标准错误提示
 
@@ -82,7 +82,7 @@ So that Rnix 的多终端管理体验与 Unix 系统行为一致——进程在�
   - [x] 6.2 `ipc/server_test.go` — Server 启动/停止、连接处理、各 handler 单元测试
   - [x] 6.3 `ipc/client_test.go` — Client 连接/断开、各方法功能测试
   - [x] 6.4 `ipc/daemon_test.go` — EnsureDaemon 自动启动、stale socket 清理测试
-  - [x] 6.5 `ipc/integration_test.go` — 端到端集成测试：Server+Client spawn→ps→kill→astrace 完整流程
+  - [x] 6.5 `ipc/integration_test.go` — 端到端集成测试：Server+Client spawn→ps→kill→strace 完整流程
   - [x] 6.6 `cmd/rnix/main_test.go` — 现有 CLI 测试适配（从直接 kernel 调用改为 IPC 调用）
   - [x] 6.7 并发测试：多客户端同时 spawn、同时 ps、同时 kill 的 `-race` 测试
   - [x] 6.8 执行 `go test -race ./...` 确认所有包通过
@@ -106,7 +106,7 @@ kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
 结果：
 - `rnix ps`：创建新 kernel → 进程表为空 → "No active processes."
 - `rnix kill 1`：创建新 kernel → PID 1 不存在 → "process not found"
-- `rnix astrace 1`：创建新 kernel → PID 1 不存在 → "process not found"
+- `rnix strace 1`：创建新 kernel → PID 1 不存在 → "process not found"
 
 ### 推荐架构：Auto-Start Daemon + Unix Socket
 
@@ -131,7 +131,7 @@ kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
 └─────────────────┘                      │  │  net.Listen("unix") │  │
                                          │  └────────────────────┘  │
 ┌─────────────────┐     Unix Socket      └──────────────────────────┘
-│  rnix astrace 1  │ ── Attach(1) ───→         daemon process
+│  rnix strace 1  │ ── Attach(1) ───→         daemon process
 │  (client mode)   │ ←── Events ─────
 └─────────────────┘
 ```
@@ -421,7 +421,7 @@ func (s *Server) checkIdle() {
 | `vfs/` | **无修改** | VFS/ProcFS/DeviceRegistry 不变 |
 | `drivers/` | **无修改** | 所有驱动不变 |
 | `context/` | **无修改** | 上下文管理不变 |
-| `debug/` | **无修改** | astrace 格式化逻辑不变，仅数据来源从本地 channel 变为 IPC stream |
+| `debug/` | **无修改** | strace 格式化逻辑不变，仅数据来源从本地 channel 变为 IPC stream |
 | `internal/ui/` | **无修改** | UI 组件不变，仅调用方从 main.go 变为 client 适配层 |
 | `internal/types/` | **无修改** | 共享类型不变 |
 | `ipc/` | **新增** | 整个包新增 |
@@ -503,7 +503,7 @@ cmd.Start()
 | NFR | 要求 | 实现保证 |
 |-----|------|---------|
 | NFR2 | `rnix ps` ≤ 100ms | IPC 请求通过 Unix socket 本地通信，延迟 < 1ms；kernel.ListProcs 内存操作 |
-| NFR3 | astrace ≤ 500ms | SyscallEvent 通过 Unix socket 转发，额外延迟 < 5ms |
+| NFR3 | strace ≤ 500ms | SyscallEvent 通过 Unix socket 转发，额外延迟 < 5ms |
 | NFR7 | 超时 5s 内转 Zombie | 不变——kernel 内部超时机制不受 IPC 影响 |
 | NFR8 | 退出 10s 内释放资源 | daemon Shutdown 调用 kernel.Shutdown()，触发现有 reaper 逻辑 |
 | NFR9 | 进程表一致性 | procTable 通过 SyncMap 保护，IPC 只读取不直接修改进程表 |
@@ -514,7 +514,7 @@ cmd.Start()
 **本 Story 包含：**
 - 新增 `ipc/` 包（protocol + server + client + daemon）
 - 重构 `cmd/rnix/main.go` 为 daemon + client 模式
-- 跨终端 ps/kill/astrace 完整可用
+- 跨终端 ps/kill/strace 完整可用
 - daemon 自动启动/自动关闭
 - stale socket 清理
 - 并发 spawn 支持
@@ -572,7 +572,7 @@ drivers/                 — 所有驱动不变
 context/                 — 上下文管理不变
 agents/                  — Agent 加载器不变
 skills/                  — Skill 加载器不变
-debug/                   — astrace 格式化不变
+debug/                   — strace 格式化不变
 internal/ui/             — UI 组件不变
 internal/types/          — 共享类型不变
 internal/xsync/          — 泛型工具不变
@@ -588,7 +588,7 @@ internal/xsync/          — 泛型工具不变
 - [Source: _bmad-output/planning-artifacts/architecture.md#Decision 6] — SyscallError 错误传播层次
 - [Source: _bmad-output/planning-artifacts/prd.md#Phase 2] — 三级智能体模型 + IPC（Send/Recv/Pipe）
 - [Source: _bmad-output/planning-artifacts/prd.md#NFR2] — rnix ps ≤ 100ms
-- [Source: _bmad-output/planning-artifacts/prd.md#NFR3] — astrace ≤ 500ms
+- [Source: _bmad-output/planning-artifacts/prd.md#NFR3] — strace ≤ 500ms
 - [Source: _bmad-output/project-context.md] — 完整项目规则和模式参考
 
 **前序 Story：**
@@ -667,7 +667,7 @@ Claude claude-4.6-opus (Cursor IDE)
 | 2026-02-26 | Story 创建 + 全部实现 | Dev Agent (Claude) |
 | 2026-02-26 | Code Review: 修复 9 个问题 (3H+5M+1L)，新增 2 个集成测试 | Review Agent (Claude) |
 | 2026-02-26 | Bug Fix: handleConn 从 one-shot 改为请求循环，修复 EnsureDaemon Ping 消耗连接导致 Broken Pipe | Dev Agent (Claude) |
-| 2026-02-26 | Bug Fix: handleSpawn 流式结束后调用 kern.Reap(pid) 清理 Zombie 进程，修复 astrace 挂起（DebugChan 未关闭）；新增 kernel.Reap() 公开方法 | Dev Agent (Claude) |
+| 2026-02-26 | Bug Fix: handleSpawn 流式结束后调用 kern.Reap(pid) 清理 Zombie 进程，修复 strace 挂起（DebugChan 未关闭）；新增 kernel.Reap() 公开方法 | Dev Agent (Claude) |
 
 ### File List
 

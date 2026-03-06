@@ -9,7 +9,7 @@
 | 调试效率 | 定位多智能体 bug 的时间 | 从"天级"降至"分钟级" |
 | 能力复用率 | 单个 Skill 被引用的项目数 | ≥ 3 个项目 |
 | 上手门槛 | 安装到跑通第一个 demo | ≤ 15 分钟 |
-| 顿悟时刻 | `astrace` 首次定位到真实问题 | 用户确认"这比翻日志快得多" |
+| 顿悟时刻 | `strace` 首次定位到真实问题 | 用户确认"这比翻日志快得多" |
 
 **用户 B（应用开发者）：**
 
@@ -40,7 +40,7 @@
 | LLM 调用 | 通过 `/dev/llm/claude` 完成推理 |
 | Skill 加载 | `code-analyst` Agent 加载 agent.yaml + 引用的 Skill SKILL.md 正确注入 system prompt |
 | reasonStep 循环 | tool_call → 执行 → 追加结果 → 继续推理 → text → 完成 |
-| astrace 追踪 | `rnix astrace 1` 输出完整 syscall 链路（名称、耗时、token）|
+| strace 追踪 | `rnix strace 1` 输出完整 syscall 链路（名称、耗时、token）|
 | 自举验证 | 用 Rnix 分析 Rnix 自身源码，识别出真实存在的代码问题 |
 
 **可靠性验收（MVP）：**
@@ -56,7 +56,7 @@
 | 维度 | 核心可测量结果 |
 |------|--------------|
 | 自举 | Rnix 分析自身源码 → 输出中包含至少 1 个可验证的真实代码问题 |
-| 调试差异化 | `astrace` 输出的 syscall 链路能回溯到导致错误结果的具体步骤 |
+| 调试差异化 | `strace` 输出的 syscall 链路能回溯到导致错误结果的具体步骤 |
 | 端到端延迟 | 单智能体 spawn→完成（含 LLM 调用），≤ 30 秒 |
 
 ## Phase 2 Success Criteria

@@ -12,7 +12,7 @@ so that 确认各层职责分离且协同正确。
 
 1. **四层能力栈端到端流程** — Given 配置了包含 Skill 和 MCP 引用的 Agent, When Spawn 并执行任务, Then Agent 层提供身份和策略, And Skill 层提供程序性知识和工具权限, And MCP 层提供外部服务集成, And Device 层提供原生 I/O（`/dev/`）
 
-2. **astrace 四层调用链路可观测** — Given `rnix astrace` 追踪该进程, When 查看 syscall 链路, Then 可以清晰看到四层的调用边界和数据流向（FR57）
+2. **strace 四层调用链路可观测** — Given `rnix strace` 追踪该进程, When 查看 syscall 链路, Then 可以清晰看到四层的调用边界和数据流向（FR57）
 
 ## Tasks / Subtasks
 
@@ -32,7 +32,7 @@ so that 确认各层职责分离且协同正确。
   - [x] 2.7 验证 Device 层：`/dev/shell` 工具调用通过 VFS 正确执行，权限检查通过
   - [x] 2.8 验证进程完成后 MCP 自动 Unmount（finishProcess 清理逻辑）
 
-- [x] Task 3: 实现 astrace 四层调用链路验证测试（AC: #2）
+- [x] Task 3: 实现 strace 四层调用链路验证测试（AC: #2）
   - [x] 3.1 在 `kernel/e2e_test.go` 中创建 `TestFourLayerAstraceVisibility` 测试函数
   - [x] 3.2 Spawn 进程时启用 DebugChan（`proc.DebugChan = make(chan types.SyscallEvent, 256)`）
   - [x] 3.3 收集所有 SyscallEvent，验证事件序列包含四层调用边界：
@@ -280,7 +280,7 @@ kernel/testdata/         → 测试 fixture 文件，不影响编译
 - `vfs.MCPTransport` — MCP 传输接口（mock 实现）
 - `types.SyscallEvent` — syscall 事件结构体
 - `debug.NewEvent` / `debug.CompleteEvent` / `debug.EmitEvent` — 调试事件
-- `debug.Attach` / `debug.FormatEvent` — astrace 格式化（可选验证）
+- `debug.Attach` / `debug.FormatEvent` — strace 格式化（可选验证）
 
 **参考现有测试模式**：
 - `kernel/kernel_test.go` — Kernel 单元测试中的 mock 模式（mockVFS, mockCtxMgr）
@@ -298,7 +298,7 @@ kernel/testdata/         → 测试 fixture 文件，不影响编译
 - **不要**忽略竞态条件 — 使用 `go test -race` 确保并发安全
 - **不要**使用 `.yml` 后缀 — 统一 `.yaml`
 - **不要**返回裸 error — 错误断言使用 `types.SyscallError` 类型检查
-- **不要**跳过 DebugChan 事件验证 — astrace 可观测性是本 Story 的核心验收标准
+- **不要**跳过 DebugChan 事件验证 — strace 可观测性是本 Story 的核心验收标准
 - **不要**引入 vfs → kernel 方向的导入 — 保持架构边界
 
 ### 测试策略
@@ -363,16 +363,16 @@ kernel/testdata/e2e-skill/SKILL.md              # 测试用 Skill 定义
 - `agents/loader.go` — AgentLoader 不变
 - `skills/types.go` — SkillManifest/SkillInfo 不变
 - `drivers/mcp/transport.go` — StdioTransport 不变
-- `debug/astrace.go` — Attach/FormatEvent 不变
+- `debug/strace.go` — Attach/FormatEvent 不变
 - `cmd/rnix/main.go` — Daemon 初始化不变
 
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics/epic-9-mcp-服务集成mcp-integration.md#Story 9.4]
-- [Source: _bmad-output/planning-artifacts/prd/functional-requirements.md#FR57] — 四层能力栈端到端运行和 astrace 验证
+- [Source: _bmad-output/planning-artifacts/prd/functional-requirements.md#FR57] — 四层能力栈端到端运行和 strace 验证
 - [Source: _bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#Decision 7] — Agent 抽象层与 Skill 标准化，MCP 兼容性
 - [Source: _bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#Decision 3] — VFS 实现策略
-- [Source: _bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#Decision 5] — 调试架构（astrace）
+- [Source: _bmad-output/planning-artifacts/architecture/core-architectural-decisions.md#Decision 5] — 调试架构（strace）
 - [Source: _bmad-output/planning-artifacts/architecture/project-structure-boundaries.md] — 依赖方向和架构边界
 - [Source: _bmad-output/planning-artifacts/architecture/implementation-patterns-consistency-rules.md] — 命名和编码规则
 - [Source: _bmad-output/project-context.md] — 项目编码规则
@@ -388,7 +388,7 @@ kernel/testdata/e2e-skill/SKILL.md              # 测试用 Skill 定义
 - [Source: vfs/mount.go] — MountManager.Mount/Unmount
 - [Source: agents/types.go] — AgentManifest.MCP, AgentInfo.MCPConfigs
 - [Source: agents/loader.go] — AgentLoader: 解析 skills 和 mcp 引用
-- [Source: debug/astrace.go] — Attach: 消费 DebugChan 事件
+- [Source: debug/strace.go] — Attach: 消费 DebugChan 事件
 - [Source: debug/event.go] — SyscallEvent 结构体
 - [Source: kernel/spawn_mcp_test.go] — MCP Spawn 测试模式参考
 - [Source: kernel/kernel_test.go] — Kernel mock 模式参考

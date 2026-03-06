@@ -50,7 +50,7 @@ test_patterns: ['same-package tests (package main)', 'direct function calls (run
 
 - **全局 flag 变量**：`flagJSON`, `flagVerbose`, `flagQuiet`, `flagModel`, `flagMaxSteps`, `flagAgent` 定义在 `main.go:36-43`，新增 `flagIntent` 遵循同一模式
 - **Flag 注册**：在 `init()` 函数中通过 `rootCmd.Flags()` 注册（非 `PersistentFlags()`，因为 `-i` 仅在 root 层使用，不需要向子命令传播），如 `rootCmd.Flags().StringVarP(&flagModel, "model", "m", "", "...")`
-- **子命令注册**：`init()` 中通过 `rootCmd.AddCommand()` 注册，当前 5 个：`version`, `astrace`, `ps`, `kill`, `daemon`(hidden)
+- **子命令注册**：`init()` 中通过 `rootCmd.AddCommand()` 注册，当前 5 个：`version`, `strace`, `ps`, `kill`, `daemon`(hidden)
 - **rootCmd.Args**：当前 `cobra.ArbitraryArgs`，需改为自定义验证函数。**Cobra 行为**：当 `Args` 验证函数返回 error 时，Cobra 中止执行，不会调用 `RunE`，错误由 `cmd.Execute()` 返回
 - **runRoot 入口**：`len(args)==0` → help，否则 `strings.Join(args, " ")` → intent string → `ipc.SpawnRequest`
 - **错误输出**：非 JSON 模式通过 `ui.RenderError()` 输出，含设备路径、原因、影响、建议
@@ -131,7 +131,7 @@ test_patterns: ['same-package tests (package main)', 'direct function calls (run
       ```
     - `Args`: `cobra.ArbitraryArgs` → `rejectPositionalArgs`
 
-    **额外**：在 `init()` 函数中添加 `rootCmd.SilenceUsage = true`，防止 Cobra 在 Args 验证失败时自动打印完整 usage（会与错误消息中的 mini-usage 重复）。**注意**：`SilenceUsage` 是全局设置，也会影响其他错误路径（如 `kill` 无参数时 Cobra 不再自动打印 usage）。现有的 `kill`/`astrace` 的 Args 验证（`cobra.ExactArgs(1)`）在失败时原本会输出 usage，设置后不再输出——但这些命令已有自定义错误处理，不依赖 Cobra 的自动 usage 输出，因此不受影响。开发者实现时应运行完整测试套件确认无回归
+    **额外**：在 `init()` 函数中添加 `rootCmd.SilenceUsage = true`，防止 Cobra 在 Args 验证失败时自动打印完整 usage（会与错误消息中的 mini-usage 重复）。**注意**：`SilenceUsage` 是全局设置，也会影响其他错误路径（如 `kill` 无参数时 Cobra 不再自动打印 usage）。现有的 `kill`/`strace` 的 Args 验证（`cobra.ExactArgs(1)`）在失败时原本会输出 usage，设置后不再输出——但这些命令已有自定义错误处理，不依赖 Cobra 的自动 usage 输出，因此不受影响。开发者实现时应运行完整测试套件确认无回归
   - Notes: `Use` 设为 `"rnix [command]"` 是 cobra 标准模式。intent 用法在 Long 和 Example 中展示
 
 - [x] Task 6: 修改 `runRoot` 读取 intent 来源
@@ -151,7 +151,7 @@ test_patterns: ['same-package tests (package main)', 'direct function calls (run
     - `TestHelp_ContainsUsage`：新增断言 `strings.Contains(output, "--intent")`，验证 `-i/--intent` flag 出现在 help 的 flags 区域（覆盖 AC 8）
     - `TestDaemonCmd_RequiresInternalFlag`：现有测试仅检查 `err == nil`，不检查消息文本，无需修改
     - 确认 `TestHelp_ContainsPsSubcommand` 仍然通过（不变）
-  - Notes: 其他现有测试（version/ps/kill/astrace）不受影响
+  - Notes: 其他现有测试（version/ps/kill/strace）不受影响
 
 - [x] Task 9: 新增 intent flag 测试
   - File: `cmd/rnix/main_test.go`
@@ -182,7 +182,7 @@ test_patterns: ['same-package tests (package main)', 'direct function calls (run
   - Action: 添加以下测试（**直接调用 `suggestCommand(rootCmd, input)` 测试**，由于 `rootCmd` 是包级 `init()` 注册的全局实例，子命令集在测试运行时已确定且稳定）：
     - `TestSuggestCommand_ExactMatch`: `"ps"` → `"ps"`
     - `TestSuggestCommand_Prefix`: `"ver"` → `"version"`
-    - `TestSuggestCommand_Levenshtein`: `"astrce"` → `"astrace"`（距离 1，len=6 > 3）
+    - `TestSuggestCommand_Levenshtein`: `"astrce"` → `"strace"`（距离 1，len=6 > 3）
     - `TestSuggestCommand_Hidden`: `"deamon"` → `"daemon"`（标准 Levenshtein 距离 2：两次替换 `e→a` 和 `a→e`，len=6 > 3）
     - `TestSuggestCommand_ShortInputSkipsLevenshtein`: `"is"` → `""`（len=2 ≤ 3，跳过 Levenshtein）
     - `TestSuggestCommand_ShortInputPrefixStillWorks`: `"ki"` → `"kill"`（len=2 ≤ 3，但前缀匹配仍生效）

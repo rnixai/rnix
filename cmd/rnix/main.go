@@ -126,15 +126,15 @@ var versionCmd = &cobra.Command{
 	Run:   runVersion,
 }
 
-var astraceCmd = &cobra.Command{
-	Use:   "astrace <pid>",
+var straceCmd = &cobra.Command{
+	Use:   "strace <pid>",
 	Short: "Trace syscalls of an agent process in real-time",
 	Long:  "Attach to a running agent process and stream its syscall events in real-time.\n\nPress Ctrl+C to detach without affecting the traced process.",
-	Example: `  rnix astrace 1              Trace PID 1 (default mode)
-  rnix astrace 1 --verbose    Show full syscall details
-  rnix astrace 1 --json       Output as JSON stream`,
+	Example: `  rnix strace 1              Trace PID 1 (default mode)
+  rnix strace 1 --verbose    Show full syscall details
+  rnix strace 1 --json       Output as JSON stream`,
 	Args: cobra.ExactArgs(1),
-	RunE: runAstrace,
+	RunE: runStrace,
 }
 
 var psCmd = &cobra.Command{
@@ -204,7 +204,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
 	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
 	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(astraceCmd)
+	rootCmd.AddCommand(straceCmd)
 	rootCmd.AddCommand(psCmd)
 	rootCmd.AddCommand(killCmd)
 	rootCmd.AddCommand(daemonCmd)
@@ -879,10 +879,10 @@ func runKill(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runAstrace(cmd *cobra.Command, args []string) error {
+func runStrace(cmd *cobra.Command, args []string) error {
 	pidNum, err := strconv.Atoi(args[0])
 	if err != nil {
-		return fmt.Errorf("✗ rnix astrace %s: invalid PID (expected number)", args[0])
+		return fmt.Errorf("✗ rnix strace %s: invalid PID (expected number)", args[0])
 	}
 	pid := types.PID(pidNum)
 
@@ -901,11 +901,11 @@ func runAstrace(cmd *cobra.Command, args []string) error {
 	defer client.Close()
 
 	if !flagJSON {
-		fmt.Fprintf(w, "[astrace] attached to PID %d\n", pid)
+		fmt.Fprintf(w, "[strace] attached to PID %d\n", pid)
 	}
 
-	astraceCtx, astraceCancel := context.WithCancel(cmd.Context())
-	defer astraceCancel()
+	straceCtx, straceCancel := context.WithCancel(cmd.Context())
+	defer straceCancel()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -913,7 +913,7 @@ func runAstrace(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		<-sigCh
-		astraceCancel()
+		straceCancel()
 	}()
 
 	var opts debug.Options
@@ -931,7 +931,7 @@ func runAstrace(cmd *cobra.Command, args []string) error {
 	go func() {
 		errCh <- client.AttachDebug(pid, func(sew ipc.SyscallEventWire) {
 			select {
-			case <-astraceCtx.Done():
+			case <-straceCtx.Done():
 				return
 			default:
 			}
@@ -953,14 +953,14 @@ func runAstrace(cmd *cobra.Command, args []string) error {
 	case err := <-errCh:
 		if !flagJSON {
 			if err == nil {
-				fmt.Fprintf(w, "[astrace] detached from PID %d (process exited)\n", pid)
+				fmt.Fprintf(w, "[strace] detached from PID %d (process exited)\n", pid)
 			} else {
-				fmt.Fprintf(w, "[astrace] detached from PID %d (error: %v)\n", pid, err)
+				fmt.Fprintf(w, "[strace] detached from PID %d (error: %v)\n", pid, err)
 			}
 		}
-	case <-astraceCtx.Done():
+	case <-straceCtx.Done():
 		if !flagJSON {
-			fmt.Fprintf(w, "\n[astrace] detached from PID %d (interrupted)\n", pid)
+			fmt.Fprintf(w, "\n[strace] detached from PID %d (interrupted)\n", pid)
 		}
 	}
 

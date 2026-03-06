@@ -78,7 +78,7 @@ So that 我只需提供意图，智能体自动完成推理。
 - **文件位置严格遵循架构文档：** 核心逻辑在 `kernel/kernel.go`，新增类型可放在 `kernel/` 目录下的新文件
 - **依赖方向：** `kernel/` → `vfs/`（VFS 操作）✓；`kernel/` → `context/`（上下文管理）✓；`kernel/` → `internal/types/` ✓；`kernel/` → `internal/xsync/` ✓。**绝对禁止** `kernel/` 导入 `cmd/` 或 `internal/ui/` 或 `drivers/`
 - **此 Story 实现的核心：** Spawn syscall + reasonStep 推理循环 + Action 解析 + LLM 调用编排 + 进程完成通知
-- **此 Story 不实现：** CLI 入口（Story 1.7）、Skill 加载与注入（Story 2.4）、astrace 集成（Story 3.1）、Kill/Wait syscall（Story 4.1）、/proc 文件系统（Story 4.3）
+- **此 Story 不实现：** CLI 入口（Story 1.7）、Skill 加载与注入（Story 2.4）、strace 集成（Story 3.1）、Kill/Wait syscall（Story 4.1）、/proc 文件系统（Story 4.3）
 - **Kernel 不直接导入 `drivers/llm/`**：LLM 交互通过 VFS 抽象进行（Open → Write → Read → Close），kernel 包只知道 VFS 接口和 LLMRequest/LLMResponse 的 JSON 格式
 
 ### 已有代码（必须复用，禁止重新实现）
@@ -492,7 +492,7 @@ kernel/
 - [Source: architecture.md#Decision 2: 进程模型与并发] — Process 结构体、goroutine 生命周期管理
 - [Source: architecture.md#Decision 3: VFS 实现策略] — VFSFile 接口、FDTable 管理
 - [Source: architecture.md#Decision 4: Claude Code CLI 集成] — 调用模式、参数模板、超时处理
-- [Source: architecture.md#Decision 5: 调试架构（astrace）] — DebugChan 事件传递机制
+- [Source: architecture.md#Decision 5: 调试架构（strace）] — DebugChan 事件传递机制
 - [Source: architecture.md#Decision 6: 错误处理与恢复] — SyscallError 传播层次
 - [Source: architecture.md#Project Structure & Boundaries] — Kernel ↔ VFS 边界、Kernel ↔ Context 边界
 - [Source: architecture.md#Implementation Patterns > 过程模式] — context.Context 传播规则、进程状态转移规则、资源释放顺序

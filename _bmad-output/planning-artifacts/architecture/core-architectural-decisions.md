@@ -89,7 +89,7 @@ type Process struct {
     Ctx       *Context
     Children  []PID
     FDTable   map[FD]VFSFile        // 每进程文件描述符表
-    DebugChan chan SyscallEvent      // astrace 事件通道
+    DebugChan chan SyscallEvent      // strace 事件通道
     Done      chan ExitStatus        // 进程完成信号
     cancel    context.CancelFunc    // goroutine 取消
     wg        sync.WaitGroup        // 子 goroutine 等待
@@ -142,11 +142,11 @@ cmd := exec.CommandContext(ctx, "claude", "-p", intent,
 
 **system prompt 组装顺序：** Agent instructions（角色定义）+ 各 Skill SKILL.md body（程序性知识），由 AgentLoader 在 Spawn 时组装。
 
-**stream-json 消费：** `--output-format stream-json` 时，通过 `bufio.Scanner` 逐行读取 stdout，每行解析为 `StreamEvent`，写入 `Process.DebugChan` 供 astrace 消费。
+**stream-json 消费：** `--output-format stream-json` 时，通过 `bufio.Scanner` 逐行读取 stdout，每行解析为 `StreamEvent`，写入 `Process.DebugChan` 供 strace 消费。
 
 **超时处理：** `context.WithTimeout` 包装，超时后 `cmd.Process.Kill()`，进程转 Zombie。
 
-## Decision 5: 调试架构（astrace）
+## Decision 5: 调试架构（strace）
 
 **事件传递机制：** 每进程一个带缓冲的 `DebugChan chan SyscallEvent`。
 
@@ -164,9 +164,9 @@ type SyscallEvent struct {
 }
 ```
 
-**数据流：** syscall 实现入口/出口 → 构造 SyscallEvent → 写入 DebugChan → astrace goroutine 消费 → 格式化输出到终端。
+**数据流：** syscall 实现入口/出口 → 构造 SyscallEvent → 写入 DebugChan → strace goroutine 消费 → 格式化输出到终端。
 
-**无 astrace 时：** DebugChan 为 nil，跳过事件记录（零开销）。
+**无 strace 时：** DebugChan 为 nil，跳过事件记录（零开销）。
 
 ## Decision 6: 错误处理与恢复
 
@@ -369,13 +369,13 @@ rnix "分析代码" --agent=code-analyst
 
 **agdb Attach 机制：**
 - 决策：通过 IPC 扩展，新增 `attach_agdb` method
-- 理由：复用现有 Daemon + Unix domain socket 架构，与 `attach_debug`（astrace）模式一致，保持架构统一性
+- 理由：复用现有 Daemon + Unix domain socket 架构，与 `attach_debug`（strace）模式一致，保持架构统一性
 - 交互模式：客户端发送调试命令（step/breakpoint/inspect/modify），服务端在 reasonStep 循环中检查断点并暂停
 
 **时间旅行 fork-continue：**
 - 决策：作为普通进程 Spawn
 - 流程：从录制的历史时间点恢复上下文快照 → CtxAlloc + 回放消息历史 → Spawn 新进程（PPID 指向原录制进程 PID）→ 新进程进入正常 reasonStep 循环（产生真实 LLM 调用）
-- 理由：fork 出的分支与普通进程使用同一套 ps/kill/astrace 工具，不需要独立的隔离执行环境
+- 理由：fork 出的分支与普通进程使用同一套 ps/kill/strace 工具，不需要独立的隔离执行环境
 
 **分布式追踪传播：**
 - 决策：通过上下文自动传播
@@ -423,7 +423,7 @@ rnix "分析代码" --agent=code-analyst
 
 | 特性 | Rnix 使用场景 |
 |------|-------------|
-| **Green Tea GC**（默认启用） | 自动受益——astrace 高吞吐事件流的 GC 压力降低 |
+| **Green Tea GC**（默认启用） | 自动受益——strace 高吞吐事件流的 GC 压力降低 |
 | **Goroutine Leak Profiler**（实验性） | 验证 NFR8（进程退出后 goroutine 正确释放），集成到测试和开发调试 |
 | **`new(expr)` 表达式初始化** | 简化结构体创建（如 `new(Process{PID: pid, State: Created})`） |
 | **自引用泛型** | 类型安全的注册表模式（如 `Registry[T]`、`Future[T]`） |

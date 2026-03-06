@@ -6,7 +6,7 @@ Rnix 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来�
 
 | 接口层 | 格式 | 用途 | 阶段 |
 |--------|------|------|------|
-| **AgentShell CLI** | 命令行 | `rnix "意图" --agent=<name>`、`rnix astrace`、`rnix ps` | MVP |
+| **AgentShell CLI** | 命令行 | `rnix "意图" --agent=<name>`、`rnix strace`、`rnix ps` | MVP |
 | **Agent 定义** | YAML + Markdown | `agent.yaml`（身份+模型+Skill引用）+ `instructions.md`（角色策略） | MVP |
 | **Skill 定义** | Markdown（Agent Skills 标准） | `SKILL.md`（YAML frontmatter + 程序性知识） | MVP |
 | **Agent Compose** | YAML | `rnix-compose.yaml` 多智能体编排 | Phase 2 |
@@ -48,7 +48,7 @@ Rnix 的"API"不是 REST 端点或 Go 函数——而是 **~45 个 syscall**（P
 | 文档类型 | 内容 | 阶段 |
 |---------|------|------|
 | **概念文档** | 为什么是 Agent OS、核心概念（进程、VFS、Skill、syscall）、与现有框架对比 | MVP |
-| **快速上手** | 安装 → spawn 第一个智能体 → 看 astrace 输出（≤ 15 分钟目标） | MVP |
+| **快速上手** | 安装 → spawn 第一个智能体 → 看 strace 输出（≤ 15 分钟目标） | MVP |
 | **参考手册** | syscall 列表、VFS 路径规范、agent.yaml / SKILL.md 字段、CLI 命令 | MVP |
 | **教程** | 写第一个 Skill、调试第一个 bug、组合多智能体 | Phase 2 |
 | **架构文档** | 微内核设计、进程模型、驱动层、上下文管理 | Phase 2 |

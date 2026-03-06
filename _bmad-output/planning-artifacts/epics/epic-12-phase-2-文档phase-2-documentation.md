@@ -17,7 +17,7 @@ So that 我可以在 Rnix 上构建自己的应用。
 
 **Given** 教程文档已编写
 **When** 阅读"调试第一个 bug"教程
-**Then** 包含故意引入 bug → astrace 定位 → 修复 → 验证的完整流程
+**Then** 包含故意引入 bug → strace 定位 → 修复 → 验证的完整流程
 **And** 包含完整可运行示例
 
 **Given** 教程文档已编写

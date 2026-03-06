@@ -110,13 +110,13 @@ documentFiles:
 | FR25b | Skill Mgmt | Skill 渐进式加载 |
 | FR26 | Skill Mgmt | allowed-tools 聚合为设备权限白名单 |
 | FR27 | Skill Mgmt | 参考 Agent (code-analyst) + 参考 Skill (code-analysis) |
-| FR28 | Debug | astrace 实时追踪 syscall |
-| FR29 | Debug | astrace 展示名称、参数、返回值、耗时 |
+| FR28 | Debug | strace 实时追踪 syscall |
+| FR29 | Debug | strace 展示名称、参数、返回值、耗时 |
 | FR30 | Debug | DebugRecord 记录数据 |
-| FR31 | Debug | astrace 定位错误 syscall |
+| FR31 | Debug | strace 定位错误 syscall |
 | FR32 | Debug | 完成时输出汇总信息 |
 | FR33 | CLI | rnix "意图" 启动智能体 |
-| FR34 | CLI | rnix astrace <pid> 追踪 |
+| FR34 | CLI | rnix strace <pid> 追踪 |
 | FR35 | CLI | rnix ps 查看进程 |
 | FR36 | CLI | 结构化错误信息 |
 | FR37 | CLI | go install 单命令安装 |
@@ -188,7 +188,7 @@ documentFiles:
 |---|---|---|
 | NFR1 | Performance | 单智能体端到端延迟 <=30s |
 | NFR2 | Performance | rnix ps 响应 <=100ms |
-| NFR3 | Performance | astrace 延迟 <=500ms |
+| NFR3 | Performance | strace 延迟 <=500ms |
 | NFR4 | Performance | VFS 文件读取额外延迟 <10ms |
 | NFR5 | Performance | 上下文组装 <=1s |
 | NFR6 | Reliability | 20次成功率 >=95% |
@@ -292,13 +292,13 @@ documentFiles:
 | FR25b | Epic 2 | Skill 渐进式加载 |
 | FR26 | Epic 2 | allowed-tools 聚合白名单 |
 | FR27 | Epic 2 | 参考 Agent + Skill |
-| FR28 | Epic 3 | astrace 实时追踪 |
-| FR29 | Epic 3 | astrace 详细输出 |
+| FR28 | Epic 3 | strace 实时追踪 |
+| FR29 | Epic 3 | strace 详细输出 |
 | FR30 | Epic 3 | DebugRecord 记录 |
-| FR31 | Epic 3 | astrace 定位错误 |
+| FR31 | Epic 3 | strace 定位错误 |
 | FR32 | Epic 1 | 完成汇总信息 |
 | FR33 | Epic 1 | rnix "意图" 启动 |
-| FR34 | Epic 3 | rnix astrace 命令 |
+| FR34 | Epic 3 | rnix strace 命令 |
 | FR35 | Epic 4 | rnix ps 命令 |
 | FR36 | Epic 1 | 结构化错误信息 |
 | FR37 | Epic 1 | go install 安装 |
@@ -355,7 +355,7 @@ Found: `ux-design-specification.md` (complete, 14 workflow steps completed)
 |---|---|---|
 | Target Users | Aligned | UX covers User A (platform builder) and User B (app developer), matching PRD |
 | User Journeys | Aligned | UX defines execution loop (spawn-observe-result) and debug loop (spawn-debug-fix), mapping to PRD Journey 1-4 |
-| CLI Commands | Aligned | UX specifies `rnix "intent"`, `rnix ps`, `rnix astrace` for Phase 1; compose/top/log for Phase 2 |
+| CLI Commands | Aligned | UX specifies `rnix "intent"`, `rnix ps`, `rnix strace` for Phase 1; compose/top/log for Phase 2 |
 | Error Handling | Aligned | UX defines 3-line error structure matching FR36 |
 | Output Modes | Aligned | UX specifies 4 density modes (quiet/default/verbose/json) |
 | Installation | Aligned | UX confirms `go install` single binary, zero config |

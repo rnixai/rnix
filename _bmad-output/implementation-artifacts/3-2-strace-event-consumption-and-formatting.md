@@ -1,4 +1,4 @@
-# Story 3.2: astrace 事件消费与格式化
+# Story 3.2: strace 事件消费与格式化
 
 Status: done
 
@@ -7,14 +7,14 @@ Status: done
 ## Story
 
 As a 用户,
-I want `rnix astrace <pid>` 实时流式输出 syscall 调用链路,
+I want `rnix strace <pid>` 实时流式输出 syscall 调用链路,
 So that 我能看到智能体的每一步操作及其结果。
 
 ## Acceptance Criteria
 
-1. **Astrace 附着机制** — Given `debug/astrace.go` 已实现，When 调用 `Attach` 附着到指定进程的 DebugChan，Then 开始消费目标进程的 `chan types.SyscallEvent`，每收到一个事件立即格式化并写入 `io.Writer`
+1. **Astrace 附着机制** — Given `debug/strace.go` 已实现，When 调用 `Attach` 附着到指定进程的 DebugChan，Then 开始消费目标进程的 `chan types.SyscallEvent`，每收到一个事件立即格式化并写入 `io.Writer`
 
-2. **基础输出格式** — Given astrace 流式输出中，When 收到一个 SyscallEvent，Then 输出格式为 `[N.NNNs] SyscallName(args) → result    duration`，其中时间戳固定宽度 `[N.NNNs]`（7 字符数字，如 `[  0.012s]`），syscall 名称与接口方法名一致（FR29）
+2. **基础输出格式** — Given strace 流式输出中，When 收到一个 SyscallEvent，Then 输出格式为 `[N.NNNs] SyscallName(args) → result    duration`，其中时间戳固定宽度 `[N.NNNs]`（7 字符数字，如 `[  0.012s]`），syscall 名称与接口方法名一致（FR29）
 
 3. **慢操作标注** — Given 某个 syscall 耗时 > 1 秒，When 格式化该事件，Then 行尾自动追加 `  ← 慢操作` 标注（颜色启用时为暗灰色 `#666666`，禁色时为纯文本）
 
@@ -22,11 +22,11 @@ So that 我能看到智能体的每一步操作及其结果。
 
 5. **LLM syscall 标注** — Given syscall 的 `Args` 中 path 或 tool 参数包含 `/dev/llm/`，When 格式化该事件，Then 行尾追加 `  ← LLM 调用` 标注（与慢操作标注互不排斥，两者均满足时同时显示）
 
-6. **输出延迟合规** — Given astrace 流式输出，When 从 syscall 发生（事件写入 DebugChan）到终端显示，Then 延迟 ≤ 500ms（NFR3）—— 消费者必须立即写出，不得批量缓冲
+6. **输出延迟合规** — Given strace 流式输出，When 从 syscall 发生（事件写入 DebugChan）到终端显示，Then 延迟 ≤ 500ms（NFR3）—— 消费者必须立即写出，不得批量缓冲
 
-7. **上下文取消** — Given astrace 正在消费中，When 传入的 `context.Context` 被取消（用户按 Ctrl+C），Then `Attach` 函数立即返回 `ctx.Err()`，不阻塞
+7. **上下文取消** — Given strace 正在消费中，When 传入的 `context.Context` 被取消（用户按 Ctrl+C），Then `Attach` 函数立即返回 `ctx.Err()`，不阻塞
 
-8. **Channel 关闭处理** — Given astrace 正在消费中，When 目标进程的 DebugChan 被关闭（进程完成），Then `Attach` 函数返回 `nil`，让调用方决定后续行为（如输出 detach 汇总——由 Story 3.3 实现）
+8. **Channel 关闭处理** — Given strace 正在消费中，When 目标进程的 DebugChan 被关闭（进程完成），Then `Attach` 函数返回 `nil`，让调用方决定后续行为（如输出 detach 汇总——由 Story 3.3 实现）
 
 9. **NO_COLOR 支持** — Given 环境变量 `NO_COLOR` 已设置（任意值），When 调用 `DefaultOptions()`，Then `ColorEnabled` 自动为 `false`，所有 ANSI 颜色码不输出
 
@@ -38,7 +38,7 @@ So that 我能看到智能体的每一步操作及其结果。
 
 ## Tasks / Subtasks
 
-- [x] Task 1: 创建 `debug/astrace.go` — 核心消费与格式化 (AC: #1-#11)
+- [x] Task 1: 创建 `debug/strace.go` — 核心消费与格式化 (AC: #1-#11)
   - [x] 1.1 定义 `Options` 结构体 — `ColorEnabled bool`, `Verbose bool`
   - [x] 1.2 实现 `DefaultOptions() Options` — 自动检测 `NO_COLOR` 环境变量
   - [x] 1.3 实现 `Attach(ctx context.Context, ch <-chan types.SyscallEvent, w io.Writer, opts Options) error` — 主消费循环，select on ctx.Done() 和 ch
@@ -49,7 +49,7 @@ So that 我能看到智能体的每一步操作及其结果。
   - [x] 1.8 实现 `formatDuration(d time.Duration) string` — `µs`/`ms`/`s` 自适应单位
   - [x] 1.9 实现 `isLLMSyscall(args map[string]any) bool` — 检查 path/tool 参数是否包含 `/dev/llm/`
 
-- [x] Task 2: 创建 `debug/astrace_test.go` — 全面测试 (AC: #2-#12)
+- [x] Task 2: 创建 `debug/strace_test.go` — 全面测试 (AC: #2-#12)
   - [x] 2.1 `TestFormatEvent_BasicFormat` — 验证完整格式字符串
   - [x] 2.2 `TestFormatEvent_SlowOp` — duration > 1s 时追加慢操作标注
   - [x] 2.3 `TestFormatEvent_Error_WithColor` — err 非 nil 时红色前缀（验证 ANSI 码存在）
@@ -66,7 +66,7 @@ So that 我能看到智能体的每一步操作及其结果。
   - [x] 2.14 `TestDefaultOptions_NoColor` — `NO_COLOR` 环境变量设置时 `ColorEnabled=false`
 
 - [x] Task 3: 更新 sprint-status.yaml (AC: #12)
-  - [x] 3.1 将 `3-2-astrace-event-consumption-and-formatting` 状态从 `backlog` 更新为 `ready-for-dev`
+  - [x] 3.1 将 `3-2-strace-event-consumption-and-formatting` 状态从 `backlog` 更新为 `ready-for-dev`
 
 ## Dev Notes
 
@@ -77,7 +77,7 @@ So that 我能看到智能体的每一步操作及其结果。
 `debug/` 包只能导入 `internal/types/`（零外部依赖）。这是严格的架构规则：
 
 ```
-debug/astrace.go ← 仅依赖:
+debug/strace.go ← 仅依赖:
   - internal/types/  (SyscallEvent, PID)
   - 标准库: context, fmt, io, os, sort, strings, time
 ```
@@ -285,7 +285,7 @@ func isLLMSyscall(args map[string]any) bool {
 
 | NFR | 要求 | 实现保证 |
 |-----|------|---------|
-| NFR3 | astrace 输出延迟 ≤ 500ms | `Attach` 每次 select 收到事件后立即 `fmt.Fprintln` 写出，无批量缓冲。`fmt.Fprintln` 到 `os.Stdout` (unbuffered) 通常 < 1ms |
+| NFR3 | strace 输出延迟 ≤ 500ms | `Attach` 每次 select 收到事件后立即 `fmt.Fprintln` 写出，无批量缓冲。`fmt.Fprintln` 到 `os.Stdout` (unbuffered) 通常 < 1ms |
 | NFR18 | 通过 go vet 和 golint 无警告 | 新增代码遵循 Go 惯例，所有导出类型有注释 |
 
 **为什么不需要特殊优化满足 NFR3：**
@@ -325,11 +325,11 @@ b659759 Finalize Story 3.1: SyscallEvent Recording Infrastructure implementation
 ### 范围边界
 
 **本 Story 包含：**
-- `debug/astrace.go` — `Options`、`DefaultOptions`、`Attach`、`FormatEvent` + 内部辅助函数
-- `debug/astrace_test.go` — 全面单元测试
+- `debug/strace.go` — `Options`、`DefaultOptions`、`Attach`、`FormatEvent` + 内部辅助函数
+- `debug/strace_test.go` — 全面单元测试
 
 **本 Story 不包含：**
-- `rnix astrace <pid>` CLI 子命令（Story 3.3）
+- `rnix strace <pid>` CLI 子命令（Story 3.3）
 - `--json` / `--verbose` flag 与 CLI 的集成（Story 3.3，但 `Options.Verbose` 字段为其预留）
 - Ctrl+C detach 汇总输出（Story 3.3）
 - `internal/ui/trace.go` Syscall Trace Line 组件（Story 3.4）
@@ -337,7 +337,7 @@ b659759 Finalize Story 3.1: SyscallEvent Recording Infrastructure implementation
 
 **Story 3.3 调用示例（供参考，本 Story 不实现）：**
 ```go
-// 在 cmd/rnix/main.go 的 astrace 子命令中
+// 在 cmd/rnix/main.go 的 strace 子命令中
 proc, ok := kernel.GetProcess(pid)
 if !ok { /* 错误处理 */ }
 
@@ -349,7 +349,7 @@ err := debug.Attach(cmd.Context(), proc.DebugChan, os.Stdout, opts)
 ### 架构依赖验证
 
 ```
-debug/astrace.go:
+debug/strace.go:
   import "context"           ✅ 标准库
   import "fmt"               ✅ 标准库
   import "io"                ✅ 标准库
@@ -366,8 +366,8 @@ debug/astrace.go:
 
 **新建文件：**
 ```
-debug/astrace.go          — Attach 消费循环 + FormatEvent 格式化器
-debug/astrace_test.go     — 14 个测试用例
+debug/strace.go          — Attach 消费循环 + FormatEvent 格式化器
+debug/strace_test.go     — 14 个测试用例
 ```
 
 **修改文件：**
@@ -384,8 +384,8 @@ kernel/kernel.go          — Story 3.1 已完成事件埋点，不修改
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 3.2] — Story 定义和验收标准
-- [Source: _bmad-output/planning-artifacts/architecture.md#Decision 5: 调试架构] — DebugChan 机制和 astrace 数据流
-- [Source: _bmad-output/planning-artifacts/architecture.md#通信模式] — astrace 输出格式示例和 Channel 使用规则
+- [Source: _bmad-output/planning-artifacts/architecture.md#Decision 5: 调试架构] — DebugChan 机制和 strace 数据流
+- [Source: _bmad-output/planning-artifacts/architecture.md#通信模式] — strace 输出格式示例和 Channel 使用规则
 - [Source: _bmad-output/planning-artifacts/architecture.md#依赖方向] — debug/ 包依赖约束
 - [Source: _bmad-output/project-context.md#SyscallEvent 记录] — SyscallEvent 命名规则
 - [Source: _bmad-output/project-context.md#关键防错规则] — 禁止反向依赖
@@ -422,8 +422,8 @@ Claude Sonnet 4.6 (claude-sonnet-4-6)
 
 ### Completion Notes List
 
-- ✅ Task 1: 创建 `debug/astrace.go` — 实现了 Options、DefaultOptions、Attach、FormatEvent 及 5 个内部辅助函数（formatTimestamp、formatArgs、formatResult、formatDuration、isLLMSyscall），严格遵循 Dev Notes 中的 API 设计和格式规范
-- ✅ Task 2: 创建 `debug/astrace_test.go` — 17 个测试用例全部通过（原 14 + 代码审查后新增 3：TestDefaultOptions_Default、TestFormatEvent_ErrorSlowColor_NoGrayLeak、LLM tool key 场景），覆盖基础格式、慢操作标注、错误高亮（颜色/无颜色）、LLM 标注、组合场景、参数截断、排序、Attach 消费/取消/关闭/延迟、NO_COLOR 检测
+- ✅ Task 1: 创建 `debug/strace.go` — 实现了 Options、DefaultOptions、Attach、FormatEvent 及 5 个内部辅助函数（formatTimestamp、formatArgs、formatResult、formatDuration、isLLMSyscall），严格遵循 Dev Notes 中的 API 设计和格式规范
+- ✅ Task 2: 创建 `debug/strace_test.go` — 17 个测试用例全部通过（原 14 + 代码审查后新增 3：TestDefaultOptions_Default、TestFormatEvent_ErrorSlowColor_NoGrayLeak、LLM tool key 场景），覆盖基础格式、慢操作标注、错误高亮（颜色/无颜色）、LLM 标注、组合场景、参数截断、排序、Attach 消费/取消/关闭/延迟、NO_COLOR 检测
 - ✅ Task 3: sprint-status.yaml 状态更新 ready-for-dev → in-progress → review
 - ✅ 全项目 `go test -race ./...` 通过（13 个包），`go vet ./...` 无警告
 - ✅ 依赖约束合规：debug/ 仅导入 standard library + internal/types/，无禁止导入
@@ -431,7 +431,7 @@ Claude Sonnet 4.6 (claude-sonnet-4-6)
 
 ### File List
 
-- `debug/astrace.go` — 新增：Attach 消费循环 + FormatEvent 格式化器 + Options + 辅助函数（代码审查后修复：颜色嵌套 Bug + 写入错误处理）
-- `debug/astrace_test.go` — 新增：17 个测试用例（原 14 + 代码审查新增 3）
+- `debug/strace.go` — 新增：Attach 消费循环 + FormatEvent 格式化器 + Options + 辅助函数（代码审查后修复：颜色嵌套 Bug + 写入错误处理）
+- `debug/strace_test.go` — 新增：17 个测试用例（原 14 + 代码审查新增 3）
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改：3-2 状态 ready-for-dev → review
-- `_bmad-output/implementation-artifacts/3-2-astrace-event-consumption-and-formatting.md` — 修改：任务标记完成、Dev Agent Record、File List、Status
+- `_bmad-output/implementation-artifacts/3-2-strace-event-consumption-and-formatting.md` — 修改：任务标记完成、Dev Agent Record、File List、Status

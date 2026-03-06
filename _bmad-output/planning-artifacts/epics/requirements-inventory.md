@@ -51,16 +51,16 @@
 
 **调试与可观测性（FR28-FR32）**
 
-- FR28: 用户可以通过 `astrace` 实时追踪指定智能体的所有 syscall 调用
-- FR29: astrace 输出包含每个 syscall 的名称、参数、返回值和耗时
-- FR30: 系统可以记录 syscall 调用数据（DebugRecord）供 astrace 消费
-- FR31: 用户可以通过 astrace 输出定位到产生错误结果的具体 syscall 调用记录
+- FR28: 用户可以通过 `strace` 实时追踪指定智能体的所有 syscall 调用
+- FR29: strace 输出包含每个 syscall 的名称、参数、返回值和耗时
+- FR30: 系统可以记录 syscall 调用数据（DebugRecord）供 strace 消费
+- FR31: 用户可以通过 strace 输出定位到产生错误结果的具体 syscall 调用记录
 - FR32: 系统在智能体完成时输出汇总信息（退出码、token 消耗、总耗时）
 
 **命令行接口（FR33-FR37）**
 
 - FR33: 用户可以通过 `rnix "意图"` 单命令启动一个智能体
-- FR34: 用户可以通过 `rnix astrace <pid>` 追踪指定进程的 syscall
+- FR34: 用户可以通过 `rnix strace <pid>` 追踪指定进程的 syscall
 - FR35: 用户可以通过 `rnix ps` 查看所有进程状态
 - FR36: CLI 提供清晰的错误信息，包含设备路径和错误原因
 - FR37: 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI）
@@ -77,7 +77,7 @@
 
 - NFR1: 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析）
 - NFR2: `rnix ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
-- NFR3: `astrace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
+- NFR3: `strace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
 - NFR4: VFS 本地文件读取（`/dev/fs`）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍
 - NFR5: 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身）
 
@@ -92,7 +92,7 @@
 **集成（NFR11-14）**
 
 - NFR11: LLM 驱动层调用时，正确传递 system prompt、工具声明、模型选择、输出格式等参数
-- NFR12: LLM 驱动层支持流式结构化输出模式（stream-json），用于 astrace 实时数据采集
+- NFR12: LLM 驱动层支持流式结构化输出模式（stream-json），用于 strace 实时数据采集
 - NFR13: 宿主文件系统通过 `/dev/fs` 访问时，遵循宿主 OS 的文件权限（不绕过宿主权限模型）
 - NFR14: Shell 驱动（`/dev/shell`）执行命令时，继承当前用户的环境变量和 PATH
 
@@ -173,13 +173,13 @@
 - FR25b: Epic 2 — Skill 渐进式加载（frontmatter → body → assets）
 - FR26: Epic 2 — Agent 引用的所有 Skill 的 allowed-tools 聚合为设备权限白名单
 - FR27: Epic 2 — 交付参考 Agent（code-analyst）+ 参考 Skill（code-analysis）
-- FR28: Epic 3 — astrace 实时追踪所有 syscall
-- FR29: Epic 3 — astrace 输出含名称、参数、返回值、耗时
+- FR28: Epic 3 — strace 实时追踪所有 syscall
+- FR29: Epic 3 — strace 输出含名称、参数、返回值、耗时
 - FR30: Epic 3 — 记录 syscall 调用数据（DebugRecord）
-- FR31: Epic 3 — 通过 astrace 定位具体错误 syscall
+- FR31: Epic 3 — 通过 strace 定位具体错误 syscall
 - FR32: Epic 1 — 智能体完成时输出汇总信息
 - FR33: Epic 1 — `rnix "意图"` 单命令启动智能体
-- FR34: Epic 3 — `rnix astrace <pid>` 追踪命令
+- FR34: Epic 3 — `rnix strace <pid>` 追踪命令
 - FR35: Epic 4 — `rnix ps` 查看进程状态
 - FR36: Epic 1 — CLI 提供清晰错误信息
 - FR37: Epic 1 — `go install` 安装，单二进制零依赖

@@ -712,7 +712,7 @@ Supervisor 的子进程可加入同一进程组（PGID）。`one_for_all` 策略
   - `kernel/supervisor_test.go` — 12 个测试用例
 - **修改文件**：
   - `kernel/kernel.go` — `SupervisorManager` 接口（~5 行新增）
-- **不修改**：astrace、rnix log/top/ps、驱动层、context 包、agents 包、skills 包、compose 包、IPC 层、UI 组件
+- **不修改**：strace、rnix log/top/ps、驱动层、context 包、agents 包、skills 包、compose 包、IPC 层、UI 组件
 - **不需要新依赖**
 
 ### References

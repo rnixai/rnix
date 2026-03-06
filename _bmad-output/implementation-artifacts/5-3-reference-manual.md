@@ -18,7 +18,7 @@ So that 我在编写 Skill 或调试时有权威参考。
 
 3. **Manifest 字段说明** — Given 参考手册已编写，When 查阅内容，Then 包含 agent.yaml 和 SKILL.md 全部字段说明和示例
 
-4. **CLI 命令完整列表** — Given 参考手册已编写，When 查阅内容，Then 包含 CLI 命令完整列表（`rnix "意图"`、`rnix ps`、`rnix astrace`、`rnix kill`、`rnix version`）及其 flags
+4. **CLI 命令完整列表** — Given 参考手册已编写，When 查阅内容，Then 包含 CLI 命令完整列表（`rnix "意图"`、`rnix ps`、`rnix strace`、`rnix kill`、`rnix version`）及其 flags
 
 5. **IPC 架构说明** — Given 参考手册已编写，When 查阅内容，Then 包含 IPC 架构说明：daemon 生命周期（自动启动/自动停止/stale socket 清理）、Unix domain socket 通信机制、IPC 协议概述（NDJSON 消息格式、Method 枚举、流式 StreamEvent）、连接复用语义（非流式请求 Ping/ListProcs/Kill 复用同一连接，流式请求 Spawn/AttachDebug 终结连接）
 
@@ -62,7 +62,7 @@ So that 我在编写 Skill 或调试时有权威参考。
   - [x] 5.2 `rnix "意图"` — 根命令（含 --model、--max-steps、--agent flags）
   - [x] 5.3 `rnix ps` — 进程列表命令（含四种输出模式示例）
   - [x] 5.4 `rnix kill <pid>` — 进程终止命令
-  - [x] 5.5 `rnix astrace <pid>` — Syscall 追踪命令（含三种输出模式示例）
+  - [x] 5.5 `rnix strace <pid>` — Syscall 追踪命令（含三种输出模式示例）
   - [x] 5.6 `rnix version` — 版本信息命令
   - [x] 5.7 JSON 响应包装格式（JSONResponse 结构）
 
@@ -453,10 +453,10 @@ rnix 0.1.0
 
 **成功**: `[kernel] PID {pid}: signal sent (SIGTERM)`
 
-#### 子命令: `rnix astrace <pid>`
+#### 子命令: `rnix strace <pid>`
 
 ```
-用法: rnix astrace <pid>
+用法: rnix strace <pid>
 参数: <pid> — 进程 ID（必须恰好 1 个参数）
 ```
 
@@ -464,11 +464,11 @@ rnix 0.1.0
 
 1. **默认** — 格式化追踪行
 ```
-[astrace] attached to PID 1 (state: running)
+[strace] attached to PID 1 (state: running)
 [  0.013s] Open(flags=2, path="/dev/llm/claude") → 3    1ms
 [  0.014s] Write(fd=3, size=1234) → <nil>    5.20s
 [  5.214s] Read(fd=3, length=65536) → 892B      2ms
-[astrace] detached from PID 1 (process exited)
+[strace] detached from PID 1 (process exited)
 ```
 
 2. **--verbose** — 完整参数和结果
@@ -653,7 +653,7 @@ metadata:
 - `progress` — 推理步骤进度
 - `complete` — 进程完成
 - `error` — 错误
-- `syscall_event` — SyscallEvent（astrace 用）
+- `syscall_event` — SyscallEvent（strace 用）
 - `eof` — 流结束标记
 
 **ProgressPayload 结构** (`ipc/protocol.go:150-169`):
@@ -773,7 +773,7 @@ type SyscallEventWire struct {
 #### Story 5.2（快速上手指南）经验
 
 - **CLI 命令和输出格式已通过源码交叉验证** — cmd/rnix/main.go, internal/ui/*.go, debug/*.go
-- **astrace 输出示例精确匹配 trace.go 实现** — key=value 参数格式、`← LLM 调用`/`← 慢操作` 注解逻辑
+- **strace 输出示例精确匹配 trace.go 实现** — key=value 参数格式、`← LLM 调用`/`← 慢操作` 注解逻辑
 - **Code Review 修复** — 首次执行示例改为匹配 AC、补充 --json 输出示例、修正 version 输出格式去掉 `v` 前缀
 - **Agent 配置格式** — 已确认了 Agent/Skill 实际的文件格式
 
@@ -828,7 +828,7 @@ docs/quick-start.md        — Story 5.2 产出
 - ipc/server.go: handleConn(199-238), idleTimeout(64-172), 连接复用语义
 - ipc/daemon.go: EnsureDaemon(29-47), startDaemon(68-89), stale清理(91-108)
 - ipc/client.go: Dial, Spawn, AttachDebug, Kill, ListProcs
-- cmd/rnix/main.go: rootCmd(108-118), versionCmd(120-124), astraceCmd(126-135), psCmd(137-147), killCmd(149-154), daemonCmd(156-160), 全局flags(194-196), 私有flags(197-199), JSON类型(63-85), 设备注册(622-635)
+- cmd/rnix/main.go: rootCmd(108-118), versionCmd(120-124), straceCmd(126-135), psCmd(137-147), killCmd(149-154), daemonCmd(156-160), 全局flags(194-196), 私有flags(197-199), JSON类型(63-85), 设备注册(622-635)
 - agents/types.go: AgentManifest(17-23), AgentModels(10-14), AgentInfo(26-30), AllowedTools(33-46), SystemPrompt(49-57)
 - agents/loader.go: Load(25-82)
 - skills/types.go: SkillManifest(6-11), AllowedTools(13-20), SkillInfo(22-26)
@@ -859,7 +859,7 @@ Claude Opus 4.6
 - ✅ Task 2: 编写 Syscall 参考章节 — 15 个 syscall 全部覆盖（Spawn/Kill/Wait/ListProcs/GetPID + CtxAlloc/CtxRead/CtxWrite/CtxFree + Open/Read/Write/Close/Stat + SyscallEvent），每个含签名、参数表、返回值、错误码、行为描述、示例
 - ✅ Task 3: 编写 VFS 路径规范章节 — 4 个已注册设备路径 + /lib/agents/ + /lib/skills/ + VFSFile 接口 + OpenFlag 枚举 + FD 分配规则
 - ✅ Task 4: 编写 Agent 和 Skill 清单章节 — AgentManifest/AgentModels 全字段说明 + instructions.md + 加载流程 + SKILL.md 格式/解析规则 + SkillManifest 字段 + 渐进式加载 + 完整示例
-- ✅ Task 5: 编写 CLI 命令参考章节 — 3 个全局 flags + 5 个命令（root/ps/kill/astrace/version）含所有 flags 和输出模式示例 + JSONResponse 格式
+- ✅ Task 5: 编写 CLI 命令参考章节 — 3 个全局 flags + 5 个命令（root/ps/kill/strace/version）含所有 flags 和输出模式示例 + JSONResponse 格式
 - ✅ Task 6: 编写 IPC 架构章节 — Daemon 生命周期 + Socket 路径规则 + NDJSON 协议 + 6 个 Method + StreamEvent 协议 + 连接复用语义 + Spawn/AttachDebug 完整流式示例
 - ✅ Task 7: 编写错误处理章节 — ErrCode 6 个枚举 + SyscallError/VFSError/DriverError/ContextError 4 层错误类型 + 6 个基础类型
 - ✅ Task 8: 编写进程模型章节 — 4 态状态机 + 转移规则 + ExitStatus + 6 步资源释放顺序 + Signal 定义

@@ -87,7 +87,7 @@ func TestWritingFirstSkill_HasCLIExamples(t *testing.T) {
 	content := readTutorial(t, "writing-first-skill.md")
 	assertContains(t, content, "rnix -i", "应包含 rnix -i 命令示例")
 	assertContains(t, content, "rnix ps", "应包含 rnix ps 命令示例")
-	assertContains(t, content, "rnix astrace", "应包含 rnix astrace 命令示例")
+	assertContains(t, content, "rnix strace", "应包含 rnix strace 命令示例")
 }
 
 // --- AC2: 调试第一个 bug 教程 ---
@@ -95,20 +95,20 @@ func TestWritingFirstSkill_HasCLIExamples(t *testing.T) {
 func TestDebuggingFirstBug_HasRequiredSections(t *testing.T) {
 	content := readTutorial(t, "debugging-first-bug.md")
 	lower := strings.ToLower(content)
-	for _, s := range []string{"bug", "astrace", "修复", "验证"} {
+	for _, s := range []string{"bug", "strace", "修复", "验证"} {
 		if !strings.Contains(lower, strings.ToLower(s)) {
 			t.Errorf("教程应包含章节关键词: %s", s)
 		}
 	}
 }
 
-func TestDebuggingFirstBug_HasAstraceOutput(t *testing.T) {
+func TestDebuggingFirstBug_HasStraceOutput(t *testing.T) {
 	content := readTutorial(t, "debugging-first-bug.md")
-	assertContains(t, content, "rnix astrace", "应包含 rnix astrace 命令")
+	assertContains(t, content, "rnix strace", "应包含 rnix strace 命令")
 	lower := strings.ToLower(content)
 	for _, field := range []string{"syscall", "pid", "device"} {
 		if !strings.Contains(lower, field) {
-			t.Errorf("astrace 输出应展示 SyscallEvent 字段: %s", field)
+			t.Errorf("strace 输出应展示 SyscallEvent 字段: %s", field)
 		}
 	}
 	assertContainsAny(t, content, []string{"PERMISSION", "ErrCode", "错误码"}, "应展示错误码信息")

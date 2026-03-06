@@ -40,7 +40,7 @@ newxv6/
 │   ├── spawn.go                   # rnix "意图" / rnix spawn 命令
 │   ├── ps.go                      # rnix ps 命令
 │   ├── kill.go                    # rnix kill 命令
-│   ├── astrace.go                 # rnix astrace <pid> 命令
+│   ├── strace.go                 # rnix strace <pid> 命令
 │   ├── version.go                 # rnix version 命令
 │   ├── compose.go                 # rnix compose up/down 命令（Phase 2）
 │   ├── compose_test.go
@@ -124,8 +124,8 @@ newxv6/
 ├── debug/                          # 调试工具
 │   ├── event.go                   # SyscallEvent + EmitEvent
 │   ├── event_test.go
-│   ├── astrace.go                 # astrace 追踪逻辑
-│   └── astrace_test.go
+│   ├── strace.go                 # strace 追踪逻辑
+│   └── strace_test.go
 │
 ├── ipc/                            # IPC Daemon + Client + Protocol
 │   ├── server.go                  # IPC 服务器（Unix domain socket）
@@ -189,7 +189,7 @@ newxv6/
 │       ├── summary_test.go
 │       ├── progress.go            # 进度展示
 │       ├── progress_test.go
-│       ├── trace.go               # astrace 行渲染
+│       ├── trace.go               # strace 行渲染
 │       ├── trace_test.go
 │       ├── table.go               # 表格渲染（ps 等）
 │       ├── table_test.go
@@ -348,11 +348,11 @@ func main() {
     → reap 回收 → ui/ 格式化输出 → stdout
 ```
 
-**astrace 数据流：**
+**strace 数据流：**
 
 ```
 syscall 入口 → debug/event 构造 SyscallEvent
-  → Process.DebugChan → debug/astrace 消费
+  → Process.DebugChan → debug/strace 消费
     → internal/ui/trace 格式化 → stdout 实时流式
 ```
 

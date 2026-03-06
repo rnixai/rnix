@@ -89,10 +89,10 @@ documentsIncluded:
 
 | ID | 需求描述 |
 |----|---------|
-| FR28 | 用户可以通过 astrace 实时追踪指定智能体的所有 syscall 调用 |
-| FR29 | astrace 输出包含每个 syscall 的名称、参数、返回值和耗时 |
-| FR30 | 系统可以记录 syscall 调用数据（DebugRecord）供 astrace 消费 |
-| FR31 | 用户可以通过 astrace 输出定位到产生错误结果的具体 syscall 调用记录 |
+| FR28 | 用户可以通过 strace 实时追踪指定智能体的所有 syscall 调用 |
+| FR29 | strace 输出包含每个 syscall 的名称、参数、返回值和耗时 |
+| FR30 | 系统可以记录 syscall 调用数据（DebugRecord）供 strace 消费 |
+| FR31 | 用户可以通过 strace 输出定位到产生错误结果的具体 syscall 调用记录 |
 | FR32 | 系统在智能体完成时输出汇总信息（退出码、token 消耗、总耗时） |
 
 **命令行接口（FR33-FR37）：**
@@ -100,7 +100,7 @@ documentsIncluded:
 | ID | 需求描述 |
 |----|---------|
 | FR33 | 用户可以通过 `rnix "意图"` 单命令启动一个智能体 |
-| FR34 | 用户可以通过 `rnix astrace <pid>` 追踪指定进程的 syscall |
+| FR34 | 用户可以通过 `rnix strace <pid>` 追踪指定进程的 syscall |
 | FR35 | 用户可以通过 `rnix ps` 查看所有进程状态 |
 | FR36 | CLI 提供清晰的错误信息，包含设备路径和错误原因 |
 | FR37 | 系统可以通过 go install 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI） |
@@ -123,7 +123,7 @@ documentsIncluded:
 |----|---------|
 | NFR1 | 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析） |
 | NFR2 | rnix ps 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM） |
-| NFR3 | astrace 输出延迟 ≤ 500ms（从 syscall 发生到终端显示） |
+| NFR3 | strace 输出延迟 ≤ 500ms（从 syscall 发生到终端显示） |
 | NFR4 | VFS 本地文件读取（/dev/fs）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍 |
 | NFR5 | 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身） |
 
@@ -142,7 +142,7 @@ documentsIncluded:
 | ID | 需求描述 |
 |----|---------|
 | NFR11 | LLM 驱动层调用时，正确传递 system prompt、工具声明、模型选择、输出格式等参数 |
-| NFR12 | LLM 驱动层支持流式结构化输出模式，用于 astrace 实时数据采集 |
+| NFR12 | LLM 驱动层支持流式结构化输出模式，用于 strace 实时数据采集 |
 | NFR13 | 宿主文件系统通过 /dev/fs 访问时，遵循宿主 OS 的文件权限（不绕过宿主权限模型） |
 | NFR14 | Shell 驱动（/dev/shell）执行命令时，继承当前用户的环境变量和 PATH |
 
@@ -225,13 +225,13 @@ documentsIncluded:
 | FR25 | spawn 时指定加载 Skill | Epic 2 (Story 2.4) | ✅ 覆盖 |
 | FR26 | Skill tools 声明映射为设备权限白名单 | Epic 2 (Story 2.4) | ✅ 覆盖 |
 | FR27 | 交付 code-analyst 参考 Skill | Epic 2 (Story 2.5) | ✅ 覆盖 |
-| FR28 | astrace 实时追踪所有 syscall | Epic 3 (Story 3.2, 3.3) | ✅ 覆盖 |
-| FR29 | astrace 输出含名称、参数、返回值、耗时 | Epic 3 (Story 3.2) | ✅ 覆盖 |
+| FR28 | strace 实时追踪所有 syscall | Epic 3 (Story 3.2, 3.3) | ✅ 覆盖 |
+| FR29 | strace 输出含名称、参数、返回值、耗时 | Epic 3 (Story 3.2) | ✅ 覆盖 |
 | FR30 | 记录 syscall 调用数据（DebugRecord） | Epic 3 (Story 3.1) | ✅ 覆盖 |
-| FR31 | 通过 astrace 定位具体错误 syscall | Epic 3 (Story 3.2) | ✅ 覆盖 |
+| FR31 | 通过 strace 定位具体错误 syscall | Epic 3 (Story 3.2) | ✅ 覆盖 |
 | FR32 | 智能体完成时输出汇总信息 | Epic 1 (Story 1.7) | ✅ 覆盖 |
 | FR33 | `rnix "意图"` 单命令启动智能体 | Epic 1 (Story 1.7) | ✅ 覆盖 |
-| FR34 | `rnix astrace <pid>` 追踪命令 | Epic 3 (Story 3.3) | ✅ 覆盖 |
+| FR34 | `rnix strace <pid>` 追踪命令 | Epic 3 (Story 3.3) | ✅ 覆盖 |
 | FR35 | `rnix ps` 查看进程状态 | Epic 4 (Story 4.4) | ✅ 覆盖 |
 | FR36 | CLI 提供清晰错误信息 | Epic 1 (Story 1.7) | ✅ 覆盖 |
 | FR37 | `go install` 安装，单二进制零依赖 | Epic 1 (Story 1.1) | ✅ 覆盖 |
@@ -271,9 +271,9 @@ documentsIncluded:
 | 对齐维度 | PRD 来源 | UX 对应设计 | 状态 |
 |---------|---------|-----------|------|
 | 用户旅程 | 4 个旅程（陈明/林薇的成功/异常路径） | UX 完整映射全部 4 个旅程 + 新增 Journey 0（首次设置） | ✅ 对齐 |
-| CLI 命令集 | FR33-37（rnix spawn/astrace/ps/install） | UX 详细定义了全部命令的交互格式和帮助系统 | ✅ 对齐 |
+| CLI 命令集 | FR33-37（rnix spawn/strace/ps/install） | UX 详细定义了全部命令的交互格式和帮助系统 | ✅ 对齐 |
 | 错误处理 | FR36（清晰错误信息，含设备路径和原因） | UX 设计了三行错误结构（发生 + 影响 + 建议），完全匹配 | ✅ 对齐 |
-| astrace 设计 | FR28-31（实时追踪、名称/参数/返回/耗时） | UX 定义了完整的 Trace Line 格式和颜色方案 | ✅ 对齐 |
+| strace 设计 | FR28-31（实时追踪、名称/参数/返回/耗时） | UX 定义了完整的 Trace Line 格式和颜色方案 | ✅ 对齐 |
 | 进程表 | FR7/FR35（ps 命令） | UX 定义了 Process Table 组件，含列优先级和宽度自适应 | ✅ 对齐 |
 | 实时进度 | FR8/FR32（reasonStep + 汇总） | UX 设计了 Agent Progress Reporter + Summary Footer | ✅ 对齐 |
 | 输出模式 | PRD 暗含 JSON/默认/详细需求 | UX 明确定义 4 种模式（quiet/default/verbose/json） | ✅ 对齐 |
@@ -284,7 +284,7 @@ documentsIncluded:
 
 | 扩展项 | 说明 | 评估 |
 |--------|------|------|
-| `--filter` flag for astrace | UX 设计中 astrace 支持按 syscall 类型过滤 | 合理补充，增强调试体验 |
+| `--filter` flag for strace | UX 设计中 strace 支持按 syscall 类型过滤 | 合理补充，增强调试体验 |
 | `rnix kill <pid>` CLI 命令 | UX help 文本中明确列出，PRD FR3 暗含但 FR33-37 未显式列出 | 已在 Epic 4 Story 4.1 实现，无缺口 |
 | Spinner 等待动画 | UX 定义了 LLM 调用期间的 spinner 指示器 | 合理补充，防止用户以为系统卡死 |
 | SIGINT 双击强制退出 | UX 定义了首次优雅/二次强制的中断策略 | 合理补充，生产级必备 |

@@ -55,7 +55,7 @@ inputDocuments:
   - `12.1-UNIT-005` - docs/docs_test.go:TestWritingFirstSkill_HasCLIExamples
     - **Given:** writing-first-skill.md 已编写
     - **When:** 检查 CLI 命令示例
-    - **Then:** 包含 rnix -i、rnix ps、rnix astrace 命令
+    - **Then:** 包含 rnix -i、rnix ps、rnix strace 命令
 
 - **Gaps:** 无
 - **Recommendation:** 覆盖充分，AC 全部满足
@@ -73,11 +73,11 @@ inputDocuments:
   - `12.1-UNIT-006` - docs/docs_test.go:TestDebuggingFirstBug_HasRequiredSections
     - **Given:** debugging-first-bug.md 已编写
     - **When:** 检查文档内容
-    - **Then:** 包含"bug"、"astrace"、"修复"、"验证"关键词
+    - **Then:** 包含"bug"、"strace"、"修复"、"验证"关键词
   - `12.1-UNIT-007` - docs/docs_test.go:TestDebuggingFirstBug_HasAstraceOutput
     - **Given:** debugging-first-bug.md 已编写
-    - **When:** 检查 astrace 输出示例
-    - **Then:** 包含 rnix astrace 命令，展示 Syscall、PID、Device 字段和 PERMISSION 错误码
+    - **When:** 检查 strace 输出示例
+    - **Then:** 包含 rnix strace 命令，展示 Syscall、PID、Device 字段和 PERMISSION 错误码
   - `12.1-UNIT-008` - docs/docs_test.go:TestDebuggingFirstBug_ShowsFixWorkflow
     - **Given:** debugging-first-bug.md 已编写
     - **When:** 检查修复流程
@@ -191,10 +191,10 @@ ok  github.com/rnixai/rnix/docs  0.010s
 
 | # | Severity | Finding | Resolution |
 |---|----------|---------|------------|
-| 1 | HIGH | astrace Read 输出格式错误（Result 应为字节数） | 修正为 `Read(fd=N, length=N) → bytes` 格式 |
+| 1 | HIGH | strace Read 输出格式错误（Result 应为字节数） | 修正为 `Read(fd=N, length=N) → bytes` 格式 |
 | 2 | HIGH | rnix ps 列名错误（应为 SKILL 而非 AGENT） | 修正为 `PID STATE SKILL TOKENS ELAPSED` 格式 |
 | 3 | MEDIUM | docs_test 对 frontmatter 字段断言过宽 | 改为检查 `allowed-tools:` |
-| 4 | LOW | 教程间 astrace 格式不一致 | 统一为与 quick-start.md 一致的格式 |
+| 4 | LOW | 教程间 strace 格式不一致 | 统一为与 quick-start.md 一致的格式 |
 | 5 | LOW | code-analyst Agent 依赖 | 已确认 lib/agents/code-analyst/ 存在 |
 
 ---

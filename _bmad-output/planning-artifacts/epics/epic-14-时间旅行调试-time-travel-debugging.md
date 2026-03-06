@@ -81,4 +81,4 @@ So that 我可以验证"如果当时做了不同决定会怎样"。
 
 **Given** fork 产生的新进程
 **When** 新进程执行完成
-**Then** 用户可以通过 `rnix ps` 和 `rnix astrace` 正常查看该分支进程
+**Then** 用户可以通过 `rnix ps` 和 `rnix strace` 正常查看该分支进程

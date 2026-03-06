@@ -525,7 +525,7 @@ Pre-existing test/testdata files (created by ATDD step, not this implementation)
 - Future improvement: validate on load with clear error message
 
 #### LOW-3: Spawn SyscallEvent missing MCP mount info
-- Fixed: Added `mcp_mounts` to Spawn event args for astrace visibility
+- Fixed: Added `mcp_mounts` to Spawn event args for strace visibility
 
 #### LOW-4: Story File List documentation inaccuracy
 - `drivers/mcp/config_test.go` listed as "pre-existing" but test implementations were added during this story

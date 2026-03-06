@@ -154,7 +154,7 @@ _让Agent OS从黑盒变为透明鱼缸——生产级系统的必备条件。_
 | # | 创意名称 | 核心概念 |
 |---|---|---|
 | #31 | **agdb交互式调试器** | syscall/推理/质量/预算断点，单步执行，上下文注入，参数热修改 |
-| #32 | **astrace系统调用追踪** | 实时追踪所有syscall，按类别过滤，token成本标注，耗时统计 |
+| #32 | **strace系统调用追踪** | 实时追踪所有syscall，按类别过滤，token成本标注，耗时统计 |
 | #33 | **时间旅行调试** | 精确录制+回放+反向单步+任意跳转+上下文diff+fork-continue(what-if) |
 | #34 | **分布式因果链追踪** | 跨智能体Trace+Span，因果链分析，atrace blame根因定位 |
 | #35 | **上下文内存分析器** | 活跃/温/冷/泄漏分类，最大消费者识别，耗尽预测，自动GC |
@@ -222,7 +222,7 @@ _让Agent OS从黑盒变为透明鱼缸——生产级系统的必备条件。_
 │  GitHub │ Slack │ DB │ ...     │  shell │ browser │ file │ llm │
 ├─────────────────────────────────────────────────────────────────┤
 │                     调试与可观测性层                              │
-│  agdb │ astrace │ 时间旅行 │ 分布式追踪 │ ctx-profiler │ agtest │
+│  agdb │ strace │ 时间旅行 │ 分布式追踪 │ ctx-profiler │ agtest │
 ├─────────────────────────────────────────────────────────────────┤
 │                     系统调用接口 (~45 syscalls)                   │
 │  进程: spawn/kill/wait/clone    上下文: ctx_alloc/read/write     │
@@ -328,7 +328,7 @@ _让Agent OS从黑盒变为透明鱼缸——生产级系统的必备条件。_
 - 干细胞分化 + Skill驱动特化
 - 适应性免疫安全
 - 神经可塑性（能力迁移）
-- 完整调试工具链（agdb/astrace/时间旅行/分布式追踪/ctx-profiler/agtest）
+- 完整调试工具链（agdb/strace/时间旅行/分布式追踪/ctx-profiler/agtest）
 - Agent Compose完整版
 - 可视化调试面板
 

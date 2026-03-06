@@ -49,16 +49,16 @@
 
 ## Debugging & Observability（调试与可观测性）
 
-- **FR28:** 用户可以通过 `astrace` 实时追踪指定智能体的所有 syscall 调用
-- **FR29:** 系统可以在 astrace 输出中展示每个 syscall 的名称、参数、返回值和耗时
-- **FR30:** 系统可以记录 syscall 调用数据（DebugRecord）供 astrace 消费
-- **FR31:** 用户可以通过 astrace 输出定位到产生错误结果的具体 syscall 调用记录
+- **FR28:** 用户可以通过 `strace` 实时追踪指定智能体的所有 syscall 调用
+- **FR29:** 系统可以在 strace 输出中展示每个 syscall 的名称、参数、返回值和耗时
+- **FR30:** 系统可以记录 syscall 调用数据（DebugRecord）供 strace 消费
+- **FR31:** 用户可以通过 strace 输出定位到产生错误结果的具体 syscall 调用记录
 - **FR32:** 系统在智能体完成时输出汇总信息（退出码、token 消耗、总耗时）
 
 ## Command Line Interface（命令行接口）
 
 - **FR33:** 用户可以通过 `rnix "意图"` 单命令启动一个智能体
-- **FR34:** 用户可以通过 `rnix astrace <pid>` 追踪指定进程的 syscall
+- **FR34:** 用户可以通过 `rnix strace <pid>` 追踪指定进程的 syscall
 - **FR35:** 用户可以通过 `rnix ps` 查看所有进程状态
 - **FR36:** 系统可以在 CLI 中输出结构化错误信息，包含设备路径、错误码和错误原因
 - **FR37:** 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI）
@@ -96,7 +96,7 @@
 - **FR54:** 系统可以通过 Mount/Unmount syscall 在 `/mnt/mcp/` 路径下挂载和卸载 MCP 服务器
 - **FR55:** Agent 的 `agent.yaml` 可以通过 `mcp` 字段引用 MCP 服务器名称列表，系统在 Spawn 时自动挂载对应服务
 - **FR56:** 系统可以将 MCP 服务器提供的工具和资源通过 VFS 路径暴露给智能体，智能体通过标准 Open/Read/Write 访问
-- **FR57:** 系统可以端到端运行四层能力栈：Agent（身份+策略）→ Skill（程序性知识+工具权限）→ MCP（外部服务集成）→ Device（原生 I/O），用户可以通过 astrace 验证各层调用链路的职责分离
+- **FR57:** 系统可以端到端运行四层能力栈：Agent（身份+策略）→ Skill（程序性知识+工具权限）→ MCP（外部服务集成）→ Device（原生 I/O），用户可以通过 strace 验证各层调用链路的职责分离
 
 ## Monitoring & Observability（监控与可观测性，Phase 2）
 

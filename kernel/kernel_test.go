@@ -1782,10 +1782,10 @@ func TestToolCall_VFSAndContextEvents(t *testing.T) {
 
 func TestNilDebugChan_ZeroOverhead(t *testing.T) {
 	// Verify emitEvent with nil DebugChan does not panic.
-	// AC #10: DebugChan 为 nil 时零开销（无 astrace 附着）
+	// AC #10: DebugChan 为 nil 时零开销（无 strace 附着）
 	k := newSimpleKernel(t)
 	proc := NewProcess(0, "nil chan test", nil)
-	proc.DebugChan = nil // simulate no astrace attached
+	proc.DebugChan = nil // simulate no strace attached
 
 	// Direct call to emitEvent — must not panic or block.
 	k.emitEvent(proc, "Open", map[string]any{"path": "/dev/null"}, 1, nil, time.Millisecond)

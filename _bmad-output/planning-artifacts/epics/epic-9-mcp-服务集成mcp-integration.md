@@ -84,7 +84,7 @@ So that 确认各层职责分离且协同正确。
 **And** MCP 层提供外部服务集成
 **And** Device 层提供原生 I/O（`/dev/`）
 
-**Given** `rnix astrace` 追踪该进程
+**Given** `rnix strace` 追踪该进程
 **When** 查看 syscall 链路
 **Then** 可以清晰看到四层的调用边界和数据流向（FR57）
 

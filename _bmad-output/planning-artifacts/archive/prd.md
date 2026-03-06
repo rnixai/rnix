@@ -57,11 +57,11 @@ editHistory:
 
 **实现语言：** Go（goroutine = 智能体进程，channel = IPC，interface = syscall 契约）。
 
-**架构路线：** Gamma 混合——底层微内核保可靠性，上层涌现层释放创新潜力。Phase 1（MVP）验证 OS 范式核心可行性（单智能体 + astrace），Phase 2（能力栈建设）实现完整多智能体编排能力（IPC + Compose + skillpkg + MCP + Supervisor）。
+**架构路线：** Gamma 混合——底层微内核保可靠性，上层涌现层释放创新潜力。Phase 1（MVP）验证 OS 范式核心可行性（单智能体 + strace），Phase 2（能力栈建设）实现完整多智能体编排能力（IPC + Compose + skillpkg + MCP + Supervisor）。
 
 ### What Makes This Special
 
-**OS 级调试工具链（杀手级入口）：** `astrace` 追踪所有 syscall，将多智能体 bug 定位时间从"天级"降至"分钟级"。这是用户进门的钩子——因为调试黑盒是开发者在现有框架中最大的痛点，且没有任何现有框架提供 OS 级追踪能力。
+**OS 级调试工具链（杀手级入口）：** `strace` 追踪所有 syscall，将多智能体 bug 定位时间从"天级"降至"分钟级"。这是用户进门的钩子——因为调试黑盒是开发者在现有框架中最大的痛点，且没有任何现有框架提供 OS 级追踪能力。
 
 **正确的抽象层级（留下的理由）：** 多智能体系统的问题不是"缺一个更好的框架"，而是"缺一个操作系统"。Rnix 的进程模型、VFS 一切皆文件、Agent + Skill 双层能力体系（Skill 遵循 Agent Skills 行业标准，可与 30+ AI 工具生态互操作）、45 个标准 syscall 构成了一个完整的 OS 范式——框架在应用层只能模拟这些能力，而 Rnix 在 OS 层原生提供。
 
@@ -87,7 +87,7 @@ editHistory:
 | 调试效率 | 定位多智能体 bug 的时间 | 从"天级"降至"分钟级" |
 | 能力复用率 | 单个 Skill 被引用的项目数 | ≥ 3 个项目 |
 | 上手门槛 | 安装到跑通第一个 demo | ≤ 15 分钟 |
-| 顿悟时刻 | `astrace` 首次定位到真实问题 | 用户确认"这比翻日志快得多" |
+| 顿悟时刻 | `strace` 首次定位到真实问题 | 用户确认"这比翻日志快得多" |
 
 **用户 B（应用开发者）：**
 
@@ -118,7 +118,7 @@ editHistory:
 | LLM 调用 | 通过 `/dev/llm/claude` 完成推理 |
 | Skill 加载 | `code-analyst` Agent 加载 agent.yaml + 引用的 Skill SKILL.md 正确注入 system prompt |
 | reasonStep 循环 | tool_call → 执行 → 追加结果 → 继续推理 → text → 完成 |
-| astrace 追踪 | `rnix astrace 1` 输出完整 syscall 链路（名称、耗时、token）|
+| strace 追踪 | `rnix strace 1` 输出完整 syscall 链路（名称、耗时、token）|
 | 自举验证 | 用 Rnix 分析 Rnix 自身源码，识别出真实存在的代码问题 |
 
 **可靠性验收（MVP）：**
@@ -134,7 +134,7 @@ editHistory:
 | 维度 | 核心可测量结果 |
 |------|--------------|
 | 自举 | Rnix 分析自身源码 → 输出中包含至少 1 个可验证的真实代码问题 |
-| 调试差异化 | `astrace` 输出的 syscall 链路能回溯到导致错误结果的具体步骤 |
+| 调试差异化 | `strace` 输出的 syscall 链路能回溯到导致错误结果的具体步骤 |
 | 端到端延迟 | 单智能体 spawn→完成（含 LLM 调用），≤ 30 秒 |
 
 ### Phase 2 Success Criteria
@@ -188,11 +188,11 @@ editHistory:
 
 陈明又一次盯着终端发呆。他用 LangGraph 搭的 3 智能体代码审查系统上线两周了，其中一个智能体偶尔给出错误的审查意见——大概每 20 次出现一次。他翻了三天日志，在数千行对话记录中搜索"到底是哪一步推理出了问题"，但日志只有扁平的文本输出，没有因果链，没有上下文快照。他开始怀疑是不是该放弃这个项目。
 
-然后他在 GitHub 上看到了 Rnix。README 里的一句话抓住了他："astrace — 像 strace 一样追踪智能体的每一个 syscall"。他决定试试。
+然后他在 GitHub 上看到了 Rnix。README 里的一句话抓住了他："strace — 像 strace 一样追踪智能体的每一个 syscall"。他决定试试。
 
 `go install` 安装 Rnix。他创建了一个 `code-analyst` Agent——写 `agent.yaml` 定义模型偏好和 Skill 引用，写 `instructions.md` 注入审查策略。然后写了一个 `code-analysis` Skill 的 `SKILL.md`（遵循 Agent Skills 行业标准），定义工具依赖和分析流程。`rnix "审查这段代码" --agent=code-analyst` 启动第一个智能体。跑通了。
 
-然后他复现了那个偶现 bug。这次，他运行 `rnix astrace 1`。
+然后他复现了那个偶现 bug。这次，他运行 `rnix strace 1`。
 
 终端输出了完整的 syscall 链路——每一步调用了什么（Open、Read、Write、CtxWrite），传了什么参数，返回了什么，花了多久。他立刻看到：在第 7 步，智能体通过 `/dev/fs` 读取了一个错误的文件路径——它把 `src/auth/login.go` 读成了 `src/auth/logout.go`。这个错误的文件内容被写入上下文，导致后续所有推理都偏了。
 
@@ -205,7 +205,7 @@ editHistory:
 - Agent 定义编写流程（agent.yaml + instructions.md）
 - Skill 编写流程（SKILL.md，遵循 Agent Skills 行业标准）
 - `rnix spawn --agent=<name>` 单命令启动
-- `astrace` syscall 追踪输出（名称、参数、返回值、耗时）
+- `strace` syscall 追踪输出（名称、参数、返回值、耗时）
 - VFS `/dev/fs` 文件读取路径透明可见
 - Skill 发布到 skillpkg 的流程
 
@@ -299,7 +299,7 @@ agents:
 | Agent 定义编写（agent.yaml + instructions.md） | 旅程 1 | ✓ | | |
 | Skill 编写（SKILL.md，Agent Skills 行业标准） | 旅程 1 | ✓ | | |
 | `rnix spawn --agent=<name>` 单命令 | 旅程 1, 2 | ✓ | | |
-| `astrace` syscall 追踪 | 旅程 1 | ✓ | | |
+| `strace` syscall 追踪 | 旅程 1 | ✓ | | |
 | VFS `/dev/fs` 文件读取 | 旅程 1 | ✓ | | |
 | LLM 超时处理 + 进程状态正确转移 | 旅程 2 | ✓ | | |
 | `rnix ps` 进程查看 | 旅程 2 | ✓ | | |
@@ -326,7 +326,7 @@ agents:
 
 1. **智能体即进程：** spawn/kill/wait/signal 进程语义，进程树管理，生命周期状态机。现有框架没有这个抽象层。
 2. **一切皆文件 VFS：** 工具 = `/dev/` 设备，MCP = `/mnt/mcp/` 挂载，智能体状态 = `/proc/` 文件。统一接口消除了工具/服务/状态的碎片化。
-3. **OS 级调试（astrace）：** syscall 级追踪能力，在任何现有多智能体框架中都不存在。
+3. **OS 级调试（strace）：** syscall 级追踪能力，在任何现有多智能体框架中都不存在。
 4. **四层能力模型（双标准兼容）：** Agent → Skill → MCP → Device 四层架构，每层职责清晰：Agent 定义"我是谁"（身份+策略+模型），Skill 定义"如何做 X"（程序性知识+工具权限，遵循 Agent Skills 行业标准），MCP 提供外部服务集成（MCP 标准，Phase 2），Device 提供原生 I/O 能力（`/dev/`）。Skill 与 MCP 互补而非重叠——Skill 提供领域级程序性知识，MCP Prompts 提供服务级交互模板。
 5. **AgentShell DSL：** 类 Unix 语法操作智能体，管道组合 `spawn "分析" | spawn "写文档"` 取代硬编码编排。
 
@@ -334,7 +334,7 @@ agents:
 
 **Phase 1 验证（自举）：** Rnix 用自身 syscall 层分析自身源码并识别真实问题。这验证 OS 范式的核心可行性——智能体能否通过 OS 原语完成实际任务。
 
-**公开发布前验证（待定）：** 比较验证推迟到有真实用户反馈时执行。早期阶段，自举成功 + astrace 调试体验 + 社区反馈是更可靠的验证信号。
+**公开发布前验证（待定）：** 比较验证推迟到有真实用户反馈时执行。早期阶段，自举成功 + strace 调试体验 + 社区反馈是更可靠的验证信号。
 
 ### Risk Mitigation
 
@@ -348,7 +348,7 @@ Rnix 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来�
 
 | 接口层 | 格式 | 用途 | 阶段 |
 |--------|------|------|------|
-| **AgentShell CLI** | 命令行 | `rnix "意图" --agent=<name>`、`rnix astrace`、`rnix ps` | MVP |
+| **AgentShell CLI** | 命令行 | `rnix "意图" --agent=<name>`、`rnix strace`、`rnix ps` | MVP |
 | **Agent 定义** | YAML + Markdown | `agent.yaml`（身份+模型+Skill引用）+ `instructions.md`（角色策略） | MVP |
 | **Skill 定义** | Markdown（Agent Skills 标准） | `SKILL.md`（YAML frontmatter + 程序性知识） | MVP |
 | **Agent Compose** | YAML | `rnix-compose.yaml` 多智能体编排 | Phase 2 |
@@ -390,7 +390,7 @@ Rnix 的"API"不是 REST 端点或 Go 函数——而是 **~45 个 syscall**（P
 | 文档类型 | 内容 | 阶段 |
 |---------|------|------|
 | **概念文档** | 为什么是 Agent OS、核心概念（进程、VFS、Skill、syscall）、与现有框架对比 | MVP |
-| **快速上手** | 安装 → spawn 第一个智能体 → 看 astrace 输出（≤ 15 分钟目标） | MVP |
+| **快速上手** | 安装 → spawn 第一个智能体 → 看 strace 输出（≤ 15 分钟目标） | MVP |
 | **参考手册** | syscall 列表、VFS 路径规范、agent.yaml / SKILL.md 字段、CLI 命令 | MVP |
 | **教程** | 写第一个 Skill、调试第一个 bug、组合多智能体 | Phase 2 |
 | **架构文档** | 微内核设计、进程模型、驱动层、上下文管理 | Phase 2 |
@@ -472,7 +472,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 | `--tools` / `--allowedTools` | `/dev/` 设备权限，Skill `SKILL.md` `allowed-tools` 聚合 | MVP |
 | `--model sonnet/haiku` | Agent `agent.yaml` `models.preferred` | MVP |
 | `--max-turns` | reasonStep 循环上限 | MVP |
-| `--stream-json` | `astrace` 实时追踪数据源 | MVP |
+| `--stream-json` | `strace` 实时追踪数据源 | MVP |
 | `--max-budget-usd` | Token 预算控制 | Phase 2 |
 | `--mcp-config` | `/mnt/mcp/` 挂载实现，agent.yaml `mcp:` 字段引用 MCP 服务器 | Phase 2 |
 | `--agents` | 多智能体子进程 spawn | Phase 2+ |
@@ -504,15 +504,15 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 | Skill 加载 | `skills/loader.go` | SKILL.md 解析（渐进式加载）→ `--system-prompt` + `--tools` 参数映射 |
 | 参考 Agent | `lib/agents/code-analyst/` | 自举验证载体 + Agent 参考实现 |
 | 参考 Skill | `lib/skills/code-analysis/` | SKILL.md 标准格式参考实现 |
-| CLI 入口 | `cmd/rnix/main.go` | `rnix "意图"` + `rnix astrace <pid>` + `rnix ps` |
-| astrace | `debug/astrace.go` | syscall 追踪（基于 `--stream-json` 实时数据） |
+| CLI 入口 | `cmd/rnix/main.go` | `rnix "意图"` + `rnix strace <pid>` + `rnix ps` |
+| strace | `debug/strace.go` | syscall 追踪（基于 `--stream-json` 实时数据） |
 
 **MVP 实现的 ~15 个 syscall：**
 详见 [API Surface (Syscall ABI)](#api-surface-syscall-abi) 中的完整列表。
 
 **MVP 文档交付：**
 - 概念文档（为什么是 Agent OS）
-- 快速上手（安装 → spawn → astrace，≤ 15 分钟）
+- 快速上手（安装 → spawn → strace，≤ 15 分钟）
 - 参考手册（syscall 列表、VFS 路径、manifest 字段、CLI 命令）
 
 ### Post-MVP Features
@@ -581,7 +581,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 | 风险 | 缓解 |
 |------|------|
-| OS 范式对开发者太抽象 | 概念文档 + astrace demo 作为具象化入口，用调试痛点传播 |
+| OS 范式对开发者太抽象 | 概念文档 + strace demo 作为具象化入口，用调试痛点传播 |
 | 现有框架快速迭代缩小差距 | 应用层天花板是结构性的，框架加功能不等于加层次 |
 
 **资源风险：**
@@ -642,16 +642,16 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 ### Debugging & Observability（调试与可观测性）
 
-- **FR28:** 用户可以通过 `astrace` 实时追踪指定智能体的所有 syscall 调用
-- **FR29:** 系统可以在 astrace 输出中展示每个 syscall 的名称、参数、返回值和耗时
-- **FR30:** 系统可以记录 syscall 调用数据（DebugRecord）供 astrace 消费
-- **FR31:** 用户可以通过 astrace 输出定位到产生错误结果的具体 syscall 调用记录
+- **FR28:** 用户可以通过 `strace` 实时追踪指定智能体的所有 syscall 调用
+- **FR29:** 系统可以在 strace 输出中展示每个 syscall 的名称、参数、返回值和耗时
+- **FR30:** 系统可以记录 syscall 调用数据（DebugRecord）供 strace 消费
+- **FR31:** 用户可以通过 strace 输出定位到产生错误结果的具体 syscall 调用记录
 - **FR32:** 系统在智能体完成时输出汇总信息（退出码、token 消耗、总耗时）
 
 ### Command Line Interface（命令行接口）
 
 - **FR33:** 用户可以通过 `rnix "意图"` 单命令启动一个智能体
-- **FR34:** 用户可以通过 `rnix astrace <pid>` 追踪指定进程的 syscall
+- **FR34:** 用户可以通过 `rnix strace <pid>` 追踪指定进程的 syscall
 - **FR35:** 用户可以通过 `rnix ps` 查看所有进程状态
 - **FR36:** 系统可以在 CLI 中输出结构化错误信息，包含设备路径、错误码和错误原因
 - **FR37:** 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI）
@@ -689,7 +689,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 - **FR54:** 系统可以通过 Mount/Unmount syscall 在 `/mnt/mcp/` 路径下挂载和卸载 MCP 服务器
 - **FR55:** Agent 的 `agent.yaml` 可以通过 `mcp` 字段引用 MCP 服务器名称列表，系统在 Spawn 时自动挂载对应服务
 - **FR56:** 系统可以将 MCP 服务器提供的工具和资源通过 VFS 路径暴露给智能体，智能体通过标准 Open/Read/Write 访问
-- **FR57:** 系统可以端到端运行四层能力栈：Agent（身份+策略）→ Skill（程序性知识+工具权限）→ MCP（外部服务集成）→ Device（原生 I/O），用户可以通过 astrace 验证各层调用链路的职责分离
+- **FR57:** 系统可以端到端运行四层能力栈：Agent（身份+策略）→ Skill（程序性知识+工具权限）→ MCP（外部服务集成）→ Device（原生 I/O），用户可以通过 strace 验证各层调用链路的职责分离
 
 ### Monitoring & Observability（监控与可观测性，Phase 2）
 
@@ -722,7 +722,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 - **NFR1:** 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析）
 - **NFR2:** `rnix ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
-- **NFR3:** `astrace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
+- **NFR3:** `strace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
 - **NFR4:** VFS 本地文件读取（`/dev/fs`）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍
 - **NFR5:** 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身）
 
@@ -737,7 +737,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 ### Integration
 
 - **NFR11:** LLM 驱动层调用时，正确传递 system prompt、工具声明、模型选择、输出格式等参数
-- **NFR12:** LLM 驱动层支持流式结构化输出模式，用于 astrace 实时数据采集
+- **NFR12:** LLM 驱动层支持流式结构化输出模式，用于 strace 实时数据采集
 - **NFR13:** 宿主文件系统通过 `/dev/fs` 访问时，遵循宿主 OS 的文件权限（不绕过宿主权限模型）
 - **NFR14:** Shell 驱动（`/dev/shell`）执行命令时，继承当前用户的环境变量和 PATH
 

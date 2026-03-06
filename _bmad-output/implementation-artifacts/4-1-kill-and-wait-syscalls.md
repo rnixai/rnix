@@ -365,7 +365,7 @@ kernel/errors.go           — SyscallError 已定义，不修改
 internal/types/types.go    — Signal/ProcessState 已定义，不修改
 context/context.go         — CtxFree 已实现，只调用不修改
 vfs/vfs.go                 — CloseAll 已在 Spawn defer 中调用，不修改
-debug/astrace.go           — 不修改
+debug/strace.go           — 不修改
 internal/ui/*              — 不修改
 ```
 

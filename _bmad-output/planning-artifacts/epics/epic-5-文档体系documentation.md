@@ -26,7 +26,7 @@ So that 我在 15 分钟内体验到 Rnix 的核心价值。
 
 **Given** 快速上手指南已编写
 **When** 按步骤操作
-**Then** 覆盖完整流程：安装 Go → 安装 Rnix（`go install`）→ 验证（`rnix version`）→ 首次执行（`rnix "分析 ./README.md"`）→ 查看结果 → 首次 astrace（`rnix astrace 1`）
+**Then** 覆盖完整流程：安装 Go → 安装 Rnix（`go install`）→ 验证（`rnix version`）→ 首次执行（`rnix "分析 ./README.md"`）→ 查看结果 → 首次 strace（`rnix strace 1`）
 **And** 目标完成时间 ≤ 15 分钟（FR39）
 **And** 每一步包含预期输出示例，用户可对照验证
 
@@ -43,7 +43,7 @@ So that 我在编写 Skill 或调试时有权威参考。
 **Then** 包含 MVP 全部 15 个 syscall 的签名、参数、返回值、错误码、示例
 **And** 包含完整 VFS 路径规范（`/proc/{pid}/`、`/dev/llm/`、`/dev/fs`、`/dev/shell`、`/lib/skills/`）
 **And** 包含 agent.yaml 全部字段说明和示例、SKILL.md（Agent Skills 行业标准）全部字段说明和示例
-**And** 包含 CLI 命令完整列表（`rnix "意图"`、`rnix ps`、`rnix astrace`、`rnix kill`、`rnix version`）及其 flags
+**And** 包含 CLI 命令完整列表（`rnix "意图"`、`rnix ps`、`rnix strace`、`rnix kill`、`rnix version`）及其 flags
 **And** 包含 IPC 架构说明：daemon 生命周期（自动启动/自动停止/stale socket 清理）、Unix domain socket 通信机制、IPC 协议概述（NDJSON 消息格式、Method 枚举、流式 StreamEvent）、连接复用语义（非流式请求 Ping/ListProcs/Kill 复用同一连接，流式请求 Spawn/AttachDebug 终结连接）
 
 ---

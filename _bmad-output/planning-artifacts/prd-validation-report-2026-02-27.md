@@ -151,7 +151,7 @@ overallStatus: PASS (with minor observations)
 | **Vision Statement** | "AI 时代的 Unix"，将智能体视为 OS 一等计算单元 | Executive Summary L50-68 完整覆盖，额外增加了 Gamma 混合架构路线和双阶段 Phase 描述 | **Fully Covered** |
 | **Target Users** | 用户 A（平台构建者/陈明）、用户 B（应用开发者/林薇）、用户 C（最终用户） | PRD 保留 A/B 两个主要用户，User Journeys 4 个旅程完整展开。用户 C 在 Brief 中定义为"次要用户/不直接接触 Rnix"，PRD 合理省略 | **Fully Covered** |
 | **Problem Statement** | 三大核心问题：调试黑盒、能力不可复用、多智能体协调困难 | Executive Summary 第一段直接引用并精炼 | **Fully Covered** |
-| **Key Features** | 微内核、VFS、Skill 系统、astrace、AgentShell、Compose | MVP Feature Set + Post-MVP Features 完整覆盖，新增 Agent + Skill 双层模型（Brief 中为扁平 Skill 概念）、MCP 集成、Supervisor 等 Phase 2 特性 | **Fully Covered** |
+| **Key Features** | 微内核、VFS、Skill 系统、strace、AgentShell、Compose | MVP Feature Set + Post-MVP Features 完整覆盖，新增 Agent + Skill 双层模型（Brief 中为扁平 Skill 概念）、MCP 集成、Supervisor 等 Phase 2 特性 | **Fully Covered** |
 | **Goals/Objectives** | 自举验证、6 个月公开发布、12 个月 GitHub Stars 北极星 | Success Criteria 完整覆盖，新增量化的 Measurable Outcomes | **Fully Covered** |
 | **Differentiators** | OS 级调试、三层能力栈+Skills 生态、进程模型+管道组合、时机优势 | Innovation & Novel Patterns 完整覆盖，三层升级为四层（Agent→Skill→MCP→Device） | **Fully Covered** |
 
@@ -189,12 +189,12 @@ overallStatus: PASS (with minor observations)
 | FR | 上次问题 | 当前状态 |
 |----|---------|---------|
 | FR25b | "支持渐进式加载" | **已修复** → "系统可以对 Skill 进行渐进式加载" |
-| FR29 | "astrace 输出展示..." | **已修复** → "系统可以在 astrace 输出中展示..." |
+| FR29 | "strace 输出展示..." | **已修复** → "系统可以在 strace 输出中展示..." |
 | FR36 | "CLI 输出结构化错误" | **已修复** → "系统可以在 CLI 中输出结构化错误信息" |
 | FR40 | "提供参考手册" | **已修复** → "系统可以提供参考手册" |
 | FR43 | 缺少 Actor | **已修复** → "系统可以管理进程组...用户可以通过..." |
 | FR44 | "提供三级并发模型" | **已修复** → "系统可以提供三级智能体并发模型" |
-| FR57 | 验收标准格式 | **已修复** → "系统可以端到端运行四层能力栈...用户可以通过 astrace 验证..." |
+| FR57 | 验收标准格式 | **已修复** → "系统可以端到端运行四层能力栈...用户可以通过 strace 验证..." |
 | FR60 | "日志按分类显示" | **已修复** → "系统可以将 rnix log 输出按...分类显示" |
 | FR62 | NFR 性质 | **已修复** → "用户可以在 rnix top 中通过交互式操作选中进程并执行 kill 或查看详情" |
 | FR63 | "提供 Supervisor 树" | **已修复** → "系统可以提供 Supervisor 树管理模式" |
@@ -291,7 +291,7 @@ overallStatus: PASS (with minor observations)
 
 | Executive Summary 主张 | Success Criteria 对应 |
 |-----------------------|---------------------|
-| "调试黑盒"问题 → astrace 解决 | 用户 A 调试效率：从"天级"降至"分钟级" |
+| "调试黑盒"问题 → strace 解决 | 用户 A 调试效率：从"天级"降至"分钟级" |
 | "能力不可复用" → Agent + Skill 双层模型 | 用户 A 能力复用率：≥ 3 个项目引用 |
 | "多智能体协调困难" → Compose + 管道组合 | 用户 B 构建效率：比现有框架减少 90% |
 | 自举验证 | Technical Success：自举验证检查清单 |
@@ -322,7 +322,7 @@ overallStatus: PASS (with minor observations)
 | Agent 定义编写 | FR23, FR24, FR25 |
 | Skill 编写 | FR25a, FR25b |
 | rnix spawn --agent | FR1, FR25, FR33 |
-| astrace 追踪 | FR28, FR29, FR30, FR31 |
+| strace 追踪 | FR28, FR29, FR30, FR31 |
 | VFS /dev/fs 读取 | FR13, FR16 |
 | Skill 发布到 skillpkg | FR50（Phase 2） |
 
@@ -381,7 +381,7 @@ PRD L294-L317 的 Journey Requirements Summary 表已包含完整映射，并明
 | Agent 加载 | FR23-FR25 |
 | Skill 加载 | FR25a, FR25b, FR26, FR27 |
 | CLI 入口 | FR33-FR37 |
-| astrace | FR28-FR32 |
+| strace | FR28-FR32 |
 | 文档 | FR38-FR40 |
 | Phase 2: IPC | FR41-FR45 |
 | Phase 2: Compose | FR46-FR49 |
@@ -437,7 +437,7 @@ PRD L294-L317 的 Journey Requirements Summary 表已包含完整映射，并明
 作为 developer_tool / runtime framework 类型的 PRD，以下内容均属 API surface 而非实现泄露：
 - 安装方式（`go install`）
 - 配置文件格式（`agent.yaml`、`SKILL.md`、`rnix-compose.yaml`）
-- CLI 命令语法（`rnix spawn`、`rnix astrace`、`rnix ps`）
+- CLI 命令语法（`rnix spawn`、`rnix strace`、`rnix ps`）
 - syscall ABI（45 个 syscall 名称）
 - VFS 路径规范（`/dev/`、`/proc/`、`/mnt/mcp/`）
 
@@ -458,7 +458,7 @@ PRD L294-L317 的 Journey Requirements Summary 表已包含完整映射，并明
 | **模型可配置性** | **完整覆盖** | FR23, L471 | agent.yaml `models.preferred` 字段 + Claude Code CLI `--model` 映射 |
 | **上下文窗口管理** | **完整覆盖** | FR19-FR22, FR25b, FR61 | ctx_alloc/read/write/free 完整生命周期 + Phase 2 预算管理 |
 | **多智能体协调** | **完整覆盖** | FR41-FR49, FR63-FR65, FR66-FR68 | IPC + Compose + Supervisor + AgentShell |
-| **可观测性** | **完整覆盖** | FR28-FR32, FR58-FR62 | astrace（Phase 1）+ rnix top/log（Phase 2） |
+| **可观测性** | **完整覆盖** | FR28-FR32, FR58-FR62 | strace（Phase 1）+ rnix top/log（Phase 2） |
 | **安全/权限** | **充分覆盖** | FR26, NFR15-NFR17 | Skill allowed-tools 聚合白名单（MVP）+ Capability 系统（Phase 2） |
 | **Skill 复用** | **完整覆盖** | FR25a-FR27, FR50-FR53 | Agent Skills 标准 + skillpkg 包管理 |
 | **行业标准兼容** | **完整覆盖** | FR25a, FR54-FR57, NFR27 | Agent Skills（agentskills.io）+ MCP 协议标准 |
@@ -600,7 +600,7 @@ PRD L294-L317 的 Journey Requirements Summary 表已包含完整映射，并明
 | FR | 上次问题 | 当前 SMART | 改善情况 |
 |----|---------|-----------|---------|
 | FR25b | "~100" 模糊 | 4.8（M=5）| **已修复**："≤ 100 tokens/skill" 精确量化 |
-| FR57 | 验收标准格式 | 4.6（S=5, M=4）| **已修复**：改为 "系统可以端到端运行...用户可以通过 astrace 验证..." |
+| FR57 | 验收标准格式 | 4.6（S=5, M=4）| **已修复**：改为 "系统可以端到端运行...用户可以通过 strace 验证..." |
 | FR62 | NFR 性质 | 5.0 | **已修复**：改为交互操作 FR "用户可以在 rnix top 中通过交互式操作..." |
 | FR68 | 范围过宽（3.2）| 4.8 | **显著改善**：从"变量、流程控制、多行脚本"收窄为"if-else + on-error 最小控制结构集" |
 

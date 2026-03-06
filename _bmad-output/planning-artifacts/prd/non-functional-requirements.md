@@ -4,7 +4,7 @@
 
 - **NFR1:** 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析）
 - **NFR2:** `rnix ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
-- **NFR3:** `astrace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
+- **NFR3:** `strace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
 - **NFR4:** VFS 本地文件读取（`/dev/fs`）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍
 - **NFR5:** 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身）
 
@@ -19,7 +19,7 @@
 ## Integration
 
 - **NFR11:** LLM 驱动层调用时，正确传递 system prompt、工具声明、模型选择、输出格式等参数
-- **NFR12:** LLM 驱动层支持流式结构化输出模式，用于 astrace 实时数据采集
+- **NFR12:** LLM 驱动层支持流式结构化输出模式，用于 strace 实时数据采集
 - **NFR13:** 宿主文件系统通过 `/dev/fs` 访问时，遵循宿主 OS 的文件权限（不绕过宿主权限模型）
 - **NFR14:** Shell 驱动（`/dev/shell`）执行命令时，继承当前用户的环境变量和 PATH
 

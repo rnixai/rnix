@@ -32,7 +32,7 @@
 | `--tools` / `--allowedTools` | `/dev/` 设备权限，Skill `SKILL.md` `allowed-tools` 聚合 | MVP |
 | `--model sonnet/haiku` | Agent `agent.yaml` `models.preferred` | MVP |
 | `--max-turns` | reasonStep 循环上限 | MVP |
-| `--stream-json` | `astrace` 实时追踪数据源 | MVP |
+| `--stream-json` | `strace` 实时追踪数据源 | MVP |
 | `--max-budget-usd` | Token 预算控制 | Phase 2 |
 | `--mcp-config` | `/mnt/mcp/` 挂载实现，agent.yaml `mcp:` 字段引用 MCP 服务器 | Phase 2 |
 | `--agents` | 多智能体子进程 spawn | Phase 2+ |
@@ -64,15 +64,15 @@
 | Skill 加载 | `skills/loader.go` | SKILL.md 解析（渐进式加载）→ `--system-prompt` + `--tools` 参数映射 |
 | 参考 Agent | `lib/agents/code-analyst/` | 自举验证载体 + Agent 参考实现 |
 | 参考 Skill | `lib/skills/code-analysis/` | SKILL.md 标准格式参考实现 |
-| CLI 入口 | `cmd/rnix/main.go` | `rnix "意图"` + `rnix astrace <pid>` + `rnix ps` |
-| astrace | `debug/astrace.go` | syscall 追踪（基于 `--stream-json` 实时数据） |
+| CLI 入口 | `cmd/rnix/main.go` | `rnix "意图"` + `rnix strace <pid>` + `rnix ps` |
+| strace | `debug/strace.go` | syscall 追踪（基于 `--stream-json` 实时数据） |
 
 **MVP 实现的 ~15 个 syscall：**
 详见 [API Surface (Syscall ABI)](#api-surface-syscall-abi) 中的完整列表。
 
 **MVP 文档交付：**
 - 概念文档（为什么是 Agent OS）
-- 快速上手（安装 → spawn → astrace，≤ 15 分钟）
+- 快速上手（安装 → spawn → strace，≤ 15 分钟）
 - 参考手册（syscall 列表、VFS 路径、manifest 字段、CLI 命令）
 
 ## Post-MVP Features
@@ -159,7 +159,7 @@
 
 | 风险 | 缓解 |
 |------|------|
-| OS 范式对开发者太抽象 | 概念文档 + astrace demo 作为具象化入口，用调试痛点传播 |
+| OS 范式对开发者太抽象 | 概念文档 + strace demo 作为具象化入口，用调试痛点传播 |
 | 现有框架快速迭代缩小差距 | 应用层天花板是结构性的，框架加功能不等于加层次 |
 
 **资源风险：**

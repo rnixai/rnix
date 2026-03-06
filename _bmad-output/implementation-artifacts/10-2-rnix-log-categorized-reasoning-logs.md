@@ -29,7 +29,7 @@ So that 我无需深入内核就能排查问题。
 4. **AC4: PID 不存在处理**
    - Given PID 不存在
    - When 执行 `rnix log 999`
-   - Then 输出 `✗ PID 999: process not found` + 建议（与 astrace 错误模式对齐）
+   - Then 输出 `✗ PID 999: process not found` + 建议（与 strace 错误模式对齐）
 
 5. **AC5: JSON 输出**
    - Given 使用 `--json` flag
@@ -78,7 +78,7 @@ So that 我无需深入内核就能排查问题。
   - [x] 6.7 在 `cmd/rnix/main.go` 的 `init()` 中注册 `rootCmd.AddCommand(logCmd)`
 - [x] Task 7: 格式化与 UI (AC: #1, #2)
   - [x] 7.1 在 `internal/ui/` 中添加 `FormatLogEntry` 函数（或在 log.go 中内联，视复杂度决定）
-  - [x] 7.2 日志输出格式：`[HH:MM:SS.sss] [category] content`（时间戳对齐 astrace 的相对时间格式）
+  - [x] 7.2 日志输出格式：`[HH:MM:SS.sss] [category] content`（时间戳对齐 strace 的相对时间格式）
 - [x] Task 8: 测试 (AC: all)
   - [x] 8.1 单元测试：LogEntry emit 逻辑（mock Process with LogChan，验证 think/tool/output 分类正确）
   - [x] 8.2 单元测试：--filter 过滤逻辑（验证各 category 过滤）
@@ -94,7 +94,7 @@ So that 我无需深入内核就能排查问题。
 - **依赖方向**：`cmd/rnix/` → `ipc/` → `vfs/`（ProcInfo 类型），`cmd/rnix/` → `internal/ui/`（styles）
 - **新文件位置**：`cmd/rnix/log.go`（所有 CLI 逻辑集中在此文件，与 `top.go`、`compose.go` 同级）
 - **LogChan 与 DebugChan 并行**：两个独立通道，互不干扰。DebugChan 传递低级 SyscallEvent，LogChan 传递高级 LogEntry
-- **不修改 astrace**：`rnix log` 是 astrace 的高级替代，面向用户排障；astrace 面向开发者调试 syscall
+- **不修改 strace**：`rnix log` 是 strace 的高级替代，面向用户排障；strace 面向开发者调试 syscall
 
 ### LogEntry 类型定义
 
@@ -256,7 +256,7 @@ func (c *Client) AttachLog(pid types.PID, onEntry func(LogEntryWire)) error {
 }
 ```
 
-### CLI 命令模式（参考 astrace 实现）
+### CLI 命令模式（参考 strace 实现）
 
 `cmd/rnix/log.go` 的 runLog 与 runAstrace 高度对齐：
 
@@ -320,7 +320,7 @@ logCmd.Flags().StringVar(&flagFilter, "filter", "", "Filter by log category (thi
 - `ipc/client.go`：`Dial()`、`Close()`、`sendRequest()`、scanner 模式
 - `cmd/rnix/main.go`：`resolveOutputMode()`、`wireToSyscallEvent()` 参考模式
 
-**从 astrace 复用的模式（不复制代码，复用架构模式）：**
+**从 strace 复用的模式（不复制代码，复用架构模式）：**
 - 信号处理：`context.WithCancel` + `signal.Notify` + goroutine cancel
 - IPC 流式消费：`client.AttachXxx(pid, callback)` + `select errCh/ctx.Done()`
 - daemon 未运行处理：`ui.RenderError()` 格式化错误提示
@@ -374,7 +374,7 @@ IPC Server 的 `KernelProvider` 接口（`ipc/server.go` 中的 `Kernel` 接口�
 
 - **DebugChan 为 nil 但 LogChan 非 nil**：可能发生（理论上不会，因为两者都在 NewProcess 中初始化）。emitLog 独立检查 LogChan。
 - **多个消费者**：与 DebugChan 相同，LogChan 只能有一个消费者（Go channel 语义）。如果已有 `rnix log` 连接，第二个连接看不到事件。IPC server 中 `GetLogChan` 返回同一个 channel。
-  - **设计决策**：MVP 阶段接受单消费者限制（与 astrace 一致），后续可考虑 fan-out。
+  - **设计决策**：MVP 阶段接受单消费者限制（与 strace 一致），后续可考虑 fan-out。
 - **进程已退出**：`GetLogChan` 返回 nil channel（reapProcess 已 nil-out），IPC handler 返回 NOT_FOUND。
 - **--filter 无效值**：如果 filter 值不是 think/tool/output，在 runLog 开始时验证并报错退出。
 - **tool result 过大**：`[tool]` 条目的 Content 截断到 500 字符，避免日志爆炸。截断后追加 `... (truncated, N bytes total)`。
@@ -391,7 +391,7 @@ rootCmd.AddCommand(logCmd)
 
 ### Daemon 未运行处理
 
-与 astrace/top 对齐：
+与 strace/top 对齐：
 ```go
 if err != nil {
     renderer := ui.NewRenderer(w, mode)
@@ -425,7 +425,7 @@ if err != nil {
   - `ipc/server.go` — handleConn 添加 case、实现 handleAttachLog
   - `ipc/client.go` — 添加 AttachLog 方法
   - `cmd/rnix/main.go` — init() 注册 logCmd
-- **不修改**：astrace 相关代码、DebugChan 相关代码、top.go、驱动层
+- **不修改**：strace 相关代码、DebugChan 相关代码、top.go、驱动层
 - **依赖不变**：不需要新的外部依赖
 
 ### References
@@ -467,7 +467,7 @@ N/A
 - AttachLog 客户端方法与 AttachDebug 模式一致
 - cmd/rnix/log.go 实现完整 CLI：--filter (think/tool/output)、--json (NDJSON)、Ctrl+C 安全断开
 - FormatLogEntry 使用颜色：think=MutedStyle(灰)、tool=AgentStyle(蓝)、output=SuccessStyle(绿)
-- 时间戳格式：相对进程启动时间的秒数（7.3f 格式），与 astrace 对齐
+- 时间戳格式：相对进程启动时间的秒数（7.3f 格式），与 strace 对齐
 - 已有 red-phase 测试（kernel/log_test.go, ipc/log_test.go）全部通过
 - 新增 cmd/rnix/log_test.go 覆盖格式化、过滤验证、命令注册、PID 不存在场景
 - 全套 17 个包测试通过，零回归，-race 检测通过

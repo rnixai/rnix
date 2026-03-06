@@ -186,7 +186,7 @@ CLI 层                    内核层                   VFS/驱动层
 | Intent | `string` | 创建时的意图描述，不可变 |
 | Skills | `[]string` | 加载的 Skill 名称列表 |
 | Children | `[]types.PID` | 子进程 PID 列表 |
-| CreatedAt | `time.Time` | 进程创建时间（用于 elapsed 和 astrace 时间戳） |
+| CreatedAt | `time.Time` | 进程创建时间（用于 elapsed 和 strace 时间戳） |
 | Exit | `*ExitStatus` | Zombie/Dead 时非 nil，记录退出状态 |
 
 **资源与通道：**
@@ -194,7 +194,7 @@ CLI 层                    内核层                   VFS/驱动层
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | FDTable | `map[types.FD]vfs.VFSFile` | 文件描述符表（VFS 内部管理实际状态） |
-| DebugChan | `chan types.SyscallEvent` | 缓冲 256，astrace 追踪通道 |
+| DebugChan | `chan types.SyscallEvent` | 缓冲 256，strace 追踪通道 |
 | LogChan | `chan types.LogEntry` | 缓冲 256，推理日志通道 |
 | Done | `chan ExitStatus` | 缓冲 1，进程退出信号 |
 | CtxID | `types.CtxID` | 关联的上下文空间 ID |

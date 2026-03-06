@@ -452,7 +452,7 @@ func (k *KernelImpl) Kill(pid types.PID, signal types.Signal) error {
 }
 ```
 
-**重要**：Kill 和 Signal 会各自发射 SyscallEvent。Kill 的事件名保持 "Kill" 不变，确保向后兼容。开发者可考虑在 Kill 委托 Signal 时跳过 Signal 的事件发射，或接受双重事件（取决于 astrace 的可读性偏好）。推荐方案：Kill 保持现有事件格式，内部调用一个 `deliverSignal` 私有方法避免双重事件。
+**重要**：Kill 和 Signal 会各自发射 SyscallEvent。Kill 的事件名保持 "Kill" 不变，确保向后兼容。开发者可考虑在 Kill 委托 Signal 时跳过 Signal 的事件发射，或接受双重事件（取决于 strace 的可读性偏好）。推荐方案：Kill 保持现有事件格式，内部调用一个 `deliverSignal` 私有方法避免双重事件。
 
 **优化方案（推荐）：**
 ```go

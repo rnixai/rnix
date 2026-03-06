@@ -4,11 +4,11 @@
 
 陈明又一次盯着终端发呆。他用 LangGraph 搭的 3 智能体代码审查系统上线两周了，其中一个智能体偶尔给出错误的审查意见——大概每 20 次出现一次。他翻了三天日志，在数千行对话记录中搜索"到底是哪一步推理出了问题"，但日志只有扁平的文本输出，没有因果链，没有上下文快照。他开始怀疑是不是该放弃这个项目。
 
-然后他在 GitHub 上看到了 Rnix。README 里的一句话抓住了他："astrace — 像 strace 一样追踪智能体的每一个 syscall"。他决定试试。
+然后他在 GitHub 上看到了 Rnix。README 里的一句话抓住了他："strace — 像 strace 一样追踪智能体的每一个 syscall"。他决定试试。
 
 `go install` 安装 Rnix。他创建了一个 `code-analyst` Agent——写 `agent.yaml` 定义模型偏好和 Skill 引用，写 `instructions.md` 注入审查策略。然后写了一个 `code-analysis` Skill 的 `SKILL.md`（遵循 Agent Skills 行业标准），定义工具依赖和分析流程。`rnix "审查这段代码" --agent=code-analyst` 启动第一个智能体。跑通了。
 
-然后他复现了那个偶现 bug。这次，他运行 `rnix astrace 1`。
+然后他复现了那个偶现 bug。这次，他运行 `rnix strace 1`。
 
 终端输出了完整的 syscall 链路——每一步调用了什么（Open、Read、Write、CtxWrite），传了什么参数，返回了什么，花了多久。他立刻看到：在第 7 步，智能体通过 `/dev/fs` 读取了一个错误的文件路径——它把 `src/auth/login.go` 读成了 `src/auth/logout.go`。这个错误的文件内容被写入上下文，导致后续所有推理都偏了。
 
@@ -21,7 +21,7 @@
 - Agent 定义编写流程（agent.yaml + instructions.md）
 - Skill 编写流程（SKILL.md，遵循 Agent Skills 行业标准）
 - `rnix spawn --agent=<name>` 单命令启动
-- `astrace` syscall 追踪输出（名称、参数、返回值、耗时）
+- `strace` syscall 追踪输出（名称、参数、返回值、耗时）
 - VFS `/dev/fs` 文件读取路径透明可见
 - Skill 发布到 skillpkg 的流程
 
@@ -115,7 +115,7 @@ agents:
 | Agent 定义编写（agent.yaml + instructions.md） | 旅程 1 | ✓ | | |
 | Skill 编写（SKILL.md，Agent Skills 行业标准） | 旅程 1 | ✓ | | |
 | `rnix spawn --agent=<name>` 单命令 | 旅程 1, 2 | ✓ | | |
-| `astrace` syscall 追踪 | 旅程 1 | ✓ | | |
+| `strace` syscall 追踪 | 旅程 1 | ✓ | | |
 | VFS `/dev/fs` 文件读取 | 旅程 1 | ✓ | | |
 | LLM 超时处理 + 进程状态正确转移 | 旅程 2 | ✓ | | |
 | `rnix ps` 进程查看 | 旅程 2 | ✓ | | |

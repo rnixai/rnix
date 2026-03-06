@@ -165,7 +165,7 @@ type Process struct {
 **关键设计决策：**
 - `mu sync.Mutex` 保护状态转移原子性（不用 RWMutex，因为状态转移是写操作，读操作可通过原子操作优化，但 MVP 阶段 Mutex 足够简洁）
 - `Done chan ExitStatus` 缓冲为 1，确保写入不阻塞
-- `DebugChan` 创建时为 nil（无 astrace 时零开销），后续 Story 使用时设置
+- `DebugChan` 创建时为 nil（无 strace 时零开销），后续 Story 使用时设置
 - `cancel` 和 `wg` 暴露为非导出字段，仅内核内部使用
 - `FDTable` 初始化为空 map，不是 nil
 

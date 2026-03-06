@@ -67,11 +67,11 @@ development_status:
   2-6-agent-abstraction-and-skill-standardization: done
   epic-2-retrospective: done
 
-  # Epic 3: Debug Tracing (astrace)
+  # Epic 3: Debug Tracing (strace)
   epic-3: done
   3-1-syscallevent-recording-infrastructure: done
-  3-2-astrace-event-consumption-and-formatting: done
-  3-3-astrace-cli-command: done
+  3-2-strace-event-consumption-and-formatting: done
+  3-3-strace-cli-command: done
   3-4-syscall-trace-line-ui-component: done
   epic-3-retrospective: done
 

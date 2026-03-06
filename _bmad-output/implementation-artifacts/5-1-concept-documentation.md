@@ -65,12 +65,12 @@ So that 我能建立正确的心智模型来使用 Rnix。
     - 调试（1）：DebugRecord
   - [x] 5.4 具体示例：展示一次完整的 reasonStep 循环中涉及的 syscall 序列
   - [x] 5.5 说明 SyscallError 错误模型：每个 syscall 返回包含 Syscall/PID/Device/Err/Code 的结构化错误
-  - [x] 5.6 说明 SyscallEvent 调试追踪：所有 syscall 入口/出口自动记录，供 astrace 消费
+  - [x] 5.6 说明 SyscallEvent 调试追踪：所有 syscall 入口/出口自动记录，供 strace 消费
 
 - [x] Task 6: 编写概念关系总览章节 (AC: #2)
   - [x] 6.1 绘制文本架构图：展示 Process → Syscall → VFS → Device/Driver 的调用链
   - [x] 6.2 绘制端到端数据流：`rnix "分析代码" --agent=code-analyst` 从 CLI 到 LLM 响应的完整路径
-  - [x] 6.3 说明 astrace 如何串联所有概念：syscall 事件 → DebugChan → astrace 格式化输出
+  - [x] 6.3 说明 strace 如何串联所有概念：syscall 事件 → DebugChan → strace 格式化输出
 
 - [x] Task 7: 校验与完善 (AC: #3, #4)
   - [x] 7.1 检查所有 VFS 路径、syscall 名称、CLI 命令与实际代码一致
@@ -107,7 +107,7 @@ So that 我能建立正确的心智模型来使用 Rnix。
 | Skill | 共享库 (.so) | `skills.SkillInfo`：SKILL.md（Agent Skills 标准），定义"如何做 X" | `skills/types.go`, `skills/loader.go` |
 | Syscall | Unix syscall (open, read, fork, kill) | 15 个 MVP syscall，分类接口组合（ProcessManager + ContextManager + FileSystem + Debugger） | `kernel/kernel.go` |
 | SyscallError | errno | `kernel.SyscallError`（Syscall/PID/Device/Err/Code） | `kernel/errors.go` |
-| SyscallEvent | strace 输出 | `types.SyscallEvent`，DebugChan 非阻塞写入 → astrace 消费 | `internal/types/types.go`, `debug/event.go` |
+| SyscallEvent | strace 输出 | `types.SyscallEvent`，DebugChan 非阻塞写入 → strace 消费 | `internal/types/types.go`, `debug/event.go` |
 | CtxID | 内存地址空间 | `context.Manager`：CtxAlloc/Read/Write/Free/BuildPrompt | `context/context.go` |
 | FD | 文件描述符 | 每进程 FDTable，FD 从 3 分配（0/1/2 预留 stdin/stdout/stderr） | `vfs/vfs.go` |
 
@@ -346,7 +346,7 @@ type SyscallEvent struct {
 | `rnix ps` | 列出所有进程（支持 --json） |
 | `rnix ps --json` | JSON 格式输出进程列表 |
 | `rnix kill <pid>` | 终止指定进程 |
-| `rnix astrace <pid>` | 实时追踪进程 syscall |
+| `rnix strace <pid>` | 实时追踪进程 syscall |
 | `rnix version` | 显示版本信息 |
 
 **全局 flags：** `--json`, `--verbose/-v`, `--quiet/-q`, `--model`, `--max-steps`, `--agent`
@@ -385,7 +385,7 @@ reasonStep 循环:
 CLI 输出: [kernel] PID 1 exited(0) | tokens: N | elapsed: Ns
 ```
 
-### astrace 调试数据流
+### strace 调试数据流
 
 ```
 syscall 入口 → debug.NewEvent() → 构造 SyscallEvent
@@ -400,7 +400,7 @@ syscall 出口 → debug.CompleteEvent() → 填充 Result/Err/Duration
 debug.EmitEvent(proc.DebugChan, event)  [非阻塞，满则丢弃]
     │
     ▼
-rnix astrace <pid> → 消费 DebugChan → 格式化输出到终端
+rnix strace <pid> → 消费 DebugChan → 格式化输出到终端
     格式: [N.NNNs] SyscallName(args) → result    duration
 ```
 
@@ -473,7 +473,7 @@ docs/concepts.md          — 概念文档（本 Story 唯一输出）
 - skills/types.go: SkillManifest, SkillInfo, AllowedTools()
 - debug/event.go: NewEvent, CompleteEvent, EmitEvent
 - internal/types/types.go: PID, FD, CtxID, ErrCode, ProcessState, SyscallEvent
-- cmd/rnix/main.go: CLI commands (root, ps, kill, astrace, version), dependency injection
+- cmd/rnix/main.go: CLI commands (root, ps, kill, strace, version), dependency injection
 
 **参考 Agent/Skill 文件：**
 - lib/agents/code-analyst/agent.yaml — Agent 配置示例
@@ -497,8 +497,8 @@ Claude Opus 4.6
 - ✅ Task 2: 编写进程章节——定义、状态机（Created→Running→Zombie→Dead）、Unix 类比表、完整生命周期示例（含 CLI 输出）、进程树（PPID/reparent）、关键属性表
 - ✅ Task 3: 编写 VFS 章节——定义、"一切皆文件"类比、6 个 MVP 设备路径表、VFS 操作链示例（8 步）、DeviceRegistry 精确匹配 + 最长前缀匹配机制、VFSFile 接口
 - ✅ Task 4: 编写 Agent 与 Skill 章节——Agent 定义、Skill 定义（含 SKILL.md 示例）、Unix 类比、四层能力模型文本图、code-analyst agent.yaml 实际示例、渐进式加载策略（3 阶段）、Agent vs Skill 职责分离表
-- ✅ Task 5: 编写 Syscall 章节——定义、12 个 Unix 类比、MVP 15 个 syscall 分类表（4 子接口）、完整 reasonStep 循环 syscall 序列示例、SyscallError 结构（含 6 个 ErrCode）、SyscallEvent 调试追踪（含 astrace 使用示例）
-- ✅ Task 6: 编写概念关系总览——调用链架构图（Kernel→VFS→Device）、端到端数据流（CLI→AgentLoader→Spawn→reasonStep→完成）、astrace 调试数据流（NewEvent→CompleteEvent→EmitEvent→消费）
+- ✅ Task 5: 编写 Syscall 章节——定义、12 个 Unix 类比、MVP 15 个 syscall 分类表（4 子接口）、完整 reasonStep 循环 syscall 序列示例、SyscallError 结构（含 6 个 ErrCode）、SyscallEvent 调试追踪（含 strace 使用示例）
+- ✅ Task 6: 编写概念关系总览——调用链架构图（Kernel→VFS→Device）、端到端数据流（CLI→AgentLoader→Spawn→reasonStep→完成）、strace 调试数据流（NewEvent→CompleteEvent→EmitEvent→消费）
 - ✅ Task 7: 校验与完善——使用 Explore agent 进行自动化交叉校验，修正 ErrCode 列表（补充 INVALID），确认所有 VFS 路径/syscall 名称/CLI 命令与代码一致
 
 ### File List
@@ -519,4 +519,4 @@ Claude Opus 4.6
   - 设备注册说明从"CLI 启动时"改为"daemon 启动时"
   - 调用链架构图加入 IPC Server 层（CLI → Unix Socket → Daemon → Kernel）
   - 端到端数据流重构为 daemon 模式（CLI 客户端 → IPC → daemon → kernel.Spawn）
-  - astrace 数据流加入跨终端 IPC 传输路径
+  - strace 数据流加入跨终端 IPC 传输路径

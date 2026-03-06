@@ -653,7 +653,7 @@ kernel/errors.go           — 现有错误码足够（ErrNotFound、ErrInternal
 internal/types/types.go    — 现有类型足够（PID、ProcessState、SyscallEvent）
 context/context.go         — CtxFree 已实现，只调用不修改
 vfs/vfs.go                 — CloseAll 已在 Spawn defer 中调用，不修改
-debug/astrace.go           — 不修改
+debug/strace.go           — 不修改
 internal/ui/*              — 不修改
 cmd/rnix/main.go           — 不修改（暂无 CLI 集成需求）
 cmd/rnix/integration_test.go — 可选添加集成测试

@@ -6,7 +6,7 @@
 
 | 阶段 | FR 范围 | 核心功能域 | 架构含义 |
 |------|---------|-----------|---------|
-| Phase 1（MVP） | FR1-FR40 | 进程生命周期、推理引擎、VFS、上下文、Agent/Skill、astrace、CLI、文档 | 微内核 + VFS + 单进程推理循环 + 调试通道 |
+| Phase 1（MVP） | FR1-FR40 | 进程生命周期、推理引擎、VFS、上下文、Agent/Skill、strace、CLI、文档 | 微内核 + VFS + 单进程推理循环 + 调试通道 |
 | Phase 2（能力栈） | FR41-FR70 | IPC、Compose、skillpkg、MCP、监控、Supervisor、AgentShell、文档 | 多进程通信 + 编排引擎 + 外部服务集成 + 容错树 |
 | Phase 3（涌现） | FR71-FR140 | agdb、时间旅行、分布式追踪、脚本语言、声明式意图、OODA、干细胞分化、Token 经济、免疫安全 | 完整调试工具链 + 自主决策循环 + 涌现层服务 |
 
@@ -20,17 +20,17 @@
 | 上下文管理 | FR19-FR22 | 每个智能体独立上下文空间——分配/读写/组装 prompt/释放 |
 | Agent 管理 | FR23-FR25 | agent.yaml + instructions.md 定义智能体身份、模型偏好、Skill 引用，注入 system prompt |
 | Skill 管理 | FR25a-FR27 | SKILL.md（Agent Skills 行业标准格式）渐进式加载，allowed-tools 聚合映射为 `/dev/` 权限白名单 |
-| 调试与可观测 | FR28-FR32 | astrace 差异化核心——实时 syscall 追踪，DebugRecord 数据采集贯穿所有 syscall |
-| CLI | FR33-FR37 | 三命令入口（`rnix "意图"` / `rnix astrace` / `rnix ps`），go install 单二进制 |
+| 调试与可观测 | FR28-FR32 | strace 差异化核心——实时 syscall 追踪，DebugRecord 数据采集贯穿所有 syscall |
+| CLI | FR33-FR37 | 三命令入口（`rnix "意图"` / `rnix strace` / `rnix ps`），go install 单二进制 |
 | 文档 | FR38-FR40 | 概念文档 + 快速上手 + 参考手册 |
 
 **非功能需求（46 个 NFR）：**
 
 | 类别 | 关键指标 | 架构驱动因素 |
 |------|---------|------------|
-| 性能 | spawn ≤ 30s、ps ≤ 100ms、astrace ≤ 500ms、VFS 额外延迟 < 10ms | 进程表用 RWMutex SyncMap、DebugChan 缓冲 256 非阻塞写入 |
+| 性能 | spawn ≤ 30s、ps ≤ 100ms、strace ≤ 500ms、VFS 额外延迟 < 10ms | 进程表用 RWMutex SyncMap、DebugChan 缓冲 256 非阻塞写入 |
 | 可靠性 | 20 次连续 ≥ 95%、超时 5s 内转 Zombie、无 goroutine 泄漏 | 严格状态机 + reapOnce 幂等回收 + context.Cancel 级联 |
-| 集成 | Claude Code CLI 参数 + stream-json | 驱动层封装 CLI 交互，stream-json 为 astrace 数据源 |
+| 集成 | Claude Code CLI 参数 + stream-json | 驱动层封装 CLI 交互，stream-json 为 strace 数据源 |
 | 安全 | Skill allowed-tools 白名单、无提权 | 设备权限聚合在 Spawn 时计算 |
 | 可维护性 | go vet/golint 零警告、ABI 向后兼容 | 接口组合模式、子接口独立演进 |
 | Phase 2 性能 | 10 并发进程 ≤ 2x 延迟、IPC ≤ 50ms、Pipe ≥ 1MB/s | SyncMap 读多写少优化、channel 缓冲策略 |
@@ -43,7 +43,7 @@
 | 主要技术域 | 系统编程（Go 运行时框架 / CLI 工具） |
 | MVP 规模 | ~12 核心文件，~15 syscall，3 CLI 命令 |
 | 关键外部依赖 | Claude Code CLI（唯一 LLM 通道） |
-| 实时特性 | astrace 流式输出（stream-json） |
+| 实时特性 | strace 流式输出（stream-json） |
 | 多租户 / 合规 | 无（单用户本地运行） |
 | 预估架构组件 | ~15 个核心模块（kernel、vfs、drivers/llm、drivers/fs、drivers/shell、context、agents、skills、debug、ipc、cmd/rnix、internal/types、internal/xsync、internal/ui、compose） |
 
@@ -100,5 +100,5 @@ cmd/ → debug/（仅依赖 internal/types/）
 | Charm 生态（cobra + lipgloss + bubbletea） | Go 依赖 `github.com/charmbracelet/*`，MVP 仅用 cobra + lipgloss |
 | 6 个自定义 UI 组件 | `internal/ui/` 包，组件通过 `io.Writer`，支持 TTY/Pipe/JSON |
 | 三级输出 + JSON | 输出通过 Renderer 抽象，`TerminalProfile` 启动时检测 |
-| 实时流式输出 | astrace 事件流（channel → 格式化 → stdout），reasonStep 逐行汇报 |
+| 实时流式输出 | strace 事件流（channel → 格式化 → stdout），reasonStep 逐行汇报 |
 | 颜色/无色降级 | lipgloss 自动 + `NO_COLOR` / ASCII 显式回退 |

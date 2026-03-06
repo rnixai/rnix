@@ -50,7 +50,7 @@
 │  GitHub │ Slack │ DB │ ...    │  shell │ browser │ fs │ llm    │
 ├─────────────────────────────────────────────────────────────────┤
 │                     调试与可观测性层                              │
-│  agdb │ astrace │ 时间旅行 │ 分布式追踪 │ ctx-profiler          │
+│  agdb │ strace │ 时间旅行 │ 分布式追踪 │ ctx-profiler          │
 ├─────────────────────────────────────────────────────────────────┤
 │                  系统调用接口（~45 个 syscall）                   │
 │  进程: spawn/kill/wait/clone/signal/getpid/ps/nice              │
@@ -735,7 +735,7 @@ rnix/
 - Token 经济 + 合约 SLA + 声誉系统
 - 干细胞分化 + Skill 驱动特化
 - 适应性免疫安全
-- 完整调试工具链（agdb/astrace/时间旅行/分布式追踪/ctx-profiler）
+- 完整调试工具链（agdb/strace/时间旅行/分布式追踪/ctx-profiler）
 - Agent Compose 完整版
 - 可视化调试面板
 

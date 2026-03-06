@@ -46,7 +46,7 @@ Epic 2（Skill 能力与文件访问）全部完成后，审视设计发现两�
 |------|------|---------|------|
 | Epic 1 | done | 中等 | Spawn 签名需调整，Skill 注入逻辑需改为 Agent 注入 |
 | Epic 2 | done | 重大 | skills/ 包需重构，code-analyst 需拆分为 Agent + Skill |
-| Epic 3 | backlog | 无影响 | astrace 追踪 syscall，与 Agent/Skill 概念无关 |
+| Epic 3 | backlog | 无影响 | strace 追踪 syscall，与 Agent/Skill 概念无关 |
 | Epic 4 | backlog | 无影响 | 进程管理与 Agent/Skill 概念分离 |
 | Epic 5 | backlog | 中等 | 文档需反映 Agent 概念和 Skill 标准格式 |
 

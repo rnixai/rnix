@@ -26,7 +26,7 @@ inputDocuments:
 
 ## Story Summary
 
-Story 9.4 是 Epic 9 的最后一个 Story，属于纯验证性 Story。不引入任何新的生产代码，仅通过全面的集成测试验证 Story 9.1-9.3 建立的 Agent -> Skill -> MCP -> Device 四层能力栈正确协同工作，包括 astrace 调用链路可观测性。
+Story 9.4 是 Epic 9 的最后一个 Story，属于纯验证性 Story。不引入任何新的生产代码，仅通过全面的集成测试验证 Story 9.1-9.3 建立的 Agent -> Skill -> MCP -> Device 四层能力栈正确协同工作，包括 strace 调用链路可观测性。
 
 **As a** 用户
 **I want** 验证 Agent -> Skill -> MCP -> Device 四层能力栈端到端工作
@@ -37,7 +37,7 @@ Story 9.4 是 Epic 9 的最后一个 Story，属于纯验证性 Story。不引�
 ## Acceptance Criteria
 
 1. **AC1: 四层能力栈端到端流程** -- Given 配置了包含 Skill 和 MCP 引用的 Agent, When Spawn 并执行任务, Then Agent 层提供身份和策略, And Skill 层提供程序性知识和工具权限, And MCP 层提供外部服务集成, And Device 层提供原生 I/O (`/dev/`)
-2. **AC2: astrace 四层调用链路可观测** -- Given `rnix astrace` 追踪该进程, When 查看 syscall 链路, Then 可以清晰看到四层的调用边界和数据流向 (FR57)
+2. **AC2: strace 四层调用链路可观测** -- Given `rnix strace` 追踪该进程, When 查看 syscall 链路, Then 可以清晰看到四层的调用边界和数据流向 (FR57)
 
 ---
 
@@ -452,7 +452,7 @@ make test
 1. **创建 testdata fixtures**（Task 1: agent.yaml, instructions.md, SKILL.md）
 2. **实现 mock 组件**（mockMultiStepLLM, mockShellVFSFile）
 3. **实现 TestFourLayerCapabilityStack**（Task 2: 核心四层端到端测试）
-4. **实现 TestFourLayerAstraceVisibility**（Task 3: astrace 事件验证）
+4. **实现 TestFourLayerAstraceVisibility**（Task 3: strace 事件验证）
 5. **实现 TestAllowedDevicesAggregation**（Task 4: 权限聚合验证）
 6. **实现 TestFourLayerBoundaryConditions**（Task 5: 边界条件测试）
 7. **Run `go test -race ./kernel/ -v`** 验证所有测试通过

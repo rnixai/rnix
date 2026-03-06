@@ -12,7 +12,7 @@ So that 我在 15 分钟内体验到 Rnix 的核心价值。
 
 ## Acceptance Criteria
 
-1. **覆盖完整上手流程** — Given 快速上手指南已编写，When 按步骤操作，Then 覆盖完整流程：安装 Go → 安装 Rnix（`go install`）→ 验证（`rnix version`）→ 首次执行（`rnix "分析 ./README.md"`）→ 查看结果 → 首次 astrace（`rnix astrace 1`）
+1. **覆盖完整上手流程** — Given 快速上手指南已编写，When 按步骤操作，Then 覆盖完整流程：安装 Go → 安装 Rnix（`go install`）→ 验证（`rnix version`）→ 首次执行（`rnix "分析 ./README.md"`）→ 查看结果 → 首次 strace（`rnix strace 1`）
 
 2. **15 分钟目标** — Given 用户已有 Go 1.26 环境和 Claude Code CLI，When 按指南操作，Then 目标完成时间 ≤ 15 分钟（FR39）
 
@@ -46,10 +46,10 @@ So that 我在 15 分钟内体验到 Rnix 的核心价值。
   - [x] 5.2 预期输出示例：包含文件分析结果
   - [x] 5.3 简要解释 `--agent` 参数的作用（引用概念文档链接）
 
-- [x] Task 6: 编写 astrace 调试体验章节 (AC: #1, #2, #3)
-  - [x] 6.1 说明 astrace 的价值：实时查看智能体的每一步操作
+- [x] Task 6: 编写 strace 调试体验章节 (AC: #1, #2, #3)
+  - [x] 6.1 说明 strace 的价值：实时查看智能体的每一步操作
   - [x] 6.2 演示命令（需要在另一个终端窗口运行长任务时使用）
-  - [x] 6.3 预期 astrace 输出示例，展示 syscall 链路
+  - [x] 6.3 预期 strace 输出示例，展示 syscall 链路
   - [x] 6.4 解读关键 syscall 行的含义
 
 - [x] Task 7: 编写进程管理体验章节 (AC: #1, #3)
@@ -81,7 +81,7 @@ So that 我在 15 分钟内体验到 Rnix 的核心价值。
 3. **准确反映实现** — 所有命令、输出格式、VFS 路径必须与当前代码实现一致。不要写尚未实现的功能。
 4. **简体中文** — 全文使用简体中文。技术术语首次出现时附英文。
 5. **15 分钟约束** — 内容精简，不要过度展开。用户应在 15 分钟内完成全部步骤。
-6. **渐进式体验** — 从最简单的用法开始，逐步引入更多功能（Agent → astrace → ps）。
+6. **渐进式体验** — 从最简单的用法开始，逐步引入更多功能（Agent → strace → ps）。
 
 ### 文档输出位置
 
@@ -100,7 +100,7 @@ So that 我在 15 分钟内体验到 Rnix 的核心价值。
 | `rnix version` | `cmd/rnix/main.go` versionCmd | 显示版本信息 + Claude CLI 检查 |
 | `rnix ps` | `cmd/rnix/main.go` psCmd | 列出所有进程（支持 --json） |
 | `rnix kill <pid>` | `cmd/rnix/main.go` killCmd | 终止指定进程 |
-| `rnix astrace <pid>` | `cmd/rnix/main.go` astraceCmd | 实时追踪进程 syscall |
+| `rnix strace <pid>` | `cmd/rnix/main.go` straceCmd | 实时追踪进程 syscall |
 
 **全局 flags：** `--json`, `--verbose/-v`, `--quiet/-q`, `--model`, `--max-steps`, `--agent`
 
@@ -141,14 +141,14 @@ PID   STATE     SKILL           TOKENS  ELAPSED
 2     zombie    -               123     1.1s
 ```
 
-**astrace 输出格式：**
+**strace 输出格式：**
 ```
-[astrace] attached to PID 1 (state: running)
+[strace] attached to PID 1 (state: running)
 [  0.013s] Open("/dev/llm/claude", O_RDWR)  = FD(3)    1ms
 [  0.014s] Write(FD(3), 1234 bytes)          = ok      5200ms
 [  5.214s] Read(FD(3), 65536)                = 892B      2ms
 ...
-[astrace] detached from PID 1 (process exited)
+[strace] detached from PID 1 (process exited)
 ```
 
 ### 参考 Agent/Skill 文件实际内容
@@ -212,7 +212,7 @@ go install github.com/rnixai/rnix/cmd/rnix@latest
 
 **本 Story 包含：**
 - 创建 `docs/quick-start.md` 快速上手指南
-- 完整的安装 → 首次运行 → astrace 体验 → 进程管理体验流程
+- 完整的安装 → 首次运行 → strace 体验 → 进程管理体验流程
 - 每步操作的预期输出示例
 
 **本 Story 不包含：**
@@ -249,7 +249,7 @@ docs/concepts.md           — 已由 Story 5.1 创建，不修改
 - [Source: _bmad-output/implementation-artifacts/5-1-concept-documentation.md] — Story 5.1 完整 story context
 
 **源码参考（验证 CLI 命令和输出格式）：**
-- cmd/rnix/main.go: rootCmd（Spawn Agent）, versionCmd, psCmd, killCmd, astraceCmd
+- cmd/rnix/main.go: rootCmd（Spawn Agent）, versionCmd, psCmd, killCmd, straceCmd
 - internal/ui/progress.go: Agent Progress Reporter 输出格式
 - internal/ui/result.go: Result Box 输出格式
 - internal/ui/error.go: Error Block 三段式错误格式
@@ -272,11 +272,11 @@ Claude Opus 4.6
 
 ### Completion Notes List
 
-- Task 1-9: 创建 `docs/quick-start.md` 快速上手指南，覆盖完整流程：前置条件 → 安装 → 首次运行 → Agent 使用 → astrace 调试 → 进程管理 → 下一步指引
+- Task 1-9: 创建 `docs/quick-start.md` 快速上手指南，覆盖完整流程：前置条件 → 安装 → 首次运行 → Agent 使用 → strace 调试 → 进程管理 → 下一步指引
 - 所有 CLI 命令和输出格式已通过源码交叉验证（cmd/rnix/main.go, internal/ui/*.go, debug/*.go）
-- astrace 输出示例精确匹配 trace.go 实现：key=value 参数格式、`← LLM 调用`/`← 慢操作` 注解逻辑、`traceDuration` 时间格式
+- strace 输出示例精确匹配 trace.go 实现：key=value 参数格式、`← LLM 调用`/`← 慢操作` 注解逻辑、`traceDuration` 时间格式
 - 文档完全自包含，不依赖概念文档前置知识即可独立操作
-- 渐进式结构：最简用法 → Agent → astrace → ps/kill，内容精简控制在 15 分钟可完成
+- 渐进式结构：最简用法 → Agent → strace → ps/kill，内容精简控制在 15 分钟可完成
 
 ### File List
 
@@ -293,7 +293,7 @@ Claude Opus 4.6
 - [H1] 首次执行示例改为 `rnix "分析 ./README.md"` 匹配 AC #1（docs/quick-start.md:72）
 - [M1] 补充 `rnix ps --json` 预期 JSON 输出示例满足 AC #3（docs/quick-start.md:217-234）
 - [M2] Story CLI Output Reference 修正为 `[agent/1] reasoning step 1...` 匹配代码实现（story:113）
-- [L1] astrace 解读表 `← LLM 调用` 描述修正为"涉及 /dev/llm/ 设备的操作"（docs/quick-start.md:181）
+- [L1] strace 解读表 `← LLM 调用` 描述修正为"涉及 /dev/llm/ 设备的操作"（docs/quick-start.md:181）
 - [L2] 添加 `<nil>` 含义说明帮助非 Go 用户理解（docs/quick-start.md:184）
 - [L3] Story version 输出参考去掉 `v` 前缀匹配代码行为（story:128）
 
@@ -301,6 +301,6 @@ Claude Opus 4.6
 
 更新 docs/quick-start.md 反映 IPC daemon 架构变更:
 - 首次运行章节补充 daemon 自动启动/停止说明
-- astrace 章节强调跨终端操作能力（daemon 架构支持）
+- strace 章节强调跨终端操作能力（daemon 架构支持）
 - 进程管理章节补充跨终端可见性说明
 - 补充无 daemon 时的优雅降级行为说明（rnix ps → "No active processes."）

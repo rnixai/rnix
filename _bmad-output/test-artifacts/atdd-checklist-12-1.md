@@ -31,7 +31,7 @@ inputDocuments:
 ## Acceptance Criteria
 
 1. **AC1: 编写第一个 Skill 教程** — 包含从创建 SKILL.md 到 Agent 引用到 spawn 执行的完整流程，包含完整可运行示例
-2. **AC2: 调试第一个 bug 教程** — 包含故意引入 bug → astrace 定位 → 修复 → 验证的完整流程，包含完整可运行示例
+2. **AC2: 调试第一个 bug 教程** — 包含故意引入 bug → strace 定位 → 修复 → 验证的完整流程，包含完整可运行示例
 3. **AC3: 组合多智能体工作流教程** — 包含编写 rnix-compose.yaml → compose up → rnix top 监控 → 查看结果的完整流程，包含完整可运行示例
 
 ---
@@ -82,17 +82,17 @@ inputDocuments:
 
 - ✅ **Test:** `TestWritingFirstSkill_HasCLIExamples`
   - **Status:** RED - 教程文件不存在
-  - **Verifies:** 教程包含 `rnix -i` 命令示例和 `rnix ps`、`rnix astrace` 的使用
+  - **Verifies:** 教程包含 `rnix -i` 命令示例和 `rnix ps`、`rnix strace` 的使用
 
 #### AC2: 调试第一个 bug 教程（3 tests）
 
 - ✅ **Test:** `TestDebuggingFirstBug_HasRequiredSections`
   - **Status:** RED - 教程文件不存在
-  - **Verifies:** 教程包含"准备有 bug 的 Skill"、"使用 astrace 定位"、"修复并验证"等章节
+  - **Verifies:** 教程包含"准备有 bug 的 Skill"、"使用 strace 定位"、"修复并验证"等章节
 
 - ✅ **Test:** `TestDebuggingFirstBug_HasAstraceOutput`
   - **Status:** RED - 教程文件不存在
-  - **Verifies:** 教程包含 astrace 输出示例，含 SyscallEvent 字段（Syscall、PID、Device、ErrCode）
+  - **Verifies:** 教程包含 strace 输出示例，含 SyscallEvent 字段（Syscall、PID、Device、ErrCode）
 
 - ✅ **Test:** `TestDebuggingFirstBug_ShowsFixWorkflow`
   - **Status:** RED - 教程文件不存在
@@ -220,7 +220,7 @@ const (
 
 - [ ] 在教程中添加 `rnix -i` 命令使用示例
 - [ ] 添加 `rnix ps` 查看进程状态示例
-- [ ] 添加 `rnix astrace` 查看 syscall 追踪示例
+- [ ] 添加 `rnix strace` 查看 syscall 追踪示例
 - [ ] Run test: `go test ./docs/ -run TestWritingFirstSkill_HasCLIExamples -v`
 - [ ] ✅ Test passes (green phase)
 
@@ -234,7 +234,7 @@ const (
 
 - [ ] 编写"调试第一个 bug"教程——前置条件
 - [ ] 编写"准备有 bug 的 Skill"步骤
-- [ ] 编写"使用 astrace 定位"步骤
+- [ ] 编写"使用 strace 定位"步骤
 - [ ] 编写"修复并验证"步骤
 - [ ] Run test: `go test ./docs/ -run TestDebuggingFirstBug_HasRequiredSections -v`
 - [ ] ✅ Test passes (green phase)
@@ -247,7 +247,7 @@ const (
 
 **Tasks to make this test pass:**
 
-- [ ] 在教程中添加 astrace 输出示例
+- [ ] 在教程中添加 strace 输出示例
 - [ ] 示例包含 SyscallEvent 关键字段：Syscall 名称、PID、Device 路径、ErrCode
 - [ ] 高亮说明错误行的含义
 - [ ] Run test: `go test ./docs/ -run TestDebuggingFirstBug_HasAstraceOutput -v`
@@ -263,7 +263,7 @@ const (
 
 - [ ] 展示引入 bug 的代码（缺失 `/dev/fs` 权限的 SKILL.md）
 - [ ] 展示修复后的代码（添加 `/dev/fs` 权限）
-- [ ] 展示修复前后 astrace 输出对比
+- [ ] 展示修复前后 strace 输出对比
 - [ ] Run test: `go test ./docs/ -run TestDebuggingFirstBug_ShowsFixWorkflow -v`
 - [ ] ✅ Test passes (green phase)
 

@@ -8,7 +8,7 @@ Status: done
 
 As a 内核开发者,
 I want 每个 syscall 的入口和出口都自动记录为 SyscallEvent,
-So that astrace 可以消费完整的调用链路数据。
+So that strace 可以消费完整的调用链路数据。
 
 ## Acceptance Criteria
 
@@ -21,7 +21,7 @@ So that astrace 可以消费完整的调用链路数据。
 7. **CtxAlloc 事件** — Given 进程的 DebugChan 非 nil，When 调用 CtxAlloc(size)，Then 记录事件包含 `Syscall: "CtxAlloc"`, `Args: {"size": size}`, `Result: ctxID`, `Duration: 耗时`
 8. **CtxRead 事件** — Given 进程的 DebugChan 非 nil，When 调用 BuildPrompt(cid)，Then 记录事件包含 `Syscall: "CtxRead"`, `Args: {"cid": cid, "op": "BuildPrompt"}`, `Duration: 耗时`（注：实际 API 为 BuildPrompt 而非 CtxRead(cid, offset, length)）
 9. **CtxWrite 事件** — Given 进程的 DebugChan 非 nil，When 调用 SetSystemPrompt/AppendMessage/AppendToolResult，Then 记录事件包含 `Syscall: "CtxWrite"`, `Args: {"cid": cid, "op": "<操作名>", ...}`, `Duration: 耗时`（注：实际 API 按操作类型区分，而非统一的 CtxWrite(cid, offset, data)）
-10. **DebugChan 为 nil 时零开销** — Given 进程的 DebugChan 为 nil（无 astrace 附着），When syscall 执行，Then 跳过事件记录（零开销，无额外 allocation）
+10. **DebugChan 为 nil 时零开销** — Given 进程的 DebugChan 为 nil（无 strace 附着），When syscall 执行，Then 跳过事件记录（零开销，无额外 allocation）
 11. **DebugChan 缓冲满时不阻塞** — Given DebugChan 缓冲已满（256），When 写入新事件，Then 不阻塞 syscall 执行（非阻塞写入，丢弃事件）
 12. **所有测试通过** — Given 实现完成，When 执行 `go test -race ./...`，Then 所有新增和现有测试通过，无竞态条件
 
@@ -236,7 +236,7 @@ fb0c76b Update sprint status for Epic 2 to 'done'
 
 | NFR | 要求 | 本 Story 影响 |
 |-----|------|-------------|
-| NFR3 | astrace 输出延迟 ≤ 500ms | 事件记录是 astrace 数据源的基础，延迟由 DebugChan 缓冲保证 |
+| NFR3 | strace 输出延迟 ≤ 500ms | 事件记录是 strace 数据源的基础，延迟由 DebugChan 缓冲保证 |
 | NFR8 | 退出 10s 内释放资源 | DebugChan 关闭在现有资源释放顺序中（无需修改） |
 | NFR18 | 通过 go vet 和 golint 无警告 | 新增代码须符合 |
 
@@ -257,8 +257,8 @@ kernel/kernel.go → debug/（✅ 合规，kernel 可导入 debug）
 - 重构现有 `emitEvent()` 使用 debug 包
 
 **本 Story 不包含：**
-- astrace 事件消费和格式化（Story 3.2）
-- astrace CLI 命令（Story 3.3）
+- strace 事件消费和格式化（Story 3.2）
+- strace CLI 命令（Story 3.3）
 - Syscall Trace Line UI 组件（Story 3.4）
 - DebugChan 的创建/关闭逻辑修改（已在 Process 生命周期中正确处理）
 

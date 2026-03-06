@@ -62,7 +62,7 @@ So that 我可以程序化地获取进程信息（为 `rnix ps` 和未来诊断�
 
 - [x] Task 7: 注册 ProcFS 到 DeviceRegistry (AC: #1, #2, #3)
   - [x] 7.1 在 `cmd/rnix/main.go` 的 `runRoot` 中：创建 ProcFS 实例并注册到 `/proc`
-  - [x] 7.2 在 `cmd/rnix/main.go` 的 `initKernel` 中：同样注册 ProcFS（用于 astrace 等子命令）
+  - [x] 7.2 在 `cmd/rnix/main.go` 的 `initKernel` 中：同样注册 ProcFS（用于 strace 等子命令）
   - [x] 7.3 确保注册顺序：先创建 kernel，再创建 ProcFS（需要 kernel 作为 provider）
 
 - [x] Task 8: 单元测试 (AC: #1, #2, #3, #4, #5, #6)
@@ -545,7 +545,7 @@ kernel/reap.go           — Wait/reapProcess 不变
 kernel/errors.go         — SyscallError 不变
 internal/types/types.go  — 共享类型不变
 internal/ui/*            — UI 组件不变
-debug/*                  — astrace 不变
+debug/*                  — strace 不变
 ```
 
 ### References

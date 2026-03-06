@@ -8,11 +8,11 @@
 
 **实现语言：** Go（goroutine = 智能体进程，channel = IPC，interface = syscall 契约）。
 
-**架构路线：** Gamma 混合——底层微内核保可靠性，上层涌现层释放创新潜力。Phase 1（MVP）验证 OS 范式核心可行性（单智能体 + astrace），Phase 2（能力栈建设）实现完整多智能体编排能力（IPC + Compose + skillpkg + MCP + Supervisor）。
+**架构路线：** Gamma 混合——底层微内核保可靠性，上层涌现层释放创新潜力。Phase 1（MVP）验证 OS 范式核心可行性（单智能体 + strace），Phase 2（能力栈建设）实现完整多智能体编排能力（IPC + Compose + skillpkg + MCP + Supervisor）。
 
 ## What Makes This Special
 
-**OS 级调试工具链（杀手级入口）：** `astrace` 追踪所有 syscall，将多智能体 bug 定位时间从"天级"降至"分钟级"。这是用户进门的钩子——因为调试黑盒是开发者在现有框架中最大的痛点，且没有任何现有框架提供 OS 级追踪能力。
+**OS 级调试工具链（杀手级入口）：** `strace` 追踪所有 syscall，将多智能体 bug 定位时间从"天级"降至"分钟级"。这是用户进门的钩子——因为调试黑盒是开发者在现有框架中最大的痛点，且没有任何现有框架提供 OS 级追踪能力。
 
 **正确的抽象层级（留下的理由）：** 多智能体系统的问题不是"缺一个更好的框架"，而是"缺一个操作系统"。Rnix 的进程模型、VFS 一切皆文件、Agent + Skill 双层能力体系（Skill 遵循 Agent Skills 行业标准，可与 30+ AI 工具生态互操作）、45 个标准 syscall 构成了一个完整的 OS 范式——框架在应用层只能模拟这些能力，而 Rnix 在 OS 层原生提供。
 

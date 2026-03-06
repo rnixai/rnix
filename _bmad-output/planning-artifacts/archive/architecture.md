@@ -37,17 +37,17 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | 上下文管理 | FR19-FR22 | 每个智能体独立上下文空间——分配/读写/组装 prompt/释放 |
 | Agent 管理 | FR23-FR25 | agent.yaml + instructions.md 定义智能体身份、模型偏好、Skill 引用，注入 system prompt |
 | Skill 管理 | FR25a-FR27 | SKILL.md（Agent Skills 行业标准格式）渐进式加载，allowed-tools 聚合映射为 `/dev/` 权限白名单 |
-| 调试与可观测 | FR28-FR32 | astrace 差异化核心——实时 syscall 追踪，DebugRecord 数据采集贯穿所有 syscall |
-| CLI | FR33-FR37 | 三命令入口（`rnix "意图"` / `rnix astrace` / `rnix ps`），go install 单二进制 |
+| 调试与可观测 | FR28-FR32 | strace 差异化核心——实时 syscall 追踪，DebugRecord 数据采集贯穿所有 syscall |
+| CLI | FR33-FR37 | 三命令入口（`rnix "意图"` / `rnix strace` / `rnix ps`），go install 单二进制 |
 | 文档 | FR38-FR40 | 概念文档 + 快速上手 + 参考手册 |
 
 **Non-Functional Requirements（20 条，驱动架构的关键约束）：**
 
 | 约束类别 | 关键 NFR | 架构影响 |
 |---------|---------|---------|
-| 性能 | NFR1: spawn→完成 ≤30s；NFR2: ps ≤100ms；NFR3: astrace ≤500ms | 进程表须内存数据结构，astrace 需低延迟事件通道 |
+| 性能 | NFR1: spawn→完成 ≤30s；NFR2: ps ≤100ms；NFR3: strace ≤500ms | 进程表须内存数据结构，strace 需低延迟事件通道 |
 | 可靠性 | NFR6: 20 次连续 ≥95%；NFR7: 超时 5s 内转 zombie；NFR8: 退出 10s 内释放资源 | 健壮的错误传播 + goroutine 生命周期管理 + context.Context 取消 |
-| 集成 | NFR11-12: Claude Code CLI 参数 + stream-json | 驱动层封装 CLI 交互，stream-json 为 astrace 数据源 |
+| 集成 | NFR11-12: Claude Code CLI 参数 + stream-json | 驱动层封装 CLI 交互，stream-json 为 strace 数据源 |
 | 安全 | NFR15-17: 继承用户权限，Skill allowed-tools 白名单 | MVP 无完整 Capability，Agent 聚合 Skill allowed-tools 为最小安全边界 |
 | 可维护性 | NFR19: ABI 兼容 Phase 2；NFR20: LLM 驱动单文件封装 | syscall 接口可扩展（15→45），驱动层抽象干净 |
 
@@ -58,7 +58,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | Charm 生态（cobra + lipgloss + bubbletea） | Go 依赖 `github.com/charmbracelet/*`，MVP 仅用 cobra + lipgloss |
 | 6 个自定义 UI 组件 | `internal/ui/` 包，组件通过 `io.Writer`，支持 TTY/Pipe/JSON |
 | 三级输出 + JSON | 输出通过 Renderer 抽象，`TerminalProfile` 启动时检测 |
-| 实时流式输出 | astrace 事件流（channel → 格式化 → stdout），reasonStep 逐行汇报 |
+| 实时流式输出 | strace 事件流（channel → 格式化 → stdout），reasonStep 逐行汇报 |
 | 颜色/无色降级 | lipgloss 自动 + `NO_COLOR` / ASCII 显式回退 |
 
 ### Scale & Complexity
@@ -69,7 +69,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | 主要技术域 | 系统编程（Go 运行时框架 / CLI 工具） |
 | MVP 规模 | ~12 核心文件，~15 syscall，3 CLI 命令 |
 | 关键外部依赖 | Claude Code CLI（唯一 LLM 通道） |
-| 实时特性 | astrace 流式输出（stream-json） |
+| 实时特性 | strace 流式输出（stream-json） |
 | 多租户 / 合规 | 无（单用户本地运行） |
 
 ### Technical Constraints & Dependencies
@@ -87,10 +87,10 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | 关注点 | 影响组件 | 备注 |
 |--------|---------|------|
 | 错误传播与进程状态一致性 | kernel, drivers, vfs, context | LLM 超时/文件错误/Skill 失败须正确传播到状态机 |
-| syscall 记录（DebugRecord） | 所有 syscall 实现 | astrace 依赖，每个 syscall 入口/出口记录 |
+| syscall 记录（DebugRecord） | 所有 syscall 实现 | strace 依赖，每个 syscall 入口/出口记录 |
 | 输出格式一致性 | cmd, internal/ui | 统一 Renderer + 组件体系，4 种模式 |
 | goroutine 生命周期 | kernel, drivers | 退出后正确释放，防泄漏 |
-| Claude Code CLI 封装 | drivers/llm | 单点封装，stream-json 解析影响 astrace |
+| Claude Code CLI 封装 | drivers/llm | 单点封装，stream-json 解析影响 strace |
 
 ## Starter Template Evaluation
 
@@ -155,7 +155,7 @@ rnix/
 ├── skills/                        # Skill 加载器
 │   └── loader.go                  # SKILL.md 解析（Agent Skills 标准格式）+ 渐进式加载
 ├── debug/                         # 调试工具
-│   └── astrace.go                 # syscall 追踪（stream-json 消费）
+│   └── strace.go                 # syscall 追踪（stream-json 消费）
 ├── internal/ui/                   # CLI 输出组件
 │   ├── styles.go                  # lipgloss 样式集中定义
 │   ├── progress.go                # Agent Progress Reporter
@@ -217,7 +217,7 @@ skills:
 
 **CLI 框架：** Cobra（`github.com/spf13/cobra`）
 - 根命令：`rnix "意图"` — spawn 智能体（`--agent=<name>` 指定 Agent 定义）
-- 子命令：`astrace`、`ps`、`kill`、`version`
+- 子命令：`strace`、`ps`、`kill`、`version`
 - 全局 flags：`--json`、`--verbose`、`--quiet`
 
 **样式与输出：** Charm 生态
@@ -312,7 +312,7 @@ type Process struct {
     Ctx       *Context
     Children  []PID
     FDTable   map[FD]VFSFile        // 每进程文件描述符表
-    DebugChan chan SyscallEvent      // astrace 事件通道
+    DebugChan chan SyscallEvent      // strace 事件通道
     Done      chan ExitStatus        // 进程完成信号
     cancel    context.CancelFunc    // goroutine 取消
     wg        sync.WaitGroup        // 子 goroutine 等待
@@ -365,11 +365,11 @@ cmd := exec.CommandContext(ctx, "claude", "-p", intent,
 
 **system prompt 组装顺序：** Agent instructions（角色定义）+ 各 Skill SKILL.md body（程序性知识），由 AgentLoader 在 Spawn 时组装。
 
-**stream-json 消费：** `--output-format stream-json` 时，通过 `bufio.Scanner` 逐行读取 stdout，每行解析为 `StreamEvent`，写入 `Process.DebugChan` 供 astrace 消费。
+**stream-json 消费：** `--output-format stream-json` 时，通过 `bufio.Scanner` 逐行读取 stdout，每行解析为 `StreamEvent`，写入 `Process.DebugChan` 供 strace 消费。
 
 **超时处理：** `context.WithTimeout` 包装，超时后 `cmd.Process.Kill()`，进程转 Zombie。
 
-### Decision 5: 调试架构（astrace）
+### Decision 5: 调试架构（strace）
 
 **事件传递机制：** 每进程一个带缓冲的 `DebugChan chan SyscallEvent`。
 
@@ -387,9 +387,9 @@ type SyscallEvent struct {
 }
 ```
 
-**数据流：** syscall 实现入口/出口 → 构造 SyscallEvent → 写入 DebugChan → astrace goroutine 消费 → 格式化输出到终端。
+**数据流：** syscall 实现入口/出口 → 构造 SyscallEvent → 写入 DebugChan → strace goroutine 消费 → 格式化输出到终端。
 
-**无 astrace 时：** DebugChan 为 nil，跳过事件记录（零开销）。
+**无 strace 时：** DebugChan 为 nil，跳过事件记录（零开销）。
 
 ### Decision 6: 错误处理与恢复
 
@@ -544,7 +544,7 @@ rnix "分析代码" --agent=code-analyst
 
 | 特性 | Rnix 使用场景 |
 |------|-------------|
-| **Green Tea GC**（默认启用） | 自动受益——astrace 高吞吐事件流的 GC 压力降低 |
+| **Green Tea GC**（默认启用） | 自动受益——strace 高吞吐事件流的 GC 压力降低 |
 | **Goroutine Leak Profiler**（实验性） | 验证 NFR8（进程退出后 goroutine 正确释放），集成到测试和开发调试 |
 | **`new(expr)` 表达式初始化** | 简化结构体创建（如 `new(Process{PID: pid, State: Created})`） |
 | **自引用泛型** | 类型安全的注册表模式（如 `Registry[T]`、`Future[T]`） |
@@ -654,7 +654,7 @@ func (r Result[T]) Map(fn func(T) T) Result[T] { ... }
 
 | 对象 | 规则 | 示例 |
 |------|------|------|
-| Go 源文件 | 全小写，下划线分隔 | `kernel.go`, `claude_cli.go`, `astrace.go` |
+| Go 源文件 | 全小写，下划线分隔 | `kernel.go`, `claude_cli.go`, `strace.go` |
 | 测试文件 | `_test.go` 后缀，同目录 | `kernel_test.go`, `claude_cli_test.go` |
 | YAML 配置 | 全小写，连字符分隔，`.yaml` 后缀 | `agent.yaml`（不用 `.yml`） |
 | SKILL.md | 大写固定名 | `SKILL.md`（Agent Skills 标准要求） |
@@ -725,7 +725,7 @@ type JSONError struct {
 
 **SyscallEvent 事件命名：** Syscall 字段值与接口方法名完全一致（`"Spawn"`, `"Open"`, `"CtxWrite"`）。
 
-**astrace 输出格式（终端）：**
+**strace 输出格式（终端）：**
 
 ```
 [  0.000] Spawn("分析代码", agent="code-analyst")       = PID(1)        12ms
@@ -887,9 +887,9 @@ rnix/
 │           └── SKILL.md
 │
 ├── debug/
-│   ├── astrace.go                        # Astrace：消费 DebugChan + 格式化输出 + stream-json 事件桥接
+│   ├── strace.go                        # Astrace：消费 DebugChan + 格式化输出 + stream-json 事件桥接
 │   ├── event.go                          # SyscallEvent 结构体 + 事件记录辅助函数
-│   ├── astrace_test.go                   # astrace 格式化输出测试
+│   ├── strace_test.go                   # strace 格式化输出测试
 │   └── event_test.go                     # 事件记录测试
 │
 ├── internal/
@@ -900,7 +900,7 @@ rnix/
 │       ├── result.go                     # ResultBox：最终结果框（带边框的输出区域）
 │       ├── error.go                      # ErrorBlock：错误输出（设备路径 + 错误码 + 消息）
 │       ├── summary.go                    # SummaryFooter：退出汇总（PID + exit code + tokens + elapsed）
-│       ├── trace.go                      # TraceLine：astrace 单行格式化
+│       ├── trace.go                      # TraceLine：strace 单行格式化
 │       └── table.go                      # ProcessTable：ps 命令表格输出
 │
 ├── lib/agents/code-analyst/
@@ -973,7 +973,7 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 | 上下文管理 | FR19-FR22 | `context/context.go` |
 | Agent 管理 | FR23-FR25 | `agents/{types,loader}.go`, `lib/agents/code-analyst/` |
 | Skill 管理 | FR25a-FR27 | `skills/{loader,types}.go`, `lib/skills/code-analysis/` |
-| 调试与可观测 | FR28-FR32 | `debug/{astrace,event}.go` |
+| 调试与可观测 | FR28-FR32 | `debug/{strace,event}.go` |
 | CLI | FR33-FR37 | `cmd/rnix/main.go`, `internal/ui/*` |
 | 文档 | FR38-FR40 | `README.md` |
 
@@ -982,7 +982,7 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 | 关注点 | 定义 → 记录 → 消费 |
 |--------|-------------------|
 | 错误传播 | `kernel/errors.go` → 所有 syscall → `internal/ui/error.go` |
-| SyscallEvent | `debug/event.go` → `kernel/kernel.go` → `debug/astrace.go` |
+| SyscallEvent | `debug/event.go` → `kernel/kernel.go` → `debug/strace.go` |
 | 输出格式 | `internal/ui/renderer.go` → `internal/ui/*.go` |
 | goroutine 生命周期 | `kernel/process.go` → `kernel/reap.go` |
 | 泛型工具 | `internal/xsync/` → 所有使用 Registry/SyncMap/Future 的模块 |
@@ -1005,11 +1005,11 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
     → reap 回收 → ui/ 格式化输出 → stdout
 ```
 
-**astrace 数据流：**
+**strace 数据流：**
 
 ```
 syscall 入口 → debug/event 构造 SyscallEvent
-  → Process.DebugChan → debug/astrace 消费
+  → Process.DebugChan → debug/strace 消费
     → internal/ui/trace 格式化 → stdout 实时流式
 ```
 
@@ -1057,7 +1057,7 @@ func main() {
 |--------|------|
 | Go 1.26 + Cobra + Lipgloss + testify | ✅ Go 生态内完全兼容 |
 | 分类接口组合 + VFS + Drivers | ✅ 接口边界清晰，组合无冲突 |
-| exec.Command + stream-json | ✅ Claude Code CLI 调用模式与 astrace 数据源一致 |
+| exec.Command + stream-json | ✅ Claude Code CLI 调用模式与 strace 数据源一致 |
 | 泛型类型 + Go 1.26 | ✅ Registry[T], SyncMap[K,V], Future[T] 均支持 |
 | SyscallError + DebugChan | ✅ 共享 syscall 边界，传播路径一致 |
 | Agent/Skill 分层 + Agent Skills 标准 | ✅ Agent 定义身份+策略，Skill 定义程序性知识+工具权限，职责清晰分离 |
@@ -1078,7 +1078,7 @@ func main() {
 | 上下文管理 | FR19-FR22 | `context/context.go` |
 | Agent 管理 | FR23-FR25 | `agents/{types,loader}.go` + `lib/agents/code-analyst/` |
 | Skill 管理 | FR25a-FR27 | `skills/{loader,types}.go` + `lib/skills/code-analysis/` |
-| 调试与可观测 | FR28-FR32 | `debug/{astrace,event}.go` |
+| 调试与可观测 | FR28-FR32 | `debug/{strace,event}.go` |
 | CLI | FR33-FR37 | `cmd/rnix/main.go` + `internal/ui/*` |
 | 文档 | FR38-FR40 | `README.md` |
 
@@ -1185,9 +1185,9 @@ rnix/
 │       └── SKILL.md
 │
 ├── debug/
-│   ├── astrace.go                        # 消费 DebugChan + 格式化输出
+│   ├── strace.go                        # 消费 DebugChan + 格式化输出
 │   ├── event.go                          # SyscallEvent + 记录辅助函数
-│   ├── astrace_test.go
+│   ├── strace_test.go
 │   └── event_test.go
 │
 ├── lib/agents/code-analyst/
@@ -1230,7 +1230,7 @@ cmd/ → debug/（仅依赖 internal/types/）
 - [x] 项目结构完整定义（含 agents/ 包、SKILL.md 格式、测试文件和 fixture）
 - [x] 架构边界清晰（8 组边界 + 依赖方向）
 - [x] 需求全覆盖映射（FR→文件 + NFR→架构 + 跨切关注点）
-- [x] 数据流定义（端到端含 Agent/Skill 加载 + astrace）
+- [x] 数据流定义（端到端含 Agent/Skill 加载 + strace）
 - [x] 验证通过（一致性 ✅ + 覆盖 ✅ + 就绪度 ✅）
 - [x] Gap 已修正（泛型包位置 + /dev/fs 驱动 + 共享类型位置）
 - [x] Agent/Skill 分层对齐（Agent Skills 行业标准兼容 + MCP Phase 2 兼容）
@@ -1258,6 +1258,6 @@ cmd/ → debug/（仅依赖 internal/types/）
 4. vfs/ + drivers/ 框架（VFS 接口 + DeviceRegistry + 驱动注册）
 5. context/ + skills/（SKILL.md 解析 + 渐进式加载）+ agents/（agent.yaml + instructions.md + Skill 引用解析 + tools 聚合）
 6. 端到端集成（rnix "分析代码" --agent=code-analyst 跑通）
-7. debug/astrace
+7. debug/strace
 8. internal/ui/ + CLI 完善
 ```

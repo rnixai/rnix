@@ -245,7 +245,7 @@ rnix skill list --json
 rnix -i "使用已安装的 Skill 执行分析任务" --agent=code-analyst --json
 ```
 
-#### 6.4 用 astrace 追踪四层调用
+#### 6.4 用 strace 追踪四层调用
 
 ```bash
 # 终端 1：启动任务
@@ -253,7 +253,7 @@ rnix -i "分析 kernel/kernel.go 的代码质量" --agent=code-analyst &
 
 # 终端 2：追踪 syscall
 rnix ps --quiet  # 获取 PID
-rnix astrace <pid> --verbose
+rnix strace <pid> --verbose
 ```
 
 #### 6.5 验证点
@@ -263,7 +263,7 @@ rnix astrace <pid> --verbose
 | 1 | skill list 包含新安装的 Skill | JSON 中 source="community" 有新条目 | |
 | 2 | 重复安装提示已存在 | 返回 ALREADY_INSTALLED 错误码 | |
 | 3 | --force 可覆盖安装 | `rnix skill install <name> --force` 成功 | |
-| 4 | astrace 可见四层边界 | 能看到 Agent→Skill→Device 的 Open/Read/Write 调用链 | |
+| 4 | strace 可见四层边界 | 能看到 Agent→Skill→Device 的 Open/Read/Write 调用链 | |
 | 5 | 权限模型生效 | Skill 只能访问 allowed-tools 中声明的设备 | |
 
 ---
@@ -427,7 +427,7 @@ rnix -i "测试 MCP 连接" --agent=<mcp-enabled-agent> --json
 
 # 追踪观察 MCP 挂载
 rnix ps --quiet
-rnix astrace <pid> --verbose
+rnix strace <pid> --verbose
 ```
 
 #### 10.4 验证点
@@ -791,7 +791,7 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 
 均返回 INSTALL_ERROR，同样因为 registry.rnix.ai 不可达。
 
-#### 6.5 astrace 四层追踪
+#### 6.5 strace 四层追踪
 
 ```
 [  0.000s] CtxAlloc(size=64) → 1                            ← 上下文分配
@@ -812,8 +812,8 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 | 1 | skill list 包含新安装的 Skill | **N/A** | 社区注册表不可达，无法安装社区 Skill |
 | 2 | 重复安装提示已存在 | **N/A** | install 走网络而非本地检测，返回网络错误而非 ALREADY_INSTALLED |
 | 3 | --force 可覆盖安装 | **N/A** | 同上，网络不可达 |
-| 4 | astrace 可见四层边界 | **Partial** | 可见 Agent→Skill→Device（Context/LLM）三层，但未观察到 MCP 层（Agent 未配置 mcp 字段） |
-| 5 | 权限模型生效 | **Pass** | astrace 显示 allowed_devices=[/dev/fs /dev/shell]，仅允许这两个设备 |
+| 4 | strace 可见四层边界 | **Partial** | 可见 Agent→Skill→Device（Context/LLM）三层，但未观察到 MCP 层（Agent 未配置 mcp 字段） |
+| 5 | 权限模型生效 | **Pass** | strace 显示 allowed_devices=[/dev/fs /dev/shell]，仅允许这两个设备 |
 
 **发现的问题**：
 
@@ -824,7 +824,7 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 - **预期行为**：应先检查本地是否已安装，已安装则返回 ALREADY_INSTALLED（除非 --force）
 
 **额外观察**：
-- astrace 的 Spawn 事件清晰显示了 agent、skills、allowed_devices，可追踪性良好
+- strace 的 Spawn 事件清晰显示了 agent、skills、allowed_devices，可追踪性良好
 - LLM Write 操作耗时 100.876s（haiku 模型），符合实际 LLM 调用延迟
 - 四层能力栈中 MCP 层未被测试（code-analyst 未配置 mcp 字段），需要有 mcp 配置的 Agent 才能完整验证
 

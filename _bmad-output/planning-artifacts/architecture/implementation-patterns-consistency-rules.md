@@ -42,7 +42,7 @@
 
 | 对象 | 规则 | 示例 |
 |------|------|------|
-| Go 源文件 | 全小写，下划线分隔 | `kernel.go`, `claude_cli.go`, `astrace.go` |
+| Go 源文件 | 全小写，下划线分隔 | `kernel.go`, `claude_cli.go`, `strace.go` |
 | 测试文件 | `_test.go` 后缀，同目录 | `kernel_test.go`, `claude_cli_test.go` |
 | YAML 配置 | 全小写，连字符分隔，`.yaml` 后缀 | `agent.yaml`（不用 `.yml`） |
 | SKILL.md | 大写固定名 | `SKILL.md`（Agent Skills 标准要求） |
@@ -113,7 +113,7 @@ type JSONError struct {
 
 **SyscallEvent 事件命名：** Syscall 字段值与接口方法名完全一致（`"Spawn"`, `"Open"`, `"CtxWrite"`）。
 
-**astrace 输出格式（终端）：**
+**strace 输出格式（终端）：**
 
 ```
 [  0.000] Spawn("分析代码", agent="code-analyst")       = PID(1)        12ms
@@ -147,7 +147,7 @@ type JSONError struct {
 
 | 阶段 | Method | 说明 |
 |------|--------|------|
-| Phase 1 | `spawn`, `kill`, `wait`, `ps`, `attach_debug` | 核心进程管理 + astrace |
+| Phase 1 | `spawn`, `kill`, `wait`, `ps`, `attach_debug` | 核心进程管理 + strace |
 | Phase 2 | `compose_up`, `compose_down` | Compose 引擎 |
 | Phase 2 | `skill_install`, `skill_search`, `skill_list`, `skill_update` | Skill 包管理 |
 | Phase 2 | `send_signal`, `send_msg`, `recv_msg` | 信号 + IPC 消息 |

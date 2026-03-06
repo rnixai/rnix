@@ -210,9 +210,9 @@ Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*aut
 
 ---
 
-#### AC-2: astrace 四层调用链路可观测 (P0)
+#### AC-2: strace 四层调用链路可观测 (P0)
 
-**Given** `rnix astrace` 追踪该进程, **When** 查看 syscall 链路, **Then** 可以清晰看到四层的调用边界和数据流向 (FR57)
+**Given** `rnix strace` 追踪该进程, **When** 查看 syscall 链路, **Then** 可以清晰看到四层的调用边界和数据流向 (FR57)
 
 ---
 
@@ -551,7 +551,7 @@ Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*aut
 
 所有 P0 标准以 100% 覆盖率和通过率达标。所有 P1 标准以 100% 覆盖率和通过率达标。21 个子测试（横跨 4 个测试函数）全部通过，包括 `-race` 竞态检测。无安全问题。无 NFR 失败。权限拒绝场景已验证。边界条件全面覆盖（仅 Skill、仅 MCP、Mount 失败、Kill 清理、多服务聚合）。
 
-Story 9.4 作为 Epic 9 的最终验证 Story，成功证明了 Agent -> Skill -> MCP -> Device 四层能力栈端到端正确协同。astrace 可观测性已通过 DebugChan 事件验证。Feature 已准备好合并。
+Story 9.4 作为 Epic 9 的最终验证 Story，成功证明了 Agent -> Skill -> MCP -> Device 四层能力栈端到端正确协同。strace 可观测性已通过 DebugChan 事件验证。Feature 已准备好合并。
 
 ---
 

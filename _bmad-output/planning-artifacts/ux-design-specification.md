@@ -30,10 +30,10 @@ Rnix 的 UX 核心不是视觉设计，而是 **CLI 信息架构与交互反馈�
 
 **用户 A — 平台构建者（陈明，核心用户）**
 - 独立开发者 / 基础设施工程师，深度使用终端
-- 编写 Skill 包（manifest.yaml + instructions.md），用 astrace/agdb 调试
+- 编写 Skill 包（manifest.yaml + instructions.md），用 strace/agdb 调试
 - 核心痛点：多智能体调试是黑盒，能力无法跨项目复用
 - UX 期望：精确、透明、可追溯——能看到智能体决策链的每一步
-- 顿悟时刻：`rnix astrace 1` 三分钟定位三天找不到的 bug
+- 顿悟时刻：`rnix strace 1` 三分钟定位三天找不到的 bug
 
 **用户 B — 应用开发者（林薇，Phase 2 用户）**
 - 全栈开发者，不关心内核实现，只要能快速组装工作流
@@ -44,7 +44,7 @@ Rnix 的 UX 核心不是视觉设计，而是 **CLI 信息架构与交互反馈�
 
 ### Key Design Challenges
 
-1. **CLI 信息密度与可读性的平衡：** astrace 输出可能包含大量 syscall 数据（名称、参数、返回值、耗时），如何在实时流式输出中保持可读性而不淹没用户？需要设计分层信息展示——默认显示关键摘要，`--verbose` 展开完整细节。
+1. **CLI 信息密度与可读性的平衡：** strace 输出可能包含大量 syscall 数据（名称、参数、返回值、耗时），如何在实时流式输出中保持可读性而不淹没用户？需要设计分层信息展示——默认显示关键摘要，`--verbose` 展开完整细节。
 
 2. **实时进度反馈的节奏感：** reasonStep 循环中智能体在 LLM 调用与工具执行之间交替，每步可能耗时数秒到数十秒。需要设计清晰的实时进度指示器，让用户知道"系统在做什么、进行到哪一步"，而不是盯着静默的终端猜测。
 
@@ -54,9 +54,9 @@ Rnix 的 UX 核心不是视觉设计，而是 **CLI 信息架构与交互反馈�
 
 ### Design Opportunities
 
-1. **astrace 作为差异化体验入口：** 没有任何现有多智能体框架提供 syscall 级追踪。astrace 的实时流式输出设计好了，就是最强的产品传播素材——开发者截一张终端截图就能让人理解 Rnix 的价值。
+1. **strace 作为差异化体验入口：** 没有任何现有多智能体框架提供 syscall 级追踪。strace 的实时流式输出设计好了，就是最强的产品传播素材——开发者截一张终端截图就能让人理解 Rnix 的价值。
 
-2. **渐进式复杂度曲线：** MVP 只需掌握三个命令（`rnix "意图"`、`rnix astrace`、`rnix ps`），Phase 2 扩展到 Compose 和管道。这种从"一个命令就能用"到"完整 Shell 语法"的渐进式学习路径是天然的 UX 优势。
+2. **渐进式复杂度曲线：** MVP 只需掌握三个命令（`rnix "意图"`、`rnix strace`、`rnix ps`），Phase 2 扩展到 Compose 和管道。这种从"一个命令就能用"到"完整 Shell 语法"的渐进式学习路径是天然的 UX 优势。
 
 3. **结构化输出双模式（人读 + 机读）：** 默认输出为结构化可读型（颜色、分组、表格），`--json` 切换为机器可解析格式。这使得 Rnix 的输出可以被其他工具消费（grep、jq、管道），符合 Unix 组合哲学。
 
@@ -67,7 +67,7 @@ Rnix 的 UX 核心不是视觉设计，而是 **CLI 信息架构与交互反馈�
 | 原则 | 说明 |
 |------|------|
 | **结构化可读优先** | 默认输出带颜色、分组、表格，对人友好；`--json` 提供机器可解析格式 |
-| **实时流式反馈** | astrace 实时流式输出（类 `tail -f`），reasonStep 显示实时 step 进度 |
+| **实时流式反馈** | strace 实时流式输出（类 `tail -f`），reasonStep 显示实时 step 进度 |
 | **错误可行动** | 每条错误包含：发生了什么 + 影响是什么 + 建议做什么 |
 | **渐进式复杂度** | 入门三命令 → 完整 Shell 语法，用户按需深入 |
 | **Unix 直觉** | 命令语法、输出格式、管道组合对标 Unix 惯例，降低学习成本 |
@@ -86,9 +86,9 @@ rnix "分析 ./src/auth.go" → [实时进度] → 结果输出
 
 **循环 B — 调试循环（spawn-debug-fix）：**
 ```
-rnix "审查 PR" → 结果异常 → rnix astrace 1 → 定位问题 → 修复 → 重跑
+rnix "审查 PR" → 结果异常 → rnix strace 1 → 定位问题 → 修复 → 重跑
 ```
-当循环 A 产出不符合预期时，用户进入循环 B。astrace 提供完整的 syscall 链路，用户定位问题根因，修复后重新执行。这个循环是 Rnix 的差异化核心——把"猜"变成"看"。
+当循环 A 产出不符合预期时，用户进入循环 B。strace 提供完整的 syscall 链路，用户定位问题根因，修复后重新执行。这个循环是 Rnix 的差异化核心——把"猜"变成"看"。
 
 **双循环关系：** 用户大部分时间在循环 A 中工作。当结果不对时，无缝切换到循环 B。定位修复后，回到循环 A。两个循环之间的切换必须是零摩擦的——不需要额外配置、不需要重启、不需要换工具。
 
@@ -126,7 +126,7 @@ $ rnix "分析这段代码的性能瓶颈"
 ```
 三行结构：发生了什么 → 影响是什么 → 该做什么。用户看到错误信息后，下一步行动是清晰的。
 
-**4. astrace 关键信息一眼可见**
+**4. strace 关键信息一眼可见**
 默认输出模式高亮关键 syscall（文件读写、LLM 调用、错误），折叠常规操作。异常 syscall 用颜色标记。用户不需要翻滚搜索——问题所在的 syscall 在视觉上"跳出来"。
 
 ### Critical Success Moments
@@ -167,16 +167,16 @@ $ rnix "分析 ./kernel/scheduler.go 并找出性能瓶颈"
 
 每一行输出都有目的：进程创建 → Skill 加载 → 文件读取 → 推理步骤 → 结果 → 汇总。用户全程知道"系统在做什么"。
 
-**第二关键时刻：首次 astrace 调试**
+**第二关键时刻：首次 strace 调试**
 
-当用户第一次使用 `rnix astrace` 并成功定位到问题时，他们会从"试试看"变成"这就是我需要的工具"。这个时刻的信息清晰度决定了用户是否长期留存。
+当用户第一次使用 `rnix strace` 并成功定位到问题时，他们会从"试试看"变成"这就是我需要的工具"。这个时刻的信息清晰度决定了用户是否长期留存。
 
 ### Experience Principles
 
 | # | 原则 | 含义 | 指导什么决策 |
 |---|------|------|-------------|
 | 1 | **意图即入口** | 用户只需要表达"要什么"，系统处理"怎么做" | 命令设计、Skill 匹配、默认参数策略 |
-| 2 | **始终透明** | 用户在任何时刻都知道系统在做什么、进行到哪一步 | 进度反馈、astrace 设计、状态输出 |
+| 2 | **始终透明** | 用户在任何时刻都知道系统在做什么、进行到哪一步 | 进度反馈、strace 设计、状态输出 |
 | 3 | **错误即路标** | 每条错误信息指向下一步行动，而非死胡同 | 错误消息格式、恢复建议、退出码设计 |
 | 4 | **Unix 直觉** | 命令语法、输出格式、组合方式对标开发者已有的 Unix 心智模型 | 命令命名、管道支持、`--json` 输出 |
 | 5 | **渐进深入** | 入门零配置一条命令，进阶按需暴露完整控制力 | 参数设计、文档层次、CLI 帮助信息 |
@@ -189,7 +189,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 
 | 核心情感 | 触发场景 | 设计含义 |
 |---------|---------|---------|
-| **掌控感** | 每一次命令执行——实时进度、astrace 链路、进程状态 | 系统状态始终透明可见，用户永远不会"不知道发生了什么" |
+| **掌控感** | 每一次命令执行——实时进度、strace 链路、进程状态 | 系统状态始终透明可见，用户永远不会"不知道发生了什么" |
 | **高效感** | 一条命令完成以前需要大量胶水代码的工作 | 最少输入、最大产出，消除一切不必要的中间步骤 |
 | **可靠感** | 错误发生时——清晰的诊断、明确的下一步、进程不卡死 | 系统在任何情况下都给出可行动的反馈，永远不让用户掉进死胡同 |
 
@@ -199,12 +199,12 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 
 | 阶段 | 用户状态 | 目标情感 | 避免的情感 | 设计手段 |
 |------|---------|---------|-----------|---------|
-| **发现** | 在 GitHub 上看到 Rnix | 好奇 + 共鸣（"这说的就是我的痛点"） | 困惑（"这是什么？"） | README 直击调试痛点，astrace 截图作为视觉钩子 |
+| **发现** | 在 GitHub 上看到 Rnix | 好奇 + 共鸣（"这说的就是我的痛点"） | 困惑（"这是什么？"） | README 直击调试痛点，strace 截图作为视觉钩子 |
 | **安装** | `go install` | 顺畅 + 轻松（"就这样？装好了？"） | 挫败（依赖问题、配置繁琐） | 单二进制零配置，唯一前置条件明确提示 |
 | **首次执行** | `rnix "分析代码"` | 惊喜 + 掌控（"它在实时告诉我每一步"） | 焦虑（等待无反馈）、困惑（输出看不懂） | 实时进度输出，结构化结果，完成汇总 |
 | **日常使用** | 循环 A 反复执行 | 高效 + 自然（"这就是该有的工作方式"） | 厌烦（重复操作多）、不确定（"这次会正常吗？"） | 最少输入、一致的输出格式、可预测的行为 |
 | **遇到错误** | LLM 超时 / 结果异常 | 从容 + 清晰（"我知道怎么办"） | 恐慌（"数据丢了吗？"）、茫然（"什么意思？"） | 三行错误结构、进程状态正确转移、恢复建议 |
-| **调试顿悟** | 首次 `astrace` 定位 bug | 震撼 + 共鸣 + 理所当然 | 失望（"和翻日志没区别"） | syscall 链路直指问题根因，关键信息视觉高亮 |
+| **调试顿悟** | 首次 `strace` 定位 bug | 震撼 + 共鸣 + 理所当然 | 失望（"和翻日志没区别"） | syscall 链路直指问题根因，关键信息视觉高亮 |
 | **长期使用** | 成为日常工具 | 信赖 + 依赖（"没有这个我怎么工作？"） | 被抛弃感（工具不更新、社区沉寂） | 稳定的 ABI 契约、Skill 生态持续丰富 |
 
 ### Micro-Emotions
@@ -216,12 +216,12 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 | **信心 vs 困惑** | "我知道下一步做什么" | "这个命令是什么意思？" | 每一次命令输入和输出 |
 | **信任 vs 怀疑** | "系统给出的结果是可靠的" | "这个分析结果对吗？" | 智能体输出结果时 |
 | **成就 vs 挫败** | "三分钟搞定了" | "又失败了，从头再来" | 任务完成或调试定位时 |
-| **惊叹 vs 平淡** | "这也行？太强了" | "嗯……也就这样" | 首次体验 astrace、首次 Skill 组合 |
+| **惊叹 vs 平淡** | "这也行？太强了" | "嗯……也就这样" | 首次体验 strace、首次 Skill 组合 |
 | **自然 vs 勉强** | "本来就应该这样" | "为什么要这么麻烦？" | 日常重复使用时 |
 
 **顿悟时刻的三层情感叠加：**
 
-当陈明第一次用 `rnix astrace 1` 在三分钟内定位到一个耗费三天的 bug 时，他应该同时感受到：
+当陈明第一次用 `rnix strace 1` 在三分钟内定位到一个耗费三天的 bug 时，他应该同时感受到：
 
 1. **"终于有人理解开发者的痛了"**（共鸣 + 认同）— 这个工具的设计者经历过和我一样的痛苦
 2. **"这个工具太强了"**（震撼 + 敬佩）— syscall 链路把黑盒完全打开了
@@ -233,10 +233,10 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 
 | 情感目标 | UX 设计手段 |
 |---------|-----------|
-| **掌控感** | 每条命令都有实时进度输出；`rnix ps` 随时查看全局状态；astrace 暴露完整决策链路；完成时输出 token/耗时汇总 |
+| **掌控感** | 每条命令都有实时进度输出；`rnix ps` 随时查看全局状态；strace 暴露完整决策链路；完成时输出 token/耗时汇总 |
 | **高效感** | 一句话意图启动；Skill 智能匹配；最少参数设计（可选项多、必填项少）；`--json` 支持管道组合 |
 | **可靠感** | 进程状态始终一致（不卡死）；错误三行结构（什么 + 影响 + 建议）；Zombie 自动回收；退出码语义清晰 |
-| **好奇 → 共鸣** | README 以调试痛点故事开头；astrace 终端截图作为传播素材 |
+| **好奇 → 共鸣** | README 以调试痛点故事开头；strace 终端截图作为传播素材 |
 | **惊叹 → 自然** | 首次体验精心设计（demo Skill 预装）；渐进式复杂度让高级功能在需要时自然出现 |
 | **信任** | 输出格式一致可预测；同一命令同一输入总是同一输出结构；ABI 稳定不 breaking change |
 
@@ -261,7 +261,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 | **核心价值** | 一条命令看到进程的所有系统调用，把黑盒变成白盒 |
 | **做得好的** | 零配置即可使用；输出包含完整的调用链（函数名、参数、返回值、耗时）；可过滤特定 syscall 类型 |
 | **做得不好的** | 输出密集无结构，新手难以快速定位关键信息；无颜色区分，所有 syscall 视觉权重相同；没有"摘要模式"，只有原始流 |
-| **对 Rnix 的启示** | astrace 继承 strace 的"完整追踪"理念，但必须解决信息过载问题——默认输出应分层（关键 syscall 高亮，常规操作折叠），而非平铺所有内容 |
+| **对 Rnix 的启示** | strace 继承 strace 的"完整追踪"理念，但必须解决信息过载问题——默认输出应分层（关键 syscall 高亮，常规操作折叠），而非平铺所有内容 |
 
 **2. Docker CLI — 生命周期管理的标杆**
 
@@ -270,7 +270,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 | **核心价值** | 用简洁的命令动词管理容器的完整生命周期：run、ps、stop、rm、logs |
 | **做得好的** | 命令语义直觉化（`docker ps` = 看容器列表）；输出是对齐的表格，列头清晰；`docker logs -f` 实时流式跟踪；错误信息包含建议（"did you mean..."） |
 | **做得不好的** | 子命令层级过深（`docker container ls` vs `docker ps`）；某些场景下输出被截断但未提示 |
-| **对 Rnix 的启示** | `rnix ps` 直接对标 `docker ps` 的表格输出格式；`rnix astrace` 对标 `docker logs -f` 的实时流式体验；命令动词保持扁平，不做过深的子命令嵌套 |
+| **对 Rnix 的启示** | `rnix ps` 直接对标 `docker ps` 的表格输出格式；`rnix strace` 对标 `docker logs -f` 的实时流式体验；命令动词保持扁平，不做过深的子命令嵌套 |
 
 **3. cargo (Rust) — 进度反馈与彩色输出的标杆**
 
@@ -297,7 +297,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 | **核心价值** | 入门三命令（add/commit/push），但完整语法支持几十个高级操作 |
 | **做得好的** | 核心工作流极简；`git status` 输出包含下一步操作提示（"use git add to track..."）；帮助系统分层（`--help` 简要 vs `man` 完整） |
 | **做得不好的** | 某些命令语义不直觉（`checkout` 既切分支又撤销修改）；错误信息有时晦涩 |
-| **对 Rnix 的启示** | MVP 三命令入门（`rnix "意图"` / `rnix astrace` / `rnix ps`），对标 git 的渐进式学习曲线；`rnix ps` 输出可以像 `git status` 一样包含下一步操作提示 |
+| **对 Rnix 的启示** | MVP 三命令入门（`rnix "意图"` / `rnix strace` / `rnix ps`），对标 git 的渐进式学习曲线；`rnix ps` 输出可以像 `git status` 一样包含下一步操作提示 |
 
 ### Transferable UX Patterns
 
@@ -308,7 +308,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 | **彩色动词前缀** | cargo | `[kernel]` 灰色、`[agent/1]` 蓝色、`[error]` 红色、`[result]` 绿色 |
 | **步骤计数器** | cargo `[3/47]` | `reasoning step 1/3...` 实时进度 |
 | **对齐表格输出** | docker ps | `rnix ps` 输出 PID / STATE / SKILL / TOKENS / ELAPSED 对齐列 |
-| **实时流式日志** | docker logs -f | `rnix astrace <pid>` 实时 syscall 流 |
+| **实时流式日志** | docker logs -f | `rnix strace <pid>` 实时 syscall 流 |
 | **操作提示嵌入** | git status | 错误输出末尾附带"建议: ..."，`rnix ps` 显示可用操作 |
 | **分区面板** | htop | `rnix top`（Phase 2）上方汇总 + 下方进程列表 |
 
@@ -318,7 +318,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 |------|------|----------------|
 | **一条命令启动** | docker run | `rnix "意图"` 零配置启动 |
 | **双模式输出** | kubectl (-o json/yaml/wide) | 默认结构化可读 / `--json` 机器可解析 |
-| **过滤与聚焦** | strace -e | `rnix astrace --filter=llm` 只看 LLM 相关 syscall |
+| **过滤与聚焦** | strace -e | `rnix strace --filter=llm` 只看 LLM 相关 syscall |
 | **渐进式复杂度** | git | 入门三命令 → Phase 2 完整 Shell 语法 |
 
 ### Anti-Patterns to Avoid
@@ -326,7 +326,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 | 反模式 | 来源 | 为什么避免 | Rnix 的对策 |
 |--------|------|-----------|-----------|
 | **密集无结构输出** | strace 原始输出 | 信息过载，用户无法快速定位关键内容 | 默认输出高亮关键 syscall，折叠常规操作，`--verbose` 展开全部 |
-| **子命令过深** | docker 的双层命令 | 增加记忆负担，打字更多 | 保持扁平命令结构：`rnix ps`、`rnix astrace`，不做 `rnix process list` |
+| **子命令过深** | docker 的双层命令 | 增加记忆负担，打字更多 | 保持扁平命令结构：`rnix ps`、`rnix strace`，不做 `rnix process list` |
 | **晦涩的错误信息** | git 的某些错误提示 | 用户不知道该做什么 | 每条错误包含三要素：发生了什么 + 影响 + 建议的下一步 |
 | **不一致的输出格式** | 多种 CLI 工具 | 用户无法建立可预测的心智模型 | 所有命令遵循统一的输出模板：header → content → footer(summary) |
 | **静默长等待** | 某些 AI CLI 工具 | 用户不知道系统是否卡死 | reasonStep 每一步都有实时进度输出，LLM 调用期间显示等待指示器 |
@@ -341,7 +341,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 | cargo 的彩色阶段前缀 | 天然适配 Rnix 的多阶段输出（spawn → load → reason → result） |
 | cargo 的步骤计数 `[n/m]` | 直接用于 reasonStep 进度展示 |
 | docker ps 的对齐表格 | 直接用于 `rnix ps` 进程列表 |
-| docker logs -f 的实时流 | 直接用于 `rnix astrace` 实时追踪 |
+| docker logs -f 的实时流 | 直接用于 `rnix strace` 实时追踪 |
 | git status 的操作提示 | 直接用于错误信息中的恢复建议 |
 
 **改造（适配后使用）：**
@@ -395,7 +395,7 @@ Rnix 的情感设计围绕三个核心感受，按日常触发频率排列：
 |------|---------|
 | `rnix "意图"` 实时进度 | lipgloss 样式 + bubbles spinner |
 | `rnix ps` 进程表格 | Charm table 组件 |
-| `rnix astrace` 实时流 | lipgloss 样式 + 标准输出流 |
+| `rnix strace` 实时流 | lipgloss 样式 + 标准输出流 |
 | 错误信息 | lipgloss 红色样式 + 结构化模板 |
 | 完成汇总 | lipgloss 边框 + 颜色标记 |
 
@@ -507,14 +507,14 @@ PID   STATE     SKILL          TOKENS   ELAPSED
 | **输出语气** | `INFO: processing file X` | `[agent/1] reading /dev/fs/scheduler.go...` |
 | **完成** | `exit code 0` | 同事交付了一份报告，附带汇总 |
 | **出错** | `ERROR: timeout` | 同事说"这个任务遇到了问题，建议这样处理" |
-| **追踪** | 查看日志文件 | 旁听同事的完整工作过程（astrace） |
+| **追踪** | 查看日志文件 | 旁听同事的完整工作过程（strace） |
 
 **心智模型的设计推论：**
 
 1. **输出应该是"汇报"而非"日志"：** `[agent/1] reasoning step 2/3...` 读起来像同事在说"我在处理第二步"，而非程序在打日志。
 2. **结果应该是"交付物"而非"输出"：** 双线边框包裹的分析结果像一份正式报告，而非 stdout 的文本流。
 3. **错误应该是"反馈"而非"崩溃"：** 同事不会"崩溃"，他会说"我遇到了这个问题，建议我们这样处理"。
-4. **astrace 是"旁听"而非"翻日志"：** 你在实时旁听同事的完整思考和行动过程，而非事后翻阅记录。
+4. **strace 是"旁听"而非"翻日志"：** 你在实时旁听同事的完整思考和行动过程，而非事后翻阅记录。
 
 **与现有解决方案的心智模型对比：**
 
@@ -535,13 +535,13 @@ PID   STATE     SKILL          TOKENS   ELAPSED
 | 2 | **全程可见** | 从 spawn 到完成，用户在每个时刻都能回答"智能体在做什么" |
 | 3 | **结果即交付** | 最终输出是一份结构清晰的"报告"，不需要用户从原始输出中自己提炼 |
 | 4 | **出错不失控** | 任何错误场景下，用户都知道发生了什么、影响是什么、下一步怎么办 |
-| 5 | **追溯可达** | 对结果有疑问时，`astrace` 可以完整回溯到每一步决策的因果链 |
+| 5 | **追溯可达** | 对结果有疑问时，`strace` 可以完整回溯到每一步决策的因果链 |
 | 6 | **30 秒内见结果** | 简单任务（单文件分析）从输入到完成不超过 30 秒 |
 
 **用户怎么知道他"用对了"：**
 - 智能体的实时汇报让他感觉"这个同事很靠谱，在认真干活"
 - 结果报告清晰到他可以直接拿去用，不需要二次加工
-- 如果结果不对，`astrace` 让他三分钟内就能找到原因
+- 如果结果不对，`strace` 让他三分钟内就能找到原因
 
 ### Novel UX Patterns
 
@@ -551,17 +551,17 @@ Rnix 的核心交互采用"**Unix 外壳 + 同事内核**"的混合模式——�
 
 | 层面 | 策略 | 具体体现 |
 |------|------|---------|
-| **命令语法** | 沿用 Unix 传统 | `rnix "意图"`、`rnix ps`、`rnix astrace <pid>` |
+| **命令语法** | 沿用 Unix 传统 | `rnix "意图"`、`rnix ps`、`rnix strace <pid>` |
 | **参数设计** | 沿用 Unix 传统 | `--skill`、`--model`、`--json`、`--verbose` |
-| **管道组合** | 沿用 Unix 传统 | `rnix astrace 1 \| grep "llm"`（Phase 2: 智能体管道） |
+| **管道组合** | 沿用 Unix 传统 | `rnix strace 1 \| grep "llm"`（Phase 2: 智能体管道） |
 | **输出语气** | 创新：汇报式 | `[agent/1] reading...` 而非 `INFO: reading...` |
 | **结果呈现** | 创新：交付物式 | 双线边框包裹的结构化报告 |
 | **错误处理** | 创新：反馈式 | "遇到了 X 问题，建议做 Y" 而非 "ERROR: X" |
-| **astrace** | 创新：旁听式 | 实时旁听同事的思考和行动过程 |
+| **strace** | 创新：旁听式 | 实时旁听同事的思考和行动过程 |
 
 **不需要教育用户的部分：** 命令语法、参数格式、管道组合——开发者已经会了。
 
-**需要让用户自然领会的部分：** 输出不是"日志"而是"汇报"，结果不是"输出"而是"交付物"，astrace 不是"翻日志"而是"旁听"。这些不需要文档教育——通过输出格式本身的设计自然传达。
+**需要让用户自然领会的部分：** 输出不是"日志"而是"汇报"，结果不是"输出"而是"交付物"，strace 不是"翻日志"而是"旁听"。这些不需要文档教育——通过输出格式本身的设计自然传达。
 
 ### Experience Mechanics
 
@@ -623,7 +623,7 @@ $ rnix "分析 ./kernel/scheduler.go 并找出性能瓶颈"
 - 完成信号：`exited(0)` 明确告知成功（非零表示异常）
 - 成本透明：token 消耗让用户感知"这个任务花了多少资源"
 - 效率感知：耗时显示强化"快"的感受
-- 下一步清晰：成功 → 使用结果；失败 → 按建议行动；疑问 → `rnix astrace <pid>`
+- 下一步清晰：成功 → 使用结果；失败 → 按建议行动；疑问 → `rnix strace <pid>`
 
 ## Visual Design Foundation
 
@@ -692,7 +692,7 @@ CLI 工具运行在等宽字体环境中，排版设计不涉及字体选择，�
 | **header → content** | 空 1 行分隔 |
 | **content 内部** | 连续输出，无额外空行 |
 | **content → footer** | 空 1 行分隔 |
-| **astrace 条目间** | 无空行（紧凑流式） |
+| **strace 条目间** | 无空行（紧凑流式） |
 | **错误三行结构** | 行间无空行，用缩进 `→` 表示从属关系 |
 
 ### Spacing & Layout Foundation
@@ -706,7 +706,7 @@ CLI 工具运行在等宽字体环境中，排版设计不涉及字体选择，�
 | **0** | 0 | 顶级元素：`[kernel]`、`[agent/N]` 前缀行 |
 | **1** | 2 | 内容区：结果文本、错误详情 |
 | **2** | 4 | 子项：列表项、建议操作 |
-| **3** | 6 | 仅在特殊场景（如 astrace verbose 模式的参数展开） |
+| **3** | 6 | 仅在特殊场景（如 strace verbose 模式的参数展开） |
 
 **输出区域布局（所有命令统一）：**
 
@@ -744,7 +744,7 @@ PID   STATE     SKILL          TOKENS   ELAPSED
 - 列间最少 3 空格
 - 列头与数据间用 `───` 分隔线
 
-**astrace 流式布局：**
+**strace 流式布局：**
 
 ```
 [0.000s] Spawn(intent="分析代码", skills=["code-analyst"]) → PID=1
@@ -836,7 +836,7 @@ $ rnix "分析 ./kernel/scheduler.go 的性能瓶颈"
 |------|--------|---------|--------|
 | `rnix "意图"` | spawn + skill load | reasoning steps + 结果 | exit code + tokens + elapsed |
 | `rnix ps` | （无） | 进程表格 | 活跃进程计数 |
-| `rnix astrace <pid>` | attach 确认 | 实时 syscall 流 | detach 汇总 |
+| `rnix strace <pid>` | attach 确认 | 实时 syscall 流 | detach 汇总 |
 
 **错误输出模板（所有命令统一）：**
 
@@ -895,7 +895,7 @@ flowchart TD
 ### Journey 1: Chen Ming's Debugging Epiphany (MVP — Success Path)
 
 **用户：** 陈明（平台构建者）
-**目标：** 用 astrace 定位一个多智能体 bug
+**目标：** 用 strace 定位一个多智能体 bug
 **成功标准：** 从"不知道哪里出错"到"精确定位"≤ 3 分钟
 
 ```mermaid
@@ -907,7 +907,7 @@ flowchart TD
     E --> F["[agent/1] reasoning step 3/3..."]
     F --> G["══ 审查结果 ══\n  (结果明显不对)"]
     G --> H[陈明: 结果有误，为什么?]
-    H --> I["rnix astrace 1"]
+    H --> I["rnix strace 1"]
     I --> J["实时 syscall 流输出..."]
     J --> K["[0.015s] Read fd=3 → scheduler.go ← 错误文件!"]
     K --> L[陈明: 找到了! 第 3 步读错了文件]
@@ -923,11 +923,11 @@ flowchart TD
 |------|------|---------|
 | 执行任务 | `rnix "审查代码"` → 结果输出 | 高效感（一条命令启动） |
 | 发现异常 | 用户阅读结果，判断不对 | （用户主动判断） |
-| 启动追踪 | `rnix astrace 1` | 掌控感（我可以看到发生了什么） |
+| 启动追踪 | `rnix strace 1` | 掌控感（我可以看到发生了什么） |
 | 定位问题 | syscall 流中发现错误的 Read 调用 | 震撼（三分钟定位三天的 bug） |
 | 修复重跑 | 修改后重新执行 | 可靠感（系统行为可预测） |
 
-**astrace 输出的设计要点：**
+**strace 输出的设计要点：**
 - 异常 syscall（如读取了错误文件）用红色高亮，在密集输出中"跳出来"
 - 默认模式只显示关键 syscall（Open/Read/Write/CtxWrite + LLM 调用），常规操作折叠
 - `--verbose` 模式展开所有参数和返回值
@@ -1029,7 +1029,7 @@ flowchart TD
 | 用户类型 | 调试工具 | 信息深度 | 阶段 |
 |---------|---------|---------|------|
 | 用户 B（林薇） | `rnix log <pid>` | 分类日志（think/tool/output） | Phase 2 |
-| 用户 A（陈明） | `rnix astrace <pid>` | 完整 syscall 链路 | MVP |
+| 用户 A（陈明） | `rnix strace <pid>` | 完整 syscall 链路 | MVP |
 | 用户 A（高级） | `rnix agdb <pid>` | 交互式断点调试 | Phase 3 |
 
 用户 B 不需要理解 syscall——`rnix log` 的 think/tool/output 分类已足够定位大多数问题。
@@ -1046,7 +1046,7 @@ flowchart TD
 | **实时汇报** | `[agent/N]` 前缀的逐行进度输出 | 0, 1, 2, 3 |
 | **结果交付** | 双线边框包裹的结构化报告 | 0, 1, 3 |
 | **三行错误** | 发生了什么 → 影响 → 建议 | 0, 2 |
-| **追溯定位** | 结果异常 → astrace/log → 找到根因 | 1, 4 |
+| **追溯定位** | 结果异常 → strace/log → 找到根因 | 1, 4 |
 | **修复重跑** | 定位问题 → 修改配置/意图 → 重新执行 | 1, 2, 4 |
 
 **反馈节奏模式：**
@@ -1067,7 +1067,7 @@ flowchart TD
 |---|------|------|
 | 1 | **最短路径到价值** | 首次体验：安装 → 一条命令 → 看到结果。中间不插入配置、注册、教程等步骤 |
 | 2 | **错误即分叉口，不是死胡同** | 每条错误路径都有明确的恢复方向，最好是一条可复制的命令 |
-| 3 | **调试深度按需暴露** | 默认输出 → `rnix log`（分类日志）→ `rnix astrace`（syscall）→ `rnix agdb`（断点），层层深入 |
+| 3 | **调试深度按需暴露** | 默认输出 → `rnix log`（分类日志）→ `rnix strace`（syscall）→ `rnix agdb`（断点），层层深入 |
 | 4 | **重复动作零额外成本** | 重跑一个任务只需要重新执行同一条命令，不需要"清理上次状态"或"重置环境" |
 | 5 | **多智能体进度可比较** | Compose 模式下，多个智能体的进度在同一终端中平行展示，依赖关系可见 |
 
@@ -1181,9 +1181,9 @@ flowchart TD
 
 ---
 
-#### 5. Syscall Trace Line (astrace)
+#### 5. Syscall Trace Line (strace)
 
-**用途：** astrace 实时流式输出的单行格式
+**用途：** strace 实时流式输出的单行格式
 **出现旅程：** 1
 
 ```
@@ -1286,9 +1286,9 @@ internal/ui/
 
 | 规则 | 规范 | 示例 |
 |------|------|------|
-| **主命令格式** | `rnix <子命令> [参数] [flags]` | `rnix ps`, `rnix astrace 1` |
+| **主命令格式** | `rnix <子命令> [参数] [flags]` | `rnix ps`, `rnix strace 1` |
 | **意图模式** | `rnix "自然语言意图"` 引号包裹 | `rnix "分析代码性能瓶颈"` |
-| **PID 引用** | 位置参数，纯数字 | `rnix astrace 1`, `rnix kill 3` |
+| **PID 引用** | 位置参数，纯数字 | `rnix strace 1`, `rnix kill 3` |
 | **长 flag** | `--flag-name` 连字符分隔 | `--skill`, `--model`, `--verbose` |
 | **短 flag** | 单字母 `-x`，常用 flag 必须有短形式 | `-v`, `-q`, `-s` |
 | **布尔 flag** | 存在即为 true，无需赋值 | `--json`, `--verbose` |
@@ -1303,7 +1303,7 @@ internal/ui/
 | `--quiet` | `-q` | 静默输出（只显示结果） | 所有输出命令 |
 | `--skill` | `-s` | 指定 Skill | `rnix "意图"` |
 | `--model` | `-m` | 指定 LLM 模型 | `rnix "意图"` |
-| `--filter` | `-f` | 过滤条件 | `rnix astrace`, `rnix ps` |
+| `--filter` | `-f` | 过滤条件 | `rnix strace`, `rnix ps` |
 | `--help` | `-h` | 显示帮助 | 所有命令 |
 | `--version` | （无） | 显示版本 | `rnix` |
 
@@ -1311,7 +1311,7 @@ internal/ui/
 
 | # | 原则 | 说明 |
 |---|------|------|
-| 1 | **同类操作同类语法** | 所有查看类命令（ps/astrace/log）接受 PID 作为位置参数 |
+| 1 | **同类操作同类语法** | 所有查看类命令（ps/strace/log）接受 PID 作为位置参数 |
 | 2 | **全局 flag 全局可用** | `--json`、`--verbose`、`--quiet` 在任何有输出的命令上都有效 |
 | 3 | **必填参数最少化** | 只有意图文本是启动命令的必填项，其余均为可选 |
 | 4 | **不互斥就可组合** | `--verbose --json` 无意义时报错提示，而非静默忽略其一 |
@@ -1432,9 +1432,9 @@ internal/ui/
 | 场景 | 输出 | 设计要点 |
 |------|------|---------|
 | `rnix ps` 无活跃进程 | `No active processes.` | 单行提示，不显示空表格 |
-| `rnix astrace <pid>` PID 不存在 | `✗ PID 5: process not found`<br>`  → 建议: rnix ps  查看活跃进程` | 错误结构 + 引导到 ps |
+| `rnix strace <pid>` PID 不存在 | `✗ PID 5: process not found`<br>`  → 建议: rnix ps  查看活跃进程` | 错误结构 + 引导到 ps |
 | Skill 匹配无结果 | `⚠ no matching skill for intent, using default mode` | 警告但不阻塞——无 Skill 仍可执行 |
-| astrace 无 syscall 记录 | `No syscall records for PID 1.` | 可能进程还没开始或记录已清除 |
+| strace 无 syscall 记录 | `No syscall records for PID 1.` | 可能进程还没开始或记录已清除 |
 
 **2. 权限与依赖边界**
 
@@ -1451,7 +1451,7 @@ internal/ui/
 | 未知子命令 | `✗ rnix foo: unknown command`<br>`  → 建议: rnix --help  查看可用命令` |
 | 互斥 flag 冲突 | `✗ --quiet and --verbose cannot be used together` |
 | 意图文本为空 | `✗ rnix: missing intent`<br>`  → 用法: rnix "your intent here"` |
-| PID 参数非数字 | `✗ rnix astrace abc: invalid PID (expected number)` |
+| PID 参数非数字 | `✗ rnix strace abc: invalid PID (expected number)` |
 
 **边界处理原则：**
 
@@ -1473,7 +1473,7 @@ Rnix — Agent OS for AI agents
 Usage:
   rnix "intent"              Spawn an agent with natural language intent
   rnix ps                    List active processes
-  rnix astrace <pid>         Trace syscalls of a process
+  rnix strace <pid>         Trace syscalls of a process
   rnix kill <pid>            Terminate a process
   rnix version               Show version and dependencies
 
@@ -1486,12 +1486,12 @@ Flags:
 Run 'rnix <command> --help' for details on a specific command.
 ```
 
-**2. 命令帮助（`rnix astrace --help`）**
+**2. 命令帮助（`rnix strace --help`）**
 ```
 Trace syscalls of an agent process in real-time
 
 Usage:
-  rnix astrace <pid> [flags]
+  rnix strace <pid> [flags]
 
 Arguments:
   pid    Process ID to trace (required)
@@ -1502,9 +1502,9 @@ Flags:
   --json                Output as JSON stream
 
 Examples:
-  rnix astrace 1              Trace PID 1 (default mode)
-  rnix astrace 1 -f llm      Only show LLM-related syscalls
-  rnix astrace 1 --verbose    Show full syscall details
+  rnix strace 1              Trace PID 1 (default mode)
+  rnix strace 1 -f llm      Only show LLM-related syscalls
+  rnix strace 1 --verbose    Show full syscall details
 ```
 
 **帮助信息一致性规范：**
@@ -1553,7 +1553,7 @@ claude-code: v1.x.x ✓
 | 2 | **二次 Ctrl+C 永远是强制退出** | 尊重用户的紧迫性——2 秒内双击表示"我要立刻退出" |
 | 3 | **中断后有摘要** | 告知用户进程状态变化和建议操作——与错误三行结构一致 |
 | 4 | **中断不泄漏** | goroutine、context、临时文件在中断后正确清理 |
-| 5 | **astrace 中断** | `rnix astrace` 被 Ctrl+C 中断时，只是 detach 追踪，不影响被追踪进程 |
+| 5 | **strace 中断** | `rnix strace` 被 Ctrl+C 中断时，只是 detach 追踪，不影响被追踪进程 |
 
 **Compose 模式下的中断（Phase 2）：**
 ```

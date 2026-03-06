@@ -136,7 +136,7 @@ rnix ps
 rnix ps <pid>
 
 # 跟踪进程执行
-rnix astrace <pid>
+rnix strace <pid>
 
 # 杀死进程
 rnix kill <pid>

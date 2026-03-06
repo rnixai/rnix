@@ -205,7 +205,7 @@ var psCmd = &cobra.Command{
 > **注意：** 以下为简洁引用。实现时直接读取源文件获取最新代码。
 
 **cmd/rnix/main.go 核心模式：**
-- 子命令注册：参考 `astraceCmd`（第 126-134 行）+ `init()` 中 `rootCmd.AddCommand()`（第 166-175 行）
+- 子命令注册：参考 `straceCmd`（第 126-134 行）+ `init()` 中 `rootCmd.AddCommand()`（第 166-175 行）
 - 全局标志：`flagJSON`/`flagVerbose`/`flagQuiet`/`flagModel`/`flagMaxSteps`/`flagAgent`（第 33-40 行）
 - `resolveOutputMode()` → 返回 `ui.OutputMode`（第 177-188 行）
 - `JSONResponse{OK, Data, Error}` 结构体（第 63-68 行）
@@ -461,7 +461,7 @@ internal/ui/error.go              — RenderError 函数不变（rnix kill 直�
 - [Source: _bmad-output/implementation-artifacts/4-3-proc-dynamic-filesystem.md] — ListProcs() API、ProcInfo 结构、并发安全模式、Code Review 经验
 
 **源码行号参考：**（详见"已有代码关键 API 参考"段落）
-- cmd/rnix/main.go: astraceCmd(126-134), init(166-175), resolveOutputMode(177-188), JSONResponse(63-68), initKernel(328-352), runAstrace Renderer(~374)
+- cmd/rnix/main.go: straceCmd(126-134), init(166-175), resolveOutputMode(177-188), JSONResponse(63-68), initKernel(328-352), runAstrace Renderer(~374)
 - kernel/kernel.go: ProcessManager(80-86), Kill(614-648), GetProcess(602-604), ListProcs(692-712)
 - vfs/proc.go: ProcInfo(27-40)
 - internal/types/types.go: ProcessState.String(47-60)

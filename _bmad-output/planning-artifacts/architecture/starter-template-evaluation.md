@@ -42,7 +42,7 @@ go mod init github.com/rnixai/rnix
 
 **CLI 框架：** Cobra（`github.com/spf13/cobra`）
 - 根命令：`rnix "意图"` — spawn 智能体（`--agent=<name>` 指定 Agent 定义）
-- 子命令：`astrace`、`ps`、`kill`、`version`（Phase 2 追加：`compose`、`skill`、`top`、`log`）
+- 子命令：`strace`、`ps`、`kill`、`version`（Phase 2 追加：`compose`、`skill`、`top`、`log`）
 - 全局 flags：`--json`、`--verbose`、`--quiet`
 
 **终端 UI：** Charm 生态

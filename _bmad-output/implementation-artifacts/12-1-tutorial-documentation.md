@@ -19,7 +19,7 @@ So that 我可以在 Rnix 上构建自己的应用。
 2. **AC2: 调试第一个 bug 教程**
    - Given 教程文档已编写
    - When 阅读"调试第一个 bug"教程
-   - Then 包含故意引入 bug → astrace 定位 → 修复 → 验证的完整流程
+   - Then 包含故意引入 bug → strace 定位 → 修复 → 验证的完整流程
    - And 包含完整可运行示例
 
 3. **AC3: 组合多智能体工作流教程**
@@ -46,7 +46,7 @@ So that 我可以在 Rnix 上构建自己的应用。
 - [x] Task 3: 编写"调试第一个 bug"教程 (AC: #2)
   - [x] 3.1 编写教程前言：目标读者、前置条件、预计完成时间（~15 分钟）
   - [x] 3.2 编写步骤一：准备一个有 bug 的 Skill
-  - [x] 3.3 编写步骤二：使用 `rnix astrace` 定位问题
+  - [x] 3.3 编写步骤二：使用 `rnix strace` 定位问题
   - [x] 3.4 编写步骤三：修复 bug 并验证
   - [x] 3.5 编写扩展调试技巧
 
@@ -104,11 +104,11 @@ So that 我可以在 Rnix 上构建自己的应用。
 - 现有示例：`lib/agents/code-analyst/agent.yaml`
 
 **调试体系（教程二需要精确引用）：**
-- `rnix astrace <pid>`：实时追踪 syscall 事件
+- `rnix strace <pid>`：实时追踪 syscall 事件
 - SyscallEvent 结构：Syscall、PID、FD、Device、Args、Result、Err、Duration
 - ErrCode 枚举：`TIMEOUT`、`NOT_FOUND`、`PERMISSION`、`INTERNAL`、`DRIVER`
-- 参考代码：`debug/event.go`、`debug/astrace.go`
-- 参考文档：`docs/reference.md` §4.5（astrace 命令）、§6.5（SyscallError）
+- 参考代码：`debug/event.go`、`debug/strace.go`
+- 参考文档：`docs/reference.md` §4.5（strace 命令）、§6.5（SyscallError）
 
 **Compose 体系（教程三需要精确引用）：**
 - `rnix-compose.yaml` 格式：services（name、intent、agent、depends_on、environment）
@@ -138,7 +138,7 @@ rnix -i "意图" --json             # JSON 输出
 rnix ps                           # 进程列表
 rnix ps --json                    # JSON 格式进程列表
 rnix kill <pid>                   # 终止进程
-rnix astrace <pid>                # Syscall 追踪
+rnix strace <pid>                # Syscall 追踪
 rnix compose up                   # 启动 compose
 rnix compose down                 # 停止 compose
 rnix top                          # 实时监控 TUI
@@ -200,7 +200,7 @@ docs/
 - [Source: skills/loader.go — Skill 加载逻辑]
 - [Source: agents/loader.go — Agent 加载逻辑]
 - [Source: debug/event.go — SyscallEvent 结构]
-- [Source: debug/astrace.go — astrace 追踪逻辑]
+- [Source: debug/strace.go — strace 追踪逻辑]
 - [Source: compose/parser.go — Compose YAML 解析]
 - [Source: compose/dag.go — DAG 调度引擎]
 - [Source: compose/engine.go — Compose 执行引擎]
@@ -226,8 +226,8 @@ Claude Opus 4.6 (high-thinking)
 ### Completion Notes List
 
 - 创建了 `docs/tutorials/` 目录和 4 个文件（README + 3 篇教程）
-- 教程 1（编写第一个 Skill）：覆盖 SKILL.md 创建、agent.yaml 编写、运行与 astrace 追踪，包含完整示例和常见问题排错
-- 教程 2（调试第一个 bug）：故意引入权限 bug → astrace 定位 → 修复 → 验证的完整流程，含修复前后对比
+- 教程 1（编写第一个 Skill）：覆盖 SKILL.md 创建、agent.yaml 编写、运行与 strace 追踪，包含完整示例和常见问题排错
+- 教程 2（调试第一个 bug）：故意引入权限 bug → strace 定位 → 修复 → 验证的完整流程，含修复前后对比
 - 教程 3（组合多智能体工作流）：rnix-compose.yaml 编写、compose up 启动、rnix top 监控、结果查看，含管道语法/变量/条件分支扩展场景
 - 在 quick-start.md 末尾添加了教程导航入口
 - 所有教程包含交叉引用（concepts.md、reference.md、其他教程）
@@ -241,10 +241,10 @@ Claude Opus 4.6 (high-thinking)
 **Findings:** 2 HIGH, 1 MEDIUM, 2 LOW — all fixed
 
 **Action Items (all resolved):**
-- [x] [HIGH] astrace Read 输出格式修正——Result 应为字节数而非文件内容，Args 应包含 fd 和 length
+- [x] [HIGH] strace Read 输出格式修正——Result 应为字节数而非文件内容，Args 应包含 fd 和 length
 - [x] [HIGH] rnix ps 列名修正——使用 SKILL 列名而非 AGENT，与 internal/ui/table.go 一致
 - [x] [MEDIUM] docs_test.go 对 SKILL.md frontmatter 断言改为检查 allowed-tools: 而非 tools:
-- [x] [LOW] 教程间 astrace 格式已与 quick-start.md 统一
+- [x] [LOW] 教程间 strace 格式已与 quick-start.md 统一
 - [x] [LOW] code-analyst Agent 依赖确认存在
 
 ### Change Log

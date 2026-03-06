@@ -331,7 +331,7 @@ type Process struct {
   - `cmd/rnix/top_test.go` — 预算警告渲染测试
   - `compose/engine_test.go` — Compose ContextBudget 传递测试
   - `ipc/protocol_test.go` — ProcInfoWire ContextBudget 往返测试
-- **不修改**：astrace、rnix log、驱动层、context 包、agents 包（ContextBudget 已存在）、skills 包
+- **不修改**：strace、rnix log、驱动层、context 包、agents 包（ContextBudget 已存在）、skills 包
 - **不需要新依赖**
 
 ### References

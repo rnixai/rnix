@@ -100,7 +100,7 @@ So that 我全程知道智能体在做什么、结果是什么。
 - **文件位置严格遵循架构文档：** UI 组件在 `internal/ui/`，CLI 入口在 `cmd/rnix/main.go`
 - **依赖方向：** `cmd/` → `kernel/` ✓；`cmd/` → `internal/ui/` ✓；`cmd/` → `vfs/` ✓（仅用于初始化）；`cmd/` → `drivers/llm/` ✓（仅用于初始化）；`cmd/` → `context/` ✓（仅用于初始化）。**`internal/ui/` 不导入 `kernel/` 或 `cmd/`**
 - **此 Story 实现的核心：** CLI 依赖注入 + 意图命令处理 + 6 个 UI 组件 + Renderer 抽象 + 信号处理 + Kernel 回调机制
-- **此 Story 不实现：** `rnix ps` 命令（Story 4.4）、`rnix astrace` 命令（Story 3.3）、`rnix kill` 命令（Story 4.1）、Skill 加载注入（Story 2.4）
+- **此 Story 不实现：** `rnix ps` 命令（Story 4.4）、`rnix strace` 命令（Story 3.3）、`rnix kill` 命令（Story 4.1）、Skill 加载注入（Story 2.4）
 - **`cmd/rnix/main.go` 是唯一组装点：** 所有实例创建和依赖注入在此完成
 
 ### 已有代码（必须复用，禁止重新实现）

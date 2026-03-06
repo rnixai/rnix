@@ -125,7 +125,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 #### CLI 命令结构
 - **根命令**：`rnix -i "意图"` — spawn 智能体（意图通过 `-i/--intent` flag 传递）
-- **子命令**：`astrace`、`ps`、`kill`、`version`
+- **子命令**：`strace`、`ps`、`kill`、`version`
 - **全局 flags**：`--json`（JSON 输出）、`--verbose`（详细模式）、`--quiet`（静默模式）、`-i/--intent`（意图字符串）
 - **输出模式检测**：启动时通过 `TerminalProfile` 检测 TTY/Pipe/JSON，自动切换输出格式
 
@@ -164,7 +164,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **Claude Code CLI 参数注入**：intent 和 instructions 通过 CLI 参数传递，注意 shell 转义
 
 #### 性能注意
-- **astrace DebugChan 缓冲 256**：事件过多时消费者跟不上可能丢失，MVP 阶段可接受
+- **strace DebugChan 缓冲 256**：事件过多时消费者跟不上可能丢失，MVP 阶段可接受
 - **进程表用 RWMutex（SyncMap 内部）**：读多写少场景优化，不用 sync.Map（类型不安全）
 - **stream-json 逐行解析**：不要一次性读完 stdout，`bufio.Scanner` 逐行处理减少内存压力
 

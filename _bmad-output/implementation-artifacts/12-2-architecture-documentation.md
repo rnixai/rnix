@@ -224,7 +224,7 @@ docs/
 - 中文技术写作保持一致的术语翻译
 
 **Story 12-1（教程文档）经验：**
-- Code Review 发现 astrace 输出格式、rnix ps 列名等细节与代码不一致——本 Story 需特别注意接口签名精确性
+- Code Review 发现 strace 输出格式、rnix ps 列名等细节与代码不一致——本 Story 需特别注意接口签名精确性
 - 文档验证测试策略有效：通过 Go 测试文件验证文档内容
 
 ### ADR 原始文档

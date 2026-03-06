@@ -94,7 +94,7 @@ PRD Executive Summary 完整传达了"面向 AI 智能体的操作系统"和"AI 
 三大核心问题（调试黑盒、能力不可复用、协调困难）在 Executive Summary 中完整呈现。
 
 **Key Features:** Fully Covered
-MVP 的所有组件（微内核、VFS、驱动层、上下文管理、Skill 加载、CLI、astrace）均在 FR1-FR40 中有对应功能需求。PRD 还新增了 Claude Code CLI 驱动策略的详细映射。
+MVP 的所有组件（微内核、VFS、驱动层、上下文管理、Skill 加载、CLI、strace）均在 FR1-FR40 中有对应功能需求。PRD 还新增了 Claude Code CLI 驱动策略的详细映射。
 
 **Goals/Objectives:** Fully Covered
 用户成功指标、业务目标（GitHub Stars 北极星）、技术验收标准均从 Brief 完整继承并细化。
@@ -168,16 +168,16 @@ OS 级调试、三层能力栈、进程模型+管道组合、时机优势在 Inn
 ### Chain Validation
 
 **Executive Summary → Success Criteria:** Intact ✅
-愿景中的三大问题（调试黑盒、能力不可复用、协调困难）均有对应的可量化成功指标。astrace 杀手级入口与"顿悟时刻"指标对齐。自举验证作为技术/业务双重验收标准明确。
+愿景中的三大问题（调试黑盒、能力不可复用、协调困难）均有对应的可量化成功指标。strace 杀手级入口与"顿悟时刻"指标对齐。自举验证作为技术/业务双重验收标准明确。
 
 **Success Criteria → User Journeys:** Intact ✅
 所有 8 项成功指标均有支撑旅程：调试效率→Journey 1，能力复用→Journey 1 结尾，上手门槛→Journey 1/3，构建效率→Journey 3，进程状态→Journey 2，自举→Technical Success 独立验收。
 
 **User Journeys → Functional Requirements:** Intact ✅
-Journey 1/2（MVP）的所有能力需求（spawn、astrace、/dev/fs、LLM 超时处理、ps、Zombie 回收）均有对应 FRs。Journey 3/4 的 Post-MVP 能力正确排除在当前 FRs 之外。PRD 的 Journey Requirements Summary 表提供了明确的映射。
+Journey 1/2（MVP）的所有能力需求（spawn、strace、/dev/fs、LLM 超时处理、ps、Zombie 回收）均有对应 FRs。Journey 3/4 的 Post-MVP 能力正确排除在当前 FRs 之外。PRD 的 Journey Requirements Summary 表提供了明确的映射。
 
 **Scope → FR Alignment:** Intact ✅
-MVP Feature Set 的所有 in-scope 组件（微内核、VFS、驱动、上下文、Skill、CLI、astrace、文档）均有对应 FRs 覆盖，无遗漏。
+MVP Feature Set 的所有 in-scope 组件（微内核、VFS、驱动、上下文、Skill、CLI、strace、文档）均有对应 FRs 覆盖，无遗漏。
 
 ### Orphan Elements
 
@@ -354,7 +354,7 @@ PRD 明确标注"全新范式，无迁移路径"——Greenfield 项目的合理
 
 **FR27**（Measurable: 3）："能够分析代码并识别**真实问题**" — "真实问题"的可测量性依赖于 Success Criteria 中"至少 1 个可验证的真实代码问题"的定义。建议在 FR 中引用该验收标准。
 
-**FR31**（Measurable: 3）："通过 astrace 输出**回溯到**导致错误结果的**具体推理步骤**" — "回溯到具体步骤"的验证方式需要更明确的测试标准。建议补充"能在 astrace 输出中定位到产生错误的 syscall 调用记录"。
+**FR31**（Measurable: 3）："通过 strace 输出**回溯到**导致错误结果的**具体推理步骤**" — "回溯到具体步骤"的验证方式需要更明确的测试标准。建议补充"能在 strace 输出中定位到产生错误的 syscall 调用记录"。
 
 **FR38**（Measurable: 3）："系统提供概念文档，**解释** Agent OS 范式和核心概念" — 文档"解释"的完整性难以量化。建议补充"覆盖进程、VFS、Skill、syscall 四个核心概念，每个概念含定义和至少一个示例"。
 

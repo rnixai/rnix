@@ -72,16 +72,16 @@ phase2Added: '2026-02-27'
 
 **调试与可观测性（FR28-FR32）**
 
-- FR28: 用户可以通过 `astrace` 实时追踪指定智能体的所有 syscall 调用
-- FR29: astrace 输出包含每个 syscall 的名称、参数、返回值和耗时
-- FR30: 系统可以记录 syscall 调用数据（DebugRecord）供 astrace 消费
-- FR31: 用户可以通过 astrace 输出定位到产生错误结果的具体 syscall 调用记录
+- FR28: 用户可以通过 `strace` 实时追踪指定智能体的所有 syscall 调用
+- FR29: strace 输出包含每个 syscall 的名称、参数、返回值和耗时
+- FR30: 系统可以记录 syscall 调用数据（DebugRecord）供 strace 消费
+- FR31: 用户可以通过 strace 输出定位到产生错误结果的具体 syscall 调用记录
 - FR32: 系统在智能体完成时输出汇总信息（退出码、token 消耗、总耗时）
 
 **命令行接口（FR33-FR37）**
 
 - FR33: 用户可以通过 `rnix "意图"` 单命令启动一个智能体
-- FR34: 用户可以通过 `rnix astrace <pid>` 追踪指定进程的 syscall
+- FR34: 用户可以通过 `rnix strace <pid>` 追踪指定进程的 syscall
 - FR35: 用户可以通过 `rnix ps` 查看所有进程状态
 - FR36: CLI 提供清晰的错误信息，包含设备路径和错误原因
 - FR37: 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI）
@@ -98,7 +98,7 @@ phase2Added: '2026-02-27'
 
 - NFR1: 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析）
 - NFR2: `rnix ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
-- NFR3: `astrace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
+- NFR3: `strace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
 - NFR4: VFS 本地文件读取（`/dev/fs`）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍
 - NFR5: 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身）
 
@@ -113,7 +113,7 @@ phase2Added: '2026-02-27'
 **集成（NFR11-14）**
 
 - NFR11: LLM 驱动层调用时，正确传递 system prompt、工具声明、模型选择、输出格式等参数
-- NFR12: LLM 驱动层支持流式结构化输出模式（stream-json），用于 astrace 实时数据采集
+- NFR12: LLM 驱动层支持流式结构化输出模式（stream-json），用于 strace 实时数据采集
 - NFR13: 宿主文件系统通过 `/dev/fs` 访问时，遵循宿主 OS 的文件权限（不绕过宿主权限模型）
 - NFR14: Shell 驱动（`/dev/shell`）执行命令时，继承当前用户的环境变量和 PATH
 
@@ -194,13 +194,13 @@ phase2Added: '2026-02-27'
 - FR25b: Epic 2 — Skill 渐进式加载（frontmatter → body → assets）
 - FR26: Epic 2 — Agent 引用的所有 Skill 的 allowed-tools 聚合为设备权限白名单
 - FR27: Epic 2 — 交付参考 Agent（code-analyst）+ 参考 Skill（code-analysis）
-- FR28: Epic 3 — astrace 实时追踪所有 syscall
-- FR29: Epic 3 — astrace 输出含名称、参数、返回值、耗时
+- FR28: Epic 3 — strace 实时追踪所有 syscall
+- FR29: Epic 3 — strace 输出含名称、参数、返回值、耗时
 - FR30: Epic 3 — 记录 syscall 调用数据（DebugRecord）
-- FR31: Epic 3 — 通过 astrace 定位具体错误 syscall
+- FR31: Epic 3 — 通过 strace 定位具体错误 syscall
 - FR32: Epic 1 — 智能体完成时输出汇总信息
 - FR33: Epic 1 — `rnix "意图"` 单命令启动智能体
-- FR34: Epic 3 — `rnix astrace <pid>` 追踪命令
+- FR34: Epic 3 — `rnix strace <pid>` 追踪命令
 - FR35: Epic 4 — `rnix ps` 查看进程状态
 - FR36: Epic 1 — CLI 提供清晰错误信息
 - FR37: Epic 1 — `go install` 安装，单二进制零依赖
@@ -218,8 +218,8 @@ phase2Added: '2026-02-27'
 用户可以通过 Agent 定义赋予智能体专业能力（如代码分析），Agent 引用的 Skill 决定智能体可访问的工具和知识——从"能说话"升级到"能干活"。包含 Agent 加载器、Skill 加载器（SKILL.md，Agent Skills 行业标准）、宿主 FS 驱动、Shell 驱动、allowed-tools 聚合白名单和 code-analyst 参考 Agent + code-analysis 参考 Skill。
 **FRs covered:** FR12, FR16, FR18, FR23, FR24, FR25, FR25a, FR25b, FR26, FR27
 
-### Epic 3: 调试追踪（Debug Tracing — astrace）
-当智能体输出不符合预期时，用户运行 `rnix astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。包含 SyscallEvent 记录、DebugChan 事件管道、astrace 命令和 Trace Line UI。
+### Epic 3: 调试追踪（Debug Tracing — strace）
+当智能体输出不符合预期时，用户运行 `rnix strace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。包含 SyscallEvent 记录、DebugChan 事件管道、strace 命令和 Trace Line UI。
 **FRs covered:** FR28, FR29, FR30, FR31, FR34
 
 ### Epic 4: 进程管理与可靠性（Process Management & Reliability）
@@ -719,15 +719,15 @@ So that 我可以立即使用 Rnix 分析代码并作为编写自定义 Agent/Sk
 
 ---
 
-## Epic 3: 调试追踪（Debug Tracing — astrace）
+## Epic 3: 调试追踪（Debug Tracing — strace）
 
-当智能体输出不符合预期时，用户运行 `rnix astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。
+当智能体输出不符合预期时，用户运行 `rnix strace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。
 
 ### Story 3.1: SyscallEvent 记录基础设施
 
 As a 内核开发者,
 I want 每个 syscall 的入口和出口都自动记录为 SyscallEvent,
-So that astrace 可以消费完整的调用链路数据。
+So that strace 可以消费完整的调用链路数据。
 
 **Acceptance Criteria:**
 
@@ -741,7 +741,7 @@ So that astrace 可以消费完整的调用链路数据。
 **And** 出口处补充 Result、Err、Duration
 **And** 写入 `Process.DebugChan`（缓冲 256）
 
-**Given** 进程的 `DebugChan` 为 nil（无 astrace 附着）
+**Given** 进程的 `DebugChan` 为 nil（无 strace 附着）
 **When** syscall 执行
 **Then** 跳过事件记录（零开销）
 
@@ -749,20 +749,20 @@ So that astrace 可以消费完整的调用链路数据。
 **When** 写入新事件
 **Then** 不阻塞 syscall 执行（非阻塞写入或丢弃最旧事件）
 
-### Story 3.2: astrace 事件消费与格式化
+### Story 3.2: strace 事件消费与格式化
 
 As a 用户,
-I want `rnix astrace <pid>` 实时流式输出 syscall 调用链路,
+I want `rnix strace <pid>` 实时流式输出 syscall 调用链路,
 So that 我能看到智能体的每一步操作及其结果。
 
 **Acceptance Criteria:**
 
-**Given** `debug/astrace.go` 已实现
-**When** 调用 astrace 附着到指定 PID
+**Given** `debug/strace.go` 已实现
+**When** 调用 strace 附着到指定 PID
 **Then** 消费目标进程的 DebugChan
 **And** 每个 SyscallEvent 格式化为一行输出
 
-**Given** astrace 流式输出中
+**Given** strace 流式输出中
 **When** 收到一个 SyscallEvent
 **Then** 输出格式为 `[N.NNNs] SyscallName(args) → result    duration`
 **And** 时间戳固定宽度 `[N.NNNs]`
@@ -776,33 +776,33 @@ So that 我能看到智能体的每一步操作及其结果。
 **When** 格式化该事件
 **Then** 整行用红色高亮显示（FR31）
 
-**Given** astrace 输出延迟
+**Given** strace 输出延迟
 **When** 从 syscall 发生到终端显示
 **Then** 延迟 ≤ 500ms（NFR3）
 
-### Story 3.3: astrace CLI 命令
+### Story 3.3: strace CLI 命令
 
 As a 用户,
-I want 通过 `rnix astrace <pid>` 命令启动 syscall 追踪,
+I want 通过 `rnix strace <pid>` 命令启动 syscall 追踪,
 So that 我可以在任何时候调试正在运行的智能体。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/rnix/main.go` 中 astrace 子命令已注册
-**When** 执行 `rnix astrace 1`
+**Given** `cmd/rnix/main.go` 中 strace 子命令已注册
+**When** 执行 `rnix strace 1`
 **Then** 附着到 PID 1 的 DebugChan，开始流式输出 syscall 事件
 
 **Given** 指定的 PID 不存在
-**When** 执行 `rnix astrace 999`
+**When** 执行 `rnix strace 999`
 **Then** 输出 `✗ PID 999: process not found` + `→ 建议: rnix ps  查看活跃进程`
 
-**Given** astrace 正在追踪
+**Given** strace 正在追踪
 **When** 用户按 Ctrl+C
 **Then** 仅 detach 追踪，不影响被追踪进程的运行
 
 **Given** 被追踪进程完成
 **When** DebugChan 关闭
-**Then** astrace 输出 detach 汇总后退出
+**Then** strace 输出 detach 汇总后退出
 
 **Given** 使用 `--verbose` flag
 **When** 格式化 SyscallEvent
@@ -815,7 +815,7 @@ So that 我可以在任何时候调试正在运行的智能体。
 ### Story 3.4: Syscall Trace Line UI 组件
 
 As a 用户,
-I want astrace 输出清晰可读，关键信息一眼可见,
+I want strace 输出清晰可读，关键信息一眼可见,
 So that 我不需要在密集输出中翻找问题。
 
 **Acceptance Criteria:**
@@ -1007,7 +1007,7 @@ So that 我在 15 分钟内体验到 Rnix 的核心价值。
 
 **Given** 快速上手指南已编写
 **When** 按步骤操作
-**Then** 覆盖完整流程：安装 Go → 安装 Rnix（`go install`）→ 验证（`rnix version`）→ 首次执行（`rnix "分析 ./README.md"`）→ 查看结果 → 首次 astrace（`rnix astrace 1`）
+**Then** 覆盖完整流程：安装 Go → 安装 Rnix（`go install`）→ 验证（`rnix version`）→ 首次执行（`rnix "分析 ./README.md"`）→ 查看结果 → 首次 strace（`rnix strace 1`）
 **And** 目标完成时间 ≤ 15 分钟（FR39）
 **And** 每一步包含预期输出示例，用户可对照验证
 
@@ -1024,7 +1024,7 @@ So that 我在编写 Skill 或调试时有权威参考。
 **Then** 包含 MVP 全部 15 个 syscall 的签名、参数、返回值、错误码、示例
 **And** 包含完整 VFS 路径规范（`/proc/{pid}/`、`/dev/llm/`、`/dev/fs`、`/dev/shell`、`/lib/skills/`）
 **And** 包含 agent.yaml 全部字段说明和示例、SKILL.md（Agent Skills 行业标准）全部字段说明和示例
-**And** 包含 CLI 命令完整列表（`rnix "意图"`、`rnix ps`、`rnix astrace`、`rnix kill`、`rnix version`）及其 flags
+**And** 包含 CLI 命令完整列表（`rnix "意图"`、`rnix ps`、`rnix strace`、`rnix kill`、`rnix version`）及其 flags
 **And** 包含 IPC 架构说明：daemon 生命周期（自动启动/自动停止/stale socket 清理）、Unix domain socket 通信机制、IPC 协议概述（NDJSON 消息格式、Method 枚举、流式 StreamEvent）、连接复用语义（非流式请求 Ping/ListProcs/Kill 复用同一连接，流式请求 Spawn/AttachDebug 终结连接）
 
 ---
@@ -1508,7 +1508,7 @@ So that 确认各层职责分离且协同正确。
 **And** MCP 层提供外部服务集成
 **And** Device 层提供原生 I/O（`/dev/`）
 
-**Given** `rnix astrace` 追踪该进程
+**Given** `rnix strace` 追踪该进程
 **When** 查看 syscall 链路
 **Then** 可以清晰看到四层的调用边界和数据流向（FR57）
 
@@ -1751,7 +1751,7 @@ So that 我可以在 Rnix 上构建自己的应用。
 
 **Given** 教程文档已编写
 **When** 阅读"调试第一个 bug"教程
-**Then** 包含故意引入 bug → astrace 定位 → 修复 → 验证的完整流程
+**Then** 包含故意引入 bug → strace 定位 → 修复 → 验证的完整流程
 **And** 包含完整可运行示例
 
 **Given** 教程文档已编写

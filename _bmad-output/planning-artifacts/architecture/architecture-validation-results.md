@@ -8,7 +8,7 @@
 |--------|------|
 | Go 1.26 + Cobra + Lipgloss + testify | ✅ Go 生态内完全兼容 |
 | 分类接口组合 + VFS + Drivers | ✅ 接口边界清晰，组合无冲突 |
-| exec.Command + stream-json | ✅ Claude Code CLI 调用模式与 astrace 数据源一致 |
+| exec.Command + stream-json | ✅ Claude Code CLI 调用模式与 strace 数据源一致 |
 | 泛型类型 + Go 1.26 | ✅ Registry[T], SyncMap[K,V], Future[T] 均支持 |
 | SyscallError + DebugChan | ✅ 共享 syscall 边界，传播路径一致 |
 | Agent/Skill 分层 + Agent Skills 标准 | ✅ Agent 定义身份+策略，Skill 定义程序性知识+工具权限，职责清晰分离 |

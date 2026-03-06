@@ -31,7 +31,7 @@ So that 我可以获得 LLM 的结构化响应来完成任务。
   - [x] 2.2 定义 `CommandBuilder` 函数类型 `func(ctx context.Context, name string, args ...string) *exec.Cmd`，用于测试注入
   - [x] 2.3 实现 `NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver`（函数选项模式，默认 model="sonnet"、timeout=30s、cmdBuilder=exec.CommandContext）
   - [x] 2.4 实现 `Call(ctx, req)` 方法：构建 `claude -p <intent> --output-format json` 命令，条件追加 `--system-prompt`（非空时）、`--model`（req.Model 或 defaultModel）、`--max-turns`（req.MaxTurns 或默认 1），用 `context.WithTimeout` 包装，执行命令捕获 stdout/stderr，解析 JSON 输出为 `LLMResponse`，超时时返回 timeout 错误
-  - [x] 2.5 实现 `Stream(ctx, req)` 方法：基于 `--output-format stream-json` + `bufio.Scanner` 的基础实现，为 Story 3.1 astrace 集成打基础
+  - [x] 2.5 实现 `Stream(ctx, req)` 方法：基于 `--output-format stream-json` + `bufio.Scanner` 的基础实现，为 Story 3.1 strace 集成打基础
   - [x] 2.6 实现 `Info()` 方法：返回 `DriverInfo{Name: "claude-cli", Provider: "claude", DefaultModel: d.defaultModel}`
   - [x] 2.7 定义 `ClaudeCliOption` 函数选项类型及实现（`WithModel`、`WithTimeout`、`WithCommandBuilder`）
 - [x] Task 3: 实现 VFSFile 适配器 (AC: #1, #2)
@@ -59,7 +59,7 @@ So that 我可以获得 LLM 的结构化响应来完成任务。
 - **文件位置严格遵循架构文档：** `drivers/llm/` 目录下，文件名遵循全小写下划线分隔
 - **依赖方向：** `drivers/llm/` → `internal/types/` ✓；`drivers/llm/` → `internal/xsync/` ✓；`drivers/llm/` → `vfs/`（仅类型引用 VFSFile/VFSFileFactory/FileStat/OpenFlag）✓。**绝对禁止** `drivers/llm/` 导入 `kernel/` 或 `context/`
 - **此 Story 实现的核心：** LLMDriver 接口 + ClaudeCliDriver 实现 + VFSFile 适配器 + 驱动注册表
-- **此 Story 不实现：** reasonStep 中的 LLM 调用逻辑（Story 1.6）、Skill 的 system prompt 注入（Story 2.4）、stream-json 的完整 astrace 集成（Story 3.1）、DeviceRegistry 注册调用（Story 1.7 `cmd/rnix/main.go`）
+- **此 Story 不实现：** reasonStep 中的 LLM 调用逻辑（Story 1.6）、Skill 的 system prompt 注入（Story 2.4）、stream-json 的完整 strace 集成（Story 3.1）、DeviceRegistry 注册调用（Story 1.7 `cmd/rnix/main.go`）
 - **MVP 限制：** `--max-turns 1`（单轮对话），Stream 方法提供基础 stream-json 实现为后续 Story 打基础
 
 ### 已有代码（必须复用，禁止重新实现）
@@ -352,7 +352,7 @@ return nil, &kernel.SyscallError{...}  // ← 禁止
 
 **6. Stream 方法的 MVP 实现**
 
-提供基于 `--output-format stream-json` + `bufio.Scanner` 的基础实现，为 Story 3.1（astrace SyscallEvent 记录）打基础。
+提供基于 `--output-format stream-json` + `bufio.Scanner` 的基础实现，为 Story 3.1（strace SyscallEvent 记录）打基础。
 
 stream-json 格式（每行一个 JSON 对象）：
 
