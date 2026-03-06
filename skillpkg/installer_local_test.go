@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/usecrux/crux/skills"
+	"github.com/rnixai/rnix/skills"
 )
 
 // --- BUG-005: Skill Install Local Filesystem Check Tests ---

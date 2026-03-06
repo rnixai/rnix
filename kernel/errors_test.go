@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 func TestSyscallError_Error(t *testing.T) {

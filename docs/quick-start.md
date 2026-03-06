@@ -1,6 +1,6 @@
-# Crux 快速上手指南
+# Rnix 快速上手指南
 
-本指南帮助你在 15 分钟内完成 Crux 的安装和首次运行，体验 AI 智能体操作系统的核心功能。
+本指南帮助你在 15 分钟内完成 Rnix 的安装和首次运行，体验 AI 智能体操作系统的核心功能。
 
 ---
 
@@ -19,7 +19,7 @@ go version go1.26.0 linux/amd64
 
 ### Claude Code CLI
 
-Crux 通过 Claude Code CLI 调用 LLM 推理。确认已安装：
+Rnix 通过 Claude Code CLI 调用 LLM 推理。确认已安装：
 
 ```bash
 $ claude --version
@@ -36,26 +36,26 @@ npm install -g @anthropic-ai/claude-code
 
 ---
 
-## 安装 Crux
+## 安装 Rnix
 
 使用 `go install` 一键安装：
 
 ```bash
-go install github.com/usecrux/crux/cmd/crux@latest
+go install github.com/rnixai/rnix/cmd/rnix@latest
 ```
 
 验证安装成功：
 
 ```bash
-$ crux version
-crux v0.1.0
+$ rnix version
+rnix v0.1.0
 claude-code: 2.1.69
 ```
 
 如果看到以下输出，说明 Claude Code CLI 未安装或不在 PATH 中：
 
 ```
-crux v0.1.0
+rnix v0.1.0
 ✗ claude-code CLI not found
   → 建议: npm install -g @anthropic-ai/claude-code
 ```
@@ -66,13 +66,13 @@ crux v0.1.0
 
 ### 最简用法
 
-向 Crux 传递一个意图字符串，即可 Spawn 一个智能体进程来完成任务：
+向 Rnix 传递一个意图字符串，即可 Spawn 一个智能体进程来完成任务：
 
 ```bash
-$ crux -i "分析 ./README.md"
+$ rnix -i "分析 ./README.md"
 ```
 
-首次运行时，Crux 会自动启动一个后台 daemon 进程来管理内核和进程表。daemon 通过 Unix domain socket 与 CLI 通信，空闲 60 秒后自动退出。你无需手动管理 daemon——一切都是透明的。
+首次运行时，Rnix 会自动启动一个后台 daemon 进程来管理内核和进程表。daemon 通过 Unix domain socket 与 CLI 通信，空闲 60 秒后自动退出。你无需手动管理 daemon——一切都是透明的。
 
 你将看到类似以下的输出：
 
@@ -83,7 +83,7 @@ $ crux -i "分析 ./README.md"
 ══ Result ══════════════════════════════════════════════════════════════════════
   ## README.md 分析
 
-  该文件是 Crux 项目的入口说明文档，包含项目简介、安装方式和基本用法。
+  该文件是 Rnix 项目的入口说明文档，包含项目简介、安装方式和基本用法。
   结构清晰，涵盖了新用户上手所需的关键信息...
 ════════════════════════════════════════════════════════════════════════════════
 [kernel] PID 1 exited(0) | tokens: 1024 | elapsed: 5.3s
@@ -107,10 +107,10 @@ $ crux -i "分析 ./README.md"
 Agent 定义了智能体的身份和角色。通过 `--agent` 参数可以使用预定义的 Agent：
 
 ```bash
-$ crux -i "分析 ./cmd/crux/main.go" --agent=code-analyst
+$ rnix -i "分析 ./cmd/rnix/main.go" --agent=code-analyst
 ```
 
-`code-analyst` 是 Crux 内置的参考 Agent，专门用于分析代码质量、识别潜在问题并提供改进建议。它引用了 `code-analysis` Skill，拥有访问文件系统（`/dev/fs`）和 Shell（`/dev/shell`）的权限。
+`code-analyst` 是 Rnix 内置的参考 Agent，专门用于分析代码质量、识别潜在问题并提供改进建议。它引用了 `code-analysis` Skill，拥有访问文件系统（`/dev/fs`）和 Shell（`/dev/shell`）的权限。
 
 你将看到类似以下的输出：
 
@@ -120,10 +120,10 @@ $ crux -i "分析 ./cmd/crux/main.go" --agent=code-analyst
 [agent/1] reasoning step 2...
 [agent/1] reasoning step 3...
 ══ Result ══════════════════════════════════════════════════════════════════════
-  ## 代码分析报告: cmd/crux/main.go
+  ## 代码分析报告: cmd/rnix/main.go
 
   ### 总体评价
-  该文件是 Crux CLI 的入口点，结构清晰，职责明确...
+  该文件是 Rnix CLI 的入口点，结构清晰，职责明确...
 
   ### 发现
   - **Info** — 全局变量较多，可考虑封装到结构体中
@@ -138,7 +138,7 @@ $ crux -i "分析 ./cmd/crux/main.go" --agent=code-analyst
 
 ## astrace 调试体验
 
-`astrace`（Agent Strace）是 Crux 的调试工具，类似 Unix 的 `strace`，可以实时查看智能体进程的每一步系统调用（Syscall），帮助你理解智能体的完整执行过程。
+`astrace`（Agent Strace）是 Rnix 的调试工具，类似 Unix 的 `strace`，可以实时查看智能体进程的每一步系统调用（Syscall），帮助你理解智能体的完整执行过程。
 
 得益于 daemon 架构，`astrace` 支持跨终端操作——你可以在任意终端追踪任意正在运行的进程，无需在启动进程的终端中操作。
 
@@ -148,14 +148,14 @@ $ crux -i "分析 ./cmd/crux/main.go" --agent=code-analyst
 
 ```bash
 # 终端 A
-$ crux -i "分析当前项目结构并给出建议"
+$ rnix -i "分析当前项目结构并给出建议"
 ```
 
-打开另一个终端，用 `crux ps` 找到正在运行的进程 PID，然后 attach：
+打开另一个终端，用 `rnix ps` 找到正在运行的进程 PID，然后 attach：
 
 ```bash
 # 终端 B
-$ crux astrace 1
+$ rnix astrace 1
 ```
 
 ### 预期输出
@@ -195,12 +195,12 @@ $ crux astrace 1
 
 ## 进程管理
 
-Crux 的进程在系统级别可见——与 Unix 进程一样，你可以在任意终端查看和管理所有正在运行的智能体进程，无论它们是从哪个终端启动的。
+Rnix 的进程在系统级别可见——与 Unix 进程一样，你可以在任意终端查看和管理所有正在运行的智能体进程，无论它们是从哪个终端启动的。
 
 ### 查看进程列表
 
 ```bash
-$ crux ps
+$ rnix ps
 ```
 
 输出示例：
@@ -217,7 +217,7 @@ $ crux ps
 使用 `--json` 获取 JSON 格式输出，方便脚本处理：
 
 ```bash
-$ crux ps --json
+$ rnix ps --json
 ```
 
 输出示例：
@@ -246,25 +246,25 @@ $ crux ps --json
 你可以从任意终端终止正在运行的进程：
 
 ```bash
-$ crux kill 1
+$ rnix kill 1
 [kernel] PID 1: signal sent (SIGTERM)
 ```
 
-如果没有任何 `crux` 实例运行（daemon 未启动），`crux ps` 会输出 "No active processes."，`crux kill` 会输出标准错误提示——不会崩溃或报连接错误。
+如果没有任何 `rnix` 实例运行（daemon 未启动），`rnix ps` 会输出 "No active processes."，`rnix kill` 会输出标准错误提示——不会崩溃或报连接错误。
 
 ---
 
 ## 下一步
 
-恭喜！你已经体验了 Crux 的核心功能。以下资源帮助你进一步探索：
+恭喜！你已经体验了 Rnix 的核心功能。以下资源帮助你进一步探索：
 
 - **[核心概念文档](concepts.md)** — 深入理解进程、VFS、Syscall、Agent 与 Skill 的设计哲学
 - **[参考手册](reference.md)** — 完整的 CLI 命令参考、Syscall 签名和 Manifest 字段说明
-- **Agent 和 Skill 扩展** — 创建自定义 Agent（`lib/agents/`）和 Skill（`lib/skills/`），扩展 Crux 的能力边界
+- **Agent 和 Skill 扩展** — 创建自定义 Agent（`lib/agents/`）和 Skill（`lib/skills/`），扩展 Rnix 的能力边界
 
 ### 实战教程
 
-想要手把手学习 Crux 开发？查看 [教程目录](tutorials/README.md)：
+想要手把手学习 Rnix 开发？查看 [教程目录](tutorials/README.md)：
 
 1. **[编写第一个 Skill](tutorials/writing-first-skill.md)** — 创建 Skill、Agent 并运行（~20 分钟）
 2. **[调试第一个 bug](tutorials/debugging-first-bug.md)** — 使用 astrace 定位和修复问题（~15 分钟）

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 type coroutineState int

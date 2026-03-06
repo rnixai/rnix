@@ -1,13 +1,13 @@
-BINARY := crux
-PKG := github.com/usecrux/crux
+BINARY := rnix
+PKG := github.com/rnixai/rnix
 
 .PHONY: build install test lint vet clean all
 
 build:
-	go build -o $(BINARY) ./cmd/crux/
+	go build -o $(BINARY) ./cmd/rnix/
 
 install:
-	go install ./cmd/crux/
+	go install ./cmd/rnix/
 
 test:
 	go test -race ./...

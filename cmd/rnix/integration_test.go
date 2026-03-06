@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/drivers/llm"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/kernel"
-	"github.com/usecrux/crux/skills"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/drivers/llm"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/skills"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- Thread-safe writer for concurrent output ---
@@ -135,7 +135,7 @@ func runE2E(t *testing.T, intent string, driver llm.LLMDriver, mode ui.OutputMod
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	start := time.Now()
@@ -378,7 +378,7 @@ func TestSignalHandling_GracefulShutdown(t *testing.T) {
 			readData: []byte(`{"content":"interrupted","tokens_used":1}`),
 		}, nil
 	})
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	pid, err := kern.Spawn("signal test", nil, kernel.SpawnOpts{})
@@ -463,7 +463,7 @@ func TestSignalHandling_InterruptSummary(t *testing.T) {
 			readData: []byte(`{"content":"interrupted","tokens_used":1}`),
 		}, nil
 	})
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	pid, err := kern.Spawn("signal test", nil, kernel.SpawnOpts{})
@@ -526,7 +526,7 @@ func TestSignalHandling_DoubleInterruptForceExit(t *testing.T) {
 			readData: []byte(`{"content":"test","tokens_used":1}`),
 		}, nil
 	})
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	pid, err := kern.Spawn("double signal test", nil, kernel.SpawnOpts{})
@@ -618,7 +618,7 @@ func TestE2E_WithAgent_InjectsInstructions(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	agentInfo := &agents.AgentInfo{
@@ -684,7 +684,7 @@ func TestE2E_CodeAnalystAgent(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	sl := skills.NewSkillLoader("../../lib/skills")
@@ -767,7 +767,7 @@ func TestE2E_KillWait_FullLifecycle(t *testing.T) {
 			readData: []byte(`{"content":"interrupted","tokens_used":1}`),
 		}, nil
 	})
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	pid, err := kern.Spawn("kill-wait lifecycle", nil, kernel.SpawnOpts{})
@@ -832,7 +832,7 @@ func TestE2E_KillWait_RaceDetection(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 	pid, err := kern.Spawn("race test", nil, kernel.SpawnOpts{})

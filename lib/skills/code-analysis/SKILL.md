@@ -6,7 +6,7 @@ description: >
   find problems in source code.
 allowed-tools: /dev/fs /dev/shell
 metadata:
-  author: crux
+  author: rnix
   version: "1.0"
 ---
 

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // testdataDir returns the absolute path to the testdata directory.

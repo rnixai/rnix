@@ -3,7 +3,7 @@ package kernel
 import (
 	"fmt"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // SyscallError represents an error that occurred during a syscall.

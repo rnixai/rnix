@@ -7,7 +7,7 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// ParseFile reads and parses a crux-compose.yaml file from the given path.
+// ParseFile reads and parses a rnix-compose.yaml file from the given path.
 func ParseFile(path string) (*ComposeSpec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -16,7 +16,7 @@ func ParseFile(path string) (*ComposeSpec, error) {
 	return ParseBytes(data)
 }
 
-// ParseBytes parses crux-compose.yaml content from bytes.
+// ParseBytes parses rnix-compose.yaml content from bytes.
 func ParseBytes(data []byte) (*ComposeSpec, error) {
 	var spec ComposeSpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {

@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/ipc"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
 )
 
 var flagFilter string
@@ -23,10 +23,10 @@ var logCmd = &cobra.Command{
 	Use:   "log <pid>",
 	Short: "View categorized reasoning logs of an agent process",
 	Long:  "Stream reasoning logs from a running agent, categorized as [think], [tool], and [output].\n\nPress Ctrl+C to detach without affecting the traced process.",
-	Example: `  crux log 5                   Stream all log categories
-  crux log 5 --filter tool     Show only tool call logs
-  crux log 5 --filter think    Show only reasoning logs
-  crux log 5 --json            Output as NDJSON stream`,
+	Example: `  rnix log 5                   Stream all log categories
+  rnix log 5 --filter tool     Show only tool call logs
+  rnix log 5 --filter think    Show only reasoning logs
+  rnix log 5 --json            Output as NDJSON stream`,
 	Args: cobra.ExactArgs(1),
 	RunE: runLog,
 }
@@ -45,12 +45,12 @@ var validLogCategories = map[string]bool{
 func runLog(cmd *cobra.Command, args []string) error {
 	pidNum, err := strconv.Atoi(args[0])
 	if err != nil {
-		return fmt.Errorf("✗ crux log %s: invalid PID (expected number)", args[0])
+		return fmt.Errorf("✗ rnix log %s: invalid PID (expected number)", args[0])
 	}
 	pid := types.PID(pidNum)
 
 	if flagFilter != "" && !validLogCategories[flagFilter] {
-		return fmt.Errorf("✗ crux log: invalid --filter value %q (valid: think, tool, output)", flagFilter)
+		return fmt.Errorf("✗ rnix log: invalid --filter value %q (valid: think, tool, output)", flagFilter)
 	}
 
 	w := cmd.OutOrStdout()
@@ -62,13 +62,13 @@ func runLog(cmd *cobra.Command, args []string) error {
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
 			"no active daemon (process not found)", "",
-			"crux ps  查看活跃进程")
+			"rnix ps  查看活跃进程")
 		return nil
 	}
 	defer client.Close()
 
 	if !flagJSON {
-		fmt.Fprintf(w, "[crux log] attached to PID %d\n\n", pid)
+		fmt.Fprintf(w, "[rnix log] attached to PID %d\n\n", pid)
 	}
 
 	parentCtx := cmd.Context()
@@ -122,19 +122,19 @@ func runLog(cmd *cobra.Command, args []string) error {
 				ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
 					"process not found",
 					fmt.Sprintf("PID %d: 不存在或已退出", pid),
-					"crux ps  查看活跃进程")
+					"rnix ps  查看活跃进程")
 			}
 			exitCode = 1
 		} else if !flagJSON {
 			if err == nil {
-				fmt.Fprintf(w, "\n[crux log] detached from PID %d (process exited)\n", pid)
+				fmt.Fprintf(w, "\n[rnix log] detached from PID %d (process exited)\n", pid)
 			} else {
-				fmt.Fprintf(w, "\n[crux log] detached from PID %d (error: %v)\n", pid, err)
+				fmt.Fprintf(w, "\n[rnix log] detached from PID %d (error: %v)\n", pid, err)
 			}
 		}
 	case <-logCtx.Done():
 		if !flagJSON {
-			fmt.Fprintf(w, "\n[crux log] detached from PID %d (interrupted)\n", pid)
+			fmt.Fprintf(w, "\n[rnix log] detached from PID %d (interrupted)\n", pid)
 		}
 	}
 

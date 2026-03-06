@@ -11,7 +11,7 @@ import (
 // All tests are in RED phase: they reference ParseFile/ParseBytes which do not exist yet.
 
 func TestParseBytes_Valid(t *testing.T) {
-	// Given: a valid crux-compose.yaml with multiple agents and dependencies
+	// Given: a valid rnix-compose.yaml with multiple agents and dependencies
 	data := []byte(`
 version: "1.0"
 intent: "PR review + code analysis"
@@ -73,7 +73,7 @@ agents:
 }
 
 func TestParseBytes_FullFormat(t *testing.T) {
-	// Given: a crux-compose.yaml with all supported fields including agent reference and model
+	// Given: a rnix-compose.yaml with all supported fields including agent reference and model
 	data := []byte(`
 version: "1.0"
 intent: "PR review + analysis + documentation"
@@ -131,7 +131,7 @@ agents:
 }
 
 func TestParseBytes_NoDependencies(t *testing.T) {
-	// Given: a crux-compose.yaml with no dependencies (all agents independent)
+	// Given: a rnix-compose.yaml with no dependencies (all agents independent)
 	data := []byte(`
 version: "1.0"
 intent: "parallel analysis"
@@ -164,7 +164,7 @@ agents:
 func TestParseFile_Valid(t *testing.T) {
 	// Given: a valid YAML file on disk
 	dir := t.TempDir()
-	fpath := filepath.Join(dir, "crux-compose.yaml")
+	fpath := filepath.Join(dir, "rnix-compose.yaml")
 	data := []byte(`
 version: "1.0"
 intent: "test workflow"
@@ -195,7 +195,7 @@ agents:
 func TestParseFile_NotFound(t *testing.T) {
 	// Given: a non-existent file path
 	// When: parsing the file
-	_, err := ParseFile("/nonexistent/crux-compose.yaml")
+	_, err := ParseFile("/nonexistent/rnix-compose.yaml")
 
 	// Then: an error is returned
 	if err == nil {
@@ -402,7 +402,7 @@ agents:
 }
 
 func TestParseBytes_GlobalModel(t *testing.T) {
-	// Given: a crux-compose.yaml with a top-level model field
+	// Given: a rnix-compose.yaml with a top-level model field
 	data := []byte(`
 version: "1.0"
 intent: "cost-optimized workflow"

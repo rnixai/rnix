@@ -1,8 +1,8 @@
-# Crux 参考手册
+# Rnix 参考手册
 
-本手册是 Crux 的权威技术参考，面向使用 Crux 编写 Agent/Skill 或调试问题的开发者。文档中所有签名、参数、返回值、路径和协议均精确匹配当前代码实现。
+本手册是 Rnix 的权威技术参考，面向使用 Rnix 编写 Agent/Skill 或调试问题的开发者。文档中所有签名、参数、返回值、路径和协议均精确匹配当前代码实现。
 
-> 如需了解 Crux 的设计哲学和核心概念，请参阅 [核心概念文档](concepts.md)。
+> 如需了解 Rnix 的设计哲学和核心概念，请参阅 [核心概念文档](concepts.md)。
 > 如需快速安装和首次运行指引，请参阅 [快速上手指南](quick-start.md)。
 
 ---
@@ -35,11 +35,11 @@
    - [3.8 完整示例](#38-完整示例)
 4. [CLI 命令参考](#4-cli-命令参考)
    - [4.1 全局 Flags](#41-全局-flags)
-   - [4.2 crux \[intent\] — 根命令](#42-crux-intent--根命令)
-   - [4.3 crux ps — 进程列表](#43-crux-ps--进程列表)
-   - [4.4 crux kill — 进程终止](#44-crux-kill-pid--进程终止)
-   - [4.5 crux astrace — Syscall 追踪](#45-crux-astrace-pid--syscall-追踪)
-   - [4.6 crux version — 版本信息](#46-crux-version--版本信息)
+   - [4.2 rnix \[intent\] — 根命令](#42-rnix-intent--根命令)
+   - [4.3 rnix ps — 进程列表](#43-rnix-ps--进程列表)
+   - [4.4 rnix kill — 进程终止](#44-rnix-kill-pid--进程终止)
+   - [4.5 rnix astrace — Syscall 追踪](#45-rnix-astrace-pid--syscall-追踪)
+   - [4.6 rnix version — 版本信息](#46-rnix-version--版本信息)
    - [4.7 JSON 响应格式](#47-json-响应格式)
 5. [IPC 架构](#5-ipc-架构)
    - [5.1 Daemon 生命周期](#51-daemon-生命周期)
@@ -70,7 +70,7 @@
 
 ### 1.1 概述
 
-Crux 的内核接口按 4 个功能分类组织，共定义 15 个 syscall：
+Rnix 的内核接口按 4 个功能分类组织，共定义 15 个 syscall：
 
 | 功能分类 | Syscall 数量 | 职责 |
 |---------|-------------|------|
@@ -658,7 +658,7 @@ debug.CompleteEvent(&event, result, err, duration)
 
 ### 2.1 概述
 
-VFS（虚拟文件系统）是 Crux 的统一资源抽象层，遵循 Unix "一切皆文件"的哲学。所有外部资源通过 VFS 设备路径访问。
+VFS（虚拟文件系统）是 Rnix 的统一资源抽象层，遵循 Unix "一切皆文件"的哲学。所有外部资源通过 VFS 设备路径访问。
 
 **设备模型：** 每个 VFS 路径映射到一个 `VFSFileFactory`，由 `DeviceRegistry` 管理注册和查找。
 
@@ -676,7 +676,7 @@ VFS（虚拟文件系统）是 Crux 的统一资源抽象层，遵循 Unix "一�
 | `/dev/shell` | `drivers/shell` | 精确匹配 | Shell 命令执行 |
 | `/proc` | `vfs/proc.go` | 前缀匹配 | 动态进程信息 |
 
-设备注册在 daemon 启动时通过依赖注入完成（`cmd/crux/main.go`）。
+设备注册在 daemon 启动时通过依赖注入完成（`cmd/rnix/main.go`）。
 
 ### 2.2 /dev/llm/claude — LLM 驱动设备
 
@@ -910,7 +910,7 @@ metadata:
 
 ### 3.7 渐进式加载策略
 
-Crux 对 Skill 提供两级加载粒度：
+Rnix 对 Skill 提供两级加载粒度：
 
 | 方法 | 加载内容 | 估算 Token | 用途 |
 |------|---------|-----------|------|
@@ -943,7 +943,7 @@ description: >
   vulnerabilities.
 allowed-tools: /dev/fs /dev/shell
 metadata:
-  author: crux
+  author: rnix
   version: "1.0"
 ---
 
@@ -969,10 +969,10 @@ metadata:
 
 这三个 flag 通过 `PersistentFlags` 注册，对所有子命令生效。
 
-### 4.2 crux [intent] — 根命令
+### 4.2 rnix [intent] — 根命令
 
 ```
-用法: crux [intent]
+用法: rnix [intent]
 参数: [intent] — 任意长度意图字符串（多个参数以空格拼接）
 ```
 
@@ -1008,10 +1008,10 @@ metadata:
 {"ok": false, "error": {"code": "TIMEOUT", "message": "...", "syscall": "Write", "device": "/dev/llm/claude"}}
 ```
 
-### 4.3 crux ps — 进程列表
+### 4.3 rnix ps — 进程列表
 
 ```
-用法: crux ps
+用法: rnix ps
 参数: 无 (cobra.NoArgs)
 ```
 
@@ -1062,10 +1062,10 @@ metadata:
 
 **无活跃进程时：** `No active processes.`
 
-### 4.4 crux kill \<pid\> — 进程终止
+### 4.4 rnix kill \<pid\> — 进程终止
 
 ```
-用法: crux kill <pid>
+用法: rnix kill <pid>
 参数: <pid> — 进程 ID（十进制数字，恰好 1 个参数）
 信号: 固定发送 SIGTERM(1)
 ```
@@ -1076,10 +1076,10 @@ metadata:
 [kernel] PID 1: signal sent (SIGTERM)
 ```
 
-### 4.5 crux astrace \<pid\> — Syscall 追踪
+### 4.5 rnix astrace \<pid\> — Syscall 追踪
 
 ```
-用法: crux astrace <pid>
+用法: rnix astrace <pid>
 参数: <pid> — 进程 ID（恰好 1 个参数）
 ```
 
@@ -1114,23 +1114,23 @@ metadata:
 
 **SIGINT 行为：** 仅 detach 追踪，不影响被追踪进程。
 
-### 4.6 crux version — 版本信息
+### 4.6 rnix version — 版本信息
 
 ```
-用法: crux version
+用法: rnix version
 ```
 
 **默认输出：**
 
 ```
-crux v0.1.0
+rnix v0.1.0
 claude-code: 2.1.69
 ```
 
 **Claude CLI 未安装时：**
 
 ```
-crux v0.1.0
+rnix v0.1.0
 ✗ claude-code CLI not found
   → 建议: npm install -g @anthropic-ai/claude-code
 ```
@@ -1172,14 +1172,14 @@ type jsonErrorData struct {
 
 ### 5.1 Daemon 生命周期
 
-Crux 采用 daemon 架构：一个后台 daemon 持有唯一的内核实例和进程表，所有 CLI 命令作为客户端通过 Unix domain socket 通信。
+Rnix 采用 daemon 架构：一个后台 daemon 持有唯一的内核实例和进程表，所有 CLI 命令作为客户端通过 Unix domain socket 通信。
 
 **自动启动（`EnsureDaemon`）：**
 
 1. CLI 命令调用 `EnsureDaemon()`
 2. 尝试连接现有 daemon 并发送 `ping`
 3. 连接失败 → 清除 stale socket 文件
-4. 启动新 daemon 进程（`crux daemon --internal`，`setsid` 独立进程组）
+4. 启动新 daemon 进程（`rnix daemon --internal`，`setsid` 独立进程组）
 5. 轮询等待就绪（每 100ms 重试，最多 3 秒超时）
 6. 返回已连接的 `*Client`
 
@@ -1193,14 +1193,14 @@ Crux 采用 daemon 架构：一个后台 daemon 持有唯一的内核实例和�
 **Stale socket 清理：**
 
 - ping 现有 socket 超时 → 删除旧 socket 文件 → 启动新 daemon
-- daemon 启动时将 PID 写入 `crux.pid` 文件（诊断用途）
+- daemon 启动时将 PID 写入 `rnix.pid` 文件（诊断用途）
 
 ### 5.2 Socket 路径规则
 
 Socket 路径按以下优先级确定：
 
-1. **`$XDG_RUNTIME_DIR/crux/crux.sock`** — 如 `/run/user/1000/crux/crux.sock`
-2. **`/tmp/crux-{uid}/crux.sock`** — 降级方案（`$XDG_RUNTIME_DIR` 未设置时）
+1. **`$XDG_RUNTIME_DIR/rnix/rnix.sock`** — 如 `/run/user/1000/rnix/rnix.sock`
+2. **`/tmp/rnix-{uid}/rnix.sock`** — 降级方案（`$XDG_RUNTIME_DIR` 未设置时）
 
 目录权限：`0700`（仅当前用户可访问）。
 

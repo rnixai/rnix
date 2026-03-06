@@ -13,19 +13,19 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/usecrux/crux/agents"
-	"github.com/usecrux/crux/compose"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/internal/xsync"
-	"github.com/usecrux/crux/ipc"
-	"github.com/usecrux/crux/kernel"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/compose"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/internal/xsync"
+	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
-// --- Story 7.2: crux compose up Command Tests ---
+// --- Story 7.2: rnix compose up Command Tests ---
 // These tests verify AC #1-4 of Story 7.2.
-// Tests reference cmd/crux/compose.go types and functions that will be created during implementation.
+// Tests reference cmd/rnix/compose.go types and functions that will be created during implementation.
 
 // --- AC #1: compose up 子命令注册 ---
 
@@ -98,9 +98,9 @@ func TestComposeUp_HelpOutput(t *testing.T) {
 // --- AC #1: compose up 默认文件 ---
 
 func TestComposeUp_DefaultFile(t *testing.T) {
-	// Given: a directory with crux-compose.yaml
+	// Given: a directory with rnix-compose.yaml
 	// When: running compose up without -f flag
-	// Then: reads crux-compose.yaml from current directory
+	// Then: reads rnix-compose.yaml from current directory
 
 	tmpDir := t.TempDir()
 	composeYAML := `version: "1.0"
@@ -109,7 +109,7 @@ agents:
   worker:
     intent: "do work"
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "crux-compose.yaml"), []byte(composeYAML), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "rnix-compose.yaml"), []byte(composeYAML), 0644); err != nil {
 		t.Fatalf("write compose file: %v", err)
 	}
 
@@ -132,7 +132,7 @@ agents:
 		flagComposeFile = savedFile
 		exitCode = savedExit
 	})
-	flagComposeFile = "crux-compose.yaml"
+	flagComposeFile = "rnix-compose.yaml"
 	exitCode = 0
 
 	err := runComposeUp(&cobra.Command{}, []string{})
@@ -140,8 +140,8 @@ agents:
 	// but it should NOT fail with "file not found" for the compose file.
 	if err != nil {
 		errMsg := err.Error()
-		if strings.Contains(errMsg, "no such file") || strings.Contains(errMsg, "crux-compose.yaml") {
-			t.Fatalf("compose up should find default crux-compose.yaml, got: %v", err)
+		if strings.Contains(errMsg, "no such file") || strings.Contains(errMsg, "rnix-compose.yaml") {
+			t.Fatalf("compose up should find default rnix-compose.yaml, got: %v", err)
 		}
 	}
 }
@@ -229,7 +229,7 @@ agents:
     depends_on:
       upstream: completed
 `
-	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	composePath := filepath.Join(tmpDir, "rnix-compose.yaml")
 	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
 		t.Fatalf("write compose file: %v", err)
 	}
@@ -356,7 +356,7 @@ agents:
   slow:
     intent: "takes forever"
 `
-	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	composePath := filepath.Join(tmpDir, "rnix-compose.yaml")
 	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
 		t.Fatalf("write compose file: %v", err)
 	}
@@ -408,7 +408,7 @@ agents:
   worker:
     intent: "do work"
 `
-	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	composePath := filepath.Join(tmpDir, "rnix-compose.yaml")
 	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
 		t.Fatalf("write compose file: %v", err)
 	}
@@ -539,9 +539,9 @@ func (m *mockComposeSpawner) getSpawnedIntents() []string {
 	return result
 }
 
-// --- Story 7.3: crux compose down Command Tests ---
+// --- Story 7.3: rnix compose down Command Tests ---
 // These tests verify AC #1-2 of Story 7.3.
-// Tests reference cmd/crux/compose.go types and functions that will be created during implementation.
+// Tests reference cmd/rnix/compose.go types and functions that will be created during implementation.
 
 // --- AC #1: compose down 子命令注册 ---
 
@@ -631,7 +631,7 @@ agents:
   worker:
     intent: "do work"
 `
-	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	composePath := filepath.Join(tmpDir, "rnix-compose.yaml")
 	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
 		t.Fatalf("write compose file: %v", err)
 	}
@@ -675,7 +675,7 @@ agents:
   analyzer:
     intent: "analyze code"
 `
-	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	composePath := filepath.Join(tmpDir, "rnix-compose.yaml")
 	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
 		t.Fatalf("write compose file: %v", err)
 	}
@@ -720,7 +720,7 @@ agents:
   writer:
     intent: "write docs"
 `
-	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	composePath := filepath.Join(tmpDir, "rnix-compose.yaml")
 	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
 		t.Fatalf("write compose file: %v", err)
 	}
@@ -1398,7 +1398,7 @@ agents:
   writer:
     intent: "write docs"
 `
-	composePath := filepath.Join(tmpDir, "crux-compose.yaml")
+	composePath := filepath.Join(tmpDir, "rnix-compose.yaml")
 	if err := os.WriteFile(composePath, []byte(composeYAML), 0644); err != nil {
 		t.Fatalf("write compose file: %v", err)
 	}

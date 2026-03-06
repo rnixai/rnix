@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
-	"github.com/usecrux/crux/agents"
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // AgentLoaderFunc loads an agent definition by name.
@@ -75,7 +75,7 @@ var serviceRegistry = map[string]func() ServiceInitializer{
 	"log_aggregator": func() ServiceInitializer { return &logAggregatorService{} },
 }
 
-// LoadInitConfig reads and parses a crux-init.yaml file.
+// LoadInitConfig reads and parses a rnix-init.yaml file.
 // If the file does not exist, returns DefaultInitConfig().
 func LoadInitConfig(path string) (*InitConfig, error) {
 	data, err := os.ReadFile(path)
@@ -93,7 +93,7 @@ func LoadInitConfig(path string) (*InitConfig, error) {
 	return &cfg, nil
 }
 
-// DefaultInitConfig returns an empty config for when no crux-init.yaml exists.
+// DefaultInitConfig returns an empty config for when no rnix-init.yaml exists.
 func DefaultInitConfig() *InitConfig {
 	return &InitConfig{}
 }
@@ -111,7 +111,7 @@ func Bootstrap(k *KernelImpl, cfg *InitConfig, agentLoader AgentLoaderFunc) (*In
 			se := ServiceError{
 				Service:  svcCfg.Name,
 				Err:      fmt.Errorf("unknown service type: %s", svcCfg.Type),
-				Recovery: fmt.Sprintf("Check crux-init.yaml: service %q has invalid type %q", svcCfg.Name, svcCfg.Type),
+				Recovery: fmt.Sprintf("Check rnix-init.yaml: service %q has invalid type %q", svcCfg.Name, svcCfg.Type),
 			}
 			if svcCfg.Required {
 				result.Failed = append(result.Failed, se)

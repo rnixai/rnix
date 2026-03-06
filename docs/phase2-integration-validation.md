@@ -5,9 +5,9 @@
 
 ## 前置条件
 
-- Crux daemon 已启动（`crux` 命令可用）
+- Rnix daemon 已启动（`rnix` 命令可用）
 - `lib/agents/code-analyst/` 和 `lib/skills/code-analysis/` 存在
-- 项目根目录有 `crux-compose.yaml`
+- 项目根目录有 `rnix-compose.yaml`
 
 ## 测试资源
 
@@ -16,7 +16,7 @@ Compose fixture 文件位于 `compose/testdata/`：
 | 文件 | 对应场景 |
 |------|---------|
 | `integration-compose-pipe.yaml` | 场景 1：Compose + Pipe |
-| `integration-compose-monitor.yaml` | 场景 2：Compose + crux top |
+| `integration-compose-monitor.yaml` | 场景 2：Compose + rnix top |
 | `integration-compose-down.yaml` | 场景 3：compose down |
 | `integration-pipe-equiv.yaml` | 场景 4：管道语法对照 |
 | `integration-compose-budget.yaml` | 场景 9：Token 预算 |
@@ -34,10 +34,10 @@ Compose fixture 文件位于 `compose/testdata/`：
 
 ```bash
 # 终端 1：启动 Compose
-crux compose up -f compose/testdata/integration-compose-pipe.yaml --json
+rnix compose up -f compose/testdata/integration-compose-pipe.yaml --json
 
 # 终端 2：实时观察进程
-crux ps --verbose
+rnix ps --verbose
 ```
 
 #### 1.2 验证点
@@ -51,28 +51,28 @@ crux ps --verbose
 
 ---
 
-## 场景 2：Compose + crux top 实时监控
+## 场景 2：Compose + rnix top 实时监控
 
 **覆盖 Epic**：7（Compose）+ 10（监控）
-**验证目标**：crux top 能实时反映 Compose 编排的进程树状态变化
+**验证目标**：rnix top 能实时反映 Compose 编排的进程树状态变化
 
 ### 步骤
 
 #### 2.1 双终端并行执行
 
 ```bash
-# 终端 1：启动 crux top（先启动）
-crux top
+# 终端 1：启动 rnix top（先启动）
+rnix top
 
 # 终端 2：启动 Compose
-crux compose up -f compose/testdata/integration-compose-monitor.yaml
+rnix compose up -f compose/testdata/integration-compose-monitor.yaml
 ```
 
 #### 2.2 验证点
 
 | # | 检查项 | 预期结果 | Pass/Fail |
 |---|--------|---------|-----------|
-| 1 | crux top 显示进程树 | 能看到 step-a/b/c 的父子关系或平级关系 | |
+| 1 | rnix top 显示进程树 | 能看到 step-a/b/c 的父子关系或平级关系 | |
 | 2 | 状态实时更新 | step-a running → zombie → dead，然后 step-b 出现 | |
 | 3 | Token 消耗实时递增 | 每个 Agent 执行时 token 数字在增长 | |
 | 4 | 刷新流畅 | TUI 无明显卡顿（刷新间隔 ≤ 500ms） | |
@@ -93,14 +93,14 @@ worker-a 和 worker-b 无依赖关系，可并行启动。使用详细分析意�
 
 ```bash
 # 终端 1：启动 Compose（不等完成）
-crux compose up -f compose/testdata/integration-compose-down.yaml &
+rnix compose up -f compose/testdata/integration-compose-down.yaml &
 
 # 等待 Agent 进入 running 状态
 sleep 5
-crux ps
+rnix ps
 
 # 终端 2：强制终止
-crux compose down -f compose/testdata/integration-compose-down.yaml --json
+rnix compose down -f compose/testdata/integration-compose-down.yaml --json
 ```
 
 #### 3.2 验证点
@@ -108,9 +108,9 @@ crux compose down -f compose/testdata/integration-compose-down.yaml --json
 | # | 检查项 | 预期结果 | Pass/Fail |
 |---|--------|---------|-----------|
 | 1 | compose down 返回成功 | JSON 中列出已停止的 PID | |
-| 2 | 所有 worker 均已终止 | `crux ps` 无 running 状态的 worker 进程 | |
-| 3 | 进程转为 Dead 状态 | `crux ps --verbose` 中状态为 dead 或已不可见 | |
-| 4 | 无残留 Zombie | `crux ps` 中无 zombie 状态的进程 | |
+| 2 | 所有 worker 均已终止 | `rnix ps` 无 running 状态的 worker 进程 | |
+| 3 | 进程转为 Dead 状态 | `rnix ps --verbose` 中状态为 dead 或已不可见 | |
+| 4 | 无残留 Zombie | `rnix ps` 中无 zombie 状态的进程 | |
 
 ---
 
@@ -125,13 +125,13 @@ crux compose down -f compose/testdata/integration-compose-down.yaml --json
 
 ```bash
 # 两阶段管道
-crux -i 'spawn "列出 kernel/ 目录下所有 .go 文件名" | spawn "统计上述文件数量并给出总结"' --json
+rnix -i 'spawn "列出 kernel/ 目录下所有 .go 文件名" | spawn "统计上述文件数量并给出总结"' --json
 ```
 
 #### 4.2 执行等价的 Compose（对比参照）
 
 ```bash
-crux compose up -f compose/testdata/integration-pipe-equiv.yaml --json
+rnix compose up -f compose/testdata/integration-pipe-equiv.yaml --json
 ```
 
 #### 4.3 验证点
@@ -147,7 +147,7 @@ crux compose up -f compose/testdata/integration-pipe-equiv.yaml --json
 
 ```bash
 # 第一阶段引用不存在的路径，预期整体失败
-crux -i 'spawn "读取 /nonexistent/path/file.txt 的内容" | spawn "总结上述内容"' --json
+rnix -i 'spawn "读取 /nonexistent/path/file.txt 的内容" | spawn "总结上述内容"' --json
 ```
 
 | # | 检查项 | 预期结果 | Pass/Fail |
@@ -167,7 +167,7 @@ crux -i 'spawn "读取 /nonexistent/path/file.txt 的内容" | spawn "总结上�
 #### 5.1 变量传递测试
 
 ```bash
-crux -i '
+rnix -i '
 export TARGET=kernel/kernel.go
 spawn "分析 $TARGET 的代码结构"
 '
@@ -181,7 +181,7 @@ spawn "分析 $TARGET 的代码结构"
 #### 5.2 条件分支测试
 
 ```bash
-crux -i '
+rnix -i '
 result = spawn "检查 docs/concepts.md 是否存在"
 if $result.exitcode == 0
   spawn "总结 docs/concepts.md 的主要内容"
@@ -199,7 +199,7 @@ end
 #### 5.3 on-error 错误处理测试
 
 ```bash
-crux -i 'spawn "读取不存在的文件 /tmp/no-such-file.xyz" on-error spawn "执行回滚：报告错误已被捕获"' --json
+rnix -i 'spawn "读取不存在的文件 /tmp/no-such-file.xyz" on-error spawn "执行回滚：报告错误已被捕获"' --json
 ```
 
 | # | 检查项 | 预期结果 | Pass/Fail |
@@ -220,7 +220,7 @@ crux -i 'spawn "读取不存在的文件 /tmp/no-such-file.xyz" on-error spawn "
 #### 6.1 查看当前 Skill 列表
 
 ```bash
-crux skill list --json
+rnix skill list --json
 ```
 
 记录当前已安装 Skill 数量。
@@ -229,31 +229,31 @@ crux skill list --json
 
 ```bash
 # 搜索可用 Skill
-crux skill search --json
+rnix skill search --json
 
 # 安装一个 Skill（如果有可用的）
-crux skill install <skill-name> --json
+rnix skill install <skill-name> --json
 ```
 
 #### 6.3 验证 Skill 可用
 
 ```bash
 # 确认已安装
-crux skill list --json
+rnix skill list --json
 
 # 使用包含新 Skill 的 Agent 执行任务
-crux -i "使用已安装的 Skill 执行分析任务" --agent=code-analyst --json
+rnix -i "使用已安装的 Skill 执行分析任务" --agent=code-analyst --json
 ```
 
 #### 6.4 用 astrace 追踪四层调用
 
 ```bash
 # 终端 1：启动任务
-crux -i "分析 kernel/kernel.go 的代码质量" --agent=code-analyst &
+rnix -i "分析 kernel/kernel.go 的代码质量" --agent=code-analyst &
 
 # 终端 2：追踪 syscall
-crux ps --quiet  # 获取 PID
-crux astrace <pid> --verbose
+rnix ps --quiet  # 获取 PID
+rnix astrace <pid> --verbose
 ```
 
 #### 6.5 验证点
@@ -262,22 +262,22 @@ crux astrace <pid> --verbose
 |---|--------|---------|-----------|
 | 1 | skill list 包含新安装的 Skill | JSON 中 source="community" 有新条目 | |
 | 2 | 重复安装提示已存在 | 返回 ALREADY_INSTALLED 错误码 | |
-| 3 | --force 可覆盖安装 | `crux skill install <name> --force` 成功 | |
+| 3 | --force 可覆盖安装 | `rnix skill install <name> --force` 成功 | |
 | 4 | astrace 可见四层边界 | 能看到 Agent→Skill→Device 的 Open/Read/Write 调用链 | |
 | 5 | 权限模型生效 | Skill 只能访问 allowed-tools 中声明的设备 | |
 
 ---
 
-## 场景 7：Supervisor 重启 + crux top 观察
+## 场景 7：Supervisor 重启 + rnix top 观察
 
 **覆盖 Epic**：10（Supervisor/监控）+ 6（Signal）
-**验证目标**：Supervisor 检测到子进程异常后自动重启，crux top 实时反映变化
+**验证目标**：Supervisor 检测到子进程异常后自动重启，rnix top 实时反映变化
 
 ### 步骤
 
 #### 7.1 准备 init 配置
 
-确认 `crux-init.yaml` 中有 Supervisor 配置：
+确认 `rnix-init.yaml` 中有 Supervisor 配置：
 
 ```yaml
 supervisors:
@@ -294,41 +294,41 @@ supervisors:
 #### 7.2 启动 daemon 并观察
 
 ```bash
-# 终端 1：crux top 观察
-crux top
+# 终端 1：rnix top 观察
+rnix top
 
 # 终端 2：查看 Supervisor 管理的进程
-crux ps --verbose
+rnix ps --verbose
 ```
 
 #### 7.3 手动杀死子进程触发重启
 
 ```bash
 # 获取 monitored-agent 的 PID
-crux ps --quiet
+rnix ps --quiet
 
 # 杀死它
-crux kill <pid>
+rnix kill <pid>
 
-# 观察 crux top：应看到进程消失后重新出现
+# 观察 rnix top：应看到进程消失后重新出现
 ```
 
 #### 7.4 验证点
 
 | # | 检查项 | 预期结果 | Pass/Fail |
 |---|--------|---------|-----------|
-| 1 | 进程被 Kill 后消失 | crux top 中进程状态变为 dead | |
+| 1 | 进程被 Kill 后消失 | rnix top 中进程状态变为 dead | |
 | 2 | Supervisor 自动重启 | 新进程出现，PID 不同但 intent 相同 | |
 | 3 | 重启在 5 秒内完成 | 从 kill 到新进程 running 的间隔 ≤ 5s | |
 | 4 | 重启次数受限 | 连续 kill 超过 max_restarts 后不再重启 | |
-| 5 | crux top 实时反映 | 每次状态变化在 TUI 中可见 | |
+| 5 | rnix top 实时反映 | 每次状态变化在 TUI 中可见 | |
 
 ---
 
-## 场景 8：crux log 分类过滤 + 推理过程追踪
+## 场景 8：rnix log 分类过滤 + 推理过程追踪
 
 **覆盖 Epic**：10（日志）+ 6（IPC）
-**验证目标**：crux log 能正确分类和过滤 Agent 的推理日志
+**验证目标**：rnix log 能正确分类和过滤 Agent 的推理日志
 
 ### 步骤
 
@@ -336,29 +336,29 @@ crux kill <pid>
 
 ```bash
 # 终端 1：启动任务
-crux -i "分析 cmd/crux/main.go 的代码结构，识别所有子命令" --agent=code-analyst
+rnix -i "分析 cmd/rnix/main.go 的代码结构，识别所有子命令" --agent=code-analyst
 ```
 
 #### 8.2 实时查看日志
 
 ```bash
 # 终端 2：获取 PID
-crux ps --quiet
+rnix ps --quiet
 
 # 全部日志
-crux log <pid>
+rnix log <pid>
 
 # 仅思考过程
-crux log <pid> --filter think
+rnix log <pid> --filter think
 
 # 仅工具调用
-crux log <pid> --filter tool
+rnix log <pid> --filter tool
 
 # 仅输出内容
-crux log <pid> --filter output
+rnix log <pid> --filter output
 
 # JSON 格式
-crux log <pid> --json
+rnix log <pid> --json
 ```
 
 #### 8.3 验证点
@@ -384,7 +384,7 @@ crux log <pid> --json
 #### 9.1 执行
 
 ```bash
-crux compose up -f compose/testdata/integration-compose-budget.yaml --json
+rnix compose up -f compose/testdata/integration-compose-budget.yaml --json
 ```
 
 #### 9.2 验证点
@@ -393,7 +393,7 @@ crux compose up -f compose/testdata/integration-compose-budget.yaml --json
 |---|--------|---------|-----------|
 | 1 | Agent 因预算耗尽终止 | exit_code != 0 或进程标记 budget_exceeded | |
 | 2 | Token 消耗未大幅超标 | tokens_used ≈ context_budget（允许少量溢出） | |
-| 3 | crux top 显示预算信息 | 能看到 token 使用量 / 预算上限 | |
+| 3 | rnix top 显示预算信息 | 能看到 token 使用量 / 预算上限 | |
 
 ---
 
@@ -408,26 +408,26 @@ crux compose up -f compose/testdata/integration-compose-budget.yaml --json
 
 ```bash
 # 停止现有 daemon（如果有）
-# 重新启动 crux，观察启动日志
-crux -i "ping" --json
+# 重新启动 rnix，观察启动日志
+rnix -i "ping" --json
 ```
 
 #### 10.2 验证 Skill 注册表加载
 
 ```bash
 # Skill 列表应包含系统 Skill
-crux skill list --json
+rnix skill list --json
 ```
 
 #### 10.3 验证 Agent 引用 MCP 自动挂载
 
 ```bash
 # 使用包含 mcp 字段的 Agent
-crux -i "测试 MCP 连接" --agent=<mcp-enabled-agent> --json
+rnix -i "测试 MCP 连接" --agent=<mcp-enabled-agent> --json
 
 # 追踪观察 MCP 挂载
-crux ps --quiet
-crux astrace <pid> --verbose
+rnix ps --quiet
+rnix astrace <pid> --verbose
 ```
 
 #### 10.4 验证点
@@ -448,13 +448,13 @@ crux astrace <pid> --verbose
 | 优先级 | 场景 | 估计耗时 | 风险等级 |
 |--------|------|---------|---------|
 | **P0** | 场景 1：Compose + Pipe | 10 min | 高 |
-| **P0** | 场景 2：Compose + crux top | 10 min | 高 |
+| **P0** | 场景 2：Compose + rnix top | 10 min | 高 |
 | **P0** | 场景 3：compose down 批量终止 | 10 min | 高 |
 | **P1** | 场景 4：AgentShell 管道语法 | 15 min | 中 |
 | **P1** | 场景 5：变量 + 控制结构 | 15 min | 中 |
 | **P1** | 场景 7：Supervisor 重启 | 10 min | 中 |
 | **P2** | 场景 6：Skill + 四层能力栈 | 15 min | 低 |
-| **P2** | 场景 8：crux log 分类 | 10 min | 低 |
+| **P2** | 场景 8：rnix log 分类 | 10 min | 低 |
 | **P2** | 场景 9：Token 预算 | 5 min | 低 |
 | **P2** | 场景 10：Init + MCP | 10 min | 低 |
 
@@ -480,7 +480,7 @@ P2 通过率：4/14（场景 6: 1/5(+3 N/A), 场景 8: 1/6, 场景 9: 0/3, 场�
 阻塞问题：
 1. BUG-001（高）：tokens_used 实为对话轮次，导致 Token 预算、监控显示全部失效
 2. BUG-004（中）：LLM 不返非零 exit_code，管道失败传播和 on-error 无法触发
-3. BUG-007/008（中）：crux log 的 --filter 和 --json 均不工作
+3. BUG-007/008（中）：rnix log 的 --filter 和 --json 均不工作
 
 结论：[x] 需返工修复
 ```
@@ -495,7 +495,7 @@ P2 通过率：4/14（场景 6: 1/5(+3 N/A), 场景 8: 1/6, 场景 9: 0/3, 场�
 
 **执行命令**：
 ```bash
-./crux compose up -f compose/testdata/integration-compose-pipe.yaml --json
+./rnix compose up -f compose/testdata/integration-compose-pipe.yaml --json
 ```
 
 **返回结果**：
@@ -508,7 +508,7 @@ P2 通过率：4/14（场景 6: 1/5(+3 N/A), 场景 8: 1/6, 场景 9: 0/3, 场�
 | # | 检查项 | 结果 | 备注 |
 |---|--------|------|------|
 | 1 | analyzer 先于 summarizer 启动 | **Pass** | agents 数组中 analyzer[0] < summarizer[1] |
-| 2 | summarizer 上下文包含 analyzer 输出 | **Pass** | 通过 `crux log <pid> --filter think` 确认 summarizer 推理中引用了 analyzer 产出的函数名 |
+| 2 | summarizer 上下文包含 analyzer 输出 | **Pass** | 通过 `rnix log <pid> --filter think` 确认 summarizer 推理中引用了 analyzer 产出的函数名 |
 | 3 | 两个 Agent 均正常退出 | **Pass** | exit_code 均为 0 |
 | 4 | 总 token 消耗被汇总 | **Pass** | total_tokens(3) = 2 + 1 |
 
@@ -517,7 +517,7 @@ P2 通过率：4/14（场景 6: 1/5(+3 N/A), 场景 8: 1/6, 场景 9: 0/3, 场�
 #### BUG-001：tokens_used 实际含义为对话轮次而非 token 数
 
 - **严重程度**：高
-- **影响范围**：所有 token 相关功能（crux compose/ps/top、Token 预算管理）
+- **影响范围**：所有 token 相关功能（rnix compose/ps/top、Token 预算管理）
 - **根因**：`drivers/llm/claude_cli.go:129` 将 Claude CLI 返回的 `num_turns`（对话轮次）赋值给 `TokensUsed`
 - **调用链**：
   ```
@@ -534,23 +534,23 @@ P2 通过率：4/14（场景 6: 1/5(+3 N/A), 场景 8: 1/6, 场景 9: 0/3, 场�
   2. `context_budget` 预算管理形同虚设——设置 `context_budget: 1024` 实际需要 1024 轮对话才触发超限
   3. 场景 9（Token 预算验证）预计无法按预期触发 budget_exceeded
 
-### 场景 2：Compose + crux top 实时监控
+### 场景 2：Compose + rnix top 实时监控
 
 **执行日期**：2026-03-04
 
 **执行命令**：
 ```bash
 # 终端 1
-./crux top
+./rnix top
 # 终端 2
-./crux compose up -f compose/testdata/integration-compose-monitor.yaml
+./rnix compose up -f compose/testdata/integration-compose-monitor.yaml
 ```
 
 **返回结果**：
 
-crux top 输出：
+rnix top 输出：
 ```
-crux top — 1 active | Tokens: 0 | Up: 3.2m
+rnix top — 1 active | Tokens: 0 | Up: 3.2m
 
   PID   PPID  STATE     AGENT                 TOKENS  ELAPSED
   ──────────────────────────────────────────────────────────────
@@ -572,7 +572,7 @@ compose up 输出：
 
 | # | 检查项 | 结果 | 备注 |
 |---|--------|------|------|
-| 1 | crux top 显示进程树 | **Fail** | 任何时刻最多只能看到 1 个进程，无法展示树状关系（BUG-002） |
+| 1 | rnix top 显示进程树 | **Fail** | 任何时刻最多只能看到 1 个进程，无法展示树状关系（BUG-002） |
 | 2 | 状态实时更新 | **Fail** | 只能看到当前 running 的进程，前序进程已被 reap 删除 |
 | 3 | Token 消耗实时递增 | **Fail** | 始终显示 0，因为 token 值在推理完成时才写入，此时进程已被 reap（BUG-001 关联） |
 | 4 | 刷新流畅 | **Pass** | TUI 刷新无卡顿 |
@@ -580,15 +580,15 @@ compose up 输出：
 
 **发现的问题**：
 
-#### BUG-002：已完成进程立即从进程表删除，crux top 无法展示进程树
+#### BUG-002：已完成进程立即从进程表删除，rnix top 无法展示进程树
 
 - **严重程度**：中
-- **影响范围**：crux top、crux ps 的进程树展示
+- **影响范围**：rnix top、rnix ps 的进程树展示
 - **根因**：`kernel/reap.go:63` 的 `RemoveProcess(proc.PID)` 在进程 reap 时立即从 `procTable` 删除，`ListProcs()` 遍历 procTable 时已看不到已完成的进程
 - **表现**：
   1. 3 Agent 链式 DAG 中，任何时刻最多只能看到 1 个 running 进程
   2. 无法展示父子树状关系（compose 编排的 Agent 互为独立的顶层进程）
-  3. 已完成 Agent 的 token 统计在 crux top 中不可见
+  3. 已完成 Agent 的 token 统计在 rnix top 中不可见
 - **可能的修复方向**：Dead 进程保留在 procTable 中一段时间（如 TTL），或单独维护 compose session 的进程快照
 
 #### BUG-003：step-c 执行超时失败（exit_code=1, duration=300s）
@@ -603,15 +603,15 @@ compose up 输出：
 
 **执行命令**：
 ```bash
-./crux compose up -f compose/testdata/integration-compose-down.yaml &
+./rnix compose up -f compose/testdata/integration-compose-down.yaml &
 sleep 5
-./crux ps
-./crux compose down -f compose/testdata/integration-compose-down.yaml --json
+./rnix ps
+./rnix compose down -f compose/testdata/integration-compose-down.yaml --json
 ```
 
 **返回结果**：
 
-crux ps（compose 运行中）：
+rnix ps（compose 运行中）：
 ```
   PID   STATE       SKILL               TOKENS    ELAPSED
     1   running     code-analysis            0      18.4s
@@ -622,7 +622,7 @@ crux ps（compose 运行中）：
 
 compose down JSON：
 ```json
-{"ok":true,"data":{"killed":[{"pid":1,"intent":"详细分析 kernel/kernel.go ..."},{"pid":2,"intent":"详细分析 cmd/crux/main.go ..."}],"skipped":[],"summary":{"killed_count":2,"skipped_count":0,"total_matched":2}}}
+{"ok":true,"data":{"killed":[{"pid":1,"intent":"详细分析 kernel/kernel.go ..."},{"pid":2,"intent":"详细分析 cmd/rnix/main.go ..."}],"skipped":[],"summary":{"killed_count":2,"skipped_count":0,"total_matched":2}}}
 ```
 
 compose up 后续输出（被 kill 后）：
@@ -653,7 +653,7 @@ compose up 后续输出（被 kill 后）：
 #### 4.1 管道语法
 
 ```bash
-./crux -i 'spawn "列出 kernel/ 目录下所有 .go 文件名" | spawn "统计上述文件数量并给出总结"' --json
+./rnix -i 'spawn "列出 kernel/ 目录下所有 .go 文件名" | spawn "统计上述文件数量并给出总结"' --json
 ```
 
 - Stage 1（PID 1）：列出 28 个 .go 文件，exit_code=0
@@ -662,7 +662,7 @@ compose up 后续输出（被 kill 后）：
 #### 4.2 Compose 等价对照
 
 ```bash
-./crux compose up -f compose/testdata/integration-pipe-equiv.yaml --json
+./rnix compose up -f compose/testdata/integration-pipe-equiv.yaml --json
 ```
 
 - lister: done, exit_code=0, tokens_used=2
@@ -671,7 +671,7 @@ compose up 后续输出（被 kill 后）：
 #### 4.3 失败传播测试
 
 ```bash
-./crux -i 'spawn "读取 /nonexistent/path/file.txt 的内容" | spawn "总结上述内容"' --json
+./rnix -i 'spawn "读取 /nonexistent/path/file.txt 的内容" | spawn "总结上述内容"' --json
 ```
 
 - Stage 1（PID 5）：exit_code=0，result="文件不存在，无法读取"
@@ -713,7 +713,7 @@ compose up 后续输出（被 kill 后）：
 #### 5.1 变量传递
 
 ```bash
-./crux -i '
+./rnix -i '
 export TARGET=kernel/kernel.go
 spawn "分析 $TARGET 的代码结构"
 '
@@ -726,7 +726,7 @@ spawn "分析 $TARGET 的代码结构"
 #### 5.2 条件分支
 
 ```bash
-./crux -i '
+./rnix -i '
 result = spawn "检查 docs/concepts.md 是否存在"
 if $result.exitcode == 0
   spawn "总结 docs/concepts.md 的主要内容"
@@ -739,12 +739,12 @@ end
 - `script step 1/3: 检查 docs/concepts.md 是否存在` — 成功
 - `script step 2/3: 总结 docs/concepts.md 的主要内容` — 进入 if 分支
 - else 分支未执行
-- 输出了 Crux 核心概念文档的完整总结
+- 输出了 Rnix 核心概念文档的完整总结
 
 #### 5.3 on-error 错误处理
 
 ```bash
-./crux -i 'spawn "读取不存在的文件 /tmp/no-such-file.xyz" on-error spawn "执行回滚：报告错误已被捕获"' --json
+./rnix -i 'spawn "读取不存在的文件 /tmp/no-such-file.xyz" on-error spawn "执行回滚：报告错误已被捕获"' --json
 ```
 
 ```json
@@ -782,14 +782,14 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 #### 6.2 skill search
 
 ```json
-{"ok":false,"error":{"code":"SEARCH_ERROR","message":"fetch index: Get \"https://registry.crux.dev/index.yaml\": dial tcp: lookup registry.crux.dev on 127.0.0.53:53: no such host"}}
+{"ok":false,"error":{"code":"SEARCH_ERROR","message":"fetch index: Get \"https://registry.rnix.ai/index.yaml\": dial tcp: lookup registry.rnix.ai on 127.0.0.53:53: no such host"}}
 ```
 
-社区注册表 `registry.crux.dev` 不可达（域名未注册/测试环境无外网访问）。
+社区注册表 `registry.rnix.ai` 不可达（域名未注册/测试环境无外网访问）。
 
 #### 6.3-6.4 skill install / --force
 
-均返回 INSTALL_ERROR，同样因为 registry.crux.dev 不可达。
+均返回 INSTALL_ERROR，同样因为 registry.rnix.ai 不可达。
 
 #### 6.5 astrace 四层追踪
 
@@ -820,7 +820,7 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 #### BUG-005：skill install 对本地已有 Skill 仍尝试网络下载
 
 - **严重程度**：低
-- **表现**：`crux skill install code-analysis` 对已存在的 builtin Skill 不做本地检测，直接请求 registry.crux.dev 下载。网络不可达时返回 INSTALL_ERROR 而非 ALREADY_INSTALLED
+- **表现**：`rnix skill install code-analysis` 对已存在的 builtin Skill 不做本地检测，直接请求 registry.rnix.ai 下载。网络不可达时返回 INSTALL_ERROR 而非 ALREADY_INSTALLED
 - **预期行为**：应先检查本地是否已安装，已安装则返回 ALREADY_INSTALLED（除非 --force）
 
 **额外观察**：
@@ -828,26 +828,26 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 - LLM Write 操作耗时 100.876s（haiku 模型），符合实际 LLM 调用延迟
 - 四层能力栈中 MCP 层未被测试（code-analyst 未配置 mcp 字段），需要有 mcp 配置的 Agent 才能完整验证
 
-### 场景 7：Supervisor 重启 + crux top 观察
+### 场景 7：Supervisor 重启 + rnix top 观察
 
 **执行日期**：2026-03-04
 
 **执行命令**：
 ```bash
-# Supervisor 已由 crux-init.yaml 自动启动（PID 1）
+# Supervisor 已由 rnix-init.yaml 自动启动（PID 1）
 # 子进程 monitored-agent 运行中
 
 # 第 1 次 kill
-./crux kill 31   # → 重启为 PID 32（后被 reap，变成 PID 34）
+./rnix kill 31   # → 重启为 PID 32（后被 reap，变成 PID 34）
 
 # 第 2 次 kill（1 分钟内连续操作）
-./crux kill 34   # → 重启为 PID 35（1.4s）
+./rnix kill 34   # → 重启为 PID 35（1.4s）
 
 # 第 3 次 kill
-./crux kill 35   # → 重启为 PID 36（<1s）
+./rnix kill 35   # → 重启为 PID 36（<1s）
 
 # 第 4 次 kill（超过 max_restarts=3）
-./crux kill 36   # → 不再重启，Supervisor 自身变 zombie
+./rnix kill 36   # → 不再重启，Supervisor 自身变 zombie
 ```
 
 **验证点结果**：
@@ -858,44 +858,44 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 | 2 | Supervisor 自动重启 | **Pass** | 每次 kill 后新 PID 出现，intent 相同，PPID=1 |
 | 3 | 重启在 5 秒内完成 | **Pass** | 均在 2 秒内完成（1.4s、<1s） |
 | 4 | 重启次数受限 | **Pass** | 连续 kill 3 次后（达到 max_restarts=3），Supervisor 放弃重启并自身变 zombie |
-| 5 | crux top 实时反映 | **N/A** | 未同步使用 crux top 观察（受 BUG-002 影响，进程切换太快难以在 top 中观察） |
+| 5 | rnix top 实时反映 | **N/A** | 未同步使用 rnix top 观察（受 BUG-002 影响，进程切换太快难以在 top 中观察） |
 
 **额外观察**：
 - Supervisor 达到 max_restarts 后自身也进入 zombie 状态——这是合理的设计：子树全部失败时 Supervisor 不再有存在价值
 - 重启间隔极短（<2s），Supervisor 响应迅速
 - 因 BUG-002（已完成进程立即从 procTable 删除），中间重启的 PID 32/33 未被观察到，直接看到 PID 34
 
-### 场景 8：crux log 分类过滤 + 推理过程追踪
+### 场景 8：rnix log 分类过滤 + 推理过程追踪
 
 **执行日期**：2026-03-04
 
 **执行命令**：
 ```bash
-./crux -i "分析 cmd/crux/main.go 的代码结构，识别所有子命令" --agent=code-analyst
+./rnix -i "分析 cmd/rnix/main.go 的代码结构，识别所有子命令" --agent=code-analyst
 # PID 9
 
-./crux log 9
-./crux log 9 --filter think
-./crux log 9 --filter tool
-./crux log 9 --filter output
-./crux log 9 --json
+./rnix log 9
+./rnix log 9 --filter think
+./rnix log 9 --filter tool
+./rnix log 9 --filter output
+./rnix log 9 --json
 ```
 
 **返回结果**：
 
-`crux log 9`（无 filter）：
+`rnix log 9`（无 filter）：
 ```
-[crux log] attached to PID 9
-[ 95.116] [think]  ## 分析报告: cmd/crux/main.go
+[rnix log] attached to PID 9
+[ 95.116] [think]  ## 分析报告: cmd/rnix/main.go
 ### 概要
-- **文件用途**: Crux CLI 主程序，实现命令行接口和子命令处理
+- **文件用途**: Rnix CLI 主程序，实现命令行接口和子命令处理
 - **代码行数**: 1085 行
 ```
 
-`crux log 9 --filter think`：空输出，立即 detached
-`crux log 9 --filter tool`：空输出，立即 detached
-`crux log 9 --filter output`：空输出，立即 detached
-`crux log 9 --json`：无任何输出
+`rnix log 9 --filter think`：空输出，立即 detached
+`rnix log 9 --filter tool`：空输出，立即 detached
+`rnix log 9 --filter output`：空输出，立即 detached
+`rnix log 9 --json`：无任何输出
 
 **验证点结果**：
 
@@ -913,13 +913,13 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 #### BUG-007：`--filter` 过滤失效
 
 - **严重程度**：中
-- **表现**：`crux log <pid>` 无 filter 能显示 `[think]` 标记的日志，但加 `--filter think` 后返回空
+- **表现**：`rnix log <pid>` 无 filter 能显示 `[think]` 标记的日志，但加 `--filter think` 后返回空
 - **可能原因**：filter 匹配逻辑与日志分类标记的格式不一致（如 filter 匹配 "think" 但实际标记是 "[think]"）
 
 #### BUG-008：`--json` 输出模式无内容
 
 - **严重程度**：中
-- **表现**：`crux log <pid> --json` 无任何输出，既无错误也无 JSON
+- **表现**：`rnix log <pid> --json` 无任何输出，既无错误也无 JSON
 - **可能原因**：JSON 序列化路径与普通文本路径使用了不同的数据源，或 JSON 模式下的日志读取逻辑有缺陷
 
 **额外观察**：
@@ -932,7 +932,7 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 
 **执行命令**：
 ```bash
-./crux compose up -f compose/testdata/integration-compose-budget.yaml --json
+./rnix compose up -f compose/testdata/integration-compose-budget.yaml --json
 ```
 
 **返回结果**：
@@ -946,7 +946,7 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 |---|--------|------|------|
 | 1 | Agent 因预算耗尽终止 | **Fail** | Agent 正常完成（exit_code=0），预算未触发 |
 | 2 | Token 消耗未大幅超标 | **Fail** | tokens_used=1（实为 1 轮对话），context_budget=1024，完全无约束效果 |
-| 3 | crux top 显示预算信息 | **N/A** | 预算未触发，无法验证 |
+| 3 | rnix top 显示预算信息 | **N/A** | 预算未触发，无法验证 |
 
 **分析**：
 
@@ -962,9 +962,9 @@ BUG-004 再次确认：on-error 处理器无法被触发。主命令 exit_code=0
 
 **执行命令**：
 ```bash
-# daemon 启动时自动加载 crux-init.yaml（场景 7 已验证 Supervisor 启动）
-./crux skill list --json
-./crux ps --verbose
+# daemon 启动时自动加载 rnix-init.yaml（场景 7 已验证 Supervisor 启动）
+./rnix skill list --json
+./rnix ps --verbose
 ```
 
 **返回结果**：
@@ -987,11 +987,11 @@ PID 36: zombie, 持续监控
 |---|--------|------|------|
 | 1 | daemon 启动无错误 | **Pass** | daemon 正常运行超过 50 分钟，init 加载了 Supervisor 和 Services |
 | 2 | 系统 Skill 已注册 | **Pass** | skill list 显示 code-analysis（source=builtin），scan_path 配置生效 |
-| 3 | MCP 驱动已初始化 | **N/A** | 无 MCP 配置的 Agent 可用于测试，crux-init.yaml 中 mcp-manager 设置了 auto_load 但无实际 MCP 服务器 |
+| 3 | MCP 驱动已初始化 | **N/A** | 无 MCP 配置的 Agent 可用于测试，rnix-init.yaml 中 mcp-manager 设置了 auto_load 但无实际 MCP 服务器 |
 | 4 | 进程退出时 MCP 自动卸载 | **N/A** | 同上，无 MCP 实例可验证 |
 
 **额外观察**：
-- crux-init.yaml 的三项 services（skill-registry、mcp-manager、log-aggregator）和 supervisors 配置均被正确解析
+- rnix-init.yaml 的三项 services（skill-registry、mcp-manager、log-aggregator）和 supervisors 配置均被正确解析
 - Supervisor 正常启动并管理子进程（场景 7 已验证其重启机制）
 - 场景 7 kill 测试后遗留的 zombie 进程仍在 procTable 中（BUG-006 确认：zombie 不会被清理，daemon 不会自动退出）
 
@@ -1009,10 +1009,10 @@ PID 36: zombie, 持续监控
 
 #### 额外观察项（非 BUG，改进建议）
 
-1. **Daemon 无 CLI 关闭命令**：缺少 `crux daemon stop` 或类似命令，目前只能通过空闲退出或 `kill` 信号终止
+1. **Daemon 无 CLI 关闭命令**：缺少 `rnix daemon stop` 或类似命令，目前只能通过空闲退出或 `kill` 信号终止
 2. **Daemon stderr 被丢弃**：`ipc/daemon.go:76-79` 设置 `cmd.Stderr = nil`，init 引导日志无法被观察
 3. **Compose JSON 缺少 result 字段**：管道 JSON 包含每阶段的 `result`（完整输出），但 Compose JSON 只有状态信息，数据对等性不一致
-4. **crux-init.yaml 路径硬编码**：`LoadInitConfig("crux-init.yaml")` 从 CWD 加载，建议支持 XDG 标准配置路径
+4. **rnix-init.yaml 路径硬编码**：`LoadInitConfig("rnix-init.yaml")` 从 CWD 加载，建议支持 XDG 标准配置路径
 
 ---
 
@@ -1023,13 +1023,13 @@ PID 36: zombie, 持续监控
 | 场景 | 状态 | Pass | Fail | N/A | 发现 BUG |
 |------|------|------|------|-----|----------|
 | 1: Compose + Pipe | **已完成** | 4/4 | 0 | 0 | BUG-001 |
-| 2: Compose + crux top | **已完成** | 2/5 | 3 | 0 | BUG-002, BUG-003 |
+| 2: Compose + rnix top | **已完成** | 2/5 | 3 | 0 | BUG-002, BUG-003 |
 | 3: compose down | **已完成** | 4/4 | 0 | 0 | 无 |
 | 4: 管道语法 | **已完成** | 3/6 | 3 | 0 | BUG-004 |
 | 5: 变量+控制结构 | **已完成** | 4/7 | 3 | 0 | BUG-004(确认) |
 | 6: Skill+能力栈 | **已完成** | 1/5 | 0 | 3 | BUG-005 |
 | 7: Supervisor 重启 | **已完成** | 4/5 | 0 | 1 | 无（行为符合预期） |
-| 8: crux log | **已完成** | 1/6 | 4 | 1 | BUG-007, BUG-008 |
+| 8: rnix log | **已完成** | 1/6 | 4 | 1 | BUG-007, BUG-008 |
 | 9: Token 预算 | **已完成** | 0/3 | 2 | 1 | BUG-001(确认) |
 | 10: Init+MCP | **已完成** | 2/4 | 0 | 2 | 无 |
 
@@ -1050,5 +1050,5 @@ PID 36: zombie, 持续监控
 | BUG-004 | 中 | LLM 行为层面 | LLM 不返回非零 exit_code，管道失败传播和 on-error 失效 |
 | BUG-005 | 低 | `skills/registry.go` | skill install 不检查本地已有 Skill |
 | BUG-006 | 中 | `ipc/server.go:135-151` | Zombie 进程阻止 daemon 空闲退出 |
-| BUG-007 | 中 | `cmd/crux/` log 子命令 | --filter 过滤失效，加 filter 后返回空 |
-| BUG-008 | 中 | `cmd/crux/` log 子命令 | --json 输出模式无内容 |
+| BUG-007 | 中 | `cmd/rnix/` log 子命令 | --filter 过滤失效，加 filter 后返回空 |
+| BUG-008 | 中 | `cmd/rnix/` log 子命令 | --json 输出模式无内容 |

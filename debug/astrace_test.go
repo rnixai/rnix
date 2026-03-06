@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 func TestFormatEvent_BasicFormat(t *testing.T) {

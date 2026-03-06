@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/kernel"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
 func setupTestServer(t *testing.T) (*Server, string) {
@@ -20,7 +20,7 @@ func setupTestServer(t *testing.T) (*Server, string) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 
 	srv := NewServer(nil, nil, "0.1.0-test")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
@@ -329,7 +329,7 @@ func TestNewServer(t *testing.T) {
 func TestServer_ListenAndServe_SocketDirCreation(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
 	defer kern.Shutdown()
 

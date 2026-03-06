@@ -1,7 +1,7 @@
 package kernel
 
 import (
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // CoroutineFunc is the function executed by a coroutine.

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/skills"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/skills"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- Test helpers ---
@@ -93,13 +93,13 @@ func (f *mockToolFile) Stat() (vfs.FileStat, error) {
 
 // newTestKernel creates a kernel with a VFS containing a mock LLM device.
 // Registers t.Cleanup to call Shutdown automatically.
-func newTestKernel(t testing.TB, llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manager) {
+func newTestKernel(t testing.TB, llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *rnixctx.Manager) {
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
 	return k, v, ctxMgr
@@ -155,7 +155,7 @@ func testAgentInfo() *agents.AgentInfo {
 func newSimpleKernel(t testing.TB) *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
 	return k
@@ -382,7 +382,7 @@ func TestSpawn_VFSOpenFailure(t *testing.T) {
 	// Create a kernel with no LLM device registered
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -506,7 +506,7 @@ func TestReasonStep_ToolCallAction(t *testing.T) {
 	})
 
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -627,7 +627,7 @@ func TestReasonStep_ContextCancellation(t *testing.T) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -699,7 +699,7 @@ func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 		return &mockToolFile{readData: []byte("echoed")}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -794,7 +794,7 @@ func TestSpawn_Integration(t *testing.T) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -963,7 +963,7 @@ func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("multi", 10)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1022,7 +1022,7 @@ func TestProcessTableConsistency_ConcurrentSpawn(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("concurrent", 5)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1165,7 +1165,7 @@ func TestSpawn_WithAgent_ModelSelection(t *testing.T) {
 		return captureLLM, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1201,7 +1201,7 @@ func TestSpawn_WithAgent_ModelSelection(t *testing.T) {
 		return captureLLM2, nil
 	})
 	v2 := vfs.NewVFS(reg2)
-	ctxMgr2 := cruxctx.NewManager()
+	ctxMgr2 := rnixctx.NewManager()
 	k2 := NewKernel(v2, ctxMgr2, nil)
 
 	pid2, err := k2.Spawn("test model override", agent, SpawnOpts{Model: "opus"})
@@ -1258,7 +1258,7 @@ func TestReasonStep_PermissionDenied_WhenDeviceNotInWhitelist(t *testing.T) {
 		return seqFile, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1320,7 +1320,7 @@ func TestReasonStep_PermissionAllowed_WhenDeviceInWhitelist(t *testing.T) {
 		return mockFS, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1363,7 +1363,7 @@ func TestReasonStep_PrefixMatch_AllowsSubpath(t *testing.T) {
 		return mockFS, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1406,7 +1406,7 @@ func TestReasonStep_NoWhitelist_AllowsAll(t *testing.T) {
 		return mockDevice, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil) // No agent
 	defer k.Shutdown()
 
@@ -1443,7 +1443,7 @@ func TestReasonStep_PathTraversal_Blocked(t *testing.T) {
 		return seqFile, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1722,7 +1722,7 @@ func TestToolCall_VFSAndContextEvents(t *testing.T) {
 		return mockTool, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1817,7 +1817,7 @@ func TestKill_RunningProcess(t *testing.T) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1918,7 +1918,7 @@ func TestKill_SyscallEvent(t *testing.T) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1999,7 +1999,7 @@ func TestKill_CreatedState(t *testing.T) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -2038,7 +2038,7 @@ func TestKill_RunningProcess_SIGKILL(t *testing.T) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 

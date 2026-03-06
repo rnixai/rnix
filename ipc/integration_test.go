@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/kernel"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // setupIntegrationServer creates a full server+kernel with a mock LLM driver for integration testing.
@@ -22,7 +22,7 @@ func setupIntegrationServer(t *testing.T) (*Server, *kernel.KernelImpl, string) 
 	vfsInst := vfs.NewVFS(devReg)
 
 	srv := NewServer(nil, nil, "0.1.0-test")
-	kern := kernel.NewKernel(vfsInst, cruxctx.NewManager(), srv.CallbackMux())
+	kern := kernel.NewKernel(vfsInst, rnixctx.NewManager(), srv.CallbackMux())
 	srv.SetKernel(kern)
 
 	sockDir := t.TempDir()
@@ -393,7 +393,7 @@ func TestIntegration_IdleAutoShutdown(t *testing.T) {
 
 	srv := NewServer(nil, nil, "0.1.0-test")
 	srv.IdleTimeout = 500 * time.Millisecond
-	kern := kernel.NewKernel(vfsInst, cruxctx.NewManager(), srv.CallbackMux())
+	kern := kernel.NewKernel(vfsInst, rnixctx.NewManager(), srv.CallbackMux())
 	srv.SetKernel(kern)
 	defer kern.Shutdown()
 

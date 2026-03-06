@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 func TestManager_CtxAlloc(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 
 const (
 	// DefaultRegistryURL is the default community skill registry URL.
-	DefaultRegistryURL = "https://registry.crux.dev"
+	DefaultRegistryURL = "https://registry.rnix.ai"
 	// defaultTimeout is the default HTTP client timeout.
 	defaultTimeout = 30 * time.Second
 	// maxMetadataSize limits metadata responses (index.yaml, latest.yaml) to 1 MB.

@@ -1,14 +1,14 @@
 # 教程 1：编写第一个 Skill
 
-本教程带你从零创建一个 Crux Skill 和引用它的 Agent，然后执行它观察完整的运行流程。
+本教程带你从零创建一个 Rnix Skill 和引用它的 Agent，然后执行它观察完整的运行流程。
 
 ---
 
 ## 前置条件
 
-- Crux 已安装并可运行（参考 [快速上手指南](../quick-start.md)）
+- Rnix 已安装并可运行（参考 [快速上手指南](../quick-start.md)）
 - Claude Code CLI 已安装且 API 密钥已配置
-- 对 Crux 的进程、VFS、Skill 概念有基本了解（参考 [核心概念文档](../concepts.md)）
+- 对 Rnix 的进程、VFS、Skill 概念有基本了解（参考 [核心概念文档](../concepts.md)）
 
 ---
 
@@ -22,7 +22,7 @@
 
 ## 步骤一：创建 SKILL.md
 
-Skill 是 Crux 中的"程序性知识"——它告诉智能体**如何做某件事**。每个 Skill 是一个目录，核心文件是 `SKILL.md`。
+Skill 是 Rnix 中的"程序性知识"——它告诉智能体**如何做某件事**。每个 Skill 是一个目录，核心文件是 `SKILL.md`。
 
 ### 创建 Skill 目录
 
@@ -97,7 +97,7 @@ metadata:
 
 ### allowed-tools 与 VFS 路径映射
 
-`allowed-tools` 字段决定了智能体被允许访问哪些 VFS 设备。这是 Crux 的安全机制——Skill 只能使用它声明的工具。
+`allowed-tools` 字段决定了智能体被允许访问哪些 VFS 设备。这是 Rnix 的安全机制——Skill 只能使用它声明的工具。
 
 | 设备路径 | 能力 |
 |----------|------|
@@ -109,12 +109,12 @@ metadata:
 
 ### 渐进式加载策略
 
-Crux 采用两阶段加载 Skill 以优化 token 消耗：
+Rnix 采用两阶段加载 Skill 以优化 token 消耗：
 
 1. **发现阶段** — 只读取 frontmatter（~100 tokens），用于判断 Skill 是否匹配
 2. **激活阶段** — 读取完整 body（< 5000 tokens），注入系统提示词
 
-这意味着 frontmatter 的 `description` 字段必须足够准确，让 Crux 能在发现阶段做出正确的匹配决策。
+这意味着 frontmatter 的 `description` 字段必须足够准确，让 Rnix 能在发现阶段做出正确的匹配决策。
 
 ---
 
@@ -175,7 +175,7 @@ skills:
 
 ### 四层能力模型
 
-此时你已经搭建了 Crux 的能力层次结构：
+此时你已经搭建了 Rnix 的能力层次结构：
 
 ```
 Process（运行时实例）
@@ -184,7 +184,7 @@ Process（运行时实例）
               └── Tools（工具：/dev/fs）
 ```
 
-- **Process** 是运行时实例——每次 `crux -i` 创建一个
+- **Process** 是运行时实例——每次 `rnix -i` 创建一个
 - **Agent** 定义了"我是谁"——角色、模型偏好
 - **Skill** 定义了"我能做什么"——知识和工具权限
 - **Tools** 是 VFS 设备——实际的执行能力
@@ -198,7 +198,7 @@ Process（运行时实例）
 使用 `--agent` 标志指定刚创建的 Agent：
 
 ```bash
-crux -i "总结 kernel/kernel.go 的代码结构" --agent=summarizer
+rnix -i "总结 kernel/kernel.go 的代码结构" --agent=summarizer
 ```
 
 你将看到类似以下的输出：
@@ -209,7 +209,7 @@ PID 1 | summarizer | running
 
 ## 摘要: kernel/kernel.go
 
-**文件用途:** Crux 内核的核心实现，包含 Kernel 接口组合和 Spawn/reasonStep 主循环。
+**文件用途:** Rnix 内核的核心实现，包含 Kernel 接口组合和 Spawn/reasonStep 主循环。
 
 **核心类型:**
 - KernelImpl — 内核实现结构体，组合了 ProcessManager、ContextManager、FileSystem 等子接口
@@ -225,10 +225,10 @@ PID 1 | completed | 0 | 3.2s | 1,240 tokens
 
 ### 查看进程状态
 
-在智能体运行期间（或运行后），可以用 `crux ps` 查看进程列表：
+在智能体运行期间（或运行后），可以用 `rnix ps` 查看进程列表：
 
 ```bash
-crux ps
+rnix ps
 ```
 
 输出示例：
@@ -240,10 +240,10 @@ crux ps
 
 ### 使用 astrace 查看 Syscall 追踪
 
-`crux astrace` 可以实时追踪智能体的每一个系统调用——Open、Read、Write 等操作都会被记录：
+`rnix astrace` 可以实时追踪智能体的每一个系统调用——Open、Read、Write 等操作都会被记录：
 
 ```bash
-crux astrace 1
+rnix astrace 1
 ```
 
 输出示例：
@@ -359,7 +359,7 @@ skills:
 ### 运行命令
 
 ```bash
-crux -i "总结 kernel/kernel.go 的代码结构" --agent=summarizer
+rnix -i "总结 kernel/kernel.go 的代码结构" --agent=summarizer
 ```
 
 ### 预期输出

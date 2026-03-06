@@ -10,12 +10,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/ipc"
-	"github.com/usecrux/crux/kernel"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
 func TestResolveOutputMode(t *testing.T) {
@@ -304,8 +304,8 @@ func TestVersion_WithClaude(t *testing.T) {
 	runVersion(cmd, nil)
 
 	output := buf.String()
-	if !strings.Contains(output, "crux v") {
-		t.Errorf("expected crux version, got %q", output)
+	if !strings.Contains(output, "rnix v") {
+		t.Errorf("expected rnix version, got %q", output)
 	}
 	if !strings.Contains(output, "claude-code: 1.0.34") {
 		t.Errorf("expected claude-code version, got %q", output)
@@ -330,8 +330,8 @@ func TestVersion_WithoutClaude(t *testing.T) {
 	runVersion(cmd, nil)
 
 	output := buf.String()
-	if !strings.Contains(output, "crux v") {
-		t.Errorf("expected crux version, got %q", output)
+	if !strings.Contains(output, "rnix v") {
+		t.Errorf("expected rnix version, got %q", output)
 	}
 	if !strings.Contains(output, "✗ claude-code CLI not found") {
 		t.Errorf("expected not found message, got %q", output)
@@ -464,15 +464,15 @@ func TestHelp_ContainsExample(t *testing.T) {
 	_ = rootCmd.Execute()
 
 	output := buf.String()
-	if !strings.Contains(output, "crux -i") {
-		t.Errorf("expected 'crux -i' in example, got %q", output)
+	if !strings.Contains(output, "rnix -i") {
+		t.Errorf("expected 'rnix -i' in example, got %q", output)
 	}
 	if !strings.Contains(output, "分析 ./README.md") {
 		t.Errorf("expected example in help output, got %q", output)
 	}
 }
 
-// --- crux ps tests via IPC ---
+// --- rnix ps tests via IPC ---
 
 func TestRenderPsJSON_EmptyList(t *testing.T) {
 	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
@@ -617,7 +617,7 @@ func setupTestIPCServer(t *testing.T) (string, *kernel.KernelImpl) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 
 	srv := ipc.NewServer(nil, nil, "0.1.0-test")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
@@ -825,7 +825,7 @@ func TestRejectPositionalArgs_UnknownWord(t *testing.T) {
 	if !strings.Contains(msg, `unknown command "foobar"`) {
 		t.Errorf("expected 'unknown command \"foobar\"', got %q", msg)
 	}
-	if !strings.Contains(msg, "crux -i <intent>") {
+	if !strings.Contains(msg, "rnix -i <intent>") {
 		t.Errorf("expected usage hint, got %q", msg)
 	}
 	if strings.Contains(msg, "did you mean") {

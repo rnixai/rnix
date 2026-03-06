@@ -1,4 +1,4 @@
-// Package context implements the context management layer for Crux.
+// Package context implements the context management layer for Rnix.
 package context
 
 import (
@@ -8,8 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/xsync"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/xsync"
 )
 
 // Role represents the role of a message participant in a conversation.

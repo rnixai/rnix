@@ -1,6 +1,6 @@
-# Crux 核心概念
+# Rnix 核心概念
 
-Crux 是一个面向 AI 智能体的操作系统（Agent OS）。它借鉴 Unix 的核心设计哲学——进程、文件系统、系统调用——为 AI 智能体提供统一的运行时环境。在 Crux 中，每一次智能体执行都是一个进程，每一个外部资源（LLM、文件、Shell）都是一个文件，每一次与内核的交互都是一次系统调用。本文档帮助你建立 Crux 的核心心智模型。
+Rnix 是一个面向 AI 智能体的操作系统（Agent OS）。它借鉴 Unix 的核心设计哲学——进程、文件系统、系统调用——为 AI 智能体提供统一的运行时环境。在 Rnix 中，每一次智能体执行都是一个进程，每一个外部资源（LLM、文件、Shell）都是一个文件，每一次与内核的交互都是一次系统调用。本文档帮助你建立 Rnix 的核心心智模型。
 
 ---
 
@@ -8,13 +8,13 @@ Crux 是一个面向 AI 智能体的操作系统（Agent OS）。它借鉴 Unix 
 
 ### 定义
 
-进程是 Crux 的一等计算单元。当你执行 `crux -i "意图"` 命令时，Crux 内核会创建一个智能体进程来完成你的意图。每个进程拥有独立的 PID、上下文空间、文件描述符表和调试通道。
+进程是 Rnix 的一等计算单元。当你执行 `rnix -i "意图"` 命令时，Rnix 内核会创建一个智能体进程来完成你的意图。每个进程拥有独立的 PID、上下文空间、文件描述符表和调试通道。
 
-Crux 采用 daemon 架构管理进程：一个后台 daemon 持有唯一的内核实例和进程表，所有 CLI 命令通过 Unix domain socket 与 daemon 通信。daemon 在首次运行 `crux` 时自动启动，空闲 60 秒后自动退出。这种设计使得进程在系统级别可见——在终端 A 启动的进程，可以在终端 B 通过 `crux ps`/`crux kill`/`crux astrace` 查看和操作，与 Unix 进程的行为一致。
+Rnix 采用 daemon 架构管理进程：一个后台 daemon 持有唯一的内核实例和进程表，所有 CLI 命令通过 Unix domain socket 与 daemon 通信。daemon 在首次运行 `rnix` 时自动启动，空闲 60 秒后自动退出。这种设计使得进程在系统级别可见——在终端 A 启动的进程，可以在终端 B 通过 `rnix ps`/`rnix kill`/`rnix astrace` 查看和操作，与 Unix 进程的行为一致。
 
 ### Unix 类比
 
-| Crux 概念 | Unix 对应 | 说明 |
+| Rnix 概念 | Unix 对应 | 说明 |
 |-----------|----------|------|
 | 进程（Process） | Unix 进程 | 一次智能体执行的运行时实例 |
 | PID | 进程号 | 全局唯一、递增分配、不回收 |
@@ -47,7 +47,7 @@ Created ──→ Running ──→ Zombie ──→ Dead
 ### 示例：完整的进程生命周期
 
 ```bash
-$ crux -i "分析代码"
+$ rnix -i "分析代码"
 ```
 
 这条命令触发以下生命周期：
@@ -96,11 +96,11 @@ CLI 输出示例：
 
 ### 定义
 
-VFS 是 Crux 的统一抽象层。所有外部资源——LLM 推理引擎、宿主文件系统、Shell 命令执行、进程运行状态——都通过统一的文件路径访问。Crux 遵循 Unix "一切皆文件"的哲学：你通过 Open 打开一个设备路径获取文件描述符（FD），通过 Read/Write 与设备交互，最后通过 Close 释放资源。
+VFS 是 Rnix 的统一抽象层。所有外部资源——LLM 推理引擎、宿主文件系统、Shell 命令执行、进程运行状态——都通过统一的文件路径访问。Rnix 遵循 Unix "一切皆文件"的哲学：你通过 Open 打开一个设备路径获取文件描述符（FD），通过 Read/Write 与设备交互，最后通过 Close 释放资源。
 
 ### Unix 类比
 
-| Crux 概念 | Unix 对应 | 说明 |
+| Rnix 概念 | Unix 对应 | 说明 |
 |-----------|----------|------|
 | VFS | 虚拟文件系统 | 统一的资源访问抽象层 |
 | `/dev/` | 设备文件 | LLM、文件系统、Shell 等设备 |
@@ -110,7 +110,7 @@ VFS 是 Crux 的统一抽象层。所有外部资源——LLM 推理引擎、宿
 
 ### 设备路径表
 
-以下是 Crux MVP 中所有已注册的 VFS 设备路径：
+以下是 Rnix MVP 中所有已注册的 VFS 设备路径：
 
 | VFS 路径 | 用途 | 驱动实现 |
 |---------|------|---------|
@@ -204,11 +204,11 @@ description: >
 allowed-tools: /dev/fs /dev/shell
 ```
 
-`allowed-tools` 字段定义了该 Skill 可以访问的 VFS 设备路径——这是 Crux 的权限模型核心。
+`allowed-tools` 字段定义了该 Skill 可以访问的 VFS 设备路径——这是 Rnix 的权限模型核心。
 
 ### Unix 类比
 
-| Crux 概念 | Unix 对应 | 说明 |
+| Rnix 概念 | Unix 对应 | 说明 |
 |-----------|----------|------|
 | Agent | 可执行程序（/usr/bin/xxx） | 定义"我是谁"——角色、模型偏好 |
 | Skill | 共享库（.so/.dylib） | 定义"如何做 X"——程序性知识、工具权限 |
@@ -257,7 +257,7 @@ Spawn 时的处理流程：
 
 ### 渐进式加载策略
 
-Crux 对 Skill 采用渐进式加载，优化资源消耗：
+Rnix 对 Skill 采用渐进式加载，优化资源消耗：
 
 1. **发现阶段** — 仅读取 SKILL.md 的 YAML frontmatter（约 100 tokens），获取名称、描述和工具权限
 2. **激活阶段** — 加载完整的 SKILL.md 正文（< 5000 tokens），包含操作指南、工作流等
@@ -269,11 +269,11 @@ Crux 对 Skill 采用渐进式加载，优化资源消耗：
 
 ### 定义
 
-系统调用（Syscall）是智能体与内核交互的唯一接口。就像 Unix 进程通过 syscall 请求内核提供文件 I/O、进程管理等服务一样，Crux 中的智能体通过 syscall 访问 VFS 设备、管理子进程和操作上下文空间。
+系统调用（Syscall）是智能体与内核交互的唯一接口。就像 Unix 进程通过 syscall 请求内核提供文件 I/O、进程管理等服务一样，Rnix 中的智能体通过 syscall 访问 VFS 设备、管理子进程和操作上下文空间。
 
 ### Unix 类比
 
-| Crux Syscall | Unix 对应 | 说明 |
+| Rnix Syscall | Unix 对应 | 说明 |
 |-------------|----------|------|
 | Spawn | fork + exec | 创建并启动新进程 |
 | Kill | kill(2) | 发送信号终止进程 |
@@ -290,7 +290,7 @@ Crux 对 Skill 采用渐进式加载，优化资源消耗：
 
 ### MVP Syscall 分类表
 
-Crux 的内核接口由 4 个子接口组合而成，共定义 15 个 syscall（其中 13 个已实现，2 个为规划中）：
+Rnix 的内核接口由 4 个子接口组合而成，共定义 15 个 syscall（其中 13 个已实现，2 个为规划中）：
 
 **进程管理（ProcessManager）— 5 个**
 
@@ -329,7 +329,7 @@ Crux 的内核接口由 4 个子接口组合而成，共定义 15 个 syscall（
 
 ### 示例：完整进程生命周期中的 Syscall 序列
 
-以 `crux -i "分析代码" --agent=code-analyst` 为例，从进程创建到销毁的完整 syscall 序列：
+以 `rnix -i "分析代码" --agent=code-analyst` 为例，从进程创建到销毁的完整 syscall 序列：
 
 ```
 [  0.000s] Spawn("分析代码", agent="code-analyst")    = PID(1)       12ms
@@ -378,10 +378,10 @@ Crux 的内核接口由 4 个子接口组合而成，共定义 15 个 syscall（
 | Err | 错误信息 |
 | Duration | syscall 执行耗时 |
 
-使用 `crux astrace <pid>` 可以实时消费这些事件，类似 Unix 中的 `strace`：
+使用 `rnix astrace <pid>` 可以实时消费这些事件，类似 Unix 中的 `strace`：
 
 ```bash
-$ crux astrace 1
+$ rnix astrace 1
 [astrace] attached to PID 1 (state: running)
 [  0.013s] Open("/dev/llm/claude", O_RDWR)  = FD(3)    1ms
 [  0.014s] Write(FD(3), 1234 bytes)          = ok      5200ms
@@ -439,19 +439,19 @@ $ crux astrace 1
       CLI
 ```
 
-daemon 是一个隐藏的后台进程（`crux daemon --internal`），在首次执行 `crux` 命令时自动启动。所有 CLI 操作（spawn、ps、kill、astrace）都是客户端请求，通过 Unix domain socket 发送给 daemon 中的 IPC Server，由 Server 路由到 kernel 执行。这种架构使得多个终端可以共享同一个内核的进程表。
+daemon 是一个隐藏的后台进程（`rnix daemon --internal`），在首次执行 `rnix` 命令时自动启动。所有 CLI 操作（spawn、ps、kill、astrace）都是客户端请求，通过 Unix domain socket 发送给 daemon 中的 IPC Server，由 Server 路由到 kernel 执行。这种架构使得多个终端可以共享同一个内核的进程表。
 
 IPC Server 采用**请求循环连接模型**：单个连接上可以发送多次非流式请求（Ping、ListProcs、Kill），服务端处理后继续等待下一个请求。流式方法（Spawn、AttachDebug）会在 handler 内部管理连接生命周期，流结束后关闭连接。这意味着 `EnsureDaemon()` 的 Ping 探活和后续 Spawn 请求可以共用同一个连接，避免 broken pipe 错误。
 
 ### 端到端数据流
 
-以 `crux -i "分析代码" --agent=code-analyst` 为例，完整的请求路径：
+以 `rnix -i "分析代码" --agent=code-analyst` 为例，完整的请求路径：
 
 ```
-用户输入: crux -i "分析代码" --agent=code-analyst
+用户输入: rnix -i "分析代码" --agent=code-analyst
     │
     ▼
-cmd/crux/main.go（CLI 客户端）
+cmd/rnix/main.go（CLI 客户端）
     │  1. 解析 --agent flag
     │  2. EnsureDaemon() — 检测/启动 daemon（Ping 探活复用同一连接）
     │  3. ipc.Client.Dial(socketPath) — 连接 daemon
@@ -500,7 +500,7 @@ CLI 客户端接收 ProgressEvent → 格式化输出:
 
 ### astrace 调试数据流
 
-`astrace` 命令通过 IPC 跨终端消费进程的 DebugChan 实现 syscall 追踪。你可以在任意终端对任意正在运行的进程执行 `crux astrace <pid>`，无需在启动进程的终端中操作：
+`astrace` 命令通过 IPC 跨终端消费进程的 DebugChan 实现 syscall 追踪。你可以在任意终端对任意正在运行的进程执行 `rnix astrace <pid>`，无需在启动进程的终端中操作：
 
 ```
 daemon 内部:
@@ -521,6 +521,6 @@ daemon 内部:
       │  Unix Domain Socket（流式 SyscallEvent）
       ▼
 任意终端:
-  crux astrace <pid> → IPC Client.AttachDebug → 接收 StreamEvent → 格式化输出
+  rnix astrace <pid> → IPC Client.AttachDebug → 接收 StreamEvent → 格式化输出
       格式: [N.NNNs] SyscallName(args) → result    duration
 ```

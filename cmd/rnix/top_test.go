@@ -8,12 +8,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // ============================================================
-// ATDD RED PHASE — Story 10.1: crux top 实时监控 TUI
+// ATDD RED PHASE — Story 10.1: rnix top 实时监控 TUI
 // All tests assert EXPECTED behavior. They FAIL because the
 // functions return zero values (stubs not yet implemented).
 // ============================================================
@@ -180,8 +180,8 @@ func TestTopSummaryLine_Content(t *testing.T) {
 	if !strings.Contains(summary, "2 active") {
 		t.Errorf("summary should contain '2 active' (2 running), got %q", summary)
 	}
-	if !strings.Contains(summary, "crux top") {
-		t.Errorf("summary should contain 'crux top' branding, got %q", summary)
+	if !strings.Contains(summary, "rnix top") {
+		t.Errorf("summary should contain 'rnix top' branding, got %q", summary)
 	}
 }
 
@@ -508,7 +508,7 @@ func TestHelp_ContainsTopSubcommand(t *testing.T) {
 	}
 }
 
-// --- 10.1-INT-002: crux top without daemon exits gracefully ---
+// --- 10.1-INT-002: rnix top without daemon exits gracefully ---
 
 func TestRunTop_NoDaemon(t *testing.T) {
 	saved := exitCode

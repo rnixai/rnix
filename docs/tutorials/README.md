@@ -1,8 +1,8 @@
-# Crux 教程
+# Rnix 教程
 
-本目录包含三篇实战教程，帮助你从零开始掌握 Crux 的核心开发技能。
+本目录包含三篇实战教程，帮助你从零开始掌握 Rnix 的核心开发技能。
 
-> 阅读教程前，建议先完成 [快速上手指南](../quick-start.md) 确保 Crux 已正确安装。
+> 阅读教程前，建议先完成 [快速上手指南](../quick-start.md) 确保 Rnix 已正确安装。
 > 如需查阅概念解释，请参考 [核心概念文档](../concepts.md)。
 > 如需精确的 API 签名和字段定义，请参考 [参考手册](../reference.md)。
 
@@ -12,7 +12,7 @@
 
 | 编号 | 教程 | 面向人群 | 预计时间 |
 |------|------|---------|---------|
-| 1 | [编写第一个 Skill](writing-first-skill.md) | 首次使用 Crux 的开发者 | ~20 分钟 |
+| 1 | [编写第一个 Skill](writing-first-skill.md) | 首次使用 Rnix 的开发者 | ~20 分钟 |
 | 2 | [调试第一个 bug](debugging-first-bug.md) | 已完成教程 1 的开发者 | ~15 分钟 |
 | 3 | [组合多智能体工作流](composing-multi-agent-workflow.md) | 已完成教程 1 的开发者 | ~25 分钟 |
 

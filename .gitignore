@@ -8,7 +8,7 @@ _bmad/
 .agents/
 
 # Binaries
-/crux
+/rnix
 *.exe
 *.exe~
 *.dll

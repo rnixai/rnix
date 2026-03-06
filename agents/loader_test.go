@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/usecrux/crux/drivers/mcp"
-	"github.com/usecrux/crux/skills"
+	"github.com/rnixai/rnix/drivers/mcp"
+	"github.com/rnixai/rnix/skills"
 )
 
 func TestAgentLoader_Load_Success(t *testing.T) {

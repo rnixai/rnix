@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- BUG-004: Tool Error Propagation Tests ---
@@ -30,7 +30,7 @@ func TestReasonStep_ToolOpenFails_SetsHasToolError(t *testing.T) {
 	// NOTE: /dev/nonexistent is intentionally NOT registered → Open will fail
 
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -89,7 +89,7 @@ func TestReasonStep_ToolWriteFails_SetsHasToolError(t *testing.T) {
 	})
 
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -142,7 +142,7 @@ func TestReasonStep_ToolReadFails_SetsHasToolError(t *testing.T) {
 	})
 
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -190,7 +190,7 @@ func TestReasonStep_NoToolError_ExitCodeZero(t *testing.T) {
 	})
 
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 

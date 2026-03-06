@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/kernel"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
 func setupClientTest(t *testing.T) (*Client, *Server, *kernel.KernelImpl) {
@@ -16,7 +16,7 @@ func setupClientTest(t *testing.T) (*Client, *Server, *kernel.KernelImpl) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 
 	srv := NewServer(nil, nil, "0.1.0-test")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
@@ -79,7 +79,7 @@ func TestClient_Kill_NotFound(t *testing.T) {
 func TestClient_Shutdown(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 
 	srv := NewServer(nil, nil, "test")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // === Intent-aware mock infrastructure ===
@@ -87,7 +87,7 @@ func newRoutedTestKernel(t testing.TB, router *intentRouter) *KernelImpl {
 		return router.newFile(), nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
 	return k
@@ -144,7 +144,7 @@ func newSimpleTestKernel(t testing.TB, file vfs.VFSFile) *KernelImpl {
 		return file, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
 	return k
@@ -157,7 +157,7 @@ func newPerOpenTestKernel(t testing.TB, factory func() vfs.VFSFile) *KernelImpl 
 		return factory(), nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
 	return k
@@ -452,7 +452,7 @@ func TestSupervisor_StartupFailureRollback(t *testing.T) {
 		return &normalFile{}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
 

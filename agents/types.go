@@ -3,8 +3,8 @@ package agents
 import (
 	"sort"
 
-	"github.com/usecrux/crux/skills"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/skills"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // AgentModels defines the LLM provider and model preferences for an agent.

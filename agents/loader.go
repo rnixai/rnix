@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
-	"github.com/usecrux/crux/drivers/mcp"
-	"github.com/usecrux/crux/skills"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/drivers/mcp"
+	"github.com/rnixai/rnix/skills"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // AgentLoader loads agent definitions from a base directory.

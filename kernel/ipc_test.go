@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // newIPCTestProcess creates a lightweight process registered in the kernel for IPC tests.

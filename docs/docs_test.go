@@ -85,9 +85,9 @@ func TestWritingFirstSkill_HasAgentYamlExample(t *testing.T) {
 
 func TestWritingFirstSkill_HasCLIExamples(t *testing.T) {
 	content := readTutorial(t, "writing-first-skill.md")
-	assertContains(t, content, "crux -i", "应包含 crux -i 命令示例")
-	assertContains(t, content, "crux ps", "应包含 crux ps 命令示例")
-	assertContains(t, content, "crux astrace", "应包含 crux astrace 命令示例")
+	assertContains(t, content, "rnix -i", "应包含 rnix -i 命令示例")
+	assertContains(t, content, "rnix ps", "应包含 rnix ps 命令示例")
+	assertContains(t, content, "rnix astrace", "应包含 rnix astrace 命令示例")
 }
 
 // --- AC2: 调试第一个 bug 教程 ---
@@ -104,7 +104,7 @@ func TestDebuggingFirstBug_HasRequiredSections(t *testing.T) {
 
 func TestDebuggingFirstBug_HasAstraceOutput(t *testing.T) {
 	content := readTutorial(t, "debugging-first-bug.md")
-	assertContains(t, content, "crux astrace", "应包含 crux astrace 命令")
+	assertContains(t, content, "rnix astrace", "应包含 rnix astrace 命令")
 	lower := strings.ToLower(content)
 	for _, field := range []string{"syscall", "pid", "device"} {
 		if !strings.Contains(lower, field) {
@@ -128,7 +128,7 @@ func TestDebuggingFirstBug_ShowsFixWorkflow(t *testing.T) {
 
 func TestComposingWorkflow_HasRequiredSections(t *testing.T) {
 	content := readTutorial(t, "composing-multi-agent-workflow.md")
-	for _, s := range []string{"设计", "crux-compose.yaml", "compose up", "crux top", "结果"} {
+	for _, s := range []string{"设计", "rnix-compose.yaml", "compose up", "rnix top", "结果"} {
 		assertContains(t, content, s, "教程应包含章节关键词")
 	}
 }

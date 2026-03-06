@@ -1,19 +1,19 @@
 # 教程 2：调试第一个 bug
 
-本教程带你体验 Crux 的调试工作流：故意引入一个 bug，用 `crux astrace` 定位问题，修复后验证。
+本教程带你体验 Rnix 的调试工作流：故意引入一个 bug，用 `rnix astrace` 定位问题，修复后验证。
 
 ---
 
 ## 前置条件
 
 - 已完成 [教程 1：编写第一个 Skill](writing-first-skill.md)（了解 Skill 和 Agent 的创建流程）
-- Crux 已安装并可运行
+- Rnix 已安装并可运行
 
 ---
 
 ## 你将学到什么
 
-1. 如何用 `crux astrace` 实时追踪智能体的系统调用
+1. 如何用 `rnix astrace` 实时追踪智能体的系统调用
 2. 如何从 SyscallEvent 中读取错误信息定位问题
 3. 常见错误码及其含义
 
@@ -78,7 +78,7 @@ skills:
 ### 运行并观察失败
 
 ```bash
-crux -i "统计 kernel/kernel.go 的行数" --agent=counter
+rnix -i "统计 kernel/kernel.go 的行数" --agent=counter
 ```
 
 你会看到智能体尝试执行但报错退出：
@@ -95,22 +95,22 @@ PID 2 | failed | 1 | 1.5s | 320 tokens
 
 ---
 
-## 步骤二：使用 crux astrace 定位问题
+## 步骤二：使用 rnix astrace 定位问题
 
-`crux astrace` 追踪进程的每一个系统调用，就像 Unix 的 `strace` 追踪系统调用一样。
+`rnix astrace` 追踪进程的每一个系统调用，就像 Unix 的 `strace` 追踪系统调用一样。
 
 ### 启动 astrace
 
 在一个终端启动智能体：
 
 ```bash
-crux -i "统计 kernel/kernel.go 的行数" --agent=counter
+rnix -i "统计 kernel/kernel.go 的行数" --agent=counter
 ```
 
 在另一个终端追踪该进程（假设 PID 为 3）：
 
 ```bash
-crux astrace 3
+rnix astrace 3
 ```
 
 ### 分析 astrace 输出
@@ -186,7 +186,7 @@ allowed-tools: /dev/fs /dev/shell
 ### 重新运行
 
 ```bash
-crux -i "统计 kernel/kernel.go 的行数" --agent=counter
+rnix -i "统计 kernel/kernel.go 的行数" --agent=counter
 ```
 
 这次应该正常完成：
@@ -204,7 +204,7 @@ PID 4 | completed | 0 | 2.1s | 450 tokens
 再次用 astrace 追踪确认所有 syscall 正常：
 
 ```bash
-crux astrace 4
+rnix astrace 4
 ```
 
 ```
@@ -232,26 +232,26 @@ crux astrace 4
 
 ## 扩展调试技巧
 
-### crux ps — 查看进程状态
+### rnix ps — 查看进程状态
 
 ```bash
-crux ps
+rnix ps
 ```
 
 快速查看所有进程的当前状态（running/zombie/dead）和基本信息。用于确认进程是否还在运行或已经结束。
 
-### crux log — 查看分类日志
+### rnix log — 查看分类日志
 
 ```bash
-crux log
+rnix log
 ```
 
 查看智能体的推理日志，按类别分组。比 astrace 更高层——astrace 追踪的是 syscall 层面的操作，log 展示的是推理过程的逻辑记录。
 
-### crux top — 实时监控
+### rnix top — 实时监控
 
 ```bash
-crux top
+rnix top
 ```
 
 TUI 界面实时监控所有进程的状态、Token 消耗和资源使用。详见 [教程 3](composing-multi-agent-workflow.md)。
@@ -276,5 +276,5 @@ TUI 界面实时监控所有进程的状态、Token 消耗和资源使用。详�
 ## 相关文档
 
 - [核心概念：系统调用](../concepts.md) — Syscall 和 SyscallEvent 的概念模型
-- [参考手册：crux astrace](../reference.md) — astrace 命令的完整参数和输出格式
+- [参考手册：rnix astrace](../reference.md) — astrace 命令的完整参数和输出格式
 - [参考手册：SyscallError](../reference.md) — 错误码枚举和 SyscallError 结构

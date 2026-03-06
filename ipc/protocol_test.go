@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 func TestRequest_MarshalRoundTrip(t *testing.T) {
@@ -304,7 +304,7 @@ func TestSocketPath_XDGRuntimeDir(t *testing.T) {
 
 	os.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
 	path := SocketPath()
-	expected := "/run/user/1000/crux/crux.sock"
+	expected := "/run/user/1000/rnix/rnix.sock"
 	if path != expected {
 		t.Errorf("path = %q, want %q", path, expected)
 	}
@@ -319,7 +319,7 @@ func TestSocketPath_Fallback(t *testing.T) {
 	if path == "" {
 		t.Error("path should not be empty")
 	}
-	// Should contain "crux-" and end with "crux.sock"
+	// Should contain "rnix-" and end with "rnix.sock"
 	if len(path) < 10 {
 		t.Errorf("path too short: %q", path)
 	}

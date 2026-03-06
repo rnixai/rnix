@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // Method represents an IPC request method.
@@ -303,14 +303,14 @@ func unixMilliToTime(ms int64) time.Time {
 // SocketPathOverride allows tests to inject a custom socket path.
 var SocketPathOverride string
 
-// SocketPath returns the platform-appropriate Unix socket path for the crux daemon.
-// Prefers $XDG_RUNTIME_DIR/crux/crux.sock, falls back to /tmp/crux-$UID/crux.sock.
+// SocketPath returns the platform-appropriate Unix socket path for the rnix daemon.
+// Prefers $XDG_RUNTIME_DIR/rnix/rnix.sock, falls back to /tmp/rnix-$UID/rnix.sock.
 func SocketPath() string {
 	if SocketPathOverride != "" {
 		return SocketPathOverride
 	}
 	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
-		return filepath.Join(dir, "crux", "crux.sock")
+		return filepath.Join(dir, "rnix", "rnix.sock")
 	}
-	return filepath.Join(os.TempDir(), fmt.Sprintf("crux-%d", os.Getuid()), "crux.sock")
+	return filepath.Join(os.TempDir(), fmt.Sprintf("rnix-%d", os.Getuid()), "rnix.sock")
 }

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // === Init Bootstrap Test Infrastructure ===
@@ -182,7 +182,7 @@ func TestBootstrap_RequiredSupervisorFailure_ReturnsError(t *testing.T) {
 		return nil, fmt.Errorf("device unavailable")
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(k.Shutdown)
 
@@ -302,7 +302,7 @@ func TestBootstrap_AgentLoaderFunc_SetsChildAgent(t *testing.T) {
 
 // TestLoadInitConfig_FileNotExist: 文件不存在时返回 DefaultInitConfig
 func TestLoadInitConfig_FileNotExist(t *testing.T) {
-	cfg, err := LoadInitConfig("/nonexistent/path/crux-init.yaml")
+	cfg, err := LoadInitConfig("/nonexistent/path/rnix-init.yaml")
 	if err != nil {
 		t.Fatalf("expected nil error for missing file, got: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestLoadInitConfig_FileNotExist(t *testing.T) {
 // TestLoadInitConfig_ValidYAML: 有效 YAML 正确解析
 func TestLoadInitConfig_ValidYAML(t *testing.T) {
 	dir := t.TempDir()
-	path := dir + "/crux-init.yaml"
+	path := dir + "/rnix-init.yaml"
 
 	content := `services:
   - name: test-svc
@@ -374,7 +374,7 @@ supervisors:
 // TestLoadInitConfig_InvalidYAML: 无效 YAML 返回 error
 func TestLoadInitConfig_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
-	path := dir + "/crux-init.yaml"
+	path := dir + "/rnix-init.yaml"
 
 	if err := os.WriteFile(path, []byte("{{invalid yaml content"), 0644); err != nil {
 		t.Fatal(err)

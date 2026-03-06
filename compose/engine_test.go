@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // --- Story 7.1: Engine Scheduling Tests ---

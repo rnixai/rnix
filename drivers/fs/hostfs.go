@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // HostFSFile implements vfs.VFSFile for host filesystem file access.

@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // ============================================================
@@ -42,7 +42,7 @@ func TestBudgetEnforcement_TerminatesAtBudget(t *testing.T) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -198,7 +198,7 @@ func TestBudgetExceeded_ExitCode2(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("big response", 5000)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -232,7 +232,7 @@ func TestBudgetExceeded_EmitsLog(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("response", 3000)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -273,7 +273,7 @@ func TestBudgetExceeded_EmitsEvent(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("response", 3000)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -317,7 +317,7 @@ func TestBudgetEnforcement_ExactBoundary(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("exact hit", 500)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -399,7 +399,7 @@ func TestBudgetEnforcement_MultiStep_CumulativeCheck(t *testing.T) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -471,7 +471,7 @@ func TestBudgetEnforcement_PreventsActionAfterExceeded(t *testing.T) {
 		return &mockToolFile{readData: []byte("tracked")}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 

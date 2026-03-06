@@ -1,6 +1,6 @@
-# Crux 架构文档
+# Rnix 架构文档
 
-本文档面向希望深入理解 Crux 内部设计的贡献者。阅读前建议先熟悉 [核心概念](concepts.md)，这里不再复述概念定义，而是聚焦**设计决策、接口边界、数据流和扩展路径**。
+本文档面向希望深入理解 Rnix 内部设计的贡献者。阅读前建议先熟悉 [核心概念](concepts.md)，这里不再复述概念定义，而是聚焦**设计决策、接口边界、数据流和扩展路径**。
 
 > 如需查询具体 API 签名和参数细节，请参阅 [参考手册](reference.md)。
 > 如需实战操作指引，请参阅 [教程](tutorials/README.md)。
@@ -20,9 +20,9 @@
 
 ### 1.1 设计哲学
 
-Crux 内核采用**接口组合模式**——将系统调用按功能分类为独立的子接口，由一个统一的 `KernelImpl` 结构体组合实现。这个设计选择源于 OS 隐喻与 Go 语言特性的交汇：
+Rnix 内核采用**接口组合模式**——将系统调用按功能分类为独立的子接口，由一个统一的 `KernelImpl` 结构体组合实现。这个设计选择源于 OS 隐喻与 Go 语言特性的交汇：
 
-- **Unix 微内核隐喻**：传统微内核将进程管理、文件系统、IPC 分离为独立的服务器。Crux 在单进程内以接口边界模拟这种分离，每个子接口各自承担一个功能域的职责。
+- **Unix 微内核隐喻**：传统微内核将进程管理、文件系统、IPC 分离为独立的服务器。Rnix 在单进程内以接口边界模拟这种分离，每个子接口各自承担一个功能域的职责。
 - **Go 接口组合的天然适配**：Go 的小接口 + 组合优于大接口的哲学恰好匹配——每个子接口只定义 2~5 个方法，职责清晰、可独立测试、可独立演进。
 
 决策记录：接口组合模式 vs 单一大接口 vs 函数集合——选择接口组合的核心理由是**扩展性**：新增一类 syscall 只需定义新接口并在 `KernelImpl` 上实现，不影响已有子接口的编译和测试。
@@ -35,7 +35,7 @@ Crux 内核采用**接口组合模式**——将系统调用按功能分类为�
 type KernelImpl struct {
     procTable   *xsync.SyncMap[types.PID, *Process]
     vfs         *vfs.VFS
-    ctxMgr      *cruxctx.Manager
+    ctxMgr      *rnixctx.Manager
     callbacks   KernelCallbacks
     reapCh      chan types.PID
     stopCh      chan struct{}
@@ -165,7 +165,7 @@ CLI 层                    内核层                   VFS/驱动层
 **添加新设备驱动：**
 
 1. 实现 `vfs.VFSFileFactory` 函数
-2. 在 `cmd/crux/main.go` 的初始化代码中调用 `devRegistry.Register(path, factory)`
+2. 在 `cmd/rnix/main.go` 的初始化代码中调用 `devRegistry.Register(path, factory)`
 3. VFS 自动处理 Open/Read/Write/Close 路由
 
 ---
@@ -174,7 +174,7 @@ CLI 层                    内核层                   VFS/驱动层
 
 ### 2.1 Process 结构体设计
 
-`Process` 定义于 `kernel/process.go`，是 Crux 进程的完整运行时表示。字段按功能分组：
+`Process` 定义于 `kernel/process.go`，是 Rnix 进程的完整运行时表示。字段按功能分组：
 
 **身份与状态（不可变 / mu 保护）：**
 
@@ -319,7 +319,7 @@ go func() {
 
 ### 2.6 三级并发模型
 
-Crux 提供三种粒度的并发原语，映射到不同的使用场景：
+Rnix 提供三种粒度的并发原语，映射到不同的使用场景：
 
 | 级别 | 原语 | 调度模型 | 资源隔离 | 适用场景 |
 |------|------|---------|---------|---------|
@@ -353,7 +353,7 @@ Coroutine 使用 `yieldCh` / `resumeCh` 通道对实现协作式让出和恢复�
 
 ### 3.1 VFS 设备注册机制
 
-VFS（虚拟文件系统）是 Crux 的资源抽象层。所有外部资源——LLM、文件系统、Shell、MCP 工具——统一表现为可 Open/Read/Write/Close 的"文件"。
+VFS（虚拟文件系统）是 Rnix 的资源抽象层。所有外部资源——LLM、文件系统、Shell、MCP 工具——统一表现为可 Open/Read/Write/Close 的"文件"。
 
 **核心抽象（`vfs/vfs.go`）：**
 
@@ -395,7 +395,7 @@ type DeviceRegistry struct {
 
 ### 3.2 已注册设备
 
-系统启动时在 `cmd/crux/main.go` 中注册以下设备：
+系统启动时在 `cmd/rnix/main.go` 中注册以下设备：
 
 | 设备路径 | 驱动包 | 描述 |
 |----------|--------|------|
@@ -611,7 +611,7 @@ Thread 和 Coroutine 共享父进程的上下文（通过 CtxID），不独立�
 
 ## 延伸阅读
 
-- [核心概念](concepts.md) — 建立 Crux 的心智模型
+- [核心概念](concepts.md) — 建立 Rnix 的心智模型
 - [参考手册](reference.md) — 精确的 API 签名和参数细节
 - [教程](tutorials/README.md) — 手把手实战操作
   - [编写第一个 Skill](tutorials/writing-first-skill.md)

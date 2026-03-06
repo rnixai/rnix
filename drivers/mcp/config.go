@@ -4,7 +4,7 @@ import (
 	"os"
 
 	"github.com/goccy/go-yaml"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // MCPServerConfig describes a single MCP server's connection parameters.

@@ -4,7 +4,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Color constants for the Crux design system.
+// Color constants for the Rnix design system.
 const (
 	ColorKernel  = "#888888"
 	ColorAgent   = "#5B9BD5"
