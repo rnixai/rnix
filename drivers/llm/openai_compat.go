@@ -233,12 +233,8 @@ func (d *OpenAICompatDriver) buildOAIRequest(req LLMRequest, stream bool, tools 
 	if len(tools) > 0 {
 		for _, td := range tools {
 			oai.Tools = append(oai.Tools, oaiTool{
-				Type: "function",
-				Function: oaiFunction{
-					Name:        td.Name,
-					Description: td.Description,
-					Parameters:  td.Parameters,
-				},
+				Type:     "function",
+				Function: oaiFunction(td),
 			})
 		}
 	}
