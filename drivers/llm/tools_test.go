@@ -136,6 +136,34 @@ func TestMessage_JSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMessage_JSONRoundTrip_WithToolCalls(t *testing.T) {
+	original := Message{
+		Role:    "assistant",
+		Content: "",
+		ToolCalls: []ToolCall{
+			{ID: "call_1", Name: "get_weather", Input: map[string]any{"location": "Tokyo"}},
+			{ID: "call_2", Name: "search", Input: map[string]any{"q": "test"}},
+		},
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var decoded Message
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(decoded.ToolCalls) != 2 {
+		t.Fatalf("ToolCalls len = %d, want 2", len(decoded.ToolCalls))
+	}
+	if decoded.ToolCalls[0].ID != "call_1" || decoded.ToolCalls[0].Name != "get_weather" {
+		t.Errorf("ToolCalls[0] = %+v, want id=call_1 name=get_weather", decoded.ToolCalls[0])
+	}
+	if decoded.ToolCalls[1].ID != "call_2" || decoded.ToolCalls[1].Name != "search" {
+		t.Errorf("ToolCalls[1] = %+v, want id=call_2 name=search", decoded.ToolCalls[1])
+	}
+}
+
 func TestMessage_JSONCompatWithContextMessage(t *testing.T) {
 	// Serialize llm.Message, deserialize as context.Message — fields must match.
 	llmMsg := Message{
@@ -160,6 +188,33 @@ func TestMessage_JSONCompatWithContextMessage(t *testing.T) {
 	}
 	if ctxMsg.ToolCallID != llmMsg.ToolCallID {
 		t.Errorf("ToolCallID = %q, want %q", ctxMsg.ToolCallID, llmMsg.ToolCallID)
+	}
+}
+
+func TestMessage_JSONCompatWithContextMessage_ToolCalls(t *testing.T) {
+	// ToolCalls field in llm.Message should be silently ignored by context.Message
+	// (context.Message has no ToolCalls field).
+	llmMsg := Message{
+		Role:    "assistant",
+		Content: "I will call a tool",
+		ToolCalls: []ToolCall{
+			{ID: "call_1", Name: "search", Input: map[string]any{"q": "test"}},
+		},
+	}
+	data, err := json.Marshal(llmMsg)
+	if err != nil {
+		t.Fatalf("Marshal llm.Message: %v", err)
+	}
+
+	var ctxMsg rnixctx.Message
+	if err := json.Unmarshal(data, &ctxMsg); err != nil {
+		t.Fatalf("Unmarshal to context.Message should succeed (ignore unknown fields): %v", err)
+	}
+	if string(ctxMsg.Role) != llmMsg.Role {
+		t.Errorf("Role = %q, want %q", ctxMsg.Role, llmMsg.Role)
+	}
+	if ctxMsg.Content != llmMsg.Content {
+		t.Errorf("Content = %q, want %q", ctxMsg.Content, llmMsg.Content)
 	}
 }
 
