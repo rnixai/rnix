@@ -148,7 +148,7 @@ crux/
 ├── lib/skills/code-analysis/
 │   └── SKILL.md                         # Agent Skills 标准格式（frontmatter + 程序性知识）
 │
-├── go.mod                                # github.com/gonewx/crux, go 1.26
+├── go.mod                                # github.com/usecrux/crux, go 1.26
 ├── go.sum
 ├── Makefile                              # build / test / lint / install
 ├── .golangci.yml

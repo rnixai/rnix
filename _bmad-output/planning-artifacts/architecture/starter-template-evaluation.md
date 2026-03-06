@@ -24,14 +24,14 @@
 
 ```bash
 mkdir crux && cd crux
-go mod init github.com/gonewx/crux
+go mod init github.com/usecrux/crux
 ```
 
 ## Architectural Decisions Established by Project Foundation
 
 **Language & Runtime：**
 - Go 1.26（利用 Green Tea GC、Goroutine Leak Profiler、自引用泛型等最新特性）
-- 模块路径：`github.com/gonewx/crux`
+- 模块路径：`github.com/usecrux/crux`
 - 单 `main` 入口：`cmd/crux/main.go`
 
 **项目结构：**
