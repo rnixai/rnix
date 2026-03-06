@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/agents"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/vfs"
 )
 
 // ============================================================
@@ -568,4 +568,3 @@ func TestSpawn_WithAgent_UsesBudgetFromManifest(t *testing.T) {
 		t.Errorf("expected ContextBudget 4096 from agent manifest, got %d", proc.ContextBudget)
 	}
 }
-

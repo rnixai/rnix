@@ -152,7 +152,7 @@ inputDocuments:
 === RUN   TestTutorials_CrossReferences
 --- PASS: TestTutorials_CrossReferences (0.00s)
 PASS
-ok  github.com/gonewx/crux/docs  0.010s
+ok  github.com/usecrux/crux/docs  0.010s
 ```
 
 ### Regression Test Results

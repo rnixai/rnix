@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // ProcessInfoProvider provides process information for ProcFS.

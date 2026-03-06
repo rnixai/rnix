@@ -640,7 +640,7 @@ cmd/crux/main.go         — CLI 层暂不暴露并发命令（由 Compose/Agent
 ```go
 // kernel/concurrency.go
 import (
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
 )
 
 // kernel/thread.go
@@ -650,7 +650,7 @@ import (
     "sync"
     "time"
 
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
 )
 
 // kernel/coroutine.go
@@ -659,7 +659,7 @@ import (
     "sync"
     "time"
 
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
 )
 
 // kernel/thread_test.go
@@ -668,7 +668,7 @@ import (
     "testing"
     "time"
 
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )
@@ -679,7 +679,7 @@ import (
     "testing"
     "time"
 
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )

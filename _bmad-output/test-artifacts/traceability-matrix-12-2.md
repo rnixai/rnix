@@ -160,7 +160,7 @@ inputDocuments:
 === RUN   TestArchitecture_CrossReferences
 --- PASS: TestArchitecture_CrossReferences (0.00s)
 PASS
-ok  github.com/gonewx/crux/docs  0.006s
+ok  github.com/usecrux/crux/docs  0.006s
 ```
 
 ### Regression Test Results

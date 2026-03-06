@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gonewx/crux/internal/xsync"
+	"github.com/usecrux/crux/internal/xsync"
 )
 
 // errDeviceNotFound is a sentinel error indicating no device matched the path.

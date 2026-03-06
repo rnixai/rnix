@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gonewx/crux/compose"
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/compose"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // composeAgentStatus determines the display status for a compose agent result.

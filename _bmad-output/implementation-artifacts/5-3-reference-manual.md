@@ -412,7 +412,7 @@ crux 0.1.0
 
 **JSON 输出**:
 ```json
-{"ok": true, "data": {"version": "0.1.0", "claude_code_available": true, "claude_code": "1.0.3"}}
+{"ok": true, "data": {"version": "0.1.0", "claude_code_available": true, "claude_code": "2.1.69"}}
 ```
 
 #### 子命令: `crux ps`

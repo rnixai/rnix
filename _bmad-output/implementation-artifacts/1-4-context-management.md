@@ -57,7 +57,7 @@ So that 每轮 LLM 调用都能获得完整的推理上下文。
 - **依赖方向：** `context/` → `internal/types/` ✓；`context/` → `internal/xsync/` ✓。**绝对禁止** `context/` 导入 `kernel/` 或 `vfs/`
 - **此 Story 实现的核心：** CtxAlloc/CtxRead/CtxWrite/CtxFree + BuildPrompt + 消息模型
 - **此 Story 不实现：** reasonStep 中的上下文调用（Story 1.6）、进程退出时的 CtxFree 调用（Story 4.5）、token 预算控制（Phase 2）
-- **Go 包名注意：** Go 标准库有 `context` 包。本项目的 `context/` 包路径是 `github.com/gonewx/crux/context`，完整限定路径避免与标准库冲突。但包内代码不能使用标准库 `context.Context` 时直接写 `context.Context`——**需要使用 `stdctx "context"` 别名导入**，或者如果本包不需要标准库 context 则无需关注
+- **Go 包名注意：** Go 标准库有 `context` 包。本项目的 `context/` 包路径是 `github.com/usecrux/crux/context`，完整限定路径避免与标准库冲突。但包内代码不能使用标准库 `context.Context` 时直接写 `context.Context`——**需要使用 `stdctx "context"` 别名导入**，或者如果本包不需要标准库 context 则无需关注
 
 ### 已有代码（必须复用，禁止重新实现）
 

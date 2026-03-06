@@ -564,8 +564,8 @@ make all
 **Results:**
 
 ```
-# github.com/gonewx/crux/vfs
-# [github.com/gonewx/crux/vfs]
+# github.com/usecrux/crux/vfs
+# [github.com/usecrux/crux/vfs]
 vet: vfs/mcp_test.go:257:22: undefined: readFromBuffer
 ```
 

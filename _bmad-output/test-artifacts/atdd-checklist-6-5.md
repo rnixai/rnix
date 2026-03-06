@@ -512,7 +512,7 @@ go test ./kernel/ -run 'TestConcurrent_10Processes' -race -v -count=1
 **Results:**
 
 ```
-# github.com/gonewx/crux/kernel [github.com/gonewx/crux/kernel.test]
+# github.com/usecrux/crux/kernel [github.com/usecrux/crux/kernel.test]
 kernel/coroutine_test.go:18:17: k.SpawnCoroutine undefined (type *KernelImpl has no field or method SpawnCoroutine)
 kernel/coroutine_test.go:33:16: k.ResumeCoroutine undefined (type *KernelImpl has no field or method ResumeCoroutine)
 kernel/coroutine_test.go:47:14: k.SpawnCoroutine undefined (type *KernelImpl has no field or method SpawnCoroutine)
@@ -520,7 +520,7 @@ kernel/coroutine_test.go:47:14: k.SpawnCoroutine undefined (type *KernelImpl has
 kernel/thread_test.go:36:15: k.SpawnThread undefined (type *KernelImpl has no field or method SpawnThread)
 kernel/thread_test.go:46:22: proc.GetThread undefined (type *Process has no field or method GetThread)
 ...
-FAIL    github.com/gonewx/crux/kernel [build failed]
+FAIL    github.com/usecrux/crux/kernel [build failed]
 ```
 
 **Summary:**

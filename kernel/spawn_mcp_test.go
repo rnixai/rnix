@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/agents"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/vfs"
 )
 
 // --- Mock MountManager with call tracking for Spawn MCP tests ---

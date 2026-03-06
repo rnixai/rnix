@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 func TestVFS_Open(t *testing.T) {

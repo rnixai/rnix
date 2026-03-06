@@ -3,7 +3,7 @@ package debug
 import (
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // EmitEvent sends a SyscallEvent to a DebugChan in a non-blocking manner.

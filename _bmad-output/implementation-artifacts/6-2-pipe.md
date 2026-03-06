@@ -482,11 +482,11 @@ import (
     "io"         // io.EOF
     "context"    // context.Canceled（已有 gocontext 别名引用）
 
-    "github.com/gonewx/crux/vfs"  // VFSFile 接口、FileStat、VFS.RegisterFD
+    "github.com/usecrux/crux/vfs"  // VFSFile 接口、FileStat、VFS.RegisterFD
 )
 ```
 
-**注意**：`kernel` 包当前不导入 `vfs` 包。但 `kernel/process.go` 已有 `"github.com/gonewx/crux/vfs"` 导入（FDTable 的类型是 `map[types.FD]vfs.VFSFile`）。因此 `kernel/ipc.go` 中导入 `vfs` 不会引入新的依赖方向。
+**注意**：`kernel` 包当前不导入 `vfs` 包。但 `kernel/process.go` 已有 `"github.com/usecrux/crux/vfs"` 导入（FDTable 的类型是 `map[types.FD]vfs.VFSFile`）。因此 `kernel/ipc.go` 中导入 `vfs` 不会引入新的依赖方向。
 
 ### References
 

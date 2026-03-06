@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/vfs"
 )
 
 // TestHelperProcess is a mock process used by tests to simulate shell commands.

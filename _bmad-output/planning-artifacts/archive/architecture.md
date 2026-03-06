@@ -118,14 +118,14 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 ```bash
 mkdir crux && cd crux
-go mod init github.com/gonewx/crux
+go mod init github.com/usecrux/crux
 ```
 
 ### Architectural Decisions Established by Project Foundation
 
 **Language & Runtime：**
 - Go 1.26（利用 Green Tea GC、Goroutine Leak Profiler、自引用泛型等最新特性）
-- 模块路径：`github.com/gonewx/crux`
+- 模块路径：`github.com/usecrux/crux`
 - 单 `main` 入口：`cmd/crux/main.go`
 
 **项目结构：**
@@ -910,7 +910,7 @@ crux/
 ├── lib/skills/code-analysis/
 │   └── SKILL.md                         # Agent Skills 标准格式：frontmatter（name/description/allowed-tools）+ 程序性知识
 │
-├── go.mod                                # 模块：github.com/gonewx/crux, go 1.26
+├── go.mod                                # 模块：github.com/usecrux/crux, go 1.26
 ├── go.sum
 ├── Makefile                              # build / test / lint / install 目标
 ├── .golangci.yml                         # golangci-lint 配置
@@ -1197,7 +1197,7 @@ crux/
 ├── lib/skills/code-analysis/
 │   └── SKILL.md                         # Agent Skills 标准格式（frontmatter + 程序性知识）
 │
-├── go.mod                                # github.com/gonewx/crux, go 1.26
+├── go.mod                                # github.com/usecrux/crux, go 1.26
 ├── go.sum
 ├── Makefile                              # build / test / lint / install
 ├── .golangci.yml

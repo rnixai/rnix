@@ -323,7 +323,7 @@ go test ./kernel/ -run "TestBootstrap_|TestInit_" -race -coverprofile=coverage.o
 
 ```
 $ go test ./kernel/... 2>&1 | head -5
-# github.com/gonewx/crux/kernel [github.com/gonewx/crux/kernel.test]
+# github.com/usecrux/crux/kernel [github.com/usecrux/crux/kernel.test]
 kernel/init_test.go:32:58: undefined: AgentLoaderFunc
 kernel/init_test.go:46:9: undefined: DefaultInitConfig
 kernel/init_test.go:48:17: undefined: Bootstrap
@@ -392,7 +392,7 @@ See `tea-index.csv` for complete knowledge fragment mapping.
 **Results:**
 
 ```
-# github.com/gonewx/crux/kernel [github.com/gonewx/crux/kernel.test]
+# github.com/usecrux/crux/kernel [github.com/usecrux/crux/kernel.test]
 kernel/init_test.go:32:58: undefined: AgentLoaderFunc
 kernel/init_test.go:46:9: undefined: DefaultInitConfig
 kernel/init_test.go:48:17: undefined: Bootstrap
@@ -404,7 +404,7 @@ kernel/init_test.go:79:38: undefined: ServiceInitializer
 kernel/init_test.go:80:28: undefined: ServiceInitializer
 kernel/init_test.go:87:17: undefined: serviceRegistry
 kernel/init_test.go:87:17: too many errors
-FAIL    github.com/gonewx/crux/kernel [build failed]
+FAIL    github.com/usecrux/crux/kernel [build failed]
 ```
 
 **Summary:**

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/kernel"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/kernel"
 )
 
 // ============================================================

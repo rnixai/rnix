@@ -376,7 +376,7 @@ go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race -v -count=1
 **Results:**
 
 ```
-# github.com/gonewx/crux/cmd/crux [github.com/gonewx/crux/cmd/crux.test]
+# github.com/usecrux/crux/cmd/crux [github.com/usecrux/crux/cmd/crux.test]
 cmd/crux/compose_test.go:604:15: undefined: flagComposeDownFile
 cmd/crux/compose_test.go:607:3: undefined: flagComposeDownFile
 cmd/crux/compose_test.go:610:2: undefined: flagComposeDownFile
@@ -388,7 +388,7 @@ cmd/crux/compose_test.go:652:9: undefined: runComposeDown
 cmd/crux/compose_test.go:686:15: undefined: flagComposeDownFile
 cmd/crux/compose_test.go:689:3: undefined: flagComposeDownFile
 cmd/crux/compose_test.go:689:3: too many errors
-FAIL    github.com/gonewx/crux/cmd/crux [build failed]
+FAIL    github.com/usecrux/crux/cmd/crux [build failed]
 ```
 
 **Command:** `go test ./internal/ui/ -run TestRenderComposeDown -race`
@@ -396,7 +396,7 @@ FAIL    github.com/gonewx/crux/cmd/crux [build failed]
 **Results:**
 
 ```
-# github.com/gonewx/crux/internal/ui [github.com/gonewx/crux/internal/ui.test]
+# github.com/usecrux/crux/internal/ui [github.com/usecrux/crux/internal/ui.test]
 internal/ui/compose_test.go:345:14: undefined: ComposeDownEntry
 internal/ui/compose_test.go:349:15: undefined: ComposeDownEntry
 internal/ui/compose_test.go:353:2: undefined: RenderComposeDownSummary
@@ -408,7 +408,7 @@ internal/ui/compose_test.go:424:14: undefined: ComposeDownEntry
 internal/ui/compose_test.go:428:15: undefined: ComposeDownEntry
 internal/ui/compose_test.go:432:2: undefined: RenderComposeDownSummaryJSON
 internal/ui/compose_test.go:432:2: too many errors
-FAIL    github.com/gonewx/crux/internal/ui [build failed]
+FAIL    github.com/usecrux/crux/internal/ui [build failed]
 ```
 
 **Summary:**
@@ -421,7 +421,7 @@ FAIL    github.com/gonewx/crux/internal/ui [build failed]
 **Existing tests unaffected:**
 
 ```
-ok      github.com/gonewx/crux/compose   (cached) (all Story 7.1 tests pass)
+ok      github.com/usecrux/crux/compose   (cached) (all Story 7.1 tests pass)
 ```
 
 **Expected Failure Messages:**

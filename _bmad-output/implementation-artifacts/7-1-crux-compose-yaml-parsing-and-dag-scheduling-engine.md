@@ -479,8 +479,8 @@ compose/ ← cmd/crux/        （Story 7.2 中由 CLI 调用）
 ```go
 // compose/types.go
 import (
-    "github.com/gonewx/crux/agents"
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/agents"
+    "github.com/usecrux/crux/internal/types"
 )
 
 // compose/parser.go
@@ -504,8 +504,8 @@ import (
     "sync"
     "time"
 
-    "github.com/gonewx/crux/agents"
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/agents"
+    "github.com/usecrux/crux/internal/types"
 )
 
 // compose/parser_test.go
@@ -531,8 +531,8 @@ import (
     "testing"
     "time"
 
-    "github.com/gonewx/crux/agents"
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/agents"
+    "github.com/usecrux/crux/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )
@@ -636,7 +636,7 @@ func (m *mockKernelSpawner) GetProcessResult(pid types.PID) (string, bool) {
 - [Source: kernel/kernel.go] — KernelImpl、Spawn、SpawnOpts
 - [Source: kernel/process.go] — Process 结构体、ExitStatus
 - [Source: agents/types.go] — AgentManifest、AgentInfo、AllowedTools
-- [Source: go.mod] — github.com/gonewx/crux, go 1.26, goccy/go-yaml 依赖
+- [Source: go.mod] — github.com/usecrux/crux, go 1.26, goccy/go-yaml 依赖
 
 ## Dev Agent Record
 

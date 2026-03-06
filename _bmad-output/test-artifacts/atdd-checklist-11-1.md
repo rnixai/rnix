@@ -382,20 +382,20 @@ go test -race ./shell/... ./ipc/... ./cmd/crux/...
 **Results:**
 
 ```
-# github.com/gonewx/crux/shell [github.com/gonewx/crux/shell.test]
+# github.com/usecrux/crux/shell [github.com/usecrux/crux/shell.test]
 shell/parser_test.go:17:19: undefined: ParsePipeline
 ... (10+ more errors)
-FAIL    github.com/gonewx/crux/shell [build failed]
+FAIL    github.com/usecrux/crux/shell [build failed]
 
-# github.com/gonewx/crux/ipc [github.com/gonewx/crux/ipc.test]
+# github.com/usecrux/crux/ipc [github.com/usecrux/crux/ipc.test]
 ipc/protocol_test.go:501:5: undefined: MethodSpawnPipeline
 ... (10+ more errors)
-FAIL    github.com/gonewx/crux/ipc [build failed]
+FAIL    github.com/usecrux/crux/ipc [build failed]
 
-# github.com/gonewx/crux/cmd/crux [github.com/gonewx/crux/cmd/crux.test]
+# github.com/usecrux/crux/cmd/crux [github.com/usecrux/crux/cmd/crux.test]
 cmd/crux/main_test.go:992:13: undefined: isPipelineSyntax
 cmd/crux/main_test.go:1013:13: undefined: isPipelineSyntax
-FAIL    github.com/gonewx/crux/cmd/crux [build failed]
+FAIL    github.com/usecrux/crux/cmd/crux [build failed]
 ```
 
 **Summary:**

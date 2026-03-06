@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gonewx/crux/skills"
+	"github.com/usecrux/crux/skills"
 )
 
 // --- ATDD RED Phase: Story 8.3 — skill update 更新 ---

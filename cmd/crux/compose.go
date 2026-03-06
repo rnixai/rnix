@@ -9,16 +9,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	"github.com/gonewx/crux/compose"
-	"github.com/gonewx/crux/drivers/mcp"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/internal/xsync"
-	"github.com/gonewx/crux/ipc"
-	"github.com/gonewx/crux/skills"
-	"github.com/gonewx/crux/vfs"
 	"github.com/spf13/cobra"
+	"github.com/usecrux/crux/agents"
+	"github.com/usecrux/crux/compose"
+	"github.com/usecrux/crux/drivers/mcp"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/internal/xsync"
+	"github.com/usecrux/crux/ipc"
+	"github.com/usecrux/crux/skills"
+	"github.com/usecrux/crux/vfs"
 )
 
 var composeCmd = &cobra.Command{

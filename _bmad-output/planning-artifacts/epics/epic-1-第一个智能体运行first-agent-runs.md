@@ -11,14 +11,14 @@ So that 后续所有模块可以在标准化的 Go 项目结构上构建。
 **Acceptance Criteria:**
 
 **Given** 用户已安装 Go 1.26
-**When** 执行 `go install github.com/gonewx/crux/cmd/crux@latest`
+**When** 执行 `go install github.com/usecrux/crux/cmd/crux@latest`
 **Then** 获得 `crux` 二进制文件，执行 `crux version` 输出版本号
 **And** 二进制无额外运行时依赖（除 Claude Code CLI）
 
 **Given** 项目目录已创建
 **When** 查看目录结构
 **Then** 遵循架构文档定义的 OS 隐喻结构（`cmd/crux/`、`kernel/`、`vfs/`、`drivers/`、`context/`、`skills/`、`debug/`、`internal/types/`、`internal/xsync/`、`internal/ui/`）
-**And** 包含 `go.mod`（模块路径 `github.com/gonewx/crux`）、`Makefile`、`.golangci.yml`、`.gitignore`
+**And** 包含 `go.mod`（模块路径 `github.com/usecrux/crux`）、`Makefile`、`.golangci.yml`、`.gitignore`
 
 **Given** `internal/types/types.go` 已实现
 **When** 其他包导入共享类型

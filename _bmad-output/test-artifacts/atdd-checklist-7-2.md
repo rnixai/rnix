@@ -452,7 +452,7 @@ go test ./cmd/crux/ -run TestCompose -race -v -count=1
 **Results:**
 
 ```
-# github.com/gonewx/crux/cmd/crux [github.com/gonewx/crux/cmd/crux.test]
+# github.com/usecrux/crux/cmd/crux [github.com/usecrux/crux/cmd/crux.test]
 cmd/crux/compose_test.go:127:15: undefined: flagComposeFile
 cmd/crux/compose_test.go:130:3: undefined: flagComposeFile
 cmd/crux/compose_test.go:133:2: undefined: flagComposeFile
@@ -464,7 +464,7 @@ cmd/crux/compose_test.go:179:9: undefined: runComposeUp
 cmd/crux/compose_test.go:194:15: undefined: flagComposeFile
 cmd/crux/compose_test.go:197:3: undefined: flagComposeFile
 cmd/crux/compose_test.go:197:3: too many errors
-FAIL    github.com/gonewx/crux/cmd/crux [build failed]
+FAIL    github.com/usecrux/crux/cmd/crux [build failed]
 ```
 
 **Command:** `go test ./internal/ui/ -run TestRenderCompose -race`
@@ -472,7 +472,7 @@ FAIL    github.com/gonewx/crux/cmd/crux [build failed]
 **Results:**
 
 ```
-# github.com/gonewx/crux/internal/ui [github.com/gonewx/crux/internal/ui.test]
+# github.com/usecrux/crux/internal/ui [github.com/usecrux/crux/internal/ui.test]
 internal/ui/compose_test.go:33:2: undefined: RenderComposeSummary
 internal/ui/compose_test.go:62:2: undefined: RenderComposeSummary
 internal/ui/compose_test.go:90:2: undefined: RenderComposeSummary
@@ -484,7 +484,7 @@ internal/ui/compose_test.go:218:2: undefined: RenderComposeSummaryJSON
 internal/ui/compose_test.go:241:2: undefined: RenderComposeProgress
 internal/ui/compose_test.go:264:2: undefined: RenderComposeProgress
 internal/ui/compose_test.go:264:2: too many errors
-FAIL    github.com/gonewx/crux/internal/ui [build failed]
+FAIL    github.com/usecrux/crux/internal/ui [build failed]
 ```
 
 **Summary:**
@@ -497,7 +497,7 @@ FAIL    github.com/gonewx/crux/internal/ui [build failed]
 **Existing tests unaffected:**
 
 ```
-ok      github.com/gonewx/crux/compose   1.127s (all 11 Story 7.1 tests pass)
+ok      github.com/usecrux/crux/compose   1.127s (all 11 Story 7.1 tests pass)
 ```
 
 **Expected Failure Messages:**

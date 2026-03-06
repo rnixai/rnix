@@ -857,7 +857,7 @@ $ crux "分析 ./kernel/scheduler.go 的性能瓶颈"
 ```mermaid
 flowchart TD
     A[在 GitHub 看到 Crux] --> B{已安装 Go?}
-    B -->|是| C["go install github.com/gonewx/crux/cmd/crux@latest"]
+    B -->|是| C["go install github.com/usecrux/crux/cmd/crux@latest"]
     B -->|否| B1[提示: 请先安装 Go]
     B1 --> B
     C --> D{已安装 Claude Code CLI?}

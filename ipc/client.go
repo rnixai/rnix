@@ -7,8 +7,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/vfs"
 )
 
 // Client connects to the crux daemon over a Unix socket.

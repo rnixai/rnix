@@ -132,7 +132,7 @@ import (
     "sync/atomic"
     "time"
 
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
 )
 
 // ExitStatus 记录进程退出信息
@@ -219,8 +219,8 @@ func nextPID() types.PID {
 package kernel
 
 import (
-    "github.com/gonewx/crux/internal/types"
-    "github.com/gonewx/crux/internal/xsync"
+    "github.com/usecrux/crux/internal/types"
+    "github.com/usecrux/crux/internal/xsync"
 )
 
 // KernelImpl 是微内核的核心实现

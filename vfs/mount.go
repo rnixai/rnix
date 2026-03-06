@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/xsync"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/xsync"
 )
 
 // mountTimeout is the maximum time allowed for a single mount operation (NFR25: ≤ 500ms).

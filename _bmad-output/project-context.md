@@ -16,7 +16,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 ## Technology Stack & Versions
 
-- **Go 1.26** — 模块路径 `github.com/gonewx/crux`，单二进制 `cmd/crux/main.go` 入口
+- **Go 1.26** — 模块路径 `github.com/usecrux/crux`，单二进制 `cmd/crux/main.go` 入口
 - **Go 1.26 新特性要求**：优先使用 `new(expr)` 初始化结构体、自引用泛型约束、利用 Goroutine Leak Profiler 验证资源释放
 - **CLI 框架**：Cobra v1.10.2（`github.com/spf13/cobra`）
 - **终端样式**：Charm 生态（lipgloss + bubbles），MVP 仅用 cobra + lipgloss
@@ -40,7 +40,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **goroutine 生命周期**：每进程一个 `context.Context` + `sync.WaitGroup`，退出时严格按顺序释放资源
 - **context.Context 传播**：Kernel 方法不接受 ctx 参数（用 Process.cancel 控制），Driver 方法必须接受 ctx 参数支持取消
 - **外部命令调用**：必须使用 `exec.CommandContext`，ctx 必须有 deadline
-- **模块路径**：`github.com/gonewx/crux`
+- **模块路径**：`github.com/usecrux/crux`
 
 ### 架构框架规则
 
@@ -121,7 +121,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 #### 构建与验证
 - **质量门禁**：`make all` = lint → vet → test → build，所有步骤通过后才算构建成功
 - **编译目标**：`go build -o crux ./cmd/crux/`，单二进制输出
-- **安装方式**：`go install ./cmd/crux/`，用户通过 `go install github.com/gonewx/crux/cmd/crux@latest` 安装
+- **安装方式**：`go install ./cmd/crux/`，用户通过 `go install github.com/usecrux/crux/cmd/crux@latest` 安装
 
 #### CLI 命令结构
 - **根命令**：`crux -i "意图"` — spawn 智能体（意图通过 `-i/--intent` flag 传递）

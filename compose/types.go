@@ -3,8 +3,8 @@ package compose
 import (
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/agents"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // ComposeSpec is the top-level structure of crux-compose.yaml.

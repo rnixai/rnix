@@ -23,7 +23,7 @@ Crux 通过 Claude Code CLI 调用 LLM 推理。确认已安装：
 
 ```bash
 $ claude --version
-1.0.3
+2.1.69
 ```
 
 如果未安装：
@@ -32,7 +32,7 @@ $ claude --version
 npm install -g @anthropic-ai/claude-code
 ```
 
-安装后，需要配置有效的 API 密钥。请参考 [Claude Code 文档](https://docs.anthropic.com/en/docs/claude-code) 完成配置。
+安装后，需要配置有效的 API 密钥。请参考 [Claude Code 文档](https://code.claude.com/docs) 完成配置。
 
 ---
 
@@ -41,7 +41,7 @@ npm install -g @anthropic-ai/claude-code
 使用 `go install` 一键安装：
 
 ```bash
-go install github.com/gonewx/crux/cmd/crux@latest
+go install github.com/usecrux/crux/cmd/crux@latest
 ```
 
 验证安装成功：
@@ -49,7 +49,7 @@ go install github.com/gonewx/crux/cmd/crux@latest
 ```bash
 $ crux version
 crux v0.1.0
-claude-code: 1.0.3
+claude-code: 2.1.69
 ```
 
 如果看到以下输出，说明 Claude Code CLI 未安装或不在 PATH 中：

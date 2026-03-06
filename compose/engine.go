@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/xsync"
+	"github.com/usecrux/crux/agents"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/xsync"
 )
 
 // Engine orchestrates multi-agent workflows based on a ComposeSpec.

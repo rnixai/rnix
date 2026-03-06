@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/skills"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/agents"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/skills"
+	"github.com/usecrux/crux/vfs"
 )
 
 // --- E2E Test Helpers ---
@@ -181,7 +181,6 @@ func findEventWithArg(events []types.SyscallEvent, syscall, argKey string, argVa
 	}
 	return nil
 }
-
 
 // e2eAgentInfo creates the full four-layer AgentInfo for e2e tests.
 func e2eAgentInfo() *agents.AgentInfo {

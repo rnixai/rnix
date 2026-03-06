@@ -356,7 +356,7 @@ go test ./skillpkg/ -run TestRegistryClient_Search_MatchByName -v -count=1
     client_test.go:386: ATDD RED Phase: Search() method not implemented yet — Story 8.2
 --- SKIP: TestRegistryClient_Search_ResultFields (0.00s)
 PASS
-ok      github.com/gonewx/crux/skillpkg
+ok      github.com/usecrux/crux/skillpkg
 === RUN   TestSkillSearchCmd_Registered
     skill_test.go:241: ATDD RED Phase: skill search subcommand not implemented yet — Story 8.2
 --- SKIP: TestSkillSearchCmd_Registered (0.00s)
@@ -370,7 +370,7 @@ ok      github.com/gonewx/crux/skillpkg
     skill_test.go:341: ATDD RED Phase: skill search subcommand not implemented yet — Story 8.2
 --- SKIP: TestSkillSearch_NoArgs_BrowseAll (0.00s)
 PASS
-ok      github.com/gonewx/crux/cmd/crux
+ok      github.com/usecrux/crux/cmd/crux
 ```
 
 **总结:**

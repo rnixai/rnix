@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gonewx/crux/skills"
+	"github.com/usecrux/crux/skills"
 )
 
 // --- ATDD RED Phase: Story 8.4 — skill list 本地 Skill 注册表 ---

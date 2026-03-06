@@ -112,7 +112,7 @@
 
 **来自架构文档的技术需求：**
 
-- 项目初始化（Starter）：领域驱动 OS 隐喻结构（方案 C），`go mod init github.com/gonewx/crux`，这是 Epic 1 Story 1 的基础
+- 项目初始化（Starter）：领域驱动 OS 隐喻结构（方案 C），`go mod init github.com/usecrux/crux`，这是 Epic 1 Story 1 的基础
 - Go 1.26：利用 Green Tea GC、Goroutine Leak Profiler（实验性）、new(expr) 表达式初始化、自引用泛型
 - 泛型工具包：Registry[T]、SyncMap[K,V]、Future[T]、Result[T] 放在 `internal/xsync/`
 - 共享类型：PID、FD、CtxID、ErrCode 等放在 `internal/types/types.go`（避免循环依赖）

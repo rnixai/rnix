@@ -319,10 +319,10 @@ go tool cover -html=coverage.out
 **Results:**
 
 ```
-# github.com/gonewx/crux/skillpkg
+# github.com/usecrux/crux/skillpkg
 vet: skillpkg/list_test.go:55:28: installer.ListAll undefined (type *Installer has no field or method ListAll)
 
-# github.com/gonewx/crux/cmd/crux
+# github.com/usecrux/crux/cmd/crux
 vet: cmd/crux/skill_test.go:640:24: undefined: skillpkg.ListEntry
 ```
 

@@ -679,7 +679,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
 )
 
 // kernel/signal_test.go
@@ -688,7 +688,7 @@ import (
     "testing"
     "time"
 
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )

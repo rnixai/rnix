@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/skills"
-	"github.com/gonewx/crux/skillpkg"
 	"github.com/spf13/cobra"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/skillpkg"
+	"github.com/usecrux/crux/skills"
 )
 
 var skillCmd = &cobra.Command{
@@ -368,7 +368,7 @@ type updateErrorEntry struct {
 
 type skillUpdateJSONData struct {
 	Results []skillpkg.UpdateResult `json:"results"`
-	Errors  []updateErrorEntry     `json:"errors,omitempty"`
+	Errors  []updateErrorEntry      `json:"errors,omitempty"`
 }
 
 func renderSkillUpdateJSON(r *ui.Renderer, results []skillpkg.UpdateResult, errs []updateErrorEntry) {

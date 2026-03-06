@@ -789,7 +789,7 @@ type mockCall struct {
 
 1. **手写状态机扫描器优于正则**：Expand 和 tokenizer 均用手写扫描器。`splitOnError` 继续此风格。
 2. **行导向解析为扩展预留**：Story 11.2 的 Dev Notes 明确指出 `StatementKind` 和行导向解析为 11.3 预留扩展点。`parseBlock` 是其自然扩展。
-3. **CLI 导入别名**：`cmd/crux/main.go` 中 `agentshell "github.com/gonewx/crux/shell"` 别名——新增代码继续使用。
+3. **CLI 导入别名**：`cmd/crux/main.go` 中 `agentshell "github.com/usecrux/crux/shell"` 别名——新增代码继续使用。
 4. **mockSpawner 复用**：`pipe_test.go` 中的 `mockSpawner` 在同包内可直接使用。新测试复用此模式。
 5. **ScriptExecutor 顺序执行模型**：shell 执行是顺序的，不需要线程安全。`captures` map 不需要并发保护。
 

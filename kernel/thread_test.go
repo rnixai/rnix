@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // newConcurrencyTestProcess creates a Running test process registered in the kernel

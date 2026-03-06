@@ -491,9 +491,9 @@ make all
 **Results:**
 
 ```
-FAIL github.com/gonewx/crux/drivers/mcp [build failed]
-FAIL github.com/gonewx/crux/agents [build failed]
-FAIL github.com/gonewx/crux/kernel [build failed]
+FAIL github.com/usecrux/crux/drivers/mcp [build failed]
+FAIL github.com/usecrux/crux/agents [build failed]
+FAIL github.com/usecrux/crux/kernel [build failed]
 ```
 
 **Summary:**

@@ -611,7 +611,7 @@ go test ./compose/ -run TestEngine_Execute_Performance -race -v -count=1
 **Results:**
 
 ```
-# github.com/gonewx/crux/compose [github.com/gonewx/crux/compose.test]
+# github.com/usecrux/crux/compose [github.com/usecrux/crux/compose.test]
 compose/engine_test.go:24:9: undefined: ComposeSpawnOpts
 compose/engine_test.go:50:80: undefined: ComposeSpawnOpts
 compose/engine_test.go:62:50: undefined: ComposeExitStatus
@@ -623,7 +623,7 @@ compose/dag_test.go:45:23: undefined: AgentSpec
 compose/dag_test.go:53:14: undefined: BuildDAG
 compose/dag_test.go:88:11: undefined: ComposeSpec
 compose/dag_test.go:88:11: too many errors
-FAIL    github.com/gonewx/crux/compose [build failed]
+FAIL    github.com/usecrux/crux/compose [build failed]
 ```
 
 **Summary:**

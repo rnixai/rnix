@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/vfs"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/vfs"
 )
 
 // --- Mock MountManager for Kernel tests ---

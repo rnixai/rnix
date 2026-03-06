@@ -73,9 +73,9 @@ execution_mode: 'sequential'
 
 ```
 $ go test -count=1 -race ./kernel/... ./skillpkg/... ./ipc/...
-ok   github.com/gonewx/crux/kernel    3.710s
-ok   github.com/gonewx/crux/skillpkg  1.120s
-ok   github.com/gonewx/crux/ipc       5.914s
+ok   github.com/usecrux/crux/kernel    3.710s
+ok   github.com/usecrux/crux/skillpkg  1.120s
+ok   github.com/usecrux/crux/ipc       5.914s
 ```
 
 - 20 个新测试全部通过

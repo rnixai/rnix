@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // --- BUG-002: Dead Process TTL Cleanup Tests ---

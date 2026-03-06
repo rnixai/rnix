@@ -383,13 +383,13 @@ go test -race ./shell/... ./cmd/crux/... -v
 **Results:**
 
 ```
-# github.com/gonewx/crux/shell [github.com/gonewx/crux/shell.test]
+# github.com/usecrux/crux/shell [github.com/usecrux/crux/shell.test]
 shell/script_test.go:568:12: assign.Assign undefined (type Statement has no field or method Assign)
 shell/script_test.go:573:20: undefined: StmtIf
 shell/script_test.go:576:12: ifStmt.If undefined (type Statement has no field or method If)
 ...
 shell/script_test.go:585:12: too many errors
-FAIL    github.com/gonewx/crux/shell [build failed]
+FAIL    github.com/usecrux/crux/shell [build failed]
 ```
 
 **Command:** `go test ./cmd/crux/... -run TestIsScriptSyntax_OnError -v`

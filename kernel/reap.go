@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // DeadProcessTTL is how long a Dead process stays in the procTable before removal.

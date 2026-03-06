@@ -425,18 +425,18 @@ go test -v ./shell/... ./cmd/crux/... -run "11.2|Script|Env|Export|Expand"
 **结果:**
 
 ```
-# github.com/gonewx/crux/shell [github.com/gonewx/crux/shell.test]
+# github.com/usecrux/crux/shell [github.com/usecrux/crux/shell.test]
 shell/env_test.go:19:9: undefined: NewEnvironment
 shell/env_test.go:38:9: undefined: NewEnvironment
 ...
 shell/env_test.go:133:9: too many errors
-FAIL    github.com/gonewx/crux/shell [build failed]
+FAIL    github.com/usecrux/crux/shell [build failed]
 
-# github.com/gonewx/crux/cmd/crux [github.com/gonewx/crux/cmd/crux.test]
+# github.com/usecrux/crux/cmd/crux [github.com/usecrux/crux/cmd/crux.test]
 cmd/crux/main_test.go:1048:13: undefined: isScriptSyntax
 cmd/crux/main_test.go:1071:13: undefined: isScriptSyntax
 ...
-FAIL    github.com/gonewx/crux/cmd/crux [build failed]
+FAIL    github.com/usecrux/crux/cmd/crux [build failed]
 ```
 
 **摘要:**

@@ -489,7 +489,7 @@ func (m *mockSpawner) SpawnAndWait(ctx context.Context, intent, agent, model str
 
 1. **KernelSpawner 接口解耦有效**：shell/ 包不直接依赖 kernel/，通过接口注入 spawner。Script 执行器继续使用此模式。
 2. **手写扫描器优于正则**：tokenizer 和 splitPipeline 都用手写状态机，清晰且高效。变量展开器继续此风格。
-3. **CLI 导入别名**：`cmd/crux/main.go` 中 `agentshell "github.com/gonewx/crux/shell"` 别名避免与 `drivershell` 冲突。新增代码继续使用此别名。
+3. **CLI 导入别名**：`cmd/crux/main.go` 中 `agentshell "github.com/usecrux/crux/shell"` 别名避免与 `drivershell` 冲突。新增代码继续使用此别名。
 4. **ipcKernelSpawner 复用**：ipc/server.go 中的 `ipcKernelSpawner` 已经实现 `KernelSpawner` 接口，handleExecScript 直接复用。
 5. **流式进度推送模式**：StreamProgress + ProgressPayload 框架已建立，脚本执行进度复用同一模式。
 

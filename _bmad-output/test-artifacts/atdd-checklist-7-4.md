@@ -426,7 +426,7 @@ go test ./cmd/crux/ -run TestComposeE2E -race -v -count=1
 **Expected Results:**
 
 ```
-ok  	github.com/gonewx/crux/cmd/crux	(no test files matching pattern)
+ok  	github.com/usecrux/crux/cmd/crux	(no test files matching pattern)
 ```
 
 或
@@ -447,8 +447,8 @@ ok  	github.com/gonewx/crux/cmd/crux	(no test files matching pattern)
 **Existing tests unaffected:**
 
 ```
-ok      github.com/gonewx/crux/compose   (cached) (all Story 7.1 tests pass)
-ok      github.com/gonewx/crux/cmd/crux  (all Story 7.2/7.3 tests pass)
+ok      github.com/usecrux/crux/compose   (cached) (all Story 7.1 tests pass)
+ok      github.com/usecrux/crux/cmd/crux  (all Story 7.2/7.3 tests pass)
 ```
 
 ---

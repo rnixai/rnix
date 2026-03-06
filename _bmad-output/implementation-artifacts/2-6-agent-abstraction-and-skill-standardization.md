@@ -376,7 +376,7 @@ func New(v *vfs.VFS, cm *context.Manager) *KernelImpl
 ```go
 package agents
 
-import "github.com/gonewx/crux/skills"
+import "github.com/usecrux/crux/skills"
 
 // AgentModels 定义 Agent 的模型偏好
 type AgentModels struct {
@@ -438,7 +438,7 @@ import (
     "os"
     "path/filepath"
 
-    "github.com/gonewx/crux/skills"
+    "github.com/usecrux/crux/skills"
     "gopkg.in/yaml.v3"
 )
 

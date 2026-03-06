@@ -32,7 +32,7 @@ So that 我在 15 分钟内体验到 Crux 的核心价值。
   - [x] 2.3 说明 Claude Code CLI 需要有效的 API 密钥配置
 
 - [x] Task 3: 编写安装 Crux 章节 (AC: #1, #3)
-  - [x] 3.1 使用 `go install github.com/gonewx/crux/cmd/crux@latest` 安装
+  - [x] 3.1 使用 `go install github.com/usecrux/crux/cmd/crux@latest` 安装
   - [x] 3.2 验证安装：`crux version` 命令及预期输出
   - [x] 3.3 故障排查：Claude Code CLI 未找到时的错误提示和解决方法
 
@@ -178,13 +178,13 @@ allowed-tools: /dev/fs /dev/shell
 ### 安装方式
 
 ```bash
-go install github.com/gonewx/crux/cmd/crux@latest
+go install github.com/usecrux/crux/cmd/crux@latest
 ```
 
 **前置依赖：**
 - Go 1.26+
 - Claude Code CLI（`npm install -g @anthropic-ai/claude-code`），需配置有效 API 密钥
-- 模块路径：`github.com/gonewx/crux`
+- 模块路径：`github.com/usecrux/crux`
 
 ### 与 Story 5.1（概念文档）的关系
 

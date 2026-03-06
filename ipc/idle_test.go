@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/kernel"
-	"github.com/gonewx/crux/vfs"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/kernel"
+	"github.com/usecrux/crux/vfs"
 )
 
 // --- BUG-006: checkIdle / tryAutoShutdown exclude Zombie/Dead processes ---
@@ -42,7 +42,7 @@ func TestTryAutoShutdown_ZombieOnlyProcs(t *testing.T) {
 
 	// Add a Zombie process directly to the kernel's process table
 	p := kernel.NewProcess(0, "zombie-proc", nil)
-	_ = p.Transition(types.StateRunning) // Created → Running
+	_ = p.Transition(types.StateRunning)                        // Created → Running
 	_ = p.Terminate(kernel.ExitStatus{Code: 0, Reason: "done"}) // Running → Zombie
 	kern.AddProcess(p)
 

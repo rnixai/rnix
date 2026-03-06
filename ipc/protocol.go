@@ -7,23 +7,23 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/vfs"
 )
 
 // Method represents an IPC request method.
 type Method string
 
 const (
-	MethodPing        Method = "ping"
-	MethodSpawn       Method = "spawn"
-	MethodListProcs   Method = "list_procs"
-	MethodKill        Method = "kill"
-	MethodAttachDebug Method = "attach_debug"
-	MethodAttachLog       Method = "attach_log"
-	MethodShutdown        Method = "shutdown"
-	MethodSpawnPipeline   Method = "spawn_pipeline"
-	MethodExecScript      Method = "exec_script"
+	MethodPing          Method = "ping"
+	MethodSpawn         Method = "spawn"
+	MethodListProcs     Method = "list_procs"
+	MethodKill          Method = "kill"
+	MethodAttachDebug   Method = "attach_debug"
+	MethodAttachLog     Method = "attach_log"
+	MethodShutdown      Method = "shutdown"
+	MethodSpawnPipeline Method = "spawn_pipeline"
+	MethodExecScript    Method = "exec_script"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).

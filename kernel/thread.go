@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // Thread represents a lightweight execution unit that shares its parent process's context space.

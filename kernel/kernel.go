@@ -1,22 +1,22 @@
 package kernel
 
 import (
+	gocontext "context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	gocontext "context"
 	"path"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/gonewx/crux/agents"
-	cruxctx "github.com/gonewx/crux/context"
-	"github.com/gonewx/crux/debug"
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/xsync"
-	"github.com/gonewx/crux/vfs"
+	"github.com/usecrux/crux/agents"
+	cruxctx "github.com/usecrux/crux/context"
+	"github.com/usecrux/crux/debug"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/xsync"
+	"github.com/usecrux/crux/vfs"
 )
 
 // MountManager defines the interface for mounting/unmounting MCP servers.
@@ -106,8 +106,8 @@ type KernelImpl struct {
 	callbacks KernelCallbacks
 
 	// Reaper infrastructure (Story 4.2)
-	reapCh       chan types.PID  // PIDs pending auto-reap
-	stopCh       chan struct{}   // signals reaper goroutine to stop
+	reapCh       chan types.PID // PIDs pending auto-reap
+	stopCh       chan struct{}  // signals reaper goroutine to stop
 	reaperWg     sync.WaitGroup // waits for reaper goroutine exit
 	shutdownOnce sync.Once      // ensures Shutdown executes at most once
 	deadTicker   *time.Ticker   // periodic cleanup of expired Dead processes
@@ -127,12 +127,12 @@ type KernelImpl struct {
 // Pass nil for cb to run in silent mode (no progress notifications).
 func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl {
 	k := &KernelImpl{
-		procTable: xsync.NewSyncMap[types.PID, *Process](),
-		vfs:       v,
-		ctxMgr:    ctxMgr,
-		callbacks: cb,
-		reapCh:    make(chan types.PID, 64),
-		stopCh:    make(chan struct{}),
+		procTable:  xsync.NewSyncMap[types.PID, *Process](),
+		vfs:        v,
+		ctxMgr:     ctxMgr,
+		callbacks:  cb,
+		reapCh:     make(chan types.PID, 64),
+		stopCh:     make(chan struct{}),
 		msgQueues:  xsync.NewSyncMap[types.PID, *MessageQueue](),
 		procGroups: xsync.NewSyncMap[types.PGID, *ProcGroup](),
 	}
@@ -729,16 +729,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			appendToolStart := time.Now()
 			if err := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, string(toolResult)); err != nil {
 				k.emitEvent(proc, "CtxWrite", map[string]any{
-					"cid": proc.CtxID,
-					"op":  "AppendToolResult",
+					"cid":  proc.CtxID,
+					"op":   "AppendToolResult",
 					"tool": action.ToolPath,
 				}, nil, err, time.Since(appendToolStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append tool result failed", Err: err})
 				return
 			}
 			k.emitEvent(proc, "CtxWrite", map[string]any{
-				"cid": proc.CtxID,
-				"op":  "AppendToolResult",
+				"cid":  proc.CtxID,
+				"op":   "AppendToolResult",
 				"tool": action.ToolPath,
 			}, nil, nil, time.Since(appendToolStart))
 

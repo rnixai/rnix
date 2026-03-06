@@ -523,7 +523,7 @@ import (
     "sync"
     "time"
 
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
 )
 
 // kernel/procgroup_test.go
@@ -531,7 +531,7 @@ import (
     "sync"
     "testing"
 
-    "github.com/gonewx/crux/internal/types"
+    "github.com/usecrux/crux/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )

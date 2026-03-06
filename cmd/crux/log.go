@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gonewx/crux/internal/types"
-	"github.com/gonewx/crux/internal/ui"
-	"github.com/gonewx/crux/ipc"
 	"github.com/spf13/cobra"
+	"github.com/usecrux/crux/internal/types"
+	"github.com/usecrux/crux/internal/ui"
+	"github.com/usecrux/crux/ipc"
 )
 
 var flagFilter string

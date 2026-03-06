@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gonewx/crux/internal/types"
+	"github.com/usecrux/crux/internal/types"
 )
 
 // --- Mock Transport for testing ---

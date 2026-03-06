@@ -334,10 +334,10 @@ make all
 **结果:**
 
 ```
-# github.com/gonewx/crux/skillpkg
+# github.com/usecrux/crux/skillpkg
 vet: skillpkg/update_test.go:71:29: installerV2.Update undefined (type *Installer has no field or method Update)
 
-# github.com/gonewx/crux/cmd/crux
+# github.com/usecrux/crux/cmd/crux
 vet: cmd/crux/skill_test.go:368:24: undefined: skillpkg.UpdateResult
 ```
 

@@ -31,7 +31,7 @@ So that 智能体获得专业指令同时只能访问 Skill 声明的设备。
   - [x] 1.3 `AllowedDevices` 非空时仅允许白名单中的设备路径
 
 - [x] Task 2: KernelImpl 添加 SkillLoader 依赖 (AC: #1, #3)
-  - [x] 2.1 `kernel/kernel.go` 添加 `import "github.com/gonewx/crux/skills"`
+  - [x] 2.1 `kernel/kernel.go` 添加 `import "github.com/usecrux/crux/skills"`
   - [x] 2.2 `KernelImpl` 结构体添加 `skillLoader *skills.SkillLoader` 字段
   - [x] 2.3 修改 `NewKernel` 签名：添加 `skillLoader *skills.SkillLoader` 参数（放在 `ctxMgr` 和 `cb` 之间）
   - [x] 2.4 在 `NewKernel` 中存储 `skillLoader` 到结构体
@@ -59,7 +59,7 @@ So that 智能体获得专业指令同时只能访问 Skill 声明的设备。
   - [x] 5.3 在 `runRoot()` 中初始化 SkillLoader：`skillLoader := skills.NewSkillLoader("lib/skills")`
   - [x] 5.4 修改 `kernel.NewKernel()` 调用：传入 `skillLoader`
   - [x] 5.5 构建 skills 列表并传入 Spawn：`var skillsList []string; if flagSkill != "" { skillsList = []string{flagSkill} }`
-  - [x] 5.6 添加 `import "github.com/gonewx/crux/skills"`
+  - [x] 5.6 添加 `import "github.com/usecrux/crux/skills"`
 
 - [x] Task 6: 单元测试 (AC: #1-5)
   - [x] 6.1 `kernel/kernel_test.go` — 新增测试：
