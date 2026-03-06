@@ -16,20 +16,20 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/usecrux/crux/agents"
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/debug"
-	"github.com/usecrux/crux/drivers/fs"
-	"github.com/usecrux/crux/drivers/llm"
-	"github.com/usecrux/crux/drivers/mcp"
-	drivershell "github.com/usecrux/crux/drivers/shell"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/ipc"
-	"github.com/usecrux/crux/kernel"
-	agentshell "github.com/usecrux/crux/shell"
-	"github.com/usecrux/crux/skills"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/drivers/fs"
+	"github.com/rnixai/rnix/drivers/llm"
+	"github.com/rnixai/rnix/drivers/mcp"
+	drivershell "github.com/rnixai/rnix/drivers/shell"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/kernel"
+	agentshell "github.com/rnixai/rnix/shell"
+	"github.com/rnixai/rnix/skills"
+	"github.com/rnixai/rnix/vfs"
 )
 
 var version = "0.1.0"
@@ -109,13 +109,13 @@ func (c *cliCallbacks) OnError(pid types.PID, err error) {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "crux [command]",
-	Short: "Crux — Agent OS for AI agents",
-	Long:  "Crux is an operating system for AI agents.\n\nUse -i flag to spawn an agent with an intent.",
-	Example: `  crux -i "分析 ./README.md"
-  crux -i "重构 main.go 中的错误处理"
-  crux version
-  crux -i "分析项目结构" --json`,
+	Use:   "rnix [command]",
+	Short: "Rnix — Agent OS for AI agents",
+	Long:  "Rnix is an operating system for AI agents.\n\nUse -i flag to spawn an agent with an intent.",
+	Example: `  rnix -i "分析 ./README.md"
+  rnix -i "重构 main.go 中的错误处理"
+  rnix version
+  rnix -i "分析项目结构" --json`,
 	Args: rejectPositionalArgs,
 	RunE: runRoot,
 }
@@ -130,9 +130,9 @@ var astraceCmd = &cobra.Command{
 	Use:   "astrace <pid>",
 	Short: "Trace syscalls of an agent process in real-time",
 	Long:  "Attach to a running agent process and stream its syscall events in real-time.\n\nPress Ctrl+C to detach without affecting the traced process.",
-	Example: `  crux astrace 1              Trace PID 1 (default mode)
-  crux astrace 1 --verbose    Show full syscall details
-  crux astrace 1 --json       Output as JSON stream`,
+	Example: `  rnix astrace 1              Trace PID 1 (default mode)
+  rnix astrace 1 --verbose    Show full syscall details
+  rnix astrace 1 --json       Output as JSON stream`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAstrace,
 }
@@ -141,10 +141,10 @@ var psCmd = &cobra.Command{
 	Use:   "ps",
 	Short: "List active processes",
 	Long:  "Display a table of all agent processes with their status, skills, tokens, and elapsed time.",
-	Example: `  crux ps              # Show process table
-  crux ps --json       # JSON output for scripting
-  crux ps --quiet      # PIDs only (one per line)
-  crux ps --verbose    # Full details including PPID and intent`,
+	Example: `  rnix ps              # Show process table
+  rnix ps --json       # JSON output for scripting
+  rnix ps --quiet      # PIDs only (one per line)
+  rnix ps --verbose    # Full details including PPID and intent`,
 	Args: cobra.NoArgs,
 	RunE: runPs,
 }
@@ -184,7 +184,7 @@ func runVersion(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	fmt.Fprintf(w, "crux v%s\n", version)
+	fmt.Fprintf(w, "rnix v%s\n", version)
 	if !claudeAvailable {
 		fmt.Fprintln(w, "✗ claude-code CLI not found")
 		fmt.Fprintln(w, "  → 建议: npm install -g @anthropic-ai/claude-code")
@@ -295,9 +295,9 @@ func rejectPositionalArgs(cmd *cobra.Command, args []string) error {
 	suggestion := suggestCommand(cmd, args[0])
 
 	if suggestion != "" {
-		return fmt.Errorf("unknown command %q, did you mean %q?\n\n  Usage: crux -i <intent>\n  Run 'crux --help' for available commands.", display, suggestion) //nolint:staticcheck // user-facing CLI message requires newlines and punctuation
+		return fmt.Errorf("unknown command %q, did you mean %q?\n\n  Usage: rnix -i <intent>\n  Run 'rnix --help' for available commands.", display, suggestion) //nolint:staticcheck // user-facing CLI message requires newlines and punctuation
 	}
-	return fmt.Errorf("unknown command %q\n\n  Usage: crux -i <intent>\n  Run 'crux --help' for available commands.", display) //nolint:staticcheck // user-facing CLI message requires newlines and punctuation
+	return fmt.Errorf("unknown command %q\n\n  Usage: rnix -i <intent>\n  Run 'rnix --help' for available commands.", display) //nolint:staticcheck // user-facing CLI message requires newlines and punctuation
 }
 
 func resolveOutputMode() ui.OutputMode {
@@ -379,7 +379,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 
 	client, err := ipc.EnsureDaemon()
 	if err != nil {
-		outputError(renderer, mode, "daemon", err.Error(), "daemon 启动失败", "检查 crux 是否正确安装")
+		outputError(renderer, mode, "daemon", err.Error(), "daemon 启动失败", "检查 rnix 是否正确安装")
 		exitCode = 1
 		return nil
 	}
@@ -779,7 +779,7 @@ func runPs(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// jsonProcess is the JSON representation of a single process for crux ps --json.
+// jsonProcess is the JSON representation of a single process for rnix ps --json.
 type jsonProcess struct {
 	PID        types.PID `json:"pid"`
 	PPID       types.PID `json:"ppid"`
@@ -836,7 +836,7 @@ func runKill(cmd *cobra.Command, args []string) error {
 			fmt.Sprintf("PID %s", args[0]),
 			"invalid PID (expected number)",
 			fmt.Sprintf("PID %s: not a valid process ID", args[0]),
-			"crux ps  查看活跃进程")
+			"rnix ps  查看活跃进程")
 		exitCode = 1
 		return nil
 	}
@@ -852,7 +852,7 @@ func runKill(cmd *cobra.Command, args []string) error {
 			fmt.Sprintf("PID %d", pid),
 			"no active daemon (process not found)",
 			fmt.Sprintf("PID %d: no active process", pid),
-			"crux ps  查看活跃进程")
+			"rnix ps  查看活跃进程")
 		exitCode = 1
 		return nil
 	}
@@ -869,7 +869,7 @@ func runKill(cmd *cobra.Command, args []string) error {
 			fmt.Sprintf("PID %d", pid),
 			reason,
 			impact,
-			"crux ps  查看活跃进程")
+			"rnix ps  查看活跃进程")
 		exitCode = 1
 		return nil
 	}
@@ -882,7 +882,7 @@ func runKill(cmd *cobra.Command, args []string) error {
 func runAstrace(cmd *cobra.Command, args []string) error {
 	pidNum, err := strconv.Atoi(args[0])
 	if err != nil {
-		return fmt.Errorf("✗ crux astrace %s: invalid PID (expected number)", args[0])
+		return fmt.Errorf("✗ rnix astrace %s: invalid PID (expected number)", args[0])
 	}
 	pid := types.PID(pidNum)
 
@@ -895,7 +895,7 @@ func runAstrace(cmd *cobra.Command, args []string) error {
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
 			"no active daemon (process not found)", "",
-			"crux ps  查看活跃进程")
+			"rnix ps  查看活跃进程")
 		return nil
 	}
 	defer client.Close()
@@ -984,7 +984,7 @@ func wireToSyscallEvent(sew ipc.SyscallEventWire) types.SyscallEvent {
 
 func runDaemon(cmd *cobra.Command, args []string) error {
 	if !flagDaemonInternal {
-		return fmt.Errorf("daemon command is for internal use only; use 'crux -i \"intent\"' to run agents")
+		return fmt.Errorf("daemon command is for internal use only; use 'rnix -i \"intent\"' to run agents")
 	}
 
 	devReg := vfs.NewDeviceRegistry()
@@ -994,7 +994,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	_ = devReg.Register("/dev/fs", fs.FileFactory())
 	shellDriver := drivershell.NewDriver()
 	_ = devReg.Register("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"))
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	skillLoader := skills.NewSkillLoader("lib/skills")
 
 	// Load global MCP configuration (optional, mcp.yaml may not exist)
@@ -1035,7 +1035,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 
 	// Init bootstrap sequence (Story 10.5)
-	initCfg, err := kernel.LoadInitConfig("crux-init.yaml")
+	initCfg, err := kernel.LoadInitConfig("rnix-init.yaml")
 	if err != nil {
 		srv.Shutdown()
 		srv.Wait()

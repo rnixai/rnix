@@ -7,14 +7,14 @@ Status: done
 ## Story
 
 As a 用户,
-I want 通过 `crux astrace <pid>` 命令启动 syscall 追踪,
+I want 通过 `rnix astrace <pid>` 命令启动 syscall 追踪,
 So that 我可以在任何时候调试正在运行的智能体。
 
 ## Acceptance Criteria
 
-1. **astrace 子命令注册** — Given `cmd/crux/main.go` 中 astrace 子命令已注册，When 执行 `crux astrace 1`，Then 附着到 PID 1 的 DebugChan，开始流式输出 syscall 事件
+1. **astrace 子命令注册** — Given `cmd/rnix/main.go` 中 astrace 子命令已注册，When 执行 `rnix astrace 1`，Then 附着到 PID 1 的 DebugChan，开始流式输出 syscall 事件
 
-2. **PID 不存在错误** — Given 指定的 PID 不存在，When 执行 `crux astrace 999`，Then 输出三行错误结构：`✗ PID 999: process not found` + `→ 建议: crux ps  查看活跃进程`（使用 `ui.RenderError`）
+2. **PID 不存在错误** — Given 指定的 PID 不存在，When 执行 `rnix astrace 999`，Then 输出三行错误结构：`✗ PID 999: process not found` + `→ 建议: rnix ps  查看活跃进程`（使用 `ui.RenderError`）
 
 3. **Ctrl+C 仅 detach** — Given astrace 正在追踪，When 用户按 Ctrl+C，Then 仅 detach 追踪（取消 Attach 的 context），不影响被追踪进程的运行
 
@@ -24,9 +24,9 @@ So that 我可以在任何时候调试正在运行的智能体。
 
 6. **--json flag** — Given 使用 `--json` flag，When 格式化 SyscallEvent，Then 每行输出一个 JSON 对象，字段为 snake_case（`timestamp_ms`、`pid`、`syscall`、`args`、`result`、`error`、`duration_ms`）
 
-7. **PID 参数校验** — Given PID 参数非数字（如 `crux astrace abc`），When 解析参数，Then 输出 `✗ crux astrace abc: invalid PID (expected number)`
+7. **PID 参数校验** — Given PID 参数非数字（如 `rnix astrace abc`），When 解析参数，Then 输出 `✗ rnix astrace abc: invalid PID (expected number)`
 
-8. **缺少 PID 参数** — Given 未提供 PID 参数（如 `crux astrace`），When cobra 解析命令，Then 输出用法帮助信息
+8. **缺少 PID 参数** — Given 未提供 PID 参数（如 `rnix astrace`），When cobra 解析命令，Then 输出用法帮助信息
 
 9. **attach 确认消息** — Given astrace 开始追踪，When 成功附着到目标进程，Then 输出 header 行 `[astrace] attached to PID {N} (state: {state})`
 
@@ -48,7 +48,7 @@ So that 我可以在任何时候调试正在运行的智能体。
   - [x] 2.3 `TestFormatEventJSON_SnakeCaseFields` — 验证 JSON 字段名为 snake_case
   - [x] 2.4 `TestAttach_JSONMode` — 验证 JSON 模式下 Attach 输出 JSON 行
 
-- [x] Task 3: 在 `cmd/crux/main.go` 中注册 astrace 子命令 (AC: #1-#10)
+- [x] Task 3: 在 `cmd/rnix/main.go` 中注册 astrace 子命令 (AC: #1-#10)
   - [x] 3.1 定义 `astraceCmd` — `cobra.Command{Use: "astrace <pid>", ...}`，`Args: cobra.ExactArgs(1)`
   - [x] 3.2 在 `init()` 中 `rootCmd.AddCommand(astraceCmd)` 注册子命令
   - [x] 3.3 实现 `runAstrace(cmd *cobra.Command, args []string) error` — 主执行函数
@@ -77,7 +77,7 @@ So that 我可以在任何时候调试正在运行的智能体。
 #### 依赖关系与职责划分
 
 ```
-cmd/crux/main.go (astrace 子命令)
+cmd/rnix/main.go (astrace 子命令)
   ├── 导入 debug/          — Attach, FormatEvent, FormatEventJSON, Options, DefaultOptions
   ├── 导入 kernel/         — GetProcess, Process (DebugChan 访问)
   ├── 导入 internal/types/ — PID, SyscallEvent
@@ -88,7 +88,7 @@ cmd/crux/main.go (astrace 子命令)
 
 **职责边界：**
 - `debug/astrace.go` — 纯事件消费和格式化（无 CLI 逻辑）
-- `cmd/crux/main.go` — CLI 命令注册、参数解析、信号处理、UI 输出
+- `cmd/rnix/main.go` — CLI 命令注册、参数解析、信号处理、UI 输出
 
 #### astrace 子命令注册模式
 
@@ -99,9 +99,9 @@ var astraceCmd = &cobra.Command{
     Use:   "astrace <pid>",
     Short: "Trace syscalls of an agent process in real-time",
     Long:  "Attach to a running agent process and stream its syscall events in real-time.\n\nPress Ctrl+C to detach without affecting the traced process.",
-    Example: `  crux astrace 1              Trace PID 1 (default mode)
-  crux astrace 1 --verbose    Show full syscall details
-  crux astrace 1 --json       Output as JSON stream`,
+    Example: `  rnix astrace 1              Trace PID 1 (default mode)
+  rnix astrace 1 --verbose    Show full syscall details
+  rnix astrace 1 --json       Output as JSON stream`,
     Args: cobra.ExactArgs(1),
     RunE: runAstrace,
 }
@@ -118,7 +118,7 @@ func runAstrace(cmd *cobra.Command, args []string) error {
     // 1. 解析 PID
     pidNum, err := strconv.Atoi(args[0])
     if err != nil {
-        return fmt.Errorf("✗ crux astrace %s: invalid PID (expected number)", args[0])
+        return fmt.Errorf("✗ rnix astrace %s: invalid PID (expected number)", args[0])
     }
     pid := types.PID(pidNum)
 
@@ -129,7 +129,7 @@ func runAstrace(cmd *cobra.Command, args []string) error {
         renderer := ui.NewRenderer(w, getOutputMode())
         ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
             "process not found", "",
-            "crux ps  查看活跃进程")
+            "rnix ps  查看活跃进程")
         return nil // 已输出错误，不返回 error（避免 cobra 再打印）
     }
 
@@ -265,16 +265,16 @@ func Attach(ctx context.Context, ch <-chan types.SyscallEvent, w io.Writer, opts
 ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
     "process not found",
     "",  // impact 留空（进程不存在，无状态影响）
-    "crux ps  查看活跃进程")
+    "rnix ps  查看活跃进程")
 
 // 输出效果：
 // ✗ PID 999: process not found
-//   → 建议: crux ps  查看活跃进程
+//   → 建议: rnix ps  查看活跃进程
 ```
 
 ```go
 // PID 参数非数字 — 直接返回格式化 error（让 cobra 处理）
-return fmt.Errorf("✗ crux astrace %s: invalid PID (expected number)", args[0])
+return fmt.Errorf("✗ rnix astrace %s: invalid PID (expected number)", args[0])
 ```
 
 #### 帮助信息
@@ -285,7 +285,7 @@ return fmt.Errorf("✗ crux astrace %s: invalid PID (expected number)", args[0])
 Trace syscalls of an agent process in real-time
 
 Usage:
-  crux astrace <pid> [flags]
+  rnix astrace <pid> [flags]
 
 Arguments:
   pid    Process ID to trace (required)
@@ -295,9 +295,9 @@ Flags:
   --json                Output as JSON stream
 
 Examples:
-  crux astrace 1              Trace PID 1 (default mode)
-  crux astrace 1 --verbose    Show full syscall details
-  crux astrace 1 --json       Output as JSON stream
+  rnix astrace 1              Trace PID 1 (default mode)
+  rnix astrace 1 --verbose    Show full syscall details
+  rnix astrace 1 --json       Output as JSON stream
 ```
 
 ### 前序 Story 经验（Story 3.2）
@@ -345,7 +345,7 @@ func (p *Process) GetState() types.ProcessState
 DebugChan chan types.SyscallEvent  // 缓冲 256，公开字段
 ```
 
-**cmd/crux/main.go — 全局变量模式：**
+**cmd/rnix/main.go — 全局变量模式：**
 ```go
 var (
     flagJSON    bool
@@ -357,7 +357,7 @@ var (
 )
 ```
 
-**cmd/crux/main.go — 输出模式辅助函数：**
+**cmd/rnix/main.go — 输出模式辅助函数：**
 ```go
 func getOutputMode() ui.OutputMode {
     switch {
@@ -373,7 +373,7 @@ func getOutputMode() ui.OutputMode {
 }
 ```
 
-**cmd/crux/main.go — 信号处理参考（根命令）：**
+**cmd/rnix/main.go — 信号处理参考（根命令）：**
 ```go
 sigCh := make(chan os.Signal, 2)
 signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -395,7 +395,7 @@ go func() {
 根命令的 SIGINT 调用 `proc.Cancel()` 终止进程。astrace 的 SIGINT **绝不能**调用 `proc.Cancel()`，只能 cancel 自身的 context（detach 追踪）。这是两个完全不同的信号处理策略。
 
 #### ⚠️ Kernel 实例获取
-`cmd/crux/main.go` 中 kernel 实例（`kern`）是在 `runRoot` 中才初始化的。astrace 命令需要独立初始化 kernel 实例，或确保 `kern` 在 astrace 路径中可用。需检查当前代码中 `kern` 的初始化时机和作用域。
+`cmd/rnix/main.go` 中 kernel 实例（`kern`）是在 `runRoot` 中才初始化的。astrace 命令需要独立初始化 kernel 实例，或确保 `kern` 在 astrace 路径中可用。需检查当前代码中 `kern` 的初始化时机和作用域。
 
 **解决方案：** 参考 `runRoot` 的初始化逻辑，在 `runAstrace` 中同样初始化 kernel（创建 VFS、注册设备、创建 kernel 实例）。或者，将 kernel 初始化提取为共享的 `initKernel()` 函数供根命令和子命令共用。
 
@@ -427,7 +427,7 @@ go func() {
 **本 Story 包含：**
 - `debug/astrace.go` — 扩展 Options（添加 JSON）、新增 FormatEventJSON、更新 Attach
 - `debug/astrace_test.go` — 新增 JSON 格式化测试、修复现有编译错误
-- `cmd/crux/main.go` — 注册 astrace 子命令、runAstrace 实现
+- `cmd/rnix/main.go` — 注册 astrace 子命令、runAstrace 实现
 
 **本 Story 不包含：**
 - `--filter` flag（UX 规范提到但非 MVP AC 要求，为 Phase 2 预留）
@@ -445,7 +445,7 @@ go func() {
 ```
 debug/astrace.go                — 扩展：Options.JSON + FormatEventJSON + Attach JSON 分支 + import encoding/json
 debug/astrace_test.go           — 新增 JSON 测试 + 修复现有编译错误
-cmd/crux/main.go                — 新增：astraceCmd 定义 + runAstrace 实现 + init() 注册
+cmd/rnix/main.go                — 新增：astraceCmd 定义 + runAstrace 实现 + init() 注册
 _bmad-output/implementation-artifacts/sprint-status.yaml  — 状态更新
 ```
 
@@ -464,7 +464,7 @@ internal/ui/renderer.go         — 已有 NewRenderer，不修改
 - [Source: _bmad-output/planning-artifacts/architecture.md#Decision 5] — DebugChan 机制和 astrace 数据流
 - [Source: _bmad-output/planning-artifacts/architecture.md#CLI 框架] — Cobra 子命令注册模式
 - [Source: _bmad-output/planning-artifacts/ux-design-specification.md#Syscall Trace Line] — astrace 输出格式规范
-- [Source: _bmad-output/planning-artifacts/ux-design-specification.md#命令帮助] — `crux astrace --help` 格式
+- [Source: _bmad-output/planning-artifacts/ux-design-specification.md#命令帮助] — `rnix astrace --help` 格式
 - [Source: _bmad-output/planning-artifacts/ux-design-specification.md#中断处理] — astrace Ctrl+C 仅 detach 规则
 - [Source: _bmad-output/planning-artifacts/ux-design-specification.md#边界处理] — PID 不存在/非数字错误格式
 - [Source: _bmad-output/planning-artifacts/ux-design-specification.md#astrace 布局] — attach 确认 + 实时流 + detach 汇总
@@ -473,8 +473,8 @@ internal/ui/renderer.go         — 已有 NewRenderer，不修改
 - [Source: _bmad-output/project-context.md#JSON 字段命名] — snake_case 规范
 - [Source: debug/astrace.go] — Attach/FormatEvent/Options 现有 API
 - [Source: debug/astrace_test.go] — 测试命名和断言风格参考
-- [Source: cmd/crux/main.go:init()] — Cobra 命令注册模式
-- [Source: cmd/crux/main.go:224-237] — 根命令信号处理参考
+- [Source: cmd/rnix/main.go:init()] — Cobra 命令注册模式
+- [Source: cmd/rnix/main.go:224-237] — 根命令信号处理参考
 - [Source: kernel/kernel.go:GetProcess()] — 进程查找 API
 - [Source: internal/ui/error.go:RenderError()] — 三行错误输出 API
 - [Source: _bmad-output/implementation-artifacts/3-2-astrace-event-consumption-and-formatting.md] — 前序 Story 经验和 Dev Notes
@@ -491,8 +491,8 @@ Claude Opus 4.6
 
 - Task 1: 在 `debug/astrace.go` 中添加了 JSON 格式化支持。新增 `jsonEvent` 结构体（snake_case json tags）、`FormatEventJSON` 导出函数、`Options.JSON` 字段，并更新 `Attach` 在 JSON 模式下使用 `FormatEventJSON`。新增 `encoding/json` 导入。
 - Task 2: 在 `debug/astrace_test.go` 中添加了 4 个 JSON 格式化测试：`TestFormatEventJSON_BasicFormat`（全字段验证）、`TestFormatEventJSON_Error`（错误字段验证）、`TestFormatEventJSON_SnakeCaseFields`（JSON 字段名验证）、`TestAttach_JSONMode`（JSON 模式 Attach 验证）。新增 `encoding/json` 导入。
-- Task 3: 在 `cmd/crux/main.go` 中注册 `astraceCmd` 子命令，实现 `runAstrace` 函数。包含：PID 解析、进程查找（RenderError 三行错误）、attach 确认输出、SIGINT 信号处理（仅 detach 不 kill 进程）、`debug.Attach` 调用、detach 汇总输出、`--json`/`--verbose` flag 传递。提取 `initKernel()` 共享函数供根命令和子命令复用。添加 `processStateName` 辅助函数将 `ProcessState` int 转换为可读字符串。将 `kern` 提升为包级变量。新增 `context`、`strconv`、`debug` 导入。
-- Task 4: 在 `cmd/crux/integration_test.go` 中添加了 5 个 astrace 集成测试：`TestAstraceCmd_PIDNotFound`（错误输出验证）、`TestAstraceCmd_InvalidPID`（非数字 PID 错误）、`TestAstraceCmd_AttachAndDetach`（完整 attach+detach 流程）、`TestAstraceCmd_JSONOutput`（JSON 流式输出验证）、`TestAstraceCmd_VerboseOutput`（verbose 模式验证）。添加 `astraceTestKernel` 测试辅助函数。新增 `bytes`、`cobra` 导入。
+- Task 3: 在 `cmd/rnix/main.go` 中注册 `astraceCmd` 子命令，实现 `runAstrace` 函数。包含：PID 解析、进程查找（RenderError 三行错误）、attach 确认输出、SIGINT 信号处理（仅 detach 不 kill 进程）、`debug.Attach` 调用、detach 汇总输出、`--json`/`--verbose` flag 传递。提取 `initKernel()` 共享函数供根命令和子命令复用。添加 `processStateName` 辅助函数将 `ProcessState` int 转换为可读字符串。将 `kern` 提升为包级变量。新增 `context`、`strconv`、`debug` 导入。
+- Task 4: 在 `cmd/rnix/integration_test.go` 中添加了 5 个 astrace 集成测试：`TestAstraceCmd_PIDNotFound`（错误输出验证）、`TestAstraceCmd_InvalidPID`（非数字 PID 错误）、`TestAstraceCmd_AttachAndDetach`（完整 attach+detach 流程）、`TestAstraceCmd_JSONOutput`（JSON 流式输出验证）、`TestAstraceCmd_VerboseOutput`（verbose 模式验证）。添加 `astraceTestKernel` 测试辅助函数。新增 `bytes`、`cobra` 导入。
 - Task 5: sprint-status.yaml 已从 `ready-for-dev` 经 `in-progress` 更新至 `review`。
 
 ### Code Review (AI) — 2026-02-25
@@ -501,10 +501,10 @@ Claude Opus 4.6
 **Findings:** 3 High, 3 Medium, 1 Low
 
 **已修复:**
-- [H2] `cmd/crux/main.go:411` — `err == context.Canceled` 改为 `errors.Is(err, context.Canceled)`，添加 `errors` import
-- [M1] `cmd/crux/main.go:initKernel()` — 添加 TODO 注释记录架构限制（IPC 需求、不必要的驱动注册）
+- [H2] `cmd/rnix/main.go:411` — `err == context.Canceled` 改为 `errors.Is(err, context.Canceled)`，添加 `errors` import
+- [M1] `cmd/rnix/main.go:initKernel()` — 添加 TODO 注释记录架构限制（IPC 需求、不必要的驱动注册）
 - [M2] `debug/astrace.go:FormatEventJSON` — `json.Marshal` 错误不再静默丢弃，添加 fallback JSON 输出
-- [M3] `cmd/crux/integration_test.go` — 新增 `TestAstraceCmd_MissingPID` 测试覆盖 AC #8
+- [M3] `cmd/rnix/integration_test.go` — 新增 `TestAstraceCmd_MissingPID` 测试覆盖 AC #8
 
 **已知限制（不在本 Story 范围内）:**
 - [H1] `kernel/kernel.go:finishProcess()` 不关闭 `proc.DebugChan`。AC #4 假设 DebugChan 在进程完成时关闭，但 kernel 未实现此逻辑。集成测试通过手动 `close(proc.DebugChan)` 绕过。生产环境中 `Attach` 会在进程完成后阻塞，需 Ctrl+C 退出。需在后续 Story（如 4-x）中补充 kernel 关闭 DebugChan 的逻辑。
@@ -514,7 +514,7 @@ Claude Opus 4.6
 
 - `debug/astrace.go` — 扩展：Options.JSON + jsonEvent 结构体 + FormatEventJSON（含 marshal 错误处理） + Attach JSON 分支 + import encoding/json
 - `debug/astrace_test.go` — 新增 4 个 JSON 测试 + import encoding/json
-- `cmd/crux/main.go` — 新增：astraceCmd 定义 + runAstrace 实现 + initKernel（含架构 TODO） + processStateName + init() 注册 + kern 包级变量 + import context/strconv/debug/errors + errors.Is 修复
-- `cmd/crux/integration_test.go` — 新增 6 个 astrace 集成测试（含 MissingPID）+ astraceTestKernel 辅助 + import bytes/cobra
+- `cmd/rnix/main.go` — 新增：astraceCmd 定义 + runAstrace 实现 + initKernel（含架构 TODO） + processStateName + init() 注册 + kern 包级变量 + import context/strconv/debug/errors + errors.Is 修复
+- `cmd/rnix/integration_test.go` — 新增 6 个 astrace 集成测试（含 MissingPID）+ astraceTestKernel 辅助 + import bytes/cobra
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — 状态更新
 - `_bmad-output/implementation-artifacts/3-3-astrace-cli-command.md` — 任务 checkbox + Dev Agent Record + Code Review + File List + Status

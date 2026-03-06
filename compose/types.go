@@ -3,11 +3,11 @@ package compose
 import (
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/internal/types"
 )
 
-// ComposeSpec is the top-level structure of crux-compose.yaml.
+// ComposeSpec is the top-level structure of rnix-compose.yaml.
 type ComposeSpec struct {
 	Version string                `yaml:"version"`
 	Intent  string                `yaml:"intent"`

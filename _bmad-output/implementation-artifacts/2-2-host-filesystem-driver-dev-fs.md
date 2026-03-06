@@ -16,7 +16,7 @@ So that 我可以分析用户的源代码和文档。
 2. **文件读取** — Given 文件已打开，When 调用 `Read(fd, length)`，Then 读取文件内容并返回，And 额外延迟 < 10ms，不超过直接文件 I/O 的 2 倍（NFR4）
 3. **无读取权限** — Given 文件存在但无读取权限，When 调用 Open，Then 返回 `*SyscallError`，`Code` 为 `ErrPermission`，And 遵循宿主 OS 的文件权限模型（NFR13）
 4. **路径不存在** — Given 文件路径不存在，When 调用 Open，Then 返回 `*SyscallError`，`Code` 为 `ErrNotFound`
-5. **设备注册** — Given HostFS 驱动已创建，When 在 `cmd/crux/main.go` 中注册，Then `devRegistry.Register("/dev/fs", hostFSDriver.FileFactory())`
+5. **设备注册** — Given HostFS 驱动已创建，When 在 `cmd/rnix/main.go` 中注册，Then `devRegistry.Register("/dev/fs", hostFSDriver.FileFactory())`
 
 ## Tasks / Subtasks
 
@@ -70,7 +70,7 @@ So that 我可以分析用户的源代码和文档。
   - [x] 4.2 创建 `drivers/fs/testdata/nested/deep.txt`，验证嵌套路径访问
 
 - [x] Task 5: 集成到 CLI 入口 — 设备注册 (AC: #5)
-  - [x] 5.1 在 `cmd/crux/main.go` 中导入 `drivers/fs` 包
+  - [x] 5.1 在 `cmd/rnix/main.go` 中导入 `drivers/fs` 包
   - [x] 5.2 在设备注册区域添加：`devReg.Register("/dev/fs", fs.FileFactory())`
   - [x] 5.3 确认注册顺序与其他设备一致
 
@@ -152,7 +152,7 @@ func FileFactory(driver LLMDriver, basePath string) vfs.VFSFileFactory {
 **`kernel.NewSyscallError`** — 定义在 `kernel/errors.go:29-37`
 **`types.ErrNotFound`、`types.ErrPermission`、`types.ErrDriver`** — 定义在 `internal/types/types.go:17-23`
 
-### 设备注册参考（cmd/crux/main.go）
+### 设备注册参考（cmd/rnix/main.go）
 
 当前的设备注册代码（约第 182 行）：
 ```go
@@ -226,7 +226,7 @@ drivers/fs/
 ```
 
 **需要修改的文件：**
-- `cmd/crux/main.go` — 新增 `/dev/fs` 设备注册（~2 行：import + Register 调用）
+- `cmd/rnix/main.go` — 新增 `/dev/fs` 设备注册（~2 行：import + Register 调用）
 
 **不需要修改的文件：**
 - `vfs/` 下任何文件 — VFSFile 接口已存在
@@ -268,7 +268,7 @@ drivers/fs/
 - [Source: drivers/llm/vfsfile_test.go] — VFSFile 适配器测试参考
 - [Source: kernel/errors.go:29-37] — NewSyscallError 构造函数
 - [Source: internal/types/types.go:17-23] — ErrCode 常量定义
-- [Source: cmd/crux/main.go:179-185] — 设备注册依赖注入点
+- [Source: cmd/rnix/main.go:179-185] — 设备注册依赖注入点
 - [Source: 2-1-skill-loader-and-manifest-parsing.md] — 前序 Story 经验
 
 ## Dev Agent Record
@@ -287,7 +287,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 - ✅ Task 2: 实现 `FileFactory()` 工厂函数，包含完整错误映射（NotFound/Permission/Driver）、空路径验证、目录拒绝（吸收 Story 2.1 Code Review 经验）、写入标志拒绝
 - ✅ Task 3: 创建 12 个单元测试，100% 通过：ReadSuccess、FileNotFound、PermissionDenied（root 跳过）、Stat、Write_ReadOnly、DoubleClose、Read_AfterClose、EmptySubpath、WriteFlag_Rejected、NestedPath、DirectoryRejected、Read_PartialLength
 - ✅ Task 4: 创建 testdata 夹具：sample.txt（已知内容）、nested/deep.txt（嵌套路径）
-- ✅ Task 5: 在 `cmd/crux/main.go` 注册 `/dev/fs` 设备（import + Register 调用）
+- ✅ Task 5: 在 `cmd/rnix/main.go` 注册 `/dev/fs` 设备（import + Register 调用）
 - ✅ Task 6: `go test -race ./...` 全量通过，`go vet ./...` 无警告，零回归
 
 **关键设计决策：**
@@ -302,7 +302,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 - `drivers/fs/hostfs_test.go` — 新建：15 个单元测试（R2: +3 新增 Write_AfterClose、Write_ReturnsDriverError、Stat_AfterClose）
 - `drivers/fs/testdata/sample.txt` — 新建：读取验证 fixture
 - `drivers/fs/testdata/nested/deep.txt` — 新建：嵌套路径验证 fixture
-- `cmd/crux/main.go` — 修改：新增 `drivers/fs` import 和 `/dev/fs` 设备注册
+- `cmd/rnix/main.go` — 修改：新增 `drivers/fs` import 和 `/dev/fs` 设备注册
 - `internal/types/types.go` — 修改：新增 `DriverError` 类型（供驱动层使用，避免 drivers/ → kernel/ 依赖）
 - `vfs/vfs.go` — 修改：新增 `driverErrCode()` 辅助函数，Open/Read/Write/Close 统一提取 DriverError 错误码
 

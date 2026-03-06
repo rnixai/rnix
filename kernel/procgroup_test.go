@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // --- Task 7: Process Group Unit Tests ---

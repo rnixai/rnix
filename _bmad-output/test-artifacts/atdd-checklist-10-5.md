@@ -323,7 +323,7 @@ go test ./kernel/ -run "TestBootstrap_|TestInit_" -race -coverprofile=coverage.o
 
 ```
 $ go test ./kernel/... 2>&1 | head -5
-# github.com/usecrux/crux/kernel [github.com/usecrux/crux/kernel.test]
+# github.com/rnixai/rnix/kernel [github.com/rnixai/rnix/kernel.test]
 kernel/init_test.go:32:58: undefined: AgentLoaderFunc
 kernel/init_test.go:46:9: undefined: DefaultInitConfig
 kernel/init_test.go:48:17: undefined: Bootstrap
@@ -342,7 +342,7 @@ kernel/init_test.go:66:10: undefined: InitConfig
 2. **实现 Bootstrap 函数** — Phase 1 (services) + Phase 2 (supervisors)
 3. **实现内置服务** — skillRegistryService, mcpManagerService, logAggregatorService
 4. **逐个运行测试** — 每实现一个功能运行对应测试
-5. **修改 `cmd/crux/main.go`** — runDaemon 集成 Bootstrap 调用
+5. **修改 `cmd/rnix/main.go`** — runDaemon 集成 Bootstrap 调用
 
 **Key Principles:**
 
@@ -392,7 +392,7 @@ See `tea-index.csv` for complete knowledge fragment mapping.
 **Results:**
 
 ```
-# github.com/usecrux/crux/kernel [github.com/usecrux/crux/kernel.test]
+# github.com/rnixai/rnix/kernel [github.com/rnixai/rnix/kernel.test]
 kernel/init_test.go:32:58: undefined: AgentLoaderFunc
 kernel/init_test.go:46:9: undefined: DefaultInitConfig
 kernel/init_test.go:48:17: undefined: Bootstrap
@@ -404,7 +404,7 @@ kernel/init_test.go:79:38: undefined: ServiceInitializer
 kernel/init_test.go:80:28: undefined: ServiceInitializer
 kernel/init_test.go:87:17: undefined: serviceRegistry
 kernel/init_test.go:87:17: too many errors
-FAIL    github.com/usecrux/crux/kernel [build failed]
+FAIL    github.com/rnixai/rnix/kernel [build failed]
 ```
 
 **Summary:**

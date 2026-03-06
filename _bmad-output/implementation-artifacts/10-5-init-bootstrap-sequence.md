@@ -36,7 +36,7 @@ So that 系统启动后所有基础设施就位。
   - [x] 1.2 `kernel/init.go`：定义 `ServiceConfig` 结构体（Name, Type, Required, Config map[string]any）
   - [x] 1.3 `kernel/init.go`：定义 `SupervisorConfig` 结构体（Name, Strategy, MaxRestarts, MaxWindow, Children []ChildConfig, Required）
   - [x] 1.4 `kernel/init.go`：定义 `ChildConfig` 结构体（Name, Intent, Agent, Model, ContextBudget, Restart）
-  - [x] 1.5 `kernel/init.go`：`LoadInitConfig(path string) (*InitConfig, error)` 解析 `crux-init.yaml`
+  - [x] 1.5 `kernel/init.go`：`LoadInitConfig(path string) (*InitConfig, error)` 解析 `rnix-init.yaml`
   - [x] 1.6 `kernel/init.go`：`DefaultInitConfig() *InitConfig` 返回无配置文件时的默认配置
 
 - [x] Task 2: ServiceInitializer 接口与内置服务 (AC: #1, #2, #3)
@@ -56,23 +56,23 @@ So that 系统启动后所有基础设施就位。
   - [x] 3.6 返回 `InitResult`（已启动服务列表、警告列表）
 
 - [x] Task 4: runDaemon 集成 (AC: #1, #2, #3)
-  - [x] 4.1 `cmd/crux/main.go`：在 `runDaemon` 中 `srv.ListenAndServe()` 之后，调用 `kernel.Bootstrap()`
-  - [x] 4.2 `cmd/crux/main.go`：Bootstrap 失败（required 服务）→ 输出错误 + 恢复建议 → srv.Shutdown() → 返回 error
-  - [x] 4.3 `cmd/crux/main.go`：Bootstrap 成功 → 打印 InitResult 摘要（已启动服务 + 警告）到 stderr
+  - [x] 4.1 `cmd/rnix/main.go`：在 `runDaemon` 中 `srv.ListenAndServe()` 之后，调用 `kernel.Bootstrap()`
+  - [x] 4.2 `cmd/rnix/main.go`：Bootstrap 失败（required 服务）→ 输出错误 + 恢复建议 → srv.Shutdown() → 返回 error
+  - [x] 4.3 `cmd/rnix/main.go`：Bootstrap 成功 → 打印 InitResult 摘要（已启动服务 + 警告）到 stderr
 
 - [x] Task 5: AgentLoaderFunc 类型桥接 (AC: #1)
   - [x] 5.1 `kernel/init.go`：定义 `AgentLoaderFunc` 类型 `func(name string) (*agents.AgentInfo, error)` 用于 Bootstrap 参数
-  - [x] 5.2 `cmd/crux/main.go`：传递 `agentLoader.Load` 作为 `AgentLoaderFunc`
+  - [x] 5.2 `cmd/rnix/main.go`：传递 `agentLoader.Load` 作为 `AgentLoaderFunc`
 
 - [x] Task 6: 测试 (AC: all)
-  - [x] 6.1 `kernel/init_test.go`：默认配置（无 crux-init.yaml）——Bootstrap 成功，InitResult.Started 为空
+  - [x] 6.1 `kernel/init_test.go`：默认配置（无 rnix-init.yaml）——Bootstrap 成功，InitResult.Started 为空
   - [x] 6.2 `kernel/init_test.go`：required 服务失败 → Bootstrap 返回 error，error 信息含服务名和恢复建议
   - [x] 6.3 `kernel/init_test.go`：optional 服务失败 → Bootstrap 成功，InitResult.Warnings 含警告信息
   - [x] 6.4 `kernel/init_test.go`：Supervisor 树构建——从 config 创建 SupervisorSpec → SpawnSupervisor 成功
   - [x] 6.5 `kernel/init_test.go`：required Supervisor 失败 → Bootstrap 返回 error
   - [x] 6.6 `kernel/init_test.go`：混合场景——2 个 required 服务 + 1 个 optional 服务 + 1 个 Supervisor → 全部成功
   - [x] 6.7 `kernel/init_test.go`：Supervisor 构建使用 AgentLoaderFunc 加载 agent 定义
-  - [x] 6.8 `cmd/crux/main_test.go`：确认无命令注册回归
+  - [x] 6.8 `cmd/rnix/main_test.go`：确认无命令注册回归
 
 ## Dev Notes
 
@@ -80,12 +80,12 @@ So that 系统启动后所有基础设施就位。
 
 #### 配置驱动的 Init 引导
 
-init 引导序列通过 `crux-init.yaml` 配置文件驱动。文件不存在时使用默认配置（空服务列表），daemon 正常启动——保持向后兼容。
+init 引导序列通过 `rnix-init.yaml` 配置文件驱动。文件不存在时使用默认配置（空服务列表），daemon 正常启动——保持向后兼容。
 
-**crux-init.yaml 示例：**
+**rnix-init.yaml 示例：**
 
 ```yaml
-# crux-init.yaml
+# rnix-init.yaml
 services:
   - name: skill-registry
     type: skill_registry
@@ -225,13 +225,13 @@ func (sc *SupervisorConfig) toSupervisorSpec(agentLoader AgentLoaderFunc) (Super
 在现有 `runDaemon` 中，Bootstrap 调用位于 `srv.ListenAndServe()` 之后：
 
 ```go
-// cmd/crux/main.go — runDaemon 中
+// cmd/rnix/main.go — runDaemon 中
 if err := srv.ListenAndServe(socketPath); err != nil {
     return fmt.Errorf("daemon: listen failed: %w", err)
 }
 
 // NEW: Init bootstrap sequence
-initCfg, err := kernel.LoadInitConfig("crux-init.yaml")
+initCfg, err := kernel.LoadInitConfig("rnix-init.yaml")
 if err != nil {
     // Config parse error → fatal
     srv.Shutdown()
@@ -279,7 +279,7 @@ for _, warn := range result.Warnings {
 - `kernel/init_test.go` — 8 个测试用例
 
 **修改文件：**
-- `cmd/crux/main.go` — runDaemon 中添加 Bootstrap 调用（~20 行新增）
+- `cmd/rnix/main.go` — runDaemon 中添加 Bootstrap 调用（~20 行新增）
 
 ### 测试策略
 
@@ -307,7 +307,7 @@ for _, warn := range result.Warnings {
 
 ### 边界情况
 
-- **crux-init.yaml 不存在**：`LoadInitConfig` 返回空的 `DefaultInitConfig()`，Bootstrap 成功，InitResult 为空。完全向后兼容。
+- **rnix-init.yaml 不存在**：`LoadInitConfig` 返回空的 `DefaultInitConfig()`，Bootstrap 成功，InitResult 为空。完全向后兼容。
 - **空 services 和 supervisors 列表**：Bootstrap 成功，InitResult 为空。
 - **scan_path 不存在**：`skillRegistryService` 视为空注册表，不返回 error。
 - **mcp.yaml 不存在**：`mcpManagerService` 视为空 MCP 配置，不返回 error。
@@ -330,10 +330,10 @@ for _, warn := range result.Warnings {
   - `kernel/init.go` — Init 引导核心（配置类型 + Bootstrap + 内置服务 + 服务注册表）
   - `kernel/init_test.go` — 8 个测试用例
 - **修改文件**：
-  - `cmd/crux/main.go` — runDaemon 中添加 Bootstrap 调用
+  - `cmd/rnix/main.go` — runDaemon 中添加 Bootstrap 调用
 - **不修改**：kernel/kernel.go、kernel/supervisor.go、kernel/process.go、kernel/reap.go、ipc/、compose/、drivers/、vfs/、context/、agents/、skills/
 - **不需要新依赖**
-- **配置文件**：`crux-init.yaml`（可选，不存在时使用默认空配置）
+- **配置文件**：`rnix-init.yaml`（可选，不存在时使用默认空配置）
 
 ### References
 
@@ -346,7 +346,7 @@ for _, warn := range result.Warnings {
 - [Source: _bmad-output/implementation-artifacts/10-4-supervisor-tree-and-restart-strategy.md#SpawnSupervisor 实现]
 - [Source: _bmad-output/implementation-artifacts/10-4-supervisor-tree-and-restart-strategy.md#Supervisor 核心类型]
 - [Source: _bmad-output/implementation-artifacts/10-4-supervisor-tree-and-restart-strategy.md#CR-1 stale event 修复]
-- [Source: cmd/crux/main.go#runDaemon 函数 L704-770]
+- [Source: cmd/rnix/main.go#runDaemon 函数 L704-770]
 - [Source: kernel/kernel.go#NewKernel + KernelImpl struct]
 - [Source: kernel/supervisor.go#SpawnSupervisor + SupervisorSpec + ChildSpec]
 - [Source: kernel/reap.go#Shutdown 方法]
@@ -368,7 +368,7 @@ Claude Opus 4.6
 ### Completion Notes List
 
 - Task 1-5：在 `kernel/init.go` 中实现了所有配置类型（InitConfig, ServiceConfig, SupervisorConfig, ChildConfig）、ServiceInitializer 接口、Bootstrap 核心引擎、3 个内置服务（skillRegistryService, mcpManagerService, logAggregatorService）、服务类型注册表、AgentLoaderFunc 类型
-- Task 4：在 `cmd/crux/main.go` runDaemon 中集成 Bootstrap 调用，位于 ListenAndServe 之后、信号等待之前
+- Task 4：在 `cmd/rnix/main.go` runDaemon 中集成 Bootstrap 调用，位于 ListenAndServe 之后、信号等待之前
 - Task 6：8 个测试全部通过（5 个 P0 单元测试 + 2 个 P1 集成测试 + 1 个 P2 回归测试）
 - 关键设计决策：`checkSupervisorStartup` 函数通过等待 goroutine 完成来检测异步 supervisor 启动失败，使用 200ms 超时避免阻塞正常启动的 supervisor
 
@@ -390,4 +390,4 @@ Claude Opus 4.6
 
 - `kernel/init.go` — 新文件：Init 引导核心实现（配置类型 + Bootstrap + 内置服务 + 服务注册表 + checkSupervisorStartup）。CR: rollbackSupervisors Kill 错误日志
 - `kernel/init_test.go` — 新文件：11 个测试用例（5 P0 + 2 P1 + 1 P2 + 3 CR-LoadInitConfig）
-- `cmd/crux/main.go` — 修改：runDaemon 中添加 Bootstrap 调用。CR: config 错误路径补充 k.Shutdown()；日志格式对齐 spec
+- `cmd/rnix/main.go` — 修改：runDaemon 中添加 Bootstrap 调用。CR: config 错误路径补充 k.Shutdown()；日志格式对齐 spec

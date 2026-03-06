@@ -28,7 +28,7 @@ inputDocuments:
 
 ## Story 概要
 
-Story 8.1 实现 `crux skill install` 命令，允许用户从社区仓库安装 Skill 包。包括社区仓库客户端、本地注册表管理、安装流程编排和 CLI 子命令注册。
+Story 8.1 实现 `rnix skill install` 命令，允许用户从社区仓库安装 Skill 包。包括社区仓库客户端、本地注册表管理、安装流程编排和 CLI 子命令注册。
 
 **作为** 用户
 **我想要** 通过 `skill install <name>` 从社区仓库安装 Skill
@@ -39,7 +39,7 @@ Story 8.1 实现 `crux skill install` 命令，允许用户从社区仓库安装
 ## 验收标准
 
 1. **AC #1: 社区仓库客户端** — Given `skillpkg/client.go` 已实现，When 调用社区仓库 API，Then 支持 Skill 下载、版本解析、完整性验证
-2. **AC #2: 单个 Skill 安装** — Given `cmd/crux/skill.go` 中 install 子命令已注册，When 执行 `skill install code-analysis`，Then 从社区仓库下载并安装到 `lib/skills/code-analysis/`，更新本地注册表
+2. **AC #2: 单个 Skill 安装** — Given `cmd/rnix/skill.go` 中 install 子命令已注册，When 执行 `skill install code-analysis`，Then 从社区仓库下载并安装到 `lib/skills/code-analysis/`，更新本地注册表
 3. **AC #3: 批量安装** — Given 批量安装，When 执行 `skill install pr-reviewer code-analyst tech-writer`，Then 依次安装三个 Skill
 4. **AC #4: 重复安装提示** — Given Skill 已安装，When 再次执行 `skill install code-analysis`，Then 提示已安装且询问是否覆盖
 5. **AC #5: 安装后可用** — Given 安装的 Skill 包含有效的 SKILL.md，When Agent 引用该 Skill，Then 无需修改即可使用
@@ -170,9 +170,9 @@ Story 8.1 实现 `crux skill install` 命令，允许用户从社区仓库安装
   - **验证:** AC #2 — 自动创建安装目录
   - **优先级:** P1
 
-### CLI 测试 — cmd/crux/skill_test.go (11 个测试)
+### CLI 测试 — cmd/rnix/skill_test.go (11 个测试)
 
-**文件:** `cmd/crux/skill_test.go` (180 行)
+**文件:** `cmd/rnix/skill_test.go` (180 行)
 
 - **测试:** TestSkillCmd_Registered
   - **状态:** RED - skill 命令未注册
@@ -355,21 +355,21 @@ checksum: "sha256:abc123"
 
 ### 测试: TestSkillCmd_Registered / TestSkillInstallCmd_Registered
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使这些测试通过的任务:**
 
-- [ ] 创建 `cmd/crux/skill.go`
+- [ ] 创建 `cmd/rnix/skill.go`
 - [ ] 定义 `skillCmd` 父命令 (`cobra.Command`)
 - [ ] 定义 `skillInstallCmd` 子命令
 - [ ] 在 `init()` 中注册: `skillCmd.AddCommand(skillInstallCmd)` 和 `rootCmd.AddCommand(skillCmd)`
 - [ ] 注册 `--force` flag
-- [ ] 运行测试: `go test ./cmd/crux/ -run TestSkillCmd -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run TestSkillCmd -v`
 - [ ] 全部通过（green phase）
 
 ### 测试: TestSkillInstall_BatchInstall / JSON / Force
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使这些测试通过的任务:**
 
@@ -380,7 +380,7 @@ checksum: "sha256:abc123"
 - [ ] 支持 `--force` 跳过重复安装确认
 - [ ] 无参数时返回错误
 - [ ] 路径穿越防护（拒绝含 `..` 的名称）
-- [ ] 运行测试: `go test ./cmd/crux/ -run TestSkillInstall -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run TestSkillInstall -v`
 - [ ] 全部通过（green phase）
 
 ---
@@ -389,13 +389,13 @@ checksum: "sha256:abc123"
 
 ```bash
 # 运行所有 Story 8.1 失败测试
-go test ./skillpkg/ ./cmd/crux/ -run "TestRegistryClient|TestLocalRegistry|TestInstaller|TestSkill" -v
+go test ./skillpkg/ ./cmd/rnix/ -run "TestRegistryClient|TestLocalRegistry|TestInstaller|TestSkill" -v
 
 # 运行 skillpkg 包测试
 go test ./skillpkg/ -v
 
 # 运行 CLI 层测试
-go test ./cmd/crux/ -run "TestSkill" -v
+go test ./cmd/rnix/ -run "TestSkill" -v
 
 # 运行全部测试（含竞态检测）
 go test -race ./...
@@ -442,7 +442,7 @@ go test ./skillpkg/ -run TestInstaller_Install_SingleSkill -v -count=1
 2. `skillpkg/client.go` — RegistryClient (AC #1)
 3. `skillpkg/registry.go` — LocalRegistry (AC #1)
 4. `skillpkg/installer.go` — Installer (AC #2, #4, #5)
-5. `cmd/crux/skill.go` — CLI 命令 (AC #2, #3, #4)
+5. `cmd/rnix/skill.go` — CLI 命令 (AC #2, #3, #4)
 
 **关键原则:**
 
@@ -467,7 +467,7 @@ go test ./skillpkg/ -run TestInstaller_Install_SingleSkill -v -count=1
 ## 下一步
 
 1. **将此检查清单分享给 DEV 工作流**
-2. **运行失败测试确认 RED Phase:** `go test ./skillpkg/ ./cmd/crux/ -run "TestRegistryClient|TestLocalRegistry|TestInstaller|TestSkill" -v`
+2. **运行失败测试确认 RED Phase:** `go test ./skillpkg/ ./cmd/rnix/ -run "TestRegistryClient|TestLocalRegistry|TestInstaller|TestSkill" -v`
 3. **开始实现** — 按实现检查清单顺序
 4. **一次一个测试** (red → green)
 5. **所有测试通过后** 重构代码
@@ -490,7 +490,7 @@ go test ./skillpkg/ -run TestInstaller_Install_SingleSkill -v -count=1
 
 ### 初始测试运行 (RED Phase 验证)
 
-**命令:** `go test ./skillpkg/ ./cmd/crux/ -run "TestRegistryClient|TestLocalRegistry|TestInstaller|TestSkill" -v`
+**命令:** `go test ./skillpkg/ ./cmd/rnix/ -run "TestRegistryClient|TestLocalRegistry|TestInstaller|TestSkill" -v`
 
 **结果:**
 

@@ -1,6 +1,6 @@
 # Epic 3: 调试追踪（Debug Tracing — astrace）
 
-当智能体输出不符合预期时，用户运行 `crux astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Crux 的差异化核心体验。
+当智能体输出不符合预期时，用户运行 `rnix astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。
 
 ## Story 3.1: SyscallEvent 记录基础设施
 
@@ -31,7 +31,7 @@ So that astrace 可以消费完整的调用链路数据。
 ## Story 3.2: astrace 事件消费与格式化
 
 As a 用户,
-I want `crux astrace <pid>` 实时流式输出 syscall 调用链路,
+I want `rnix astrace <pid>` 实时流式输出 syscall 调用链路,
 So that 我能看到智能体的每一步操作及其结果。
 
 **Acceptance Criteria:**
@@ -62,18 +62,18 @@ So that 我能看到智能体的每一步操作及其结果。
 ## Story 3.3: astrace CLI 命令
 
 As a 用户,
-I want 通过 `crux astrace <pid>` 命令启动 syscall 追踪,
+I want 通过 `rnix astrace <pid>` 命令启动 syscall 追踪,
 So that 我可以在任何时候调试正在运行的智能体。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/main.go` 中 astrace 子命令已注册
-**When** 执行 `crux astrace 1`
+**Given** `cmd/rnix/main.go` 中 astrace 子命令已注册
+**When** 执行 `rnix astrace 1`
 **Then** 附着到 PID 1 的 DebugChan，开始流式输出 syscall 事件
 
 **Given** 指定的 PID 不存在
-**When** 执行 `crux astrace 999`
-**Then** 输出 `✗ PID 999: process not found` + `→ 建议: crux ps  查看活跃进程`
+**When** 执行 `rnix astrace 999`
+**Then** 输出 `✗ PID 999: process not found` + `→ 建议: rnix ps  查看活跃进程`
 
 **Given** astrace 正在追踪
 **When** 用户按 Ctrl+C
@@ -101,7 +101,7 @@ So that 我不需要在密集输出中翻找问题。
 
 **Given** `internal/ui/trace.go` 已实现
 **When** 渲染 Trace Line
-**Then** 时间戳暗灰色，syscall 名称 Crux Blue 加粗，参数普通文本，返回值 `→` 后跟结果
+**Then** 时间戳暗灰色，syscall 名称 Rnix Blue 加粗，参数普通文本，返回值 `→` 后跟结果
 
 **Given** 错误 syscall
 **When** 渲染

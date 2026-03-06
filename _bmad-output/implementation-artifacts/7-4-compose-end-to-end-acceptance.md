@@ -12,19 +12,19 @@ So that 确认多智能体编排系统协同工作正常。
 
 ## Acceptance Criteria
 
-1. **端到端编排验证** — Given 编写包含 >= 3 个智能体的 crux-compose.yaml（有 DAG 依赖），When 执行 `crux compose up`，Then 智能体按依赖顺序执行，无依赖分支并行，And 前置智能体的输出正确传递给下游，And 3 智能体编排从 YAML 到全部完成，总耗时 <= 90 秒
+1. **端到端编排验证** — Given 编写包含 >= 3 个智能体的 rnix-compose.yaml（有 DAG 依赖），When 执行 `rnix compose up`，Then 智能体按依赖顺序执行，无依赖分支并行，And 前置智能体的输出正确传递给下游，And 3 智能体编排从 YAML 到全部完成，总耗时 <= 90 秒
 
-2. **crux top 实时监控集成** — Given `crux top` 同时运行，When 编排执行中，Then 实时看到所有智能体的树状关系和状态
+2. **rnix top 实时监控集成** — Given `rnix top` 同时运行，When 编排执行中，Then 实时看到所有智能体的树状关系和状态
 
 ## Tasks / Subtasks
 
 - [x] Task 1: 创建端到端集成测试 fixture (AC: #1)
-  - [x] 1.1 创建测试用 crux-compose.yaml fixture：包含 >= 3 个智能体（有 DAG 依赖：A 无依赖，B/C 依赖 A，D 依赖 B+C 菱形结构）
+  - [x] 1.1 创建测试用 rnix-compose.yaml fixture：包含 >= 3 个智能体（有 DAG 依赖：A 无依赖，B/C 依赖 A，D 依赖 B+C 菱形结构）
   - [x] 1.2 创建 mock agent 定义和 skill fixture，确保端到端流程可在测试环境中运行
   - [x] 1.3 验证 fixture 可通过 `compose.ParseFile` 正确解析和 `BuildDAG` 构建
 
 - [x] Task 2: 端到端编排集成测试 — 依赖顺序验证 (AC: #1)
-  - [x] 2.1 在 `cmd/crux/compose_test.go` 中添加 `TestComposeE2E_DependencyOrder`：使用 mock spawner 验证 3+ 智能体按 DAG 拓扑顺序执行
+  - [x] 2.1 在 `cmd/rnix/compose_test.go` 中添加 `TestComposeE2E_DependencyOrder`：使用 mock spawner 验证 3+ 智能体按 DAG 拓扑顺序执行
   - [x] 2.2 验证无依赖分支自动并行执行（B 和 C 同时启动）
   - [x] 2.3 验证有依赖的节点等待上游完成后才启动（D 在 B+C 之后）
   - [x] 2.4 验证执行顺序：层 1 [A] → 层 2 [B, C]（并行）→ 层 3 [D]
@@ -49,11 +49,11 @@ So that 确认多智能体编排系统协同工作正常。
   - [x] 6.2 验证 compose down 通过 intent 匹配正确识别 compose 进程
   - [x] 6.3 验证 compose down 仅终止 Running/Created 进程，跳过已完成的进程
 
-- [x] Task 7: crux top 监控集成验证 (AC: #2)
+- [x] Task 7: rnix top 监控集成验证 (AC: #2)
   - [x] 7.1 添加 `TestComposeE2E_TopVisibility`：编排运行时通过 `ListProcs` IPC 可见所有智能体
   - [x] 7.2 验证每个智能体的 ProcInfo 包含正确的 Intent、State 字段
-  - [x] 7.3 验证 `crux top` 可以实时显示树状关系（通过 ProcInfo 中的 PPID 关联）
-  - [x] 7.4 注：完整的 `crux top` TUI 测试不在本 Story 范围内（Story 10.1 实现），此处仅验证数据层可见性
+  - [x] 7.3 验证 `rnix top` 可以实时显示树状关系（通过 ProcInfo 中的 PPID 关联）
+  - [x] 7.4 注：完整的 `rnix top` TUI 测试不在本 Story 范围内（Story 10.1 实现），此处仅验证数据层可见性
 
 - [x] Task 8: 编排汇总输出验证 (AC: #1)
   - [x] 8.1 添加 `TestComposeE2E_SummaryOutput`：验证编排完成后的汇总输出包含每个智能体的退出码、token 消耗、耗时
@@ -77,11 +77,11 @@ So that 确认多智能体编排系统协同工作正常。
 2. **CLI 层面**：验证命令注册、参数解析、输出格式（复用 Story 7.2/7.3 的测试模式）
 3. **IPC 层面**：验证 matchComposeProcesses 和 intent 匹配逻辑的正确性
 
-**不启动真实 daemon**：端到端测试不启动真实的 crux daemon（避免外部依赖和不确定性）。通过 mock 和已有测试基础设施验证全链路逻辑。
+**不启动真实 daemon**：端到端测试不启动真实的 rnix daemon（避免外部依赖和不确定性）。通过 mock 和已有测试基础设施验证全链路逻辑。
 
 ### 端到端测试 fixture 设计
 
-**crux-compose.yaml fixture**（菱形 DAG：A → B+C → D）：
+**rnix-compose.yaml fixture**（菱形 DAG：A → B+C → D）：
 
 ```yaml
 version: "1.0"
@@ -129,7 +129,7 @@ reporter (layer 3)    ← 等待 security + docs
 | 性能 <= 90s | mock 环境下远低于阈值 | Story 7.1 `TestEngine_Execute_Performance` |
 | 失败传播 | 上游失败时下游不启动 | Story 7.1 `TestEngine_Execute_FailurePropagation` |
 
-**AC #2 — crux top 可见性**：
+**AC #2 — rnix top 可见性**：
 | 验证项 | 如何验证 |
 |--------|---------|
 | 进程可见 | ListProcs 返回包含 compose 智能体 |
@@ -148,7 +148,7 @@ reporter (layer 3)    ← 等待 security + docs
 
 ### mock spawner 复用
 
-复用 `cmd/crux/compose_test.go` 中已有的 mock 模式。Story 7.2 已有 `mockSpawner` 结构体：
+复用 `cmd/rnix/compose_test.go` 中已有的 mock 模式。Story 7.2 已有 `mockSpawner` 结构体：
 
 ```go
 type mockSpawner struct {
@@ -178,18 +178,18 @@ Story 7.3 实现的 `matchComposeProcesses` 函数是端到端流程的关键环
 
 **新增/修改文件：**
 ```
-cmd/crux/compose_test.go       # 修改：添加端到端集成测试（~8 个测试函数）
+cmd/rnix/compose_test.go       # 修改：添加端到端集成测试（~8 个测试函数）
 ```
 
 **新增测试 fixture**（可选，根据实际需要）：
 ```
-cmd/crux/testdata/e2e-compose.yaml  # 端到端测试用 compose 文件（如 fixture 从文件加载）
+cmd/rnix/testdata/e2e-compose.yaml  # 端到端测试用 compose 文件（如 fixture 从文件加载）
 ```
 
 **不修改的文件：**
 ```
-cmd/crux/compose.go            — compose CLI 不变
-cmd/crux/main.go              — 入口不变
+cmd/rnix/compose.go            — compose CLI 不变
+cmd/rnix/main.go              — 入口不变
 compose/                       — compose 引擎包不变
 kernel/                        — 内核层不变
 vfs/                           — VFS 不变
@@ -207,7 +207,7 @@ internal/ui/compose_test.go    — compose UI 测试不变
 
 **端到端测试 = Engine 集成测试 + CLI 输出验证**：
 
-由于 `crux compose up` 需要真实 IPC daemon，而集成测试不应依赖外部进程，测试策略为：
+由于 `rnix compose up` 需要真实 IPC daemon，而集成测试不应依赖外部进程，测试策略为：
 
 1. **Engine 层集成测试**：直接构造 ComposeSpec → NewEngine → Execute，使用 mock KernelSpawner。这验证 DAG 调度、并行执行、输出传递、失败传播的端到端逻辑。
 
@@ -219,7 +219,7 @@ internal/ui/compose_test.go    — compose UI 测试不变
 
 ### 反模式警告
 
-- **禁止启动真实 daemon**：端到端测试不启动 crux daemon 进程，使用 mock
+- **禁止启动真实 daemon**：端到端测试不启动 rnix daemon 进程，使用 mock
 - **禁止修改已有实现代码**：Story 7.4 仅新增测试代码
 - **禁止使用 `sync.Mutex + map`**：如需并发数据结构使用 `xsync.SyncMap`
 - **禁止使用 `interface{}`**：强类型
@@ -256,11 +256,11 @@ internal/ui/compose_test.go    — compose UI 测试不变
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics/epic-7-compose-多智能体编排agent-compose.md#Story 7.4] — Story 定义和验收标准
-- [Source: _bmad-output/implementation-artifacts/7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine.md] — Story 7.1 实现，compose 引擎设计、KernelSpawner 接口、mock 模式
-- [Source: _bmad-output/implementation-artifacts/7-2-crux-compose-up-command.md] — Story 7.2 实现，compose up CLI、IPC 适配器、汇总 UI
-- [Source: _bmad-output/implementation-artifacts/7-3-crux-compose-down-command.md] — Story 7.3 实现，compose down CLI、进程匹配、释放汇总
-- [Source: cmd/crux/compose.go] — compose CLI 实现：composeCmd、composeUpCmd、composeDownCmd、ipcKernelSpawner、matchComposeProcesses
-- [Source: cmd/crux/compose_test.go] — 现有 compose 测试：mockSpawner 模式、setupTestIPCServer、CLI 注册验证
+- [Source: _bmad-output/implementation-artifacts/7-1-rnix-compose-yaml-parsing-and-dag-scheduling-engine.md] — Story 7.1 实现，compose 引擎设计、KernelSpawner 接口、mock 模式
+- [Source: _bmad-output/implementation-artifacts/7-2-rnix-compose-up-command.md] — Story 7.2 实现，compose up CLI、IPC 适配器、汇总 UI
+- [Source: _bmad-output/implementation-artifacts/7-3-rnix-compose-down-command.md] — Story 7.3 实现，compose down CLI、进程匹配、释放汇总
+- [Source: cmd/rnix/compose.go] — compose CLI 实现：composeCmd、composeUpCmd、composeDownCmd、ipcKernelSpawner、matchComposeProcesses
+- [Source: cmd/rnix/compose_test.go] — 现有 compose 测试：mockSpawner 模式、setupTestIPCServer、CLI 注册验证
 - [Source: compose/engine.go] — Engine.Execute 分层并行调度、executeNode、buildUpstreamPrompt
 - [Source: compose/types.go] — ComposeSpec、AgentSpec、KernelSpawner 接口、ScheduleResult
 - [Source: compose/dag.go] — BuildDAG、DetectCycle、TopologicalSort
@@ -279,12 +279,12 @@ Claude Opus 4.6
 ### Debug Log References
 
 - All 9 E2E tests pass with `-race` flag (7 non-IPC tests pass in sandbox; 2 IPC-dependent tests pass in non-sandbox env)
-- `go vet ./cmd/crux/` passes clean
+- `go vet ./cmd/rnix/` passes clean
 - All 14 non-cmd packages pass regression tests: compose, internal/types, internal/ui, internal/xsync, kernel, vfs, agents, skills, context, debug, drivers/fs, drivers/llm, drivers/shell
 
 ### Completion Notes List
 
-- Implemented 9 end-to-end integration tests in `cmd/crux/compose_test.go` (~350 lines added)
+- Implemented 9 end-to-end integration tests in `cmd/rnix/compose_test.go` (~350 lines added)
 - Created `e2eMockSpawner` extending the existing mockComposeSpawner with `getResult` map and `e2eSpawnRecord` for spawn opts tracking
 - Created `newDiamondSpec()` helper for canonical diamond DAG fixture (analyzer -> security+docs -> reporter)
 - TestComposeE2E_FixtureParsing: validates diamond DAG fixture produces 3-layer topology
@@ -300,8 +300,8 @@ Claude Opus 4.6
 
 ### File List
 
-- cmd/crux/compose_test.go — 修改：添加 9 个 E2E 集成测试 + e2eMockSpawner + newDiamondSpec helper (~350 行新增)；审查修复：ExitCode 验证、intentResults 替代硬编码 PID
-- cmd/crux/compose.go — 修改：移除 renderComposeResults 未使用的 elapsed 参数（审查修复）
+- cmd/rnix/compose_test.go — 修改：添加 9 个 E2E 集成测试 + e2eMockSpawner + newDiamondSpec helper (~350 行新增)；审查修复：ExitCode 验证、intentResults 替代硬编码 PID
+- cmd/rnix/compose.go — 修改：移除 renderComposeResults 未使用的 elapsed 参数（审查修复）
 - _bmad-output/implementation-artifacts/sprint-status.yaml — 修改：Story 7-4 状态 ready-for-dev → done
 - _bmad-output/implementation-artifacts/7-4-compose-end-to-end-acceptance.md — 修改：任务完成标记、Dev Agent Record、File List、Change Log、Status
 
@@ -329,5 +329,5 @@ Claude Opus 4.6
 
 **验证**:
 - `go test -race ./...` 15 个包全部通过
-- `go vet ./cmd/crux/` 无警告
-- `go build ./cmd/crux/` 编译成功
+- `go vet ./cmd/rnix/` 无警告
+- `go build ./cmd/rnix/` 编译成功

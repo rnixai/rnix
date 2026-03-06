@@ -21,8 +21,8 @@ inputDocuments:
   - 'ipc/protocol_test.go'
   - 'vfs/proc.go'
   - 'vfs/proc_test.go'
-  - 'cmd/crux/top.go'
-  - 'cmd/crux/top_test.go'
+  - 'cmd/rnix/top.go'
+  - 'cmd/rnix/top_test.go'
   - 'agents/types.go'
 ---
 
@@ -37,7 +37,7 @@ inputDocuments:
 
 ## 故事摘要
 
-为智能体设置 token 预算上限，累计消耗达到预算时系统自动终止推理，并通过 IPC 和 crux top 展示预算使用情况及警告。
+为智能体设置 token 预算上限，累计消耗达到预算时系统自动终止推理，并通过 IPC 和 rnix top 展示预算使用情况及警告。
 
 **As a** 用户
 **I want** 为智能体设置 token 预算上限，超限时系统自动终止推理
@@ -49,8 +49,8 @@ inputDocuments:
 
 1. **AC1: Agent 级 Token 预算执行** — 累计消耗达到 `context_budget` 时系统终止推理，进程转 Zombie，ExitStatus `{Code: 2, Reason: "budget_exceeded"}`，emitLog 发送预算超限通知
 2. **AC2: Compose 覆盖预算** — Compose 中的 `context_budget` 覆盖 Agent 配置，优先级：Compose > Agent > 默认(0=无限制)
-3. **AC3: crux top 预算警告** — 预算已设且剩余 < 10% 时 TOKENS 列显示 WarningStyle，格式 `已用/预算`
-4. **AC4: 无预算时无变化** — `context_budget: 0` 或未设置时行为与现有完全一致，crux top TOKENS 列维持纯数字格式
+3. **AC3: rnix top 预算警告** — 预算已设且剩余 < 10% 时 TOKENS 列显示 WarningStyle，格式 `已用/预算`
+4. **AC4: 无预算时无变化** — `context_budget: 0` 或未设置时行为与现有完全一致，rnix top TOKENS 列维持纯数字格式
 5. **AC5: IPC 传递预算信息** — ProcInfo 包含 `ContextBudget` 字段，客户端可用于判断警告阈值
 
 ---
@@ -61,7 +61,7 @@ inputDocuments:
 |----|------|---------|--------|-------------|
 | AC1 | Agent 级预算执行 | Unit | P0 | 10.3-UNIT-001~009, 10.3-UNIT-011~013 |
 | AC2 | Compose 覆盖预算 | Unit | P0/P1 | 10.3-UNIT-003~004, 10.3-UNIT-020~022 |
-| AC3 | crux top 预算警告 | Unit | P1/P2 | 10.3-UNIT-040~044 |
+| AC3 | rnix top 预算警告 | Unit | P1/P2 | 10.3-UNIT-040~044 |
 | AC4 | 无预算无变化 | Unit + Integration | P0 | 10.3-UNIT-002, 10.3-UNIT-012, 10.3-INT-001 |
 | AC5 | IPC 传递预算 | Unit | P1/P2 | 10.3-UNIT-010, 10.3-UNIT-030~034, 10.3-UNIT-050~053 |
 
@@ -177,9 +177,9 @@ inputDocuments:
   - **状态:** RED — SpawnRequest.ContextBudget 字段不存在
   - **验证:** AC5 — omitempty 行为
 
-### crux top 预算渲染测试 (5 tests)
+### rnix top 预算渲染测试 (5 tests)
 
-**文件:** `cmd/crux/top_test.go` (追加)
+**文件:** `cmd/rnix/top_test.go` (追加)
 
 - **10.3-UNIT-040:** `TestTopSummaryLine_WithBudgetInfo` — summary 在有 budget 进程时正常渲染
   - **状态:** RED — ProcInfo.ContextBudget 字段不存在
@@ -286,17 +286,17 @@ inputDocuments:
 - [ ] `ipc/protocol.go`：ProcInfoWire 添加 `ContextBudget int \`json:"context_budget,omitempty"\``
 - [ ] `ipc/protocol.go`：ProcInfoToWire 和 WireToProcInfo 转换 ContextBudget
 - [ ] `ipc/server.go`：handleSpawn 解析 ContextBudget 传入 kernel.SpawnOpts
-- [ ] `cmd/crux/compose.go`：ipcKernelSpawner.Spawn 传递 ContextBudget 到 SpawnRequest
+- [ ] `cmd/rnix/compose.go`：ipcKernelSpawner.Spawn 传递 ContextBudget 到 SpawnRequest
 - [ ] 运行测试: `go test ./ipc/ -run 'ContextBudget'`
 - [ ] 预计工作量: 1h
 
-### Phase 6: crux top 预算渲染 (使 UNIT-040~044 通过)
+### Phase 6: rnix top 预算渲染 (使 UNIT-040~044 通过)
 
-- [ ] `cmd/crux/top.go`：TOKENS 列渲染 — budget>0 时格式 `已用/预算`
-- [ ] `cmd/crux/top.go`：WarningStyle 渲染 — usage >= 90% 时黄色
-- [ ] `cmd/crux/top.go`：topDetailView — budget>0 时增加 Budget 行
-- [ ] `cmd/crux/top.go`：TOKENS 列宽从 8 调整到 12
-- [ ] 运行测试: `go test ./cmd/crux/ -run 'Budget\|Warning\|PlainTokens'`
+- [ ] `cmd/rnix/top.go`：TOKENS 列渲染 — budget>0 时格式 `已用/预算`
+- [ ] `cmd/rnix/top.go`：WarningStyle 渲染 — usage >= 90% 时黄色
+- [ ] `cmd/rnix/top.go`：topDetailView — budget>0 时增加 Budget 行
+- [ ] `cmd/rnix/top.go`：TOKENS 列宽从 8 调整到 12
+- [ ] 运行测试: `go test ./cmd/rnix/ -run 'Budget\|Warning\|PlainTokens'`
 - [ ] 预计工作量: 1h
 
 ---
@@ -305,7 +305,7 @@ inputDocuments:
 
 ```bash
 # 运行 Story 10.3 所有失败测试
-go test ./kernel/ ./compose/ ./ipc/ ./vfs/ ./cmd/crux/ -run 'Budget|ContextBudget|Warning' -v
+go test ./kernel/ ./compose/ ./ipc/ ./vfs/ ./cmd/rnix/ -run 'Budget|ContextBudget|Warning' -v
 
 # 运行特定文件
 go test ./kernel/ -run 'Budget' -v
@@ -319,14 +319,14 @@ go test ./ipc/ -run 'ContextBudget' -v
 # 运行 VFS 预算测试
 go test ./vfs/ -run 'ContextBudget' -v
 
-# 运行 crux top 预算测试
-go test ./cmd/crux/ -run 'Budget|Warning|PlainTokens' -v
+# 运行 rnix top 预算测试
+go test ./cmd/rnix/ -run 'Budget|Warning|PlainTokens' -v
 
 # 运行全量测试（含回归）
 go test ./...
 
 # 运行测试并生成覆盖率
-go test ./kernel/ ./compose/ ./ipc/ ./vfs/ ./cmd/crux/ -coverprofile=coverage.out -run 'Budget|ContextBudget|Warning'
+go test ./kernel/ ./compose/ ./ipc/ ./vfs/ ./cmd/rnix/ -coverprofile=coverage.out -run 'Budget|ContextBudget|Warning'
 go tool cover -html=coverage.out
 ```
 

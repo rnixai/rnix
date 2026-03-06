@@ -66,7 +66,7 @@ So that 智能体工作流可以有条件分支和错误处理。
   - [x] 4.9 `shell/script.go`：更新 `countExecutableStages` 递归计算（遍历 Then/Else 分支）
 
 - [x] Task 5: CLI 脚本检测更新 (AC: #2)
-  - [x] 5.1 `cmd/crux/main.go`：`isScriptSyntax` 新增 `on-error` 关键字检测（单行 on-error 脚本需路由到 exec_script）
+  - [x] 5.1 `cmd/rnix/main.go`：`isScriptSyntax` 新增 `on-error` 关键字检测（单行 on-error 脚本需路由到 exec_script）
 
 - [x] Task 6: 测试 (AC: all)
   - [x] 6.1 `shell/script_test.go`：ParseScript if/else/end 基本解析
@@ -93,7 +93,7 @@ So that 智能体工作流可以有条件分支和错误处理。
   - [x] 6.22 `shell/script_test.go`：ScriptExecutor 条件引用 env 普通变量
   - [x] 6.23 `shell/script_test.go`：ScriptExecutor 条件 `!=` 操作符
   - [x] 6.24 `shell/script_test.go`：回归——所有现有 11.2 测试不受影响
-  - [x] 6.25 `cmd/crux/main_test.go`：`isScriptSyntax` 检测 on-error
+  - [x] 6.25 `cmd/rnix/main_test.go`：`isScriptSyntax` 检测 on-error
 
 ## Dev Notes
 
@@ -679,14 +679,14 @@ Step 2: spawn "回滚到上一版本"
   - 重构：`ParseScript`（调用 parseBlock）、`Execute`（调用 executeBlock）、`parseStatement`（新增赋值和 on-error 分派）、`countExecutableStages`（递归）
   - Statement 扩展：新增 `If`、`Assign`、`OnError` 字段
   - ScriptExecutor 扩展：新增 `captures` 字段
-- `cmd/crux/main.go` — `isScriptSyntax` 新增 on-error 检测（~10 行新增）
+- `cmd/rnix/main.go` — `isScriptSyntax` 新增 on-error 检测（~10 行新增）
 
 **新增导入：**
 - `shell/script.go` 新增 `strconv` 导入（`strconv.Itoa` 用于 exitcode 转字符串比较）
 
 **测试文件：**
 - `shell/script_test.go` — ~25 个新测试用例（解析 + 执行 + 回归）
-- `cmd/crux/main_test.go` — `isScriptSyntax` on-error 检测测试
+- `cmd/rnix/main_test.go` — `isScriptSyntax` on-error 检测测试
 
 ### 依赖方向验证
 
@@ -704,7 +704,7 @@ cmd/   → ipc/   (不变)
 
 - 所有控制结构逻辑在 `shell/script.go` 内，与 `parser.go`/`pipe.go`/`env.go` 同级
 - 不引入新文件——控制结构是脚本解析/执行的自然扩展
-- `cmd/crux/main.go` 仅微调 `isScriptSyntax`，其余 CLI 逻辑不变
+- `cmd/rnix/main.go` 仅微调 `isScriptSyntax`，其余 CLI 逻辑不变
 - IPC 层零改动——`exec_script` 协议已足够通用，控制结构在 daemon 端 shell 层处理
 
 ### 测试策略
@@ -712,7 +712,7 @@ cmd/   → ipc/   (不变)
 #### 测试方法
 
 - `shell/script_test.go`：纯单元测试，复用 Story 11.1/11.2 的 `mockSpawner` 模式
-- `cmd/crux/main_test.go`：`isScriptSyntax` 检测逻辑测试
+- `cmd/rnix/main_test.go`：`isScriptSyntax` 检测逻辑测试
 - 无需 IPC 集成测试——控制结构在 `shell/` 层完全处理，不影响 IPC 协议
 
 **复用 mockSpawner 模式（与 11.1/11.2 一致）：**
@@ -789,7 +789,7 @@ type mockCall struct {
 
 1. **手写状态机扫描器优于正则**：Expand 和 tokenizer 均用手写扫描器。`splitOnError` 继续此风格。
 2. **行导向解析为扩展预留**：Story 11.2 的 Dev Notes 明确指出 `StatementKind` 和行导向解析为 11.3 预留扩展点。`parseBlock` 是其自然扩展。
-3. **CLI 导入别名**：`cmd/crux/main.go` 中 `agentshell "github.com/usecrux/crux/shell"` 别名——新增代码继续使用。
+3. **CLI 导入别名**：`cmd/rnix/main.go` 中 `agentshell "github.com/rnixai/rnix/shell"` 别名——新增代码继续使用。
 4. **mockSpawner 复用**：`pipe_test.go` 中的 `mockSpawner` 在同包内可直接使用。新测试复用此模式。
 5. **ScriptExecutor 顺序执行模型**：shell 执行是顺序的，不需要线程安全。`captures` map 不需要并发保护。
 
@@ -861,5 +861,5 @@ Claude claude-4.6-opus (Cursor)
 
 - `shell/script.go` — 重构解析器为递归下降 + 新增类型/执行逻辑（~200 行新增，~30 行重构）
 - `shell/script_test.go` — 新增 25+ 个测试用例（解析 + 执行 + 回归 + 边界）（ATDD RED 阶段已预写）
-- `cmd/crux/main.go` — `isScriptSyntax` 新增 on-error 检测（~5 行修改）
-- `cmd/crux/main_test.go` — `isScriptSyntax` on-error 测试（ATDD RED 阶段已预写）
+- `cmd/rnix/main.go` — `isScriptSyntax` 新增 on-error 检测（~5 行修改）
+- `cmd/rnix/main_test.go` — `isScriptSyntax` on-error 测试（ATDD RED 阶段已预写）

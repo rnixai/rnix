@@ -14,11 +14,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/xsync"
-	"github.com/usecrux/crux/kernel"
-	"github.com/usecrux/crux/shell"
+	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/xsync"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/shell"
 )
 
 const (

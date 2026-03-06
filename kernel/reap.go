@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // DeadProcessTTL is how long a Dead process stays in the procTable before removal.

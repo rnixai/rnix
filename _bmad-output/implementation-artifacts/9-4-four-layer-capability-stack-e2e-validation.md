@@ -12,7 +12,7 @@ so that 确认各层职责分离且协同正确。
 
 1. **四层能力栈端到端流程** — Given 配置了包含 Skill 和 MCP 引用的 Agent, When Spawn 并执行任务, Then Agent 层提供身份和策略, And Skill 层提供程序性知识和工具权限, And MCP 层提供外部服务集成, And Device 层提供原生 I/O（`/dev/`）
 
-2. **astrace 四层调用链路可观测** — Given `crux astrace` 追踪该进程, When 查看 syscall 链路, Then 可以清晰看到四层的调用边界和数据流向（FR57）
+2. **astrace 四层调用链路可观测** — Given `rnix astrace` 追踪该进程, When 查看 syscall 链路, Then 可以清晰看到四层的调用边界和数据流向（FR57）
 
 ## Tasks / Subtasks
 
@@ -364,7 +364,7 @@ kernel/testdata/e2e-skill/SKILL.md              # 测试用 Skill 定义
 - `skills/types.go` — SkillManifest/SkillInfo 不变
 - `drivers/mcp/transport.go` — StdioTransport 不变
 - `debug/astrace.go` — Attach/FormatEvent 不变
-- `cmd/crux/main.go` — Daemon 初始化不变
+- `cmd/rnix/main.go` — Daemon 初始化不变
 
 ### References
 

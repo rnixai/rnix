@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // mockProcessInfoProvider is a test double for ProcessInfoProvider.

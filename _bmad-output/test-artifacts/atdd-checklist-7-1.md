@@ -9,7 +9,7 @@ lastStep: 'step-05-checklist'
 lastSaved: '2026-02-28'
 workflowType: 'testarch-atdd'
 inputDocuments:
-  - '_bmad-output/implementation-artifacts/7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine.md'
+  - '_bmad-output/implementation-artifacts/7-1-rnix-compose-yaml-parsing-and-dag-scheduling-engine.md'
   - 'kernel/kernel.go'
   - 'kernel/process.go'
   - 'kernel/kernel_test.go'
@@ -19,7 +19,7 @@ inputDocuments:
   - 'go.mod'
 ---
 
-# ATDD Checklist - Epic 7, Story 7.1: crux-compose.yaml 解析与 DAG 调度引擎
+# ATDD Checklist - Epic 7, Story 7.1: rnix-compose.yaml 解析与 DAG 调度引擎
 
 **Date:** 2026-02-28
 **Author:** Decker
@@ -29,7 +29,7 @@ inputDocuments:
 
 ## Story Summary
 
-Story 7.1 为 Crux 操作系统实现声明式多智能体编排能力。用户通过 `crux-compose.yaml` 文件定义多个智能体及其依赖关系，系统自动构建 DAG（有向无环图），检测循环依赖，并按拓扑排序执行调度。
+Story 7.1 为 Rnix 操作系统实现声明式多智能体编排能力。用户通过 `rnix-compose.yaml` 文件定义多个智能体及其依赖关系，系统自动构建 DAG（有向无环图），检测循环依赖，并按拓扑排序执行调度。
 
 **As a** 用户
 **I want** 通过 YAML 文件声明式定义多智能体工作流及其依赖关系
@@ -39,7 +39,7 @@ Story 7.1 为 Crux 操作系统实现声明式多智能体编排能力。用户�
 
 ## Acceptance Criteria
 
-1. **AC #1 — YAML 解析**: 解析 `crux-compose.yaml`，正确提取每个智能体的 `intent`、`agent` 引用、`skills` 列表和 `depends_on` 依赖，构建 DAG
+1. **AC #1 — YAML 解析**: 解析 `rnix-compose.yaml`，正确提取每个智能体的 `intent`、`agent` 引用、`skills` 列表和 `depends_on` 依赖，构建 DAG
 2. **AC #2 — 循环依赖检测**: YAML 中存在循环依赖时返回清晰错误信息，标注循环路径
 3. **AC #3 — 拓扑排序调度**: 按拓扑顺序启动智能体，无依赖分支自动并行化，≤ 10 个智能体启动延迟 ≤ 2s（NFR21）
 4. **AC #4 — 依赖触发**: 智能体 A 完成后自动启动依赖 B，A 的输出可注入 B 的上下文
@@ -272,7 +272,7 @@ Story 7.1 为 Crux 操作系统实现声明式多智能体编排能力。用户�
 ### `compose/types.go`
 
 ```go
-// ComposeSpec 是 crux-compose.yaml 的顶层结构
+// ComposeSpec 是 rnix-compose.yaml 的顶层结构
 type ComposeSpec struct {
     Version string                `yaml:"version"`
     Intent  string                `yaml:"intent"`
@@ -611,7 +611,7 @@ go test ./compose/ -run TestEngine_Execute_Performance -race -v -count=1
 **Results:**
 
 ```
-# github.com/usecrux/crux/compose [github.com/usecrux/crux/compose.test]
+# github.com/rnixai/rnix/compose [github.com/rnixai/rnix/compose.test]
 compose/engine_test.go:24:9: undefined: ComposeSpawnOpts
 compose/engine_test.go:50:80: undefined: ComposeSpawnOpts
 compose/engine_test.go:62:50: undefined: ComposeExitStatus
@@ -623,7 +623,7 @@ compose/dag_test.go:45:23: undefined: AgentSpec
 compose/dag_test.go:53:14: undefined: BuildDAG
 compose/dag_test.go:88:11: undefined: ComposeSpec
 compose/dag_test.go:88:11: too many errors
-FAIL    github.com/usecrux/crux/compose [build failed]
+FAIL    github.com/rnixai/rnix/compose [build failed]
 ```
 
 **Summary:**

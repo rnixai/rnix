@@ -16,8 +16,8 @@ inputDocuments:
   - skillpkg/installer_test.go
   - skillpkg/registry.go
   - skillpkg/client_test.go
-  - cmd/crux/skill.go
-  - cmd/crux/skill_test.go
+  - cmd/rnix/skill.go
+  - cmd/rnix/skill_test.go
 ---
 
 # ATDD 清单 - Epic 8, Story 8.3: skill update 更新
@@ -34,13 +34,13 @@ inputDocuments:
 **I want** 通过 `skill update [name]` 更新已安装的 Skill,
 **So that** 我始终使用最新兼容版本的能力模块。
 
-本 Story 为 Crux Agent OS 的 skill 包管理系统添加更新功能，支持单个和批量更新已安装的社区 Skill。
+本 Story 为 Rnix Agent OS 的 skill 包管理系统添加更新功能，支持单个和批量更新已安装的社区 Skill。
 
 ---
 
 ## 验收标准
 
-1. **update 子命令注册与单个更新** — 在 `cmd/crux/skill.go` 中注册 update 子命令，执行 `skill update code-analysis` 时检查最新版本，有更新则下载替换并更新本地注册表
+1. **update 子命令注册与单个更新** — 在 `cmd/rnix/skill.go` 中注册 update 子命令，执行 `skill update code-analysis` 时检查最新版本，有更新则下载替换并更新本地注册表
 2. **全量更新** — 不指定名称时检查所有已安装 Skill，显示可更新列表，批量更新
 3. **已是最新版本** — 已是最新版本时输出提示信息
 
@@ -74,7 +74,7 @@ inputDocuments:
 
 ### CLI 测试 (6 tests)
 
-**文件:** `cmd/crux/skill_test.go` (新增约 180 行)
+**文件:** `cmd/rnix/skill_test.go` (新增约 180 行)
 
 - **Test:** `TestSkillUpdateCmd_Registered`
   - **状态:** RED - `update` 子命令未注册
@@ -201,56 +201,56 @@ checksum: "sha256:abc..."
 
 ### Test: TestSkillUpdateCmd_Registered
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使此测试通过的任务:**
 
-- [ ] 在 `cmd/crux/skill.go` 中定义 `skillUpdateCmd` cobra.Command（Use: "update [name...]", Args: cobra.ArbitraryArgs）
+- [ ] 在 `cmd/rnix/skill.go` 中定义 `skillUpdateCmd` cobra.Command（Use: "update [name...]", Args: cobra.ArbitraryArgs）
 - [ ] 在 `init()` 中 `skillCmd.AddCommand(skillUpdateCmd)`
-- [ ] 运行测试: `go test ./cmd/crux/ -run TestSkillUpdateCmd_Registered -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run TestSkillUpdateCmd_Registered -v`
 - [ ] 测试通过 (green phase)
 
 ### Test: TestSkillUpdate_JSONOutput
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使此测试通过的任务:**
 
-- [ ] 在 `cmd/crux/skill.go` 中定义 `updateErrorEntry` 结构体（Name, Code, Message 字段）
-- [ ] 在 `cmd/crux/skill.go` 中定义 `skillUpdateJSONData` 结构体（Results 和 Errors 字段）
+- [ ] 在 `cmd/rnix/skill.go` 中定义 `updateErrorEntry` 结构体（Name, Code, Message 字段）
+- [ ] 在 `cmd/rnix/skill.go` 中定义 `skillUpdateJSONData` 结构体（Results 和 Errors 字段）
 - [ ] 实现 `renderSkillUpdateJSON(r, results, errs)` 函数
 - [ ] 确保 JSON 输出使用 snake_case 字段名
-- [ ] 运行测试: `go test ./cmd/crux/ -run TestSkillUpdate_JSONOutput -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run TestSkillUpdate_JSONOutput -v`
 - [ ] 测试通过 (green phase)
 
 ### Test: TestSkillUpdate_EmptyResult_JSONOutput
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使此测试通过的任务:**
 
 - [ ] 确保 renderSkillUpdateJSON 将 nil results 转换为空切片 `[]`
-- [ ] 运行测试: `go test ./cmd/crux/ -run TestSkillUpdate_EmptyResult_JSONOutput -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run TestSkillUpdate_EmptyResult_JSONOutput -v`
 - [ ] 测试通过 (green phase)
 
 ### Test: TestSkillUpdate_NoArgs_Accepted / TestSkillUpdate_WithArgs_Accepted
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使此测试通过的任务:**
 
 - [ ] skillUpdateCmd 使用 `cobra.ArbitraryArgs`（接受任意数量参数）
-- [ ] 运行测试: `go test ./cmd/crux/ -run "TestSkillUpdate_.*Args" -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run "TestSkillUpdate_.*Args" -v`
 - [ ] 测试通过 (green phase)
 
 ### Test: TestSkillUpdate_MixedResults_JSONOutput
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使此测试通过的任务:**
 
 - [ ] renderSkillUpdateJSON 在有 errors 时设置 ok=false
-- [ ] 运行测试: `go test ./cmd/crux/ -run TestSkillUpdate_MixedResults_JSONOutput -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run TestSkillUpdate_MixedResults_JSONOutput -v`
 - [ ] 测试通过 (green phase)
 
 ---
@@ -260,7 +260,7 @@ checksum: "sha256:abc..."
 ```bash
 # 运行所有 Story 8.3 相关测试（当前会编译失败 - RED phase）
 go test ./skillpkg/ -run "TestInstaller_Update" -v
-go test ./cmd/crux/ -run "TestSkillUpdate" -v
+go test ./cmd/rnix/ -run "TestSkillUpdate" -v
 
 # 运行单个测试文件
 go test ./skillpkg/ -run "TestInstaller_Update_HasUpdate" -v
@@ -291,7 +291,7 @@ make all
 **验证:**
 
 - `go vet ./skillpkg/` 输出: `Update undefined (type *Installer has no field or method Update)`
-- `go vet ./cmd/crux/` 输出: `undefined: skillpkg.UpdateResult`
+- `go vet ./cmd/rnix/` 输出: `undefined: skillpkg.UpdateResult`
 - 所有测试因缺少实现而无法编译，而非测试本身有 bug
 
 ---
@@ -302,7 +302,7 @@ make all
 
 1. **先实现类型** — `skillpkg/types.go` 添加 `UpdateResult` 和 `UpdateOpts`
 2. **实现核心方法** — `skillpkg/installer.go` 添加 `Update()` 和 `UpdateAll()`
-3. **实现 CLI 命令** — `cmd/crux/skill.go` 添加 `skillUpdateCmd` 和 `runSkillUpdate`
+3. **实现 CLI 命令** — `cmd/rnix/skill.go` 添加 `skillUpdateCmd` 和 `runSkillUpdate`
 4. **逐个验证测试** — 每实现一个组件后运行相关测试
 5. **运行完整测试套件** — `make test` 确认无回归
 
@@ -329,16 +329,16 @@ make all
 
 ### 初始测试运行 (RED Phase 验证)
 
-**命令:** `go vet ./skillpkg/ && go vet ./cmd/crux/`
+**命令:** `go vet ./skillpkg/ && go vet ./cmd/rnix/`
 
 **结果:**
 
 ```
-# github.com/usecrux/crux/skillpkg
+# github.com/rnixai/rnix/skillpkg
 vet: skillpkg/update_test.go:71:29: installerV2.Update undefined (type *Installer has no field or method Update)
 
-# github.com/usecrux/crux/cmd/crux
-vet: cmd/crux/skill_test.go:368:24: undefined: skillpkg.UpdateResult
+# github.com/rnixai/rnix/cmd/rnix
+vet: cmd/rnix/skill_test.go:368:24: undefined: skillpkg.UpdateResult
 ```
 
 **总结:**
@@ -366,7 +366,7 @@ vet: cmd/crux/skill_test.go:368:24: undefined: skillpkg.UpdateResult
 
 - Go TDD Red Phase 的体现方式是编译失败（引用不存在的方法/类型），而非 JavaScript 的 `test.skip()` 模式
 - 所有测试复用已有的 mock 基础设施（setupMockRegistry、createTestTarGz），仅新增 `setupMockRegistryWithVersion` 用于版本比较测试
-- 测试文件分离策略：installer 层测试放在 `skillpkg/update_test.go`，CLI 层测试追加到 `cmd/crux/skill_test.go`
+- 测试文件分离策略：installer 层测试放在 `skillpkg/update_test.go`，CLI 层测试追加到 `cmd/rnix/skill_test.go`
 - UpdateAll 测试需要构建多 skill 的 mock 服务器，直接内联而非创建新辅助函数，保持简洁
 
 ---

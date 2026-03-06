@@ -80,7 +80,7 @@ development_status:
   4-1-kill-and-wait-syscalls: done
   4-2-orphan-process-reparent-and-zombie-auto-reap: done
   4-3-proc-dynamic-filesystem: done
-  4-4-crux-ps-command-and-process-table-ui: done
+  4-4-rnix-ps-command-and-process-table-ui: done
   4-5-context-release-ctx-free: done
   4-6-ipc-cross-terminal-kernel-state-sharing: done
   epic-4-retrospective: done
@@ -107,9 +107,9 @@ development_status:
 
   # Epic 7: Compose Agent Orchestration
   epic-7: done
-  7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine: done
-  7-2-crux-compose-up-command: done
-  7-3-crux-compose-down-command: done
+  7-1-rnix-compose-yaml-parsing-and-dag-scheduling-engine: done
+  7-2-rnix-compose-up-command: done
+  7-3-rnix-compose-down-command: done
   7-4-compose-end-to-end-acceptance: done
   epic-7-retrospective: done
 
@@ -131,8 +131,8 @@ development_status:
 
   # Epic 10: Monitoring, Supervisor & Operations
   epic-10: done
-  10-1-crux-top-realtime-monitoring-tui: done
-  10-2-crux-log-categorized-reasoning-logs: done
+  10-1-rnix-top-realtime-monitoring-tui: done
+  10-2-rnix-log-categorized-reasoning-logs: done
   10-3-token-budget-management: done
   10-4-supervisor-tree-and-restart-strategy: done
   10-5-init-bootstrap-sequence: done

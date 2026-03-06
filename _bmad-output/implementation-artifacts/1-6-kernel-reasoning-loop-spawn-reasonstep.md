@@ -450,7 +450,7 @@ func (f *mockLLMFile) Stat() (vfs.FileStat, error) { return vfs.FileStat{IsDevic
 | `6ba2532` | Story 1-3 VFS 实现 | VFS + DeviceRegistry + FDTable 完整模式 |
 
 **代码惯例提取：**
-- 包级文档注释：`// Package kernel implements the Crux microkernel.`
+- 包级文档注释：`// Package kernel implements the Rnix microkernel.`
 - 构造函数：`NewXxx()` 模式
 - 方法接收器：简短单字母（`k *KernelImpl`）
 - 测试分组：`t.Run("子测试名", func(t *testing.T) {...})`
@@ -481,7 +481,7 @@ kernel/
 - `drivers/` 下任何文件（LLM 驱动通过 VFS 抽象访问）
 - `internal/types/types.go`（类型已满足需求）
 - `internal/xsync/` 下任何文件
-- `cmd/crux/main.go`（依赖注入在 Story 1.7）
+- `cmd/rnix/main.go`（依赖注入在 Story 1.7）
 
 **注意更新已有测试：**
 - `kernel/kernel_test.go` 中现有的 `TestNewKernel`、`TestAddGetProcess` 等测试可能需要更新 `NewKernel` 调用签名（从无参数改为接受 VFS + ctxMgr 参数）
@@ -524,7 +524,7 @@ Claude Opus 4.6
 
 ### Completion Notes List
 
-- **Task 1 完成**: KernelImpl 新增 `vfs *vfs.VFS` 和 `ctxMgr *cruxctx.Manager` 字段；`NewKernel` 签名更新为接受 VFS + ctxMgr 参数；定义 `SpawnOpts` 结构体；返回 `(types.PID, error)`
+- **Task 1 完成**: KernelImpl 新增 `vfs *vfs.VFS` 和 `ctxMgr *rnixctx.Manager` 字段；`NewKernel` 签名更新为接受 VFS + ctxMgr 参数；定义 `SpawnOpts` 结构体；返回 `(types.PID, error)`
 - **Task 2 完成**: 实现 `Spawn` 方法 — 创建 Process、分配 Context、设置 system prompt、追加 intent 到上下文、VFS 打开 LLM 设备、goroutine 启动 reasonStep 循环、emitEvent 记录 SyscallEvent
 - **Task 3 完成**: 定义 `ActionType` 常量（ActionText/ActionToolCall/ActionSpawn）、`ReasonAction` 结构体、`parseAction` 函数（先尝试 JSON 结构化解析 tool_call，失败则作为纯文本）
 - **Task 4 完成**: 实现 `reasonStep` 循环 — BuildPrompt → Write LLM → Read LLM → parseAction → ActionText 完成 / ActionToolCall 执行 / 错误处理 / context 取消 / maxSteps 上限保护；所有路径确保进程转 Zombie 并写入 Done channel

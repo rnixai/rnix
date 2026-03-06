@@ -1,17 +1,17 @@
 # Epic 10: 监控与可观测性（Monitoring & Observability）
 
-`crux top` 实时面板 + `crux log` 分类日志 + Token 预算管理——生产级可观测能力。
+`rnix top` 实时面板 + `rnix log` 分类日志 + Token 预算管理——生产级可观测能力。
 
-## Story 10.1: crux top 实时监控 TUI
+## Story 10.1: rnix top 实时监控 TUI
 
 As a 用户,
-I want 通过 `crux top` 实时查看所有智能体的树状关系、状态和 token 消耗,
+I want 通过 `rnix top` 实时查看所有智能体的树状关系、状态和 token 消耗,
 So that 我随时掌握系统全局运行态。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/top.go` 已实现（bubbletea TUI）
-**When** 执行 `crux top`
+**Given** `cmd/rnix/top.go` 已实现（bubbletea TUI）
+**When** 执行 `rnix top`
 **Then** 全屏显示实时监控面板
 **And** 上方汇总区：活跃进程数、总 token 消耗、系统运行时间
 **And** 下方进程列表：PID、PPID（树状缩进）、STATE、AGENT、TOKENS、ELAPSED
@@ -33,21 +33,21 @@ So that 我随时掌握系统全局运行态。
 **When** 退出 TUI
 **Then** 恢复终端状态，不影响运行中的进程
 
-## Story 10.2: crux log 分类推理日志
+## Story 10.2: rnix log 分类推理日志
 
 As a 用户,
-I want 通过 `crux log <pid>` 查看智能体的推理日志，按类别分类显示,
+I want 通过 `rnix log <pid>` 查看智能体的推理日志，按类别分类显示,
 So that 我无需深入内核就能排查问题。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/log.go` 已实现
-**When** 执行 `crux log 5`
+**Given** `cmd/rnix/log.go` 已实现
+**When** 执行 `rnix log 5`
 **Then** 输出 PID 5 的推理日志
 **And** 按 `[think]`（推理过程）、`[tool]`（工具调用）、`[output]`（最终输出）三段式分类显示（FR60）
 
 **Given** 使用过滤
-**When** 执行 `crux log 5 --filter tool`
+**When** 执行 `rnix log 5 --filter tool`
 **Then** 仅显示 `[tool]` 类别的日志条目
 
 **Given** 日志输出
@@ -55,7 +55,7 @@ So that 我无需深入内核就能排查问题。
 **Then** 延迟 ≤ 200ms（NFR29）
 
 **Given** PID 不存在
-**When** 执行 `crux log 999`
+**When** 执行 `rnix log 999`
 **Then** 输出 `✗ PID 999: process not found` + 建议
 
 ## Story 10.3: Token 预算管理
@@ -77,6 +77,6 @@ So that 我可以控制 LLM 调用的成本。
 
 **Given** 预算即将耗尽（剩余 < 10%）
 **When** 推理循环继续
-**Then** 在 crux top 中显示黄色警告标记
+**Then** 在 rnix top 中显示黄色警告标记
 
 ---

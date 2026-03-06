@@ -18,7 +18,7 @@ So that 我在编写 Skill 或调试时有权威参考。
 
 3. **Manifest 字段说明** — Given 参考手册已编写，When 查阅内容，Then 包含 agent.yaml 和 SKILL.md 全部字段说明和示例
 
-4. **CLI 命令完整列表** — Given 参考手册已编写，When 查阅内容，Then 包含 CLI 命令完整列表（`crux "意图"`、`crux ps`、`crux astrace`、`crux kill`、`crux version`）及其 flags
+4. **CLI 命令完整列表** — Given 参考手册已编写，When 查阅内容，Then 包含 CLI 命令完整列表（`rnix "意图"`、`rnix ps`、`rnix astrace`、`rnix kill`、`rnix version`）及其 flags
 
 5. **IPC 架构说明** — Given 参考手册已编写，When 查阅内容，Then 包含 IPC 架构说明：daemon 生命周期（自动启动/自动停止/stale socket 清理）、Unix domain socket 通信机制、IPC 协议概述（NDJSON 消息格式、Method 枚举、流式 StreamEvent）、连接复用语义（非流式请求 Ping/ListProcs/Kill 复用同一连接，流式请求 Spawn/AttachDebug 终结连接）
 
@@ -59,11 +59,11 @@ So that 我在编写 Skill 或调试时有权威参考。
 
 - [x] Task 5: 编写 CLI 命令参考章节 (AC: #4)
   - [x] 5.1 全局 flags（--json、--verbose/-v、--quiet/-q）
-  - [x] 5.2 `crux "意图"` — 根命令（含 --model、--max-steps、--agent flags）
-  - [x] 5.3 `crux ps` — 进程列表命令（含四种输出模式示例）
-  - [x] 5.4 `crux kill <pid>` — 进程终止命令
-  - [x] 5.5 `crux astrace <pid>` — Syscall 追踪命令（含三种输出模式示例）
-  - [x] 5.6 `crux version` — 版本信息命令
+  - [x] 5.2 `rnix "意图"` — 根命令（含 --model、--max-steps、--agent flags）
+  - [x] 5.3 `rnix ps` — 进程列表命令（含四种输出模式示例）
+  - [x] 5.4 `rnix kill <pid>` — 进程终止命令
+  - [x] 5.5 `rnix astrace <pid>` — Syscall 追踪命令（含三种输出模式示例）
+  - [x] 5.6 `rnix version` — 版本信息命令
   - [x] 5.7 JSON 响应包装格式（JSONResponse 结构）
 
 - [x] Task 6: 编写 IPC 架构章节 (AC: #5)
@@ -106,7 +106,7 @@ So that 我在编写 Skill 或调试时有权威参考。
 
 ### 文档写作原则
 
-1. **面向开发者** — 读者是使用 Crux 编写 Agent/Skill 或调试问题的开发者，需要精确、权威的技术参考
+1. **面向开发者** — 读者是使用 Rnix 编写 Agent/Skill 或调试问题的开发者，需要精确、权威的技术参考
 2. **准确反映实现** — 所有签名、参数、返回值、路径、协议必须与当前代码实现一致。不要写尚未实现的功能
 3. **简体中文** — 全文使用简体中文。技术术语首次出现时附英文
 4. **结构化参考** — 参考手册不是教程，而是查阅工具。信息按类别组织，便于快速定位
@@ -310,10 +310,10 @@ SyscallEvent 结构:
 
 | VFS 路径 | 驱动模块 | 注册位置 | 说明 |
 |---------|---------|---------|------|
-| `/dev/llm/claude` | `drivers/llm` | `cmd/crux/main.go:622` | Claude Code CLI 调用 |
-| `/dev/fs` | `drivers/fs` | `cmd/crux/main.go:623` | 宿主文件系统（前缀匹配，子路径作为文件路径） |
-| `/dev/shell` | `drivers/shell` | `cmd/crux/main.go:625` | Shell 命令执行 |
-| `/proc` | `vfs/proc.go` | `cmd/crux/main.go:635` | 动态进程信息（前缀匹配） |
+| `/dev/llm/claude` | `drivers/llm` | `cmd/rnix/main.go:622` | Claude Code CLI 调用 |
+| `/dev/fs` | `drivers/fs` | `cmd/rnix/main.go:623` | 宿主文件系统（前缀匹配，子路径作为文件路径） |
+| `/dev/shell` | `drivers/shell` | `cmd/rnix/main.go:625` | Shell 命令执行 |
+| `/proc` | `vfs/proc.go` | `cmd/rnix/main.go:635` | 动态进程信息（前缀匹配） |
 
 #### /proc/{pid}/ 子路径
 
@@ -356,7 +356,7 @@ O_RDWR   = 2  // 读写
 
 ### CLI 命令参考数据（从源码提取）
 
-#### 全局 Flags (`cmd/crux/main.go:194-196`)
+#### 全局 Flags (`cmd/rnix/main.go:194-196`)
 
 | Flag | 短选项 | 类型 | 说明 |
 |------|--------|------|------|
@@ -366,14 +366,14 @@ O_RDWR   = 2  // 读写
 
 **输出模式优先级**: `--json` > `--quiet` > `--verbose` > 默认
 
-#### 根命令: `crux [intent]`
+#### 根命令: `rnix [intent]`
 
 ```
-用法: crux [intent]
+用法: rnix [intent]
 参数: [intent] — 任意长度意图字符串（多个参数以空格拼接）
 ```
 
-**私有 Flags** (`cmd/crux/main.go:197-199`):
+**私有 Flags** (`cmd/rnix/main.go:197-199`):
 
 | Flag | 短选项 | 类型 | 默认值 | 说明 |
 |------|--------|------|--------|------|
@@ -391,21 +391,21 @@ O_RDWR   = 2  // 读写
 {"ok": false, "error": {"code": "TIMEOUT", "message": "...", "syscall": "Write", "device": "/dev/llm/claude"}}
 ```
 
-#### 子命令: `crux version`
+#### 子命令: `rnix version`
 
 ```
-用法: crux version
+用法: rnix version
 ```
 
 **默认输出**:
 ```
-crux 0.1.0
+rnix 0.1.0
 claude-code: 1.x.x
 ```
 
 **Claude CLI 未安装时**:
 ```
-crux 0.1.0
+rnix 0.1.0
 ✗ claude-code CLI not found
   → 建议: npm install -g @anthropic-ai/claude-code
 ```
@@ -415,10 +415,10 @@ crux 0.1.0
 {"ok": true, "data": {"version": "0.1.0", "claude_code_available": true, "claude_code": "2.1.69"}}
 ```
 
-#### 子命令: `crux ps`
+#### 子命令: `rnix ps`
 
 ```
-用法: crux ps
+用法: rnix ps
 参数: 无 (cobra.NoArgs)
 ```
 
@@ -443,20 +443,20 @@ crux 0.1.0
 
 **无活跃进程时**: `No active processes.`
 
-#### 子命令: `crux kill <pid>`
+#### 子命令: `rnix kill <pid>`
 
 ```
-用法: crux kill <pid>
+用法: rnix kill <pid>
 参数: <pid> — 进程 ID（十进制数字，必须恰好 1 个参数）
 信号: 固定发送 SIGTERM(1)
 ```
 
 **成功**: `[kernel] PID {pid}: signal sent (SIGTERM)`
 
-#### 子命令: `crux astrace <pid>`
+#### 子命令: `rnix astrace <pid>`
 
 ```
-用法: crux astrace <pid>
+用法: rnix astrace <pid>
 参数: <pid> — 进程 ID（必须恰好 1 个参数）
 ```
 
@@ -582,7 +582,7 @@ description: >
   vulnerabilities.
 allowed-tools: /dev/fs /dev/shell
 metadata:
-  author: crux
+  author: rnix
   version: "1.0"
 ---
 
@@ -599,7 +599,7 @@ metadata:
 **自动启动** (`ipc/daemon.go:29-47`):
 1. CLI 命令调用 `EnsureDaemon()`
 2. 尝试 ping 现有 daemon
-3. 失败则清除 stale socket + 启动新 daemon (`crux daemon --internal`)
+3. 失败则清除 stale socket + 启动新 daemon (`rnix daemon --internal`)
 4. 轮询等待就绪（最多 3 秒）
 
 **自动停止** (`ipc/server.go:64-172`):
@@ -612,8 +612,8 @@ metadata:
 
 #### Socket 路径 (`ipc/protocol.go:214-224`)
 
-1. `$XDG_RUNTIME_DIR/crux/crux.sock`（如 `/run/user/1000/crux/crux.sock`）
-2. `/tmp/crux-{uid}/crux.sock`（降级方案）
+1. `$XDG_RUNTIME_DIR/rnix/rnix.sock`（如 `/run/user/1000/rnix/rnix.sock`）
+2. `/tmp/rnix-{uid}/rnix.sock`（降级方案）
 
 #### NDJSON 协议
 
@@ -772,7 +772,7 @@ type SyscallEventWire struct {
 
 #### Story 5.2（快速上手指南）经验
 
-- **CLI 命令和输出格式已通过源码交叉验证** — cmd/crux/main.go, internal/ui/*.go, debug/*.go
+- **CLI 命令和输出格式已通过源码交叉验证** — cmd/rnix/main.go, internal/ui/*.go, debug/*.go
 - **astrace 输出示例精确匹配 trace.go 实现** — key=value 参数格式、`← LLM 调用`/`← 慢操作` 注解逻辑
 - **Code Review 修复** — 首次执行示例改为匹配 AC、补充 --json 输出示例、修正 version 输出格式去掉 `v` 前缀
 - **Agent 配置格式** — 已确认了 Agent/Skill 实际的文件格式
@@ -828,7 +828,7 @@ docs/quick-start.md        — Story 5.2 产出
 - ipc/server.go: handleConn(199-238), idleTimeout(64-172), 连接复用语义
 - ipc/daemon.go: EnsureDaemon(29-47), startDaemon(68-89), stale清理(91-108)
 - ipc/client.go: Dial, Spawn, AttachDebug, Kill, ListProcs
-- cmd/crux/main.go: rootCmd(108-118), versionCmd(120-124), astraceCmd(126-135), psCmd(137-147), killCmd(149-154), daemonCmd(156-160), 全局flags(194-196), 私有flags(197-199), JSON类型(63-85), 设备注册(622-635)
+- cmd/rnix/main.go: rootCmd(108-118), versionCmd(120-124), astraceCmd(126-135), psCmd(137-147), killCmd(149-154), daemonCmd(156-160), 全局flags(194-196), 私有flags(197-199), JSON类型(63-85), 设备注册(622-635)
 - agents/types.go: AgentManifest(17-23), AgentModels(10-14), AgentInfo(26-30), AllowedTools(33-46), SystemPrompt(49-57)
 - agents/loader.go: Load(25-82)
 - skills/types.go: SkillManifest(6-11), AllowedTools(13-20), SkillInfo(22-26)
@@ -863,7 +863,7 @@ Claude Opus 4.6
 - ✅ Task 6: 编写 IPC 架构章节 — Daemon 生命周期 + Socket 路径规则 + NDJSON 协议 + 6 个 Method + StreamEvent 协议 + 连接复用语义 + Spawn/AttachDebug 完整流式示例
 - ✅ Task 7: 编写错误处理章节 — ErrCode 6 个枚举 + SyscallError/VFSError/DriverError/ContextError 4 层错误类型 + 6 个基础类型
 - ✅ Task 8: 编写进程模型章节 — 4 态状态机 + 转移规则 + ExitStatus + 6 步资源释放顺序 + Signal 定义
-- ✅ Task 9: 交叉验证 — 所有 syscall 签名与源码比对（kernel/kernel.go, context/context.go, vfs/vfs.go）、VFS 路径与 cmd/crux/main.go 注册代码比对、CLI flags 与 cobra 注册比对、IPC 协议与 protocol.go 比对。version 输出格式确认为 `crux v0.1.0`（含 v 前缀）。文档自包含，不依赖其他文档即可查阅。
+- ✅ Task 9: 交叉验证 — 所有 syscall 签名与源码比对（kernel/kernel.go, context/context.go, vfs/vfs.go）、VFS 路径与 cmd/rnix/main.go 注册代码比对、CLI flags 与 cobra 注册比对、IPC 协议与 protocol.go 比对。version 输出格式确认为 `rnix v0.1.0`（含 v 前缀）。文档自包含，不依赖其他文档即可查阅。
 
 ### Implementation Plan
 

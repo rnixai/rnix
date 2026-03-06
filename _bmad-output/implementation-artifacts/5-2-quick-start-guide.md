@@ -8,11 +8,11 @@ Status: done
 
 As a 新用户,
 I want 按照快速上手指南从安装到跑通第一个 demo,
-So that 我在 15 分钟内体验到 Crux 的核心价值。
+So that 我在 15 分钟内体验到 Rnix 的核心价值。
 
 ## Acceptance Criteria
 
-1. **覆盖完整上手流程** — Given 快速上手指南已编写，When 按步骤操作，Then 覆盖完整流程：安装 Go → 安装 Crux（`go install`）→ 验证（`crux version`）→ 首次执行（`crux "分析 ./README.md"`）→ 查看结果 → 首次 astrace（`crux astrace 1`）
+1. **覆盖完整上手流程** — Given 快速上手指南已编写，When 按步骤操作，Then 覆盖完整流程：安装 Go → 安装 Rnix（`go install`）→ 验证（`rnix version`）→ 首次执行（`rnix "分析 ./README.md"`）→ 查看结果 → 首次 astrace（`rnix astrace 1`）
 
 2. **15 分钟目标** — Given 用户已有 Go 1.26 环境和 Claude Code CLI，When 按指南操作，Then 目标完成时间 ≤ 15 分钟（FR39）
 
@@ -31,18 +31,18 @@ So that 我在 15 分钟内体验到 Crux 的核心价值。
   - [x] 2.2 Claude Code CLI 检查：`claude --version` 命令及预期输出，附安装链接
   - [x] 2.3 说明 Claude Code CLI 需要有效的 API 密钥配置
 
-- [x] Task 3: 编写安装 Crux 章节 (AC: #1, #3)
-  - [x] 3.1 使用 `go install github.com/usecrux/crux/cmd/crux@latest` 安装
-  - [x] 3.2 验证安装：`crux version` 命令及预期输出
+- [x] Task 3: 编写安装 Rnix 章节 (AC: #1, #3)
+  - [x] 3.1 使用 `go install github.com/rnixai/rnix/cmd/rnix@latest` 安装
+  - [x] 3.2 验证安装：`rnix version` 命令及预期输出
   - [x] 3.3 故障排查：Claude Code CLI 未找到时的错误提示和解决方法
 
 - [x] Task 4: 编写首次运行章节 (AC: #1, #2, #3)
-  - [x] 4.1 最简用法：`crux "你好，请介绍你自己"` — 展示基础 Spawn → 推理 → 结果流程
+  - [x] 4.1 最简用法：`rnix "你好，请介绍你自己"` — 展示基础 Spawn → 推理 → 结果流程
   - [x] 4.2 预期输出示例：`[kernel] spawning PID 1...` → `[agent] step N/M` → `[result] ...` → `[kernel] PID 1 exited(0) | tokens: N | elapsed: Ns`
   - [x] 4.3 解读输出：每行含义简要说明
 
 - [x] Task 5: 编写使用 Agent 章节 (AC: #1, #2, #3)
-  - [x] 5.1 使用参考 Agent：`crux "分析 ./cmd/crux/main.go" --agent=code-analyst`
+  - [x] 5.1 使用参考 Agent：`rnix "分析 ./cmd/rnix/main.go" --agent=code-analyst`
   - [x] 5.2 预期输出示例：包含文件分析结果
   - [x] 5.3 简要解释 `--agent` 参数的作用（引用概念文档链接）
 
@@ -53,9 +53,9 @@ So that 我在 15 分钟内体验到 Crux 的核心价值。
   - [x] 6.4 解读关键 syscall 行的含义
 
 - [x] Task 7: 编写进程管理体验章节 (AC: #1, #3)
-  - [x] 7.1 `crux ps` — 查看进程列表
-  - [x] 7.2 `crux ps --json` — JSON 格式输出
-  - [x] 7.3 `crux kill <pid>` — 终止进程
+  - [x] 7.1 `rnix ps` — 查看进程列表
+  - [x] 7.2 `rnix ps --json` — JSON 格式输出
+  - [x] 7.3 `rnix kill <pid>` — 终止进程
 
 - [x] Task 8: 编写下一步指引章节 (AC: #1)
   - [x] 8.1 链接到概念文档（`docs/concepts.md`）深入理解
@@ -76,7 +76,7 @@ So that 我在 15 分钟内体验到 Crux 的核心价值。
 
 ### 文档写作原则
 
-1. **面向零基础用户** — 读者不了解 Crux，按步骤操作即可上手。假设有基本的终端使用经验和 Go 开发环境。
+1. **面向零基础用户** — 读者不了解 Rnix，按步骤操作即可上手。假设有基本的终端使用经验和 Go 开发环境。
 2. **实践优先** — 不是理论讲解（概念文档在 `docs/concepts.md`），而是"跟着做"的操作手册。每一步：命令 → 预期输出 → 简要解释。
 3. **准确反映实现** — 所有命令、输出格式、VFS 路径必须与当前代码实现一致。不要写尚未实现的功能。
 4. **简体中文** — 全文使用简体中文。技术术语首次出现时附英文。
@@ -95,12 +95,12 @@ So that 我在 15 分钟内体验到 Crux 的核心价值。
 
 | 命令 | 实际实现位置 | 说明 |
 |------|------------|------|
-| `crux "意图"` | `cmd/crux/main.go` rootCmd | Spawn Agent 执行意图，意图为 positional arg |
-| `crux "意图" --agent=code-analyst` | `cmd/crux/main.go` rootCmd `--agent` flag | 使用指定 Agent 定义 |
-| `crux version` | `cmd/crux/main.go` versionCmd | 显示版本信息 + Claude CLI 检查 |
-| `crux ps` | `cmd/crux/main.go` psCmd | 列出所有进程（支持 --json） |
-| `crux kill <pid>` | `cmd/crux/main.go` killCmd | 终止指定进程 |
-| `crux astrace <pid>` | `cmd/crux/main.go` astraceCmd | 实时追踪进程 syscall |
+| `rnix "意图"` | `cmd/rnix/main.go` rootCmd | Spawn Agent 执行意图，意图为 positional arg |
+| `rnix "意图" --agent=code-analyst` | `cmd/rnix/main.go` rootCmd `--agent` flag | 使用指定 Agent 定义 |
+| `rnix version` | `cmd/rnix/main.go` versionCmd | 显示版本信息 + Claude CLI 检查 |
+| `rnix ps` | `cmd/rnix/main.go` psCmd | 列出所有进程（支持 --json） |
+| `rnix kill <pid>` | `cmd/rnix/main.go` killCmd | 终止指定进程 |
+| `rnix astrace <pid>` | `cmd/rnix/main.go` astraceCmd | 实时追踪进程 syscall |
 
 **全局 flags：** `--json`, `--verbose/-v`, `--quiet/-q`, `--model`, `--max-steps`, `--agent`
 
@@ -124,7 +124,7 @@ So that 我在 15 分钟内体验到 Crux 的核心价值。
 
 **Version 输出格式：**
 ```
-crux v0.1.0
+rnix v0.1.0
 claude-code: 1.x.x
 ```
 
@@ -178,13 +178,13 @@ allowed-tools: /dev/fs /dev/shell
 ### 安装方式
 
 ```bash
-go install github.com/usecrux/crux/cmd/crux@latest
+go install github.com/rnixai/rnix/cmd/rnix@latest
 ```
 
 **前置依赖：**
 - Go 1.26+
 - Claude Code CLI（`npm install -g @anthropic-ai/claude-code`），需配置有效 API 密钥
-- 模块路径：`github.com/usecrux/crux`
+- 模块路径：`github.com/rnixai/rnix`
 
 ### 与 Story 5.1（概念文档）的关系
 
@@ -249,7 +249,7 @@ docs/concepts.md           — 已由 Story 5.1 创建，不修改
 - [Source: _bmad-output/implementation-artifacts/5-1-concept-documentation.md] — Story 5.1 完整 story context
 
 **源码参考（验证 CLI 命令和输出格式）：**
-- cmd/crux/main.go: rootCmd（Spawn Agent）, versionCmd, psCmd, killCmd, astraceCmd
+- cmd/rnix/main.go: rootCmd（Spawn Agent）, versionCmd, psCmd, killCmd, astraceCmd
 - internal/ui/progress.go: Agent Progress Reporter 输出格式
 - internal/ui/result.go: Result Box 输出格式
 - internal/ui/error.go: Error Block 三段式错误格式
@@ -273,7 +273,7 @@ Claude Opus 4.6
 ### Completion Notes List
 
 - Task 1-9: 创建 `docs/quick-start.md` 快速上手指南，覆盖完整流程：前置条件 → 安装 → 首次运行 → Agent 使用 → astrace 调试 → 进程管理 → 下一步指引
-- 所有 CLI 命令和输出格式已通过源码交叉验证（cmd/crux/main.go, internal/ui/*.go, debug/*.go）
+- 所有 CLI 命令和输出格式已通过源码交叉验证（cmd/rnix/main.go, internal/ui/*.go, debug/*.go）
 - astrace 输出示例精确匹配 trace.go 实现：key=value 参数格式、`← LLM 调用`/`← 慢操作` 注解逻辑、`traceDuration` 时间格式
 - 文档完全自包含，不依赖概念文档前置知识即可独立操作
 - 渐进式结构：最简用法 → Agent → astrace → ps/kill，内容精简控制在 15 分钟可完成
@@ -290,8 +290,8 @@ Claude Opus 4.6
 **Model:** Claude Opus 4.6
 
 **审查发现与修复:**
-- [H1] 首次执行示例改为 `crux "分析 ./README.md"` 匹配 AC #1（docs/quick-start.md:72）
-- [M1] 补充 `crux ps --json` 预期 JSON 输出示例满足 AC #3（docs/quick-start.md:217-234）
+- [H1] 首次执行示例改为 `rnix "分析 ./README.md"` 匹配 AC #1（docs/quick-start.md:72）
+- [M1] 补充 `rnix ps --json` 预期 JSON 输出示例满足 AC #3（docs/quick-start.md:217-234）
 - [M2] Story CLI Output Reference 修正为 `[agent/1] reasoning step 1...` 匹配代码实现（story:113）
 - [L1] astrace 解读表 `← LLM 调用` 描述修正为"涉及 /dev/llm/ 设备的操作"（docs/quick-start.md:181）
 - [L2] 添加 `<nil>` 含义说明帮助非 Go 用户理解（docs/quick-start.md:184）
@@ -303,4 +303,4 @@ Claude Opus 4.6
 - 首次运行章节补充 daemon 自动启动/停止说明
 - astrace 章节强调跨终端操作能力（daemon 架构支持）
 - 进程管理章节补充跨终端可见性说明
-- 补充无 daemon 时的优雅降级行为说明（crux ps → "No active processes."）
+- 补充无 daemon 时的优雅降级行为说明（rnix ps → "No active processes."）

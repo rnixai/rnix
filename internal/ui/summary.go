@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // RenderSummary outputs a summary footer line:

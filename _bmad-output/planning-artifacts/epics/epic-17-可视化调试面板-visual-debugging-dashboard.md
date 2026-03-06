@@ -5,13 +5,13 @@
 ## Story 17.1: Dashboard 框架与智能体树窗格
 
 As a 平台构建者,
-I want 通过 `crux dashboard` 启动全屏 TUI 面板，在智能体树窗格中实时查看所有进程的状态,
+I want 通过 `rnix dashboard` 启动全屏 TUI 面板，在智能体树窗格中实时查看所有进程的状态,
 So that 我可以纵览整个系统的运行状态。
 
 **Acceptance Criteria:**
 
 **Given** 系统中有运行中的智能体
-**When** 用户执行 `crux dashboard`
+**When** 用户执行 `rnix dashboard`
 **Then** 启动全屏 bubbletea TUI 应用，默认显示多窗格视图
 
 **Given** 智能体树窗格
@@ -78,7 +78,7 @@ So that 我可以在智能体完成后回顾和分析其历史执行。
 **Acceptance Criteria:**
 
 **Given** 存在持久化的录制文件
-**When** 用户执行 `crux dashboard --load <record-dir>`
+**When** 用户执行 `rnix dashboard --load <record-dir>`
 **Then** dashboard 从录制文件加载历史数据，所有窗格展示录制内容
 
 **Given** 离线回放模式

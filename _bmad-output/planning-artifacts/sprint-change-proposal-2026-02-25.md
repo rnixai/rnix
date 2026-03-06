@@ -12,7 +12,7 @@ affects:
   - skills/types.go
   - skills/loader.go
   - kernel/kernel.go
-  - cmd/crux/main.go
+  - cmd/rnix/main.go
   - lib/skills/code-analyst/
 ---
 
@@ -26,7 +26,7 @@ Epic 2（Skill 能力与文件访问）全部完成后，审视设计发现两�
 
 1. **Skill 概念职责混淆**：当前 Skill（manifest.yaml + instructions.md）同时承担了"智能体定义"和"能力模块"双重职责。SkillManifest 包含 Models（模型偏好）和 ContextBudget（上下文预算），这些是智能体级别的配置，不是共享库该有的。
 2. **缺少 Agent 抽象层**：架构中只有 Process（运行时实例）和 Skill（全能定义），缺少"Agent"（智能体定义/可执行程序）这一层。
-3. **Skill 格式与行业标准不兼容**：Agent Skills 开放标准（agentskills.io，由 Anthropic 发起，30+ AI 工具采用）定义了 Skill 的标准格式（SKILL.md），Crux 当前的 manifest.yaml + instructions.md 双文件格式无法与生态互操作。
+3. **Skill 格式与行业标准不兼容**：Agent Skills 开放标准（agentskills.io，由 Anthropic 发起，30+ AI 工具采用）定义了 Skill 的标准格式（SKILL.md），Rnix 当前的 manifest.yaml + instructions.md 双文件格式无法与生态互操作。
 
 ### 证据
 
@@ -59,7 +59,7 @@ Epic 2（Skill 能力与文件访问）全部完成后，审视设计发现两�
 | `skills/loader_test.go` | 重大：重写测试 |
 | `lib/skills/code-analyst/` | 重大：拆分为 Agent + Skill，迁移到标准格式 |
 | `kernel/kernel.go` | 中等：Spawn 接受 AgentInfo 而非 SkillInfo |
-| `cmd/crux/main.go` | 中等：--skill flag → --agent flag |
+| `cmd/rnix/main.go` | 中等：--skill flag → --agent flag |
 
 ### 2.3 文档影响
 
@@ -79,7 +79,7 @@ Epic 2（Skill 能力与文件访问）全部完成后，审视设计发现两�
 1. Epic 3-5 尚未开始，现在修正概念模型成本最低
 2. 改动集中在 skills/ 包和 lib/ 目录，不影响 kernel/vfs/drivers/context/debug 核心
 3. 与 PRD Phase 2 Compose 设计（agents: 概念）自然对齐
-4. Agent Skills 行业标准兼容性为 Crux 带来生态优势
+4. Agent Skills 行业标准兼容性为 Rnix 带来生态优势
 5. 概念清晰度对 MVP 文档（Epic 5）至关重要
 
 **排除的选项：**
@@ -113,13 +113,13 @@ lib/skills/code-analysis/
 
 **SKILL.md 格式遵循标准规范：**
 
-| 字段 | 必需 | 约束 | Crux 映射 |
+| 字段 | 必需 | 约束 | Rnix 映射 |
 |------|------|------|----------|
 | `name` | 是 | ≤64字符，小写+连字符，匹配目录名 | Skill 名称 |
 | `description` | 是 | ≤1024字符，描述做什么+何时使用 | 发现阶段匹配依据 |
-| `allowed-tools` | 否 | 空格分隔工具列表（实验性） | Crux `/dev/` 设备权限白名单 |
+| `allowed-tools` | 否 | 空格分隔工具列表（实验性） | Rnix `/dev/` 设备权限白名单 |
 | `metadata` | 否 | 任意键值对 | 扩展字段 |
-| `compatibility` | 否 | ≤500字符，环境要求 | 标注 Crux 特定需求 |
+| `compatibility` | 否 | ≤500字符，环境要求 | 标注 Rnix 特定需求 |
 | `license` | 否 | 许可证名称 | 许可证 |
 | SKILL.md body | — | Markdown，< 5000 tokens 推荐 | 激活后加载的程序性知识 |
 
@@ -140,9 +140,9 @@ description: >
   find problems in source code.
 allowed-tools: /dev/fs /dev/shell
 metadata:
-  author: crux
+  author: rnix
   version: "1.0"
-compatibility: Designed for Crux
+compatibility: Designed for Rnix
 ---
 
 # Code Analysis
@@ -173,7 +173,7 @@ Each finding should include:
 - Performance anti-patterns
 ```
 
-### 4.3 Agent 设计（Crux 特有概念）
+### 4.3 Agent 设计（Rnix 特有概念）
 
 **目录结构：**
 
@@ -225,12 +225,12 @@ You are a senior code analyst with deep expertise in software quality.
 | 上下文预算 | ✅ context_budget | ❌ |
 | 设备权限 | ❌ 由引用的 Skill 聚合 | ✅ allowed-tools |
 | 复用性 | 特定角色 | 跨 Agent 共享，跨平台兼容 |
-| 标准 | Crux 特有 | Agent Skills 行业标准 |
+| 标准 | Rnix 特有 | Agent Skills 行业标准 |
 
 ### 4.4 Spawn 流程
 
 ```
-crux "分析代码" --agent=code-analyst
+rnix "分析代码" --agent=code-analyst
 
 1. AgentLoader 加载 lib/agents/code-analyst/agent.yaml
    → 获取 models、context_budget、skills 引用列表
@@ -263,7 +263,7 @@ crux "分析代码" --agent=code-analyst
 | `skills/loader.go` | 改为解析 SKILL.md 格式，实现渐进式加载（metadata-only / full） |
 | `skills/loader_test.go` | 更新测试用例和 testdata |
 | `kernel/kernel.go` | Spawn 接受 AgentInfo 而非 SkillInfo |
-| `cmd/crux/main.go` | --skill flag → --agent flag，注入 AgentLoader |
+| `cmd/rnix/main.go` | --skill flag → --agent flag，注入 AgentLoader |
 
 **删除：**
 
@@ -323,9 +323,9 @@ Acceptance Criteria:
 - lib/agents/code-analyst/: agent.yaml + instructions.md（参考 Agent）
 - lib/skills/code-analysis/: SKILL.md（标准格式参考 Skill）
 - kernel/kernel.go: Spawn 接受 AgentInfo 而非 SkillInfo
-- cmd/crux/main.go: --agent flag 替代 --skill
+- cmd/rnix/main.go: --agent flag 替代 --skill
 - AgentLoader 聚合所有引用 Skill 的 allowed-tools 为统一权限白名单
-- 端到端验证：crux "分析代码" --agent=code-analyst 工作正常
+- 端到端验证：rnix "分析代码" --agent=code-analyst 工作正常
 - 所有现有测试通过（更新后）
 ```
 
@@ -333,7 +333,7 @@ Acceptance Criteria:
 
 ### 背景
 
-MCP（Model Context Protocol）是由 Anthropic 发起的开放标准，用于连接 AI 应用与外部系统。Crux PRD Phase 2 规划了 MCP 集成（`/mnt/mcp/` VFS 挂载 + Claude Code CLI `--mcp-config` 传递）。本节评估 Agent/Skill 重设计是否影响 MCP Phase 2 集成。
+MCP（Model Context Protocol）是由 Anthropic 发起的开放标准，用于连接 AI 应用与外部系统。Rnix PRD Phase 2 规划了 MCP 集成（`/mnt/mcp/` VFS 挂载 + Claude Code CLI `--mcp-config` 传递）。本节评估 Agent/Skill 重设计是否影响 MCP Phase 2 集成。
 
 ### MCP 核心原语
 
@@ -343,27 +343,27 @@ MCP（Model Context Protocol）是由 Anthropic 发起的开放标准，用于�
 | **Resources** | 只读数据源，提供上下文 | `resources/read(uri)` JSON-RPC | 应用 |
 | **Prompts** | 可复用指令模板 | `prompts/get(name, args)` JSON-RPC | 用户 |
 
-### Crux 四层能力模型（含 MCP Phase 2）
+### Rnix 四层能力模型（含 MCP Phase 2）
 
-本次 Agent/Skill 重设计后，Crux 的能力模型从 PRD 原始的三层升级为四层：
+本次 Agent/Skill 重设计后，Rnix 的能力模型从 PRD 原始的三层升级为四层：
 
 ```
 Agent    → 智能体定义（身份 + 模型 + 策略 + Skill/MCP 引用）
 Skill    → 程序性知识 + 工具权限（Agent Skills 行业标准，/lib/skills/）
 MCP      → 外部服务集成（MCP 标准，/mnt/mcp/）
-Devices  → Crux 原生设备驱动（/dev/llm/ /dev/fs /dev/shell）
+Devices  → Rnix 原生设备驱动（/dev/llm/ /dev/fs /dev/shell）
 ```
 
 ### Agent/Skill/MCP/Device 职责划分
 
 | 概念 | 来源 | 定义 | 提供什么 |
 |------|------|------|---------|
-| Agent instructions | Crux 特有 | "我是谁"——角色、策略、行为准则 | system prompt 中的身份部分 |
+| Agent instructions | Rnix 特有 | "我是谁"——角色、策略、行为准则 | system prompt 中的身份部分 |
 | Skill SKILL.md | Agent Skills 标准 | "如何做 X"——步骤、模式、最佳实践 | system prompt 中的程序性知识 + 工具权限 |
 | MCP Tools | MCP 标准 | "调用什么外部服务"——API 函数 | 运行时可调用的外部工具 |
 | MCP Resources | MCP 标准 | "读取什么外部数据"——数据源 | 运行时可访问的外部上下文 |
 | MCP Prompts | MCP 标准 | "怎么用某个服务"——服务交互模板 | 特定服务的使用引导 |
-| Crux Devices | Crux 特有 | "本地能力"——LLM/Shell/FS | 基础 I/O 能力 |
+| Rnix Devices | Rnix 特有 | "本地能力"——LLM/Shell/FS | 基础 I/O 能力 |
 
 **三者互补关系示例：**
 
@@ -451,7 +451,7 @@ mcp:                          # Phase 2 新增
 
 - [ ] agents/types.go 和 skills/types.go 职责清晰分离
 - [ ] Skill 遵循 Agent Skills 标准（SKILL.md 格式、渐进式加载）
-- [ ] crux "分析代码" --agent=code-analyst 端到端工作正常
+- [ ] rnix "分析代码" --agent=code-analyst 端到端工作正常
 - [ ] Agent 能正确聚合多个 Skill 的 allowed-tools 权限
 - [ ] 所有现有测试通过
 - [ ] PRD、Architecture、Epics 文档已更新

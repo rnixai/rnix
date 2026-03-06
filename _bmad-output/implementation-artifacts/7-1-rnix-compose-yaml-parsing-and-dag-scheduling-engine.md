@@ -1,4 +1,4 @@
-# Story 7.1: crux-compose.yaml 解析与 DAG 调度引擎
+# Story 7.1: rnix-compose.yaml 解析与 DAG 调度引擎
 
 Status: done
 
@@ -12,7 +12,7 @@ So that 系统自动按正确顺序调度执行。
 
 ## Acceptance Criteria
 
-1. **YAML 解析** — Given `compose/engine.go` 已实现，When 解析 `crux-compose.yaml`，Then 正确提取每个智能体的 `intent`、`agent` 引用、`skills` 列表和 `depends_on` 依赖，And 构建 DAG（有向无环图）表示依赖关系
+1. **YAML 解析** — Given `compose/engine.go` 已实现，When 解析 `rnix-compose.yaml`，Then 正确提取每个智能体的 `intent`、`agent` 引用、`skills` 列表和 `depends_on` 依赖，And 构建 DAG（有向无环图）表示依赖关系
 
 2. **循环依赖检测** — Given YAML 中存在循环依赖，When 解析，Then 返回清晰的错误信息，标注循环路径
 
@@ -20,7 +20,7 @@ So that 系统自动按正确顺序调度执行。
 
 4. **依赖触发** — Given 智能体 B 声明 `depends_on: { A: completed }`，When 智能体 A 完成，Then 智能体 B 自动启动，And 智能体 A 的输出可通过管道注入 B 的上下文
 
-5. **YAML 格式支持** — Given crux-compose.yaml 格式，When 用户编写，Then 支持以下格式：
+5. **YAML 格式支持** — Given rnix-compose.yaml 格式，When 用户编写，Then 支持以下格式：
 ```yaml
 version: "1.0"
 intent: "PR 审查 + 代码分析 + 变更文档"
@@ -40,7 +40,7 @@ agents:
 - [x] Task 1: 定义 Compose 数据模型和类型 (AC: #1, #5)
   - [x] 1.1 创建 `compose/types.go`，定义核心数据结构：
     ```go
-    // ComposeSpec 是 crux-compose.yaml 的顶层结构
+    // ComposeSpec 是 rnix-compose.yaml 的顶层结构
     type ComposeSpec struct {
         Version string                    `yaml:"version"`
         Intent  string                    `yaml:"intent"`
@@ -203,7 +203,7 @@ agents:
 
 ### YAML 格式规范
 
-**crux-compose.yaml 完整格式**：
+**rnix-compose.yaml 完整格式**：
 ```yaml
 version: "1.0"
 intent: "PR 审查 + 代码分析 + 变更文档"
@@ -328,7 +328,7 @@ type KernelSpawner interface {
 }
 ```
 
-**决策**：使用替代方案——在 compose 包内定义独立类型。这样 compose 包只依赖 `agents/` 和 `internal/types/`，不依赖 `kernel/`。在 `cmd/crux/` 层提供适配器将 `KernelImpl` 适配为 `KernelSpawner`。
+**决策**：使用替代方案——在 compose 包内定义独立类型。这样 compose 包只依赖 `agents/` 和 `internal/types/`，不依赖 `kernel/`。在 `cmd/rnix/` 层提供适配器将 `KernelImpl` 适配为 `KernelSpawner`。
 
 ### AgentLoaderFunc 设计
 
@@ -461,7 +461,7 @@ drivers/             — 驱动层不变
 internal/types/      — 类型不变（复用 PID 等）
 internal/xsync/      — 泛型工具不变
 internal/ui/         — UI 不变（compose up 命令在 Story 7.2 实现）
-cmd/crux/main.go     — CLI 层不变（compose 子命令在 Story 7.2 添加）
+cmd/rnix/main.go     — CLI 层不变（compose 子命令在 Story 7.2 添加）
 ```
 
 **依赖方向：**
@@ -469,18 +469,18 @@ cmd/crux/main.go     — CLI 层不变（compose 子命令在 Story 7.2 添加�
 compose/ → agents/          （AgentInfo 类型）
 compose/ → internal/types/  （PID 类型）
 compose/ → 标准库（context, sync, fmt, time）
-compose/ ← cmd/crux/        （Story 7.2 中由 CLI 调用）
+compose/ ← cmd/rnix/        （Story 7.2 中由 CLI 调用）
 ```
 
-**关键**：`compose/` 不导入 `kernel/` 包。通过 `KernelSpawner` 接口解耦。适配器在 `cmd/crux/` 层实现（Story 7.2）。
+**关键**：`compose/` 不导入 `kernel/` 包。通过 `KernelSpawner` 接口解耦。适配器在 `cmd/rnix/` 层实现（Story 7.2）。
 
 ### 必需导入
 
 ```go
 // compose/types.go
 import (
-    "github.com/usecrux/crux/agents"
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/agents"
+    "github.com/rnixai/rnix/internal/types"
 )
 
 // compose/parser.go
@@ -504,8 +504,8 @@ import (
     "sync"
     "time"
 
-    "github.com/usecrux/crux/agents"
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/agents"
+    "github.com/rnixai/rnix/internal/types"
 )
 
 // compose/parser_test.go
@@ -531,8 +531,8 @@ import (
     "testing"
     "time"
 
-    "github.com/usecrux/crux/agents"
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/agents"
+    "github.com/rnixai/rnix/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )
@@ -623,7 +623,7 @@ func (m *mockKernelSpawner) GetProcessResult(pid types.PID) (string, bool) {
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics/epic-7-compose-多智能体编排agent-compose.md#Story 7.1] — Story 定义和验收标准
-- [Source: _bmad-output/planning-artifacts/prd/functional-requirements.md#FR46] — crux-compose.yaml 声明式定义
+- [Source: _bmad-output/planning-artifacts/prd/functional-requirements.md#FR46] — rnix-compose.yaml 声明式定义
 - [Source: _bmad-output/planning-artifacts/prd/functional-requirements.md#FR47] — DAG 拓扑排序调度
 - [Source: _bmad-output/planning-artifacts/prd/non-functional-requirements.md#NFR21] — 编排启动延迟 ≤ 2s
 - [Source: _bmad-output/planning-artifacts/prd/non-functional-requirements.md#NFR19] — Phase 2 向后兼容
@@ -636,7 +636,7 @@ func (m *mockKernelSpawner) GetProcessResult(pid types.PID) (string, bool) {
 - [Source: kernel/kernel.go] — KernelImpl、Spawn、SpawnOpts
 - [Source: kernel/process.go] — Process 结构体、ExitStatus
 - [Source: agents/types.go] — AgentManifest、AgentInfo、AllowedTools
-- [Source: go.mod] — github.com/usecrux/crux, go 1.26, goccy/go-yaml 依赖
+- [Source: go.mod] — github.com/rnixai/rnix, go 1.26, goccy/go-yaml 依赖
 
 ## Dev Agent Record
 
@@ -648,7 +648,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 
 - 初始实现时 pidMap 存在 data race（多个 goroutine 在同一层并发写入 map），通过引入线程安全的 `pidStore`（mutex + map）修复
 - `TestEngine_Execute_ContextCancel` 测试失败：Execute 在最后一层完成后未检查 context 取消状态，在 layer loop 末尾增加 `ctx.Err()` 检查修复
-- `cmd/crux` 和 `ipc` 包的 Unix socket 测试在沙箱环境中因权限限制失败，属于预存问题，非本次变更引入
+- `cmd/rnix` 和 `ipc` 包的 Unix socket 测试在沙箱环境中因权限限制失败，属于预存问题，非本次变更引入
 
 ### Completion Notes List
 
@@ -671,7 +671,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 
 ### Change Log
 
-- 2026-02-28: Story 7.1 完整实现 — crux-compose.yaml 解析、DAG 构建与循环检测、Kahn 拓扑排序、分层并行调度引擎、上游输出注入
+- 2026-02-28: Story 7.1 完整实现 — rnix-compose.yaml 解析、DAG 构建与循环检测、Kahn 拓扑排序、分层并行调度引擎、上游输出注入
 - 2026-02-28: 对抗性代码审查完成 — 修复 6 个问题（3 HIGH、3 MEDIUM），移除 1 个 LOW 问题（死代码）
 
 ## Senior Developer Review (AI)

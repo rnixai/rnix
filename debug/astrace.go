@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // ANSI escape codes for terminal coloring.

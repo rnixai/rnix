@@ -115,9 +115,9 @@ documentFiles:
 | FR30 | Debug | DebugRecord 记录数据 |
 | FR31 | Debug | astrace 定位错误 syscall |
 | FR32 | Debug | 完成时输出汇总信息 |
-| FR33 | CLI | crux "意图" 启动智能体 |
-| FR34 | CLI | crux astrace <pid> 追踪 |
-| FR35 | CLI | crux ps 查看进程 |
+| FR33 | CLI | rnix "意图" 启动智能体 |
+| FR34 | CLI | rnix astrace <pid> 追踪 |
+| FR35 | CLI | rnix ps 查看进程 |
 | FR36 | CLI | 结构化错误信息 |
 | FR37 | CLI | go install 单命令安装 |
 | FR38 | Docs | 概念文档 (进程/VFS/Skill/syscall) |
@@ -133,10 +133,10 @@ documentFiles:
 | FR43 | IPC | 进程组管理 + 批量信号 |
 | FR44 | IPC | 三级并发模型 (进程/线程/协程) |
 | FR45 | IPC | Signal 信号系统 |
-| FR46 | Compose | crux-compose.yaml 声明式编排 |
+| FR46 | Compose | rnix-compose.yaml 声明式编排 |
 | FR47 | Compose | DAG 拓扑调度 + 自动并行 |
-| FR48 | Compose | crux compose up |
-| FR49 | Compose | crux compose down |
+| FR48 | Compose | rnix compose up |
+| FR49 | Compose | rnix compose down |
 | FR50 | Skill Pkg | skill install 安装 |
 | FR51 | Skill Pkg | skill search 搜索 |
 | FR52 | Skill Pkg | skill update 更新 |
@@ -145,11 +145,11 @@ documentFiles:
 | FR55 | MCP | agent.yaml mcp 字段自动挂载 |
 | FR56 | MCP | MCP 工具通过 VFS 暴露 |
 | FR57 | MCP | 四层能力栈端到端运行 |
-| FR58 | Monitoring | crux top 实时监控 |
-| FR59 | Monitoring | crux log 推理日志 |
+| FR58 | Monitoring | rnix top 实时监控 |
+| FR59 | Monitoring | rnix log 推理日志 |
 | FR60 | Monitoring | log 三段式分类 + --filter |
 | FR61 | Monitoring | token 预算上限 |
-| FR62 | Monitoring | crux top 交互式操作 |
+| FR62 | Monitoring | rnix top 交互式操作 |
 | FR63 | Supervisor | Supervisor 树管理 |
 | FR64 | Supervisor | 三种重启策略 |
 | FR65 | Supervisor | init 引导序列 |
@@ -187,7 +187,7 @@ documentFiles:
 | ID | Category | Description |
 |---|---|---|
 | NFR1 | Performance | 单智能体端到端延迟 <=30s |
-| NFR2 | Performance | crux ps 响应 <=100ms |
+| NFR2 | Performance | rnix ps 响应 <=100ms |
 | NFR3 | Performance | astrace 延迟 <=500ms |
 | NFR4 | Performance | VFS 文件读取额外延迟 <10ms |
 | NFR5 | Performance | 上下文组装 <=1s |
@@ -218,8 +218,8 @@ documentFiles:
 | NFR25 | MCP Quality | MCP 挂载延迟 <=500ms |
 | NFR26 | MCP Quality | MCP 异常不影响内核 |
 | NFR27 | MCP Quality | MCP 协议标准兼容 |
-| NFR28 | Observability | crux top 刷新 <=500ms |
-| NFR29 | Observability | crux log 延迟 <=200ms |
+| NFR28 | Observability | rnix top 刷新 <=500ms |
+| NFR29 | Observability | rnix log 延迟 <=200ms |
 | NFR30 | Observability | Skill 格式兼容性 |
 
 #### Phase 3 - 16 NFRs
@@ -239,7 +239,7 @@ documentFiles:
 - **Installation**: go install 单命令, 单二进制, 零额外依赖
 - **LLM Strategy**: 通过 Claude Code CLI 作为 LLM 驱动, 不直接调 API
 - **ABI Stability**: Phase 1 的 15 syscall 是 Phase 2 的 45 syscall 稳定子集
-- **Self-Bootstrap**: MVP 验收硬性标准 -- Crux 分析自身源码识别真实问题
+- **Self-Bootstrap**: MVP 验收硬性标准 -- Rnix 分析自身源码识别真实问题
 
 ### PRD Completeness Assessment
 
@@ -297,9 +297,9 @@ documentFiles:
 | FR30 | Epic 3 | DebugRecord 记录 |
 | FR31 | Epic 3 | astrace 定位错误 |
 | FR32 | Epic 1 | 完成汇总信息 |
-| FR33 | Epic 1 | crux "意图" 启动 |
-| FR34 | Epic 3 | crux astrace 命令 |
-| FR35 | Epic 4 | crux ps 命令 |
+| FR33 | Epic 1 | rnix "意图" 启动 |
+| FR34 | Epic 3 | rnix astrace 命令 |
+| FR35 | Epic 4 | rnix ps 命令 |
 | FR36 | Epic 1 | 结构化错误信息 |
 | FR37 | Epic 1 | go install 安装 |
 | FR38 | Epic 5 | 概念文档 |
@@ -355,7 +355,7 @@ Found: `ux-design-specification.md` (complete, 14 workflow steps completed)
 |---|---|---|
 | Target Users | Aligned | UX covers User A (platform builder) and User B (app developer), matching PRD |
 | User Journeys | Aligned | UX defines execution loop (spawn-observe-result) and debug loop (spawn-debug-fix), mapping to PRD Journey 1-4 |
-| CLI Commands | Aligned | UX specifies `crux "intent"`, `crux ps`, `crux astrace` for Phase 1; compose/top/log for Phase 2 |
+| CLI Commands | Aligned | UX specifies `rnix "intent"`, `rnix ps`, `rnix astrace` for Phase 1; compose/top/log for Phase 2 |
 | Error Handling | Aligned | UX defines 3-line error structure matching FR36 |
 | Output Modes | Aligned | UX specifies 4 density modes (quiet/default/verbose/json) |
 | Installation | Aligned | UX confirms `go install` single binary, zero config |
@@ -368,7 +368,7 @@ Found: `ux-design-specification.md` (complete, 14 workflow steps completed)
 | Charm Ecosystem | Aligned | UX specifies cobra + lipgloss + bubbles + table for MVP, bubbletea for Phase 2 TUI |
 | 6 UI Components | Aligned | Agent Progress Reporter, Result Box, Error Block, Summary Footer, Syscall Trace Line, Process Table |
 | Terminal Profile | Aligned | Width detection, IsTTY, color level, Unicode support |
-| Color System | Aligned | Semantic colors defined (Crux Blue, success green, error red, kernel gray) |
+| Color System | Aligned | Semantic colors defined (Rnix Blue, success green, error red, kernel gray) |
 | Output Structure | Aligned | Header/Content/Footer 3-zone layout |
 | Accessibility | Aligned | NO_COLOR, non-TTY auto-degrade, WCAG AA contrast |
 
@@ -443,7 +443,7 @@ All 22 Epics were reviewed against best practices:
 - Error/edge case coverage in ACs is generally good
 - NFR references embedded in ACs (NFR1-17 referenced 17 times)
 - Epic 3 has best Story decomposition quality (data/logic/interface/presentation layers)
-- Story 4.4 (crux ps) has exemplary AC detail
+- Story 4.4 (rnix ps) has exemplary AC detail
 
 ### Phase 2 Findings (Epic 6-12)
 
@@ -460,7 +460,7 @@ All 22 Epics were reviewed against best practices:
 | # | Epic | Issue |
 |---|---|---|
 | P2-M1 | Epic 6 | Story 6.5 oversized -- three concurrency primitives in one Story |
-| P2-M2 | Epic 7 | Story 7.4 forward dependency on Epic 10's `crux top` |
+| P2-M2 | Epic 7 | Story 7.4 forward dependency on Epic 10's `rnix top` |
 | P2-M3 | Epic 10 | Story 10.4 (Supervisor) oversized -- 3 restart strategies + storm protection = independent Epic |
 | P2-M4 | Epic 10 | Story 10.5 (init) oversized -- initializes 4 different subsystems |
 | P2-M5 | Epic 12 | Both Stories oversized -- each contains 3-4 independent deliverables |
@@ -572,7 +572,7 @@ All 22 Epics were reviewed against best practices:
 
 1. ~~**Epic 8 Registry Gap**~~ **RESOLVED** -- Epic 文档已添加基础设施前置条件，明确注册中心 HTTP API 端点定义。客户端已实现并通过 mock 测试，服务端部署为独立运维任务。
 
-2. ~~**Epic 10 Split**~~ **RESOLVED** -- 已拆分为 Epic 10（监控与可观测性：crux top + crux log + token budget）和 Epic 10b（Supervisor 与系统引导：Supervisor 树 + init 引导序列）。
+2. ~~**Epic 10 Split**~~ **RESOLVED** -- 已拆分为 Epic 10（监控与可观测性：rnix top + rnix log + token budget）和 Epic 10b（Supervisor 与系统引导：Supervisor 树 + init 引导序列）。
 
 3. ~~**Remove Forward Dependencies**~~ **RESOLVED** -- Story 6.2 的 Compose 相关 AC 已移除（Epic 7 Story 7.1 已包含等效内容）。
 
@@ -587,7 +587,7 @@ All 22 Epics were reviewed against best practices:
 1. **Proceed with Phase 2 implementation** after addressing items 1-3 above (these are documentation/planning fixes, not code changes)
 2. **Use Epic 9 (MCP) and Epic 13 (agdb) as quality templates** when writing new Stories -- they have the best balance of user value, sizing, and AC precision
 3. **Defer Phase 3 Epic 19-22 restructuring** until Phase 2 is complete -- real implementation experience will inform better decomposition
-4. **Standardize Story roles** in a batch pass -- replace "As a kernel developer" / "As a agent" with "As a Crux user" where appropriate
+4. **Standardize Story roles** in a batch pass -- replace "As a kernel developer" / "As a agent" with "As a Rnix user" where appropriate
 5. **Split oversized Stories** (1.1, 1.7, 2.1, 5.3, 6.5, 10.4, 10.5, 12.1, 12.2, 19.1) before starting implementation of those specific Stories
 
 ### Final Note
@@ -603,4 +603,4 @@ The issues found are primarily in Epic decomposition quality (sizing, cohesion, 
 
 **Assessor:** BMAD Implementation Readiness Workflow
 **Date:** 2026-03-06
-**Project:** Crux (newxv6)
+**Project:** Rnix (newxv6)

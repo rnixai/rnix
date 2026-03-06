@@ -10,30 +10,30 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/usecrux/crux/agents"
-	"github.com/usecrux/crux/compose"
-	"github.com/usecrux/crux/drivers/mcp"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/internal/xsync"
-	"github.com/usecrux/crux/ipc"
-	"github.com/usecrux/crux/skills"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/compose"
+	"github.com/rnixai/rnix/drivers/mcp"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/internal/xsync"
+	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/skills"
+	"github.com/rnixai/rnix/vfs"
 )
 
 var composeCmd = &cobra.Command{
 	Use:   "compose",
 	Short: "Multi-agent orchestration",
-	Long:  "Manage multi-agent workflows defined in crux-compose.yaml.",
+	Long:  "Manage multi-agent workflows defined in rnix-compose.yaml.",
 }
 
 var composeUpCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Start all agents defined in compose file",
-	Long:  "Parse crux-compose.yaml, resolve dependencies, and spawn all agents in DAG order.",
-	Example: `  crux compose up                      # Use crux-compose.yaml in current directory
-  crux compose up -f my-workflow.yaml   # Use specified file
-  crux compose up --json                # JSON output mode`,
+	Long:  "Parse rnix-compose.yaml, resolve dependencies, and spawn all agents in DAG order.",
+	Example: `  rnix compose up                      # Use rnix-compose.yaml in current directory
+  rnix compose up -f my-workflow.yaml   # Use specified file
+  rnix compose up --json                # JSON output mode`,
 	RunE: runComposeUp,
 }
 
@@ -43,18 +43,18 @@ var composeDownCmd = &cobra.Command{
 	Use:   "down",
 	Short: "Stop all agents defined in compose file",
 	Long:  "Stop all running agents from the compose orchestration and release resources.",
-	Example: `  crux compose down                      # Stop agents from crux-compose.yaml
-  crux compose down -f my-workflow.yaml   # Stop agents from specified file
-  crux compose down --json                # JSON output mode`,
+	Example: `  rnix compose down                      # Stop agents from rnix-compose.yaml
+  rnix compose down -f my-workflow.yaml   # Stop agents from specified file
+  rnix compose down --json                # JSON output mode`,
 	RunE: runComposeDown,
 }
 
 var flagComposeDownFile string
 
 func init() {
-	composeUpCmd.Flags().StringVarP(&flagComposeFile, "file", "f", "crux-compose.yaml", "Compose file path")
+	composeUpCmd.Flags().StringVarP(&flagComposeFile, "file", "f", "rnix-compose.yaml", "Compose file path")
 	composeCmd.AddCommand(composeUpCmd)
-	composeDownCmd.Flags().StringVarP(&flagComposeDownFile, "file", "f", "crux-compose.yaml", "Compose file path")
+	composeDownCmd.Flags().StringVarP(&flagComposeDownFile, "file", "f", "rnix-compose.yaml", "Compose file path")
 	composeCmd.AddCommand(composeDownCmd)
 }
 
@@ -156,7 +156,7 @@ func (s *ipcKernelSpawner) GetProcessResult(pid types.PID) (string, bool) {
 	return s.results.Load(pid)
 }
 
-// runComposeUp implements the `crux compose up` command.
+// runComposeUp implements the `rnix compose up` command.
 func runComposeUp(cmd *cobra.Command, args []string) error {
 	mode := resolveOutputMode()
 	renderer := ui.NewRenderer(os.Stdout, mode)
@@ -166,7 +166,7 @@ func runComposeUp(cmd *cobra.Command, args []string) error {
 	spec, err := compose.ParseFile(flagComposeFile)
 	if err != nil {
 		outputError(renderer, mode, "compose", err.Error(),
-			"compose file parse failed", "check crux-compose.yaml syntax")
+			"compose file parse failed", "check rnix-compose.yaml syntax")
 		exitCode = 2
 		return nil
 	}
@@ -175,7 +175,7 @@ func runComposeUp(cmd *cobra.Command, args []string) error {
 	daemonClient, err := ipc.EnsureDaemon()
 	if err != nil {
 		outputError(renderer, mode, "daemon", err.Error(),
-			"daemon startup failed", "check if crux is installed correctly")
+			"daemon startup failed", "check if rnix is installed correctly")
 		exitCode = 2
 		return nil
 	}
@@ -205,7 +205,7 @@ func runComposeUp(cmd *cobra.Command, args []string) error {
 	engine, err := compose.NewEngine(spec, spawner, agentLoaderFunc)
 	if err != nil {
 		outputError(renderer, mode, "compose", err.Error(),
-			"compose engine creation failed", "check crux-compose.yaml for circular dependencies")
+			"compose engine creation failed", "check rnix-compose.yaml for circular dependencies")
 		exitCode = 2
 		return nil
 	}
@@ -341,7 +341,7 @@ func matchComposeProcesses(procs []vfs.ProcInfo, spec *compose.ComposeSpec) (run
 	return running, completed
 }
 
-// runComposeDown implements the `crux compose down` command.
+// runComposeDown implements the `rnix compose down` command.
 func runComposeDown(cmd *cobra.Command, args []string) error {
 	mode := resolveOutputMode()
 	renderer := ui.NewRenderer(os.Stdout, mode)
@@ -351,7 +351,7 @@ func runComposeDown(cmd *cobra.Command, args []string) error {
 	spec, err := compose.ParseFile(flagComposeDownFile)
 	if err != nil {
 		outputError(renderer, mode, "compose", err.Error(),
-			"compose file parse failed", "check crux-compose.yaml syntax")
+			"compose file parse failed", "check rnix-compose.yaml syntax")
 		exitCode = 2
 		return nil
 	}

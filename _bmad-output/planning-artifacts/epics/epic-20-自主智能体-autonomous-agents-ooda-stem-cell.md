@@ -55,7 +55,7 @@ So that 我不需要预先指定 Agent 模板，系统能自动选择最佳能�
 
 **Acceptance Criteria:**
 
-**Given** 用户执行 `crux "分析代码" --agent=stem`
+**Given** 用户执行 `rnix "分析代码" --agent=stem`
 **When** Stem Agent 接收意图
 **Then** 系统分析意图，自动匹配最相关的 Skill 组合（如 code-analysis + git-tools），加载后完成分化
 
@@ -87,13 +87,13 @@ So that 智能体能力可以按需扩展，且相似任务可快速复用上次
 ## Story 20.5: 分化谱系图
 
 As a 平台构建者,
-I want 通过 `crux lineage <pid>` 查看从基底到特化体的完整分化路径,
+I want 通过 `rnix lineage <pid>` 查看从基底到特化体的完整分化路径,
 So that 我可以理解智能体是如何获得当前能力的。
 
 **Acceptance Criteria:**
 
 **Given** 一个经过分化的智能体
-**When** 用户执行 `crux lineage <pid>`
+**When** 用户执行 `rnix lineage <pid>`
 **Then** 展示从 Stem Agent 到当前特化体的完整路径，包含每次分化加载的 Skill 和触发的意图
 
 **Given** 谱系图中包含多次渐进式特化

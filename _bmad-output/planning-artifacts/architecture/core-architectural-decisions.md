@@ -207,7 +207,7 @@ Driver 层错误（如 CLI 超时）
 
 **决策：** 引入 Agent 抽象层，将原有 Skill 的职责拆分为 Agent（智能体定义）和 Skill（能力模块）两层，且 Skill 格式遵循 Agent Skills 行业标准（agentskills.io）。
 
-**背景：** 原设计中 Skill（manifest.yaml + instructions.md）同时承担了"智能体定义"和"能力模块"双重职责。SkillManifest 包含 Models（模型偏好）和 ContextBudget（上下文预算），这些是智能体级别的配置，不应属于共享库。同时，Agent Skills 开放标准（由 Anthropic 发起，30+ AI 工具采用）定义了 Skill 的标准格式（SKILL.md），Crux 原有的双文件格式无法与生态互操作。
+**背景：** 原设计中 Skill（manifest.yaml + instructions.md）同时承担了"智能体定义"和"能力模块"双重职责。SkillManifest 包含 Models（模型偏好）和 ContextBudget（上下文预算），这些是智能体级别的配置，不应属于共享库。同时，Agent Skills 开放标准（由 Anthropic 发起，30+ AI 工具采用）定义了 Skill 的标准格式（SKILL.md），Rnix 原有的双文件格式无法与生态互操作。
 
 **理由：**
 1. 概念清晰度——Agent 定义"我是谁"（身份、角色、策略、模型偏好），Skill 定义"如何做 X"（程序性知识、工具权限）
@@ -223,7 +223,7 @@ Process（运行时实例）= 进程
       ← Skill(s)（能力模块）= 共享库
 ```
 
-**Agent 定义（Crux 特有）：**
+**Agent 定义（Rnix 特有）：**
 
 ```
 lib/agents/code-analyst/
@@ -292,7 +292,7 @@ type SkillInfo struct {
 | 上下文预算 | ✅ context_budget | ❌ |
 | 设备权限 | ❌ 由引用的 Skill 聚合 | ✅ allowed-tools |
 | 复用性 | 特定角色 | 跨 Agent 共享，跨平台兼容 |
-| 标准 | Crux 特有 | Agent Skills 行业标准 |
+| 标准 | Rnix 特有 | Agent Skills 行业标准 |
 
 **渐进式加载（Progressive Disclosure）：**
 
@@ -303,7 +303,7 @@ type SkillInfo struct {
 **Spawn 流程（更新）：**
 
 ```
-crux "分析代码" --agent=code-analyst
+rnix "分析代码" --agent=code-analyst
 
 1. AgentLoader 加载 lib/agents/code-analyst/agent.yaml
    → 获取 models、context_budget、skills 引用列表
@@ -323,13 +323,13 @@ crux "分析代码" --agent=code-analyst
 
 | 数据类型 | 存储格式 | 路径 | 阶段 |
 |---------|---------|------|------|
-| Time-travel 录制 | JSON Lines（每行一个事件） | `$PROJECT/.crux/records/<pid>-<timestamp>/` | Phase 3 |
-| Skill 本地注册表 | 目录结构 + manifest 文件 | `lib/skills/` + `$CRUX_CACHE/registry.json` | Phase 2 |
-| 声誉数据 | JSON 文件 | `$PROJECT/.crux/reputation/` | Phase 3 |
-| 行为基线 | JSON 文件 | `$PROJECT/.crux/immune/` | Phase 3 |
+| Time-travel 录制 | JSON Lines（每行一个事件） | `$PROJECT/.rnix/records/<pid>-<timestamp>/` | Phase 3 |
+| Skill 本地注册表 | 目录结构 + manifest 文件 | `lib/skills/` + `$RNIX_CACHE/registry.json` | Phase 2 |
+| 声誉数据 | JSON 文件 | `$PROJECT/.rnix/reputation/` | Phase 3 |
+| 行为基线 | JSON 文件 | `$PROJECT/.rnix/immune/` | Phase 3 |
 | Compose 状态 | 内存（进程表 + ProcGroup） | 无持久化，运行时状态 | Phase 2 |
 
-**理由：** 与 Crux 的 Unix 哲学（"一切皆文件"）完全一致。文件系统存储透明可检视、可版本控制、可用标准 Unix 工具处理。Crux 的数据规模（进程级元数据、调试录制）不需要数据库的查询能力。
+**理由：** 与 Rnix 的 Unix 哲学（"一切皆文件"）完全一致。文件系统存储透明可检视、可版本控制、可用标准 Unix 工具处理。Rnix 的数据规模（进程级元数据、调试录制）不需要数据库的查询能力。
 
 ## Decision 9: Compose 引擎架构
 
@@ -397,9 +397,9 @@ crux "分析代码" --agent=code-analyst
 
 **四层仓库查找链：**
 1. 项目本地：`lib/skills/`（最高优先级）
-2. 私有仓库：`$CRUX_PRIVATE_REGISTRY`（企业内部）
+2. 私有仓库：`$RNIX_PRIVATE_REGISTRY`（企业内部）
 3. 社区仓库：默认 GitHub（开源生态）
-4. 官方仓库：`github.com/gonewx/skills`（Crux 官方维护）
+4. 官方仓库：`github.com/rnixai/skills`（Rnix 官方维护）
 
 ## 决策影响分析
 
@@ -421,7 +421,7 @@ crux "分析代码" --agent=code-analyst
 
 ## Go 1.26 特性利用
 
-| 特性 | Crux 使用场景 |
+| 特性 | Rnix 使用场景 |
 |------|-------------|
 | **Green Tea GC**（默认启用） | 自动受益——astrace 高吞吐事件流的 GC 压力降低 |
 | **Goroutine Leak Profiler**（实验性） | 验证 NFR8（进程退出后 goroutine 正确释放），集成到测试和开发调试 |

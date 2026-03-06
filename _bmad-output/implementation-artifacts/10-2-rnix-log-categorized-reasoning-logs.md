@@ -1,24 +1,24 @@
-# Story 10.2: crux log 分类推理日志
+# Story 10.2: rnix log 分类推理日志
 
 Status: done
 
 ## Story
 
 As a 用户,
-I want 通过 `crux log <pid>` 查看智能体的推理日志，按类别分类显示,
+I want 通过 `rnix log <pid>` 查看智能体的推理日志，按类别分类显示,
 So that 我无需深入内核就能排查问题。
 
 ## Acceptance Criteria
 
 1. **AC1: 基本日志输出**
-   - Given `cmd/crux/log.go` 已实现
-   - When 执行 `crux log 5`
+   - Given `cmd/rnix/log.go` 已实现
+   - When 执行 `rnix log 5`
    - Then 输出 PID 5 的推理日志
    - And 按 `[think]`（推理过程）、`[tool]`（工具调用）、`[output]`（最终输出）三段式分类显示（FR60）
 
 2. **AC2: 过滤功能**
    - Given 使用过滤
-   - When 执行 `crux log 5 --filter tool`
+   - When 执行 `rnix log 5 --filter tool`
    - Then 仅显示 `[tool]` 类别的日志条目
 
 3. **AC3: 低延迟**
@@ -28,22 +28,22 @@ So that 我无需深入内核就能排查问题。
 
 4. **AC4: PID 不存在处理**
    - Given PID 不存在
-   - When 执行 `crux log 999`
+   - When 执行 `rnix log 999`
    - Then 输出 `✗ PID 999: process not found` + 建议（与 astrace 错误模式对齐）
 
 5. **AC5: JSON 输出**
    - Given 使用 `--json` flag
-   - When 执行 `crux log 5 --json`
+   - When 执行 `rnix log 5 --json`
    - Then 输出 NDJSON 格式的日志条目（每行一个 JSON 对象，含 category/content/timestamp 字段）
 
 6. **AC6: 实时流式**
    - Given 进程正在运行
-   - When 执行 `crux log 5`
+   - When 执行 `rnix log 5`
    - Then 实时流式输出新产生的日志条目（类似 `tail -f`）
    - And 进程退出后自动断开并提示
 
 7. **AC7: Ctrl+C 安全断开**
-   - Given `crux log` 运行中
+   - Given `rnix log` 运行中
    - When 按 Ctrl+C
    - Then 断开日志流，不影响被追踪进程
 
@@ -68,14 +68,14 @@ So that 我无需深入内核就能排查问题。
   - [x] 4.3 实现 `handleAttachLog`：获取 LogChan，流式编码 LogEntryWire（与 handleAttachDebug 模式一致）
 - [x] Task 5: IPC Client 方法 (AC: #1, #6)
   - [x] 5.1 在 `ipc/client.go` 添加 `AttachLog(pid, onEntry func(LogEntryWire)) error`（与 AttachDebug 模式一致）
-- [x] Task 6: 实现 `cmd/crux/log.go` CLI 命令 (AC: #1-#7)
-  - [x] 6.1 创建 `cmd/crux/log.go`，定义 `logCmd` cobra 命令（Use: "log <pid>"）
+- [x] Task 6: 实现 `cmd/rnix/log.go` CLI 命令 (AC: #1-#7)
+  - [x] 6.1 创建 `cmd/rnix/log.go`，定义 `logCmd` cobra 命令（Use: "log <pid>"）
   - [x] 6.2 添加 `--filter` string flag（合法值：think/tool/output，空=全部）
   - [x] 6.3 实现 `runLog`：解析 PID、Dial IPC、设置信号处理、调用 AttachLog
   - [x] 6.4 实现人类可读格式化：`[think]` 灰色、`[tool]` 蓝色、`[output]` 绿色（复用 `internal/ui/styles.go` 颜色）
   - [x] 6.5 实现 JSON 格式化：NDJSON 每行一个 LogEntryWire
   - [x] 6.6 实现 --filter 过滤逻辑（在 onEntry 回调中跳过不匹配的 category）
-  - [x] 6.7 在 `cmd/crux/main.go` 的 `init()` 中注册 `rootCmd.AddCommand(logCmd)`
+  - [x] 6.7 在 `cmd/rnix/main.go` 的 `init()` 中注册 `rootCmd.AddCommand(logCmd)`
 - [x] Task 7: 格式化与 UI (AC: #1, #2)
   - [x] 7.1 在 `internal/ui/` 中添加 `FormatLogEntry` 函数（或在 log.go 中内联，视复杂度决定）
   - [x] 7.2 日志输出格式：`[HH:MM:SS.sss] [category] content`（时间戳对齐 astrace 的相对时间格式）
@@ -84,17 +84,17 @@ So that 我无需深入内核就能排查问题。
   - [x] 8.2 单元测试：--filter 过滤逻辑（验证各 category 过滤）
   - [x] 8.3 单元测试：LogEntryWire 序列化/反序列化
   - [x] 8.4 单元测试：格式化输出（人类可读 + JSON 模式）
-  - [x] 8.5 在 `cmd/crux/main_test.go` 中确认 `log` 命令注册
+  - [x] 8.5 在 `cmd/rnix/main_test.go` 中确认 `log` 命令注册
   - [x] 8.6 单元测试：PID 不存在场景
 
 ## Dev Notes
 
 ### 关键架构约束
 
-- **依赖方向**：`cmd/crux/` → `ipc/` → `vfs/`（ProcInfo 类型），`cmd/crux/` → `internal/ui/`（styles）
-- **新文件位置**：`cmd/crux/log.go`（所有 CLI 逻辑集中在此文件，与 `top.go`、`compose.go` 同级）
+- **依赖方向**：`cmd/rnix/` → `ipc/` → `vfs/`（ProcInfo 类型），`cmd/rnix/` → `internal/ui/`（styles）
+- **新文件位置**：`cmd/rnix/log.go`（所有 CLI 逻辑集中在此文件，与 `top.go`、`compose.go` 同级）
 - **LogChan 与 DebugChan 并行**：两个独立通道，互不干扰。DebugChan 传递低级 SyscallEvent，LogChan 传递高级 LogEntry
-- **不修改 astrace**：`crux log` 是 astrace 的高级替代，面向用户排障；astrace 面向开发者调试 syscall
+- **不修改 astrace**：`rnix log` 是 astrace 的高级替代，面向用户排障；astrace 面向开发者调试 syscall
 
 ### LogEntry 类型定义
 
@@ -258,7 +258,7 @@ func (c *Client) AttachLog(pid types.PID, onEntry func(LogEntryWire)) error {
 
 ### CLI 命令模式（参考 astrace 实现）
 
-`cmd/crux/log.go` 的 runLog 与 runAstrace 高度对齐：
+`cmd/rnix/log.go` 的 runLog 与 runAstrace 高度对齐：
 
 1. 解析 PID 参数（`cobra.ExactArgs(1)`）
 2. `ipc.Dial(ipc.SocketPath())` 连接 daemon
@@ -275,10 +275,10 @@ var logCmd = &cobra.Command{
     Use:     "log <pid>",
     Short:   "View categorized reasoning logs of an agent process",
     Long:    "Stream reasoning logs from a running agent, categorized as [think], [tool], and [output].\n\nPress Ctrl+C to detach without affecting the traced process.",
-    Example: `  crux log 5                   Stream all log categories
-  crux log 5 --filter tool     Show only tool call logs
-  crux log 5 --filter think    Show only reasoning logs
-  crux log 5 --json            Output as NDJSON stream`,
+    Example: `  rnix log 5                   Stream all log categories
+  rnix log 5 --filter tool     Show only tool call logs
+  rnix log 5 --filter think    Show only reasoning logs
+  rnix log 5 --json            Output as NDJSON stream`,
     Args: cobra.ExactArgs(1),
     RunE: runLog,
 }
@@ -293,7 +293,7 @@ logCmd.Flags().StringVar(&flagFilter, "filter", "", "Filter by log category (thi
 ### 人类可读输出格式
 
 ```
-[crux log] attached to PID 5
+[rnix log] attached to PID 5
 
 [  0.523] [think]  系统分析了代码库结构，发现 main.go 中有潜在的竞态条件...
 [  0.524] [tool]   /dev/fs → Read src/main.go (2,847 bytes)
@@ -301,7 +301,7 @@ logCmd.Flags().StringVar(&flagFilter, "filter", "", "Filter by log category (thi
 [  1.204] [tool]   /dev/fs → Write fix.patch (156 bytes)
 [  2.100] [output] 修复了 main.go 中的竞态条件：在第 52 行添加了 sync.Mutex 保护...
 
-[crux log] detached from PID 5 (process exited)
+[rnix log] detached from PID 5 (process exited)
 ```
 
 **颜色方案**（复用 `internal/ui/styles.go`）：
@@ -318,7 +318,7 @@ logCmd.Flags().StringVar(&flagFilter, "filter", "", "Filter by log category (thi
 - `internal/ui/table.go`：`FormatDuration(d)`（已在 Story 10-1 中导出）
 - `internal/ui/render.go`：`NewRenderer(w, mode)`、`RenderError()` 错误渲染
 - `ipc/client.go`：`Dial()`、`Close()`、`sendRequest()`、scanner 模式
-- `cmd/crux/main.go`：`resolveOutputMode()`、`wireToSyscallEvent()` 参考模式
+- `cmd/rnix/main.go`：`resolveOutputMode()`、`wireToSyscallEvent()` 参考模式
 
 **从 astrace 复用的模式（不复制代码，复用架构模式）：**
 - 信号处理：`context.WithCancel` + `signal.Notify` + goroutine cancel
@@ -373,7 +373,7 @@ IPC Server 的 `KernelProvider` 接口（`ipc/server.go` 中的 `Kernel` 接口�
 ### 边界情况
 
 - **DebugChan 为 nil 但 LogChan 非 nil**：可能发生（理论上不会，因为两者都在 NewProcess 中初始化）。emitLog 独立检查 LogChan。
-- **多个消费者**：与 DebugChan 相同，LogChan 只能有一个消费者（Go channel 语义）。如果已有 `crux log` 连接，第二个连接看不到事件。IPC server 中 `GetLogChan` 返回同一个 channel。
+- **多个消费者**：与 DebugChan 相同，LogChan 只能有一个消费者（Go channel 语义）。如果已有 `rnix log` 连接，第二个连接看不到事件。IPC server 中 `GetLogChan` 返回同一个 channel。
   - **设计决策**：MVP 阶段接受单消费者限制（与 astrace 一致），后续可考虑 fan-out。
 - **进程已退出**：`GetLogChan` 返回 nil channel（reapProcess 已 nil-out），IPC handler 返回 NOT_FOUND。
 - **--filter 无效值**：如果 filter 值不是 think/tool/output，在 runLog 开始时验证并报错退出。
@@ -381,7 +381,7 @@ IPC Server 的 `KernelProvider` 接口（`ipc/server.go` 中的 `Kernel` 接口�
 
 ### 命令注册模式
 
-在 `cmd/crux/main.go` 的 `init()` 中添加：
+在 `cmd/rnix/main.go` 的 `init()` 中添加：
 ```go
 logCmd.Flags().StringVar(&flagFilter, "filter", "", "Filter by category (think, tool, output)")
 rootCmd.AddCommand(logCmd)
@@ -398,7 +398,7 @@ if err != nil {
     ui.InitStyles(renderer.Profile)
     ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
         "no active daemon (process not found)", "",
-        "crux ps  查看活跃进程")
+        "rnix ps  查看活跃进程")
     return nil
 }
 ```
@@ -415,7 +415,7 @@ if err != nil {
 
 ### Project Structure Notes
 
-- **新文件**：`cmd/crux/log.go`（CLI 命令 + 格式化）、`cmd/crux/log_test.go`（测试）
+- **新文件**：`cmd/rnix/log.go`（CLI 命令 + 格式化）、`cmd/rnix/log_test.go`（测试）
 - **修改文件**：
   - `internal/types/types.go` — 添加 LogCategory、LogEntry
   - `kernel/process.go` — Process 添加 LogChan 字段，NewProcess 初始化
@@ -424,7 +424,7 @@ if err != nil {
   - `ipc/protocol.go` — 添加 MethodAttachLog、AttachLogRequest、LogEntryWire、StreamLogEntry
   - `ipc/server.go` — handleConn 添加 case、实现 handleAttachLog
   - `ipc/client.go` — 添加 AttachLog 方法
-  - `cmd/crux/main.go` — init() 注册 logCmd
+  - `cmd/rnix/main.go` — init() 注册 logCmd
 - **不修改**：astrace 相关代码、DebugChan 相关代码、top.go、驱动层
 - **依赖不变**：不需要新的外部依赖
 
@@ -440,7 +440,7 @@ if err != nil {
 - [Source: ipc/protocol.go#AttachDebug 协议模式]
 - [Source: ipc/server.go#handleAttachDebug 实现]
 - [Source: ipc/client.go#AttachDebug 客户端]
-- [Source: cmd/crux/main.go#runAstrace 参考实现]
+- [Source: cmd/rnix/main.go#runAstrace 参考实现]
 - [Source: internal/ui/styles.go#颜色常量]
 - [Source: internal/ui/table.go#FormatDuration（已导出）]
 - [Source: internal/types/types.go#SyscallEvent 结构体参考]
@@ -465,16 +465,16 @@ N/A
 - IPC 协议扩展：MethodAttachLog、AttachLogRequest、LogEntryWire、StreamLogEntry
 - handleAttachLog 服务端实现与 handleAttachDebug 完全对齐
 - AttachLog 客户端方法与 AttachDebug 模式一致
-- cmd/crux/log.go 实现完整 CLI：--filter (think/tool/output)、--json (NDJSON)、Ctrl+C 安全断开
+- cmd/rnix/log.go 实现完整 CLI：--filter (think/tool/output)、--json (NDJSON)、Ctrl+C 安全断开
 - FormatLogEntry 使用颜色：think=MutedStyle(灰)、tool=AgentStyle(蓝)、output=SuccessStyle(绿)
 - 时间戳格式：相对进程启动时间的秒数（7.3f 格式），与 astrace 对齐
 - 已有 red-phase 测试（kernel/log_test.go, ipc/log_test.go）全部通过
-- 新增 cmd/crux/log_test.go 覆盖格式化、过滤验证、命令注册、PID 不存在场景
+- 新增 cmd/rnix/log_test.go 覆盖格式化、过滤验证、命令注册、PID 不存在场景
 - 全套 17 个包测试通过，零回归，-race 检测通过
 
 ### Change Log
 
-- 2026-03-02: Story 10.2 实现完成 — crux log 分类推理日志命令
+- 2026-03-02: Story 10.2 实现完成 — rnix log 分类推理日志命令
 - 2026-03-02: Code Review 修复 — AC4 PID 不存在错误格式 + exit code + 测试加固
 
 ### File List
@@ -486,6 +486,6 @@ N/A
 - `ipc/protocol.go` — 添加 MethodAttachLog、AttachLogRequest、LogEntryWire、StreamLogEntry、LogEntryToWire
 - `ipc/server.go` — handleConn 添加 case MethodAttachLog，实现 handleAttachLog
 - `ipc/client.go` — 添加 AttachLog 方法
-- `cmd/crux/log.go` — 新文件：logCmd、runLog、FormatLogEntry、formatLogTimestamp
-- `cmd/crux/log_test.go` — 新文件：CLI 层测试
-- `cmd/crux/main.go` — init() 注册 logCmd
+- `cmd/rnix/log.go` — 新文件：logCmd、runLog、FormatLogEntry、formatLogTimestamp
+- `cmd/rnix/log_test.go` — 新文件：CLI 层测试
+- `cmd/rnix/main.go` — init() 注册 logCmd

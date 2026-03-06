@@ -41,13 +41,13 @@ So that 我可以从多个维度验证智能体的行为是否符合预期。
 ## Story 16.3: 批量测试运行与报告
 
 As a 平台构建者,
-I want 通过 `crux agtest [test-file]` 批量运行测试并获得结构化结果报告,
+I want 通过 `rnix agtest [test-file]` 批量运行测试并获得结构化结果报告,
 So that 我可以快速了解整体回归状态。
 
 **Acceptance Criteria:**
 
 **Given** 一个或多个测试 YAML 文件
-**When** 用户执行 `crux agtest tests/`
+**When** 用户执行 `rnix agtest tests/`
 **Then** 系统按顺序运行所有测试用例，输出结果报告（通过/失败/跳过 + 失败原因）
 **And** 单个测试用例框架开销 <= 500ms（NFR35）
 

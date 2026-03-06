@@ -11,12 +11,12 @@ So that 我可以在智能体完成后离线分析其完整执行历史。
 **Acceptance Criteria:**
 
 **Given** 一个 Running 状态的智能体进程
-**When** 用户执行 `crux record <pid>` 或在 agdb 中执行 `record start`
+**When** 用户执行 `rnix record <pid>` 或在 agdb 中执行 `record start`
 **Then** 系统开始捕获该进程的所有 DebugEvent 并写入磁盘
 
 **Given** 录制进行中
 **When** 智能体完成执行或用户停止录制
-**Then** 录制数据持久化到 `$PROJECT/.crux/records/<pid>-<timestamp>/` 目录
+**Then** 录制数据持久化到 `$PROJECT/.rnix/records/<pid>-<timestamp>/` 目录
 **And** 格式为 JSON Lines（每行一个事件），包含完整的 syscall 序列、上下文快照和 LLM 响应
 
 **Given** 录制已开启
@@ -32,7 +32,7 @@ So that 我可以自由地浏览智能体的历史执行过程。
 **Acceptance Criteria:**
 
 **Given** 存在一个有效的录制文件
-**When** 用户执行 `crux replay <record-id>`
+**When** 用户执行 `rnix replay <record-id>`
 **Then** 系统加载录制数据并进入回放界面
 
 **Given** 用户在回放界面中
@@ -81,4 +81,4 @@ So that 我可以验证"如果当时做了不同决定会怎样"。
 
 **Given** fork 产生的新进程
 **When** 新进程执行完成
-**Then** 用户可以通过 `crux ps` 和 `crux astrace` 正常查看该分支进程
+**Then** 用户可以通过 `rnix ps` 和 `rnix astrace` 正常查看该分支进程

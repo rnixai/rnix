@@ -5,10 +5,10 @@
 - FR43: Epic 6 — 进程组管理（JoinGroup/GetProcGroup）
 - FR44: Epic 6 — 三级并发模型（进程/线程/协程）
 - FR45: Epic 6 — Signal syscall 信号系统
-- FR46: Epic 7 — crux-compose.yaml 声明式定义
+- FR46: Epic 7 — rnix-compose.yaml 声明式定义
 - FR47: Epic 7 — Compose 引擎 DAG 依赖调度
-- FR48: Epic 7 — crux compose up 一键启动
-- FR49: Epic 7 — crux compose down 停止释放
+- FR48: Epic 7 — rnix compose up 一键启动
+- FR49: Epic 7 — rnix compose down 停止释放
 - FR50: Epic 8 — skill install 安装
 - FR51: Epic 8 — skill search 搜索
 - FR52: Epic 8 — skill update 更新
@@ -17,11 +17,11 @@
 - FR55: Epic 9 — agent.yaml mcp 字段引用
 - FR56: Epic 9 — VFS 路径暴露 MCP 工具
 - FR57: Epic 9 — 四层能力栈端到端
-- FR58: Epic 10 — crux top 实时监控
-- FR59: Epic 10 — crux log 推理日志
-- FR60: Epic 10 — crux log think/tool/output 分类
+- FR58: Epic 10 — rnix top 实时监控
+- FR59: Epic 10 — rnix log 推理日志
+- FR60: Epic 10 — rnix log think/tool/output 分类
 - FR61: Epic 10 — token 预算管理
-- FR62: Epic 10 — crux top 交互式操作
+- FR62: Epic 10 — rnix top 交互式操作
 - FR63: Epic 10 — Supervisor 树管理
 - FR64: Epic 10 — 三种重启策略
 - FR65: Epic 10 — init 引导序列

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // mcpCallTimeout is the timeout for MCP protocol calls during VFS Read operations.

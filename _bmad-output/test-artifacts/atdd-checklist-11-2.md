@@ -17,8 +17,8 @@ inputDocuments:
   - ipc/protocol.go
   - ipc/server.go
   - ipc/client.go
-  - cmd/crux/main.go
-  - cmd/crux/main_test.go
+  - cmd/rnix/main.go
+  - cmd/rnix/main_test.go
 ---
 
 # ATDD 检查清单 - Epic 11, Story 2: 变量与环境传递
@@ -187,7 +187,7 @@ inputDocuments:
 
 ### Regression Tests — CLI (4 tests)
 
-**文件:** `cmd/crux/main_test.go` (追加 ~80 行)
+**文件:** `cmd/rnix/main_test.go` (追加 ~80 行)
 
 - ✅ **Test:** TestIsScriptSyntax_Positive
   - **状态:** RED — `undefined: isScriptSyntax`
@@ -304,15 +304,15 @@ inputDocuments:
 
 ---
 
-### Test Group 4: CLI 集成 (cmd/crux/main.go)
+### Test Group 4: CLI 集成 (cmd/rnix/main.go)
 
-**文件:** `cmd/crux/main_test.go`
+**文件:** `cmd/rnix/main_test.go`
 
 **让以下测试通过的实现任务:**
 
 - [ ] 实现 `isScriptSyntax(intent string) bool` — 检测多行（含 `\n`）或以 `export` 开头
 - [ ] 在 `runRoot` 中插入 `isScriptSyntax` 检测（在 `isPipelineSyntax` 之前）
-- [ ] 运行: `go test ./cmd/crux/ -run "TestIsScriptSyntax|TestScriptDetection|TestExistingPaths"`
+- [ ] 运行: `go test ./cmd/rnix/ -run "TestIsScriptSyntax|TestScriptDetection|TestExistingPaths"`
 - [ ] ✅ 全部通过 (green phase)
 
 **预计工作量:** 1 小时
@@ -329,7 +329,7 @@ inputDocuments:
 
 ```bash
 # 运行所有 11.2 失败测试（当前 RED phase — 编译失败）
-go test ./shell/... ./cmd/crux/...
+go test ./shell/... ./cmd/rnix/...
 
 # 运行 env 相关测试
 go test ./shell/ -run "TestEnvironment|TestExpand|TestNewEnvironment"
@@ -341,10 +341,10 @@ go test ./shell/ -run "TestParseScript"
 go test ./shell/ -run "TestScriptExecutor"
 
 # 运行 CLI 回归测试
-go test ./cmd/crux/ -run "TestIsScriptSyntax|TestScriptDetection|TestExistingPaths"
+go test ./cmd/rnix/ -run "TestIsScriptSyntax|TestScriptDetection|TestExistingPaths"
 
 # 运行全部 11.2 测试（verbose）
-go test -v ./shell/... ./cmd/crux/... -run "11.2|Script|Env|Export|Expand"
+go test -v ./shell/... ./cmd/rnix/... -run "11.2|Script|Env|Export|Expand"
 ```
 
 ---
@@ -390,7 +390,7 @@ go test -v ./shell/... ./cmd/crux/... -run "11.2|Script|Env|Export|Expand"
 1. `shell/env.go` (Environment + Expand) → 运行 env_test.go
 2. `shell/script.go` (ParseScript) → 运行 script_test.go 解析部分
 3. `shell/script.go` (ScriptExecutor) → 运行 script_test.go 执行部分
-4. `cmd/crux/main.go` (isScriptSyntax) → 运行 main_test.go
+4. `cmd/rnix/main.go` (isScriptSyntax) → 运行 main_test.go
 5. `ipc/protocol.go` + `ipc/server.go` + `ipc/client.go` → 集成测试
 
 ---
@@ -408,7 +408,7 @@ go test -v ./shell/... ./cmd/crux/... -run "11.2|Script|Env|Export|Expand"
 ## 下一步
 
 1. **将此清单和失败测试交给 DEV 工作流**
-2. **运行失败测试**确认 RED phase: `go test ./shell/... ./cmd/crux/...`
+2. **运行失败测试**确认 RED phase: `go test ./shell/... ./cmd/rnix/...`
 3. **从 Test Group 1 (env.go) 开始实现**
 4. **每完成一个 Group 运行一次测试**
 5. **全部通过后进入 REFACTOR 阶段**
@@ -420,23 +420,23 @@ go test -v ./shell/... ./cmd/crux/... -run "11.2|Script|Env|Export|Expand"
 
 ### 初始测试运行 (RED Phase 验证)
 
-**命令:** `go test ./shell/... ./cmd/crux/...`
+**命令:** `go test ./shell/... ./cmd/rnix/...`
 
 **结果:**
 
 ```
-# github.com/usecrux/crux/shell [github.com/usecrux/crux/shell.test]
+# github.com/rnixai/rnix/shell [github.com/rnixai/rnix/shell.test]
 shell/env_test.go:19:9: undefined: NewEnvironment
 shell/env_test.go:38:9: undefined: NewEnvironment
 ...
 shell/env_test.go:133:9: too many errors
-FAIL    github.com/usecrux/crux/shell [build failed]
+FAIL    github.com/rnixai/rnix/shell [build failed]
 
-# github.com/usecrux/crux/cmd/crux [github.com/usecrux/crux/cmd/crux.test]
-cmd/crux/main_test.go:1048:13: undefined: isScriptSyntax
-cmd/crux/main_test.go:1071:13: undefined: isScriptSyntax
+# github.com/rnixai/rnix/cmd/rnix [github.com/rnixai/rnix/cmd/rnix.test]
+cmd/rnix/main_test.go:1048:13: undefined: isScriptSyntax
+cmd/rnix/main_test.go:1071:13: undefined: isScriptSyntax
 ...
-FAIL    github.com/usecrux/crux/cmd/crux [build failed]
+FAIL    github.com/rnixai/rnix/cmd/rnix [build failed]
 ```
 
 **摘要:**

@@ -17,13 +17,13 @@ source_verification: true
 **日期：** 2026-03-06
 **作者：** Decker
 **研究类型：** 技术研究
-**项目上下文：** Crux Agent OS — `drivers/llm/` 多提供商驱动层设计
+**项目上下文：** Rnix Agent OS — `drivers/llm/` 多提供商驱动层设计
 
 ---
 
 ## Research Overview
 
-本报告对 Crux Agent OS 的多 LLM 提供商集成方案进行了系统性技术调研。研究覆盖 OpenAI、Google Gemini、Anthropic、Ollama 四大提供商的 Go SDK、REST API、CLI 工具链，以及 Go 生态中的多 LLM 抽象框架（LangChainGo、any-llm-go、Eino 等）。核心发现：Crux 现有的 `LLMDriver` 接口设计方向正确，流式 channel 模式与 2026 年主流实践完全吻合；扩展时应优先引入接口隔离（分离 Tool Calling）、类型化错误规范、以及 OpenAI 兼容基座模式以降低新 Provider 接入成本。完整分析和建议见下文各章节。
+本报告对 Rnix Agent OS 的多 LLM 提供商集成方案进行了系统性技术调研。研究覆盖 OpenAI、Google Gemini、Anthropic、Ollama 四大提供商的 Go SDK、REST API、CLI 工具链，以及 Go 生态中的多 LLM 抽象框架（LangChainGo、any-llm-go、Eino 等）。核心发现：Rnix 现有的 `LLMDriver` 接口设计方向正确，流式 channel 模式与 2026 年主流实践完全吻合；扩展时应优先引入接口隔离（分离 Tool Calling）、类型化错误规范、以及 OpenAI 兼容基座模式以降低新 Provider 接入成本。完整分析和建议见下文各章节。
 
 ---
 
@@ -34,7 +34,7 @@ source_verification: true
 1. **Go SDK 生态已成熟**：四大提供商均拥有官方 Go SDK（OpenAI v3.26.0、Anthropic v1.26.0、Google go-genai v1.49.0、Ollama v0.17.7），均已达到生产可用水平
 2. **OpenAI API 成为事实标准**：Ollama、Groq、DeepSeek、Mistral 等均提供 OpenAI 兼容端点，Google Gemini 也已跟进——基于 OpenAI 兼容基座可大幅降低新 Provider 接入成本
 3. **Tool Calling 格式分裂严重**：四家的工具定义、调用返回、结果回传格式各不相同，是抽象层设计的核心挑战
-4. **Crux 现有架构具备良好基础**：`LLMDriver` 接口 + `DriverRegistry` + `<-chan StreamEvent` 流式设计与业界最佳实践高度一致
+4. **Rnix 现有架构具备良好基础**：`LLMDriver` 接口 + `DriverRegistry` + `<-chan StreamEvent` 流式设计与业界最佳实践高度一致
 
 ### 核心建议
 
@@ -52,7 +52,7 @@ source_verification: true
 3. [跨提供商 API 差异深度对比](#3-跨提供商-api-差异深度对比)
 4. [CLI 工具链可用性评估](#4-cli-工具链可用性评估)
 5. [多 LLM 抽象层设计模式](#5-多-llm-抽象层设计模式)
-6. [Crux 现有架构分析与扩展建议](#6-crux-现有架构分析与扩展建议)
+6. [Rnix 现有架构分析与扩展建议](#6-rnix-现有架构分析与扩展建议)
 7. [实施路线图与风险评估](#7-实施路线图与风险评估)
 8. [参考资料与信息源](#8-参考资料与信息源)
 
@@ -215,7 +215,7 @@ err = client.Chat(ctx, &api.ChatRequest{
 })
 ```
 
-**流式设计差异：** 使用回调函数而非迭代器或 channel——集成到 Crux 时需适配为 `<-chan StreamEvent`。
+**流式设计差异：** 使用回调函数而非迭代器或 channel——集成到 Rnix 时需适配为 `<-chan StreamEvent`。
 
 **OpenAI 兼容端点：** `/v1/chat/completions`、`/v1/embeddings`、`/v1/models`、`/v1/responses`（v0.13.3+）。兼容度高但不支持 `tool_choice`、`logit_bias`、`n` 参数。
 
@@ -305,9 +305,9 @@ Ollama:    {"type": "function", "function": {"name": "...", "parameters": {...}}
 | **会话恢复** | `--resume SESSION_ID` | `codex resume` | — | — |
 | **脚本化能力** | 优秀（NDJSON 协议） | 中等 | 良好 | 基础（适合模型管理） |
 
-### 4.2 Crux 当前 CLI 集成状态
+### 4.2 Rnix 当前 CLI 集成状态
 
-Crux 已在 `drivers/llm/claude_cli.go` 中实现了对 Claude Code CLI 的完整集成：
+Rnix 已在 `drivers/llm/claude_cli.go` 中实现了对 Claude Code CLI 的完整集成：
 - `claudeCliResponse` 解析 `--output-format json` 输出
 - `claudeStreamEvent` 解析 `--output-format stream-json` 流
 - `CommandBuilder` 抽象支持测试注入
@@ -362,7 +362,7 @@ provider, _ := openai.NewCompatible(openai.CompatibleConfig{
 })
 ```
 
-- **流式用 channel**：与 Crux 的 `<-chan StreamEvent` 设计完全一致
+- **流式用 channel**：与 Rnix 的 `<-chan StreamEvent` 设计完全一致
 - **类型化错误**：`ErrRateLimit`、`ErrAuthentication`、`ErrContextLength` 等 sentinel error
 - **局限**：Tool Calling 跨 Provider 抽象尚未实现
 
@@ -391,11 +391,11 @@ type ToolCallingChatModel interface {
 
 #### 模式 1：Adapter（适配器）— 最主流
 
-每个 Provider 包装在统一接口后面。**Crux 的 `LLMDriver` 已采用此模式。**
+每个 Provider 包装在统一接口后面。**Rnix 的 `LLMDriver` 已采用此模式。**
 
 #### 模式 2：Strategy + Registry（策略 + 注册表）
 
-动态选择 Provider。**Crux 的 `DriverRegistry` 已实现。**
+动态选择 Provider。**Rnix 的 `DriverRegistry` 已实现。**
 
 #### 模式 3：Interface Segregation（接口隔离）
 
@@ -416,13 +416,13 @@ any-llm-go 引入：大量 Provider 暴露 OpenAI 兼容 API，共享 OpenAI 兼
 
 ---
 
-## 6. Crux 现有架构分析与扩展建议
+## 6. Rnix 现有架构分析与扩展建议
 
 ### 6.1 现有架构评估
 
-Crux 当前 LLM 驱动层（`drivers/llm/`）已具备良好基础：
+Rnix 当前 LLM 驱动层（`drivers/llm/`）已具备良好基础：
 
-| 特性 | Crux 现状 | 业界最佳实践 | 评估 |
+| 特性 | Rnix 现状 | 业界最佳实践 | 评估 |
 |---|---|---|---|
 | 基础接口 | `Call` + `Stream` + `Info` | 与 any-llm-go 一致 | 优秀 |
 | 流式设计 | `<-chan StreamEvent` | Go channel（any-llm-go） | 完全吻合 |
@@ -654,4 +654,4 @@ registry.Register("deepseek", NewOpenAICompatDriver("https://api.deepseek.com/v1
 **信息源验证：** 所有技术事实均通过当前 Web 数据交叉验证
 **置信度：** 高 — 基于多个权威技术信息源
 
-_本技术研究报告为 Crux Agent OS 的多 LLM 提供商集成设计提供了全面的技术参考，涵盖 API 差异、SDK 评估、CLI 可用性和抽象层设计模式的深入分析。_
+_本技术研究报告为 Rnix Agent OS 的多 LLM 提供商集成设计提供了全面的技术参考，涵盖 API 差异、SDK 评估、CLI 可用性和抽象层设计模式的深入分析。_

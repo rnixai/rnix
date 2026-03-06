@@ -1,21 +1,21 @@
-# Crux — Agent OS 技术架构规范
+# Rnix — Agent OS 技术架构规范
 
-**产品名称：** Crux
+**产品名称：** Rnix
 **版本：** 0.1.0
 **日期：** 2026-02-23
 **状态：** 草稿（来源：头脑风暴 + 多智能体深度探讨）
 **作者：** Decker
 
-> **Crux** /krʌks/ — 十字星座，南半球导航基准点；亦指"问题的关键"。
-> 现有多智能体框架都在绕圈子，Crux 直指核心——智能体需要的不是编排框架，而是操作系统。
+> **Rnix** /krʌks/ — 十字星座，南半球导航基准点；亦指"问题的关键"。
+> 现有多智能体框架都在绕圈子，Rnix 直指核心——智能体需要的不是编排框架，而是操作系统。
 
 ---
 
 ## 一、核心定位
 
-**Crux 不是"给智能体加一个操作系统"，而是"把智能体当作操作系统的一等计算单元"。**
+**Rnix 不是"给智能体加一个操作系统"，而是"把智能体当作操作系统的一等计算单元"。**
 
-所有现有多智能体框架（LangGraph、AutoGen、CrewAI、MetaGPT）本质上都在应用层重新发明操作系统的功能。Crux 的范式突破在于：**不在应用层做编排，而是在 OS 层提供智能体作为一等计算单元的完整原语支持。**
+所有现有多智能体框架（LangGraph、AutoGen、CrewAI、MetaGPT）本质上都在应用层重新发明操作系统的功能。Rnix 的范式突破在于：**不在应用层做编排，而是在 OS 层提供智能体作为一等计算单元的完整原语支持。**
 
 ### 核心决策
 
@@ -641,7 +641,7 @@ score = 时间分（近期访问权重）
 ### 目标 Demo
 
 ```bash
-$ crux "分析 ./kernel/scheduler.go 并找出性能瓶颈"
+$ rnix "分析 ./kernel/scheduler.go 并找出性能瓶颈"
 
 [kernel] spawning PID 1...
 [agent/1] reading /dev/fs/kernel/scheduler.go...
@@ -657,8 +657,8 @@ $ crux "分析 ./kernel/scheduler.go 并找出性能瓶颈"
 ### 文件结构（11 个文件）
 
 ```
-crux/
-├── cmd/crux/main.go              # CLI 入口
+rnix/
+├── cmd/rnix/main.go              # CLI 入口
 ├── kernel/
 │   ├── kernel.go                 # Kernel + Spawn + reasonStep
 │   ├── process.go                # Process 结构 + 生命周期
@@ -696,7 +696,7 @@ crux/
 
 ### Phase 1：内核奠基（自举验证）
 
-**验证标准：** Crux 能用自身 syscall 层完成一个 Crux 开发任务
+**验证标准：** Rnix 能用自身 syscall 层完成一个 Rnix 开发任务
 
 **核心交付：**
 - 微内核（Go goroutine 调度器 + Channel IPC）

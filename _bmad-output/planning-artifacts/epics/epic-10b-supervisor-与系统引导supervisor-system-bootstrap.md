@@ -46,7 +46,7 @@ So that 系统启动后所有基础设施就位。
 
 **Given** `kernel/init.go` 中 Bootstrap 函数已实现
 **When** daemon 启动
-**Then** 按 `crux-init.yaml` 配置文件初始化系统级服务（FR65）：
+**Then** 按 `rnix-init.yaml` 配置文件初始化系统级服务（FR65）：
 **And** 日志聚合服务启动（`log_aggregator` 类型）
 **And** Skill 注册表初始化（`skill_registry` 类型，扫描 `lib/skills/`）
 **And** MCP 服务管理器初始化（`mcp_manager` 类型）

@@ -1,24 +1,24 @@
 # Epic 1: 第一个智能体运行（First Agent Runs）
 
-用户安装 Crux 后，输入 `crux "意图"` 即可看到一个智能体启动、调用 LLM 推理、返回结果——完整的端到端体验。
+用户安装 Rnix 后，输入 `rnix "意图"` 即可看到一个智能体启动、调用 LLM 推理、返回结果——完整的端到端体验。
 
 ## Story 1.1: 项目初始化与基础设施
 
 As a 开发者,
-I want 通过 `go install` 安装 Crux 并获得一个可构建的项目骨架,
+I want 通过 `go install` 安装 Rnix 并获得一个可构建的项目骨架,
 So that 后续所有模块可以在标准化的 Go 项目结构上构建。
 
 **Acceptance Criteria:**
 
 **Given** 用户已安装 Go 1.26
-**When** 执行 `go install github.com/usecrux/crux/cmd/crux@latest`
-**Then** 获得 `crux` 二进制文件，执行 `crux version` 输出版本号
+**When** 执行 `go install github.com/rnixai/rnix/cmd/rnix@latest`
+**Then** 获得 `rnix` 二进制文件，执行 `rnix version` 输出版本号
 **And** 二进制无额外运行时依赖（除 Claude Code CLI）
 
 **Given** 项目目录已创建
 **When** 查看目录结构
-**Then** 遵循架构文档定义的 OS 隐喻结构（`cmd/crux/`、`kernel/`、`vfs/`、`drivers/`、`context/`、`skills/`、`debug/`、`internal/types/`、`internal/xsync/`、`internal/ui/`）
-**And** 包含 `go.mod`（模块路径 `github.com/usecrux/crux`）、`Makefile`、`.golangci.yml`、`.gitignore`
+**Then** 遵循架构文档定义的 OS 隐喻结构（`cmd/rnix/`、`kernel/`、`vfs/`、`drivers/`、`context/`、`skills/`、`debug/`、`internal/types/`、`internal/xsync/`、`internal/ui/`）
+**And** 包含 `go.mod`（模块路径 `github.com/rnixai/rnix`）、`Makefile`、`.golangci.yml`、`.gitignore`
 
 **Given** `internal/types/types.go` 已实现
 **When** 其他包导入共享类型
@@ -201,13 +201,13 @@ So that 我只需提供意图，智能体自动完成推理。
 ## Story 1.7: CLI 入口与 UI 组件
 
 As a 用户,
-I want 通过 `crux "意图"` 启动智能体并看到清晰的实时进度和结果输出,
+I want 通过 `rnix "意图"` 启动智能体并看到清晰的实时进度和结果输出,
 So that 我全程知道智能体在做什么、结果是什么。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/main.go` 已实现
-**When** 执行 `crux "分析代码"`
+**Given** `cmd/rnix/main.go` 已实现
+**When** 执行 `rnix "分析代码"`
 **Then** 解析意图文本，调用 `kernel.Spawn`，等待完成并输出结果
 **And** 支持全局 flags：`--json`、`--verbose/-v`、`--quiet/-q`
 **And** 依赖注入：创建 VFS、DeviceRegistry、注册 Claude 驱动、创建 Kernel
@@ -239,19 +239,19 @@ So that 我全程知道智能体在做什么、结果是什么。
 **Then** 输出 `[kernel] PID {N} exited({code}) | tokens: {N} | elapsed: {N}s`
 
 **Given** 非 TTY 输出（管道/重定向）
-**When** 执行 `crux "意图" | cat`
+**When** 执行 `rnix "意图" | cat`
 **Then** 自动去除 ANSI 颜色码和 spinner 动画
 
 ## Story 1.8: 端到端集成与验收
 
 As a 用户,
-I want 完整的端到端体验：`crux "意图"` → 实时进度 → 结果 → 汇总,
+I want 完整的端到端体验：`rnix "意图"` → 实时进度 → 结果 → 汇总,
 So that 我确认整个系统协同工作正常。
 
 **Acceptance Criteria:**
 
 **Given** 所有 Story 1.1-1.7 已完成
-**When** 执行 `crux "分析 ./README.md"`
+**When** 执行 `rnix "分析 ./README.md"`
 **Then** 看到完整输出流：`[kernel] spawning PID 1...` → `[agent/1] reasoning step N/M...` → `══ 分析结果 ══...══` → `[kernel] PID 1 exited(0) | tokens: N | elapsed: Ns`
 
 **Given** Claude Code CLI 已安装并可用
@@ -269,11 +269,11 @@ So that 我确认整个系统协同工作正常。
 **When** 查看内核进程表
 **Then** 进程表保持一致性，无悬挂 PID、无状态不一致（NFR9）
 
-**Given** `crux version` 执行
+**Given** `rnix version` 执行
 **When** Claude Code CLI 未安装
 **Then** 输出 `✗ claude-code CLI not found` + 安装建议
 
-**Given** 执行 `crux --help`
+**Given** 执行 `rnix --help`
 **When** 查看帮助输出
 **Then** 显示 Usage + 可用命令列表 + 全局 flags + 示例
 

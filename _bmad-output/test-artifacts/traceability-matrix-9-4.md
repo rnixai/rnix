@@ -212,7 +212,7 @@ Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*aut
 
 #### AC-2: astrace 四层调用链路可观测 (P0)
 
-**Given** `crux astrace` 追踪该进程, **When** 查看 syscall 链路, **Then** 可以清晰看到四层的调用边界和数据流向 (FR57)
+**Given** `rnix astrace` 追踪该进程, **When** 查看 syscall 链路, **Then** 可以清晰看到四层的调用边界和数据流向 (FR57)
 
 ---
 

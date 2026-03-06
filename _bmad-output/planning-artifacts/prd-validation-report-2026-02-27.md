@@ -149,7 +149,7 @@ overallStatus: PASS (with minor observations)
 | Brief 要素 | Brief 内容要点 | PRD 覆盖状态 | 覆盖级别 |
 |-----------|--------------|-------------|---------|
 | **Vision Statement** | "AI 时代的 Unix"，将智能体视为 OS 一等计算单元 | Executive Summary L50-68 完整覆盖，额外增加了 Gamma 混合架构路线和双阶段 Phase 描述 | **Fully Covered** |
-| **Target Users** | 用户 A（平台构建者/陈明）、用户 B（应用开发者/林薇）、用户 C（最终用户） | PRD 保留 A/B 两个主要用户，User Journeys 4 个旅程完整展开。用户 C 在 Brief 中定义为"次要用户/不直接接触 Crux"，PRD 合理省略 | **Fully Covered** |
+| **Target Users** | 用户 A（平台构建者/陈明）、用户 B（应用开发者/林薇）、用户 C（最终用户） | PRD 保留 A/B 两个主要用户，User Journeys 4 个旅程完整展开。用户 C 在 Brief 中定义为"次要用户/不直接接触 Rnix"，PRD 合理省略 | **Fully Covered** |
 | **Problem Statement** | 三大核心问题：调试黑盒、能力不可复用、多智能体协调困难 | Executive Summary 第一段直接引用并精炼 | **Fully Covered** |
 | **Key Features** | 微内核、VFS、Skill 系统、astrace、AgentShell、Compose | MVP Feature Set + Post-MVP Features 完整覆盖，新增 Agent + Skill 双层模型（Brief 中为扁平 Skill 概念）、MCP 集成、Supervisor 等 Phase 2 特性 | **Fully Covered** |
 | **Goals/Objectives** | 自举验证、6 个月公开发布、12 个月 GitHub Stars 北极星 | Success Criteria 完整覆盖，新增量化的 Measurable Outcomes | **Fully Covered** |
@@ -195,8 +195,8 @@ overallStatus: PASS (with minor observations)
 | FR43 | 缺少 Actor | **已修复** → "系统可以管理进程组...用户可以通过..." |
 | FR44 | "提供三级并发模型" | **已修复** → "系统可以提供三级智能体并发模型" |
 | FR57 | 验收标准格式 | **已修复** → "系统可以端到端运行四层能力栈...用户可以通过 astrace 验证..." |
-| FR60 | "日志按分类显示" | **已修复** → "系统可以将 crux log 输出按...分类显示" |
-| FR62 | NFR 性质 | **已修复** → "用户可以在 crux top 中通过交互式操作选中进程并执行 kill 或查看详情" |
+| FR60 | "日志按分类显示" | **已修复** → "系统可以将 rnix log 输出按...分类显示" |
+| FR62 | NFR 性质 | **已修复** → "用户可以在 rnix top 中通过交互式操作选中进程并执行 kill 或查看详情" |
 | FR63 | "提供 Supervisor 树" | **已修复** → "系统可以提供 Supervisor 树管理模式" |
 | FR64 | 缺少 Actor | **已修复** → "Supervisor 可以使用三种重启策略" |
 | FR65 | "执行 init 引导" | **已修复** → "系统可以执行 init 引导序列" |
@@ -308,7 +308,7 @@ overallStatus: PASS (with minor observations)
 | 上手门槛（≤ 15 分钟） | 旅程 1 安装到跑通流程 |
 | 构建效率（90% 减少） | 旅程 3（林薇 20 行 YAML 替代 2000 行） |
 | LLM 超时处理 | 旅程 2（陈明遇到 LLM 超时） |
-| crux log 排障 | 旅程 4（林薇的调试时刻） |
+| rnix log 排障 | 旅程 4（林薇的调试时刻） |
 
 **覆盖度：完整**
 
@@ -321,7 +321,7 @@ overallStatus: PASS (with minor observations)
 | go install 安装 | FR37 |
 | Agent 定义编写 | FR23, FR24, FR25 |
 | Skill 编写 | FR25a, FR25b |
-| crux spawn --agent | FR1, FR25, FR33 |
+| rnix spawn --agent | FR1, FR25, FR33 |
 | astrace 追踪 | FR28, FR29, FR30, FR31 |
 | VFS /dev/fs 读取 | FR13, FR16 |
 | Skill 发布到 skillpkg | FR50（Phase 2） |
@@ -332,7 +332,7 @@ overallStatus: PASS (with minor observations)
 |---------------|--------|
 | LLM 超时处理 | FR11 |
 | 进程状态正确转移 | FR2 |
-| crux ps | FR7, FR35 |
+| rnix ps | FR7, FR35 |
 | Zombie 回收 | FR6 |
 | 清晰错误信息 | FR36 |
 
@@ -341,17 +341,17 @@ overallStatus: PASS (with minor observations)
 | 旅程 3 能力需求 | FR 映射 |
 |---------------|--------|
 | skill install 批量安装 | FR50 |
-| crux-compose.yaml 编排 | FR46 |
+| rnix-compose.yaml 编排 | FR46 |
 | depends_on 依赖管理 | FR47 |
-| crux compose up | FR48 |
-| crux top 监控 | FR58, FR62 |
+| rnix compose up | FR48 |
+| rnix top 监控 | FR58, FR62 |
 | 社区 Skill 生态 | FR50-FR53 |
 
 #### 旅程 4 → FR 映射
 
 | 旅程 4 能力需求 | FR 映射 |
 |---------------|--------|
-| crux log | FR59 |
+| rnix log | FR59 |
 | think/tool/output 分类 | FR60 |
 | 上下文预算配置 | FR61 |
 
@@ -426,7 +426,7 @@ PRD L294-L317 的 Journey Requirements Summary 表已包含完整映射，并明
 
 | 内容 | 位置 | 判定 |
 |------|------|------|
-| Claude Code CLI | L456-L482, L500 | **有意的架构决策** — LLM Driver Strategy 作为独立章节存在，是 Crux 核心架构决策而非泄露 |
+| Claude Code CLI | L456-L482, L500 | **有意的架构决策** — LLM Driver Strategy 作为独立章节存在，是 Rnix 核心架构决策而非泄露 |
 | `claude -p` | L469, L500 | **合理** — 在 LLM Driver Strategy 章节中作为接口映射说明 |
 | `go install` | L361, L364, L657 | **合理** — 作为 developer_tool，安装方式是 API surface |
 | 具体文件路径（`kernel/kernel.go` 等） | L494-L509, L530-L549 | **合理** — Feature Set 表是实现规划参考，非 FR 约束 |
@@ -436,8 +436,8 @@ PRD L294-L317 的 Journey Requirements Summary 表已包含完整映射，并明
 
 作为 developer_tool / runtime framework 类型的 PRD，以下内容均属 API surface 而非实现泄露：
 - 安装方式（`go install`）
-- 配置文件格式（`agent.yaml`、`SKILL.md`、`crux-compose.yaml`）
-- CLI 命令语法（`crux spawn`、`crux astrace`、`crux ps`）
+- 配置文件格式（`agent.yaml`、`SKILL.md`、`rnix-compose.yaml`）
+- CLI 命令语法（`rnix spawn`、`rnix astrace`、`rnix ps`）
 - syscall ABI（45 个 syscall 名称）
 - VFS 路径规范（`/dev/`、`/proc/`、`/mnt/mcp/`）
 
@@ -458,7 +458,7 @@ PRD L294-L317 的 Journey Requirements Summary 表已包含完整映射，并明
 | **模型可配置性** | **完整覆盖** | FR23, L471 | agent.yaml `models.preferred` 字段 + Claude Code CLI `--model` 映射 |
 | **上下文窗口管理** | **完整覆盖** | FR19-FR22, FR25b, FR61 | ctx_alloc/read/write/free 完整生命周期 + Phase 2 预算管理 |
 | **多智能体协调** | **完整覆盖** | FR41-FR49, FR63-FR65, FR66-FR68 | IPC + Compose + Supervisor + AgentShell |
-| **可观测性** | **完整覆盖** | FR28-FR32, FR58-FR62 | astrace（Phase 1）+ crux top/log（Phase 2） |
+| **可观测性** | **完整覆盖** | FR28-FR32, FR58-FR62 | astrace（Phase 1）+ rnix top/log（Phase 2） |
 | **安全/权限** | **充分覆盖** | FR26, NFR15-NFR17 | Skill allowed-tools 聚合白名单（MVP）+ Capability 系统（Phase 2） |
 | **Skill 复用** | **完整覆盖** | FR25a-FR27, FR50-FR53 | Agent Skills 标准 + skillpkg 包管理 |
 | **行业标准兼容** | **完整覆盖** | FR25a, FR54-FR57, NFR27 | Agent Skills（agentskills.io）+ MCP 协议标准 |
@@ -601,7 +601,7 @@ PRD L294-L317 的 Journey Requirements Summary 表已包含完整映射，并明
 |----|---------|-----------|---------|
 | FR25b | "~100" 模糊 | 4.8（M=5）| **已修复**："≤ 100 tokens/skill" 精确量化 |
 | FR57 | 验收标准格式 | 4.6（S=5, M=4）| **已修复**：改为 "系统可以端到端运行...用户可以通过 astrace 验证..." |
-| FR62 | NFR 性质 | 5.0 | **已修复**：改为交互操作 FR "用户可以在 crux top 中通过交互式操作..." |
+| FR62 | NFR 性质 | 5.0 | **已修复**：改为交互操作 FR "用户可以在 rnix top 中通过交互式操作..." |
 | FR68 | 范围过宽（3.2）| 4.8 | **显著改善**：从"变量、流程控制、多行脚本"收窄为"if-else + on-error 最小控制结构集" |
 
 ### SMART 汇总统计

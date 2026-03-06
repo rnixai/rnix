@@ -99,9 +99,9 @@ documentsIncluded:
 
 | ID | 需求描述 |
 |----|---------|
-| FR33 | 用户可以通过 `crux "意图"` 单命令启动一个智能体 |
-| FR34 | 用户可以通过 `crux astrace <pid>` 追踪指定进程的 syscall |
-| FR35 | 用户可以通过 `crux ps` 查看所有进程状态 |
+| FR33 | 用户可以通过 `rnix "意图"` 单命令启动一个智能体 |
+| FR34 | 用户可以通过 `rnix astrace <pid>` 追踪指定进程的 syscall |
+| FR35 | 用户可以通过 `rnix ps` 查看所有进程状态 |
 | FR36 | CLI 提供清晰的错误信息，包含设备路径和错误原因 |
 | FR37 | 系统可以通过 go install 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI） |
 
@@ -122,7 +122,7 @@ documentsIncluded:
 | ID | 需求描述 |
 |----|---------|
 | NFR1 | 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析） |
-| NFR2 | crux ps 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM） |
+| NFR2 | rnix ps 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM） |
 | NFR3 | astrace 输出延迟 ≤ 500ms（从 syscall 发生到终端显示） |
 | NFR4 | VFS 本地文件读取（/dev/fs）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍 |
 | NFR5 | 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身） |
@@ -135,7 +135,7 @@ documentsIncluded:
 | NFR7 | LLM API 超时/错误时，进程在 5 秒内正确转入 Zombie 状态，不卡死在 Running |
 | NFR8 | 进程退出后，goroutine 和 context 内存在 10 秒内释放，无泄漏 |
 | NFR9 | 内核进程表在任意进程异常退出后保持一致性（无悬挂 PID、无状态不一致） |
-| NFR10 | CLI 进程（crux 二进制本身）在智能体异常退出时不崩溃 |
+| NFR10 | CLI 进程（rnix 二进制本身）在智能体异常退出时不崩溃 |
 
 **集成（NFR11-NFR14）：**
 
@@ -174,7 +174,7 @@ documentsIncluded:
 | LLM 驱动策略 | 通过 Claude Code CLI 而非直接 API 调用，前置依赖 Claude Code CLI 已安装 | LLM Driver Strategy |
 | 安装方式 | `go install` 单二进制零依赖 | Installation & Distribution |
 | ABI 稳定性 | MVP 的 ~15 个 syscall 必须是 Phase 2 ~45 个的严格子集，向后兼容 | API Surface / Risk Mitigation |
-| 自举验证 | Crux 用自身 syscall 分析自身源码，识别出真实代码问题（Phase 1 硬性验收标准） | Success Criteria / MVP Strategy |
+| 自举验证 | Rnix 用自身 syscall 分析自身源码，识别出真实代码问题（Phase 1 硬性验收标准） | Success Criteria / MVP Strategy |
 | 参考 Skill | code-analyst Skill 同时承担自举验证载体、格式参考、demo 素材三重角色 | Code Examples |
 | 架构路线 | Gamma 混合——底层微内核保可靠性，上层涌现层释放创新潜力 | Executive Summary |
 
@@ -230,9 +230,9 @@ documentsIncluded:
 | FR30 | 记录 syscall 调用数据（DebugRecord） | Epic 3 (Story 3.1) | ✅ 覆盖 |
 | FR31 | 通过 astrace 定位具体错误 syscall | Epic 3 (Story 3.2) | ✅ 覆盖 |
 | FR32 | 智能体完成时输出汇总信息 | Epic 1 (Story 1.7) | ✅ 覆盖 |
-| FR33 | `crux "意图"` 单命令启动智能体 | Epic 1 (Story 1.7) | ✅ 覆盖 |
-| FR34 | `crux astrace <pid>` 追踪命令 | Epic 3 (Story 3.3) | ✅ 覆盖 |
-| FR35 | `crux ps` 查看进程状态 | Epic 4 (Story 4.4) | ✅ 覆盖 |
+| FR33 | `rnix "意图"` 单命令启动智能体 | Epic 1 (Story 1.7) | ✅ 覆盖 |
+| FR34 | `rnix astrace <pid>` 追踪命令 | Epic 3 (Story 3.3) | ✅ 覆盖 |
+| FR35 | `rnix ps` 查看进程状态 | Epic 4 (Story 4.4) | ✅ 覆盖 |
 | FR36 | CLI 提供清晰错误信息 | Epic 1 (Story 1.7) | ✅ 覆盖 |
 | FR37 | `go install` 安装，单二进制零依赖 | Epic 1 (Story 1.1) | ✅ 覆盖 |
 | FR38 | 概念文档 | Epic 5 (Story 5.1) | ✅ 覆盖 |
@@ -271,7 +271,7 @@ documentsIncluded:
 | 对齐维度 | PRD 来源 | UX 对应设计 | 状态 |
 |---------|---------|-----------|------|
 | 用户旅程 | 4 个旅程（陈明/林薇的成功/异常路径） | UX 完整映射全部 4 个旅程 + 新增 Journey 0（首次设置） | ✅ 对齐 |
-| CLI 命令集 | FR33-37（crux spawn/astrace/ps/install） | UX 详细定义了全部命令的交互格式和帮助系统 | ✅ 对齐 |
+| CLI 命令集 | FR33-37（rnix spawn/astrace/ps/install） | UX 详细定义了全部命令的交互格式和帮助系统 | ✅ 对齐 |
 | 错误处理 | FR36（清晰错误信息，含设备路径和原因） | UX 设计了三行错误结构（发生 + 影响 + 建议），完全匹配 | ✅ 对齐 |
 | astrace 设计 | FR28-31（实时追踪、名称/参数/返回/耗时） | UX 定义了完整的 Trace Line 格式和颜色方案 | ✅ 对齐 |
 | 进程表 | FR7/FR35（ps 命令） | UX 定义了 Process Table 组件，含列优先级和宽度自适应 | ✅ 对齐 |
@@ -285,7 +285,7 @@ documentsIncluded:
 | 扩展项 | 说明 | 评估 |
 |--------|------|------|
 | `--filter` flag for astrace | UX 设计中 astrace 支持按 syscall 类型过滤 | 合理补充，增强调试体验 |
-| `crux kill <pid>` CLI 命令 | UX help 文本中明确列出，PRD FR3 暗含但 FR33-37 未显式列出 | 已在 Epic 4 Story 4.1 实现，无缺口 |
+| `rnix kill <pid>` CLI 命令 | UX help 文本中明确列出，PRD FR3 暗含但 FR33-37 未显式列出 | 已在 Epic 4 Story 4.1 实现，无缺口 |
 | Spinner 等待动画 | UX 定义了 LLM 调用期间的 spinner 指示器 | 合理补充，防止用户以为系统卡死 |
 | SIGINT 双击强制退出 | UX 定义了首次优雅/二次强制的中断策略 | 合理补充，生产级必备 |
 | Journey 0（首次设置） | PRD 没有独立的安装旅程设计 | 合理补充，关键首次体验 |
@@ -334,7 +334,7 @@ documentsIncluded:
 | Epic 2 | 智能体从"能说话"升级到"能干活"（Skill + 文件 + Shell） | ✅ 通过 |
 | Epic 3 | 用户可以实时追踪智能体 syscall 链路定位问题 | ✅ 通过 |
 | Epic 4 | 用户可以管理进程生命周期，系统自动保证可靠性 | ✅ 通过 |
-| Epic 5 | 新用户可以理解 Crux、15 分钟跑通 demo、查阅参考 | ✅ 通过 |
+| Epic 5 | 新用户可以理解 Rnix、15 分钟跑通 demo、查阅参考 | ✅ 通过 |
 
 **Epic 独立性：** 全部通过。依赖图为 DAG：Epic 1 → {Epic 2, Epic 3, Epic 4}（可并行）→ Epic 5。无反向/循环依赖。
 
@@ -420,7 +420,7 @@ documentsIncluded:
 
 本次评估覆盖了 PRD（40 FR + 20 NFR）、架构文档、UX 设计规范（85KB）和 Epic/Story 文档（5 个 Epic、20 个 Story）的完整交叉验证。共发现 **4 项低风险问题**，无 Critical 或 Major 级别阻塞项。
 
-**结论：** Crux 项目的规划文档质量高于平均水平——需求编号清晰、可追溯性完整、用户旅程与技术实现对齐、Epic 结构遵循最佳实践。4 项 Minor 问题均不影响实施启动，建议在开发初期顺手修正。
+**结论：** Rnix 项目的规划文档质量高于平均水平——需求编号清晰、可追溯性完整、用户旅程与技术实现对齐、Epic 结构遵循最佳实践。4 项 Minor 问题均不影响实施启动，建议在开发初期顺手修正。
 
 **Assessed by:** Winston (Architect Agent)
 **Date:** 2026-02-23

@@ -1,7 +1,7 @@
 package llm
 
 import (
-	"github.com/usecrux/crux/internal/xsync"
+	"github.com/rnixai/rnix/internal/xsync"
 )
 
 // DriverRegistry is a thread-safe registry for LLM drivers.

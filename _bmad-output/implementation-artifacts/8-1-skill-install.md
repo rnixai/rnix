@@ -12,7 +12,7 @@ So that 我可以快速获取社区共享的能力模块。
 
 1. **社区仓库客户端** — Given `skillpkg/client.go` 已实现，When 调用社区仓库 API，Then 支持 Skill 下载、版本解析、完整性验证
 
-2. **单个 Skill 安装** — Given `cmd/crux/skill.go` 中 install 子命令已注册，When 执行 `skill install code-analysis`，Then 从社区仓库下载 Skill 包，And 安装到本地 `lib/skills/code-analysis/` 目录，And 更新本地 Skill 注册表
+2. **单个 Skill 安装** — Given `cmd/rnix/skill.go` 中 install 子命令已注册，When 执行 `skill install code-analysis`，Then 从社区仓库下载 Skill 包，And 安装到本地 `lib/skills/code-analysis/` 目录，And 更新本地 Skill 注册表
 
 3. **批量安装** — Given 批量安装，When 执行 `skill install pr-reviewer code-analyst tech-writer`，Then 依次安装三个 Skill，每个显示安装进度
 
@@ -43,7 +43,7 @@ So that 我可以快速获取社区共享的能力模块。
     - 使用 tempdir 测试 registry 和 installer
     - 测试错误场景：网络超时、无效包、目录不存在
 
-- [x] Task 2: 创建 `cmd/crux/skill.go` — skill CLI 子命令 (AC: #2, #3, #4)
+- [x] Task 2: 创建 `cmd/rnix/skill.go` — skill CLI 子命令 (AC: #2, #3, #4)
   - [x] 2.1 注册 `skill` 父命令和 `skill install` 子命令到 `rootCmd`
   - [x] 2.2 实现 `runSkillInstall`：
     - 解析 args 为 Skill 名称列表（支持多个参数 = 批量安装）
@@ -52,7 +52,7 @@ So that 我可以快速获取社区共享的能力模块。
     - 显示安装进度和结果
   - [x] 2.3 支持 `--json` flag 输出 JSON 格式结果
   - [x] 2.4 支持 `--force` flag 跳过重复安装确认
-  - [x] 2.5 创建 `cmd/crux/skill_test.go`：CLI 层测试
+  - [x] 2.5 创建 `cmd/rnix/skill_test.go`：CLI 层测试
 
 - [x] Task 3: 社区仓库 API 协议设计 (AC: #1)
   - [x] 3.1 定义仓库 API 端点（MVP 可使用 GitHub Releases 或简单 HTTP 文件服务）：
@@ -83,7 +83,7 @@ So that 我可以快速获取社区共享的能力模块。
 
 **依赖方向**：
 ```
-cmd/crux/skill.go → skillpkg/ → skills/（仅用于安装后验证 SKILL.md）
+cmd/rnix/skill.go → skillpkg/ → skills/（仅用于安装后验证 SKILL.md）
                                 → net/http（仓库 API 交互）
 ```
 - `skillpkg/` 不导入 `kernel/`、`vfs/`、`agents/`（严格单向依赖）
@@ -115,8 +115,8 @@ skills:
 - 使用 `crypto/sha256` 进行完整性验证
 - 使用 `github.com/goccy/go-yaml` 解析 YAML（项目已有依赖）
 
-**CLI 命令注册模式**（参考 `cmd/crux/compose.go`）：
-- 在 `cmd/crux/skill.go` 中定义 `skillCmd` 父命令
+**CLI 命令注册模式**（参考 `cmd/rnix/compose.go`）：
+- 在 `cmd/rnix/skill.go` 中定义 `skillCmd` 父命令
 - `skill install` 作为子命令
 - 在 `init()` 中通过 `rootCmd.AddCommand(skillCmd)` 注册
 - 复用全局 `flagJSON`、`flagVerbose`、`flagQuiet` flags
@@ -137,10 +137,10 @@ skills:
 - `skills.SkillLoader.LoadMetadata()` — 安装后验证 SKILL.md 格式
 - `skills.SkillManifest` 类型 — 确保安装的 Skill 与加载器兼容
 - `internal/ui.Renderer` — CLI 输出格式化（如果需要样式化输出）
-- `cmd/crux/main.go` 中的 `JSONResponse` 结构体 — JSON 输出格式
+- `cmd/rnix/main.go` 中的 `JSONResponse` 结构体 — JSON 输出格式
 
 **参考现有模式**：
-- `cmd/crux/compose.go` — CLI 子命令注册和测试模式
+- `cmd/rnix/compose.go` — CLI 子命令注册和测试模式
 - `skills/loader.go` — SKILL.md 解析逻辑
 - `agents/loader.go` — agent.yaml 加载模式
 
@@ -175,14 +175,14 @@ skillpkg/
     ├── index.yaml
     └── mock-skill.tar.gz
 
-cmd/crux/
+cmd/rnix/
 ├── skill.go          # skill 父命令 + install 子命令
 └── skill_test.go     # CLI 层测试
 ```
 
 修改文件清单：
 ```
-cmd/crux/main.go      # init() 中添加 rootCmd.AddCommand(skillCmd)
+cmd/rnix/main.go      # init() 中添加 rootCmd.AddCommand(skillCmd)
 ```
 
 ### References
@@ -193,8 +193,8 @@ cmd/crux/main.go      # init() 中添加 rootCmd.AddCommand(skillCmd)
 - [Source: _bmad-output/planning-artifacts/archive/architecture.md#Decision 7] — Agent/Skill 分层设计
 - [Source: skills/loader.go] — 现有 SkillLoader 实现
 - [Source: skills/types.go] — SkillManifest/SkillInfo 类型定义
-- [Source: cmd/crux/main.go#init()] — CLI 命令注册模式
-- [Source: cmd/crux/compose.go] — 子命令实现参考
+- [Source: cmd/rnix/main.go#init()] — CLI 命令注册模式
+- [Source: cmd/rnix/compose.go] — 子命令实现参考
 - [Source: _bmad-output/project-context.md] — 项目编码规则
 
 ## Dev Agent Record
@@ -208,8 +208,8 @@ Claude Opus 4.6 (claude-opus-4-6)
 ### Completion Notes List
 
 - Implemented complete `skillpkg/` package with 4 production files: types.go (core types), client.go (registry HTTP client with HTTPClient interface for test injection), registry.go (local YAML-based registry), installer.go (orchestrator with Fetch->Verify->Extract->Validate->Register flow)
-- Implemented `cmd/crux/skill.go` with `skill` parent command and `skill install` subcommand supporting batch install, --force flag, --json output, and quiet mode
-- Registered `skillCmd` in `cmd/crux/main.go` init() following compose.go pattern
+- Implemented `cmd/rnix/skill.go` with `skill` parent command and `skill install` subcommand supporting batch install, --force flag, --json output, and quiet mode
+- Registered `skillCmd` in `cmd/rnix/main.go` init() following compose.go pattern
 - Created comprehensive test suite: 8 client tests, 7 registry tests, 6 installer tests, 10 CLI tests = 31 total new tests
 - All tests use mock HTTP server (httptest) and temp directories - no external dependencies
 - Replaced ATDD stubs in stubs_test_support.go with empty file (real implementations replace stubs)
@@ -244,7 +244,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 
 **MEDIUM Issues (noted, acceptable for MVP):**
 
-4. **`basePath` uses relative path** — `cmd/crux/skill.go:50` uses `basePath := "lib/skills"` (relative). This means install location depends on CWD at execution time. The daemon also uses `"lib/skills"` in `main.go:714`, so this is consistent but fragile. Should use absolute path resolution in a future story.
+4. **`basePath` uses relative path** — `cmd/rnix/skill.go:50` uses `basePath := "lib/skills"` (relative). This means install location depends on CWD at execution time. The daemon also uses `"lib/skills"` in `main.go:714`, so this is consistent but fragile. Should use absolute path resolution in a future story.
 
 5. **`Resolve` method signature deviates from spec** — AC#1 specified `Resolve(name, versionConstraint string)` but implementation is `Resolve(name string)`. Acceptable MVP simplification since only "latest" is fetched; adding unused parameters is worse.
 
@@ -288,11 +288,11 @@ New files:
 - skillpkg/registry_test.go
 - skillpkg/installer_test.go
 - skillpkg/testdata/index.yaml
-- cmd/crux/skill.go
+- cmd/rnix/skill.go
 
 Modified files:
-- cmd/crux/main.go (added rootCmd.AddCommand(skillCmd) in init())
-- cmd/crux/skill_test.go (replaced ATDD stubs with real tests)
+- cmd/rnix/main.go (added rootCmd.AddCommand(skillCmd) in init())
+- cmd/rnix/skill_test.go (replaced ATDD stubs with real tests)
 - skillpkg/stubs_test_support.go (emptied - replaced by real implementations)
 - _bmad-output/implementation-artifacts/sprint-status.yaml (status update)
 - _bmad-output/implementation-artifacts/8-1-skill-install.md (this file)

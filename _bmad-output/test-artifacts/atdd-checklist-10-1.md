@@ -4,19 +4,19 @@ lastStep: 'step-05-validate-and-complete'
 lastSaved: '2026-03-02'
 workflowType: 'testarch-atdd'
 inputDocuments:
-  - '_bmad-output/implementation-artifacts/10-1-crux-top-realtime-monitoring-tui.md'
+  - '_bmad-output/implementation-artifacts/10-1-rnix-top-realtime-monitoring-tui.md'
   - '_bmad/tea/testarch/tea-index.csv'
   - '_bmad/tea/testarch/knowledge/test-quality.md'
   - '_bmad/tea/testarch/knowledge/test-levels-framework.md'
-  - 'cmd/crux/main.go'
-  - 'cmd/crux/main_test.go'
+  - 'cmd/rnix/main.go'
+  - 'cmd/rnix/main_test.go'
   - 'internal/ui/table.go'
   - 'internal/ui/table_test.go'
   - 'vfs/proc.go'
   - 'ipc/client.go'
 ---
 
-# ATDD Checklist - Epic 10, Story 1: crux top 实时监控 TUI
+# ATDD Checklist - Epic 10, Story 1: rnix top 实时监控 TUI
 
 **Date:** 2026-03-02
 **Author:** Decker
@@ -118,7 +118,7 @@ inputDocuments:
 | ID | Scenario | Level | Priority | Red Phase Failure |
 |----|----------|-------|----------|-------------------|
 | 10.1-INT-001 | `top` 命令已注册并被 cobra 识别 | Integration | P0 | `topCmd` 未注册 |
-| 10.1-INT-002 | Daemon 未运行时 `crux top` 优雅退出 | Integration | P1 | `runTop` 未定义 |
+| 10.1-INT-002 | Daemon 未运行时 `rnix top` 优雅退出 | Integration | P1 | `runTop` 未定义 |
 
 ### Red Phase Confirmation
 所有测试调用 `buildTree`、`topModel`、`topCmd`、`runTop` 等尚未存在的函数/类型。Go 的类型系统确保编译失败 = RED phase 自动达成。总计 **22 个测试**（20 Unit + 2 Integration）。
@@ -130,7 +130,7 @@ inputDocuments:
 ### Story Summary
 
 **As a** 用户
-**I want** 通过 `crux top` 实时查看所有智能体的树状关系、状态和 token 消耗
+**I want** 通过 `rnix top` 实时查看所有智能体的树状关系、状态和 token 消耗
 **So that** 我随时掌握系统全局运行态
 
 ---
@@ -149,7 +149,7 @@ inputDocuments:
 
 ### Unit Tests (17 tests)
 
-**File:** `cmd/crux/top_test.go` (290 lines)
+**File:** `cmd/rnix/top_test.go` (290 lines)
 
 - ❌ **Test:** TestBuildTree_SingleRoot
   - **Status:** RED — buildTree returns nil (stub)
@@ -216,7 +216,7 @@ inputDocuments:
 
 ### Integration Tests (2 tests)
 
-**File:** `cmd/crux/top_test.go`
+**File:** `cmd/rnix/top_test.go`
 
 - ❌ **Test:** TestHelp_ContainsTopSubcommand
   - **Status:** RED — top 命令未在 init() 中注册
@@ -272,16 +272,16 @@ Go 项目无需 fixture 文件。测试数据通过 `vfs.ProcInfo{}` 字面量�
 
 ```bash
 # Run all failing tests for story 10.1
-go test -v -run "TestBuildTree_|TestFlattenTree_|TestTopSummary|TestTopDetail|TestHelp_ContainsTop|TestRunTop_" ./cmd/crux/
+go test -v -run "TestBuildTree_|TestFlattenTree_|TestTopSummary|TestTopDetail|TestHelp_ContainsTop|TestRunTop_" ./cmd/rnix/
 
 # Run specific test
-go test -v -run "TestBuildTree_SingleRoot" ./cmd/crux/
+go test -v -run "TestBuildTree_SingleRoot" ./cmd/rnix/
 
 # Run with race detector
-go test -race -run "TestBuildTree_|TestFlattenTree_" ./cmd/crux/
+go test -race -run "TestBuildTree_|TestFlattenTree_" ./cmd/rnix/
 
-# Run all cmd/crux tests (including original)
-go test -v ./cmd/crux/
+# Run all cmd/rnix tests (including original)
+go test -v ./cmd/rnix/
 ```
 
 ---
@@ -326,14 +326,14 @@ Status:  ✅ RED phase verified
 
 ### Test: TestBuildTree_SingleRoot
 
-**File:** `cmd/crux/top_test.go`
+**File:** `cmd/rnix/top_test.go`
 
 **Tasks to make this test pass:**
 
 - [ ] Implement `buildTree`: create nodes map from procs
 - [ ] Build PID→Children mapping
 - [ ] Return root nodes (PPID not in map or PPID=0)
-- [ ] Run test: `go test -run TestBuildTree_SingleRoot ./cmd/crux/`
+- [ ] Run test: `go test -run TestBuildTree_SingleRoot ./cmd/rnix/`
 - [ ] ✅ Test passes (green phase)
 
 **Estimated Effort:** 0.5 hours
@@ -342,13 +342,13 @@ Status:  ✅ RED phase verified
 
 ### Test: TestBuildTree_ParentChild + TestBuildTree_ChildrenSortedByPID
 
-**File:** `cmd/crux/top_test.go`
+**File:** `cmd/rnix/top_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] Sort children by PID in buildTree
 - [ ] Handle multi-child scenarios
-- [ ] Run tests: `go test -run "TestBuildTree_ParentChild|TestBuildTree_Children" ./cmd/crux/`
+- [ ] Run tests: `go test -run "TestBuildTree_ParentChild|TestBuildTree_Children" ./cmd/rnix/`
 - [ ] ✅ Tests pass (green phase)
 
 **Estimated Effort:** 0.5 hours
@@ -357,13 +357,13 @@ Status:  ✅ RED phase verified
 
 ### Test: TestBuildTree_OrphanBecomesRoot + TestBuildTree_MultipleRoots + TestBuildTree_RootsSortedByPID
 
-**File:** `cmd/crux/top_test.go`
+**File:** `cmd/rnix/top_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] Handle orphan PPID (not in nodes map)
 - [ ] Sort roots by PID
-- [ ] Run tests: `go test -run "TestBuildTree_Orphan|TestBuildTree_Multiple|TestBuildTree_Roots" ./cmd/crux/`
+- [ ] Run tests: `go test -run "TestBuildTree_Orphan|TestBuildTree_Multiple|TestBuildTree_Roots" ./cmd/rnix/`
 - [ ] ✅ Tests pass (green phase)
 
 **Estimated Effort:** 0.3 hours
@@ -372,7 +372,7 @@ Status:  ✅ RED phase verified
 
 ### Test: TestFlattenTree_Indentation + TestFlattenTree_DeepNesting + TestFlattenTree_PreservesProcessData
 
-**File:** `cmd/crux/top_test.go`
+**File:** `cmd/rnix/top_test.go`
 
 **Tasks to make these tests pass:**
 
@@ -380,7 +380,7 @@ Status:  ✅ RED phase verified
 - [ ] Generate ├── for non-last children, └── for last child
 - [ ] Track depth for each node
 - [ ] Preserve proc data in flatRow
-- [ ] Run tests: `go test -run "TestFlattenTree_" ./cmd/crux/`
+- [ ] Run tests: `go test -run "TestFlattenTree_" ./cmd/rnix/`
 - [ ] ✅ Tests pass (green phase)
 
 **Estimated Effort:** 1 hour
@@ -389,14 +389,14 @@ Status:  ✅ RED phase verified
 
 ### Test: TestTopSummaryLine_Content + TestTopSummaryLine_TokenTotal + TestTopSummaryLine_Empty
 
-**File:** `cmd/crux/top_test.go`
+**File:** `cmd/rnix/top_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] Implement `topSummaryLine`: count active (Running+Created), sum tokens
 - [ ] Format using existing `formatTokens` (needs export or copy)
-- [ ] Include "crux top" branding, active count, token total, uptime
-- [ ] Run tests: `go test -run "TestTopSummaryLine_" ./cmd/crux/`
+- [ ] Include "rnix top" branding, active count, token total, uptime
+- [ ] Run tests: `go test -run "TestTopSummaryLine_" ./cmd/rnix/`
 - [ ] ✅ Tests pass (green phase)
 
 **Estimated Effort:** 0.5 hours
@@ -405,14 +405,14 @@ Status:  ✅ RED phase verified
 
 ### Test: TestTopDetailView_ContainsFields + TestTopDetailView_ShowsDevices + TestTopDetailView_EmptySkills
 
-**File:** `cmd/crux/top_test.go`
+**File:** `cmd/rnix/top_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] Implement `topDetailView`: render state, intent, skills, tokens, devices
 - [ ] Handle nil skills gracefully
 - [ ] Use existing format helpers
-- [ ] Run tests: `go test -run "TestTopDetailView_" ./cmd/crux/`
+- [ ] Run tests: `go test -run "TestTopDetailView_" ./cmd/rnix/`
 - [ ] ✅ Tests pass (green phase)
 
 **Estimated Effort:** 0.5 hours
@@ -421,14 +421,14 @@ Status:  ✅ RED phase verified
 
 ### Test: TestHelp_ContainsTopSubcommand
 
-**File:** `cmd/crux/top_test.go`
+**File:** `cmd/rnix/top_test.go`
 
 **Tasks to make this test pass:**
 
 - [ ] Create `topCmd` cobra.Command variable
 - [ ] Register `topCmd` in `init()` with `rootCmd.AddCommand(topCmd)`
 - [ ] Update `TestRejectPositionalArgs_UnknownWord` in main_test.go (change "top" to another unknown word)
-- [ ] Run test: `go test -run TestHelp_ContainsTopSubcommand ./cmd/crux/`
+- [ ] Run test: `go test -run TestHelp_ContainsTopSubcommand ./cmd/rnix/`
 - [ ] ✅ Test passes (green phase)
 
 **Estimated Effort:** 0.3 hours
@@ -437,13 +437,13 @@ Status:  ✅ RED phase verified
 
 ### Test: TestRunTop_NoDaemon
 
-**File:** `cmd/crux/top_test.go`
+**File:** `cmd/rnix/top_test.go`
 
 **Tasks to make this test pass:**
 
 - [ ] Implement `runTop`: try `ipc.Dial()`, if fails print error and return nil
 - [ ] Pattern: match existing `runPs` error handling
-- [ ] Run test: `go test -run TestRunTop_NoDaemon ./cmd/crux/`
+- [ ] Run test: `go test -run TestRunTop_NoDaemon ./cmd/rnix/`
 - [ ] ✅ Test passes (green phase)
 
 **Estimated Effort:** 0.3 hours
@@ -454,7 +454,7 @@ Status:  ✅ RED phase verified
 
 1. **Install bubbletea v2 dependency** (Task 1) and add 8 pending tests
 2. **Review this checklist** — confirm test scenarios cover all ACs
-3. **Run failing tests** to confirm RED phase: `go test -v -run "TestBuildTree_|TestFlattenTree_|TestTopSummary|TestTopDetail|TestHelp_ContainsTop|TestRunTop_" ./cmd/crux/`
+3. **Run failing tests** to confirm RED phase: `go test -v -run "TestBuildTree_|TestFlattenTree_|TestTopSummary|TestTopDetail|TestHelp_ContainsTop|TestRunTop_" ./cmd/rnix/`
 4. **Begin implementation** using implementation checklist as guide
 5. **Work one test at a time** (red → green for each)
 6. **When all tests pass**, refactor code for quality
@@ -475,7 +475,7 @@ See `tea-index.csv` for complete knowledge fragment mapping.
 
 ### Initial Test Run (RED Phase Verification)
 
-**Command:** `go test -v -run "TestBuildTree_|TestFlattenTree_|TestTopSummary|TestTopDetail|TestHelp_ContainsTop|TestRunTop_" ./cmd/crux/`
+**Command:** `go test -v -run "TestBuildTree_|TestFlattenTree_|TestTopSummary|TestTopDetail|TestHelp_ContainsTop|TestRunTop_" ./cmd/rnix/`
 
 **Results:**
 
@@ -568,8 +568,8 @@ FAIL
 - [x] All ACs mapped to test scenarios
 - [x] Test levels selected: Unit (P0) + Integration (P1)
 - [x] No duplicate coverage across levels
-- [x] Failing test file created: `cmd/crux/top_test.go` (290 lines)
-- [x] Stub file created: `cmd/crux/top.go` (minimal types + zero-return functions)
+- [x] Failing test file created: `cmd/rnix/top_test.go` (290 lines)
+- [x] Stub file created: `cmd/rnix/top.go` (minimal types + zero-return functions)
 - [x] RED phase verified: 17/19 tests fail, 2 base cases pass correctly
 - [x] No regression: all original tests pass (110+ tests)
 - [x] `go vet` passes — no compilation or static analysis issues
@@ -593,8 +593,8 @@ FAIL
 |--------|-------|
 | Story ID | 10.1 |
 | Primary Test Level | Unit (Go) |
-| Test File | `cmd/crux/top_test.go` |
-| Stub File | `cmd/crux/top.go` |
+| Test File | `cmd/rnix/top_test.go` |
+| Stub File | `cmd/rnix/top.go` |
 | Unit Tests Written | 19 |
 | Unit Tests Failing | 17 (RED ✅) |
 | Unit Tests Passing | 2 (base cases) |

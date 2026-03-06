@@ -6,7 +6,7 @@
 
 As a 开发者,
 I want 阅读教程文档学会编写 Skill、调试 bug 和组合多智能体工作流,
-So that 我可以在 Crux 上构建自己的应用。
+So that 我可以在 Rnix 上构建自己的应用。
 
 **Acceptance Criteria:**
 
@@ -22,13 +22,13 @@ So that 我可以在 Crux 上构建自己的应用。
 
 **Given** 教程文档已编写
 **When** 阅读"组合多智能体工作流"教程
-**Then** 包含编写 crux-compose.yaml → compose up → crux top 监控 → 查看结果的完整流程
+**Then** 包含编写 rnix-compose.yaml → compose up → rnix top 监控 → 查看结果的完整流程
 **And** 包含完整可运行示例
 
 ## Story 12.2: 架构文档
 
 As a 贡献者,
-I want 阅读架构文档理解 Crux 的内部设计,
+I want 阅读架构文档理解 Rnix 的内部设计,
 So that 我可以参与内核开发和 Skill 生态贡献。
 
 **Acceptance Criteria:**

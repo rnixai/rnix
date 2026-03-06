@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/compose"
+	"github.com/rnixai/rnix/compose"
 )
 
 // --- Story 7.2: Compose Summary UI Tests ---

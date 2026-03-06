@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // pidCounter is the global PID allocator. PIDs start at 1 and monotonically
@@ -105,7 +105,7 @@ var validTransitions = map[types.ProcessState][]types.ProcessState{
 }
 
 // GetPID returns the process's own PID.
-// This is the Crux equivalent of Unix getpid(2). Since PID is immutable after
+// This is the Rnix equivalent of Unix getpid(2). Since PID is immutable after
 // creation, no locking is required.
 func (p *Process) GetPID() types.PID {
 	return p.PID

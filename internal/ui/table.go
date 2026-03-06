@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // Column definitions for the process table.

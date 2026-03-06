@@ -10,7 +10,7 @@ So that 我可以发现适合我需求的能力模块。
 
 ## Acceptance Criteria
 
-1. **search 子命令注册** — Given `cmd/crux/skill.go` 中 search 子命令已注册，When 执行 `skill search code`，Then 返回匹配的 Skill 列表，And 每条结果包含：名称、描述、版本、下载量
+1. **search 子命令注册** — Given `cmd/rnix/skill.go` 中 search 子命令已注册，When 执行 `skill search code`，Then 返回匹配的 Skill 列表，And 每条结果包含：名称、描述、版本、下载量
 
 2. **搜索无结果** — Given 搜索结果为空，When 无匹配关键词，Then 输出 `No skills found for "keyword".` + 建议（检查拼写或浏览全部 Skill）
 
@@ -30,7 +30,7 @@ So that 我可以发现适合我需求的能力模块。
   - [x] 2.4 将匹配的 `SkillIndexEntry` 转换为 `[]SearchResult` 返回
   - [x] 2.5 keyword 为空字符串时返回全部 Skill（浏览全部）
 
-- [x] Task 3: 在 `cmd/crux/skill.go` 中添加 `skill search` 子命令 (AC: #1, #2, #3)
+- [x] Task 3: 在 `cmd/rnix/skill.go` 中添加 `skill search` 子命令 (AC: #1, #2, #3)
   - [x] 3.1 定义 `skillSearchCmd` cobra.Command：`Use: "search <keyword>"`, `Args: cobra.MaximumNArgs(1)`
   - [x] 3.2 在 `init()` 中 `skillCmd.AddCommand(skillSearchCmd)`
   - [x] 3.3 实现 `runSkillSearch`：
@@ -54,7 +54,7 @@ So that 我可以发现适合我需求的能力模块。
     - 大小写不敏感测试
     - 无匹配返回空数组
     - 空 keyword 返回全部
-  - [x] 4.2 `cmd/crux/skill_test.go`：添加搜索 CLI 测试
+  - [x] 4.2 `cmd/rnix/skill_test.go`：添加搜索 CLI 测试
     - `TestSkillSearchCmd_Registered`：验证 search 子命令注册
     - `TestSkillSearch_JSONOutput`：验证 JSON 输出格式和 snake_case
     - `TestSkillSearch_EmptyResult_JSONOutput`：验证空结果 JSON
@@ -70,7 +70,7 @@ So that 我可以发现适合我需求的能力模块。
 
 ### 核心架构决策
 
-**无新增包**：本 Story 的所有改动都在现有包内完成（`skillpkg/` 和 `cmd/crux/`），不创建新目录或新包。
+**无新增包**：本 Story 的所有改动都在现有包内完成（`skillpkg/` 和 `cmd/rnix/`），不创建新目录或新包。
 
 **搜索策略**：客户端过滤（client-side filtering）。调用已有的 `RegistryClient.FetchIndex()` 获取完整索引，然后在本地做 keyword 子串匹配。理由：
 - MVP 阶段仓库 Skill 数量有限，全量索引可接受
@@ -79,7 +79,7 @@ So that 我可以发现适合我需求的能力模块。
 
 **依赖方向不变**：
 ```
-cmd/crux/skill.go → skillpkg/ → (已有依赖链)
+cmd/rnix/skill.go → skillpkg/ → (已有依赖链)
 ```
 - 不引入任何新的外部依赖
 - 不修改 `skillpkg/` 对外的现有接口（只新增方法和类型）
@@ -134,7 +134,7 @@ func (c *RegistryClient) Search(keyword string) ([]SearchResult, error) {
 ```
 
 **CLI 子命令注册模式**（参考 `skillInstallCmd` 已有模式）：
-- 在 `cmd/crux/skill.go` 中定义 `skillSearchCmd`
+- 在 `cmd/rnix/skill.go` 中定义 `skillSearchCmd`
 - `init()` 中 `skillCmd.AddCommand(skillSearchCmd)`
 - 复用全局 `flagJSON`、`flagQuiet` flags（不需要额外 flags）
 - `Args: cobra.MaximumNArgs(1)` — 最多一个 keyword 参数，无参数 = 浏览全部
@@ -178,16 +178,16 @@ func (c *RegistryClient) Search(keyword string) ([]SearchResult, error) {
 - `ui.KernelStyle.Render("[skill]")` — 终端输出前缀样式
 
 **参考现有模式**：
-- `cmd/crux/skill.go` 中 `runSkillInstall` — CLI 命令实现模式
-- `cmd/crux/skill.go` 中 `renderSkillInstallJSON` — JSON 渲染模式
-- `cmd/crux/skill_test.go` — CLI 测试模式（验证命令注册、JSON 输出）
+- `cmd/rnix/skill.go` 中 `runSkillInstall` — CLI 命令实现模式
+- `cmd/rnix/skill.go` 中 `renderSkillInstallJSON` — JSON 渲染模式
+- `cmd/rnix/skill_test.go` — CLI 测试模式（验证命令注册、JSON 输出）
 - `skillpkg/client_test.go` — 使用 mock HTTP server 测试 client
 
 ### 反模式防护
 
 - **不要**在搜索中引入新的 HTTP 端点调用——使用已有的 `FetchIndex()` + 客户端过滤
 - **不要**修改 `FetchIndex()` 的签名或行为——只新增 `Search()` 方法
-- **不要**在 `skillpkg/` 中导入 `internal/ui/` 或 `cmd/crux/`——UI 渲染仅在 CLI 层
+- **不要**在 `skillpkg/` 中导入 `internal/ui/` 或 `cmd/rnix/`——UI 渲染仅在 CLI 层
 - **不要**使用 `interface{}` 存储搜索结果——使用明确的 `SearchResult` 结构体
 - **不要**使用正则匹配——子串匹配足够 MVP 需求
 - **不要**缓存索引——每次搜索重新获取（MVP 阶段简洁优先）
@@ -214,7 +214,7 @@ func (c *RegistryClient) Search(keyword string) ([]SearchResult, error) {
 
 最近提交（c891209）为 Story 8.1 实现：
 - 新增 `skillpkg/` 包（4 个生产文件 + 3 个测试文件）
-- 新增 `cmd/crux/skill.go` + 修改 `cmd/crux/main.go`
+- 新增 `cmd/rnix/skill.go` + 修改 `cmd/rnix/main.go`
 - 本 Story 的修改范围更小：仅扩展现有文件
 
 ### Project Structure Notes
@@ -224,11 +224,11 @@ func (c *RegistryClient) Search(keyword string) ([]SearchResult, error) {
 skillpkg/types.go        # 添加 Downloads 字段、JSON tag、SearchResult 类型
 skillpkg/client.go       # 添加 Search() 方法
 skillpkg/client_test.go  # 添加搜索相关测试
-cmd/crux/skill.go        # 添加 skill search 子命令和 runSkillSearch
-cmd/crux/skill_test.go   # 添加搜索 CLI 测试
+cmd/rnix/skill.go        # 添加 skill search 子命令和 runSkillSearch
+cmd/rnix/skill_test.go   # 添加搜索 CLI 测试
 ```
 
-不新增文件，不新增包，不修改 `cmd/crux/main.go`（`skillCmd` 已通过 `rootCmd.AddCommand` 注册，子命令在 `skill.go` 的 `init()` 中添加）。
+不新增文件，不新增包，不修改 `cmd/rnix/main.go`（`skillCmd` 已通过 `rootCmd.AddCommand` 注册，子命令在 `skill.go` 的 `init()` 中添加）。
 
 ### References
 
@@ -236,9 +236,9 @@ cmd/crux/skill_test.go   # 添加搜索 CLI 测试
 - [Source: _bmad-output/implementation-artifacts/8-1-skill-install.md] — 前序 Story 实现和 Code Review 记录
 - [Source: skillpkg/types.go] — 现有类型定义（SkillIndexEntry、SkillIndex）
 - [Source: skillpkg/client.go] — 现有 RegistryClient 和 FetchIndex() 实现
-- [Source: cmd/crux/skill.go] — 现有 skill 子命令和 install 实现
-- [Source: cmd/crux/skill_test.go] — 现有 CLI 测试模式
-- [Source: cmd/crux/main.go#JSONResponse] — 统一 JSON 输出结构体
+- [Source: cmd/rnix/skill.go] — 现有 skill 子命令和 install 实现
+- [Source: cmd/rnix/skill_test.go] — 现有 CLI 测试模式
+- [Source: cmd/rnix/main.go#JSONResponse] — 统一 JSON 输出结构体
 - [Source: _bmad-output/project-context.md] — 项目编码规则
 
 ## Dev Agent Record
@@ -275,8 +275,8 @@ Claude Opus 4.6 (claude-opus-4-6)
 - `skillpkg/types.go` — 添加 `SearchResult` 结构体、`Downloads` 字段和 JSON tag（移除未使用的 `SearchOpts`）
 - `skillpkg/client.go` — 实现 `Search()` 方法（修复返回空 slice 而非 nil）
 - `skillpkg/client_test.go` — 移除 6 个搜索测试的 `t.Skip()`，启用测试
-- `cmd/crux/skill.go` — 添加 `skillSearchCmd` 定义、`runSkillSearch` 实现、`renderSkillSearchJSON` 实现（修复 Unicode 截断）
-- `cmd/crux/skill_test.go` — 移除 4 个搜索 CLI 测试的 `t.Skip()`，启用测试
+- `cmd/rnix/skill.go` — 添加 `skillSearchCmd` 定义、`runSkillSearch` 实现、`renderSkillSearchJSON` 实现（修复 Unicode 截断）
+- `cmd/rnix/skill_test.go` — 移除 4 个搜索 CLI 测试的 `t.Skip()`，启用测试
 
 ## Senior Developer Review (AI)
 
@@ -303,7 +303,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 ### Issues Found & Fixed
 
 **HIGH (已修复):**
-1. **[FIXED] Description 截断使用字节索引而非 rune 索引** (`cmd/crux/skill.go:204-205`)
+1. **[FIXED] Description 截断使用字节索引而非 rune 索引** (`cmd/rnix/skill.go:204-205`)
    - `len(desc) > 40` 和 `desc[:37]` 对多字节字符（CJK）会在字符中间截断
    - 修复：改为 `[]rune` 操作
 

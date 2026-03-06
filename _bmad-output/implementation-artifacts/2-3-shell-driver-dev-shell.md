@@ -15,7 +15,7 @@ So that 我可以运行构建工具、检查环境、执行脚本。
 1. **Shell 命令执行** — Given `drivers/shell/shell.go` 已实现，When 调用 `Write(fd, []byte("ls -la"))`，Then 通过 `exec.CommandContext` 执行 shell 命令，And 继承当前用户的环境变量和 PATH（NFR14），And 继承当前用户权限，不提供额外提权（NFR15）
 2. **命令输出读取** — Given shell 命令执行完成，When 调用 `Read(fd, length)`，Then 返回 stdout + stderr 合并输出
 3. **命令超时处理** — Given shell 命令超时（默认 30 秒），When 超时触发，Then 终止命令进程，返回 `*types.DriverError`，`Code` 为 `ErrTimeout`
-4. **设备注册** — Given ShellDriver 已创建，When 在 `cmd/crux/main.go` 中注册，Then `devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))`
+4. **设备注册** — Given ShellDriver 已创建，When 在 `cmd/rnix/main.go` 中注册，Then `devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))`
 
 ## Tasks / Subtasks
 
@@ -77,7 +77,7 @@ So that 我可以运行构建工具、检查环境、执行脚本。
   - [x] 2.15 `TestFileFactory_ReturnsShellFile` — FileFactory 返回正确的 ShellFile 实例
 
 - [x] Task 3: 集成到 CLI 入口 — 设备注册 (AC: #4)
-  - [x] 3.1 在 `cmd/crux/main.go` 中导入 `drivers/shell` 包
+  - [x] 3.1 在 `cmd/rnix/main.go` 中导入 `drivers/shell` 包
   - [x] 3.2 创建 ShellDriver 实例：`shellDriver := shell.NewDriver()`
   - [x] 3.3 注册设备：`_ = devReg.Register("/dev/shell", shell.FileFactory(shellDriver, "/dev/shell"))`
   - [x] 3.4 确认注册顺序与其他设备一致（在 `/dev/llm/claude` 和 `/dev/fs` 之后）
@@ -202,7 +202,7 @@ func FileFactory(driver *ShellDriver, basePath string) vfs.VFSFileFactory {
 **`types.NewDriverError`** — 定义在 `internal/types/types.go`
 **`types.ErrTimeout`、`types.ErrDriver`、`types.ErrNotFound`** — 定义在 `internal/types/types.go`
 
-### 设备注册参考（cmd/crux/main.go）
+### 设备注册参考（cmd/rnix/main.go）
 
 当前的设备注册代码（约第 182 行）：
 ```go
@@ -291,7 +291,7 @@ drivers/shell/
 ```
 
 **需要修改的文件：**
-- `cmd/crux/main.go` — 新增 `/dev/shell` 设备注册（~3 行：import + NewDriver + Register）
+- `cmd/rnix/main.go` — 新增 `/dev/shell` 设备注册（~3 行：import + NewDriver + Register）
 
 **不需要修改的文件：**
 - `vfs/` 下任何文件 — VFSFile 接口已存在，driverErrCode 已在 Story 2.2 中修复
@@ -339,7 +339,7 @@ drivers/shell/
 - [Source: drivers/fs/hostfs.go] — HostFS 驱动参考（DriverError 错误处理、closed 检查）
 - [Source: drivers/fs/hostfs_test.go] — 驱动测试参考（15 个测试用例覆盖模式）
 - [Source: internal/types/types.go] — DriverError + NewDriverError + ErrCode 常量
-- [Source: cmd/crux/main.go:179-185] — 设备注册依赖注入点
+- [Source: cmd/rnix/main.go:179-185] — 设备注册依赖注入点
 - [Source: 2-2-host-filesystem-driver-dev-fs.md] — 前序 Story 经验（Code Review H1/H2/R2-M1/R2-M2/R2-M3）
 
 ## Dev Agent Record
@@ -364,14 +364,14 @@ Claude Opus 4.6
 - ✅ Task 2: 创建 `drivers/shell/shell_test.go`，18 个测试全部通过
   - 使用 TestHelperProcess + mockCmdBuilder 模式（与 claude_cli_test.go 一致）
   - 覆盖：成功执行、空命令、超时、Write前Read、部分长度Read、双重Close、Close后操作、Stat、非零退出码、环境变量继承、FileFactory、EOF行为、命令执行失败、生产CommandBuilder环境继承
-- ✅ Task 3: `cmd/crux/main.go` 添加 import + NewDriver + Register（3 行），在 /dev/fs 之后注册
+- ✅ Task 3: `cmd/rnix/main.go` 添加 import + NewDriver + Register（3 行），在 /dev/fs 之后注册
 - ✅ Task 4: `go vet ./...` 零警告，`go test -race ./...` 全量通过，零回归
 
 ### File List
 
 - `drivers/shell/shell.go` — 新建（ShellDriver + ShellFile + FileFactory，171 行）
 - `drivers/shell/shell_test.go` — 新建（18 个测试用例，435 行）
-- `cmd/crux/main.go` — 修改（新增 import + 2 行设备注册）
+- `cmd/rnix/main.go` — 修改（新增 import + 2 行设备注册）
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改（状态更新）
 - `_bmad-output/implementation-artifacts/2-3-shell-driver-dev-shell.md` — 修改（任务标记 + Dev Agent Record）
 

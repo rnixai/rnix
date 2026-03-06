@@ -205,7 +205,7 @@ skills/
 - `internal/types/types.go` — ErrCode 常量已存在
 - `internal/xsync/` 下任何文件
 - `internal/ui/` 下任何文件
-- `cmd/crux/main.go` — 本 Story 不集成到 CLI（Story 2.4 集成）
+- `cmd/rnix/main.go` — 本 Story 不集成到 CLI（Story 2.4 集成）
 
 **需要修改的文件：**
 - `go.mod` / `go.sum` — 新增 `gopkg.in/yaml.v3` 依赖

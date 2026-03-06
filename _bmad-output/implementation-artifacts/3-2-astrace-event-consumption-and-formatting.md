@@ -7,7 +7,7 @@ Status: done
 ## Story
 
 As a 用户,
-I want `crux astrace <pid>` 实时流式输出 syscall 调用链路,
+I want `rnix astrace <pid>` 实时流式输出 syscall 调用链路,
 So that 我能看到智能体的每一步操作及其结果。
 
 ## Acceptance Criteria
@@ -329,7 +329,7 @@ b659759 Finalize Story 3.1: SyscallEvent Recording Infrastructure implementation
 - `debug/astrace_test.go` — 全面单元测试
 
 **本 Story 不包含：**
-- `crux astrace <pid>` CLI 子命令（Story 3.3）
+- `rnix astrace <pid>` CLI 子命令（Story 3.3）
 - `--json` / `--verbose` flag 与 CLI 的集成（Story 3.3，但 `Options.Verbose` 字段为其预留）
 - Ctrl+C detach 汇总输出（Story 3.3）
 - `internal/ui/trace.go` Syscall Trace Line 组件（Story 3.4）
@@ -337,7 +337,7 @@ b659759 Finalize Story 3.1: SyscallEvent Recording Infrastructure implementation
 
 **Story 3.3 调用示例（供参考，本 Story 不实现）：**
 ```go
-// 在 cmd/crux/main.go 的 astrace 子命令中
+// 在 cmd/rnix/main.go 的 astrace 子命令中
 proc, ok := kernel.GetProcess(pid)
 if !ok { /* 错误处理 */ }
 

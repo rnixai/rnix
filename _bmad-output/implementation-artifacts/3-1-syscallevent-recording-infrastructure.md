@@ -181,7 +181,7 @@ package debug
 
 import (
     "time"
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
 )
 
 // EmitEvent 非阻塞地将事件写入 DebugChan。

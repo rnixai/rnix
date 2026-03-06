@@ -1,9 +1,9 @@
-# 场景 2：Compose + crux top 实时监控
+# 场景 2：Compose + rnix top 实时监控
 # 覆盖 Epic：7（Compose）+ 10（监控）
-# 验证：crux top 能实时反映 3 Agent DAG 的状态变化
-# 用法：终端 1 运行 crux top，终端 2 运行 crux compose up -f <this-file>
+# 验证：rnix top 能实时反映 3 Agent DAG 的状态变化
+# 用法：终端 1 运行 rnix top，终端 2 运行 rnix compose up -f <this-file>
 version: "1.0"
-intent: "集成验证：Compose + crux top 实时监控"
+intent: "集成验证：Compose + rnix top 实时监控"
 model: "haiku"
 agents:
   step-a:

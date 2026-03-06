@@ -26,13 +26,13 @@ So that 我可以获得跨进程的完整因果链数据。
 ## Story 15.2: 分布式追踪视图
 
 As a 平台构建者,
-I want 通过 `crux trace <trace-id>` 查看完整的分布式追踪视图,
+I want 通过 `rnix trace <trace-id>` 查看完整的分布式追踪视图,
 So that 我可以一目了然地看到所有智能体的时序关系和依赖链路。
 
 **Acceptance Criteria:**
 
 **Given** 一个已完成的 Compose 编排的 Trace ID
-**When** 用户执行 `crux trace <trace-id>`
+**When** 用户执行 `rnix trace <trace-id>`
 **Then** 系统展示所有参与智能体的 Span 树状视图，包含时序关系、持续时间和 token 消耗
 
 **Given** 追踪视图中包含多个 Span
@@ -42,13 +42,13 @@ So that 我可以一目了然地看到所有智能体的时序关系和依赖链
 ## Story 15.3: Trace Blame 根因定位
 
 As a 平台构建者,
-I want 通过 `crux trace blame <trace-id>` 自动分析追踪数据定位关键路径节点,
+I want 通过 `rnix trace blame <trace-id>` 自动分析追踪数据定位关键路径节点,
 So that 我可以快速找到耗时最长、消耗最大或产生错误的瓶颈。
 
 **Acceptance Criteria:**
 
 **Given** 一个有效的 Trace ID
-**When** 用户执行 `crux trace blame <trace-id>`
+**When** 用户执行 `rnix trace blame <trace-id>`
 **Then** 系统自动分析并高亮标记：耗时最长的节点、token 消耗最大的节点、产生错误的关键路径
 
 **Given** blame 分析结果
@@ -58,13 +58,13 @@ So that 我可以快速找到耗时最长、消耗最大或产生错误的瓶颈
 ## Story 15.4: 上下文使用分析
 
 As a 平台构建者,
-I want 通过 `crux ctx-profile <pid>` 查看智能体上下文的使用分析，识别最大消费者,
+I want 通过 `rnix ctx-profile <pid>` 查看智能体上下文的使用分析，识别最大消费者,
 So that 我可以优化 token 使用效率，减少不必要的上下文消耗。
 
 **Acceptance Criteria:**
 
 **Given** 一个 Running 或 Zombie 状态的智能体
-**When** 用户执行 `crux ctx-profile <pid>`
+**When** 用户执行 `rnix ctx-profile <pid>`
 **Then** 系统将上下文分为活跃（当前推理引用）、温（近期使用）、冷（未引用）、泄漏（已无用未释放）四类展示
 **And** 分析结果延迟 <= 1s（NFR34）
 

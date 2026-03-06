@@ -12,7 +12,7 @@ So that 智能体获得专业指令同时只能访问 Skill 声明的设备。
 
 ## Acceptance Criteria
 
-1. **Skill Instructions 注入** — Given 用户执行 `crux "分析代码" --skill=code-analyst`，When Spawn 创建进程，Then 加载 code-analyst Skill 的 instructions.md 内容，And 注入到 LLM 调用的 system prompt 中
+1. **Skill Instructions 注入** — Given 用户执行 `rnix "分析代码" --skill=code-analyst`，When Spawn 创建进程，Then 加载 code-analyst Skill 的 instructions.md 内容，And 注入到 LLM 调用的 system prompt 中
 2. **设备权限白名单拒绝** — Given Skill manifest 声明 `tools: ["/dev/fs", "/dev/shell"]`，When 智能体尝试访问不在白名单中的设备（如 `/dev/llm/claude`），Then 将权限拒绝错误追加到智能体上下文中，通知 LLM 该设备不可用，并继续推理循环（NFR16 优雅降级）
 3. **Skill 模型选择** — Given Skill manifest 声明 `models.provider: claude`、`models.preferred: sonnet`，When Spawn 创建进程，Then LLM 调用自动使用 `/dev/llm/claude` 驱动和 `sonnet` 模型
 4. **无 Skill 通用模式** — Given 用户未指定 `--skill`，When Spawn 创建进程，Then 使用通用模式（无 Skill instructions 注入），所有设备可访问（NFR17 最小安全边界）
@@ -31,7 +31,7 @@ So that 智能体获得专业指令同时只能访问 Skill 声明的设备。
   - [x] 1.3 `AllowedDevices` 非空时仅允许白名单中的设备路径
 
 - [x] Task 2: KernelImpl 添加 SkillLoader 依赖 (AC: #1, #3)
-  - [x] 2.1 `kernel/kernel.go` 添加 `import "github.com/usecrux/crux/skills"`
+  - [x] 2.1 `kernel/kernel.go` 添加 `import "github.com/rnixai/rnix/skills"`
   - [x] 2.2 `KernelImpl` 结构体添加 `skillLoader *skills.SkillLoader` 字段
   - [x] 2.3 修改 `NewKernel` 签名：添加 `skillLoader *skills.SkillLoader` 参数（放在 `ctxMgr` 和 `cb` 之间）
   - [x] 2.4 在 `NewKernel` 中存储 `skillLoader` 到结构体
@@ -54,12 +54,12 @@ So that 智能体获得专业指令同时只能访问 Skill 声明的设备。
   - [x] 4.6 AllowedDevices 为空时跳过检查（通用模式，AC #4）
 
 - [x] Task 5: CLI 添加 --skill 标志 (AC: #1)
-  - [x] 5.1 在 `cmd/crux/main.go` 中添加 `flagSkill string` 变量
+  - [x] 5.1 在 `cmd/rnix/main.go` 中添加 `flagSkill string` 变量
   - [x] 5.2 在 `init()` 中注册：`rootCmd.Flags().StringVar(&flagSkill, "skill", "", "Skill to load (e.g., code-analyst)")`
   - [x] 5.3 在 `runRoot()` 中初始化 SkillLoader：`skillLoader := skills.NewSkillLoader("lib/skills")`
   - [x] 5.4 修改 `kernel.NewKernel()` 调用：传入 `skillLoader`
   - [x] 5.5 构建 skills 列表并传入 Spawn：`var skillsList []string; if flagSkill != "" { skillsList = []string{flagSkill} }`
-  - [x] 5.6 添加 `import "github.com/usecrux/crux/skills"`
+  - [x] 5.6 添加 `import "github.com/rnixai/rnix/skills"`
 
 - [x] Task 6: 单元测试 (AC: #1-5)
   - [x] 6.1 `kernel/kernel_test.go` — 新增测试：
@@ -106,7 +106,7 @@ return nil, fmt.Errorf("skill %q not found: %w", skillName, err)
 
 **依赖方向（修复后）：**
 ```
-cmd/crux/main.go → kernel/ → skills/（使用 SkillLoader）
+cmd/rnix/main.go → kernel/ → skills/（使用 SkillLoader）
                   → vfs/
                   → context/
 skills/ → internal/types/（零 kernel 依赖）
@@ -145,7 +145,7 @@ type Process struct {
 type KernelImpl struct {
     procTable *xsync.SyncMap[types.PID, *Process]
     vfs       *vfs.VFS
-    ctxMgr    *cruxctx.Manager
+    ctxMgr    *rnixctx.Manager
     callbacks KernelCallbacks
     // ⬇️ 新增
     // skillLoader *skills.SkillLoader
@@ -154,9 +154,9 @@ type KernelImpl struct {
 
 **NewKernel 签名（kernel/kernel.go:82）当前：**
 ```go
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl
+func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelImpl
 // ⬇️ 修改为
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, skillLoader *skills.SkillLoader, cb KernelCallbacks) *KernelImpl
+func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, skillLoader *skills.SkillLoader, cb KernelCallbacks) *KernelImpl
 ```
 
 **Spawn 签名（kernel/kernel.go:92）不变：**
@@ -233,7 +233,7 @@ case ActionToolCall:
 - LLM 可以选择使用其他可用工具或直接给出文本回复
 - 这比立即终止进程更优雅，更符合智能体的交互模式
 
-### CLI 修改（cmd/crux/main.go）
+### CLI 修改（cmd/rnix/main.go）
 
 **当前的 Spawn 调用（第 194 行）：**
 ```go
@@ -368,7 +368,7 @@ AC #5（FR12）**已在 Story 1.6 中实现**。当前 `reasonStep()` 的 `Actio
 skills/loader.go              (修改 — 移除 kernel 导入，~2 行改动)
 kernel/process.go             (修改 — 添加 AllowedDevices 字段，1 行)
 kernel/kernel.go              (修改 — 添加 skillLoader + Spawn 注入 + 权限检查，~40 行)
-cmd/crux/main.go              (修改 — 添加 --skill 标志 + SkillLoader 初始化，~10 行)
+cmd/rnix/main.go              (修改 — 添加 --skill 标志 + SkillLoader 初始化，~10 行)
 kernel/kernel_test.go         (修改 — 新增 ~9 个测试用例)
 ```
 
@@ -410,10 +410,10 @@ kernel/kernel_test.go         (修改 — 新增 ~9 个测试用例)
 - [Source: skills/loader.go:9] — **循环依赖来源**：`import kernel`
 - [Source: skills/types.go:11-17] — SkillManifest（Tools 字段 = 白名单）
 - [Source: vfs/vfs.go:175-187] — VFS.Open（设备路由，不修改）
-- [Source: cmd/crux/main.go:145-151] — CLI flags 注册点
-- [Source: cmd/crux/main.go:167-242] — runRoot 函数（CLI 修改点）
-- [Source: cmd/crux/main.go:182-190] — 依赖注入链（添加 SkillLoader）
-- [Source: cmd/crux/main.go:194] — Spawn 调用点
+- [Source: cmd/rnix/main.go:145-151] — CLI flags 注册点
+- [Source: cmd/rnix/main.go:167-242] — runRoot 函数（CLI 修改点）
+- [Source: cmd/rnix/main.go:182-190] — 依赖注入链（添加 SkillLoader）
+- [Source: cmd/rnix/main.go:194] — Spawn 调用点
 - [Source: context/context.go] — SetSystemPrompt + BuildPrompt
 - [Source: internal/types/types.go:24] — ErrPermission 常量已定义
 - [Source: 2-3-shell-driver-dev-shell.md] — 前序 Story 经验
@@ -442,7 +442,7 @@ Claude Opus 4.6
 - **[H1] AC #2 文本修正** — 更新 AC #2 文本，移除"返回 *SyscallError/ErrPermission"描述，改为匹配实际实现的优雅降级语义（追加错误到上下文，继续推理循环）
 - **[M1] AppendToolResult 错误处理** — `kernel/kernel.go` 权限拒绝路径中，`AppendToolResult` 错误不再被 `_` 忽略，改为终止进程（与正常工具结果路径一致）
 - **[M2] 路径遍历防护** — `kernel/kernel.go` 权限检查前添加 `path.Clean()` 规范化 `action.ToolPath`，防止 `/dev/fs/../shell` 绕过白名单
-- **[M3] 集成测试覆盖** — `cmd/crux/integration_test.go` 新增 `TestE2E_WithSkill_InjectsInstructions`，验证 CLI→SkillLoader→Spawn→AllowedDevices 端到端路径
+- **[M3] 集成测试覆盖** — `cmd/rnix/integration_test.go` 新增 `TestE2E_WithSkill_InjectsInstructions`，验证 CLI→SkillLoader→Spawn→AllowedDevices 端到端路径
 - **[L1] 错误构造简化** — `fmt.Errorf("%s", permErr)` 替换为 `errors.New(permErr)`
 - **新增测试** — `kernel/kernel_test.go` 新增 `TestReasonStep_PathTraversal_Blocked`，验证路径遍历攻击被正确拦截
 
@@ -453,8 +453,8 @@ Claude Opus 4.6
 - `kernel/process.go` — 修改：Process 结构体添加 AllowedDevices 字段
 - `kernel/kernel.go` — 修改：添加 skills/fmt/strings 导入，KernelImpl 添加 skillLoader，NewKernel 签名变更，Spawn 添加 Skill 加载注入，reasonStep 添加权限检查
 - `kernel/kernel_test.go` — 修改：添加 errors/strings/skills 导入，更新 NewKernel 调用，新增 9 个测试和 2 个辅助类型
-- `cmd/crux/main.go` — 修改：添加 skills 导入，新增 flagSkill 变量和 --skill 标志，初始化 SkillLoader，Spawn 传入 skillsList
-- `cmd/crux/integration_test.go` — 修改：更新 NewKernel 调用签名
+- `cmd/rnix/main.go` — 修改：添加 skills 导入，新增 flagSkill 变量和 --skill 标志，初始化 SkillLoader，Spawn 传入 skillsList
+- `cmd/rnix/integration_test.go` — 修改：更新 NewKernel 调用签名
 
 ## Change Log
 

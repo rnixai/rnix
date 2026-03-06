@@ -1,4 +1,4 @@
-// Package vfs implements the virtual file system layer for Crux.
+// Package vfs implements the virtual file system layer for Rnix.
 package vfs
 
 import (
@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/xsync"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/xsync"
 )
 
 // OpenFlag represents file open mode flags.

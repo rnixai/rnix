@@ -3,7 +3,7 @@
 ## Performance
 
 - **NFR1:** 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析）
-- **NFR2:** `crux ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
+- **NFR2:** `rnix ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
 - **NFR3:** `astrace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
 - **NFR4:** VFS 本地文件读取（`/dev/fs`）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍
 - **NFR5:** 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身）
@@ -14,7 +14,7 @@
 - **NFR7:** LLM API 超时/错误时，进程在 5 秒内正确转入 Zombie 状态，不卡死在 Running
 - **NFR8:** 进程退出后，goroutine 和 context 内存在 10 秒内释放，无泄漏
 - **NFR9:** 内核进程表在任意进程异常退出后保持一致性（无悬挂 PID、无状态不一致）
-- **NFR10:** CLI 进程（crux 二进制本身）在智能体异常退出时不崩溃
+- **NFR10:** CLI 进程（rnix 二进制本身）在智能体异常退出时不崩溃
 
 ## Integration
 
@@ -46,12 +46,12 @@
 
 - **NFR25:** MCP 服务挂载延迟（从 Mount syscall 到服务可用）≤ 500ms
 - **NFR26:** MCP 服务异常退出时不影响内核稳定性，对应 VFS 路径在 3 秒内返回明确错误（`ErrServiceUnavailable`）而非卡死
-- **NFR27:** 系统兼容 MCP 协议标准版本，可接入符合 MCP 标准的第三方服务器，无需 Crux 侧代码修改
+- **NFR27:** 系统兼容 MCP 协议标准版本，可接入符合 MCP 标准的第三方服务器，无需 Rnix 侧代码修改
 
 ## Observability & Ecosystem（可观测性与生态，Phase 2）
 
-- **NFR28:** `crux top` TUI 刷新间隔 ≤ 500ms，单核 CPU 占用 ≤ 5%（10 个并发进程场景）
-- **NFR29:** `crux log` 输出延迟 ≤ 200ms（从推理事件发生到终端显示）
+- **NFR28:** `rnix top` TUI 刷新间隔 ≤ 500ms，单核 CPU 占用 ≤ 5%（10 个并发进程场景）
+- **NFR29:** `rnix log` 输出延迟 ≤ 200ms（从推理事件发生到终端显示）
 - **NFR30:** 社区 Skill 通过 `skill install` 安装后无需修改即可被任意 Agent 引用，Skill 格式兼容性通过标准 SKILL.md frontmatter 验证
 
 ---

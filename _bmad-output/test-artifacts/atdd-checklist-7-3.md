@@ -9,10 +9,10 @@ lastStep: 'step-05-checklist'
 lastSaved: '2026-03-01'
 workflowType: 'testarch-atdd'
 inputDocuments:
-  - '_bmad-output/implementation-artifacts/7-3-crux-compose-down-command.md'
-  - 'cmd/crux/compose.go'
-  - 'cmd/crux/compose_test.go'
-  - 'cmd/crux/main_test.go'
+  - '_bmad-output/implementation-artifacts/7-3-rnix-compose-down-command.md'
+  - 'cmd/rnix/compose.go'
+  - 'cmd/rnix/compose_test.go'
+  - 'cmd/rnix/main_test.go'
   - 'internal/ui/compose.go'
   - 'internal/ui/compose_test.go'
   - 'compose/types.go'
@@ -24,7 +24,7 @@ inputDocuments:
   - 'go.mod'
 ---
 
-# ATDD Checklist - Epic 7, Story 7.3: crux compose down 命令
+# ATDD Checklist - Epic 7, Story 7.3: rnix compose down 命令
 
 **Date:** 2026-03-01
 **Author:** Decker
@@ -34,18 +34,18 @@ inputDocuments:
 
 ## Story Summary
 
-Story 7.3 为 Crux 操作系统实现 `crux compose down` CLI 命令，停止编排中所有运行中的智能体并释放资源。通过解析 compose YAML 获取 agent intent 列表，查询 daemon 进程表，匹配并终止运行中的进程，输出释放汇总。
+Story 7.3 为 Rnix 操作系统实现 `rnix compose down` CLI 命令，停止编排中所有运行中的智能体并释放资源。通过解析 compose YAML 获取 agent intent 列表，查询 daemon 进程表，匹配并终止运行中的进程，输出释放汇总。
 
 **As a** 用户
-**I want** 通过 `crux compose down` 停止编排中所有智能体并释放资源
+**I want** 通过 `rnix compose down` 停止编排中所有智能体并释放资源
 **So that** 我可以清理中断的工作流
 
 ---
 
 ## Acceptance Criteria
 
-1. **AC #1 — compose down 子命令注册**: Given compose down 子命令已注册，When 执行 `crux compose down`，Then 向编排中所有运行中的智能体发送 Kill 信号，And 等待所有进程转为 Dead，And 释放所有资源
-2. **AC #2 — 部分完成场景**: Given 部分智能体已完成，部分仍在运行，When 执行 `crux compose down`，Then 仅终止仍在运行的智能体，And 输出释放汇总（终止了 N 个进程，释放了 M 个上下文）
+1. **AC #1 — compose down 子命令注册**: Given compose down 子命令已注册，When 执行 `rnix compose down`，Then 向编排中所有运行中的智能体发送 Kill 信号，And 等待所有进程转为 Dead，And 释放所有资源
+2. **AC #2 — 部分完成场景**: Given 部分智能体已完成，部分仍在运行，When 执行 `rnix compose down`，Then 仅终止仍在运行的智能体，And 输出释放汇总（终止了 N 个进程，释放了 M 个上下文）
 
 ---
 
@@ -53,7 +53,7 @@ Story 7.3 为 Crux 操作系统实现 `crux compose down` CLI 命令，停止编
 
 - **detected_stack**: `backend`（Go 项目，`go.mod` 存在，无前端指标）
 - **test_framework**: Go 标准 `testing` 包 + `-race` 检测
-- **test_dir**: `cmd/crux/` (CLI 测试) + `internal/ui/` (UI 组件测试)
+- **test_dir**: `cmd/rnix/` (CLI 测试) + `internal/ui/` (UI 组件测试)
 - **generation_mode**: AI Generation（后端项目，无浏览器录制需求）
 
 ---
@@ -64,8 +64,8 @@ Story 7.3 为 Crux 操作系统实现 `crux compose down` CLI 命令，停止编
 
 | AC | 测试级别 | 测试文件 | 理由 |
 |----|---------|---------|------|
-| AC #1 | Unit + Integration | `cmd/crux/compose_test.go` | CLI 子命令注册是单元验证；runComposeDown 通过 IPC 集成测试 |
-| AC #1 | Unit | `cmd/crux/compose_test.go` | matchComposeProcesses 辅助函数的纯逻辑单元测试 |
+| AC #1 | Unit + Integration | `cmd/rnix/compose_test.go` | CLI 子命令注册是单元验证；runComposeDown 通过 IPC 集成测试 |
+| AC #1 | Unit | `cmd/rnix/compose_test.go` | matchComposeProcesses 辅助函数的纯逻辑单元测试 |
 | AC #2 | Unit | `internal/ui/compose_test.go` | 释放汇总 UI 是纯渲染逻辑 |
 
 ### 优先级
@@ -90,7 +90,7 @@ Story 7.3 为 Crux 操作系统实现 `crux compose down` CLI 命令，停止编
 
 ### CLI Tests (10 tests)
 
-**File:** `cmd/crux/compose_test.go` (新增约 280 行)
+**File:** `cmd/rnix/compose_test.go` (新增约 280 行)
 
 - **Test:** `TestComposeDownCmd_Registered`
   - **Status:** RED — `composeDownCmd` 未注册
@@ -162,83 +162,83 @@ Story 7.3 为 Crux 操作系统实现 `crux compose down` CLI 命令，停止编
 
 ### Test: TestComposeDownCmd_Registered / TestComposeDown_HelpOutput
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
-- [ ] 在 `cmd/crux/compose.go` 中添加 `composeDownCmd` 声明
-- [ ] 添加 `-f/--file` flag（`flagComposeDownFile`，默认 `crux-compose.yaml`）
+- [ ] 在 `cmd/rnix/compose.go` 中添加 `composeDownCmd` 声明
+- [ ] 添加 `-f/--file` flag（`flagComposeDownFile`，默认 `rnix-compose.yaml`）
 - [ ] 在现有 `init()` 中添加 `composeCmd.AddCommand(composeDownCmd)`
-- [ ] Run test: `go test ./cmd/crux/ -run 'TestComposeDownCmd_Registered|TestComposeDown_Help' -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run 'TestComposeDownCmd_Registered|TestComposeDown_Help' -race`
 - [ ] Tests pass (green phase)
 
 ---
 
 ### Test: TestComposeDown_FileNotFound
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] 实现 `runComposeDown(cmd *cobra.Command, args []string) error`
 - [ ] 调用 `compose.ParseFile(flagComposeDownFile)` 解析 YAML
 - [ ] 文件不存在时设置 exitCode 并返回
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeDown_FileNotFound -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeDown_FileNotFound -race`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeDown_NoDaemon
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] runComposeDown 中使用 `ipc.Dial(ipc.SocketPath())` 连接 daemon（不用 EnsureDaemon）
 - [ ] 连接失败时输出 "No daemon running, nothing to stop"，exitCode = 0
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeDown_NoDaemon -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeDown_NoDaemon -race`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeDown_NoMatchingProcesses
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] runComposeDown 中调用 `client.ListProcs()` 获取进程列表
 - [ ] 调用 `matchComposeProcesses()` 匹配 compose spec 中的 agent
 - [ ] 无匹配进程时输出 "No matching processes found"，exitCode = 0
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeDown_NoMatchingProcesses -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeDown_NoMatchingProcesses -race`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestMatchComposeProcesses_AllRunning / TestMatchComposeProcesses_MixedStates / TestMatchComposeProcesses_NoMatch
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
-- [ ] 在 `cmd/crux/compose.go` 中实现 `matchComposeProcesses(procs []vfs.ProcInfo, spec *compose.ComposeSpec) (running []vfs.ProcInfo, completed []vfs.ProcInfo)`
+- [ ] 在 `cmd/rnix/compose.go` 中实现 `matchComposeProcesses(procs []vfs.ProcInfo, spec *compose.ComposeSpec) (running []vfs.ProcInfo, completed []vfs.ProcInfo)`
 - [ ] 遍历 spec.Agents 收集所有 intent
 - [ ] 遍历 procs，匹配 intent，根据 State 分类到 running 或 completed
 - [ ] Running/Created 状态归入 running；Zombie/Dead 状态归入 completed
-- [ ] Run test: `go test ./cmd/crux/ -run TestMatchComposeProcesses -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestMatchComposeProcesses -race`
 - [ ] Tests pass (green phase)
 
 ---
 
 ### Test: TestComposeDown_KillRunningOnly
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] runComposeDown 中对 matchComposeProcesses 返回的 running 进程逐一调用 `client.Kill(pid, types.SIGTERM)`
 - [ ] 收集 Kill 错误但继续终止其他进程（best-effort）
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeDown_KillRunningOnly -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeDown_KillRunningOnly -race`
 - [ ] Test passes (green phase)
 
 ---
@@ -274,13 +274,13 @@ Story 7.3 为 Crux 操作系统实现 `crux compose down` CLI 命令，停止编
 
 ### Test: TestComposeDown_JSONOutput
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
-- [ ] 在 `cmd/crux/compose.go` 中定义 `ComposeDownResult` 结构体（Killed, Skipped 字段）
+- [ ] 在 `cmd/rnix/compose.go` 中定义 `ComposeDownResult` 结构体（Killed, Skipped 字段）
 - [ ] runComposeDown 中根据 outputMode 调用 RenderComposeDownSummary 或 RenderComposeDownSummaryJSON
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeDown_JSONOutput -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeDown_JSONOutput -race`
 - [ ] Test passes (green phase)
 
 ---
@@ -289,17 +289,17 @@ Story 7.3 为 Crux 操作系统实现 `crux compose down` CLI 命令，停止编
 
 ```bash
 # Run all failing tests for this story (will fail to compile until implementation exists)
-go test ./cmd/crux/ -run TestComposeDown -race -v
-go test ./cmd/crux/ -run TestMatchComposeProcesses -race -v
+go test ./cmd/rnix/ -run TestComposeDown -race -v
+go test ./cmd/rnix/ -run TestMatchComposeProcesses -race -v
 go test ./internal/ui/ -run TestRenderComposeDown -race -v
 
 # Run specific test groups
-go test ./cmd/crux/ -run TestComposeDownCmd_Registered -race -v   # 子命令注册
-go test ./cmd/crux/ -run TestComposeDown_Help -race -v            # help 输出
-go test ./cmd/crux/ -run TestComposeDown_FileNotFound -race -v    # 文件不存在
-go test ./cmd/crux/ -run TestComposeDown_NoDaemon -race -v        # daemon 未运行
-go test ./cmd/crux/ -run TestComposeDown_KillRunning -race -v     # 仅终止运行中进程
-go test ./cmd/crux/ -run TestMatchComposeProcesses -race -v       # 进程匹配辅助函数
+go test ./cmd/rnix/ -run TestComposeDownCmd_Registered -race -v   # 子命令注册
+go test ./cmd/rnix/ -run TestComposeDown_Help -race -v            # help 输出
+go test ./cmd/rnix/ -run TestComposeDown_FileNotFound -race -v    # 文件不存在
+go test ./cmd/rnix/ -run TestComposeDown_NoDaemon -race -v        # daemon 未运行
+go test ./cmd/rnix/ -run TestComposeDown_KillRunning -race -v     # 仅终止运行中进程
+go test ./cmd/rnix/ -run TestMatchComposeProcesses -race -v       # 进程匹配辅助函数
 go test ./internal/ui/ -run TestRenderComposeDownSummary -race -v # 释放汇总渲染
 go test ./internal/ui/ -run TestRenderComposeDownSummaryJSON -race -v # JSON 汇总
 
@@ -307,11 +307,11 @@ go test ./internal/ui/ -run TestRenderComposeDownSummaryJSON -race -v # JSON 汇
 make test
 
 # Run with coverage
-go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race -coverprofile=compose-down-cmd.out
+go test ./cmd/rnix/ -run 'TestComposeDown|TestMatchCompose' -race -coverprofile=compose-down-cmd.out
 go test ./internal/ui/ -run TestRenderComposeDown -race -coverprofile=compose-down-ui.out
 
 # Run with verbose timing
-go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race -v -count=1
+go test ./cmd/rnix/ -run 'TestComposeDown|TestMatchCompose' -race -v -count=1
 ```
 
 ---
@@ -340,18 +340,18 @@ go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race -v -count=1
 
 **DEV Agent Responsibilities:**
 
-1. **Start with CLI scaffolding**: 在 `cmd/crux/compose.go` 中添加 composeDownCmd 声明和注册
+1. **Start with CLI scaffolding**: 在 `cmd/rnix/compose.go` 中添加 composeDownCmd 声明和注册
 2. **Implement matchComposeProcesses**: 进程匹配辅助函数
 3. **Implement UI**: 在 `internal/ui/compose.go` 中添加 ComposeDownEntry + RenderComposeDownSummary + RenderComposeDownSummaryJSON
 4. **Implement runComposeDown**: 组装完整执行流程
-5. **Run tests incrementally**: `go test ./cmd/crux/ -run TestComposeDownCmd_Registered -race` first
+5. **Run tests incrementally**: `go test ./cmd/rnix/ -run TestComposeDownCmd_Registered -race` first
 
 **Key Principles:**
 
 - One test at a time (don't try to fix all at once)
 - Minimal implementation (don't over-engineer)
 - Run tests frequently (immediate feedback with `-race`)
-- 不修改 `compose/` 包（Story 7.3 仅在 `cmd/crux/` 和 `internal/ui/` 层添加代码）
+- 不修改 `compose/` 包（Story 7.3 仅在 `cmd/rnix/` 和 `internal/ui/` 层添加代码）
 - compose down 不使用 EnsureDaemon（daemon 未运行时正常退出）
 - Kill 是 best-effort（某个 Kill 失败继续终止其他进程）
 
@@ -359,7 +359,7 @@ go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race -v -count=1
 
 ### REFACTOR Phase (DEV Team - After All Tests Pass)
 
-1. Verify all tests pass: `go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race && go test ./internal/ui/ -run TestRenderComposeDown -race`
+1. Verify all tests pass: `go test ./cmd/rnix/ -run 'TestComposeDown|TestMatchCompose' -race && go test ./internal/ui/ -run TestRenderComposeDown -race`
 2. Run lint: `make lint`
 3. Verify full suite: `make test`
 4. Build: `make build`
@@ -371,24 +371,24 @@ go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race -v -count=1
 
 ### Initial Test Run (RED Phase Verification)
 
-**Command:** `go test ./cmd/crux/ -run 'TestComposeDown|TestMatchCompose' -race`
+**Command:** `go test ./cmd/rnix/ -run 'TestComposeDown|TestMatchCompose' -race`
 
 **Results:**
 
 ```
-# github.com/usecrux/crux/cmd/crux [github.com/usecrux/crux/cmd/crux.test]
-cmd/crux/compose_test.go:604:15: undefined: flagComposeDownFile
-cmd/crux/compose_test.go:607:3: undefined: flagComposeDownFile
-cmd/crux/compose_test.go:610:2: undefined: flagComposeDownFile
-cmd/crux/compose_test.go:613:9: undefined: runComposeDown
-cmd/crux/compose_test.go:638:15: undefined: flagComposeDownFile
-cmd/crux/compose_test.go:642:3: undefined: flagComposeDownFile
-cmd/crux/compose_test.go:647:2: undefined: flagComposeDownFile
-cmd/crux/compose_test.go:652:9: undefined: runComposeDown
-cmd/crux/compose_test.go:686:15: undefined: flagComposeDownFile
-cmd/crux/compose_test.go:689:3: undefined: flagComposeDownFile
-cmd/crux/compose_test.go:689:3: too many errors
-FAIL    github.com/usecrux/crux/cmd/crux [build failed]
+# github.com/rnixai/rnix/cmd/rnix [github.com/rnixai/rnix/cmd/rnix.test]
+cmd/rnix/compose_test.go:604:15: undefined: flagComposeDownFile
+cmd/rnix/compose_test.go:607:3: undefined: flagComposeDownFile
+cmd/rnix/compose_test.go:610:2: undefined: flagComposeDownFile
+cmd/rnix/compose_test.go:613:9: undefined: runComposeDown
+cmd/rnix/compose_test.go:638:15: undefined: flagComposeDownFile
+cmd/rnix/compose_test.go:642:3: undefined: flagComposeDownFile
+cmd/rnix/compose_test.go:647:2: undefined: flagComposeDownFile
+cmd/rnix/compose_test.go:652:9: undefined: runComposeDown
+cmd/rnix/compose_test.go:686:15: undefined: flagComposeDownFile
+cmd/rnix/compose_test.go:689:3: undefined: flagComposeDownFile
+cmd/rnix/compose_test.go:689:3: too many errors
+FAIL    github.com/rnixai/rnix/cmd/rnix [build failed]
 ```
 
 **Command:** `go test ./internal/ui/ -run TestRenderComposeDown -race`
@@ -396,7 +396,7 @@ FAIL    github.com/usecrux/crux/cmd/crux [build failed]
 **Results:**
 
 ```
-# github.com/usecrux/crux/internal/ui [github.com/usecrux/crux/internal/ui.test]
+# github.com/rnixai/rnix/internal/ui [github.com/rnixai/rnix/internal/ui.test]
 internal/ui/compose_test.go:345:14: undefined: ComposeDownEntry
 internal/ui/compose_test.go:349:15: undefined: ComposeDownEntry
 internal/ui/compose_test.go:353:2: undefined: RenderComposeDownSummary
@@ -408,7 +408,7 @@ internal/ui/compose_test.go:424:14: undefined: ComposeDownEntry
 internal/ui/compose_test.go:428:15: undefined: ComposeDownEntry
 internal/ui/compose_test.go:432:2: undefined: RenderComposeDownSummaryJSON
 internal/ui/compose_test.go:432:2: too many errors
-FAIL    github.com/usecrux/crux/internal/ui [build failed]
+FAIL    github.com/rnixai/rnix/internal/ui [build failed]
 ```
 
 **Summary:**
@@ -421,7 +421,7 @@ FAIL    github.com/usecrux/crux/internal/ui [build failed]
 **Existing tests unaffected:**
 
 ```
-ok      github.com/usecrux/crux/compose   (cached) (all Story 7.1 tests pass)
+ok      github.com/rnixai/rnix/compose   (cached) (all Story 7.1 tests pass)
 ```
 
 **Expected Failure Messages:**
@@ -451,7 +451,7 @@ ok      github.com/usecrux/crux/compose   (cached) (all Story 7.1 tests pass)
 ## New Types to Create
 
 ```go
-// cmd/crux/compose.go
+// cmd/rnix/compose.go
 var composeDownCmd *cobra.Command   // compose down 子命令
 var flagComposeDownFile string      // compose down 的 -f flag
 
@@ -483,18 +483,18 @@ func RenderComposeDownSummaryJSON(r *Renderer, killed []ComposeDownEntry, skippe
 ## Files to Modify
 
 ```
-cmd/crux/compose.go            # 添加 composeDownCmd 注册 + runComposeDown + matchComposeProcesses
+cmd/rnix/compose.go            # 添加 composeDownCmd 注册 + runComposeDown + matchComposeProcesses
 internal/ui/compose.go          # 添加 ComposeDownEntry + RenderComposeDownSummary/JSON
 ```
 
 ## Dependencies
 
 ```
-cmd/crux/compose.go → compose/          （ParseFile，获取 agent intent 列表）
-cmd/crux/compose.go → ipc/              （Client、Dial、Kill、ListProcs）
-cmd/crux/compose.go → internal/types/   （PID、ProcessState、SIGTERM）
-cmd/crux/compose.go → internal/ui/      （RenderComposeDownSummary/JSON）
-cmd/crux/compose.go → vfs/              （ProcInfo 类型）
+cmd/rnix/compose.go → compose/          （ParseFile，获取 agent intent 列表）
+cmd/rnix/compose.go → ipc/              （Client、Dial、Kill、ListProcs）
+cmd/rnix/compose.go → internal/types/   （PID、ProcessState、SIGTERM）
+cmd/rnix/compose.go → internal/ui/      （RenderComposeDownSummary/JSON）
+cmd/rnix/compose.go → vfs/              （ProcInfo 类型）
 internal/ui/compose.go → (无新依赖)     （ComposeDownEntry 为 UI 包内部类型）
 ```
 
@@ -516,9 +516,9 @@ internal/ui/compose.go → (无新依赖)     （ComposeDownEntry 为 UI 包内�
 
 - **test-quality.md** — Given-When-Then 结构、单一断言、确定性、隔离性
 - **test-levels-framework.md** — Unit + Integration 级别选择（后端项目无 E2E）
-- **existing test patterns** — `cmd/crux/compose_test.go` (Story 7.2) 的 CLI 测试模式
+- **existing test patterns** — `cmd/rnix/compose_test.go` (Story 7.2) 的 CLI 测试模式
 - **existing test patterns** — `internal/ui/compose_test.go` (Story 7.2) 的 UI 渲染测试模式
-- **existing test patterns** — `cmd/crux/main_test.go` 的 setupTestIPCServer、flag 保存恢复模式
+- **existing test patterns** — `cmd/rnix/main_test.go` 的 setupTestIPCServer、flag 保存恢复模式
 - **Story 7.2 ATDD checklist** — 后端 Go 项目 ATDD 模式参考
 
 ---

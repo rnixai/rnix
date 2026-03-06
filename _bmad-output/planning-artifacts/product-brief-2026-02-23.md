@@ -12,15 +12,15 @@ date: '2026-02-23'
 author: Decker
 ---
 
-# Product Brief: Crux
+# Product Brief: Rnix
 
 <!-- Content will be appended sequentially through collaborative workflow steps -->
 
 ## 执行摘要
 
-**Crux** 是一个面向 AI 智能体的操作系统，用 Go 语言从零构建。它将智能体视为操作系统的一等计算单元，通过进程模型、虚拟文件系统、系统调用接口等 OS 级原语，从根本上解决当前多智能体系统的三大难题：调试黑盒、能力不可复用、多智能体协调困难。
+**Rnix** 是一个面向 AI 智能体的操作系统，用 Go 语言从零构建。它将智能体视为操作系统的一等计算单元，通过进程模型、虚拟文件系统、系统调用接口等 OS 级原语，从根本上解决当前多智能体系统的三大难题：调试黑盒、能力不可复用、多智能体协调困难。
 
-当前所有主流框架（LangGraph、AutoGen、CrewAI、MetaGPT）都在应用层重新发明操作系统的功能——进程调度、内存管理、文件抽象、权限控制。Crux 不在应用层做编排，而是在 OS 层提供完整的原语支持，让构建生产级多智能体系统从"困难"变为"自然"。
+当前所有主流框架（LangGraph、AutoGen、CrewAI、MetaGPT）都在应用层重新发明操作系统的功能——进程调度、内存管理、文件抽象、权限控制。Rnix 不在应用层做编排，而是在 OS 层提供完整的原语支持，让构建生产级多智能体系统从"困难"变为"自然"。
 
 **核心定位：** AI 时代的 Unix。
 
@@ -63,7 +63,7 @@ author: Decker
 
 ### 解决方案
 
-**Crux 从 OS 层提供智能体作为一等计算单元的完整原语支持：**
+**Rnix 从 OS 层提供智能体作为一等计算单元的完整原语支持：**
 
 - **智能体即进程**：spawn/kill/wait/signal，进程树管理，goroutine 实现三级模型（进程/线程/协程）
 - **一切皆文件**：工具 = `/dev/` 设备，MCP 服务 = `/mnt/mcp/` 挂载，智能体状态 = `/proc/` 文件
@@ -79,7 +79,7 @@ author: Decker
 
 3. **进程模型 + 管道组合**（解决协调困难）：智能体通过 Unix 管道组合——`spawn "分析代码" | spawn "写文档"`。不需要预定义 graph，不需要中央编排器。**协调从"硬编码"变为"即兴组合"。**
 
-4. **时机优势**：2024-2025 年多智能体框架百花齐放，但都在应用层做编排——行业正处于"需要一个统一 OS 层抽象"的临界点。Crux 就是这个 Unix 时刻。
+4. **时机优势**：2024-2025 年多智能体框架百花齐放，但都在应用层做编排——行业正处于"需要一个统一 OS 层抽象"的临界点。Rnix 就是这个 Unix 时刻。
 
 ---
 
@@ -91,7 +91,7 @@ author: Decker
 
 **画像：** 陈明，28岁，独立开发者。之前用 LangGraph 搭过一个3智能体的代码审查系统，花了两周写编排逻辑，上线后一个智能体偶尔给出错误审查意见，他花了三天翻日志都没定位到原因，最终放弃了这个项目。
 
-**角色定位：** 在 Crux 上构建基础设施和 Skill 包。他写 Skill 的 `manifest.yaml` 和 `instructions.md`，定义 Tool 驱动，配置 MCP 挂载，构建可复用的能力模块。
+**角色定位：** 在 Rnix 上构建基础设施和 Skill 包。他写 Skill 的 `manifest.yaml` 和 `instructions.md`，定义 Tool 驱动，配置 MCP 挂载，构建可复用的能力模块。
 
 **日常场景：**
 - 发现团队需要一个"数据库迁移"能力，于是编写 `db-migrator` Skill，发布到 skillpkg
@@ -103,28 +103,28 @@ author: Decker
 - 写好的 prompt 和工具配置无法跨项目复用，每次从零开始
 - 智能体出错时完全是黑盒，只能靠猜
 
-**成功时刻：** `crux astrace 42` 一条命令，立刻看到智能体的完整决策链——"原来是在第7步读了错误的文件导致后续推理全偏了"。从三天缩短到三分钟。
+**成功时刻：** `rnix astrace 42` 一条命令，立刻看到智能体的完整决策链——"原来是在第7步读了错误的文件导致后续推理全偏了"。从三天缩短到三分钟。
 
 ---
 
 #### 用户 B：应用开发者
 
-**画像：** 林薇，32岁，全栈开发者，在一家 AI 初创公司负责产品开发。她不关心 Crux 内核怎么实现的，她只想快速组装一个能用的多智能体系统来解决业务问题。
+**画像：** 林薇，32岁，全栈开发者，在一家 AI 初创公司负责产品开发。她不关心 Rnix 内核怎么实现的，她只想快速组装一个能用的多智能体系统来解决业务问题。
 
-**角色定位：** 通过 AgentShell 和 Agent Compose 使用现成的 Skill 组装多智能体应用。她写 `crux-compose.yaml`，从 skillpkg 安装 Skill，用管道组合智能体，但不会深入到内核或驱动层。
+**角色定位：** 通过 AgentShell 和 Agent Compose 使用现成的 Skill 组装多智能体应用。她写 `rnix-compose.yaml`，从 skillpkg 安装 Skill，用管道组合智能体，但不会深入到内核或驱动层。
 
 **日常场景：**
 - `skill install pr-reviewer code-analyst tech-writer` 安装三个 Skill
-- 写一个 `crux-compose.yaml` 定义"PR 提交后自动审查、分析代码质量、生成变更文档"的流水线
-- `crux compose up` 一键启动，`crux top` 监控运行状态
-- 出问题时看 `crux log 42`，根据 `[think]/[tool]/[output]` 分类快速定位
+- 写一个 `rnix-compose.yaml` 定义"PR 提交后自动审查、分析代码质量、生成变更文档"的流水线
+- `rnix compose up` 一键启动，`rnix top` 监控运行状态
+- 出问题时看 `rnix log 42`，根据 `[think]/[tool]/[output]` 分类快速定位
 
 **当前痛点：**
 - 想构建一个多智能体工作流，但 LangGraph 的 graph 定义太复杂
 - 找到一个好用的 prompt，没法直接装到另一个项目里
 - 不同框架的智能体无法互操作
 
-**成功时刻：** 写了一个 20 行的 `crux-compose.yaml`，安装了 3 个社区 Skill，`crux compose up` 跑起来一个完整的 CI 审查流水线——从零到可用不到 30 分钟。
+**成功时刻：** 写了一个 20 行的 `rnix-compose.yaml`，安装了 3 个社区 Skill，`rnix compose up` 跑起来一个完整的 CI 审查流水线——从零到可用不到 30 分钟。
 
 ---
 
@@ -132,7 +132,7 @@ author: Decker
 
 #### 用户 C：最终用户
 
-不直接接触 Crux。他们使用 B 类开发者构建的应用（如 AI 代码审查服务、自动化文档生成工具等）。Crux 对他们完全透明——他们感受到的是更快的响应、更准确的结果和更可靠的服务。
+不直接接触 Rnix。他们使用 B 类开发者构建的应用（如 AI 代码审查服务、自动化文档生成工具等）。Rnix 对他们完全透明——他们感受到的是更快的响应、更准确的结果和更可靠的服务。
 
 ---
 
@@ -142,8 +142,8 @@ author: Decker
 
 | 阶段 | 行为 | 接触点 |
 |------|------|--------|
-| **发现** | 在 GitHub/技术博客上看到 Crux，被"智能体即进程"和 OS 级调试吸引 | GitHub README、技术文章 |
-| **上手** | `go install` 安装，跑通第一个 `crux spawn "hello"` 命令 | AgentShell、README |
+| **发现** | 在 GitHub/技术博客上看到 Rnix，被"智能体即进程"和 OS 级调试吸引 | GitHub README、技术文章 |
+| **上手** | `go install` 安装，跑通第一个 `rnix spawn "hello"` 命令 | AgentShell、README |
 | **核心使用** | 编写 Skill，用 `astrace`/`agdb` 调试，发布到 skillpkg | AgentShell、VFS、调试工具链 |
 | **顿悟时刻** | 第一次用 `astrace` 在 3 分钟内定位到一个之前要花 3 天的 bug | `astrace`、`agdb` |
 | **长期** | 成为 Skill 生态贡献者，构建的 Skill 被社区广泛使用 | skillpkg、社区 |
@@ -153,10 +153,10 @@ author: Decker
 | 阶段 | 行为 | 接触点 |
 |------|------|--------|
 | **发现** | 看到 A 类用户分享的 Skill 或 Compose 模板，意识到可以快速组装系统 | 社区、博客 |
-| **上手** | `skill install` 几个 Skill，复制一个 compose 模板，`crux compose up` 跑通 | skillpkg、Agent Compose |
-| **核心使用** | 编写 `crux-compose.yaml`，用管道组合智能体，`crux top` 监控 | Agent Compose、AgentShell |
+| **上手** | `skill install` 几个 Skill，复制一个 compose 模板，`rnix compose up` 跑通 | skillpkg、Agent Compose |
+| **核心使用** | 编写 `rnix-compose.yaml`，用管道组合智能体，`rnix top` 监控 | Agent Compose、AgentShell |
 | **顿悟时刻** | 20 行 YAML + 3 个 Skill = 一个完整的多智能体工作流，替代了之前 2000 行的 LangGraph 代码 | Agent Compose |
-| **长期** | 积累自己的 Compose 模板库，团队标准化在 Crux 上构建 AI 应用 | Compose 模板、团队工作流 |
+| **长期** | 积累自己的 Compose 模板库，团队标准化在 Rnix 上构建 AI 应用 | Compose 模板、团队工作流 |
 
 ---
 
@@ -184,11 +184,11 @@ author: Decker
 
 ### 业务目标（开源项目）
 
-Crux 是纯开源项目，业务目标以社区影响力和生态健康为核心：
+Rnix 是纯开源项目，业务目标以社区影响力和生态健康为核心：
 
 | 时间节点 | 目标 |
 |---------|------|
-| **Phase 1 完成** | 自举成功——Crux 能用自身 syscall 层完成一个 Crux 开发任务 |
+| **Phase 1 完成** | 自举成功——Rnix 能用自身 syscall 层完成一个 Rnix 开发任务 |
 | **6 个月** | 首次公开发布，README + demo 完整，接受外部 contributor |
 | **12 个月** | GitHub stars 作为核心北极星指标，代表社区认可度和传播力 |
 
@@ -204,11 +204,11 @@ Stars 是开源项目最直接的社区认可信号——它衡量的是"有多�
 
 | KPI | 含义 | 为什么重要 |
 |-----|------|-----------|
-| **自举完成度** | Crux 能用自身完成多少类型的开发任务 | Phase 1 的硬性验收标准，证明系统可用 |
+| **自举完成度** | Rnix 能用自身完成多少类型的开发任务 | Phase 1 的硬性验收标准，证明系统可用 |
 | **首次 demo 成功率** | 新用户 clone 后能跑通 demo 的比例 | 决定第一印象，直接影响 star 转化 |
 | **Skill 包数量** | skillpkg 上可安装的 Skill 数 | 生态丰富度，B 类用户留存的关键 |
 | **Contributor 数量** | 提交过 PR 的外部开发者数 | 社区健康度，项目可持续性的基础 |
-| **技术博客/讨论引用** | 外部文章、HN/Reddit 讨论中提及 Crux 的次数 | 传播力，Stars 增长的先行指标 |
+| **技术博客/讨论引用** | 外部文章、HN/Reddit 讨论中提及 Rnix 的次数 | 传播力，Stars 增长的先行指标 |
 
 ---
 
@@ -218,7 +218,7 @@ Stars 是开源项目最直接的社区认可信号——它衡量的是"有多�
 
 **Phase 1 竖切片：内核奠基 + 最小调试能力**
 
-MVP 目标是实现 Crux 的最小可运行内核，验证"智能体即进程"的核心假设，并通过 `astrace` 展示 OS 级调试的差异化优势。
+MVP 目标是实现 Rnix 的最小可运行内核，验证"智能体即进程"的核心假设，并通过 `astrace` 展示 OS 级调试的差异化优势。
 
 **1. 微内核（3 个文件）**
 
@@ -260,15 +260,15 @@ MVP 目标是实现 Crux 的最小可运行内核，验证"智能体即进程"�
 
 | 组件 | 说明 |
 |------|------|
-| `cmd/crux/main.go` | AgentShell MVP——仅支持 `crux "意图"` 单命令 spawn |
+| `cmd/rnix/main.go` | AgentShell MVP——仅支持 `rnix "意图"` 单命令 spawn |
 
 **7. 最小调试工具——astrace（1 个文件）**
 
 | 组件 | 说明 |
 |------|------|
-| `debug/astrace.go` | 最小 syscall 追踪：拦截并打印所有 syscall 调用（名称、参数、返回值、耗时），支持 `crux astrace <pid>` 命令 |
+| `debug/astrace.go` | 最小 syscall 追踪：拦截并打印所有 syscall 调用（名称、参数、返回值、耗时），支持 `rnix astrace <pid>` 命令 |
 
-`astrace` 是 Crux 与所有现有框架的核心差异点。即使在 MVP 中，它也必须能让用户看到智能体的完整 syscall 链路——这是用户 A 的"顿悟时刻"。
+`astrace` 是 Rnix 与所有现有框架的核心差异点。即使在 MVP 中，它也必须能让用户看到智能体的完整 syscall 链路——这是用户 A 的"顿悟时刻"。
 
 **MVP 实现的核心 syscall（~15 个）：**
 
@@ -286,7 +286,7 @@ MVP 目标是实现 Crux 的最小可运行内核，验证"智能体即进程"�
 | 进程间通信（IPC） | Phase 2 | MVP 只需单进程 spawn→完成路径 |
 | 上下文 swap 换出 | Phase 2 | MVP 阶段上下文窗口足够，无需冷存储 |
 | skillpkg 包管理 | Phase 2 | MVP 手动放置 Skill 文件，不需要包管理器 |
-| AgentShell 完整语法 | Phase 2 | MVP 仅 `crux "意图"` 和 `crux astrace <pid>` |
+| AgentShell 完整语法 | Phase 2 | MVP 仅 `rnix "意图"` 和 `rnix astrace <pid>` |
 | agdb 交互式调试器 | Phase 2+ | 依赖完整的 debug syscall 集合 |
 | 时间旅行调试 | Phase 3 | 依赖 DebugRecord + CtxSnapshot + CoW |
 | 声明式意图 / Reconciler | Phase 3 | 涌现层特性 |
@@ -298,10 +298,10 @@ MVP 目标是实现 Crux 的最小可运行内核，验证"智能体即进程"�
 
 **硬性验收标准：自举验证**
 
-Crux 能用自身的 syscall 层完成一个 Crux 开发任务。具体场景：
+Rnix 能用自身的 syscall 层完成一个 Rnix 开发任务。具体场景：
 
 ```bash
-$ crux "分析 ./kernel/scheduler.go 并找出性能瓶颈"
+$ rnix "分析 ./kernel/scheduler.go 并找出性能瓶颈"
 
 [kernel] spawning PID 1...
 [agent/1] loading skill: code-analyst
@@ -324,12 +324,12 @@ $ crux "分析 ./kernel/scheduler.go 并找出性能瓶颈"
 | LLM 调用 | 通过 `/dev/llm/claude-sonnet` 完成推理 |
 | Skill 加载 | `code-analyst` Skill 正确注入 system prompt |
 | reasonStep 循环 | tool_call → 执行 → 追加结果 → 继续推理 → text → 完成 |
-| astrace 追踪 | `crux astrace 1` 输出完整 syscall 链路（名称、耗时、token） |
-| 自举 | 用 Crux 分析 Crux 自身源码并给出有意义的结果 |
+| astrace 追踪 | `rnix astrace 1` 输出完整 syscall 链路（名称、耗时、token） |
+| 自举 | 用 Rnix 分析 Rnix 自身源码并给出有意义的结果 |
 
 ### 未来愿景
 
-MVP 是 Crux 三阶段路线图的起点：
+MVP 是 Rnix 三阶段路线图的起点：
 
 **Phase 2：能力栈建设** — 从"能跑一个智能体"到"能编排多个智能体"
 - 完整的 Tools/MCP/Skills 三层能力栈
@@ -345,4 +345,4 @@ MVP 是 Crux 三阶段路线图的起点：
 - 完整调试工具链（agdb、时间旅行、分布式追踪、ctx-profiler）
 - 可视化调试面板
 
-**终极愿景：** Crux 成为 AI 时代的 Unix——一个开发者构建多智能体系统时的默认底层，一个 Skill 生态蓬勃发展的平台，一个让"构建生产级多智能体系统"从"极其困难"变为"自然而然"的操作系统。
+**终极愿景：** Rnix 成为 AI 时代的 Unix——一个开发者构建多智能体系统时的默认底层，一个 Skill 生态蓬勃发展的平台，一个让"构建生产级多智能体系统"从"极其困难"变为"自然而然"的操作系统。

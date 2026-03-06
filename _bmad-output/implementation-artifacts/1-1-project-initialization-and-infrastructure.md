@@ -5,13 +5,13 @@ Status: done
 ## Story
 
 As a 开发者,
-I want 通过 `go install` 安装 Crux 并获得一个可构建的项目骨架,
+I want 通过 `go install` 安装 Rnix 并获得一个可构建的项目骨架,
 So that 后续所有模块可以在标准化的 Go 项目结构上构建。
 
 ## Acceptance Criteria
 
-1. **Go 模块与安装** — Given 用户已安装 Go 1.26，When 执行 `go install github.com/usecrux/crux/cmd/crux@latest`，Then 获得 `crux` 二进制文件，`crux version` 输出版本号，二进制无额外运行时依赖（除 Claude Code CLI）
-2. **OS 隐喻目录结构** — Given 项目目录已创建，When 查看目录结构，Then 遵循架构文档定义的领域驱动结构（`cmd/crux/`、`kernel/`、`vfs/`、`drivers/`、`context/`、`skills/`、`debug/`、`internal/types/`、`internal/xsync/`、`internal/ui/`），And 包含 `go.mod`（`github.com/usecrux/crux`）、`Makefile`、`.golangci.yml`、`.gitignore`
+1. **Go 模块与安装** — Given 用户已安装 Go 1.26，When 执行 `go install github.com/rnixai/rnix/cmd/rnix@latest`，Then 获得 `rnix` 二进制文件，`rnix version` 输出版本号，二进制无额外运行时依赖（除 Claude Code CLI）
+2. **OS 隐喻目录结构** — Given 项目目录已创建，When 查看目录结构，Then 遵循架构文档定义的领域驱动结构（`cmd/rnix/`、`kernel/`、`vfs/`、`drivers/`、`context/`、`skills/`、`debug/`、`internal/types/`、`internal/xsync/`、`internal/ui/`），And 包含 `go.mod`（`github.com/rnixai/rnix`）、`Makefile`、`.golangci.yml`、`.gitignore`
 3. **共享类型** — Given `internal/types/types.go` 已实现，When 其他包导入共享类型，Then 可使用 `PID`、`FD`、`CtxID`、`ErrCode`、`Signal`、`ProcessState` 等类型，And 无循环依赖（`internal/types/` 零外部依赖）
 4. **泛型工具包** — Given `internal/xsync/` 已实现，When 使用泛型工具，Then `Registry[T]` 支持注册/获取/列出操作，`SyncMap[K,V]` 支持并发安全的 Load/Store/Delete/Range，`Future[T]` 支持 Await 阻塞等待结果，`Result[T]` 支持 Ok/Err/Unwrap/Map 操作，And 所有泛型类型通过 `-race` 测试
 5. **错误类型** — Given `kernel/errors.go` 已实现，When syscall 产生错误，Then 返回 `*SyscallError` 类型（含 `Syscall`、`PID`、`Device`、`Err`、`Code` 字段），And `ErrCode` 常量包含 `ErrTimeout`、`ErrNotFound`、`ErrPermission`、`ErrInternal`、`ErrDriver`
@@ -20,9 +20,9 @@ So that 后续所有模块可以在标准化的 Go 项目结构上构建。
 ## Tasks / Subtasks
 
 - [x] Task 1: 初始化 Go 模块与项目骨架 (AC: #1, #2)
-  - [x] 1.1 执行 `go mod init github.com/usecrux/crux`，设置 Go 1.26
+  - [x] 1.1 执行 `go mod init github.com/rnixai/rnix`，设置 Go 1.26
   - [x] 1.2 创建完整目录结构（所有包目录 + 占位文件）
-  - [x] 1.3 创建 `cmd/crux/main.go`（cobra 根命令 + `version` 子命令）
+  - [x] 1.3 创建 `cmd/rnix/main.go`（cobra 根命令 + `version` 子命令）
   - [x] 1.4 创建 `.gitignore`（Go 项目标准 + 二进制）
 - [x] Task 2: 实现共享类型 `internal/types/types.go` (AC: #3)
   - [x] 2.1 定义 `PID`（`uint64`）、`FD`（`int`）、`CtxID`（`uint64`）类型
@@ -137,16 +137,16 @@ func (e *SyscallError) Error() string {
 ### Makefile 规范
 
 ```makefile
-BINARY := crux
-PKG := github.com/usecrux/crux
+BINARY := rnix
+PKG := github.com/rnixai/rnix
 
 .PHONY: build install test lint vet clean all
 
 build:
-	go build -o $(BINARY) ./cmd/crux/
+	go build -o $(BINARY) ./cmd/rnix/
 
 install:
-	go install ./cmd/crux/
+	go install ./cmd/rnix/
 
 test:
 	go test -race ./...
@@ -166,8 +166,8 @@ all: lint vet test build
 ### 完整目录结构（必须创建）
 
 ```
-crux/
-├── cmd/crux/main.go
+rnix/
+├── cmd/rnix/main.go
 ├── internal/
 │   ├── types/types.go
 │   ├── xsync/
@@ -200,8 +200,8 @@ crux/
 
 - 与统一项目结构完全对齐（架构文档最终版目录结构）
 - 所有占位目录使用 `.gitkeep` 文件保持 Git 跟踪
-- `cmd/crux/main.go` 是唯一入口点和依赖注入点
-- 模块路径 `github.com/usecrux/crux` 与架构文档一致
+- `cmd/rnix/main.go` 是唯一入口点和依赖注入点
+- 模块路径 `github.com/rnixai/rnix` 与架构文档一致
 
 ### References
 
@@ -225,7 +225,7 @@ Claude Opus 4.6
 
 ### Completion Notes List
 
-- Task 1: 初始化 Go 1.26 模块，创建完整 OS 隐喻目录结构（11 个包目录），cobra CLI 入口 `crux version` 输出 0.1.0
+- Task 1: 初始化 Go 1.26 模块，创建完整 OS 隐喻目录结构（11 个包目录），cobra CLI 入口 `rnix version` 输出 0.1.0
 - Task 2: 实现 `internal/types/types.go`，定义 PID/FD/CtxID/ErrCode/Signal/ProcessState/SyscallEvent，零外部依赖
 - Task 3: 实现 `internal/xsync/` 泛型工具包（Registry[T]、SyncMap[K,V]、Future[T]、Result[T]），21 个单元测试全部通过含 `-race`
 - Task 4: 实现 `kernel/errors.go` SyscallError（Error/Unwrap/NewSyscallError），5 个单元测试覆盖格式化、errors.Is/As、所有 ErrCode 常量
@@ -243,7 +243,7 @@ Claude Opus 4.6
 
 ### File List
 
-- cmd/crux/main.go (新增)
+- cmd/rnix/main.go (新增)
 - internal/types/types.go (新增, review 修改: Timestamp→Duration, Args→map)
 - internal/xsync/registry.go (新增)
 - internal/xsync/syncmap.go (新增)

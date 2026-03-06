@@ -168,7 +168,7 @@ So that 我可以为不同粒度的任务选择最合适的并发模型。
 
 **三级并发模型的 OS 隐喻对应**：
 
-| 级别 | Crux 概念 | Unix 对应 | 隔离级别 | 通信方式 |
+| 级别 | Rnix 概念 | Unix 对应 | 隔离级别 | 通信方式 |
 |------|-----------|-----------|---------|----------|
 | 进程 | Process（Spawn） | fork/exec | 完全隔离：独立上下文 + 独立 LLM 会话 | IPC（Send/Recv/Pipe） |
 | 线程 | Thread（SpawnThread） | pthread_create | 部分共享：共享上下文，独立执行流 | 共享上下文空间 |
@@ -632,7 +632,7 @@ kernel/procgroup.go      — ProcGroupManager 不变
 kernel/errors.go         — 无需新 ErrCode（复用 ErrNotFound、ErrInvalid）
 vfs/                     — VFS 层不涉及并发模型
 ipc/                     — 跨终端 IPC daemon，与内核并发模型无关
-cmd/crux/main.go         — CLI 层暂不暴露并发命令（由 Compose/AgentShell 使用）
+cmd/rnix/main.go         — CLI 层暂不暴露并发命令（由 Compose/AgentShell 使用）
 ```
 
 ### 必需导入
@@ -640,7 +640,7 @@ cmd/crux/main.go         — CLI 层暂不暴露并发命令（由 Compose/Agent
 ```go
 // kernel/concurrency.go
 import (
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
 )
 
 // kernel/thread.go
@@ -650,7 +650,7 @@ import (
     "sync"
     "time"
 
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
 )
 
 // kernel/coroutine.go
@@ -659,7 +659,7 @@ import (
     "sync"
     "time"
 
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
 )
 
 // kernel/thread_test.go
@@ -668,7 +668,7 @@ import (
     "testing"
     "time"
 
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )
@@ -679,7 +679,7 @@ import (
     "testing"
     "time"
 
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )

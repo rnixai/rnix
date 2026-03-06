@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/kernel"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
 func TestTryConnect_NoDaemon(t *testing.T) {
@@ -24,7 +24,7 @@ func TestTryConnect_NoDaemon(t *testing.T) {
 func TestTryConnect_Success(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
 	defer kern.Shutdown()
 
@@ -72,7 +72,7 @@ func TestWritePIDFile(t *testing.T) {
 	dir := t.TempDir()
 	writePIDFile(dir, 12345)
 
-	data, err := os.ReadFile(filepath.Join(dir, "crux.pid"))
+	data, err := os.ReadFile(filepath.Join(dir, "rnix.pid"))
 	if err != nil {
 		t.Fatalf("read pid file: %v", err)
 	}
@@ -96,13 +96,13 @@ func TestIsDaemonRunning_NoDaemon(t *testing.T) {
 func TestIsDaemonRunning_WithDaemon(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
 	defer kern.Shutdown()
 
 	srv := NewServer(kern, nil, "test")
 	sockDir := t.TempDir()
-	sockPath := filepath.Join(sockDir, "crux", "crux.sock")
+	sockPath := filepath.Join(sockDir, "rnix", "rnix.sock")
 
 	orig := os.Getenv("XDG_RUNTIME_DIR")
 	os.Setenv("XDG_RUNTIME_DIR", sockDir)
@@ -140,7 +140,7 @@ func TestWaitForDaemon_Timeout(t *testing.T) {
 func TestWaitForDaemon_ServerStartsLate(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
 	defer kern.Shutdown()
 
@@ -177,11 +177,11 @@ func TestDaemonExe_Default(t *testing.T) {
 
 func TestDaemonExe_Override(t *testing.T) {
 	orig := DaemonExe
-	DaemonExe = "/usr/bin/crux"
+	DaemonExe = "/usr/bin/rnix"
 	t.Cleanup(func() { DaemonExe = orig })
 
 	exe := daemonExe()
-	if exe != "/usr/bin/crux" {
-		t.Errorf("exe = %q, want %q", exe, "/usr/bin/crux")
+	if exe != "/usr/bin/rnix" {
+		t.Errorf("exe = %q, want %q", exe, "/usr/bin/rnix")
 	}
 }

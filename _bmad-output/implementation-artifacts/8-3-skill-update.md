@@ -12,7 +12,7 @@ so that 我始终使用最新兼容版本的能力模块。
 
 ## Acceptance Criteria
 
-1. **update 子命令注册与单个更新** — Given `cmd/crux/skill.go` 中 update 子命令已注册，When 执行 `skill update code-analysis`，Then 检查社区仓库中的最新兼容版本，And 如果有更新则下载并替换本地版本，And 更新本地注册表
+1. **update 子命令注册与单个更新** — Given `cmd/rnix/skill.go` 中 update 子命令已注册，When 执行 `skill update code-analysis`，Then 检查社区仓库中的最新兼容版本，And 如果有更新则下载并替换本地版本，And 更新本地注册表
 
 2. **全量更新** — Given 不指定名称，When 执行 `skill update`，Then 检查所有已安装 Skill 的更新，And 显示可更新列表，确认后批量更新
 
@@ -40,7 +40,7 @@ so that 我始终使用最新兼容版本的能力模块。
     - 对每个社区 Skill 调用 `Update(name, opts)`
     - 收集所有 `UpdateResult` 返回
 
-- [x] Task 3: 在 `cmd/crux/skill.go` 中添加 `skill update` 子命令 (AC: #1, #2, #3)
+- [x] Task 3: 在 `cmd/rnix/skill.go` 中添加 `skill update` 子命令 (AC: #1, #2, #3)
   - [x] 3.1 定义 `skillUpdateCmd` cobra.Command：`Use: "update [name...]"`, `Args: cobra.ArbitraryArgs`
   - [x] 3.2 在 `init()` 中 `skillCmd.AddCommand(skillUpdateCmd)`
   - [x] 3.3 实现 `runSkillUpdate`：
@@ -67,7 +67,7 @@ so that 我始终使用最新兼容版本的能力模块。
     - 未安装时：验证返回错误
     - UpdateAll：mock 多个已安装 Skill，验证批量结果
     - UpdateAll 过滤系统自带：验证 Source="builtin" 的 Skill 不被更新
-  - [x] 4.2 `cmd/crux/skill_test.go`：添加更新 CLI 测试
+  - [x] 4.2 `cmd/rnix/skill_test.go`：添加更新 CLI 测试
     - `TestSkillUpdateCmd_Registered`：验证 update 子命令注册
     - `TestSkillUpdate_JSONOutput`：验证 JSON 输出格式和 snake_case
     - `TestSkillUpdate_EmptyResult_JSONOutput`：验证全量更新无结果 JSON
@@ -83,7 +83,7 @@ so that 我始终使用最新兼容版本的能力模块。
 
 ### 核心架构决策
 
-**无新增包**：本 Story 的所有改动都在现有包内完成（`skillpkg/` 和 `cmd/crux/`），不创建新目录或新包。
+**无新增包**：本 Story 的所有改动都在现有包内完成（`skillpkg/` 和 `cmd/rnix/`），不创建新目录或新包。
 
 **更新策略**：复用 `Installer.Install(name, InstallOpts{Force: true})` 实现实际更新。Update 方法只负责版本比较和决策逻辑，不重复 Install 的 fetch→verify→extract→validate→register 流程。
 
@@ -91,7 +91,7 @@ so that 我始终使用最新兼容版本的能力模块。
 
 **依赖方向不变**：
 ```
-cmd/crux/skill.go → skillpkg/ → (已有依赖链)
+cmd/rnix/skill.go → skillpkg/ → (已有依赖链)
 ```
 - 不引入任何新的外部依赖
 - 不修改 `skillpkg/` 对外的现有接口（只新增方法和类型）
@@ -176,7 +176,7 @@ func (inst *Installer) UpdateAll(opts UpdateOpts) ([]UpdateResult, error) {
 ```
 
 **CLI 子命令注册模式**（参考 `skillInstallCmd` 和 `skillSearchCmd` 已有模式）：
-- 在 `cmd/crux/skill.go` 中定义 `skillUpdateCmd`
+- 在 `cmd/rnix/skill.go` 中定义 `skillUpdateCmd`
 - `init()` 中 `skillCmd.AddCommand(skillUpdateCmd)`
 - 复用全局 `flagJSON`、`flagQuiet` flags（不需要额外 flags）
 - `Args: cobra.ArbitraryArgs` — 0 个参数 = 更新全部，1+ 个参数 = 更新指定 Skill
@@ -230,9 +230,9 @@ func (inst *Installer) UpdateAll(opts UpdateOpts) ([]UpdateResult, error) {
 - `installErrorEntry` 结构体 — 错误条目的 JSON 格式（可复用或创建类似 `updateErrorEntry`）
 
 **参考现有模式**：
-- `cmd/crux/skill.go` 中 `runSkillInstall` — CLI 命令实现模式（含批量处理、错误收集、多种输出模式）
-- `cmd/crux/skill.go` 中 `renderSkillInstallJSON` — JSON 渲染模式
-- `cmd/crux/skill_test.go` — CLI 测试模式（验证命令注册、JSON 输出）
+- `cmd/rnix/skill.go` 中 `runSkillInstall` — CLI 命令实现模式（含批量处理、错误收集、多种输出模式）
+- `cmd/rnix/skill.go` 中 `renderSkillInstallJSON` — JSON 渲染模式
+- `cmd/rnix/skill_test.go` — CLI 测试模式（验证命令注册、JSON 输出）
 - `skillpkg/installer_test.go` — 使用 mock HTTP server + TempDir 测试 installer
 - `skillpkg/client_test.go` — 使用 `setupMockRegistry` 模式
 
@@ -241,7 +241,7 @@ func (inst *Installer) UpdateAll(opts UpdateOpts) ([]UpdateResult, error) {
 - **不要**在 Update 中重复 Install 的 fetch→verify→extract 流程——调用 `Install(name, InstallOpts{Force: true})`
 - **不要**引入 semver 库——简单字符串比较（`==`）足够 MVP 需求
 - **不要**修改 `Install()` 的签名或行为——只新增 `Update()` 和 `UpdateAll()` 方法
-- **不要**在 `skillpkg/` 中导入 `internal/ui/` 或 `cmd/crux/`——UI 渲染仅在 CLI 层
+- **不要**在 `skillpkg/` 中导入 `internal/ui/` 或 `cmd/rnix/`——UI 渲染仅在 CLI 层
 - **不要**更新系统自带 Skill（`Source != "community"`）——UpdateAll 必须过滤
 - **不要**使用 `interface{}` 存储更新结果——使用明确的 `UpdateResult` 结构体
 - **不要**使用 `.yml` 后缀——统一 `.yaml`
@@ -286,8 +286,8 @@ func (inst *Installer) UpdateAll(opts UpdateOpts) ([]UpdateResult, error) {
 ### Git 提交模式参考
 
 最近提交（ce36720）为 Story 8.2 实现：
-- 修改范围：`skillpkg/types.go`、`skillpkg/client.go`、`skillpkg/client_test.go`、`cmd/crux/skill.go`、`cmd/crux/skill_test.go`
-- 本 Story 类似范围：扩展 `skillpkg/types.go`、`skillpkg/installer.go`、`skillpkg/installer_test.go`、`cmd/crux/skill.go`、`cmd/crux/skill_test.go`
+- 修改范围：`skillpkg/types.go`、`skillpkg/client.go`、`skillpkg/client_test.go`、`cmd/rnix/skill.go`、`cmd/rnix/skill_test.go`
+- 本 Story 类似范围：扩展 `skillpkg/types.go`、`skillpkg/installer.go`、`skillpkg/installer_test.go`、`cmd/rnix/skill.go`、`cmd/rnix/skill_test.go`
 
 ### Project Structure Notes
 
@@ -296,11 +296,11 @@ func (inst *Installer) UpdateAll(opts UpdateOpts) ([]UpdateResult, error) {
 skillpkg/types.go          # 添加 UpdateResult、UpdateOpts 类型
 skillpkg/installer.go      # 添加 Update() 和 UpdateAll() 方法
 skillpkg/installer_test.go # 添加更新相关测试
-cmd/crux/skill.go          # 添加 skill update 子命令和 runSkillUpdate
-cmd/crux/skill_test.go     # 添加更新 CLI 测试
+cmd/rnix/skill.go          # 添加 skill update 子命令和 runSkillUpdate
+cmd/rnix/skill_test.go     # 添加更新 CLI 测试
 ```
 
-不新增文件，不新增包，不修改 `cmd/crux/main.go`（`skillCmd` 已通过 `rootCmd.AddCommand` 注册，子命令在 `skill.go` 的 `init()` 中添加）。
+不新增文件，不新增包，不修改 `cmd/rnix/main.go`（`skillCmd` 已通过 `rootCmd.AddCommand` 注册，子命令在 `skill.go` 的 `init()` 中添加）。
 
 ### References
 
@@ -311,9 +311,9 @@ cmd/crux/skill_test.go     # 添加更新 CLI 测试
 - [Source: skillpkg/installer.go] — 现有 Installer 和 Install() 实现
 - [Source: skillpkg/registry.go] — 现有 LocalRegistry（Get/List/Add/Remove）
 - [Source: skillpkg/client.go] — 现有 RegistryClient 和 Resolve() 实现
-- [Source: cmd/crux/skill.go] — 现有 skill 子命令和 install/search 实现
-- [Source: cmd/crux/skill_test.go] — 现有 CLI 测试模式
-- [Source: cmd/crux/main.go#JSONResponse] — 统一 JSON 输出结构体
+- [Source: cmd/rnix/skill.go] — 现有 skill 子命令和 install/search 实现
+- [Source: cmd/rnix/skill_test.go] — 现有 CLI 测试模式
+- [Source: cmd/rnix/main.go#JSONResponse] — 统一 JSON 输出结构体
 - [Source: _bmad-output/project-context.md] — 项目编码规则
 
 ## Dev Agent Record
@@ -348,8 +348,8 @@ No debug issues encountered. All tests passed on first implementation.
 - `skillpkg/types.go` — Added `UpdateResult` and `UpdateOpts` structs
 - `skillpkg/installer.go` — Added `Update()` and `UpdateAll()` methods
 - `skillpkg/update_test.go` — ATDD tests (pre-existing from RED phase, now all GREEN)
-- `cmd/crux/skill.go` — Added `skillUpdateCmd`, `runSkillUpdate`, `updateErrorEntry`, `skillUpdateJSONData`, `renderSkillUpdateJSON`
-- `cmd/crux/skill_test.go` — ATDD CLI tests (pre-existing from RED phase, now all GREEN)
+- `cmd/rnix/skill.go` — Added `skillUpdateCmd`, `runSkillUpdate`, `updateErrorEntry`, `skillUpdateJSONData`, `renderSkillUpdateJSON`
+- `cmd/rnix/skill_test.go` — ATDD CLI tests (pre-existing from RED phase, now all GREEN)
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — Status updated to done
 
 ### Senior Developer Review (AI)
@@ -361,9 +361,9 @@ No debug issues encountered. All tests passed on first implementation.
 
 #### MEDIUM Issues (Fixed)
 
-1. **Hard-coded error code `NOT_INSTALLED`** — `cmd/crux/skill.go:272`: All update errors were classified as `NOT_INSTALLED` regardless of actual cause (network error, resolve failure, etc.). **Fix:** Added error message inspection to set appropriate error code (`NOT_INSTALLED` vs `UPDATE_ERROR`).
+1. **Hard-coded error code `NOT_INSTALLED`** — `cmd/rnix/skill.go:272`: All update errors were classified as `NOT_INSTALLED` regardless of actual cause (network error, resolve failure, etc.). **Fix:** Added error message inspection to set appropriate error code (`NOT_INSTALLED` vs `UPDATE_ERROR`).
 
-2. **Inconsistent output pattern in update-all branch** — `cmd/crux/skill.go:316-332`: The update-all code path used separate `if` blocks for terminal and quiet mode, while the specific-skill branch used a clean `switch`. **Fix:** Refactored to use consistent `switch mode` pattern matching the specific-skill branch.
+2. **Inconsistent output pattern in update-all branch** — `cmd/rnix/skill.go:316-332`: The update-all code path used separate `if` blocks for terminal and quiet mode, while the specific-skill branch used a clean `switch`. **Fix:** Refactored to use consistent `switch mode` pattern matching the specific-skill branch.
 
 #### LOW Issues (Noted, not fixed)
 

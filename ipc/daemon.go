@@ -26,7 +26,7 @@ func daemonExe() string {
 	return os.Args[0]
 }
 
-// EnsureDaemon ensures a crux daemon is running and returns a connected Client.
+// EnsureDaemon ensures a rnix daemon is running and returns a connected Client.
 // If the daemon is already running, connects to it. Otherwise, starts a new daemon
 // and waits for it to become ready.
 func EnsureDaemon() (*Client, error) {
@@ -101,9 +101,9 @@ func waitForDaemon(sockPath string) (*Client, error) {
 	return nil, fmt.Errorf("ipc: daemon did not start within %s", daemonStartTimeout)
 }
 
-// writePIDFile writes the daemon's PID to crux.pid for diagnostics.
+// writePIDFile writes the daemon's PID to rnix.pid for diagnostics.
 func writePIDFile(dir string, pid int) {
-	pidPath := filepath.Join(dir, "crux.pid")
+	pidPath := filepath.Join(dir, "rnix.pid")
 	_ = os.WriteFile(pidPath, []byte(strconv.Itoa(pid)+"\n"), 0600)
 }
 

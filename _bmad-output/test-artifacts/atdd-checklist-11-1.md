@@ -168,7 +168,7 @@ inputDocuments:
 
 ### Regression Tests — CLI (2 个测试)
 
-**File:** `cmd/crux/main_test.go` (新增 ~40 行)
+**File:** `cmd/rnix/main_test.go` (新增 ~40 行)
 
 - ✅ **Test:** `TestIsPipelineSyntax_BasicPipe`
   - **Status:** RED — `undefined: isPipelineSyntax`
@@ -249,14 +249,14 @@ inputDocuments:
 
 ### Task 4: CLI 集成 — 管道检测
 
-**Files to modify:** `cmd/crux/main.go`
+**Files to modify:** `cmd/rnix/main.go`
 
 **Tasks to make CLI tests pass:**
 
 - [ ] 实现 `isPipelineSyntax(intent string) bool` — 检测 intent 是否是 `spawn "X" | spawn "Y"` 管道语法
 - [ ] 内部调用 `containsSpawnKeyword` — 检查 `|` 两侧是否有 `spawn` 关键字
 - [ ] 避免误判：普通 intent 中含 `|` 但无 spawn 关键字时返回 false
-- [ ] Run tests: `go test ./cmd/crux/ -run TestIsPipelineSyntax -v`
+- [ ] Run tests: `go test ./cmd/rnix/ -run TestIsPipelineSyntax -v`
 - [ ] ✅ All CLI detection tests pass (green phase)
 
 **Estimated Effort:** 1 hour
@@ -272,7 +272,7 @@ inputDocuments:
 - [ ] `ipc/server.go`: 实现 `handleSpawnPipeline` — 接收请求，调用 PipelineExecutor.Execute()
 - [ ] `ipc/server.go`: 实现 `ipcKernelSpawner` 适配器 — 桥接 kernel.Spawn
 - [ ] `ipc/client.go`: 实现 `SpawnPipelineAndWatch(req, onEvent)` 客户端方法
-- [ ] `cmd/crux/main.go`: `runRoot` 中 `isPipelineSyntax` 为 true 时走管道执行路径
+- [ ] `cmd/rnix/main.go`: `runRoot` 中 `isPipelineSyntax` 为 true 时走管道执行路径
 
 **Estimated Effort:** 4-5 hours
 
@@ -282,7 +282,7 @@ inputDocuments:
 
 ```bash
 # Run all failing tests for this story
-go test ./shell/... ./ipc/... ./cmd/crux/... -v 2>&1 | head -50
+go test ./shell/... ./ipc/... ./cmd/rnix/... -v 2>&1 | head -50
 
 # Run parser tests only
 go test ./shell/ -run TestParsePipeline -v
@@ -294,10 +294,10 @@ go test ./shell/ -run TestPipelineExecutor -v
 go test ./ipc/ -run "TestSpawnPipeline|TestMethodSpawnPipeline|TestPipelineStageWire" -v
 
 # Run CLI detection tests only
-go test ./cmd/crux/ -run TestIsPipelineSyntax -v
+go test ./cmd/rnix/ -run TestIsPipelineSyntax -v
 
 # Run all tests with race detector
-go test -race ./shell/... ./ipc/... ./cmd/crux/...
+go test -race ./shell/... ./ipc/... ./cmd/rnix/...
 ```
 
 ---
@@ -319,7 +319,7 @@ go test -race ./shell/... ./ipc/... ./cmd/crux/...
 - `shell/parser_test.go`: `undefined: ParsePipeline` — 12 个测试编译失败
 - `shell/pipe_test.go`: `undefined: NewPipelineExecutor` — 9 个测试编译失败
 - `ipc/protocol_test.go`: `undefined: MethodSpawnPipeline` — 6 个测试编译失败
-- `cmd/crux/main_test.go`: `undefined: isPipelineSyntax` — 2 个测试编译失败
+- `cmd/rnix/main_test.go`: `undefined: isPipelineSyntax` — 2 个测试编译失败
 
 ---
 
@@ -347,8 +347,8 @@ go test -race ./shell/... ./ipc/... ./cmd/crux/...
 
 1. 验证所有测试通过
 2. 检查代码质量和一致性
-3. 运行 `go vet ./shell/... ./ipc/... ./cmd/crux/...`
-4. 运行 `go test -race ./shell/... ./ipc/... ./cmd/crux/...`
+3. 运行 `go vet ./shell/... ./ipc/... ./cmd/rnix/...`
+4. 运行 `go test -race ./shell/... ./ipc/... ./cmd/rnix/...`
 5. 确保测试仍通过
 
 ---
@@ -356,7 +356,7 @@ go test -race ./shell/... ./ipc/... ./cmd/crux/...
 ## Next Steps
 
 1. **Share this checklist and failing tests** with dev workflow
-2. **Run failing tests** to confirm RED phase: `go test ./shell/... ./ipc/... ./cmd/crux/... 2>&1`
+2. **Run failing tests** to confirm RED phase: `go test ./shell/... ./ipc/... ./cmd/rnix/... 2>&1`
 3. **Begin implementation** — 建议从 Task 1 (parser) 开始
 4. **Work one task at a time** (red → green for each)
 5. **When all tests pass**, refactor code for quality
@@ -377,25 +377,25 @@ go test -race ./shell/... ./ipc/... ./cmd/crux/...
 
 ### Initial Test Run (RED Phase Verification)
 
-**Command:** `go test ./shell/... ./ipc/... ./cmd/crux/... 2>&1`
+**Command:** `go test ./shell/... ./ipc/... ./cmd/rnix/... 2>&1`
 
 **Results:**
 
 ```
-# github.com/usecrux/crux/shell [github.com/usecrux/crux/shell.test]
+# github.com/rnixai/rnix/shell [github.com/rnixai/rnix/shell.test]
 shell/parser_test.go:17:19: undefined: ParsePipeline
 ... (10+ more errors)
-FAIL    github.com/usecrux/crux/shell [build failed]
+FAIL    github.com/rnixai/rnix/shell [build failed]
 
-# github.com/usecrux/crux/ipc [github.com/usecrux/crux/ipc.test]
+# github.com/rnixai/rnix/ipc [github.com/rnixai/rnix/ipc.test]
 ipc/protocol_test.go:501:5: undefined: MethodSpawnPipeline
 ... (10+ more errors)
-FAIL    github.com/usecrux/crux/ipc [build failed]
+FAIL    github.com/rnixai/rnix/ipc [build failed]
 
-# github.com/usecrux/crux/cmd/crux [github.com/usecrux/crux/cmd/crux.test]
-cmd/crux/main_test.go:992:13: undefined: isPipelineSyntax
-cmd/crux/main_test.go:1013:13: undefined: isPipelineSyntax
-FAIL    github.com/usecrux/crux/cmd/crux [build failed]
+# github.com/rnixai/rnix/cmd/rnix [github.com/rnixai/rnix/cmd/rnix.test]
+cmd/rnix/main_test.go:992:13: undefined: isPipelineSyntax
+cmd/rnix/main_test.go:1013:13: undefined: isPipelineSyntax
+FAIL    github.com/rnixai/rnix/cmd/rnix [build failed]
 ```
 
 **Summary:**
@@ -437,8 +437,8 @@ FAIL    github.com/usecrux/crux/cmd/crux [build failed]
 | 11.1-INT-001d | P1 | Integration | - | ipc/protocol_test.go | TestPipelineStageWire_ZeroExitCode |
 | 11.1-INT-001e | P1 | Integration | - | ipc/protocol_test.go | TestSpawnPipelineCommand_OmitEmpty |
 | 11.1-INT-001f | P2 | Integration | - | ipc/protocol_test.go | TestSpawnPipelineRequest_IPCEnvelope |
-| 11.1-REG-001 | P2 | Regression | - | cmd/crux/main_test.go | TestIsPipelineSyntax_BasicPipe |
-| 11.1-REG-002 | P2 | Regression | - | cmd/crux/main_test.go | TestIsPipelineSyntax_NonPipe |
+| 11.1-REG-001 | P2 | Regression | - | cmd/rnix/main_test.go | TestIsPipelineSyntax_BasicPipe |
+| 11.1-REG-002 | P2 | Regression | - | cmd/rnix/main_test.go | TestIsPipelineSyntax_NonPipe |
 | - | P2 | Unit | - | shell/parser_test.go | TestParsePipeline_PipeInsideQuotes |
 
 ---

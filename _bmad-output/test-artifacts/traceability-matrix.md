@@ -7,7 +7,7 @@ inputDocuments:
   - '_bmad-output/implementation-artifacts/11-2-variables-and-environment-passing.md'
   - 'shell/env_test.go'
   - 'shell/script_test.go'
-  - 'cmd/crux/main_test.go'
+  - 'cmd/rnix/main_test.go'
   - 'shell/env.go'
   - 'shell/script.go'
 ---
@@ -88,7 +88,7 @@ inputDocuments:
     - **Given:** 脚本 `export KEY=old\nexport KEY=new\nspawn "$KEY"`
     - **When:** ScriptExecutor 执行
     - **Then:** spawner 收到 intent="new"（后定义覆盖）
-  - `11.2-REG-001` - cmd/crux/main_test.go:1028
+  - `11.2-REG-001` - cmd/rnix/main_test.go:1028
     - **Given:** 含 export 的输入
     - **When:** 执行 `isScriptSyntax()`
     - **Then:** 返回 true（支持 export/Export/EXPORT/export\t）
@@ -155,7 +155,7 @@ inputDocuments:
     - **When:** 展开 `"$A $B"` 和 `"$X$Y"`
     - **Then:** 多个 `$VAR` 引用正确展开（含相邻变量）
   - `11.2-UNIT-005` - shell/env_test.go:120
-    - **Given:** 变量 NAME="crux"
+    - **Given:** 变量 NAME="rnix"
     - **When:** 展开 `"project: ${NAME}"`
     - **Then:** `${VAR}` 花括号语法正确展开
   - `11.2-UNIT-006` - shell/env_test.go:132
@@ -334,7 +334,7 @@ inputDocuments:
 - **通过**: 48 (100%)
 - **失败**: 0 (0%)
 - **跳过**: 0 (0%)
-- **耗时**: ~2.5 秒（shell/ 1.016s + cmd/crux/ 1.020s）
+- **耗时**: ~2.5 秒（shell/ 1.016s + cmd/rnix/ 1.020s）
 
 **优先级分解:**
 
@@ -568,7 +568,7 @@ traceability_and_gate:
 - **测试文件:**
   - `shell/env_test.go` — 25 个测试（Environment + Expand）
   - `shell/script_test.go` — 18 个测试（ParseScript + ScriptExecutor）
-  - `cmd/crux/main_test.go` — 5 个测试（isScriptSyntax + 回归）
+  - `cmd/rnix/main_test.go` — 5 个测试（isScriptSyntax + 回归）
 
 ---
 

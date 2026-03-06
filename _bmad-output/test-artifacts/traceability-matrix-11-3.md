@@ -12,8 +12,8 @@ inputDocuments:
   - '_bmad-output/implementation-artifacts/11-3-minimal-control-structures.md'
   - 'shell/script.go'
   - 'shell/script_test.go'
-  - 'cmd/crux/main.go'
-  - 'cmd/crux/main_test.go'
+  - 'cmd/rnix/main.go'
+  - 'cmd/rnix/main_test.go'
 ---
 
 # 可追溯性矩阵与质量门决策 - Story 11.3
@@ -173,7 +173,7 @@ inputDocuments:
     - **Given:** pipeline 全部成功
     - **When:** 执行带 on-error 的 pipeline 脚本
     - **Then:** on-error handler 不执行
-  - `11.3-REG-003` - cmd/crux/main_test.go:1115 (isScriptSyntax on-error 检测)
+  - `11.3-REG-003` - cmd/rnix/main_test.go:1115 (isScriptSyntax on-error 检测)
     - **Given:** 包含 `on-error` 的单行输入
     - **When:** 调用 isScriptSyntax 检测
     - **Then:** 返回 true（路由到 exec_script）
@@ -348,7 +348,7 @@ inputDocuments:
 
 **总体通过率**: 100% ✅
 
-**测试结果来源**: 本地执行 `go test ./shell/ ./cmd/crux/ -v`
+**测试结果来源**: 本地执行 `go test ./shell/ ./cmd/rnix/ -v`
 
 ---
 
@@ -557,7 +557,7 @@ traceability_and_gate:
       min_overall_pass_rate: 95
       min_coverage: 80
     evidence:
-      test_results: "local_run go test ./shell/ ./cmd/crux/"
+      test_results: "local_run go test ./shell/ ./cmd/rnix/"
       traceability: "_bmad-output/test-artifacts/traceability-matrix-11-3.md"
       nfr_assessment: "code_review"
       code_coverage: "not_assessed"
@@ -575,7 +575,7 @@ traceability_and_gate:
 - **NFR 评估:** 代码审查
 - **测试文件:**
   - shell/script_test.go (1351 行, 26 个 11.3 测试)
-  - cmd/crux/main_test.go (1 个 11.3 测试)
+  - cmd/rnix/main_test.go (1 个 11.3 测试)
 
 ---
 

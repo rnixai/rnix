@@ -77,7 +77,7 @@ inputDocuments:
     - **When:** 调用 Bootstrap（使用 mockAgentLoader）
     - **Then:** Bootstrap 成功，AgentLoaderFunc 正确调用
   - `CR-H1-001` - kernel/init_test.go:304 `TestLoadInitConfig_FileNotExist`
-    - **Given:** crux-init.yaml 文件不存在
+    - **Given:** rnix-init.yaml 文件不存在
     - **When:** 调用 LoadInitConfig
     - **Then:** 返回 DefaultInitConfig（空服务/空 Supervisor），无 error
   - `CR-H1-002` - kernel/init_test.go:321 `TestLoadInitConfig_ValidYAML`
@@ -322,7 +322,7 @@ inputDocuments:
 #### 回归测试结果
 
 - **kernel 包**: PASS (3.768s) ✅
-- **cmd/crux 包**: PASS (4.747s) ✅
+- **cmd/rnix 包**: PASS (4.747s) ✅
 - **回归影响**: 零回归 ✅
 
 ---
@@ -420,7 +420,7 @@ P0 覆盖率 100%，P1 覆盖率 100%（目标: 90%），整体覆盖率 100%（
 - 所有测试满足质量标准（< 300 行、< 1.5 分钟、确定性、隔离性、显式断言）
 - Code review 修复（CR-2026-03-03）已处理 H1, M1, M2, M4 问题
 - 4 个 Deferred Issues 已记录（H2, H3, M3, M5）— 均非发布阻塞项
-- kernel 包和 cmd/crux 包回归测试全部通过，零回归
+- kernel 包和 cmd/rnix 包回归测试全部通过，零回归
 
 ---
 
@@ -435,11 +435,11 @@ P0 覆盖率 100%，P1 覆盖率 100%（目标: 90%），整体覆盖率 100%（
 
 2. **部署后监控**
    - 监控 daemon 启动日志中的 `[init]` 输出
-   - 验证 `crux-init.yaml` 配置加载行为
+   - 验证 `rnix-init.yaml` 配置加载行为
 
 3. **成功标准**
    - daemon 启动时 init 引导序列正常执行
-   - 无 crux-init.yaml 时默认配置正常工作
+   - 无 rnix-init.yaml 时默认配置正常工作
 
 ---
 

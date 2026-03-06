@@ -1,6 +1,6 @@
 # Epic 4: 进程管理与可靠性（Process Management & Reliability）
 
-用户可以查看进程状态（`crux ps`）、终止进程（`crux kill`）、等待进程完成。系统自动回收 Zombie、处理孤儿进程、暴露 `/proc` 运行时状态——生产级可靠性。
+用户可以查看进程状态（`rnix ps`）、终止进程（`rnix kill`）、等待进程完成。系统自动回收 Zombie、处理孤儿进程、暴露 `/proc` 运行时状态——生产级可靠性。
 
 ## Story 4.1: Kill 与 Wait 系统调用
 
@@ -85,16 +85,16 @@ So that 我可以程序化地获取进程信息。
 **When** 查看实现
 **Then** 通过 `ProcessInfoProvider` 接口读取（不直接依赖 kernel 包，避免反向依赖）
 
-## Story 4.4: crux ps 命令与 Process Table UI
+## Story 4.4: rnix ps 命令与 Process Table UI
 
 As a 用户,
-I want 通过 `crux ps` 查看所有进程的状态表格,
+I want 通过 `rnix ps` 查看所有进程的状态表格,
 So that 我随时了解系统中智能体的全局状态。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/main.go` 中 ps 子命令已注册
-**When** 执行 `crux ps`
+**Given** `cmd/rnix/main.go` 中 ps 子命令已注册
+**When** 执行 `rnix ps`
 **Then** 调用 `kernel.PS(filter)` 获取所有进程信息
 **And** 通过 Process Table 组件输出对齐表格
 
@@ -106,11 +106,11 @@ So that 我随时了解系统中智能体的全局状态。
 **And** 响应时间 ≤ 100ms（NFR2）
 
 **Given** 无活跃进程
-**When** 执行 `crux ps`
+**When** 执行 `rnix ps`
 **Then** 输出 `No active processes.`（不显示空表格）
 
 **Given** 使用 `--json` flag
-**When** 执行 `crux ps --json`
+**When** 执行 `rnix ps --json`
 **Then** 输出 JSON 数组，每个元素包含 pid、state、skill、tokens、elapsed_ms（snake_case）
 
 **Given** 终端宽度 < 80 列

@@ -8,7 +8,7 @@ Status: done
 
 As a 用户,
 I want 通过 `/proc/{pid}/` 路径查看智能体的运行时状态,
-So that 我可以程序化地获取进程信息（为 `crux ps` 和未来诊断工具提供数据源）。
+So that 我可以程序化地获取进程信息（为 `rnix ps` 和未来诊断工具提供数据源）。
 
 ## Acceptance Criteria
 
@@ -61,8 +61,8 @@ So that 我可以程序化地获取进程信息（为 `crux ps` 和未来诊断�
   - [x] 6.2 返回上下文中的消息数量、system prompt 长度、最近消息预览等摘要信息
 
 - [x] Task 7: 注册 ProcFS 到 DeviceRegistry (AC: #1, #2, #3)
-  - [x] 7.1 在 `cmd/crux/main.go` 的 `runRoot` 中：创建 ProcFS 实例并注册到 `/proc`
-  - [x] 7.2 在 `cmd/crux/main.go` 的 `initKernel` 中：同样注册 ProcFS（用于 astrace 等子命令）
+  - [x] 7.1 在 `cmd/rnix/main.go` 的 `runRoot` 中：创建 ProcFS 实例并注册到 `/proc`
+  - [x] 7.2 在 `cmd/rnix/main.go` 的 `initKernel` 中：同样注册 ProcFS（用于 astrace 等子命令）
   - [x] 7.3 确保注册顺序：先创建 kernel，再创建 ProcFS（需要 kernel 作为 provider）
 
 - [x] Task 8: 单元测试 (AC: #1, #2, #3, #4, #5, #6)
@@ -89,7 +89,7 @@ So that 我可以程序化地获取进程信息（为 `crux ps` 和未来诊断�
 - Go 惯例：接口定义在使用方，不在实现方
 - 避免反向依赖：`vfs/` 不导入 `kernel/`（架构约束）
 - `KernelImpl` 通过鸭子类型（duck typing）自动满足接口，无需显式声明 `implements`
-- 依赖注入在 `cmd/crux/main.go` 中完成：`vfs.NewProcFS(kernel, ctxMgr)`
+- 依赖注入在 `cmd/rnix/main.go` 中完成：`vfs.NewProcFS(kernel, ctxMgr)`
 
 ```go
 // vfs/proc.go — 接口定义在消费方
@@ -109,7 +109,7 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo { ... }
 // context/context.go — 实现方
 func (m *Manager) GetContextSummary(ctxID types.CtxID) (string, error) { ... }
 
-// cmd/crux/main.go — 依赖注入
+// cmd/rnix/main.go — 依赖注入
 procFS := vfs.NewProcFS(kern, ctxMgr)
 devReg.Register("/proc", procFS.FileFactory())
 ```
@@ -296,7 +296,7 @@ func (d *DeviceRegistry) Open(path string, flags OpenFlag) (VFSFile, error) {
 type KernelImpl struct {
     procTable    *xsync.SyncMap[types.PID, *Process]
     vfs          *vfs.VFS
-    ctxMgr       *cruxctx.Manager
+    ctxMgr       *rnixctx.Manager
     callbacks    KernelCallbacks
     reapCh       chan types.PID
     stopCh       chan struct{}
@@ -373,7 +373,7 @@ type Context struct {
 }
 ```
 
-**cmd/crux/main.go — 设备注册模式（runRoot 约第 210-220 行）：**
+**cmd/rnix/main.go — 设备注册模式（runRoot 约第 210-220 行）：**
 ```go
 devReg := vfs.NewDeviceRegistry()
 devReg.Register("/dev/llm/claude", llm.FileFactory(llmTimeout))
@@ -426,7 +426,7 @@ ProcFS 是 VFS 层组件，应返回 `*VFSError`（不是 `*SyscallError`）。`
 注册顺序依赖：
 1. 创建 `ctxMgr` → 2. 创建 `kernel`（需要 ctxMgr）→ 3. 创建 `ProcFS`（需要 kernel 和 ctxMgr）→ 4. 注册到 DeviceRegistry
 
-在 `cmd/crux/main.go` 中，当前 DeviceRegistry 在 Kernel 创建前注册设备。ProcFS 需要 Kernel 实例，所以必须在 Kernel 创建后注册。
+在 `cmd/rnix/main.go` 中，当前 DeviceRegistry 在 Kernel 创建前注册设备。ProcFS 需要 Kernel 实例，所以必须在 Kernel 创建后注册。
 
 #### ProcessState 到 JSON 字符串映射
 
@@ -497,7 +497,7 @@ ProcFS 作为一个 VFS 设备驱动注册到 DeviceRegistry，通过现有的 `
 
 | NFR | 要求 | 实现保证 |
 |-----|------|---------|
-| NFR2 | `crux ps` ≤100ms | ProcFS 内存操作，无 I/O，响应 < 1ms |
+| NFR2 | `rnix ps` ≤100ms | ProcFS 内存操作，无 I/O，响应 < 1ms |
 | NFR9 | 进程表一致性 | ProcInfo 是快照值类型，不影响进程表 |
 | NFR10 | CLI 不崩溃 | 所有路径返回 error，nil 检查，只读文件系统 |
 
@@ -510,11 +510,11 @@ ProcFS 作为一个 VFS 设备驱动注册到 DeviceRegistry，通过现有的 `
 - `kernel/kernel_test.go` — GetProcInfo/ListProcs 测试
 - `context/context.go` — 添加 GetContextSummary 方法（实现 ContextSummaryProvider）
 - `context/context_test.go` — GetContextSummary 测试
-- `cmd/crux/main.go` — 注册 ProcFS 到 `/proc`
+- `cmd/rnix/main.go` — 注册 ProcFS 到 `/proc`
 
 **本 Story 不包含：**
-- `crux ps` CLI 命令和 Process Table UI（Story 4.4）
-- `crux kill <pid>` CLI 子命令（Story 4.4）
+- `rnix ps` CLI 命令和 Process Table UI（Story 4.4）
+- `rnix kill <pid>` CLI 子命令（Story 4.4）
 - `/proc` 写操作支持（/proc 是只读的）
 - `/proc` 目录列表操作（如 ls /proc/）
 - 上下文释放 ctx_free 独立测试（Story 4.5）
@@ -533,7 +533,7 @@ kernel/kernel.go         — 添加 GetProcInfo/ListProcs 方法
 kernel/kernel_test.go    — 添加 GetProcInfo/ListProcs 测试
 context/context.go       — 添加 GetContextSummary 方法
 context/context_test.go  — 添加 GetContextSummary 测试
-cmd/crux/main.go         — 注册 ProcFS 设备
+cmd/rnix/main.go         — 注册 ProcFS 设备
 ```
 
 **不修改文件：**
@@ -557,7 +557,7 @@ debug/*                  — astrace 不变
 - [Source: _bmad-output/planning-artifacts/architecture.md#依赖方向] — vfs/ 不导入 kernel/，通过接口解耦
 - [Source: _bmad-output/planning-artifacts/architecture.md#格式模式] — JSON 字段 snake_case 规范
 - [Source: _bmad-output/planning-artifacts/prd.md#FR14] — /proc/{pid}/ 动态暴露运行时状态
-- [Source: _bmad-output/planning-artifacts/prd.md#NFR2] — crux ps ≤100ms
+- [Source: _bmad-output/planning-artifacts/prd.md#NFR2] — rnix ps ≤100ms
 - [Source: _bmad-output/project-context.md#VFS设备模型] — VFS 路径约定，FD 管理
 - [Source: _bmad-output/project-context.md#依赖方向] — 严格单向依赖
 - [Source: _bmad-output/implementation-artifacts/4-2-orphan-process-reparent-and-zombie-auto-reap.md] — 前序 Story 经验，Shutdown 模式，emitEvent 并发安全
@@ -573,7 +573,7 @@ debug/*                  — astrace 不变
 - [Source: kernel/process.go:80-85] — GetState 线程安全读取
 - [Source: context/context.go:15-23] — Context 结构体（Messages 字段）
 - [Source: context/context.go:65-68] — Manager 结构体
-- [Source: cmd/crux/main.go:~210-220] — 现有设备注册模式
+- [Source: cmd/rnix/main.go:~210-220] — 现有设备注册模式
 
 ## Dev Agent Record
 
@@ -588,7 +588,7 @@ Claude Opus 4.6
 - Task 1-4: 在 `vfs/proc.go` 中实现了完整的 ProcFS 驱动，包括 `ProcessInfoProvider`/`ContextSummaryProvider` 接口、`ProcInfo` 结构体、`ProcFS` 驱动（FileFactory + subpath 解析）、`procFile` 只读文件（Read/Write/Close/Stat）、三种虚拟文件内容生成器（status JSON、intent 文本、context 摘要）
 - Task 5: 在 `kernel/kernel.go` 添加 `GetProcInfo`/`ListProcs` 方法，在 `proc.mu` 保护下安全读取可变字段（State、TokensUsed、Result），返回值类型快照避免并发问题
 - Task 6: 在 `context/context.go` 添加 `GetContextSummary` 方法，返回消息计数（按角色分类）、system prompt 长度、最近消息预览（截断至 80 字符）
-- Task 7: 在 `cmd/crux/main.go` 的 `runRoot` 和 `initKernel` 中注册 ProcFS 到 `/proc`，确保注册顺序（kernel 先于 ProcFS 创建）
+- Task 7: 在 `cmd/rnix/main.go` 的 `runRoot` 和 `initKernel` 中注册 ProcFS 到 `/proc`，确保注册顺序（kernel 先于 ProcFS 创建）
 - Task 8: 全面的单元测试覆盖——`vfs/proc_test.go` 17 个测试用例（mock provider、JSON 验证、intent/context/错误路径/只读/并发/偏移），`kernel/kernel_test.go` 7 个新测试用例（GetProcInfo 快照/NotFound/PID0/可变字段/ListProcs/并发安全），`context/context_test.go` 5 个新测试用例（基本摘要/空上下文/NotFound/长消息截断/tool 消息）
 - 设计决策：接口定义在消费方 `vfs/` 中（Go 惯例），通过鸭子类型满足；`ProcInfo` 为值类型快照；nil skills/allowed_devices 序列化为 `[]` 而非 `null`；status JSON 使用 snake_case
 - `go test -race ./...` 全部通过，`go vet ./...` 无警告
@@ -598,7 +598,7 @@ Claude Opus 4.6
 - **[H1] 修复 reasonStep 中 TokensUsed/Result 写入的数据竞争** — `kernel/kernel.go:421,428` 的写入现在在 `proc.mu.Lock()` 保护下执行，与 `GetProcInfo` 的读取使用同一把锁
 - **[M1] 修复 GetProcInfo/ListProcs 中 Skills/AllowedDevices 的浅拷贝** — 使用 `append([]string(nil), slice...)` 创建独立副本，确保 ProcInfo 快照语义
 - **[M2] 替换自定义 asVFSError 为标准 errors.As** — 删除 `vfs/proc_test.go` 中的自定义 helper，统一使用标准库
-- **[M3] 消除重复的 ProcessState→string 映射** — 在 `internal/types/types.go` 添加 `ProcessState.String()` 方法，`vfs/proc.go` 和 `cmd/crux/main.go` 统一委托
+- **[M3] 消除重复的 ProcessState→string 映射** — 在 `internal/types/types.go` 添加 `ProcessState.String()` 方法，`vfs/proc.go` 和 `cmd/rnix/main.go` 统一委托
 - **[L1] 删除自定义 containsStr/findSubstr** — 替换为 `strings.Contains`
 
 ### File List
@@ -612,5 +612,5 @@ Claude Opus 4.6
 - `kernel/kernel_test.go` — 添加 GetProcInfo/ListProcs 测试（7 个测试用例）
 - `context/context.go` — 添加 GetContextSummary 方法 + strings import
 - `context/context_test.go` — 添加 GetContextSummary 测试（5 个测试用例）+ strings import
-- `cmd/crux/main.go` — runRoot 和 initKernel 注册 ProcFS 到 /proc；消除重复 processStateNames map
+- `cmd/rnix/main.go` — runRoot 和 initKernel 注册 ProcFS 到 /proc；消除重复 processStateNames map
 - `internal/types/types.go` — 添加 ProcessState.String() 方法

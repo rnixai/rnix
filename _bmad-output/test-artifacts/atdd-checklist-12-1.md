@@ -20,11 +20,11 @@ inputDocuments:
 
 ## Story Summary
 
-为 Crux 创建三篇面向开发者的实战教程：编写第一个 Skill、调试第一个 bug、组合多智能体工作流。教程必须包含完整可运行示例，所有 CLI 命令和代码示例必须与实际 Crux 实现精确一致。
+为 Rnix 创建三篇面向开发者的实战教程：编写第一个 Skill、调试第一个 bug、组合多智能体工作流。教程必须包含完整可运行示例，所有 CLI 命令和代码示例必须与实际 Rnix 实现精确一致。
 
 **As a** 开发者
 **I want** 阅读教程文档学会编写 Skill、调试 bug 和组合多智能体工作流
-**So that** 我可以在 Crux 上构建自己的应用
+**So that** 我可以在 Rnix 上构建自己的应用
 
 ---
 
@@ -32,7 +32,7 @@ inputDocuments:
 
 1. **AC1: 编写第一个 Skill 教程** — 包含从创建 SKILL.md 到 Agent 引用到 spawn 执行的完整流程，包含完整可运行示例
 2. **AC2: 调试第一个 bug 教程** — 包含故意引入 bug → astrace 定位 → 修复 → 验证的完整流程，包含完整可运行示例
-3. **AC3: 组合多智能体工作流教程** — 包含编写 crux-compose.yaml → compose up → crux top 监控 → 查看结果的完整流程，包含完整可运行示例
+3. **AC3: 组合多智能体工作流教程** — 包含编写 rnix-compose.yaml → compose up → rnix top 监控 → 查看结果的完整流程，包含完整可运行示例
 
 ---
 
@@ -82,7 +82,7 @@ inputDocuments:
 
 - ✅ **Test:** `TestWritingFirstSkill_HasCLIExamples`
   - **Status:** RED - 教程文件不存在
-  - **Verifies:** 教程包含 `crux -i` 命令示例和 `crux ps`、`crux astrace` 的使用
+  - **Verifies:** 教程包含 `rnix -i` 命令示例和 `rnix ps`、`rnix astrace` 的使用
 
 #### AC2: 调试第一个 bug 教程（3 tests）
 
@@ -102,11 +102,11 @@ inputDocuments:
 
 - ✅ **Test:** `TestComposingWorkflow_HasRequiredSections`
   - **Status:** RED - 教程文件不存在
-  - **Verifies:** 教程包含"设计工作流"、"编写 compose YAML"、"运行 compose up"、"crux top 监控"、"查看结果"等章节
+  - **Verifies:** 教程包含"设计工作流"、"编写 compose YAML"、"运行 compose up"、"rnix top 监控"、"查看结果"等章节
 
 - ✅ **Test:** `TestComposingWorkflow_HasComposeYamlExample`
   - **Status:** RED - 教程文件不存在
-  - **Verifies:** 教程包含完整的 crux-compose.yaml 示例（含 services、intent、agent、depends_on）
+  - **Verifies:** 教程包含完整的 rnix-compose.yaml 示例（含 services、intent、agent、depends_on）
 
 - ✅ **Test:** `TestComposingWorkflow_HasExtendedScenarios`
   - **Status:** RED - 教程文件不存在
@@ -218,9 +218,9 @@ const (
 
 **Tasks to make this test pass:**
 
-- [ ] 在教程中添加 `crux -i` 命令使用示例
-- [ ] 添加 `crux ps` 查看进程状态示例
-- [ ] 添加 `crux astrace` 查看 syscall 追踪示例
+- [ ] 在教程中添加 `rnix -i` 命令使用示例
+- [ ] 添加 `rnix ps` 查看进程状态示例
+- [ ] 添加 `rnix astrace` 查看 syscall 追踪示例
 - [ ] Run test: `go test ./docs/ -run TestWritingFirstSkill_HasCLIExamples -v`
 - [ ] ✅ Test passes (green phase)
 
@@ -277,9 +277,9 @@ const (
 
 - [ ] 编写"组合多智能体工作流"教程——前置条件
 - [ ] 编写"设计工作流"步骤
-- [ ] 编写"编写 crux-compose.yaml"步骤
+- [ ] 编写"编写 rnix-compose.yaml"步骤
 - [ ] 编写"运行 compose up"步骤
-- [ ] 编写"crux top 监控"步骤
+- [ ] 编写"rnix top 监控"步骤
 - [ ] 编写"查看结果"步骤
 - [ ] Run test: `go test ./docs/ -run TestComposingWorkflow_HasRequiredSections -v`
 - [ ] ✅ Test passes (green phase)
@@ -292,7 +292,7 @@ const (
 
 **Tasks to make this test pass:**
 
-- [ ] 在教程中添加完整的 crux-compose.yaml 示例
+- [ ] 在教程中添加完整的 rnix-compose.yaml 示例
 - [ ] 示例包含 services、intent、agent、depends_on 字段
 - [ ] 解释 DAG 调度引擎的依赖解析
 - [ ] Run test: `go test ./docs/ -run TestComposingWorkflow_HasComposeYamlExample -v`
@@ -401,7 +401,7 @@ make test
 
 - 本 Story 为文档类 Story，"实现"即编写 Markdown 文件，"测试"即验证文档内容完整性和准确性
 - 测试通过读取文件内容并检查关键字符串/章节标题来验证
-- CLI 命令格式以 `cmd/crux/main.go` 中的 Cobra 命令定义为准
+- CLI 命令格式以 `cmd/rnix/main.go` 中的 Cobra 命令定义为准
 - VFS 路径以 `vfs/` 包中的路径常量为准
 - YAML 格式以 `compose/parser.go` 中的结构体定义为准
 - 所有教程使用简体中文

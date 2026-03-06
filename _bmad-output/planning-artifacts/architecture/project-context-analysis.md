@@ -21,7 +21,7 @@
 | Agent 管理 | FR23-FR25 | agent.yaml + instructions.md 定义智能体身份、模型偏好、Skill 引用，注入 system prompt |
 | Skill 管理 | FR25a-FR27 | SKILL.md（Agent Skills 行业标准格式）渐进式加载，allowed-tools 聚合映射为 `/dev/` 权限白名单 |
 | 调试与可观测 | FR28-FR32 | astrace 差异化核心——实时 syscall 追踪，DebugRecord 数据采集贯穿所有 syscall |
-| CLI | FR33-FR37 | 三命令入口（`crux "意图"` / `crux astrace` / `crux ps`），go install 单二进制 |
+| CLI | FR33-FR37 | 三命令入口（`rnix "意图"` / `rnix astrace` / `rnix ps`），go install 单二进制 |
 | 文档 | FR38-FR40 | 概念文档 + 快速上手 + 参考手册 |
 
 **非功能需求（46 个 NFR）：**
@@ -45,7 +45,7 @@
 | 关键外部依赖 | Claude Code CLI（唯一 LLM 通道） |
 | 实时特性 | astrace 流式输出（stream-json） |
 | 多租户 / 合规 | 无（单用户本地运行） |
-| 预估架构组件 | ~15 个核心模块（kernel、vfs、drivers/llm、drivers/fs、drivers/shell、context、agents、skills、debug、ipc、cmd/crux、internal/types、internal/xsync、internal/ui、compose） |
+| 预估架构组件 | ~15 个核心模块（kernel、vfs、drivers/llm、drivers/fs、drivers/shell、context、agents、skills、debug、ipc、cmd/rnix、internal/types、internal/xsync、internal/ui、compose） |
 
 ### 技术约束与依赖
 
@@ -79,7 +79,7 @@ cmd/ → debug/（仅依赖 internal/types/）
 - Kernel = ProcessManager + ContextManager + FileSystem + Debugger（Phase 1）+ IPCManager + CapManager + ...（Phase 2+）
 
 **外部依赖约束：**
-- Claude Code CLI 必须预装（非 Crux 控制的外部依赖）
+- Claude Code CLI 必须预装（非 Rnix 控制的外部依赖）
 - Cobra v1.10.2（CLI 框架）
 - Charm 生态（lipgloss + bubbles，TUI 渲染）
 - testify（测试断言/mock）

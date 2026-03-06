@@ -6,7 +6,7 @@ Status: done
 
 As a 开发者,
 I want 阅读教程文档学会编写 Skill、调试 bug 和组合多智能体工作流,
-So that 我可以在 Crux 上构建自己的应用。
+So that 我可以在 Rnix 上构建自己的应用。
 
 ## Acceptance Criteria
 
@@ -25,7 +25,7 @@ So that 我可以在 Crux 上构建自己的应用。
 3. **AC3: 组合多智能体工作流教程**
    - Given 教程文档已编写
    - When 阅读"组合多智能体工作流"教程
-   - Then 包含编写 crux-compose.yaml → compose up → crux top 监控 → 查看结果的完整流程
+   - Then 包含编写 rnix-compose.yaml → compose up → rnix top 监控 → 查看结果的完整流程
    - And 包含完整可运行示例
 
 ## Tasks / Subtasks
@@ -36,7 +36,7 @@ So that 我可以在 Crux 上构建自己的应用。
   - [x] 1.3 创建三个教程文件骨架：`writing-first-skill.md`、`debugging-first-bug.md`、`composing-multi-agent-workflow.md`
 
 - [x] Task 2: 编写"编写第一个 Skill"教程 (AC: #1)
-  - [x] 2.1 编写教程前言：目标读者（首次使用 Crux 的开发者）、前置条件（Crux 已安装、Claude Code CLI 可用）、预计完成时间（~20 分钟）
+  - [x] 2.1 编写教程前言：目标读者（首次使用 Rnix 的开发者）、前置条件（Rnix 已安装、Claude Code CLI 可用）、预计完成时间（~20 分钟）
   - [x] 2.2 编写步骤一：创建 Skill 目录和 `SKILL.md` 文件
   - [x] 2.3 编写步骤二：创建引用该 Skill 的 Agent
   - [x] 2.4 编写步骤三：运行 Skill
@@ -46,16 +46,16 @@ So that 我可以在 Crux 上构建自己的应用。
 - [x] Task 3: 编写"调试第一个 bug"教程 (AC: #2)
   - [x] 3.1 编写教程前言：目标读者、前置条件、预计完成时间（~15 分钟）
   - [x] 3.2 编写步骤一：准备一个有 bug 的 Skill
-  - [x] 3.3 编写步骤二：使用 `crux astrace` 定位问题
+  - [x] 3.3 编写步骤二：使用 `rnix astrace` 定位问题
   - [x] 3.4 编写步骤三：修复 bug 并验证
   - [x] 3.5 编写扩展调试技巧
 
 - [x] Task 4: 编写"组合多智能体工作流"教程 (AC: #3)
   - [x] 4.1 编写教程前言：目标读者、前置条件（至少完成第一个 Skill 教程）、预计完成时间（~25 分钟）
   - [x] 4.2 编写步骤一：设计多智能体工作流
-  - [x] 4.3 编写步骤二：编写 `crux-compose.yaml`
-  - [x] 4.4 编写步骤三：运行 `crux compose up`
-  - [x] 4.5 编写步骤四：使用 `crux top` 实时监控
+  - [x] 4.3 编写步骤二：编写 `rnix-compose.yaml`
+  - [x] 4.4 编写步骤三：运行 `rnix compose up`
+  - [x] 4.5 编写步骤四：使用 `rnix top` 实时监控
   - [x] 4.6 编写步骤五：查看结果
   - [x] 4.7 编写扩展场景
 
@@ -66,9 +66,9 @@ So that 我可以在 Crux 上构建自己的应用。
   - [x] 5.4 确保所有内部链接正确可跳转
 
 - [x] Task 6: 校验与完善 (AC: #1, #2, #3)
-  - [x] 6.1 检查所有 CLI 命令与实际 Crux 实现一致（命令格式、flag 名称、输出格式）
+  - [x] 6.1 检查所有 CLI 命令与实际 Rnix 实现一致（命令格式、flag 名称、输出格式）
   - [x] 6.2 检查所有 VFS 路径、syscall 名称、配置字段名与代码实现一致
-  - [x] 6.3 检查所有 YAML 示例语法正确（agent.yaml、SKILL.md frontmatter、crux-compose.yaml）
+  - [x] 6.3 检查所有 YAML 示例语法正确（agent.yaml、SKILL.md frontmatter、rnix-compose.yaml）
   - [x] 6.4 最终审读：行文流畅、步骤连贯、无遗漏的假设条件
   - [x] 6.5 确认所有文档使用简体中文书写
 
@@ -104,23 +104,23 @@ So that 我可以在 Crux 上构建自己的应用。
 - 现有示例：`lib/agents/code-analyst/agent.yaml`
 
 **调试体系（教程二需要精确引用）：**
-- `crux astrace <pid>`：实时追踪 syscall 事件
+- `rnix astrace <pid>`：实时追踪 syscall 事件
 - SyscallEvent 结构：Syscall、PID、FD、Device、Args、Result、Err、Duration
 - ErrCode 枚举：`TIMEOUT`、`NOT_FOUND`、`PERMISSION`、`INTERNAL`、`DRIVER`
 - 参考代码：`debug/event.go`、`debug/astrace.go`
 - 参考文档：`docs/reference.md` §4.5（astrace 命令）、§6.5（SyscallError）
 
 **Compose 体系（教程三需要精确引用）：**
-- `crux-compose.yaml` 格式：services（name、intent、agent、depends_on、environment）
+- `rnix-compose.yaml` 格式：services（name、intent、agent、depends_on、environment）
 - DAG 调度引擎：拓扑排序、层级并行执行
 - 参考代码：`compose/parser.go`、`compose/dag.go`、`compose/engine.go`
-- CLI 命令：`crux compose up`、`crux compose down`
+- CLI 命令：`rnix compose up`、`rnix compose down`
 - 参考文档：暂无独立文档（Phase 2 新增功能），需从代码和 story 文件中提取
 
 **监控体系（教程三需要引用）：**
-- `crux top`：实时 TUI 监控
-- `crux log`：分类推理日志
-- 参考代码：`cmd/crux/top.go`、`cmd/crux/log.go`
+- `rnix top`：实时 TUI 监控
+- `rnix log`：分类推理日志
+- 参考代码：`cmd/rnix/top.go`、`cmd/rnix/log.go`
 
 **AgentShell 语法（教程三扩展场景需要引用）：**
 - 管道语法：`spawn "A" | spawn "B" | spawn "C"`
@@ -131,19 +131,19 @@ So that 我可以在 Crux 上构建自己的应用。
 ### CLI 命令参考（确保教程中使用准确）
 
 ```
-crux -i "意图"                    # 根命令：spawn 智能体
-crux -i "意图" --agent=name       # 指定 Agent
-crux -i "意图" --model=model      # 指定模型
-crux -i "意图" --json             # JSON 输出
-crux ps                           # 进程列表
-crux ps --json                    # JSON 格式进程列表
-crux kill <pid>                   # 终止进程
-crux astrace <pid>                # Syscall 追踪
-crux compose up                   # 启动 compose
-crux compose down                 # 停止 compose
-crux top                          # 实时监控 TUI
-crux log                          # 查看推理日志
-crux version                      # 版本信息
+rnix -i "意图"                    # 根命令：spawn 智能体
+rnix -i "意图" --agent=name       # 指定 Agent
+rnix -i "意图" --model=model      # 指定模型
+rnix -i "意图" --json             # JSON 输出
+rnix ps                           # 进程列表
+rnix ps --json                    # JSON 格式进程列表
+rnix kill <pid>                   # 终止进程
+rnix astrace <pid>                # Syscall 追踪
+rnix compose up                   # 启动 compose
+rnix compose down                 # 停止 compose
+rnix top                          # 实时监控 TUI
+rnix log                          # 查看推理日志
+rnix version                      # 版本信息
 ```
 
 ### 项目结构参考
@@ -204,9 +204,9 @@ docs/
 - [Source: compose/parser.go — Compose YAML 解析]
 - [Source: compose/dag.go — DAG 调度引擎]
 - [Source: compose/engine.go — Compose 执行引擎]
-- [Source: cmd/crux/main.go — CLI 入口]
-- [Source: cmd/crux/top.go — crux top 实现]
-- [Source: cmd/crux/log.go — crux log 实现]
+- [Source: cmd/rnix/main.go — CLI 入口]
+- [Source: cmd/rnix/top.go — rnix top 实现]
+- [Source: cmd/rnix/log.go — rnix log 实现]
 - [Source: shell/parser.go — 管道语法解析]
 - [Source: shell/pipe.go — 管道执行引擎]
 - [Source: shell/env.go — 变量环境管理]
@@ -228,7 +228,7 @@ Claude Opus 4.6 (high-thinking)
 - 创建了 `docs/tutorials/` 目录和 4 个文件（README + 3 篇教程）
 - 教程 1（编写第一个 Skill）：覆盖 SKILL.md 创建、agent.yaml 编写、运行与 astrace 追踪，包含完整示例和常见问题排错
 - 教程 2（调试第一个 bug）：故意引入权限 bug → astrace 定位 → 修复 → 验证的完整流程，含修复前后对比
-- 教程 3（组合多智能体工作流）：crux-compose.yaml 编写、compose up 启动、crux top 监控、结果查看，含管道语法/变量/条件分支扩展场景
+- 教程 3（组合多智能体工作流）：rnix-compose.yaml 编写、compose up 启动、rnix top 监控、结果查看，含管道语法/变量/条件分支扩展场景
 - 在 quick-start.md 末尾添加了教程导航入口
 - 所有教程包含交叉引用（concepts.md、reference.md、其他教程）
 - 12 个文档验证测试全部通过
@@ -242,7 +242,7 @@ Claude Opus 4.6 (high-thinking)
 
 **Action Items (all resolved):**
 - [x] [HIGH] astrace Read 输出格式修正——Result 应为字节数而非文件内容，Args 应包含 fd 和 length
-- [x] [HIGH] crux ps 列名修正——使用 SKILL 列名而非 AGENT，与 internal/ui/table.go 一致
+- [x] [HIGH] rnix ps 列名修正——使用 SKILL 列名而非 AGENT，与 internal/ui/table.go 一致
 - [x] [MEDIUM] docs_test.go 对 SKILL.md frontmatter 断言改为检查 allowed-tools: 而非 tools:
 - [x] [LOW] 教程间 astrace 格式已与 quick-start.md 统一
 - [x] [LOW] code-analyst Agent 依赖确认存在

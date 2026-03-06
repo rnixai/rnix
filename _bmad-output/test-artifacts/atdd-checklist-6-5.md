@@ -31,7 +31,7 @@ inputDocuments:
 
 ## Story Summary
 
-三级并发模型为 Crux 操作系统提供进程、线程、协程三级并发原语，使平台构建者可以为不同粒度的任务选择最合适的并发模型。
+三级并发模型为 Rnix 操作系统提供进程、线程、协程三级并发原语，使平台构建者可以为不同粒度的任务选择最合适的并发模型。
 
 **As a** 平台构建者
 **I want** 系统提供进程、线程、协程三级并发原语
@@ -512,7 +512,7 @@ go test ./kernel/ -run 'TestConcurrent_10Processes' -race -v -count=1
 **Results:**
 
 ```
-# github.com/usecrux/crux/kernel [github.com/usecrux/crux/kernel.test]
+# github.com/rnixai/rnix/kernel [github.com/rnixai/rnix/kernel.test]
 kernel/coroutine_test.go:18:17: k.SpawnCoroutine undefined (type *KernelImpl has no field or method SpawnCoroutine)
 kernel/coroutine_test.go:33:16: k.ResumeCoroutine undefined (type *KernelImpl has no field or method ResumeCoroutine)
 kernel/coroutine_test.go:47:14: k.SpawnCoroutine undefined (type *KernelImpl has no field or method SpawnCoroutine)
@@ -520,7 +520,7 @@ kernel/coroutine_test.go:47:14: k.SpawnCoroutine undefined (type *KernelImpl has
 kernel/thread_test.go:36:15: k.SpawnThread undefined (type *KernelImpl has no field or method SpawnThread)
 kernel/thread_test.go:46:22: proc.GetThread undefined (type *Process has no field or method GetThread)
 ...
-FAIL    github.com/usecrux/crux/kernel [build failed]
+FAIL    github.com/rnixai/rnix/kernel [build failed]
 ```
 
 **Summary:**

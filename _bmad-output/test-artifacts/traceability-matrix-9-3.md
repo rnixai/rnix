@@ -309,7 +309,7 @@ Open("/mnt/mcp/1-github/") 后 Read 返回 JSON 格式的可用命名空间 (["t
 
 #### AC6: MCP 兼容性 (P1)
 
-符合 MCP 标准的第三方服务器无需 Crux 侧代码修改即可挂载和使用 (NFR27)
+符合 MCP 标准的第三方服务器无需 Rnix 侧代码修改即可挂载和使用 (NFR27)
 
 - **Coverage:** FULL (通过架构设计保证)
 - **Tests:**

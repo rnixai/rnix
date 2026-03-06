@@ -1,4 +1,4 @@
-// Package llm implements the LLM driver layer for Crux.
+// Package llm implements the LLM driver layer for Rnix.
 package llm
 
 import (

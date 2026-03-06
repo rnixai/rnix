@@ -1,4 +1,4 @@
-# Story 4.4: crux ps 命令与 Process Table UI
+# Story 4.4: rnix ps 命令与 Process Table UI
 
 Status: done
 
@@ -7,18 +7,18 @@ Status: done
 ## Story
 
 As a 用户,
-I want 通过 `crux ps` 查看所有进程的状态表格,
+I want 通过 `rnix ps` 查看所有进程的状态表格,
 So that 我随时了解系统中智能体的全局状态。
 
 ## Acceptance Criteria
 
-1. **ps 子命令注册并调用 kernel 获取进程信息** — Given `cmd/crux/main.go` 中 ps 子命令已注册，When 执行 `crux ps`，Then 调用 `kernel.ListProcs()` 获取所有进程信息，And 通过 Process Table 组件输出对齐表格
+1. **ps 子命令注册并调用 kernel 获取进程信息** — Given `cmd/rnix/main.go` 中 ps 子命令已注册，When 执行 `rnix ps`，Then 调用 `kernel.ListProcs()` 获取所有进程信息，And 通过 Process Table 组件输出对齐表格
 
 2. **Process Table 组件实现完整的表格渲染** — Given `internal/ui/table.go` 已实现，When 渲染进程表格，Then 列包含 PID、STATE、SKILL、TOKENS、ELAPSED，And 数字右对齐，文本左对齐，And STATE 列颜色编码：running=蓝、zombie=黄、dead=灰，And 响应时间 ≤ 100ms（NFR2）
 
-3. **无活跃进程时输出提示而非空表格** — Given 无活跃进程，When 执行 `crux ps`，Then 输出 `No active processes.`（不显示空表格）
+3. **无活跃进程时输出提示而非空表格** — Given 无活跃进程，When 执行 `rnix ps`，Then 输出 `No active processes.`（不显示空表格）
 
-4. **JSON 模式输出机器可读格式** — Given 使用 `--json` flag，When 执行 `crux ps --json`，Then 输出 JSON 对象，每个进程包含 pid、ppid、state、intent、tokens_used、elapsed_ms（snake_case）
+4. **JSON 模式输出机器可读格式** — Given 使用 `--json` flag，When 执行 `rnix ps --json`，Then 输出 JSON 对象，每个进程包含 pid、ppid、state、intent、tokens_used、elapsed_ms（snake_case）
 
 5. **终端宽度自适应列显示** — Given 终端宽度 < 80 列，When 渲染表格，Then 按优先级保留列：PID + STATE（永远显示）→ SKILL（≥60 列）→ TOKENS + ELAPSED（≥80 列）→ INTENT（≥120 列）
 
@@ -38,8 +38,8 @@ So that 我随时了解系统中智能体的全局状态。
   - [x] 1.9 实现 formatDuration 辅助函数（`< 1s → "Nms"`，`< 60s → "N.Ns"`，`≥ 60s → "N.Nm"`）
   - [x] 1.10 实现 formatTokens 辅助函数（千分位逗号格式，如 `1,847`）
 
-- [x] Task 2: 实现 crux ps CLI 子命令 (AC: #1, #3, #4)
-  - [x] 2.1 在 `cmd/crux/main.go` 定义 `psCmd *cobra.Command`（Use: "ps"，Short: "List active processes"，Args: cobra.NoArgs，RunE: runPs）
+- [x] Task 2: 实现 rnix ps CLI 子命令 (AC: #1, #3, #4)
+  - [x] 2.1 在 `cmd/rnix/main.go` 定义 `psCmd *cobra.Command`（Use: "ps"，Short: "List active processes"，Args: cobra.NoArgs，RunE: runPs）
   - [x] 2.2 在 `init()` 中 `rootCmd.AddCommand(psCmd)` 注册子命令
   - [x] 2.3 实现 `runPs(cmd, args)` 函数：调用 `initKernel()` → 防御性检查 `if kern == nil` → `kern.ListProcs()` → 按 PID 升序排序 → 按 OutputMode 渲染
   - [x] 2.4 实现 ModeDefault 渲染：创建 Renderer（参考 `runAstrace` 第 374 行的模式：`mode := resolveOutputMode()` → `renderer := ui.NewRenderer(os.Stdout, mode)` → `ui.InitStyles(renderer.Profile)`），调用 `ui.RenderProcessTable(renderer, procs, false)`
@@ -48,11 +48,11 @@ So that 我随时了解系统中智能体的全局状态。
   - [x] 2.7 实现 ModeVerbose 渲染：调用 `ui.RenderProcessTable(renderer, procs, true)` 显示所有列（含 PPID、完整 Intent）
   - [x] 2.8 实现空进程列表处理：输出 `No active processes.` 后返回（不渲染表格）
 
-- [x] Task 3: 实现 crux kill CLI 子命令 (**额外范围**——不在 epics AC 中，但 Story 4.1 已实现 kernel.Kill()，此处仅补充 CLI 入口)
-  - [x] 3.1 在 `cmd/crux/main.go` 定义 `killCmd *cobra.Command`（Use: "kill <pid>"，Short: "Terminate an agent process"，Args: cobra.ExactArgs(1)，RunE: runKill）
+- [x] Task 3: 实现 rnix kill CLI 子命令 (**额外范围**——不在 epics AC 中，但 Story 4.1 已实现 kernel.Kill()，此处仅补充 CLI 入口)
+  - [x] 3.1 在 `cmd/rnix/main.go` 定义 `killCmd *cobra.Command`（Use: "kill <pid>"，Short: "Terminate an agent process"，Args: cobra.ExactArgs(1)，RunE: runKill）
   - [x] 3.2 在 `init()` 中 `rootCmd.AddCommand(killCmd)` 注册子命令
   - [x] 3.3 实现 `runKill(cmd, args)` 函数：解析 PID 参数 → `initKernel()` → `kern.Kill(pid, types.SIGTERM)` → 输出结果或错误
-  - [x] 3.4 PID 不存在时使用 `ui.RenderError` 输出三行错误结构（与现有 `runAstrace` 错误处理一致）：`✗ PID N: process not found` → `→ PID N: no active process` → `→ 建议: crux ps  查看活跃进程`
+  - [x] 3.4 PID 不存在时使用 `ui.RenderError` 输出三行错误结构（与现有 `runAstrace` 错误处理一致）：`✗ PID N: process not found` → `→ PID N: no active process` → `→ 建议: rnix ps  查看活跃进程`
   - [x] 3.5 成功时输出（使用 `KernelStyle` 样式渲染 `[kernel]` 前缀）：`[kernel] PID N: signal sent (SIGTERM)`
 
 - [x] Task 4: 单元测试 (AC: #1, #2, #3, #4, #5, #6)
@@ -75,19 +75,19 @@ So that 我随时了解系统中智能体的全局状态。
 
 #### 数据来源——复用 Story 4.3 的 ListProcs()
 
-**设计决策：** `crux ps` 直接调用 `kernel.ListProcs()` 获取 `[]vfs.ProcInfo` 数据，不新增 `PS()` 方法到 ProcessManager 接口。
+**设计决策：** `rnix ps` 直接调用 `kernel.ListProcs()` 获取 `[]vfs.ProcInfo` 数据，不新增 `PS()` 方法到 ProcessManager 接口。
 
 **AC 偏差说明：** Epics AC #1 原文使用 `kernel.PS(filter)`，本 Story 选择复用已有的 `ListProcs()` + CLI 层排序。这是有意的最小改动设计，不影响 AC 验收。
 
-**ProcessManager 接口决策：** 当前 `ProcessManager` 接口注释（`kernel/kernel.go` 第 81 行）标注 "GetPID and PS deferred to Story 4.4"。**本 Story 不修改 ProcessManager 接口**——`ListProcs()` 是 `KernelImpl` 的具体方法（非接口方法），已满足 `crux ps` 需求。将 `PS()` 正式加入接口留待未来需要过滤功能时再做。
+**ProcessManager 接口决策：** 当前 `ProcessManager` 接口注释（`kernel/kernel.go` 第 81 行）标注 "GetPID and PS deferred to Story 4.4"。**本 Story 不修改 ProcessManager 接口**——`ListProcs()` 是 `KernelImpl` 的具体方法（非接口方法），已满足 `rnix ps` 需求。将 `PS()` 正式加入接口留待未来需要过滤功能时再做。
 
 **理由：**
 - Story 4.3 已实现 `ListProcs()` 方法，返回所有进程的安全快照（`vfs.ProcInfo` 值类型）
 - `ListProcs()` 在 `proc.mu.Lock()` 下读取每个进程的可变字段，已保证并发安全
-- 排序和过滤逻辑放在 CLI 层（`cmd/crux/main.go`），不污染 kernel 接口
+- 排序和过滤逻辑放在 CLI 层（`cmd/rnix/main.go`），不污染 kernel 接口
 
 ```go
-// cmd/crux/main.go — runPs 中获取数据
+// cmd/rnix/main.go — runPs 中获取数据
 procs := kern.ListProcs()  // []vfs.ProcInfo（Story 4.3 提供）
 sort.Slice(procs, func(i, j int) bool {
     return procs[i].PID < procs[j].PID
@@ -100,8 +100,8 @@ sort.Slice(procs, func(i, j int) bool {
 
 **理由：**
 - 遵循 UX 设计规范的 "组件即函数" 原则（参考 `RenderSummary`、`RenderResult`、`RenderError` 等现有组件的模式）
-- `crux ps` 是一次性渲染，无状态，不需要持久对象
-- Phase 2 的 `crux top` 需要交互式 TUI 时再引入 bubbletea Model 结构
+- `rnix ps` 是一次性渲染，无状态，不需要持久对象
+- Phase 2 的 `rnix top` 需要交互式 TUI 时再引入 bubbletea Model 结构
 
 ```go
 // internal/ui/table.go — 函数签名
@@ -116,7 +116,7 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool)
 - UX 规范要求的自适应列选择（按终端宽度动态增减列）用手动实现更灵活
 - 现有 UI 组件（trace.go、summary.go）都是手动格式化 + lipgloss 样式，保持一致
 - 减少外部依赖——MVP 阶段的进程表格足够简单，不需要完整的 table 库
-- Phase 2 的 `crux top` 需要交互式表格时再引入 `table` 组件
+- Phase 2 的 `rnix top` 需要交互式表格时再引入 `table` 组件
 
 #### JSON 输出格式
 
@@ -157,16 +157,16 @@ type jsonProcess struct {
 }
 ```
 
-#### crux kill 子命令——额外范围的最小实现
+#### rnix kill 子命令——额外范围的最小实现
 
-**设计决策：** 在同一个 Story 中实现 `crux kill <pid>` 子命令（最小版本）。**这是超出 epics AC 的额外范围——不影响 AC 验收。** 如果时间不足可跳过 Task 3，仅实现 Task 1-2-4 即可满足所有 AC。
+**设计决策：** 在同一个 Story 中实现 `rnix kill <pid>` 子命令（最小版本）。**这是超出 epics AC 的额外范围——不影响 AC 验收。** 如果时间不足可跳过 Task 3，仅实现 Task 1-2-4 即可满足所有 AC。
 
 **理由：**
 - Story 4.1 已实现 `kernel.Kill(pid, signal)` 方法，只缺 CLI 子命令入口
-- `crux ps` 输出通常配合 `crux kill` 使用（UX 规范中 Journey 2 的交互流程）
+- `rnix ps` 输出通常配合 `rnix kill` 使用（UX 规范中 Journey 2 的交互流程）
 - 实现量极小（~30 行代码），不值得独立 Story
 
-#### crux ps 命令帮助文本
+#### rnix ps 命令帮助文本
 
 cobra 的 `psCmd` 应配置以下帮助内容以匹配 UX 规范的 Help & Discovery 模式：
 
@@ -175,10 +175,10 @@ var psCmd = &cobra.Command{
     Use:   "ps",
     Short: "List active processes",
     Long:  "Display a table of all agent processes with their status, skills, tokens, and elapsed time.",
-    Example: `  crux ps              # Show process table
-  crux ps --json       # JSON output for scripting
-  crux ps --quiet      # PIDs only (one per line)
-  crux ps --verbose    # Full details including PPID and intent`,
+    Example: `  rnix ps              # Show process table
+  rnix ps --json       # JSON output for scripting
+  rnix ps --quiet      # PIDs only (one per line)
+  rnix ps --verbose    # Full details including PPID and intent`,
     Args: cobra.NoArgs,
     RunE: runPs,
 }
@@ -188,8 +188,8 @@ var psCmd = &cobra.Command{
 
 **直接适用的经验：**
 
-1. **`ListProcs()` 数据源** — 已实现并通过测试，返回 `[]vfs.ProcInfo` 安全快照。`crux ps` 直接消费此数据，不需要额外查询
-2. **`GetProcInfo(pid)` 方法** — 可用于 `crux kill` 验证 PID 是否存在
+1. **`ListProcs()` 数据源** — 已实现并通过测试，返回 `[]vfs.ProcInfo` 安全快照。`rnix ps` 直接消费此数据，不需要额外查询
+2. **`GetProcInfo(pid)` 方法** — 可用于 `rnix kill` 验证 PID 是否存在
 3. **ProcessState.String()** — 已在 `internal/types/types.go` 中实现，映射 `StateRunning → "running"` 等
 4. **reapOnce/shutdownOnce 模式** — 测试中必须 `defer k.Shutdown()`，新测试遵循
 5. **PID 0 作为虚拟 init** — PID 0 不在进程表中，`ListProcs()` 不返回 PID 0
@@ -204,7 +204,7 @@ var psCmd = &cobra.Command{
 
 > **注意：** 以下为简洁引用。实现时直接读取源文件获取最新代码。
 
-**cmd/crux/main.go 核心模式：**
+**cmd/rnix/main.go 核心模式：**
 - 子命令注册：参考 `astraceCmd`（第 126-134 行）+ `init()` 中 `rootCmd.AddCommand()`（第 166-175 行）
 - 全局标志：`flagJSON`/`flagVerbose`/`flagQuiet`/`flagModel`/`flagMaxSteps`/`flagAgent`（第 33-40 行）
 - `resolveOutputMode()` → 返回 `ui.OutputMode`（第 177-188 行）
@@ -260,22 +260,22 @@ PID   PPID   STATE     SKILL          TOKENS   ELAPSED   INTENT
 
 #### 管道模式
 
-当 `r.Profile.IsTTY == false` 时自动去除颜色，保留文本对齐。`crux ps | grep running` 可正常工作。
+当 `r.Profile.IsTTY == false` 时自动去除颜色，保留文本对齐。`rnix ps | grep running` 可正常工作。
 
-#### 错误输出模板（crux kill 使用）
+#### 错误输出模板（rnix kill 使用）
 
 使用 `ui.RenderError(r, device, reason, impact, suggestion)` 三行结构：
 ```
 ✗ PID 5: process not found
   → PID 5: no active process with this ID
-  → 建议: crux ps  查看活跃进程
+  → 建议: rnix ps  查看活跃进程
 ```
 
 ### 注意事项与防错
 
 #### 进程排序
 
-`kernel.ListProcs()` 返回的顺序不确定（基于 SyncMap.Range 遍历），`crux ps` 必须按 PID 升序排序：
+`kernel.ListProcs()` 返回的顺序不确定（基于 SyncMap.Range 遍历），`rnix ps` 必须按 PID 升序排序：
 
 ```go
 procs := kern.ListProcs()
@@ -341,7 +341,7 @@ if skills == nil {
 }
 ```
 
-#### crux kill 的 PID 解析
+#### rnix kill 的 PID 解析
 
 PID 参数为字符串，需要 `strconv.ParseUint`：
 
@@ -354,9 +354,9 @@ if err != nil {
 pid := types.PID(pidNum)
 ```
 
-#### initKernel 对 crux ps 的必要性
+#### initKernel 对 rnix ps 的必要性
 
-`crux ps` 需要 kernel 实例来获取进程列表。必须在 `runPs` 中调用 `initKernel()`，并添加防御性检查：
+`rnix ps` 需要 kernel 实例来获取进程列表。必须在 `runPs` 中调用 `initKernel()`，并添加防御性检查：
 
 ```go
 func runPs(cmd *cobra.Command, args []string) error {
@@ -370,9 +370,9 @@ func runPs(cmd *cobra.Command, args []string) error {
 }
 ```
 
-然而，由于进程在 kernel 实例创建后才存在，`crux ps` 在没有正在运行的 `crux "意图"` 进程时将始终返回空列表。
+然而，由于进程在 kernel 实例创建后才存在，`rnix ps` 在没有正在运行的 `rnix "意图"` 进程时将始终返回空列表。
 
-**当前架构限制：** 每个 `crux` 命令创建独立的 kernel 实例（无跨终端共享状态）。这意味着 `crux ps` 只能看到同一进程内的智能体。这是已知限制（Epic 3 回顾中记录），需要 IPC 基础设施才能解决。当前 `crux ps` 仍然有价值：
+**当前架构限制：** 每个 `rnix` 命令创建独立的 kernel 实例（无跨终端共享状态）。这意味着 `rnix ps` 只能看到同一进程内的智能体。这是已知限制（Epic 3 回顾中记录），需要 IPC 基础设施才能解决。当前 `rnix ps` 仍然有价值：
 1. 作为 Process Table UI 组件的实现载体
 2. 为未来 IPC 共享状态做好 CLI 层准备
 3. 可在内核单元测试中验证完整功能
@@ -388,7 +388,7 @@ func runPs(cmd *cobra.Command, args []string) error {
 当前 `ProcessManager` 接口（`kernel/kernel.go` 第 80-86 行）仅包含 `Spawn`/`Kill`/`Wait`，注释标注 "GetPID and PS deferred to Story 4.4"。
 
 **本 Story 的决策：不修改 ProcessManager 接口。** 理由：
-1. `ListProcs()` 是 `KernelImpl` 的具体方法（非接口方法），已满足 `crux ps` 需求
+1. `ListProcs()` 是 `KernelImpl` 的具体方法（非接口方法），已满足 `rnix ps` 需求
 2. 将 `PS(filter)` 加入接口需要同时定义 `PSFilter` 类型，而 MVP 阶段不需要过滤功能
 3. 过滤/排序逻辑放在 CLI 层更灵活
 4. 接口注释中的 "deferred" 说明可保留，未来需要过滤时再正式加入
@@ -399,8 +399,8 @@ func runPs(cmd *cobra.Command, args []string) error {
 
 | NFR | 要求 | 实现保证 |
 |-----|------|---------|
-| NFR2 | `crux ps` 响应时间 ≤ 100ms | ListProcs() 是纯内存操作，表格渲染为字符串格式化，远 < 100ms |
-| NFR9 | 进程表一致性 | ProcInfo 是值类型快照，crux ps 不修改进程表 |
+| NFR2 | `rnix ps` 响应时间 ≤ 100ms | ListProcs() 是纯内存操作，表格渲染为字符串格式化，远 < 100ms |
+| NFR9 | 进程表一致性 | ProcInfo 是值类型快照，rnix ps 不修改进程表 |
 | NFR10 | CLI 不崩溃 | 所有路径返回 error，nil 检查，空列表安全处理 |
 
 ### 范围边界
@@ -408,11 +408,11 @@ func runPs(cmd *cobra.Command, args []string) error {
 **本 Story 包含：**
 - `internal/ui/table.go` — Process Table 组件（RenderProcessTable 函数 + formatDuration/formatTokens 辅助函数）
 - `internal/ui/table_test.go` — Process Table 单元测试
-- `cmd/crux/main.go` — 添加 psCmd + runPs + killCmd + runKill 子命令
+- `cmd/rnix/main.go` — 添加 psCmd + runPs + killCmd + runKill 子命令
 
 **本 Story 不包含：**
-- `crux top` 交互式实时监控面板（Phase 2）
-- `crux ps --filter` 过滤功能（MVP 后扩展）
+- `rnix top` 交互式实时监控面板（Phase 2）
+- `rnix ps --filter` 过滤功能（MVP 后扩展）
 - 跨终端共享进程表（需要 IPC 基础设施）
 - 上下文释放 ctx_free 独立测试（Story 4.5）
 - `/proc` 目录列表操作
@@ -427,7 +427,7 @@ internal/ui/table_test.go         — Process Table 单元测试
 
 **修改文件：**
 ```
-cmd/crux/main.go                  — 添加 psCmd + runPs + killCmd + runKill 子命令注册
+cmd/rnix/main.go                  — 添加 psCmd + runPs + killCmd + runKill 子命令注册
 kernel/kernel.go                  — 更新 ProcessManager 接口注释（第 81 行 "deferred" 说明）
 ```
 
@@ -438,7 +438,7 @@ vfs/proc.go                       — ProcInfo/ProcessInfoProvider 不变
 internal/types/types.go           — ProcessState.String() 不变
 internal/ui/styles.go             — 已有样式足够，不新增
 internal/ui/renderer.go           — Renderer/TerminalProfile/OutputMode 不变
-internal/ui/error.go              — RenderError 函数不变（crux kill 直接复用）
+internal/ui/error.go              — RenderError 函数不变（rnix kill 直接复用）
 ```
 
 ### References
@@ -454,14 +454,14 @@ internal/ui/error.go              — RenderError 函数不变（crux kill 直�
 - [Source: _bmad-output/planning-artifacts/ux-design-specification.md#Empty States] — 空状态输出（第 1434 行）
 - [Source: _bmad-output/planning-artifacts/ux-design-specification.md#Help & Discovery] — 帮助文本格式（第 1465-1485 行）
 - [Source: _bmad-output/planning-artifacts/prd.md#FR7] — 查看活跃进程列表（ps）
-- [Source: _bmad-output/planning-artifacts/prd.md#NFR2] — crux ps 响应时间 ≤ 100ms
+- [Source: _bmad-output/planning-artifacts/prd.md#NFR2] — rnix ps 响应时间 ≤ 100ms
 - [Source: _bmad-output/project-context.md#CLI命令结构] — 子命令列表
 
 **前序 Story：**
 - [Source: _bmad-output/implementation-artifacts/4-3-proc-dynamic-filesystem.md] — ListProcs() API、ProcInfo 结构、并发安全模式、Code Review 经验
 
 **源码行号参考：**（详见"已有代码关键 API 参考"段落）
-- cmd/crux/main.go: astraceCmd(126-134), init(166-175), resolveOutputMode(177-188), JSONResponse(63-68), initKernel(328-352), runAstrace Renderer(~374)
+- cmd/rnix/main.go: astraceCmd(126-134), init(166-175), resolveOutputMode(177-188), JSONResponse(63-68), initKernel(328-352), runAstrace Renderer(~374)
 - kernel/kernel.go: ProcessManager(80-86), Kill(614-648), GetProcess(602-604), ListProcs(692-712)
 - vfs/proc.go: ProcInfo(27-40)
 - internal/types/types.go: ProcessState.String(47-60)
@@ -480,9 +480,9 @@ Claude Opus 4.6
 ### Completion Notes List
 
 - ✅ Task 1: 实现 `internal/ui/table.go` — Process Table UI 组件，包含 RenderProcessTable、renderState、formatSkills、formatDuration、formatTokens、stripAnsi 函数。支持终端宽度自适应（40/60/80/120列阈值）、Unicode/ASCII 双模式、NO_COLOR 降级、verbose 模式（含 PPID/INTENT）、Footer 统计行。
-- ✅ Task 2: 实现 `cmd/crux/main.go` 中 psCmd + runPs — 支持 ModeDefault（表格）、ModeJSON（JSONResponse 包装）、ModeQuiet（纯 PID）、ModeVerbose（全列表格）四种输出模式。空列表输出 "No active processes."。
-- ✅ Task 3: 实现 `cmd/crux/main.go` 中 killCmd + runKill — PID 解析、kernel.Kill(SIGTERM) 调用、错误处理（RenderError 三行结构）、成功输出（KernelStyle [kernel] 前缀）。
-- ✅ Task 4: 全部 35+ 单元测试通过（internal/ui/table_test.go 22 个 + cmd/crux/main_test.go 新增 9 个），`go test -race ./...` 全 13 包通过，`go vet ./...` 无警告。
+- ✅ Task 2: 实现 `cmd/rnix/main.go` 中 psCmd + runPs — 支持 ModeDefault（表格）、ModeJSON（JSONResponse 包装）、ModeQuiet（纯 PID）、ModeVerbose（全列表格）四种输出模式。空列表输出 "No active processes."。
+- ✅ Task 3: 实现 `cmd/rnix/main.go` 中 killCmd + runKill — PID 解析、kernel.Kill(SIGTERM) 调用、错误处理（RenderError 三行结构）、成功输出（KernelStyle [kernel] 前缀）。
+- ✅ Task 4: 全部 35+ 单元测试通过（internal/ui/table_test.go 22 个 + cmd/rnix/main_test.go 新增 9 个），`go test -race ./...` 全 13 包通过，`go vet ./...` 无警告。
 - ✅ 更新 ProcessManager 接口注释（kernel/kernel.go 第 81 行）："deferred to Story 4.4" → "deferred to future story (ListProcs used instead for PS)"
 
 ### File List
@@ -492,13 +492,13 @@ Claude Opus 4.6
 - `internal/ui/table_test.go` — Process Table 单元测试（22 个测试函数）
 
 **修改文件：**
-- `cmd/crux/main.go` — 添加 psCmd/killCmd 定义、runPs/runKill 函数、jsonProcess 结构、renderPsJSON/renderPsQuiet 辅助函数、init() 中注册 ps/kill 子命令、import sort
-- `cmd/crux/main_test.go` — 添加 9 个新测试（TestRenderPsJSON_EmptyList/WithProcs、TestRenderPsQuiet/Empty、TestJsonProcess_SnakeCase、TestHelp_ContainsPsSubcommand、TestRunKill_InvalidPID/PIDNotFound/Success），import types/vfs/cruxctx
+- `cmd/rnix/main.go` — 添加 psCmd/killCmd 定义、runPs/runKill 函数、jsonProcess 结构、renderPsJSON/renderPsQuiet 辅助函数、init() 中注册 ps/kill 子命令、import sort
+- `cmd/rnix/main_test.go` — 添加 9 个新测试（TestRenderPsJSON_EmptyList/WithProcs、TestRenderPsQuiet/Empty、TestJsonProcess_SnakeCase、TestHelp_ContainsPsSubcommand、TestRunKill_InvalidPID/PIDNotFound/Success），import types/vfs/rnixctx
 - `kernel/kernel.go` — 更新 ProcessManager 接口注释（第 81 行）
 
 ## Change Log
 
-- 2026-02-26: Story 4.4 实现完成 — crux ps 命令、crux kill 命令、Process Table UI 组件
+- 2026-02-26: Story 4.4 实现完成 — rnix ps 命令、rnix kill 命令、Process Table UI 组件
 - 2026-02-26: Code Review 修复 — 7 项问题修复（2 HIGH + 5 MEDIUM）：
   - [H1] 修复 INTENT 列宽度计算多减 colGap 的 bug（table.go:141）
   - [H2] 补充 runKill 单元测试 3 个（InvalidPID/PIDNotFound/Success）

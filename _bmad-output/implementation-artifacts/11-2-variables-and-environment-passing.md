@@ -73,11 +73,11 @@ So that 智能体可以引用动态参数。
   - [x] 5.5 `ipc/client.go`：`ExecScriptAndWatch(req ExecScriptRequest, onEvent func(StreamEvent)) (*ExecScriptResponse, error)`
 
 - [x] Task 6: CLI 集成 (AC: #1, #2, #3)
-  - [x] 6.1 `cmd/crux/main.go`：`isScriptSyntax(intent string) bool`——检测多行（含 `\n`）或以 `export ` 开头
-  - [x] 6.2 `cmd/crux/main.go`：`runScript(renderer, mode, progress, client, intent, start)` 脚本执行路径
-  - [x] 6.3 `cmd/crux/main.go`：`runRoot` 中在 `isPipelineSyntax` 之前插入 `isScriptSyntax` 检测
-  - [x] 6.4 `cmd/crux/main.go`：脚本结果输出——复用 `outputSuccess` / `outputError` / `outputPipelineJSON`
-  - [x] 6.5 `cmd/crux/main.go`：单行 intent 中的 `$VAR` 展开——从 OS 环境变量展开（无需 export），保持向后兼容
+  - [x] 6.1 `cmd/rnix/main.go`：`isScriptSyntax(intent string) bool`——检测多行（含 `\n`）或以 `export ` 开头
+  - [x] 6.2 `cmd/rnix/main.go`：`runScript(renderer, mode, progress, client, intent, start)` 脚本执行路径
+  - [x] 6.3 `cmd/rnix/main.go`：`runRoot` 中在 `isPipelineSyntax` 之前插入 `isScriptSyntax` 检测
+  - [x] 6.4 `cmd/rnix/main.go`：脚本结果输出——复用 `outputSuccess` / `outputError` / `outputPipelineJSON`
+  - [x] 6.5 `cmd/rnix/main.go`：单行 intent 中的 `$VAR` 展开——从 OS 环境变量展开（无需 export），保持向后兼容
 
 - [x] Task 7: 测试 (AC: all)
   - [x] 7.1 `shell/env_test.go`：基本 Set/Get/Delete
@@ -98,8 +98,8 @@ So that 智能体可以引用动态参数。
   - [x] 7.16 `shell/script_test.go`：ScriptExecutor——多次 export 覆盖同名变量
   - [x] 7.17 `shell/script_test.go`：ScriptExecutor——非零 ExitCode 中断
   - [x] 7.18 `shell/script_test.go`：ScriptExecutor——context 取消
-  - [x] 7.19 `cmd/crux/main_test.go`：`isScriptSyntax` 检测
-  - [x] 7.20 `cmd/crux/main_test.go`：回归——现有单 spawn 和管道路径不受影响
+  - [x] 7.19 `cmd/rnix/main_test.go`：`isScriptSyntax` 检测
+  - [x] 7.20 `cmd/rnix/main_test.go`：回归——现有单 spawn 和管道路径不受影响
 
 ## Dev Notes
 
@@ -108,7 +108,7 @@ So that 智能体可以引用动态参数。
 #### Shell 环境模型：进程内 map（非持久化）
 
 AgentShell 的变量环境是**进程内临时状态**：
-- 每次 `crux` CLI 调用创建一个新的 Environment
+- 每次 `rnix` CLI 调用创建一个新的 Environment
 - `export` 设置的变量只在当前脚本执行期间有效
 - 不持久化到文件系统，不跨 CLI 调用传递
 - 类似 bash 的子 shell：变量只在当前 shell 进程有效
@@ -344,7 +344,7 @@ func isScriptSyntax(intent string) bool {
 
 #### 单行 intent 中的 $VAR 展开
 
-对于非脚本的单行 intent（如 `crux -i 'spawn "分析 $HOME/code"'`），从 OS 环境变量展开：
+对于非脚本的单行 intent（如 `rnix -i 'spawn "分析 $HOME/code"'`），从 OS 环境变量展开：
 
 ```go
 // 在 runRoot 中，对非脚本、非管道的单行 intent
@@ -366,7 +366,7 @@ if containsVarRef(intent) {
 - `ipc/protocol.go`：`StreamEvent` / `StreamProgress` / `ProgressPayload` 框架——exec_script 复用现有流式事件模型
 - `ipc/server.go`：`ipcKernelSpawner`——exec_script handler 复用同一个 spawner 适配器
 - `ipc/client.go`：NDJSON 流式读取模式——ExecScriptAndWatch 复用 SpawnAndWatch 的事件循环实现
-- `cmd/crux/main.go`：`outputSuccess` / `outputError` / `outputPipelineJSON`——脚本结果输出
+- `cmd/rnix/main.go`：`outputSuccess` / `outputError` / `outputPipelineJSON`——脚本结果输出
 
 **不要修改的现有代码：**
 - `shell/parser.go` — 现有 ParsePipeline/parseSpawnCommand/tokenize 签名不变
@@ -387,7 +387,7 @@ if containsVarRef(intent) {
 - `ipc/protocol.go` — 新增 MethodExecScript + ExecScriptRequest/Response 类型（~25 行新增）
 - `ipc/server.go` — 新增 handleExecScript（~50 行新增）
 - `ipc/client.go` — 新增 ExecScriptAndWatch 方法（~45 行新增）
-- `cmd/crux/main.go` — 新增 isScriptSyntax/runScript + 单行 $VAR 展开（~50 行新增）
+- `cmd/rnix/main.go` — 新增 isScriptSyntax/runScript + 单行 $VAR 展开（~50 行新增）
 
 ### 依赖方向验证
 
@@ -489,7 +489,7 @@ func (m *mockSpawner) SpawnAndWait(ctx context.Context, intent, agent, model str
 
 1. **KernelSpawner 接口解耦有效**：shell/ 包不直接依赖 kernel/，通过接口注入 spawner。Script 执行器继续使用此模式。
 2. **手写扫描器优于正则**：tokenizer 和 splitPipeline 都用手写状态机，清晰且高效。变量展开器继续此风格。
-3. **CLI 导入别名**：`cmd/crux/main.go` 中 `agentshell "github.com/usecrux/crux/shell"` 别名避免与 `drivershell` 冲突。新增代码继续使用此别名。
+3. **CLI 导入别名**：`cmd/rnix/main.go` 中 `agentshell "github.com/rnixai/rnix/shell"` 别名避免与 `drivershell` 冲突。新增代码继续使用此别名。
 4. **ipcKernelSpawner 复用**：ipc/server.go 中的 `ipcKernelSpawner` 已经实现 `KernelSpawner` 接口，handleExecScript 直接复用。
 5. **流式进度推送模式**：StreamProgress + ProgressPayload 框架已建立，脚本执行进度复用同一模式。
 
@@ -505,7 +505,7 @@ func (m *mockSpawner) SpawnAndWait(ctx context.Context, intent, agent, model str
 - [Source: ipc/protocol.go#SpawnPipelineRequest 框架]
 - [Source: ipc/server.go#handleSpawnPipeline + ipcKernelSpawner]
 - [Source: ipc/client.go#SpawnPipelineAndWatch 模式]
-- [Source: cmd/crux/main.go#isPipelineSyntax + runPipeline]
+- [Source: cmd/rnix/main.go#isPipelineSyntax + runPipeline]
 - [Source: _bmad-output/implementation-artifacts/11-1-pipe-syntax.md#KernelSpawner 接口解耦]
 - [Source: _bmad-output/implementation-artifacts/11-1-pipe-syntax.md#手写递归下降解析器]
 
@@ -525,7 +525,7 @@ claude-4.6-opus (Cursor)
 - Task 3: `shell/script.go` 行导向解析器——ParseScript/parseStatement/parseExport，复用现有 ParsePipeline/parseSpawnCommand
 - Task 4: `shell/script.go` ScriptExecutor 顺序执行——export 展开后 Set、spawn/pipeline 展开后调用 spawner
 - Task 5: `ipc/protocol.go` + `server.go` + `client.go` 新增 exec_script IPC 方法，复用 ipcKernelSpawner + StreamProgress 模式
-- Task 6: `cmd/crux/main.go` 新增 isScriptSyntax（优先于 isPipelineSyntax）、runScript、单行 $VAR 从 OS env 展开
+- Task 6: `cmd/rnix/main.go` 新增 isScriptSyntax（优先于 isPipelineSyntax）、runScript、单行 $VAR 从 OS env 展开
 - Task 7: ATDD RED 阶段测试已存在（env_test.go 25 个、script_test.go 18 个、main_test.go isScriptSyntax 12 个），全部通过
 - 全量回归 18 个包 PASS，0 失败，启用 -race
 
@@ -544,10 +544,10 @@ claude-4.6-opus (Cursor)
 **Issues Found:** 0 High, 2 Medium, 6 Low
 
 **已修复:**
-- [M1] `handleExecScript` OnStageStart 进度事件填充 Intent 字段 + CLI 端显示当前 intent (`ipc/server.go`, `cmd/crux/main.go`)
-- [L1] `isScriptSyntax` 增加 `export\t` (tab) 检测，与 `parseStatement` 一致 (`cmd/crux/main.go`)
-- [L2] `runScript` 使用 `agentshell.NewEnvironmentFromOS().All()` 消除 `os.Environ()` 重复代码 (`cmd/crux/main.go`)
-- 新增 `isScriptSyntax` tab 测试用例 (`cmd/crux/main_test.go`)
+- [M1] `handleExecScript` OnStageStart 进度事件填充 Intent 字段 + CLI 端显示当前 intent (`ipc/server.go`, `cmd/rnix/main.go`)
+- [L1] `isScriptSyntax` 增加 `export\t` (tab) 检测，与 `parseStatement` 一致 (`cmd/rnix/main.go`)
+- [L2] `runScript` 使用 `agentshell.NewEnvironmentFromOS().All()` 消除 `os.Environ()` 重复代码 (`cmd/rnix/main.go`)
+- 新增 `isScriptSyntax` tab 测试用例 (`cmd/rnix/main_test.go`)
 
 **未修复（LOW，跟踪）:**
 - [M2] 缺少 IPC 集成测试覆盖 `exec_script` 端到端路径（与 `spawn_pipeline` 同为遗留缺口）
@@ -573,14 +573,14 @@ claude-4.6-opus (Cursor)
 - `ipc/protocol.go` — 新增 MethodExecScript + ExecScriptRequest/Response
 - `ipc/server.go` — 新增 handleExecScript（路由 + 实现）
 - `ipc/client.go` — 新增 ExecScriptAndWatch
-- `cmd/crux/main.go` — 新增 isScriptSyntax/containsVarRef/runScript + runRoot 中脚本检测优先级 + 单行 $VAR 展开
+- `cmd/rnix/main.go` — 新增 isScriptSyntax/containsVarRef/runScript + runRoot 中脚本检测优先级 + 单行 $VAR 展开
 
 **测试文件（ATDD RED 阶段已存在）：**
 - `shell/env_test.go` — 25 个测试用例（Set/Get/Delete/All/Expand 全覆盖）
 - `shell/script_test.go` — 18 个测试用例（ParseScript + ScriptExecutor 全覆盖）
-- `cmd/crux/main_test.go` — 13 个新测试用例（isScriptSyntax + 回归 + tab 检测）
+- `cmd/rnix/main_test.go` — 13 个新测试用例（isScriptSyntax + 回归 + tab 检测）
 
 **Code Review 修改：**
 - `ipc/server.go` — handleExecScript OnStageStart 填充 Intent 字段
-- `cmd/crux/main.go` — isScriptSyntax 增加 tab 检测 + runScript 消除重复代码 + 进度显示 intent
-- `cmd/crux/main_test.go` — 新增 export\t tab 测试用例
+- `cmd/rnix/main.go` — isScriptSyntax 增加 tab 检测 + runScript 消除重复代码 + 进度显示 intent
+- `cmd/rnix/main_test.go` — 新增 export\t tab 测试用例

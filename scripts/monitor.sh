@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Crux 系统状态监控脚本 - 每 30 秒报告一次状态
+# Rnix 系统状态监控脚本 - 每 30 秒报告一次状态
 
 set -euo pipefail
 
@@ -12,15 +12,15 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 日志文件
-LOG_FILE="${CRUX_LOG_DIR:-./logs}/crux-monitor.log"
+LOG_FILE="${RNIX_LOG_DIR:-./logs}/rnix-monitor.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
 # 获取 socket 路径
 get_socket_path() {
   if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
-    echo "${XDG_RUNTIME_DIR}/crux/crux.sock"
+    echo "${XDG_RUNTIME_DIR}/rnix/rnix.sock"
   else
-    echo "/tmp/crux-$(id -u)/crux.sock"
+    echo "/tmp/rnix-$(id -u)/rnix.sock"
   fi
 }
 
@@ -44,7 +44,7 @@ check_daemon_status() {
 
 # 获取 daemon 进程信息
 get_daemon_process_info() {
-  local pid=$(pgrep -f "crux daemon" | head -1)
+  local pid=$(pgrep -f "rnix daemon" | head -1)
   if [ -n "$pid" ]; then
     local rss=$(ps -p "$pid" -o rss= 2>/dev/null | awk '{print int($1/1024) "MB"}')
     local vsz=$(ps -p "$pid" -o vsz= 2>/dev/null | awk '{print int($1/1024) "MB"}')
@@ -54,9 +54,9 @@ get_daemon_process_info() {
   fi
 }
 
-# 获取 crux ps 输出（进程列表）
+# 获取 rnix ps 输出（进程列表）
 get_process_list() {
-  local count=$(crux ps 2>/dev/null | tail -n +2 | wc -l 2>/dev/null || echo "0")
+  local count=$(rnix ps 2>/dev/null | tail -n +2 | wc -l 2>/dev/null || echo "0")
   echo "$count"
 }
 
@@ -78,7 +78,7 @@ report_status() {
 
   echo ""
   echo -e "${BLUE}═══════════════════════════════════════════${NC}"
-  echo -e "${BLUE}[${time}] Crux 系统监控报告${NC}"
+  echo -e "${BLUE}[${time}] Rnix 系统监控报告${NC}"
   echo -e "${BLUE}═══════════════════════════════════════════${NC}"
 
   echo -e "${BLUE}▸ Daemon 状态:${NC} $(check_daemon_status)"
@@ -99,7 +99,7 @@ report_status() {
 
 # 主监控循环
 main() {
-  echo -e "${YELLOW}启动 Crux 系统监控（间隔 30 秒）...${NC}"
+  echo -e "${YELLOW}启动 Rnix 系统监控（间隔 30 秒）...${NC}"
   echo "日志文件: $LOG_FILE"
   echo "按 Ctrl+C 停止监控"
   echo ""

@@ -34,34 +34,34 @@ func TestDetectProfile_NoColor(t *testing.T) {
 	}
 }
 
-func TestDetectProfile_CruxASCII(t *testing.T) {
-	t.Run("CRUX_ASCII=1", func(t *testing.T) {
-		t.Setenv("CRUX_ASCII", "1")
+func TestDetectProfile_RnixASCII(t *testing.T) {
+	t.Run("RNIX_ASCII=1", func(t *testing.T) {
+		t.Setenv("RNIX_ASCII", "1")
 		var buf bytes.Buffer
 		p := DetectProfile(&buf)
 
 		if p.IsUnicode {
-			t.Error("expected IsUnicode=false with CRUX_ASCII=1")
+			t.Error("expected IsUnicode=false with RNIX_ASCII=1")
 		}
 	})
 
-	t.Run("CRUX_ASCII=true", func(t *testing.T) {
-		t.Setenv("CRUX_ASCII", "true")
+	t.Run("RNIX_ASCII=true", func(t *testing.T) {
+		t.Setenv("RNIX_ASCII", "true")
 		var buf bytes.Buffer
 		p := DetectProfile(&buf)
 
 		if p.IsUnicode {
-			t.Error("expected IsUnicode=false with CRUX_ASCII=true")
+			t.Error("expected IsUnicode=false with RNIX_ASCII=true")
 		}
 	})
 
-	t.Run("CRUX_ASCII=0", func(t *testing.T) {
-		t.Setenv("CRUX_ASCII", "0")
+	t.Run("RNIX_ASCII=0", func(t *testing.T) {
+		t.Setenv("RNIX_ASCII", "0")
 		var buf bytes.Buffer
 		p := DetectProfile(&buf)
 
 		if !p.IsUnicode {
-			t.Error("expected IsUnicode=true with CRUX_ASCII=0")
+			t.Error("expected IsUnicode=true with RNIX_ASCII=0")
 		}
 	})
 }

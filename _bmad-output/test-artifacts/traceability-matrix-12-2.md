@@ -160,7 +160,7 @@ inputDocuments:
 === RUN   TestArchitecture_CrossReferences
 --- PASS: TestArchitecture_CrossReferences (0.00s)
 PASS
-ok  github.com/usecrux/crux/docs  0.006s
+ok  github.com/rnixai/rnix/docs  0.006s
 ```
 
 ### Regression Test Results
@@ -170,7 +170,7 @@ ok  github.com/usecrux/crux/docs  0.006s
 | Package | Status | Tests |
 |---------|--------|-------|
 | agents | PASS | all |
-| cmd/crux | PASS | all |
+| cmd/rnix | PASS | all |
 | compose | PASS | all |
 | context | PASS | all |
 | debug | PASS | all |

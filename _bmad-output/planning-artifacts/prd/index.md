@@ -1,8 +1,8 @@
-# Product Requirements Document - Crux
+# Product Requirements Document - Rnix
 
 ## Table of Contents
 
-- [Product Requirements Document - Crux](#table-of-contents)
+- [Product Requirements Document - Rnix](#table-of-contents)
   - [Executive Summary](./executive-summary.md)
     - [What Makes This Special](./executive-summary.md#what-makes-this-special)
   - [Project Classification](./project-classification.md)

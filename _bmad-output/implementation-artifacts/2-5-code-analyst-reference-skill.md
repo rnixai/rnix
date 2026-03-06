@@ -8,15 +8,15 @@ Status: done
 
 As a 用户,
 I want 一个预装的 code-analyst Skill 作为参考实现,
-So that 我可以立即使用 Crux 分析代码并作为编写自定义 Skill 的模板。
+So that 我可以立即使用 Rnix 分析代码并作为编写自定义 Skill 的模板。
 
 ## Acceptance Criteria
 
 1. **manifest.yaml 完整** — Given `lib/skills/code-analyst/manifest.yaml` 已创建，When 查看 manifest 内容，Then 包含 `name: code-analyst`、`tools: ["/dev/fs", "/dev/shell"]`、`models.provider: claude`、`models.preferred: sonnet`、`context_budget` 字段
 2. **instructions.md 专业** — Given `lib/skills/code-analyst/instructions.md` 已创建，When 查看 instructions 内容，Then 包含代码分析的系统指令（角色定义、分析策略、输出格式要求），指令足够具体使 LLM 能输出结构化分析结果
-3. **端到端分析** — Given code-analyst Skill 已加载，When 执行 `crux "分析 ./kernel/kernel.go" --skill=code-analyst`，Then 智能体读取目标文件，进行分析，输出结构化的分析结果，And 能够识别至少 1 个可验证的真实代码问题（FR27）
+3. **端到端分析** — Given code-analyst Skill 已加载，When 执行 `rnix "分析 ./kernel/kernel.go" --skill=code-analyst`，Then 智能体读取目标文件，进行分析，输出结构化的分析结果，And 能够识别至少 1 个可验证的真实代码问题（FR27）
 4. **Skill 加载验证** — Given `skills/testdata/mock-skill/` 已存在，When 运行 Skill 加载器测试，Then 使用 mock-skill 作为测试 fixture 验证加载流程（已有测试，本 Story 新增针对真实 code-analyst Skill 的加载测试）
-5. **SkillLoader 路径兼容** — Given CLI 中 `SkillLoader("lib/skills")` 已初始化（cmd/crux/main.go:193），When 调用 `Load("code-analyst")`，Then 正确找到并加载 `lib/skills/code-analyst/` 下的 manifest.yaml 和 instructions.md
+5. **SkillLoader 路径兼容** — Given CLI 中 `SkillLoader("lib/skills")` 已初始化（cmd/rnix/main.go:193），When 调用 `Load("code-analyst")`，Then 正确找到并加载 `lib/skills/code-analyst/` 下的 manifest.yaml 和 instructions.md
 
 ## Tasks / Subtasks
 
@@ -38,7 +38,7 @@ So that 我可以立即使用 Crux 分析代码并作为编写自定义 Skill �
   - [x] 3.4 使用相对路径 `../lib/skills` 作为 basePath 加载
 
 - [x] Task 4: 集成测试 (AC: #3)
-  - [x] 4.1 `cmd/crux/integration_test.go` 新增 `TestE2E_CodeAnalystSkill` — 验证端到端流程
+  - [x] 4.1 `cmd/rnix/integration_test.go` 新增 `TestE2E_CodeAnalystSkill` — 验证端到端流程
   - [x] 4.2 使用 mock LLM 驱动模拟 code-analyst 行为（不依赖真实 Claude Code CLI）
   - [x] 4.3 验证 Skill instructions 被正确注入到 LLM 请求的 system prompt
   - [x] 4.4 验证 AllowedDevices 限制为 ["/dev/fs", "/dev/shell"]
@@ -47,7 +47,7 @@ So that 我可以立即使用 Crux 分析代码并作为编写自定义 Skill �
 - [x] Task 5: 全量回归测试 (AC: #1-5)
   - [x] 5.1 `go test -race ./skills/...` 通过
   - [x] 5.2 `go test -race ./kernel/...` 通过
-  - [x] 5.3 `go test -race ./cmd/crux/...` 通过
+  - [x] 5.3 `go test -race ./cmd/rnix/...` 通过
   - [x] 5.4 `go test -race ./...` 全量通过
   - [x] 5.5 `go vet ./...` 无警告
 
@@ -206,7 +206,7 @@ func TestSkillLoader_Load_RealCodeAnalyst(t *testing.T) {
 }
 ```
 
-**新增集成测试（cmd/crux/integration_test.go）：**
+**新增集成测试（cmd/rnix/integration_test.go）：**
 
 ```go
 func TestE2E_CodeAnalystSkill(t *testing.T) {
@@ -240,7 +240,7 @@ func TestE2E_CodeAnalystSkill(t *testing.T) {
 lib/skills/code-analyst/manifest.yaml     (创建 — Skill 元信息)
 lib/skills/code-analyst/instructions.md   (创建 — 代码分析 system prompt)
 skills/loader_test.go                     (修改 — 新增 1 个测试)
-cmd/crux/integration_test.go             (修改 — 新增 1 个集成测试)
+cmd/rnix/integration_test.go             (修改 — 新增 1 个集成测试)
 ```
 
 **不需要修改的文件：**
@@ -248,7 +248,7 @@ cmd/crux/integration_test.go             (修改 — 新增 1 个集成测试)
 - `kernel/process.go` — AllowedDevices 字段已存在
 - `skills/loader.go` — SkillLoader 实现已完整
 - `skills/types.go` — 类型定义已完整
-- `cmd/crux/main.go` — --skill 标志和 SkillLoader 初始化已完成
+- `cmd/rnix/main.go` — --skill 标志和 SkillLoader 初始化已完成
 - `vfs/` — 无需修改
 - `drivers/` — 无需修改
 - `context/` — 无需修改
@@ -273,8 +273,8 @@ cmd/crux/integration_test.go             (修改 — 新增 1 个集成测试)
 - [Source: kernel/kernel.go:100-122] — Spawn 中 Skill 加载与注入逻辑
 - [Source: kernel/kernel.go:112-117] — instructions 注入到 SystemPrompt
 - [Source: kernel/kernel.go:345-368] — reasonStep 中设备权限白名单检查
-- [Source: cmd/crux/main.go:193] — SkillLoader("lib/skills") 初始化
-- [Source: cmd/crux/main.go:202] — Spawn 调用传入 skillsList
+- [Source: cmd/rnix/main.go:193] — SkillLoader("lib/skills") 初始化
+- [Source: cmd/rnix/main.go:202] — Spawn 调用传入 skillsList
 - [Source: skills/testdata/mock-skill/manifest.yaml] — 现有测试 fixture 参考
 - [Source: skills/testdata/mock-skill/instructions.md] — 现有测试 fixture 参考
 - [Source: 2-4-skill-injection-and-device-permission-whitelist.md] — 前序 Story 完整经验
@@ -294,7 +294,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 - Task 1: 创建 `lib/skills/code-analyst/manifest.yaml`，包含 name、description、tools(["/dev/fs", "/dev/shell"])、models(provider: claude, preferred: sonnet, fallback: haiku)、context_budget: 8192。删除 .gitkeep 占位文件。
 - Task 2: 创建 `lib/skills/code-analyst/instructions.md`，包含角色定义（高级代码审查工程师）、5 个分析维度（Bug/安全/性能/可维护性/风格）、工具使用指南（/dev/fs + /dev/shell）、工作流程、严重等级定义（Critical/Warning/Info）、结构化输出格式模板。
 - Task 3: `skills/loader_test.go` 新增 `TestSkillLoader_Load_RealCodeAnalyst`，使用 `../lib/skills` 路径加载真实 code-analyst Skill，验证所有 manifest 字段和 instructions 关键词。9/9 tests PASS。
-- Task 4: `cmd/crux/integration_test.go` 新增 `capturingMockLLMDriver`（捕获请求以验证注入内容）和 `TestE2E_CodeAnalystSkill`，验证 system prompt 注入、AllowedDevices=["/dev/fs", "/dev/shell"]、model="sonnet"。
+- Task 4: `cmd/rnix/integration_test.go` 新增 `capturingMockLLMDriver`（捕获请求以验证注入内容）和 `TestE2E_CodeAnalystSkill`，验证 system prompt 注入、AllowedDevices=["/dev/fs", "/dev/shell"]、model="sonnet"。
 - Task 5: `go test -race ./...` 全量通过，`go vet ./...` 无警告，零回归。
 
 ### File List
@@ -303,7 +303,7 @@ Claude Opus 4.6 (claude-opus-4-6)
 - `lib/skills/code-analyst/instructions.md` — 新建：代码分析 system prompt
 - `lib/skills/code-analyst/.gitkeep` — 删除：被实际内容文件替代
 - `skills/loader_test.go` — 修改：新增 TestSkillLoader_Load_RealCodeAnalyst
-- `cmd/crux/integration_test.go` — 修改：新增 capturingMockLLMDriver + TestE2E_CodeAnalystSkill
+- `cmd/rnix/integration_test.go` — 修改：新增 capturingMockLLMDriver + TestE2E_CodeAnalystSkill
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — 修改：2-5 状态更新
 - `_bmad-output/implementation-artifacts/2-5-code-analyst-reference-skill.md` — 修改：任务标记完成
 

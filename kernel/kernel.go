@@ -11,12 +11,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/debug"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/xsync"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/xsync"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // MountManager defines the interface for mounting/unmounting MCP servers.
@@ -67,7 +67,7 @@ type llmRequest struct {
 	Model        string            `json:"model,omitempty"`
 	MaxTurns     int               `json:"max_turns,omitempty"`
 	TimeoutMs    int64             `json:"timeout_ms,omitempty"`
-	Messages     []cruxctx.Message `json:"messages,omitempty"`
+	Messages     []rnixctx.Message `json:"messages,omitempty"`
 }
 
 // llmResponse is the JSON payload read from the LLM VFS device.
@@ -102,7 +102,7 @@ var _ ProcessManager = (*KernelImpl)(nil)
 type KernelImpl struct {
 	procTable *xsync.SyncMap[types.PID, *Process]
 	vfs       *vfs.VFS
-	ctxMgr    *cruxctx.Manager
+	ctxMgr    *rnixctx.Manager
 	callbacks KernelCallbacks
 
 	// Reaper infrastructure (Story 4.2)
@@ -125,7 +125,7 @@ type KernelImpl struct {
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
 // Pass nil for cb to run in silent mode (no progress notifications).
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl {
+func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelImpl {
 	k := &KernelImpl{
 		procTable:  xsync.NewSyncMap[types.PID, *Process](),
 		vfs:        v,
@@ -222,11 +222,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	// Append initial intent as user message
 	appendStart := time.Now()
-	if err := k.ctxMgr.AppendMessage(cid, cruxctx.RoleUser, intent); err != nil {
+	if err := k.ctxMgr.AppendMessage(cid, rnixctx.RoleUser, intent); err != nil {
 		k.emitEvent(proc, "CtxWrite", map[string]any{
 			"cid":  cid,
 			"op":   "AppendMessage",
-			"role": string(cruxctx.RoleUser),
+			"role": string(rnixctx.RoleUser),
 		}, nil, err, time.Since(appendStart))
 		_ = k.ctxMgr.CtxFree(cid)
 		return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
@@ -234,7 +234,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	k.emitEvent(proc, "CtxWrite", map[string]any{
 		"cid":  cid,
 		"op":   "AppendMessage",
-		"role": string(cruxctx.RoleUser),
+		"role": string(rnixctx.RoleUser),
 	}, nil, nil, time.Since(appendStart))
 
 	// Open LLM device via VFS
@@ -595,11 +595,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		case ActionToolCall:
 			// Append LLM response as assistant message to maintain conversation history
 			appendAssistantStart := time.Now()
-			if err := k.ctxMgr.AppendMessage(proc.CtxID, cruxctx.RoleAssistant, resp.Content); err != nil {
+			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, resp.Content); err != nil {
 				k.emitEvent(proc, "CtxWrite", map[string]any{
 					"cid":  proc.CtxID,
 					"op":   "AppendMessage",
-					"role": string(cruxctx.RoleAssistant),
+					"role": string(rnixctx.RoleAssistant),
 				}, nil, err, time.Since(appendAssistantStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append assistant message failed", Err: err})
 				return
@@ -607,7 +607,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			k.emitEvent(proc, "CtxWrite", map[string]any{
 				"cid":  proc.CtxID,
 				"op":   "AppendMessage",
-				"role": string(cruxctx.RoleAssistant),
+				"role": string(rnixctx.RoleAssistant),
 			}, nil, nil, time.Since(appendAssistantStart))
 
 			// Device permission whitelist check (AC #2, #4)

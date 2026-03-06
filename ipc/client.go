@@ -7,11 +7,11 @@ import (
 	"net"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
-// Client connects to the crux daemon over a Unix socket.
+// Client connects to the rnix daemon over a Unix socket.
 type Client struct {
 	conn    net.Conn
 	scanner *bufio.Scanner

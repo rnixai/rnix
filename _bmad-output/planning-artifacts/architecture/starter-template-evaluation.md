@@ -2,37 +2,37 @@
 
 ## Primary Technology Domain
 
-**Go 系统编程 / CLI 工具 / 运行时框架。** Crux 不适用常规 Web 应用 starter，评估的是 Go 项目结构和工具链方案。
+**Go 系统编程 / CLI 工具 / 运行时框架。** Rnix 不适用常规 Web 应用 starter，评估的是 Go 项目结构和工具链方案。
 
 ## Starter Options Considered
 
 | 方案 | 描述 | 适合度 |
 |------|------|--------|
 | A: golang-standards/project-layout | 社区"标准"布局（`cmd/`, `internal/`, `pkg/`） | ⭐⭐⭐ 结构清晰但可能过度设计 |
-| B: 最小平铺 + 按需增长 | 从 `main.go` 开始，随代码增长再分层 | ⭐⭐ 简单但 Crux 已知需要多模块 |
-| C: 领域驱动的 OS 隐喻结构 | `cmd/crux/` + `kernel/` + `vfs/` + `drivers/` + `context/` + `skills/` + `debug/` | ⭐⭐⭐⭐ 与 OS 隐喻一致 |
+| B: 最小平铺 + 按需增长 | 从 `main.go` 开始，随代码增长再分层 | ⭐⭐ 简单但 Rnix 已知需要多模块 |
+| C: 领域驱动的 OS 隐喻结构 | `cmd/rnix/` + `kernel/` + `vfs/` + `drivers/` + `context/` + `skills/` + `debug/` | ⭐⭐⭐⭐ 与 OS 隐喻一致 |
 
 ## Selected Approach: 方案 C — 领域驱动的 OS 隐喻结构
 
 **选择理由：**
 
-1. Crux 的模块边界由 OS 隐喻天然确定（kernel、vfs、drivers、context、skills、debug），不需要从通用布局反推
+1. Rnix 的模块边界由 OS 隐喻天然确定（kernel、vfs、drivers、context、skills、debug），不需要从通用布局反推
 2. ~12 文件结构经过充分思考，与 PRD 功能需求领域一一对应
 3. Go 标准布局的 `cmd/` + `internal/` 约定叠加在此结构上
 
 **初始化命令：**
 
 ```bash
-mkdir crux && cd crux
-go mod init github.com/usecrux/crux
+mkdir rnix && cd rnix
+go mod init github.com/rnixai/rnix
 ```
 
 ## Architectural Decisions Established by Project Foundation
 
 **Language & Runtime：**
 - Go 1.26（利用 Green Tea GC、Goroutine Leak Profiler、自引用泛型等最新特性）
-- 模块路径：`github.com/usecrux/crux`
-- 单 `main` 入口：`cmd/crux/main.go`
+- 模块路径：`github.com/rnixai/rnix`
+- 单 `main` 入口：`cmd/rnix/main.go`
 
 **技术栈决策（已确立）：**
 
@@ -41,14 +41,14 @@ go mod init github.com/usecrux/crux
 - Go 1.26 新特性：`new(expr)` 初始化、自引用泛型约束、Goroutine Leak Profiler
 
 **CLI 框架：** Cobra（`github.com/spf13/cobra`）
-- 根命令：`crux "意图"` — spawn 智能体（`--agent=<name>` 指定 Agent 定义）
+- 根命令：`rnix "意图"` — spawn 智能体（`--agent=<name>` 指定 Agent 定义）
 - 子命令：`astrace`、`ps`、`kill`、`version`（Phase 2 追加：`compose`、`skill`、`top`、`log`）
 - 全局 flags：`--json`、`--verbose`、`--quiet`
 
 **终端 UI：** Charm 生态
 - lipgloss — 样式化终端输出（表格、边框、颜色）
 - bubbles — spinner 组件
-- bubbletea — crux top 交互式 TUI（Phase 2）
+- bubbletea — rnix top 交互式 TUI（Phase 2）
 
 **测试框架：**
 - Go 标准 `testing` + testify（assertions/mocks）
@@ -106,7 +106,7 @@ skills:
 
 ```bash
 make all     # lint → vet → test → build（质量门禁）
-make build   # go build -o crux ./cmd/crux/
+make build   # go build -o rnix ./cmd/rnix/
 make test    # go test -race ./...
 make lint    # golangci-lint run
 ```
@@ -114,7 +114,7 @@ make lint    # golangci-lint run
 **安装方式：**
 
 ```bash
-go install github.com/usecrux/crux/cmd/crux@latest
+go install github.com/rnixai/rnix/cmd/rnix@latest
 ```
 
 **依赖管理：** Go Modules（`go.mod`）

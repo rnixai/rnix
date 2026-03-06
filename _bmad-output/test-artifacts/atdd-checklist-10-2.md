@@ -10,7 +10,7 @@ lastStep: 'step-05-validate-and-complete'
 lastSaved: '2026-03-02'
 workflowType: 'testarch-atdd'
 inputDocuments:
-  - '_bmad-output/implementation-artifacts/10-2-crux-log-categorized-reasoning-logs.md'
+  - '_bmad-output/implementation-artifacts/10-2-rnix-log-categorized-reasoning-logs.md'
   - '_bmad-output/implementation-artifacts/sprint-status.yaml'
   - 'internal/types/types.go'
   - 'kernel/process.go'
@@ -19,10 +19,10 @@ inputDocuments:
   - 'ipc/protocol.go'
   - 'ipc/server.go'
   - 'ipc/client.go'
-  - 'cmd/crux/main.go'
+  - 'cmd/rnix/main.go'
 ---
 
-# ATDD 清单 - Epic 10, Story 10.2: crux log 分类推理日志
+# ATDD 清单 - Epic 10, Story 10.2: rnix log 分类推理日志
 
 **日期:** 2026-03-02
 **作者:** Decker
@@ -33,21 +33,21 @@ inputDocuments:
 
 ## 故事摘要
 
-通过 `crux log <pid>` 查看智能体的推理日志，按 `[think]`、`[tool]`、`[output]` 三段式分类显示，支持过滤、JSON 输出和实时流式。
+通过 `rnix log <pid>` 查看智能体的推理日志，按 `[think]`、`[tool]`、`[output]` 三段式分类显示，支持过滤、JSON 输出和实时流式。
 
 **As a** 用户
-**I want** 通过 `crux log <pid>` 查看智能体的推理日志，按类别分类显示
+**I want** 通过 `rnix log <pid>` 查看智能体的推理日志，按类别分类显示
 **So that** 我无需深入内核就能排查问题
 
 ---
 
 ## 验收标准
 
-1. **AC1: 基本日志输出** — 执行 `crux log 5` 输出 PID 5 的推理日志，按 `[think]`/`[tool]`/`[output]` 三段式分类
-2. **AC2: 过滤功能** — `crux log 5 --filter tool` 仅显示 `[tool]` 类别的日志
+1. **AC1: 基本日志输出** — 执行 `rnix log 5` 输出 PID 5 的推理日志，按 `[think]`/`[tool]`/`[output]` 三段式分类
+2. **AC2: 过滤功能** — `rnix log 5 --filter tool` 仅显示 `[tool]` 类别的日志
 3. **AC3: 低延迟** — 从推理事件到终端显示延迟 ≤ 200ms
-4. **AC4: PID 不存在处理** — `crux log 999` 输出 `✗ PID 999: process not found` + 建议
-5. **AC5: JSON 输出** — `crux log 5 --json` 输出 NDJSON 格式（每行一个 JSON 对象）
+4. **AC4: PID 不存在处理** — `rnix log 999` 输出 `✗ PID 999: process not found` + 建议
+5. **AC5: JSON 输出** — `rnix log 5 --json` 输出 NDJSON 格式（每行一个 JSON 对象）
 6. **AC6: 实时流式** — 实时流式输出新产生的日志条目，进程退出后自动断开
 7. **AC7: Ctrl+C 安全断开** — 按 Ctrl+C 断开日志流，不影响被追踪进程
 
@@ -181,7 +181,7 @@ inputDocuments:
 
 ### CLI 命令层测试 (11 tests)
 
-**文件:** `cmd/crux/log_test.go` (186 行)
+**文件:** `cmd/rnix/log_test.go` (186 行)
 
 - **10.2-UNIT-027:** `TestLogCmd_Registered` — 验证 logCmd 注册到 rootCmd
   - **状态:** RED — log.go 不存在
@@ -227,7 +227,7 @@ inputDocuments:
 | Unit (kernel) | 12 | `kernel/log_test.go` |
 | Unit (ipc protocol) | 9 | `ipc/log_test.go` |
 | Integration (ipc) | 4 | `ipc/log_test.go` |
-| Unit (cli) | 11 | `cmd/crux/log_test.go` |
+| Unit (cli) | 11 | `cmd/rnix/log_test.go` |
 | **合计** | **41** | **4 文件** |
 
 ---
@@ -255,7 +255,7 @@ Story 10.2 不涉及外部服务。所有交互通过：
 - [ ] 在 `kernel/process.go` 的 `Process` 结构体添加 `LogChan chan types.LogEntry` 字段
 - [ ] 在 `kernel/process.go` 的 `NewProcess` 中初始化 `LogChan: make(chan types.LogEntry, 256)`
 - [ ] 在 `ipc/protocol.go` 添加 `MethodAttachLog`、`AttachLogRequest`、`LogEntryWire`、`StreamLogEntry`、`LogEntryToWire`
-- [ ] 创建 `cmd/crux/log.go` 空壳（logCmd 定义 + 辅助函数签名）
+- [ ] 创建 `cmd/rnix/log.go` 空壳（logCmd 定义 + 辅助函数签名）
 - [ ] 运行: `go build ./...` — 验证编译通过
 - [ ] 运行: `go test ./internal/types/ ./ipc/ -run "10.2" -count=1` — 验证类型测试通过
 
@@ -283,15 +283,15 @@ Story 10.2 不涉及外部服务。所有交互通过：
 
 **目标:** 使 CLI 层测试通过 (10.2-UNIT-027 ~ 037)
 
-- [ ] 创建 `cmd/crux/log.go` — logCmd cobra 命令定义
+- [ ] 创建 `cmd/rnix/log.go` — logCmd cobra 命令定义
 - [ ] 实现 `--filter` 和 `--json` flag
 - [ ] 实现 `isValidLogFilter(filter string) bool`
 - [ ] 实现 `shouldShowEntry(entry LogEntryWire, filter string) bool`
 - [ ] 实现 `formatLogEntry(entry LogEntryWire) string`（人类可读格式）
 - [ ] 实现 `formatLogEntryJSON(entry LogEntryWire) string`（NDJSON 格式）
 - [ ] 实现 `runLog` 完整命令处理（解析 PID、Dial、信号处理、AttachLog）
-- [ ] 在 `cmd/crux/main.go` 的 `init()` 中注册 `logCmd`
-- [ ] 运行: `go test ./cmd/crux/ -run "10.2" -count=1 -v`
+- [ ] 在 `cmd/rnix/main.go` 的 `init()` 中注册 `logCmd`
+- [ ] 运行: `go test ./cmd/rnix/ -run "10.2" -count=1 -v`
 - [ ] 所有 11 个 CLI 测试通过 (GREEN)
 
 ### Phase 5: 内核 reasonStep 集成
@@ -306,11 +306,11 @@ Story 10.2 不涉及外部服务。所有交互通过：
 
 ### Phase 6: 端到端验证
 
-- [ ] 启动 crux daemon (`crux spawn "分析 README"`)
-- [ ] 执行 `crux log <pid>` — 验证分类输出
-- [ ] 执行 `crux log <pid> --filter tool` — 验证过滤
-- [ ] 执行 `crux log <pid> --json` — 验证 NDJSON
-- [ ] 执行 `crux log 999` — 验证 PID 不存在错误
+- [ ] 启动 rnix daemon (`rnix spawn "分析 README"`)
+- [ ] 执行 `rnix log <pid>` — 验证分类输出
+- [ ] 执行 `rnix log <pid> --filter tool` — 验证过滤
+- [ ] 执行 `rnix log <pid> --json` — 验证 NDJSON
+- [ ] 执行 `rnix log 999` — 验证 PID 不存在错误
 - [ ] 按 Ctrl+C — 验证安全断开
 - [ ] 运行: `go test ./... -count=1` — 完整回归
 
@@ -370,19 +370,19 @@ Story 10.2 不涉及外部服务。所有交互通过：
 
 ```bash
 # 运行所有 Story 10.2 测试 (需先完成 Phase 1 使代码可编译)
-go test ./internal/types/ ./kernel/ ./ipc/ ./cmd/crux/ -run "10\.2|Log" -count=1 -v
+go test ./internal/types/ ./kernel/ ./ipc/ ./cmd/rnix/ -run "10\.2|Log" -count=1 -v
 
 # 运行特定文件
 go test ./internal/types/ -run "LogCategory|LogEntry" -count=1 -v
 go test ./kernel/ -run "EmitLog|GetLogChan|ReapProcess_Closes|LogChan" -count=1 -v
 go test ./ipc/ -run "LogEntry|AttachLog|HandleAttachLog" -count=1 -v
-go test ./cmd/crux/ -run "LogCmd|LogFilter|FormatLog|ShouldShow" -count=1 -v
+go test ./cmd/rnix/ -run "LogCmd|LogFilter|FormatLog|ShouldShow" -count=1 -v
 
 # 运行全部测试（回归）
 go test ./... -count=1
 
 # 运行带覆盖率
-go test ./internal/types/ ./kernel/ ./ipc/ ./cmd/crux/ -run "10\.2|Log" -count=1 -cover
+go test ./internal/types/ ./kernel/ ./ipc/ ./cmd/rnix/ -run "10\.2|Log" -count=1 -cover
 ```
 
 ---
@@ -401,7 +401,7 @@ go test ./internal/types/ ./kernel/ ./ipc/ ./cmd/crux/ -run "10\.2|Log" -count=1
 
 ### 风险
 
-1. **R1: LogChan 单消费者限制** — MVP 阶段与 DebugChan 对齐，只支持单消费者。多个 `crux log` 连接同一 PID 时第二个看不到事件。后续可考虑 fan-out。
+1. **R1: LogChan 单消费者限制** — MVP 阶段与 DebugChan 对齐，只支持单消费者。多个 `rnix log` 连接同一 PID 时第二个看不到事件。后续可考虑 fan-out。
 2. **R2: 工具输出截断** — `[tool]` 条目 Content 截断到 500 字符，可能丢失调试信息。需要在截断后追加 `... (truncated, N bytes total)`。
 
 ### 假设

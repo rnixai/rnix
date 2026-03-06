@@ -470,7 +470,7 @@ kernel/kernel.go        — KernelImpl 无需新字段（管道通过 VFS FD 管
 kernel/reap.go          — 资源释放顺序不变（CloseAll 自动关闭管道端）
 kernel/process.go       — Process 结构体不变
 ipc/                    — 跨终端 IPC daemon，与内核 Pipe 无关
-cmd/crux/main.go        — CLI 层不直接暴露 Pipe（由 Compose 编排使用）
+cmd/rnix/main.go        — CLI 层不直接暴露 Pipe（由 Compose 编排使用）
 ```
 
 ### 必需导入
@@ -482,11 +482,11 @@ import (
     "io"         // io.EOF
     "context"    // context.Canceled（已有 gocontext 别名引用）
 
-    "github.com/usecrux/crux/vfs"  // VFSFile 接口、FileStat、VFS.RegisterFD
+    "github.com/rnixai/rnix/vfs"  // VFSFile 接口、FileStat、VFS.RegisterFD
 )
 ```
 
-**注意**：`kernel` 包当前不导入 `vfs` 包。但 `kernel/process.go` 已有 `"github.com/usecrux/crux/vfs"` 导入（FDTable 的类型是 `map[types.FD]vfs.VFSFile`）。因此 `kernel/ipc.go` 中导入 `vfs` 不会引入新的依赖方向。
+**注意**：`kernel` 包当前不导入 `vfs` 包。但 `kernel/process.go` 已有 `"github.com/rnixai/rnix/vfs"` 导入（FDTable 的类型是 `map[types.FD]vfs.VFSFile`）。因此 `kernel/ipc.go` 中导入 `vfs` 不会引入新的依赖方向。
 
 ### References
 

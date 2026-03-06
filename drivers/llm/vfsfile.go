@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // LLMFile implements vfs.VFSFile for LLM device access via write-then-read semantics.

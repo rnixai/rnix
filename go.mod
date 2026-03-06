@@ -1,4 +1,4 @@
-module github.com/usecrux/crux
+module github.com/rnixai/rnix
 
 go 1.26
 

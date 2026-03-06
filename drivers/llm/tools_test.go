@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	cruxctx "github.com/usecrux/crux/context"
+	rnixctx "github.com/rnixai/rnix/context"
 )
 
 func TestToolDef_JSONRoundTrip(t *testing.T) {
@@ -148,7 +148,7 @@ func TestMessage_JSONCompatWithContextMessage(t *testing.T) {
 		t.Fatalf("Marshal llm.Message: %v", err)
 	}
 
-	var ctxMsg cruxctx.Message
+	var ctxMsg rnixctx.Message
 	if err := json.Unmarshal(data, &ctxMsg); err != nil {
 		t.Fatalf("Unmarshal to context.Message: %v", err)
 	}

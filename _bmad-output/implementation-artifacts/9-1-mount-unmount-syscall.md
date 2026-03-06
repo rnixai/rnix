@@ -252,7 +252,7 @@ Open 操作通过 DeviceRegistry 的前缀匹配路由到 MCP VFSFileFactory。s
 ### 依赖方向
 
 ```
-cmd/crux/    → kernel/  → vfs/mount.go (MountManager)
+cmd/rnix/    → kernel/  → vfs/mount.go (MountManager)
                         → vfs/mcp.go   (MCPConfig, mcpFile)
                         → drivers/mcp/ (Transport)
 drivers/mcp/ → internal/types/ (仅类型)
@@ -416,7 +416,7 @@ vfs/dev.go                     # 新增 DeviceRegistry.Unregister 转发方法
 kernel/kernel.go               # 新增 mountMgr 字段、Mount/Unmount 方法、更新 NewKernel
 ```
 
-不修改 `cmd/crux/main.go`（Mount/Unmount 不直接暴露 CLI 命令——通过 Story 9.2 的 agent.yaml mcp 字段自动调用）。
+不修改 `cmd/rnix/main.go`（Mount/Unmount 不直接暴露 CLI 命令——通过 Story 9.2 的 agent.yaml mcp 字段自动调用）。
 
 ### References
 

@@ -25,7 +25,7 @@
 
 | 时间节点 | 目标 |
 |---------|------|
-| Phase 1 完成 | 自举成功——Crux 用自身 syscall 层分析自身源码，**能正确识别代码中真实存在的问题** |
+| Phase 1 完成 | 自举成功——Rnix 用自身 syscall 层分析自身源码，**能正确识别代码中真实存在的问题** |
 | 6 个月 | 首次公开发布，README + demo 完整，接受外部 contributor |
 | 12 个月 | Stars 作为社区认可度核心指标，支撑指标（demo 成功率、Skill 数量、Contributor 数量、外部引用）同步跟踪 |
 
@@ -40,8 +40,8 @@
 | LLM 调用 | 通过 `/dev/llm/claude` 完成推理 |
 | Skill 加载 | `code-analyst` Agent 加载 agent.yaml + 引用的 Skill SKILL.md 正确注入 system prompt |
 | reasonStep 循环 | tool_call → 执行 → 追加结果 → 继续推理 → text → 完成 |
-| astrace 追踪 | `crux astrace 1` 输出完整 syscall 链路（名称、耗时、token）|
-| 自举验证 | 用 Crux 分析 Crux 自身源码，识别出真实存在的代码问题 |
+| astrace 追踪 | `rnix astrace 1` 输出完整 syscall 链路（名称、耗时、token）|
+| 自举验证 | 用 Rnix 分析 Rnix 自身源码，识别出真实存在的代码问题 |
 
 **可靠性验收（MVP）：**
 
@@ -55,7 +55,7 @@
 
 | 维度 | 核心可测量结果 |
 |------|--------------|
-| 自举 | Crux 分析自身源码 → 输出中包含至少 1 个可验证的真实代码问题 |
+| 自举 | Rnix 分析自身源码 → 输出中包含至少 1 个可验证的真实代码问题 |
 | 调试差异化 | `astrace` 输出的 syscall 链路能回溯到导致错误结果的具体步骤 |
 | 端到端延迟 | 单智能体 spawn→完成（含 LLM 调用），≤ 30 秒 |
 
@@ -67,7 +67,7 @@
 |------|---------|------|
 | 构建效率 | 完成多智能体工作流的代码量 | 20 行 YAML 替代 2000+ 行硬编码 |
 | 上手门槛 | 安装到跑通 compose 模板 | ≤ 30 分钟 |
-| 排障效率 | 通过 `crux log` 定位多智能体问题 | 无需深入内核即可完成 |
+| 排障效率 | 通过 `rnix log` 定位多智能体问题 | 无需深入内核即可完成 |
 | Skill 复用 | 社区 Skill 安装后直接可用 | 零修改引用 |
 
 **生态指标：**
@@ -83,12 +83,12 @@
 | 检查项 | 通过条件 |
 |--------|---------|
 | IPC 通信 | Send/Recv/Pipe 三个 syscall 端到端跑通，两个智能体通过管道传递数据 |
-| Compose 编排 | `crux compose up` 按 DAG 依赖顺序启动 ≥ 3 个智能体并全部完成 |
+| Compose 编排 | `rnix compose up` 按 DAG 依赖顺序启动 ≥ 3 个智能体并全部完成 |
 | skillpkg 安装 | `skill install <name>` 从远程仓库下载并注册 Skill，`skill search` 返回结果 |
 | MCP 挂载 | `/mnt/mcp/` 路径挂载至少 1 个 MCP 服务器，智能体可通过 VFS 访问其工具 |
 | Supervisor 容错 | 子智能体异常退出后，Supervisor 在 5 秒内按策略自动重启 |
-| crux top | 实时显示 ≥ 3 个并发智能体的状态和 token 消耗 |
-| crux log | 输出按 think/tool/output 分类，支持 --filter 过滤 |
+| rnix top | 实时显示 ≥ 3 个并发智能体的状态和 token 消耗 |
+| rnix log | 输出按 think/tool/output 分类，支持 --filter 过滤 |
 | 四层能力栈 | Agent → Skill → MCP → Device 端到端运行，各层职责分离验证通过 |
 | AgentShell 管道 | `spawn "A" \| spawn "B"` 管道语法执行成功，前一个智能体输出正确注入后一个上下文 |
 | AgentShell 脚本 | `if-else` + `on-error` 最小控制结构在多行脚本中正确执行 |

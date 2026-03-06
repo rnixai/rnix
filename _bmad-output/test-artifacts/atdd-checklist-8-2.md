@@ -15,8 +15,8 @@ inputDocuments:
   - skillpkg/types.go
   - skillpkg/client.go
   - skillpkg/client_test.go
-  - cmd/crux/skill.go
-  - cmd/crux/skill_test.go
+  - cmd/rnix/skill.go
+  - cmd/rnix/skill_test.go
 ---
 
 # ATDD 检查清单 - Epic 8, Story 8.2: skill search 搜索
@@ -29,7 +29,7 @@ inputDocuments:
 
 ## Story 概要
 
-Story 8.2 实现 `crux skill search <keyword>` 命令，允许用户搜索社区仓库中可用的 Skill。搜索基于客户端过滤策略，调用已有的 `FetchIndex()` 获取完整索引，然后在本地按 keyword 做大小写不敏感的子串匹配。
+Story 8.2 实现 `rnix skill search <keyword>` 命令，允许用户搜索社区仓库中可用的 Skill。搜索基于客户端过滤策略，调用已有的 `FetchIndex()` 获取完整索引，然后在本地按 keyword 做大小写不敏感的子串匹配。
 
 **作为** 用户
 **我想要** 通过 `skill search <keyword>` 搜索社区仓库中可用的 Skill
@@ -39,7 +39,7 @@ Story 8.2 实现 `crux skill search <keyword>` 命令，允许用户搜索社区
 
 ## 验收标准
 
-1. **AC #1: search 子命令注册** — Given `cmd/crux/skill.go` 中 search 子命令已注册，When 执行 `skill search code`，Then 返回匹配的 Skill 列表，And 每条结果包含：名称、描述、版本、下载量
+1. **AC #1: search 子命令注册** — Given `cmd/rnix/skill.go` 中 search 子命令已注册，When 执行 `skill search code`，Then 返回匹配的 Skill 列表，And 每条结果包含：名称、描述、版本、下载量
 2. **AC #2: 搜索无结果** — Given 搜索结果为空，When 无匹配关键词，Then 输出 `No skills found for "keyword".` + 建议
 3. **AC #3: JSON 输出** — Given 使用 `--json` flag，When 搜索，Then 输出 JSON 数组，字段 snake_case
 
@@ -81,9 +81,9 @@ Story 8.2 实现 `crux skill search <keyword>` 命令，允许用户搜索社区
   - **验证:** AC #1 — SearchResult 字段完整（名称、描述、版本、下载量）
   - **优先级:** P0
 
-### CLI 测试 — cmd/crux/skill_test.go (4 个测试)
+### CLI 测试 — cmd/rnix/skill_test.go (4 个测试)
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 - **测试:** TestSkillSearchCmd_Registered
   - **状态:** RED - skill search 子命令未注册
@@ -185,19 +185,19 @@ skills:
 
 ### 测试: TestSkillSearchCmd_Registered
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使此测试通过的任务:**
 
-- [ ] 在 `cmd/crux/skill.go` 中定义 `skillSearchCmd` cobra.Command（`Use: "search <keyword>"`, `Args: cobra.MaximumNArgs(1)`）
+- [ ] 在 `cmd/rnix/skill.go` 中定义 `skillSearchCmd` cobra.Command（`Use: "search <keyword>"`, `Args: cobra.MaximumNArgs(1)`）
 - [ ] 在 `init()` 中 `skillCmd.AddCommand(skillSearchCmd)`
 - [ ] 移除 `t.Skip()` 标记
-- [ ] 运行测试: `go test ./cmd/crux/ -run TestSkillSearchCmd_Registered -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run TestSkillSearchCmd_Registered -v`
 - [ ] 测试通过（green phase）
 
 ### 测试: TestSkillSearch_JSONOutput / EmptyResult_JSONOutput
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使这些测试通过的任务:**
 
@@ -206,19 +206,19 @@ skills:
 - [ ] 空结果时 Results 为空数组（非 null）
 - [ ] 确保 JSON 字段为 snake_case（已通过 json tag 保证）
 - [ ] 移除 `t.Skip()` 标记
-- [ ] 运行测试: `go test ./cmd/crux/ -run "TestSkillSearch_JSONOutput|TestSkillSearch_EmptyResult" -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run "TestSkillSearch_JSONOutput|TestSkillSearch_EmptyResult" -v`
 - [ ] 全部通过（green phase）
 
 ### 测试: TestSkillSearch_NoArgs_BrowseAll
 
-**文件:** `cmd/crux/skill_test.go`
+**文件:** `cmd/rnix/skill_test.go`
 
 **使此测试通过的任务:**
 
 - [ ] `skillSearchCmd` 的 `Args` 设为 `cobra.MaximumNArgs(1)`（允许 0 个参数）
 - [ ] 实现 `runSkillSearch`：无参数时 keyword 为空字符串 = 浏览全部
 - [ ] 移除 `t.Skip()` 标记
-- [ ] 运行测试: `go test ./cmd/crux/ -run TestSkillSearch_NoArgs_BrowseAll -v`
+- [ ] 运行测试: `go test ./cmd/rnix/ -run TestSkillSearch_NoArgs_BrowseAll -v`
 - [ ] 测试通过（green phase）
 
 ### 额外实现任务（无独立测试但由 Story 要求）
@@ -234,13 +234,13 @@ skills:
 
 ```bash
 # 运行所有 Story 8.2 失败测试
-go test ./skillpkg/ ./cmd/crux/ -run "TestRegistryClient_Search|TestSkillSearch" -v
+go test ./skillpkg/ ./cmd/rnix/ -run "TestRegistryClient_Search|TestSkillSearch" -v
 
 # 运行 skillpkg 搜索测试
 go test ./skillpkg/ -run TestRegistryClient_Search -v
 
 # 运行 CLI 搜索测试
-go test ./cmd/crux/ -run TestSkillSearch -v
+go test ./cmd/rnix/ -run TestSkillSearch -v
 
 # 运行全部测试（含竞态检测）
 go test -race ./...
@@ -284,8 +284,8 @@ go test ./skillpkg/ -run TestRegistryClient_Search_MatchByName -v -count=1
 **建议实现顺序:**
 
 1. `skillpkg/client.go` — 实现 `Search()` 方法（替换 panic stub）
-2. `cmd/crux/skill.go` — 注册 `skillSearchCmd` 子命令 + 实现 `runSkillSearch`
-3. `cmd/crux/skill.go` — 实现 `renderSkillSearchJSON`（替换 panic stub）
+2. `cmd/rnix/skill.go` — 注册 `skillSearchCmd` 子命令 + 实现 `runSkillSearch`
+3. `cmd/rnix/skill.go` — 实现 `renderSkillSearchJSON`（替换 panic stub）
 
 **关键原则:**
 
@@ -309,7 +309,7 @@ go test ./skillpkg/ -run TestRegistryClient_Search_MatchByName -v -count=1
 ## 下一步
 
 1. **将此检查清单分享给 DEV 工作流**
-2. **运行失败测试确认 RED Phase:** `go test ./skillpkg/ ./cmd/crux/ -run "TestRegistryClient_Search|TestSkillSearch" -v`
+2. **运行失败测试确认 RED Phase:** `go test ./skillpkg/ ./cmd/rnix/ -run "TestRegistryClient_Search|TestSkillSearch" -v`
 3. **开始实现** — 按实现检查清单顺序
 4. **一次一个测试** (red → green)
 5. **所有测试通过后** 重构代码
@@ -332,7 +332,7 @@ go test ./skillpkg/ -run TestRegistryClient_Search_MatchByName -v -count=1
 
 ### 初始测试运行 (RED Phase 验证)
 
-**命令:** `go test ./skillpkg/ ./cmd/crux/ -run "TestRegistryClient_Search|TestSkillSearch" -v`
+**命令:** `go test ./skillpkg/ ./cmd/rnix/ -run "TestRegistryClient_Search|TestSkillSearch" -v`
 
 **结果:**
 
@@ -356,7 +356,7 @@ go test ./skillpkg/ -run TestRegistryClient_Search_MatchByName -v -count=1
     client_test.go:386: ATDD RED Phase: Search() method not implemented yet — Story 8.2
 --- SKIP: TestRegistryClient_Search_ResultFields (0.00s)
 PASS
-ok      github.com/usecrux/crux/skillpkg
+ok      github.com/rnixai/rnix/skillpkg
 === RUN   TestSkillSearchCmd_Registered
     skill_test.go:241: ATDD RED Phase: skill search subcommand not implemented yet — Story 8.2
 --- SKIP: TestSkillSearchCmd_Registered (0.00s)
@@ -370,7 +370,7 @@ ok      github.com/usecrux/crux/skillpkg
     skill_test.go:341: ATDD RED Phase: skill search subcommand not implemented yet — Story 8.2
 --- SKIP: TestSkillSearch_NoArgs_BrowseAll (0.00s)
 PASS
-ok      github.com/usecrux/crux/cmd/crux
+ok      github.com/rnixai/rnix/cmd/rnix
 ```
 
 **总结:**
@@ -403,8 +403,8 @@ ok      github.com/usecrux/crux/cmd/crux
 | `skillpkg/types.go` | 修改 | 添加 `Downloads` 字段、JSON tag、`SearchResult` 类型 |
 | `skillpkg/client.go` | 修改 | 添加 `Search()` panic stub 方法 |
 | `skillpkg/client_test.go` | 修改 | 添加 6 个搜索测试 + `setupMockRegistryMultiSkill` 辅助函数 |
-| `cmd/crux/skill.go` | 修改 | 添加 `searchJSONData` 类型 + `renderSkillSearchJSON` panic stub |
-| `cmd/crux/skill_test.go` | 修改 | 添加 4 个搜索 CLI 测试 |
+| `cmd/rnix/skill.go` | 修改 | 添加 `searchJSONData` 类型 + `renderSkillSearchJSON` panic stub |
+| `cmd/rnix/skill_test.go` | 修改 | 添加 4 个搜索 CLI 测试 |
 
 ---
 

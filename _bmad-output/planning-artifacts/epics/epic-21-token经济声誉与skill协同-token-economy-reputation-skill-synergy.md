@@ -10,7 +10,7 @@ So that 关键任务获得更多资源，低优先级任务不会浪费预算。
 
 **Acceptance Criteria:**
 
-**Given** crux-compose.yaml 定义了总 token 预算和各智能体优先级
+**Given** rnix-compose.yaml 定义了总 token 预算和各智能体优先级
 **When** `compose up` 执行
 **Then** 系统创建预算池并按优先级分配初始配额
 
@@ -44,7 +44,7 @@ So that 表现好的 Agent 模板被更多使用，系统质量持续优化。
 **Acceptance Criteria:**
 
 **Given** Agent 模板有历史执行记录
-**When** 用户执行 `crux reputation [agent]`
+**When** 用户执行 `rnix reputation [agent]`
 **Then** 显示声誉分数、成功率、平均 token 效率、SLA 达标率和近期趋势
 
 **Given** Reconciler 或系统需要自动选择 Agent 模板
@@ -77,7 +77,7 @@ So that 我可以了解哪些 Skill 组合效果最好。
 **Acceptance Criteria:**
 
 **Given** 系统已积累 Skill 组合的历史执行数据
-**When** 用户执行 `crux synergy list`
+**When** 用户执行 `rnix synergy list`
 **Then** 展示已知的有效 Skill 组合，包含成功率对比（组合 vs 单独）、token 效率提升和使用频次
 
 **Given** 组合矩阵数据

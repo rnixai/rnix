@@ -1,7 +1,7 @@
 # Epic List
 
 ## Epic 1: 第一个智能体运行（First Agent Runs）
-用户安装 Crux 后，输入 `crux "意图"` 即可看到一个智能体启动、调用 LLM 推理、返回结果——完整的端到端体验。包含项目初始化、内核核心（进程模型 + Spawn + reasonStep）、VFS 框架、LLM 驱动（Claude Code CLI）、上下文管理、CLI 入口和基础 UI 组件。
+用户安装 Rnix 后，输入 `rnix "意图"` 即可看到一个智能体启动、调用 LLM 推理、返回结果——完整的端到端体验。包含项目初始化、内核核心（进程模型 + Spawn + reasonStep）、VFS 框架、LLM 驱动（Claude Code CLI）、上下文管理、CLI 入口和基础 UI 组件。
 **FRs covered:** FR1, FR2, FR8, FR9, FR10, FR11, FR13, FR15, FR17, FR19, FR20, FR21, FR32, FR33, FR36, FR37
 
 ## Epic 2: Agent 能力与文件访问（Agent Skills & File Access）
@@ -9,15 +9,15 @@
 **FRs covered:** FR12, FR16, FR18, FR23, FR24, FR25, FR25a, FR25b, FR26, FR27
 
 ## Epic 3: 调试追踪（Debug Tracing — astrace）
-当智能体输出不符合预期时，用户运行 `crux astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Crux 的差异化核心体验。包含 SyscallEvent 记录、DebugChan 事件管道、astrace 命令和 Trace Line UI。
+当智能体输出不符合预期时，用户运行 `rnix astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。包含 SyscallEvent 记录、DebugChan 事件管道、astrace 命令和 Trace Line UI。
 **FRs covered:** FR28, FR29, FR30, FR31, FR34
 
 ## Epic 4: 进程管理与可靠性（Process Management & Reliability）
-用户可以查看所有进程状态（`crux ps`）、终止进程（`crux kill`）、等待进程完成。系统自动回收 Zombie 进程、处理孤儿进程、暴露 `/proc` 运行时状态——生产级可靠性。
+用户可以查看所有进程状态（`rnix ps`）、终止进程（`rnix kill`）、等待进程完成。系统自动回收 Zombie 进程、处理孤儿进程、暴露 `/proc` 运行时状态——生产级可靠性。
 **FRs covered:** FR3, FR4, FR5, FR6, FR7, FR14, FR22, FR35
 
 ## Epic 5: 文档体系（Documentation）
-新用户可以通过概念文档理解 Crux 的 OS 范式，通过快速上手指南在 15 分钟内跑通 demo，通过参考手册查阅所有 syscall、VFS 路径和 CLI 命令。
+新用户可以通过概念文档理解 Rnix 的 OS 范式，通过快速上手指南在 15 分钟内跑通 demo，通过参考手册查阅所有 syscall、VFS 路径和 CLI 命令。
 **FRs covered:** FR38, FR39, FR40
 
 ---
@@ -31,13 +31,13 @@
 **Dependencies:** Phase 1 完成
 
 ## Epic 7: Compose 多智能体编排（Agent Compose）
-用户通过 `crux-compose.yaml` 声明式定义多智能体工作流，`crux compose up` 一键启动，引擎按 DAG 依赖拓扑自动调度并行——林薇旅程的核心体验。
+用户通过 `rnix-compose.yaml` 声明式定义多智能体工作流，`rnix compose up` 一键启动，引擎按 DAG 依赖拓扑自动调度并行——林薇旅程的核心体验。
 **FRs covered:** FR46, FR47, FR48, FR49
 **NFRs:** NFR21 (≤10 个智能体启动 ≤2s)
 **Dependencies:** Epic 6（IPC 管道用于智能体间数据传递）
 
 ## Epic 8: Skill 包管理与生态（Skill Package Management）
-用户通过 `skill install/search/update/list` 管理社区 Skill，安装即可用，零修改引用——生态系统的基石。客户端通过 HTTP API 与社区注册中心（`registry.crux.dev`）交互，注册中心服务端部署为独立运维任务。
+用户通过 `skill install/search/update/list` 管理社区 Skill，安装即可用，零修改引用——生态系统的基石。客户端通过 HTTP API 与社区注册中心（`registry.rnix.ai`）交互，注册中心服务端部署为独立运维任务。
 **FRs covered:** FR50, FR51, FR52, FR53
 **NFRs:** NFR30 (安装即可用)
 **Infra prerequisite:** 社区注册中心服务端（`/index.yaml`, `/packages/{name}/latest.yaml`, `*.tar.gz`）
@@ -49,7 +49,7 @@
 **Dependencies:** Epic 6（VFS 扩展）
 
 ## Epic 10: 监控与可观测性（Monitoring & Observability）
-`crux top` 实时监控面板 + `crux log` 分类日志 + token 预算管理——生产级可观测能力。
+`rnix top` 实时监控面板 + `rnix log` 分类日志 + token 预算管理——生产级可观测能力。
 **FRs covered:** FR58, FR59, FR60, FR61, FR62
 **NFRs:** NFR28 (top 刷新 ≤500ms), NFR29 (log 延迟 ≤200ms)
 
@@ -101,13 +101,13 @@ Supervisor 容错树自动管理子智能体生命周期 + init 引导序列初�
 **Dependencies:** Epic 13-15（聚合调试/追踪数据）
 
 ## Epic 18: AgentShell 完整脚本语言（AgentShell Complete Scripting）
-用户可以编写包含循环（for/while）、函数定义、数据结构（数组/映射）、spawn 返回值捕获、并行执行块、模块导入的完整脚本，通过 `crux run` 执行自动化编排。
+用户可以编写包含循环（for/while）、函数定义、数据结构（数组/映射）、spawn 返回值捕获、并行执行块、模块导入的完整脚本，通过 `rnix run` 执行自动化编排。
 **FRs covered:** FR97, FR98, FR99, FR100, FR101, FR102, FR103, FR104, FR105
 **NFRs:** NFR38, NFR39
 **Dependencies:** Phase 2 AgentShell 基础语法
 
 ## Epic 19: 声明式意图与自动规划（Declarative Intent & Auto Planning）
-用户只需通过 `crux apply` 声明期望状态，系统自动分解为子意图树、分配智能体执行，Reconciler 持续监测差异并自动调和，支持运行中增量更新意图。
+用户只需通过 `rnix apply` 声明期望状态，系统自动分解为子意图树、分配智能体执行，Reconciler 持续监测差异并自动调和，支持运行中增量更新意图。
 **FRs covered:** FR106, FR107, FR108, FR109, FR110, FR111
 **NFRs:** NFR40
 

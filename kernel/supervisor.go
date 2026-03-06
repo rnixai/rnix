@@ -7,8 +7,8 @@ import (
 
 	gocontext "context"
 
-	"github.com/usecrux/crux/agents"
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // RestartStrategy defines how a Supervisor responds to child failures.

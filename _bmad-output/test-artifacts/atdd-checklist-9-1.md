@@ -533,10 +533,10 @@ go test ./vfs/ -run TestMountManager_IntegrationFlow -race -v -count=1
 **Results:**
 
 ```
-FAIL github.com/usecrux/crux/drivers/mcp [build failed]
-FAIL github.com/usecrux/crux/internal/xsync [build failed]
-FAIL github.com/usecrux/crux/kernel [build failed]
-FAIL github.com/usecrux/crux/vfs [build failed]
+FAIL github.com/rnixai/rnix/drivers/mcp [build failed]
+FAIL github.com/rnixai/rnix/internal/xsync [build failed]
+FAIL github.com/rnixai/rnix/kernel [build failed]
+FAIL github.com/rnixai/rnix/vfs [build failed]
 ```
 
 **Summary:**

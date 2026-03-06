@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/kernel"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- BUG-006: checkIdle / tryAutoShutdown exclude Zombie/Dead processes ---
@@ -22,7 +22,7 @@ func TestTryAutoShutdown_ZombieOnlyProcs(t *testing.T) {
 		return nil, types.NewDriverError("Open", "/dev/llm/claude", nil, types.ErrNotFound)
 	})
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 
 	srv := NewServer(nil, nil, "test")
 	srv.IdleTimeout = 100 * time.Millisecond
@@ -65,7 +65,7 @@ func TestTryAutoShutdown_RunningProcsPreventShutdown(t *testing.T) {
 	// Then: server does NOT shut down
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 
 	srv := NewServer(nil, nil, "test")
 	srv.IdleTimeout = 100 * time.Millisecond

@@ -59,9 +59,9 @@
 
 **命令行接口（FR33-FR37）**
 
-- FR33: 用户可以通过 `crux "意图"` 单命令启动一个智能体
-- FR34: 用户可以通过 `crux astrace <pid>` 追踪指定进程的 syscall
-- FR35: 用户可以通过 `crux ps` 查看所有进程状态
+- FR33: 用户可以通过 `rnix "意图"` 单命令启动一个智能体
+- FR34: 用户可以通过 `rnix astrace <pid>` 追踪指定进程的 syscall
+- FR35: 用户可以通过 `rnix ps` 查看所有进程状态
 - FR36: CLI 提供清晰的错误信息，包含设备路径和错误原因
 - FR37: 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI）
 
@@ -76,7 +76,7 @@
 **性能（NFR1-5）**
 
 - NFR1: 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析）
-- NFR2: `crux ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
+- NFR2: `rnix ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
 - NFR3: `astrace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
 - NFR4: VFS 本地文件读取（`/dev/fs`）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍
 - NFR5: 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身）
@@ -87,7 +87,7 @@
 - NFR7: LLM API 超时/错误时，进程在 5 秒内正确转入 Zombie 状态，不卡死在 Running
 - NFR8: 进程退出后，goroutine 和 context 内存在 10 秒内释放，无泄漏
 - NFR9: 内核进程表在任意进程异常退出后保持一致性（无悬挂 PID、无状态不一致）
-- NFR10: CLI 进程（crux 二进制本身）在智能体异常退出时不崩溃
+- NFR10: CLI 进程（rnix 二进制本身）在智能体异常退出时不崩溃
 
 **集成（NFR11-14）**
 
@@ -112,7 +112,7 @@
 
 **来自架构文档的技术需求：**
 
-- 项目初始化（Starter）：领域驱动 OS 隐喻结构（方案 C），`go mod init github.com/usecrux/crux`，这是 Epic 1 Story 1 的基础
+- 项目初始化（Starter）：领域驱动 OS 隐喻结构（方案 C），`go mod init github.com/rnixai/rnix`，这是 Epic 1 Story 1 的基础
 - Go 1.26：利用 Green Tea GC、Goroutine Leak Profiler（实验性）、new(expr) 表达式初始化、自引用泛型
 - 泛型工具包：Registry[T]、SyncMap[K,V]、Future[T]、Result[T] 放在 `internal/xsync/`
 - 共享类型：PID、FD、CtxID、ErrCode 等放在 `internal/types/types.go`（避免循环依赖）
@@ -124,7 +124,7 @@
 - 资源释放顺序：cancel() → wg.Wait() → 关闭 FD → 关闭 DebugChan → CtxFree → 状态转 Dead → 移除进程表
 - 构建工具：Makefile（build/install/test/lint/vet/clean）+ golangci-lint（`.golangci.yml`）
 - 测试策略：`go test -race` 默认开启，接口 mock，testify assertions，Goroutine Leak Profiler 验证 NFR8
-- 依赖注入点：`cmd/crux/main.go` 是唯一组装点
+- 依赖注入点：`cmd/rnix/main.go` 是唯一组装点
 - Agent/Skill 双层架构：Agent（agent.yaml + instructions.md）定义身份+策略，Skill（SKILL.md，Agent Skills 行业标准）定义程序性知识+工具权限
 - Spawn 流程：AgentLoader 加载 agent.yaml → 读 instructions.md → SkillLoader 加载引用的 Skill → 聚合 allowed-tools → 组装 system prompt
 - 渐进式 Skill 加载：发现（frontmatter ~100 tokens）→ 激活（body < 5000 tokens）→ 执行（scripts/references/assets 按需加载）
@@ -137,7 +137,7 @@
 - Renderer 接口抽象：所有组件输出到 `io.Writer`，不直接写 `os.Stdout`
 - 4 种输出密度模式：`--quiet/-q`（静默）、默认（结构化汇报）、`--verbose/-v`（详细）、`--json`（机器可读）
 - 管道检测：非 TTY 输出自动去除 ANSI 颜色和 spinner 动画
-- 环境变量：`NO_COLOR` 支持（颜色完全去除）、`CRUX_ASCII=1` 支持（Unicode 降级为 ASCII）
+- 环境变量：`NO_COLOR` 支持（颜色完全去除）、`RNIX_ASCII=1` 支持（Unicode 降级为 ASCII）
 - 三段式错误结构：`✗ {设备路径}: {错误原因}` → `{影响}` → `建议: {恢复命令}`
 - 信号处理：SIGINT 首次优雅中断（goroutine 清理），二次（2 秒内）强制退出
 - 终端宽度自适应：< 60/60-79/80-119（目标）/120+ 列四档，表格列按优先级取舍
@@ -178,9 +178,9 @@
 - FR30: Epic 3 — 记录 syscall 调用数据（DebugRecord）
 - FR31: Epic 3 — 通过 astrace 定位具体错误 syscall
 - FR32: Epic 1 — 智能体完成时输出汇总信息
-- FR33: Epic 1 — `crux "意图"` 单命令启动智能体
-- FR34: Epic 3 — `crux astrace <pid>` 追踪命令
-- FR35: Epic 4 — `crux ps` 查看进程状态
+- FR33: Epic 1 — `rnix "意图"` 单命令启动智能体
+- FR34: Epic 3 — `rnix astrace <pid>` 追踪命令
+- FR35: Epic 4 — `rnix ps` 查看进程状态
 - FR36: Epic 1 — CLI 提供清晰错误信息
 - FR37: Epic 1 — `go install` 安装，单二进制零依赖
 - FR38: Epic 5 — 概念文档

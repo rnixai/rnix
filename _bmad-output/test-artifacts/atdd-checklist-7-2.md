@@ -9,16 +9,16 @@ lastStep: 'step-05-checklist'
 lastSaved: '2026-03-01'
 workflowType: 'testarch-atdd'
 inputDocuments:
-  - '_bmad-output/implementation-artifacts/7-2-crux-compose-up-command.md'
+  - '_bmad-output/implementation-artifacts/7-2-rnix-compose-up-command.md'
   - '_bmad-output/planning-artifacts/epics/epic-7-compose-多智能体编排agent-compose.md'
   - 'compose/types.go'
   - 'compose/engine.go'
   - 'compose/parser.go'
   - 'compose/dag.go'
   - 'compose/engine_test.go'
-  - 'cmd/crux/main.go'
-  - 'cmd/crux/main_test.go'
-  - 'cmd/crux/integration_test.go'
+  - 'cmd/rnix/main.go'
+  - 'cmd/rnix/main_test.go'
+  - 'cmd/rnix/integration_test.go'
   - 'ipc/client.go'
   - 'ipc/protocol.go'
   - 'internal/ui/renderer.go'
@@ -26,7 +26,7 @@ inputDocuments:
   - 'go.mod'
 ---
 
-# ATDD Checklist - Epic 7, Story 7.2: crux compose up 命令
+# ATDD Checklist - Epic 7, Story 7.2: rnix compose up 命令
 
 **Date:** 2026-03-01
 **Author:** Decker
@@ -36,18 +36,18 @@ inputDocuments:
 
 ## Story Summary
 
-Story 7.2 为 Crux 操作系统实现 `crux compose up` CLI 命令，一键启动编排定义的所有智能体。通过 IPC 适配器模式将 CLI 侧的 compose 引擎（Story 7.1）与 daemon 通信层连接，实现实时进度输出、失败传播和编排汇总。
+Story 7.2 为 Rnix 操作系统实现 `rnix compose up` CLI 命令，一键启动编排定义的所有智能体。通过 IPC 适配器模式将 CLI 侧的 compose 引擎（Story 7.1）与 daemon 通信层连接，实现实时进度输出、失败传播和编排汇总。
 
 **As a** 用户
-**I want** 通过 `crux compose up` 一键启动编排定义的所有智能体
+**I want** 通过 `rnix compose up` 一键启动编排定义的所有智能体
 **So that** 完整的多智能体工作流一条命令即可运行
 
 ---
 
 ## Acceptance Criteria
 
-1. **AC #1 — compose up 子命令注册**: `crux compose up` 读取当前目录的 `crux-compose.yaml`，按 DAG 顺序 Spawn 所有智能体，实时输出每个智能体的启动和完成状态
-2. **AC #2 — 自定义文件**: `crux compose up -f my-workflow.yaml` 使用指定文件而非默认文件
+1. **AC #1 — compose up 子命令注册**: `rnix compose up` 读取当前目录的 `rnix-compose.yaml`，按 DAG 顺序 Spawn 所有智能体，实时输出每个智能体的启动和完成状态
+2. **AC #2 — 自定义文件**: `rnix compose up -f my-workflow.yaml` 使用指定文件而非默认文件
 3. **AC #3 — 失败传播**: 上游智能体退出非零码时，依赖它的下游智能体不启动，输出明确的错误信息
 4. **AC #4 — 编排汇总**: 所有智能体完成后显示编排汇总：每个智能体的退出码、token 消耗、耗时
 
@@ -57,7 +57,7 @@ Story 7.2 为 Crux 操作系统实现 `crux compose up` CLI 命令，一键启�
 
 - **detected_stack**: `backend`（Go 项目，`go.mod` 存在，无前端指标）
 - **test_framework**: Go 标准 `testing` 包 + `-race` 检测
-- **test_dir**: `cmd/crux/` (CLI 测试) + `internal/ui/` (UI 组件测试)
+- **test_dir**: `cmd/rnix/` (CLI 测试) + `internal/ui/` (UI 组件测试)
 - **generation_mode**: AI Generation（后端项目，无浏览器录制需求）
 
 ---
@@ -68,9 +68,9 @@ Story 7.2 为 Crux 操作系统实现 `crux compose up` CLI 命令，一键启�
 
 | AC | 测试级别 | 测试文件 | 理由 |
 |----|---------|---------|------|
-| AC #1 | Unit + Integration | `cmd/crux/compose_test.go` | CLI 子命令注册是单元验证；runComposeUp 通过 IPC 集成测试 |
-| AC #2 | Unit | `cmd/crux/compose_test.go` | -f flag 是 CLI 参数解析 |
-| AC #3 | Unit | `cmd/crux/compose_test.go` | 失败传播通过 mock KernelSpawner + compose Engine 验证 |
+| AC #1 | Unit + Integration | `cmd/rnix/compose_test.go` | CLI 子命令注册是单元验证；runComposeUp 通过 IPC 集成测试 |
+| AC #2 | Unit | `cmd/rnix/compose_test.go` | -f flag 是 CLI 参数解析 |
+| AC #3 | Unit | `cmd/rnix/compose_test.go` | 失败传播通过 mock KernelSpawner + compose Engine 验证 |
 | AC #4 | Unit | `internal/ui/compose_test.go` | 汇总 UI 是纯渲染逻辑 |
 
 ### 优先级
@@ -96,7 +96,7 @@ Story 7.2 为 Crux 操作系统实现 `crux compose up` CLI 命令，一键启�
 
 ### CLI Tests (13 tests)
 
-**File:** `cmd/crux/compose_test.go` (339 lines)
+**File:** `cmd/rnix/compose_test.go` (339 lines)
 
 - **Test:** `TestComposeCmd_Registered`
   - **Status:** RED — `composeCmd` 未注册到 `rootCmd`
@@ -112,7 +112,7 @@ Story 7.2 为 Crux 操作系统实现 `crux compose up` CLI 命令，一键启�
 
 - **Test:** `TestComposeUp_DefaultFile`
   - **Status:** RED — `flagComposeFile`/`runComposeUp` undefined
-  - **Verifies:** AC #1 — 默认读取 crux-compose.yaml
+  - **Verifies:** AC #1 — 默认读取 rnix-compose.yaml
 
 - **Test:** `TestComposeUp_CustomFile`
   - **Status:** RED — `flagComposeFile`/`runComposeUp` undefined
@@ -220,86 +220,86 @@ Story 7.2 为 Crux 操作系统实现 `crux compose up` CLI 命令，一键启�
 
 ### Test: TestComposeCmd_Registered / TestComposeUpCmd_Registered / TestComposeUp_HelpOutput
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
-- [ ] 创建 `cmd/crux/compose.go`，声明 `composeCmd` 和 `composeUpCmd`
-- [ ] 添加 `-f/--file` flag（`flagComposeFile`，默认 `crux-compose.yaml`）
-- [ ] 在 `cmd/crux/main.go` 的 `init()` 中添加 `rootCmd.AddCommand(composeCmd)`
-- [ ] Run test: `go test ./cmd/crux/ -run 'TestComposeCmd_Registered|TestComposeUpCmd|TestComposeUp_Help' -race`
+- [ ] 创建 `cmd/rnix/compose.go`，声明 `composeCmd` 和 `composeUpCmd`
+- [ ] 添加 `-f/--file` flag（`flagComposeFile`，默认 `rnix-compose.yaml`）
+- [ ] 在 `cmd/rnix/main.go` 的 `init()` 中添加 `rootCmd.AddCommand(composeCmd)`
+- [ ] Run test: `go test ./cmd/rnix/ -run 'TestComposeCmd_Registered|TestComposeUpCmd|TestComposeUp_Help' -race`
 - [ ] Tests pass (green phase)
 
 ---
 
 ### Test: TestComposeUp_DefaultFile / TestComposeUp_CustomFile / TestComposeUp_FileNotFound
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] 实现 `runComposeUp(cmd *cobra.Command, args []string) error`
-- [ ] 读取 `flagComposeFile` 指定的 YAML 文件（默认 `crux-compose.yaml`）
+- [ ] 读取 `flagComposeFile` 指定的 YAML 文件（默认 `rnix-compose.yaml`）
 - [ ] 调用 `compose.ParseFile()` 解析 YAML
 - [ ] 文件不存在时返回错误或设置 exitCode
-- [ ] Run test: `go test ./cmd/crux/ -run 'TestComposeUp_DefaultFile|TestComposeUp_CustomFile|TestComposeUp_FileNotFound' -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run 'TestComposeUp_DefaultFile|TestComposeUp_CustomFile|TestComposeUp_FileNotFound' -race`
 - [ ] Tests pass (green phase)
 
 ---
 
 ### Test: TestIpcKernelSpawner_ImplementsInterface / TestIpcKernelSpawner_Wait_NoChannel / TestIpcKernelSpawner_GetProcessResult_*
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
-- [ ] 在 `cmd/crux/compose.go` 中定义 `ipcKernelSpawner` 结构体
+- [ ] 在 `cmd/rnix/compose.go` 中定义 `ipcKernelSpawner` 结构体
 - [ ] 定义 `waitResult` 类型
 - [ ] 实现 `compose.KernelSpawner` 接口的三个方法：Spawn/Wait/GetProcessResult
 - [ ] Spawn 通过 IPC Client 调用 SpawnAndWatch（每个 agent 独立连接）
 - [ ] Wait 从 completion channel 读取结果
 - [ ] GetProcessResult 从 xsync.SyncMap 缓存读取
-- [ ] Run test: `go test ./cmd/crux/ -run TestIpcKernelSpawner -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestIpcKernelSpawner -race`
 - [ ] Tests pass (green phase)
 
 ---
 
 ### Test: TestComposeUp_FailurePropagation
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] runComposeUp 中正确调用 engine.Execute()
 - [ ] 收集 ScheduleResult，上游失败时下游标记为 skipped
 - [ ] 输出失败智能体名称和受影响的下游
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeUp_FailurePropagation -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeUp_FailurePropagation -race`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeUp_NoDaemon
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] runComposeUp 中连接 daemon（通过 ipc.EnsureDaemon 或 ipc.Dial）
 - [ ] 连接失败时输出错误信息并设置 exitCode = 1
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeUp_NoDaemon -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeUp_NoDaemon -race`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeUp_SignalHandling
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] runComposeUp 中设置 SIGINT/SIGTERM 处理
 - [ ] 收到信号时取消 context，触发 engine.Execute 中止
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeUp_SignalHandling -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeUp_SignalHandling -race`
 - [ ] Test passes (green phase)
 
 ---
@@ -352,13 +352,13 @@ Story 7.2 为 Crux 操作系统实现 `crux compose up` CLI 命令，一键启�
 
 ### Test: TestComposeUp_Summary / TestComposeUp_JSONOutput
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make these tests pass:**
 
 - [ ] runComposeUp 中调用 RenderComposeSummary 或 RenderComposeSummaryJSON
 - [ ] 根据 flagJSON 选择渲染模式
-- [ ] Run test: `go test ./cmd/crux/ -run 'TestComposeUp_Summary|TestComposeUp_JSON' -race`
+- [ ] Run test: `go test ./cmd/rnix/ -run 'TestComposeUp_Summary|TestComposeUp_JSON' -race`
 - [ ] Tests pass (green phase)
 
 ---
@@ -367,15 +367,15 @@ Story 7.2 为 Crux 操作系统实现 `crux compose up` CLI 命令，一键启�
 
 ```bash
 # Run all failing tests for this story (will fail to compile until implementation exists)
-go test ./cmd/crux/ -run TestCompose -race -v
+go test ./cmd/rnix/ -run TestCompose -race -v
 go test ./internal/ui/ -run TestRenderCompose -race -v
 
 # Run specific test groups
-go test ./cmd/crux/ -run TestComposeCmd -race -v          # 子命令注册
-go test ./cmd/crux/ -run TestComposeUp_Default -race -v   # 默认文件
-go test ./cmd/crux/ -run TestComposeUp_Custom -race -v    # 自定义文件
-go test ./cmd/crux/ -run TestComposeUp_Failure -race -v   # 失败传播
-go test ./cmd/crux/ -run TestIpcKernelSpawner -race -v    # IPC 适配器
+go test ./cmd/rnix/ -run TestComposeCmd -race -v          # 子命令注册
+go test ./cmd/rnix/ -run TestComposeUp_Default -race -v   # 默认文件
+go test ./cmd/rnix/ -run TestComposeUp_Custom -race -v    # 自定义文件
+go test ./cmd/rnix/ -run TestComposeUp_Failure -race -v   # 失败传播
+go test ./cmd/rnix/ -run TestIpcKernelSpawner -race -v    # IPC 适配器
 go test ./internal/ui/ -run TestRenderComposeSummary -race -v  # 汇总渲染
 go test ./internal/ui/ -run TestRenderComposeProgress -race -v # 进度渲染
 
@@ -383,11 +383,11 @@ go test ./internal/ui/ -run TestRenderComposeProgress -race -v # 进度渲染
 make test
 
 # Run with coverage
-go test ./cmd/crux/ -run TestCompose -race -coverprofile=compose-cmd.out
+go test ./cmd/rnix/ -run TestCompose -race -coverprofile=compose-cmd.out
 go test ./internal/ui/ -run TestRenderCompose -race -coverprofile=compose-ui.out
 
 # Run with verbose timing
-go test ./cmd/crux/ -run TestCompose -race -v -count=1
+go test ./cmd/rnix/ -run TestCompose -race -v -count=1
 ```
 
 ---
@@ -408,7 +408,7 @@ go test ./cmd/crux/ -run TestCompose -race -v -count=1
 
 - All tests fail to compile (`undefined` errors for unimplemented types and functions)
 - Failure is due to missing implementation, not test bugs
-- Existing tests are unaffected（compose package 测试通过，cmd/crux 现有测试通过）
+- Existing tests are unaffected（compose package 测试通过，cmd/rnix 现有测试通过）
 
 ---
 
@@ -416,12 +416,12 @@ go test ./cmd/crux/ -run TestCompose -race -v -count=1
 
 **DEV Agent Responsibilities:**
 
-1. **Start with CLI scaffolding**: 创建 `cmd/crux/compose.go` 声明命令结构
-2. **Register commands**: 在 `cmd/crux/main.go` init() 中注册 composeCmd
+1. **Start with CLI scaffolding**: 创建 `cmd/rnix/compose.go` 声明命令结构
+2. **Register commands**: 在 `cmd/rnix/main.go` init() 中注册 composeCmd
 3. **Implement UI**: 创建 `internal/ui/compose.go` 实现渲染函数
 4. **Implement IPC adapter**: 实现 `ipcKernelSpawner` 适配器
 5. **Implement runComposeUp**: 组装完整执行流程
-6. **Run tests incrementally**: `go test ./cmd/crux/ -run TestComposeCmd_Registered -race` first
+6. **Run tests incrementally**: `go test ./cmd/rnix/ -run TestComposeCmd_Registered -race` first
 
 **Key Principles:**
 
@@ -435,7 +435,7 @@ go test ./cmd/crux/ -run TestCompose -race -v -count=1
 
 ### REFACTOR Phase (DEV Team - After All Tests Pass)
 
-1. Verify all tests pass: `go test ./cmd/crux/ -run TestCompose -race && go test ./internal/ui/ -run TestRenderCompose -race`
+1. Verify all tests pass: `go test ./cmd/rnix/ -run TestCompose -race && go test ./internal/ui/ -run TestRenderCompose -race`
 2. Run lint: `make lint`
 3. Verify full suite: `make test`
 4. Build: `make build`
@@ -447,24 +447,24 @@ go test ./cmd/crux/ -run TestCompose -race -v -count=1
 
 ### Initial Test Run (RED Phase Verification)
 
-**Command:** `go test ./cmd/crux/ -run TestCompose -race`
+**Command:** `go test ./cmd/rnix/ -run TestCompose -race`
 
 **Results:**
 
 ```
-# github.com/usecrux/crux/cmd/crux [github.com/usecrux/crux/cmd/crux.test]
-cmd/crux/compose_test.go:127:15: undefined: flagComposeFile
-cmd/crux/compose_test.go:130:3: undefined: flagComposeFile
-cmd/crux/compose_test.go:133:2: undefined: flagComposeFile
-cmd/crux/compose_test.go:136:9: undefined: runComposeUp
-cmd/crux/compose_test.go:170:15: undefined: flagComposeFile
-cmd/crux/compose_test.go:173:3: undefined: flagComposeFile
-cmd/crux/compose_test.go:176:2: undefined: flagComposeFile
-cmd/crux/compose_test.go:179:9: undefined: runComposeUp
-cmd/crux/compose_test.go:194:15: undefined: flagComposeFile
-cmd/crux/compose_test.go:197:3: undefined: flagComposeFile
-cmd/crux/compose_test.go:197:3: too many errors
-FAIL    github.com/usecrux/crux/cmd/crux [build failed]
+# github.com/rnixai/rnix/cmd/rnix [github.com/rnixai/rnix/cmd/rnix.test]
+cmd/rnix/compose_test.go:127:15: undefined: flagComposeFile
+cmd/rnix/compose_test.go:130:3: undefined: flagComposeFile
+cmd/rnix/compose_test.go:133:2: undefined: flagComposeFile
+cmd/rnix/compose_test.go:136:9: undefined: runComposeUp
+cmd/rnix/compose_test.go:170:15: undefined: flagComposeFile
+cmd/rnix/compose_test.go:173:3: undefined: flagComposeFile
+cmd/rnix/compose_test.go:176:2: undefined: flagComposeFile
+cmd/rnix/compose_test.go:179:9: undefined: runComposeUp
+cmd/rnix/compose_test.go:194:15: undefined: flagComposeFile
+cmd/rnix/compose_test.go:197:3: undefined: flagComposeFile
+cmd/rnix/compose_test.go:197:3: too many errors
+FAIL    github.com/rnixai/rnix/cmd/rnix [build failed]
 ```
 
 **Command:** `go test ./internal/ui/ -run TestRenderCompose -race`
@@ -472,7 +472,7 @@ FAIL    github.com/usecrux/crux/cmd/crux [build failed]
 **Results:**
 
 ```
-# github.com/usecrux/crux/internal/ui [github.com/usecrux/crux/internal/ui.test]
+# github.com/rnixai/rnix/internal/ui [github.com/rnixai/rnix/internal/ui.test]
 internal/ui/compose_test.go:33:2: undefined: RenderComposeSummary
 internal/ui/compose_test.go:62:2: undefined: RenderComposeSummary
 internal/ui/compose_test.go:90:2: undefined: RenderComposeSummary
@@ -484,7 +484,7 @@ internal/ui/compose_test.go:218:2: undefined: RenderComposeSummaryJSON
 internal/ui/compose_test.go:241:2: undefined: RenderComposeProgress
 internal/ui/compose_test.go:264:2: undefined: RenderComposeProgress
 internal/ui/compose_test.go:264:2: too many errors
-FAIL    github.com/usecrux/crux/internal/ui [build failed]
+FAIL    github.com/rnixai/rnix/internal/ui [build failed]
 ```
 
 **Summary:**
@@ -497,7 +497,7 @@ FAIL    github.com/usecrux/crux/internal/ui [build failed]
 **Existing tests unaffected:**
 
 ```
-ok      github.com/usecrux/crux/compose   1.127s (all 11 Story 7.1 tests pass)
+ok      github.com/rnixai/rnix/compose   1.127s (all 11 Story 7.1 tests pass)
 ```
 
 **Expected Failure Messages:**
@@ -526,23 +526,23 @@ ok      github.com/usecrux/crux/compose   1.127s (all 11 Story 7.1 tests pass)
 ## New Files to Create
 
 ```
-cmd/crux/compose.go            # compose 命令注册 + compose up 实现 + IPC 适配器
+cmd/rnix/compose.go            # compose 命令注册 + compose up 实现 + IPC 适配器
 internal/ui/compose.go          # 编排汇总 UI 组件（RenderComposeSummary/JSON/Progress）
 ```
 
 ## Files to Modify
 
 ```
-cmd/crux/main.go               # init() 中添加 rootCmd.AddCommand(composeCmd)（约 1 行）
+cmd/rnix/main.go               # init() 中添加 rootCmd.AddCommand(composeCmd)（约 1 行）
 ```
 
 ## Dependencies
 
 ```
-cmd/crux/compose.go → compose/          （Engine、ParseFile、KernelSpawner）
-cmd/crux/compose.go → ipc/              （Client、EnsureDaemon、SpawnAndWatch）
-cmd/crux/compose.go → internal/ui/      （RenderComposeSummary/JSON/Progress）
-cmd/crux/compose.go → internal/xsync/   （SyncMap for result cache）
+cmd/rnix/compose.go → compose/          （Engine、ParseFile、KernelSpawner）
+cmd/rnix/compose.go → ipc/              （Client、EnsureDaemon、SpawnAndWatch）
+cmd/rnix/compose.go → internal/ui/      （RenderComposeSummary/JSON/Progress）
+cmd/rnix/compose.go → internal/xsync/   （SyncMap for result cache）
 internal/ui/compose.go → compose/       （ScheduleResult 类型）
 ```
 
@@ -564,7 +564,7 @@ internal/ui/compose.go → compose/       （ScheduleResult 类型）
 
 - **test-quality.md** — Given-When-Then 结构、单一断言、确定性、隔离性
 - **test-levels-framework.md** — Unit + Integration 级别选择（后端项目无 E2E）
-- **existing test patterns** — `cmd/crux/main_test.go` 的 CLI 测试模式（setupTestIPCServer、flag 保存恢复）
+- **existing test patterns** — `cmd/rnix/main_test.go` 的 CLI 测试模式（setupTestIPCServer、flag 保存恢复）
 - **existing test patterns** — `internal/ui/summary_test.go` 的 UI 渲染测试模式
 - **Story 7.1 ATDD checklist** — 后端 Go 项目 ATDD 模式参考
 - **compose/engine_test.go** — mock KernelSpawner 模式参考

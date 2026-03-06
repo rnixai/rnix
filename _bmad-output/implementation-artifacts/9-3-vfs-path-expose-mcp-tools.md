@@ -20,7 +20,7 @@ so that 我不需要知道 MCP 协议细节，只需操作文件。
 
 5. **挂载根路径信息** — Given MCP 服务器已挂载, When 调用 `Open("/mnt/mcp/1-github/")` 后 `Read(fd, maxLen)`, Then 返回 JSON 格式的可用命名空间（`["tools","resources"]`）
 
-6. **MCP 兼容性** — Given 接入符合 MCP 标准的第三方服务器, When 挂载并使用, Then 无需 Crux 侧代码修改即可挂载和使用（NFR27）
+6. **MCP 兼容性** — Given 接入符合 MCP 标准的第三方服务器, When 挂载并使用, Then 无需 Rnix 侧代码修改即可挂载和使用（NFR27）
 
 7. **无效路径错误处理** — Given MCP 服务器已挂载, When 调用 `Open("/mnt/mcp/1-github/invalid-path")`, Then 返回 `ErrNotFound` 错误，包含清晰路径信息
 
@@ -510,7 +510,7 @@ kernel/spawn_mcp_test.go           # AllowedDevices MCP 路径测试（扩展）
 - `drivers/mcp/transport.go` — StdioTransport 不变
 - `drivers/mcp/config.go` — MCPGlobalConfig 不变
 - `agents/` — Agent/Skill 加载不变
-- `cmd/crux/main.go` — Daemon 初始化不变
+- `cmd/rnix/main.go` — Daemon 初始化不变
 
 ### References
 

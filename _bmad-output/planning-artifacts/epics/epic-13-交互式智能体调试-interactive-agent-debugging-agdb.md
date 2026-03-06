@@ -5,13 +5,13 @@
 ## Story 13.1: agdb 调试会话管理（Attach/Detach）
 
 As a 平台构建者,
-I want 通过 `crux agdb <pid>` 附着到运行中的智能体进入交互式调试会话，并可随时 Detach 断开,
+I want 通过 `rnix agdb <pid>` 附着到运行中的智能体进入交互式调试会话，并可随时 Detach 断开,
 So that 我可以在不中断智能体执行的前提下进入和退出调试模式。
 
 **Acceptance Criteria:**
 
 **Given** 一个 Running 状态的智能体进程 PID=N
-**When** 用户执行 `crux agdb N`
+**When** 用户执行 `rnix agdb N`
 **Then** 系统通过 IPC 发送 `attach_agdb` 请求，成功后进入交互式调试 TUI
 **And** Attach 延迟 <= 200ms（NFR31）
 
@@ -20,7 +20,7 @@ So that 我可以在不中断智能体执行的前提下进入和退出调试模
 **Then** 调试会话断开，智能体继续正常执行，不受影响
 
 **Given** 目标进程不存在或已处于 Dead 状态
-**When** 用户执行 `crux agdb N`
+**When** 用户执行 `rnix agdb N`
 **Then** 系统返回结构化错误信息：进程不存在/已终止
 
 ## Story 13.2: 断点系统

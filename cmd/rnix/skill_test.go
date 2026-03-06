@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/skillpkg"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/skillpkg"
 )
 
 // --- AC #2: skill install sub-command registration ---

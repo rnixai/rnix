@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // --- Coroutine Tests (AC #3: Coroutine-level concurrency) ---

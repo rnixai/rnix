@@ -65,7 +65,7 @@ So that 我可以分析用户的源代码和文档。
 **Then** 返回 `*SyscallError`，`Code` 为 `ErrNotFound`
 
 **Given** HostFS 驱动已创建
-**When** 在 `cmd/crux/main.go` 中注册
+**When** 在 `cmd/rnix/main.go` 中注册
 **Then** `devRegistry.Register("/dev/fs", hostFSDriver.FileFactory())`
 
 ## Story 2.3: Shell 驱动（/dev/shell）
@@ -91,7 +91,7 @@ So that 我可以运行构建工具、检查环境、执行脚本。
 **Then** 终止命令进程，返回 `*SyscallError`，`Code` 为 `ErrTimeout`
 
 **Given** ShellDriver 已创建
-**When** 在 `cmd/crux/main.go` 中注册
+**When** 在 `cmd/rnix/main.go` 中注册
 **Then** `devRegistry.Register("/dev/shell", shellDriver.FileFactory())`
 
 ## Story 2.4: Agent 注入与设备权限白名单
@@ -102,7 +102,7 @@ So that 智能体获得身份和专业指令，同时只能访问 Skill 声明�
 
 **Acceptance Criteria:**
 
-**Given** 用户执行 `crux "分析代码" --agent=code-analyst`
+**Given** 用户执行 `rnix "分析代码" --agent=code-analyst`
 **When** Spawn 创建进程
 **Then** 加载 code-analyst Agent 的 `agent.yaml` + `instructions.md`
 **And** 加载 agent.yaml 中引用的所有 Skill（如 code-analysis）
@@ -128,7 +128,7 @@ So that 智能体获得身份和专业指令，同时只能访问 Skill 声明�
 
 As a 用户,
 I want 一个预装的 code-analyst Agent 和 code-analysis Skill 作为参考实现,
-So that 我可以立即使用 Crux 分析代码并作为编写自定义 Agent/Skill 的模板。
+So that 我可以立即使用 Rnix 分析代码并作为编写自定义 Agent/Skill 的模板。
 
 **Acceptance Criteria:**
 
@@ -146,7 +146,7 @@ So that 我可以立即使用 Crux 分析代码并作为编写自定义 Agent/Sk
 **And** body 包含代码分析的程序性知识（分析策略、步骤、输出格式）
 
 **Given** code-analyst Agent 已加载
-**When** 执行 `crux "分析 ./kernel/scheduler.go" --agent=code-analyst`
+**When** 执行 `rnix "分析 ./kernel/scheduler.go" --agent=code-analyst`
 **Then** 智能体读取目标文件，进行分析，输出结构化的分析结果
 **And** 能够识别至少 1 个可验证的真实代码问题（FR27）
 

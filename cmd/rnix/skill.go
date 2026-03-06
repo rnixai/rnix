@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/skillpkg"
-	"github.com/usecrux/crux/skills"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/skillpkg"
+	"github.com/rnixai/rnix/skills"
 )
 
 var skillCmd = &cobra.Command{
@@ -23,10 +23,10 @@ var skillInstallCmd = &cobra.Command{
 	Use:   "install <name> [name...]",
 	Short: "Install skills from the community registry",
 	Long:  "Download and install one or more skills from the community skill registry.",
-	Example: `  crux skill install code-analysis          # Install a single skill
-  crux skill install pr-reviewer code-analyst  # Install multiple skills
-  crux skill install code-analysis --force     # Force reinstall
-  crux skill install code-analysis --json      # JSON output`,
+	Example: `  rnix skill install code-analysis          # Install a single skill
+  rnix skill install pr-reviewer code-analyst  # Install multiple skills
+  rnix skill install code-analysis --force     # Force reinstall
+  rnix skill install code-analysis --json      # JSON output`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSkillInstall,
 }
@@ -35,9 +35,9 @@ var skillSearchCmd = &cobra.Command{
 	Use:   "search <keyword>",
 	Short: "Search skills in the community registry",
 	Long:  "Search for skills in the community registry by keyword. Run without arguments to browse all available skills.",
-	Example: `  crux skill search code          # Search for skills matching "code"
-  crux skill search                # Browse all available skills
-  crux skill search code --json    # JSON output`,
+	Example: `  rnix skill search code          # Search for skills matching "code"
+  rnix skill search                # Browse all available skills
+  rnix skill search code --json    # JSON output`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runSkillSearch,
 }
@@ -46,10 +46,10 @@ var skillUpdateCmd = &cobra.Command{
 	Use:   "update [name...]",
 	Short: "Update installed skills to the latest version",
 	Long:  "Check for updates and update one or more installed skills from the community registry. Run without arguments to update all installed community skills.",
-	Example: `  crux skill update code-analysis          # Update a single skill
-  crux skill update code-analysis pr-reviewer  # Update multiple skills
-  crux skill update                        # Update all installed skills
-  crux skill update code-analysis --json   # JSON output`,
+	Example: `  rnix skill update code-analysis          # Update a single skill
+  rnix skill update code-analysis pr-reviewer  # Update multiple skills
+  rnix skill update                        # Update all installed skills
+  rnix skill update code-analysis --json   # JSON output`,
 	Args: cobra.ArbitraryArgs,
 	RunE: runSkillUpdate,
 }
@@ -58,9 +58,9 @@ var skillListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all installed skills",
 	Long:  "List all locally available skills, including system built-in skills and community-installed skills.",
-	Example: `  crux skill list          # List all skills
-  crux skill list --json   # JSON output
-  crux skill list --quiet  # Only skill names`,
+	Example: `  rnix skill list          # List all skills
+  rnix skill list --json   # JSON output
+  rnix skill list --quiet  # Only skill names`,
 	Args: cobra.NoArgs,
 	RunE: runSkillList,
 }

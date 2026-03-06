@@ -1,4 +1,4 @@
-// Package ui provides terminal UI components for Crux CLI.
+// Package ui provides terminal UI components for Rnix CLI.
 package ui
 
 import (
@@ -55,8 +55,8 @@ func DetectProfile(w io.Writer) TerminalProfile {
 		p.ColorLevel = 0
 	}
 
-	// CRUX_ASCII disables Unicode symbols
-	if v := os.Getenv("CRUX_ASCII"); v == "1" || v == "true" {
+	// RNIX_ASCII disables Unicode symbols
+	if v := os.Getenv("RNIX_ASCII"); v == "1" || v == "true" {
 		p.IsUnicode = false
 	}
 

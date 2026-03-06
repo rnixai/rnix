@@ -15,7 +15,7 @@ inputDocuments:
   - 'vfs/mcp.go'
   - 'vfs/mount.go'
   - 'drivers/mcp/transport.go'
-  - 'cmd/crux/main.go'
+  - 'cmd/rnix/main.go'
 ---
 
 # ATDD Checklist - Epic 9, Story 2: agent.yaml mcp 字段与自动挂载
@@ -363,14 +363,14 @@ N/A - 纯后端 Go 项目，不需要 UI 组件或 data-testid 属性。
 
 ### Test: Daemon 初始化（编译验证）
 
-**File:** `cmd/crux/main.go`
+**File:** `cmd/rnix/main.go`
 
 **Tasks to make this test pass:**
 
 - [ ] 在 `runDaemon` 中加载全局 `mcp.yaml` 配置
 - [ ] 创建 `TransportFactory` 实现
 - [ ] 调用 `agents.NewAgentLoader(basePath, skillLoader, mcpCfg)` 更新签名
-- [ ] Run test: `go build ./cmd/crux/` 编译通过
+- [ ] Run test: `go build ./cmd/rnix/` 编译通过
 - [ ] Run test: `make build` 编译通过
 
 ---
@@ -437,7 +437,7 @@ make all
 4. **更新 `agents/loader_test.go`** — 现有测试的 NewAgentLoader 调用传入 nil
 5. **扩展 `kernel/process.go`** — Process.MCPMounts 字段
 6. **修改 `kernel/kernel.go`** — Spawn 自动 Mount + finishProcess 自动 Unmount
-7. **更新 `cmd/crux/main.go`** — runDaemon 加载 mcp.yaml、更新 AgentLoader 调用
+7. **更新 `cmd/rnix/main.go`** — runDaemon 加载 mcp.yaml、更新 AgentLoader 调用
 8. **Run `make all`** — 验证所有测试通过、lint 通过、编译成功
 
 **Key Principles:**
@@ -491,9 +491,9 @@ make all
 **Results:**
 
 ```
-FAIL github.com/usecrux/crux/drivers/mcp [build failed]
-FAIL github.com/usecrux/crux/agents [build failed]
-FAIL github.com/usecrux/crux/kernel [build failed]
+FAIL github.com/rnixai/rnix/drivers/mcp [build failed]
+FAIL github.com/rnixai/rnix/agents [build failed]
+FAIL github.com/rnixai/rnix/kernel [build failed]
 ```
 
 **Summary:**

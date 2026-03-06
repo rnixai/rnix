@@ -59,7 +59,7 @@ So that 我可以获得 LLM 的结构化响应来完成任务。
 - **文件位置严格遵循架构文档：** `drivers/llm/` 目录下，文件名遵循全小写下划线分隔
 - **依赖方向：** `drivers/llm/` → `internal/types/` ✓；`drivers/llm/` → `internal/xsync/` ✓；`drivers/llm/` → `vfs/`（仅类型引用 VFSFile/VFSFileFactory/FileStat/OpenFlag）✓。**绝对禁止** `drivers/llm/` 导入 `kernel/` 或 `context/`
 - **此 Story 实现的核心：** LLMDriver 接口 + ClaudeCliDriver 实现 + VFSFile 适配器 + 驱动注册表
-- **此 Story 不实现：** reasonStep 中的 LLM 调用逻辑（Story 1.6）、Skill 的 system prompt 注入（Story 2.4）、stream-json 的完整 astrace 集成（Story 3.1）、DeviceRegistry 注册调用（Story 1.7 `cmd/crux/main.go`）
+- **此 Story 不实现：** reasonStep 中的 LLM 调用逻辑（Story 1.6）、Skill 的 system prompt 注入（Story 2.4）、stream-json 的完整 astrace 集成（Story 3.1）、DeviceRegistry 注册调用（Story 1.7 `cmd/rnix/main.go`）
 - **MVP 限制：** `--max-turns 1`（单轮对话），Stream 方法提供基础 stream-json 实现为后续 Story 打基础
 
 ### 已有代码（必须复用，禁止重新实现）
@@ -140,7 +140,7 @@ func (d *DeviceRegistry) Register(path string, factory VFSFileFactory) error
 func (d *DeviceRegistry) Open(path string, flags OpenFlag) (VFSFile, error)  // 支持精确+前缀匹配
 ```
 
-将在 `cmd/crux/main.go` 中执行（Story 1.7）：
+将在 `cmd/rnix/main.go` 中执行（Story 1.7）：
 
 ```go
 claudeDriver := llm.NewClaudeCliDriver()
@@ -476,7 +476,7 @@ func mockCmdBuilder(testCase string) CommandBuilder {
 | `8cc10a0` | Story 1-3 文档 | 文档与代码分离提交 |
 
 **代码惯例提取：**
-- 包级文档注释：`// Package llm implements the LLM driver layer for Crux.`
+- 包级文档注释：`// Package llm implements the LLM driver layer for Rnix.`
 - 构造函数：`NewXxx()` 模式
 - 方法接收器：简短单字母（`d *ClaudeCliDriver`、`r *DriverRegistry`、`f *LLMFile`）
 - 测试分组：`t.Run("子测试名", func(t *testing.T) {...})`
@@ -512,7 +512,7 @@ drivers/llm/
 - `context/` 下任何文件
 - `internal/types/types.go`（类型已满足需求）
 - `internal/xsync/` 下任何文件（Registry API 已满足需求）
-- `cmd/crux/main.go`（依赖注入在 Story 1.7）
+- `cmd/rnix/main.go`（依赖注入在 Story 1.7）
 - `drivers/fs/`、`drivers/shell/`（其他驱动在 Story 2.2/2.3）
 
 ### References

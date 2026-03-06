@@ -7,7 +7,7 @@ Status: done
 
 ## Story
 
-As a Crux 用户,
+As a Rnix 用户,
 I want LLM 驱动层在 CLI 返回非零退出码时仍能提取有意义的错误信息，且 max_turns 参数语义与 Claude CLI 行为一致,
 So that 端到端体验不会因为驱动层的错误吞没而产生无法调试的黑盒失败。
 
@@ -57,7 +57,7 @@ So that 端到端体验不会因为驱动层的错误吞没而产生无法调试
 - [x] Task 5: 全量回归测试 (AC: #7)
   - [x] 5.1 `go test -race ./...` 全部通过
   - [x] 5.2 `go vet ./...` 无警告
-  - [x] 5.3 验证 `cmd/crux/integration_test.go` 中的 E2E 测试不受影响
+  - [x] 5.3 验证 `cmd/rnix/integration_test.go` 中的 E2E 测试不受影响
   - [x] 5.4 验证 `kernel/kernel_test.go` 中 mock LLM 行为与修改一致
 
 ## Dev Notes
@@ -125,7 +125,7 @@ if err != nil {
 
 **问题 3: `defaultMaxTurns = 1` 语义冲突（HIGH）**
 
-Claude CLI 的 `--max-turns` 控制 CLI 内部的工具使用循环次数。`--max-turns 1` 意味着 CLI 只执行一次"turn"（一次 LLM 调用 + 可能的一次工具使用）。但 Crux 的 kernel 已经通过 `reasonStep` 循环自管理推理步骤，每次循环调用一次 CLI。
+Claude CLI 的 `--max-turns` 控制 CLI 内部的工具使用循环次数。`--max-turns 1` 意味着 CLI 只执行一次"turn"（一次 LLM 调用 + 可能的一次工具使用）。但 Rnix 的 kernel 已经通过 `reasonStep` 循环自管理推理步骤，每次循环调用一次 CLI。
 
 **当前冲突：**
 - `kernel.go:246` 硬编码 `MaxTurns: 1`
@@ -227,7 +227,7 @@ kernel/
 ```
 drivers/llm/driver.go           (可能 — 如果 VFSFile.Write 签名需要 context 参数)
 vfs/vfs.go                      (可能 — 如果 Write 签名需要 context 参数)
-cmd/crux/integration_test.go    (可能 — 如果 mock 行为需要适配新的 max_turns 语义)
+cmd/rnix/integration_test.go    (可能 — 如果 mock 行为需要适配新的 max_turns 语义)
 kernel/kernel_test.go           (可能 — 如果 newTestKernel mock 需要适配)
 ```
 
@@ -238,7 +238,7 @@ kernel/kernel_test.go           (可能 — 如果 newTestKernel mock 需要适�
 - `internal/types/types.go`
 - `internal/xsync/` 下任何文件
 - `internal/ui/` 下任何文件
-- `cmd/crux/main.go` — CLI 入口不变
+- `cmd/rnix/main.go` — CLI 入口不变
 
 ### References
 
@@ -275,7 +275,7 @@ Claude Opus 4.6
 
 ### Code Review Fixes (Amelia — CR Agent)
 
-- **[H1] 修复过时注释** `cmd/crux/integration_test.go:462-469`：更新 context 传播架构债务注释，反映 Story 2.0 已修复此问题
+- **[H1] 修复过时注释** `cmd/rnix/integration_test.go:462-469`：更新 context 传播架构债务注释，反映 Story 2.0 已修复此问题
 - **[M1] IsError+空Result边界处理** `claude_cli.go` Call()+Stream()：当 `IsError=true` 且 `Result=""` 时，返回 `"unknown error (empty result)"` 而非空内容
 - **[M2] 新增缺失测试覆盖**：`TestClaudeCliDriver_Call_ExitCodeWithValidResult` 覆盖 exit code 非零+有效JSON+非错误路径；`TestClaudeCliDriver_Call_IsErrorEmptyResult` 和 `TestClaudeCliDriver_Stream_IsErrorEmptyResult` 覆盖 IsError+空Result 边界
 - **[M3] exit code 纳入错误信息** `claude_cli.go` Call()：当 exit code 非零且 JSON 可解析时，错误消息格式改为 `"llm returned error (exit %d): %s"`
@@ -291,5 +291,5 @@ Claude Opus 4.6
 - vfs/vfs.go (修改 — VFSFile.Write 接口增加 context.Context + VFS.Write 增加 ctx 参数)
 - vfs/vfs_test.go (修改 — 适配新 Write 签名)
 - vfs/dev_test.go (修改 — mockFile.Write 适配 context.Context)
-- cmd/crux/integration_test.go (修改 — blockingVFSFile.Write 适配 context.Context)
+- cmd/rnix/integration_test.go (修改 — blockingVFSFile.Write 适配 context.Context)
 - _bmad-output/project-context.md (修改 — 更新 CLI 参数描述和 VFSFile 接口描述)

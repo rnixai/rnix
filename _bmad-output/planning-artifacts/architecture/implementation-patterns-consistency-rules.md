@@ -66,7 +66,7 @@ cmd/ → internal/ui/
 - `vfs/` 不导入 `kernel/`（通过接口解耦）
 - `drivers/` 不导入 `kernel/`（通过接口解耦）
 - `skills/` 不导入 `agents/`（单向：agents → skills）
-- 任何包不导入 `cmd/crux/`
+- 任何包不导入 `cmd/rnix/`
 
 **文件组织规则：**
 
@@ -207,7 +207,7 @@ func (k *KernelImpl) Open(path string, flags int) (FD, error) {
 **失败策略：**
 - 默认 `fail-all`：任意节点失败 → SignalGroup(SIGTERM) 全组 → Compose 状态标记 Failed
 - 可选 `fail-fast`：仅停止依赖失败节点的下游，独立分支继续执行
-- 配置方式：`crux-compose.yaml` 顶层字段 `failure_strategy: fail-all | fail-fast`
+- 配置方式：`rnix-compose.yaml` 顶层字段 `failure_strategy: fail-all | fail-fast`
 
 **全生命周期路径：**
 - `compose up` → 创建 ProcGroup → DAG 拓扑排序 → 按层级并行 Spawn → 等待全部完成/失败
@@ -232,22 +232,22 @@ func (k *KernelImpl) Open(path string, flags int) (FD, error) {
 
 ## 文件持久化路径模式
 
-**统一根目录：** `$PROJECT/.crux/`
+**统一根目录：** `$PROJECT/.rnix/`
 
 **子目录命名规则：** 全小写 + 连字符分隔
 
 | 路径 | 用途 | 阶段 |
 |------|------|------|
-| `$PROJECT/.crux/records/<pid>-<timestamp>/` | 时间旅行录制 | Phase 3 |
-| `$PROJECT/.crux/reputation/` | Agent 声誉数据 | Phase 3 |
-| `$PROJECT/.crux/immune/` | 行为基线 + 威胁记忆 | Phase 3 |
-| `$PROJECT/.crux/traces/` | 分布式追踪数据 | Phase 3 |
-| `$PROJECT/.crux/tests/` | agtest 测试结果缓存 | Phase 3 |
+| `$PROJECT/.rnix/records/<pid>-<timestamp>/` | 时间旅行录制 | Phase 3 |
+| `$PROJECT/.rnix/reputation/` | Agent 声誉数据 | Phase 3 |
+| `$PROJECT/.rnix/immune/` | 行为基线 + 威胁记忆 | Phase 3 |
+| `$PROJECT/.rnix/traces/` | 分布式追踪数据 | Phase 3 |
+| `$PROJECT/.rnix/tests/` | agtest 测试结果缓存 | Phase 3 |
 
 **运行时文件：**
-- Socket：`$XDG_RUNTIME_DIR/crux/crux.sock`（备选 `/tmp/crux-$UID/crux.sock`）
-- PID：socket 目录下 `crux.pid`
-- 缓存：`$CRUX_CACHE/registry.json`（Skill 本地注册表）
+- Socket：`$XDG_RUNTIME_DIR/rnix/rnix.sock`（备选 `/tmp/rnix-$UID/rnix.sock`）
+- PID：socket 目录下 `rnix.pid`
+- 缓存：`$RNIX_CACHE/registry.json`（Skill 本地注册表）
 
 ## Skill 元数据扩展模式
 

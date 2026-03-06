@@ -12,7 +12,7 @@ So that 我不需要在密集输出中翻找问题。
 
 ## Acceptance Criteria
 
-1. **TraceLine 组件实现** — Given `internal/ui/trace.go` 已实现，When 渲染 Trace Line，Then 时间戳暗灰色（MutedStyle），syscall 名称 Crux Blue 加粗（AgentStyle + Bold），参数普通文本，返回值 `→` 后跟结果
+1. **TraceLine 组件实现** — Given `internal/ui/trace.go` 已实现，When 渲染 Trace Line，Then 时间戳暗灰色（MutedStyle），syscall 名称 Rnix Blue 加粗（AgentStyle + Bold），参数普通文本，返回值 `→` 后跟结果
 
 2. **错误 syscall 高亮** — Given 错误 syscall，When 渲染，Then 整行红色高亮（ErrorStyle），在密集输出中视觉上"跳出来"
 
@@ -31,7 +31,7 @@ So that 我不需要在密集输出中翻找问题。
 - [x] Task 1: 创建 `internal/ui/trace.go` — Syscall Trace Line 组件 (AC: #1-#5)
   - [x] 1.1 实现 `FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string` — 使用 lipgloss 样式的事件格式化函数
   - [x] 1.2 时间戳使用 `MutedStyle` 渲染 `[N.NNNs]` 固定宽度格式
-  - [x] 1.3 syscall 名称使用 `AgentStyle` + `BoldStyle` 渲染（Crux Blue 加粗）
+  - [x] 1.3 syscall 名称使用 `AgentStyle` + `BoldStyle` 渲染（Rnix Blue 加粗）
   - [x] 1.4 参数普通文本，支持 verbose 模式（截断 50 字符 vs 完整展示）
   - [x] 1.5 返回值用 `→` 分隔，错误返回值用 `ErrorStyle` 渲染
   - [x] 1.6 慢操作标注（> 1s）用 `MutedStyle` 渲染 `← 慢操作`，error 行跳过灰色标注
@@ -51,13 +51,13 @@ So that 我不需要在密集输出中翻找问题。
   - [x] 3.2 更新 `Attach` 函数 — 当 `opts.Formatter != nil` 且非 JSON 模式时，使用自定义 Formatter 替代 `FormatEvent`
   - [x] 3.3 保持 `FormatEvent` 不变 — 作为无 UI 依赖的 fallback
 
-- [x] Task 4: 修改 `cmd/crux/main.go` — 集成 UI TraceLine (AC: #6)
+- [x] Task 4: 修改 `cmd/rnix/main.go` — 集成 UI TraceLine (AC: #6)
   - [x] 4.1 在 `runAstrace` 中创建 `Renderer` 并初始化 `InitStyles`
   - [x] 4.2 当非 JSON 模式时，设置 `opts.Formatter` 为 `ui.FormatTraceLine` 的闭包
   - [x] 4.3 确保 JSON 模式不受影响（JSON 仍使用 `FormatEventJSON`）
 
 - [x] Task 5: 更新集成测试 (AC: #6, #7)
-  - [x] 5.1 在 `cmd/crux/integration_test.go` 中验证 astrace 输出使用了 lipgloss 样式（或在 no-color 模式下降级正确）
+  - [x] 5.1 在 `cmd/rnix/integration_test.go` 中验证 astrace 输出使用了 lipgloss 样式（或在 no-color 模式下降级正确）
 
 - [x] Task 6: 更新 sprint-status.yaml (AC: #7)
   - [x] 6.1 将 `3-4-syscall-trace-line-ui-component` 状态更新为 `ready-for-dev`
@@ -79,13 +79,13 @@ debug/astrace.go (Attach 函数)
   ├── Options.Formatter       — 函数类型字段，由 cmd/ 注入 UI 格式化器
   └── FormatEvent 保留        — raw ANSI fallback（无 UI 依赖场景）
 
-cmd/crux/main.go (胶水层)
+cmd/rnix/main.go (胶水层)
   ├── 导入 internal/ui/      — FormatTraceLine
   ├── 导入 debug/            — Attach, Options
   └── 在 runAstrace 中注入    — opts.Formatter = ui.FormatTraceLine 闭包
 ```
 
-**关键约束：** `debug/` 包不可导入 `internal/ui/`。通过 `Options.Formatter` 函数字段实现依赖反转，由 `cmd/crux/main.go` 在运行时注入。
+**关键约束：** `debug/` 包不可导入 `internal/ui/`。通过 `Options.Formatter` 函数字段实现依赖反转，由 `cmd/rnix/main.go` 在运行时注入。
 
 #### FormatTraceLine 函数签名
 
@@ -95,7 +95,7 @@ cmd/crux/main.go (胶水层)
 func FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string
 ```
 
-**使用方式（在 cmd/crux/main.go 中）：**
+**使用方式（在 cmd/rnix/main.go 中）：**
 
 ```go
 // 创建 Renderer
@@ -183,7 +183,7 @@ func Attach(ctx context.Context, ch <-chan types.SyscallEvent, w io.Writer, opts
 **已完成的 API（直接使用）：**
 - `debug/astrace.go` — `Attach`、`FormatEvent`、`FormatEventJSON`、`Options`、`DefaultOptions`
 - `debug/astrace.go` — raw ANSI 常量 `ansiRed`、`ansiGray`、`ansiReset`（Story 3.4 后可考虑标记为 deprecated，但不删除）
-- `cmd/crux/main.go` — `runAstrace`、`initKernel`、`processStateName`
+- `cmd/rnix/main.go` — `runAstrace`、`initKernel`、`processStateName`
 - `internal/ui/styles.go` — `AgentStyle`、`ErrorStyle`、`MutedStyle`、`BoldStyle`
 - `internal/ui/renderer.go` — `Renderer`、`NewRenderer`、`DetectProfile`、`TerminalProfile`
 
@@ -211,7 +211,7 @@ f536ccc Finalize Story 3.2: Astrace Event Consumption and Formatting...
 ```go
 var (
     KernelStyle  lipgloss.Style  // #888888
-    AgentStyle   lipgloss.Style  // #5B9BD5 (Crux Blue)
+    AgentStyle   lipgloss.Style  // #5B9BD5 (Rnix Blue)
     SuccessStyle lipgloss.Style  // #6BCB77
     ErrorStyle   lipgloss.Style  // #FF6B6B
     WarningStyle lipgloss.Style  // #FFD93D
@@ -273,7 +273,7 @@ type SyscallEvent struct {
 }
 ```
 
-**cmd/crux/main.go — runAstrace（将修改注入 Formatter）：**
+**cmd/rnix/main.go — runAstrace（将修改注入 Formatter）：**
 ```go
 func runAstrace(cmd *cobra.Command, args []string) error {
     // ... PID 解析、进程查找 ...
@@ -323,8 +323,8 @@ lipgloss 的 `Render()` 会自动在输出的首尾添加正确的 ANSI 开/关�
 - `internal/ui/trace.go` — 新建：FormatTraceLine 组件
 - `internal/ui/trace_test.go` — 新建：单元测试
 - `debug/astrace.go` — 修改：Options 添加 Formatter 字段 + Attach 逻辑分支
-- `cmd/crux/main.go` — 修改：runAstrace 注入 UI Formatter
-- `cmd/crux/integration_test.go` — 修改：验证 UI 集成
+- `cmd/rnix/main.go` — 修改：runAstrace 注入 UI Formatter
+- `cmd/rnix/integration_test.go` — 修改：验证 UI 集成
 
 **本 Story 不包含：**
 - 删除 `debug/astrace.go` 中的 raw ANSI 常量或 `FormatEvent`（保留为 fallback）
@@ -343,8 +343,8 @@ internal/ui/trace_test.go    — 6+ 测试用例
 **修改文件：**
 ```
 debug/astrace.go             — Options.Formatter 字段 + Attach 分支逻辑
-cmd/crux/main.go             — runAstrace 注入 UI Formatter + Renderer 初始化
-cmd/crux/integration_test.go — astrace UI 集成验证
+cmd/rnix/main.go             — runAstrace 注入 UI Formatter + Renderer 初始化
+cmd/rnix/integration_test.go — astrace UI 集成验证
 _bmad-output/implementation-artifacts/sprint-status.yaml — 状态更新
 ```
 
@@ -363,7 +363,7 @@ kernel/process.go            — 不修改
 - [Source: _bmad-output/planning-artifacts/architecture.md#Decision 5] — DebugChan 机制和 astrace 数据流
 - [Source: _bmad-output/planning-artifacts/architecture.md#Project Structure] — `internal/ui/trace.go` 位置
 - [Source: _bmad-output/planning-artifacts/architecture.md#依赖方向] — `debug/` 仅依赖 `internal/types/`，不导入 `internal/ui/`
-- [Source: _bmad-output/planning-artifacts/ux-design-specification.md#Syscall Trace Line] — 组件样式规范：时间戳暗灰、syscall 名 Crux Blue 加粗、错误行红色
+- [Source: _bmad-output/planning-artifacts/ux-design-specification.md#Syscall Trace Line] — 组件样式规范：时间戳暗灰、syscall 名 Rnix Blue 加粗、错误行红色
 - [Source: _bmad-output/planning-artifacts/ux-design-specification.md#Component Implementation Strategy] — 组件即函数 + 样式集中定义 + io.Writer 抽象
 - [Source: _bmad-output/project-context.md#架构框架规则] — 依赖方向严格单向
 - [Source: _bmad-output/project-context.md#测试规则] — 测试同目录、-race 默认、t.Fatal/t.Errorf
@@ -372,7 +372,7 @@ kernel/process.go            — 不修改
 - [Source: internal/ui/error.go] — RenderError 函数签名风格参考
 - [Source: internal/ui/error_test.go] — 测试模式参考：InitStyles + bytes.Buffer + Renderer 构造
 - [Source: debug/astrace.go] — FormatEvent/Attach/Options 现有 API
-- [Source: cmd/crux/main.go:runAstrace()] — Formatter 注入点
+- [Source: cmd/rnix/main.go:runAstrace()] — Formatter 注入点
 - [Source: _bmad-output/implementation-artifacts/3-3-astrace-cli-command.md] — 前序 Story 经验、已知限制、代码审查发现
 
 ## Dev Agent Record
@@ -390,8 +390,8 @@ Claude Opus 4.6
 - ✅ Task 1: 创建 `internal/ui/trace.go`，实现 `FormatTraceLine` 及 5 个私有辅助函数 (`traceTimestamp`, `traceArgs`, `traceResult`, `traceDuration`, `isLLMEvent`)
 - ✅ Task 2: 创建 `internal/ui/trace_test.go`，6 个单元测试全部通过
 - ✅ Task 3: `debug/astrace.go` Options 新增 `Formatter` 字段，Attach 增加 `JSON > Formatter > FormatEvent` 三级优先级
-- ✅ Task 4: `cmd/crux/main.go` runAstrace 注入 UI Formatter 闭包，JSON 模式不受影响
-- ✅ Task 5: `cmd/crux/integration_test.go` 新增 3 个集成测试 (UIFormatterIntegration, UIFormatterNoColor, JSONModeBypassesFormatter)
+- ✅ Task 4: `cmd/rnix/main.go` runAstrace 注入 UI Formatter 闭包，JSON 模式不受影响
+- ✅ Task 5: `cmd/rnix/integration_test.go` 新增 3 个集成测试 (UIFormatterIntegration, UIFormatterNoColor, JSONModeBypassesFormatter)
 - ✅ Task 6: sprint-status.yaml 状态 ready-for-dev → in-progress → review
 - ✅ `go test -race ./...` 全部通过（13 包），`go vet ./...` 无警告
 
@@ -404,8 +404,8 @@ Claude Opus 4.6
 **修改文件：**
 - `internal/ui/styles.go` — 新增 AgentBoldStyle 预计算样式
 - `debug/astrace.go` — Options.Formatter 字段 + Attach 三级分支
-- `cmd/crux/main.go` — runAstrace 注入 UI Formatter + Renderer 初始化
-- `cmd/crux/integration_test.go` — 3 个新集成测试
+- `cmd/rnix/main.go` — runAstrace 注入 UI Formatter + Renderer 初始化
+- `cmd/rnix/integration_test.go` — 3 个新集成测试
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — 状态更新
 - `_bmad-output/implementation-artifacts/3-4-syscall-trace-line-ui-component.md` — 任务标记完成 + Dev Agent Record
 

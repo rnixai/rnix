@@ -95,7 +95,7 @@ So that 我可以组合智能体结果并加速并行任务。
 ## Story 18.5: 模块化与脚本执行
 
 As a 应用开发者,
-I want 通过 `source` 导入其他脚本并通过 `crux run` 执行脚本文件,
+I want 通过 `source` 导入其他脚本并通过 `rnix run` 执行脚本文件,
 So that 我可以模块化组织脚本并直接运行。
 
 **Acceptance Criteria:**
@@ -105,10 +105,10 @@ So that 我可以模块化组织脚本并直接运行。
 **Then** helpers.ash 中定义的函数和变量在当前脚本中可用
 
 **Given** 一个 AgentShell 脚本文件 `deploy.ash`
-**When** 用户执行 `crux run deploy.ash`
+**When** 用户执行 `rnix run deploy.ash`
 **Then** 脚本按顺序执行，实时输出 spawn 进度，结束时显示汇总
 
-**Given** 脚本首行为 `#!/usr/bin/env crux run`
+**Given** 脚本首行为 `#!/usr/bin/env rnix run`
 **When** 用户直接执行 `./deploy.ash`（已 chmod +x）
 **Then** 脚本通过 shebang 正确执行
 

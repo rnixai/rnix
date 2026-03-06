@@ -67,7 +67,7 @@ So that 我不需要知道 MCP 协议细节，只需操作文件。
 
 **Given** MCP 兼容性
 **When** 接入符合 MCP 标准的第三方服务器
-**Then** 无需 Crux 侧代码修改即可挂载和使用（NFR27）
+**Then** 无需 Rnix 侧代码修改即可挂载和使用（NFR27）
 
 ## Story 9.4: 四层能力栈端到端验证
 
@@ -84,7 +84,7 @@ So that 确认各层职责分离且协同正确。
 **And** MCP 层提供外部服务集成
 **And** Device 层提供原生 I/O（`/dev/`）
 
-**Given** `crux astrace` 追踪该进程
+**Given** `rnix astrace` 追踪该进程
 **When** 查看 syscall 链路
 **Then** 可以清晰看到四层的调用边界和数据流向（FR57）
 

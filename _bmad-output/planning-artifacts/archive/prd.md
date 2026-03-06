@@ -40,7 +40,7 @@ editHistory:
     changes: '基于验证报告修复 11 处问题：4 处实现泄露解耦（FR9/NFR11/NFR12/NFR20）、1 处 NFR 量化（NFR4）、4 处 FR 格式统一（FR13/FR38/FR39/FR40）、2 处可测量性增强（FR27/FR31）'
 ---
 
-# Product Requirements Document - Crux
+# Product Requirements Document - Rnix
 
 **Author:** Decker
 **Date:** 2026-02-23
@@ -49,11 +49,11 @@ editHistory:
 
 ## Executive Summary
 
-**Crux** 是一个面向 AI 智能体的操作系统，用 Go 语言从零构建。它将智能体视为操作系统的一等计算单元，通过进程模型、虚拟文件系统、系统调用接口等 OS 级原语，解决当前多智能体系统的三大核心问题：调试黑盒、能力不可复用、多智能体协调困难。
+**Rnix** 是一个面向 AI 智能体的操作系统，用 Go 语言从零构建。它将智能体视为操作系统的一等计算单元，通过进程模型、虚拟文件系统、系统调用接口等 OS 级原语，解决当前多智能体系统的三大核心问题：调试黑盒、能力不可复用、多智能体协调困难。
 
-当前所有主流框架（LangGraph、AutoGen、CrewAI、MetaGPT）都在应用层重复发明操作系统的功能——调度、隔离、文件抽象、权限控制。但应用层抽象存在天花板：能不断加功能，但加不出层次。Crux 不在应用层做编排，而是在 OS 层提供完整的原语支持，让构建生产级多智能体系统从"在应用层拼凑"变为"在正确的抽象层级自然完成"。
+当前所有主流框架（LangGraph、AutoGen、CrewAI、MetaGPT）都在应用层重复发明操作系统的功能——调度、隔离、文件抽象、权限控制。但应用层抽象存在天花板：能不断加功能，但加不出层次。Rnix 不在应用层做编排，而是在 OS 层提供完整的原语支持，让构建生产级多智能体系统从"在应用层拼凑"变为"在正确的抽象层级自然完成"。
 
-**目标用户：** 平台构建者（在 Crux 上构建基础设施和 Skill 包）和应用开发者（通过 AgentShell 和 Compose 组装多智能体应用）。
+**目标用户：** 平台构建者（在 Rnix 上构建基础设施和 Skill 包）和应用开发者（通过 AgentShell 和 Compose 组装多智能体应用）。
 
 **实现语言：** Go（goroutine = 智能体进程，channel = IPC，interface = syscall 契约）。
 
@@ -63,7 +63,7 @@ editHistory:
 
 **OS 级调试工具链（杀手级入口）：** `astrace` 追踪所有 syscall，将多智能体 bug 定位时间从"天级"降至"分钟级"。这是用户进门的钩子——因为调试黑盒是开发者在现有框架中最大的痛点，且没有任何现有框架提供 OS 级追踪能力。
 
-**正确的抽象层级（留下的理由）：** 多智能体系统的问题不是"缺一个更好的框架"，而是"缺一个操作系统"。Crux 的进程模型、VFS 一切皆文件、Agent + Skill 双层能力体系（Skill 遵循 Agent Skills 行业标准，可与 30+ AI 工具生态互操作）、45 个标准 syscall 构成了一个完整的 OS 范式——框架在应用层只能模拟这些能力，而 Crux 在 OS 层原生提供。
+**正确的抽象层级（留下的理由）：** 多智能体系统的问题不是"缺一个更好的框架"，而是"缺一个操作系统"。Rnix 的进程模型、VFS 一切皆文件、Agent + Skill 双层能力体系（Skill 遵循 Agent Skills 行业标准，可与 30+ AI 工具生态互操作）、45 个标准 syscall 构成了一个完整的 OS 范式——框架在应用层只能模拟这些能力，而 Rnix 在 OS 层原生提供。
 
 **时机：** 2024-2025 年多智能体框架百花齐放但全部撞上应用层天花板。行业正处于需要一个 OS 层统一抽象的临界点。
 
@@ -103,7 +103,7 @@ editHistory:
 
 | 时间节点 | 目标 |
 |---------|------|
-| Phase 1 完成 | 自举成功——Crux 用自身 syscall 层分析自身源码，**能正确识别代码中真实存在的问题** |
+| Phase 1 完成 | 自举成功——Rnix 用自身 syscall 层分析自身源码，**能正确识别代码中真实存在的问题** |
 | 6 个月 | 首次公开发布，README + demo 完整，接受外部 contributor |
 | 12 个月 | Stars 作为社区认可度核心指标，支撑指标（demo 成功率、Skill 数量、Contributor 数量、外部引用）同步跟踪 |
 
@@ -118,8 +118,8 @@ editHistory:
 | LLM 调用 | 通过 `/dev/llm/claude` 完成推理 |
 | Skill 加载 | `code-analyst` Agent 加载 agent.yaml + 引用的 Skill SKILL.md 正确注入 system prompt |
 | reasonStep 循环 | tool_call → 执行 → 追加结果 → 继续推理 → text → 完成 |
-| astrace 追踪 | `crux astrace 1` 输出完整 syscall 链路（名称、耗时、token）|
-| 自举验证 | 用 Crux 分析 Crux 自身源码，识别出真实存在的代码问题 |
+| astrace 追踪 | `rnix astrace 1` 输出完整 syscall 链路（名称、耗时、token）|
+| 自举验证 | 用 Rnix 分析 Rnix 自身源码，识别出真实存在的代码问题 |
 
 **可靠性验收（MVP）：**
 
@@ -133,7 +133,7 @@ editHistory:
 
 | 维度 | 核心可测量结果 |
 |------|--------------|
-| 自举 | Crux 分析自身源码 → 输出中包含至少 1 个可验证的真实代码问题 |
+| 自举 | Rnix 分析自身源码 → 输出中包含至少 1 个可验证的真实代码问题 |
 | 调试差异化 | `astrace` 输出的 syscall 链路能回溯到导致错误结果的具体步骤 |
 | 端到端延迟 | 单智能体 spawn→完成（含 LLM 调用），≤ 30 秒 |
 
@@ -145,7 +145,7 @@ editHistory:
 |------|---------|------|
 | 构建效率 | 完成多智能体工作流的代码量 | 20 行 YAML 替代 2000+ 行硬编码 |
 | 上手门槛 | 安装到跑通 compose 模板 | ≤ 30 分钟 |
-| 排障效率 | 通过 `crux log` 定位多智能体问题 | 无需深入内核即可完成 |
+| 排障效率 | 通过 `rnix log` 定位多智能体问题 | 无需深入内核即可完成 |
 | Skill 复用 | 社区 Skill 安装后直接可用 | 零修改引用 |
 
 **生态指标：**
@@ -161,12 +161,12 @@ editHistory:
 | 检查项 | 通过条件 |
 |--------|---------|
 | IPC 通信 | Send/Recv/Pipe 三个 syscall 端到端跑通，两个智能体通过管道传递数据 |
-| Compose 编排 | `crux compose up` 按 DAG 依赖顺序启动 ≥ 3 个智能体并全部完成 |
+| Compose 编排 | `rnix compose up` 按 DAG 依赖顺序启动 ≥ 3 个智能体并全部完成 |
 | skillpkg 安装 | `skill install <name>` 从远程仓库下载并注册 Skill，`skill search` 返回结果 |
 | MCP 挂载 | `/mnt/mcp/` 路径挂载至少 1 个 MCP 服务器，智能体可通过 VFS 访问其工具 |
 | Supervisor 容错 | 子智能体异常退出后，Supervisor 在 5 秒内按策略自动重启 |
-| crux top | 实时显示 ≥ 3 个并发智能体的状态和 token 消耗 |
-| crux log | 输出按 think/tool/output 分类，支持 --filter 过滤 |
+| rnix top | 实时显示 ≥ 3 个并发智能体的状态和 token 消耗 |
+| rnix log | 输出按 think/tool/output 分类，支持 --filter 过滤 |
 | 四层能力栈 | Agent → Skill → MCP → Device 端到端运行，各层职责分离验证通过 |
 | AgentShell 管道 | `spawn "A" \| spawn "B"` 管道语法执行成功，前一个智能体输出正确注入后一个上下文 |
 | AgentShell 脚本 | `if-else` + `on-error` 最小控制结构在多行脚本中正确执行 |
@@ -188,23 +188,23 @@ editHistory:
 
 陈明又一次盯着终端发呆。他用 LangGraph 搭的 3 智能体代码审查系统上线两周了，其中一个智能体偶尔给出错误的审查意见——大概每 20 次出现一次。他翻了三天日志，在数千行对话记录中搜索"到底是哪一步推理出了问题"，但日志只有扁平的文本输出，没有因果链，没有上下文快照。他开始怀疑是不是该放弃这个项目。
 
-然后他在 GitHub 上看到了 Crux。README 里的一句话抓住了他："astrace — 像 strace 一样追踪智能体的每一个 syscall"。他决定试试。
+然后他在 GitHub 上看到了 Rnix。README 里的一句话抓住了他："astrace — 像 strace 一样追踪智能体的每一个 syscall"。他决定试试。
 
-`go install` 安装 Crux。他创建了一个 `code-analyst` Agent——写 `agent.yaml` 定义模型偏好和 Skill 引用，写 `instructions.md` 注入审查策略。然后写了一个 `code-analysis` Skill 的 `SKILL.md`（遵循 Agent Skills 行业标准），定义工具依赖和分析流程。`crux "审查这段代码" --agent=code-analyst` 启动第一个智能体。跑通了。
+`go install` 安装 Rnix。他创建了一个 `code-analyst` Agent——写 `agent.yaml` 定义模型偏好和 Skill 引用，写 `instructions.md` 注入审查策略。然后写了一个 `code-analysis` Skill 的 `SKILL.md`（遵循 Agent Skills 行业标准），定义工具依赖和分析流程。`rnix "审查这段代码" --agent=code-analyst` 启动第一个智能体。跑通了。
 
-然后他复现了那个偶现 bug。这次，他运行 `crux astrace 1`。
+然后他复现了那个偶现 bug。这次，他运行 `rnix astrace 1`。
 
 终端输出了完整的 syscall 链路——每一步调用了什么（Open、Read、Write、CtxWrite），传了什么参数，返回了什么，花了多久。他立刻看到：在第 7 步，智能体通过 `/dev/fs` 读取了一个错误的文件路径——它把 `src/auth/login.go` 读成了 `src/auth/logout.go`。这个错误的文件内容被写入上下文，导致后续所有推理都偏了。
 
 三分钟。从三天到三分钟。
 
-**陈明的新日常：** 他开始用 Crux 重建他所有的多智能体项目。他写的 `db-migrator` Skill 被其他三个项目引用。他成了 skillpkg 的早期贡献者。
+**陈明的新日常：** 他开始用 Rnix 重建他所有的多智能体项目。他写的 `db-migrator` Skill 被其他三个项目引用。他成了 skillpkg 的早期贡献者。
 
 **旅程揭示的能力需求：**
 - `go install` 级别的零配置安装体验
 - Agent 定义编写流程（agent.yaml + instructions.md）
 - Skill 编写流程（SKILL.md，遵循 Agent Skills 行业标准）
-- `crux spawn --agent=<name>` 单命令启动
+- `rnix spawn --agent=<name>` 单命令启动
 - `astrace` syscall 追踪输出（名称、参数、返回值、耗时）
 - VFS `/dev/fs` 文件读取路径透明可见
 - Skill 发布到 skillpkg 的流程
@@ -217,14 +217,14 @@ editHistory:
 
 他看终端：`[agent/3] error: /dev/llm/claude: request timeout (30s)`。然后：`[kernel] PID 3 state: running → zombie (exit code: 1, reason: llm_timeout)`。
 
-进程没有卡死。状态正确转入了 Zombie。他运行 `crux ps`，看到 PID 3 标记为 Zombie，等待 wait 回收。资源没有泄漏。
+进程没有卡死。状态正确转入了 Zombie。他运行 `rnix ps`，看到 PID 3 标记为 Zombie，等待 wait 回收。资源没有泄漏。
 
-他重新运行 `crux "分析 ./src/scheduler.go"`，这次成功了。
+他重新运行 `rnix "分析 ./src/scheduler.go"`，这次成功了。
 
 **旅程揭示的能力需求：**
 - LLM 驱动超时处理和错误上报
 - 进程状态正确转移（不卡死在 Running）
-- `crux ps` 进程状态查看
+- `rnix ps` 进程状态查看
 - Zombie 进程回收机制
 - 清晰的错误信息（设备路径 + 错误原因）
 
@@ -234,13 +234,13 @@ editHistory:
 
 林薇在 AI 初创公司负责产品开发。老板要一个"PR 提交后自动审查代码质量、生成变更文档"的流水线。她之前用 LangGraph 评估过——画有向图、写节点逻辑、处理状态传递，预估要两周。
 
-同事推荐了 Crux。她打开 skillpkg：
+同事推荐了 Rnix。她打开 skillpkg：
 
 ```bash
 skill install pr-reviewer code-analyst tech-writer
 ```
 
-三个 Skill 装好了。她写了一个 `crux-compose.yaml`：
+三个 Skill 装好了。她写了一个 `rnix-compose.yaml`：
 
 ```yaml
 version: "1.0"
@@ -261,16 +261,16 @@ agents:
       analyst: completed
 ```
 
-`crux compose up`。20 行 YAML，三个社区 Skill，一个完整的 CI 审查流水线跑起来了。`crux top` 看到三个智能体按依赖顺序执行，token 消耗实时显示。
+`rnix compose up`。20 行 YAML，三个社区 Skill，一个完整的 CI 审查流水线跑起来了。`rnix top` 看到三个智能体按依赖顺序执行，token 消耗实时显示。
 
 她把原来准备花两周写的 LangGraph 代码删了。
 
 **旅程揭示的能力需求：**
 - `skill install` 批量安装
-- `crux-compose.yaml` 声明式编排
+- `rnix-compose.yaml` 声明式编排
 - `depends_on` 依赖管理
-- `crux compose up` 一键启动
-- `crux top` 实时监控（状态 + token）
+- `rnix compose up` 一键启动
+- `rnix top` 实时监控（状态 + token）
 - 社区 Skill 生态（可搜索、可安装、可组合）
 
 ---
@@ -279,12 +279,12 @@ agents:
 
 林薇的 PR 审查流水线跑了一周，突然有一个 PR 的审查结果明显不对——把一个正确的函数标记为"有安全漏洞"。
 
-她不熟悉 Crux 内核，但她知道怎么看日志。`crux log 5` 输出了 PID 5（reviewer 智能体）的推理日志，按 `[think]` / `[tool]` / `[output]` 分类。她看到 `[tool]` 部分：智能体读取了 PR diff，但 diff 内容被截断了——只读到了一半。截断后的代码看起来确实像有漏洞。
+她不熟悉 Rnix 内核，但她知道怎么看日志。`rnix log 5` 输出了 PID 5（reviewer 智能体）的推理日志，按 `[think]` / `[tool]` / `[output]` 分类。她看到 `[tool]` 部分：智能体读取了 PR diff，但 diff 内容被截断了——只读到了一半。截断后的代码看起来确实像有漏洞。
 
 问题定位了。她调整了 Compose 配置，给 reviewer 加大了上下文预算。重跑，正常了。
 
 **旅程揭示的能力需求：**
-- `crux log <pid>` 分类推理日志
+- `rnix log <pid>` 分类推理日志
 - 日志按 think/tool/output 结构化分类
 - 上下文预算配置（compose.yaml 中可调）
 - 无需深入内核就能排障的分层调试体验
@@ -298,16 +298,16 @@ agents:
 | 安装体验（go install） | 旅程 1 | ✓ | | |
 | Agent 定义编写（agent.yaml + instructions.md） | 旅程 1 | ✓ | | |
 | Skill 编写（SKILL.md，Agent Skills 行业标准） | 旅程 1 | ✓ | | |
-| `crux spawn --agent=<name>` 单命令 | 旅程 1, 2 | ✓ | | |
+| `rnix spawn --agent=<name>` 单命令 | 旅程 1, 2 | ✓ | | |
 | `astrace` syscall 追踪 | 旅程 1 | ✓ | | |
 | VFS `/dev/fs` 文件读取 | 旅程 1 | ✓ | | |
 | LLM 超时处理 + 进程状态正确转移 | 旅程 2 | ✓ | | |
-| `crux ps` 进程查看 | 旅程 2 | ✓ | | |
+| `rnix ps` 进程查看 | 旅程 2 | ✓ | | |
 | Zombie 回收 | 旅程 2 | ✓ | | |
 | `skill install` 包安装 | 旅程 3 | | ✓ (Phase 2) | FR50-FR53 |
-| `crux-compose.yaml` 编排 | 旅程 3 | | ✓ (Phase 2) | FR46-FR49 |
-| `crux top` 实时监控 | 旅程 3 | | ✓ (Phase 2) | FR58, FR62 |
-| `crux log` 分类日志 | 旅程 4 | | ✓ (Phase 2) | FR59-FR60 |
+| `rnix-compose.yaml` 编排 | 旅程 3 | | ✓ (Phase 2) | FR46-FR49 |
+| `rnix top` 实时监控 | 旅程 3 | | ✓ (Phase 2) | FR58, FR62 |
+| `rnix log` 分类日志 | 旅程 4 | | ✓ (Phase 2) | FR59-FR60 |
 | 上下文预算配置 | 旅程 4 | | ✓ (Phase 2) | FR61 |
 | skillpkg 社区 Skill 生态 | 旅程 3 | | ✓ (Phase 2) | FR50-FR53 |
 | IPC 进程间通信 | 旅程 3 | | ✓ (Phase 2) | FR41-FR45 |
@@ -320,7 +320,7 @@ agents:
 
 ### Detected Innovation Areas
 
-**范式级创新——Agent OS：** Crux 不是在现有多智能体框架上做增量改进，而是提出了一个全新范式：将智能体视为操作系统的一等计算单元。这对应 Unix 对计算机行业的影响——从"每个应用自建基础设施"到"OS 提供统一原语"。
+**范式级创新——Agent OS：** Rnix 不是在现有多智能体框架上做增量改进，而是提出了一个全新范式：将智能体视为操作系统的一等计算单元。这对应 Unix 对计算机行业的影响——从"每个应用自建基础设施"到"OS 提供统一原语"。
 
 **核心创新点：**
 
@@ -332,7 +332,7 @@ agents:
 
 ### Validation Approach
 
-**Phase 1 验证（自举）：** Crux 用自身 syscall 层分析自身源码并识别真实问题。这验证 OS 范式的核心可行性——智能体能否通过 OS 原语完成实际任务。
+**Phase 1 验证（自举）：** Rnix 用自身 syscall 层分析自身源码并识别真实问题。这验证 OS 范式的核心可行性——智能体能否通过 OS 原语完成实际任务。
 
 **公开发布前验证（待定）：** 比较验证推迟到有真实用户反馈时执行。早期阶段，自举成功 + astrace 调试体验 + 社区反馈是更可靠的验证信号。
 
@@ -344,14 +344,14 @@ agents:
 
 ### Project-Type Overview
 
-Crux 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来使用 Crux——他们通过三个接口层与系统交互：
+Rnix 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来使用 Rnix——他们通过三个接口层与系统交互：
 
 | 接口层 | 格式 | 用途 | 阶段 |
 |--------|------|------|------|
-| **AgentShell CLI** | 命令行 | `crux "意图" --agent=<name>`、`crux astrace`、`crux ps` | MVP |
+| **AgentShell CLI** | 命令行 | `rnix "意图" --agent=<name>`、`rnix astrace`、`rnix ps` | MVP |
 | **Agent 定义** | YAML + Markdown | `agent.yaml`（身份+模型+Skill引用）+ `instructions.md`（角色策略） | MVP |
 | **Skill 定义** | Markdown（Agent Skills 标准） | `SKILL.md`（YAML frontmatter + 程序性知识） | MVP |
-| **Agent Compose** | YAML | `crux-compose.yaml` 多智能体编排 | Phase 2 |
+| **Agent Compose** | YAML | `rnix-compose.yaml` 多智能体编排 | Phase 2 |
 | **Go SDK（待定）** | Go | 嵌入式使用，根据用户反馈决策 | Phase 2+ |
 
 ### Installation & Distribution
@@ -361,11 +361,11 @@ Crux 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来�
 | `go install` | MVP | 唯一安装方式，单二进制，零依赖 |
 | 预编译二进制 / brew / docker | Phase 2+ | 根据社区需求扩展 |
 
-**MVP 安装体验目标：** `go install github.com/usecrux/crux/cmd/crux@latest` → 可用。不需要配置文件、不需要额外依赖、不需要 Docker。
+**MVP 安装体验目标：** `go install github.com/rnixai/rnix/cmd/rnix@latest` → 可用。不需要配置文件、不需要额外依赖、不需要 Docker。
 
 ### API Surface (Syscall ABI)
 
-Crux 的"API"不是 REST 端点或 Go 函数——而是 **~45 个 syscall**（Phase 1 + Phase 2）：
+Rnix 的"API"不是 REST 端点或 Go 函数——而是 **~45 个 syscall**（Phase 1 + Phase 2）：
 
 **Phase 1（~15 个，MVP）：**
 
@@ -383,7 +383,7 @@ Crux 的"API"不是 REST 端点或 Go 函数——而是 **~45 个 syscall**（P
 **Capability 权限：** `CapGrant`、`CapRevoke`、`CapCheck`、`GetCaps`
 **调试增强：** `Attach`、`Detach`、`BreakPoint`、`Snapshot`
 
-这个 ABI 是 Crux 的"宪法"——Phase 1 的 15 个 syscall 是 Phase 2 完整 45 个的稳定子集，向后兼容。Phase 2 通过新增子接口（`IPCManager`、`CapManager` 等）嵌入 Kernel 接口组合，不破坏现有 ABI。
+这个 ABI 是 Rnix 的"宪法"——Phase 1 的 15 个 syscall 是 Phase 2 完整 45 个的稳定子集，向后兼容。Phase 2 通过新增子接口（`IPCManager`、`CapManager` 等）嵌入 Kernel 接口组合，不破坏现有 ABI。
 
 ### Documentation Strategy
 
@@ -420,7 +420,7 @@ lib/skills/code-analysis/
 Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定义"如何做 X"（程序性知识 + 工具权限）。Skill 遵循 Agent Skills 开放标准（agentskills.io，由 Anthropic 发起，30+ AI 工具采用），可与生态互操作。
 
 这对参考实现同时承担三个角色：
-1. **自举验证的载体**——用 code-analyst Agent 分析 Crux 自身源码
+1. **自举验证的载体**——用 code-analyst Agent 分析 Rnix 自身源码
 2. **Agent + Skill 格式的参考实现**——开发者照着它写自己的 Agent 和 Skill
 3. **快速上手文档的素材**——demo 中直接使用
 
@@ -455,16 +455,16 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 ### LLM Driver Strategy: Claude Code CLI
 
-**核心决策：** Crux 的 `/dev/llm/` 驱动不直接调用 Claude API，而是通过 Claude Code CLI 作为 LLM 设备驱动。
+**核心决策：** Rnix 的 `/dev/llm/` 驱动不直接调用 Claude API，而是通过 Claude Code CLI 作为 LLM 设备驱动。
 
 **理由：**
 - 认证、重试、rate limiting 由 Claude Code CLI 处理
 - 开发者机器已安装 Claude Code，零额外配置
 - Claude Code CLI 本身是完整的代理运行时，能力远超裸 API 调用
 
-**Claude Code CLI → Crux 能力映射：**
+**Claude Code CLI → Rnix 能力映射：**
 
-| Claude Code CLI | Crux 映射 | 阶段 |
+| Claude Code CLI | Rnix 映射 | 阶段 |
 |----------------|---------|------|
 | `claude -p "query"` | `reasonStep` 非交互调用 | MVP |
 | `--output-format json` | 解析 action（tool_call/text/spawn） | MVP |
@@ -477,9 +477,9 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 | `--mcp-config` | `/mnt/mcp/` 挂载实现，agent.yaml `mcp:` 字段引用 MCP 服务器 | Phase 2 |
 | `--agents` | 多智能体子进程 spawn | Phase 2+ |
 
-**安装前置条件：** Crux MVP 要求用户已安装 Claude Code CLI。
+**安装前置条件：** Rnix MVP 要求用户已安装 Claude Code CLI。
 
-**架构影响：** Crux 内核专注于进程管理、VFS、上下文组装；LLM 交互（调用、工具执行、重试）全部委托给 Claude Code CLI。这大幅简化了 MVP 的 LLM 驱动层实现。
+**架构影响：** Rnix 内核专注于进程管理、VFS、上下文组装；LLM 交互（调用、工具执行、重试）全部委托给 Claude Code CLI。这大幅简化了 MVP 的 LLM 驱动层实现。
 
 ### MVP Feature Set (Phase 1)
 
@@ -504,7 +504,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 | Skill 加载 | `skills/loader.go` | SKILL.md 解析（渐进式加载）→ `--system-prompt` + `--tools` 参数映射 |
 | 参考 Agent | `lib/agents/code-analyst/` | 自举验证载体 + Agent 参考实现 |
 | 参考 Skill | `lib/skills/code-analysis/` | SKILL.md 标准格式参考实现 |
-| CLI 入口 | `cmd/crux/main.go` | `crux "意图"` + `crux astrace <pid>` + `crux ps` |
+| CLI 入口 | `cmd/rnix/main.go` | `rnix "意图"` + `rnix astrace <pid>` + `rnix ps` |
 | astrace | `debug/astrace.go` | syscall 追踪（基于 `--stream-json` 实时数据） |
 
 **MVP 实现的 ~15 个 syscall：**
@@ -520,8 +520,8 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 **Phase 2（能力栈建设）：**
 
 **核心旅程支持：**
-- 旅程 3（林薇的 30 分钟工作流）— 完整支持（Compose + skillpkg + crux top）
-- 旅程 4（林薇的调试时刻）— 完整支持（crux log + 上下文预算）
+- 旅程 3（林薇的 30 分钟工作流）— 完整支持（Compose + skillpkg + rnix top）
+- 旅程 4（林薇的调试时刻）— 完整支持（rnix log + 上下文预算）
 
 **Must-Have 能力清单：**
 
@@ -531,15 +531,15 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 | 进程组 | `kernel/procgroup.go` | Process Group 管理 + 批量信号 + JoinGroup/GetProcGroup |
 | 信号系统 | `kernel/signal.go` | Signal/SigBlock/SigUnblock + 信号处理器注册 |
 | Compose 引擎 | `compose/engine.go` | YAML 解析 + DAG 依赖调度 + 并行执行 |
-| Compose CLI | `cmd/crux/compose.go` | `crux compose up/down` 命令 |
+| Compose CLI | `cmd/rnix/compose.go` | `rnix compose up/down` 命令 |
 | skillpkg 客户端 | `skillpkg/client.go` | 社区仓库 API 交互 + Skill 下载 + 版本解析 |
-| skillpkg CLI | `cmd/crux/skill.go` | `skill install/search/update/list` 命令 |
+| skillpkg CLI | `cmd/rnix/skill.go` | `skill install/search/update/list` 命令 |
 | MCP 挂载 | `vfs/mcp.go` | `/mnt/mcp/` 路径挂载 + MCP 协议适配 |
 | MCP 驱动 | `drivers/mcp/mcp.go` | MCP 服务器生命周期管理 + 工具暴露 |
 | Supervisor | `kernel/supervisor.go` | Supervisor 树 + 三种重启策略（one_for_one/all/rest_for_one） |
 | init 引导 | `kernel/init.go` | 系统启动序列 + 服务初始化 |
-| crux top | `cmd/crux/top.go` | 实时监控 TUI（bubbletea）+ 智能体树 + token 消耗 |
-| crux log | `cmd/crux/log.go` | 分类推理日志（think/tool/output）+ 过滤 |
+| rnix top | `cmd/rnix/top.go` | 实时监控 TUI（bubbletea）+ 智能体树 + token 消耗 |
+| rnix log | `cmd/rnix/log.go` | 分类推理日志（think/tool/output）+ 过滤 |
 | 上下文预算 | `context/budget.go` | token 预算管理 + `--max-budget-usd` 映射 |
 | AgentShell 管道 | `shell/pipe.go` | `spawn "A" \| spawn "B"` 管道语法解析与执行 |
 | AgentShell 脚本 | `shell/script.go` | 变量、环境传递、多行脚本、流程控制 |
@@ -572,7 +572,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 | 风险 | 缓解 |
 |------|------|
-| Claude Code CLI 接口变更破坏 Crux 驱动层 | 驱动层抽象隔离，CLI 交互封装在 `drivers/llm/claude.go` 单文件中，变更时只改一处 |
+| Claude Code CLI 接口变更破坏 Rnix 驱动层 | 驱动层抽象隔离，CLI 交互封装在 `drivers/llm/claude.go` 单文件中，变更时只改一处 |
 | reasonStep 循环与 CLI 交互不稳定 | 可靠性验收要求 20 次连续成功率 ≥ 95% |
 | ABI 设计不够前瞻，Phase 2 需要破坏性变更 | MVP 的 15 个 syscall 严格遵循架构文档的 45 syscall 子集 |
 | Go 单二进制对 Skill 动态加载的限制 | Agent + Skill 是文本注入（agent.yaml + instructions.md + SKILL.md → `--system-prompt` + `--tools`），不是 Go plugin |
@@ -650,9 +650,9 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 ### Command Line Interface（命令行接口）
 
-- **FR33:** 用户可以通过 `crux "意图"` 单命令启动一个智能体
-- **FR34:** 用户可以通过 `crux astrace <pid>` 追踪指定进程的 syscall
-- **FR35:** 用户可以通过 `crux ps` 查看所有进程状态
+- **FR33:** 用户可以通过 `rnix "意图"` 单命令启动一个智能体
+- **FR34:** 用户可以通过 `rnix astrace <pid>` 追踪指定进程的 syscall
+- **FR35:** 用户可以通过 `rnix ps` 查看所有进程状态
 - **FR36:** 系统可以在 CLI 中输出结构化错误信息，包含设备路径、错误码和错误原因
 - **FR37:** 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI）
 
@@ -672,10 +672,10 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 ### Agent Compose（多智能体编排，Phase 2）
 
-- **FR46:** 用户可以通过 `crux-compose.yaml` 声明式定义多智能体工作流，包含每个智能体的 intent、agent 引用、skills 列表和依赖关系
+- **FR46:** 用户可以通过 `rnix-compose.yaml` 声明式定义多智能体工作流，包含每个智能体的 intent、agent 引用、skills 列表和依赖关系
 - **FR47:** Compose 引擎可以解析智能体之间的 `depends_on` 依赖关系，按 DAG 拓扑顺序调度执行，自动并行化无依赖的分支
-- **FR48:** 用户可以通过 `crux compose up` 一键启动编排中定义的所有智能体
-- **FR49:** 用户可以通过 `crux compose down` 停止编排中所有智能体并释放资源（进程、上下文、文件描述符）
+- **FR48:** 用户可以通过 `rnix compose up` 一键启动编排中定义的所有智能体
+- **FR49:** 用户可以通过 `rnix compose down` 停止编排中所有智能体并释放资源（进程、上下文、文件描述符）
 
 ### Skill Package Management（Skill 包管理，Phase 2）
 
@@ -693,11 +693,11 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 ### Monitoring & Observability（监控与可观测性，Phase 2）
 
-- **FR58:** 用户可以通过 `crux top` 实时查看所有运行中智能体的树状关系、状态、token 消耗和执行进度
-- **FR59:** 用户可以通过 `crux log <pid>` 查看指定智能体的推理日志
-- **FR60:** 系统可以将 `crux log` 输出按 `[think]`/`[tool]`/`[output]` 三段式分类显示，支持 `--filter <category>` 按类别过滤
+- **FR58:** 用户可以通过 `rnix top` 实时查看所有运行中智能体的树状关系、状态、token 消耗和执行进度
+- **FR59:** 用户可以通过 `rnix log <pid>` 查看指定智能体的推理日志
+- **FR60:** 系统可以将 `rnix log` 输出按 `[think]`/`[tool]`/`[output]` 三段式分类显示，支持 `--filter <category>` 按类别过滤
 - **FR61:** 用户可以为智能体设置 token 预算上限（通过 agent.yaml `context_budget` 或 compose 中覆盖），系统在达到上限时终止推理并上报原因
-- **FR62:** 用户可以在 `crux top` 中通过交互式操作选中进程并执行 kill 或查看详情
+- **FR62:** 用户可以在 `rnix top` 中通过交互式操作选中进程并执行 kill 或查看详情
 
 ### Supervisor & System Bootstrap（容错与系统引导，Phase 2）
 
@@ -721,7 +721,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 ### Performance
 
 - **NFR1:** 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析）
-- **NFR2:** `crux ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
+- **NFR2:** `rnix ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
 - **NFR3:** `astrace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
 - **NFR4:** VFS 本地文件读取（`/dev/fs`）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍
 - **NFR5:** 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身）
@@ -732,7 +732,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 - **NFR7:** LLM API 超时/错误时，进程在 5 秒内正确转入 Zombie 状态，不卡死在 Running
 - **NFR8:** 进程退出后，goroutine 和 context 内存在 10 秒内释放，无泄漏
 - **NFR9:** 内核进程表在任意进程异常退出后保持一致性（无悬挂 PID、无状态不一致）
-- **NFR10:** CLI 进程（crux 二进制本身）在智能体异常退出时不崩溃
+- **NFR10:** CLI 进程（rnix 二进制本身）在智能体异常退出时不崩溃
 
 ### Integration
 
@@ -764,10 +764,10 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 
 - **NFR25:** MCP 服务挂载延迟（从 Mount syscall 到服务可用）≤ 500ms
 - **NFR26:** MCP 服务异常退出时不影响内核稳定性，对应 VFS 路径在 3 秒内返回明确错误（`ErrServiceUnavailable`）而非卡死
-- **NFR27:** 系统兼容 MCP 协议标准版本，可接入符合 MCP 标准的第三方服务器，无需 Crux 侧代码修改
+- **NFR27:** 系统兼容 MCP 协议标准版本，可接入符合 MCP 标准的第三方服务器，无需 Rnix 侧代码修改
 
 ### Observability & Ecosystem（可观测性与生态，Phase 2）
 
-- **NFR28:** `crux top` TUI 刷新间隔 ≤ 500ms，单核 CPU 占用 ≤ 5%（10 个并发进程场景）
-- **NFR29:** `crux log` 输出延迟 ≤ 200ms（从推理事件发生到终端显示）
+- **NFR28:** `rnix top` TUI 刷新间隔 ≤ 500ms，单核 CPU 占用 ≤ 5%（10 个并发进程场景）
+- **NFR29:** `rnix log` 输出延迟 ≤ 200ms（从推理事件发生到终端显示）
 - **NFR30:** 社区 Skill 通过 `skill install` 安装后无需修改即可被任意 Agent 引用，Skill 格式兼容性通过标准 SKILL.md frontmatter 验证

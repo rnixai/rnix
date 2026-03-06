@@ -7,28 +7,28 @@ Status: done
 ## Story
 
 As a 用户,
-I want 在终端 A 运行 `crux "意图"` 后，在终端 B 执行 `crux ps`/`crux kill`/`crux astrace` 能看到并操作正在运行的智能体,
-So that Crux 的多终端管理体验与 Unix 系统行为一致——进程在系统级别可见，不仅限于启动它的终端。
+I want 在终端 A 运行 `rnix "意图"` 后，在终端 B 执行 `rnix ps`/`rnix kill`/`rnix astrace` 能看到并操作正在运行的智能体,
+So that Rnix 的多终端管理体验与 Unix 系统行为一致——进程在系统级别可见，不仅限于启动它的终端。
 
 ## Acceptance Criteria
 
-1. **跨终端 ps 可见** — Given 终端 A 运行 `crux "分析 ./README.md"`，When 终端 B 执行 `crux ps`，Then 能看到终端 A 中 PID 1 的进程（state=running），且列表包含 PID、STATE、SKILL、TOKENS、ELAPSED
+1. **跨终端 ps 可见** — Given 终端 A 运行 `rnix "分析 ./README.md"`，When 终端 B 执行 `rnix ps`，Then 能看到终端 A 中 PID 1 的进程（state=running），且列表包含 PID、STATE、SKILL、TOKENS、ELAPSED
 
-2. **跨终端 kill 有效** — Given 终端 A 中 PID 1 正在运行，When 终端 B 执行 `crux kill 1`，Then 终端 A 中的进程接收到终止信号并转为 Zombie，终端 A 显示中断摘要
+2. **跨终端 kill 有效** — Given 终端 A 中 PID 1 正在运行，When 终端 B 执行 `rnix kill 1`，Then 终端 A 中的进程接收到终止信号并转为 Zombie，终端 A 显示中断摘要
 
-3. **跨终端 astrace 可用** — Given 终端 A 中 PID 1 正在运行，When 终端 B 执行 `crux astrace 1`，Then 实时流式输出终端 A 中进程的 SyscallEvent，延迟 ≤ 500ms（NFR3）
+3. **跨终端 astrace 可用** — Given 终端 A 中 PID 1 正在运行，When 终端 B 执行 `rnix astrace 1`，Then 实时流式输出终端 A 中进程的 SyscallEvent，延迟 ≤ 500ms（NFR3）
 
-4. **无 daemon 时优雅降级** — Given 没有任何 `crux` 实例运行，When 执行 `crux ps`，Then 输出 "No active processes."（不崩溃、不报连接错误）；`crux kill 1` 输出标准错误提示
+4. **无 daemon 时优雅降级** — Given 没有任何 `rnix` 实例运行，When 执行 `rnix ps`，Then 输出 "No active processes."（不崩溃、不报连接错误）；`rnix kill 1` 输出标准错误提示
 
-5. **daemon 自动启动** — Given 没有正在运行的 crux daemon，When 执行 `crux "意图"` 首次运行，Then 自动启动 daemon 进程并完成智能体执行，无需用户手动启动 daemon
+5. **daemon 自动启动** — Given 没有正在运行的 rnix daemon，When 执行 `rnix "意图"` 首次运行，Then 自动启动 daemon 进程并完成智能体执行，无需用户手动启动 daemon
 
 6. **daemon 自动停止** — Given daemon 已运行但无活跃进程且无客户端连接，When 空闲超过 60 秒，Then daemon 自动优雅退出（释放 socket 文件，清理资源）
 
-7. **并发 spawn 安全** — Given daemon 已运行，When 两个终端同时执行 `crux "意图A"` 和 `crux "意图B"`，Then 两个智能体获得不同 PID，`crux ps` 同时显示两个进程，无竞态条件
+7. **并发 spawn 安全** — Given daemon 已运行，When 两个终端同时执行 `rnix "意图A"` 和 `rnix "意图B"`，Then 两个智能体获得不同 PID，`rnix ps` 同时显示两个进程，无竞态条件
 
 8. **信号转发** — Given 终端 A 通过 daemon spawn 了进程，When 终端 A 按 Ctrl+C，Then 该终端的进程收到取消信号（cancel），不影响其他终端的进程
 
-9. **socket 文件清理** — Given daemon 正常或异常退出，When 再次启动 `crux`，Then 不会因残留 socket 文件而启动失败（stale socket 检测和清理）
+9. **socket 文件清理** — Given daemon 正常或异常退出，When 再次启动 `rnix`，Then 不会因残留 socket 文件而启动失败（stale socket 检测和清理）
 
 10. **所有测试通过** — Given 实现完成，When 执行 `go test -race ./...`，Then 所有新增和现有测试通过，无竞态条件；`go vet ./...` 无警告
 
@@ -38,7 +38,7 @@ So that Crux 的多终端管理体验与 Unix 系统行为一致——进程在�
   - [x] 1.1 创建 `ipc/` 包，定义 `protocol.go`：Request/Response 类型、Method 枚举（Ping/Spawn/ListProcs/Kill/AttachDebug/Shutdown）
   - [x] 1.2 定义 SpawnRequest/SpawnResponse、ListProcsResponse、KillRequest、AttachDebugRequest 等协议消息类型
   - [x] 1.3 定义流式消息类型：ProgressEvent（OnSpawn/OnStep/OnComplete/OnError 映射）、SyscallEvent 转发
-  - [x] 1.4 socket 路径解析逻辑：`$XDG_RUNTIME_DIR/crux/crux.sock`，fallback `/tmp/crux-$UID/crux.sock`
+  - [x] 1.4 socket 路径解析逻辑：`$XDG_RUNTIME_DIR/rnix/rnix.sock`，fallback `/tmp/rnix-$UID/rnix.sock`
 
 - [x] Task 2: IPC Server（daemon 端） (AC: #1, #2, #3, #6, #7)
   - [x] 2.1 创建 `ipc/server.go`：`Server` 结构体，持有 kernel 实例引用，监听 Unix socket
@@ -64,10 +64,10 @@ So that Crux 的多终端管理体验与 Unix 系统行为一致——进程在�
   - [x] 4.2 实现 `EnsureDaemon()`：检测 socket → Ping → 如果 daemon 不存活则启动新 daemon
   - [x] 4.3 实现 daemon 启动：`exec.Command(os.Args[0], "daemon", "--internal")` re-exec 模式，daemon 子命令在后台运行
   - [x] 4.4 实现 stale socket 检测：connect + Ping 失败 → 删除残留 socket → 启动新 daemon
-  - [x] 4.5 实现 PID 文件写入（`crux.pid`）供诊断（非核心控制，仅日志用途）
+  - [x] 4.5 实现 PID 文件写入（`rnix.pid`）供诊断（非核心控制，仅日志用途）
   - [x] 4.6 daemon 进程与父进程解耦：设置 `cmd.SysProcAttr` 使 daemon 不随启动者退出
 
-- [x] Task 5: cmd/crux/main.go 重构 (AC: ALL)
+- [x] Task 5: cmd/rnix/main.go 重构 (AC: ALL)
   - [x] 5.1 添加隐藏 `daemon` 子命令（`--internal` flag，用户不直接调用）
   - [x] 5.2 重构 `runRoot`：EnsureDaemon() → Client.Dial() → Client.SpawnAndWatch() → 流式输出进度和结果
   - [x] 5.3 重构 `runPs`：尝试 Client.Dial() → 如果连接成功则 Client.ListProcs()；如果无 daemon 则输出 "No active processes."
@@ -83,7 +83,7 @@ So that Crux 的多终端管理体验与 Unix 系统行为一致——进程在�
   - [x] 6.3 `ipc/client_test.go` — Client 连接/断开、各方法功能测试
   - [x] 6.4 `ipc/daemon_test.go` — EnsureDaemon 自动启动、stale socket 清理测试
   - [x] 6.5 `ipc/integration_test.go` — 端到端集成测试：Server+Client spawn→ps→kill→astrace 完整流程
-  - [x] 6.6 `cmd/crux/main_test.go` — 现有 CLI 测试适配（从直接 kernel 调用改为 IPC 调用）
+  - [x] 6.6 `cmd/rnix/main_test.go` — 现有 CLI 测试适配（从直接 kernel 调用改为 IPC 调用）
   - [x] 6.7 并发测试：多客户端同时 spawn、同时 ps、同时 kill 的 `-race` 测试
   - [x] 6.8 执行 `go test -race ./...` 确认所有包通过
   - [x] 6.9 执行 `go vet ./...` 确认无警告
@@ -96,7 +96,7 @@ So that Crux 的多终端管理体验与 Unix 系统行为一致——进程在�
 
 ### 问题根因
 
-`cmd/crux/main.go` 的 `initKernel()`（行 350-374）和 `runRoot`（行 226-237）每次调用都创建全新的内存中 kernel 实例：
+`cmd/rnix/main.go` 的 `initKernel()`（行 350-374）和 `runRoot`（行 226-237）每次调用都创建全新的内存中 kernel 实例：
 
 ```go
 // 当前代码 — 每次 CLI 调用都是独立的 kernel
@@ -104,9 +104,9 @@ kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
 ```
 
 结果：
-- `crux ps`：创建新 kernel → 进程表为空 → "No active processes."
-- `crux kill 1`：创建新 kernel → PID 1 不存在 → "process not found"
-- `crux astrace 1`：创建新 kernel → PID 1 不存在 → "process not found"
+- `rnix ps`：创建新 kernel → 进程表为空 → "No active processes."
+- `rnix kill 1`：创建新 kernel → PID 1 不存在 → "process not found"
+- `rnix astrace 1`：创建新 kernel → PID 1 不存在 → "process not found"
 
 ### 推荐架构：Auto-Start Daemon + Unix Socket
 
@@ -116,22 +116,22 @@ kern = kernel.NewKernel(vfsInst, ctxMgr, cb)
 
 ```
 ┌─────────────────┐     Unix Socket     ┌──────────────────────────┐
-│  crux "意图"     │ ──── Spawn ──────→  │  crux daemon (hidden)    │
+│  rnix "意图"     │ ──── Spawn ──────→  │  rnix daemon (hidden)    │
 │  (client mode)   │ ←── Progress ─────  │                          │
 └─────────────────┘                      │  ┌────────────────────┐  │
                                          │  │  KernelImpl        │  │
 ┌─────────────────┐     Unix Socket      │  │  + procTable       │  │
-│  crux ps         │ ── ListProcs ────→  │  │  + vfs             │  │
+│  rnix ps         │ ── ListProcs ────→  │  │  + vfs             │  │
 │  (client mode)   │ ←── []ProcInfo ──   │  │  + ctxMgr          │  │
 └─────────────────┘                      │  │  + reaper          │  │
                                          │  └────────────────────┘  │
 ┌─────────────────┐     Unix Socket      │                          │
-│  crux kill 1     │ ── Kill(1) ──────→  │  ┌────────────────────┐  │
+│  rnix kill 1     │ ── Kill(1) ──────→  │  ┌────────────────────┐  │
 │  (client mode)   │ ←── OK ──────────   │  │  IPC Server        │  │
 └─────────────────┘                      │  │  net.Listen("unix") │  │
                                          │  └────────────────────┘  │
 ┌─────────────────┐     Unix Socket      └──────────────────────────┘
-│  crux astrace 1  │ ── Attach(1) ───→         daemon process
+│  rnix astrace 1  │ ── Attach(1) ───→         daemon process
 │  (client mode)   │ ←── Events ─────
 └─────────────────┘
 ```
@@ -227,10 +227,10 @@ type StreamEvent struct {
 func SocketPath() string {
     // 优先使用 XDG_RUNTIME_DIR（Linux 标准，per-user tmpdir，自动清理）
     if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
-        return filepath.Join(dir, "crux", "crux.sock")
+        return filepath.Join(dir, "rnix", "rnix.sock")
     }
-    // Fallback: /tmp/crux-$UID/crux.sock（per-user 隔离）
-    return filepath.Join(os.TempDir(), fmt.Sprintf("crux-%d", os.Getuid()), "crux.sock")
+    // Fallback: /tmp/rnix-$UID/rnix.sock（per-user 隔离）
+    return filepath.Join(os.TempDir(), fmt.Sprintf("rnix-%d", os.Getuid()), "rnix.sock")
 }
 ```
 
@@ -239,7 +239,7 @@ socket 目录权限：`0700`（仅限当前用户访问）。
 ### Daemon 自动启动流程（EnsureDaemon）
 
 ```
-crux "意图" (or any command)
+rnix "意图" (or any command)
   │
   ├── 1. socketPath = SocketPath()
   ├── 2. 尝试 Dial(socketPath)
@@ -264,12 +264,12 @@ crux "意图" (or any command)
   └── 7. 使用 client 发送实际命令
 ```
 
-### Daemon 进程实现（`crux daemon --internal`）
+### Daemon 进程实现（`rnix daemon --internal`）
 
 daemon 是隐藏子命令，用户不直接调用：
 
 ```go
-// cmd/crux/main.go 新增
+// cmd/rnix/main.go 新增
 var daemonCmd = &cobra.Command{
     Use:    "daemon",
     Hidden: true,
@@ -414,7 +414,7 @@ func (s *Server) checkIdle() {
 
 | 文件 | 变更类型 | 说明 |
 |------|---------|------|
-| `cmd/crux/main.go` | **重大重构** | runRoot/runPs/runKill/runAstrace 全部改为 IPC client 模式；新增 daemon 子命令；移除 initKernel() |
+| `cmd/rnix/main.go` | **重大重构** | runRoot/runPs/runKill/runAstrace 全部改为 IPC client 模式；新增 daemon 子命令；移除 initKernel() |
 | `kernel/kernel.go` | **小幅修改** | KernelCallbacks 可能需要支持 per-PID 路由（或在 ipc 层做 adapter） |
 | `kernel/reap.go` | **无修改** | Shutdown/reapProcess 逻辑不变，daemon 退出时调用 Shutdown |
 | `kernel/process.go` | **无修改** | Process 结构体不变 |
@@ -428,7 +428,7 @@ func (s *Server) checkIdle() {
 
 ### 前序 Story 关键经验
 
-#### Story 4.5 (ctx_free) + Story 4.4 (crux ps)
+#### Story 4.5 (ctx_free) + Story 4.4 (rnix ps)
 
 - **sync.Once 是并发防护黄金模式** — daemon Shutdown 必须使用 shutdownOnce
 - **reapOnce 幂等保护** — daemon 中 reapProcess 逻辑不变，reapOnce 保证即使 IPC Kill + 自动 reaper 并发也安全
@@ -437,7 +437,7 @@ func (s *Server) checkIdle() {
 #### Epic 4 回顾核心发现
 
 - **4/5 Story 有并发问题** — IPC 引入更多并发场景（多客户端、多连接、daemon goroutine），必须格外注意
-- **测试全绿 ≠ 生产可用** — 必须包含真实的跨进程集成测试（`exec.Command("crux", ...)` 启动独立进程）
+- **测试全绿 ≠ 生产可用** — 必须包含真实的跨进程集成测试（`exec.Command("rnix", ...)` 启动独立进程）
 - **sync.Once 默认并发防护** — 任何"只应执行一次"的操作都用 sync.Once
 
 #### Git 最近 5 次提交
@@ -502,7 +502,7 @@ cmd.Start()
 
 | NFR | 要求 | 实现保证 |
 |-----|------|---------|
-| NFR2 | `crux ps` ≤ 100ms | IPC 请求通过 Unix socket 本地通信，延迟 < 1ms；kernel.ListProcs 内存操作 |
+| NFR2 | `rnix ps` ≤ 100ms | IPC 请求通过 Unix socket 本地通信，延迟 < 1ms；kernel.ListProcs 内存操作 |
 | NFR3 | astrace ≤ 500ms | SyscallEvent 通过 Unix socket 转发，额外延迟 < 5ms |
 | NFR7 | 超时 5s 内转 Zombie | 不变——kernel 内部超时机制不受 IPC 影响 |
 | NFR8 | 退出 10s 内释放资源 | daemon Shutdown 调用 kernel.Shutdown()，触发现有 reaper 逻辑 |
@@ -513,7 +513,7 @@ cmd.Start()
 
 **本 Story 包含：**
 - 新增 `ipc/` 包（protocol + server + client + daemon）
-- 重构 `cmd/crux/main.go` 为 daemon + client 模式
+- 重构 `cmd/rnix/main.go` 为 daemon + client 模式
 - 跨终端 ps/kill/astrace 完整可用
 - daemon 自动启动/自动关闭
 - stale socket 清理
@@ -522,7 +522,7 @@ cmd.Start()
 
 **本 Story 不包含：**
 - daemon 日志持久化（MVP 阶段 daemon 输出到 /dev/null 或 stderr）
-- daemon 健康监控 UI（`crux daemon status` 等）
+- daemon 健康监控 UI（`rnix daemon status` 等）
 - 多用户支持（当前仅单用户，socket 权限 0700）
 - TLS/认证（Unix socket 本身通过文件权限隔离）
 - 远程连接（仅本地 Unix socket）
@@ -560,7 +560,7 @@ ipc/
 **修改的文件：**
 
 ```
-cmd/crux/main.go        — 重大重构：daemon 子命令 + client 模式
+cmd/rnix/main.go        — 重大重构：daemon 子命令 + client 模式
 ```
 
 **不修改的文件：**
@@ -587,16 +587,16 @@ internal/xsync/          — 泛型工具不变
 - [Source: _bmad-output/planning-artifacts/architecture.md#Decision 2] — 进程模型与并发（SyncMap、goroutine 生命周期）
 - [Source: _bmad-output/planning-artifacts/architecture.md#Decision 6] — SyscallError 错误传播层次
 - [Source: _bmad-output/planning-artifacts/prd.md#Phase 2] — 三级智能体模型 + IPC（Send/Recv/Pipe）
-- [Source: _bmad-output/planning-artifacts/prd.md#NFR2] — crux ps ≤ 100ms
+- [Source: _bmad-output/planning-artifacts/prd.md#NFR2] — rnix ps ≤ 100ms
 - [Source: _bmad-output/planning-artifacts/prd.md#NFR3] — astrace ≤ 500ms
 - [Source: _bmad-output/project-context.md] — 完整项目规则和模式参考
 
 **前序 Story：**
 - [Source: _bmad-output/implementation-artifacts/4-5-context-release-ctx-free.md] — sync.Once 模式、reapOnce、errors.As 使用
-- [Source: _bmad-output/implementation-artifacts/4-4-crux-ps-command-and-process-table-ui.md] — ListProcs、Process Table UI、跨终端限制记录
+- [Source: _bmad-output/implementation-artifacts/4-4-rnix-ps-command-and-process-table-ui.md] — ListProcs、Process Table UI、跨终端限制记录
 
 **源码行号参考：**
-- cmd/crux/main.go: initKernel(350-374), runRoot(212-303), runPs(380-409), runKill(458-505), runAstrace(507-580)
+- cmd/rnix/main.go: initKernel(350-374), runRoot(212-303), runPs(380-409), runKill(458-505), runAstrace(507-580)
 - kernel/kernel.go: KernelImpl(91-102), NewKernel(106-117), Spawn(120-253)
 - kernel/reap.go: Shutdown(147-154), startReaper(116-145), reapProcess(10-43)
 - kernel/process.go: Process struct, GetState, DebugChan
@@ -617,21 +617,21 @@ Claude claude-4.6-opus (Cursor IDE)
 
 - `go test -race ./... -count=1` — 14/14 packages PASS, 0 failures
 - `go vet ./...` — clean, 0 warnings
-- `go build ./cmd/crux/` — clean
+- `go build ./cmd/rnix/` — clean
 
 ### Completion Notes List
 
 - 新建 `ipc/` 包，包含 protocol.go, server.go, client.go, daemon.go 四个核心模块
 - IPC 协议基于 NDJSON (一行 JSON per request/response)，Unix domain socket 通信
 - Server 采用请求循环连接模型，单连接支持多次非流式请求复用（Ping/ListProcs/Kill 复用连接，Spawn/AttachDebug 流式方法终结连接）
-- Daemon 自动启动通过 re-exec (`crux daemon --internal`) 实现
+- Daemon 自动启动通过 re-exec (`rnix daemon --internal`) 实现
 - 空闲 60s 自动关闭，stale socket 自动清理
 - `callbackMux` 实现 kernel.KernelCallbacks 接口，多路复用进度事件到各连接客户端
 - `kernel.GetDebugChan()` 新增公开方法，安全暴露 unexported Process.DebugChan
 - `kernel.Reap()` 新增公开方法，供 IPC Server 在 Spawn 流式结束后主动 reap 顶级进程（daemon 模式下无 CLI Wait 调用）
-- `cmd/crux/main.go` 全面重构：所有 CLI 命令改为 IPC 客户端模式
+- `cmd/rnix/main.go` 全面重构：所有 CLI 命令改为 IPC 客户端模式
 - 新增隐藏 `daemon` 子命令，仅由 EnsureDaemon 内部调用
-- 测试覆盖：protocol 17 tests, server 15 tests, client 6 tests, daemon 11 tests, integration 9 tests, cmd/crux 42 tests
+- 测试覆盖：protocol 17 tests, server 15 tests, client 6 tests, daemon 11 tests, integration 9 tests, cmd/rnix 42 tests
 - 所有测试含 `-race` 通过
 
 ### Senior Developer Review (AI)
@@ -685,6 +685,6 @@ Claude claude-4.6-opus (Cursor IDE)
 **修改文件:**
 - `kernel/kernel.go` — 新增 `GetDebugChan(pid)` 方法
 - `kernel/reap.go` — 新增 `Reap(pid)` 公开方法，供 IPC Server 主动触发 Zombie 进程清理
-- `cmd/crux/main.go` — 全面重构为 IPC 客户端模式 + daemon 子命令；Review 修复 spawnedPID 竞态、cancelClient 错误处理
-- `cmd/crux/main_test.go` — 适配 IPC 模式，新增 daemon 相关测试
-- `cmd/crux/integration_test.go` — 适配 outputSuccess 新签名
+- `cmd/rnix/main.go` — 全面重构为 IPC 客户端模式 + daemon 子命令；Review 修复 spawnedPID 竞态、cancelClient 错误处理
+- `cmd/rnix/main_test.go` — 适配 IPC 模式，新增 daemon 相关测试
+- `cmd/rnix/integration_test.go` — 适配 outputSuccess 新签名

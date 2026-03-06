@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // newSignalTestProcess creates a Running test process registered in the kernel.

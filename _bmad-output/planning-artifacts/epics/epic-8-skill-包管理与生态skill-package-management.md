@@ -1,10 +1,10 @@
 # Epic 8: Skill 包管理与生态（Skill Package Management）
 
-用户通过 CLI 命令管理社区 Skill：搜索、安装、更新、列出——构建 Crux 的能力生态系统。
+用户通过 CLI 命令管理社区 Skill：搜索、安装、更新、列出——构建 Rnix 的能力生态系统。
 
 > **基础设施前置条件**
 >
-> 本 Epic 的 install/search/update 功能依赖社区注册中心服务（`https://registry.crux.dev`）。客户端代码（`skillpkg/client.go`）已实现，通过 HTTP API 与注册中心交互。注册中心需提供以下端点：
+> 本 Epic 的 install/search/update 功能依赖社区注册中心服务（`https://registry.rnix.ai`）。客户端代码（`skillpkg/client.go`）已实现，通过 HTTP API 与注册中心交互。注册中心需提供以下端点：
 >
 > | 端点 | 用途 |
 > |------|------|
@@ -26,7 +26,7 @@ So that 我可以快速获取社区共享的能力模块。
 **When** 调用社区仓库 API
 **Then** 支持 Skill 下载、版本解析、完整性验证（SHA256 校验）
 
-**Given** `cmd/crux/skill.go` 中 install 子命令已注册
+**Given** `cmd/rnix/skill.go` 中 install 子命令已注册
 **When** 执行 `skill install code-analysis`
 **Then** 从社区仓库下载 Skill 包（`.tar.gz` 格式）
 **And** 安装到本地 `lib/skills/code-analysis/` 目录
@@ -52,7 +52,7 @@ So that 我可以发现适合我需求的能力模块。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/skill.go` 中 search 子命令已注册
+**Given** `cmd/rnix/skill.go` 中 search 子命令已注册
 **When** 执行 `skill search code`
 **Then** 返回匹配的 Skill 列表（从注册中心 `/index.yaml` 获取）
 **And** 每条结果包含：名称、描述、版本、下载量
@@ -73,7 +73,7 @@ So that 我始终使用最新兼容版本的能力模块。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/skill.go` 中 update 子命令已注册
+**Given** `cmd/rnix/skill.go` 中 update 子命令已注册
 **When** 执行 `skill update code-analysis`
 **Then** 检查社区仓库中的最新兼容版本
 **And** 如果有更新，下载并替换本地版本

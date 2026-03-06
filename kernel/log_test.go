@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // ============================================================
-// ATDD RED PHASE — Story 10.2: crux log 分类推理日志
+// ATDD RED PHASE — Story 10.2: rnix log 分类推理日志
 // Tests assert EXPECTED behavior. They will NOT COMPILE until
 // LogChan, emitLog, and GetLogChan are implemented.
 // ============================================================

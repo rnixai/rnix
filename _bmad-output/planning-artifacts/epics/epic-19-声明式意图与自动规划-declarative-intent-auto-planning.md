@@ -5,12 +5,12 @@
 ## Story 19.1: 意图声明与任务分解
 
 As a 应用开发者,
-I want 通过 `crux apply "高层意图"` 声明期望状态，系统自动分解为子意图树,
+I want 通过 `rnix apply "高层意图"` 声明期望状态，系统自动分解为子意图树,
 So that 我可以用自然语言描述目标而不需要手动编排。
 
 **Acceptance Criteria:**
 
-**Given** 用户执行 `crux apply "我要一个完整的博客系统"`
+**Given** 用户执行 `rnix apply "我要一个完整的博客系统"`
 **When** 系统接收意图
 **Then** 系统将高层意图递归分解为子意图树（Intent Tree），每个子意图对应一个或多个智能体进程
 
@@ -48,9 +48,9 @@ So that 我可以动态调整需求而不丢失已完成的工作。
 **Acceptance Criteria:**
 
 **Given** 意图正在执行中（部分子任务已完成）
-**When** 用户执行 `crux apply "加上评论功能"`
+**When** 用户执行 `rnix apply "加上评论功能"`
 **Then** Reconciler 计算增量差异，仅执行新增/变更部分，已完成的工作不回滚
 
 **Given** 一个活跃的意图
-**When** 用户执行 `crux intent status`
+**When** 用户执行 `rnix intent status`
 **Then** 显示意图树的当前状态：整体进度、各子意图完成度、执行中的智能体列表、待解决的 drift 项

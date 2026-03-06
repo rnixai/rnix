@@ -8,16 +8,16 @@ inputDocuments:
   - '_bmad-output/planning-artifacts/prd.md'
   - '_bmad-output/planning-artifacts/architecture.md'
   - '_bmad-output/planning-artifacts/ux-design-specification.md'
-project_name: Crux
+project_name: Rnix
 date: '2026-02-27'
 phase2Added: '2026-02-27'
 ---
 
-# Crux - Epic Breakdown
+# Rnix - Epic Breakdown
 
 ## Overview
 
-本文档提供 Crux（AI Agent OS）的完整 Epic 和 Story 拆解，将 PRD、架构文档和 UX 设计规范中的需求分解为可实施的 Story，供开发团队使用。
+本文档提供 Rnix（AI Agent OS）的完整 Epic 和 Story 拆解，将 PRD、架构文档和 UX 设计规范中的需求分解为可实施的 Story，供开发团队使用。
 
 ## Requirements Inventory
 
@@ -80,9 +80,9 @@ phase2Added: '2026-02-27'
 
 **命令行接口（FR33-FR37）**
 
-- FR33: 用户可以通过 `crux "意图"` 单命令启动一个智能体
-- FR34: 用户可以通过 `crux astrace <pid>` 追踪指定进程的 syscall
-- FR35: 用户可以通过 `crux ps` 查看所有进程状态
+- FR33: 用户可以通过 `rnix "意图"` 单命令启动一个智能体
+- FR34: 用户可以通过 `rnix astrace <pid>` 追踪指定进程的 syscall
+- FR35: 用户可以通过 `rnix ps` 查看所有进程状态
 - FR36: CLI 提供清晰的错误信息，包含设备路径和错误原因
 - FR37: 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI）
 
@@ -97,7 +97,7 @@ phase2Added: '2026-02-27'
 **性能（NFR1-5）**
 
 - NFR1: 单智能体 spawn→完成（含 LLM 调用），端到端延迟 ≤ 30 秒（简单任务如单文件分析）
-- NFR2: `crux ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
+- NFR2: `rnix ps` 响应时间 ≤ 100ms（本地进程表查询，不涉及 LLM）
 - NFR3: `astrace` 输出延迟 ≤ 500ms（从 syscall 发生到终端显示）
 - NFR4: VFS 本地文件读取（`/dev/fs`）额外延迟 < 10ms，不超过直接文件 I/O 延迟的 2 倍
 - NFR5: 上下文组装（ctx → prompt）时间 ≤ 1 秒（不含 LLM 调用本身）
@@ -108,7 +108,7 @@ phase2Added: '2026-02-27'
 - NFR7: LLM API 超时/错误时，进程在 5 秒内正确转入 Zombie 状态，不卡死在 Running
 - NFR8: 进程退出后，goroutine 和 context 内存在 10 秒内释放，无泄漏
 - NFR9: 内核进程表在任意进程异常退出后保持一致性（无悬挂 PID、无状态不一致）
-- NFR10: CLI 进程（crux 二进制本身）在智能体异常退出时不崩溃
+- NFR10: CLI 进程（rnix 二进制本身）在智能体异常退出时不崩溃
 
 **集成（NFR11-14）**
 
@@ -133,7 +133,7 @@ phase2Added: '2026-02-27'
 
 **来自架构文档的技术需求：**
 
-- 项目初始化（Starter）：领域驱动 OS 隐喻结构（方案 C），`go mod init github.com/usecrux/crux`，这是 Epic 1 Story 1 的基础
+- 项目初始化（Starter）：领域驱动 OS 隐喻结构（方案 C），`go mod init github.com/rnixai/rnix`，这是 Epic 1 Story 1 的基础
 - Go 1.26：利用 Green Tea GC、Goroutine Leak Profiler（实验性）、new(expr) 表达式初始化、自引用泛型
 - 泛型工具包：Registry[T]、SyncMap[K,V]、Future[T]、Result[T] 放在 `internal/xsync/`
 - 共享类型：PID、FD、CtxID、ErrCode 等放在 `internal/types/types.go`（避免循环依赖）
@@ -145,7 +145,7 @@ phase2Added: '2026-02-27'
 - 资源释放顺序：cancel() → wg.Wait() → 关闭 FD → 关闭 DebugChan → CtxFree → 状态转 Dead → 移除进程表
 - 构建工具：Makefile（build/install/test/lint/vet/clean）+ golangci-lint（`.golangci.yml`）
 - 测试策略：`go test -race` 默认开启，接口 mock，testify assertions，Goroutine Leak Profiler 验证 NFR8
-- 依赖注入点：`cmd/crux/main.go` 是唯一组装点
+- 依赖注入点：`cmd/rnix/main.go` 是唯一组装点
 - Agent/Skill 双层架构：Agent（agent.yaml + instructions.md）定义身份+策略，Skill（SKILL.md，Agent Skills 行业标准）定义程序性知识+工具权限
 - Spawn 流程：AgentLoader 加载 agent.yaml → 读 instructions.md → SkillLoader 加载引用的 Skill → 聚合 allowed-tools → 组装 system prompt
 - 渐进式 Skill 加载：发现（frontmatter ~100 tokens）→ 激活（body < 5000 tokens）→ 执行（scripts/references/assets 按需加载）
@@ -158,7 +158,7 @@ phase2Added: '2026-02-27'
 - Renderer 接口抽象：所有组件输出到 `io.Writer`，不直接写 `os.Stdout`
 - 4 种输出密度模式：`--quiet/-q`（静默）、默认（结构化汇报）、`--verbose/-v`（详细）、`--json`（机器可读）
 - 管道检测：非 TTY 输出自动去除 ANSI 颜色和 spinner 动画
-- 环境变量：`NO_COLOR` 支持（颜色完全去除）、`CRUX_ASCII=1` 支持（Unicode 降级为 ASCII）
+- 环境变量：`NO_COLOR` 支持（颜色完全去除）、`RNIX_ASCII=1` 支持（Unicode 降级为 ASCII）
 - 三段式错误结构：`✗ {设备路径}: {错误原因}` → `{影响}` → `建议: {恢复命令}`
 - 信号处理：SIGINT 首次优雅中断（goroutine 清理），二次（2 秒内）强制退出
 - 终端宽度自适应：< 60/60-79/80-119（目标）/120+ 列四档，表格列按优先级取舍
@@ -199,9 +199,9 @@ phase2Added: '2026-02-27'
 - FR30: Epic 3 — 记录 syscall 调用数据（DebugRecord）
 - FR31: Epic 3 — 通过 astrace 定位具体错误 syscall
 - FR32: Epic 1 — 智能体完成时输出汇总信息
-- FR33: Epic 1 — `crux "意图"` 单命令启动智能体
-- FR34: Epic 3 — `crux astrace <pid>` 追踪命令
-- FR35: Epic 4 — `crux ps` 查看进程状态
+- FR33: Epic 1 — `rnix "意图"` 单命令启动智能体
+- FR34: Epic 3 — `rnix astrace <pid>` 追踪命令
+- FR35: Epic 4 — `rnix ps` 查看进程状态
 - FR36: Epic 1 — CLI 提供清晰错误信息
 - FR37: Epic 1 — `go install` 安装，单二进制零依赖
 - FR38: Epic 5 — 概念文档
@@ -211,7 +211,7 @@ phase2Added: '2026-02-27'
 ## Epic List
 
 ### Epic 1: 第一个智能体运行（First Agent Runs）
-用户安装 Crux 后，输入 `crux "意图"` 即可看到一个智能体启动、调用 LLM 推理、返回结果——完整的端到端体验。包含项目初始化、内核核心（进程模型 + Spawn + reasonStep）、VFS 框架、LLM 驱动（Claude Code CLI）、上下文管理、CLI 入口和基础 UI 组件。
+用户安装 Rnix 后，输入 `rnix "意图"` 即可看到一个智能体启动、调用 LLM 推理、返回结果——完整的端到端体验。包含项目初始化、内核核心（进程模型 + Spawn + reasonStep）、VFS 框架、LLM 驱动（Claude Code CLI）、上下文管理、CLI 入口和基础 UI 组件。
 **FRs covered:** FR1, FR2, FR8, FR9, FR10, FR11, FR13, FR15, FR17, FR19, FR20, FR21, FR32, FR33, FR36, FR37
 
 ### Epic 2: Agent 能力与文件访问（Agent Skills & File Access）
@@ -219,15 +219,15 @@ phase2Added: '2026-02-27'
 **FRs covered:** FR12, FR16, FR18, FR23, FR24, FR25, FR25a, FR25b, FR26, FR27
 
 ### Epic 3: 调试追踪（Debug Tracing — astrace）
-当智能体输出不符合预期时，用户运行 `crux astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Crux 的差异化核心体验。包含 SyscallEvent 记录、DebugChan 事件管道、astrace 命令和 Trace Line UI。
+当智能体输出不符合预期时，用户运行 `rnix astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。包含 SyscallEvent 记录、DebugChan 事件管道、astrace 命令和 Trace Line UI。
 **FRs covered:** FR28, FR29, FR30, FR31, FR34
 
 ### Epic 4: 进程管理与可靠性（Process Management & Reliability）
-用户可以查看所有进程状态（`crux ps`）、终止进程（`crux kill`）、等待进程完成。系统自动回收 Zombie 进程、处理孤儿进程、暴露 `/proc` 运行时状态——生产级可靠性。
+用户可以查看所有进程状态（`rnix ps`）、终止进程（`rnix kill`）、等待进程完成。系统自动回收 Zombie 进程、处理孤儿进程、暴露 `/proc` 运行时状态——生产级可靠性。
 **FRs covered:** FR3, FR4, FR5, FR6, FR7, FR14, FR22, FR35
 
 ### Epic 5: 文档体系（Documentation）
-新用户可以通过概念文档理解 Crux 的 OS 范式，通过快速上手指南在 15 分钟内跑通 demo，通过参考手册查阅所有 syscall、VFS 路径和 CLI 命令。
+新用户可以通过概念文档理解 Rnix 的 OS 范式，通过快速上手指南在 15 分钟内跑通 demo，通过参考手册查阅所有 syscall、VFS 路径和 CLI 命令。
 **FRs covered:** FR38, FR39, FR40
 
 ---
@@ -241,7 +241,7 @@ phase2Added: '2026-02-27'
 **Dependencies:** Phase 1 完成
 
 ### Epic 7: Compose 多智能体编排（Agent Compose）
-用户通过 `crux-compose.yaml` 声明式定义多智能体工作流，`crux compose up` 一键启动，引擎按 DAG 依赖拓扑自动调度并行——林薇旅程的核心体验。
+用户通过 `rnix-compose.yaml` 声明式定义多智能体工作流，`rnix compose up` 一键启动，引擎按 DAG 依赖拓扑自动调度并行——林薇旅程的核心体验。
 **FRs covered:** FR46, FR47, FR48, FR49
 **NFRs:** NFR21 (≤10 个智能体启动 ≤2s)
 **Dependencies:** Epic 6（IPC 管道用于智能体间数据传递）
@@ -258,7 +258,7 @@ phase2Added: '2026-02-27'
 **Dependencies:** Epic 6（VFS 扩展）
 
 ### Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
-`crux top` 实时监控面板 + `crux log` 分类日志 + token 预算管理 + Supervisor 容错树 + init 引导——生产级运维能力。
+`rnix top` 实时监控面板 + `rnix log` 分类日志 + token 预算管理 + Supervisor 容错树 + init 引导——生产级运维能力。
 **FRs covered:** FR58, FR59, FR60, FR61, FR62, FR63, FR64, FR65
 **NFRs:** NFR28 (top 刷新 ≤500ms), NFR29 (log 延迟 ≤200ms)
 **Dependencies:** Epic 6（进程组用于 Supervisor 树）
@@ -277,25 +277,25 @@ phase2Added: '2026-02-27'
 
 ## Epic 1: 第一个智能体运行（First Agent Runs）
 
-用户安装 Crux 后，输入 `crux "意图"` 即可看到一个智能体启动、调用 LLM 推理、返回结果——完整的端到端体验。
+用户安装 Rnix 后，输入 `rnix "意图"` 即可看到一个智能体启动、调用 LLM 推理、返回结果——完整的端到端体验。
 
 ### Story 1.1: 项目初始化与基础设施
 
 As a 开发者,
-I want 通过 `go install` 安装 Crux 并获得一个可构建的项目骨架,
+I want 通过 `go install` 安装 Rnix 并获得一个可构建的项目骨架,
 So that 后续所有模块可以在标准化的 Go 项目结构上构建。
 
 **Acceptance Criteria:**
 
 **Given** 用户已安装 Go 1.26
-**When** 执行 `go install github.com/usecrux/crux/cmd/crux@latest`
-**Then** 获得 `crux` 二进制文件，执行 `crux version` 输出版本号
+**When** 执行 `go install github.com/rnixai/rnix/cmd/rnix@latest`
+**Then** 获得 `rnix` 二进制文件，执行 `rnix version` 输出版本号
 **And** 二进制无额外运行时依赖（除 Claude Code CLI）
 
 **Given** 项目目录已创建
 **When** 查看目录结构
-**Then** 遵循架构文档定义的 OS 隐喻结构（`cmd/crux/`、`kernel/`、`vfs/`、`drivers/`、`context/`、`skills/`、`debug/`、`internal/types/`、`internal/xsync/`、`internal/ui/`）
-**And** 包含 `go.mod`（模块路径 `github.com/usecrux/crux`）、`Makefile`、`.golangci.yml`、`.gitignore`
+**Then** 遵循架构文档定义的 OS 隐喻结构（`cmd/rnix/`、`kernel/`、`vfs/`、`drivers/`、`context/`、`skills/`、`debug/`、`internal/types/`、`internal/xsync/`、`internal/ui/`）
+**And** 包含 `go.mod`（模块路径 `github.com/rnixai/rnix`）、`Makefile`、`.golangci.yml`、`.gitignore`
 
 **Given** `internal/types/types.go` 已实现
 **When** 其他包导入共享类型
@@ -478,13 +478,13 @@ So that 我只需提供意图，智能体自动完成推理。
 ### Story 1.7: CLI 入口与 UI 组件
 
 As a 用户,
-I want 通过 `crux "意图"` 启动智能体并看到清晰的实时进度和结果输出,
+I want 通过 `rnix "意图"` 启动智能体并看到清晰的实时进度和结果输出,
 So that 我全程知道智能体在做什么、结果是什么。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/main.go` 已实现
-**When** 执行 `crux "分析代码"`
+**Given** `cmd/rnix/main.go` 已实现
+**When** 执行 `rnix "分析代码"`
 **Then** 解析意图文本，调用 `kernel.Spawn`，等待完成并输出结果
 **And** 支持全局 flags：`--json`、`--verbose/-v`、`--quiet/-q`
 **And** 依赖注入：创建 VFS、DeviceRegistry、注册 Claude 驱动、创建 Kernel
@@ -516,19 +516,19 @@ So that 我全程知道智能体在做什么、结果是什么。
 **Then** 输出 `[kernel] PID {N} exited({code}) | tokens: {N} | elapsed: {N}s`
 
 **Given** 非 TTY 输出（管道/重定向）
-**When** 执行 `crux "意图" | cat`
+**When** 执行 `rnix "意图" | cat`
 **Then** 自动去除 ANSI 颜色码和 spinner 动画
 
 ### Story 1.8: 端到端集成与验收
 
 As a 用户,
-I want 完整的端到端体验：`crux "意图"` → 实时进度 → 结果 → 汇总,
+I want 完整的端到端体验：`rnix "意图"` → 实时进度 → 结果 → 汇总,
 So that 我确认整个系统协同工作正常。
 
 **Acceptance Criteria:**
 
 **Given** 所有 Story 1.1-1.7 已完成
-**When** 执行 `crux "分析 ./README.md"`
+**When** 执行 `rnix "分析 ./README.md"`
 **Then** 看到完整输出流：`[kernel] spawning PID 1...` → `[agent/1] reasoning step N/M...` → `══ 分析结果 ══...══` → `[kernel] PID 1 exited(0) | tokens: N | elapsed: Ns`
 
 **Given** Claude Code CLI 已安装并可用
@@ -546,11 +546,11 @@ So that 我确认整个系统协同工作正常。
 **When** 查看内核进程表
 **Then** 进程表保持一致性，无悬挂 PID、无状态不一致（NFR9）
 
-**Given** `crux version` 执行
+**Given** `rnix version` 执行
 **When** Claude Code CLI 未安装
 **Then** 输出 `✗ claude-code CLI not found` + 安装建议
 
-**Given** 执行 `crux --help`
+**Given** 执行 `rnix --help`
 **When** 查看帮助输出
 **Then** 显示 Usage + 可用命令列表 + 全局 flags + 示例
 
@@ -628,7 +628,7 @@ So that 我可以分析用户的源代码和文档。
 **Then** 返回 `*SyscallError`，`Code` 为 `ErrNotFound`
 
 **Given** HostFS 驱动已创建
-**When** 在 `cmd/crux/main.go` 中注册
+**When** 在 `cmd/rnix/main.go` 中注册
 **Then** `devRegistry.Register("/dev/fs", hostFSDriver.FileFactory())`
 
 ### Story 2.3: Shell 驱动（/dev/shell）
@@ -654,7 +654,7 @@ So that 我可以运行构建工具、检查环境、执行脚本。
 **Then** 终止命令进程，返回 `*SyscallError`，`Code` 为 `ErrTimeout`
 
 **Given** ShellDriver 已创建
-**When** 在 `cmd/crux/main.go` 中注册
+**When** 在 `cmd/rnix/main.go` 中注册
 **Then** `devRegistry.Register("/dev/shell", shellDriver.FileFactory())`
 
 ### Story 2.4: Agent 注入与设备权限白名单
@@ -665,7 +665,7 @@ So that 智能体获得身份和专业指令，同时只能访问 Skill 声明�
 
 **Acceptance Criteria:**
 
-**Given** 用户执行 `crux "分析代码" --agent=code-analyst`
+**Given** 用户执行 `rnix "分析代码" --agent=code-analyst`
 **When** Spawn 创建进程
 **Then** 加载 code-analyst Agent 的 `agent.yaml` + `instructions.md`
 **And** 加载 agent.yaml 中引用的所有 Skill（如 code-analysis）
@@ -691,7 +691,7 @@ So that 智能体获得身份和专业指令，同时只能访问 Skill 声明�
 
 As a 用户,
 I want 一个预装的 code-analyst Agent 和 code-analysis Skill 作为参考实现,
-So that 我可以立即使用 Crux 分析代码并作为编写自定义 Agent/Skill 的模板。
+So that 我可以立即使用 Rnix 分析代码并作为编写自定义 Agent/Skill 的模板。
 
 **Acceptance Criteria:**
 
@@ -709,7 +709,7 @@ So that 我可以立即使用 Crux 分析代码并作为编写自定义 Agent/Sk
 **And** body 包含代码分析的程序性知识（分析策略、步骤、输出格式）
 
 **Given** code-analyst Agent 已加载
-**When** 执行 `crux "分析 ./kernel/scheduler.go" --agent=code-analyst`
+**When** 执行 `rnix "分析 ./kernel/scheduler.go" --agent=code-analyst`
 **Then** 智能体读取目标文件，进行分析，输出结构化的分析结果
 **And** 能够识别至少 1 个可验证的真实代码问题（FR27）
 
@@ -721,7 +721,7 @@ So that 我可以立即使用 Crux 分析代码并作为编写自定义 Agent/Sk
 
 ## Epic 3: 调试追踪（Debug Tracing — astrace）
 
-当智能体输出不符合预期时，用户运行 `crux astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Crux 的差异化核心体验。
+当智能体输出不符合预期时，用户运行 `rnix astrace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。
 
 ### Story 3.1: SyscallEvent 记录基础设施
 
@@ -752,7 +752,7 @@ So that astrace 可以消费完整的调用链路数据。
 ### Story 3.2: astrace 事件消费与格式化
 
 As a 用户,
-I want `crux astrace <pid>` 实时流式输出 syscall 调用链路,
+I want `rnix astrace <pid>` 实时流式输出 syscall 调用链路,
 So that 我能看到智能体的每一步操作及其结果。
 
 **Acceptance Criteria:**
@@ -783,18 +783,18 @@ So that 我能看到智能体的每一步操作及其结果。
 ### Story 3.3: astrace CLI 命令
 
 As a 用户,
-I want 通过 `crux astrace <pid>` 命令启动 syscall 追踪,
+I want 通过 `rnix astrace <pid>` 命令启动 syscall 追踪,
 So that 我可以在任何时候调试正在运行的智能体。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/main.go` 中 astrace 子命令已注册
-**When** 执行 `crux astrace 1`
+**Given** `cmd/rnix/main.go` 中 astrace 子命令已注册
+**When** 执行 `rnix astrace 1`
 **Then** 附着到 PID 1 的 DebugChan，开始流式输出 syscall 事件
 
 **Given** 指定的 PID 不存在
-**When** 执行 `crux astrace 999`
-**Then** 输出 `✗ PID 999: process not found` + `→ 建议: crux ps  查看活跃进程`
+**When** 执行 `rnix astrace 999`
+**Then** 输出 `✗ PID 999: process not found` + `→ 建议: rnix ps  查看活跃进程`
 
 **Given** astrace 正在追踪
 **When** 用户按 Ctrl+C
@@ -822,7 +822,7 @@ So that 我不需要在密集输出中翻找问题。
 
 **Given** `internal/ui/trace.go` 已实现
 **When** 渲染 Trace Line
-**Then** 时间戳暗灰色，syscall 名称 Crux Blue 加粗，参数普通文本，返回值 `→` 后跟结果
+**Then** 时间戳暗灰色，syscall 名称 Rnix Blue 加粗，参数普通文本，返回值 `→` 后跟结果
 
 **Given** 错误 syscall
 **When** 渲染
@@ -840,7 +840,7 @@ So that 我不需要在密集输出中翻找问题。
 
 ## Epic 4: 进程管理与可靠性（Process Management & Reliability）
 
-用户可以查看进程状态（`crux ps`）、终止进程（`crux kill`）、等待进程完成。系统自动回收 Zombie、处理孤儿进程、暴露 `/proc` 运行时状态——生产级可靠性。
+用户可以查看进程状态（`rnix ps`）、终止进程（`rnix kill`）、等待进程完成。系统自动回收 Zombie、处理孤儿进程、暴露 `/proc` 运行时状态——生产级可靠性。
 
 ### Story 4.1: Kill 与 Wait 系统调用
 
@@ -925,16 +925,16 @@ So that 我可以程序化地获取进程信息。
 **When** 查看实现
 **Then** 通过 `ProcessInfoProvider` 接口读取（不直接依赖 kernel 包，避免反向依赖）
 
-### Story 4.4: crux ps 命令与 Process Table UI
+### Story 4.4: rnix ps 命令与 Process Table UI
 
 As a 用户,
-I want 通过 `crux ps` 查看所有进程的状态表格,
+I want 通过 `rnix ps` 查看所有进程的状态表格,
 So that 我随时了解系统中智能体的全局状态。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/main.go` 中 ps 子命令已注册
-**When** 执行 `crux ps`
+**Given** `cmd/rnix/main.go` 中 ps 子命令已注册
+**When** 执行 `rnix ps`
 **Then** 调用 `kernel.PS(filter)` 获取所有进程信息
 **And** 通过 Process Table 组件输出对齐表格
 
@@ -946,11 +946,11 @@ So that 我随时了解系统中智能体的全局状态。
 **And** 响应时间 ≤ 100ms（NFR2）
 
 **Given** 无活跃进程
-**When** 执行 `crux ps`
+**When** 执行 `rnix ps`
 **Then** 输出 `No active processes.`（不显示空表格）
 
 **Given** 使用 `--json` flag
-**When** 执行 `crux ps --json`
+**When** 执行 `rnix ps --json`
 **Then** 输出 JSON 数组，每个元素包含 pid、state、skill、tokens、elapsed_ms（snake_case）
 
 **Given** 终端宽度 < 80 列
@@ -981,13 +981,13 @@ So that 系统不会因为上下文累积而内存泄漏。
 
 ## Epic 5: 文档体系（Documentation）
 
-新用户可以通过概念文档理解 Crux 的 OS 范式，通过快速上手指南在 15 分钟内跑通 demo，通过参考手册查阅所有 syscall、VFS 路径和 CLI 命令。
+新用户可以通过概念文档理解 Rnix 的 OS 范式，通过快速上手指南在 15 分钟内跑通 demo，通过参考手册查阅所有 syscall、VFS 路径和 CLI 命令。
 
 ### Story 5.1: 概念文档
 
 As a 新用户,
-I want 阅读概念文档理解 Crux 的核心 OS 范式,
-So that 我能建立正确的心智模型来使用 Crux。
+I want 阅读概念文档理解 Rnix 的核心 OS 范式,
+So that 我能建立正确的心智模型来使用 Rnix。
 
 **Acceptance Criteria:**
 
@@ -1001,13 +1001,13 @@ So that 我能建立正确的心智模型来使用 Crux。
 
 As a 新用户,
 I want 按照快速上手指南从安装到跑通第一个 demo,
-So that 我在 15 分钟内体验到 Crux 的核心价值。
+So that 我在 15 分钟内体验到 Rnix 的核心价值。
 
 **Acceptance Criteria:**
 
 **Given** 快速上手指南已编写
 **When** 按步骤操作
-**Then** 覆盖完整流程：安装 Go → 安装 Crux（`go install`）→ 验证（`crux version`）→ 首次执行（`crux "分析 ./README.md"`）→ 查看结果 → 首次 astrace（`crux astrace 1`）
+**Then** 覆盖完整流程：安装 Go → 安装 Rnix（`go install`）→ 验证（`rnix version`）→ 首次执行（`rnix "分析 ./README.md"`）→ 查看结果 → 首次 astrace（`rnix astrace 1`）
 **And** 目标完成时间 ≤ 15 分钟（FR39）
 **And** 每一步包含预期输出示例，用户可对照验证
 
@@ -1024,7 +1024,7 @@ So that 我在编写 Skill 或调试时有权威参考。
 **Then** 包含 MVP 全部 15 个 syscall 的签名、参数、返回值、错误码、示例
 **And** 包含完整 VFS 路径规范（`/proc/{pid}/`、`/dev/llm/`、`/dev/fs`、`/dev/shell`、`/lib/skills/`）
 **And** 包含 agent.yaml 全部字段说明和示例、SKILL.md（Agent Skills 行业标准）全部字段说明和示例
-**And** 包含 CLI 命令完整列表（`crux "意图"`、`crux ps`、`crux astrace`、`crux kill`、`crux version`）及其 flags
+**And** 包含 CLI 命令完整列表（`rnix "意图"`、`rnix ps`、`rnix astrace`、`rnix kill`、`rnix version`）及其 flags
 **And** 包含 IPC 架构说明：daemon 生命周期（自动启动/自动停止/stale socket 清理）、Unix domain socket 通信机制、IPC 协议概述（NDJSON 消息格式、Method 枚举、流式 StreamEvent）、连接复用语义（非流式请求 Ping/ListProcs/Kill 复用同一连接，流式请求 Spawn/AttachDebug 终结连接）
 
 ---
@@ -1036,10 +1036,10 @@ So that 我在编写 Skill 或调试时有权威参考。
 - FR43: Epic 6 — 进程组管理（JoinGroup/GetProcGroup）
 - FR44: Epic 6 — 三级并发模型（进程/线程/协程）
 - FR45: Epic 6 — Signal syscall 信号系统
-- FR46: Epic 7 — crux-compose.yaml 声明式定义
+- FR46: Epic 7 — rnix-compose.yaml 声明式定义
 - FR47: Epic 7 — Compose 引擎 DAG 依赖调度
-- FR48: Epic 7 — crux compose up 一键启动
-- FR49: Epic 7 — crux compose down 停止释放
+- FR48: Epic 7 — rnix compose up 一键启动
+- FR49: Epic 7 — rnix compose down 停止释放
 - FR50: Epic 8 — skill install 安装
 - FR51: Epic 8 — skill search 搜索
 - FR52: Epic 8 — skill update 更新
@@ -1048,11 +1048,11 @@ So that 我在编写 Skill 或调试时有权威参考。
 - FR55: Epic 9 — agent.yaml mcp 字段引用
 - FR56: Epic 9 — VFS 路径暴露 MCP 工具
 - FR57: Epic 9 — 四层能力栈端到端
-- FR58: Epic 10 — crux top 实时监控
-- FR59: Epic 10 — crux log 推理日志
-- FR60: Epic 10 — crux log think/tool/output 分类
+- FR58: Epic 10 — rnix top 实时监控
+- FR59: Epic 10 — rnix log 推理日志
+- FR60: Epic 10 — rnix log think/tool/output 分类
 - FR61: Epic 10 — token 预算管理
-- FR62: Epic 10 — crux top 交互式操作
+- FR62: Epic 10 — rnix top 交互式操作
 - FR63: Epic 10 — Supervisor 树管理
 - FR64: Epic 10 — 三种重启策略
 - FR65: Epic 10 — init 引导序列
@@ -1208,9 +1208,9 @@ So that 我可以为不同粒度的任务选择最合适的并发模型。
 
 ## Epic 7: Compose 多智能体编排（Agent Compose）
 
-用户通过 `crux-compose.yaml` 声明式定义多智能体工作流，Compose 引擎解析 DAG 依赖自动调度——20 行 YAML 替代 2000 行硬编码。
+用户通过 `rnix-compose.yaml` 声明式定义多智能体工作流，Compose 引擎解析 DAG 依赖自动调度——20 行 YAML 替代 2000 行硬编码。
 
-### Story 7.1: crux-compose.yaml 解析与 DAG 调度引擎
+### Story 7.1: rnix-compose.yaml 解析与 DAG 调度引擎
 
 As a 用户,
 I want 通过 YAML 文件声明式定义多智能体工作流及其依赖关系,
@@ -1219,7 +1219,7 @@ So that 系统自动按正确顺序调度执行。
 **Acceptance Criteria:**
 
 **Given** `compose/engine.go` 已实现
-**When** 解析 `crux-compose.yaml`
+**When** 解析 `rnix-compose.yaml`
 **Then** 正确提取每个智能体的 `intent`、`agent` 引用、`skills` 列表和 `depends_on` 依赖
 **And** 构建 DAG（有向无环图）表示依赖关系
 
@@ -1238,7 +1238,7 @@ So that 系统自动按正确顺序调度执行。
 **Then** 智能体 B 自动启动
 **And** 智能体 A 的输出可通过管道注入 B 的上下文
 
-**Given** crux-compose.yaml 格式示例
+**Given** rnix-compose.yaml 格式示例
 **When** 用户编写
 **Then** 支持以下格式：
 ```yaml
@@ -1255,22 +1255,22 @@ agents:
       reviewer: completed
 ```
 
-### Story 7.2: crux compose up 命令
+### Story 7.2: rnix compose up 命令
 
 As a 用户,
-I want 通过 `crux compose up` 一键启动编排定义的所有智能体,
+I want 通过 `rnix compose up` 一键启动编排定义的所有智能体,
 So that 完整的多智能体工作流一条命令即可运行。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/compose.go` 中 compose up 子命令已注册
-**When** 执行 `crux compose up`
-**Then** 读取当前目录的 `crux-compose.yaml`
+**Given** `cmd/rnix/compose.go` 中 compose up 子命令已注册
+**When** 执行 `rnix compose up`
+**Then** 读取当前目录的 `rnix-compose.yaml`
 **And** 按 DAG 顺序 Spawn 所有智能体
 **And** 实时输出每个智能体的启动和完成状态
 
 **Given** 指定自定义文件
-**When** 执行 `crux compose up -f my-workflow.yaml`
+**When** 执行 `rnix compose up -f my-workflow.yaml`
 **Then** 使用指定文件而非默认文件
 
 **Given** 编排中某个智能体失败
@@ -1282,22 +1282,22 @@ So that 完整的多智能体工作流一条命令即可运行。
 **When** 查看输出
 **Then** 显示编排汇总：每个智能体的退出码、token 消耗、耗时
 
-### Story 7.3: crux compose down 命令
+### Story 7.3: rnix compose down 命令
 
 As a 用户,
-I want 通过 `crux compose down` 停止编排中所有智能体并释放资源,
+I want 通过 `rnix compose down` 停止编排中所有智能体并释放资源,
 So that 我可以清理中断的工作流。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/compose.go` 中 compose down 子命令已注册
-**When** 执行 `crux compose down`
+**Given** `cmd/rnix/compose.go` 中 compose down 子命令已注册
+**When** 执行 `rnix compose down`
 **Then** 向编排中所有运行中的智能体发送 Kill 信号
 **And** 等待所有进程转为 Dead
 **And** 释放所有资源（进程、上下文、文件描述符）
 
 **Given** 部分智能体已完成，部分仍在运行
-**When** 执行 `crux compose down`
+**When** 执行 `rnix compose down`
 **Then** 仅终止仍在运行的智能体
 **And** 输出释放汇总（终止了 N 个进程，释放了 M 个上下文）
 
@@ -1309,13 +1309,13 @@ So that 确认多智能体编排系统协同工作正常。
 
 **Acceptance Criteria:**
 
-**Given** 编写包含 ≥ 3 个智能体的 crux-compose.yaml（有 DAG 依赖）
-**When** 执行 `crux compose up`
+**Given** 编写包含 ≥ 3 个智能体的 rnix-compose.yaml（有 DAG 依赖）
+**When** 执行 `rnix compose up`
 **Then** 智能体按依赖顺序执行，无依赖分支并行
 **And** 前置智能体的输出正确传递给下游
 **And** 3 智能体编排从 YAML 到全部完成，总耗时 ≤ 90 秒
 
-**Given** `crux top` 同时运行
+**Given** `rnix top` 同时运行
 **When** 编排执行中
 **Then** 实时看到所有智能体的树状关系和状态
 
@@ -1323,7 +1323,7 @@ So that 确认多智能体编排系统协同工作正常。
 
 ## Epic 8: Skill 包管理与生态（Skill Package Management）
 
-用户通过 CLI 命令管理社区 Skill：搜索、安装、更新、列出——构建 Crux 的能力生态系统。
+用户通过 CLI 命令管理社区 Skill：搜索、安装、更新、列出——构建 Rnix 的能力生态系统。
 
 ### Story 8.1: skill install 安装
 
@@ -1337,7 +1337,7 @@ So that 我可以快速获取社区共享的能力模块。
 **When** 调用社区仓库 API
 **Then** 支持 Skill 下载、版本解析、完整性验证
 
-**Given** `cmd/crux/skill.go` 中 install 子命令已注册
+**Given** `cmd/rnix/skill.go` 中 install 子命令已注册
 **When** 执行 `skill install code-analysis`
 **Then** 从社区仓库下载 Skill 包
 **And** 安装到本地 `lib/skills/code-analysis/` 目录
@@ -1363,7 +1363,7 @@ So that 我可以发现适合我需求的能力模块。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/skill.go` 中 search 子命令已注册
+**Given** `cmd/rnix/skill.go` 中 search 子命令已注册
 **When** 执行 `skill search code`
 **Then** 返回匹配的 Skill 列表
 **And** 每条结果包含：名称、描述、版本、下载量
@@ -1384,7 +1384,7 @@ So that 我始终使用最新兼容版本的能力模块。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/skill.go` 中 update 子命令已注册
+**Given** `cmd/rnix/skill.go` 中 update 子命令已注册
 **When** 执行 `skill update code-analysis`
 **Then** 检查社区仓库中的最新兼容版本
 **And** 如果有更新，下载并替换本地版本
@@ -1491,7 +1491,7 @@ So that 我不需要知道 MCP 协议细节，只需操作文件。
 
 **Given** MCP 兼容性
 **When** 接入符合 MCP 标准的第三方服务器
-**Then** 无需 Crux 侧代码修改即可挂载和使用（NFR27）
+**Then** 无需 Rnix 侧代码修改即可挂载和使用（NFR27）
 
 ### Story 9.4: 四层能力栈端到端验证
 
@@ -1508,7 +1508,7 @@ So that 确认各层职责分离且协同正确。
 **And** MCP 层提供外部服务集成
 **And** Device 层提供原生 I/O（`/dev/`）
 
-**Given** `crux astrace` 追踪该进程
+**Given** `rnix astrace` 追踪该进程
 **When** 查看 syscall 链路
 **Then** 可以清晰看到四层的调用边界和数据流向（FR57）
 
@@ -1516,18 +1516,18 @@ So that 确认各层职责分离且协同正确。
 
 ## Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
 
-`crux top` 实时面板 + `crux log` 分类日志 + Supervisor 容错树 + init 引导——生产级运维能力全集。
+`rnix top` 实时面板 + `rnix log` 分类日志 + Supervisor 容错树 + init 引导——生产级运维能力全集。
 
-### Story 10.1: crux top 实时监控 TUI
+### Story 10.1: rnix top 实时监控 TUI
 
 As a 用户,
-I want 通过 `crux top` 实时查看所有智能体的树状关系、状态和 token 消耗,
+I want 通过 `rnix top` 实时查看所有智能体的树状关系、状态和 token 消耗,
 So that 我随时掌握系统全局运行态。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/top.go` 已实现（bubbletea TUI）
-**When** 执行 `crux top`
+**Given** `cmd/rnix/top.go` 已实现（bubbletea TUI）
+**When** 执行 `rnix top`
 **Then** 全屏显示实时监控面板
 **And** 上方汇总区：活跃进程数、总 token 消耗、系统运行时间
 **And** 下方进程列表：PID、PPID（树状缩进）、STATE、AGENT、TOKENS、ELAPSED
@@ -1549,21 +1549,21 @@ So that 我随时掌握系统全局运行态。
 **When** 退出 TUI
 **Then** 恢复终端状态，不影响运行中的进程
 
-### Story 10.2: crux log 分类推理日志
+### Story 10.2: rnix log 分类推理日志
 
 As a 用户,
-I want 通过 `crux log <pid>` 查看智能体的推理日志，按类别分类显示,
+I want 通过 `rnix log <pid>` 查看智能体的推理日志，按类别分类显示,
 So that 我无需深入内核就能排查问题。
 
 **Acceptance Criteria:**
 
-**Given** `cmd/crux/log.go` 已实现
-**When** 执行 `crux log 5`
+**Given** `cmd/rnix/log.go` 已实现
+**When** 执行 `rnix log 5`
 **Then** 输出 PID 5 的推理日志
 **And** 按 `[think]`（推理过程）、`[tool]`（工具调用）、`[output]`（最终输出）三段式分类显示（FR60）
 
 **Given** 使用过滤
-**When** 执行 `crux log 5 --filter tool`
+**When** 执行 `rnix log 5 --filter tool`
 **Then** 仅显示 `[tool]` 类别的日志条目
 
 **Given** 日志输出
@@ -1571,7 +1571,7 @@ So that 我无需深入内核就能排查问题。
 **Then** 延迟 ≤ 200ms（NFR29）
 
 **Given** PID 不存在
-**When** 执行 `crux log 999`
+**When** 执行 `rnix log 999`
 **Then** 输出 `✗ PID 999: process not found` + 建议
 
 ### Story 10.3: Token 预算管理
@@ -1593,7 +1593,7 @@ So that 我可以控制 LLM 调用的成本。
 
 **Given** 预算即将耗尽（剩余 < 10%）
 **When** 推理循环继续
-**Then** 在 crux top 中显示黄色警告标记
+**Then** 在 rnix top 中显示黄色警告标记
 
 ### Story 10.4: Supervisor 树与重启策略
 
@@ -1740,7 +1740,7 @@ spawn "危险操作" on-error spawn "回滚"
 
 As a 开发者,
 I want 阅读教程文档学会编写 Skill、调试 bug 和组合多智能体工作流,
-So that 我可以在 Crux 上构建自己的应用。
+So that 我可以在 Rnix 上构建自己的应用。
 
 **Acceptance Criteria:**
 
@@ -1756,13 +1756,13 @@ So that 我可以在 Crux 上构建自己的应用。
 
 **Given** 教程文档已编写
 **When** 阅读"组合多智能体工作流"教程
-**Then** 包含编写 crux-compose.yaml → compose up → crux top 监控 → 查看结果的完整流程
+**Then** 包含编写 rnix-compose.yaml → compose up → rnix top 监控 → 查看结果的完整流程
 **And** 包含完整可运行示例
 
 ### Story 12.2: 架构文档
 
 As a 贡献者,
-I want 阅读架构文档理解 Crux 的内部设计,
+I want 阅读架构文档理解 Rnix 的内部设计,
 So that 我可以参与内核开发和 Skill 生态贡献。
 
 **Acceptance Criteria:**

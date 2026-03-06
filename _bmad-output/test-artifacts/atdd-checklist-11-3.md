@@ -14,8 +14,8 @@ inputDocuments:
   - shell/script_test.go
   - shell/pipe_test.go
   - shell/env.go
-  - cmd/crux/main.go
-  - cmd/crux/main_test.go
+  - cmd/rnix/main.go
+  - cmd/rnix/main_test.go
 ---
 
 # ATDD Checklist - Epic 11, Story 3: 最小控制结构 (Minimal Control Structures)
@@ -79,7 +79,7 @@ inputDocuments:
 | EXTRA-002 | `TestParseScript_IfCaseInsensitive` | P1 | AC1 | `StmtIf` 未定义 |
 | EXTRA-003 | `TestParseScript_EmptyThenBody` | P1 | AC1 | `Statement.If` 不存在 |
 
-**File:** `cmd/crux/main_test.go` — 1 新测试
+**File:** `cmd/rnix/main_test.go` — 1 新测试
 
 | 测试 ID | 函数名 | 优先级 | AC | 失败原因 |
 |---------|--------|--------|-----|---------|
@@ -255,12 +255,12 @@ N/A — 后端 Go 项目，无 UI 组件。
 
 ### Test: isScriptSyntax on-error 检测 (REG-003)
 
-**File:** `cmd/crux/main_test.go`
+**File:** `cmd/rnix/main_test.go`
 
 **Tasks to make this test pass:**
 
-- [ ] `cmd/crux/main.go`：`isScriptSyntax` 新增 `on-error` 关键字检测
-- [ ] Run test: `go test ./cmd/crux/... -run TestIsScriptSyntax_OnError -v`
+- [ ] `cmd/rnix/main.go`：`isScriptSyntax` 新增 `on-error` 关键字检测
+- [ ] Run test: `go test ./cmd/rnix/... -run TestIsScriptSyntax_OnError -v`
 - [ ] ✅ Test passes (green phase)
 
 **Estimated Effort:** 0.25 hours
@@ -272,7 +272,7 @@ N/A — 后端 Go 项目，无 UI 组件。
 **Tasks:**
 
 - [ ] Run: `go test ./shell/...` — 所有 11.2 测试仍通过
-- [ ] Run: `go test ./cmd/crux/...` — 所有 11.2 CLI 测试仍通过
+- [ ] Run: `go test ./cmd/rnix/...` — 所有 11.2 CLI 测试仍通过
 - [ ] ✅ Regression verified
 
 **Estimated Effort:** 0.25 hours
@@ -295,13 +295,13 @@ go test ./shell/... -run "TestParseScript_(If|Nested|Condition|Assignment|OnErro
 go test ./shell/... -run "TestScriptExecutor_(If|Nested|Assign|OnError|Condition)" -v
 
 # Run CLI test
-go test ./cmd/crux/... -run TestIsScriptSyntax_OnError -v
+go test ./cmd/rnix/... -run TestIsScriptSyntax_OnError -v
 
 # Run full regression
-go test ./shell/... ./cmd/crux/... -v
+go test ./shell/... ./cmd/rnix/... -v
 
 # Run with race detector
-go test -race ./shell/... ./cmd/crux/... -v
+go test -race ./shell/... ./cmd/rnix/... -v
 ```
 
 ---
@@ -314,14 +314,14 @@ go test -race ./shell/... ./cmd/crux/... -v
 
 - ✅ 26 个测试已写入并确认失败
 - ✅ shell/ 编译失败（引用 StmtIf, IfBlock, Condition, Statement.If/Assign/OnError）
-- ✅ cmd/crux/ 运行时失败（isScriptSyntax 不检测 on-error）
+- ✅ cmd/rnix/ 运行时失败（isScriptSyntax 不检测 on-error）
 - ✅ 复用现有 mockSpawner（无需新 fixture）
 - ✅ Implementation checklist 已创建
 
 **Verification:**
 
 - `go test ./shell/...` → 编译失败（预期）
-- `go test ./cmd/crux/... -run TestIsScriptSyntax_OnError` → FAIL（预期）
+- `go test ./cmd/rnix/... -run TestIsScriptSyntax_OnError` → FAIL（预期）
 
 ---
 
@@ -358,10 +358,10 @@ go test -race ./shell/... ./cmd/crux/... -v
 
 ## Next Steps
 
-1. **运行失败测试** 确认 RED 阶段: `go test ./shell/... && go test ./cmd/crux/... -run TestIsScriptSyntax_OnError`
+1. **运行失败测试** 确认 RED 阶段: `go test ./shell/... && go test ./cmd/rnix/... -run TestIsScriptSyntax_OnError`
 2. **开始实现** 按 Implementation Checklist 顺序
 3. **一次一个测试组** (red → green for each)
-4. **完成后回归验证**: `go test ./shell/... ./cmd/crux/... -v`
+4. **完成后回归验证**: `go test ./shell/... ./cmd/rnix/... -v`
 5. **重构完成后** 更新 sprint-status.yaml
 
 ---
@@ -383,16 +383,16 @@ go test -race ./shell/... ./cmd/crux/... -v
 **Results:**
 
 ```
-# github.com/usecrux/crux/shell [github.com/usecrux/crux/shell.test]
+# github.com/rnixai/rnix/shell [github.com/rnixai/rnix/shell.test]
 shell/script_test.go:568:12: assign.Assign undefined (type Statement has no field or method Assign)
 shell/script_test.go:573:20: undefined: StmtIf
 shell/script_test.go:576:12: ifStmt.If undefined (type Statement has no field or method If)
 ...
 shell/script_test.go:585:12: too many errors
-FAIL    github.com/usecrux/crux/shell [build failed]
+FAIL    github.com/rnixai/rnix/shell [build failed]
 ```
 
-**Command:** `go test ./cmd/crux/... -run TestIsScriptSyntax_OnError -v`
+**Command:** `go test ./cmd/rnix/... -run TestIsScriptSyntax_OnError -v`
 
 **Results:**
 

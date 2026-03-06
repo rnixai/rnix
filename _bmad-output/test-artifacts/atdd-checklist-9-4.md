@@ -37,7 +37,7 @@ Story 9.4 是 Epic 9 的最后一个 Story，属于纯验证性 Story。不引�
 ## Acceptance Criteria
 
 1. **AC1: 四层能力栈端到端流程** -- Given 配置了包含 Skill 和 MCP 引用的 Agent, When Spawn 并执行任务, Then Agent 层提供身份和策略, And Skill 层提供程序性知识和工具权限, And MCP 层提供外部服务集成, And Device 层提供原生 I/O (`/dev/`)
-2. **AC2: astrace 四层调用链路可观测** -- Given `crux astrace` 追踪该进程, When 查看 syscall 链路, Then 可以清晰看到四层的调用边界和数据流向 (FR57)
+2. **AC2: astrace 四层调用链路可观测** -- Given `rnix astrace` 追踪该进程, When 查看 syscall 链路, Then 可以清晰看到四层的调用边界和数据流向 (FR57)
 
 ---
 

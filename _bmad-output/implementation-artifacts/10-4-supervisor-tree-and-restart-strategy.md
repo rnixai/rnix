@@ -119,7 +119,7 @@ So that 多智能体系统具备容错能力。
   - [x] 7.9 `kernel/supervisor_test.go`：重启时间 ≤ 5 秒验证
   - [x] 7.10 `kernel/supervisor_test.go`：启动阶段子进程失败 → 回滚已启动的子进程 → Supervisor 退出
   - [x] 7.11 `kernel/supervisor_test.go`：所有子进程正常完成（temporary）→ Supervisor 正常退出
-  - [x] 7.12 在 `cmd/crux/main_test.go` 中确认无命令注册回归
+  - [x] 7.12 在 `cmd/rnix/main_test.go` 中确认无命令注册回归
 
 ## Dev Notes
 
@@ -127,9 +127,9 @@ So that 多智能体系统具备容错能力。
 
 #### Erlang/OTP 风格的 Supervisor 树
 
-设计直接借鉴 Erlang/OTP 的 Supervisor 行为模块，适配 Go 和 Crux 的进程模型：
+设计直接借鉴 Erlang/OTP 的 Supervisor 行为模块，适配 Go 和 Rnix 的进程模型：
 
-| Erlang/OTP 概念 | Crux 对应实现 |
+| Erlang/OTP 概念 | Rnix 对应实现 |
 |----------------|-------------|
 | supervisor 行为模块 | `kernel/supervisor.go` |
 | child_spec | `ChildSpec` 结构体 |
@@ -143,8 +143,8 @@ So that 多智能体系统具备容错能力。
 
 Supervisor 本身是一个 `*Process`，拥有 PID、PPID、State 等全部进程属性。与普通进程的区别是：它不运行 `reasonStep`（LLM 推理循环），而是运行 `supervisorLoop`（子进程监控循环）。这意味着：
 
-- `crux top` 中 Supervisor 显示为普通进程（AGENT 列可显示 "supervisor"）
-- `crux ps` 中子进程的 PPID 指向 Supervisor PID
+- `rnix top` 中 Supervisor 显示为普通进程（AGENT 列可显示 "supervisor"）
+- `rnix ps` 中子进程的 PPID 指向 Supervisor PID
 - Kill Supervisor → 同样触发 `handleOrphanChildren` 逻辑
 - Supervisor 可以被另一个 Supervisor 监控（树状嵌套）
 
@@ -598,7 +598,7 @@ func (s *Supervisor) handleChildExit(idx int, exit ExitStatus) {
 
 当 Supervisor 退出时，`finishProcess` → `handleOrphanChildren` 会将存活的子进程 reparent 到 PID 0。`shutdownAll()` 在 `finishProcess` 之前执行，确保正常情况下子进程已全部停止。极端情况下（如 shutdownAll 超时），`handleOrphanChildren` 作为安全网。
 
-#### crux top / crux ps
+#### rnix top / rnix ps
 
 Supervisor 进程在进程列表中显示为：
 - PID: 分配的 PID
@@ -637,7 +637,7 @@ Supervisor 的子进程可加入同一进程组（PGID）。`one_for_all` 策略
 - `vfs/`、`drivers/`、`context/`、`debug/`、`agents/`、`skills/` — 均不涉及
 - `compose/` — Supervisor 与 compose 集成留到 10.5（init bootstrap）
 - `ipc/` — SpawnSupervisor 的 IPC 暴露留到 10.5
-- `cmd/crux/` — 无需新 CLI 命令；crux top/ps 已自动显示 Supervisor 进程
+- `cmd/rnix/` — 无需新 CLI 命令；rnix top/ps 已自动显示 Supervisor 进程
 - `internal/ui/` — 无需新 UI 组件
 
 ### 修改文件清单
@@ -712,7 +712,7 @@ Supervisor 的子进程可加入同一进程组（PGID）。`one_for_all` 策略
   - `kernel/supervisor_test.go` — 12 个测试用例
 - **修改文件**：
   - `kernel/kernel.go` — `SupervisorManager` 接口（~5 行新增）
-- **不修改**：astrace、crux log/top/ps、驱动层、context 包、agents 包、skills 包、compose 包、IPC 层、UI 组件
+- **不修改**：astrace、rnix log/top/ps、驱动层、context 包、agents 包、skills 包、compose 包、IPC 层、UI 组件
 - **不需要新依赖**
 
 ### References
@@ -735,7 +735,7 @@ Supervisor 的子进程可加入同一进程组（PGID）。`one_for_all` 策略
 - [Source: kernel/procgroup.go#ProcGroupManager + SignalGroup]
 - [Source: internal/types/types.go#PID + ProcessState + Signal]
 - [Source: _bmad-output/implementation-artifacts/10-3-token-budget-management.md#SpawnOpts 预算优先级模式]
-- [Source: _bmad-output/implementation-artifacts/10-1-crux-top-realtime-monitoring-tui.md#进程树构建]
+- [Source: _bmad-output/implementation-artifacts/10-1-rnix-top-realtime-monitoring-tui.md#进程树构建]
 
 ## Dev Agent Record
 

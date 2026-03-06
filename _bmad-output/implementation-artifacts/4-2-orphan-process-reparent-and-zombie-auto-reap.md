@@ -118,7 +118,7 @@ Parent Wait（reap parent）
 type KernelImpl struct {
     procTable *xsync.SyncMap[types.PID, *Process]
     vfs       *vfs.VFS
-    ctxMgr    *cruxctx.Manager
+    ctxMgr    *rnixctx.Manager
     callbacks KernelCallbacks
 
     // Reaper infrastructure (Story 4.2)
@@ -387,14 +387,14 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 type KernelImpl struct {
     procTable *xsync.SyncMap[types.PID, *Process]
     vfs       *vfs.VFS
-    ctxMgr    *cruxctx.Manager
+    ctxMgr    *rnixctx.Manager
     callbacks KernelCallbacks
 }
 ```
 
 **kernel/kernel.go — NewKernel（第 99-106 行）：**
 ```go
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl {
+func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelImpl {
     return &KernelImpl{
         procTable: xsync.NewSyncMap[types.PID, *Process](),
         vfs:       v,
@@ -535,7 +535,7 @@ func (m *Manager) CtxFree(cid types.CtxID) error {
 
 **kernel/kernel_test.go — 测试 Helper：**
 ```go
-func newTestKernel(llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *cruxctx.Manager) // 第 94 行
+func newTestKernel(llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *rnixctx.Manager) // 第 94 行
 func newSimpleKernel() *KernelImpl                                                  // 第 153 行
 func makeLLMResponse(content string, tokens int) []byte                             // 第 106 行
 ```
@@ -629,9 +629,9 @@ type ProcessManager interface {
 - `kernel/reap_test.go` — 孤儿 reparent + zombie auto-reap + 并发安全测试
 
 **本 Story 不包含：**
-- `crux kill <pid>` CLI 子命令（Story 4.4）
+- `rnix kill <pid>` CLI 子命令（Story 4.4）
 - `/proc` 动态文件系统（Story 4.3）
-- `crux ps` 命令和 Process Table UI（Story 4.4）
+- `rnix ps` 命令和 Process Table UI（Story 4.4）
 - 从 reasonStep 内部 spawn 子进程的实现（Phase 2 Compose）
 - `ctx_free` 独立测试（Story 4.5）
 
@@ -655,8 +655,8 @@ context/context.go         — CtxFree 已实现，只调用不修改
 vfs/vfs.go                 — CloseAll 已在 Spawn defer 中调用，不修改
 debug/astrace.go           — 不修改
 internal/ui/*              — 不修改
-cmd/crux/main.go           — 不修改（暂无 CLI 集成需求）
-cmd/crux/integration_test.go — 可选添加集成测试
+cmd/rnix/main.go           — 不修改（暂无 CLI 集成需求）
+cmd/rnix/integration_test.go — 可选添加集成测试
 ```
 
 ### References

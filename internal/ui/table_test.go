@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // testRenderer creates a Renderer writing to a buffer with the given profile.

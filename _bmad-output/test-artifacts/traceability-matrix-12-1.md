@@ -55,7 +55,7 @@ inputDocuments:
   - `12.1-UNIT-005` - docs/docs_test.go:TestWritingFirstSkill_HasCLIExamples
     - **Given:** writing-first-skill.md 已编写
     - **When:** 检查 CLI 命令示例
-    - **Then:** 包含 crux -i、crux ps、crux astrace 命令
+    - **Then:** 包含 rnix -i、rnix ps、rnix astrace 命令
 
 - **Gaps:** 无
 - **Recommendation:** 覆盖充分，AC 全部满足
@@ -77,7 +77,7 @@ inputDocuments:
   - `12.1-UNIT-007` - docs/docs_test.go:TestDebuggingFirstBug_HasAstraceOutput
     - **Given:** debugging-first-bug.md 已编写
     - **When:** 检查 astrace 输出示例
-    - **Then:** 包含 crux astrace 命令，展示 Syscall、PID、Device 字段和 PERMISSION 错误码
+    - **Then:** 包含 rnix astrace 命令，展示 Syscall、PID、Device 字段和 PERMISSION 错误码
   - `12.1-UNIT-008` - docs/docs_test.go:TestDebuggingFirstBug_ShowsFixWorkflow
     - **Given:** debugging-first-bug.md 已编写
     - **When:** 检查修复流程
@@ -99,7 +99,7 @@ inputDocuments:
   - `12.1-UNIT-009` - docs/docs_test.go:TestComposingWorkflow_HasRequiredSections
     - **Given:** composing-multi-agent-workflow.md 已编写
     - **When:** 检查文档内容
-    - **Then:** 包含"设计"、"crux-compose.yaml"、"compose up"、"crux top"、"结果"章节
+    - **Then:** 包含"设计"、"rnix-compose.yaml"、"compose up"、"rnix top"、"结果"章节
   - `12.1-UNIT-010` - docs/docs_test.go:TestComposingWorkflow_HasComposeYamlExample
     - **Given:** composing-multi-agent-workflow.md 已编写
     - **When:** 检查 compose YAML 示例
@@ -152,7 +152,7 @@ inputDocuments:
 === RUN   TestTutorials_CrossReferences
 --- PASS: TestTutorials_CrossReferences (0.00s)
 PASS
-ok  github.com/usecrux/crux/docs  0.010s
+ok  github.com/rnixai/rnix/docs  0.010s
 ```
 
 ### Regression Test Results
@@ -162,7 +162,7 @@ ok  github.com/usecrux/crux/docs  0.010s
 | Package | Status | Tests |
 |---------|--------|-------|
 | agents | PASS | ✓ |
-| cmd/crux | PASS | ✓ |
+| cmd/rnix | PASS | ✓ |
 | compose | PASS | ✓ |
 | context | PASS | ✓ |
 | debug | PASS | ✓ |
@@ -192,7 +192,7 @@ ok  github.com/usecrux/crux/docs  0.010s
 | # | Severity | Finding | Resolution |
 |---|----------|---------|------------|
 | 1 | HIGH | astrace Read 输出格式错误（Result 应为字节数） | 修正为 `Read(fd=N, length=N) → bytes` 格式 |
-| 2 | HIGH | crux ps 列名错误（应为 SKILL 而非 AGENT） | 修正为 `PID STATE SKILL TOKENS ELAPSED` 格式 |
+| 2 | HIGH | rnix ps 列名错误（应为 SKILL 而非 AGENT） | 修正为 `PID STATE SKILL TOKENS ELAPSED` 格式 |
 | 3 | MEDIUM | docs_test 对 frontmatter 字段断言过宽 | 改为检查 `allowed-tools:` |
 | 4 | LOW | 教程间 astrace 格式不一致 | 统一为与 quick-start.md 一致的格式 |
 | 5 | LOW | code-analyst Agent 依赖 | 已确认 lib/agents/code-analyst/ 存在 |

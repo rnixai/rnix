@@ -19,9 +19,9 @@ So that Agent 定义"我是谁"（身份+策略+模型），Skill 定义"如何�
 5. **参考 Agent 定义** — Given lib/agents/code-analyst/ 已创建，When 查看 agent.yaml，Then 包含 name: code-analyst、models(provider/preferred/fallback)、context_budget: 8192、skills: [code-analysis]；When 查看 instructions.md，Then 包含 Agent 角色定义和行为策略
 6. **参考 Skill 标准格式** — Given lib/skills/code-analysis/SKILL.md 已创建，When 查看内容，Then frontmatter 包含 name: code-analysis、description、allowed-tools: /dev/fs /dev/shell；body 包含代码分析的程序性知识和工作流
 7. **Spawn 签名更新** — Given kernel/kernel.go 已更新，When 查看 Spawn 函数签名，Then 接受 AgentInfo 而非 skills []string 参数
-8. **CLI --agent flag** — Given cmd/crux/main.go 已更新，When 执行 crux "分析代码" --agent=code-analyst，Then AgentLoader 加载 Agent 定义，Spawn 使用 AgentInfo
+8. **CLI --agent flag** — Given cmd/rnix/main.go 已更新，When 执行 rnix "分析代码" --agent=code-analyst，Then AgentLoader 加载 Agent 定义，Spawn 使用 AgentInfo
 9. **权限白名单聚合** — Given Agent 引用多个 Skill，When AgentLoader 聚合权限，Then 所有 Skill 的 AllowedTools 合并去重后作为进程的 AllowedDevices
-10. **端到端验证** — Given 所有修改完成，When 执行 crux "分析代码" --agent=code-analyst，Then 智能体正确启动、使用 agent models 偏好、注入 agent + skill instructions、设备权限限制正确
+10. **端到端验证** — Given 所有修改完成，When 执行 rnix "分析代码" --agent=code-analyst，Then 智能体正确启动、使用 agent models 偏好、注入 agent + skill instructions、设备权限限制正确
 11. **所有现有测试通过** — Given 测试已更新，When 执行 go test -race ./...，Then 所有测试通过，无回归
 
 ## Tasks / Subtasks
@@ -49,15 +49,15 @@ So that Agent 定义"我是谁"（身份+策略+模型），Skill 定义"如何�
   - [x] 4.3 更新 `kernel/kernel_test.go`：适配新 Spawn 签名
 
 - [x] Task 5: 更新 CLI 层 — --agent flag (AC: #8, #10)
-  - [x] 5.1 更新 `cmd/crux/main.go`：--skill flag 改为 --agent flag，初始化 AgentLoader
+  - [x] 5.1 更新 `cmd/rnix/main.go`：--skill flag 改为 --agent flag，初始化 AgentLoader
   - [x] 5.2 更新 AgentLoader 和 SkillLoader 的依赖注入：AgentLoader 持有 SkillLoader 引用
-  - [x] 5.3 更新 `cmd/crux/integration_test.go`：适配 Agent 加载的集成测试
+  - [x] 5.3 更新 `cmd/rnix/integration_test.go`：适配 Agent 加载的集成测试
 
 - [x] Task 6: 全量回归测试与验收 (AC: #11)
   - [x] 6.1 `go test -race ./skills/...` 通过
   - [x] 6.2 `go test -race ./agents/...` 通过
   - [x] 6.3 `go test -race ./kernel/...` 通过
-  - [x] 6.4 `go test -race ./cmd/crux/...` 通过
+  - [x] 6.4 `go test -race ./cmd/rnix/...` 通过
   - [x] 6.5 `go test -race ./...` 全量通过
   - [x] 6.6 `go vet ./...` 无警告
 
@@ -289,7 +289,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 3. system prompt 组装逻辑更新：Agent instructions + Skill body（原来只有 Skill instructions）
 4. AllowedDevices 从单个 Skill 改为多 Skill 聚合
 
-#### cmd/crux/main.go（当前状态 — 需更新）
+#### cmd/rnix/main.go（当前状态 — 需更新）
 
 **当前关键代码片段：**
 
@@ -376,7 +376,7 @@ func New(v *vfs.VFS, cm *context.Manager) *KernelImpl
 ```go
 package agents
 
-import "github.com/usecrux/crux/skills"
+import "github.com/rnixai/rnix/skills"
 
 // AgentModels 定义 Agent 的模型偏好
 type AgentModels struct {
@@ -438,7 +438,7 @@ import (
     "os"
     "path/filepath"
 
-    "github.com/usecrux/crux/skills"
+    "github.com/rnixai/rnix/skills"
     "gopkg.in/yaml.v3"
 )
 
@@ -552,9 +552,9 @@ description: >
   find problems in source code.
 allowed-tools: /dev/fs /dev/shell
 metadata:
-  author: crux
+  author: rnix
   version: "1.0"
-compatibility: Designed for Crux
+compatibility: Designed for Rnix
 ---
 
 # Code Analysis
@@ -676,7 +676,7 @@ This is a mock skill for testing purposes.
 - `TestReasonStep_*` — 如果涉及 Spawn 调用则更新
 - Mock 对象需要适配新签名
 
-#### cmd/crux/integration_test.go
+#### cmd/rnix/integration_test.go
 
 | 测试函数 | 需要变更 |
 |---------|---------|
@@ -800,8 +800,8 @@ skills/loader.go             — SKILL.md 解析 + 渐进式加载
 skills/loader_test.go        — 适配新格式
 kernel/kernel.go             — Spawn 签名 + KernelImpl 构造函数
 kernel/kernel_test.go        — 适配新 Spawn 签名
-cmd/crux/main.go             — --agent flag + AgentLoader 注入
-cmd/crux/integration_test.go — 适配 Agent 加载
+cmd/rnix/main.go             — --agent flag + AgentLoader 注入
+cmd/rnix/integration_test.go — 适配 Agent 加载
 ```
 
 **本 Story 删除的文件：**
@@ -827,7 +827,7 @@ skills/testdata/mock-skill/instructions.md  — 被 SKILL.md 替代
 - [Source: skills/loader.go:38-76] — 当前 SkillLoader.Load() 方法
 - [Source: kernel/kernel.go:100-187] — 当前 Spawn 函数实现
 - [Source: kernel/kernel.go:345-368] — 设备权限白名单检查逻辑
-- [Source: cmd/crux/main.go:34,153,193,198-202] — 当前 --skill flag 和 SkillLoader 初始化
+- [Source: cmd/rnix/main.go:34,153,193,198-202] — 当前 --skill flag 和 SkillLoader 初始化
 
 ## Dev Agent Record
 
@@ -876,8 +876,8 @@ N/A
 | `lib/skills/code-analysis/SKILL.md` | 新增 | 参考 Skill 标准格式 |
 | `kernel/kernel.go` | 修改 | NewKernel 3 参数，Spawn 接受 *agents.AgentInfo，debug 事件含 allowed_devices |
 | `kernel/kernel_test.go` | 重写 | 所有 Spawn 调用适配 AgentInfo，新增 testAgentInfo() 辅助函数 |
-| `cmd/crux/main.go` | 修改 | --skill → --agent flag，AgentLoader 注入 |
-| `cmd/crux/integration_test.go` | 修改 | NewKernel 调用适配，两个 Skill 测试重写为 Agent 测试 |
+| `cmd/rnix/main.go` | 修改 | --skill → --agent flag，AgentLoader 注入 |
+| `cmd/rnix/integration_test.go` | 修改 | NewKernel 调用适配，两个 Skill 测试重写为 Agent 测试 |
 | `_bmad-output/project-context.md` | 修改 | 依赖图更新：kernel → agents → skills |
 | `skills/testdata/mock-skill/manifest.yaml` | 删除 | 被 SKILL.md 替代 |
 | `skills/testdata/mock-skill/instructions.md` | 删除 | 被 SKILL.md 替代 |
@@ -915,8 +915,8 @@ N/A
 - `skills/loader_test.go`
 - `kernel/kernel.go`
 - `kernel/kernel_test.go`
-- `cmd/crux/main.go`
-- `cmd/crux/integration_test.go`
+- `cmd/rnix/main.go`
+- `cmd/rnix/integration_test.go`
 
 **删除文件：**
 - `skills/testdata/mock-skill/manifest.yaml`

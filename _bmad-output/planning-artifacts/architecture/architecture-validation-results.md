@@ -39,7 +39,7 @@
 | FR19-22（上下文）| `context/context.go` | ✅ 已实现 |
 | FR23-27（Agent/Skill）| `agents/` + `skills/` + `lib/` | ✅ 已实现 |
 | FR28-32（调试）| `debug/` + `internal/ui/trace.go` | ✅ 已实现 |
-| FR33-37（CLI）| `cmd/crux/` | ✅ 已实现 |
+| FR33-37（CLI）| `cmd/rnix/` | ✅ 已实现 |
 | FR38-40（文档）| `docs/` | ✅ 已实现 |
 
 ### Phase 2 FR 覆盖（FR41-FR70）：30/30 ✅
@@ -48,15 +48,15 @@
 |---------|---------|------|
 | FR41-45（IPC）| `kernel/signal.go` + `kernel/procgroup.go` + `kernel/thread.go` + `kernel/coroutine.go` | ✅ 已实现 |
 | FR46-49（Compose）| `compose/` | ✅ 已实现 |
-| FR50-53（skillpkg）| `skillpkg/` + `cmd/crux/skill.go` | ✅ 已实现 |
+| FR50-53（skillpkg）| `skillpkg/` + `cmd/rnix/skill.go` | ✅ 已实现 |
 | FR54-57（MCP）| `vfs/mcp.go` + `drivers/mcp/` | ✅ 已实现 |
-| FR58-65（监控/Supervisor）| `cmd/crux/top.go` + `cmd/crux/log.go` + `kernel/supervisor.go` + `kernel/init.go` + `context/budget.go` | ✅ 已实现 |
+| FR58-65（监控/Supervisor）| `cmd/rnix/top.go` + `cmd/rnix/log.go` + `kernel/supervisor.go` + `kernel/init.go` + `context/budget.go` | ✅ 已实现 |
 | FR66-68（AgentShell）| `shell/` | ✅ 已实现 |
 | FR69-70（文档）| `docs/tutorials/` + `docs/architecture.md` | ✅ 已实现 |
 
 ### Phase 3 FR 覆盖（FR71-FR140）：架构决策已到位
 
-- 时间旅行录制路径 `$PROJECT/.crux/records/` 已规划
+- 时间旅行录制路径 `$PROJECT/.rnix/records/` 已规划
 - agdb attach 通过 IPC 扩展，机制明确
 - 分布式追踪通过 TraceID/SpanID 自动传播
 - AgentShell Phase 3 节点类型已在 AST 设计中预留

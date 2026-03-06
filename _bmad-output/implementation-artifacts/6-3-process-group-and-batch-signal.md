@@ -511,7 +511,7 @@ kernel/ipc_test.go        — 现有 IPC/Pipe 测试不变
 kernel/errors.go          — 无需新 ErrCode（复用 ErrNotFound、ErrInvalid）
 vfs/                      — VFS 层不涉及进程组
 ipc/                      — 跨终端 IPC daemon，与内核进程组无关
-cmd/crux/main.go          — CLI 层暂不暴露进程组命令（由 Compose/Supervisor 使用）
+cmd/rnix/main.go          — CLI 层暂不暴露进程组命令（由 Compose/Supervisor 使用）
 ```
 
 ### 必需导入
@@ -523,7 +523,7 @@ import (
     "sync"
     "time"
 
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
 )
 
 // kernel/procgroup_test.go
@@ -531,7 +531,7 @@ import (
     "sync"
     "testing"
 
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )

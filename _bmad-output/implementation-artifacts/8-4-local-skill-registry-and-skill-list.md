@@ -33,7 +33,7 @@ so that 我了解本地可用的能力模块。
   - [x] 2.6 按 Name 字母排序返回结果
   - [x] 2.7 结果使用 `make([]ListEntry, 0)` 初始化，确保 JSON 序列化为 `[]` 而非 `null`
 
-- [x] Task 3: 在 `cmd/crux/skill.go` 中添加 `skill list` 子命令 (AC: #1, #2, #3)
+- [x] Task 3: 在 `cmd/rnix/skill.go` 中添加 `skill list` 子命令 (AC: #1, #2, #3)
   - [x] 3.1 定义 `skillListCmd` cobra.Command：`Use: "list"`, `Short: "List all installed skills"`, `Args: cobra.NoArgs`
   - [x] 3.2 在 `init()` 中 `skillCmd.AddCommand(skillListCmd)`
   - [x] 3.3 实现 `runSkillList`：
@@ -61,7 +61,7 @@ so that 我了解本地可用的能力模块。
     - community + builtin 混合
     - 空目录（无 skill）
     - 目录存在但 SKILL.md 无效时跳过（不崩溃）
-  - [x] 4.2 `cmd/crux/skill_test.go`：添加 list CLI 测试
+  - [x] 4.2 `cmd/rnix/skill_test.go`：添加 list CLI 测试
     - `TestSkillListCmd_Registered`：验证 list 子命令注册
     - `TestSkillList_JSONOutput`：验证 JSON 输出格式和 snake_case
     - `TestSkillList_EmptyResult_JSONOutput`：验证空列表 JSON（空 skills 数组）
@@ -77,7 +77,7 @@ so that 我了解本地可用的能力模块。
 
 ### 核心架构决策
 
-**无新增包**：本 Story 的所有改动都在现有包内完成（`skillpkg/` 和 `cmd/crux/`），不创建新目录或新包。
+**无新增包**：本 Story 的所有改动都在现有包内完成（`skillpkg/` 和 `cmd/rnix/`），不创建新目录或新包。
 
 **聚合策略**：`ListAll()` 方法需要聚合两种来源的 skill：
 1. **LocalRegistry 已注册的 skill**（通过 `.registry.yaml`）—— 有 version、source、checksum 信息
@@ -91,7 +91,7 @@ so that 我了解本地可用的能力模块。
 
 **依赖方向不变**：
 ```
-cmd/crux/skill.go -> skillpkg/ -> skills/ (已有依赖链)
+cmd/rnix/skill.go -> skillpkg/ -> skills/ (已有依赖链)
 ```
 - 不引入任何新的外部依赖
 - 不修改现有接口（只新增方法和类型）
@@ -134,7 +134,7 @@ func (inst *Installer) ListAll() ([]ListEntry, error) {
 - 使用 `sort.Slice` 按 `Name` 字母序排序
 
 **CLI 子命令注册模式**（参考 `skillInstallCmd`、`skillSearchCmd`、`skillUpdateCmd` 已有模式）：
-- 在 `cmd/crux/skill.go` 中定义 `skillListCmd`
+- 在 `cmd/rnix/skill.go` 中定义 `skillListCmd`
 - `init()` 中 `skillCmd.AddCommand(skillListCmd)`
 - 复用全局 `flagJSON`、`flagQuiet` flags（不需要额外 flags）
 - `Args: cobra.NoArgs` — 不接受参数
@@ -173,9 +173,9 @@ func (inst *Installer) ListAll() ([]ListEntry, error) {
 - `ui.KernelStyle.Render("[skill]")` — 终端输出前缀样式
 
 **参考现有模式**：
-- `cmd/crux/skill.go` 中 `runSkillSearch` — 表格输出模式（表头 + 数据行 `fmt.Fprintf`）
-- `cmd/crux/skill.go` 中 `renderSkillSearchJSON` — JSON 渲染模式
-- `cmd/crux/skill_test.go` — CLI 测试模式（验证命令注册、JSON 输出）
+- `cmd/rnix/skill.go` 中 `runSkillSearch` — 表格输出模式（表头 + 数据行 `fmt.Fprintf`）
+- `cmd/rnix/skill.go` 中 `renderSkillSearchJSON` — JSON 渲染模式
+- `cmd/rnix/skill_test.go` — CLI 测试模式（验证命令注册、JSON 输出）
 - `skillpkg/installer_test.go` — 使用 TempDir + mock 测试
 
 ### 反模式防护
@@ -183,7 +183,7 @@ func (inst *Installer) ListAll() ([]ListEntry, error) {
 - **不要**在 `ListAll` 中发起网络请求——这是纯本地操作，不需要 `RegistryClient`
 - **不要**引入新的外部依赖
 - **不要**修改 `LocalRegistry.List()` 的签名或行为——只在 `Installer` 层新增 `ListAll()` 方法
-- **不要**在 `skillpkg/` 中导入 `internal/ui/` 或 `cmd/crux/`——UI 渲染仅在 CLI 层
+- **不要**在 `skillpkg/` 中导入 `internal/ui/` 或 `cmd/rnix/`——UI 渲染仅在 CLI 层
 - **不要**使用 `interface{}` 存储列表结果——使用明确的 `ListEntry` 结构体
 - **不要**使用 `.yml` 后缀——统一 `.yaml`
 - **不要**使用 `I` 前缀接口命名
@@ -203,7 +203,7 @@ func (inst *Installer) ListAll() ([]ListEntry, error) {
 - `TestInstaller_ListAll_Empty`：空目录，验证返回空 slice（非 nil）
 - `TestInstaller_ListAll_InvalidSkillSkipped`：创建不含有效 SKILL.md 的目录，验证被跳过不报错
 
-**CLI 层单元测试**（`cmd/crux/skill_test.go`）：
+**CLI 层单元测试**（`cmd/rnix/skill_test.go`）：
 
 - `TestSkillListCmd_Registered`：验证 list 子命令注册在 skill 下
 - `TestSkillList_JSONOutput`：构造 `ListEntry` slice，调用 `renderSkillListJSON`，验证 JSON 格式和 snake_case
@@ -237,8 +237,8 @@ This is a test skill body.
 ### Git 提交模式参考
 
 最近提交（5415a45）为 Story 8.3 实现：
-- 修改范围：`skillpkg/types.go`、`skillpkg/installer.go`、`skillpkg/update_test.go`、`cmd/crux/skill.go`、`cmd/crux/skill_test.go`
-- 本 Story 类似范围：扩展 `skillpkg/types.go`（ListEntry）、`skillpkg/installer.go`（ListAll）、新增或扩展 `skillpkg/installer_test.go`、`cmd/crux/skill.go`（list 子命令）、`cmd/crux/skill_test.go`（list CLI 测试）
+- 修改范围：`skillpkg/types.go`、`skillpkg/installer.go`、`skillpkg/update_test.go`、`cmd/rnix/skill.go`、`cmd/rnix/skill_test.go`
+- 本 Story 类似范围：扩展 `skillpkg/types.go`（ListEntry）、`skillpkg/installer.go`（ListAll）、新增或扩展 `skillpkg/installer_test.go`、`cmd/rnix/skill.go`（list 子命令）、`cmd/rnix/skill_test.go`（list CLI 测试）
 
 ### Project Structure Notes
 
@@ -247,11 +247,11 @@ This is a test skill body.
 skillpkg/types.go          # 添加 ListEntry 类型
 skillpkg/installer.go      # 添加 ListAll() 方法
 skillpkg/installer_test.go # 添加 ListAll 相关测试（或新增 list_test.go）
-cmd/crux/skill.go          # 添加 skill list 子命令和 runSkillList
-cmd/crux/skill_test.go     # 添加 list CLI 测试
+cmd/rnix/skill.go          # 添加 skill list 子命令和 runSkillList
+cmd/rnix/skill_test.go     # 添加 list CLI 测试
 ```
 
-不新增文件（除测试文件外），不新增包，不修改 `cmd/crux/main.go`（`skillCmd` 已通过 `rootCmd.AddCommand` 注册，子命令在 `skill.go` 的 `init()` 中添加）。
+不新增文件（除测试文件外），不新增包，不修改 `cmd/rnix/main.go`（`skillCmd` 已通过 `rootCmd.AddCommand` 注册，子命令在 `skill.go` 的 `init()` 中添加）。
 
 ### References
 
@@ -264,9 +264,9 @@ cmd/crux/skill_test.go     # 添加 list CLI 测试
 - [Source: skillpkg/registry.go] — 现有 LocalRegistry（Get/List/Add/Remove，registryData 结构）
 - [Source: skills/types.go] — SkillManifest 结构体（Name、Description 字段）
 - [Source: skills/loader.go] — SkillLoader.LoadMetadata() 实现
-- [Source: cmd/crux/skill.go] — 现有 skill 子命令和 install/search/update 实现
-- [Source: cmd/crux/skill_test.go] — 现有 CLI 测试模式
-- [Source: cmd/crux/main.go#JSONResponse] — 统一 JSON 输出结构体
+- [Source: cmd/rnix/skill.go] — 现有 skill 子命令和 install/search/update 实现
+- [Source: cmd/rnix/skill_test.go] — 现有 CLI 测试模式
+- [Source: cmd/rnix/main.go#JSONResponse] — 统一 JSON 输出结构体
 - [Source: _bmad-output/project-context.md] — 项目编码规则
 
 ## Dev Agent Record
@@ -295,7 +295,7 @@ No issues encountered during implementation.
   - Terminal: table format with NAME/VERSION/SOURCE/DESCRIPTION columns, tip line when no community skills
   - JSON: `{ok:true, data:{skills:[...]}}` format with snake_case fields
   - Quiet: skill names only, one per line
-- All 12 ATDD tests pass (7 in `skillpkg/list_test.go`, 5 in `cmd/crux/skill_test.go`)
+- All 12 ATDD tests pass (7 in `skillpkg/list_test.go`, 5 in `cmd/rnix/skill_test.go`)
 - All existing tests pass with no regressions (IPC/socket test failures are pre-existing sandbox environment limitation)
 - Build and vet pass successfully
 
@@ -304,15 +304,15 @@ No issues encountered during implementation.
 - `skillpkg/types.go` — Added `ListEntry` struct
 - `skillpkg/installer.go` — Added `ListAll()` method and `sort` import
 - `skillpkg/list_test.go` — ATDD tests for ListAll (pre-existing, all pass)
-- `cmd/crux/skill.go` — Added `skillListCmd`, `runSkillList`, `skillListJSONData`, `renderSkillListJSON`
-- `cmd/crux/skill_test.go` — ATDD tests for list CLI (pre-existing, all pass)
+- `cmd/rnix/skill.go` — Added `skillListCmd`, `runSkillList`, `skillListJSONData`, `renderSkillListJSON`
+- `cmd/rnix/skill_test.go` — ATDD tests for list CLI (pre-existing, all pass)
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` — Updated story status to review
 - `_bmad-output/implementation-artifacts/8-4-local-skill-registry-and-skill-list.md` — Updated story status, tasks, and dev record
 
 ### Change Log
 
 - 2026-03-01: Implemented Story 8.4 — Local Skill Registry and `skill list` command. Added `ListEntry` type, `Installer.ListAll()` method, and `skill list` CLI subcommand with terminal/JSON/quiet output modes. All acceptance criteria satisfied.
-- 2026-03-01: Code Review (AI) — Fixed H1 bug: `ListAll()` silently dropped registered skills with corrupted SKILL.md due to premature `seen` flag. Now registered skills with invalid SKILL.md are still listed from registry data. Added test `TestInstaller_ListAll_RegisteredSkillWithCorruptedSKILLMD`. All 13 ATDD tests pass (8 in `skillpkg/list_test.go`, 5 in `cmd/crux/skill_test.go`).
+- 2026-03-01: Code Review (AI) — Fixed H1 bug: `ListAll()` silently dropped registered skills with corrupted SKILL.md due to premature `seen` flag. Now registered skills with invalid SKILL.md are still listed from registry data. Added test `TestInstaller_ListAll_RegisteredSkillWithCorruptedSKILLMD`. All 13 ATDD tests pass (8 in `skillpkg/list_test.go`, 5 in `cmd/rnix/skill_test.go`).
 
 ### Senior Developer Review (AI)
 
@@ -334,4 +334,4 @@ No issues encountered during implementation.
 - L1: Defensive nil check in `renderSkillListJSON` technically unnecessary since `ListAll()` guarantees non-nil. Consistent with other render functions.
 - L2: `RegistryClient` allocated but unused in `runSkillList` (Installer requires it). Documented in Dev Notes.
 
-**Compilation Issues:** None. `sort` import is used by `sort.Slice` in `ListAll()`. `runSkillList` is defined at `cmd/crux/skill.go:390`. Build, vet, and all tests pass.
+**Compilation Issues:** None. `sort` import is used by `sort.Slice` in `ListAll()`. `runSkillList` is defined at `cmd/rnix/skill.go:390`. Build, vet, and all tests pass.

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/ipc"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
 )
 
 // --- 10.2-UNIT-001: FormatLogEntry think category ---

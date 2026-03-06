@@ -16,7 +16,7 @@ files_to_modify:
   - 'ipc/server.go'
   - 'ipc/server_test.go'
   - 'ipc/protocol.go'
-  - 'cmd/crux/log.go'
+  - 'cmd/rnix/log.go'
   - 'skillpkg/installer.go'
   - 'skillpkg/installer_test.go'
   - 'internal/types/types.go'
@@ -44,7 +44,7 @@ test_patterns:
 
 ### Problem Statement
 
-Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个通过（55.6%）。核心问题包括：Token 计数错误导致预算管理形同虚设、进程完成后立即从 procTable 删除导致 crux top 无法展示历史进程、日志过滤和 JSON 输出失效、LLM 不返回非零 exit_code 导致管道失败传播和 on-error 机制无法触发。
+Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个通过（55.6%）。核心问题包括：Token 计数错误导致预算管理形同虚设、进程完成后立即从 procTable 删除导致 rnix top 无法展示历史进程、日志过滤和 JSON 输出失效、LLM 不返回非零 exit_code 导致管道失败传播和 on-error 机制无法触发。
 
 ### Solution
 
@@ -59,14 +59,14 @@ Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个�
 - BUG-004（中）：驱动层错误传播，使管道失败传播和 on-error 生效
 - BUG-005（低）：Skill 安装前检查本地已有 Skill
 - BUG-006（中）：checkIdle() 排除 Zombie 进程
-- BUG-007（中）：crux log --filter 过滤修复（日志历史重放）
-- BUG-008（中）：crux log --json 输出修复（同 BUG-007 根因）
+- BUG-007（中）：rnix log --filter 过滤修复（日志历史重放）
+- BUG-008（中）：rnix log --json 输出修复（同 BUG-007 根因）
 
 **Out of Scope:**
 - 新功能开发
 - 性能优化
 - MCP 相关功能测试
-- 社区 Skill 注册表（registry.crux.dev 不可达）
+- 社区 Skill 注册表（registry.rnix.ai 不可达）
 
 ## Context for Development
 
@@ -91,7 +91,7 @@ Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个�
 | `kernel/process.go` | 进程模型 | L31-73 (Process struct), L43 (CreatedAt) |
 | `ipc/server.go` | IPC 服务，BUG-006/007/008 | L135-151 (checkIdle), L161-174 (tryAutoShutdown), L426-451 (handleAttachLog) |
 | `ipc/client.go` | IPC 客户端 | L279-317 (AttachLog 流处理) |
-| `cmd/crux/log.go` | 日志命令 | L98-115 (callback过滤+JSON输出), L105 (filter逻辑) |
+| `cmd/rnix/log.go` | 日志命令 | L98-115 (callback过滤+JSON输出), L105 (filter逻辑) |
 | `skillpkg/installer.go` | Skill 安装器，BUG-005 | L46-50 (只检查registry不检查文件系统) |
 | `skillpkg/registry.go` | Skill 注册表 | L85-96 (Get只读.registry.yaml) |
 | `internal/types/types.go` | 类型定义 | L89-112 (ProcessState: Created/Running/Zombie/Dead) |
@@ -186,7 +186,7 @@ Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个�
   - File: `vfs/proc.go` (注意：非 `vfs/procinfo.go`，该文件不存在)
   - Action 4f: 在 `ProcInfo` struct 中添加 `DeadAt time.Time` 字段
   - File: `ipc/protocol.go`
-  - Action 4g: 在 `ProcInfoWire` struct 中添加 `DeadAt` 字段，并更新 `ProcInfoToWire`/`WireToProcInfo` 转换函数，确保远程 crux top/ps 能看到 Dead 进程的时间戳
+  - Action 4g: 在 `ProcInfoWire` struct 中添加 `DeadAt` 字段，并更新 `ProcInfoToWire`/`WireToProcInfo` 转换函数，确保远程 rnix top/ps 能看到 Dead 进程的时间戳
   - File: `kernel/kernel.go`
   - Action 4h: 在 `ListProcs()` (L900-921) 中将 `proc.DeadAt` 复制到 `ProcInfo.DeadAt`
   - Notes: TTL 常量建议 `const DeadProcessTTL = 60 * time.Second`，ticker 间隔 10 秒。Dead 进程的 FD/channels 已经在 reap 时关闭，TTL 保留的只是 procTable 中的元数据。**[F3]** `ipc/server.go` 中 `handleSpawn` 的 `defer Reap(pid)` 和 `SpawnAndWait` 的 `Reap(pid)` 在新设计下会延迟清理进程 60s——这是设计意图，长时间 compose DAG 可能累积 Dead 进程但仅保留元数据，内存开销可控。**[F10]** `SpawnAndWait` 中 `GetProcInfo(pid)` 在 `Reap(pid)` 之前调用——修复后 Reap 不再删除进程，GetProcInfo 总能成功，这是一个正面副作用
@@ -352,9 +352,9 @@ Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个�
 #### Phase D: 文档改进
 
 - [x] Task 7: BUG-003 — LLM 超时可见性
-  - File: `cmd/crux/main.go`
+  - File: `cmd/rnix/main.go`
   - Action 7a: 在 compose YAML 的 agent 配置中已支持 `timeout_ms` 字段（确认是否存在，不存在则添加到 compose 解析逻辑中）
-  - Action 7b: 在 `crux --help` 或 `crux compose --help` 中说明超时配置方式
+  - Action 7b: 在 `rnix --help` 或 `rnix compose --help` 中说明超时配置方式
   - Notes: `DefaultTimeout=5min(300s)` 已可通过 `SpawnOpts.TimeoutMs` 和 `WithTimeout()` 配置。此任务主要是文档和可见性改进，不涉及核心逻辑变更
 
 ### Acceptance Criteria
@@ -363,14 +363,14 @@ Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个�
 
 - [x] AC 1.1: Given Claude CLI 返回包含 `input_tokens: 100, output_tokens: 50` 的 JSON, when 内核处理 LLM 响应, then `proc.TokensUsed` 累加 150（非 NumTurns 值）
 - [x] AC 1.2: Given 进程设置 `context_budget: 200`, when LLM 响应累计 token ≥ 200, then 进程以 `exit_code=2, reason=budget_exceeded` 终止
-- [x] AC 1.3: Given `crux compose up --json`, when 多个 Agent 完成执行, then `total_tokens` 为各 Agent `input_tokens + output_tokens` 之和
+- [x] AC 1.3: Given `rnix compose up --json`, when 多个 Agent 完成执行, then `total_tokens` 为各 Agent `input_tokens + output_tokens` 之和
 - [x] AC 1.4: Given stream 模式下 result 事件, when 解析 TokensUsed, then 值为 `input_tokens + output_tokens`（非 NumTurns）
 
 #### BUG-002: Dead 进程 TTL 保留
 
 - [x] AC 2.1: Given 进程完成并转为 Dead 状态, when 在 TTL(60s) 内调用 `ListProcs()`, then 结果包含该 Dead 进程及其 `DeadAt` 时间戳
 - [x] AC 2.2: Given Dead 进程已超过 TTL, when reaper ticker 触发清理, then 进程从 procTable 移除且 `ListProcs()` 不再返回
-- [x] AC 2.3: Given 多个进程依次完成（如 compose DAG）, when crux top 轮询, then 能同时看到 running 和最近完成的 dead 进程
+- [x] AC 2.3: Given 多个进程依次完成（如 compose DAG）, when rnix top 轮询, then 能同时看到 running 和最近完成的 dead 进程
 - [x] AC 2.4: Given kernel Shutdown 被调用, when ticker 运行中, then ticker 正常停止，无 goroutine 泄漏
 
 #### BUG-004: 驱动层错误传播
@@ -383,9 +383,9 @@ Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个�
 
 #### BUG-005: Skill 安装本地检查
 
-- [x] AC 5.1: Given builtin skill `code-analysis` 存在于 `lib/skills/code-analysis/`, when 执行 `crux skill install code-analysis`, then 返回 `AlreadyInstalledError`（非网络错误）
-- [x] AC 5.2: Given `--force` 标志, when 执行 `crux skill install code-analysis --force`, then 绕过本地检查，继续执行安装流程
-- [x] AC 5.3: Given 本地目录存在但 `SKILL.md` 无效, when 执行 `crux skill install <name>`, then 不返回 AlreadyInstalled，继续网络安装流程
+- [x] AC 5.1: Given builtin skill `code-analysis` 存在于 `lib/skills/code-analysis/`, when 执行 `rnix skill install code-analysis`, then 返回 `AlreadyInstalledError`（非网络错误）
+- [x] AC 5.2: Given `--force` 标志, when 执行 `rnix skill install code-analysis --force`, then 绕过本地检查，继续执行安装流程
+- [x] AC 5.3: Given 本地目录存在但 `SKILL.md` 无效, when 执行 `rnix skill install <name>`, then 不返回 AlreadyInstalled，继续网络安装流程
 
 #### BUG-006: checkIdle 排除 Zombie
 
@@ -395,9 +395,9 @@ Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个�
 
 #### BUG-007/008: 日志历史重放
 
-- [x] AC 7.1: Given 进程已完成（Dead 状态），logHistory 中有 3 条 [think] 日志, when 执行 `crux log <pid>`, then 输出包含这 3 条 [think] 日志
-- [x] AC 7.2: Given 进程已完成, when 执行 `crux log <pid> --filter think`, then 仅输出 [think] 分类的日志（非空）
-- [x] AC 7.3: Given 进程已完成, when 执行 `crux log <pid> --json`, then 每行输出合法 JSON，包含 `category`/`content`/`timestamp_ms` 字段
+- [x] AC 7.1: Given 进程已完成（Dead 状态），logHistory 中有 3 条 [think] 日志, when 执行 `rnix log <pid>`, then 输出包含这 3 条 [think] 日志
+- [x] AC 7.2: Given 进程已完成, when 执行 `rnix log <pid> --filter think`, then 仅输出 [think] 分类的日志（非空）
+- [x] AC 7.3: Given 进程已完成, when 执行 `rnix log <pid> --json`, then 每行输出合法 JSON，包含 `category`/`content`/`timestamp_ms` 字段
 - [x] AC 7.4: Given 进程正在运行, when `emitLog()` 被调用, then 日志同时写入 LogChan 和 logHistory
 - [x] AC 7.5: Given logHistory 已满 256 条, when 新日志写入, then 最旧的条目被覆盖（环形缓冲行为）
 
@@ -425,7 +425,7 @@ Phase 2（Epic 6-12）集成验证发现 8 个 BUG，45 个验证点仅 25 个�
 
 **集成测试：**
 - 修复完成后重新执行 `docs/phase2-integration-validation.md` 的 10 个场景
-- 特别关注：场景 2（crux top 显示 token）、场景 4/5（管道失败传播+on-error）、场景 8（crux log filter/json）、场景 9（Token 预算）
+- 特别关注：场景 2（rnix top 显示 token）、场景 4/5（管道失败传播+on-error）、场景 8（rnix log filter/json）、场景 9（Token 预算）
 
 **回归测试：**
 - `make all` 全量通过（lint + vet + test + build）

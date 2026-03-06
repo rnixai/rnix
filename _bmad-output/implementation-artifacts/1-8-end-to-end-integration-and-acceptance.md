@@ -7,33 +7,33 @@ Status: done
 ## Story
 
 As a 用户,
-I want 完整的端到端体验：`crux "意图"` → 实时进度 → 结果 → 汇总,
+I want 完整的端到端体验：`rnix "意图"` → 实时进度 → 结果 → 汇总,
 So that 我确认整个系统协同工作正常。
 
 ## Acceptance Criteria
 
-1. **完整输出流** — Given 所有 Story 1.1-1.7 已完成，When 执行 `crux "分析 ./README.md"`，Then 看到完整输出流：`[kernel] spawning PID 1...` → `[agent/1] reasoning step N/M...` → `══ Result ══...══` → `[kernel] PID 1 exited(0) | tokens: N | elapsed: Ns`
+1. **完整输出流** — Given 所有 Story 1.1-1.7 已完成，When 执行 `rnix "分析 ./README.md"`，Then 看到完整输出流：`[kernel] spawning PID 1...` → `[agent/1] reasoning step N/M...` → `══ Result ══...══` → `[kernel] PID 1 exited(0) | tokens: N | elapsed: Ns`
 2. **可靠性** — Given Claude Code CLI 已安装并可用，When 连续执行 20 次简单任务，Then 成功率 ≥ 95%（NFR6），And 简单任务端到端耗时 ≤ 30 秒（NFR1）
 3. **超时处理** — Given LLM 调用超时，When 30 秒后超时触发，Then 进程在 5 秒内转为 Zombie（NFR7），And CLI 进程不崩溃（NFR10），And 显示三行错误结构
 4. **进程表一致性** — Given 进程异常退出，When 查看内核进程表，Then 进程表保持一致性，无悬挂 PID、无状态不一致（NFR9）
-5. **版本与依赖检测** — Given `crux version` 执行，When Claude Code CLI 未安装，Then 输出版本号并警告 `✗ claude-code CLI not found` + 安装建议
-6. **帮助输出** — Given 执行 `crux --help`，When 查看帮助输出，Then 显示 Usage + 可用命令列表 + 全局 flags + 示例
+5. **版本与依赖检测** — Given `rnix version` 执行，When Claude Code CLI 未安装，Then 输出版本号并警告 `✗ claude-code CLI not found` + 安装建议
+6. **帮助输出** — Given 执行 `rnix --help`，When 查看帮助输出，Then 显示 Usage + 可用命令列表 + 全局 flags + 示例
 7. **信号处理** — Given 用户按 Ctrl+C（首次），When 当前智能体执行中，Then 当前智能体优雅中断，进程转 zombie，输出中断摘要，And 2 秒内二次 Ctrl+C 强制退出
 
 ## Tasks / Subtasks
 
 - [x] Task 1: 增强 version 命令 — 检测 Claude Code CLI 可用性 (AC: #5)
-  - [x] 1.1 在 `cmd/crux/main.go` 的 `versionCmd` 中新增 Claude Code CLI 检测：执行 `claude --version` 检查是否可用
-  - [x] 1.2 可用时输出 `crux v0.1.0` + `claude-code: v{版本号}`
-  - [x] 1.3 不可用时输出 `crux v0.1.0` + `✗ claude-code CLI not found` + `→ 建议: npm install -g @anthropic-ai/claude-code`
+  - [x] 1.1 在 `cmd/rnix/main.go` 的 `versionCmd` 中新增 Claude Code CLI 检测：执行 `claude --version` 检查是否可用
+  - [x] 1.2 可用时输出 `rnix v0.1.0` + `claude-code: v{版本号}`
+  - [x] 1.3 不可用时输出 `rnix v0.1.0` + `✗ claude-code CLI not found` + `→ 建议: npm install -g @anthropic-ai/claude-code`
   - [x] 1.4 `--json` 模式下输出 JSON 格式的版本和依赖信息
 
 - [x] Task 2: 完善 help 输出 (AC: #6)
-  - [x] 2.1 确保 `crux --help` 显示 Usage、可用命令列表（version）、全局 flags（--json/--verbose/--quiet）
-  - [x] 2.2 在 rootCmd.Long 或 rootCmd.Example 中添加使用示例：`crux "分析 ./README.md"`
+  - [x] 2.1 确保 `rnix --help` 显示 Usage、可用命令列表（version）、全局 flags（--json/--verbose/--quiet）
+  - [x] 2.2 在 rootCmd.Long 或 rootCmd.Example 中添加使用示例：`rnix "分析 ./README.md"`
 
 - [x] Task 3: 编写 E2E 集成测试 — 完整输出流 (AC: #1)
-  - [x] 3.1 创建 `cmd/crux/integration_test.go`：使用 mock LLM 驱动的完整 E2E 测试
+  - [x] 3.1 创建 `cmd/rnix/integration_test.go`：使用 mock LLM 驱动的完整 E2E 测试
   - [x] 3.2 `TestE2E_SuccessFlow`：mock LLM 返回 ActionText → 验证完整输出包含 `[kernel] spawning PID`、`reasoning step`、`══ Result ══`、`exited(0)`
   - [x] 3.3 `TestE2E_ErrorFlow`：mock LLM 返回错误 → 验证输出包含 `✗` 错误块 + Summary Footer
   - [x] 3.4 `TestE2E_JSONOutput`：`--json` 模式 → 验证输出为有效 JSON、包含 `ok`/`data`/`pid`/`result`/`tokens_used`/`elapsed_ms`
@@ -60,7 +60,7 @@ So that 我确认整个系统协同工作正常。
   - [x] 7.3 `TestVersion_JSON`：`--json` 模式版本输出验证
 
 - [x] Task 8: help 输出测试 (AC: #6)
-  - [x] 8.1 `TestHelp_ContainsUsage`：验证 `crux --help` 输出包含 Usage、version 子命令、全局 flags
+  - [x] 8.1 `TestHelp_ContainsUsage`：验证 `rnix --help` 输出包含 Usage、version 子命令、全局 flags
   - [x] 8.2 `TestHelp_ContainsExample`：验证包含使用示例
 
 - [x] Task 9: 全量回归测试 (AC: all)
@@ -78,12 +78,12 @@ So that 我确认整个系统协同工作正常。
 
 ### 已有代码（必须复用，禁止重新实现）
 
-**`cmd/crux/main.go` — 当前已完整实现的功能：**
+**`cmd/rnix/main.go` — 当前已完整实现的功能：**
 
 ```go
 // 已有的核心组件：
-var rootCmd     // cobra 根命令，Use: "crux [intent]"，RunE: runRoot
-var versionCmd  // cobra version 子命令，仅输出 fmt.Printf("crux v%s\n", version)
+var rootCmd     // cobra 根命令，Use: "rnix [intent]"，RunE: runRoot
+var versionCmd  // cobra version 子命令，仅输出 fmt.Printf("rnix v%s\n", version)
 var flagJSON, flagVerbose, flagQuiet bool  // 全局 flags
 type JSONResponse struct { OK bool; Data any; Error any }
 type cliCallbacks struct { progress *ui.ProgressReporter }  // 实现 KernelCallbacks
@@ -96,7 +96,7 @@ func main()              // rootCmd.Execute() + exitCode 处理
 **`kernel/kernel.go` — Spawn + reasonStep 完整实现：**
 
 ```go
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl
+func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelImpl
 func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (PID, error)
 func (k *KernelImpl) GetProcess(pid PID) (*Process, bool)
 func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts)
@@ -113,7 +113,7 @@ func (p *Process) Terminate(exit ExitStatus) error  // Running → Zombie
 func (p *Process) GetState() ProcessState
 ```
 
-**`cmd/crux/main_test.go` — 已有 12 个测试：**
+**`cmd/rnix/main_test.go` — 已有 12 个测试：**
 
 已有测试涵盖：runRoot 成功/失败、JSON 输出、无参数显示 help、outputError JSON 模式、exitCode 处理等。**本 Story 需要扩展此文件，而非覆盖已有测试。**
 
@@ -134,7 +134,7 @@ var versionCmd = &cobra.Command{
     Use:   "version",
     Short: "Show version and dependencies",
     Run: func(cmd *cobra.Command, args []string) {
-        fmt.Printf("crux v%s\n", version)
+        fmt.Printf("rnix v%s\n", version)
     },
 }
 ```
@@ -142,7 +142,7 @@ var versionCmd = &cobra.Command{
 **增强后需要：**
 ```go
 func runVersion(cmd *cobra.Command, args []string) {
-    fmt.Printf("crux v%s\n", version)
+    fmt.Printf("rnix v%s\n", version)
 
     // 检测 Claude Code CLI
     out, err := exec.Command("claude", "--version").Output()
@@ -172,11 +172,11 @@ func runVersion(cmd *cobra.Command, args []string) {
 
 ### E2E 集成测试设计
 
-**核心方法：** 复用 `kernel_test.go` 中的 `newTestKernel` 模式，在 `cmd/crux/` 级别创建完整的 E2E 测试，使用 mock LLM 但真实的 Kernel + VFS + Context + UI 组件。
+**核心方法：** 复用 `kernel_test.go` 中的 `newTestKernel` 模式，在 `cmd/rnix/` 级别创建完整的 E2E 测试，使用 mock LLM 但真实的 Kernel + VFS + Context + UI 组件。
 
 **测试架构：**
 ```go
-// cmd/crux/integration_test.go
+// cmd/rnix/integration_test.go
 
 // testE2E 是 E2E 测试的辅助函数
 // 创建完整的依赖注入链（mock LLM），捕获 stdout 输出
@@ -192,7 +192,7 @@ func testE2E(t *testing.T, intent string, mockResp string, mockTokens int, mode 
     // 注册 mock LLM 驱动（固定返回 mockResp）
     mockDriver := ... // 使用类似 kernel_test.go 的 mock 方式
     devReg.Register("/dev/llm/claude", llm.FileFactory(mockDriver, "/dev/llm/claude"))
-    ctxMgr := cruxctx.NewManager()
+    ctxMgr := rnixctx.NewManager()
     kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
     pid, err := kern.Spawn(intent, nil, kernel.SpawnOpts{})
@@ -259,8 +259,8 @@ func assertProcessTableConsistency(t *testing.T, kern *kernel.KernelImpl) {
 3. **VFSFileFactory basePath（Story 1.3/1.5）：** `llm.FileFactory(driver, basePath)` 需要 `"/dev/llm/claude"` 作为第二个参数
 4. **finishProcess 统一出口（Story 1.6）：** 所有进程终止都通过 `finishProcess` → `Terminate` → `Done channel`。集成测试应验证此流程的完整性
 5. **UI 组件 JSON 模式抑制（Story 1.7 Review Fix）：** `RenderResult`/`RenderError`/`RenderSummary` 在 `ModeJSON` 下静默不输出。集成测试的 JSON 模式验证需要检查这些组件不产生额外输出
-6. **测试辅助函数复用（Story 1.6）：** `kernel_test.go` 中的 `newTestKernel` 和 `mockLLMFile` 是 `kernel` 包内部的（非导出）。`cmd/crux/integration_test.go` 需要创建自己的 E2E 测试辅助函数，但应复用相同的 mock 模式
-7. **.gitignore 修复（Story 1.7 Review）：** 已从 `crux` 改为 `/crux`，防止忽略 `cmd/crux/` 目录
+6. **测试辅助函数复用（Story 1.6）：** `kernel_test.go` 中的 `newTestKernel` 和 `mockLLMFile` 是 `kernel` 包内部的（非导出）。`cmd/rnix/integration_test.go` 需要创建自己的 E2E 测试辅助函数，但应复用相同的 mock 模式
+7. **.gitignore 修复（Story 1.7 Review）：** 已从 `rnix` 改为 `/rnix`，防止忽略 `cmd/rnix/` 目录
 
 ### Go 代码命名规则（必须遵循）
 
@@ -274,8 +274,8 @@ func assertProcessTableConsistency(t *testing.T, kern *kernel.KernelImpl) {
 ### 测试规范
 
 **测试文件位置：**
-- `cmd/crux/main_test.go` — 扩展已有测试（version/help 增强测试）
-- `cmd/crux/integration_test.go` — 新增 E2E 集成测试
+- `cmd/rnix/main_test.go` — 扩展已有测试（version/help 增强测试）
+- `cmd/rnix/integration_test.go` — 新增 E2E 集成测试
 - `kernel/kernel_test.go` — 扩展进程表一致性测试
 
 **必须包含的测试场景：**
@@ -312,7 +312,7 @@ func assertProcessTableConsistency(t *testing.T, kern *kernel.KernelImpl) {
 **本 Story 修改的文件：**
 
 ```
-cmd/crux/
+cmd/rnix/
 ├── main.go              (修改 — version 命令增强：Claude CLI 检测 + JSON 版本输出 + help 示例)
 ├── main_test.go         (修改 — 新增 version/help 测试)
 ├── integration_test.go  (新增 — E2E 集成测试套件)
@@ -347,7 +347,7 @@ kernel/
 - [Source: prd.md#NFR9] — 进程表一致性
 - [Source: prd.md#NFR10] — CLI 进程不崩溃
 - [Source: prd.md#FR32] — 智能体完成时输出汇总信息
-- [Source: prd.md#FR33] — `crux "意图"` 单命令启动
+- [Source: prd.md#FR33] — `rnix "意图"` 单命令启动
 - [Source: prd.md#FR36] — CLI 提供清晰错误信息
 - [Source: prd.md#FR37] — `go install` 安装
 - [Source: project-context.md#CLI 命令结构] — 根命令、子命令、全局 flags
@@ -367,7 +367,7 @@ Claude Opus 4.6
 ### Completion Notes List
 
 - ✅ Task 1: 增强 `versionCmd`，新增 `claudeVersionChecker` 可注入函数变量，支持 Claude Code CLI 检测（可用/不可用）和 `--json` 模式输出
-- ✅ Task 2: 在 `rootCmd.Example` 添加使用示例（`crux "分析 ./README.md"` 等），help 输出包含 Usage/命令/flags/示例
+- ✅ Task 2: 在 `rootCmd.Example` 添加使用示例（`rnix "分析 ./README.md"` 等），help 输出包含 Usage/命令/flags/示例
 - ✅ Task 3: 创建 `integration_test.go`，包含完整 E2E 测试（成功流、错误流、JSON 成功、JSON 错误），使用 `mockLLMDriver` + `syncWriter` 避免竞态
 - ✅ Task 4: 超时处理测试（`mockSlowLLMDriver` 模拟超时），验证进程转 Zombie、Done channel 写入、NFR7 时间约束
 - ✅ Task 5: 进程表一致性测试（正常退出、错误退出、多进程、并发 Spawn），全部使用 `-race` 检测
@@ -385,9 +385,9 @@ Claude Opus 4.6
 
 ### File List
 
-- `cmd/crux/main.go` — 修改：version 命令增强（Claude CLI 检测 + JSON 版本输出）、help 示例、forceExitFunc 可注入变量
-- `cmd/crux/main_test.go` — 修改：新增 version/help 测试（6 个测试函数）、TestHelp 全局状态清理
-- `cmd/crux/integration_test.go` — 新增：E2E 集成测试套件（13 个测试函数，含可靠性、信号处理增强）
+- `cmd/rnix/main.go` — 修改：version 命令增强（Claude CLI 检测 + JSON 版本输出）、help 示例、forceExitFunc 可注入变量
+- `cmd/rnix/main_test.go` — 修改：新增 version/help 测试（6 个测试函数）、TestHelp 全局状态清理
+- `cmd/rnix/integration_test.go` — 新增：E2E 集成测试套件（13 个测试函数，含可靠性、信号处理增强）
 - `kernel/kernel_test.go` — 修改：新增进程表一致性测试（4 个测试函数）、删除死代码
 
 ### Change Log

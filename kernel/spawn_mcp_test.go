@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- Mock MountManager with call tracking for Spawn MCP tests ---
@@ -106,7 +106,7 @@ func newSpawnTestKernel(t testing.TB, mountMgr MountManager) *KernelImpl {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	if mountMgr != nil {
 		k.mountMgr = mountMgr

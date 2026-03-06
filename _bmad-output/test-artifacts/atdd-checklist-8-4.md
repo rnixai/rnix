@@ -16,8 +16,8 @@ inputDocuments:
   - 'skillpkg/registry.go'
   - 'skills/loader.go'
   - 'skills/types.go'
-  - 'cmd/crux/skill.go'
-  - 'cmd/crux/skill_test.go'
+  - 'cmd/rnix/skill.go'
+  - 'cmd/rnix/skill_test.go'
   - 'skillpkg/installer_test.go'
   - 'skillpkg/update_test.go'
 ---
@@ -63,15 +63,15 @@ inputDocuments:
 | AC#1 | ListAll aggregates mixed builtin+community | Unit | P0 | `skillpkg/list_test.go` |
 | AC#1 | ListAll returns sorted entries by name | Unit | P1 | `skillpkg/list_test.go` |
 | AC#1 | ListAll includes Path field | Unit | P1 | `skillpkg/list_test.go` |
-| AC#1 | list subcommand registered under skill | Unit | P0 | `cmd/crux/skill_test.go` |
+| AC#1 | list subcommand registered under skill | Unit | P0 | `cmd/rnix/skill_test.go` |
 | AC#2 | (Tip logic tested at CLI layer, not in ATDD) | - | P1 | - |
-| AC#3 | JSON output with snake_case fields | Unit | P0 | `cmd/crux/skill_test.go` |
-| AC#3 | Empty list returns skills=[] not null | Unit | P0 | `cmd/crux/skill_test.go` |
-| AC#3 | Nil entries handled gracefully | Unit | P1 | `cmd/crux/skill_test.go` |
+| AC#3 | JSON output with snake_case fields | Unit | P0 | `cmd/rnix/skill_test.go` |
+| AC#3 | Empty list returns skills=[] not null | Unit | P0 | `cmd/rnix/skill_test.go` |
+| AC#3 | Nil entries handled gracefully | Unit | P1 | `cmd/rnix/skill_test.go` |
 | Edge | Invalid SKILL.md directories skipped | Unit | P1 | `skillpkg/list_test.go` |
 | Edge | Empty basePath returns empty slice | Unit | P1 | `skillpkg/list_test.go` |
 | Edge | .registry.yaml not listed as skill | Unit | P2 | `skillpkg/list_test.go` |
-| Edge | NoArgs validation on list command | Unit | P2 | `cmd/crux/skill_test.go` |
+| Edge | NoArgs validation on list command | Unit | P2 | `cmd/rnix/skill_test.go` |
 
 ---
 
@@ -111,7 +111,7 @@ inputDocuments:
 
 ### Unit Tests - CLI Layer (5 tests)
 
-**File:** `cmd/crux/skill_test.go` (appended, ~130 lines of new tests)
+**File:** `cmd/rnix/skill_test.go` (appended, ~130 lines of new tests)
 
 - **Test:** `TestSkillListCmd_Registered`
   - **Status:** RED - `skillListCmd` not registered (no "list" subcommand found)
@@ -195,11 +195,11 @@ N/A - Backend project, no UI elements.
 
 ### Test: TestSkillListCmd_Registered (+ all CLI tests)
 
-**File:** `cmd/crux/skill_test.go`
+**File:** `cmd/rnix/skill_test.go`
 
 **Tasks to make these tests pass:**
 
-- [ ] Define `skillListCmd` in `cmd/crux/skill.go`: Use="list", Short="List all installed skills", Args=cobra.NoArgs
+- [ ] Define `skillListCmd` in `cmd/rnix/skill.go`: Use="list", Short="List all installed skills", Args=cobra.NoArgs
 - [ ] Register with `skillCmd.AddCommand(skillListCmd)` in `init()`
 - [ ] Implement `runSkillList(cmd, args)` function:
   - [ ] Create Installer (reuse skillRegistryURL, basePath, registry, skillLoader pattern)
@@ -210,7 +210,7 @@ N/A - Backend project, no UI elements.
   - [ ] Quiet mode: print skill names only, one per line
 - [ ] Define `skillListJSONData` struct with `Skills []skillpkg.ListEntry`
 - [ ] Implement `renderSkillListJSON(r, entries)` function (handle nil -> [])
-- [ ] Run tests: `go test ./cmd/crux/ -run TestSkillList -race -v`
+- [ ] Run tests: `go test ./cmd/rnix/ -run TestSkillList -race -v`
 - [ ] All CLI list tests pass (green phase)
 
 ---
@@ -220,13 +220,13 @@ N/A - Backend project, no UI elements.
 ```bash
 # Run all failing tests for this story (will fail to compile in RED phase)
 go test ./skillpkg/ -run TestInstaller_ListAll -race -v
-go test ./cmd/crux/ -run TestSkillList -race -v
+go test ./cmd/rnix/ -run TestSkillList -race -v
 
 # Run all skillpkg tests
 go test ./skillpkg/ -race -v
 
-# Run all cmd/crux tests
-go test ./cmd/crux/ -race -v
+# Run all cmd/rnix tests
+go test ./cmd/rnix/ -race -v
 
 # Run all project tests
 make test
@@ -254,7 +254,7 @@ go tool cover -html=coverage.out
 **Verification:**
 
 - `go vet ./skillpkg/` fails: `installer.ListAll undefined`
-- `go vet ./cmd/crux/` fails: `skillpkg.ListEntry undefined`, `renderSkillListJSON undefined`
+- `go vet ./cmd/rnix/` fails: `skillpkg.ListEntry undefined`, `renderSkillListJSON undefined`
 - Tests fail due to missing implementation, not test bugs
 
 ---
@@ -266,8 +266,8 @@ go tool cover -html=coverage.out
 1. **Start with `skillpkg/types.go`**: Add `ListEntry` struct
 2. **Implement `ListAll()`** in `skillpkg/installer.go`
 3. **Run `skillpkg` tests**: `go test ./skillpkg/ -run TestInstaller_ListAll -race -v`
-4. **Implement CLI**: Add `skillListCmd`, `runSkillList`, `renderSkillListJSON` in `cmd/crux/skill.go`
-5. **Run CLI tests**: `go test ./cmd/crux/ -run TestSkillList -race -v`
+4. **Implement CLI**: Add `skillListCmd`, `runSkillList`, `renderSkillListJSON` in `cmd/rnix/skill.go`
+5. **Run CLI tests**: `go test ./cmd/rnix/ -run TestSkillList -race -v`
 6. **Run full suite**: `make test`
 
 **Key Principles:**
@@ -294,7 +294,7 @@ go tool cover -html=coverage.out
 ## Next Steps
 
 1. **Review this checklist and failing tests** with the dev workflow
-2. **Run failing tests** to confirm RED phase: `go vet ./skillpkg/ && go vet ./cmd/crux/`
+2. **Run failing tests** to confirm RED phase: `go vet ./skillpkg/ && go vet ./cmd/rnix/`
 3. **Begin implementation** using implementation checklist as guide
 4. **Work one test group at a time** (types -> ListAll -> CLI)
 5. **When all tests pass**, run `make all` for full validation
@@ -314,16 +314,16 @@ go tool cover -html=coverage.out
 
 ### Initial Test Run (RED Phase Verification)
 
-**Command:** `go vet ./skillpkg/ && go vet ./cmd/crux/`
+**Command:** `go vet ./skillpkg/ && go vet ./cmd/rnix/`
 
 **Results:**
 
 ```
-# github.com/usecrux/crux/skillpkg
+# github.com/rnixai/rnix/skillpkg
 vet: skillpkg/list_test.go:55:28: installer.ListAll undefined (type *Installer has no field or method ListAll)
 
-# github.com/usecrux/crux/cmd/crux
-vet: cmd/crux/skill_test.go:640:24: undefined: skillpkg.ListEntry
+# github.com/rnixai/rnix/cmd/rnix
+vet: cmd/rnix/skill_test.go:640:24: undefined: skillpkg.ListEntry
 ```
 
 **Summary:**

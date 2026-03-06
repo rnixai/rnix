@@ -668,7 +668,7 @@ kernel/procgroup.go       — ProcGroupManager 不变（SignalGroup 通过 Kill 
 kernel/errors.go          — 无需新 ErrCode（复用 ErrNotFound、ErrInvalid）
 vfs/                      — VFS 层不涉及信号系统
 ipc/                      — 跨终端 IPC daemon，与内核信号系统无关
-cmd/crux/main.go          — CLI 层暂不暴露信号命令（由 AgentShell/Compose 使用）
+cmd/rnix/main.go          — CLI 层暂不暴露信号命令（由 AgentShell/Compose 使用）
 ```
 
 ### 必需导入
@@ -679,7 +679,7 @@ import (
     "fmt"
     "time"
 
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
 )
 
 // kernel/signal_test.go
@@ -688,7 +688,7 @@ import (
     "testing"
     "time"
 
-    "github.com/usecrux/crux/internal/types"
+    "github.com/rnixai/rnix/internal/types"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )

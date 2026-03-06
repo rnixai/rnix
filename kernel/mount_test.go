@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- Mock MountManager for Kernel tests ---
@@ -298,7 +298,7 @@ func newTestKernelWithMountManager(t testing.TB) *KernelImpl {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(func() { k.Shutdown() })
 
@@ -318,7 +318,7 @@ func newTestKernelWithoutMountManager(t testing.TB) *KernelImpl {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	t.Cleanup(func() { k.Shutdown() })
 	// mountMgr is nil by default

@@ -7,25 +7,25 @@ Status: done
 ## Story
 
 As a 用户,
-I want 通过 `crux "意图"` 启动智能体并看到清晰的实时进度和结果输出,
+I want 通过 `rnix "意图"` 启动智能体并看到清晰的实时进度和结果输出,
 So that 我全程知道智能体在做什么、结果是什么。
 
 ## Acceptance Criteria
 
-1. **CLI 入口与依赖注入** — Given `cmd/crux/main.go` 已实现，When 执行 `crux "分析代码"`，Then 解析意图文本，创建 VFS + DeviceRegistry + Context Manager + Kernel 实例，注册 Claude 驱动到 `/dev/llm/claude`，调用 `kernel.Spawn`，等待 Done channel 完成并输出结果，And 支持全局 flags：`--json`、`--verbose/-v`、`--quiet/-q`
+1. **CLI 入口与依赖注入** — Given `cmd/rnix/main.go` 已实现，When 执行 `rnix "分析代码"`，Then 解析意图文本，创建 VFS + DeviceRegistry + Context Manager + Kernel 实例，注册 Claude 驱动到 `/dev/llm/claude`，调用 `kernel.Spawn`，等待 Done channel 完成并输出结果，And 支持全局 flags：`--json`、`--verbose/-v`、`--quiet/-q`
 2. **TerminalProfile 检测** — Given `internal/ui/renderer.go` 已实现，When 程序启动，Then 检测 `TerminalProfile`（宽度、IsTTY、颜色级别、Unicode 支持），And 所有组件输出到 `io.Writer`，不直接写 `os.Stdout`
 3. **lipgloss 样式集中定义** — Given `internal/ui/styles.go` 已实现，When 输出带样式文本，Then 使用 lipgloss 集中定义的颜色（内核灰 `#888888`、智能体蓝 `#5B9BD5`、成功绿 `#6BCB77`、警告黄 `#FFD93D`、错误红 `#FF6B6B`），And 支持 `NO_COLOR` 环境变量降级
 4. **Agent Progress Reporter** — Given `internal/ui/progress.go` 已实现，When 智能体执行中，Then 实时输出 `[kernel] spawning PID 1...`、`[agent/1] reasoning step 1/3...` 等汇报行
 5. **Result Box** — Given `internal/ui/result.go` 已实现，When 智能体返回结果，Then 用双线边框 `══` 包裹结果文本，边框颜色为成功绿，宽度自适应终端（最大 120 字符）
 6. **Error Block** — Given `internal/ui/error.go` 已实现，When 发生错误，Then 输出三行结构：`✗ {设备路径}: {错误原因}` → `→ {影响}` → `→ 建议: {恢复操作}`
 7. **Summary Footer** — Given `internal/ui/summary.go` 已实现，When 智能体完成，Then 输出 `[kernel] PID {N} exited({code}) | tokens: {N} | elapsed: {N}s`
-8. **非 TTY 降级** — Given 非 TTY 输出（管道/重定向），When 执行 `crux "意图" | cat`，Then 自动去除 ANSI 颜色码和 spinner 动画，符号保留语义（`✓`/`✗`/`⚠`）
+8. **非 TTY 降级** — Given 非 TTY 输出（管道/重定向），When 执行 `rnix "意图" | cat`，Then 自动去除 ANSI 颜色码和 spinner 动画，符号保留语义（`✓`/`✗`/`⚠`）
 
 ## Tasks / Subtasks
 
 - [x] Task 1: 实现 TerminalProfile 检测和 Renderer 抽象 (AC: #2)
   - [x] 1.1 创建 `internal/ui/renderer.go`：定义 `TerminalProfile` 结构体（Width int、IsTTY bool、ColorLevel int、IsUnicode bool）
-  - [x] 1.2 实现 `DetectProfile(w io.Writer) TerminalProfile`：通过 `golang.org/x/term` 获取终端宽度、通过 `isatty` 检测 TTY、通过 `NO_COLOR` 和 `CRUX_ASCII` 环境变量检测降级
+  - [x] 1.2 实现 `DetectProfile(w io.Writer) TerminalProfile`：通过 `golang.org/x/term` 获取终端宽度、通过 `isatty` 检测 TTY、通过 `NO_COLOR` 和 `RNIX_ASCII` 环境变量检测降级
   - [x] 1.3 定义 `Renderer` 结构体（Profile TerminalProfile、Writer io.Writer、OutputMode OutputMode），`OutputMode` 枚举：`ModeDefault`、`ModeQuiet`、`ModeVerbose`、`ModeJSON`
   - [x] 1.4 实现 `NewRenderer(w io.Writer, mode OutputMode) *Renderer`
 
@@ -59,9 +59,9 @@ So that 我全程知道智能体在做什么、结果是什么。
   - [x] 6.3 exit(0) 灰色，exit(non-0) 黄色警告色；token 数和耗时白色加粗
 
 - [x] Task 7: 扩展 CLI 入口并实现依赖注入 (AC: #1)
-  - [x] 7.1 修改 `cmd/crux/main.go`：在 `main()` 或 `init()` 中创建完整的依赖注入链
+  - [x] 7.1 修改 `cmd/rnix/main.go`：在 `main()` 或 `init()` 中创建完整的依赖注入链
   - [x] 7.2 依赖注入顺序：DeviceRegistry → VFS → ClaudeCliDriver → 注册 `/dev/llm/claude` → Context Manager → Kernel
-  - [x] 7.3 实现根命令 `crux "意图"` 处理：解析 args[0] 为意图文本、调用 `kernel.Spawn(intent, nil, opts)` 启动智能体
+  - [x] 7.3 实现根命令 `rnix "意图"` 处理：解析 args[0] 为意图文本、调用 `kernel.Spawn(intent, nil, opts)` 启动智能体
   - [x] 7.4 Spawn 后阻塞等待 `proc.Done` channel，获取 ExitStatus
   - [x] 7.5 成功时：通过 ProgressReporter 输出进度 + ResultBox 输出结果 + SummaryFooter 输出汇总
   - [x] 7.6 失败时：通过 ErrorBlock 输出错误信息
@@ -75,37 +75,37 @@ So that 我全程知道智能体在做什么、结果是什么。
   - [x] 8.2 为 KernelImpl 新增 `callbacks KernelCallbacks` 字段
   - [x] 8.3 更新 `NewKernel` 签名接受 `KernelCallbacks` 参数（可为 nil）
   - [x] 8.4 在 Spawn、reasonStep 的关键节点调用 callbacks（nil 安全检查）
-  - [x] 8.5 在 `cmd/crux/main.go` 中实现 `cliCallbacks` 结构体，将回调转发到 ProgressReporter
+  - [x] 8.5 在 `cmd/rnix/main.go` 中实现 `cliCallbacks` 结构体，将回调转发到 ProgressReporter
 
 - [x] Task 9: 信号处理 (AC: #1)
-  - [x] 9.1 在 `cmd/crux/main.go` 中注册 SIGINT/SIGTERM 信号处理
+  - [x] 9.1 在 `cmd/rnix/main.go` 中注册 SIGINT/SIGTERM 信号处理
   - [x] 9.2 首次 SIGINT：调用 kernel 取消当前进程的 context，等待优雅退出
   - [x] 9.3 二次 SIGINT（2 秒内）：调用 `os.Exit(130)` 强制退出
   - [x] 9.4 输出中断摘要：`[kernel] PID {N} interrupted (SIGINT)` + 状态变化 + 建议
 
 - [x] Task 10: 编写完整单元测试 (AC: all)
-  - [x] 10.1 `internal/ui/renderer_test.go`：TerminalProfile 检测测试（TTY/非 TTY/NO_COLOR/CRUX_ASCII）
+  - [x] 10.1 `internal/ui/renderer_test.go`：TerminalProfile 检测测试（TTY/非 TTY/NO_COLOR/RNIX_ASCII）
   - [x] 10.2 `internal/ui/styles_test.go`：颜色降级测试
   - [x] 10.3 `internal/ui/progress_test.go`：KernelMessage、AgentMessage、AgentStep 输出格式验证（写入 bytes.Buffer 后检查内容）
   - [x] 10.4 `internal/ui/result_test.go`：ResultBox 渲染、宽度自适应、NO_COLOR 降级
   - [x] 10.5 `internal/ui/error_test.go`：ErrorBlock 三行结构、NO_COLOR 降级
   - [x] 10.6 `internal/ui/summary_test.go`：SummaryFooter 格式、退出码着色
-  - [x] 10.7 `cmd/crux/main_test.go`：集成测试（mock kernel + 验证 CLI 输出格式）
+  - [x] 10.7 `cmd/rnix/main_test.go`：集成测试（mock kernel + 验证 CLI 输出格式）
   - [x] 10.8 全量回归 `go test -race ./...` 确保不破坏已有测试
 
 ## Dev Notes
 
 ### 架构模式与约束
 
-- **文件位置严格遵循架构文档：** UI 组件在 `internal/ui/`，CLI 入口在 `cmd/crux/main.go`
+- **文件位置严格遵循架构文档：** UI 组件在 `internal/ui/`，CLI 入口在 `cmd/rnix/main.go`
 - **依赖方向：** `cmd/` → `kernel/` ✓；`cmd/` → `internal/ui/` ✓；`cmd/` → `vfs/` ✓（仅用于初始化）；`cmd/` → `drivers/llm/` ✓（仅用于初始化）；`cmd/` → `context/` ✓（仅用于初始化）。**`internal/ui/` 不导入 `kernel/` 或 `cmd/`**
 - **此 Story 实现的核心：** CLI 依赖注入 + 意图命令处理 + 6 个 UI 组件 + Renderer 抽象 + 信号处理 + Kernel 回调机制
-- **此 Story 不实现：** `crux ps` 命令（Story 4.4）、`crux astrace` 命令（Story 3.3）、`crux kill` 命令（Story 4.1）、Skill 加载注入（Story 2.4）
-- **`cmd/crux/main.go` 是唯一组装点：** 所有实例创建和依赖注入在此完成
+- **此 Story 不实现：** `rnix ps` 命令（Story 4.4）、`rnix astrace` 命令（Story 3.3）、`rnix kill` 命令（Story 4.1）、Skill 加载注入（Story 2.4）
+- **`cmd/rnix/main.go` 是唯一组装点：** 所有实例创建和依赖注入在此完成
 
 ### 已有代码（必须复用，禁止重新实现）
 
-**`cmd/crux/main.go` — 当前仅 34 行骨架：**
+**`cmd/rnix/main.go` — 当前仅 34 行骨架：**
 
 ```go
 package main
@@ -119,16 +119,16 @@ import (
 var version = "0.1.0"
 
 var rootCmd = &cobra.Command{
-    Use:   "crux",
-    Short: "Crux — Agent OS for AI agents",
-    Long:  "Crux is an operating system for AI agents...",
+    Use:   "rnix",
+    Short: "Rnix — Agent OS for AI agents",
+    Long:  "Rnix is an operating system for AI agents...",
 }
 
 var versionCmd = &cobra.Command{
     Use:   "version",
     Short: "Show version and dependencies",
     Run: func(cmd *cobra.Command, args []string) {
-        fmt.Printf("crux v%s\n", version)
+        fmt.Printf("rnix v%s\n", version)
     },
 }
 
@@ -151,10 +151,10 @@ func main() {
 type KernelImpl struct {
     procTable *xsync.SyncMap[types.PID, *Process]
     vfs       *vfs.VFS
-    ctxMgr    *cruxctx.Manager
+    ctxMgr    *rnixctx.Manager
 }
 
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager) *KernelImpl
+func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager) *KernelImpl
 
 func (k *KernelImpl) Spawn(intent string, skills []string, opts SpawnOpts) (types.PID, error)
 
@@ -193,12 +193,12 @@ CLI 的核心等待流程：`Spawn → GetProcess → <-proc.Done → 读取 pro
 **VFS + Drivers 初始化模式（来自架构文档）：**
 
 ```go
-// cmd/crux/main.go 中的依赖注入
+// cmd/rnix/main.go 中的依赖注入
 devReg := vfs.NewDeviceRegistry()
 vfsInst := vfs.NewVFS(devReg)
 claudeDriver := llm.NewClaudeCliDriver()
 devReg.Register("/dev/llm/claude", llm.FileFactory(claudeDriver, "/dev/llm/claude"))
-ctxMgr := cruxctx.NewManager()
+ctxMgr := rnixctx.NewManager()
 kern := kernel.NewKernel(vfsInst, ctxMgr)
 ```
 
@@ -226,17 +226,17 @@ type KernelCallbacks interface {
 type KernelImpl struct {
     procTable *xsync.SyncMap[types.PID, *Process]
     vfs       *vfs.VFS
-    ctxMgr    *cruxctx.Manager
+    ctxMgr    *rnixctx.Manager
     callbacks KernelCallbacks  // 可为 nil
 }
 
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl
+func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelImpl
 ```
 
 **在 cmd/ 中实现：**
 
 ```go
-// cmd/crux/main.go
+// cmd/rnix/main.go
 type cliCallbacks struct {
     progress *ui.ProgressReporter
 }
@@ -255,7 +255,7 @@ func (c *cliCallbacks) OnStep(pid types.PID, step, total int) {
 ### CLI 主流程设计
 
 ```
-用户执行: crux "分析代码"
+用户执行: rnix "分析代码"
   │
   ├─ main() → rootCmd.Execute()
   │    ├─ 解析全局 flags (--json/--verbose/--quiet)
@@ -337,7 +337,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 ### 信号处理设计
 
 ```go
-// cmd/crux/main.go
+// cmd/rnix/main.go
 func setupSignalHandler(kern *kernel.KernelImpl, pid types.PID) {
     sigCh := make(chan os.Signal, 2)
     signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -410,7 +410,7 @@ func TestRenderResult(t *testing.T) {
 |------|--------|
 | `TestDetectProfile_TTY` | TTY 检测、宽度获取 |
 | `TestDetectProfile_NoColor` | NO_COLOR 环境变量降级 |
-| `TestDetectProfile_ASCII` | CRUX_ASCII=1 时 IsUnicode=false |
+| `TestDetectProfile_ASCII` | RNIX_ASCII=1 时 IsUnicode=false |
 | `TestStyles_NoColor` | 无色模式下样式不含 ANSI 码 |
 | `TestKernelMessage_Format` | `[kernel] {message}` 格式正确 |
 | `TestAgentStep_Format` | `[agent/1] reasoning step 1/3...` 格式正确 |
@@ -449,7 +449,7 @@ func TestRenderResult(t *testing.T) {
 | `0f48087` | Story 1-5 Review 修复 | 代码审查发现的问题修复模式 |
 
 **代码惯例提取：**
-- 包级文档注释：`// Package ui provides terminal UI components for Crux CLI.`
+- 包级文档注释：`// Package ui provides terminal UI components for Rnix CLI.`
 - 构造函数：`NewXxx()` 模式
 - 方法接收器：简短单字母（`r *Renderer`、`p *ProgressReporter`）
 - 测试分组：`t.Run("子测试名", func(t *testing.T) {...})`
@@ -460,7 +460,7 @@ func TestRenderResult(t *testing.T) {
 **本 Story 修改的文件：**
 
 ```
-cmd/crux/
+cmd/rnix/
 ├── main.go              (修改 — 大幅扩展：依赖注入 + 意图命令 + flags + 信号处理)
 
 kernel/
@@ -514,7 +514,7 @@ go.mod                    (修改 — 新增 lipgloss + golang.org/x/term 依赖
 - [Source: ux-design-specification.md#Terminal Adaptability & Accessibility] — TerminalProfile 检测、颜色降级、NO_COLOR
 - [Source: ux-design-specification.md#Design Direction Decision] — 方向 B 结构化汇报式
 - [Source: epics.md#Story 1.7] — 原始用户故事和验收标准
-- [Source: prd.md#FR33] — `crux "意图"` 单命令启动智能体
+- [Source: prd.md#FR33] — `rnix "意图"` 单命令启动智能体
 - [Source: prd.md#FR32] — 智能体完成时输出汇总信息
 - [Source: prd.md#FR36] — CLI 提供清晰错误信息
 - [Source: prd.md#FR37] — `go install` 安装，单二进制零依赖
@@ -533,7 +533,7 @@ Claude Opus 4.6
 
 ### Completion Notes List
 
-- ✅ Task 1: TerminalProfile 检测 + Renderer 抽象。`DetectProfile` 通过 `golang.org/x/term` 获取终端宽度，`go-isatty` 检测 TTY，支持 `NO_COLOR` 和 `CRUX_ASCII` 环境变量降级。7 个测试通过。
+- ✅ Task 1: TerminalProfile 检测 + Renderer 抽象。`DetectProfile` 通过 `golang.org/x/term` 获取终端宽度，`go-isatty` 检测 TTY，支持 `NO_COLOR` 和 `RNIX_ASCII` 环境变量降级。7 个测试通过。
 - ✅ Task 2: lipgloss 样式集中定义。6 个颜色常量 + 7 个样式变量 + `InitStyles` 根据 ColorLevel 降级。3 个测试通过。
 - ✅ Task 3: ProgressReporter 组件。`KernelMessage`、`AgentMessage`、`AgentStep` 三个方法，Quiet/JSON 模式静默。5 个测试通过。
 - ✅ Task 4: Result Box 组件。双线边框 `══`，宽度自适应 `min(termWidth, 120)`，NO_COLOR 降级保留字符。5 个测试通过。
@@ -542,7 +542,7 @@ Claude Opus 4.6
 - ✅ Task 7: CLI 入口扩展。完整依赖注入链（DevReg→VFS→Claude→Register→CtxMgr→Kernel），根命令意图处理，`--json`/`--verbose`/`--quiet` flags，`JSONResponse` 输出，退出码 0/1/2。
 - ✅ Task 8: Kernel 回调机制。`KernelCallbacks` 接口 4 方法，`NewKernel` 签名扩展（nil 兼容），Spawn/reasonStep/finishProcess 中回调集成。已有 42 个 kernel 测试全部通过。
 - ✅ Task 9: 信号处理。SIGINT/SIGTERM 注册，首次信号调用 `proc.Cancel()` 优雅退出，2 秒内二次信号 `os.Exit(130)` 强制退出。新增 `Process.Cancel()` 导出方法。
-- ✅ Task 10: 完整测试覆盖。7 个测试文件，全量 `go test -race ./...` 通过（cmd/crux 12 个测试 + internal/ui 30 个测试 + kernel 42 个测试 = 84+ 测试全部通过）。
+- ✅ Task 10: 完整测试覆盖。7 个测试文件，全量 `go test -race ./...` 通过（cmd/rnix 12 个测试 + internal/ui 30 个测试 + kernel 42 个测试 = 84+ 测试全部通过）。
 
 ### Implementation Plan
 
@@ -567,16 +567,16 @@ Claude Opus 4.6
 - `internal/ui/error_test.go` — 5 个测试（+1 JSON mode）
 - `internal/ui/summary.go` — RenderSummary + 退出码着色
 - `internal/ui/summary_test.go` — 5 个测试（+1 JSON mode）
-- `cmd/crux/main_test.go` — 12 个测试（含 JSON error/exitCode 测试）
+- `cmd/rnix/main_test.go` — 12 个测试（含 JSON error/exitCode 测试）
 
 **修改文件：**
-- `cmd/crux/main.go` — 大幅扩展：依赖注入 + 意图命令 + flags + 信号处理 + cliCallbacks + JSONResponse + exitCode 统一管理
+- `cmd/rnix/main.go` — 大幅扩展：依赖注入 + 意图命令 + flags + 信号处理 + cliCallbacks + JSONResponse + exitCode 统一管理
 - `kernel/kernel.go` — 新增 KernelCallbacks 接口 + callbacks 字段 + NewKernel 签名扩展 + 回调调用点
 - `kernel/kernel_test.go` — 更新所有 NewKernel 调用传 nil callbacks（7 处）
 - `kernel/process.go` — 新增导出的 Cancel() 方法
 - `go.mod` — 新增 lipgloss + golang.org/x/term + 传递依赖
 - `go.sum` — 自动更新
-- `.gitignore` — 修复 `crux` → `/crux` 防止忽略 cmd/crux/ 目录
+- `.gitignore` — 修复 `rnix` → `/rnix` 防止忽略 cmd/rnix/ 目录
 
 ## Change Log
 

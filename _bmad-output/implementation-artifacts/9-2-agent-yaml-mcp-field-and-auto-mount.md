@@ -57,7 +57,7 @@ so that 我不需要手动管理 MCP 服务器的生命周期。
   - [x] 5.5 Unmount 失败不阻塞进程退出（log 错误但继续清理）
 
 - [x] Task 6: Daemon 初始化 MountManager（AC: #2, #3）
-  - [x] 6.1 在 `cmd/crux/main.go` 的 `runDaemon` 中创建 `MountManager` 实例
+  - [x] 6.1 在 `cmd/rnix/main.go` 的 `runDaemon` 中创建 `MountManager` 实例
   - [x] 6.2 创建 `TransportFactory` 实现（基于 `drivers/mcp.NewStdioTransport`）
   - [x] 6.3 调用 `k.SetMountManager(mountMgr)` 注入到内核
   - [x] 6.4 加载全局 `mcp.yaml` 并传入 `AgentLoader`
@@ -197,7 +197,7 @@ func NewAgentLoader(basePath string, sl *skills.SkillLoader, mcpCfg *mcp.MCPGlob
 }
 ```
 
-注意：`NewAgentLoader` 签名变更会影响调用方（`cmd/crux/main.go`），需要同步更新。如果 `mcpCfg` 为 nil 则跳过 MCP 解析（向后兼容，无 mcp.yaml 时正常工作）。
+注意：`NewAgentLoader` 签名变更会影响调用方（`cmd/rnix/main.go`），需要同步更新。如果 `mcpCfg` 为 nil 则跳过 MCP 解析（向后兼容，无 mcp.yaml 时正常工作）。
 
 **Kernel Spawn 自动 Mount 逻辑**：
 
@@ -255,7 +255,7 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 }
 ```
 
-**Daemon 初始化改动**（`cmd/crux/main.go`）：
+**Daemon 初始化改动**（`cmd/rnix/main.go`）：
 
 ```go
 func runDaemon(cmd *cobra.Command, args []string) error {
@@ -296,7 +296,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 ### 依赖方向
 
 ```
-cmd/crux/   → agents/      → drivers/mcp/ (MCPGlobalConfig 类型)
+cmd/rnix/   → agents/      → drivers/mcp/ (MCPGlobalConfig 类型)
             → kernel/      → vfs/ (MCPConfig, MountManager)
             → drivers/mcp/ (TransportFactory, TransportConfig)
 agents/     → drivers/mcp/ (MCPGlobalConfig 仅类型) ← 新增
@@ -328,7 +328,7 @@ drivers/mcp/ → internal/types/ (仅类型，已有)
 - `agents/loader.go` — AgentLoader.Load 模式（扩展加载逻辑）
 - `agents/types.go` — AgentManifest 字段模式（新增 MCP 字段）
 - `kernel/kernel.go` Spawn 中的 Skills 加载模式（MCP 加载类似）
-- `cmd/crux/main.go` runDaemon 的设备注册模式（MountManager 创建类似）
+- `cmd/rnix/main.go` runDaemon 的设备注册模式（MountManager 创建类似）
 - `ipc/server.go` handleSpawn 的 agentLoader 注入模式
 
 ### 反模式防护
@@ -337,7 +337,7 @@ drivers/mcp/ → internal/types/ (仅类型，已有)
 - **不要**让不同进程共享同一 MCP 挂载路径 — 使用 PID 前缀隔离
 - **不要**在 MCP Mount 失败时忽略错误继续 Spawn — 必须回滚已挂载的 MCP 并返回错误
 - **不要**在进程退出时忘记 Unmount — 在 `finishProcess` 中添加自动清理
-- **不要**修改 `NewAgentLoader` 签名时忘记更新所有调用方（`cmd/crux/main.go`、`agents/loader_test.go`）
+- **不要**修改 `NewAgentLoader` 签名时忘记更新所有调用方（`cmd/rnix/main.go`、`agents/loader_test.go`）
 - **不要**让 MCP Unmount 失败阻塞进程退出 — 错误仅 log，不中断退出流程
 - **不要**使用 `.yml` 后缀 — 统一 `.yaml`
 - **不要**在 agent.yaml 中嵌入 MCP 连接细节（command、args）— 仅引用名称，细节在全局 `mcp.yaml` 中
@@ -369,7 +369,7 @@ drivers/mcp/ → internal/types/ (仅类型，已有)
 - mountMgr 为 nil 时且有 MCP 引用时返回 ErrInternal
 
 **集成测试建议**：
-- `cmd/crux/main.go` 的 MountManager 初始化验证（可通过 build 验证编译通过）
+- `cmd/rnix/main.go` 的 MountManager 初始化验证（可通过 build 验证编译通过）
 
 ### 前一个 Story 的经验教训（来自 Story 9.1）
 
@@ -383,13 +383,13 @@ drivers/mcp/ → internal/types/ (仅类型，已有)
 ### Git 提交模式参考
 
 最近提交（9ac0086）为 Story 9.1 实现。本 Story 继续 Epic 9 的 MCP 集成工作。主要影响：
-- 修改：`agents/types.go`、`agents/loader.go`、`kernel/kernel.go`、`kernel/process.go`、`cmd/crux/main.go`
+- 修改：`agents/types.go`、`agents/loader.go`、`kernel/kernel.go`、`kernel/process.go`、`cmd/rnix/main.go`
 - 新增：`drivers/mcp/config.go`、`drivers/mcp/config_test.go`、测试数据文件
 - 扩展：`agents/loader_test.go`、相关 kernel 测试
 
 ### mcp.yaml 配置文件位置
 
-全局 `mcp.yaml` 放在项目根目录（与 `go.mod` 同级）。Daemon 启动时从工作目录加载。未来可扩展支持 `$HOME/.config/crux/mcp.yaml` 全局用户配置，但 MVP 阶段仅支持项目级别。
+全局 `mcp.yaml` 放在项目根目录（与 `go.mod` 同级）。Daemon 启动时从工作目录加载。未来可扩展支持 `$HOME/.config/rnix/mcp.yaml` 全局用户配置，但 MVP 阶段仅支持项目级别。
 
 ### Project Structure Notes
 
@@ -408,7 +408,7 @@ agents/loader.go                # NewAgentLoader 新增 mcpConfig 参数, Load �
 agents/loader_test.go           # 新增 MCP 字段解析测试
 kernel/kernel.go                # Spawn 中添加自动 Mount, finishProcess 中添加自动 Unmount
 kernel/process.go               # Process 新增 MCPMounts 字段
-cmd/crux/main.go                # runDaemon 创建 MountManager, 加载 mcp.yaml, 更新 AgentLoader 调用
+cmd/rnix/main.go                # runDaemon 创建 MountManager, 加载 mcp.yaml, 更新 AgentLoader 调用
 ```
 
 不修改的文件：
@@ -433,7 +433,7 @@ cmd/crux/main.go                # runDaemon 创建 MountManager, 加载 mcp.yaml
 - [Source: vfs/mcp.go] — MCPConfig 和 MCPTransport 接口
 - [Source: vfs/mount.go] — MountManager 实现
 - [Source: drivers/mcp/transport.go] — StdioTransport 实现
-- [Source: cmd/crux/main.go#runDaemon] — Daemon 初始化和依赖注入
+- [Source: cmd/rnix/main.go#runDaemon] — Daemon 初始化和依赖注入
 - [Source: ipc/server.go#handleSpawn] — IPC Spawn 流程
 
 ## Dev Agent Record
@@ -453,7 +453,7 @@ No issues encountered during implementation. All tests passed on first run.
 - Task 3: Extended `AgentLoader` with `mcpConfig *mcp.MCPGlobalConfig` field, updated `NewAgentLoader` to accept 3rd parameter. `Load` resolves MCP names from global config. Returns error for missing servers. All 18 agent tests pass including 5 new MCP tests.
 - Task 4: Added auto-Mount logic in `Spawn` after LLM device open. Uses `mountMgr.Mount` directly (bypassing `k.Mount` path validation since we already know the path format). Mount path: `/mnt/mcp/{pid}-{server-name}`. Rollback on failure. SyscallEvent emitted for each Mount. All 7 Spawn MCP tests pass.
 - Task 5: Added `MCPMounts []string` to `Process` struct. Auto-Unmount in `finishProcess` before `Terminate()`. Reads MCPMounts under lock. Unmount failure does not block exit. SyscallEvent emitted. Both auto-unmount tests pass.
-- Task 6: Updated `runDaemon` to load `mcp.yaml` (optional), create `TransportFactory`, create `MountManager`, inject into kernel via `SetMountManager`, pass `mcpCfg` to `NewAgentLoader`. Updated all callers: `cmd/crux/main.go`, `cmd/crux/compose.go`, `cmd/crux/integration_test.go`.
+- Task 6: Updated `runDaemon` to load `mcp.yaml` (optional), create `TransportFactory`, create `MountManager`, inject into kernel via `SetMountManager`, pass `mcpCfg` to `NewAgentLoader`. Updated all callers: `cmd/rnix/main.go`, `cmd/rnix/compose.go`, `cmd/rnix/integration_test.go`.
 - Task 7: All tests pass with `-race` flag. 17 packages, 0 regressions. `golangci-lint` reports 0 issues. Build compiles successfully.
 
 ### File List
@@ -466,9 +466,9 @@ Modified files:
 - agents/loader.go
 - kernel/kernel.go
 - kernel/process.go
-- cmd/crux/main.go
-- cmd/crux/compose.go
-- cmd/crux/integration_test.go
+- cmd/rnix/main.go
+- cmd/rnix/compose.go
+- cmd/rnix/integration_test.go
 
 Pre-existing test/testdata files (created by ATDD step, not this implementation):
 - drivers/mcp/config_test.go
@@ -509,7 +509,7 @@ Pre-existing test/testdata files (created by ATDD step, not this implementation)
 - The LLM file descriptor opened at line 228 would leak
 - **Fix**: Added `_ = k.vfs.CloseAll(proc.PID)` before `_ = k.ctxMgr.CtxFree(cid)` on both MCP error paths
 
-#### MEDIUM-2: compose up ignores mcp.yaml (cmd/crux/compose.go:188)
+#### MEDIUM-2: compose up ignores mcp.yaml (cmd/rnix/compose.go:188)
 - `runComposeUp` always passed `nil` for MCP config to `NewAgentLoader`
 - Compose workflows with MCP-enabled agents would silently skip MCP resolution
 - **Fix**: Added `mcp.yaml` loading logic consistent with daemon behavior
@@ -538,7 +538,7 @@ Pre-existing test/testdata files (created by ATDD step, not this implementation)
 | #2 Spawn auto-mount | IMPLEMENTED | `kernel/kernel.go:239-272`, 7 tests in `spawn_mcp_test.go` |
 | #3 MCP lifecycle | IMPLEMENTED | `vfs/mount.go` MountManager, `drivers/mcp/config.go` config loading |
 | #4 Error handling | IMPLEMENTED | `loader.go:87` "not found in mcp.yaml", `kernel.go:242-244` nil mountMgr check |
-| #5 Global mcp.yaml | IMPLEMENTED | `drivers/mcp/config.go`, `cmd/crux/main.go:717-724`, 6 config tests |
+| #5 Global mcp.yaml | IMPLEMENTED | `drivers/mcp/config.go`, `cmd/rnix/main.go:717-724`, 6 config tests |
 | #6 Process exit cleanup | IMPLEMENTED | `kernel/kernel.go:331-344`, 2 auto-unmount tests pass |
 
 ### Task Completion Audit

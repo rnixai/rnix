@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/vfs"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- Story 4.1: Wait syscall tests ---
@@ -61,7 +61,7 @@ func TestWait_KillThenWait(t *testing.T) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -192,7 +192,7 @@ func TestWait_ConcurrentSafe(t *testing.T) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -308,7 +308,7 @@ func TestOrphanReparent_RunningChild(t *testing.T) {
 		return &blockingLLMFile{blockCh: childBlockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -370,7 +370,7 @@ func TestOrphanReparent_ZombieChild(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("child done", 1)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -432,7 +432,7 @@ func TestOrphanReparent_SyscallEvent(t *testing.T) {
 		return &blockingLLMFile{blockCh: childBlockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -494,7 +494,7 @@ func TestAutoReap_ChildFinishesAfterParentRemoved(t *testing.T) {
 		return &blockingLLMFile{blockCh: childBlockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -545,7 +545,7 @@ func TestAutoReap_OrphanChildFinishes_ParentAlreadyGone(t *testing.T) {
 		return &blockingLLMFile{blockCh: childBlockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -602,7 +602,7 @@ func TestAutoReap_Reaper_ProcessesMultiplePIDs(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("child done", 1)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -666,7 +666,7 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 		return &blockingLLMFile{blockCh: childBlockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -746,7 +746,7 @@ func TestIntegration_MultipleChildren(t *testing.T) {
 		}
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -815,7 +815,7 @@ func TestIntegration_ProcessTableConsistency(t *testing.T) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -877,7 +877,7 @@ func TestIntegration_ConcurrentExits(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("done", 1)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
@@ -1048,7 +1048,7 @@ func TestShutdown_DrainsReapCh(t *testing.T) {
 		return &mockLLMFile{readData: makeLLMResponse("drain test", 1)}, nil
 	})
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 
 	// Spawn a process, let it complete to Zombie
@@ -1157,7 +1157,7 @@ func TestIntegration_ReapProcess_MCPUnmountOnExit(t *testing.T) {
 			return &blockingLLMFile{blockCh: blockCh}, nil
 		})
 		v := vfs.NewVFS(reg)
-		ctxMgr := cruxctx.NewManager()
+		ctxMgr := rnixctx.NewManager()
 		k := NewKernel(v, ctxMgr, nil)
 		defer k.Shutdown()
 

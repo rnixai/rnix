@@ -10,12 +10,12 @@ lastSaved: '2026-03-01'
 workflowType: 'testarch-atdd'
 inputDocuments:
   - '_bmad-output/implementation-artifacts/7-4-compose-end-to-end-acceptance.md'
-  - '_bmad-output/implementation-artifacts/7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine.md'
-  - '_bmad-output/implementation-artifacts/7-2-crux-compose-up-command.md'
-  - '_bmad-output/implementation-artifacts/7-3-crux-compose-down-command.md'
-  - 'cmd/crux/compose.go'
-  - 'cmd/crux/compose_test.go'
-  - 'cmd/crux/main_test.go'
+  - '_bmad-output/implementation-artifacts/7-1-rnix-compose-yaml-parsing-and-dag-scheduling-engine.md'
+  - '_bmad-output/implementation-artifacts/7-2-rnix-compose-up-command.md'
+  - '_bmad-output/implementation-artifacts/7-3-rnix-compose-down-command.md'
+  - 'cmd/rnix/compose.go'
+  - 'cmd/rnix/compose_test.go'
+  - 'cmd/rnix/main_test.go'
   - 'compose/engine.go'
   - 'compose/types.go'
   - 'compose/dag.go'
@@ -47,8 +47,8 @@ Story 7.4 是端到端验收 Story，不引入新的功能实现。目标是验�
 
 ## Acceptance Criteria
 
-1. **AC #1 — 端到端编排验证**: Given 编写包含 >= 3 个智能体的 crux-compose.yaml（有 DAG 依赖），When 执行 `crux compose up`，Then 智能体按依赖顺序执行，无依赖分支并行，And 前置智能体的输出正确传递给下游，And 3 智能体编排从 YAML 到全部完成，总耗时 <= 90 秒
-2. **AC #2 — crux top 实时监控集成**: Given `crux top` 同时运行，When 编排执行中，Then 实时看到所有智能体的树状关系和状态
+1. **AC #1 — 端到端编排验证**: Given 编写包含 >= 3 个智能体的 rnix-compose.yaml（有 DAG 依赖），When 执行 `rnix compose up`，Then 智能体按依赖顺序执行，无依赖分支并行，And 前置智能体的输出正确传递给下游，And 3 智能体编排从 YAML 到全部完成，总耗时 <= 90 秒
+2. **AC #2 — rnix top 实时监控集成**: Given `rnix top` 同时运行，When 编排执行中，Then 实时看到所有智能体的树状关系和状态
 
 ---
 
@@ -56,7 +56,7 @@ Story 7.4 是端到端验收 Story，不引入新的功能实现。目标是验�
 
 - **detected_stack**: `backend`（Go 项目，`go.mod` 存在，无前端指标）
 - **test_framework**: Go 标准 `testing` 包 + `-race` 检测
-- **test_dir**: `cmd/crux/` (CLI 集成测试) + `compose/` (引擎测试)
+- **test_dir**: `cmd/rnix/` (CLI 集成测试) + `compose/` (引擎测试)
 - **generation_mode**: AI Generation（后端项目，无浏览器录制需求）
 
 ---
@@ -67,14 +67,14 @@ Story 7.4 是端到端验收 Story，不引入新的功能实现。目标是验�
 
 | AC | 测试级别 | 测试文件 | 理由 |
 |----|---------|---------|------|
-| AC #1 | Integration | `cmd/crux/compose_test.go` | 端到端集成：从 ComposeSpec 构造到 Engine.Execute 完整路径 |
-| AC #1 | Integration | `cmd/crux/compose_test.go` | 菱形 DAG 依赖顺序验证（4 智能体） |
-| AC #1 | Integration | `cmd/crux/compose_test.go` | 输出传递验证（上游 Result 注入下游 SystemPrompt） |
-| AC #1 | Integration | `cmd/crux/compose_test.go` | 性能验证（<= 90s 阈值） |
-| AC #1 | Integration | `cmd/crux/compose_test.go` | 失败传播验证（上游失败时下游不启动） |
-| AC #1 | Integration | `cmd/crux/compose_test.go` | compose up + compose down 全流程 |
-| AC #1 | Integration | `cmd/crux/compose_test.go` | 编排汇总输出验证 |
-| AC #2 | Integration | `cmd/crux/compose_test.go` | crux top 可见性验证（ListProcs 数据层） |
+| AC #1 | Integration | `cmd/rnix/compose_test.go` | 端到端集成：从 ComposeSpec 构造到 Engine.Execute 完整路径 |
+| AC #1 | Integration | `cmd/rnix/compose_test.go` | 菱形 DAG 依赖顺序验证（4 智能体） |
+| AC #1 | Integration | `cmd/rnix/compose_test.go` | 输出传递验证（上游 Result 注入下游 SystemPrompt） |
+| AC #1 | Integration | `cmd/rnix/compose_test.go` | 性能验证（<= 90s 阈值） |
+| AC #1 | Integration | `cmd/rnix/compose_test.go` | 失败传播验证（上游失败时下游不启动） |
+| AC #1 | Integration | `cmd/rnix/compose_test.go` | compose up + compose down 全流程 |
+| AC #1 | Integration | `cmd/rnix/compose_test.go` | 编排汇总输出验证 |
+| AC #2 | Integration | `cmd/rnix/compose_test.go` | rnix top 可见性验证（ListProcs 数据层） |
 
 ### 优先级
 
@@ -85,7 +85,7 @@ Story 7.4 是端到端验收 Story，不引入新的功能实现。目标是验�
 | P0 | TestComposeE2E_FailurePropagation — 失败传播 | AC #1 |
 | P1 | TestComposeE2E_Performance — 性能 <= 90s | AC #1 |
 | P1 | TestComposeE2E_UpThenDown — compose up + down 全流程 | AC #1 |
-| P1 | TestComposeE2E_TopVisibility — crux top 数据可见性 | AC #2 |
+| P1 | TestComposeE2E_TopVisibility — rnix top 数据可见性 | AC #2 |
 | P1 | TestComposeE2E_SummaryOutput — 汇总输出验证 | AC #1 |
 | P1 | TestComposeE2E_SummaryJSON — JSON 汇总验证 | AC #1 |
 
@@ -95,7 +95,7 @@ Story 7.4 是端到端验收 Story，不引入新的功能实现。目标是验�
 
 ### 端到端集成测试 (8 tests)
 
-**File:** `cmd/crux/compose_test.go` (新增约 450 行)
+**File:** `cmd/rnix/compose_test.go` (新增约 450 行)
 
 - **Test:** `TestComposeE2E_DependencyOrder`
   - **Status:** RED — 测试函数尚未创建
@@ -135,7 +135,7 @@ Story 7.4 是端到端验收 Story，不引入新的功能实现。目标是验�
 
 ### E2E Mock Spawner
 
-复用 `cmd/crux/compose_test.go` 中已有的 `mockComposeSpawner` 模式，扩展以下能力：
+复用 `cmd/rnix/compose_test.go` 中已有的 `mockComposeSpawner` 模式，扩展以下能力：
 
 - **spawnOrder 记录**：记录 Spawn 调用的 intent 顺序，验证 DAG 拓扑执行
 - **getResult 预设**：通过 getResult map 预设上游返回值，验证输出传递
@@ -202,7 +202,7 @@ reporter (layer 3)     <- 等待 security + docs
 
 ### Test: TestComposeE2E_DependencyOrder
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make this test pass:**
 
@@ -212,14 +212,14 @@ reporter (layer 3)     <- 等待 security + docs
 - [ ] 验证 spawnOrder: analyzer 在第 1 位，reporter 在第 4 位
 - [ ] 验证 security 和 docs 在中间（无特定顺序，因并行）
 - [ ] 验证 4 个 ScheduleResult 全部 Err == nil
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeE2E_DependencyOrder -race -v`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeE2E_DependencyOrder -race -v`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeE2E_OutputPassthrough
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make this test pass:**
 
@@ -229,14 +229,14 @@ reporter (layer 3)     <- 等待 security + docs
 - [ ] 执行编排后检查 security 的 spawn opts 包含 `## Upstream Agent Output` 和 `### analyzer output:`
 - [ ] 检查 reporter 的 spawn opts 同时包含 security 和 docs 的输出
 - [ ] 验证多上游输出正确拼接
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeE2E_OutputPassthrough -race -v`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeE2E_OutputPassthrough -race -v`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeE2E_Performance
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make this test pass:**
 
@@ -245,14 +245,14 @@ reporter (layer 3)     <- 等待 security + docs
 - [ ] 记录从 NewEngine 到 Execute 完成的耗时
 - [ ] 断言耗时 <= 90 秒（mock 环境下应远低于此阈值）
 - [ ] 断言 4 个 ScheduleResult 全部成功
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeE2E_Performance -race -v`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeE2E_Performance -race -v`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeE2E_FailurePropagation
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make this test pass:**
 
@@ -262,14 +262,14 @@ reporter (layer 3)     <- 等待 security + docs
 - [ ] 验证 security/docs/reporter 均有 "upstream dependency failed" 错误
 - [ ] 验证 security/docs/reporter 的 PID 为 0（未被 spawn）
 - [ ] 验证 getSpawnedIntents() 仅包含 analyzer 的 intent
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeE2E_FailurePropagation -race -v`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeE2E_FailurePropagation -race -v`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeE2E_UpThenDown
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make this test pass:**
 
@@ -279,14 +279,14 @@ reporter (layer 3)     <- 等待 security + docs
 - [ ] 调用 matchComposeProcesses 验证分类正确
 - [ ] 验证 Running 进程在 running 列表，Zombie 进程在 completed 列表
 - [ ] 调用 runComposeDown 验证仅 Running 进程被 kill
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeE2E_UpThenDown -race -v`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeE2E_UpThenDown -race -v`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeE2E_TopVisibility
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make this test pass:**
 
@@ -296,14 +296,14 @@ reporter (layer 3)     <- 等待 security + docs
 - [ ] 验证每个进程的 ProcInfo 包含正确的 Intent 字段
 - [ ] 验证每个进程的 ProcInfo 包含正确的 State 字段
 - [ ] 验证进程通过 PPID 可关联树状关系
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeE2E_TopVisibility -race -v`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeE2E_TopVisibility -race -v`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeE2E_SummaryOutput
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make this test pass:**
 
@@ -312,14 +312,14 @@ reporter (layer 3)     <- 等待 security + docs
 - [ ] 调用 ui.RenderComposeSummary 渲染汇总
 - [ ] 验证输出包含每个智能体名称（analyzer, security, docs, reporter）
 - [ ] 验证输出包含退出码和耗时信息
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeE2E_SummaryOutput -race -v`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeE2E_SummaryOutput -race -v`
 - [ ] Test passes (green phase)
 
 ---
 
 ### Test: TestComposeE2E_SummaryJSON
 
-**File:** `cmd/crux/compose_test.go`
+**File:** `cmd/rnix/compose_test.go`
 
 **Tasks to make this test pass:**
 
@@ -328,7 +328,7 @@ reporter (layer 3)     <- 等待 security + docs
 - [ ] 调用 ui.RenderComposeSummaryJSON 渲染 JSON
 - [ ] 解析 JSON 验证 `agents` 数组包含 4 个条目
 - [ ] 验证 `summary` 对象包含 total、passed、failed 字段
-- [ ] Run test: `go test ./cmd/crux/ -run TestComposeE2E_SummaryJSON -race -v`
+- [ ] Run test: `go test ./cmd/rnix/ -run TestComposeE2E_SummaryJSON -race -v`
 - [ ] Test passes (green phase)
 
 ---
@@ -337,26 +337,26 @@ reporter (layer 3)     <- 等待 security + docs
 
 ```bash
 # Run all E2E tests for Story 7.4
-go test ./cmd/crux/ -run TestComposeE2E -race -v
+go test ./cmd/rnix/ -run TestComposeE2E -race -v
 
 # Run specific test
-go test ./cmd/crux/ -run TestComposeE2E_DependencyOrder -race -v
-go test ./cmd/crux/ -run TestComposeE2E_OutputPassthrough -race -v
-go test ./cmd/crux/ -run TestComposeE2E_Performance -race -v
-go test ./cmd/crux/ -run TestComposeE2E_FailurePropagation -race -v
-go test ./cmd/crux/ -run TestComposeE2E_UpThenDown -race -v
-go test ./cmd/crux/ -run TestComposeE2E_TopVisibility -race -v
-go test ./cmd/crux/ -run TestComposeE2E_SummaryOutput -race -v
-go test ./cmd/crux/ -run TestComposeE2E_SummaryJSON -race -v
+go test ./cmd/rnix/ -run TestComposeE2E_DependencyOrder -race -v
+go test ./cmd/rnix/ -run TestComposeE2E_OutputPassthrough -race -v
+go test ./cmd/rnix/ -run TestComposeE2E_Performance -race -v
+go test ./cmd/rnix/ -run TestComposeE2E_FailurePropagation -race -v
+go test ./cmd/rnix/ -run TestComposeE2E_UpThenDown -race -v
+go test ./cmd/rnix/ -run TestComposeE2E_TopVisibility -race -v
+go test ./cmd/rnix/ -run TestComposeE2E_SummaryOutput -race -v
+go test ./cmd/rnix/ -run TestComposeE2E_SummaryJSON -race -v
 
 # Run all project tests (including regression)
 make test
 
 # Run with coverage
-go test ./cmd/crux/ -run TestComposeE2E -race -coverprofile=compose-e2e.out
+go test ./cmd/rnix/ -run TestComposeE2E -race -coverprofile=compose-e2e.out
 
 # Run with verbose timing
-go test ./cmd/crux/ -run TestComposeE2E -race -v -count=1
+go test ./cmd/rnix/ -run TestComposeE2E -race -v -count=1
 ```
 
 ---
@@ -375,7 +375,7 @@ go test ./cmd/crux/ -run TestComposeE2E -race -v -count=1
 
 **Verification:**
 
-- 测试函数尚未创建，需在实现阶段写入 `cmd/crux/compose_test.go`
+- 测试函数尚未创建，需在实现阶段写入 `cmd/rnix/compose_test.go`
 - Story 7.4 本质是验收测试 Story，测试代码即是交付物
 - 现有测试不受影响（Story 7.1-7.3 测试继续通过）
 
@@ -408,7 +408,7 @@ go test ./cmd/crux/ -run TestComposeE2E -race -v -count=1
 
 ### REFACTOR Phase (DEV Team - After All Tests Pass)
 
-1. Verify all tests pass: `go test ./cmd/crux/ -run TestComposeE2E -race -v`
+1. Verify all tests pass: `go test ./cmd/rnix/ -run TestComposeE2E -race -v`
 2. Run lint: `make lint`
 3. Run full suite: `make test`
 4. Build: `make build`
@@ -421,12 +421,12 @@ go test ./cmd/crux/ -run TestComposeE2E -race -v -count=1
 
 ### Initial Test Run (RED Phase Verification)
 
-**Command:** `go test ./cmd/crux/ -run TestComposeE2E -race -v`
+**Command:** `go test ./cmd/rnix/ -run TestComposeE2E -race -v`
 
 **Expected Results:**
 
 ```
-ok  	github.com/usecrux/crux/cmd/crux	(no test files matching pattern)
+ok  	github.com/rnixai/rnix/cmd/rnix	(no test files matching pattern)
 ```
 
 或
@@ -447,8 +447,8 @@ ok  	github.com/usecrux/crux/cmd/crux	(no test files matching pattern)
 **Existing tests unaffected:**
 
 ```
-ok      github.com/usecrux/crux/compose   (cached) (all Story 7.1 tests pass)
-ok      github.com/usecrux/crux/cmd/crux  (all Story 7.2/7.3 tests pass)
+ok      github.com/rnixai/rnix/compose   (cached) (all Story 7.1 tests pass)
+ok      github.com/rnixai/rnix/cmd/rnix  (all Story 7.2/7.3 tests pass)
 ```
 
 ---
@@ -460,30 +460,30 @@ ok      github.com/usecrux/crux/cmd/crux  (all Story 7.2/7.3 tests pass)
 - 菱形 DAG fixture（analyzer -> security+docs -> reporter）是核心测试场景，覆盖并行执行和依赖等待。
 - 测试命名统一使用 `TestComposeE2E_` 前缀，与 Story 7.1-7.3 的测试命名（`TestComposeCmd_`、`TestComposeUp_`、`TestComposeDown_`）区分。
 - 性能测试使用 mock spawner 即时返回，验证引擎调度开销而非等待真实 LLM 调用。
-- crux top 可见性测试仅验证数据层（ListProcs 返回的 ProcInfo），完整的 TUI 测试不在本 Story 范围内（Story 10.1）。
+- rnix top 可见性测试仅验证数据层（ListProcs 返回的 ProcInfo），完整的 TUI 测试不在本 Story 范围内（Story 10.1）。
 - `matchComposeProcesses` 函数的 intent 匹配有局限性（Story 7.3 已标注）：多次运行相同 compose 文件可能匹配到多个同 intent 进程，MVP 阶段可接受。
-- 所有 E2E 测试写入现有的 `cmd/crux/compose_test.go`，禁止创建新的源文件。
+- 所有 E2E 测试写入现有的 `cmd/rnix/compose_test.go`，禁止创建新的源文件。
 
 ---
 
 ## Files to Modify
 
 ```
-cmd/crux/compose_test.go  # 添加 8 个端到端集成测试 + 扩展 mock spawner
+cmd/rnix/compose_test.go  # 添加 8 个端到端集成测试 + 扩展 mock spawner
 ```
 
 ## Dependencies
 
 ```
-cmd/crux/compose_test.go → compose/          (NewEngine, Execute, ComposeSpec, AgentSpec, KernelSpawner)
-cmd/crux/compose_test.go → compose/          (ParseFile, BuildDAG, TopologicalSort)
-cmd/crux/compose_test.go → internal/types/   (PID, StateRunning, StateZombie)
-cmd/crux/compose_test.go → internal/ui/      (RenderComposeSummary, RenderComposeSummaryJSON)
-cmd/crux/compose_test.go → internal/xsync/   (SyncMap — 如 ipcKernelSpawner 测试需要)
-cmd/crux/compose_test.go → ipc/             (Dial, Client.ListProcs)
-cmd/crux/compose_test.go → kernel/           (NewProcess, NewKernel)
-cmd/crux/compose_test.go → vfs/             (ProcInfo)
-cmd/crux/compose_test.go → agents/           (AgentInfo)
+cmd/rnix/compose_test.go → compose/          (NewEngine, Execute, ComposeSpec, AgentSpec, KernelSpawner)
+cmd/rnix/compose_test.go → compose/          (ParseFile, BuildDAG, TopologicalSort)
+cmd/rnix/compose_test.go → internal/types/   (PID, StateRunning, StateZombie)
+cmd/rnix/compose_test.go → internal/ui/      (RenderComposeSummary, RenderComposeSummaryJSON)
+cmd/rnix/compose_test.go → internal/xsync/   (SyncMap — 如 ipcKernelSpawner 测试需要)
+cmd/rnix/compose_test.go → ipc/             (Dial, Client.ListProcs)
+cmd/rnix/compose_test.go → kernel/           (NewProcess, NewKernel)
+cmd/rnix/compose_test.go → vfs/             (ProcInfo)
+cmd/rnix/compose_test.go → agents/           (AgentInfo)
 ```
 
 ---
@@ -503,9 +503,9 @@ cmd/crux/compose_test.go → agents/           (AgentInfo)
 
 - **test-quality.md** — Given-When-Then 结构、单一断言、确定性、隔离性
 - **test-levels-framework.md** — Integration 级别选择（后端项目无 E2E 浏览器测试）
-- **existing test patterns** — `cmd/crux/compose_test.go` (Story 7.2/7.3) 的 mockComposeSpawner 模式
+- **existing test patterns** — `cmd/rnix/compose_test.go` (Story 7.2/7.3) 的 mockComposeSpawner 模式
 - **existing test patterns** — `compose/engine_test.go` (Story 7.1) 的 mockKernelSpawner 模式
-- **existing test patterns** — `cmd/crux/main_test.go` 的 setupTestIPCServer 模式
+- **existing test patterns** — `cmd/rnix/main_test.go` 的 setupTestIPCServer 模式
 - **Story 7.1-7.3 ATDD checklists** — 后端 Go 项目 ATDD 模式参考
 
 ---

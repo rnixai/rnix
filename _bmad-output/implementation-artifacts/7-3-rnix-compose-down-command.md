@@ -1,4 +1,4 @@
-# Story 7.3: crux compose down 命令
+# Story 7.3: rnix compose down 命令
 
 Status: done
 
@@ -7,20 +7,20 @@ Status: done
 ## Story
 
 As a 用户,
-I want 通过 `crux compose down` 停止编排中所有智能体并释放资源,
+I want 通过 `rnix compose down` 停止编排中所有智能体并释放资源,
 So that 我可以清理中断的工作流。
 
 ## Acceptance Criteria
 
-1. **compose down 子命令注册** — Given `cmd/crux/compose.go` 中 compose down 子命令已注册，When 执行 `crux compose down`，Then 向编排中所有运行中的智能体发送 Kill 信号，And 等待所有进程转为 Dead，And 释放所有资源（进程、上下文、文件描述符）
+1. **compose down 子命令注册** — Given `cmd/rnix/compose.go` 中 compose down 子命令已注册，When 执行 `rnix compose down`，Then 向编排中所有运行中的智能体发送 Kill 信号，And 等待所有进程转为 Dead，And 释放所有资源（进程、上下文、文件描述符）
 
-2. **部分完成场景** — Given 部分智能体已完成，部分仍在运行，When 执行 `crux compose down`，Then 仅终止仍在运行的智能体，And 输出释放汇总（终止了 N 个进程，释放了 M 个上下文）
+2. **部分完成场景** — Given 部分智能体已完成，部分仍在运行，When 执行 `rnix compose down`，Then 仅终止仍在运行的智能体，And 输出释放汇总（终止了 N 个进程，释放了 M 个上下文）
 
 ## Tasks / Subtasks
 
 - [x] Task 1: 创建 compose down 子命令注册 (AC: #1)
-  - [x] 1.1 在 `cmd/crux/compose.go` 中添加 `composeDownCmd`，注册为 `compose` 的子命令
-  - [x] 1.2 添加 `-f/--file` flag（默认 `crux-compose.yaml`），与 compose up 共用同一变量或独立变量
+  - [x] 1.1 在 `cmd/rnix/compose.go` 中添加 `composeDownCmd`，注册为 `compose` 的子命令
+  - [x] 1.2 添加 `-f/--file` flag（默认 `rnix-compose.yaml`），与 compose up 共用同一变量或独立变量
   - [x] 1.3 在现有 `init()` 中注册 `composeDownCmd` 到 `composeCmd`
   - [x] 1.4 支持全局 flags（`--json`、`--verbose`、`--quiet`）
 
@@ -46,7 +46,7 @@ So that 我可以清理中断的工作流。
   - [x] 4.4 无匹配进程时输出提示消息
 
 - [x] Task 5: 单元测试 (AC: #1-2)
-  - [x] 5.1 `cmd/crux/compose_test.go` — TestComposeDownCmd_Registered：子命令注册验证
+  - [x] 5.1 `cmd/rnix/compose_test.go` — TestComposeDownCmd_Registered：子命令注册验证
   - [x] 5.2 TestComposeDown_HelpOutput：help 输出验证
   - [x] 5.3 TestComposeDown_FileNotFound：compose 文件不存在时错误处理
   - [x] 5.4 TestComposeDown_NoDaemon：daemon 未运行时正常退出
@@ -86,9 +86,9 @@ var composeDownCmd = &cobra.Command{
     Use:   "down",
     Short: "Stop all agents defined in compose file",
     Long:  "Stop all running agents from the compose orchestration and release resources.",
-    Example: `  crux compose down                      # Stop agents from crux-compose.yaml
-  crux compose down -f my-workflow.yaml   # Stop agents from specified file
-  crux compose down --json                # JSON output mode`,
+    Example: `  rnix compose down                      # Stop agents from rnix-compose.yaml
+  rnix compose down -f my-workflow.yaml   # Stop agents from specified file
+  rnix compose down --json                # JSON output mode`,
     RunE: runComposeDown,
 }
 
@@ -96,7 +96,7 @@ var flagComposeDownFile string
 
 func init() {
     // 在现有 init() 中追加：
-    composeDownCmd.Flags().StringVarP(&flagComposeDownFile, "file", "f", "crux-compose.yaml", "Compose file path")
+    composeDownCmd.Flags().StringVarP(&flagComposeDownFile, "file", "f", "rnix-compose.yaml", "Compose file path")
     composeCmd.AddCommand(composeDownCmd)
 }
 ```
@@ -104,7 +104,7 @@ func init() {
 ### compose down 执行流程
 
 ```
-crux compose down [-f file.yaml]
+rnix compose down [-f file.yaml]
   1. 解析 YAML 文件（compose.ParseFile）获取 agent intent 列表
   2. 连接 daemon（ipc.Dial，不用 EnsureDaemon——不需要启动 daemon）
      - 如果 daemon 未运行：输出 "No daemon running, nothing to stop" 正常退出
@@ -124,7 +124,7 @@ compose up 使用 `ipc.EnsureDaemon()` 确保 daemon 启动。compose down **不
 
 **终端模式**：
 ```
-[compose] Stopping orchestration from "crux-compose.yaml"
+[compose] Stopping orchestration from "rnix-compose.yaml"
 [compose] PID 3: killed (SIGTERM) — "审查 PR 变更"
 [compose] PID 4: killed (SIGTERM) — "分析代码质量"
 [compose] PID 5: skipped (already completed) — "生成变更文档"
@@ -172,7 +172,7 @@ compose up 使用 `ipc.EnsureDaemon()` 确保 daemon 启动。compose down **不
 - **禁止复用 compose up 的 KernelSpawner 适配器**：compose down 不需要 Spawn/Wait，只需要 Kill 和 ListProcs
 - **禁止使用 `sync.Mutex + map`**：如需并发数据结构使用 `xsync.SyncMap`
 - **禁止使用 `interface{}`**：强类型
-- **禁止修改 compose/ 包**：Story 7.3 仅在 `cmd/crux/` 和 `internal/ui/` 层添加代码
+- **禁止修改 compose/ 包**：Story 7.3 仅在 `cmd/rnix/` 和 `internal/ui/` 层添加代码
 - **禁止忽略 Kill 错误**：收集错误但继续终止其他进程（best-effort），最终汇总错误
 
 ### 实现注意事项
@@ -186,15 +186,15 @@ compose up 使用 `ipc.EnsureDaemon()` 确保 daemon 启动。compose down **不
 
 **新增/修改文件：**
 ```
-cmd/crux/compose.go            # 修改：添加 composeDownCmd 注册 + runComposeDown 实现
-cmd/crux/compose_test.go       # 修改：添加 compose down 测试
+cmd/rnix/compose.go            # 修改：添加 composeDownCmd 注册 + runComposeDown 实现
+cmd/rnix/compose_test.go       # 修改：添加 compose down 测试
 internal/ui/compose.go         # 修改：添加 RenderComposeDownSummary + RenderComposeDownSummaryJSON
 internal/ui/compose_test.go    # 修改：添加 compose down UI 测试
 ```
 
 **不修改的文件：**
 ```
-cmd/crux/main.go              — compose down 不需要新的 rootCmd 注册（compose 已注册）
+cmd/rnix/main.go              — compose down 不需要新的 rootCmd 注册（compose 已注册）
 compose/                       — compose 引擎包完全不变
 kernel/                        — 内核层不变
 vfs/                           — VFS 不涉及
@@ -208,17 +208,17 @@ internal/xsync/                — 泛型工具不变
 
 **依赖方向：**
 ```
-cmd/crux/compose.go → compose/        （ParseFile，获取 agent 名称和 intent）
-cmd/crux/compose.go → ipc/            （Client、Dial、Kill、ListProcs）
-cmd/crux/compose.go → internal/types/  （PID、ProcessState、SIGTERM）
-cmd/crux/compose.go → internal/ui/    （compose down 汇总 UI）
+cmd/rnix/compose.go → compose/        （ParseFile，获取 agent 名称和 intent）
+cmd/rnix/compose.go → ipc/            （Client、Dial、Kill、ListProcs）
+cmd/rnix/compose.go → internal/types/  （PID、ProcessState、SIGTERM）
+cmd/rnix/compose.go → internal/ui/    （compose down 汇总 UI）
 internal/ui/compose.go → internal/ui/ （Renderer、Styles）
 ```
 
 ### 必需导入
 
 ```go
-// cmd/crux/compose.go（新增 compose down 部分）
+// cmd/rnix/compose.go（新增 compose down 部分）
 // 已有导入不变，无需新增依赖包
 // compose.ParseFile、ipc.Dial/Kill/ListProcs、types.StateRunning 等均已在 compose up 中导入
 
@@ -265,11 +265,11 @@ func matchComposeProcesses(procs []vfs.ProcInfo, spec *compose.ComposeSpec) (run
 ### References
 
 - [Source: _bmad-output/planning-artifacts/epics/epic-7-compose-多智能体编排agent-compose.md#Story 7.3] — Story 定义和验收标准
-- [Source: _bmad-output/implementation-artifacts/7-2-crux-compose-up-command.md] — Story 7.2 实现，compose up CLI 结构和 IPC 适配器
-- [Source: _bmad-output/implementation-artifacts/7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine.md] — Story 7.1 实现，compose 包设计
-- [Source: cmd/crux/compose.go] — 现有 compose 命令结构、composeCmd/composeUpCmd、flagComposeFile、init() 注册模式
-- [Source: cmd/crux/compose_test.go] — 现有 compose 测试模式、mock spawner、setupTestIPCServer
-- [Source: cmd/crux/main.go] — CLI 结构、outputError 函数、resolveOutputMode、Kill 命令模式
+- [Source: _bmad-output/implementation-artifacts/7-2-rnix-compose-up-command.md] — Story 7.2 实现，compose up CLI 结构和 IPC 适配器
+- [Source: _bmad-output/implementation-artifacts/7-1-rnix-compose-yaml-parsing-and-dag-scheduling-engine.md] — Story 7.1 实现，compose 包设计
+- [Source: cmd/rnix/compose.go] — 现有 compose 命令结构、composeCmd/composeUpCmd、flagComposeFile、init() 注册模式
+- [Source: cmd/rnix/compose_test.go] — 现有 compose 测试模式、mock spawner、setupTestIPCServer
+- [Source: cmd/rnix/main.go] — CLI 结构、outputError 函数、resolveOutputMode、Kill 命令模式
 - [Source: compose/types.go] — ComposeSpec、AgentSpec 结构，ParseFile 函数
 - [Source: ipc/client.go] — IPC Client、Kill、ListProcs、Dial 接口
 - [Source: ipc/protocol.go] — KillRequest、ListProcsResponse、ProcInfoWire
@@ -308,7 +308,7 @@ Claude Opus 4.6
 
 ### File List
 
-- `cmd/crux/compose.go` — 修改：添加 composeDownCmd、flagComposeDownFile、matchComposeProcesses、runComposeDown；移除 ComposeDownResult 死代码；添加 compose down 头部输出；传递 killErrors 到 UI 层
-- `cmd/crux/compose_test.go` — 修改：添加 7 个 compose down 测试 + 3 个 matchComposeProcesses 测试；增强 KillRunningOnly 和 JSONOutput 测试断言
+- `cmd/rnix/compose.go` — 修改：添加 composeDownCmd、flagComposeDownFile、matchComposeProcesses、runComposeDown；移除 ComposeDownResult 死代码；添加 compose down 头部输出；传递 killErrors 到 UI 层
+- `cmd/rnix/compose_test.go` — 修改：添加 7 个 compose down 测试 + 3 个 matchComposeProcesses 测试；增强 KillRunningOnly 和 JSONOutput 测试断言
 - `internal/ui/compose.go` — 修改：添加 ComposeDownEntry、RenderComposeDownHeader、RenderComposeDownSummary（含 errors 参数）、RenderComposeDownSummaryJSON（含 errors 参数）；修复 S1016 lint
 - `internal/ui/compose_test.go` — 修改：添加 5 个 compose down UI 测试；更新函数签名以匹配新接口

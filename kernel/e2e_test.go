@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/agents"
-	cruxctx "github.com/usecrux/crux/context"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/skills"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/skills"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- E2E Test Helpers ---
@@ -234,7 +234,7 @@ func newE2EKernel(t testing.TB, llmFile vfs.VFSFile) (*KernelImpl, *spawnMockMou
 	})
 
 	v := vfs.NewVFS(reg)
-	ctxMgr := cruxctx.NewManager()
+	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 
 	// Set up mock MountManager that also registers MCP paths in DeviceRegistry
@@ -860,7 +860,7 @@ func TestAllowedDevicesAggregation(t *testing.T) {
 			return &mockFSFile{}, nil
 		})
 		v := vfs.NewVFS(reg)
-		ctxMgr := cruxctx.NewManager()
+		ctxMgr := rnixctx.NewManager()
 		k := NewKernel(v, ctxMgr, nil)
 		mm := newSpawnMockMountManager()
 		mm.mountFn = func(path string, config vfs.MCPConfig) error {
@@ -1059,7 +1059,7 @@ func TestFourLayerBoundaryConditions(t *testing.T) {
 			return &mockFSFile{}, nil
 		})
 		v := vfs.NewVFS(reg)
-		ctxMgr := cruxctx.NewManager()
+		ctxMgr := rnixctx.NewManager()
 		k := NewKernel(v, ctxMgr, nil)
 
 		mm := newSpawnMockMountManager()

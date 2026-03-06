@@ -12,8 +12,8 @@ inputDocuments:
   - '_bmad-output/implementation-artifacts/11-3-minimal-control-structures.md'
   - 'shell/script.go'
   - 'shell/script_test.go'
-  - 'cmd/crux/main.go'
-  - 'cmd/crux/main_test.go'
+  - 'cmd/rnix/main.go'
+  - 'cmd/rnix/main_test.go'
 ---
 
 # 可追溯性矩阵与质量门决策 - Story 11.3

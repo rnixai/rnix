@@ -54,7 +54,7 @@ So that 我可以管理智能体的生命周期。
   - [x] 3.3 确认 `KernelImpl` 满足 `ProcessManager` 接口（编译时检查）
 
 - [x] Task 4: 集成测试 (AC: #1, #2, #6)
-  - [x] 4.1 在 `cmd/crux/integration_test.go` 添加 Kill + Wait 集成测试
+  - [x] 4.1 在 `cmd/rnix/integration_test.go` 添加 Kill + Wait 集成测试
   - [x] 4.2 测试完整流程：Spawn → Kill → Wait → 验证资源释放
   - [x] 4.3 测试 Kill 后 reasonStep 循环正确退出
   - [x] 4.4 运行 `go test -race ./...` 和 `go vet ./...` 确认全部通过
@@ -173,7 +173,7 @@ k.emitEvent(proc, "Wait", map[string]any{"pid": pid}, exit, nil, duration)
 
 **kernel/kernel.go — KernelImpl 方法清单：**
 ```go
-func NewKernel(v *vfs.VFS, ctxMgr *cruxctx.Manager, cb KernelCallbacks) *KernelImpl
+func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelImpl
 func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpts) (types.PID, error)
 func (k *KernelImpl) AddProcess(p *Process)
 func (k *KernelImpl) GetProcess(pid types.PID) (*Process, bool)
@@ -336,14 +336,14 @@ type ProcessManager interface {
 - `kernel/reap.go` — 添加 Wait 方法（含完整资源释放链）
 - `kernel/kernel_test.go` — Kill 单元测试
 - `kernel/reap_test.go` — Wait 单元测试（可能需新建）
-- `cmd/crux/integration_test.go` — Kill + Wait 集成测试
+- `cmd/rnix/integration_test.go` — Kill + Wait 集成测试
 
 **本 Story 不包含：**
-- `crux kill <pid>` CLI 子命令（Story 4.4 或后续）
+- `rnix kill <pid>` CLI 子命令（Story 4.4 或后续）
 - 孤儿进程 reparent（Story 4.2）
 - Zombie 自动回收 reaper（Story 4.2）
 - `/proc` 动态文件系统（Story 4.3）
-- `crux ps` 命令和 Process Table UI（Story 4.4）
+- `rnix ps` 命令和 Process Table UI（Story 4.4）
 - `ctx_free` 独立测试（Story 4.5）
 - ProcessManager 接口中的 `GetPID()` 和 `PS()`（Story 4.4）
 
@@ -355,7 +355,7 @@ kernel/kernel.go           — 添加 Kill 方法 + SyscallEvent 记录
 kernel/reap.go             — 添加 Wait 方法 + 完整资源释放链
 kernel/kernel_test.go      — Kill 单元测试（新增测试用例）
 kernel/reap_test.go        — Wait 单元测试（新建或扩展）
-cmd/crux/integration_test.go — Kill + Wait 集成测试
+cmd/rnix/integration_test.go — Kill + Wait 集成测试
 ```
 
 **不修改文件：**
@@ -403,7 +403,7 @@ Claude Opus 4.6
 - Task 1: Kill syscall 实现完成。`kernel/kernel.go` 添加 `Kill(pid, signal)` 方法，支持 PID 查找、Zombie/Dead 幂等、Running 状态调用 `proc.Cancel()`、SyscallEvent 入口/出口记录。4 个单元测试全部通过。
 - Task 2: Wait syscall 实现完成。新建 `kernel/reap.go`，添加 `Wait(pid)` 方法，实现完整资源释放序列：`Cancel → wg.Wait → close(DebugChan) → CtxFree → Reap → RemoveProcess`。修复了 `emitEvent` 与 `close(DebugChan)` 的并发竞态——在 `emitEvent` 中持有 `proc.mu` 保护 channel 发送，在 Wait 中先 nil 化 `DebugChan` 再关闭。6 个单元测试全部通过。
 - Task 3: ProcessManager 接口定义完成。在 `kernel/kernel.go` 添加 `ProcessManager` 接口（包含 Spawn、Kill、Wait），编译时检查 `var _ ProcessManager = (*KernelImpl)(nil)` 通过。
-- Task 4: 集成测试完成。在 `cmd/crux/integration_test.go` 添加 3 个 Kill+Wait 集成测试：完整生命周期（Spawn→Kill→Wait→资源释放验证）、reasonStep 退出验证、并发竞态检测。`go test -race ./...` 全部通过，`go vet ./...` 无警告。
+- Task 4: 集成测试完成。在 `cmd/rnix/integration_test.go` 添加 3 个 Kill+Wait 集成测试：完整生命周期（Spawn→Kill→Wait→资源释放验证）、reasonStep 退出验证、并发竞态检测。`go test -race ./...` 全部通过，`go vet ./...` 无警告。
 
 ### Code Review Fixes (Amelia, 2026-02-26)
 
@@ -419,5 +419,5 @@ Claude Opus 4.6
 - `kernel/reap.go` — 新建文件，Wait 方法 + 完整资源释放链实现
 - `kernel/kernel_test.go` — 添加 7 个 Kill 单元测试（TestKill_RunningProcess、TestKill_PIDNotFound、TestKill_ZombieIdempotent、TestKill_SyscallEvent、TestKill_InvalidSignal、TestKill_CreatedState、TestKill_RunningProcess_SIGKILL）
 - `kernel/reap_test.go` — 新建文件，6 个 Wait 单元测试（TestWait_NormalCompletion、TestWait_KillThenWait、TestWait_PIDNotFound、TestWait_ResourceRelease、TestWait_ConcurrentSafe、TestWait_SyscallEvent）
-- `cmd/crux/integration_test.go` — 添加 3 个 Kill+Wait 集成测试（TestE2E_KillWait_FullLifecycle、TestE2E_KillWait_ReasonStepExits、TestE2E_KillWait_RaceDetection）
+- `cmd/rnix/integration_test.go` — 添加 3 个 Kill+Wait 集成测试（TestE2E_KillWait_FullLifecycle、TestE2E_KillWait_ReasonStepExits、TestE2E_KillWait_RaceDetection）
 - `internal/types/types.go` — 添加 ErrInvalid 错误码、Signal.Valid() 方法

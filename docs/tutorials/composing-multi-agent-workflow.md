@@ -1,23 +1,23 @@
 # 教程 3：组合多智能体工作流
 
-本教程带你使用 Crux Compose 编排多个智能体协作完成一个复杂任务，并用 `crux top` 实时监控执行过程。
+本教程带你使用 Rnix Compose 编排多个智能体协作完成一个复杂任务，并用 `rnix top` 实时监控执行过程。
 
 ---
 
 ## 前置条件
 
 - 已完成 [教程 1：编写第一个 Skill](writing-first-skill.md)（了解 Skill 和 Agent 的创建流程）
-- Crux 已安装并可运行
-- 对 Crux 的进程、VFS 概念有基本了解（参考 [核心概念文档](../concepts.md)）
+- Rnix 已安装并可运行
+- 对 Rnix 的进程、VFS 概念有基本了解（参考 [核心概念文档](../concepts.md)）
 
 ---
 
 ## 你将学到什么
 
 1. 如何设计多智能体 DAG 工作流
-2. 如何编写 `crux-compose.yaml` 定义智能体依赖关系
-3. 如何用 `crux compose up` 启动工作流
-4. 如何用 `crux top` 实时监控执行
+2. 如何编写 `rnix-compose.yaml` 定义智能体依赖关系
+3. 如何用 `rnix compose up` 启动工作流
+4. 如何用 `rnix top` 实时监控执行
 5. 如何用管道语法和 AgentShell 脚本实现更灵活的编排
 
 ---
@@ -40,7 +40,7 @@ analyzer ──→ doc-gen ──→ checker
 
 `doc-gen` 依赖 `analyzer` 完成后才启动，`checker` 依赖 `doc-gen` 完成后才启动。这是一个简单的线性 DAG。
 
-Crux Compose 的 DAG 调度引擎会自动解析依赖，按拓扑排序确定执行顺序。如果依赖图允许并行（比如 A 和 B 都依赖 C，则 A 和 B 可以并行执行），引擎会自动并行调度。
+Rnix Compose 的 DAG 调度引擎会自动解析依赖，按拓扑排序确定执行顺序。如果依赖图允许并行（比如 A 和 B 都依赖 C，则 A 和 B 可以并行执行），引擎会自动并行调度。
 
 ### 准备 Agent
 
@@ -48,9 +48,9 @@ Crux Compose 的 DAG 调度引擎会自动解析依赖，按拓扑排序确定�
 
 ---
 
-## 步骤二：编写 crux-compose.yaml
+## 步骤二：编写 rnix-compose.yaml
 
-在项目根目录创建 `crux-compose.yaml`：
+在项目根目录创建 `rnix-compose.yaml`：
 
 ```yaml
 version: "1.0"
@@ -84,7 +84,7 @@ agents:
 
 ### DAG 调度引擎工作原理
 
-Compose 引擎读取 `crux-compose.yaml` 后：
+Compose 引擎读取 `rnix-compose.yaml` 后：
 
 1. **解析依赖图** — 将所有 Agent 和 `depends_on` 关系构建为有向无环图（DAG）
 2. **拓扑排序** — 确定执行层级（无依赖的 Agent 在第一层，依赖它们的在第二层，以此类推）
@@ -93,10 +93,10 @@ Compose 引擎读取 `crux-compose.yaml` 后：
 
 ---
 
-## 步骤三：运行 crux compose up
+## 步骤三：运行 rnix compose up
 
 ```bash
-crux compose up
+rnix compose up
 ```
 
 Compose 引擎启动工作流：
@@ -124,18 +124,18 @@ compose | completed | 3/3 agents | 10.5s | 3,520 tokens
 
 ---
 
-## 步骤四：使用 crux top 实时监控
+## 步骤四：使用 rnix top 实时监控
 
 在工作流运行期间，打开另一个终端运行：
 
 ```bash
-crux top
+rnix top
 ```
 
 你会看到一个 TUI（终端用户界面）实时显示所有进程的状态：
 
 ```
-crux top — 实时监控                           刷新: 1s
+rnix top — 实时监控                           刷新: 1s
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PID  STATE    AGENT         TOKENS   ELAPSED  INTENT
 5    running  code-analyst  1,200    2.3s     分析 kernel/kernel.go…
@@ -146,12 +146,12 @@ PID  STATE    AGENT         TOKENS   ELAPSED  INTENT
 Token 总量: 1,200 | 已用时: 2.3s
 ```
 
-`crux top` 会持续刷新，你可以实时观察：
+`rnix top` 会持续刷新，你可以实时观察：
 - 哪些 Agent 正在运行（`running`）
 - 哪些在等待依赖完成（`created`）
 - Token 消耗和执行时间
 
-按 `q` 退出 `crux top`。
+按 `q` 退出 `rnix top`。
 
 ---
 
@@ -159,10 +159,10 @@ Token 总量: 1,200 | 已用时: 2.3s
 
 ### 查看 compose 完成输出
 
-`crux compose up` 完成后会输出各 Agent 的执行摘要。要获取更详细的结果，可以使用 JSON 输出：
+`rnix compose up` 完成后会输出各 Agent 的执行摘要。要获取更详细的结果，可以使用 JSON 输出：
 
 ```bash
-crux compose up --json
+rnix compose up --json
 ```
 
 JSON 输出包含每个 Agent 的完整结果：
@@ -185,10 +185,10 @@ JSON 输出包含每个 Agent 的完整结果：
 
 ### 查看推理日志
 
-用 `crux log` 查看各智能体的推理过程：
+用 `rnix log` 查看各智能体的推理过程：
 
 ```bash
-crux log
+rnix log
 ```
 
 日志按时间和进程分组，展示每个 Agent 的推理步骤和决策过程。
@@ -200,7 +200,7 @@ crux log
 如果工作流中途失败或需要停止，使用：
 
 ```bash
-crux compose down
+rnix compose down
 ```
 
 这会终止所有 compose 启动的进程并清理资源。
@@ -214,7 +214,7 @@ crux compose down
 对于简单的线性工作流，可以用管道语法代替 compose 文件：
 
 ```bash
-crux -i 'spawn "分析 kernel/kernel.go" --agent=code-analyst | spawn "生成改进文档" | spawn "质量检查"'
+rnix -i 'spawn "分析 kernel/kernel.go" --agent=code-analyst | spawn "生成改进文档" | spawn "质量检查"'
 ```
 
 管道语法 `|` 将前一个 Agent 的输出自动注入为下一个 Agent 的 `[PIPE_INPUT]` 上下文。
@@ -224,13 +224,13 @@ crux -i 'spawn "分析 kernel/kernel.go" --agent=code-analyst | spawn "生成改
 结合 AgentShell 的环境变量，让工作流更灵活：
 
 ```bash
-crux -i '
+rnix -i '
 export TARGET=./kernel/kernel.go
 spawn "分析 $TARGET 的代码质量" --agent=code-analyst | spawn "生成改进文档"
 '
 ```
 
-或在 `crux-compose.yaml` 中使用 environment：
+或在 `rnix-compose.yaml` 中使用 environment：
 
 ```yaml
 agents:
@@ -258,19 +258,19 @@ AgentShell 支持完整的控制结构：
 - **变量赋值** — `result = spawn "..."` 捕获执行结果
 - **属性访问** — `$result.exitcode` 访问退出码
 
-### crux compose down
+### rnix compose down
 
 如果工作流中有残留进程（比如某个 Agent 挂起），用 `compose down` 强制清理：
 
 ```bash
-crux compose down
+rnix compose down
 ```
 
 ---
 
 ## 下一步
 
-恭喜！你已经掌握了 Crux 的三大核心技能：
+恭喜！你已经掌握了 Rnix 的三大核心技能：
 
 1. **编写 Skill 和 Agent** — 创建可复用的智能体能力
 2. **调试问题** — 用 astrace 追踪和定位错误
@@ -278,7 +278,7 @@ crux compose down
 
 ### 进阶学习
 
-- [核心概念文档](../concepts.md) — 深入理解 Crux 的 OS 设计哲学
+- [核心概念文档](../concepts.md) — 深入理解 Rnix 的 OS 设计哲学
 - [参考手册](../reference.md) — 查阅所有 Syscall、VFS 路径、CLI 命令的完整定义
 - [教程 1：编写第一个 Skill](writing-first-skill.md) — 回顾 Skill 编写细节
 - [教程 2：调试第一个 bug](debugging-first-bug.md) — 回顾调试技巧

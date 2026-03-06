@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/usecrux/crux/compose"
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/compose"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // composeAgentStatus determines the display status for a compose agent result.

@@ -73,9 +73,9 @@ execution_mode: 'sequential'
 
 ```
 $ go test -count=1 -race ./kernel/... ./skillpkg/... ./ipc/...
-ok   github.com/usecrux/crux/kernel    3.710s
-ok   github.com/usecrux/crux/skillpkg  1.120s
-ok   github.com/usecrux/crux/ipc       5.914s
+ok   github.com/rnixai/rnix/kernel    3.710s
+ok   github.com/rnixai/rnix/skillpkg  1.120s
+ok   github.com/rnixai/rnix/ipc       5.914s
 ```
 
 - 20 个新测试全部通过
@@ -87,7 +87,7 @@ ok   github.com/usecrux/crux/ipc       5.914s
 | AC | 测试 | 状态 |
 |----|------|------|
 | AC 2.2 (TTL 过期删除) | `TestCleanupExpiredDead_RemovesExpired` | ✅ |
-| AC 2.3 (Dead 不影响 crux top) | `TestCleanupExpiredDead_KeepsRecentDead` | ✅ |
+| AC 2.3 (Dead 不影响 rnix top) | `TestCleanupExpiredDead_KeepsRecentDead` | ✅ |
 | AC 4.1 (tool 错误写入 context) | `TestReasonStep_ToolOpenFails_SetsHasToolError` | ✅ |
 | AC 4.2 (HasToolError → exit=1) | `TestReasonStep_Tool{Open,Write,Read}Fails_SetsHasToolError` | ✅ |
 | AC 4.5 (LLM 继续推理) | `TestReasonStep_ToolOpenFails_SetsHasToolError` (验证 Result 非空) | ✅ |

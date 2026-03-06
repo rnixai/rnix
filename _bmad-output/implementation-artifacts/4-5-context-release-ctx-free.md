@@ -122,7 +122,7 @@ _ = k.ctxMgr.CtxFree(cid)
 
 ### 前序 Story 经验
 
-#### Story 4.4 (crux ps) 经验
+#### Story 4.4 (rnix ps) 经验
 
 - **不要修改已稳定的接口**——Story 4.4 决定不修改 ProcessManager 接口（ListProcs 已满足需求），本 Story 同理不修改 ContextManager 接口
 - **遵循 `errors.As` 标准模式**——测试中用 `errors.As(err, &ctxErr)` 而非类型断言
@@ -217,7 +217,7 @@ internal/types/types.go           — CtxID 类型定义不变
 - [Source: _bmad-output/project-context.md#进程状态机] — 资源释放顺序约束
 
 **前序 Story：**
-- [Source: _bmad-output/implementation-artifacts/4-4-crux-ps-command-and-process-table-ui.md] — reapOnce 模式、errors.As 使用、Code Review 经验
+- [Source: _bmad-output/implementation-artifacts/4-4-rnix-ps-command-and-process-table-ui.md] — reapOnce 模式、errors.As 使用、Code Review 经验
 
 **源码行号参考：**
 - context/context.go: Manager(65-69), CtxAlloc(79-96), CtxFree(99-110), CtxRead(178-217), CtxWrite(131-173)

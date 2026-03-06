@@ -9,10 +9,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/spf13/cobra"
-	"github.com/usecrux/crux/internal/types"
-	"github.com/usecrux/crux/internal/ui"
-	"github.com/usecrux/crux/ipc"
-	"github.com/usecrux/crux/vfs"
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/vfs"
 )
 
 var topCmd = &cobra.Command{
@@ -23,7 +23,7 @@ var topCmd = &cobra.Command{
 	RunE:  runTop,
 }
 
-// treeNode represents a process in the tree hierarchy for crux top display.
+// treeNode represents a process in the tree hierarchy for rnix top display.
 type treeNode struct {
 	proc     vfs.ProcInfo
 	children []*treeNode
@@ -132,7 +132,7 @@ func topSummaryLine(procs []vfs.ProcInfo, uptime time.Duration) string {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "crux top — %d active", active)
+	fmt.Fprintf(&b, "rnix top — %d active", active)
 	if zombie > 0 {
 		fmt.Fprintf(&b, ", %d zombie", zombie)
 	}
@@ -414,11 +414,11 @@ func (m topModel) View() tea.View {
 	return v
 }
 
-// runTop is the cobra RunE handler for the "crux top" command.
+// runTop is the cobra RunE handler for the "rnix top" command.
 func runTop(_ *cobra.Command, _ []string) error {
 	client, err := ipc.Dial(ipc.SocketPath())
 	if err != nil {
-		fmt.Fprintln(rootCmd.ErrOrStderr(), "✗ No crux daemon running. Start an agent first with: crux -i \"intent\"")
+		fmt.Fprintln(rootCmd.ErrOrStderr(), "✗ No rnix daemon running. Start an agent first with: rnix -i \"intent\"")
 		return nil
 	}
 

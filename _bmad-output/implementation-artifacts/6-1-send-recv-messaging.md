@@ -328,7 +328,7 @@ internal/types/types.go — （可选）添加 MsgSeq 类型别名
 **不修改的文件：**
 ```
 ipc/                    — 跨终端 IPC daemon，与内核内部 IPC 无关
-cmd/crux/main.go        — CLI 层不直接暴露 Send/Recv（Phase 2 后续 Story 处理）
+cmd/rnix/main.go        — CLI 层不直接暴露 Send/Recv（Phase 2 后续 Story 处理）
 vfs/                    — VFS 层无变化
 drivers/                — 驱动层无变化
 ```

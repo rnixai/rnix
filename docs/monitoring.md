@@ -1,8 +1,8 @@
-# Crux 系统监控工具
+# Rnix 系统监控工具
 
 ## 概述
 
-`monitor.sh` 是一个用于持续监控 Crux daemon 运行状态的脚本，每 30 秒报告一次系统状态摘要。
+`monitor.sh` 是一个用于持续监控 Rnix daemon 运行状态的脚本，每 30 秒报告一次系统状态摘要。
 
 ## 功能
 
@@ -35,16 +35,16 @@ nohup ./scripts/monitor.sh &
 ### 查看日志
 
 ```bash
-tail -f logs/crux-monitor.log          # 实时查看
-cat logs/crux-monitor.log              # 查看完整日志
-grep "Daemon" logs/crux-monitor.log    # 过滤特定内容
+tail -f logs/rnix-monitor.log          # 实时查看
+cat logs/rnix-monitor.log              # 查看完整日志
+grep "Daemon" logs/rnix-monitor.log    # 过滤特定内容
 ```
 
 ## 输出示例
 
 ```
 ═══════════════════════════════════════════
-[2026-03-04 15:30:45] Crux 系统监控报告
+[2026-03-04 15:30:45] Rnix 系统监控报告
 ═══════════════════════════════════════════
 ▸ Daemon 状态: ✓ 运行中
 ▸ Daemon 进程: PID=12345 | RSS=25MB | VSZ=150MB
@@ -76,7 +76,7 @@ sleep 30  # 改为其他值，如 sleep 60 表示 60 秒
 设置环境变量：
 
 ```bash
-export CRUX_LOG_DIR=/var/log/crux
+export RNIX_LOG_DIR=/var/log/rnix
 ./scripts/monitor.sh
 ```
 
@@ -98,16 +98,16 @@ chmod +x ./scripts/monitor.sh
 
 ```bash
 # 查看实际 socket 路径
-echo $XDG_RUNTIME_DIR/crux/crux.sock
+echo $XDG_RUNTIME_DIR/rnix/rnix.sock
 # 或
-ls -la /tmp/crux-$(id -u)/
+ls -la /tmp/rnix-$(id -u)/
 ```
 
 ### Daemon 无法启动
 
 ```bash
 # 手动启动 daemon
-./bin/crux daemon
+./bin/rnix daemon
 
 # 在另一个终端查看状态
 ./scripts/monitor.sh
@@ -122,7 +122,7 @@ ls -la /tmp/crux-$(id -u)/
 ```bash
 if [ "$(check_daemon_status)" == "✗ 离线" ]; then
     # 发送通知或重启 daemon
-    ./bin/crux daemon &
+    ./bin/rnix daemon &
 fi
 ```
 
@@ -130,14 +130,14 @@ fi
 
 ```bash
 # 查看进程列表
-crux ps
+rnix ps
 
 # 查看特定进程
-crux ps <pid>
+rnix ps <pid>
 
 # 跟踪进程执行
-crux astrace <pid>
+rnix astrace <pid>
 
 # 杀死进程
-crux kill <pid>
+rnix kill <pid>
 ```

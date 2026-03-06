@@ -56,13 +56,13 @@ So that 前一个智能体的输出自动成为后一个的输入。
   - [x] 3.7 `ipc/client.go`：`SpawnPipelineAndWatch(req, onEvent)` 客户端方法
 
 - [x] Task 4: CLI 集成 (AC: #1, #2, #3)
-  - [x] 4.1 `cmd/crux/main.go`：`runRoot` 中检测 intent 是否包含 `|` 管道语法
-  - [x] 4.2 `cmd/crux/main.go`：如果是管道语法，调用 `shell.ParsePipeline()` 解析
-  - [x] 4.3 `cmd/crux/main.go`：调用 `client.SpawnPipelineAndWatch()` 执行管道
-  - [x] 4.4 `cmd/crux/main.go`：管道进度显示——每阶段显示 stage N/M 进度
-  - [x] 4.5 `cmd/crux/main.go`：管道结果输出——最后一个阶段的 Result 作为最终输出
-  - [x] 4.6 `cmd/crux/main.go`：管道 JSON 输出——包含所有阶段的 stages 数组
-  - [x] 4.7 `cmd/crux/main.go`：管道错误输出——显示失败阶段和位置
+  - [x] 4.1 `cmd/rnix/main.go`：`runRoot` 中检测 intent 是否包含 `|` 管道语法
+  - [x] 4.2 `cmd/rnix/main.go`：如果是管道语法，调用 `shell.ParsePipeline()` 解析
+  - [x] 4.3 `cmd/rnix/main.go`：调用 `client.SpawnPipelineAndWatch()` 执行管道
+  - [x] 4.4 `cmd/rnix/main.go`：管道进度显示——每阶段显示 stage N/M 进度
+  - [x] 4.5 `cmd/rnix/main.go`：管道结果输出——最后一个阶段的 Result 作为最终输出
+  - [x] 4.6 `cmd/rnix/main.go`：管道 JSON 输出——包含所有阶段的 stages 数组
+  - [x] 4.7 `cmd/rnix/main.go`：管道错误输出——显示失败阶段和位置
 
 - [x] Task 5: 测试 (AC: all)
   - [x] 5.1 `shell/parser_test.go`：单 spawn 命令解析
@@ -76,8 +76,8 @@ So that 前一个智能体的输出自动成为后一个的输入。
   - [x] 5.9 `shell/pipe_test.go`：中间阶段失败——后续不执行，前置阶段结果保留
   - [x] 5.10 `shell/pipe_test.go`：context 取消——执行中断
   - [x] 5.11 `ipc/pipeline_test.go`：端到端 IPC 管道 spawn
-  - [x] 5.12 `cmd/crux/main_test.go`：管道语法检测逻辑
-  - [x] 5.13 `cmd/crux/main_test.go`：回归测试——现有命令注册不受影响
+  - [x] 5.12 `cmd/rnix/main_test.go`：管道语法检测逻辑
+  - [x] 5.13 `cmd/rnix/main_test.go`：回归测试——现有命令注册不受影响
 
 ## Dev Notes
 
@@ -198,7 +198,7 @@ func ParsePipeline(input string) (*Pipeline, error) {
 - `ipc/protocol.go`：现有 Request/Response/StreamEvent 框架
 - `ipc/server.go`：现有 `handleSpawn` 流程作为参考，`handleSpawnPipeline` 在每个阶段内复用相同的 kernel Spawn → Wait 逻辑
 - `ipc/client.go`：现有 `SpawnAndWatch` 流式事件模型作为参考
-- `cmd/crux/main.go`：现有 `runRoot` 结构，管道检测在 `runRoot` 内嵌入
+- `cmd/rnix/main.go`：现有 `runRoot` 结构，管道检测在 `runRoot` 内嵌入
 - `internal/ui/`：ProgressReporter 用于管道阶段进度显示
 
 **不要修改的现有代码：**
@@ -266,7 +266,7 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 - `ipc/protocol.go` — 新增 MethodSpawnPipeline + SpawnPipelineRequest/Response 类型（~40 行新增）
 - `ipc/server.go` — 新增 handleSpawnPipeline + ipcKernelSpawner（~80 行新增）
 - `ipc/client.go` — 新增 SpawnPipelineAndWatch 方法（~50 行新增）
-- `cmd/crux/main.go` — runRoot 中新增管道检测和管道执行路径（~60 行新增）
+- `cmd/rnix/main.go` — runRoot 中新增管道检测和管道执行路径（~60 行新增）
 
 ### 依赖方向验证
 
@@ -331,7 +331,7 @@ func (m *mockSpawner) SpawnAndWait(ctx context.Context, intent, agent, model str
 
 ### 边界情况
 
-- **Intent 中包含 `|` 但不是管道语法**：如 `crux -i "分析 A | B 的差异"`——没有 `spawn` 关键字，走普通 spawn 路径
+- **Intent 中包含 `|` 但不是管道语法**：如 `rnix -i "分析 A | B 的差异"`——没有 `spawn` 关键字，走普通 spawn 路径
 - **单个 spawn 无管道**：`spawn "分析代码"`——ParsePipeline 返回单命令 Pipeline，Execute 单阶段执行（与普通 spawn 等效）
 - **空 intent 段**：`spawn "A" | | spawn "B"`——解析错误，报告空段位置
 - **引号内含管道符**：`spawn "分析 A|B"` 不分割——解析器正确处理引号内字符
@@ -366,7 +366,7 @@ func (m *mockSpawner) SpawnAndWait(ctx context.Context, intent, agent, model str
 - [Source: ipc/protocol.go#SpawnRequest + StreamEvent 框架]
 - [Source: ipc/server.go#handleSpawn 流程]
 - [Source: ipc/client.go#SpawnAndWatch 模式]
-- [Source: cmd/crux/main.go#runRoot 入口 L315-414]
+- [Source: cmd/rnix/main.go#runRoot 入口 L315-414]
 - [Source: _bmad-output/implementation-artifacts/10-5-init-bootstrap-sequence.md#异步 Spawn 检测教训]
 
 ## Dev Agent Record
@@ -386,7 +386,7 @@ Claude claude-4.6-opus (Cursor)
 - 扩展 `ipc/protocol.go`：新增 `MethodSpawnPipeline`、`SpawnPipelineRequest/Command/Response`、`PipelineStageWire` 类型。
 - 扩展 `ipc/server.go`：`handleSpawnPipeline` 流式推送阶段进度，`ipcKernelSpawner` 适配器桥接 kernel.Spawn → Wait → Reap 流程。
 - 扩展 `ipc/client.go`：`SpawnPipelineAndWatch` 方法，复用 NDJSON 流式事件模型。
-- 修改 `cmd/crux/main.go`：`isPipelineSyntax` 检测（需两侧 spawn 关键字），`runPipeline` 管道执行路径，JSON/默认/错误三种输出模式。`drivers/shell` 改为 `drivershell` 别名避免与新 `shell` 包冲突。
+- 修改 `cmd/rnix/main.go`：`isPipelineSyntax` 检测（需两侧 spawn 关键字），`runPipeline` 管道执行路径，JSON/默认/错误三种输出模式。`drivers/shell` 改为 `drivershell` 别名避免与新 `shell` 包冲突。
 - 全部 18 个包测试通过，零回归。shell 包 20 测试全通过（12 parser + 8 pipe），IPC 8 测试通过，CLI 2 测试通过。
 
 ### Change Log
@@ -405,12 +405,12 @@ Claude claude-4.6-opus (Cursor)
 - `ipc/protocol.go` — 新增 MethodSpawnPipeline + SpawnPipelineRequest/Command/Response/PipelineStageWire 类型
 - `ipc/server.go` — 新增 handleSpawnPipeline + ipcKernelSpawner 适配器，import context/shell
 - `ipc/client.go` — 新增 SpawnPipelineAndWatch 方法
-- `cmd/crux/main.go` — 新增 isPipelineSyntax/runPipeline/outputPipelineJSON，drivers/shell 重命名为 drivershell
+- `cmd/rnix/main.go` — 新增 isPipelineSyntax/runPipeline/outputPipelineJSON，drivers/shell 重命名为 drivershell
 
 **已有测试文件（RED→GREEN）：**
 - `shell/parser_test.go` — 12 测试全通过
 - `shell/pipe_test.go` — 8 测试全通过
-- `cmd/crux/main_test.go` — 2 管道检测测试通过 + 全量回归通过
+- `cmd/rnix/main_test.go` — 2 管道检测测试通过 + 全量回归通过
 
 ## Senior Developer Review (AI)
 
@@ -432,7 +432,7 @@ Claude claude-4.6-opus (Cursor)
 **H1 [FIXED]: `runPipeline` 缺少 SIGINT 处理**
 - `runRoot` 中管道路径在 signal handler 注册前就 return，导致 pipeline 执行期间 Ctrl+C 无效
 - Fix: 在 `runPipeline` 中添加独立 SIGINT handler（goroutine 监听 + client.Close 中断 + 双击强退）
-- File: `cmd/crux/main.go`
+- File: `cmd/rnix/main.go`
 
 **M1 [FIXED]: `handleSpawnPipeline` 使用 `context.Background()` 不响应 server shutdown**
 - Server `Shutdown()` 时管道继续执行
@@ -442,7 +442,7 @@ Claude claude-4.6-opus (Cursor)
 **M2 [FIXED]: >10 阶段管道缺少 warning**
 - Story 边界情况明确要求「超长管道链合理限制 10 级以内（超出提示 warning，不阻断）」
 - Fix: 新增 `MaxRecommendedStages = 10` 常量（`shell/pipe.go`），`runPipeline` 中超出时输出 warning
-- Files: `shell/pipe.go`, `cmd/crux/main.go`
+- Files: `shell/pipe.go`, `cmd/rnix/main.go`
 
 **L1 [FIXED]: `pipe_test.go` dead code**
 - `TestPipelineExecutor_ContextCancelled` 中 `originalSpawn` 变量赋值后未使用

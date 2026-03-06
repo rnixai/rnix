@@ -1,8 +1,8 @@
-# Crux - Epic Breakdown
+# Rnix - Epic Breakdown
 
 ## Table of Contents
 
-- [Crux - Epic Breakdown](#table-of-contents)
+- [Rnix - Epic Breakdown](#table-of-contents)
   - [Overview](./overview.md)
   - [Requirements Inventory](./requirements-inventory.md)
     - [Functional Requirements](./requirements-inventory.md#functional-requirements)
@@ -47,7 +47,7 @@
     - [Story 4.1: Kill 与 Wait 系统调用](./epic-4-进程管理与可靠性process-management-reliability.md#story-41-kill-与-wait-系统调用)
     - [Story 4.2: 孤儿进程 reparent 与 Zombie 自动回收](./epic-4-进程管理与可靠性process-management-reliability.md#story-42-孤儿进程-reparent-与-zombie-自动回收)
     - [Story 4.3: /proc 动态文件系统](./epic-4-进程管理与可靠性process-management-reliability.md#story-43-proc-动态文件系统)
-    - [Story 4.4: crux ps 命令与 Process Table UI](./epic-4-进程管理与可靠性process-management-reliability.md#story-44-crux-ps-命令与-process-table-ui)
+    - [Story 4.4: rnix ps 命令与 Process Table UI](./epic-4-进程管理与可靠性process-management-reliability.md#story-44-rnix-ps-命令与-process-table-ui)
     - [Story 4.5: 上下文释放（ctx_free）](./epic-4-进程管理与可靠性process-management-reliability.md#story-45-上下文释放ctxfree)
   - [Epic 5: 文档体系（Documentation）](./epic-5-文档体系documentation.md)
     - [Story 5.1: 概念文档](./epic-5-文档体系documentation.md#story-51-概念文档)
@@ -61,9 +61,9 @@
     - [Story 6.4: Signal 信号系统](./epic-6-ipc-跨进程通信inter-process-communication.md#story-64-signal-信号系统)
     - [Story 6.5: 三级并发模型](./epic-6-ipc-跨进程通信inter-process-communication.md#story-65-三级并发模型)
   - [Epic 7: Compose 多智能体编排（Agent Compose）](./epic-7-compose-多智能体编排agent-compose.md)
-    - [Story 7.1: crux-compose.yaml 解析与 DAG 调度引擎](./epic-7-compose-多智能体编排agent-compose.md#story-71-crux-composeyaml-解析与-dag-调度引擎)
-    - [Story 7.2: crux compose up 命令](./epic-7-compose-多智能体编排agent-compose.md#story-72-crux-compose-up-命令)
-    - [Story 7.3: crux compose down 命令](./epic-7-compose-多智能体编排agent-compose.md#story-73-crux-compose-down-命令)
+    - [Story 7.1: rnix-compose.yaml 解析与 DAG 调度引擎](./epic-7-compose-多智能体编排agent-compose.md#story-71-rnix-composeyaml-解析与-dag-调度引擎)
+    - [Story 7.2: rnix compose up 命令](./epic-7-compose-多智能体编排agent-compose.md#story-72-rnix-compose-up-命令)
+    - [Story 7.3: rnix compose down 命令](./epic-7-compose-多智能体编排agent-compose.md#story-73-rnix-compose-down-命令)
     - [Story 7.4: Compose 端到端验收](./epic-7-compose-多智能体编排agent-compose.md#story-74-compose-端到端验收)
   - [Epic 8: Skill 包管理与生态（Skill Package Management）](./epic-8-skill-包管理与生态skill-package-management.md)
     - [Story 8.1: skill install 安装](./epic-8-skill-包管理与生态skill-package-management.md#story-81-skill-install-安装)
@@ -76,8 +76,8 @@
     - [Story 9.3: VFS 路径暴露 MCP 工具](./epic-9-mcp-服务集成mcp-integration.md#story-93-vfs-路径暴露-mcp-工具)
     - [Story 9.4: 四层能力栈端到端验证](./epic-9-mcp-服务集成mcp-integration.md#story-94-四层能力栈端到端验证)
   - [Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）](./epic-10-监控supervisor-与运维monitoring-supervisor-operations.md)
-    - [Story 10.1: crux top 实时监控 TUI](./epic-10-监控supervisor-与运维monitoring-supervisor-operations.md#story-101-crux-top-实时监控-tui)
-    - [Story 10.2: crux log 分类推理日志](./epic-10-监控supervisor-与运维monitoring-supervisor-operations.md#story-102-crux-log-分类推理日志)
+    - [Story 10.1: rnix top 实时监控 TUI](./epic-10-监控supervisor-与运维monitoring-supervisor-operations.md#story-101-rnix-top-实时监控-tui)
+    - [Story 10.2: rnix log 分类推理日志](./epic-10-监控supervisor-与运维monitoring-supervisor-operations.md#story-102-rnix-log-分类推理日志)
     - [Story 10.3: Token 预算管理](./epic-10-监控supervisor-与运维monitoring-supervisor-operations.md#story-103-token-预算管理)
     - [Story 10.4: Supervisor 树与重启策略](./epic-10-监控supervisor-与运维monitoring-supervisor-operations.md#story-104-supervisor-树与重启策略)
     - [Story 10.5: init 引导序列](./epic-10-监控supervisor-与运维monitoring-supervisor-operations.md#story-105-init-引导序列)

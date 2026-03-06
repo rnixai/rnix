@@ -14,7 +14,7 @@ status: 'complete'
 completedAt: '2026-02-23'
 updatedAt: '2026-02-25'
 updateReason: 'Sprint change proposal: Agent 抽象层 + Skill 标准化'
-project_name: 'Crux'
+project_name: 'Rnix'
 user_name: 'Decker'
 date: '2026-02-23'
 ---
@@ -38,7 +38,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 | Agent 管理 | FR23-FR25 | agent.yaml + instructions.md 定义智能体身份、模型偏好、Skill 引用，注入 system prompt |
 | Skill 管理 | FR25a-FR27 | SKILL.md（Agent Skills 行业标准格式）渐进式加载，allowed-tools 聚合映射为 `/dev/` 权限白名单 |
 | 调试与可观测 | FR28-FR32 | astrace 差异化核心——实时 syscall 追踪，DebugRecord 数据采集贯穿所有 syscall |
-| CLI | FR33-FR37 | 三命令入口（`crux "意图"` / `crux astrace` / `crux ps`），go install 单二进制 |
+| CLI | FR33-FR37 | 三命令入口（`rnix "意图"` / `rnix astrace` / `rnix ps`），go install 单二进制 |
 | 文档 | FR38-FR40 | 概念文档 + 快速上手 + 参考手册 |
 
 **Non-Functional Requirements（20 条，驱动架构的关键约束）：**
@@ -96,43 +96,43 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 ### Primary Technology Domain
 
-**Go 系统编程 / CLI 工具 / 运行时框架。** Crux 不适用常规 Web 应用 starter，评估的是 Go 项目结构和工具链方案。
+**Go 系统编程 / CLI 工具 / 运行时框架。** Rnix 不适用常规 Web 应用 starter，评估的是 Go 项目结构和工具链方案。
 
 ### Starter Options Considered
 
 | 方案 | 描述 | 适合度 |
 |------|------|--------|
 | A: golang-standards/project-layout | 社区"标准"布局（`cmd/`, `internal/`, `pkg/`） | ⭐⭐⭐ 结构清晰但可能过度设计 |
-| B: 最小平铺 + 按需增长 | 从 `main.go` 开始，随代码增长再分层 | ⭐⭐ 简单但 Crux 已知需要多模块 |
-| C: 领域驱动的 OS 隐喻结构 | `cmd/crux/` + `kernel/` + `vfs/` + `drivers/` + `context/` + `skills/` + `debug/` | ⭐⭐⭐⭐ 与 OS 隐喻一致 |
+| B: 最小平铺 + 按需增长 | 从 `main.go` 开始，随代码增长再分层 | ⭐⭐ 简单但 Rnix 已知需要多模块 |
+| C: 领域驱动的 OS 隐喻结构 | `cmd/rnix/` + `kernel/` + `vfs/` + `drivers/` + `context/` + `skills/` + `debug/` | ⭐⭐⭐⭐ 与 OS 隐喻一致 |
 
 ### Selected Approach: 方案 C — 领域驱动的 OS 隐喻结构
 
 **选择理由：**
 
-1. Crux 的模块边界由 OS 隐喻天然确定（kernel、vfs、drivers、context、skills、debug），不需要从通用布局反推
+1. Rnix 的模块边界由 OS 隐喻天然确定（kernel、vfs、drivers、context、skills、debug），不需要从通用布局反推
 2. ~12 文件结构经过充分思考，与 PRD 功能需求领域一一对应
 3. Go 标准布局的 `cmd/` + `internal/` 约定叠加在此结构上
 
 **初始化命令：**
 
 ```bash
-mkdir crux && cd crux
-go mod init github.com/usecrux/crux
+mkdir rnix && cd rnix
+go mod init github.com/rnixai/rnix
 ```
 
 ### Architectural Decisions Established by Project Foundation
 
 **Language & Runtime：**
 - Go 1.26（利用 Green Tea GC、Goroutine Leak Profiler、自引用泛型等最新特性）
-- 模块路径：`github.com/usecrux/crux`
-- 单 `main` 入口：`cmd/crux/main.go`
+- 模块路径：`github.com/rnixai/rnix`
+- 单 `main` 入口：`cmd/rnix/main.go`
 
 **项目结构：**
 
 ```
-crux/
-├── cmd/crux/main.go              # CLI 入口（cobra 根命令）
+rnix/
+├── cmd/rnix/main.go              # CLI 入口（cobra 根命令）
 ├── kernel/                        # 微内核
 │   ├── kernel.go                  # Kernel 结构体 + Spawn + reasonStep
 │   ├── process.go                 # Process 结构体 + 生命周期状态机
@@ -216,7 +216,7 @@ skills:
 ```
 
 **CLI 框架：** Cobra（`github.com/spf13/cobra`）
-- 根命令：`crux "意图"` — spawn 智能体（`--agent=<name>` 指定 Agent 定义）
+- 根命令：`rnix "意图"` — spawn 智能体（`--agent=<name>` 指定 Agent 定义）
 - 子命令：`astrace`、`ps`、`kill`、`version`
 - 全局 flags：`--json`、`--verbose`、`--quiet`
 
@@ -430,7 +430,7 @@ Driver 层错误（如 CLI 超时）
 
 **决策：** 引入 Agent 抽象层，将原有 Skill 的职责拆分为 Agent（智能体定义）和 Skill（能力模块）两层，且 Skill 格式遵循 Agent Skills 行业标准（agentskills.io）。
 
-**背景：** 原设计中 Skill（manifest.yaml + instructions.md）同时承担了"智能体定义"和"能力模块"双重职责。SkillManifest 包含 Models（模型偏好）和 ContextBudget（上下文预算），这些是智能体级别的配置，不应属于共享库。同时，Agent Skills 开放标准（由 Anthropic 发起，30+ AI 工具采用）定义了 Skill 的标准格式（SKILL.md），Crux 原有的双文件格式无法与生态互操作。
+**背景：** 原设计中 Skill（manifest.yaml + instructions.md）同时承担了"智能体定义"和"能力模块"双重职责。SkillManifest 包含 Models（模型偏好）和 ContextBudget（上下文预算），这些是智能体级别的配置，不应属于共享库。同时，Agent Skills 开放标准（由 Anthropic 发起，30+ AI 工具采用）定义了 Skill 的标准格式（SKILL.md），Rnix 原有的双文件格式无法与生态互操作。
 
 **理由：**
 1. 概念清晰度——Agent 定义"我是谁"（身份、角色、策略、模型偏好），Skill 定义"如何做 X"（程序性知识、工具权限）
@@ -446,7 +446,7 @@ Process（运行时实例）= 进程
       ← Skill(s)（能力模块）= 共享库
 ```
 
-**Agent 定义（Crux 特有）：**
+**Agent 定义（Rnix 特有）：**
 
 ```
 lib/agents/code-analyst/
@@ -515,7 +515,7 @@ type SkillInfo struct {
 | 上下文预算 | ✅ context_budget | ❌ |
 | 设备权限 | ❌ 由引用的 Skill 聚合 | ✅ allowed-tools |
 | 复用性 | 特定角色 | 跨 Agent 共享，跨平台兼容 |
-| 标准 | Crux 特有 | Agent Skills 行业标准 |
+| 标准 | Rnix 特有 | Agent Skills 行业标准 |
 
 **渐进式加载（Progressive Disclosure）：**
 
@@ -526,7 +526,7 @@ type SkillInfo struct {
 **Spawn 流程（更新）：**
 
 ```
-crux "分析代码" --agent=code-analyst
+rnix "分析代码" --agent=code-analyst
 
 1. AgentLoader 加载 lib/agents/code-analyst/agent.yaml
    → 获取 models、context_budget、skills 引用列表
@@ -542,7 +542,7 @@ crux "分析代码" --agent=code-analyst
 
 ### Go 1.26 特性利用
 
-| 特性 | Crux 使用场景 |
+| 特性 | Rnix 使用场景 |
 |------|-------------|
 | **Green Tea GC**（默认启用） | 自动受益——astrace 高吞吐事件流的 GC 压力降低 |
 | **Goroutine Leak Profiler**（实验性） | 验证 NFR8（进程退出后 goroutine 正确释放），集成到测试和开发调试 |
@@ -678,7 +678,7 @@ cmd/ → internal/ui/
 - `vfs/` 不导入 `kernel/`（通过接口解耦）
 - `drivers/` 不导入 `kernel/`（通过接口解耦）
 - `skills/` 不导入 `agents/`（单向：agents → skills）
-- 任何包不导入 `cmd/crux/`
+- 任何包不导入 `cmd/rnix/`
 
 **文件组织规则：**
 
@@ -834,8 +834,8 @@ func (k *KernelImpl) Open(path string, flags int) (FD, error) {
 ### 完整项目目录结构
 
 ```
-crux/
-├── cmd/crux/
+rnix/
+├── cmd/rnix/
 │   └── main.go                           # CLI 入口：cobra 根命令 + 子命令注册
 │
 ├── kernel/
@@ -910,7 +910,7 @@ crux/
 ├── lib/skills/code-analysis/
 │   └── SKILL.md                         # Agent Skills 标准格式：frontmatter（name/description/allowed-tools）+ 程序性知识
 │
-├── go.mod                                # 模块：github.com/usecrux/crux, go 1.26
+├── go.mod                                # 模块：github.com/rnixai/rnix, go 1.26
 ├── go.sum
 ├── Makefile                              # build / test / lint / install 目标
 ├── .golangci.yml                         # golangci-lint 配置
@@ -947,7 +947,7 @@ type DeviceRegistry struct {
 
 type VFSFileFactory func() (VFSFile, error)
 
-// 注册在 cmd/crux/main.go 初始化阶段完成（依赖注入）
+// 注册在 cmd/rnix/main.go 初始化阶段完成（依赖注入）
 devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 ```
 
@@ -961,7 +961,7 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 
 **Debug ↔ Kernel 边界：** Debug 包仅导入 `kernel/` 的类型（SyscallEvent, PID），通过 DebugChan channel 消费事件。
 
-**cmd/ 依赖注入点：** `cmd/crux/main.go` 是唯一组装点，负责创建所有实例、注册设备、连接组件。
+**cmd/ 依赖注入点：** `cmd/rnix/main.go` 是唯一组装点，负责创建所有实例、注册设备、连接组件。
 
 ### 需求到结构映射
 
@@ -974,7 +974,7 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 | Agent 管理 | FR23-FR25 | `agents/{types,loader}.go`, `lib/agents/code-analyst/` |
 | Skill 管理 | FR25a-FR27 | `skills/{loader,types}.go`, `lib/skills/code-analysis/` |
 | 调试与可观测 | FR28-FR32 | `debug/{astrace,event}.go` |
-| CLI | FR33-FR37 | `cmd/crux/main.go`, `internal/ui/*` |
+| CLI | FR33-FR37 | `cmd/rnix/main.go`, `internal/ui/*` |
 | 文档 | FR38-FR40 | `README.md` |
 
 **跨切关注点映射：**
@@ -989,7 +989,7 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 
 ### 数据流
 
-**核心端到端流（`crux "分析代码" --agent=code-analyst`）：**
+**核心端到端流（`rnix "分析代码" --agent=code-analyst`）：**
 
 ```
 用户输入 → cmd/ 解析意图 + --agent 参数
@@ -1026,7 +1026,7 @@ syscall 入口 → debug/event 构造 SyscallEvent
 | 竞态检测 | `go test -race` 默认开启 |
 | 泄漏检测 | Go 1.26 Goroutine Leak Profiler |
 
-**依赖注入（cmd/crux/main.go）：**
+**依赖注入（cmd/rnix/main.go）：**
 
 ```go
 func main() {
@@ -1079,7 +1079,7 @@ func main() {
 | Agent 管理 | FR23-FR25 | `agents/{types,loader}.go` + `lib/agents/code-analyst/` |
 | Skill 管理 | FR25a-FR27 | `skills/{loader,types}.go` + `lib/skills/code-analysis/` |
 | 调试与可观测 | FR28-FR32 | `debug/{astrace,event}.go` |
-| CLI | FR33-FR37 | `cmd/crux/main.go` + `internal/ui/*` |
+| CLI | FR33-FR37 | `cmd/rnix/main.go` + `internal/ui/*` |
 | 文档 | FR38-FR40 | `README.md` |
 
 **NFR 覆盖：20/20** ✅
@@ -1115,8 +1115,8 @@ FR16 要求通过 `/dev/fs` 读取宿主文件系统，但项目结构中缺少 
 ### 修正后的完整项目结构（最终版）
 
 ```
-crux/
-├── cmd/crux/
+rnix/
+├── cmd/rnix/
 │   └── main.go                           # CLI 入口：cobra 根命令 + 子命令注册
 │
 ├── internal/
@@ -1197,7 +1197,7 @@ crux/
 ├── lib/skills/code-analysis/
 │   └── SKILL.md                         # Agent Skills 标准格式（frontmatter + 程序性知识）
 │
-├── go.mod                                # github.com/usecrux/crux, go 1.26
+├── go.mod                                # github.com/rnixai/rnix, go 1.26
 ├── go.sum
 ├── Makefile                              # build / test / lint / install
 ├── .golangci.yml
@@ -1257,7 +1257,7 @@ cmd/ → debug/（仅依赖 internal/types/）
 3. kernel/ 核心（Process 状态机 + Spawn + reasonStep 骨架）
 4. vfs/ + drivers/ 框架（VFS 接口 + DeviceRegistry + 驱动注册）
 5. context/ + skills/（SKILL.md 解析 + 渐进式加载）+ agents/（agent.yaml + instructions.md + Skill 引用解析 + tools 聚合）
-6. 端到端集成（crux "分析代码" --agent=code-analyst 跑通）
+6. 端到端集成（rnix "分析代码" --agent=code-analyst 跑通）
 7. debug/astrace
 8. internal/ui/ + CLI 完善
 ```

@@ -282,11 +282,11 @@ func (m *mockFile) Stat() (FileStat, error)          { return m.stat, m.statErr 
 | `a6cccfa` | Story 1-2 实现完成 | process.go/kernel.go 模式是模板 |
 | `0d83562` | Story 1-2 文档更新 | 文档与代码分离提交 |
 | `4aac131` | project-context.md | 75 条规则，必须遵循 |
-| `fa402a5` | 模块路径更新 | `github.com/usecrux/crux` |
+| `fa402a5` | 模块路径更新 | `github.com/rnixai/rnix` |
 | `c82bc50` | 项目初始化 | 目录结构、Makefile、.golangci.yml |
 
 **代码惯例提取：**
-- 包级文档注释：`// Package kernel implements the Crux microkernel.`
+- 包级文档注释：`// Package kernel implements the Rnix microkernel.`
 - 构造函数：`New<Type>()` 模式
 - 方法接收器：简短单字母（`k *KernelImpl`、`p *Process`）
 - 测试分组：`t.Run("子测试名", func(t *testing.T) {...})`

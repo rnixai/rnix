@@ -1,18 +1,18 @@
-# Story 10.1: crux top 实时监控 TUI
+# Story 10.1: rnix top 实时监控 TUI
 
 Status: done
 
 ## Story
 
 As a 用户,
-I want 通过 `crux top` 实时查看所有智能体的树状关系、状态和 token 消耗,
+I want 通过 `rnix top` 实时查看所有智能体的树状关系、状态和 token 消耗,
 So that 我随时掌握系统全局运行态。
 
 ## Acceptance Criteria
 
 1. **AC1: 全屏实时监控面板**
-   - Given `cmd/crux/top.go` 已实现（bubbletea TUI）
-   - When 执行 `crux top`
+   - Given `cmd/rnix/top.go` 已实现（bubbletea TUI）
+   - When 执行 `rnix top`
    - Then 全屏显示实时监控面板（bubbletea `tea.WithAltScreen()`）
    - And 上方汇总区：活跃进程数、总 token 消耗、系统运行时间
    - And 下方进程列表：PID、PPID（树状缩进）、STATE、AGENT、TOKENS、ELAPSED
@@ -43,7 +43,7 @@ So that 我随时掌握系统全局运行态。
 - [x] Task 1: 添加 bubbletea v2 依赖 (AC: #1)
   - [x] 1.1 `go get charm.land/bubbletea/v2`（bubbles/v2 不需要，本故事无 bubbles 组件）
   - [x] 1.2 验证与现有 lipgloss 兼容（升级 cellbuf 解决 API 兼容性）
-- [x] Task 2: 实现 `cmd/crux/top.go` cobra 命令 (AC: #1)
+- [x] Task 2: 实现 `cmd/rnix/top.go` cobra 命令 (AC: #1)
   - [x] 2.1 注册 `top` 子命令（Use: "top", Short: "实时监控面板"）
   - [x] 2.2 `runTop()` 函数：建立 IPC 连接，初始化 bubbletea Program
   - [x] 2.3 处理 daemon 未运行场景（优雅降级提示）
@@ -69,14 +69,14 @@ So that 我随时掌握系统全局运行态。
 - [x] Task 7: 测试 (AC: all)
   - [x] 7.1 单元测试：进程树构建逻辑（8 个测试）
   - [x] 7.2 单元测试：View 输出格式（topSummaryLine 3 个 + topDetailView 3 个 + bubbletea Model 10 个）
-  - [x] 7.3 在 `cmd/crux/main_test.go` 中确认 `top` 命令注册
+  - [x] 7.3 在 `cmd/rnix/main_test.go` 中确认 `top` 命令注册
 
 ## Dev Notes
 
 ### 关键架构约束
 
-- **依赖方向**：`cmd/crux/` → `ipc/` → `vfs/`（ProcInfo 类型），`cmd/crux/` → `internal/ui/`（styles）
-- **新文件位置**：`cmd/crux/top.go`（所有 TUI 逻辑集中在此文件，与现有 `compose.go`、`skill.go` 同级）
+- **依赖方向**：`cmd/rnix/` → `ipc/` → `vfs/`（ProcInfo 类型），`cmd/rnix/` → `internal/ui/`（styles）
+- **新文件位置**：`cmd/rnix/top.go`（所有 TUI 逻辑集中在此文件，与现有 `compose.go`、`skill.go` 同级）
 - **不创建 `internal/ui/top.go`**：bubbletea Model 属于 `cmd/` 层，因为它直接依赖 IPC client
 - **VFS 路径无关**：此故事不涉及 VFS 挂载或 `/proc` 文件系统，只通过 IPC 获取数据
 
@@ -121,7 +121,7 @@ return tea.NewView(s)
 
 ### IPC 数据获取模式
 
-复用现有 IPC 客户端，轮询 `ListProcs()` ——与 `crux ps` 完全相同的数据通道：
+复用现有 IPC 客户端，轮询 `ListProcs()` ——与 `rnix ps` 完全相同的数据通道：
 
 ```go
 client, err := ipc.Dial(ipc.SocketPath())
@@ -186,7 +186,7 @@ func buildTree(procs []vfs.ProcInfo) []*treeNode {
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  crux top — 3 active, 0 zombie | Tokens: 12,450 | Up: 5.2m │  ← 汇总区（1行）
+│  rnix top — 3 active, 0 zombie | Tokens: 12,450 | Up: 5.2m │  ← 汇总区（1行）
 ├─────────────────────────────────────────────────────────────┤
 │  PID  PPID  STATE     AGENT           TOKENS   ELAPSED     │  ← 表头
 │  ─── ───── ───────── ─────────────── ──────── ────────     │
@@ -238,7 +238,7 @@ func buildTree(procs []vfs.ProcInfo) []*treeNode {
 
 ### 命令注册模式
 
-参考现有命令注册（`cmd/crux/main.go`）：
+参考现有命令注册（`cmd/rnix/main.go`）：
 
 ```go
 // 在 init() 中注册
@@ -258,8 +258,8 @@ var topCmd = &cobra.Command{
 ### Daemon 未运行处理
 
 如果 `ipc.Dial()` 失败：
-- 不启动 TUI，直接打印 `"✗ No crux daemon running. Start an agent first with: crux -i \"intent\""` 并退出
-- 与 `crux ps` 的 "No active processes" 模式对齐
+- 不启动 TUI，直接打印 `"✗ No rnix daemon running. Start an agent first with: rnix -i \"intent\""` 并退出
+- 与 `rnix ps` 的 "No active processes" 模式对齐
 
 ### IPC 连接断开处理
 
@@ -277,8 +277,8 @@ TUI 运行中如果 `ListProcs()` 返回错误：
 
 ### Project Structure Notes
 
-- 新文件：`cmd/crux/top.go`（+ 对应 `cmd/crux/top_test.go`）
-- 修改文件：`cmd/crux/main.go`（注册 topCmd）
+- 新文件：`cmd/rnix/top.go`（+ 对应 `cmd/rnix/top_test.go`）
+- 修改文件：`cmd/rnix/main.go`（注册 topCmd）
 - 新依赖：`charm.land/bubbletea/v2`, `charm.land/bubbles/v2`
 - 可能需要导出 `internal/ui/table.go` 中的格式化函数（已导出：`FormatDuration` 等——确认是否已经导出，如果是小写的则需要导出或在 top.go 中复制）
 
@@ -295,7 +295,7 @@ TUI 运行中如果 `ListProcs()` 返回错误：
 - [Source: ipc/client.go#Client API]
 - [Source: internal/ui/table.go#formatDuration/formatTokens]
 - [Source: internal/ui/styles.go#样式定义]
-- [Source: cmd/crux/main.go#runPs 参考实现]
+- [Source: cmd/rnix/main.go#runPs 参考实现]
 - [Source: charm.land/bubbletea/v2 README#Elm Architecture 模式]
 
 ## Dev Agent Record
@@ -332,15 +332,15 @@ claude-4.6-opus
 
 ### Change Log
 
-- 2026-03-02: Story 10.1 完整实现 — crux top 实时监控 TUI
+- 2026-03-02: Story 10.1 完整实现 — rnix top 实时监控 TUI
 - 2026-03-02: Code Review 修复 — 6 项问题（3H+3M），31 个测试全部通过
 
 ### File List
 
-- cmd/crux/top.go (新文件 — 完整 TUI 实现)
-- cmd/crux/top_test.go (修改 — 添加 bubbletea Model 测试)
-- cmd/crux/main.go (修改 — 注册 topCmd)
-- cmd/crux/main_test.go (修改 — 更新 rejectPositionalArgs 测试用例)
+- cmd/rnix/top.go (新文件 — 完整 TUI 实现)
+- cmd/rnix/top_test.go (修改 — 添加 bubbletea Model 测试)
+- cmd/rnix/main.go (修改 — 注册 topCmd)
+- cmd/rnix/main_test.go (修改 — 更新 rejectPositionalArgs 测试用例)
 - internal/ui/table.go (修改 — 导出 FormatDuration/FormatTokens/FormatSkills/StripAnsi)
 - internal/ui/table_test.go (修改 — 更新导出函数名)
 - go.mod (修改 — 添加 charm.land/bubbletea/v2 及相关依赖)

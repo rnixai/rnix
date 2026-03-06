@@ -119,11 +119,11 @@ func TestExpand_AdjacentVars(t *testing.T) {
 
 func TestExpand_BracesSyntax(t *testing.T) {
 	env := NewEnvironment()
-	env.Set("NAME", "crux")
+	env.Set("NAME", "rnix")
 
 	result := env.Expand("project: ${NAME}")
-	if result != "project: crux" {
-		t.Errorf("Expand = %q, want %q", result, "project: crux")
+	if result != "project: rnix" {
+		t.Errorf("Expand = %q, want %q", result, "project: rnix")
 	}
 }
 

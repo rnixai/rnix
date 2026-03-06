@@ -6,7 +6,7 @@
 
 | Epic | 核心模块 | FR 覆盖 |
 |------|---------|---------|
-| Epic 1（第一个智能体运行）| `cmd/crux/`、`kernel/`、`vfs/`、`drivers/llm/`、`context/`、`internal/ui/` | FR1-2,8-11,13,15,17,19-21,32-33,36-37 |
+| Epic 1（第一个智能体运行）| `cmd/rnix/`、`kernel/`、`vfs/`、`drivers/llm/`、`context/`、`internal/ui/` | FR1-2,8-11,13,15,17,19-21,32-33,36-37 |
 | Epic 2（Agent 能力与文件访问）| `agents/`、`skills/`、`drivers/fs/`、`drivers/shell/`、`lib/` | FR12,16,18,23-27 |
 | Epic 3（调试追踪）| `debug/`、`internal/ui/` | FR28-31,34 |
 | Epic 4（进程管理与可靠性）| `kernel/`、`vfs/`、`ipc/` | FR3-7,14,22,35 |
@@ -17,10 +17,10 @@
 | Epic | 核心模块 | FR 覆盖 |
 |------|---------|---------|
 | Epic 6（IPC 跨进程通信）| `kernel/`（signal/procgroup/thread/coroutine）、`ipc/` | FR41-45 |
-| Epic 7（Compose 编排）| `compose/`、`cmd/crux/`、`internal/ui/` | FR46-49 |
-| Epic 8（Skill 包管理）| `skillpkg/`、`cmd/crux/` | FR50-53 |
+| Epic 7（Compose 编排）| `compose/`、`cmd/rnix/`、`internal/ui/` | FR46-49 |
+| Epic 8（Skill 包管理）| `skillpkg/`、`cmd/rnix/` | FR50-53 |
 | Epic 9（MCP 服务集成）| `vfs/`、`drivers/mcp/`、`kernel/` | FR54-57 |
-| Epic 10（监控 Supervisor）| `kernel/`、`cmd/crux/`、`context/`、`internal/ui/` | FR58-65 |
+| Epic 10（监控 Supervisor）| `kernel/`、`cmd/rnix/`、`context/`、`internal/ui/` | FR58-65 |
 | Epic 11（AgentShell 高级语法）| `shell/` | FR66-68 |
 | Epic 12（Phase 2 文档）| `docs/` | FR69-70 |
 
@@ -28,28 +28,28 @@
 
 ```
 newxv6/
-├── go.mod                          # Go 模块定义 (github.com/gonewx/crux)
+├── go.mod                          # Go 模块定义 (github.com/rnixai/rnix)
 ├── go.sum                          # 依赖哈希
 ├── Makefile                        # 构建脚本 (all/build/test/lint)
 ├── .golangci.yml                   # golangci-lint 配置
 ├── .gitignore
-├── crux-init.yaml                  # Daemon init 引导配置（Phase 2）
+├── rnix-init.yaml                  # Daemon init 引导配置（Phase 2）
 │
-├── cmd/crux/                       # CLI 主程序 + 依赖注入点
+├── cmd/rnix/                       # CLI 主程序 + 依赖注入点
 │   ├── main.go                    # 入口 + Cobra root command
-│   ├── spawn.go                   # crux "意图" / crux spawn 命令
-│   ├── ps.go                      # crux ps 命令
-│   ├── kill.go                    # crux kill 命令
-│   ├── astrace.go                 # crux astrace <pid> 命令
-│   ├── version.go                 # crux version 命令
-│   ├── compose.go                 # crux compose up/down 命令（Phase 2）
+│   ├── spawn.go                   # rnix "意图" / rnix spawn 命令
+│   ├── ps.go                      # rnix ps 命令
+│   ├── kill.go                    # rnix kill 命令
+│   ├── astrace.go                 # rnix astrace <pid> 命令
+│   ├── version.go                 # rnix version 命令
+│   ├── compose.go                 # rnix compose up/down 命令（Phase 2）
 │   ├── compose_test.go
-│   ├── skill.go                   # crux skill install/search/list/update（Phase 2）
+│   ├── skill.go                   # rnix skill install/search/list/update（Phase 2）
 │   ├── skill_test.go
-│   ├── top.go                     # crux top 交互式 TUI（Phase 2）
-│   ├── log.go                     # crux log <pid> 分类日志（Phase 2）
+│   ├── top.go                     # rnix top 交互式 TUI（Phase 2）
+│   ├── log.go                     # rnix log <pid> 分类日志（Phase 2）
 │   ├── log_test.go
-│   └── daemon.go                  # crux daemon 内部子命令
+│   └── daemon.go                  # rnix daemon 内部子命令
 │
 ├── kernel/                         # 微内核（KernelImpl + 子接口组合）
 │   ├── kernel.go                  # KernelImpl 主体 + Spawn + reasonStep
@@ -141,7 +141,7 @@ newxv6/
 ├── compose/                        # Compose 引擎（Phase 2）
 │   ├── engine.go                  # 编排引擎主体
 │   ├── engine_test.go
-│   ├── parser.go                  # crux-compose.yaml 解析
+│   ├── parser.go                  # rnix-compose.yaml 解析
 │   ├── parser_test.go
 │   ├── dag.go                     # DAG 拓扑排序 + Kahn 算法
 │   └── dag_test.go
@@ -225,7 +225,7 @@ newxv6/
 **Syscall 接口边界（ABI 契约）：**
 
 ```
-用户空间（cmd/crux/）
+用户空间（cmd/rnix/）
         ↓ IPC protocol (JSON-RPC over Unix socket)
 内核空间（kernel/ KernelImpl）
         ↓ 子接口方法调用
@@ -266,7 +266,7 @@ type DeviceRegistry struct {
 
 type VFSFileFactory func() (VFSFile, error)
 
-// 注册在 cmd/crux/main.go 初始化阶段完成（依赖注入）
+// 注册在 cmd/rnix/main.go 初始化阶段完成（依赖注入）
 devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 ```
 
@@ -298,7 +298,7 @@ devRegistry.Register("/dev/llm/claude", claudeDriver.FileFactory())
 | Process → Process | IPC Send/Recv（Phase 2） | 消息队列 |
 | Compose → Kernel | Spawn + ProcGroup API | DAG 调度触发 |
 
-**cmd/ 依赖注入点：** `cmd/crux/main.go` 是唯一组装点，负责创建所有实例、注册设备、连接组件。
+**cmd/ 依赖注入点：** `cmd/rnix/main.go` 是唯一组装点，负责创建所有实例、注册设备、连接组件。
 
 ```go
 func main() {
@@ -332,7 +332,7 @@ func main() {
 
 ## 数据流
 
-**核心端到端流（`crux "分析代码" --agent=code-analyst`）：**
+**核心端到端流（`rnix "分析代码" --agent=code-analyst`）：**
 
 ```
 用户输入 → cmd/ 解析意图 + --agent 参数
@@ -380,10 +380,10 @@ syscall 入口 → debug/event 构造 SyscallEvent
 ```
 make all = make lint → make vet → make test → make build
                 ↓           ↓          ↓           ↓
-         golangci-lint   go vet    go test -race   go build -o crux ./cmd/crux/
+         golangci-lint   go vet    go test -race   go build -o rnix ./cmd/rnix/
 ```
 
 **部署结构：**
-- 单二进制 `crux`，`go install github.com/gonewx/crux/cmd/crux@latest`
-- 运行时自动 fork daemon 进程（`crux daemon` 子命令）
+- 单二进制 `rnix`，`go install github.com/rnixai/rnix/cmd/rnix@latest`
+- 运行时自动 fork daemon 进程（`rnix daemon` 子命令）
 - Daemon 通过 `Setsid` 独立会话运行，60 秒空闲自动退出

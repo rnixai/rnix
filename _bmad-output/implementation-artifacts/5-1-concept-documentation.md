@@ -7,8 +7,8 @@ Status: done
 ## Story
 
 As a 新用户,
-I want 阅读概念文档理解 Crux 的核心 OS 范式,
-So that 我能建立正确的心智模型来使用 Crux。
+I want 阅读概念文档理解 Rnix 的核心 OS 范式,
+So that 我能建立正确的心智模型来使用 Rnix。
 
 ## Acceptance Criteria
 
@@ -16,7 +16,7 @@ So that 我能建立正确的心智模型来使用 Crux。
 
 2. **概念关系清晰** — Given 文档已完成，When 阅读概念章节，Then 概念之间的关系清晰：进程通过 syscall 访问 VFS，Agent 通过 Skill 获得能力，Skill 的 allowed-tools 映射为 VFS 设备权限白名单
 
-3. **示例准确反映实际实现** — Given 文档中包含代码示例或 CLI 命令，When 用户按示例操作，Then 示例与实际 Crux 实现一致（命令、输出格式、VFS 路径等均准确）
+3. **示例准确反映实际实现** — Given 文档中包含代码示例或 CLI 命令，When 用户按示例操作，Then 示例与实际 Rnix 实现一致（命令、输出格式、VFS 路径等均准确）
 
 4. **文档输出为中文 Markdown** — Given 文档已生成，When 查看文件，Then 使用简体中文书写，格式为 Markdown，存放在 `docs/concepts.md`
 
@@ -24,17 +24,17 @@ So that 我能建立正确的心智模型来使用 Crux。
 
 - [x] Task 1: 创建 `docs/concepts.md` 文件框架 (AC: #4)
   - [x] 1.1 在项目根目录的 `docs/` 文件夹中创建 `concepts.md`
-  - [x] 1.2 添加文档标题、简介段落（一段话描述 Crux 的 OS 范式核心思想）
+  - [x] 1.2 添加文档标题、简介段落（一段话描述 Rnix 的 OS 范式核心思想）
 
 - [x] Task 2: 编写进程（Process）概念章节 (AC: #1, #2, #3)
-  - [x] 2.1 定义：智能体进程是 Crux 的一等计算单元，每个 `crux "意图"` 命令创建一个进程
+  - [x] 2.1 定义：智能体进程是 Rnix 的一等计算单元，每个 `rnix "意图"` 命令创建一个进程
   - [x] 2.2 Unix 类比：进程 ≈ Unix 进程，PID ≈ 进程号，状态机 ≈ 进程状态（Created→Running→Zombie→Dead），spawn ≈ fork+exec，kill ≈ signal，wait ≈ waitpid
-  - [x] 2.3 具体示例：展示 `crux "分析代码"` 的完整进程生命周期（spawn→running→zombie→dead），包含 CLI 输出示例
+  - [x] 2.3 具体示例：展示 `rnix "分析代码"` 的完整进程生命周期（spawn→running→zombie→dead），包含 CLI 输出示例
   - [x] 2.4 描述进程树关系（PPID、Children、孤儿进程 reparent 到 PID 1）
   - [x] 2.5 说明进程携带的关键属性：PID、Intent（不可变）、Agent 配置、Skills、CtxID、FDTable、DebugChan
 
 - [x] Task 3: 编写虚拟文件系统（VFS）概念章节 (AC: #1, #2, #3)
-  - [x] 3.1 定义：VFS 是 Crux 的统一抽象层，所有资源——LLM、文件系统、Shell、进程状态——通过统一的文件路径访问
+  - [x] 3.1 定义：VFS 是 Rnix 的统一抽象层，所有资源——LLM、文件系统、Shell、进程状态——通过统一的文件路径访问
   - [x] 3.2 Unix 类比："一切皆文件"哲学，`/dev/` ≈ 设备文件，`/proc/` ≈ 虚拟进程文件系统，FD ≈ 文件描述符
   - [x] 3.3 设备路径表：列出 MVP 所有 VFS 路径及其用途
     - `/dev/llm/claude` — LLM 推理设备（通过 Claude Code CLI）
@@ -69,7 +69,7 @@ So that 我能建立正确的心智模型来使用 Crux。
 
 - [x] Task 6: 编写概念关系总览章节 (AC: #2)
   - [x] 6.1 绘制文本架构图：展示 Process → Syscall → VFS → Device/Driver 的调用链
-  - [x] 6.2 绘制端到端数据流：`crux "分析代码" --agent=code-analyst` 从 CLI 到 LLM 响应的完整路径
+  - [x] 6.2 绘制端到端数据流：`rnix "分析代码" --agent=code-analyst` 从 CLI 到 LLM 响应的完整路径
   - [x] 6.3 说明 astrace 如何串联所有概念：syscall 事件 → DebugChan → astrace 格式化输出
 
 - [x] Task 7: 校验与完善 (AC: #3, #4)
@@ -85,7 +85,7 @@ So that 我能建立正确的心智模型来使用 Crux。
 
 ### 文档写作原则
 
-1. **面向新用户** — 读者不了解 Crux，但可能有 Unix/Linux 基础知识。使用 Unix 类比建立心智模型。
+1. **面向新用户** — 读者不了解 Rnix，但可能有 Unix/Linux 基础知识。使用 Unix 类比建立心智模型。
 2. **概念优先** — 不是 API 参考手册（那是 Story 5.3 的职责），而是建立概念框架。示例用于辅助理解，不追求完整。
 3. **准确反映实现** — 所有路径、命令、结构体名称必须与代码一致。不要写尚未实现的功能。
 4. **简体中文** — 全文使用简体中文。技术术语首次出现时附英文（如 "进程（Process）"），后续直接使用中文。
@@ -99,7 +99,7 @@ So that 我能建立正确的心智模型来使用 Crux。
 
 ### 核心概念映射表
 
-| 概念 | Unix 类比 | Crux 实现 | 关键代码位置 |
+| 概念 | Unix 类比 | Rnix 实现 | 关键代码位置 |
 |------|----------|----------|------------|
 | Process | Unix 进程 | `kernel.Process` 结构体，Created→Running→Zombie→Dead 状态机 | `kernel/process.go` |
 | VFS | /dev/, /proc/, open/read/write | `vfs.VFS` + `DeviceRegistry` + `ProcFS`，一切皆文件 | `vfs/vfs.go`, `vfs/dev.go`, `vfs/proc.go` |
@@ -189,10 +189,10 @@ type VFSFile interface {
 
 | VFS 路径 | 驱动实现 | 注册位置 |
 |---------|---------|---------|
-| `/dev/llm/claude` | `drivers/llm/ClaudeCliDriver` → `claude -p` CLI 调用 | `cmd/crux/main.go` |
-| `/dev/fs` | `drivers/fs/HostFSDriver` → `os.Open/Read` 封装 | `cmd/crux/main.go` |
-| `/dev/shell` | `drivers/shell/Driver` → `exec.CommandContext` | `cmd/crux/main.go` |
-| `/proc` | `vfs/ProcFS` → 动态生成进程信息 | `cmd/crux/main.go` |
+| `/dev/llm/claude` | `drivers/llm/ClaudeCliDriver` → `claude -p` CLI 调用 | `cmd/rnix/main.go` |
+| `/dev/fs` | `drivers/fs/HostFSDriver` → `os.Open/Read` 封装 | `cmd/rnix/main.go` |
+| `/dev/shell` | `drivers/shell/Driver` → `exec.CommandContext` | `cmd/rnix/main.go` |
+| `/proc` | `vfs/ProcFS` → 动态生成进程信息 | `cmd/rnix/main.go` |
 
 **ProcFS 支持路径（vfs/proc.go）：**
 - `/proc/{pid}/status` — JSON 格式进程状态（pid/state/intent/skills/tokens/elapsed 等）
@@ -337,27 +337,27 @@ type SyscallEvent struct {
 
 ### CLI 命令参考
 
-当前 MVP 实现的 CLI 命令（`cmd/crux/main.go`）：
+当前 MVP 实现的 CLI 命令（`cmd/rnix/main.go`）：
 
 | 命令 | 说明 |
 |------|------|
-| `crux "意图"` | 主命令：Spawn Agent 执行意图 |
-| `crux "意图" --agent=code-analyst` | 使用指定 Agent 定义 |
-| `crux ps` | 列出所有进程（支持 --json） |
-| `crux ps --json` | JSON 格式输出进程列表 |
-| `crux kill <pid>` | 终止指定进程 |
-| `crux astrace <pid>` | 实时追踪进程 syscall |
-| `crux version` | 显示版本信息 |
+| `rnix "意图"` | 主命令：Spawn Agent 执行意图 |
+| `rnix "意图" --agent=code-analyst` | 使用指定 Agent 定义 |
+| `rnix ps` | 列出所有进程（支持 --json） |
+| `rnix ps --json` | JSON 格式输出进程列表 |
+| `rnix kill <pid>` | 终止指定进程 |
+| `rnix astrace <pid>` | 实时追踪进程 syscall |
+| `rnix version` | 显示版本信息 |
 
 **全局 flags：** `--json`, `--verbose/-v`, `--quiet/-q`, `--model`, `--max-steps`, `--agent`
 
 ### 端到端数据流（文档应包含的核心图）
 
 ```
-用户输入: crux "分析代码" --agent=code-analyst
+用户输入: rnix "分析代码" --agent=code-analyst
     │
     ▼
-cmd/crux/main.go (CLI 入口)
+cmd/rnix/main.go (CLI 入口)
     │  解析 --agent flag
     ▼
 agents.Loader.Load("code-analyst")
@@ -400,7 +400,7 @@ syscall 出口 → debug.CompleteEvent() → 填充 Result/Err/Duration
 debug.EmitEvent(proc.DebugChan, event)  [非阻塞，满则丢弃]
     │
     ▼
-crux astrace <pid> → 消费 DebugChan → 格式化输出到终端
+rnix astrace <pid> → 消费 DebugChan → 格式化输出到终端
     格式: [N.NNNs] SyscallName(args) → result    duration
 ```
 
@@ -420,7 +420,7 @@ crux astrace <pid> → 消费 DebugChan → 格式化输出到终端
 
 最近 10 条提交全部属于 Epic 4 的完成和收尾工作：
 - `ac47cd6` Finalize Story 4.5: Context Release
-- `b2197e0` Finalize Story 4.4: crux ps Command
+- `b2197e0` Finalize Story 4.4: rnix ps Command
 - `06f2ac2` Finalize Story 4.3: /proc Dynamic Filesystem
 - `92787da` Finalize Story 4.2: Orphan Reparenting and Zombie Auto-Reap
 
@@ -473,7 +473,7 @@ docs/concepts.md          — 概念文档（本 Story 唯一输出）
 - skills/types.go: SkillManifest, SkillInfo, AllowedTools()
 - debug/event.go: NewEvent, CompleteEvent, EmitEvent
 - internal/types/types.go: PID, FD, CtxID, ErrCode, ProcessState, SyscallEvent
-- cmd/crux/main.go: CLI commands (root, ps, kill, astrace, version), dependency injection
+- cmd/rnix/main.go: CLI commands (root, ps, kill, astrace, version), dependency injection
 
 **参考 Agent/Skill 文件：**
 - lib/agents/code-analyst/agent.yaml — Agent 配置示例
@@ -488,7 +488,7 @@ Claude Opus 4.6
 
 ### Debug Log References
 
-- 源码验证：阅读了 kernel/process.go, kernel/kernel.go, kernel/errors.go, kernel/reap.go, vfs/vfs.go, vfs/dev.go, vfs/proc.go, context/context.go, agents/types.go, skills/types.go, internal/types/types.go, debug/event.go, cmd/crux/main.go, lib/agents/code-analyst/agent.yaml, lib/agents/code-analyst/instructions.md, lib/skills/code-analysis/SKILL.md
+- 源码验证：阅读了 kernel/process.go, kernel/kernel.go, kernel/errors.go, kernel/reap.go, vfs/vfs.go, vfs/dev.go, vfs/proc.go, context/context.go, agents/types.go, skills/types.go, internal/types/types.go, debug/event.go, cmd/rnix/main.go, lib/agents/code-analyst/agent.yaml, lib/agents/code-analyst/instructions.md, lib/skills/code-analysis/SKILL.md
 - 自动化验证：使用 Explore agent 对文档与源码进行全面交叉校验
 
 ### Completion Notes List
@@ -503,7 +503,7 @@ Claude Opus 4.6
 
 ### File List
 
-- docs/concepts.md — 新增：Crux 核心概念文档（简体中文 Markdown）
+- docs/concepts.md — 新增：Rnix 核心概念文档（简体中文 Markdown）
 
 ### Change Log
 

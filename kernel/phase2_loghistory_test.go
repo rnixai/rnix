@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/usecrux/crux/internal/types"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // --- BUG-007/008: Log History Ring Buffer Tests ---
