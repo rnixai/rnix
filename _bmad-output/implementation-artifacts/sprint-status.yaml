@@ -1,4 +1,4 @@
-# generated: 2026-02-28
+# generated: 2026-03-06
 # project: newxv6
 # project_key: NOKEY
 # tracking_system: file-system
@@ -12,8 +12,8 @@
 #   - done: All stories in epic completed
 #
 # Epic Status Transitions:
-#   - backlog → in-progress: Automatically when first story is created (via create-story)
-#   - in-progress → done: Manually when all stories reach 'done' status
+#   - backlog -> in-progress: Automatically when first story is created (via create-story)
+#   - in-progress -> done: Manually when all stories reach 'done' status
 #
 # Story Status:
 #   - backlog: Story only exists in epic file
@@ -33,18 +33,18 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-02-28
+generated: 2026-03-06
 project: newxv6
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 
 development_status:
-  # ═══════════════════════════════════════════════════════════
+  # ===============================================================
   # Phase 1
-  # ═══════════════════════════════════════════════════════════
+  # ===============================================================
 
-  # Epic 1: 第一个智能体运行（First Agent Runs）
+  # Epic 1: First Agent Runs
   epic-1: done
   1-1-project-initialization-and-infrastructure: done
   1-2-process-model-and-lifecycle-state-machine: done
@@ -56,7 +56,7 @@ development_status:
   1-8-end-to-end-integration-and-acceptance: done
   epic-1-retrospective: done
 
-  # Epic 2: Agent 能力与文件访问（Agent Skills & File Access）
+  # Epic 2: Agent Skills & File Access
   epic-2: done
   2-0-tech-debt-llm-driver-error-handling: done
   2-1-skill-loader-and-manifest-parsing: done
@@ -67,7 +67,7 @@ development_status:
   2-6-agent-abstraction-and-skill-standardization: done
   epic-2-retrospective: done
 
-  # Epic 3: 调试追踪（Debug Tracing — astrace）
+  # Epic 3: Debug Tracing (astrace)
   epic-3: done
   3-1-syscallevent-recording-infrastructure: done
   3-2-astrace-event-consumption-and-formatting: done
@@ -75,7 +75,7 @@ development_status:
   3-4-syscall-trace-line-ui-component: done
   epic-3-retrospective: done
 
-  # Epic 4: 进程管理与可靠性（Process Management & Reliability）
+  # Epic 4: Process Management & Reliability
   epic-4: done
   4-1-kill-and-wait-syscalls: done
   4-2-orphan-process-reparent-and-zombie-auto-reap: done
@@ -85,18 +85,18 @@ development_status:
   4-6-ipc-cross-terminal-kernel-state-sharing: done
   epic-4-retrospective: done
 
-  # Epic 5: 文档体系（Documentation）
+  # Epic 5: Documentation
   epic-5: done
   5-1-concept-documentation: done
   5-2-quick-start-guide: done
   5-3-reference-manual: done
   epic-5-retrospective: optional
 
-  # ═══════════════════════════════════════════════════════════
+  # ===============================================================
   # Phase 2
-  # ═══════════════════════════════════════════════════════════
+  # ===============================================================
 
-  # Epic 6: IPC 跨进程通信（Inter-Process Communication）
+  # Epic 6: IPC Inter-Process Communication
   epic-6: done
   6-1-send-recv-messaging: done
   6-2-pipe: done
@@ -105,7 +105,7 @@ development_status:
   6-5-three-level-concurrency-model: done
   epic-6-retrospective: done
 
-  # Epic 7: Compose 多智能体编排（Agent Compose）
+  # Epic 7: Compose Agent Orchestration
   epic-7: done
   7-1-crux-compose-yaml-parsing-and-dag-scheduling-engine: done
   7-2-crux-compose-up-command: done
@@ -113,7 +113,7 @@ development_status:
   7-4-compose-end-to-end-acceptance: done
   epic-7-retrospective: done
 
-  # Epic 8: Skill 包管理与生态（Skill Package Management）
+  # Epic 8: Skill Package Management
   epic-8: done
   8-1-skill-install: done
   8-2-skill-search: done
@@ -121,7 +121,7 @@ development_status:
   8-4-local-skill-registry-and-skill-list: done
   epic-8-retrospective: done
 
-  # Epic 9: MCP 服务集成（MCP Integration）
+  # Epic 9: MCP Integration
   epic-9: done
   9-1-mount-unmount-syscall: done
   9-2-agent-yaml-mcp-field-and-auto-mount: done
@@ -129,7 +129,7 @@ development_status:
   9-4-four-layer-capability-stack-e2e-validation: done
   epic-9-retrospective: done
 
-  # Epic 10: 监控、Supervisor 与运维（Monitoring, Supervisor & Operations）
+  # Epic 10: Monitoring, Supervisor & Operations
   epic-10: done
   10-1-crux-top-realtime-monitoring-tui: done
   10-2-crux-log-categorized-reasoning-logs: done
@@ -138,15 +138,110 @@ development_status:
   10-5-init-bootstrap-sequence: done
   epic-10-retrospective: done
 
-  # Epic 11: AgentShell 高级语法（AgentShell Advanced Syntax）
+  # Epic 10b: Supervisor & System Bootstrap
+  # Note: Stories implemented as Epic 10 stories 10-4 and 10-5
+  epic-10b: done
+  10b-1-supervisor-tree-and-restart-strategy: done
+  10b-2-init-bootstrap-sequence: done
+  epic-10b-retrospective: optional
+
+  # Epic 11: AgentShell Advanced Syntax
   epic-11: done
   11-1-pipe-syntax: done
   11-2-variables-and-environment-passing: done
   11-3-minimal-control-structures: done
   epic-11-retrospective: done
 
-  # Epic 12: Phase 2 文档（Phase 2 Documentation）
+  # Epic 12: Phase 2 Documentation
   epic-12: done
   12-1-tutorial-documentation: done
   12-2-architecture-documentation: done
   epic-12-retrospective: done
+
+  # ===============================================================
+  # Phase 3
+  # ===============================================================
+
+  # Epic 13: Interactive Agent Debugging (agdb)
+  epic-13: backlog
+  13-1-agdb-attach-detach: backlog
+  13-2-breakpoint-system: backlog
+  13-3-step-execution-and-state-inspection: backlog
+  13-4-runtime-parameter-hot-modification: backlog
+  epic-13-retrospective: optional
+
+  # Epic 14: Time Travel Debugging
+  epic-14: backlog
+  14-1-execution-recording-and-persistence: backlog
+  14-2-recording-replay-and-navigation: backlog
+  14-3-context-snapshot-diff: backlog
+  14-4-fork-continue-branch-exploration: backlog
+  epic-14-retrospective: optional
+
+  # Epic 15: Distributed Tracing & Context Analysis
+  epic-15: backlog
+  15-1-trace-id-generation-and-span-recording: backlog
+  15-2-distributed-tracing-view: backlog
+  15-3-trace-blame-root-cause-analysis: backlog
+  15-4-context-usage-analysis: backlog
+  15-5-context-growth-prediction-and-alert: backlog
+  epic-15-retrospective: optional
+
+  # Epic 16: Reasoning Regression Testing (agtest)
+  epic-16: backlog
+  16-1-declarative-test-case-definition: backlog
+  16-2-three-assertion-types: backlog
+  16-3-batch-test-run-and-report: backlog
+  epic-16-retrospective: optional
+
+  # Epic 17: Visual Debugging Dashboard
+  epic-17: backlog
+  17-1-dashboard-framework-and-agent-tree-pane: backlog
+  17-2-tracing-timeline-pane: backlog
+  17-3-context-heatmap-pane: backlog
+  17-4-pane-linkage-and-process-operations: backlog
+  17-5-offline-replay-analysis: backlog
+  epic-17-retrospective: optional
+
+  # Epic 18: AgentShell Complete Scripting
+  epic-18: backlog
+  18-1-loop-structures-and-builtin-commands: backlog
+  18-2-function-definition-and-invocation: backlog
+  18-3-data-structures-and-string-interpolation: backlog
+  18-4-spawn-return-capture-and-parallel-execution: backlog
+  18-5-modularization-and-script-execution: backlog
+  epic-18-retrospective: optional
+
+  # Epic 19: Declarative Intent & Auto Planning
+  epic-19: backlog
+  19-1-intent-declaration-and-task-decomposition: backlog
+  19-2-intent-state-model-and-event-driven-reconciler: backlog
+  19-3-incremental-update-and-status-query: backlog
+  epic-19-retrospective: optional
+
+  # Epic 20: Autonomous Agents (OODA + Stem Cell)
+  epic-20: backlog
+  20-1-ooda-loop-core-implementation: backlog
+  20-2-ooda-configuration-and-mission-command: backlog
+  20-3-stem-agent-and-auto-differentiation: backlog
+  20-4-progressive-specialization-and-differentiation-memory: backlog
+  20-5-differentiation-lineage-graph: backlog
+  epic-20-retrospective: optional
+
+  # Epic 21: Token Economy, Reputation & Skill Synergy
+  epic-21: backlog
+  21-1-token-budget-pool-and-allocation: backlog
+  21-2-contract-sla-and-evaluation: backlog
+  21-3-reputation-system-and-auto-selection: backlog
+  21-4-skill-synergy-declaration-and-auto-detection: backlog
+  21-5-skill-combination-matrix: backlog
+  epic-21-retrospective: optional
+
+  # Epic 22: Adaptive Security & Self-Healing
+  epic-22: backlog
+  22-1-immune-daemon-and-behavior-baseline: backlog
+  22-2-anomaly-detection-and-threat-memory: backlog
+  22-3-security-status-management: backlog
+  22-4-capability-migration-and-similarity-matrix: backlog
+  22-5-collaboration-topology-and-reinforcement-paths: backlog
+  epic-22-retrospective: optional
