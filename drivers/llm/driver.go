@@ -8,9 +8,10 @@ import (
 // Message represents a single message in a conversation.
 // JSON tags are compatible with context.Message for VFS bridge interop.
 type Message struct {
-	Role       string `json:"role"`
-	Content    string `json:"content"`
-	ToolCallID string `json:"tool_call_id,omitempty"`
+	Role       string     `json:"role"`
+	Content    string     `json:"content"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
 // LLMRequest represents a request to an LLM driver.

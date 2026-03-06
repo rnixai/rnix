@@ -2,7 +2,7 @@
 title: 'OpenAI 兼容基座 LLM 驱动'
 slug: 'openai-compat-llm-driver'
 created: '2026-03-06'
-status: 'ready-for-dev'
+status: 'completed'
 stepsCompleted: [1, 2, 3, 4]
 tech_stack: ['Go 1.26', 'net/http', 'net/http/httptest', 'encoding/json', 'bufio']
 files_to_modify: ['drivers/llm/driver.go', 'drivers/llm/tools_test.go', 'drivers/llm/openai_compat.go (new)', 'drivers/llm/openai_compat_test.go (new)']
@@ -90,7 +90,7 @@ test_patterns: ['httptest.NewServer mock', 'interface compliance (var _ LLMDrive
 
 ### Tasks
 
-- [ ] Task 0: 修正 `Message` 结构体——新增 `ToolCalls` 字段
+- [x] Task 0: 修正 `Message` 结构体——新增 `ToolCalls` 字段
   - File: `drivers/llm/driver.go`
   - Action:
     - 在 `Message` 结构体中新增字段：`ToolCalls []ToolCall \`json:"tool_calls,omitempty"\``
@@ -101,7 +101,7 @@ test_patterns: ['httptest.NewServer mock', 'interface compliance (var _ LLMDrive
     - 更新 `TestMessage_JSONCompatWithContextMessage`：验证新字段不破坏与 `context.Message` 的 JSON 兼容性（`context.Message` 无此字段，反序列化时自动忽略）
   - Notes: `ClaudeCliDriver` 不受影响——它不使用 `Messages` 字段。kernel 侧 `llmRequest` 暂不同步（独立 spec）
 
-- [ ] Task 1: 定义 `OpenAICompatDriver` 结构体、Options、内部 API 类型
+- [x] Task 1: 定义 `OpenAICompatDriver` 结构体、Options、内部 API 类型
   - File: `drivers/llm/openai_compat.go` (new)
   - Action:
     - 定义 `OpenAICompatDriver` 结构体：`baseURL string`、`apiKey string`、`name string`、`defaultModel string`、`defaultTimeout time.Duration`、`httpClient *http.Client`、`streamUsage bool`
@@ -124,7 +124,7 @@ test_patterns: ['httptest.NewServer mock', 'interface compliance (var _ LLMDrive
     - 编译期接口检查：`var _ LLMDriver = (*OpenAICompatDriver)(nil)` 和 `var _ ToolCallingDriver = (*OpenAICompatDriver)(nil)`
   - Notes: 所有 oai 类型不导出，JSON tag 使用 snake_case。`max_tokens` 用 `*int` + `omitempty` 避免零值序列化为 `"max_tokens": 0`
 
-- [ ] Task 2: 实现请求构建辅助方法
+- [x] Task 2: 实现请求构建辅助方法
   - File: `drivers/llm/openai_compat.go`
   - Depends on: Task 1
   - Action:
@@ -160,7 +160,7 @@ test_patterns: ['httptest.NewServer mock', 'interface compliance (var _ LLMDrive
       - `function.arguments`（JSON 字符串）→ `json.Unmarshal` → `map[string]any`
       - 解析失败时 Input 设为 nil（不 panic）
 
-- [ ] Task 3: 实现 `Call` 方法（内部为 `callInternal`）
+- [x] Task 3: 实现 `Call` 方法（内部为 `callInternal`）
   - File: `drivers/llm/openai_compat.go`
   - Depends on: Task 2
   - Action:
@@ -177,7 +177,7 @@ test_patterns: ['httptest.NewServer mock', 'interface compliance (var _ LLMDrive
     - `Call(ctx, req)` 方法：调用 `callInternal(ctx, req, nil)`
   - Notes: Call/CallWithTools 共享 callInternal，区别仅在 tools 参数
 
-- [ ] Task 4: 实现 `Stream` 方法（内部为 `streamInternal`）
+- [x] Task 4: 实现 `Stream` 方法（内部为 `streamInternal`）
   - File: `drivers/llm/openai_compat.go`
   - Depends on: Task 2
   - Action:
@@ -205,14 +205,14 @@ test_patterns: ['httptest.NewServer mock', 'interface compliance (var _ LLMDrive
       - scanner.Err() 非 nil：发送 error StreamEvent
     - `Stream(ctx, req)` 方法：调用 `streamInternal(ctx, req, nil)`
 
-- [ ] Task 5: 实现 `CallWithTools` 和 `StreamWithTools`
+- [x] Task 5: 实现 `CallWithTools` 和 `StreamWithTools`
   - File: `drivers/llm/openai_compat.go`
   - Depends on: Task 3, Task 4
   - Action:
     - `CallWithTools(ctx, req, tools)`: 调用 `callInternal(ctx, req, tools)`
     - `StreamWithTools(ctx, req, tools)`: 调用 `streamInternal(ctx, req, tools)`
 
-- [ ] Task 6: 单元测试 — 接口合规 + Call 方法
+- [x] Task 6: 单元测试 — 接口合规 + Call 方法
   - File: `drivers/llm/openai_compat_test.go` (new)
   - Depends on: Task 3
   - Action:
@@ -235,7 +235,7 @@ test_patterns: ['httptest.NewServer mock', 'interface compliance (var _ LLMDrive
     - `TestOpenAICompatDriver_Call_ToolResultMessage`：Messages 含 `role: "tool"` + `tool_call_id` 的消息，验证正确映射到 OpenAI 格式
     - `TestOpenAICompatDriver_Call_AssistantToolCallsMessage`：Messages 含 `role: "assistant"` + `ToolCalls` 的消息，验证正确映射（ToolCall.Input → JSON string arguments）
 
-- [ ] Task 7: 单元测试 — Stream 方法 + ToolCalling
+- [x] Task 7: 单元测试 — Stream 方法 + ToolCalling
   - File: `drivers/llm/openai_compat_test.go`
   - Depends on: Task 4, Task 5
   - Action:
@@ -252,25 +252,25 @@ test_patterns: ['httptest.NewServer mock', 'interface compliance (var _ LLMDrive
 
 ### Acceptance Criteria
 
-- [ ] AC 1: Given `Message{Role: "assistant", ToolCalls: [...]}` 序列化为 JSON，when 反序列化，then ToolCalls 字段完整保留
-- [ ] AC 2: Given `Message` 新增 ToolCalls 字段后，when 运行所有现有 `drivers/llm/` 测试，then 全部通过（零回归）
-- [ ] AC 3: Given `OpenAICompatDriver` 实例，when 调用 `Call(ctx, LLMRequest{Intent: "hello"})` 对接 mock server，then 返回 `LLMResponse` 含正确 Content/TokensUsed/InputTokens/OutputTokens
-- [ ] AC 4: Given `LLMRequest` 仅含 `Intent`（Messages 为空），when 驱动构建 HTTP 请求，then 请求体 messages 包含 `{role: "user", content: intent}`
-- [ ] AC 5: Given `LLMRequest` 含 `Messages`（首条为 system）和 `SystemPrompt`，when 驱动构建请求，then 不重复注入 system message
-- [ ] AC 6: Given mock server 返回 401/429/404/400(context_length)，when 调用 `Call`，then 分别返回 ErrAuth/ErrRateLimit/ErrModelNotFound/ErrContextLength，且 LLMError 携带正确 StatusCode 和 Provider
-- [ ] AC 7: Given 请求超时，when 调用 `Call`，then `errors.Is(err, ErrTimeout)` 为 true
-- [ ] AC 8: Given mock server 发送 SSE 流（多个 `data:` 行 + `data: [DONE]`），when 调用 `Stream`，then channel 接收到 content 事件和 done 事件
-- [ ] AC 9: Given `CallWithTools` 对接 mock server 返回含 `tool_calls` 的响应，then `LLMResponse.ToolCalls` 含正确的 ID/Name/Input（Input 为 `map[string]any`）
-- [ ] AC 10: Given `StreamWithTools` 对接 mock server 分多个 chunk 交错发送多个 tool_calls（不同 index），then 按 index 独立累积，最终 ToolCalls 完整正确
-- [ ] AC 11: Given `OpenAICompatDriver` 构造时未传 apiKey，when 发送请求，then HTTP 请求不含 `Authorization` header
-- [ ] AC 12: Given `LLMRequest.Messages` 包含 `role: "tool"` + `ToolCallID` 的消息，when 驱动构建请求，then 正确映射为 OpenAI tool result message 格式
-- [ ] AC 13: Given `LLMRequest.Messages` 包含 `role: "assistant"` + `ToolCalls` 的消息，when 驱动构建请求，then `ToolCall.Input` 被 `json.Marshal` 为 `function.arguments` 字符串
-- [ ] AC 14: Given baseURL 末尾有 `/`，when 发送请求，then URL 不含双斜杠
-- [ ] AC 15: Given 400 错误且 `error.code` 为空但 `error.message` 含 "context_length"，when 调用 `Call`，then `errors.Is(err, ErrContextLength)` 为 true
-- [ ] AC 16: Given SSE 流中单行 JSON 超过 64KB，when Stream 解析，then 正常处理不报 token too long
-- [ ] AC 17: Given `doHTTP` 失败（DNS/连接错误），when 调用 `Stream`，then 返回裸 error（非 `*LLMError`）且不泄漏 context
-- [ ] AC 18: Given 所有现有测试，when 运行 `make test`，then 全部通过（零回归）
-- [ ] AC 19: Given 编译期检查 `var _ LLMDriver = (*OpenAICompatDriver)(nil)` 和 `var _ ToolCallingDriver = (*OpenAICompatDriver)(nil)`，when 编译，then 通过
+- [x] AC 1: Given `Message{Role: "assistant", ToolCalls: [...]}` 序列化为 JSON，when 反序列化，then ToolCalls 字段完整保留
+- [x] AC 2: Given `Message` 新增 ToolCalls 字段后，when 运行所有现有 `drivers/llm/` 测试，then 全部通过（零回归）
+- [x] AC 3: Given `OpenAICompatDriver` 实例，when 调用 `Call(ctx, LLMRequest{Intent: "hello"})` 对接 mock server，then 返回 `LLMResponse` 含正确 Content/TokensUsed/InputTokens/OutputTokens
+- [x] AC 4: Given `LLMRequest` 仅含 `Intent`（Messages 为空），when 驱动构建 HTTP 请求，then 请求体 messages 包含 `{role: "user", content: intent}`
+- [x] AC 5: Given `LLMRequest` 含 `Messages`（首条为 system）和 `SystemPrompt`，when 驱动构建请求，then 不重复注入 system message
+- [x] AC 6: Given mock server 返回 401/429/404/400(context_length)，when 调用 `Call`，then 分别返回 ErrAuth/ErrRateLimit/ErrModelNotFound/ErrContextLength，且 LLMError 携带正确 StatusCode 和 Provider
+- [x] AC 7: Given 请求超时，when 调用 `Call`，then `errors.Is(err, ErrTimeout)` 为 true
+- [x] AC 8: Given mock server 发送 SSE 流（多个 `data:` 行 + `data: [DONE]`），when 调用 `Stream`，then channel 接收到 content 事件和 done 事件
+- [x] AC 9: Given `CallWithTools` 对接 mock server 返回含 `tool_calls` 的响应，then `LLMResponse.ToolCalls` 含正确的 ID/Name/Input（Input 为 `map[string]any`）
+- [x] AC 10: Given `StreamWithTools` 对接 mock server 分多个 chunk 交错发送多个 tool_calls（不同 index），then 按 index 独立累积，最终 ToolCalls 完整正确
+- [x] AC 11: Given `OpenAICompatDriver` 构造时未传 apiKey，when 发送请求，then HTTP 请求不含 `Authorization` header
+- [x] AC 12: Given `LLMRequest.Messages` 包含 `role: "tool"` + `ToolCallID` 的消息，when 驱动构建请求，then 正确映射为 OpenAI tool result message 格式
+- [x] AC 13: Given `LLMRequest.Messages` 包含 `role: "assistant"` + `ToolCalls` 的消息，when 驱动构建请求，then `ToolCall.Input` 被 `json.Marshal` 为 `function.arguments` 字符串
+- [x] AC 14: Given baseURL 末尾有 `/`，when 发送请求，then URL 不含双斜杠
+- [x] AC 15: Given 400 错误且 `error.code` 为空但 `error.message` 含 "context_length"，when 调用 `Call`，then `errors.Is(err, ErrContextLength)` 为 true
+- [x] AC 16: Given SSE 流中单行 JSON 超过 64KB，when Stream 解析，then 正常处理不报 token too long
+- [x] AC 17: Given `doHTTP` 失败（DNS/连接错误），when 调用 `Stream`，then 返回裸 error（非 `*LLMError`）且不泄漏 context
+- [x] AC 18: Given 所有现有测试，when 运行 `make test`，then 全部通过（零回归）
+- [x] AC 19: Given 编译期检查 `var _ LLMDriver = (*OpenAICompatDriver)(nil)` 和 `var _ ToolCallingDriver = (*OpenAICompatDriver)(nil)`，when 编译，then 通过
 
 ## Additional Context
 
@@ -322,3 +322,10 @@ test_patterns: ['httptest.NewServer mock', 'interface compliance (var _ LLMDrive
 | F13 oaiMessage.name | Task 1: 包含 name 字段 |
 | F14 trailing slash | Task 1: 构造函数 TrimRight |
 | F15 registry 注册 | 确认为 Out of Scope（噪声） |
+
+## Review Notes
+
+- 对抗性代码审查已完成
+- 发现: 15 项，9 项已修复，6 项跳过（noise/设计决策）
+- 解决方式: 自动修复
+- 关键修复: flushToolCalls 非连续 index 丢失（F7 High）、buildMessages 错误传播（F2）、classifyHTTPError 保留错误消息（F1）、io.LimitReader 防 OOM（F5）、http.DefaultClient 隔离（F4）
