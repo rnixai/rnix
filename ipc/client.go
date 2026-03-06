@@ -13,8 +13,10 @@ import (
 
 // Client connects to the rnix daemon over a Unix socket.
 type Client struct {
-	conn    net.Conn
-	scanner *bufio.Scanner
+	conn       net.Conn
+	scanner    *bufio.Scanner
+	gdbDone    chan struct{} // closed when gdb event stream ends
+	socketPath string       // saved for SendDetach (separate connection)
 }
 
 // Dial connects to the daemon at the given socket path.
@@ -30,7 +32,7 @@ func DialTimeout(socketPath string, timeout time.Duration) (*Client, error) {
 	}
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
-	return &Client{conn: conn, scanner: scanner}, nil
+	return &Client{conn: conn, scanner: scanner, socketPath: socketPath}, nil
 }
 
 // Close closes the client connection.
@@ -320,6 +322,85 @@ func (c *Client) AttachLog(pid types.PID, onEntry func(LogEntryWire)) error {
 // Shutdown requests the daemon to shut down gracefully.
 func (c *Client) Shutdown() error {
 	_, err := c.call(MethodShutdown, nil)
+	return err
+}
+
+// AttachGdb attaches to a process for interactive debugging, receiving both
+// syscall events and log entries via a unified stream. Returns the initial
+// process metadata snapshot. The onEvent callback is called for each GdbEvent
+// in a background goroutine.
+//
+// AttachGdb waits for the event stream to end naturally (EOF from server).
+// If the stream does not end within a short window, it returns immediately
+// so the caller can interact with the session (e.g., call SendDetach).
+func (c *Client) AttachGdb(pid types.PID, onEvent func(GdbEvent)) (*AttachGdbResponse, error) {
+	if err := c.sendRequest(MethodAttachGdb, AttachGdbRequest{PID: pid}); err != nil {
+		return nil, err
+	}
+
+	if !c.scanner.Scan() {
+		return nil, fmt.Errorf("ipc: no attach_gdb response")
+	}
+	var resp Response
+	if err := json.Unmarshal(c.scanner.Bytes(), &resp); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal attach_gdb response: %w", err)
+	}
+	if !resp.OK {
+		msg := "attach failed"
+		if resp.Error != nil {
+			msg = resp.Error.Message
+		}
+		return nil, fmt.Errorf("ipc: %s", msg)
+	}
+
+	var info AttachGdbResponse
+	if err := json.Unmarshal(resp.Payload, &info); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal attach_gdb payload: %w", err)
+	}
+
+	// Stream events in background goroutine
+	done := make(chan struct{})
+	c.gdbDone = done
+	go func() {
+		defer close(done)
+		for c.scanner.Scan() {
+			var ev GdbEvent
+			if err := json.Unmarshal(c.scanner.Bytes(), &ev); err != nil {
+				continue
+			}
+
+			if ev.Type == StreamEOF {
+				break
+			}
+
+			if onEvent != nil {
+				onEvent(ev)
+			}
+		}
+	}()
+
+	// Wait for the stream to end, or return early for interactive sessions.
+	// Short-lived streams (process exit, channel close) complete before the
+	// timeout and all events are guaranteed delivered. Long-lived streams
+	// (interactive attach) return after the timeout to allow SendDetach calls.
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	return &info, nil
+}
+
+// SendDetach sends a detach request to the server for the given PID.
+// This opens a separate connection to send the detach command, which
+// triggers server-side EOF on the attach stream and unblocks AttachGdb.
+func (c *Client) SendDetach(pid types.PID) error {
+	detachConn, err := DialTimeout(c.socketPath, 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("ipc: detach dial: %w", err)
+	}
+	defer detachConn.Close()
+	_, err = detachConn.call(MethodDetachGdb, DetachGdbRequest{PID: pid})
 	return err
 }
 

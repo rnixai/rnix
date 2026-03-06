@@ -24,6 +24,8 @@ const (
 	MethodShutdown      Method = "shutdown"
 	MethodSpawnPipeline Method = "spawn_pipeline"
 	MethodExecScript    Method = "exec_script"
+	MethodAttachGdb     Method = "attach_gdb"
+	MethodDetachGdb     Method = "detach_gdb"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -151,6 +153,44 @@ type AttachLogRequest struct {
 	PID types.PID `json:"pid"`
 }
 
+// --- AttachGdb ---
+
+// AttachGdbRequest is the payload for MethodAttachGdb.
+type AttachGdbRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// AttachGdbResponse is the initial response for MethodAttachGdb,
+// containing a snapshot of process metadata at attach time.
+type AttachGdbResponse struct {
+	PID        types.PID          `json:"pid"`
+	State      types.ProcessState `json:"state"`
+	Intent     string             `json:"intent"`
+	Skills     []string           `json:"skills"`
+	TokensUsed int                `json:"tokens_used"`
+}
+
+// MarshalJSON ensures Skills is serialized as [] instead of null when nil.
+func (r AttachGdbResponse) MarshalJSON() ([]byte, error) {
+	type Alias AttachGdbResponse
+	a := Alias(r)
+	if a.Skills == nil {
+		a.Skills = []string{}
+	}
+	return json.Marshal(a)
+}
+
+// DetachGdbRequest is sent by the client to explicitly detach from a gdb session.
+type DetachGdbRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// GdbEvent carries a single event on a gdb streaming connection.
+type GdbEvent struct {
+	Type    StreamEventType `json:"type"`
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
 // LogEntryWire is the wire-format representation of types.LogEntry.
 type LogEntryWire struct {
 	TimestampMs int64     `json:"timestamp_ms"`
@@ -191,6 +231,12 @@ const (
 	StreamSyscallEvent StreamEventType = "syscall_event"
 	StreamLogEntry     StreamEventType = "log_entry"
 	StreamEOF          StreamEventType = "eof"
+
+	// gdb-specific stream event types
+	StreamGdbSyscall     StreamEventType = "gdb_syscall"
+	StreamGdbLog         StreamEventType = "gdb_log"
+	StreamGdbStateChange StreamEventType = "gdb_state_change"
+	StreamGdbPrompt      StreamEventType = "gdb_prompt"
 )
 
 // ProgressPayload maps kernel callback events to IPC wire format.

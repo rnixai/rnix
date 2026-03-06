@@ -81,6 +81,7 @@ type Process struct {
 
 // NewProcess creates a new process in the Created state with a unique PID.
 func NewProcess(ppid types.PID, intent string, skills []string) *Process {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Process{
 		PID:       nextPID(),
 		PPID:      ppid,
@@ -93,6 +94,8 @@ func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 		LogChan:   make(chan types.LogEntry, 256),
 		Done:      make(chan ExitStatus, 1),
 		CreatedAt: time.Now(),
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 }
 
@@ -172,6 +175,29 @@ func (p *Process) Cancel() {
 	if p.cancel != nil {
 		p.cancel()
 	}
+}
+
+// IsCancelled returns true if the process context has been cancelled.
+func (p *Process) IsCancelled() bool {
+	p.mu.Lock()
+	ctx := p.ctx
+	p.mu.Unlock()
+	if ctx == nil {
+		return false
+	}
+	return ctx.Err() != nil
+}
+
+// CancelledCh returns a channel that is closed when the process context is cancelled.
+// Returns nil if the process has no context.
+func (p *Process) CancelledCh() <-chan struct{} {
+	p.mu.Lock()
+	ctx := p.ctx
+	p.mu.Unlock()
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Done()
 }
 
 // AddChild appends a child PID to the Children slice (thread-safe).
