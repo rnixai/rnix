@@ -1,6 +1,6 @@
 # 教程 2：调试第一个 bug
 
-本教程带你体验 Rnix 的调试工作流：故意引入一个 bug，用 `rnix astrace` 定位问题，修复后验证。
+本教程带你体验 Rnix 的调试工作流：故意引入一个 bug，用 `rnix strace` 定位问题，修复后验证。
 
 ---
 
@@ -13,7 +13,7 @@
 
 ## 你将学到什么
 
-1. 如何用 `rnix astrace` 实时追踪智能体的系统调用
+1. 如何用 `rnix strace` 实时追踪智能体的系统调用
 2. 如何从 SyscallEvent 中读取错误信息定位问题
 3. 常见错误码及其含义
 
@@ -91,15 +91,15 @@ PID 2 | counter | running
 PID 2 | failed | 1 | 1.5s | 320 tokens
 ```
 
-智能体因为权限不足而失败了。但错误信息可能不够详细——让我们用 `astrace` 深入定位。
+智能体因为权限不足而失败了。但错误信息可能不够详细——让我们用 `strace` 深入定位。
 
 ---
 
-## 步骤二：使用 rnix astrace 定位问题
+## 步骤二：使用 rnix strace 定位问题
 
-`rnix astrace` 追踪进程的每一个系统调用，就像 Unix 的 `strace` 追踪系统调用一样。
+`rnix strace` 追踪进程的每一个系统调用，就像 Unix 的 `strace` 追踪系统调用一样。
 
-### 启动 astrace
+### 启动 strace
 
 在一个终端启动智能体：
 
@@ -110,10 +110,10 @@ rnix -i "统计 kernel/kernel.go 的行数" --agent=counter
 在另一个终端追踪该进程（假设 PID 为 3）：
 
 ```bash
-rnix astrace 3
+rnix strace 3
 ```
 
-### 分析 astrace 输出
+### 分析 strace 输出
 
 ```
 [  0.001s] Spawn(agent="counter", intent="统计 kernel/kernel.go 的行数") → 3    1ms
@@ -153,7 +153,7 @@ rnix astrace 3
 
 ### SyscallEvent 结构
 
-每条 astrace 输出对应一个 `SyscallEvent`，包含：
+每条 strace 输出对应一个 `SyscallEvent`，包含：
 
 - **Timestamp** — 相对进程启动的时间戳
 - **Syscall** — 系统调用名称（Open/Read/Write/Close/Spawn 等）
@@ -199,12 +199,12 @@ kernel/kernel.go: 287 行
 PID 4 | completed | 0 | 2.1s | 450 tokens
 ```
 
-### 用 astrace 确认修复
+### 用 strace 确认修复
 
-再次用 astrace 追踪确认所有 syscall 正常：
+再次用 strace 追踪确认所有 syscall 正常：
 
 ```bash
-rnix astrace 4
+rnix strace 4
 ```
 
 ```
@@ -246,7 +246,7 @@ rnix ps
 rnix log
 ```
 
-查看智能体的推理日志，按类别分组。比 astrace 更高层——astrace 追踪的是 syscall 层面的操作，log 展示的是推理过程的逻辑记录。
+查看智能体的推理日志，按类别分组。比 strace 更高层——strace 追踪的是 syscall 层面的操作，log 展示的是推理过程的逻辑记录。
 
 ### rnix top — 实时监控
 
@@ -276,5 +276,5 @@ TUI 界面实时监控所有进程的状态、Token 消耗和资源使用。详�
 ## 相关文档
 
 - [核心概念：系统调用](../concepts.md) — Syscall 和 SyscallEvent 的概念模型
-- [参考手册：rnix astrace](../reference.md) — astrace 命令的完整参数和输出格式
+- [参考手册：rnix strace](../reference.md) — strace 命令的完整参数和输出格式
 - [参考手册：SyscallError](../reference.md) — 错误码枚举和 SyscallError 结构

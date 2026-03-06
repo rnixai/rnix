@@ -238,12 +238,12 @@ rnix ps
     1   zombie    code-summarizer    1,240    3.2s
 ```
 
-### 使用 astrace 查看 Syscall 追踪
+### 使用 strace 查看 Syscall 追踪
 
-`rnix astrace` 可以实时追踪智能体的每一个系统调用——Open、Read、Write 等操作都会被记录：
+`rnix strace` 可以实时追踪智能体的每一个系统调用——Open、Read、Write 等操作都会被记录：
 
 ```bash
-rnix astrace 1
+rnix strace 1
 ```
 
 输出示例：
@@ -263,7 +263,7 @@ rnix astrace 1
 [  0.009s] Close(fd=5) → <nil>    0µs
 ```
 
-从 astrace 输出可以清楚看到：
+从 strace 输出可以清楚看到：
 1. 内核先加载了 `code-summarizer` Skill（读取 `/lib/skills/code-summarizer/SKILL.md`，892 字节）
 2. 然后调用 LLM（`/dev/llm/claude`）进行推理——Write 发送请求，Read 获取响应
 3. LLM 指示读取目标文件（`/dev/fs`，2048 字节）
@@ -388,7 +388,7 @@ rnix -i "总结 kernel/kernel.go 的代码结构" --agent=summarizer
 
 ### 权限错误（PERMISSION）
 
-**症状：** astrace 中看到 `[ERR]` 行，错误码为 `PERMISSION`
+**症状：** strace 中看到 `[ERR]` 行，错误码为 `PERMISSION`
 
 **原因：** Skill 的 `allowed-tools` 未包含智能体实际访问的 VFS 设备路径。
 
@@ -406,7 +406,7 @@ rnix -i "总结 kernel/kernel.go 的代码结构" --agent=summarizer
 
 ## 下一步
 
-- [教程 2：调试第一个 bug](debugging-first-bug.md) — 学习使用 astrace 定位和修复问题
+- [教程 2：调试第一个 bug](debugging-first-bug.md) — 学习使用 strace 定位和修复问题
 - [教程 3：组合多智能体工作流](composing-multi-agent-workflow.md) — 学习用 Compose 编排多个智能体协作
 
 ## 相关文档

@@ -10,7 +10,7 @@ Rnix 是一个面向 AI 智能体的操作系统（Agent OS）。它借鉴 Unix 
 
 进程是 Rnix 的一等计算单元。当你执行 `rnix -i "意图"` 命令时，Rnix 内核会创建一个智能体进程来完成你的意图。每个进程拥有独立的 PID、上下文空间、文件描述符表和调试通道。
 
-Rnix 采用 daemon 架构管理进程：一个后台 daemon 持有唯一的内核实例和进程表，所有 CLI 命令通过 Unix domain socket 与 daemon 通信。daemon 在首次运行 `rnix` 时自动启动，空闲 60 秒后自动退出。这种设计使得进程在系统级别可见——在终端 A 启动的进程，可以在终端 B 通过 `rnix ps`/`rnix kill`/`rnix astrace` 查看和操作，与 Unix 进程的行为一致。
+Rnix 采用 daemon 架构管理进程：一个后台 daemon 持有唯一的内核实例和进程表，所有 CLI 命令通过 Unix domain socket 与 daemon 通信。daemon 在首次运行 `rnix` 时自动启动，空闲 60 秒后自动退出。这种设计使得进程在系统级别可见——在终端 A 启动的进程，可以在终端 B 通过 `rnix ps`/`rnix kill`/`rnix strace` 查看和操作，与 Unix 进程的行为一致。
 
 ### Unix 类比
 
@@ -87,7 +87,7 @@ CLI 输出示例：
 | CtxID | 关联的上下文空间标识符 |
 | FDTable | 进程打开的文件描述符表 |
 | AllowedDevices | 设备权限白名单（由 Skill 聚合而来） |
-| DebugChan | 调试事件通道（缓冲 256），供 astrace 消费 |
+| DebugChan | 调试事件通道（缓冲 256），供 strace 消费 |
 | TokensUsed | 累计 token 消耗量 |
 
 ---
@@ -378,16 +378,16 @@ Rnix 的内核接口由 4 个子接口组合而成，共定义 15 个 syscall（
 | Err | 错误信息 |
 | Duration | syscall 执行耗时 |
 
-使用 `rnix astrace <pid>` 可以实时消费这些事件，类似 Unix 中的 `strace`：
+使用 `rnix strace <pid>` 可以实时消费这些事件，类似 Unix 中的 `strace`：
 
 ```bash
-$ rnix astrace 1
-[astrace] attached to PID 1 (state: running)
+$ rnix strace 1
+[strace] attached to PID 1 (state: running)
 [  0.013s] Open("/dev/llm/claude", O_RDWR)  = FD(3)    1ms
 [  0.014s] Write(FD(3), 1234 bytes)          = ok      5200ms
 [  5.214s] Read(FD(3), 65536)                = 892B      2ms
 ...
-[astrace] detached from PID 1 (process exited)
+[strace] detached from PID 1 (process exited)
 ```
 
 ---
@@ -439,7 +439,7 @@ $ rnix astrace 1
       CLI
 ```
 
-daemon 是一个隐藏的后台进程（`rnix daemon --internal`），在首次执行 `rnix` 命令时自动启动。所有 CLI 操作（spawn、ps、kill、astrace）都是客户端请求，通过 Unix domain socket 发送给 daemon 中的 IPC Server，由 Server 路由到 kernel 执行。这种架构使得多个终端可以共享同一个内核的进程表。
+daemon 是一个隐藏的后台进程（`rnix daemon --internal`），在首次执行 `rnix` 命令时自动启动。所有 CLI 操作（spawn、ps、kill、strace）都是客户端请求，通过 Unix domain socket 发送给 daemon 中的 IPC Server，由 Server 路由到 kernel 执行。这种架构使得多个终端可以共享同一个内核的进程表。
 
 IPC Server 采用**请求循环连接模型**：单个连接上可以发送多次非流式请求（Ping、ListProcs、Kill），服务端处理后继续等待下一个请求。流式方法（Spawn、AttachDebug）会在 handler 内部管理连接生命周期，流结束后关闭连接。这意味着 `EnsureDaemon()` 的 Ping 探活和后续 Spawn 请求可以共用同一个连接，避免 broken pipe 错误。
 
@@ -498,9 +498,9 @@ CLI 客户端接收 ProgressEvent → 格式化输出:
 
 关键区别：CLI 不再直接调用 kernel，而是作为 IPC 客户端将请求发送给 daemon。daemon 中的 `callbackMux` 将每个进程的进度事件路由到对应的客户端连接，实现流式输出。Spawn 流式结束后，IPC Server 主动调用 `kernel.Reap(pid)` 清理 Zombie 进程（关闭 DebugChan、释放上下文、移除进程表），因为 daemon 模式下没有 CLI 端的 `Wait()` 调用来触发回收。
 
-### astrace 调试数据流
+### strace 调试数据流
 
-`astrace` 命令通过 IPC 跨终端消费进程的 DebugChan 实现 syscall 追踪。你可以在任意终端对任意正在运行的进程执行 `rnix astrace <pid>`，无需在启动进程的终端中操作：
+`strace` 命令通过 IPC 跨终端消费进程的 DebugChan 实现 syscall 追踪。你可以在任意终端对任意正在运行的进程执行 `rnix strace <pid>`，无需在启动进程的终端中操作：
 
 ```
 daemon 内部:
@@ -521,6 +521,6 @@ daemon 内部:
       │  Unix Domain Socket（流式 SyscallEvent）
       ▼
 任意终端:
-  rnix astrace <pid> → IPC Client.AttachDebug → 接收 StreamEvent → 格式化输出
+  rnix strace <pid> → IPC Client.AttachDebug → 接收 StreamEvent → 格式化输出
       格式: [N.NNNs] SyscallName(args) → result    duration
 ```

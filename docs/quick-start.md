@@ -136,11 +136,11 @@ $ rnix -i "分析 ./cmd/rnix/main.go" --agent=code-analyst
 
 ---
 
-## astrace 调试体验
+## strace 调试体验
 
-`astrace`（Agent Strace）是 Rnix 的调试工具，类似 Unix 的 `strace`，可以实时查看智能体进程的每一步系统调用（Syscall），帮助你理解智能体的完整执行过程。
+`strace`（Agent Strace）是 Rnix 的调试工具，类似 Unix 的 `strace`，可以实时查看智能体进程的每一步系统调用（Syscall），帮助你理解智能体的完整执行过程。
 
-得益于 daemon 架构，`astrace` 支持跨终端操作——你可以在任意终端追踪任意正在运行的进程，无需在启动进程的终端中操作。
+得益于 daemon 架构，`strace` 支持跨终端操作——你可以在任意终端追踪任意正在运行的进程，无需在启动进程的终端中操作。
 
 ### 使用方法
 
@@ -155,13 +155,13 @@ $ rnix -i "分析当前项目结构并给出建议"
 
 ```bash
 # 终端 B
-$ rnix astrace 1
+$ rnix strace 1
 ```
 
 ### 预期输出
 
 ```
-[astrace] attached to PID 1 (state: running)
+[strace] attached to PID 1 (state: running)
 [  0.013s] Open(flags=2, path="/dev/llm/claude") → 3    1ms  ← LLM 调用
 [  0.014s] Write(fd=3, size=1234) → <nil>    5.20s  ← 慢操作
 [  5.214s] Read(fd=3, length=1048576) → 892    2ms
@@ -172,7 +172,7 @@ $ rnix astrace 1
 [  5.218s] Write(fd=3, size=3456) → <nil>    3.10s  ← 慢操作
 [  8.318s] Read(fd=3, length=1048576) → 1024    2ms
 [  8.320s] Close(fd=3) → <nil>    0µs
-[astrace] detached from PID 1 (process exited)
+[strace] detached from PID 1 (process exited)
 ```
 
 ### 解读关键 Syscall
@@ -189,7 +189,7 @@ $ rnix astrace 1
 
 > 💡 `<nil>` 表示操作成功且无返回值（类似其他语言中的 `null` 或 `void`）。
 
-按 `Ctrl+C` 可随时脱离 astrace，不会影响被追踪的进程。
+按 `Ctrl+C` 可随时脱离 strace，不会影响被追踪的进程。
 
 ---
 
@@ -267,5 +267,5 @@ $ rnix kill 1
 想要手把手学习 Rnix 开发？查看 [教程目录](tutorials/README.md)：
 
 1. **[编写第一个 Skill](tutorials/writing-first-skill.md)** — 创建 Skill、Agent 并运行（~20 分钟）
-2. **[调试第一个 bug](tutorials/debugging-first-bug.md)** — 使用 astrace 定位和修复问题（~15 分钟）
+2. **[调试第一个 bug](tutorials/debugging-first-bug.md)** — 使用 strace 定位和修复问题（~15 分钟）
 3. **[组合多智能体工作流](tutorials/composing-multi-agent-workflow.md)** — 用 Compose 编排多智能体协作（~25 分钟）

@@ -38,7 +38,7 @@
    - [4.2 rnix \[intent\] — 根命令](#42-rnix-intent--根命令)
    - [4.3 rnix ps — 进程列表](#43-rnix-ps--进程列表)
    - [4.4 rnix kill — 进程终止](#44-rnix-kill-pid--进程终止)
-   - [4.5 rnix astrace — Syscall 追踪](#45-rnix-astrace-pid--syscall-追踪)
+   - [4.5 rnix strace — Syscall 追踪](#45-rnix-strace-pid--syscall-追踪)
    - [4.6 rnix version — 版本信息](#46-rnix-version--版本信息)
    - [4.7 JSON 响应格式](#47-json-响应格式)
 5. [IPC 架构](#5-ipc-架构)
@@ -1076,10 +1076,10 @@ metadata:
 [kernel] PID 1: signal sent (SIGTERM)
 ```
 
-### 4.5 rnix astrace \<pid\> — Syscall 追踪
+### 4.5 rnix strace \<pid\> — Syscall 追踪
 
 ```
-用法: rnix astrace <pid>
+用法: rnix strace <pid>
 参数: <pid> — 进程 ID（恰好 1 个参数）
 ```
 
@@ -1088,7 +1088,7 @@ metadata:
 **默认模式 — 格式化追踪行：**
 
 ```
-[astrace] attached to PID 1 (state: running)
+[strace] attached to PID 1 (state: running)
 [  0.013s] Open(flags=2, path="/dev/llm/claude") → 3    1ms
 [  0.014s] Write(fd=3, size=1234) → <nil>    5.20s  ← LLM 调用
 [  5.214s] Read(fd=3, length=65536) → 892B      2ms
@@ -1096,7 +1096,7 @@ metadata:
 [  5.217s] Write(fd=4, size=56) → <nil>    0µs
 [  5.217s] Read(fd=4, length=1048576) → 2048    1ms
 [  5.218s] Close(fd=4) → <nil>    0µs
-[astrace] detached from PID 1 (process exited)
+[strace] detached from PID 1 (process exited)
 ```
 
 **注解标记：**

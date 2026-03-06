@@ -917,8 +917,8 @@ func TestSuggestCommand_Prefix(t *testing.T) {
 }
 
 func TestSuggestCommand_Levenshtein(t *testing.T) {
-	if got := suggestCommand(rootCmd, "astrce"); got != "astrace" {
-		t.Errorf("levenshtein match: got %q, want %q", got, "astrace")
+	if got := suggestCommand(rootCmd, "strce"); got != "strace" {
+		t.Errorf("levenshtein match: got %q, want %q", got, "strace")
 	}
 }
 
