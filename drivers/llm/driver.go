@@ -5,31 +5,44 @@ import (
 	"context"
 )
 
+// Message represents a single message in a conversation.
+// JSON tags are compatible with context.Message for VFS bridge interop.
+type Message struct {
+	Role       string `json:"role"`
+	Content    string `json:"content"`
+	ToolCallID string `json:"tool_call_id,omitempty"`
+}
+
 // LLMRequest represents a request to an LLM driver.
 type LLMRequest struct {
 	Intent       string        `json:"intent"`
 	SystemPrompt string        `json:"system_prompt,omitempty"`
 	Model        string        `json:"model,omitempty"`
 	MaxTurns     int           `json:"max_turns,omitempty"`
-	TimeoutMs int64 `json:"timeout_ms,omitempty"`
+	TimeoutMs    int64         `json:"timeout_ms,omitempty"`
+	Messages     []Message     `json:"messages,omitempty"`
+	Temperature  *float64      `json:"temperature,omitempty"`
+	MaxTokens    int           `json:"max_tokens,omitempty"`
 }
 
 // LLMResponse represents a response from an LLM driver.
 type LLMResponse struct {
-	Content      string `json:"content"`
-	TokensUsed   int    `json:"tokens_used"`
-	InputTokens  int    `json:"input_tokens,omitempty"`
-	OutputTokens int    `json:"output_tokens,omitempty"`
+	Content      string     `json:"content"`
+	TokensUsed   int        `json:"tokens_used"`
+	InputTokens  int        `json:"input_tokens,omitempty"`
+	OutputTokens int        `json:"output_tokens,omitempty"`
+	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
 }
 
 // StreamEvent represents a single event in a streaming LLM response.
 type StreamEvent struct {
-	Type         string `json:"type"` // "content", "done", "error"
-	Content      string `json:"content,omitempty"`
-	TokensUsed   int    `json:"tokens_used,omitempty"`
-	InputTokens  int    `json:"input_tokens,omitempty"`
-	OutputTokens int    `json:"output_tokens,omitempty"`
-	Err          error  `json:"-"`
+	Type         string     `json:"type"` // "content", "done", "error"
+	Content      string     `json:"content,omitempty"`
+	TokensUsed   int        `json:"tokens_used,omitempty"`
+	InputTokens  int        `json:"input_tokens,omitempty"`
+	OutputTokens int        `json:"output_tokens,omitempty"`
+	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
+	Err          error      `json:"-"`
 }
 
 // DriverInfo holds metadata about an LLM driver.
