@@ -591,7 +591,7 @@ func TestIntegration_AttachGdb_DetachDoesNotAffectProcess(t *testing.T) {
 	}
 
 	eventReceived := make(chan struct{}, 1)
-	_, err = client.AttachGdb(proc.PID, func(ev GdbEvent) {
+	_, _ = client.AttachGdb(proc.PID, func(ev GdbEvent) {
 		select {
 		case eventReceived <- struct{}{}:
 		default:
@@ -762,7 +762,7 @@ func TestIntegration_AttachGdb_ClientDisconnectCleanup(t *testing.T) {
 	}
 	defer client2.Close()
 
-	_, err = client2.AttachGdb(proc.PID, func(ev GdbEvent) {})
+	_, _ = client2.AttachGdb(proc.PID, func(ev GdbEvent) {})
 	// This should succeed if attach state was properly cleaned up
 	// (if server tracks single-attach per process)
 
