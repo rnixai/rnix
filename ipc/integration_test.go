@@ -769,3 +769,266 @@ func TestIntegration_AttachGdb_ClientDisconnectCleanup(t *testing.T) {
 	close(proc.DebugChan)
 	close(proc.LogChan)
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.2: 断点系统 (集成测试)
+//
+// Tests reference client.SendGdbCommand, GdbCommandRequest,
+// GdbCommandResponse, MethodGdbCommand
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 13.2-INT-001: [P0] SendGdbCommand 设置 syscall 断点 ---
+
+func TestIntegration_GdbCommand_BreakSyscall(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "bp-integ-syscall", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SendGdbCommand(proc.PID, "break", []string{"syscall", "Read"})
+	if err != nil {
+		t.Fatalf("SendGdbCommand: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected OK=true, message: %s", resp.Message)
+	}
+	if resp.Data == nil {
+		t.Fatal("expected data with bp_id")
+	}
+}
+
+// --- 13.2-INT-002: [P0] SendGdbCommand 设置 reasoning 断点 ---
+
+func TestIntegration_GdbCommand_BreakReasoning(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "bp-integ-reasoning", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SendGdbCommand(proc.PID, "break", []string{"reasoning"})
+	if err != nil {
+		t.Fatalf("SendGdbCommand: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected OK=true, message: %s", resp.Message)
+	}
+}
+
+// --- 13.2-INT-003: [P0] SendGdbCommand 设置 budget 断点 ---
+
+func TestIntegration_GdbCommand_BreakBudget(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "bp-integ-budget", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SendGdbCommand(proc.PID, "break", []string{"budget", "5000"})
+	if err != nil {
+		t.Fatalf("SendGdbCommand: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected OK=true, message: %s", resp.Message)
+	}
+}
+
+// --- 13.2-INT-004: [P0] SendGdbCommand 设置 quality --pattern 断点 ---
+
+func TestIntegration_GdbCommand_BreakQualityPattern(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "bp-integ-quality", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SendGdbCommand(proc.PID, "break", []string{"quality", "--pattern", "安全漏洞"})
+	if err != nil {
+		t.Fatalf("SendGdbCommand: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected OK=true, message: %s", resp.Message)
+	}
+}
+
+// --- 13.2-INT-005: [P0] SendGdbCommand delete 断点 ---
+
+func TestIntegration_GdbCommand_Delete(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "bp-integ-delete", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	// First add a breakpoint
+	addResp, err := client.SendGdbCommand(proc.PID, "break", []string{"reasoning"})
+	if err != nil {
+		t.Fatalf("SendGdbCommand add: %v", err)
+	}
+	if !addResp.OK {
+		t.Fatalf("add failed: %s", addResp.Message)
+	}
+
+	bpID := "1" // first breakpoint
+	if addResp.Data != nil {
+		if dataMap, ok := addResp.Data.(map[string]any); ok {
+			if id, ok := dataMap["bp_id"]; ok {
+				bpID = fmt.Sprintf("%v", id)
+			}
+		}
+	}
+
+	// Then delete it
+	delResp, err := client.SendGdbCommand(proc.PID, "delete", []string{bpID})
+	if err != nil {
+		t.Fatalf("SendGdbCommand delete: %v", err)
+	}
+	if !delResp.OK {
+		t.Errorf("delete failed: %s", delResp.Message)
+	}
+}
+
+// --- 13.2-INT-006: [P0] SendGdbCommand continue ---
+
+func TestIntegration_GdbCommand_Continue(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "bp-integ-continue", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SendGdbCommand(proc.PID, "continue", nil)
+	if err != nil {
+		t.Fatalf("SendGdbCommand: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected OK=true, message: %s", resp.Message)
+	}
+}
+
+// --- 13.2-INT-007: [P0] SendGdbCommand info breakpoints ---
+
+func TestIntegration_GdbCommand_InfoBreakpoints(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "bp-integ-info", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	// Add a breakpoint first
+	_, err = client.SendGdbCommand(proc.PID, "break", []string{"syscall", "Read"})
+	if err != nil {
+		t.Fatalf("SendGdbCommand add: %v", err)
+	}
+
+	// List breakpoints
+	resp, err := client.SendGdbCommand(proc.PID, "info", nil)
+	if err != nil {
+		t.Fatalf("SendGdbCommand info: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("expected OK=true, message: %s", resp.Message)
+	}
+	if resp.Data == nil {
+		t.Fatal("expected data with breakpoints list")
+	}
+}
+
+// --- 13.2-INT-008: [P0] SendGdbCommand 走独立连接 ---
+
+func TestIntegration_GdbCommand_IndependentConnection(t *testing.T) {
+	_, kern, sockPath := setupIntegrationServer(t)
+
+	proc := kernel.NewProcess(0, "bp-integ-conn", nil)
+	_ = proc.Start()
+	kern.AddProcess(proc)
+
+	// Attach gdb first (streaming connection)
+	client1, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial 1: %v", err)
+	}
+	defer client1.Close()
+
+	_, err = client1.AttachGdb(proc.PID, func(ev GdbEvent) {})
+	if err != nil {
+		t.Fatalf("AttachGdb: %v", err)
+	}
+
+	// SendGdbCommand should work via independent connection (like SendDetach)
+	client2, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial 2: %v", err)
+	}
+	defer client2.Close()
+
+	resp, err := client2.SendGdbCommand(proc.PID, "break", []string{"reasoning"})
+	if err != nil {
+		t.Fatalf("SendGdbCommand on separate connection: %v", err)
+	}
+	if !resp.OK {
+		t.Errorf("expected OK=true, message: %s", resp.Message)
+	}
+}
+
+// --- 13.2-INT-009: [P1] SendGdbCommand 不存在的 PID ---
+
+func TestIntegration_GdbCommand_NotFound(t *testing.T) {
+	_, _, sockPath := setupIntegrationServer(t)
+
+	client, err := Dial(sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	resp, err := client.SendGdbCommand(99999, "break", []string{"reasoning"})
+	if err == nil && resp != nil && resp.OK {
+		t.Error("expected error or OK=false for non-existent PID")
+	}
+	// Either err is non-nil (IPC error) or resp.OK is false — both are acceptable
+}

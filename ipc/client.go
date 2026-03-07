@@ -404,6 +404,26 @@ func (c *Client) SendDetach(pid types.PID) error {
 	return err
 }
 
+// SendGdbCommand sends a gdb command to a process via a separate connection.
+// This allows sending commands (break, delete, continue, info) while the
+// gdb attach event stream remains active on the primary connection.
+func (c *Client) SendGdbCommand(pid types.PID, command string, args []string) (*GdbCommandResponse, error) {
+	cmdConn, err := DialTimeout(c.socketPath, 3*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("ipc: gdb_command dial: %w", err)
+	}
+	defer cmdConn.Close()
+	resp, err := cmdConn.call(MethodGdbCommand, GdbCommandRequest{PID: pid, Command: command, Args: args})
+	if err != nil {
+		return nil, err
+	}
+	var gcr GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &gcr); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal gdb_command response: %w", err)
+	}
+	return &gcr, nil
+}
+
 // call sends a request and reads a single response.
 func (c *Client) call(method Method, payload any) (*Response, error) {
 	if err := c.sendRequest(method, payload); err != nil {

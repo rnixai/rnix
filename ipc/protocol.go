@@ -26,6 +26,7 @@ const (
 	MethodExecScript    Method = "exec_script"
 	MethodAttachGdb     Method = "attach_gdb"
 	MethodDetachGdb     Method = "detach_gdb"
+	MethodGdbCommand    Method = "gdb_command"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -183,6 +184,20 @@ func (r AttachGdbResponse) MarshalJSON() ([]byte, error) {
 // DetachGdbRequest is sent by the client to explicitly detach from a gdb session.
 type DetachGdbRequest struct {
 	PID types.PID `json:"pid"`
+}
+
+// GdbCommandRequest sends a gdb command to a process via the daemon.
+type GdbCommandRequest struct {
+	PID     types.PID `json:"pid"`
+	Command string    `json:"command"`
+	Args    []string  `json:"args,omitempty"`
+}
+
+// GdbCommandResponse carries the result of a gdb command.
+type GdbCommandResponse struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message,omitempty"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // GdbEvent carries a single event on a gdb streaming connection.

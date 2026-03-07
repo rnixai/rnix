@@ -405,3 +405,226 @@ func TestServer_AttachGdb_InvalidPayload(t *testing.T) {
 		t.Log("server accepted request but PID=0 should not be found")
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.2: 断点系统 (Server Handler)
+//
+// Tests reference MethodGdbCommand, GdbCommandRequest,
+// GdbCommandResponse, handleGdbCommand
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 13.2-SRV-001: [P0] Server handles gdb_command for non-existent PID ---
+
+func TestServer_GdbCommand_NotFound(t *testing.T) {
+	_, sockPath := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     99999,
+		Command: "break",
+		Args:    []string{"syscall", "Read"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if resp.OK {
+		t.Error("expected OK=false for non-existent PID")
+	}
+	if resp.Error == nil {
+		t.Fatal("expected error payload")
+	}
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("code = %q, want NOT_FOUND", resp.Error.Code)
+	}
+}
+
+// --- 13.2-SRV-002: [P0] Server handles gdb_command "break syscall" ---
+
+func TestServer_GdbCommand_BreakSyscall(t *testing.T) {
+	srv, sockPath := setupTestServer(t)
+
+	// Create a running process
+	proc := kernel.NewProcess(0, "test-bp", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "break",
+		Args:    []string{"syscall", "Read"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !cmdResp.OK {
+		t.Errorf("command OK = false, message: %s", cmdResp.Message)
+	}
+}
+
+// --- 13.2-SRV-003: [P0] Server handles gdb_command "continue" ---
+
+func TestServer_GdbCommand_Continue(t *testing.T) {
+	srv, sockPath := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-continue", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "continue",
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+}
+
+// --- 13.2-SRV-004: [P1] Server handles gdb_command "info" ---
+
+func TestServer_GdbCommand_Info(t *testing.T) {
+	srv, sockPath := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-info", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "info",
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+}
+
+// --- 13.2-SRV-005: [P1] Server handles gdb_command "delete" ---
+
+func TestServer_GdbCommand_Delete(t *testing.T) {
+	srv, sockPath := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-delete", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "delete",
+		Args:    []string{"1"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Should respond without crashing (may be OK=false if bp not found)
+	_ = resp
+}
+
+// --- 13.2-SRV-006: [P1] Server handles gdb_command invalid payload ---
+
+func TestServer_GdbCommand_InvalidPayload(t *testing.T) {
+	_, sockPath := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	rawPayload := json.RawMessage(`{"bad": "payload"}`)
+	req := Request{Method: MethodGdbCommand, Payload: rawPayload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Should not crash — graceful handling
+	if resp.OK {
+		t.Log("server accepted invalid payload (PID=0 not found)")
+	}
+}

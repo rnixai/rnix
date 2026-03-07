@@ -882,3 +882,215 @@ func TestAttachGdbResponse_FullMetadata(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.2: 断点系统 (IPC 协议扩展)
+//
+// Tests reference MethodGdbCommand, GdbCommandRequest,
+// GdbCommandResponse, StreamGdbPrompt
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 13.2-IPC-001: [P0] MethodGdbCommand 常量存在且唯一 ---
+
+func TestMethodGdbCommand_Exists(t *testing.T) {
+	if MethodGdbCommand == "" {
+		t.Error("MethodGdbCommand should not be empty")
+	}
+	if MethodGdbCommand == MethodAttachGdb {
+		t.Error("MethodGdbCommand should differ from MethodAttachGdb")
+	}
+	if MethodGdbCommand == MethodDetachGdb {
+		t.Error("MethodGdbCommand should differ from MethodDetachGdb")
+	}
+	if MethodGdbCommand == MethodSpawn {
+		t.Error("MethodGdbCommand should differ from MethodSpawn")
+	}
+}
+
+// --- 13.2-IPC-002: [P0] GdbCommandRequest 序列化 roundtrip ---
+
+func TestGdbCommandRequest_MarshalRoundTrip(t *testing.T) {
+	req := GdbCommandRequest{
+		PID:     42,
+		Command: "break",
+		Args:    []string{"syscall", "Read"},
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded GdbCommandRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.PID != 42 {
+		t.Errorf("pid = %d, want 42", decoded.PID)
+	}
+	if decoded.Command != "break" {
+		t.Errorf("command = %q, want %q", decoded.Command, "break")
+	}
+	if len(decoded.Args) != 2 || decoded.Args[0] != "syscall" || decoded.Args[1] != "Read" {
+		t.Errorf("args = %v, want [syscall Read]", decoded.Args)
+	}
+}
+
+// --- 13.2-IPC-003: [P0] GdbCommandResponse 序列化 roundtrip ---
+
+func TestGdbCommandResponse_MarshalRoundTrip(t *testing.T) {
+	resp := GdbCommandResponse{
+		OK:      true,
+		Message: "Breakpoint 1 set on syscall Read",
+		Data:    map[string]any{"bp_id": float64(1)},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded GdbCommandResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !decoded.OK {
+		t.Error("OK should be true")
+	}
+	if decoded.Message != "Breakpoint 1 set on syscall Read" {
+		t.Errorf("message = %q", decoded.Message)
+	}
+	if decoded.Data == nil {
+		t.Fatal("data should not be nil")
+	}
+	dataMap, ok := decoded.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("data should be map[string]any, got %T", decoded.Data)
+	}
+	if dataMap["bp_id"] != float64(1) {
+		t.Errorf("bp_id = %v, want 1", dataMap["bp_id"])
+	}
+}
+
+// --- 13.2-IPC-004: [P1] GdbCommandResponse error case ---
+
+func TestGdbCommandResponse_ErrorCase(t *testing.T) {
+	resp := GdbCommandResponse{
+		OK:      false,
+		Message: "unknown command: foo",
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded GdbCommandResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.OK {
+		t.Error("OK should be false")
+	}
+	if decoded.Message != "unknown command: foo" {
+		t.Errorf("message = %q", decoded.Message)
+	}
+}
+
+// --- 13.2-IPC-005: [P0] GdbCommandRequest IPC envelope ---
+
+func TestGdbCommandRequest_IPCEnvelope(t *testing.T) {
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     7,
+		Command: "continue",
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded Request
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Method != MethodGdbCommand {
+		t.Errorf("method = %q, want %q", decoded.Method, MethodGdbCommand)
+	}
+
+	var gc GdbCommandRequest
+	if err := json.Unmarshal(decoded.Payload, &gc); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if gc.PID != 7 {
+		t.Errorf("pid = %d, want 7", gc.PID)
+	}
+	if gc.Command != "continue" {
+		t.Errorf("command = %q, want %q", gc.Command, "continue")
+	}
+}
+
+// --- 13.2-IPC-006: [P0] StreamGdbPrompt 事件类型存在 ---
+
+func TestStreamGdbPrompt_Exists(t *testing.T) {
+	if StreamGdbPrompt == "" {
+		t.Error("StreamGdbPrompt should not be empty")
+	}
+	// Must be distinct from other stream types
+	otherTypes := []StreamEventType{
+		StreamProgress, StreamComplete, StreamError,
+		StreamSyscallEvent, StreamLogEntry, StreamEOF,
+		StreamGdbSyscall, StreamGdbLog, StreamGdbStateChange,
+	}
+	for _, ot := range otherTypes {
+		if StreamGdbPrompt == ot {
+			t.Errorf("StreamGdbPrompt %q conflicts with existing type %q", StreamGdbPrompt, ot)
+		}
+	}
+}
+
+// --- 13.2-IPC-007: [P1] GdbCommandRequest Args 为空时 omitempty ---
+
+func TestGdbCommandRequest_ArgsOmitEmpty(t *testing.T) {
+	req := GdbCommandRequest{
+		PID:     1,
+		Command: "continue",
+	}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if _, exists := raw["args"]; exists {
+		t.Error("args should be omitted when nil/empty")
+	}
+}
+
+// --- 13.2-IPC-008: [P1] GdbCommandResponse Data 为空时 omitempty ---
+
+func TestGdbCommandResponse_DataOmitEmpty(t *testing.T) {
+	resp := GdbCommandResponse{
+		OK:      true,
+		Message: "resumed",
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if _, exists := raw["data"]; exists {
+		t.Error("data should be omitted when nil")
+	}
+}

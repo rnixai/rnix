@@ -10,6 +10,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -241,6 +243,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			return // streaming method — handler manages connection lifetime
 		case MethodDetachGdb:
 			s.handleDetachGdb(conn, req.Payload)
+		case MethodGdbCommand:
+			s.handleGdbCommand(conn, req.Payload)
 		case MethodSpawnPipeline:
 			s.handleSpawnPipeline(conn, req.Payload)
 			return // streaming method
@@ -575,7 +579,14 @@ func (s *Server) handleAttachGdb(conn net.Conn, rawPayload json.RawMessage) {
 			}
 			sew := SyscallEventToWire(event)
 			evPayload, _ := json.Marshal(sew)
-			if err := enc.Encode(GdbEvent{Type: StreamGdbSyscall, Payload: evPayload}); err != nil {
+			// Route GdbPause events as gdb_prompt for breakpoint notifications
+			evType := StreamGdbSyscall
+			if event.Syscall == "GdbPause" {
+				promptPayload, _ := json.Marshal(event.Args)
+				evType = StreamGdbPrompt
+				evPayload = promptPayload
+			}
+			if err := enc.Encode(GdbEvent{Type: evType, Payload: evPayload}); err != nil {
 				return
 			}
 		case entry, ok := <-logCh:
@@ -630,6 +641,202 @@ func (s *Server) handleDetachGdb(conn net.Conn, rawPayload json.RawMessage) {
 	s.gdbMu.Unlock()
 
 	writeResponse(conn, Response{OK: true})
+}
+
+// handleGdbCommand dispatches gdb commands (break, delete, continue, info) to the kernel.
+func (s *Server) handleGdbCommand(conn net.Conn, rawPayload json.RawMessage) {
+	var req GdbCommandRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid gdb_command request"}})
+		return
+	}
+
+	proc, ok := s.kern.GetProcess(req.PID)
+	if !ok {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		return
+	}
+
+	var gcr GdbCommandResponse
+	switch req.Command {
+	case "break":
+		gcr = s.handleGdbBreak(proc, req.Args)
+	case "delete":
+		gcr = s.handleGdbDelete(proc, req.Args)
+	case "continue":
+		proc.GdbResume()
+		gcr = GdbCommandResponse{OK: true, Message: "resumed"}
+	case "info":
+		gcr = s.handleGdbInfo(proc, req.Args)
+	default:
+		gcr = GdbCommandResponse{OK: false, Message: fmt.Sprintf("unknown gdb command: %s", req.Command)}
+	}
+
+	payload, _ := json.Marshal(gcr)
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleGdbBreak creates a breakpoint from parsed args.
+func (s *Server) handleGdbBreak(proc *kernel.Process, args []string) GdbCommandResponse {
+	if len(args) == 0 {
+		return GdbCommandResponse{OK: false, Message: "usage: break <type> [args...]"}
+	}
+
+	bp, err := parseBreakpointArgs(args)
+	if err != nil {
+		return GdbCommandResponse{OK: false, Message: err.Error()}
+	}
+
+	id := proc.AddBreakpoint(bp)
+	return GdbCommandResponse{OK: true, Message: fmt.Sprintf("breakpoint %d set", id), Data: map[string]any{"bp_id": id}}
+}
+
+// handleGdbDelete removes a breakpoint by ID.
+func (s *Server) handleGdbDelete(proc *kernel.Process, args []string) GdbCommandResponse {
+	if len(args) == 0 {
+		return GdbCommandResponse{OK: false, Message: "usage: delete <bp_id>"}
+	}
+	id, err := strconv.Atoi(args[0])
+	if err != nil {
+		return GdbCommandResponse{OK: false, Message: fmt.Sprintf("invalid breakpoint ID: %s", args[0])}
+	}
+	if proc.RemoveBreakpoint(id) {
+		return GdbCommandResponse{OK: true, Message: fmt.Sprintf("breakpoint %d deleted", id)}
+	}
+	return GdbCommandResponse{OK: false, Message: fmt.Sprintf("breakpoint %d not found", id)}
+}
+
+// handleGdbInfo returns breakpoint information.
+func (s *Server) handleGdbInfo(proc *kernel.Process, args []string) GdbCommandResponse {
+	// Default to "breakpoints" if no args or explicit "breakpoints"/"bp"
+	if len(args) > 0 && args[0] != "breakpoints" && args[0] != "bp" {
+		return GdbCommandResponse{OK: false, Message: "usage: info breakpoints|bp"}
+	}
+	bps := proc.ListBreakpoints()
+	bpList := make([]map[string]any, len(bps))
+	for i, bp := range bps {
+		bpList[i] = map[string]any{
+			"id":        bp.ID,
+			"type":      bpTypeString(bp.Type),
+			"enabled":   bp.Enabled,
+			"hit_count": bp.HitCount,
+			"condition": bpConditionString(bp),
+		}
+	}
+	return GdbCommandResponse{OK: true, Data: bpList}
+}
+
+// parseBreakpointArgs parses "break" command arguments into a Breakpoint.
+func parseBreakpointArgs(args []string) (*kernel.Breakpoint, error) {
+	if len(args) == 0 {
+		return nil, fmt.Errorf("missing breakpoint type")
+	}
+	bpType := args[0]
+	switch bpType {
+	case "syscall":
+		if len(args) < 2 {
+			return nil, fmt.Errorf("usage: break syscall <name>")
+		}
+		return &kernel.Breakpoint{
+			Type:      kernel.BPSyscall,
+			Enabled:   true,
+			Condition: &kernel.SyscallCondition{Name: args[1]},
+		}, nil
+	case "reasoning":
+		return &kernel.Breakpoint{
+			Type:      kernel.BPReasoning,
+			Enabled:   true,
+			Condition: &kernel.ReasoningCondition{},
+		}, nil
+	case "quality":
+		return parseQualityBreakpoint(args[1:])
+	case "budget":
+		if len(args) < 2 {
+			return nil, fmt.Errorf("usage: break budget <tokens>")
+		}
+		threshold, err := strconv.Atoi(args[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid budget threshold: %s", args[1])
+		}
+		return &kernel.Breakpoint{
+			Type:      kernel.BPBudget,
+			Enabled:   true,
+			Condition: &kernel.BudgetCondition{Threshold: threshold},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown breakpoint type: %s (valid: syscall, reasoning, quality, budget)", bpType)
+	}
+}
+
+// parseQualityBreakpoint parses quality breakpoint flags.
+func parseQualityBreakpoint(args []string) (*kernel.Breakpoint, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("usage: break quality --pattern <pattern> | --eval <criteria>")
+	}
+	switch args[0] {
+	case "--pattern":
+		re, err := regexp.Compile(args[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid pattern: %v", err)
+		}
+		return &kernel.Breakpoint{
+			Type:    kernel.BPQuality,
+			Enabled: true,
+			Condition: &kernel.QualityCondition{
+				Mode:    kernel.QualityModePattern,
+				Pattern: re,
+			},
+		}, nil
+	case "--eval":
+		return &kernel.Breakpoint{
+			Type:    kernel.BPQuality,
+			Enabled: true,
+			Condition: &kernel.QualityCondition{
+				Mode:     kernel.QualityModeEval,
+				EvalExpr: args[1],
+			},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown quality flag: %s (valid: --pattern, --eval)", args[0])
+	}
+}
+
+// bpTypeString returns a human-readable name for a breakpoint type.
+func bpTypeString(t kernel.BreakpointType) string {
+	switch t {
+	case kernel.BPSyscall:
+		return "syscall"
+	case kernel.BPReasoning:
+		return "reasoning"
+	case kernel.BPQuality:
+		return "quality"
+	case kernel.BPBudget:
+		return "budget"
+	default:
+		return fmt.Sprintf("unknown(%d)", t)
+	}
+}
+
+// bpConditionString returns a human-readable description of a breakpoint's condition.
+func bpConditionString(bp *kernel.Breakpoint) string {
+	if bp.Condition == nil {
+		return ""
+	}
+	switch c := bp.Condition.(type) {
+	case *kernel.SyscallCondition:
+		return c.Name
+	case *kernel.ReasoningCondition:
+		return "every step"
+	case *kernel.QualityCondition:
+		if c.Mode == kernel.QualityModePattern && c.Pattern != nil {
+			return fmt.Sprintf("pattern: %s", c.Pattern.String())
+		}
+		return fmt.Sprintf("eval: %s", c.EvalExpr)
+	case *kernel.BudgetCondition:
+		return fmt.Sprintf(">= %d tokens", c.Threshold)
+	default:
+		return "custom"
+	}
 }
 
 // callbackMux routes KernelCallbacks events to per-PID channels for streaming to clients.

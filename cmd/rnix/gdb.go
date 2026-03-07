@@ -120,6 +120,23 @@ func runGdb(cmd *cobra.Command, args []string) error {
 			} else {
 				fmt.Fprintf(w, "[gdb] process state changed\n")
 			}
+		case ipc.StreamGdbPrompt:
+			if flagJSON {
+				fmt.Fprintln(w, string(ev.Payload))
+			} else {
+				var prompt map[string]any
+				if err := json.Unmarshal(ev.Payload, &prompt); err == nil {
+					fmt.Fprintf(w, "\n[gdb] breakpoint hit")
+					if reason, ok := prompt["reason"].(string); ok {
+						fmt.Fprintf(w, ": %s", reason)
+					}
+					fmt.Fprintln(w)
+					if bpID, ok := prompt["bp_id"]; ok {
+						fmt.Fprintf(w, "[gdb] breakpoint ID: %v\n", bpID)
+					}
+				}
+				fmt.Fprint(w, "gdb> ")
+			}
 		}
 	})
 	if err != nil {
@@ -162,24 +179,36 @@ func runGdb(cmd *cobra.Command, args []string) error {
 		}
 
 		line := strings.TrimSpace(scanner.Text())
-		switch strings.ToLower(line) {
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			fmt.Fprint(w, "gdb> ")
+			continue
+		}
+
+		switch parts[0] {
 		case "detach", "quit", "q":
 			_ = client.SendDetach(pid)
 			goto done
 		case "help", "h":
-			fmt.Fprintln(w, "  detach / quit / q  - Disconnect from debug session")
-			fmt.Fprintln(w, "  info / i           - Show process information")
-			fmt.Fprintln(w, "  help / h           - Show this help")
+			printGdbHelp(w)
 		case "info", "i":
-			fmt.Fprintf(w, "  PID:    %d\n", info.PID)
-			fmt.Fprintf(w, "  State:  %s\n", info.State)
-			fmt.Fprintf(w, "  Intent: %s\n", info.Intent)
-			if len(info.Skills) > 0 {
-				fmt.Fprintf(w, "  Skills: %s\n", strings.Join(info.Skills, ", "))
+			if len(parts) >= 2 && (parts[1] == "breakpoints" || parts[1] == "bp") {
+				gdbInfoBreakpoints(w, client, pid)
+			} else {
+				fmt.Fprintf(w, "  PID:    %d\n", info.PID)
+				fmt.Fprintf(w, "  State:  %s\n", info.State)
+				fmt.Fprintf(w, "  Intent: %s\n", info.Intent)
+				if len(info.Skills) > 0 {
+					fmt.Fprintf(w, "  Skills: %s\n", strings.Join(info.Skills, ", "))
+				}
+				fmt.Fprintf(w, "  Tokens: %d\n", info.TokensUsed)
 			}
-			fmt.Fprintf(w, "  Tokens: %d\n", info.TokensUsed)
-		case "":
-			// ignore empty lines
+		case "break", "b":
+			gdbBreak(w, client, pid, parts[1:])
+		case "delete", "d":
+			gdbDelete(w, client, pid, parts[1:])
+		case "continue", "c":
+			gdbContinue(w, client, pid)
 		default:
 			fmt.Fprintf(w, "[gdb] unknown command: %s (type 'help' for commands)\n", line)
 		}
@@ -192,4 +221,161 @@ done:
 	}
 
 	return nil
+}
+
+// printGdbHelp prints the gdb command help.
+func printGdbHelp(w interface{ Write([]byte) (int, error) }) {
+	fmt.Fprintln(w, "  break syscall <name>          - Break on syscall (e.g., Read, Write, Open)")
+	fmt.Fprintln(w, "  break reasoning               - Break before each reasoning step")
+	fmt.Fprintln(w, "  break quality --pattern <pat>  - Break when LLM output matches pattern")
+	fmt.Fprintln(w, "  break quality --eval <expr>    - Break when LLM output lacks expression")
+	fmt.Fprintln(w, "  break budget <tokens>          - Break when token usage reaches threshold")
+	fmt.Fprintln(w, "  delete <bp_id>                 - Delete breakpoint by ID")
+	fmt.Fprintln(w, "  info breakpoints / info bp     - List all breakpoints")
+	fmt.Fprintln(w, "  continue / c                   - Resume execution after breakpoint hit")
+	fmt.Fprintln(w, "  info / i                       - Show process information")
+	fmt.Fprintln(w, "  detach / quit / q              - Disconnect from debug session")
+	fmt.Fprintln(w, "  help / h                       - Show this help")
+}
+
+// gdbBreak sends a break command via IPC.
+func gdbBreak(w interface{ Write([]byte) (int, error) }, client *ipc.Client, pid types.PID, args []string) {
+	resp, err := client.SendGdbCommand(pid, "break", args)
+	if err != nil {
+		fmt.Fprintf(w, "[gdb] error: %v\n", err)
+		return
+	}
+	if resp.OK {
+		fmt.Fprintf(w, "[gdb] %s\n", resp.Message)
+	} else {
+		fmt.Fprintf(w, "[gdb] failed: %s\n", resp.Message)
+	}
+}
+
+// gdbDelete sends a delete command via IPC.
+func gdbDelete(w interface{ Write([]byte) (int, error) }, client *ipc.Client, pid types.PID, args []string) {
+	resp, err := client.SendGdbCommand(pid, "delete", args)
+	if err != nil {
+		fmt.Fprintf(w, "[gdb] error: %v\n", err)
+		return
+	}
+	if resp.OK {
+		fmt.Fprintf(w, "[gdb] %s\n", resp.Message)
+	} else {
+		fmt.Fprintf(w, "[gdb] failed: %s\n", resp.Message)
+	}
+}
+
+// gdbContinue sends a continue command via IPC.
+func gdbContinue(w interface{ Write([]byte) (int, error) }, client *ipc.Client, pid types.PID) {
+	resp, err := client.SendGdbCommand(pid, "continue", nil)
+	if err != nil {
+		fmt.Fprintf(w, "[gdb] error: %v\n", err)
+		return
+	}
+	if resp.OK {
+		fmt.Fprintf(w, "[gdb] %s\n", resp.Message)
+	} else {
+		fmt.Fprintf(w, "[gdb] failed: %s\n", resp.Message)
+	}
+}
+
+// gdbInfoBreakpoints sends an info breakpoints command via IPC.
+func gdbInfoBreakpoints(w interface{ Write([]byte) (int, error) }, client *ipc.Client, pid types.PID) {
+	resp, err := client.SendGdbCommand(pid, "info", []string{"breakpoints"})
+	if err != nil {
+		fmt.Fprintf(w, "[gdb] error: %v\n", err)
+		return
+	}
+	if !resp.OK {
+		fmt.Fprintf(w, "[gdb] failed: %s\n", resp.Message)
+		return
+	}
+	bpList, ok := resp.Data.([]any)
+	if !ok || len(bpList) == 0 {
+		fmt.Fprintln(w, "[gdb] no breakpoints set")
+		return
+	}
+	fmt.Fprintf(w, "  %-4s %-12s %-8s %-6s %s\n", "ID", "Type", "Enabled", "Hits", "Condition")
+	for _, item := range bpList {
+		bp, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		id := fmt.Sprintf("%v", bp["id"])
+		bpType := fmt.Sprintf("%v", bp["type"])
+		enabled := "yes"
+		if e, ok := bp["enabled"].(bool); ok && !e {
+			enabled = "no"
+		}
+		hits := fmt.Sprintf("%v", bp["hit_count"])
+		cond := fmt.Sprintf("%v", bp["condition"])
+		fmt.Fprintf(w, "  %-4s %-12s %-8s %-6s %s\n", id, bpType, enabled, hits, cond)
+	}
+}
+
+// BreakCommandResult captures the parsed components of a "break" command.
+type BreakCommandResult struct {
+	SubType      string // "syscall", "reasoning", "quality", "budget"
+	SyscallName  string // for "break syscall <name>"
+	QualityMode  string // "pattern" or "eval"
+	Pattern      string // for "break quality --pattern <pat>"
+	EvalExpr     string // for "break quality --eval <expr>"
+	BudgetTokens int    // for "break budget <tokens>"
+}
+
+// parseBreakCommand parses a "break" command's arguments into a BreakCommandResult.
+func parseBreakCommand(args []string) (*BreakCommandResult, error) {
+	if len(args) == 0 {
+		return nil, fmt.Errorf("usage: break <syscall|reasoning|quality|budget> [args...]")
+	}
+	result := &BreakCommandResult{SubType: args[0]}
+
+	switch args[0] {
+	case "syscall":
+		if len(args) < 2 {
+			return nil, fmt.Errorf("usage: break syscall <name>")
+		}
+		result.SyscallName = args[1]
+	case "reasoning":
+		// no extra args needed
+	case "quality":
+		if len(args) < 3 {
+			return nil, fmt.Errorf("usage: break quality --pattern <pattern> | --eval <criteria>")
+		}
+		switch args[1] {
+		case "--pattern":
+			result.QualityMode = "pattern"
+			result.Pattern = args[2]
+		case "--eval":
+			result.QualityMode = "eval"
+			result.EvalExpr = args[2]
+		default:
+			return nil, fmt.Errorf("unknown quality flag: %s (valid: --pattern, --eval)", args[1])
+		}
+	case "budget":
+		if len(args) < 2 {
+			return nil, fmt.Errorf("usage: break budget <tokens>")
+		}
+		tokens, err := strconv.Atoi(args[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid budget value: %s", args[1])
+		}
+		result.BudgetTokens = tokens
+	default:
+		return nil, fmt.Errorf("unknown break type: %s (valid: syscall, reasoning, quality, budget)", args[0])
+	}
+	return result, nil
+}
+
+// parseDeleteCommand parses a "delete" command's arguments to extract the breakpoint ID.
+func parseDeleteCommand(args []string) (int, error) {
+	if len(args) == 0 {
+		return 0, fmt.Errorf("usage: delete <bp_id>")
+	}
+	id, err := strconv.Atoi(args[0])
+	if err != nil {
+		return 0, fmt.Errorf("invalid breakpoint ID: %s", args[0])
+	}
+	return id, nil
 }

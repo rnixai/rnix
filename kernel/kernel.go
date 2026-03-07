@@ -336,6 +336,18 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 // and delegates to debug.EmitEvent for the actual non-blocking write.
 // Holds proc.mu only during channel access to prevent races with Wait's close(DebugChan).
 func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]any, result any, err error, duration time.Duration) {
+	// Check gdb syscall breakpoint at entry (Story 13.2)
+	// Skip checking for internal gdb events to avoid infinite recursion.
+	if syscall != "GdbPause" {
+		if hit := proc.CheckBreakpoint(BreakpointContext{
+			BPType:      BPSyscall,
+			SyscallName: syscall,
+			SyscallArgs: args,
+		}); hit != nil {
+			proc.GdbPause(fmt.Sprintf("syscall breakpoint hit: %s", syscall), hit)
+		}
+	}
+
 	event := debug.NewEvent(proc.PID, proc.CreatedAt, syscall, args)
 	debug.CompleteEvent(&event, result, err, duration)
 
@@ -458,6 +470,21 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		default:
 		}
 
+		// Check gdb reasoning breakpoint (Story 13.2)
+		if hit := proc.CheckBreakpoint(BreakpointContext{
+			BPType:     BPReasoning,
+			StepNumber: step,
+		}); hit != nil {
+			proc.GdbPause(fmt.Sprintf("reasoning breakpoint hit at step %d", step), hit)
+			// After resume, re-check cancellation
+			select {
+			case <-proc.ctx.Done():
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "context cancelled while gdb-paused"})
+				return
+			default:
+			}
+		}
+
 		// Build prompt from context
 		buildPromptStart := time.Now()
 		promptResult, err := k.ctxMgr.BuildPrompt(proc.CtxID)
@@ -564,8 +591,38 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			return
 		}
 
+		// Check gdb budget breakpoint (Story 13.2)
+		if hit := proc.CheckBreakpoint(BreakpointContext{
+			BPType:     BPBudget,
+			TokensUsed: tokens,
+			StepNumber: step,
+		}); hit != nil {
+			proc.GdbPause(fmt.Sprintf("budget breakpoint hit: %d tokens used", tokens), hit)
+			select {
+			case <-proc.ctx.Done():
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "context cancelled while gdb-paused"})
+				return
+			default:
+			}
+		}
+
 		// Parse action
 		action := parseAction(&resp)
+
+		// Check gdb quality breakpoint (Story 13.2)
+		if hit := proc.CheckBreakpoint(BreakpointContext{
+			BPType:      BPQuality,
+			LLMResponse: resp.Content,
+			StepNumber:  step,
+		}); hit != nil {
+			proc.GdbPause(fmt.Sprintf("quality breakpoint hit at step %d", step), hit)
+			select {
+			case <-proc.ctx.Done():
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "context cancelled while gdb-paused"})
+				return
+			default:
+			}
+		}
 
 		// Emit [think] log entry with the LLM's full reasoning text
 		k.emitLog(proc, step, types.LogThink, resp.Content, "")
