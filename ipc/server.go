@@ -530,22 +530,8 @@ func (s *Server) handleAttachGdb(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	// Build initial response with process metadata
-	skills := info.Skills
-	if skills == nil {
-		skills = []string{}
-	}
-	gdbResp := AttachGdbResponse{
-		PID:        info.PID,
-		State:      info.State,
-		Intent:     info.Intent,
-		Skills:     skills,
-		TokensUsed: info.TokensUsed,
-	}
-	payload, _ := json.Marshal(gdbResp)
-	writeResponse(conn, Response{OK: true, Payload: payload})
-
 	// Register per-PID detach channel (single-attach enforcement)
+	// Must happen BEFORE sending OK response to prevent race conditions
 	detachCh := make(chan struct{})
 	s.gdbMu.Lock()
 	if s.gdbDetachCh == nil {
@@ -563,6 +549,21 @@ func (s *Server) handleAttachGdb(conn net.Conn, rawPayload json.RawMessage) {
 		delete(s.gdbDetachCh, req.PID)
 		s.gdbMu.Unlock()
 	}()
+
+	// Build initial response with process metadata
+	skills := info.Skills
+	if skills == nil {
+		skills = []string{}
+	}
+	gdbResp := AttachGdbResponse{
+		PID:        info.PID,
+		State:      info.State,
+		Intent:     info.Intent,
+		Skills:     skills,
+		TokensUsed: info.TokensUsed,
+	}
+	payload, _ := json.Marshal(gdbResp)
+	writeResponse(conn, Response{OK: true, Payload: payload})
 
 	enc := json.NewEncoder(conn)
 

@@ -364,36 +364,36 @@ func formatContextInfo(w interface{ Write([]byte) (int, error) }, data map[strin
 	ctxID := data["ctx_id"]
 	fmt.Fprintf(w, "[gdb] Context for PID %v (CtxID: %v):\n", pid, ctxID)
 
-	promptChars, _ := data["system_prompt_chars"]
-	promptTokens, _ := data["system_prompt_tokens"]
+	promptChars := data["system_prompt_chars"]
+	promptTokens := data["system_prompt_tokens"]
 	fmt.Fprintf(w, "  System Prompt: %v chars (~%v tokens)\n", promptChars, promptTokens)
 
-	totalMsgs, _ := data["total_messages"]
+	totalMsgs := data["total_messages"]
 	fmt.Fprintf(w, "  Messages: %v total\n", totalMsgs)
 
-	systemCount, _ := data["system_count"]
-	systemTokens, _ := data["system_tokens"]
+	systemCount := data["system_count"]
+	systemTokens := data["system_tokens"]
 	fmt.Fprintf(w, "    system:    %v  (~%v tokens)\n", systemCount, systemTokens)
 
-	userCount, _ := data["user_count"]
-	userTokens, _ := data["user_tokens"]
+	userCount := data["user_count"]
+	userTokens := data["user_tokens"]
 	fmt.Fprintf(w, "    user:      %v  (~%v tokens)\n", userCount, userTokens)
 
-	assistantCount, _ := data["assistant_count"]
-	assistantTokens, _ := data["assistant_tokens"]
+	assistantCount := data["assistant_count"]
+	assistantTokens := data["assistant_tokens"]
 	fmt.Fprintf(w, "    assistant: %v  (~%v tokens)\n", assistantCount, assistantTokens)
 
-	toolCount, _ := data["tool_count"]
-	toolTokens, _ := data["tool_tokens"]
+	toolCount := data["tool_count"]
+	toolTokens := data["tool_tokens"]
 	if toolCount != nil && toolCount != float64(0) {
 		fmt.Fprintf(w, "    tool:      %v  (~%v tokens)\n", toolCount, toolTokens)
 	}
 
-	totalTokens, _ := data["total_tokens"]
+	totalTokens := data["total_tokens"]
 	fmt.Fprintf(w, "  Total estimated tokens: ~%v\n", totalTokens)
 
 	if lastRole, ok := data["last_message_role"]; ok {
-		lastPreview, _ := data["last_message_preview"]
+		lastPreview := data["last_message_preview"]
 		fmt.Fprintf(w, "  Last Message: [%v] %v\n", lastRole, lastPreview)
 	}
 }
