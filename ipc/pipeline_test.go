@@ -78,7 +78,7 @@ func TestSpawnPipelineResponse_WireFormat(t *testing.T) {
 // --- 11.1-INT-002: [P1] IPC server rejects empty pipeline ---
 
 func TestServer_SpawnPipeline_EmptyCommands(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	resp := sendRequest(t, conn, MethodSpawnPipeline, SpawnPipelineRequest{Commands: nil})
@@ -91,7 +91,7 @@ func TestServer_SpawnPipeline_EmptyCommands(t *testing.T) {
 }
 
 func TestServer_SpawnPipeline_InvalidPayload(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	resp := sendRequest(t, conn, MethodSpawnPipeline, "not-a-valid-payload")

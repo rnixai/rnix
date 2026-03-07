@@ -350,3 +350,66 @@ func (m *Manager) GetContextSummary(ctxID types.CtxID) (string, error) {
 
 	return sb.String(), nil
 }
+
+// GetContextInfo returns structured context information for gdb inspect.
+// Returns a map with system_prompt_chars, message counts by role,
+// token estimates (chars/4), and last message preview.
+func (m *Manager) GetContextInfo(ctxID types.CtxID) (map[string]any, error) {
+	ctx, err := m.getContext("GetContextInfo", ctxID)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+
+	var systemCount, userCount, assistantCount, toolCount int
+	var systemChars, userChars, assistantChars, toolChars int
+	for _, msg := range ctx.Messages {
+		chars := len(msg.Content)
+		switch msg.Role {
+		case RoleSystem:
+			systemCount++
+			systemChars += chars
+		case RoleUser:
+			userCount++
+			userChars += chars
+		case RoleAssistant:
+			assistantCount++
+			assistantChars += chars
+		case RoleTool:
+			toolCount++
+			toolChars += chars
+		}
+	}
+
+	promptChars := len(ctx.SystemPrompt)
+	totalTokens := (promptChars + systemChars + userChars + assistantChars + toolChars) / 4
+
+	info := map[string]any{
+		"system_prompt_chars":  promptChars,
+		"system_prompt_tokens": promptChars / 4,
+		"total_messages":       len(ctx.Messages),
+		"system_count":         systemCount,
+		"user_count":           userCount,
+		"assistant_count":      assistantCount,
+		"tool_count":           toolCount,
+		"system_tokens":        systemChars / 4,
+		"user_tokens":          userChars / 4,
+		"assistant_tokens":     assistantChars / 4,
+		"tool_tokens":          toolChars / 4,
+		"total_tokens":         totalTokens,
+	}
+
+	if len(ctx.Messages) > 0 {
+		last := ctx.Messages[len(ctx.Messages)-1]
+		preview := last.Content
+		if len(preview) > 80 {
+			preview = preview[:80] + "..."
+		}
+		info["last_message_role"] = string(last.Role)
+		info["last_message_preview"] = preview
+	}
+
+	return info, nil
+}

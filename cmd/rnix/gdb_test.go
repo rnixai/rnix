@@ -192,3 +192,111 @@ func TestBreakCommandResult_Fields(t *testing.T) {
 		t.Errorf("SyscallName = %q, want %q", result.SyscallName, "Read")
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.3: 单步执行与状态检查 (gdb CLI 命令扩展)
+//
+// Tests reference parseStepCommand, StepCommandResult,
+// parseInspectCommand, InspectCommandResult
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 13.3-CLI-001: [P0] parseStepCommand 解析 "step syscall" ---
+
+func TestParseStepCommand_Syscall(t *testing.T) {
+	cmd, err := parseStepCommand([]string{"syscall"})
+	if err != nil {
+		t.Fatalf("parseStepCommand: %v", err)
+	}
+	if cmd.Mode != "syscall" {
+		t.Errorf("Mode = %q, want %q", cmd.Mode, "syscall")
+	}
+}
+
+// --- 13.3-CLI-002: [P0] parseStepCommand 解析 "step reasoning" ---
+
+func TestParseStepCommand_Reasoning(t *testing.T) {
+	cmd, err := parseStepCommand([]string{"reasoning"})
+	if err != nil {
+		t.Fatalf("parseStepCommand: %v", err)
+	}
+	if cmd.Mode != "reasoning" {
+		t.Errorf("Mode = %q, want %q", cmd.Mode, "reasoning")
+	}
+}
+
+// --- 13.3-CLI-003: [P0] parseStepCommand 无参数默认 "syscall" ---
+
+func TestParseStepCommand_DefaultSyscall(t *testing.T) {
+	cmd, err := parseStepCommand([]string{})
+	if err != nil {
+		t.Fatalf("parseStepCommand: %v", err)
+	}
+	if cmd.Mode != "syscall" {
+		t.Errorf("Mode = %q, want %q (default)", cmd.Mode, "syscall")
+	}
+}
+
+// --- 13.3-CLI-004: [P1] parseStepCommand 未知模式返回错误 ---
+
+func TestParseStepCommand_UnknownMode(t *testing.T) {
+	_, err := parseStepCommand([]string{"unknown"})
+	if err == nil {
+		t.Fatal("expected error for unknown step mode")
+	}
+}
+
+// --- 13.3-CLI-005: [P0] parseInspectCommand 解析 "inspect context" ---
+
+func TestParseInspectCommand_Context(t *testing.T) {
+	cmd, err := parseInspectCommand([]string{"context"})
+	if err != nil {
+		t.Fatalf("parseInspectCommand: %v", err)
+	}
+	if cmd.SubCommand != "context" {
+		t.Errorf("SubCommand = %q, want %q", cmd.SubCommand, "context")
+	}
+}
+
+// --- 13.3-CLI-006: [P1] parseInspectCommand 无参数返回错误 ---
+
+func TestParseInspectCommand_NoArgs(t *testing.T) {
+	_, err := parseInspectCommand([]string{})
+	if err == nil {
+		t.Fatal("expected error for inspect without subcommand")
+	}
+}
+
+// --- 13.3-CLI-007: [P1] parseInspectCommand "ctx" 是 "context" 别名 ---
+
+func TestParseInspectCommand_CtxAlias(t *testing.T) {
+	cmd, err := parseInspectCommand([]string{"ctx"})
+	if err != nil {
+		t.Fatalf("parseInspectCommand: %v", err)
+	}
+	if cmd.SubCommand != "context" {
+		t.Errorf("SubCommand = %q, want %q (ctx should alias to context)", cmd.SubCommand, "context")
+	}
+}
+
+// --- 13.3-CLI-008: [P0] StepCommandResult 结构体字段完整 ---
+
+func TestStepCommandResult_Fields(t *testing.T) {
+	result := StepCommandResult{
+		Mode: "syscall",
+	}
+	if result.Mode != "syscall" {
+		t.Errorf("Mode = %q, want %q", result.Mode, "syscall")
+	}
+}
+
+// --- 13.3-CLI-009: [P0] InspectCommandResult 结构体字段完整 ---
+
+func TestInspectCommandResult_Fields(t *testing.T) {
+	result := InspectCommandResult{
+		SubCommand: "context",
+	}
+	if result.SubCommand != "context" {
+		t.Errorf("SubCommand = %q, want %q", result.SubCommand, "context")
+	}
+}

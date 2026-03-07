@@ -110,6 +110,38 @@ func (c *BudgetCondition) Match(ctx BreakpointContext) bool {
 	return false
 }
 
+// --- Step mode types ---
+
+// StepMode controls single-step execution for gdb debugging.
+type StepMode int
+
+const (
+	StepNone      StepMode = 0 // no step mode active (zero value)
+	StepSyscall   StepMode = 1 // step to next syscall
+	StepReasoning StepMode = 2 // step to next reasoning iteration
+)
+
+// SetStepMode sets the single-step execution mode. Thread-safe.
+func (p *Process) SetStepMode(mode StepMode) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gdbStepMode = mode
+}
+
+// GetStepMode returns the current single-step mode. Thread-safe.
+func (p *Process) GetStepMode() StepMode {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.gdbStepMode
+}
+
+// ClearStepMode resets the step mode to StepNone. Thread-safe.
+func (p *Process) ClearStepMode() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gdbStepMode = StepNone
+}
+
 // --- Process breakpoint methods ---
 
 // bpIDCounter is the global breakpoint ID allocator (IDs are unique across all processes).
@@ -180,7 +212,8 @@ func (p *Process) CheckBreakpoint(ctx BreakpointContext) *Breakpoint {
 
 // GdbPause blocks the calling goroutine until GdbResume is called.
 // Sends a GdbPause event to DebugChan before blocking.
-func (p *Process) GdbPause(reason string, hitBP *Breakpoint) {
+// extraArgs are merged into the event args (e.g., syscall_name, step_number).
+func (p *Process) GdbPause(reason string, hitBP *Breakpoint, extraArgs ...map[string]any) {
 	p.mu.Lock()
 	ch := make(chan struct{})
 	p.gdbPauseCh = ch
@@ -192,6 +225,11 @@ func (p *Process) GdbPause(reason string, hitBP *Breakpoint) {
 	if hitBP != nil {
 		args["bp_id"] = hitBP.ID
 		args["bp_type"] = hitBP.Type
+	}
+	for _, ea := range extraArgs {
+		for k, v := range ea {
+			args[k] = v
+		}
 	}
 	event := debug.NewEvent(p.PID, p.CreatedAt, "GdbPause", args)
 	if p.DebugChan != nil {

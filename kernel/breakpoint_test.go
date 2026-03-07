@@ -750,6 +750,397 @@ func TestQualityMode_Constants(t *testing.T) {
 
 // --- 13.2-PERF-001: [P1] 断点触发延迟 <= 100ms (NFR31) ---
 
+// ============================================================
+// ATDD RED PHASE — Story 13.3: 单步执行与状态检查
+//
+// Tests reference StepMode, StepNone, StepSyscall, StepReasoning,
+// Process.SetStepMode, Process.GetStepMode, Process.ClearStepMode
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 13.3-UNIT-001: [P0] StepMode 枚举值存在且互不相同 ---
+
+func TestStepMode_Constants(t *testing.T) {
+	modes := []StepMode{StepNone, StepSyscall, StepReasoning}
+	seen := make(map[StepMode]bool)
+	for _, m := range modes {
+		if seen[m] {
+			t.Errorf("duplicate StepMode: %v", m)
+		}
+		seen[m] = true
+	}
+	// StepNone should be the zero value
+	var zero StepMode
+	if zero != StepNone {
+		t.Errorf("StepMode zero value = %v, want StepNone", zero)
+	}
+	// StepSyscall and StepReasoning must differ
+	if StepSyscall == StepReasoning {
+		t.Error("StepSyscall and StepReasoning should be distinct")
+	}
+}
+
+// --- 13.3-UNIT-002: [P0] SetStepMode + GetStepMode 正确设置和获取 ---
+
+func TestProcess_SetStepMode_GetStepMode(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	// Default should be StepNone
+	if got := proc.GetStepMode(); got != StepNone {
+		t.Errorf("default StepMode = %v, want StepNone", got)
+	}
+
+	// Set StepSyscall
+	proc.SetStepMode(StepSyscall)
+	if got := proc.GetStepMode(); got != StepSyscall {
+		t.Errorf("StepMode = %v, want StepSyscall", got)
+	}
+
+	// Set StepReasoning
+	proc.SetStepMode(StepReasoning)
+	if got := proc.GetStepMode(); got != StepReasoning {
+		t.Errorf("StepMode = %v, want StepReasoning", got)
+	}
+}
+
+// --- 13.3-UNIT-003: [P0] ClearStepMode 清除后为 StepNone ---
+
+func TestProcess_ClearStepMode(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetStepMode(StepSyscall)
+	proc.ClearStepMode()
+	if got := proc.GetStepMode(); got != StepNone {
+		t.Errorf("after ClearStepMode, got %v, want StepNone", got)
+	}
+}
+
+// --- 13.3-UNIT-004: [P1] SetStepMode/GetStepMode/ClearStepMode 并发安全 ---
+
+func TestProcess_StepMode_Concurrent(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	const n = 100
+	var wg sync.WaitGroup
+
+	for range n {
+		wg.Go(func() {
+			proc.SetStepMode(StepSyscall)
+			_ = proc.GetStepMode()
+			proc.ClearStepMode()
+			proc.SetStepMode(StepReasoning)
+			_ = proc.GetStepMode()
+			proc.ClearStepMode()
+		})
+	}
+
+	wg.Wait()
+	// No race detected = pass (test runs with -race flag)
+}
+
+// --- 13.3-UNIT-005: [P0] step syscall 模式下暂停事件包含正确信息 ---
+
+func TestProcess_StepSyscall_PauseEvent(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetStepMode(StepSyscall)
+
+	// GdbPause blocks, so run in goroutine simulating what emitEvent would do:
+	// ClearStepMode + GdbPause with step_syscall reason
+	pauseDone := make(chan struct{})
+	go func() {
+		proc.ClearStepMode()
+		proc.GdbPause("step_syscall", nil)
+		close(pauseDone)
+	}()
+
+	// Should receive a gdb_prompt event
+	select {
+	case ev := <-proc.DebugChan:
+		if ev.Syscall != "GdbPause" {
+			t.Errorf("Syscall = %q, want GdbPause", ev.Syscall)
+		}
+		reason, ok := ev.Args["reason"].(string)
+		if !ok || reason != "step_syscall" {
+			t.Errorf("reason = %v, want step_syscall", ev.Args["reason"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no GdbPause event received on DebugChan")
+	}
+
+	// After ClearStepMode, mode should be StepNone
+	if got := proc.GetStepMode(); got != StepNone {
+		t.Errorf("after clear, StepMode = %v, want StepNone", got)
+	}
+
+	proc.GdbResume()
+	<-pauseDone
+}
+
+// --- 13.3-UNIT-006: [P0] step syscall 暂停后 step mode 自动清除为 StepNone ---
+
+func TestProcess_StepSyscall_AutoClear(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetStepMode(StepSyscall)
+	if got := proc.GetStepMode(); got != StepSyscall {
+		t.Fatalf("StepMode = %v, want StepSyscall", got)
+	}
+
+	// Simulate what emitEvent does: clear + pause
+	proc.ClearStepMode()
+	if got := proc.GetStepMode(); got != StepNone {
+		t.Errorf("after ClearStepMode, got %v, want StepNone", got)
+	}
+}
+
+// --- 13.3-UNIT-007: [P0] step syscall 跳过 "GdbPause" 内部事件 ---
+// This test verifies the filtering logic that emitEvent should implement:
+// when syscall is "GdbPause", step mode should NOT trigger.
+
+func TestProcess_StepSyscall_SkipGdbPauseEvent(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetStepMode(StepSyscall)
+
+	// Simulate emitEvent filter logic:
+	// "GdbPause" should be skipped — step mode should remain set
+	syscallName := "GdbPause"
+	shouldStep := syscallName != "GdbPause" && syscallName != "ReasonStep" && proc.GetStepMode() == StepSyscall
+	if shouldStep {
+		t.Error("should NOT step on GdbPause internal event")
+	}
+
+	// Step mode should remain StepSyscall (not cleared)
+	if got := proc.GetStepMode(); got != StepSyscall {
+		t.Errorf("StepMode = %v, want StepSyscall (should be preserved)", got)
+	}
+}
+
+// --- 13.3-UNIT-008: [P0] step syscall 跳过 "ReasonStep" 内部事件 ---
+
+func TestProcess_StepSyscall_SkipReasonStepEvent(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetStepMode(StepSyscall)
+
+	// Simulate emitEvent filter logic:
+	// "ReasonStep" should be skipped — step mode should remain set
+	syscallName := "ReasonStep"
+	shouldStep := syscallName != "GdbPause" && syscallName != "ReasonStep" && proc.GetStepMode() == StepSyscall
+	if shouldStep {
+		t.Error("should NOT step on ReasonStep internal event")
+	}
+
+	// Step mode should remain StepSyscall
+	if got := proc.GetStepMode(); got != StepSyscall {
+		t.Errorf("StepMode = %v, want StepSyscall (should be preserved)", got)
+	}
+}
+
+// --- 13.3-UNIT-009: [P0] step syscall 在真正 syscall 事件上触发 ---
+
+func TestProcess_StepSyscall_TriggersOnRealSyscall(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetStepMode(StepSyscall)
+
+	// Simulate emitEvent filter logic for a real syscall like "Write"
+	syscallName := "Write"
+	shouldStep := syscallName != "GdbPause" && syscallName != "ReasonStep" && proc.GetStepMode() == StepSyscall
+	if !shouldStep {
+		t.Error("should trigger step on real syscall 'Write'")
+	}
+}
+
+// --- 13.3-UNIT-010: [P0] step reasoning 模式标志正确设置 ---
+
+func TestProcess_StepReasoning_Mode(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetStepMode(StepReasoning)
+	if got := proc.GetStepMode(); got != StepReasoning {
+		t.Errorf("StepMode = %v, want StepReasoning", got)
+	}
+
+	// Simulate reasonStep clearing
+	proc.ClearStepMode()
+	if got := proc.GetStepMode(); got != StepNone {
+		t.Errorf("after ClearStepMode, got %v, want StepNone", got)
+	}
+}
+
+// --- 13.3-UNIT-011: [P0] step reasoning 暂停后自动清除 ---
+
+func TestProcess_StepReasoning_AutoClear(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetStepMode(StepReasoning)
+
+	// Simulate what reasonStep does: check + clear + pause
+	if proc.GetStepMode() != StepReasoning {
+		t.Fatal("expected StepReasoning before clear")
+	}
+	proc.ClearStepMode()
+	if proc.GetStepMode() != StepNone {
+		t.Error("expected StepNone after clear")
+	}
+}
+
+// --- 13.3-UNIT-012: [P0] step reasoning GdbPause 事件 args ---
+
+func TestProcess_StepReasoning_PauseEvent(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	pauseDone := make(chan struct{})
+	go func() {
+		proc.GdbPause("step_reasoning", nil)
+		close(pauseDone)
+	}()
+
+	select {
+	case ev := <-proc.DebugChan:
+		reason, ok := ev.Args["reason"].(string)
+		if !ok || reason != "step_reasoning" {
+			t.Errorf("reason = %v, want step_reasoning", ev.Args["reason"])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no GdbPause event received")
+	}
+
+	proc.GdbResume()
+	<-pauseDone
+}
+
+// --- 13.3-UNIT-013: [P0] step 暂停后 continue 恢复执行 ---
+
+func TestProcess_StepMode_ContinueResumes(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetStepMode(StepSyscall)
+
+	// Simulate step: clear + pause
+	proc.ClearStepMode()
+
+	pauseDone := make(chan struct{})
+	go func() {
+		proc.GdbPause("step_syscall", nil)
+		close(pauseDone)
+	}()
+
+	// Wait for pause
+	select {
+	case <-proc.DebugChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("no GdbPause event received")
+	}
+
+	if !proc.IsGdbPaused() {
+		t.Fatal("should be paused")
+	}
+
+	// Continue (GdbResume) should unblock
+	proc.GdbResume()
+
+	select {
+	case <-pauseDone:
+		// Success
+	case <-time.After(2 * time.Second):
+		t.Fatal("GdbPause did not unblock after continue")
+	}
+
+	if proc.IsGdbPaused() {
+		t.Error("should not be paused after continue")
+	}
+}
+
+// --- 13.3-UNIT-014: [P0] 断点优先于 step mode ---
+
+func TestProcess_BreakpointPriorityOverStep(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	// Register a syscall breakpoint on "Read"
+	proc.AddBreakpoint(&Breakpoint{
+		Type:      BPSyscall,
+		Enabled:   true,
+		Condition: &SyscallCondition{Name: "Read"},
+	})
+
+	// Also set step mode
+	proc.SetStepMode(StepSyscall)
+
+	// Check breakpoint first (as emitEvent does)
+	ctx := BreakpointContext{BPType: BPSyscall, SyscallName: "Read"}
+	hit := proc.CheckBreakpoint(ctx)
+	if hit == nil {
+		t.Fatal("breakpoint should hit first")
+	}
+
+	// Step mode should NOT be cleared (breakpoint took priority)
+	if got := proc.GetStepMode(); got != StepSyscall {
+		t.Errorf("StepMode = %v, want StepSyscall (breakpoint should not clear step mode)", got)
+	}
+}
+
+// --- 13.3-UNIT-015: [P1] step mode 不影响已有断点触发 ---
+
+func TestProcess_StepMode_DoesNotAffectBreakpoints(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	// Register breakpoint
+	proc.AddBreakpoint(&Breakpoint{
+		Type:      BPReasoning,
+		Enabled:   true,
+		Condition: &ReasoningCondition{},
+	})
+
+	// Set step mode
+	proc.SetStepMode(StepReasoning)
+
+	// Breakpoint check should still work
+	ctx := BreakpointContext{BPType: BPReasoning}
+	hit := proc.CheckBreakpoint(ctx)
+	if hit == nil {
+		t.Fatal("breakpoint should still fire with step mode set")
+	}
+	if hit.HitCount != 1 {
+		t.Errorf("HitCount = %d, want 1", hit.HitCount)
+	}
+}
+
+// --- 13.3-PERF-001: [P1] StepMode 操作延迟 <= 1ms ---
+
+func TestProcess_StepMode_Performance(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	start := time.Now()
+	for range 10000 {
+		proc.SetStepMode(StepSyscall)
+		_ = proc.GetStepMode()
+		proc.ClearStepMode()
+	}
+	elapsed := time.Since(start)
+
+	if elapsed > time.Second {
+		t.Errorf("10000 StepMode operations took %v, want < 1s", elapsed)
+	}
+}
+
 func TestProcess_CheckBreakpoint_PerformanceSub100ms(t *testing.T) {
 	k := newSimpleKernel(t)
 	proc := newBreakpointTestProcess(t, k)

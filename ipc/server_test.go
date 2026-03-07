@@ -15,7 +15,7 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-func setupTestServer(t *testing.T) (*Server, string) {
+func setupTestServer(t *testing.T) (*Server, string, *rnixctx.Manager) {
 	t.Helper()
 
 	devReg := vfs.NewDeviceRegistry()
@@ -25,6 +25,7 @@ func setupTestServer(t *testing.T) (*Server, string) {
 	srv := NewServer(nil, nil, "0.1.0-test")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	srv.kern = kern
+	srv.SetContextManager(ctxMgr)
 
 	sockDir := t.TempDir()
 	sockPath := filepath.Join(sockDir, "test.sock")
@@ -38,7 +39,7 @@ func setupTestServer(t *testing.T) (*Server, string) {
 		kern.Shutdown()
 	})
 
-	return srv, sockPath
+	return srv, sockPath, ctxMgr
 }
 
 func dial(t *testing.T, sockPath string) net.Conn {
@@ -76,7 +77,7 @@ func sendRequest(t *testing.T, conn net.Conn, method Method, payload any) Respon
 }
 
 func TestServer_Ping(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	resp := sendRequest(t, conn, MethodPing, nil)
@@ -94,7 +95,7 @@ func TestServer_Ping(t *testing.T) {
 }
 
 func TestServer_ListProcs_Empty(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	resp := sendRequest(t, conn, MethodListProcs, nil)
@@ -112,7 +113,7 @@ func TestServer_ListProcs_Empty(t *testing.T) {
 }
 
 func TestServer_Kill_NotFound(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	resp := sendRequest(t, conn, MethodKill, KillRequest{PID: 999, Signal: types.SIGTERM})
@@ -128,7 +129,7 @@ func TestServer_Kill_NotFound(t *testing.T) {
 }
 
 func TestServer_UnknownMethod(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	resp := sendRequest(t, conn, Method("nonexistent"), nil)
@@ -141,7 +142,7 @@ func TestServer_UnknownMethod(t *testing.T) {
 }
 
 func TestServer_MalformedRequest(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	_, err := conn.Write([]byte("not json\n"))
@@ -164,7 +165,7 @@ func TestServer_MalformedRequest(t *testing.T) {
 }
 
 func TestServer_Shutdown(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	resp := sendRequest(t, conn, MethodShutdown, nil)
@@ -174,7 +175,7 @@ func TestServer_Shutdown(t *testing.T) {
 }
 
 func TestServer_AttachDebug_NotFound(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	resp := sendRequest(t, conn, MethodAttachDebug, AttachDebugRequest{PID: 999})
@@ -184,7 +185,7 @@ func TestServer_AttachDebug_NotFound(t *testing.T) {
 }
 
 func TestServer_MultipleConnections(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 
 	conns := make([]net.Conn, 5)
 	for i := range conns {
@@ -200,7 +201,7 @@ func TestServer_MultipleConnections(t *testing.T) {
 }
 
 func TestServer_ConnectionReuse(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	// First request: Ping
@@ -360,7 +361,7 @@ func TestServer_ListenAndServe_SocketDirCreation(t *testing.T) {
 // --- 13.1-SRV-001: [P0] Server 对 attach_gdb 不存在的 PID 返回 NOT_FOUND ---
 
 func TestServer_AttachGdb_NotFound(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	resp := sendRequest(t, conn, MethodAttachGdb, AttachGdbRequest{PID: 999})
@@ -378,7 +379,7 @@ func TestServer_AttachGdb_NotFound(t *testing.T) {
 // --- 13.1-SRV-002: [P1] Server 对 attach_gdb 无效 payload 返回 INVALID ---
 
 func TestServer_AttachGdb_InvalidPayload(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	// Send attach_gdb with malformed payload
@@ -417,7 +418,7 @@ func TestServer_AttachGdb_InvalidPayload(t *testing.T) {
 // --- 13.2-SRV-001: [P0] Server handles gdb_command for non-existent PID ---
 
 func TestServer_GdbCommand_NotFound(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	payload, _ := json.Marshal(GdbCommandRequest{
@@ -454,7 +455,7 @@ func TestServer_GdbCommand_NotFound(t *testing.T) {
 // --- 13.2-SRV-002: [P0] Server handles gdb_command "break syscall" ---
 
 func TestServer_GdbCommand_BreakSyscall(t *testing.T) {
-	srv, sockPath := setupTestServer(t)
+	srv, sockPath, _ := setupTestServer(t)
 
 	// Create a running process
 	proc := kernel.NewProcess(0, "test-bp", nil)
@@ -499,7 +500,7 @@ func TestServer_GdbCommand_BreakSyscall(t *testing.T) {
 // --- 13.2-SRV-003: [P0] Server handles gdb_command "continue" ---
 
 func TestServer_GdbCommand_Continue(t *testing.T) {
-	srv, sockPath := setupTestServer(t)
+	srv, sockPath, _ := setupTestServer(t)
 
 	proc := kernel.NewProcess(0, "test-continue", nil)
 	_ = proc.Start()
@@ -534,7 +535,7 @@ func TestServer_GdbCommand_Continue(t *testing.T) {
 // --- 13.2-SRV-004: [P1] Server handles gdb_command "info" ---
 
 func TestServer_GdbCommand_Info(t *testing.T) {
-	srv, sockPath := setupTestServer(t)
+	srv, sockPath, _ := setupTestServer(t)
 
 	proc := kernel.NewProcess(0, "test-info", nil)
 	_ = proc.Start()
@@ -569,7 +570,7 @@ func TestServer_GdbCommand_Info(t *testing.T) {
 // --- 13.2-SRV-005: [P1] Server handles gdb_command "delete" ---
 
 func TestServer_GdbCommand_Delete(t *testing.T) {
-	srv, sockPath := setupTestServer(t)
+	srv, sockPath, _ := setupTestServer(t)
 
 	proc := kernel.NewProcess(0, "test-delete", nil)
 	_ = proc.Start()
@@ -604,7 +605,7 @@ func TestServer_GdbCommand_Delete(t *testing.T) {
 // --- 13.2-SRV-006: [P1] Server handles gdb_command invalid payload ---
 
 func TestServer_GdbCommand_InvalidPayload(t *testing.T) {
-	_, sockPath := setupTestServer(t)
+	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
 
 	rawPayload := json.RawMessage(`{"bad": "payload"}`)
@@ -626,5 +627,379 @@ func TestServer_GdbCommand_InvalidPayload(t *testing.T) {
 	// Should not crash — graceful handling
 	if resp.OK {
 		t.Log("server accepted invalid payload (PID=0 not found)")
+	}
+}
+
+// ============================================================
+// ATDD RED PHASE — Story 13.3: 单步执行与状态检查 (Server Handler)
+//
+// Tests reference handleGdbStep, handleGdbInspect
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 13.3-IPC-001: [P0] Server handles gdb_command "step" routing ---
+
+func TestServer_GdbCommand_StepSyscall(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-step-syscall", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "step",
+		Args:    []string{"syscall"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !cmdResp.OK {
+		t.Errorf("command OK = false, message: %s", cmdResp.Message)
+	}
+}
+
+// --- 13.3-IPC-002: [P0] Server handles "step syscall" sets StepMode + resumes ---
+
+func TestServer_GdbCommand_StepSyscall_SetsMode(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-step-mode", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "step",
+		Args:    []string{"syscall"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	// After step command, step mode should be set on the process
+	if got := proc.GetStepMode(); got != kernel.StepSyscall {
+		t.Errorf("StepMode = %v, want StepSyscall", got)
+	}
+}
+
+// --- 13.3-IPC-003: [P0] Server handles "step reasoning" ---
+
+func TestServer_GdbCommand_StepReasoning(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-step-reasoning", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "step",
+		Args:    []string{"reasoning"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !cmdResp.OK {
+		t.Errorf("command OK = false, message: %s", cmdResp.Message)
+	}
+
+	if got := proc.GetStepMode(); got != kernel.StepReasoning {
+		t.Errorf("StepMode = %v, want StepReasoning", got)
+	}
+}
+
+// --- 13.3-IPC-004: [P1] Server handles "step" with no args returns error ---
+
+func TestServer_GdbCommand_StepNoArgs(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-step-noargs", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "step",
+		Args:    []string{},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true (error in payload), error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if cmdResp.OK {
+		t.Error("expected command OK = false for step with no args")
+	}
+}
+
+// --- 13.3-IPC-005: [P1] Server handles "step" with unknown mode returns error ---
+
+func TestServer_GdbCommand_StepUnknownMode(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-step-unknown", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "step",
+		Args:    []string{"unknown_mode"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true (error in payload), error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if cmdResp.OK {
+		t.Error("expected command OK = false for unknown step mode")
+	}
+}
+
+// --- 13.3-IPC-006: [P0] Server handles gdb_command "inspect" routing ---
+
+func TestServer_GdbCommand_InspectContext(t *testing.T) {
+	srv, sockPath, ctxMgr := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-inspect", nil)
+	_ = proc.Start()
+	// Allocate a context so inspect has something to query
+	ctxID, err := ctxMgr.CtxAlloc(100)
+	if err != nil {
+		t.Fatalf("CtxAlloc: %v", err)
+	}
+	proc.CtxID = ctxID
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "inspect",
+		Args:    []string{"context"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !cmdResp.OK {
+		t.Errorf("command OK = false, message: %s", cmdResp.Message)
+	}
+}
+
+// --- 13.3-IPC-007: [P0] Server inspect context returns structured info ---
+
+func TestServer_GdbCommand_InspectContext_ReturnsData(t *testing.T) {
+	srv, sockPath, ctxMgr := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-inspect-data", nil)
+	_ = proc.Start()
+	// Allocate a context so inspect has something to query
+	ctxID, err := ctxMgr.CtxAlloc(100)
+	if err != nil {
+		t.Fatalf("CtxAlloc: %v", err)
+	}
+	proc.CtxID = ctxID
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "inspect",
+		Args:    []string{"context"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+
+	// Message should contain context summary information
+	if cmdResp.Message == "" {
+		t.Error("expected non-empty message with context summary")
+	}
+}
+
+// --- 13.3-IPC-008: [P1] Server handles "inspect" with no args returns error ---
+
+func TestServer_GdbCommand_InspectNoArgs(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-inspect-noargs", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "inspect",
+		Args:    []string{},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true (error in payload), error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if cmdResp.OK {
+		t.Error("expected command OK = false for inspect with no args")
 	}
 }

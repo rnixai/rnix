@@ -1026,6 +1026,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	k.SetMountManager(mountMgr)
 	srv.SetKernel(k)
+	srv.SetContextManager(ctxMgr)
 
 	procFS := vfs.NewProcFS(k, ctxMgr)
 	_ = devReg.Register("/proc", procFS.FileFactory())
