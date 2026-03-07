@@ -72,6 +72,10 @@ type Process struct {
 	coroutines  map[types.CoID]*Coroutine
 	coIDCounter atomic.Uint64
 
+	// GDB breakpoint system (mu protected)
+	breakpoints []*Breakpoint
+	gdbPauseCh  chan struct{} // nil=not paused; non-nil=paused, close to resume
+
 	mu       sync.Mutex
 	cancel   context.CancelFunc
 	ctx      context.Context
