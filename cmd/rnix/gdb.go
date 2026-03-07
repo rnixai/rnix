@@ -126,13 +126,38 @@ func runGdb(cmd *cobra.Command, args []string) error {
 			} else {
 				var prompt map[string]any
 				if err := json.Unmarshal(ev.Payload, &prompt); err == nil {
-					fmt.Fprintf(w, "\n[gdb] breakpoint hit")
-					if reason, ok := prompt["reason"].(string); ok {
-						fmt.Fprintf(w, ": %s", reason)
-					}
-					fmt.Fprintln(w)
-					if bpID, ok := prompt["bp_id"]; ok {
-						fmt.Fprintf(w, "[gdb] breakpoint ID: %v\n", bpID)
+					reason, _ := prompt["reason"].(string)
+					switch reason {
+					case "step_syscall":
+						fmt.Fprintf(w, "\n[gdb] step syscall")
+						if name, ok := prompt["syscall_name"]; ok {
+							fmt.Fprintf(w, ": %v", name)
+						}
+						fmt.Fprintln(w)
+						if args, ok := prompt["syscall_args"]; ok {
+							fmt.Fprintf(w, "[gdb] args: %v\n", args)
+						}
+						if stepNum, ok := prompt["step_number"]; ok {
+							fmt.Fprintf(w, "[gdb] step #%v\n", stepNum)
+						}
+					case "step_reasoning":
+						fmt.Fprintf(w, "\n[gdb] step reasoning")
+						if stepNum, ok := prompt["step_number"]; ok {
+							fmt.Fprintf(w, " (step #%v)", stepNum)
+						}
+						fmt.Fprintln(w)
+						if summary, ok := prompt["last_result_summary"]; ok && summary != "" {
+							fmt.Fprintf(w, "[gdb] last result: %v\n", summary)
+						}
+					default:
+						fmt.Fprintf(w, "\n[gdb] breakpoint hit")
+						if reason != "" {
+							fmt.Fprintf(w, ": %s", reason)
+						}
+						fmt.Fprintln(w)
+						if bpID, ok := prompt["bp_id"]; ok {
+							fmt.Fprintf(w, "[gdb] breakpoint ID: %v\n", bpID)
+						}
 					}
 				}
 				fmt.Fprint(w, "gdb> ")
@@ -209,6 +234,10 @@ func runGdb(cmd *cobra.Command, args []string) error {
 			gdbDelete(w, client, pid, parts[1:])
 		case "continue", "c":
 			gdbContinue(w, client, pid)
+		case "step", "s":
+			gdbStep(w, client, pid, parts[1:])
+		case "inspect":
+			gdbInspect(w, client, pid, parts[1:])
 		default:
 			fmt.Fprintf(w, "[gdb] unknown command: %s (type 'help' for commands)\n", line)
 		}
@@ -233,6 +262,8 @@ func printGdbHelp(w interface{ Write([]byte) (int, error) }) {
 	fmt.Fprintln(w, "  delete <bp_id>                 - Delete breakpoint by ID")
 	fmt.Fprintln(w, "  info breakpoints / info bp     - List all breakpoints")
 	fmt.Fprintln(w, "  continue / c                   - Resume execution after breakpoint hit")
+	fmt.Fprintln(w, "  step [syscall|reasoning] / s   - Execute next syscall or reasoning step")
+	fmt.Fprintln(w, "  inspect context / inspect ctx  - Show context info with token estimates")
 	fmt.Fprintln(w, "  info / i                       - Show process information")
 	fmt.Fprintln(w, "  detach / quit / q              - Disconnect from debug session")
 	fmt.Fprintln(w, "  help / h                       - Show this help")
@@ -277,6 +308,87 @@ func gdbContinue(w interface{ Write([]byte) (int, error) }, client *ipc.Client, 
 		fmt.Fprintf(w, "[gdb] %s\n", resp.Message)
 	} else {
 		fmt.Fprintf(w, "[gdb] failed: %s\n", resp.Message)
+	}
+}
+
+// gdbStep sends a step command via IPC.
+func gdbStep(w interface{ Write([]byte) (int, error) }, client *ipc.Client, pid types.PID, args []string) {
+	parsed, err := parseStepCommand(args)
+	if err != nil {
+		fmt.Fprintf(w, "[gdb] %v\n", err)
+		return
+	}
+	resp, respErr := client.SendGdbCommand(pid, "step", []string{parsed.Mode})
+	if respErr != nil {
+		fmt.Fprintf(w, "[gdb] error: %v\n", respErr)
+		return
+	}
+	if resp.OK {
+		fmt.Fprintf(w, "[gdb] %s\n", resp.Message)
+	} else {
+		fmt.Fprintf(w, "[gdb] failed: %s\n", resp.Message)
+	}
+}
+
+// gdbInspect sends an inspect command via IPC.
+func gdbInspect(w interface{ Write([]byte) (int, error) }, client *ipc.Client, pid types.PID, args []string) {
+	parsed, err := parseInspectCommand(args)
+	if err != nil {
+		fmt.Fprintf(w, "[gdb] %v\n", err)
+		return
+	}
+	resp, respErr := client.SendGdbCommand(pid, "inspect", []string{parsed.SubCommand})
+	if respErr != nil {
+		fmt.Fprintf(w, "[gdb] error: %v\n", respErr)
+		return
+	}
+	if !resp.OK {
+		fmt.Fprintf(w, "[gdb] failed: %s\n", resp.Message)
+		return
+	}
+	// Format context info for display
+	if data, ok := resp.Data.(map[string]any); ok {
+		formatContextInfo(w, data)
+	}
+}
+
+// formatContextInfo renders structured context info in a readable format.
+func formatContextInfo(w interface{ Write([]byte) (int, error) }, data map[string]any) {
+	pid := data["pid"]
+	ctxID := data["ctx_id"]
+	fmt.Fprintf(w, "[gdb] Context for PID %v (CtxID: %v):\n", pid, ctxID)
+
+	promptChars, _ := data["system_prompt_chars"]
+	promptTokens, _ := data["system_prompt_tokens"]
+	fmt.Fprintf(w, "  System Prompt: %v chars (~%v tokens)\n", promptChars, promptTokens)
+
+	totalMsgs, _ := data["total_messages"]
+	fmt.Fprintf(w, "  Messages: %v total\n", totalMsgs)
+
+	systemCount, _ := data["system_count"]
+	systemTokens, _ := data["system_tokens"]
+	fmt.Fprintf(w, "    system:    %v  (~%v tokens)\n", systemCount, systemTokens)
+
+	userCount, _ := data["user_count"]
+	userTokens, _ := data["user_tokens"]
+	fmt.Fprintf(w, "    user:      %v  (~%v tokens)\n", userCount, userTokens)
+
+	assistantCount, _ := data["assistant_count"]
+	assistantTokens, _ := data["assistant_tokens"]
+	fmt.Fprintf(w, "    assistant: %v  (~%v tokens)\n", assistantCount, assistantTokens)
+
+	toolCount, _ := data["tool_count"]
+	toolTokens, _ := data["tool_tokens"]
+	if toolCount != nil && toolCount != float64(0) {
+		fmt.Fprintf(w, "    tool:      %v  (~%v tokens)\n", toolCount, toolTokens)
+	}
+
+	totalTokens, _ := data["total_tokens"]
+	fmt.Fprintf(w, "  Total estimated tokens: ~%v\n", totalTokens)
+
+	if lastRole, ok := data["last_message_role"]; ok {
+		lastPreview, _ := data["last_message_preview"]
+		fmt.Fprintf(w, "  Last Message: [%v] %v\n", lastRole, lastPreview)
 	}
 }
 
@@ -378,4 +490,46 @@ func parseDeleteCommand(args []string) (int, error) {
 		return 0, fmt.Errorf("invalid breakpoint ID: %s", args[0])
 	}
 	return id, nil
+}
+
+// StepCommandResult captures the parsed components of a "step" command.
+type StepCommandResult struct {
+	Mode string // "syscall" or "reasoning"
+}
+
+// parseStepCommand parses a "step" command's arguments into a StepCommandResult.
+func parseStepCommand(args []string) (*StepCommandResult, error) {
+	mode := "syscall" // default
+	if len(args) > 0 {
+		mode = args[0]
+	}
+
+	switch mode {
+	case "syscall", "reasoning":
+		return &StepCommandResult{Mode: mode}, nil
+	default:
+		return nil, fmt.Errorf("unknown step mode: %s (valid: syscall, reasoning)", mode)
+	}
+}
+
+// InspectCommandResult captures the parsed components of an "inspect" command.
+type InspectCommandResult struct {
+	SubCommand string // "context"
+}
+
+// parseInspectCommand parses an "inspect" command's arguments into an InspectCommandResult.
+func parseInspectCommand(args []string) (*InspectCommandResult, error) {
+	if len(args) == 0 {
+		return nil, fmt.Errorf("usage: inspect <context|ctx>")
+	}
+
+	subCmd := args[0]
+	switch subCmd {
+	case "context":
+		return &InspectCommandResult{SubCommand: "context"}, nil
+	case "ctx":
+		return &InspectCommandResult{SubCommand: "context"}, nil // alias
+	default:
+		return nil, fmt.Errorf("unknown inspect target: %s (valid: context, ctx)", subCmd)
+	}
 }

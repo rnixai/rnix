@@ -348,6 +348,18 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 		}
 	}
 
+	// Check gdb step syscall mode (Story 13.3)
+	// Skip internal events: GdbPause (would trigger recursion) and ReasonStep (control event).
+	if syscall != "GdbPause" && syscall != "ReasonStep" {
+		if proc.GetStepMode() == StepSyscall {
+			proc.ClearStepMode()
+			proc.GdbPause("step_syscall", nil, map[string]any{
+				"syscall_name": syscall,
+				"syscall_args": args,
+			})
+		}
+	}
+
 	event := debug.NewEvent(proc.PID, proc.CreatedAt, syscall, args)
 	debug.CompleteEvent(&event, result, err, duration)
 
@@ -425,6 +437,8 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 	}()
 
+	var lastResultSummary string
+
 	for step := 1; step <= maxSteps; step++ {
 		stepStart := time.Now()
 
@@ -476,6 +490,22 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			StepNumber: step,
 		}); hit != nil {
 			proc.GdbPause(fmt.Sprintf("reasoning breakpoint hit at step %d", step), hit)
+			// After resume, re-check cancellation
+			select {
+			case <-proc.ctx.Done():
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "context cancelled while gdb-paused"})
+				return
+			default:
+			}
+		}
+
+		// Check gdb step reasoning mode (Story 13.3)
+		if proc.GetStepMode() == StepReasoning {
+			proc.ClearStepMode()
+			proc.GdbPause("step_reasoning", nil, map[string]any{
+				"step_number":          step,
+				"last_result_summary": lastResultSummary,
+			})
 			// After resume, re-check cancellation
 			select {
 			case <-proc.ctx.Done():
@@ -566,6 +596,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}, nil, err, time.Since(stepStart))
 			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "unmarshal response failed", Err: err})
 			return
+		}
+
+		// Update last result summary for step reasoning display
+		lastResultSummary = resp.Content
+		if len(lastResultSummary) > 80 {
+			lastResultSummary = lastResultSummary[:80] + "..."
 		}
 
 		proc.mu.Lock()

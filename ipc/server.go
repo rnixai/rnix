@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/rnixai/rnix/agents"
+	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
 	"github.com/rnixai/rnix/kernel"
@@ -38,6 +39,7 @@ type Server struct {
 	callbackMux *callbackMux
 	version     string
 	IdleTimeout time.Duration
+	ctxMgr      *rnixctx.Manager
 
 	listener    net.Listener
 	activeConns atomic.Int32
@@ -668,6 +670,10 @@ func (s *Server) handleGdbCommand(conn net.Conn, rawPayload json.RawMessage) {
 		gcr = GdbCommandResponse{OK: true, Message: "resumed"}
 	case "info":
 		gcr = s.handleGdbInfo(proc, req.Args)
+	case "step":
+		gcr = s.handleGdbStep(proc, req.Args)
+	case "inspect":
+		gcr = s.handleGdbInspect(proc, req.Args)
 	default:
 		gcr = GdbCommandResponse{OK: false, Message: fmt.Sprintf("unknown gdb command: %s", req.Command)}
 	}
@@ -724,6 +730,56 @@ func (s *Server) handleGdbInfo(proc *kernel.Process, args []string) GdbCommandRe
 		}
 	}
 	return GdbCommandResponse{OK: true, Data: bpList}
+}
+
+// handleGdbStep sets step mode and resumes the process.
+func (s *Server) handleGdbStep(proc *kernel.Process, args []string) GdbCommandResponse {
+	if len(args) == 0 {
+		return GdbCommandResponse{OK: false, Message: "usage: step <syscall|reasoning>"}
+	}
+	mode := args[0]
+
+	switch mode {
+	case "syscall":
+		proc.SetStepMode(kernel.StepSyscall)
+	case "reasoning":
+		proc.SetStepMode(kernel.StepReasoning)
+	default:
+		return GdbCommandResponse{OK: false, Message: fmt.Sprintf("unknown step mode: %s (valid: syscall, reasoning)", mode)}
+	}
+
+	proc.GdbResume()
+	return GdbCommandResponse{OK: true, Message: fmt.Sprintf("stepping %s", mode)}
+}
+
+// handleGdbInspect handles the inspect command to examine process state.
+func (s *Server) handleGdbInspect(proc *kernel.Process, args []string) GdbCommandResponse {
+	if len(args) == 0 {
+		return GdbCommandResponse{OK: false, Message: "usage: inspect <context|ctx>"}
+	}
+
+	subCmd := args[0]
+	switch subCmd {
+	case "context", "ctx":
+		if s.ctxMgr == nil {
+			return GdbCommandResponse{OK: false, Message: "context manager not available"}
+		}
+		info, err := s.ctxMgr.GetContextInfo(proc.CtxID)
+		if err != nil {
+			return GdbCommandResponse{OK: false, Message: fmt.Sprintf("inspect context failed: %v", err)}
+		}
+		info["pid"] = proc.PID
+		info["ctx_id"] = proc.CtxID
+		totalMsgs, _ := info["total_messages"].(int)
+		totalTokens, _ := info["total_tokens"].(int)
+		return GdbCommandResponse{
+			OK:      true,
+			Message: fmt.Sprintf("context: %d messages, ~%d tokens", totalMsgs, totalTokens),
+			Data:    info,
+		}
+	default:
+		return GdbCommandResponse{OK: false, Message: fmt.Sprintf("unknown inspect target: %s (valid: context, ctx)", subCmd)}
+	}
 }
 
 // parseBreakpointArgs parses "break" command arguments into a Breakpoint.
@@ -903,6 +959,11 @@ func (s *Server) CallbackMux() kernel.KernelCallbacks {
 // SetKernel sets the kernel instance after construction (for circular init).
 func (s *Server) SetKernel(k *kernel.KernelImpl) {
 	s.kern = k
+}
+
+// SetContextManager sets the context manager for inspect context support.
+func (s *Server) SetContextManager(mgr *rnixctx.Manager) {
+	s.ctxMgr = mgr
 }
 
 // --- spawn pipeline ---

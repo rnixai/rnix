@@ -75,6 +75,7 @@ type Process struct {
 	// GDB breakpoint system (mu protected)
 	breakpoints []*Breakpoint
 	gdbPauseCh  chan struct{} // nil=not paused; non-nil=paused, close to resume
+	gdbStepMode StepMode     // current single-step mode (StepNone by default)
 
 	mu       sync.Mutex
 	cancel   context.CancelFunc

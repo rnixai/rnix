@@ -166,7 +166,7 @@ development_status:
   epic-13: in-progress
   13-1-gdb-attach-detach: done
   13-2-breakpoint-system: done
-  13-3-step-execution-and-state-inspection: backlog
+  13-3-step-execution-and-state-inspection: done
   13-4-runtime-parameter-hot-modification: backlog
   epic-13-retrospective: optional
 

@@ -208,7 +208,7 @@ func TestStreamLogEntry_Unique(t *testing.T) {
 // --- 10.2-INTEG-001: handleAttachLog returns NOT_FOUND for non-existent PID ---
 
 func TestHandleAttachLog_NotFound(t *testing.T) {
-	srv, sockPath := setupTestServer(t)
+	srv, sockPath, _ := setupTestServer(t)
 	_ = srv
 
 	conn := dial(t, sockPath)
