@@ -265,3 +265,69 @@ func (p *Process) GdbPauseCh() <-chan struct{} {
 	defer p.mu.Unlock()
 	return p.gdbPauseCh
 }
+
+// --- GDB runtime parameter methods (all thread-safe via mu) ---
+
+// SetGdbModelOverride sets the model override for LLM requests. Thread-safe.
+// An empty string clears the override.
+func (p *Process) SetGdbModelOverride(model string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gdbModelOverride = model
+}
+
+// GetGdbModelOverride returns the current model override. Thread-safe.
+// Returns empty string if no override is set.
+func (p *Process) GetGdbModelOverride() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.gdbModelOverride
+}
+
+// SetGdbEnv sets an environment variable in the gdb env vars map. Thread-safe.
+func (p *Process) SetGdbEnv(key, value string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.gdbEnvVars == nil {
+		p.gdbEnvVars = make(map[string]string)
+	}
+	p.gdbEnvVars[key] = value
+}
+
+// GetGdbEnvVars returns a copy of the gdb environment variables. Thread-safe.
+func (p *Process) GetGdbEnvVars() map[string]string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.gdbEnvVars == nil {
+		return map[string]string{}
+	}
+	result := make(map[string]string, len(p.gdbEnvVars))
+	for k, v := range p.gdbEnvVars {
+		result[k] = v
+	}
+	return result
+}
+
+// AddGdbSkill adds a skill name to the gdb extra skills list. Idempotent. Thread-safe.
+func (p *Process) AddGdbSkill(name string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, s := range p.gdbExtraSkills {
+		if s == name {
+			return
+		}
+	}
+	p.gdbExtraSkills = append(p.gdbExtraSkills, name)
+}
+
+// GetGdbExtraSkills returns a copy of the gdb extra skills list. Thread-safe.
+func (p *Process) GetGdbExtraSkills() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.gdbExtraSkills == nil {
+		return []string{}
+	}
+	result := make([]string, len(p.gdbExtraSkills))
+	copy(result, p.gdbExtraSkills)
+	return result
+}

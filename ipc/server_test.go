@@ -1003,3 +1003,349 @@ func TestServer_GdbCommand_InspectNoArgs(t *testing.T) {
 		t.Error("expected command OK = false for inspect with no args")
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.4: 运行时参数热修改 (IPC Server)
+//
+// Tests reference handleGdbSet via gdb_command "set" routing
+// which does NOT exist yet → test failure = RED phase.
+// ============================================================
+
+// --- 13.4-IPC-001: [P0] Server handles gdb_command "set model" routing ---
+
+func TestServer_GdbCommand_SetModel(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-set-model", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "set",
+		Args:    []string{"model", "sonnet"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !cmdResp.OK {
+		t.Errorf("command OK = false, message: %s", cmdResp.Message)
+	}
+
+	// Verify model override was set on the process
+	if got := proc.GetGdbModelOverride(); got != "sonnet" {
+		t.Errorf("GdbModelOverride = %q, want %q", got, "sonnet")
+	}
+}
+
+// --- 13.4-IPC-002: [P0] Server handles gdb_command "set context append" ---
+
+func TestServer_GdbCommand_SetContextAppend(t *testing.T) {
+	srv, sockPath, ctxMgr := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-set-context", nil)
+	_ = proc.Start()
+	// Allocate a context so set context append has something to work with
+	ctxID, err := ctxMgr.CtxAlloc(100)
+	if err != nil {
+		t.Fatalf("CtxAlloc: %v", err)
+	}
+	proc.CtxID = ctxID
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "set",
+		Args:    []string{"context", "append", "额外分析指令"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !cmdResp.OK {
+		t.Errorf("command OK = false, message: %s", cmdResp.Message)
+	}
+}
+
+// --- 13.4-IPC-003: [P0] Server handles gdb_command "set skills add" ---
+
+func TestServer_GdbCommand_SetSkillsAdd(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-set-skills", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "set",
+		Args:    []string{"skills", "add", "code-review"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !cmdResp.OK {
+		t.Errorf("command OK = false, message: %s", cmdResp.Message)
+	}
+
+	// Verify skill was added to the process
+	skills := proc.GetGdbExtraSkills()
+	found := false
+	for _, s := range skills {
+		if s == "code-review" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected code-review in GdbExtraSkills")
+	}
+}
+
+// --- 13.4-IPC-004: [P0] Server handles gdb_command "set env KEY=VALUE" ---
+
+func TestServer_GdbCommand_SetEnv(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-set-env", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "set",
+		Args:    []string{"env", "DEBUG=true"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true, error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !cmdResp.OK {
+		t.Errorf("command OK = false, message: %s", cmdResp.Message)
+	}
+
+	// Verify env var was set on the process
+	vars := proc.GetGdbEnvVars()
+	if vars["DEBUG"] != "true" {
+		t.Errorf("GdbEnvVars[DEBUG] = %q, want %q", vars["DEBUG"], "true")
+	}
+}
+
+// --- 13.4-IPC-005: [P1] Server handles "set" with no args returns error ---
+
+func TestServer_GdbCommand_SetNoArgs(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-set-noargs", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "set",
+		Args:    []string{},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true (error in payload), error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if cmdResp.OK {
+		t.Error("expected command OK = false for set with no args")
+	}
+}
+
+// --- 13.4-IPC-006: [P1] Server handles "set" with unknown subcommand returns error ---
+
+func TestServer_GdbCommand_SetUnknownSubcmd(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-set-unknown", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "set",
+		Args:    []string{"unknown_target", "value"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true (error in payload), error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if cmdResp.OK {
+		t.Error("expected command OK = false for unknown set subcommand")
+	}
+}
+
+// --- 13.4-IPC-007: [P1] Server handles "set env" with invalid format returns error ---
+
+func TestServer_GdbCommand_SetEnvInvalidFormat(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-set-env-invalid", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	// "env" without "=" separator
+	payload, _ := json.Marshal(GdbCommandRequest{
+		PID:     proc.PID,
+		Command: "set",
+		Args:    []string{"env", "INVALID_NO_EQUALS"},
+	})
+	req := Request{Method: MethodGdbCommand, Payload: payload}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if !resp.OK {
+		t.Fatalf("expected OK=true (error in payload), error: %+v", resp.Error)
+	}
+
+	var cmdResp GdbCommandResponse
+	if err := json.Unmarshal(resp.Payload, &cmdResp); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if cmdResp.OK {
+		t.Error("expected command OK = false for env without KEY=VALUE format")
+	}
+}

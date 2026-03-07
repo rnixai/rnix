@@ -238,6 +238,8 @@ func runGdb(cmd *cobra.Command, args []string) error {
 			gdbStep(w, client, pid, parts[1:])
 		case "inspect":
 			gdbInspect(w, client, pid, parts[1:])
+		case "set":
+			gdbSet(w, client, pid, parts[1:])
 		default:
 			fmt.Fprintf(w, "[gdb] unknown command: %s (type 'help' for commands)\n", line)
 		}
@@ -264,6 +266,10 @@ func printGdbHelp(w interface{ Write([]byte) (int, error) }) {
 	fmt.Fprintln(w, "  continue / c                   - Resume execution after breakpoint hit")
 	fmt.Fprintln(w, "  step [syscall|reasoning] / s   - Execute next syscall or reasoning step")
 	fmt.Fprintln(w, "  inspect context / inspect ctx  - Show context info with token estimates")
+	fmt.Fprintln(w, "  set model <name>               - Override LLM model for subsequent steps")
+	fmt.Fprintln(w, "  set context append <text>       - Append text to context")
+	fmt.Fprintln(w, "  set skills add <name>           - Add a skill to the agent")
+	fmt.Fprintln(w, "  set env KEY=VALUE               - Set an environment variable")
 	fmt.Fprintln(w, "  info / i                       - Show process information")
 	fmt.Fprintln(w, "  detach / quit / q              - Disconnect from debug session")
 	fmt.Fprintln(w, "  help / h                       - Show this help")
@@ -531,5 +537,91 @@ func parseInspectCommand(args []string) (*InspectCommandResult, error) {
 		return &InspectCommandResult{SubCommand: "context"}, nil // alias
 	default:
 		return nil, fmt.Errorf("unknown inspect target: %s (valid: context, ctx)", subCmd)
+	}
+}
+
+// gdbSet sends a set command via IPC.
+func gdbSet(w interface{ Write([]byte) (int, error) }, client *ipc.Client, pid types.PID, args []string) {
+	parsed, err := parseSetCommand(args)
+	if err != nil {
+		fmt.Fprintf(w, "[gdb] %v\n", err)
+		return
+	}
+	var ipcArgs []string
+	switch parsed.SubCommand {
+	case "model":
+		ipcArgs = []string{"model", parsed.Value}
+	case "context":
+		ipcArgs = []string{"context", parsed.Action, parsed.Value}
+	case "skills":
+		ipcArgs = []string{"skills", parsed.Action, parsed.Value}
+	case "env":
+		ipcArgs = []string{"env", parsed.Value}
+	}
+	resp, respErr := client.SendGdbCommand(pid, "set", ipcArgs)
+	if respErr != nil {
+		fmt.Fprintf(w, "[gdb] error: %v\n", respErr)
+		return
+	}
+	if resp.OK {
+		fmt.Fprintf(w, "[gdb] %s\n", resp.Message)
+	} else {
+		fmt.Fprintf(w, "[gdb] failed: %s\n", resp.Message)
+	}
+}
+
+// SetCommandResult captures the parsed components of a "set" command.
+type SetCommandResult struct {
+	SubCommand string // "model", "context", "skills", "env"
+	Action     string // "append" for context, "add" for skills
+	Value      string // model name, text content, skill name, or KEY=VALUE
+}
+
+// parseSetCommand parses a "set" command's arguments into a SetCommandResult.
+func parseSetCommand(args []string) (*SetCommandResult, error) {
+	if len(args) == 0 {
+		return nil, fmt.Errorf("usage: set <model|context|skills|env> <args...>")
+	}
+
+	subCmd := args[0]
+	switch subCmd {
+	case "model":
+		if len(args) < 2 {
+			return nil, fmt.Errorf("usage: set model <name>")
+		}
+		return &SetCommandResult{SubCommand: "model", Value: args[1]}, nil
+	case "context":
+		if len(args) < 2 {
+			return nil, fmt.Errorf("usage: set context append <text>")
+		}
+		if args[1] != "append" {
+			return nil, fmt.Errorf("usage: set context append <text>")
+		}
+		if len(args) < 3 {
+			return nil, fmt.Errorf("usage: set context append <text>")
+		}
+		value := strings.Join(args[2:], " ")
+		return &SetCommandResult{SubCommand: "context", Action: "append", Value: value}, nil
+	case "skills":
+		if len(args) < 2 {
+			return nil, fmt.Errorf("usage: set skills add <name>")
+		}
+		if args[1] != "add" {
+			return nil, fmt.Errorf("usage: set skills add <name>")
+		}
+		if len(args) < 3 {
+			return nil, fmt.Errorf("usage: set skills add <name>")
+		}
+		return &SetCommandResult{SubCommand: "skills", Action: "add", Value: args[2]}, nil
+	case "env":
+		if len(args) < 2 {
+			return nil, fmt.Errorf("usage: set env KEY=VALUE")
+		}
+		if !strings.Contains(args[1], "=") {
+			return nil, fmt.Errorf("invalid format: expected KEY=VALUE (missing '=')")
+		}
+		return &SetCommandResult{SubCommand: "env", Value: args[1]}, nil
+	default:
+		return nil, fmt.Errorf("unknown set target: %s (valid: model, context, skills, env)", subCmd)
 	}
 }

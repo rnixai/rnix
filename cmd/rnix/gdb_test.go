@@ -300,3 +300,192 @@ func TestInspectCommandResult_Fields(t *testing.T) {
 		t.Errorf("SubCommand = %q, want %q", result.SubCommand, "context")
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.4: 运行时参数热修改 (gdb CLI 命令扩展)
+//
+// Tests reference parseSetCommand, SetCommandResult
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 13.4-CLI-001: [P0] parseSetCommand 解析 "set model sonnet" ---
+
+func TestParseSetCommand_Model(t *testing.T) {
+	cmd, err := parseSetCommand([]string{"model", "sonnet"})
+	if err != nil {
+		t.Fatalf("parseSetCommand: %v", err)
+	}
+	if cmd.SubCommand != "model" {
+		t.Errorf("SubCommand = %q, want %q", cmd.SubCommand, "model")
+	}
+	if cmd.Value != "sonnet" {
+		t.Errorf("Value = %q, want %q", cmd.Value, "sonnet")
+	}
+}
+
+// --- 13.4-CLI-002: [P0] parseSetCommand 解析 "set context append 额外分析指令" ---
+
+func TestParseSetCommand_ContextAppend(t *testing.T) {
+	cmd, err := parseSetCommand([]string{"context", "append", "额外分析指令"})
+	if err != nil {
+		t.Fatalf("parseSetCommand: %v", err)
+	}
+	if cmd.SubCommand != "context" {
+		t.Errorf("SubCommand = %q, want %q", cmd.SubCommand, "context")
+	}
+	if cmd.Action != "append" {
+		t.Errorf("Action = %q, want %q", cmd.Action, "append")
+	}
+	if cmd.Value != "额外分析指令" {
+		t.Errorf("Value = %q, want %q", cmd.Value, "额外分析指令")
+	}
+}
+
+// --- 13.4-CLI-003: [P0] parseSetCommand 解析 "set skills add code-review" ---
+
+func TestParseSetCommand_SkillsAdd(t *testing.T) {
+	cmd, err := parseSetCommand([]string{"skills", "add", "code-review"})
+	if err != nil {
+		t.Fatalf("parseSetCommand: %v", err)
+	}
+	if cmd.SubCommand != "skills" {
+		t.Errorf("SubCommand = %q, want %q", cmd.SubCommand, "skills")
+	}
+	if cmd.Action != "add" {
+		t.Errorf("Action = %q, want %q", cmd.Action, "add")
+	}
+	if cmd.Value != "code-review" {
+		t.Errorf("Value = %q, want %q", cmd.Value, "code-review")
+	}
+}
+
+// --- 13.4-CLI-004: [P0] parseSetCommand 解析 "set env DEBUG=true" ---
+
+func TestParseSetCommand_Env(t *testing.T) {
+	cmd, err := parseSetCommand([]string{"env", "DEBUG=true"})
+	if err != nil {
+		t.Fatalf("parseSetCommand: %v", err)
+	}
+	if cmd.SubCommand != "env" {
+		t.Errorf("SubCommand = %q, want %q", cmd.SubCommand, "env")
+	}
+	if cmd.Value != "DEBUG=true" {
+		t.Errorf("Value = %q, want %q", cmd.Value, "DEBUG=true")
+	}
+}
+
+// --- 13.4-CLI-005: [P1] parseSetCommand 无参数返回错误 ---
+
+func TestParseSetCommand_NoArgs(t *testing.T) {
+	_, err := parseSetCommand([]string{})
+	if err == nil {
+		t.Fatal("expected error for empty set command")
+	}
+}
+
+// --- 13.4-CLI-006: [P1] parseSetCommand 未知子命令返回错误 ---
+
+func TestParseSetCommand_UnknownSubCommand(t *testing.T) {
+	_, err := parseSetCommand([]string{"unknown", "value"})
+	if err == nil {
+		t.Fatal("expected error for unknown set subcommand")
+	}
+}
+
+// --- 13.4-CLI-007: [P1] parseSetCommand "set model" 无值返回错误 ---
+
+func TestParseSetCommand_ModelNoValue(t *testing.T) {
+	_, err := parseSetCommand([]string{"model"})
+	if err == nil {
+		t.Fatal("expected error for set model without value")
+	}
+}
+
+// --- 13.4-CLI-008: [P1] parseSetCommand "set context" 无 action 返回错误 ---
+
+func TestParseSetCommand_ContextNoAction(t *testing.T) {
+	_, err := parseSetCommand([]string{"context"})
+	if err == nil {
+		t.Fatal("expected error for set context without action")
+	}
+}
+
+// --- 13.4-CLI-009: [P1] parseSetCommand "set context append" 无文本返回错误 ---
+
+func TestParseSetCommand_ContextAppendNoText(t *testing.T) {
+	_, err := parseSetCommand([]string{"context", "append"})
+	if err == nil {
+		t.Fatal("expected error for set context append without text")
+	}
+}
+
+// --- 13.4-CLI-010: [P1] parseSetCommand "set skills" 无 action 返回错误 ---
+
+func TestParseSetCommand_SkillsNoAction(t *testing.T) {
+	_, err := parseSetCommand([]string{"skills"})
+	if err == nil {
+		t.Fatal("expected error for set skills without action")
+	}
+}
+
+// --- 13.4-CLI-011: [P1] parseSetCommand "set skills add" 无名称返回错误 ---
+
+func TestParseSetCommand_SkillsAddNoName(t *testing.T) {
+	_, err := parseSetCommand([]string{"skills", "add"})
+	if err == nil {
+		t.Fatal("expected error for set skills add without name")
+	}
+}
+
+// --- 13.4-CLI-012: [P1] parseSetCommand "set env" 无 KEY=VALUE 返回错误 ---
+
+func TestParseSetCommand_EnvNoKeyValue(t *testing.T) {
+	_, err := parseSetCommand([]string{"env"})
+	if err == nil {
+		t.Fatal("expected error for set env without KEY=VALUE")
+	}
+}
+
+// --- 13.4-CLI-012b: [P1] parseSetCommand "set env INVALID" 无等号返回错误 ---
+
+func TestParseSetCommand_EnvNoEquals(t *testing.T) {
+	_, err := parseSetCommand([]string{"env", "INVALID_NO_EQUALS"})
+	if err == nil {
+		t.Fatal("expected error for set env without = separator")
+	}
+}
+
+// --- 13.4-CLI-013: [P0] SetCommandResult 结构体字段完整 ---
+
+func TestSetCommandResult_Fields(t *testing.T) {
+	result := SetCommandResult{
+		SubCommand: "model",
+		Action:     "",
+		Value:      "sonnet",
+	}
+	if result.SubCommand != "model" {
+		t.Errorf("SubCommand = %q, want %q", result.SubCommand, "model")
+	}
+	if result.Value != "sonnet" {
+		t.Errorf("Value = %q, want %q", result.Value, "sonnet")
+	}
+}
+
+// --- 13.4-CLI-014: [P0] parseSetCommand "set context append" 多词文本拼接 ---
+
+func TestParseSetCommand_ContextAppendMultipleWords(t *testing.T) {
+	cmd, err := parseSetCommand([]string{"context", "append", "额外", "分析", "指令"})
+	if err != nil {
+		t.Fatalf("parseSetCommand: %v", err)
+	}
+	if cmd.SubCommand != "context" {
+		t.Errorf("SubCommand = %q, want %q", cmd.SubCommand, "context")
+	}
+	if cmd.Action != "append" {
+		t.Errorf("Action = %q, want %q", cmd.Action, "append")
+	}
+	// Multiple words after "append" should be joined with spaces
+	if cmd.Value != "额外 分析 指令" {
+		t.Errorf("Value = %q, want %q", cmd.Value, "额外 分析 指令")
+	}
+}

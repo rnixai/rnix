@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -674,6 +675,8 @@ func (s *Server) handleGdbCommand(conn net.Conn, rawPayload json.RawMessage) {
 		gcr = s.handleGdbStep(proc, req.Args)
 	case "inspect":
 		gcr = s.handleGdbInspect(proc, req.Args)
+	case "set":
+		gcr = s.handleGdbSet(proc, req.Args)
 	default:
 		gcr = GdbCommandResponse{OK: false, Message: fmt.Sprintf("unknown gdb command: %s", req.Command)}
 	}
@@ -779,6 +782,50 @@ func (s *Server) handleGdbInspect(proc *kernel.Process, args []string) GdbComman
 		}
 	default:
 		return GdbCommandResponse{OK: false, Message: fmt.Sprintf("unknown inspect target: %s (valid: context, ctx)", subCmd)}
+	}
+}
+
+// handleGdbSet handles the set command for runtime parameter hot modification.
+func (s *Server) handleGdbSet(proc *kernel.Process, args []string) GdbCommandResponse {
+	if len(args) < 2 {
+		return GdbCommandResponse{OK: false, Message: "usage: set <model|context|skills|env> <args...>"}
+	}
+	subCmd := args[0]
+	switch subCmd {
+	case "model":
+		proc.SetGdbModelOverride(args[1])
+		return GdbCommandResponse{OK: true, Message: fmt.Sprintf("model set to %s", args[1])}
+	case "context":
+		if len(args) < 3 {
+			return GdbCommandResponse{OK: false, Message: "usage: set context append <text>"}
+		}
+		if args[1] != "append" {
+			return GdbCommandResponse{OK: false, Message: "usage: set context append <text>"}
+		}
+		content := strings.Join(args[2:], " ")
+		if s.ctxMgr == nil {
+			return GdbCommandResponse{OK: false, Message: "context manager not available"}
+		}
+		if err := s.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, content); err != nil {
+			return GdbCommandResponse{OK: false, Message: fmt.Sprintf("context append failed: %v", err)}
+		}
+		return GdbCommandResponse{OK: true, Message: "context updated"}
+	case "skills":
+		if len(args) < 3 || args[1] != "add" {
+			return GdbCommandResponse{OK: false, Message: "usage: set skills add <name>"}
+		}
+		proc.AddGdbSkill(args[2])
+		return GdbCommandResponse{OK: true, Message: fmt.Sprintf("skill %s added", args[2])}
+	case "env":
+		kv := args[1]
+		idx := strings.Index(kv, "=")
+		if idx <= 0 {
+			return GdbCommandResponse{OK: false, Message: "usage: set env KEY=VALUE"}
+		}
+		proc.SetGdbEnv(kv[:idx], kv[idx+1:])
+		return GdbCommandResponse{OK: true, Message: fmt.Sprintf("env %s set", kv[:idx])}
+	default:
+		return GdbCommandResponse{OK: false, Message: fmt.Sprintf("unknown set target: %s", subCmd)}
 	}
 }
 
