@@ -1168,3 +1168,242 @@ func TestProcess_CheckBreakpoint_PerformanceSub100ms(t *testing.T) {
 		t.Errorf("CheckBreakpoint took %v, want <= 100ms (NFR31)", elapsed)
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 13.4: 运行时参数热修改
+//
+// Tests reference SetGdbModelOverride, GetGdbModelOverride,
+// SetGdbEnv, GetGdbEnvVars, AddGdbSkill, GetGdbExtraSkills
+// which do NOT exist yet → compile failure = RED phase.
+// ============================================================
+
+// --- 13.4-UNIT-001: [P0] SetGdbModelOverride + GetGdbModelOverride 基本设置/获取 ---
+
+func TestProcess_SetGdbModelOverride_Basic(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	// Default should be empty string (no override)
+	if got := proc.GetGdbModelOverride(); got != "" {
+		t.Errorf("default GdbModelOverride = %q, want empty", got)
+	}
+
+	// Set override
+	proc.SetGdbModelOverride("sonnet")
+	if got := proc.GetGdbModelOverride(); got != "sonnet" {
+		t.Errorf("GdbModelOverride = %q, want %q", got, "sonnet")
+	}
+}
+
+// --- 13.4-UNIT-002: [P0] SetGdbModelOverride 覆盖后再次设置新值 ---
+
+func TestProcess_SetGdbModelOverride_Overwrite(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetGdbModelOverride("sonnet")
+	proc.SetGdbModelOverride("opus")
+	if got := proc.GetGdbModelOverride(); got != "opus" {
+		t.Errorf("GdbModelOverride = %q, want %q", got, "opus")
+	}
+}
+
+// --- 13.4-UNIT-003: [P1] SetGdbModelOverride 设置空字符串清除覆盖 ---
+
+func TestProcess_SetGdbModelOverride_ClearWithEmpty(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetGdbModelOverride("sonnet")
+	proc.SetGdbModelOverride("")
+	if got := proc.GetGdbModelOverride(); got != "" {
+		t.Errorf("GdbModelOverride = %q, want empty (cleared)", got)
+	}
+}
+
+// --- 13.4-UNIT-004: [P0] SetGdbEnv + GetGdbEnvVars 基本设置/获取 ---
+
+func TestProcess_SetGdbEnv_Basic(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	// Default should be empty or nil map
+	vars := proc.GetGdbEnvVars()
+	if len(vars) != 0 {
+		t.Errorf("default GdbEnvVars len = %d, want 0", len(vars))
+	}
+
+	// Set a variable
+	proc.SetGdbEnv("DEBUG", "true")
+	vars = proc.GetGdbEnvVars()
+	if vars["DEBUG"] != "true" {
+		t.Errorf("GdbEnvVars[DEBUG] = %q, want %q", vars["DEBUG"], "true")
+	}
+}
+
+// --- 13.4-UNIT-005: [P0] SetGdbEnv 设置多个变量 ---
+
+func TestProcess_SetGdbEnv_Multiple(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetGdbEnv("DEBUG", "true")
+	proc.SetGdbEnv("VERBOSE", "1")
+	proc.SetGdbEnv("LOG_LEVEL", "debug")
+
+	vars := proc.GetGdbEnvVars()
+	if len(vars) != 3 {
+		t.Fatalf("GdbEnvVars len = %d, want 3", len(vars))
+	}
+	if vars["DEBUG"] != "true" {
+		t.Errorf("DEBUG = %q, want %q", vars["DEBUG"], "true")
+	}
+	if vars["VERBOSE"] != "1" {
+		t.Errorf("VERBOSE = %q, want %q", vars["VERBOSE"], "1")
+	}
+	if vars["LOG_LEVEL"] != "debug" {
+		t.Errorf("LOG_LEVEL = %q, want %q", vars["LOG_LEVEL"], "debug")
+	}
+}
+
+// --- 13.4-UNIT-006: [P0] SetGdbEnv 覆盖已有变量 ---
+
+func TestProcess_SetGdbEnv_Overwrite(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetGdbEnv("DEBUG", "true")
+	proc.SetGdbEnv("DEBUG", "false")
+
+	vars := proc.GetGdbEnvVars()
+	if vars["DEBUG"] != "false" {
+		t.Errorf("DEBUG = %q, want %q (overwritten)", vars["DEBUG"], "false")
+	}
+}
+
+// --- 13.4-UNIT-007: [P0] GetGdbEnvVars 返回副本，不暴露内部 map ---
+
+func TestProcess_GetGdbEnvVars_ReturnsCopy(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.SetGdbEnv("KEY", "value")
+
+	vars1 := proc.GetGdbEnvVars()
+	vars2 := proc.GetGdbEnvVars()
+
+	// Modifying one copy should not affect the other
+	vars1["KEY"] = "modified"
+	if vars2["KEY"] != "value" {
+		t.Error("GetGdbEnvVars should return independent copies")
+	}
+
+	// Original should also be unchanged
+	vars3 := proc.GetGdbEnvVars()
+	if vars3["KEY"] != "value" {
+		t.Error("GetGdbEnvVars should not be affected by external modifications")
+	}
+}
+
+// --- 13.4-UNIT-008: [P0] AddGdbSkill + GetGdbExtraSkills 基本添加/获取 ---
+
+func TestProcess_AddGdbSkill_Basic(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	// Default should be empty
+	skills := proc.GetGdbExtraSkills()
+	if len(skills) != 0 {
+		t.Errorf("default GdbExtraSkills len = %d, want 0", len(skills))
+	}
+
+	// Add a skill
+	proc.AddGdbSkill("code-review")
+	skills = proc.GetGdbExtraSkills()
+	if len(skills) != 1 {
+		t.Fatalf("GdbExtraSkills len = %d, want 1", len(skills))
+	}
+	if skills[0] != "code-review" {
+		t.Errorf("GdbExtraSkills[0] = %q, want %q", skills[0], "code-review")
+	}
+}
+
+// --- 13.4-UNIT-009: [P0] AddGdbSkill 幂等性 -- 重复添加不会重复 ---
+
+func TestProcess_AddGdbSkill_Idempotent(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.AddGdbSkill("code-review")
+	proc.AddGdbSkill("code-review")
+	proc.AddGdbSkill("code-review")
+
+	skills := proc.GetGdbExtraSkills()
+	if len(skills) != 1 {
+		t.Errorf("GdbExtraSkills len = %d, want 1 (idempotent)", len(skills))
+	}
+}
+
+// --- 13.4-UNIT-010: [P0] AddGdbSkill 添加多个不同 skill ---
+
+func TestProcess_AddGdbSkill_Multiple(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.AddGdbSkill("code-review")
+	proc.AddGdbSkill("security-audit")
+	proc.AddGdbSkill("performance-analysis")
+
+	skills := proc.GetGdbExtraSkills()
+	if len(skills) != 3 {
+		t.Fatalf("GdbExtraSkills len = %d, want 3", len(skills))
+	}
+}
+
+// --- 13.4-UNIT-011: [P0] GetGdbExtraSkills 返回副本，不暴露内部 slice ---
+
+func TestProcess_GetGdbExtraSkills_ReturnsCopy(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	proc.AddGdbSkill("code-review")
+
+	skills1 := proc.GetGdbExtraSkills()
+	skills2 := proc.GetGdbExtraSkills()
+
+	// Modifying one copy should not affect the other
+	if len(skills1) == 0 {
+		t.Fatal("expected at least 1 skill")
+	}
+	skills1[0] = "modified"
+	if skills2[0] != "code-review" {
+		t.Error("GetGdbExtraSkills should return independent copies")
+	}
+}
+
+// --- 13.4-UNIT-012: [P1] 并发安全测试 -- model override / env vars / skills ---
+
+func TestProcess_GdbRuntimeParams_Concurrent(t *testing.T) {
+	k := newSimpleKernel(t)
+	proc := newBreakpointTestProcess(t, k)
+
+	const n = 100
+	var wg sync.WaitGroup
+
+	for range n {
+		wg.Go(func() {
+			proc.SetGdbModelOverride("sonnet")
+			_ = proc.GetGdbModelOverride()
+			proc.SetGdbModelOverride("")
+
+			proc.SetGdbEnv("KEY", "value")
+			_ = proc.GetGdbEnvVars()
+
+			proc.AddGdbSkill("test-skill")
+			_ = proc.GetGdbExtraSkills()
+		})
+	}
+
+	wg.Wait()
+	// No race detected = pass (test runs with -race flag)
+}

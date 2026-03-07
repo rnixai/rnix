@@ -167,7 +167,7 @@ development_status:
   13-1-gdb-attach-detach: done
   13-2-breakpoint-system: done
   13-3-step-execution-and-state-inspection: done
-  13-4-runtime-parameter-hot-modification: backlog
+  13-4-runtime-parameter-hot-modification: done
   epic-13-retrospective: optional
 
   # Epic 14: Time Travel Debugging

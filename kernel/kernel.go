@@ -532,10 +532,15 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 
 		// Construct LLM request with full conversation history
+		// Apply gdb model override if set (Story 13.4)
+		model := opts.Model
+		if override := proc.GetGdbModelOverride(); override != "" {
+			model = override
+		}
 		req := llmRequest{
 			Intent:       proc.Intent,
 			SystemPrompt: promptResult.SystemPrompt,
-			Model:        opts.Model,
+			Model:        model,
 			MaxTurns:     0,
 			TimeoutMs:    opts.TimeoutMs,
 			Messages:     promptResult.Messages,
@@ -556,7 +561,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			k.emitEvent(proc, "Write", map[string]any{
 				"fd":    llmFD,
 				"size":  len(reqJSON),
-				"model": opts.Model,
+				"model": model,
 			}, nil, err, time.Since(writeStart))
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
@@ -568,7 +573,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		k.emitEvent(proc, "Write", map[string]any{
 			"fd":    llmFD,
 			"size":  len(reqJSON),
-			"model": opts.Model,
+			"model": model,
 		}, nil, nil, time.Since(writeStart))
 
 		// Read response from LLM device

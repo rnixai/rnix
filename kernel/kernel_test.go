@@ -2293,3 +2293,89 @@ func TestGetProcInfo_ConcurrentSafe(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// --- Story 13.4: GDB model override in reasonStep ---
+
+// TestReasonStep_GdbModelOverride verifies that when a gdb model override is set
+// on a process, the reasonStep loop uses the overridden model instead of opts.Model.
+func TestReasonStep_GdbModelOverride(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("gdb override test", 10),
+	}
+	var capturedReq llmRequest
+	captureLLM := &capturingLLMFile{
+		inner:       llmFile,
+		capturedReq: &capturedReq,
+	}
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return captureLLM, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("test gdb model override", nil, SpawnOpts{Model: "original-model"})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+
+	// Set gdb model override BEFORE the process completes its first step.
+	// Since the mock LLM returns a text response immediately, the process
+	// will complete in one step. We set the override before Spawn's goroutine
+	// starts (race-safe because SetGdbModelOverride is mutex-protected).
+	proc.SetGdbModelOverride("gdb-overridden-model")
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process to complete")
+	}
+
+	// The captured request should use the gdb override model, not opts.Model
+	if capturedReq.Model != "gdb-overridden-model" {
+		t.Errorf("expected gdb-overridden model %q in LLM request, got %q", "gdb-overridden-model", capturedReq.Model)
+	}
+}
+
+// TestReasonStep_GdbModelOverride_Empty verifies that when no gdb model override
+// is set, the reasonStep uses opts.Model as normal.
+func TestReasonStep_GdbModelOverride_Empty(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("no override test", 10),
+	}
+	var capturedReq llmRequest
+	captureLLM := &capturingLLMFile{
+		inner:       llmFile,
+		capturedReq: &capturedReq,
+	}
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return captureLLM, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("test no override", nil, SpawnOpts{Model: "original-model"})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	// Do NOT set gdb override — should use opts.Model
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process to complete")
+	}
+
+	if capturedReq.Model != "original-model" {
+		t.Errorf("expected original model %q, got %q", "original-model", capturedReq.Model)
+	}
+}

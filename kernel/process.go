@@ -73,9 +73,12 @@ type Process struct {
 	coIDCounter atomic.Uint64
 
 	// GDB breakpoint system (mu protected)
-	breakpoints []*Breakpoint
-	gdbPauseCh  chan struct{} // nil=not paused; non-nil=paused, close to resume
-	gdbStepMode StepMode     // current single-step mode (StepNone by default)
+	breakpoints      []*Breakpoint
+	gdbPauseCh       chan struct{} // nil=not paused; non-nil=paused, close to resume
+	gdbStepMode      StepMode     // current single-step mode (StepNone by default)
+	gdbModelOverride string       // empty = no override; non-empty = use this model for LLM requests
+	gdbEnvVars       map[string]string
+	gdbExtraSkills   []string
 
 	mu       sync.Mutex
 	cancel   context.CancelFunc
