@@ -397,7 +397,10 @@ func (s *Server) handleCtxGrowth(conn net.Conn, rawPayload json.RawMessage) {
 		currentStep = history[len(history)-1].Step
 	}
 
-	maxSteps := 50
+	maxSteps := info.MaxSteps
+	if maxSteps <= 0 {
+		maxSteps = 10 // fallback to kernel.DefaultMaxSteps
+	}
 	result := debug.PredictGrowth(info.PID, info.TokensUsed, info.ContextBudget, currentStep, maxSteps, history)
 
 	payload, err := json.Marshal(result)
@@ -1290,10 +1293,8 @@ func (s *Server) handleReplayLoad(conn net.Conn, rawPayload json.RawMessage) {
 }
 
 // handleForkContinue creates a new process from a fork context (fork-continue).
-// It allocates context, replays messages, creates a process, and registers it.
-// The process is created in Running state with the replayed context.
-// Note: The process does not enter a reasonStep loop in this implementation;
-// full LLM reasoning requires future integration with kernel.Spawn.
+// Context is pre-allocated and populated with replayed messages, then passed to
+// kernel.Spawn via PreallocatedCtxID + SkipReasonLoop to use the standard path.
 func (s *Server) handleForkContinue(conn net.Conn, rawPayload json.RawMessage) {
 	var req ForkContinueRequest
 	if err := json.Unmarshal(rawPayload, &req); err != nil {
@@ -1313,7 +1314,6 @@ func (s *Server) handleForkContinue(conn net.Conn, rawPayload json.RawMessage) {
 		if _, ok := s.kern.GetProcess(parentPID); ok {
 			ppidValid = true
 		} else {
-			// Original process no longer exists; spawn as top-level process
 			parentPID = 0
 		}
 	}
@@ -1329,7 +1329,6 @@ func (s *Server) handleForkContinue(conn net.Conn, rawPayload json.RawMessage) {
 			return
 		}
 
-		// Set system prompt
 		if req.SystemPrompt != "" {
 			if err := s.ctxMgr.SetSystemPrompt(cid, req.SystemPrompt); err != nil {
 				_ = s.ctxMgr.CtxFree(cid)
@@ -1338,10 +1337,9 @@ func (s *Server) handleForkContinue(conn net.Conn, rawPayload json.RawMessage) {
 			}
 		}
 
-		// Replay messages from the fork context
 		for i, msg := range req.Messages {
 			if msg.Role == "system" {
-				continue // system prompt already set
+				continue
 			}
 			if msg.ToolCallID != "" {
 				if err := s.ctxMgr.AppendToolResult(cid, msg.ToolCallID, msg.Content); err != nil {
@@ -1355,24 +1353,19 @@ func (s *Server) handleForkContinue(conn net.Conn, rawPayload json.RawMessage) {
 		}
 	}
 
-	// Create process after context is fully set up
-	proc := kernel.NewProcess(parentPID, req.Intent, nil)
-	if s.ctxMgr != nil {
-		proc.CtxID = cid
-	}
-
-	// Maintain parent-child tracking if parent exists
-	if parentPID > 0 {
-		if parent, ok := s.kern.GetProcess(parentPID); ok {
-			parent.AddChild(proc.PID)
+	// Use standard Spawn path with pre-allocated context and no reason loop
+	pid, err := s.kern.Spawn(req.Intent, nil, kernel.SpawnOpts{
+		ParentPID:         parentPID,
+		PreallocatedCtxID: cid,
+		SkipReasonLoop:    true,
+	})
+	if err != nil {
+		if cid != 0 {
+			_ = s.ctxMgr.CtxFree(cid)
 		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
+		return
 	}
-
-	// Register process in kernel and start it
-	s.kern.AddProcess(proc)
-	_ = proc.Start() // Created -> Running
-
-	pid := proc.PID
 
 	actualPPID := parentPID
 	if !ppidValid {

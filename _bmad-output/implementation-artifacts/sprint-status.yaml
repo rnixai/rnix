@@ -185,7 +185,7 @@ development_status:
   15-3-trace-blame-root-cause-analysis: done
   15-4-context-usage-analysis: done
   15-5-context-growth-prediction-and-alert: done
-  epic-15-retrospective: optional
+  epic-15-retrospective: done
 
   # Epic 16: Reasoning Regression Testing (agtest)
   epic-16: backlog

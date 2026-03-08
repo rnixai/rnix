@@ -34,6 +34,7 @@ type ProcInfo struct {
 	Skills         []string
 	TokensUsed     int
 	ContextBudget  int
+	MaxSteps       int
 	CreatedAt      time.Time
 	DeadAt         time.Time
 	CtxID          types.CtxID

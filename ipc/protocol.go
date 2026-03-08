@@ -95,6 +95,7 @@ type ProcInfoWire struct {
 	CtxID         types.CtxID        `json:"ctx_id"`
 	Result        string             `json:"result,omitempty"`
 	ContextBudget int                `json:"context_budget,omitempty"`
+	MaxSteps      int                `json:"max_steps,omitempty"`
 }
 
 // ProcInfoToWire converts a vfs.ProcInfo to wire format.
@@ -114,6 +115,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		CtxID:         p.CtxID,
 		Result:        p.Result,
 		ContextBudget: p.ContextBudget,
+		MaxSteps:      p.MaxSteps,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -134,6 +136,7 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		CtxID:         w.CtxID,
 		Result:        w.Result,
 		ContextBudget: w.ContextBudget,
+		MaxSteps:      w.MaxSteps,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)

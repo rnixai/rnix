@@ -47,6 +47,7 @@ type Process struct {
 	Result         string      // final output from reasoning
 	TokensUsed     int         // cumulative token consumption
 	ContextBudget  int         // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	MaxSteps       int         // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
 	AllowedDevices []string    // nil/empty = all devices allowed; non-empty = whitelist only
 	MCPMounts      []string    // MCP mount paths auto-mounted by Spawn
 	TraceID        types.TraceID

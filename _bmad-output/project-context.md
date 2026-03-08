@@ -4,7 +4,7 @@ user_name: 'Decker'
 date: '2026-02-23'
 sections_completed: ['technology_stack', 'language_rules', 'framework_rules', 'testing_rules', 'code_quality', 'workflow_rules', 'critical_rules']
 status: 'complete'
-rule_count: 75
+rule_count: 81
 optimized_for_llm: true
 ---
 
@@ -151,6 +151,23 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **IPC Server → Skill Loader**：通过 `s.skillLoader` 调用，用于 gdb set skills 热加载
 - **禁止 Context Manager 反向调用 Kernel 或 IPC**
 
+### IPC 扩展标准步骤
+
+新增 IPC 方法（如 `MethodCtxProfile`、`MethodCtxGrowth`）时，必须按以下 4 步顺序实现：
+
+1. **protocol.go** — 定义 Method 常量 + Request/Response 类型
+2. **server.go** — 注册 handler（`dispatch` map）+ 实现 `handleXxx` 方法
+3. **client.go** — 封装客户端调用方法（如 `Client.CtxProfile()`）
+4. **cmd/rnix/xxx.go** — 编写 CLI 入口（Cobra command），调用 client
+
+每步的产出文件独立可编译。跳步或合并步骤会增加错误定位难度。
+
+### CJK 字符处理检查
+
+- **Code Review 必检项**：所有涉及字符串截断（`TruncateString`）、对齐（`fmt.Sprintf` 对齐宽度）、终端表格渲染的代码，必须验证 CJK 字符（中日韩）处理正确性
+- **关键规则**：截断按 rune 计数（不按 byte），终端对齐考虑 CJK 字符占 2 列宽
+- **已知修复点**：`debug.TruncateString` 已在 Epic 14 改为 rune 截断
+
 ### 开发工作流规则
 
 #### 构建与验证
@@ -221,4 +238,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Review periodically for outdated rules
 - Remove rules that become obvious over time
 
-Last Updated: 2026-02-23
+Last Updated: 2026-03-08
