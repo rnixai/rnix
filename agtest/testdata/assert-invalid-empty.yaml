@@ -1,0 +1,7 @@
+version: "1.0"
+name: "invalid-empty-assert"
+intent: "some intent"
+agent:
+  name: "agent"
+assert:
+  output: {}

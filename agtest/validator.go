@@ -88,6 +88,9 @@ func Validate(suite *TestSuiteSpec, rawYAML []byte) error {
 				Line:    lineMap.lookupTest(i, "agent"),
 			})
 		}
+		if tc.Assert != nil {
+			errs = append(errs, validateAssertConfig(tc.Assert, prefix, lineMap, i)...)
+		}
 	}
 
 	if len(errs) > 0 {
@@ -181,6 +184,32 @@ func extractTestItems(node ast.Node) []map[string]int {
 		items = append(items, m)
 	}
 	return items
+}
+
+func validateAssertConfig(ac *AssertConfig, prefix string, lm *lineMap, idx int) ValidationErrors {
+	var errs ValidationErrors
+	if ac.Output != nil && len(ac.Output.Contains) == 0 && len(ac.Output.NotContains) == 0 {
+		errs = append(errs, ValidationError{
+			Field:   prefix + "assert.output",
+			Message: "contains and not_contains cannot both be empty",
+			Line:    lm.lookupTest(idx, "assert"),
+		})
+	}
+	if ac.Syscalls != nil && len(ac.Syscalls.Includes) == 0 && len(ac.Syscalls.Excludes) == 0 {
+		errs = append(errs, ValidationError{
+			Field:   prefix + "assert.syscalls",
+			Message: "includes and excludes cannot both be empty",
+			Line:    lm.lookupTest(idx, "assert"),
+		})
+	}
+	if ac.Quality != nil && ac.Quality.Criteria == "" {
+		errs = append(errs, ValidationError{
+			Field:   prefix + "assert.quality.criteria",
+			Message: "required when quality assertion is present",
+			Line:    lm.lookupTest(idx, "assert"),
+		})
+	}
+	return errs
 }
 
 func extractAgentSubKeys(mapping *ast.MappingNode, target map[string]int) {

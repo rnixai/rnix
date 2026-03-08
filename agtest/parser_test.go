@@ -3,6 +3,7 @@ package agtest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -206,6 +207,36 @@ func TestParseFile_NotFound(t *testing.T) {
 	_, err := ParseFile("testdata/nonexistent.yaml")
 	if err == nil {
 		t.Fatal("expected error for missing file, got nil")
+	}
+}
+
+func TestParseFile_AssertOutputOnlyFixture(t *testing.T) {
+	suite, err := ParseFile("testdata/assert-output-only.yaml")
+	if err != nil {
+		t.Fatalf("expected valid parse, got: %v", err)
+	}
+	if len(suite.Tests) != 1 {
+		t.Fatalf("expected 1 test, got %d", len(suite.Tests))
+	}
+	tc := suite.Tests[0]
+	if tc.Assert == nil || tc.Assert.Output == nil {
+		t.Fatal("assert.output should be present")
+	}
+	if len(tc.Assert.Output.Contains) != 1 || tc.Assert.Output.Contains[0] != "代码示例" {
+		t.Errorf("assert.output.contains = %v, want [代码示例]", tc.Assert.Output.Contains)
+	}
+	if len(tc.Assert.Output.NotContains) != 1 || tc.Assert.Output.NotContains[0] != "ERROR" {
+		t.Errorf("assert.output.not_contains = %v, want [ERROR]", tc.Assert.Output.NotContains)
+	}
+}
+
+func TestParseFile_AssertInvalidEmptyFixture(t *testing.T) {
+	_, err := ParseFile("testdata/assert-invalid-empty.yaml")
+	if err == nil {
+		t.Fatal("expected validation error for empty output assert, got nil")
+	}
+	if !strings.Contains(err.Error(), "assert.output") {
+		t.Errorf("error should mention assert.output, got: %v", err)
 	}
 }
 
