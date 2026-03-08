@@ -203,6 +203,151 @@ func TestTraceCmd_ValidTraceID_JSON(t *testing.T) {
 	}
 }
 
+// --- Blame subcommand tests ---
+
+func TestBlameCmd_ValidTraceID(t *testing.T) {
+	bt := time.Date(2026, 3, 8, 10, 0, 0, 0, time.UTC)
+	traces := map[types.TraceID][]*debug.Span{
+		"trace-blame1": {
+			{TraceID: "trace-blame1", SpanID: "s1", PID: 1, Name: "orchestrator",
+				StartTime: bt, EndTime: bt.Add(10 * time.Second), Duration: 10 * time.Second, TokensUsed: 800, Status: debug.SpanOK},
+			{TraceID: "trace-blame1", SpanID: "s2", ParentSpanID: "s1", PID: 2, Name: "analyst",
+				StartTime: bt.Add(time.Second), EndTime: bt.Add(4 * time.Second), Duration: 3 * time.Second, TokensUsed: 500, Status: debug.SpanOK},
+			{TraceID: "trace-blame1", SpanID: "s3", ParentSpanID: "s1", PID: 3, Name: "reviewer",
+				StartTime: bt.Add(2 * time.Second), EndTime: bt.Add(6 * time.Second), Duration: 4 * time.Second, TokensUsed: 200, Status: debug.SpanERROR},
+		},
+	}
+	dir := setupTraceTestDir(t, traces)
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	flagJSON = false
+	var buf strings.Builder
+	cmd := &cobra.Command{Use: "rnix"}
+	cmd.AddCommand(traceCmd)
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"trace", "blame", "trace-blame1"})
+	exitCode = 0
+	_ = cmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "Critical Path") {
+		t.Errorf("expected 'Critical Path' in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Duration Hotspots") {
+		t.Errorf("expected 'Duration Hotspots' in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Error Chains") {
+		t.Errorf("expected 'Error Chains' in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "[ROOT CAUSE]") {
+		t.Errorf("expected '[ROOT CAUSE]' in output, got:\n%s", output)
+	}
+}
+
+func TestBlameCmd_InvalidTraceID(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	flagJSON = false
+	var buf strings.Builder
+	cmd := &cobra.Command{Use: "rnix"}
+	cmd.AddCommand(traceCmd)
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"trace", "blame", "nonexistent-id"})
+	exitCode = 0
+	_ = cmd.Execute()
+
+	output := buf.String()
+	if !strings.Contains(output, "not found") {
+		t.Errorf("expected 'not found' error, got:\n%s", output)
+	}
+	if exitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", exitCode)
+	}
+}
+
+func TestBlameCmd_JSON(t *testing.T) {
+	bt := time.Date(2026, 3, 8, 10, 0, 0, 0, time.UTC)
+	traces := map[types.TraceID][]*debug.Span{
+		"trace-blame2": {
+			{TraceID: "trace-blame2", SpanID: "s1", PID: 1, Name: "root",
+				StartTime: bt, EndTime: bt.Add(5 * time.Second), Duration: 5 * time.Second, TokensUsed: 300, Status: debug.SpanOK},
+		},
+	}
+	dir := setupTraceTestDir(t, traces)
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	flagJSON = true
+	defer func() { flagJSON = false }()
+
+	var buf strings.Builder
+	cmd := &cobra.Command{Use: "rnix"}
+	cmd.AddCommand(traceCmd)
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"trace", "blame", "trace-blame2"})
+	exitCode = 0
+	_ = cmd.Execute()
+
+	output := strings.TrimSpace(buf.String())
+	var resp JSONResponse
+	if err := json.Unmarshal([]byte(output), &resp); err != nil {
+		t.Fatalf("failed to parse JSON response: %v\noutput: %s", err, output)
+	}
+	if !resp.OK {
+		t.Errorf("expected OK=true, got false")
+	}
+	if resp.Data == nil {
+		t.Error("expected non-nil Data")
+	}
+}
+
+func TestBlameCmd_AllOK(t *testing.T) {
+	bt := time.Date(2026, 3, 8, 10, 0, 0, 0, time.UTC)
+	traces := map[types.TraceID][]*debug.Span{
+		"trace-blame3": {
+			{TraceID: "trace-blame3", SpanID: "s1", PID: 1, Name: "root",
+				StartTime: bt, EndTime: bt.Add(5 * time.Second), Duration: 5 * time.Second, TokensUsed: 500, Status: debug.SpanOK},
+			{TraceID: "trace-blame3", SpanID: "s2", ParentSpanID: "s1", PID: 2, Name: "child",
+				StartTime: bt.Add(time.Second), EndTime: bt.Add(3 * time.Second), Duration: 2 * time.Second, TokensUsed: 300, Status: debug.SpanOK},
+		},
+	}
+	dir := setupTraceTestDir(t, traces)
+	origDir, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	flagJSON = false
+	var buf strings.Builder
+	cmd := &cobra.Command{Use: "rnix"}
+	cmd.AddCommand(traceCmd)
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"trace", "blame", "trace-blame3"})
+	exitCode = 0
+	_ = cmd.Execute()
+
+	output := buf.String()
+	if strings.Contains(output, "Error Chains") {
+		t.Errorf("expected NO 'Error Chains' for all-OK trace, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Duration Hotspots") {
+		t.Errorf("expected 'Duration Hotspots' even for all-OK trace, got:\n%s", output)
+	}
+}
+
 func TestTraceCmd_NoArgs_JSON(t *testing.T) {
 	bt := time.Date(2026, 3, 8, 10, 0, 0, 0, time.UTC)
 	traces := map[types.TraceID][]*debug.Span{
