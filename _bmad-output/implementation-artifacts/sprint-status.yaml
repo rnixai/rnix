@@ -192,7 +192,7 @@ development_status:
   16-1-declarative-test-case-definition: done
   16-2-three-assertion-types: done
   16-3-batch-test-run-and-report: done
-  epic-16-retrospective: optional
+  epic-16-retrospective: done
 
   # Epic 17: Visual Debugging Dashboard
   epic-17: backlog
