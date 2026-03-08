@@ -64,20 +64,6 @@ func buildForkTestEvents() []RecordEvent {
 	}
 }
 
-func buildForkTestEventsNoSpawn() []RecordEvent {
-	return []RecordEvent{
-		{SeqNum: 1, Timestamp: 100 * time.Millisecond, PID: 42, Type: RecordSyscall,
-			Syscall: &SyscallEventData{Syscall: "Open", Duration: 1 * time.Millisecond}},
-		{SeqNum: 2, Timestamp: 200 * time.Millisecond, PID: 42, Type: RecordContextSnapshot,
-			Context: &ContextSnapshotData{
-				SystemPromptHash: "aabb",
-				MessageCount:     2,
-				Messages:         []string{"[system] Hello", "[user] Hi"},
-				TokenEstimate:    500,
-			}},
-	}
-}
-
 // =============================================================================
 // SnapshotRestorer Tests (AC #1: fork restores context from snapshot)
 // =============================================================================
