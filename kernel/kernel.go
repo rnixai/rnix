@@ -39,10 +39,13 @@ type SpawnOpts struct {
 	SystemPrompt  string
 	MaxTurns      int
 	TimeoutMs     int64
-	ParentPID     types.PID // parent process PID; 0 = top-level/CLI spawn
-	ContextBudget int       // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	ParentPID     types.PID     // parent process PID; 0 = top-level/CLI spawn
+	ContextBudget int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
 	TraceID       types.TraceID // inherited trace ID; empty = no tracing
 	ParentSpanID  types.SpanID  // parent process span ID
+
+	PreallocatedCtxID types.CtxID // non-zero = skip CtxAlloc, use this pre-setup context
+	SkipReasonLoop    bool        // true = don't open LLM device or start reasonStep goroutine
 }
 
 // ActionType classifies LLM response actions.
@@ -202,6 +205,12 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	proc.ContextBudget = opts.ContextBudget
 
+	maxStepsForProc := DefaultMaxSteps
+	if opts.MaxTurns > 0 {
+		maxStepsForProc = opts.MaxTurns
+	}
+	proc.MaxSteps = maxStepsForProc
+
 	if opts.TraceID != "" {
 		proc.TraceID = opts.TraceID
 		proc.ParentSpanID = opts.ParentSpanID
@@ -211,100 +220,118 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		}
 	}
 
-	// Allocate context
-	ctxAllocStart := time.Now()
-	cid, err := k.ctxMgr.CtxAlloc(DefaultCtxSize)
-	k.emitEvent(proc, "CtxAlloc", map[string]any{
-		"size": DefaultCtxSize,
-	}, cid, err, time.Since(ctxAllocStart))
-	if err != nil {
-		return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
-	}
-	proc.CtxID = cid
+	var cid types.CtxID
+	var llmFD types.FD
 
-	// Set system prompt if provided
-	if opts.SystemPrompt != "" {
-		setPromptStart := time.Now()
-		if err := k.ctxMgr.SetSystemPrompt(cid, opts.SystemPrompt); err != nil {
+	if opts.PreallocatedCtxID != 0 {
+		// Use pre-allocated context (fork-continue path)
+		cid = opts.PreallocatedCtxID
+		proc.CtxID = cid
+	} else {
+		// Allocate context
+		ctxAllocStart := time.Now()
+		var err error
+		cid, err = k.ctxMgr.CtxAlloc(DefaultCtxSize)
+		k.emitEvent(proc, "CtxAlloc", map[string]any{
+			"size": DefaultCtxSize,
+		}, cid, err, time.Since(ctxAllocStart))
+		if err != nil {
+			return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
+		}
+		proc.CtxID = cid
+
+		// Set system prompt if provided
+		if opts.SystemPrompt != "" {
+			setPromptStart := time.Now()
+			if err := k.ctxMgr.SetSystemPrompt(cid, opts.SystemPrompt); err != nil {
+				k.emitEvent(proc, "CtxWrite", map[string]any{
+					"cid": cid,
+					"op":  "SetSystemPrompt",
+				}, nil, err, time.Since(setPromptStart))
+				_ = k.ctxMgr.CtxFree(cid)
+				return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
+			}
 			k.emitEvent(proc, "CtxWrite", map[string]any{
 				"cid": cid,
 				"op":  "SetSystemPrompt",
-			}, nil, err, time.Since(setPromptStart))
+			}, nil, nil, time.Since(setPromptStart))
+		}
+
+		// Append initial intent as user message
+		appendStart := time.Now()
+		if err := k.ctxMgr.AppendMessage(cid, rnixctx.RoleUser, intent); err != nil {
+			k.emitEvent(proc, "CtxWrite", map[string]any{
+				"cid":  cid,
+				"op":   "AppendMessage",
+				"role": string(rnixctx.RoleUser),
+			}, nil, err, time.Since(appendStart))
 			_ = k.ctxMgr.CtxFree(cid)
 			return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
 		}
 		k.emitEvent(proc, "CtxWrite", map[string]any{
-			"cid": cid,
-			"op":  "SetSystemPrompt",
-		}, nil, nil, time.Since(setPromptStart))
-	}
-
-	// Append initial intent as user message
-	appendStart := time.Now()
-	if err := k.ctxMgr.AppendMessage(cid, rnixctx.RoleUser, intent); err != nil {
-		k.emitEvent(proc, "CtxWrite", map[string]any{
 			"cid":  cid,
 			"op":   "AppendMessage",
 			"role": string(rnixctx.RoleUser),
-		}, nil, err, time.Since(appendStart))
-		_ = k.ctxMgr.CtxFree(cid)
-		return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
+		}, nil, nil, time.Since(appendStart))
 	}
-	k.emitEvent(proc, "CtxWrite", map[string]any{
-		"cid":  cid,
-		"op":   "AppendMessage",
-		"role": string(rnixctx.RoleUser),
-	}, nil, nil, time.Since(appendStart))
 
-	// Open LLM device via VFS
-	openStart := time.Now()
-	llmFD, err := k.vfs.Open(proc.PID, "/dev/llm/claude", vfs.O_RDWR)
-	k.emitEvent(proc, "Open", map[string]any{
-		"path":  "/dev/llm/claude",
-		"flags": vfs.O_RDWR,
-	}, llmFD, err, time.Since(openStart))
-	if err != nil {
-		_ = k.ctxMgr.CtxFree(cid)
-		return 0, NewSyscallError("Spawn", proc.PID, "/dev/llm/claude", err, types.ErrDriver)
-	}
-	proc.FDTable[llmFD] = nil // VFS manages actual file internally; tracks FD existence for process inspection
-
-	// Auto-mount MCP servers referenced in agent.yaml (Story 9.2)
-	if agent != nil && len(agent.MCPConfigs) > 0 {
-		if k.mountMgr == nil {
-			_ = k.vfs.CloseAll(proc.PID)
-			_ = k.ctxMgr.CtxFree(cid)
-			return 0, NewSyscallError("Spawn", proc.PID, "",
-				fmt.Errorf("mount manager not initialized but agent requires MCP servers"), types.ErrInternal)
+	if !opts.SkipReasonLoop {
+		// Open LLM device via VFS
+		openStart := time.Now()
+		var err error
+		llmFD, err = k.vfs.Open(proc.PID, "/dev/llm/claude", vfs.O_RDWR)
+		k.emitEvent(proc, "Open", map[string]any{
+			"path":  "/dev/llm/claude",
+			"flags": vfs.O_RDWR,
+		}, llmFD, err, time.Since(openStart))
+		if err != nil {
+			if opts.PreallocatedCtxID == 0 {
+				_ = k.ctxMgr.CtxFree(cid)
+			}
+			return 0, NewSyscallError("Spawn", proc.PID, "/dev/llm/claude", err, types.ErrDriver)
 		}
-		var mountedPaths []string
-		for _, mcpCfg := range agent.MCPConfigs {
-			mountPath := fmt.Sprintf("/mnt/mcp/%d-%s", proc.PID, mcpCfg.ServerName)
-			mountStart := time.Now()
-			if err := k.mountMgr.Mount(mountPath, mcpCfg); err != nil {
+		proc.FDTable[llmFD] = nil // VFS manages actual file internally; tracks FD existence for process inspection
+
+		// Auto-mount MCP servers referenced in agent.yaml (Story 9.2)
+		if agent != nil && len(agent.MCPConfigs) > 0 {
+			if k.mountMgr == nil {
+				_ = k.vfs.CloseAll(proc.PID)
+				if opts.PreallocatedCtxID == 0 {
+					_ = k.ctxMgr.CtxFree(cid)
+				}
+				return 0, NewSyscallError("Spawn", proc.PID, "",
+					fmt.Errorf("mount manager not initialized but agent requires MCP servers"), types.ErrInternal)
+			}
+			var mountedPaths []string
+			for _, mcpCfg := range agent.MCPConfigs {
+				mountPath := fmt.Sprintf("/mnt/mcp/%d-%s", proc.PID, mcpCfg.ServerName)
+				mountStart := time.Now()
+				if err := k.mountMgr.Mount(mountPath, mcpCfg); err != nil {
+					k.emitEvent(proc, "Mount", map[string]any{
+						"path": mountPath,
+						"auto": true,
+					}, nil, err, time.Since(mountStart))
+					for _, p := range mountedPaths {
+						_ = k.mountMgr.Unmount(p)
+					}
+					_ = k.vfs.CloseAll(proc.PID)
+					if opts.PreallocatedCtxID == 0 {
+						_ = k.ctxMgr.CtxFree(cid)
+					}
+					return 0, NewSyscallError("Spawn", proc.PID, mountPath,
+						fmt.Errorf("auto-mount mcp %q failed: %w", mcpCfg.ServerName, err), types.ErrDriver)
+				}
 				k.emitEvent(proc, "Mount", map[string]any{
 					"path": mountPath,
 					"auto": true,
-				}, nil, err, time.Since(mountStart))
-				// Rollback already-mounted paths
-				for _, p := range mountedPaths {
-					_ = k.mountMgr.Unmount(p)
-				}
-				_ = k.vfs.CloseAll(proc.PID)
-				_ = k.ctxMgr.CtxFree(cid)
-				return 0, NewSyscallError("Spawn", proc.PID, mountPath,
-					fmt.Errorf("auto-mount mcp %q failed: %w", mcpCfg.ServerName, err), types.ErrDriver)
+				}, nil, nil, time.Since(mountStart))
+				mountedPaths = append(mountedPaths, mountPath)
 			}
-			k.emitEvent(proc, "Mount", map[string]any{
-				"path": mountPath,
-				"auto": true,
-			}, nil, nil, time.Since(mountStart))
-			mountedPaths = append(mountedPaths, mountPath)
+			proc.mu.Lock()
+			proc.MCPMounts = mountedPaths
+			proc.AllowedDevices = append(proc.AllowedDevices, mountedPaths...)
+			proc.mu.Unlock()
 		}
-		proc.mu.Lock()
-		proc.MCPMounts = mountedPaths
-		proc.AllowedDevices = append(proc.AllowedDevices, mountedPaths...)
-		proc.mu.Unlock()
 	}
 
 	// Set up goroutine context for cancellation
@@ -330,17 +357,25 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			spawnArgs["mcp_mounts"] = proc.MCPMounts
 		}
 	}
+	if opts.SkipReasonLoop {
+		spawnArgs["skip_reason_loop"] = true
+	}
 	k.emitEvent(proc, "Spawn", spawnArgs, proc.PID, nil, time.Since(start))
 
-	// Launch reasoning goroutine
-	// Note: CtxFree deferred to Wait/Reap (Story 4.1) per resource release order
-	proc.wg.Add(1)
-	go func() {
-		defer proc.wg.Done()
-		defer func() { _ = k.vfs.CloseAll(proc.PID) }()
+	if opts.SkipReasonLoop {
+		// No reasoning goroutine — process starts in Running state immediately
 		_ = proc.Start() // Created → Running
-		k.reasonStep(proc, llmFD, opts)
-	}()
+	} else {
+		// Launch reasoning goroutine
+		// Note: CtxFree deferred to Wait/Reap (Story 4.1) per resource release order
+		proc.wg.Add(1)
+		go func() {
+			defer proc.wg.Done()
+			defer func() { _ = k.vfs.CloseAll(proc.PID) }()
+			_ = proc.Start() // Created → Running
+			k.reasonStep(proc, llmFD, opts)
+		}()
+	}
 
 	// Notify callback after process is registered and goroutine launched
 	if k.callbacks != nil {
@@ -698,32 +733,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			k.spanRecorder.RecordTokens(proc.PID, resp.TokensUsed)
 		}
 
-		if budget > 0 && tokens < budget {
-			remainPct := float64(budget-tokens) / float64(budget) * 100
-			if remainPct < 20 {
-				avgRate := float64(tokens) / float64(step)
-				estRemain := 0
-				if avgRate > 0 {
-					estRemain = int(float64(budget-tokens) / avgRate)
-				}
-				level := "warning"
-				if remainPct < 10 {
-					level = "critical"
-				}
-				k.emitLog(proc, step, types.LogWarning,
-					fmt.Sprintf("Budget %s: %d/%d (%.0f%% remaining, ~%d steps left)",
-						level, tokens, budget, remainPct, estRemain), "")
-				k.emitEvent(proc, "ReasonStep", map[string]any{
-					"step":          step,
-					"action":        "budget_warning",
-					"tokens":        tokens,
-					"budget":        budget,
-					"remaining_pct": remainPct,
-					"est_remaining": estRemain,
-					"alert_level":   level,
-				}, nil, nil, 0)
-			}
-		}
+		k.checkBudgetWarning(proc, step, tokens, budget)
 
 		if budget > 0 && tokens >= budget {
 			k.emitLog(proc, step, types.LogOutput,
@@ -1096,6 +1106,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		Skills:         append([]string(nil), proc.Skills...),
 		TokensUsed:     proc.TokensUsed,
 		ContextBudget:  proc.ContextBudget,
+		MaxSteps:       proc.MaxSteps,
 		CreatedAt:      proc.CreatedAt,
 		DeadAt:         proc.DeadAt,
 		CtxID:          proc.CtxID,
@@ -1333,4 +1344,37 @@ func (k *KernelImpl) Unmount(path string) error {
 		return NewSyscallError("Unmount", 0, path, err, types.ErrDriver)
 	}
 	return nil
+}
+
+// checkBudgetWarning emits warning/critical log and event when context budget
+// is nearing exhaustion. Extracted from reasonStep to enable integration testing.
+func (k *KernelImpl) checkBudgetWarning(proc *Process, step, tokens, budget int) {
+	if budget <= 0 || tokens >= budget {
+		return
+	}
+	remainPct := float64(budget-tokens) / float64(budget) * 100
+	if remainPct >= 20 {
+		return
+	}
+	avgRate := float64(tokens) / float64(step)
+	estRemain := 0
+	if avgRate > 0 {
+		estRemain = int(float64(budget-tokens) / avgRate)
+	}
+	level := "warning"
+	if remainPct < 10 {
+		level = "critical"
+	}
+	k.emitLog(proc, step, types.LogWarning,
+		fmt.Sprintf("Budget %s: %d/%d (%.0f%% remaining, ~%d steps left)",
+			level, tokens, budget, remainPct, estRemain), "")
+	k.emitEvent(proc, "ReasonStep", map[string]any{
+		"step":          step,
+		"action":        "budget_warning",
+		"tokens":        tokens,
+		"budget":        budget,
+		"remaining_pct": remainPct,
+		"est_remaining": estRemain,
+		"alert_level":   level,
+	}, nil, nil, 0)
 }

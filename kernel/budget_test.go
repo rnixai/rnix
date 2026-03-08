@@ -568,3 +568,141 @@ func TestSpawn_WithAgent_UsesBudgetFromManifest(t *testing.T) {
 		t.Errorf("expected ContextBudget 4096 from agent manifest, got %d", proc.ContextBudget)
 	}
 }
+
+// --- 15.5-INT: Budget Warning integration tests ---
+
+func TestBudgetWarning_EmitsWarningLevel(t *testing.T) {
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &mockLLMFile{readData: makeLLMResponse("done", 850)}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("warning test", nil, SpawnOpts{ContextBudget: 1000})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	var foundWarningLog bool
+	for {
+		select {
+		case entry := <-proc.LogChan:
+			if entry.Category == types.LogWarning && strings.Contains(entry.Content, "Budget warning") {
+				foundWarningLog = true
+			}
+		default:
+			goto drainedWarn
+		}
+	}
+drainedWarn:
+	if !foundWarningLog {
+		t.Error("expected LogWarning entry with 'Budget warning'")
+	}
+
+	events := drainEvents(proc.DebugChan)
+	var foundWarningEvent bool
+	for _, ev := range events {
+		if ev.Syscall == "ReasonStep" {
+			if action, ok := ev.Args["action"]; ok && action == "budget_warning" {
+				if level, ok := ev.Args["alert_level"]; ok && level == "warning" {
+					foundWarningEvent = true
+				}
+			}
+		}
+	}
+	if !foundWarningEvent {
+		t.Error("expected ReasonStep event with action=budget_warning and alert_level=warning")
+	}
+}
+
+func TestBudgetWarning_EmitsCriticalLevel(t *testing.T) {
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return &mockLLMFile{readData: makeLLMResponse("done", 920)}, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("critical test", nil, SpawnOpts{ContextBudget: 1000})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out")
+	}
+
+	events := drainEvents(proc.DebugChan)
+	var foundCritical bool
+	for _, ev := range events {
+		if ev.Syscall == "ReasonStep" {
+			if action, ok := ev.Args["action"]; ok && action == "budget_warning" {
+				if level, ok := ev.Args["alert_level"]; ok && level == "critical" {
+					foundCritical = true
+				}
+			}
+		}
+	}
+	if !foundCritical {
+		t.Error("expected ReasonStep event with action=budget_warning and alert_level=critical")
+	}
+}
+
+func TestCheckBudgetWarning_NoEmitAboveThreshold(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	proc := NewProcess(0, "threshold test", nil)
+	proc.ContextBudget = 1000
+	k.AddProcess(proc)
+
+	k.checkBudgetWarning(proc, 1, 700, 1000)
+
+	select {
+	case entry := <-proc.LogChan:
+		t.Errorf("no log expected for 30%% remaining, got: %+v", entry)
+	default:
+	}
+}
+
+func TestCheckBudgetWarning_EstimatedStepsLeft(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	proc := NewProcess(0, "steps test", nil)
+	proc.ContextBudget = 1000
+	k.AddProcess(proc)
+
+	k.checkBudgetWarning(proc, 5, 850, 1000)
+
+	var foundLog bool
+	for {
+		select {
+		case entry := <-proc.LogChan:
+			if entry.Category == types.LogWarning && strings.Contains(entry.Content, "~0 steps left") {
+				foundLog = true
+			}
+		default:
+			goto drainedSteps
+		}
+	}
+drainedSteps:
+	if !foundLog {
+		t.Error("expected warning log with estimated steps left")
+	}
+}

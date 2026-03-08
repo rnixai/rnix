@@ -11,11 +11,27 @@ import (
 )
 
 const (
-	activeWindowSize = 4
-	warmWindowSize   = 6
-	leakedThreshold  = 1000
-	topConsumersN    = 5
+	minActiveWindow = 4
+	minWarmWindow   = 6
+	leakedThreshold = 1000
+	topConsumersN   = 5
 )
+
+func activeWindowSize(n int) int {
+	adaptive := n / 5 // 20% of messages
+	if adaptive > minActiveWindow {
+		return adaptive
+	}
+	return minActiveWindow
+}
+
+func warmWindowSize(n int) int {
+	adaptive := n * 3 / 10 // 30% of messages
+	if adaptive > minWarmWindow {
+		return adaptive
+	}
+	return minWarmWindow
+}
 
 // CtxProfileResult holds the analysis results for a process context.
 type CtxProfileResult struct {
@@ -107,8 +123,8 @@ func classifyMessages(data *ContextData, sysTokens, totalTokens int) Classificat
 	n := len(data.Messages)
 	var result ClassificationResult
 
-	activeStart := max(0, n-activeWindowSize)
-	warmStart := max(0, activeStart-warmWindowSize)
+	activeStart := max(0, n-activeWindowSize(n))
+	warmStart := max(0, activeStart-warmWindowSize(n))
 
 	// Active: system prompt + last activeWindowSize messages
 	activeTokens := sysTokens
@@ -391,10 +407,6 @@ func (r *CtxProfileResult) MarshalJSON() ([]byte, error) {
 	if suggestions == nil {
 		suggestions = []string{}
 	}
-	if consumers == nil {
-		consumers = []consumerJSON{}
-	}
-
 	out := resultJSON{
 		PID:           r.PID,
 		CtxID:         r.CtxID,
