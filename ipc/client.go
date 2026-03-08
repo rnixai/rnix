@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -67,6 +68,19 @@ func (c *Client) ListProcs() ([]vfs.ProcInfo, error) {
 		result[i] = WireToProcInfo(w)
 	}
 	return result, nil
+}
+
+// CtxProfile returns context profiling results for the given PID.
+func (c *Client) CtxProfile(pid types.PID) (*debug.CtxProfileResult, error) {
+	resp, err := c.call(MethodCtxProfile, CtxProfileRequest{PID: pid})
+	if err != nil {
+		return nil, err
+	}
+	var result debug.CtxProfileResult
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal ctx_profile: %w", err)
+	}
+	return &result, nil
 }
 
 // Kill sends a kill signal to the specified process.

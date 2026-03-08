@@ -19,6 +19,7 @@ import (
 
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
 	"github.com/rnixai/rnix/kernel"
@@ -266,6 +267,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		case MethodExecScript:
 			s.handleExecScript(conn, req.Payload)
 			return // streaming method
+		case MethodCtxProfile:
+			s.handleCtxProfile(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -289,6 +292,75 @@ func (s *Server) handleListProcs(conn net.Conn) {
 	}
 	payload, _ := json.Marshal(ListProcsResponse{Processes: wireProcs})
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleCtxProfile(conn net.Conn, rawPayload json.RawMessage) {
+	var req CtxProfileRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid ctx_profile request"}})
+		return
+	}
+
+	info, err := s.kern.GetProcInfo(req.PID)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		return
+	}
+
+	if info.State != types.StateRunning && info.State != types.StateZombie {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{
+			Code:    "INVALID",
+			Message: fmt.Sprintf("process %d is in %s state; ctx-profile requires running or zombie", req.PID, info.State),
+		}})
+		return
+	}
+
+	if s.ctxMgr == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: "context manager not available"}})
+		return
+	}
+
+	// NFR34: analysis must complete within 1s
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	type ctxProfileResult struct {
+		payload []byte
+		err     error
+	}
+	done := make(chan ctxProfileResult, 1)
+	go func() {
+		rawCtx, err := s.ctxMgr.CtxRead(info.CtxID, 0, 0)
+		if err != nil {
+			done <- ctxProfileResult{err: fmt.Errorf("failed to read context: %w", err)}
+			return
+		}
+
+		var ctxData debug.ContextData
+		if err := json.Unmarshal(rawCtx, &ctxData); err != nil {
+			done <- ctxProfileResult{err: fmt.Errorf("failed to parse context: %w", err)}
+			return
+		}
+
+		result := debug.AnalyzeContext(&ctxData, info.PID, info.CtxID, info.TokensUsed, info.ContextBudget)
+		payload, err := json.Marshal(result)
+		if err != nil {
+			done <- ctxProfileResult{err: fmt.Errorf("failed to marshal result: %w", err)}
+			return
+		}
+		done <- ctxProfileResult{payload: payload}
+	}()
+
+	select {
+	case r := <-done:
+		if r.err != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: r.err.Error()}})
+			return
+		}
+		writeResponse(conn, Response{OK: true, Payload: r.payload})
+	case <-ctx.Done():
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "ctx-profile analysis timed out (NFR34: 1s limit)"}})
+	}
 }
 
 func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {
