@@ -1,0 +1,5 @@
+version: "1.0"
+name: "basic-greeting"
+intent: "向用户打招呼"
+agent:
+  name: "greeter"

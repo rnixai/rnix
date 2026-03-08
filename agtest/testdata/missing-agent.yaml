@@ -1,0 +1,5 @@
+version: "1.0"
+name: "no-agent-test"
+intent: "向用户打招呼"
+agent:
+  model: "claude-sonnet-4-20250514"

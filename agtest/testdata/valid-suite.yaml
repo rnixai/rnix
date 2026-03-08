@@ -1,0 +1,16 @@
+version: "1.0"
+name: "greeter-suite"
+tests:
+  - name: "basic-greeting"
+    intent: "向用户打招呼"
+    agent:
+      name: "greeter"
+  - name: "farewell"
+    intent: "向用户告别"
+    agent:
+      name: "greeter"
+  - name: "recommendation"
+    intent: "推荐一本书"
+    agent:
+      name: "recommender"
+      model: "claude-haiku-4-20250514"

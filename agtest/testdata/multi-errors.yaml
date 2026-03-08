@@ -1,0 +1,4 @@
+version: "1.0"
+name: "multi-error-test"
+agent:
+  model: "claude-sonnet-4-20250514"

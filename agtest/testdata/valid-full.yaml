@@ -1,0 +1,25 @@
+version: "1.0"
+name: "full-greeting-test"
+intent: "向用户打招呼并推荐一首歌"
+agent:
+  name: "greeter"
+  model: "claude-sonnet-4-20250514"
+  skills:
+    - "politeness"
+    - "music-knowledge"
+  context_budget: 4096
+timeout: 30000
+assert:
+  output:
+    contains:
+      - "你好"
+      - "歌曲"
+    not_contains:
+      - "ERROR"
+  syscalls:
+    includes:
+      - "CtxWrite"
+    excludes:
+      - "Kill"
+  quality:
+    criteria: "输出必须包含问候语和歌曲推荐"
