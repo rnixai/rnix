@@ -83,6 +83,19 @@ func (c *Client) CtxProfile(pid types.PID) (*debug.CtxProfileResult, error) {
 	return &result, nil
 }
 
+// CtxGrowth returns context growth prediction for the given PID.
+func (c *Client) CtxGrowth(pid types.PID) (*debug.GrowthPrediction, error) {
+	resp, err := c.call(MethodCtxGrowth, CtxGrowthRequest{PID: pid})
+	if err != nil {
+		return nil, err
+	}
+	var result debug.GrowthPrediction
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal ctx_growth: %w", err)
+	}
+	return &result, nil
+}
+
 // Kill sends a kill signal to the specified process.
 func (c *Client) Kill(pid types.PID, signal types.Signal) error {
 	_, err := c.call(MethodKill, KillRequest{PID: pid, Signal: signal})

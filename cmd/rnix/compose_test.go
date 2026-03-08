@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/rnixai/rnix/agents"
 	"github.com/rnixai/rnix/compose"
 	"github.com/rnixai/rnix/internal/types"
@@ -21,6 +20,7 @@ import (
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
+	"github.com/spf13/cobra"
 )
 
 // --- Story 7.2: rnix compose up Command Tests ---

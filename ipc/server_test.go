@@ -1798,3 +1798,81 @@ func TestServer_ForkContinue_EmptyMessages(t *testing.T) {
 		t.Error("expected non-zero PID even with empty messages")
 	}
 }
+
+// --- 15-5: ctx_growth handler tests ---
+
+func TestServer_CtxGrowth_InvalidPID(t *testing.T) {
+	_, sockPath, _ := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodCtxGrowth, CtxGrowthRequest{PID: 999})
+	if resp.OK {
+		t.Fatal("ctx_growth should fail for nonexistent PID")
+	}
+	if resp.Error == nil {
+		t.Fatal("error should not be nil")
+	}
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("code = %q, want NOT_FOUND", resp.Error.Code)
+	}
+}
+
+func TestServer_CtxGrowth_WrongState(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-ctx-growth-created", nil)
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodCtxGrowth, CtxGrowthRequest{PID: proc.PID})
+	if resp.OK {
+		t.Fatal("ctx_growth should fail for non-Running process")
+	}
+	if resp.Error == nil {
+		t.Fatal("error should not be nil")
+	}
+	if resp.Error.Code != "INVALID" {
+		t.Errorf("code = %q, want INVALID", resp.Error.Code)
+	}
+}
+
+func TestServer_CtxGrowth_ValidPID_Running(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-ctx-growth", nil)
+	_ = proc.Start()
+	proc.TokensUsed = 1500
+	proc.ContextBudget = 8000
+	proc.AppendTokenSnapshot(1, 500)
+	proc.AppendTokenSnapshot(2, 1000)
+	proc.AppendTokenSnapshot(3, 1500)
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodCtxGrowth, CtxGrowthRequest{PID: proc.PID})
+	if !resp.OK {
+		t.Fatalf("ctx_growth failed: %+v", resp.Error)
+	}
+
+	var result debug.GrowthPrediction
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if result.PID != proc.PID {
+		t.Errorf("PID = %d, want %d", result.PID, proc.PID)
+	}
+	if result.TokensUsed != 1500 {
+		t.Errorf("TokensUsed = %d, want 1500", result.TokensUsed)
+	}
+	if result.ContextBudget != 8000 {
+		t.Errorf("ContextBudget = %d, want 8000", result.ContextBudget)
+	}
+	if result.AlertLevel != "none" {
+		t.Errorf("AlertLevel = %q, want 'none'", result.AlertLevel)
+	}
+	if len(result.History) != 3 {
+		t.Errorf("History len = %d, want 3", len(result.History))
+	}
+}

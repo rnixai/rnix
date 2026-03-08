@@ -371,7 +371,7 @@ func (m topModel) View() tea.View {
 			tokens = fmt.Sprintf("%s/%s",
 				ui.FormatTokens(row.proc.TokensUsed),
 				ui.FormatTokens(row.proc.ContextBudget))
-			if row.proc.TokensUsed >= row.proc.ContextBudget*90/100 {
+			if row.proc.TokensUsed >= row.proc.ContextBudget*80/100 {
 				tokens = ui.WarningStyle.Render(tokens)
 			}
 		} else {

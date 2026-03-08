@@ -15,7 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
@@ -30,6 +29,7 @@ import (
 	agentshell "github.com/rnixai/rnix/shell"
 	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
+	"github.com/spf13/cobra"
 )
 
 var version = "0.1.0"
