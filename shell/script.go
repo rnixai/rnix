@@ -586,8 +586,10 @@ func countStagesInBlock(stmts []Statement) int {
 				n++
 			}
 		case StmtIf:
-			n += countStagesInBlock(stmt.If.Then)
-			n += countStagesInBlock(stmt.If.Else)
+			thenCount := countStagesInBlock(stmt.If.Then)
+			elseCount := countStagesInBlock(stmt.If.Else)
+			// Only one branch executes at runtime; use max for upper-bound estimate.
+			n += max(thenCount, elseCount)
 		}
 	}
 	return n

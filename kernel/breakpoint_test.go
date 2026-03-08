@@ -1,5 +1,23 @@
 package kernel
 
+// Testing pattern: GdbPause / WaitIfPaused / channel-close pause
+//
+// GdbPause blocks the calling goroutine until GdbResume is called (it waits on
+// a freshly created channel that is closed by GdbResume). Tests that exercise
+// this mechanism MUST call GdbPause from a background goroutine, otherwise the
+// test itself deadlocks. The standard pattern is:
+//
+//	pauseDone := make(chan struct{})
+//	go func() {
+//	    proc.GdbPause("reason", bp)
+//	    close(pauseDone)
+//	}()
+//	// ... trigger resume ...
+//	<-pauseDone
+//
+// The same applies to any function that internally calls WaitIfPaused (e.g.,
+// reasonStep hooks). Always keep the blocking call off the test goroutine.
+
 import (
 	gocontext "context"
 	"regexp"

@@ -553,11 +553,27 @@ func TestFormatContextDiffJSON(t *testing.T) {
 	}
 
 	// Verify required fields
-	requiredFields := []string{"from_seq_num", "to_seq_num", "system_prompt", "messages", "token_delta"}
+	requiredFields := []string{"from_seq_num", "to_seq_num", "from_timestamp_ms", "to_timestamp_ms", "system_prompt", "messages", "token_delta"}
 	for _, field := range requiredFields {
 		if _, ok := parsed[field]; !ok {
 			t.Fatalf("missing required field %q in JSON output: %s", field, string(data))
 		}
+	}
+
+	// Verify timestamps are in milliseconds (not nanoseconds)
+	fromTS, ok := parsed["from_timestamp_ms"].(float64)
+	if !ok {
+		t.Fatalf("from_timestamp_ms is not a number: %s", string(data))
+	}
+	if fromTS != 300 {
+		t.Fatalf("from_timestamp_ms: got %v, want 300", fromTS)
+	}
+	toTS, ok := parsed["to_timestamp_ms"].(float64)
+	if !ok {
+		t.Fatalf("to_timestamp_ms is not a number: %s", string(data))
+	}
+	if toTS != 1800 {
+		t.Fatalf("to_timestamp_ms: got %v, want 1800", toTS)
 	}
 }
 

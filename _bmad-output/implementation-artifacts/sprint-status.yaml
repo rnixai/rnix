@@ -176,7 +176,7 @@ development_status:
   14-2-recording-replay-and-navigation: done
   14-3-context-snapshot-diff: done
   14-4-fork-continue-branch-exploration: done
-  epic-14-retrospective: optional
+  epic-14-retrospective: done
 
   # Epic 15: Distributed Tracing & Context Analysis
   epic-15: backlog

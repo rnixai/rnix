@@ -42,15 +42,15 @@ type Request struct {
 
 // Response is the top-level IPC response envelope (NDJSON).
 type Response struct {
-	OK      bool            `json:"ok"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-	Error   *ErrorPayload   `json:"error,omitempty"`
+	OK      bool            `json:"ok"`              // Required. True if the request succeeded.
+	Payload json.RawMessage `json:"payload,omitempty"` // Optional. Contains the method-specific response struct (JSON).
+	Error   *ErrorPayload   `json:"error,omitempty"`   // Optional. Present only when OK is false.
 }
 
 // ErrorPayload carries structured error information across IPC.
 type ErrorPayload struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    string `json:"code"`    // Required. Machine-readable error code (e.g., "not_found", "already_recording").
+	Message string `json:"message"` // Required. Human-readable error description.
 }
 
 // --- Spawn ---
@@ -200,9 +200,9 @@ type GdbCommandRequest struct {
 
 // GdbCommandResponse carries the result of a gdb command.
 type GdbCommandResponse struct {
-	OK      bool   `json:"ok"`
-	Message string `json:"message,omitempty"`
-	Data    any    `json:"data,omitempty"`
+	OK      bool   `json:"ok"`                // Required. True if the gdb command succeeded.
+	Message string `json:"message,omitempty"` // Optional. Human-readable result or error description.
+	Data    any    `json:"data,omitempty"`    // Optional. Command-specific result data (varies by gdb command).
 }
 
 // GdbEvent carries a single event on a gdb streaming connection.
@@ -369,7 +369,7 @@ type RecordStartRequest struct {
 
 // RecordStartResponse is the response for MethodRecordStart.
 type RecordStartResponse struct {
-	RecordID string `json:"record_id"`
+	RecordID string `json:"record_id"` // Required. Unique recording identifier in "<pid>-<unix_timestamp>" format.
 }
 
 // RecordStopRequest is the payload for MethodRecordStop.
@@ -379,23 +379,23 @@ type RecordStopRequest struct {
 
 // RecordStopResponse is the response for MethodRecordStop.
 type RecordStopResponse struct {
-	EventCount uint64 `json:"event_count"`
+	EventCount uint64 `json:"event_count"` // Required. Total number of events captured during the recording.
 }
 
 // RecordListResponse is the response for MethodRecordList.
 type RecordListResponse struct {
-	Records []RecordMetadataWire `json:"records"`
+	Records []RecordMetadataWire `json:"records"` // Required. List of all recording sessions (may be empty).
 }
 
 // RecordMetadataWire is the wire-format representation of debug.RecordMetadata.
 type RecordMetadataWire struct {
-	RecordID   string    `json:"record_id"`
-	PID        types.PID `json:"pid"`
-	Intent     string    `json:"intent"`
-	StartTime  int64     `json:"start_time_ms"`
-	EndTime    int64     `json:"end_time_ms,omitempty"`
-	EventCount uint64    `json:"event_count"`
-	Status     string    `json:"status"`
+	RecordID   string    `json:"record_id"`              // Required. Unique recording identifier.
+	PID        types.PID `json:"pid"`                    // Required. PID of the recorded process.
+	Intent     string    `json:"intent"`                 // Required. Original intent of the recorded process.
+	StartTime  int64     `json:"start_time_ms"`          // Required. Recording start time as Unix milliseconds.
+	EndTime    int64     `json:"end_time_ms,omitempty"`  // Optional. Recording end time; zero if still recording.
+	EventCount uint64    `json:"event_count"`            // Required. Number of events captured so far.
+	Status     string    `json:"status"`                 // Required. One of "recording", "completed", "stopped".
 }
 
 // --- Replay ---
@@ -407,22 +407,22 @@ type ReplayLoadRequest struct {
 
 // ReplayLoadResponse is the response for MethodReplayLoad.
 type ReplayLoadResponse struct {
-	RecordID    string    `json:"record_id"`
-	PID         types.PID `json:"pid"`
-	Intent      string    `json:"intent"`
-	EventCount  int       `json:"event_count"`
-	StartTimeMs int64     `json:"start_time_ms"`
-	EndTimeMs   int64     `json:"end_time_ms"`
-	Status      string    `json:"status"`
+	RecordID    string    `json:"record_id"`     // Required. The loaded recording's identifier.
+	PID         types.PID `json:"pid"`           // Required. PID of the recorded process.
+	Intent      string    `json:"intent"`        // Required. Original intent of the recorded process.
+	EventCount  int       `json:"event_count"`   // Required. Total number of events in the recording.
+	StartTimeMs int64     `json:"start_time_ms"` // Required. Recording start time as Unix milliseconds.
+	EndTimeMs   int64     `json:"end_time_ms"`   // Required. Recording end time as Unix milliseconds.
+	Status      string    `json:"status"`        // Required. One of "completed", "stopped".
 }
 
 // --- Fork Continue ---
 
 // ForkContinueMessage represents a single message in a fork-continue request.
 type ForkContinueMessage struct {
-	Role       string `json:"role"`
-	Content    string `json:"content"`
-	ToolCallID string `json:"tool_call_id,omitempty"`
+	Role       string `json:"role"`                    // Required. One of "user", "assistant", "system", "tool".
+	Content    string `json:"content"`                 // Required. Message text content.
+	ToolCallID string `json:"tool_call_id,omitempty"`  // Optional. Tool call ID for role="tool" messages.
 }
 
 // ForkMessageWire is an alias for ForkContinueMessage for backward compatibility.
@@ -430,17 +430,17 @@ type ForkMessageWire = ForkContinueMessage
 
 // ForkContinueRequest is the payload for MethodForkContinue.
 type ForkContinueRequest struct {
-	Intent       string                `json:"intent"`
-	SystemPrompt string                `json:"system_prompt"`
-	Messages     []ForkContinueMessage `json:"messages"`
-	OriginalPID  uint64                `json:"original_pid"`
+	Intent       string                `json:"intent"`        // Required. Intent for the new forked process.
+	SystemPrompt string                `json:"system_prompt"` // Required. System prompt to set on the new context.
+	Messages     []ForkContinueMessage `json:"messages"`      // Required. Message history to replay into the new context.
+	OriginalPID  uint64                `json:"original_pid"`  // Required. PID of the original recorded process (used as PPID).
 }
 
 // ForkContinueResponse is the response for MethodForkContinue.
 type ForkContinueResponse struct {
-	PID      types.PID `json:"pid"`
-	PPID     types.PID `json:"ppid"`
-	PPIDValid bool     `json:"ppid_valid"`
+	PID       types.PID `json:"pid"`        // Required. PID of the newly created forked process.
+	PPID      types.PID `json:"ppid"`       // Required. Parent PID (OriginalPID if valid, 0 otherwise).
+	PPIDValid bool      `json:"ppid_valid"` // Required. True if OriginalPID process still exists in the process table.
 }
 
 // --- Socket Path ---
