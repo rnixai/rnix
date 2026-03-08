@@ -3,6 +3,7 @@ package debug
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -29,28 +30,24 @@ func (f *SnapshotFinder) HasSnapshots() bool {
 
 // FindNearestBefore finds the nearest context_snapshot event at or before the given SeqNum.
 // If seqNum itself is a context_snapshot, it is returned directly.
-// Searches backward from seqNum to find the most recent snapshot.
+// Uses binary search to locate the position, then searches backward for a snapshot.
 func (f *SnapshotFinder) FindNearestBefore(seqNum uint64) (*RecordEvent, error) {
 	if len(f.events) == 0 {
 		return nil, fmt.Errorf("no context snapshot found before SeqNum %d", seqNum)
 	}
 
-	// Find the starting index: last event with SeqNum <= seqNum
-	startIdx := -1
-	for i := range f.events {
-		if f.events[i].SeqNum <= seqNum {
-			startIdx = i
-		} else {
-			break
-		}
-	}
+	// Binary search: find the index of the first event with SeqNum > seqNum.
+	// All events before that index have SeqNum <= seqNum.
+	idx := sort.Search(len(f.events), func(i int) bool {
+		return f.events[i].SeqNum > seqNum
+	})
 
-	if startIdx < 0 {
+	if idx == 0 {
 		return nil, fmt.Errorf("no context snapshot found before SeqNum %d", seqNum)
 	}
 
-	// Search backward from startIdx for a context_snapshot
-	for i := startIdx; i >= 0; i-- {
+	// Search backward from idx-1 for a context_snapshot
+	for i := idx - 1; i >= 0; i-- {
 		if f.events[i].Type == RecordContextSnapshot {
 			return &f.events[i], nil
 		}
@@ -128,10 +125,7 @@ func ComputeContextDiff(from, to *ContextSnapshotData, fromEv, toEv *RecordEvent
 func computeMessagesDiff(from, to []string) MessagesDiff {
 	// Find the common prefix length
 	commonLen := 0
-	maxCommon := len(from)
-	if len(to) < maxCommon {
-		maxCommon = len(to)
-	}
+	maxCommon := min(len(from), len(to))
 	for i := 0; i < maxCommon; i++ {
 		if from[i] == to[i] {
 			commonLen++
@@ -205,9 +199,30 @@ func FormatContextDiff(diff *ContextDiff) string {
 	return b.String()
 }
 
+// contextDiffJSON is the JSON-serializable form of ContextDiff with timestamps in milliseconds.
+type contextDiffJSON struct {
+	FromSeqNum      uint64       `json:"from_seq_num"`
+	ToSeqNum        uint64       `json:"to_seq_num"`
+	FromTimestampMs int64        `json:"from_timestamp_ms"`
+	ToTimestampMs   int64        `json:"to_timestamp_ms"`
+	SystemPrompt    PromptDiff   `json:"system_prompt"`
+	Messages        MessagesDiff `json:"messages"`
+	TokenDelta      TokenDelta   `json:"token_delta"`
+}
+
 // FormatContextDiffJSON returns the ContextDiff as JSON bytes.
+// Timestamps are serialized as milliseconds (consistent with IPC wire format).
 func FormatContextDiffJSON(diff *ContextDiff) ([]byte, error) {
-	return json.Marshal(diff)
+	wire := contextDiffJSON{
+		FromSeqNum:      diff.FromSeqNum,
+		ToSeqNum:        diff.ToSeqNum,
+		FromTimestampMs: diff.FromTimestamp.Milliseconds(),
+		ToTimestampMs:   diff.ToTimestamp.Milliseconds(),
+		SystemPrompt:    diff.SystemPrompt,
+		Messages:        diff.Messages,
+		TokenDelta:      diff.TokenDelta,
+	}
+	return json.Marshal(wire)
 }
 
 // formatDelta formats an integer delta as "+N" or "-N" or "+0".

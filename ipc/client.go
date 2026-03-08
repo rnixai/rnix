@@ -15,8 +15,7 @@ import (
 type Client struct {
 	conn       net.Conn
 	scanner    *bufio.Scanner
-	gdbDone    chan struct{} // closed when gdb event stream ends
-	socketPath string       // saved for SendDetach (separate connection)
+	socketPath string // saved for SendDetach (separate connection)
 }
 
 // Dial connects to the daemon at the given socket path.
@@ -461,7 +460,6 @@ func (c *Client) AttachGdb(pid types.PID, onEvent func(GdbEvent)) (*AttachGdbRes
 
 	// Stream events in background goroutine
 	done := make(chan struct{})
-	c.gdbDone = done
 	go func() {
 		defer close(done)
 		for c.scanner.Scan() {
