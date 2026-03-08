@@ -27,7 +27,20 @@ Trace data is read from local .rnix/traces/ directory (no daemon required).`,
 	RunE: runTrace,
 }
 
+var blameCmd = &cobra.Command{
+	Use:   "blame <trace-id>",
+	Short: "Analyze trace to find bottlenecks and root causes",
+	Long: `Analyze a distributed trace to identify performance bottlenecks and error root causes.
+
+Shows critical path analysis, duration/token hotspots, and error propagation chains.`,
+	Example: `  rnix trace blame abcdef1234567890          Analyze trace
+  rnix trace blame abcdef1234567890 --json   JSON output`,
+	Args: cobra.ExactArgs(1),
+	RunE: runBlame,
+}
+
 func init() {
+	traceCmd.AddCommand(blameCmd)
 	rootCmd.AddCommand(traceCmd)
 }
 
@@ -102,6 +115,50 @@ func runTraceView(w interface{ Write([]byte) (int, error) }, reader *debug.SpanR
 	}
 
 	fmt.Fprint(w, debug.FormatTraceTree(tree, flagVerbose))
+	return nil
+}
+
+func runBlame(cmd *cobra.Command, args []string) error {
+	w := cmd.OutOrStdout()
+	reader := debug.NewSpanReader(findTraceBaseDir())
+	traceID := types.TraceID(args[0])
+
+	spans, err := reader.ReadSpans(traceID)
+	if err != nil {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": err.Error()}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintf(w, "[trace] error: %v\n", err)
+		}
+		exitCode = 1
+		return nil
+	}
+
+	if len(spans) == 0 {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": fmt.Sprintf("trace %q not found", traceID)}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintf(w, "[trace] error: trace %q not found\n", traceID)
+		}
+		exitCode = 1
+		return nil
+	}
+
+	tree := debug.BuildSpanTree(spans)
+	result := debug.AnalyzeTrace(tree)
+
+	if flagJSON {
+		resp := JSONResponse{OK: true, Data: result}
+		data, _ := json.Marshal(resp)
+		fmt.Fprintln(w, string(data))
+		return nil
+	}
+
+	fmt.Fprint(w, debug.FormatBlameResult(result))
 	return nil
 }
 
