@@ -180,6 +180,68 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		case "help", "h":
 			printReplayHelp(w)
 
+		case "diff":
+			if len(parts) < 2 {
+				if jsonMode {
+					resp := JSONResponse{OK: false, Error: map[string]string{"message": "usage: diff <seq1> <seq2> or diff <seq>"}}
+					data, _ := json.Marshal(resp)
+					fmt.Fprintln(w, string(data))
+				} else {
+					fmt.Fprintln(w, "[replay] usage: diff <seq1> <seq2> or diff <seq>")
+				}
+			} else if len(parts) == 2 {
+				// diff <seq> — diff from cursor
+				seq, parseErr := strconv.ParseUint(parts[1], 10, 64)
+				if parseErr != nil {
+					if jsonMode {
+						resp := JSONResponse{OK: false, Error: map[string]string{"message": fmt.Sprintf("invalid seq_num: %s", parts[1])}}
+						data, _ := json.Marshal(resp)
+						fmt.Fprintln(w, string(data))
+					} else {
+						fmt.Fprintf(w, "[replay] invalid seq_num: %s\n", parts[1])
+					}
+				} else {
+					d, diffErr := session.DiffFromCursor(seq)
+					if diffErr != nil {
+						if jsonMode {
+							resp := JSONResponse{OK: false, Error: map[string]string{"message": diffErr.Error()}}
+							data, _ := json.Marshal(resp)
+							fmt.Fprintln(w, string(data))
+						} else {
+							fmt.Fprintf(w, "[replay] %v\n", diffErr)
+						}
+					} else {
+						printDiffResult(w, d, jsonMode)
+					}
+				}
+			} else {
+				// diff <seq1> <seq2>
+				seq1, parseErr1 := strconv.ParseUint(parts[1], 10, 64)
+				seq2, parseErr2 := strconv.ParseUint(parts[2], 10, 64)
+				if parseErr1 != nil || parseErr2 != nil {
+					if jsonMode {
+						resp := JSONResponse{OK: false, Error: map[string]string{"message": "usage: diff <seq1> <seq2>"}}
+						data, _ := json.Marshal(resp)
+						fmt.Fprintln(w, string(data))
+					} else {
+						fmt.Fprintln(w, "[replay] usage: diff <seq1> <seq2>")
+					}
+				} else {
+					d, diffErr := session.Diff(seq1, seq2)
+					if diffErr != nil {
+						if jsonMode {
+							resp := JSONResponse{OK: false, Error: map[string]string{"message": diffErr.Error()}}
+							data, _ := json.Marshal(resp)
+							fmt.Fprintln(w, string(data))
+						} else {
+							fmt.Fprintf(w, "[replay] %v\n", diffErr)
+						}
+					} else {
+						printDiffResult(w, d, jsonMode)
+					}
+				}
+			}
+
 		case "quit", "q":
 			if !jsonMode {
 				fmt.Fprintln(w, "[replay] session ended.")
@@ -224,9 +286,26 @@ func printReplayHelp(w interface{ Write([]byte) (int, error) }) {
 	fmt.Fprintln(w, "  prev / p            - Backward one event")
 	fmt.Fprintln(w, "  goto <seq_num>      - Jump to event by sequence number")
 	fmt.Fprintln(w, "  list / l            - Show events around current position")
+	fmt.Fprintln(w, "  diff <seq1> <seq2>  - Compare context at two time points")
+	fmt.Fprintln(w, "  diff <seq>          - Compare context at cursor vs time point")
 	fmt.Fprintln(w, "  info / i            - Show recording summary")
 	fmt.Fprintln(w, "  help / h            - Show this help")
 	fmt.Fprintln(w, "  quit / q            - Exit replay")
+}
+
+func printDiffResult(w interface{ Write([]byte) (int, error) }, d *debug.ContextDiff, jsonMode bool) {
+	if jsonMode {
+		data, err := debug.FormatContextDiffJSON(d)
+		if err != nil {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": err.Error()}}
+			errData, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(errData))
+			return
+		}
+		fmt.Fprintln(w, string(data))
+		return
+	}
+	fmt.Fprint(w, debug.FormatContextDiff(d))
 }
 
 func findRecordBaseDir() string {

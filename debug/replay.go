@@ -75,6 +75,46 @@ func (s *ReplaySession) Position() (current int, total int) {
 	return s.cursor, s.reader.EventCount()
 }
 
+// Diff computes the context difference between two SeqNums.
+// It finds the nearest context_snapshot at or before each SeqNum and computes the diff.
+func (s *ReplaySession) Diff(seq1, seq2 uint64) (*ContextDiff, error) {
+	finder := NewSnapshotFinder(s.reader.Events())
+	if !finder.HasSnapshots() {
+		return nil, fmt.Errorf("no context snapshots available in this recording")
+	}
+
+	fromEv, err := finder.FindNearestBefore(seq1)
+	if err != nil {
+		return nil, fmt.Errorf("diff: %w", err)
+	}
+	toEv, err := finder.FindNearestBefore(seq2)
+	if err != nil {
+		return nil, fmt.Errorf("diff: %w", err)
+	}
+
+	if fromEv.Context == nil {
+		return nil, fmt.Errorf("diff: context snapshot #%d has no context data", fromEv.SeqNum)
+	}
+	if toEv.Context == nil {
+		return nil, fmt.Errorf("diff: context snapshot #%d has no context data", toEv.SeqNum)
+	}
+
+	return ComputeContextDiff(fromEv.Context, toEv.Context, fromEv, toEv), nil
+}
+
+// DiffFromCursor computes the context difference between the cursor position and a target SeqNum.
+// Uses the nearest context_snapshot before the cursor position and the nearest before the target.
+func (s *ReplaySession) DiffFromCursor(seq uint64) (*ContextDiff, error) {
+	if s.cursor < 0 {
+		return nil, fmt.Errorf("replay: no current event (not started)")
+	}
+
+	events := s.reader.Events()
+	cursorSeqNum := events[s.cursor].SeqNum
+
+	return s.Diff(cursorSeqNum, seq)
+}
+
 // List returns a window of events around the current cursor position.
 // The context parameter controls how many events before and after the cursor to include.
 func (s *ReplaySession) List(context int) []ReplayListItem {
