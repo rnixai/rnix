@@ -46,6 +46,8 @@ type ComposeSpawnOpts struct {
 	ParentPID     types.PID
 	ContextBudget int
 	TimeoutMs     int64
+	TraceID       types.TraceID
+	ParentSpanID  types.SpanID
 }
 
 // ComposeExitStatus records a process exit status for compose.
@@ -60,6 +62,9 @@ type KernelSpawner interface {
 	Spawn(intent string, agent *agents.AgentInfo, opts ComposeSpawnOpts) (types.PID, error)
 	Wait(pid types.PID) (ComposeExitStatus, error)
 	GetProcessResult(pid types.PID) (string, bool)
+	// GetSpanID returns the SpanID for a completed process (for trace parent-child, Story 15.1).
+	// Returns false if the process has no SpanID or is unknown.
+	GetSpanID(pid types.PID) (types.SpanID, bool)
 }
 
 // AgentLoaderFunc loads an agent definition by name.

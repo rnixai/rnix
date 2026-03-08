@@ -1,9 +1,12 @@
 package kernel
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 )
 
@@ -15,6 +18,27 @@ const DeadProcessTTL = 60 * time.Second
 // even if both Wait and the reaper goroutine try concurrently.
 func (k *KernelImpl) reapProcess(proc *Process) {
 	proc.reapOnce.Do(func() {
+		proc.mu.Lock()
+		traceID := proc.TraceID
+		exit := proc.Exit
+		proc.mu.Unlock()
+
+		if traceID != "" && k.spanRecorder != nil {
+			status := debug.SpanOK
+			if exit != nil && exit.Err != nil {
+				status = debug.SpanERROR
+			}
+			var se *SyscallError
+			var de *types.DriverError
+			if exit != nil && exit.Err != nil &&
+				((errors.As(exit.Err, &se) && se.Code == types.ErrTimeout) ||
+					(errors.As(exit.Err, &de) && de.Code == types.ErrTimeout) ||
+					strings.Contains(strings.ToLower(exit.Reason), "timeout")) {
+				status = debug.SpanTIMEOUT
+			}
+			k.spanRecorder.EndSpan(proc.PID, status)
+		}
+
 		// Auto-stop recording if active (Story 14.1)
 		if k.recordMgr != nil && k.recordMgr.IsRecording(proc.PID) {
 			_ = k.recordMgr.StopRecording(proc.PID)

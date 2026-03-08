@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -19,6 +20,8 @@ type Message struct {
 	Seq       types.MsgSeq
 	Data      []byte
 	CreatedAt time.Time
+	TraceID   types.TraceID
+	SpanID    types.SpanID
 }
 
 // IPCManager defines the kernel's inter-process communication interface.
@@ -125,13 +128,19 @@ func (k *KernelImpl) Send(senderPID, targetPID types.PID, data []byte) error {
 			fmt.Errorf("target process %d is %s", targetPID, state), types.ErrNotFound)
 	}
 
-	// Build message (copy data to prevent caller mutation)
+	senderProc.mu.Lock()
+	traceID := senderProc.TraceID
+	spanID := senderProc.SpanID
+	senderProc.mu.Unlock()
+
 	msg := &Message{
 		FromPID:   senderPID,
 		ToPID:     targetPID,
 		Seq:       types.MsgSeq(k.msgSeq.Add(1)),
 		Data:      append([]byte(nil), data...),
 		CreatedAt: time.Now(),
+		TraceID:   traceID,
+		SpanID:    spanID,
 	}
 
 	// Enqueue to target's message queue
@@ -173,6 +182,23 @@ func (k *KernelImpl) Recv(pid types.PID) (*Message, error) {
 		"msg_size": len(msg.Data),
 		"msg_seq":  msg.Seq,
 	}, msg, nil, time.Since(start))
+
+	if msg.TraceID != "" && k.spanRecorder != nil {
+		proc.mu.Lock()
+		if proc.TraceID == "" {
+			proc.TraceID = msg.TraceID
+			proc.SpanID = debug.GenerateSpanID()
+			proc.ParentSpanID = msg.SpanID
+			intent := proc.Intent
+			traceID := proc.TraceID
+			spanID := proc.SpanID
+			parentSpanID := proc.ParentSpanID
+			proc.mu.Unlock()
+			k.spanRecorder.StartSpan(proc.PID, traceID, spanID, parentSpanID, intent)
+		} else {
+			proc.mu.Unlock()
+		}
+	}
 
 	return msg, nil
 }

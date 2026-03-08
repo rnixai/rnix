@@ -31,7 +31,8 @@ type mockKernelSpawner struct {
 	pidAlloc   uint64
 	results    map[types.PID]mockExecResult
 	getResults map[types.PID]string
-	spawnErr   error // if set, all Spawn calls return this error
+	spanIDs    map[types.PID]types.SpanID // pid -> spanID for ParentSpanID propagation tests
+	spawnErr   error                      // if set, all Spawn calls return this error
 }
 
 type mockExecResult struct {
@@ -45,6 +46,7 @@ func newMockKernelSpawner() *mockKernelSpawner {
 	return &mockKernelSpawner{
 		results:    make(map[types.PID]mockExecResult),
 		getResults: make(map[types.PID]string),
+		spanIDs:    make(map[types.PID]types.SpanID),
 	}
 }
 
@@ -57,6 +59,10 @@ func (m *mockKernelSpawner) Spawn(intent string, agent *agents.AgentInfo, opts C
 	m.pidAlloc++
 	pid := types.PID(m.pidAlloc)
 	m.spawned = append(m.spawned, mockSpawnRecord{intent: intent, agent: agent, opts: opts})
+	// Assign deterministic SpanID for ParentSpanID propagation tests (Story 15.1)
+	if opts.TraceID != "" {
+		m.spanIDs[pid] = types.SpanID(fmt.Sprintf("span-%d", pid))
+	}
 	return pid, nil
 }
 
@@ -82,6 +88,13 @@ func (m *mockKernelSpawner) GetProcessResult(pid types.PID) (string, bool) {
 	defer m.mu.Unlock()
 	r, ok := m.getResults[pid]
 	return r, ok
+}
+
+func (m *mockKernelSpawner) GetSpanID(pid types.PID) (types.SpanID, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.spanIDs[pid]
+	return s, ok
 }
 
 func (m *mockKernelSpawner) getSpawnOrder() []string {
@@ -411,6 +424,46 @@ func TestEngine_Execute_OutputPassthrough(t *testing.T) {
 	}
 	if !strings.Contains(bOpts.SystemPrompt, "analysis result from A") {
 		t.Fatalf("B's SystemPrompt should contain A's output, got: %q", bOpts.SystemPrompt)
+	}
+}
+
+// TestEngine_Execute_ParentSpanIDPropagation verifies AC#1: dependent nodes get ParentSpanID from upstream (Story 15.1).
+func TestEngine_Execute_ParentSpanIDPropagation(t *testing.T) {
+	spec := &ComposeSpec{
+		Version: "1.0",
+		Intent:  "trace parent-child",
+		Agents: map[string]*AgentSpec{
+			"a": {Intent: "root agent"},
+			"b": {Intent: "child agent", DependsOn: map[string]string{"a": "completed"}},
+		},
+	}
+	ks := newMockKernelSpawner()
+
+	engine, err := NewEngine(spec, ks, mockAgentLoader)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+
+	results, err := engine.Execute(context.Background())
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	spawned := ks.spawned
+	if len(spawned) < 2 {
+		t.Fatalf("expected at least 2 spawns, got %d", len(spawned))
+	}
+	// Agent A (first spawn) should have empty ParentSpanID
+	if spawned[0].opts.ParentSpanID != "" {
+		t.Errorf("root agent A: expected empty ParentSpanID, got %q", spawned[0].opts.ParentSpanID)
+	}
+	// Agent B (second spawn) should have ParentSpanID = A's SpanID
+	expectedParent := types.SpanID("span-1") // mock assigns "span-<pid>" for pid 1
+	if spawned[1].opts.ParentSpanID != expectedParent {
+		t.Errorf("child agent B: expected ParentSpanID=%q, got %q", expectedParent, spawned[1].opts.ParentSpanID)
 	}
 }
 

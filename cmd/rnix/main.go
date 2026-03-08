@@ -976,6 +976,8 @@ func wireToSyscallEvent(sew ipc.SyscallEventWire) types.SyscallEvent {
 		Args:      sew.Args,
 		Result:    sew.Result,
 		Duration:  time.Duration(sew.DurationMs * float64(time.Millisecond)),
+		TraceID:   types.TraceID(sew.TraceID),
+		SpanID:    types.SpanID(sew.SpanID),
 	}
 	if sew.Error != "" {
 		e.Err = errors.New(sew.Error)
@@ -1031,6 +1033,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	recordBaseDir := cwd + "/.rnix/records"
 	recordMgr := debug.NewRecordManager(recordBaseDir)
 	k.SetRecordManager(recordMgr)
+
+	// Initialize span persistence (Story 15.1)
+	traceBaseDir := cwd + "/.rnix/traces"
+	k.SetSpanWriter(debug.NewSpanWriter(traceBaseDir))
 
 	srv.SetKernel(k)
 	srv.SetContextManager(ctxMgr)

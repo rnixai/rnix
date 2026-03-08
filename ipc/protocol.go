@@ -63,6 +63,8 @@ type SpawnRequest struct {
 	MaxSteps      int    `json:"max_steps,omitempty"`
 	ContextBudget int    `json:"context_budget,omitempty"`
 	TimeoutMs     int64  `json:"timeout_ms,omitempty"`
+	TraceID       string `json:"trace_id,omitempty"`
+	ParentSpanID  string `json:"parent_span_id,omitempty"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.
@@ -276,6 +278,7 @@ type ProgressPayload struct {
 	ExitCode   int    `json:"exit_code,omitempty"`
 	ExitReason string `json:"exit_reason,omitempty"`
 	TokensUsed int    `json:"tokens_used,omitempty"`
+	SpanID     string `json:"span_id,omitempty"` // Process SpanID for trace parent-child (Story 15.1)
 
 	// OnError
 	ErrorMessage string `json:"error_message,omitempty"`
@@ -290,6 +293,8 @@ type SyscallEventWire struct {
 	Result      any            `json:"result,omitempty"`
 	Error       string         `json:"error,omitempty"`
 	DurationMs  float64        `json:"duration_ms"`
+	TraceID     string         `json:"trace_id,omitempty"`
+	SpanID      string         `json:"span_id,omitempty"`
 }
 
 // SyscallEventToWire converts a types.SyscallEvent to wire format.
@@ -301,6 +306,8 @@ func SyscallEventToWire(e types.SyscallEvent) SyscallEventWire {
 		Args:        e.Args,
 		Result:      e.Result,
 		DurationMs:  float64(e.Duration.Microseconds()) / 1000.0,
+		TraceID:     string(e.TraceID),
+		SpanID:      string(e.SpanID),
 	}
 	if e.Err != nil {
 		w.Error = e.Err.Error()

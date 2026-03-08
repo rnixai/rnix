@@ -179,8 +179,8 @@ development_status:
   epic-14-retrospective: done
 
   # Epic 15: Distributed Tracing & Context Analysis
-  epic-15: backlog
-  15-1-trace-id-generation-and-span-recording: backlog
+  epic-15: in-progress
+  15-1-trace-id-generation-and-span-recording: done
   15-2-distributed-tracing-view: backlog
   15-3-trace-blame-root-cause-analysis: backlog
   15-4-context-usage-analysis: backlog
