@@ -171,11 +171,11 @@ development_status:
   epic-13-retrospective: done
 
   # Epic 14: Time Travel Debugging
-  epic-14: in-progress
+  epic-14: done
   14-1-execution-recording-and-persistence: done
   14-2-recording-replay-and-navigation: done
   14-3-context-snapshot-diff: done
-  14-4-fork-continue-branch-exploration: backlog
+  14-4-fork-continue-branch-exploration: done
   epic-14-retrospective: optional
 
   # Epic 15: Distributed Tracing & Context Analysis

@@ -115,6 +115,33 @@ func (s *ReplaySession) DiffFromCursor(seq uint64) (*ContextDiff, error) {
 	return s.Diff(cursorSeqNum, seq)
 }
 
+// Fork creates a ForkContext from the current cursor position.
+// Returns an error if the cursor has not been started (cursor == -1).
+// Does not change the cursor position.
+func (s *ReplaySession) Fork() (*ForkContext, error) {
+	if s.cursor < 0 {
+		return nil, fmt.Errorf("replay: no current event (not started)")
+	}
+
+	events := s.reader.Events()
+	seqNum := events[s.cursor].SeqNum
+
+	restorer := NewSnapshotRestorer(s.reader)
+	return restorer.RestoreContext(seqNum)
+}
+
+// ForkAt creates a ForkContext at the specified SeqNum without changing the cursor.
+// The cursor remains at its current position after the call.
+func (s *ReplaySession) ForkAt(seqNum uint64) (*ForkContext, error) {
+	// Verify the seqNum exists
+	if _, err := s.reader.Event(seqNum); err != nil {
+		return nil, fmt.Errorf("replay: %w", err)
+	}
+
+	restorer := NewSnapshotRestorer(s.reader)
+	return restorer.RestoreContext(seqNum)
+}
+
 // List returns a window of events around the current cursor position.
 // The context parameter controls how many events before and after the cursor to include.
 func (s *ReplaySession) List(context int) []ReplayListItem {

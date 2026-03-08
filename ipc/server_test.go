@@ -1523,3 +1523,172 @@ func TestServer_ReplayLoad_NotFound(t *testing.T) {
 		t.Fatal("error should not be nil")
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 14-4: Fork-Continue 分支探索 (IPC Server)
+//
+// Tests reference MethodForkContinue, ForkContinueRequest,
+// ForkContinueResponse, handleForkContinue which do NOT exist yet
+// → compile failure = RED phase.
+// ============================================================
+
+// --- 14.4-IPC-001: [P0] Server handles fork_continue 创建新进程 ---
+
+func TestServer_ForkContinue(t *testing.T) {
+	_, sockPath, _ := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodForkContinue, ForkContinueRequest{
+		Intent:       "分析代码",
+		SystemPrompt: "You are a helpful assistant",
+		Messages: []ForkMessageWire{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "hi there"},
+			{Role: "user", Content: "请用另一种方式优化"},
+		},
+		OriginalPID: 42,
+	})
+	if !resp.OK {
+		t.Fatalf("fork_continue not ok: %+v", resp.Error)
+	}
+
+	var fcr ForkContinueResponse
+	if err := json.Unmarshal(resp.Payload, &fcr); err != nil {
+		t.Fatalf("unmarshal ForkContinueResponse: %v", err)
+	}
+	if fcr.PID == 0 {
+		t.Error("expected non-zero PID for forked process")
+	}
+}
+
+// --- 14.4-IPC-002: [P0] Server handles fork_continue 消息历史回放 ---
+
+func TestServer_ForkContinue_MessagesReplayed(t *testing.T) {
+	srv, sockPath, ctxMgr := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	msgs := []ForkMessageWire{
+		{Role: "user", Content: "first"},
+		{Role: "assistant", Content: "second"},
+		{Role: "user", Content: "third"},
+	}
+
+	resp := sendRequest(t, conn, MethodForkContinue, ForkContinueRequest{
+		Intent:       "test fork",
+		SystemPrompt: "You are a test assistant",
+		Messages:     msgs,
+		OriginalPID:  0,
+	})
+	if !resp.OK {
+		t.Fatalf("fork_continue not ok: %+v", resp.Error)
+	}
+
+	var fcr ForkContinueResponse
+	if err := json.Unmarshal(resp.Payload, &fcr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if fcr.PID == 0 {
+		t.Fatal("expected non-zero PID")
+	}
+
+	// Verify messages were replayed to the new context
+	proc, ok := srv.kern.GetProcess(fcr.PID)
+	if !ok {
+		t.Fatal("forked process not found in kernel")
+	}
+	info, err := ctxMgr.GetContextInfo(proc.CtxID)
+	if err != nil {
+		t.Fatalf("GetContextInfo: %v", err)
+	}
+	// 3 messages (system messages are skipped, so user+assistant+user = 3)
+	totalMsgs, _ := info["total_messages"].(int)
+	if totalMsgs != 3 {
+		t.Errorf("expected 3 messages replayed to context, got %d", totalMsgs)
+	}
+}
+
+// --- 14.4-IPC-003: [P0] Server handles fork_continue 新进程 PPID 指向原录制进程 ---
+
+func TestServer_ForkContinue_PPID(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	// Create an original process so PPID can point to it
+	origProc := kernel.NewProcess(0, "original-process", nil)
+	_ = origProc.Start()
+	srv.kern.AddProcess(origProc)
+
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodForkContinue, ForkContinueRequest{
+		Intent:       "fork test",
+		SystemPrompt: "test",
+		Messages:     []ForkMessageWire{{Role: "user", Content: "hello"}},
+		OriginalPID:  uint64(origProc.PID),
+	})
+	if !resp.OK {
+		t.Fatalf("fork_continue not ok: %+v", resp.Error)
+	}
+
+	var fcr ForkContinueResponse
+	if err := json.Unmarshal(resp.Payload, &fcr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// The new process should have PPID pointing to original process
+	if fcr.PPID != types.PID(origProc.PID) {
+		t.Errorf("PPID = %d, want %d", fcr.PPID, origProc.PID)
+	}
+}
+
+// --- 14.4-IPC-004: [P1] Server handles fork_continue 原进程不存在时 PPID=0 ---
+
+func TestServer_ForkContinue_OriginalPIDNotFound(t *testing.T) {
+	_, sockPath, _ := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodForkContinue, ForkContinueRequest{
+		Intent:       "fork test",
+		SystemPrompt: "test",
+		Messages:     []ForkMessageWire{{Role: "user", Content: "hello"}},
+		OriginalPID:  99999, // Non-existent PID
+	})
+	if !resp.OK {
+		t.Fatalf("fork_continue not ok: %+v", resp.Error)
+	}
+
+	var fcr ForkContinueResponse
+	if err := json.Unmarshal(resp.Payload, &fcr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// When original PID doesn't exist, PPID should be 0 (top-level)
+	if fcr.PPID != 0 {
+		t.Errorf("PPID = %d, want 0 when original PID doesn't exist", fcr.PPID)
+	}
+}
+
+// --- 14.4-IPC-005: [P1] Server handles fork_continue 空消息列表 ---
+
+func TestServer_ForkContinue_EmptyMessages(t *testing.T) {
+	_, sockPath, _ := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodForkContinue, ForkContinueRequest{
+		Intent:       "fork test",
+		SystemPrompt: "test",
+		Messages:     []ForkMessageWire{},
+		OriginalPID:  0,
+	})
+	if !resp.OK {
+		t.Fatalf("fork_continue with empty messages not ok: %+v", resp.Error)
+	}
+
+	var fcr ForkContinueResponse
+	if err := json.Unmarshal(resp.Payload, &fcr); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if fcr.PID == 0 {
+		t.Error("expected non-zero PID even with empty messages")
+	}
+}

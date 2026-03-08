@@ -717,3 +717,191 @@ func TestReplaySession_DiffFromCursor_AfterNavigation(t *testing.T) {
 		t.Fatalf("expected FromSeqNum=6, got %d", diff.FromSeqNum)
 	}
 }
+
+// =============================================================================
+// ReplaySession Fork Tests — Story 14-4 ATDD (RED PHASE)
+// All tests reference Fork/ForkAt methods which do not yet exist.
+// Compile errors are expected until implementation.
+// =============================================================================
+
+// --- Helper: create a recording suitable for fork testing ---
+
+func createForkTestRecording(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	meta := RecordMetadata{
+		RecordID:   "42-1709856000",
+		PID:        42,
+		Intent:     "分析代码",
+		StartTime:  time.Now().Add(-time.Minute),
+		EndTime:    time.Now(),
+		EventCount: 8,
+		Status:     RecordStatusCompleted,
+	}
+	writeTestMetadata(t, dir, meta)
+
+	events := buildForkTestEvents()
+	writeTestEvents(t, dir, events)
+
+	return dir
+}
+
+// --- AC1: Fork at current cursor position ---
+
+// 14.4-REPLAY-001: [P0] Fork returns ForkContext at valid cursor position
+func TestReplaySession_Fork(t *testing.T) {
+	dir := createForkTestRecording(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Navigate to event #6 (a context snapshot)
+	session.Goto(6)
+
+	forkCtx, err := session.Fork()
+	if err != nil {
+		t.Fatalf("Fork() failed: %v", err)
+	}
+	if forkCtx == nil {
+		t.Fatal("Fork() returned nil")
+	}
+	if forkCtx.OriginalPID != 42 {
+		t.Fatalf("expected OriginalPID=42, got %d", forkCtx.OriginalPID)
+	}
+}
+
+// 14.4-REPLAY-002: [P0] Fork returns error when cursor not started (cursor=-1)
+func TestReplaySession_Fork_NotStarted(t *testing.T) {
+	dir := createForkTestRecording(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Cursor is at -1 (not started)
+	_, err = session.Fork()
+	if err == nil {
+		t.Fatal("expected error for Fork when cursor not started, got nil")
+	}
+}
+
+// 14.4-REPLAY-003: [P0] Fork does not change cursor position
+func TestReplaySession_Fork_DoesNotMoveCursor(t *testing.T) {
+	dir := createForkTestRecording(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Navigate to event #4
+	session.Goto(4)
+	cursorBefore, _ := session.Position()
+
+	// Fork should not change cursor
+	session.Fork()
+
+	cursorAfter, _ := session.Position()
+	if cursorBefore != cursorAfter {
+		t.Fatalf("Fork changed cursor from %d to %d", cursorBefore, cursorAfter)
+	}
+}
+
+// --- AC1: ForkAt specific SeqNum ---
+
+// 14.4-REPLAY-004: [P0] ForkAt jumps to SeqNum and returns ForkContext
+func TestReplaySession_ForkAt(t *testing.T) {
+	dir := createForkTestRecording(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	forkCtx, err := session.ForkAt(6)
+	if err != nil {
+		t.Fatalf("ForkAt(6) failed: %v", err)
+	}
+	if forkCtx == nil {
+		t.Fatal("ForkAt(6) returned nil")
+	}
+	if forkCtx.SeqNum != 6 {
+		t.Fatalf("expected SeqNum=6, got %d", forkCtx.SeqNum)
+	}
+}
+
+// 14.4-REPLAY-005: [P0] ForkAt does not change cursor position
+func TestReplaySession_ForkAt_DoesNotMoveCursor(t *testing.T) {
+	dir := createForkTestRecording(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Navigate to event #4
+	session.Goto(4)
+	cursorBefore, _ := session.Position()
+
+	// ForkAt should not change cursor
+	session.ForkAt(6)
+
+	cursorAfter, _ := session.Position()
+	if cursorBefore != cursorAfter {
+		t.Fatalf("ForkAt changed cursor from %d to %d", cursorBefore, cursorAfter)
+	}
+}
+
+// 14.4-REPLAY-006: [P0] ForkAt returns error for invalid SeqNum
+func TestReplaySession_ForkAt_InvalidSeqNum(t *testing.T) {
+	dir := createForkTestRecording(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	_, err = session.ForkAt(999)
+	if err == nil {
+		t.Fatal("expected error for ForkAt(999), got nil")
+	}
+}
+
+// 14.4-REPLAY-007: [P1] Fork at different cursor positions returns different contexts
+func TestReplaySession_Fork_DifferentPositions(t *testing.T) {
+	dir := createForkTestRecording(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Fork at event #4 (nearest snapshot is #3 with 5 messages)
+	session.Goto(4)
+	ctx1, err := session.Fork()
+	if err != nil {
+		t.Fatalf("Fork() at pos 4 failed: %v", err)
+	}
+
+	// Fork at event #7 (nearest snapshot is #6 with 8 messages)
+	session.Goto(7)
+	ctx2, err := session.Fork()
+	if err != nil {
+		t.Fatalf("Fork() at pos 7 failed: %v", err)
+	}
+
+	if len(ctx1.Messages) == len(ctx2.Messages) {
+		t.Fatalf("expected different message counts at different positions, both had %d", len(ctx1.Messages))
+	}
+}

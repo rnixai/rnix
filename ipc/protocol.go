@@ -31,6 +31,7 @@ const (
 	MethodRecordStop    Method = "record_stop"
 	MethodRecordList    Method = "record_list"
 	MethodReplayLoad    Method = "replay_load"
+	MethodForkContinue  Method = "fork_continue"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -413,6 +414,33 @@ type ReplayLoadResponse struct {
 	StartTimeMs int64     `json:"start_time_ms"`
 	EndTimeMs   int64     `json:"end_time_ms"`
 	Status      string    `json:"status"`
+}
+
+// --- Fork Continue ---
+
+// ForkContinueMessage represents a single message in a fork-continue request.
+type ForkContinueMessage struct {
+	Role       string `json:"role"`
+	Content    string `json:"content"`
+	ToolCallID string `json:"tool_call_id,omitempty"`
+}
+
+// ForkMessageWire is an alias for ForkContinueMessage for backward compatibility.
+type ForkMessageWire = ForkContinueMessage
+
+// ForkContinueRequest is the payload for MethodForkContinue.
+type ForkContinueRequest struct {
+	Intent       string                `json:"intent"`
+	SystemPrompt string                `json:"system_prompt"`
+	Messages     []ForkContinueMessage `json:"messages"`
+	OriginalPID  uint64                `json:"original_pid"`
+}
+
+// ForkContinueResponse is the response for MethodForkContinue.
+type ForkContinueResponse struct {
+	PID      types.PID `json:"pid"`
+	PPID     types.PID `json:"ppid"`
+	PPIDValid bool     `json:"ppid_valid"`
 }
 
 // --- Socket Path ---
