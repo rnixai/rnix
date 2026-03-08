@@ -59,6 +59,11 @@ type Process struct {
 	logHistIdx int // ring buffer write position
 	logHistLen int // current valid entry count
 
+	// Token history ring buffer (mu protected)
+	tokenHistory []types.TokenSnapshot
+	tokenHistIdx int // ring buffer write position
+	tokenHistLen int // current valid entry count
+
 	groups []types.PGID // guarded by mu, process group memberships
 
 	// Signal system (mu protected)
@@ -437,6 +442,44 @@ func (p *Process) IsPaused() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.resumeCh != nil
+}
+
+const tokenHistoryCap = 50
+
+// AppendTokenSnapshot records token usage at the current step. Thread-safe.
+func (p *Process) AppendTokenSnapshot(step, tokens int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.tokenHistory == nil {
+		p.tokenHistory = make([]types.TokenSnapshot, tokenHistoryCap)
+	}
+	p.tokenHistory[p.tokenHistIdx] = types.TokenSnapshot{
+		Step:    step,
+		Tokens:  tokens,
+		DeltaMs: time.Since(p.CreatedAt).Milliseconds(),
+	}
+	p.tokenHistIdx = (p.tokenHistIdx + 1) % tokenHistoryCap
+	if p.tokenHistLen < tokenHistoryCap {
+		p.tokenHistLen++
+	}
+}
+
+// GetTokenHistory returns a time-ordered copy of the token history. Thread-safe.
+func (p *Process) GetTokenHistory() []types.TokenSnapshot {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.tokenHistLen == 0 {
+		return nil
+	}
+	result := make([]types.TokenSnapshot, p.tokenHistLen)
+	if p.tokenHistLen < tokenHistoryCap {
+		copy(result, p.tokenHistory[:p.tokenHistLen])
+	} else {
+		start := p.tokenHistIdx
+		n := copy(result, p.tokenHistory[start:])
+		copy(result[n:], p.tokenHistory[:start])
+	}
+	return result
 }
 
 const logHistoryCap = 256

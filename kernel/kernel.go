@@ -692,8 +692,37 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		hasTrace := proc.TraceID != ""
 		proc.mu.Unlock()
 
+		proc.AppendTokenSnapshot(step, tokens)
+
 		if hasTrace && k.spanRecorder != nil {
 			k.spanRecorder.RecordTokens(proc.PID, resp.TokensUsed)
+		}
+
+		if budget > 0 && tokens < budget {
+			remainPct := float64(budget-tokens) / float64(budget) * 100
+			if remainPct < 20 {
+				avgRate := float64(tokens) / float64(step)
+				estRemain := 0
+				if avgRate > 0 {
+					estRemain = int(float64(budget-tokens) / avgRate)
+				}
+				level := "warning"
+				if remainPct < 10 {
+					level = "critical"
+				}
+				k.emitLog(proc, step, types.LogWarning,
+					fmt.Sprintf("Budget %s: %d/%d (%.0f%% remaining, ~%d steps left)",
+						level, tokens, budget, remainPct, estRemain), "")
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":          step,
+					"action":        "budget_warning",
+					"tokens":        tokens,
+					"budget":        budget,
+					"remaining_pct": remainPct,
+					"est_remaining": estRemain,
+					"alert_level":   level,
+				}, nil, nil, 0)
+			}
 		}
 
 		if budget > 0 && tokens >= budget {
@@ -1075,6 +1104,19 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 	}
 	proc.mu.Unlock()
 	return info, nil
+}
+
+// GetTokenHistory returns a copy of the token usage history for a process.
+func (k *KernelImpl) GetTokenHistory(pid types.PID) ([]types.TokenSnapshot, error) {
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return nil, NewSyscallError("GetTokenHistory", pid, "", fmt.Errorf("process %d not found", pid), types.ErrNotFound)
+	}
+	history := proc.GetTokenHistory()
+	if history == nil {
+		return []types.TokenSnapshot{}, nil
+	}
+	return history, nil
 }
 
 // emitLog sends a LogEntry to the process LogChan (non-blocking).

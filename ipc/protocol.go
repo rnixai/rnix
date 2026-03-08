@@ -33,6 +33,7 @@ const (
 	MethodReplayLoad    Method = "replay_load"
 	MethodForkContinue  Method = "fork_continue"
 	MethodCtxProfile    Method = "ctx_profile"
+	MethodCtxGrowth     Method = "ctx_growth"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -455,6 +456,13 @@ type ForkContinueResponse struct {
 
 // CtxProfileRequest is the payload for MethodCtxProfile.
 type CtxProfileRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// --- Ctx Growth ---
+
+// CtxGrowthRequest is the payload for MethodCtxGrowth.
+type CtxGrowthRequest struct {
 	PID types.PID `json:"pid"`
 }
 

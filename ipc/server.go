@@ -269,6 +269,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			return // streaming method
 		case MethodCtxProfile:
 			s.handleCtxProfile(conn, req.Payload)
+		case MethodCtxGrowth:
+			s.handleCtxGrowth(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -361,6 +363,49 @@ func (s *Server) handleCtxProfile(conn net.Conn, rawPayload json.RawMessage) {
 	case <-ctx.Done():
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "ctx-profile analysis timed out (NFR34: 1s limit)"}})
 	}
+}
+
+func (s *Server) handleCtxGrowth(conn net.Conn, rawPayload json.RawMessage) {
+	var req CtxGrowthRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid ctx_growth request"}})
+		return
+	}
+
+	info, err := s.kern.GetProcInfo(req.PID)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		return
+	}
+
+	if info.State != types.StateRunning {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{
+			Code:    "INVALID",
+			Message: fmt.Sprintf("process %d is in %s state; ctx-growth requires running", req.PID, info.State),
+		}})
+		return
+	}
+
+	history, err := s.kern.GetTokenHistory(req.PID)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
+		return
+	}
+
+	currentStep := 0
+	if len(history) > 0 {
+		currentStep = history[len(history)-1].Step
+	}
+
+	maxSteps := 50
+	result := debug.PredictGrowth(info.PID, info.TokensUsed, info.ContextBudget, currentStep, maxSteps, history)
+
+	payload, err := json.Marshal(result)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 
 func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {

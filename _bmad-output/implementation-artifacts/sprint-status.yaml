@@ -179,12 +179,12 @@ development_status:
   epic-14-retrospective: done
 
   # Epic 15: Distributed Tracing & Context Analysis
-  epic-15: in-progress
+  epic-15: done
   15-1-trace-id-generation-and-span-recording: done
   15-2-distributed-tracing-view: done
   15-3-trace-blame-root-cause-analysis: done
   15-4-context-usage-analysis: done
-  15-5-context-growth-prediction-and-alert: backlog
+  15-5-context-growth-prediction-and-alert: done
   epic-15-retrospective: optional
 
   # Epic 16: Reasoning Regression Testing (agtest)

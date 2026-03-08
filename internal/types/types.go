@@ -158,10 +158,18 @@ type SyscallEvent struct {
 type LogCategory string
 
 const (
-	LogThink  LogCategory = "think"
-	LogTool   LogCategory = "tool"
-	LogOutput LogCategory = "output"
+	LogThink   LogCategory = "think"
+	LogTool    LogCategory = "tool"
+	LogOutput  LogCategory = "output"
+	LogWarning LogCategory = "warning"
 )
+
+// TokenSnapshot records cumulative token usage at a given reasoning step.
+type TokenSnapshot struct {
+	Step    int   // reasoning step number
+	Tokens  int   // cumulative tokens at this step
+	DeltaMs int64 // milliseconds since process creation
+}
 
 // LogEntry records a single reasoning log event for high-level agent tracing.
 type LogEntry struct {
