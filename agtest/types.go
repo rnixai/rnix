@@ -14,6 +14,7 @@ type TestCaseSpec struct {
 	Intent  string        `yaml:"intent"`
 	Agent   AgentConfig   `yaml:"agent"`
 	Timeout int           `yaml:"timeout,omitempty"`
+	Skip    bool          `yaml:"skip,omitempty"`
 	Assert  *AssertConfig `yaml:"assert,omitempty"`
 }
 
