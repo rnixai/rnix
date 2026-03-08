@@ -365,3 +365,143 @@ func TestSpanStatus_Values(t *testing.T) {
 		}
 	}
 }
+
+// --- SpanReader.ListTraces tests (Story 15-2) ---
+
+func TestSpanReader_ListTraces_Empty(t *testing.T) {
+	dir := t.TempDir()
+	reader := NewSpanReader(dir)
+	summaries, err := reader.ListTraces()
+	if err != nil {
+		t.Fatalf("ListTraces: %v", err)
+	}
+	if len(summaries) != 0 {
+		t.Errorf("expected 0 summaries, got %d", len(summaries))
+	}
+}
+
+func TestSpanReader_ListTraces_Single(t *testing.T) {
+	dir := t.TempDir()
+	writer := NewSpanWriter(dir)
+
+	traceID := types.TraceID("abc123")
+	span := &Span{
+		TraceID:    traceID,
+		SpanID:     types.SpanID("s1"),
+		PID:        1,
+		Name:       "root-agent",
+		StartTime:  time.Date(2026, 3, 8, 10, 0, 0, 0, time.UTC),
+		EndTime:    time.Date(2026, 3, 8, 10, 0, 5, 0, time.UTC),
+		Duration:   5 * time.Second,
+		TokensUsed: 500,
+		Status:     SpanOK,
+	}
+	if err := writer.WriteSpan(span); err != nil {
+		t.Fatalf("WriteSpan: %v", err)
+	}
+
+	reader := NewSpanReader(dir)
+	summaries, err := reader.ListTraces()
+	if err != nil {
+		t.Fatalf("ListTraces: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("expected 1 summary, got %d", len(summaries))
+	}
+	if summaries[0].TraceID != traceID {
+		t.Errorf("expected trace ID %q, got %q", traceID, summaries[0].TraceID)
+	}
+	if summaries[0].SpanCount != 1 {
+		t.Errorf("expected span count 1, got %d", summaries[0].SpanCount)
+	}
+	if summaries[0].RootSpanName != "root-agent" {
+		t.Errorf("expected root name 'root-agent', got %q", summaries[0].RootSpanName)
+	}
+}
+
+func TestSpanReader_ListTraces_Multiple(t *testing.T) {
+	dir := t.TempDir()
+	writer := NewSpanWriter(dir)
+
+	older := &Span{
+		TraceID:   types.TraceID("older-trace"),
+		SpanID:    types.SpanID("s1"),
+		PID:       1,
+		Name:      "old-root",
+		StartTime: time.Date(2026, 3, 7, 10, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 3, 7, 10, 0, 5, 0, time.UTC),
+		Duration:  5 * time.Second,
+		Status:    SpanOK,
+	}
+	newer := &Span{
+		TraceID:   types.TraceID("newer-trace"),
+		SpanID:    types.SpanID("s2"),
+		PID:       2,
+		Name:      "new-root",
+		StartTime: time.Date(2026, 3, 8, 10, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 3, 8, 10, 0, 10, 0, time.UTC),
+		Duration:  10 * time.Second,
+		Status:    SpanOK,
+	}
+	if err := writer.WriteSpan(older); err != nil {
+		t.Fatalf("WriteSpan older: %v", err)
+	}
+	if err := writer.WriteSpan(newer); err != nil {
+		t.Fatalf("WriteSpan newer: %v", err)
+	}
+
+	reader := NewSpanReader(dir)
+	summaries, err := reader.ListTraces()
+	if err != nil {
+		t.Fatalf("ListTraces: %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("expected 2 summaries, got %d", len(summaries))
+	}
+	if summaries[0].TraceID != "newer-trace" {
+		t.Errorf("expected most recent trace first, got %q", summaries[0].TraceID)
+	}
+	if summaries[1].TraceID != "older-trace" {
+		t.Errorf("expected older trace second, got %q", summaries[1].TraceID)
+	}
+}
+
+func TestSpanReader_ListTraces_CorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	writer := NewSpanWriter(dir)
+
+	good := &Span{
+		TraceID:   types.TraceID("good-trace"),
+		SpanID:    types.SpanID("s1"),
+		PID:       1,
+		Name:      "good-root",
+		StartTime: time.Date(2026, 3, 8, 10, 0, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 3, 8, 10, 0, 5, 0, time.UTC),
+		Duration:  5 * time.Second,
+		Status:    SpanOK,
+	}
+	if err := writer.WriteSpan(good); err != nil {
+		t.Fatalf("WriteSpan: %v", err)
+	}
+
+	// Create corrupt trace directory
+	corruptDir := dir + "/corrupt-trace"
+	if err := os.MkdirAll(corruptDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(corruptDir+"/spans.jsonl", []byte("not-valid-json\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	reader := NewSpanReader(dir)
+	summaries, err := reader.ListTraces()
+	if err != nil {
+		t.Fatalf("ListTraces should not error on corrupt file: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("expected 1 valid summary (corrupt skipped), got %d", len(summaries))
+	}
+	if summaries[0].TraceID != "good-trace" {
+		t.Errorf("expected 'good-trace', got %q", summaries[0].TraceID)
+	}
+}

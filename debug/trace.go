@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -166,6 +167,33 @@ func (w *SpanWriter) WriteSpan(span *Span) error {
 	return nil
 }
 
+// TraceSummary holds summary information for a trace (used in listing).
+type TraceSummary struct {
+	TraceID       types.TraceID
+	SpanCount     int
+	StartTime     time.Time
+	TotalDuration time.Duration
+	RootSpanName  string
+}
+
+type traceSummaryJSON struct {
+	TraceID         types.TraceID `json:"trace_id"`
+	SpanCount       int           `json:"span_count"`
+	StartTimeMs     int64         `json:"start_time_ms"`
+	TotalDurationMs int64         `json:"total_duration_ms"`
+	RootSpanName    string        `json:"root_span_name"`
+}
+
+func (s TraceSummary) MarshalJSON() ([]byte, error) {
+	return json.Marshal(traceSummaryJSON{
+		TraceID:         s.TraceID,
+		SpanCount:       s.SpanCount,
+		StartTimeMs:     s.StartTime.UnixMilli(),
+		TotalDurationMs: s.TotalDuration.Milliseconds(),
+		RootSpanName:    s.RootSpanName,
+	})
+}
+
 // SpanReader reads spans from JSONL files.
 type SpanReader struct {
 	baseDir string
@@ -204,6 +232,96 @@ func (r *SpanReader) ReadSpans(traceID types.TraceID) ([]*Span, error) {
 		return nil, fmt.Errorf("trace: read spans: %w", err)
 	}
 	return spans, nil
+}
+
+// ListTraces scans baseDir for all trace directories and returns summaries
+// sorted by start time (most recent first).
+func (r *SpanReader) ListTraces() ([]TraceSummary, error) {
+	entries, err := os.ReadDir(r.baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("trace: read dir %s: %w", r.baseDir, err)
+	}
+
+	var summaries []TraceSummary
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		traceID := types.TraceID(entry.Name())
+		summary, err := r.readTraceSummary(traceID)
+		if err != nil {
+			continue
+		}
+		summaries = append(summaries, summary)
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].StartTime.After(summaries[j].StartTime)
+	})
+	return summaries, nil
+}
+
+func (r *SpanReader) readTraceSummary(traceID types.TraceID) (TraceSummary, error) {
+	path := filepath.Join(r.baseDir, string(traceID), "spans.jsonl")
+	f, err := os.Open(path)
+	if err != nil {
+		return TraceSummary{}, err
+	}
+	defer f.Close()
+
+	var (
+		count     int
+		rootName  string
+		earliest  time.Time
+		latest    time.Time
+	)
+
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var j spanJSON
+		if err := json.Unmarshal(line, &j); err != nil {
+			return TraceSummary{}, err
+		}
+		span := spanFromJSON(j)
+		count++
+
+		if span.ParentSpanID == "" && rootName == "" {
+			rootName = span.Name
+		}
+		if earliest.IsZero() || span.StartTime.Before(earliest) {
+			earliest = span.StartTime
+		}
+		end := span.EndTime
+		if !end.IsZero() && end.After(latest) {
+			latest = end
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return TraceSummary{}, err
+	}
+	if count == 0 {
+		return TraceSummary{}, fmt.Errorf("trace: empty spans file")
+	}
+
+	var totalDuration time.Duration
+	if !latest.IsZero() && !earliest.IsZero() {
+		totalDuration = latest.Sub(earliest)
+	}
+
+	return TraceSummary{
+		TraceID:       traceID,
+		SpanCount:     count,
+		StartTime:     earliest,
+		TotalDuration: totalDuration,
+		RootSpanName:  rootName,
+	}, nil
 }
 
 // GenerateTraceID returns a new 32-character hex trace ID.
