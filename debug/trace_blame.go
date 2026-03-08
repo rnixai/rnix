@@ -293,56 +293,56 @@ func FormatBlameResult(result *BlameResult) string {
 	if result.Summary.ErrorSpans > 0 {
 		errLabel = fmt.Sprintf("  |  %d errors", result.Summary.ErrorSpans)
 	}
-	b.WriteString(fmt.Sprintf("Blame: %s  |  %d spans%s\n\n",
+	fmt.Fprintf(&b, "Blame: %s  |  %d spans%s\n\n",
 		result.TraceID,
 		result.Summary.TotalSpans,
 		errLabel,
-	))
+	)
 
 	// Critical Path
-	b.WriteString(fmt.Sprintf("── Critical Path (%.1f%% of total) ──────────────────────\n",
-		result.Summary.CriticalPathPct))
+	fmt.Fprintf(&b, "── Critical Path (%.1f%% of total) ──────────────────────\n",
+		result.Summary.CriticalPathPct)
 	for _, node := range result.CriticalPath {
 		s := node.Span
-		b.WriteString(fmt.Sprintf("→ %s (PID %d)%s%s\n",
+		fmt.Fprintf(&b, "→ %s (PID %d)%s%s   %d tok\n",
 			s.Name, s.PID,
 			blamePadTo(s.Name, s.PID, 40),
-			fmt.Sprintf("%s   %d tok", formatDuration(s.Duration), s.TokensUsed),
-		))
+			formatDuration(s.Duration), s.TokensUsed,
+		)
 	}
-	b.WriteString(fmt.Sprintf("  Total: %s / %s\n\n",
+	fmt.Fprintf(&b, "  Total: %s / %s\n\n",
 		formatDuration(result.CriticalDuration),
 		formatDuration(result.Summary.TotalDuration),
-	))
+	)
 
 	// Duration Hotspots
 	b.WriteString("── Duration Hotspots ───────────────────────────────────\n")
 	for _, e := range result.DurationHotspots {
-		b.WriteString(fmt.Sprintf("#%d  %s (PID %d)%s%s   %.1f%%\n",
+		fmt.Fprintf(&b, "#%d  %s (PID %d)%s%s   %.1f%%\n",
 			e.Rank, e.Span.Name, e.Span.PID,
 			blamePadTo(e.Span.Name, e.Span.PID, 34),
 			formatDuration(e.Span.Duration),
 			e.Percentage,
-		))
+		)
 	}
 	b.WriteString("\n")
 
 	// Token Hotspots
 	b.WriteString("── Token Hotspots ──────────────────────────────────────\n")
 	for _, e := range result.TokenHotspots {
-		b.WriteString(fmt.Sprintf("#%d  %s (PID %d)%s%d tok   %.1f%%\n",
+		fmt.Fprintf(&b, "#%d  %s (PID %d)%s%d tok   %.1f%%\n",
 			e.Rank, e.Span.Name, e.Span.PID,
 			blamePadTo(e.Span.Name, e.Span.PID, 34),
 			e.Span.TokensUsed,
 			e.Percentage,
-		))
+		)
 	}
 
 	// Error Chains
 	if len(result.ErrorChains) > 0 {
 		b.WriteString("\n── Error Chains ────────────────────────────────────────\n")
 		for i, chain := range result.ErrorChains {
-			b.WriteString(fmt.Sprintf("Chain %d:\n", i+1))
+			fmt.Fprintf(&b, "Chain %d:\n", i+1)
 			for j := len(chain.Path) - 1; j >= 0; j-- {
 				s := chain.Path[j]
 				isRoot := s == chain.RootCause
@@ -354,11 +354,11 @@ func FormatBlameResult(result *BlameResult) string {
 				} else if s.Status == SpanERROR || s.Status == SpanTIMEOUT {
 					prefix = "✗"
 				}
-				b.WriteString(fmt.Sprintf("  %s %s (PID %d)%s%s\n",
+				fmt.Fprintf(&b, "  %s %s (PID %d)%s%s\n",
 					prefix, s.Name, s.PID,
 					blamePadTo(s.Name, s.PID, 36),
 					suffix,
-				))
+				)
 			}
 		}
 	}

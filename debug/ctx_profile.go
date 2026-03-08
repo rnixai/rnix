@@ -395,12 +395,12 @@ func (r *CtxProfileResult) MarshalJSON() ([]byte, error) {
 	}
 
 	toBucket := func(b ClassBucket) bucketJSON {
-		return bucketJSON{Tokens: b.Tokens, Messages: b.Messages, Pct: b.Pct}
+		return bucketJSON(b)
 	}
 
 	consumers := make([]consumerJSON, len(r.TopConsumers))
 	for i, c := range r.TopConsumers {
-		consumers[i] = consumerJSON{Kind: c.Kind, Tokens: c.Tokens, Pct: c.Pct, Rank: c.Rank, Suggestion: c.Suggestion}
+		consumers[i] = consumerJSON(c)
 	}
 
 	suggestions := r.Suggestions
