@@ -26,6 +26,12 @@ type TID uint64
 // CoID represents a coroutine identifier (process-local).
 type CoID uint64
 
+// TraceID represents a distributed trace identifier.
+type TraceID string
+
+// SpanID represents a span identifier within a trace.
+type SpanID string
+
 // ErrCode represents a categorized error code.
 type ErrCode string
 
@@ -144,6 +150,8 @@ type SyscallEvent struct {
 	Result    any
 	Err       error
 	Duration  time.Duration
+	TraceID   TraceID
+	SpanID    SpanID
 }
 
 // LogCategory classifies reasoning log entries.

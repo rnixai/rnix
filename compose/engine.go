@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
 )
@@ -40,6 +41,8 @@ func (e *Engine) Execute(ctx context.Context) ([]ScheduleResult, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+
+	traceID := debug.GenerateTraceID()
 
 	layers, err := e.dag.TopologicalSort()
 	if err != nil {
@@ -81,7 +84,7 @@ func (e *Engine) Execute(ctx context.Context) ([]ScheduleResult, error) {
 			wg.Add(1)
 			go func(idx int, agentName string) {
 				defer wg.Done()
-				result := e.executeNode(ctx, agentName, pids)
+				result := e.executeNode(ctx, agentName, traceID, pids)
 				layerResults[idx] = result
 			}(i, name)
 		}
@@ -106,9 +109,10 @@ func (e *Engine) Execute(ctx context.Context) ([]ScheduleResult, error) {
 }
 
 // executeNode spawns and waits for a single agent node.
-func (e *Engine) executeNode(ctx context.Context, name string, pids *xsync.SyncMap[string, types.PID]) *ScheduleResult {
+func (e *Engine) executeNode(ctx context.Context, name string, traceID types.TraceID, pids *xsync.SyncMap[string, types.PID]) *ScheduleResult {
 	start := time.Now()
 
+	node := e.dag.Nodes[name]
 	agentSpec := e.spec.Agents[name]
 
 	// Load agent info
@@ -140,6 +144,15 @@ func (e *Engine) executeNode(ctx context.Context, name string, pids *xsync.SyncM
 		Model:         model,
 		ContextBudget: agentSpec.ContextBudget,
 		TimeoutMs:     agentSpec.TimeoutMs,
+		TraceID:       traceID,
+	}
+	// ParentSpanID from first upstream dependency (Story 15.1)
+	if node != nil && len(node.DependsOn) > 0 {
+		if depPID, ok := pids.Load(node.DependsOn[0]); ok {
+			if parentSpanID, ok := e.kernel.GetSpanID(depPID); ok {
+				opts.ParentSpanID = parentSpanID
+			}
+		}
 	}
 	upstreamPrompt := e.buildUpstreamPrompt(name, pids)
 	if upstreamPrompt != "" {

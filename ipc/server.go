@@ -342,6 +342,8 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		MaxTurns:      req.MaxSteps,
 		ContextBudget: req.ContextBudget,
 		TimeoutMs:     req.TimeoutMs,
+		TraceID:       types.TraceID(req.TraceID),
+		ParentSpanID:  types.SpanID(req.ParentSpanID),
 	})
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
@@ -385,6 +387,10 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		}
 		if exit.Err != nil {
 			pp.ErrorMessage = exit.Err.Error()
+		}
+		// Include SpanID for compose parent-child trace (Story 15.1)
+		if spanID, ok := s.kern.GetSpanID(pid); ok {
+			pp.SpanID = string(spanID)
 		}
 
 		payload, _ := json.Marshal(pp)

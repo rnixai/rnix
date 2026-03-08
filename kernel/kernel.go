@@ -41,6 +41,8 @@ type SpawnOpts struct {
 	TimeoutMs     int64
 	ParentPID     types.PID // parent process PID; 0 = top-level/CLI spawn
 	ContextBudget int       // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	TraceID       types.TraceID // inherited trace ID; empty = no tracing
+	ParentSpanID  types.SpanID  // parent process span ID
 }
 
 // ActionType classifies LLM response actions.
@@ -125,20 +127,24 @@ type KernelImpl struct {
 
 	// Execution recording (Story 14.1)
 	recordMgr *debug.RecordManager
+
+	// Span recording (Story 15.1)
+	spanRecorder *debug.SpanRecorder
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
 // Pass nil for cb to run in silent mode (no progress notifications).
 func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelImpl {
 	k := &KernelImpl{
-		procTable:  xsync.NewSyncMap[types.PID, *Process](),
-		vfs:        v,
-		ctxMgr:     ctxMgr,
-		callbacks:  cb,
-		reapCh:     make(chan types.PID, 64),
-		stopCh:     make(chan struct{}),
-		msgQueues:  xsync.NewSyncMap[types.PID, *MessageQueue](),
-		procGroups: xsync.NewSyncMap[types.PGID, *ProcGroup](),
+		procTable:    xsync.NewSyncMap[types.PID, *Process](),
+		vfs:          v,
+		ctxMgr:       ctxMgr,
+		callbacks:    cb,
+		reapCh:       make(chan types.PID, 64),
+		stopCh:       make(chan struct{}),
+		msgQueues:    xsync.NewSyncMap[types.PID, *MessageQueue](),
+		procGroups:   xsync.NewSyncMap[types.PGID, *ProcGroup](),
+		spanRecorder: debug.NewSpanRecorder(),
 	}
 	k.startReaper()
 	return k
@@ -195,6 +201,15 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 
 	proc.ContextBudget = opts.ContextBudget
+
+	if opts.TraceID != "" {
+		proc.TraceID = opts.TraceID
+		proc.ParentSpanID = opts.ParentSpanID
+		proc.SpanID = debug.GenerateSpanID()
+		if k.spanRecorder != nil {
+			k.spanRecorder.StartSpan(proc.PID, proc.TraceID, proc.SpanID, proc.ParentSpanID, intent)
+		}
+	}
 
 	// Allocate context
 	ctxAllocStart := time.Now()
@@ -366,8 +381,10 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 
 	event := debug.NewEvent(proc.PID, proc.CreatedAt, syscall, args)
 	debug.CompleteEvent(&event, result, err, duration)
-
 	proc.mu.Lock()
+	event.TraceID = proc.TraceID
+	event.SpanID = proc.SpanID
+	hasTrace := proc.TraceID != ""
 	ch := proc.DebugChan
 	if ch != nil {
 		debug.EmitEvent(ch, event)
@@ -380,6 +397,10 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 		if err := k.recordMgr.RecordEvent(proc.PID, recEvent); err != nil {
 			log.Printf("[record] write error pid=%d: %v", proc.PID, err)
 		}
+	}
+
+	if hasTrace && k.spanRecorder != nil {
+		k.spanRecorder.RecordSyscall(proc.PID)
 	}
 }
 
@@ -668,7 +689,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		proc.TokensUsed += resp.TokensUsed
 		budget := proc.ContextBudget
 		tokens := proc.TokensUsed
+		hasTrace := proc.TraceID != ""
 		proc.mu.Unlock()
+
+		if hasTrace && k.spanRecorder != nil {
+			k.spanRecorder.RecordTokens(proc.PID, resp.TokensUsed)
+		}
 
 		if budget > 0 && tokens >= budget {
 			k.emitLog(proc, step, types.LogOutput,
@@ -1006,6 +1032,19 @@ func (k *KernelImpl) ListProcesses() []*Process {
 	return procs
 }
 
+// GetSpanID returns the SpanID for the given process, if it has one.
+// Used by IPC server for compose parent-child trace propagation (Story 15.1).
+func (k *KernelImpl) GetSpanID(pid types.PID) (types.SpanID, bool) {
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return "", false
+	}
+	proc.mu.Lock()
+	spanID := proc.SpanID
+	proc.mu.Unlock()
+	return spanID, spanID != ""
+}
+
 // GetProcInfo returns a snapshot of process information for the given PID.
 // Satisfies vfs.ProcessInfoProvider interface via duck typing.
 func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
@@ -1174,6 +1213,14 @@ func (k *KernelImpl) SetMountManager(mgr MountManager) {
 // Pass nil to disable recording support.
 func (k *KernelImpl) SetRecordManager(mgr *debug.RecordManager) {
 	k.recordMgr = mgr
+}
+
+// SetSpanWriter sets the optional SpanWriter for persisting completed spans.
+// Pass nil to disable span persistence.
+func (k *KernelImpl) SetSpanWriter(w *debug.SpanWriter) {
+	if k.spanRecorder != nil {
+		k.spanRecorder.SetWriter(w)
+	}
 }
 
 // StartRecording starts execution recording for the given PID.

@@ -64,6 +64,7 @@ type ipcKernelSpawner struct {
 	waitChans  *xsync.SyncMap[types.PID, chan waitResult]
 	results    *xsync.SyncMap[types.PID, string]
 	tokens     *xsync.SyncMap[types.PID, int]
+	spanIDs    *xsync.SyncMap[types.PID, types.SpanID]
 }
 
 type waitResult struct {
@@ -77,6 +78,7 @@ func newIPCKernelSpawner(socketPath string) *ipcKernelSpawner {
 		waitChans:  xsync.NewSyncMap[types.PID, chan waitResult](),
 		results:    xsync.NewSyncMap[types.PID, string](),
 		tokens:     xsync.NewSyncMap[types.PID, int](),
+		spanIDs:    xsync.NewSyncMap[types.PID, types.SpanID](),
 	}
 }
 
@@ -91,6 +93,8 @@ func (s *ipcKernelSpawner) Spawn(intent string, agent *agents.AgentInfo, opts co
 		Model:         opts.Model,
 		ContextBudget: opts.ContextBudget,
 		TimeoutMs:     opts.TimeoutMs,
+		TraceID:       string(opts.TraceID),
+		ParentSpanID:  string(opts.ParentSpanID),
 	}
 	if agent != nil {
 		req.Agent = agent.Manifest.Name
@@ -125,6 +129,9 @@ func (s *ipcKernelSpawner) Spawn(intent string, agent *agents.AgentInfo, opts co
 			if final.TokensUsed > 0 {
 				s.tokens.Store(pid, final.TokensUsed)
 			}
+			if final.SpanID != "" {
+				s.spanIDs.Store(pid, types.SpanID(final.SpanID))
+			}
 		}
 		waitCh <- waitResult{status: status}
 	}()
@@ -154,6 +161,10 @@ func (s *ipcKernelSpawner) Wait(pid types.PID) (compose.ComposeExitStatus, error
 
 func (s *ipcKernelSpawner) GetProcessResult(pid types.PID) (string, bool) {
 	return s.results.Load(pid)
+}
+
+func (s *ipcKernelSpawner) GetSpanID(pid types.PID) (types.SpanID, bool) {
+	return s.spanIDs.Load(pid)
 }
 
 // runComposeUp implements the `rnix compose up` command.

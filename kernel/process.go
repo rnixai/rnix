@@ -49,6 +49,9 @@ type Process struct {
 	ContextBudget  int         // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
 	AllowedDevices []string    // nil/empty = all devices allowed; non-empty = whitelist only
 	MCPMounts      []string    // MCP mount paths auto-mounted by Spawn
+	TraceID        types.TraceID
+	SpanID         types.SpanID
+	ParentSpanID   types.SpanID
 	HasToolError   bool        // true if any tool call failed (mu protected)
 
 	// Log history ring buffer (mu protected)
