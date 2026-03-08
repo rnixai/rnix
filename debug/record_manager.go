@@ -130,6 +130,31 @@ func (m *RecordManager) ListRecords() ([]RecordMetadata, error) {
 	return records, nil
 }
 
+// FindRecord finds a recording directory by recordID.
+// Returns the full directory path or an error if not found.
+func (m *RecordManager) FindRecord(recordID string) (string, error) {
+	dir := filepath.Join(m.baseDir, recordID)
+	metaPath := filepath.Join(dir, "metadata.json")
+	if _, err := os.Stat(metaPath); err != nil {
+		return "", fmt.Errorf("record: recording %q not found", recordID)
+	}
+	return dir, nil
+}
+
+// LoadRecord loads a recording by recordID and returns a RecordReader.
+func (m *RecordManager) LoadRecord(recordID string) (*RecordReader, error) {
+	dir, err := m.FindRecord(recordID)
+	if err != nil {
+		return nil, err
+	}
+	return NewRecordReader(dir)
+}
+
+// BaseDir returns the base directory for recordings.
+func (m *RecordManager) BaseDir() string {
+	return m.baseDir
+}
+
 // removeRecordDir removes an orphan recording directory created during a race.
 func removeRecordDir(dir string) {
 	_ = os.RemoveAll(dir)

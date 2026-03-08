@@ -256,6 +256,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleRecordStop(conn, req.Payload)
 		case MethodRecordList:
 			s.handleRecordList(conn)
+		case MethodReplayLoad:
+			s.handleReplayLoad(conn, req.Payload)
 		case MethodSpawnPipeline:
 			s.handleSpawnPipeline(conn, req.Payload)
 			return // streaming method
@@ -1122,6 +1124,43 @@ func (s *Server) handleRecordList(conn net.Conn) {
 	}
 
 	payload, _ := json.Marshal(RecordListResponse{Records: wireRecords})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleReplayLoad loads a recording and returns its metadata for replay.
+func (s *Server) handleReplayLoad(conn net.Conn, rawPayload json.RawMessage) {
+	var req ReplayLoadRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid replay_load request"}})
+		return
+	}
+
+	mgr := s.kern.GetRecordManager()
+	if mgr == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: "record manager not initialized"}})
+		return
+	}
+
+	reader, err := mgr.LoadRecord(req.RecordID)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: err.Error()}})
+		return
+	}
+
+	meta := reader.Metadata()
+	resp := ReplayLoadResponse{
+		RecordID:    meta.RecordID,
+		PID:         meta.PID,
+		Intent:      meta.Intent,
+		EventCount:  reader.EventCount(),
+		StartTimeMs: meta.StartTime.UnixMilli(),
+		Status:      string(meta.Status),
+	}
+	if !meta.EndTime.IsZero() {
+		resp.EndTimeMs = meta.EndTime.UnixMilli()
+	}
+
+	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 

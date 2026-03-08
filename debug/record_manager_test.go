@@ -221,6 +221,101 @@ func TestRecordManager_CloseAll(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// FindRecord / LoadRecord Tests — Story 14-2 ATDD (RED PHASE)
+// These methods do not yet exist on RecordManager.
+// Compile errors are expected until implementation.
+// =============================================================================
+
+// 14.2-MGR-001: FindRecord finds an existing recording by recordID
+func TestRecordManager_FindRecord(t *testing.T) {
+	baseDir := t.TempDir()
+	mgr := NewRecordManager(baseDir)
+
+	pid := types.PID(42)
+	recordID, err := mgr.StartRecording(pid, "find test")
+	if err != nil {
+		t.Fatalf("StartRecording failed: %v", err)
+	}
+	mgr.CloseAll()
+
+	path, err := mgr.FindRecord(recordID)
+	if err != nil {
+		t.Fatalf("FindRecord failed: %v", err)
+	}
+
+	if path == "" {
+		t.Fatal("expected non-empty path from FindRecord")
+	}
+
+	// Verify the path contains the recordID
+	if !filepath.IsAbs(path) && path != filepath.Join(baseDir, recordID) {
+		// Path should point to the recording directory
+		metaPath := filepath.Join(path, "metadata.json")
+		if _, err := os.Stat(metaPath); err != nil {
+			t.Fatalf("expected metadata.json at %s, got error: %v", metaPath, err)
+		}
+	}
+}
+
+// 14.2-MGR-002: FindRecord returns error for non-existent recordID
+func TestRecordManager_FindRecord_NotFound(t *testing.T) {
+	baseDir := t.TempDir()
+	mgr := NewRecordManager(baseDir)
+
+	_, err := mgr.FindRecord("nonexistent-id")
+	if err == nil {
+		t.Fatal("expected error for non-existent recordID, got nil")
+	}
+}
+
+// 14.2-MGR-003: LoadRecord returns a RecordReader for a valid recording
+func TestRecordManager_LoadRecord(t *testing.T) {
+	baseDir := t.TempDir()
+	mgr := NewRecordManager(baseDir)
+
+	pid := types.PID(42)
+	recordID, err := mgr.StartRecording(pid, "load test")
+	if err != nil {
+		t.Fatalf("StartRecording failed: %v", err)
+	}
+
+	// Write a test event before closing
+	ev := RecordEvent{
+		PID:  pid,
+		Type: RecordSyscall,
+		Syscall: &SyscallEventData{
+			Syscall: "TestOp",
+		},
+	}
+	mgr.RecordEvent(pid, ev)
+	mgr.CloseAll()
+
+	reader, err := mgr.LoadRecord(recordID)
+	if err != nil {
+		t.Fatalf("LoadRecord failed: %v", err)
+	}
+
+	meta := reader.Metadata()
+	if meta.RecordID != recordID {
+		t.Fatalf("expected RecordID=%q, got %q", recordID, meta.RecordID)
+	}
+	if meta.Status != RecordStatusCompleted {
+		t.Fatalf("expected status=completed, got %q", meta.Status)
+	}
+}
+
+// 14.2-MGR-004: LoadRecord returns error for non-existent recordID
+func TestRecordManager_LoadRecord_NotFound(t *testing.T) {
+	baseDir := t.TempDir()
+	mgr := NewRecordManager(baseDir)
+
+	_, err := mgr.LoadRecord("nonexistent-id")
+	if err == nil {
+		t.Fatal("expected error for non-existent recordID, got nil")
+	}
+}
+
 // 14.1-MGR-009: ListRecords 扫描 baseDir 返回 metadata 列表
 func TestRecordManager_ListRecords(t *testing.T) {
 	baseDir := t.TempDir()

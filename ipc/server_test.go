@@ -1456,3 +1456,70 @@ func TestServer_RecordStart_RequiresRunning(t *testing.T) {
 		t.Fatal("record_start should fail for non-Running process")
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 14-2: 录制回放与导航 (IPC Server)
+//
+// Tests reference MethodReplayLoad, ReplayLoadRequest,
+// ReplayLoadResponse, handleReplayLoad which do NOT exist yet
+// → compile failure = RED phase.
+// ============================================================
+
+// --- 14.2-IPC-001: [P0] Server handles replay_load with valid record ---
+
+func TestServer_ReplayLoad(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	// Create and close a recording to have a valid record on disk
+	proc := kernel.NewProcess(0, "test-replay-load", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn1 := dial(t, sockPath)
+	resp := sendRequest(t, conn1, MethodRecordStart, RecordStartRequest{PID: proc.PID})
+	if !resp.OK {
+		t.Fatalf("record_start not ok: %+v", resp.Error)
+	}
+	var startResp RecordStartResponse
+	json.Unmarshal(resp.Payload, &startResp)
+	recordID := startResp.RecordID
+
+	conn2 := dial(t, sockPath)
+	resp = sendRequest(t, conn2, MethodRecordStop, RecordStopRequest{PID: proc.PID})
+	if !resp.OK {
+		t.Fatalf("record_stop not ok: %+v", resp.Error)
+	}
+
+	// Now test replay_load
+	conn3 := dial(t, sockPath)
+	resp = sendRequest(t, conn3, MethodReplayLoad, ReplayLoadRequest{RecordID: recordID})
+	if !resp.OK {
+		t.Fatalf("replay_load not ok: %+v", resp.Error)
+	}
+
+	var rr ReplayLoadResponse
+	if err := json.Unmarshal(resp.Payload, &rr); err != nil {
+		t.Fatalf("unmarshal ReplayLoadResponse: %v", err)
+	}
+	if rr.RecordID != recordID {
+		t.Errorf("RecordID = %q, want %q", rr.RecordID, recordID)
+	}
+	if rr.Status != "stopped" {
+		t.Errorf("Status = %q, want 'stopped'", rr.Status)
+	}
+}
+
+// --- 14.2-IPC-002: [P0] Server handles replay_load with non-existent record ---
+
+func TestServer_ReplayLoad_NotFound(t *testing.T) {
+	_, sockPath, _ := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodReplayLoad, ReplayLoadRequest{RecordID: "nonexistent-id"})
+	if resp.OK {
+		t.Fatal("replay_load should fail for non-existent record")
+	}
+	if resp.Error == nil {
+		t.Fatal("error should not be nil")
+	}
+}
