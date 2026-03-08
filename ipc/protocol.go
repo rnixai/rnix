@@ -32,6 +32,7 @@ const (
 	MethodRecordList    Method = "record_list"
 	MethodReplayLoad    Method = "replay_load"
 	MethodForkContinue  Method = "fork_continue"
+	MethodCtxProfile    Method = "ctx_profile"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -448,6 +449,13 @@ type ForkContinueResponse struct {
 	PID       types.PID `json:"pid"`        // Required. PID of the newly created forked process.
 	PPID      types.PID `json:"ppid"`       // Required. Parent PID (OriginalPID if valid, 0 otherwise).
 	PPIDValid bool      `json:"ppid_valid"` // Required. True if OriginalPID process still exists in the process table.
+}
+
+// --- Ctx Profile ---
+
+// CtxProfileRequest is the payload for MethodCtxProfile.
+type CtxProfileRequest struct {
+	PID types.PID `json:"pid"`
 }
 
 // --- Socket Path ---

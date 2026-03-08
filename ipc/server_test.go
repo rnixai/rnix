@@ -133,6 +133,112 @@ func TestServer_Kill_NotFound(t *testing.T) {
 	}
 }
 
+// --- 15-4: ctx_profile handler tests ---
+
+func TestServer_CtxProfile_InvalidPID(t *testing.T) {
+	_, sockPath, _ := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodCtxProfile, CtxProfileRequest{PID: 999})
+	if resp.OK {
+		t.Fatal("ctx_profile should fail for nonexistent PID")
+	}
+	if resp.Error == nil {
+		t.Fatal("error should not be nil")
+	}
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("code = %q, want NOT_FOUND", resp.Error.Code)
+	}
+}
+
+func TestServer_CtxProfile_WrongState(t *testing.T) {
+	srv, sockPath, ctxMgr := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-ctx-profile-dead", nil)
+	// Do not call Start() - process stays in Created state
+	ctxID, err := ctxMgr.CtxAlloc(100)
+	if err != nil {
+		t.Fatalf("CtxAlloc: %v", err)
+	}
+	proc.CtxID = ctxID
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodCtxProfile, CtxProfileRequest{PID: proc.PID})
+	if resp.OK {
+		t.Fatal("ctx_profile should fail for non-Running/Zombie process")
+	}
+	if resp.Error == nil {
+		t.Fatal("error should not be nil")
+	}
+	if resp.Error.Code != "INVALID" {
+		t.Errorf("code = %q, want INVALID", resp.Error.Code)
+	}
+}
+
+func TestServer_CtxProfile_ValidPID_Running(t *testing.T) {
+	srv, sockPath, ctxMgr := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-ctx-profile", nil)
+	_ = proc.Start()
+	ctxID, err := ctxMgr.CtxAlloc(100)
+	if err != nil {
+		t.Fatalf("CtxAlloc: %v", err)
+	}
+	proc.CtxID = ctxID
+	_ = ctxMgr.SetSystemPrompt(ctxID, "You are a helpful assistant.")
+	_ = ctxMgr.AppendMessage(ctxID, rnixctx.RoleUser, "Hello")
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodCtxProfile, CtxProfileRequest{PID: proc.PID})
+	if !resp.OK {
+		t.Fatalf("ctx_profile failed: %+v", resp.Error)
+	}
+
+	var result debug.CtxProfileResult
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if result.PID != proc.PID {
+		t.Errorf("PID = %d, want %d", result.PID, proc.PID)
+	}
+	if result.CtxID != ctxID {
+		t.Errorf("CtxID = %d, want %d", result.CtxID, ctxID)
+	}
+	if result.Classification.Active.Messages == 0 && result.Classification.Active.Tokens == 0 {
+		t.Error("expected non-empty classification (active)")
+	}
+}
+
+func TestServer_CtxProfile_InvalidPayload(t *testing.T) {
+	_, sockPath, _ := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	// Payload with invalid PID type (string instead of number) fails Unmarshal
+	req := Request{Method: MethodCtxProfile, Payload: json.RawMessage(`{"pid":"not-a-number"}`)}
+	enc := json.NewEncoder(conn)
+	if err := enc.Encode(req); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		t.Fatal("no response")
+	}
+	var resp Response
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.OK {
+		t.Fatal("ctx_profile should fail for invalid payload")
+	}
+	if resp.Error == nil || resp.Error.Code != "INVALID" {
+		t.Errorf("error = %+v, want INVALID", resp.Error)
+	}
+}
+
 func TestServer_UnknownMethod(t *testing.T) {
 	_, sockPath, _ := setupTestServer(t)
 	conn := dial(t, sockPath)
