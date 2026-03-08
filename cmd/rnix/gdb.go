@@ -240,6 +240,8 @@ func runGdb(cmd *cobra.Command, args []string) error {
 			gdbInspect(w, client, pid, parts[1:])
 		case "set":
 			gdbSet(w, client, pid, parts[1:])
+		case "record":
+			gdbRecord(w, client, pid, parts[1:])
 		default:
 			fmt.Fprintf(w, "[gdb] unknown command: %s (type 'help' for commands)\n", line)
 		}
@@ -270,6 +272,8 @@ func printGdbHelp(w interface{ Write([]byte) (int, error) }) {
 	fmt.Fprintln(w, "  set context append <text>       - Append text to context")
 	fmt.Fprintln(w, "  set skills add <name>           - Add a skill to the agent")
 	fmt.Fprintln(w, "  set env KEY=VALUE               - Set an environment variable")
+	fmt.Fprintln(w, "  record start                    - Start recording execution events")
+	fmt.Fprintln(w, "  record stop                     - Stop recording execution events")
 	fmt.Fprintln(w, "  info / i                       - Show process information")
 	fmt.Fprintln(w, "  detach / quit / q              - Disconnect from debug session")
 	fmt.Fprintln(w, "  help / h                       - Show this help")
@@ -623,5 +627,32 @@ func parseSetCommand(args []string) (*SetCommandResult, error) {
 		return &SetCommandResult{SubCommand: "env", Value: args[1]}, nil
 	default:
 		return nil, fmt.Errorf("unknown set target: %s (valid: model, context, skills, env)", subCmd)
+	}
+}
+
+// gdbRecord handles the record command within a gdb session.
+func gdbRecord(w interface{ Write([]byte) (int, error) }, client *ipc.Client, pid types.PID, args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(w, "[gdb] usage: record <start|stop>")
+		return
+	}
+
+	switch args[0] {
+	case "start":
+		recordID, err := client.RecordStart(pid)
+		if err != nil {
+			fmt.Fprintf(w, "[gdb] record start failed: %v\n", err)
+			return
+		}
+		fmt.Fprintf(w, "[gdb] recording started (record-id: %s)\n", recordID)
+	case "stop":
+		eventCount, err := client.RecordStop(pid)
+		if err != nil {
+			fmt.Fprintf(w, "[gdb] record stop failed: %v\n", err)
+			return
+		}
+		fmt.Fprintf(w, "[gdb] recording stopped (%d events captured)\n", eventCount)
+	default:
+		fmt.Fprintf(w, "[gdb] unknown record subcommand: %s (valid: start, stop)\n", args[0])
 	}
 }

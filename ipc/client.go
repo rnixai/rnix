@@ -325,6 +325,47 @@ func (c *Client) Shutdown() error {
 	return err
 }
 
+// RecordStart starts execution recording for a process.
+// Returns the recording ID.
+func (c *Client) RecordStart(pid types.PID) (string, error) {
+	resp, err := c.call(MethodRecordStart, RecordStartRequest{PID: pid})
+	if err != nil {
+		return "", err
+	}
+	var rr RecordStartResponse
+	if err := json.Unmarshal(resp.Payload, &rr); err != nil {
+		return "", fmt.Errorf("ipc: unmarshal record_start: %w", err)
+	}
+	return rr.RecordID, nil
+}
+
+// RecordStop stops execution recording for a process.
+// Returns the number of events captured.
+func (c *Client) RecordStop(pid types.PID) (uint64, error) {
+	resp, err := c.call(MethodRecordStop, RecordStopRequest{PID: pid})
+	if err != nil {
+		return 0, err
+	}
+	var rr RecordStopResponse
+	if err := json.Unmarshal(resp.Payload, &rr); err != nil {
+		return 0, fmt.Errorf("ipc: unmarshal record_stop: %w", err)
+	}
+	return rr.EventCount, nil
+}
+
+// RecordList returns metadata for all recording sessions.
+func (c *Client) RecordList() ([]RecordMetadataWire, error) {
+	resp, err := c.call(MethodRecordList, nil)
+	if err != nil {
+		return nil, err
+	}
+	var rr RecordListResponse
+	if err := json.Unmarshal(resp.Payload, &rr); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal record_list: %w", err)
+	}
+	return rr.Records, nil
+}
+
 // AttachGdb attaches to a process for interactive debugging, receiving both
 // syscall events and log entries via a unified stream. Returns the initial
 // process metadata snapshot. The onEvent callback is called for each GdbEvent

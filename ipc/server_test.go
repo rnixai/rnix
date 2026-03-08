@@ -10,6 +10,7 @@ import (
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
@@ -26,6 +27,10 @@ func setupTestServer(t *testing.T) (*Server, string, *rnixctx.Manager) {
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	srv.kern = kern
 	srv.SetContextManager(ctxMgr)
+
+	// Initialize record manager for recording tests
+	recordDir := filepath.Join(t.TempDir(), "records")
+	kern.SetRecordManager(debug.NewRecordManager(recordDir))
 
 	sockDir := t.TempDir()
 	sockPath := filepath.Join(sockDir, "test.sock")
@@ -1347,5 +1352,107 @@ func TestServer_GdbCommand_SetEnvInvalidFormat(t *testing.T) {
 	}
 	if cmdResp.OK {
 		t.Error("expected command OK = false for env without KEY=VALUE format")
+	}
+}
+
+// ============================================================
+// ATDD RED PHASE — Story 14.1: 执行录制与持久化 (IPC Server)
+//
+// Tests reference MethodRecordStart, MethodRecordStop, RecordStartRequest,
+// RecordStopRequest, handleRecordCommand which do NOT exist yet
+// → compile failure = RED phase.
+// ============================================================
+
+// --- 14.1-IPC-001: [P0] Server handles record_start 返回 record_id ---
+
+func TestServer_RecordStart(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-record-start", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodRecordStart, RecordStartRequest{PID: proc.PID})
+	if !resp.OK {
+		t.Fatalf("record_start not ok: %+v", resp.Error)
+	}
+
+	var rr RecordStartResponse
+	if err := json.Unmarshal(resp.Payload, &rr); err != nil {
+		t.Fatalf("unmarshal RecordStartResponse: %v", err)
+	}
+	if rr.RecordID == "" {
+		t.Error("expected non-empty RecordID")
+	}
+}
+
+// --- 14.1-IPC-002: [P0] Server handles record_stop 返回 event_count ---
+
+func TestServer_RecordStop(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-record-stop", nil)
+	_ = proc.Start()
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	// First start recording
+	resp := sendRequest(t, conn, MethodRecordStart, RecordStartRequest{PID: proc.PID})
+	if !resp.OK {
+		t.Fatalf("record_start not ok: %+v", resp.Error)
+	}
+
+	// Reuse connection (connection reuse model)
+	conn2 := dial(t, sockPath)
+
+	// Then stop recording
+	resp = sendRequest(t, conn2, MethodRecordStop, RecordStopRequest{PID: proc.PID})
+	if !resp.OK {
+		t.Fatalf("record_stop not ok: %+v", resp.Error)
+	}
+
+	var rr RecordStopResponse
+	if err := json.Unmarshal(resp.Payload, &rr); err != nil {
+		t.Fatalf("unmarshal RecordStopResponse: %v", err)
+	}
+	// EventCount may be 0 if no events were written
+	_ = rr.EventCount
+}
+
+// --- 14.1-IPC-003: [P1] Server handles record_start 不存在的 PID 返回错误 ---
+
+func TestServer_RecordStart_NotFound(t *testing.T) {
+	_, sockPath, _ := setupTestServer(t)
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodRecordStart, RecordStartRequest{PID: 99999})
+	if resp.OK {
+		t.Fatal("record_start should fail for nonexistent PID")
+	}
+	if resp.Error == nil {
+		t.Fatal("error should not be nil")
+	}
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("code = %q, want NOT_FOUND", resp.Error.Code)
+	}
+}
+
+// --- 14.1-IPC-004: [P1] Server handles record_start Running 进程验证 ---
+
+func TestServer_RecordStart_RequiresRunning(t *testing.T) {
+	srv, sockPath, _ := setupTestServer(t)
+
+	proc := kernel.NewProcess(0, "test-record-not-running", nil)
+	// Do NOT call proc.Start() — process is in Created state
+	srv.kern.AddProcess(proc)
+
+	conn := dial(t, sockPath)
+
+	resp := sendRequest(t, conn, MethodRecordStart, RecordStartRequest{PID: proc.PID})
+	if resp.OK {
+		t.Fatal("record_start should fail for non-Running process")
 	}
 }

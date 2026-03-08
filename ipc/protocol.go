@@ -27,6 +27,9 @@ const (
 	MethodAttachGdb     Method = "attach_gdb"
 	MethodDetachGdb     Method = "detach_gdb"
 	MethodGdbCommand    Method = "gdb_command"
+	MethodRecordStart   Method = "record_start"
+	MethodRecordStop    Method = "record_stop"
+	MethodRecordList    Method = "record_list"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -353,6 +356,44 @@ type ExecScriptResponse struct {
 	LastExitCode int    `json:"last_exit_code"`
 	TotalTokens  int    `json:"total_tokens"`
 	ElapsedMs    int64  `json:"elapsed_ms"`
+}
+
+// --- Record ---
+
+// RecordStartRequest is the payload for MethodRecordStart.
+type RecordStartRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// RecordStartResponse is the response for MethodRecordStart.
+type RecordStartResponse struct {
+	RecordID string `json:"record_id"`
+}
+
+// RecordStopRequest is the payload for MethodRecordStop.
+type RecordStopRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// RecordStopResponse is the response for MethodRecordStop.
+type RecordStopResponse struct {
+	EventCount uint64 `json:"event_count"`
+}
+
+// RecordListResponse is the response for MethodRecordList.
+type RecordListResponse struct {
+	Records []RecordMetadataWire `json:"records"`
+}
+
+// RecordMetadataWire is the wire-format representation of debug.RecordMetadata.
+type RecordMetadataWire struct {
+	RecordID   string    `json:"record_id"`
+	PID        types.PID `json:"pid"`
+	Intent     string    `json:"intent"`
+	StartTime  int64     `json:"start_time_ms"`
+	EndTime    int64     `json:"end_time_ms,omitempty"`
+	EventCount uint64    `json:"event_count"`
+	Status     string    `json:"status"`
 }
 
 // --- Socket Path ---
