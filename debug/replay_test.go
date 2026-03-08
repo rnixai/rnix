@@ -1,6 +1,9 @@
 package debug
 
 import (
+	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -465,5 +468,252 @@ func TestReplayListItem_Fields(t *testing.T) {
 	}
 	if item.Event.SeqNum != 1 {
 		t.Fatalf("expected SeqNum=1, got %d", item.Event.SeqNum)
+	}
+}
+
+// =============================================================================
+// ReplaySession Diff Tests — Story 14-3 ATDD (RED PHASE)
+// All tests reference Diff/DiffFromCursor methods which do not yet exist.
+// Compile errors are expected until implementation.
+// =============================================================================
+
+// --- Helper: create a recording with context snapshots ---
+
+func createTestRecordingWithSnapshots(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	meta := RecordMetadata{
+		RecordID:   "42-1709856000",
+		PID:        42,
+		Intent:     "test with snapshots",
+		StartTime:  time.Now().Add(-time.Minute),
+		EndTime:    time.Now(),
+		EventCount: 8,
+		Status:     RecordStatusCompleted,
+	}
+	writeTestMetadata(t, dir, meta)
+
+	events := buildSnapshotTestEvents()
+	writeTestEvents(t, dir, events)
+
+	return dir
+}
+
+func createTestRecordingNoSnapshots(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+
+	meta := RecordMetadata{
+		RecordID:   "42-1709856000",
+		PID:        42,
+		Intent:     "test no snapshots",
+		StartTime:  time.Now().Add(-time.Minute),
+		EndTime:    time.Now(),
+		EventCount: 2,
+		Status:     RecordStatusCompleted,
+	}
+	writeTestMetadata(t, dir, meta)
+
+	events := buildNoSnapshotEvents()
+	writeTestEvents(t, dir, events)
+
+	return dir
+}
+
+func writeTestEvents(t *testing.T, dir string, events []RecordEvent) {
+	t.Helper()
+	eventsPath := dir + "/events.jsonl"
+	f, err := os.Create(eventsPath)
+	if err != nil {
+		t.Fatalf("create events.jsonl: %v", err)
+	}
+	defer f.Close()
+
+	for _, ev := range events {
+		data, _ := json.Marshal(ev)
+		f.Write(data)
+		f.Write([]byte("\n"))
+	}
+}
+
+// --- AC1: diff <seq1> <seq2> ---
+
+// 14.3-REPLAY-001: [P0] Diff with two valid SeqNums returns ContextDiff
+func TestReplaySession_Diff(t *testing.T) {
+	dir := createTestRecordingWithSnapshots(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Diff between snapshot #3 and snapshot #6
+	diff, err := session.Diff(3, 6)
+	if err != nil {
+		t.Fatalf("Diff(3, 6) failed: %v", err)
+	}
+	if diff == nil {
+		t.Fatal("Diff returned nil")
+	}
+	if diff.FromSeqNum != 3 {
+		t.Fatalf("expected FromSeqNum=3, got %d", diff.FromSeqNum)
+	}
+	if diff.ToSeqNum != 6 {
+		t.Fatalf("expected ToSeqNum=6, got %d", diff.ToSeqNum)
+	}
+}
+
+// 14.3-REPLAY-002: [P0] Diff auto-finds nearest snapshots for non-snapshot SeqNums (AC #3)
+func TestReplaySession_Diff_AutoFindSnapshots(t *testing.T) {
+	dir := createTestRecordingWithSnapshots(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// SeqNum 5 (llm_response) → nearest snapshot before is #3
+	// SeqNum 7 (syscall) → nearest snapshot before is #6
+	diff, err := session.Diff(5, 7)
+	if err != nil {
+		t.Fatalf("Diff(5, 7) failed: %v", err)
+	}
+	if diff.FromSeqNum != 3 {
+		t.Fatalf("expected FromSeqNum=3 (nearest snapshot before 5), got %d", diff.FromSeqNum)
+	}
+	if diff.ToSeqNum != 6 {
+		t.Fatalf("expected ToSeqNum=6 (nearest snapshot before 7), got %d", diff.ToSeqNum)
+	}
+}
+
+// 14.3-REPLAY-003: [P0] Diff returns error when no snapshots in recording (AC #4)
+func TestReplaySession_Diff_NoSnapshots(t *testing.T) {
+	dir := createTestRecordingNoSnapshots(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	_, err = session.Diff(1, 2)
+	if err == nil {
+		t.Fatal("expected error for Diff when no snapshots exist, got nil")
+	}
+	// Error should mention "no context snapshot"
+	if !strings.Contains(err.Error(), "snapshot") && !strings.Contains(err.Error(), "Snapshot") {
+		t.Fatalf("expected error to mention 'snapshot', got: %v", err)
+	}
+}
+
+// 14.3-REPLAY-004: [P0] Diff returns error when seq1 has no snapshot before it
+func TestReplaySession_Diff_NoSnapshotBeforeSeq1(t *testing.T) {
+	dir := createTestRecordingWithSnapshots(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// SeqNum 1 is before any snapshot (#3 is first snapshot)
+	_, err = session.Diff(1, 6)
+	if err == nil {
+		t.Fatal("expected error for Diff(1, 6) where no snapshot before SeqNum 1, got nil")
+	}
+}
+
+// 14.3-REPLAY-005: [P0] Diff does not change cursor position
+func TestReplaySession_Diff_DoesNotMoveCursor(t *testing.T) {
+	dir := createTestRecordingWithSnapshots(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Navigate to event 4
+	session.Goto(4)
+	cursorBefore, _ := session.Position()
+
+	// Execute diff
+	session.Diff(3, 7)
+
+	cursorAfter, _ := session.Position()
+	if cursorBefore != cursorAfter {
+		t.Fatalf("Diff changed cursor from %d to %d", cursorBefore, cursorAfter)
+	}
+}
+
+// --- AC5: diff <seq> (single argument, diff from cursor) ---
+
+// 14.3-REPLAY-006: [P0] DiffFromCursor diffs from cursor position to specified SeqNum
+func TestReplaySession_DiffFromCursor(t *testing.T) {
+	dir := createTestRecordingWithSnapshots(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Navigate cursor to event #4 (nearest snapshot before is #3)
+	session.Goto(4)
+
+	// DiffFromCursor(7) should diff cursor-nearest-snapshot (#3) vs target-nearest-snapshot (#6)
+	diff, err := session.DiffFromCursor(7)
+	if err != nil {
+		t.Fatalf("DiffFromCursor(7) failed: %v", err)
+	}
+	if diff.FromSeqNum != 3 {
+		t.Fatalf("expected FromSeqNum=3 (cursor's nearest snapshot), got %d", diff.FromSeqNum)
+	}
+	if diff.ToSeqNum != 6 {
+		t.Fatalf("expected ToSeqNum=6 (target's nearest snapshot), got %d", diff.ToSeqNum)
+	}
+}
+
+// 14.3-REPLAY-007: [P1] DiffFromCursor returns error when cursor not started
+func TestReplaySession_DiffFromCursor_NotStarted(t *testing.T) {
+	dir := createTestRecordingWithSnapshots(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Cursor is at -1 (not started)
+	_, err = session.DiffFromCursor(6)
+	if err == nil {
+		t.Fatal("expected error for DiffFromCursor when cursor not started, got nil")
+	}
+}
+
+// 14.3-REPLAY-008: [P1] DiffFromCursor uses cursor position correctly after navigation
+func TestReplaySession_DiffFromCursor_AfterNavigation(t *testing.T) {
+	dir := createTestRecordingWithSnapshots(t)
+	reader, err := NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader failed: %v", err)
+	}
+
+	session := NewReplaySession(reader)
+
+	// Navigate to event #6 (which IS a context_snapshot)
+	session.Goto(6)
+
+	// DiffFromCursor(8) should use snapshot at #6 for cursor
+	diff, err := session.DiffFromCursor(8)
+	if err != nil {
+		t.Fatalf("DiffFromCursor(8) failed: %v", err)
+	}
+	// From should be #6 (cursor position IS a snapshot)
+	if diff.FromSeqNum != 6 {
+		t.Fatalf("expected FromSeqNum=6, got %d", diff.FromSeqNum)
 	}
 }

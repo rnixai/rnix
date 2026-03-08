@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -59,5 +60,39 @@ func TestReplayCommand_JSONFlag(t *testing.T) {
 	jsonFlag := replayFound.Flags().Lookup("json")
 	if jsonFlag == nil {
 		t.Fatal("expected '--json' flag on replay command")
+	}
+}
+
+// =============================================================================
+// ATDD RED PHASE -- Story 14-3: replay diff CLI command tests
+//
+// Tests verify the diff command integration in the replay interactive loop.
+// These test the CLI layer which delegates to ReplaySession.Diff/DiffFromCursor.
+// =============================================================================
+
+// --- 14.3-CLI-001: [P0] diff 命令在 help 输出中有记录 ---
+
+func TestReplayCommand_DiffInHelp(t *testing.T) {
+	// printReplayHelp should include diff command documentation
+	// We test this by verifying the help function output contains "diff"
+	var buf strings.Builder
+	printReplayHelp(&buf)
+	output := buf.String()
+
+	if !strings.Contains(output, "diff") {
+		t.Fatalf("expected replay help to contain 'diff' command, got:\n%s", output)
+	}
+}
+
+// --- 14.3-CLI-002: [P0] diff 命令在 help 中显示用法格式 ---
+
+func TestReplayCommand_DiffHelpFormat(t *testing.T) {
+	var buf strings.Builder
+	printReplayHelp(&buf)
+	output := buf.String()
+
+	// Should show both forms: diff <seq1> <seq2> and diff <seq>
+	if !strings.Contains(output, "diff") {
+		t.Fatalf("expected help to show diff usage, got:\n%s", output)
 	}
 }

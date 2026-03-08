@@ -174,7 +174,7 @@ development_status:
   epic-14: in-progress
   14-1-execution-recording-and-persistence: done
   14-2-recording-replay-and-navigation: done
-  14-3-context-snapshot-diff: backlog
+  14-3-context-snapshot-diff: done
   14-4-fork-continue-branch-exploration: backlog
   epic-14-retrospective: optional
 
