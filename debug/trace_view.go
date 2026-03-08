@@ -211,12 +211,12 @@ func FormatTraceTree(tree *SpanTree, verbose bool) string {
 
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("Trace: %s  |  %d spans  |  %s  |  %d tokens\n\n",
+	fmt.Fprintf(&b, "Trace: %s  |  %d spans  |  %s  |  %d tokens\n\n",
 		tree.TraceID,
 		tree.Metadata.TotalSpans,
 		formatDuration(tree.Metadata.TotalDuration),
 		tree.Metadata.TotalTokens,
-	))
+	)
 
 	tree.Walk(func(node *SpanNode, depth int) {
 		s := node.Span
@@ -234,12 +234,12 @@ func FormatTraceTree(tree *SpanTree, verbose bool) string {
 
 		if verbose {
 			indent := buildContinuationPrefix(depth, isLast, node, tree)
-			b.WriteString(fmt.Sprintf("%s  SpanID: %s", indent, s.SpanID))
+			fmt.Fprintf(&b, "%s  SpanID: %s", indent, s.SpanID)
 			if s.ParentSpanID != "" {
-				b.WriteString(fmt.Sprintf("  Parent: %s", s.ParentSpanID))
+				fmt.Fprintf(&b, "  Parent: %s", s.ParentSpanID)
 			}
-			b.WriteString(fmt.Sprintf("  Syscalls: %d  Start: %s\n",
-				s.SyscallCount, s.StartTime.Format(time.RFC3339)))
+			fmt.Fprintf(&b, "  Syscalls: %d  Start: %s\n",
+				s.SyscallCount, s.StartTime.Format(time.RFC3339))
 		}
 	})
 
@@ -342,8 +342,8 @@ func FormatTraceList(summaries []TraceSummary) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%-34s  %5s  %10s  %s\n",
-		"TRACE ID", "SPANS", "DURATION", "ROOT"))
+	fmt.Fprintf(&b, "%-34s  %5s  %10s  %s\n",
+		"TRACE ID", "SPANS", "DURATION", "ROOT")
 	b.WriteString(strings.Repeat("─", 70) + "\n")
 
 	for _, s := range summaries {
@@ -351,8 +351,8 @@ func FormatTraceList(summaries []TraceSummary) string {
 		if len(tid) > 32 {
 			tid = tid[:32]
 		}
-		b.WriteString(fmt.Sprintf("%-34s  %5d  %10s  %s\n",
-			tid, s.SpanCount, formatDuration(s.TotalDuration), s.RootSpanName))
+		fmt.Fprintf(&b, "%-34s  %5d  %10s  %s\n",
+			tid, s.SpanCount, formatDuration(s.TotalDuration), s.RootSpanName)
 	}
 
 	return b.String()

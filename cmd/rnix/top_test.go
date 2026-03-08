@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -320,6 +321,10 @@ func TestTopModel_Init(t *testing.T) {
 // --- 10.1-UNIT-012: Update(tickMsg) with nil client stays disconnected ---
 
 func TestTopModel_TickNoClient(t *testing.T) {
+	old := ipc.SocketPathOverride
+	ipc.SocketPathOverride = "/tmp/rnix-nonexistent-test.sock"
+	defer func() { ipc.SocketPathOverride = old }()
+
 	m := newTopModel(nil)
 	m.connected = false
 	updated, cmd := m.Update(tickMsg(time.Now()))
