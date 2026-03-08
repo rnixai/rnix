@@ -30,6 +30,7 @@ const (
 	MethodRecordStart   Method = "record_start"
 	MethodRecordStop    Method = "record_stop"
 	MethodRecordList    Method = "record_list"
+	MethodReplayLoad    Method = "replay_load"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -394,6 +395,24 @@ type RecordMetadataWire struct {
 	EndTime    int64     `json:"end_time_ms,omitempty"`
 	EventCount uint64    `json:"event_count"`
 	Status     string    `json:"status"`
+}
+
+// --- Replay ---
+
+// ReplayLoadRequest is the payload for MethodReplayLoad.
+type ReplayLoadRequest struct {
+	RecordID string `json:"record_id"`
+}
+
+// ReplayLoadResponse is the response for MethodReplayLoad.
+type ReplayLoadResponse struct {
+	RecordID    string    `json:"record_id"`
+	PID         types.PID `json:"pid"`
+	Intent      string    `json:"intent"`
+	EventCount  int       `json:"event_count"`
+	StartTimeMs int64     `json:"start_time_ms"`
+	EndTimeMs   int64     `json:"end_time_ms"`
+	Status      string    `json:"status"`
 }
 
 // --- Socket Path ---

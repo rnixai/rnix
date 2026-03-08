@@ -366,6 +366,19 @@ func (c *Client) RecordList() ([]RecordMetadataWire, error) {
 	return rr.Records, nil
 }
 
+// ReplayLoad loads a recording's metadata for replay.
+func (c *Client) ReplayLoad(recordID string) (*ReplayLoadResponse, error) {
+	resp, err := c.call(MethodReplayLoad, ReplayLoadRequest{RecordID: recordID})
+	if err != nil {
+		return nil, err
+	}
+	var rr ReplayLoadResponse
+	if err := json.Unmarshal(resp.Payload, &rr); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal replay_load: %w", err)
+	}
+	return &rr, nil
+}
+
 // AttachGdb attaches to a process for interactive debugging, receiving both
 // syscall events and log entries via a unified stream. Returns the initial
 // process metadata snapshot. The onEvent callback is called for each GdbEvent
