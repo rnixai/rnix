@@ -1,0 +1,4 @@
+name: "no-version-test"
+intent: "向用户打招呼"
+agent:
+  name: "greeter"

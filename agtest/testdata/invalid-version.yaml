@@ -1,0 +1,5 @@
+version: "2.0"
+name: "bad-version-test"
+intent: "向用户打招呼"
+agent:
+  name: "greeter"
