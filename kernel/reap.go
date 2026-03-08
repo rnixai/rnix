@@ -15,6 +15,11 @@ const DeadProcessTTL = 60 * time.Second
 // even if both Wait and the reaper goroutine try concurrently.
 func (k *KernelImpl) reapProcess(proc *Process) {
 	proc.reapOnce.Do(func() {
+		// Auto-stop recording if active (Story 14.1)
+		if k.recordMgr != nil && k.recordMgr.IsRecording(proc.PID) {
+			_ = k.recordMgr.StopRecording(proc.PID)
+		}
+
 		// Handle orphan children before removing parent from table
 		k.handleOrphanChildren(proc)
 
@@ -208,10 +213,15 @@ func (k *KernelImpl) cleanupExpiredDead(ttl time.Duration) {
 	}
 }
 
-// Shutdown stops the reaper goroutine, unmounts all MCP servers, and waits for exit.
+// Shutdown stops the reaper goroutine, unmounts all MCP servers,
+// closes all active recordings, and waits for exit.
 // Safe to call multiple times — only the first call closes stopCh.
 func (k *KernelImpl) Shutdown() {
 	k.shutdownOnce.Do(func() {
+		// Close all active recordings before stopping reaper
+		if k.recordMgr != nil {
+			k.recordMgr.CloseAll()
+		}
 		// Unmount all MCP servers before stopping reaper
 		if k.mountMgr != nil {
 			_ = k.mountMgr.UnmountAll()

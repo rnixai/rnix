@@ -2379,3 +2379,88 @@ func TestReasonStep_GdbModelOverride_Empty(t *testing.T) {
 		t.Errorf("expected original model %q, got %q", "original-model", capturedReq.Model)
 	}
 }
+
+// TestReasonStep_GdbEnvVarsInjection verifies that gdb env vars are injected
+// into the system prompt as a [GDB Environment Variables] section.
+func TestReasonStep_GdbEnvVarsInjection(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("env test", 10),
+	}
+	var capturedReq llmRequest
+	captureLLM := &capturingLLMFile{
+		inner:       llmFile,
+		capturedReq: &capturedReq,
+	}
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return captureLLM, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("test env injection", nil, SpawnOpts{Model: "test-model"})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	proc.SetGdbEnv("DEBUG", "true")
+	proc.SetGdbEnv("LOG_LEVEL", "verbose")
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process to complete")
+	}
+
+	if !strings.Contains(capturedReq.SystemPrompt, "[GDB Environment Variables]") {
+		t.Error("expected system prompt to contain [GDB Environment Variables] section")
+	}
+	if !strings.Contains(capturedReq.SystemPrompt, "DEBUG=true") {
+		t.Error("expected system prompt to contain DEBUG=true")
+	}
+	if !strings.Contains(capturedReq.SystemPrompt, "LOG_LEVEL=verbose") {
+		t.Error("expected system prompt to contain LOG_LEVEL=verbose")
+	}
+}
+
+// TestReasonStep_GdbEnvVarsEmpty verifies that no env section is injected
+// when no gdb env vars are set.
+func TestReasonStep_GdbEnvVarsEmpty(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("no env test", 10),
+	}
+	var capturedReq llmRequest
+	captureLLM := &capturingLLMFile{
+		inner:       llmFile,
+		capturedReq: &capturedReq,
+	}
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return captureLLM, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("test no env", nil, SpawnOpts{Model: "test-model"})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	// Do NOT set any env vars
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process to complete")
+	}
+
+	if strings.Contains(capturedReq.SystemPrompt, "[GDB Environment Variables]") {
+		t.Error("expected system prompt to NOT contain env vars section when none set")
+	}
+}

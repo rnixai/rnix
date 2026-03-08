@@ -23,6 +23,7 @@ import (
 	"github.com/rnixai/rnix/internal/xsync"
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/shell"
+	"github.com/rnixai/rnix/skills"
 )
 
 const (
@@ -41,6 +42,7 @@ type Server struct {
 	version     string
 	IdleTimeout time.Duration
 	ctxMgr      *rnixctx.Manager
+	skillLoader *skills.SkillLoader
 
 	listener    net.Listener
 	activeConns atomic.Int32
@@ -248,6 +250,12 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleDetachGdb(conn, req.Payload)
 		case MethodGdbCommand:
 			s.handleGdbCommand(conn, req.Payload)
+		case MethodRecordStart:
+			s.handleRecordStart(conn, req.Payload)
+		case MethodRecordStop:
+			s.handleRecordStop(conn, req.Payload)
+		case MethodRecordList:
+			s.handleRecordList(conn)
 		case MethodSpawnPipeline:
 			s.handleSpawnPipeline(conn, req.Payload)
 			return // streaming method
@@ -815,8 +823,22 @@ func (s *Server) handleGdbSet(proc *kernel.Process, args []string) GdbCommandRes
 		if len(args) < 3 || args[1] != "add" {
 			return GdbCommandResponse{OK: false, Message: "usage: set skills add <name>"}
 		}
-		proc.AddGdbSkill(args[2])
-		return GdbCommandResponse{OK: true, Message: fmt.Sprintf("skill %s added", args[2])}
+		skillName := args[2]
+		proc.AddGdbSkill(skillName)
+		// Hot-load skill body into context if skill loader and context manager are available
+		if s.skillLoader != nil && s.ctxMgr != nil {
+			info, err := s.skillLoader.LoadFull(skillName)
+			if err != nil {
+				return GdbCommandResponse{OK: true, Message: fmt.Sprintf("skill %s recorded (load failed: %v)", skillName, err)}
+			}
+			if info.Body != "" {
+				if err := s.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, fmt.Sprintf("[Skill: %s]\n%s", skillName, info.Body)); err != nil {
+					return GdbCommandResponse{OK: true, Message: fmt.Sprintf("skill %s recorded (context append failed: %v)", skillName, err)}
+				}
+				return GdbCommandResponse{OK: true, Message: fmt.Sprintf("skill %s loaded and injected into context", skillName)}
+			}
+		}
+		return GdbCommandResponse{OK: true, Message: fmt.Sprintf("skill %s added", skillName)}
 	case "env":
 		kv := args[1]
 		idx := strings.Index(kv, "=")
@@ -1012,6 +1034,95 @@ func (s *Server) SetKernel(k *kernel.KernelImpl) {
 // SetContextManager sets the context manager for inspect context support.
 func (s *Server) SetContextManager(mgr *rnixctx.Manager) {
 	s.ctxMgr = mgr
+}
+
+// SetSkillLoader sets the skill loader for gdb set skills hot-loading.
+func (s *Server) SetSkillLoader(loader *skills.SkillLoader) {
+	s.skillLoader = loader
+}
+
+// handleRecordStart starts execution recording for a process.
+func (s *Server) handleRecordStart(conn net.Conn, rawPayload json.RawMessage) {
+	var req RecordStartRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid record_start request"}})
+		return
+	}
+
+	recordID, err := s.kern.StartRecording(req.PID)
+	if err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+
+	payload, _ := json.Marshal(RecordStartResponse{RecordID: recordID})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleRecordStop stops execution recording for a process.
+func (s *Server) handleRecordStop(conn net.Conn, rawPayload json.RawMessage) {
+	var req RecordStopRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid record_stop request"}})
+		return
+	}
+
+	// Get event count before stopping
+	var eventCount uint64
+	if mgr := s.kern.GetRecordManager(); mgr != nil {
+		eventCount = mgr.GetEventCount(req.PID)
+	}
+
+	if err := s.kern.StopRecording(req.PID); err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+
+	payload, _ := json.Marshal(RecordStopResponse{EventCount: eventCount})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleRecordList lists all recorded sessions.
+func (s *Server) handleRecordList(conn net.Conn) {
+	mgr := s.kern.GetRecordManager()
+	if mgr == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: "record manager not initialized"}})
+		return
+	}
+
+	records, err := mgr.ListRecords()
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
+		return
+	}
+
+	wireRecords := make([]RecordMetadataWire, len(records))
+	for i, r := range records {
+		wireRecords[i] = RecordMetadataWire{
+			RecordID:   r.RecordID,
+			PID:        r.PID,
+			Intent:     r.Intent,
+			StartTime:  r.StartTime.UnixMilli(),
+			EventCount: r.EventCount,
+			Status:     string(r.Status),
+		}
+		if !r.EndTime.IsZero() {
+			wireRecords[i].EndTime = r.EndTime.UnixMilli()
+		}
+	}
+
+	payload, _ := json.Marshal(RecordListResponse{Records: wireRecords})
+	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 
 // --- spawn pipeline ---

@@ -163,16 +163,16 @@ development_status:
   # ===============================================================
 
   # Epic 13: Interactive Agent Debugging (gdb)
-  epic-13: in-progress
+  epic-13: done
   13-1-gdb-attach-detach: done
   13-2-breakpoint-system: done
   13-3-step-execution-and-state-inspection: done
   13-4-runtime-parameter-hot-modification: done
-  epic-13-retrospective: optional
+  epic-13-retrospective: done
 
   # Epic 14: Time Travel Debugging
-  epic-14: backlog
-  14-1-execution-recording-and-persistence: backlog
+  epic-14: in-progress
+  14-1-execution-recording-and-persistence: done
   14-2-recording-replay-and-navigation: backlog
   14-3-context-snapshot-diff: backlog
   14-4-fork-continue-branch-exploration: backlog

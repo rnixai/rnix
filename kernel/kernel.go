@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"path"
 	"strings"
 	"sync"
@@ -121,6 +122,9 @@ type KernelImpl struct {
 
 	// MCP mount manager (Story 9.1)
 	mountMgr MountManager
+
+	// Execution recording (Story 14.1)
+	recordMgr *debug.RecordManager
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -369,6 +373,14 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 		debug.EmitEvent(ch, event)
 	}
 	proc.mu.Unlock()
+
+	// Recording hook (Story 14.1): write event to disk if recording is active
+	if k.recordMgr != nil && k.recordMgr.IsRecording(proc.PID) {
+		recEvent := debug.RecordEventFromSyscall(event)
+		if err := k.recordMgr.RecordEvent(proc.PID, recEvent); err != nil {
+			log.Printf("[record] write error pid=%d: %v", proc.PID, err)
+		}
+	}
 }
 
 // finishProcess terminates the process and writes the exit status to the Done channel.
@@ -390,6 +402,23 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	}
 
 	_ = proc.Terminate(exit)
+
+	// Recording hook: state change (Story 14.1)
+	if k.recordMgr != nil && k.recordMgr.IsRecording(proc.PID) {
+		stateEvent := debug.RecordEvent{
+			Timestamp: time.Since(proc.CreatedAt),
+			PID:       proc.PID,
+			Type:      debug.RecordStateChange,
+			State: &debug.StateChangeData{
+				FromState: types.StateRunning.String(),
+				ToState:   types.StateZombie.String(),
+				Reason:    exit.Reason,
+			},
+		}
+		if err := k.recordMgr.RecordEvent(proc.PID, stateEvent); err != nil {
+			log.Printf("[record] state change error pid=%d: %v", proc.PID, err)
+		}
+	}
 
 	// Notify callbacks
 	if k.callbacks != nil {
@@ -537,9 +566,18 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if override := proc.GetGdbModelOverride(); override != "" {
 			model = override
 		}
+		// Apply gdb environment variables injection (tech debt fix)
+		sysPrompt := promptResult.SystemPrompt
+		if envVars := proc.GetGdbEnvVars(); len(envVars) > 0 {
+			envSection := "\n\n[GDB Environment Variables]\n"
+			for k, v := range envVars {
+				envSection += fmt.Sprintf("%s=%s\n", k, v)
+			}
+			sysPrompt += envSection
+		}
 		req := llmRequest{
 			Intent:       proc.Intent,
-			SystemPrompt: promptResult.SystemPrompt,
+			SystemPrompt: sysPrompt,
 			Model:        model,
 			MaxTurns:     0,
 			TimeoutMs:    opts.TimeoutMs,
@@ -607,6 +645,23 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		lastResultSummary = resp.Content
 		if len(lastResultSummary) > 80 {
 			lastResultSummary = lastResultSummary[:80] + "..."
+		}
+
+		// Recording hook: LLM response (Story 14.1)
+		if k.recordMgr != nil && k.recordMgr.IsRecording(proc.PID) {
+			llmEvent := debug.RecordEvent{
+				Timestamp: time.Since(proc.CreatedAt),
+				PID:       proc.PID,
+				Type:      debug.RecordLLMResponse,
+				LLM: &debug.LLMResponseData{
+					Model:           model,
+					ResponseTokens:  resp.TokensUsed,
+					ResponseSummary: debug.TruncateString(resp.Content, 500),
+				},
+			}
+			if err := k.recordMgr.RecordEvent(proc.PID, llmEvent); err != nil {
+				log.Printf("[record] llm event error pid=%d: %v", proc.PID, err)
+			}
 		}
 
 		proc.mu.Lock()
@@ -707,6 +762,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"op":   "AppendMessage",
 				"role": string(rnixctx.RoleAssistant),
 			}, nil, nil, time.Since(appendAssistantStart))
+
+			// Recording hook: context snapshot after AppendMessage (Story 14.1)
+			if k.recordMgr != nil && k.recordMgr.IsRecording(proc.PID) {
+				k.recordContextSnapshot(proc)
+			}
 
 			// Device permission whitelist check (AC #2, #4)
 			if len(proc.AllowedDevices) > 0 {
@@ -1040,6 +1100,44 @@ func (k *KernelImpl) GetDebugChan(pid types.PID) (chan types.SyscallEvent, bool)
 	return ch, ch != nil
 }
 
+// recordContextSnapshot captures a context snapshot for recording (Story 14.1).
+// Uses GetContextInfo for a lightweight snapshot instead of BuildPrompt to avoid
+// doubling the prompt construction cost in the hot path.
+func (k *KernelImpl) recordContextSnapshot(proc *Process) {
+	info, err := k.ctxMgr.GetContextInfo(proc.CtxID)
+	if err != nil {
+		log.Printf("[record] context snapshot error pid=%d: %v", proc.PID, err)
+		return
+	}
+
+	messageCount := 0
+	if mc, ok := info["total_messages"].(int); ok {
+		messageCount = mc
+	}
+	totalTokens := 0
+	if tt, ok := info["total_tokens"].(int); ok {
+		totalTokens = tt
+	}
+	promptChars := 0
+	if pc, ok := info["system_prompt_chars"].(int); ok {
+		promptChars = pc
+	}
+
+	ctxEvent := debug.RecordEvent{
+		Timestamp: time.Since(proc.CreatedAt),
+		PID:       proc.PID,
+		Type:      debug.RecordContextSnapshot,
+		Context: &debug.ContextSnapshotData{
+			SystemPromptHash: fmt.Sprintf("len:%d", promptChars),
+			MessageCount:     messageCount,
+			TokenEstimate:    totalTokens,
+		},
+	}
+	if err := k.recordMgr.RecordEvent(proc.PID, ctxEvent); err != nil {
+		log.Printf("[record] context snapshot write error pid=%d: %v", proc.PID, err)
+	}
+}
+
 // ListProcs returns snapshots of all processes in the process table.
 // Satisfies vfs.ProcessInfoProvider interface via duck typing.
 func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
@@ -1070,6 +1168,48 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 // Pass nil to disable MCP support.
 func (k *KernelImpl) SetMountManager(mgr MountManager) {
 	k.mountMgr = mgr
+}
+
+// SetRecordManager sets the execution recording manager on the kernel.
+// Pass nil to disable recording support.
+func (k *KernelImpl) SetRecordManager(mgr *debug.RecordManager) {
+	k.recordMgr = mgr
+}
+
+// StartRecording starts execution recording for the given PID.
+// Returns the recording ID or an error if the PID doesn't exist or is already being recorded.
+func (k *KernelImpl) StartRecording(pid types.PID) (string, error) {
+	if k.recordMgr == nil {
+		return "", NewSyscallError("StartRecording", pid, "", fmt.Errorf("record manager not initialized"), types.ErrInternal)
+	}
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return "", NewSyscallError("StartRecording", pid, "", fmt.Errorf("process not found"), types.ErrNotFound)
+	}
+	if proc.GetState() != types.StateRunning {
+		return "", NewSyscallError("StartRecording", pid, "", fmt.Errorf("process is not running (state: %s)", proc.GetState()), types.ErrInvalid)
+	}
+	recordID, err := k.recordMgr.StartRecording(pid, proc.Intent)
+	if err != nil {
+		return "", NewSyscallError("StartRecording", pid, "", err, types.ErrInternal)
+	}
+	return recordID, nil
+}
+
+// StopRecording stops execution recording for the given PID.
+func (k *KernelImpl) StopRecording(pid types.PID) error {
+	if k.recordMgr == nil {
+		return NewSyscallError("StopRecording", pid, "", fmt.Errorf("record manager not initialized"), types.ErrInternal)
+	}
+	if err := k.recordMgr.StopRecording(pid); err != nil {
+		return NewSyscallError("StopRecording", pid, "", err, types.ErrInternal)
+	}
+	return nil
+}
+
+// GetRecordManager returns the record manager (used by IPC server for record_list).
+func (k *KernelImpl) GetRecordManager() *debug.RecordManager {
+	return k.recordMgr
 }
 
 // Mount mounts an MCP server at the given path via the MountManager.

@@ -1025,8 +1025,16 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv := ipc.NewServer(nil, agentLoader.Load, version)
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	k.SetMountManager(mountMgr)
+
+	// Initialize execution recording (Story 14.1)
+	cwd, _ := os.Getwd()
+	recordBaseDir := cwd + "/.rnix/records"
+	recordMgr := debug.NewRecordManager(recordBaseDir)
+	k.SetRecordManager(recordMgr)
+
 	srv.SetKernel(k)
 	srv.SetContextManager(ctxMgr)
+	srv.SetSkillLoader(skillLoader)
 
 	procFS := vfs.NewProcFS(k, ctxMgr)
 	_ = devReg.Register("/proc", procFS.FileFactory())

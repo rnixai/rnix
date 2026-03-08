@@ -116,6 +116,41 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - **日志格式**：logfmt 风格 `[组件名] level=info msg="..." key=value`
 - **manifest.yaml**：字段名 `snake_case`，缩进 2 空格，列表用序列语法 `- item`
 
+### Dev Notes 规范
+
+#### 功能组合检查清单（Combination Matrix）
+- **每个涉及跨模块交互的 Story 的 Dev Notes 必须包含"组合矩阵"段落**
+- 列出本 Story 实现的功能与现有功能的交互点（正交性、共存行为、副作用）
+- 格式示例：
+
+```
+### 组合矩阵
+| 本功能 | 交互对象 | 交互方式 | 需验证 |
+|--------|----------|----------|--------|
+| gdb step | gdb breakpoint | 共存：断点优先触发，step mode 保留 | 是 |
+| gdb step | Signal SIGSTOP | 独立：互不干扰 | 是 |
+| set model | reasonStep opts.Model | 覆盖：gdb override 优先于 opts.Model | 是 |
+```
+
+- 对于"需验证"标记为"是"的交互，必须有对应的测试用例
+- 如果功能完全独立无交互，注明"无跨模块交互"即可
+
+### 上下文传播编码规范
+
+#### Context 操作规则
+- **运行时 Context 修改必须通过 `ctxMgr` 方法**：`AppendMessage`、`SetSystemPrompt`、`GetContextInfo` 等，禁止直接修改 Context 内部状态
+- **gdb 运行时修改的生效时机**：所有通过 `set` 命令的修改（model/context/skills/env）在下一次 `reasonStep` 迭代时生效，不影响当前正在执行的步骤
+- **Context 修改不可撤销**：`set context append` 永久改变上下文历史，设计时需考虑不可逆性
+- **Model override 的作用域**：`proc.gdbModelOverride` 影响 reasonStep 中的 `llmRequest.Model`，不修改 `opts.Model`（原始值保持可恢复）
+- **Env vars 注入方式**：gdb 环境变量通过 reasonStep 中 system prompt 附加段落注入，格式为 `[GDB Environment Variables]` 段落
+- **Skills 热加载方式**：gdb 技能通过 SkillLoader 加载 body 后追加到上下文（`ctxMgr.AppendMessage`），而非修改 system prompt
+
+#### Context 传播方向
+- **Kernel → Context Manager**：通过 `k.ctxMgr` 单向调用，Kernel 不持有 Context 引用
+- **IPC Server → Context Manager**：通过 `s.ctxMgr` 调用，用于 gdb inspect/set 操作
+- **IPC Server → Skill Loader**：通过 `s.skillLoader` 调用，用于 gdb set skills 热加载
+- **禁止 Context Manager 反向调用 Kernel 或 IPC**
+
 ### 开发工作流规则
 
 #### 构建与验证
