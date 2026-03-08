@@ -269,6 +269,88 @@ func TestValidate_EmptyTestsArray(t *testing.T) {
 	assertContainsField(t, err, "tests")
 }
 
+func TestValidate_AssertOutputEmptyBoth_Fail(t *testing.T) {
+	suite := &TestSuiteSpec{
+		Version: "1.0",
+		Tests: []TestCaseSpec{{
+			Intent: "hello",
+			Agent:  AgentConfig{Name: "greeter"},
+			Assert: &AssertConfig{Output: &OutputAssert{}},
+		}},
+	}
+	err := Validate(suite, nil)
+	if err == nil {
+		t.Fatal("expected validation error for empty output assert")
+	}
+	assertContainsField(t, err, "assert.output")
+}
+
+func TestValidate_AssertSyscallsEmptyBoth_Fail(t *testing.T) {
+	suite := &TestSuiteSpec{
+		Version: "1.0",
+		Tests: []TestCaseSpec{{
+			Intent: "hello",
+			Agent:  AgentConfig{Name: "greeter"},
+			Assert: &AssertConfig{Syscalls: &SyscallAssert{}},
+		}},
+	}
+	err := Validate(suite, nil)
+	if err == nil {
+		t.Fatal("expected validation error for empty syscalls assert")
+	}
+	assertContainsField(t, err, "assert.syscalls")
+}
+
+func TestValidate_AssertQualityEmptyCriteria_Fail(t *testing.T) {
+	suite := &TestSuiteSpec{
+		Version: "1.0",
+		Tests: []TestCaseSpec{{
+			Intent: "hello",
+			Agent:  AgentConfig{Name: "greeter"},
+			Assert: &AssertConfig{Quality: &QualityAssert{Criteria: ""}},
+		}},
+	}
+	err := Validate(suite, nil)
+	if err == nil {
+		t.Fatal("expected validation error for empty quality criteria")
+	}
+	assertContainsField(t, err, "assert.quality.criteria")
+}
+
+func TestValidate_ValidAssert_Pass(t *testing.T) {
+	suite := &TestSuiteSpec{
+		Version: "1.0",
+		Tests: []TestCaseSpec{{
+			Intent: "hello",
+			Agent:  AgentConfig{Name: "greeter"},
+			Assert: &AssertConfig{
+				Output:   &OutputAssert{Contains: []string{"hi"}},
+				Syscalls: &SyscallAssert{Includes: []string{"Read"}},
+				Quality:  &QualityAssert{Criteria: "must greet"},
+			},
+		}},
+	}
+	if err := Validate(suite, nil); err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestValidate_AssertMixed_Pass(t *testing.T) {
+	suite := &TestSuiteSpec{
+		Version: "1.0",
+		Tests: []TestCaseSpec{{
+			Intent: "hello",
+			Agent:  AgentConfig{Name: "greeter"},
+			Assert: &AssertConfig{
+				Output: &OutputAssert{NotContains: []string{"ERROR"}},
+			},
+		}},
+	}
+	if err := Validate(suite, nil); err != nil {
+		t.Fatalf("expected no error for valid partial assert, got: %v", err)
+	}
+}
+
 func assertContainsField(t *testing.T, err error, field string) {
 	t.Helper()
 	var ve ValidationErrors

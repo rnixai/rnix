@@ -1,0 +1,11 @@
+version: "1.0"
+name: "output-assert-test"
+intent: "生成代码示例"
+agent:
+  name: "coder"
+assert:
+  output:
+    contains:
+      - "代码示例"
+    not_contains:
+      - "ERROR"

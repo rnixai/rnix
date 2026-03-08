@@ -190,7 +190,7 @@ development_status:
   # Epic 16: Reasoning Regression Testing (agtest)
   epic-16: in-progress
   16-1-declarative-test-case-definition: done
-  16-2-three-assertion-types: backlog
+  16-2-three-assertion-types: done
   16-3-batch-test-run-and-report: backlog
   epic-16-retrospective: optional
 
