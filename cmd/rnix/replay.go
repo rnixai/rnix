@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/ipc"
 )
 
 var replayCmd = &cobra.Command{
@@ -242,6 +243,31 @@ func runReplay(cmd *cobra.Command, args []string) error {
 				}
 			}
 
+		case "fork":
+			forkCtx, forkErr := session.Fork()
+			if forkErr != nil {
+				if jsonMode {
+					resp := JSONResponse{OK: false, Error: map[string]string{"message": forkErr.Error()}}
+					data, _ := json.Marshal(resp)
+					fmt.Fprintln(w, string(data))
+				} else {
+					fmt.Fprintf(w, "[fork] error: %v\n", forkErr)
+				}
+			} else {
+				if !jsonMode {
+					fmt.Fprintf(w, "[fork] Creating fork from event #%03d...\n", forkCtx.SeqNum)
+					fmt.Fprintf(w, "[fork] Original PID: %d\n", forkCtx.OriginalPID)
+					fmt.Fprintf(w, "[fork] Intent: %q\n", forkCtx.Intent)
+					fmt.Fprintf(w, "[fork] Messages: %d\n", len(forkCtx.Messages))
+					if forkCtx.SystemPrompt != "" {
+						fmt.Fprintf(w, "[fork] System Prompt: len:%d\n", len(forkCtx.SystemPrompt))
+					}
+					fmt.Fprintln(w, "[fork]")
+					printForkHelp(w)
+				}
+				runForkSubMode(w, scanner, forkCtx, jsonMode)
+			}
+
 		case "quit", "q":
 			if !jsonMode {
 				fmt.Fprintln(w, "[replay] session ended.")
@@ -288,6 +314,7 @@ func printReplayHelp(w interface{ Write([]byte) (int, error) }) {
 	fmt.Fprintln(w, "  list / l            - Show events around current position")
 	fmt.Fprintln(w, "  diff <seq1> <seq2>  - Compare context at two time points")
 	fmt.Fprintln(w, "  diff <seq>          - Compare context at cursor vs time point")
+	fmt.Fprintln(w, "  fork                - Fork from current position (use continue/go to execute)")
 	fmt.Fprintln(w, "  info / i            - Show recording summary")
 	fmt.Fprintln(w, "  help / h            - Show this help")
 	fmt.Fprintln(w, "  quit / q            - Exit replay")
@@ -311,4 +338,197 @@ func printDiffResult(w interface{ Write([]byte) (int, error) }, d *debug.Context
 func findRecordBaseDir() string {
 	cwd, _ := os.Getwd()
 	return cwd + "/.rnix/records"
+}
+
+func printForkHelp(w interface{ Write([]byte) (int, error) }) {
+	fmt.Fprintln(w, "[fork] Available commands:")
+	fmt.Fprintln(w, "[fork]   set prompt <text>  - Change system prompt")
+	fmt.Fprintln(w, "[fork]   append <role> <msg> - Add a message")
+	fmt.Fprintln(w, "[fork]   remove <n>         - Remove last n messages")
+	fmt.Fprintln(w, "[fork]   replace <text>     - Replace last message")
+	fmt.Fprintln(w, "[fork]   show               - Show fork context summary")
+	fmt.Fprintln(w, "[fork]   continue / go      - Execute with LLM (requires daemon)")
+	fmt.Fprintln(w, "[fork]   cancel             - Cancel and return to replay")
+}
+
+// runForkSubMode runs the fork sub-mode interactive loop.
+// The user can modify the fork context and then either continue (execute with daemon)
+// or cancel to return to replay mode.
+func runForkSubMode(w interface{ Write([]byte) (int, error) }, scanner *bufio.Scanner, forkCtx *debug.ForkContext, jsonMode bool) {
+	if !jsonMode {
+		fmt.Fprint(w, "fork> ")
+	}
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			if !jsonMode {
+				fmt.Fprint(w, "fork> ")
+			}
+			continue
+		}
+
+		switch parts[0] {
+		case "set":
+			if len(parts) >= 3 && parts[1] == "prompt" {
+				// Join remaining parts as the prompt text
+				promptText := strings.Join(parts[2:], " ")
+				forkCtx.SetSystemPrompt(promptText)
+				if !jsonMode {
+					fmt.Fprintf(w, "[fork] System prompt updated (len:%d)\n", len(promptText))
+				}
+			} else {
+				if !jsonMode {
+					fmt.Fprintln(w, "[fork] usage: set prompt <text>")
+				}
+			}
+
+		case "append":
+			if len(parts) >= 3 {
+				role := parts[1]
+				content := strings.Join(parts[2:], " ")
+				forkCtx.AppendMessage(role, content)
+				if !jsonMode {
+					fmt.Fprintf(w, "[fork] Message appended: [%s] %s\n", role, content)
+				}
+			} else {
+				if !jsonMode {
+					fmt.Fprintln(w, "[fork] usage: append <role> <content>")
+				}
+			}
+
+		case "remove":
+			if len(parts) >= 2 {
+				n, parseErr := strconv.Atoi(parts[1])
+				if parseErr != nil || n < 1 {
+					if !jsonMode {
+						fmt.Fprintln(w, "[fork] usage: remove <n> (n must be a positive integer)")
+					}
+				} else {
+					forkCtx.RemoveLastMessages(n)
+					if !jsonMode {
+						fmt.Fprintf(w, "[fork] Removed last %d message(s). Messages remaining: %d\n", n, len(forkCtx.Messages))
+					}
+				}
+			} else {
+				if !jsonMode {
+					fmt.Fprintln(w, "[fork] usage: remove <n>")
+				}
+			}
+
+		case "replace":
+			if len(parts) >= 2 {
+				content := strings.Join(parts[1:], " ")
+				forkCtx.ReplaceLastMessage(content)
+				if !jsonMode {
+					fmt.Fprintf(w, "[fork] Last message replaced with: %s\n", content)
+				}
+			} else {
+				if !jsonMode {
+					fmt.Fprintln(w, "[fork] usage: replace <content>")
+				}
+			}
+
+		case "show":
+			if !jsonMode {
+				fmt.Fprint(w, forkCtx.Summary())
+			} else {
+				data, _ := json.Marshal(forkCtx)
+				fmt.Fprintln(w, string(data))
+			}
+
+		case "continue", "go":
+			if !jsonMode {
+				fmt.Fprintln(w, "[fork] Connecting to daemon...")
+			}
+			executeForkContinue(w, forkCtx, jsonMode)
+			// Return to replay mode after continue
+			return
+
+		case "cancel":
+			if !jsonMode {
+				fmt.Fprintln(w, "[fork] Fork cancelled. Returning to replay mode.")
+			}
+			return
+
+		case "help", "h":
+			printForkHelp(w)
+
+		default:
+			if !jsonMode {
+				fmt.Fprintf(w, "[fork] unknown command: %s (type 'help' for commands)\n", parts[0])
+			}
+		}
+
+		if !jsonMode {
+			fmt.Fprint(w, "fork> ")
+		}
+	}
+}
+
+// executeForkContinue connects to the daemon and sends the fork-continue request.
+func executeForkContinue(w interface{ Write([]byte) (int, error) }, forkCtx *debug.ForkContext, jsonMode bool) {
+	socketPath := ipc.SocketPath()
+	client, err := ipc.Dial(socketPath)
+	if err != nil {
+		if jsonMode {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": fmt.Sprintf("daemon not running: %v", err)}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintf(w, "[fork] error: daemon not running (%v)\n", err)
+			fmt.Fprintln(w, "[fork] The 'continue' command requires a running daemon.")
+			fmt.Fprintln(w, "[fork] Start the daemon with 'rnix daemon' in another terminal.")
+		}
+		return
+	}
+	defer client.Close()
+
+	// Convert ForkContext messages to IPC format
+	ipcMessages := make([]ipc.ForkContinueMessage, len(forkCtx.Messages))
+	for i, msg := range forkCtx.Messages {
+		ipcMessages[i] = ipc.ForkContinueMessage{
+			Role:       msg.Role,
+			Content:    msg.Content,
+			ToolCallID: msg.ToolCallID,
+		}
+	}
+
+	req := ipc.ForkContinueRequest{
+		Intent:       forkCtx.Intent,
+		SystemPrompt: forkCtx.SystemPrompt,
+		Messages:     ipcMessages,
+		OriginalPID:  uint64(forkCtx.OriginalPID),
+	}
+
+	if !jsonMode {
+		fmt.Fprintln(w, "[fork] Creating forked process...")
+	}
+
+	fcResp, err := client.ForkContinue(req, nil)
+	if err != nil {
+		if jsonMode {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": err.Error()}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintf(w, "[fork] error: %v\n", err)
+		}
+		return
+	}
+
+	if jsonMode {
+		data, _ := json.Marshal(fcResp)
+		fmt.Fprintln(w, string(data))
+	} else {
+		ppidStr := fmt.Sprintf("%d", fcResp.PPID)
+		if !fcResp.PPIDValid {
+			ppidStr = fmt.Sprintf("%d (original process no longer exists)", forkCtx.OriginalPID)
+		}
+		fmt.Fprintf(w, "[fork] New process spawned: PID %d (PPID: %s)\n", fcResp.PID, ppidStr)
+		fmt.Fprintln(w, "[fork] Process is now running with real LLM calls.")
+		fmt.Fprintf(w, "[fork] Use 'rnix ps' to check status, 'rnix strace %d' to trace.\n", fcResp.PID)
+		fmt.Fprintln(w, "[fork] Returning to replay mode.")
+	}
 }

@@ -258,6 +258,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleRecordList(conn)
 		case MethodReplayLoad:
 			s.handleReplayLoad(conn, req.Payload)
+		case MethodForkContinue:
+			s.handleForkContinue(conn, req.Payload)
 		case MethodSpawnPipeline:
 			s.handleSpawnPipeline(conn, req.Payload)
 			return // streaming method
@@ -1162,6 +1164,104 @@ func (s *Server) handleReplayLoad(conn net.Conn, rawPayload json.RawMessage) {
 
 	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleForkContinue creates a new process from a fork context (fork-continue).
+// It allocates context, replays messages, creates a process, and registers it.
+// The process is created in Running state with the replayed context.
+// Note: The process does not enter a reasonStep loop in this implementation;
+// full LLM reasoning requires future integration with kernel.Spawn.
+func (s *Server) handleForkContinue(conn net.Conn, rawPayload json.RawMessage) {
+	var req ForkContinueRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid fork_continue request"}})
+		return
+	}
+
+	if req.Intent == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "intent is required"}})
+		return
+	}
+
+	// Determine parent PID and validity
+	parentPID := types.PID(req.OriginalPID)
+	ppidValid := false
+	if parentPID > 0 {
+		if _, ok := s.kern.GetProcess(parentPID); ok {
+			ppidValid = true
+		} else {
+			// Original process no longer exists; spawn as top-level process
+			parentPID = 0
+		}
+	}
+
+	// Allocate context and replay messages BEFORE creating the process,
+	// so failures here don't leave orphaned process resources.
+	var cid types.CtxID
+	if s.ctxMgr != nil {
+		var err error
+		cid, err = s.ctxMgr.CtxAlloc(kernel.DefaultCtxSize)
+		if err != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: fmt.Sprintf("CtxAlloc failed: %v", err)}})
+			return
+		}
+
+		// Set system prompt
+		if req.SystemPrompt != "" {
+			if err := s.ctxMgr.SetSystemPrompt(cid, req.SystemPrompt); err != nil {
+				_ = s.ctxMgr.CtxFree(cid)
+				writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: fmt.Sprintf("SetSystemPrompt failed: %v", err)}})
+				return
+			}
+		}
+
+		// Replay messages from the fork context
+		for i, msg := range req.Messages {
+			if msg.Role == "system" {
+				continue // system prompt already set
+			}
+			if msg.ToolCallID != "" {
+				if err := s.ctxMgr.AppendToolResult(cid, msg.ToolCallID, msg.Content); err != nil {
+					log.Printf("[fork_continue] warning: AppendToolResult failed at message %d: %v", i, err)
+				}
+			} else {
+				if err := s.ctxMgr.AppendMessage(cid, rnixctx.Role(msg.Role), msg.Content); err != nil {
+					log.Printf("[fork_continue] warning: AppendMessage failed at message %d: %v", i, err)
+				}
+			}
+		}
+	}
+
+	// Create process after context is fully set up
+	proc := kernel.NewProcess(parentPID, req.Intent, nil)
+	if s.ctxMgr != nil {
+		proc.CtxID = cid
+	}
+
+	// Maintain parent-child tracking if parent exists
+	if parentPID > 0 {
+		if parent, ok := s.kern.GetProcess(parentPID); ok {
+			parent.AddChild(proc.PID)
+		}
+	}
+
+	// Register process in kernel and start it
+	s.kern.AddProcess(proc)
+	_ = proc.Start() // Created -> Running
+
+	pid := proc.PID
+
+	actualPPID := parentPID
+	if !ppidValid {
+		actualPPID = 0
+	}
+
+	respPayload, _ := json.Marshal(ForkContinueResponse{
+		PID:       pid,
+		PPID:      actualPPID,
+		PPIDValid: ppidValid,
+	})
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 
 // --- spawn pipeline ---

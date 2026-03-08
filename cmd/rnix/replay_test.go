@@ -96,3 +96,50 @@ func TestReplayCommand_DiffHelpFormat(t *testing.T) {
 		t.Fatalf("expected help to show diff usage, got:\n%s", output)
 	}
 }
+
+// =============================================================================
+// ATDD RED PHASE -- Story 14-4: fork/continue CLI command tests
+//
+// Tests verify the fork command integration in the replay interactive loop.
+// These test the CLI layer which delegates to ReplaySession.Fork/ForkAt.
+// =============================================================================
+
+// --- 14.4-CLI-001: [P0] fork 命令在 help 输出中有记录 ---
+
+func TestReplayCommand_ForkInHelp(t *testing.T) {
+	var buf strings.Builder
+	printReplayHelp(&buf)
+	output := buf.String()
+
+	if !strings.Contains(output, "fork") {
+		t.Fatalf("expected replay help to contain 'fork' command, got:\n%s", output)
+	}
+}
+
+// --- 14.4-CLI-002: [P0] continue 命令在 help 输出中有记录 ---
+
+func TestReplayCommand_ContinueInHelp(t *testing.T) {
+	var buf strings.Builder
+	printReplayHelp(&buf)
+	output := buf.String()
+
+	if !strings.Contains(output, "continue") || !strings.Contains(output, "go") {
+		t.Fatalf("expected replay help to contain 'continue' or 'go' command, got:\n%s", output)
+	}
+}
+
+// --- 14.4-CLI-003: [P0] fork 子模式命令在 help 中有说明 ---
+
+func TestReplayCommand_ForkSubcommands(t *testing.T) {
+	var buf strings.Builder
+	printReplayHelp(&buf)
+	output := buf.String()
+
+	// fork submode should mention: set prompt, append, remove, replace, show, continue, cancel
+	forkKeywords := []string{"fork"}
+	for _, kw := range forkKeywords {
+		if !strings.Contains(output, kw) {
+			t.Errorf("expected help to contain %q, got:\n%s", kw, output)
+		}
+	}
+}

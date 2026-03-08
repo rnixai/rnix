@@ -379,6 +379,53 @@ func (c *Client) ReplayLoad(recordID string) (*ReplayLoadResponse, error) {
 	return &rr, nil
 }
 
+// ForkContinue sends a fork-continue request to the daemon, which creates a new
+// process from the given fork context and streams events until completion.
+// Returns the new process PID and PPID info.
+func (c *Client) ForkContinue(req ForkContinueRequest, onEvent func(StreamEvent)) (*ForkContinueResponse, error) {
+	if err := c.sendRequest(MethodForkContinue, req); err != nil {
+		return nil, err
+	}
+
+	if !c.scanner.Scan() {
+		return nil, fmt.Errorf("ipc: no fork_continue response")
+	}
+	var resp Response
+	if err := json.Unmarshal(c.scanner.Bytes(), &resp); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal fork_continue response: %w", err)
+	}
+	if !resp.OK {
+		msg := "fork_continue failed"
+		if resp.Error != nil {
+			msg = resp.Error.Message
+		}
+		return nil, fmt.Errorf("ipc: %s", msg)
+	}
+
+	var fcr ForkContinueResponse
+	if err := json.Unmarshal(resp.Payload, &fcr); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal fork_continue payload: %w", err)
+	}
+
+	// Stream events in background until completion (non-blocking for caller)
+	if onEvent != nil {
+		go func() {
+			for c.scanner.Scan() {
+				var ev StreamEvent
+				if err := json.Unmarshal(c.scanner.Bytes(), &ev); err != nil {
+					continue
+				}
+				onEvent(ev)
+				if ev.Type == StreamComplete || ev.Type == StreamError {
+					break
+				}
+			}
+		}()
+	}
+
+	return &fcr, nil
+}
+
 // AttachGdb attaches to a process for interactive debugging, receiving both
 // syscall events and log entries via a unified stream. Returns the initial
 // process metadata snapshot. The onEvent callback is called for each GdbEvent
