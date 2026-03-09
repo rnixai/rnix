@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -467,5 +468,364 @@ func TestDashboardModel_ViewTokenBudgetWarning(t *testing.T) {
 
 	if !strings.Contains(v.Content, "4,500") && !strings.Contains(v.Content, "4500") {
 		t.Errorf("view should show token consumption, got %q", v.Content)
+	}
+}
+
+// ============================================================
+// ATDD RED PHASE — Story 17.2: 追踪时间线窗格
+// All tests assert EXPECTED behavior. They FAIL because the
+// functions/fields do not exist yet (stubs not implemented).
+// ============================================================
+
+// --- timeline test helpers ---
+
+func mockTimelineEvents() []ipc.SyscallEventWire {
+	return []ipc.SyscallEventWire{
+		{TimestampMs: 100, PID: 2, Syscall: "Open", Args: map[string]any{"path": "/dev/llm/claude"}, DurationMs: 1.5},
+		{TimestampMs: 200, PID: 2, Syscall: "Spawn", Args: map[string]any{"intent": "build"}, DurationMs: 5.0},
+		{TimestampMs: 300, PID: 2, Syscall: "Send", Args: map[string]any{"target_pid": 3}, DurationMs: 0.5},
+		{TimestampMs: 400, PID: 2, Syscall: "CtxAlloc", Args: map[string]any{"size": 64}, DurationMs: 0.2},
+		{TimestampMs: 500, PID: 2, Syscall: "Read", Args: map[string]any{"fd": 3}, Error: "EOF", DurationMs: 0.1},
+	}
+}
+
+func newTestTimelineDashboardModel() dashboardModel {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 2
+	m.activePane = paneTimeline
+	events := mockTimelineEvents()
+	for _, ev := range events {
+		m.timelineEvents = append(m.timelineEvents, timelineEvent{
+			wire:     ev,
+			category: classifySyscall(ev),
+		})
+	}
+	m.timelineFilters = defaultTimelineFilters()
+	return m
+}
+
+// --- 17.2-UNIT-001: [P0] classifySyscall — LLM event (AC1) ---
+
+func TestClassifySyscall_LLM(t *testing.T) {
+	ev := ipc.SyscallEventWire{
+		Syscall: "Open",
+		Args:    map[string]any{"path": "/dev/llm/claude"},
+	}
+	cat := classifySyscall(ev)
+	if cat != catLLM {
+		t.Errorf("Open(/dev/llm/claude) should be catLLM, got %d", cat)
+	}
+
+	ev2 := ipc.SyscallEventWire{
+		Syscall: "Write",
+		Args:    map[string]any{"tool": "/dev/llm/claude"},
+	}
+	cat2 := classifySyscall(ev2)
+	if cat2 != catLLM {
+		t.Errorf("Write(tool=/dev/llm/claude) should be catLLM, got %d", cat2)
+	}
+}
+
+// --- 17.2-UNIT-002: [P0] classifySyscall — IPC event (AC1) ---
+
+func TestClassifySyscall_IPC(t *testing.T) {
+	for _, syscall := range []string{"Send", "Recv", "Pipe", "Signal", "SigBlock", "SigUnblock", "JoinGroup", "LeaveGroup", "GetProcGroup", "SignalGroup"} {
+		ev := ipc.SyscallEventWire{Syscall: syscall}
+		cat := classifySyscall(ev)
+		if cat != catIPC {
+			t.Errorf("%s should be catIPC, got %d", syscall, cat)
+		}
+	}
+}
+
+// --- 17.2-UNIT-003: [P0] classifySyscall — Tool event (AC1) ---
+
+func TestClassifySyscall_Tool(t *testing.T) {
+	for _, syscall := range []string{"Spawn", "Kill", "Wait", "Reparent", "SpawnThread", "JoinThread", "SpawnSupervisor", "SpawnCoroutine", "Yield", "ResumeCoroutine"} {
+		ev := ipc.SyscallEventWire{Syscall: syscall}
+		cat := classifySyscall(ev)
+		if cat != catTool {
+			t.Errorf("%s should be catTool, got %d", syscall, cat)
+		}
+	}
+
+	evShell := ipc.SyscallEventWire{
+		Syscall: "Open",
+		Args:    map[string]any{"path": "/dev/shell/bash"},
+	}
+	if classifySyscall(evShell) != catTool {
+		t.Error("Open(/dev/shell/bash) should be catTool")
+	}
+
+	evFs := ipc.SyscallEventWire{
+		Syscall: "Read",
+		Args:    map[string]any{"path": "/dev/fs/workspace"},
+	}
+	if classifySyscall(evFs) != catTool {
+		t.Error("Read(/dev/fs/workspace) should be catTool")
+	}
+}
+
+// --- 17.2-UNIT-004: [P0] classifySyscall — VFS event (AC1) ---
+
+func TestClassifySyscall_VFS(t *testing.T) {
+	for _, syscall := range []string{"Open", "Read", "Write", "Close", "Mount", "Unmount", "CtxAlloc", "CtxRead", "CtxWrite", "ReasonStep"} {
+		ev := ipc.SyscallEventWire{Syscall: syscall}
+		cat := classifySyscall(ev)
+		if cat != catVFS {
+			t.Errorf("%s (no special path) should be catVFS, got %d", syscall, cat)
+		}
+	}
+}
+
+// --- 17.2-UNIT-005: [P0] classifySyscall — error takes priority (AC1) ---
+
+func TestClassifySyscall_ErrorPriority(t *testing.T) {
+	ev := ipc.SyscallEventWire{
+		Syscall: "Open",
+		Args:    map[string]any{"path": "/dev/llm/claude"},
+		Error:   "connection refused",
+	}
+	cat := classifySyscall(ev)
+	if cat != catError {
+		t.Errorf("event with error should be catError regardless of syscall, got %d", cat)
+	}
+}
+
+// --- 17.2-UNIT-006: [P1] categoryColor returns correct color values (AC1) ---
+
+func TestCategoryColor(t *testing.T) {
+	tests := []struct {
+		cat   eventCategory
+		color string
+	}{
+		{catLLM, ui.ColorAgent},
+		{catTool, ui.ColorSuccess},
+		{catIPC, colorIPC},
+		{catVFS, ui.ColorWarning},
+		{catError, ui.ColorError},
+	}
+	for _, tt := range tests {
+		got := categoryColor(tt.cat)
+		if got != tt.color {
+			t.Errorf("categoryColor(%d) = %q, want %q", tt.cat, got, tt.color)
+		}
+	}
+}
+
+// --- 17.2-UNIT-007: [P0] timelineEventMsg appends to timelineEvents (AC1) ---
+
+func TestDashboardModel_TimelineEventAppend(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 2
+	m.timelineFilters = defaultTimelineFilters()
+
+	ev := ipc.SyscallEventWire{
+		TimestampMs: 100,
+		PID:         2,
+		Syscall:     "Open",
+		Args:        map[string]any{"path": "/dev/llm/claude"},
+	}
+
+	updated, _ := m.Update(timelineEventMsg{event: ev})
+	um := updated.(dashboardModel)
+
+	if len(um.timelineEvents) != 1 {
+		t.Fatalf("expected 1 timeline event, got %d", len(um.timelineEvents))
+	}
+	if um.timelineEvents[0].category != catLLM {
+		t.Errorf("expected catLLM, got %d", um.timelineEvents[0].category)
+	}
+}
+
+// --- 17.2-UNIT-008: [P0] timelineEvents FIFO eviction at 1000 (AC1) ---
+
+func TestDashboardModel_TimelineEventsFIFO(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 2
+	m.timelineFilters = defaultTimelineFilters()
+
+	for i := 0; i < maxTimelineEvents+50; i++ {
+		ev := ipc.SyscallEventWire{
+			TimestampMs: int64(i),
+			PID:         2,
+			Syscall:     "Read",
+		}
+		updated, _ := m.Update(timelineEventMsg{event: ev})
+		m = updated.(dashboardModel)
+	}
+
+	if len(m.timelineEvents) != maxTimelineEvents {
+		t.Fatalf("expected %d events after FIFO eviction, got %d", maxTimelineEvents, len(m.timelineEvents))
+	}
+	if m.timelineEvents[0].wire.TimestampMs != 50 {
+		t.Errorf("oldest event should be timestamp 50 after eviction, got %d", m.timelineEvents[0].wire.TimestampMs)
+	}
+}
+
+// --- 17.2-UNIT-009: [P0] timeline renders empty state text (AC1) ---
+
+func TestDashboardModel_TimelineRenderEmpty(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 0
+	m.activePane = paneTimeline
+	m.timelineFilters = defaultTimelineFilters()
+
+	v := m.View()
+	content := v.Content
+
+	if !strings.Contains(content, "Select an agent") {
+		t.Error("timeline with no PID should show 'Select an agent' prompt")
+	}
+	if !strings.Contains(content, "Timeline") {
+		t.Error("timeline pane should still show 'Timeline' title")
+	}
+}
+
+// --- 17.2-UNIT-010: [P0] timeline renders events without 'Coming Soon' (AC1) ---
+
+func TestDashboardModel_TimelineRenderEvents(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+	v := m.View()
+	content := v.Content
+
+	if !strings.Contains(content, "5 events") {
+		t.Error("timeline with events should show event count")
+	}
+	if !strings.Contains(content, "Timeline") {
+		t.Error("timeline pane should show 'Timeline' title")
+	}
+	if strings.Contains(content, "Select an agent") {
+		t.Error("timeline with events should not show 'Select an agent'")
+	}
+}
+
+// --- 17.2-UNIT-011: [P0] +/- adjusts zoomLevel (AC2) ---
+
+func TestDashboardModel_TimelineZoom(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+	m.timelineZoomLevel = 2
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: '+'})
+	um := updated.(dashboardModel)
+	if um.timelineZoomLevel != 3 {
+		t.Errorf("+ should increase zoomLevel: expected 3, got %d", um.timelineZoomLevel)
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '-'})
+	um = updated.(dashboardModel)
+	if um.timelineZoomLevel != 2 {
+		t.Errorf("- should decrease zoomLevel: expected 2, got %d", um.timelineZoomLevel)
+	}
+
+	um.timelineZoomLevel = 0
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '-'})
+	um = updated.(dashboardModel)
+	if um.timelineZoomLevel != 0 {
+		t.Error("zoomLevel should not go below 0")
+	}
+
+	um.timelineZoomLevel = 5
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '+'})
+	um = updated.(dashboardModel)
+	if um.timelineZoomLevel != 5 {
+		t.Error("zoomLevel should not go above 5")
+	}
+}
+
+// --- 17.2-UNIT-012: [P0] 1-4 toggles category filter (AC2) ---
+
+func TestDashboardModel_TimelineFilter(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+
+	if !m.timelineFilters[catLLM] {
+		t.Fatal("LLM filter should be true by default")
+	}
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: '1'})
+	um := updated.(dashboardModel)
+	if um.timelineFilters[catLLM] {
+		t.Error("pressing '1' should toggle LLM filter to false")
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '1'})
+	um = updated.(dashboardModel)
+	if !um.timelineFilters[catLLM] {
+		t.Error("pressing '1' again should toggle LLM filter back to true")
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '2'})
+	um = updated.(dashboardModel)
+	if um.timelineFilters[catTool] {
+		t.Error("pressing '2' should toggle Tool filter to false")
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '3'})
+	um = updated.(dashboardModel)
+	if um.timelineFilters[catIPC] {
+		t.Error("pressing '3' should toggle IPC filter to false")
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '4'})
+	um = updated.(dashboardModel)
+	if um.timelineFilters[catVFS] {
+		t.Error("pressing '4' should toggle VFS filter to false")
+	}
+}
+
+// --- 17.2-UNIT-013: [P0] h/l scrolls timeline viewStart (AC2) ---
+
+func TestDashboardModel_TimelineScroll(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+	m.timelineViewStart = 500
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'l'})
+	um := updated.(dashboardModel)
+	if um.timelineViewStart <= 500 {
+		t.Errorf("l should scroll right (increase viewStart), got %d", um.timelineViewStart)
+	}
+
+	prevStart := um.timelineViewStart
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'h'})
+	um = updated.(dashboardModel)
+	if um.timelineViewStart >= prevStart {
+		t.Errorf("h should scroll left (decrease viewStart), got %d", um.timelineViewStart)
+	}
+}
+
+// --- 17.2-UNIT-014: [P0] PID change clears timeline events (AC1) ---
+
+func TestDashboardModel_TimelinePIDChange(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+	if len(m.timelineEvents) == 0 {
+		t.Fatal("pre-condition: model should have timeline events")
+	}
+
+	prevPID := m.selectedPID
+	m.selectedPID = 999
+	m.timelineAttachedPID = prevPID
+
+	m = m.handleTimelinePIDChange()
+
+	if len(m.timelineEvents) != 0 {
+		t.Errorf("PID change should clear timelineEvents, got %d", len(m.timelineEvents))
+	}
+	if m.timelineAttachedPID != 999 {
+		t.Errorf("timelineAttachedPID should update to new PID, got %d", m.timelineAttachedPID)
+	}
+}
+
+// --- 17.2-UNIT-015: [P1] Tab switches to paneTimeline (AC1) ---
+
+func TestDashboardModel_TabToTimeline(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	if m.activePane != paneTree {
+		t.Fatalf("initial activePane should be paneTree, got %d", m.activePane)
+	}
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	um := updated.(dashboardModel)
+	if um.activePane != paneTimeline {
+		t.Errorf("first Tab should switch to paneTimeline, got %d", um.activePane)
 	}
 }

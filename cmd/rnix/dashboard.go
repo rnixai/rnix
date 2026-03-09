@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
@@ -33,6 +34,33 @@ const (
 	paneHeatmap
 )
 
+type eventCategory int
+
+const (
+	catLLM eventCategory = iota
+	catTool
+	catIPC
+	catVFS
+	catError
+)
+
+const colorIPC = "#9B59B6"
+
+const maxTimelineEvents = 1000
+
+type timelineEvent struct {
+	wire     ipc.SyscallEventWire
+	category eventCategory
+}
+
+type timelineEventMsg struct {
+	event ipc.SyscallEventWire
+}
+
+type timelineStreamDoneMsg struct {
+	err error
+}
+
 type dashboardModel struct {
 	client      *ipc.Client
 	width       int
@@ -49,13 +77,24 @@ type dashboardModel struct {
 	startTime   time.Time
 	confirmKill bool
 	confirmPID  types.PID
+
+	// Timeline fields (Story 17-2)
+	timelineEvents      []timelineEvent
+	timelineAttachedPID types.PID
+	timelineEventCh     <-chan ipc.SyscallEventWire
+	timelineStopCh      chan struct{}
+	timelineZoomLevel   int
+	timelineViewStart   int64
+	timelineEventCursor int
+	timelineFilters     map[eventCategory]bool
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
 	return dashboardModel{
-		client:    client,
-		startTime: time.Now(),
-		connected: client != nil,
+		client:          client,
+		startTime:       time.Now(),
+		connected:       client != nil,
+		timelineFilters: defaultTimelineFilters(),
 	}
 }
 
@@ -72,6 +111,16 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+	case timelineStreamStartedMsg:
+		m.timelineEventCh = msg.eventCh
+		m.timelineStopCh = msg.stopCh
+		return m, waitTimelineEventCmd(msg.eventCh)
+	case timelineEventMsg:
+		m = m.handleTimelineEvent(msg)
+		return m, waitTimelineEventCmd(m.timelineEventCh)
+	case timelineStreamDoneMsg:
+		m.timelineEventCh = nil
 		return m, nil
 	}
 	return m, nil
@@ -111,6 +160,15 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		m.selectedPID = m.treeRows[m.treeCursor].proc.PID
 	}
 
+	if m.selectedPID != m.timelineAttachedPID && m.selectedPID > 0 {
+		m = m.stopTimelineStream()
+		m = m.handleTimelinePIDChange()
+		m.timelineAttachedPID = m.selectedPID
+		if m.connected {
+			return m, tea.Batch(tickCmd(), startTimelineCmd(m.selectedPID))
+		}
+	}
+
 	return m, tickCmd()
 }
 
@@ -144,7 +202,8 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.activePane == paneTree {
+	switch m.activePane {
+	case paneTree:
 		visibleLines := m.dashboardVisibleLines()
 		switch key {
 		case "up", "k":
@@ -179,6 +238,8 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case paneTimeline:
+		m = m.handleTimelineKey(key)
 	}
 
 	return m, nil
@@ -251,7 +312,7 @@ func (m dashboardModel) renderDashboard() string {
 
 	topRightH := contentHeight / 2
 	bottomRightH := contentHeight - topRightH
-	timelinePane := renderDashboardPlaceholder("Timeline", "Coming Soon", rightWidth, topRightH, m.activePane == paneTimeline)
+	timelinePane := m.renderTimelinePane(rightWidth, topRightH)
 	heatmapPane := renderDashboardPlaceholder("Heatmap", "Coming Soon", rightWidth, bottomRightH, m.activePane == paneHeatmap)
 
 	rightPane := lipgloss.JoinVertical(lipgloss.Left, timelinePane, heatmapPane)
@@ -288,6 +349,9 @@ func (m dashboardModel) renderDashboardStatus() string {
 	}
 	if m.statusMsg != "" {
 		return fmt.Sprintf("  %s  |  q:Quit  Tab:Switch Pane  j/k:Navigate  K:Kill", m.statusMsg)
+	}
+	if m.activePane == paneTimeline {
+		return "  q:Quit  Tab:Switch Pane  h/l:Scroll  +/-:Zoom  1-4:Filter  j/k:Select"
 	}
 	return "  q:Quit  Tab:Switch Pane  j/k:Navigate  K:Kill  Enter:Select"
 }
@@ -421,6 +485,412 @@ func buildProcessTree(procs []vfs.ProcInfo) []*treeNode {
 	}
 
 	return roots
+}
+
+// --- Timeline logic (Story 17-2) ---
+
+func classifySyscall(ev ipc.SyscallEventWire) eventCategory {
+	if ev.Error != "" {
+		return catError
+	}
+	if isLLMEvent(ev) {
+		return catLLM
+	}
+	switch ev.Syscall {
+	case "Send", "Recv", "Pipe", "Signal", "SigBlock", "SigUnblock",
+		"JoinGroup", "LeaveGroup", "GetProcGroup", "SignalGroup":
+		return catIPC
+	case "Spawn", "Kill", "Wait", "Reparent", "SpawnThread", "JoinThread",
+		"SpawnSupervisor", "SpawnCoroutine", "Yield", "ResumeCoroutine":
+		return catTool
+	}
+	if isToolPathEvent(ev) {
+		return catTool
+	}
+	return catVFS
+}
+
+func isLLMEvent(ev ipc.SyscallEventWire) bool {
+	for _, key := range []string{"path", "tool"} {
+		if v, ok := ev.Args[key]; ok {
+			if s, ok := v.(string); ok && strings.Contains(s, "/dev/llm/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isToolPathEvent(ev ipc.SyscallEventWire) bool {
+	if v, ok := ev.Args["path"]; ok {
+		if s, ok := v.(string); ok {
+			return strings.Contains(s, "/dev/shell/") || strings.Contains(s, "/dev/fs/")
+		}
+	}
+	return false
+}
+
+func categoryColor(cat eventCategory) string {
+	switch cat {
+	case catLLM:
+		return ui.ColorAgent
+	case catTool:
+		return ui.ColorSuccess
+	case catIPC:
+		return colorIPC
+	case catVFS:
+		return ui.ColorWarning
+	case catError:
+		return ui.ColorError
+	default:
+		return ui.ColorMuted
+	}
+}
+
+func categoryLabel(cat eventCategory) string {
+	switch cat {
+	case catLLM:
+		return "LLM"
+	case catTool:
+		return "Tool"
+	case catIPC:
+		return "IPC"
+	case catVFS:
+		return "VFS"
+	case catError:
+		return "Err"
+	default:
+		return "?"
+	}
+}
+
+func defaultTimelineFilters() map[eventCategory]bool {
+	return map[eventCategory]bool{
+		catLLM:   true,
+		catTool:  true,
+		catIPC:   true,
+		catVFS:   true,
+		catError: true,
+	}
+}
+
+func (m dashboardModel) handleTimelineEvent(msg timelineEventMsg) dashboardModel {
+	ev := timelineEvent{
+		wire:     msg.event,
+		category: classifySyscall(msg.event),
+	}
+	m.timelineEvents = append(m.timelineEvents, ev)
+	if len(m.timelineEvents) > maxTimelineEvents {
+		m.timelineEvents = m.timelineEvents[len(m.timelineEvents)-maxTimelineEvents:]
+	}
+	return m
+}
+
+type timelineStreamStartedMsg struct {
+	eventCh <-chan ipc.SyscallEventWire
+	stopCh  chan struct{}
+}
+
+func startTimelineCmd(pid types.PID) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return timelineStreamDoneMsg{}
+		}
+		ch := make(chan ipc.SyscallEventWire, 64)
+		stopCh := make(chan struct{})
+		go func() {
+			defer close(ch)
+			defer client.Close()
+			_ = client.AttachDebug(pid, func(ev ipc.SyscallEventWire) {
+				select {
+				case ch <- ev:
+				case <-stopCh:
+				}
+			})
+		}()
+		return timelineStreamStartedMsg{eventCh: ch, stopCh: stopCh}
+	}
+}
+
+func waitTimelineEventCmd(ch <-chan ipc.SyscallEventWire) tea.Cmd {
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return timelineStreamDoneMsg{}
+		}
+		return timelineEventMsg{event: ev}
+	}
+}
+
+func (m dashboardModel) stopTimelineStream() dashboardModel {
+	if m.timelineStopCh != nil {
+		close(m.timelineStopCh)
+		m.timelineStopCh = nil
+	}
+	m.timelineEventCh = nil
+	return m
+}
+
+func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
+	if m.selectedPID == m.timelineAttachedPID {
+		return m
+	}
+	m.timelineEvents = nil
+	m.timelineZoomLevel = 0
+	m.timelineViewStart = 0
+	m.timelineEventCursor = 0
+	m.timelineAttachedPID = m.selectedPID
+	return m
+}
+
+func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
+	if m.timelineFilters == nil {
+		m.timelineFilters = defaultTimelineFilters()
+	}
+	switch key {
+	case "+", "=":
+		if m.timelineZoomLevel < 5 {
+			m.timelineZoomLevel++
+		}
+	case "-":
+		if m.timelineZoomLevel > 0 {
+			m.timelineZoomLevel--
+		}
+	case "h", "left":
+		step := m.timelineScrollStep()
+		if m.timelineViewStart > step {
+			m.timelineViewStart -= step
+		} else {
+			m.timelineViewStart = 0
+		}
+	case "l", "right":
+		m.timelineViewStart += m.timelineScrollStep()
+	case "up", "k":
+		if m.timelineEventCursor > 0 {
+			m.timelineEventCursor--
+		}
+	case "down", "j":
+		visible := m.filteredTimelineEvents()
+		if m.timelineEventCursor < len(visible)-1 {
+			m.timelineEventCursor++
+		}
+	case "1":
+		m.timelineFilters[catLLM] = !m.timelineFilters[catLLM]
+	case "2":
+		m.timelineFilters[catTool] = !m.timelineFilters[catTool]
+	case "3":
+		m.timelineFilters[catIPC] = !m.timelineFilters[catIPC]
+	case "4":
+		m.timelineFilters[catVFS] = !m.timelineFilters[catVFS]
+	}
+	return m
+}
+
+var zoomWindowMs = []int64{0, 1000, 5000, 30000, 300000, 1800000}
+
+func (m dashboardModel) timelineScrollStep() int64 {
+	if m.timelineZoomLevel >= 1 && m.timelineZoomLevel < len(zoomWindowMs) {
+		return zoomWindowMs[m.timelineZoomLevel] / 10
+	}
+	return 500
+}
+
+func (m dashboardModel) filteredTimelineEvents() []timelineEvent {
+	if m.timelineFilters == nil {
+		return m.timelineEvents
+	}
+	var result []timelineEvent
+	for _, ev := range m.timelineEvents {
+		if m.timelineFilters[ev.category] {
+			result = append(result, ev)
+		}
+	}
+	return result
+}
+
+func (m dashboardModel) renderTimelinePane(width, height int) string {
+	isActive := m.activePane == paneTimeline
+
+	borderColor := lipgloss.Color(ui.ColorMuted)
+	if isActive {
+		borderColor = lipgloss.Color(ui.ColorAgent)
+	}
+
+	innerW := width - 2
+	if innerW < 1 {
+		innerW = 1
+	}
+	innerH := height - 2
+	if innerH < 1 {
+		innerH = 1
+	}
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Width(innerW).
+		Height(innerH)
+
+	var b strings.Builder
+
+	b.WriteString(" Timeline")
+	if m.selectedPID > 0 {
+		fmt.Fprintf(&b, " | PID %d", m.selectedPID)
+	}
+	fmt.Fprintf(&b, " | %d events", len(m.timelineEvents))
+
+	b.WriteString("  ")
+	for _, cat := range []eventCategory{catLLM, catTool, catIPC, catVFS} {
+		label := categoryLabel(cat)
+		if m.timelineFilters != nil && !m.timelineFilters[cat] {
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render("["+label+"]"))
+		} else {
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(categoryColor(cat))).Render("["+label+"]"))
+		}
+	}
+	b.WriteString("\n")
+
+	if m.selectedPID == 0 {
+		b.WriteString("\n    Select an agent to view timeline")
+		return style.Render(b.String())
+	}
+
+	filtered := m.filteredTimelineEvents()
+	if len(filtered) == 0 {
+		b.WriteString("\n    Waiting for events...")
+		return style.Render(b.String())
+	}
+
+	barWidth := innerW - 2
+	if barWidth < 10 {
+		barWidth = 10
+	}
+	b.WriteString(m.renderTimelineBar(filtered, barWidth))
+	b.WriteString("\n")
+
+	listLines := innerH - 3
+	if listLines < 1 {
+		listLines = 1
+	}
+	if m.timelineEventCursor >= len(filtered) {
+		m.timelineEventCursor = len(filtered) - 1
+	}
+
+	startIdx := 0
+	if m.timelineEventCursor >= listLines {
+		startIdx = m.timelineEventCursor - listLines + 1
+	}
+	endIdx := startIdx + listLines
+	if endIdx > len(filtered) {
+		endIdx = len(filtered)
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		ev := filtered[i]
+		cursor := "  "
+		if i == m.timelineEventCursor {
+			cursor = "▸ "
+		}
+
+		ts := fmt.Sprintf("[%7.3fs]", float64(ev.wire.TimestampMs)/1000.0)
+		dur := formatTimelineDuration(ev.wire.DurationMs)
+		catColor := categoryColor(ev.category)
+		catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(catColor))
+
+		args := formatTimelineArgs(ev.wire.Args, 30)
+		line := fmt.Sprintf("%s%s %s(%s) %s",
+			cursor, ts, catStyle.Render(ev.wire.Syscall), args, dur)
+		if ev.wire.Error != "" {
+			line += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("ERR:"+ev.wire.Error)
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	return style.Render(b.String())
+}
+
+func (m dashboardModel) renderTimelineBar(events []timelineEvent, width int) string {
+	if len(events) == 0 || width <= 0 {
+		return ""
+	}
+
+	minTs := events[0].wire.TimestampMs
+	maxTs := events[len(events)-1].wire.TimestampMs
+	if m.timelineZoomLevel > 0 && m.timelineZoomLevel < len(zoomWindowMs) {
+		windowMs := zoomWindowMs[m.timelineZoomLevel]
+		minTs = m.timelineViewStart
+		maxTs = m.timelineViewStart + windowMs
+	}
+
+	span := maxTs - minTs
+	if span <= 0 {
+		span = 1
+	}
+
+	bar := make([]eventCategory, width)
+	barSet := make([]bool, width)
+	for _, ev := range events {
+		pos := int((ev.wire.TimestampMs - minTs) * int64(width) / span)
+		if pos < 0 || pos >= width {
+			continue
+		}
+		if !barSet[pos] || ev.category == catError {
+			bar[pos] = ev.category
+			barSet[pos] = true
+		}
+	}
+
+	var b strings.Builder
+	for i := 0; i < width; i++ {
+		if !barSet[i] {
+			b.WriteString("·")
+		} else {
+			catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(categoryColor(bar[i])))
+			b.WriteString(catStyle.Render("█"))
+		}
+	}
+	return b.String()
+}
+
+func formatTimelineDuration(ms float64) string {
+	if ms < 1 {
+		return fmt.Sprintf("%.0fµs", ms*1000)
+	}
+	if ms < 1000 {
+		return fmt.Sprintf("%.0fms", ms)
+	}
+	return fmt.Sprintf("%.2fs", ms/1000)
+}
+
+func formatTimelineArgs(args map[string]any, maxLen int) string {
+	if len(args) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		v := fmt.Sprintf("%v", args[k])
+		if utf8.RuneCountInString(v) > 20 {
+			runes := []rune(v)
+			v = string(runes[:17]) + "..."
+		}
+		parts = append(parts, k+"="+v)
+	}
+	result := strings.Join(parts, ", ")
+	if utf8.RuneCountInString(result) > maxLen {
+		runes := []rune(result)
+		result = string(runes[:maxLen-3]) + "..."
+	}
+	return result
 }
 
 // --- Command runner ---
