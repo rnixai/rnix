@@ -209,7 +209,7 @@ development_status:
   18-2-function-definition-and-invocation: done
   18-3-data-structures-and-string-interpolation: done
   18-4-spawn-return-capture-and-parallel-execution: done
-  18-5-modularization-and-script-execution: backlog
+  18-5-modularization-and-script-execution: ready-for-dev
   epic-18-retrospective: optional
 
   # Epic 19: Declarative Intent & Auto Planning
