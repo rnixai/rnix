@@ -50,6 +50,8 @@ const colorIPC = "#9B59B6"
 
 const maxTimelineEvents = 1000
 
+const statusMsgDefaultTTL = 4
+
 type timelineEvent struct {
 	wire     ipc.SyscallEventWire
 	category eventCategory
@@ -205,12 +207,12 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.statusMsg = "Returned to dashboard"
 		}
-		m.statusMsgTTL = 4
+		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	case recordToggleMsg:
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("Record error: %v", msg.err)
-			m.statusMsgTTL = 4
+			m.statusMsgTTL = statusMsgDefaultTTL
 			return m, nil
 		}
 		if msg.stopped {
@@ -220,7 +222,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.recording[msg.pid] = msg.recordID
 			m.statusMsg = fmt.Sprintf("Recording started (ID: %s)", msg.recordID)
 		}
-		m.statusMsgTTL = 4
+		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	}
 	return m, nil
@@ -308,7 +310,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				} else {
 					m.statusMsg = fmt.Sprintf("Killed PID %d", m.confirmPID)
 				}
-				m.statusMsgTTL = 4
+				m.statusMsgTTL = statusMsgDefaultTTL
 			}
 			m.confirmKill = false
 			m.confirmPID = 0
@@ -370,8 +372,9 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	isTimelineConflict := m.activePane == paneTimeline && (key == "l" || key == "h")
-	if !isTimelineConflict && m.selectedPID > 0 && m.connected {
+	isPaneNavConflict := (m.activePane == paneTimeline && (key == "l" || key == "h" || key == "k")) ||
+		(m.activePane == paneHeatmap && key == "k")
+	if !isPaneNavConflict && m.selectedPID > 0 && m.connected {
 		switch key {
 		case "k":
 			m.confirmKill = true
@@ -391,6 +394,12 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			recordID := m.recording[m.selectedPID]
 			return m, toggleRecordCmd(m.selectedPID, recordID)
 		}
+	}
+
+	if (msg.Code == 'K' || msg.ShiftedCode == 'K') && msg.Mod&tea.ModShift != 0 && m.selectedPID > 0 {
+		m.confirmKill = true
+		m.confirmPID = m.selectedPID
+		return m, nil
 	}
 
 	switch m.activePane {

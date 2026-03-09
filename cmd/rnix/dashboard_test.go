@@ -1032,17 +1032,17 @@ func TestDashboardModel_HeatmapCursorJK(t *testing.T) {
 		t.Errorf("j should move heatmapCursor down: expected 1, got %d", um.heatmapCursor)
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
 	if um.heatmapCursor != 0 {
-		t.Errorf("up arrow should move heatmapCursor up: expected 0, got %d", um.heatmapCursor)
+		t.Errorf("k should move heatmapCursor up: expected 0, got %d", um.heatmapCursor)
 	}
 
 	um.heatmapCursor = 0
-	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
 	if um.heatmapCursor != 0 {
-		t.Errorf("up arrow at top should stay at 0, got %d", um.heatmapCursor)
+		t.Errorf("k at top should stay at 0, got %d", um.heatmapCursor)
 	}
 }
 
@@ -1305,7 +1305,7 @@ func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
 	}
 }
 
-// --- 17.4-UNIT-004: [P0] Global kill — k in timeline triggers confirmKill (AC2) ---
+// --- 17.4-UNIT-004: [P0] Global kill — Shift+K in timeline triggers confirmKill (AC2) ---
 
 func TestDashboardModel_GlobalKillConfirmTimeline(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
@@ -1313,11 +1313,61 @@ func TestDashboardModel_GlobalKillConfirmTimeline(t *testing.T) {
 	m.selectedPID = 2
 	m.connected = true
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'K', ShiftedCode: 'K', Mod: tea.ModShift})
 	um := updated.(dashboardModel)
 
 	if !um.confirmKill {
-		t.Error("k in timeline pane with selectedPID > 0 should trigger confirmKill")
+		t.Error("Shift+K in timeline pane with selectedPID > 0 should trigger confirmKill")
+	}
+	if um.confirmPID != 2 {
+		t.Errorf("confirmPID should be 2, got %d", um.confirmPID)
+	}
+}
+
+// --- CR-FIX-006: [P0] Timeline k navigates up, not kill (AC2) ---
+
+func TestDashboardModel_TimelineKNavigatesNotKill(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+	m.timelineEventCursor = 2
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
+	um := updated.(dashboardModel)
+
+	if um.confirmKill {
+		t.Error("k in timeline pane should navigate, not trigger kill")
+	}
+	if um.timelineEventCursor != 1 {
+		t.Errorf("k in timeline should move cursor up: expected 1, got %d", um.timelineEventCursor)
+	}
+}
+
+// --- CR-FIX-007: [P0] Heatmap k navigates up, not kill (AC2) ---
+
+func TestDashboardModel_HeatmapKNavigatesNotKill(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+	m.heatmapCursor = 2
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
+	um := updated.(dashboardModel)
+
+	if um.confirmKill {
+		t.Error("k in heatmap pane should navigate, not trigger kill")
+	}
+	if um.heatmapCursor != 1 {
+		t.Errorf("k in heatmap should move cursor up: expected 1, got %d", um.heatmapCursor)
+	}
+}
+
+// --- CR-FIX-008: [P0] Shift+K triggers kill in heatmap pane (AC2) ---
+
+func TestDashboardModel_ShiftKKillsInHeatmap(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'K', ShiftedCode: 'K', Mod: tea.ModShift})
+	um := updated.(dashboardModel)
+
+	if !um.confirmKill {
+		t.Error("Shift+K in heatmap pane should trigger confirmKill")
 	}
 	if um.confirmPID != 2 {
 		t.Errorf("confirmPID should be 2, got %d", um.confirmPID)
@@ -1444,6 +1494,42 @@ func TestRecordToggleMsg_Error(t *testing.T) {
 	}
 	if !strings.Contains(um.statusMsg, "connection refused") {
 		t.Errorf("statusMsg should contain error, got %q", um.statusMsg)
+	}
+}
+
+// --- CR-FIX-009: [P0] a key returns non-nil cmd for GDB (AC2) ---
+
+func TestDashboardModel_GlobalGDBKey(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'a'})
+
+	if cmd == nil {
+		t.Error("a key with selectedPID > 0 should return non-nil cmd (ExecProcess for gdb)")
+	}
+}
+
+// --- CR-FIX-010: [P0] l key in heatmap returns non-nil cmd for log (AC2) ---
+
+func TestDashboardModel_GlobalLogKey(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
+
+	if cmd == nil {
+		t.Error("l key in heatmap pane with selectedPID > 0 should return non-nil cmd (ExecProcess for log)")
+	}
+}
+
+// --- CR-FIX-011: [P0] r key returns non-nil cmd for record toggle (AC2) ---
+
+func TestDashboardModel_GlobalRecordKey(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'r'})
+
+	if cmd == nil {
+		t.Error("r key with selectedPID > 0 should return non-nil cmd (toggleRecordCmd)")
 	}
 }
 
