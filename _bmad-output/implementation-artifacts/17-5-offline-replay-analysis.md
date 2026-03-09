@@ -1,6 +1,6 @@
 # Story 17.5: 离线回放分析
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -20,105 +20,105 @@ So that 我可以在智能体完成后回顾和分析其历史执行。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: `--load` 标志与回放模型初始化 (AC: #1)
-  - [ ] 1.1 在 `dashboardCmd` 添加 `--load` string flag（接受 record-dir 路径或 record-id）
-  - [ ] 1.2 在 `runDashboard` 中：若 `--load` 非空，调用 `resolveRecordDir(loadArg)` 解析路径（支持直接路径和 record-id 查找）
-  - [ ] 1.3 调用 `debug.NewRecordReader(recordDir)` 加载录制数据
-  - [ ] 1.4 调用 `newReplayDashboardModel(reader)` 创建回放模式模型（`client == nil`，不连接 IPC daemon）
-  - [ ] 1.5 回放模式下跳过 `ipc.Dial` 和 "No rnix daemon" 错误——直接启动 TUI
+- [x] Task 1: `--load` 标志与回放模型初始化 (AC: #1)
+  - [x] 1.1 在 `dashboardCmd` 添加 `--load` string flag（接受 record-dir 路径或 record-id）
+  - [x] 1.2 在 `runDashboard` 中：若 `--load` 非空，调用 `resolveRecordDir(loadArg)` 解析路径（支持直接路径和 record-id 查找）
+  - [x] 1.3 调用 `debug.NewRecordReader(recordDir)` 加载录制数据
+  - [x] 1.4 调用 `newReplayDashboardModel(reader)` 创建回放模式模型（`client == nil`，不连接 IPC daemon）
+  - [x] 1.5 回放模式下跳过 `ipc.Dial` 和 "No rnix daemon" 错误——直接启动 TUI
 
-- [ ] Task 2: dashboardModel 回放模式字段 (AC: #1, #2)
-  - [ ] 2.1 新增字段 `replayMode bool`——标识离线回放模式
-  - [ ] 2.2 新增字段 `replayReader *debug.RecordReader`——持有录制数据
-  - [ ] 2.3 新增字段 `replayCursor int`——当前回放位置（0-based 事件索引，-1=初始状态）
-  - [ ] 2.4 新增字段 `replayPlaying bool`——是否正在自动播放
-  - [ ] 2.5 新增字段 `replaySpeed float64`——播放速率（0.5/1.0/2.0/4.0/8.0）
-  - [ ] 2.6 新增字段 `replayLastTick time.Time`——上次播放 tick 时间戳，用于速率计算
-  - [ ] 2.7 `newReplayDashboardModel(reader)` 初始化：`replayMode=true`, `replayCursor=-1`, `replaySpeed=1.0`, `connected=false`, `timelineFilters=defaultTimelineFilters()`, `recording=make(map[types.PID]string)`
+- [x] Task 2: dashboardModel 回放模式字段 (AC: #1, #2)
+  - [x] 2.1 新增字段 `replayMode bool`——标识离线回放模式
+  - [x] 2.2 新增字段 `replayReader *debug.RecordReader`——持有录制数据
+  - [x] 2.3 新增字段 `replayCursor int`——当前回放位置（0-based 事件索引，-1=初始状态）
+  - [x] 2.4 新增字段 `replayPlaying bool`——是否正在自动播放
+  - [x] 2.5 新增字段 `replaySpeed float64`——播放速率（0.5/1.0/2.0/4.0/8.0）
+  - [x] 2.6 新增字段 `replayLastTick time.Time`——上次播放 tick 时间戳，用于速率计算
+  - [x] 2.7 `newReplayDashboardModel(reader)` 初始化：`replayMode=true`, `replayCursor=-1`, `replaySpeed=1.0`, `connected=false`, `timelineFilters=defaultTimelineFilters()`, `recording=make(map[types.PID]string)`
 
-- [ ] Task 3: RecordEvent → SyscallEventWire 转换 (AC: #1)
-  - [ ] 3.1 在 `dashboard.go` 中实现 `recordEventToWire(ev debug.RecordEvent) ipc.SyscallEventWire`
-  - [ ] 3.2 映射：`ev.Timestamp.Milliseconds()` → `TimestampMs`，`ev.PID` → `PID`，`ev.Syscall.Syscall` → `Syscall`，`ev.Syscall.Args` → `Args`，`ev.Syscall.Result` → `Result`，`ev.Syscall.Err` → `Error`，`ev.Syscall.Duration` → `DurationMs`
-  - [ ] 3.3 仅对 `ev.Type == debug.RecordSyscall && ev.Syscall != nil` 的事件转换，其他类型跳过
+- [x] Task 3: RecordEvent → SyscallEventWire 转换 (AC: #1)
+  - [x] 3.1 在 `dashboard.go` 中实现 `recordEventToWire(ev debug.RecordEvent) ipc.SyscallEventWire`
+  - [x] 3.2 映射：`ev.Timestamp.Milliseconds()` → `TimestampMs`，`ev.PID` → `PID`，`ev.Syscall.Syscall` → `Syscall`，`ev.Syscall.Args` → `Args`，`ev.Syscall.Result` → `Result`，`ev.Syscall.Err` → `Error`，`ev.Syscall.Duration` → `DurationMs`
+  - [x] 3.3 仅对 `ev.Type == debug.RecordSyscall && ev.Syscall != nil` 的事件转换，其他类型跳过
 
-- [ ] Task 4: 录制数据 → 智能体树窗格 (AC: #1)
-  - [ ] 4.1 实现 `buildReplayProcessTree(reader *debug.RecordReader, cursor int) []vfs.ProcInfo`——从录制元数据和事件推导进程信息
-  - [ ] 4.2 从 `reader.Metadata()` 获取 PID 和 intent
-  - [ ] 4.3 扫描 cursor 位置之前的 `StateChangeData` 事件，推导进程在该时间点的状态
-  - [ ] 4.4 扫描 cursor 位置之前的 `ContextSnapshotData` 事件，获取最近的 token 估计
-  - [ ] 4.5 构建单个 `vfs.ProcInfo`（录制只追踪单个 PID），PPID=1，设置 state/intent/tokens
-  - [ ] 4.6 在 `dashboardTick` 的 `replayMode` 分支中调用此函数，更新 `m.processes` 和 `m.treeRows`
-  - [ ] 4.7 自动设置 `m.selectedPID = reader.Metadata().PID`
+- [x] Task 4: 录制数据 → 智能体树窗格 (AC: #1)
+  - [x] 4.1 实现 `buildReplayProcessTree(reader *debug.RecordReader, cursor int) []vfs.ProcInfo`——从录制元数据和事件推导进程信息
+  - [x] 4.2 从 `reader.Metadata()` 获取 PID 和 intent
+  - [x] 4.3 扫描 cursor 位置之前的 `StateChangeData` 事件，推导进程在该时间点的状态
+  - [x] 4.4 扫描 cursor 位置之前的 `ContextSnapshotData` 事件，获取最近的 token 估计
+  - [x] 4.5 构建单个 `vfs.ProcInfo`（录制只追踪单个 PID），PPID=1，设置 state/intent/tokens
+  - [x] 4.6 在 `dashboardTick` 的 `replayMode` 分支中调用此函数，更新 `m.processes` 和 `m.treeRows`
+  - [x] 4.7 自动设置 `m.selectedPID = reader.Metadata().PID`
 
-- [ ] Task 5: 录制数据 → 时间线窗格 (AC: #1)
-  - [ ] 5.1 实现 `loadReplayTimeline(reader *debug.RecordReader, cursor int) []timelineEvent`——加载 cursor 位置之前的所有 syscall 事件到 timeline
-  - [ ] 5.2 过滤 `RecordSyscall` 事件，调用 `recordEventToWire` 转换，再调用 `classifySyscall` 分类
-  - [ ] 5.3 仅加载 `seqNum <= cursor` 的事件（cursor == -1 时返回空切片）
-  - [ ] 5.4 在 `dashboardTick` 的 `replayMode` 分支中调用此函数，更新 `m.timelineEvents`
-  - [ ] 5.5 回放模式下 timeline 不使用 `AttachDebug` 流——`timelineEventCh` 和 `timelineStopCh` 保持 nil
+- [x] Task 5: 录制数据 → 时间线窗格 (AC: #1)
+  - [x] 5.1 实现 `loadReplayTimeline(reader *debug.RecordReader, cursor int) []timelineEvent`——加载 cursor 位置之前的所有 syscall 事件到 timeline
+  - [x] 5.2 过滤 `RecordSyscall` 事件，调用 `recordEventToWire` 转换，再调用 `classifySyscall` 分类
+  - [x] 5.3 仅加载 `seqNum <= cursor` 的事件（cursor == -1 时返回空切片）
+  - [x] 5.4 在 `dashboardTick` 的 `replayMode` 分支中调用此函数，更新 `m.timelineEvents`
+  - [x] 5.5 回放模式下 timeline 不使用 `AttachDebug` 流——`timelineEventCh` 和 `timelineStopCh` 保持 nil
 
-- [ ] Task 6: 录制数据 → 上下文热力图窗格 (AC: #1)
-  - [ ] 6.1 实现 `buildReplayHeatmap(reader *debug.RecordReader, cursor int) *debug.CtxProfileResult`——从 cursor 位置之前最近的 ContextSnapshot 构建热力图
-  - [ ] 6.2 反向扫描事件找到最近的 `RecordContextSnapshot`（`ev.Type == debug.RecordContextSnapshot && ev.Context != nil`）
-  - [ ] 6.3 从 `ContextSnapshotData` 构建 `CtxProfileResult`：`TokensUsed = ev.Context.TokenEstimate`，`Messages` 内容推导分类（system/skill/tool/user/assistant），生成 `Classification` 和 `TopConsumers`
-  - [ ] 6.4 如果没有 ContextSnapshot 事件，返回 nil（热力图显示 "No context data"）
-  - [ ] 6.5 在 `dashboardTick` 的 `replayMode` 分支中调用此函数，更新 `m.heatmapProfile`
+- [x] Task 6: 录制数据 → 上下文热力图窗格 (AC: #1)
+  - [x] 6.1 实现 `buildReplayHeatmap(reader *debug.RecordReader, cursor int) *debug.CtxProfileResult`——从 cursor 位置之前最近的 ContextSnapshot 构建热力图
+  - [x] 6.2 反向扫描事件找到最近的 `RecordContextSnapshot`（`ev.Type == debug.RecordContextSnapshot && ev.Context != nil`）
+  - [x] 6.3 从 `ContextSnapshotData` 构建 `CtxProfileResult`：`TokensUsed = ev.Context.TokenEstimate`，`Messages` 内容推导分类（system/skill/tool/user/assistant），生成 `Classification` 和 `TopConsumers`
+  - [x] 6.4 如果没有 ContextSnapshot 事件，返回 nil（热力图显示 "No context data"）
+  - [x] 6.5 在 `dashboardTick` 的 `replayMode` 分支中调用此函数，更新 `m.heatmapProfile`
 
-- [ ] Task 7: 回放控制——播放/暂停与速率 (AC: #2)
-  - [ ] 7.1 空格键（Space）切换 `replayPlaying`——true↔false
-  - [ ] 7.2 `[`/`]` 键调速——`[` 减半速率（最低 0.5x），`]` 翻倍速率（最高 8.0x）
-  - [ ] 7.3 自动播放逻辑在 `dashboardTick` 中：若 `replayPlaying && replayCursor < reader.EventCount()-1`，计算自上次 tick 经过的时间 × `replaySpeed`，若累积 >= 一个事件间隔，前进 `replayCursor`
-  - [ ] 7.4 简化速率模型：每个 tick（500ms）根据 speed 推进 N 个事件——`eventsPerTick = int(replaySpeed)`（speed=0.5 → 每 2 tick 推进 1 个，speed=1.0 → 每 tick 推进 1 个，speed=4.0 → 每 tick 推进 4 个）
-  - [ ] 7.5 到达最后一个事件时自动暂停：`replayPlaying = false`
+- [x] Task 7: 回放控制——播放/暂停与速率 (AC: #2)
+  - [x] 7.1 空格键（Space）切换 `replayPlaying`——true↔false
+  - [x] 7.2 `[`/`]` 键调速——`[` 减半速率（最低 0.5x），`]` 翻倍速率（最高 8.0x）
+  - [x] 7.3 自动播放逻辑在 `dashboardTick` 中：若 `replayPlaying && replayCursor < reader.EventCount()-1`，计算自上次 tick 经过的时间 × `replaySpeed`，若累积 >= 一个事件间隔，前进 `replayCursor`
+  - [x] 7.4 简化速率模型：每个 tick（500ms）根据 speed 推进 N 个事件——`eventsPerTick = int(replaySpeed)`（speed=0.5 → 每 2 tick 推进 1 个，speed=1.0 → 每 tick 推进 1 个，speed=4.0 → 每 tick 推进 4 个）
+  - [x] 7.5 到达最后一个事件时自动暂停：`replayPlaying = false`
 
-- [ ] Task 8: 回放控制——逐帧前进/后退与跳转 (AC: #2)
-  - [ ] 8.1 `.`（句号）键：逐帧前进——`replayCursor++`（不超过 EventCount-1），自动暂停 `replayPlaying = false`
-  - [ ] 8.2 `,`（逗号）键：逐帧后退——`replayCursor--`（不低于 0），自动暂停
-  - [ ] 8.3 `0` 键：跳到开头——`replayCursor = 0`，暂停
-  - [ ] 8.4 `$` 键：跳到末尾——`replayCursor = EventCount-1`，暂停
-  - [ ] 8.5 回放模式下 timeline 的 `h`/`l`（左右滚动）保持原有功能——滚动时间视图窗口
+- [x] Task 8: 回放控制——逐帧前进/后退与跳转 (AC: #2)
+  - [x] 8.1 `.`（句号）键：逐帧前进——`replayCursor++`（不超过 EventCount-1），自动暂停 `replayPlaying = false`
+  - [x] 8.2 `,`（逗号）键：逐帧后退——`replayCursor--`（不低于 0），自动暂停
+  - [x] 8.3 `0` 键：跳到开头——`replayCursor = 0`，暂停
+  - [x] 8.4 `$` 键：跳到末尾——`replayCursor = EventCount-1`，暂停
+  - [x] 8.5 回放模式下 timeline 的 `h`/`l`（左右滚动）保持原有功能——滚动时间视图窗口
 
-- [ ] Task 9: 回放模式状态栏 (AC: #1, #2)
-  - [ ] 9.1 回放模式下替换状态栏左侧内容：显示 `▶ REPLAY: <record-id>` 或 `⏸ REPLAY: <record-id>`（播放/暂停指示）
-  - [ ] 9.2 显示进度：`[cursor/total] speed×`（如 `[42/128] 2.0×`）
-  - [ ] 9.3 显示快捷键提示：`Space:Play/Pause  [/]:Speed  ,/.:Step  0:Start  $:End  q:Quit`
-  - [ ] 9.4 不显示 live 模式的 `k:Kill a:GDB l:Log r:Record` 快捷键
+- [x] Task 9: 回放模式状态栏 (AC: #1, #2)
+  - [x] 9.1 回放模式下替换状态栏左侧内容：显示 `▶ REPLAY: <record-id>` 或 `⏸ REPLAY: <record-id>`（播放/暂停指示）
+  - [x] 9.2 显示进度：`[cursor/total] speed×`（如 `[42/128] 2.0×`）
+  - [x] 9.3 显示快捷键提示：`Space:Play/Pause  [/]:Speed  ,/.:Step  0:Start  $:End  q:Quit`
+  - [x] 9.4 不显示 live 模式的 `k:Kill a:GDB l:Log r:Record` 快捷键
 
-- [ ] Task 10: 回放模式键路由 (AC: #1, #2)
-  - [ ] 10.1 在 `dashboardKey` 中，q/Ctrl+C 退出保持不变
-  - [ ] 10.2 Tab 窗格切换保持不变
-  - [ ] 10.3 在 `confirmKill` 检查之后、全局操作键之前，添加 `if m.replayMode` 分支
-  - [ ] 10.4 回放模式分支处理：Space、`[`、`]`、`.`、`,`、`0`、`$`，然后 fall-through 到窗格特定键（tree 导航、timeline 缩放/滚动/过滤、heatmap 选择）
-  - [ ] 10.5 回放模式下屏蔽 live 操作键：`k`/`K`（kill）、`a`（gdb）、`l`（log）、`r`（record）——设置 `statusMsg = "Not available in replay mode"`
+- [x] Task 10: 回放模式键路由 (AC: #1, #2)
+  - [x] 10.1 在 `dashboardKey` 中，q/Ctrl+C 退出保持不变
+  - [x] 10.2 Tab 窗格切换保持不变
+  - [x] 10.3 在 `confirmKill` 检查之后、全局操作键之前，添加 `if m.replayMode` 分支
+  - [x] 10.4 回放模式分支处理：Space、`[`、`]`、`.`、`,`、`0`、`$`，然后 fall-through 到窗格特定键（tree 导航、timeline 缩放/滚动/过滤、heatmap 选择）
+  - [x] 10.5 回放模式下屏蔽 live 操作键：`k`/`K`（kill）、`a`（gdb）、`l`（log）、`r`（record）——设置 `statusMsg = "Not available in replay mode"`
 
-- [ ] Task 11: dashboardTick 回放分支 (AC: #1, #2)
-  - [ ] 11.1 在 `dashboardTick` 开头添加 `if m.replayMode` 分支，不执行 IPC 连接/重连逻辑
-  - [ ] 11.2 回放 tick：处理自动播放推进（Task 7），然后重建 tree/timeline/heatmap 数据
-  - [ ] 11.3 优化：仅在 `replayCursor` 发生变化时重建数据（用 `prevReplayCursor int` 字段跟踪）
-  - [ ] 11.4 `statusMsgTTL` 递减逻辑保持不变（回放和 live 共享）
+- [x] Task 11: dashboardTick 回放分支 (AC: #1, #2)
+  - [x] 11.1 在 `dashboardTick` 开头添加 `if m.replayMode` 分支，不执行 IPC 连接/重连逻辑
+  - [x] 11.2 回放 tick：处理自动播放推进（Task 7），然后重建 tree/timeline/heatmap 数据
+  - [x] 11.3 优化：仅在 `replayCursor` 发生变化时重建数据（用 `prevReplayCursor int` 字段跟踪）
+  - [x] 11.4 `statusMsgTTL` 递减逻辑保持不变（回放和 live 共享）
 
-- [ ] Task 12: resolveRecordDir 辅助函数 (AC: #1)
-  - [ ] 12.1 实现 `resolveRecordDir(loadArg string) (string, error)`
-  - [ ] 12.2 如果 `loadArg` 是已存在的目录路径 → 直接返回
-  - [ ] 12.3 否则视为 record-id → 调用 `debug.NewRecordManager(findRecordBaseDir()).FindRecord(loadArg)` 查找
-  - [ ] 12.4 两种方式都找不到 → 返回明确的错误消息
+- [x] Task 12: resolveRecordDir 辅助函数 (AC: #1)
+  - [x] 12.1 实现 `resolveRecordDir(loadArg string) (string, error)`
+  - [x] 12.2 如果 `loadArg` 是已存在的目录路径 → 直接返回
+  - [x] 12.3 否则视为 record-id → 调用 `debug.NewRecordManager(findRecordBaseDir()).FindRecord(loadArg)` 查找
+  - [x] 12.4 两种方式都找不到 → 返回明确的错误消息
 
-- [ ] Task 13: 测试 (AC: #1, #2)
-  - [ ] 13.1 `TestReplayDashboard_Init`：`newReplayDashboardModel` 正确初始化所有回放字段
-  - [ ] 13.2 `TestRecordEventToWire`：RecordEvent → SyscallEventWire 转换正确
-  - [ ] 13.3 `TestRecordEventToWire_NonSyscall`：非 syscall 事件返回零值
-  - [ ] 13.4 `TestReplayDashboard_TreePane`：`buildReplayProcessTree` 从录制数据正确构建进程信息
-  - [ ] 13.5 `TestReplayDashboard_Timeline`：`loadReplayTimeline` 正确加载并过滤事件到 cursor 位置
-  - [ ] 13.6 `TestReplayDashboard_Heatmap`：`buildReplayHeatmap` 正确找到最近的 ContextSnapshot
-  - [ ] 13.7 `TestReplayDashboard_PlayPause`：Space 键切换播放状态
-  - [ ] 13.8 `TestReplayDashboard_SpeedControl`：`[`/`]` 键正确调整速率，边界检查 0.5x–8.0x
-  - [ ] 13.9 `TestReplayDashboard_FrameStep`：`.`/`,` 键逐帧前进/后退，边界检查
-  - [ ] 13.10 `TestReplayDashboard_JumpStartEnd`：`0`/`$` 键跳转
-  - [ ] 13.11 `TestReplayDashboard_AutoPlayAdvance`：tick 中根据 speed 推进 cursor
-  - [ ] 13.12 `TestReplayDashboard_AutoPlayPauseAtEnd`：到达末尾自动暂停
-  - [ ] 13.13 `TestReplayDashboard_LiveKeysBlocked`：回放模式屏蔽 k/a/l/r 键
-  - [ ] 13.14 `TestReplayDashboard_StatusBar`：回放模式状态栏内容正确
-  - [ ] 13.15 `TestReplayDashboard_TickNoIPC`：回放模式 tick 不尝试 IPC 连接
+- [x] Task 13: 测试 (AC: #1, #2)
+  - [x] 13.1 `TestReplayDashboard_Init`：`newReplayDashboardModel` 正确初始化所有回放字段
+  - [x] 13.2 `TestRecordEventToWire`：RecordEvent → SyscallEventWire 转换正确
+  - [x] 13.3 `TestRecordEventToWire_NonSyscall`：非 syscall 事件返回零值
+  - [x] 13.4 `TestReplayDashboard_TreePane`：`buildReplayProcessTree` 从录制数据正确构建进程信息
+  - [x] 13.5 `TestReplayDashboard_Timeline`：`loadReplayTimeline` 正确加载并过滤事件到 cursor 位置
+  - [x] 13.6 `TestReplayDashboard_Heatmap`：`buildReplayHeatmap` 正确找到最近的 ContextSnapshot
+  - [x] 13.7 `TestReplayDashboard_PlayPause`：Space 键切换播放状态
+  - [x] 13.8 `TestReplayDashboard_SpeedControl`：`[`/`]` 键正确调整速率，边界检查 0.5x–8.0x
+  - [x] 13.9 `TestReplayDashboard_FrameStep`：`.`/`,` 键逐帧前进/后退，边界检查
+  - [x] 13.10 `TestReplayDashboard_JumpStartEnd`：`0`/`$` 键跳转
+  - [x] 13.11 `TestReplayDashboard_AutoPlayAdvance`：tick 中根据 speed 推进 cursor
+  - [x] 13.12 `TestReplayDashboard_AutoPlayPauseAtEnd`：到达末尾自动暂停
+  - [x] 13.13 `TestReplayDashboard_LiveKeysBlocked`：回放模式屏蔽 k/a/l/r 键
+  - [x] 13.14 `TestReplayDashboard_StatusBar`：回放模式状态栏内容正确
+  - [x] 13.15 `TestReplayDashboard_TickNoIPC`：回放模式 tick 不尝试 IPC 连接
 
 ## Dev Notes
 
@@ -316,12 +316,33 @@ dashboardKey:
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-4.6-opus
 
 ### Debug Log References
 
+- bubbletea v2 空格键 `String()` 返回 `"space"` 而非 `" "`，需同时匹配两种形式
+
 ### Completion Notes List
+
+- ✅ 实现 `newReplayDashboardModel` — 初始化所有回放字段（replayMode/replayCursor/replaySpeed 等）
+- ✅ 实现 `recordEventToWire` — RecordEvent → SyscallEventWire 映射，仅处理 RecordSyscall 类型
+- ✅ 实现 `buildReplayProcessTree` — 从录制元数据和事件推导进程状态/token
+- ✅ 实现 `loadReplayTimeline` — 加载 cursor 之前的 syscall 事件并分类
+- ✅ 实现 `buildReplayHeatmap` — 反向扫描找最近 ContextSnapshot，从消息前缀推导 kind 构建近似热力图
+- ✅ 实现 `replayTick` — 自动播放推进 + cursor 变化时重建 tree/timeline/heatmap
+- ✅ 实现 `handleReplayKey` — Space 播放/暂停、[/] 调速、,/. 逐帧、0/$ 跳转、屏蔽 live 键
+- ✅ 实现 `renderReplayStatus` — ▶/⏸ REPLAY 指示 + 进度 + 快捷键提示
+- ✅ 实现 `resolveRecordDir` — 支持直接路径和 record-id 两种方式解析
+- ✅ 注册 `--load` flag 到 dashboardCmd（main.go init）
+- ✅ `runDashboard` 支持 --load 参数直接进入回放模式
+- ✅ 15 个 ATDD 测试全部通过，无回归
 
 ### Change Log
 
+- 2026-03-09: Story 17-5 完整实现——离线回放分析功能（13 个 Task，15 个测试）
+
 ### File List
+
+- cmd/rnix/dashboard.go (modified)
+- cmd/rnix/dashboard_test.go (modified — ATDD tests pre-written)
+- cmd/rnix/main.go (modified — --load flag registration)

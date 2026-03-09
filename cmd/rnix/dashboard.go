@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -247,6 +248,10 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.replayMode {
+		return m.replayTick()
+	}
+
 	if m.client == nil {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
@@ -336,6 +341,11 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		m.activePane = (m.activePane + 1) % 3
 		return m, nil
+	}
+
+	if m.replayMode {
+		m2, cmd := m.handleReplayKey(key)
+		return m2, cmd
 	}
 
 	if m.activePane == paneTree {
@@ -520,6 +530,10 @@ func (m dashboardModel) renderDashboardTitle() string {
 }
 
 func (m dashboardModel) renderDashboardStatus() string {
+	if m.replayMode {
+		return m.renderReplayStatus()
+	}
+
 	if m.confirmKill {
 		return fmt.Sprintf("  Kill PID %d? [y/N]", m.confirmPID)
 	}
@@ -1459,37 +1473,335 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 
 // --- Command runner ---
 
-// --- Offline replay stubs (Story 17-5 RED PHASE) ---
+// --- Offline replay (Story 17-5) ---
 
-func newReplayDashboardModel(_ *debug.RecordReader) dashboardModel {
-	return dashboardModel{}
+func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
+	return dashboardModel{
+		startTime:        time.Now(),
+		connected:        false,
+		timelineFilters:  defaultTimelineFilters(),
+		recording:        make(map[types.PID]string),
+		replayMode:       true,
+		replayReader:     reader,
+		replayCursor:     -1,
+		replayPlaying:    false,
+		replaySpeed:      1.0,
+		prevReplayCursor: -2,
+	}
 }
 
-func recordEventToWire(_ debug.RecordEvent) ipc.SyscallEventWire {
-	return ipc.SyscallEventWire{}
+func recordEventToWire(ev debug.RecordEvent) ipc.SyscallEventWire {
+	if ev.Type != debug.RecordSyscall || ev.Syscall == nil {
+		return ipc.SyscallEventWire{}
+	}
+	return ipc.SyscallEventWire{
+		TimestampMs: ev.Timestamp.Milliseconds(),
+		PID:         ev.PID,
+		Syscall:     ev.Syscall.Syscall,
+		Args:        ev.Syscall.Args,
+		Result:      ev.Syscall.Result,
+		Error:       ev.Syscall.Err,
+		DurationMs:  float64(ev.Syscall.Duration.Milliseconds()),
+	}
 }
 
-func buildReplayProcessTree(_ *debug.RecordReader, _ int) []vfs.ProcInfo {
-	return nil
+func buildReplayProcessTree(reader *debug.RecordReader, cursor int) []vfs.ProcInfo {
+	meta := reader.Metadata()
+	state := types.StateRunning
+	var tokensUsed int
+
+	events := reader.Events()
+	for i, ev := range events {
+		if i > cursor {
+			break
+		}
+		if ev.Type == debug.RecordStateChange && ev.State != nil {
+			switch ev.State.ToState {
+			case "zombie", "dead":
+				state = types.StateZombie
+			case "running":
+				state = types.StateRunning
+			}
+		}
+		if ev.Type == debug.RecordContextSnapshot && ev.Context != nil {
+			tokensUsed = ev.Context.TokenEstimate
+		}
+	}
+
+	return []vfs.ProcInfo{{
+		PID:        meta.PID,
+		PPID:       1,
+		State:      state,
+		Intent:     meta.Intent,
+		TokensUsed: tokensUsed,
+		CreatedAt:  meta.StartTime,
+	}}
 }
 
-func loadReplayTimeline(_ *debug.RecordReader, _ int) []timelineEvent {
-	return nil
+func loadReplayTimeline(reader *debug.RecordReader, cursor int) []timelineEvent {
+	if cursor < 0 {
+		return nil
+	}
+	var result []timelineEvent
+	for _, ev := range reader.Events() {
+		if int(ev.SeqNum) > cursor {
+			break
+		}
+		if ev.Type != debug.RecordSyscall || ev.Syscall == nil {
+			continue
+		}
+		wire := recordEventToWire(ev)
+		result = append(result, timelineEvent{
+			wire:     wire,
+			category: classifySyscall(wire),
+		})
+	}
+	return result
 }
 
-func buildReplayHeatmap(_ *debug.RecordReader, _ int) *debug.CtxProfileResult {
-	return nil
+func buildReplayHeatmap(reader *debug.RecordReader, cursor int) *debug.CtxProfileResult {
+	events := reader.Events()
+	var snap *debug.ContextSnapshotData
+	for i := len(events) - 1; i >= 0; i-- {
+		ev := events[i]
+		if int(ev.SeqNum) > cursor {
+			continue
+		}
+		if ev.Type == debug.RecordContextSnapshot && ev.Context != nil {
+			snap = ev.Context
+			break
+		}
+	}
+	if snap == nil {
+		return nil
+	}
+
+	totalTokens := snap.TokenEstimate
+	var consumers []debug.ConsumerEntry
+	kindTokens := map[string]int{}
+
+	for _, msg := range snap.Messages {
+		kind := "assistant"
+		switch {
+		case strings.HasPrefix(msg, "[system]"):
+			kind = "system_prompt"
+		case strings.HasPrefix(msg, "[skill]"):
+			kind = "skill"
+		case strings.HasPrefix(msg, "[tool]"):
+			kind = "tool:result"
+		case strings.HasPrefix(msg, "[user]"):
+			kind = "user"
+		case strings.HasPrefix(msg, "[assistant]"):
+			kind = "assistant"
+		}
+		est := totalTokens / max(len(snap.Messages), 1)
+		kindTokens[kind] += est
+	}
+
+	rank := 1
+	for kind, tokens := range kindTokens {
+		pct := 0.0
+		if totalTokens > 0 {
+			pct = float64(tokens) * 100.0 / float64(totalTokens)
+		}
+		consumers = append(consumers, debug.ConsumerEntry{
+			Kind:   kind,
+			Tokens: tokens,
+			Pct:    pct,
+			Rank:   rank,
+		})
+		rank++
+	}
+
+	sort.Slice(consumers, func(i, j int) bool {
+		return consumers[i].Tokens > consumers[j].Tokens
+	})
+	for i := range consumers {
+		consumers[i].Rank = i + 1
+	}
+
+	return &debug.CtxProfileResult{
+		PID:         reader.Metadata().PID,
+		TotalTokens: totalTokens,
+		TopConsumers: consumers,
+		Classification: debug.ClassificationResult{
+			Active: debug.ClassBucket{
+				Tokens:   totalTokens,
+				Pct:      100.0,
+				Messages: len(snap.Messages),
+			},
+		},
+	}
 }
 
-func resolveRecordDir(_ string) (string, error) {
-	return "", fmt.Errorf("not implemented")
+func resolveRecordDir(loadArg string) (string, error) {
+	if info, err := os.Stat(loadArg); err == nil && info.IsDir() {
+		if _, err := os.Stat(filepath.Join(loadArg, "metadata.json")); err == nil {
+			return loadArg, nil
+		}
+		return "", fmt.Errorf("directory %s does not contain metadata.json", loadArg)
+	}
+	mgr := debug.NewRecordManager(findRecordBaseDir())
+	dir, err := mgr.FindRecord(loadArg)
+	if err != nil {
+		return "", fmt.Errorf("recording %q not found: %w", loadArg, err)
+	}
+	return dir, nil
+}
+
+func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
+	if m.replayPlaying && m.replayReader != nil && m.replayCursor < m.replayReader.EventCount()-1 {
+		advance := int(m.replaySpeed)
+		if m.replaySpeed < 1.0 {
+			if m.heatmapTickCount%int(1.0/m.replaySpeed) == 0 {
+				advance = 1
+			} else {
+				advance = 0
+			}
+		}
+		m.replayCursor = min(m.replayCursor+advance, m.replayReader.EventCount()-1)
+		if m.replayCursor >= m.replayReader.EventCount()-1 {
+			m.replayPlaying = false
+		}
+	}
+
+	if m.replayCursor != m.prevReplayCursor && m.replayReader != nil {
+		m.processes = buildReplayProcessTree(m.replayReader, m.replayCursor)
+		roots := buildProcessTree(m.processes)
+		m.treeRows = flattenTree(roots)
+		if len(m.treeRows) > 0 {
+			m.selectedPID = m.treeRows[0].proc.PID
+		}
+		m.timelineEvents = loadReplayTimeline(m.replayReader, m.replayCursor)
+		m.heatmapProfile = buildReplayHeatmap(m.replayReader, m.replayCursor)
+		if m.heatmapProfile != nil {
+			m.heatmapSegments = buildHeatmapSegments(m.heatmapProfile)
+		} else {
+			m.heatmapSegments = nil
+		}
+		m.prevReplayCursor = m.replayCursor
+	}
+
+	return m, tickCmd()
+}
+
+func (m dashboardModel) handleReplayKey(key string) (dashboardModel, tea.Cmd) {
+	switch key {
+	case " ", "space":
+		m.replayPlaying = !m.replayPlaying
+	case "[":
+		if m.replaySpeed > 0.5 {
+			m.replaySpeed /= 2.0
+		}
+	case "]":
+		if m.replaySpeed < 8.0 {
+			m.replaySpeed *= 2.0
+		}
+	case ".":
+		if m.replayReader != nil && m.replayCursor < m.replayReader.EventCount()-1 {
+			m.replayCursor++
+		}
+		m.replayPlaying = false
+	case ",":
+		if m.replayCursor > 0 {
+			m.replayCursor--
+		}
+		m.replayPlaying = false
+	case "0":
+		m.replayCursor = 0
+		m.replayPlaying = false
+	case "$":
+		if m.replayReader != nil {
+			m.replayCursor = m.replayReader.EventCount() - 1
+		}
+		m.replayPlaying = false
+	case "k", "a", "l", "r":
+		m.statusMsg = "Not available in replay mode"
+		m.statusMsgTTL = statusMsgDefaultTTL
+	default:
+		switch m.activePane {
+		case paneTimeline:
+			m = m.handleTimelineKey(key)
+		case paneHeatmap:
+			m = m.handleHeatmapKey(key)
+		case paneTree:
+			visibleLines := m.dashboardVisibleLines()
+			switch key {
+			case "up":
+				if m.treeCursor > 0 {
+					m.treeCursor--
+					if m.treeCursor < len(m.treeRows) {
+						m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+					}
+					if m.treeCursor < m.treeOffset {
+						m.treeOffset = m.treeCursor
+					}
+				}
+			case "down", "j":
+				if m.treeCursor < len(m.treeRows)-1 {
+					m.treeCursor++
+					if m.treeCursor < len(m.treeRows) {
+						m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+					}
+					if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
+						m.treeOffset = m.treeCursor - visibleLines + 1
+					}
+				}
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m dashboardModel) renderReplayStatus() string {
+	indicator := "⏸"
+	if m.replayPlaying {
+		indicator = "▶"
+	}
+	recordID := ""
+	if m.replayReader != nil {
+		recordID = m.replayReader.Metadata().RecordID
+	}
+	total := 0
+	if m.replayReader != nil {
+		total = m.replayReader.EventCount()
+	}
+	progress := fmt.Sprintf("[%d/%d] %.1f×", m.replayCursor, total, m.replaySpeed)
+
+	if m.statusMsg != "" {
+		return fmt.Sprintf("  %s REPLAY: %s  %s  |  %s", indicator, recordID, progress, m.statusMsg)
+	}
+	return fmt.Sprintf("  %s REPLAY: %s  %s  |  Space:Play/Pause  [/]:Speed  ,/.:Step  0:Start  $:End  q:Quit",
+		indicator, recordID, progress)
 }
 
 // --- Command runner ---
 
-func runDashboard(_ *cobra.Command, _ []string) error {
+func runDashboard(cmd *cobra.Command, _ []string) error {
 	profile := ui.DetectProfile(os.Stdout)
 	ui.InitStyles(profile)
+
+	var loadArg string
+	if cmd != nil {
+		loadArg, _ = cmd.Flags().GetString("load")
+	}
+	if loadArg != "" {
+		recordDir, err := resolveRecordDir(loadArg)
+		if err != nil {
+			return fmt.Errorf("--load: %w", err)
+		}
+		reader, err := debug.NewRecordReader(recordDir)
+		if err != nil {
+			return fmt.Errorf("--load: %w", err)
+		}
+		model := newReplayDashboardModel(reader)
+		p := tea.NewProgram(model)
+		_, err = p.Run()
+		if err != nil {
+			return fmt.Errorf("dashboard: %w", err)
+		}
+		return nil
+	}
 
 	client, err := ipc.Dial(ipc.SocketPath())
 	if err != nil {

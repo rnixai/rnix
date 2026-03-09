@@ -213,6 +213,7 @@ func init() {
 	rootCmd.AddCommand(topCmd)
 	rootCmd.AddCommand(logCmd)
 	rootCmd.AddCommand(gdbCmd)
+	dashboardCmd.Flags().String("load", "", "Load a recording for offline replay (path or record-id)")
 	rootCmd.AddCommand(dashboardCmd)
 }
 
