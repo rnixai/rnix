@@ -1,6 +1,6 @@
 # Story 17.4: 窗格联动与进程操作
 
-Status: review
+Status: done
 
 ## Story
 
@@ -475,8 +475,9 @@ claude-4.6-opus-high-thinking
 ### Change Log
 
 - 2026-03-09: Story 17-4 实现完成 — 即时窗格联动 + 全局进程操作 (k/a/l/r)
+- 2026-03-09: Code Review 修复 — 修复 heatmap/timeline k 键冲突、补齐 Shift+K 非 tree 窗格 kill、新增键路由测试、提取 statusMsgTTL 常量
 
 ### File List
 
-- `cmd/rnix/dashboard.go` — 新增 `os/exec` 导入；实现 `handlePIDChange()` 统一方法；实现 `toggleRecordCmd()` IPC 命令；重构 `dashboardKey()` 全局操作路由（a/l/r/k）+ tree 即时联动；实现 `execResultMsg`/`recordToggleMsg` 消息处理；重构 `dashboardTick()` 复用 handlePIDChange + statusMsgTTL 递减 + recording 清理；更新 `renderDashboardStatus()` 操作键提示 + ●REC；更新 `renderDashboardTreePane()` 录制指示符
-- `cmd/rnix/dashboard_test.go` — 15 个 ATDD 测试全部通过（即时联动、handlePIDChange、全局 kill、execResultMsg、recordToggleMsg、状态栏、录制指示）；更新 17-3 heatmap cursor 测试（k→up arrow）
+- `cmd/rnix/dashboard.go` — 新增 `os/exec` 导入；实现 `handlePIDChange()` 统一方法；实现 `toggleRecordCmd()` IPC 命令；重构 `dashboardKey()` 全局操作路由（a/l/r/k）+ tree 即时联动；实现 `execResultMsg`/`recordToggleMsg` 消息处理；重构 `dashboardTick()` 复用 handlePIDChange + statusMsgTTL 递减 + recording 清理；更新 `renderDashboardStatus()` 操作键提示 + ●REC；更新 `renderDashboardTreePane()` 录制指示符；CR 修复：`isPaneNavConflict` 排除 timeline/heatmap k 键冲突 + Shift+K 全局 kill + `statusMsgDefaultTTL` 常量
+- `cmd/rnix/dashboard_test.go` — 15 个原始 ATDD 测试 + 7 个 CR 修复测试全部通过（新增 TimelineKNavigatesNotKill、HeatmapKNavigatesNotKill、ShiftKKillsInHeatmap、GlobalGDBKey、GlobalLogKey、GlobalRecordKey；恢复 HeatmapCursorJK 使用 k 键）
