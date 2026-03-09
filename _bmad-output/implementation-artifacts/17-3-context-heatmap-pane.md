@@ -1,6 +1,6 @@
 # Story 17.3: 上下文热力图窗格
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -20,22 +20,22 @@ So that 我可以直观了解 token 分布和活跃度。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Heatmap 数据模型和 IPC 获取 (AC: #1)
-  - [ ] 1.1 在 `dashboardModel` 新增 heatmap 相关字段：`heatmapProfile *debug.CtxProfileResult`（当前选中进程的上下文 profile）、`heatmapPID types.PID`（已获取 profile 的 PID）、`heatmapSegments []heatmapSegment`（渲染用的分段数据）、`heatmapCursor int`（选中区域索引）
-  - [ ] 1.2 定义 `heatmapSegment` 结构体：`label string`（如 "System Prompt"）、`tokens int`、`pct float64`、`kind segmentKind`（来源分类）、`activity activityLevel`（活跃度：active/warm/cold/leaked）、`summary string`（内容摘要，截断至 60 rune）
-  - [ ] 1.3 定义 `segmentKind` 类型和常量：`segSystem`（system prompt）、`segSkill`（skill 指令）、`segTool`（工具结果）、`segUser`（用户消息）、`segAssistant`（对话历史）、`segLeaked`（泄漏）
-  - [ ] 1.4 定义 `activityLevel` 类型和常量：`actActive`、`actWarm`、`actCold`、`actLeaked`
-  - [ ] 1.5 实现 `segmentColor(kind segmentKind, activity activityLevel) string` — 返回基于来源分类和活跃度深浅的颜色值
+- [x] Task 1: Heatmap 数据模型和 IPC 获取 (AC: #1)
+  - [x] 1.1 在 `dashboardModel` 新增 heatmap 相关字段：`heatmapProfile *debug.CtxProfileResult`（当前选中进程的上下文 profile）、`heatmapPID types.PID`（已获取 profile 的 PID）、`heatmapSegments []heatmapSegment`（渲染用的分段数据）、`heatmapCursor int`（选中区域索引）
+  - [x] 1.2 定义 `heatmapSegment` 结构体：`label string`（如 "System Prompt"）、`tokens int`、`pct float64`、`kind segmentKind`（来源分类）、`activity activityLevel`（活跃度：active/warm/cold/leaked）、`summary string`（内容摘要，截断至 60 rune）
+  - [x] 1.3 定义 `segmentKind` 类型和常量：`segSystem`（system prompt）、`segSkill`（skill 指令）、`segTool`（工具结果）、`segUser`（用户消息）、`segAssistant`（对话历史）、`segLeaked`（泄漏）
+  - [x] 1.4 定义 `activityLevel` 类型和常量：`actActive`、`actWarm`、`actCold`、`actLeaked`
+  - [x] 1.5 实现 `segmentColor(kind segmentKind, activity activityLevel) string` — 返回基于来源分类和活跃度深浅的颜色值
 
-- [ ] Task 2: CtxProfile IPC 集成 (AC: #1)
-  - [ ] 2.1 定义 `heatmapProfileMsg` 消息类型（包含 `*debug.CtxProfileResult` 和 `error`）
-  - [ ] 2.2 实现 `fetchHeatmapCmd(pid types.PID) tea.Cmd`：创建独立 IPC 连接 → 调用 `client.CtxProfile(pid)` → 返回 `heatmapProfileMsg`
-  - [ ] 2.3 在 `Update` 中处理 `heatmapProfileMsg`：存储 profile → 调用 `buildHeatmapSegments()` 构建渲染用分段
-  - [ ] 2.4 在 `dashboardTick` 中检测 `selectedPID` 变化或周期性刷新（每 5 次 tick = 2.5s 一次），触发 `fetchHeatmapCmd`
-  - [ ] 2.5 在 heatmap 字段中记录 `heatmapPID`，只有 PID 变化或到了刷新周期时才重新获取
+- [x] Task 2: CtxProfile IPC 集成 (AC: #1)
+  - [x] 2.1 定义 `heatmapProfileMsg` 消息类型（包含 `*debug.CtxProfileResult` 和 `error`）
+  - [x] 2.2 实现 `fetchHeatmapCmd(pid types.PID) tea.Cmd`：创建独立 IPC 连接 → 调用 `client.CtxProfile(pid)` → 返回 `heatmapProfileMsg`
+  - [x] 2.3 在 `Update` 中处理 `heatmapProfileMsg`：存储 profile → 调用 `buildHeatmapSegments()` 构建渲染用分段
+  - [x] 2.4 在 `dashboardTick` 中检测 `selectedPID` 变化或周期性刷新（每 5 次 tick = 2.5s 一次），触发 `fetchHeatmapCmd`
+  - [x] 2.5 在 heatmap 字段中记录 `heatmapPID`，只有 PID 变化或到了刷新周期时才重新获取
 
-- [ ] Task 3: Profile 数据到 Heatmap 分段转换 (AC: #1)
-  - [ ] 3.1 实现 `buildHeatmapSegments(profile *debug.CtxProfileResult) []heatmapSegment`：
+- [x] Task 3: Profile 数据到 Heatmap 分段转换 (AC: #1)
+  - [x] 3.1 实现 `buildHeatmapSegments(profile *debug.CtxProfileResult) []heatmapSegment`：
     - 从 `TopConsumers` 提取各来源的 token 数和占比
     - 根据 `Classification`（Active/Warm/Cold/Leaked）分配活跃度
     - system_prompt → segSystem + actActive（system prompt 始终 active）
@@ -43,48 +43,48 @@ So that 我可以直观了解 token 分布和活跃度。
     - assistant → segAssistant + 按 Classification 分配
     - tool:* → segTool + 按 Classification 分配
     - Leaked bucket → segLeaked + actLeaked
-  - [ ] 3.2 确保 segments 按 token 占比降序排序（最大的段在前）
-  - [ ] 3.3 合并过小的段（占比 < 3%）为 "Other" 段
+  - [x] 3.2 确保 segments 按 token 占比降序排序（最大的段在前）
+  - [x] 3.3 合并过小的段（占比 < 3%）为 "Other" 段
 
-- [ ] Task 4: Heatmap 渲染 (AC: #1)
-  - [ ] 4.1 替换 `renderDashboardPlaceholder("Heatmap", ...)` 为 `m.renderHeatmapPane(width, height)`
-  - [ ] 4.2 实现 `renderHeatmapPane(width, height int) string`：
+- [x] Task 4: Heatmap 渲染 (AC: #1)
+  - [x] 4.1 替换 `renderDashboardPlaceholder("Heatmap", ...)` 为 `m.renderHeatmapPane(width, height)`
+  - [x] 4.2 实现 `renderHeatmapPane(width, height int) string`：
     - 窗格边框：与其他窗格一致（active=ColorAgent, inactive=ColorMuted）
     - 标题行："Heatmap" + PID + 总 token 数 + budget 百分比
-  - [ ] 4.3 实现 treemap 风格渲染：
+  - [x] 4.3 实现 treemap 风格渲染：
     - 计算每段在可用宽度中占据的字符数（`segWidth = pct / 100 * barWidth`）
     - 每段用对应颜色的色块字符（`█`）填充，宽度正比 token 占比
     - 活跃度影响色彩深浅：Active=亮色（原色）、Warm=中等、Cold=暗色（加灰）、Leaked=红色调
     - 色块下方显示段标签和百分比
-  - [ ] 4.4 实现段详情列表：各段一行，显示 `[图标] label  tokens tok  pct%`
+  - [x] 4.4 实现段详情列表：各段一行，显示 `[图标] label  tokens tok  pct%`
     - 选中段用 `▸` 标记，显示更详细的信息
-  - [ ] 4.5 空状态渲染：无 selectedPID 时显示 "Select an agent to view heatmap"；有 PID 但无 profile 时显示 "Loading context profile..."
+  - [x] 4.5 空状态渲染：无 selectedPID 时显示 "Select an agent to view heatmap"；有 PID 但无 profile 时显示 "Loading context profile..."
 
-- [ ] Task 5: 区域选择和详情显示 (AC: #2)
-  - [ ] 5.1 在 `heatmapCursor` 中跟踪选中段索引
-  - [ ] 5.2 在 `handleHeatmapKey` 中处理按键：
+- [x] Task 5: 区域选择和详情显示 (AC: #2)
+  - [x] 5.1 在 `heatmapCursor` 中跟踪选中段索引
+  - [x] 5.2 在 `handleHeatmapKey` 中处理按键：
     - `j`/`k` 或 ↑/↓：上下移动 heatmapCursor 选择不同段
     - `enter`：展开/折叠选中段的详细内容摘要
-  - [ ] 5.3 选中段时底部显示：token 数、占比百分比、活跃度分类、内容摘要（截断至 60 rune）
+  - [x] 5.3 选中段时底部显示：token 数、占比百分比、活跃度分类、内容摘要（截断至 60 rune）
 
-- [ ] Task 6: 状态栏更新 (AC: #1, #2)
-  - [ ] 6.1 更新 `renderDashboardStatus()` — heatmap 焦点时显示 heatmap 专用快捷键提示
-  - [ ] 6.2 快捷键提示：`j/k:Select Segment  Enter:Details`
+- [x] Task 6: 状态栏更新 (AC: #1, #2)
+  - [x] 6.1 更新 `renderDashboardStatus()` — heatmap 焦点时显示 heatmap 专用快捷键提示
+  - [x] 6.2 快捷键提示：`j/k:Select Segment  Enter:Details`
 
-- [ ] Task 7: 测试 (AC: #1, #2)
-  - [ ] 7.1 `dashboard_test.go`：buildHeatmapSegments — 空 profile → 空段列表
-  - [ ] 7.2 `dashboard_test.go`：buildHeatmapSegments — 有 TopConsumers → 按 token 降序生成段
-  - [ ] 7.3 `dashboard_test.go`：buildHeatmapSegments — 合并小段（占比 < 3%）为 Other
-  - [ ] 7.4 `dashboard_test.go`：segmentColor — 不同 kind 和 activity 返回不同颜色
-  - [ ] 7.5 `dashboard_test.go`：heatmapProfileMsg 处理 — profile 存储到 model
-  - [ ] 7.6 `dashboard_test.go`：heatmap 渲染 — 无 selectedPID 时显示 "Select an agent"
-  - [ ] 7.7 `dashboard_test.go`：heatmap 渲染 — 有 segments 时不含 "Coming Soon"
-  - [ ] 7.8 `dashboard_test.go`：heatmap 选择 — j/k 键移动 heatmapCursor
-  - [ ] 7.9 `dashboard_test.go`：heatmap 选中段 — 显示 token 数和百分比
-  - [ ] 7.10 `dashboard_test.go`：PID 变化时清空 heatmapProfile
-  - [ ] 7.11 `dashboard_test.go`：Tab 切换到 heatmap → activePane == paneHeatmap
-  - [ ] 7.12 `dashboard_test.go`：segmentKind 分类 — system_prompt → segSystem, user → segUser
-  - [ ] 7.13 `dashboard_test.go`：heatmapRefresh — 5 次 tick 后触发 fetchHeatmapCmd
+- [x] Task 7: 测试 (AC: #1, #2)
+  - [x] 7.1 `dashboard_test.go`：buildHeatmapSegments — 空 profile → 空段列表
+  - [x] 7.2 `dashboard_test.go`：buildHeatmapSegments — 有 TopConsumers → 按 token 降序生成段
+  - [x] 7.3 `dashboard_test.go`：buildHeatmapSegments — 合并小段（占比 < 3%）为 Other
+  - [x] 7.4 `dashboard_test.go`：segmentColor — 不同 kind 和 activity 返回不同颜色
+  - [x] 7.5 `dashboard_test.go`：heatmapProfileMsg 处理 — profile 存储到 model
+  - [x] 7.6 `dashboard_test.go`：heatmap 渲染 — 无 selectedPID 时显示 "Select an agent"
+  - [x] 7.7 `dashboard_test.go`：heatmap 渲染 — 有 segments 时不含 "Coming Soon"
+  - [x] 7.8 `dashboard_test.go`：heatmap 选择 — j/k 键移动 heatmapCursor
+  - [x] 7.9 `dashboard_test.go`：heatmap 选中段 — 显示 token 数和百分比
+  - [x] 7.10 `dashboard_test.go`：PID 变化时清空 heatmapProfile
+  - [x] 7.11 `dashboard_test.go`：Tab 切换到 heatmap → activePane == paneHeatmap
+  - [x] 7.12 `dashboard_test.go`：segmentKind 分类 — system_prompt → segSystem, user → segUser
+  - [x] 7.13 `dashboard_test.go`：heatmapRefresh — 5 次 tick 后触发 fetchHeatmapCmd
 
 ## Dev Notes
 
@@ -366,10 +366,28 @@ KeyPressMsg (paneHeatmap) ──►│               │
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude claude-4.6-opus-high-thinking
 
 ### Debug Log References
 
+无 — 全部测试一次通过
+
 ### Completion Notes List
 
+- ✅ Task 1-6: 实现 heatmap 数据模型（segmentKind/activityLevel/heatmapSegment 类型已在 ATDD 阶段定义）、segmentColor 颜色计算（6 种来源基色 + 活跃度暗色变体通过 dim() 函数）、mapConsumerKind 来源映射（system_prompt/user/assistant/tool:* 分类）、estimateActivity 活跃度估算（基于 Classification 四温分布和排名）
+- ✅ Task 2: fetchHeatmapCmd 独立 IPC 连接获取 CtxProfile（请求-响应式，非流式）、heatmapProfileMsg 在 Update 中存储 profile 并触发 buildHeatmapSegments、dashboardTick 中 heatmapTickCount 递增 + PID 变化/每 5 tick 周期刷新
+- ✅ Task 3: buildHeatmapSegments 从 TopConsumers 生成分段 + Leaked 额外段 + <3% 合并为 "Other" + 按 token 降序排序
+- ✅ Task 4: renderHeatmapPane 替换 placeholder — 标题行(PID/token/budget) + treemap 色块条(宽度∝占比, 颜色=来源+活跃度) + 分段列表(▸选中标记) + 选中段详情(token/pct/activity/summary) + 空状态("Select an agent"/"Loading...")
+- ✅ Task 5: handleHeatmapKey j/k/up/down 移动 heatmapCursor + dashboardKey 路由 paneHeatmap 分支
+- ✅ Task 6: renderDashboardStatus 添加 paneHeatmap 快捷键提示 "j/k:Select Segment  Enter:Details"
+- ✅ Task 7: 全部 13 个 ATDD 测试通过，零回归（2 个预存在 TTY 测试不影响）
+- ✅ dashboardTick 重构为 cmds 收集模式（tea.Batch），支持 timeline + heatmap 并行 cmd
+
+### Change Log
+
+- 2026-03-09: 实现 Story 17-3 上下文热力图窗格，全部 7 个 Task 完成，13 个测试通过
+
 ### File List
+
+- `cmd/rnix/dashboard.go` — 新增 heatmap 实现：segmentKindLabel/activityLabel/mapConsumerKind/dim/segmentColor/estimateActivity/buildHeatmapSegments/fetchHeatmapCmd/handleHeatmapPIDChange/handleHeatmapKey/renderHeatmapPane；修改 Update(heatmapProfileMsg)/dashboardTick(heatmapTickCount+刷新)/dashboardKey(paneHeatmap)/renderDashboardStatus(heatmap hint)/renderDashboard(替换 placeholder)
+- `cmd/rnix/dashboard_test.go` — 13 个 ATDD 测试（红相已存在，本次实现使其全部绿色通过）
