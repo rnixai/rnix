@@ -1018,9 +1018,745 @@ func TestEnvironment_SetMap_SnapshotIsolation(t *testing.T) {
 	}
 }
 
-// Ensure packages are referenced.
-var (
-	_ = context.Background
-	_ = strings.Contains
-	_ = time.Duration(0)
-)
+// ==================== TASK 9: COMPREHENSIVE TESTS ======================
+
+// --- 18.3-UNIT-023: [P0] Environment 类型互斥 — Set 覆盖同名 array/map ---
+
+func TestEnvironment_TypeExclusion_SetOverridesArray(t *testing.T) {
+	env := NewEnvironment()
+	env.SetArray("x", []string{"a", "b"})
+	env.Set("x", "string_value")
+
+	if env.GetValueKind("x") != "string" {
+		t.Errorf("kind = %q, want %q", env.GetValueKind("x"), "string")
+	}
+	_, ok := env.GetArray("x")
+	if ok {
+		t.Error("array should be cleared after Set")
+	}
+}
+
+func TestEnvironment_TypeExclusion_SetOverridesMap(t *testing.T) {
+	env := NewEnvironment()
+	env.SetMap("x", map[string]string{"k": "v"})
+	env.Set("x", "string_value")
+
+	if env.GetValueKind("x") != "string" {
+		t.Errorf("kind = %q, want %q", env.GetValueKind("x"), "string")
+	}
+	_, ok := env.GetMap("x")
+	if ok {
+		t.Error("map should be cleared after Set")
+	}
+}
+
+func TestEnvironment_TypeExclusion_SetArrayOverridesStringAndMap(t *testing.T) {
+	env := NewEnvironment()
+	env.Set("x", "hello")
+	env.SetMap("y", map[string]string{"k": "v"})
+
+	env.SetArray("x", []string{"a"})
+	env.SetArray("y", []string{"b"})
+
+	if env.GetValueKind("x") != "array" {
+		t.Errorf("x kind = %q, want array", env.GetValueKind("x"))
+	}
+	if env.GetValueKind("y") != "array" {
+		t.Errorf("y kind = %q, want array", env.GetValueKind("y"))
+	}
+}
+
+func TestEnvironment_TypeExclusion_SetMapOverridesStringAndArray(t *testing.T) {
+	env := NewEnvironment()
+	env.Set("x", "hello")
+	env.SetArray("y", []string{"a"})
+
+	env.SetMap("x", map[string]string{"k": "v"})
+	env.SetMap("y", map[string]string{"k": "v"})
+
+	if env.GetValueKind("x") != "map" {
+		t.Errorf("x kind = %q, want map", env.GetValueKind("x"))
+	}
+	if env.GetValueKind("y") != "map" {
+		t.Errorf("y kind = %q, want map", env.GetValueKind("y"))
+	}
+}
+
+// --- 18.3-UNIT-024: [P0] Environment Delete 从三个 map 中全部删除 ---
+
+func TestEnvironment_Delete_AllTypes(t *testing.T) {
+	env := NewEnvironment()
+	env.Set("s", "val")
+	env.SetArray("a", []string{"x"})
+	env.SetMap("m", map[string]string{"k": "v"})
+
+	env.Delete("s")
+	env.Delete("a")
+	env.Delete("m")
+
+	if env.GetValueKind("s") != "" {
+		t.Error("string should be deleted")
+	}
+	if env.GetValueKind("a") != "" {
+		t.Error("array should be deleted")
+	}
+	if env.GetValueKind("m") != "" {
+		t.Error("map should be deleted")
+	}
+}
+
+// --- 18.3-UNIT-025: [P0] Environment GetValueKind ---
+
+func TestEnvironment_GetValueKind(t *testing.T) {
+	env := NewEnvironment()
+	env.Set("s", "str")
+	env.SetArray("a", []string{"x"})
+	env.SetMap("m", map[string]string{"k": "v"})
+
+	if k := env.GetValueKind("s"); k != "string" {
+		t.Errorf("s kind = %q, want string", k)
+	}
+	if k := env.GetValueKind("a"); k != "array" {
+		t.Errorf("a kind = %q, want array", k)
+	}
+	if k := env.GetValueKind("m"); k != "map" {
+		t.Errorf("m kind = %q, want map", k)
+	}
+	if k := env.GetValueKind("missing"); k != "" {
+		t.Errorf("missing kind = %q, want empty", k)
+	}
+}
+
+// --- 18.3-UNIT-026: [P0] ParseScript 空数组 [] ---
+
+func TestParseScript_EmptyArray(t *testing.T) {
+	input := `empty = []`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	stmt := script.Statements[0]
+	if stmt.Kind != StmtArrayLit {
+		t.Errorf("kind = %q, want %q", stmt.Kind, StmtArrayLit)
+	}
+	if len(stmt.ArrayLit.Items) != 0 {
+		t.Errorf("items len = %d, want 0", len(stmt.ArrayLit.Items))
+	}
+}
+
+// --- 18.3-UNIT-027: [P0] ParseScript 空映射 {} ---
+
+func TestParseScript_EmptyMap(t *testing.T) {
+	input := `empty = {}`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	stmt := script.Statements[0]
+	if stmt.Kind != StmtMapLit {
+		t.Errorf("kind = %q, want %q", stmt.Kind, StmtMapLit)
+	}
+	if len(stmt.MapLit.Entries) != 0 {
+		t.Errorf("entries len = %d, want 0", len(stmt.MapLit.Entries))
+	}
+}
+
+// --- 18.3-UNIT-028: [P0] ParseScript 映射重复 key → 错误 ---
+
+func TestParseScript_Error_MapDuplicateKey(t *testing.T) {
+	input := `config = {model: "a", model: "b"}`
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for duplicate map key")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("error should mention 'duplicate', got: %q", err.Error())
+	}
+}
+
+// --- 18.3-UNIT-029: [P0] ParseScript 索引赋值 files[0] = "new.go" ---
+
+func TestParseScript_IndexAssignment(t *testing.T) {
+	input := `files[0] = "new.go"`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	stmt := script.Statements[0]
+	if stmt.Kind != StmtAssignIndex {
+		t.Errorf("kind = %q, want %q", stmt.Kind, StmtAssignIndex)
+	}
+	if stmt.IndexAssign.VarName != "files" {
+		t.Errorf("varName = %q, want %q", stmt.IndexAssign.VarName, "files")
+	}
+	if stmt.IndexAssign.Index != "0" {
+		t.Errorf("index = %q, want %q", stmt.IndexAssign.Index, "0")
+	}
+	if stmt.IndexAssign.Value != "new.go" {
+		t.Errorf("value = %q, want %q", stmt.IndexAssign.Value, "new.go")
+	}
+}
+
+// --- 18.3-UNIT-030: [P0] ParseScript 属性赋值 config.model = "opus" ---
+
+func TestParseScript_PropAssignment(t *testing.T) {
+	input := `config.model = "opus"`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	stmt := script.Statements[0]
+	if stmt.Kind != StmtAssignProp {
+		t.Errorf("kind = %q, want %q", stmt.Kind, StmtAssignProp)
+	}
+	if stmt.PropAssign.VarName != "config" {
+		t.Errorf("varName = %q, want %q", stmt.PropAssign.VarName, "config")
+	}
+	if stmt.PropAssign.Property != "model" {
+		t.Errorf("property = %q, want %q", stmt.PropAssign.Property, "model")
+	}
+	if stmt.PropAssign.Value != "opus" {
+		t.Errorf("value = %q, want %q", stmt.PropAssign.Value, "opus")
+	}
+}
+
+// --- 18.3-UNIT-031: [P0] ScriptExecutor 索引赋值修改元素 (AC11) ---
+
+func TestScriptExecutor_IndexAssign_ModifyElement(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "files = [\"a.go\", \"b.go\", \"c.go\"]\nfiles[0] = \"z.go\"\nspawn \"${files[0]}\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "z.go" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "z.go")
+	}
+}
+
+// --- 18.3-UNIT-032: [P0] ScriptExecutor 属性赋值修改属性 (AC12) ---
+
+func TestScriptExecutor_PropAssign_ModifyProperty(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "config = {model: \"sonnet\", budget: 5000}\nconfig.model = \"opus\"\nspawn \"${config.model}\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "opus" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "opus")
+	}
+}
+
+// --- 18.3-UNIT-033: [P0] ScriptExecutor len(array) 返回 "3" (AC7) ---
+
+func TestScriptExecutor_Builtin_LenArray(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "files = [\"a.go\", \"b.go\", \"c.go\"]\nl = len(files)\nspawn \"长度 $l\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "长度 3" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "长度 3")
+	}
+}
+
+// --- 18.3-UNIT-034: [P0] ScriptExecutor len(map) 返回正确数量 ---
+
+func TestScriptExecutor_Builtin_LenMap(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "config = {model: \"sonnet\", budget: 5000}\nl = len(config)\nspawn \"键数 $l\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "键数 2" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "键数 2")
+	}
+}
+
+// --- 18.3-UNIT-035: [P0] ScriptExecutor len(string) 按 rune 计 ---
+
+func TestScriptExecutor_Builtin_LenString(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "export name=你好世界\nl = len(name)\nspawn \"长度 $l\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "长度 4" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "长度 4")
+	}
+}
+
+// --- 18.3-UNIT-036: [P0] ScriptExecutor append 追加元素 (AC8) ---
+
+func TestScriptExecutor_Builtin_Append(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "files = [\"a.go\", \"b.go\", \"c.go\"]\nappend(files, \"d.go\")\nspawn \"${files[3]}\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "d.go" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "d.go")
+	}
+}
+
+// --- 18.3-UNIT-037: [P0] ScriptExecutor keys(map) 结果为排序后的数组 (AC9) ---
+
+func TestScriptExecutor_Builtin_Keys(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 10},
+			{result: "ok", exitCode: 0, tokens: 10},
+		},
+	}
+
+	input := "config = {model: \"sonnet\", budget: 5000}\nk = keys(config)\nfor key in $k\n  spawn \"key: ${key}\"\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(spawner.calls))
+	}
+	// keys are sorted: budget, model
+	if spawner.calls[0].intent != "key: budget" {
+		t.Errorf("call 0 = %q, want %q", spawner.calls[0].intent, "key: budget")
+	}
+	if spawner.calls[1].intent != "key: model" {
+		t.Errorf("call 1 = %q, want %q", spawner.calls[1].intent, "key: model")
+	}
+}
+
+// --- 18.3-UNIT-038: [P1] ScriptExecutor append 非数组变量 → 错误 ---
+
+func TestScriptExecutor_Builtin_Append_NotArray_Error(t *testing.T) {
+	spawner := &mockSpawner{}
+
+	input := "export x=hello\nappend(x, \"world\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err == nil {
+		t.Fatal("expected error for append on non-array")
+	}
+}
+
+// --- 18.3-UNIT-039: [P1] ScriptExecutor keys 非映射变量 → 错误 ---
+
+func TestScriptExecutor_Builtin_Keys_NotMap_Error(t *testing.T) {
+	spawner := &mockSpawner{}
+
+	input := "files = [\"a.go\"]\nk = keys(files)"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err == nil {
+		t.Fatal("expected error for keys on non-map")
+	}
+}
+
+// --- 18.3-UNIT-040: [P0] ParseScript 内置函数参数数量不匹配 → 错误 ---
+
+func TestParseScript_Error_BuiltinArgCount(t *testing.T) {
+	tests := []string{
+		`len()`,
+		`len(a, b)`,
+		`append(a)`,
+		`append(a, b, c)`,
+		`keys()`,
+		`keys(a, b)`,
+	}
+	for _, input := range tests {
+		_, err := ParseScript(input)
+		if err == nil {
+			t.Errorf("expected error for wrong arg count: %q", input)
+		}
+	}
+}
+
+// --- 18.3-UNIT-041: [P0] ScriptExecutor 索引赋值越界 → 运行时错误 (AC10) ---
+
+func TestScriptExecutor_IndexAssign_OutOfBounds_Error(t *testing.T) {
+	spawner := &mockSpawner{}
+
+	input := "files = [\"a.go\", \"b.go\"]\nfiles[99] = \"z.go\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err == nil {
+		t.Fatal("expected error for index assignment out of bounds")
+	}
+	if !strings.Contains(err.Error(), "out of range") {
+		t.Errorf("error should mention 'out of range', got: %q", err.Error())
+	}
+}
+
+// --- 18.3-UNIT-042: [P0] ScriptExecutor 属性赋值不存在的映射 → 运行时错误 ---
+
+func TestScriptExecutor_PropAssign_NotMap_Error(t *testing.T) {
+	spawner := &mockSpawner{}
+
+	input := "export x=hello\nx.key = \"value\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err == nil {
+		t.Fatal("expected error for property assignment on non-map")
+	}
+}
+
+// --- 18.3-UNIT-043: [P0] ScriptExecutor 索引赋值非数组 → 运行时错误 ---
+
+func TestScriptExecutor_IndexAssign_NotArray_Error(t *testing.T) {
+	spawner := &mockSpawner{}
+
+	input := "export x=hello\nx[0] = \"value\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err == nil {
+		t.Fatal("expected error for index assignment on non-array")
+	}
+}
+
+// --- 18.3-UNIT-044: [P0] ScriptExecutor for 循环内修改数组元素 ---
+
+func TestScriptExecutor_ForLoop_ModifyArray(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 10},
+			{result: "ok", exitCode: 0, tokens: 10},
+		},
+	}
+
+	input := "files = [\"a.go\", \"b.go\"]\nfiles[0] = \"z.go\"\nfor f in $files\n  spawn \"${f}\"\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "z.go" {
+		t.Errorf("call 0 = %q, want %q", spawner.calls[0].intent, "z.go")
+	}
+	if spawner.calls[1].intent != "b.go" {
+		t.Errorf("call 1 = %q, want %q", spawner.calls[1].intent, "b.go")
+	}
+}
+
+// --- 18.3-UNIT-045: [P0] ScriptExecutor export 中数组/映射插值 ---
+
+func TestScriptExecutor_ExportWithDataStructInterpolation(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "files = [\"main.go\"]\nconfig = {model: \"sonnet\"}\nexport summary=${files[0]}-${config.model}\nspawn \"$summary\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "main.go-sonnet" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "main.go-sonnet")
+	}
+}
+
+// --- 18.3-UNIT-046: [P0] ScriptExecutor 数组 + 函数调用 —— 函数参数传递数组元素 ---
+
+func TestScriptExecutor_FnCallWithArrayElement(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "files = [\"main.go\", \"lib.go\"]\nfn analyze(file)\n  spawn \"分析 ${file}\"\nend\nanalyze(${files[1]})"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "分析 lib.go" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "分析 lib.go")
+	}
+}
+
+// --- 18.3-UNIT-047: [P1] ScriptExecutor 数组变量引用 $VAR 短格式不展开 ---
+
+func TestScriptExecutor_ArrayVarShortForm_NoExpand(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	// $files[0] should expand $files (as string, empty since it's array) then literal [0]
+	input := "files = [\"a.go\"]\nspawn \"test $files end\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	// ExpandStrict: $files is recognized as array variable, not undefined
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	// $files short form expands to empty string (it's an array, not in vars map)
+	if spawner.calls[0].intent != "test  end" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "test  end")
+	}
+}
+
+// --- 18.3-UNIT-048: [P1] ScriptExecutor 数组带变量引用元素 ---
+
+func TestScriptExecutor_ArrayLit_WithVarRef(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "export prefix=src\nfiles = [\"$prefix/a.go\", \"$prefix/b.go\"]\nspawn \"${files[0]}\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "src/a.go" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "src/a.go")
+	}
+}
+
+// --- 18.3-UNIT-049: [P1] ScriptExecutor 映射带变量引用值 ---
+
+func TestScriptExecutor_MapLit_WithVarRef(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "export m=sonnet\nconfig = {model: $m, budget: 5000}\nspawn \"${config.model}\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "sonnet" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "sonnet")
+	}
+}
+
+// --- 18.3-UNIT-050: [P1] ScriptExecutor ExpandStrict export 值不报错 ---
+
+func TestScriptExecutor_Export_UndefinedVar_NoError(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "export val=${undefined}\nspawn \"result: $val\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	// export uses Expand (not strict), undefined → empty; then spawn uses ExpandStrict but val is defined
+	if spawner.calls[0].intent != "result: " {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "result: ")
+	}
+}
+
+// --- 18.3-UNIT-051: [P0] ScriptExecutor for-in 非数组 $VAR 回退到字符串 (AC6 边界) ---
+
+func TestScriptExecutor_ForIn_NonArrayVar_Fallback(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "export items=hello\nfor x in $items\n  spawn \"${x}\"\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Fatalf("calls = %d, want 1 (non-array fallback to single string)", len(spawner.calls))
+	}
+	if spawner.calls[0].intent != "hello" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "hello")
+	}
+}
