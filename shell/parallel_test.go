@@ -387,7 +387,7 @@ func TestScriptExecutor_Parallel_OnError(t *testing.T) {
 
 	env := NewEnvironment()
 	executor := NewScriptExecutor(spawner, env)
-	_, err = executor.Execute(context.Background(), script)
+	result, err := executor.Execute(context.Background(), script)
 	if err != nil {
 		t.Fatalf("execute error: %v", err)
 	}
@@ -399,6 +399,11 @@ func TestScriptExecutor_Parallel_OnError(t *testing.T) {
 	r2, _ := env.Get("r2")
 	if r2 != "审查OK" {
 		t.Errorf("r2 = %q, want %q", r2, "审查OK")
+	}
+
+	// on-error token accumulation: 主分析(50) + 回退分析(75) + 审查(100) = 225
+	if result.TotalTokens != 225 {
+		t.Errorf("TotalTokens = %d, want 225 (50+75 on-error + 100)", result.TotalTokens)
 	}
 }
 
@@ -805,15 +810,13 @@ func TestScriptExecutor_Parallel_AfterDataStructures(t *testing.T) {
 // --- 18.4-COMB-004: [P1] ScriptExecutor parallel 结果用于 while 条件 ---
 
 func TestScriptExecutor_Parallel_ResultInWhileCondition(t *testing.T) {
-	callCount := int32(0)
-	spawner := &concurrentMockSpawner{
-		results: map[string]mockResult{
-			"检查状态": {result: "pending", exitCode: 1, tokens: 50},
-			"后续处理": {result: "OK", exitCode: 0, tokens: 50},
-		},
-	}
+	// Use a spawner that returns exitcode=1 on first call, then exitcode=0 on second.
+	// This validates while loop re-evaluates the parallel result each iteration.
+	callNum := int32(0)
+	spawner := &whileTestSpawner{callNum: &callNum}
 
-	input := "parallel\n  status = spawn \"检查状态\"\nend\nif $status.exitcode != 0\n  spawn \"后续处理\"\nend"
+	// while $status.exitcode != 0: re-run parallel until spawn succeeds
+	input := "parallel\n  status = spawn \"检查状态\"\nend\nwhile $status.exitcode != 0\n  parallel\n    status = spawn \"检查状态\"\n  end\nend"
 	script, err := ParseScript(input)
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
@@ -826,12 +829,27 @@ func TestScriptExecutor_Parallel_ResultInWhileCondition(t *testing.T) {
 		t.Fatalf("execute error: %v", err)
 	}
 
-	calls := spawner.getCalls()
-	if len(calls) != 2 {
-		t.Fatalf("calls = %d, want 2 (parallel check + conditional spawn)", len(calls))
+	got := atomic.LoadInt32(&callNum)
+	if got != 2 {
+		t.Fatalf("calls = %d, want 2 (first parallel fail + while-body parallel succeed)", got)
 	}
+}
 
-	_ = callCount // suppress unused
+// whileTestSpawner returns exitcode=1 on first call, exitcode=0 on second+.
+type whileTestSpawner struct {
+	callNum *int32
+}
+
+func (s *whileTestSpawner) SpawnAndWait(_ context.Context, _, _, _ string) (string, int, int, error) {
+	n := atomic.AddInt32(s.callNum, 1)
+	if n == 1 {
+		return "pending", 1, 50, nil
+	}
+	return "done", 0, 50, nil
+}
+
+func (s *whileTestSpawner) Wait(_ context.Context, _ int) (int, error) {
+	return 0, fmt.Errorf("whileTestSpawner: Wait not implemented")
 }
 
 // ======================== RACE TEST ===========================
