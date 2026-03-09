@@ -195,12 +195,12 @@ development_status:
   epic-16-retrospective: done
 
   # Epic 17: Visual Debugging Dashboard
-  epic-17: in-progress
+  epic-17: done
   17-1-dashboard-framework-and-agent-tree-pane: done
   17-2-tracing-timeline-pane: done
   17-3-context-heatmap-pane: done
   17-4-pane-linkage-and-process-operations: done
-  17-5-offline-replay-analysis: review
+  17-5-offline-replay-analysis: done
   epic-17-retrospective: optional
 
   # Epic 18: AgentShell Complete Scripting

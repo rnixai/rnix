@@ -1,6 +1,6 @@
 # Story 17.5: 离线回放分析
 
-Status: review
+Status: done
 
 ## Story
 
@@ -340,9 +340,17 @@ claude-4.6-opus
 ### Change Log
 
 - 2026-03-09: Story 17-5 完整实现——离线回放分析功能（13 个 Task，15 个测试）
+- 2026-03-09: Code Review 修复 6 个问题：
+  - [H1] 修复 `k` 键在回放模式下被错误屏蔽，恢复 tree/timeline/heatmap 窗格 vim 导航
+  - [H2] 修复 `l` 键在回放模式下被错误屏蔽，恢复 timeline 滚动（非 timeline 窗格仍正确屏蔽）
+  - [H3] 修复 tree 窗格回放处理器缺少 `k` 导航键（只有箭头键和 `j` 可用）
+  - [M1] 移除 `replayLastTick` 死代码字段
+  - [M2] 统一 `buildReplayProcessTree` 使用 `ev.SeqNum` 比较 cursor（与其他 replay 函数一致）
+  - [M3] 移除重复的 `// --- Command runner ---` 注释
+  - 更新 `TestReplayDashboard_LiveKeysBlocked` 测试覆盖修正后的行为
 
 ### File List
 
 - cmd/rnix/dashboard.go (modified)
-- cmd/rnix/dashboard_test.go (modified — ATDD tests pre-written)
+- cmd/rnix/dashboard_test.go (modified — ATDD tests pre-written + CR fix)
 - cmd/rnix/main.go (modified — --load flag registration)

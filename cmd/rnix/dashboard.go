@@ -157,13 +157,12 @@ type dashboardModel struct {
 	statusMsgTTL int
 
 	// Offline replay fields (Story 17-5)
-	replayMode        bool
-	replayReader      *debug.RecordReader
-	replayCursor      int
-	replayPlaying     bool
-	replaySpeed       float64
-	replayLastTick    time.Time
-	prevReplayCursor  int
+	replayMode       bool
+	replayReader     *debug.RecordReader
+	replayCursor     int
+	replayPlaying    bool
+	replaySpeed      float64
+	prevReplayCursor int
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -1471,8 +1470,6 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 	return style.Render(b.String())
 }
 
-// --- Command runner ---
-
 // --- Offline replay (Story 17-5) ---
 
 func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
@@ -1511,8 +1508,8 @@ func buildReplayProcessTree(reader *debug.RecordReader, cursor int) []vfs.ProcIn
 	var tokensUsed int
 
 	events := reader.Events()
-	for i, ev := range events {
-		if i > cursor {
+	for _, ev := range events {
+		if int(ev.SeqNum) > cursor {
 			break
 		}
 		if ev.Type == debug.RecordStateChange && ev.State != nil {
@@ -1715,7 +1712,31 @@ func (m dashboardModel) handleReplayKey(key string) (dashboardModel, tea.Cmd) {
 			m.replayCursor = m.replayReader.EventCount() - 1
 		}
 		m.replayPlaying = false
-	case "k", "a", "l", "r":
+	case "k":
+		switch m.activePane {
+		case paneTree:
+			if m.treeCursor > 0 {
+				m.treeCursor--
+				if m.treeCursor < len(m.treeRows) {
+					m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+				}
+				if m.treeCursor < m.treeOffset {
+					m.treeOffset = m.treeCursor
+				}
+			}
+		case paneTimeline:
+			m = m.handleTimelineKey(key)
+		case paneHeatmap:
+			m = m.handleHeatmapKey(key)
+		}
+	case "l":
+		if m.activePane == paneTimeline {
+			m = m.handleTimelineKey(key)
+		} else {
+			m.statusMsg = "Not available in replay mode"
+			m.statusMsgTTL = statusMsgDefaultTTL
+		}
+	case "a", "r":
 		m.statusMsg = "Not available in replay mode"
 		m.statusMsgTTL = statusMsgDefaultTTL
 	default:
