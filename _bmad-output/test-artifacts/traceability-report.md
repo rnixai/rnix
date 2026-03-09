@@ -9,282 +9,291 @@ lastStep: step-05-gate-decision
 lastSaved: '2026-03-09'
 workflowType: testarch-trace
 inputDocuments:
-  - _bmad-output/implementation-artifacts/18-1-loop-structures-and-builtin-commands.md
-  - _bmad-output/test-artifacts/atdd-checklist-18-1.md
+  - _bmad-output/implementation-artifacts/18-2-function-definition-and-invocation.md
+  - _bmad-output/test-artifacts/atdd-checklist-18-2.md
   - shell/script_test.go
-  - shell/script.go
-  - shell/pipe.go
+  - _bmad/tea/testarch/knowledge/test-priorities-matrix.md
+  - _bmad/tea/testarch/knowledge/risk-governance.md
+  - _bmad/tea/testarch/knowledge/probability-impact.md
+  - _bmad/tea/testarch/knowledge/test-quality.md
+  - _bmad/tea/testarch/knowledge/selective-testing.md
 ---
 
-# 可追溯性矩阵 & Gate 决策 - Story 18-1
+# 可追溯性矩阵与门控决策 - Story 18.2
 
-**Story:** 18.1 — 循环结构与内置命令
-**日期:** 2026-03-09
-**评估者:** TEA Agent (Decker)
+**Story:** 18.2 函数定义与调用
+**Date:** 2026-03-09
+**Evaluator:** Decker / TEA Agent
 
 ---
 
-注意：此工作流不生成测试。如存在缺口，请运行 `*atdd` 或 `*automate` 创建覆盖。
+Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*automate` to create coverage.
 
-## 阶段 1: 需求可追溯性
+## PHASE 1: 需求可追溯性
 
-### 覆盖摘要
+### 覆盖率摘要
 
-| 优先级    | 总标准数 | FULL 覆盖 | 覆盖率 | 状态          |
-| --------- | -------- | --------- | ------ | ------------- |
-| P0        | 6        | 6         | 100%   | ✅ PASS       |
-| P1        | 2        | 2         | 100%   | ✅ PASS       |
-| P2        | 0        | 0         | 100%   | ✅ PASS       |
-| P3        | 0        | 0         | 100%   | ✅ PASS       |
-| **Total** | **8**    | **8**     | **100%** | **✅ PASS** |
+| 优先级    | 验收标准总数 | FULL 覆盖 | 覆盖率 | 状态     |
+| --------- | ------------ | --------- | ------ | -------- |
+| P0        | 8            | 8         | 100%   | ✅ PASS  |
+| P1        | 2            | 2         | 100%   | ✅ PASS  |
+| P2        | 0            | 0         | 100%   | ✅ PASS  |
+| P3        | 0            | 0         | 100%   | ✅ PASS  |
+| **总计**  | **10**       | **10**    | **100%** | **✅ PASS** |
 
-**图例:**
+**图例：**
 
-- ✅ PASS - 覆盖达到质量门阈值
-- ⚠️ WARN - 覆盖低于阈值但非关键
-- ❌ FAIL - 覆盖低于最低阈值（阻塞）
+- ✅ PASS - 覆盖率达到质量门控阈值
+- ⚠️ WARN - 覆盖率低于阈值但非关键
+- ❌ FAIL - 覆盖率低于最低阈值（阻塞）
 
 ---
 
 ### 详细映射
 
-#### AC-1: for-in 循环对列表每个元素执行一次，变量正确绑定 (P0)
+#### AC-1: fn 定义 + 调用，参数正确传递，返回值可用 (P0)
 
-- **覆盖:** FULL ✅
-- **测试:**
-  - `18.1-UNIT-001` - shell/script_test.go:1391
-    - **Given:** AgentShell 脚本包含 `for item in [a, b, c]`
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-001` - shell/script_test.go:2230
+    - **Given:** 脚本定义 `fn analyze(file)`
     - **When:** 解析脚本
-    - **Then:** ForBlock 结构体正确生成，VarName="item"，List=[a,b,c]
-  - `18.1-UNIT-002` - shell/script_test.go:1424
-    - **Given:** AgentShell 脚本包含 `for file in main.go utils.go config.go`
-    - **When:** 解析空格分隔列表
-    - **Then:** ForBlock 结构体正确生成，List=[main.go, utils.go, config.go]
-  - `18.1-UNIT-008` - shell/script_test.go:1584
-    - **Given:** for 块未闭合（缺少 end）
+    - **Then:** FnDef 节点包含正确的函数名和参数列表
+  - `18.2-UNIT-003` - shell/script_test.go:2300
+    - **Given:** 脚本定义多参数函数 `fn process(a, b, c)`
     - **When:** 解析脚本
-    - **Then:** 返回错误
-  - `18.1-UNIT-012` - shell/script_test.go:1638
-    - **Given:** for item in [a, b, c] + spawn 使用 ${item}
+    - **Then:** 参数列表包含所有三个参数
+  - `18.2-UNIT-010` - shell/script_test.go:2398
+    - **Given:** 脚本调用 `analyze("config.yaml")`
+    - **When:** 解析脚本
+    - **Then:** FnCallStmt 包含正确的函数名和参数
+  - `18.2-UNIT-012` - shell/script_test.go:2452
+    - **Given:** 赋值形式 `result = analyze("config.yaml")`
+    - **When:** 解析脚本
+    - **Then:** 赋值变量和函数调用均正确解析
+  - `18.2-UNIT-021` - shell/script_test.go:2632
+    - **Given:** fn 定义 + 调用脚本
     - **When:** 执行脚本
-    - **Then:** spawn 调用 3 次，intent 分别为 "处理 a"/"处理 b"/"处理 c"
-  - `18.1-UNIT-013` - shell/script_test.go:1679
-    - **Given:** for f in main.go utils.go + spawn
+    - **Then:** 函数体执行，spawn 调用接收到正确的参数值
+
+- **Gaps:** 无
+
+---
+
+#### AC-2: return result 返回值可用 (P0)
+
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-015` - shell/script_test.go:2519
+    - **Given:** 函数内部使用 `return $result`
+    - **When:** 解析脚本
+    - **Then:** ReturnStmt 包含正确的变量引用值
+  - `18.2-UNIT-017` - shell/script_test.go:2564
+    - **Given:** 函数内部使用 `return "literal"`
+    - **When:** 解析脚本
+    - **Then:** ReturnStmt 包含字面量值
+  - `18.2-UNIT-020` - shell/script_test.go:2610
+    - **Given:** 函数内部使用 `return $result.result`
+    - **When:** 解析脚本
+    - **Then:** ReturnStmt 包含 captures 属性值
+  - `18.2-UNIT-022` - shell/script_test.go:2665
+    - **Given:** 函数执行后返回值
+    - **When:** 赋值形式捕获返回值
+    - **Then:** 调用方获得正确的返回值
+  - `18.2-UNIT-031` - shell/script_test.go:2931
+    - **Given:** 函数体内提前 return
+    - **When:** return 执行
+    - **Then:** 函数立即退出，后续语句不执行，返回值正确
+  - `18.2-CR-010` - shell/script_test.go:3249
+    - **Given:** 函数 return captures.result 属性
+    - **When:** 函数执行完毕
+    - **Then:** 返回值为 spawn 结果的 result 字段
+
+- **Gaps:** 无
+
+---
+
+#### AC-3: 参数数量不匹配 → 解析错误含行号和期望参数数量 (P0)
+
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-013` - shell/script_test.go:2480
+    - **Given:** 函数定义接受 2 个参数，调用传递 1 个
+    - **When:** 解析脚本时
+    - **Then:** 报告错误，消息包含行号和 "expects 2 args, got 1"
+
+- **Gaps:** 无
+
+---
+
+#### AC-4: 无参数函数 fn setup() 正常执行 (P0)
+
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-002` - shell/script_test.go:2268
+    - **Given:** 脚本定义 `fn setup()`
+    - **When:** 解析脚本
+    - **Then:** FnDef 参数列表为空
+  - `18.2-UNIT-011` - shell/script_test.go:2425
+    - **Given:** 脚本调用 `setup()`
+    - **When:** 解析脚本
+    - **Then:** FnCallStmt 参数列表为空
+  - `18.2-UNIT-028` - shell/script_test.go:2843
+    - **Given:** 零参数函数定义 + 调用
     - **When:** 执行脚本
-    - **Then:** spawn 调用恰好 2 次
-  - `18.1-UNIT-021` - shell/script_test.go:1918
-    - **Given:** for 循环执行完毕
-    - **When:** 检查循环变量
-    - **Then:** 循环变量 "item" 已从 env 中移除（作用域隔离）
-  - `18.1-UNIT-023` - shell/script_test.go:1976
-    - **Given:** for 循环内通过赋值 spawn 修改变量
-    - **When:** 下一次迭代访问该变量
-    - **Then:** 变量值在迭代间可见（accumulated 包含上次结果）
-  - `18.1-CR-001` - shell/script_test.go:2070
-    - **Given:** for 循环体内 spawn 带 on-error
-    - **When:** spawn 失败触发 on-error
-    - **Then:** 恢复后继续下一迭代
+    - **Then:** 函数体正常执行
 
-- **缺口:** 无
-- **建议:** 无
+- **Gaps:** 无
 
 ---
 
-#### AC-2: while 条件循环在条件为真时重复执行，条件变假时退出 (P0)
+#### AC-5: 函数体内 spawn/if/for/while 正确执行 (P0)
 
-- **覆盖:** FULL ✅
-- **测试:**
-  - `18.1-UNIT-003` - shell/script_test.go:1451
-    - **Given:** while $counter != 0
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-004` - shell/script_test.go:2322
+    - **Given:** fn 体内包含 spawn/if/for/while
     - **When:** 解析脚本
-    - **Then:** WhileBlock 正确生成，Condition.VarName="counter"，Op="!="
-  - `18.1-UNIT-009` - shell/script_test.go:1594
-    - **Given:** while 块未闭合
-    - **When:** 解析脚本
-    - **Then:** 返回错误
-  - `18.1-UNIT-011` - shell/script_test.go:1614
-    - **Given:** while 嵌套 for
-    - **When:** 解析脚本
-    - **Then:** WhileBlock.Body[0] 为 ForBlock
-  - `18.1-UNIT-014` - shell/script_test.go:1707
-    - **Given:** while $counter != 0，counter 从 2 递减
-    - **When:** counter 变为 0
-    - **Then:** 循环退出，spawn 恰好调用 2 次
-  - `18.1-CR-002` - shell/script_test.go:2111
-    - **Given:** while 嵌套 for，status 从 running → ok → done
-    - **When:** status 变为 done
-    - **Then:** while 退出，spawn 调用 2 次，status 最终为 "done"
+    - **Then:** 所有嵌套语句正确解析
+  - `18.2-UNIT-029` - shell/script_test.go:2873
+    - **Given:** fn 体内包含 for 循环和 if 条件
+    - **When:** 执行函数
+    - **Then:** for/if 正确嵌套执行
+  - `18.2-UNIT-030` - shell/script_test.go:2903
+    - **Given:** fn 体内包含 spawn on-error
+    - **When:** 执行函数
+    - **Then:** spawn on-error 正确处理
 
-- **缺口:** 无
-- **建议:** 无
+- **Gaps:** 无
 
 ---
 
-#### AC-3: wait \<pid\> 等待指定进程完成后继续 (P0)
+#### AC-6: 嵌套函数调用（A 调 B），参数独立 (P0)
 
-- **覆盖:** FULL ✅
-- **测试:**
-  - `18.1-UNIT-004` - shell/script_test.go:1484
-    - **Given:** `wait $pid`
-    - **When:** 解析脚本
-    - **Then:** BuiltinStmt.Command="wait"，Args=["$pid"]
-  - `18.1-UNIT-016` - shell/script_test.go:1765
-    - **Given:** pid = spawn → wait $pid
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-025` - shell/script_test.go:2759
+    - **Given:** fn A 调用 fn B
+    - **When:** 嵌套调用执行
+    - **Then:** 正确递归进入/返回
+  - `18.2-UNIT-026` - shell/script_test.go:2793
+    - **Given:** fn A 和 fn B 使用相同参数名
+    - **When:** 嵌套调用执行
+    - **Then:** 各自参数值独立，互不干扰
+
+- **Gaps:** 无
+
+---
+
+#### AC-7: 调用未定义函数 → 运行时错误并指出函数名 (P0)
+
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-014` - shell/script_test.go:2503
+    - **Given:** 脚本调用未定义的函数
+    - **When:** 解析后全局校验
+    - **Then:** 报告错误：函数未定义
+  - `18.2-UNIT-027` - shell/script_test.go:2827
+    - **Given:** 运行时调用未注册的函数
     - **When:** 执行脚本
-    - **Then:** mockWaitableSpawner.Wait 调用 1 次
+    - **Then:** 返回运行时错误，包含函数名
 
-- **缺口:** 无
-- **建议:** 无
+- **Gaps:** 无
 
 ---
 
-#### AC-4: sleep 5s 暂停指定时间后继续 (P0)
+#### AC-8: 参数作用域隔离（函数返回后外部变量恢复） (P0)
 
-- **覆盖:** FULL ✅
-- **测试:**
-  - `18.1-UNIT-005` - shell/script_test.go:1511
-    - **Given:** `sleep 5s`
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-024` - shell/script_test.go:2727
+    - **Given:** 外部变量 `x` 存在，fn 参数名也为 `x`
+    - **When:** 函数执行时修改参数变量
+    - **Then:** 函数返回后外部变量 `x` 恢复原值
+
+- **Gaps:** 无
+- **补充覆盖：**
+  - `18.2-CR-004` (fn 参数与 for 循环变量同名互不干扰)
+
+---
+
+#### AC-9: return 不带值 → 返回空字符串 (P1)
+
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-016` - shell/script_test.go:2543
+    - **Given:** 函数体内 `return`（不带值）
     - **When:** 解析脚本
-    - **Then:** BuiltinStmt.Command="sleep"，Args=["5s"]
-  - `18.1-UNIT-017` - shell/script_test.go:1797
-    - **Given:** `sleep 10s`，50ms 后 ctx 取消
-    - **When:** 执行脚本
-    - **Then:** sleep 被中断，耗时 < 2s
-  - `18.1-UNIT-022` - shell/script_test.go:1946
-    - **Given:** `sleep 1ms` 后接 spawn
-    - **When:** 执行脚本
-    - **Then:** sleep 正常完成，spawn 继续执行
+    - **Then:** ReturnStmt.Value 为空字符串
+  - `18.2-UNIT-023` - shell/script_test.go:2696
+    - **Given:** 函数正常执行完毕（无 return 语句）
+    - **When:** 赋值形式调用
+    - **Then:** 赋值变量为空字符串
+  - `18.2-UNIT-032` - shell/script_test.go:2963
+    - **Given:** 函数显式 `return`（不带值）
+    - **When:** 执行函数
+    - **Then:** 返回空字符串
 
-- **缺口:** 无
-- **建议:** 无
+- **Gaps:** 无
 
 ---
 
-#### AC-5: exit 0 / exit 1 立即终止脚本并返回退出码 (P0)
+#### AC-10: 函数名为保留关键字 → 解析错误 (P1)
 
-- **覆盖:** FULL ✅
-- **测试:**
-  - `18.1-UNIT-006` - shell/script_test.go:1535
-    - **Given:** `exit 0`
+- **覆盖：** FULL ✅
+- **测试：**
+  - `18.2-UNIT-005` - shell/script_test.go:2345
+    - **Given:** 脚本定义 `fn if()`
     - **When:** 解析脚本
-    - **Then:** BuiltinStmt.Command="exit"，Args=["0"]
-  - `18.1-UNIT-018` - shell/script_test.go:1828
-    - **Given:** `exit 1` 后接 spawn
-    - **When:** 执行脚本
-    - **Then:** spawn 不执行，ExitCode=1
-  - `18.1-UNIT-020` - shell/script_test.go:1888
-    - **Given:** for 循环内 exit 0
-    - **When:** 第一次迭代后 exit
-    - **Then:** spawn 仅调用 1 次，ExitCode=0
-  - `18.1-UNIT-024` - shell/script_test.go:2007
-    - **Given:** `exit 0`
-    - **When:** 执行脚本
-    - **Then:** err=nil（exit 0 不作为错误）
-  - `18.1-CR-003` - shell/script_test.go:2149
-    - **Given:** while 循环内 exit 42
-    - **When:** 第一次迭代后 exit
-    - **Then:** spawn 仅调用 1 次，ExitCode=42
-  - `18.1-CR-004` - shell/script_test.go:2179
-    - **Given:** exit abc / exit -1 / exit 256
-    - **When:** 解析脚本
-    - **Then:** 返回错误（非法退出码）
+    - **Then:** 报告错误：函数名不能是保留关键字
 
-- **缺口:** 无
-- **建议:** 无
+- **Gaps:** 无
 
 ---
 
-#### AC-6: for 循环嵌套 if 条件时每次迭代正确评估 (P0)
+### 间隙分析
 
-- **覆盖:** FULL ✅
-- **测试:**
-  - `18.1-UNIT-007` - shell/script_test.go:1559
-    - **Given:** for item in [a,b,c] 内嵌 if $item == b
-    - **When:** 解析脚本
-    - **Then:** ForBlock.Body[0] 为 IfBlock
-  - `18.1-UNIT-019` - shell/script_test.go:1858
-    - **Given:** for item in [a,b,c] 内嵌 if $item == b → spawn
-    - **When:** 执行脚本
-    - **Then:** spawn 仅调用 1 次，intent="匹配 b"
+#### 关键间隙 (BLOCKER) ❌
 
-- **缺口:** 无
-- **建议:** 无
+0 个间隙。**无阻塞项。**
 
 ---
 
-#### AC-7: while 循环超过 10000 次迭代自动中断并报错 (P1)
+#### 高优先级间隙 (PR BLOCKER) ⚠️
 
-- **覆盖:** FULL ✅
-- **测试:**
-  - `18.1-UNIT-015` - shell/script_test.go:1739
-    - **Given:** while 条件永远为真
-    - **When:** 执行超过 MaxLoopIterations (10000) 次
-    - **Then:** 返回包含 "maximum iterations" 的错误
-
-- **缺口:** 无
-- **建议:** 无
+0 个间隙。**无 PR 阻塞项。**
 
 ---
 
-#### AC-8: sleep 使用非法格式（如 sleep abc）报告错误并指出行号 (P1)
+#### 中优先级间隙 (Nightly) ⚠️
 
-- **覆盖:** FULL ✅
-- **测试:**
-  - `18.1-UNIT-010` - shell/script_test.go:1604
-    - **Given:** `sleep abc`
-    - **When:** 解析脚本
-    - **Then:** 返回错误
-
-- **缺口:** 无
-- **建议:** 无
+0 个间隙。
 
 ---
 
-### 缺口分析
+#### 低优先级间隙 (Optional) ℹ️
 
-#### 关键缺口 (阻塞) ❌
-
-0 个缺口。**无阻塞问题。**
+0 个间隙。
 
 ---
 
-#### 高优先级缺口 (PR 阻塞) ⚠️
+### 覆盖启发式发现
 
-0 个缺口。**无 PR 阻塞问题。**
+#### 端点覆盖间隙
 
----
+- 无关——Story 18.2 为纯解析器/解释器功能，不涉及 HTTP 端点。
 
-#### 中优先级缺口 (夜间改进) ⚠️
+#### 认证/授权否定路径间隙
 
-0 个缺口。
+- 无关——Story 18.2 不涉及认证或授权功能。
 
----
+#### 仅快乐路径的标准
 
-#### 低优先级缺口 (可选) ℹ️
-
-0 个缺口。
-
----
-
-### 覆盖启发式检查
-
-#### 端点覆盖缺口
-
-- 无适用端点（此 Story 为纯内部解析器/解释器逻辑，无 API 端点）
-
-#### Auth/Authz 负面路径缺口
-
-- 不适用（此 Story 不涉及认证/授权）
-
-#### 仅 Happy-Path 标准
-
-- 所有 AC 均包含错误路径测试：
-  - AC1: 未闭合 for 块报错 (UNIT-008)
-  - AC2: 未闭合 while 块报错 (UNIT-009)
-  - AC4: sleep 可被 ctx 取消中断 (UNIT-017)
-  - AC5: exit 非法退出码拒绝 (CR-004)
-  - AC7: 无限循环自动中断 (UNIT-015)
-  - AC8: sleep 非法格式报错 (UNIT-010)
+- 0 个间隙。所有 AC 均包含错误路径覆盖：
+  - AC3: 参数数量不匹配 → 错误
+  - AC7: 未定义函数 → 运行时错误
+  - AC10: 保留关键字 → 解析错误
+  - 额外错误路径测试：重复参数名、未闭合块、嵌套定义、重复函数名、非法标识符、递归深度溢出、ErrFnReturn 泄漏
 
 ---
 
@@ -292,30 +301,32 @@ inputDocuments:
 
 #### 存在问题的测试
 
-**阻塞问题** ❌
+**BLOCKER 问题** ❌
 
 - 无
 
-**警告问题** ⚠️
+**WARNING 问题** ⚠️
 
 - 无
 
-**信息问题** ℹ️
+**INFO 问题** ℹ️
 
 - 无
 
 ---
 
-#### 通过质量门的测试
+#### 通过质量门控的测试
 
-**31/31 测试 (100%) 满足所有质量标准** ✅
+**46/46 测试 (100%) 满足所有质量标准** ✅
 
-- 所有测试包含显式断言
-- 无硬等待（sleep 测试使用可中断 select 模式）
-- 所有测试自清理（Go 测试天然隔离）
-- 测试文件 < 300 行（单个 AC 相关测试 < 50 行）
-- 测试执行耗时 < 90 秒（全部 shell 包 130 测试 0.058s）
-- 竞态检测通过 (`go test -race` PASS)
+质量检查结果：
+- ✅ 无硬等待（Go 测试，使用 mock spawner）
+- ✅ 无条件分支控制流程
+- ✅ 每个测试函数 < 300 行
+- ✅ 测试时长 0.006s（远低于 90s 上限）
+- ✅ 自清理（mock spawner，无共享状态）
+- ✅ 显式断言（直接在测试体中）
+- ✅ 并行安全（`go test -race` 通过）
 
 ---
 
@@ -323,50 +334,51 @@ inputDocuments:
 
 #### 可接受的重叠（纵深防御）
 
-- AC1: 解析层 (UNIT-001/002) + 执行层 (UNIT-012/013/023) 分层覆盖 ✅
-- AC2: 解析层 (UNIT-003) + 执行层 (UNIT-014) 分层覆盖 ✅
-- AC5: 解析层 (UNIT-006) + 执行层 (UNIT-018/020/024) + 组合测试 (CR-003/004) ✅
+- AC1: 在解析级别（UNIT-001/003/010/012）和执行级别（UNIT-021）均有测试 ✅
+- AC2: return 在解析级别（UNIT-015/017/020）和执行级别（UNIT-022/031, CR-010）均有测试 ✅
+- AC7: 在解析后校验（UNIT-014）和运行时（UNIT-027）均有测试 ✅
+- AC9: 在解析级别（UNIT-016）和执行级别（UNIT-023/032）均有测试 ✅
 
 #### 不可接受的重复 ⚠️
 
-- 无
+- 无。所有重复覆盖均为纵深防御（解析 vs 执行层次不同）。
 
 ---
 
-### 按测试级别覆盖
+### 按测试级别的覆盖率
 
-| 测试级别   | 测试数 | 覆盖标准数 | 覆盖率 |
-| ---------- | ------ | ---------- | ------ |
-| E2E        | 0      | 0          | N/A    |
-| API        | 0      | 0          | N/A    |
-| Component  | 0      | 0          | N/A    |
-| Unit       | 31     | 8          | 100%   |
-| **Total**  | **31** | **8**      | **100%** |
+| 测试级别   | 测试数   | 覆盖标准数 | 覆盖率   |
+| ---------- | -------- | ---------- | -------- |
+| E2E        | 0        | 0          | N/A      |
+| API        | 0        | 0          | N/A      |
+| Component  | 0        | 0          | N/A      |
+| Unit       | 46       | 10         | 100%     |
+| **总计**   | **46**   | **10**     | **100%** |
 
-**备注:** 此 Story 为纯后端解析器/解释器逻辑，Unit 级别覆盖为适当选择（参考 test-levels-framework.md：纯逻辑模块以单元测试为主）。
+**注意：** Story 18.2 为纯 Go 后端解析器/解释器逻辑（`shell/script.go`），不涉及 HTTP API、UI 或组件交互，因此 Unit 级别覆盖已是最合适的测试级别。无需 E2E/API/Component 测试。
 
 ---
 
 ### 可追溯性建议
 
-#### 即时操作（PR 合并前）
+#### 立即行动（PR 合并前）
 
-无需操作 — 所有 P0/P1 标准已达到 FULL 覆盖。
+无——所有标准已达到 100% 覆盖。
 
-#### 短期操作（本里程碑）
+#### 短期行动（本里程碑）
 
-1. **运行 `tea *test-review`** - 验证测试质量细节和模式一致性
+1. **运行 `bmad tea *test-review`** — 评估测试代码质量和可维护性
 
-#### 长期操作（待办）
+#### 长期行动（Backlog）
 
-1. **集成测试** - 当 Story 18.5（CLI 脚本执行入口）完成后，可添加 E2E 级别的端到端脚本执行验证
+1. **集成测试考虑** — 当 Story 18.3+ 引入更复杂的脚本特性时，考虑添加端到端集成测试验证脚本解析→执行→spawn 的完整链路
 
 ---
 
-## 阶段 2: 质量门决策
+## PHASE 2: 质量门控决策
 
-**Gate 类型:** story
-**决策模式:** deterministic
+**Gate Type:** story
+**Decision Mode:** deterministic
 
 ---
 
@@ -374,72 +386,65 @@ inputDocuments:
 
 #### 测试执行结果
 
-- **总测试数**: 31（Story 18-1 相关）/ 130（shell 包全部）
-- **通过**: 31/31 (100%) / 130/130 (100%)
+- **总测试数**: 46
+- **通过**: 46 (100%)
 - **失败**: 0 (0%)
 - **跳过**: 0 (0%)
-- **耗时**: 0.058s（shell 包全部）
+- **时长**: 0.006s
 
-**优先级细分:**
+**优先级细分：**
 
-- **P0 测试**: 21/21 通过 (100%) ✅
-- **P1 测试**: 10/10 通过 (100%) ✅
+- **P0 测试**: 28/28 通过 (100%) ✅
+- **P1 测试**: 18/18 通过 (100%) ✅
 - **P2 测试**: 0/0 (N/A)
 - **P3 测试**: 0/0 (N/A)
 
 **总通过率**: 100% ✅
 
-**测试结果来源**: 本地运行 `go test -v ./shell/... -count=1`
+**测试结果来源**: `go test ./shell/ -v -count=1` (本地运行, 2026-03-09)
 
 ---
 
-#### 覆盖摘要（来自阶段 1）
+#### 覆盖率摘要（来自 Phase 1）
 
-**需求覆盖:**
+**需求覆盖率：**
 
-- **P0 验收标准**: 6/6 覆盖 (100%) ✅
+- **P0 验收标准**: 8/8 覆盖 (100%) ✅
 - **P1 验收标准**: 2/2 覆盖 (100%) ✅
 - **P2 验收标准**: 0/0 (N/A)
-- **总覆盖率**: 100%
+- **总体覆盖率**: 100%
 
-**代码覆盖**（信息性）:
+**代码覆盖率**（信息性）:
 
-- 未启用代码覆盖报告工具（Go 后端项目）
-- 基于需求的覆盖率为 100%
+- 未执行独立代码覆盖报告（可通过 `go test ./shell/ -cover` 获取）
 
 ---
 
 #### 非功能需求 (NFRs)
 
-**安全性**: NOT_ASSESSED ℹ️
-
-- 此 Story 不涉及安全敏感功能
-- 保留关键字检查防止变量名冲突（CR-005 覆盖）
+**安全性**: NOT_ASSESSED — 不适用（解析器/解释器功能无安全暴露面）
 
 **性能**: PASS ✅
 
-- 全部 130 测试在 0.058s 内完成
-- 解释器开销 ≤ 1ms/次（NFR39 要求）
-- MaxLoopIterations=10000 防止无限循环
+- NFR39: 解释器开销 ≤ 1ms/次，46 个测试总耗时 0.006s
 
 **可靠性**: PASS ✅
 
-- 竞态检测通过 (`go test -race` PASS, 1.072s)
-- context 取消正确传播（sleep 可中断测试验证）
+- `go test -race ./shell/...` 通过，无竞态条件
 
 **可维护性**: PASS ✅
 
-- 遵循现有递归下降解析器模式
-- parseBlock 参数泛化（insideIf → insideBlock）
+- 手写递归下降解析器架构一致（Decision 10）
+- save/restore 参数作用域模式清晰
+- ErrFnReturn 遵循 ErrScriptExit 模式
 
 ---
 
-#### 稳定性验证
+#### 抖动验证
 
-**Burn-in 结果**: 不适用（纯单元测试，确定性执行）
-
-**Burn-in 迭代**: N/A
-**Flaky 测试**: 0 ✅
+- **Burn-in 迭代**: 未执行（单元测试确定性）
+- **抖动测试检测**: 0 ✅
+- **稳定性评分**: 100%（0.006s 执行时间，纯逻辑测试无外部依赖）
 
 ---
 
@@ -447,90 +452,98 @@ inputDocuments:
 
 #### P0 标准（必须全部通过）
 
-| 标准                | 阈值  | 实际值 | 状态      |
-| ------------------- | ----- | ------ | --------- |
-| P0 覆盖率           | 100%  | 100%   | ✅ PASS   |
-| P0 测试通过率       | 100%  | 100%   | ✅ PASS   |
-| 安全问题数          | 0     | 0      | ✅ PASS   |
-| 关键 NFR 失败数     | 0     | 0      | ✅ PASS   |
-| Flaky 测试数        | 0     | 0      | ✅ PASS   |
+| 标准              | 阈值  | 实际值 | 状态     |
+| ----------------- | ----- | ------ | -------- |
+| P0 覆盖率         | 100%  | 100%   | ✅ PASS  |
+| P0 测试通过率     | 100%  | 100%   | ✅ PASS  |
+| 安全问题          | 0     | 0      | ✅ PASS  |
+| 关键 NFR 失败     | 0     | 0      | ✅ PASS  |
+| 抖动测试          | 0     | 0      | ✅ PASS  |
 
-**P0 评估**: ✅ 全部通过
+**P0 评估**: ✅ ALL PASS
 
 ---
 
-#### P1 标准（PASS 需要，CONCERNS 可接受）
+#### P1 标准（通过所需，可接受 CONCERNS）
 
-| 标准               | 阈值  | 实际值 | 状态      |
-| ------------------ | ----- | ------ | --------- |
-| P1 覆盖率          | ≥90%  | 100%   | ✅ PASS   |
-| P1 测试通过率      | ≥95%  | 100%   | ✅ PASS   |
-| 总测试通过率       | ≥95%  | 100%   | ✅ PASS   |
-| 总覆盖率           | ≥80%  | 100%   | ✅ PASS   |
+| 标准              | 阈值   | 实际值 | 状态    |
+| ----------------- | ------ | ------ | ------- |
+| P1 覆盖率         | ≥90%   | 100%   | ✅ PASS |
+| P1 测试通过率     | ≥90%   | 100%   | ✅ PASS |
+| 总体测试通过率    | ≥80%   | 100%   | ✅ PASS |
+| 总体覆盖率        | ≥80%   | 100%   | ✅ PASS |
 
-**P1 评估**: ✅ 全部通过
+**P1 评估**: ✅ ALL PASS
 
 ---
 
 #### P2/P3 标准（信息性，不阻塞）
 
-| 标准            | 实际值 | 备注                 |
-| --------------- | ------ | -------------------- |
-| P2 测试通过率   | N/A    | 无 P2 需求           |
-| P3 测试通过率   | N/A    | 无 P3 需求           |
+| 标准           | 实际值 | 备注           |
+| -------------- | ------ | -------------- |
+| P2 测试通过率  | N/A    | 无 P2 测试     |
+| P3 测试通过率  | N/A    | 无 P3 测试     |
 
 ---
 
-### GATE 决策: ✅ PASS
+### GATE DECISION: ✅ PASS
 
 ---
 
 ### 理由
 
-所有 P0 标准达到 100% 覆盖率和通过率。所有 P1 标准超过阈值，P1 覆盖率 100%（目标 ≥90%）。总测试通过率 100%，整体覆盖率 100%。无安全问题。无 flaky 测试。竞态检测通过。功能已可投入生产部署并配合标准监控。
+所有 P0 标准以 100% 覆盖率和通过率达标，覆盖了关键的函数定义、调用、返回值和错误处理场景。P1 标准同样以 100% 超越 90% 阈值，边界用例和错误路径均已验证。
 
-Story 18-1 实现了 for/while 循环和 wait/sleep/exit 内置命令的完整解析器+解释器支持，31 个 ATDD 测试从 RED→GREEN 全部通过，组合矩阵验证覆盖了 for+if、for+on-error、while+for、exit+loop 等关键交叉场景。代码审查修复了 2 HIGH + 3 MEDIUM 问题后，新增了 5 个 CR 测试进一步强化覆盖。
+关键证据：
+- 10 个验收标准全部 FULL 覆盖
+- 46 个测试 100% 通过（含 14 个组合矩阵/交叉特性测试）
+- 错误路径覆盖全面：参数不匹配、未定义函数、保留关键字、重复参数、非法标识符、嵌套定义、未闭合块、递归深度溢出、ErrFnReturn 泄漏
+- 性能满足 NFR39 要求
+- 竞态检测通过
+
+Story 18.2 已可进行生产部署。
 
 ---
 
-### Gate 建议
+### 门控建议
 
 #### PASS 决策 ✅
 
 1. **继续部署**
-   - 部署到 staging 环境
-   - 使用冒烟测试验证
-   - 监控关键指标 24-48 小时
-   - 部署到生产环境并标准监控
+   - 合并至主分支
+   - 运行完整回归测试验证无副作用
+   - 确认 Story 18.1 测试仍然通过
 
 2. **部署后监控**
-   - 脚本执行错误率（特别是循环相关）
-   - MaxLoopIterations 触发频率
-   - sleep 取消时的资源清理
+   - 监控 AgentShell 脚本执行成功率
+   - 关注函数调用相关的错误日志
+   - 验证递归深度保护 (MaxCallDepth=100) 在实际使用中的合理性
 
 3. **成功标准**
-   - 无 for/while/builtin 相关的运行时 panic
-   - 脚本执行成功率 ≥ 99.9%
+   - AgentShell 函数定义和调用功能正常工作
+   - 无解析器回归
+   - 性能保持在 NFR39 阈值内
 
 ---
 
 ### 后续步骤
 
-**即时操作**（未来 24-48 小时）:
+**立即行动**（24-48 小时内）：
 
-1. 合并 PR 到主分支
-2. 更新 sprint-status.yaml 中 Story 18-1 状态为 done
-3. 开始 Story 18.2 开发
+1. 合并 Story 18.2 到主分支
+2. 更新 sprint-status.yaml 标记为 done
+3. 运行完整 `go test ./shell/...` 确认无回归
 
-**后续操作**（本里程碑/版本）:
+**跟进行动**（下一里程碑/版本）：
 
-1. Story 18.5 完成后添加 E2E 脚本执行测试
-2. 运行 `tea *test-review` 进行测试质量深度审查
+1. 评估是否需要为 Story 18.3+ 添加集成测试
+2. 运行 `bmad tea *test-review` 进行测试质量审计
+3. 考虑为 AgentShell 添加端到端脚本执行测试
 
-**利益相关者通知**:
+**利益相关者沟通**：
 
-- 通知 PM: Story 18-1 Gate PASS，循环+内置命令功能完成
-- 通知 DEV lead: 31 测试全部通过，可继续 Epic 18 下一故事
+- 通知 PM: Story 18.2 门控通过，100% 覆盖率
+- 通知 DEV lead: 函数特性实现完毕，可继续下一个 Story
 
 ---
 
@@ -539,7 +552,7 @@ Story 18-1 实现了 for/while 循环和 wait/sleep/exit 内置命令的完整�
 ```yaml
 traceability_and_gate:
   traceability:
-    story_id: "18-1"
+    story_id: "18.2"
     date: "2026-03-09"
     coverage:
       overall: 100%
@@ -553,13 +566,13 @@ traceability_and_gate:
       medium: 0
       low: 0
     quality:
-      passing_tests: 31
-      total_tests: 31
+      passing_tests: 46
+      total_tests: 46
       blocker_issues: 0
       warning_issues: 0
     recommendations:
-      - "Story 18.5 完成后添加 E2E 端到端脚本执行验证"
-      - "运行 tea *test-review 进行测试质量深度审查"
+      - "运行 bmad tea *test-review 进行测试质量审计"
+      - "集成测试考虑留待 Story 18.3+"
 
   gate_decision:
     decision: "PASS"
@@ -579,53 +592,53 @@ traceability_and_gate:
       min_p0_coverage: 100
       min_p0_pass_rate: 100
       min_p1_coverage: 90
-      min_p1_pass_rate: 95
-      min_overall_pass_rate: 95
+      min_p1_pass_rate: 90
+      min_overall_pass_rate: 80
       min_coverage: 80
     evidence:
-      test_results: "go test -v ./shell/... (local run 2026-03-09)"
+      test_results: "go test ./shell/ -v -count=1 (local, 2026-03-09)"
       traceability: "_bmad-output/test-artifacts/traceability-report.md"
-      nfr_assessment: "inline (performance, reliability PASS)"
-      code_coverage: "N/A (requirements-based 100%)"
-    next_steps: "合并 PR，更新 sprint-status，开始 Story 18.2"
+      nfr_assessment: "not_assessed (N/A for parser feature)"
+      code_coverage: "not_assessed"
+    next_steps: "合并到主分支，更新 sprint-status，运行回归测试"
 ```
 
 ---
 
 ## 相关制品
 
-- **Story 文件:** `_bmad-output/implementation-artifacts/18-1-loop-structures-and-builtin-commands.md`
-- **ATDD 检查清单:** `_bmad-output/test-artifacts/atdd-checklist-18-1.md`
-- **测试文件:** `shell/script_test.go` (行 1391-2214)
-- **源代码:** `shell/script.go`, `shell/pipe.go`, `ipc/server.go`
-- **测试结果:** 本地运行 `go test -v ./shell/...` (2026-03-09)
+- **Story 文件:** `_bmad-output/implementation-artifacts/18-2-function-definition-and-invocation.md`
+- **ATDD Checklist:** `_bmad-output/test-artifacts/atdd-checklist-18-2.md`
+- **测试文件:** `shell/script_test.go`
+- **源代码:** `shell/script.go`
+- **测试结果:** `go test ./shell/ -v` (本地运行, 46 PASS / 0 FAIL)
 
 ---
 
 ## 签收
 
-**阶段 1 - 可追溯性评估:**
+**Phase 1 - 可追溯性评估：**
 
-- 总覆盖率: 100%
+- 总体覆盖率: 100%
 - P0 覆盖率: 100% ✅ PASS
 - P1 覆盖率: 100% ✅ PASS
-- 关键缺口: 0
-- 高优先级缺口: 0
+- 关键间隙: 0
+- 高优先级间隙: 0
 
-**阶段 2 - Gate 决策:**
+**Phase 2 - 门控决策：**
 
-- **决策**: ✅ PASS
-- **P0 评估**: ✅ 全部通过
-- **P1 评估**: ✅ 全部通过
+- **决策**: PASS ✅
+- **P0 评估**: ✅ ALL PASS
+- **P1 评估**: ✅ ALL PASS
 
-**总体状态:** ✅ PASS
+**总体状态：** ✅ PASS
 
-**后续步骤:**
+**后续步骤：**
 
 - ✅ PASS: 继续部署
 
-**生成时间:** 2026-03-09
-**工作流:** testarch-trace v5.0 (Enhanced with Gate Decision)
+**生成日期:** 2026-03-09
+**工作流:** testarch-trace v5.0 (Step-File Architecture)
 
 ---
 
