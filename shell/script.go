@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,7 +17,13 @@ const (
 	StmtSpawn    StatementKind = "spawn"
 	StmtPipeline StatementKind = "pipeline"
 	StmtIf       StatementKind = "if"
+	StmtFor      StatementKind = "for"
+	StmtWhile    StatementKind = "while"
+	StmtBuiltin  StatementKind = "builtin"
 )
+
+// MaxLoopIterations is the safety limit for while loops to prevent infinite execution.
+const MaxLoopIterations = 10000
 
 // ExportStmt holds a parsed export KEY=VALUE.
 type ExportStmt struct {
@@ -39,6 +46,34 @@ type IfBlock struct {
 	Else      []Statement
 }
 
+// ForBlock holds a parsed for/in/end loop with variable binding and iteration list.
+type ForBlock struct {
+	VarName string
+	List    []string
+	Body    []Statement
+}
+
+// WhileBlock holds a parsed while/end loop with a condition.
+type WhileBlock struct {
+	Condition Condition
+	Body      []Statement
+}
+
+// BuiltinStmt holds a parsed builtin command (wait, sleep, exit).
+type BuiltinStmt struct {
+	Command string
+	Args    []string
+}
+
+// ErrScriptExit signals a controlled script termination via the exit builtin.
+type ErrScriptExit struct {
+	Code int
+}
+
+func (e *ErrScriptExit) Error() string {
+	return fmt.Sprintf("script exit with code %d", e.Code)
+}
+
 // SpawnResult captures the outcome of an assignment spawn for condition evaluation.
 type SpawnResult struct {
 	ExitCode int
@@ -53,6 +88,9 @@ type Statement struct {
 	Spawn    *Command
 	Pipeline *Pipeline
 	If       *IfBlock
+	For      *ForBlock
+	While    *WhileBlock
+	Builtin  *BuiltinStmt
 	Assign   string   // variable name for assignment spawn (e.g. "result" in "result = spawn ...")
 	OnError  *Command // on-error handler spawn command
 	Raw      string
@@ -80,7 +118,7 @@ func ParseScript(input string) (*Script, error) {
 	return &Script{Statements: stmts}, nil
 }
 
-func parseBlock(lines []string, startIdx int, insideIf bool) ([]Statement, int, error) {
+func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, int, error) {
 	var stmts []Statement
 	i := startIdx
 	for i < len(lines) {
@@ -92,8 +130,8 @@ func parseBlock(lines []string, startIdx int, insideIf bool) ([]Statement, int, 
 		lower := strings.ToLower(trimmed)
 
 		if lower == "else" || lower == "end" {
-			if !insideIf {
-				return nil, 0, fmt.Errorf("line %d: unexpected %q outside if block", i+1, trimmed)
+			if !insideBlock {
+				return nil, 0, fmt.Errorf("line %d: unexpected %q outside block", i+1, trimmed)
 			}
 			return stmts, i, nil
 		}
@@ -105,6 +143,36 @@ func parseBlock(lines []string, startIdx int, insideIf bool) ([]Statement, int, 
 			}
 			stmts = append(stmts, Statement{Kind: StmtIf, If: ifBlock, Raw: trimmed})
 			i = nextIdx
+			continue
+		}
+
+		if strings.HasPrefix(lower, "for ") || strings.HasPrefix(lower, "for\t") {
+			forBlock, nextIdx, err := parseForBlock(lines, i)
+			if err != nil {
+				return nil, 0, err
+			}
+			stmts = append(stmts, Statement{Kind: StmtFor, For: forBlock, Raw: trimmed})
+			i = nextIdx
+			continue
+		}
+
+		if strings.HasPrefix(lower, "while ") || strings.HasPrefix(lower, "while\t") {
+			whileBlock, nextIdx, err := parseWhileBlock(lines, i)
+			if err != nil {
+				return nil, 0, err
+			}
+			stmts = append(stmts, Statement{Kind: StmtWhile, While: whileBlock, Raw: trimmed})
+			i = nextIdx
+			continue
+		}
+
+		if isBuiltinKeyword(lower) {
+			stmt, err := parseBuiltinStatement(trimmed, i)
+			if err != nil {
+				return nil, 0, err
+			}
+			stmts = append(stmts, stmt)
+			i++
 			continue
 		}
 
@@ -177,6 +245,140 @@ func parseCondition(s string) (*Condition, error) {
 	}
 
 	return &Condition{VarName: varName, Property: property, Operator: op, Value: right}, nil
+}
+
+func parseForBlock(lines []string, forLineIdx int) (*ForBlock, int, error) {
+	forLine := strings.TrimSpace(lines[forLineIdx])
+	rest := strings.TrimSpace(forLine[3:]) // skip "for" (case-insensitive, already matched)
+
+	spaceIdx := strings.IndexAny(rest, " \t")
+	if spaceIdx < 0 {
+		return nil, 0, fmt.Errorf("line %d: invalid for syntax: expected 'for VAR in LIST'", forLineIdx+1)
+	}
+	varName := rest[:spaceIdx]
+
+	remaining := strings.TrimSpace(rest[spaceIdx:])
+	if len(remaining) < 2 || !strings.EqualFold(remaining[:2], "in") {
+		return nil, 0, fmt.Errorf("line %d: expected 'in' keyword in for statement", forLineIdx+1)
+	}
+	if len(remaining) > 2 && remaining[2] != ' ' && remaining[2] != '\t' {
+		return nil, 0, fmt.Errorf("line %d: expected 'in' keyword in for statement", forLineIdx+1)
+	}
+
+	listStr := strings.TrimSpace(remaining[2:])
+	if listStr == "" {
+		return nil, 0, fmt.Errorf("line %d: empty list in for statement", forLineIdx+1)
+	}
+
+	list, err := parseForList(listStr)
+	if err != nil {
+		return nil, 0, fmt.Errorf("line %d: %w", forLineIdx+1, err)
+	}
+
+	body, nextIdx, err := parseBlock(lines, forLineIdx+1, true)
+	if err != nil {
+		return nil, 0, err
+	}
+	if nextIdx >= len(lines) {
+		return nil, 0, fmt.Errorf("line %d: unclosed for block (missing 'end')", forLineIdx+1)
+	}
+
+	terminator := strings.ToLower(strings.TrimSpace(lines[nextIdx]))
+	if terminator == "else" {
+		return nil, 0, fmt.Errorf("line %d: unexpected 'else' in for block", nextIdx+1)
+	}
+
+	return &ForBlock{VarName: varName, List: list, Body: body}, nextIdx + 1, nil
+}
+
+func parseForList(s string) ([]string, error) {
+	s = strings.TrimSpace(s)
+	if s[0] == '[' {
+		if s[len(s)-1] != ']' {
+			return nil, fmt.Errorf("unclosed bracket in for list")
+		}
+		inner := s[1 : len(s)-1]
+		items := strings.Split(inner, ",")
+		var result []string
+		for _, item := range items {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				result = append(result, item)
+			}
+		}
+		if len(result) == 0 {
+			return nil, fmt.Errorf("empty for list")
+		}
+		return result, nil
+	}
+	return strings.Fields(s), nil
+}
+
+func parseWhileBlock(lines []string, whileLineIdx int) (*WhileBlock, int, error) {
+	whileLine := strings.TrimSpace(lines[whileLineIdx])
+	condStr := strings.TrimSpace(whileLine[5:]) // skip "while" (5 chars)
+
+	cond, err := parseCondition(condStr)
+	if err != nil {
+		return nil, 0, fmt.Errorf("line %d: %w", whileLineIdx+1, err)
+	}
+
+	body, nextIdx, err := parseBlock(lines, whileLineIdx+1, true)
+	if err != nil {
+		return nil, 0, err
+	}
+	if nextIdx >= len(lines) {
+		return nil, 0, fmt.Errorf("line %d: unclosed while block (missing 'end')", whileLineIdx+1)
+	}
+
+	terminator := strings.ToLower(strings.TrimSpace(lines[nextIdx]))
+	if terminator == "else" {
+		return nil, 0, fmt.Errorf("line %d: unexpected 'else' in while block", nextIdx+1)
+	}
+
+	return &WhileBlock{Condition: *cond, Body: body}, nextIdx + 1, nil
+}
+
+func isBuiltinKeyword(lower string) bool {
+	fields := strings.Fields(lower)
+	if len(fields) == 0 {
+		return false
+	}
+	switch fields[0] {
+	case "wait", "sleep", "exit":
+		return true
+	}
+	return false
+}
+
+func parseBuiltinStatement(line string, lineIdx int) (Statement, error) {
+	fields := strings.Fields(line)
+	command := strings.ToLower(fields[0])
+	args := fields[1:]
+
+	switch command {
+	case "sleep":
+		if len(args) != 1 {
+			return Statement{}, fmt.Errorf("line %d: sleep requires exactly one duration argument", lineIdx+1)
+		}
+		if _, err := time.ParseDuration(args[0]); err != nil {
+			return Statement{}, fmt.Errorf("line %d: invalid sleep duration %q: expected format like 5s, 500ms, 2m", lineIdx+1, args[0])
+		}
+	case "exit":
+		if len(args) != 1 {
+			return Statement{}, fmt.Errorf("line %d: exit requires exactly one integer argument (0-255)", lineIdx+1)
+		}
+	case "wait":
+		if len(args) != 1 {
+			return Statement{}, fmt.Errorf("line %d: wait requires exactly one argument (PID or $variable)", lineIdx+1)
+		}
+	}
+
+	return Statement{
+		Kind:    StmtBuiltin,
+		Builtin: &BuiltinStmt{Command: command, Args: args},
+		Raw:     line,
+	}, nil
 }
 
 func parseStatement(line string) (Statement, error) {
@@ -403,6 +605,12 @@ func (e *ScriptExecutor) Execute(ctx context.Context, script *Script) (*ScriptRe
 
 	err := e.executeBlock(ctx, script.Statements, result, &stageNum, totalStages)
 	result.Elapsed = time.Since(start)
+
+	var exitErr *ErrScriptExit
+	if errors.As(err, &exitErr) {
+		result.LastExitCode = exitErr.Code
+		return result, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -528,9 +736,95 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 					return nil
 				}
 			}
+
+		case StmtFor:
+			for _, item := range stmt.For.List {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				e.env.Set(stmt.For.VarName, e.env.Expand(item))
+				err := e.executeBlock(ctx, stmt.For.Body, result, stageNum, totalStages)
+				if err != nil {
+					e.env.Delete(stmt.For.VarName)
+					return err
+				}
+				if result.LastExitCode != 0 {
+					break
+				}
+			}
+			e.env.Delete(stmt.For.VarName)
+
+		case StmtWhile:
+			iterations := 0
+			for {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				match, err := e.evalCondition(&stmt.While.Condition)
+				if err != nil {
+					return fmt.Errorf("while condition: %w", err)
+				}
+				if !match {
+					break
+				}
+				err = e.executeBlock(ctx, stmt.While.Body, result, stageNum, totalStages)
+				if err != nil {
+					return err
+				}
+				if result.LastExitCode != 0 {
+					break
+				}
+				iterations++
+				if iterations >= MaxLoopIterations {
+					return fmt.Errorf("while loop exceeded maximum iterations (%d), possible infinite loop", MaxLoopIterations)
+				}
+			}
+
+		case StmtBuiltin:
+			if err := e.executeBuiltin(ctx, stmt.Builtin, result); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func (e *ScriptExecutor) executeBuiltin(ctx context.Context, stmt *BuiltinStmt, result *ScriptResult) error {
+	switch stmt.Command {
+	case "wait":
+		expanded := e.env.Expand(stmt.Args[0])
+		pid, err := strconv.Atoi(expanded)
+		if err != nil {
+			return fmt.Errorf("wait: invalid PID %q: %w", expanded, err)
+		}
+		exitCode, err := e.spawner.Wait(ctx, pid)
+		if err != nil {
+			return fmt.Errorf("wait: %w", err)
+		}
+		result.LastExitCode = exitCode
+		return nil
+
+	case "sleep":
+		d, err := time.ParseDuration(stmt.Args[0])
+		if err != nil {
+			return fmt.Errorf("sleep: invalid duration: %w", err)
+		}
+		select {
+		case <-time.After(d):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
+	case "exit":
+		code, err := strconv.Atoi(stmt.Args[0])
+		if err != nil {
+			return fmt.Errorf("exit: invalid code %q: %w", stmt.Args[0], err)
+		}
+		return &ErrScriptExit{Code: code}
+	}
+
+	return fmt.Errorf("unknown builtin command: %q", stmt.Command)
 }
 
 func (e *ScriptExecutor) evalCondition(cond *Condition) (bool, error) {
@@ -588,8 +882,17 @@ func countStagesInBlock(stmts []Statement) int {
 		case StmtIf:
 			thenCount := countStagesInBlock(stmt.If.Then)
 			elseCount := countStagesInBlock(stmt.If.Else)
-			// Only one branch executes at runtime; use max for upper-bound estimate.
 			n += max(thenCount, elseCount)
+		case StmtFor:
+			bodyCount := countStagesInBlock(stmt.For.Body)
+			n += len(stmt.For.List) * bodyCount
+		case StmtWhile:
+			bodyCount := countStagesInBlock(stmt.While.Body)
+			n += 10 * bodyCount
+		case StmtBuiltin:
+			if stmt.Builtin.Command == "wait" {
+				n++
+			}
 		}
 	}
 	return n

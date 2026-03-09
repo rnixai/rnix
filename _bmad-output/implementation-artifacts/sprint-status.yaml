@@ -205,7 +205,7 @@ development_status:
 
   # Epic 18: AgentShell Complete Scripting
   epic-18: in-progress
-  18-1-loop-structures-and-builtin-commands: ready-for-dev
+  18-1-loop-structures-and-builtin-commands: review
   18-2-function-definition-and-invocation: backlog
   18-3-data-structures-and-string-interpolation: backlog
   18-4-spawn-return-capture-and-parallel-execution: backlog

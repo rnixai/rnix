@@ -1507,6 +1507,20 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 	}
 }
 
+func (s *ipcKernelSpawner) Wait(ctx context.Context, pid int) (int, error) {
+	proc, ok := s.kernel.GetProcess(types.PID(pid))
+	if !ok {
+		return 1, fmt.Errorf("process %d not found", pid)
+	}
+	select {
+	case exit := <-proc.Done:
+		s.kernel.Reap(types.PID(pid))
+		return exit.Code, nil
+	case <-ctx.Done():
+		return 1, ctx.Err()
+	}
+}
+
 // Compile-time check that ipcKernelSpawner implements shell.KernelSpawner.
 var _ shell.KernelSpawner = (*ipcKernelSpawner)(nil)
 

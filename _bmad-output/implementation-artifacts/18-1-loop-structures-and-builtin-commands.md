@@ -1,6 +1,6 @@
 # Story 18.1: 循环结构与内置命令
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -46,7 +46,7 @@ So that 我可以编写重复和定时的智能体编排逻辑。
 
 ### Task 1: AST 节点扩展（AC: #1, #2）
 
-- [ ] 1.1 在 `shell/script.go` 新增 `ForBlock` 结构体
+- [x] 1.1 在 `shell/script.go` 新增 `ForBlock` 结构体
   ```go
   type ForBlock struct {
       VarName string      // 循环变量名（如 "item"）
@@ -54,54 +54,54 @@ So that 我可以编写重复和定时的智能体编排逻辑。
       Body    []Statement // 循环体
   }
   ```
-- [ ] 1.2 在 `shell/script.go` 新增 `WhileBlock` 结构体
+- [x] 1.2 在 `shell/script.go` 新增 `WhileBlock` 结构体
   ```go
   type WhileBlock struct {
       Condition Condition   // 复用现有 Condition 类型
       Body      []Statement // 循环体
   }
   ```
-- [ ] 1.3 扩展 `StatementKind` 常量：新增 `StmtFor = "for"` 和 `StmtWhile = "while"`
-- [ ] 1.4 扩展 `Statement` 结构体：新增 `For *ForBlock` 和 `While *WhileBlock` 字段
+- [x] 1.3 扩展 `StatementKind` 常量：新增 `StmtFor = "for"` 和 `StmtWhile = "while"`
+- [x] 1.4 扩展 `Statement` 结构体：新增 `For *ForBlock` 和 `While *WhileBlock` 字段
 
 ### Task 2: 内置命令 AST 节点（AC: #3, #4, #5）
 
-- [ ] 2.1 新增 `BuiltinStmt` 结构体
+- [x] 2.1 新增 `BuiltinStmt` 结构体
   ```go
   type BuiltinStmt struct {
       Command string   // "wait", "sleep", "exit"
       Args    []string // 参数列表
   }
   ```
-- [ ] 2.2 扩展 `StatementKind`：新增 `StmtBuiltin = "builtin"`
-- [ ] 2.3 扩展 `Statement`：新增 `Builtin *BuiltinStmt` 字段
+- [x] 2.2 扩展 `StatementKind`：新增 `StmtBuiltin = "builtin"`
+- [x] 2.3 扩展 `Statement`：新增 `Builtin *BuiltinStmt` 字段
 
 ### Task 3: 词法与语法分析扩展（AC: #1, #2, #3, #4, #5）
 
-- [ ] 3.1 在 `ParseScript` 中识别 `for` 关键字，调用 `parseForBlock`
+- [x] 3.1 在 `ParseScript` 中识别 `for` 关键字，调用 `parseForBlock`
   - 语法：`for VAR in [item1, item2, ...]` + 循环体 + `end`
   - 语法（变体）：`for VAR in item1 item2 ...` + 循环体 + `end`（空格分隔列表）
   - `[...]` 列表内逗号分隔，支持引号字符串
   - 循环体递归调用 `parseBlock`（复用已有的 if-block 解析模式）
-- [ ] 3.2 在 `ParseScript` 中识别 `while` 关键字，调用 `parseWhileBlock`
+- [x] 3.2 在 `ParseScript` 中识别 `while` 关键字，调用 `parseWhileBlock`
   - 语法：`while CONDITION` + 循环体 + `end`
   - 条件复用现有 `parseCondition`（与 if 条件同语法）
   - 循环体递归调用 `parseBlock`
-- [ ] 3.3 在 `ParseScript` 中识别内置命令 `wait`/`sleep`/`exit`
+- [x] 3.3 在 `ParseScript` 中识别内置命令 `wait`/`sleep`/`exit`
   - `wait <pid_var_or_literal>` — 参数为 PID 变量引用或数字字面量
   - `sleep <duration>` — 参数格式 `Ns`/`Nms`/`Nm`（Go `time.ParseDuration` 兼容）
   - `exit <code>` — 参数为整数字面量（0-255）
-- [ ] 3.4 错误处理：未闭合的 for/while 块报告行号 + 缺少 `end` 提示
+- [x] 3.4 错误处理：未闭合的 for/while 块报告行号 + 缺少 `end` 提示
 
 ### Task 4: 解释器执行扩展（AC: #1, #2, #3, #4, #5, #6, #7）
 
-- [ ] 4.1 在 `ScriptExecutor.executeBlock` 中处理 `StmtFor`
+- [x] 4.1 在 `ScriptExecutor.executeBlock` 中处理 `StmtFor`
   - 遍历 `ForBlock.List`，每次迭代：
     1. `env.Set(forBlock.VarName, currentItem)` 绑定循环变量
     2. 递归 `executeBlock(forBlock.Body)`
     3. 检查 ctx 取消信号
   - 迭代结束后从 env 移除循环变量（作用域隔离）
-- [ ] 4.2 在 `ScriptExecutor.executeBlock` 中处理 `StmtWhile`
+- [x] 4.2 在 `ScriptExecutor.executeBlock` 中处理 `StmtWhile`
   - 循环开始前初始化迭代计数器
   - 每次迭代：
     1. `evalCondition(whileBlock.Condition)` 判断条件
@@ -109,7 +109,7 @@ So that 我可以编写重复和定时的智能体编排逻辑。
     3. 递归 `executeBlock(whileBlock.Body)`
     4. 迭代计数器 +1，超过 `MaxLoopIterations`（= 10000）则返回错误
     5. 检查 ctx 取消信号
-- [ ] 4.3 实现 `executeBuiltin` 方法
+- [x] 4.3 实现 `executeBuiltin` 方法
   - **wait**：
     - 参数为 PID（从 env 获取变量值或直接解析数字）
     - 调用 `spawner.Wait(ctx, pid)` — 需要扩展 `KernelSpawner` 接口
@@ -120,7 +120,7 @@ So that 我可以编写重复和定时的智能体编排逻辑。
   - **exit**：
     - `strconv.Atoi(args[0])` 解析退出码
     - 返回特殊 `ErrScriptExit{Code: n}` 错误（ScriptExecutor 顶层捕获）
-- [ ] 4.4 定义 `ErrScriptExit` 类型
+- [x] 4.4 定义 `ErrScriptExit` 类型
   ```go
   type ErrScriptExit struct {
       Code int
@@ -132,35 +132,35 @@ So that 我可以编写重复和定时的智能体编排逻辑。
 
 ### Task 5: KernelSpawner 接口扩展（AC: #3）
 
-- [ ] 5.1 在 `KernelSpawner` 接口新增 `Wait` 方法
+- [x] 5.1 在 `KernelSpawner` 接口新增 `Wait` 方法
   ```go
   type KernelSpawner interface {
       SpawnAndWait(ctx context.Context, intent, agent, model string) (result string, exitCode int, tokens int, err error)
       Wait(ctx context.Context, pid int) (exitCode int, err error)
   }
   ```
-- [ ] 5.2 更新所有 `KernelSpawner` 实现（真实 kernel 桥接 + mock）
-- [ ] 5.3 `Wait` 桥接到 IPC `wait` method（复用已有 `kernel.Wait` syscall）
+- [x] 5.2 更新所有 `KernelSpawner` 实现（真实 kernel 桥接 + mock）
+- [x] 5.3 `Wait` 桥接到 IPC `wait` method（复用已有 `kernel.Wait` syscall）
 
 ### Task 6: 复杂度统计扩展（AC: 无，内部质量）
 
-- [ ] 6.1 在 `estimateComplexity` 函数中处理 `StmtFor` 和 `StmtWhile`
+- [x] 6.1 在 `countStagesInBlock` 函数中处理 `StmtFor` 和 `StmtWhile`
   - for: 列表长度 × 循环体复杂度
   - while: 10（估计值） × 循环体复杂度
-- [ ] 6.2 在 `estimateComplexity` 中处理 `StmtBuiltin`
+- [x] 6.2 在 `countStagesInBlock` 中处理 `StmtBuiltin`
   - wait: 1（实际开销取决于外部进程）
   - sleep/exit: 0
 
 ### Task 7: 测试（AC: #1-#8）
 
-- [ ] 7.1 `shell/script_test.go` — ParseScript 测试
+- [x] 7.1 `shell/script_test.go` — ParseScript 测试
   - for-in 基本解析（数组列表和空格列表）
   - while 基本解析
   - 嵌套 for + if 解析
   - 未闭合 for/while 错误
   - 内置命令解析（wait/sleep/exit）
   - 非法参数格式错误
-- [ ] 7.2 `shell/script_test.go` — 执行器测试
+- [x] 7.2 `shell/script_test.go` — 执行器测试
   - for 循环变量绑定和展开
   - for 循环体内 spawn 调用次数正确
   - while 循环条件变化导致退出
@@ -169,7 +169,7 @@ So that 我可以编写重复和定时的智能体编排逻辑。
   - sleep 可被 ctx.Cancel 中断
   - exit 立即终止脚本并返回正确退出码
   - 嵌套 for + if 组合执行
-- [ ] 7.3 竞态测试：`go test -race ./shell/...`
+- [x] 7.3 竞态测试：`go test -race ./shell/...`
 
 ## Dev Notes
 
@@ -326,10 +326,33 @@ script error at line X: while loop exceeded maximum iterations (10000), possible
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude claude-4.6-opus-high-thinking (Cursor)
 
 ### Debug Log References
 
+无。所有实现一次通过，无调试循环。
+
 ### Completion Notes List
 
+- 在 `shell/script.go` 中扩展 AST：新增 `ForBlock`、`WhileBlock`、`BuiltinStmt` 结构体，以及对应的 `StmtFor`/`StmtWhile`/`StmtBuiltin` 常量
+- 实现递归下降解析器扩展：`parseForBlock`（支持 `[...]` 方括号和空格分隔两种列表语法）、`parseWhileBlock`（复用现有 `parseCondition`）、`parseBuiltinStatement`（含 sleep 时长格式校验）
+- 将 `parseBlock` 参数从 `insideIf` 泛化为 `insideBlock`，使 for/while 块体与 if 块体共享 `end` 终止符检测
+- 实现解释器执行：for 循环变量绑定+作用域清理、while 循环条件评估+MaxLoopIterations(10000) 无限循环保护、builtin 命令执行（wait/sleep/exit）
+- `ErrScriptExit` 类型实现 exit 命令的流控制，在 `Execute` 顶层通过 `errors.As` 捕获并转换为退出码
+- sleep 使用 `select { <-time.After(d), <-ctx.Done() }` 实现可中断等待
+- 扩展 `KernelSpawner` 接口添加 `Wait(ctx, pid)` 方法，更新所有实现：`ipcKernelSpawner`（ipc/server.go）、`mockSpawner` 和 `contextCancellingSpawner`（pipe_test.go）
+- `countStagesInBlock` 扩展：for = 列表长度 × 体复杂度，while = 10 × 体复杂度，wait = 1
+- 全部 26 个 ATDD 测试通过（从 RED → GREEN），106 个 shell 包测试全部通过，-race 竞态检测通过
+- 全项目回归测试通过（唯一失败 TestRunTop_NoDaemon 是预存的 TTY 环境问题，与本次改动无关）
+
+### Change Log
+
+- 2026-03-09: Story 18.1 实现完成 — 循环结构（for/while）与内置命令（wait/sleep/exit）
+
 ### File List
+
+- shell/script.go — AST 类型扩展 + 解析器扩展 + 执行器扩展 + countStagesInBlock 扩展
+- shell/pipe.go — KernelSpawner 接口新增 Wait 方法
+- shell/pipe_test.go — mockSpawner/contextCancellingSpawner 新增 Wait 方法
+- shell/script_test.go — 26 个 ATDD 测试（已预写，本次从 RED 变 GREEN）
+- ipc/server.go — ipcKernelSpawner 新增 Wait 方法实现
