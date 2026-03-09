@@ -2493,6 +2493,9 @@ func TestParseScript_Error_FnCallArgCountMismatch(t *testing.T) {
 	if !containsSubstring(errMsg, "2") {
 		t.Errorf("error should mention actual arg count '2', got: %q", errMsg)
 	}
+	if !containsSubstring(errMsg, "line 4") {
+		t.Errorf("error should mention line number 'line 4', got: %q", errMsg)
+	}
 }
 
 // --- 18.2-UNIT-014: [P0] ParseScript 调用未定义函数 → 错误 (AC7) ---
@@ -2505,6 +2508,9 @@ func TestParseScript_Error_FnCallUndefined(t *testing.T) {
 	}
 	if !containsSubstring(err.Error(), "nonexistent") {
 		t.Errorf("error should mention function name 'nonexistent', got: %q", err.Error())
+	}
+	if !containsSubstring(err.Error(), "line 1") {
+		t.Errorf("error should mention line number 'line 1', got: %q", err.Error())
 	}
 }
 
@@ -3177,6 +3183,27 @@ func TestParseScript_Error_FnParamReservedKeyword(t *testing.T) {
 	_, err := ParseScript(input)
 	if err == nil {
 		t.Fatal("expected error for parameter name 'for' (reserved keyword)")
+	}
+}
+
+// --- 18.2-CR-014: [P1] fn 参数名非法标识符 → 错误 ---
+
+func TestParseScript_Error_FnParamInvalidIdentifier(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"numeric param", "fn bad(123)\n  spawn \"test\"\nend"},
+		{"hyphenated param", "fn bad(a-b)\n  spawn \"test\"\nend"},
+		{"spaced param", "fn bad(a b)\n  spawn \"test\"\nend"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseScript(tc.input)
+			if err == nil {
+				t.Errorf("expected error for invalid parameter name: %q", tc.input)
+			}
+		})
 	}
 }
 

@@ -130,6 +130,7 @@ type Statement struct {
 	Assign   string   // variable name for assignment spawn/fn-call
 	OnError  *Command // on-error handler spawn command
 	Raw      string
+	Line     int // 1-based line number from source
 }
 
 // Script is a sequence of parsed statements.
@@ -194,7 +195,7 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 			if err != nil {
 				return nil, 0, err
 			}
-			stmts = append(stmts, Statement{Kind: StmtFnDef, FnDef: fnDef, Raw: trimmed})
+			stmts = append(stmts, Statement{Kind: StmtFnDef, FnDef: fnDef, Raw: trimmed, Line: i + 1})
 			i = nextIdx
 			continue
 		}
@@ -207,6 +208,7 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 			if err != nil {
 				return nil, 0, err
 			}
+			stmt.Line = i + 1
 			stmts = append(stmts, stmt)
 			i++
 			continue
@@ -217,7 +219,7 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 			if err != nil {
 				return nil, 0, err
 			}
-			stmts = append(stmts, Statement{Kind: StmtIf, If: ifBlock, Raw: trimmed})
+			stmts = append(stmts, Statement{Kind: StmtIf, If: ifBlock, Raw: trimmed, Line: i + 1})
 			i = nextIdx
 			continue
 		}
@@ -227,7 +229,7 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 			if err != nil {
 				return nil, 0, err
 			}
-			stmts = append(stmts, Statement{Kind: StmtFor, For: forBlock, Raw: trimmed})
+			stmts = append(stmts, Statement{Kind: StmtFor, For: forBlock, Raw: trimmed, Line: i + 1})
 			i = nextIdx
 			continue
 		}
@@ -237,7 +239,7 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 			if err != nil {
 				return nil, 0, err
 			}
-			stmts = append(stmts, Statement{Kind: StmtWhile, While: whileBlock, Raw: trimmed})
+			stmts = append(stmts, Statement{Kind: StmtWhile, While: whileBlock, Raw: trimmed, Line: i + 1})
 			i = nextIdx
 			continue
 		}
@@ -247,6 +249,7 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 			if err != nil {
 				return nil, 0, err
 			}
+			stmt.Line = i + 1
 			stmts = append(stmts, stmt)
 			i++
 			continue
@@ -256,6 +259,7 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 		if err != nil {
 			return nil, 0, fmt.Errorf("line %d: %w", i+1, err)
 		}
+		stmt.Line = i + 1
 		stmts = append(stmts, stmt)
 		i++
 	}
@@ -449,6 +453,9 @@ func parseFnDef(lines []string, fnLineIdx int) (*FnDef, int, error) {
 			p = strings.TrimSpace(p)
 			if p == "" {
 				continue
+			}
+			if !isValidIdentifier(p) {
+				return nil, 0, fmt.Errorf("line %d: invalid parameter name %q", fnLineIdx+1, p)
 			}
 			if isReservedKeyword(p) {
 				return nil, 0, fmt.Errorf("line %d: parameter name %q is a reserved keyword", fnLineIdx+1, p)
@@ -661,7 +668,7 @@ func isFnCallExpr(s string) (name string, args []string, ok bool) {
 	if !isValidIdentifier(name) || isReservedKeyword(name) {
 		return "", nil, false
 	}
-	if len(s) == 0 || s[len(s)-1] != ')' {
+	if s[len(s)-1] != ')' {
 		return "", nil, false
 	}
 	argsStr := strings.TrimSpace(s[parenIdx+1 : len(s)-1])
@@ -716,9 +723,16 @@ func validateFnCalls(stmts []Statement, functions map[string]*FnDef) error {
 		case StmtFnCall:
 			fn, ok := functions[stmt.FnCall.Name]
 			if !ok {
+				if stmt.Line > 0 {
+					return fmt.Errorf("line %d: undefined function %q", stmt.Line, stmt.FnCall.Name)
+				}
 				return fmt.Errorf("undefined function %q", stmt.FnCall.Name)
 			}
 			if len(stmt.FnCall.Args) != len(fn.Params) {
+				if stmt.Line > 0 {
+					return fmt.Errorf("line %d: function %q expects %d args, got %d",
+						stmt.Line, stmt.FnCall.Name, len(fn.Params), len(stmt.FnCall.Args))
+				}
 				return fmt.Errorf("function %q expects %d args, got %d",
 					stmt.FnCall.Name, len(fn.Params), len(stmt.FnCall.Args))
 			}
