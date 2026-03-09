@@ -1,6 +1,6 @@
 # Story 18.4: Spawn 返回值捕获与并行执行
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -52,18 +52,18 @@ So that 我可以组合智能体结果并加速并行任务。
 
 ### Task 1: AST 扩展（AC: #2, #9）
 
-- [ ] 1.1 新增 `StmtParallel StatementKind = "parallel"`
-- [ ] 1.2 新增 `ParallelBlock` 结构体：
+- [x] 1.1 新增 `StmtParallel StatementKind = "parallel"`
+- [x] 1.2 新增 `ParallelBlock` 结构体：
   ```go
   type ParallelBlock struct {
       Body []Statement
   }
   ```
-- [ ] 1.3 扩展 `Statement` 结构体新增字段 `Parallel *ParallelBlock`
+- [x] 1.3 扩展 `Statement` 结构体新增字段 `Parallel *ParallelBlock`
 
 ### Task 2: 解析器扩展 — parallel 块（AC: #2, #7, #9, #10）
 
-- [ ] 2.1 在 `parseBlock` 中，在 `for` 检测之前，新增 `parallel` 关键字检测：
+- [x] 2.1 在 `parseBlock` 中，在 `for` 检测之前，新增 `parallel` 关键字检测：
   ```go
   if lower == "parallel" {
       parallelBlock, nextIdx, err := parseParallelBlock(lines, i)
@@ -75,7 +75,7 @@ So that 我可以组合智能体结果并加速并行任务。
       continue
   }
   ```
-- [ ] 2.2 实现 `parseParallelBlock(lines []string, parallelLineIdx int) (*ParallelBlock, int, error)`：
+- [x] 2.2 实现 `parseParallelBlock(lines []string, parallelLineIdx int) (*ParallelBlock, int, error)`：
   - 调用 `parseBlock(lines, parallelLineIdx+1, true)` 解析 body
   - 检查 `nextIdx` 处是否为 `end`，否则报错 `unclosed parallel block (missing 'end')`
   - 遍历 body 语句，校验每条语句的 Kind 必须为 `StmtSpawn` 或 `StmtPipeline`
@@ -85,7 +85,7 @@ So that 我可以组合智能体结果并加速并行任务。
 
 ### Task 3: 校验器扩展（AC: #2）
 
-- [ ] 3.1 在 `validateFnCalls` 中新增 `StmtParallel` 分支：
+- [x] 3.1 在 `validateFnCalls` 中新增 `StmtParallel` 分支：
   ```go
   case StmtParallel:
       if err := validateFnCalls(stmt.Parallel.Body, functions); err != nil {
@@ -95,8 +95,8 @@ So that 我可以组合智能体结果并加速并行任务。
 
 ### Task 4: 执行器扩展 — parallel 块执行（AC: #1, #2, #3, #5, #6, #7, #8, #10）
 
-- [ ] 4.1 新增 `"sync"` 到 `script.go` 的 import
-- [ ] 4.2 在 `executeBlock` 中新增 `case StmtParallel` 分支，实现三阶段执行：
+- [x] 4.1 新增 `"sync"` 到 `script.go` 的 import
+- [x] 4.2 在 `executeBlock` 中新增 `case StmtParallel` 分支，实现三阶段执行：
 
 **阶段 A — 顺序展开 intent（主 goroutine，确保线程安全）：**
 ```go
@@ -145,7 +145,7 @@ type parallelResult struct {
 
 ### Task 5: 复杂度统计扩展（AC: #2）
 
-- [ ] 5.1 在 `countStagesInBlock` 中新增 `StmtParallel`：
+- [x] 5.1 在 `countStagesInBlock` 中新增 `StmtParallel`：
   ```go
   case StmtParallel:
       n += countStagesInBlock(stmt.Parallel.Body)
@@ -154,7 +154,7 @@ type parallelResult struct {
 
 ### Task 6: 测试（AC: #1-#10）
 
-- [ ] 6.1 `shell/parallel_test.go` — 解析测试：
+- [x] 6.1 `shell/parallel_test.go` — 解析测试：
   - `TestParseScript_Parallel_BasicBlock` — 基本 parallel 块解析（3 个 spawn）
   - `TestParseScript_Parallel_WithAssignment` — 带赋值的 spawn
   - `TestParseScript_Parallel_WithOnError` — spawn 带 on-error
@@ -167,7 +167,7 @@ type parallelResult struct {
   - `TestParseScript_Error_ParallelInvalidContent_FnCall` — fn call 在 parallel 内 → 错误
   - `TestParseScript_Error_ParallelNested` — 嵌套 parallel → 错误
 
-- [ ] 6.2 `shell/parallel_test.go` — 执行测试：
+- [x] 6.2 `shell/parallel_test.go` — 执行测试：
   - `TestScriptExecutor_Parallel_AllSucceed` — 3 spawn 全成功，验证所有结果和 tokens 汇总（AC2）
   - `TestScriptExecutor_Parallel_Assignment` — 赋值 spawn，验证 env 和 captures（AC1, AC5）
   - `TestScriptExecutor_Parallel_OneFails_OthersContinue` — 一个失败不影响其他（AC3）
@@ -183,13 +183,13 @@ type parallelResult struct {
   - `TestScriptExecutor_Parallel_Pipeline` — pipeline 在 parallel 块中并行执行（AC7）
   - `TestScriptExecutor_Parallel_StageCount` — countStages 正确统计 parallel 内 spawn
 
-- [ ] 6.3 `shell/parallel_test.go` — 组合测试：
+- [x] 6.3 `shell/parallel_test.go` — 组合测试：
   - `TestScriptExecutor_Parallel_InForLoop` — for 循环内使用 parallel 块
   - `TestScriptExecutor_Parallel_InFunction` — 函数内使用 parallel 块
   - `TestScriptExecutor_Parallel_AfterDataStructures` — parallel 前数组/映射赋值，intent 中 `${arr[0]}` 展开
   - `TestScriptExecutor_Parallel_ResultInWhileCondition` — parallel 结果用于 while 条件
 
-- [ ] 6.4 竞态测试：`go test -race ./shell/...`
+- [x] 6.4 竞态测试：`go test -race ./shell/...`
 
 ## Dev Notes
 
@@ -465,10 +465,24 @@ Story 18.3 的 code review 修复了 3 个问题：
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude claude-4.6-opus (Cursor)
 
 ### Debug Log References
 
+无调试问题。所有测试一次性通过。
+
 ### Completion Notes List
 
+- Task 1-3: AST 扩展 — 新增 `StmtParallel` 常量、`ParallelBlock` 结构体、`Statement.Parallel` 字段；解析器 `parseBlock` 新增 `parallel` 关键字检测（在 `for` 之前）；实现 `parseParallelBlock` 函数，校验 body 仅允许 `StmtSpawn`/`StmtPipeline`；`validateFnCalls` 递归检查 parallel body
+- Task 4: 执行器 — 实现 `executeParallel` 方法，三阶段设计：(A) 主 goroutine 顺序 ExpandStrict 所有 intent，(B) goroutine-per-task 并行执行 SpawnAndWait + on-error，(C) 主 goroutine 按声明顺序收集 results 到 captures/env/TotalTokens
+- Task 5: `countStagesInBlock` 递归统计 parallel body 内 spawn 数
+- Task 6: 全部 31 个测试通过（11 解析 + 14 执行 + 4 组合 + 1 竞态 + 1 性能）。`go test -race` 无数据竞争
+
+### Change Log
+
+- 2026-03-09: 实现 Story 18.4 — parallel 块解析、执行（三阶段并行模型）、校验、stage 计数。新增 `"sync"` import。
+
 ### File List
+
+- shell/script.go (modified) — 新增 StmtParallel/ParallelBlock/parseParallelBlock/executeParallel + 三阶段并行执行 + validateFnCalls/countStagesInBlock 扩展
+- shell/parallel_test.go (existing, ATDD) — 31 个测试覆盖解析/执行/组合/竞态/性能
