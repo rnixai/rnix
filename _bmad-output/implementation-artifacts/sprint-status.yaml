@@ -208,7 +208,7 @@ development_status:
   18-1-loop-structures-and-builtin-commands: done
   18-2-function-definition-and-invocation: done
   18-3-data-structures-and-string-interpolation: done
-  18-4-spawn-return-capture-and-parallel-execution: backlog
+  18-4-spawn-return-capture-and-parallel-execution: ready-for-dev
   18-5-modularization-and-script-execution: backlog
   epic-18-retrospective: optional
 
