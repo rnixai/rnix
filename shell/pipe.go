@@ -14,6 +14,7 @@ const MaxRecommendedStages = 10
 // Implementations bridge to the real kernel (via IPC) or mock (for testing).
 type KernelSpawner interface {
 	SpawnAndWait(ctx context.Context, intent, agent, model string) (result string, exitCode int, tokensUsed int, err error)
+	Wait(ctx context.Context, pid int) (exitCode int, err error)
 }
 
 // StageCallback is invoked when a pipeline stage begins execution.

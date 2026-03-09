@@ -43,6 +43,10 @@ func (m *mockSpawner) SpawnAndWait(ctx context.Context, intent, agent, model str
 	return r.result, r.exitCode, r.tokens, r.err
 }
 
+func (m *mockSpawner) Wait(_ context.Context, _ int) (int, error) {
+	return 0, fmt.Errorf("mockSpawner: Wait not implemented")
+}
+
 // --- 11.1-UNIT-006: [P0] 双阶段管道执行 + PIPE_INPUT 注入 (AC1) ---
 
 func TestPipelineExecutor_TwoStages_PipeInput(t *testing.T) {
@@ -286,6 +290,10 @@ func (c *contextCancellingSpawner) SpawnAndWait(ctx context.Context, intent, age
 		return "", 1, 0, ctx.Err()
 	}
 	return c.inner.SpawnAndWait(ctx, intent, agent, model)
+}
+
+func (c *contextCancellingSpawner) Wait(_ context.Context, _ int) (int, error) {
+	return 0, fmt.Errorf("contextCancellingSpawner: Wait not implemented")
 }
 
 // --- 11.1-UNIT-011: [P1] PipelineResult.Elapsed 记录总耗时 ---
