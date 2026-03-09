@@ -2065,6 +2065,154 @@ func TestParseScript_BuiltinCaseInsensitive(t *testing.T) {
 	}
 }
 
+// --- 18.1-CR-001: [P1] for + on-error 嵌套执行（组合矩阵验证）---
+
+func TestScriptExecutor_ForLoop_WithOnError(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "fail-a", exitCode: 1, tokens: 10},
+			{result: "recovered-a", exitCode: 0, tokens: 10},
+			{result: "ok-b", exitCode: 0, tokens: 10},
+		},
+	}
+
+	input := "for item in [a, b]\n  spawn \"处理 ${item}\" on-error spawn \"恢复 ${item}\"\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	result, err := executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 3 {
+		t.Fatalf("calls = %d, want 3 (a:fail + a:recover + b:ok)", len(spawner.calls))
+	}
+	if spawner.calls[0].intent != "处理 a" {
+		t.Errorf("call 0 intent = %q, want %q", spawner.calls[0].intent, "处理 a")
+	}
+	if spawner.calls[1].intent != "恢复 a" {
+		t.Errorf("call 1 intent = %q, want %q", spawner.calls[1].intent, "恢复 a")
+	}
+	if spawner.calls[2].intent != "处理 b" {
+		t.Errorf("call 2 intent = %q, want %q", spawner.calls[2].intent, "处理 b")
+	}
+	if result.LastExitCode != 0 {
+		t.Errorf("exit code = %d, want 0", result.LastExitCode)
+	}
+}
+
+// --- 18.1-CR-002: [P1] while + for 嵌套执行（组合矩阵验证）---
+
+func TestScriptExecutor_WhileNestedFor_Execution(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 10},
+			{result: "done", exitCode: 0, tokens: 10},
+		},
+	}
+
+	input := "export status=running\nwhile $status != done\n  for item in [x]\n    status = spawn \"处理 ${item} 状态=${status}\"\n  end\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 2 {
+		t.Fatalf("calls = %d, want 2 (while iterates twice, for has 1 item each)", len(spawner.calls))
+	}
+	if !containsSubstring(spawner.calls[0].intent, "状态=running") {
+		t.Errorf("call 0 should see status=running, got %q", spawner.calls[0].intent)
+	}
+	if !containsSubstring(spawner.calls[1].intent, "状态=ok") {
+		t.Errorf("call 1 should see status=ok, got %q", spawner.calls[1].intent)
+	}
+	val, ok := env.Get("status")
+	if !ok || val != "done" {
+		t.Errorf("status = %q, want %q", val, "done")
+	}
+}
+
+// --- 18.1-CR-003: [P1] exit 在 while 循环内终止整个脚本（组合矩阵验证）---
+
+func TestScriptExecutor_ExitInWhileLoop_Terminates(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 10},
+		},
+	}
+
+	input := "export x=1\nwhile $x != 0\n  spawn \"执行\"\n  exit 42\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	result, err := executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v (exit should not be treated as error)", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Errorf("calls = %d, want 1 (exit should stop after first iteration)", len(spawner.calls))
+	}
+	if result.LastExitCode != 42 {
+		t.Errorf("exit code = %d, want 42", result.LastExitCode)
+	}
+}
+
+// --- 18.1-CR-004: [P1] exit 解析时校验——非法值拒绝 ---
+
+func TestParseScript_Error_ExitInvalidCode(t *testing.T) {
+	tests := []string{
+		"exit abc",
+		"exit -1",
+		"exit 256",
+	}
+	for _, input := range tests {
+		_, err := ParseScript(input)
+		if err == nil {
+			t.Errorf("expected error for %q", input)
+		}
+	}
+}
+
+// --- 18.1-CR-005: [P1] 保留关键字不能作为变量名 ---
+
+func TestParseScript_Error_ReservedKeywordAsVarName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"export for", "export for=value"},
+		{"export while", "export while=value"},
+		{"export if", "export if=value"},
+		{"export exit", "export exit=value"},
+		{"for var named if", "for if in [a, b]\n  spawn \"test\"\nend"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseScript(tc.input)
+			if err == nil {
+				t.Errorf("expected error for reserved keyword as variable name: %q", tc.input)
+			}
+		})
+	}
+}
+
 // Ensure fmt and strings packages are used (referenced in mockWaitableSpawner and tests).
 var (
 	_ = fmt.Errorf
