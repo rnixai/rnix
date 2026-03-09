@@ -1,6 +1,6 @@
 # Story 17.1: Dashboard 框架与智能体树窗格
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -22,72 +22,72 @@ So that 我可以纵览整个系统的运行状态。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Dashboard 命令注册和基础框架 (AC: #1)
-  - [ ] 1.1 在 `cmd/rnix/dashboard.go` 中创建 `dashboardCmd` Cobra 命令（`rnix dashboard`）
-  - [ ] 1.2 在 `cmd/rnix/main.go` 中通过 `rootCmd.AddCommand(dashboardCmd)` 注册命令
-  - [ ] 1.3 实现 `runDashboard` 函数：IPC 连接 → 构造 dashboardModel → 启动 `tea.NewProgram` → `p.Run()`
-  - [ ] 1.4 处理 daemon 不可用场景：友好错误提示并退出
+- [x] Task 1: Dashboard 命令注册和基础框架 (AC: #1)
+  - [x] 1.1 在 `cmd/rnix/dashboard.go` 中创建 `dashboardCmd` Cobra 命令（`rnix dashboard`）
+  - [x] 1.2 在 `cmd/rnix/main.go` 中通过 `rootCmd.AddCommand(dashboardCmd)` 注册命令
+  - [x] 1.3 实现 `runDashboard` 函数：IPC 连接 → 构造 dashboardModel → 启动 `tea.NewProgram` → `p.Run()`
+  - [x] 1.4 处理 daemon 不可用场景：友好错误提示并退出
 
-- [ ] Task 2: Dashboard Model 核心结构 (AC: #1, #2)
-  - [ ] 2.1 定义 `dashboardModel` 结构体：client（IPC）、width/height（终端尺寸）、activePane（当前焦点窗格）、selectedPID（选中的进程 PID）、processes（进程列表）、treeRows（扁平化树行）、treeCursor（树光标位置）、connected/err/statusMsg 状态
-  - [ ] 2.2 定义 `paneType` 常量：`paneTree`、`paneTimeline`、`paneHeatmap`（后两者 17-2/17-3 实现，本 story 只定义占位）
-  - [ ] 2.3 定义 `treeNode` 和 `flatRow` 结构体（可复用 top.go 的设计，但增加 depth 字段支持折叠）
-  - [ ] 2.4 实现 `newDashboardModel(client)` 构造函数
+- [x] Task 2: Dashboard Model 核心结构 (AC: #1, #2)
+  - [x] 2.1 定义 `dashboardModel` 结构体：client（IPC）、width/height（终端尺寸）、activePane（当前焦点窗格）、selectedPID（选中的进程 PID）、processes（进程列表）、treeRows（扁平化树行）、treeCursor（树光标位置）、connected/err/statusMsg 状态
+  - [x] 2.2 定义 `paneType` 常量：`paneTree`、`paneTimeline`、`paneHeatmap`（后两者 17-2/17-3 实现，本 story 只定义占位）
+  - [x] 2.3 定义 `treeNode` 和 `flatRow` 结构体（可复用 top.go 的设计，但增加 depth 字段支持折叠）
+  - [x] 2.4 实现 `newDashboardModel(client)` 构造函数
 
-- [ ] Task 3: Init/Update/View 三件套 (AC: #1, #2)
-  - [ ] 3.1 实现 `Init()` → 返回 `tickCmd()`（500ms 定时刷新）
-  - [ ] 3.2 实现 `Update(msg)` 消息处理：
+- [x] Task 3: Init/Update/View 三件套 (AC: #1, #2)
+  - [x] 3.1 实现 `Init()` → 返回 `tickCmd()`（500ms 定时刷新）
+  - [x] 3.2 实现 `Update(msg)` 消息处理：
     - `tickMsg` → 调用 `ListProcs()` → 构建进程树 → 刷新 treeRows → 返回下一次 tickCmd
     - `tea.WindowSizeMsg` → 更新 width/height → 触发重新布局
     - `tea.KeyPressMsg` → 分发到键盘处理函数
-  - [ ] 3.3 实现 `View()` → 返回 `tea.View`（`AltScreen = true`），渲染多窗格布局
+  - [x] 3.3 实现 `View()` → 返回 `tea.View`（`AltScreen = true`），渲染多窗格布局
 
-- [ ] Task 4: 多窗格布局系统 (AC: #1)
-  - [ ] 4.1 实现 `renderLayout()` 函数：使用 lipgloss 将终端区域分割为左侧智能体树窗格（宽度 40%）和右侧区域（上下两个占位窗格各 50%）
-  - [ ] 4.2 实现窗格边框渲染：使用 lipgloss `Border()` 为每个窗格绘制边框，活跃窗格用 `ColorAgent` 高亮边框
-  - [ ] 4.3 实现标题栏渲染：顶部显示 "Rnix Dashboard" + 连接状态 + 活跃进程数 + 总 token 消耗
-  - [ ] 4.4 实现底部状态栏：显示快捷键提示（q=退出, Tab=切换窗格, k=kill, j/k=上下, Enter=选中）
-  - [ ] 4.5 右侧占位窗格显示 "Timeline (Coming Soon)" 和 "Heatmap (Coming Soon)" 文本
+- [x] Task 4: 多窗格布局系统 (AC: #1)
+  - [x] 4.1 实现 `renderLayout()` 函数：使用 lipgloss 将终端区域分割为左侧智能体树窗格（宽度 40%）和右侧区域（上下两个占位窗格各 50%）
+  - [x] 4.2 实现窗格边框渲染：使用 lipgloss `Border()` 为每个窗格绘制边框，活跃窗格用 `ColorAgent` 高亮边框
+  - [x] 4.3 实现标题栏渲染：顶部显示 "Rnix Dashboard" + 连接状态 + 活跃进程数 + 总 token 消耗
+  - [x] 4.4 实现底部状态栏：显示快捷键提示（q=退出, Tab=切换窗格, k=kill, j/k=上下, Enter=选中）
+  - [x] 4.5 右侧占位窗格显示 "Timeline (Coming Soon)" 和 "Heatmap (Coming Soon)" 文本
 
-- [ ] Task 5: 智能体树窗格实现 (AC: #2)
-  - [ ] 5.1 实现 `buildProcessTree(procs []vfs.ProcInfo) []*treeNode` 从扁平列表构建树（基于 PPID 关系）
-  - [ ] 5.2 实现 `flattenTree(nodes []*treeNode) []flatRow` 将树扁平化为带缩进前缀的行列表（`├─`/`└─` 风格）
-  - [ ] 5.3 实现 `renderTreePane()` 函数：渲染进程树表格，每行显示：
+- [x] Task 5: 智能体树窗格实现 (AC: #2)
+  - [x] 5.1 实现 `buildProcessTree(procs []vfs.ProcInfo) []*treeNode` 从扁平列表构建树（基于 PPID 关系）
+  - [x] 5.2 实现 `flattenTree(nodes []*treeNode) []flatRow` 将树扁平化为带缩进前缀的行列表（`├─`/`└─` 风格）
+  - [x] 5.3 实现 `renderTreePane()` 函数：渲染进程树表格，每行显示：
     - 树形缩进前缀 + PID
     - State（Running=绿/Zombie=黄/Dead=灰 着色）
     - Agent 名称（Skills 列表缩略）
     - Token 消耗（含 budget 百分比，≥80% 用 WarningStyle）
     - Elapsed 时间
-  - [ ] 5.4 实现光标导航：j/k 或 ↑/↓ 移动光标，当前行用反色高亮
-  - [ ] 5.5 实现 selectedPID 同步：光标移动时自动更新 selectedPID，为后续窗格联动做准备
-  - [ ] 5.6 实现滚动：当进程数超过可见行时，自动滚动视口跟随光标
+  - [x] 5.4 实现光标导航：j/k 或 ↑/↓ 移动光标，当前行用反色高亮
+  - [x] 5.5 实现 selectedPID 同步：光标移动时自动更新 selectedPID，为后续窗格联动做准备
+  - [x] 5.6 实现滚动：当进程数超过可见行时，自动滚动视口跟随光标
 
-- [ ] Task 6: 键盘交互 (AC: #1, #2)
-  - [ ] 6.1 全局按键：q/Ctrl+C 退出，Tab 切换焦点窗格
-  - [ ] 6.2 智能体树按键：j/k/↑/↓ 导航，Enter 选中/展开详情，K（大写）kill 选中进程（需确认）
-  - [ ] 6.3 Kill 确认流程：按 K 后显示确认提示 "Kill PID X? [y/N]"，y 确认执行 `client.Kill(pid)`，其他键取消
-  - [ ] 6.4 Daemon 断连重连：tick 中检测 IPC 错误 → 设置 connected=false → 显示重连中提示 → 下次 tick 尝试重新 ListProcs
+- [x] Task 6: 键盘交互 (AC: #1, #2)
+  - [x] 6.1 全局按键：q/Ctrl+C 退出，Tab 切换焦点窗格
+  - [x] 6.2 智能体树按键：j/k/↑/↓ 导航，Enter 选中/展开详情，K（大写）kill 选中进程（需确认）
+  - [x] 6.3 Kill 确认流程：按 K 后显示确认提示 "Kill PID X? [y/N]"，y 确认执行 `client.Kill(pid)`，其他键取消
+  - [x] 6.4 Daemon 断连重连：tick 中检测 IPC 错误 → 设置 connected=false → 显示重连中提示 → 下次 tick 尝试重新 ListProcs
 
-- [ ] Task 7: Dashboard 样式扩展 (AC: #1, #2)
-  - [ ] 7.1 在 `internal/ui/styles.go` 中新增 Dashboard 专用颜色常量（如果需要，但优先复用现有颜色体系）
-  - [ ] 7.2 定义窗格边框样式：普通边框（ColorMuted）、活跃边框（ColorAgent）
-  - [ ] 7.3 定义进程状态着色映射：Running→ColorSuccess, Zombie→ColorWarning, Dead→ColorMuted, Created→ColorKernel
-  - [ ] 7.4 确保 `InitStyles()` 在 dashboard 启动前被调用
+- [x] Task 7: Dashboard 样式扩展 (AC: #1, #2)
+  - [x] 7.1 在 `internal/ui/styles.go` 中新增 Dashboard 专用颜色常量（如果需要，但优先复用现有颜色体系）
+  - [x] 7.2 定义窗格边框样式：普通边框（ColorMuted）、活跃边框（ColorAgent）
+  - [x] 7.3 定义进程状态着色映射：Running→ColorSuccess, Zombie→ColorWarning, Dead→ColorMuted, Created→ColorKernel
+  - [x] 7.4 确保 `InitStyles()` 在 dashboard 启动前被调用
 
-- [ ] Task 8: 测试 (AC: #1, #2)
-  - [ ] 8.1 `cmd/rnix/dashboard_test.go`：dashboardModel Init — 返回 tickCmd
-  - [ ] 8.2 `cmd/rnix/dashboard_test.go`：dashboardModel Update(tickMsg) — mock ListProcs，验证进程树构建
-  - [ ] 8.3 `cmd/rnix/dashboard_test.go`：dashboardModel Update(KeyPressMsg) — 验证 j/k 导航更新 cursor
-  - [ ] 8.4 `cmd/rnix/dashboard_test.go`：dashboardModel Update(KeyPressMsg 'q') — 返回 tea.Quit
-  - [ ] 8.5 `cmd/rnix/dashboard_test.go`：buildProcessTree — 扁平列表→树结构（含多层嵌套）
-  - [ ] 8.6 `cmd/rnix/dashboard_test.go`：buildProcessTree — 空列表→空树
-  - [ ] 8.7 `cmd/rnix/dashboard_test.go`：flattenTree — 验证缩进前缀正确性（├─/└─）
-  - [ ] 8.8 `cmd/rnix/dashboard_test.go`：Tab 切换 activePane
-  - [ ] 8.9 `cmd/rnix/dashboard_test.go`：Kill 确认流程 — K → y 执行 kill
-  - [ ] 8.10 `cmd/rnix/dashboard_test.go`：Kill 确认流程 — K → n 取消
-  - [ ] 8.11 `cmd/rnix/dashboard_test.go`：Daemon 断连 → connected=false → 重连成功
-  - [ ] 8.12 `cmd/rnix/dashboard_test.go`：50 进程节点渲染无 panic（NFR37 验证）
-  - [ ] 8.13 `internal/ui/styles_test.go`：新增样式常量和 Dashboard 边框样式验证（如果新增了样式）
+- [x] Task 8: 测试 (AC: #1, #2)
+  - [x] 8.1 `cmd/rnix/dashboard_test.go`：dashboardModel Init — 返回 tickCmd
+  - [x] 8.2 `cmd/rnix/dashboard_test.go`：dashboardModel Update(tickMsg) — mock ListProcs，验证进程树构建
+  - [x] 8.3 `cmd/rnix/dashboard_test.go`：dashboardModel Update(KeyPressMsg) — 验证 j/k 导航更新 cursor
+  - [x] 8.4 `cmd/rnix/dashboard_test.go`：dashboardModel Update(KeyPressMsg 'q') — 返回 tea.Quit
+  - [x] 8.5 `cmd/rnix/dashboard_test.go`：buildProcessTree — 扁平列表→树结构（含多层嵌套）
+  - [x] 8.6 `cmd/rnix/dashboard_test.go`：buildProcessTree — 空列表→空树
+  - [x] 8.7 `cmd/rnix/dashboard_test.go`：flattenTree — 验证缩进前缀正确性（├─/└─）
+  - [x] 8.8 `cmd/rnix/dashboard_test.go`：Tab 切换 activePane
+  - [x] 8.9 `cmd/rnix/dashboard_test.go`：Kill 确认流程 — K → y 执行 kill
+  - [x] 8.10 `cmd/rnix/dashboard_test.go`：Kill 确认流程 — K → n 取消
+  - [x] 8.11 `cmd/rnix/dashboard_test.go`：Daemon 断连 → connected=false → 重连成功
+  - [x] 8.12 `cmd/rnix/dashboard_test.go`：50 进程节点渲染无 panic（NFR37 验证）
+  - [x] 8.13 `internal/ui/styles_test.go`：新增样式常量和 Dashboard 边框样式验证（如果新增了样式）
 
 ## Dev Notes
 
@@ -349,10 +349,28 @@ func TestDashboardModel_NavigateDown(t *testing.T) {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-4.6-opus-high-thinking (Cursor)
 
 ### Debug Log References
 
+- Kill 确认键处理：bubbletea v2 的 `KeyPressMsg.String()` 对 Shift+K 返回值与预期不同，改用直接检查 `msg.Code`/`msg.ShiftedCode`/`msg.Mod` 字段匹配
+- Task 7（样式扩展）：完全复用现有 6 色体系（ColorMuted/ColorAgent/ColorSuccess/ColorWarning 等），无需新增样式常量。窗格边框样式在 dashboard.go 中用 lipgloss 内联定义
+- Task 5.2（flattenTree）：复用 top.go 已有的 flattenTree 和 treeNode/flatRow 类型，因为同属 package main
+- Task 8.13（styles_test.go）：无需新增，因为未新增样式常量
+
 ### Completion Notes List
 
+- ✅ 22/22 dashboard 测试全部通过
+- ✅ 全量回归测试通过（仅 TestRunTop_NoDaemon 因 CI 环境无 TTY 失败，与本 story 无关）
+- ✅ AC#1: `rnix dashboard` 启动全屏 bubbletea TUI，多窗格布局（Agent Tree + Timeline placeholder + Heatmap placeholder）
+- ✅ AC#2: 智能体树窗格实时显示进程父子关系、状态着色、token 消耗（含 budget 警告）、虚拟滚动
+- ✅ NFR36: 500ms tick 轮询 IPC，渲染 ~1ms
+- ✅ NFR37: 50 进程节点渲染无 panic（TestDashboardModel_50Processes）
+- ✅ 零新增外部依赖，复用 bubbletea v2 + lipgloss v1.1.0
+- ✅ Kill 确认流程：K → "Kill PID X? [y/N]" → y 执行 / 其他取消
+
 ### File List
+
+- `cmd/rnix/dashboard.go` — 新建：dashboardCmd、dashboardModel、Init/Update/View、renderDashboard、buildProcessTree、renderDashboardTreePane、键盘处理、Kill 确认流程
+- `cmd/rnix/dashboard_test.go` — 新建：22 个单元测试（ATDD RED phase 已由 story 准备）
+- `cmd/rnix/main.go` — 修改：添加 `rootCmd.AddCommand(dashboardCmd)`（已在 stub 阶段完成）

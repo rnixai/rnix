@@ -196,7 +196,7 @@ development_status:
 
   # Epic 17: Visual Debugging Dashboard
   epic-17: in-progress
-  17-1-dashboard-framework-and-agent-tree-pane: ready-for-dev
+  17-1-dashboard-framework-and-agent-tree-pane: review
   17-2-tracing-timeline-pane: backlog
   17-3-context-heatmap-pane: backlog
   17-4-pane-linkage-and-process-operations: backlog
