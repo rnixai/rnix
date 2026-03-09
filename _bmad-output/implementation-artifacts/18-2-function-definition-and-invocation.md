@@ -1,6 +1,6 @@
 # Story 18.2: 函数定义与调用
 
-Status: review
+Status: done
 
 ## Story
 
@@ -443,6 +443,28 @@ Claude claude-4.6-opus (Cursor Agent)
 1. `shell/script.go` — 新增 AST 类型（FnDef, FnCallStmt, ReturnStmt, ErrFnReturn），扩展 Statement/Script/ScriptExecutor 结构体；实现 parseFnDef, parseReturnStatement, isFnCallExpr, parseAssignmentFnCall, parseFnCallArgs, validateFnCalls, expandReturnValue, isValidIdentifier；扩展 parseBlock, parseStatement, ParseScript, Execute, executeBlock, countStagesInBlock；新增 MaxCallDepth=100 递归保护
 2. `shell/script_test.go` — 新增涵盖 AC #1-#10 的解析和执行测试；修复 TestScriptExecutor_FnParamVsForLoopVar mock 结果数量不足问题
 3. `cmd/rnix/dashboard.go` — 修复预存 lint：移除 timelineStreamDoneMsg.Err 未使用字段，添加 renderDashboardPlaceholder nolint 标注
+
+### Senior Developer Review (AI)
+
+**Review Date:** 2026-03-09
+**Model:** Claude claude-4.6-opus (Cursor Agent)
+**Outcome:** Approved with fixes applied
+
+**Issues Found & Fixed:**
+1. **[HIGH] AC3 行号缺失** — `validateFnCalls` 错误消息不含行号，违反 AC3"报告错误并指出行号"的要求。修复：为 `Statement` 添加 `Line int` 字段，在 `parseBlock` 中填充所有语句的行号，`validateFnCalls` 错误消息格式改为 `line X: function "NAME" expects N args, got M`。
+2. **[MEDIUM] 参数名缺少标识符校验** — `parseFnDef` 仅检查保留关键字和重复，未验证参数名是否为合法标识符（如 `fn bad(123)` 被静默接受）。修复：在保留关键字检查之前添加 `isValidIdentifier` 校验。
+3. **[LOW] 冗余检查** — `isFnCallExpr` 中 `len(s) == 0` 在前置条件下不可能为 true。已移除。
+
+**Tests Added:**
+- `TestParseScript_Error_FnCallArgCountMismatch` — 增加行号断言验证
+- `TestParseScript_Error_FnCallUndefined` — 增加行号断言验证
+- `TestParseScript_Error_FnParamInvalidIdentifier` — 新增非法参数名测试（数字/连字符/空格）
+
+**Notes:**
+- Dev Notes 中 `process(analyze("input.txt"))` 示例为误导性文档（实现不支持嵌套调用表达式），但不影响功能正确性
+- 所有 10 个 AC 已验证实现完整
+- `go test -race ./shell/...` 通过
+- `golangci-lint run ./shell/...` 0 issues
 
 ### File List
 
