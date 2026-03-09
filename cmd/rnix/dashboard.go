@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -166,6 +167,10 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					m.treeOffset = m.treeCursor - visibleLines + 1
 				}
 			}
+		case "enter":
+			if m.treeCursor < len(m.treeRows) {
+				m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+			}
 		default:
 			if (msg.Code == 'K' || msg.ShiftedCode == 'K') && msg.Mod&tea.ModShift != 0 {
 				if len(m.treeRows) > 0 && m.treeCursor < len(m.treeRows) {
@@ -180,7 +185,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m dashboardModel) dashboardVisibleLines() int {
-	v := m.height - 6
+	v := m.height - 7
 	if v < 1 {
 		v = 1
 	}
@@ -192,6 +197,22 @@ func (m dashboardModel) View() tea.View {
 	v := tea.NewView(content)
 	v.AltScreen = true
 	return v
+}
+
+func colorState(s types.ProcessState) string {
+	name := strings.ToLower(s.String())
+	switch s {
+	case types.StateRunning:
+		return ui.SuccessStyle.Render(name)
+	case types.StateZombie:
+		return ui.WarningStyle.Render(name)
+	case types.StateDead:
+		return ui.MutedStyle.Render(name)
+	case types.StateCreated:
+		return ui.KernelStyle.Render(name)
+	default:
+		return name
+	}
 }
 
 // --- Layout rendering ---
@@ -315,7 +336,9 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			cursor = "▸ "
 		}
 
-		state := strings.ToLower(row.proc.State.String())
+		state := colorState(row.proc.State)
+
+		skills := ui.FormatSkills(row.proc.Skills, 12, "—")
 
 		tokens := ui.FormatTokens(row.proc.TokensUsed)
 		if row.proc.ContextBudget > 0 {
@@ -330,8 +353,8 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		elapsed := ui.FormatDuration(now.Sub(row.proc.CreatedAt))
 
-		line := fmt.Sprintf("%s%sPID %-3d %-9s %s %s",
-			cursor, row.prefix, row.proc.PID, state, tokens, elapsed)
+		line := fmt.Sprintf("%s%sPID %-3d %-9s %-12s %s %s",
+			cursor, row.prefix, row.proc.PID, state, skills, tokens, elapsed)
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
@@ -403,6 +426,9 @@ func buildProcessTree(procs []vfs.ProcInfo) []*treeNode {
 // --- Command runner ---
 
 func runDashboard(_ *cobra.Command, _ []string) error {
+	profile := ui.DetectProfile(os.Stdout)
+	ui.InitStyles(profile)
+
 	client, err := ipc.Dial(ipc.SocketPath())
 	if err != nil {
 		fmt.Fprintln(rootCmd.ErrOrStderr(), "✗ No rnix daemon running. Start an agent first with: rnix -i \"intent\"")

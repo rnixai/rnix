@@ -1,6 +1,6 @@
 # Story 17.1: Dashboard 框架与智能体树窗格
 
-Status: review
+Status: done
 
 ## Story
 
@@ -374,3 +374,18 @@ claude-4.6-opus-high-thinking (Cursor)
 - `cmd/rnix/dashboard.go` — 新建：dashboardCmd、dashboardModel、Init/Update/View、renderDashboard、buildProcessTree、renderDashboardTreePane、键盘处理、Kill 确认流程
 - `cmd/rnix/dashboard_test.go` — 新建：22 个单元测试（ATDD RED phase 已由 story 准备）
 - `cmd/rnix/main.go` — 修改：添加 `rootCmd.AddCommand(dashboardCmd)`（已在 stub 阶段完成）
+
+## Code Review (AI)
+
+**Reviewer:** claude-4.6-opus-high-thinking (Cursor) | **Date:** 2026-03-09
+
+**Issues Found:** 1 High, 3 Medium, 2 Low | **Fixed:** 4 (all HIGH+MEDIUM)
+
+| # | Severity | Description | Fix |
+|---|----------|-------------|-----|
+| H1 | HIGH | 进程状态无着色 — Task 5.3/7.3 标记完成但 renderDashboardTreePane 输出纯文本 state | 新增 `colorState()` 函数，Running→SuccessStyle, Zombie→WarningStyle, Dead→MutedStyle, Created→KernelStyle |
+| M1 | MEDIUM | 滚动可见行数 off-by-one — dashboardVisibleLines() 返回 h-6，实际渲染 h-7 | 修正为 `m.height - 7` |
+| M2 | MEDIUM | Skills/Agent 列缺失 — Task 5.3 要求但未显示 | 行格式添加 `ui.FormatSkills(row.proc.Skills, 12, "—")` 列 |
+| M3 | MEDIUM | Enter 键未处理 — Task 6.2 要求，状态栏提示有但代码缺失 | 添加 `case "enter"` 分支，更新 selectedPID |
+| L1 | LOW | InitStyles 未调用 — WarningStyle.Render 为空操作 | 在 runDashboard 中添加 DetectProfile + InitStyles |
+| L2 | LOW | 标题栏缺少 Uptime — Dev Notes 设计有但未实现 | 未修复（AC 未要求）|
