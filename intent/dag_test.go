@@ -6,14 +6,7 @@ import (
 	"time"
 )
 
-// --- Story 19.1 ATDD: Intent DAG Tests (AC: #1, #3) ---
-// Tests for BuildIntentDAG, DetectCycle, and TopologicalSort.
-// Follows the same DAG testing patterns as compose/dag_test.go.
-
 func TestBuildIntentDAG_NoDeps(t *testing.T) {
-	t.Skip("ATDD RED: BuildIntentDAG not yet implemented")
-
-	// Given: an IntentTree where no node has dependencies
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "parallel tasks",
@@ -26,10 +19,8 @@ func TestBuildIntentDAG_NoDeps(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	// When: building the DAG
 	dag, err := BuildIntentDAG(tree)
 
-	// Then: DAG has 3 nodes, no edges
 	if err != nil {
 		t.Fatalf("BuildIntentDAG failed: %v", err)
 	}
@@ -47,9 +38,6 @@ func TestBuildIntentDAG_NoDeps(t *testing.T) {
 }
 
 func TestBuildIntentDAG_LinearDeps(t *testing.T) {
-	t.Skip("ATDD RED: BuildIntentDAG not yet implemented")
-
-	// Given: a linear chain design -> backend -> test
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "sequential pipeline",
@@ -62,10 +50,8 @@ func TestBuildIntentDAG_LinearDeps(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	// When: building the DAG
 	dag, err := BuildIntentDAG(tree)
 
-	// Then: nodes have correct dependency edges
 	if err != nil {
 		t.Fatalf("BuildIntentDAG failed: %v", err)
 	}
@@ -84,9 +70,6 @@ func TestBuildIntentDAG_LinearDeps(t *testing.T) {
 }
 
 func TestBuildIntentDAG_DiamondDeps(t *testing.T) {
-	t.Skip("ATDD RED: BuildIntentDAG not yet implemented")
-
-	// Given: diamond — design -> backend, design -> frontend, both -> deploy
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "diamond workflow",
@@ -100,10 +83,8 @@ func TestBuildIntentDAG_DiamondDeps(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	// When: building the DAG
 	dag, err := BuildIntentDAG(tree)
 
-	// Then: deploy depends on both backend and frontend
 	if err != nil {
 		t.Fatalf("BuildIntentDAG failed: %v", err)
 	}
@@ -117,9 +98,6 @@ func TestBuildIntentDAG_DiamondDeps(t *testing.T) {
 }
 
 func TestBuildIntentDAG_CycleDetection(t *testing.T) {
-	t.Skip("ATDD RED: BuildIntentDAG cycle detection not yet implemented")
-
-	// Given: a cyclic dependency A -> B -> A
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "cyclic",
@@ -131,10 +109,8 @@ func TestBuildIntentDAG_CycleDetection(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	// When: building the DAG
 	_, err := BuildIntentDAG(tree)
 
-	// Then: error indicating cycle detected
 	if err == nil {
 		t.Fatal("expected cycle detection error, got nil")
 	}
@@ -144,9 +120,6 @@ func TestBuildIntentDAG_CycleDetection(t *testing.T) {
 }
 
 func TestBuildIntentDAG_SelfCycle(t *testing.T) {
-	t.Skip("ATDD RED: BuildIntentDAG self-cycle detection not yet implemented")
-
-	// Given: a node depends on itself
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "self cycle",
@@ -157,19 +130,14 @@ func TestBuildIntentDAG_SelfCycle(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	// When: building the DAG
 	_, err := BuildIntentDAG(tree)
 
-	// Then: cycle detected
 	if err == nil {
 		t.Fatal("expected cycle detection error for self-dependency, got nil")
 	}
 }
 
 func TestTopologicalSort_AllParallel(t *testing.T) {
-	t.Skip("ATDD RED: TopologicalSort not yet implemented")
-
-	// Given: a DAG with 3 independent nodes
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "parallel",
@@ -186,10 +154,8 @@ func TestTopologicalSort_AllParallel(t *testing.T) {
 		t.Fatalf("BuildIntentDAG failed: %v", err)
 	}
 
-	// When: computing topological sort
 	layers, err := dag.TopologicalSort()
 
-	// Then: all nodes in a single layer (can execute in parallel)
 	if err != nil {
 		t.Fatalf("TopologicalSort failed: %v", err)
 	}
@@ -202,9 +168,6 @@ func TestTopologicalSort_AllParallel(t *testing.T) {
 }
 
 func TestTopologicalSort_Sequential(t *testing.T) {
-	t.Skip("ATDD RED: TopologicalSort not yet implemented")
-
-	// Given: a linear chain A -> B -> C
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "sequential",
@@ -221,10 +184,8 @@ func TestTopologicalSort_Sequential(t *testing.T) {
 		t.Fatalf("BuildIntentDAG failed: %v", err)
 	}
 
-	// When: computing topological sort
 	layers, err := dag.TopologicalSort()
 
-	// Then: 3 layers, each with 1 node, in order A, B, C
 	if err != nil {
 		t.Fatalf("TopologicalSort failed: %v", err)
 	}
@@ -243,9 +204,6 @@ func TestTopologicalSort_Sequential(t *testing.T) {
 }
 
 func TestTopologicalSort_Diamond(t *testing.T) {
-	t.Skip("ATDD RED: TopologicalSort not yet implemented")
-
-	// Given: diamond — design -> backend, design -> frontend, both -> deploy
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "diamond",
@@ -263,10 +221,8 @@ func TestTopologicalSort_Diamond(t *testing.T) {
 		t.Fatalf("BuildIntentDAG failed: %v", err)
 	}
 
-	// When: computing topological sort
 	layers, err := dag.TopologicalSort()
 
-	// Then: 3 layers — [design], [backend, frontend], [deploy]
 	if err != nil {
 		t.Fatalf("TopologicalSort failed: %v", err)
 	}
@@ -292,9 +248,6 @@ func TestTopologicalSort_Diamond(t *testing.T) {
 }
 
 func TestTopologicalSort_ComplexGraph(t *testing.T) {
-	t.Skip("ATDD RED: TopologicalSort not yet implemented")
-
-	// Given: A(root), B->A, C->A, D->B, E->{C,D}
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "complex",
@@ -313,10 +266,8 @@ func TestTopologicalSort_ComplexGraph(t *testing.T) {
 		t.Fatalf("BuildIntentDAG failed: %v", err)
 	}
 
-	// When: computing topological sort
 	layers, err := dag.TopologicalSort()
 
-	// Then: ordering constraints are respected
 	if err != nil {
 		t.Fatalf("TopologicalSort failed: %v", err)
 	}

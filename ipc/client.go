@@ -595,3 +595,65 @@ func (c *Client) readResponse() (*Response, error) {
 	}
 	return &resp, nil
 }
+
+// --- Intent Client Methods ---
+
+// ApplyIntentAndWatch sends an apply_intent request and streams events.
+func (c *Client) ApplyIntentAndWatch(req ApplyIntentRequest, onEvent func(StreamEvent)) (*ApplyIntentResponse, error) {
+	if err := c.sendRequest(MethodApplyIntent, req); err != nil {
+		return nil, err
+	}
+
+	resp, err := c.readResponse()
+	if err != nil {
+		return nil, err
+	}
+
+	var applyResp ApplyIntentResponse
+	if err := json.Unmarshal(resp.Payload, &applyResp); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal apply_intent response: %w", err)
+	}
+
+	for c.scanner.Scan() {
+		var ev StreamEvent
+		if err := json.Unmarshal(c.scanner.Bytes(), &ev); err != nil {
+			continue
+		}
+		if onEvent != nil {
+			onEvent(ev)
+		}
+		if ev.Type == StreamIntentComplete || ev.Type == StreamError {
+			break
+		}
+	}
+
+	return &applyResp, nil
+}
+
+// ConfirmIntent sends a confirmation for an intent awaiting confirmation.
+func (c *Client) ConfirmIntent(intentID string, confirm bool) error {
+	req := Request{
+		Method:  MethodIntentConfirm,
+		Payload: marshalPayload(IntentConfirmRequest{IntentID: intentID, Confirm: confirm}),
+	}
+	enc := json.NewEncoder(c.conn)
+	return enc.Encode(req)
+}
+
+// IntentStatus queries the status of an intent or all active intents.
+func (c *Client) IntentStatus(intentID string) (*IntentStatusResponse, error) {
+	resp, err := c.call(MethodIntentStatus, IntentStatusRequest{IntentID: intentID})
+	if err != nil {
+		return nil, err
+	}
+	var statusResp IntentStatusResponse
+	if err := json.Unmarshal(resp.Payload, &statusResp); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal intent_status response: %w", err)
+	}
+	return &statusResp, nil
+}
+
+func marshalPayload(v any) json.RawMessage {
+	data, _ := json.Marshal(v)
+	return data
+}

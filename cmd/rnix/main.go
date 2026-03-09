@@ -18,6 +18,7 @@ import (
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/drivers/fs"
 	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/drivers/mcp"
@@ -215,6 +216,8 @@ func init() {
 	rootCmd.AddCommand(gdbCmd)
 	dashboardCmd.Flags().String("load", "", "Load a recording for offline replay (path or record-id)")
 	rootCmd.AddCommand(dashboardCmd)
+	rootCmd.AddCommand(applyCmd)
+	rootCmd.AddCommand(intentCmd)
 }
 
 // levenshtein computes the standard Levenshtein distance between two strings
@@ -1043,6 +1046,26 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv.SetKernel(k)
 	srv.SetContextManager(ctxMgr)
 	srv.SetSkillLoader(skillLoader)
+
+	// Intent manager initialization (Story 19.1)
+	intentDecomposer := intent.NewDecomposer(&intent.CLICaller{})
+	intentSpawner := &ipc.IntentKernelSpawner{
+		SpawnFunc: func(ctx context.Context, node *intent.IntentNode) (types.PID, error) {
+			agentInfo, _ := agentLoader.Load(node.Agent)
+			pid, err := k.Spawn(node.Intent, agentInfo, kernel.SpawnOpts{Model: node.Model})
+			return pid, err
+		},
+		WaitFunc: func(pid types.PID) (intent.ExitStatus, error) {
+			proc, ok := k.GetProcess(pid)
+			if !ok {
+				return intent.ExitStatus{Code: 1, Reason: "process not found"}, fmt.Errorf("process %d not found", pid)
+			}
+			es := <-proc.Done
+			return intent.ExitStatus{Code: es.Code, Reason: es.Reason, Err: es.Err}, nil
+		},
+	}
+	intentMgr := intent.NewManager(intentDecomposer, intentSpawner)
+	srv.SetIntentManager(ipc.NewIntentManagerAdapter(intentMgr))
 
 	procFS := vfs.NewProcFS(k, ctxMgr)
 	_ = devReg.Register("/proc", procFS.FileFactory())

@@ -1,6 +1,6 @@
 # Story 19.1: 意图声明与任务分解
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -38,7 +38,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 1: Intent 数据模型（AC: #1, #4）
 
-- [ ] 1.1 新建 `intent/` 包，创建 `intent/types.go`：
+- [x] 1.1 新建 `intent/` 包，创建 `intent/types.go`：
 
   ```go
   type IntentID string
@@ -76,7 +76,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
   }
   ```
 
-- [ ] 1.2 实现 `IntentTree` 辅助方法：
+- [x] 1.2 实现 `IntentTree` 辅助方法：
   - `Progress() (completed, total int)` — 计算完成进度
   - `RunnableNodes() []*IntentNode` — 返回所有依赖已满足且状态为 pending 的节点
   - `MarkCompleted(nodeID, result string)` — 标记节点完成并检查下游
@@ -85,7 +85,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 2: Intent DAG 构建与拓扑排序（AC: #1, #3）
 
-- [ ] 2.1 新建 `intent/dag.go`，复用 `compose/dag.go` 的设计模式：
+- [x] 2.1 新建 `intent/dag.go`，复用 `compose/dag.go` 的设计模式：
   - `BuildIntentDAG(tree *IntentTree) (*DAG, error)` — 从 IntentTree 构建 DAG
   - `DetectCycle(dag *DAG) error` — 循环依赖检测
   - `TopologicalSort(dag *DAG) [][]string` — 分层拓扑排序（每层可并行）
@@ -93,7 +93,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 3: LLM 意图分解器（AC: #1）
 
-- [ ] 3.1 新建 `intent/decomposer.go`：
+- [x] 3.1 新建 `intent/decomposer.go`：
 
   ```go
   type Decomposer struct {
@@ -107,13 +107,13 @@ So that 我可以用自然语言描述目标而不需要手动编排。
   func (d *Decomposer) Decompose(ctx context.Context, intent string, model string) (*IntentTree, error)
   ```
 
-- [ ] 3.2 实现分解逻辑：
+- [x] 3.2 实现分解逻辑：
   - 构造分解 system prompt：要求 LLM 输出 JSON 格式的子任务列表，包含 `id`、`intent`、`agent`（可选）、`depends_on`
   - 调用 LLM（通过 `LLMCaller` 接口），解析返回的 JSON 为 `[]IntentNode`
   - 构建 `IntentTree`，运行 `DetectCycle` 验证无循环依赖
   - 分解 prompt 需要清晰指示 LLM 产出格式——参考 compose YAML 的 agent 依赖结构
 
-- [ ] 3.3 定义分解 prompt 模板（嵌入为 Go 常量）：
+- [x] 3.3 定义分解 prompt 模板（嵌入为 Go 常量）：
   ```
   你是一个任务规划系统。请将以下高层意图分解为具体子任务。
 
@@ -136,7 +136,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 4: Intent 执行引擎（AC: #3, #6）
 
-- [ ] 4.1 新建 `intent/engine.go`：
+- [x] 4.1 新建 `intent/engine.go`：
 
   ```go
   type Engine struct {
@@ -159,21 +159,21 @@ So that 我可以用自然语言描述目标而不需要手动编排。
   }
   ```
 
-- [ ] 4.2 实现 `Engine.Execute(ctx context.Context) error`：
+- [x] 4.2 实现 `Engine.Execute(ctx context.Context) error`：
   - 分层执行：获取 `TopologicalSort` 的每层，并行 Spawn 当前层所有 runnable 节点
   - 每个节点在 goroutine 中：Spawn → Wait → 根据退出状态 MarkCompleted/MarkFailed
   - 节点失败时：MarkFailed 级联标记下游，但不终止已启动的独立分支
   - 使用 `sync.WaitGroup` 等待每层完成后推进下一层
   - 所有节点终止后返回（成功或部分失败）
 
-- [ ] 4.3 实现事件驱动的执行循环（非简单分层，而是更灵活的调度）：
+- [x] 4.3 实现事件驱动的执行循环（非简单分层，而是更灵活的调度）：
   - 维护一个 runnable 队列——当节点完成时，立即检查并启动新的 runnable 节点
   - 使用 channel 收集完成/失败事件，主循环消费事件并推进状态
   - 这比严格分层更高效（不需要等整层完成才推进下一层）
 
 ### Task 5: IPC 协议扩展（AC: #1, #4）
 
-- [ ] 5.1 在 `ipc/protocol.go` 新增：
+- [x] 5.1 在 `ipc/protocol.go` 新增：
 
   ```go
   MethodApplyIntent  Method = "apply_intent"
@@ -206,7 +206,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
   注意：`IntentTree` 定义在 `intent/types.go` 中，IPC 层通过 JSON 序列化传递。如需避免 `ipc/` 导入 `intent/`，可在 protocol.go 中定义 wire types（纯 JSON 结构体），server.go 中做转换。
 
-- [ ] 5.2 流式协议设计：
+- [x] 5.2 流式协议设计：
   - `apply_intent` 是流式方法（类似 `spawn`）——先返回分解结果，等待确认，然后流式报告执行进度
   - StreamEvent 类型扩展：
     ```go
@@ -221,7 +221,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 6: IPC Server 处理（AC: #1, #3, #4）
 
-- [ ] 6.1 在 `ipc/server.go` 的 `handleConn` dispatch 中新增：
+- [x] 6.1 在 `ipc/server.go` 的 `handleConn` dispatch 中新增：
   ```go
   case MethodApplyIntent:
       s.handleApplyIntent(conn, req.Payload)
@@ -230,7 +230,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
       s.handleIntentStatus(conn, req.Payload)
   ```
 
-- [ ] 6.2 实现 `handleApplyIntent(conn net.Conn, payload json.RawMessage)`：
+- [x] 6.2 实现 `handleApplyIntent(conn net.Conn, payload json.RawMessage)`：
   - 解析 `ApplyIntentRequest`
   - 调用 `Decomposer.Decompose()` 分解意图
   - 发送 `StreamEventIntentDecomposed` 事件（包含完整 IntentTree）
@@ -238,12 +238,12 @@ So that 我可以用自然语言描述目标而不需要手动编排。
   - 如果确认或 AutoStart：调用 `Engine.Execute()`，通过回调发送进度事件
   - 最后发送 `StreamEventIntentComplete`
 
-- [ ] 6.3 实现 `handleIntentStatus(conn net.Conn, payload json.RawMessage)`：
+- [x] 6.3 实现 `handleIntentStatus(conn net.Conn, payload json.RawMessage)`：
   - 解析 `IntentStatusRequest`
   - 从 IntentManager 获取当前活跃的 IntentTree 列表
   - 返回 `IntentStatusResponse`
 
-- [ ] 6.4 Server 需持有 `IntentManager` 引用：
+- [x] 6.4 Server 需持有 `IntentManager` 引用：
   ```go
   type Server struct {
       // ... 现有字段 ...
@@ -253,7 +253,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 7: IntentManager — 意图生命周期管理（AC: #1, #4, #6）
 
-- [ ] 7.1 新建 `intent/manager.go`：
+- [x] 7.1 新建 `intent/manager.go`：
 
   ```go
   type Manager struct {
@@ -272,18 +272,18 @@ So that 我可以用自然语言描述目标而不需要手动编排。
   func (m *Manager) ListActive() []*IntentTree
   ```
 
-- [ ] 7.2 IntentID 生成：使用 `fmt.Sprintf("intent-%d", m.nextID.Add(1))` 格式，递增唯一
+- [x] 7.2 IntentID 生成：使用 `fmt.Sprintf("intent-%d", m.nextID.Add(1))` 格式，递增唯一
 
 ### Task 8: IPC Client 扩展（AC: #1, #4）
 
-- [ ] 8.1 在 `ipc/client.go` 新增：
+- [x] 8.1 在 `ipc/client.go` 新增：
   ```go
   func (c *Client) ApplyIntentAndWatch(req ApplyIntentRequest, onEvent func(StreamEvent)) (*ApplyIntentResponse, error)
   func (c *Client) ConfirmIntent(intentID string, confirm bool) error
   func (c *Client) IntentStatus(intentID string) (*IntentStatusResponse, error)
   ```
 
-- [ ] 8.2 `ApplyIntentAndWatch` 实现模式同 `SpawnAndWatch`：
+- [x] 8.2 `ApplyIntentAndWatch` 实现模式同 `SpawnAndWatch`：
   - `sendRequest(MethodApplyIntent, req)`
   - 读取初始响应
   - 循环读取 StreamEvent 并回调 onEvent
@@ -291,7 +291,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 9: CLI 命令实现（AC: #1, #2, #4, #5）
 
-- [ ] 9.1 新建 `cmd/rnix/apply.go`：
+- [x] 9.1 新建 `cmd/rnix/apply.go`：
   ```go
   var applyCmd = &cobra.Command{
       Use:   "apply <intent>",
@@ -304,7 +304,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
   - `--model` / `-m` flag：指定分解使用的 LLM 模型（继承 root）
   - `--json` flag：JSON 输出模式（继承 root）
 
-- [ ] 9.2 实现 `runApply`：
+- [x] 9.2 实现 `runApply`：
   - 连接 daemon（复用现有 `ensureDaemon` + `ipc.NewClient`）
   - 调用 `client.ApplyIntentAndWatch(req, onEvent)`
   - 收到 decomposed 事件：渲染子任务列表和依赖关系
@@ -313,7 +313,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
   - 流式渲染执行进度（复用进度条/spinner 模式）
   - 最终汇总显示
 
-- [ ] 9.3 新建 `cmd/rnix/intent.go`：
+- [x] 9.3 新建 `cmd/rnix/intent.go`：
   ```go
   var intentCmd = &cobra.Command{
       Use:   "intent",
@@ -326,12 +326,12 @@ So that 我可以用自然语言描述目标而不需要手动编排。
   }
   ```
 
-- [ ] 9.4 实现 `runIntentStatus`：
+- [x] 9.4 实现 `runIntentStatus`：
   - 连接 daemon
   - 调用 `client.IntentStatus(intentID)`
   - 渲染意图树状态（树形视图 + 进度）
 
-- [ ] 9.5 注册命令：
+- [x] 9.5 注册命令：
   ```go
   func init() {
       applyCmd.Flags().BoolVarP(&flagAutoStart, "yes", "y", false, "Skip confirmation")
@@ -343,7 +343,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 10: UI 渲染组件（AC: #2, #4）
 
-- [ ] 10.1 新建 `internal/ui/intent.go`：
+- [x] 10.1 新建 `internal/ui/intent.go`：
   - `RenderIntentTree(tree *IntentTreeWire, mode OutputMode)` — 渲染意图树（树形缩进 + 状态颜色）
   - `RenderIntentProgress(completed, total int, mode OutputMode)` — 进度条
   - `RenderIntentNodeEvent(event StreamEvent, mode OutputMode)` — 节点事件实时显示
@@ -351,8 +351,8 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 11: LLMCaller 适配（AC: #1）
 
-- [ ] 11.1 在 `intent/decomposer.go` 中定义 `LLMCaller` 接口
-- [ ] 11.2 在 `ipc/server.go` 中实现适配——通过 kernel 的 VFS 访问 `/dev/llm/claude`：
+- [x] 11.1 在 `intent/decomposer.go` 中定义 `LLMCaller` 接口
+- [x] 11.2 在 `ipc/server.go` 中实现适配——通过 kernel 的 VFS 访问 `/dev/llm/claude`：
   - 打开 LLM 设备文件
   - 写入分解 prompt
   - 读取响应
@@ -366,7 +366,7 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
   选择方案 A：`LLMCaller` 实现为直接调用 Claude Code CLI。
 
-- [ ] 11.3 实现 `CLICaller`：
+- [x] 11.3 实现 `CLICaller`：
   ```go
   type CLICaller struct{}
 
@@ -384,8 +384,8 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 12: Server/Daemon 初始化集成（AC: #1）
 
-- [ ] 12.1 在 `ipc/server.go` 的 `NewServer` 或 `Server` 构造中添加 `IntentManager` 注入
-- [ ] 12.2 在 `cmd/rnix/main.go` 的 daemon 启动路径中创建 `IntentManager` 并注入 Server：
+- [x] 12.1 在 `ipc/server.go` 的 `NewServer` 或 `Server` 构造中添加 `IntentManager` 注入
+- [x] 12.2 在 `cmd/rnix/main.go` 的 daemon 启动路径中创建 `IntentManager` 并注入 Server：
   ```go
   decomposer := intent.NewDecomposer(&intent.CLICaller{})
   intentMgr := intent.NewManager(decomposer, kernelSpawner)
@@ -394,27 +394,27 @@ So that 我可以用自然语言描述目标而不需要手动编排。
 
 ### Task 13: 测试（AC: #1-#6）
 
-- [ ] 13.1 `intent/types_test.go`：
+- [x] 13.1 `intent/types_test.go`：
   - `TestIntentTree_Progress` — 进度计算正确
   - `TestIntentTree_RunnableNodes` — 正确返回无依赖且 pending 的节点
   - `TestIntentTree_MarkCompleted` — 标记完成后状态正确
   - `TestIntentTree_MarkFailed` — 失败级联到下游
   - `TestIntentTree_IsTerminal` — 所有节点终止时返回 true
 
-- [ ] 13.2 `intent/dag_test.go`：
+- [x] 13.2 `intent/dag_test.go`：
   - `TestBuildIntentDAG_Basic` — 基本 DAG 构建
   - `TestBuildIntentDAG_CycleDetection` — 循环依赖报错
   - `TestTopologicalSort_Layers` — 分层排序正确
   - `TestTopologicalSort_ParallelNodes` — 无依赖节点在同一层
 
-- [ ] 13.3 `intent/decomposer_test.go`：
+- [x] 13.3 `intent/decomposer_test.go`：
   - `TestDecomposer_Decompose_Success` — mock LLM 返回有效 JSON，成功构建 IntentTree
   - `TestDecomposer_Decompose_InvalidJSON` — LLM 返回无效 JSON 时报错
   - `TestDecomposer_Decompose_CyclicDeps` — LLM 返回的依赖有循环时报错
   - `TestDecomposer_Decompose_EmptyResult` — LLM 返回空结果时报错
   - `TestDecomposer_Decompose_Timeout` — LLM 调用超时处理
 
-- [ ] 13.4 `intent/engine_test.go`：
+- [x] 13.4 `intent/engine_test.go`：
   - `TestEngine_Execute_Sequential` — 有序依赖的串行执行
   - `TestEngine_Execute_Parallel` — 无依赖节点并行执行
   - `TestEngine_Execute_PartialFailure` — 节点失败不终止独立分支
@@ -422,29 +422,29 @@ So that 我可以用自然语言描述目标而不需要手动编排。
   - `TestEngine_Execute_AllSuccess` — 全部成功完成
   - `TestEngine_Execute_ContextCancel` — ctx 取消时正确停止
 
-- [ ] 13.5 `intent/manager_test.go`：
+- [x] 13.5 `intent/manager_test.go`：
   - `TestManager_Apply` — 创建意图并分解
   - `TestManager_Confirm` — 确认后进入执行状态
   - `TestManager_Status` — 查询意图状态
   - `TestManager_ListActive` — 列出所有活跃意图
 
-- [ ] 13.6 `cmd/rnix/apply_test.go`：
+- [x] 13.6 `cmd/rnix/apply_test.go`：
   - `TestApplyCmd_Registered` — `apply` 子命令已注册
   - `TestApplyCmd_NoArgs` — 无参数报错
   - `TestApplyCmd_YesFlag` — `--yes` flag 正确解析
   - `TestApplyCmd_UsageAndDescription` — Use 和 Short 正确
 
-- [ ] 13.7 `cmd/rnix/intent_test.go`：
+- [x] 13.7 `cmd/rnix/intent_test.go`：
   - `TestIntentCmd_Registered` — `intent` 子命令已注册
   - `TestIntentStatusCmd_Registered` — `intent status` 子命令已注册
   - `TestIntentStatusCmd_UsageAndDescription` — Use 和 Short 正确
 
-- [ ] 13.8 `internal/ui/intent_test.go`：
+- [x] 13.8 `internal/ui/intent_test.go`：
   - `TestRenderIntentTree_TTY` — TTY 模式渲染正确（含颜色和树形缩进）
   - `TestRenderIntentTree_JSON` — JSON 模式输出正确
   - `TestRenderIntentProgress` — 进度显示正确
 
-- [ ] 13.9 竞态测试：`go test -race ./intent/... ./ipc/... ./cmd/rnix/...`
+- [x] 13.9 竞态测试：`go test -race ./intent/... ./ipc/... ./cmd/rnix/...`
 
 ## Dev Notes
 

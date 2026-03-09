@@ -34,6 +34,9 @@ const (
 	MethodForkContinue  Method = "fork_continue"
 	MethodCtxProfile    Method = "ctx_profile"
 	MethodCtxGrowth     Method = "ctx_growth"
+	MethodApplyIntent   Method = "apply_intent"
+	MethodIntentStatus  Method = "intent_status"
+	MethodIntentConfirm Method = "intent_confirm"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -264,6 +267,15 @@ const (
 	StreamGdbLog         StreamEventType = "gdb_log"
 	StreamGdbStateChange StreamEventType = "gdb_state_change"
 	StreamGdbPrompt      StreamEventType = "gdb_prompt"
+
+	// intent-specific stream event types
+	StreamIntentDecomposed StreamEventType = "intent_decomposed"
+	StreamIntentConfirmReq StreamEventType = "intent_confirm_required"
+	StreamIntentNodeStart  StreamEventType = "intent_node_start"
+	StreamIntentNodeDone   StreamEventType = "intent_node_done"
+	StreamIntentNodeFailed StreamEventType = "intent_node_failed"
+	StreamIntentProgress   StreamEventType = "intent_progress"
+	StreamIntentComplete   StreamEventType = "intent_complete"
 )
 
 // ProgressPayload maps kernel callback events to IPC wire format.
@@ -471,6 +483,75 @@ type CtxGrowthRequest struct {
 }
 
 // --- Socket Path ---
+
+// --- Apply Intent ---
+
+// ApplyIntentRequest is the payload for MethodApplyIntent.
+type ApplyIntentRequest struct {
+	Intent    string `json:"intent"`
+	Model     string `json:"model,omitempty"`
+	AutoStart bool   `json:"auto_start,omitempty"`
+}
+
+// ApplyIntentResponse is the initial response for MethodApplyIntent.
+type ApplyIntentResponse struct {
+	IntentID string          `json:"intent_id"`
+	Tree     *IntentTreeWire `json:"tree"`
+}
+
+// IntentConfirmRequest is sent by the client to confirm or reject an intent.
+type IntentConfirmRequest struct {
+	IntentID string `json:"intent_id"`
+	Confirm  bool   `json:"confirm"`
+}
+
+// --- Intent Status ---
+
+// IntentStatusRequest is the payload for MethodIntentStatus.
+type IntentStatusRequest struct {
+	IntentID string `json:"intent_id,omitempty"`
+}
+
+// IntentStatusResponse is the response for MethodIntentStatus.
+type IntentStatusResponse struct {
+	Intents []*IntentTreeWire `json:"intents"`
+}
+
+// --- Intent Wire Types ---
+
+// IntentTreeWire is the wire-format representation of intent.IntentTree.
+type IntentTreeWire struct {
+	ID          string                     `json:"id"`
+	RootIntent  string                     `json:"root_intent"`
+	State       string                     `json:"state"`
+	Nodes       map[string]*IntentNodeWire `json:"nodes"`
+	CreatedAtMs int64                      `json:"created_at_ms"`
+	CompletedAtMs int64                    `json:"completed_at_ms,omitempty"`
+}
+
+// IntentNodeWire is the wire-format representation of intent.IntentNode.
+type IntentNodeWire struct {
+	ID        string   `json:"id"`
+	Intent    string   `json:"intent"`
+	Agent     string   `json:"agent,omitempty"`
+	Model     string   `json:"model,omitempty"`
+	DependsOn []string `json:"depends_on,omitempty"`
+	State     string   `json:"state"`
+	PID       uint64   `json:"pid,omitempty"`
+	Result    string   `json:"result,omitempty"`
+	Error     string   `json:"error,omitempty"`
+}
+
+// IntentNodeEventPayload carries data for intent node stream events.
+type IntentNodeEventPayload struct {
+	NodeID    string `json:"node_id"`
+	Intent    string `json:"intent,omitempty"`
+	PID       uint64 `json:"pid,omitempty"`
+	Result    string `json:"result,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Completed int    `json:"completed,omitempty"`
+	Total     int    `json:"total,omitempty"`
+}
 
 func unixMilliToTime(ms int64) time.Time {
 	return time.UnixMilli(ms)
