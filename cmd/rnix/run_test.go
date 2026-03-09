@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	agentshell "github.com/rnixai/rnix/shell"
 	"github.com/spf13/cobra"
 )
 
@@ -84,5 +85,27 @@ func TestRunCmd_SupportsJSONFlag(t *testing.T) {
 	}
 	if f == nil {
 		t.Error("run command should support --json flag (either local or inherited)")
+	}
+}
+
+// --- 18.5-CLI-006: [P0] StripShebang 在 run 路径正确去除 shebang (AC3) ---
+
+func TestRunCmd_ShebangStripped(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		expect string
+	}{
+		{"with shebang", "#!/usr/bin/env rnix run\nexport A=1", "export A=1"},
+		{"no shebang", "export A=1", "export A=1"},
+		{"shebang only", "#!/usr/bin/env rnix run", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := agentshell.StripShebang(tt.input)
+			if got != tt.expect {
+				t.Errorf("StripShebang(%q) = %q, want %q", tt.input, got, tt.expect)
+			}
+		})
 	}
 }
