@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
+	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -61,6 +62,42 @@ type timelineStreamDoneMsg struct {
 	err error
 }
 
+// --- Heatmap types (Story 17-3) ---
+
+type segmentKind int
+
+const (
+	segSystem segmentKind = iota
+	segSkill
+	segTool
+	segUser
+	segAssistant
+	segLeaked
+)
+
+type activityLevel int
+
+const (
+	actActive activityLevel = iota
+	actWarm
+	actCold
+	actLeaked
+)
+
+type heatmapSegment struct {
+	label    string
+	tokens   int
+	pct      float64
+	kind     segmentKind
+	activity activityLevel
+	summary  string
+}
+
+type heatmapProfileMsg struct {
+	profile *debug.CtxProfileResult
+	err     error
+}
+
 type dashboardModel struct {
 	client      *ipc.Client
 	width       int
@@ -87,6 +124,13 @@ type dashboardModel struct {
 	timelineViewStart   int64
 	timelineEventCursor int
 	timelineFilters     map[eventCategory]bool
+
+	// Heatmap fields (Story 17-3)
+	heatmapProfile   *debug.CtxProfileResult
+	heatmapPID       types.PID
+	heatmapSegments  []heatmapSegment
+	heatmapCursor    int
+	heatmapTickCount int
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -121,6 +165,8 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitTimelineEventCmd(m.timelineEventCh)
 	case timelineStreamDoneMsg:
 		m.timelineEventCh = nil
+		return m, nil
+	case heatmapProfileMsg:
 		return m, nil
 	}
 	return m, nil
@@ -891,6 +937,36 @@ func formatTimelineArgs(args map[string]any, maxLen int) string {
 		result = string(runes[:maxLen-3]) + "..."
 	}
 	return result
+}
+
+// --- Heatmap logic (Story 17-3) ---
+
+func buildHeatmapSegments(_ *debug.CtxProfileResult) []heatmapSegment {
+	return nil
+}
+
+func segmentColor(_ segmentKind, _ activityLevel) string {
+	return ""
+}
+
+func mapConsumerKind(_ string) segmentKind {
+	return segSystem
+}
+
+func (m dashboardModel) handleHeatmapPIDChange() dashboardModel {
+	return m
+}
+
+func (m dashboardModel) handleHeatmapKey(_ string) dashboardModel {
+	return m
+}
+
+func (m dashboardModel) renderHeatmapPane(_ int, _ int) string {
+	return ""
+}
+
+func fetchHeatmapCmd(_ types.PID) tea.Cmd {
+	return nil
 }
 
 // --- Command runner ---
