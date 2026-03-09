@@ -200,7 +200,7 @@ development_status:
   17-2-tracing-timeline-pane: done
   17-3-context-heatmap-pane: done
   17-4-pane-linkage-and-process-operations: done
-  17-5-offline-replay-analysis: backlog
+  17-5-offline-replay-analysis: ready-for-dev
   epic-17-retrospective: optional
 
   # Epic 18: AgentShell Complete Scripting
