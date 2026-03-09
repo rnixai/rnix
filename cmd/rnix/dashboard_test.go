@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -827,5 +828,314 @@ func TestDashboardModel_TabToTimeline(t *testing.T) {
 	um := updated.(dashboardModel)
 	if um.activePane != paneTimeline {
 		t.Errorf("first Tab should switch to paneTimeline, got %d", um.activePane)
+	}
+}
+
+// ============================================================
+// ATDD RED PHASE — Story 17.3: 上下文热力图窗格
+// All tests assert EXPECTED behavior. They FAIL because the
+// functions return zero values (stubs not yet implemented).
+// ============================================================
+
+// --- heatmap test helpers ---
+
+func mockHeatmapProfile() *debug.CtxProfileResult {
+	return &debug.CtxProfileResult{
+		PID:           2,
+		TotalTokens:   1200,
+		ContextBudget: 8000,
+		TopConsumers: []debug.ConsumerEntry{
+			{Kind: "system_prompt", Tokens: 360, Pct: 30.0, Rank: 1},
+			{Kind: "tool:read_file", Tokens: 300, Pct: 25.0, Rank: 2},
+			{Kind: "user", Tokens: 240, Pct: 20.0, Rank: 3},
+			{Kind: "assistant", Tokens: 180, Pct: 15.0, Rank: 4},
+		},
+		Classification: debug.ClassificationResult{
+			Active: debug.ClassBucket{Tokens: 600, Pct: 50.0, Messages: 3},
+			Warm:   debug.ClassBucket{Tokens: 300, Pct: 25.0, Messages: 2},
+			Cold:   debug.ClassBucket{Tokens: 240, Pct: 20.0, Messages: 4},
+			Leaked: debug.ClassBucket{Tokens: 60, Pct: 5.0, Messages: 1},
+		},
+	}
+}
+
+func newTestHeatmapDashboardModel() dashboardModel {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 2
+	m.activePane = paneHeatmap
+	m.heatmapProfile = mockHeatmapProfile()
+	m.heatmapPID = 2
+	m.heatmapSegments = []heatmapSegment{
+		{label: "System Prompt", tokens: 360, pct: 30.0, kind: segSystem, activity: actActive},
+		{label: "Tool Results", tokens: 300, pct: 25.0, kind: segTool, activity: actWarm},
+		{label: "User Messages", tokens: 240, pct: 20.0, kind: segUser, activity: actActive},
+		{label: "Assistant", tokens: 180, pct: 15.0, kind: segAssistant, activity: actCold},
+		{label: "Leaked", tokens: 60, pct: 5.0, kind: segLeaked, activity: actLeaked},
+	}
+	return m
+}
+
+// --- 17.3-UNIT-001: [P0] buildHeatmapSegments — empty profile (AC1) ---
+
+func TestBuildHeatmapSegments_Empty(t *testing.T) {
+	segments := buildHeatmapSegments(nil)
+	if len(segments) != 0 {
+		t.Errorf("expected 0 segments for nil profile, got %d", len(segments))
+	}
+
+	empty := &debug.CtxProfileResult{}
+	segments = buildHeatmapSegments(empty)
+	if len(segments) != 0 {
+		t.Errorf("expected 0 segments for empty profile, got %d", len(segments))
+	}
+}
+
+// --- 17.3-UNIT-002: [P0] buildHeatmapSegments — sorted by token desc (AC1) ---
+
+func TestBuildHeatmapSegments_SortedByTokenDesc(t *testing.T) {
+	profile := mockHeatmapProfile()
+	segments := buildHeatmapSegments(profile)
+
+	if len(segments) == 0 {
+		t.Fatal("expected non-empty segments for profile with TopConsumers")
+	}
+	for i := 1; i < len(segments); i++ {
+		if segments[i].tokens > segments[i-1].tokens {
+			t.Errorf("segments not sorted by token desc: [%d].tokens=%d > [%d].tokens=%d",
+				i, segments[i].tokens, i-1, segments[i-1].tokens)
+		}
+	}
+}
+
+// --- 17.3-UNIT-003: [P0] buildHeatmapSegments — merge small segments (AC1) ---
+
+func TestBuildHeatmapSegments_MergeSmall(t *testing.T) {
+	profile := &debug.CtxProfileResult{
+		PID:           2,
+		TotalTokens:   1000,
+		ContextBudget: 8000,
+		TopConsumers: []debug.ConsumerEntry{
+			{Kind: "system_prompt", Tokens: 500, Pct: 50.0, Rank: 1},
+			{Kind: "user", Tokens: 400, Pct: 40.0, Rank: 2},
+			{Kind: "tool:read_file", Tokens: 20, Pct: 2.0, Rank: 3},
+			{Kind: "assistant", Tokens: 10, Pct: 1.0, Rank: 4},
+		},
+		Classification: debug.ClassificationResult{
+			Active: debug.ClassBucket{Tokens: 800, Pct: 80.0, Messages: 2},
+		},
+	}
+	segments := buildHeatmapSegments(profile)
+
+	hasOther := false
+	for _, seg := range segments {
+		if seg.label == "Other" {
+			hasOther = true
+		}
+		if seg.pct < 3.0 && seg.label != "Other" {
+			t.Errorf("segment %q has pct %.1f%% which is <3%% and should be merged into Other",
+				seg.label, seg.pct)
+		}
+	}
+	if !hasOther {
+		t.Error("expected 'Other' segment for merged small entries (<3%%)")
+	}
+}
+
+// --- 17.3-UNIT-004: [P1] segmentColor — kind and activity variations (AC1) ---
+
+func TestSegmentColor_KindAndActivity(t *testing.T) {
+	tests := []struct {
+		kind     segmentKind
+		activity activityLevel
+	}{
+		{segSystem, actActive},
+		{segSystem, actCold},
+		{segTool, actActive},
+		{segTool, actWarm},
+		{segUser, actActive},
+		{segLeaked, actLeaked},
+	}
+
+	for _, tt := range tests {
+		color := segmentColor(tt.kind, tt.activity)
+		if color == "" {
+			t.Errorf("segmentColor(%d, %d) returned empty string", tt.kind, tt.activity)
+		}
+	}
+
+	activeColor := segmentColor(segSystem, actActive)
+	coldColor := segmentColor(segSystem, actCold)
+	if activeColor == coldColor {
+		t.Errorf("segSystem active and cold should have different colors, both got %q", activeColor)
+	}
+}
+
+// --- 17.3-UNIT-005: [P0] heatmapProfileMsg stores profile in model (AC1) ---
+
+func TestDashboardModel_HeatmapProfileMsg(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 2
+
+	profile := mockHeatmapProfile()
+	updated, _ := m.Update(heatmapProfileMsg{profile: profile})
+	um := updated.(dashboardModel)
+
+	if um.heatmapProfile == nil {
+		t.Error("heatmapProfileMsg should store profile in model")
+	}
+	if len(um.heatmapSegments) == 0 {
+		t.Error("heatmapProfileMsg should trigger buildHeatmapSegments and produce segments")
+	}
+}
+
+// --- 17.3-UNIT-006: [P0] heatmap renders "Select an agent" when no PID (AC1) ---
+
+func TestDashboardModel_HeatmapRenderEmpty(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 0
+	m.activePane = paneHeatmap
+
+	v := m.View()
+	content := v.Content
+
+	if !strings.Contains(content, "Select an agent") {
+		t.Error("heatmap with no PID should show 'Select an agent' prompt")
+	}
+}
+
+// --- 17.3-UNIT-007: [P0] heatmap renders without "Coming Soon" when segments exist (AC1) ---
+
+func TestDashboardModel_HeatmapRenderWithSegments(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+
+	v := m.View()
+	content := v.Content
+
+	if strings.Contains(content, "Coming Soon") {
+		t.Error("heatmap with segments should not show 'Coming Soon'")
+	}
+	if !strings.Contains(content, "Heatmap") {
+		t.Error("heatmap pane should show 'Heatmap' title")
+	}
+}
+
+// --- 17.3-UNIT-008: [P0] j/k moves heatmapCursor (AC2) ---
+
+func TestDashboardModel_HeatmapCursorJK(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+	m.heatmapCursor = 0
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
+	um := updated.(dashboardModel)
+	if um.heatmapCursor != 1 {
+		t.Errorf("j should move heatmapCursor down: expected 1, got %d", um.heatmapCursor)
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
+	um = updated.(dashboardModel)
+	if um.heatmapCursor != 0 {
+		t.Errorf("k should move heatmapCursor up: expected 0, got %d", um.heatmapCursor)
+	}
+
+	um.heatmapCursor = 0
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
+	um = updated.(dashboardModel)
+	if um.heatmapCursor != 0 {
+		t.Errorf("k at top should stay at 0, got %d", um.heatmapCursor)
+	}
+}
+
+// --- 17.3-UNIT-009: [P0] selected segment shows token count and percentage (AC2) ---
+
+func TestDashboardModel_HeatmapSelectedDetails(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+	m.heatmapCursor = 0
+	m.activePane = paneHeatmap
+
+	v := m.View()
+	content := v.Content
+
+	if !strings.Contains(content, "360") {
+		t.Error("heatmap should display selected segment token count (360)")
+	}
+	if !strings.Contains(content, "30.0%") || !strings.Contains(content, "30.0") {
+		t.Error("heatmap should display selected segment percentage (30.0%%)")
+	}
+}
+
+// --- 17.3-UNIT-010: [P0] PID change clears heatmapProfile (AC1) ---
+
+func TestDashboardModel_HeatmapPIDChange(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+	if m.heatmapProfile == nil {
+		t.Fatal("precondition: model should have heatmap profile")
+	}
+
+	m.selectedPID = 999
+	m = m.handleHeatmapPIDChange()
+
+	if m.heatmapProfile != nil {
+		t.Error("PID change should clear heatmapProfile")
+	}
+	if len(m.heatmapSegments) != 0 {
+		t.Errorf("PID change should clear heatmapSegments, got %d", len(m.heatmapSegments))
+	}
+	if m.heatmapCursor != 0 {
+		t.Errorf("PID change should reset heatmapCursor to 0, got %d", m.heatmapCursor)
+	}
+}
+
+// --- 17.3-UNIT-011: [P1] Tab switches to paneHeatmap (AC1) ---
+
+func TestDashboardModel_TabToHeatmap(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.activePane = paneTimeline
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	um := updated.(dashboardModel)
+	if um.activePane != paneHeatmap {
+		t.Errorf("Tab from timeline should switch to paneHeatmap, got %d", um.activePane)
+	}
+}
+
+// --- 17.3-UNIT-012: [P1] mapConsumerKind classifies consumer kinds (AC1) ---
+
+func TestMapConsumerKindToSegmentKind(t *testing.T) {
+	tests := []struct {
+		kind     string
+		expected segmentKind
+	}{
+		{"system_prompt", segSystem},
+		{"user", segUser},
+		{"assistant", segAssistant},
+		{"tool:read_file", segTool},
+		{"tool:write_file", segTool},
+	}
+	for _, tt := range tests {
+		got := mapConsumerKind(tt.kind)
+		if got != tt.expected {
+			t.Errorf("mapConsumerKind(%q) = %d, want %d", tt.kind, got, tt.expected)
+		}
+	}
+}
+
+// --- 17.3-UNIT-013: [P1] heatmapTickCount increments for refresh (AC1) ---
+
+func TestDashboardModel_HeatmapRefreshTick(t *testing.T) {
+	old := ipc.SocketPathOverride
+	ipc.SocketPathOverride = "/tmp/rnix-nonexistent-dashboard-test.sock"
+	defer func() { ipc.SocketPathOverride = old }()
+
+	m := newDashboardModel(nil)
+	m.connected = false
+	m.heatmapTickCount = 0
+
+	for i := 0; i < 5; i++ {
+		updated, _ := m.Update(tickMsg(time.Now()))
+		m = updated.(dashboardModel)
+	}
+
+	if m.heatmapTickCount != 5 {
+		t.Errorf("after 5 ticks, heatmapTickCount should be 5, got %d", m.heatmapTickCount)
 	}
 }
