@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1611,6 +1614,471 @@ func TestDashboardModel_TreeRecordingIndicator(t *testing.T) {
 	}
 	if !found {
 		t.Error("tree pane should show '●' indicator on the line for recording PID 2")
+	}
+}
+
+// ============================================================
+// ATDD RED PHASE — Story 17.5: 离线回放分析
+// All tests assert EXPECTED behavior. They FAIL because the
+// functions return zero values (stubs not yet implemented).
+// ============================================================
+
+// --- replay test helpers ---
+
+func newTestRecordReader(t *testing.T) *debug.RecordReader {
+	t.Helper()
+	dir := t.TempDir()
+
+	meta := debug.RecordMetadata{
+		RecordID: "test-rec-001",
+		PID:      2,
+		Intent:   "review",
+		Status:   debug.RecordStatusCompleted,
+	}
+	metaJSON, _ := json.Marshal(meta)
+	if err := os.WriteFile(filepath.Join(dir, "metadata.json"), metaJSON, 0644); err != nil {
+		t.Fatalf("write metadata.json: %v", err)
+	}
+
+	events := []debug.RecordEvent{
+		{SeqNum: 0, Timestamp: 100 * time.Millisecond, PID: 2, Type: debug.RecordSyscall, Syscall: &debug.SyscallEventData{
+			Syscall: "Open", Args: map[string]any{"path": "/dev/llm/claude"}, Duration: 10 * time.Millisecond,
+		}},
+		{SeqNum: 1, Timestamp: 200 * time.Millisecond, PID: 2, Type: debug.RecordSyscall, Syscall: &debug.SyscallEventData{
+			Syscall: "Write", Args: map[string]any{"data": "hello"}, Duration: 5 * time.Millisecond,
+		}},
+		{SeqNum: 2, Timestamp: 300 * time.Millisecond, PID: 2, Type: debug.RecordStateChange, State: &debug.StateChangeData{
+			FromState: "running", ToState: "sleeping", Reason: "waiting for LLM",
+		}},
+		{SeqNum: 3, Timestamp: 400 * time.Millisecond, PID: 2, Type: debug.RecordContextSnapshot, Context: &debug.ContextSnapshotData{
+			SystemPromptHash: "abc123",
+			MessageCount:     3,
+			Messages:         []string{"[system] You are an assistant", "[user] Hello", "[assistant] Hi there"},
+			TokenEstimate:    450,
+		}},
+		{SeqNum: 4, Timestamp: 500 * time.Millisecond, PID: 2, Type: debug.RecordSyscall, Syscall: &debug.SyscallEventData{
+			Syscall: "Read", Args: map[string]any{"fd": 3}, Err: "EOF", Duration: 1 * time.Millisecond,
+		}},
+	}
+
+	var buf bytes.Buffer
+	for _, ev := range events {
+		line, _ := json.Marshal(ev)
+		buf.Write(line)
+		buf.WriteByte('\n')
+	}
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), buf.Bytes(), 0644); err != nil {
+		t.Fatalf("write events.jsonl: %v", err)
+	}
+
+	reader, err := debug.NewRecordReader(dir)
+	if err != nil {
+		t.Fatalf("NewRecordReader: %v", err)
+	}
+	return reader
+}
+
+func newTestReplayDashboardModel(t *testing.T) dashboardModel {
+	t.Helper()
+	reader := newTestRecordReader(t)
+	m := newReplayDashboardModel(reader)
+	m.width = 120
+	m.height = 40
+	return m
+}
+
+// --- 17.5-UNIT-001: [P0] newReplayDashboardModel initializes all replay fields (AC1) ---
+
+func TestReplayDashboard_Init(t *testing.T) {
+	reader := newTestRecordReader(t)
+	m := newReplayDashboardModel(reader)
+
+	if !m.replayMode {
+		t.Error("replayMode should be true")
+	}
+	if m.replayReader != reader {
+		t.Error("replayReader should be set to the provided reader")
+	}
+	if m.replayCursor != -1 {
+		t.Errorf("replayCursor should be -1 (initial state), got %d", m.replayCursor)
+	}
+	if m.replaySpeed != 1.0 {
+		t.Errorf("replaySpeed should be 1.0, got %f", m.replaySpeed)
+	}
+	if m.replayPlaying {
+		t.Error("replayPlaying should be false initially")
+	}
+	if m.connected {
+		t.Error("connected should be false in replay mode")
+	}
+	if m.timelineFilters == nil {
+		t.Error("timelineFilters should be initialized (defaultTimelineFilters)")
+	}
+	if m.recording == nil {
+		t.Error("recording map should be initialized")
+	}
+}
+
+// --- 17.5-UNIT-002: [P0] recordEventToWire converts syscall events correctly (AC1) ---
+
+func TestRecordEventToWire(t *testing.T) {
+	ev := debug.RecordEvent{
+		SeqNum:    0,
+		Timestamp: 100 * time.Millisecond,
+		PID:       2,
+		Type:      debug.RecordSyscall,
+		Syscall: &debug.SyscallEventData{
+			Syscall:  "Open",
+			Args:     map[string]any{"path": "/dev/llm/claude"},
+			Result:   "fd=3",
+			Err:      "",
+			Duration: 10 * time.Millisecond,
+		},
+	}
+
+	wire := recordEventToWire(ev)
+
+	if wire.TimestampMs != 100 {
+		t.Errorf("TimestampMs should be 100, got %d", wire.TimestampMs)
+	}
+	if wire.PID != 2 {
+		t.Errorf("PID should be 2, got %d", wire.PID)
+	}
+	if wire.Syscall != "Open" {
+		t.Errorf("Syscall should be 'Open', got %q", wire.Syscall)
+	}
+	if wire.DurationMs != 10.0 {
+		t.Errorf("DurationMs should be 10.0, got %f", wire.DurationMs)
+	}
+}
+
+// --- 17.5-UNIT-003: [P1] recordEventToWire returns zero for non-syscall events (AC1) ---
+
+func TestRecordEventToWire_NonSyscall(t *testing.T) {
+	ev := debug.RecordEvent{
+		SeqNum:    2,
+		Timestamp: 300 * time.Millisecond,
+		PID:       2,
+		Type:      debug.RecordStateChange,
+		State: &debug.StateChangeData{
+			FromState: "running",
+			ToState:   "sleeping",
+		},
+	}
+
+	wire := recordEventToWire(ev)
+
+	if wire.Syscall != "" {
+		t.Errorf("non-syscall event should produce zero-value wire, got Syscall=%q", wire.Syscall)
+	}
+	if wire.PID != 0 {
+		t.Errorf("non-syscall event should produce zero-value wire, got PID=%d", wire.PID)
+	}
+}
+
+// --- 17.5-UNIT-004: [P0] buildReplayProcessTree produces process info from recording (AC1) ---
+
+func TestReplayDashboard_TreePane(t *testing.T) {
+	reader := newTestRecordReader(t)
+	procs := buildReplayProcessTree(reader, 4)
+
+	if len(procs) == 0 {
+		t.Fatal("expected at least 1 process from buildReplayProcessTree")
+	}
+
+	found := false
+	for _, p := range procs {
+		if p.PID == 2 {
+			found = true
+			if p.Intent != "review" {
+				t.Errorf("PID 2 intent should be 'review', got %q", p.Intent)
+			}
+			if p.PPID != 1 {
+				t.Errorf("PID 2 PPID should be 1, got %d", p.PPID)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected PID 2 in process tree (from recording metadata)")
+	}
+}
+
+// --- 17.5-UNIT-005: [P0] loadReplayTimeline loads events up to cursor (AC1) ---
+
+func TestReplayDashboard_Timeline(t *testing.T) {
+	reader := newTestRecordReader(t)
+
+	eventsAtCursor2 := loadReplayTimeline(reader, 2)
+	syscallCount := 0
+	for _, ev := range eventsAtCursor2 {
+		if ev.wire.Syscall != "" {
+			syscallCount++
+		}
+	}
+	if syscallCount != 2 {
+		t.Errorf("cursor=2: expected 2 syscall events (SeqNum 0,1), got %d", syscallCount)
+	}
+
+	eventsAtMinus1 := loadReplayTimeline(reader, -1)
+	if len(eventsAtMinus1) != 0 {
+		t.Errorf("cursor=-1: expected 0 events, got %d", len(eventsAtMinus1))
+	}
+
+	eventsAtEnd := loadReplayTimeline(reader, 4)
+	endSyscallCount := 0
+	for _, ev := range eventsAtEnd {
+		if ev.wire.Syscall != "" {
+			endSyscallCount++
+		}
+	}
+	if endSyscallCount != 3 {
+		t.Errorf("cursor=4: expected 3 syscall events (SeqNum 0,1,4), got %d", endSyscallCount)
+	}
+}
+
+// --- 17.5-UNIT-006: [P0] buildReplayHeatmap finds nearest ContextSnapshot (AC1) ---
+
+func TestReplayDashboard_Heatmap(t *testing.T) {
+	reader := newTestRecordReader(t)
+
+	profile := buildReplayHeatmap(reader, 4)
+	if profile == nil {
+		t.Fatal("buildReplayHeatmap should return non-nil for recording with ContextSnapshot")
+	}
+	if profile.TotalTokens != 450 {
+		t.Errorf("TotalTokens should be 450 (from ContextSnapshot), got %d", profile.TotalTokens)
+	}
+
+	profileBefore := buildReplayHeatmap(reader, 2)
+	if profileBefore != nil {
+		t.Error("buildReplayHeatmap should return nil before any ContextSnapshot event (cursor=2)")
+	}
+}
+
+// --- 17.5-UNIT-007: [P0] Space toggles replayPlaying (AC2) ---
+
+func TestReplayDashboard_PlayPause(t *testing.T) {
+	m := newTestReplayDashboardModel(t)
+	m.replayCursor = 0
+
+	if m.replayPlaying {
+		t.Fatal("precondition: replayPlaying should be false")
+	}
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: ' '})
+	um := updated.(dashboardModel)
+	if !um.replayPlaying {
+		t.Error("Space should toggle replayPlaying to true")
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: ' '})
+	um = updated.(dashboardModel)
+	if um.replayPlaying {
+		t.Error("Space again should toggle replayPlaying back to false")
+	}
+}
+
+// --- 17.5-UNIT-008: [P0] [/] keys adjust replaySpeed with bounds (AC2) ---
+
+func TestReplayDashboard_SpeedControl(t *testing.T) {
+	m := newTestReplayDashboardModel(t)
+	m.replayCursor = 0
+	m.replaySpeed = 1.0
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: ']'})
+	um := updated.(dashboardModel)
+	if um.replaySpeed != 2.0 {
+		t.Errorf("] should double speed: expected 2.0, got %f", um.replaySpeed)
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '['})
+	um = updated.(dashboardModel)
+	if um.replaySpeed != 1.0 {
+		t.Errorf("[ should halve speed: expected 1.0, got %f", um.replaySpeed)
+	}
+
+	um.replaySpeed = 0.5
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '['})
+	um = updated.(dashboardModel)
+	if um.replaySpeed != 0.5 {
+		t.Errorf("[ at 0.5x should stay at 0.5, got %f", um.replaySpeed)
+	}
+
+	um.replaySpeed = 8.0
+	updated, _ = um.Update(tea.KeyPressMsg{Code: ']'})
+	um = updated.(dashboardModel)
+	if um.replaySpeed != 8.0 {
+		t.Errorf("] at 8.0x should stay at 8.0, got %f", um.replaySpeed)
+	}
+}
+
+// --- 17.5-UNIT-009: [P0] ./,keys for frame step forward/backward (AC2) ---
+
+func TestReplayDashboard_FrameStep(t *testing.T) {
+	m := newTestReplayDashboardModel(t)
+	m.replayCursor = 2
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: '.'})
+	um := updated.(dashboardModel)
+	if um.replayCursor != 3 {
+		t.Errorf(". should advance cursor: expected 3, got %d", um.replayCursor)
+	}
+	if um.replayPlaying {
+		t.Error(". should auto-pause")
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: ','})
+	um = updated.(dashboardModel)
+	if um.replayCursor != 2 {
+		t.Errorf(", should retreat cursor: expected 2, got %d", um.replayCursor)
+	}
+
+	um.replayCursor = 0
+	updated, _ = um.Update(tea.KeyPressMsg{Code: ','})
+	um = updated.(dashboardModel)
+	if um.replayCursor != 0 {
+		t.Errorf(", at cursor 0 should stay at 0, got %d", um.replayCursor)
+	}
+}
+
+// --- 17.5-UNIT-010: [P0] 0/$ keys jump to start/end (AC2) ---
+
+func TestReplayDashboard_JumpStartEnd(t *testing.T) {
+	m := newTestReplayDashboardModel(t)
+	m.replayCursor = 3
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: '0'})
+	um := updated.(dashboardModel)
+	if um.replayCursor != 0 {
+		t.Errorf("0 should jump to start: expected 0, got %d", um.replayCursor)
+	}
+	if um.replayPlaying {
+		t.Error("0 should auto-pause")
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '$'})
+	um = updated.(dashboardModel)
+	if um.replayReader == nil {
+		t.Fatal("replayReader should not be nil after $ key (stub not implemented)")
+	}
+	expectedEnd := um.replayReader.EventCount() - 1
+	if um.replayCursor != expectedEnd {
+		t.Errorf("$ should jump to end: expected %d, got %d", expectedEnd, um.replayCursor)
+	}
+	if um.replayPlaying {
+		t.Error("$ should auto-pause")
+	}
+}
+
+// --- 17.5-UNIT-011: [P0] tick advances cursor based on speed when playing (AC2) ---
+
+func TestReplayDashboard_AutoPlayAdvance(t *testing.T) {
+	m := newTestReplayDashboardModel(t)
+	m.replayCursor = 0
+	m.replayPlaying = true
+	m.replaySpeed = 2.0
+
+	old := ipc.SocketPathOverride
+	ipc.SocketPathOverride = "/tmp/rnix-nonexistent-dashboard-test.sock"
+	defer func() { ipc.SocketPathOverride = old }()
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	um := updated.(dashboardModel)
+
+	if um.replayCursor <= 0 {
+		t.Errorf("tick with replayPlaying=true and speed=2.0 should advance cursor, got %d", um.replayCursor)
+	}
+}
+
+// --- 17.5-UNIT-012: [P0] auto-play pauses at end of recording (AC2) ---
+
+func TestReplayDashboard_AutoPlayPauseAtEnd(t *testing.T) {
+	m := newTestReplayDashboardModel(t)
+	if m.replayReader == nil {
+		t.Fatal("replayReader should not be nil (stub not implemented)")
+	}
+	m.replayCursor = m.replayReader.EventCount() - 2
+	m.replayPlaying = true
+	m.replaySpeed = 1.0
+
+	old := ipc.SocketPathOverride
+	ipc.SocketPathOverride = "/tmp/rnix-nonexistent-dashboard-test.sock"
+	defer func() { ipc.SocketPathOverride = old }()
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	um := updated.(dashboardModel)
+
+	if um.replayCursor != m.replayReader.EventCount()-1 {
+		t.Errorf("should reach last event, got cursor=%d", um.replayCursor)
+	}
+	if um.replayPlaying {
+		t.Error("should auto-pause when reaching last event")
+	}
+}
+
+// --- 17.5-UNIT-013: [P0] live-mode keys blocked in replay mode (AC1, AC2) ---
+
+func TestReplayDashboard_LiveKeysBlocked(t *testing.T) {
+	m := newTestReplayDashboardModel(t)
+	m.replayCursor = 0
+	m.selectedPID = 2
+
+	blockedKeys := []rune{'k', 'a', 'l', 'r'}
+	for _, key := range blockedKeys {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: key})
+		um := updated.(dashboardModel)
+
+		if um.statusMsg == "" {
+			t.Errorf("key %q in replay mode should set statusMsg (blocked), got empty", string(key))
+		}
+		if !strings.Contains(um.statusMsg, "replay") && !strings.Contains(um.statusMsg, "Replay") {
+			t.Errorf("key %q blocked message should mention replay, got %q", string(key), um.statusMsg)
+		}
+	}
+}
+
+// --- 17.5-UNIT-014: [P1] replay status bar shows replay info (AC1, AC2) ---
+
+func TestReplayDashboard_StatusBar(t *testing.T) {
+	m := newTestReplayDashboardModel(t)
+	m.replayCursor = 2
+	m.replayPlaying = false
+
+	v := m.View()
+	content := v.Content
+
+	if !strings.Contains(content, "REPLAY") {
+		t.Error("replay mode status bar should contain 'REPLAY'")
+	}
+	if !strings.Contains(content, "test-rec-001") {
+		t.Error("replay mode status bar should contain the record ID")
+	}
+	if strings.Contains(content, "k:Kill") {
+		t.Error("replay mode should not show live-mode key hints like 'k:Kill'")
+	}
+}
+
+// --- 17.5-UNIT-015: [P0] replay tick does not attempt IPC connection (AC1) ---
+
+func TestReplayDashboard_TickNoIPC(t *testing.T) {
+	m := newTestReplayDashboardModel(t)
+	m.replayCursor = 0
+
+	old := ipc.SocketPathOverride
+	ipc.SocketPathOverride = "/tmp/rnix-nonexistent-dashboard-test.sock"
+	defer func() { ipc.SocketPathOverride = old }()
+
+	updated, cmd := m.Update(tickMsg(time.Now()))
+	um := updated.(dashboardModel)
+
+	if um.client != nil {
+		t.Error("replay mode tick should not create IPC client")
+	}
+	if um.connected {
+		t.Error("replay mode tick should not set connected=true")
+	}
+	if cmd == nil {
+		t.Error("replay mode tick should still schedule next tick")
 	}
 }
 

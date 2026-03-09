@@ -154,6 +154,15 @@ type dashboardModel struct {
 	// Pane linkage & process operations (Story 17-4)
 	recording    map[types.PID]string
 	statusMsgTTL int
+
+	// Offline replay fields (Story 17-5)
+	replayMode        bool
+	replayReader      *debug.RecordReader
+	replayCursor      int
+	replayPlaying     bool
+	replaySpeed       float64
+	replayLastTick    time.Time
+	prevReplayCursor  int
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -1446,6 +1455,34 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 	}
 
 	return style.Render(b.String())
+}
+
+// --- Command runner ---
+
+// --- Offline replay stubs (Story 17-5 RED PHASE) ---
+
+func newReplayDashboardModel(_ *debug.RecordReader) dashboardModel {
+	return dashboardModel{}
+}
+
+func recordEventToWire(_ debug.RecordEvent) ipc.SyscallEventWire {
+	return ipc.SyscallEventWire{}
+}
+
+func buildReplayProcessTree(_ *debug.RecordReader, _ int) []vfs.ProcInfo {
+	return nil
+}
+
+func loadReplayTimeline(_ *debug.RecordReader, _ int) []timelineEvent {
+	return nil
+}
+
+func buildReplayHeatmap(_ *debug.RecordReader, _ int) *debug.CtxProfileResult {
+	return nil
+}
+
+func resolveRecordDir(_ string) (string, error) {
+	return "", fmt.Errorf("not implemented")
 }
 
 // --- Command runner ---
