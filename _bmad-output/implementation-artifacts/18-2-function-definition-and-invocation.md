@@ -1,6 +1,6 @@
 # Story 18.2: 函数定义与调用
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -54,7 +54,7 @@ So that 我可以复用脚本逻辑。
 
 ### Task 1: AST 节点扩展（AC: #1, #2）
 
-- [ ] 1.1 在 `shell/script.go` 新增 `FnDef` 结构体
+- [x] 1.1 在 `shell/script.go` 新增 `FnDef` 结构体
   ```go
   type FnDef struct {
       Name   string      // 函数名
@@ -62,59 +62,59 @@ So that 我可以复用脚本逻辑。
       Body   []Statement // 函数体
   }
   ```
-- [ ] 1.2 新增 `FnCallStmt` 结构体
+- [x] 1.2 新增 `FnCallStmt` 结构体
   ```go
   type FnCallStmt struct {
       Name string   // 函数名
       Args []string // 参数值列表（支持变量展开）
   }
   ```
-- [ ] 1.3 新增 `ReturnStmt` 结构体
+- [x] 1.3 新增 `ReturnStmt` 结构体
   ```go
   type ReturnStmt struct {
       Value string // 返回值表达式（变量引用或字面量，空字符串 = 无返回值）
   }
   ```
-- [ ] 1.4 扩展 `StatementKind` 常量：新增 `StmtFnDef = "fn-def"`, `StmtFnCall = "fn-call"`, `StmtReturn = "return"`
-- [ ] 1.5 扩展 `Statement` 结构体：新增 `FnDef *FnDef`, `FnCall *FnCallStmt`, `Return *ReturnStmt` 字段
+- [x] 1.4 扩展 `StatementKind` 常量：新增 `StmtFnDef = "fn-def"`, `StmtFnCall = "fn-call"`, `StmtReturn = "return"`
+- [x] 1.5 扩展 `Statement` 结构体：新增 `FnDef *FnDef`, `FnCall *FnCallStmt`, `Return *ReturnStmt` 字段
 
 ### Task 2: 解析器扩展 — 函数定义（AC: #1, #3, #4, #5, #10）
 
-- [ ] 2.1 在 `parseBlock` 中识别 `fn` 关键字，调用 `parseFnDef`
+- [x] 2.1 在 `parseBlock` 中识别 `fn` 关键字，调用 `parseFnDef`
   - 函数定义**仅允许在顶层**（`insideBlock == false`），嵌套块内定义函数报错
-- [ ] 2.2 实现 `parseFnDef` 函数
+- [x] 2.2 实现 `parseFnDef` 函数
   - 语法：`fn NAME(PARAM1, PARAM2, ...)` + 函数体 + `end`
   - 函数名必须不在 `reservedKeywords` 中（AC #10）
   - 参数名不得重复，不得是保留关键字
   - 参数列表：括号内逗号分隔，支持零参数 `fn name()`
   - 函数体调用 `parseBlock(lines, nextIdx, true)` 复用已有块解析
   - 未闭合的函数体报告行号 + 缺少 `end`
-- [ ] 2.3 收集所有 `FnDef` 到 `Script` 结构体的函数表
+- [x] 2.3 收集所有 `FnDef` 到 `Script` 结构体的函数表
   - 在 `Script` 中新增 `Functions map[string]*FnDef` 字段
   - ParseScript 完成后遍历顶层 `Statements`，提取所有 `StmtFnDef` 到 `Functions` map
   - 重复函数名 → 解析错误
 
 ### Task 3: 解析器扩展 — 函数调用（AC: #1, #3）
 
-- [ ] 3.1 在 `parseStatement` 中识别函数调用模式
+- [x] 3.1 在 `parseStatement` 中识别函数调用模式
   - 模式匹配：`NAME(ARGS)` — 标识符后紧跟 `(`
   - 赋值形式：`VAR = NAME(ARGS)` — 变量赋值 + 函数调用
   - 函数调用与 spawn 的区分：检查行是否匹配 `IDENTIFIER(` 模式（不含 spawn/export 等关键字）
-- [ ] 3.2 实现 `parseFnCall` 函数
+- [x] 3.2 实现 `parseFnCall` 函数
   - 解析函数名和括号内的参数列表
   - 参数值：支持引号字符串 `"text"`、变量引用 `$VAR`、字面量
   - 参数数量的检查推迟到执行时（函数定义可能在调用之后定义 → 不对，函数定义只在顶层，解析完有完整的函数表 → 可在解析后做一次全局校验）
-- [ ] 3.3 解析后全局校验
+- [x] 3.3 解析后全局校验
   - 遍历所有 `StmtFnCall`，检查 `Script.Functions[name]` 存在性
   - 检查参数数量是否匹配 `len(FnDef.Params)`
   - 不匹配 → 报告错误：`line X: function "NAME" expects N args, got M`
 
 ### Task 4: 解析器扩展 — return 语句（AC: #2, #9）
 
-- [ ] 4.1 在 `parseBlock` 中识别 `return` 关键字，调用 `parseReturnStatement`
+- [x] 4.1 在 `parseBlock` 中识别 `return` 关键字，调用 `parseReturnStatement`
   - `return` 仅在块内有效（`insideBlock == true`）
   - 顶层 `return` → 解析错误
-- [ ] 4.2 实现 `parseReturnStatement`
+- [x] 4.2 实现 `parseReturnStatement`
   - `return` — 无返回值（Value = ""）
   - `return $VAR` — 变量引用
   - `return "literal"` — 字面量
@@ -122,7 +122,7 @@ So that 我可以复用脚本逻辑。
 
 ### Task 5: 解释器执行 — 函数定义注册（AC: #1）
 
-- [ ] 5.1 在 `ScriptExecutor` 中新增函数注册表
+- [x] 5.1 在 `ScriptExecutor` 中新增函数注册表
   ```go
   type ScriptExecutor struct {
       spawner   KernelSpawner
@@ -132,12 +132,12 @@ So that 我可以复用脚本逻辑。
       OnStageStart StageCallback
   }
   ```
-- [ ] 5.2 在 `Execute` 方法入口，从 `script.Functions` 加载到 `executor.functions`
-- [ ] 5.3 在 `executeBlock` 中 `StmtFnDef` 分支：跳过（函数定义不执行，只注册）
+- [x] 5.2 在 `Execute` 方法入口，从 `script.Functions` 加载到 `executor.functions`
+- [x] 5.3 在 `executeBlock` 中 `StmtFnDef` 分支：跳过（函数定义不执行，只注册）
 
 ### Task 6: 解释器执行 — 函数调用（AC: #1, #4, #5, #6, #7, #8）
 
-- [ ] 6.1 在 `executeBlock` 中处理 `StmtFnCall`
+- [x] 6.1 在 `executeBlock` 中处理 `StmtFnCall`
   - 查找 `executor.functions[fnCall.Name]`，未找到 → 返回运行时错误
   - 参数展开：对每个 arg 调用 `env.Expand(arg)`
   - 参数绑定：**保存外部同名变量 → 设置参数值 → 执行函数体 → 恢复外部变量**
@@ -167,7 +167,7 @@ So that 我可以复用脚本逻辑。
 
 ### Task 7: 解释器执行 — return 语句（AC: #2, #9）
 
-- [ ] 7.1 定义 `ErrFnReturn` 类型（与 `ErrScriptExit` 模式一致）
+- [x] 7.1 定义 `ErrFnReturn` 类型（与 `ErrScriptExit` 模式一致）
   ```go
   type ErrFnReturn struct {
       Value string
@@ -176,25 +176,25 @@ So that 我可以复用脚本逻辑。
       return fmt.Sprintf("function return: %s", e.Value)
   }
   ```
-- [ ] 7.2 在 `executeBlock` 中处理 `StmtReturn`
+- [x] 7.2 在 `executeBlock` 中处理 `StmtReturn`
   - 展开 return 值：`env.Expand(returnStmt.Value)`
   - 如果值以 `$` 开头且含 `.result` 属性，从 captures 中取值
   - 返回 `&ErrFnReturn{Value: expandedValue}`
-- [ ] 7.3 在函数调用的 `executeBlock` 外层捕获 `ErrFnReturn`
+- [x] 7.3 在函数调用的 `executeBlock` 外层捕获 `ErrFnReturn`
   - `errors.As(err, &returnErr)` → 提取返回值，清除 error
   - 无 return（正常执行完函数体）→ 返回值为空字符串
-- [ ] 7.4 确保 `ErrFnReturn` 不会泄漏到函数外部
+- [x] 7.4 确保 `ErrFnReturn` 不会泄漏到函数外部
   - 函数调用处必须捕获，未捕获的 `ErrFnReturn` 在 `Execute` 顶层转为错误
 
 ### Task 8: 复杂度统计扩展
 
-- [ ] 8.1 在 `countStagesInBlock` 中处理 `StmtFnDef`：0（定义不计算阶段）
-- [ ] 8.2 在 `countStagesInBlock` 中处理 `StmtFnCall`：1（每次调用计为一个阶段）
-- [ ] 8.3 在 `countStagesInBlock` 中处理 `StmtReturn`：0
+- [x] 8.1 在 `countStagesInBlock` 中处理 `StmtFnDef`：0（定义不计算阶段）
+- [x] 8.2 在 `countStagesInBlock` 中处理 `StmtFnCall`：1（每次调用计为一个阶段）
+- [x] 8.3 在 `countStagesInBlock` 中处理 `StmtReturn`：0
 
 ### Task 9: 测试（AC: #1-#10）
 
-- [ ] 9.1 `shell/script_test.go` — ParseScript 解析测试
+- [x] 9.1 `shell/script_test.go` — ParseScript 解析测试
   - fn 基本定义解析（带参数、无参数）
   - fn 函数体包含各种语句（spawn/if/for/while）
   - fn 函数名是保留关键字 → 错误
@@ -208,7 +208,7 @@ So that 我可以复用脚本逻辑。
   - return 解析（带值、不带值）
   - return 在顶层 → 错误
 
-- [ ] 9.2 `shell/script_test.go` — 执行器测试
+- [x] 9.2 `shell/script_test.go` — 执行器测试
   - 函数定义 + 调用 → 参数正确传递到 spawn intent
   - 函数 return 值捕获到赋值变量
   - 无 return → 赋值变量为空
@@ -220,7 +220,7 @@ So that 我可以复用脚本逻辑。
   - 调用未定义函数 → 运行时错误
   - 零参数函数调用
 
-- [ ] 9.3 竞态测试：`go test -race ./shell/...`
+- [x] 9.3 竞态测试：`go test -race ./shell/...`
 
 ## Dev Notes
 
@@ -425,12 +425,27 @@ Story 18.1 的 code review 修复了：保留关键字补全、exit 解析校验
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude claude-4.6-opus (Cursor Agent)
 
 ### Debug Log References
 
+- [Story 18.2 implementation session](af3e7d1f-aeb0-4f01-88e9-7382d180654f)
+
 ### Completion Notes List
+
+- 所有 9 个 Task（AST 扩展、解析器 fn/call/return、解释器注册/调用/return、stage 计数、测试）全部完成
+- `go test -race ./shell/...` 全部通过（含 ATDD 测试）
+- `golangci-lint run ./...` 无新增 lint 错误（修复了 `isValidVarName` 的 S1008 预存问题及 `cmd/rnix/dashboard.go` 两处预存 unused 问题）
+- `cmd/rnix/dashboard_test.go` 和 `cmd/rnix/top_test.go` 的 TTY 环境相关失败为预存环境问题，与本 Story 无关
 
 ### Change Log
 
+1. `shell/script.go` — 新增 AST 类型（FnDef, FnCallStmt, ReturnStmt, ErrFnReturn），扩展 Statement/Script/ScriptExecutor 结构体；实现 parseFnDef, parseReturnStatement, isFnCallExpr, parseAssignmentFnCall, parseFnCallArgs, validateFnCalls, expandReturnValue, isValidIdentifier；扩展 parseBlock, parseStatement, ParseScript, Execute, executeBlock, countStagesInBlock；新增 MaxCallDepth=100 递归保护
+2. `shell/script_test.go` — 新增涵盖 AC #1-#10 的解析和执行测试；修复 TestScriptExecutor_FnParamVsForLoopVar mock 结果数量不足问题
+3. `cmd/rnix/dashboard.go` — 修复预存 lint：移除 timelineStreamDoneMsg.Err 未使用字段，添加 renderDashboardPlaceholder nolint 标注
+
 ### File List
+
+- `shell/script.go` (modified)
+- `shell/script_test.go` (modified)
+- `cmd/rnix/dashboard.go` (modified, lint fix only)

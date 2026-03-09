@@ -62,9 +62,7 @@ type timelineEventMsg struct {
 	event ipc.SyscallEventWire
 }
 
-type timelineStreamDoneMsg struct {
-	err error
-}
+type timelineStreamDoneMsg struct{}
 
 // --- Heatmap types (Story 17-3) ---
 
@@ -628,7 +626,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	return style.Render(b.String())
 }
 
-func renderDashboardPlaceholder(title, placeholder string, width, height int, active bool) string {
+func renderDashboardPlaceholder(title, placeholder string, width, height int, active bool) string { //nolint:unused // reserved for future pane rendering
 	borderColor := lipgloss.Color(ui.ColorMuted)
 	if active {
 		borderColor = lipgloss.Color(ui.ColorAgent)
