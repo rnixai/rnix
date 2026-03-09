@@ -1553,6 +1553,9 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	executor := shell.NewScriptExecutor(spawner, env)
+	if req.ScriptDir != "" {
+		executor.SetScriptDir(req.ScriptDir)
+	}
 	executor.OnStageStart = func(stage, total int, intent string) {
 		pp := ProgressPayload{
 			Event:  "script_step",
