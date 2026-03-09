@@ -1,6 +1,6 @@
 # Story 18.5: 模块化与脚本执行
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -48,18 +48,18 @@ So that 我可以模块化组织脚本并直接运行。
 
 ### Task 1: AST 扩展 — StmtSource（AC: #1, #7）
 
-- [ ] 1.1 新增 `StmtSource StatementKind = "source"`
-- [ ] 1.2 新增 `SourceStmt` 结构体：
+- [x] 1.1 新增 `StmtSource StatementKind = "source"`
+- [x] 1.2 新增 `SourceStmt` 结构体：
   ```go
   type SourceStmt struct {
       Path string // source 目标文件路径（原始值，可含变量）
   }
   ```
-- [ ] 1.3 扩展 `Statement` 结构体新增字段 `Source *SourceStmt`
+- [x] 1.3 扩展 `Statement` 结构体新增字段 `Source *SourceStmt`
 
 ### Task 2: 解析器扩展 — source 语句（AC: #1, #4, #5）
 
-- [ ] 2.1 在 `parseBlock` 中，在 builtin 检测之前，新增 `source` 关键字检测：
+- [x] 2.1 在 `parseBlock` 中，在 builtin 检测之前，新增 `source` 关键字检测：
   ```go
   if strings.HasPrefix(lower, "source ") || strings.HasPrefix(lower, "source\t") {
       stmt, err := parseSourceStatement(trimmed, i)
@@ -71,7 +71,7 @@ So that 我可以模块化组织脚本并直接运行。
       continue
   }
   ```
-- [ ] 2.2 实现 `parseSourceStatement(line string, lineIdx int) (Statement, error)`：
+- [x] 2.2 实现 `parseSourceStatement(line string, lineIdx int) (Statement, error)`：
   - 提取 `source` 后面的路径参数（去除 `source ` 前缀，trim 空白）
   - 路径为空 → `fmt.Errorf("line %d: source requires a file path", lineIdx+1)`
   - 路径可以带引号（双引号或单引号）或不带引号
@@ -79,7 +79,7 @@ So that 我可以模块化组织脚本并直接运行。
 
 ### Task 3: ScriptExecutor 扩展 — source 执行（AC: #1, #5, #6, #7）
 
-- [ ] 3.1 在 `ScriptExecutor` 中新增字段：
+- [x] 3.1 在 `ScriptExecutor` 中新增字段：
   ```go
   type ScriptExecutor struct {
       // ... 现有字段 ...
@@ -88,13 +88,13 @@ So that 我可以模块化组织脚本并直接运行。
       scriptDir    string           // 当前脚本所在目录（用于相对路径解析）
   }
   ```
-- [ ] 3.2 定义 `FileReader` 接口（可测试性）：
+- [x] 3.2 定义 `FileReader` 接口（可测试性）：
   ```go
   type FileReader interface {
       ReadFile(path string) (string, error)
   }
   ```
-- [ ] 3.3 实现默认 `OSFileReader`：
+- [x] 3.3 实现默认 `OSFileReader`：
   ```go
   type OSFileReader struct{}
   func (r *OSFileReader) ReadFile(path string) (string, error) {
@@ -105,7 +105,7 @@ So that 我可以模块化组织脚本并直接运行。
       return string(data), nil
   }
   ```
-- [ ] 3.4 在 `executeBlock` 中新增 `case StmtSource` 分支：
+- [x] 3.4 在 `executeBlock` 中新增 `case StmtSource` 分支：
   - 使用 `e.env.ExpandStrict(stmt.Source.Path)` 展开路径中的变量
   - 解析相对路径：相对于 `e.scriptDir`（如果 scriptDir 非空）
   - 循环引用检测：检查绝对路径是否在 `e.sourceStack` 中
@@ -117,7 +117,7 @@ So that 我可以模块化组织脚本并直接运行。
   - 将 `sourceStack[absPath] = true`，设置 `e.scriptDir` 为 sourced 文件目录
   - 调用 `e.executeBlock(ctx, script.Statements, result, stageNum, totalStages)` 执行
   - 执行完毕后恢复 `e.scriptDir`，移除 `sourceStack` 条目
-- [ ] 3.5 更新 `NewScriptExecutor` 和新增 `NewScriptExecutorWithReader`：
+- [x] 3.5 更新 `NewScriptExecutor` 和新增 `NewScriptExecutorWithReader`：
   ```go
   func NewScriptExecutorWithReader(spawner KernelSpawner, env *Environment, reader FileReader) *ScriptExecutor {
       return &ScriptExecutor{
@@ -133,7 +133,7 @@ So that 我可以模块化组织脚本并直接运行。
 
 ### Task 4: Shebang 处理（AC: #3）
 
-- [ ] 4.1 实现 `stripShebang(content string) string`：
+- [x] 4.1 实现 `stripShebang(content string) string`：
   ```go
   func stripShebang(content string) string {
       if strings.HasPrefix(content, "#!") {
@@ -145,11 +145,11 @@ So that 我可以模块化组织脚本并直接运行。
       return content
   }
   ```
-- [ ] 4.2 在 `ParseScript` 入口调用 `stripShebang`
+- [x] 4.2 在 `ParseScript` 入口调用 `stripShebang`
 
 ### Task 5: `rnix run` 命令（AC: #2, #3, #4, #8）
 
-- [ ] 5.1 新增 `cmd/rnix/run.go`：
+- [x] 5.1 新增 `cmd/rnix/run.go`：
   ```go
   var runCmd = &cobra.Command{
       Use:   "run <script.ash>",
@@ -158,7 +158,7 @@ So that 我可以模块化组织脚本并直接运行。
       RunE:  runRunCmd,
   }
   ```
-- [ ] 5.2 `runRunCmd` 实现：
+- [x] 5.2 `runRunCmd` 实现：
   - `args[0]` 为脚本文件路径
   - `os.ReadFile(scriptPath)` 读取脚本内容
   - 文件不存在 → 报错退出
@@ -166,12 +166,12 @@ So that 我可以模块化组织脚本并直接运行。
   - 将剩余 `args[1:]` 通过环境变量传递（`RNIX_ARGS`、`RNIX_ARG_0` ~ `RNIX_ARG_N`）
   - 复用现有 `runScript(renderer, mode, progress, client, scriptContent, start)` 流程
   - `ExecScriptRequest.Env` 中注入 `RNIX_SCRIPT_FILE` = 脚本绝对路径 和 `RNIX_SCRIPT_DIR` = 脚本所在目录
-- [ ] 5.3 在 `init()` 中 `rootCmd.AddCommand(runCmd)`
-- [ ] 5.4 错误处理：文件不存在、读取失败、解析错误均应包含脚本文件名
+- [x] 5.3 在 `init()` 中 `rootCmd.AddCommand(runCmd)`
+- [x] 5.4 错误处理：文件不存在、读取失败、解析错误均应包含脚本文件名
 
 ### Task 6: IPC 传递脚本目录信息（AC: #1, #2）
 
-- [ ] 6.1 在 `ExecScriptRequest` 中新增可选字段：
+- [x] 6.1 在 `ExecScriptRequest` 中新增可选字段：
   ```go
   type ExecScriptRequest struct {
       Script    string            `json:"script"`
@@ -179,27 +179,27 @@ So that 我可以模块化组织脚本并直接运行。
       ScriptDir string            `json:"script_dir,omitempty"`
   }
   ```
-- [ ] 6.2 在 `handleExecScript` 中，如果 `req.ScriptDir` 非空，传递给 `ScriptExecutor`：
+- [x] 6.2 在 `handleExecScript` 中，如果 `req.ScriptDir` 非空，传递给 `ScriptExecutor`：
   ```go
   executor.SetScriptDir(req.ScriptDir)
   ```
-- [ ] 6.3 在 `ScriptExecutor` 新增 `SetScriptDir(dir string)` 方法和 `SetFileReader(r FileReader)` 方法
+- [x] 6.3 在 `ScriptExecutor` 新增 `SetScriptDir(dir string)` 方法和 `SetFileReader(r FileReader)` 方法
 
 ### Task 7: validateFnCalls 和 countStagesInBlock 扩展（AC: #7）
 
-- [ ] 7.1 在 `validateFnCalls` 中新增 `StmtSource` 分支 — `source` 引入的函数在运行时才可知，跳过验证即可（source 文件的函数在执行时注册）
-- [ ] 7.2 在 `countStagesInBlock` 中新增 `StmtSource` 分支 — `source` 本身 count 为 0（不含 spawn），sourced 脚本的 stages 在运行时才可知
+- [x] 7.1 在 `validateFnCalls` 中新增 `StmtSource` 分支 — `source` 引入的函数在运行时才可知，跳过验证即可（source 文件的函数在执行时注册）。额外增加 `containsSourceStmt` 辅助函数，当脚本含 source 时跳过未定义函数检查
+- [x] 7.2 在 `countStagesInBlock` 中新增 `StmtSource` 分支 — `source` 本身 count 为 0（不含 spawn），sourced 脚本的 stages 在运行时才可知
 
 ### Task 8: 测试（AC: #1-#9）
 
-- [ ] 8.1 `shell/source_test.go` — 解析测试：
+- [x] 8.1 `shell/source_test.go` — 解析测试：
   - `TestParseScript_Source_Basic` — `source ./lib/helpers.ash` 正确解析
   - `TestParseScript_Source_QuotedPath` — `source "./lib/my helpers.ash"` 带引号路径
   - `TestParseScript_Source_NoPath` — `source` 无参数 → 解析错误
   - `TestParseScript_Source_InFunction` — 函数内使用 source
   - `TestParseScript_Source_Shebang` — shebang 行被正确跳过
 
-- [ ] 8.2 `shell/source_test.go` — 执行测试：
+- [x] 8.2 `shell/source_test.go` — 执行测试：
   - `TestScriptExecutor_Source_FunctionsAvailable` — source 后函数可调用（AC1, AC7）
   - `TestScriptExecutor_Source_VariablesAvailable` — source 后变量可在 `${var}` 中引用（AC7）
   - `TestScriptExecutor_Source_FileNotFound` — 文件不存在报错含行号（AC5）
@@ -213,19 +213,19 @@ So that 我可以模块化组织脚本并直接运行。
   - `TestScriptExecutor_Source_OverrideFunction` — 后 source 的函数覆盖先前同名函数
   - `TestScriptExecutor_Source_EmptyFile` — source 空文件为 no-op
 
-- [ ] 8.3 `cmd/rnix/run_test.go` — CLI 测试：
+- [x] 8.3 `cmd/rnix/run_test.go` — CLI 测试：
   - `TestRunCmd_Registered` — `run` 子命令已注册
   - `TestRunCmd_NoArgs` — 无参数报错
   - `TestRunCmd_FileNotFound` — 文件不存在报错含文件名
   - `TestRunCmd_ShebangStripped` — shebang 行被跳过
 
-- [ ] 8.4 `shell/source_test.go` — 组合测试：
+- [x] 8.4 `shell/source_test.go` — 组合测试：
   - `TestScriptExecutor_Source_InForLoop` — for 循环内使用 source
   - `TestScriptExecutor_Source_InIfBlock` — if 块内条件 source
   - `TestScriptExecutor_Source_BeforeParallel` — source 函数后在 parallel 中使用
   - `TestScriptExecutor_Source_WithDataStructures` — source 后使用数组/映射
 
-- [ ] 8.5 竞态测试：`go test -race ./shell/... ./cmd/rnix/...`
+- [x] 8.5 竞态测试：`go test -race ./shell/... ./cmd/rnix/...`
 
 ## Dev Notes
 
@@ -550,10 +550,34 @@ Story 18.4 的 code review 修复了 5 个问题：
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude claude-4.6-opus (Cursor)
 
 ### Debug Log References
 
+- `validateFnCalls` 需增加 `hasSource` 参数：当脚本包含 `source` 语句时，跳过未定义函数检查（source 的函数在运行时注册）
+- `parseSourceStatement` 处理 `lower == "source"`（无参数）边界情况
+
 ### Completion Notes List
 
+- ✅ Task 1: AST 扩展 — 新增 `StmtSource`、`SourceStmt`、`Statement.Source`
+- ✅ Task 2: 解析器 — `parseSourceStatement` + `parseBlock` 中 source 关键字检测
+- ✅ Task 3: 执行器 — `executeSource` 方法，含循环引用检测、相对路径解析、函数注册
+- ✅ Task 4: Shebang — `stripShebang` + `StripShebang`（导出），`ParseScript` 入口调用
+- ✅ Task 5: CLI — `cmd/rnix/run.go`，cobra 子命令，RNIX_ARG_*/RNIX_SCRIPT_* 环境变量
+- ✅ Task 6: IPC — `ExecScriptRequest.ScriptDir` 字段 + `handleExecScript` 传递
+- ✅ Task 7: 验证器 — `validateFnCalls` hasSource 参数 + `countStagesInBlock` StmtSource = 0
+- ✅ Task 8: 37 个测试全部通过（32 shell + 5 CLI），`-race` 无竞态
+
+### Change Log
+
+- 2026-03-09: Story 18.5 实现完成 — source 语句、stripShebang、rnix run 命令、IPC ScriptDir
+
 ### File List
+
+- `shell/script.go` — AST 类型 + 解析器 + 执行器 + validateFnCalls + countStagesInBlock 扩展
+- `shell/file_reader.go` — 新增：FileReader 接口 + OSFileReader 实现
+- `shell/source_test.go` — 已有 ATDD 测试，实现后全部通过（32 个）
+- `cmd/rnix/run.go` — 新增：`rnix run` cobra 子命令
+- `cmd/rnix/run_test.go` — 已有 ATDD 测试，实现后全部通过（5 个）
+- `ipc/protocol.go` — ExecScriptRequest 新增 ScriptDir 字段
+- `ipc/server.go` — handleExecScript 传递 ScriptDir 到 ScriptExecutor

@@ -360,8 +360,9 @@ type PipelineStageWire struct {
 
 // ExecScriptRequest is the payload for MethodExecScript.
 type ExecScriptRequest struct {
-	Script string            `json:"script"`
-	Env    map[string]string `json:"env,omitempty"`
+	Script    string            `json:"script"`
+	Env       map[string]string `json:"env,omitempty"`
+	ScriptDir string            `json:"script_dir,omitempty"`
 }
 
 // ExecScriptResponse is the final result of a script execution (sent as StreamComplete payload).

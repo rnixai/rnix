@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ const (
 	StmtAssignIndex StatementKind = "assign-index"
 	StmtAssignProp  StatementKind = "assign-prop"
 	StmtParallel    StatementKind = "parallel"
+	StmtSource      StatementKind = "source"
 )
 
 // MaxLoopIterations is the safety limit for while loops to prevent infinite execution.
@@ -75,6 +77,11 @@ type WhileBlock struct {
 // StmtSpawn and StmtPipeline statements only.
 type ParallelBlock struct {
 	Body []Statement
+}
+
+// SourceStmt holds a parsed source statement: source <path>
+type SourceStmt struct {
+	Path string // source target file path (raw value, may contain variables)
 }
 
 // BuiltinStmt holds a parsed builtin command (wait, sleep, exit).
@@ -166,6 +173,7 @@ type Statement struct {
 	For         *ForBlock
 	While       *WhileBlock
 	Parallel    *ParallelBlock
+	Source      *SourceStmt
 	Builtin     *BuiltinStmt
 	FnDef       *FnDef
 	FnCall      *FnCallStmt
@@ -186,9 +194,26 @@ type Script struct {
 	Functions  map[string]*FnDef
 }
 
+// StripShebang removes a leading shebang line (#!...) from script content.
+// Exported for use by `rnix run` command.
+func StripShebang(content string) string {
+	return stripShebang(content)
+}
+
+func stripShebang(content string) string {
+	if strings.HasPrefix(content, "#!") {
+		if idx := strings.IndexByte(content, '\n'); idx >= 0 {
+			return content[idx+1:]
+		}
+		return ""
+	}
+	return content
+}
+
 // ParseScript splits input by newlines and parses using a recursive descent parser
 // that supports if/else/end blocks, assignment spawn, and on-error handlers.
 func ParseScript(input string) (*Script, error) {
+	input = stripShebang(input)
 	lines := strings.Split(input, "\n")
 	stmts, nextIdx, err := parseBlock(lines, 0, false)
 	if err != nil {
@@ -210,7 +235,8 @@ func ParseScript(input string) (*Script, error) {
 			script.Functions[stmt.FnDef.Name] = stmt.FnDef
 		}
 	}
-	if err := validateFnCalls(script.Statements, script.Functions); err != nil {
+	hasSource := containsSourceStmt(script.Statements)
+	if err := validateFnCalls(script.Statements, script.Functions, hasSource); err != nil {
 		return nil, err
 	}
 	return script, nil
@@ -298,6 +324,16 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 			}
 			stmts = append(stmts, Statement{Kind: StmtWhile, While: whileBlock, Raw: trimmed, Line: i + 1})
 			i = nextIdx
+			continue
+		}
+
+		if strings.HasPrefix(lower, "source ") || strings.HasPrefix(lower, "source\t") || lower == "source" {
+			stmt, err := parseSourceStatement(trimmed, i)
+			if err != nil {
+				return nil, 0, err
+			}
+			stmts = append(stmts, stmt)
+			i++
 			continue
 		}
 
@@ -484,6 +520,20 @@ func parseWhileBlock(lines []string, whileLineIdx int) (*WhileBlock, int, error)
 	}
 
 	return &WhileBlock{Condition: *cond, Body: body}, nextIdx + 1, nil
+}
+
+func parseSourceStatement(line string, lineIdx int) (Statement, error) {
+	rest := strings.TrimSpace(line[6:]) // skip "source" (6 chars, case-insensitive match already done)
+	if rest == "" {
+		return Statement{}, fmt.Errorf("line %d: source requires a file path", lineIdx+1)
+	}
+	path := unquote(rest)
+	return Statement{
+		Kind:   StmtSource,
+		Source: &SourceStmt{Path: path},
+		Raw:    line,
+		Line:   lineIdx + 1,
+	}, nil
 }
 
 func parseParallelBlock(lines []string, parallelLineIdx int) (*ParallelBlock, int, error) {
@@ -853,7 +903,39 @@ func parseFnCallArgs(s string) []string {
 	return args
 }
 
-func validateFnCalls(stmts []Statement, functions map[string]*FnDef) error {
+// containsSourceStmt checks if any source statement exists in the block (recursively).
+func containsSourceStmt(stmts []Statement) bool {
+	for _, stmt := range stmts {
+		if stmt.Kind == StmtSource {
+			return true
+		}
+		switch stmt.Kind {
+		case StmtIf:
+			if containsSourceStmt(stmt.If.Then) || containsSourceStmt(stmt.If.Else) {
+				return true
+			}
+		case StmtFor:
+			if containsSourceStmt(stmt.For.Body) {
+				return true
+			}
+		case StmtWhile:
+			if containsSourceStmt(stmt.While.Body) {
+				return true
+			}
+		case StmtFnDef:
+			if containsSourceStmt(stmt.FnDef.Body) {
+				return true
+			}
+		case StmtParallel:
+			if containsSourceStmt(stmt.Parallel.Body) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func validateFnCalls(stmts []Statement, functions map[string]*FnDef, hasSource bool) error {
 	for _, stmt := range stmts {
 		switch stmt.Kind {
 		case StmtFnCall:
@@ -870,6 +952,9 @@ func validateFnCalls(stmts []Statement, functions map[string]*FnDef) error {
 			}
 			fn, ok := functions[stmt.FnCall.Name]
 			if !ok {
+				if hasSource {
+					continue // function may come from a sourced file at runtime
+				}
 				if stmt.Line > 0 {
 					return fmt.Errorf("line %d: undefined function %q", stmt.Line, stmt.FnCall.Name)
 				}
@@ -884,28 +969,30 @@ func validateFnCalls(stmts []Statement, functions map[string]*FnDef) error {
 					stmt.FnCall.Name, len(fn.Params), len(stmt.FnCall.Args))
 			}
 		case StmtIf:
-			if err := validateFnCalls(stmt.If.Then, functions); err != nil {
+			if err := validateFnCalls(stmt.If.Then, functions, hasSource); err != nil {
 				return err
 			}
-			if err := validateFnCalls(stmt.If.Else, functions); err != nil {
+			if err := validateFnCalls(stmt.If.Else, functions, hasSource); err != nil {
 				return err
 			}
 		case StmtFor:
-			if err := validateFnCalls(stmt.For.Body, functions); err != nil {
+			if err := validateFnCalls(stmt.For.Body, functions, hasSource); err != nil {
 				return err
 			}
 		case StmtWhile:
-			if err := validateFnCalls(stmt.While.Body, functions); err != nil {
+			if err := validateFnCalls(stmt.While.Body, functions, hasSource); err != nil {
 				return err
 			}
 		case StmtFnDef:
-			if err := validateFnCalls(stmt.FnDef.Body, functions); err != nil {
+			if err := validateFnCalls(stmt.FnDef.Body, functions, hasSource); err != nil {
 				return err
 			}
 		case StmtParallel:
-			if err := validateFnCalls(stmt.Parallel.Body, functions); err != nil {
+			if err := validateFnCalls(stmt.Parallel.Body, functions, hasSource); err != nil {
 				return err
 			}
+		case StmtSource:
+			// source introduces functions at runtime; skip validation
 		}
 	}
 	return nil
@@ -1286,15 +1373,41 @@ type ScriptExecutor struct {
 	functions    map[string]*FnDef
 	callDepth    int
 	OnStageStart StageCallback
+	fileReader   FileReader
+	sourceStack  map[string]bool
+	scriptDir    string
 }
 
 // NewScriptExecutor creates a ScriptExecutor with the given spawner and environment.
 func NewScriptExecutor(spawner KernelSpawner, env *Environment) *ScriptExecutor {
 	return &ScriptExecutor{
-		spawner:  spawner,
-		env:      env,
-		captures: make(map[string]*SpawnResult),
+		spawner:     spawner,
+		env:         env,
+		captures:    make(map[string]*SpawnResult),
+		fileReader:  &OSFileReader{},
+		sourceStack: make(map[string]bool),
 	}
+}
+
+// NewScriptExecutorWithReader creates a ScriptExecutor with an injected FileReader.
+func NewScriptExecutorWithReader(spawner KernelSpawner, env *Environment, reader FileReader) *ScriptExecutor {
+	return &ScriptExecutor{
+		spawner:     spawner,
+		env:         env,
+		captures:    make(map[string]*SpawnResult),
+		fileReader:  reader,
+		sourceStack: make(map[string]bool),
+	}
+}
+
+// SetScriptDir sets the base directory for resolving relative source paths.
+func (e *ScriptExecutor) SetScriptDir(dir string) {
+	e.scriptDir = dir
+}
+
+// SetFileReader sets the file reader implementation.
+func (e *ScriptExecutor) SetFileReader(r FileReader) {
+	e.fileReader = r
 }
 
 // Execute runs each statement in order using recursive block execution.
@@ -1630,9 +1743,69 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 				value = e.expandReturnValue(stmt.Return.Value)
 			}
 			return &ErrFnReturn{Value: value}
+
+		case StmtSource:
+			if err := e.executeSource(ctx, stmt, result, stageNum, totalStages); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func (e *ScriptExecutor) executeSource(ctx context.Context, stmt Statement, result *ScriptResult, stageNum *int, totalStages int) error {
+	expandedPath, err := e.env.ExpandStrict(stmt.Source.Path)
+	if err != nil {
+		return fmt.Errorf("line %d: source: %w", stmt.Line, err)
+	}
+
+	// Resolve relative paths based on scriptDir
+	if !filepath.IsAbs(expandedPath) {
+		base := e.scriptDir
+		if base == "" {
+			base, _ = filepath.Abs(".")
+		}
+		expandedPath = filepath.Join(base, expandedPath)
+	}
+	absPath, err := filepath.Abs(expandedPath)
+	if err != nil {
+		return fmt.Errorf("line %d: source %q: %w", stmt.Line, expandedPath, err)
+	}
+
+	// Circular reference detection
+	if e.sourceStack[absPath] {
+		return fmt.Errorf("line %d: source %q: circular reference detected", stmt.Line, stmt.Source.Path)
+	}
+
+	content, err := e.fileReader.ReadFile(absPath)
+	if err != nil {
+		return fmt.Errorf("line %d: source %q: %w", stmt.Line, stmt.Source.Path, err)
+	}
+
+	content = stripShebang(content)
+
+	sourcedScript, err := ParseScript(content)
+	if err != nil {
+		return fmt.Errorf("line %d: source %q: %w", stmt.Line, stmt.Source.Path, err)
+	}
+
+	// Register sourced script's functions into current function table
+	for name, fn := range sourcedScript.Functions {
+		e.functions[name] = fn
+	}
+
+	// Push source stack, save and set scriptDir
+	e.sourceStack[absPath] = true
+	prevDir := e.scriptDir
+	e.scriptDir = filepath.Dir(absPath)
+
+	err = e.executeBlock(ctx, sourcedScript.Statements, result, stageNum, totalStages)
+
+	// Restore scriptDir and pop source stack
+	e.scriptDir = prevDir
+	delete(e.sourceStack, absPath)
+
+	return err
 }
 
 func (e *ScriptExecutor) executeBuiltin(ctx context.Context, stmt *BuiltinStmt, result *ScriptResult) error {
@@ -1948,6 +2121,8 @@ func countStagesInBlock(stmts []Statement) int {
 			n += countStagesInBlock(stmt.Parallel.Body)
 		case StmtArrayLit, StmtMapLit, StmtAssignIndex, StmtAssignProp:
 			// 0 — pure assignments, no spawn
+		case StmtSource:
+			// 0 — sourced script stages are unknown at parse time
 		}
 	}
 	return n
