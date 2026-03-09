@@ -20,10 +20,16 @@ const (
 	StmtFor      StatementKind = "for"
 	StmtWhile    StatementKind = "while"
 	StmtBuiltin  StatementKind = "builtin"
+	StmtFnDef    StatementKind = "fn-def"
+	StmtFnCall   StatementKind = "fn-call"
+	StmtReturn   StatementKind = "return"
 )
 
 // MaxLoopIterations is the safety limit for while loops to prevent infinite execution.
 const MaxLoopIterations = 10000
+
+// MaxCallDepth is the safety limit for nested function calls to prevent infinite recursion.
+const MaxCallDepth = 100
 
 // ExportStmt holds a parsed export KEY=VALUE.
 type ExportStmt struct {
@@ -65,6 +71,24 @@ type BuiltinStmt struct {
 	Args    []string
 }
 
+// FnDef holds a parsed function definition: fn NAME(PARAMS) ... end
+type FnDef struct {
+	Name   string
+	Params []string
+	Body   []Statement
+}
+
+// FnCallStmt holds a parsed function call: NAME(ARGS) or VAR = NAME(ARGS)
+type FnCallStmt struct {
+	Name string
+	Args []string
+}
+
+// ReturnStmt holds a parsed return statement inside a function body.
+type ReturnStmt struct {
+	Value string
+}
+
 // ErrScriptExit signals a controlled script termination via the exit builtin.
 type ErrScriptExit struct {
 	Code int
@@ -72,6 +96,15 @@ type ErrScriptExit struct {
 
 func (e *ErrScriptExit) Error() string {
 	return fmt.Sprintf("script exit with code %d", e.Code)
+}
+
+// ErrFnReturn signals a function return for flow control (not a real error).
+type ErrFnReturn struct {
+	Value string
+}
+
+func (e *ErrFnReturn) Error() string {
+	return fmt.Sprintf("function return: %s", e.Value)
 }
 
 // SpawnResult captures the outcome of an assignment spawn for condition evaluation.
@@ -91,7 +124,10 @@ type Statement struct {
 	For      *ForBlock
 	While    *WhileBlock
 	Builtin  *BuiltinStmt
-	Assign   string   // variable name for assignment spawn (e.g. "result" in "result = spawn ...")
+	FnDef    *FnDef
+	FnCall   *FnCallStmt
+	Return   *ReturnStmt
+	Assign   string   // variable name for assignment spawn/fn-call
 	OnError  *Command // on-error handler spawn command
 	Raw      string
 }
@@ -99,6 +135,7 @@ type Statement struct {
 // Script is a sequence of parsed statements.
 type Script struct {
 	Statements []Statement
+	Functions  map[string]*FnDef
 }
 
 // ParseScript splits input by newlines and parses using a recursive descent parser
@@ -115,7 +152,20 @@ func ParseScript(input string) (*Script, error) {
 			return nil, fmt.Errorf("line %d: unexpected statement after block end", i+1)
 		}
 	}
-	return &Script{Statements: stmts}, nil
+
+	script := &Script{Statements: stmts, Functions: make(map[string]*FnDef)}
+	for _, stmt := range stmts {
+		if stmt.Kind == StmtFnDef {
+			if _, exists := script.Functions[stmt.FnDef.Name]; exists {
+				return nil, fmt.Errorf("duplicate function name %q", stmt.FnDef.Name)
+			}
+			script.Functions[stmt.FnDef.Name] = stmt.FnDef
+		}
+	}
+	if err := validateFnCalls(script.Statements, script.Functions); err != nil {
+		return nil, err
+	}
+	return script, nil
 }
 
 func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, int, error) {
@@ -134,6 +184,32 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 				return nil, 0, fmt.Errorf("line %d: unexpected %q outside block", i+1, trimmed)
 			}
 			return stmts, i, nil
+		}
+
+		if strings.HasPrefix(lower, "fn ") || strings.HasPrefix(lower, "fn\t") {
+			if insideBlock {
+				return nil, 0, fmt.Errorf("line %d: function definition not allowed inside block", i+1)
+			}
+			fnDef, nextIdx, err := parseFnDef(lines, i)
+			if err != nil {
+				return nil, 0, err
+			}
+			stmts = append(stmts, Statement{Kind: StmtFnDef, FnDef: fnDef, Raw: trimmed})
+			i = nextIdx
+			continue
+		}
+
+		if lower == "return" || strings.HasPrefix(lower, "return ") || strings.HasPrefix(lower, "return\t") {
+			if !insideBlock {
+				return nil, 0, fmt.Errorf("line %d: return not allowed at top level", i+1)
+			}
+			stmt, err := parseReturnStatement(trimmed, i)
+			if err != nil {
+				return nil, 0, err
+			}
+			stmts = append(stmts, stmt)
+			i++
+			continue
 		}
 
 		if strings.HasPrefix(lower, "if ") || strings.HasPrefix(lower, "if\t") {
@@ -343,6 +419,88 @@ func parseWhileBlock(lines []string, whileLineIdx int) (*WhileBlock, int, error)
 	return &WhileBlock{Condition: *cond, Body: body}, nextIdx + 1, nil
 }
 
+func parseFnDef(lines []string, fnLineIdx int) (*FnDef, int, error) {
+	fnLine := strings.TrimSpace(lines[fnLineIdx])
+	rest := strings.TrimSpace(fnLine[2:]) // skip "fn" keyword (2 chars)
+
+	parenIdx := strings.IndexByte(rest, '(')
+	if parenIdx < 0 {
+		return nil, 0, fmt.Errorf("line %d: invalid fn syntax: missing '('", fnLineIdx+1)
+	}
+	name := strings.TrimSpace(rest[:parenIdx])
+	if name == "" || !isValidIdentifier(name) {
+		return nil, 0, fmt.Errorf("line %d: invalid function name %q", fnLineIdx+1, name)
+	}
+	if isReservedKeyword(name) {
+		return nil, 0, fmt.Errorf("line %d: function name %q is a reserved keyword", fnLineIdx+1, name)
+	}
+
+	closeParenIdx := strings.IndexByte(rest[parenIdx:], ')')
+	if closeParenIdx < 0 {
+		return nil, 0, fmt.Errorf("line %d: invalid fn syntax: missing ')'", fnLineIdx+1)
+	}
+	closeParenIdx += parenIdx
+
+	paramsStr := strings.TrimSpace(rest[parenIdx+1 : closeParenIdx])
+	var params []string
+	if paramsStr != "" {
+		seen := make(map[string]bool)
+		for _, p := range strings.Split(paramsStr, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if isReservedKeyword(p) {
+				return nil, 0, fmt.Errorf("line %d: parameter name %q is a reserved keyword", fnLineIdx+1, p)
+			}
+			if seen[p] {
+				return nil, 0, fmt.Errorf("line %d: duplicate parameter name %q", fnLineIdx+1, p)
+			}
+			seen[p] = true
+			params = append(params, p)
+		}
+	}
+
+	body, nextIdx, err := parseBlock(lines, fnLineIdx+1, true)
+	if err != nil {
+		return nil, 0, err
+	}
+	if nextIdx >= len(lines) {
+		return nil, 0, fmt.Errorf("line %d: unclosed fn block (missing 'end')", fnLineIdx+1)
+	}
+	terminator := strings.ToLower(strings.TrimSpace(lines[nextIdx]))
+	if terminator == "else" {
+		return nil, 0, fmt.Errorf("line %d: unexpected 'else' in fn block", nextIdx+1)
+	}
+
+	return &FnDef{Name: name, Params: params, Body: body}, nextIdx + 1, nil
+}
+
+func parseReturnStatement(line string, lineIdx int) (Statement, error) {
+	value := ""
+	if len(line) > 6 {
+		value = strings.TrimSpace(line[6:])
+		value = unquote(value)
+	}
+	return Statement{
+		Kind:   StmtReturn,
+		Return: &ReturnStmt{Value: value},
+		Raw:    line,
+	}, nil
+}
+
+func isValidIdentifier(s string) bool {
+	if len(s) == 0 || !isVarStart(s[0]) {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if !isVarChar(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 func isBuiltinKeyword(lower string) bool {
 	fields := strings.Fields(lower)
 	if len(fields) == 0 {
@@ -400,7 +558,7 @@ func parseStatement(line string) (Statement, error) {
 		return parseExport(line)
 	}
 
-	// 2. assignment: VAR = spawn "..."
+	// 2. assignment: VAR = spawn "..." OR VAR = NAME(ARGS)
 	if varName, rest, ok := isAssignment(line); ok {
 		mainLine, handlerLine, hasOnError := splitOnError(rest)
 		cmd, err := parseSpawnCommand(mainLine)
@@ -418,10 +576,24 @@ func parseStatement(line string) (Statement, error) {
 		return stmt, nil
 	}
 
-	// 3. on-error split (non-assignment)
+	// 3. assignment fn call: VAR = NAME(ARGS)
+	if stmt, ok := parseAssignmentFnCall(line); ok {
+		return stmt, nil
+	}
+
+	// 4. fn call: NAME(ARGS)
+	if fnName, args, ok := isFnCallExpr(line); ok {
+		return Statement{
+			Kind:   StmtFnCall,
+			FnCall: &FnCallStmt{Name: fnName, Args: args},
+			Raw:    line,
+		}, nil
+	}
+
+	// 5. on-error split (non-assignment)
 	mainLine, handlerLine, hasOnError := splitOnError(line)
 
-	// 4. pipeline detection (on main part)
+	// 6. pipeline detection (on main part)
 	if isPipelineStatement(mainLine) {
 		p, err := ParsePipeline(mainLine)
 		if err != nil {
@@ -438,7 +610,7 @@ func parseStatement(line string) (Statement, error) {
 		return stmt, nil
 	}
 
-	// 5. spawn (default)
+	// 7. spawn (default)
 	cmd, err := parseSpawnCommand(mainLine)
 	if err != nil {
 		return Statement{}, err
@@ -452,6 +624,126 @@ func parseStatement(line string) (Statement, error) {
 		stmt.OnError = &hCmd
 	}
 	return stmt, nil
+}
+
+func parseAssignmentFnCall(line string) (Statement, bool) {
+	eqIdx := strings.Index(line, "=")
+	if eqIdx < 0 {
+		return Statement{}, false
+	}
+	if eqIdx+1 < len(line) && line[eqIdx+1] == '=' {
+		return Statement{}, false
+	}
+	varName := strings.TrimSpace(line[:eqIdx])
+	if !isValidVarName(varName) {
+		return Statement{}, false
+	}
+	rest := strings.TrimSpace(line[eqIdx+1:])
+	fnName, args, ok := isFnCallExpr(rest)
+	if !ok {
+		return Statement{}, false
+	}
+	return Statement{
+		Kind:   StmtFnCall,
+		FnCall: &FnCallStmt{Name: fnName, Args: args},
+		Assign: varName,
+		Raw:    line,
+	}, true
+}
+
+func isFnCallExpr(s string) (name string, args []string, ok bool) {
+	s = strings.TrimSpace(s)
+	parenIdx := strings.IndexByte(s, '(')
+	if parenIdx <= 0 {
+		return "", nil, false
+	}
+	name = s[:parenIdx]
+	if !isValidIdentifier(name) || isReservedKeyword(name) {
+		return "", nil, false
+	}
+	if len(s) == 0 || s[len(s)-1] != ')' {
+		return "", nil, false
+	}
+	argsStr := strings.TrimSpace(s[parenIdx+1 : len(s)-1])
+	if argsStr == "" {
+		return name, nil, true
+	}
+	args = parseFnCallArgs(argsStr)
+	return name, args, true
+}
+
+func parseFnCallArgs(s string) []string {
+	var args []string
+	var current strings.Builder
+	inQuote := false
+	var quoteChar byte
+
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inQuote {
+			if ch == quoteChar {
+				inQuote = false
+			} else {
+				current.WriteByte(ch)
+			}
+			continue
+		}
+		if ch == '"' || ch == '\'' {
+			inQuote = true
+			quoteChar = ch
+			continue
+		}
+		if ch == ',' {
+			arg := strings.TrimSpace(current.String())
+			if arg != "" {
+				args = append(args, arg)
+			}
+			current.Reset()
+			continue
+		}
+		current.WriteByte(ch)
+	}
+	arg := strings.TrimSpace(current.String())
+	if arg != "" {
+		args = append(args, arg)
+	}
+	return args
+}
+
+func validateFnCalls(stmts []Statement, functions map[string]*FnDef) error {
+	for _, stmt := range stmts {
+		switch stmt.Kind {
+		case StmtFnCall:
+			fn, ok := functions[stmt.FnCall.Name]
+			if !ok {
+				return fmt.Errorf("undefined function %q", stmt.FnCall.Name)
+			}
+			if len(stmt.FnCall.Args) != len(fn.Params) {
+				return fmt.Errorf("function %q expects %d args, got %d",
+					stmt.FnCall.Name, len(fn.Params), len(stmt.FnCall.Args))
+			}
+		case StmtIf:
+			if err := validateFnCalls(stmt.If.Then, functions); err != nil {
+				return err
+			}
+			if err := validateFnCalls(stmt.If.Else, functions); err != nil {
+				return err
+			}
+		case StmtFor:
+			if err := validateFnCalls(stmt.For.Body, functions); err != nil {
+				return err
+			}
+		case StmtWhile:
+			if err := validateFnCalls(stmt.While.Body, functions); err != nil {
+				return err
+			}
+		case StmtFnDef:
+			if err := validateFnCalls(stmt.FnDef.Body, functions); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func isAssignment(line string) (varName, rest string, ok bool) {
@@ -576,10 +868,7 @@ func isReservedKeyword(s string) bool {
 }
 
 func isValidVarName(s string) bool {
-	if len(s) == 0 {
-		return false
-	}
-	if !isVarStart(s[0]) {
+	if len(s) == 0 || !isVarStart(s[0]) {
 		return false
 	}
 	for i := 1; i < len(s); i++ {
@@ -587,10 +876,7 @@ func isValidVarName(s string) bool {
 			return false
 		}
 	}
-	if isReservedKeyword(s) {
-		return false
-	}
-	return true
+	return !isReservedKeyword(s)
 }
 
 func unquote(s string) string {
@@ -615,12 +901,18 @@ type ScriptExecutor struct {
 	spawner      KernelSpawner
 	env          *Environment
 	captures     map[string]*SpawnResult
+	functions    map[string]*FnDef
+	callDepth    int
 	OnStageStart StageCallback
 }
 
 // NewScriptExecutor creates a ScriptExecutor with the given spawner and environment.
 func NewScriptExecutor(spawner KernelSpawner, env *Environment) *ScriptExecutor {
-	return &ScriptExecutor{spawner: spawner, env: env, captures: make(map[string]*SpawnResult)}
+	return &ScriptExecutor{
+		spawner:  spawner,
+		env:      env,
+		captures: make(map[string]*SpawnResult),
+	}
 }
 
 // Execute runs each statement in order using recursive block execution.
@@ -631,6 +923,8 @@ func (e *ScriptExecutor) Execute(ctx context.Context, script *Script) (*ScriptRe
 	stageNum := 0
 	totalStages := countExecutableStages(script)
 
+	e.functions = script.Functions
+
 	err := e.executeBlock(ctx, script.Statements, result, &stageNum, totalStages)
 	result.Elapsed = time.Since(start)
 
@@ -638,6 +932,10 @@ func (e *ScriptExecutor) Execute(ctx context.Context, script *Script) (*ScriptRe
 	if errors.As(err, &exitErr) {
 		result.LastExitCode = exitErr.Code
 		return result, nil
+	}
+	var returnErr *ErrFnReturn
+	if errors.As(err, &returnErr) {
+		return nil, fmt.Errorf("return outside function")
 	}
 	if err != nil {
 		return nil, err
@@ -812,6 +1110,69 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 			if err := e.executeBuiltin(ctx, stmt.Builtin, result); err != nil {
 				return err
 			}
+
+		case StmtFnDef:
+			// definitions are registered at parse time, not executed
+
+		case StmtFnCall:
+			fnDef, ok := e.functions[stmt.FnCall.Name]
+			if !ok {
+				return fmt.Errorf("undefined function %q", stmt.FnCall.Name)
+			}
+			if e.callDepth >= MaxCallDepth {
+				return fmt.Errorf("maximum call depth (%d) exceeded, possible infinite recursion", MaxCallDepth)
+			}
+
+			expandedArgs := make([]string, len(stmt.FnCall.Args))
+			for i, arg := range stmt.FnCall.Args {
+				expandedArgs[i] = e.env.Expand(arg)
+			}
+
+			type saveEntry struct {
+				value   string
+				existed bool
+			}
+			saved := make(map[string]saveEntry)
+			for i, paramName := range fnDef.Params {
+				if old, ok := e.env.Get(paramName); ok {
+					saved[paramName] = saveEntry{value: old, existed: true}
+				} else {
+					saved[paramName] = saveEntry{existed: false}
+				}
+				e.env.Set(paramName, expandedArgs[i])
+			}
+
+			e.callDepth++
+			fnErr := e.executeBlock(ctx, fnDef.Body, result, stageNum, totalStages)
+			e.callDepth--
+
+			for paramName, entry := range saved {
+				if entry.existed {
+					e.env.Set(paramName, entry.value)
+				} else {
+					e.env.Delete(paramName)
+				}
+			}
+
+			returnValue := ""
+			var returnErr *ErrFnReturn
+			if errors.As(fnErr, &returnErr) {
+				returnValue = returnErr.Value
+				fnErr = nil
+			}
+			if fnErr != nil {
+				return fnErr
+			}
+			if stmt.Assign != "" {
+				e.env.Set(stmt.Assign, returnValue)
+			}
+
+		case StmtReturn:
+			value := ""
+			if stmt.Return.Value != "" {
+				value = e.expandReturnValue(stmt.Return.Value)
+			}
+			return &ErrFnReturn{Value: value}
 		}
 	}
 	return nil
@@ -853,6 +1214,25 @@ func (e *ScriptExecutor) executeBuiltin(ctx context.Context, stmt *BuiltinStmt, 
 	}
 
 	return fmt.Errorf("unknown builtin command: %q", stmt.Command)
+}
+
+func (e *ScriptExecutor) expandReturnValue(val string) string {
+	if strings.HasPrefix(val, "$") {
+		ref := val[1:]
+		if dotIdx := strings.IndexByte(ref, '.'); dotIdx >= 0 {
+			varName := ref[:dotIdx]
+			property := ref[dotIdx+1:]
+			if capture, ok := e.captures[varName]; ok {
+				switch property {
+				case "result":
+					return capture.Result
+				case "exitcode":
+					return strconv.Itoa(capture.ExitCode)
+				}
+			}
+		}
+	}
+	return e.env.Expand(val)
 }
 
 func (e *ScriptExecutor) evalCondition(cond *Condition) (bool, error) {
@@ -921,6 +1301,12 @@ func countStagesInBlock(stmts []Statement) int {
 			if stmt.Builtin.Command == "wait" {
 				n++
 			}
+		case StmtFnDef:
+			// 0 — definition doesn't count as a stage
+		case StmtFnCall:
+			n++
+		case StmtReturn:
+			// 0
 		}
 	}
 	return n

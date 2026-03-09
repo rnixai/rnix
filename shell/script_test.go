@@ -3082,6 +3082,7 @@ func TestScriptExecutor_FnParamVsForLoopVar(t *testing.T) {
 		results: []mockResult{
 			{result: "ok-fn", exitCode: 0, tokens: 50},
 			{result: "ok-x", exitCode: 0, tokens: 50},
+			{result: "ok-fn2", exitCode: 0, tokens: 50},
 			{result: "ok-y", exitCode: 0, tokens: 50},
 		},
 	}
