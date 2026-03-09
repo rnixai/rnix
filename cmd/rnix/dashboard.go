@@ -130,7 +130,9 @@ type dashboardModel struct {
 	heatmapPID       types.PID
 	heatmapSegments  []heatmapSegment
 	heatmapCursor    int
+	heatmapExpanded  bool
 	heatmapTickCount int
+	heatmapErr       error
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -167,7 +169,12 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.timelineEventCh = nil
 		return m, nil
 	case heatmapProfileMsg:
-		if msg.err == nil && msg.profile != nil {
+		if msg.err != nil {
+			m.heatmapErr = msg.err
+			return m, nil
+		}
+		m.heatmapErr = nil
+		if msg.profile != nil {
 			m.heatmapProfile = msg.profile
 			m.heatmapSegments = buildHeatmapSegments(msg.profile)
 		}
@@ -1008,8 +1015,10 @@ func mapConsumerKind(kind string) segmentKind {
 		return segAssistant
 	case strings.HasPrefix(kind, "tool:"):
 		return segTool
+	case kind == "skill" || strings.HasPrefix(kind, "skill:"):
+		return segSkill
 	default:
-		return segUser
+		return segAssistant
 	}
 }
 
@@ -1080,27 +1089,49 @@ func buildHeatmapSegments(profile *debug.CtxProfileResult) []heatmapSegment {
 		return nil
 	}
 
-	var segments []heatmapSegment
-	var otherTokens int
-	var otherPct float64
+	type kindBucket struct {
+		tokens   int
+		pct      float64
+		kind     segmentKind
+		activity activityLevel
+		bestRank int
+	}
+	merged := make(map[segmentKind]*kindBucket)
 
 	for _, c := range profile.TopConsumers {
 		kind := mapConsumerKind(c.Kind)
 		activity := estimateActivity(profile, kind, c.Rank)
-		label := segmentKindLabel(kind)
+		if b, ok := merged[kind]; ok {
+			b.tokens += c.Tokens
+			b.pct += c.Pct
+			if c.Rank < b.bestRank {
+				b.bestRank = c.Rank
+				b.activity = activity
+			}
+		} else {
+			merged[kind] = &kindBucket{
+				tokens: c.Tokens, pct: c.Pct,
+				kind: kind, activity: activity, bestRank: c.Rank,
+			}
+		}
+	}
 
-		if c.Pct < 3.0 {
-			otherTokens += c.Tokens
-			otherPct += c.Pct
+	var segments []heatmapSegment
+	var otherTokens int
+	var otherPct float64
+
+	for _, b := range merged {
+		if b.pct < 3.0 {
+			otherTokens += b.tokens
+			otherPct += b.pct
 			continue
 		}
-
 		segments = append(segments, heatmapSegment{
-			label:    label,
-			tokens:   c.Tokens,
-			pct:      c.Pct,
-			kind:     kind,
-			activity: activity,
+			label:    segmentKindLabel(b.kind),
+			tokens:   b.tokens,
+			pct:      b.pct,
+			kind:     b.kind,
+			activity: b.activity,
 		})
 	}
 
@@ -1155,6 +1186,8 @@ func (m dashboardModel) handleHeatmapPIDChange() dashboardModel {
 	m.heatmapProfile = nil
 	m.heatmapSegments = nil
 	m.heatmapCursor = 0
+	m.heatmapExpanded = false
+	m.heatmapErr = nil
 	return m
 }
 
@@ -1168,6 +1201,8 @@ func (m dashboardModel) handleHeatmapKey(key string) dashboardModel {
 		if m.heatmapCursor < len(m.heatmapSegments)-1 {
 			m.heatmapCursor++
 		}
+	case "enter":
+		m.heatmapExpanded = !m.heatmapExpanded
 	}
 	return m
 }
@@ -1213,6 +1248,10 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 		b.WriteString("\n    Select an agent to view heatmap")
 		return style.Render(b.String())
 	}
+	if m.heatmapErr != nil {
+		fmt.Fprintf(&b, "\n    ✗ %v", m.heatmapErr)
+		return style.Render(b.String())
+	}
 	if len(m.heatmapSegments) == 0 {
 		b.WriteString("\n    Loading context profile...")
 		return style.Render(b.String())
@@ -1248,7 +1287,7 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 			cursor, seg.label, seg.tokens, seg.pct, actStr)
 	}
 
-	if m.heatmapCursor < len(m.heatmapSegments) {
+	if m.heatmapExpanded && m.heatmapCursor < len(m.heatmapSegments) {
 		seg := m.heatmapSegments[m.heatmapCursor]
 		actStr := activityLabel(seg.activity)
 		fmt.Fprintf(&b, "\n── Selected: %s ──\n", seg.label)

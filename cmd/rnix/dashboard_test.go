@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1120,6 +1121,118 @@ func TestMapConsumerKindToSegmentKind(t *testing.T) {
 }
 
 // --- 17.3-UNIT-013: [P1] heatmapTickCount increments for refresh (AC1) ---
+
+// --- CR-FIX-001: [P0] Enter toggles heatmapExpanded (AC2) ---
+
+func TestDashboardModel_HeatmapEnterToggle(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+	m.heatmapCursor = 0
+
+	if m.heatmapExpanded {
+		t.Fatal("heatmapExpanded should default to false")
+	}
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	um := updated.(dashboardModel)
+	if !um.heatmapExpanded {
+		t.Error("enter should toggle heatmapExpanded to true")
+	}
+
+	v := um.View()
+	if !strings.Contains(v.Content, "── Selected:") {
+		t.Error("expanded heatmap should show detail section with '── Selected:'")
+	}
+
+	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	um = updated.(dashboardModel)
+	if um.heatmapExpanded {
+		t.Error("enter again should toggle heatmapExpanded back to false")
+	}
+}
+
+// --- CR-FIX-002: [P0] buildHeatmapSegments merges same-kind consumers (AC1) ---
+
+func TestBuildHeatmapSegments_MergeToolKinds(t *testing.T) {
+	profile := &debug.CtxProfileResult{
+		PID:           2,
+		TotalTokens:   1000,
+		ContextBudget: 8000,
+		TopConsumers: []debug.ConsumerEntry{
+			{Kind: "system_prompt", Tokens: 400, Pct: 40.0, Rank: 1},
+			{Kind: "tool:read_file", Tokens: 200, Pct: 20.0, Rank: 2},
+			{Kind: "tool:write_file", Tokens: 150, Pct: 15.0, Rank: 3},
+			{Kind: "user", Tokens: 250, Pct: 25.0, Rank: 4},
+		},
+		Classification: debug.ClassificationResult{
+			Active: debug.ClassBucket{Tokens: 800, Pct: 80.0, Messages: 3},
+		},
+	}
+	segments := buildHeatmapSegments(profile)
+
+	toolCount := 0
+	totalToolTokens := 0
+	for _, seg := range segments {
+		if seg.kind == segTool {
+			toolCount++
+			totalToolTokens = seg.tokens
+		}
+	}
+	if toolCount != 1 {
+		t.Errorf("tool types should be merged into 1 segment, got %d", toolCount)
+	}
+	if totalToolTokens != 350 {
+		t.Errorf("merged tool segment should have 350 tokens, got %d", totalToolTokens)
+	}
+}
+
+// --- CR-FIX-003: [P0] heatmapProfileMsg error stored and displayed (AC1) ---
+
+func TestDashboardModel_HeatmapProfileError(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 2
+	m.activePane = paneHeatmap
+
+	updated, _ := m.Update(heatmapProfileMsg{err: fmt.Errorf("connection refused")})
+	um := updated.(dashboardModel)
+
+	if um.heatmapErr == nil {
+		t.Error("heatmapProfileMsg with error should store heatmapErr")
+	}
+
+	v := um.View()
+	if !strings.Contains(v.Content, "connection refused") {
+		t.Error("heatmap pane should display error message")
+	}
+}
+
+// --- CR-FIX-004: [P1] mapConsumerKind maps skill → segSkill (AC1) ---
+
+func TestMapConsumerKind_Skill(t *testing.T) {
+	if got := mapConsumerKind("skill"); got != segSkill {
+		t.Errorf("mapConsumerKind(\"skill\") = %d, want segSkill(%d)", got, segSkill)
+	}
+	if got := mapConsumerKind("skill:code-analyst"); got != segSkill {
+		t.Errorf("mapConsumerKind(\"skill:code-analyst\") = %d, want segSkill(%d)", got, segSkill)
+	}
+}
+
+// --- CR-FIX-005: [P1] PID change resets heatmapExpanded and heatmapErr (AC1) ---
+
+func TestDashboardModel_HeatmapPIDChangeResetsState(t *testing.T) {
+	m := newTestHeatmapDashboardModel()
+	m.heatmapExpanded = true
+	m.heatmapErr = fmt.Errorf("old error")
+
+	m.selectedPID = 999
+	m = m.handleHeatmapPIDChange()
+
+	if m.heatmapExpanded {
+		t.Error("PID change should reset heatmapExpanded to false")
+	}
+	if m.heatmapErr != nil {
+		t.Error("PID change should clear heatmapErr")
+	}
+}
 
 func TestDashboardModel_HeatmapRefreshTick(t *testing.T) {
 	old := ipc.SocketPathOverride
