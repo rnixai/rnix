@@ -257,6 +257,10 @@ func parseForBlock(lines []string, forLineIdx int) (*ForBlock, int, error) {
 	}
 	varName := rest[:spaceIdx]
 
+	if isReservedKeyword(varName) {
+		return nil, 0, fmt.Errorf("line %d: cannot use reserved keyword %q as for loop variable", forLineIdx+1, varName)
+	}
+
 	remaining := strings.TrimSpace(rest[spaceIdx:])
 	if len(remaining) < 2 || !strings.EqualFold(remaining[:2], "in") {
 		return nil, 0, fmt.Errorf("line %d: expected 'in' keyword in for statement", forLineIdx+1)
@@ -367,6 +371,13 @@ func parseBuiltinStatement(line string, lineIdx int) (Statement, error) {
 	case "exit":
 		if len(args) != 1 {
 			return Statement{}, fmt.Errorf("line %d: exit requires exactly one integer argument (0-255)", lineIdx+1)
+		}
+		exitCode, err := strconv.Atoi(args[0])
+		if err != nil {
+			return Statement{}, fmt.Errorf("line %d: exit code %q is not a valid integer", lineIdx+1, args[0])
+		}
+		if exitCode < 0 || exitCode > 255 {
+			return Statement{}, fmt.Errorf("line %d: exit code %d out of range (0-255)", lineIdx+1, exitCode)
 		}
 	case "wait":
 		if len(args) != 1 {
@@ -550,6 +561,20 @@ func parseExport(line string) (Statement, error) {
 	}, nil
 }
 
+// reservedKeywords contains keywords that cannot be used as variable names.
+// Phase 3 keywords (fn, return, parallel, source) are pre-registered even
+// though they are not yet implemented, to prevent user-defined name collisions.
+var reservedKeywords = map[string]bool{
+	"for": true, "in": true, "while": true, "if": true, "else": true, "end": true,
+	"fn": true, "return": true, "parallel": true, "source": true,
+	"wait": true, "sleep": true, "exit": true,
+	"export": true, "spawn": true,
+}
+
+func isReservedKeyword(s string) bool {
+	return reservedKeywords[strings.ToLower(s)]
+}
+
 func isValidVarName(s string) bool {
 	if len(s) == 0 {
 		return false
@@ -561,6 +586,9 @@ func isValidVarName(s string) bool {
 		if !isVarChar(s[i]) {
 			return false
 		}
+	}
+	if isReservedKeyword(s) {
+		return false
 	}
 	return true
 }
@@ -678,43 +706,43 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 				return nil
 			}
 
-	case StmtPipeline:
-		*stageNum++
-		expanded := expandPipelineIntents(e.env, stmt.Pipeline)
-		if e.OnStageStart != nil {
-			e.OnStageStart(*stageNum, totalStages, "pipeline")
-		}
-		pExec := NewPipelineExecutor(e.spawner)
-		pResult, err := pExec.Execute(ctx, expanded)
-		if err != nil {
-			return fmt.Errorf("pipeline: %w", err)
-		}
-		if len(pResult.Stages) > 0 {
-			last := pResult.Stages[len(pResult.Stages)-1]
-			result.LastResult = last.Result
-			result.LastExitCode = last.ExitCode
-		}
-		result.TotalTokens += pResult.TotalTokens
-
-		if result.LastExitCode != 0 && stmt.OnError != nil {
+		case StmtPipeline:
 			*stageNum++
-			hIntent := e.env.Expand(stmt.OnError.Intent)
+			expanded := expandPipelineIntents(e.env, stmt.Pipeline)
 			if e.OnStageStart != nil {
-				e.OnStageStart(*stageNum, totalStages, hIntent)
+				e.OnStageStart(*stageNum, totalStages, "pipeline")
 			}
-			hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(
-				ctx, hIntent, stmt.OnError.Agent, stmt.OnError.Model)
-			if hErr != nil {
-				return fmt.Errorf("on-error: %w", hErr)
+			pExec := NewPipelineExecutor(e.spawner)
+			pResult, err := pExec.Execute(ctx, expanded)
+			if err != nil {
+				return fmt.Errorf("pipeline: %w", err)
 			}
-			result.LastResult = hRes
-			result.LastExitCode = hExitCode
-			result.TotalTokens += hTokens
-		}
+			if len(pResult.Stages) > 0 {
+				last := pResult.Stages[len(pResult.Stages)-1]
+				result.LastResult = last.Result
+				result.LastExitCode = last.ExitCode
+			}
+			result.TotalTokens += pResult.TotalTokens
 
-		if result.LastExitCode != 0 {
-			return nil
-		}
+			if result.LastExitCode != 0 && stmt.OnError != nil {
+				*stageNum++
+				hIntent := e.env.Expand(stmt.OnError.Intent)
+				if e.OnStageStart != nil {
+					e.OnStageStart(*stageNum, totalStages, hIntent)
+				}
+				hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(
+					ctx, hIntent, stmt.OnError.Agent, stmt.OnError.Model)
+				if hErr != nil {
+					return fmt.Errorf("on-error: %w", hErr)
+				}
+				result.LastResult = hRes
+				result.LastExitCode = hExitCode
+				result.TotalTokens += hTokens
+			}
+
+			if result.LastExitCode != 0 {
+				return nil
+			}
 
 		case StmtIf:
 			match, err := e.evalCondition(&stmt.If.Condition)

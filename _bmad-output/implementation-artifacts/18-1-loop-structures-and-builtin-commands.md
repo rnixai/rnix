@@ -1,6 +1,6 @@
 # Story 18.1: 循环结构与内置命令
 
-Status: review
+Status: done
 
 ## Story
 
@@ -348,6 +348,7 @@ Claude claude-4.6-opus-high-thinking (Cursor)
 ### Change Log
 
 - 2026-03-09: Story 18.1 实现完成 — 循环结构（for/while）与内置命令（wait/sleep/exit）
+- 2026-03-09: Code Review 通过 — 修复 2 HIGH + 3 MEDIUM 问题（exit 解析校验、保留关键字、缩进、组合矩阵测试）
 
 ### File List
 
