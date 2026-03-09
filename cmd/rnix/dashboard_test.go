@@ -2023,7 +2023,7 @@ func TestReplayDashboard_LiveKeysBlocked(t *testing.T) {
 	m.replayCursor = 0
 	m.selectedPID = 2
 
-	blockedKeys := []rune{'k', 'a', 'l', 'r'}
+	blockedKeys := []rune{'a', 'r'}
 	for _, key := range blockedKeys {
 		updated, _ := m.Update(tea.KeyPressMsg{Code: key})
 		um := updated.(dashboardModel)
@@ -2034,6 +2034,30 @@ func TestReplayDashboard_LiveKeysBlocked(t *testing.T) {
 		if !strings.Contains(um.statusMsg, "replay") && !strings.Contains(um.statusMsg, "Replay") {
 			t.Errorf("key %q blocked message should mention replay, got %q", string(key), um.statusMsg)
 		}
+	}
+
+	// 'l' blocked in non-timeline panes (tree pane is default activePane)
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'l'})
+	um := updated.(dashboardModel)
+	if um.statusMsg == "" || !strings.Contains(um.statusMsg, "replay") {
+		t.Error("l in tree pane replay mode should show blocked message")
+	}
+
+	// 'k' navigates in tree pane, not blocked
+	m2 := newTestReplayDashboardModel(t)
+	m2.replayCursor = 0
+	m2.replayReader = m.replayReader
+	// trigger tick to populate treeRows so k can navigate
+	m2.processes = buildReplayProcessTree(m2.replayReader, 0)
+	roots := buildProcessTree(m2.processes)
+	m2.treeRows = flattenTree(roots)
+	m2.treeCursor = 0
+	m2.selectedPID = m2.treeRows[0].proc.PID
+
+	updated, _ = m2.Update(tea.KeyPressMsg{Code: 'k'})
+	um = updated.(dashboardModel)
+	if um.statusMsg != "" && strings.Contains(um.statusMsg, "replay") {
+		t.Error("k in tree pane replay mode should navigate, not show blocked message")
 	}
 }
 
