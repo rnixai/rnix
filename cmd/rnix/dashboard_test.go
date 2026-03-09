@@ -1234,6 +1234,300 @@ func TestDashboardModel_HeatmapPIDChangeResetsState(t *testing.T) {
 	}
 }
 
+// ============================================================
+// ATDD RED PHASE — Story 17.4: 窗格联动与进程操作
+// All tests assert EXPECTED behavior. They FAIL because the
+// functions are stubs (not yet implemented).
+// ============================================================
+
+// --- 17.4-UNIT-001: [P0] PID change via tree j → immediate cmd (AC1) ---
+
+func TestDashboardModel_PIDChangeImmediateLinkage(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.treeCursor = 0
+	m.activePane = paneTree
+
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'j'})
+	um := updated.(dashboardModel)
+
+	if um.selectedPID == 0 {
+		t.Error("selectedPID should be set after j press")
+	}
+	if cmd == nil {
+		t.Error("PID change should return non-nil cmd (containing timeline+heatmap fetch)")
+	}
+}
+
+// --- 17.4-UNIT-002: [P0] handlePIDChange — selectedPID=0 → nil cmd (AC1) ---
+
+func TestDashboardModel_HandlePIDChangeNoPID(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+	m.selectedPID = 0
+
+	m2, cmd := m.handlePIDChange()
+
+	if cmd != nil {
+		t.Error("handlePIDChange with selectedPID=0 should return nil cmd (no IPC)")
+	}
+	if m2.timelineAttachedPID != 0 {
+		t.Errorf("timelineAttachedPID should be 0 when selectedPID=0, got %d", m2.timelineAttachedPID)
+	}
+	if m2.heatmapPID != 0 {
+		t.Errorf("heatmapPID should be 0 when selectedPID=0, got %d", m2.heatmapPID)
+	}
+}
+
+// --- 17.4-UNIT-003: [P0] handlePIDChange — PID change clears timeline + heatmap (AC1) ---
+
+func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+	m.heatmapProfile = mockHeatmapProfile()
+	m.heatmapSegments = []heatmapSegment{{label: "test", tokens: 100}}
+	m.heatmapPID = 2
+
+	m.selectedPID = 999
+	m2, _ := m.handlePIDChange()
+
+	if len(m2.timelineEvents) != 0 {
+		t.Errorf("handlePIDChange should clear timelineEvents, got %d", len(m2.timelineEvents))
+	}
+	if m2.heatmapProfile != nil {
+		t.Error("handlePIDChange should clear heatmapProfile")
+	}
+	if len(m2.heatmapSegments) != 0 {
+		t.Errorf("handlePIDChange should clear heatmapSegments, got %d", len(m2.heatmapSegments))
+	}
+	if m2.timelineAttachedPID != 999 {
+		t.Errorf("timelineAttachedPID should be 999, got %d", m2.timelineAttachedPID)
+	}
+	if m2.heatmapPID != 999 {
+		t.Errorf("heatmapPID should be 999, got %d", m2.heatmapPID)
+	}
+}
+
+// --- 17.4-UNIT-004: [P0] Global kill — k in timeline triggers confirmKill (AC2) ---
+
+func TestDashboardModel_GlobalKillConfirmTimeline(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.activePane = paneTimeline
+	m.selectedPID = 2
+	m.connected = true
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
+	um := updated.(dashboardModel)
+
+	if !um.confirmKill {
+		t.Error("k in timeline pane with selectedPID > 0 should trigger confirmKill")
+	}
+	if um.confirmPID != 2 {
+		t.Errorf("confirmPID should be 2, got %d", um.confirmPID)
+	}
+}
+
+// --- 17.4-UNIT-005: [P1] Global kill — no selectedPID → no action (AC2) ---
+
+func TestDashboardModel_GlobalKillNoSelectedPID(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.activePane = paneTimeline
+	m.selectedPID = 0
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
+	um := updated.(dashboardModel)
+
+	if um.confirmKill {
+		t.Error("k without selectedPID should not trigger confirmKill")
+	}
+}
+
+// --- 17.4-UNIT-006: [P0] Tree pane k → navigate up, not kill (AC2) ---
+
+func TestDashboardModel_TreeKNavigatesUpNotKill(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.activePane = paneTree
+	m.treeCursor = 2
+	m.selectedPID = 3
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
+	um := updated.(dashboardModel)
+
+	if um.treeCursor != 1 {
+		t.Errorf("k in tree pane should navigate up: expected cursor 1, got %d", um.treeCursor)
+	}
+	if um.confirmKill {
+		t.Error("k in tree pane should NOT trigger kill confirmation")
+	}
+}
+
+// --- 17.4-UNIT-007: [P0] execResultMsg — success sets statusMsg (AC2) ---
+
+func TestExecResultMsg_Success(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+
+	updated, _ := m.Update(execResultMsg{err: nil})
+	um := updated.(dashboardModel)
+
+	if um.statusMsg == "" {
+		t.Error("execResultMsg with nil err should set statusMsg")
+	}
+	if um.statusMsgTTL <= 0 {
+		t.Error("statusMsgTTL should be set > 0 after execResultMsg")
+	}
+}
+
+// --- 17.4-UNIT-008: [P0] execResultMsg — error sets statusMsg (AC2) ---
+
+func TestExecResultMsg_Error(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+
+	updated, _ := m.Update(execResultMsg{err: fmt.Errorf("gdb failed")})
+	um := updated.(dashboardModel)
+
+	if um.statusMsg == "" {
+		t.Error("execResultMsg with err should set statusMsg")
+	}
+	if !strings.Contains(um.statusMsg, "gdb failed") {
+		t.Errorf("statusMsg should contain error message, got %q", um.statusMsg)
+	}
+	if um.statusMsgTTL <= 0 {
+		t.Error("statusMsgTTL should be set > 0 after execResultMsg error")
+	}
+}
+
+// --- 17.4-UNIT-009: [P0] recordToggleMsg — start recording updates map (AC2) ---
+
+func TestRecordToggleMsg_Start(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.recording = make(map[types.PID]string)
+
+	updated, _ := m.Update(recordToggleMsg{pid: 2, recordID: "rec-001"})
+	um := updated.(dashboardModel)
+
+	if um.recording[2] != "rec-001" {
+		t.Errorf("recording[2] should be 'rec-001', got %q", um.recording[2])
+	}
+	if um.statusMsg == "" {
+		t.Error("start recording should set statusMsg")
+	}
+}
+
+// --- 17.4-UNIT-010: [P0] recordToggleMsg — stop recording clears map (AC2) ---
+
+func TestRecordToggleMsg_Stop(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.recording = map[types.PID]string{2: "rec-001"}
+
+	updated, _ := m.Update(recordToggleMsg{pid: 2, stopped: true, eventCount: 42})
+	um := updated.(dashboardModel)
+
+	if _, exists := um.recording[2]; exists {
+		t.Error("stop recording should remove PID from recording map")
+	}
+	if um.statusMsg == "" {
+		t.Error("stop recording should set statusMsg")
+	}
+	if !strings.Contains(um.statusMsg, "42") {
+		t.Errorf("statusMsg should contain event count 42, got %q", um.statusMsg)
+	}
+}
+
+// --- 17.4-UNIT-011: [P0] recordToggleMsg — error sets statusMsg (AC2) ---
+
+func TestRecordToggleMsg_Error(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.recording = make(map[types.PID]string)
+
+	updated, _ := m.Update(recordToggleMsg{pid: 2, err: fmt.Errorf("connection refused")})
+	um := updated.(dashboardModel)
+
+	if um.statusMsg == "" {
+		t.Error("recordToggleMsg with error should set statusMsg")
+	}
+	if !strings.Contains(um.statusMsg, "connection refused") {
+		t.Errorf("statusMsg should contain error, got %q", um.statusMsg)
+	}
+}
+
+// --- 17.4-UNIT-012: [P1] Status bar shows ●REC when recording (AC2) ---
+
+func TestDashboardModel_StatusBarRecording(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 2
+	m.recording = map[types.PID]string{2: "rec-001"}
+
+	v := m.View()
+	if !strings.Contains(v.Content, "●REC") {
+		t.Error("status bar should show '●REC' when selected process is recording")
+	}
+}
+
+// --- 17.4-UNIT-013: [P1] Status bar shows operation key hints (AC2) ---
+
+func TestDashboardModel_StatusBarOperationKeys(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 2
+
+	v := m.View()
+	content := v.Content
+
+	for _, hint := range []string{"k:Kill", "a:GDB", "l:Log", "r:Record"} {
+		if !strings.Contains(content, hint) {
+			t.Errorf("status bar should contain '%s'", hint)
+		}
+	}
+}
+
+// --- 17.4-UNIT-014: [P0] statusMsgTTL — tick decrements to 0 then clears (AC2) ---
+
+func TestDashboardModel_StatusMsgTTL(t *testing.T) {
+	old := ipc.SocketPathOverride
+	ipc.SocketPathOverride = "/tmp/rnix-nonexistent-dashboard-test.sock"
+	defer func() { ipc.SocketPathOverride = old }()
+
+	m := newDashboardModel(nil)
+	m.connected = false
+	m.statusMsg = "test message"
+	m.statusMsgTTL = 2
+
+	updated, _ := m.Update(tickMsg(time.Now()))
+	um := updated.(dashboardModel)
+	if um.statusMsgTTL != 1 {
+		t.Errorf("after 1st tick, statusMsgTTL should be 1, got %d", um.statusMsgTTL)
+	}
+	if um.statusMsg == "" {
+		t.Error("statusMsg should still be set when TTL > 0")
+	}
+
+	updated, _ = um.Update(tickMsg(time.Now()))
+	um = updated.(dashboardModel)
+	if um.statusMsgTTL != 0 {
+		t.Errorf("after 2nd tick, statusMsgTTL should be 0, got %d", um.statusMsgTTL)
+	}
+	if um.statusMsg != "" {
+		t.Errorf("statusMsg should be cleared when TTL reaches 0, got %q", um.statusMsg)
+	}
+}
+
+// --- 17.4-UNIT-015: [P1] Tree pane recording indicator — ● for recording PID (AC2) ---
+
+func TestDashboardModel_TreeRecordingIndicator(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.recording = map[types.PID]string{2: "rec-001"}
+
+	v := m.View()
+
+	lines := strings.Split(v.Content, "\n")
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, "PID 2") && strings.Contains(line, "●") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("tree pane should show '●' indicator on the line for recording PID 2")
+	}
+}
+
 func TestDashboardModel_HeatmapRefreshTick(t *testing.T) {
 	old := ipc.SocketPathOverride
 	ipc.SocketPathOverride = "/tmp/rnix-nonexistent-dashboard-test.sock"

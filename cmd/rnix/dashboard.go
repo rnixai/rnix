@@ -98,6 +98,20 @@ type heatmapProfileMsg struct {
 	err     error
 }
 
+// --- Pane linkage & process operations types (Story 17-4) ---
+
+type execResultMsg struct {
+	err error
+}
+
+type recordToggleMsg struct {
+	pid        types.PID
+	recordID   string
+	stopped    bool
+	eventCount uint64
+	err        error
+}
+
 type dashboardModel struct {
 	client      *ipc.Client
 	width       int
@@ -133,6 +147,10 @@ type dashboardModel struct {
 	heatmapExpanded  bool
 	heatmapTickCount int
 	heatmapErr       error
+
+	// Pane linkage & process operations (Story 17-4)
+	recording    map[types.PID]string
+	statusMsgTTL int
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -141,6 +159,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		startTime:       time.Now(),
 		connected:       client != nil,
 		timelineFilters: defaultTimelineFilters(),
+		recording:       make(map[types.PID]string),
 	}
 }
 
@@ -178,6 +197,12 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.heatmapProfile = msg.profile
 			m.heatmapSegments = buildHeatmapSegments(msg.profile)
 		}
+		return m, nil
+	case execResultMsg:
+		// TODO(17-4): implement execResultMsg handling
+		return m, nil
+	case recordToggleMsg:
+		// TODO(17-4): implement recordToggleMsg handling
 		return m, nil
 	}
 	return m, nil
@@ -1177,6 +1202,12 @@ func fetchHeatmapCmd(pid types.PID) tea.Cmd {
 		profile, err := client.CtxProfile(pid)
 		return heatmapProfileMsg{profile: profile, err: err}
 	}
+}
+
+// handlePIDChange is the unified PID-change handler (Story 17-4 stub).
+func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
+	// TODO(17-4): implement unified PID change logic
+	return m, nil
 }
 
 func (m dashboardModel) handleHeatmapPIDChange() dashboardModel {
