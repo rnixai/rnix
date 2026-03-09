@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -27,6 +28,7 @@ const (
 	StmtMapLit      StatementKind = "map-lit"
 	StmtAssignIndex StatementKind = "assign-index"
 	StmtAssignProp  StatementKind = "assign-prop"
+	StmtParallel    StatementKind = "parallel"
 )
 
 // MaxLoopIterations is the safety limit for while loops to prevent infinite execution.
@@ -67,6 +69,12 @@ type ForBlock struct {
 type WhileBlock struct {
 	Condition Condition
 	Body      []Statement
+}
+
+// ParallelBlock holds a parsed parallel/end block. Body is restricted to
+// StmtSpawn and StmtPipeline statements only.
+type ParallelBlock struct {
+	Body []Statement
 }
 
 // BuiltinStmt holds a parsed builtin command (wait, sleep, exit).
@@ -157,6 +165,7 @@ type Statement struct {
 	If          *IfBlock
 	For         *ForBlock
 	While       *WhileBlock
+	Parallel    *ParallelBlock
 	Builtin     *BuiltinStmt
 	FnDef       *FnDef
 	FnCall      *FnCallStmt
@@ -258,6 +267,16 @@ func parseBlock(lines []string, startIdx int, insideBlock bool) ([]Statement, in
 				return nil, 0, err
 			}
 			stmts = append(stmts, Statement{Kind: StmtIf, If: ifBlock, Raw: trimmed, Line: i + 1})
+			i = nextIdx
+			continue
+		}
+
+		if lower == "parallel" {
+			parallelBlock, nextIdx, err := parseParallelBlock(lines, i)
+			if err != nil {
+				return nil, 0, err
+			}
+			stmts = append(stmts, Statement{Kind: StmtParallel, Parallel: parallelBlock, Raw: trimmed, Line: i + 1})
 			i = nextIdx
 			continue
 		}
@@ -465,6 +484,33 @@ func parseWhileBlock(lines []string, whileLineIdx int) (*WhileBlock, int, error)
 	}
 
 	return &WhileBlock{Condition: *cond, Body: body}, nextIdx + 1, nil
+}
+
+func parseParallelBlock(lines []string, parallelLineIdx int) (*ParallelBlock, int, error) {
+	body, nextIdx, err := parseBlock(lines, parallelLineIdx+1, true)
+	if err != nil {
+		return nil, 0, err
+	}
+	if nextIdx >= len(lines) {
+		return nil, 0, fmt.Errorf("line %d: unclosed parallel block (missing 'end')", parallelLineIdx+1)
+	}
+
+	terminator := strings.ToLower(strings.TrimSpace(lines[nextIdx]))
+	if terminator == "else" {
+		return nil, 0, fmt.Errorf("line %d: unexpected 'else' in parallel block", nextIdx+1)
+	}
+
+	for _, stmt := range body {
+		switch stmt.Kind {
+		case StmtSpawn, StmtPipeline:
+			// allowed
+		default:
+			return nil, 0, fmt.Errorf("line %d: only spawn and pipeline statements allowed inside parallel block, got %s",
+				stmt.Line, stmt.Kind)
+		}
+	}
+
+	return &ParallelBlock{Body: body}, nextIdx + 1, nil
 }
 
 func parseFnDef(lines []string, fnLineIdx int) (*FnDef, int, error) {
@@ -854,6 +900,10 @@ func validateFnCalls(stmts []Statement, functions map[string]*FnDef) error {
 			}
 		case StmtFnDef:
 			if err := validateFnCalls(stmt.FnDef.Body, functions); err != nil {
+				return err
+			}
+		case StmtParallel:
+			if err := validateFnCalls(stmt.Parallel.Body, functions); err != nil {
 				return err
 			}
 		}
@@ -1427,6 +1477,11 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 				return nil
 			}
 
+		case StmtParallel:
+			if err := e.executeParallel(ctx, stmt, result, stageNum); err != nil {
+				return err
+			}
+
 		case StmtIf:
 			match, err := e.evalCondition(&stmt.If.Condition)
 			if err != nil {
@@ -1619,6 +1674,119 @@ func (e *ScriptExecutor) executeBuiltin(ctx context.Context, stmt *BuiltinStmt, 
 	return fmt.Errorf("unknown builtin command: %q", stmt.Command)
 }
 
+type parallelTask struct {
+	idx              int
+	stmt             Statement
+	expandedIntent   string
+	expandedOnError  string
+	expandedPipeline *Pipeline
+}
+
+type parallelResult struct {
+	result   string
+	exitCode int
+	tokens   int
+	err      error
+}
+
+func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, result *ScriptResult, stageNum *int) error {
+	body := stmt.Parallel.Body
+	if len(body) == 0 {
+		return nil
+	}
+
+	// Phase A: sequentially expand all intents on the main goroutine
+	tasks := make([]parallelTask, 0, len(body))
+	for idx, s := range body {
+		task := parallelTask{idx: idx, stmt: s}
+		switch s.Kind {
+		case StmtSpawn:
+			expanded, err := e.env.ExpandStrict(s.Spawn.Intent)
+			if err != nil {
+				return fmt.Errorf("line %d: %w", s.Line, err)
+			}
+			task.expandedIntent = expanded
+			if s.OnError != nil {
+				expandedOnErr, err := e.env.ExpandStrict(s.OnError.Intent)
+				if err != nil {
+					return fmt.Errorf("line %d: on-error: %w", s.Line, err)
+				}
+				task.expandedOnError = expandedOnErr
+			}
+		case StmtPipeline:
+			expanded, err := expandPipelineIntentsStrict(e.env, s.Pipeline)
+			if err != nil {
+				return fmt.Errorf("line %d: %w", s.Line, err)
+			}
+			task.expandedPipeline = expanded
+		}
+		tasks = append(tasks, task)
+	}
+
+	// Phase B: execute all tasks in parallel
+	results := make([]parallelResult, len(tasks))
+	var wg sync.WaitGroup
+	wg.Add(len(tasks))
+	for i, task := range tasks {
+		go func(idx int, t parallelTask) {
+			defer wg.Done()
+			switch t.stmt.Kind {
+			case StmtSpawn:
+				res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, t.expandedIntent, t.stmt.Spawn.Agent, t.stmt.Spawn.Model)
+				if exitCode != 0 && t.stmt.OnError != nil && err == nil {
+					hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(ctx, t.expandedOnError, t.stmt.OnError.Agent, t.stmt.OnError.Model)
+					if hErr == nil {
+						res, exitCode, tokens = hRes, hExitCode, tokens+hTokens
+					} else {
+						err = hErr
+					}
+				}
+				results[idx] = parallelResult{result: res, exitCode: exitCode, tokens: tokens, err: err}
+			case StmtPipeline:
+				pExec := NewPipelineExecutor(e.spawner)
+				pResult, err := pExec.Execute(ctx, t.expandedPipeline)
+				if err != nil {
+					results[idx] = parallelResult{err: err}
+				} else {
+					pr := parallelResult{tokens: pResult.TotalTokens}
+					if len(pResult.Stages) > 0 {
+						last := pResult.Stages[len(pResult.Stages)-1]
+						pr.result = last.Result
+						pr.exitCode = last.ExitCode
+					}
+					results[idx] = pr
+				}
+			}
+		}(i, task)
+	}
+	wg.Wait()
+
+	// Phase C: sequentially collect results on the main goroutine
+	var firstErr error
+	for i, pr := range results {
+		if pr.err != nil {
+			if firstErr == nil {
+				firstErr = pr.err
+			}
+			continue
+		}
+		result.TotalTokens += pr.tokens
+		result.LastResult = pr.result
+		result.LastExitCode = pr.exitCode
+		*stageNum++
+
+		s := tasks[i].stmt
+		if s.Assign != "" {
+			e.captures[s.Assign] = &SpawnResult{
+				ExitCode: pr.exitCode, Result: pr.result, Tokens: pr.tokens,
+			}
+			e.env.Set(s.Assign, pr.result)
+		}
+	}
+
+	return firstErr
+}
+
 func (e *ScriptExecutor) expandReturnValue(val string) string {
 	if strings.HasPrefix(val, "$") {
 		ref := val[1:]
@@ -1770,6 +1938,8 @@ func countStagesInBlock(stmts []Statement) int {
 			n++
 		case StmtReturn:
 			// 0
+		case StmtParallel:
+			n += countStagesInBlock(stmt.Parallel.Body)
 		case StmtArrayLit, StmtMapLit, StmtAssignIndex, StmtAssignProp:
 			// 0 — pure assignments, no spawn
 		}
