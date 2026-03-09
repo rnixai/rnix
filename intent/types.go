@@ -1,6 +1,7 @@
 package intent
 
 import (
+	"sort"
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
@@ -47,28 +48,85 @@ type IntentTree struct {
 
 // Progress returns the count of completed nodes and total nodes.
 func (t *IntentTree) Progress() (completed, total int) {
-	// ATDD RED: stub — returns zero values
-	return 0, 0
+	total = len(t.Nodes)
+	for _, node := range t.Nodes {
+		if node.State == IntentCompleted {
+			completed++
+		}
+	}
+	return completed, total
 }
 
 // RunnableNodes returns all nodes whose dependencies are satisfied and state is pending.
 func (t *IntentTree) RunnableNodes() []*IntentNode {
-	// ATDD RED: stub — returns nil
-	return nil
+	var runnable []*IntentNode
+	for _, node := range t.Nodes {
+		if node.State != IntentPending {
+			continue
+		}
+		allDepsSatisfied := true
+		for _, dep := range node.DependsOn {
+			depNode, ok := t.Nodes[dep]
+			if !ok || depNode.State != IntentCompleted {
+				allDepsSatisfied = false
+				break
+			}
+		}
+		if allDepsSatisfied {
+			runnable = append(runnable, node)
+		}
+	}
+	sort.Slice(runnable, func(i, j int) bool {
+		return runnable[i].ID < runnable[j].ID
+	})
+	return runnable
 }
 
-// MarkCompleted marks a node as completed with a result string and checks downstream.
+// MarkCompleted marks a node as completed with a result string.
 func (t *IntentTree) MarkCompleted(nodeID, result string) {
-	// ATDD RED: stub — no-op
+	node, ok := t.Nodes[nodeID]
+	if !ok {
+		return
+	}
+	node.State = IntentCompleted
+	node.Result = result
 }
 
 // MarkFailed marks a node as failed and cascades failure to dependent downstream nodes.
 func (t *IntentTree) MarkFailed(nodeID, errMsg string) {
-	// ATDD RED: stub — no-op
+	node, ok := t.Nodes[nodeID]
+	if !ok {
+		return
+	}
+	node.State = IntentFailed
+	node.Error = errMsg
+
+	// Cascade failure to all downstream nodes that depend (directly or transitively) on this node
+	t.cascadeFailure(nodeID)
+}
+
+func (t *IntentTree) cascadeFailure(failedID string) {
+	for _, node := range t.Nodes {
+		if node.State == IntentFailed || node.State == IntentCompleted {
+			continue
+		}
+		for _, dep := range node.DependsOn {
+			if dep == failedID {
+				node.State = IntentFailed
+				node.Error = "upstream dependency failed: " + failedID
+				t.cascadeFailure(node.ID)
+				break
+			}
+		}
+	}
 }
 
 // IsTerminal returns true when all nodes have reached a terminal state (completed or failed).
 func (t *IntentTree) IsTerminal() bool {
-	// ATDD RED: stub — returns false
-	return false
+	for _, node := range t.Nodes {
+		if node.State != IntentCompleted && node.State != IntentFailed {
+			return false
+		}
+	}
+	return true
 }

@@ -35,6 +35,15 @@ const (
 // AgentLoaderFunc loads an agent by name. Matches agents.AgentLoader.Load signature.
 type AgentLoaderFunc func(name string) (*agents.AgentInfo, error)
 
+// intentManager abstracts intent.Manager to avoid direct import cycle.
+type intentManager interface {
+	ApplyIntent(ctx context.Context, intentStr, model string, autoStart bool) (intentID string, treeJSON []byte, err error)
+	ConfirmIntent(intentID string) error
+	ExecuteIntent(ctx context.Context, intentID string, onNodeStart func(nodeID string, pid uint64), onNodeComplete func(nodeID, result string), onNodeFailed func(nodeID, errMsg string), onProgress func(completed, total int)) error
+	IntentStatus(intentID string) ([]byte, error)
+	ListActiveIntents() ([]byte, error)
+}
+
 // Server is the IPC server that bridges client requests to the kernel.
 type Server struct {
 	kern        *kernel.KernelImpl
@@ -59,6 +68,9 @@ type Server struct {
 	// gdb session management: per-PID detach signals
 	gdbMu       sync.Mutex
 	gdbDetachCh map[types.PID]chan struct{}
+
+	// intent management (set via SetIntentManager)
+	intentMgr intentManager
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -271,6 +283,13 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleCtxProfile(conn, req.Payload)
 		case MethodCtxGrowth:
 			s.handleCtxGrowth(conn, req.Payload)
+		case MethodApplyIntent:
+			s.handleApplyIntent(conn, req.Payload)
+			return // streaming method
+		case MethodIntentStatus:
+			s.handleIntentStatus(conn, req.Payload)
+		case MethodIntentConfirm:
+			s.handleIntentConfirm(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1171,6 +1190,11 @@ func (s *Server) SetSkillLoader(loader *skills.SkillLoader) {
 	s.skillLoader = loader
 }
 
+// SetIntentManager injects the intent manager into the server.
+func (s *Server) SetIntentManager(mgr intentManager) {
+	s.intentMgr = mgr
+}
+
 // handleRecordStart starts execution recording for a process.
 func (s *Server) handleRecordStart(conn net.Conn, rawPayload json.RawMessage) {
 	var req RecordStartRequest
@@ -1610,4 +1634,127 @@ func writeStreamEvent(conn net.Conn, ev StreamEvent) {
 func marshalJSON(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data
+}
+
+// --- Intent Handlers ---
+
+func (s *Server) handleApplyIntent(conn net.Conn, rawPayload json.RawMessage) {
+	if s.intentMgr == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_available", Message: "intent manager not initialized"}})
+		return
+	}
+
+	var req ApplyIntentRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "invalid_payload", Message: err.Error()}})
+		return
+	}
+
+	intentID, treeJSON, err := s.intentMgr.ApplyIntent(context.Background(), req.Intent, req.Model, req.AutoStart)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "decompose_failed", Message: err.Error()}})
+		return
+	}
+
+	// Send initial response with intent ID
+	writeResponse(conn, Response{OK: true, Payload: marshalJSON(ApplyIntentResponse{IntentID: intentID, Tree: nil})})
+
+	// Send decomposed event
+	writeStreamEvent(conn, StreamEvent{Type: StreamIntentDecomposed, Payload: treeJSON})
+
+	if !req.AutoStart {
+		// Send confirm required event and wait for client confirmation
+		writeStreamEvent(conn, StreamEvent{Type: StreamIntentConfirmReq, Payload: marshalJSON(IntentNodeEventPayload{NodeID: intentID})})
+
+		// Read confirmation from the same connection
+		scanner := bufio.NewScanner(conn)
+		if !scanner.Scan() {
+			return
+		}
+		var confirmReq Request
+		if err := json.Unmarshal(scanner.Bytes(), &confirmReq); err != nil {
+			return
+		}
+		var confirm IntentConfirmRequest
+		if err := json.Unmarshal(confirmReq.Payload, &confirm); err != nil {
+			return
+		}
+		if !confirm.Confirm {
+			writeStreamEvent(conn, StreamEvent{Type: StreamIntentComplete, Payload: marshalJSON(IntentNodeEventPayload{Error: "user cancelled"})})
+			return
+		}
+		if err := s.intentMgr.ConfirmIntent(intentID); err != nil {
+			writeStreamEvent(conn, StreamEvent{Type: StreamError, Payload: marshalJSON(IntentNodeEventPayload{Error: err.Error()})})
+			return
+		}
+	}
+
+	// Execute with streaming callbacks
+	execErr := s.intentMgr.ExecuteIntent(context.Background(), intentID,
+		func(nodeID string, pid uint64) {
+			writeStreamEvent(conn, StreamEvent{Type: StreamIntentNodeStart, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, PID: pid})})
+		},
+		func(nodeID, result string) {
+			writeStreamEvent(conn, StreamEvent{Type: StreamIntentNodeDone, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, Result: result})})
+		},
+		func(nodeID, errMsg string) {
+			writeStreamEvent(conn, StreamEvent{Type: StreamIntentNodeFailed, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, Error: errMsg})})
+		},
+		func(completed, total int) {
+			writeStreamEvent(conn, StreamEvent{Type: StreamIntentProgress, Payload: marshalJSON(IntentNodeEventPayload{Completed: completed, Total: total})})
+		},
+	)
+
+	if execErr != nil {
+		writeStreamEvent(conn, StreamEvent{Type: StreamIntentComplete, Payload: marshalJSON(IntentNodeEventPayload{Error: execErr.Error()})})
+	} else {
+		writeStreamEvent(conn, StreamEvent{Type: StreamIntentComplete, Payload: marshalJSON(IntentNodeEventPayload{})})
+	}
+}
+
+func (s *Server) handleIntentStatus(conn net.Conn, rawPayload json.RawMessage) {
+	if s.intentMgr == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_available", Message: "intent manager not initialized"}})
+		return
+	}
+
+	var req IntentStatusRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "invalid_payload", Message: err.Error()}})
+		return
+	}
+
+	var data []byte
+	var err error
+	if req.IntentID != "" {
+		data, err = s.intentMgr.IntentStatus(req.IntentID)
+	} else {
+		data, err = s.intentMgr.ListActiveIntents()
+	}
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: err.Error()}})
+		return
+	}
+
+	writeResponse(conn, Response{OK: true, Payload: data})
+}
+
+func (s *Server) handleIntentConfirm(conn net.Conn, rawPayload json.RawMessage) {
+	if s.intentMgr == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_available", Message: "intent manager not initialized"}})
+		return
+	}
+
+	var req IntentConfirmRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "invalid_payload", Message: err.Error()}})
+		return
+	}
+
+	if err := s.intentMgr.ConfirmIntent(req.IntentID); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "confirm_failed", Message: err.Error()}})
+		return
+	}
+
+	writeResponse(conn, Response{OK: true})
 }

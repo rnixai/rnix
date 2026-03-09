@@ -10,12 +10,6 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 )
 
-// --- Story 19.1 ATDD: Intent Engine Tests (AC: #3, #6) ---
-// Tests for the event-driven intent execution engine.
-// Follows patterns from compose/engine_test.go with adaptations for intent domain.
-
-// --- Mock KernelSpawner for Intent Engine ---
-
 type mockIntentSpawnRecord struct {
 	nodeID string
 	intent string
@@ -81,15 +75,11 @@ func (m *mockIntentSpawner) getSpawnOrder() []string {
 	return order
 }
 
-// noopCallbacks returns EngineCallbacks that do nothing (for tests that don't check callbacks).
 func noopCallbacks() EngineCallbacks {
 	return EngineCallbacks{}
 }
 
 func TestEngine_Execute_Sequential(t *testing.T) {
-	t.Skip("ATDD RED: Engine.Execute not yet implemented")
-
-	// Given: a linear intent chain design -> backend -> test
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "sequential pipeline",
@@ -107,10 +97,8 @@ func TestEngine_Execute_Sequential(t *testing.T) {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
 
-	// When: executing
 	execErr := engine.Execute(context.Background())
 
-	// Then: all 3 nodes spawned in order
 	if execErr != nil {
 		t.Fatalf("Execute failed: %v", execErr)
 	}
@@ -130,9 +118,6 @@ func TestEngine_Execute_Sequential(t *testing.T) {
 }
 
 func TestEngine_Execute_Parallel(t *testing.T) {
-	t.Skip("ATDD RED: Engine.Execute parallel scheduling not yet implemented")
-
-	// Given: 3 independent nodes (no dependencies)
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "parallel tasks",
@@ -150,10 +135,8 @@ func TestEngine_Execute_Parallel(t *testing.T) {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
 
-	// When: executing
 	execErr := engine.Execute(context.Background())
 
-	// Then: all 3 nodes are spawned
 	if execErr != nil {
 		t.Fatalf("Execute failed: %v", execErr)
 	}
@@ -164,9 +147,6 @@ func TestEngine_Execute_Parallel(t *testing.T) {
 }
 
 func TestEngine_Execute_AllSuccess(t *testing.T) {
-	t.Skip("ATDD RED: Engine.Execute success path not yet implemented")
-
-	// Given: diamond — design -> backend, design -> frontend, both -> deploy
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "full success",
@@ -185,10 +165,8 @@ func TestEngine_Execute_AllSuccess(t *testing.T) {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
 
-	// When: executing
 	execErr := engine.Execute(context.Background())
 
-	// Then: all 4 nodes succeed, tree is terminal
 	if execErr != nil {
 		t.Fatalf("Execute failed: %v", execErr)
 	}
@@ -202,9 +180,6 @@ func TestEngine_Execute_AllSuccess(t *testing.T) {
 }
 
 func TestEngine_Execute_CascadeFailure(t *testing.T) {
-	t.Skip("ATDD RED: Engine.Execute failure cascade not yet implemented")
-
-	// Given: linear chain design -> backend -> test; design will fail
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "cascade failure",
@@ -217,7 +192,6 @@ func TestEngine_Execute_CascadeFailure(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 	spawner := newMockIntentSpawner()
-	// PID 1 (design) will fail
 	spawner.results[types.PID(1)] = mockIntentExecResult{code: 1, reason: "crashed", err: fmt.Errorf("process failed")}
 
 	engine, err := NewEngine(tree, spawner, noopCallbacks())
@@ -225,10 +199,8 @@ func TestEngine_Execute_CascadeFailure(t *testing.T) {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
 
-	// When: executing
 	_ = engine.Execute(context.Background())
 
-	// Then: only design was spawned, backend and test were NOT spawned (cascade failure)
 	order := spawner.getSpawnOrder()
 	if len(order) != 1 {
 		t.Fatalf("expected 1 spawn (only design), got %d: %v", len(order), order)
@@ -237,7 +209,6 @@ func TestEngine_Execute_CascadeFailure(t *testing.T) {
 		t.Fatalf("expected only 'design' to be spawned, got %q", order[0])
 	}
 
-	// Verify cascade: backend and test should be in failed state
 	if tree.Nodes["backend"].State != IntentFailed {
 		t.Fatalf("expected backend state=failed (cascade), got %q", tree.Nodes["backend"].State)
 	}
@@ -247,9 +218,6 @@ func TestEngine_Execute_CascadeFailure(t *testing.T) {
 }
 
 func TestEngine_Execute_PartialFailure(t *testing.T) {
-	t.Skip("ATDD RED: Engine.Execute partial failure not yet implemented")
-
-	// Given: diamond where backend fails but frontend succeeds independently
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "partial failure",
@@ -263,7 +231,6 @@ func TestEngine_Execute_PartialFailure(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 	spawner := newMockIntentSpawner()
-	// PID 2 (backend, second spawn after design) will fail
 	spawner.results[types.PID(2)] = mockIntentExecResult{code: 1, reason: "failed", err: fmt.Errorf("compilation error")}
 
 	engine, err := NewEngine(tree, spawner, noopCallbacks())
@@ -271,10 +238,8 @@ func TestEngine_Execute_PartialFailure(t *testing.T) {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
 
-	// When: executing
 	_ = engine.Execute(context.Background())
 
-	// Then: design + backend + frontend spawned, but deploy NOT spawned
 	order := spawner.getSpawnOrder()
 	spawnedSet := make(map[string]bool)
 	for _, id := range order {
@@ -292,9 +257,6 @@ func TestEngine_Execute_PartialFailure(t *testing.T) {
 }
 
 func TestEngine_Execute_ContextCancel(t *testing.T) {
-	t.Skip("ATDD RED: Engine.Execute context cancellation not yet implemented")
-
-	// Given: nodes with delay
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "cancellable",
@@ -312,22 +274,17 @@ func TestEngine_Execute_ContextCancel(t *testing.T) {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
 
-	// When: executing with a short-lived context
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
 	execErr := engine.Execute(ctx)
 
-	// Then: context cancellation error
 	if execErr == nil {
 		t.Fatal("expected context cancellation error, got nil")
 	}
 }
 
 func TestEngine_Execute_Callbacks(t *testing.T) {
-	t.Skip("ATDD RED: Engine.Execute callbacks not yet implemented")
-
-	// Given: a simple two-node chain, with recording callbacks
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "callback test",
@@ -362,10 +319,8 @@ func TestEngine_Execute_Callbacks(t *testing.T) {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
 
-	// When: executing
 	execErr := engine.Execute(context.Background())
 
-	// Then: callbacks fired for both nodes
 	if execErr != nil {
 		t.Fatalf("Execute failed: %v", execErr)
 	}
@@ -381,9 +336,6 @@ func TestEngine_Execute_Callbacks(t *testing.T) {
 }
 
 func TestEngine_Execute_ProgressCallback(t *testing.T) {
-	t.Skip("ATDD RED: Engine.Execute progress callback not yet implemented")
-
-	// Given: 3 independent nodes with progress tracking
 	tree := &IntentTree{
 		ID:         "intent-1",
 		RootIntent: "progress test",
@@ -413,10 +365,8 @@ func TestEngine_Execute_ProgressCallback(t *testing.T) {
 		t.Fatalf("NewEngine failed: %v", err)
 	}
 
-	// When: executing
 	execErr := engine.Execute(context.Background())
 
-	// Then: progress callbacks fired, final call shows 3/3
 	if execErr != nil {
 		t.Fatalf("Execute failed: %v", execErr)
 	}
