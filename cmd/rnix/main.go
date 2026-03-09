@@ -213,6 +213,7 @@ func init() {
 	rootCmd.AddCommand(topCmd)
 	rootCmd.AddCommand(logCmd)
 	rootCmd.AddCommand(gdbCmd)
+	rootCmd.AddCommand(dashboardCmd)
 }
 
 // levenshtein computes the standard Levenshtein distance between two strings
