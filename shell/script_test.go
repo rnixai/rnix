@@ -2213,8 +2213,1127 @@ func TestParseScript_Error_ReservedKeywordAsVarName(t *testing.T) {
 	}
 }
 
-// Ensure fmt and strings packages are used (referenced in mockWaitableSpawner and tests).
+// ============================================================
+// ATDD RED PHASE — Story 18.2: 函数定义与调用
+//
+// Tests reference StmtFnDef, StmtFnCall, StmtReturn,
+// FnDef, FnCallStmt, ReturnStmt, Statement.FnDef,
+// Statement.FnCall, Statement.Return, Script.Functions,
+// ErrFnReturn, MaxCallDepth
+// — which do NOT exist yet → compile failure = RED phase.
+//
+// mockSpawner is reused from pipe_test.go (same package).
+// ============================================================
+
+// --- 18.2-UNIT-001: [P0] ParseScript fn 基本定义解析（带参数）(AC1) ---
+
+func TestParseScript_FnDef_WithParams(t *testing.T) {
+	input := "fn analyze(file)\n  spawn \"分析 ${file}\"\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(script.Statements) != 1 {
+		t.Fatalf("statements count = %d, want 1", len(script.Statements))
+	}
+
+	stmt := script.Statements[0]
+	if stmt.Kind != StmtFnDef {
+		t.Errorf("kind = %q, want %q", stmt.Kind, StmtFnDef)
+	}
+	if stmt.FnDef == nil {
+		t.Fatal("FnDef should not be nil")
+	}
+	if stmt.FnDef.Name != "analyze" {
+		t.Errorf("name = %q, want %q", stmt.FnDef.Name, "analyze")
+	}
+	if len(stmt.FnDef.Params) != 1 || stmt.FnDef.Params[0] != "file" {
+		t.Errorf("params = %v, want [file]", stmt.FnDef.Params)
+	}
+	if len(stmt.FnDef.Body) != 1 {
+		t.Fatalf("body len = %d, want 1", len(stmt.FnDef.Body))
+	}
+	if stmt.FnDef.Body[0].Kind != StmtSpawn {
+		t.Errorf("body[0] kind = %q, want %q", stmt.FnDef.Body[0].Kind, StmtSpawn)
+	}
+
+	if script.Functions == nil {
+		t.Fatal("Script.Functions should not be nil")
+	}
+	if _, ok := script.Functions["analyze"]; !ok {
+		t.Error("Script.Functions should contain 'analyze'")
+	}
+}
+
+// --- 18.2-UNIT-002: [P0] ParseScript fn 无参数定义 (AC4) ---
+
+func TestParseScript_FnDef_NoParams(t *testing.T) {
+	input := "fn setup()\n  export MODEL=sonnet\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(script.Statements) != 1 {
+		t.Fatalf("statements count = %d, want 1", len(script.Statements))
+	}
+
+	stmt := script.Statements[0]
+	if stmt.Kind != StmtFnDef {
+		t.Errorf("kind = %q, want %q", stmt.Kind, StmtFnDef)
+	}
+	if stmt.FnDef == nil {
+		t.Fatal("FnDef should not be nil")
+	}
+	if stmt.FnDef.Name != "setup" {
+		t.Errorf("name = %q, want %q", stmt.FnDef.Name, "setup")
+	}
+	if len(stmt.FnDef.Params) != 0 {
+		t.Errorf("params = %v, want empty", stmt.FnDef.Params)
+	}
+	if len(stmt.FnDef.Body) != 1 {
+		t.Fatalf("body len = %d, want 1", len(stmt.FnDef.Body))
+	}
+}
+
+// --- 18.2-UNIT-003: [P0] ParseScript fn 多参数定义 (AC1) ---
+
+func TestParseScript_FnDef_MultipleParams(t *testing.T) {
+	input := "fn process(src, dst, mode)\n  spawn \"处理 ${src}\"\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	stmt := script.Statements[0]
+	if stmt.FnDef == nil {
+		t.Fatal("FnDef should not be nil")
+	}
+	if len(stmt.FnDef.Params) != 3 {
+		t.Fatalf("params len = %d, want 3", len(stmt.FnDef.Params))
+	}
+	expected := []string{"src", "dst", "mode"}
+	for i, p := range expected {
+		if stmt.FnDef.Params[i] != p {
+			t.Errorf("param[%d] = %q, want %q", i, stmt.FnDef.Params[i], p)
+		}
+	}
+}
+
+// --- 18.2-UNIT-004: [P0] ParseScript fn 体内包含嵌套语句（spawn/if/for/while）(AC5) ---
+
+func TestParseScript_FnDef_NestedStatements(t *testing.T) {
+	input := "fn complex(target)\n  for item in [a, b]\n    if $item == a\n      spawn \"处理 ${target} ${item}\"\n    end\n  end\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(script.Statements) != 1 {
+		t.Fatalf("statements count = %d, want 1", len(script.Statements))
+	}
+
+	body := script.Statements[0].FnDef.Body
+	if len(body) != 1 {
+		t.Fatalf("body len = %d, want 1", len(body))
+	}
+	if body[0].Kind != StmtFor {
+		t.Errorf("body[0] kind = %q, want %q", body[0].Kind, StmtFor)
+	}
+}
+
+// --- 18.2-UNIT-005: [P0] ParseScript fn 名为保留关键字 → 错误 (AC10) ---
+
+func TestParseScript_Error_FnNameReservedKeyword(t *testing.T) {
+	keywords := []string{"if", "for", "while", "else", "end", "return", "spawn", "export", "exit", "sleep", "wait"}
+	for _, kw := range keywords {
+		input := fmt.Sprintf("fn %s()\n  spawn \"test\"\nend", kw)
+		_, err := ParseScript(input)
+		if err == nil {
+			t.Errorf("expected error for fn name %q (reserved keyword)", kw)
+		}
+	}
+}
+
+// --- 18.2-UNIT-006: [P1] ParseScript fn 参数名重复 → 错误 ---
+
+func TestParseScript_Error_FnDuplicateParam(t *testing.T) {
+	input := "fn bad(x, x)\n  spawn \"test\"\nend"
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for duplicate parameter name 'x'")
+	}
+}
+
+// --- 18.2-UNIT-007: [P1] ParseScript fn 未闭合 → 缺少 end 错误 ---
+
+func TestParseScript_Error_FnUnclosed(t *testing.T) {
+	input := "fn broken()\n  spawn \"test\""
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for unclosed fn block (missing 'end')")
+	}
+}
+
+// --- 18.2-UNIT-008: [P1] ParseScript fn 嵌套定义（块内定义）→ 错误 ---
+
+func TestParseScript_Error_FnNestedDefinition(t *testing.T) {
+	input := "if $x == 1\n  fn inner()\n    spawn \"test\"\n  end\nend"
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for fn definition inside block (nested fn not allowed)")
+	}
+}
+
+// --- 18.2-UNIT-009: [P1] ParseScript fn 重复定义同名函数 → 错误 ---
+
+func TestParseScript_Error_FnDuplicateName(t *testing.T) {
+	input := "fn dup()\n  spawn \"first\"\nend\nfn dup()\n  spawn \"second\"\nend"
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for duplicate function name 'dup'")
+	}
+}
+
+// --- 18.2-UNIT-010: [P0] ParseScript 函数调用解析（带参数）(AC1) ---
+
+func TestParseScript_FnCall_WithArgs(t *testing.T) {
+	input := "fn analyze(file)\n  spawn \"分析 ${file}\"\nend\nanalyze(\"config.yaml\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(script.Statements) != 2 {
+		t.Fatalf("statements count = %d, want 2", len(script.Statements))
+	}
+
+	call := script.Statements[1]
+	if call.Kind != StmtFnCall {
+		t.Errorf("kind = %q, want %q", call.Kind, StmtFnCall)
+	}
+	if call.FnCall == nil {
+		t.Fatal("FnCall should not be nil")
+	}
+	if call.FnCall.Name != "analyze" {
+		t.Errorf("name = %q, want %q", call.FnCall.Name, "analyze")
+	}
+	if len(call.FnCall.Args) != 1 || call.FnCall.Args[0] != "config.yaml" {
+		t.Errorf("args = %v, want [config.yaml]", call.FnCall.Args)
+	}
+}
+
+// --- 18.2-UNIT-011: [P0] ParseScript 函数调用解析（无参数）(AC4) ---
+
+func TestParseScript_FnCall_NoArgs(t *testing.T) {
+	input := "fn setup()\n  export KEY=val\nend\nsetup()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(script.Statements) != 2 {
+		t.Fatalf("statements count = %d, want 2", len(script.Statements))
+	}
+
+	call := script.Statements[1]
+	if call.Kind != StmtFnCall {
+		t.Errorf("kind = %q, want %q", call.Kind, StmtFnCall)
+	}
+	if call.FnCall == nil {
+		t.Fatal("FnCall should not be nil")
+	}
+	if call.FnCall.Name != "setup" {
+		t.Errorf("name = %q, want %q", call.FnCall.Name, "setup")
+	}
+	if len(call.FnCall.Args) != 0 {
+		t.Errorf("args = %v, want empty", call.FnCall.Args)
+	}
+}
+
+// --- 18.2-UNIT-012: [P0] ParseScript 函数调用赋值形式 (AC1, AC2) ---
+
+func TestParseScript_FnCall_Assignment(t *testing.T) {
+	input := "fn analyze(file)\n  spawn \"分析 ${file}\"\n  return $result\nend\nresult = analyze(\"config.yaml\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Find the fn call statement (should be last)
+	var callStmt *Statement
+	for i := range script.Statements {
+		if script.Statements[i].Kind == StmtFnCall {
+			callStmt = &script.Statements[i]
+			break
+		}
+	}
+	if callStmt == nil {
+		t.Fatal("expected a StmtFnCall statement")
+	}
+	if callStmt.Assign != "result" {
+		t.Errorf("assign = %q, want %q", callStmt.Assign, "result")
+	}
+	if callStmt.FnCall.Name != "analyze" {
+		t.Errorf("name = %q, want %q", callStmt.FnCall.Name, "analyze")
+	}
+}
+
+// --- 18.2-UNIT-013: [P0] ParseScript 函数调用参数数量不匹配 → 错误含行号 (AC3) ---
+
+func TestParseScript_Error_FnCallArgCountMismatch(t *testing.T) {
+	input := "fn analyze(file)\n  spawn \"分析 ${file}\"\nend\nanalyze(\"a\", \"b\")"
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for argument count mismatch")
+	}
+	errMsg := err.Error()
+	if !containsSubstring(errMsg, "analyze") {
+		t.Errorf("error should mention function name 'analyze', got: %q", errMsg)
+	}
+	if !containsSubstring(errMsg, "1") {
+		t.Errorf("error should mention expected arg count '1', got: %q", errMsg)
+	}
+	if !containsSubstring(errMsg, "2") {
+		t.Errorf("error should mention actual arg count '2', got: %q", errMsg)
+	}
+}
+
+// --- 18.2-UNIT-014: [P0] ParseScript 调用未定义函数 → 错误 (AC7) ---
+
+func TestParseScript_Error_FnCallUndefined(t *testing.T) {
+	input := "nonexistent(\"arg\")"
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for calling undefined function")
+	}
+	if !containsSubstring(err.Error(), "nonexistent") {
+		t.Errorf("error should mention function name 'nonexistent', got: %q", err.Error())
+	}
+}
+
+// --- 18.2-UNIT-015: [P0] ParseScript return 带值解析 (AC2) ---
+
+func TestParseScript_Return_WithValue(t *testing.T) {
+	input := "fn get()\n  return $result\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	body := script.Statements[0].FnDef.Body
+	if len(body) != 1 {
+		t.Fatalf("body len = %d, want 1", len(body))
+	}
+	if body[0].Kind != StmtReturn {
+		t.Errorf("kind = %q, want %q", body[0].Kind, StmtReturn)
+	}
+	if body[0].Return == nil {
+		t.Fatal("Return should not be nil")
+	}
+	if body[0].Return.Value != "$result" {
+		t.Errorf("value = %q, want %q", body[0].Return.Value, "$result")
+	}
+}
+
+// --- 18.2-UNIT-016: [P1] ParseScript return 不带值解析 (AC9) ---
+
+func TestParseScript_Return_NoValue(t *testing.T) {
+	input := "fn noop()\n  return\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	body := script.Statements[0].FnDef.Body
+	if len(body) != 1 {
+		t.Fatalf("body len = %d, want 1", len(body))
+	}
+	if body[0].Kind != StmtReturn {
+		t.Errorf("kind = %q, want %q", body[0].Kind, StmtReturn)
+	}
+	if body[0].Return.Value != "" {
+		t.Errorf("value = %q, want empty string", body[0].Return.Value)
+	}
+}
+
+// --- 18.2-UNIT-017: [P0] ParseScript return 带字面量值 (AC2) ---
+
+func TestParseScript_Return_LiteralValue(t *testing.T) {
+	input := "fn greet()\n  return \"hello\"\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	ret := script.Statements[0].FnDef.Body[0]
+	if ret.Kind != StmtReturn {
+		t.Errorf("kind = %q, want %q", ret.Kind, StmtReturn)
+	}
+	if ret.Return.Value != "hello" {
+		t.Errorf("value = %q, want %q", ret.Return.Value, "hello")
+	}
+}
+
+// --- 18.2-UNIT-018: [P1] ParseScript return 在顶层 → 错误 ---
+
+func TestParseScript_Error_ReturnAtTopLevel(t *testing.T) {
+	input := "return $x"
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for return at top level")
+	}
+}
+
+// --- 18.2-UNIT-019: [P0] ParseScript fn 大小写不敏感 ---
+
+func TestParseScript_FnCaseInsensitive(t *testing.T) {
+	for _, kw := range []string{
+		"FN greet()\n  spawn \"hi\"\nEND",
+		"Fn greet()\n  spawn \"hi\"\nEnd",
+		"fn greet()\n  spawn \"hi\"\nend",
+	} {
+		script, err := ParseScript(kw)
+		if err != nil {
+			t.Fatalf("unexpected error for %q: %v", kw, err)
+		}
+		if len(script.Statements) != 1 || script.Statements[0].Kind != StmtFnDef {
+			t.Errorf("failed to parse case-insensitive fn: %q", kw)
+		}
+	}
+}
+
+// --- 18.2-UNIT-020: [P0] ParseScript return 带 captures 属性值 (AC2) ---
+
+func TestParseScript_Return_CaptureProperty(t *testing.T) {
+	input := "fn get_result()\n  r = spawn \"任务\"\n  return $r.result\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	body := script.Statements[0].FnDef.Body
+	if len(body) != 2 {
+		t.Fatalf("body len = %d, want 2", len(body))
+	}
+	ret := body[1]
+	if ret.Kind != StmtReturn {
+		t.Errorf("kind = %q, want %q", ret.Kind, StmtReturn)
+	}
+	if ret.Return.Value != "$r.result" {
+		t.Errorf("value = %q, want %q", ret.Return.Value, "$r.result")
+	}
+}
+
+// --- 18.2-UNIT-021: [P0] ScriptExecutor 函数定义 + 调用 → 参数正确传递 (AC1) ---
+
+func TestScriptExecutor_FnCallBasic(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "分析完成", exitCode: 0, tokens: 100},
+		},
+	}
+
+	input := "fn analyze(file)\n  spawn \"分析 ${file}\"\nend\nanalyze(\"config.yaml\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	result, err := executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(spawner.calls))
+	}
+	if spawner.calls[0].intent != "分析 config.yaml" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "分析 config.yaml")
+	}
+	if result.TotalTokens != 100 {
+		t.Errorf("tokens = %d, want 100", result.TotalTokens)
+	}
+}
+
+// --- 18.2-UNIT-022: [P0] ScriptExecutor 函数 return 值捕获到赋值变量 (AC2) ---
+
+func TestScriptExecutor_FnReturnValueCapture(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "分析结果", exitCode: 0, tokens: 100},
+		},
+	}
+
+	input := "fn analyze(file)\n  r = spawn \"分析 ${file}\"\n  return $r\nend\noutput = analyze(\"config.yaml\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	val, ok := env.Get("output")
+	if !ok {
+		t.Fatal("variable 'output' should be set")
+	}
+	if val != "分析结果" {
+		t.Errorf("output = %q, want %q", val, "分析结果")
+	}
+}
+
+// --- 18.2-UNIT-023: [P1] ScriptExecutor 无 return → 赋值变量为空字符串 (AC9) ---
+
+func TestScriptExecutor_FnNoReturn_EmptyString(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn setup()\n  spawn \"初始化\"\nend\nresult = setup()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	val, ok := env.Get("result")
+	if !ok {
+		t.Fatal("variable 'result' should be set")
+	}
+	if val != "" {
+		t.Errorf("result = %q, want empty string (no return)", val)
+	}
+}
+
+// --- 18.2-UNIT-024: [P0] ScriptExecutor 参数作用域隔离（外部变量恢复）(AC8) ---
+
+func TestScriptExecutor_FnParamScopeIsolation(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "export file=original.go\nfn process(file)\n  spawn \"处理 ${file}\"\nend\nprocess(\"override.go\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "处理 override.go" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "处理 override.go")
+	}
+
+	val, ok := env.Get("file")
+	if !ok || val != "original.go" {
+		t.Errorf("file = %q, want %q (should be restored after fn return)", val, "original.go")
+	}
+}
+
+// --- 18.2-UNIT-025: [P0] ScriptExecutor 嵌套函数调用（A 调 B）(AC6) ---
+
+func TestScriptExecutor_FnNestedCalls(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "内层结果", exitCode: 0, tokens: 50},
+			{result: "外层结果", exitCode: 0, tokens: 100},
+		},
+	}
+
+	input := "fn inner(x)\n  spawn \"内层 ${x}\"\n  return $x\nend\nfn outer(y)\n  inner($y)\n  spawn \"外层 ${y}\"\nend\nouter(\"data\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(spawner.calls))
+	}
+	if spawner.calls[0].intent != "内层 data" {
+		t.Errorf("call 0 intent = %q, want %q", spawner.calls[0].intent, "内层 data")
+	}
+	if spawner.calls[1].intent != "外层 data" {
+		t.Errorf("call 1 intent = %q, want %q", spawner.calls[1].intent, "外层 data")
+	}
+}
+
+// --- 18.2-UNIT-026: [P0] ScriptExecutor 嵌套函数调用参数独立 (AC6) ---
+
+func TestScriptExecutor_FnNestedCalls_ParamIndependent(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok-inner", exitCode: 0, tokens: 50},
+			{result: "ok-outer", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn inner(val)\n  spawn \"inner=${val}\"\nend\nfn outer(val)\n  inner(\"inner_data\")\n  spawn \"outer=${val}\"\nend\nouter(\"outer_data\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(spawner.calls))
+	}
+	if spawner.calls[0].intent != "inner=inner_data" {
+		t.Errorf("call 0 intent = %q, want %q", spawner.calls[0].intent, "inner=inner_data")
+	}
+	if spawner.calls[1].intent != "outer=outer_data" {
+		t.Errorf("call 1 intent = %q, want %q (val should be restored after inner call)", spawner.calls[1].intent, "outer=outer_data")
+	}
+}
+
+// --- 18.2-UNIT-027: [P0] ScriptExecutor 调用未定义函数 → 运行时错误 (AC7) ---
+
+func TestScriptExecutor_FnCallUndefined_RuntimeError(t *testing.T) {
+	spawner := &mockSpawner{}
+
+	input := "fn dummy()\n  spawn \"dummy\"\nend\nundefined_func()"
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for calling undefined function 'undefined_func'")
+	}
+	if !containsSubstring(err.Error(), "undefined_func") {
+		t.Errorf("error should mention 'undefined_func', got: %q", err.Error())
+	}
+	_ = spawner
+}
+
+// --- 18.2-UNIT-028: [P0] ScriptExecutor 零参数函数调用 (AC4) ---
+
+func TestScriptExecutor_FnCallZeroArgs(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "initialized", exitCode: 0, tokens: 30},
+		},
+	}
+
+	input := "fn init_system()\n  spawn \"初始化系统\"\nend\ninit_system()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(spawner.calls))
+	}
+	if spawner.calls[0].intent != "初始化系统" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "初始化系统")
+	}
+}
+
+// --- 18.2-UNIT-029: [P0] ScriptExecutor 函数体内 for/if 嵌套执行 (AC5) ---
+
+func TestScriptExecutor_FnBodyWithForAndIf(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "match-b", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn scan(target)\n  for item in [a, b, c]\n    if $item == b\n      spawn \"匹配 ${target} ${item}\"\n    end\n  end\nend\nscan(\"project\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Fatalf("calls = %d, want 1 (only item 'b' matches)", len(spawner.calls))
+	}
+	if spawner.calls[0].intent != "匹配 project b" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "匹配 project b")
+	}
+}
+
+// --- 18.2-UNIT-030: [P0] ScriptExecutor 函数体内 spawn on-error (AC5) ---
+
+func TestScriptExecutor_FnBodyWithOnError(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "fail", exitCode: 1, tokens: 50},
+			{result: "recovered", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn risky()\n  spawn \"危险操作\" on-error spawn \"恢复\"\nend\nrisky()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 2 {
+		t.Fatalf("calls = %d, want 2 (main + on-error handler)", len(spawner.calls))
+	}
+}
+
+// --- 18.2-UNIT-031: [P0] ScriptExecutor return 中途退出函数 (AC2) ---
+
+func TestScriptExecutor_FnReturnEarlyExit(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "first", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn early()\n  spawn \"第一步\"\n  return \"done\"\n  spawn \"不应执行\"\nend\nresult = early()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Errorf("calls = %d, want 1 (spawn after return should not execute)", len(spawner.calls))
+	}
+
+	val, ok := env.Get("result")
+	if !ok || val != "done" {
+		t.Errorf("result = %q, want %q", val, "done")
+	}
+}
+
+// --- 18.2-UNIT-032: [P0] ScriptExecutor return 不带值 → 返回空字符串 (AC9) ---
+
+func TestScriptExecutor_FnReturnEmpty(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 30},
+		},
+	}
+
+	input := "fn void_fn()\n  spawn \"work\"\n  return\nend\nresult = void_fn()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	val, ok := env.Get("result")
+	if !ok {
+		t.Fatal("variable 'result' should be set")
+	}
+	if val != "" {
+		t.Errorf("result = %q, want empty string (bare return)", val)
+	}
+}
+
+// --- 18.2-CR-001: [P0] return 在 for 循环内立即终止函数（组合矩阵验证）---
+
+func TestScriptExecutor_FnReturnInForLoop(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "found-a", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn find_first()\n  for item in [a, b, c]\n    spawn \"检查 ${item}\"\n    return $item\n  end\nend\nfound = find_first()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Errorf("calls = %d, want 1 (return should exit fn after first iteration)", len(spawner.calls))
+	}
+	val, ok := env.Get("found")
+	if !ok || val != "a" {
+		t.Errorf("found = %q, want %q", val, "a")
+	}
+}
+
+// --- 18.2-CR-002: [P0] return 在 if/else 内正确退出函数（组合矩阵验证）---
+
+func TestScriptExecutor_FnReturnInIfBranch(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "yes", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn check(val)\n  if $val == yes\n    spawn \"匹配\"\n    return \"matched\"\n  end\n  spawn \"不应执行\"\nend\nexport val=yes\nresult = check($val)"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Errorf("calls = %d, want 1 (return in if should exit fn)", len(spawner.calls))
+	}
+	val, ok := env.Get("result")
+	if !ok || val != "matched" {
+		t.Errorf("result = %q, want %q", val, "matched")
+	}
+}
+
+// --- 18.2-CR-003: [P0] exit 在函数体内终止整个脚本（组合矩阵验证）---
+
+func TestScriptExecutor_ExitInFnBody_TerminatesScript(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "before exit", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn fatal()\n  spawn \"致命错误\"\n  exit 42\nend\nfatal()\nspawn \"不应执行\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	result, err := executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v (exit should not be treated as error)", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Errorf("calls = %d, want 1 (spawn after exit should not run)", len(spawner.calls))
+	}
+	if result.LastExitCode != 42 {
+		t.Errorf("exit code = %d, want 42", result.LastExitCode)
+	}
+}
+
+// --- 18.2-CR-004: [P1] fn 参数与 for 循环变量同名时互不干扰（组合矩阵验证）---
+
+func TestScriptExecutor_FnParamVsForLoopVar(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok-fn", exitCode: 0, tokens: 50},
+			{result: "ok-x", exitCode: 0, tokens: 50},
+			{result: "ok-y", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn work(item)\n  spawn \"fn-item=${item}\"\nend\nfor item in [x, y]\n  work(\"fn_value\")\n  spawn \"loop-item=${item}\"\nend"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) < 2 {
+		t.Fatalf("calls = %d, want at least 2", len(spawner.calls))
+	}
+	if spawner.calls[0].intent != "fn-item=fn_value" {
+		t.Errorf("call 0 intent = %q, want %q", spawner.calls[0].intent, "fn-item=fn_value")
+	}
+	if spawner.calls[1].intent != "loop-item=x" {
+		t.Errorf("call 1 intent = %q, want %q (loop var should be restored after fn call)", spawner.calls[1].intent, "loop-item=x")
+	}
+}
+
+// --- 18.2-CR-005: [P1] MaxCallDepth 递归深度保护（边界测试）---
+
+func TestScriptExecutor_FnMaxCallDepth(t *testing.T) {
+	spawner := &mockSpawner{
+		results: make([]mockResult, MaxCallDepth+10),
+	}
+	for i := range spawner.results {
+		spawner.results[i] = mockResult{result: "ok", exitCode: 0, tokens: 1}
+	}
+
+	input := "fn recurse(n)\n  spawn \"depth=${n}\"\n  recurse($n)\nend\nrecurse(\"start\")"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err == nil {
+		t.Fatal("expected error for exceeding MaxCallDepth, got nil")
+	}
+	if !containsSubstring(err.Error(), "call depth") && !containsSubstring(err.Error(), "recursion") {
+		t.Errorf("error should mention call depth or recursion limit, got: %q", err.Error())
+	}
+}
+
+// --- 18.2-CR-006: [P1] fn 定义不计入执行阶段数 ---
+
+func TestCountStages_FnDefZero(t *testing.T) {
+	input := "fn noop()\n  spawn \"a\"\nend\nspawn \"main\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	total := countExecutableStages(script)
+	// fn def = 0 stages, fn call = 1 stage, plain spawn = 1 stage
+	// Only the plain spawn "main" counts here (fn def body is counted when called)
+	if total < 1 {
+		t.Errorf("total stages = %d, want at least 1 (plain spawn)", total)
+	}
+}
+
+// --- 18.2-CR-007: [P1] fn 调用计为一个执行阶段 ---
+
+func TestCountStages_FnCallOne(t *testing.T) {
+	input := "fn work()\n  spawn \"a\"\nend\nwork()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	total := countExecutableStages(script)
+	if total < 1 {
+		t.Errorf("total stages = %d, want at least 1 (fn call counts as a stage)", total)
+	}
+}
+
+// --- 18.2-CR-008: [P1] fn 参数名是保留关键字 → 错误 ---
+
+func TestParseScript_Error_FnParamReservedKeyword(t *testing.T) {
+	input := "fn bad(for)\n  spawn \"test\"\nend"
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for parameter name 'for' (reserved keyword)")
+	}
+}
+
+// --- 18.2-CR-009: [P0] fn 定义和调用与 spawn 赋值共存 ---
+
+func TestScriptExecutor_FnCallAndSpawnAssignment(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "fn-result", exitCode: 0, tokens: 50},
+			{result: "spawn-result", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn helper()\n  spawn \"辅助任务\"\n  return \"helper-done\"\nend\nresult = helper()\nspawn_result = spawn \"主任务 $result\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(spawner.calls))
+	}
+
+	val, ok := env.Get("result")
+	if !ok || val != "helper-done" {
+		t.Errorf("result = %q, want %q", val, "helper-done")
+	}
+
+	if spawner.calls[1].intent != "主任务 helper-done" {
+		t.Errorf("spawn intent = %q, want %q", spawner.calls[1].intent, "主任务 helper-done")
+	}
+}
+
+// --- 18.2-CR-010: [P0] return 带 captures.result 属性返回 ---
+
+func TestScriptExecutor_FnReturnCaptureResult(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "任务输出内容", exitCode: 0, tokens: 100},
+		},
+	}
+
+	input := "fn get_output()\n  r = spawn \"执行任务\"\n  return $r.result\nend\noutput = get_output()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	val, ok := env.Get("output")
+	if !ok || val != "任务输出内容" {
+		t.Errorf("output = %q, want %q", val, "任务输出内容")
+	}
+}
+
+// --- 18.2-CR-011: [P1] ErrFnReturn 不泄漏到函数外部 ---
+
+func TestScriptExecutor_FnReturnDoesNotLeak(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+			{result: "after", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn returner()\n  spawn \"work\"\n  return \"val\"\nend\nreturner()\nspawn \"后续应执行\""
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v (ErrFnReturn should not leak)", err)
+	}
+
+	if len(spawner.calls) != 2 {
+		t.Errorf("calls = %d, want 2 (spawn after fn call should execute)", len(spawner.calls))
+	}
+}
+
+// --- 18.2-CR-012: [P1] return 在 while 循环内退出函数 ---
+
+func TestScriptExecutor_FnReturnInWhileLoop(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "found", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn search()\n  export counter=1\n  while $counter != 0\n    spawn \"搜索\"\n    return \"found\"\n  end\nend\nresult = search()"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if len(spawner.calls) != 1 {
+		t.Errorf("calls = %d, want 1 (return should exit while loop and fn)", len(spawner.calls))
+	}
+	val, ok := env.Get("result")
+	if !ok || val != "found" {
+		t.Errorf("result = %q, want %q", val, "found")
+	}
+}
+
+// --- 18.2-CR-013: [P1] fn 调用参数使用变量引用 ---
+
+func TestScriptExecutor_FnCallWithVarArgs(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "ok", exitCode: 0, tokens: 50},
+		},
+	}
+
+	input := "fn process(target)\n  spawn \"处理 ${target}\"\nend\nexport MY_FILE=app.go\nprocess($MY_FILE)"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	if spawner.calls[0].intent != "处理 app.go" {
+		t.Errorf("intent = %q, want %q", spawner.calls[0].intent, "处理 app.go")
+	}
+}
+
+// Ensure fmt, strings, context, time packages are used.
 var (
 	_ = fmt.Errorf
 	_ = strings.Contains
+	_ = context.Background
+	_ = time.Duration(0)
 )
