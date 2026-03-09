@@ -199,7 +199,7 @@ development_status:
   17-1-dashboard-framework-and-agent-tree-pane: done
   17-2-tracing-timeline-pane: done
   17-3-context-heatmap-pane: done
-  17-4-pane-linkage-and-process-operations: backlog
+  17-4-pane-linkage-and-process-operations: ready-for-dev
   17-5-offline-replay-analysis: backlog
   epic-17-retrospective: optional
 
