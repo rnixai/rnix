@@ -1106,7 +1106,6 @@ func parseExport(line string) (Statement, error) {
 }
 
 // reservedKeywords contains keywords that cannot be used as variable names.
-// "source" is pre-registered but not yet implemented.
 var reservedKeywords = map[string]bool{
 	"for": true, "in": true, "while": true, "if": true, "else": true, "end": true,
 	"fn": true, "return": true, "parallel": true, "source": true,

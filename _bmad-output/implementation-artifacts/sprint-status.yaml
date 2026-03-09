@@ -204,12 +204,12 @@ development_status:
   epic-17-retrospective: done
 
   # Epic 18: AgentShell Complete Scripting
-  epic-18: in-progress
+  epic-18: done
   18-1-loop-structures-and-builtin-commands: done
   18-2-function-definition-and-invocation: done
   18-3-data-structures-and-string-interpolation: done
   18-4-spawn-return-capture-and-parallel-execution: done
-  18-5-modularization-and-script-execution: review
+  18-5-modularization-and-script-execution: done
   epic-18-retrospective: optional
 
   # Epic 19: Declarative Intent & Auto Planning

@@ -777,7 +777,20 @@ func TestScriptExecutor_Source_WithDataStructures(t *testing.T) {
 	}
 }
 
-// --- 18.5-COMB-005: [P0] countStagesInBlock source 本身 count 为 0 ---
+// --- 18.5-COMB-005: [P0] source 在 parallel 块内被拒绝 ---
+
+func TestParseScript_Source_RejectedInParallel(t *testing.T) {
+	input := "parallel\n  source ./lib.ash\nend"
+	_, err := ParseScript(input)
+	if err == nil {
+		t.Fatal("expected error for source inside parallel block")
+	}
+	if !strings.Contains(err.Error(), "parallel") {
+		t.Errorf("error should mention 'parallel', got: %q", err.Error())
+	}
+}
+
+// --- 18.5-COMB-007: [P0] countStagesInBlock source 本身 count 为 0 ---
 
 func TestCountStages_SourceZero(t *testing.T) {
 	input := "source ./lib.ash\nspawn \"main\""
@@ -792,7 +805,7 @@ func TestCountStages_SourceZero(t *testing.T) {
 	}
 }
 
-// --- 18.5-COMB-006: [P0] validateFnCalls 对 source 不报错 ---
+// --- 18.5-COMB-008: [P0] validateFnCalls 对 source 不报错 ---
 
 func TestValidateFnCalls_SourceSkipped(t *testing.T) {
 	input := "source ./lib.ash\nspawn \"test\""

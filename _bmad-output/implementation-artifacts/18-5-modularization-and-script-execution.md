@@ -1,6 +1,6 @@
 # Story 18.5: 模块化与脚本执行
 
-Status: review
+Status: done
 
 ## Story
 
@@ -217,7 +217,9 @@ So that 我可以模块化组织脚本并直接运行。
   - `TestRunCmd_Registered` — `run` 子命令已注册
   - `TestRunCmd_NoArgs` — 无参数报错
   - `TestRunCmd_FileNotFound` — 文件不存在报错含文件名
-  - `TestRunCmd_ShebangStripped` — shebang 行被跳过
+  - `TestRunCmd_UsageAndDescription` — Use 和 Short 描述正确
+  - `TestRunCmd_SupportsJSONFlag` — 支持 --json flag（继承自 root）
+  - `TestRunCmd_ShebangStripped` — StripShebang 在 run 路径正确去除 shebang（CR 补充）
 
 - [x] 8.4 `shell/source_test.go` — 组合测试：
   - `TestScriptExecutor_Source_InForLoop` — for 循环内使用 source
@@ -566,18 +568,19 @@ Claude claude-4.6-opus (Cursor)
 - ✅ Task 5: CLI — `cmd/rnix/run.go`，cobra 子命令，RNIX_ARG_*/RNIX_SCRIPT_* 环境变量
 - ✅ Task 6: IPC — `ExecScriptRequest.ScriptDir` 字段 + `handleExecScript` 传递
 - ✅ Task 7: 验证器 — `validateFnCalls` hasSource 参数 + `countStagesInBlock` StmtSource = 0
-- ✅ Task 8: 37 个测试全部通过（32 shell + 5 CLI），`-race` 无竞态
+- ✅ Task 8: 40 个测试全部通过（34 shell + 6 CLI），`-race` 无竞态
 
 ### Change Log
 
 - 2026-03-09: Story 18.5 实现完成 — source 语句、stripShebang、rnix run 命令、IPC ScriptDir
+- 2026-03-09: Code Review 修复 — [H1] 补充缺失的 TestRunCmd_ShebangStripped 测试, [M1] 修正 reservedKeywords 过时注释, [M3] 新增 TestParseScript_Source_RejectedInParallel 测试
 
 ### File List
 
 - `shell/script.go` — AST 类型 + 解析器 + 执行器 + validateFnCalls + countStagesInBlock 扩展
 - `shell/file_reader.go` — 新增：FileReader 接口 + OSFileReader 实现
-- `shell/source_test.go` — 已有 ATDD 测试，实现后全部通过（32 个）
+- `shell/source_test.go` — 已有 ATDD 测试，实现后全部通过（34 个，含 CR 新增 2 个）
 - `cmd/rnix/run.go` — 新增：`rnix run` cobra 子命令
-- `cmd/rnix/run_test.go` — 已有 ATDD 测试，实现后全部通过（5 个）
+- `cmd/rnix/run_test.go` — 已有 ATDD 测试，实现后全部通过（6 个，含 CR 新增 1 个）
 - `ipc/protocol.go` — ExecScriptRequest 新增 ScriptDir 字段
 - `ipc/server.go` — handleExecScript 传递 ScriptDir 到 ScriptExecutor
