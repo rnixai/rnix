@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -199,10 +200,27 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case execResultMsg:
-		// TODO(17-4): implement execResultMsg handling
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Command error: %v", msg.err)
+		} else {
+			m.statusMsg = "Returned to dashboard"
+		}
+		m.statusMsgTTL = 4
 		return m, nil
 	case recordToggleMsg:
-		// TODO(17-4): implement recordToggleMsg handling
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("Record error: %v", msg.err)
+			m.statusMsgTTL = 4
+			return m, nil
+		}
+		if msg.stopped {
+			delete(m.recording, msg.pid)
+			m.statusMsg = fmt.Sprintf("Recording stopped (%d events)", msg.eventCount)
+		} else {
+			m.recording[msg.pid] = msg.recordID
+			m.statusMsg = fmt.Sprintf("Recording started (ID: %s)", msg.recordID)
+		}
+		m.statusMsgTTL = 4
 		return m, nil
 	}
 	return m, nil
@@ -210,6 +228,13 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	m.heatmapTickCount++
+
+	if m.statusMsgTTL > 0 {
+		m.statusMsgTTL--
+		if m.statusMsgTTL == 0 {
+			m.statusMsg = ""
+		}
+	}
 
 	if m.client == nil {
 		client, err := ipc.Dial(ipc.SocketPath())
@@ -232,7 +257,6 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	m.err = nil
 	m.connected = true
-	m.statusMsg = ""
 	m.processes = procs
 	roots := buildProcessTree(procs)
 	m.treeRows = flattenTree(roots)
@@ -246,23 +270,27 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	cmds := []tea.Cmd{tickCmd()}
 
-	if m.selectedPID != m.timelineAttachedPID && m.selectedPID > 0 {
-		m = m.stopTimelineStream()
-		m = m.handleTimelinePIDChange()
-		m.timelineAttachedPID = m.selectedPID
-		if m.connected {
-			cmds = append(cmds, startTimelineCmd(m.selectedPID))
+	pidChanged := m.selectedPID != m.timelineAttachedPID || m.selectedPID != m.heatmapPID
+	if pidChanged {
+		m2, pidCmd := m.handlePIDChange()
+		m = m2
+		if pidCmd != nil {
+			cmds = append(cmds, pidCmd)
 		}
+	} else if m.selectedPID > 0 && m.connected && m.heatmapTickCount%5 == 0 {
+		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 	}
 
-	needHeatmapRefresh := m.selectedPID > 0 && m.connected &&
-		(m.selectedPID != m.heatmapPID || m.heatmapTickCount%5 == 0)
-	if m.selectedPID != m.heatmapPID && m.selectedPID > 0 {
-		m = m.handleHeatmapPIDChange()
-		m.heatmapPID = m.selectedPID
-	}
-	if needHeatmapRefresh {
-		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+	if len(m.recording) > 0 {
+		pidSet := make(map[types.PID]bool, len(m.processes))
+		for _, p := range m.processes {
+			pidSet[p.PID] = true
+		}
+		for pid := range m.recording {
+			if !pidSet[pid] {
+				delete(m.recording, pid)
+			}
+		}
 	}
 
 	return m, tea.Batch(cmds...)
@@ -278,8 +306,9 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if err := m.client.Kill(m.confirmPID, types.SIGTERM); err != nil {
 					m.statusMsg = fmt.Sprintf("✗ kill PID %d: %v", m.confirmPID, err)
 				} else {
-					m.statusMsg = fmt.Sprintf("✓ signal sent to PID %d (SIGTERM)", m.confirmPID)
+					m.statusMsg = fmt.Sprintf("Killed PID %d", m.confirmPID)
 				}
+				m.statusMsgTTL = 4
 			}
 			m.confirmKill = false
 			m.confirmPID = 0
@@ -298,8 +327,8 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	switch m.activePane {
-	case paneTree:
+	if m.activePane == paneTree {
+		prevPID := m.selectedPID
 		visibleLines := m.dashboardVisibleLines()
 		switch key {
 		case "up", "k":
@@ -334,6 +363,37 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		if m.selectedPID != prevPID {
+			m2, cmd := m.handlePIDChange()
+			return m2, cmd
+		}
+		return m, nil
+	}
+
+	isTimelineConflict := m.activePane == paneTimeline && (key == "l" || key == "h")
+	if !isTimelineConflict && m.selectedPID > 0 && m.connected {
+		switch key {
+		case "k":
+			m.confirmKill = true
+			m.confirmPID = m.selectedPID
+			return m, nil
+		case "a":
+			c := exec.Command(os.Args[0], "gdb", fmt.Sprint(m.selectedPID))
+			return m, tea.ExecProcess(c, func(err error) tea.Msg {
+				return execResultMsg{err: err}
+			})
+		case "l":
+			c := exec.Command(os.Args[0], "log", fmt.Sprint(m.selectedPID))
+			return m, tea.ExecProcess(c, func(err error) tea.Msg {
+				return execResultMsg{err: err}
+			})
+		case "r":
+			recordID := m.recording[m.selectedPID]
+			return m, toggleRecordCmd(m.selectedPID, recordID)
+		}
+	}
+
+	switch m.activePane {
 	case paneTimeline:
 		m = m.handleTimelineKey(key)
 	case paneHeatmap:
@@ -445,16 +505,23 @@ func (m dashboardModel) renderDashboardStatus() string {
 	if m.confirmKill {
 		return fmt.Sprintf("  Kill PID %d? [y/N]", m.confirmPID)
 	}
+
+	rec := ""
+	if m.selectedPID > 0 && m.recording[m.selectedPID] != "" {
+		rec = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●REC") + "  "
+	}
+
+	ops := "  k:Kill  a:GDB  l:Log  r:Record"
 	if m.statusMsg != "" {
-		return fmt.Sprintf("  %s  |  q:Quit  Tab:Switch Pane  j/k:Navigate  K:Kill", m.statusMsg)
+		return fmt.Sprintf("  %s%s  |  q:Quit  Tab:Switch Pane%s", rec, m.statusMsg, ops)
 	}
 	if m.activePane == paneTimeline {
-		return "  q:Quit  Tab:Switch Pane  h/l:Scroll  +/-:Zoom  1-4:Filter  j/k:Select"
+		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  h/l:Scroll  +/-:Zoom  1-4:Filter%s", rec, ops)
 	}
 	if m.activePane == paneHeatmap {
-		return "  q:Quit  Tab:Switch Pane  j/k:Select Segment  Enter:Details"
+		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Select  Enter:Details%s", rec, ops)
 	}
-	return "  q:Quit  Tab:Switch Pane  j/k:Navigate  K:Kill  Enter:Select"
+	return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Select%s", rec, ops)
 }
 
 func (m dashboardModel) renderDashboardTreePane(width, height int) string {
@@ -520,6 +587,9 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		line := fmt.Sprintf("%s%sPID %-3d %-9s %-12s %s %s",
 			cursor, row.prefix, row.proc.PID, state, skills, tokens, elapsed)
+		if m.recording[row.proc.PID] != "" {
+			line += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●")
+		}
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
@@ -1204,10 +1274,43 @@ func fetchHeatmapCmd(pid types.PID) tea.Cmd {
 	}
 }
 
-// handlePIDChange is the unified PID-change handler (Story 17-4 stub).
+func toggleRecordCmd(pid types.PID, currentRecordID string) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return recordToggleMsg{pid: pid, err: err}
+		}
+		defer client.Close()
+
+		if currentRecordID == "" {
+			recordID, err := client.RecordStart(pid)
+			return recordToggleMsg{pid: pid, recordID: recordID, err: err}
+		}
+		count, err := client.RecordStop(pid)
+		return recordToggleMsg{pid: pid, stopped: true, eventCount: count, err: err}
+	}
+}
+
 func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
-	// TODO(17-4): implement unified PID change logic
-	return m, nil
+	if m.selectedPID == 0 {
+		m = m.stopTimelineStream()
+		m = m.handleTimelinePIDChange()
+		m = m.handleHeatmapPIDChange()
+		m.timelineAttachedPID = 0
+		m.heatmapPID = 0
+		return m, nil
+	}
+	m = m.stopTimelineStream()
+	m = m.handleTimelinePIDChange()
+	m = m.handleHeatmapPIDChange()
+	m.timelineAttachedPID = m.selectedPID
+	m.heatmapPID = m.selectedPID
+	var cmds []tea.Cmd
+	if m.connected {
+		cmds = append(cmds, startTimelineCmd(m.selectedPID))
+		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m dashboardModel) handleHeatmapPIDChange() dashboardModel {

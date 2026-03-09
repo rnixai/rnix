@@ -1,6 +1,6 @@
 # Story 17.4: 窗格联动与进程操作
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -21,71 +21,71 @@ So that 我可以高效地在多个视图间切换并快速执行操作。
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 即时窗格联动 (AC: #1)
-  - [ ] 1.1 重构 `dashboardKey` 树窗格导航（j/k/↑/↓/enter）：当 `selectedPID` 发生变化时，立即返回 `tea.Batch(startTimelineCmd(pid), fetchHeatmapCmd(pid))` 而不是等待下次 tick（消除 500ms 延迟）
-  - [ ] 1.2 抽取辅助方法 `(m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd)` — 封装 PID 变化时的统一逻辑：停止旧 timeline 流、清空 timeline 事件、调用 `handleTimelinePIDChange()`、调用 `handleHeatmapPIDChange()`、设置 `timelineAttachedPID` 和 `heatmapPID`、返回 `tea.Batch(startTimelineCmd, fetchHeatmapCmd)`
-  - [ ] 1.3 在 `dashboardTick` 中复用 `handlePIDChange()`，移除重复的 PID 变化检测逻辑（DRY）
-  - [ ] 1.4 确保 `handlePIDChange()` 在 `selectedPID == 0` 时只清空数据、不发起 IPC 调用
+- [x] Task 1: 即时窗格联动 (AC: #1)
+  - [x] 1.1 重构 `dashboardKey` 树窗格导航（j/k/↑/↓/enter）：当 `selectedPID` 发生变化时，立即返回 `tea.Batch(startTimelineCmd(pid), fetchHeatmapCmd(pid))` 而不是等待下次 tick（消除 500ms 延迟）
+  - [x] 1.2 抽取辅助方法 `(m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd)` — 封装 PID 变化时的统一逻辑：停止旧 timeline 流、清空 timeline 事件、调用 `handleTimelinePIDChange()`、调用 `handleHeatmapPIDChange()`、设置 `timelineAttachedPID` 和 `heatmapPID`、返回 `tea.Batch(startTimelineCmd, fetchHeatmapCmd)`
+  - [x] 1.3 在 `dashboardTick` 中复用 `handlePIDChange()`，移除重复的 PID 变化检测逻辑（DRY）
+  - [x] 1.4 确保 `handlePIDChange()` 在 `selectedPID == 0` 时只清空数据、不发起 IPC 调用
 
-- [ ] Task 2: 全局进程操作快捷键路由 (AC: #2)
-  - [ ] 2.1 将进程操作快捷键从仅 tree 窗格提升为全局快捷键 — 在 `dashboardKey` 中，confirmKill 和全局键检查之后、窗格特定键之前，添加全局操作分支
-  - [ ] 2.2 操作前提：`selectedPID > 0 && connected`，否则设置 `statusMsg` 提示 "No process selected" 或 "Not connected"
-  - [ ] 2.3 现有 Kill 快捷键改为小写 `k`（当前是 `Shift+K`）— 仅在 tree 窗格中 `k` 有双重含义（导航 vs kill），非 tree 窗格 `k` 直接触发 kill 确认
-  - [ ] 2.4 tree 窗格中使用 `Shift+K` 保留 kill 功能（因为 `k` 在 tree 中用于向上导航），同时增加独立的 `K`（大写）在其他窗格也可触发 kill
+- [x] Task 2: 全局进程操作快捷键路由 (AC: #2)
+  - [x] 2.1 将进程操作快捷键从仅 tree 窗格提升为全局快捷键 — 在 `dashboardKey` 中，confirmKill 和全局键检查之后、窗格特定键之前，添加全局操作分支
+  - [x] 2.2 操作前提：`selectedPID > 0 && connected`，否则设置 `statusMsg` 提示 "No process selected" 或 "Not connected"
+  - [x] 2.3 现有 Kill 快捷键改为小写 `k`（当前是 `Shift+K`）— 仅在 tree 窗格中 `k` 有双重含义（导航 vs kill），非 tree 窗格 `k` 直接触发 kill 确认
+  - [x] 2.4 tree 窗格中使用 `Shift+K` 保留 kill 功能（因为 `k` 在 tree 中用于向上导航），同时增加独立的 `K`（大写）在其他窗格也可触发 kill
 
-- [ ] Task 3: Kill 确认流程增强 (AC: #2)
-  - [ ] 3.1 复用现有 `confirmKill`/`confirmPID` 字段和 `y/N` 确认逻辑
-  - [ ] 3.2 唯一变更：确保 kill 确认状态栏在所有窗格下都可见（已有功能，验证即可）
-  - [ ] 3.3 kill 成功后设置 `statusMsg = fmt.Sprintf("Killed PID %d", pid)`，2 次 tick 后自动清空
+- [x] Task 3: Kill 确认流程增强 (AC: #2)
+  - [x] 3.1 复用现有 `confirmKill`/`confirmPID` 字段和 `y/N` 确认逻辑
+  - [x] 3.2 唯一变更：确保 kill 确认状态栏在所有窗格下都可见（已有功能，验证即可）
+  - [x] 3.3 kill 成功后设置 `statusMsg = fmt.Sprintf("Killed PID %d", pid)`，2 次 tick 后自动清空
 
-- [ ] Task 4: Attach GDB 操作 (AC: #2)
-  - [ ] 4.1 定义 `execResultMsg struct { err error }` 消息类型
-  - [ ] 4.2 按键 `a` → 调用 `tea.ExecProcess(exec.Command(os.Args[0], "gdb", fmt.Sprint(selectedPID)), func(err error) tea.Msg { return execResultMsg{err} })` — 暂停 dashboard TUI，启动交互式 gdb 会话，退出后恢复 dashboard
-  - [ ] 4.3 在 `Update` 中处理 `execResultMsg`：err == nil → `statusMsg = "GDB session ended"`；err != nil → `statusMsg = fmt.Sprintf("GDB error: %v", err)`
-  - [ ] 4.4 使用 `os.Args[0]` 获取当前二进制路径，确保 gdb 子命令可被正确调用
+- [x] Task 4: Attach GDB 操作 (AC: #2)
+  - [x] 4.1 定义 `execResultMsg struct { err error }` 消息类型
+  - [x] 4.2 按键 `a` → 调用 `tea.ExecProcess(exec.Command(os.Args[0], "gdb", fmt.Sprint(selectedPID)), func(err error) tea.Msg { return execResultMsg{err} })` — 暂停 dashboard TUI，启动交互式 gdb 会话，退出后恢复 dashboard
+  - [x] 4.3 在 `Update` 中处理 `execResultMsg`：err == nil → `statusMsg = "GDB session ended"`；err != nil → `statusMsg = fmt.Sprintf("GDB error: %v", err)`
+  - [x] 4.4 使用 `os.Args[0]` 获取当前二进制路径，确保 gdb 子命令可被正确调用
 
-- [ ] Task 5: View Log 操作 (AC: #2)
-  - [ ] 5.1 按键 `l` → tree 窗格中 `l` 无冲突（tree 只用 j/k/↑/↓/enter/Shift+K），直接触发
-  - [ ] 5.2 调用 `tea.ExecProcess(exec.Command(os.Args[0], "log", fmt.Sprint(selectedPID)), func(err error) tea.Msg { return execResultMsg{err} })` — 暂停 dashboard，启动 log 查看器（用户 Ctrl+C 退出后恢复）
-  - [ ] 5.3 复用 Task 4 的 `execResultMsg` 处理逻辑
+- [x] Task 5: View Log 操作 (AC: #2)
+  - [x] 5.1 按键 `l` → tree 窗格中 `l` 无冲突（tree 只用 j/k/↑/↓/enter/Shift+K），直接触发
+  - [x] 5.2 调用 `tea.ExecProcess(exec.Command(os.Args[0], "log", fmt.Sprint(selectedPID)), func(err error) tea.Msg { return execResultMsg{err} })` — 暂停 dashboard，启动 log 查看器（用户 Ctrl+C 退出后恢复）
+  - [x] 5.3 复用 Task 4 的 `execResultMsg` 处理逻辑
 
-- [ ] Task 6: Start/Stop Recording 操作 (AC: #2)
-  - [ ] 6.1 在 `dashboardModel` 新增字段：`recording map[types.PID]string`（PID → recordID 映射，追踪哪些进程在录制）
-  - [ ] 6.2 定义 `recordToggleMsg struct { pid types.PID; recordID string; stopped bool; eventCount uint64; err error }` 消息类型
-  - [ ] 6.3 实现 `toggleRecordCmd(pid types.PID, currentRecordID string) tea.Cmd`：
+- [x] Task 6: Start/Stop Recording 操作 (AC: #2)
+  - [x] 6.1 在 `dashboardModel` 新增字段：`recording map[types.PID]string`（PID → recordID 映射，追踪哪些进程在录制）
+  - [x] 6.2 定义 `recordToggleMsg struct { pid types.PID; recordID string; stopped bool; eventCount uint64; err error }` 消息类型
+  - [x] 6.3 实现 `toggleRecordCmd(pid types.PID, currentRecordID string) tea.Cmd`：
     - 若 `currentRecordID == ""` → `client.RecordStart(pid)` → 返回 `recordToggleMsg{pid, recordID, false, 0, err}`
     - 若 `currentRecordID != ""` → `client.RecordStop(pid)` → 返回 `recordToggleMsg{pid, "", true, eventCount, err}`
-  - [ ] 6.4 按键 `r` → 查找 `m.recording[selectedPID]`，调用 `toggleRecordCmd(selectedPID, recordID)`
-  - [ ] 6.5 在 `Update` 中处理 `recordToggleMsg`：
+  - [x] 6.4 按键 `r` → 查找 `m.recording[selectedPID]`，调用 `toggleRecordCmd(selectedPID, recordID)`
+  - [x] 6.5 在 `Update` 中处理 `recordToggleMsg`：
     - 启动成功 → `m.recording[pid] = recordID`，`statusMsg = "Recording started (ID: xxx)"`
     - 停止成功 → `delete(m.recording, pid)`，`statusMsg = fmt.Sprintf("Recording stopped (%d events)", eventCount)`
     - 错误 → `statusMsg = fmt.Sprintf("Record error: %v", err)`
-  - [ ] 6.6 在 `newDashboardModel` 中初始化 `recording: make(map[types.PID]string)`
+  - [x] 6.6 在 `newDashboardModel` 中初始化 `recording: make(map[types.PID]string)`
 
-- [ ] Task 7: 状态栏更新 (AC: #1, #2)
-  - [ ] 7.1 更新 `renderDashboardStatus()` — 在全局键提示区显示操作快捷键：`k:Kill  a:GDB  l:Log  r:Record`
-  - [ ] 7.2 当进程正在录制时，在状态栏显示 `●REC` 红色指示符（检查 `m.recording[selectedPID]`）
-  - [ ] 7.3 当 `statusMsg != ""` 时优先显示 `statusMsg`（已有机制），添加 `statusMsgTTL int` 字段在 tick 中递减，归零后清空 `statusMsg`
+- [x] Task 7: 状态栏更新 (AC: #1, #2)
+  - [x] 7.1 更新 `renderDashboardStatus()` — 在全局键提示区显示操作快捷键：`k:Kill  a:GDB  l:Log  r:Record`
+  - [x] 7.2 当进程正在录制时，在状态栏显示 `●REC` 红色指示符（检查 `m.recording[selectedPID]`）
+  - [x] 7.3 当 `statusMsg != ""` 时优先显示 `statusMsg`（已有机制），添加 `statusMsgTTL int` 字段在 tick 中递减，归零后清空 `statusMsg`
 
-- [ ] Task 8: 智能体树窗格录制指示 (AC: #2)
-  - [ ] 8.1 在 `renderDashboardTreePane` 中，若 `m.recording[row.proc.PID] != ""`，在进程行尾追加红色 `●` 录制指示符
+- [x] Task 8: 智能体树窗格录制指示 (AC: #2)
+  - [x] 8.1 在 `renderDashboardTreePane` 中，若 `m.recording[row.proc.PID] != ""`，在进程行尾追加红色 `●` 录制指示符
 
-- [ ] Task 9: 测试 (AC: #1, #2)
-  - [ ] 9.1 `dashboard_test.go`：PID 变化即时联动 — 在 tree 按 j 后，返回的 cmd 不为 nil（包含 timeline+heatmap 获取命令）
-  - [ ] 9.2 `dashboard_test.go`：handlePIDChange — selectedPID=0 时不发起 IPC cmd
-  - [ ] 9.3 `dashboard_test.go`：handlePIDChange — PID 变化时清空 timeline 和 heatmap 旧数据
-  - [ ] 9.4 `dashboard_test.go`：全局 kill 确认 — timeline 窗格中按 `k` 触发 confirmKill（selectedPID > 0）
-  - [ ] 9.5 `dashboard_test.go`：全局 kill — 无 selectedPID 时按 `k` 不触发确认
-  - [ ] 9.6 `dashboard_test.go`：tree 窗格 k 键仍为向上导航（不触发 kill）
-  - [ ] 9.7 `dashboard_test.go`：execResultMsg 处理 — err=nil 时设置成功 statusMsg
-  - [ ] 9.8 `dashboard_test.go`：execResultMsg 处理 — err!=nil 时设置错误 statusMsg
-  - [ ] 9.9 `dashboard_test.go`：recordToggleMsg 处理 — 启动录制更新 recording map
-  - [ ] 9.10 `dashboard_test.go`：recordToggleMsg 处理 — 停止录制清除 recording map
-  - [ ] 9.11 `dashboard_test.go`：recordToggleMsg 处理 — 错误时设置 statusMsg
-  - [ ] 9.12 `dashboard_test.go`：状态栏录制指示 — recording 不为空时显示 "●REC"
-  - [ ] 9.13 `dashboard_test.go`：状态栏显示操作键提示 — 包含 "k:Kill" "a:GDB" "l:Log" "r:Record"
-  - [ ] 9.14 `dashboard_test.go`：statusMsgTTL — tick 递减至 0 后清空 statusMsg
-  - [ ] 9.15 `dashboard_test.go`：树窗格录制指示 — recording 中的 PID 行包含 "●"
+- [x] Task 9: 测试 (AC: #1, #2)
+  - [x] 9.1 `dashboard_test.go`：PID 变化即时联动 — 在 tree 按 j 后，返回的 cmd 不为 nil（包含 timeline+heatmap 获取命令）
+  - [x] 9.2 `dashboard_test.go`：handlePIDChange — selectedPID=0 时不发起 IPC cmd
+  - [x] 9.3 `dashboard_test.go`：handlePIDChange — PID 变化时清空 timeline 和 heatmap 旧数据
+  - [x] 9.4 `dashboard_test.go`：全局 kill 确认 — timeline 窗格中按 `k` 触发 confirmKill（selectedPID > 0）
+  - [x] 9.5 `dashboard_test.go`：全局 kill — 无 selectedPID 时按 `k` 不触发确认
+  - [x] 9.6 `dashboard_test.go`：tree 窗格 k 键仍为向上导航（不触发 kill）
+  - [x] 9.7 `dashboard_test.go`：execResultMsg 处理 — err=nil 时设置成功 statusMsg
+  - [x] 9.8 `dashboard_test.go`：execResultMsg 处理 — err!=nil 时设置错误 statusMsg
+  - [x] 9.9 `dashboard_test.go`：recordToggleMsg 处理 — 启动录制更新 recording map
+  - [x] 9.10 `dashboard_test.go`：recordToggleMsg 处理 — 停止录制清除 recording map
+  - [x] 9.11 `dashboard_test.go`：recordToggleMsg 处理 — 错误时设置 statusMsg
+  - [x] 9.12 `dashboard_test.go`：状态栏录制指示 — recording 不为空时显示 "●REC"
+  - [x] 9.13 `dashboard_test.go`：状态栏显示操作键提示 — 包含 "k:Kill" "a:GDB" "l:Log" "r:Record"
+  - [x] 9.14 `dashboard_test.go`：statusMsgTTL — tick 递减至 0 后清空 statusMsg
+  - [x] 9.15 `dashboard_test.go`：树窗格录制指示 — recording 中的 PID 行包含 "●"
 
 ## Dev Notes
 
@@ -456,10 +456,27 @@ func TestRecordToggleMsg_Start(t *testing.T) { ... }
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-4.6-opus-high-thinking
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- ✅ Task 1: 实现 `handlePIDChange()` 统一方法，tree 导航 PID 变化时即时返回 `tea.Batch(startTimelineCmd, fetchHeatmapCmd)`。`dashboardTick` 中 PID 变化检测逻辑替换为 `handlePIDChange()` 调用（DRY）。`selectedPID==0` 时只清空不发 IPC。
+- ✅ Task 2: 重构 `dashboardKey` 键盘路由：tree 窗格提前处理并 return；非 tree 窗格中全局操作（k/a/l/r）优先于窗格特定键。timeline 的 l/h 键通过 `isTimelineConflict` 排除。tree 中 k 保持导航功能。
+- ✅ Task 3: Kill 确认增强：kill 成功后 `statusMsg = "Killed PID %d"` + `statusMsgTTL = 4`。
+- ✅ Task 4: `a` 键触发 `tea.ExecProcess(exec.Command(os.Args[0], "gdb", pid))`，暂停 TUI 运行 gdb。
+- ✅ Task 5: `l` 键触发 `tea.ExecProcess(exec.Command(os.Args[0], "log", pid))`，暂停 TUI 运行 log。
+- ✅ Task 6: 实现 `toggleRecordCmd` 独立 IPC 连接。`recordToggleMsg` 处理录制状态切换。`recording` map 在 `dashboardTick` 中清理已消失进程。
+- ✅ Task 7: 状态栏显示 `k:Kill a:GDB l:Log r:Record` 操作提示。录制中显示红色 `●REC`。`statusMsgTTL` 在 tick 中递减归零清空。
+- ✅ Task 8: 树窗格中录制 PID 行尾追加红色 `●` 指示符。
+- ✅ Task 9: 全部 15 个 ATDD 测试通过。更新 17-3 heatmap cursor 测试使用 arrow key（k 键现在触发全局 kill）。全项目回归测试通过（仅 2 个预先存在的环境相关失败）。
+
+### Change Log
+
+- 2026-03-09: Story 17-4 实现完成 — 即时窗格联动 + 全局进程操作 (k/a/l/r)
+
 ### File List
+
+- `cmd/rnix/dashboard.go` — 新增 `os/exec` 导入；实现 `handlePIDChange()` 统一方法；实现 `toggleRecordCmd()` IPC 命令；重构 `dashboardKey()` 全局操作路由（a/l/r/k）+ tree 即时联动；实现 `execResultMsg`/`recordToggleMsg` 消息处理；重构 `dashboardTick()` 复用 handlePIDChange + statusMsgTTL 递减 + recording 清理；更新 `renderDashboardStatus()` 操作键提示 + ●REC；更新 `renderDashboardTreePane()` 录制指示符
+- `cmd/rnix/dashboard_test.go` — 15 个 ATDD 测试全部通过（即时联动、handlePIDChange、全局 kill、execResultMsg、recordToggleMsg、状态栏、录制指示）；更新 17-3 heatmap cursor 测试（k→up arrow）

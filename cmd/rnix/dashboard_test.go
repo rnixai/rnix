@@ -1032,17 +1032,17 @@ func TestDashboardModel_HeatmapCursorJK(t *testing.T) {
 		t.Errorf("j should move heatmapCursor down: expected 1, got %d", um.heatmapCursor)
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
+	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	um = updated.(dashboardModel)
 	if um.heatmapCursor != 0 {
-		t.Errorf("k should move heatmapCursor up: expected 0, got %d", um.heatmapCursor)
+		t.Errorf("up arrow should move heatmapCursor up: expected 0, got %d", um.heatmapCursor)
 	}
 
 	um.heatmapCursor = 0
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
+	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyUp})
 	um = updated.(dashboardModel)
 	if um.heatmapCursor != 0 {
-		t.Errorf("k at top should stay at 0, got %d", um.heatmapCursor)
+		t.Errorf("up arrow at top should stay at 0, got %d", um.heatmapCursor)
 	}
 }
 
