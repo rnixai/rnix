@@ -1019,8 +1019,7 @@ func parseExport(line string) (Statement, error) {
 }
 
 // reservedKeywords contains keywords that cannot be used as variable names.
-// Phase 3 keywords (fn, return, parallel, source) are pre-registered even
-// though they are not yet implemented, to prevent user-defined name collisions.
+// "source" is pre-registered but not yet implemented.
 var reservedKeywords = map[string]bool{
 	"for": true, "in": true, "while": true, "if": true, "else": true, "end": true,
 	"fn": true, "return": true, "parallel": true, "source": true,
@@ -1478,7 +1477,7 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 			}
 
 		case StmtParallel:
-			if err := e.executeParallel(ctx, stmt, result, stageNum); err != nil {
+			if err := e.executeParallel(ctx, stmt, result, stageNum, totalStages); err != nil {
 				return err
 			}
 
@@ -1689,7 +1688,7 @@ type parallelResult struct {
 	err      error
 }
 
-func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, result *ScriptResult, stageNum *int) error {
+func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, result *ScriptResult, stageNum *int, totalStages int) error {
 	body := stmt.Parallel.Body
 	if len(body) == 0 {
 		return nil
@@ -1774,6 +1773,13 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 		result.LastResult = pr.result
 		result.LastExitCode = pr.exitCode
 		*stageNum++
+		if e.OnStageStart != nil {
+			intent := tasks[i].expandedIntent
+			if tasks[i].stmt.Kind == StmtPipeline {
+				intent = "pipeline"
+			}
+			e.OnStageStart(*stageNum, totalStages, intent)
+		}
 
 		s := tasks[i].stmt
 		if s.Assign != "" {

@@ -1,6 +1,6 @@
 # Story 18.4: Spawn 返回值捕获与并行执行
 
-Status: review
+Status: done
 
 ## Story
 
@@ -481,6 +481,7 @@ Claude claude-4.6-opus (Cursor)
 ### Change Log
 
 - 2026-03-09: 实现 Story 18.4 — parallel 块解析、执行（三阶段并行模型）、校验、stage 计数。新增 `"sync"` import。
+- 2026-03-09: Code Review 修复 5 个问题：[H1] WhileCondition 测试改为真正使用 while 循环；[M1] executeParallel 添加 OnStageStart 回调支持；[M2] on-error token 累加断言；[L1] 移除死代码 callCount；[L2] 更新 Phase 3 过时注释
 
 ### File List
 
