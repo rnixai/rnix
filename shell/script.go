@@ -1139,8 +1139,8 @@ func parseMapLiteral(s string) ([]MapEntry, error) {
 		}
 		key := strings.TrimSpace(p[:colonIdx])
 		value := strings.TrimSpace(p[colonIdx+1:])
-		if key == "" {
-			return nil, fmt.Errorf("empty key in map literal")
+		if key == "" || !isValidIdentifier(key) {
+			return nil, fmt.Errorf("invalid map key %q: must be a valid identifier", key)
 		}
 		if seen[key] {
 			return nil, fmt.Errorf("duplicate key %q in map literal", key)
@@ -1645,15 +1645,8 @@ func (e *ScriptExecutor) executeBuiltinFn(_ context.Context, stmt Statement) (st
 	switch name {
 	case "len":
 		arg := args[0]
-		if strings.HasPrefix(arg, "$") {
-			expanded := e.env.Expand(arg)
-			n, err := e.env.LenOf(arg[1:])
-			if err != nil {
-				return strconv.Itoa(len(expanded)), nil
-			}
-			return strconv.Itoa(n), nil
-		}
-		n, err := e.env.LenOf(arg)
+		varName := strings.TrimPrefix(arg, "$")
+		n, err := e.env.LenOf(varName)
 		if err != nil {
 			return "", err
 		}
@@ -1782,19 +1775,6 @@ func countStagesInBlock(stmts []Statement) int {
 		}
 	}
 	return n
-}
-
-func expandPipelineIntents(env *Environment, p *Pipeline) *Pipeline {
-	expanded := &Pipeline{Commands: make([]Command, len(p.Commands))}
-	for i, cmd := range p.Commands {
-		expanded.Commands[i] = Command{
-			Type:   cmd.Type,
-			Intent: env.Expand(cmd.Intent),
-			Agent:  cmd.Agent,
-			Model:  cmd.Model,
-		}
-	}
-	return expanded
 }
 
 func expandPipelineIntentsStrict(env *Environment, p *Pipeline) (*Pipeline, error) {

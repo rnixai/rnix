@@ -1,6 +1,6 @@
 # Story 18.3: 数据结构与字符串插值
 
-Status: review
+Status: done
 
 ## Story
 
@@ -648,8 +648,17 @@ claude-4.6-opus
 - ✅ 所有测试通过 -race 竞态检测
 - ✅ Lint 检查通过（修复了 2 个 S1017 strings.TrimPrefix 建议）
 
+### Code Review Fixes (cr 18-3)
+
+- [HIGH-1] 修复 `len($undefined)` 静默返回 "0" 的 bug — 简化 len 实现：统一使用 `strings.TrimPrefix(arg, "$")` + `LenOf`，未定义变量正确传播 error（`script.go:executeBuiltinFn`）
+- [MEDIUM-1] 修复 `parseMapLiteral` 缺少 key 标识符校验 — 将 `key == ""` 检查替换为 `key == "" || !isValidIdentifier(key)`，非法 key（数字开头、含特殊字符）现在会报解析错误（`script.go:parseMapLiteral`）
+- [MEDIUM-2] 删除死代码 `expandPipelineIntents`（非 strict 版本）— Story 18.3 将 pipeline intent 展开改用 `expandPipelineIntentsStrict`，原函数无调用者（`script.go`）
+- [LOW-1] 未修复：env 测试在 `data_test.go` 中而非 `env_test.go`（功能正确，仅文件组织不同）
+- [LOW-2] 未修复：`sortStrings` 使用插入排序而非标准库（key 集合极小，性能无影响）
+- 新增 3 个测试验证修复：`TestScriptExecutor_Builtin_LenUndefined_Error`、`TestScriptExecutor_Builtin_LenUndefinedBare_Error`、`TestParseScript_Error_MapInvalidKey`（`data_test.go`）
+
 ### File List
 
 - `shell/env.go` — Environment 重构：三并行 map + SetArray/GetArray/SetMap/GetMap/GetValueKind/ExpandStrict/LenOf
 - `shell/script.go` — AST 扩展 + 解析器扩展 + 执行器扩展 + builtinFunctions + expandPipelineIntentsStrict + sortStrings
-- `shell/data_test.go` — 51 个测试（27 ATDD + 24 新增），覆盖 AC1-AC12 + 组合矩阵
+- `shell/data_test.go` — 54 个测试（27 ATDD + 24 新增 + 3 CR 修复验证），覆盖 AC1-AC12 + 组合矩阵

@@ -1731,6 +1731,62 @@ func TestScriptExecutor_Export_UndefinedVar_NoError(t *testing.T) {
 	}
 }
 
+// --- 18.3-CR-009: [P0] ScriptExecutor len($undefined) → 错误 (AC7 边界) ---
+
+func TestScriptExecutor_Builtin_LenUndefined_Error(t *testing.T) {
+	spawner := &mockSpawner{}
+
+	input := "l = len($undefined)"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err == nil {
+		t.Fatal("expected error for len on undefined variable")
+	}
+	if !strings.Contains(err.Error(), "undefined") {
+		t.Errorf("error should mention 'undefined', got: %q", err.Error())
+	}
+}
+
+// --- 18.3-CR-010: [P0] ScriptExecutor len(undefined_bare) → 错误 (AC7 边界) ---
+
+func TestScriptExecutor_Builtin_LenUndefinedBare_Error(t *testing.T) {
+	spawner := &mockSpawner{}
+
+	input := "l = len(nonexistent)"
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	_, err = executor.Execute(context.Background(), script)
+	if err == nil {
+		t.Fatal("expected error for len on undefined bare variable")
+	}
+}
+
+// --- 18.3-CR-011: [P0] ParseScript 映射非法 key → 错误 ---
+
+func TestParseScript_Error_MapInvalidKey(t *testing.T) {
+	tests := []string{
+		`config = {123: "value"}`,
+		`config = {a-b: "value"}`,
+	}
+	for _, input := range tests {
+		_, err := ParseScript(input)
+		if err == nil {
+			t.Errorf("expected error for invalid map key: %q", input)
+		}
+	}
+}
+
 // --- 18.3-UNIT-051: [P0] ScriptExecutor for-in 非数组 $VAR 回退到字符串 (AC6 边界) ---
 
 func TestScriptExecutor_ForIn_NonArrayVar_Fallback(t *testing.T) {
