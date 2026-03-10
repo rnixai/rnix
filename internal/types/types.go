@@ -162,6 +162,7 @@ const (
 	LogTool    LogCategory = "tool"
 	LogOutput  LogCategory = "output"
 	LogWarning LogCategory = "warning"
+	LogOODA    LogCategory = "ooda"
 )
 
 // TokenSnapshot records cumulative token usage at a given reasoning step.

@@ -81,6 +81,10 @@ type Process struct {
 	coroutines  map[types.CoID]*Coroutine
 	coIDCounter atomic.Uint64
 
+	// OODA loop state (mu protected)
+	oodaEnabled bool       // true if process uses OODA reasoning mode
+	oodaState   *OODAState // current OODA state, nil if not OODA
+
 	// GDB breakpoint system (mu protected)
 	breakpoints      []*Breakpoint
 	gdbPauseCh       chan struct{} // nil=not paused; non-nil=paused, close to resume
@@ -276,6 +280,42 @@ func (p *Process) GetGroups() []types.PGID {
 	result := make([]types.PGID, len(p.groups))
 	copy(result, p.groups)
 	return result
+}
+
+// --- OODA state methods (all thread-safe via mu) ---
+
+// IsOODA reports whether the process uses OODA reasoning mode.
+func (p *Process) IsOODA() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.oodaEnabled
+}
+
+// GetOODAState returns a copy of the current OODA state, or nil if not OODA.
+func (p *Process) GetOODAState() *OODAState {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.oodaState == nil {
+		return nil
+	}
+	cp := *p.oodaState
+	if p.oodaState.Decision != nil {
+		d := *p.oodaState.Decision
+		cp.Decision = &d
+	}
+	return &cp
+}
+
+// SetOODAPhase updates the current OODA phase.
+// If the process does not have OODA state yet, it initializes it.
+func (p *Process) SetOODAPhase(phase OODAPhase) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.oodaState == nil {
+		p.oodaEnabled = true
+		p.oodaState = &OODAState{}
+	}
+	p.oodaState.Phase = phase
 }
 
 // --- Signal disposition (atomic check under single lock) ---

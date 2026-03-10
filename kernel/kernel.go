@@ -46,6 +46,7 @@ type SpawnOpts struct {
 
 	PreallocatedCtxID types.CtxID // non-zero = skip CtxAlloc, use this pre-setup context
 	SkipReasonLoop    bool        // true = don't open LLM device or start reasonStep goroutine
+	ReasoningMode     string      // "" = linear (default), "ooda" = OODA loop
 }
 
 // ActionType classifies LLM response actions.
@@ -366,6 +367,14 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// No reasoning goroutine — process starts in Running state immediately
 		_ = proc.Start() // Created → Running
 	} else {
+		// Initialize OODA state if requested
+		if opts.ReasoningMode == "ooda" {
+			proc.mu.Lock()
+			proc.oodaEnabled = true
+			proc.oodaState = &OODAState{Phase: PhaseObserve, Cycle: 0}
+			proc.mu.Unlock()
+		}
+
 		// Launch reasoning goroutine
 		// Note: CtxFree deferred to Wait/Reap (Story 4.1) per resource release order
 		proc.wg.Add(1)
@@ -373,7 +382,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			defer proc.wg.Done()
 			defer func() { _ = k.vfs.CloseAll(proc.PID) }()
 			_ = proc.Start() // Created → Running
-			k.reasonStep(proc, llmFD, opts)
+			if proc.oodaEnabled {
+				k.oodaReasonStep(proc, llmFD, opts)
+			} else {
+				k.reasonStep(proc, llmFD, opts)
+			}
 		}()
 	}
 
