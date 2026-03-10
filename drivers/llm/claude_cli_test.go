@@ -70,6 +70,7 @@ func mockCmdBuilder(testCase string) CommandBuilder {
 }
 
 func TestClaudeCliDriver_Call_Success(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("success")))
 	resp, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
 	if err != nil {
@@ -84,6 +85,7 @@ func TestClaudeCliDriver_Call_Success(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_Timeout(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(
 		WithCommandBuilder(mockCmdBuilder("timeout")),
 		WithTimeout(200*time.Millisecond),
@@ -105,6 +107,7 @@ func TestClaudeCliDriver_Call_Timeout(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_CLIError(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("cli_error")))
 	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
 	if err == nil {
@@ -126,6 +129,7 @@ func TestClaudeCliDriver_Call_CLIError(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("invalid_json")))
 	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
 	if err == nil {
@@ -141,6 +145,7 @@ func TestClaudeCliDriver_Call_InvalidJSON(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_IsError(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("is_error")))
 	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
 	if err == nil {
@@ -159,6 +164,7 @@ func TestClaudeCliDriver_Call_IsError(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_Args(t *testing.T) {
+	t.Parallel()
 	var capturedArgs []string
 	d := NewClaudeCliDriver(WithCommandBuilder(func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		capturedArgs = args
@@ -191,6 +197,7 @@ func TestClaudeCliDriver_Call_Args(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_DefaultArgs(t *testing.T) {
+	t.Parallel()
 	var capturedArgs []string
 	d := NewClaudeCliDriver(WithCommandBuilder(func(ctx context.Context, name string, args ...string) *exec.Cmd {
 		capturedArgs = args
@@ -203,8 +210,8 @@ func TestClaudeCliDriver_Call_DefaultArgs(t *testing.T) {
 	}
 
 	argsStr := strings.Join(capturedArgs, " ")
-	if !strings.Contains(argsStr, "--model sonnet") {
-		t.Errorf("expected default model 'sonnet', got: %s", argsStr)
+	if !strings.Contains(argsStr, "--model "+DefaultModel) {
+		t.Errorf("expected default model %q, got: %s", DefaultModel, argsStr)
 	}
 	if strings.Contains(argsStr, "--max-turns") {
 		t.Errorf("expected no --max-turns in default args, got: %s", argsStr)
@@ -230,6 +237,7 @@ func TestClaudeCliDriver_Info(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Options(t *testing.T) {
+	t.Parallel()
 	t.Run("WithModel", func(t *testing.T) {
 		d := NewClaudeCliDriver(WithModel("haiku"))
 		if d.defaultModel != "haiku" {
@@ -259,6 +267,7 @@ func TestClaudeCliDriver_Options(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Stream_Success(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_success")))
 	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
 	if err != nil {
@@ -289,6 +298,7 @@ func TestClaudeCliDriver_Stream_Success(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Stream_Error(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_error")))
 	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
 	if err != nil {
@@ -322,6 +332,7 @@ func TestClaudeCliDriver_Stream_Error(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_ExitCodeWithJSON(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("exit1_with_json")))
 	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
 	if err == nil {
@@ -340,6 +351,7 @@ func TestClaudeCliDriver_Call_ExitCodeWithJSON(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_ExitCodeNoJSON(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("exit1_no_json")))
 	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
 	if err == nil {
@@ -358,6 +370,7 @@ func TestClaudeCliDriver_Call_ExitCodeNoJSON(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_EmptyResult(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("empty_result")))
 	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
 	if err == nil {
@@ -376,6 +389,7 @@ func TestClaudeCliDriver_Call_EmptyResult(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Stream_EmptyResult(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_empty_result")))
 	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
 	if err != nil {
@@ -406,6 +420,7 @@ func TestClaudeCliDriver_Stream_EmptyResult(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_IsErrorEmptyResult(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("is_error_empty_result")))
 	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
 	if err == nil {
@@ -421,6 +436,7 @@ func TestClaudeCliDriver_Call_IsErrorEmptyResult(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Call_ExitCodeWithValidResult(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("exit1_valid_result")))
 	resp, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
 	if err != nil {
@@ -435,6 +451,7 @@ func TestClaudeCliDriver_Call_ExitCodeWithValidResult(t *testing.T) {
 }
 
 func TestClaudeCliDriver_Stream_IsErrorEmptyResult(t *testing.T) {
+	t.Parallel()
 	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_is_error_empty")))
 	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
 	if err != nil {
