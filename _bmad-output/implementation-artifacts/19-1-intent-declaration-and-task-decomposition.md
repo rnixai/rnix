@@ -1,6 +1,6 @@
 # Story 19.1: 意图声明与任务分解
 
-Status: review
+Status: done
 
 ## Story
 
@@ -702,10 +702,44 @@ Epic 18 Code Review 修复模式：
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-4.6-opus (dev) + claude-4.6-opus (cr)
 
 ### Debug Log References
 
+- Code Review: Fixed H1 (apply.go confirm flow broken), H2 (duplicate scanner), M1 (concurrent conn writes), M2 (missing unknown dep test), M4 (silent extractResult fallback)
+
 ### Completion Notes List
 
+- Intent package (`intent/`) fully independent — no imports from kernel/, cmd/, ipc/
+- Event-driven engine (not strict layer-based) for efficient DAG scheduling
+- IntentManagerAdapter pattern avoids ipc → intent import cycle
+- CLICaller invokes Claude Code CLI directly (not via VFS)
+- All concurrent structures pass `-race` testing
+
 ### File List
+
+**New files:**
+- `intent/types.go` — IntentTree, IntentNode, IntentState types + helper methods
+- `intent/dag.go` — Intent DAG construction, cycle detection, topological sort
+- `intent/decomposer.go` — LLM intent decomposer + LLMCaller interface
+- `intent/cli_caller.go` — CLICaller (Claude Code CLI adapter)
+- `intent/engine.go` — Event-driven intent execution engine
+- `intent/manager.go` — Intent lifecycle manager
+- `intent/types_test.go` — IntentTree helper method tests
+- `intent/dag_test.go` — DAG construction/cycle/topo sort tests
+- `intent/decomposer_test.go` — Decomposer tests with mock LLM
+- `intent/engine_test.go` — Engine execution tests (sequential/parallel/failure/cancel)
+- `intent/manager_test.go` — Manager lifecycle tests
+- `cmd/rnix/apply.go` — `rnix apply` CLI command
+- `cmd/rnix/apply_test.go` — CLI registration/flag tests
+- `cmd/rnix/intent.go` — `rnix intent status` CLI command
+- `cmd/rnix/intent_test.go` — CLI registration tests
+- `internal/ui/intent.go` — Intent tree/progress/event rendering
+- `internal/ui/intent_test.go` — UI rendering tests (TTY/JSON/quiet)
+- `ipc/intent_adapter.go` — IntentManagerAdapter + IntentKernelSpawner
+
+**Modified files:**
+- `ipc/protocol.go` — Added MethodApplyIntent, MethodIntentStatus, MethodIntentConfirm, wire types, stream event types
+- `ipc/server.go` — Added handleApplyIntent, handleIntentStatus, handleIntentConfirm, intentMgr field
+- `ipc/client.go` — Added ApplyIntentAndWatch, ConfirmIntent, IntentStatus
+- `cmd/rnix/main.go` — Added intent manager initialization in daemon path

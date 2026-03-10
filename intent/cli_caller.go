@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os/exec"
 )
 
@@ -35,6 +36,7 @@ func (c *CLICaller) Call(ctx context.Context, prompt string, model string) (stri
 func extractResult(data []byte) (string, error) {
 	var resp claudeJSONResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
+		log.Printf("[intent] claude CLI response is not JSON envelope, using raw output (%d bytes)", len(data))
 		return string(data), nil
 	}
 	if resp.Result != "" {

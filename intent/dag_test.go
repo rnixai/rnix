@@ -119,6 +119,27 @@ func TestBuildIntentDAG_CycleDetection(t *testing.T) {
 	}
 }
 
+func TestBuildIntentDAG_UnknownDep(t *testing.T) {
+	tree := &IntentTree{
+		ID:         "intent-1",
+		RootIntent: "unknown dep",
+		State:      IntentPending,
+		Nodes: map[string]*IntentNode{
+			"a": {ID: "a", Intent: "task A", State: IntentPending, DependsOn: []string{"nonexistent"}},
+		},
+		CreatedAt: time.Now(),
+	}
+
+	_, err := BuildIntentDAG(tree)
+
+	if err == nil {
+		t.Fatal("expected error for unknown dependency, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown node") {
+		t.Fatalf("error should mention 'unknown node', got: %q", err.Error())
+	}
+}
+
 func TestBuildIntentDAG_SelfCycle(t *testing.T) {
 	tree := &IntentTree{
 		ID:         "intent-1",

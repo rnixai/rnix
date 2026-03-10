@@ -214,7 +214,7 @@ development_status:
 
   # Epic 19: Declarative Intent & Auto Planning
   epic-19: in-progress
-  19-1-intent-declaration-and-task-decomposition: review
+  19-1-intent-declaration-and-task-decomposition: done
   19-2-intent-state-model-and-event-driven-reconciler: backlog
   19-3-incremental-update-and-status-query: backlog
   epic-19-retrospective: optional
