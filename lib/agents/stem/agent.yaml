@@ -1,0 +1,8 @@
+name: stem
+description: "通用基底智能体 -- 根据意图自动匹配 Skill 完成分化"
+models:
+  provider: claude
+  preferred: sonnet
+context_budget: 16384
+skills: []
+reasoning: ooda

@@ -17,6 +17,7 @@ import (
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
+	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -137,6 +138,10 @@ type KernelImpl struct {
 
 	// Agent loader for OODA autonomous spawn (Story 20.2)
 	agentLoader func(name string) (*agents.AgentInfo, error)
+
+	// Stem agent differentiation (Story 20.3)
+	stemMatcher *StemMatcher
+	skillLoader func(string) (*skills.SkillInfo, error)
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -168,6 +173,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		}
 	}
 	proc := NewProcess(opts.ParentPID, intent, skillNames)
+	// Note: proc.Skills may be updated below after stem differentiation (Story 20.3)
 
 	// Maintain parent-child tracking
 	if opts.ParentPID > 0 {
@@ -185,6 +191,41 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	// Load Agent information if specified
 	if agent != nil {
+		// Stem agent differentiation: auto-match skills based on intent (Story 20.3)
+		if agent.Manifest.Name == "stem" && len(agent.Manifest.Skills) == 0 && k.stemMatcher != nil {
+			diffStart := time.Now()
+			k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: matching skills for intent %q", intent), "")
+			matchedSkills, matchErr := k.stemMatcher.Match(intent)
+			if matchErr != nil {
+				k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: match error: %v", matchErr), "")
+			}
+			if matchErr == nil && len(matchedSkills) > 0 && k.skillLoader != nil {
+				var loadedNames []string
+				for _, skillName := range matchedSkills {
+					skillInfo, loadErr := k.skillLoader(skillName)
+					if loadErr == nil {
+						agent.Skills = append(agent.Skills, skillInfo)
+						loadedNames = append(loadedNames, skillName)
+					}
+				}
+				if len(loadedNames) > 0 {
+					k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: loading skills %v", loadedNames), "")
+					// Update proc.Skills so ps/ProcInfo reflects differentiated skills
+					proc.Skills = loadedNames
+				}
+			}
+			diffDuration := time.Since(diffStart)
+			eventArgs := map[string]any{
+				"matched_skills": matchedSkills,
+				"duration_ms":    diffDuration.Milliseconds(),
+			}
+			var eventErr error
+			if matchErr != nil {
+				eventErr = matchErr
+			}
+			k.emitEvent(proc, "StemDifferentiate", eventArgs, nil, eventErr, diffDuration)
+		}
+
 		// System prompt = Agent instructions + Skill bodies
 		agentPrompt := agent.SystemPrompt()
 		if opts.SystemPrompt == "" {
@@ -1299,6 +1340,16 @@ func (k *KernelImpl) SetSpanWriter(w *debug.SpanWriter) {
 // SetAgentLoader injects the agent loading function for OODA autonomous spawn.
 func (k *KernelImpl) SetAgentLoader(loader func(name string) (*agents.AgentInfo, error)) {
 	k.agentLoader = loader
+}
+
+// SetStemMatcher injects the stem agent matcher for auto-differentiation.
+func (k *KernelImpl) SetStemMatcher(m *StemMatcher) {
+	k.stemMatcher = m
+}
+
+// SetSkillLoader injects the skill loading function for stem agent differentiation.
+func (k *KernelImpl) SetSkillLoader(fn func(string) (*skills.SkillInfo, error)) {
+	k.skillLoader = fn
 }
 
 // StartRecording starts execution recording for the given PID.
