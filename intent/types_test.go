@@ -209,3 +209,150 @@ func TestIntentTree_IsTerminal_StillExecuting(t *testing.T) {
 		t.Fatal("expected IsTerminal()=false when a node is still executing")
 	}
 }
+
+// --- Story 19.2: IntentNode retry methods ---
+
+func TestIntentNode_CanRetry(t *testing.T) {
+	node := &IntentNode{ID: "a", Intent: "retryable", RetryCount: 0, MaxRetries: 3}
+
+	if !node.CanRetry() {
+		t.Fatal("expected CanRetry()=true when RetryCount(0) < MaxRetries(3)")
+	}
+}
+
+func TestIntentNode_CanRetry_Exhausted(t *testing.T) {
+	node := &IntentNode{ID: "a", Intent: "exhausted", RetryCount: 3, MaxRetries: 3}
+
+	if node.CanRetry() {
+		t.Fatal("expected CanRetry()=false when RetryCount(3) >= MaxRetries(3)")
+	}
+}
+
+func TestIntentNode_IncrRetry(t *testing.T) {
+	node := &IntentNode{ID: "a", Intent: "incr retry", RetryCount: 0, MaxRetries: 3}
+	before := time.Now()
+
+	node.IncrRetry()
+
+	if node.RetryCount != 1 {
+		t.Fatalf("expected RetryCount=1 after IncrRetry, got %d", node.RetryCount)
+	}
+	if node.LastFailedAt == nil {
+		t.Fatal("expected LastFailedAt to be set after IncrRetry")
+	}
+	if node.LastFailedAt.Before(before) {
+		t.Fatal("expected LastFailedAt to be after test start time")
+	}
+}
+
+// --- Story 19.2: IntentTree three-state model ---
+
+func TestIntentTree_InitDesired(t *testing.T) {
+	tree := &IntentTree{
+		ID:         "intent-1",
+		RootIntent: "init desired",
+		State:      IntentAwaitConfirm,
+		Nodes: map[string]*IntentNode{
+			"a": {ID: "a", Intent: "task a", State: IntentPending},
+			"b": {ID: "b", Intent: "task b", State: IntentPending, DependsOn: []string{"a"}},
+			"c": {ID: "c", Intent: "task c", State: IntentPending, DependsOn: []string{"b"}},
+		},
+		CreatedAt: time.Now(),
+	}
+
+	tree.InitDesired()
+
+	if tree.DesiredNodes == nil {
+		t.Fatal("expected DesiredNodes to be initialized")
+	}
+	if len(tree.DesiredNodes) != 3 {
+		t.Fatalf("expected 3 desired nodes, got %d", len(tree.DesiredNodes))
+	}
+	for nodeID, desired := range tree.DesiredNodes {
+		if desired != IntentCompleted {
+			t.Fatalf("expected desired state for %q = %q, got %q", nodeID, IntentCompleted, desired)
+		}
+	}
+}
+
+func TestIntentTree_ComputeDrifts(t *testing.T) {
+	tree := &IntentTree{
+		ID:         "intent-1",
+		RootIntent: "compute drifts",
+		State:      IntentExecuting,
+		Nodes: map[string]*IntentNode{
+			"a": {ID: "a", Intent: "completed", State: IntentCompleted},
+			"b": {ID: "b", Intent: "failed", State: IntentFailed, Error: "spawn error"},
+			"c": {ID: "c", Intent: "pending", State: IntentPending},
+		},
+		DesiredNodes: map[string]IntentState{
+			"a": IntentCompleted,
+			"b": IntentCompleted,
+			"c": IntentCompleted,
+		},
+		CreatedAt: time.Now(),
+	}
+
+	drifts := tree.ComputeDrifts()
+
+	if len(drifts) != 2 {
+		t.Fatalf("expected 2 drifts (b=failed, c=pending vs desired completed), got %d", len(drifts))
+	}
+
+	driftMap := make(map[string]DriftItem)
+	for _, d := range drifts {
+		driftMap[d.NodeID] = d
+	}
+	if _, ok := driftMap["b"]; !ok {
+		t.Fatal("expected drift for node 'b' (failed vs completed)")
+	}
+}
+
+func TestIntentTree_AddDrift_ClearDrift(t *testing.T) {
+	tree := &IntentTree{
+		ID:         "intent-1",
+		RootIntent: "drift lifecycle",
+		State:      IntentExecuting,
+		Nodes:      map[string]*IntentNode{},
+		CreatedAt:  time.Now(),
+	}
+
+	drift := DriftItem{NodeID: "a", Type: DriftNodeFailed, Message: "spawn error", DetectedAt: time.Now()}
+	tree.AddDrift(drift)
+
+	if len(tree.Drifts) != 1 {
+		t.Fatalf("expected 1 drift after AddDrift, got %d", len(tree.Drifts))
+	}
+	if tree.Drifts[0].NodeID != "a" {
+		t.Fatalf("expected drift for node 'a', got %q", tree.Drifts[0].NodeID)
+	}
+
+	tree.ClearDrift("a")
+
+	activeDrifts := tree.ActiveDrifts()
+	for _, d := range activeDrifts {
+		if d.NodeID == "a" {
+			t.Fatal("expected drift for node 'a' to be cleared")
+		}
+	}
+}
+
+func TestIntentTree_ActiveDrifts(t *testing.T) {
+	tree := &IntentTree{
+		ID:         "intent-1",
+		RootIntent: "active drifts",
+		State:      IntentExecuting,
+		Nodes:      map[string]*IntentNode{},
+		Drifts: []DriftItem{
+			{NodeID: "a", Type: DriftNodeFailed, Message: "fail a", DetectedAt: time.Now()},
+			{NodeID: "b", Type: DriftNodeTimeout, Message: "timeout b", DetectedAt: time.Now()},
+		},
+		CreatedAt: time.Now(),
+	}
+
+	active := tree.ActiveDrifts()
+
+	if len(active) != 2 {
+		t.Fatalf("expected 2 active drifts, got %d", len(active))
+	}
+}

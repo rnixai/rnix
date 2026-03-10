@@ -20,30 +20,91 @@ const (
 	IntentExecuting    IntentState = "executing"
 	IntentCompleted    IntentState = "completed"
 	IntentFailed       IntentState = "failed"
+	IntentRetrying     IntentState = "retrying"
 )
 
 // IntentNode represents a single sub-intent within an IntentTree.
 type IntentNode struct {
-	ID        string      `json:"id" yaml:"id"`
-	Intent    string      `json:"intent" yaml:"intent"`
-	Agent     string      `json:"agent,omitempty" yaml:"agent,omitempty"`
-	Model     string      `json:"model,omitempty" yaml:"model,omitempty"`
-	DependsOn []string    `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
-	State     IntentState `json:"state" yaml:"state"`
-	PID       types.PID   `json:"pid,omitempty" yaml:"pid,omitempty"`
-	Result    string      `json:"result,omitempty" yaml:"result,omitempty"`
-	Error     string      `json:"error,omitempty" yaml:"error,omitempty"`
-	Children  []string    `json:"children,omitempty" yaml:"children,omitempty"`
+	ID           string        `json:"id" yaml:"id"`
+	Intent       string        `json:"intent" yaml:"intent"`
+	Agent        string        `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Model        string        `json:"model,omitempty" yaml:"model,omitempty"`
+	DependsOn    []string      `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	State        IntentState   `json:"state" yaml:"state"`
+	PID          types.PID     `json:"pid,omitempty" yaml:"pid,omitempty"`
+	Result       string        `json:"result,omitempty" yaml:"result,omitempty"`
+	Error        string        `json:"error,omitempty" yaml:"error,omitempty"`
+	Children     []string      `json:"children,omitempty" yaml:"children,omitempty"`
+	RetryCount   int           `json:"retry_count" yaml:"retry_count"`
+	MaxRetries   int           `json:"max_retries" yaml:"max_retries"`
+	Timeout      time.Duration `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+	LastFailedAt *time.Time    `json:"last_failed_at,omitempty" yaml:"last_failed_at,omitempty"`
+}
+
+// CanRetry returns true if the node has remaining retry attempts.
+func (n *IntentNode) CanRetry() bool {
+	// STUB: not implemented — always returns false
+	return false
+}
+
+// IncrRetry increments the retry counter and records the failure time.
+func (n *IntentNode) IncrRetry() {
+	// STUB: not implemented — no-op
+}
+
+// DriftType classifies the kind of drift between desired and current state.
+type DriftType string
+
+const (
+	DriftNodeFailed  DriftType = "node_failed"
+	DriftNodeTimeout DriftType = "node_timeout"
+)
+
+// DriftItem records a single divergence between desired and current state.
+type DriftItem struct {
+	NodeID     string    `json:"node_id"`
+	Type       DriftType `json:"type"`
+	Message    string    `json:"message"`
+	DetectedAt time.Time `json:"detected_at"`
 }
 
 // IntentTree represents the full decomposition of a high-level intent.
 type IntentTree struct {
-	ID          IntentID               `json:"id" yaml:"id"`
-	RootIntent  string                 `json:"root_intent" yaml:"root_intent"`
-	State       IntentState            `json:"state" yaml:"state"`
-	Nodes       map[string]*IntentNode `json:"nodes" yaml:"nodes"`
-	CreatedAt   time.Time              `json:"created_at" yaml:"created_at"`
-	CompletedAt *time.Time             `json:"completed_at,omitempty" yaml:"completed_at,omitempty"`
+	ID           IntentID               `json:"id" yaml:"id"`
+	RootIntent   string                 `json:"root_intent" yaml:"root_intent"`
+	State        IntentState            `json:"state" yaml:"state"`
+	Nodes        map[string]*IntentNode `json:"nodes" yaml:"nodes"`
+	DesiredNodes map[string]IntentState `json:"desired_nodes,omitempty" yaml:"desired_nodes,omitempty"`
+	Drifts       []DriftItem            `json:"drifts,omitempty" yaml:"drifts,omitempty"`
+	CreatedAt    time.Time              `json:"created_at" yaml:"created_at"`
+	CompletedAt  *time.Time             `json:"completed_at,omitempty" yaml:"completed_at,omitempty"`
+}
+
+// InitDesired sets the desired state for all nodes to IntentCompleted.
+func (t *IntentTree) InitDesired() {
+	// STUB: not implemented — no-op
+}
+
+// ComputeDrifts scans all nodes and returns items where current != desired.
+func (t *IntentTree) ComputeDrifts() []DriftItem {
+	// STUB: not implemented
+	return nil
+}
+
+// AddDrift appends a drift record.
+func (t *IntentTree) AddDrift(item DriftItem) {
+	// STUB: not implemented — no-op
+}
+
+// ClearDrift removes drift records for the given node.
+func (t *IntentTree) ClearDrift(nodeID string) {
+	// STUB: not implemented — no-op
+}
+
+// ActiveDrifts returns unresolved drift items.
+func (t *IntentTree) ActiveDrifts() []DriftItem {
+	// STUB: not implemented
+	return nil
 }
 
 // Progress returns the count of completed nodes and total nodes.

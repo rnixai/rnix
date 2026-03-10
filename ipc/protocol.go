@@ -269,13 +269,17 @@ const (
 	StreamGdbPrompt      StreamEventType = "gdb_prompt"
 
 	// intent-specific stream event types
-	StreamIntentDecomposed StreamEventType = "intent_decomposed"
-	StreamIntentConfirmReq StreamEventType = "intent_confirm_required"
-	StreamIntentNodeStart  StreamEventType = "intent_node_start"
-	StreamIntentNodeDone   StreamEventType = "intent_node_done"
-	StreamIntentNodeFailed StreamEventType = "intent_node_failed"
-	StreamIntentProgress   StreamEventType = "intent_progress"
-	StreamIntentComplete   StreamEventType = "intent_complete"
+	StreamIntentDecomposed    StreamEventType = "intent_decomposed"
+	StreamIntentConfirmReq    StreamEventType = "intent_confirm_required"
+	StreamIntentNodeStart     StreamEventType = "intent_node_start"
+	StreamIntentNodeDone      StreamEventType = "intent_node_done"
+	StreamIntentNodeFailed    StreamEventType = "intent_node_failed"
+	StreamIntentProgress      StreamEventType = "intent_progress"
+	StreamIntentComplete      StreamEventType = "intent_complete"
+	StreamIntentNodeRetry     StreamEventType = "intent_node_retry"
+	StreamIntentNodeTimeout   StreamEventType = "intent_node_timeout"
+	StreamIntentDriftDetected StreamEventType = "intent_drift_detected"
+	StreamIntentDriftResolved StreamEventType = "intent_drift_resolved"
 )
 
 // ProgressPayload maps kernel callback events to IPC wire format.
@@ -521,36 +525,54 @@ type IntentStatusResponse struct {
 
 // IntentTreeWire is the wire-format representation of intent.IntentTree.
 type IntentTreeWire struct {
-	ID          string                     `json:"id"`
-	RootIntent  string                     `json:"root_intent"`
-	State       string                     `json:"state"`
-	Nodes       map[string]*IntentNodeWire `json:"nodes"`
-	CreatedAtMs int64                      `json:"created_at_ms"`
-	CompletedAtMs int64                    `json:"completed_at_ms,omitempty"`
+	ID            string                     `json:"id"`
+	RootIntent    string                     `json:"root_intent"`
+	State         string                     `json:"state"`
+	Nodes         map[string]*IntentNodeWire `json:"nodes"`
+	Drifts        []DriftItemWire            `json:"drifts,omitempty"`
+	CreatedAtMs   int64                      `json:"created_at_ms"`
+	CompletedAtMs int64                      `json:"completed_at_ms,omitempty"`
 }
 
 // IntentNodeWire is the wire-format representation of intent.IntentNode.
 type IntentNodeWire struct {
-	ID        string   `json:"id"`
-	Intent    string   `json:"intent"`
-	Agent     string   `json:"agent,omitempty"`
-	Model     string   `json:"model,omitempty"`
-	DependsOn []string `json:"depends_on,omitempty"`
-	State     string   `json:"state"`
-	PID       uint64   `json:"pid,omitempty"`
-	Result    string   `json:"result,omitempty"`
-	Error     string   `json:"error,omitempty"`
+	ID         string   `json:"id"`
+	Intent     string   `json:"intent"`
+	Agent      string   `json:"agent,omitempty"`
+	Model      string   `json:"model,omitempty"`
+	DependsOn  []string `json:"depends_on,omitempty"`
+	State      string   `json:"state"`
+	PID        uint64   `json:"pid,omitempty"`
+	Result     string   `json:"result,omitempty"`
+	Error      string   `json:"error,omitempty"`
+	RetryCount int      `json:"retry_count,omitempty"`
+	MaxRetries int      `json:"max_retries,omitempty"`
+	TimeoutMs  int64    `json:"timeout_ms,omitempty"`
 }
 
 // IntentNodeEventPayload carries data for intent node stream events.
 type IntentNodeEventPayload struct {
-	NodeID    string `json:"node_id"`
-	Intent    string `json:"intent,omitempty"`
-	PID       uint64 `json:"pid,omitempty"`
-	Result    string `json:"result,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Completed int    `json:"completed,omitempty"`
-	Total     int    `json:"total,omitempty"`
+	NodeID       string `json:"node_id"`
+	Intent       string `json:"intent,omitempty"`
+	PID          uint64 `json:"pid,omitempty"`
+	Result       string `json:"result,omitempty"`
+	Error        string `json:"error,omitempty"`
+	Completed    int    `json:"completed,omitempty"`
+	Total        int    `json:"total,omitempty"`
+	RetryAttempt int    `json:"retry_attempt,omitempty"`
+	MaxRetries   int    `json:"max_retries,omitempty"`
+	DriftType    string `json:"drift_type,omitempty"`
+}
+
+// IntentNodeWire extensions for reconciler fields.
+// (RetryCount, MaxRetries, TimeoutMs are added to IntentNodeWire below via separate struct update.)
+
+// DriftItemWire is the wire-format representation of intent.DriftItem.
+type DriftItemWire struct {
+	NodeID       string `json:"node_id"`
+	Type         string `json:"type"`
+	Message      string `json:"message"`
+	DetectedAtMs int64  `json:"detected_at_ms"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

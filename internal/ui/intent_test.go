@@ -143,3 +143,104 @@ func TestRenderIntentNodeEvent_JSON(t *testing.T) {
 		t.Fatalf("expected event='done', got %v", parsed["event"])
 	}
 }
+
+// --- Story 19.2: Reconciler UI render tests ---
+
+func TestRenderIntentNodeRetry_TTY(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 120, ColorLevel: 0}}
+
+	RenderIntentNodeRetry(r, "backend", 2, 3, ModeDefault)
+
+	output := buf.String()
+	if !strings.Contains(output, "backend") {
+		t.Fatalf("expected 'backend' in retry output, got: %s", output)
+	}
+	if !strings.Contains(output, "2") {
+		t.Fatalf("expected attempt '2' in retry output, got: %s", output)
+	}
+	if !strings.Contains(output, "3") {
+		t.Fatalf("expected max '3' in retry output, got: %s", output)
+	}
+}
+
+func TestRenderIntentNodeRetry_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeJSON, Profile: TerminalProfile{Width: 80, ColorLevel: 0}}
+
+	RenderIntentNodeRetry(r, "design", 1, 3, ModeJSON)
+
+	output := strings.TrimSpace(buf.String())
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("expected valid JSON, got: %v\noutput: %s", err, output)
+	}
+	if parsed["event"] != "retry" {
+		t.Fatalf("expected event='retry', got %v", parsed["event"])
+	}
+	if parsed["node_id"] != "design" {
+		t.Fatalf("expected node_id='design', got %v", parsed["node_id"])
+	}
+}
+
+func TestRenderIntentNodeTimeout_TTY(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 120, ColorLevel: 0}}
+
+	RenderIntentNodeTimeout(r, "slow-task", ModeDefault)
+
+	output := buf.String()
+	if !strings.Contains(output, "slow-task") {
+		t.Fatalf("expected 'slow-task' in timeout output, got: %s", output)
+	}
+}
+
+func TestRenderDriftList_TTY(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 120, ColorLevel: 0}}
+
+	drifts := []ipc.DriftItemWire{
+		{NodeID: "a", Type: "node_failed", Message: "spawn error", DetectedAtMs: 1700000000000},
+		{NodeID: "b", Type: "node_timeout", Message: "timed out", DetectedAtMs: 1700000001000},
+	}
+
+	RenderDriftList(r, drifts, ModeDefault)
+
+	output := buf.String()
+	if !strings.Contains(output, "a") || !strings.Contains(output, "b") {
+		t.Fatalf("expected drift nodes in output, got: %s", output)
+	}
+}
+
+func TestRenderDriftList_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeJSON, Profile: TerminalProfile{Width: 80, ColorLevel: 0}}
+
+	drifts := []ipc.DriftItemWire{
+		{NodeID: "a", Type: "node_failed", Message: "error", DetectedAtMs: 1700000000000},
+	}
+
+	RenderDriftList(r, drifts, ModeJSON)
+
+	output := strings.TrimSpace(buf.String())
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("expected valid JSON, got: %v\noutput: %s", err, output)
+	}
+	driftList, ok := parsed["drifts"].([]any)
+	if !ok || len(driftList) != 1 {
+		t.Fatalf("expected 1 drift in JSON output, got %v", parsed["drifts"])
+	}
+}
+
+func TestRenderDriftList_Empty(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 120, ColorLevel: 0}}
+
+	RenderDriftList(r, nil, ModeDefault)
+
+	output := buf.String()
+	if output == "" {
+		t.Fatal("expected non-empty output even with no drifts (should show 'no drift' message)")
+	}
+}

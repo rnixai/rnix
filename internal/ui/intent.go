@@ -85,6 +85,53 @@ func RenderIntentNodeEvent(r *Renderer, eventType, nodeID, detail string, pid ui
 	}
 }
 
+// RenderIntentNodeRetry renders a retry event.
+func RenderIntentNodeRetry(r *Renderer, nodeID string, attempt, maxRetries int, mode OutputMode) {
+	if mode == ModeJSON {
+		data, _ := json.Marshal(map[string]any{
+			"event":      "retry",
+			"node_id":    nodeID,
+			"attempt":    attempt,
+			"max_retries": maxRetries,
+		})
+		fmt.Fprintln(r.Writer, string(data))
+		return
+	}
+	if mode == ModeQuiet {
+		return
+	}
+	// STUB: placeholder — full implementation pending
+}
+
+// RenderIntentNodeTimeout renders a timeout event.
+func RenderIntentNodeTimeout(r *Renderer, nodeID string, mode OutputMode) {
+	if mode == ModeJSON {
+		data, _ := json.Marshal(map[string]any{
+			"event":   "timeout",
+			"node_id": nodeID,
+		})
+		fmt.Fprintln(r.Writer, string(data))
+		return
+	}
+	if mode == ModeQuiet {
+		return
+	}
+	// STUB: placeholder — full implementation pending
+}
+
+// RenderDriftList renders the list of active drifts.
+func RenderDriftList(r *Renderer, drifts []ipc.DriftItemWire, mode OutputMode) {
+	if mode == ModeJSON {
+		data, _ := json.Marshal(map[string]any{"drifts": drifts})
+		fmt.Fprintln(r.Writer, string(data))
+		return
+	}
+	if mode == ModeQuiet {
+		return
+	}
+	// STUB: placeholder — full implementation pending
+}
+
 func intentStateIcon(state string) string {
 	switch state {
 	case "completed":
@@ -95,6 +142,8 @@ func intentStateIcon(state string) string {
 		return "▶"
 	case "pending":
 		return "○"
+	case "retrying":
+		return "↻"
 	default:
 		return "·"
 	}
