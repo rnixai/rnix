@@ -57,8 +57,10 @@ func (n *IntentNode) IncrRetry() {
 type DriftType string
 
 const (
-	DriftNodeFailed  DriftType = "node_failed"
-	DriftNodeTimeout DriftType = "node_timeout"
+	DriftNodeFailed      DriftType = "node_failed"
+	DriftNodeTimeout     DriftType = "node_timeout"
+	DriftNewRequirement  DriftType = "new_requirement"
+	DriftNodeModified    DriftType = "node_modified"
 )
 
 // DriftItem records a single divergence between desired and current state.
@@ -219,4 +221,18 @@ func (t *IntentTree) IsTerminal() bool {
 		}
 	}
 	return true
+}
+
+// ResetNode resets a node to pending state, clearing execution results but preserving config.
+func (t *IntentTree) ResetNode(nodeID string) {
+	node, ok := t.Nodes[nodeID]
+	if !ok {
+		return
+	}
+	node.State = IntentPending
+	node.Error = ""
+	node.PID = 0
+	node.Result = ""
+	node.RetryCount = 0
+	// Preserve MaxRetries and Timeout configuration
 }

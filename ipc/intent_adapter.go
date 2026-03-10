@@ -111,6 +111,39 @@ func (a *IntentManagerAdapter) ListActiveIntents() ([]byte, error) {
 	return json.Marshal(resp)
 }
 
+func (a *IntentManagerAdapter) ApplyIncrementalIntent(ctx context.Context, intentID, intentStr, model string) (string, []byte, error) {
+	tree, mergeResult, err := a.mgr.ApplyIncremental(ctx, intent.IntentID(intentID), intentStr, model)
+	if err != nil {
+		return "", nil, err
+	}
+
+	resp := ApplyIncrementalIntentResponse{
+		IntentID:      intentID,
+		Tree:          intentTreeToWire(tree),
+		AddedNodes:    mergeResult.AddedNodes,
+		ModifiedNodes: mergeResult.ModifiedNodes,
+	}
+	if resp.AddedNodes == nil {
+		resp.AddedNodes = []string{}
+	}
+	if resp.ModifiedNodes == nil {
+		resp.ModifiedNodes = []string{}
+	}
+
+	data, _ := json.Marshal(resp)
+	return intentID, data, nil
+}
+
+func (a *IntentManagerAdapter) ListAllIntents() ([]byte, error) {
+	trees := a.mgr.ListAll()
+	wires := make([]*IntentTreeWire, len(trees))
+	for i, tree := range trees {
+		wires[i] = intentTreeToWire(tree)
+	}
+	resp := IntentStatusResponse{Intents: wires}
+	return json.Marshal(resp)
+}
+
 func intentTreeToWire(tree *intent.IntentTree) *IntentTreeWire {
 	if tree == nil {
 		return nil

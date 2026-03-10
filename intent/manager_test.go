@@ -162,3 +162,88 @@ func TestManager_ListActive_ExcludesTerminal(t *testing.T) {
 		t.Fatalf("expected 1 active intent, got %d", len(active))
 	}
 }
+
+// --- Story 19.3: Manager.ApplyIncremental ---
+
+func TestManager_ApplyIncremental(t *testing.T) {
+	// First create an intent with Apply
+	initialNodes := `[{"id":"design","intent":"design schema","depends_on":[]},{"id":"backend","intent":"implement API","depends_on":["design"]}]`
+	caller := &mockLLMCaller{response: initialNodes}
+	decomposer := NewDecomposer(caller)
+	spawner := newMockIntentSpawner()
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
+
+	tree, err := mgr.Apply(context.Background(), ApplyRequest{Intent: "build blog"})
+	if err != nil {
+		t.Fatalf("Apply failed: %v", err)
+	}
+
+	// Simulate partial completion
+	tree.State = IntentExecuting
+	tree.Nodes["design"].State = IntentCompleted
+
+	// Now incremental update: LLM returns merged list with new "comment" node
+	incrementalNodes := `[{"id":"design","intent":"design schema","depends_on":[]},{"id":"backend","intent":"implement API","depends_on":["design"]},{"id":"comment","intent":"implement comments","depends_on":["design"]}]`
+	caller.response = incrementalNodes
+
+	updatedTree, mergeResult, applyErr := mgr.ApplyIncremental(context.Background(), tree.ID, "add comments", "")
+
+	if applyErr != nil {
+		t.Fatalf("ApplyIncremental failed: %v", applyErr)
+	}
+	if updatedTree == nil {
+		t.Fatal("expected non-nil updated tree")
+	}
+	if mergeResult == nil {
+		t.Fatal("expected non-nil merge result")
+	}
+	if len(mergeResult.AddedNodes) != 1 || mergeResult.AddedNodes[0] != "comment" {
+		t.Fatalf("expected 1 added node 'comment', got %v", mergeResult.AddedNodes)
+	}
+	// design was completed + same intent → unchanged
+	foundDesign := false
+	for _, id := range mergeResult.UnchangedNodes {
+		if id == "design" {
+			foundDesign = true
+			break
+		}
+	}
+	if !foundDesign {
+		t.Fatal("expected 'design' in unchanged nodes")
+	}
+}
+
+func TestManager_ApplyIncremental_NotFound(t *testing.T) {
+	caller := &mockLLMCaller{response: `[{"id":"a","intent":"task","depends_on":[]}]`}
+	decomposer := NewDecomposer(caller)
+	spawner := newMockIntentSpawner()
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
+
+	_, _, err := mgr.ApplyIncremental(context.Background(), "intent-999", "update", "")
+
+	if err == nil {
+		t.Fatal("expected error for non-existent intent, got nil")
+	}
+}
+
+func TestManager_ApplyIncremental_TerminalState(t *testing.T) {
+	caller := &mockLLMCaller{response: `[{"id":"a","intent":"task","depends_on":[]}]`}
+	decomposer := NewDecomposer(caller)
+	spawner := newMockIntentSpawner()
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
+
+	tree, _ := mgr.Apply(context.Background(), ApplyRequest{Intent: "done"})
+	// Force terminal state
+	tree.State = IntentCompleted
+	now := time.Now()
+	tree.CompletedAt = &now
+	for _, node := range tree.Nodes {
+		node.State = IntentCompleted
+	}
+
+	_, _, err := mgr.ApplyIncremental(context.Background(), tree.ID, "update completed", "")
+
+	if err == nil {
+		t.Fatal("expected error for terminal-state intent, got nil")
+	}
+}

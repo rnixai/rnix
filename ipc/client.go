@@ -653,6 +653,32 @@ func (c *Client) IntentStatus(intentID string) (*IntentStatusResponse, error) {
 	return &statusResp, nil
 }
 
+// ApplyIncrementalIntent sends an incremental update to an existing intent.
+func (c *Client) ApplyIncrementalIntent(req ApplyIncrementalIntentRequest) (*ApplyIncrementalIntentResponse, error) {
+	resp, err := c.call(MethodApplyIncrementalIntent, req)
+	if err != nil {
+		return nil, err
+	}
+	var result ApplyIncrementalIntentResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal apply_incremental_intent response: %w", err)
+	}
+	return &result, nil
+}
+
+// IntentList queries all intents (active + completed).
+func (c *Client) IntentList() (*IntentStatusResponse, error) {
+	resp, err := c.call(MethodIntentList, nil)
+	if err != nil {
+		return nil, err
+	}
+	var statusResp IntentStatusResponse
+	if err := json.Unmarshal(resp.Payload, &statusResp); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal intent_list response: %w", err)
+	}
+	return &statusResp, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

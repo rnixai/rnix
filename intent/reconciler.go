@@ -62,6 +62,8 @@ type Reconciler struct {
 	mu        sync.Mutex
 	callbacks ReconcilerCallbacks
 	eventCh   chan reconcileEvent
+	active    int             // in-flight goroutines (protected by mu)
+	execCtx   context.Context // stored execution context for InjectNodes scheduling
 }
 
 // NewReconciler creates a Reconciler for the given IntentTree.
@@ -85,6 +87,8 @@ func (r *Reconciler) Execute(ctx context.Context) error {
 	r.mu.Lock()
 	r.tree.State = IntentExecuting
 	r.tree.InitDesired()
+	r.execCtx = ctx
+	r.active = 0
 
 	for _, node := range r.tree.Nodes {
 		if node.MaxRetries == 0 {
@@ -93,11 +97,9 @@ func (r *Reconciler) Execute(ctx context.Context) error {
 	}
 	r.mu.Unlock()
 
-	active := 0
-
 	r.mu.Lock()
-	active += r.spawnRunnable(ctx)
-	if active == 0 {
+	r.active += r.spawnRunnable(ctx)
+	if r.active == 0 {
 		r.tree.State = IntentCompleted
 		r.mu.Unlock()
 		return nil
@@ -109,13 +111,14 @@ func (r *Reconciler) Execute(ctx context.Context) error {
 		case <-ctx.Done():
 			r.mu.Lock()
 			r.tree.State = IntentFailed
+			r.execCtx = nil
 			r.mu.Unlock()
 			return ctx.Err()
 
 		case ev := <-r.eventCh:
-			active--
-
 			r.mu.Lock()
+			r.active--
+
 			switch ev.evType {
 			case evNodeCompleted:
 				r.tree.MarkCompleted(ev.nodeID, ev.result)
@@ -173,7 +176,7 @@ func (r *Reconciler) Execute(ctx context.Context) error {
 				node.PID = 0
 				node.Result = ""
 					r.tree.ClearDrift(ev.nodeID)
-					active += r.spawnRunnable(ctx)
+					r.active += r.spawnRunnable(ctx)
 				} else {
 					r.tree.MarkFailed(ev.nodeID, ev.errMsg)
 				}
@@ -191,10 +194,10 @@ func (r *Reconciler) Execute(ctx context.Context) error {
 			}
 
 			if ev.evType == evNodeCompleted {
-				active += r.spawnRunnable(ctx)
+				r.active += r.spawnRunnable(ctx)
 			}
 
-			if active == 0 {
+			if r.active == 0 {
 				r.finalizeTreeState()
 				r.mu.Unlock()
 				return nil
@@ -292,4 +295,32 @@ func (r *Reconciler) finalizeTreeState() {
 	} else {
 		r.tree.State = IntentCompleted
 	}
+}
+
+// MergeAndInject atomically merges new nodes into the tree and schedules runnable nodes.
+// This performs the merge under the reconciler's lock to prevent data races with the
+// event loop (H3 fix), and calls spawnRunnable to schedule new nodes (H1 fix).
+// Used by Manager.ApplyIncremental when the reconciler is actively executing.
+func (r *Reconciler) MergeAndInject(newNodes []*IntentNode) (*MergeResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	result, err := MergeIncremental(r.tree, newNodes)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set default MaxRetries for newly added nodes
+	for _, id := range result.AddedNodes {
+		if node, ok := r.tree.Nodes[id]; ok && node.MaxRetries == 0 {
+			node.MaxRetries = r.config.DefaultMaxRetries
+		}
+	}
+
+	// Schedule any newly runnable nodes
+	if r.execCtx != nil {
+		r.active += r.spawnRunnable(r.execCtx)
+	}
+
+	return result, nil
 }

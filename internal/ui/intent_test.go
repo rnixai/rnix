@@ -244,3 +244,144 @@ func TestRenderDriftList_Empty(t *testing.T) {
 		t.Fatal("expected non-empty output even with no drifts (should show 'no drift' message)")
 	}
 }
+
+// --- Story 19.3: Incremental merge result & status detail rendering ---
+
+func TestRenderIntentMergeResult_TTY(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 120, ColorLevel: 0}}
+
+	added := []string{"comment", "notification"}
+	modified := []string{"design"}
+
+	RenderIntentMergeResult(r, added, modified, ModeDefault)
+
+	output := buf.String()
+	if !strings.Contains(output, "comment") {
+		t.Fatalf("expected 'comment' in added nodes output, got: %s", output)
+	}
+	if !strings.Contains(output, "notification") {
+		t.Fatalf("expected 'notification' in added nodes output, got: %s", output)
+	}
+	if !strings.Contains(output, "design") {
+		t.Fatalf("expected 'design' in modified nodes output, got: %s", output)
+	}
+}
+
+func TestRenderIntentMergeResult_JSON(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeJSON, Profile: TerminalProfile{Width: 80, ColorLevel: 0}}
+
+	added := []string{"comment"}
+	modified := []string{"design"}
+
+	RenderIntentMergeResult(r, added, modified, ModeJSON)
+
+	output := strings.TrimSpace(buf.String())
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("expected valid JSON output, got: %v\noutput: %s", err, output)
+	}
+	addedList, ok := parsed["added_nodes"].([]any)
+	if !ok || len(addedList) != 1 {
+		t.Fatalf("expected 1 added node in JSON, got %v", parsed["added_nodes"])
+	}
+	modifiedList, ok := parsed["modified_nodes"].([]any)
+	if !ok || len(modifiedList) != 1 {
+		t.Fatalf("expected 1 modified node in JSON, got %v", parsed["modified_nodes"])
+	}
+}
+
+func TestRenderIntentStatusDetail_TTY(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 120, ColorLevel: 0}}
+
+	tree := &ipc.IntentTreeWire{
+		ID:         "intent-1",
+		RootIntent: "build blog",
+		State:      "executing",
+		Nodes: map[string]*ipc.IntentNodeWire{
+			"design":   {ID: "design", Intent: "design data model", State: "completed", DependsOn: []string{}},
+			"backend":  {ID: "backend", Intent: "implement API", State: "completed", DependsOn: []string{"design"}},
+			"frontend": {ID: "frontend", Intent: "implement frontend", State: "executing", DependsOn: []string{"design"}, PID: 42},
+			"comment":  {ID: "comment", Intent: "implement comments", State: "pending", DependsOn: []string{"design"}},
+			"test":     {ID: "test", Intent: "write tests", State: "pending", DependsOn: []string{"backend", "frontend"}},
+		},
+		CreatedAtMs: 1700000000000,
+	}
+
+	RenderIntentStatusDetail(r, tree, ModeDefault)
+
+	output := buf.String()
+	// Should contain progress info
+	if !strings.Contains(output, "2/5") || !strings.Contains(output, "40%") {
+		t.Fatalf("expected progress '2/5 (40%%)' in output, got: %s", output)
+	}
+	// Should contain node states
+	if !strings.Contains(output, "completed") {
+		t.Fatalf("expected 'completed' state in output, got: %s", output)
+	}
+	if !strings.Contains(output, "executing") {
+		t.Fatalf("expected 'executing' state in output, got: %s", output)
+	}
+	// Should contain active agent info
+	if !strings.Contains(output, "frontend") && !strings.Contains(output, "42") {
+		t.Fatalf("expected active agent info (frontend, PID 42) in output, got: %s", output)
+	}
+}
+
+func TestRenderIntentList_TTY(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 120, ColorLevel: 0}}
+
+	trees := []*ipc.IntentTreeWire{
+		{
+			ID:         "intent-1",
+			RootIntent: "build blog",
+			State:      "executing",
+			Nodes: map[string]*ipc.IntentNodeWire{
+				"a": {ID: "a", Intent: "task a", State: "completed"},
+				"b": {ID: "b", Intent: "task b", State: "executing"},
+			},
+			CreatedAtMs: 1700000000000,
+		},
+		{
+			ID:         "intent-2",
+			RootIntent: "build api",
+			State:      "completed",
+			Nodes: map[string]*ipc.IntentNodeWire{
+				"x": {ID: "x", Intent: "task x", State: "completed"},
+			},
+			CreatedAtMs:   1700000100000,
+			CompletedAtMs: 1700000200000,
+		},
+	}
+
+	RenderIntentList(r, trees, ModeDefault)
+
+	output := buf.String()
+	if !strings.Contains(output, "intent-1") {
+		t.Fatalf("expected 'intent-1' in list output, got: %s", output)
+	}
+	if !strings.Contains(output, "intent-2") {
+		t.Fatalf("expected 'intent-2' in list output, got: %s", output)
+	}
+	if !strings.Contains(output, "build blog") {
+		t.Fatalf("expected 'build blog' in list output, got: %s", output)
+	}
+	if !strings.Contains(output, "build api") {
+		t.Fatalf("expected 'build api' in list output, got: %s", output)
+	}
+}
+
+func TestRenderIntentList_Empty(t *testing.T) {
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{Width: 120, ColorLevel: 0}}
+
+	RenderIntentList(r, nil, ModeDefault)
+
+	output := buf.String()
+	if output == "" {
+		t.Fatal("expected non-empty output for empty list (should show 'no intents' message)")
+	}
+}

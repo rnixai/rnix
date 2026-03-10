@@ -540,3 +540,108 @@ func TestReconciler_Callbacks(t *testing.T) {
 		t.Fatalf("expected final progress 2/2, got %d/%d", last.completed, last.total)
 	}
 }
+
+// --- Story 19.3 AC#6: Reconciler.MergeAndInject runtime injection ---
+
+func TestReconciler_MergeAndInject(t *testing.T) {
+	tree := &IntentTree{
+		ID:         "intent-1",
+		RootIntent: "inject test",
+		State:      IntentExecuting,
+		Nodes: map[string]*IntentNode{
+			"design": {ID: "design", Intent: "design schema", State: IntentCompleted},
+		},
+		DesiredNodes: map[string]IntentState{
+			"design": IntentCompleted,
+		},
+		CreatedAt: time.Now(),
+	}
+
+	spawner := newMockIntentSpawner()
+	reconciler, err := NewReconciler(tree, spawner, DefaultReconcilerConfig(), noopReconcilerCallbacks())
+	if err != nil {
+		t.Fatalf("NewReconciler failed: %v", err)
+	}
+
+	// Merge and inject new nodes at runtime
+	newNodes := []*IntentNode{
+		{ID: "design", Intent: "design schema", DependsOn: []string{}},
+		{ID: "comment", Intent: "implement comments", State: IntentPending, DependsOn: []string{"design"}},
+	}
+
+	mergeResult, injectErr := reconciler.MergeAndInject(newNodes)
+	if injectErr != nil {
+		t.Fatalf("MergeAndInject failed: %v", injectErr)
+	}
+
+	// Verify merge result
+	if len(mergeResult.AddedNodes) != 1 || mergeResult.AddedNodes[0] != "comment" {
+		t.Fatalf("expected 1 added node 'comment', got %v", mergeResult.AddedNodes)
+	}
+
+	// Verify node was added to tree
+	commentNode, ok := tree.Nodes["comment"]
+	if !ok {
+		t.Fatal("expected 'comment' node to be added to tree after injection")
+	}
+	if commentNode.State != IntentPending {
+		t.Fatalf("expected injected node state=pending, got %q", commentNode.State)
+	}
+
+	// Verify DesiredNodes updated
+	if _, ok := tree.DesiredNodes["comment"]; !ok {
+		t.Fatal("expected DesiredNodes to contain 'comment' after injection")
+	}
+}
+
+func TestReconciler_MergeAndInject_WithDependency(t *testing.T) {
+	tree := &IntentTree{
+		ID:         "intent-1",
+		RootIntent: "inject with deps",
+		State:      IntentExecuting,
+		Nodes: map[string]*IntentNode{
+			"design":  {ID: "design", Intent: "design schema", State: IntentCompleted},
+			"backend": {ID: "backend", Intent: "implement API", State: IntentExecuting, DependsOn: []string{"design"}},
+		},
+		DesiredNodes: map[string]IntentState{
+			"design":  IntentCompleted,
+			"backend": IntentCompleted,
+		},
+		CreatedAt: time.Now(),
+	}
+
+	spawner := newMockIntentSpawner()
+	reconciler, err := NewReconciler(tree, spawner, DefaultReconcilerConfig(), noopReconcilerCallbacks())
+	if err != nil {
+		t.Fatalf("NewReconciler failed: %v", err)
+	}
+
+	// Merge and inject node that depends on still-executing "backend"
+	newNodes := []*IntentNode{
+		{ID: "design", Intent: "design schema", DependsOn: []string{}},
+		{ID: "backend", Intent: "implement API", DependsOn: []string{"design"}},
+		{ID: "test", Intent: "write tests", State: IntentPending, DependsOn: []string{"backend"}},
+	}
+
+	mergeResult, injectErr := reconciler.MergeAndInject(newNodes)
+	if injectErr != nil {
+		t.Fatalf("MergeAndInject failed: %v", injectErr)
+	}
+
+	if len(mergeResult.AddedNodes) != 1 || mergeResult.AddedNodes[0] != "test" {
+		t.Fatalf("expected 1 added node 'test', got %v", mergeResult.AddedNodes)
+	}
+
+	// Verify node was added
+	testNode, ok := tree.Nodes["test"]
+	if !ok {
+		t.Fatal("expected 'test' node to be added to tree after injection")
+	}
+	// Since "backend" is still executing, "test" should remain pending (not scheduled)
+	if testNode.State != IntentPending {
+		t.Fatalf("expected injected node with unmet dependency to stay pending, got %q", testNode.State)
+	}
+	if len(testNode.DependsOn) != 1 || testNode.DependsOn[0] != "backend" {
+		t.Fatalf("expected injected node depends_on=['backend'], got %v", testNode.DependsOn)
+	}
+}
