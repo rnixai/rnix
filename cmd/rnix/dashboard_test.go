@@ -71,8 +71,13 @@ func TestHelp_ContainsDashboardSubcommand(t *testing.T) {
 // --- 17.1-INT-002: [P1] rnix dashboard without daemon exits gracefully ---
 
 func TestRunDashboard_NoDaemon(t *testing.T) {
-	saved := exitCode
-	defer func() { exitCode = saved }()
+	// Isolate from any real daemon by pointing to a non-existent socket
+	saved := ipc.SocketPathOverride
+	ipc.SocketPathOverride = filepath.Join(t.TempDir(), "nonexistent.sock")
+	defer func() { ipc.SocketPathOverride = saved }()
+
+	savedExit := exitCode
+	defer func() { exitCode = savedExit }()
 	exitCode = 0
 
 	err := runDashboard(nil, nil)
