@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
@@ -61,6 +62,8 @@ Mission: %s`
 const oodaDecidePromptTemplate = `[OODA Decide] Based on orientation analysis, output a JSON decision.
 You MUST respond with ONLY a valid JSON object in this exact format:
 {"action": "tool_call|spawn|complete|replan", "target": "...", "data": {}, "reason": "..."}
+
+For "spawn" action: target is the child intent, data may include {"agent": "agent-name", "model": "model-name"}.
 
 Orientation:
 %s`
@@ -339,7 +342,14 @@ func (k *KernelImpl) oodaActToolCall(proc *Process, decision *OODADecision) stri
 	return string(result)
 }
 
+// oodaSpawnData contains optional parameters parsed from OODADecision.Data for spawn actions.
+type oodaSpawnData struct {
+	Agent string `json:"agent,omitempty"` // optional: child agent template name
+	Model string `json:"model,omitempty"` // optional: override model
+}
+
 // oodaActSpawn creates a child process and waits for it to complete.
+// Supports mission command: decision.Data may specify an agent name to load.
 func (k *KernelImpl) oodaActSpawn(proc *Process, decision *OODADecision, opts SpawnOpts) string {
 	childOpts := SpawnOpts{
 		ParentPID: proc.PID,
@@ -349,7 +359,31 @@ func (k *KernelImpl) oodaActSpawn(proc *Process, decision *OODADecision, opts Sp
 		childOpts.ParentSpanID = proc.SpanID
 	}
 
-	pid, err := k.Spawn(decision.Target, nil, childOpts)
+	// Parse optional spawn data from decision
+	var spawnData oodaSpawnData
+	if len(decision.Data) > 0 {
+		if err := json.Unmarshal(decision.Data, &spawnData); err != nil {
+			return fmt.Sprintf("spawn error: invalid data payload: %v", err)
+		}
+	}
+	if spawnData.Model != "" {
+		childOpts.Model = spawnData.Model
+	}
+
+	// Load agent if specified (mission command pattern)
+	var agentInfo *agents.AgentInfo
+	if spawnData.Agent != "" {
+		if k.agentLoader == nil {
+			return fmt.Sprintf("spawn error: agent %q requested but no agent loader configured", spawnData.Agent)
+		}
+		var err error
+		agentInfo, err = k.agentLoader(spawnData.Agent)
+		if err != nil {
+			return fmt.Sprintf("spawn error: agent %q load failed: %v", spawnData.Agent, err)
+		}
+	}
+
+	pid, err := k.Spawn(decision.Target, agentInfo, childOpts)
 	if err != nil {
 		return fmt.Sprintf("spawn error: %v", err)
 	}

@@ -60,6 +60,14 @@ func (l *AgentLoader) Load(agentName string) (*AgentInfo, error) {
 		return nil, fmt.Errorf("agent manifest missing required field: name")
 	}
 
+	// Validate reasoning mode
+	switch manifest.Reasoning {
+	case "", "linear", "ooda":
+		// valid
+	default:
+		return nil, fmt.Errorf("invalid reasoning mode %q: must be empty, \"linear\", or \"ooda\"", manifest.Reasoning)
+	}
+
 	// Load instructions.md
 	instructionsPath := filepath.Join(agentDir, "instructions.md")
 	instructionsData, err := os.ReadFile(instructionsPath)

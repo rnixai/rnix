@@ -1,0 +1,7 @@
+name: invalid-reasoning
+description: "Agent with invalid reasoning mode"
+models:
+  provider: claude
+  preferred: sonnet
+reasoning: bogus
+skills: []

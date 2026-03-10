@@ -1032,6 +1032,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv := ipc.NewServer(nil, agentLoader.Load, version)
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	k.SetMountManager(mountMgr)
+	k.SetAgentLoader(agentLoader.Load) // Inject for OODA autonomous spawn (Story 20.2)
 
 	// Initialize execution recording (Story 14.1)
 	cwd, _ := os.Getwd()

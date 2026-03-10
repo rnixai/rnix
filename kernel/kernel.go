@@ -134,6 +134,9 @@ type KernelImpl struct {
 
 	// Span recording (Story 15.1)
 	spanRecorder *debug.SpanRecorder
+
+	// Agent loader for OODA autonomous spawn (Story 20.2)
+	agentLoader func(name string) (*agents.AgentInfo, error)
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -201,6 +204,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// Budget priority: opts (CLI/Compose) > agent manifest > 0 (no limit)
 		if opts.ContextBudget == 0 && agent.Manifest.ContextBudget > 0 {
 			opts.ContextBudget = agent.Manifest.ContextBudget
+		}
+
+		// Reasoning mode: agent.yaml > SpawnOpts (SpawnOpts is low-priority fallback)
+		if agent.Manifest.Reasoning == "ooda" {
+			opts.ReasoningMode = "ooda"
 		}
 	}
 
@@ -377,9 +385,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 		// Launch reasoning goroutine
 		// Note: CtxFree deferred to Wait/Reap (Story 4.1) per resource release order
-		proc.wg.Add(1)
-		go func() {
-			defer proc.wg.Done()
+		proc.wg.Go(func() {
 			defer func() { _ = k.vfs.CloseAll(proc.PID) }()
 			_ = proc.Start() // Created → Running
 			if proc.oodaEnabled {
@@ -387,7 +393,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			} else {
 				k.reasonStep(proc, llmFD, opts)
 			}
-		}()
+		})
 	}
 
 	// Notify callback after process is registered and goroutine launched
@@ -601,7 +607,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if proc.GetStepMode() == StepReasoning {
 			proc.ClearStepMode()
 			proc.GdbPause("step_reasoning", nil, map[string]any{
-				"step_number":          step,
+				"step_number":         step,
 				"last_result_summary": lastResultSummary,
 			})
 			// After resume, re-check cancellation
@@ -638,11 +644,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// Apply gdb environment variables injection (tech debt fix)
 		sysPrompt := promptResult.SystemPrompt
 		if envVars := proc.GetGdbEnvVars(); len(envVars) > 0 {
-			envSection := "\n\n[GDB Environment Variables]\n"
+			var envSection strings.Builder
+			envSection.WriteString("\n\n[GDB Environment Variables]\n")
 			for k, v := range envVars {
-				envSection += fmt.Sprintf("%s=%s\n", k, v)
+				fmt.Fprintf(&envSection, "%s=%s\n", k, v)
 			}
-			sysPrompt += envSection
+			sysPrompt += envSection.String()
 		}
 		req := llmRequest{
 			Intent:       proc.Intent,
@@ -1287,6 +1294,11 @@ func (k *KernelImpl) SetSpanWriter(w *debug.SpanWriter) {
 	if k.spanRecorder != nil {
 		k.spanRecorder.SetWriter(w)
 	}
+}
+
+// SetAgentLoader injects the agent loading function for OODA autonomous spawn.
+func (k *KernelImpl) SetAgentLoader(loader func(name string) (*agents.AgentInfo, error)) {
+	k.agentLoader = loader
 }
 
 // StartRecording starts execution recording for the given PID.
