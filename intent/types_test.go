@@ -295,16 +295,14 @@ func TestIntentTree_ComputeDrifts(t *testing.T) {
 
 	drifts := tree.ComputeDrifts()
 
-	if len(drifts) != 2 {
-		t.Fatalf("expected 2 drifts (b=failed, c=pending vs desired completed), got %d", len(drifts))
+	if len(drifts) != 1 {
+		t.Fatalf("expected 1 drift (b=failed; pending/executing nodes are not drifts), got %d", len(drifts))
 	}
-
-	driftMap := make(map[string]DriftItem)
-	for _, d := range drifts {
-		driftMap[d.NodeID] = d
+	if drifts[0].NodeID != "b" {
+		t.Fatalf("expected drift for node 'b', got %q", drifts[0].NodeID)
 	}
-	if _, ok := driftMap["b"]; !ok {
-		t.Fatal("expected drift for node 'b' (failed vs completed)")
+	if drifts[0].Type != DriftNodeFailed {
+		t.Fatalf("expected drift type %q, got %q", DriftNodeFailed, drifts[0].Type)
 	}
 }
 

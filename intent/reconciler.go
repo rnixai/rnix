@@ -164,14 +164,14 @@ func (r *Reconciler) Execute(ctx context.Context) error {
 				}
 
 				node.IncrRetry()
-				if node.CanRetry() {
-					if r.callbacks.OnNodeRetry != nil {
-						r.callbacks.OnNodeRetry(ev.nodeID, node.RetryCount, node.MaxRetries)
-					}
-					node.State = IntentPending
-					node.Error = ""
-					node.PID = 0
-					node.Result = ""
+			if node.CanRetry() {
+				if r.callbacks.OnNodeRetry != nil {
+					r.callbacks.OnNodeRetry(ev.nodeID, node.RetryCount, node.MaxRetries)
+				}
+				node.State = IntentRetrying
+				node.Error = ""
+				node.PID = 0
+				node.Result = ""
 					r.tree.ClearDrift(ev.nodeID)
 					active += r.spawnRunnable(ctx)
 				} else {
@@ -285,6 +285,8 @@ func (r *Reconciler) finalizeTreeState() {
 			break
 		}
 	}
+	now := time.Now()
+	r.tree.CompletedAt = &now
 	if hasFailed {
 		r.tree.State = IntentFailed
 	} else {
