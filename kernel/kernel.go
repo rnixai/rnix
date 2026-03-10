@@ -142,6 +142,9 @@ type KernelImpl struct {
 	// Stem agent differentiation (Story 20.3)
 	stemMatcher *StemMatcher
 	skillLoader func(string) (*skills.SkillInfo, error)
+
+	// Differentiation memory (Story 20.4)
+	diffMemory *DiffMemory
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -195,10 +198,27 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		if agent.Manifest.Name == "stem" && len(agent.Manifest.Skills) == 0 && k.stemMatcher != nil {
 			diffStart := time.Now()
 			k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: matching skills for intent %q", intent), "")
-			matchedSkills, matchErr := k.stemMatcher.Match(intent)
-			if matchErr != nil {
-				k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: match error: %v", matchErr), "")
+
+			// Check differentiation memory first (Story 20.4)
+			var matchedSkills []string
+			var matchErr error
+			var fromMemory bool
+			if k.diffMemory != nil {
+				if remembered, ok := k.diffMemory.Lookup(intent); ok {
+					matchedSkills = remembered
+					fromMemory = true
+					k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf(
+						"differentiating: reusing remembered path for intent %q: %v", intent, remembered), "")
+				}
 			}
+			// Fallback to keyword matching if no memory hit
+			if !fromMemory {
+				matchedSkills, matchErr = k.stemMatcher.Match(intent)
+				if matchErr != nil {
+					k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: match error: %v", matchErr), "")
+				}
+			}
+
 			if matchErr == nil && len(matchedSkills) > 0 && k.skillLoader != nil {
 				var loadedNames []string
 				for _, skillName := range matchedSkills {
@@ -213,11 +233,17 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					// Update proc.Skills so ps/ProcInfo reflects differentiated skills
 					proc.Skills = loadedNames
 				}
+
+				// Record differentiation path to memory (Story 20.4)
+				if k.diffMemory != nil && len(loadedNames) > 0 {
+					k.diffMemory.Record(intent, loadedNames)
+				}
 			}
 			diffDuration := time.Since(diffStart)
 			eventArgs := map[string]any{
 				"matched_skills": matchedSkills,
 				"duration_ms":    diffDuration.Milliseconds(),
+				"from_memory":    fromMemory,
 			}
 			var eventErr error
 			if matchErr != nil {
@@ -1350,6 +1376,11 @@ func (k *KernelImpl) SetStemMatcher(m *StemMatcher) {
 // SetSkillLoader injects the skill loading function for stem agent differentiation.
 func (k *KernelImpl) SetSkillLoader(fn func(string) (*skills.SkillInfo, error)) {
 	k.skillLoader = fn
+}
+
+// SetDiffMemory injects the differentiation memory for stem agent path reuse.
+func (k *KernelImpl) SetDiffMemory(m *DiffMemory) {
+	k.diffMemory = m
 }
 
 // StartRecording starts execution recording for the given PID.
