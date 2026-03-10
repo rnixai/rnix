@@ -141,6 +141,11 @@ func NewDriverError(op, device string, err error, code ErrCode) *DriverError {
 	return &DriverError{Op: op, Device: device, Err: err, Code: code}
 }
 
+// NewErrNotFound returns a formatted not-found error for the given resource type and identifier.
+func NewErrNotFound(resourceType, name string) error {
+	return fmt.Errorf("%s %q not found", resourceType, name)
+}
+
 // SyscallEvent records a single syscall invocation for tracing.
 type SyscallEvent struct {
 	Timestamp time.Duration

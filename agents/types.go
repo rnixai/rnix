@@ -2,6 +2,7 @@ package agents
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
@@ -21,7 +22,8 @@ type AgentManifest struct {
 	Models        AgentModels `yaml:"models"`
 	ContextBudget int         `yaml:"context_budget"`
 	Skills        []string    `yaml:"skills"`
-	MCP           []string    `yaml:"mcp,omitempty"` // MCP server references
+	MCP           []string    `yaml:"mcp,omitempty"`       // MCP server references
+	Reasoning     string      `yaml:"reasoning,omitempty"` // "" = linear (default), "ooda" = OODA loop
 }
 
 // AgentInfo contains the fully loaded agent definition.
@@ -50,11 +52,12 @@ func (a *AgentInfo) AllowedTools() []string {
 
 // SystemPrompt assembles the full system prompt: agent instructions + skill bodies.
 func (a *AgentInfo) SystemPrompt() string {
-	prompt := a.Instructions
+	var prompt strings.Builder
+	prompt.WriteString(a.Instructions)
 	for _, skill := range a.Skills {
 		if skill.Body != "" {
-			prompt += "\n\n" + skill.Body
+			prompt.WriteString("\n\n" + skill.Body)
 		}
 	}
-	return prompt
+	return prompt.String()
 }

@@ -222,7 +222,7 @@ development_status:
   # Epic 20: Autonomous Agents (OODA + Stem Cell)
   epic-20: in-progress
   20-1-ooda-loop-core-implementation: done
-  20-2-ooda-configuration-and-mission-command: backlog
+  20-2-ooda-configuration-and-mission-command: done
   20-3-stem-agent-and-auto-differentiation: backlog
   20-4-progressive-specialization-and-differentiation-memory: backlog
   20-5-differentiation-lineage-graph: backlog
