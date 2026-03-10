@@ -49,7 +49,7 @@ func TestSyncMap_Range(t *testing.T) {
 
 func TestSyncMap_RangeEarlyStop(t *testing.T) {
 	m := NewSyncMap[int, int]()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		m.Store(i, i)
 	}
 	count := 0
@@ -77,7 +77,7 @@ func TestSyncMap_Len(t *testing.T) {
 func TestSyncMap_ConcurrentAccess(t *testing.T) {
 	m := NewSyncMap[int, int]()
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

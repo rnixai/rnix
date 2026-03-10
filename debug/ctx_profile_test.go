@@ -65,7 +65,7 @@ func TestAnalyzeContext_Classification_10Messages(t *testing.T) {
 	data := &ContextData{
 		SystemPrompt: strings.Repeat("s", 40), // 10 tokens
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		data.Messages = append(data.Messages, makeCtxMessage("user", strings.Repeat("m", 40))) // 10 tok each
 	}
 
@@ -93,7 +93,7 @@ func TestAnalyzeContext_Classification_20Messages(t *testing.T) {
 	data := &ContextData{
 		SystemPrompt: strings.Repeat("s", 40), // 10 tokens
 	}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		data.Messages = append(data.Messages, makeCtxMessage("user", strings.Repeat("m", 40)))
 	}
 
@@ -116,7 +116,7 @@ func TestAnalyzeContext_LeakedToolResults(t *testing.T) {
 		SystemPrompt: strings.Repeat("s", 40),
 	}
 	// 20 messages: first 10 cold zone, next 6 warm, last 4 active
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		if i < 5 {
 			// Big tool results in cold zone → leaked
 			data.Messages = append(data.Messages, makeToolMessage(strings.Repeat("t", 2000), "toolu_big"))
@@ -138,7 +138,7 @@ func TestAnalyzeContext_LeakedToolResults(t *testing.T) {
 func TestAnalyzeContext_LeakedNotInWarmOrActive(t *testing.T) {
 	data := &ContextData{}
 	// 4 messages total — all active, no cold zone
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		data.Messages = append(data.Messages, makeToolMessage(strings.Repeat("t", 2000), "toolu_big"))
 	}
 
@@ -153,9 +153,9 @@ func TestFindTopConsumers_Ranking(t *testing.T) {
 	data := &ContextData{
 		SystemPrompt: strings.Repeat("s", 400), // 100 tok
 		Messages: []CtxMessage{
-			makeCtxMessage("user", strings.Repeat("u", 200)),           // 50 tok
-			makeCtxMessage("assistant", strings.Repeat("a", 800)),      // 200 tok
-			makeToolMessage(strings.Repeat("t", 1200), "toolu_read"),   // 300 tok, contains "read_file"
+			makeCtxMessage("user", strings.Repeat("u", 200)),         // 50 tok
+			makeCtxMessage("assistant", strings.Repeat("a", 800)),    // 200 tok
+			makeToolMessage(strings.Repeat("t", 1200), "toolu_read"), // 300 tok, contains "read_file"
 		},
 	}
 	data.Messages[2].Content = "read_file result: " + strings.Repeat("x", 1182)
@@ -298,8 +298,8 @@ func TestGenerateSuggestions_ColdHigh(t *testing.T) {
 
 func TestGenerateSuggestions_NearBudget(t *testing.T) {
 	result := &CtxProfileResult{
-		TotalTokens:   85,
-		ContextBudget: 100,
+		TotalTokens:    85,
+		ContextBudget:  100,
 		Classification: ClassificationResult{},
 	}
 	suggestions := generateSuggestions(result)

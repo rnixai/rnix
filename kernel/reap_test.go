@@ -611,7 +611,7 @@ func TestAutoReap_Reaper_ProcessesMultiplePIDs(t *testing.T) {
 
 	// Spawn 3 children that complete immediately → become zombies
 	childPIDs := make([]types.PID, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		pid, err := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
 		if err != nil {
 			t.Fatalf("Spawn child %d failed: %v", i, err)
@@ -885,7 +885,7 @@ func TestIntegration_ConcurrentExits(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	childPIDs := make([]types.PID, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pid, _ := k.Spawn("child", nil, SpawnOpts{ParentPID: parentPID})
 		childPIDs[i] = pid
 	}
@@ -953,11 +953,9 @@ func TestReapOnce_ConcurrentReapProcess(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range n {
 		_ = i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			k.reapProcess(proc)
-		}()
+		})
 	}
 	wg.Wait()
 

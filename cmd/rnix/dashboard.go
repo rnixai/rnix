@@ -429,10 +429,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m dashboardModel) dashboardVisibleLines() int {
-	v := m.height - 7
-	if v < 1 {
-		v = 1
-	}
+	v := max(m.height-7, 1)
 	return v
 }
 
@@ -474,22 +471,10 @@ func (m dashboardModel) renderDashboard() string {
 	titleBar := m.renderDashboardTitle()
 	statusBar := m.renderDashboardStatus()
 
-	contentHeight := h - 4
-	if contentHeight < 3 {
-		contentHeight = 3
-	}
+	contentHeight := max(h-4, 3)
 
-	treeWidth := w * 40 / 100
-	if treeWidth < 30 {
-		treeWidth = 30
-	}
-	if treeWidth > 60 {
-		treeWidth = 60
-	}
-	rightWidth := w - treeWidth
-	if rightWidth < 10 {
-		rightWidth = 10
-	}
+	treeWidth := min(max(w*40/100, 30), 60)
+	rightWidth := max(w-treeWidth, 10)
 
 	treePane := m.renderDashboardTreePane(treeWidth, contentHeight)
 
@@ -561,14 +546,8 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		borderColor = lipgloss.Color(ui.ColorAgent)
 	}
 
-	innerW := width - 2
-	if innerW < 1 {
-		innerW = 1
-	}
-	innerH := height - 2
-	if innerH < 1 {
-		innerH = 1
-	}
+	innerW := max(width-2, 1)
+	innerH := max(height-2, 1)
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -580,15 +559,9 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	b.WriteString(" Agent Tree \n")
 
 	now := time.Now()
-	visibleLines := innerH - 1
-	if visibleLines < 1 {
-		visibleLines = 1
-	}
+	visibleLines := max(innerH-1, 1)
 
-	endIdx := m.treeOffset + visibleLines
-	if endIdx > len(m.treeRows) {
-		endIdx = len(m.treeRows)
-	}
+	endIdx := min(m.treeOffset+visibleLines, len(m.treeRows))
 
 	for i := m.treeOffset; i < endIdx; i++ {
 		row := m.treeRows[i]
@@ -632,14 +605,8 @@ func renderDashboardPlaceholder(title, placeholder string, width, height int, ac
 		borderColor = lipgloss.Color(ui.ColorAgent)
 	}
 
-	innerW := width - 2
-	if innerW < 1 {
-		innerW = 1
-	}
-	innerH := height - 2
-	if innerH < 1 {
-		innerH = 1
-	}
+	innerW := max(width-2, 1)
+	innerH := max(height-2, 1)
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -920,14 +887,8 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 		borderColor = lipgloss.Color(ui.ColorAgent)
 	}
 
-	innerW := width - 2
-	if innerW < 1 {
-		innerW = 1
-	}
-	innerH := height - 2
-	if innerH < 1 {
-		innerH = 1
-	}
+	innerW := max(width-2, 1)
+	innerH := max(height-2, 1)
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -947,9 +908,9 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 	for _, cat := range []eventCategory{catLLM, catTool, catIPC, catVFS} {
 		label := categoryLabel(cat)
 		if m.timelineFilters != nil && !m.timelineFilters[cat] {
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render("["+label+"]"))
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render("[" + label + "]"))
 		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(categoryColor(cat))).Render("["+label+"]"))
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(categoryColor(cat))).Render("[" + label + "]"))
 		}
 	}
 	b.WriteString("\n")
@@ -965,17 +926,11 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 		return style.Render(b.String())
 	}
 
-	barWidth := innerW - 2
-	if barWidth < 10 {
-		barWidth = 10
-	}
+	barWidth := max(innerW-2, 10)
 	b.WriteString(m.renderTimelineBar(filtered, barWidth))
 	b.WriteString("\n")
 
-	listLines := innerH - 3
-	if listLines < 1 {
-		listLines = 1
-	}
+	listLines := max(innerH-3, 1)
 	if m.timelineEventCursor >= len(filtered) {
 		m.timelineEventCursor = len(filtered) - 1
 	}
@@ -984,10 +939,7 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 	if m.timelineEventCursor >= listLines {
 		startIdx = m.timelineEventCursor - listLines + 1
 	}
-	endIdx := startIdx + listLines
-	if endIdx > len(filtered) {
-		endIdx = len(filtered)
-	}
+	endIdx := min(startIdx+listLines, len(filtered))
 
 	for i := startIdx; i < endIdx; i++ {
 		ev := filtered[i]
@@ -1046,7 +998,7 @@ func (m dashboardModel) renderTimelineBar(events []timelineEvent, width int) str
 	}
 
 	var b strings.Builder
-	for i := 0; i < width; i++ {
+	for i := range width {
 		if !barSet[i] {
 			b.WriteString("·")
 		} else {
@@ -1378,14 +1330,8 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 		borderColor = lipgloss.Color(ui.ColorAgent)
 	}
 
-	innerW := width - 2
-	if innerW < 1 {
-		innerW = 1
-	}
-	innerH := height - 2
-	if innerH < 1 {
-		innerH = 1
-	}
+	innerW := max(width-2, 1)
+	innerH := max(height-2, 1)
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1420,15 +1366,9 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 		return style.Render(b.String())
 	}
 
-	barWidth := innerW - 2
-	if barWidth < 10 {
-		barWidth = 10
-	}
+	barWidth := max(innerW-2, 10)
 	for _, seg := range m.heatmapSegments {
-		segW := int(seg.pct / 100.0 * float64(barWidth))
-		if segW < 1 {
-			segW = 1
-		}
+		segW := max(int(seg.pct/100.0*float64(barWidth)), 1)
 		color := segmentColor(seg.kind, seg.activity)
 		catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
 		b.WriteString(catStyle.Render(strings.Repeat("█", segW)))
@@ -1616,8 +1556,8 @@ func buildReplayHeatmap(reader *debug.RecordReader, cursor int) *debug.CtxProfil
 	}
 
 	return &debug.CtxProfileResult{
-		PID:         reader.Metadata().PID,
-		TotalTokens: totalTokens,
+		PID:          reader.Metadata().PID,
+		TotalTokens:  totalTokens,
 		TopConsumers: consumers,
 		Classification: debug.ClassificationResult{
 			Active: debug.ClassBucket{

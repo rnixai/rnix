@@ -47,7 +47,7 @@ func TestRegistry_List(t *testing.T) {
 func TestRegistry_ConcurrentAccess(t *testing.T) {
 	r := NewRegistry[int]()
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -139,13 +139,13 @@ func TestRegistry_ConcurrentUnregister(t *testing.T) {
 		r := NewRegistry[int]()
 
 		// Pre-register keys
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			_ = r.Register(fmt.Sprintf("key-%d", i), i)
 		}
 
 		// When: concurrent Unregister operations
 		var wg sync.WaitGroup
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()

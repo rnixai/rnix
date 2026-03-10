@@ -414,7 +414,7 @@ func TestE2E_Reliability_NFR6(t *testing.T) {
 	const runs = 20
 	successCount := 0
 
-	for i := 0; i < runs; i++ {
+	for i := range runs {
 		driver := &mockLLMDriver{
 			response: &llm.LLMResponse{Content: fmt.Sprintf("result-%d", i), TokensUsed: 10},
 		}

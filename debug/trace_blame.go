@@ -131,13 +131,10 @@ func findDurationHotspots(tree *SpanTree, topN int) []*BlameEntry {
 	})
 
 	totalDur := tree.Metadata.TotalDuration
-	n := topN
-	if n > len(all) {
-		n = len(all)
-	}
+	n := min(topN, len(all))
 
 	entries := make([]*BlameEntry, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var pct float64
 		if totalDur > 0 {
 			pct = float64(all[i].Duration) / float64(totalDur) * 100
@@ -163,13 +160,10 @@ func findTokenHotspots(tree *SpanTree, topN int) []*BlameEntry {
 	})
 
 	totalTok := tree.Metadata.TotalTokens
-	n := topN
-	if n > len(all) {
-		n = len(all)
-	}
+	n := min(topN, len(all))
 
 	entries := make([]*BlameEntry, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var pct float64
 		if totalTok > 0 {
 			pct = float64(all[i].TokensUsed) / float64(totalTok) * 100
@@ -368,10 +362,7 @@ func FormatBlameResult(result *BlameResult) string {
 
 func blamePadTo(name string, pid types.PID, width int) string {
 	col := fmt.Sprintf("%s (PID %d)", name, pid)
-	pad := width - len(col)
-	if pad < 2 {
-		pad = 2
-	}
+	pad := max(width-len(col), 2)
 	return strings.Repeat(" ", pad)
 }
 

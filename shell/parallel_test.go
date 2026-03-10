@@ -373,7 +373,7 @@ func TestScriptExecutor_Parallel_OneFails_OthersContinue(t *testing.T) {
 func TestScriptExecutor_Parallel_OnError(t *testing.T) {
 	spawner := &concurrentMockSpawner{
 		results: map[string]mockResult{
-			"主分析":   {result: "分析失败", exitCode: 1, tokens: 50},
+			"主分析":  {result: "分析失败", exitCode: 1, tokens: 50},
 			"回退分析": {result: "回退成功", exitCode: 0, tokens: 75},
 			"审查":   {result: "审查OK", exitCode: 0, tokens: 100},
 		},
@@ -898,10 +898,10 @@ func TestScriptExecutor_Parallel_NoRace(t *testing.T) {
 func TestParseScript_Parallel_Performance_NFR38(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString("export base=project\n")
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		sb.WriteString("parallel\n")
-		for j := 0; j < 5; j++ {
-			sb.WriteString(fmt.Sprintf("  spawn \"任务%d-%d\"\n", i, j))
+		for j := range 5 {
+			fmt.Fprintf(&sb, "  spawn \"任务%d-%d\"\n", i, j)
 		}
 		sb.WriteString("end\n")
 	}

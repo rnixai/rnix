@@ -1,7 +1,9 @@
 package kernel
 
 import (
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -227,9 +229,7 @@ func (p *Process) GdbPause(reason string, hitBP *Breakpoint, extraArgs ...map[st
 		args["bp_type"] = hitBP.Type
 	}
 	for _, ea := range extraArgs {
-		for k, v := range ea {
-			args[k] = v
-		}
+		maps.Copy(args, ea)
 	}
 	event := debug.NewEvent(p.PID, p.CreatedAt, "GdbPause", args)
 	if p.DebugChan != nil {
@@ -302,9 +302,7 @@ func (p *Process) GetGdbEnvVars() map[string]string {
 		return map[string]string{}
 	}
 	result := make(map[string]string, len(p.gdbEnvVars))
-	for k, v := range p.gdbEnvVars {
-		result[k] = v
-	}
+	maps.Copy(result, p.gdbEnvVars)
 	return result
 }
 
@@ -312,10 +310,8 @@ func (p *Process) GetGdbEnvVars() map[string]string {
 func (p *Process) AddGdbSkill(name string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, s := range p.gdbExtraSkills {
-		if s == name {
-			return
-		}
+	if slices.Contains(p.gdbExtraSkills, name) {
+		return
 	}
 	p.gdbExtraSkills = append(p.gdbExtraSkills, name)
 }

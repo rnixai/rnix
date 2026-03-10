@@ -1,7 +1,7 @@
 BINARY := rnix
 PKG := github.com/rnixai/rnix
 
-.PHONY: build install test lint vet clean all
+.PHONY: build install test lint vet modernize modernize-check clean all
 
 build:
 	go build -o $(BINARY) ./cmd/rnix/
@@ -13,12 +13,23 @@ test:
 	go test -race ./...
 
 lint:
-	golangci-lint run ./...
+	golangci-lint run --allow-parallel-runners ./...
 
 vet:
 	go vet ./...
 
+modernize:
+	go fix ./...
+
+modernize-check:
+	@diff=$$(go fix -diff ./... 2>&1); \
+	if [ -n "$$diff" ]; then \
+		echo "$$diff"; \
+		echo "Run 'make modernize' to apply fixes"; \
+		exit 1; \
+	fi
+
 clean:
 	rm -f $(BINARY)
 
-all: lint vet test build
+all: lint vet modernize-check test build

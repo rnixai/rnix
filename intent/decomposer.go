@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -129,13 +130,13 @@ func (d *Decomposer) DecomposeIncremental(ctx context.Context, tree *IntentTree,
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	var tasksSummary string
+	var tasksSummary strings.Builder
 	for _, id := range ids {
 		node := tree.Nodes[id]
-		tasksSummary += fmt.Sprintf("- id: %s, intent: %s, state: %s\n", id, node.Intent, node.State)
+		fmt.Fprintf(&tasksSummary, "- id: %s, intent: %s, state: %s\n", id, node.Intent, node.State)
 	}
 
-	prompt := fmt.Sprintf(incrementalDecomposePromptTemplate, tree.RootIntent, tasksSummary, newIntent)
+	prompt := fmt.Sprintf(incrementalDecomposePromptTemplate, tree.RootIntent, tasksSummary.String(), newIntent)
 
 	response, err := d.llmDriver.Call(ctx, prompt, model)
 	if err != nil {

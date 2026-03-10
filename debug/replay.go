@@ -150,10 +150,7 @@ func (s *ReplaySession) List(context int) []ReplayListItem {
 		return nil
 	}
 
-	start := s.cursor - context
-	if start < 0 {
-		start = 0
-	}
+	start := max(s.cursor-context, 0)
 	end := s.cursor + context
 	if end >= len(events) {
 		end = len(events) - 1

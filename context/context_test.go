@@ -81,7 +81,7 @@ func TestManager_CtxAllocMultiple(t *testing.T) {
 	m := NewManager()
 	ids := make(map[types.CtxID]bool)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		id, err := m.CtxAlloc(10)
 		if err != nil {
 			t.Fatalf("CtxAlloc iteration %d failed: %v", i, err)
@@ -616,7 +616,7 @@ func TestManager_BuildPromptPerformance(t *testing.T) {
 
 	m.SetSystemPrompt(cid, "You are a helpful assistant with a very long system prompt that contains many instructions.")
 
-	for i := 0; i < 5000; i++ {
+	for range 5000 {
 		m.AppendMessage(cid, RoleUser, "This is a user message with some content to simulate real conversation.")
 		m.AppendMessage(cid, RoleAssistant, "This is an assistant response with some content to simulate real conversation.")
 	}
@@ -646,17 +646,15 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent Alloc
 	ids := make(chan types.CtxID, goroutines)
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			cid, err := m.CtxAlloc(100)
 			if err != nil {
 				t.Errorf("CtxAlloc failed: %v", err)
 				return
 			}
 			ids <- cid
-		}()
+		})
 	}
 	wg.Wait()
 	close(ids)
@@ -682,12 +680,12 @@ func TestManager_ConcurrentAccess(t *testing.T) {
 	var wg2 sync.WaitGroup
 	var appendOK, appendFull, readOK, readErr, buildOK, buildErr int64
 	var mu sync.Mutex
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg2.Add(1)
 		go func(idx int) {
 			defer wg2.Done()
 			var localAppendOK, localAppendFull, localReadOK, localReadErr, localBuildOK, localBuildErr int64
-			for j := 0; j < opsPerGoroutine; j++ {
+			for range opsPerGoroutine {
 				if err := m.AppendMessage(cid, RoleUser, "concurrent write"); err != nil {
 					localAppendFull++
 				} else {
@@ -885,10 +883,8 @@ func TestManager_CtxFreeConcurrent(t *testing.T) {
 	var successCount atomic.Int64
 	errs := make(chan error, goroutines)
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			cid, err := m.CtxAlloc(10)
 			if err != nil {
 				errs <- err
@@ -909,7 +905,7 @@ func TestManager_CtxFreeConcurrent(t *testing.T) {
 				return
 			}
 			successCount.Add(1)
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

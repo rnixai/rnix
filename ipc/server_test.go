@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -1266,13 +1267,7 @@ func TestServer_GdbCommand_SetSkillsAdd(t *testing.T) {
 
 	// Verify skill was added to the process
 	skills := proc.GetGdbExtraSkills()
-	found := false
-	for _, s := range skills {
-		if s == "code-review" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(skills, "code-review")
 	if !found {
 		t.Error("expected code-review in GdbExtraSkills")
 	}

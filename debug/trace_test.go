@@ -25,7 +25,7 @@ func TestGenerateTraceID_Format(t *testing.T) {
 
 func TestGenerateTraceID_Unique(t *testing.T) {
 	seen := make(map[types.TraceID]bool)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		id := GenerateTraceID()
 		if seen[id] {
 			t.Errorf("duplicate trace ID at iteration %d: %s", i, id)
@@ -47,7 +47,7 @@ func TestGenerateSpanID_Format(t *testing.T) {
 
 func TestGenerateSpanID_Unique(t *testing.T) {
 	seen := make(map[types.SpanID]bool)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		id := GenerateSpanID()
 		if seen[id] {
 			t.Errorf("duplicate span ID at iteration %d: %s", i, id)
@@ -178,14 +178,14 @@ func TestSpanRecorder_ConcurrentAccess(t *testing.T) {
 	traceID := types.TraceID("concurrent-trace")
 	var wg sync.WaitGroup
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		pid := types.PID(i + 1)
 		go func() {
 			defer wg.Done()
 			spanID := GenerateSpanID()
 			r.StartSpan(pid, traceID, spanID, "", "concurrent-span")
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				r.RecordSyscall(pid)
 				r.RecordTokens(pid, 5)
 			}
@@ -245,7 +245,7 @@ func TestSpanWriter_AppendMultiple(t *testing.T) {
 	baseDir := t.TempDir()
 	w := NewSpanWriter(baseDir)
 	traceID := types.TraceID("trace-multi")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		span := &Span{
 			TraceID:      traceID,
 			SpanID:       types.SpanID("span-" + string(rune('0'+i))),

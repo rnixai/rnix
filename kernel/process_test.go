@@ -309,13 +309,11 @@ func TestPIDUniqueness(t *testing.T) {
 	pids := make(chan types.PID, n)
 	var wg sync.WaitGroup
 
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			p := NewProcess(0, "test", nil)
 			pids <- p.PID
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -381,14 +379,12 @@ func TestConcurrentStartSameProcess(t *testing.T) {
 	var wg sync.WaitGroup
 	var successCount atomic.Int32
 
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			if err := p.Start(); err == nil {
 				successCount.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -410,14 +406,12 @@ func TestConcurrentTransitionsSameProcess(t *testing.T) {
 	var reapOK atomic.Int32
 
 	// n goroutines race to Terminate
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			if err := p.Terminate(ExitStatus{Code: 0, Reason: "done"}); err == nil {
 				terminateOK.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -429,14 +423,12 @@ func TestConcurrentTransitionsSameProcess(t *testing.T) {
 	}
 
 	// n goroutines race to Reap
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			if err := p.Reap(); err == nil {
 				reapOK.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -516,7 +508,7 @@ func TestChildren_ConcurrentSafe(t *testing.T) {
 	const n = 100
 
 	// Concurrent AddChild
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(pid types.PID) {
 			defer wg.Done()
@@ -531,7 +523,7 @@ func TestChildren_ConcurrentSafe(t *testing.T) {
 	}
 
 	// Concurrent RemoveChild
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(pid types.PID) {
 			defer wg.Done()

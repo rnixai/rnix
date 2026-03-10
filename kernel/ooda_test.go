@@ -54,8 +54,8 @@ func TestOODADecision_Types(t *testing.T) {
 func TestOODAState_Struct(t *testing.T) {
 	// Verify OODAState struct can be created with all required fields
 	state := &OODAState{
-		Phase:       PhaseObserve,
-		Cycle:       1,
+		Phase:        PhaseObserve,
+		Cycle:        1,
 		Observations: "test observations",
 		Orientation:  "test orientation",
 		Decision: &OODADecision{
@@ -121,7 +121,7 @@ func TestProcess_OODAState_ConcurrentAccess(t *testing.T) {
 	phases := []OODAPhase{PhaseObserve, PhaseOrient, PhaseDecide, PhaseAct}
 
 	// Concurrent writes
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -130,13 +130,11 @@ func TestProcess_OODAState_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrent reads
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 100 {
+		wg.Go(func() {
 			_ = proc.IsOODA()
 			_ = proc.GetOODAState()
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -205,11 +203,11 @@ func TestOODAReasonStep_SingleCycle(t *testing.T) {
 	callCount := 0
 	responseFunc := func(writeData []byte) []byte {
 		callCount++
-		switch {
-		case callCount == 1:
+		switch callCount {
+		case 1:
 			// Orient response
 			return makeLLMResponse("orientation: state is aligned with goals", 20)
-		case callCount == 2:
+		case 2:
 			// Decide response - choose complete
 			decision := map[string]any{
 				"action": "complete",
@@ -260,11 +258,11 @@ func TestOODAReasonStep_MultipleCycles(t *testing.T) {
 		callCount++
 		// Cycle 1: Orient -> Decide(tool_call) -> tool result
 		// Cycle 2: Orient -> Decide(complete)
-		switch {
-		case callCount == 1:
+		switch callCount {
+		case 1:
 			// Cycle 1 Orient
 			return makeLLMResponse("need more data from filesystem", 15)
-		case callCount == 2:
+		case 2:
 			// Cycle 1 Decide: tool_call
 			decision := map[string]any{
 				"action": "tool_call",
@@ -274,10 +272,10 @@ func TestOODAReasonStep_MultipleCycles(t *testing.T) {
 			}
 			decisionJSON, _ := json.Marshal(decision)
 			return makeLLMResponse(string(decisionJSON), 15)
-		case callCount == 3:
+		case 3:
 			// Cycle 2 Orient
 			return makeLLMResponse("data collected, goals met", 15)
-		case callCount == 4:
+		case 4:
 			// Cycle 2 Decide: complete
 			decision := map[string]any{
 				"action": "complete",
@@ -322,10 +320,10 @@ func TestOODAReasonStep_SpawnAction(t *testing.T) {
 	callCount := 0
 	responseFunc := func(writeData []byte) []byte {
 		callCount++
-		switch {
-		case callCount == 1:
+		switch callCount {
+		case 1:
 			return makeLLMResponse("need sub-agent for specialized task", 15)
-		case callCount == 2:
+		case 2:
 			decision := map[string]any{
 				"action": "spawn",
 				"target": "analyze sub-task",
@@ -334,13 +332,13 @@ func TestOODAReasonStep_SpawnAction(t *testing.T) {
 			}
 			decisionJSON, _ := json.Marshal(decision)
 			return makeLLMResponse(string(decisionJSON), 15)
-		case callCount == 3:
+		case 3:
 			// Child process linear reasonStep response (text = completes child)
 			return makeLLMResponse("child analysis result", 10)
-		case callCount == 4:
+		case 4:
 			// Parent cycle 2 Orient
 			return makeLLMResponse("spawn completed, goals met", 15)
-		case callCount == 5:
+		case 5:
 			// Parent cycle 2 Decide: complete
 			decision := map[string]any{
 				"action": "complete",
@@ -385,10 +383,10 @@ func TestOODAReasonStep_ReplanAction(t *testing.T) {
 	callCount := 0
 	responseFunc := func(writeData []byte) []byte {
 		callCount++
-		switch {
-		case callCount == 1:
+		switch callCount {
+		case 1:
 			return makeLLMResponse("initial assessment unclear", 15)
-		case callCount == 2:
+		case 2:
 			// Replan - no external action should occur
 			decision := map[string]any{
 				"action": "replan",
@@ -398,9 +396,9 @@ func TestOODAReasonStep_ReplanAction(t *testing.T) {
 			}
 			decisionJSON, _ := json.Marshal(decision)
 			return makeLLMResponse(string(decisionJSON), 15)
-		case callCount == 3:
+		case 3:
 			return makeLLMResponse("replan complete, now aligned", 15)
-		case callCount == 4:
+		case 4:
 			decision := map[string]any{
 				"action": "complete",
 				"target": "",

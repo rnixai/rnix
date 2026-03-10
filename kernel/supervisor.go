@@ -129,12 +129,10 @@ func (k *KernelImpl) SpawnSupervisor(spec SupervisorSpec) (types.PID, error) {
 		"children":     len(spec.Children),
 	}, proc.PID, nil, time.Since(start))
 
-	proc.wg.Add(1)
-	go func() {
-		defer proc.wg.Done()
+	proc.wg.Go(func() {
 		_ = proc.Start()
 		sup.run()
-	}()
+	})
 
 	if k.callbacks != nil {
 		k.callbacks.OnSpawn(proc.PID, proc.Intent)

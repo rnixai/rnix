@@ -56,9 +56,9 @@ func TestRenderResult_WidthAdapt(t *testing.T) {
 
 		RenderResult(r, "Result", "content")
 
-		lines := strings.Split(buf.String(), "\n")
+		lines := strings.SplitSeq(buf.String(), "\n")
 		// Bottom border should be capped at 120 runes
-		for _, line := range lines {
+		for line := range lines {
 			if len([]rune(line)) > 0 && strings.Trim(line, "═") == "" {
 				if len([]rune(line)) != 120 {
 					t.Errorf("expected bottom border of 120 chars, got %d", len([]rune(line)))

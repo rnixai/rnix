@@ -188,7 +188,7 @@ func TestDeviceRegistry_ConcurrentRegister(t *testing.T) {
 	var wg sync.WaitGroup
 	const n = 50
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -214,7 +214,7 @@ type mockFile struct {
 	statErr   error
 }
 
-func (m *mockFile) Read(length int) ([]byte, error)  { return m.readData, m.readErr }
+func (m *mockFile) Read(length int) ([]byte, error)            { return m.readData, m.readErr }
 func (m *mockFile) Write(_ context.Context, data []byte) error { m.writeData = data; return m.writeErr }
-func (m *mockFile) Close() error                      { m.closed = true; return m.closeErr }
-func (m *mockFile) Stat() (FileStat, error)           { return m.stat, m.statErr }
+func (m *mockFile) Close() error                               { m.closed = true; return m.closeErr }
+func (m *mockFile) Stat() (FileStat, error)                    { return m.stat, m.statErr }

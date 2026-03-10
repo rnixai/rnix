@@ -130,10 +130,8 @@ func TestIntegration_ConcurrentClients(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, numClients)
 
-	for i := 0; i < numClients; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range numClients {
+		wg.Go(func() {
 			c, err := Dial(sockPath)
 			if err != nil {
 				errs <- err
@@ -150,7 +148,7 @@ func TestIntegration_ConcurrentClients(t *testing.T) {
 				errs <- err
 				return
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -292,7 +290,7 @@ func TestIntegration_ConcurrentSpawn(t *testing.T) {
 	pids := make(chan types.PID, numClients)
 	errs := make(chan error, numClients)
 
-	for i := 0; i < numClients; i++ {
+	for i := range numClients {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

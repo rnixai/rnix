@@ -83,11 +83,11 @@ func TestProcess_TokenHistory_ConcurrentSafety(t *testing.T) {
 	_ = p.Start()
 
 	var wg sync.WaitGroup
-	for g := 0; g < 10; g++ {
+	for g := range 10 {
 		wg.Add(1)
 		go func(base int) {
 			defer wg.Done()
-			for i := 0; i < 20; i++ {
+			for i := range 20 {
 				step := base*20 + i + 1
 				p.AppendTokenSnapshot(step, step*10)
 			}

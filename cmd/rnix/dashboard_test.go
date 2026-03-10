@@ -440,7 +440,7 @@ func TestDashboardModel_ScrollViewport(t *testing.T) {
 	m := newTestDashboardModel(procs)
 	m.height = 15
 
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 		m = updated.(dashboardModel)
 	}
@@ -650,7 +650,7 @@ func TestDashboardModel_TimelineEventsFIFO(t *testing.T) {
 	m.selectedPID = 2
 	m.timelineFilters = defaultTimelineFilters()
 
-	for i := 0; i < maxTimelineEvents+50; i++ {
+	for i := range maxTimelineEvents + 50 {
 		ev := ipc.SyscallEventWire{
 			TimestampMs: int64(i),
 			PID:         2,
@@ -2115,7 +2115,7 @@ func TestDashboardModel_HeatmapRefreshTick(t *testing.T) {
 	m.connected = false
 	m.heatmapTickCount = 0
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		updated, _ := m.Update(tickMsg(time.Now()))
 		m = updated.(dashboardModel)
 	}

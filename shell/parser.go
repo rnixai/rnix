@@ -89,10 +89,10 @@ func parseSpawnCommand(seg string) (Command, error) {
 	cmd := Command{Type: "spawn"}
 	intentFound := false
 	for _, tok := range tokens[1:] {
-		if strings.HasPrefix(tok, "--agent=") {
-			cmd.Agent = strings.TrimPrefix(tok, "--agent=")
-		} else if strings.HasPrefix(tok, "--model=") {
-			cmd.Model = strings.TrimPrefix(tok, "--model=")
+		if after, ok := strings.CutPrefix(tok, "--agent="); ok {
+			cmd.Agent = after
+		} else if after, ok := strings.CutPrefix(tok, "--model="); ok {
+			cmd.Model = after
 		} else if !intentFound {
 			cmd.Intent = tok
 			intentFound = true

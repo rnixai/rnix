@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -202,8 +203,8 @@ func StripShebang(content string) string {
 
 func stripShebang(content string) string {
 	if strings.HasPrefix(content, "#!") {
-		if idx := strings.IndexByte(content, '\n'); idx >= 0 {
-			return content[idx+1:]
+		if _, after, ok := strings.Cut(content, "\n"); ok {
+			return after
 		}
 		return ""
 	}
@@ -418,9 +419,9 @@ func parseCondition(s string) (*Condition, error) {
 	if strings.HasPrefix(ref, "{") && strings.HasSuffix(ref, "}") {
 		varName = ref // e.g. "{config.model}" — evaluated at runtime
 		property = ""
-	} else if dotIdx := strings.IndexByte(ref, '.'); dotIdx >= 0 {
-		varName = ref[:dotIdx]
-		property = ref[dotIdx+1:]
+	} else if before, after, ok := strings.Cut(ref, "."); ok {
+		varName = before
+		property = after
 	}
 
 	return &Condition{VarName: varName, Property: property, Operator: op, Value: right}, nil
@@ -589,7 +590,7 @@ func parseFnDef(lines []string, fnLineIdx int) (*FnDef, int, error) {
 	var params []string
 	if paramsStr != "" {
 		seen := make(map[string]bool)
-		for _, p := range strings.Split(paramsStr, ",") {
+		for p := range strings.SplitSeq(paramsStr, ",") {
 			p = strings.TrimSpace(p)
 			if p == "" {
 				continue
@@ -1080,12 +1081,12 @@ func parseExport(line string) (Statement, error) {
 	// Strip the "export" keyword (case-insensitive)
 	rest := strings.TrimSpace(line[len("export"):])
 
-	eqIdx := strings.IndexByte(rest, '=')
-	if eqIdx < 0 {
+	before, after, ok := strings.Cut(rest, "=")
+	if !ok {
 		return Statement{}, fmt.Errorf("invalid export: missing '=' in %q", line)
 	}
 
-	key := rest[:eqIdx]
+	key := before
 	if key == "" || !isValidVarName(key) {
 		return Statement{}, fmt.Errorf("invalid export: invalid key %q in %q", key, line)
 	}
@@ -1095,7 +1096,7 @@ func parseExport(line string) (Statement, error) {
 		return Statement{}, fmt.Errorf("invalid export: spaces around '=' in %q", line)
 	}
 
-	value := rest[eqIdx+1:]
+	value := after
 	value = unquote(value)
 
 	return Statement{
@@ -1268,12 +1269,12 @@ func parseMapLiteral(s string) ([]MapEntry, error) {
 	seen := make(map[string]bool)
 	var entries []MapEntry
 	for _, p := range parts {
-		colonIdx := strings.IndexByte(p, ':')
-		if colonIdx < 0 {
+		before, after, ok := strings.Cut(p, ":")
+		if !ok {
 			return nil, fmt.Errorf("map entry missing ':' separator in %q", p)
 		}
-		key := strings.TrimSpace(p[:colonIdx])
-		value := strings.TrimSpace(p[colonIdx+1:])
+		key := strings.TrimSpace(before)
+		value := strings.TrimSpace(after)
 		if key == "" || !isValidIdentifier(key) {
 			return nil, fmt.Errorf("invalid map key %q: must be a valid identifier", key)
 		}
@@ -1789,9 +1790,7 @@ func (e *ScriptExecutor) executeSource(ctx context.Context, stmt Statement, resu
 	}
 
 	// Register sourced script's functions into current function table
-	for name, fn := range sourcedScript.Functions {
-		e.functions[name] = fn
-	}
+	maps.Copy(e.functions, sourcedScript.Functions)
 
 	// Push source stack, save and set scriptDir
 	e.sourceStack[absPath] = true
@@ -1968,9 +1967,9 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 func (e *ScriptExecutor) expandReturnValue(val string) string {
 	if strings.HasPrefix(val, "$") {
 		ref := val[1:]
-		if dotIdx := strings.IndexByte(ref, '.'); dotIdx >= 0 {
-			varName := ref[:dotIdx]
-			property := ref[dotIdx+1:]
+		if before, after, ok := strings.Cut(ref, "."); ok {
+			varName := before
+			property := after
 			if capture, ok := e.captures[varName]; ok {
 				switch property {
 				case "result":

@@ -63,10 +63,7 @@ func PredictGrowth(pid types.PID, tokensUsed, contextBudget, currentStep, maxSte
 
 	if contextBudget > 0 {
 		p.UsagePct = roundPct(float64(tokensUsed) / float64(contextBudget) * 100)
-		p.RemainingBudget = contextBudget - tokensUsed
-		if p.RemainingBudget < 0 {
-			p.RemainingBudget = 0
-		}
+		p.RemainingBudget = max(contextBudget-tokensUsed, 0)
 	}
 
 	if currentStep > 0 {
@@ -79,10 +76,7 @@ func PredictGrowth(pid types.PID, tokensUsed, contextBudget, currentStep, maxSte
 	}
 
 	if contextBudget > 0 && p.RecentRate > 0 {
-		p.EstRemaining = int(math.Floor(float64(p.RemainingBudget) / p.RecentRate))
-		if p.EstRemaining < 0 {
-			p.EstRemaining = 0
-		}
+		p.EstRemaining = max(int(math.Floor(float64(p.RemainingBudget)/p.RecentRate)), 0)
 		p.PredictExhaust = currentStep+p.EstRemaining <= maxSteps
 	}
 
@@ -104,10 +98,7 @@ func calcRecentRate(history []types.TokenSnapshot) float64 {
 		return 0
 	}
 
-	window := recentWindowSize
-	if window > n {
-		window = n
-	}
+	window := min(recentWindowSize, n)
 
 	recent := history[n-window:]
 	totalDelta := 0
@@ -171,13 +162,7 @@ func FormatGrowthPrediction(p *GrowthPrediction) string {
 
 		sb.WriteString("\n── Budget ─────────────────────────────────────────\n")
 		barWidth := 30
-		filled := int(math.Round(p.UsagePct / 100 * float64(barWidth)))
-		if filled > barWidth {
-			filled = barWidth
-		}
-		if filled < 0 {
-			filled = 0
-		}
+		filled := max(min(int(math.Round(p.UsagePct/100*float64(barWidth))), barWidth), 0)
 		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 		fmt.Fprintf(&sb, "[%s] %.1f%%\n", bar, p.UsagePct)
 	}
@@ -186,18 +171,18 @@ func FormatGrowthPrediction(p *GrowthPrediction) string {
 }
 
 type growthJSON struct {
-	PID              types.PID       `json:"pid"`
-	TokensUsed       int             `json:"tokens_used"`
-	ContextBudget    int             `json:"context_budget"`
-	UsagePct         float64         `json:"usage_pct"`
-	CurrentStep      int             `json:"current_step"`
-	MaxSteps         int             `json:"max_steps"`
-	AvgTokensPerStep float64         `json:"avg_tokens_per_step"`
-	RecentRate       float64         `json:"recent_rate"`
-	RemainingBudget  int             `json:"remaining_budget"`
-	EstRemaining     int             `json:"est_remaining"`
-	PredictExhaust   bool            `json:"predict_exhaust"`
-	AlertLevel       AlertLevel      `json:"alert_level"`
+	PID              types.PID        `json:"pid"`
+	TokensUsed       int              `json:"tokens_used"`
+	ContextBudget    int              `json:"context_budget"`
+	UsagePct         float64          `json:"usage_pct"`
+	CurrentStep      int              `json:"current_step"`
+	MaxSteps         int              `json:"max_steps"`
+	AvgTokensPerStep float64          `json:"avg_tokens_per_step"`
+	RecentRate       float64          `json:"recent_rate"`
+	RemainingBudget  int              `json:"remaining_budget"`
+	EstRemaining     int              `json:"est_remaining"`
+	PredictExhaust   bool             `json:"predict_exhaust"`
+	AlertLevel       AlertLevel       `json:"alert_level"`
 	History          []GrowthSnapshot `json:"history"`
 }
 

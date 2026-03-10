@@ -126,7 +126,7 @@ func computeMessagesDiff(from, to []string) MessagesDiff {
 	// Find the common prefix length
 	commonLen := 0
 	maxCommon := min(len(from), len(to))
-	for i := 0; i < maxCommon; i++ {
+	for i := range maxCommon {
 		if from[i] == to[i] {
 			commonLen++
 		} else {

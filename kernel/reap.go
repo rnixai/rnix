@@ -186,9 +186,7 @@ func (k *KernelImpl) Reap(pid types.PID) {
 // and periodically cleans up expired Dead processes.
 func (k *KernelImpl) startReaper() {
 	k.deadTicker = time.NewTicker(10 * time.Second)
-	k.reaperWg.Add(1)
-	go func() {
-		defer k.reaperWg.Done()
+	k.reaperWg.Go(func() {
 		for {
 			select {
 			case pid := <-k.reapCh:
@@ -216,7 +214,7 @@ func (k *KernelImpl) startReaper() {
 				}
 			}
 		}
-	}()
+	})
 }
 
 // cleanupExpiredDead removes Dead processes whose DeadAt exceeds the TTL.

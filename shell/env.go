@@ -2,6 +2,7 @@ package shell
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -72,9 +73,7 @@ func (e *Environment) GetArray(key string) ([]string, bool) {
 // SetMap assigns a map value, clearing any string/array with the same name.
 func (e *Environment) SetMap(key string, m map[string]string) {
 	cp := make(map[string]string, len(m))
-	for k, v := range m {
-		cp[k] = v
-	}
+	maps.Copy(cp, m)
 	e.maps[key] = cp
 	delete(e.vars, key)
 	delete(e.arrays, key)
@@ -87,9 +86,7 @@ func (e *Environment) GetMap(key string) (map[string]string, bool) {
 		return nil, false
 	}
 	cp := make(map[string]string, len(m))
-	for k, v := range m {
-		cp[k] = v
-	}
+	maps.Copy(cp, m)
 	return cp, true
 }
 
@@ -117,9 +114,7 @@ func (e *Environment) Delete(key string) {
 // All returns a snapshot copy of string variables only (backward compatible).
 func (e *Environment) All() map[string]string {
 	cp := make(map[string]string, len(e.vars))
-	for k, v := range e.vars {
-		cp[k] = v
-	}
+	maps.Copy(cp, e.vars)
 	return cp
 }
 
@@ -153,9 +148,10 @@ func (e *Environment) expand(input string, strict bool) (string, error) {
 				start := i
 				depth := 1
 				for i < len(input) && depth > 0 {
-					if input[i] == '{' {
+					switch input[i] {
+					case '{':
 						depth++
-					} else if input[i] == '}' {
+					case '}':
 						depth--
 					}
 					if depth > 0 {
@@ -244,9 +240,9 @@ func (e *Environment) resolveExpr(expr string, strict bool) (string, error) {
 	}
 
 	// Check for map property: VAR.KEY
-	if dotIdx := strings.IndexByte(expr, '.'); dotIdx >= 0 {
-		varName := expr[:dotIdx]
-		key := expr[dotIdx+1:]
+	if before, after, ok := strings.Cut(expr, "."); ok {
+		varName := before
+		key := after
 
 		m, ok := e.maps[varName]
 		if !ok {

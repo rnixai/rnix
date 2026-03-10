@@ -377,7 +377,7 @@ func TestMountManager_ConcurrentAccess(t *testing.T) {
 
 		// When: concurrent Mount and Unmount operations
 		var wg sync.WaitGroup
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()

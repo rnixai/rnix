@@ -1,6 +1,7 @@
 package intent
 
 import (
+	"slices"
 	"sort"
 	"time"
 
@@ -57,10 +58,10 @@ func (n *IntentNode) IncrRetry() {
 type DriftType string
 
 const (
-	DriftNodeFailed      DriftType = "node_failed"
-	DriftNodeTimeout     DriftType = "node_timeout"
-	DriftNewRequirement  DriftType = "new_requirement"
-	DriftNodeModified    DriftType = "node_modified"
+	DriftNodeFailed     DriftType = "node_failed"
+	DriftNodeTimeout    DriftType = "node_timeout"
+	DriftNewRequirement DriftType = "new_requirement"
+	DriftNodeModified   DriftType = "node_modified"
 )
 
 // DriftItem records a single divergence between desired and current state.
@@ -202,13 +203,10 @@ func (t *IntentTree) cascadeFailure(failedID string) {
 		if node.State == IntentFailed || node.State == IntentCompleted {
 			continue
 		}
-		for _, dep := range node.DependsOn {
-			if dep == failedID {
-				node.State = IntentFailed
-				node.Error = "upstream dependency failed: " + failedID
-				t.cascadeFailure(node.ID)
-				break
-			}
+		if slices.Contains(node.DependsOn, failedID) {
+			node.State = IntentFailed
+			node.Error = "upstream dependency failed: " + failedID
+			t.cascadeFailure(node.ID)
 		}
 	}
 }

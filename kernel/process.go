@@ -53,7 +53,7 @@ type Process struct {
 	TraceID        types.TraceID
 	SpanID         types.SpanID
 	ParentSpanID   types.SpanID
-	HasToolError   bool        // true if any tool call failed (mu protected)
+	HasToolError   bool // true if any tool call failed (mu protected)
 
 	// Log history ring buffer (mu protected)
 	logHistory []types.LogEntry
@@ -88,8 +88,8 @@ type Process struct {
 	// GDB breakpoint system (mu protected)
 	breakpoints      []*Breakpoint
 	gdbPauseCh       chan struct{} // nil=not paused; non-nil=paused, close to resume
-	gdbStepMode      StepMode     // current single-step mode (StepNone by default)
-	gdbModelOverride string       // empty = no override; non-empty = use this model for LLM requests
+	gdbStepMode      StepMode      // current single-step mode (StepNone by default)
+	gdbModelOverride string        // empty = no override; non-empty = use this model for LLM requests
 	gdbEnvVars       map[string]string
 	gdbExtraSkills   []string
 
@@ -253,10 +253,8 @@ func (p *Process) GetChildren() []types.PID {
 func (p *Process) AddGroup(pgid types.PGID) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, g := range p.groups {
-		if g == pgid {
-			return
-		}
+	if slices.Contains(p.groups, pgid) {
+		return
 	}
 	p.groups = append(p.groups, pgid)
 }

@@ -111,7 +111,7 @@ func onEvent(r *ui.Renderer, ev ipc.StreamEvent, client *ipc.Client, intentID *s
 			if !flagAutoStart && confirmID != "" {
 				fmt.Fprint(os.Stderr, "\n确认执行此计划? [y/N] ")
 				var answer string
-				fmt.Scanln(&answer)
+				_, _ = fmt.Scanln(&answer)
 				confirm := answer == "y" || answer == "Y" || answer == "yes"
 				_ = client.ConfirmIntent(confirmID, confirm)
 			}

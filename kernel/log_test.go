@@ -135,7 +135,7 @@ func TestEmitLog_NonBlocking_BufferFull(t *testing.T) {
 	_ = proc.Start()
 	k.AddProcess(proc)
 
-	for i := 0; i < 256; i++ {
+	for range 256 {
 		proc.LogChan <- types.LogEntry{Category: types.LogThink, Content: "fill"}
 	}
 

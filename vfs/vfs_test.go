@@ -297,7 +297,7 @@ func TestVFS_ConcurrentAccess(t *testing.T) {
 	const goroutines = 50
 	var wg sync.WaitGroup
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -343,17 +343,15 @@ func TestVFS_ConcurrentSameProcess(t *testing.T) {
 	fds := make(chan types.FD, goroutines)
 
 	// Concurrent Open on same PID
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			fd, err := v.Open(pid, "/dev/test", O_RDWR)
 			if err != nil {
 				t.Errorf("Open failed: %v", err)
 				return
 			}
 			fds <- fd
-		}()
+		})
 	}
 	wg.Wait()
 	close(fds)

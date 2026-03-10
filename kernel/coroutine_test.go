@@ -475,10 +475,9 @@ func TestConcurrent_10Processes(t *testing.T) {
 	concurrentDuration := time.Since(concurrentStart)
 
 	// NFR24: concurrent operations should be <= 2x single operation
-	threshold := singleDuration * 2
-	if threshold < time.Millisecond {
-		threshold = time.Millisecond // minimum threshold
-	}
+	threshold := max(singleDuration*2,
+		// minimum threshold
+		time.Millisecond)
 	if concurrentDuration > threshold*10 { // generous threshold for CI
 		t.Logf("WARNING: concurrent 10-process ops took %v vs single %v (ratio: %.1fx)",
 			concurrentDuration, singleDuration, float64(concurrentDuration)/float64(singleDuration))

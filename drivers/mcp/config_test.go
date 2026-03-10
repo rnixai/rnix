@@ -18,9 +18,6 @@ func TestLoadMCPConfig(t *testing.T) {
 		if err != nil {
 			t.Fatalf("LoadMCPConfig returned error: %v", err)
 		}
-		if cfg == nil {
-			t.Fatal("expected non-nil config, got nil")
-		}
 		if len(cfg.Servers) != 2 {
 			t.Fatalf("Servers count = %d, want 2", len(cfg.Servers))
 		}
@@ -81,9 +78,6 @@ func TestLoadMCPConfig(t *testing.T) {
 		// Then: no error, servers map is empty
 		if err != nil {
 			t.Fatalf("LoadMCPConfig returned error: %v", err)
-		}
-		if cfg == nil {
-			t.Fatal("expected non-nil config, got nil")
 		}
 		if len(cfg.Servers) != 0 {
 			t.Errorf("Servers count = %d, want 0", len(cfg.Servers))

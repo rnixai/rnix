@@ -1,6 +1,7 @@
 package intent
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -173,13 +174,7 @@ func TestMergeIncremental_CompletedNodePreserved(t *testing.T) {
 		t.Fatalf("MergeIncremental failed: %v", err)
 	}
 
-	found := false
-	for _, id := range result.UnchangedNodes {
-		if id == "design" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(result.UnchangedNodes, "design")
 	if !found {
 		t.Fatal("expected 'design' to be in unchanged nodes (same intent, already completed)")
 	}
