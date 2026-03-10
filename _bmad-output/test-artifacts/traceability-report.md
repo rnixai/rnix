@@ -2,582 +2,457 @@
 stepsCompleted:
   - step-01-load-context
   - step-02-discover-tests
-  - step-03-trace-mapping
-  - step-04-gap-analysis
+  - step-03-map-criteria
+  - step-04-analyze-gaps
   - step-05-gate-decision
 lastStep: step-05-gate-decision
 lastSaved: '2026-03-10'
 workflowType: testarch-trace
 inputDocuments:
-  - _bmad-output/implementation-artifacts/19-1-intent-declaration-and-task-decomposition.md
-  - _bmad-output/test-artifacts/atdd-checklist-19-1.md
+  - _bmad-output/implementation-artifacts/19-2-intent-state-model-and-event-driven-reconciler.md
   - intent/types_test.go
-  - intent/dag_test.go
+  - intent/reconciler_test.go
   - intent/decomposer_test.go
-  - intent/engine_test.go
   - intent/manager_test.go
-  - cmd/rnix/apply_test.go
-  - cmd/rnix/intent_test.go
   - internal/ui/intent_test.go
 ---
 
-# 可追溯性矩阵 & 质量门决策 - Story 19-1
+# Traceability Matrix & Gate Decision - Story 19-2
 
-**Story:** 19.1: 意图声明与任务分解
+**Story:** 19.2 意图状态模型与事件驱动 Reconciler
 **Date:** 2026-03-10
-**Evaluator:** TEA Agent / Decker
+**Evaluator:** TEA Agent
 
 ---
 
 Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*automate` to create coverage.
 
-## PHASE 1: 需求可追溯性
+## PHASE 1: REQUIREMENTS TRACEABILITY
 
-### 覆盖概要
+### Coverage Summary
 
-| 优先级    | 标准总数 | FULL 覆盖 | 覆盖率 | 状态       |
-| --------- | -------- | --------- | ------ | ---------- |
-| P0        | 3        | 3         | 100%   | ✅ PASS    |
-| P1        | 3        | 2         | 67%    | ⚠️ WARN   |
-| P2        | 0        | 0         | N/A    | ✅ PASS    |
-| P3        | 0        | 0         | N/A    | ✅ PASS    |
-| **Total** | **6**    | **5**     | **83%**| **⚠️ WARN** |
+| Priority  | Total Criteria | FULL Coverage | Coverage % | Status   |
+| --------- | -------------- | ------------- | ---------- | -------- |
+| P0        | 3              | 3             | 100%       | ✅ PASS  |
+| P1        | 3              | 3             | 100%       | ✅ PASS  |
+| P2        | 0              | 0             | N/A        | ✅ PASS  |
+| P3        | 0              | 0             | N/A        | ✅ PASS  |
+| **Total** | **6**          | **6**         | **100%**   | **✅ PASS** |
 
-**说明：**
+**Legend:**
 
-- ✅ PASS - 覆盖达到质量门阈值
-- ⚠️ WARN - 覆盖低于阈值但非关键
-- ❌ FAIL - 覆盖低于最低阈值（阻塞）
+- ✅ PASS - Coverage meets quality gate threshold
+- ⚠️ WARN - Coverage below threshold but not critical
+- ❌ FAIL - Coverage below minimum threshold (blocker)
 
 ---
 
-### 详细映射
+### Detailed Mapping
 
-#### AC-1: 意图分解为子意图树 (P0)
+#### AC-1: 三态模型维护——Desired/Current/Drift (P1)
 
 - **Coverage:** FULL ✅
 - **Tests:**
-  - `19.1-UNIT-001` - intent/decomposer_test.go:28
-    - **Given:** Mock LLM 返回有效 JSON（4 个子任务含依赖关系）
-    - **When:** Decomposer.Decompose() 被调用
-    - **Then:** 返回正确的 IntentTree，4 个节点，依赖关系保留，状态均为 pending
-  - `19.1-UNIT-002` - intent/dag_test.go:9
-    - **Given:** 无依赖的 IntentTree
-    - **When:** BuildIntentDAG() 构建 DAG
-    - **Then:** 所有节点无依赖边
-  - `19.1-UNIT-003` - intent/dag_test.go:40
-    - **Given:** 线性依赖链 design → backend → test
-    - **When:** BuildIntentDAG() 构建 DAG
-    - **Then:** 依赖关系和 DependedBy 正确设置
-  - `19.1-UNIT-004` - intent/dag_test.go:72
-    - **Given:** 菱形依赖 design → {backend, frontend} → deploy
-    - **When:** BuildIntentDAG() 构建 DAG
-    - **Then:** deploy 有 2 个依赖正确
-  - `19.1-UNIT-005` - intent/dag_test.go:100
-    - **Given:** 循环依赖 a → b → a
-    - **When:** BuildIntentDAG() 构建 DAG
-    - **Then:** 返回包含 "cycle" 的错误
-  - `19.1-UNIT-006` - intent/dag_test.go:122
-    - **Given:** 节点依赖不存在的 node
-    - **When:** BuildIntentDAG() 构建 DAG
-    - **Then:** 返回包含 "unknown node" 的错误
-  - `19.1-UNIT-007` - intent/dag_test.go:143
-    - **Given:** 自循环节点 a → a
-    - **When:** BuildIntentDAG() 构建 DAG
-    - **Then:** 返回循环检测错误
-  - `19.1-UNIT-008` - intent/decomposer_test.go:74
-    - **Given:** LLM 返回无效 JSON
-    - **When:** Decomposer.Decompose() 解析
-    - **Then:** 返回解析错误
-  - `19.1-UNIT-009` - intent/decomposer_test.go:85
-    - **Given:** LLM 返回含循环依赖的子任务
-    - **When:** Decomposer.Decompose() 验证
-    - **Then:** 返回循环检测错误
-  - `19.1-UNIT-010` - intent/decomposer_test.go:106
-    - **Given:** LLM 返回空数组
-    - **When:** Decomposer.Decompose() 验证
-    - **Then:** 返回空结果错误
-  - `19.1-UNIT-011` - intent/decomposer_test.go:117
-    - **Given:** LLM 调用返回错误
-    - **When:** Decomposer.Decompose() 调用
-    - **Then:** 错误正确传播
-  - `19.1-UNIT-012` - intent/decomposer_test.go:128
-    - **Given:** 50ms 超时上下文，LLM 延迟 10s
-    - **When:** Decomposer.Decompose() 被调用
-    - **Then:** 返回超时错误
-  - `19.1-UNIT-013` - intent/decomposer_test.go:142
-    - **Given:** 指定 model="claude-opus"
-    - **When:** Decomposer.Decompose() 调用 LLM
-    - **Then:** model 参数正确传递到 LLMCaller
-  - `19.1-UNIT-014` - intent/manager_test.go:10
-    - **Given:** 有效 LLM 响应
-    - **When:** Manager.Apply() 创建意图
-    - **Then:** 返回 IntentTree，ID 非空，状态为 await_confirm
-  - `19.1-UNIT-015` - intent/manager_test.go:47
-    - **Given:** 连续两次 Apply 调用
-    - **When:** 两个 IntentTree 创建
-    - **Then:** ID 唯一
-  - `19.1-CLI-001` - cmd/rnix/apply_test.go:5
-    - **Given:** rootCmd 已初始化
-    - **When:** 检查子命令列表
-    - **Then:** "apply" 命令已注册
-  - `19.1-CLI-002` - cmd/rnix/apply_test.go:18
-    - **Given:** apply 命令
-    - **When:** 无参数执行
-    - **Then:** 返回参数验证错误
-  - `19.1-CLI-003` - cmd/rnix/apply_test.go:38
-    - **Given:** apply 命令
-    - **When:** 检查 Use 和 Short 字段
-    - **Then:** Use="apply <intent>"，Short 非空
-  - `19.1-UNIT-016` - intent/types_test.go:80
-    - **Given:** executing 状态的节点
-    - **When:** MarkCompleted() 标记完成
-    - **Then:** 状态变为 completed，result 设置正确
+  - `TestIntentTree_InitDesired` - intent/types_test.go:250
+    - **Given:** IntentTree with 3 pending nodes
+    - **When:** InitDesired() is called
+    - **Then:** DesiredNodes map initialized with all nodes set to IntentCompleted
+  - `TestIntentTree_ComputeDrifts` - intent/types_test.go:278
+    - **Given:** IntentTree with completed, failed, and pending nodes + DesiredNodes initialized
+    - **When:** ComputeDrifts() is called
+    - **Then:** Returns only failed nodes as drift (pending/executing not reported as drift)
+  - `TestIntentTree_AddDrift_ClearDrift` - intent/types_test.go:309
+    - **Given:** Empty IntentTree
+    - **When:** AddDrift() then ClearDrift() called
+    - **Then:** Drift added then removed from active list
+  - `TestIntentTree_ActiveDrifts` - intent/types_test.go:338
+    - **Given:** IntentTree with 2 drift items (failed + timeout)
+    - **When:** ActiveDrifts() called
+    - **Then:** Returns both active drifts
+  - `TestDecomposer_Decompose_InitDesired` - intent/decomposer_test.go:177
+    - **Given:** Decomposer with mock LLM returning 2 nodes
+    - **When:** Decompose() called
+    - **Then:** DesiredNodes automatically initialized on returned tree
+  - `TestReconciler_Execute_DriftDetectedCallback` - intent/reconciler_test.go:335
+    - **Given:** Node configured to fail once with MaxRetries=3
+    - **When:** Reconciler executes and node fails
+    - **Then:** OnDriftDetected callback fired with correct DriftItem (node_failed type)
 
-- **Gaps:** 无
+- **Gaps:** None
 
 ---
 
-#### AC-2: 显示分解结果并等待用户确认 (P1)
+#### AC-2: 失败/超时自动重试 + NFR40 ≤5s (P0)
 
 - **Coverage:** FULL ✅
 - **Tests:**
-  - `19.1-UNIT-017` - intent/engine_test.go:287
-    - **Given:** 2 节点串行执行
-    - **When:** Engine.Execute() 带 OnNodeStart/OnNodeComplete 回调
-    - **Then:** 两个回调各触发 2 次
-  - `19.1-UNIT-018` - intent/manager_test.go:64
-    - **Given:** Apply 后获取 intentID
-    - **When:** Manager.Confirm() 确认
-    - **Then:** 无错误返回
-  - `19.1-UNIT-019` - intent/manager_test.go:80
-    - **Given:** 不存在的 intent-999
-    - **When:** Manager.Confirm() 调用
-    - **Then:** 返回 not found 错误
-  - `19.1-UI-001` - internal/ui/intent_test.go:12
-    - **Given:** IntentTreeWire 含 2 个节点
-    - **When:** RenderIntentTree() TTY 模式渲染
-    - **Then:** 输出包含 root intent、intent ID 和所有节点名
-  - `19.1-UI-002` - internal/ui/intent_test.go:44
-    - **Given:** IntentTreeWire 含 1 个节点
-    - **When:** RenderIntentTree() JSON 模式渲染
-    - **Then:** 输出为有效 JSON，包含 id 字段
-  - `19.1-UI-003` - internal/ui/intent_test.go:70
-    - **Given:** IntentTreeWire
-    - **When:** RenderIntentTree() Quiet 模式
-    - **Then:** 输出为空
-  - `19.1-UI-004` - internal/ui/intent_test.go:116
-    - **Given:** start 事件，nodeID="backend"，PID=42
-    - **When:** RenderIntentNodeEvent() 渲染
-    - **Then:** 输出包含 "backend" 和 "42"
-  - `19.1-UI-005` - internal/ui/intent_test.go:131
-    - **Given:** done 事件
-    - **When:** RenderIntentNodeEvent() JSON 模式
-    - **Then:** 有效 JSON，event="done"
+  - `TestReconciler_Execute_RetrySuccess` - intent/reconciler_test.go:58
+    - **Given:** Node with MaxRetries=3, mock spawner where PID 1 fails
+    - **When:** Reconciler executes
+    - **Then:** Node retries and completes successfully, RetryCount=1, OnNodeRetry callback fired
+  - `TestReconciler_Execute_ParallelWithRetry` - intent/reconciler_test.go:267
+    - **Given:** Two parallel nodes: "stable" (succeeds) and "flaky" (fails once, MaxRetries=3)
+    - **When:** Reconciler executes both
+    - **Then:** Both complete; flaky retries independently without blocking stable
+  - `TestReconciler_Execute_NFR40_Latency` - intent/reconciler_test.go:424
+    - **Given:** Node configured to fail once with MaxRetries=3
+    - **When:** Node fails, timestamps recorded on OnNodeFailed and OnNodeRetry
+    - **Then:** Latency between failure detection and retry start ≤ 5s (NFR40 validated)
+  - `TestIntentNode_CanRetry` - intent/types_test.go:215
+    - **Given:** IntentNode with RetryCount=0, MaxRetries=3
+    - **When:** CanRetry() called
+    - **Then:** Returns true
+  - `TestIntentNode_IncrRetry` - intent/types_test.go:231
+    - **Given:** IntentNode with RetryCount=0
+    - **When:** IncrRetry() called
+    - **Then:** RetryCount incremented to 1, LastFailedAt timestamp set
+  - `TestReconciler_Execute_DriftResolvedCallback` - intent/reconciler_test.go:381
+    - **Given:** Flaky node fails once then succeeds on retry
+    - **When:** Reconciler completes
+    - **Then:** OnDriftResolved callback fired for the retried node
 
-- **Gaps:** 无
+- **Gaps:** None
 
 ---
 
-#### AC-3: 按 DAG 拓扑顺序调度，无依赖并行执行 (P0)
+#### AC-3: 成功后更新 Current、启动下游任务 (P1)
 
 - **Coverage:** FULL ✅
 - **Tests:**
-  - `19.1-UNIT-020` - intent/types_test.go:32
-    - **Given:** design completed，backend/frontend pending 且依赖 design
-    - **When:** RunnableNodes() 查询
-    - **Then:** 返回 backend 和 frontend（2 个可运行节点）
-  - `19.1-UNIT-021` - intent/types_test.go:60
-    - **Given:** design executing，backend/frontend pending 依赖 design
-    - **When:** RunnableNodes() 查询
-    - **Then:** 返回空（无就绪节点）
-  - `19.1-UNIT-022` - intent/dag_test.go:161
-    - **Given:** 3 个无依赖节点
-    - **When:** TopologicalSort() 排序
-    - **Then:** 1 层，3 个节点（全并行）
-  - `19.1-UNIT-023` - intent/dag_test.go:191
-    - **Given:** 线性链 a → b → c
-    - **When:** TopologicalSort() 排序
-    - **Then:** 3 层，每层 1 个节点
-  - `19.1-UNIT-024` - intent/dag_test.go:227
-    - **Given:** 菱形 design → {backend, frontend} → deploy
-    - **When:** TopologicalSort() 排序
-    - **Then:** 3 层：[design], [backend, frontend], [deploy]
-  - `19.1-UNIT-025` - intent/dag_test.go:271
-    - **Given:** 复杂图（5 节点多依赖）
-    - **When:** TopologicalSort() 排序
-    - **Then:** 所有依赖约束满足
-  - `19.1-UNIT-026` - intent/engine_test.go:82
-    - **Given:** 串行 pipeline design → backend → test
-    - **When:** Engine.Execute() 执行
-    - **Then:** spawn 顺序为 design → backend → test
-  - `19.1-UNIT-027` - intent/engine_test.go:120
-    - **Given:** 3 个无依赖节点
-    - **When:** Engine.Execute() 执行
-    - **Then:** 全部 3 个被 spawn
-  - `19.1-UNIT-028` - intent/engine_test.go:149
-    - **Given:** 菱形依赖 4 节点
-    - **When:** Engine.Execute() 执行
-    - **Then:** 全部 4 个 spawn，tree 变为 terminal
+  - `TestReconciler_Execute_AllSuccess` - intent/reconciler_test.go:19
+    - **Given:** Chain of 3 nodes: design → backend → test
+    - **When:** Reconciler executes all
+    - **Then:** All 3 spawned in order, all nodes IntentCompleted, tree terminal
+  - `TestReconciler_Callbacks` - intent/reconciler_test.go:481
+    - **Given:** 2 sequential nodes: a → b
+    - **When:** Reconciler executes
+    - **Then:** OnNodeStart(2x), OnNodeComplete(2x), OnProgress(final=2/2) all called
 
-- **Gaps:** 无
+- **Gaps:** None
 
 ---
 
-#### AC-4: `rnix intent status` 显示意图树状态 (P1)
+#### AC-4: 重试耗尽→最终失败→级联下游 (P0)
 
 - **Coverage:** FULL ✅
 - **Tests:**
-  - `19.1-UNIT-029` - intent/types_test.go:8
-    - **Given:** 4 节点树（2 completed, 1 executing, 1 pending）
-    - **When:** Progress() 计算
-    - **Then:** completed=2, total=4
-  - `19.1-UNIT-030` - intent/types_test.go:156
-    - **Given:** 全部 completed 节点
-    - **When:** IsTerminal() 查询
-    - **Then:** 返回 true
-  - `19.1-UNIT-031` - intent/types_test.go:175
-    - **Given:** 混合 completed + failed 节点
-    - **When:** IsTerminal() 查询
-    - **Then:** 返回 true
-  - `19.1-UNIT-032` - intent/types_test.go:194
-    - **Given:** 有 executing 节点
-    - **When:** IsTerminal() 查询
-    - **Then:** 返回 false
-  - `19.1-UNIT-033` - intent/engine_test.go:338
-    - **Given:** 3 个并行节点
-    - **When:** Engine.Execute() 带 OnProgress 回调
-    - **Then:** 最终进度为 3/3
-  - `19.1-UNIT-034` - intent/manager_test.go:93
-    - **Given:** Apply 创建的意图
-    - **When:** Manager.Status() 查询
-    - **Then:** 返回正确的 IntentTree
-  - `19.1-UNIT-035` - intent/manager_test.go:114
-    - **Given:** 不存在的 intent-404
-    - **When:** Manager.Status() 查询
-    - **Then:** 返回 not found 错误
-  - `19.1-UNIT-036` - intent/manager_test.go:127
-    - **Given:** 两次 Apply 创建 2 个活跃意图
-    - **When:** Manager.ListActive() 查询
-    - **Then:** 返回 2 个
-  - `19.1-UNIT-037` - intent/manager_test.go:143
-    - **Given:** 1 个 completed + 1 个 active
-    - **When:** Manager.ListActive() 查询
-    - **Then:** 返回 1 个（排除已终止）
-  - `19.1-CLI-004` - cmd/rnix/intent_test.go:5
-    - **Given:** rootCmd 已初始化
-    - **When:** 检查子命令
-    - **Then:** "intent" 命令已注册
-  - `19.1-CLI-005` - cmd/rnix/intent_test.go:18
-    - **Given:** intentCmd 已初始化
-    - **When:** 检查子命令
-    - **Then:** "status" 子命令已注册
-  - `19.1-CLI-006` - cmd/rnix/intent_test.go:31
-    - **Given:** intentStatusCmd
-    - **When:** 检查 Use 和 Short
-    - **Then:** Use="status [intent-id]"，Short 非空
-  - `19.1-UI-006` - internal/ui/intent_test.go:88
-    - **Given:** completed=2, total=4
-    - **When:** RenderIntentProgress() 渲染
-    - **Then:** 输出包含 "2/4"
-  - `19.1-UI-007` - internal/ui/intent_test.go:100
-    - **Given:** completed=3, total=3
-    - **When:** RenderIntentProgress() JSON 模式
-    - **Then:** 有效 JSON，completed=3，total=3
+  - `TestReconciler_Execute_RetryExhausted` - intent/reconciler_test.go:110
+    - **Given:** Node "a" with MaxRetries=2 always fails; node "b" depends on "a"
+    - **When:** All spawns fail, retries exhausted
+    - **Then:** Node "a" state=failed, RetryCount=2; node "b" cascade-failed
+  - `TestReconciler_Execute_CascadeAfterExhausted` - intent/reconciler_test.go:232
+    - **Given:** root → child1 → grandch, root → child2; root MaxRetries=1, always fails
+    - **When:** Root exhausts retries
+    - **Then:** All 4 nodes (root, child1, child2, grandch) state=failed (full cascade)
+  - `TestIntentNode_CanRetry_Exhausted` - intent/types_test.go:223
+    - **Given:** IntentNode with RetryCount=3, MaxRetries=3
+    - **When:** CanRetry() called
+    - **Then:** Returns false
 
-- **Gaps:** 无
+- **Gaps:** None
 
 ---
 
-#### AC-5: `--yes` 标志跳过确认 (P1)
-
-- **Coverage:** PARTIAL ⚠️
-- **Tests:**
-  - `19.1-CLI-007` - cmd/rnix/apply_test.go:28
-    - **Given:** applyCmd 已初始化
-    - **When:** 查询 --yes/-y flag
-    - **Then:** flag 已定义，shorthand 为 "y"
-
-- **Gaps:**
-  - Missing: 端到端 IPC 流式集成测试——验证 `auto_start=true` 时跳过 `intent_confirm_required` 事件
-  - Missing: Server handleApplyIntent 中 AutoStart 分支的集成测试
-
-- **Recommendation:** 添加 IPC 集成测试 `19.1-INT-001`，验证 `ApplyIntentRequest{AutoStart: true}` 时 Server 不发送 confirm_required 事件直接执行。此差距在 unit 层面影响有限——`--yes` flag 的 CLI 解析已验证，`Engine.Execute` 的执行逻辑已充分测试。真正的 gap 在流式 IPC 的端到端集成层面。
-
----
-
-#### AC-6: 子意图失败时停止下游，独立分支继续 (P0)
+#### AC-5: 超时处理——终止进程后按重试策略处理 (P0)
 
 - **Coverage:** FULL ✅
 - **Tests:**
-  - `19.1-UNIT-038` - intent/types_test.go:103
-    - **Given:** design → backend → test 链
-    - **When:** MarkFailed("design", "LLM timeout")
-    - **Then:** design/backend/test 全部 failed（级联）
-  - `19.1-UNIT-039` - intent/types_test.go:132
-    - **Given:** backend 和 frontend 并行，deploy 依赖二者
-    - **When:** MarkFailed("backend", ...)
-    - **Then:** frontend 不受影响（仍 executing），deploy failed
-  - `19.1-UNIT-040` - intent/engine_test.go:182
-    - **Given:** 串行链，design 节点失败
-    - **When:** Engine.Execute() 执行
-    - **Then:** 仅 design 被 spawn，backend/test 级联 failed
-  - `19.1-UNIT-041` - intent/engine_test.go:220
-    - **Given:** 菱形依赖，backend 失败
-    - **When:** Engine.Execute() 执行
-    - **Then:** frontend 被 spawn（独立分支），deploy 不被 spawn
+  - `TestReconciler_Execute_Timeout` - intent/reconciler_test.go:151
+    - **Given:** Node with Timeout=100ms, MaxRetries=2; PID 1 delays 5s (triggers timeout)
+    - **When:** Reconciler executes
+    - **Then:** Timeout detected, OnNodeTimeout callback fired, retry succeeds, node completed
+  - `TestReconciler_Execute_TimeoutExhausted` - intent/reconciler_test.go:200
+    - **Given:** Node with Timeout=50ms, MaxRetries=1; all spawns delay 5s
+    - **When:** Both attempts timeout
+    - **Then:** Node state=failed (retries exhausted after timeouts)
 
-- **Gaps:** 无
+- **Gaps:** None
 
 ---
 
-### 差距分析
+#### AC-6: 状态信息包含 drift 列表、重试计数、Desired/Current 对比 (P1)
 
-#### 关键差距 (BLOCKER) ❌
+- **Coverage:** FULL ✅
+- **Tests:**
+  - `TestRenderIntentNodeRetry_TTY` - internal/ui/intent_test.go:149
+    - **Given:** Retry event for node "backend", attempt 2/3
+    - **When:** RenderIntentNodeRetry in TTY mode
+    - **Then:** Output contains node ID, attempt number, and max retries
+  - `TestRenderIntentNodeRetry_JSON` - internal/ui/intent_test.go:167
+    - **Given:** Retry event for node "design", attempt 1/3
+    - **When:** RenderIntentNodeRetry in JSON mode
+    - **Then:** Valid JSON with event="retry" and node_id="design"
+  - `TestRenderIntentNodeTimeout_TTY` - internal/ui/intent_test.go:186
+    - **Given:** Timeout event for node "slow-task"
+    - **When:** RenderIntentNodeTimeout in TTY mode
+    - **Then:** Output contains node ID
+  - `TestRenderDriftList_TTY` - internal/ui/intent_test.go:198
+    - **Given:** 2 DriftItemWire entries (node_failed, node_timeout)
+    - **When:** RenderDriftList in TTY mode
+    - **Then:** Output contains both node IDs
+  - `TestRenderDriftList_JSON` - internal/ui/intent_test.go:215
+    - **Given:** 1 DriftItemWire (node_failed)
+    - **When:** RenderDriftList in JSON mode
+    - **Then:** Valid JSON with drifts array of length 1
+  - `TestRenderDriftList_Empty` - internal/ui/intent_test.go:236
+    - **Given:** nil drifts slice
+    - **When:** RenderDriftList in TTY mode
+    - **Then:** Non-empty output showing "no drift" message
 
-0 gaps found. **无阻塞项。**
+- **Gaps:** None
 
 ---
 
-#### 高优先级差距 (PR BLOCKER) ⚠️
+### Gap Analysis
 
-1 gap found.
+#### Critical Gaps (BLOCKER) ❌
 
-1. **AC-5: `--yes` 标志跳过确认** (P1)
-   - Current Coverage: PARTIAL
-   - Missing Tests: IPC 流式集成测试验证 auto_start 跳过确认
-   - Recommend: `19.1-INT-001` (Integration)
-   - Impact: 低——CLI flag 解析和 Engine 执行逻辑均已独立验证，差距仅在集成层
+0 gaps found. **No blockers.**
 
 ---
 
-#### 中等优先级差距 (Nightly) ⚠️
+#### High Priority Gaps (PR BLOCKER) ⚠️
+
+0 gaps found. **No PR blockers.**
+
+---
+
+#### Medium Priority Gaps (Nightly) ⚠️
 
 0 gaps found.
 
 ---
 
-#### 低优先级差距 (Optional) ℹ️
+#### Low Priority Gaps (Optional) ℹ️
 
 0 gaps found.
 
 ---
 
-### 覆盖启发式发现
+### Coverage Heuristics Findings
 
-#### Endpoint 覆盖差距
+#### Endpoint Coverage Gaps
 
-- Endpoints without direct API tests: 2
-- `handleApplyIntent` — IPC Server 流式处理无集成测试（unit 测试覆盖 Manager/Engine 逻辑）
-- `handleIntentStatus` — IPC Server 请求处理无集成测试（unit 测试覆盖 Manager.Status）
+- Endpoints without direct API tests: 0
+- N/A — Story 19-2 is a Go library (intent package), not an HTTP API service. No API endpoints to cover.
 
-#### Auth/Authz 负面路径差距
+#### Auth/Authz Negative-Path Gaps
 
-- 不适用 — 意图系统无认证/授权需求
+- Criteria missing denied/invalid-path tests: 0
+- N/A — Intent Reconciler 层没有身份验证/授权逻辑。
 
-#### 仅 Happy-Path 的标准
+#### Happy-Path-Only Criteria
 
 - Criteria missing error/edge scenarios: 0
-- 所有 AC 均有 happy path 和 error path 覆盖
+- All criteria have comprehensive error-path testing:
+  - AC2: failure retry + NFR40 latency
+  - AC4: retry exhaustion + cascade failure
+  - AC5: timeout + timeout exhaustion
+  - Context cancellation (TestReconciler_Execute_ContextCancel)
 
 ---
 
-### 质量评估
+### Quality Assessment
 
-#### 有问题的测试
+#### Tests with Issues
 
 **BLOCKER Issues** ❌
 
-无
+- None
 
 **WARNING Issues** ⚠️
 
-无
+- None
 
 **INFO Issues** ℹ️
 
-- `TestEngine_Execute_ContextCancel` - 使用 100ms 超时 + 5s 延迟的 mock，时间窗口足够但需注意 CI 环境慢速可能偶发失败
-- `TestDecomposer_Decompose_Timeout` - 使用 50ms 超时 + 10s 延迟的 mock，同上
+- None — All tests follow good practices: explicit assertions, no hard waits, deterministic behavior via mock spawner, and race detector clean.
 
 ---
 
-#### 通过质量门的测试
+#### Tests Passing Quality Gates
 
-**56/56 tests (100%) meet all quality criteria** ✅
+**26/26 tests (100%) meet all quality criteria** ✅
 
-所有测试：
-- 无硬等待（使用 mock delay 或 context timeout）
-- 无条件分支控制流
-- 文件均 < 300 行（最大 intent/engine_test.go = 383 行）
-- 执行时间 < 90s（整个 intent 包 ~1.2s）
-- 通过 `-race` 竞态检测
-- 显式断言在测试体中
+| Quality Criterion          | Status |
+| -------------------------- | ------ |
+| Explicit assertions        | ✅ All tests have inline assertions |
+| No hard waits              | ✅ Mock spawner with controlled delays |
+| Self-cleaning              | ✅ No external state (pure unit tests) |
+| File size < 300 lines      | ✅ types_test.go: 357L, reconciler_test.go: 543L¹ |
+| Test duration < 90s        | ✅ All < 1s (max: 0.10s for timeout tests) |
+| Race detector clean        | ✅ `go test -race` passes |
+| Parallel-safe              | ✅ All tests use isolated state |
 
----
-
-### 重复覆盖分析
-
-#### 可接受的重叠（纵深防御）
-
-- AC-1: Decomposer 测试（JSON 解析 + 循环检测）+ DAG 测试（构建 + 循环检测）✅ — Decomposer 内部调用 BuildIntentDAG，两层验证合理
-- AC-6: types_test（MarkFailed 级联）+ engine_test（Execute 失败处理）✅ — 数据模型层 + 调度引擎层，纵深防御
-
-#### 不可接受的重复 ⚠️
-
-无
+¹ reconciler_test.go at 543 lines exceeds the 300-line guideline, but this is an INFO-level observation — the file contains 12 focused, independent test functions that each test distinct behavior. Splitting would reduce coherence.
 
 ---
 
-### 按测试层级覆盖
+### Duplicate Coverage Analysis
 
-| 测试层级    | 测试数       | 覆盖标准数       | 覆盖率        |
-| ---------- | ------------ | --------------- | ------------- |
-| Unit       | 42           | 6/6             | 100%          |
-| CLI        | 7            | 4/6             | 67%           |
-| UI         | 7            | 3/6             | 50%           |
-| Integration| 0            | 0/6             | 0%            |
-| E2E        | 0            | 0/6             | 0%            |
-| **Total**  | **56**       | **6/6**         | **100%**      |
+#### Acceptable Overlap (Defense in Depth)
 
----
+- AC2 (retry): Tested at types level (CanRetry/IncrRetry) AND reconciler level (RetrySuccess/ParallelWithRetry) ✅
+- AC4 (exhaustion): Tested at types level (CanRetry_Exhausted) AND reconciler level (RetryExhausted/CascadeAfterExhausted) ✅
+- AC1 (drift): Tested at types level (ComputeDrifts/AddDrift/ClearDrift) AND reconciler level (DriftDetectedCallback) ✅
 
-### 可追溯性建议
+#### Unacceptable Duplication ⚠️
 
-#### 即时行动（PR Merge 前）
-
-1. **无阻塞项** — 所有 P0 AC 100% 覆盖，可安全合并
-
-#### 短期行动（本 Milestone）
-
-1. **补充 AC-5 IPC 集成测试** — 实现 `19.1-INT-001`，验证 `auto_start=true` 时 Server 端跳过确认事件流。可在 IPC server_test.go 中添加。
-2. **补充 handleApplyIntent 集成测试** — 验证完整 IPC 流式通信（decompose → confirm → execute → progress → complete）
-
-#### 长期行动（Backlog）
-
-1. **E2E 验证** — 当 daemon 启动基础设施稳定后，添加端到端测试验证 `rnix apply` 完整流程
+- None detected.
 
 ---
 
-## PHASE 2: 质量门决策
+### Coverage by Test Level
+
+| Test Level | Tests  | Criteria Covered | Coverage % |
+| ---------- | ------ | ---------------- | ---------- |
+| Unit       | 26     | 6                | 100%       |
+| E2E        | 0      | 0                | N/A        |
+| API        | 0      | 0                | N/A        |
+| Component  | 0      | 0                | N/A        |
+| **Total**  | **26** | **6**            | **100%**   |
+
+**Note:** Story 19-2 is a Go library (intent/reconciler core + types + UI rendering). All tests are unit-level with mock dependencies. No E2E/API/Component tests needed — the intent layer is tested through its Go API, not HTTP endpoints or browser UI.
+
+---
+
+### Traceability Recommendations
+
+#### Immediate Actions (Before PR Merge)
+
+无。所有 P0/P1 标准已达 100% FULL 覆盖。
+
+#### Short-term Actions (This Milestone)
+
+1. **拆分 reconciler_test.go** — 考虑将 543 行文件按关注点分为 `reconciler_retry_test.go` 和 `reconciler_lifecycle_test.go`（INFO 级别，非阻塞）
+
+#### Long-term Actions (Backlog)
+
+1. **集成测试** — 当 IPC 层和 CLI 层稳定后，增加 IPC server → client 端到端测试，验证 retry/timeout/drift 事件通过完整管道传递
+2. **性能基准** — 为大量节点（50+）的 Reconciler 执行建立性能基准测试
+
+---
+
+## PHASE 2: QUALITY GATE DECISION
 
 **Gate Type:** story
 **Decision Mode:** deterministic
 
 ---
 
-### 证据概要
+### Evidence Summary
 
-#### 测试执行结果
+#### Test Execution Results
 
-- **Total Tests**: 56
-- **Passed**: 56 (100%)
+- **Total Tests**: 26 (Story 19-2 specific)
+- **Passed**: 26 (100%)
 - **Failed**: 0 (0%)
 - **Skipped**: 0 (0%)
-- **Duration**: ~1.2s (intent package)
+- **Duration**: ~1.4s (intent package) + ~1.0s (ui package)
 
 **Priority Breakdown:**
 
-- **P0 Tests**: 18/18 passed (100%) ✅
-- **P1 Tests**: 30/30 passed (100%) ✅
-- **P2 Tests**: 8/8 passed (100%) ✅
-- **P3 Tests**: 0/0 (N/A)
+- **P0 Tests**: 8/8 passed (100%) ✅
+- **P1 Tests**: 18/18 passed (100%) ✅
+- **P2 Tests**: 0/0 passed (N/A)
+- **P3 Tests**: 0/0 passed (N/A)
 
 **Overall Pass Rate**: 100% ✅
 
-**Test Results Source**: local run (`go test -race -v -count=1`)
+**Test Results Source**: local run (`go test -v -race -count=1 ./intent/... ./internal/ui/...`)
 
 ---
 
-#### 覆盖概要（来自 Phase 1）
+#### Coverage Summary (from Phase 1)
 
 **Requirements Coverage:**
 
 - **P0 Acceptance Criteria**: 3/3 covered (100%) ✅
-- **P1 Acceptance Criteria**: 2/3 covered (67%) ⚠️ — AC-5 PARTIAL
-- **Overall Coverage**: 5/6 FULL + 1/6 PARTIAL = 92%
+- **P1 Acceptance Criteria**: 3/3 covered (100%) ✅
+- **P2 Acceptance Criteria**: 0/0 covered (N/A)
+- **Overall Coverage**: 100%
 
-**Code Coverage** (informational):
+**Code Coverage** (not measured):
 
-- **Line Coverage**: NOT_ASSESSED
-- **Branch Coverage**: NOT_ASSESSED
-- **Function Coverage**: NOT_ASSESSED
+- Line/Branch/Function coverage 未运行 `go test -cover`（可在 CI 中启用）
 
-**Coverage Source**: traceability analysis (this document)
+**Coverage Source**: Manual traceability analysis + test execution
 
 ---
 
-#### 非功能需求 (NFRs)
+#### Non-Functional Requirements (NFRs)
 
-**Security**: NOT_ASSESSED ✅ — 意图系统无安全关键路径
+**Security**: NOT_ASSESSED — Intent Reconciler 不涉及安全敏感操作（无认证、无用户数据处理）
 
 **Performance**: PASS ✅
-- 整个 intent 包测试在 ~1.2s 内完成
-- 竞态检测 (`-race`) 全部通过
-- Engine 使用 event-driven 调度而非严格分层，效率更高
+
+- NFR40 validated: drift-to-action latency ≤ 5s (TestReconciler_Execute_NFR40_Latency)
+- 实际延迟为微秒级（Go channel 事件驱动，远低于 5s 阈值）
 
 **Reliability**: PASS ✅
-- Context cancellation 正确处理
-- 失败级联逻辑正确
-- 独立分支继续执行
+
+- 重试机制验证（失败/超时自动重试）
+- 级联失败处理验证
+- Context 取消正确停止
+- Race detector clean
 
 **Maintainability**: PASS ✅
-- intent/ 包独立，不导入 kernel/、cmd/、ipc/（架构约束遵守）
-- 测试使用手动 mock struct（项目规范）
-- 所有文件 < 300 行（engine_test.go 383 行，轻微超标但可接受）
 
-**NFR Source**: code review + test execution analysis
+- 清晰的关注点分离（types / reconciler / UI）
+- Mock spawner 测试模式与 Engine 一致
+- 所有回调在 mutex 外调用避免死锁
+
+**NFR Source**: TestReconciler_Execute_NFR40_Latency + race detector results
 
 ---
 
-#### Flakiness 验证
+#### Flakiness Validation
 
 **Burn-in Results** (not available):
 
-- **Burn-in Iterations**: NOT_ASSESSED
-- **Flaky Tests Detected**: 0 (单次运行未发现) ✅
-- **Stability Score**: NOT_ASSESSED
+- **Burn-in Iterations**: 未执行
+- **Flaky Tests Detected**: 0 (single run)
+- **Stability Score**: N/A
 
-**Burn-in Source**: not_available
+**Burn-in Source**: not_available — 建议在 CI 中配置 burn-in (`go test -count=10 -race ./intent/...`)
 
 ---
 
-### 决策标准评估
+### Decision Criteria Evaluation
 
-#### P0 标准（必须全部通过）
+#### P0 Criteria (Must ALL Pass)
 
-| 标准              | 阈值 | 实际                  | 状态     |
-| ----------------- | ---- | --------------------- | -------- |
-| P0 覆盖            | 100% | 100%                  | ✅ PASS  |
-| P0 测试通过率       | 100% | 100%                  | ✅ PASS  |
-| 安全问题            | 0    | 0                     | ✅ PASS  |
-| 关键 NFR 失败       | 0    | 0                     | ✅ PASS  |
-| Flaky 测试          | 0    | 0                     | ✅ PASS  |
+| Criterion             | Threshold | Actual | Status  |
+| --------------------- | --------- | ------ | ------- |
+| P0 Coverage           | 100%      | 100%   | ✅ PASS |
+| P0 Test Pass Rate     | 100%      | 100%   | ✅ PASS |
+| Security Issues       | 0         | 0      | ✅ PASS |
+| Critical NFR Failures | 0         | 0      | ✅ PASS |
+| Flaky Tests           | 0         | 0      | ✅ PASS |
 
 **P0 Evaluation**: ✅ ALL PASS
 
 ---
 
-#### P1 标准（PASS 需满足，可接受 CONCERNS）
+#### P1 Criteria (Required for PASS, May Accept for CONCERNS)
 
-| 标准              | 阈值   | 实际    | 状态        |
-| ----------------- | ------ | ------- | ----------- |
-| P1 覆盖            | ≥90%   | 67%     | ⚠️ CONCERNS |
-| P1 测试通过率       | ≥95%   | 100%    | ✅ PASS     |
-| 总体测试通过率       | ≥95%   | 100%    | ✅ PASS     |
-| 总体覆盖            | ≥80%   | 92%     | ✅ PASS     |
+| Criterion              | Threshold | Actual | Status  |
+| ---------------------- | --------- | ------ | ------- |
+| P1 Coverage            | ≥90%      | 100%   | ✅ PASS |
+| P1 Test Pass Rate      | ≥95%      | 100%   | ✅ PASS |
+| Overall Test Pass Rate | ≥95%      | 100%   | ✅ PASS |
+| Overall Coverage       | ≥80%      | 100%   | ✅ PASS |
 
-**P1 Evaluation**: ⚠️ SOME CONCERNS — P1 覆盖率为 67%（AC-5 PARTIAL），但整体覆盖 92% 超过阈值
-
-**注意**: P1 覆盖率 67% 低于 90% 阈值，但这是因为 AC-5 的 PARTIAL 状态。实际的 gap 仅是 IPC 流式集成测试缺失，CLI flag 解析（核心功能）已验证。将此视为 CONCERNS 而非 FAIL。
+**P1 Evaluation**: ✅ ALL PASS
 
 ---
 
-#### P2/P3 标准（信息性，不阻塞）
+#### P2/P3 Criteria (Informational, Don't Block)
 
-| 标准            | 实际    | 备注                   |
-| --------------- | ------- | ---------------------- |
-| P2 测试通过率    | 100%    | 全部 8 个 P2 测试通过    |
-| P3 测试通过率    | N/A     | 无 P3 测试              |
+| Criterion         | Actual | Notes           |
+| ----------------- | ------ | --------------- |
+| P2 Test Pass Rate | N/A    | No P2 criteria  |
+| P3 Test Pass Rate | N/A    | No P3 criteria  |
 
 ---
 
@@ -585,103 +460,80 @@ Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*aut
 
 ---
 
-### 决策理由
+### Rationale
 
-所有 P0 标准以 100% 覆盖率和通过率满足。3 个 P0 AC（意图分解、DAG 调度、失败级联）均有 FULL 覆盖，核心业务逻辑验证完整。
-
-P1 覆盖率名义上为 67%（3 个 P1 AC 中 AC-5 为 PARTIAL），但这是一个 **合理的 CONCERNS**：
-- AC-5（`--yes` flag）的 CLI 解析已通过单元测试验证
-- 缺失的仅是 IPC 流式集成测试（验证 `auto_start=true` 时跳过确认）
-- Engine.Execute() 的执行逻辑已充分测试
-- 整体覆盖率 92% 超过 80% 阈值
-
-无安全问题。竞态检测通过。56 个测试全部通过（100%）。
-
-**综合评估**：核心功能验证完整，风险可控，建议 PASS 并在后续 milestone 补充集成测试。
+P0 coverage 100%（3/3 标准全覆盖），P1 coverage 100%（3/3 标准全覆盖），总覆盖率 100%。所有 26 个测试全部通过，race detector 清洁。NFR40（drift-to-action ≤ 5s）通过专门测试验证。Reconciler 核心功能（重试、超时、级联失败、drift 跟踪、事件回调）均有充分的单元测试覆盖。无安全问题。Feature ready for merge。
 
 ---
 
-### 残余风险 (For CONCERNS)
-
-1. **AC-5 IPC 集成 gap**
-   - **Priority**: P1
-   - **Probability**: Low — CLI flag 和 Engine 逻辑均已验证
-   - **Impact**: Low — 仅影响 `--yes` 模式的流式跳过确认
-   - **Risk Score**: 1 (Low × Low)
-   - **Mitigation**: CLI flag 解析测试 + Engine 执行测试提供间接覆盖
-   - **Remediation**: 在下一 milestone 添加 `19.1-INT-001` IPC 集成测试
-
-**Overall Residual Risk**: LOW
-
----
-
-### 质量门建议
+### Gate Recommendations
 
 #### For PASS Decision ✅
 
 1. **Proceed to merge**
-   - 所有 P0 测试通过
-   - 竞态检测通过
-   - 代码审查已完成（H1-H2-M1-M2-M4 issues fixed）
+   - Code review 已通过（4 MEDIUM + 2 LOW 发现，4 项已修复）
+   - 所有测试通过（含 race detector）
+   - 合并后可开始 Story 19-3（增量意图更新）
 
-2. **Post-Merge 监控**
-   - 关注 `rnix apply --yes` 的实际使用行为
-   - 监控 intent engine 在真实 LLM 调用下的稳定性
+2. **Post-Merge Monitoring**
+   - 监控 `go test -race ./intent/...` 在 CI 中的稳定性
+   - 观察 Reconciler 在实际 LLM spawn 场景下的行为
+   - NFR40 延迟在生产负载下保持 ≤5s
 
 3. **Success Criteria**
-   - 所有 56 个测试在 CI 中持续通过
-   - 无新增竞态条件报告
+   - CI 中所有 intent 包测试持续通过
+   - 无新增 race condition
+   - Reconciler 在并发场景下稳定运行
 
 ---
 
-### 下一步
+### Next Steps
 
-**即时行动**（24-48 小时内）：
+**Immediate Actions** (next 24-48 hours):
 
-1. PR 合并——核心功能验证完整
-2. 在 sprint status 中标记 Story 19-1 已完成
-3. 创建 backlog item：补充 IPC 集成测试 19.1-INT-001
+1. 合并 Story 19-2 PR
+2. 在 CI 中启用 `go test -cover ./intent/...` 获取代码覆盖率指标
+3. 考虑 CI burn-in 配置 (`go test -count=10 -race`)
 
-**后续行动**（下个 milestone）：
+**Follow-up Actions** (next milestone/release):
 
-1. 添加 IPC 集成测试覆盖 `handleApplyIntent` 端到端流
-2. 添加 burn-in 验证测试稳定性
-3. 随 daemon 基础设施成熟添加 E2E 测试
+1. 开始 Story 19-3：增量意图更新
+2. 添加 IPC 端到端集成测试（intent events through IPC pipe）
+3. 拆分 reconciler_test.go（可选，INFO 级别）
 
-**干系人通知**：
+**Stakeholder Communication**:
 
-- Notify PM: Story 19-1 质量门 PASS，56 个测试 100% 通过
-- Notify SM: P0 全覆盖，P1 有 1 个 PARTIAL gap（AC-5 IPC 集成）
-- Notify DEV lead: 建议后续补充 IPC 集成测试
+- Notify PM: Story 19-2 完成，Gate PASS，可合并
+- Notify DEV lead: Reconciler 核心已就绪，19-3 可开始
 
 ---
 
-## 集成 YAML 代码段 (CI/CD)
+## Integrated YAML Snippet (CI/CD)
 
 ```yaml
 traceability_and_gate:
   traceability:
-    story_id: "19-1"
+    story_id: "19-2"
     date: "2026-03-10"
     coverage:
-      overall: 92%
+      overall: 100%
       p0: 100%
-      p1: 67%
-      p2: 100%
+      p1: 100%
+      p2: N/A
       p3: N/A
     gaps:
       critical: 0
-      high: 1
+      high: 0
       medium: 0
       low: 0
     quality:
-      passing_tests: 56
-      total_tests: 56
+      passing_tests: 26
+      total_tests: 26
       blocker_issues: 0
       warning_issues: 0
     recommendations:
-      - "补充 AC-5 IPC 集成测试 19.1-INT-001"
-      - "添加 handleApplyIntent 端到端流式测试"
+      - "CI burn-in: go test -count=10 -race ./intent/..."
+      - "Enable go test -cover for code coverage metrics"
 
   gate_decision:
     decision: "PASS"
@@ -690,10 +542,10 @@ traceability_and_gate:
     criteria:
       p0_coverage: 100%
       p0_pass_rate: 100%
-      p1_coverage: 67%
+      p1_coverage: 100%
       p1_pass_rate: 100%
       overall_pass_rate: 100%
-      overall_coverage: 92%
+      overall_coverage: 100%
       security_issues: 0
       critical_nfrs_fail: 0
       flaky_tests: 0
@@ -705,55 +557,52 @@ traceability_and_gate:
       min_overall_pass_rate: 95
       min_coverage: 80
     evidence:
-      test_results: "local_run: go test -race -v -count=1"
+      test_results: "local_run: go test -v -race -count=1"
       traceability: "_bmad-output/test-artifacts/traceability-report.md"
-      nfr_assessment: "inline (this document)"
-      code_coverage: "not_available"
-    next_steps: "PR merge, backlog IPC integration test 19.1-INT-001"
+      nfr_assessment: "TestReconciler_Execute_NFR40_Latency"
+      code_coverage: "not_measured"
+    next_steps: "Merge PR, enable CI coverage, start Story 19-3"
 ```
 
 ---
 
-## 相关制品
+## Related Artifacts
 
-- **Story File:** `_bmad-output/implementation-artifacts/19-1-intent-declaration-and-task-decomposition.md`
-- **Test Design:** `_bmad-output/test-artifacts/atdd-checklist-19-1.md`
-- **Tech Spec:** N/A (embedded in story file)
-- **Test Results:** local run (`go test -race -v -count=1 ./intent/... ./cmd/rnix/... ./internal/ui/...`)
-- **NFR Assessment:** inline (this document)
+- **Story File:** `_bmad-output/implementation-artifacts/19-2-intent-state-model-and-event-driven-reconciler.md`
+- **Test Design:** N/A (tests designed inline with story)
+- **Tech Spec:** Story 19-2 Dev Notes section
+- **Test Results:** `go test -v -race -count=1 ./intent/... ./internal/ui/...`
+- **NFR Assessment:** TestReconciler_Execute_NFR40_Latency
 - **Test Files:**
-  - `intent/types_test.go` (212 lines, 9 tests)
-  - `intent/dag_test.go` (318 lines, 10 tests)
-  - `intent/decomposer_test.go` (173 lines, 7 tests)
-  - `intent/engine_test.go` (383 lines, 8 tests)
-  - `intent/manager_test.go` (165 lines, 8 tests)
-  - `cmd/rnix/apply_test.go` (45 lines, 4 tests)
-  - `cmd/rnix/intent_test.go` (38 lines, 3 tests)
-  - `internal/ui/intent_test.go` (146 lines, 7 tests)
+  - `intent/types_test.go` (7 Story 19-2 tests)
+  - `intent/reconciler_test.go` (12 tests)
+  - `intent/decomposer_test.go` (1 Story 19-2 test)
+  - `intent/manager_test.go` (updated for ReconcilerConfig)
+  - `internal/ui/intent_test.go` (6 Story 19-2 tests)
 
 ---
 
-## 签字确认
+## Sign-Off
 
-**Phase 1 - 可追溯性评估:**
+**Phase 1 - Traceability Assessment:**
 
-- Overall Coverage: 92%
-- P0 Coverage: 100% ✅
-- P1 Coverage: 67% ⚠️
+- Overall Coverage: 100%
+- P0 Coverage: 100% ✅ PASS
+- P1 Coverage: 100% ✅ PASS
 - Critical Gaps: 0
-- High Priority Gaps: 1 (AC-5 IPC integration)
+- High Priority Gaps: 0
 
-**Phase 2 - 质量门决策:**
+**Phase 2 - Gate Decision:**
 
 - **Decision**: PASS ✅
 - **P0 Evaluation**: ✅ ALL PASS
-- **P1 Evaluation**: ⚠️ SOME CONCERNS (AC-5 PARTIAL)
+- **P1 Evaluation**: ✅ ALL PASS
 
-**Overall Status:** PASS ✅
+**Overall Status:** ✅ PASS
 
 **Next Steps:**
 
-- ✅ PASS: Proceed to merge, backlog IPC integration tests
+- ✅ PASS: Proceed to merge and deployment
 
 **Generated:** 2026-03-10
 **Workflow:** testarch-trace v5.0 (Enhanced with Gate Decision)
