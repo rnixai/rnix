@@ -232,6 +232,18 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: loading skills %v", loadedNames), "")
 					// Update proc.Skills so ps/ProcInfo reflects differentiated skills
 					proc.Skills = loadedNames
+
+					// Record initial differentiation lineage (Story 20.5)
+					if proc.lineage == nil {
+						proc.lineage = NewLineage()
+					}
+					proc.lineage.Record(LineageEvent{
+						Timestamp:  time.Now(),
+						Phase:      "initial",
+						Skills:     loadedNames,
+						Trigger:    intent,
+						FromMemory: fromMemory,
+					})
 				}
 
 				// Record differentiation path to memory (Story 20.4)
@@ -1102,6 +1114,21 @@ func (k *KernelImpl) GetProcess(pid types.PID) (*Process, bool) {
 // RemoveProcess removes a process from the process table.
 func (k *KernelImpl) RemoveProcess(pid types.PID) {
 	k.procTable.Delete(pid)
+}
+
+// GetLineage returns the lineage events for the given PID.
+// Returns nil events (no error) if the process has no lineage (not a differentiated process).
+// Returns an error if the process is not found.
+func (k *KernelImpl) GetLineage(pid types.PID) ([]LineageEvent, error) {
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return nil, NewSyscallError("GetLineage", pid, "", fmt.Errorf("process not found"), types.ErrNotFound)
+	}
+	lineage := proc.GetLineage()
+	if lineage == nil {
+		return nil, nil
+	}
+	return lineage.Events(), nil
 }
 
 // Kill sends a signal to the target process.

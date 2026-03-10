@@ -39,6 +39,7 @@ const (
 	MethodIntentConfirm Method = "intent_confirm"
 	MethodApplyIncrementalIntent Method = "apply_incremental_intent"
 	MethodIntentList    Method = "intent_list"
+	MethodLineage       Method = "lineage"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -590,6 +591,28 @@ type DriftItemWire struct {
 	Type         string `json:"type"`
 	Message      string `json:"message"`
 	DetectedAtMs int64  `json:"detected_at_ms"`
+}
+
+// --- Lineage ---
+
+// LineageRequest is the payload for MethodLineage.
+type LineageRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// LineageEvent is the wire-format representation of kernel.LineageEvent.
+type LineageEvent struct {
+	TimestampMs int64    `json:"timestamp_ms"`
+	Phase       string   `json:"phase"`
+	Skills      []string `json:"skills"`
+	Trigger     string   `json:"trigger"`
+	FromMemory  bool     `json:"from_memory"`
+}
+
+// LineageResponse is the response for MethodLineage.
+type LineageResponse struct {
+	PID    types.PID      `json:"pid"`
+	Events []LineageEvent `json:"events"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

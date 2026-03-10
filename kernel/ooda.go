@@ -510,5 +510,15 @@ func (k *KernelImpl) oodaActSpecialize(proc *Process, decision *OODADecision) st
 		k.diffMemory.Record(proc.Intent, allSkills)
 	}
 
+	// Record progressive specialization lineage (Story 20.5)
+	if proc.lineage != nil {
+		proc.lineage.Record(LineageEvent{
+			Timestamp: time.Now(),
+			Phase:     "progressive",
+			Skills:    []string{skillName},
+			Trigger:   decision.Reason,
+		})
+	}
+
 	return fmt.Sprintf("skill %q loaded successfully", skillName)
 }
