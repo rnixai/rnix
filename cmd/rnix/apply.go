@@ -51,16 +51,24 @@ func runApply(cmd *cobra.Command, args []string) error {
 		case ipc.StreamIntentDecomposed:
 			var tree ipc.IntentTreeWire
 			if err := json.Unmarshal(ev.Payload, &tree); err == nil {
+				intentID = tree.ID
 				ui.RenderIntentTree(r, &tree, mode)
 			}
 
 		case ipc.StreamIntentConfirmReq:
-			if !flagAutoStart && intentID != "" {
-				fmt.Fprint(os.Stderr, "\n确认执行此计划? [y/N] ")
-				var answer string
-				fmt.Scanln(&answer)
-				confirm := answer == "y" || answer == "Y" || answer == "yes"
-				_ = client.ConfirmIntent(intentID, confirm)
+			var payload ipc.IntentNodeEventPayload
+			if err := json.Unmarshal(ev.Payload, &payload); err == nil {
+				confirmID := payload.NodeID
+				if confirmID == "" {
+					confirmID = intentID
+				}
+				if !flagAutoStart && confirmID != "" {
+					fmt.Fprint(os.Stderr, "\n确认执行此计划? [y/N] ")
+					var answer string
+					fmt.Scanln(&answer)
+					confirm := answer == "y" || answer == "Y" || answer == "yes"
+					_ = client.ConfirmIntent(confirmID, confirm)
+				}
 			}
 
 		case ipc.StreamIntentNodeStart:

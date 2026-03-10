@@ -284,7 +284,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		case MethodCtxGrowth:
 			s.handleCtxGrowth(conn, req.Payload)
 		case MethodApplyIntent:
-			s.handleApplyIntent(conn, req.Payload)
+			s.handleApplyIntent(conn, req.Payload, scanner)
 			return // streaming method
 		case MethodIntentStatus:
 			s.handleIntentStatus(conn, req.Payload)
@@ -1638,7 +1638,7 @@ func marshalJSON(v any) json.RawMessage {
 
 // --- Intent Handlers ---
 
-func (s *Server) handleApplyIntent(conn net.Conn, rawPayload json.RawMessage) {
+func (s *Server) handleApplyIntent(conn net.Conn, rawPayload json.RawMessage, connScanner *bufio.Scanner) {
 	if s.intentMgr == nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_available", Message: "intent manager not initialized"}})
 		return
@@ -1656,23 +1656,25 @@ func (s *Server) handleApplyIntent(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	// Send initial response with intent ID
+	var writeMu sync.Mutex
+	syncWriteEvent := func(ev StreamEvent) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		writeStreamEvent(conn, ev)
+	}
+
 	writeResponse(conn, Response{OK: true, Payload: marshalJSON(ApplyIntentResponse{IntentID: intentID, Tree: nil})})
 
-	// Send decomposed event
-	writeStreamEvent(conn, StreamEvent{Type: StreamIntentDecomposed, Payload: treeJSON})
+	syncWriteEvent(StreamEvent{Type: StreamIntentDecomposed, Payload: treeJSON})
 
 	if !req.AutoStart {
-		// Send confirm required event and wait for client confirmation
-		writeStreamEvent(conn, StreamEvent{Type: StreamIntentConfirmReq, Payload: marshalJSON(IntentNodeEventPayload{NodeID: intentID})})
+		syncWriteEvent(StreamEvent{Type: StreamIntentConfirmReq, Payload: marshalJSON(IntentNodeEventPayload{NodeID: intentID})})
 
-		// Read confirmation from the same connection
-		scanner := bufio.NewScanner(conn)
-		if !scanner.Scan() {
+		if !connScanner.Scan() {
 			return
 		}
 		var confirmReq Request
-		if err := json.Unmarshal(scanner.Bytes(), &confirmReq); err != nil {
+		if err := json.Unmarshal(connScanner.Bytes(), &confirmReq); err != nil {
 			return
 		}
 		var confirm IntentConfirmRequest
@@ -1680,35 +1682,34 @@ func (s *Server) handleApplyIntent(conn net.Conn, rawPayload json.RawMessage) {
 			return
 		}
 		if !confirm.Confirm {
-			writeStreamEvent(conn, StreamEvent{Type: StreamIntentComplete, Payload: marshalJSON(IntentNodeEventPayload{Error: "user cancelled"})})
+			syncWriteEvent(StreamEvent{Type: StreamIntentComplete, Payload: marshalJSON(IntentNodeEventPayload{Error: "user cancelled"})})
 			return
 		}
 		if err := s.intentMgr.ConfirmIntent(intentID); err != nil {
-			writeStreamEvent(conn, StreamEvent{Type: StreamError, Payload: marshalJSON(IntentNodeEventPayload{Error: err.Error()})})
+			syncWriteEvent(StreamEvent{Type: StreamError, Payload: marshalJSON(IntentNodeEventPayload{Error: err.Error()})})
 			return
 		}
 	}
 
-	// Execute with streaming callbacks
 	execErr := s.intentMgr.ExecuteIntent(context.Background(), intentID,
 		func(nodeID string, pid uint64) {
-			writeStreamEvent(conn, StreamEvent{Type: StreamIntentNodeStart, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, PID: pid})})
+			syncWriteEvent(StreamEvent{Type: StreamIntentNodeStart, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, PID: pid})})
 		},
 		func(nodeID, result string) {
-			writeStreamEvent(conn, StreamEvent{Type: StreamIntentNodeDone, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, Result: result})})
+			syncWriteEvent(StreamEvent{Type: StreamIntentNodeDone, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, Result: result})})
 		},
 		func(nodeID, errMsg string) {
-			writeStreamEvent(conn, StreamEvent{Type: StreamIntentNodeFailed, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, Error: errMsg})})
+			syncWriteEvent(StreamEvent{Type: StreamIntentNodeFailed, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, Error: errMsg})})
 		},
 		func(completed, total int) {
-			writeStreamEvent(conn, StreamEvent{Type: StreamIntentProgress, Payload: marshalJSON(IntentNodeEventPayload{Completed: completed, Total: total})})
+			syncWriteEvent(StreamEvent{Type: StreamIntentProgress, Payload: marshalJSON(IntentNodeEventPayload{Completed: completed, Total: total})})
 		},
 	)
 
 	if execErr != nil {
-		writeStreamEvent(conn, StreamEvent{Type: StreamIntentComplete, Payload: marshalJSON(IntentNodeEventPayload{Error: execErr.Error()})})
+		syncWriteEvent(StreamEvent{Type: StreamIntentComplete, Payload: marshalJSON(IntentNodeEventPayload{Error: execErr.Error()})})
 	} else {
-		writeStreamEvent(conn, StreamEvent{Type: StreamIntentComplete, Payload: marshalJSON(IntentNodeEventPayload{})})
+		syncWriteEvent(StreamEvent{Type: StreamIntentComplete, Payload: marshalJSON(IntentNodeEventPayload{})})
 	}
 }
 
