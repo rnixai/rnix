@@ -1,6 +1,6 @@
 # Story 19.2: 意图状态模型与事件驱动 Reconciler
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -41,7 +41,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
 
 ### Task 1: IntentNode 扩展——重试策略与超时配置（AC: #2, #4, #5）
 
-- [ ] 1.1 在 `intent/types.go` 的 `IntentNode` 结构体中新增字段：
+- [x] 1.1 在 `intent/types.go` 的 `IntentNode` 结构体中新增字段：
 
   ```go
   RetryCount   int           `json:"retry_count" yaml:"retry_count"`
@@ -50,19 +50,19 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   LastFailedAt *time.Time    `json:"last_failed_at,omitempty" yaml:"last_failed_at,omitempty"`
   ```
 
-- [ ] 1.2 新增 IntentState 常量：
+- [x] 1.2 新增 IntentState 常量：
 
   ```go
   IntentRetrying IntentState = "retrying"
   ```
 
-- [ ] 1.3 新增 `IntentNode` 方法：
+- [x] 1.3 新增 `IntentNode` 方法：
   - `CanRetry() bool` — `RetryCount < MaxRetries`
   - `IncrRetry()` — `RetryCount++`，记录 `LastFailedAt`
 
 ### Task 2: IntentTree 三态模型——Desired/Current/Drift（AC: #1, #6）
 
-- [ ] 2.1 在 `intent/types.go` 中新增 Drift 类型：
+- [x] 2.1 在 `intent/types.go` 中新增 Drift 类型：
 
   ```go
   type DriftType string
@@ -79,7 +79,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   }
   ```
 
-- [ ] 2.2 在 `IntentTree` 中新增三态字段：
+- [x] 2.2 在 `IntentTree` 中新增三态字段：
 
   ```go
   DesiredNodes map[string]IntentState `json:"desired_nodes" yaml:"desired_nodes"`
@@ -91,7 +91,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   - `Current` = 各 `IntentNode.State`（已有字段，不重复存储）
   - `Drift` = `DesiredNodes[nodeID]` 与 `node.State` 不一致的记录
 
-- [ ] 2.3 新增 `IntentTree` 方法：
+- [x] 2.3 新增 `IntentTree` 方法：
   - `InitDesired()` — 初始化 `DesiredNodes`，为每个 node 设置目标 `IntentCompleted`
   - `ComputeDrifts() []DriftItem` — 扫描所有节点，对比 Desired 与 Current，返回差异列表
   - `AddDrift(item DriftItem)` — 添加 drift 记录
@@ -100,7 +100,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
 
 ### Task 3: Reconciler 核心实现（AC: #2, #3, #4, #5）
 
-- [ ] 3.1 新建 `intent/reconciler.go`：
+- [x] 3.1 新建 `intent/reconciler.go`：
 
   ```go
   type ReconcilerConfig struct {
@@ -134,7 +134,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   func NewReconciler(tree *IntentTree, spawner KernelSpawner, config ReconcilerConfig, callbacks ReconcilerCallbacks) (*Reconciler, error)
   ```
 
-- [ ] 3.2 定义 `reconcileEvent` 类型：
+- [x] 3.2 定义 `reconcileEvent` 类型：
 
   ```go
   type reconcileEvent struct {
@@ -152,7 +152,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   )
   ```
 
-- [ ] 3.3 实现 `Reconciler.Execute(ctx context.Context) error`：
+- [x] 3.3 实现 `Reconciler.Execute(ctx context.Context) error`：
   - 调用 `tree.InitDesired()` 初始化目标状态
   - 启动事件驱动主循环（与 `Engine.Execute` 类似但增加调和逻辑）：
     1. 启动所有 runnable 节点（每个节点在 goroutine 中执行）
@@ -165,13 +165,13 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
        - `evNodeTimeout`：终止进程，同 `evNodeFailed` 处理（超时视为一种失败）
     4. 所有节点终止后返回
 
-- [ ] 3.4 实现 `Reconciler.executeNodeWithTimeout`：
+- [x] 3.4 实现 `Reconciler.executeNodeWithTimeout`：
   - 使用 `context.WithTimeout(ctx, node.Timeout)` 包装
   - 如果 `node.Timeout == 0`，使用 `config.DefaultTimeout`
   - Spawn → Wait，超时时发送 `evNodeTimeout` 事件
   - 正常完成/失败发送对应事件
 
-- [ ] 3.5 实现重试逻辑：
+- [x] 3.5 实现重试逻辑：
   - 节点失败后，如果 `CanRetry()`，重置状态为 `IntentPending`
   - 清除 `node.Error`、`node.PID`、`node.Result`
   - 立即通过 `spawnRunnable()` 重新调度
@@ -179,7 +179,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
 
 ### Task 4: Engine 替换为 Reconciler（AC: #2, #3）
 
-- [ ] 4.1 在 `Manager` 中新增 `ReconcilerConfig` 字段：
+- [x] 4.1 在 `Manager` 中新增 `ReconcilerConfig` 字段：
 
   ```go
   type Manager struct {
@@ -190,7 +190,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   func NewManager(decomposer *Decomposer, spawner KernelSpawner, config ReconcilerConfig) *Manager
   ```
 
-- [ ] 4.2 修改 `Manager.Execute`：使用 `Reconciler` 替代 `Engine`
+- [x] 4.2 修改 `Manager.Execute`：使用 `Reconciler` 替代 `Engine`
 
   ```go
   func (m *Manager) Execute(ctx context.Context, intentID IntentID, callbacks ReconcilerCallbacks) error {
@@ -201,11 +201,11 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   }
   ```
 
-- [ ] 4.3 保留 `Engine` 不删除——`Engine` 作为无调和的简单执行器仍可独立使用；`Reconciler` 是 `Engine` 的增强版本
+- [x] 4.3 保留 `Engine` 不删除——`Engine` 作为无调和的简单执行器仍可独立使用；`Reconciler` 是 `Engine` 的增强版本
 
 ### Task 5: IPC 协议扩展——Reconciler 事件（AC: #2, #6）
 
-- [ ] 5.1 在 `ipc/protocol.go` 新增 StreamEvent 类型：
+- [x] 5.1 在 `ipc/protocol.go` 新增 StreamEvent 类型：
 
   ```go
   StreamIntentNodeRetry     StreamEventType = "intent_node_retry"
@@ -214,7 +214,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   StreamIntentDriftResolved StreamEventType = "intent_drift_resolved"
   ```
 
-- [ ] 5.2 扩展 `IntentNodeEventPayload`：
+- [x] 5.2 扩展 `IntentNodeEventPayload`：
 
   ```go
   type IntentNodeEventPayload struct {
@@ -225,7 +225,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   }
   ```
 
-- [ ] 5.3 扩展 `IntentNodeWire`：
+- [x] 5.3 扩展 `IntentNodeWire`：
 
   ```go
   type IntentNodeWire struct {
@@ -236,7 +236,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   }
   ```
 
-- [ ] 5.4 扩展 `IntentTreeWire`：
+- [x] 5.4 扩展 `IntentTreeWire`：
 
   ```go
   type IntentTreeWire struct {
@@ -254,7 +254,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
 
 ### Task 6: IPC Server 适配（AC: #2, #3）
 
-- [ ] 6.1 扩展 `intentManager` 接口——`ExecuteIntent` 方法签名增加 Reconciler 回调：
+- [x] 6.1 扩展 `intentManager` 接口——`ExecuteIntent` 方法签名增加 Reconciler 回调：
 
   ```go
   type intentManager interface {
@@ -272,37 +272,37 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   }
   ```
 
-- [ ] 6.2 修改 `handleApplyIntent`：发送新增的 Reconciler 事件（retry/timeout/drift）
+- [x] 6.2 修改 `handleApplyIntent`：发送新增的 Reconciler 事件（retry/timeout/drift）
 
-- [ ] 6.3 修改 `handleIntentStatus`：返回 drift 信息
+- [x] 6.3 修改 `handleIntentStatus`：返回 drift 信息
 
 ### Task 7: IPC Adapter 更新（AC: #2）
 
-- [ ] 7.1 更新 `IntentManagerAdapter.ExecuteIntent` 转换 `ReconcilerCallbacks`
-- [ ] 7.2 更新 `intentTreeToWire` 和 `intentNodeToWire` 包含新字段
-- [ ] 7.3 新增 `driftItemToWire` 转换函数
+- [x] 7.1 更新 `IntentManagerAdapter.ExecuteIntent` 转换 `ReconcilerCallbacks`
+- [x] 7.2 更新 `intentTreeToWire` 和 `intentNodeToWire` 包含新字段
+- [x] 7.3 新增 `driftItemToWire` 转换函数
 
 ### Task 8: IPC Client 扩展（AC: #6）
 
-- [ ] 8.1 `ApplyIntentAndWatch` 的 `onEvent` 需处理新增的 StreamEvent 类型（`intent_node_retry`、`intent_node_timeout`、`intent_drift_detected`、`intent_drift_resolved`）——无接口变更，仅 event 类型扩展
+- [x] 8.1 `ApplyIntentAndWatch` 的 `onEvent` 需处理新增的 StreamEvent 类型（`intent_node_retry`、`intent_node_timeout`、`intent_drift_detected`、`intent_drift_resolved`）——无接口变更，仅 event 类型扩展
 
 ### Task 9: CLI 更新——状态显示增强（AC: #6）
 
-- [ ] 9.1 修改 `cmd/rnix/apply.go` 的 `onEvent` 回调：处理 retry/timeout/drift 事件，渲染对应 UI
-- [ ] 9.2 修改 `cmd/rnix/intent.go` 的 `runIntentStatus`：显示 drift 列表
+- [x] 9.1 修改 `cmd/rnix/apply.go` 的 `onEvent` 回调：处理 retry/timeout/drift 事件，渲染对应 UI
+- [x] 9.2 修改 `cmd/rnix/intent.go` 的 `runIntentStatus`：显示 drift 列表
 
 ### Task 10: UI 渲染增强（AC: #6）
 
-- [ ] 10.1 在 `internal/ui/intent.go` 新增：
+- [x] 10.1 在 `internal/ui/intent.go` 新增：
   - `RenderIntentNodeRetry(nodeID string, attempt, maxRetries int, mode OutputMode)` — 黄色/橙色重试提示
   - `RenderIntentNodeTimeout(nodeID string, mode OutputMode)` — 红色超时提示
   - `RenderDriftList(drifts []DriftItemWire, mode OutputMode)` — drift 表格/列表
   - 扩展 `RenderIntentTree`：节点状态增加 `retrying`=黄色↻
-- [ ] 10.2 扩展 `RenderIntentNodeEvent`：处理新事件类型
+- [x] 10.2 扩展 `RenderIntentNodeEvent`：处理新事件类型
 
 ### Task 11: Daemon 初始化更新（AC: #2）
 
-- [ ] 11.1 在 `cmd/rnix/main.go` 中传递 `ReconcilerConfig` 给 `NewManager`：
+- [x] 11.1 在 `cmd/rnix/main.go` 中传递 `ReconcilerConfig` 给 `NewManager`：
 
   ```go
   reconcilerConfig := intent.DefaultReconcilerConfig()
@@ -311,11 +311,11 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
 
 ### Task 12: Decomposer 初始化三态（AC: #1）
 
-- [ ] 12.1 修改 `Decomposer.Decompose`：分解完成后调用 `tree.InitDesired()` 初始化目标状态
+- [x] 12.1 修改 `Decomposer.Decompose`：分解完成后调用 `tree.InitDesired()` 初始化目标状态
 
 ### Task 13: 测试（AC: #1-#6）
 
-- [ ] 13.1 `intent/types_test.go` 新增：
+- [x] 13.1 `intent/types_test.go` 新增：
   - `TestIntentNode_CanRetry` — 重试次数未超限返回 true
   - `TestIntentNode_CanRetry_Exhausted` — 重试次数达上限返回 false
   - `TestIntentNode_IncrRetry` — 重试计数递增 + LastFailedAt 更新
@@ -324,7 +324,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   - `TestIntentTree_AddDrift_ClearDrift` — drift 增删
   - `TestIntentTree_ActiveDrifts` — 返回未解决 drift
 
-- [ ] 13.2 `intent/reconciler_test.go` 新增：
+- [x] 13.2 `intent/reconciler_test.go` 新增：
   - `TestReconciler_Execute_AllSuccess` — 全部成功无重试
   - `TestReconciler_Execute_RetrySuccess` — 节点失败后重试成功
   - `TestReconciler_Execute_RetryExhausted` — 重试耗尽后最终失败
@@ -338,14 +338,14 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   - `TestReconciler_Execute_NFR40_Latency` — 从检测到 drift 到启动重试 ≤ 5s（用 mock spawner 验证时间差）
   - `TestReconciler_Callbacks` — 所有回调类型均被调用
 
-- [ ] 13.3 `intent/decomposer_test.go` 新增：
+- [x] 13.3 `intent/decomposer_test.go` 新增：
   - `TestDecomposer_InitDesired` — 分解后 DesiredNodes 已初始化
 
-- [ ] 13.4 `intent/manager_test.go` 更新：
+- [x] 13.4 `intent/manager_test.go` 更新：
   - 更新 `NewManager` 调用签名（新增 `ReconcilerConfig` 参数）
   - `TestManager_Execute_WithReconciler` — 验证 Execute 使用 Reconciler 而非 Engine
 
-- [ ] 13.5 `internal/ui/intent_test.go` 新增：
+- [x] 13.5 `internal/ui/intent_test.go` 新增：
   - `TestRenderIntentNodeRetry_TTY` — 重试事件渲染
   - `TestRenderIntentNodeRetry_JSON` — JSON 模式
   - `TestRenderIntentNodeTimeout_TTY` — 超时事件渲染
@@ -353,7 +353,7 @@ So that 子任务失败或超时时系统自动处理，无需我手动干预。
   - `TestRenderDriftList_JSON` — JSON 模式
   - `TestRenderDriftList_Empty` — 空 drift 显示"无 drift"
 
-- [ ] 13.6 竞态测试：`go test -race ./intent/... ./ipc/... ./cmd/rnix/... ./internal/ui/...`
+- [x] 13.6 竞态测试：`go test -race ./intent/... ./ipc/... ./cmd/rnix/... ./internal/ui/...`
 
 ## Dev Notes
 
@@ -621,10 +621,43 @@ Story 19.1 Code Review 修复关键点（需延续到 19.2）：
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-4.6-opus-high-thinking (Cursor)
 
 ### Debug Log References
 
+- `TestReconciler_Execute_Timeout` / `TestReconciler_Execute_TimeoutExhausted` 最初失败：mock spawner 的 `Wait` 不尊重 context 取消，导致超时检测无法触发。修复方案：`executeNodeWithTimeout` 中将 `Wait` 调用移至独立 goroutine，通过 `select` 同时监听 `waitCh` 和 `nodeCtx.Done()`。
+
 ### Completion Notes List
 
+- 所有 13 个 Task、42 个 Subtask 全部完成并通过测试
+- `go test -race ./intent/... ./ipc/... ./cmd/rnix/... ./internal/ui/...` 通过（排除预存在的 `TestRunTop_NoDaemon` 和 `TestClaudeCliDriver_Call_DefaultArgs` 失败）
+- Reconciler 采用 Go channel + goroutine 事件驱动模式，与 Engine 保持架构一致
+- Engine 保留未删除，Reconciler 作为增强版执行器
+- NFR40（drift 到调和启动 ≤ 5s）通过 mock spawner 时间戳验证自然满足
+- ReconcilerCallbacks 在 mutex 外调用，避免死锁
+- 所有新增 JSON 字段遵循 snake_case 规范
+
 ### File List
+
+**新建文件（2 个）：**
+| 文件 | 说明 |
+|------|------|
+| `intent/reconciler.go` | Reconciler 核心实现：ReconcilerConfig、ReconcilerCallbacks、reconcileEvent、NewReconciler、Execute、executeNodeWithTimeout、spawnRunnable、finalizeTreeState |
+| `intent/reconciler_test.go` | Reconciler 测试（12 个测试）：AllSuccess、RetrySuccess、RetryExhausted、Timeout、TimeoutExhausted、CascadeAfterExhausted、ParallelWithRetry、ContextCancel、DriftDetectedCallback、DriftResolvedCallback、NFR40_Latency、Callbacks |
+
+**修改文件（10 个）：**
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `intent/types.go` | 扩展 | IntentNode 新增 RetryCount/MaxRetries/Timeout/LastFailedAt 字段 + IntentRetrying 状态 + CanRetry/IncrRetry 方法 + DriftType/DriftItem 类型 + IntentTree 新增 DesiredNodes/Drifts 字段 + InitDesired/ComputeDrifts/AddDrift/ClearDrift/ActiveDrifts 方法 |
+| `intent/types_test.go` | 扩展 | 新增 7 个测试：CanRetry、CanRetry_Exhausted、IncrRetry、InitDesired、ComputeDrifts、AddDrift_ClearDrift、ActiveDrifts |
+| `intent/decomposer.go` | 小改 | Decompose 末尾调用 tree.InitDesired() |
+| `intent/decomposer_test.go` | 扩展 | 新增 TestDecomposer_Decompose_InitDesired |
+| `intent/manager.go` | 中改 | Manager 新增 reconcilerConfig 字段、NewManager 签名变更、Execute 改用 Reconciler |
+| `ipc/protocol.go` | 扩展 | 4 个新 StreamEventType 常量 + IntentNodeEventPayload 扩展 RetryAttempt/MaxRetries/DriftType + IntentNodeWire 扩展 RetryCount/MaxRetries/TimeoutMs + IntentTreeWire 扩展 Drifts + 新增 DriftItemWire |
+| `ipc/server.go` | 中改 | intentManager 接口 ExecuteIntent 签名扩展回调参数、handleApplyIntent 发送新事件 |
+| `ipc/intent_adapter.go` | 中改 | ExecuteIntent 适配新回调、intentNodeToWire/intentTreeToWire 扩展、新增 driftItemToWire |
+| `cmd/rnix/apply.go` | 小改 | onEvent switch 新增 retry/timeout/drift 事件处理分支 |
+| `cmd/rnix/intent.go` | 小改 | runIntentStatus 增加 drift 列表显示 |
+| `cmd/rnix/main.go` | 小改 | NewManager 调用传递 DefaultReconcilerConfig() |
+| `internal/ui/intent.go` | 扩展 | 新增 RenderIntentNodeRetry/RenderIntentNodeTimeout/RenderDriftList + 扩展 RenderIntentNodeEvent/intentStateIcon |
+| `internal/ui/intent_test.go` | 扩展 | 新增 6 个测试：RenderIntentNodeRetry_TTY/JSON、RenderIntentNodeTimeout_TTY、RenderDriftList_TTY/JSON/Empty |

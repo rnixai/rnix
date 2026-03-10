@@ -43,13 +43,14 @@ type IntentNode struct {
 
 // CanRetry returns true if the node has remaining retry attempts.
 func (n *IntentNode) CanRetry() bool {
-	// STUB: not implemented — always returns false
-	return false
+	return n.RetryCount < n.MaxRetries
 }
 
 // IncrRetry increments the retry counter and records the failure time.
 func (n *IntentNode) IncrRetry() {
-	// STUB: not implemented — no-op
+	n.RetryCount++
+	now := time.Now()
+	n.LastFailedAt = &now
 }
 
 // DriftType classifies the kind of drift between desired and current state.
@@ -82,29 +83,58 @@ type IntentTree struct {
 
 // InitDesired sets the desired state for all nodes to IntentCompleted.
 func (t *IntentTree) InitDesired() {
-	// STUB: not implemented — no-op
+	t.DesiredNodes = make(map[string]IntentState, len(t.Nodes))
+	for id := range t.Nodes {
+		t.DesiredNodes[id] = IntentCompleted
+	}
 }
 
 // ComputeDrifts scans all nodes and returns items where current != desired.
 func (t *IntentTree) ComputeDrifts() []DriftItem {
-	// STUB: not implemented
-	return nil
+	var drifts []DriftItem
+	for id, node := range t.Nodes {
+		desired, ok := t.DesiredNodes[id]
+		if !ok {
+			continue
+		}
+		if node.State == desired {
+			continue
+		}
+		dt := DriftNodeFailed
+		if node.State == IntentPending || node.State == IntentExecuting || node.State == IntentRetrying {
+			dt = DriftNodeTimeout
+		}
+		drifts = append(drifts, DriftItem{
+			NodeID:     id,
+			Type:       dt,
+			Message:    node.Error,
+			DetectedAt: time.Now(),
+		})
+	}
+	return drifts
 }
 
 // AddDrift appends a drift record.
 func (t *IntentTree) AddDrift(item DriftItem) {
-	// STUB: not implemented — no-op
+	t.Drifts = append(t.Drifts, item)
 }
 
 // ClearDrift removes drift records for the given node.
 func (t *IntentTree) ClearDrift(nodeID string) {
-	// STUB: not implemented — no-op
+	filtered := t.Drifts[:0]
+	for _, d := range t.Drifts {
+		if d.NodeID != nodeID {
+			filtered = append(filtered, d)
+		}
+	}
+	t.Drifts = filtered
 }
 
 // ActiveDrifts returns unresolved drift items.
 func (t *IntentTree) ActiveDrifts() []DriftItem {
-	// STUB: not implemented
-	return nil
+	result := make([]DriftItem, len(t.Drifts))
+	copy(result, t.Drifts)
+	return result
 }
 
 // Progress returns the count of completed nodes and total nodes.

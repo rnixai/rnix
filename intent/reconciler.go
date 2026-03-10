@@ -76,12 +76,218 @@ func NewReconciler(tree *IntentTree, spawner KernelSpawner, config ReconcilerCon
 		spawner:   spawner,
 		config:    config,
 		callbacks: callbacks,
-		eventCh:   make(chan reconcileEvent, len(tree.Nodes)),
+		eventCh:   make(chan reconcileEvent, len(tree.Nodes)*3),
 	}, nil
 }
 
 // Execute runs the intent tree with reconciliation (retry, timeout, drift tracking).
-// STUB: currently a no-op that returns nil without executing any nodes.
 func (r *Reconciler) Execute(ctx context.Context) error {
-	return nil
+	r.mu.Lock()
+	r.tree.State = IntentExecuting
+	r.tree.InitDesired()
+
+	for _, node := range r.tree.Nodes {
+		if node.MaxRetries == 0 {
+			node.MaxRetries = r.config.DefaultMaxRetries
+		}
+	}
+	r.mu.Unlock()
+
+	active := 0
+
+	r.mu.Lock()
+	active += r.spawnRunnable(ctx)
+	if active == 0 {
+		r.tree.State = IntentCompleted
+		r.mu.Unlock()
+		return nil
+	}
+	r.mu.Unlock()
+
+	for {
+		select {
+		case <-ctx.Done():
+			r.mu.Lock()
+			r.tree.State = IntentFailed
+			r.mu.Unlock()
+			return ctx.Err()
+
+		case ev := <-r.eventCh:
+			active--
+
+			r.mu.Lock()
+			switch ev.evType {
+			case evNodeCompleted:
+				r.tree.MarkCompleted(ev.nodeID, ev.result)
+				r.tree.ClearDrift(ev.nodeID)
+
+				if r.callbacks.OnNodeComplete != nil {
+					r.callbacks.OnNodeComplete(ev.nodeID, ev.result)
+				}
+				if r.callbacks.OnDriftResolved != nil {
+					node := r.tree.Nodes[ev.nodeID]
+					if node != nil && node.RetryCount > 0 {
+						r.callbacks.OnDriftResolved(ev.nodeID)
+					}
+				}
+
+			case evNodeFailed, evNodeTimeout:
+				node := r.tree.Nodes[ev.nodeID]
+				if node == nil {
+					r.mu.Unlock()
+					continue
+				}
+
+				if ev.evType == evNodeTimeout {
+					if r.callbacks.OnNodeTimeout != nil {
+						r.callbacks.OnNodeTimeout(ev.nodeID)
+					}
+				}
+
+				driftType := DriftNodeFailed
+				if ev.evType == evNodeTimeout {
+					driftType = DriftNodeTimeout
+				}
+				drift := DriftItem{
+					NodeID:     ev.nodeID,
+					Type:       driftType,
+					Message:    ev.errMsg,
+					DetectedAt: time.Now(),
+				}
+				r.tree.AddDrift(drift)
+				if r.callbacks.OnDriftDetected != nil {
+					r.callbacks.OnDriftDetected(drift)
+				}
+
+				if r.callbacks.OnNodeFailed != nil {
+					r.callbacks.OnNodeFailed(ev.nodeID, ev.errMsg)
+				}
+
+				node.IncrRetry()
+				if node.CanRetry() {
+					if r.callbacks.OnNodeRetry != nil {
+						r.callbacks.OnNodeRetry(ev.nodeID, node.RetryCount, node.MaxRetries)
+					}
+					node.State = IntentPending
+					node.Error = ""
+					node.PID = 0
+					node.Result = ""
+					r.tree.ClearDrift(ev.nodeID)
+					active += r.spawnRunnable(ctx)
+				} else {
+					r.tree.MarkFailed(ev.nodeID, ev.errMsg)
+				}
+			}
+
+			if r.callbacks.OnProgress != nil {
+				completed, total := r.tree.Progress()
+				r.callbacks.OnProgress(completed, total)
+			}
+
+			if r.tree.IsTerminal() {
+				r.finalizeTreeState()
+				r.mu.Unlock()
+				return nil
+			}
+
+			if ev.evType == evNodeCompleted {
+				active += r.spawnRunnable(ctx)
+			}
+
+			if active == 0 {
+				r.finalizeTreeState()
+				r.mu.Unlock()
+				return nil
+			}
+			r.mu.Unlock()
+		}
+	}
+}
+
+// spawnRunnable launches goroutines for all currently runnable nodes. Must be called with r.mu held.
+func (r *Reconciler) spawnRunnable(ctx context.Context) int {
+	runnable := r.tree.RunnableNodes()
+	for _, node := range runnable {
+		node.State = IntentExecuting
+	}
+	count := len(runnable)
+	for _, node := range runnable {
+		go r.executeNodeWithTimeout(ctx, node)
+	}
+	return count
+}
+
+// executeNodeWithTimeout runs a single node with timeout and reports events.
+func (r *Reconciler) executeNodeWithTimeout(ctx context.Context, node *IntentNode) {
+	timeout := node.Timeout
+	if timeout == 0 {
+		timeout = r.config.DefaultTimeout
+	}
+
+	nodeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	pid, err := r.spawner.SpawnIntent(nodeCtx, node)
+	if err != nil {
+		if nodeCtx.Err() != nil && ctx.Err() == nil {
+			r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeTimeout, errMsg: fmt.Sprintf("spawn timeout: %v", err)}
+		} else {
+			r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeFailed, errMsg: fmt.Sprintf("spawn failed: %v", err)}
+		}
+		return
+	}
+
+	r.mu.Lock()
+	node.PID = pid
+	r.mu.Unlock()
+
+	if r.callbacks.OnNodeStart != nil {
+		r.callbacks.OnNodeStart(node.ID, pid)
+	}
+
+	type waitResult struct {
+		status ExitStatus
+		err    error
+	}
+	waitCh := make(chan waitResult, 1)
+	go func() {
+		status, waitErr := r.spawner.Wait(pid)
+		waitCh <- waitResult{status: status, err: waitErr}
+	}()
+
+	select {
+	case <-nodeCtx.Done():
+		if ctx.Err() == nil {
+			r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeTimeout, errMsg: fmt.Sprintf("node timeout after %v", timeout)}
+		} else {
+			r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeFailed, errMsg: "context cancelled"}
+		}
+		return
+	case wr := <-waitCh:
+		if wr.err != nil || wr.status.Code != 0 {
+			errMsg := wr.status.Reason
+			if wr.err != nil {
+				errMsg = wr.err.Error()
+			}
+			r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeFailed, errMsg: errMsg}
+			return
+		}
+		r.eventCh <- reconcileEvent{nodeID: node.ID, evType: evNodeCompleted, result: wr.status.Reason}
+	}
+}
+
+// finalizeTreeState sets the tree's final state. Must be called with r.mu held.
+func (r *Reconciler) finalizeTreeState() {
+	hasFailed := false
+	for _, node := range r.tree.Nodes {
+		if node.State == IntentFailed {
+			hasFailed = true
+			break
+		}
+	}
+	if hasFailed {
+		r.tree.State = IntentFailed
+	} else {
+		r.tree.State = IntentCompleted
+	}
 }

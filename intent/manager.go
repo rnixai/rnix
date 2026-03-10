@@ -16,19 +16,21 @@ type ApplyRequest struct {
 
 // Manager handles intent lifecycle: creation, decomposition, execution, status.
 type Manager struct {
-	mu         sync.RWMutex
-	intents    map[IntentID]*IntentTree
-	decomposer *Decomposer
-	spawner    KernelSpawner
-	nextID     atomic.Uint64
+	mu               sync.RWMutex
+	intents          map[IntentID]*IntentTree
+	decomposer       *Decomposer
+	spawner          KernelSpawner
+	reconcilerConfig ReconcilerConfig
+	nextID           atomic.Uint64
 }
 
-// NewManager creates a Manager with the given decomposer and spawner.
-func NewManager(decomposer *Decomposer, spawner KernelSpawner) *Manager {
+// NewManager creates a Manager with the given decomposer, spawner, and reconciler config.
+func NewManager(decomposer *Decomposer, spawner KernelSpawner, config ReconcilerConfig) *Manager {
 	return &Manager{
-		intents:    make(map[IntentID]*IntentTree),
-		decomposer: decomposer,
-		spawner:    spawner,
+		intents:          make(map[IntentID]*IntentTree),
+		decomposer:       decomposer,
+		spawner:          spawner,
+		reconcilerConfig: config,
 	}
 }
 
@@ -65,8 +67,8 @@ func (m *Manager) Confirm(intentID IntentID) error {
 	return nil
 }
 
-// Execute starts execution of a confirmed intent tree.
-func (m *Manager) Execute(ctx context.Context, intentID IntentID, callbacks EngineCallbacks) error {
+// Execute starts execution of a confirmed intent tree using the Reconciler.
+func (m *Manager) Execute(ctx context.Context, intentID IntentID, callbacks ReconcilerCallbacks) error {
 	m.mu.RLock()
 	tree, ok := m.intents[intentID]
 	m.mu.RUnlock()
@@ -75,12 +77,12 @@ func (m *Manager) Execute(ctx context.Context, intentID IntentID, callbacks Engi
 		return fmt.Errorf("intent %s: not found", intentID)
 	}
 
-	engine, err := NewEngine(tree, m.spawner, callbacks)
+	reconciler, err := NewReconciler(tree, m.spawner, m.reconcilerConfig, callbacks)
 	if err != nil {
 		return fmt.Errorf("intent %s: %w", intentID, err)
 	}
 
-	return engine.Execute(ctx)
+	return reconciler.Execute(ctx)
 }
 
 // Status returns the IntentTree for the given ID, or error if not found.

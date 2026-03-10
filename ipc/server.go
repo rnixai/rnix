@@ -39,7 +39,16 @@ type AgentLoaderFunc func(name string) (*agents.AgentInfo, error)
 type intentManager interface {
 	ApplyIntent(ctx context.Context, intentStr, model string, autoStart bool) (intentID string, treeJSON []byte, err error)
 	ConfirmIntent(intentID string) error
-	ExecuteIntent(ctx context.Context, intentID string, onNodeStart func(nodeID string, pid uint64), onNodeComplete func(nodeID, result string), onNodeFailed func(nodeID, errMsg string), onProgress func(completed, total int)) error
+	ExecuteIntent(ctx context.Context, intentID string,
+		onNodeStart func(nodeID string, pid uint64),
+		onNodeComplete func(nodeID, result string),
+		onNodeFailed func(nodeID, errMsg string),
+		onProgress func(completed, total int),
+		onNodeRetry func(nodeID string, attempt, maxRetries int),
+		onNodeTimeout func(nodeID string),
+		onDriftDetected func(nodeID, driftType, message string),
+		onDriftResolved func(nodeID string),
+	) error
 	IntentStatus(intentID string) ([]byte, error)
 	ListActiveIntents() ([]byte, error)
 }
@@ -1703,6 +1712,18 @@ func (s *Server) handleApplyIntent(conn net.Conn, rawPayload json.RawMessage, co
 		},
 		func(completed, total int) {
 			syncWriteEvent(StreamEvent{Type: StreamIntentProgress, Payload: marshalJSON(IntentNodeEventPayload{Completed: completed, Total: total})})
+		},
+		func(nodeID string, attempt, maxRetries int) {
+			syncWriteEvent(StreamEvent{Type: StreamIntentNodeRetry, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, RetryAttempt: attempt, MaxRetries: maxRetries})})
+		},
+		func(nodeID string) {
+			syncWriteEvent(StreamEvent{Type: StreamIntentNodeTimeout, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID})})
+		},
+		func(nodeID, driftType, message string) {
+			syncWriteEvent(StreamEvent{Type: StreamIntentDriftDetected, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID, DriftType: driftType, Error: message})})
+		},
+		func(nodeID string) {
+			syncWriteEvent(StreamEvent{Type: StreamIntentDriftResolved, Payload: marshalJSON(IntentNodeEventPayload{NodeID: nodeID})})
 		},
 	)
 

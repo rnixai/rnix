@@ -78,6 +78,10 @@ func RenderIntentNodeEvent(r *Renderer, eventType, nodeID, detail string, pid ui
 		fmt.Fprintf(r.Writer, "[intent] ✓ %s: completed — %s\n", nodeID, detail)
 	case "failed":
 		fmt.Fprintf(r.Writer, "[intent] ✗ %s: failed — %s\n", nodeID, detail)
+	case "drift":
+		fmt.Fprintf(r.Writer, "[intent] ⚠ %s: drift detected — %s\n", nodeID, detail)
+	case "drift_resolved":
+		fmt.Fprintf(r.Writer, "[intent] ✓ %s: %s\n", nodeID, detail)
 	case "error":
 		fmt.Fprintf(r.Writer, "[intent] ✗ error: %s\n", detail)
 	case "complete":
@@ -89,9 +93,9 @@ func RenderIntentNodeEvent(r *Renderer, eventType, nodeID, detail string, pid ui
 func RenderIntentNodeRetry(r *Renderer, nodeID string, attempt, maxRetries int, mode OutputMode) {
 	if mode == ModeJSON {
 		data, _ := json.Marshal(map[string]any{
-			"event":      "retry",
-			"node_id":    nodeID,
-			"attempt":    attempt,
+			"event":       "retry",
+			"node_id":     nodeID,
+			"attempt":     attempt,
 			"max_retries": maxRetries,
 		})
 		fmt.Fprintln(r.Writer, string(data))
@@ -100,7 +104,7 @@ func RenderIntentNodeRetry(r *Renderer, nodeID string, attempt, maxRetries int, 
 	if mode == ModeQuiet {
 		return
 	}
-	// STUB: placeholder — full implementation pending
+	fmt.Fprintf(r.Writer, "[intent] ↻ %s: retrying (attempt %d/%d)\n", nodeID, attempt, maxRetries)
 }
 
 // RenderIntentNodeTimeout renders a timeout event.
@@ -116,7 +120,7 @@ func RenderIntentNodeTimeout(r *Renderer, nodeID string, mode OutputMode) {
 	if mode == ModeQuiet {
 		return
 	}
-	// STUB: placeholder — full implementation pending
+	fmt.Fprintf(r.Writer, "[intent] ⏱ %s: timed out\n", nodeID)
 }
 
 // RenderDriftList renders the list of active drifts.
@@ -129,7 +133,15 @@ func RenderDriftList(r *Renderer, drifts []ipc.DriftItemWire, mode OutputMode) {
 	if mode == ModeQuiet {
 		return
 	}
-	// STUB: placeholder — full implementation pending
+	if len(drifts) == 0 {
+		fmt.Fprintln(r.Writer, "[intent] No active drifts.")
+		return
+	}
+	fmt.Fprintf(r.Writer, "\n  %-12s %-16s %s\n", "Node", "Type", "Message")
+	fmt.Fprintf(r.Writer, "  %-12s %-16s %s\n", "---", "---", "---")
+	for _, d := range drifts {
+		fmt.Fprintf(r.Writer, "  %-12s %-16s %s\n", d.NodeID, d.Type, d.Message)
+	}
 }
 
 func intentStateIcon(state string) string {
