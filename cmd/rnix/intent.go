@@ -64,6 +64,9 @@ func runIntentStatus(cmd *cobra.Command, args []string) error {
 
 	for _, tree := range resp.Intents {
 		ui.RenderIntentTree(r, tree, mode)
+		if len(tree.Drifts) > 0 {
+			ui.RenderDriftList(r, tree.Drifts, mode)
+		}
 		fmt.Fprintln(os.Stdout)
 	}
 

@@ -90,5 +90,7 @@ func (d *Decomposer) Decompose(ctx context.Context, intent string, model string)
 		return nil, fmt.Errorf("decompose: %w", err)
 	}
 
+	tree.InitDesired()
+
 	return tree, nil
 }

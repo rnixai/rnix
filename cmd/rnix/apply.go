@@ -95,6 +95,30 @@ func runApply(cmd *cobra.Command, args []string) error {
 				ui.RenderIntentProgress(r, payload.Completed, payload.Total, mode)
 			}
 
+		case ipc.StreamIntentNodeRetry:
+			var payload ipc.IntentNodeEventPayload
+			if err := json.Unmarshal(ev.Payload, &payload); err == nil {
+				ui.RenderIntentNodeRetry(r, payload.NodeID, payload.RetryAttempt, payload.MaxRetries, mode)
+			}
+
+		case ipc.StreamIntentNodeTimeout:
+			var payload ipc.IntentNodeEventPayload
+			if err := json.Unmarshal(ev.Payload, &payload); err == nil {
+				ui.RenderIntentNodeTimeout(r, payload.NodeID, mode)
+			}
+
+		case ipc.StreamIntentDriftDetected:
+			var payload ipc.IntentNodeEventPayload
+			if err := json.Unmarshal(ev.Payload, &payload); err == nil {
+				ui.RenderIntentNodeEvent(r, "drift", payload.NodeID, payload.DriftType+": "+payload.Error, 0, mode)
+			}
+
+		case ipc.StreamIntentDriftResolved:
+			var payload ipc.IntentNodeEventPayload
+			if err := json.Unmarshal(ev.Payload, &payload); err == nil {
+				ui.RenderIntentNodeEvent(r, "drift_resolved", payload.NodeID, "drift resolved", 0, mode)
+			}
+
 		case ipc.StreamIntentComplete:
 			var payload ipc.IntentNodeEventPayload
 			if err := json.Unmarshal(ev.Payload, &payload); err == nil {

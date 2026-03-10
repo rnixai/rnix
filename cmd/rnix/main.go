@@ -1064,7 +1064,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 			return intent.ExitStatus{Code: es.Code, Reason: es.Reason, Err: es.Err}, nil
 		},
 	}
-	intentMgr := intent.NewManager(intentDecomposer, intentSpawner)
+	intentMgr := intent.NewManager(intentDecomposer, intentSpawner, intent.DefaultReconcilerConfig())
 	srv.SetIntentManager(ipc.NewIntentManagerAdapter(intentMgr))
 
 	procFS := vfs.NewProcFS(k, ctxMgr)

@@ -20,7 +20,7 @@ func TestManager_Apply(t *testing.T) {
 	caller := &mockLLMCaller{response: string(jsonBytes)}
 	decomposer := NewDecomposer(caller)
 	spawner := newMockIntentSpawner()
-	mgr := NewManager(decomposer, spawner)
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
 
 	tree, err := mgr.Apply(context.Background(), ApplyRequest{
 		Intent: "build a blog system",
@@ -48,7 +48,7 @@ func TestManager_Apply_GeneratesUniqueIDs(t *testing.T) {
 	caller := &mockLLMCaller{response: `[{"id":"a","intent":"task","depends_on":[]}]`}
 	decomposer := NewDecomposer(caller)
 	spawner := newMockIntentSpawner()
-	mgr := NewManager(decomposer, spawner)
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
 
 	tree1, err1 := mgr.Apply(context.Background(), ApplyRequest{Intent: "first"})
 	tree2, err2 := mgr.Apply(context.Background(), ApplyRequest{Intent: "second"})
@@ -65,7 +65,7 @@ func TestManager_Confirm(t *testing.T) {
 	caller := &mockLLMCaller{response: `[{"id":"a","intent":"task","depends_on":[]}]`}
 	decomposer := NewDecomposer(caller)
 	spawner := newMockIntentSpawner()
-	mgr := NewManager(decomposer, spawner)
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
 
 	tree, _ := mgr.Apply(context.Background(), ApplyRequest{Intent: "test"})
 	intentID := tree.ID
@@ -81,7 +81,7 @@ func TestManager_Confirm_NotFound(t *testing.T) {
 	caller := &mockLLMCaller{response: "[]"}
 	decomposer := NewDecomposer(caller)
 	spawner := newMockIntentSpawner()
-	mgr := NewManager(decomposer, spawner)
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
 
 	err := mgr.Confirm("intent-999")
 
@@ -94,7 +94,7 @@ func TestManager_Status(t *testing.T) {
 	caller := &mockLLMCaller{response: `[{"id":"a","intent":"task","depends_on":[]}]`}
 	decomposer := NewDecomposer(caller)
 	spawner := newMockIntentSpawner()
-	mgr := NewManager(decomposer, spawner)
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
 
 	tree, _ := mgr.Apply(context.Background(), ApplyRequest{Intent: "check status"})
 
@@ -115,7 +115,7 @@ func TestManager_Status_NotFound(t *testing.T) {
 	caller := &mockLLMCaller{response: "[]"}
 	decomposer := NewDecomposer(caller)
 	spawner := newMockIntentSpawner()
-	mgr := NewManager(decomposer, spawner)
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
 
 	_, err := mgr.Status("intent-404")
 
@@ -128,7 +128,7 @@ func TestManager_ListActive(t *testing.T) {
 	caller := &mockLLMCaller{response: `[{"id":"a","intent":"task","depends_on":[]}]`}
 	decomposer := NewDecomposer(caller)
 	spawner := newMockIntentSpawner()
-	mgr := NewManager(decomposer, spawner)
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
 
 	mgr.Apply(context.Background(), ApplyRequest{Intent: "intent 1"})
 	mgr.Apply(context.Background(), ApplyRequest{Intent: "intent 2"})
@@ -144,7 +144,7 @@ func TestManager_ListActive_ExcludesTerminal(t *testing.T) {
 	caller := &mockLLMCaller{response: `[{"id":"a","intent":"task","depends_on":[]}]`}
 	decomposer := NewDecomposer(caller)
 	spawner := newMockIntentSpawner()
-	mgr := NewManager(decomposer, spawner)
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
 
 	tree1, _ := mgr.Apply(context.Background(), ApplyRequest{Intent: "will complete"})
 	mgr.Apply(context.Background(), ApplyRequest{Intent: "still active"})
