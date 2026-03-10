@@ -171,3 +171,37 @@ func (r *recordingLLMCaller) Call(ctx context.Context, prompt string, model stri
 	}
 	return r.response, r.err
 }
+
+// --- Story 19.2: Decompose initializes DesiredNodes ---
+
+func TestDecomposer_Decompose_InitDesired(t *testing.T) {
+	nodes := []struct {
+		ID        string   `json:"id"`
+		Intent    string   `json:"intent"`
+		DependsOn []string `json:"depends_on"`
+	}{
+		{ID: "a", Intent: "task a", DependsOn: []string{}},
+		{ID: "b", Intent: "task b", DependsOn: []string{"a"}},
+	}
+	jsonBytes, _ := json.Marshal(nodes)
+
+	caller := &mockLLMCaller{response: string(jsonBytes)}
+	decomposer := NewDecomposer(caller)
+
+	tree, err := decomposer.Decompose(context.Background(), "test init desired", "")
+	if err != nil {
+		t.Fatalf("Decompose failed: %v", err)
+	}
+
+	if tree.DesiredNodes == nil {
+		t.Fatal("expected DesiredNodes to be initialized after Decompose")
+	}
+	if len(tree.DesiredNodes) != 2 {
+		t.Fatalf("expected 2 desired nodes, got %d", len(tree.DesiredNodes))
+	}
+	for nodeID, desired := range tree.DesiredNodes {
+		if desired != IntentCompleted {
+			t.Fatalf("expected desired state for %q = %q, got %q", nodeID, IntentCompleted, desired)
+		}
+	}
+}
