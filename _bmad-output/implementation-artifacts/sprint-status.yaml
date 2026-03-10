@@ -217,7 +217,7 @@ development_status:
   19-1-intent-declaration-and-task-decomposition: done
   19-2-intent-state-model-and-event-driven-reconciler: done
   19-3-incremental-update-and-status-query: done
-  epic-19-retrospective: optional
+  epic-19-retrospective: done
 
   # Epic 20: Autonomous Agents (OODA + Stem Cell)
   epic-20: backlog
