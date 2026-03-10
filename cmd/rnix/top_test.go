@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -516,8 +517,13 @@ func TestHelp_ContainsTopSubcommand(t *testing.T) {
 // --- 10.1-INT-002: rnix top without daemon exits gracefully ---
 
 func TestRunTop_NoDaemon(t *testing.T) {
-	saved := exitCode
-	defer func() { exitCode = saved }()
+	// Isolate from any real daemon by pointing to a non-existent socket
+	saved := ipc.SocketPathOverride
+	ipc.SocketPathOverride = filepath.Join(t.TempDir(), "nonexistent.sock")
+	defer func() { ipc.SocketPathOverride = saved }()
+
+	savedExit := exitCode
+	defer func() { exitCode = savedExit }()
 	exitCode = 0
 
 	err := runTop(nil, nil)
