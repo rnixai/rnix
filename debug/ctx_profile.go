@@ -154,7 +154,7 @@ func classifyMessages(data *ContextData, sysTokens, totalTokens int) Classificat
 	coldMsgs := 0
 	leakedTokens := 0
 	leakedMsgs := 0
-	for i := 0; i < warmStart; i++ {
+	for i := range warmStart {
 		msg := data.Messages[i]
 		tok := estimateTokens(msg.Content)
 		if msg.Role == "tool" && len(msg.Content) > leakedThreshold {

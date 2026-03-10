@@ -138,10 +138,7 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool) {
 		}
 		if showIntent {
 			row.WriteString(gap)
-			intentWidth := w - len(StripAnsi(row.String()))
-			if intentWidth < 0 {
-				intentWidth = 0
-			}
+			intentWidth := max(w-len(StripAnsi(row.String())), 0)
 			intent := proc.Intent
 			if !verbose && intentWidth > 3 && len(intent) > intentWidth {
 				intent = intent[:intentWidth-3] + "..."

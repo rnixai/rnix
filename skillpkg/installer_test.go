@@ -45,9 +45,6 @@ func TestInstaller_Install_Fresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registry Get failed: %v", err)
 	}
-	if entry == nil {
-		t.Fatal("expected registry entry")
-	}
 	if entry.Version != "1.0.0" {
 		t.Errorf("expected registry version '1.0.0', got %q", entry.Version)
 	}

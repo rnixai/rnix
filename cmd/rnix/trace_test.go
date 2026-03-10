@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/spf13/cobra"
 )
 
 func setupTraceTestDir(t *testing.T, traces map[types.TraceID][]*debug.Span) string {
@@ -485,7 +485,7 @@ func TestBlameCmd_JSON_StructureValidation(t *testing.T) {
 		t.Errorf("expected OK=true")
 	}
 
-	dataMap, ok := resp.Data.(map[string]interface{})
+	dataMap, ok := resp.Data.(map[string]any)
 	if !ok {
 		t.Fatalf("Data should be a map, got %T", resp.Data)
 	}

@@ -611,10 +611,9 @@ func TestSignalGroup_Performance(t *testing.T) {
 	groupDuration := time.Since(groupStart)
 
 	// NFR24: group signal should be ≤ 2x single kill
-	threshold := singleDuration * 2
-	if threshold < time.Millisecond {
-		threshold = time.Millisecond // minimum threshold for very fast operations
-	}
+	threshold := max(singleDuration*2,
+		// minimum threshold for very fast operations
+		time.Millisecond)
 	if groupDuration > threshold {
 		t.Errorf("SignalGroup(%d procs) took %v, > 2x single Kill (%v). Threshold: %v",
 			n, groupDuration, singleDuration, threshold)

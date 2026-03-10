@@ -56,7 +56,7 @@ func TestRecorder_WriteEvent_JSONL(t *testing.T) {
 	}
 
 	// Write 3 events
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		ev := RecordEvent{
 			SeqNum:    uint64(i),
 			Timestamp: time.Duration(i) * time.Second,
@@ -111,7 +111,7 @@ func TestRecorder_WriteEvent_IncrementsSeqNum(t *testing.T) {
 	}
 
 	// Write events without setting SeqNum (recorder should assign)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ev := RecordEvent{
 			PID:  1,
 			Type: RecordSyscall,
@@ -203,7 +203,7 @@ func TestRecorder_Stop_UpdatesMetadata(t *testing.T) {
 	}
 
 	// Write events
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		rec.WriteEvent(RecordEvent{
 			PID:  20,
 			Type: RecordSyscall,
@@ -285,10 +285,10 @@ func TestRecorder_ConcurrentWriteEvent(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for g := 0; g < goroutines; g++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for i := 0; i < eventsPerGoroutine; i++ {
+			for range eventsPerGoroutine {
 				ev := RecordEvent{
 					PID:  99,
 					Type: RecordSyscall,

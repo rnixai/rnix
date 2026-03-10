@@ -20,14 +20,14 @@ const (
 
 // RecordEvent represents a single recorded event in an execution recording.
 type RecordEvent struct {
-	SeqNum    uint64              `json:"seq_num"`
-	Timestamp time.Duration       `json:"timestamp"`
-	PID       types.PID           `json:"pid"`
-	Type      RecordEventType     `json:"type"`
-	Syscall   *SyscallEventData   `json:"syscall,omitempty"`
+	SeqNum    uint64               `json:"seq_num"`
+	Timestamp time.Duration        `json:"timestamp"`
+	PID       types.PID            `json:"pid"`
+	Type      RecordEventType      `json:"type"`
+	Syscall   *SyscallEventData    `json:"syscall,omitempty"`
 	Context   *ContextSnapshotData `json:"context,omitempty"`
-	LLM       *LLMResponseData    `json:"llm,omitempty"`
-	State     *StateChangeData    `json:"state,omitempty"`
+	LLM       *LLMResponseData     `json:"llm,omitempty"`
+	State     *StateChangeData     `json:"state,omitempty"`
 }
 
 // SyscallEventData holds syscall-specific data for a recorded event.
@@ -77,7 +77,7 @@ type RecordMetadata struct {
 	PID        types.PID    `json:"pid"`
 	Intent     string       `json:"intent"`
 	StartTime  time.Time    `json:"start_time"`
-	EndTime    time.Time    `json:"end_time,omitempty"`
+	EndTime    time.Time    `json:"end_time"`
 	EventCount uint64       `json:"event_count"`
 	Status     RecordStatus `json:"status"`
 }

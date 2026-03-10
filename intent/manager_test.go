@@ -3,6 +3,7 @@ package intent
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 )
@@ -201,13 +202,7 @@ func TestManager_ApplyIncremental(t *testing.T) {
 		t.Fatalf("expected 1 added node 'comment', got %v", mergeResult.AddedNodes)
 	}
 	// design was completed + same intent → unchanged
-	foundDesign := false
-	for _, id := range mergeResult.UnchangedNodes {
-		if id == "design" {
-			foundDesign = true
-			break
-		}
-	}
+	foundDesign := slices.Contains(mergeResult.UnchangedNodes, "design")
 	if !foundDesign {
 		t.Fatal("expected 'design' in unchanged nodes")
 	}

@@ -812,7 +812,7 @@ func TestParseScript_Performance_NFR38(t *testing.T) {
 	sb.WriteString("files = [\"a.go\", \"b.go\", \"c.go\", \"d.go\", \"e.go\"]\n")
 	sb.WriteString("config = {model: \"sonnet\", budget: 5000, timeout: 30}\n")
 	sb.WriteString("export base=/home/user\n")
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		sb.WriteString("spawn \"分析 ${files[0]} 使用 ${config.model}\"\n")
 	}
 	sb.WriteString("for f in $files\n")

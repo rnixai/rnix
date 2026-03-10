@@ -6,6 +6,7 @@ linters:
     - govet
     - staticcheck
     - unused
+    - modernize
 
   settings:
     errcheck:

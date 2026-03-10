@@ -852,11 +852,11 @@ func TestScriptExecutor_Source_AbsolutePath(t *testing.T) {
 func TestParseScript_Source_Performance_NFR38(t *testing.T) {
 	var sb strings.Builder
 	sb.WriteString("export base=project\n")
-	for i := 0; i < 50; i++ {
-		sb.WriteString(fmt.Sprintf("source ./lib/mod_%d.ash\n", i))
+	for i := range 50 {
+		fmt.Fprintf(&sb, "source ./lib/mod_%d.ash\n", i)
 	}
-	for i := 0; i < 20; i++ {
-		sb.WriteString(fmt.Sprintf("spawn \"任务%d\"\n", i))
+	for i := range 20 {
+		fmt.Fprintf(&sb, "spawn \"任务%d\"\n", i)
 	}
 
 	input := sb.String()

@@ -421,10 +421,8 @@ func TestProcFS_ConcurrentReads(t *testing.T) {
 	factory := procFS.FileFactory()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			file, err := factory("/1/status", O_RDONLY)
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
@@ -440,7 +438,7 @@ func TestProcFS_ConcurrentReads(t *testing.T) {
 			if len(data) == 0 {
 				t.Error("expected non-empty data")
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

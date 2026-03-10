@@ -55,7 +55,7 @@ func TestLLMError_As(t *testing.T) {
 
 func TestSentinelErrors_Distinct(t *testing.T) {
 	sentinels := []error{ErrRateLimit, ErrAuth, ErrContextLength, ErrModelNotFound, ErrTimeout}
-	for i := 0; i < len(sentinels); i++ {
+	for i := range sentinels {
 		for j := i + 1; j < len(sentinels); j++ {
 			if errors.Is(sentinels[i], sentinels[j]) {
 				t.Errorf("sentinel[%d] (%v) should not match sentinel[%d] (%v)", i, sentinels[i], j, sentinels[j])

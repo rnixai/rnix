@@ -53,7 +53,7 @@ func TestAppendLogHistory_OrderPreserved(t *testing.T) {
 	p := NewProcess(0, "test", nil)
 
 	p.mu.Lock()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		p.AppendLogHistory(types.LogEntry{
 			Timestamp: time.Duration(i) * time.Second,
 			Step:      i,
@@ -80,7 +80,7 @@ func TestAppendLogHistory_RingBufferOverflow(t *testing.T) {
 	total := logHistoryCap + 10
 
 	p.mu.Lock()
-	for i := 0; i < total; i++ {
+	for i := range total {
 		p.AppendLogHistory(types.LogEntry{
 			Step:    i,
 			Content: fmt.Sprintf("entry-%d", i),
@@ -118,7 +118,7 @@ func TestAppendLogHistory_ExactlyAtCapacity(t *testing.T) {
 	p := NewProcess(0, "test", nil)
 
 	p.mu.Lock()
-	for i := 0; i < logHistoryCap; i++ {
+	for i := range logHistoryCap {
 		p.AppendLogHistory(types.LogEntry{
 			Step:    i,
 			Content: fmt.Sprintf("entry-%d", i),

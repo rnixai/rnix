@@ -218,11 +218,11 @@ func TestProcessTableConcurrent(t *testing.T) {
 
 	// Concurrent Add
 	procs := make([]*Process, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		procs[i] = NewProcess(0, "test", nil)
 	}
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(p *Process) {
 			defer wg.Done()
@@ -237,7 +237,7 @@ func TestProcessTableConcurrent(t *testing.T) {
 	}
 
 	// Concurrent Get
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(pid types.PID) {
 			defer wg.Done()
@@ -250,7 +250,7 @@ func TestProcessTableConcurrent(t *testing.T) {
 	wg.Wait()
 
 	// Concurrent Remove
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(pid types.PID) {
 			defer wg.Done()
@@ -271,7 +271,7 @@ func TestProcessTableConcurrentMixed(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Mixed concurrent operations: Add, Get, Remove, List
-	for i := 0; i < n; i++ {
+	for range n {
 		wg.Add(4)
 		p := NewProcess(0, "test", nil)
 
@@ -969,7 +969,7 @@ func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
 
 	var pids []types.PID
 	var procs []*Process
-	for i := 0; i < n; i++ {
+	for i := range n {
 		pid, err := k.Spawn(fmt.Sprintf("proc-%d", i), nil, SpawnOpts{})
 		if err != nil {
 			t.Fatalf("Spawn %d failed: %v", i, err)
@@ -1031,7 +1031,7 @@ func TestProcessTableConsistency_ConcurrentSpawn(t *testing.T) {
 	errCh := make(chan error, n)
 
 	// Spawn n processes concurrently
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -2277,10 +2277,8 @@ func TestGetProcInfo_ConcurrentSafe(t *testing.T) {
 	k.AddProcess(proc)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			info, err := k.GetProcInfo(proc.PID)
 			if err != nil {
 				t.Errorf("GetProcInfo failed: %v", err)
@@ -2289,7 +2287,7 @@ func TestGetProcInfo_ConcurrentSafe(t *testing.T) {
 			if info.PID != proc.PID {
 				t.Errorf("unexpected PID: %d", info.PID)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }
