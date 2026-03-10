@@ -172,6 +172,112 @@ func (r *recordingLLMCaller) Call(ctx context.Context, prompt string, model stri
 	return r.response, r.err
 }
 
+// --- Story 19.3: Incremental decomposition ---
+
+func TestDecomposer_DecomposeIncremental(t *testing.T) {
+	// Existing tree with design completed, backend in progress
+	existingTree := &IntentTree{
+		ID:         "intent-1",
+		RootIntent: "build blog",
+		State:      IntentExecuting,
+		Nodes: map[string]*IntentNode{
+			"design":  {ID: "design", Intent: "design schema", State: IntentCompleted},
+			"backend": {ID: "backend", Intent: "implement API", State: IntentExecuting, DependsOn: []string{"design"}},
+		},
+		DesiredNodes: map[string]IntentState{
+			"design":  IntentCompleted,
+			"backend": IntentCompleted,
+		},
+		CreatedAt: time.Now(),
+	}
+
+	// LLM returns merged node list: existing + new "comment" node
+	llmResponse := `[
+		{"id":"design","intent":"design schema","depends_on":[]},
+		{"id":"backend","intent":"implement API","depends_on":["design"]},
+		{"id":"comment","intent":"implement comment feature","depends_on":["design"]}
+	]`
+
+	var capturedPrompt string
+	caller := &recordingLLMCaller{
+		response: llmResponse,
+		onCall: func(_ context.Context, prompt string, _ string) {
+			capturedPrompt = prompt
+		},
+	}
+	decomposer := NewDecomposer(caller)
+
+	nodes, err := decomposer.DecomposeIncremental(context.Background(), existingTree, "add comment feature", "claude-sonnet")
+
+	if err != nil {
+		t.Fatalf("DecomposeIncremental failed: %v", err)
+	}
+	if nodes == nil {
+		t.Fatal("expected non-nil nodes")
+	}
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 nodes from incremental decompose, got %d", len(nodes))
+	}
+
+	// Verify prompt includes existing tree context
+	if capturedPrompt == "" {
+		t.Fatal("expected prompt to be captured")
+	}
+	// Prompt should contain existing node info
+	if !containsStr(capturedPrompt, "design") || !containsStr(capturedPrompt, "backend") {
+		t.Fatal("expected prompt to contain existing node IDs")
+	}
+	if !containsStr(capturedPrompt, "add comment feature") {
+		t.Fatal("expected prompt to contain the new intent")
+	}
+
+	// Verify returned nodes have expected IDs
+	nodeIDs := make(map[string]bool)
+	for _, n := range nodes {
+		nodeIDs[n.ID] = true
+	}
+	if !nodeIDs["design"] || !nodeIDs["backend"] || !nodeIDs["comment"] {
+		t.Fatalf("expected nodes design, backend, comment; got %v", nodeIDs)
+	}
+}
+
+func TestDecomposer_DecomposeIncremental_InvalidJSON(t *testing.T) {
+	existingTree := &IntentTree{
+		ID:         "intent-1",
+		RootIntent: "build blog",
+		State:      IntentExecuting,
+		Nodes: map[string]*IntentNode{
+			"design": {ID: "design", Intent: "design schema", State: IntentCompleted},
+		},
+		DesiredNodes: map[string]IntentState{
+			"design": IntentCompleted,
+		},
+		CreatedAt: time.Now(),
+	}
+
+	caller := &mockLLMCaller{response: "this is not valid json"}
+	decomposer := NewDecomposer(caller)
+
+	_, err := decomposer.DecomposeIncremental(context.Background(), existingTree, "invalid", "")
+
+	if err == nil {
+		t.Fatal("expected error for invalid JSON from LLM, got nil")
+	}
+}
+
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && stringContains(s, substr))
+}
+
+func stringContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 // --- Story 19.2: Decompose initializes DesiredNodes ---
 
 func TestDecomposer_Decompose_InitDesired(t *testing.T) {

@@ -27,8 +27,18 @@ var intentStatusCmd = &cobra.Command{
 	RunE: runIntentStatus,
 }
 
+var intentListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all intents",
+	Long:  "Display a table of all intents (active + completed).",
+	Example: `  rnix intent list
+  rnix intent list --json`,
+	RunE: runIntentList,
+}
+
 func init() {
 	intentCmd.AddCommand(intentStatusCmd)
+	intentCmd.AddCommand(intentListCmd)
 }
 
 func runIntentStatus(cmd *cobra.Command, args []string) error {
@@ -63,12 +73,43 @@ func runIntentStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, tree := range resp.Intents {
-		ui.RenderIntentTree(r, tree, mode)
+		if intentID != "" {
+			// Show detailed view for specific intent
+			ui.RenderIntentStatusDetail(r, tree, mode)
+		} else {
+			ui.RenderIntentTree(r, tree, mode)
+		}
 		if len(tree.Drifts) > 0 {
 			ui.RenderDriftList(r, tree.Drifts, mode)
 		}
 		fmt.Fprintln(os.Stdout)
 	}
+
+	return nil
+}
+
+func runIntentList(cmd *cobra.Command, args []string) error {
+	mode := resolveOutputMode()
+	r := ui.NewRenderer(os.Stdout, mode)
+
+	client, err := ipc.EnsureDaemon()
+	if err != nil {
+		return fmt.Errorf("intent list: cannot connect to daemon: %w", err)
+	}
+	defer client.Close()
+
+	resp, err := client.IntentList()
+	if err != nil {
+		return fmt.Errorf("intent list: %w", err)
+	}
+
+	if mode == ui.ModeJSON {
+		data, _ := json.Marshal(resp)
+		fmt.Fprintln(os.Stdout, string(data))
+		return nil
+	}
+
+	ui.RenderIntentList(r, resp.Intents, mode)
 
 	return nil
 }

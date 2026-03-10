@@ -51,6 +51,8 @@ type intentManager interface {
 	) error
 	IntentStatus(intentID string) ([]byte, error)
 	ListActiveIntents() ([]byte, error)
+	ApplyIncrementalIntent(ctx context.Context, intentID, intentStr, model string) (string, []byte, error)
+	ListAllIntents() ([]byte, error)
 }
 
 // Server is the IPC server that bridges client requests to the kernel.
@@ -299,6 +301,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleIntentStatus(conn, req.Payload)
 		case MethodIntentConfirm:
 			s.handleIntentConfirm(conn, req.Payload)
+		case MethodApplyIncrementalIntent:
+			s.handleApplyIncrementalIntent(conn, req.Payload)
+		case MethodIntentList:
+			s.handleIntentList(conn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1779,4 +1785,47 @@ func (s *Server) handleIntentConfirm(conn net.Conn, rawPayload json.RawMessage) 
 	}
 
 	writeResponse(conn, Response{OK: true})
+}
+
+func (s *Server) handleApplyIncrementalIntent(conn net.Conn, rawPayload json.RawMessage) {
+	if s.intentMgr == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_available", Message: "intent manager not initialized"}})
+		return
+	}
+
+	var req ApplyIncrementalIntentRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "invalid_payload", Message: err.Error()}})
+		return
+	}
+
+	intentID, resultJSON, err := s.intentMgr.ApplyIncrementalIntent(context.Background(), req.IntentID, req.Intent, req.Model)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "incremental_failed", Message: err.Error()}})
+		return
+	}
+
+	// Parse the result to build the response
+	var mergeResp ApplyIncrementalIntentResponse
+	if err := json.Unmarshal(resultJSON, &mergeResp); err != nil {
+		// fallback: send raw
+		mergeResp = ApplyIncrementalIntentResponse{IntentID: intentID}
+	}
+
+	writeResponse(conn, Response{OK: true, Payload: marshalJSON(mergeResp)})
+}
+
+func (s *Server) handleIntentList(conn net.Conn) {
+	if s.intentMgr == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_available", Message: "intent manager not initialized"}})
+		return
+	}
+
+	data, err := s.intentMgr.ListAllIntents()
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "list_failed", Message: err.Error()}})
+		return
+	}
+
+	writeResponse(conn, Response{OK: true, Payload: data})
 }

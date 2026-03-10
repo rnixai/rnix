@@ -16,21 +16,23 @@ type ApplyRequest struct {
 
 // Manager handles intent lifecycle: creation, decomposition, execution, status.
 type Manager struct {
-	mu               sync.RWMutex
-	intents          map[IntentID]*IntentTree
-	decomposer       *Decomposer
-	spawner          KernelSpawner
-	reconcilerConfig ReconcilerConfig
-	nextID           atomic.Uint64
+	mu                sync.RWMutex
+	intents           map[IntentID]*IntentTree
+	decomposer        *Decomposer
+	spawner           KernelSpawner
+	reconcilerConfig  ReconcilerConfig
+	nextID            atomic.Uint64
+	activeReconcilers map[IntentID]*Reconciler
 }
 
 // NewManager creates a Manager with the given decomposer, spawner, and reconciler config.
 func NewManager(decomposer *Decomposer, spawner KernelSpawner, config ReconcilerConfig) *Manager {
 	return &Manager{
-		intents:          make(map[IntentID]*IntentTree),
-		decomposer:       decomposer,
-		spawner:          spawner,
-		reconcilerConfig: config,
+		intents:           make(map[IntentID]*IntentTree),
+		decomposer:        decomposer,
+		spawner:           spawner,
+		reconcilerConfig:  config,
+		activeReconcilers: make(map[IntentID]*Reconciler),
 	}
 }
 
@@ -82,7 +84,19 @@ func (m *Manager) Execute(ctx context.Context, intentID IntentID, callbacks Reco
 		return fmt.Errorf("intent %s: %w", intentID, err)
 	}
 
-	return reconciler.Execute(ctx)
+	// Save reconciler reference for runtime injection support
+	m.mu.Lock()
+	m.activeReconcilers[intentID] = reconciler
+	m.mu.Unlock()
+
+	execErr := reconciler.Execute(ctx)
+
+	// Clean up reconciler reference after execution completes
+	m.mu.Lock()
+	delete(m.activeReconcilers, intentID)
+	m.mu.Unlock()
+
+	return execErr
 }
 
 // Status returns the IntentTree for the given ID, or error if not found.
@@ -109,4 +123,50 @@ func (m *Manager) ListActive() []*IntentTree {
 		}
 	}
 	return active
+}
+
+// ListAll returns all IntentTrees (active and completed).
+func (m *Manager) ListAll() []*IntentTree {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	all := make([]*IntentTree, 0, len(m.intents))
+	for _, tree := range m.intents {
+		all = append(all, tree)
+	}
+	return all
+}
+
+// ApplyIncremental performs an incremental update on an existing intent tree.
+func (m *Manager) ApplyIncremental(ctx context.Context, intentID IntentID, newIntent string, model string) (*IntentTree, *MergeResult, error) {
+	m.mu.RLock()
+	tree, ok := m.intents[intentID]
+	reconciler := m.activeReconcilers[intentID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, nil, fmt.Errorf("apply incremental: intent %s: not found", intentID)
+	}
+	if tree.IsTerminal() {
+		return nil, nil, fmt.Errorf("apply incremental: intent %s: cannot update terminal intent", intentID)
+	}
+
+	newNodes, err := m.decomposer.DecomposeIncremental(ctx, tree, newIntent, model)
+	if err != nil {
+		return nil, nil, fmt.Errorf("apply incremental: intent %s: %w", intentID, err)
+	}
+
+	var mergeResult *MergeResult
+	if reconciler != nil {
+		// Use reconciler's lock for thread-safe merge + inject + schedule
+		mergeResult, err = reconciler.MergeAndInject(newNodes)
+	} else {
+		// No active reconciler; direct merge is safe
+		mergeResult, err = MergeIncremental(tree, newNodes)
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("apply incremental: intent %s: %w", intentID, err)
+	}
+
+	return tree, mergeResult, nil
 }

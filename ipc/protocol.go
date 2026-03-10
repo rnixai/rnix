@@ -37,6 +37,8 @@ const (
 	MethodApplyIntent   Method = "apply_intent"
 	MethodIntentStatus  Method = "intent_status"
 	MethodIntentConfirm Method = "intent_confirm"
+	MethodApplyIncrementalIntent Method = "apply_incremental_intent"
+	MethodIntentList    Method = "intent_list"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -280,6 +282,7 @@ const (
 	StreamIntentNodeTimeout   StreamEventType = "intent_node_timeout"
 	StreamIntentDriftDetected StreamEventType = "intent_drift_detected"
 	StreamIntentDriftResolved StreamEventType = "intent_drift_resolved"
+	StreamIntentIncrementalMerged StreamEventType = "intent_incremental_merged"
 )
 
 // ProgressPayload maps kernel callback events to IPC wire format.
@@ -519,6 +522,23 @@ type IntentStatusRequest struct {
 // IntentStatusResponse is the response for MethodIntentStatus.
 type IntentStatusResponse struct {
 	Intents []*IntentTreeWire `json:"intents"`
+}
+
+// --- Apply Incremental Intent ---
+
+// ApplyIncrementalIntentRequest is the payload for MethodApplyIncrementalIntent.
+type ApplyIncrementalIntentRequest struct {
+	IntentID string `json:"intent_id"`
+	Intent   string `json:"intent"`
+	Model    string `json:"model,omitempty"`
+}
+
+// ApplyIncrementalIntentResponse is the response for MethodApplyIncrementalIntent.
+type ApplyIncrementalIntentResponse struct {
+	IntentID      string          `json:"intent_id"`
+	Tree          *IntentTreeWire `json:"tree"`
+	AddedNodes    []string        `json:"added_nodes"`
+	ModifiedNodes []string        `json:"modified_nodes"`
 }
 
 // --- Intent Wire Types ---
