@@ -3,6 +3,7 @@ package kernel
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/rnixai/rnix/agents"
@@ -25,10 +26,11 @@ const (
 type OODAActionType string
 
 const (
-	OODAToolCall OODAActionType = "tool_call"
-	OODASpawn    OODAActionType = "spawn"
-	OODAComplete OODAActionType = "complete"
-	OODAReplan   OODAActionType = "replan"
+	OODAToolCall   OODAActionType = "tool_call"
+	OODASpawn      OODAActionType = "spawn"
+	OODAComplete   OODAActionType = "complete"
+	OODAReplan     OODAActionType = "replan"
+	OODASpecialize OODAActionType = "specialize"
 )
 
 // OODADecision is the structured output of the Decide phase.
@@ -61,9 +63,10 @@ Mission: %s`
 
 const oodaDecidePromptTemplate = `[OODA Decide] Based on orientation analysis, output a JSON decision.
 You MUST respond with ONLY a valid JSON object in this exact format:
-{"action": "tool_call|spawn|complete|replan", "target": "...", "data": {}, "reason": "..."}
+{"action": "tool_call|spawn|complete|replan|specialize", "target": "...", "data": {}, "reason": "..."}
 
 For "spawn" action: target is the child intent, data may include {"agent": "agent-name", "model": "model-name"}.
+For "specialize" action: target is the skill name to load dynamically.
 
 Orientation:
 %s`
@@ -298,6 +301,9 @@ func (k *KernelImpl) oodaAct(proc *Process, llmFD types.FD, decision *OODADecisi
 	case OODASpawn:
 		return k.oodaActSpawn(proc, decision, opts)
 
+	case OODASpecialize:
+		return k.oodaActSpecialize(proc, decision)
+
 	case OODAComplete:
 		result := decision.Reason
 		if result == "" {
@@ -443,4 +449,66 @@ func (k *KernelImpl) oodaCallLLM(proc *Process, llmFD types.FD, opts SpawnOpts) 
 	}
 
 	return &resp, nil
+}
+
+// oodaActSpecialize dynamically loads a skill into the running process.
+func (k *KernelImpl) oodaActSpecialize(proc *Process, decision *OODADecision) string {
+	skillName := decision.Target
+	if skillName == "" {
+		return "specialize error: empty skill name"
+	}
+	if k.skillLoader == nil {
+		return "specialize error: no skill loader configured"
+	}
+
+	// Check if already loaded
+	proc.mu.Lock()
+	alreadyLoaded := slices.Contains(proc.Skills, skillName)
+	proc.mu.Unlock()
+	if alreadyLoaded {
+		return fmt.Sprintf("skill %q already loaded", skillName)
+	}
+
+	// Load skill (outside lock since I/O may be slow)
+	skillInfo, err := k.skillLoader(skillName)
+	if err != nil {
+		return fmt.Sprintf("specialize error: skill %q load failed: %v", skillName, err)
+	}
+
+	// Update process state (re-check under lock to prevent TOCTOU duplicate)
+	proc.mu.Lock()
+	if slices.Contains(proc.Skills, skillName) {
+		proc.mu.Unlock()
+		return fmt.Sprintf("skill %q already loaded", skillName)
+	}
+	proc.Skills = append(proc.Skills, skillName)
+	proc.AllowedDevices = append(proc.AllowedDevices, skillInfo.Manifest.AllowedTools()...)
+	totalSkills := len(proc.Skills)
+	allSkills := make([]string, totalSkills)
+	copy(allSkills, proc.Skills)
+	proc.mu.Unlock()
+
+	// Inject skill body into context
+	if skillInfo.Body != "" {
+		if appendErr := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser,
+			fmt.Sprintf("[Dynamic Skill Loaded: %s]\n%s", skillName, skillInfo.Body)); appendErr != nil {
+			k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf(
+				"specialize warning: failed to inject skill body for %q: %v", skillName, appendErr), "")
+		}
+	}
+
+	k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf(
+		"specialized: dynamically loaded skill %q", skillName), "")
+
+	k.emitEvent(proc, "StemSpecialize", map[string]any{
+		"skill":        skillName,
+		"total_skills": totalSkills,
+	}, nil, nil, 0)
+
+	// Update differentiation memory with progressive specialization
+	if k.diffMemory != nil {
+		k.diffMemory.Record(proc.Intent, allSkills)
+	}
+
+	return fmt.Sprintf("skill %q loaded successfully", skillName)
 }

@@ -1040,6 +1040,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetStemMatcher(stemMatcher)
 	k.SetSkillLoader(skillLoader.LoadFull)
 
+	// Differentiation memory (Story 20.4)
+	diffMemory := kernel.NewDiffMemory(256)
+	k.SetDiffMemory(diffMemory)
+
 	// Initialize execution recording (Story 14.1)
 	cwd, _ := os.Getwd()
 	recordBaseDir := cwd + "/.rnix/records"
