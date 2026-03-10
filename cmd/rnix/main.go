@@ -1034,6 +1034,12 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetMountManager(mountMgr)
 	k.SetAgentLoader(agentLoader.Load) // Inject for OODA autonomous spawn (Story 20.2)
 
+	// Stem agent differentiation (Story 20.3)
+	discovery := skills.NewSkillDiscovery(skillLoader, "lib/skills")
+	stemMatcher := kernel.NewStemMatcher(discovery)
+	k.SetStemMatcher(stemMatcher)
+	k.SetSkillLoader(skillLoader.LoadFull)
+
 	// Initialize execution recording (Story 14.1)
 	cwd, _ := os.Getwd()
 	recordBaseDir := cwd + "/.rnix/records"
