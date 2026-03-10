@@ -679,6 +679,19 @@ func (c *Client) IntentList() (*IntentStatusResponse, error) {
 	return &statusResp, nil
 }
 
+// Lineage returns the differentiation lineage for the given PID.
+func (c *Client) Lineage(pid types.PID) (*LineageResponse, error) {
+	resp, err := c.call(MethodLineage, LineageRequest{PID: pid})
+	if err != nil {
+		return nil, err
+	}
+	var result LineageResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal lineage response: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

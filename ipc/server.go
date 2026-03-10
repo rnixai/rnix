@@ -305,6 +305,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleApplyIncrementalIntent(conn, req.Payload)
 		case MethodIntentList:
 			s.handleIntentList(conn)
+		case MethodLineage:
+			s.handleLineage(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -442,6 +444,42 @@ func (s *Server) handleCtxGrowth(conn net.Conn, rawPayload json.RawMessage) {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
 		return
 	}
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleLineage(conn net.Conn, rawPayload json.RawMessage) {
+	var req LineageRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid lineage request"}})
+		return
+	}
+
+	events, err := s.kern.GetLineage(req.PID)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		return
+	}
+
+	ipcEvents := make([]LineageEvent, len(events))
+	for i, e := range events {
+		skills := e.Skills
+		if skills == nil {
+			skills = []string{}
+		}
+		ipcEvents[i] = LineageEvent{
+			TimestampMs: e.Timestamp.UnixMilli(),
+			Phase:       e.Phase,
+			Skills:      skills,
+			Trigger:     e.Trigger,
+			FromMemory:  e.FromMemory,
+		}
+	}
+
+	resp := LineageResponse{
+		PID:    req.PID,
+		Events: ipcEvents,
+	}
+	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 

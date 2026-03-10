@@ -81,6 +81,9 @@ type Process struct {
 	coroutines  map[types.CoID]*Coroutine
 	coIDCounter atomic.Uint64
 
+	// Differentiation lineage (has its own mutex, not protected by proc.mu)
+	lineage *Lineage
+
 	// OODA loop state (mu protected)
 	oodaEnabled bool       // true if process uses OODA reasoning mode
 	oodaState   *OODAState // current OODA state, nil if not OODA
@@ -314,6 +317,22 @@ func (p *Process) SetOODAPhase(phase OODAPhase) {
 		p.oodaState = &OODAState{}
 	}
 	p.oodaState.Phase = phase
+}
+
+// --- Lineage methods (lineage has its own mutex) ---
+
+// GetLineage returns the process lineage, or nil if not a differentiated process.
+func (p *Process) GetLineage() *Lineage {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lineage
+}
+
+// SetLineage sets the process lineage.
+func (p *Process) SetLineage(l *Lineage) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lineage = l
 }
 
 // --- Signal disposition (atomic check under single lock) ---
