@@ -14,7 +14,7 @@ import (
 
 const (
 	// DefaultModel is the default Claude model to use.
-	DefaultModel = "sonnet"
+	DefaultModel = "haiku"
 	// DefaultTimeout is the default timeout for a single LLM CLI invocation.
 	// Claude Code CLI tasks vary widely (simple: ~5s, complex with tool use: 2-3min).
 	// 5 minutes provides headroom for multi-turn agentic tasks.
