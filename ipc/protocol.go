@@ -564,9 +564,6 @@ type IntentNodeEventPayload struct {
 	DriftType    string `json:"drift_type,omitempty"`
 }
 
-// IntentNodeWire extensions for reconciler fields.
-// (RetryCount, MaxRetries, TimeoutMs are added to IntentNodeWire below via separate struct update.)
-
 // DriftItemWire is the wire-format representation of intent.DriftItem.
 type DriftItemWire struct {
 	NodeID       string `json:"node_id"`

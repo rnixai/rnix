@@ -1,6 +1,6 @@
 # Story 19.2: 意图状态模型与事件驱动 Reconciler
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -636,6 +636,40 @@ claude-4.6-opus-high-thinking (Cursor)
 - NFR40（drift 到调和启动 ≤ 5s）通过 mock spawner 时间戳验证自然满足
 - ReconcilerCallbacks 在 mutex 外调用，避免死锁
 - 所有新增 JSON 字段遵循 snake_case 规范
+
+### Senior Developer Review (AI)
+
+**审查日期**: 2026-03-10
+**审查者**: Amelia (Dev Agent - CR mode)
+**审查结果**: ✅ Approved (with fixes applied)
+
+**发现与修复**:
+
+| # | 严重度 | 描述 | 修复 |
+|---|--------|------|------|
+| M1 | MEDIUM | `IntentRetrying` 状态为死代码——Reconciler 从不设置，但 UI 已处理 | 已修复：Reconciler 重试时先设置 `IntentRetrying`，`RunnableNodes` 同时接受 `pending` 和 `retrying` |
+| M2 | MEDIUM | `finalizeTreeState` 未设置 `CompletedAt` 时间戳 | 已修复：`finalizeTreeState` 现在设置 `tree.CompletedAt = &now` |
+| M3 | MEDIUM | `ComputeDrifts` 将 pending 节点错误归类为 timeout drift | 已修复：仅报告 `IntentFailed` 节点为 drift，跳过 pending/executing/retrying |
+| M4 | MEDIUM | `protocol.go` 过时注释 "added below via separate struct update" | 已修复：删除过时注释 |
+| L1 | LOW | `_ = dag` 在 NewReconciler——DAG 仅用于验证 | 未改：与 Engine 一致的设计模式 |
+| L2 | LOW | `InitDesired()` 重复调用（Decomposer + Reconciler） | 未改：防御性编程，Reconciler 不假设输入已初始化 |
+
+**AC 验证总结**:
+- AC1 ✓ Desired/Current/Drift 三态维护
+- AC2 ✓ 失败/超时自动重试，NFR40 ≤5s 延迟
+- AC3 ✓ 成功后更新 Current、启动下游
+- AC4 ✓ 重试耗尽→最终失败→级联下游
+- AC5 ✓ 超时通过 context.WithTimeout 控制
+- AC6 ✓ status 包含 drift 列表、重试计数
+
+**测试验证**: `go test -race ./intent/... ./ipc/... ./internal/ui/...` 全部通过
+
+### Change Log
+
+| 日期 | 事件 | 说明 |
+|------|------|------|
+| 2026-03-10 | Story 实现完成 | ds 19-2: 全部 13 Task、42 Subtask 完成 |
+| 2026-03-10 | Code Review 通过 | cr 19-2: 4 MEDIUM + 2 LOW 发现，4 项已修复 |
 
 ### File List
 

@@ -100,13 +100,12 @@ func (t *IntentTree) ComputeDrifts() []DriftItem {
 		if node.State == desired {
 			continue
 		}
-		dt := DriftNodeFailed
-		if node.State == IntentPending || node.State == IntentExecuting || node.State == IntentRetrying {
-			dt = DriftNodeTimeout
+		if node.State != IntentFailed {
+			continue
 		}
 		drifts = append(drifts, DriftItem{
 			NodeID:     id,
-			Type:       dt,
+			Type:       DriftNodeFailed,
 			Message:    node.Error,
 			DetectedAt: time.Now(),
 		})
@@ -148,11 +147,11 @@ func (t *IntentTree) Progress() (completed, total int) {
 	return completed, total
 }
 
-// RunnableNodes returns all nodes whose dependencies are satisfied and state is pending.
+// RunnableNodes returns all nodes whose dependencies are satisfied and state is pending or retrying.
 func (t *IntentTree) RunnableNodes() []*IntentNode {
 	var runnable []*IntentNode
 	for _, node := range t.Nodes {
-		if node.State != IntentPending {
+		if node.State != IntentPending && node.State != IntentRetrying {
 			continue
 		}
 		allDepsSatisfied := true
