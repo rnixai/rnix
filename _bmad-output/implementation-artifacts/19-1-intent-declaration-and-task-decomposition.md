@@ -702,44 +702,57 @@ Epic 18 Code Review 修复模式：
 
 ### Agent Model Used
 
-claude-4.6-opus (dev) + claude-4.6-opus (cr)
+Claude claude-4.6-opus (Cursor)
 
 ### Debug Log References
 
-- Code Review: Fixed H1 (apply.go confirm flow broken), H2 (duplicate scanner), M1 (concurrent conn writes), M2 (missing unknown dep test), M4 (silent extractResult fallback)
+- `intentManager` 接口解耦：`ipc/server.go` 不直接导入 `intent/` 包，通过 `intentManager` 接口 + `IntentManagerAdapter` 适配器避免循环依赖
+- `handleApplyIntent` 中需复用 `handleConn` 的 `bufio.Scanner`（而非创建新 scanner），否则可能丢失已缓冲数据
+- `Engine.executeNode` 中 `OnNodeStart` 回调在 mutex 外调用，并发写 `conn` 需额外 `sync.Mutex` 保护
+- `apply.go` 中 `intentID` 须在 `StreamIntentDecomposed` 回调中从 tree.ID 提取，不能依赖 `ApplyIntentAndWatch` 返回值（返回值在流结束后才可用）
 
 ### Completion Notes List
 
-- Intent package (`intent/`) fully independent — no imports from kernel/, cmd/, ipc/
-- Event-driven engine (not strict layer-based) for efficient DAG scheduling
-- IntentManagerAdapter pattern avoids ipc → intent import cycle
-- CLICaller invokes Claude Code CLI directly (not via VFS)
-- All concurrent structures pass `-race` testing
+- ✅ Task 1: Intent 数据模型 — `IntentTree`、`IntentNode`、`IntentState` 类型 + `Progress()`/`RunnableNodes()`/`MarkCompleted()`/`MarkFailed()`/`IsTerminal()` 辅助方法 + `cascadeFailure` 递归级联
+- ✅ Task 2: Intent DAG — `BuildIntentDAG`/`DetectCycle`（三色 DFS）/`TopologicalSort`（分层 Kahn 算法），独立于 `compose/dag.go` 实现
+- ✅ Task 3: LLM 分解器 — `Decomposer.Decompose()` + `decomposePromptTemplate` 常量 + `llmDecomposeNode` 中间类型 + JSON 解析 + DAG 验证
+- ✅ Task 4: Intent 执行引擎 — 事件驱动循环（非分层阻塞），`nodeEvent` channel + `spawnRunnable()` 动态调度 + `finalizeTreeState()` 终态判定
+- ✅ Task 5: IPC 协议扩展 — `MethodApplyIntent`/`MethodIntentStatus`/`MethodIntentConfirm` + 7 个 StreamEvent 类型 + wire types（`IntentTreeWire`/`IntentNodeWire`/`IntentNodeEventPayload`）
+- ✅ Task 6: IPC Server 处理 — `handleApplyIntent`（流式：decompose→confirm→execute）+ `handleIntentStatus` + `handleIntentConfirm` + `intentManager` 接口抽象
+- ✅ Task 7: IntentManager — `Apply()`/`Confirm()`/`Execute()`/`Status()`/`ListActive()` + `atomic.Uint64` ID 生成 + `sync.RWMutex` 并发保护
+- ✅ Task 8: IPC Client 扩展 — `ApplyIntentAndWatch()`（流式事件循环）+ `ConfirmIntent()`（同连接内嵌请求）+ `IntentStatus()`
+- ✅ Task 9: CLI 命令 — `rnix apply`（`--yes`/`-y`、`--model`）+ `rnix intent status [intent-id]`，cobra 注册
+- ✅ Task 10: UI 渲染 — `RenderIntentTree()`（表格 + 状态图标）+ `RenderIntentProgress()` + `RenderIntentNodeEvent()`（start/done/failed/error/complete），支持 TTY/JSON/Quiet 三模式
+- ✅ Task 11: LLMCaller 适配 — `CLICaller` 调用 `claude -p --output-format json`，`extractResult()` 解析 Claude CLI JSON 响应
+- ✅ Task 12: Server/Daemon 集成 — `cmd/rnix/main.go` 中创建 `IntentKernelSpawner`（SpawnFunc/WaitFunc 闭包适配 kernel.Spawn/proc.Done）+ `IntentManagerAdapter` 注入
+- ✅ Task 13: 56 个测试全部通过（42 intent + 7 CLI + 7 UI），`-race` 无竞态
+
+### Change Log
+
+- 2026-03-10: Story 19.1 实现完成 — intent/ 包全部类型、DAG、分解器、执行引擎、Manager；IPC 协议扩展（apply_intent/intent_status/intent_confirm）；CLI 命令（rnix apply / rnix intent status）；UI 渲染组件
+- 2026-03-10: Code Review 修复 — [H1] apply.go 确认流程 intentID 为空修复（从 decomposed 事件提取）, [H2] handleApplyIntent 改为接收原始 connScanner 参数, [M1] 新增 syncWriteEvent 包装并发写保护, [M2] 新增 TestBuildIntentDAG_UnknownDep 测试, [M4] extractResult 添加 log.Printf 警告
 
 ### File List
 
-**New files:**
-- `intent/types.go` — IntentTree, IntentNode, IntentState types + helper methods
-- `intent/dag.go` — Intent DAG construction, cycle detection, topological sort
-- `intent/decomposer.go` — LLM intent decomposer + LLMCaller interface
-- `intent/cli_caller.go` — CLICaller (Claude Code CLI adapter)
-- `intent/engine.go` — Event-driven intent execution engine
-- `intent/manager.go` — Intent lifecycle manager
-- `intent/types_test.go` — IntentTree helper method tests
-- `intent/dag_test.go` — DAG construction/cycle/topo sort tests
-- `intent/decomposer_test.go` — Decomposer tests with mock LLM
-- `intent/engine_test.go` — Engine execution tests (sequential/parallel/failure/cancel)
-- `intent/manager_test.go` — Manager lifecycle tests
-- `cmd/rnix/apply.go` — `rnix apply` CLI command
-- `cmd/rnix/apply_test.go` — CLI registration/flag tests
-- `cmd/rnix/intent.go` — `rnix intent status` CLI command
-- `cmd/rnix/intent_test.go` — CLI registration tests
-- `internal/ui/intent.go` — Intent tree/progress/event rendering
-- `internal/ui/intent_test.go` — UI rendering tests (TTY/JSON/quiet)
-- `ipc/intent_adapter.go` — IntentManagerAdapter + IntentKernelSpawner
-
-**Modified files:**
-- `ipc/protocol.go` — Added MethodApplyIntent, MethodIntentStatus, MethodIntentConfirm, wire types, stream event types
-- `ipc/server.go` — Added handleApplyIntent, handleIntentStatus, handleIntentConfirm, intentMgr field
-- `ipc/client.go` — Added ApplyIntentAndWatch, ConfirmIntent, IntentStatus
-- `cmd/rnix/main.go` — Added intent manager initialization in daemon path
+- `intent/types.go` — IntentTree、IntentNode、IntentState 类型 + Progress/RunnableNodes/MarkCompleted/MarkFailed/IsTerminal 辅助方法
+- `intent/dag.go` — DAG 构建、三色 DFS 循环检测、Kahn 分层拓扑排序
+- `intent/decomposer.go` — LLMCaller 接口 + Decomposer（LLM 意图分解）+ decomposePromptTemplate
+- `intent/cli_caller.go` — CLICaller（Claude Code CLI 适配）+ extractResult JSON 解析
+- `intent/engine.go` — 事件驱动意图执行引擎 + KernelSpawner/ExitStatus/EngineCallbacks 接口
+- `intent/manager.go` — 意图生命周期管理 + ApplyRequest + atomic ID 生成
+- `intent/types_test.go` — 10 个测试：Progress/RunnableNodes/MarkCompleted/MarkFailed 级联/IsTerminal 各场景
+- `intent/dag_test.go` — 11 个测试：NoDeps/LinearDeps/DiamondDeps/CycleDetection/UnknownDep/SelfCycle/TopSort 各场景（含 CR 新增 1 个）
+- `intent/decomposer_test.go` — 7 个测试：Success/InvalidJSON/CyclicDeps/EmptyResult/LLMError/Timeout/ModelPassthrough
+- `intent/engine_test.go` — 8 个测试：Sequential/Parallel/AllSuccess/CascadeFailure/PartialFailure/ContextCancel/Callbacks/ProgressCallback
+- `intent/manager_test.go` — 6 个测试：Apply/UniqueIDs/Confirm/Status/ListActive/ExcludesTerminal
+- `cmd/rnix/apply.go` — `rnix apply` cobra 子命令 + `--yes`/`-y` flag
+- `cmd/rnix/apply_test.go` — 4 个测试：Registered/NoArgs/YesFlag/UsageAndDescription
+- `cmd/rnix/intent.go` — `rnix intent status` cobra 子命令
+- `cmd/rnix/intent_test.go` — 3 个测试：IntentCmd_Registered/IntentStatusCmd_Registered/UsageAndDescription
+- `internal/ui/intent.go` — RenderIntentTree/RenderIntentProgress/RenderIntentNodeEvent + intentStateIcon/truncate
+- `internal/ui/intent_test.go` — 7 个测试：RenderIntentTree_TTY/JSON/Quiet + RenderIntentProgress/JSON + RenderIntentNodeEvent_Start/JSON
+- `ipc/intent_adapter.go` — IntentManagerAdapter（intent.Manager → intentManager 接口转换）+ IntentKernelSpawner + intentTreeToWire/intentNodeToWire
+- `ipc/protocol.go` — 新增 MethodApplyIntent/MethodIntentStatus/MethodIntentConfirm + ApplyIntentRequest/Response + IntentConfirmRequest + IntentStatusRequest/Response + IntentTreeWire/IntentNodeWire/IntentNodeEventPayload + 7 个 StreamEvent 类型
+- `ipc/server.go` — 新增 intentManager 接口 + SetIntentManager() + handleApplyIntent（流式 + connScanner + syncWriteEvent）+ handleIntentStatus + handleIntentConfirm
+- `ipc/client.go` — 新增 ApplyIntentAndWatch + ConfirmIntent + IntentStatus + marshalPayload
+- `cmd/rnix/main.go` — daemon 路径新增 IntentDecomposer/IntentKernelSpawner/IntentManager 初始化及 SetIntentManager 注入
