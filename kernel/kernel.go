@@ -44,6 +44,7 @@ type SpawnOpts struct {
 	ContextBudget int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
 	TraceID       types.TraceID // inherited trace ID; empty = no tracing
 	ParentSpanID  types.SpanID  // parent process span ID
+	Provider      string        // LLM provider override; "" = use agent manifest or default "claude"
 
 	PreallocatedCtxID types.CtxID // non-zero = skip CtxAlloc, use this pre-setup context
 	SkipReasonLoop    bool        // true = don't open LLM device or start reasonStep goroutine
@@ -172,13 +173,14 @@ var allowedLLMProviders = map[string]bool{
 	"cursor": true,
 }
 
-// resolveLLMDevice returns the VFS device path for the LLM provider specified in the agent manifest.
-// Returns "/dev/llm/claude" by default when agent is nil or provider is empty.
-func resolveLLMDevice(agent *agents.AgentInfo) (string, error) {
-	if agent == nil {
-		return "/dev/llm/claude", nil
+// resolveLLMDevice returns the VFS device path for the LLM provider.
+// providerOverride takes precedence over the agent manifest's provider field.
+// Returns "/dev/llm/claude" by default when both are empty.
+func resolveLLMDevice(agent *agents.AgentInfo, providerOverride string) (string, error) {
+	provider := providerOverride
+	if provider == "" && agent != nil {
+		provider = agent.Manifest.Models.Provider
 	}
-	provider := agent.Manifest.Models.Provider
 	if !allowedLLMProviders[provider] {
 		return "", fmt.Errorf("unsupported LLM provider: %q", provider)
 	}
@@ -388,7 +390,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	if !opts.SkipReasonLoop {
 		// Resolve LLM device path based on agent provider
-		llmDevice, resolveErr := resolveLLMDevice(agent)
+		llmDevice, resolveErr := resolveLLMDevice(agent, opts.Provider)
 		if resolveErr != nil {
 			if opts.PreallocatedCtxID == 0 {
 				_ = k.ctxMgr.CtxFree(cid)

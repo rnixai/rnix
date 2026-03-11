@@ -43,6 +43,7 @@ var (
 	flagModel    string
 	flagMaxSteps int
 	flagAgent    string
+	flagProvider string
 	flagIntent   string
 )
 
@@ -202,6 +203,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
+	rootCmd.Flags().StringVar(&flagProvider, "provider", "", "LLM provider override (claude, cursor)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
 	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
 	rootCmd.AddCommand(versionCmd)
@@ -411,6 +413,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		Intent:   intent,
 		Agent:    flagAgent,
 		Model:    flagModel,
+		Provider: flagProvider,
 		MaxSteps: flagMaxSteps,
 	}
 
