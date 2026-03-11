@@ -34,6 +34,7 @@
 |--------|------|------|
 | 顶级目录 | 全小写 Unix 风格 | `/proc/`, `/dev/`, `/lib/skills/` |
 | 设备名 | 全小写，连字符分隔 | `/dev/llm/claude`, `/dev/shell` |
+| Provider 设备 | `/dev/llm/` + provider 名 | `/dev/llm/ollama`, `/dev/llm/groq` |
 | PID 段 | 纯数字 | `/proc/42/status` |
 | Skill 名 | 全小写，连字符分隔 | `/lib/skills/code-analysis/` |
 | Agent 名 | 全小写，连字符分隔 | `/lib/agents/code-analyst/` |
@@ -45,6 +46,7 @@
 | Go 源文件 | 全小写，下划线分隔 | `kernel.go`, `claude_cli.go`, `strace.go` |
 | 测试文件 | `_test.go` 后缀，同目录 | `kernel_test.go`, `claude_cli_test.go` |
 | YAML 配置 | 全小写，连字符分隔，`.yaml` 后缀 | `agent.yaml`（不用 `.yml`） |
+| Provider 配置 | 全小写，连字符分隔，`.yaml` 后缀 | `rnix-providers.yaml` |
 | SKILL.md | 大写固定名 | `SKILL.md`（Agent Skills 标准要求） |
 | Markdown | 全小写，连字符分隔 | `instructions.md` |
 | 目录名 | 全小写单词 | `kernel/`, `drivers/`, `internal/ui/` |
@@ -248,6 +250,7 @@ func (k *KernelImpl) Open(path string, flags int) (FD, error) {
 - Socket：`$XDG_RUNTIME_DIR/rnix/rnix.sock`（备选 `/tmp/rnix-$UID/rnix.sock`）
 - PID：socket 目录下 `rnix.pid`
 - 缓存：`$RNIX_CACHE/registry.json`（Skill 本地注册表）
+- Provider 配置：`rnix-providers.yaml`（项目根目录或 `$XDG_CONFIG_HOME/rnix/`）
 
 ## Skill 元数据扩展模式
 

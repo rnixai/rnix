@@ -8,6 +8,7 @@
 - AgentShell 解析器架构（手写递归下降 + 解释执行）
 
 **重要决策（塑造架构）：**
+- 多 LLM Provider 动态配置（DriverRegistry + rnix-providers.yaml）
 - gdb 调试通道（IPC 扩展）
 - 时间旅行 fork-continue（普通 Spawn）
 - 分布式追踪传播（上下文自动传播）
@@ -125,11 +126,86 @@ type VFSFile interface {
 
 **/dev 设备注册：** `DeviceRegistry` 维护路径→驱动映射，`Open("/dev/llm/claude")` 时查表返回驱动封装的 `VFSFile`。
 
-## Decision 4: Claude Code CLI 集成
+## Decision 4: 多 LLM Provider 动态配置
 
-**调用模式：** 每次 LLM 调用 = 一次 `exec.CommandContext`，不维持长连接。
+**决策：** LLM 驱动层支持多种 provider 的配置文件驱动注册，通过 `rnix-providers.yaml` 声明式定义，daemon 启动时动态解析并注册到 VFS。
 
-**MVP 调用模板：**
+**设计演进：**
+- Phase 1：Claude Code CLI 为唯一 provider（`/dev/llm/claude`），验证核心范式
+- Phase 2：引入 Cursor CLI（`/dev/llm/cursor`）+ OpenAI 兼容 HTTP API 驱动，支持 Ollama/Groq/DeepSeek 等
+- 未来：可扩展 native SDK 驱动（直连 Anthropic/OpenAI/Gemini API）
+
+**两类驱动模型：**
+
+| 驱动类型 | 实现方式 | 认证处理 | 示例 |
+|---------|---------|---------|------|
+| CLI 驱动 | `exec.CommandContext` 调用本地 CLI 工具 | CLI 自身处理 | claude、cursor |
+| HTTP API 驱动 | `net/http` 调用 OpenAI 兼容端点 | 环境变量引用 API Key | Ollama、Groq、DeepSeek |
+
+**Provider 配置（`rnix-providers.yaml`）：**
+
+```yaml
+providers:
+  claude:
+    driver: claude-cli
+    default_model: sonnet
+  cursor:
+    driver: cursor-cli
+    default_model: ""
+  ollama:
+    driver: openai-compat
+    base_url: http://localhost:11434/v1
+    default_model: llama3
+  groq:
+    driver: openai-compat
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+    default_model: llama-3.3-70b-versatile
+```
+
+**驱动接口层次：**
+
+```go
+// 基础驱动接口
+type LLMDriver interface {
+    Call(ctx context.Context, req LLMRequest) (*LLMResponse, error)
+    Stream(ctx context.Context, req LLMRequest) (<-chan StreamEvent, error)
+    Info() DriverInfo
+}
+
+// 工具调用扩展接口（HTTP API 驱动实现）
+type ToolCallingDriver interface {
+    LLMDriver
+    CallWithTools(ctx context.Context, req LLMRequest, tools []ToolDef) (*LLMResponse, error)
+    StreamWithTools(ctx context.Context, req LLMRequest, tools []ToolDef) (<-chan StreamEvent, error)
+}
+
+// 驱动注册表
+type DriverRegistry struct {
+    registry *xsync.Registry[LLMDriver]
+}
+```
+
+**Daemon 启动注册流程：**
+
+```
+1. 解析 rnix-providers.yaml
+2. 遍历 providers 配置
+3. 根据 driver 字段选择构造函数：
+   - "claude-cli"    → NewClaudeCliDriver()
+   - "cursor-cli"    → NewCursorCliDriver()
+   - "openai-compat" → NewOpenAICompatDriver(name, baseURL, opts...)
+4. 通过 DriverRegistry 注册驱动实例
+5. 桥接到 DeviceRegistry：devReg.Register("/dev/llm/<name>", FileFactory(driver))
+```
+
+**Provider 选择优先级：** CLI `--provider` > agent.yaml `models.provider` > 系统默认（claude）
+
+**模型选择优先级：** CLI `--model` > agent.yaml `models.preferred` > provider `default_model`
+
+**Fallback 降级：** `models.preferred` 对应 provider 调用失败（HTTP 5xx、超时、连接拒绝、认证失败）时，自动尝试 `models.fallback` 指定的备选 provider/model 组合。
+
+**Claude Code CLI 调用模板（默认 provider）：**
 
 ```go
 cmd := exec.CommandContext(ctx, "claude", "-p", intent,
@@ -144,7 +220,21 @@ cmd := exec.CommandContext(ctx, "claude", "-p", intent,
 
 **stream-json 消费：** `--output-format stream-json` 时，通过 `bufio.Scanner` 逐行读取 stdout，每行解析为 `StreamEvent`，写入 `Process.DebugChan` 供 strace 消费。
 
-**超时处理：** `context.WithTimeout` 包装，超时后 `cmd.Process.Kill()`，进程转 Zombie。
+**超时处理：** `context.WithTimeout` 包装，超时后 `cmd.Process.Kill()`（CLI 驱动）或请求取消（HTTP 驱动），进程转 Zombie。
+
+**错误标准化：**
+
+```go
+var (
+    ErrRateLimit     = errors.New("llm: rate limit exceeded")
+    ErrAuth          = errors.New("llm: authentication failed")
+    ErrContextLength = errors.New("llm: context length exceeded")
+    ErrModelNotFound = errors.New("llm: model not found")
+    ErrTimeout       = errors.New("llm: request timed out")
+)
+```
+
+两类驱动共享统一错误类型 `LLMError`（含 Provider 名称和 HTTP 状态码），CLI 驱动通过字符串分类映射错误，HTTP 驱动通过 HTTP 状态码映射。
 
 ## Decision 5: 调试架构（strace）
 

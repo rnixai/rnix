@@ -23,6 +23,7 @@
 | Epic 10（监控 Supervisor）| `kernel/`、`cmd/rnix/`、`context/`、`internal/ui/` | FR58-65 |
 | Epic 11（AgentShell 高级语法）| `shell/` | FR66-68 |
 | Epic 12（Phase 2 文档）| `docs/` | FR69-70 |
+| Epic 23（多 LLM Provider 配置）| `drivers/llm/`、`kernel/`、`cmd/rnix/` | FR141-FR146 |
 
 ## 完整项目目录结构
 
@@ -34,6 +35,7 @@ newxv6/
 ├── .golangci.yml                   # golangci-lint 配置
 ├── .gitignore
 ├── rnix-init.yaml                  # Daemon init 引导配置（Phase 2）
+├── rnix-providers.yaml             # LLM Provider 配置（多 provider 动态注册）
 │
 ├── cmd/rnix/                       # CLI 主程序 + 依赖注入点
 │   ├── main.go                    # 入口 + Cobra root command
@@ -89,10 +91,15 @@ newxv6/
 │
 ├── drivers/                        # 设备驱动层
 │   ├── llm/                       # LLM 设备驱动
-│   │   ├── claude.go             # Claude Code CLI 驱动（exec.CommandContext）
+│   │   ├── driver.go             # LLMDriver 接口 + LLMRequest/Response 类型
+│   │   ├── tools.go              # ToolCallingDriver 接口 + ToolDef 类型
+│   │   ├── errors.go             # LLMError + 标准化错误分类
+│   │   ├── claude_cli.go         # Claude Code CLI 驱动
+│   │   ├── cursor_cli.go         # Cursor CLI 驱动
+│   │   ├── openai_compat.go      # OpenAI 兼容 HTTP API 驱动
 │   │   ├── vfsfile.go            # LLM VFS 文件实现
 │   │   ├── vfsfile_test.go
-│   │   ├── registry.go           # LLM 驱动注册表
+│   │   ├── registry.go           # LLM 驱动注册表（DriverRegistry）
 │   │   └── registry_test.go
 │   ├── fs/                        # 宿主文件系统驱动
 │   │   ├── hostfs.go             # /dev/fs 实现
@@ -305,8 +312,14 @@ func main() {
     // 1. VFS + 设备注册表
     devReg := vfs.NewDeviceRegistry()
     vfsInst := vfs.New(devReg)
-    // 2. 驱动注册
-    devReg.Register("/dev/llm/claude", llm.NewClaudeCliDriver().FileFactory())
+    // 2. Provider 配置解析 + 驱动注册
+    providers := llm.LoadProviders("rnix-providers.yaml")
+    driverReg := llm.NewDriverRegistry()
+    for name, cfg := range providers {
+        driver := llm.CreateDriver(cfg) // claude-cli / cursor-cli / openai-compat
+        driverReg.Register(name, driver)
+        devReg.Register("/dev/llm/"+name, llm.FileFactory(driver, "/dev/llm/"+name))
+    }
     devReg.Register("/dev/shell", shell.NewDriver().FileFactory())
     devReg.Register("/dev/fs", fs.NewHostFSDriver().FileFactory())
     // 3. Skill + Agent 加载器

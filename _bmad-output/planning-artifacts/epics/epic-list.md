@@ -126,4 +126,11 @@ Supervisor 容错树自动管理子智能体生命周期 + init 引导序列初�
 **FRs covered:** FR129, FR130, FR131, FR132, FR133, FR134, FR135, FR136, FR137
 **NFRs:** NFR44, NFR45
 
+## Epic 23: 多 LLM Provider 动态配置（Multi-LLM Provider Management）
+用户通过 `rnix-providers.yaml` 声明式定义 LLM provider（CLI 类或 HTTP API 类），daemon 启动时动态注册到 VFS，Agent 可指定 provider 并支持 fallback 降级——从单一 Claude CLI 演进为灵活的多模型架构。
+**FRs covered:** FR141, FR142, FR143, FR144, FR145, FR146
+**NFRs:** NFR31 (配置解析 ≤2s), NFR32 (健康检查 ≤3s), NFR33 (fallback ≤1s)
+**Dependencies:** Phase 1-2 LLM 驱动层基础（drivers/llm/ 已有 LLMDriver 接口、DriverRegistry、OpenAICompatDriver）
+**User Journey:** 旅程 5（陈明切换本地 Ollama + Claude fallback）
+
 ---

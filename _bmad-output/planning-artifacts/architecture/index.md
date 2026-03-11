@@ -18,7 +18,7 @@
     - [Decision 1: Syscall ABI — 分类接口组合](./core-architectural-decisions.md#decision-1-syscall-abi-设计风格-分类接口组合)
     - [Decision 2: 进程模型与并发](./core-architectural-decisions.md#decision-2-进程模型与并发)
     - [Decision 3: VFS 实现策略](./core-architectural-decisions.md#decision-3-vfs-实现策略)
-    - [Decision 4: Claude Code CLI 集成](./core-architectural-decisions.md#decision-4-claude-code-cli-集成)
+    - [Decision 4: 多 LLM Provider 动态配置](./core-architectural-decisions.md#decision-4-多-llm-provider-动态配置)
     - [Decision 5: 调试架构（strace）](./core-architectural-decisions.md#decision-5-调试架构strace)
     - [Decision 6: 错误处理与恢复](./core-architectural-decisions.md#decision-6-错误处理与恢复)
     - [Decision 7: Agent 抽象层与 Skill 标准化](./core-architectural-decisions.md#decision-7-agent-抽象层与-skill-标准化)

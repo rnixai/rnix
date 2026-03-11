@@ -107,6 +107,25 @@ agents:
 
 ---
 
+### 旅程 5：陈明切换本地模型降低成本（用户 A — 平台构建者，多 Provider 路径）
+
+**背景：** 陈明在开发阶段频繁迭代，Claude API 调用成本快速累积。他在本地部署了 Ollama 运行 Llama3，希望日常开发用本地模型，关键任务切回 Claude。
+
+**步骤：**
+
+1. 陈明编辑 `rnix-providers.yaml`，新增 ollama provider：指定 `driver: openai-compat`、`base_url: http://localhost:11434/v1`、`default_model: llama3`
+2. 重启 daemon，系统自动解析配置并在 `/dev/llm/ollama` 注册新 provider
+3. 修改 `code-analyst` agent 的 `agent.yaml`：`models.provider: ollama`，`models.fallback: claude`
+4. 执行 `rnix "分析 main.go 的代码质量" --agent=code-analyst`，系统通过 Ollama 本地模型完成分析
+5. 当 Ollama 服务意外停止时，系统检测到调用失败，自动 fallback 到 Claude，任务继续完成
+6. 陈明通过 `rnix strace` 看到 provider 切换的完整轨迹：首次调用 `/dev/llm/ollama` 失败 → fallback 到 `/dev/llm/claude` 成功
+
+**结果：** 日常开发成本降为零（本地模型），关键任务通过 fallback 保证质量，切换过程对智能体透明。
+
+**覆盖能力：** FR141（配置驱动注册）、FR142（HTTP API 驱动）、FR143（agent provider 指定）、FR144（fallback 降级）、FR145（CLI provider 覆盖）、FR146（API Key 管理）、NFR47-49（多 provider 性能）
+
+---
+
 ## Journey Requirements Summary
 
 | 能力领域 | 旅程来源 | MVP 必需 | Post-MVP | Phase 2 FR 映射 |
@@ -131,3 +150,4 @@ agents:
 | Supervisor 容错 | 架构需求推导（进程可靠性设计） | | ✓ (Phase 2) | FR63-FR65 |
 | AgentShell 完整语法 | 架构需求推导（AgentShell DSL 设计） | | ✓ (Phase 2) | FR66-FR68 |
 | Phase 2 文档（教程 + 架构） | 生态建设需求（开发者体验） | | ✓ (Phase 2) | FR69-FR70 |
+| 多 Provider 支持（provider 注册 + fallback） | 旅程 5 | | ✓ (Phase 2) | FR141-FR146 |

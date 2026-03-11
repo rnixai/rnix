@@ -24,7 +24,7 @@
 - **FR14:** 系统可以通过 `/proc/{pid}/` 动态暴露每个智能体的运行时状态（status、intent、context）
 - **FR15:** 系统可以通过 `/dev/` 路径注册和路由设备驱动（LLM、Shell、文件系统）
 - **FR16:** 智能体可以通过 `/dev/fs` 读取宿主文件系统上的文件
-- **FR17:** 智能体可以通过 `/dev/llm/claude` 访问 LLM 推理能力
+- **FR17:** 智能体可以通过 `/dev/llm/<provider>` 访问已配置的 LLM provider 推理能力（默认 `/dev/llm/claude`）
 - **FR18:** 智能体可以通过 `/dev/shell` 执行宿主系统的 shell 命令
 
 ## Context Management（上下文管理）
@@ -43,7 +43,7 @@
 ## Skill Management（能力模块管理，遵循 Agent Skills 行业标准）
 
 - **FR25a:** 系统可以从 `SKILL.md` 解析 Skill 元信息（name、description、allowed-tools），格式遵循 Agent Skills 开放标准（agentskills.io）
-- **FR25b:** 系统可以对 Skill 进行渐进式加载——启动时仅加载 frontmatter（≤ 100 tokens/skill），激活时加载完整 SKILL.md body（≤ 5000 tokens），执行时按需加载 scripts/references/assets
+- **FR25b:** 系统可以对 Skill 进行渐进式加载——启动时仅加载元信息摘要，激活时加载完整指令内容，执行时按需加载附属资源，以最小化启动开销和内存占用
 - **FR26:** Agent 引用的所有 Skill 的 `allowed-tools` 聚合后映射为智能体的可用 `/dev/` 设备权限白名单
 - **FR27:** 系统交付参考 Agent（code-analyst）+ 参考 Skill（code-analysis），能够分析代码并识别至少 1 个可验证的真实代码问题（与 Success Criteria 中自举验证标准对齐）
 
@@ -51,7 +51,7 @@
 
 - **FR28:** 用户可以通过 `strace` 实时追踪指定智能体的所有 syscall 调用
 - **FR29:** 系统可以在 strace 输出中展示每个 syscall 的名称、参数、返回值和耗时
-- **FR30:** 系统可以记录 syscall 调用数据（DebugRecord）供 strace 消费
+- **FR30:** 系统可以记录 syscall 调用数据供 strace 消费
 - **FR31:** 用户可以通过 strace 输出定位到产生错误结果的具体 syscall 调用记录
 - **FR32:** 系统在智能体完成时输出汇总信息（退出码、token 消耗、总耗时）
 
@@ -61,7 +61,7 @@
 - **FR34:** 用户可以通过 `rnix strace <pid>` 追踪指定进程的 syscall
 - **FR35:** 用户可以通过 `rnix ps` 查看所有进程状态
 - **FR36:** 系统可以在 CLI 中输出结构化错误信息，包含设备路径、错误码和错误原因
-- **FR37:** 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需预装 Claude Code CLI）
+- **FR37:** 系统可以通过 `go install` 一条命令完成安装，单二进制，零额外依赖（需至少配置一个 LLM provider）
 
 ## Documentation（文档）
 
@@ -122,6 +122,15 @@
 
 - **FR69:** 系统可以提供教程文档，覆盖"编写第一个 Skill"、"调试第一个 bug"、"组合多智能体工作流"三个核心场景，每个教程含完整可运行示例
 - **FR70:** 系统可以提供架构文档，覆盖微内核设计、进程模型、驱动层架构、上下文管理四个核心模块，每个模块含设计决策和数据流说明
+
+## Multi-LLM Provider Management（多 LLM 提供方管理，Phase 2）
+
+- **FR141:** 系统通过 `rnix-providers.yaml` 配置文件声明式定义 LLM provider，daemon 启动时动态解析并注册到 VFS `/dev/llm/<name>` 路径，新增 provider 无需修改源码
+- **FR142:** 系统支持两类 provider 驱动：CLI 驱动（通过本地 CLI 工具交互，如 claude/cursor）和 HTTP API 驱动（通过 OpenAI 兼容 API 端点交互，如 Ollama/Groq/DeepSeek）
+- **FR143:** Agent 的 `agent.yaml` 中 `models.provider` 字段指定 LLM provider，系统在 spawn 时解析为对应的 `/dev/llm/<provider>` VFS 设备路径
+- **FR144:** 系统支持 provider fallback 降级——当 `models.preferred` 对应的 provider 调用失败（HTTP 5xx、连接超时、连接拒绝、认证失败）时，自动尝试 `models.fallback` 指定的备选 provider/model 组合
+- **FR145:** 用户可通过 CLI `--provider` 参数在 spawn 时覆盖 agent.yaml 中的 provider 配置
+- **FR146:** HTTP API 类型的 provider 支持通过环境变量引用配置 API Key（如 `api_key_env: GROQ_API_KEY`），系统不明文存储密钥
 
 ---
 

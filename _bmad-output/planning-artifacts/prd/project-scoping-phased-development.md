@@ -11,35 +11,56 @@
 - ABI 设计必须稳定到能支撑 Phase 2 扩展
 - 自举验证是唯一的硬性验收标准
 
-**资源需求：** 单人开发，Go 技术栈，依赖 Claude Code CLI。
+**资源需求：** 单人开发，Go 技术栈，依赖至少一个 LLM provider（默认 Claude Code CLI）。
 
-## LLM Driver Strategy: Claude Code CLI
+## LLM Driver Strategy: 多 Provider 动态配置
 
-**核心决策：** Rnix 的 `/dev/llm/` 驱动不直接调用 Claude API，而是通过 Claude Code CLI 作为 LLM 设备驱动。
+**核心决策：** Rnix 的 `/dev/llm/` 驱动层支持多种 LLM provider 的动态注册与切换，通过 `rnix-providers.yaml` 配置文件驱动，新增 provider 无需修改源码。
 
-**理由：**
-- 认证、重试、rate limiting 由 Claude Code CLI 处理
-- 开发者机器已安装 Claude Code，零额外配置
-- Claude Code CLI 本身是完整的代理运行时，能力远超裸 API 调用
+**设计演进：**
+- Phase 1 以 Claude Code CLI 为唯一 provider，验证"智能体即进程"核心范式
+- Phase 2 引入 Cursor CLI 作为第二个 CLI 类 provider
+- 当前阶段引入 OpenAI 兼容 HTTP API 驱动，支持接入任意兼容端点（Ollama、Groq、DeepSeek 等）
+- 未来可扩展 native SDK 驱动（直连 Anthropic/OpenAI/Gemini API）
 
-**Claude Code CLI → Rnix 能力映射：**
+**两类驱动模型：**
+
+| 驱动类型 | 特征 | 示例 |
+|---------|------|------|
+| CLI 驱动 | 调用本地 CLI 工具，认证/重试由 CLI 自身处理 | claude、cursor |
+| HTTP API 驱动 | 调用 OpenAI 兼容 `/v1/chat/completions` 端点，需配置 base_url 和 API Key | Ollama、Groq、DeepSeek |
+
+**Provider 配置方式（`rnix-providers.yaml`）：**
+
+| 配置字段 | 说明 | 示例 |
+|---------|------|------|
+| `driver` | 驱动类型标识 | `claude-cli` / `cursor-cli` / `openai-compat` |
+| `default_model` | 该 provider 的默认模型 | `sonnet` / `llama3` |
+| `base_url` | HTTP API 端点（仅 HTTP 驱动） | `http://localhost:11434/v1` |
+| `api_key_env` | API Key 环境变量名（仅 HTTP 驱动） | `GROQ_API_KEY` |
+
+**Claude Code CLI → Rnix 能力映射（默认 provider）：**
 
 | Claude Code CLI | Rnix 映射 | 阶段 |
 |----------------|---------|------|
-| `claude -p "query"` | `reasonStep` 非交互调用 | MVP |
-| `--output-format json` | 解析 action（tool_call/text/spawn） | MVP |
-| `--system-prompt` | Agent `instructions.md` + Skill `SKILL.md` body 组合注入 | MVP |
-| `--tools` / `--allowedTools` | `/dev/` 设备权限，Skill `SKILL.md` `allowed-tools` 聚合 | MVP |
-| `--model sonnet/haiku` | Agent `agent.yaml` `models.preferred` | MVP |
-| `--max-turns` | reasonStep 循环上限 | MVP |
-| `--stream-json` | `strace` 实时追踪数据源 | MVP |
+| `claude -p "query"` | `reasonStep` 非交互调用 | Phase 1 |
+| `--output-format json` | 解析 action（tool_call/text/spawn） | Phase 1 |
+| `--system-prompt` | Agent `instructions.md` + Skill `SKILL.md` body 组合注入 | Phase 1 |
+| `--tools` / `--allowedTools` | `/dev/` 设备权限，Skill `SKILL.md` `allowed-tools` 聚合 | Phase 1 |
+| `--model sonnet/haiku` | Agent `agent.yaml` `models.preferred` | Phase 1 |
+| `--max-turns` | reasonStep 循环上限 | Phase 1 |
+| `--stream-json` | `strace` 实时追踪数据源 | Phase 1 |
 | `--max-budget-usd` | Token 预算控制 | Phase 2 |
 | `--mcp-config` | `/mnt/mcp/` 挂载实现，agent.yaml `mcp:` 字段引用 MCP 服务器 | Phase 2 |
 | `--agents` | 多智能体子进程 spawn | Phase 2+ |
 
-**安装前置条件：** Rnix MVP 要求用户已安装 Claude Code CLI。
+**模型选择优先级：** CLI `--model` 参数 > agent.yaml `models.preferred` > provider `default_model`
 
-**架构影响：** Rnix 内核专注于进程管理、VFS、上下文组装；LLM 交互（调用、工具执行、重试）全部委托给 Claude Code CLI。这大幅简化了 MVP 的 LLM 驱动层实现。
+**Provider 选择优先级：** CLI `--provider` 参数 > agent.yaml `models.provider` > 系统默认（claude）
+
+**安装前置条件：** 用户需至少配置一个 LLM provider。CLI 类驱动需预装对应 CLI 工具（如 Claude Code CLI）；HTTP API 类驱动需可达的端点和有效 API Key。
+
+**架构影响：** Rnix 内核专注于进程管理、VFS、上下文组装；LLM 交互委托给对应的 provider 驱动。配置文件驱动的注册机制使得扩展新 provider 为纯配置操作，保持内核代码稳定。
 
 ## MVP Feature Set (Phase 1)
 
@@ -154,6 +175,10 @@
 | reasonStep 循环与 CLI 交互不稳定 | 可靠性验收要求 20 次连续成功率 ≥ 95% |
 | ABI 设计不够前瞻，Phase 2 需要破坏性变更 | MVP 的 15 个 syscall 严格遵循架构文档的 45 syscall 子集 |
 | Go 单二进制对 Skill 动态加载的限制 | Agent + Skill 是文本注入（agent.yaml + instructions.md + SKILL.md → `--system-prompt` + `--tools`），不是 Go plugin |
+| HTTP API provider 端点不可用或限流 | Provider fallback 降级机制（FR144）自动切换备选 provider；NFR48 健康检查在启动时标记不可用 provider |
+| API Key 过期或轮换 | 通过环境变量引用（FR146），Key 更新无需修改配置文件，运维层面独立管理 |
+| 所有已配置 provider 均失败 | 进程正确转为 Zombie 状态并上报详细错误（含尝试过的 provider 列表和各自失败原因） |
+| `rnix-providers.yaml` 配置解析错误 | daemon 启动时校验配置文件格式，解析失败时以明确错误拒绝启动而非静默降级 |
 
 **市场风险：**
 
@@ -167,4 +192,4 @@
 | 风险 | 缓解 |
 |------|------|
 | 单人开发进度不可控 | MVP 是最小竖切片，Claude Code CLI 驱动策略进一步简化实现 |
-| 依赖 Claude Code CLI 可用性 | Claude Code 是 Anthropic 核心产品，持续维护可预期；驱动层抽象允许未来切换到直接 API 调用 |
+| 依赖 Claude Code CLI 可用性 | Claude Code 是 Anthropic 核心产品，持续维护可预期；驱动层抽象允许未来切换到直接 API 调用；多 provider 支持进一步降低单一 provider 依赖风险 |

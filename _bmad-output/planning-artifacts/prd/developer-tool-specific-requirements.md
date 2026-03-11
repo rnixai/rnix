@@ -16,10 +16,10 @@ Rnix 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来�
 
 | 方式 | 阶段 | 说明 |
 |------|------|------|
-| `go install` | MVP | 唯一安装方式，单二进制，零依赖 |
+| `go install` | MVP | 唯一安装方式，单二进制分发，运行时需至少一个已配置的 LLM provider |
 | 预编译二进制 / brew / docker | Phase 2+ | 根据社区需求扩展 |
 
-**MVP 安装体验目标：** `go install github.com/rnixai/rnix/cmd/rnix@latest` → 可用。不需要配置文件、不需要额外依赖、不需要 Docker。
+**MVP 安装体验目标：** `go install github.com/rnixai/rnix/cmd/rnix@latest` → 可用。不需要 Docker；使用 HTTP API 类 provider 时需配置 `rnix-providers.yaml`（CLI 类 provider 开箱即用）。
 
 ## API Surface (Syscall ABI)
 
@@ -88,7 +88,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 - goroutine → 智能体进程（轻量、高并发）
 - channel → IPC（类型安全、阻塞语义）
 - interface → syscall 契约（编译时检查）
-- 单二进制编译 → 零依赖部署
+- 单二进制编译 → 轻量部署（运行时依赖至少一个 LLM provider）
 
 **不适用项（Skip）：**
 - Visual design — CLI 工具，无 UI

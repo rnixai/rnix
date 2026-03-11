@@ -245,3 +245,14 @@ development_status:
   22-4-capability-migration-and-similarity-matrix: backlog
   22-5-collaboration-topology-and-reinforcement-paths: backlog
   epic-22-retrospective: optional
+
+  # Epic 23: Multi-LLM Provider Management (多 LLM Provider 动态配置)
+  epic-23: backlog
+  23-1-providers-yaml-config-parsing: backlog
+  23-2-config-driven-daemon-registration: backlog
+  23-3-dynamic-provider-resolution: backlog
+  23-4-api-key-management: backlog
+  23-5-provider-fallback: backlog
+  23-6-health-check-and-status: backlog
+  23-7-compose-init-config-upgrade: backlog
+  epic-23-retrospective: optional
