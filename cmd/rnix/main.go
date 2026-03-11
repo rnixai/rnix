@@ -457,7 +457,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	spawnedPID.Store(uint64(pid))
 
 	if spawnErr != nil {
-		outputError(renderer, mode, "/dev/llm/claude", spawnErr.Error(), "智能体启动失败", "检查 Claude Code CLI 是否已安装")
+		outputError(renderer, mode, "/dev/llm", spawnErr.Error(), "智能体启动失败", "检查 LLM CLI 是否已安装（claude 或 agent）")
 		exitCode = 1
 		return nil
 	}
@@ -474,7 +474,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 				reason = final.ErrorMessage
 			}
 		}
-		outputError(renderer, mode, "/dev/llm/claude", reason, "智能体执行失败", "检查意图描述或重试")
+		outputError(renderer, mode, "/dev/llm", reason, "智能体执行失败", "检查意图描述或重试")
 		tokensUsed := 0
 		if final != nil {
 			tokensUsed = final.TokensUsed
@@ -999,6 +999,8 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	vfsInst := vfs.NewVFS(devReg)
 	claudeDriver := llm.NewClaudeCliDriver()
 	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(claudeDriver, "/dev/llm/claude"))
+	cursorDriver := llm.NewCursorCliDriver()
+	_ = devReg.Register("/dev/llm/cursor", llm.FileFactory(cursorDriver, "/dev/llm/cursor"))
 	_ = devReg.Register("/dev/fs", fs.FileFactory())
 	shellDriver := drivershell.NewDriver()
 	_ = devReg.Register("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"))

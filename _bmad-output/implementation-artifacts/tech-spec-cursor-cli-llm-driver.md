@@ -2,7 +2,7 @@
 title: 'Cursor CLI LLM 驱动集成'
 slug: 'cursor-cli-llm-driver'
 created: '2026-03-11'
-status: 'ready-for-dev'
+status: 'implementation-complete'
 stepsCompleted: [1, 2, 3, 4]
 tech_stack: ['Go 1.26', 'Cursor CLI (agent --print)', 'exec.CommandContext', 'NDJSON stream']
 files_to_modify: ['drivers/llm/cursor_cli.go (NEW)', 'drivers/llm/cursor_cli_test.go (NEW)', 'kernel/kernel.go', 'cmd/rnix/main.go']
@@ -102,7 +102,7 @@ Rnix 当前只有 Claude CLI 作为 LLM 后端（`/dev/llm/claude`），无法�
 
 ### Tasks
 
-- [ ] Task 0: Spike — 验证 Cursor CLI JSON 响应 schema
+- [ ] Task 0: Spike — 验证 Cursor CLI JSON 响应 schema (手工步骤，待验证)
   - Action: 手动执行以下命令并记录输出结构
   - Notes:
     - 同步调用：`agent --print --output-format json --trust --force --approve-mcps "say hello"`
@@ -112,7 +112,7 @@ Rnix 当前只有 Claude CLI 作为 LLM 后端（`/dev/llm/claude`），无法�
     - 确认 prompt 作为位置参数的正确位置（最后一个参数）
     - 将结果记录为 `_bmad-output/implementation-artifacts/spike-cursor-cli-json-schema.md`
 
-- [ ] Task 1: 新建 `drivers/llm/cursor_cli.go` — CursorCliDriver 核心实现
+- [x] Task 1: 新建 `drivers/llm/cursor_cli.go` — CursorCliDriver 核心实现
   - File: `drivers/llm/cursor_cli.go` (NEW)
   - Action: 实现 `CursorCliDriver` 结构体及 `LLMDriver` 接口
   - Notes:
@@ -133,7 +133,7 @@ Rnix 当前只有 Claude CLI 作为 LLM 后端（`/dev/llm/claude`），无法�
     - **错误分类**：复用现有 `classifyCliError()` 函数，`NewLLMError` 的 provider 参数固定为 `"cursor"`
     - **认证检测**：`NewCursorCliDriver()` 构造时检查 `os.Getenv("CURSOR_API_KEY")`，不存在时 `log.Printf("[warn] CURSOR_API_KEY not set; cursor driver may fail at runtime")`
 
-- [ ] Task 2: 新建 `drivers/llm/cursor_cli_test.go` — 完整测试套件
+- [x] Task 2: 新建 `drivers/llm/cursor_cli_test.go` — 完整测试套件
   - File: `drivers/llm/cursor_cli_test.go` (NEW)
   - Action: 实现 **独立的** `TestCursorHelperProcess` mock 和全部测试用例
   - Notes:
@@ -156,7 +156,7 @@ Rnix 当前只有 Claude CLI 作为 LLM 后端（`/dev/llm/claude`），无法�
       - `TestCursorCliDriver_Info` — DriverInfo 返回值
       - `TestCursorCliDriver_Options` — `CursorWithModel`/`CursorWithTimeout`/`CursorWithCommandBuilder`
 
-- [ ] Task 3: kernel Spawn 中 provider 动态路径解析
+- [x] Task 3: kernel Spawn 中 provider 动态路径解析
   - File: `kernel/kernel.go`
   - Action: 修改 Spawn() 方法中的硬编码 LLM 设备路径
   - Notes:
@@ -173,7 +173,7 @@ Rnix 当前只有 Claude CLI 作为 LLM 后端（`/dev/llm/claude`），无法�
     - 将上述 3 处硬编码全部替换为 `llmDevice` 变量
     - 确保向后兼容：provider 为空或 `"claude"` 时行为不变
 
-- [ ] Task 4: Daemon 注册 + 客户端错误输出修正
+- [x] Task 4: Daemon 注册 + 客户端错误输出修正
   - File: `cmd/rnix/main.go`
   - Action: 在 `runDaemon()` 中注册 CursorCliDriver，并修正客户端侧硬编码
   - Notes:
