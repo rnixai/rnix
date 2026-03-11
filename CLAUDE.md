@@ -29,7 +29,7 @@ Prerequisite: Go 1.26+ (managed via `mise.toml`).
 
 ### Daemon Model
 
-Rnix runs as a background daemon holding the kernel and process table. CLI commands communicate with the daemon over a Unix domain socket (`$XDG_RUNTIME_DIR/rnix/rnix.sock` or `/tmp/rnix-$UID/rnix.sock`). The CLI auto-starts the daemon via `EnsureDaemon()` if not running.
+Rnix runs as a background daemon holding the kernel and process table. CLI commands communicate with the daemon over a Unix domain socket (`$XDG_RUNTIME_DIR/rnix/rnix.sock` or `/tmp/rnix-$UID/rnix.sock`). The CLI auto-starts the daemon via `EnsureDaemon()` if not running. Manage the daemon with `rnix daemon status` and `rnix daemon stop`.
 
 ### Core Data Flow
 
@@ -52,7 +52,7 @@ cmd/rnix           ← Entry point, Cobra CLI, all commands
 │   ├── context    ← Per-process conversation history (CtxAlloc/Write/BuildPrompt)
 │   └── debug      ← Strace, recording, distributed tracing, GDB
 ├── drivers/       ← VFS device implementations
-│   ├── llm        ← /dev/llm/claude - invokes claude CLI subprocess
+│   ├── llm        ← /dev/llm/claude (Claude CLI), /dev/llm/cursor (Cursor CLI)
 │   ├── fs         ← /dev/fs - sandboxed host filesystem
 │   ├── shell      ← /dev/shell - subprocess execution
 │   └── mcp        ← /dev/mcp/* - MCP server stdio transport
