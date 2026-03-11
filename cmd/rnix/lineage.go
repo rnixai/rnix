@@ -98,7 +98,7 @@ func runLineage(cmd *cobra.Command, args []string) error {
 func formatLineage(resp *ipc.LineageResponse) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("Lineage for PID %d\n\n", resp.PID))
+	fmt.Fprintf(&sb, "Lineage for PID %d\n\n", resp.PID)
 
 	for i, event := range resp.Events {
 		stepNum := ui.BoldStyle.Render(fmt.Sprintf("[%d]", i+1))
@@ -115,9 +115,9 @@ func formatLineage(resp *ipc.LineageResponse) string {
 
 		timestamp := time.UnixMilli(event.TimestampMs).Format("2006-01-02 15:04:05")
 
-		sb.WriteString(fmt.Sprintf("%s %s  %s\n", stepNum, timestamp, phaseLabel))
-		sb.WriteString(fmt.Sprintf("    Skills: %s\n", formatSkillNames(event.Skills)))
-		sb.WriteString(fmt.Sprintf("    Trigger: %q\n", event.Trigger))
+		fmt.Fprintf(&sb, "%s %s  %s\n", stepNum, timestamp, phaseLabel)
+		fmt.Fprintf(&sb, "    Skills: %s\n", formatSkillNames(event.Skills))
+		fmt.Fprintf(&sb, "    Trigger: %q\n", event.Trigger)
 
 		var source string
 		switch {
@@ -128,7 +128,7 @@ func formatLineage(resp *ipc.LineageResponse) string {
 		default:
 			source = "keyword-match"
 		}
-		sb.WriteString(fmt.Sprintf("    Source: %s\n", source))
+		fmt.Fprintf(&sb, "    Source: %s\n", source)
 
 		if i < len(resp.Events)-1 {
 			sb.WriteString("\n")
