@@ -165,6 +165,29 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 	return k
 }
 
+// allowedLLMProviders is the whitelist of valid LLM provider values.
+var allowedLLMProviders = map[string]bool{
+	"":       true,
+	"claude": true,
+	"cursor": true,
+}
+
+// resolveLLMDevice returns the VFS device path for the LLM provider specified in the agent manifest.
+// Returns "/dev/llm/claude" by default when agent is nil or provider is empty.
+func resolveLLMDevice(agent *agents.AgentInfo) (string, error) {
+	if agent == nil {
+		return "/dev/llm/claude", nil
+	}
+	provider := agent.Manifest.Models.Provider
+	if !allowedLLMProviders[provider] {
+		return "", fmt.Errorf("unsupported LLM provider: %q", provider)
+	}
+	if provider == "" || provider == "claude" {
+		return "/dev/llm/claude", nil
+	}
+	return "/dev/llm/" + provider, nil
+}
+
 // Spawn creates a new agent process that automatically executes the reasonStep loop.
 func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpts) (types.PID, error) {
 	start := time.Now()
@@ -364,19 +387,28 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 
 	if !opts.SkipReasonLoop {
+		// Resolve LLM device path based on agent provider
+		llmDevice, resolveErr := resolveLLMDevice(agent)
+		if resolveErr != nil {
+			if opts.PreallocatedCtxID == 0 {
+				_ = k.ctxMgr.CtxFree(cid)
+			}
+			return 0, NewSyscallError("Spawn", proc.PID, "", resolveErr, types.ErrDriver)
+		}
+
 		// Open LLM device via VFS
 		openStart := time.Now()
 		var err error
-		llmFD, err = k.vfs.Open(proc.PID, "/dev/llm/claude", vfs.O_RDWR)
+		llmFD, err = k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
 		k.emitEvent(proc, "Open", map[string]any{
-			"path":  "/dev/llm/claude",
+			"path":  llmDevice,
 			"flags": vfs.O_RDWR,
 		}, llmFD, err, time.Since(openStart))
 		if err != nil {
 			if opts.PreallocatedCtxID == 0 {
 				_ = k.ctxMgr.CtxFree(cid)
 			}
-			return 0, NewSyscallError("Spawn", proc.PID, "/dev/llm/claude", err, types.ErrDriver)
+			return 0, NewSyscallError("Spawn", proc.PID, llmDevice, err, types.ErrDriver)
 		}
 		proc.FDTable[llmFD] = nil // VFS manages actual file internally; tracks FD existence for process inspection
 

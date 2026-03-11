@@ -2462,3 +2462,96 @@ func TestReasonStep_GdbEnvVarsEmpty(t *testing.T) {
 		t.Error("expected system prompt to NOT contain env vars section when none set")
 	}
 }
+
+// --- resolveLLMDevice tests ---
+
+func TestResolveLLMDevice_NilAgent(t *testing.T) {
+	t.Parallel()
+	device, err := resolveLLMDevice(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if device != "/dev/llm/claude" {
+		t.Errorf("expected /dev/llm/claude, got %q", device)
+	}
+}
+
+func TestResolveLLMDevice_EmptyProvider(t *testing.T) {
+	t.Parallel()
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: ""},
+		},
+	}
+	device, err := resolveLLMDevice(agent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if device != "/dev/llm/claude" {
+		t.Errorf("expected /dev/llm/claude, got %q", device)
+	}
+}
+
+func TestResolveLLMDevice_Claude(t *testing.T) {
+	t.Parallel()
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "claude"},
+		},
+	}
+	device, err := resolveLLMDevice(agent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if device != "/dev/llm/claude" {
+		t.Errorf("expected /dev/llm/claude, got %q", device)
+	}
+}
+
+func TestResolveLLMDevice_Cursor(t *testing.T) {
+	t.Parallel()
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "cursor"},
+		},
+	}
+	device, err := resolveLLMDevice(agent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if device != "/dev/llm/cursor" {
+		t.Errorf("expected /dev/llm/cursor, got %q", device)
+	}
+}
+
+func TestResolveLLMDevice_Unsupported(t *testing.T) {
+	t.Parallel()
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "nonexistent"},
+		},
+	}
+	_, err := resolveLLMDevice(agent)
+	if err == nil {
+		t.Fatal("expected error for unsupported provider, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported LLM provider") {
+		t.Errorf("expected 'unsupported LLM provider' in error, got: %v", err)
+	}
+}
+
+func TestResolveLLMDevice_PathTraversal(t *testing.T) {
+	t.Parallel()
+	tests := []string{"../fs", "claude/../../shell"}
+	for _, provider := range tests {
+		agent := &agents.AgentInfo{
+			Manifest: agents.AgentManifest{
+				Models: agents.AgentModels{Provider: provider},
+			},
+		}
+		_, err := resolveLLMDevice(agent)
+		if err == nil {
+			t.Errorf("expected error for provider %q, got nil", provider)
+		}
+	}
+}
