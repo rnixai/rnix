@@ -698,20 +698,33 @@ func TestRunKill_Success_ViaIPC(t *testing.T) {
 	}
 }
 
-func TestDaemonCmd_Hidden(t *testing.T) {
-	if !daemonCmd.Hidden {
-		t.Error("daemon command should be hidden")
+func TestDaemonCmd_HasSubcommands(t *testing.T) {
+	stopFound := false
+	statusFound := false
+	for _, sub := range daemonCmd.Commands() {
+		switch sub.Name() {
+		case "stop":
+			stopFound = true
+		case "status":
+			statusFound = true
+		}
+	}
+	if !stopFound {
+		t.Error("daemon command should have 'stop' subcommand")
+	}
+	if !statusFound {
+		t.Error("daemon command should have 'status' subcommand")
 	}
 }
 
-func TestDaemonCmd_RequiresInternalFlag(t *testing.T) {
+func TestDaemonCmd_ShowsHelpWithoutInternalFlag(t *testing.T) {
 	saved := flagDaemonInternal
 	defer func() { flagDaemonInternal = saved }()
 	flagDaemonInternal = false
 
-	err := runDaemon(&cobra.Command{}, nil)
-	if err == nil {
-		t.Fatal("should fail without --internal flag")
+	err := runDaemon(daemonCmd, nil)
+	if err != nil {
+		t.Fatalf("expected help (no error), got: %v", err)
 	}
 }
 

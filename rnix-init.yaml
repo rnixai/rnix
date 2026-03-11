@@ -23,7 +23,7 @@ supervisors:
     strategy: one_for_one
     max_restarts: 3
     max_window: 1m0s
-    required: true
+    required: false
     children:
       - name: monitored-agent
         intent: "持续监控：每 30 秒报告一次系统状态摘要"

@@ -159,9 +159,21 @@ var killCmd = &cobra.Command{
 }
 
 var daemonCmd = &cobra.Command{
-	Use:    "daemon",
-	Hidden: true,
-	RunE:   runDaemon,
+	Use:   "daemon",
+	Short: "Manage the rnix background daemon",
+	RunE:  runDaemon,
+}
+
+var daemonStopCmd = &cobra.Command{
+	Use:   "stop",
+	Short: "Stop the running daemon",
+	RunE:  runDaemonStop,
+}
+
+var daemonStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show daemon status",
+	RunE:  runDaemonStatus,
 }
 
 var flagDaemonInternal bool
@@ -206,6 +218,9 @@ func init() {
 	rootCmd.Flags().StringVar(&flagProvider, "provider", "", "LLM provider override (claude, cursor)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
 	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
+	_ = daemonCmd.Flags().MarkHidden("internal")
+	daemonCmd.AddCommand(daemonStopCmd)
+	daemonCmd.AddCommand(daemonStatusCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(straceCmd)
 	rootCmd.AddCommand(psCmd)
@@ -993,9 +1008,54 @@ func wireToSyscallEvent(sew ipc.SyscallEventWire) types.SyscallEvent {
 	return e
 }
 
+func runDaemonStop(cmd *cobra.Command, args []string) error {
+	sockPath := ipc.SocketPath()
+	client, err := ipc.Dial(sockPath)
+	if err != nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "daemon is not running")
+		return nil
+	}
+	defer client.Close()
+
+	if err := client.Shutdown(); err != nil {
+		return fmt.Errorf("failed to stop daemon: %w", err)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "daemon stopped")
+	return nil
+}
+
+func runDaemonStatus(cmd *cobra.Command, args []string) error {
+	w := cmd.OutOrStdout()
+	sockPath := ipc.SocketPath()
+	client, err := ipc.Dial(sockPath)
+	if err != nil {
+		fmt.Fprintf(w, "status: stopped\nsocket: %s\n", sockPath)
+		return nil
+	}
+	defer client.Close()
+
+	version, err := client.Ping()
+	if err != nil {
+		fmt.Fprintf(w, "status: unreachable\nsocket: %s\nerror:  %v\n", sockPath, err)
+		return nil
+	}
+
+	procs, _ := client.ListProcs()
+	active := 0
+	for _, p := range procs {
+		if p.State == types.StateRunning {
+			active++
+		}
+	}
+
+	fmt.Fprintf(w, "status:  running\nversion: %s\nsocket:  %s\nprocs:   %d active / %d total\n",
+		version, sockPath, active, len(procs))
+	return nil
+}
+
 func runDaemon(cmd *cobra.Command, args []string) error {
 	if !flagDaemonInternal {
-		return fmt.Errorf("daemon command is for internal use only; use 'rnix -i \"intent\"' to run agents")
+		return cmd.Help()
 	}
 
 	devReg := vfs.NewDeviceRegistry()
