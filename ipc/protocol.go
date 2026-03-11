@@ -68,6 +68,7 @@ type SpawnRequest struct {
 	Intent        string `json:"intent"`
 	Agent         string `json:"agent,omitempty"`
 	Model         string `json:"model,omitempty"`
+	Provider      string `json:"provider,omitempty"`
 	MaxSteps      int    `json:"max_steps,omitempty"`
 	ContextBudget int    `json:"context_budget,omitempty"`
 	TimeoutMs     int64  `json:"timeout_ms,omitempty"`

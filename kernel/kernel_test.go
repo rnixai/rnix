@@ -2467,7 +2467,7 @@ func TestReasonStep_GdbEnvVarsEmpty(t *testing.T) {
 
 func TestResolveLLMDevice_NilAgent(t *testing.T) {
 	t.Parallel()
-	device, err := resolveLLMDevice(nil)
+	device, err := resolveLLMDevice(nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2483,7 +2483,7 @@ func TestResolveLLMDevice_EmptyProvider(t *testing.T) {
 			Models: agents.AgentModels{Provider: ""},
 		},
 	}
-	device, err := resolveLLMDevice(agent)
+	device, err := resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2499,7 +2499,7 @@ func TestResolveLLMDevice_Claude(t *testing.T) {
 			Models: agents.AgentModels{Provider: "claude"},
 		},
 	}
-	device, err := resolveLLMDevice(agent)
+	device, err := resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2515,7 +2515,7 @@ func TestResolveLLMDevice_Cursor(t *testing.T) {
 			Models: agents.AgentModels{Provider: "cursor"},
 		},
 	}
-	device, err := resolveLLMDevice(agent)
+	device, err := resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2531,7 +2531,7 @@ func TestResolveLLMDevice_Unsupported(t *testing.T) {
 			Models: agents.AgentModels{Provider: "nonexistent"},
 		},
 	}
-	_, err := resolveLLMDevice(agent)
+	_, err := resolveLLMDevice(agent, "")
 	if err == nil {
 		t.Fatal("expected error for unsupported provider, got nil")
 	}
@@ -2549,9 +2549,49 @@ func TestResolveLLMDevice_PathTraversal(t *testing.T) {
 				Models: agents.AgentModels{Provider: provider},
 			},
 		}
-		_, err := resolveLLMDevice(agent)
+		_, err := resolveLLMDevice(agent, "")
 		if err == nil {
 			t.Errorf("expected error for provider %q, got nil", provider)
 		}
+	}
+}
+
+func TestResolveLLMDevice_OverrideAgent(t *testing.T) {
+	t.Parallel()
+	// Agent says "claude", but CLI override says "cursor"
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "claude"},
+		},
+	}
+	device, err := resolveLLMDevice(agent, "cursor")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if device != "/dev/llm/cursor" {
+		t.Errorf("expected /dev/llm/cursor, got %q", device)
+	}
+}
+
+func TestResolveLLMDevice_OverrideNoAgent(t *testing.T) {
+	t.Parallel()
+	// No agent, but CLI override says "cursor"
+	device, err := resolveLLMDevice(nil, "cursor")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if device != "/dev/llm/cursor" {
+		t.Errorf("expected /dev/llm/cursor, got %q", device)
+	}
+}
+
+func TestResolveLLMDevice_OverrideUnsupported(t *testing.T) {
+	t.Parallel()
+	_, err := resolveLLMDevice(nil, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for unsupported override provider, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported LLM provider") {
+		t.Errorf("expected 'unsupported LLM provider' in error, got: %v", err)
 	}
 }

@@ -531,6 +531,7 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 
 	pid, err := s.kern.Spawn(req.Intent, agentInfo, kernel.SpawnOpts{
 		Model:         req.Model,
+		Provider:      req.Provider,
 		MaxTurns:      req.MaxSteps,
 		ContextBudget: req.ContextBudget,
 		TimeoutMs:     req.TimeoutMs,
