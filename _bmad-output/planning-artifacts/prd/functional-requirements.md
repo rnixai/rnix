@@ -1,5 +1,13 @@
 # Functional Requirements
 
+> **编号说明：** FR 编号按 Phase 分组分配，后续迭代新增的需求使用跳跃编号以保持逻辑归属：
+> - Phase 1: FR1-FR40（含 FR25a/b）
+> - Phase 2: FR41-FR70 + FR141-FR152（FR141+ 为后续新增的 Multi-LLM Provider 和 LLM Serve Gateway 需求）
+> - Phase 3: FR71-FR140（含 FR72a, FR76a）
+>
+> NFR 编号同样存在跳跃：NFR1-NFR33（Phase 1-2 原始需求）+ NFR34-NFR49（Phase 3）+ NFR50-NFR52（LLM Serve Gateway 后续新增）。
+> 跳跃不影响覆盖完整性，仅反映需求演进历史。
+
 ## Agent Lifecycle Management（智能体生命周期管理）
 
 - **FR1:** 用户可以通过自然语言意图创建（spawn）一个新的智能体进程

@@ -256,3 +256,12 @@ development_status:
   23-6-health-check-and-status: done
   23-7-compose-init-config-upgrade: done
   epic-23-retrospective: done
+
+  # Epic 24: LLM Serve Gateway (OpenAI 兼容网关)
+  epic-24: backlog
+  24-1-openai-http-server-core-framework: backlog
+  24-2-chat-completions-sync-mode: backlog
+  24-3-sse-streaming-response: backlog
+  24-4-models-endpoint-provider-discovery: backlog
+  24-5-rnix-serve-cli-e2e-integration: backlog
+  epic-24-retrospective: optional

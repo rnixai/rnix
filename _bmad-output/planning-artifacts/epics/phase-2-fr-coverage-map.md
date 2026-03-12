@@ -22,9 +22,9 @@
 - FR60: Epic 10 — rnix log think/tool/output 分类
 - FR61: Epic 10 — token 预算管理
 - FR62: Epic 10 — rnix top 交互式操作
-- FR63: Epic 10 — Supervisor 树管理
-- FR64: Epic 10 — 三种重启策略
-- FR65: Epic 10 — init 引导序列
+- FR63: Epic 10b — Supervisor 树管理
+- FR64: Epic 10b — 三种重启策略
+- FR65: Epic 10b — init 引导序列
 - FR66: Epic 11 — 管道语法 spawn|spawn
 - FR67: Epic 11 — 变量与环境传递
 - FR68: Epic 11 — 最小控制结构 if-else + on-error

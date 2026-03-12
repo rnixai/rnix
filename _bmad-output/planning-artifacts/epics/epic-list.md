@@ -133,4 +133,11 @@ Supervisor 容错树自动管理子智能体生命周期 + init 引导序列初�
 **Dependencies:** Phase 1-2 LLM 驱动层基础（drivers/llm/ 已有 LLMDriver 接口、DriverRegistry、OpenAICompatDriver）
 **User Journey:** 旅程 5（陈明切换本地 Ollama + Claude fallback）
 
+## Epic 24: LLM Serve — OpenAI 兼容网关（LLM Serve Gateway）
+通过 `rnix serve` 启动 OpenAI 兼容 HTTP 服务器，将 daemon 已注册的 `/dev/llm/*` provider 暴露为标准 OpenAI API 端点。外部工具（Aider、Open WebUI、Python `openai` 库等）无需了解 Rnix 内部即可消费 LLM 能力——一个端口统一所有 LLM 访问。
+**FRs covered:** FR147, FR148, FR149, FR150, FR151, FR152
+**NFRs:** NFR50 (HTTP 开销 ≤50ms), NFR51 (≥10 并发), NFR52 (仅绑定 127.0.0.1)
+**Dependencies:** Epic 23（DriverRegistry + rnix-providers.yaml 配置驱动）
+**User Journey:** 旅程 6（陈明通过 rnix serve 让外部工具使用 LLM）
+
 ---

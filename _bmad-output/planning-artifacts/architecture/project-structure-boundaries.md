@@ -24,6 +24,7 @@
 | Epic 11（AgentShell 高级语法）| `shell/` | FR66-68 |
 | Epic 12（Phase 2 文档）| `docs/` | FR69-70 |
 | Epic 23（多 LLM Provider 配置）| `drivers/llm/`、`kernel/`、`cmd/rnix/` | FR141-FR146 |
+| Epic 24（LLM Serve 网关）| `ipc/`、`cmd/rnix/` | FR147-FR152 |
 
 ## 完整项目目录结构
 

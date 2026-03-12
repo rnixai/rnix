@@ -30,7 +30,7 @@ Rnix 的 UX 核心不是视觉设计，而是 **CLI 信息架构与交互反馈�
 
 **用户 A — 平台构建者（陈明，核心用户）**
 - 独立开发者 / 基础设施工程师，深度使用终端
-- 编写 Skill 包（manifest.yaml + instructions.md），用 strace/gdb 调试
+- 编写 Skill 包（SKILL.md + instructions.md），用 strace/gdb 调试
 - 核心痛点：多智能体调试是黑盒，能力无法跨项目复用
 - UX 期望：精确、透明、可追溯——能看到智能体决策链的每一步
 - 顿悟时刻：`rnix strace 1` 三分钟定位三天找不到的 bug
@@ -1442,7 +1442,7 @@ internal/ui/
 |------|------|
 | Claude Code CLI 未安装 | `✗ rnix: claude-code CLI not found`<br>`  → Rnix requires Claude Code CLI to run`<br>`  → 建议: visit https://... to install` |
 | 文件无读取权限 | `✗ /dev/fs/secret.key: permission denied`<br>`  → 建议: check file permissions` |
-| 无效的 Skill manifest | `✗ skills/broken/manifest.yaml: invalid format`<br>`  → missing required field: "name"`<br>`  → 建议: see docs for manifest.yaml specification` |
+| 无效的 Skill manifest | `✗ skills/broken/SKILL.md: invalid format`<br>`  → missing required field: "name"`<br>`  → 建议: see docs for SKILL.md specification` |
 
 **3. 输入边界**
 
@@ -1824,3 +1824,245 @@ type TerminalProfile struct {
 - 所有 UI 组件可在非 TTY 环境中测试（输出到 `bytes.Buffer`）
 - `TerminalProfile` 可注入，方便单元测试不同终端场景
 - CI 环境默认 `NO_COLOR + 非 TTY`，测试可验证纯文本输出
+
+---
+
+## Appendix A: Epic 23/24 UX 交互补充设计
+
+> **补充日期：** 2026-03-13
+> **背景：** Epic 23（多 LLM Provider 管理）和 Epic 24（LLM Serve Gateway）在 UX 文档创建后新增，本节补充相关 CLI 交互设计规范。
+
+### Journey 5: Chen Ming Switches LLM Providers (Phase 2 — Multi-Provider Path)
+
+**用户：** 陈明（平台构建者）
+**目标：** 配置多个 LLM provider 并在 agent 执行中灵活切换
+**成功标准：** 一份 YAML 配置完成多 provider 注册 + fallback 自动降级
+
+```
+$ rnix daemon status
+[daemon] running (PID 12345)
+[daemon] providers:
+  ✓ claude    Claude Code CLI          healthy
+  ✓ cursor    Cursor CLI               healthy
+  ✓ ollama    http://localhost:11434    healthy
+
+$ rnix "分析这段代码" --provider ollama
+[kernel] spawning PID 2 (provider: ollama)...
+[agent/2] reasoning step 1/3...
+```
+
+**关键交互细节：**
+
+| 场景 | 系统反馈 | 设计要点 |
+|------|---------|---------|
+| daemon 启动加载 providers | `[daemon] registered 3 providers from rnix-providers.yaml` | 启动时一行汇总，不逐个打印 |
+| 指定 provider | `[kernel] spawning PID N (provider: ollama)...` | 括号中标注使用的 provider |
+| provider 健康检查失败 | `⚠ ollama: health check failed (connection refused)` | 黄色警告，不阻塞 daemon 启动 |
+| fallback 降级 | `⚠ [agent/N] ollama failed, falling back to claude...` | 一行警告说明降级轨迹 |
+| 所有 provider 失败 | `✗ [agent/N] all providers failed`<br>`  → tried: ollama (timeout), claude (rate limited)`<br>`  → 建议: check provider status with 'rnix daemon status'` | 三行错误结构：结果 + 尝试列表 + 建议 |
+
+---
+
+### Journey 6: Chen Ming Uses rnix serve for External Tools (Phase 2 — Gateway Path)
+
+**用户：** 陈明（平台构建者）
+**目标：** 通过 `rnix serve` 启动 OpenAI 兼容网关，让外部工具统一消费 LLM 能力
+**成功标准：** 一条命令启动网关，任何支持 OpenAI API 的工具即插即用
+
+```mermaid
+flowchart TD
+    A["确认 rnix-providers.yaml 配置"] --> B["rnix serve --port 8080"]
+    B --> C["Serving 3 providers on http://127.0.0.1:8080"]
+    C --> D{外部工具连接}
+    D -->|Aider| E["aider --openai-api-base http://localhost:8080/v1\n  model: cursor"]
+    D -->|Open WebUI| F["配置 API 端点\n  自动发现 /v1/models"]
+    D -->|Python 脚本| G["OpenAI(base_url='http://localhost:8080/v1')\n  model: ollama:llama3"]
+    E --> H["请求日志实时输出"]
+    F --> H
+    G --> H
+    H --> I["Ctrl+C 优雅停止"]
+```
+
+**关键交互细节：**
+
+| 阶段 | 用户动作 | 系统反馈 | 设计要点 |
+|------|---------|---------|---------|
+| 启动 | `rnix serve --port 8080` | 启动横幅 + provider 列表 | 类比 `python -m http.server`，开发者已有心智模型 |
+| 请求到达 | 外部工具发送 HTTP 请求 | 请求日志行 | 实时流式输出，类 nginx access log |
+| 流式响应 | `stream: true` 请求 | 请求日志含 `stream` 标签 | 区分同步和流式请求 |
+| 错误请求 | 无效 model 参数 | 请求日志含错误状态 + 可用列表 | 错误响应遵循 OpenAI 格式 |
+| 停止 | `Ctrl+C` | 优雅停止信息 | 等待进行中请求完成 |
+
+---
+
+### rnix serve CLI 输出规范
+
+#### 启动横幅
+
+```
+$ rnix serve --port 8080
+
+  rnix serve — OpenAI Compatible Gateway
+  ─────────────────────────────────────
+  Endpoint:   http://127.0.0.1:8080/v1
+  Providers:  3 healthy
+
+  NAME      TYPE         MODEL              STATUS
+  claude    cli          claude-sonnet-4-20250514  ✓ healthy
+  cursor    cli          claude-sonnet-4-20250514  ✓ healthy
+  ollama    http-api     llama3             ✓ healthy
+
+  Ready. Press Ctrl+C to stop.
+```
+
+| 属性 | 规范 |
+|------|------|
+| **标题行** | `rnix serve — OpenAI Compatible Gateway`，lipgloss 粗体 |
+| **分隔线** | `─` 重复至标题宽度，灰色 |
+| **端点地址** | 显示完整的 `/v1` 路径，方便复制 |
+| **Provider 表格** | 四列：名称、类型、默认模型、健康状态 |
+| **状态符号** | `✓ healthy`（绿色）/ `✗ unhealthy`（红色）/ `⚠ degraded`（黄色） |
+| **Ready 提示** | 明确告知如何停止，降低不确定感 |
+| **ASCII 降级** | `RNIX_ASCII=1` 时 `─` 降级为 `-`，`✓` 降级为 `[OK]` |
+
+#### 请求日志格式
+
+```
+[serve] POST /v1/chat/completions  cursor  200  1.23s  stream
+[serve] POST /v1/chat/completions  ollama:llama3  200  0.85s
+[serve] GET  /v1/models  200  2ms
+[serve] POST /v1/chat/completions  nonexistent  404  1ms  model_not_found
+```
+
+| 字段 | 说明 |
+|------|------|
+| **前缀** | `[serve]`，灰色，与 `[kernel]`/`[agent/N]` 保持一致风格 |
+| **方法** | HTTP 方法（POST/GET），固定宽度对齐 |
+| **路径** | API 路径 |
+| **Provider** | 解析后的 provider 名称（或 provider:model 复合格式） |
+| **状态码** | 200（绿色）/ 4xx（黄色）/ 5xx（红色） |
+| **耗时** | 包含 LLM 推理在内的总耗时 |
+| **标签** | 可选标签：`stream`（流式请求）、错误代码（`model_not_found`、`upstream_error`） |
+
+#### 错误响应输出（HTTP 返回体）
+
+所有错误响应遵循 OpenAI 错误格式，确保外部工具能正确解析：
+
+```json
+{
+  "error": {
+    "message": "Model 'nonexistent' not found. Available providers: claude, cursor, ollama",
+    "type": "invalid_request_error",
+    "code": "model_not_found"
+  }
+}
+```
+
+| HTTP 状态码 | 场景 | error.type | error.code |
+|------------|------|-----------|------------|
+| 400 | 请求体格式错误 | `invalid_request_error` | `invalid_request` |
+| 404 | Provider 不存在 | `invalid_request_error` | `model_not_found` |
+| 502 | LLM 驱动上游错误 | `server_error` | `upstream_error` |
+| 504 | LLM 推理超时 | `server_error` | `timeout` |
+
+#### 参数帮助文本
+
+```
+$ rnix serve --help
+
+Launch an OpenAI-compatible HTTP gateway for registered LLM providers.
+
+External tools (Aider, Open WebUI, Python openai library, etc.) can connect
+to this gateway using standard OpenAI API endpoints.
+
+Usage:
+  rnix serve [flags]
+
+Flags:
+      --port int   HTTP listen port (default 8080)
+  -h, --help       help for serve
+
+Endpoints:
+  POST /v1/chat/completions   Chat completion (sync and streaming)
+  GET  /v1/models             List available providers and models
+  GET  /health                Server health check
+
+Model Format:
+  Use "provider" or "provider:model" in the model field:
+    model: "cursor"              → use cursor's default model
+    model: "ollama:llama3"       → use ollama with llama3
+
+Example:
+  $ rnix serve --port 8080
+  $ curl http://localhost:8080/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -d '{"model":"ollama:llama3","messages":[{"role":"user","content":"hello"}]}'
+```
+
+| 属性 | 规范 |
+|------|------|
+| **描述风格** | 一句话说明功能 + 一句话说明受益场景 |
+| **Endpoints 段** | 列出所有 API 端点和用途，方便查阅 |
+| **Model Format 段** | 明确 provider:model 复合格式用法 |
+| **Example 段** | 包含启动命令 + curl 测试命令，可直接复制执行 |
+| **Flag 格式** | 遵循 Cobra 标准风格，与其他 rnix 命令一致 |
+
+#### 优雅停止输出
+
+```
+^C
+[serve] shutting down... waiting for 2 active requests
+[serve] stopped. Served 47 requests in 12m34s
+```
+
+| 属性 | 规范 |
+|------|------|
+| **等待提示** | 显示当前进行中的请求数，避免用户重复 Ctrl+C |
+| **汇总统计** | 总请求数 + 运行时长，与 `[kernel] PID N exited(0)` 汇总风格一致 |
+| **超时强制退出** | 等待 5 秒后强制关闭，输出 `[serve] forced shutdown (2 requests aborted)` |
+
+---
+
+### Provider 状态展示规范
+
+#### rnix daemon status 中的 Provider 信息
+
+```
+$ rnix daemon status
+[daemon] running (PID 12345) | uptime 2h15m
+[daemon] 3 providers registered
+
+  NAME      TYPE       DEFAULT MODEL      STATUS        LATENCY
+  claude    cli        claude-sonnet-4-20250514  ✓ healthy     -
+  cursor    cli        claude-sonnet-4-20250514  ✓ healthy     -
+  ollama    http-api   llama3             ✓ healthy     45ms
+
+$ rnix daemon status --json
+{"pid":12345,"uptime":"2h15m","providers":[{"name":"claude","type":"cli","status":"healthy"},...]}
+```
+
+| 属性 | 规范 |
+|------|------|
+| **表格格式** | 五列对齐，与 `rnix ps` 表格风格一致 |
+| **状态颜色** | healthy=绿、unhealthy=红、degraded=黄 |
+| **延迟列** | CLI 类 provider 显示 `-`（不适用），HTTP API 类显示上次健康检查延迟 |
+| **JSON 模式** | `--json` 输出完整 provider 状态数组，支持脚本消费 |
+
+#### --provider 参数交互反馈
+
+```
+$ rnix "分析代码" --provider ollama
+[kernel] spawning PID 3 (provider: ollama)...
+[agent/3] reasoning step 1/2...
+
+$ rnix "分析代码" --provider nonexistent
+✗ provider 'nonexistent' not found
+  → available: claude, cursor, ollama
+  → 建议: check 'rnix daemon status' or rnix-providers.yaml
+```
+
+| 场景 | 输出风格 | 设计要点 |
+|------|---------|---------|
+| 有效 provider | `(provider: name)` 附加在 spawn 信息中 | 括号标注，不喧宾夺主 |
+| 无效 provider | 三行错误结构 | 与全局错误模式一致 |
+| Fallback 发生 | `⚠ [agent/N] {primary} failed, falling back to {secondary}...` | 黄色警告，一行说明降级路径 |
