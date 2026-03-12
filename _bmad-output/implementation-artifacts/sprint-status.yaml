@@ -252,7 +252,7 @@ development_status:
   23-2-config-driven-daemon-registration: done
   23-3-dynamic-provider-resolution: done
   23-4-api-key-management: done
-  23-5-provider-fallback: backlog
+  23-5-provider-fallback: done
   23-6-health-check-and-status: backlog
   23-7-compose-init-config-upgrade: backlog
   epic-23-retrospective: optional

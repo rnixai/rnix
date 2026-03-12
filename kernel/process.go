@@ -96,6 +96,12 @@ type Process struct {
 	gdbEnvVars       map[string]string
 	gdbExtraSkills   []string
 
+	// Fallback configuration (Story 23.5)
+	FallbackModel    string // fallback model name
+	FallbackProvider string // fallback provider name; "" = same as primary
+	FallbackDevice   string // resolved fallback VFS device path; "" = no fallback
+	PrimaryDevice    string // primary VFS device path (e.g. "/dev/llm/claude")
+
 	mu       sync.Mutex
 	cancel   context.CancelFunc
 	ctx      context.Context
