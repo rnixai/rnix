@@ -1058,12 +1058,16 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	}
 
+	providersCfg, err := llm.LoadOrDefaultProvidersConfig()
+	if err != nil {
+		return fmt.Errorf("loading providers config: %w", err)
+	}
+	driverReg := llm.NewDriverRegistry()
 	devReg := vfs.NewDeviceRegistry()
+	if err := llm.RegisterProviders(providersCfg, driverReg, devReg); err != nil {
+		return fmt.Errorf("registering LLM providers: %w", err)
+	}
 	vfsInst := vfs.NewVFS(devReg)
-	claudeDriver := llm.NewClaudeCliDriver()
-	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(claudeDriver, "/dev/llm/claude"))
-	cursorDriver := llm.NewCursorCliDriver()
-	_ = devReg.Register("/dev/llm/cursor", llm.FileFactory(cursorDriver, "/dev/llm/cursor"))
 	_ = devReg.Register("/dev/fs", fs.FileFactory())
 	shellDriver := drivershell.NewDriver()
 	_ = devReg.Register("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"))
