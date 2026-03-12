@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"sort"
+
 	"github.com/rnixai/rnix/internal/xsync"
 )
 
@@ -24,4 +26,25 @@ func (r *DriverRegistry) Register(path string, driver LLMDriver) error {
 // Get retrieves a driver by path. The boolean indicates whether the path was found.
 func (r *DriverRegistry) Get(path string) (LLMDriver, bool) {
 	return r.registry.Get(path)
+}
+
+// Names returns a sorted list of all registered driver names.
+func (r *DriverRegistry) Names() []string {
+	var names []string
+	r.registry.Range(func(name string, _ LLMDriver) bool {
+		names = append(names, name)
+		return true
+	})
+	sort.Strings(names)
+	return names
+}
+
+// Len returns the number of registered drivers.
+func (r *DriverRegistry) Len() int {
+	count := 0
+	r.registry.Range(func(_ string, _ LLMDriver) bool {
+		count++
+		return true
+	})
+	return count
 }

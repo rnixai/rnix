@@ -43,3 +43,47 @@ func TestDriverRegistry_GetNotFound(t *testing.T) {
 		t.Error("expected driver not found")
 	}
 }
+
+func TestDriverRegistry_Names_Empty(t *testing.T) {
+	t.Parallel()
+	r := NewDriverRegistry()
+	names := r.Names()
+	if len(names) != 0 {
+		t.Errorf("expected empty names, got %v", names)
+	}
+}
+
+func TestDriverRegistry_Names_Sorted(t *testing.T) {
+	t.Parallel()
+	r := NewDriverRegistry()
+	_ = r.Register("cursor", NewCursorCliDriver())
+	_ = r.Register("claude", NewClaudeCliDriver())
+	_ = r.Register("ollama", NewOpenAICompatDriver("ollama", "http://localhost:11434/v1"))
+
+	names := r.Names()
+	expected := []string{"claude", "cursor", "ollama"}
+	if len(names) != len(expected) {
+		t.Fatalf("expected %d names, got %d: %v", len(expected), len(names), names)
+	}
+	for i, name := range names {
+		if name != expected[i] {
+			t.Errorf("names[%d] = %q, expected %q", i, name, expected[i])
+		}
+	}
+}
+
+func TestDriverRegistry_Len(t *testing.T) {
+	t.Parallel()
+	r := NewDriverRegistry()
+	if r.Len() != 0 {
+		t.Errorf("expected 0, got %d", r.Len())
+	}
+	_ = r.Register("claude", NewClaudeCliDriver())
+	if r.Len() != 1 {
+		t.Errorf("expected 1, got %d", r.Len())
+	}
+	_ = r.Register("cursor", NewCursorCliDriver())
+	if r.Len() != 2 {
+		t.Errorf("expected 2, got %d", r.Len())
+	}
+}

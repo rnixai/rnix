@@ -249,7 +249,7 @@ development_status:
   # Epic 23: Multi-LLM Provider Management (多 LLM Provider 动态配置)
   epic-23: in-progress
   23-1-providers-yaml-config-parsing: done
-  23-2-config-driven-daemon-registration: backlog
+  23-2-config-driven-daemon-registration: done
   23-3-dynamic-provider-resolution: backlog
   23-4-api-key-management: backlog
   23-5-provider-fallback: backlog
