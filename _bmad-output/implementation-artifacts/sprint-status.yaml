@@ -250,7 +250,7 @@ development_status:
   epic-23: in-progress
   23-1-providers-yaml-config-parsing: done
   23-2-config-driven-daemon-registration: done
-  23-3-dynamic-provider-resolution: backlog
+  23-3-dynamic-provider-resolution: done
   23-4-api-key-management: backlog
   23-5-provider-fallback: backlog
   23-6-health-check-and-status: backlog

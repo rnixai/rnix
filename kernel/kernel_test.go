@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -2465,9 +2466,34 @@ func TestReasonStep_GdbEnvVarsEmpty(t *testing.T) {
 
 // --- resolveLLMDevice tests ---
 
+// newMinimalKernelWithProviders creates a KernelImpl with mock provider resolver.
+// If no providers are given, hasProvider is left nil (backward compat mode).
+func newMinimalKernelWithProviders(providers ...string) *KernelImpl {
+	k := &KernelImpl{}
+	if len(providers) > 0 {
+		providerSet := make(map[string]bool)
+		for _, p := range providers {
+			providerSet[p] = true
+		}
+		k.SetProviderResolver(
+			func() []string {
+				names := make([]string, 0, len(providerSet))
+				for n := range providerSet {
+					names = append(names, n)
+				}
+				sort.Strings(names)
+				return names
+			},
+			func(name string) bool { return providerSet[name] },
+		)
+	}
+	return k
+}
+
 func TestResolveLLMDevice_NilAgent(t *testing.T) {
 	t.Parallel()
-	device, err := resolveLLMDevice(nil, "")
+	k := newMinimalKernelWithProviders("claude", "cursor")
+	device, err := k.resolveLLMDevice(nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2478,12 +2504,13 @@ func TestResolveLLMDevice_NilAgent(t *testing.T) {
 
 func TestResolveLLMDevice_EmptyProvider(t *testing.T) {
 	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "cursor")
 	agent := &agents.AgentInfo{
 		Manifest: agents.AgentManifest{
 			Models: agents.AgentModels{Provider: ""},
 		},
 	}
-	device, err := resolveLLMDevice(agent, "")
+	device, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2494,12 +2521,13 @@ func TestResolveLLMDevice_EmptyProvider(t *testing.T) {
 
 func TestResolveLLMDevice_Claude(t *testing.T) {
 	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "cursor")
 	agent := &agents.AgentInfo{
 		Manifest: agents.AgentManifest{
 			Models: agents.AgentModels{Provider: "claude"},
 		},
 	}
-	device, err := resolveLLMDevice(agent, "")
+	device, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2510,12 +2538,13 @@ func TestResolveLLMDevice_Claude(t *testing.T) {
 
 func TestResolveLLMDevice_Cursor(t *testing.T) {
 	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "cursor")
 	agent := &agents.AgentInfo{
 		Manifest: agents.AgentManifest{
 			Models: agents.AgentModels{Provider: "cursor"},
 		},
 	}
-	device, err := resolveLLMDevice(agent, "")
+	device, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2526,22 +2555,27 @@ func TestResolveLLMDevice_Cursor(t *testing.T) {
 
 func TestResolveLLMDevice_Unsupported(t *testing.T) {
 	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "cursor")
 	agent := &agents.AgentInfo{
 		Manifest: agents.AgentManifest{
 			Models: agents.AgentModels{Provider: "nonexistent"},
 		},
 	}
-	_, err := resolveLLMDevice(agent, "")
+	_, err := k.resolveLLMDevice(agent, "")
 	if err == nil {
 		t.Fatal("expected error for unsupported provider, got nil")
 	}
 	if !strings.Contains(err.Error(), "unsupported LLM provider") {
 		t.Errorf("expected 'unsupported LLM provider' in error, got: %v", err)
 	}
+	if !strings.Contains(err.Error(), "(available:") {
+		t.Errorf("expected '(available:' in error, got: %v", err)
+	}
 }
 
 func TestResolveLLMDevice_PathTraversal(t *testing.T) {
 	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "cursor")
 	tests := []string{"../fs", "claude/../../shell"}
 	for _, provider := range tests {
 		agent := &agents.AgentInfo{
@@ -2549,7 +2583,7 @@ func TestResolveLLMDevice_PathTraversal(t *testing.T) {
 				Models: agents.AgentModels{Provider: provider},
 			},
 		}
-		_, err := resolveLLMDevice(agent, "")
+		_, err := k.resolveLLMDevice(agent, "")
 		if err == nil {
 			t.Errorf("expected error for provider %q, got nil", provider)
 		}
@@ -2558,13 +2592,14 @@ func TestResolveLLMDevice_PathTraversal(t *testing.T) {
 
 func TestResolveLLMDevice_OverrideAgent(t *testing.T) {
 	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "cursor")
 	// Agent says "claude", but CLI override says "cursor"
 	agent := &agents.AgentInfo{
 		Manifest: agents.AgentManifest{
 			Models: agents.AgentModels{Provider: "claude"},
 		},
 	}
-	device, err := resolveLLMDevice(agent, "cursor")
+	device, err := k.resolveLLMDevice(agent, "cursor")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2575,8 +2610,9 @@ func TestResolveLLMDevice_OverrideAgent(t *testing.T) {
 
 func TestResolveLLMDevice_OverrideNoAgent(t *testing.T) {
 	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "cursor")
 	// No agent, but CLI override says "cursor"
-	device, err := resolveLLMDevice(nil, "cursor")
+	device, err := k.resolveLLMDevice(nil, "cursor")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2587,11 +2623,137 @@ func TestResolveLLMDevice_OverrideNoAgent(t *testing.T) {
 
 func TestResolveLLMDevice_OverrideUnsupported(t *testing.T) {
 	t.Parallel()
-	_, err := resolveLLMDevice(nil, "nonexistent")
+	k := newMinimalKernelWithProviders("claude", "cursor")
+	_, err := k.resolveLLMDevice(nil, "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for unsupported override provider, got nil")
 	}
 	if !strings.Contains(err.Error(), "unsupported LLM provider") {
 		t.Errorf("expected 'unsupported LLM provider' in error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "(available:") {
+		t.Errorf("expected '(available:' in error, got: %v", err)
+	}
+}
+
+// --- New tests for Story 23.3 ---
+
+func TestResolveLLMDevice_DynamicProvider(t *testing.T) {
+	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "cursor", "ollama")
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "ollama"},
+		},
+	}
+	device, err := k.resolveLLMDevice(agent, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if device != "/dev/llm/ollama" {
+		t.Errorf("expected /dev/llm/ollama, got %q", device)
+	}
+}
+
+func TestResolveLLMDevice_UnsupportedListsAvailable(t *testing.T) {
+	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "cursor", "ollama")
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "nonexist"},
+		},
+	}
+	_, err := k.resolveLLMDevice(agent, "")
+	if err == nil {
+		t.Fatal("expected error for unsupported provider")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "(available: claude, cursor, ollama)") {
+		t.Errorf("expected '(available: claude, cursor, ollama)' in error, got: %s", errMsg)
+	}
+}
+
+func TestResolveLLMDevice_NilResolver(t *testing.T) {
+	t.Parallel()
+	k := &KernelImpl{} // No resolver injected
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "anything"},
+		},
+	}
+	device, err := k.resolveLLMDevice(agent, "")
+	if err != nil {
+		t.Fatalf("nil resolver should allow all providers, got error: %v", err)
+	}
+	if device != "/dev/llm/anything" {
+		t.Errorf("expected /dev/llm/anything, got %q", device)
+	}
+}
+
+func TestResolveLLMDevice_OverrideDynamic(t *testing.T) {
+	t.Parallel()
+	k := newMinimalKernelWithProviders("claude", "groq")
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "claude"},
+		},
+	}
+	device, err := k.resolveLLMDevice(agent, "groq")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if device != "/dev/llm/groq" {
+		t.Errorf("expected /dev/llm/groq, got %q", device)
+	}
+}
+
+// --- SetProviderResolver tests ---
+
+func TestSetProviderResolver(t *testing.T) {
+	t.Parallel()
+	k := &KernelImpl{}
+	if k.providerNames != nil || k.hasProvider != nil {
+		t.Fatal("expected nil providerNames and hasProvider before SetProviderResolver")
+	}
+	k.SetProviderResolver(
+		func() []string { return []string{"claude"} },
+		func(name string) bool { return name == "claude" },
+	)
+	if k.providerNames == nil || k.hasProvider == nil {
+		t.Fatal("expected non-nil providerNames and hasProvider after SetProviderResolver")
+	}
+}
+
+func TestSetProviderResolver_NamesCallable(t *testing.T) {
+	t.Parallel()
+	k := &KernelImpl{}
+	k.SetProviderResolver(
+		func() []string { return []string{"claude", "cursor", "ollama"} },
+		func(name string) bool { return true },
+	)
+	names := k.providerNames()
+	if len(names) != 3 {
+		t.Fatalf("expected 3 provider names, got %d", len(names))
+	}
+	expected := []string{"claude", "cursor", "ollama"}
+	for i, n := range names {
+		if n != expected[i] {
+			t.Errorf("expected names[%d]=%q, got %q", i, expected[i], n)
+		}
+	}
+}
+
+func TestSetProviderResolver_HasProviderCallable(t *testing.T) {
+	t.Parallel()
+	k := &KernelImpl{}
+	k.SetProviderResolver(
+		func() []string { return []string{"claude"} },
+		func(name string) bool { return name == "claude" },
+	)
+	if !k.hasProvider("claude") {
+		t.Error("expected hasProvider('claude') to return true")
+	}
+	if k.hasProvider("nonexist") {
+		t.Error("expected hasProvider('nonexist') to return false")
 	}
 }
