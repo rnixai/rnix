@@ -30,6 +30,7 @@ type IntentNode struct {
 	Intent       string        `json:"intent" yaml:"intent"`
 	Agent        string        `json:"agent,omitempty" yaml:"agent,omitempty"`
 	Model        string        `json:"model,omitempty" yaml:"model,omitempty"`
+	Provider     string        `json:"provider,omitempty" yaml:"provider,omitempty"`
 	DependsOn    []string      `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
 	State        IntentState   `json:"state" yaml:"state"`
 	PID          types.PID     `json:"pid,omitempty" yaml:"pid,omitempty"`

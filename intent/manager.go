@@ -11,6 +11,7 @@ import (
 type ApplyRequest struct {
 	Intent    string
 	Model     string
+	Provider  string
 	AutoStart bool
 }
 
@@ -41,6 +42,14 @@ func (m *Manager) Apply(ctx context.Context, req ApplyRequest) (*IntentTree, err
 	tree, err := m.decomposer.Decompose(ctx, req.Intent, req.Model)
 	if err != nil {
 		return nil, fmt.Errorf("intent apply: %w", err)
+	}
+
+	if req.Provider != "" {
+		for _, node := range tree.Nodes {
+			if node.Provider == "" {
+				node.Provider = req.Provider
+			}
+		}
 	}
 
 	id := IntentID(fmt.Sprintf("intent-%d", m.nextID.Add(1)))
@@ -138,7 +147,7 @@ func (m *Manager) ListAll() []*IntentTree {
 }
 
 // ApplyIncremental performs an incremental update on an existing intent tree.
-func (m *Manager) ApplyIncremental(ctx context.Context, intentID IntentID, newIntent string, model string) (*IntentTree, *MergeResult, error) {
+func (m *Manager) ApplyIncremental(ctx context.Context, intentID IntentID, newIntent, model, provider string) (*IntentTree, *MergeResult, error) {
 	m.mu.RLock()
 	tree, ok := m.intents[intentID]
 	reconciler := m.activeReconcilers[intentID]
@@ -156,12 +165,18 @@ func (m *Manager) ApplyIncremental(ctx context.Context, intentID IntentID, newIn
 		return nil, nil, fmt.Errorf("apply incremental: intent %s: %w", intentID, err)
 	}
 
+	if provider != "" {
+		for _, node := range newNodes {
+			if node.Provider == "" {
+				node.Provider = provider
+			}
+		}
+	}
+
 	var mergeResult *MergeResult
 	if reconciler != nil {
-		// Use reconciler's lock for thread-safe merge + inject + schedule
 		mergeResult, err = reconciler.MergeAndInject(newNodes)
 	} else {
-		// No active reconciler; direct merge is safe
 		mergeResult, err = MergeIncremental(tree, newNodes)
 	}
 	if err != nil {

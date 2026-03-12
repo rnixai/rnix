@@ -212,10 +212,10 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "Output in JSON format")
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Quiet output")
-	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
+	rootCmd.PersistentFlags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
+	rootCmd.PersistentFlags().StringVar(&flagProvider, "provider", "", "LLM provider override (see rnix-providers.yaml)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
-	rootCmd.Flags().StringVar(&flagProvider, "provider", "", "LLM provider override (see rnix-providers.yaml)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
 	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
 	_ = daemonCmd.Flags().MarkHidden("internal")
@@ -1156,7 +1156,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	intentSpawner := &ipc.IntentKernelSpawner{
 		SpawnFunc: func(ctx context.Context, node *intent.IntentNode) (types.PID, error) {
 			agentInfo, _ := agentLoader.Load(node.Agent)
-			pid, err := k.Spawn(node.Intent, agentInfo, kernel.SpawnOpts{Model: node.Model})
+			pid, err := k.Spawn(node.Intent, agentInfo, kernel.SpawnOpts{Model: node.Model, Provider: node.Provider})
 			return pid, err
 		},
 		WaitFunc: func(pid types.PID) (intent.ExitStatus, error) {

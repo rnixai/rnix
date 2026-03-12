@@ -49,6 +49,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	req := ipc.ApplyIntentRequest{
 		Intent:    intentStr,
 		Model:     flagModel,
+		Provider:  flagProvider,
 		AutoStart: flagAutoStart,
 	}
 
@@ -76,6 +77,7 @@ func runApplyIncremental(client *ipc.Client, r *ui.Renderer, intentStr string, m
 		IntentID: flagUpdateIntent,
 		Intent:   intentStr,
 		Model:    flagModel,
+		Provider: flagProvider,
 	}
 
 	resp, err := client.ApplyIncrementalIntent(req)

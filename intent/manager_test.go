@@ -187,7 +187,7 @@ func TestManager_ApplyIncremental(t *testing.T) {
 	incrementalNodes := `[{"id":"design","intent":"design schema","depends_on":[]},{"id":"backend","intent":"implement API","depends_on":["design"]},{"id":"comment","intent":"implement comments","depends_on":["design"]}]`
 	caller.response = incrementalNodes
 
-	updatedTree, mergeResult, applyErr := mgr.ApplyIncremental(context.Background(), tree.ID, "add comments", "")
+	updatedTree, mergeResult, applyErr := mgr.ApplyIncremental(context.Background(), tree.ID, "add comments", "", "")
 
 	if applyErr != nil {
 		t.Fatalf("ApplyIncremental failed: %v", applyErr)
@@ -214,7 +214,7 @@ func TestManager_ApplyIncremental_NotFound(t *testing.T) {
 	spawner := newMockIntentSpawner()
 	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
 
-	_, _, err := mgr.ApplyIncremental(context.Background(), "intent-999", "update", "")
+	_, _, err := mgr.ApplyIncremental(context.Background(), "intent-999", "update", "", "")
 
 	if err == nil {
 		t.Fatal("expected error for non-existent intent, got nil")
@@ -236,7 +236,7 @@ func TestManager_ApplyIncremental_TerminalState(t *testing.T) {
 		node.State = IntentCompleted
 	}
 
-	_, _, err := mgr.ApplyIncremental(context.Background(), tree.ID, "update completed", "")
+	_, _, err := mgr.ApplyIncremental(context.Background(), tree.ID, "update completed", "", "")
 
 	if err == nil {
 		t.Fatal("expected error for terminal-state intent, got nil")
