@@ -254,5 +254,5 @@ development_status:
   23-4-api-key-management: done
   23-5-provider-fallback: done
   23-6-health-check-and-status: done
-  23-7-compose-init-config-upgrade: backlog
+  23-7-compose-init-config-upgrade: ready-for-dev
   epic-23-retrospective: optional
