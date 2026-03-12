@@ -3,26 +3,25 @@ stepsCompleted:
   - 'step-01-load-context'
   - 'step-02-discover-tests'
   - 'step-03-map-criteria'
-  - 'step-04-gap-analysis'
+  - 'step-04-analyze-gaps'
   - 'step-05-gate-decision'
 lastStep: 'step-05-gate-decision'
-lastSaved: '2026-03-10'
+lastSaved: '2026-03-12'
 workflowType: 'testarch-trace'
 inputDocuments:
-  - '_bmad-output/implementation-artifacts/20-1-ooda-loop-core-implementation.md'
-  - '_bmad-output/test-artifacts/atdd-checklist-20-1.md'
-  - 'kernel/ooda.go'
-  - 'kernel/ooda_test.go'
-  - 'kernel/process.go'
-  - 'kernel/kernel.go'
-  - 'internal/types/types.go'
+  - '_bmad-output/implementation-artifacts/23-6-health-check-and-status.md'
+  - '_bmad-output/test-artifacts/atdd-checklist-23-6.md'
+  - 'kernel/atdd_23_6_health_check_status_test.go'
+  - 'drivers/llm/registry_test.go'
+  - 'drivers/llm/openai_compat_test.go'
+  - 'drivers/llm/factory_test.go'
 ---
 
-# Traceability Matrix & Gate Decision - Story 20-1
+# Traceability Matrix & Gate Decision - Story 23-6
 
-**Story:** 20.1 - OODA 循环核心实现
-**Date:** 2026-03-10
-**Evaluator:** TEA Agent (Decker)
+**Story:** 23.6 - Provider 健康检查与状态报告
+**Date:** 2026-03-12
+**Evaluator:** Decker
 
 ---
 
@@ -32,13 +31,13 @@ Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*aut
 
 ### Coverage Summary
 
-| Priority  | Total Criteria | FULL Coverage | Coverage % | Status       |
-| --------- | -------------- | ------------- | ---------- | ------------ |
-| P0        | 8              | 8             | 100%       | PASS         |
-| P1        | 11             | 11            | 100%       | PASS         |
-| P2        | 0              | 0             | N/A        | N/A          |
-| P3        | 0              | 0             | N/A        | N/A          |
-| **Total** | **19**         | **19**        | **100%**   | **PASS**     |
+| Priority  | Total Criteria | FULL Coverage | Coverage % | Status   |
+| --------- | -------------- | ------------- | ---------- | -------- |
+| P0        | 4              | 4             | 100%       | PASS     |
+| P1        | 0              | 0             | N/A        | N/A      |
+| P2        | 0              | 0             | N/A        | N/A      |
+| P3        | 0              | 0             | N/A        | N/A      |
+| **Total** | **4**          | **4**         | **100%**   | **PASS** |
 
 **Legend:**
 
@@ -50,194 +49,184 @@ Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*aut
 
 ### Detailed Mapping
 
-#### AC-1: Observe 阶段 - 智能体通过 VFS 读取环境信息 (P0)
+#### AC-1: HTTP API Provider 健康检查 (P0)
 
 - **Coverage:** FULL PASS
 - **Tests:**
-  - `TestOODAReasonStep_SingleCycle` - kernel/ooda_test.go:202
-    - **Given:** 一个 OODA 模式的智能体
-    - **When:** 进入 Observe 阶段
-    - **Then:** 通过 VFS 读取环境信息（进程列表、上下文状态），完成观测后进入 Orient
-  - `TestOODAReasonStep_ObserveError` - kernel/ooda_test.go:520
-    - **Given:** 一个 OODA 模式的智能体
-    - **When:** Observe 阶段 VFS 读取失败
-    - **Then:** 优雅降级处理，不崩溃
-  - `TestOODAReasonStep_SyscallEvents` - kernel/ooda_test.go:683
-    - **Given:** OODA 循环执行一轮
-    - **When:** Observe 阶段完成
-    - **Then:** 产生 OODAObserve SyscallEvent
+  - `TestATDD_23_6_AC1_HTTPProviderHealthCheck` - kernel/atdd_23_6_health_check_status_test.go:26
+    - **Given:** HTTP API 类 provider 已注册
+    - **When:** daemon 启动后执行健康检查
+    - **Then:** 对 HTTP API provider 执行 GET /models 检查，状态标记为 healthy
+  - `TestATDD_23_6_AC1_HealthCheckCallsModelsEndpoint` - kernel/atdd_23_6_health_check_status_test.go:56
+    - **Given:** OpenAICompatDriver 配置了 baseURL 和 API Key
+    - **When:** 调用 HealthCheck
+    - **Then:** 发送 GET /models 请求并携带 Authorization Bearer header
+  - `TestATDD_23_6_AC1_HealthCheckWithinTimeout` - kernel/atdd_23_6_health_check_status_test.go:80
+    - **Given:** 健康检查执行
+    - **When:** 检查耗时
+    - **Then:** 单个检查在 3 秒内完成（NFR32）
+  - `TestOpenAICompatDriver_HealthCheck_Success` - drivers/llm/openai_compat_test.go:596
+    - **Given:** httptest server 返回 200 + models JSON
+    - **When:** 调用 HealthCheck
+    - **Then:** 返回 nil（健康）
+  - `TestOpenAICompatDriver_HealthCheck_SendsAPIKey` - drivers/llm/openai_compat_test.go:663
+    - **Given:** driver 配置了 API Key
+    - **When:** 执行健康检查
+    - **Then:** 请求包含 Authorization: Bearer {key} header
+  - `TestOpenAICompatDriver_ImplementsHealthChecker` - drivers/llm/openai_compat_test.go:682
+    - **Given:** OpenAICompatDriver 类型
+    - **When:** 类型断言 HealthChecker 接口
+    - **Then:** 断言成功（编译时接口检查）
+  - `TestRunHealthChecks_HTTPProvider_Healthy` - drivers/llm/factory_test.go:373
+    - **Given:** 注册了 OpenAI compat driver + 健康 httptest server
+    - **When:** RunHealthChecks 执行
+    - **Then:** provider 状态最终变为 healthy
 
 - **Gaps:** None
 
+- **Heuristics:**
+  - Endpoint coverage: GET /models 端点直接测试
+  - Auth coverage: API Key 认证头发送已验证
+  - Error-path: 见 AC2
+
 ---
 
-#### AC-2: Orient 阶段 - 智能体评估感知数据与目标的偏差 (P0)
+#### AC-2: 健康检查失败不阻塞 Daemon 启动 (P0)
 
 - **Coverage:** FULL PASS
 - **Tests:**
-  - `TestOODAReasonStep_SingleCycle` - kernel/ooda_test.go:202
-    - **Given:** Observe 阶段完成
-    - **When:** 进入 Orient 阶段
-    - **Then:** 通过 LLM 评估偏差，返回评估结果
-  - `TestOODAReasonStep_MultipleCycles` - kernel/ooda_test.go:256
-    - **Given:** 多轮 OODA 循环
-    - **When:** 每轮进入 Orient 阶段
-    - **Then:** 每轮都独立评估当前观测数据
-  - `TestOODAReasonStep_SyscallEvents` - kernel/ooda_test.go:683
-    - **Given:** OODA 循环执行一轮
-    - **When:** Orient 阶段完成
-    - **Then:** 产生 OODAOrient SyscallEvent
+  - `TestATDD_23_6_AC2_UnreachableProvider` - kernel/atdd_23_6_health_check_status_test.go:108
+    - **Given:** HTTP provider 端点不可达（127.0.0.1:1）
+    - **When:** RunHealthChecks 执行
+    - **Then:** daemon 正常运行（不 panic），provider 标记为 unhealthy
+  - `TestATDD_23_6_AC2_HealthCheckTimeout` - kernel/atdd_23_6_health_check_status_test.go:133
+    - **Given:** httptest server 延迟响应
+    - **When:** 健康检查超过 context deadline
+    - **Then:** 超时后标记 unhealthy，总耗时 <= 3 秒
+  - `TestATDD_23_6_AC2_HTTP401Unhealthy` - kernel/atdd_23_6_health_check_status_test.go:168
+    - **Given:** httptest server 返回 HTTP 401
+    - **When:** 调用 HealthCheck
+    - **Then:** 返回包含 "HTTP 401" 的 error
+  - `TestATDD_23_6_AC2_DaemonDoesNotBlock` - kernel/atdd_23_6_health_check_status_test.go:186
+    - **Given:** 调用 RunHealthChecks
+    - **When:** 函数返回
+    - **Then:** 返回耗时 < 100ms（非阻塞，健康检查异步执行）
+  - `TestOpenAICompatDriver_HealthCheck_ServerDown` - drivers/llm/openai_compat_test.go:616
+    - **Given:** 无可达服务器
+    - **When:** 调用 HealthCheck
+    - **Then:** 返回连接错误
+  - `TestOpenAICompatDriver_HealthCheck_HTTP401` - drivers/llm/openai_compat_test.go:629
+    - **Given:** httptest server 返回 401
+    - **When:** 调用 HealthCheck
+    - **Then:** 返回 "HTTP 401" 错误
+  - `TestOpenAICompatDriver_HealthCheck_Timeout` - drivers/llm/openai_compat_test.go:646
+    - **Given:** httptest server 延迟 5 秒 + 1 秒 context deadline
+    - **When:** 调用 HealthCheck
+    - **Then:** 返回 deadline exceeded 错误
+  - `TestRunHealthChecks_HTTPProvider_Unhealthy` - drivers/llm/factory_test.go:404
+    - **Given:** 注册了 OpenAI compat driver + 不可达地址
+    - **When:** RunHealthChecks 执行
+    - **Then:** provider 状态最终变为 unhealthy
+  - `TestRunHealthChecks_NonBlocking` - drivers/llm/factory_test.go:456
+    - **Given:** 包含慢速 provider 的配置
+    - **When:** 调用 RunHealthChecks
+    - **Then:** 函数返回耗时 < 100ms（不阻塞主流程）
 
 - **Gaps:** None
 
+- **Heuristics:**
+  - Error-path: 不可达、超时、HTTP 401 三种错误场景全覆盖
+  - 非阻塞行为：异步执行 + 耗时验证
+
 ---
 
-#### AC-3: Decide 阶段 - 智能体自主选择下一步行动 (P0)
+#### AC-3: CLI 类 Provider 跳过健康检查 (P0)
 
 - **Coverage:** FULL PASS
 - **Tests:**
-  - `TestOODAReasonStep_SingleCycle` - kernel/ooda_test.go:202
-    - **Given:** Orient 阶段完成
-    - **When:** 进入 Decide 阶段（选择 complete）
-    - **Then:** 输出结构化 JSON 决策，action=complete
-  - `TestOODAReasonStep_MultipleCycles` - kernel/ooda_test.go:256
-    - **Given:** Orient 阶段完成
-    - **When:** 进入 Decide 阶段（先 tool_call，后 complete）
-    - **Then:** 正确解析两种不同决策类型
-  - `TestOODAReasonStep_SpawnAction` - kernel/ooda_test.go:320
-    - **Given:** Orient 阶段完成
-    - **When:** Decide 选择 spawn 行动
-    - **Then:** 创建子进程并等待完成
-  - `TestOODAReasonStep_ReplanAction` - kernel/ooda_test.go:383
-    - **Given:** Orient 阶段完成
-    - **When:** Decide 选择 replan 行动
-    - **Then:** 不执行外部操作，仅将 replan 理由写入上下文
-  - `TestOODAReasonStep_SyscallEvents` - kernel/ooda_test.go:683
-    - **Given:** OODA 循环执行一轮
-    - **When:** Decide 阶段完成
-    - **Then:** 产生 OODADecide SyscallEvent
+  - `TestATDD_23_6_AC3_CLIProviderSkipped` - kernel/atdd_23_6_health_check_status_test.go:217
+    - **Given:** 注册了 Claude CLI 和 Cursor CLI driver
+    - **When:** RunHealthChecks 执行
+    - **Then:** CLI provider 状态保持 unchecked
+  - `TestATDD_23_6_AC3_CLIDriverDoesNotImplementHealthChecker` - kernel/atdd_23_6_health_check_status_test.go:241
+    - **Given:** ClaudeCliDriver 和 CursorCliDriver 类型
+    - **When:** 类型断言 HealthChecker 接口
+    - **Then:** 断言失败（CLI driver 不实现 HealthChecker）
+  - `TestATDD_23_6_AC3_OpenAICompatImplementsHealthChecker` - kernel/atdd_23_6_health_check_status_test.go:254
+    - **Given:** OpenAICompatDriver 类型
+    - **When:** 类型断言 HealthChecker 接口
+    - **Then:** 断言成功（正面对照验证）
+  - `TestClaudeCliDriver_DoesNotImplementHealthChecker` - drivers/llm/openai_compat_test.go:689
+    - **Given:** ClaudeCliDriver 类型
+    - **When:** 类型断言 HealthChecker 接口
+    - **Then:** 断言失败
+  - `TestRunHealthChecks_CLIProvider_Skipped` - drivers/llm/factory_test.go:430
+    - **Given:** 注册了 Claude CLI driver
+    - **When:** RunHealthChecks 执行后等待
+    - **Then:** CLI provider 状态仍为 unchecked
 
 - **Gaps:** None
 
+- **Heuristics:**
+  - 类型系统保证：通过可选接口 HealthChecker 实现编译时安全
+  - 正面+反面验证：OpenAI 实现 vs CLI 不实现
+
 ---
 
-#### AC-4: Act 阶段 - 执行决策并反馈闭环 + NFR41 框架开销 (P0)
+#### AC-4: daemon status 显示 Provider 状态 (P0)
 
 - **Coverage:** FULL PASS
 - **Tests:**
-  - `TestOODAReasonStep_SingleCycle` - kernel/ooda_test.go:202
-    - **Given:** Decide 阶段完成（action=complete）
-    - **When:** 进入 Act 阶段
-    - **Then:** 执行完成动作，进程正常退出（exit code 0）
-  - `TestOODAReasonStep_MultipleCycles` - kernel/ooda_test.go:256
-    - **Given:** Decide 阶段完成（action=tool_call）
-    - **When:** 进入 Act 阶段
-    - **Then:** 执行 VFS 工具调用，结果反馈到下一轮 Observe
-  - `TestOODAReasonStep_MaxCyclesExceeded` - kernel/ooda_test.go:442
-    - **Given:** OODA 循环达到最大次数
-    - **When:** 未能在 MaxTurns 内完成
-    - **Then:** 正确终止（exit code != 0，reason="max ooda cycles exceeded"）
-  - `TestOODAReasonStep_ContextCancellation` - kernel/ooda_test.go:484
-    - **Given:** OODA 循环运行中
-    - **When:** 外部 Kill 触发 context 取消
-    - **Then:** 优雅退出，不泄露 goroutine
-  - `TestOODAReasonStep_FrameworkOverhead` - kernel/ooda_test.go:560
-    - **Given:** 使用即时响应 mock LLM
-    - **When:** 执行单轮 OODA 循环
-    - **Then:** 纯框架代码开销 <= 200ms（NFR41）
-  - `TestOODAReasonStep_SyscallEvents` - kernel/ooda_test.go:683
-    - **Given:** OODA 循环执行一轮
-    - **When:** Act 阶段完成
-    - **Then:** 产生 OODAAct 和 OODACycle SyscallEvent
+  - `TestATDD_23_6_AC4_DaemonStatusShowsProviders` - kernel/atdd_23_6_health_check_status_test.go:266
+    - **Given:** 注册了多种 provider 并设置了健康状态
+    - **When:** 查询 HealthStatuses + JSON 序列化
+    - **Then:** 返回包含 name/driver/health 信息的列表，支持 JSON 输出
+  - `TestATDD_23_6_AC4_RegistryHealthStatuses` - kernel/atdd_23_6_health_check_status_test.go:306
+    - **Given:** 注册多个 driver 并设置不同健康状态
+    - **When:** 调用 HealthStatuses()
+    - **Then:** 返回按 name 排序的列表，包含正确的 driver type 和 health status
+  - `TestATDD_23_6_AC4_DefaultUnchecked` - kernel/atdd_23_6_health_check_status_test.go:332
+    - **Given:** 新注册的 provider
+    - **When:** 查询健康状态
+    - **Then:** 默认状态为 unchecked
+  - `TestDriverRegistry_HealthStatus_DefaultUnchecked` - drivers/llm/registry_test.go:93
+    - **Given:** 注册 driver 后不设健康状态
+    - **When:** 调用 GetHealth
+    - **Then:** 返回 unchecked
+  - `TestDriverRegistry_SetHealth_Healthy` - drivers/llm/registry_test.go:103
+    - **Given:** 调用 SetHealth("x", Healthy)
+    - **When:** 调用 GetHealth("x")
+    - **Then:** 返回 healthy
+  - `TestDriverRegistry_SetHealth_Unhealthy` - drivers/llm/registry_test.go:114
+    - **Given:** 调用 SetHealth("x", Unhealthy)
+    - **When:** 调用 GetHealth("x")
+    - **Then:** 返回 unhealthy
+  - `TestDriverRegistry_GetHealth_NotRegistered` - drivers/llm/registry_test.go:125
+    - **Given:** 未注册的 provider 名称
+    - **When:** 调用 GetHealth
+    - **Then:** 返回 unchecked（安全默认值）
+  - `TestDriverRegistry_HealthStatuses_Sorted` - drivers/llm/registry_test.go:134
+    - **Given:** 注册多个 driver 并设置不同状态
+    - **When:** 调用 HealthStatuses()
+    - **Then:** 返回按 name 排序的 ProviderStatus 列表，包含 DriverType
 
 - **Gaps:** None
 
----
-
-#### OODA 类型定义正确性 (P1)
-
-- **Coverage:** FULL PASS
-- **Tests:**
-  - `TestOODAPhase_Constants` - kernel/ooda_test.go:22
-    - **Given:** OODA 类型系统已定义
-    - **When:** 检查阶段常量
-    - **Then:** PhaseObserve="observe", PhaseOrient="orient", PhaseDecide="decide", PhaseAct="act"
-  - `TestOODADecision_Types` - kernel/ooda_test.go:38
-    - **Given:** OODA 类型系统已定义
-    - **When:** 检查动作类型常量
-    - **Then:** OODAToolCall="tool_call", OODASpawn="spawn", OODAComplete="complete", OODAReplan="replan"
-  - `TestOODAState_Struct` - kernel/ooda_test.go:54
-    - **Given:** OODAState/OODADecision 结构体已定义
-    - **When:** 创建并初始化结构体
-    - **Then:** 所有字段可正确赋值和读取
-
-- **Gaps:** None
+- **Heuristics:**
+  - 状态存储 CRUD：三种状态（healthy/unhealthy/unchecked）的设置和读取
+  - 边界条件：未注册 provider 的安全默认值
+  - 排序保证：HealthStatuses 按 name 排序
 
 ---
 
-#### Process OODA 状态管理 (P0)
+#### Integration: 混合 Provider 健康检查 (P0)
 
 - **Coverage:** FULL PASS
 - **Tests:**
-  - `TestProcess_OODAState` - kernel/ooda_test.go:84
-    - **Given:** 新创建的 Process
-    - **When:** 检查 OODA 状态
-    - **Then:** IsOODA()=false, GetOODAState()=nil
-  - `TestProcess_OODAState_SetPhase` - kernel/ooda_test.go:98
-    - **Given:** Process 调用 SetOODAPhase
-    - **When:** 设置为 PhaseObserve
-    - **Then:** IsOODA()=true, GetOODAState().Phase=PhaseObserve
-  - `TestProcess_OODAState_ConcurrentAccess` - kernel/ooda_test.go:117
-    - **Given:** Process 的 OODA 状态
-    - **When:** 100 个并发 goroutine 读写 OODA 状态
-    - **Then:** 无 data race（-race 检测通过），最终 IsOODA()=true
-
-- **Gaps:** None
-
----
-
-#### Spawn 兼容性 (P0)
-
-- **Coverage:** FULL PASS
-- **Tests:**
-  - `TestSpawn_DefaultReasoningMode` - kernel/ooda_test.go:606
-    - **Given:** SpawnOpts 不设置 ReasoningMode
-    - **When:** Spawn 进程
-    - **Then:** 使用默认线性推理（IsOODA()=false），不影响现有行为
-  - `TestSpawn_OODAReasoningMode` - kernel/ooda_test.go:638
-    - **Given:** SpawnOpts 设置 ReasoningMode="ooda"
-    - **When:** Spawn 进程
-    - **Then:** 启用 OODA 循环（IsOODA()=true），正常完成
-
-- **Gaps:** None
-
----
-
-#### OODA 可观测性 - SyscallEvent (P1)
-
-- **Coverage:** FULL PASS
-- **Tests:**
-  - `TestOODAReasonStep_SyscallEvents` - kernel/ooda_test.go:683
-    - **Given:** OODA 循环执行一轮
-    - **When:** 收集 DebugChan 事件
-    - **Then:** 包含 OODAObserve, OODAOrient, OODADecide, OODAAct, OODACycle 五种事件类型
-
-- **Gaps:** None
-
----
-
-#### OODA 可观测性 - LogEntry (P1)
-
-- **Coverage:** FULL PASS
-- **Tests:**
-  - `TestOODAReasonStep_LogEntries` - kernel/ooda_test.go:759
-    - **Given:** OODA 循环执行一轮
-    - **When:** 收集 LogChan 日志
-    - **Then:** 包含 LogOODA 类别的日志条目
-  - `TestLogOODA_Category` - kernel/ooda_test.go:828
-    - **Given:** types 包已定义 LogOODA 常量
-    - **When:** 检查常量值
-    - **Then:** LogOODA = "ooda"
+  - `TestATDD_23_6_Integration_MixedProviderHealthChecks` - kernel/atdd_23_6_health_check_status_test.go:346
+    - **Given:** 混合 provider 配置（healthy HTTP API + broken HTTP API + CLI）
+    - **When:** RunHealthChecks 执行完成
+    - **Then:** healthy API → healthy, broken API → unhealthy, CLI → unchecked
 
 - **Gaps:** None
 
@@ -274,21 +263,25 @@ Note: This workflow does not generate tests. If gaps exist, run `*atdd` or `*aut
 #### Endpoint Coverage Gaps
 
 - Endpoints without direct API tests: 0
-- OODA 循环不涉及 HTTP/API endpoint，所有操作通过 VFS 和内核方法完成
+- `GET /v1/models` (或 `/models`) 健康检查端点：已测试（成功、失败、超时、认证）
+- IPC `provider_status` 方法：通过 HealthStatuses + JSON 序列化集成测试覆盖
 
 #### Auth/Authz Negative-Path Gaps
 
 - Criteria missing denied/invalid-path tests: 0
-- OODA 循环不涉及认证/授权，属于进程内部推理模式
+- API Key 认证：
+  - 正面：`TestOpenAICompatDriver_HealthCheck_SendsAPIKey` 验证 Authorization header 发送
+  - 反面：`TestATDD_23_6_AC2_HTTP401Unhealthy` + `TestOpenAICompatDriver_HealthCheck_HTTP401` 验证认证失败处理
 
 #### Happy-Path-Only Criteria
 
 - Criteria missing error/edge scenarios: 0
 - 已覆盖的错误场景：
-  - Observe 错误处理（TestOODAReasonStep_ObserveError）
-  - 最大循环数超限（TestOODAReasonStep_MaxCyclesExceeded）
-  - Context 取消/Kill（TestOODAReasonStep_ContextCancellation）
-  - Decide JSON 解析失败自动 replan（实现代码 ooda.go:156-160）
+  - 服务器不可达（connection refused）
+  - 健康检查超时（context deadline exceeded）
+  - HTTP 401 认证失败
+  - 非阻塞行为验证（RunHealthChecks 异步执行）
+  - 未注册 provider 的安全默认值（GetHealth 返回 unchecked）
 
 ---
 
@@ -302,8 +295,8 @@ None.
 
 **WARNING Issues**
 
-- `TestOODAReasonStep_SyscallEvents` - 3.00s 执行时间（event channel 的 3s timeout 等待导致） - 可通过关闭 DebugChan 优化，但不影响正确性
-- `TestOODAReasonStep_LogEntries` - 3.00s 执行时间（log channel 的 3s timeout 等待导致） - 同上
+- `TestATDD_23_6_AC2_HealthCheckTimeout` - 10.01s 执行时间（包含 httptest.Server 5s Close 等待 + 1s timeout） - 可通过优化 httptest server 关闭逻辑减少耗时，但测试逻辑正确
+- `TestOpenAICompatDriver_HealthCheck_Timeout` - 5.00s 执行时间（httptest server 5s sleep 模拟慢响应） - 预期行为，timeout 测试本身需要等待
 
 **INFO Issues**
 
@@ -313,9 +306,9 @@ None.
 
 #### Tests Passing Quality Gates
 
-**17/19 tests (89%) meet all quality criteria (< 90s runtime)**
+**28/30 tests (93%) meet all quality criteria (< 90s runtime)**
 
-注：2 个 WARNING 测试因 channel timeout 等待导致耗时较长，但测试逻辑本身正确。所有测试均通过 -race 检测。
+注：2 个 WARNING 测试因超时场景需要真实等待导致耗时较长（10s 和 5s），但测试逻辑本身正确且必要。所有 30 个测试均通过 -race 检测。
 
 ---
 
@@ -323,27 +316,28 @@ None.
 
 #### Acceptable Overlap (Defense in Depth)
 
-- AC-1 (Observe): 在 SingleCycle/MultipleCycles/ObserveError/SyscallEvents 多个测试中覆盖，从不同角度验证（正常路径、错误路径、事件产生）
-- AC-3 (Decide): 在 SingleCycle/MultipleCycles/SpawnAction/ReplanAction 多个测试中覆盖，每个测试验证不同的 OODAActionType 分支
-- AC-4 (Act): 在 SingleCycle/MultipleCycles/MaxCycles/ContextCancel/FrameworkOverhead 多个测试中覆盖，从完成/超限/取消/性能等不同维度验证
+- AC-1 (健康检查成功): 在 ATDD 集成测试（端到端场景）和 Unit 测试（单函数验证）中双重覆盖 -- 纵深防御
+- AC-2 (错误处理): 在 ATDD 集成测试（RunHealthChecks 级别）和 Unit 测试（HealthCheck 方法级别）中双重覆盖 -- 不同粒度验证
+- AC-3 (CLI 跳过): 在类型断言测试和 RunHealthChecks 行为测试中双重覆盖 -- 编译时 + 运行时保证
+- AC-4 (状态查询): 在 ATDD 集成测试和 Registry 单元测试中双重覆盖 -- 接口正确性 + 实现细节
 
 #### Unacceptable Duplication
 
-None - 所有重叠都属于防御性纵深覆盖，每个测试验证不同的场景分支。
+None - 所有重叠都属于防御性纵深覆盖，每个测试验证不同的抽象层次或场景分支。
 
 ---
 
 ### Coverage by Test Level
 
-| Test Level | Tests  | Criteria Covered | Coverage %  |
-| ---------- | ------ | ---------------- | ----------- |
-| Unit       | 7      | 7                | 100%        |
-| Integration| 12     | 12               | 100%        |
-| E2E        | 0      | 0                | N/A         |
-| API        | 0      | 0                | N/A         |
-| **Total**  | **19** | **19**           | **100%**    |
+| Test Level     | Tests    | Criteria Covered | Coverage %   |
+| -------------- | -------- | ---------------- | ------------ |
+| Unit           | 19       | 4                | 100%         |
+| Integration    | 11       | 4                | 100%         |
+| E2E            | 0        | 0                | N/A          |
+| API            | 0        | 0                | N/A          |
+| **Total**      | **30**   | **4**            | **100%**     |
 
-注：纯后端 Go 项目，无 UI/API 端点，E2E 和 API 级别不适用。
+注：纯后端 Go 项目，健康检查功能不涉及 UI/外部 API 端点，E2E 和 API 级别不适用。
 
 ---
 
@@ -351,15 +345,16 @@ None - 所有重叠都属于防御性纵深覆盖，每个测试验证不同的�
 
 #### Immediate Actions (Before PR Merge)
 
-None - 所有 P0/P1 criteria 已达到 FULL 覆盖。
+None - 所有 P0 criteria 已达到 FULL 覆盖。
 
 #### Short-term Actions (This Milestone)
 
-1. **优化 Event/Log 测试耗时** - 考虑在 SyscallEvents 和 LogEntries 测试中使用更短的 channel timeout 或主动关闭 channel 来减少等待时间（当前 3s 属于可接受范围但可优化）
+1. **优化超时测试耗时** - 考虑在 `TestATDD_23_6_AC2_HealthCheckTimeout` 中使用更短的超时值（如 500ms 而非 1s）和更短的 server delay，减少测试等待时间
 
 #### Long-term Actions (Backlog)
 
-1. **添加 OODA 循环集成测试与真实 LLM** - 当 Story 20.2 agent.yaml 集成完成后，可考虑添加端到端集成测试验证完整 OODA 工作流
+1. **添加定期健康检查机制** - 当前仅在 daemon 启动时执行一次检查，未来可考虑后台定期探测
+2. **Fallback 基于健康状态优化** - 当前 fallback（Story 23.5）基于调用失败触发，可优化为优先选择 healthy provider
 
 ---
 
@@ -374,22 +369,22 @@ None - 所有 P0/P1 criteria 已达到 FULL 覆盖。
 
 #### Test Execution Results
 
-- **Total Tests**: 19
-- **Passed**: 19 (100%)
+- **Total Tests**: 30
+- **Passed**: 30 (100%)
 - **Failed**: 0 (0%)
 - **Skipped**: 0 (0%)
-- **Duration**: 7.248s (含 6s channel timeout 等待)
+- **Duration**: ~19s total (kernel 11.0s + drivers/llm 8.1s)
 
 **Priority Breakdown:**
 
-- **P0 Tests**: 8/8 passed (100%) PASS
-- **P1 Tests**: 11/11 passed (100%) PASS
+- **P0 Tests**: 30/30 passed (100%) PASS
+- **P1 Tests**: 0/0 passed (N/A)
 - **P2 Tests**: 0/0 passed (N/A)
 - **P3 Tests**: 0/0 passed (N/A)
 
 **Overall Pass Rate**: 100% PASS
 
-**Test Results Source**: local run (`go test -race -v ./kernel/` on 2026-03-10)
+**Test Results Source**: local run (`go test -race -v` on 2026-03-12)
 
 ---
 
@@ -397,8 +392,8 @@ None - 所有 P0/P1 criteria 已达到 FULL 覆盖。
 
 **Requirements Coverage:**
 
-- **P0 Acceptance Criteria**: 8/8 covered (100%) PASS
-- **P1 Acceptance Criteria**: 11/11 covered (100%) PASS
+- **P0 Acceptance Criteria**: 4/4 covered (100%) PASS
+- **P1 Acceptance Criteria**: 0/0 covered (N/A)
 - **P2 Acceptance Criteria**: 0/0 covered (N/A)
 - **Overall Coverage**: 100%
 
@@ -417,27 +412,29 @@ None - 所有 P0/P1 criteria 已达到 FULL 覆盖。
 **Security**: PASS
 
 - Security Issues: 0
-- OODA 循环不引入新的安全表面。所有 VFS 操作通过现有权限模型。并发安全通过 mu 锁和 -race 检测验证。
+- API Key 通过 Authorization Bearer header 传输（不在 URL 中）
+- HealthCheck 使用 `http.NewRequestWithContext` 保证 context 取消安全
+- 并发安全通过 `xsync.SyncMap` 和 `-race` 检测验证
 
 **Performance**: PASS
 
-- NFR41: 框架开销 <= 200ms 已通过 TestOODAReasonStep_FrameworkOverhead 验证
-- 使用即时响应 mock LLM 隔离纯框架代码，实际耗时远低于 200ms
+- NFR32: 单个健康检查耗时 <= 3 秒已通过 `TestATDD_23_6_AC1_HealthCheckWithinTimeout` 验证
+- 非阻塞行为：`RunHealthChecks` 返回耗时 < 100ms（异步 goroutine）
+- `io.Copy(io.Discard, resp.Body)` 防止 HTTP 连接泄漏
 
 **Reliability**: PASS
 
-- Context 取消优雅退出已验证
-- 最大循环数保护机制已验证
-- Observe 错误降级已验证
-- Decide JSON 解析失败自动 replan 已验证
+- 不可达端点优雅降级（标记 unhealthy，不 panic）
+- Context 超时机制保证不会无限等待
+- daemon 启动不因单个 provider 失败而拒绝启动
 
 **Maintainability**: PASS
 
-- 代码审查已通过（adversarial review，修复 H1/H2/M1/M2 四个问题）
-- OODA 循环作为独立模式，零修改现有 reasonStep 代码
-- 复用现有基础设施（VFS、Context、Event、Log）
+- 可选接口 `HealthChecker` 设计：不破坏现有 `LLMDriver` 接口
+- 新增 HTTP 类 driver 只需实现 `HealthChecker` 即可自动支持
+- IPC 扩展遵循标准 4 步流程（protocol -> server -> client -> CLI）
 
-**NFR Source**: Code review record in story file + test execution evidence
+**NFR Source**: Code implementation analysis + test execution evidence
 
 ---
 
@@ -457,13 +454,13 @@ None - 所有 P0/P1 criteria 已达到 FULL 覆盖。
 
 #### P0 Criteria (Must ALL Pass)
 
-| Criterion             | Threshold | Actual | Status   |
-| --------------------- | --------- | ------ | -------- |
-| P0 Coverage           | 100%      | 100%   | PASS     |
-| P0 Test Pass Rate     | 100%      | 100%   | PASS     |
-| Security Issues       | 0         | 0      | PASS     |
-| Critical NFR Failures | 0         | 0      | PASS     |
-| Flaky Tests           | 0         | 0      | PASS     |
+| Criterion             | Threshold | Actual | Status |
+| --------------------- | --------- | ------ | ------ |
+| P0 Coverage           | 100%      | 100%   | PASS   |
+| P0 Test Pass Rate     | 100%      | 100%   | PASS   |
+| Security Issues       | 0         | 0      | PASS   |
+| Critical NFR Failures | 0         | 0      | PASS   |
+| Flaky Tests           | 0         | 0      | PASS   |
 
 **P0 Evaluation**: ALL PASS
 
@@ -471,23 +468,23 @@ None - 所有 P0/P1 criteria 已达到 FULL 覆盖。
 
 #### P1 Criteria (Required for PASS, May Accept for CONCERNS)
 
-| Criterion              | Threshold | Actual | Status   |
-| ---------------------- | --------- | ------ | -------- |
-| P1 Coverage            | >= 90%    | 100%   | PASS     |
-| P1 Test Pass Rate      | >= 95%    | 100%   | PASS     |
-| Overall Test Pass Rate | >= 95%    | 100%   | PASS     |
-| Overall Coverage       | >= 80%    | 100%   | PASS     |
+| Criterion              | Threshold | Actual | Status |
+| ---------------------- | --------- | ------ | ------ |
+| P1 Coverage            | >= 90%    | N/A    | N/A    |
+| P1 Test Pass Rate      | >= 95%    | N/A    | N/A    |
+| Overall Test Pass Rate | >= 95%    | 100%   | PASS   |
+| Overall Coverage       | >= 80%    | 100%   | PASS   |
 
-**P1 Evaluation**: ALL PASS
+**P1 Evaluation**: ALL PASS (no P1 requirements; overall metrics exceed thresholds)
 
 ---
 
 #### P2/P3 Criteria (Informational, Don't Block)
 
-| Criterion         | Actual | Notes                    |
-| ----------------- | ------ | ------------------------ |
-| P2 Test Pass Rate | N/A    | No P2 criteria           |
-| P3 Test Pass Rate | N/A    | No P3 criteria           |
+| Criterion         | Actual | Notes          |
+| ----------------- | ------ | -------------- |
+| P2 Test Pass Rate | N/A    | No P2 criteria |
+| P3 Test Pass Rate | N/A    | No P3 criteria |
 
 ---
 
@@ -497,14 +494,15 @@ None - 所有 P0/P1 criteria 已达到 FULL 覆盖。
 
 ### Rationale
 
-All P0 criteria met with 100% coverage and 100% pass rate across all 8 critical tests. All P1 criteria exceeded thresholds with 100% pass rate across 11 tests. No security issues detected. NFR41 performance constraint verified (framework overhead <= 200ms). No flaky tests in validation. Code review completed with all identified issues (H1, H2, M1, M2) fixed and verified.
+All P0 criteria met with 100% coverage and 100% pass rate across all 4 acceptance criteria, verified by 30 tests at unit and integration levels. No security issues detected. NFR32 performance constraint verified (health check timeout <= 3s). Non-blocking behavior verified (RunHealthChecks < 100ms return time). No flaky tests in validation with -race detection.
 
 Key evidence supporting PASS decision:
-1. **Complete test coverage**: All 4 acceptance criteria fully covered by 19 tests at unit and integration levels
-2. **Zero regressions**: Full kernel test suite passes (all existing tests unaffected)
-3. **Clean architecture**: OODA implemented as parallel reasoning mode with zero modifications to existing reasonStep
-4. **Robust error handling**: Error paths tested (observe error, max cycles, context cancellation, decide parse failure)
-5. **Concurrent safety**: Thread-safe access verified with -race detection under concurrent load (100 goroutines)
+1. **Complete test coverage**: All 4 acceptance criteria fully covered by 30 tests (19 unit + 11 integration)
+2. **Zero regressions**: All existing tests in kernel, drivers/llm, and ipc packages continue to pass
+3. **Clean architecture**: HealthChecker as optional interface - zero modification to existing LLMDriver interface
+4. **Robust error handling**: Three error paths tested (unreachable, timeout, HTTP 401)
+5. **Concurrent safety**: SyncMap-based health status storage, verified with -race detection
+6. **Non-blocking design**: Async health checks with per-provider goroutines, verified by timing assertions
 
 ---
 
@@ -514,18 +512,18 @@ Key evidence supporting PASS decision:
 
 1. **Proceed to deployment**
    - Merge to main branch
-   - OODA 循环作为可选推理模式，不影响现有智能体
-   - 通过 `SpawnOpts{ReasoningMode: "ooda"}` 按需启用
+   - 健康检查自动在 daemon 启动时执行，无需额外配置
+   - `rnix daemon status` 自动显示 provider 状态
 
 2. **Post-Deployment Monitoring**
-   - 监控 OODA 进程的 OODACycle event 中的 framework_overhead 值
-   - 监控 OODA 进程的循环次数是否频繁达到 MaxCycles 上限
-   - 关注 LogOODA 日志中的 decide parse error 频率
+   - 监控 daemon 启动日志中的 `[llm] provider "xxx": health check failed` warning
+   - 监控 `rnix daemon status` 输出中 unhealthy provider 的数量
+   - 关注健康检查对 daemon 启动时间的影响（应 < 100ms 额外开销）
 
 3. **Success Criteria**
-   - OODA 模式进程能正常完成（exit code 0）
-   - 框架开销在生产负载下保持 <= 200ms
-   - 不影响现有线性推理模式的稳定性
+   - daemon 启动后所有 HTTP API provider 正确标记状态
+   - CLI provider 保持 unchecked 状态
+   - `rnix daemon status` 正确显示所有 provider 信息
 
 ---
 
@@ -533,21 +531,21 @@ Key evidence supporting PASS decision:
 
 **Immediate Actions** (next 24-48 hours):
 
-1. Merge Story 20-1 到 main 分支
-2. 开始 Story 20.2（agent.yaml reasoning 字段集成）
-3. 更新 Epic 20 sprint status
+1. Merge Story 23-6 到 main 分支
+2. 开始 Story 23-7（Compose/Init provider 配置）
+3. 更新 Epic 23 sprint status
 
 **Follow-up Actions** (next milestone/release):
 
-1. Story 20.2: agent.yaml 中添加 reasoning mode 配置
-2. Story 20.3: 感知订阅系统（channel-based observation）
-3. 优化 SyscallEvents/LogEntries 测试的 channel 等待时间
+1. Story 23-7: Compose/Init 文件中的 provider 配置集成
+2. 优化超时测试耗时（将 server delay 从 5s 降低到 2s）
+3. 考虑添加定期健康检查机制（当前仅启动时执行一次）
 
 **Stakeholder Communication**:
 
-- Notify PM: Story 20-1 PASS - OODA 循环核心实现完成，所有测试通过
+- Notify PM: Story 23-6 PASS - Provider 健康检查与状态报告完成，30/30 测试通过
 - Notify DEV lead: 可安全 merge，零回归风险
-- Notify SM: Epic 20 第一个 story 完成，进入 Story 20.2
+- Notify SM: Epic 23 第六个 story 完成，进入 Story 23-7
 
 ---
 
@@ -557,12 +555,12 @@ Key evidence supporting PASS decision:
 traceability_and_gate:
   # Phase 1: Traceability
   traceability:
-    story_id: "20-1"
-    date: "2026-03-10"
+    story_id: "23-6"
+    date: "2026-03-12"
     coverage:
       overall: 100%
       p0: 100%
-      p1: 100%
+      p1: N/A
       p2: N/A
       p3: N/A
     gaps:
@@ -571,13 +569,13 @@ traceability_and_gate:
       medium: 0
       low: 0
     quality:
-      passing_tests: 19
-      total_tests: 19
+      passing_tests: 30
+      total_tests: 30
       blocker_issues: 0
       warning_issues: 2
     recommendations:
-      - "Optimize SyscallEvents/LogEntries test channel timeout for faster execution"
-      - "Add end-to-end integration test after Story 20.2 agent.yaml integration"
+      - "Optimize timeout test durations for faster CI execution"
+      - "Consider periodic health check mechanism for production"
 
   # Phase 2: Gate Decision
   gate_decision:
@@ -587,8 +585,8 @@ traceability_and_gate:
     criteria:
       p0_coverage: 100%
       p0_pass_rate: 100%
-      p1_coverage: 100%
-      p1_pass_rate: 100%
+      p1_coverage: N/A
+      p1_pass_rate: N/A
       overall_pass_rate: 100%
       overall_coverage: 100%
       security_issues: 0
@@ -602,23 +600,33 @@ traceability_and_gate:
       min_overall_pass_rate: 95
       min_coverage: 80
     evidence:
-      test_results: "local run go test -race -v ./kernel/ 2026-03-10"
+      test_results: "local run go test -race -v 2026-03-12"
       traceability: "_bmad-output/test-artifacts/traceability-report.md"
-      nfr_assessment: "embedded in code review"
+      nfr_assessment: "embedded in test evidence"
       code_coverage: "not assessed"
-    next_steps: "Merge to main, begin Story 20.2 agent.yaml integration"
+    next_steps: "Merge to main, begin Story 23-7 Compose/Init provider config"
 ```
 
 ---
 
 ## Related Artifacts
 
-- **Story File:** `_bmad-output/implementation-artifacts/20-1-ooda-loop-core-implementation.md`
-- **ATDD Checklist:** `_bmad-output/test-artifacts/atdd-checklist-20-1.md`
-- **Test File:** `kernel/ooda_test.go` (19 tests, 834 lines)
-- **Implementation:** `kernel/ooda.go` (413 lines)
-- **Modified Files:** `kernel/process.go`, `kernel/kernel.go`, `internal/types/types.go`
-- **Code Review:** Adversarial review completed, 4 issues fixed (H1, H2, M1, M2)
+- **Story File:** `_bmad-output/implementation-artifacts/23-6-health-check-and-status.md`
+- **ATDD Checklist:** `_bmad-output/test-artifacts/atdd-checklist-23-6.md`
+- **Test Files:**
+  - `kernel/atdd_23_6_health_check_status_test.go` (14 ATDD tests)
+  - `drivers/llm/registry_test.go` (5 health status tests)
+  - `drivers/llm/openai_compat_test.go` (7 HealthCheck tests)
+  - `drivers/llm/factory_test.go` (4 RunHealthChecks tests)
+- **Implementation Files:**
+  - `drivers/llm/registry.go` (HealthStatus, health SyncMap)
+  - `drivers/llm/driver.go` (HealthChecker interface)
+  - `drivers/llm/openai_compat.go` (HealthCheck method)
+  - `drivers/llm/factory.go` (RunHealthChecks function)
+  - `ipc/protocol.go` (MethodProviderStatus)
+  - `ipc/server.go` (handleProviderStatus)
+  - `ipc/client.go` (ProviderStatus client method)
+  - `cmd/rnix/main.go` (daemon integration)
 
 ---
 
@@ -628,7 +636,7 @@ traceability_and_gate:
 
 - Overall Coverage: 100%
 - P0 Coverage: 100% PASS
-- P1 Coverage: 100% PASS
+- P1 Coverage: N/A
 - Critical Gaps: 0
 - High Priority Gaps: 0
 
@@ -636,7 +644,7 @@ traceability_and_gate:
 
 - **Decision**: PASS
 - **P0 Evaluation**: ALL PASS
-- **P1 Evaluation**: ALL PASS
+- **P1 Evaluation**: N/A (no P1 requirements)
 
 **Overall Status:** PASS
 
@@ -644,7 +652,7 @@ traceability_and_gate:
 
 - PASS: Proceed to deployment (merge to main)
 
-**Generated:** 2026-03-10
+**Generated:** 2026-03-12
 **Workflow:** testarch-trace v5.0 (Enhanced with Gate Decision)
 
 ---
