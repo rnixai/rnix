@@ -126,6 +126,8 @@
 | AgentShell 脚本 | `shell/script.go` | 变量、环境传递、多行脚本、流程控制 |
 | Capability 权限 | `kernel/capability.go` | CapGrant/Revoke/Check + 完整权限系统 |
 | VFS 扩展 | `vfs/mount.go` | Mount/Unmount syscall + 文件系统挂载表 |
+| LLM Serve 网关 | `ipc/http_openai.go` | OpenAI 兼容 HTTP Server（/v1/chat/completions, /v1/models），路由到已注册 `/dev/llm/*` 驱动 |
+| LLM Serve CLI | `cmd/rnix/serve.go` | `rnix serve --port` 命令，启动 HTTP 网关服务 |
 | 教程文档 | `docs/tutorials/` | 编写 Skill + 调试 bug + 多智能体工作流 |
 | 架构文档 | `docs/architecture.md` | 微内核 + 进程模型 + 驱动层 + 上下文管理 |
 
@@ -179,6 +181,7 @@
 | API Key 过期或轮换 | 通过环境变量引用（FR146），Key 更新无需修改配置文件，运维层面独立管理 |
 | 所有已配置 provider 均失败 | 进程正确转为 Zombie 状态并上报详细错误（含尝试过的 provider 列表和各自失败原因） |
 | `rnix-providers.yaml` 配置解析错误 | daemon 启动时校验配置文件格式，解析失败时以明确错误拒绝启动而非静默降级 |
+| rnix serve 安全风险（未授权访问） | 默认仅绑定 127.0.0.1，外部网络不可达；未来扩展外部监听需显式配置并启用认证机制 |
 
 **市场风险：**
 

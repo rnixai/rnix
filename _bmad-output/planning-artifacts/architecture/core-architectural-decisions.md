@@ -578,3 +578,170 @@ func Err[T any](err error) Result[T] { return Result[T]{err: err} }
 func (r Result[T]) Unwrap() (T, error) { return r.value, r.err }
 func (r Result[T]) Map(fn func(T) T) Result[T] { ... }
 ```
+
+## Decision 13: LLM Serve Gateway（OpenAI 兼容 HTTP 网关）
+
+**决策：** 在 `ipc/` 包中新增 `http_openai.go`，实现 OpenAI 兼容的 HTTP Server，直接复用 `DriverRegistry` 和 `LLMDriver` 接口，作为 daemon 的可选附加监听器。通过 `rnix serve --port 8080` 命令启动。
+
+**背景：** 用户（旅程 6）希望用一个端口统一所有 LLM 访问——Cursor Pro、本地 Ollama、云端 Groq 等。任何支持 OpenAI API 的工具（Aider、Open WebUI、标准 `openai` Python 库）都可以即插即用，无需了解 Rnix 内部。
+
+**理由：**
+1. **复用而非重建** — 所有 LLM 调用逻辑已在 `LLMDriver` 接口和具体驱动中实现，HTTP Server 仅做协议翻译（HTTP → `LLMDriver.Call`/`Stream`）
+2. **放在 `ipc/` 包** — 与 Unix socket IPC server 同级，HTTP 是另一种 IPC 通道，共享 daemon 的 `DriverRegistry` 实例
+3. **标准库 `net/http`** — Go 标准库 HTTP server 足够（NFR51 要求 ≥10 并发），端点少（3 个），不需要 gin/echo 等框架
+4. **SSE 流式** — `LLMDriver.Stream()` 已返回 `<-chan StreamEvent`，转为 SSE `data: {...}\n\n` 格式即可
+5. **安全默认** — 仅绑定 `127.0.0.1`（NFR52），本地信任模型，无认证开销
+6. **绕过 Kernel** — 网关请求直接调用 `DriverRegistry`，不创建 Rnix 进程，最小化 HTTP 开销（NFR50 ≤ 50ms）
+
+**核心数据流：**
+
+```
+外部工具 (Aider / Open WebUI / Python openai 库)
+    │
+    ▼
+HTTP POST /v1/chat/completions
+    {"model": "ollama:llama3", "messages": [...], "stream": true}
+    │
+    ▼
+ipc/http_openai.go — OpenAIServer（协议翻译层）
+    │  1. 解析 model 字段 → provider="ollama", model="llama3"
+    │  2. driverReg.Get("ollama") → OpenAICompatDriver
+    │  3. 构造 LLMRequest{Model: "llama3", Messages: [...]}
+    ▼
+LLMDriver.Stream(ctx, req) → <-chan StreamEvent
+    │
+    ▼
+SSE 响应: data: {"choices":[{"delta":{"content":"..."}}]}\n\n
+```
+
+**HTTP 端点清单：**
+
+| 端点 | 方法 | 说明 | FR |
+|------|------|------|-----|
+| `/v1/chat/completions` | POST | Chat Completion（支持 `stream: true/false`） | FR148, FR150 |
+| `/v1/models` | GET | 返回已注册且健康的 provider 及模型列表 | FR149 |
+| `/health` | GET | 服务健康检查（内部使用） | — |
+
+**model 参数路由规则（FR151）：**
+
+| 输入 model 值 | 解析结果 | 说明 |
+|---------------|---------|------|
+| `"ollama:llama3"` | provider=`ollama`, model=`llama3` | 复合格式，显式指定 |
+| `"ollama"` | provider=`ollama`, model=provider 的 `default_model` | 仅 provider 名，用默认模型 |
+| `"cursor:claude-3.5-sonnet"` | provider=`cursor`, model=`claude-3.5-sonnet` | CLI 驱动也支持 |
+| 未知 provider | 返回 HTTP 404 + 可用 provider 列表 | 友好错误信息 |
+
+**OpenAI 兼容层核心结构：**
+
+```go
+// ipc/http_openai.go
+
+type OpenAIServer struct {
+    driverReg  *llm.DriverRegistry
+    listenAddr string       // "127.0.0.1:8080"
+    server     *http.Server
+}
+
+func NewOpenAIServer(driverReg *llm.DriverRegistry, addr string) *OpenAIServer { ... }
+
+func (s *OpenAIServer) ListenAndServe() error {
+    mux := http.NewServeMux()
+    mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
+    mux.HandleFunc("GET /v1/models", s.handleListModels)
+    mux.HandleFunc("GET /health", s.handleHealth)
+    s.server = &http.Server{Addr: s.listenAddr, Handler: mux}
+    return s.server.ListenAndServe()
+}
+
+func (s *OpenAIServer) Shutdown(ctx context.Context) error {
+    return s.server.Shutdown(ctx)
+}
+
+// --- 请求/响应类型（OpenAI 兼容格式）---
+
+type ChatCompletionRequest struct {
+    Model       string           `json:"model"`
+    Messages    []ChatMessage    `json:"messages"`
+    Stream      bool             `json:"stream,omitempty"`
+    Temperature *float64         `json:"temperature,omitempty"`
+    MaxTokens   *int             `json:"max_tokens,omitempty"`
+}
+
+type ChatMessage struct {
+    Role    string `json:"role"`
+    Content string `json:"content"`
+}
+
+type ChatCompletionResponse struct {
+    ID      string             `json:"id"`
+    Object  string             `json:"object"`  // "chat.completion"
+    Created int64              `json:"created"`
+    Model   string             `json:"model"`
+    Choices []ChatChoice       `json:"choices"`
+    Usage   *ChatUsage         `json:"usage,omitempty"`
+}
+
+type ChatCompletionChunk struct {
+    ID      string             `json:"id"`
+    Object  string             `json:"object"`  // "chat.completion.chunk"
+    Created int64              `json:"created"`
+    Model   string             `json:"model"`
+    Choices []ChatChunkChoice  `json:"choices"`
+    Usage   *ChatUsage         `json:"usage,omitempty"`
+}
+```
+
+**SSE 流式输出模式：**
+
+```go
+func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+    // 1. 解析 ChatCompletionRequest
+    // 2. parseModel(req.Model) → provider, model
+    // 3. driver, ok := s.driverReg.Get(provider)
+    // 4. 构造 llm.LLMRequest（messages 转换 + model 设置）
+
+    if req.Stream {
+        // SSE 流式
+        w.Header().Set("Content-Type", "text/event-stream")
+        w.Header().Set("Cache-Control", "no-cache")
+        w.Header().Set("Connection", "keep-alive")
+        flusher := w.(http.Flusher)
+
+        ch, err := driver.Stream(r.Context(), llmReq)
+        for ev := range ch {
+            chunk := toChunk(ev) // StreamEvent → ChatCompletionChunk
+            fmt.Fprintf(w, "data: %s\n\n", jsonMarshal(chunk))
+            flusher.Flush()
+        }
+        fmt.Fprintf(w, "data: [DONE]\n\n")
+        flusher.Flush()
+    } else {
+        // 同步响应
+        resp, err := driver.Call(r.Context(), llmReq)
+        json.NewEncoder(w).Encode(toCompletion(resp))
+    }
+}
+```
+
+**与现有架构的关系：**
+
+| 组件 | 影响 | 说明 |
+|------|------|------|
+| Kernel | **无改动** | 网关绕过 Kernel，直接调用 DriverRegistry |
+| VFS | **无改动** | 不通过 Open/Write/Read VFS 路径 |
+| IPC Protocol | **无改动** | 新增独立 HTTP 监听，不影响 NDJSON Unix socket |
+| DriverRegistry | **只读引用** | 共享 daemon 启动时注册的驱动实例（FR152） |
+| HealthCheck | **复用** | `/v1/models` 和 `/health` 复用 `DriverRegistry.HealthStatuses()` |
+
+**文件影响范围：**
+
+| 文件 | 变更 | 估算行数 |
+|------|------|---------|
+| `ipc/http_openai.go` | **新增** — OpenAI HTTP Server 核心实现 | ~250-350 |
+| `ipc/http_openai_test.go` | **新增** — 单元测试 | ~200 |
+| `cmd/rnix/serve.go` | **新增** — `rnix serve` Cobra 命令 | ~60 |
+| `cmd/rnix/main.go` | **修改** — `runDaemon()` 可选启动 HTTP 监听 | ~15 |
+
+**FR/NFR 覆盖：**
+- FR147（rnix serve 启动）、FR148（/v1/chat/completions）、FR149（/v1/models）、FR150（SSE 流式）、FR151（provider:model 路由）、FR152（共享 daemon 配置）
+- NFR50（HTTP 开销 ≤ 50ms）、NFR51（≥ 10 并发）、NFR52（仅绑定 127.0.0.1）

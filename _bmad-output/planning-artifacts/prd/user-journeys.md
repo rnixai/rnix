@@ -126,6 +126,25 @@ agents:
 
 ---
 
+### 旅程 6：陈明通过 rnix serve 让外部工具使用 LLM（用户 A — 平台构建者，网关路径）
+
+**背景：** 陈明习惯在不同场景用不同工具——用 Aider 做代码重构、用 Open WebUI 做知识问答、用自研脚本做批量分析。这些工具都支持 OpenAI API，但他的 Cursor Pro 配额和本地 Ollama 只能在各自的生态里用。他希望有一个统一入口。
+
+**步骤：**
+
+1. 陈明确认 `rnix-providers.yaml` 已配置好 cursor、ollama、claude 三个 provider
+2. 启动网关：`rnix serve --port 8080`，终端显示 `Serving 3 providers on http://127.0.0.1:8080`
+3. 在 Aider 中配置：`--openai-api-base http://localhost:8080/v1`，model 设为 `cursor`——Aider 通过 Rnix 网关调用 Cursor 的 LLM 能力完成代码重构
+4. 在 Open WebUI 中配置 API 端点为 `http://localhost:8080/v1`，通过 `/v1/models` 自动发现所有可用 provider 和模型
+5. 在自研 Python 脚本中使用标准 `openai` 库：`client = OpenAI(base_url="http://localhost:8080/v1", api_key="unused")`，model 指定 `ollama:llama3` 做批量分析
+6. 陈明通过 `rnix top` 看到所有通过网关发起的 LLM 调用的 token 消耗统计
+
+**结果：** 一个端口统一所有 LLM 访问。Cursor Pro 配额不再被锁在 IDE 里，本地模型不再需要每个工具单独配置。任何支持 OpenAI API 的工具都可以即插即用。
+
+**覆盖能力：** FR147（rnix serve 启动）、FR148（/v1/chat/completions 路由）、FR149（/v1/models 发现）、FR150（SSE 流式）、FR151（provider:model 复合路由）、FR152（共享 daemon 配置）、NFR50-52（网关性能与安全）
+
+---
+
 ## Journey Requirements Summary
 
 | 能力领域 | 旅程来源 | MVP 必需 | Post-MVP | Phase 2 FR 映射 |
@@ -151,3 +170,4 @@ agents:
 | AgentShell 完整语法 | 架构需求推导（AgentShell DSL 设计） | | ✓ (Phase 2) | FR66-FR68 |
 | Phase 2 文档（教程 + 架构） | 生态建设需求（开发者体验） | | ✓ (Phase 2) | FR69-FR70 |
 | 多 Provider 支持（provider 注册 + fallback） | 旅程 5 | | ✓ (Phase 2) | FR141-FR146 |
+| LLM 网关服务（rnix serve OpenAI 兼容 API） | 旅程 6 | | ✓ (Phase 2) | FR147-FR152 |

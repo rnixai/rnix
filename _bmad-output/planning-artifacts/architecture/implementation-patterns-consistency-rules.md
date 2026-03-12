@@ -156,6 +156,57 @@ type JSONError struct {
 | Phase 3 | `attach_gdb`, `record_start`, `record_stop`, `replay` | 调试工具链 |
 | Phase 3 | `apply_intent`, `intent_status` | 声明式意图 |
 
+## LLM Serve Gateway 模式
+
+**HTTP 端点命名：** 遵循 OpenAI API 路径规范，使用 `/v1/` 前缀。
+
+| 端点 | 方法 | 对应 OpenAI API |
+|------|------|----------------|
+| `/v1/chat/completions` | POST | Chat Completion |
+| `/v1/models` | GET | Models List |
+| `/health` | GET | 内部健康检查（非 OpenAI 标准） |
+
+**model 参数解析规则：**
+
+```go
+// parseModel 将 OpenAI model 字段解析为 provider + model
+// 格式：[provider:]model
+// "ollama:llama3"  → provider="ollama", model="llama3"
+// "ollama"         → provider="ollama", model="" (使用 default_model)
+// "claude"         → provider="claude", model="" (使用 default_model)
+func parseModel(model string) (provider, modelName string)
+```
+
+**SSE 流式输出规则：**
+
+| 规则 | 说明 |
+|------|------|
+| Content-Type | `text/event-stream` |
+| 事件格式 | `data: {json}\n\n`（每个 chunk 一行） |
+| 终止标记 | `data: [DONE]\n\n` |
+| Flush 时机 | 每个 chunk 后立即 Flush |
+| 超时处理 | 使用 `r.Context()` 传播客户端断开 |
+
+**错误响应格式（OpenAI 兼容）：**
+
+```go
+type OpenAIError struct {
+    Error struct {
+        Message string `json:"message"`
+        Type    string `json:"type"`
+        Code    string `json:"code"`
+    } `json:"error"`
+}
+```
+
+| 场景 | HTTP 状态码 | error.type | error.code |
+|------|------------|------------|------------|
+| provider 不存在 | 404 | `invalid_request_error` | `model_not_found` |
+| 请求体格式错误 | 400 | `invalid_request_error` | `invalid_request` |
+| LLM 驱动超时 | 504 | `server_error` | `timeout` |
+| LLM 驱动内部错误 | 502 | `server_error` | `upstream_error` |
+| 并发限制 | 429 | `rate_limit_error` | `rate_limit_exceeded` |
+
 ## 过程模式（Process Patterns）
 
 **错误处理模式：**

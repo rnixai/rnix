@@ -95,6 +95,7 @@
 | 四层能力栈 | Agent → Skill → MCP → Device 端到端运行，各层职责分离验证通过 |
 | AgentShell 管道 | `spawn "A" \| spawn "B"` 管道语法执行成功，前一个智能体输出正确注入后一个上下文 |
 | AgentShell 脚本 | `if-else` + `on-error` 最小控制结构在多行脚本中正确执行 |
+| rnix serve 网关 | `rnix serve` 启动后，使用标准 OpenAI 客户端库向 `http://localhost:{port}/v1/chat/completions` 发送请求并获得正确响应；`/v1/models` 返回已注册 provider 列表 |
 | Phase 2 教程 | 三个核心教程（编写 Skill、调试 bug、多智能体工作流）各含完整可运行示例 |
 | Phase 2 架构文档 | 四个核心模块（微内核、进程模型、驱动层、上下文管理）各含设计决策和数据流说明 |
 

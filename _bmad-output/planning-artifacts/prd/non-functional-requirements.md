@@ -60,6 +60,12 @@
 - **NFR32:** HTTP API 类型 provider 的首次连接验证（健康检查）≤ 3 秒/provider，验证失败时 daemon 正常启动并标记该 provider 为不可用
 - **NFR33:** Provider fallback 切换延迟（从 preferred 失败检测到 fallback 发起调用）≤ 1 秒
 
+## LLM Serve Gateway Quality（LLM 网关质量，Phase 2）
+
+- **NFR50:** `rnix serve` HTTP 请求处理开销（不含 LLM 推理本身）≤ 50ms（从接收请求到调用 LLM 驱动）
+- **NFR51:** 服务支持 ≥ 10 个并发 HTTP 连接，无请求丢弃或阻塞
+- **NFR52:** 服务默认仅绑定 `127.0.0.1`，不暴露到外部网络接口；未来扩展外部监听需显式配置并启用认证
+
 ---
 
 ## Debugging Toolchain Performance（调试工具链性能，Phase 3）

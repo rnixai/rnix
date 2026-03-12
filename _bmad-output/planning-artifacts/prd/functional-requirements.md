@@ -132,6 +132,15 @@
 - **FR145:** 用户可通过 CLI `--provider` 参数在 spawn 时覆盖 agent.yaml 中的 provider 配置
 - **FR146:** HTTP API 类型的 provider 支持通过环境变量引用配置 API Key（如 `api_key_env: GROQ_API_KEY`），系统不明文存储密钥
 
+## LLM Serve Gateway（LLM 网关服务，Phase 2）
+
+- **FR147:** 用户可通过 `rnix serve` 启动 OpenAI 兼容 HTTP 服务器，仅监听 localhost，将已注册的 `/dev/llm/*` provider 暴露为标准 OpenAI API 端点，外部工具无需了解 Rnix 内部即可消费 LLM 能力
+- **FR148:** 服务支持 `/v1/chat/completions` 端点，将请求中的 model 参数路由到对应的 VFS LLM 驱动（如 `model: "cursor"` → `/dev/llm/cursor`），请求/响应格式兼容 OpenAI Chat Completion API
+- **FR149:** 服务支持 `/v1/models` 端点，返回所有已注册且健康的 provider 及其可用模型列表，格式兼容 OpenAI Models API
+- **FR150:** `/v1/chat/completions` 端点支持 SSE 流式响应（`stream: true`），事件格式兼容 OpenAI 流式协议（`data: {...}\n\n`）
+- **FR151:** model 参数支持 `provider:model` 复合格式路由（如 `cursor:claude-3.5-sonnet`），当仅指定 provider 名时使用该 provider 的 `default_model`
+- **FR152:** 服务共享 daemon 已注册的驱动实例和 `rnix-providers.yaml` 配置，新增或变更 provider 后重启 daemon 即可生效，无需独立配置
+
 ---
 
 ## gdb Interactive Debugger（gdb 交互式调试器，Phase 3）
