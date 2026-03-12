@@ -681,14 +681,14 @@ func TestOpenAICompatDriver_HealthCheck_SendsAPIKey(t *testing.T) {
 
 func TestOpenAICompatDriver_ImplementsHealthChecker(t *testing.T) {
 	d := NewOpenAICompatDriver("test", "http://localhost:1234")
-	if _, ok := interface{}(d).(HealthChecker); !ok {
+	if _, ok := any(d).(HealthChecker); !ok {
 		t.Error("OpenAICompatDriver should implement HealthChecker")
 	}
 }
 
 func TestClaudeCliDriver_DoesNotImplementHealthChecker(t *testing.T) {
 	d := NewClaudeCliDriver()
-	if _, ok := interface{}(d).(HealthChecker); ok {
+	if _, ok := any(d).(HealthChecker); ok {
 		t.Error("ClaudeCliDriver should NOT implement HealthChecker")
 	}
 }
