@@ -1,6 +1,6 @@
 # Story 23.5: Provider Fallback 降级机制
 
-Status: review
+Status: done
 
 ## Story
 

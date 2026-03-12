@@ -1,6 +1,6 @@
 # Story 23.3: Provider 动态解析与白名单移除
 
-Status: review
+Status: done
 
 ## Story
 
