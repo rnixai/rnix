@@ -591,6 +591,108 @@ func TestOpenAICompatDriver_Stream_LargeChunk(t *testing.T) {
 	}
 }
 
+// --- HealthCheck tests ---
+
+func TestOpenAICompatDriver_HealthCheck_Success(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/models") {
+			t.Errorf("expected path ending with /models, got %s", r.URL.Path)
+		}
+		w.WriteHeader(200)
+		fmt.Fprint(w, `{"data":[{"id":"test-model"}]}`)
+	}))
+	defer ts.Close()
+
+	d := NewOpenAICompatDriver("test", ts.URL, WithHTTPClient(ts.Client()))
+	err := d.HealthCheck(context.Background())
+	if err != nil {
+		t.Fatalf("HealthCheck: %v", err)
+	}
+}
+
+func TestOpenAICompatDriver_HealthCheck_ServerDown(t *testing.T) {
+	// Use a closed server to guarantee connection refused
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	closedURL := ts.URL
+	ts.Close()
+
+	d := NewOpenAICompatDriver("test", closedURL)
+	err := d.HealthCheck(context.Background())
+	if err == nil {
+		t.Fatal("expected error for unreachable server, got nil")
+	}
+}
+
+func TestOpenAICompatDriver_HealthCheck_HTTP401(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(401)
+		fmt.Fprint(w, `{"error":"unauthorized"}`)
+	}))
+	defer ts.Close()
+
+	d := NewOpenAICompatDriver("test", ts.URL, WithHTTPClient(ts.Client()))
+	err := d.HealthCheck(context.Background())
+	if err == nil {
+		t.Fatal("expected error for HTTP 401, got nil")
+	}
+	if !strings.Contains(err.Error(), "HTTP 401") {
+		t.Errorf("error = %v, want to contain 'HTTP 401'", err)
+	}
+}
+
+func TestOpenAICompatDriver_HealthCheck_Timeout(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Second)
+		w.WriteHeader(200)
+	}))
+	defer ts.Close()
+
+	d := NewOpenAICompatDriver("test", ts.URL, WithHTTPClient(ts.Client()))
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	err := d.HealthCheck(ctx)
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+}
+
+func TestOpenAICompatDriver_HealthCheck_SendsAPIKey(t *testing.T) {
+	var gotAuth string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(200)
+		fmt.Fprint(w, `{"data":[]}`)
+	}))
+	defer ts.Close()
+
+	d := NewOpenAICompatDriver("test", ts.URL, WithHTTPClient(ts.Client()), WithAPIKey("sk-test-key"))
+	err := d.HealthCheck(context.Background())
+	if err != nil {
+		t.Fatalf("HealthCheck: %v", err)
+	}
+	if gotAuth != "Bearer sk-test-key" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer sk-test-key")
+	}
+}
+
+func TestOpenAICompatDriver_ImplementsHealthChecker(t *testing.T) {
+	d := NewOpenAICompatDriver("test", "http://localhost:1234")
+	if _, ok := interface{}(d).(HealthChecker); !ok {
+		t.Error("OpenAICompatDriver should implement HealthChecker")
+	}
+}
+
+func TestClaudeCliDriver_DoesNotImplementHealthChecker(t *testing.T) {
+	d := NewClaudeCliDriver()
+	if _, ok := interface{}(d).(HealthChecker); ok {
+		t.Error("ClaudeCliDriver should NOT implement HealthChecker")
+	}
+}
+
 // --- ToolCalling tests ---
 
 func TestOpenAICompatDriver_CallWithTools_Success(t *testing.T) {

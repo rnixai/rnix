@@ -40,6 +40,7 @@ const (
 	MethodApplyIncrementalIntent Method = "apply_incremental_intent"
 	MethodIntentList    Method = "intent_list"
 	MethodLineage       Method = "lineage"
+	MethodProviderStatus Method = "provider_status"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -614,6 +615,20 @@ type LineageEvent struct {
 type LineageResponse struct {
 	PID    types.PID      `json:"pid"`
 	Events []LineageEvent `json:"events"`
+}
+
+// --- Provider Status ---
+
+// ProviderStatusResponse is the payload for MethodProviderStatus.
+type ProviderStatusResponse struct {
+	Providers []ProviderStatusWire `json:"providers"`
+}
+
+// ProviderStatusWire is the wire-format representation of a provider's status.
+type ProviderStatusWire struct {
+	Name   string `json:"name"`
+	Driver string `json:"driver"`
+	Health string `json:"health"` // "healthy", "unhealthy", "unchecked"
 }
 
 func unixMilliToTime(ms int64) time.Time {

@@ -14,8 +14,9 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ LLMDriver       = (*OpenAICompatDriver)(nil)
+	_ LLMDriver        = (*OpenAICompatDriver)(nil)
 	_ ToolCallingDriver = (*OpenAICompatDriver)(nil)
+	_ HealthChecker     = (*OpenAICompatDriver)(nil)
 )
 
 // OpenAICompatDriver implements LLMDriver and ToolCallingDriver for any
@@ -78,7 +79,31 @@ func (d *OpenAICompatDriver) Info() DriverInfo {
 		Name:         d.name,
 		Provider:     d.name,
 		DefaultModel: d.defaultModel,
+		DriverType:   DriverOpenAICompat,
 	}
+}
+
+// HealthCheck performs a lightweight GET /models check against the provider endpoint.
+// Returns nil if the provider is reachable and responds with HTTP 2xx.
+func (d *OpenAICompatDriver) HealthCheck(ctx context.Context) error {
+	url := d.baseURL + "/models"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	if d.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+d.apiKey)
+	}
+	resp, err := d.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // --- Internal OpenAI API types (unexported) ---

@@ -87,3 +87,88 @@ func TestDriverRegistry_Len(t *testing.T) {
 		t.Errorf("expected 2, got %d", r.Len())
 	}
 }
+
+// --- Health Status Tests ---
+
+func TestDriverRegistry_HealthStatus_DefaultUnchecked(t *testing.T) {
+	t.Parallel()
+	r := NewDriverRegistry()
+	_ = r.Register("claude", NewClaudeCliDriver())
+
+	if got := r.GetHealth("claude"); got != HealthStatusUnchecked {
+		t.Errorf("GetHealth = %q, want %q", got, HealthStatusUnchecked)
+	}
+}
+
+func TestDriverRegistry_SetHealth_Healthy(t *testing.T) {
+	t.Parallel()
+	r := NewDriverRegistry()
+	_ = r.Register("ollama", NewOpenAICompatDriver("ollama", "http://localhost:11434/v1"))
+
+	r.SetHealth("ollama", HealthStatusHealthy)
+	if got := r.GetHealth("ollama"); got != HealthStatusHealthy {
+		t.Errorf("GetHealth = %q, want %q", got, HealthStatusHealthy)
+	}
+}
+
+func TestDriverRegistry_SetHealth_Unhealthy(t *testing.T) {
+	t.Parallel()
+	r := NewDriverRegistry()
+	_ = r.Register("groq", NewOpenAICompatDriver("groq", "https://api.groq.com/openai/v1"))
+
+	r.SetHealth("groq", HealthStatusUnhealthy)
+	if got := r.GetHealth("groq"); got != HealthStatusUnhealthy {
+		t.Errorf("GetHealth = %q, want %q", got, HealthStatusUnhealthy)
+	}
+}
+
+func TestDriverRegistry_GetHealth_NotRegistered(t *testing.T) {
+	t.Parallel()
+	r := NewDriverRegistry()
+
+	if got := r.GetHealth("nonexistent"); got != HealthStatusUnchecked {
+		t.Errorf("GetHealth = %q, want %q", got, HealthStatusUnchecked)
+	}
+}
+
+func TestDriverRegistry_HealthStatuses_Sorted(t *testing.T) {
+	t.Parallel()
+	r := NewDriverRegistry()
+	_ = r.Register("cursor", NewCursorCliDriver())
+	_ = r.Register("claude", NewClaudeCliDriver())
+	_ = r.Register("ollama", NewOpenAICompatDriver("ollama", "http://localhost:11434/v1"))
+
+	r.SetHealth("ollama", HealthStatusHealthy)
+
+	statuses := r.HealthStatuses()
+	if len(statuses) != 3 {
+		t.Fatalf("expected 3 statuses, got %d", len(statuses))
+	}
+
+	// Verify sorted by name
+	expectedNames := []string{"claude", "cursor", "ollama"}
+	for i, s := range statuses {
+		if s.Name != expectedNames[i] {
+			t.Errorf("statuses[%d].Name = %q, want %q", i, s.Name, expectedNames[i])
+		}
+	}
+
+	// Verify driver types
+	if statuses[0].Driver != DriverClaudeCLI {
+		t.Errorf("claude driver = %q, want %q", statuses[0].Driver, DriverClaudeCLI)
+	}
+	if statuses[1].Driver != DriverCursorCLI {
+		t.Errorf("cursor driver = %q, want %q", statuses[1].Driver, DriverCursorCLI)
+	}
+	if statuses[2].Driver != DriverOpenAICompat {
+		t.Errorf("ollama driver = %q, want %q", statuses[2].Driver, DriverOpenAICompat)
+	}
+
+	// Verify health statuses
+	if statuses[0].Health != HealthStatusUnchecked {
+		t.Errorf("claude health = %q, want %q", statuses[0].Health, HealthStatusUnchecked)
+	}
+	if statuses[2].Health != HealthStatusHealthy {
+		t.Errorf("ollama health = %q, want %q", statuses[2].Health, HealthStatusHealthy)
+	}
+}

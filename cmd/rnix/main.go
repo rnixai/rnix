@@ -1050,6 +1050,16 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(w, "status:  running\nversion: %s\nsocket:  %s\nprocs:   %d active / %d total\n",
 		version, sockPath, active, len(procs))
+
+	// Provider health status
+	providers, err := client.ProviderStatus()
+	if err == nil && len(providers) > 0 {
+		fmt.Fprintf(w, "providers:\n")
+		for _, p := range providers {
+			fmt.Fprintf(w, "  %-12s %s (%s)\n", p.Name, p.Health, p.Driver)
+		}
+	}
+
 	return nil
 }
 
@@ -1067,6 +1077,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	if err := llm.RegisterProviders(providersCfg, driverReg, devReg); err != nil {
 		return fmt.Errorf("registering LLM providers: %w", err)
 	}
+	llm.RunHealthChecks(providersCfg, driverReg, 3*time.Second)
 	vfsInst := vfs.NewVFS(devReg)
 	_ = devReg.Register("/dev/fs", fs.FileFactory())
 	shellDriver := drivershell.NewDriver()
@@ -1127,6 +1138,18 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv.SetKernel(k)
 	srv.SetContextManager(ctxMgr)
 	srv.SetSkillLoader(skillLoader)
+	srv.SetProviderStatusFunc(func() []ipc.ProviderStatusWire {
+		statuses := driverReg.HealthStatuses()
+		wires := make([]ipc.ProviderStatusWire, len(statuses))
+		for i, ps := range statuses {
+			wires[i] = ipc.ProviderStatusWire{
+				Name:   ps.Name,
+				Driver: ps.Driver,
+				Health: string(ps.Health),
+			}
+		}
+		return wires
+	})
 
 	// Intent manager initialization (Story 19.1)
 	intentDecomposer := intent.NewDecomposer(&intent.CLICaller{})
