@@ -215,7 +215,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
-	rootCmd.Flags().StringVar(&flagProvider, "provider", "", "LLM provider override (claude, cursor)")
+	rootCmd.Flags().StringVar(&flagProvider, "provider", "", "LLM provider override (see rnix-providers.yaml)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
 	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
 	_ = daemonCmd.Flags().MarkHidden("internal")
@@ -1101,6 +1101,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv := ipc.NewServer(nil, agentLoader.Load, version)
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	k.SetMountManager(mountMgr)
+	k.SetProviderResolver(driverReg.Names, func(name string) bool { _, ok := driverReg.Get(name); return ok })
 	k.SetAgentLoader(agentLoader.Load) // Inject for OODA autonomous spawn (Story 20.2)
 
 	// Stem agent differentiation (Story 20.3)

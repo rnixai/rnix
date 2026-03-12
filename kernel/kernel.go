@@ -44,7 +44,7 @@ type SpawnOpts struct {
 	ContextBudget int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
 	TraceID       types.TraceID // inherited trace ID; empty = no tracing
 	ParentSpanID  types.SpanID  // parent process span ID
-	Provider      string        // LLM provider override; "" = use agent manifest or default "claude"
+	Provider      string        // LLM provider override (from CLI --provider); "" = use agent manifest or default "claude"
 
 	PreallocatedCtxID types.CtxID // non-zero = skip CtxAlloc, use this pre-setup context
 	SkipReasonLoop    bool        // true = don't open LLM device or start reasonStep goroutine
@@ -146,6 +146,10 @@ type KernelImpl struct {
 
 	// Differentiation memory (Story 20.4)
 	diffMemory *DiffMemory
+
+	// Provider resolution callbacks (Story 23.3)
+	providerNames func() []string
+	hasProvider   func(name string) bool
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -166,27 +170,31 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 	return k
 }
 
-// allowedLLMProviders is the whitelist of valid LLM provider values.
-var allowedLLMProviders = map[string]bool{
-	"":       true,
-	"claude": true,
-	"cursor": true,
-}
-
 // resolveLLMDevice returns the VFS device path for the LLM provider.
 // providerOverride takes precedence over the agent manifest's provider field.
 // Returns "/dev/llm/claude" by default when both are empty.
-func resolveLLMDevice(agent *agents.AgentInfo, providerOverride string) (string, error) {
+// When hasProvider is non-nil, validates against the DriverRegistry; when nil,
+// allows any provider (backward compatibility for tests without resolver injection).
+func (k *KernelImpl) resolveLLMDevice(agent *agents.AgentInfo, providerOverride string) (string, error) {
 	provider := providerOverride
 	if provider == "" && agent != nil {
 		provider = agent.Manifest.Models.Provider
 	}
-	if !allowedLLMProviders[provider] {
-		return "", fmt.Errorf("unsupported LLM provider: %q", provider)
+	if provider == "" {
+		provider = "claude"
 	}
-	if provider == "" || provider == "claude" {
-		return "/dev/llm/claude", nil
+
+	if k.hasProvider != nil && !k.hasProvider(provider) {
+		available := "none"
+		if k.providerNames != nil {
+			names := k.providerNames()
+			if len(names) > 0 {
+				available = strings.Join(names, ", ")
+			}
+		}
+		return "", fmt.Errorf("unsupported LLM provider: %q (available: %s)", provider, available)
 	}
+
 	return "/dev/llm/" + provider, nil
 }
 
@@ -390,7 +398,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	if !opts.SkipReasonLoop {
 		// Resolve LLM device path based on agent provider
-		llmDevice, resolveErr := resolveLLMDevice(agent, opts.Provider)
+		llmDevice, resolveErr := k.resolveLLMDevice(agent, opts.Provider)
 		if resolveErr != nil {
 			if opts.PreallocatedCtxID == 0 {
 				_ = k.ctxMgr.CtxFree(cid)
@@ -1442,6 +1450,12 @@ func (k *KernelImpl) SetSkillLoader(fn func(string) (*skills.SkillInfo, error)) 
 // SetDiffMemory injects the differentiation memory for stem agent path reuse.
 func (k *KernelImpl) SetDiffMemory(m *DiffMemory) {
 	k.diffMemory = m
+}
+
+// SetProviderResolver injects callbacks for dynamic LLM provider validation.
+func (k *KernelImpl) SetProviderResolver(names func() []string, has func(name string) bool) {
+	k.providerNames = names
+	k.hasProvider = has
 }
 
 // StartRecording starts execution recording for the given PID.
