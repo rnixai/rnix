@@ -3,6 +3,7 @@ package llm
 import (
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/rnixai/rnix/vfs"
@@ -16,7 +17,6 @@ type DeviceRegisterer interface {
 
 // CreateDriver creates an LLMDriver instance from a ProviderConfig.
 // It dispatches to the appropriate constructor based on cfg.Driver.
-// API key handling is deferred to Story 23-4.
 func CreateDriver(cfg ProviderConfig) (LLMDriver, error) {
 	switch cfg.Driver {
 	case DriverClaudeCLI:
@@ -37,6 +37,13 @@ func CreateDriver(cfg ProviderConfig) (LLMDriver, error) {
 		var opts []CompatOption
 		if cfg.DefaultModel != "" {
 			opts = append(opts, WithCompatModel(cfg.DefaultModel))
+		}
+		if cfg.APIKeyEnv != "" {
+			if key := os.Getenv(cfg.APIKeyEnv); key != "" {
+				opts = append(opts, WithAPIKey(key))
+			} else {
+				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)
+			}
 		}
 		return NewOpenAICompatDriver(cfg.Name, cfg.BaseURL, opts...), nil
 
