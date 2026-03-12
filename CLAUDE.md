@@ -8,6 +8,8 @@ Rnix is an operating system for AI agents, inspired by Unix design philosophy. I
 
 ## Build & Development Commands
 
+每次会话的编码工作完成后，要运行一次 `make all` 检查是否有错误需要修复。
+
 ```bash
 make build          # Build binary → ./rnix
 make test           # Run all tests with race detection

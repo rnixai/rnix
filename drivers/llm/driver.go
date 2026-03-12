@@ -51,6 +51,7 @@ type DriverInfo struct {
 	Name         string `json:"name"`
 	Provider     string `json:"provider"`
 	DefaultModel string `json:"default_model"`
+	DriverType   string `json:"driver_type"`
 }
 
 // LLMDriver is the interface that all LLM drivers must implement.
@@ -58,4 +59,9 @@ type LLMDriver interface {
 	Call(ctx context.Context, req LLMRequest) (*LLMResponse, error)
 	Stream(ctx context.Context, req LLMRequest) (<-chan StreamEvent, error)
 	Info() DriverInfo
+}
+
+// HealthChecker is an optional interface for drivers that support health checks.
+type HealthChecker interface {
+	HealthCheck(ctx context.Context) error
 }

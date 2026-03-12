@@ -82,6 +82,9 @@ type Server struct {
 
 	// intent management (set via SetIntentManager)
 	intentMgr intentManager
+
+	// provider health status (set via SetProviderStatusFunc)
+	providerStatuses func() []ProviderStatusWire
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -307,6 +310,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleIntentList(conn)
 		case MethodLineage:
 			s.handleLineage(conn, req.Payload)
+		case MethodProviderStatus:
+			s.handleProviderStatus(conn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -480,6 +485,18 @@ func (s *Server) handleLineage(conn net.Conn, rawPayload json.RawMessage) {
 		Events: ipcEvents,
 	}
 	payload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleProviderStatus(conn net.Conn) {
+	var wires []ProviderStatusWire
+	if s.providerStatuses != nil {
+		wires = s.providerStatuses()
+	}
+	if wires == nil {
+		wires = []ProviderStatusWire{}
+	}
+	payload, _ := json.Marshal(ProviderStatusResponse{Providers: wires})
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 
@@ -1247,6 +1264,11 @@ func (s *Server) SetSkillLoader(loader *skills.SkillLoader) {
 // SetIntentManager injects the intent manager into the server.
 func (s *Server) SetIntentManager(mgr intentManager) {
 	s.intentMgr = mgr
+}
+
+// SetProviderStatusFunc injects the provider status query function.
+func (s *Server) SetProviderStatusFunc(fn func() []ProviderStatusWire) {
+	s.providerStatuses = fn
 }
 
 // handleRecordStart starts execution recording for a process.

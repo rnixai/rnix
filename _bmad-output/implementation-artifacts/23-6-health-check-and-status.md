@@ -1,6 +1,6 @@
 # Story 23.6: Provider 健康检查与状态报告
 
-Status: ready-for-dev
+Status: dev-complete
 
 ## Story
 
@@ -33,7 +33,7 @@ So that 我能及时知道哪些 provider 不可用。
 
 ### Task 1: DriverRegistry 增加健康状态存储（AC: #1, #2, #3）
 
-- [ ] 1.1 在 `drivers/llm/registry.go` 中定义 `HealthStatus` 类型和常量：
+- [x] 1.1 在 `drivers/llm/registry.go` 中定义 `HealthStatus` 类型和常量：
   ```go
   type HealthStatus string
 
@@ -44,7 +44,7 @@ So that 我能及时知道哪些 provider 不可用。
   )
   ```
 
-- [ ] 1.2 在 `DriverRegistry` 中新增 `health` 字段（使用 `xsync.SyncMap`）：
+- [x] 1.2 在 `DriverRegistry` 中新增 `health` 字段（使用 `xsync.SyncMap`）：
   ```go
   type DriverRegistry struct {
       registry *xsync.Registry[LLMDriver]
@@ -61,7 +61,7 @@ So that 我能及时知道哪些 provider 不可用。
   }
   ```
 
-- [ ] 1.3 新增方法 `SetHealth`、`GetHealth`、`HealthStatuses`：
+- [x] 1.3 新增方法 `SetHealth`、`GetHealth`、`HealthStatuses`：
   ```go
   func (r *DriverRegistry) SetHealth(name string, status HealthStatus) {
       r.health.Store(name, status)
@@ -100,7 +100,7 @@ So that 我能及时知道哪些 provider 不可用。
   }
   ```
 
-- [ ] 1.4 在 `Register` 方法中，注册成功后自动将健康状态设为 `unchecked`：
+- [x] 1.4 在 `Register` 方法中，注册成功后自动将健康状态设为 `unchecked`：
   ```go
   func (r *DriverRegistry) Register(path string, driver LLMDriver) error {
       if err := r.registry.Register(path, driver); err != nil {
@@ -113,7 +113,7 @@ So that 我能及时知道哪些 provider 不可用。
 
 ### Task 2: OpenAICompatDriver 增加 HealthCheck 方法（AC: #1）
 
-- [ ] 2.1 在 `drivers/llm/openai_compat.go` 中新增 `HealthCheck` 方法：
+- [x] 2.1 在 `drivers/llm/openai_compat.go` 中新增 `HealthCheck` 方法：
   ```go
   // HealthCheck performs a lightweight GET /models check against the provider endpoint.
   // Returns nil if the provider is reachable and responds with HTTP 2xx.
@@ -139,7 +139,7 @@ So that 我能及时知道哪些 provider 不可用。
   }
   ```
 
-- [ ] 2.2 定义可选接口 `HealthChecker`（在 `drivers/llm/driver.go` 中）：
+- [x] 2.2 定义可选接口 `HealthChecker`（在 `drivers/llm/driver.go` 中）：
   ```go
   // HealthChecker is an optional interface for drivers that support health checks.
   type HealthChecker interface {
@@ -150,7 +150,7 @@ So that 我能及时知道哪些 provider 不可用。
 
 ### Task 3: 在 RegisterProviders 后执行异步健康检查（AC: #1, #2, #3）
 
-- [ ] 3.1 在 `drivers/llm/factory.go` 中新增 `RunHealthChecks` 函数：
+- [x] 3.1 在 `drivers/llm/factory.go` 中新增 `RunHealthChecks` 函数：
   ```go
   // RunHealthChecks performs async health checks on all registered providers
   // that implement the HealthChecker interface. CLI-based drivers are marked unchecked.
@@ -186,7 +186,7 @@ So that 我能及时知道哪些 provider 不可用。
   - 每个 provider 独立 goroutine，使用 `context.WithTimeout` 限制 3 秒
   - CLI 类 driver 不实现 `HealthChecker`，自然跳过（状态保持 `unchecked`）
 
-- [ ] 3.2 在 `cmd/rnix/main.go` 的 `runDaemon` 中调用 `RunHealthChecks`。在 `RegisterProviders` 之后、`ipc.NewServer` 之前添加：
+- [x] 3.2 在 `cmd/rnix/main.go` 的 `runDaemon` 中调用 `RunHealthChecks`。在 `RegisterProviders` 之后、`ipc.NewServer` 之前添加：
   ```go
   llm.RunHealthChecks(providersCfg, driverReg, 3*time.Second)
   ```
@@ -194,7 +194,7 @@ So that 我能及时知道哪些 provider 不可用。
 
 ### Task 4: 扩展 IPC 协议——新增 provider 状态查询（AC: #4）
 
-- [ ] 4.1 在 `ipc/protocol.go` 新增 `MethodProviderStatus` 和响应类型：
+- [x] 4.1 在 `ipc/protocol.go` 新增 `MethodProviderStatus` 和响应类型：
   ```go
   MethodProviderStatus Method = "provider_status"
 
@@ -210,7 +210,7 @@ So that 我能及时知道哪些 provider 不可用。
   }
   ```
 
-- [ ] 4.2 在 `ipc/server.go` 中：
+- [x] 4.2 在 `ipc/server.go` 中：
   - `Server` 结构体新增 `providerStatuses func() []llm.ProviderStatus` 字段
   - 新增 `SetProviderStatusFunc` setter 方法
   - 在 `handleConnection` switch 中新增 `case MethodProviderStatus`
@@ -235,7 +235,7 @@ So that 我能及时知道哪些 provider 不可用。
   }
   ```
 
-- [ ] 4.3 在 `ipc/client.go` 新增 `ProviderStatus` 方法：
+- [x] 4.3 在 `ipc/client.go` 新增 `ProviderStatus` 方法：
   ```go
   func (c *Client) ProviderStatus() ([]ProviderStatusWire, error) {
       resp, err := c.call(MethodProviderStatus, nil)
@@ -250,7 +250,7 @@ So that 我能及时知道哪些 provider 不可用。
   }
   ```
 
-- [ ] 4.4 在 `cmd/rnix/main.go` 的 `runDaemon` 中，将 `driverReg.HealthStatuses` 注入 Server：
+- [x] 4.4 在 `cmd/rnix/main.go` 的 `runDaemon` 中，将 `driverReg.HealthStatuses` 注入 Server：
   ```go
   srv.SetProviderStatusFunc(driverReg.HealthStatuses)
   ```
@@ -258,7 +258,7 @@ So that 我能及时知道哪些 provider 不可用。
 
 ### Task 5: 扩展 `rnix daemon status` CLI 输出（AC: #4）
 
-- [ ] 5.1 修改 `cmd/rnix/main.go` 的 `runDaemonStatus` 函数，新增 provider 状态查询：
+- [x] 5.1 修改 `cmd/rnix/main.go` 的 `runDaemonStatus` 函数，新增 provider 状态查询：
   ```go
   func runDaemonStatus(cmd *cobra.Command, args []string) error {
       w := cmd.OutOrStdout()
@@ -302,7 +302,7 @@ So that 我能及时知道哪些 provider 不可用。
 
 ### Task 6: 单元测试（AC: #1-#4）
 
-- [ ] 6.1 新增 `drivers/llm/registry_test.go` 健康状态测试（如文件已有，追加）：
+- [x] 6.1 新增 `drivers/llm/registry_test.go` 健康状态测试（如文件已有，追加）：
 
   | 测试 | 场景 | 期望结果 |
   |------|------|----------|
@@ -311,7 +311,7 @@ So that 我能及时知道哪些 provider 不可用。
   | `TestDriverRegistry_SetHealth_Unhealthy` | 调用 `SetHealth("x", HealthStatusUnhealthy)` | `GetHealth("x")` 返回 `unhealthy` |
   | `TestDriverRegistry_HealthStatuses_Sorted` | 注册多个 driver | `HealthStatuses()` 返回按 name 排序的列表 |
 
-- [ ] 6.2 新增 `drivers/llm/openai_compat_test.go` 健康检查测试（追加到现有文件）：
+- [x] 6.2 新增 `drivers/llm/openai_compat_test.go` 健康检查测试（追加到现有文件）：
 
   | 测试 | 场景 | 期望结果 |
   |------|------|----------|
@@ -320,7 +320,7 @@ So that 我能及时知道哪些 provider 不可用。
   | `TestOpenAICompatDriver_HealthCheck_HTTP401` | httptest server 返回 401 | `HealthCheck` 返回含 "HTTP 401" 的 error |
   | `TestOpenAICompatDriver_HealthCheck_Timeout` | httptest server 延迟 5 秒响应 + 1 秒 context deadline | `HealthCheck` 返回 deadline exceeded |
 
-- [ ] 6.3 新增 `drivers/llm/factory_test.go` 异步健康检查测试（追加）：
+- [x] 6.3 新增 `drivers/llm/factory_test.go` 异步健康检查测试（追加）：
 
   | 测试 | 场景 | 期望结果 |
   |------|------|----------|
@@ -329,7 +329,7 @@ So that 我能及时知道哪些 provider 不可用。
   | `TestRunHealthChecks_CLIProvider_Skipped` | Claude CLI driver | 状态保持 `unchecked` |
   | `TestRunHealthChecks_NonBlocking` | 调用 RunHealthChecks 后立即返回 | 函数不阻塞（耗时 < 100ms） |
 
-- [ ] 6.4 新增 `kernel/atdd_23_6_health_check_status_test.go` 集成测试：
+- [x] 6.4 新增 `kernel/atdd_23_6_health_check_status_test.go` 集成测试：
 
   | 测试 | 场景 | 期望结果 |
   |------|------|----------|
@@ -339,7 +339,7 @@ So that 我能及时知道哪些 provider 不可用。
   | `TestATDD_23_6_AC3_CLIProviderSkipped` | claude/cursor CLI driver | 状态保持 `unchecked` |
   | `TestATDD_23_6_AC4_DaemonStatusShowsProviders` | 通过 IPC 查询 provider 状态 | 返回正确的 name/driver/health 列表 |
 
-- [ ] 6.5 确保所有测试启用 `-race` 检测
+- [x] 6.5 确保所有测试启用 `-race` 检测
 
 ## Dev Notes
 
@@ -513,10 +513,36 @@ So that 我能及时知道哪些 provider 不可用。
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+N/A
+
 ### Completion Notes List
 
+- All 6 tasks and 15 subtasks implemented per story spec
+- Added `DriverType` field to `DriverInfo` to support driver type reporting in `HealthStatuses()`
+- Used recommended architecture: `ipc.Server.providerStatuses` is `func() []ProviderStatusWire` closure — zero cross-package dependency between `ipc` and `drivers/llm`
+- All 20 packages pass with `-race` detection, zero failures
+- Unit tests: 7 registry health tests, 7 HealthCheck tests, 4 RunHealthChecks tests
+- ATDD tests: 16 integration tests covering AC1-AC4 + mixed provider integration
+
 ### File List
+
+| File | Change | Description |
+|------|--------|-------------|
+| `drivers/llm/driver.go` | Modified | Added `DriverType` field to `DriverInfo`, added `HealthChecker` optional interface |
+| `drivers/llm/registry.go` | Modified | Added `HealthStatus` type/constants, `health` SyncMap, `SetHealth`/`GetHealth`/`HealthStatuses` methods, `ProviderStatus` struct |
+| `drivers/llm/openai_compat.go` | Modified | Added `HealthCheck(ctx)` method, `DriverType` in `Info()`, compile-time `HealthChecker` check |
+| `drivers/llm/claude_cli.go` | Modified | Added `DriverType` in `Info()` |
+| `drivers/llm/cursor_cli.go` | Modified | Added `DriverType` in `Info()` |
+| `drivers/llm/factory.go` | Modified | Added `RunHealthChecks` async function |
+| `ipc/protocol.go` | Modified | Added `MethodProviderStatus`, `ProviderStatusResponse`, `ProviderStatusWire` |
+| `ipc/server.go` | Modified | Added `providerStatuses` field, `SetProviderStatusFunc`, `handleProviderStatus` handler, switch case |
+| `ipc/client.go` | Modified | Added `ProviderStatus()` client method |
+| `cmd/rnix/main.go` | Modified | `runDaemon`: call `RunHealthChecks` + inject `SetProviderStatusFunc`; `runDaemonStatus`: provider health output |
+| `drivers/llm/registry_test.go` | Modified | Added 7 health status tests |
+| `drivers/llm/openai_compat_test.go` | Modified | Added 7 HealthCheck tests |
+| `drivers/llm/factory_test.go` | Modified | Added 4 RunHealthChecks tests |
+| `kernel/atdd_23_6_health_check_status_test.go` | Modified | Replaced RED skip tests with 16 GREEN passing ATDD tests |

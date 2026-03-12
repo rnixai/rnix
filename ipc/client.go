@@ -692,6 +692,19 @@ func (c *Client) Lineage(pid types.PID) (*LineageResponse, error) {
 	return &result, nil
 }
 
+// ProviderStatus returns the health status of all registered providers.
+func (c *Client) ProviderStatus() ([]ProviderStatusWire, error) {
+	resp, err := c.call(MethodProviderStatus, nil)
+	if err != nil {
+		return nil, err
+	}
+	var pr ProviderStatusResponse
+	if err := json.Unmarshal(resp.Payload, &pr); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal provider_status: %w", err)
+	}
+	return pr.Providers, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

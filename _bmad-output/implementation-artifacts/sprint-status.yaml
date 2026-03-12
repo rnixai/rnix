@@ -253,6 +253,6 @@ development_status:
   23-3-dynamic-provider-resolution: done
   23-4-api-key-management: done
   23-5-provider-fallback: done
-  23-6-health-check-and-status: ready-for-dev
+  23-6-health-check-and-status: done
   23-7-compose-init-config-upgrade: backlog
   epic-23-retrospective: optional

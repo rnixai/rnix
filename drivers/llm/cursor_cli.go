@@ -258,6 +258,7 @@ func (d *CursorCliDriver) Info() DriverInfo {
 		Name:         "cursor-cli",
 		Provider:     "cursor",
 		DefaultModel: d.defaultModel,
+		DriverType:   DriverCursorCLI,
 	}
 }
 

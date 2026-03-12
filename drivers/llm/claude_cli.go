@@ -265,6 +265,7 @@ func (d *ClaudeCliDriver) Info() DriverInfo {
 		Name:         "claude-cli",
 		Provider:     "claude",
 		DefaultModel: d.defaultModel,
+		DriverType:   DriverClaudeCLI,
 	}
 }
 

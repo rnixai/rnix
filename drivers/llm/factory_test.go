@@ -1,8 +1,12 @@
 package llm
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rnixai/rnix/vfs"
 )
@@ -361,5 +365,118 @@ func TestRegisterProviders_DefaultConfig_VFSCompat(t *testing.T) {
 			t.Errorf("expected DevicePath %q, got %q", path, stat.DevicePath)
 		}
 		f.Close()
+	}
+}
+
+// --- RunHealthChecks tests ---
+
+func TestRunHealthChecks_HTTPProvider_Healthy(t *testing.T) {
+	t.Parallel()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		fmt.Fprint(w, `{"data":[]}`)
+	}))
+	defer ts.Close()
+
+	cfg := &ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "test-api", Driver: DriverOpenAICompat, BaseURL: ts.URL},
+		},
+	}
+	driverReg := NewDriverRegistry()
+	drv := NewOpenAICompatDriver("test-api", ts.URL, WithHTTPClient(ts.Client()))
+	_ = driverReg.Register("test-api", drv)
+
+	RunHealthChecks(cfg, driverReg, 3*time.Second)
+
+	// Wait for async health check to complete
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if driverReg.GetHealth("test-api") == HealthStatusHealthy {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("health = %q, want %q", driverReg.GetHealth("test-api"), HealthStatusHealthy)
+}
+
+func TestRunHealthChecks_HTTPProvider_Unhealthy(t *testing.T) {
+	t.Parallel()
+	// Use unreachable address
+	cfg := &ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "bad-api", Driver: DriverOpenAICompat, BaseURL: "http://127.0.0.1:1"},
+		},
+	}
+	driverReg := NewDriverRegistry()
+	drv := NewOpenAICompatDriver("bad-api", "http://127.0.0.1:1")
+	_ = driverReg.Register("bad-api", drv)
+
+	RunHealthChecks(cfg, driverReg, 3*time.Second)
+
+	// Wait for async health check to complete
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if driverReg.GetHealth("bad-api") == HealthStatusUnhealthy {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("health = %q, want %q", driverReg.GetHealth("bad-api"), HealthStatusUnhealthy)
+}
+
+func TestRunHealthChecks_CLIProvider_Skipped(t *testing.T) {
+	t.Parallel()
+	cfg := &ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "claude", Driver: DriverClaudeCLI},
+			{Name: "cursor", Driver: DriverCursorCLI},
+		},
+	}
+	driverReg := NewDriverRegistry()
+	_ = driverReg.Register("claude", NewClaudeCliDriver())
+	_ = driverReg.Register("cursor", NewCursorCliDriver())
+
+	RunHealthChecks(cfg, driverReg, 3*time.Second)
+
+	// Give goroutines a chance to run (should be no goroutines for CLI)
+	time.Sleep(50 * time.Millisecond)
+
+	if got := driverReg.GetHealth("claude"); got != HealthStatusUnchecked {
+		t.Errorf("claude health = %q, want %q", got, HealthStatusUnchecked)
+	}
+	if got := driverReg.GetHealth("cursor"); got != HealthStatusUnchecked {
+		t.Errorf("cursor health = %q, want %q", got, HealthStatusUnchecked)
+	}
+}
+
+func TestRunHealthChecks_NonBlocking(t *testing.T) {
+	t.Parallel()
+	// Server that takes 5 seconds to respond
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Second)
+		w.WriteHeader(200)
+	}))
+	defer ts.Close()
+
+	cfg := &ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "slow-api", Driver: DriverOpenAICompat, BaseURL: ts.URL},
+		},
+	}
+	driverReg := NewDriverRegistry()
+	drv := NewOpenAICompatDriver("slow-api", ts.URL, WithHTTPClient(ts.Client()))
+	_ = driverReg.Register("slow-api", drv)
+
+	start := time.Now()
+	RunHealthChecks(cfg, driverReg, 3*time.Second)
+	elapsed := time.Since(start)
+
+	if elapsed > 100*time.Millisecond {
+		t.Errorf("RunHealthChecks took %v, expected < 100ms (non-blocking)", elapsed)
 	}
 }

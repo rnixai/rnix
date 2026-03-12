@@ -1,10 +1,12 @@
 package llm
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/rnixai/rnix/vfs"
 )
@@ -80,4 +82,33 @@ func RegisterProviders(cfg *ProvidersConfig, driverReg *DriverRegistry, devReg D
 	log.Printf("[llm] registered %d providers: %s", len(names), strings.Join(parts, ", "))
 
 	return nil
+}
+
+// RunHealthChecks performs async health checks on all registered providers
+// that implement the HealthChecker interface. CLI-based drivers are marked unchecked.
+// The function returns immediately; health checks run in background goroutines.
+// timeout is the per-provider health check deadline.
+func RunHealthChecks(cfg *ProvidersConfig, reg *DriverRegistry, timeout time.Duration) {
+	for _, pc := range cfg.Providers {
+		drv, ok := reg.Get(pc.Name)
+		if !ok {
+			continue
+		}
+		hc, ok := drv.(HealthChecker)
+		if !ok {
+			// CLI drivers (claude-cli, cursor-cli) don't support health check
+			continue
+		}
+		go func(name string, checker HealthChecker) {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			if err := checker.HealthCheck(ctx); err != nil {
+				reg.SetHealth(name, HealthStatusUnhealthy)
+				log.Printf("[llm] provider %q: health check failed: %v", name, err)
+			} else {
+				reg.SetHealth(name, HealthStatusHealthy)
+				log.Printf("[llm] provider %q: healthy", name)
+			}
+		}(pc.Name, hc)
+	}
 }
