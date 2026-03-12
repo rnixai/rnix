@@ -11,8 +11,7 @@ import (
 
 // ============================================================================
 // ATDD Tests for Story 23.7: rnix-compose/init 配置格式升级 (Init 部分)
-// RED PHASE: Tests reference Provider field on ChildConfig and ChildSpec
-// which do NOT exist yet.
+// Validates Provider field on ChildConfig and ChildSpec.
 // ============================================================================
 
 // ============================================================

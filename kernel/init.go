@@ -44,7 +44,7 @@ type ChildConfig struct {
 	Intent        string `yaml:"intent"`
 	Agent         string `yaml:"agent"`
 	Model         string `yaml:"model"`
-	Provider      string `yaml:"provider"`
+	Provider      string `yaml:"provider,omitempty"`
 	ContextBudget int    `yaml:"context_budget"`
 	Restart       string `yaml:"restart"`
 }

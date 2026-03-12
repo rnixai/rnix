@@ -10,8 +10,7 @@ import (
 
 // ============================================================================
 // ATDD Tests for Story 23.7: rnix-compose/init 配置格式升级
-// RED PHASE: Tests reference Provider field on ComposeSpec, AgentSpec,
-// and ComposeSpawnOpts which do NOT exist yet.
+// Validates Provider field on ComposeSpec, AgentSpec, and ComposeSpawnOpts.
 // ============================================================================
 
 // ============================================================
