@@ -140,8 +140,14 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 	if model == "" {
 		model = e.spec.Model
 	}
+	// Provider priority: agent-level > spec-level (global default) > empty (system default)
+	provider := agentSpec.Provider
+	if provider == "" {
+		provider = e.spec.Provider
+	}
 	opts := ComposeSpawnOpts{
 		Model:         model,
+		Provider:      provider,
 		ContextBudget: agentSpec.ContextBudget,
 		TimeoutMs:     agentSpec.TimeoutMs,
 		TraceID:       traceID,

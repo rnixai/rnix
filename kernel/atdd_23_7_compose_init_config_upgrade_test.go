@@ -4,6 +4,9 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // ============================================================================
@@ -234,7 +237,18 @@ func TestToSupervisorSpec_ChildProvider(t *testing.T) {
 // TestBootstrap_SupervisorChildProvider verifies that when rnix-init.yaml
 // child specifies provider, the Bootstrap flow passes it through to SpawnOpts.
 func TestBootstrap_SupervisorChildProvider(t *testing.T) {
-	k := newInitTestKernel(t)
+	reg := vfs.NewDeviceRegistry()
+	file := &normalFile{}
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return file, nil
+	})
+	_ = reg.Register("/dev/llm/groq", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		return file, nil
+	})
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	t.Cleanup(k.Shutdown)
 
 	cfg := &InitConfig{
 		Supervisors: []SupervisorConfig{
