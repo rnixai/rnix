@@ -37,7 +37,7 @@ type AgentLoaderFunc func(name string) (*agents.AgentInfo, error)
 
 // intentManager abstracts intent.Manager to avoid direct import cycle.
 type intentManager interface {
-	ApplyIntent(ctx context.Context, intentStr, model string, autoStart bool) (intentID string, treeJSON []byte, err error)
+	ApplyIntent(ctx context.Context, intentStr, model, provider string, autoStart bool) (intentID string, treeJSON []byte, err error)
 	ConfirmIntent(intentID string) error
 	ExecuteIntent(ctx context.Context, intentID string,
 		onNodeStart func(nodeID string, pid uint64),
@@ -51,7 +51,7 @@ type intentManager interface {
 	) error
 	IntentStatus(intentID string) ([]byte, error)
 	ListActiveIntents() ([]byte, error)
-	ApplyIncrementalIntent(ctx context.Context, intentID, intentStr, model string) (string, []byte, error)
+	ApplyIncrementalIntent(ctx context.Context, intentID, intentStr, model, provider string) (string, []byte, error)
 	ListAllIntents() ([]byte, error)
 }
 
@@ -1726,7 +1726,7 @@ func (s *Server) handleApplyIntent(conn net.Conn, rawPayload json.RawMessage, co
 		return
 	}
 
-	intentID, treeJSON, err := s.intentMgr.ApplyIntent(context.Background(), req.Intent, req.Model, req.AutoStart)
+	intentID, treeJSON, err := s.intentMgr.ApplyIntent(context.Background(), req.Intent, req.Model, req.Provider, req.AutoStart)
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "decompose_failed", Message: err.Error()}})
 		return
@@ -1860,7 +1860,7 @@ func (s *Server) handleApplyIncrementalIntent(conn net.Conn, rawPayload json.Raw
 		return
 	}
 
-	intentID, resultJSON, err := s.intentMgr.ApplyIncrementalIntent(context.Background(), req.IntentID, req.Intent, req.Model)
+	intentID, resultJSON, err := s.intentMgr.ApplyIncrementalIntent(context.Background(), req.IntentID, req.Intent, req.Model, req.Provider)
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "incremental_failed", Message: err.Error()}})
 		return

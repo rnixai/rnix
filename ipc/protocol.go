@@ -500,6 +500,7 @@ type CtxGrowthRequest struct {
 type ApplyIntentRequest struct {
 	Intent    string `json:"intent"`
 	Model     string `json:"model,omitempty"`
+	Provider  string `json:"provider,omitempty"`
 	AutoStart bool   `json:"auto_start,omitempty"`
 }
 
@@ -534,6 +535,7 @@ type ApplyIncrementalIntentRequest struct {
 	IntentID string `json:"intent_id"`
 	Intent   string `json:"intent"`
 	Model    string `json:"model,omitempty"`
+	Provider string `json:"provider,omitempty"`
 }
 
 // ApplyIncrementalIntentResponse is the response for MethodApplyIncrementalIntent.

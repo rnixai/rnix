@@ -19,10 +19,11 @@ func NewIntentManagerAdapter(mgr *intent.Manager) *IntentManagerAdapter {
 	return &IntentManagerAdapter{mgr: mgr}
 }
 
-func (a *IntentManagerAdapter) ApplyIntent(ctx context.Context, intentStr, model string, autoStart bool) (string, []byte, error) {
+func (a *IntentManagerAdapter) ApplyIntent(ctx context.Context, intentStr, model, provider string, autoStart bool) (string, []byte, error) {
 	tree, err := a.mgr.Apply(ctx, intent.ApplyRequest{
 		Intent:    intentStr,
 		Model:     model,
+		Provider:  provider,
 		AutoStart: autoStart,
 	})
 	if err != nil {
@@ -111,8 +112,8 @@ func (a *IntentManagerAdapter) ListActiveIntents() ([]byte, error) {
 	return json.Marshal(resp)
 }
 
-func (a *IntentManagerAdapter) ApplyIncrementalIntent(ctx context.Context, intentID, intentStr, model string) (string, []byte, error) {
-	tree, mergeResult, err := a.mgr.ApplyIncremental(ctx, intent.IntentID(intentID), intentStr, model)
+func (a *IntentManagerAdapter) ApplyIncrementalIntent(ctx context.Context, intentID, intentStr, model, provider string) (string, []byte, error) {
+	tree, mergeResult, err := a.mgr.ApplyIncremental(ctx, intent.IntentID(intentID), intentStr, model, provider)
 	if err != nil {
 		return "", nil, err
 	}

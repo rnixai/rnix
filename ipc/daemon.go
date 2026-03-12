@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -65,6 +66,11 @@ func cleanStaleSocket(sockPath string) {
 	os.Remove(sockPath)
 }
 
+// stderrLogPath returns the path for the daemon stderr log file.
+func stderrLogPath() string {
+	return filepath.Join(filepath.Dir(SocketPath()), "daemon-stderr.log")
+}
+
 // startDaemon launches a new daemon process in the background.
 func startDaemon() error {
 	sockPath := SocketPath()
@@ -73,14 +79,27 @@ func startDaemon() error {
 		return fmt.Errorf("create socket dir: %w", err)
 	}
 
+	logPath := stderrLogPath()
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		logFile = nil
+	}
+
 	cmd := exec.Command(daemonExe(), "daemon", "--internal")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.Stderr = logFile
 	cmd.Stdin = nil
 
 	if err := cmd.Start(); err != nil {
+		if logFile != nil {
+			logFile.Close()
+		}
 		return fmt.Errorf("exec daemon: %w", err)
+	}
+
+	if logFile != nil {
+		logFile.Close()
 	}
 
 	writePIDFile(sockDir, cmd.Process.Pid)
@@ -98,7 +117,26 @@ func waitForDaemon(sockPath string) (*Client, error) {
 		}
 		time.Sleep(daemonPollInterval)
 	}
+
+	detail := readDaemonStderr()
+	if detail != "" {
+		return nil, fmt.Errorf("ipc: daemon did not start within %s: %s", daemonStartTimeout, detail)
+	}
 	return nil, fmt.Errorf("ipc: daemon did not start within %s", daemonStartTimeout)
+}
+
+// readDaemonStderr reads the daemon stderr log for startup failure diagnostics.
+func readDaemonStderr() string {
+	data, err := os.ReadFile(stderrLogPath())
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	s := string(data)
+	const maxLen = 512
+	if len(s) > maxLen {
+		s = s[len(s)-maxLen:]
+	}
+	return strings.TrimSpace(s)
 }
 
 // writePIDFile writes the daemon's PID to rnix.pid for diagnostics.
