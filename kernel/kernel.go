@@ -322,6 +322,29 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		if agent.Manifest.Reasoning == "ooda" {
 			opts.ReasoningMode = "ooda"
 		}
+
+		// Fallback configuration (Story 23.5)
+		if agent.Manifest.Models.Fallback != "" {
+			proc.FallbackModel = agent.Manifest.Models.Fallback
+			fbProvider := agent.Manifest.Models.FallbackProvider
+			if fbProvider == "" {
+				// Same-provider fallback: resolve using main provider
+				p := opts.Provider
+				if p == "" {
+					p = agent.Manifest.Models.Provider
+				}
+				if p == "" {
+					p = "claude"
+				}
+				fbProvider = p
+			}
+			proc.FallbackProvider = fbProvider
+			fbDevice, fbErr := k.resolveLLMDevice(nil, fbProvider)
+			if fbErr == nil {
+				proc.FallbackDevice = fbDevice
+			}
+			// fallback resolution failure is non-blocking; means fallback unavailable
+		}
 	}
 
 	proc.ContextBudget = opts.ContextBudget
@@ -405,6 +428,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			}
 			return 0, NewSyscallError("Spawn", proc.PID, "", resolveErr, types.ErrDriver)
 		}
+		proc.PrimaryDevice = llmDevice // Store for fallback reference (Story 23.5)
 
 		// Open LLM device via VFS
 		openStart := time.Now()
@@ -648,6 +672,71 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	}
 }
 
+// attemptFallback tries the fallback provider when primary LLM call fails.
+// Returns the response data and nil error on success, or nil and error if fallback also fails.
+// Emits strace events for the fallback attempt. (Story 23.5)
+func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevice string, primaryErr error, step int) ([]byte, error) {
+	if proc.FallbackDevice == "" {
+		return nil, primaryErr // no fallback configured
+	}
+
+	fallbackStart := time.Now()
+
+	// Open fallback device
+	fbFD, err := k.vfs.Open(proc.PID, proc.FallbackDevice, vfs.O_RDWR)
+	if err != nil {
+		return nil, primaryErr // can't open fallback, return original error
+	}
+	defer func() { _ = k.vfs.Close(proc.PID, fbFD) }()
+
+	// Modify request to use fallback model
+	req.Model = proc.FallbackModel
+	reqJSON, err := json.Marshal(req)
+	if err != nil {
+		return nil, primaryErr
+	}
+
+	// Write to fallback device
+	if err := k.vfs.Write(proc.ctx, proc.PID, fbFD, reqJSON); err != nil {
+		// Fallback also failed — emit exhausted event
+		k.emitEvent(proc, "ReasonStep", map[string]any{
+			"step":            step,
+			"action":          "fallback_exhausted",
+			"primary_device":  primaryDevice,
+			"primary_error":   primaryErr.Error(),
+			"fallback_device": proc.FallbackDevice,
+			"fallback_error":  err.Error(),
+		}, nil, err, time.Since(fallbackStart))
+		return nil, fmt.Errorf("primary %s: %v; fallback %s: %v", primaryDevice, primaryErr, proc.FallbackDevice, err)
+	}
+
+	// Read response from fallback device
+	respData, err := k.vfs.Read(proc.PID, fbFD, 1<<20)
+	if err != nil {
+		k.emitEvent(proc, "ReasonStep", map[string]any{
+			"step":            step,
+			"action":          "fallback_exhausted",
+			"primary_device":  primaryDevice,
+			"primary_error":   primaryErr.Error(),
+			"fallback_device": proc.FallbackDevice,
+			"fallback_error":  err.Error(),
+		}, nil, err, time.Since(fallbackStart))
+		return nil, fmt.Errorf("primary %s: %v; fallback %s: %v", primaryDevice, primaryErr, proc.FallbackDevice, err)
+	}
+
+	// Fallback succeeded — emit success event
+	k.emitEvent(proc, "ReasonStep", map[string]any{
+		"step":            step,
+		"action":          "fallback",
+		"primary_device":  primaryDevice,
+		"primary_error":   primaryErr.Error(),
+		"fallback_device": proc.FallbackDevice,
+		"fallback_model":  proc.FallbackModel,
+	}, nil, nil, time.Since(fallbackStart))
+
+	return respData, nil
+}
+
 // reasonStep executes the reasoning loop for a process.
 func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	maxSteps := DefaultMaxSteps
@@ -792,39 +881,53 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		// Write request to LLM device
 		writeStart := time.Now()
+		var respData []byte
 		if err := k.vfs.Write(proc.ctx, proc.PID, llmFD, reqJSON); err != nil {
 			k.emitEvent(proc, "Write", map[string]any{
 				"fd":    llmFD,
 				"size":  len(reqJSON),
 				"model": model,
 			}, nil, err, time.Since(writeStart))
-			k.emitEvent(proc, "ReasonStep", map[string]any{
-				"step":   step,
-				"action": "error",
-			}, nil, err, time.Since(stepStart))
-			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm write failed", Err: err})
-			return
-		}
-		k.emitEvent(proc, "Write", map[string]any{
-			"fd":    llmFD,
-			"size":  len(reqJSON),
-			"model": model,
-		}, nil, nil, time.Since(writeStart))
 
-		// Read response from LLM device
-		readStart := time.Now()
-		respData, err := k.vfs.Read(proc.PID, llmFD, 1<<20) // 1MB max
-		k.emitEvent(proc, "Read", map[string]any{
-			"fd":     llmFD,
-			"length": 1 << 20,
-		}, len(respData), err, time.Since(readStart))
-		if err != nil {
+			// Attempt fallback (Story 23.5)
+		fbData, fbErr := k.attemptFallback(proc, req, proc.PrimaryDevice, err, step)
+		if fbErr != nil {
+			reason := "llm write failed"
+			if proc.FallbackDevice != "" {
+				reason = "all providers exhausted"
+			}
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "error",
-			}, nil, err, time.Since(stepStart))
-			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm read failed", Err: err})
-			return
+			}, nil, fbErr, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: reason, Err: fbErr})
+				return
+			}
+			// Fallback succeeded
+			respData = fbData
+		} else {
+			k.emitEvent(proc, "Write", map[string]any{
+				"fd":    llmFD,
+				"size":  len(reqJSON),
+				"model": model,
+			}, nil, nil, time.Since(writeStart))
+
+			// Read response from LLM device
+			readStart := time.Now()
+			var readErr error
+			respData, readErr = k.vfs.Read(proc.PID, llmFD, 1<<20) // 1MB max
+			k.emitEvent(proc, "Read", map[string]any{
+				"fd":     llmFD,
+				"length": 1 << 20,
+			}, len(respData), readErr, time.Since(readStart))
+			if readErr != nil {
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "error",
+				}, nil, readErr, time.Since(stepStart))
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm read failed", Err: readErr})
+				return
+			}
 		}
 
 		// Parse LLM response

@@ -1,0 +1,8 @@
+name: cross-provider-agent
+description: "Agent with cross-provider fallback"
+models:
+  provider: ollama
+  preferred: llama3
+  fallback: haiku
+  fallback_provider: claude
+skills: []

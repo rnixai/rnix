@@ -10,9 +10,10 @@ import (
 
 // AgentModels defines the LLM provider and model preferences for an agent.
 type AgentModels struct {
-	Provider  string `yaml:"provider"`
-	Preferred string `yaml:"preferred"`
-	Fallback  string `yaml:"fallback"`
+	Provider         string `yaml:"provider"`
+	Preferred        string `yaml:"preferred"`
+	Fallback         string `yaml:"fallback"`
+	FallbackProvider string `yaml:"fallback_provider"` // cross-provider fallback; empty = same provider (Story 23.5)
 }
 
 // AgentManifest represents the parsed contents of an agent's agent.yaml.
