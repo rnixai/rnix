@@ -35,6 +35,7 @@ type ChildSpec struct {
 	Intent        string
 	Agent         *agents.AgentInfo
 	Model         string
+	Provider      string
 	ContextBudget int
 	Restart       ChildRestart
 }
@@ -195,6 +196,7 @@ func (s *Supervisor) startChild(idx int, spec ChildSpec) (types.PID, error) {
 	opts := SpawnOpts{
 		ParentPID:     s.proc.PID,
 		Model:         spec.Model,
+		Provider:      spec.Provider,
 		ContextBudget: spec.ContextBudget,
 	}
 	pid, err := s.kernel.Spawn(spec.Intent, spec.Agent, opts)

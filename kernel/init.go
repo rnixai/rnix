@@ -44,6 +44,7 @@ type ChildConfig struct {
 	Intent        string `yaml:"intent"`
 	Agent         string `yaml:"agent"`
 	Model         string `yaml:"model"`
+	Provider      string `yaml:"provider"`
 	ContextBudget int    `yaml:"context_budget"`
 	Restart       string `yaml:"restart"`
 }
@@ -242,6 +243,7 @@ func (sc *SupervisorConfig) toSupervisorSpec(agentLoader AgentLoaderFunc) (Super
 			Name:          cc.Name,
 			Intent:        cc.Intent,
 			Model:         cc.Model,
+			Provider:      cc.Provider,
 			ContextBudget: cc.ContextBudget,
 			Restart:       ChildRestart(cc.Restart),
 		}

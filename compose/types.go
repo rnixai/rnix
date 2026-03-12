@@ -9,10 +9,11 @@ import (
 
 // ComposeSpec is the top-level structure of rnix-compose.yaml.
 type ComposeSpec struct {
-	Version string                `yaml:"version"`
-	Intent  string                `yaml:"intent"`
-	Model   string                `yaml:"model,omitempty"`
-	Agents  map[string]*AgentSpec `yaml:"agents"`
+	Version  string                `yaml:"version"`
+	Intent   string                `yaml:"intent"`
+	Model    string                `yaml:"model,omitempty"`
+	Provider string                `yaml:"provider,omitempty"`
+	Agents   map[string]*AgentSpec `yaml:"agents"`
 }
 
 // AgentSpec defines a single agent in the compose workflow.
@@ -20,6 +21,7 @@ type AgentSpec struct {
 	Intent        string            `yaml:"intent"`
 	Agent         string            `yaml:"agent,omitempty"`
 	Model         string            `yaml:"model,omitempty"`
+	Provider      string            `yaml:"provider,omitempty"`
 	Skills        []string          `yaml:"skills,omitempty"`
 	ContextBudget int               `yaml:"context_budget,omitempty"`
 	TimeoutMs     int64             `yaml:"timeout_ms,omitempty"`
@@ -42,6 +44,7 @@ type DAGNode struct {
 // ComposeSpawnOpts contains spawn options for the compose engine.
 type ComposeSpawnOpts struct {
 	Model         string
+	Provider      string
 	SystemPrompt  string
 	ParentPID     types.PID
 	ContextBudget int

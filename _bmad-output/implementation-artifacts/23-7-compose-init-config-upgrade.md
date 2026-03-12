@@ -1,6 +1,6 @@
 # Story 23.7: rnix-compose/init 配置格式升级
 
-Status: ready-for-dev
+Status: dev-complete
 
 ## Story
 
@@ -26,7 +26,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
 
 ### Task 1: Compose 配置解析——AgentSpec 新增 Provider 字段（AC: #1, #2）
 
-- [ ] 1.1 在 `compose/types.go` 的 `AgentSpec` 结构体中新增 `Provider` 字段：
+- [x] 1.1 在 `compose/types.go` 的 `AgentSpec` 结构体中新增 `Provider` 字段：
   ```go
   type AgentSpec struct {
       Intent        string            `yaml:"intent"`
@@ -40,7 +40,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
   }
   ```
 
-- [ ] 1.2 在 `compose/types.go` 的 `ComposeSpawnOpts` 结构体中新增 `Provider` 字段：
+- [x] 1.2 在 `compose/types.go` 的 `ComposeSpawnOpts` 结构体中新增 `Provider` 字段：
   ```go
   type ComposeSpawnOpts struct {
       Model         string
@@ -54,7 +54,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
   }
   ```
 
-- [ ] 1.3 在 `compose/types.go` 的 `ComposeSpec` 结构体中新增顶层 `Provider` 字段（全局默认）：
+- [x] 1.3 在 `compose/types.go` 的 `ComposeSpec` 结构体中新增顶层 `Provider` 字段（全局默认）：
   ```go
   type ComposeSpec struct {
       Version  string                `yaml:"version"`
@@ -67,7 +67,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
 
 ### Task 2: Compose 引擎传递 Provider 参数（AC: #1, #2）
 
-- [ ] 2.1 修改 `compose/engine.go` 的 `executeNode` 方法，在构建 `ComposeSpawnOpts` 时传递 provider：
+- [x] 2.1 修改 `compose/engine.go` 的 `executeNode` 方法，在构建 `ComposeSpawnOpts` 时传递 provider：
   ```go
   // Provider priority: agent-level provider > spec-level provider (global default)
   provider := agentSpec.Provider
@@ -86,7 +86,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
 
 ### Task 3: IPC 适配层传递 Provider（AC: #1）
 
-- [ ] 3.1 修改 `cmd/rnix/compose.go` 的 `ipcKernelSpawner.Spawn` 方法，在构建 `ipc.SpawnRequest` 时传递 Provider：
+- [x] 3.1 修改 `cmd/rnix/compose.go` 的 `ipcKernelSpawner.Spawn` 方法，在构建 `ipc.SpawnRequest` 时传递 Provider：
   ```go
   req := ipc.SpawnRequest{
       Intent:        intent,
@@ -102,7 +102,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
 
 ### Task 4: Init 配置解析——ChildConfig 新增 Provider 字段（AC: #3）
 
-- [ ] 4.1 在 `kernel/init.go` 的 `ChildConfig` 结构体中新增 `Provider` 字段：
+- [x] 4.1 在 `kernel/init.go` 的 `ChildConfig` 结构体中新增 `Provider` 字段：
   ```go
   type ChildConfig struct {
       Name          string `yaml:"name"`
@@ -115,7 +115,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
   }
   ```
 
-- [ ] 4.2 在 `kernel/supervisor.go` 的 `ChildSpec` 结构体中新增 `Provider` 字段：
+- [x] 4.2 在 `kernel/supervisor.go` 的 `ChildSpec` 结构体中新增 `Provider` 字段：
   ```go
   type ChildSpec struct {
       Name          string
@@ -128,7 +128,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
   }
   ```
 
-- [ ] 4.3 修改 `kernel/init.go` 的 `toSupervisorSpec` 方法，传递 Provider：
+- [x] 4.3 修改 `kernel/init.go` 的 `toSupervisorSpec` 方法，传递 Provider：
   ```go
   cs := ChildSpec{
       Name:          cc.Name,
@@ -140,7 +140,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
   }
   ```
 
-- [ ] 4.4 修改 `kernel/supervisor.go` 的 `startChild` 方法，在构建 `SpawnOpts` 时传递 Provider：
+- [x] 4.4 修改 `kernel/supervisor.go` 的 `startChild` 方法，在构建 `SpawnOpts` 时传递 Provider：
   ```go
   opts := SpawnOpts{
       ParentPID:     s.proc.PID,
@@ -152,7 +152,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
 
 ### Task 5: 单元测试（AC: #1-#3）
 
-- [ ] 5.1 新增 `compose/parser_test.go` provider 解析测试（追加到现有文件）：
+- [x] 5.1 新增 `compose/parser_test.go` provider 解析测试（追加到现有文件）：
 
   | 测试 | 场景 | 期望结果 |
   |------|------|----------|
@@ -160,7 +160,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
   | `TestParseBytes_GlobalProvider` | YAML 顶层指定 `provider: groq` | `ComposeSpec.Provider == "groq"` |
   | `TestParseBytes_NoProvider_BackwardCompat` | YAML 无 provider 字段 | `AgentSpec.Provider == ""` 且 `ComposeSpec.Provider == ""` |
 
-- [ ] 5.2 新增 `compose/engine_test.go` provider 传递测试（追加到现有文件）：
+- [x] 5.2 新增 `compose/engine_test.go` provider 传递测试（追加到现有文件）：
 
   | 测试 | 场景 | 期望结果 |
   |------|------|----------|
@@ -169,21 +169,21 @@ So that 多 provider 场景下模型指定不会产生歧义。
   | `TestEngine_Execute_AgentProviderOverridesGlobal` | spec 指定 `provider: groq`，agent 指定 `provider: ollama` | `ComposeSpawnOpts.Provider == "ollama"` |
   | `TestEngine_Execute_NoProvider_EmptyString` | 无 provider 配置 | `ComposeSpawnOpts.Provider == ""` |
 
-- [ ] 5.3 新增 `kernel/init_test.go` provider 解析测试（追加到现有文件）：
+- [x] 5.3 新增 `kernel/init_test.go` provider 解析测试（追加到现有文件）：
 
   | 测试 | 场景 | 期望结果 |
   |------|------|----------|
   | `TestLoadInitConfig_ChildProvider` | YAML children 指定 `provider: groq` | `ChildConfig.Provider == "groq"` |
   | `TestLoadInitConfig_ChildNoProvider_BackwardCompat` | YAML children 无 provider 字段 | `ChildConfig.Provider == ""` |
 
-- [ ] 5.4 新增 `kernel/init_test.go` supervisor provider 传递测试（追加）：
+- [x] 5.4 新增 `kernel/init_test.go` supervisor provider 传递测试（追加）：
 
   | 测试 | 场景 | 期望结果 |
   |------|------|----------|
   | `TestToSupervisorSpec_ChildProvider` | `ChildConfig.Provider = "groq"` | `ChildSpec.Provider == "groq"` |
   | `TestBootstrap_SupervisorChildProvider` | rnix-init.yaml child 指定 provider | Spawn 时 `SpawnOpts.Provider == "groq"` |
 
-- [ ] 5.5 新增 ATDD 集成测试 `kernel/atdd_23_7_compose_init_config_upgrade_test.go`：
+- [x] 5.5 新增 ATDD 集成测试 `kernel/atdd_23_7_compose_init_config_upgrade_test.go`：
 
   | 测试 | 场景 | 期望结果 |
   |------|------|----------|
@@ -193,7 +193,7 @@ So that 多 provider 场景下模型指定不会产生歧义。
   | `TestATDD_23_7_AC3_InitChildProvider` | init YAML child 指定 `provider: groq` + `model: llama-3.3-70b-versatile` | Supervisor startChild 时 SpawnOpts.Provider="groq" |
   | `TestATDD_23_7_AC3_InitChildNoProvider` | init YAML child 无 provider | Supervisor startChild 时 SpawnOpts.Provider="" |
 
-- [ ] 5.6 确保所有测试启用 `-race` 检测
+- [x] 5.6 确保所有测试启用 `-race` 检测
 
 ## Dev Notes
 
@@ -357,10 +357,29 @@ So that 多 provider 场景下模型指定不会产生歧义。
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude claude-4.6-opus (Cursor)
 
 ### Debug Log References
 
+- ATDD RED phase tests (19 tests) pre-written by TEA agent in `compose/atdd_23_7_*.go` and `kernel/atdd_23_7_*.go`
+- `TestBootstrap_SupervisorChildProvider` initially failed due to missing `/dev/llm/groq` in test kernel — fixed by registering mock groq device
+
 ### Completion Notes List
 
+- All 5 Tasks completed with all subtasks checked off
+- All 19 ATDD tests pass (RED → GREEN)
+- `make all` passes: lint 0 issues, vet OK, all tests pass with `-race`, build OK
+- No new external dependencies introduced
+- No IPC protocol changes needed (`SpawnRequest.Provider` already exists from Story 23-3)
+- YAML parsing handled automatically by `go-yaml` — no changes to `compose/parser.go`
+
 ### File List
+
+| File | Change |
+|------|--------|
+| `compose/types.go` | `ComposeSpec`, `AgentSpec`, `ComposeSpawnOpts` 新增 `Provider` 字段 |
+| `compose/engine.go` | `executeNode` 新增 Provider 优先级逻辑 (agent > spec global > empty) |
+| `cmd/rnix/compose.go` | `ipcKernelSpawner.Spawn` 传递 `opts.Provider` 到 `SpawnRequest` |
+| `kernel/init.go` | `ChildConfig` 新增 `Provider`; `toSupervisorSpec` 传递 Provider |
+| `kernel/supervisor.go` | `ChildSpec` 新增 `Provider`; `startChild` 传递到 `SpawnOpts.Provider` |
+| `kernel/atdd_23_7_compose_init_config_upgrade_test.go` | 修复 Bootstrap 测试注册 groq mock 设备 |
