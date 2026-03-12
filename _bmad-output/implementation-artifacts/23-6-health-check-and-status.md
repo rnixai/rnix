@@ -1,6 +1,6 @@
 # Story 23.6: Provider 健康检查与状态报告
 
-Status: dev-complete
+Status: done
 
 ## Story
 
