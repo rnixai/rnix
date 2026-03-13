@@ -2113,3 +2113,190 @@ func TestListModels_Sorted(t *testing.T) {
 		}
 	}
 }
+
+// ===========================================================================
+// Model fallback resolution — bare model names without "provider:" prefix
+// ===========================================================================
+
+func TestChatCompletions_BareModelName_ResolvedByDefaultModel(t *testing.T) {
+	// Given provider "deepseek" registered with default_model "deepseek-chat"
+	// When request uses model="deepseek-chat" (bare model name, no colon)
+	// Then it should resolve to the deepseek provider
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("deepseek", &configurableDriver{
+		info: llm.DriverInfo{
+			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai-compat",
+		},
+		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+			if req.Model != "deepseek-chat" {
+				return nil, fmt.Errorf("expected model deepseek-chat, got %s", req.Model)
+			}
+			return &llm.LLMResponse{Content: "hello"}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"deepseek-chat","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp ChatCompletionResponse
+	if err := json.NewDecoder(w.Result().Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Choices[0].Message.Content != "hello" {
+		t.Errorf("content = %q, want %q", resp.Choices[0].Message.Content, "hello")
+	}
+}
+
+func TestChatCompletions_BareModelName_FallbackToDefaultProvider(t *testing.T) {
+	// Given defaultProvider="deepseek" and request model="some-custom-model"
+	// that doesn't match any provider's default_model
+	// When request is sent
+	// Then it should use the defaultProvider and pass model name through
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("deepseek", &configurableDriver{
+		info: llm.DriverInfo{
+			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai-compat",
+		},
+		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+			if req.Model != "deepseek-r1" {
+				return nil, fmt.Errorf("expected model deepseek-r1, got %s", req.Model)
+			}
+			return &llm.LLMResponse{Content: "ok"}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+	srv.SetDefaultProvider("deepseek")
+
+	body := `{"model":"deepseek-r1","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestChatCompletions_BareModelName_DefaultModelTakesPrecedenceOverDefaultProvider(t *testing.T) {
+	// Given defaultProvider="claude" but model "llama3" matches ollama's default_model
+	// When request uses model="llama3"
+	// Then it should resolve to ollama (default_model match), not claude (defaultProvider)
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("claude", &stubDriver{info: llm.DriverInfo{
+		Name: "claude", Provider: "claude", DefaultModel: "claude-3.5-sonnet", DriverType: "claude-cli",
+	}})
+	_ = reg.Register("ollama", &configurableDriver{
+		info: llm.DriverInfo{
+			Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat",
+		},
+		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+			return &llm.LLMResponse{Content: "from-ollama"}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+	srv.SetDefaultProvider("claude")
+
+	body := `{"model":"llama3","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+	var resp ChatCompletionResponse
+	if err := json.NewDecoder(w.Result().Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Choices[0].Message.Content != "from-ollama" {
+		t.Errorf("content = %q, want %q", resp.Choices[0].Message.Content, "from-ollama")
+	}
+}
+
+func TestChatCompletions_ProviderColonModel_StillWorks(t *testing.T) {
+	// Given the provider:model format "deepseek:deepseek-chat"
+	// When request uses this format
+	// Then it should continue to work as before (no regression)
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("deepseek", &configurableDriver{
+		info: llm.DriverInfo{
+			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai-compat",
+		},
+		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+			if req.Model != "deepseek-chat" {
+				return nil, fmt.Errorf("expected model deepseek-chat, got %s", req.Model)
+			}
+			return &llm.LLMResponse{Content: "ok"}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"deepseek:deepseek-chat","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestChatCompletions_BareProviderName_StillWorks(t *testing.T) {
+	// Given request uses model="deepseek" (exact provider name, no colon)
+	// When request is sent
+	// Then it should match directly as provider name (existing behavior)
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("deepseek", &configurableDriver{
+		info: llm.DriverInfo{
+			Name: "deepseek", Provider: "deepseek", DefaultModel: "deepseek-chat", DriverType: "openai-compat",
+		},
+		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+			if req.Model != "" {
+				return nil, fmt.Errorf("expected empty model (use default), got %s", req.Model)
+			}
+			return &llm.LLMResponse{Content: "ok"}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"deepseek","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestChatCompletions_UnknownModel_NoDefaultProvider_Returns404(t *testing.T) {
+	// Given no defaultProvider is set and model doesn't match any provider
+	// When request uses model="unknown-model"
+	// Then it should return 404
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("claude", &stubDriver{info: llm.DriverInfo{
+		Name: "claude", Provider: "claude", DefaultModel: "claude-3.5-sonnet", DriverType: "claude-cli",
+	}})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"unknown-model","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
