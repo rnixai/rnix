@@ -61,7 +61,7 @@ func (a *AgentInfo) AllowedTools() []string {
 	return tools
 }
 
-// SystemPrompt assembles the full system prompt: agent instructions + skill bodies.
+// SystemPrompt assembles the full system prompt: agent instructions + skill bodies + synergy instructions.
 func (a *AgentInfo) SystemPrompt() string {
 	var prompt strings.Builder
 	prompt.WriteString(a.Instructions)
@@ -69,6 +69,12 @@ func (a *AgentInfo) SystemPrompt() string {
 		if skill.Body != "" {
 			prompt.WriteString("\n\n" + skill.Body)
 		}
+	}
+	// Synergy detection: append emergent instructions
+	synergyInstructions := skills.DetectSynergies(a.Skills)
+	if len(synergyInstructions) > 0 {
+		prompt.WriteString("\n\n[Skill Synergy]\n\n")
+		prompt.WriteString(strings.Join(synergyInstructions, "\n"))
 	}
 	return prompt.String()
 }
