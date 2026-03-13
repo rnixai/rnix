@@ -45,6 +45,7 @@ const (
 	MethodBudgetStatus  Method = "budget_status"
 	MethodSLAStatus     Method = "sla_status"
 	MethodReputationStatus Method = "reputation_status"
+	MethodSynergyList      Method = "synergy_list"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -694,6 +695,16 @@ type ReputationStatusRequest struct {
 // ReputationStatusResponse is the response for MethodReputationStatus.
 type ReputationStatusResponse struct {
 	Summaries []kernel.ReputationSummary `json:"summaries"`
+}
+
+// --- Synergy List (Story 21.5) ---
+
+// SynergyListRequest is the payload for MethodSynergyList.
+type SynergyListRequest struct{}
+
+// SynergyListResponse is the response for MethodSynergyList.
+type SynergyListResponse struct {
+	Combos []kernel.ComboSummary `json:"combos"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

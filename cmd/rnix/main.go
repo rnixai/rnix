@@ -1133,6 +1133,11 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	recordMgr := debug.NewRecordManager(recordBaseDir)
 	k.SetRecordManager(recordMgr)
 
+	// Initialize reputation and synergy matrix (Story 21.3, 21.5)
+	reputationDir := cwd + "/.rnix/reputation"
+	reputationStore := kernel.NewReputationStore(reputationDir)
+	synergyMatrix := kernel.NewSynergyMatrix(reputationDir)
+
 	// Initialize span persistence (Story 15.1)
 	traceBaseDir := cwd + "/.rnix/traces"
 	k.SetSpanWriter(debug.NewSpanWriter(traceBaseDir))
@@ -1140,6 +1145,8 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv.SetKernel(k)
 	srv.SetContextManager(ctxMgr)
 	srv.SetSkillLoader(skillLoader)
+	srv.SetReputationStore(reputationStore)
+	srv.SetSynergyMatrix(synergyMatrix)
 	srv.SetProviderStatusFunc(func() []ipc.ProviderStatusWire {
 		statuses := driverReg.HealthStatuses()
 		wires := make([]ipc.ProviderStatusWire, len(statuses))

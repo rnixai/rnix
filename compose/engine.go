@@ -22,6 +22,12 @@ type Engine struct {
 	agentLoader     AgentLoaderFunc
 	budgetPool      *kernel.BudgetPool
 	reputationStore *kernel.ReputationStore
+	synergyMatrix   *kernel.SynergyMatrix
+}
+
+// SetSynergyMatrix sets the synergy matrix for recording skill combination results (Story 21.5).
+func (e *Engine) SetSynergyMatrix(m *kernel.SynergyMatrix) {
+	e.synergyMatrix = m
 }
 
 // NewEngine creates a new compose engine, building the DAG and detecting cycles.
@@ -313,6 +319,21 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 			result.SLAResult = slaResult
 			if e.reputationStore != nil {
 				_ = e.reputationStore.RecordResult(name, slaResult)
+			}
+			// Record synergy matrix data (Story 21.5)
+			if e.synergyMatrix != nil && agentInfo != nil && len(agentInfo.Skills) > 0 {
+				skillNames := make([]string, len(agentInfo.Skills))
+				for i, s := range agentInfo.Skills {
+					skillNames[i] = s.Manifest.Name
+				}
+				_ = e.synergyMatrix.RecordCombo(kernel.SynergyRecord{
+					ComboKey:   kernel.NewComboKey(skillNames),
+					Skills:     skillNames,
+					Passed:     slaResult.Passed,
+					TokensUsed: result.TokensUsed,
+					DurationMs: durationMs,
+					Timestamp:  time.Now(),
+				})
 			}
 		}
 		return result
