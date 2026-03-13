@@ -688,3 +688,107 @@ func TestProviderConfig_Validate_CLIDriverIgnoresBaseURL(t *testing.T) {
 		t.Errorf("Validate() unexpected error for CLI drivers without base_url: %v", err)
 	}
 }
+
+// --- DefaultProvider tests ---
+
+func TestDefaultProvider_YAMLParsing(t *testing.T) {
+	t.Parallel()
+	yaml := `version: "1"
+default_provider: groq
+providers:
+  - name: claude
+    driver: claude-cli
+  - name: groq
+    driver: openai-compat
+    base_url: https://api.groq.com/openai/v1
+`
+	dir := t.TempDir()
+	path := writeYAML(t, dir, ProvidersConfigFile, yaml)
+	cfg, err := LoadProvidersConfig(path)
+	if err != nil {
+		t.Fatalf("LoadProvidersConfig: %v", err)
+	}
+	if cfg.DefaultProvider != "groq" {
+		t.Errorf("DefaultProvider = %q, want %q", cfg.DefaultProvider, "groq")
+	}
+}
+
+func TestDefaultProvider_Validate_InvalidReference(t *testing.T) {
+	t.Parallel()
+	cfg := ProvidersConfig{
+		Version:         "1",
+		DefaultProvider: "nonexistent",
+		Providers: []ProviderConfig{
+			{Name: "claude", Driver: DriverClaudeCLI},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid default_provider reference")
+	}
+	if !strings.Contains(err.Error(), "not found in providers list") {
+		t.Errorf("error should mention 'not found in providers list', got: %v", err)
+	}
+}
+
+func TestDefaultProvider_Validate_EmptyIsValid(t *testing.T) {
+	t.Parallel()
+	cfg := ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "claude", Driver: DriverClaudeCLI},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() unexpected error when default_provider is empty: %v", err)
+	}
+}
+
+func TestDefaultProvider_Validate_ValidReference(t *testing.T) {
+	t.Parallel()
+	cfg := ProvidersConfig{
+		Version:         "1",
+		DefaultProvider: "claude",
+		Providers: []ProviderConfig{
+			{Name: "claude", Driver: DriverClaudeCLI},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() unexpected error for valid default_provider: %v", err)
+	}
+}
+
+func TestResolveDefaultProvider_ExplicitValue(t *testing.T) {
+	t.Parallel()
+	cfg := ProvidersConfig{
+		DefaultProvider: "groq",
+		Providers: []ProviderConfig{
+			{Name: "claude", Driver: DriverClaudeCLI},
+			{Name: "groq", Driver: DriverOpenAICompat, BaseURL: "http://localhost"},
+		},
+	}
+	if got := cfg.ResolveDefaultProvider(); got != "groq" {
+		t.Errorf("ResolveDefaultProvider() = %q, want %q", got, "groq")
+	}
+}
+
+func TestResolveDefaultProvider_FallsBackToFirstProvider(t *testing.T) {
+	t.Parallel()
+	cfg := ProvidersConfig{
+		Providers: []ProviderConfig{
+			{Name: "ollama", Driver: DriverOpenAICompat, BaseURL: "http://localhost"},
+			{Name: "claude", Driver: DriverClaudeCLI},
+		},
+	}
+	if got := cfg.ResolveDefaultProvider(); got != "ollama" {
+		t.Errorf("ResolveDefaultProvider() = %q, want %q (first provider)", got, "ollama")
+	}
+}
+
+func TestResolveDefaultProvider_BuiltinDefault(t *testing.T) {
+	t.Parallel()
+	cfg := DefaultProvidersConfig()
+	if got := cfg.ResolveDefaultProvider(); got != "claude" {
+		t.Errorf("DefaultProvidersConfig().ResolveDefaultProvider() = %q, want %q", got, "claude")
+	}
+}

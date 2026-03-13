@@ -27,8 +27,9 @@ var validDrivers = map[string]bool{
 var nameRegexp = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 type ProvidersConfig struct {
-	Version   string           `yaml:"version"`
-	Providers []ProviderConfig `yaml:"providers"`
+	Version         string           `yaml:"version"`
+	DefaultProvider string           `yaml:"default_provider,omitempty"`
+	Providers       []ProviderConfig `yaml:"providers"`
 }
 
 type ProviderConfig struct {
@@ -118,7 +119,24 @@ func (c *ProvidersConfig) Validate() error {
 		}
 	}
 
+	// Validate default_provider references an existing provider name.
+	if c.DefaultProvider != "" && !seen[c.DefaultProvider] {
+		errs = append(errs, fmt.Errorf("default_provider %q not found in providers list", c.DefaultProvider))
+	}
+
 	return errors.Join(errs...)
+}
+
+// ResolveDefaultProvider returns the effective default provider name.
+// Priority: explicit DefaultProvider > first provider in list > "claude" (ultimate fallback).
+func (c *ProvidersConfig) ResolveDefaultProvider() string {
+	if c.DefaultProvider != "" {
+		return c.DefaultProvider
+	}
+	if len(c.Providers) > 0 {
+		return c.Providers[0].Name
+	}
+	return "claude"
 }
 
 // DefaultProvidersConfig returns a built-in config with claude-cli and cursor-cli providers.

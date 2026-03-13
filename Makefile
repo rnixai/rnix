@@ -1,7 +1,7 @@
 BINARY := rnix
 PKG := github.com/rnixai/rnix
 
-.PHONY: build install test lint vet modernize modernize-check clean all
+.PHONY: build install test lint vet modernize modernize-check clean cache-clean all
 
 build:
 	go build -o $(BINARY) ./cmd/rnix/
@@ -31,5 +31,9 @@ modernize-check:
 
 clean:
 	rm -f $(BINARY)
+
+cache-clean:
+	golangci-lint cache clean
+	go clean -cache -testcache
 
 all: lint vet modernize-check test build

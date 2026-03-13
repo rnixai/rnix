@@ -95,6 +95,7 @@ NDJSON over Unix socket. Request: `{"method": "spawn|kill|list_procs|...", "payl
 
 ### Configuration Files
 
+- `rnix-providers.yaml` — LLM provider definitions (`default_provider`, driver type, model, base URL, API key)
 - `rnix-init.yaml` — Bootstrap services and supervisor trees
 - `rnix-compose.yaml` — Multi-agent workflow DAGs
 - `lib/agents/*/agent.yaml` — Agent manifests
