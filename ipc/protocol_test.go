@@ -1094,3 +1094,123 @@ func TestGdbCommandResponse_DataOmitEmpty(t *testing.T) {
 		t.Error("data should be omitted when nil")
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 21.1: Token 预算池与分配调度 (IPC)
+//
+// Tests reference MethodBudgetStatus, BudgetStatusRequest,
+// BudgetStatusResponse, AgentQuotaWire which do NOT exist yet.
+// They will fail to COMPILE until implementation adds these types.
+//
+// RED → GREEN: implement the IPC types, tests compile and pass.
+// ============================================================
+
+// --- 21.1-IPC-001: [P0] BudgetStatusRequest marshal roundtrip ---
+
+func TestBudgetStatusRequest_MarshalRoundTrip(t *testing.T) {
+	req := BudgetStatusRequest{GroupID: types.PGID(100)}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded BudgetStatusRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.GroupID != types.PGID(100) {
+		t.Errorf("group_id = %d, want 100", decoded.GroupID)
+	}
+}
+
+// --- 21.1-IPC-002: [P0] BudgetStatusResponse marshal roundtrip ---
+
+func TestBudgetStatusResponse_MarshalRoundTrip(t *testing.T) {
+	resp := BudgetStatusResponse{
+		TotalBudget: 50000,
+		Allocated:   45000,
+		Consumed:    30000,
+		Remaining:   20000,
+		Quotas: []AgentQuotaWire{
+			{PID: 1, Name: "reviewer", Priority: "high", Quota: 30000, Consumed: 20000},
+			{PID: 2, Name: "summarizer", Priority: "normal", Quota: 15000, Consumed: 10000},
+		},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded BudgetStatusResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.TotalBudget != 50000 {
+		t.Errorf("total_budget = %d, want 50000", decoded.TotalBudget)
+	}
+	if decoded.Allocated != 45000 {
+		t.Errorf("allocated = %d, want 45000", decoded.Allocated)
+	}
+	if decoded.Consumed != 30000 {
+		t.Errorf("consumed = %d, want 30000", decoded.Consumed)
+	}
+	if decoded.Remaining != 20000 {
+		t.Errorf("remaining = %d, want 20000", decoded.Remaining)
+	}
+	if len(decoded.Quotas) != 2 {
+		t.Fatalf("quotas count = %d, want 2", len(decoded.Quotas))
+	}
+	if decoded.Quotas[0].Name != "reviewer" {
+		t.Errorf("quota[0] name = %q, want 'reviewer'", decoded.Quotas[0].Name)
+	}
+	if decoded.Quotas[0].Priority != "high" {
+		t.Errorf("quota[0] priority = %q, want 'high'", decoded.Quotas[0].Priority)
+	}
+}
+
+// --- 21.1-IPC-003: [P0] MethodBudgetStatus constant exists ---
+
+func TestMethodBudgetStatus_Exists(t *testing.T) {
+	if MethodBudgetStatus == "" {
+		t.Error("MethodBudgetStatus should not be empty")
+	}
+	// Must be distinct from other methods
+	otherMethods := []Method{
+		MethodPing, MethodSpawn, MethodListProcs, MethodKill,
+		MethodAttachDebug, MethodShutdown, MethodProviderStatus,
+	}
+	for _, m := range otherMethods {
+		if MethodBudgetStatus == m {
+			t.Errorf("MethodBudgetStatus %q conflicts with existing method %q", MethodBudgetStatus, m)
+		}
+	}
+}
+
+// --- 21.1-IPC-004: [P1] BudgetStatusRequest IPC envelope ---
+
+func TestBudgetStatusRequest_IPCEnvelope(t *testing.T) {
+	payload, _ := json.Marshal(BudgetStatusRequest{GroupID: types.PGID(42)})
+	req := Request{Method: MethodBudgetStatus, Payload: payload}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded Request
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Method != MethodBudgetStatus {
+		t.Errorf("method = %q, want %q", decoded.Method, MethodBudgetStatus)
+	}
+
+	var bs BudgetStatusRequest
+	if err := json.Unmarshal(decoded.Payload, &bs); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if bs.GroupID != types.PGID(42) {
+		t.Errorf("group_id = %d, want 42", bs.GroupID)
+	}
+}

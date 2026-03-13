@@ -705,6 +705,19 @@ func (c *Client) ProviderStatus() ([]ProviderStatusWire, error) {
 	return pr.Providers, nil
 }
 
+// BudgetStatus returns the budget pool status for the given process group.
+func (c *Client) BudgetStatus(groupID types.PGID) (*BudgetStatusResponse, error) {
+	resp, err := c.call(MethodBudgetStatus, BudgetStatusRequest{GroupID: groupID})
+	if err != nil {
+		return nil, err
+	}
+	var result BudgetStatusResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal budget_status: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

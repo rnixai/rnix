@@ -168,6 +168,10 @@ func (s *ipcKernelSpawner) GetSpanID(pid types.PID) (types.SpanID, bool) {
 	return s.spanIDs.Load(pid)
 }
 
+func (s *ipcKernelSpawner) GetTokensUsed(pid types.PID) (int, bool) {
+	return s.tokens.Load(pid)
+}
+
 // runComposeUp implements the `rnix compose up` command.
 func runComposeUp(cmd *cobra.Command, args []string) error {
 	mode := resolveOutputMode()

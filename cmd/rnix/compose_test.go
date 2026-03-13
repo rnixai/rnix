@@ -535,6 +535,10 @@ func (m *mockComposeSpawner) GetSpanID(pid types.PID) (types.SpanID, bool) {
 	return "", false
 }
 
+func (m *mockComposeSpawner) GetTokensUsed(pid types.PID) (int, bool) {
+	return 0, false
+}
+
 func (m *mockComposeSpawner) getSpawnedIntents() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1018,6 +1022,10 @@ func (m *e2eMockSpawner) GetProcessResult(pid types.PID) (string, bool) {
 
 func (m *e2eMockSpawner) GetSpanID(pid types.PID) (types.SpanID, bool) {
 	return "", false
+}
+
+func (m *e2eMockSpawner) GetTokensUsed(pid types.PID) (int, bool) {
+	return 0, false
 }
 
 func (m *e2eMockSpawner) getSpawnedIntents() []string {

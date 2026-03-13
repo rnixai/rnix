@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/rnixai/rnix/kernel"
 )
 
 // --- Story 7.1: YAML Parsing Tests ---
@@ -434,5 +436,87 @@ agents:
 	// Agent with explicit model retains it
 	if spec.Agents["precise"].Model != "opus" {
 		t.Fatalf("expected model 'opus' for 'precise', got %q", spec.Agents["precise"].Model)
+	}
+}
+
+// ============================================================
+// ATDD RED PHASE — Story 21.1: Token 预算池与分配调度
+// ============================================================
+
+// --- 21.1-UNIT-012: [P0] Parse token_budget field ---
+
+func TestParseComposeSpec_WithTokenBudget(t *testing.T) {
+	data := []byte(`
+version: "1.0"
+intent: "budget workflow"
+token_budget: 50000
+agents:
+  reviewer:
+    intent: "review code"
+    priority: high
+  summarizer:
+    intent: "summarize results"
+    priority: normal
+    depends_on:
+      reviewer: completed
+  formatter:
+    intent: "format report"
+    priority: low
+    depends_on:
+      summarizer: completed
+`)
+
+	spec, err := ParseBytes(data)
+	if err != nil {
+		t.Fatalf("ParseBytes failed: %v", err)
+	}
+	if spec.TokenBudget != 50000 {
+		t.Fatalf("expected TokenBudget 50000, got %d", spec.TokenBudget)
+	}
+
+	// Verify priority fields are parsed
+	reviewer := spec.Agents["reviewer"]
+	if reviewer.Priority != "high" {
+		t.Fatalf("expected reviewer priority 'high', got %q", reviewer.Priority)
+	}
+	summarizer := spec.Agents["summarizer"]
+	if summarizer.Priority != "normal" {
+		t.Fatalf("expected summarizer priority 'normal', got %q", summarizer.Priority)
+	}
+	formatter := spec.Agents["formatter"]
+	if formatter.Priority != "low" {
+		t.Fatalf("expected formatter priority 'low', got %q", formatter.Priority)
+	}
+}
+
+// --- 21.1-UNIT-013: [P0] ParsePriority converts string to Priority ---
+
+func TestParsePriority_ValidValues(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected kernel.Priority
+	}{
+		{"high", kernel.PriorityHigh},
+		{"normal", kernel.PriorityNormal},
+		{"low", kernel.PriorityLow},
+	}
+	for _, tc := range tests {
+		got := ParsePriority(tc.input)
+		if got != tc.expected {
+			t.Errorf("ParsePriority(%q) = %v, want %v", tc.input, got, tc.expected)
+		}
+	}
+}
+
+// --- 21.1-UNIT-014: [P1] ParsePriority defaults to Normal ---
+
+func TestParsePriority_Default(t *testing.T) {
+	got := ParsePriority("")
+	if got != kernel.PriorityNormal {
+		t.Fatalf("ParsePriority(\"\") = %v, want PriorityNormal", got)
+	}
+	got = ParsePriority("unknown")
+	if got != kernel.PriorityNormal {
+		t.Fatalf("ParsePriority(\"unknown\") = %v, want PriorityNormal", got)
 	}
 }

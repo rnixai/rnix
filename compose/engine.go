@@ -11,6 +11,7 @@ import (
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
+	"github.com/rnixai/rnix/kernel"
 )
 
 // Engine orchestrates multi-agent workflows based on a ComposeSpec.
@@ -19,6 +20,7 @@ type Engine struct {
 	dag         *DAG
 	kernel      KernelSpawner
 	agentLoader AgentLoaderFunc
+	budgetPool  *kernel.BudgetPool
 }
 
 // NewEngine creates a new compose engine, building the DAG and detecting cycles.
@@ -27,12 +29,16 @@ func NewEngine(spec *ComposeSpec, ks KernelSpawner, al AgentLoaderFunc) (*Engine
 	if err != nil {
 		return nil, fmt.Errorf("compose engine: %w", err)
 	}
-	return &Engine{
+	e := &Engine{
 		spec:        spec,
 		dag:         dag,
 		kernel:      ks,
 		agentLoader: al,
-	}, nil
+	}
+	if spec.TokenBudget > 0 {
+		e.budgetPool = kernel.NewBudgetPool(spec.TokenBudget)
+	}
+	return e, nil
 }
 
 // Execute runs all agents in topological order, parallelizing within layers.
@@ -49,6 +55,24 @@ func (e *Engine) Execute(ctx context.Context) ([]ScheduleResult, error) {
 		return nil, err
 	}
 
+	// Calculate BudgetPool quotas for all agents (Story 21.1)
+	agentQuotas := make(map[string]int)
+	if e.budgetPool != nil {
+		// Compute weights and proportional quotas
+		totalWeight := 0
+		weights := make(map[string]int)
+		for name, spec := range e.spec.Agents {
+			w := int(kernel.ParsePriority(spec.Priority))
+			weights[name] = w
+			totalWeight += w
+		}
+		if totalWeight > 0 {
+			for name, w := range weights {
+				agentQuotas[name] = e.spec.TokenBudget * w / totalWeight
+			}
+		}
+	}
+
 	var allResults []ScheduleResult
 	resultMap := make(map[string]*ScheduleResult)
 	pids := xsync.NewSyncMap[string, types.PID]()
@@ -57,6 +81,22 @@ func (e *Engine) Execute(ctx context.Context) ([]ScheduleResult, error) {
 		// Check context cancellation between layers
 		if ctx.Err() != nil {
 			return allResults, ctx.Err()
+		}
+
+		// Check budget pool exhaustion between layers (Story 21.1)
+		if e.budgetPool != nil && e.budgetPool.IsExhausted() {
+			for _, remainingLayer := range layers {
+				for _, name := range remainingLayer {
+					if _, exists := resultMap[name]; !exists {
+						allResults = append(allResults, ScheduleResult{
+							Name: name,
+							Err:  fmt.Errorf("budget_exhausted: token budget pool depleted"),
+						})
+						resultMap[name] = &allResults[len(allResults)-1]
+					}
+				}
+			}
+			return allResults, fmt.Errorf("budget_exhausted: token budget pool depleted")
 		}
 
 		var wg sync.WaitGroup
@@ -84,16 +124,20 @@ func (e *Engine) Execute(ctx context.Context) ([]ScheduleResult, error) {
 			wg.Add(1)
 			go func(idx int, agentName string) {
 				defer wg.Done()
-				result := e.executeNode(ctx, agentName, traceID, pids)
+				result := e.executeNode(ctx, agentName, traceID, pids, agentQuotas)
 				layerResults[idx] = result
 			}(i, name)
 		}
 
 		wg.Wait()
 
-		// Collect results
+		// Collect results and track budget consumption
 		for _, r := range layerResults {
 			if r != nil {
+				// Record token usage to BudgetPool (Story 21.1)
+				if r.PID != 0 && r.TokensUsed > 0 && e.budgetPool != nil {
+					_ = e.budgetPool.RecordUsage(r.PID, r.TokensUsed)
+				}
 				allResults = append(allResults, *r)
 				resultMap[r.Name] = r
 			}
@@ -109,7 +153,7 @@ func (e *Engine) Execute(ctx context.Context) ([]ScheduleResult, error) {
 }
 
 // executeNode spawns and waits for a single agent node.
-func (e *Engine) executeNode(ctx context.Context, name string, traceID types.TraceID, pids *xsync.SyncMap[string, types.PID]) *ScheduleResult {
+func (e *Engine) executeNode(ctx context.Context, name string, traceID types.TraceID, pids *xsync.SyncMap[string, types.PID], agentQuotas map[string]int) *ScheduleResult {
 	start := time.Now()
 
 	node := e.dag.Nodes[name]
@@ -152,6 +196,18 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 		TimeoutMs:     agentSpec.TimeoutMs,
 		TraceID:       traceID,
 	}
+
+	// Apply BudgetPool quota to ContextBudget (Story 21.1)
+	if quota, ok := agentQuotas[name]; ok && quota > 0 {
+		if agentSpec.ContextBudget > 0 {
+			// Take min(quota, context_budget) -- agent's own limit wins if smaller
+			if quota < agentSpec.ContextBudget {
+				opts.ContextBudget = quota
+			}
+		} else {
+			opts.ContextBudget = quota
+		}
+	}
 	// ParentSpanID from first upstream dependency (Story 15.1)
 	if node != nil && len(node.DependsOn) > 0 {
 		if depPID, ok := pids.Load(node.DependsOn[0]); ok {
@@ -177,6 +233,12 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 
 	// Track PID for output passthrough (thread-safe via xsync.SyncMap)
 	pids.Store(name, pid)
+
+	// Register agent with BudgetPool now that PID is known (Story 21.1)
+	if e.budgetPool != nil {
+		priority := kernel.ParsePriority(agentSpec.Priority)
+		e.budgetPool.AllocateQuota(pid, name, priority)
+	}
 
 	// Wait for completion, respecting context cancellation
 	type waitResult struct {
@@ -212,6 +274,10 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 		// Retrieve process output
 		if output, ok := e.kernel.GetProcessResult(pid); ok {
 			result.Output = output
+		}
+		// Retrieve token usage (Story 21.1)
+		if tokensUsed, ok := e.kernel.GetTokensUsed(pid); ok {
+			result.TokensUsed = tokensUsed
 		}
 		return result
 	}
