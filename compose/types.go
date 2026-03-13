@@ -30,6 +30,7 @@ type AgentSpec struct {
 	TimeoutMs     int64             `yaml:"timeout_ms,omitempty"`
 	DependsOn     map[string]string `yaml:"depends_on,omitempty"`
 	SLA           *kernel.SLASpec   `yaml:"sla,omitempty"`
+	Candidates    []string          `yaml:"candidates,omitempty"` // candidate agents for auto-selection (Story 21.3)
 }
 
 // DAG represents the directed acyclic graph of agent dependencies.

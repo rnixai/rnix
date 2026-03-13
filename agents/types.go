@@ -26,6 +26,7 @@ type AgentManifest struct {
 	MCP           []string    `yaml:"mcp,omitempty"`       // MCP server references
 	Reasoning     string      `yaml:"reasoning,omitempty"` // "" = linear (default), "ooda" = OODA loop
 	SLA           *AgentSLA   `yaml:"sla,omitempty"`       // SLA constraints (Story 21.2)
+	Alternatives  []string    `yaml:"alternatives,omitempty"` // alternative agent names for auto-selection (Story 21.3)
 }
 
 // AgentSLA defines SLA constraints in agent.yaml.

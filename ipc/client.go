@@ -731,6 +731,19 @@ func (c *Client) SLAStatus(groupID types.PGID) (*SLAStatusResponse, error) {
 	return &result, nil
 }
 
+// ReputationStatus returns reputation summaries for the specified agent or all agents.
+func (c *Client) ReputationStatus(agentName string) (*ReputationStatusResponse, error) {
+	resp, err := c.call(MethodReputationStatus, ReputationStatusRequest{AgentName: agentName})
+	if err != nil {
+		return nil, err
+	}
+	var result ReputationStatusResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal reputation_status: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

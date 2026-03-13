@@ -85,6 +85,9 @@ type Server struct {
 
 	// provider health status (set via SetProviderStatusFunc)
 	providerStatuses func() []ProviderStatusWire
+
+	// reputation store (set via SetReputationStore, Story 21.3)
+	reputationStore *kernel.ReputationStore
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -316,6 +319,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleBudgetStatus(conn, req.Payload)
 		case MethodSLAStatus:
 			s.handleSLAStatus(conn, req.Payload)
+		case MethodReputationStatus:
+			s.handleReputationStatus(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -575,6 +580,43 @@ func (s *Server) handleSLAStatus(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	resp := SLAStatusResponse{Results: wires}
+	respPayload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+func (s *Server) handleReputationStatus(conn net.Conn, rawPayload json.RawMessage) {
+	var req ReputationStatusRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid reputation_status request"}})
+		return
+	}
+
+	if s.reputationStore == nil {
+		resp := ReputationStatusResponse{Summaries: []kernel.ReputationSummary{}}
+		respPayload, _ := json.Marshal(resp)
+		writeResponse(conn, Response{OK: true, Payload: respPayload})
+		return
+	}
+
+	var summaries []kernel.ReputationSummary
+
+	if req.AgentName != "" {
+		summary, err := s.reputationStore.GetSummary(req.AgentName)
+		if err != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
+			return
+		}
+		summaries = []kernel.ReputationSummary{*summary}
+	} else {
+		all, err := s.reputationStore.GetAllSummaries()
+		if err != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
+			return
+		}
+		summaries = all
+	}
+
+	resp := ReputationStatusResponse{Summaries: summaries}
 	respPayload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
@@ -1348,6 +1390,11 @@ func (s *Server) SetIntentManager(mgr intentManager) {
 // SetProviderStatusFunc injects the provider status query function.
 func (s *Server) SetProviderStatusFunc(fn func() []ProviderStatusWire) {
 	s.providerStatuses = fn
+}
+
+// SetReputationStore sets the reputation store for reputation queries (Story 21.3).
+func (s *Server) SetReputationStore(rs *kernel.ReputationStore) {
+	s.reputationStore = rs
 }
 
 // handleRecordStart starts execution recording for a process.
