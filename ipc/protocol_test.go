@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -1212,5 +1213,139 @@ func TestBudgetStatusRequest_IPCEnvelope(t *testing.T) {
 	}
 	if bs.GroupID != types.PGID(42) {
 		t.Errorf("group_id = %d, want 42", bs.GroupID)
+	}
+}
+
+// ==========================================================================
+// Story 21.2: SLA Status IPC protocol tests
+// ==========================================================================
+
+// --- 21.2-IPC-001: SLAStatusRequest marshal roundtrip ---
+
+func TestSLAStatusRequest_MarshalRoundTrip(t *testing.T) {
+	req := SLAStatusRequest{GroupID: types.PGID(200)}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded SLAStatusRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.GroupID != types.PGID(200) {
+		t.Errorf("group_id = %d, want 200", decoded.GroupID)
+	}
+}
+
+// --- 21.2-IPC-002: SLAStatusResponse marshal roundtrip ---
+
+func TestSLAStatusResponse_MarshalRoundTrip(t *testing.T) {
+	resp := SLAStatusResponse{
+		Results: []SLAResultWire{
+			{
+				AgentName:  "reviewer",
+				Passed:     true,
+				Checks:     []kernel.SLACheckResult{{Name: "max_tokens", Passed: true, Actual: "5000", Limit: "15000"}},
+				TokensUsed: 5000,
+				DurationMs: 30000,
+			},
+			{
+				AgentName:  "summarizer",
+				Passed:     false,
+				Checks:     []kernel.SLACheckResult{{Name: "max_tokens", Passed: false, Actual: "12000", Limit: "8000"}},
+				TokensUsed: 12000,
+				DurationMs: 20000,
+			},
+		},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded SLAStatusResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(decoded.Results) != 2 {
+		t.Fatalf("results count = %d, want 2", len(decoded.Results))
+	}
+	if decoded.Results[0].AgentName != "reviewer" {
+		t.Errorf("result[0] agent = %q, want 'reviewer'", decoded.Results[0].AgentName)
+	}
+	if !decoded.Results[0].Passed {
+		t.Error("result[0] should have passed")
+	}
+	if decoded.Results[1].Passed {
+		t.Error("result[1] should have failed")
+	}
+	if decoded.Results[1].TokensUsed != 12000 {
+		t.Errorf("result[1] tokens_used = %d, want 12000", decoded.Results[1].TokensUsed)
+	}
+}
+
+// --- 21.2-IPC-003: SLAStatusResponse empty results ---
+
+func TestSLAStatusResponse_EmptyResults(t *testing.T) {
+	resp := SLAStatusResponse{Results: []SLAResultWire{}}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded SLAStatusResponse
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(decoded.Results) != 0 {
+		t.Errorf("results count = %d, want 0", len(decoded.Results))
+	}
+}
+
+// --- 21.2-IPC-004: MethodSLAStatus constant exists and is unique ---
+
+func TestMethodSLAStatus_Exists(t *testing.T) {
+	if MethodSLAStatus == "" {
+		t.Error("MethodSLAStatus should not be empty")
+	}
+	otherMethods := []Method{
+		MethodPing, MethodSpawn, MethodListProcs, MethodKill,
+		MethodAttachDebug, MethodShutdown, MethodProviderStatus,
+		MethodBudgetStatus,
+	}
+	for _, m := range otherMethods {
+		if MethodSLAStatus == m {
+			t.Errorf("MethodSLAStatus %q conflicts with method %q", MethodSLAStatus, m)
+		}
+	}
+}
+
+// --- 21.2-IPC-005: SLAStatusRequest IPC envelope roundtrip ---
+
+func TestSLAStatusRequest_IPCEnvelope(t *testing.T) {
+	payload, _ := json.Marshal(SLAStatusRequest{GroupID: types.PGID(77)})
+	req := Request{Method: MethodSLAStatus, Payload: payload}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded Request
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Method != MethodSLAStatus {
+		t.Errorf("method = %q, want %q", decoded.Method, MethodSLAStatus)
+	}
+
+	var ss SLAStatusRequest
+	if err := json.Unmarshal(decoded.Payload, &ss); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if ss.GroupID != types.PGID(77) {
+		t.Errorf("group_id = %d, want 77", ss.GroupID)
 	}
 }

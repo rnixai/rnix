@@ -29,6 +29,7 @@ type AgentSpec struct {
 	ContextBudget int               `yaml:"context_budget,omitempty"`
 	TimeoutMs     int64             `yaml:"timeout_ms,omitempty"`
 	DependsOn     map[string]string `yaml:"depends_on,omitempty"`
+	SLA           *kernel.SLASpec   `yaml:"sla,omitempty"`
 }
 
 // DAG represents the directed acyclic graph of agent dependencies.
@@ -88,6 +89,7 @@ type ScheduleResult struct {
 	Err        error
 	Duration   time.Duration
 	TokensUsed int
+	SLAResult  *kernel.SLAResult
 }
 
 // Priority type aliases for compose-level access to kernel.Priority.

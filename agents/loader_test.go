@@ -409,3 +409,42 @@ func TestAgentLoader_Load_NilMCPConfig_SkipsMCPResolution(t *testing.T) {
 		t.Errorf("MCPConfigs = %v, want empty when mcpConfig is nil", info.MCPConfigs)
 	}
 }
+
+// --- Story 21.2: SLA parsing tests ---
+
+func TestAgentLoader_Load_WithSLA(t *testing.T) {
+	sl := skills.NewSkillLoader("../skills/testdata")
+	al := NewAgentLoader("testdata", sl, nil)
+
+	info, err := al.Load("sla-agent")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if info.Manifest.SLA == nil {
+		t.Fatal("expected SLA to be non-nil")
+	}
+	if info.Manifest.SLA.MaxTokens != 15000 {
+		t.Errorf("SLA.MaxTokens = %d, want 15000", info.Manifest.SLA.MaxTokens)
+	}
+	if info.Manifest.SLA.MaxDurationMs != 60000 {
+		t.Errorf("SLA.MaxDurationMs = %d, want 60000", info.Manifest.SLA.MaxDurationMs)
+	}
+	if info.Manifest.SLA.OutputFormat != "json" {
+		t.Errorf("SLA.OutputFormat = %q, want %q", info.Manifest.SLA.OutputFormat, "json")
+	}
+}
+
+func TestAgentLoader_Load_WithoutSLA(t *testing.T) {
+	sl := skills.NewSkillLoader("../skills/testdata")
+	al := NewAgentLoader("testdata", sl, nil)
+
+	info, err := al.Load("mock-agent")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if info.Manifest.SLA != nil {
+		t.Errorf("expected SLA to be nil for agent without SLA, got %+v", info.Manifest.SLA)
+	}
+}

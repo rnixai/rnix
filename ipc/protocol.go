@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -42,6 +43,7 @@ const (
 	MethodLineage       Method = "lineage"
 	MethodProviderStatus Method = "provider_status"
 	MethodBudgetStatus  Method = "budget_status"
+	MethodSLAStatus     Method = "sla_status"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -657,6 +659,28 @@ type AgentQuotaWire struct {
 	Priority string    `json:"priority"`
 	Quota    int       `json:"quota"`
 	Consumed int       `json:"consumed"`
+}
+
+// --- SLA Status (Story 21.2) ---
+
+// SLAStatusRequest is the payload for MethodSLAStatus.
+type SLAStatusRequest struct {
+	GroupID types.PGID `json:"group_id"`
+}
+
+// SLAStatusResponse is the response for MethodSLAStatus.
+type SLAStatusResponse struct {
+	Results []SLAResultWire `json:"results"`
+}
+
+// SLAResultWire is the wire-format representation of kernel.SLAResult.
+type SLAResultWire struct {
+	AgentName  string                  `json:"agent_name"`
+	PID        types.PID               `json:"pid,omitempty"`
+	Passed     bool                    `json:"passed"`
+	Checks     []kernel.SLACheckResult `json:"checks"`
+	TokensUsed int                     `json:"tokens_used"`
+	DurationMs int64                   `json:"duration_ms"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

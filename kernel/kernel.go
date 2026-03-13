@@ -154,6 +154,10 @@ type KernelImpl struct {
 
 	// Budget pools (Story 21.1)
 	budgetPools *xsync.SyncMap[types.PGID, *BudgetPool]
+
+	// SLA results (Story 21.2)
+	slaResults   *xsync.SyncMap[types.PGID, []*SLAResult]
+	slaResultsMu sync.Mutex // guards Load+Modify+Store on slaResults
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -170,6 +174,7 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 		procGroups:   xsync.NewSyncMap[types.PGID, *ProcGroup](),
 		spanRecorder: debug.NewSpanRecorder(),
 		budgetPools:  xsync.NewSyncMap[types.PGID, *BudgetPool](),
+		slaResults:   xsync.NewSyncMap[types.PGID, []*SLAResult](),
 	}
 	k.startReaper()
 	return k
@@ -1298,6 +1303,27 @@ func (k *KernelImpl) GetBudgetStatus(groupID types.PGID) (*BudgetPoolStatus, err
 	}
 	status := pool.GetStatus()
 	return &status, nil
+}
+
+// RecordSLAResult appends an SLA evaluation result for a compose group (Story 21.2).
+func (k *KernelImpl) RecordSLAResult(groupID types.PGID, result *SLAResult) {
+	k.slaResultsMu.Lock()
+	defer k.slaResultsMu.Unlock()
+	existing, ok := k.slaResults.Load(groupID)
+	if !ok {
+		existing = []*SLAResult{}
+	}
+	existing = append(existing, result)
+	k.slaResults.Store(groupID, existing)
+}
+
+// GetSLAResults returns the SLA evaluation results for a compose group (Story 21.2).
+func (k *KernelImpl) GetSLAResults(groupID types.PGID) ([]*SLAResult, error) {
+	results, ok := k.slaResults.Load(groupID)
+	if !ok {
+		return nil, fmt.Errorf("no SLA results for group %d", groupID)
+	}
+	return results, nil
 }
 
 // GetLineage returns the lineage events for the given PID.

@@ -1,0 +1,12 @@
+name: sla-agent
+description: "An agent with SLA constraints for testing"
+models:
+  provider: claude
+  preferred: sonnet
+  fallback: haiku
+skills:
+  - mock-skill
+sla:
+  max_tokens: 15000
+  max_duration_ms: 60000
+  output_format: "json"

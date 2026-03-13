@@ -25,6 +25,15 @@ type AgentManifest struct {
 	Skills        []string    `yaml:"skills"`
 	MCP           []string    `yaml:"mcp,omitempty"`       // MCP server references
 	Reasoning     string      `yaml:"reasoning,omitempty"` // "" = linear (default), "ooda" = OODA loop
+	SLA           *AgentSLA   `yaml:"sla,omitempty"`       // SLA constraints (Story 21.2)
+}
+
+// AgentSLA defines SLA constraints in agent.yaml.
+// Mirrors kernel.SLASpec but lives in agents package to avoid circular dependency.
+type AgentSLA struct {
+	MaxTokens     int    `yaml:"max_tokens,omitempty" json:"max_tokens,omitempty"`
+	MaxDurationMs int64  `yaml:"max_duration_ms,omitempty" json:"max_duration_ms,omitempty"`
+	OutputFormat  string `yaml:"output_format,omitempty" json:"output_format,omitempty"`
 }
 
 // AgentInfo contains the fully loaded agent definition.
