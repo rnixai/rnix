@@ -229,8 +229,8 @@ development_status:
   epic-20-retrospective: done
 
   # Epic 21: Token Economy, Reputation & Skill Synergy
-  epic-21: backlog
-  21-1-token-budget-pool-and-allocation: backlog
+  epic-21: in-progress
+  21-1-token-budget-pool-and-allocation: done
   21-2-contract-sla-and-evaluation: backlog
   21-3-reputation-system-and-auto-selection: backlog
   21-4-skill-synergy-declaration-and-auto-detection: backlog

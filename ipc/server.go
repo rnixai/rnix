@@ -312,6 +312,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleLineage(conn, req.Payload)
 		case MethodProviderStatus:
 			s.handleProviderStatus(conn)
+		case MethodBudgetStatus:
+			s.handleBudgetStatus(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -498,6 +500,52 @@ func (s *Server) handleProviderStatus(conn net.Conn) {
 	}
 	payload, _ := json.Marshal(ProviderStatusResponse{Providers: wires})
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleBudgetStatus(conn net.Conn, rawPayload json.RawMessage) {
+	var req BudgetStatusRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid budget_status request"}})
+		return
+	}
+
+	status, err := s.kern.GetBudgetStatus(req.GroupID)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: err.Error()}})
+		return
+	}
+
+	quotaWires := make([]AgentQuotaWire, len(status.Quotas))
+	for i, q := range status.Quotas {
+		var priStr string
+		switch q.Priority {
+		case kernel.PriorityHigh:
+			priStr = "high"
+		case kernel.PriorityNormal:
+			priStr = "normal"
+		case kernel.PriorityLow:
+			priStr = "low"
+		default:
+			priStr = "normal"
+		}
+		quotaWires[i] = AgentQuotaWire{
+			PID:      q.PID,
+			Name:     q.Name,
+			Priority: priStr,
+			Quota:    q.Quota,
+			Consumed: q.Consumed,
+		}
+	}
+
+	resp := BudgetStatusResponse{
+		TotalBudget: status.TotalBudget,
+		Allocated:   status.Allocated,
+		Consumed:    status.Consumed,
+		Remaining:   status.Remaining,
+		Quotas:      quotaWires,
+	}
+	respPayload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 
 func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {

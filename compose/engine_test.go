@@ -32,6 +32,7 @@ type mockKernelSpawner struct {
 	results    map[types.PID]mockExecResult
 	getResults map[types.PID]string
 	spanIDs    map[types.PID]types.SpanID // pid -> spanID for ParentSpanID propagation tests
+	tokenUsed  map[types.PID]int          // pid -> token usage for budget pool tests
 	spawnErr   error                      // if set, all Spawn calls return this error
 }
 
@@ -47,6 +48,7 @@ func newMockKernelSpawner() *mockKernelSpawner {
 		results:    make(map[types.PID]mockExecResult),
 		getResults: make(map[types.PID]string),
 		spanIDs:    make(map[types.PID]types.SpanID),
+		tokenUsed:  make(map[types.PID]int),
 	}
 }
 
@@ -95,6 +97,15 @@ func (m *mockKernelSpawner) GetSpanID(pid types.PID) (types.SpanID, bool) {
 	defer m.mu.Unlock()
 	s, ok := m.spanIDs[pid]
 	return s, ok
+}
+
+func (m *mockKernelSpawner) GetTokensUsed(pid types.PID) (int, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if used, ok := m.tokenUsed[pid]; ok {
+		return used, true
+	}
+	return 0, true
 }
 
 func (m *mockKernelSpawner) getSpawnOrder() []string {
@@ -814,5 +825,160 @@ func TestEngine_Execute_EmptyAfterCancel(t *testing.T) {
 	// Then: context error returned
 	if execErr == nil {
 		t.Fatal("expected context cancellation error")
+	}
+}
+
+// ============================================================
+// ATDD RED PHASE — Story 21.1: Token 预算池与分配调度
+//
+// Tests reference ComposeSpec.TokenBudget, AgentSpec.Priority,
+// and Engine budget pool integration that do NOT exist yet.
+// They will fail to COMPILE until implementation adds:
+//   - ComposeSpec.TokenBudget int
+//   - AgentSpec.Priority string
+//   - Engine.budgetPool field
+//   - Budget pool allocation and exhaustion logic in Execute
+//
+// RED → GREEN: implement the fields and logic, tests compile and pass.
+// ============================================================
+
+// --- 21.1-INT-001: [P0] Engine creates BudgetPool when TokenBudget > 0 ---
+
+func TestEngine_Execute_WithBudgetPool(t *testing.T) {
+	// Given: a spec with token_budget and agents with priorities
+	spec := &ComposeSpec{
+		Version:     "1.0",
+		Intent:      "budget allocation",
+		TokenBudget: 50000,
+		Agents: map[string]*AgentSpec{
+			"reviewer":   {Intent: "review code", Priority: "high"},
+			"summarizer": {Intent: "summarize results", Priority: "normal"},
+			"formatter":  {Intent: "format report", Priority: "low"},
+		},
+	}
+	ks := newMockKernelSpawner()
+	engine, err := NewEngine(spec, ks, mockAgentLoader)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+
+	// When: executing
+	results, err := engine.Execute(context.Background())
+
+	// Then: all agents succeed
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// Verify ContextBudget was set based on priority allocation
+	// High priority agent should get the largest budget
+	budgetByIntent := make(map[string]int)
+	for _, rec := range ks.spawned {
+		budgetByIntent[rec.intent] = rec.opts.ContextBudget
+	}
+
+	highBudget := budgetByIntent["review code"]
+	normalBudget := budgetByIntent["summarize results"]
+	lowBudget := budgetByIntent["format report"]
+
+	if highBudget <= normalBudget {
+		t.Errorf("high priority budget (%d) should be > normal (%d)", highBudget, normalBudget)
+	}
+	if normalBudget <= lowBudget {
+		t.Errorf("normal priority budget (%d) should be > low (%d)", normalBudget, lowBudget)
+	}
+}
+
+// --- 21.1-INT-002: [P0] Budget exhausted terminates remaining agents ---
+
+func TestEngine_Execute_BudgetExhausted(t *testing.T) {
+	// Given: linear A -> B -> C with very small budget
+	spec := &ComposeSpec{
+		Version:     "1.0",
+		Intent:      "budget exhaustion",
+		TokenBudget: 100, // Very small budget
+		Agents: map[string]*AgentSpec{
+			"a": {Intent: "first task", Priority: "normal"},
+			"b": {Intent: "second task", Priority: "normal", DependsOn: map[string]string{"a": "completed"}},
+			"c": {Intent: "third task", Priority: "normal", DependsOn: map[string]string{"b": "completed"}},
+		},
+	}
+	ks := newMockKernelSpawner()
+	// Simulate A consuming all the budget via TokensUsed
+	ks.results[types.PID(1)] = mockExecResult{exitCode: 0, reason: "ok"}
+	ks.tokenUsed[types.PID(1)] = 200 // exceeds 100 budget
+
+	engine, err := NewEngine(spec, ks, mockAgentLoader)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+
+	// When: executing (budget should be exhausted after first agent)
+	results, err := engine.Execute(context.Background())
+
+	// Then: not all agents should have been spawned
+	// Budget exhaustion should prevent later layers from running
+	_ = results
+	if err == nil {
+		// Execute might return nil error but results should show budget exhaustion
+		// or it returns a budget_exhausted error
+		order := ks.getSpawnOrder()
+		// At minimum, we verify that fewer than 3 agents were spawned
+		// OR that later results contain budget errors
+		if len(order) == 3 {
+			// If all 3 ran, the budget pool check between layers didn't work
+			// Check results for budget-related errors
+			hasError := false
+			for _, r := range results {
+				if r.Err != nil && strings.Contains(r.Err.Error(), "budget") {
+					hasError = true
+					break
+				}
+			}
+			if !hasError {
+				t.Fatal("expected budget exhaustion to affect execution, but all 3 agents completed normally")
+			}
+		}
+	}
+}
+
+// --- 21.1-INT-003: [P0] No TokenBudget means no BudgetPool (backward compat) ---
+
+func TestEngine_Execute_NoBudgetPool(t *testing.T) {
+	// Given: a spec without token_budget
+	spec := &ComposeSpec{
+		Version: "1.0",
+		Intent:  "no budget",
+		Agents: map[string]*AgentSpec{
+			"a": {Intent: "task A"},
+			"b": {Intent: "task B"},
+		},
+	}
+	ks := newMockKernelSpawner()
+	engine, err := NewEngine(spec, ks, mockAgentLoader)
+	if err != nil {
+		t.Fatalf("NewEngine failed: %v", err)
+	}
+
+	// When: executing
+	results, err := engine.Execute(context.Background())
+
+	// Then: all agents succeed with ContextBudget=0 (no pool allocation override)
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	// ContextBudget should remain 0 (no budget pool to allocate from)
+	for _, rec := range ks.spawned {
+		if rec.opts.ContextBudget != 0 {
+			t.Errorf("expected ContextBudget 0 for no-budget spec, agent %q got %d",
+				rec.intent, rec.opts.ContextBudget)
+		}
 	}
 }

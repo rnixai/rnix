@@ -5,15 +5,17 @@ import (
 
 	"github.com/rnixai/rnix/agents"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/kernel"
 )
 
 // ComposeSpec is the top-level structure of rnix-compose.yaml.
 type ComposeSpec struct {
-	Version  string                `yaml:"version"`
-	Intent   string                `yaml:"intent"`
-	Model    string                `yaml:"model,omitempty"`
-	Provider string                `yaml:"provider,omitempty"`
-	Agents   map[string]*AgentSpec `yaml:"agents"`
+	Version     string                `yaml:"version"`
+	Intent      string                `yaml:"intent"`
+	Model       string                `yaml:"model,omitempty"`
+	Provider    string                `yaml:"provider,omitempty"`
+	TokenBudget int                   `yaml:"token_budget,omitempty"`
+	Agents      map[string]*AgentSpec `yaml:"agents"`
 }
 
 // AgentSpec defines a single agent in the compose workflow.
@@ -23,6 +25,7 @@ type AgentSpec struct {
 	Model         string            `yaml:"model,omitempty"`
 	Provider      string            `yaml:"provider,omitempty"`
 	Skills        []string          `yaml:"skills,omitempty"`
+	Priority      string            `yaml:"priority,omitempty"`
 	ContextBudget int               `yaml:"context_budget,omitempty"`
 	TimeoutMs     int64             `yaml:"timeout_ms,omitempty"`
 	DependsOn     map[string]string `yaml:"depends_on,omitempty"`
@@ -68,6 +71,9 @@ type KernelSpawner interface {
 	// GetSpanID returns the SpanID for a completed process (for trace parent-child, Story 15.1).
 	// Returns false if the process has no SpanID or is unknown.
 	GetSpanID(pid types.PID) (types.SpanID, bool)
+	// GetTokensUsed returns the token consumption for a completed process (Story 21.1).
+	// Returns false if the process is unknown or has no token data.
+	GetTokensUsed(pid types.PID) (int, bool)
 }
 
 // AgentLoaderFunc loads an agent definition by name.
@@ -75,10 +81,25 @@ type AgentLoaderFunc func(name string) (*agents.AgentInfo, error)
 
 // ScheduleResult records the execution result of a single agent.
 type ScheduleResult struct {
-	Name     string
-	PID      types.PID
-	ExitCode int
-	Output   string
-	Err      error
-	Duration time.Duration
+	Name       string
+	PID        types.PID
+	ExitCode   int
+	Output     string
+	Err        error
+	Duration   time.Duration
+	TokensUsed int
+}
+
+// Priority type aliases for compose-level access to kernel.Priority.
+type Priority = kernel.Priority
+
+const (
+	PriorityHigh   = kernel.PriorityHigh
+	PriorityNormal = kernel.PriorityNormal
+	PriorityLow    = kernel.PriorityLow
+)
+
+// ParsePriority converts a priority string to a kernel.Priority value.
+func ParsePriority(s string) kernel.Priority {
+	return kernel.ParsePriority(s)
 }

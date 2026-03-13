@@ -41,6 +41,7 @@ const (
 	MethodIntentList    Method = "intent_list"
 	MethodLineage       Method = "lineage"
 	MethodProviderStatus Method = "provider_status"
+	MethodBudgetStatus  Method = "budget_status"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -631,6 +632,31 @@ type ProviderStatusWire struct {
 	Name   string `json:"name"`
 	Driver string `json:"driver"`
 	Health string `json:"health"` // "healthy", "unhealthy", "unchecked"
+}
+
+// --- Budget Status (Story 21.1) ---
+
+// BudgetStatusRequest is the payload for MethodBudgetStatus.
+type BudgetStatusRequest struct {
+	GroupID types.PGID `json:"group_id"`
+}
+
+// BudgetStatusResponse is the response for MethodBudgetStatus.
+type BudgetStatusResponse struct {
+	TotalBudget int              `json:"total_budget"`
+	Allocated   int              `json:"allocated"`
+	Consumed    int              `json:"consumed"`
+	Remaining   int              `json:"remaining"`
+	Quotas      []AgentQuotaWire `json:"quotas"`
+}
+
+// AgentQuotaWire is the wire-format representation of a single agent's quota.
+type AgentQuotaWire struct {
+	PID      types.PID `json:"pid"`
+	Name     string    `json:"name"`
+	Priority string    `json:"priority"`
+	Quota    int       `json:"quota"`
+	Consumed int       `json:"consumed"`
 }
 
 func unixMilliToTime(ms int64) time.Time {
