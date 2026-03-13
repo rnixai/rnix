@@ -258,10 +258,10 @@ development_status:
   epic-23-retrospective: done
 
   # Epic 24: LLM Serve Gateway (OpenAI 兼容网关)
-  epic-24: in-progress
+  epic-24: done
   24-1-openai-http-server-core-framework: done
   24-2-chat-completions-sync-mode: done
   24-3-sse-streaming-response: done
   24-4-models-endpoint-provider-discovery: done
-  24-5-rnix-serve-cli-e2e-integration: ready-for-dev
+  24-5-rnix-serve-cli-e2e-integration: done
   epic-24-retrospective: optional
