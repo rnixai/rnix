@@ -238,8 +238,8 @@ development_status:
   epic-21-retrospective: done
 
   # Epic 22: Adaptive Security & Self-Healing
-  epic-22: backlog
-  22-1-immune-daemon-and-behavior-baseline: backlog
+  epic-22: in-progress
+  22-1-immune-daemon-and-behavior-baseline: done
   22-2-anomaly-detection-and-threat-memory: backlog
   22-3-security-status-management: backlog
   22-4-capability-migration-and-similarity-matrix: backlog

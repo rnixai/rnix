@@ -91,6 +91,9 @@ type Server struct {
 
 	// synergy matrix (set via SetSynergyMatrix, Story 21.5)
 	synergyMatrix *kernel.SynergyMatrix
+
+	// immune daemon (set via SetImmuneDaemon, Story 22.1)
+	immuneDaemon *kernel.ImmuneDaemon
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -326,6 +329,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleReputationStatus(conn, req.Payload)
 		case MethodSynergyList:
 			s.handleSynergyList(conn)
+		case MethodImmuneStatus:
+			s.handleImmuneStatus(conn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1407,6 +1412,11 @@ func (s *Server) SetSynergyMatrix(m *kernel.SynergyMatrix) {
 	s.synergyMatrix = m
 }
 
+// SetImmuneDaemon sets the immune daemon for status queries (Story 22.1).
+func (s *Server) SetImmuneDaemon(d *kernel.ImmuneDaemon) {
+	s.immuneDaemon = d
+}
+
 func (s *Server) handleSynergyList(conn net.Conn) {
 	if s.synergyMatrix == nil {
 		resp := SynergyListResponse{Combos: []kernel.ComboSummary{}}
@@ -1425,6 +1435,38 @@ func (s *Server) handleSynergyList(conn net.Conn) {
 		summaries = []kernel.ComboSummary{}
 	}
 	resp := SynergyListResponse{Combos: summaries}
+	respPayload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+func (s *Server) handleImmuneStatus(conn net.Conn) {
+	if s.immuneDaemon == nil {
+		resp := ImmuneStatusResponse{
+			Running:    false,
+			Profiles:   map[string]*kernel.NormalProfile{},
+			ActivePIDs: []uint64{},
+		}
+		respPayload, _ := json.Marshal(resp)
+		writeResponse(conn, Response{OK: true, Payload: respPayload})
+		return
+	}
+
+	profiles := s.immuneDaemon.GetAllProfiles()
+	if profiles == nil {
+		profiles = map[string]*kernel.NormalProfile{}
+	}
+	rawPIDs := s.immuneDaemon.ActivePIDs()
+	activePIDs := make([]uint64, len(rawPIDs))
+	for i, p := range rawPIDs {
+		activePIDs[i] = uint64(p)
+	}
+
+	resp := ImmuneStatusResponse{
+		Running:      s.immuneDaemon.IsRunning(),
+		ProfileCount: len(profiles),
+		Profiles:     profiles,
+		ActivePIDs:   activePIDs,
+	}
 	respPayload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
