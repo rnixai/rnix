@@ -76,6 +76,10 @@ func TestServeCmd_CustomPort(t *testing.T) {
 		t.Fatal("serve command not found")
 	}
 
+	t.Cleanup(func() {
+		_ = cmd.Flags().Set("port", "8080")
+	})
+
 	if err := cmd.Flags().Set("port", "9090"); err != nil {
 		t.Fatalf("setting --port: %v", err)
 	}
@@ -102,10 +106,9 @@ func TestServeCmd_HelpOutput(t *testing.T) {
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
-	cmd.SetArgs([]string{"--help"})
 
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute serve --help: %v", err)
+	if err := cmd.Help(); err != nil {
+		t.Fatalf("serve help: %v", err)
 	}
 
 	output := buf.String()
@@ -130,5 +133,32 @@ func TestServeCmd_HasRunE(t *testing.T) {
 
 	if cmd.RunE == nil {
 		t.Error("serve command RunE is nil, expected executable function")
+	}
+}
+
+// --- AC #2: 无效端口范围校验 --------------------------------------------------
+
+func TestServeCmd_InvalidPort(t *testing.T) {
+	// Given: serve 命令的 runServe 函数
+	// When: 设置无效端口（0、负数、超过 65535）
+	// Then: 返回错误
+	tests := []struct {
+		name string
+		port int
+	}{
+		{"zero", 0},
+		{"negative", -1},
+		{"too_large", 65536},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			old := flagServePort
+			t.Cleanup(func() { flagServePort = old })
+			flagServePort = tt.port
+			err := runServe(nil, nil)
+			if err == nil {
+				t.Errorf("runServe with port %d: expected error, got nil", tt.port)
+			}
+		})
 	}
 }
