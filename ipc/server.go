@@ -314,6 +314,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleProviderStatus(conn)
 		case MethodBudgetStatus:
 			s.handleBudgetStatus(conn, req.Payload)
+		case MethodSLAStatus:
+			s.handleSLAStatus(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -544,6 +546,35 @@ func (s *Server) handleBudgetStatus(conn net.Conn, rawPayload json.RawMessage) {
 		Remaining:   status.Remaining,
 		Quotas:      quotaWires,
 	}
+	respPayload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+func (s *Server) handleSLAStatus(conn net.Conn, rawPayload json.RawMessage) {
+	var req SLAStatusRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid sla_status request"}})
+		return
+	}
+
+	results, err := s.kern.GetSLAResults(req.GroupID)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: err.Error()}})
+		return
+	}
+
+	wires := make([]SLAResultWire, len(results))
+	for i, r := range results {
+		wires[i] = SLAResultWire{
+			AgentName:  r.AgentName,
+			Passed:     r.Passed,
+			Checks:     r.Checks,
+			TokensUsed: r.TokensUsed,
+			DurationMs: r.DurationMs,
+		}
+	}
+
+	resp := SLAStatusResponse{Results: wires}
 	respPayload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }

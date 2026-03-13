@@ -718,6 +718,19 @@ func (c *Client) BudgetStatus(groupID types.PGID) (*BudgetStatusResponse, error)
 	return &result, nil
 }
 
+// SLAStatus returns the SLA evaluation results for the given process group.
+func (c *Client) SLAStatus(groupID types.PGID) (*SLAStatusResponse, error) {
+	resp, err := c.call(MethodSLAStatus, SLAStatusRequest{GroupID: groupID})
+	if err != nil {
+		return nil, err
+	}
+	var result SLAStatusResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal sla_status: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

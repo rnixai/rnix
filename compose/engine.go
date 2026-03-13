@@ -16,11 +16,12 @@ import (
 
 // Engine orchestrates multi-agent workflows based on a ComposeSpec.
 type Engine struct {
-	spec        *ComposeSpec
-	dag         *DAG
-	kernel      KernelSpawner
-	agentLoader AgentLoaderFunc
-	budgetPool  *kernel.BudgetPool
+	spec            *ComposeSpec
+	dag             *DAG
+	kernel          KernelSpawner
+	agentLoader     AgentLoaderFunc
+	budgetPool      *kernel.BudgetPool
+	reputationStore *kernel.ReputationStore
 }
 
 // NewEngine creates a new compose engine, building the DAG and detecting cycles.
@@ -38,6 +39,17 @@ func NewEngine(spec *ComposeSpec, ks KernelSpawner, al AgentLoaderFunc) (*Engine
 	if spec.TokenBudget > 0 {
 		e.budgetPool = kernel.NewBudgetPool(spec.TokenBudget)
 	}
+	return e, nil
+}
+
+// NewEngineWithReputation creates a compose engine with an optional ReputationStore
+// for persisting SLA evaluation results.
+func NewEngineWithReputation(spec *ComposeSpec, ks KernelSpawner, al AgentLoaderFunc, rs *kernel.ReputationStore) (*Engine, error) {
+	e, err := NewEngine(spec, ks, al)
+	if err != nil {
+		return nil, err
+	}
+	e.reputationStore = rs
 	return e, nil
 }
 
@@ -278,6 +290,15 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 		// Retrieve token usage (Story 21.1)
 		if tokensUsed, ok := e.kernel.GetTokensUsed(pid); ok {
 			result.TokensUsed = tokensUsed
+		}
+		// SLA evaluation (Story 21.2)
+		if agentSpec.SLA != nil && !agentSpec.SLA.IsEmpty() {
+			durationMs := result.Duration.Milliseconds()
+			slaResult := agentSpec.SLA.Evaluate(name, result.TokensUsed, durationMs, result.Output)
+			result.SLAResult = slaResult
+			if e.reputationStore != nil {
+				_ = e.reputationStore.RecordResult(name, slaResult)
+			}
 		}
 		return result
 	}
