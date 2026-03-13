@@ -44,6 +44,7 @@ const (
 	MethodProviderStatus Method = "provider_status"
 	MethodBudgetStatus  Method = "budget_status"
 	MethodSLAStatus     Method = "sla_status"
+	MethodReputationStatus Method = "reputation_status"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -681,6 +682,18 @@ type SLAResultWire struct {
 	Checks     []kernel.SLACheckResult `json:"checks"`
 	TokensUsed int                     `json:"tokens_used"`
 	DurationMs int64                   `json:"duration_ms"`
+}
+
+// --- Reputation Status (Story 21.3) ---
+
+// ReputationStatusRequest is the payload for MethodReputationStatus.
+type ReputationStatusRequest struct {
+	AgentName string `json:"agent_name,omitempty"` // empty = query all
+}
+
+// ReputationStatusResponse is the response for MethodReputationStatus.
+type ReputationStatusResponse struct {
+	Summaries []kernel.ReputationSummary `json:"summaries"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

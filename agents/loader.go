@@ -78,6 +78,9 @@ func (l *AgentLoader) Load(agentName string) (*AgentInfo, error) {
 	// Load referenced skills
 	var loadedSkills []*skills.SkillInfo
 	for _, skillName := range manifest.Skills {
+		if l.skillLoader == nil {
+			break
+		}
 		skillInfo, err := l.skillLoader.LoadFull(skillName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load skill %q referenced by agent %q: %w",

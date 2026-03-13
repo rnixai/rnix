@@ -171,14 +171,29 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 	node := e.dag.Nodes[name]
 	agentSpec := e.spec.Agents[name]
 
+	// Auto-select: if Candidates is specified, pick the best agent (Story 21.3)
+	selectedAgent := agentSpec.Agent
+	if len(agentSpec.Candidates) > 0 {
+		if e.reputationStore != nil {
+			best, err := e.reputationStore.SelectBest(agentSpec.Candidates)
+			if err == nil {
+				selectedAgent = best
+			} else {
+				selectedAgent = agentSpec.Candidates[0]
+			}
+		} else {
+			selectedAgent = agentSpec.Candidates[0]
+		}
+	}
+
 	// Load agent info
 	var agentInfo *agents.AgentInfo
-	if agentSpec.Agent != "" && e.agentLoader != nil {
-		ai, err := e.agentLoader(agentSpec.Agent)
+	if selectedAgent != "" && e.agentLoader != nil {
+		ai, err := e.agentLoader(selectedAgent)
 		if err != nil {
 			return &ScheduleResult{
 				Name:     name,
-				Err:      fmt.Errorf("load agent %q: %w", agentSpec.Agent, err),
+				Err:      fmt.Errorf("load agent %q: %w", selectedAgent, err),
 				Duration: time.Since(start),
 			}
 		}
