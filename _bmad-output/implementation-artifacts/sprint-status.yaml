@@ -263,5 +263,5 @@ development_status:
   24-2-chat-completions-sync-mode: done
   24-3-sse-streaming-response: done
   24-4-models-endpoint-provider-discovery: done
-  24-5-rnix-serve-cli-e2e-integration: backlog
+  24-5-rnix-serve-cli-e2e-integration: ready-for-dev
   epic-24-retrospective: optional
