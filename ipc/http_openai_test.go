@@ -643,10 +643,10 @@ func TestHandleChatCompletions_Success(t *testing.T) {
 	}
 }
 
-func TestHandleListModels_Stub(t *testing.T) {
-	// Given handleListModels 为 stub（Story 24.4 实现）
+func TestHandleListModels_ReturnsModelList(t *testing.T) {
+	// Given handleListModels is implemented (Story 24.4)
 	// When GET /v1/models
-	// Then 返回 501 Not Implemented
+	// Then returns 200 with model list
 	reg := newTestRegistry(t)
 	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
 
@@ -656,8 +656,15 @@ func TestHandleListModels_Stub(t *testing.T) {
 	srv.handleListModels(w, req)
 
 	resp := w.Result()
-	if resp.StatusCode != http.StatusNotImplemented {
-		t.Errorf("status = %d, want %d (stub should return 501)", resp.StatusCode, http.StatusNotImplemented)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var body ModelListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if body.Object != "list" {
+		t.Errorf("object = %q, want %q", body.Object, "list")
 	}
 }
 
@@ -682,7 +689,7 @@ func TestOpenAIServer_RoutesRegistered(t *testing.T) {
 	}{
 		{http.MethodGet, "/health", "", http.StatusOK},
 		{http.MethodPost, "/v1/chat/completions", `{"model":"ollama:llama3","messages":[{"role":"user","content":"hi"}]}`, http.StatusOK},
-		{http.MethodGet, "/v1/models", "", http.StatusNotImplemented},
+		{http.MethodGet, "/v1/models", "", http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -1847,5 +1854,262 @@ func TestChatCompletions_OptionalFields_PassThrough(t *testing.T) {
 	}
 	if capturedReq.MaxTokens != 512 {
 		t.Errorf("MaxTokens = %d, want 512", capturedReq.MaxTokens)
+	}
+}
+
+// ===========================================================================
+// Story 24-4: /v1/models Provider Discovery
+// ===========================================================================
+
+func TestListModels_Basic(t *testing.T) {
+	// AC #1,#3: GET /v1/models returns 200 with object:"list" and data array containing all providers
+	reg := newTestRegistry(t) // claude + ollama
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var body ModelListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body.Object != "list" {
+		t.Errorf("object = %q, want %q", body.Object, "list")
+	}
+	// 2 providers * 2 entries each (provider + provider:model) = 4
+	if len(body.Data) != 4 {
+		t.Errorf("data length = %d, want 4", len(body.Data))
+	}
+
+	// Verify both provider names appear
+	ids := make(map[string]bool)
+	for _, entry := range body.Data {
+		ids[entry.ID] = true
+	}
+	if !ids["claude"] {
+		t.Error("missing model entry for 'claude'")
+	}
+	if !ids["ollama"] {
+		t.Error("missing model entry for 'ollama'")
+	}
+}
+
+func TestListModels_ResponseFormat(t *testing.T) {
+	// AC #2: Each entry has correct id, object, created, owned_by fields
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("testprov", &stubDriver{info: llm.DriverInfo{
+		Name: "testprov", Provider: "testprov", DefaultModel: "mymodel", DriverType: "test",
+	}})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	var body ModelListResponse
+	if err := json.NewDecoder(w.Result().Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+
+	if len(body.Data) < 1 {
+		t.Fatal("expected at least 1 entry")
+	}
+
+	for _, entry := range body.Data {
+		if entry.Object != "model" {
+			t.Errorf("entry %q: object = %q, want %q", entry.ID, entry.Object, "model")
+		}
+		if entry.Created == 0 {
+			t.Errorf("entry %q: created = 0, want non-zero", entry.ID)
+		}
+		if entry.OwnedBy != "testprov" {
+			t.Errorf("entry %q: owned_by = %q, want %q", entry.ID, entry.OwnedBy, "testprov")
+		}
+	}
+}
+
+func TestListModels_ModelID(t *testing.T) {
+	// AC #2: Provider name as model ID; if default_model exists, extra "provider:model" entry
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("ollama", &stubDriver{info: llm.DriverInfo{
+		Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat",
+	}})
+	_ = reg.Register("bare", &stubDriver{info: llm.DriverInfo{
+		Name: "bare", Provider: "bare", DefaultModel: "", DriverType: "test",
+	}})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	var body ModelListResponse
+	if err := json.NewDecoder(w.Result().Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+
+	ids := make(map[string]bool)
+	for _, entry := range body.Data {
+		ids[entry.ID] = true
+	}
+
+	// "ollama" should have both provider entry and provider:model entry
+	if !ids["ollama"] {
+		t.Error("missing 'ollama' entry")
+	}
+	if !ids["ollama:llama3"] {
+		t.Error("missing 'ollama:llama3' entry")
+	}
+
+	// "bare" should have only provider entry (no default_model)
+	if !ids["bare"] {
+		t.Error("missing 'bare' entry")
+	}
+	if ids["bare:"] {
+		t.Error("unexpected 'bare:' entry for provider with empty default_model")
+	}
+
+	// Total: ollama(2) + bare(1) = 3
+	if len(body.Data) != 3 {
+		t.Errorf("data length = %d, want 3", len(body.Data))
+	}
+}
+
+func TestListModels_HealthFiltering(t *testing.T) {
+	// AC #4: Unhealthy provider excluded from results
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("healthy", &stubDriver{info: llm.DriverInfo{
+		Name: "healthy", Provider: "healthy", DefaultModel: "m1", DriverType: "test",
+	}})
+	_ = reg.Register("sick", &stubDriver{info: llm.DriverInfo{
+		Name: "sick", Provider: "sick", DefaultModel: "m2", DriverType: "test",
+	}})
+	reg.SetHealth("healthy", llm.HealthStatusHealthy)
+	reg.SetHealth("sick", llm.HealthStatusUnhealthy)
+
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	var body ModelListResponse
+	if err := json.NewDecoder(w.Result().Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+
+	for _, entry := range body.Data {
+		if entry.OwnedBy == "sick" {
+			t.Errorf("unhealthy provider 'sick' should not appear; got entry id=%q", entry.ID)
+		}
+	}
+	// Only "healthy" + "healthy:m1" = 2
+	if len(body.Data) != 2 {
+		t.Errorf("data length = %d, want 2", len(body.Data))
+	}
+}
+
+func TestListModels_UncheckedHealth(t *testing.T) {
+	// AC #4: Unchecked health status providers are included
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("unchecked", &stubDriver{info: llm.DriverInfo{
+		Name: "unchecked", Provider: "unchecked", DefaultModel: "m1", DriverType: "test",
+	}})
+	// Default health after Register is HealthStatusUnchecked — no SetHealth call
+
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	var body ModelListResponse
+	if err := json.NewDecoder(w.Result().Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+
+	if len(body.Data) != 2 { // "unchecked" + "unchecked:m1"
+		t.Errorf("data length = %d, want 2 (unchecked provider should be included)", len(body.Data))
+	}
+}
+
+func TestListModels_EmptyRegistry(t *testing.T) {
+	// Edge case: empty registry returns {"object":"list","data":[]}
+	reg := llm.NewDriverRegistry()
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var body ModelListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if body.Object != "list" {
+		t.Errorf("object = %q, want %q", body.Object, "list")
+	}
+	if body.Data == nil || len(body.Data) != 0 {
+		t.Errorf("data = %v, want empty non-nil array", body.Data)
+	}
+}
+
+func TestListModels_ContentType(t *testing.T) {
+	// Verify Content-Type is application/json
+	reg := newTestRegistry(t)
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	ct := w.Result().Header.Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want to contain %q", ct, "application/json")
+	}
+}
+
+func TestListModels_Sorted(t *testing.T) {
+	// Verify model entries follow provider-sorted order (grouped by provider name).
+	// Within each provider: base entry first, then "provider:model" if DefaultModel set.
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("zebra", &stubDriver{info: llm.DriverInfo{
+		Name: "zebra", Provider: "zebra", DefaultModel: "z-model", DriverType: "test",
+	}})
+	_ = reg.Register("alpha", &stubDriver{info: llm.DriverInfo{
+		Name: "alpha", Provider: "alpha", DefaultModel: "a-model", DriverType: "test",
+	}})
+	_ = reg.Register("mid", &stubDriver{info: llm.DriverInfo{
+		Name: "mid", Provider: "mid", DefaultModel: "", DriverType: "test",
+	}})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	w := httptest.NewRecorder()
+	srv.buildMux().ServeHTTP(w, req)
+
+	var body ModelListResponse
+	if err := json.NewDecoder(w.Result().Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+
+	// alpha(2) + mid(1) + zebra(2) = 5 entries
+	if len(body.Data) != 5 {
+		t.Fatalf("data length = %d, want 5", len(body.Data))
+	}
+	expected := []string{"alpha", "alpha:a-model", "mid", "zebra", "zebra:z-model"}
+	for i, want := range expected {
+		if body.Data[i].ID != want {
+			t.Errorf("data[%d].id = %q, want %q", i, body.Data[i].ID, want)
+		}
 	}
 }

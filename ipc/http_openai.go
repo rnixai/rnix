@@ -154,10 +154,48 @@ func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, r *http.Requ
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// handleListModels is a stub — full implementation in Story 24.4.
+// handleListModels returns all registered and healthy LLM providers as an
+// OpenAI-compatible model list. Unhealthy providers are excluded; unchecked
+// providers are included. Each provider generates at least one entry (ID =
+// provider name); if DefaultModel is set, an additional "provider:model"
+// entry is emitted.
 func (s *OpenAIServer) handleListModels(w http.ResponseWriter, _ *http.Request) {
-	writeError(w, http.StatusNotImplemented, "server_error", "not_implemented",
-		"GET /v1/models is not yet implemented")
+	names := s.driverReg.Names()
+	entries := make([]ModelEntry, 0, 2*len(names))
+	now := time.Now().Unix()
+
+	for _, name := range names {
+		if s.driverReg.GetHealth(name) == llm.HealthStatusUnhealthy {
+			continue
+		}
+		driver, ok := s.driverReg.Get(name)
+		if !ok {
+			continue
+		}
+		info := driver.Info()
+
+		entries = append(entries, ModelEntry{
+			ID:      name,
+			Object:  "model",
+			Created: now,
+			OwnedBy: name,
+		})
+
+		if info.DefaultModel != "" {
+			entries = append(entries, ModelEntry{
+				ID:      name + ":" + info.DefaultModel,
+				Object:  "model",
+				Created: now,
+				OwnedBy: name,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(ModelListResponse{
+		Object: "list",
+		Data:   entries,
+	})
 }
 
 // handleStreamingResponse handles the SSE streaming path for chat completions.
@@ -303,6 +341,20 @@ type ChatUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+}
+
+// ModelListResponse mirrors the OpenAI models list response format.
+type ModelListResponse struct {
+	Object string       `json:"object"`
+	Data   []ModelEntry `json:"data"`
+}
+
+// ModelEntry represents a single model in the OpenAI models list.
+type ModelEntry struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
 }
 
 // ---------------------------------------------------------------------------
