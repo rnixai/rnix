@@ -53,6 +53,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// 4. Start HTTP server
 	addr := fmt.Sprintf("127.0.0.1:%d", flagServePort)
 	openaiSrv := ipc.NewOpenAIServer(driverReg, addr)
+	openaiSrv.SetDefaultProvider(providersCfg.ResolveDefaultProvider())
 
 	fmt.Fprintf(os.Stderr, "Serving %d providers on http://%s\n", driverReg.Len(), addr)
 

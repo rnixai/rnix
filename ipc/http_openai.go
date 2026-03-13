@@ -20,9 +20,10 @@ import (
 // DriverRegistry. It binds to a local address (default 127.0.0.1:8080) and
 // routes requests to the appropriate LLM driver.
 type OpenAIServer struct {
-	driverReg  *llm.DriverRegistry
-	listenAddr string       // default "127.0.0.1:8080"
-	server     *http.Server // set by ListenAndServe
+	driverReg       *llm.DriverRegistry
+	listenAddr      string       // default "127.0.0.1:8080"
+	server          *http.Server // set by ListenAndServe
+	defaultProvider string       // fallback provider when model name doesn't match any provider
 }
 
 // NewOpenAIServer creates a new OpenAIServer holding a read-only reference to
@@ -32,6 +33,12 @@ func NewOpenAIServer(driverReg *llm.DriverRegistry, addr string) *OpenAIServer {
 		driverReg:  driverReg,
 		listenAddr: addr,
 	}
+}
+
+// SetDefaultProvider sets the fallback provider used when the model string
+// in a request doesn't match any registered provider name.
+func (s *OpenAIServer) SetDefaultProvider(name string) {
+	s.defaultProvider = name
 }
 
 // buildMux creates the ServeMux with all registered routes.
@@ -106,8 +113,23 @@ func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, r *http.Requ
 	// Parse model into provider + model name
 	provider, modelName := parseModel(req.Model)
 
-	// Look up driver
+	// Look up driver — with fallback resolution for bare model names.
 	driver, ok := s.driverReg.Get(provider)
+	if !ok && modelName == "" {
+		// No colon in model string. Try resolving the bare name:
+		// 1. Reverse lookup: find a provider whose default_model matches.
+		if d, name := s.findProviderByDefaultModel(provider); d != nil {
+			driver, modelName, provider = d, provider, name
+			ok = true
+		}
+		// 2. Fallback to defaultProvider, treating the input as model name.
+		if !ok && s.defaultProvider != "" {
+			if d, found := s.driverReg.Get(s.defaultProvider); found {
+				driver, modelName, provider = d, provider, s.defaultProvider
+				ok = true
+			}
+		}
+	}
 	if !ok {
 		names := s.driverReg.Names()
 		writeError(w, http.StatusNotFound, "invalid_request_error", "model_not_found",
@@ -474,4 +496,17 @@ func parseModel(model string) (provider, modelName string) {
 		modelName = parts[1]
 	}
 	return provider, modelName
+}
+
+// findProviderByDefaultModel iterates all registered drivers and returns the
+// first one whose Info().DefaultModel matches the given model name.
+// Returns (nil, "") if no match is found.
+func (s *OpenAIServer) findProviderByDefaultModel(model string) (llm.LLMDriver, string) {
+	for _, name := range s.driverReg.Names() {
+		drv, ok := s.driverReg.Get(name)
+		if ok && drv.Info().DefaultModel == model {
+			return drv, name
+		}
+	}
+	return nil, ""
 }
