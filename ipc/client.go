@@ -744,6 +744,19 @@ func (c *Client) ReputationStatus(agentName string) (*ReputationStatusResponse, 
 	return &result, nil
 }
 
+// SynergyList returns the skill combination matrix summaries (Story 21.5).
+func (c *Client) SynergyList() (*SynergyListResponse, error) {
+	resp, err := c.call(MethodSynergyList, SynergyListRequest{})
+	if err != nil {
+		return nil, err
+	}
+	var result SynergyListResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal synergy_list: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

@@ -88,6 +88,9 @@ type Server struct {
 
 	// reputation store (set via SetReputationStore, Story 21.3)
 	reputationStore *kernel.ReputationStore
+
+	// synergy matrix (set via SetSynergyMatrix, Story 21.5)
+	synergyMatrix *kernel.SynergyMatrix
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -321,6 +324,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleSLAStatus(conn, req.Payload)
 		case MethodReputationStatus:
 			s.handleReputationStatus(conn, req.Payload)
+		case MethodSynergyList:
+			s.handleSynergyList(conn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1395,6 +1400,33 @@ func (s *Server) SetProviderStatusFunc(fn func() []ProviderStatusWire) {
 // SetReputationStore sets the reputation store for reputation queries (Story 21.3).
 func (s *Server) SetReputationStore(rs *kernel.ReputationStore) {
 	s.reputationStore = rs
+}
+
+// SetSynergyMatrix sets the synergy matrix for synergy list queries (Story 21.5).
+func (s *Server) SetSynergyMatrix(m *kernel.SynergyMatrix) {
+	s.synergyMatrix = m
+}
+
+func (s *Server) handleSynergyList(conn net.Conn) {
+	if s.synergyMatrix == nil {
+		resp := SynergyListResponse{Combos: []kernel.ComboSummary{}}
+		respPayload, _ := json.Marshal(resp)
+		writeResponse(conn, Response{OK: true, Payload: respPayload})
+		return
+	}
+
+	summaries, err := s.synergyMatrix.GetComboSummaries()
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
+		return
+	}
+
+	if summaries == nil {
+		summaries = []kernel.ComboSummary{}
+	}
+	resp := SynergyListResponse{Combos: summaries}
+	respPayload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 
 // handleRecordStart starts execution recording for a process.
