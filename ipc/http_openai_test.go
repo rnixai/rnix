@@ -3,11 +3,13 @@ package ipc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rnixai/rnix/drivers/llm"
 )
@@ -32,6 +34,24 @@ func (d *stubDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.Str
 }
 
 func (d *stubDriver) Info() llm.DriverInfo { return d.info }
+
+// configurableDriver allows tests to control Call behavior.
+type configurableDriver struct {
+	info    llm.DriverInfo
+	callFn  func(ctx context.Context, req llm.LLMRequest) (*llm.LLMResponse, error)
+}
+
+func (d *configurableDriver) Call(ctx context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+	return d.callFn(ctx, req)
+}
+
+func (d *configurableDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+	ch := make(chan llm.StreamEvent)
+	close(ch)
+	return ch, nil
+}
+
+func (d *configurableDriver) Info() llm.DriverInfo { return d.info }
 
 func newTestRegistry(t *testing.T) *llm.DriverRegistry {
 	t.Helper()
@@ -575,10 +595,10 @@ func TestNewOpenAIServer_WildcardAddrNotDefault(t *testing.T) {
 // AC #1: 路由注册验证 — stub 端点返回 501
 // ===========================================================================
 
-func TestHandleChatCompletions_Stub(t *testing.T) {
-	// Given handleChatCompletions 为 stub（Story 24.2 实现）
-	// When POST /v1/chat/completions
-	// Then 返回 501 Not Implemented
+func TestHandleChatCompletions_Success(t *testing.T) {
+	// Given handleChatCompletions is now fully implemented (Story 24.2)
+	// When POST /v1/chat/completions with valid request
+	// Then returns 200 with ChatCompletionResponse
 	reg := newTestRegistry(t)
 	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
 
@@ -590,8 +610,32 @@ func TestHandleChatCompletions_Stub(t *testing.T) {
 	srv.handleChatCompletions(w, req)
 
 	resp := w.Result()
-	if resp.StatusCode != http.StatusNotImplemented {
-		t.Errorf("status = %d, want %d (stub should return 501)", resp.StatusCode, http.StatusNotImplemented)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var chatResp ChatCompletionResponse
+	if err := json.Unmarshal(respBody, &chatResp); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if chatResp.Object != "chat.completion" {
+		t.Errorf("object = %q, want %q", chatResp.Object, "chat.completion")
+	}
+	if !strings.HasPrefix(chatResp.ID, "chatcmpl-") {
+		t.Errorf("id = %q, want prefix %q", chatResp.ID, "chatcmpl-")
+	}
+	if chatResp.Model != "ollama:llama3" {
+		t.Errorf("model = %q, want %q", chatResp.Model, "ollama:llama3")
+	}
+	if len(chatResp.Choices) != 1 {
+		t.Fatalf("len(choices) = %d, want 1", len(chatResp.Choices))
+	}
+	if chatResp.Choices[0].Message.Role != "assistant" {
+		t.Errorf("choices[0].message.role = %q, want %q", chatResp.Choices[0].Message.Role, "assistant")
+	}
+	if chatResp.Choices[0].FinishReason != "stop" {
+		t.Errorf("choices[0].finish_reason = %q, want %q", chatResp.Choices[0].FinishReason, "stop")
 	}
 }
 
@@ -629,18 +673,19 @@ func TestOpenAIServer_RoutesRegistered(t *testing.T) {
 	tests := []struct {
 		method     string
 		path       string
+		body       string
 		wantStatus int
 	}{
-		{http.MethodGet, "/health", http.StatusOK},
-		{http.MethodPost, "/v1/chat/completions", http.StatusNotImplemented},
-		{http.MethodGet, "/v1/models", http.StatusNotImplemented},
+		{http.MethodGet, "/health", "", http.StatusOK},
+		{http.MethodPost, "/v1/chat/completions", `{"model":"ollama:llama3","messages":[{"role":"user","content":"hi"}]}`, http.StatusOK},
+		{http.MethodGet, "/v1/models", "", http.StatusNotImplemented},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
 			var bodyReader io.Reader
-			if tt.method == http.MethodPost {
-				bodyReader = strings.NewReader(`{"model":"test","messages":[]}`)
+			if tt.body != "" {
+				bodyReader = strings.NewReader(tt.body)
 			}
 			req := httptest.NewRequest(tt.method, tt.path, bodyReader)
 			w := httptest.NewRecorder()
@@ -668,5 +713,648 @@ func TestOpenAIServer_ShutdownExists(t *testing.T) {
 	if err := srv.Shutdown(context.Background()); err != nil {
 		// Allow error (server not started), but should not panic
 		t.Logf("Shutdown returned error (expected for unstarted server): %v", err)
+	}
+}
+
+// ===========================================================================
+// Story 24.2: /v1/chat/completions 同步模式
+// ===========================================================================
+
+// --- AC #1: 成功同步请求 ---
+
+func TestChatCompletions_SyncSuccess_FullResponse(t *testing.T) {
+	// Given mock driver returns a fixed response with token usage
+	// When POST /v1/chat/completions with valid request
+	// Then returns complete ChatCompletionResponse with correct format
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("ollama", &configurableDriver{
+		info: llm.DriverInfo{Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat"},
+		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+			return &llm.LLMResponse{
+				Content:      "Hello! How can I help you?",
+				TokensUsed:   25,
+				InputTokens:  10,
+				OutputTokens: 15,
+			}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"ollama:llama3","messages":[{"role":"user","content":"hello"}],"stream":false}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var chatResp ChatCompletionResponse
+	if err := json.Unmarshal(respBody, &chatResp); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+
+	// Verify response structure
+	if !strings.HasPrefix(chatResp.ID, "chatcmpl-") {
+		t.Errorf("id = %q, want prefix %q", chatResp.ID, "chatcmpl-")
+	}
+	if chatResp.Object != "chat.completion" {
+		t.Errorf("object = %q, want %q", chatResp.Object, "chat.completion")
+	}
+	if chatResp.Created == 0 {
+		t.Error("created = 0, want non-zero timestamp")
+	}
+	if chatResp.Model != "ollama:llama3" {
+		t.Errorf("model = %q, want %q", chatResp.Model, "ollama:llama3")
+	}
+
+	// Verify choices
+	if len(chatResp.Choices) != 1 {
+		t.Fatalf("len(choices) = %d, want 1", len(chatResp.Choices))
+	}
+	choice := chatResp.Choices[0]
+	if choice.Index != 0 {
+		t.Errorf("choices[0].index = %d, want 0", choice.Index)
+	}
+	if choice.Message.Role != "assistant" {
+		t.Errorf("choices[0].message.role = %q, want %q", choice.Message.Role, "assistant")
+	}
+	if choice.Message.Content != "Hello! How can I help you?" {
+		t.Errorf("choices[0].message.content = %q, want %q", choice.Message.Content, "Hello! How can I help you?")
+	}
+	if choice.FinishReason != "stop" {
+		t.Errorf("choices[0].finish_reason = %q, want %q", choice.FinishReason, "stop")
+	}
+
+	// Verify usage
+	if chatResp.Usage == nil {
+		t.Fatal("usage is nil, want non-nil")
+	}
+	if chatResp.Usage.PromptTokens != 10 {
+		t.Errorf("usage.prompt_tokens = %d, want 10", chatResp.Usage.PromptTokens)
+	}
+	if chatResp.Usage.CompletionTokens != 15 {
+		t.Errorf("usage.completion_tokens = %d, want 15", chatResp.Usage.CompletionTokens)
+	}
+	if chatResp.Usage.TotalTokens != 25 {
+		t.Errorf("usage.total_tokens = %d, want 25", chatResp.Usage.TotalTokens)
+	}
+
+	// Verify Content-Type
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want to contain %q", ct, "application/json")
+	}
+}
+
+// --- AC #2: 仅 provider 名（使用 default_model）---
+
+func TestChatCompletions_ProviderOnly_UsesDefaultModel(t *testing.T) {
+	// Given model parameter is just provider name (no colon)
+	// When POST /v1/chat/completions with model="ollama"
+	// Then request is processed using provider's default_model
+	var capturedReq llm.LLMRequest
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("ollama", &configurableDriver{
+		info: llm.DriverInfo{Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat"},
+		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+			capturedReq = req
+			return &llm.LLMResponse{Content: "ok"}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	if w.Result().StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Result().StatusCode)
+	}
+	// When no model specified after colon, LLMRequest.Model should be empty
+	// allowing the driver to use its default_model
+	if capturedReq.Model != "" {
+		t.Errorf("LLMRequest.Model = %q, want empty (driver uses default_model)", capturedReq.Model)
+	}
+}
+
+// --- AC #3: provider:model 复合格式 ---
+
+func TestChatCompletions_ProviderModel_CompoundFormat(t *testing.T) {
+	// Given model parameter uses provider:model format
+	// When POST /v1/chat/completions with model="cursor:claude-3.5-sonnet"
+	// Then uses specified model override
+	var capturedReq llm.LLMRequest
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("cursor", &configurableDriver{
+		info: llm.DriverInfo{Name: "cursor", Provider: "cursor", DefaultModel: "default-model", DriverType: "cursor-cli"},
+		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+			capturedReq = req
+			return &llm.LLMResponse{Content: "ok"}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"cursor:claude-3.5-sonnet","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	if w.Result().StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Result().StatusCode)
+	}
+	if capturedReq.Model != "claude-3.5-sonnet" {
+		t.Errorf("LLMRequest.Model = %q, want %q", capturedReq.Model, "claude-3.5-sonnet")
+	}
+}
+
+// --- AC #4: provider 不存在 → 404 ---
+
+func TestChatCompletions_ProviderNotFound_404(t *testing.T) {
+	// Given request is sent to nonexistent provider
+	// When POST /v1/chat/completions with model="nonexistent"
+	// Then returns HTTP 404 + model_not_found + available provider list
+	reg := newTestRegistry(t)
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"nonexistent","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var errResp OpenAIErrorResponse
+	if err := json.Unmarshal(respBody, &errResp); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if errResp.Error.Code != "model_not_found" {
+		t.Errorf("error.code = %q, want %q", errResp.Error.Code, "model_not_found")
+	}
+	if !strings.Contains(errResp.Error.Message, "nonexistent") {
+		t.Errorf("error.message should contain provider name, got %q", errResp.Error.Message)
+	}
+	// Verify available providers are listed
+	if !strings.Contains(errResp.Error.Message, "claude") || !strings.Contains(errResp.Error.Message, "ollama") {
+		t.Errorf("error.message should list available providers, got %q", errResp.Error.Message)
+	}
+}
+
+// --- AC #5: JSON 解析失败 → 400 ---
+
+func TestChatCompletions_InvalidJSON_400(t *testing.T) {
+	// Given request body contains invalid JSON
+	// When POST /v1/chat/completions
+	// Then returns HTTP 400 + invalid_request
+	reg := newTestRegistry(t)
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{invalid json}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var errResp OpenAIErrorResponse
+	if err := json.Unmarshal(respBody, &errResp); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if errResp.Error.Code != "invalid_request" {
+		t.Errorf("error.code = %q, want %q", errResp.Error.Code, "invalid_request")
+	}
+}
+
+// --- messages 为空 → 400 ---
+
+func TestChatCompletions_EmptyMessages_400(t *testing.T) {
+	// Given messages array is empty
+	// When POST /v1/chat/completions
+	// Then returns HTTP 400
+	reg := newTestRegistry(t)
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"ollama","messages":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var errResp OpenAIErrorResponse
+	if err := json.Unmarshal(respBody, &errResp); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if errResp.Error.Code != "invalid_request" {
+		t.Errorf("error.code = %q, want %q", errResp.Error.Code, "invalid_request")
+	}
+}
+
+// --- model 为空 → 400 ---
+
+func TestChatCompletions_EmptyModel_400(t *testing.T) {
+	// Given model field is empty
+	// When POST /v1/chat/completions
+	// Then returns HTTP 400
+	reg := newTestRegistry(t)
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+// --- 请求体过大 → 400 ---
+
+func TestChatCompletions_OversizedBody_400(t *testing.T) {
+	// Given request body exceeds 4MB limit
+	// When POST /v1/chat/completions
+	// Then returns HTTP 400 (MaxBytesReader triggers error)
+	reg := newTestRegistry(t)
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	// Create a body just over 4MB
+	bigContent := strings.Repeat("x", 5<<20) // 5 MB
+	body := fmt.Sprintf(`{"model":"ollama","messages":[{"role":"user","content":"%s"}]}`, bigContent)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d (oversized body)", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+// --- AC #5: driver.Call 超时 → 504 ---
+
+func TestChatCompletions_DriverTimeout_504(t *testing.T) {
+	// Given driver.Call returns context.DeadlineExceeded
+	// When POST /v1/chat/completions
+	// Then returns HTTP 504 + timeout
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("slow", &configurableDriver{
+		info: llm.DriverInfo{Name: "slow", Provider: "slow", DefaultModel: "model", DriverType: "test"},
+		callFn: func(_ context.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
+			return nil, context.DeadlineExceeded
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"slow","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusGatewayTimeout)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var errResp OpenAIErrorResponse
+	if err := json.Unmarshal(respBody, &errResp); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if errResp.Error.Code != "timeout" {
+		t.Errorf("error.code = %q, want %q", errResp.Error.Code, "timeout")
+	}
+}
+
+// --- driver.Call 内部错误 → 502 (no error detail leak) ---
+
+func TestChatCompletions_DriverError_502(t *testing.T) {
+	// Given driver.Call returns a non-timeout error
+	// When POST /v1/chat/completions
+	// Then returns HTTP 502 + upstream_error (without leaking internal error details)
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("broken", &configurableDriver{
+		info: llm.DriverInfo{Name: "broken", Provider: "broken", DefaultModel: "model", DriverType: "test"},
+		callFn: func(_ context.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
+			return nil, fmt.Errorf("internal driver failure: secret_api_key=abc123")
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"broken","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadGateway)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var errResp OpenAIErrorResponse
+	if err := json.Unmarshal(respBody, &errResp); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if errResp.Error.Code != "upstream_error" {
+		t.Errorf("error.code = %q, want %q", errResp.Error.Code, "upstream_error")
+	}
+	// Verify internal error details are NOT leaked to the client
+	if strings.Contains(errResp.Error.Message, "secret_api_key") {
+		t.Errorf("error.message leaks internal details: %q", errResp.Error.Message)
+	}
+	if strings.Contains(errResp.Error.Message, "internal driver failure") {
+		t.Errorf("error.message leaks internal error text: %q", errResp.Error.Message)
+	}
+}
+
+// --- context.Canceled (client disconnect) → silent return ---
+
+func TestChatCompletions_ClientDisconnect_ContextCanceled(t *testing.T) {
+	// Given driver.Call returns context.Canceled (client disconnected)
+	// When POST /v1/chat/completions
+	// Then handler returns silently (no error body written)
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("slow", &configurableDriver{
+		info: llm.DriverInfo{Name: "slow", Provider: "slow", DefaultModel: "model", DriverType: "test"},
+		callFn: func(_ context.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
+			return nil, context.Canceled
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"slow","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	// When client disconnects, handler returns silently; default status is 200
+	// (no explicit WriteHeader was called, which is the correct Go behavior
+	// for "connection gone, nothing to write")
+	respBody, _ := io.ReadAll(resp.Body)
+	if len(respBody) > 0 {
+		// If body is written, it should NOT be an error response
+		var errResp OpenAIErrorResponse
+		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error.Code != "" {
+			t.Errorf("should not write error response on client disconnect, got code=%q", errResp.Error.Code)
+		}
+	}
+}
+
+// --- nil LLMResponse (buggy driver) → 502 ---
+
+func TestChatCompletions_NilResponse_502(t *testing.T) {
+	// Given driver.Call returns (nil, nil) — a buggy driver
+	// When POST /v1/chat/completions
+	// Then returns HTTP 502 instead of panicking
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("buggy", &configurableDriver{
+		info: llm.DriverInfo{Name: "buggy", Provider: "buggy", DefaultModel: "model", DriverType: "test"},
+		callFn: func(_ context.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
+			return nil, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"buggy","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadGateway)
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var errResp OpenAIErrorResponse
+	if err := json.Unmarshal(respBody, &errResp); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
+	if errResp.Error.Code != "upstream_error" {
+		t.Errorf("error.code = %q, want %q", errResp.Error.Code, "upstream_error")
+	}
+}
+
+// --- stream:true → 501 ---
+
+func TestChatCompletions_StreamTrue_501(t *testing.T) {
+	// Given stream=true in request (Story 24.3 feature)
+	// When POST /v1/chat/completions
+	// Then returns HTTP 501 Not Implemented
+	reg := newTestRegistry(t)
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hello"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusNotImplemented {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotImplemented)
+	}
+}
+
+// --- AC #6: HTTP 处理开销 <= 50ms ---
+
+func TestChatCompletions_OverheadUnder50ms(t *testing.T) {
+	// Given a driver that returns instantly
+	// When measuring HTTP handler overhead (excluding LLM inference)
+	// Then overhead is <= 50ms (NFR50)
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("fast", &configurableDriver{
+		info: llm.DriverInfo{Name: "fast", Provider: "fast", DefaultModel: "m", DriverType: "test"},
+		callFn: func(_ context.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
+			return &llm.LLMResponse{Content: "fast"}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"fast","messages":[{"role":"user","content":"test"}]}`
+
+	// Warm up
+	warmReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	warmW := httptest.NewRecorder()
+	srv.handleChatCompletions(warmW, warmReq)
+
+	// Measure
+	iterations := 100
+	start := time.Now()
+	for range iterations {
+		req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.handleChatCompletions(w, req)
+		if w.Result().StatusCode != http.StatusOK {
+			t.Fatalf("unexpected status %d during overhead test", w.Result().StatusCode)
+		}
+	}
+	elapsed := time.Since(start)
+	avgOverhead := elapsed / time.Duration(iterations)
+
+	if avgOverhead > 50*time.Millisecond {
+		t.Errorf("average HTTP overhead = %v, want <= 50ms (NFR50)", avgOverhead)
+	}
+	t.Logf("average HTTP overhead: %v (iterations=%d)", avgOverhead, iterations)
+}
+
+// --- toLLMRequest 转换测试 ---
+
+func TestToLLMRequest_MessageMapping(t *testing.T) {
+	// Given ChatCompletionRequest with multiple messages
+	// When converting to LLMRequest
+	// Then messages are correctly mapped
+	temp := float64(0.8)
+	req := ChatCompletionRequest{
+		Model: "ollama:llama3",
+		Messages: []ChatMessage{
+			{Role: "system", Content: "You are helpful"},
+			{Role: "user", Content: "Hello"},
+		},
+		Temperature: &temp,
+		MaxTokens:   2048,
+	}
+
+	llmReq := toLLMRequest(req, "llama3")
+
+	if llmReq.Model != "llama3" {
+		t.Errorf("Model = %q, want %q", llmReq.Model, "llama3")
+	}
+	if len(llmReq.Messages) != 2 {
+		t.Fatalf("len(Messages) = %d, want 2", len(llmReq.Messages))
+	}
+	if llmReq.Messages[0].Role != "system" {
+		t.Errorf("Messages[0].Role = %q, want %q", llmReq.Messages[0].Role, "system")
+	}
+	if llmReq.Messages[0].Content != "You are helpful" {
+		t.Errorf("Messages[0].Content = %q, want %q", llmReq.Messages[0].Content, "You are helpful")
+	}
+	if llmReq.Messages[1].Role != "user" {
+		t.Errorf("Messages[1].Role = %q, want %q", llmReq.Messages[1].Role, "user")
+	}
+	if llmReq.Temperature == nil || *llmReq.Temperature != 0.8 {
+		t.Errorf("Temperature = %v, want 0.8", llmReq.Temperature)
+	}
+	if llmReq.MaxTokens != 2048 {
+		t.Errorf("MaxTokens = %d, want 2048", llmReq.MaxTokens)
+	}
+}
+
+func TestToLLMRequest_EmptyModel(t *testing.T) {
+	// Given modelOverride is empty (provider-only model string)
+	// When converting to LLMRequest
+	// Then LLMRequest.Model is empty (driver uses default)
+	req := ChatCompletionRequest{
+		Model:    "ollama",
+		Messages: []ChatMessage{{Role: "user", Content: "hi"}},
+	}
+
+	llmReq := toLLMRequest(req, "")
+
+	if llmReq.Model != "" {
+		t.Errorf("Model = %q, want empty", llmReq.Model)
+	}
+}
+
+// --- toChatCompletionResponse 转换测试 ---
+
+func TestToChatCompletionResponse_Format(t *testing.T) {
+	// Given LLMResponse with content and token usage
+	// When converting to ChatCompletionResponse
+	// Then all fields are correctly set
+	llmResp := &llm.LLMResponse{
+		Content:      "test response",
+		TokensUsed:   30,
+		InputTokens:  12,
+		OutputTokens: 18,
+	}
+
+	resp := toChatCompletionResponse(llmResp, "ollama:llama3")
+
+	if !strings.HasPrefix(resp.ID, "chatcmpl-") {
+		t.Errorf("ID = %q, want prefix %q", resp.ID, "chatcmpl-")
+	}
+	if resp.Object != "chat.completion" {
+		t.Errorf("Object = %q, want %q", resp.Object, "chat.completion")
+	}
+	if resp.Created == 0 {
+		t.Error("Created = 0, want non-zero")
+	}
+	if resp.Model != "ollama:llama3" {
+		t.Errorf("Model = %q, want %q", resp.Model, "ollama:llama3")
+	}
+	if len(resp.Choices) != 1 {
+		t.Fatalf("len(Choices) = %d, want 1", len(resp.Choices))
+	}
+	if resp.Choices[0].Message.Content != "test response" {
+		t.Errorf("Choices[0].Message.Content = %q, want %q", resp.Choices[0].Message.Content, "test response")
+	}
+	if resp.Choices[0].Message.Role != "assistant" {
+		t.Errorf("Choices[0].Message.Role = %q, want %q", resp.Choices[0].Message.Role, "assistant")
+	}
+	if resp.Choices[0].FinishReason != "stop" {
+		t.Errorf("Choices[0].FinishReason = %q, want %q", resp.Choices[0].FinishReason, "stop")
+	}
+	if resp.Usage == nil {
+		t.Fatal("Usage is nil")
+	}
+	if resp.Usage.PromptTokens != 12 {
+		t.Errorf("Usage.PromptTokens = %d, want 12", resp.Usage.PromptTokens)
+	}
+	if resp.Usage.CompletionTokens != 18 {
+		t.Errorf("Usage.CompletionTokens = %d, want 18", resp.Usage.CompletionTokens)
+	}
+	if resp.Usage.TotalTokens != 30 {
+		t.Errorf("Usage.TotalTokens = %d, want 30", resp.Usage.TotalTokens)
+	}
+}
+
+// --- 可选参数（Temperature, MaxTokens）透传测试 ---
+
+func TestChatCompletions_OptionalFields_PassThrough(t *testing.T) {
+	// Given request with temperature and max_tokens
+	// When POST /v1/chat/completions
+	// Then optional fields are passed to the driver
+	var capturedReq llm.LLMRequest
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("test", &configurableDriver{
+		info: llm.DriverInfo{Name: "test", Provider: "test", DefaultModel: "m", DriverType: "test"},
+		callFn: func(_ context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
+			capturedReq = req
+			return &llm.LLMResponse{Content: "ok"}, nil
+		},
+	})
+	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+
+	body := `{"model":"test","messages":[{"role":"user","content":"hi"}],"temperature":0.5,"max_tokens":512}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	if w.Result().StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Result().StatusCode)
+	}
+	if capturedReq.Temperature == nil || *capturedReq.Temperature != 0.5 {
+		t.Errorf("Temperature = %v, want 0.5", capturedReq.Temperature)
+	}
+	if capturedReq.MaxTokens != 512 {
+		t.Errorf("MaxTokens = %d, want 512", capturedReq.MaxTokens)
 	}
 }

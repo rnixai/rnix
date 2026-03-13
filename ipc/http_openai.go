@@ -3,6 +3,8 @@ package ipc
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -74,10 +76,81 @@ func (s *OpenAIServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// handleChatCompletions is a stub — full implementation in Story 24.2.
-func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, _ *http.Request) {
-	writeError(w, http.StatusNotImplemented, "server_error", "not_implemented",
-		"POST /v1/chat/completions is not yet implemented")
+// handleChatCompletions processes POST /v1/chat/completions requests.
+// It parses the model string, finds the driver, converts the request,
+// calls the LLM synchronously, and returns an OpenAI-compatible response.
+func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
+	// Limit request body to 4MB to prevent OOM from oversized payloads.
+	const maxBodySize = 4 << 20 // 4 MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+
+	var req ChatCompletionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_request",
+			"Invalid JSON in request body: "+err.Error())
+		return
+	}
+
+	// Validate required fields
+	if req.Model == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_request",
+			"'model' is required")
+		return
+	}
+	if len(req.Messages) == 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "invalid_request",
+			"'messages' must be a non-empty array")
+		return
+	}
+
+	// Stream mode is not yet implemented (Story 24.3)
+	if req.Stream {
+		writeError(w, http.StatusNotImplemented, "server_error", "not_implemented",
+			"Streaming mode is not yet implemented")
+		return
+	}
+
+	// Parse model into provider + model name
+	provider, modelName := parseModel(req.Model)
+
+	// Look up driver
+	driver, ok := s.driverReg.Get(provider)
+	if !ok {
+		names := s.driverReg.Names()
+		writeError(w, http.StatusNotFound, "invalid_request_error", "model_not_found",
+			fmt.Sprintf("Provider '%s' not found. Available providers: %s", provider, strings.Join(names, ", ")))
+		return
+	}
+
+	// Convert request and call driver
+	llmReq := toLLMRequest(req, modelName)
+	llmResp, err := driver.Call(r.Context(), llmReq)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Client disconnected — nothing useful to send back.
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			writeError(w, http.StatusGatewayTimeout, "server_error", "timeout",
+				"LLM request timed out")
+			return
+		}
+		writeError(w, http.StatusBadGateway, "server_error", "upstream_error",
+			"LLM driver returned an error")
+		return
+	}
+
+	// Guard against buggy drivers returning (nil, nil).
+	if llmResp == nil {
+		writeError(w, http.StatusBadGateway, "server_error", "upstream_error",
+			"LLM driver returned an empty response")
+		return
+	}
+
+	// Convert and send response
+	resp := toChatCompletionResponse(llmResp, req.Model)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // handleListModels is a stub — full implementation in Story 24.4.
@@ -172,6 +245,52 @@ func writeError(w http.ResponseWriter, statusCode int, errType, code, message st
 			Code:    code,
 		},
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Conversion functions
+// ---------------------------------------------------------------------------
+
+// toLLMRequest converts a ChatCompletionRequest to an llm.LLMRequest.
+// modelOverride is the model name extracted from parseModel; if empty the
+// driver will use its configured default_model.
+func toLLMRequest(req ChatCompletionRequest, modelOverride string) llm.LLMRequest {
+	msgs := make([]llm.Message, len(req.Messages))
+	for i, m := range req.Messages {
+		msgs[i] = llm.Message{
+			Role:    m.Role,
+			Content: m.Content,
+		}
+	}
+	return llm.LLMRequest{
+		Model:       modelOverride,
+		Messages:    msgs,
+		Temperature: req.Temperature,
+		MaxTokens:   req.MaxTokens,
+	}
+}
+
+// toChatCompletionResponse converts an llm.LLMResponse to the OpenAI-compatible
+// ChatCompletionResponse format.
+func toChatCompletionResponse(llmResp *llm.LLMResponse, model string) ChatCompletionResponse {
+	return ChatCompletionResponse{
+		ID:      fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano()),
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Model:   model,
+		Choices: []ChatChoice{
+			{
+				Index:        0,
+				Message:      ChatMessage{Role: "assistant", Content: llmResp.Content},
+				FinishReason: "stop",
+			},
+		},
+		Usage: &ChatUsage{
+			PromptTokens:     llmResp.InputTokens,
+			CompletionTokens: llmResp.OutputTokens,
+			TotalTokens:      llmResp.TokensUsed,
+		},
+	}
 }
 
 // ---------------------------------------------------------------------------
