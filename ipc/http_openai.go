@@ -103,13 +103,6 @@ func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Stream mode is not yet implemented (Story 24.3)
-	if req.Stream {
-		writeError(w, http.StatusNotImplemented, "server_error", "not_implemented",
-			"Streaming mode is not yet implemented")
-		return
-	}
-
 	// Parse model into provider + model name
 	provider, modelName := parseModel(req.Model)
 
@@ -122,8 +115,16 @@ func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Convert request and call driver
+	// Convert request
 	llmReq := toLLMRequest(req, modelName)
+
+	// Branch: streaming vs synchronous
+	if req.Stream {
+		s.handleStreamingResponse(w, r, driver, llmReq, req.Model)
+		return
+	}
+
+	// Synchronous path
 	llmResp, err := driver.Call(r.Context(), llmReq)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -157,6 +158,85 @@ func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, r *http.Requ
 func (s *OpenAIServer) handleListModels(w http.ResponseWriter, _ *http.Request) {
 	writeError(w, http.StatusNotImplemented, "server_error", "not_implemented",
 		"GET /v1/models is not yet implemented")
+}
+
+// handleStreamingResponse handles the SSE streaming path for chat completions.
+// It sets SSE headers, converts StreamEvents to ChatCompletionChunks, and
+// writes them as SSE data lines with immediate flushing.
+func (s *OpenAIServer) handleStreamingResponse(w http.ResponseWriter, r *http.Request, driver llm.LLMDriver, llmReq llm.LLMRequest, model string) {
+	// Start the stream from the driver.
+	eventCh, err := driver.Stream(r.Context(), llmReq)
+	if err != nil {
+		// SSE headers not yet sent — we can still return a normal JSON error.
+		if errors.Is(err, context.Canceled) {
+			// Client disconnected before stream started — nothing to send.
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			writeError(w, http.StatusGatewayTimeout, "server_error", "timeout",
+				"LLM stream request timed out")
+			return
+		}
+		writeError(w, http.StatusBadGateway, "server_error", "upstream_error",
+			"LLM driver failed to start stream")
+		return
+	}
+
+	// Assert Flusher interface support.
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "server_error", "internal_error",
+			"Streaming not supported by server")
+		return
+	}
+
+	// Write SSE response headers.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	streamID := fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	isFirst := true
+
+	for event := range eventCh {
+		// Check for client disconnect.
+		if r.Context().Err() != nil {
+			return
+		}
+
+		// Handle error events from the driver.
+		if event.Type == "error" || event.Err != nil {
+			errMsg := "LLM driver error during stream"
+			if event.Content != "" {
+				errMsg = event.Content
+			}
+			errResp := OpenAIErrorResponse{
+				Error: OpenAIErrorDetail{
+					Message: errMsg,
+					Type:    "server_error",
+					Code:    "stream_error",
+				},
+			}
+			data, _ := json.Marshal(errResp)
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+			return
+		}
+
+		chunk := toChatCompletionChunk(event, streamID, model, isFirst)
+		if isFirst && event.Type == "content" {
+			isFirst = false
+		}
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	// Write the [DONE] termination marker.
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	flusher.Flush()
 }
 
 // ---------------------------------------------------------------------------
@@ -204,11 +284,18 @@ type ChatCompletionChunk struct {
 	Choices []ChatChunkChoice `json:"choices"`
 }
 
+// ChatDelta represents a streaming delta message with omitempty fields
+// to match the OpenAI SSE format (empty fields are omitted, not "").
+type ChatDelta struct {
+	Role    string `json:"role,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
 // ChatChunkChoice represents a single chunk choice in streaming mode.
 type ChatChunkChoice struct {
-	Index        int         `json:"index"`
-	Delta        ChatMessage `json:"delta"`
-	FinishReason string      `json:"finish_reason,omitempty"`
+	Index        int       `json:"index"`
+	Delta        ChatDelta `json:"delta"`
+	FinishReason string    `json:"finish_reason,omitempty"`
 }
 
 // ChatUsage contains token usage statistics.
@@ -290,6 +377,31 @@ func toChatCompletionResponse(llmResp *llm.LLMResponse, model string) ChatComple
 			CompletionTokens: llmResp.OutputTokens,
 			TotalTokens:      llmResp.TokensUsed,
 		},
+	}
+}
+
+// toChatCompletionChunk converts an llm.StreamEvent to the OpenAI-compatible
+// ChatCompletionChunk format for SSE streaming. isFirst should be true for
+// the first content chunk to include role:"assistant" per OpenAI spec.
+func toChatCompletionChunk(event llm.StreamEvent, streamID, model string, isFirst bool) ChatCompletionChunk {
+	choice := ChatChunkChoice{Index: 0}
+
+	switch event.Type {
+	case "content":
+		choice.Delta = ChatDelta{Content: event.Content}
+		if isFirst {
+			choice.Delta.Role = "assistant"
+		}
+	case "done":
+		choice.FinishReason = "stop"
+	}
+
+	return ChatCompletionChunk{
+		ID:      streamID,
+		Object:  "chat.completion.chunk",
+		Created: time.Now().Unix(),
+		Model:   model,
+		Choices: []ChatChunkChoice{choice},
 	}
 }
 
