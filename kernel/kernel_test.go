@@ -2757,3 +2757,80 @@ func TestSetProviderResolver_HasProviderCallable(t *testing.T) {
 		t.Error("expected hasProvider('nonexist') to return false")
 	}
 }
+
+// --- SetDefaultProvider tests ---
+
+func TestSetDefaultProvider(t *testing.T) {
+	t.Parallel()
+	k := &KernelImpl{}
+	if k.defaultProvider != "" {
+		t.Fatalf("expected empty defaultProvider before SetDefaultProvider, got %q", k.defaultProvider)
+	}
+	k.SetDefaultProvider("groq")
+	if k.defaultProvider != "groq" {
+		t.Errorf("expected defaultProvider = %q, got %q", "groq", k.defaultProvider)
+	}
+}
+
+func TestResolveLLMDevice_UsesDefaultProvider(t *testing.T) {
+	t.Parallel()
+	k := &KernelImpl{}
+	k.SetDefaultProvider("groq")
+	// No provider resolver → allow all (backward compat)
+	got, err := k.resolveLLMDevice(nil, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "/dev/llm/groq" {
+		t.Errorf("expected /dev/llm/groq, got %q", got)
+	}
+}
+
+func TestResolveLLMDevice_DefaultProviderOverriddenByAgent(t *testing.T) {
+	t.Parallel()
+	k := &KernelImpl{}
+	k.SetDefaultProvider("groq")
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "ollama"},
+		},
+	}
+	got, err := k.resolveLLMDevice(agent, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "/dev/llm/ollama" {
+		t.Errorf("expected /dev/llm/ollama (agent manifest), got %q", got)
+	}
+}
+
+func TestResolveLLMDevice_DefaultProviderOverriddenBySpawnOpts(t *testing.T) {
+	t.Parallel()
+	k := &KernelImpl{}
+	k.SetDefaultProvider("groq")
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Models: agents.AgentModels{Provider: "ollama"},
+		},
+	}
+	got, err := k.resolveLLMDevice(agent, "claude")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "/dev/llm/claude" {
+		t.Errorf("expected /dev/llm/claude (SpawnOpts override), got %q", got)
+	}
+}
+
+func TestResolveLLMDevice_NoDefaultProvider_FallsBackToClaude(t *testing.T) {
+	t.Parallel()
+	k := &KernelImpl{}
+	// defaultProvider is "" (zero value), no setter called
+	got, err := k.resolveLLMDevice(nil, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "/dev/llm/claude" {
+		t.Errorf("expected /dev/llm/claude (backward compat), got %q", got)
+	}
+}

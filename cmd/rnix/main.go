@@ -1114,6 +1114,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	k.SetMountManager(mountMgr)
 	k.SetProviderResolver(driverReg.Names, func(name string) bool { _, ok := driverReg.Get(name); return ok })
+	k.SetDefaultProvider(providersCfg.ResolveDefaultProvider())
 	k.SetAgentLoader(agentLoader.Load) // Inject for OODA autonomous spawn (Story 20.2)
 
 	// Stem agent differentiation (Story 20.3)

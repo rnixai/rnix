@@ -36,8 +36,9 @@ So that 新增 provider 无需修改源码，仅需编辑配置文件。
   ```go
   // ProvidersConfig is the top-level structure of rnix-providers.yaml.
   type ProvidersConfig struct {
-      Version   string           `yaml:"version"`
-      Providers []ProviderConfig `yaml:"providers"`
+      Version         string           `yaml:"version"`
+      DefaultProvider string           `yaml:"default_provider,omitempty"`
+      Providers       []ProviderConfig `yaml:"providers"`
   }
 
   // ProviderConfig describes a single LLM provider entry.

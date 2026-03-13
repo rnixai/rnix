@@ -148,8 +148,12 @@ type KernelImpl struct {
 	diffMemory *DiffMemory
 
 	// Provider resolution callbacks (Story 23.3)
-	providerNames func() []string
-	hasProvider   func(name string) bool
+	providerNames   func() []string
+	hasProvider     func(name string) bool
+	defaultProvider string // injected default provider name; "" = fall back to "claude"
+
+	// Budget pools (Story 21.1)
+	budgetPools *xsync.SyncMap[types.PGID, *BudgetPool]
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -165,6 +169,7 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 		msgQueues:    xsync.NewSyncMap[types.PID, *MessageQueue](),
 		procGroups:   xsync.NewSyncMap[types.PGID, *ProcGroup](),
 		spanRecorder: debug.NewSpanRecorder(),
+		budgetPools:  xsync.NewSyncMap[types.PGID, *BudgetPool](),
 	}
 	k.startReaper()
 	return k
@@ -181,7 +186,11 @@ func (k *KernelImpl) resolveLLMDevice(agent *agents.AgentInfo, providerOverride 
 		provider = agent.Manifest.Models.Provider
 	}
 	if provider == "" {
-		provider = "claude"
+		if k.defaultProvider != "" {
+			provider = k.defaultProvider
+		} else {
+			provider = "claude"
+		}
 	}
 
 	if k.hasProvider != nil && !k.hasProvider(provider) {
@@ -969,12 +978,22 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		budget := proc.ContextBudget
 		tokens := proc.TokensUsed
 		hasTrace := proc.TraceID != ""
+		procGroups := make([]types.PGID, len(proc.groups))
+		copy(procGroups, proc.groups)
 		proc.mu.Unlock()
 
 		proc.AppendTokenSnapshot(step, tokens)
 
 		if hasTrace && k.spanRecorder != nil {
 			k.spanRecorder.RecordTokens(proc.PID, resp.TokensUsed)
+		}
+
+		// Update BudgetPool consumption (Story 21.1)
+		for _, pgid := range procGroups {
+			if pool, ok := k.budgetPools.Load(pgid); ok {
+				_ = pool.RecordUsage(proc.PID, resp.TokensUsed)
+				break
+			}
 		}
 
 		k.checkBudgetWarning(proc, step, tokens, budget)
@@ -1259,6 +1278,26 @@ func (k *KernelImpl) GetProcess(pid types.PID) (*Process, bool) {
 // RemoveProcess removes a process from the process table.
 func (k *KernelImpl) RemoveProcess(pid types.PID) {
 	k.procTable.Delete(pid)
+}
+
+// RegisterBudgetPool associates a BudgetPool with a process group.
+func (k *KernelImpl) RegisterBudgetPool(groupID types.PGID, pool *BudgetPool) {
+	k.budgetPools.Store(groupID, pool)
+}
+
+// UnregisterBudgetPool removes a BudgetPool association (called on compose down).
+func (k *KernelImpl) UnregisterBudgetPool(groupID types.PGID) {
+	k.budgetPools.Delete(groupID)
+}
+
+// GetBudgetStatus returns a snapshot of the budget pool for the given group.
+func (k *KernelImpl) GetBudgetStatus(groupID types.PGID) (*BudgetPoolStatus, error) {
+	pool, ok := k.budgetPools.Load(groupID)
+	if !ok {
+		return nil, fmt.Errorf("no budget pool for group %d", groupID)
+	}
+	status := pool.GetStatus()
+	return &status, nil
 }
 
 // GetLineage returns the lineage events for the given PID.
@@ -1559,6 +1598,12 @@ func (k *KernelImpl) SetDiffMemory(m *DiffMemory) {
 func (k *KernelImpl) SetProviderResolver(names func() []string, has func(name string) bool) {
 	k.providerNames = names
 	k.hasProvider = has
+}
+
+// SetDefaultProvider injects the default LLM provider name used when neither
+// the caller nor the agent manifest specifies a provider.
+func (k *KernelImpl) SetDefaultProvider(name string) {
+	k.defaultProvider = name
 }
 
 // StartRecording starts execution recording for the given PID.
