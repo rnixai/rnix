@@ -757,6 +757,19 @@ func (c *Client) SynergyList() (*SynergyListResponse, error) {
 	return &result, nil
 }
 
+// ImmuneStatus returns the immune daemon status and behavior profiles (Story 22.1).
+func (c *Client) ImmuneStatus() (*ImmuneStatusResponse, error) {
+	resp, err := c.call(MethodImmuneStatus, ImmuneStatusRequest{})
+	if err != nil {
+		return nil, err
+	}
+	var result ImmuneStatusResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal immune_status: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

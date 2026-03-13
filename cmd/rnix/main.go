@@ -1138,6 +1138,15 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	reputationStore := kernel.NewReputationStore(reputationDir)
 	synergyMatrix := kernel.NewSynergyMatrix(reputationDir)
 
+	// Initialize immune daemon (Story 22.1)
+	immuneDir := cwd + "/.rnix/immune"
+	immuneStore := kernel.NewImmuneStore(immuneDir)
+	immuneDaemon := kernel.NewImmuneDaemon(immuneStore)
+	if err := immuneDaemon.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "[kernel] warn: immune daemon start failed: %v\n", err)
+	}
+	k.SetImmuneDaemon(immuneDaemon)
+
 	// Initialize span persistence (Story 15.1)
 	traceBaseDir := cwd + "/.rnix/traces"
 	k.SetSpanWriter(debug.NewSpanWriter(traceBaseDir))
@@ -1147,6 +1156,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv.SetSkillLoader(skillLoader)
 	srv.SetReputationStore(reputationStore)
 	srv.SetSynergyMatrix(synergyMatrix)
+	srv.SetImmuneDaemon(immuneDaemon)
 	srv.SetProviderStatusFunc(func() []ipc.ProviderStatusWire {
 		statuses := driverReg.HealthStatuses()
 		wires := make([]ipc.ProviderStatusWire, len(statuses))
@@ -1222,6 +1232,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 
 	srv.Wait()
+	immuneDaemon.Stop()
 	k.Shutdown()
 	os.Remove(socketPath)
 

@@ -158,6 +158,9 @@ type KernelImpl struct {
 	// SLA results (Story 21.2)
 	slaResults   *xsync.SyncMap[types.PGID, []*SLAResult]
 	slaResultsMu sync.Mutex // guards Load+Modify+Store on slaResults
+
+	// Immune daemon (Story 22.1)
+	immuneDaemon *ImmuneDaemon
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -560,6 +563,15 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		k.callbacks.OnSpawn(proc.PID, intent)
 	}
 
+	// Notify immune daemon about new process (Story 22.1)
+	if k.immuneDaemon != nil {
+		agentName := ""
+		if agent != nil {
+			agentName = agent.Manifest.Name
+		}
+		k.immuneDaemon.OnProcessStart(proc.PID, agentName)
+	}
+
 	return proc.PID, nil
 }
 
@@ -615,6 +627,11 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 	if hasTrace && k.spanRecorder != nil {
 		k.spanRecorder.RecordSyscall(proc.PID)
 	}
+
+	// Immune daemon behavior monitoring (Story 22.1)
+	if k.immuneDaemon != nil {
+		k.immuneDaemon.OnSyscallEvent(proc.PID, event)
+	}
 }
 
 // finishProcess terminates the process and writes the exit status to the Done channel.
@@ -660,6 +677,11 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 			k.callbacks.OnError(proc.PID, exit.Err)
 		}
 		k.callbacks.OnComplete(proc.PID, proc.Result, exit)
+	}
+
+	// Notify immune daemon about process exit (Story 22.1)
+	if k.immuneDaemon != nil {
+		k.immuneDaemon.OnProcessExit(proc.PID, proc.TokensUsed, exit.Code == 0)
 	}
 
 	select {
@@ -1618,6 +1640,11 @@ func (k *KernelImpl) SetSkillLoader(fn func(string) (*skills.SkillInfo, error)) 
 // SetDiffMemory injects the differentiation memory for stem agent path reuse.
 func (k *KernelImpl) SetDiffMemory(m *DiffMemory) {
 	k.diffMemory = m
+}
+
+// SetImmuneDaemon injects the immune daemon for behavioral monitoring (Story 22.1).
+func (k *KernelImpl) SetImmuneDaemon(d *ImmuneDaemon) {
+	k.immuneDaemon = d
 }
 
 // SetProviderResolver injects callbacks for dynamic LLM provider validation.
