@@ -1,6 +1,6 @@
 # Story 21.5: Skill 组合矩阵
 
-Status: review
+Status: done
 
 ## Story
 
@@ -346,9 +346,14 @@ Claude Opus 4.6
 - Daemon 初始化：runDaemon 中创建 ReputationStore 和 SynergyMatrix 实例并注入 server
 - 全部 28 个 ATDD 测试通过，20 个包零回归，lint + vet + build 全部通过
 
+#### Code Review 修复（CR Pass）
+
+- **TokenImprovement 浮点精度修复**：`kernel/synergy_matrix.go` 中 `GetComboSummaries` 的 token 效率计算从整数除法改为浮点除法，避免精度丢失（`soloTokenSum / soloCount` → `float64(soloTokenSum) / float64(soloCount)`）
+
 ### Change Log
 
 - 2026-03-14: Story 21.5 全部 7 个 Task 实现完成，28 个 ATDD 测试绿色通过
+- 2026-03-14: Code Review 通过，修复 TokenImprovement 浮点精度问题，状态 → done
 
 ### File List
 
