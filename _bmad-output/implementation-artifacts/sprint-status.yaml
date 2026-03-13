@@ -261,7 +261,7 @@ development_status:
   epic-24: in-progress
   24-1-openai-http-server-core-framework: done
   24-2-chat-completions-sync-mode: done
-  24-3-sse-streaming-response: backlog
+  24-3-sse-streaming-response: done
   24-4-models-endpoint-provider-discovery: backlog
   24-5-rnix-serve-cli-e2e-integration: backlog
   epic-24-retrospective: optional

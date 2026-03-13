@@ -35,17 +35,21 @@ func (d *stubDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.Str
 
 func (d *stubDriver) Info() llm.DriverInfo { return d.info }
 
-// configurableDriver allows tests to control Call behavior.
+// configurableDriver allows tests to control Call and Stream behavior.
 type configurableDriver struct {
-	info    llm.DriverInfo
-	callFn  func(ctx context.Context, req llm.LLMRequest) (*llm.LLMResponse, error)
+	info     llm.DriverInfo
+	callFn   func(ctx context.Context, req llm.LLMRequest) (*llm.LLMResponse, error)
+	streamFn func(ctx context.Context, req llm.LLMRequest) (<-chan llm.StreamEvent, error)
 }
 
 func (d *configurableDriver) Call(ctx context.Context, req llm.LLMRequest) (*llm.LLMResponse, error) {
 	return d.callFn(ctx, req)
 }
 
-func (d *configurableDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+func (d *configurableDriver) Stream(ctx context.Context, req llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+	if d.streamFn != nil {
+		return d.streamFn(ctx, req)
+	}
 	ch := make(chan llm.StreamEvent)
 	close(ch)
 	return ch, nil
@@ -201,7 +205,7 @@ func TestChatCompletionChunk_JSONTags(t *testing.T) {
 		Choices: []ChatChunkChoice{
 			{
 				Index:        0,
-				Delta:        ChatMessage{Content: "Hello"},
+				Delta:        ChatDelta{Content: "Hello"},
 				FinishReason: "",
 			},
 		},
@@ -1155,21 +1159,508 @@ func TestChatCompletions_NilResponse_502(t *testing.T) {
 
 // --- stream:true → 501 ---
 
-func TestChatCompletions_StreamTrue_501(t *testing.T) {
-	// Given stream=true in request (Story 24.3 feature)
-	// When POST /v1/chat/completions
-	// Then returns HTTP 501 Not Implemented
-	reg := newTestRegistry(t)
-	srv := NewOpenAIServer(reg, "127.0.0.1:8080")
+// --- Story 24.3: SSE Streaming Response Tests ---
+// (Replaces TestChatCompletions_StreamTrue_501 which tested the 501 stub)
 
-	body := `{"model":"ollama","messages":[{"role":"user","content":"hello"}],"stream":true}`
+// makeStreamEvents creates a channel that emits the given content strings as
+// StreamEvents, followed by a "done" event, then closes.
+func makeStreamEvents(contents ...string) <-chan llm.StreamEvent {
+	ch := make(chan llm.StreamEvent, len(contents)+1)
+	for _, c := range contents {
+		ch <- llm.StreamEvent{Type: "content", Content: c}
+	}
+	ch <- llm.StreamEvent{Type: "done"}
+	close(ch)
+	return ch
+}
+
+// parseSSELines extracts all "data: " lines from an SSE response body.
+func parseSSELines(body string) []string {
+	var lines []string
+	for line := range strings.SplitSeq(body, "\n") {
+		if strings.HasPrefix(line, "data: ") {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// parseSSEChunks parses SSE data lines (excluding [DONE]) into ChatCompletionChunk slices.
+func parseSSEChunks(t *testing.T, body string) []ChatCompletionChunk {
+	t.Helper()
+	var chunks []ChatCompletionChunk
+	for _, line := range parseSSELines(body) {
+		payload := strings.TrimPrefix(line, "data: ")
+		if payload == "[DONE]" {
+			continue
+		}
+		var chunk ChatCompletionChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			t.Fatalf("failed to parse SSE chunk JSON %q: %v", payload, err)
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks
+}
+
+func newStreamingTestServer(t *testing.T, streamFn func(ctx context.Context, req llm.LLMRequest) (<-chan llm.StreamEvent, error)) *OpenAIServer {
+	t.Helper()
+	reg := llm.NewDriverRegistry()
+	_ = reg.Register("ollama", &configurableDriver{
+		info: llm.DriverInfo{Name: "ollama", Provider: "ollama", DefaultModel: "llama3", DriverType: "openai-compat"},
+		callFn: func(_ context.Context, _ llm.LLMRequest) (*llm.LLMResponse, error) {
+			return &llm.LLMResponse{Content: "sync-response"}, nil
+		},
+		streamFn: streamFn,
+	})
+	return NewOpenAIServer(reg, "127.0.0.1:8080")
+}
+
+func TestStreamingResponse_SSEHeaders(t *testing.T) {
+	// AC1: SSE response headers are correctly set
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return makeStreamEvents("hello"), nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	srv.handleChatCompletions(w, req)
 
 	resp := w.Result()
-	if resp.StatusCode != http.StatusNotImplemented {
-		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotImplemented)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want %q", ct, "text/event-stream")
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("Cache-Control = %q, want %q", cc, "no-cache")
+	}
+	if conn := resp.Header.Get("Connection"); conn != "keep-alive" {
+		t.Errorf("Connection = %q, want %q", conn, "keep-alive")
+	}
+}
+
+func TestStreamingResponse_ChunkFormat(t *testing.T) {
+	// AC2: Each chunk written as "data: {json}\n\n" format
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return makeStreamEvents("Hello", " world", "!"), nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	respBody := w.Body.String()
+	sseLines := parseSSELines(respBody)
+
+	// 3 content chunks + 1 done chunk + 1 [DONE] marker = 5 data lines
+	if len(sseLines) != 5 {
+		t.Fatalf("got %d SSE data lines, want 5; body:\n%s", len(sseLines), respBody)
+	}
+
+	// Verify each non-DONE line is valid JSON
+	chunks := parseSSEChunks(t, respBody)
+	if len(chunks) != 4 { // 3 content + 1 done
+		t.Errorf("got %d parsed chunks, want 4", len(chunks))
+	}
+}
+
+func TestStreamingResponse_ChunkFields(t *testing.T) {
+	// AC2: ChatCompletionChunk fields are correct
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return makeStreamEvents("hi"), nil
+	})
+
+	body := `{"model":"ollama:llama3","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	chunks := parseSSEChunks(t, w.Body.String())
+	if len(chunks) < 1 {
+		t.Fatal("expected at least 1 chunk")
+	}
+
+	first := chunks[0]
+	if first.Object != "chat.completion.chunk" {
+		t.Errorf("object = %q, want %q", first.Object, "chat.completion.chunk")
+	}
+	if first.Model != "ollama:llama3" {
+		t.Errorf("model = %q, want %q", first.Model, "ollama:llama3")
+	}
+	if first.Created == 0 {
+		t.Error("created = 0, want valid Unix timestamp")
+	}
+	if len(first.Choices) != 1 {
+		t.Fatalf("choices length = %d, want 1", len(first.Choices))
+	}
+	if first.Choices[0].Delta.Content != "hi" {
+		t.Errorf("delta.content = %q, want %q", first.Choices[0].Delta.Content, "hi")
+	}
+	// OpenAI spec: first content chunk includes role:"assistant"
+	if first.Choices[0].Delta.Role != "assistant" {
+		t.Errorf("delta.role = %q, want %q (first chunk should include role)", first.Choices[0].Delta.Role, "assistant")
+	}
+}
+
+func TestStreamingResponse_ConsistentChunkID(t *testing.T) {
+	// AC2: All chunks in the same stream share the same ID
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return makeStreamEvents("a", "b", "c"), nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	chunks := parseSSEChunks(t, w.Body.String())
+	if len(chunks) < 2 {
+		t.Fatal("expected at least 2 chunks")
+	}
+
+	firstID := chunks[0].ID
+	if !strings.HasPrefix(firstID, "chatcmpl-") {
+		t.Errorf("chunk ID = %q, want prefix %q", firstID, "chatcmpl-")
+	}
+	for i, chunk := range chunks[1:] {
+		if chunk.ID != firstID {
+			t.Errorf("chunk[%d].ID = %q, want %q (same as first)", i+1, chunk.ID, firstID)
+		}
+	}
+}
+
+func TestStreamingResponse_FinishReason(t *testing.T) {
+	// AC2: content chunks have empty finish_reason, done chunk has "stop"
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return makeStreamEvents("hello"), nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	chunks := parseSSEChunks(t, w.Body.String())
+	if len(chunks) != 2 { // 1 content + 1 done
+		t.Fatalf("got %d chunks, want 2", len(chunks))
+	}
+
+	// Content chunk: finish_reason should be empty (omitempty)
+	if chunks[0].Choices[0].FinishReason != "" {
+		t.Errorf("content chunk finish_reason = %q, want empty", chunks[0].Choices[0].FinishReason)
+	}
+	// Done chunk: finish_reason should be "stop"
+	if chunks[1].Choices[0].FinishReason != "stop" {
+		t.Errorf("done chunk finish_reason = %q, want %q", chunks[1].Choices[0].FinishReason, "stop")
+	}
+}
+
+func TestStreamingResponse_DeltaRoleOnlyOnFirst(t *testing.T) {
+	// OpenAI spec: first content chunk has role:"assistant", subsequent do not
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return makeStreamEvents("Hello", " world"), nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	chunks := parseSSEChunks(t, w.Body.String())
+	if len(chunks) < 3 { // 2 content + 1 done
+		t.Fatalf("got %d chunks, want at least 3", len(chunks))
+	}
+
+	// First content chunk: role="assistant"
+	if chunks[0].Choices[0].Delta.Role != "assistant" {
+		t.Errorf("first chunk delta.role = %q, want %q", chunks[0].Choices[0].Delta.Role, "assistant")
+	}
+	// Second content chunk: role should be empty (omitted in JSON)
+	if chunks[1].Choices[0].Delta.Role != "" {
+		t.Errorf("second chunk delta.role = %q, want empty", chunks[1].Choices[0].Delta.Role)
+	}
+	// Done chunk: delta should be empty (both role and content empty)
+	if chunks[2].Choices[0].Delta.Role != "" || chunks[2].Choices[0].Delta.Content != "" {
+		t.Errorf("done chunk delta = {role:%q, content:%q}, want empty delta",
+			chunks[2].Choices[0].Delta.Role, chunks[2].Choices[0].Delta.Content)
+	}
+}
+
+func TestStreamingResponse_StreamInitCanceled(t *testing.T) {
+	// H1 fix: context.Canceled during stream init returns silently (no error body)
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return nil, context.Canceled
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	respBody, _ := io.ReadAll(resp.Body)
+	// Should return silently without writing an error body
+	if len(respBody) > 0 {
+		var errResp OpenAIErrorResponse
+		if json.Unmarshal(respBody, &errResp) == nil && errResp.Error.Code != "" {
+			t.Errorf("should not write error response on context.Canceled, got code=%q", errResp.Error.Code)
+		}
+	}
+}
+
+func TestStreamingResponse_MidStreamErrorContent(t *testing.T) {
+	// M3 fix: error event content is propagated to SSE error response
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		ch := make(chan llm.StreamEvent, 2)
+		ch <- llm.StreamEvent{Type: "error", Content: "rate limit exceeded"}
+		close(ch)
+		return ch, nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	sseLines := parseSSELines(w.Body.String())
+	if len(sseLines) != 1 {
+		t.Fatalf("got %d SSE lines, want 1; body:\n%s", len(sseLines), w.Body.String())
+	}
+
+	errPayload := strings.TrimPrefix(sseLines[0], "data: ")
+	var errResp OpenAIErrorResponse
+	if err := json.Unmarshal([]byte(errPayload), &errResp); err != nil {
+		t.Fatalf("failed to parse error SSE: %v", err)
+	}
+	if errResp.Error.Message != "rate limit exceeded" {
+		t.Errorf("error.message = %q, want %q", errResp.Error.Message, "rate limit exceeded")
+	}
+}
+
+func TestStreamingResponse_DoneMarker(t *testing.T) {
+	// AC3: [DONE] termination marker is present as last SSE line
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return makeStreamEvents("hi"), nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	sseLines := parseSSELines(w.Body.String())
+	if len(sseLines) == 0 {
+		t.Fatal("no SSE data lines found")
+	}
+	last := sseLines[len(sseLines)-1]
+	if last != "data: [DONE]" {
+		t.Errorf("last SSE line = %q, want %q", last, "data: [DONE]")
+	}
+}
+
+func TestStreamingResponse_ClientDisconnect(t *testing.T) {
+	// AC4: Client disconnect propagates context cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create a slow stream that blocks until context is cancelled
+	srv := newStreamingTestServer(t, func(streamCtx context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		ch := make(chan llm.StreamEvent)
+		go func() {
+			defer close(ch)
+			// Send one event
+			select {
+			case ch <- llm.StreamEvent{Type: "content", Content: "first"}:
+			case <-streamCtx.Done():
+				return
+			}
+			// Wait for context cancellation
+			<-streamCtx.Done()
+		}()
+		return ch, nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		srv.handleChatCompletions(w, req)
+		close(done)
+	}()
+
+	// Cancel context to simulate client disconnect
+	cancel()
+
+	// Handler should finish without blocking
+	select {
+	case <-done:
+		// Success: handler returned after context cancellation
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not return after context cancellation (deadlock?)")
+	}
+}
+
+func TestStreamingResponse_StreamInitError(t *testing.T) {
+	// AC5: Stream initialization error returns JSON error (not SSE)
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return nil, fmt.Errorf("driver initialization failed")
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadGateway)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
+
+	var errResp OpenAIErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	if errResp.Error.Code != "upstream_error" {
+		t.Errorf("error.code = %q, want %q", errResp.Error.Code, "upstream_error")
+	}
+}
+
+func TestStreamingResponse_StreamInitTimeout(t *testing.T) {
+	// AC5: Stream initialization timeout returns 504
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return nil, context.DeadlineExceeded
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusGatewayTimeout {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusGatewayTimeout)
+	}
+
+	var errResp OpenAIErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	if errResp.Error.Code != "timeout" {
+		t.Errorf("error.code = %q, want %q", errResp.Error.Code, "timeout")
+	}
+}
+
+func TestStreamingResponse_MidStreamError(t *testing.T) {
+	// AC5: Error event during stream writes SSE error event
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		ch := make(chan llm.StreamEvent, 3)
+		ch <- llm.StreamEvent{Type: "content", Content: "partial"}
+		ch <- llm.StreamEvent{Type: "error", Err: fmt.Errorf("driver crashed")}
+		close(ch)
+		return ch, nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	respBody := w.Body.String()
+	sseLines := parseSSELines(respBody)
+
+	// Should have: 1 content chunk + 1 error event (no [DONE])
+	if len(sseLines) != 2 {
+		t.Fatalf("got %d SSE lines, want 2; body:\n%s", len(sseLines), respBody)
+	}
+
+	// First line should be a content chunk
+	chunks := parseSSEChunks(t, "data: "+strings.TrimPrefix(sseLines[0], "data: ")+"\n\n")
+	if len(chunks) != 1 || chunks[0].Choices[0].Delta.Content != "partial" {
+		t.Errorf("first SSE line should be content chunk with 'partial'")
+	}
+
+	// Second line should be an error
+	errPayload := strings.TrimPrefix(sseLines[1], "data: ")
+	var errResp OpenAIErrorResponse
+	if err := json.Unmarshal([]byte(errPayload), &errResp); err != nil {
+		t.Fatalf("failed to parse error SSE: %v", err)
+	}
+	if errResp.Error.Code != "stream_error" {
+		t.Errorf("error.code = %q, want %q", errResp.Error.Code, "stream_error")
+	}
+
+	// No [DONE] marker after error
+	last := sseLines[len(sseLines)-1]
+	if strings.Contains(last, "[DONE]") {
+		t.Error("found [DONE] after error event, should not be present")
+	}
+}
+
+func TestStreamingResponse_EmptyStream(t *testing.T) {
+	// Edge case: channel closed immediately (no events)
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		ch := make(chan llm.StreamEvent)
+		close(ch)
+		return ch, nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	sseLines := parseSSELines(w.Body.String())
+	// Only [DONE] marker expected
+	if len(sseLines) != 1 {
+		t.Fatalf("got %d SSE lines, want 1 (only [DONE]); body:\n%s", len(sseLines), w.Body.String())
+	}
+	if sseLines[0] != "data: [DONE]" {
+		t.Errorf("SSE line = %q, want %q", sseLines[0], "data: [DONE]")
+	}
+}
+
+func TestStreamingResponse_SyncModeRegression(t *testing.T) {
+	// Regression: sync mode (stream:false) still works after streaming implementation
+	srv := newStreamingTestServer(t, func(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+		return makeStreamEvents("should not be called"), nil
+	})
+
+	body := `{"model":"ollama","messages":[{"role":"user","content":"hi"}],"stream":false}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.handleChatCompletions(w, req)
+
+	resp := w.Result()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
+
+	var chatResp ChatCompletionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+		t.Fatalf("failed to decode sync response: %v", err)
+	}
+	if chatResp.Object != "chat.completion" {
+		t.Errorf("object = %q, want %q", chatResp.Object, "chat.completion")
+	}
+	if chatResp.Choices[0].Message.Content != "sync-response" {
+		t.Errorf("content = %q, want %q", chatResp.Choices[0].Message.Content, "sync-response")
 	}
 }
 
