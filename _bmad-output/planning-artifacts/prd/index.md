@@ -18,6 +18,7 @@
     - [旅程 2：陈明遇到 LLM 超时（用户 A — 平台构建者，异常路径）](./user-journeys.md#旅程-2陈明遇到-llm-超时用户-a-平台构建者异常路径)
     - [旅程 3：林薇的 30 分钟工作流（用户 B — 应用开发者，成功路径）](./user-journeys.md#旅程-3林薇的-30-分钟工作流用户-b-应用开发者成功路径)
     - [旅程 4：林薇的调试时刻（用户 B — 应用开发者，排障路径）](./user-journeys.md#旅程-4林薇的调试时刻用户-b-应用开发者排障路径)
+    - [旅程 5：陈明切换本地模型降低成本（用户 A — 平台构建者，多 Provider 路径）](./user-journeys.md#旅程-5陈明切换本地模型降低成本用户-a-平台构建者多-provider-路径)
     - [旅程 6：陈明通过 rnix serve 让外部工具使用 LLM（用户 A — 平台构建者，网关路径）](./user-journeys.md#旅程-6陈明通过-rnix-serve-让外部工具使用-llm用户-a-平台构建者网关路径)
     - [Journey Requirements Summary](./user-journeys.md#journey-requirements-summary)
   - [Innovation & Novel Patterns](./innovation-novel-patterns.md)

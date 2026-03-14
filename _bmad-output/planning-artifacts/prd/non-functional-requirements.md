@@ -68,10 +68,10 @@
 
 ## Configuration System Quality（配置系统质量，Phase 2）
 
-- **NFR53:** `rnix init` 全局初始化（含内置 agent/skill 模板复制）执行时间 ≤ 3 秒
-- **NFR54:** ProjectDir() 向上遍历查找 `.rnix/` 目录延迟 ≤ 10ms（≤ 20 层目录深度）
-- **NFR55:** 配置合并（全局 + 项目级 deep merge）处理时间 ≤ 50ms（≤ 10 个配置文件场景）
-- **NFR56:** `rnix migrate` 迁移过程保证数据完整性——迁移前自动备份原文件，迁移失败时回滚到备份状态，不丢失用户数据
+- **NFR53:** `rnix init` 全局初始化（含内置 agent/skill 模板复制）执行时间 ≤ 3 秒（冷启动场景，SSD 磁盘，通过 CLI 计时测量）
+- **NFR54:** ProjectDir() 向上遍历查找 `.rnix/` 目录延迟 ≤ 10ms（≤ 20 层目录深度，通过基准测试测量）
+- **NFR55:** 配置合并（全局 + 项目级 deep merge）处理时间 ≤ 50ms（≤ 10 个配置文件场景，通过基准测试测量）
+- **NFR56:** `rnix migrate` 迁移过程保证数据完整性——迁移前自动备份原文件到 `.rnix/backup/`，迁移失败时回滚到备份状态，通过迁移前后文件 checksum 比对验证不丢失用户数据
 
 ---
 

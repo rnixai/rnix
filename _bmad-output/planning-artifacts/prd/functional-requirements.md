@@ -156,7 +156,7 @@
 - **FR155:** 系统从 CWD 向上遍历目录树查找 `.rnix/` 目录（类似 git 查找 `.git/`），到 `$HOME` 或文件系统根停止；CLI 将发现的 `project_dir` 通过 IPC 传入 daemon
 - **FR156:** YAML 配置文件（providers.yaml、config.yaml、mcp.yaml）采用 deep merge 合并策略——项目级字段覆盖全局级同名字段；Agent 和 Skill 目录采用 shadow 策略——项目级同名定义完全遮蔽全局级，不做字段合并
 - **FR157:** Agent/Skill 查找按项目级 → 全局级顺序——项目级 `.rnix/agents/<name>/` 优先于全局级 `~/.config/rnix/agents/<name>/`，同名时项目级完全遮蔽全局级
-- **FR158:** 内置 Agent/Skill（当前 `lib/agents/` 和 `lib/skills/`）通过 Go `embed.FS` 嵌入二进制，不再作为运行时查找路径；`rnix init` 全局初始化时复制到 `~/.config/rnix/agents/` 和 `~/.config/rnix/skills/`，用户获得独立副本可自由修改
+- **FR158:** 内置 Agent/Skill（当前 `lib/agents/` 和 `lib/skills/`）打包在二进制中，不再作为运行时查找路径；`rnix init` 全局初始化时复制到 `~/.config/rnix/agents/` 和 `~/.config/rnix/skills/`，用户获得独立副本可自由修改
 - **FR159:** 配置文件进入 `.rnix/` 或 `~/.config/rnix/` 目录后去掉 `rnix-` 前缀（`rnix-providers.yaml` → `providers.yaml`、`rnix-init.yaml` → `init.yaml`、`rnix-compose.yaml` → `compose.yaml`）
 - **FR160:** IPC spawn 请求 payload 增加 `project_dir` 字段，daemon 端根据 `project_dir` 读取并合并项目级 `.rnix/` 配置；同一 daemon 可同时服务不同项目的进程
 - **FR161:** 系统检测到根目录旧配置文件（如 `rnix-providers.yaml`）时输出 deprecation warning，旧文件仍可识别但优先使用新路径
