@@ -31,4 +31,19 @@
 - FR69: Epic 12 — 教程文档（3 个场景）
 - FR70: Epic 12 — 架构文档（4 个模块）
 
+## Configuration System FR Coverage Map
+
+- FR153: Epic 25 — 双层配置目录（全局 ~/.config/rnix/ + 项目 .rnix/）
+- FR154: Epic 25 — rnix init 初始化命令（全局 + 项目）
+- FR155: Epic 25 — ProjectDir() 向上遍历查找 .rnix/
+- FR156: Epic 25 — YAML deep merge + Agent/Skill shadow 合并策略
+- FR157: Epic 25 — Agent/Skill 查找顺序（项目级 → 全局级 shadow）
+- FR158: Epic 25 — embed.FS 嵌入内置 Agent/Skill 模板
+- FR159: Epic 25 — 配置文件去 rnix- 前缀
+- FR160: Epic 25 — IPC spawn 请求 project_dir 字段
+- FR163: Epic 25 — 运行时数据 .rnix/data/ 隔离
+- FR164: Epic 25 — daemon 全局配置加载 + spawn 项目合并 + 进程配置快照
+
+> **已排除：** FR161（deprecation warning）、FR162（rnix migrate）——全新项目无需向后兼容。
+
 ---

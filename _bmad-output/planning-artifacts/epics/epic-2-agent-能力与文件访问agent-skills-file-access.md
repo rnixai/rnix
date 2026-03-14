@@ -40,9 +40,9 @@ So that 智能体可以获得身份、策略和专业化能力。
 
 ## Story 2.2: 宿主文件系统驱动（/dev/fs）
 
-As a 智能体,
-I want 通过 `/dev/fs` 设备读取宿主文件系统上的文件,
-So that 我可以分析用户的源代码和文档。
+As a 平台构建者,
+I want 智能体通过 `/dev/fs` 设备读取宿主文件系统上的文件,
+So that 智能体可以分析用户的源代码和文档。
 
 **Acceptance Criteria:**
 
@@ -70,9 +70,9 @@ So that 我可以分析用户的源代码和文档。
 
 ## Story 2.3: Shell 驱动（/dev/shell）
 
-As a 智能体,
-I want 通过 `/dev/shell` 设备执行宿主系统的 shell 命令,
-So that 我可以运行构建工具、检查环境、执行脚本。
+As a 平台构建者,
+I want 智能体通过 `/dev/shell` 设备执行宿主系统的 shell 命令,
+So that 智能体可以运行构建工具、检查环境、执行脚本。
 
 **Acceptance Criteria:**
 

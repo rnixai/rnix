@@ -142,6 +142,45 @@
 - 信号处理：SIGINT 首次优雅中断（goroutine 清理），二次（2 秒内）强制退出
 - 终端宽度自适应：< 60/60-79/80-119（目标）/120+ 列四档，表格列按优先级取舍
 
+## 配置系统功能需求（FR153-FR164，Phase 2，排除 FR161/FR162）
+
+- FR153: 系统提供双层配置目录结构——全局级 `~/.config/rnix/`（XDG_CONFIG_HOME）+ 项目级 `.rnix/`
+- FR154: 用户可通过 `rnix init` 初始化配置环境（全局 + 项目），自动判断全局配置是否存在
+- FR155: 系统从 CWD 向上遍历查找 `.rnix/` 目录（类似 git 查找 `.git/`），到 $HOME 或根停止
+- FR156: YAML 配置 deep merge（项目覆盖全局），Agent/Skill 目录 shadow（项目同名完全遮蔽全局）
+- FR157: Agent/Skill 查找按项目级 → 全局级顺序，同名时项目级完全遮蔽全局级
+- FR158: 内置 Agent/Skill 通过 embed.FS 嵌入二进制，`rnix init` 时提取到 `~/.config/rnix/`
+- FR159: 配置文件进入 `.rnix/` 或 `~/.config/rnix/` 后去掉 `rnix-` 前缀
+- FR160: IPC spawn 请求增加 `project_dir` 字段，daemon 按 project_dir 合并项目级配置
+- FR163: 运行时数据（records、traces、reputation、immune）存放在 `.rnix/data/` 子目录
+- FR164: daemon 启动加载全局配置，spawn 时合并项目级配置；配置快照绑定到进程生命周期
+
+> **已排除：** FR161（deprecation warning）、FR162（rnix migrate）——全新项目无需向后兼容。
+
+## 配置系统非功能需求（NFR53-NFR55，排除 NFR56）
+
+- NFR53: `rnix init` 全局初始化（含模板复制）≤ 3 秒（SSD）
+- NFR54: ProjectDir() 向上遍历 ≤ 10ms（≤ 20 层目录深度）
+- NFR55: 配置合并（全局 + 项目级 deep merge）≤ 50ms（≤ 10 配置文件）
+
+> **已排除：** NFR56（migrate 数据完整性）——无迁移需求。
+
+## 配置系统附加需求（来自架构 Decision 14-22）
+
+- AR1: 新建 `internal/config/` 包（paths.go, merge.go, embed.go, types.go），仅依赖标准库 + internal/types
+- AR2: 纯函数设计，ProjectDir() 接受 startDir 参数，所有路径函数可测试
+- AR3: daemon 启动缓存 GlobalConfig，spawn 时生成不可变 ProjectConfig 快照
+- AR4: YAML Deep Merge 自实现递归 map 合并，slice 替换不追加
+- AR5: Agent/Skill 目录级 shadow，ShadowResolve + ListMerged
+- AR6: lib/agents/ 和 lib/skills/ 通过 embed.FS 嵌入，ExtractEmbedded 不覆盖已存在文件
+- AR7: ProjectDir() 未找到返回 ("", nil) 不报错
+- AR8: SpawnRequest 新增 ProjectDir 字段（omitempty 向后兼容）
+- AR10: Process 结构体新增 ProjectConfig 字段
+- AR11: 每文件职责边界：paths.go 纯路径、merge.go 纯数据结构、embed.go 嵌入提取
+- AR13: rnix init 所有操作幂等
+- AR15: 所有配置路径禁止直接拼接，必须调用 config 包函数
+- AR17: 受影响模块适配：agents/loader、skills/loader、drivers/llm/config、kernel/process
+
 ## FR Coverage Map
 
 - FR1: Epic 1 — 通过自然语言意图创建智能体进程
@@ -186,3 +225,13 @@
 - FR38: Epic 5 — 概念文档
 - FR39: Epic 5 — 快速上手指南
 - FR40: Epic 5 — 参考手册
+- FR153: Epic 25 — 双层配置目录（全局 ~/.config/rnix/ + 项目 .rnix/）
+- FR154: Epic 25 — rnix init 初始化命令（全局 + 项目）
+- FR155: Epic 25 — ProjectDir() 向上遍历查找 .rnix/
+- FR156: Epic 25 — YAML deep merge + Agent/Skill shadow
+- FR157: Epic 25 — Agent/Skill 查找顺序（项目级 → 全局级）
+- FR158: Epic 25 — embed.FS 嵌入内置 Agent/Skill 模板
+- FR159: Epic 25 — 配置文件去 rnix- 前缀
+- FR160: Epic 25 — IPC spawn project_dir 字段
+- FR163: Epic 25 — 运行时数据 .rnix/data/ 隔离
+- FR164: Epic 25 — daemon 全局加载 + spawn 项目合并 + 进程配置快照

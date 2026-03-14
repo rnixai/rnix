@@ -140,4 +140,11 @@ Supervisor 容错树自动管理子智能体生命周期 + init 引导序列初�
 **Dependencies:** Epic 23（DriverRegistry + rnix-providers.yaml 配置驱动）
 **User Journey:** 旅程 6（陈明通过 rnix serve 让外部工具使用 LLM）
 
+## Epic 25: 配置系统重构（Configuration System Redesign）
+用户安装 Rnix 后运行 `rnix init` 即可创建 `~/.config/rnix/` 全局配置环境，内置 agent/skill 从二进制模板自动提取并可自由定制。项目中创建 `.rnix/` 后，项目级配置自动与全局 deep merge，项目级 agent/skill shadow 全局同名定义。CLI 自动从 CWD 向上发现 `.rnix/`，通过 IPC 传入 daemon。同一 daemon 同时服务多项目，每进程持有不可变配置快照。
+**FRs covered:** FR153, FR154, FR155, FR156, FR157, FR158, FR159, FR160, FR163, FR164
+**NFRs:** NFR53 (init ≤3s), NFR54 (ProjectDir ≤10ms), NFR55 (合并 ≤50ms)
+**Dependencies:** 无（全新 `internal/config/` 包）
+**Architecture:** Decision 14-22（配置系统架构决策）
+
 ---

@@ -4,8 +4,8 @@
 
 ## Story 6.1: Send/Recv 消息传递
 
-As a 智能体,
-I want 通过 Send/Recv syscall 向其他智能体发送消息和接收消息,
+As a 应用开发者,
+I want 智能体通过 Send/Recv syscall 向其他智能体发送消息和接收消息,
 So that 多个智能体之间可以交换数据和协调工作。
 
 **Acceptance Criteria:**
@@ -84,8 +84,8 @@ So that 我可以高效管理多智能体工作流。
 
 ## Story 6.4: Signal 信号系统
 
-As a 智能体,
-I want 通过 Signal syscall 向其他进程发送信号（中断、暂停、恢复）,
+As a 应用开发者,
+I want 智能体通过 Signal syscall 向其他进程发送信号（中断、暂停、恢复）,
 So that 智能体之间可以协调执行节奏。
 
 **Acceptance Criteria:**

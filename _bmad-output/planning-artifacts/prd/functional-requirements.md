@@ -159,8 +159,8 @@
 - **FR158:** 内置 Agent/Skill（当前 `lib/agents/` 和 `lib/skills/`）打包在二进制中，不再作为运行时查找路径；`rnix init` 全局初始化时复制到 `~/.config/rnix/agents/` 和 `~/.config/rnix/skills/`，用户获得独立副本可自由修改
 - **FR159:** 配置文件进入 `.rnix/` 或 `~/.config/rnix/` 目录后去掉 `rnix-` 前缀（`rnix-providers.yaml` → `providers.yaml`、`rnix-init.yaml` → `init.yaml`、`rnix-compose.yaml` → `compose.yaml`）
 - **FR160:** IPC spawn 请求 payload 增加 `project_dir` 字段，daemon 端根据 `project_dir` 读取并合并项目级 `.rnix/` 配置；同一 daemon 可同时服务不同项目的进程
-- **FR161:** 系统检测到根目录旧配置文件（如 `rnix-providers.yaml`）时输出 deprecation warning，旧文件仍可识别但优先使用新路径
-- **FR162:** 用户可通过 `rnix migrate` 自动将旧配置迁移到新结构（根目录 `rnix-*.yaml` → `.rnix/*.yaml`，`.rnix/` 根目录运行时数据 → `.rnix/data/`）
+- **FR161:** ~~推迟~~ 系统检测到根目录旧配置文件（如 `rnix-providers.yaml`）时输出 deprecation warning，旧文件仍可识别但优先使用新路径 *（推迟：全新项目无现有用户需要迁移，待有实际迁移需求时在后续 Epic 中实现）*
+- **FR162:** ~~推迟~~ 用户可通过 `rnix migrate` 自动将旧配置迁移到新结构（根目录 `rnix-*.yaml` → `.rnix/*.yaml`，`.rnix/` 根目录运行时数据 → `.rnix/data/`） *（推迟：全新项目无现有用户需要迁移，待有实际迁移需求时在后续 Epic 中实现）*
 - **FR163:** 运行时数据（records、traces、reputation、immune）存放在 `.rnix/data/` 子目录下，与配置文件物理隔离
 - **FR164:** daemon 启动时加载全局配置（`~/.config/rnix/` 下 providers.yaml、config.yaml、mcp.yaml），spawn 请求时按 `project_dir` 合并项目级配置；项目级配置作为进程上下文的配置快照绑定到进程生命周期
 

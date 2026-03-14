@@ -33,7 +33,7 @@ So that 我可以管理智能体的生命周期。
 
 ## Story 4.2: 孤儿进程 reparent 与 Zombie 自动回收
 
-As a 内核开发者,
+As a 平台构建者,
 I want 孤儿进程自动挂载到 init，Zombie 进程自动回收,
 So that 系统不会积累无主进程或资源泄漏。
 
@@ -119,7 +119,7 @@ So that 我随时了解系统中智能体的全局状态。
 
 ## Story 4.5: 上下文释放（ctx_free）
 
-As a 内核开发者,
+As a 平台构建者,
 I want 进程退出后其上下文空间被正确释放,
 So that 系统不会因为上下文累积而内存泄漏。
 

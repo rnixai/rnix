@@ -2066,3 +2066,183 @@ $ rnix "分析代码" --provider nonexistent
 | 有效 provider | `(provider: name)` 附加在 spawn 信息中 | 括号标注，不喧宾夺主 |
 | 无效 provider | 三行错误结构 | 与全局错误模式一致 |
 | Fallback 发生 | `⚠ [agent/N] {primary} failed, falling back to {secondary}...` | 黄色警告，一行说明降级路径 |
+
+---
+
+## Appendix B: Epic 25 UX 交互补充设计
+
+> **补充日期：** 2026-03-14
+> **背景：** Epic 25（配置系统重构）引入 `rnix init`、双层配置目录、配置合并等新交互，本节补充相关 CLI 交互设计规范。
+
+### rnix init 交互流程
+
+**用户：** 新安装用户（首次使用 Rnix）
+**目标：** 一条命令完成全局 + 项目初始化，引导 provider 配置
+**成功标准：** 用户运行 `rnix init` 后立即可以 `rnix "意图"` 启动智能体
+
+```mermaid
+flowchart TD
+    A["rnix init"] --> B{全局配置存在?}
+    B -->|否| C["初始化全局配置"]
+    B -->|是| D{当前目录有 .rnix/?}
+    C --> C1["创建 ~/.config/rnix/"]
+    C1 --> C2["提取内置 agent/skill 模板"]
+    C2 --> C3["引导 providers.yaml"]
+    C3 --> D
+    D -->|否| E["初始化项目配置"]
+    D -->|是| F["跳过，提示已存在"]
+    E --> E1["创建 .rnix/ 目录结构"]
+    E1 --> G["完成"]
+    F --> G
+```
+
+#### 全局初始化输出（首次）
+
+```
+$ rnix init
+
+  Initializing Rnix...
+
+  Global config (~/.config/rnix/)
+  ✓ Created directory structure
+  ✓ Extracted 1 built-in agent (code-analyst)
+  ✓ Extracted 1 built-in skill (code-analysis)
+  ✓ Created providers.yaml (claude as default provider)
+
+  Project config (.rnix/)
+  ✓ Created .rnix/
+  ✓ Created .rnix/agents/
+  ✓ Created .rnix/skills/
+  ✓ Created .rnix/data/
+
+  Ready! Try: rnix "分析 ./README.md"
+```
+
+| 属性 | 规范 |
+|------|------|
+| **标题** | `Initializing Rnix...`，lipgloss 粗体 |
+| **分组** | 全局配置和项目配置分两个区块，各有小标题 |
+| **进度标记** | 每个操作完成后显示 `✓`（绿色），不使用 spinner（操作均瞬时完成） |
+| **模板统计** | 显示提取的 agent/skill 数量，帮助用户理解发生了什么 |
+| **Ready 提示** | 最后一行给出可直接执行的命令，降低下一步认知负荷 |
+| **ASCII 降级** | `RNIX_ASCII=1` 时 `✓` 降级为 `[OK]` |
+| **总耗时** | 无需显示（NFR53 保证 ≤ 3s，用户感知为即时） |
+
+#### 全局已存在时的输出
+
+```
+$ rnix init
+
+  Initializing Rnix...
+
+  Global config (~/.config/rnix/)
+  · Already configured (2 agents, 3 skills)
+
+  Project config (.rnix/)
+  ✓ Created .rnix/
+  ✓ Created .rnix/agents/
+  ✓ Created .rnix/skills/
+  ✓ Created .rnix/data/
+
+  Ready! Try: rnix "分析 ./README.md"
+```
+
+| 场景 | 系统反馈 | 设计要点 |
+|------|---------|---------|
+| 全局已存在 | `· Already configured (N agents, M skills)` | 灰色圆点，汇报已有内容数量 |
+| 项目已存在 | `· Already initialized` | 灰色圆点，跳过不报错 |
+| 全局+项目均存在 | 两行均为 `· Already ...` | 幂等操作，重复运行无副作用 |
+
+#### 项目已存在时的输出
+
+```
+$ rnix init
+
+  Initializing Rnix...
+
+  Global config (~/.config/rnix/)
+  · Already configured (2 agents, 3 skills)
+
+  Project config (.rnix/)
+  · Already initialized
+
+  Nothing to do.
+```
+
+#### providers.yaml 默认生成内容
+
+```yaml
+# Rnix LLM Provider Configuration
+# Docs: https://github.com/rnixai/rnix/blob/main/docs/providers.md
+
+default_provider: claude
+
+providers:
+  claude:
+    driver: claude-cli
+    default_model: sonnet
+
+  # Uncomment to add more providers:
+  # ollama:
+  #   driver: openai-compat
+  #   base_url: http://localhost:11434/v1
+  #   default_model: llama3
+```
+
+| 属性 | 规范 |
+|------|------|
+| **注释风格** | 顶部含文档链接，预置注释示例降低配置门槛 |
+| **默认 provider** | claude（CLI 类，开箱即用） |
+| **扩展示例** | 以注释形式预置 ollama 示例，用户取消注释即可使用 |
+
+### 配置合并反馈
+
+#### spawn 时的配置来源提示
+
+默认模式下不显示配置来源信息（保持输出简洁）。`--verbose` 模式下显示：
+
+```
+$ rnix "分析代码" --agent=code-analyst -v
+[config] global: ~/.config/rnix/
+[config] project: /home/decker/myproject/.rnix/
+[config] provider: claude (from project providers.yaml)
+[config] agent: code-analyst (from global ~/.config/rnix/agents/)
+[kernel] spawning PID 1...
+```
+
+| 属性 | 规范 |
+|------|------|
+| **前缀** | `[config]`，暗灰色，仅 `--verbose` 显示 |
+| **来源标注** | 每个配置项标注来源（global/project） |
+| **shadow 提示** | 项目级遮蔽全局级时标注 `(from project ...)` |
+
+#### 配置错误提示
+
+```
+$ rnix "分析代码"
+✗ providers.yaml: invalid YAML at line 5
+  → global config: ~/.config/rnix/providers.yaml
+  → 建议: check YAML syntax, try 'rnix init' to regenerate defaults
+```
+
+| 场景 | 输出 | 设计要点 |
+|------|------|---------|
+| YAML 语法错误 | 三行错误结构 + 文件路径 + 行号 | 精确定位，与全局错误模式一致 |
+| provider 不存在 | 复用 Appendix A 的 provider 错误格式 | 一致性 |
+| 全局目录不存在 | `✗ Global config not found`<br>`→ 建议: run 'rnix init'` | 引导初始化 |
+
+### ProjectDir() 查找失败提示
+
+```
+$ rnix "分析代码"
+⚠ No .rnix/ found (searched up to /home/decker)
+  → Using global config only
+  → 建议: run 'rnix init' in your project root to create .rnix/
+```
+
+| 属性 | 规范 |
+|------|------|
+| **级别** | 黄色警告（⚠），不阻塞执行 |
+| **搜索路径** | 显示向上遍历的终点目录（$HOME 或 /） |
+| **降级行为** | 明确说明使用全局配置继续运行 |
+| **仅首次** | 同一 daemon 会话中相同 CWD 仅警告一次 |

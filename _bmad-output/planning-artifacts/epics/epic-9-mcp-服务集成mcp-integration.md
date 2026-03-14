@@ -51,9 +51,9 @@ So that 我不需要手动管理 MCP 服务器的生命周期。
 
 ## Story 9.3: VFS 路径暴露 MCP 工具
 
-As a 智能体,
-I want 通过标准 VFS Open/Read/Write 访问 MCP 服务器提供的工具和资源,
-So that 我不需要知道 MCP 协议细节，只需操作文件。
+As a 平台构建者,
+I want 智能体通过标准 VFS Open/Read/Write 访问 MCP 服务器提供的工具和资源,
+So that MCP 集成对智能体透明，无需了解 MCP 协议细节。
 
 **Acceptance Criteria:**
 

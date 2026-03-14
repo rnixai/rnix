@@ -45,9 +45,9 @@ So that 后续所有模块可以在标准化的 Go 项目结构上构建。
 
 ## Story 1.2: 进程模型与生命周期状态机
 
-As a 内核开发者,
-I want Process 结构体支持完整的生命周期状态转移,
-So that 智能体进程可以在 Created → Running → Zombie → Dead 之间安全转换。
+As a 平台构建者,
+I want 智能体进程支持完整的生命周期状态转移,
+So that 进程可以在 Created → Running → Zombie → Dead 之间安全转换，我能通过 ps 和 strace 追踪状态变化。
 
 **Acceptance Criteria:**
 
@@ -79,9 +79,9 @@ So that 智能体进程可以在 Created → Running → Zombie → Dead 之间�
 
 ## Story 1.3: VFS 框架与设备注册
 
-As a 智能体,
-I want 通过统一的 VFS 接口访问所有设备（LLM、文件系统、Shell）,
-So that 我不需要知道底层实现细节，只需操作文件描述符。
+As a 平台构建者,
+I want 智能体通过统一的 VFS 接口访问所有设备（LLM、文件系统、Shell）,
+So that 所有资源访问方式一致，可通过 strace 统一追踪。
 
 **Acceptance Criteria:**
 
@@ -108,9 +108,9 @@ So that 我不需要知道底层实现细节，只需操作文件描述符。
 
 ## Story 1.4: 上下文管理
 
-As a 智能体,
-I want 拥有独立的上下文空间来累积对话历史和工具结果,
-So that 每轮 LLM 调用都能获得完整的推理上下文。
+As a 平台构建者,
+I want 每个智能体拥有独立的上下文空间来累积对话历史和工具结果,
+So that 每轮 LLM 调用都能获得完整的推理上下文，进程间互不干扰。
 
 **Acceptance Criteria:**
 
@@ -134,9 +134,9 @@ So that 每轮 LLM 调用都能获得完整的推理上下文。
 
 ## Story 1.5: LLM 驱动层（Claude Code CLI）
 
-As a 智能体,
-I want 通过 `/dev/llm/claude` 设备调用 Claude Code CLI 进行 LLM 推理,
-So that 我可以获得 LLM 的结构化响应来完成任务。
+As a 平台构建者,
+I want 智能体通过 `/dev/llm/claude` 设备调用 Claude Code CLI 进行 LLM 推理,
+So that 推理过程对 strace 透明可追踪，且驱动层可替换。
 
 **Acceptance Criteria:**
 

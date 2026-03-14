@@ -4,9 +4,9 @@
 
 ## Story 3.1: SyscallEvent 记录基础设施
 
-As a 内核开发者,
+As a 平台构建者,
 I want 每个 syscall 的入口和出口都自动记录为 SyscallEvent,
-So that strace 可以消费完整的调用链路数据。
+So that strace 可以消费完整的调用链路数据，帮助我定位问题。
 
 **Acceptance Criteria:**
 
