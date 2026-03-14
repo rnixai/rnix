@@ -56,7 +56,7 @@
 skill install pr-reviewer code-analyst tech-writer
 ```
 
-三个 Skill 装好了。她写了一个 `rnix-compose.yaml`：
+三个 Skill 装好了。她写了一个 `.rnix/compose.yaml`：
 
 ```yaml
 version: "1.0"
@@ -83,7 +83,7 @@ agents:
 
 **旅程揭示的能力需求：**
 - `skill install` 批量安装
-- `rnix-compose.yaml` 声明式编排
+- `.rnix/compose.yaml` 声明式编排
 - `depends_on` 依赖管理
 - `rnix compose up` 一键启动
 - `rnix top` 实时监控（状态 + token）
@@ -113,9 +113,9 @@ agents:
 
 **步骤：**
 
-1. 陈明编辑 `rnix-providers.yaml`，新增 ollama provider：指定 `driver: openai-compat`、`base_url: http://localhost:11434/v1`、`default_model: llama3`
+1. 陈明编辑 `~/.config/rnix/providers.yaml`（全局配置）或 `.rnix/providers.yaml`（项目配置），新增 ollama provider：指定 `driver: openai-compat`、`base_url: http://localhost:11434/v1`、`default_model: llama3`
 2. 重启 daemon，系统自动解析配置并在 `/dev/llm/ollama` 注册新 provider
-3. 修改 `code-analyst` agent 的 `agent.yaml`：`models.provider: ollama`，`models.fallback: claude`
+3. 修改 `code-analyst` agent 的 `agent.yaml`（位于 `.rnix/agents/code-analyst/` 或 `~/.config/rnix/agents/code-analyst/`）：`models.provider: ollama`，`models.fallback: claude`
 4. 执行 `rnix "分析 main.go 的代码质量" --agent=code-analyst`，系统通过 Ollama 本地模型完成分析
 5. 当 Ollama 服务意外停止时，系统检测到调用失败，自动 fallback 到 Claude，任务继续完成
 6. 陈明通过 `rnix strace` 看到 provider 切换的完整轨迹：首次调用 `/dev/llm/ollama` 失败 → fallback 到 `/dev/llm/claude` 成功
@@ -132,7 +132,7 @@ agents:
 
 **步骤：**
 
-1. 陈明确认 `rnix-providers.yaml` 已配置好 cursor、ollama、claude 三个 provider
+1. 陈明确认 providers 配置（`~/.config/rnix/providers.yaml` 或 `.rnix/providers.yaml`）已配置好 cursor、ollama、claude 三个 provider
 2. 启动网关：`rnix serve --port 8080`，终端显示 `Serving 3 providers on http://127.0.0.1:8080`
 3. 在 Aider 中配置：`--openai-api-base http://localhost:8080/v1`，model 设为 `cursor`——Aider 通过 Rnix 网关调用 Cursor 的 LLM 能力完成代码重构
 4. 在 Open WebUI 中配置 API 端点为 `http://localhost:8080/v1`，通过 `/v1/models` 自动发现所有可用 provider 和模型
@@ -159,7 +159,7 @@ agents:
 | `rnix ps` 进程查看 | 旅程 2 | ✓ | | |
 | Zombie 回收 | 旅程 2 | ✓ | | |
 | `skill install` 包安装 | 旅程 3 | | ✓ (Phase 2) | FR50-FR53 |
-| `rnix-compose.yaml` 编排 | 旅程 3 | | ✓ (Phase 2) | FR46-FR49 |
+| `.rnix/compose.yaml` 编排 | 旅程 3 | | ✓ (Phase 2) | FR46-FR49 |
 | `rnix top` 实时监控 | 旅程 3 | | ✓ (Phase 2) | FR58, FR62 |
 | `rnix log` 分类日志 | 旅程 4 | | ✓ (Phase 2) | FR59-FR60 |
 | 上下文预算配置 | 旅程 4 | | ✓ (Phase 2) | FR61 |
@@ -171,3 +171,4 @@ agents:
 | Phase 2 文档（教程 + 架构） | 生态建设需求（开发者体验） | | ✓ (Phase 2) | FR69-FR70 |
 | 多 Provider 支持（provider 注册 + fallback） | 旅程 5 | | ✓ (Phase 2) | FR141-FR146 |
 | LLM 网关服务（rnix serve OpenAI 兼容 API） | 旅程 6 | | ✓ (Phase 2) | FR147-FR152 |
+| 配置系统（双层目录 + rnix init + 迁移） | 旅程 1, 3, 5 | | ✓ (Phase 2) | FR153-FR164 |

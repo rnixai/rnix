@@ -33,7 +33,7 @@
 
 - **NFR18:** 内核代码遵循 Go 标准项目布局，通过 `go vet` 和 `golint` 无警告
 - **NFR19:** syscall ABI 设计遵循 45 syscall 架构规范的子集，确保 Phase 2 扩展时向后兼容
-- **NFR20:** LLM 驱动层封装在单一模块中，新增 LLM provider 仅需 `rnix-providers.yaml` 配置文件变更，无需修改源码；外部 LLM 接口变更时只需修改对应驱动模块
+- **NFR20:** LLM 驱动层封装在单一模块中，新增 LLM provider 仅需 `providers.yaml` 配置文件变更（全局或项目级），无需修改源码；外部 LLM 接口变更时只需修改对应驱动模块
 
 ## Multi-Agent Performance（多智能体性能，Phase 2）
 
@@ -56,7 +56,7 @@
 
 ## Multi-Provider Quality（多 Provider 质量）
 
-- **NFR31:** `rnix-providers.yaml` 配置解析和全部 provider 注册完成时间 ≤ 2 秒（≤ 10 个 provider 配置场景）
+- **NFR31:** `providers.yaml` 配置解析和全部 provider 注册完成时间 ≤ 2 秒（≤ 10 个 provider 配置场景，含全局 + 项目级合并）
 - **NFR32:** HTTP API 类型 provider 的首次连接验证（健康检查）≤ 3 秒/provider，验证失败时 daemon 正常启动并标记该 provider 为不可用
 - **NFR33:** Provider fallback 切换延迟（从 preferred 失败检测到 fallback 发起调用）≤ 1 秒
 
@@ -65,6 +65,13 @@
 - **NFR50:** `rnix serve` HTTP 请求处理开销（不含 LLM 推理本身）≤ 50ms（从接收请求到调用 LLM 驱动）
 - **NFR51:** 服务支持 ≥ 10 个并发 HTTP 连接，无请求丢弃或阻塞
 - **NFR52:** 服务默认仅绑定 `127.0.0.1`，不暴露到外部网络接口；未来扩展外部监听需显式配置并启用认证
+
+## Configuration System Quality（配置系统质量，Phase 2）
+
+- **NFR53:** `rnix init` 全局初始化（含内置 agent/skill 模板复制）执行时间 ≤ 3 秒
+- **NFR54:** ProjectDir() 向上遍历查找 `.rnix/` 目录延迟 ≤ 10ms（≤ 20 层目录深度）
+- **NFR55:** 配置合并（全局 + 项目级 deep merge）处理时间 ≤ 50ms（≤ 10 个配置文件场景）
+- **NFR56:** `rnix migrate` 迁移过程保证数据完整性——迁移前自动备份原文件，迁移失败时回滚到备份状态，不丢失用户数据
 
 ---
 

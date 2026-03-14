@@ -78,7 +78,7 @@
 | 贡献者增长 | 外部 Skill 贡献者数量 | ≥ 3 人 |
 | MCP 集成 | 可用 MCP 服务适配器数量 | ≥ 3 个 |
 
-- 多 Provider 配置: 用户通过 `rnix-providers.yaml` 新增 LLM provider 后，无需修改源码即可在 spawn 时使用
+- 多 Provider 配置: 用户通过 `providers.yaml`（全局 `~/.config/rnix/` 或项目 `.rnix/`）新增 LLM provider 后，无需修改源码即可在 spawn 时使用
 - Provider Fallback: 当首选 provider 调用失败时，系统在 ≤1 秒内自动切换到备选 provider 完成任务
 
 **Phase 2 技术验收：**
@@ -98,6 +98,12 @@
 | rnix serve 网关 | `rnix serve` 启动后，使用标准 OpenAI 客户端库向 `http://localhost:{port}/v1/chat/completions` 发送请求并获得正确响应；`/v1/models` 返回已注册 provider 列表 |
 | Phase 2 教程 | 三个核心教程（编写 Skill、调试 bug、多智能体工作流）各含完整可运行示例 |
 | Phase 2 架构文档 | 四个核心模块（微内核、进程模型、驱动层、上下文管理）各含设计决策和数据流说明 |
+| rnix init 全局 | `rnix init` 在无全局配置时自动创建 `~/.config/rnix/`、引导 providers.yaml、复制内置 agent/skill 模板 |
+| rnix init 项目 | `rnix init` 在项目目录创建 `.rnix/` 及子目录结构（agents/、skills/、data/） |
+| 配置合并 | 项目级 `.rnix/providers.yaml` 的字段正确覆盖全局级 `~/.config/rnix/providers.yaml` 对应字段（deep merge）|
+| Agent/Skill Shadow | 项目级 `.rnix/agents/coder/` 完全遮蔽全局级 `~/.config/rnix/agents/coder/`，不做字段合并 |
+| rnix migrate | `rnix migrate` 将根目录旧 `rnix-*.yaml` 文件迁移到 `.rnix/*.yaml`，迁移前备份、迁移后旧文件不再使用 |
+| 向后兼容 | 检测到根目录旧文件时输出 deprecation warning 并仍可识别，不中断现有工作流 |
 
 ## Measurable Outcomes (Phase 2)
 

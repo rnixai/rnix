@@ -2,10 +2,10 @@
 
 > **编号说明：** FR 编号按 Phase 分组分配，后续迭代新增的需求使用跳跃编号以保持逻辑归属：
 > - Phase 1: FR1-FR40（含 FR25a/b）
-> - Phase 2: FR41-FR70 + FR141-FR152（FR141+ 为后续新增的 Multi-LLM Provider 和 LLM Serve Gateway 需求）
+> - Phase 2: FR41-FR70 + FR141-FR152（Multi-LLM Provider + LLM Serve Gateway）+ FR153-FR164（Configuration System）
 > - Phase 3: FR71-FR140（含 FR72a, FR76a）
 >
-> NFR 编号同样存在跳跃：NFR1-NFR33（Phase 1-2 原始需求）+ NFR34-NFR49（Phase 3）+ NFR50-NFR52（LLM Serve Gateway 后续新增）。
+> NFR 编号同样存在跳跃：NFR1-NFR33（Phase 1-2 原始需求）+ NFR34-NFR49（Phase 3）+ NFR50-NFR52（LLM Serve Gateway）+ NFR53-NFR56（Configuration System）。
 > 跳跃不影响覆盖完整性，仅反映需求演进历史。
 
 ## Agent Lifecycle Management（智能体生命周期管理）
@@ -87,14 +87,14 @@
 
 ## Agent Compose（多智能体编排，Phase 2）
 
-- **FR46:** 用户可以通过 `rnix-compose.yaml` 声明式定义多智能体工作流，包含每个智能体的 intent、agent 引用、skills 列表和依赖关系
+- **FR46:** 用户可以通过 `.rnix/compose.yaml` 声明式定义多智能体工作流，包含每个智能体的 intent、agent 引用、skills 列表和依赖关系
 - **FR47:** Compose 引擎可以解析智能体之间的 `depends_on` 依赖关系，按 DAG 拓扑顺序调度执行，自动并行化无依赖的分支
 - **FR48:** 用户可以通过 `rnix compose up` 一键启动编排中定义的所有智能体
 - **FR49:** 用户可以通过 `rnix compose down` 停止编排中所有智能体并释放资源（进程、上下文、文件描述符）
 
 ## Skill Package Management（Skill 包管理，Phase 2）
 
-- **FR50:** 用户可以通过 `skill install <name>` 从社区仓库下载并安装 Skill 到本地 `lib/skills/` 目录
+- **FR50:** 用户可以通过 `skill install <name>` 从社区仓库下载并安装 Skill 到项目级 `.rnix/skills/` 或全局 `~/.config/rnix/skills/` 目录
 - **FR51:** 用户可以通过 `skill search <keyword>` 搜索社区仓库中可用的 Skill，返回名称、描述、版本和下载量
 - **FR52:** 用户可以通过 `skill update [name]` 更新已安装 Skill 到最新兼容版本
 - **FR53:** 系统维护本地 Skill 注册表，记录已安装 Skill 的元信息、版本和路径，用户可通过 `skill list` 查看
@@ -133,7 +133,7 @@
 
 ## Multi-LLM Provider Management（多 LLM 提供方管理，Phase 2）
 
-- **FR141:** 系统通过 `rnix-providers.yaml` 配置文件声明式定义 LLM provider，daemon 启动时动态解析并注册到 VFS `/dev/llm/<name>` 路径，新增 provider 无需修改源码
+- **FR141:** 系统通过 `providers.yaml` 配置文件（全局 `~/.config/rnix/providers.yaml` 或项目级 `.rnix/providers.yaml`）声明式定义 LLM provider，daemon 启动时动态解析并注册到 VFS `/dev/llm/<name>` 路径，新增 provider 无需修改源码
 - **FR142:** 系统支持两类 provider 驱动：CLI 驱动（通过本地 CLI 工具交互，如 claude/cursor）和 HTTP API 驱动（通过 OpenAI 兼容 API 端点交互，如 Ollama/Groq/DeepSeek）
 - **FR143:** Agent 的 `agent.yaml` 中 `models.provider` 字段指定 LLM provider，系统在 spawn 时解析为对应的 `/dev/llm/<provider>` VFS 设备路径
 - **FR144:** 系统支持 provider fallback 降级——当 `models.preferred` 对应的 provider 调用失败（HTTP 5xx、连接超时、连接拒绝、认证失败）时，自动尝试 `models.fallback` 指定的备选 provider/model 组合
@@ -147,7 +147,22 @@
 - **FR149:** 服务支持 `/v1/models` 端点，返回所有已注册且健康的 provider 及其可用模型列表，格式兼容 OpenAI Models API
 - **FR150:** `/v1/chat/completions` 端点支持 SSE 流式响应（`stream: true`），事件格式兼容 OpenAI 流式协议（`data: {...}\n\n`）
 - **FR151:** model 参数支持 `provider:model` 复合格式路由（如 `cursor:claude-3.5-sonnet`），当仅指定 provider 名时使用该 provider 的 `default_model`
-- **FR152:** 服务共享 daemon 已注册的驱动实例和 `rnix-providers.yaml` 配置，新增或变更 provider 后重启 daemon 即可生效，无需独立配置
+- **FR152:** 服务共享 daemon 已注册的驱动实例和 providers 配置，新增或变更 provider 后重启 daemon 即可生效，无需独立配置
+
+## Configuration System（配置系统，Phase 2）
+
+- **FR153:** 系统提供双层配置目录结构——全局级 `~/.config/rnix/`（遵循 XDG_CONFIG_HOME 标准）存储用户级配置（API key、默认偏好、全局 agent/skill），项目级 `.rnix/` 存储项目特定配置（编排、自定义 agent/skill、运行时数据）
+- **FR154:** 用户可通过 `rnix init` 初始化配置环境，命令自动判断全局配置是否存在——未配置时先初始化全局（创建 `~/.config/rnix/` 目录、引导填写 providers.yaml、从内置模板复制 agents 和 skills），再初始化当前项目（创建 `.rnix/` 目录结构）
+- **FR155:** 系统从 CWD 向上遍历目录树查找 `.rnix/` 目录（类似 git 查找 `.git/`），到 `$HOME` 或文件系统根停止；CLI 将发现的 `project_dir` 通过 IPC 传入 daemon
+- **FR156:** YAML 配置文件（providers.yaml、config.yaml、mcp.yaml）采用 deep merge 合并策略——项目级字段覆盖全局级同名字段；Agent 和 Skill 目录采用 shadow 策略——项目级同名定义完全遮蔽全局级，不做字段合并
+- **FR157:** Agent/Skill 查找按项目级 → 全局级顺序——项目级 `.rnix/agents/<name>/` 优先于全局级 `~/.config/rnix/agents/<name>/`，同名时项目级完全遮蔽全局级
+- **FR158:** 内置 Agent/Skill（当前 `lib/agents/` 和 `lib/skills/`）通过 Go `embed.FS` 嵌入二进制，不再作为运行时查找路径；`rnix init` 全局初始化时复制到 `~/.config/rnix/agents/` 和 `~/.config/rnix/skills/`，用户获得独立副本可自由修改
+- **FR159:** 配置文件进入 `.rnix/` 或 `~/.config/rnix/` 目录后去掉 `rnix-` 前缀（`rnix-providers.yaml` → `providers.yaml`、`rnix-init.yaml` → `init.yaml`、`rnix-compose.yaml` → `compose.yaml`）
+- **FR160:** IPC spawn 请求 payload 增加 `project_dir` 字段，daemon 端根据 `project_dir` 读取并合并项目级 `.rnix/` 配置；同一 daemon 可同时服务不同项目的进程
+- **FR161:** 系统检测到根目录旧配置文件（如 `rnix-providers.yaml`）时输出 deprecation warning，旧文件仍可识别但优先使用新路径
+- **FR162:** 用户可通过 `rnix migrate` 自动将旧配置迁移到新结构（根目录 `rnix-*.yaml` → `.rnix/*.yaml`，`.rnix/` 根目录运行时数据 → `.rnix/data/`）
+- **FR163:** 运行时数据（records、traces、reputation、immune）存放在 `.rnix/data/` 子目录下，与配置文件物理隔离
+- **FR164:** daemon 启动时加载全局配置（`~/.config/rnix/` 下 providers.yaml、config.yaml、mcp.yaml），spawn 请求时按 `project_dir` 合并项目级配置；项目级配置作为进程上下文的配置快照绑定到进程生命周期
 
 ---
 

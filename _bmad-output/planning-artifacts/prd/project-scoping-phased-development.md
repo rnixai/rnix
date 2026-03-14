@@ -15,7 +15,7 @@
 
 ## LLM Driver Strategy: 多 Provider 动态配置
 
-**核心决策：** Rnix 的 `/dev/llm/` 驱动层支持多种 LLM provider 的动态注册与切换，通过 `rnix-providers.yaml` 配置文件驱动，新增 provider 无需修改源码。
+**核心决策：** Rnix 的 `/dev/llm/` 驱动层支持多种 LLM provider 的动态注册与切换，通过 `providers.yaml`（全局 `~/.config/rnix/providers.yaml` 或项目级 `.rnix/providers.yaml`）配置文件驱动，新增 provider 无需修改源码。
 
 **设计演进：**
 - Phase 1 以 Claude Code CLI 为唯一 provider，验证"智能体即进程"核心范式
@@ -30,7 +30,7 @@
 | CLI 驱动 | 调用本地 CLI 工具，认证/重试由 CLI 自身处理 | claude、cursor |
 | HTTP API 驱动 | 调用 OpenAI 兼容 `/v1/chat/completions` 端点，需配置 base_url 和 API Key | Ollama、Groq、DeepSeek |
 
-**Provider 配置方式（`rnix-providers.yaml`）：**
+**Provider 配置方式（`providers.yaml`，位于 `~/.config/rnix/` 或 `.rnix/`）：**
 
 | 配置字段 | 说明 | 示例 |
 |---------|------|------|
@@ -58,9 +58,9 @@
 
 **Provider 选择优先级：** CLI `--provider` 参数 > agent.yaml `models.provider` > 系统默认（claude）
 
-**安装前置条件：** 用户需至少配置一个 LLM provider。CLI 类驱动需预装对应 CLI 工具（如 Claude Code CLI）；HTTP API 类驱动需可达的端点和有效 API Key。
+**安装前置条件：** 用户需至少配置一个 LLM provider。首次使用 `rnix init` 自动引导全局配置（创建 `~/.config/rnix/`、填写 providers.yaml、复制内置 agents/skills 模板）。CLI 类驱动需预装对应 CLI 工具（如 Claude Code CLI）；HTTP API 类驱动需可达的端点和有效 API Key。
 
-**架构影响：** Rnix 内核专注于进程管理、VFS、上下文组装；LLM 交互委托给对应的 provider 驱动。配置文件驱动的注册机制使得扩展新 provider 为纯配置操作，保持内核代码稳定。
+**架构影响：** Rnix 内核专注于进程管理、VFS、上下文组装；LLM 交互委托给对应的 provider 驱动。双层配置目录（全局 `~/.config/rnix/` + 项目 `.rnix/`）遵循 XDG 标准和 Git/npm 等主流工具惯例，配置文件驱动的注册机制使得扩展新 provider 为纯配置操作，保持内核代码稳定。
 
 ## MVP Feature Set (Phase 1)
 
@@ -128,6 +128,10 @@
 | VFS 扩展 | `vfs/mount.go` | Mount/Unmount syscall + 文件系统挂载表 |
 | LLM Serve 网关 | `ipc/http_openai.go` | OpenAI 兼容 HTTP Server（/v1/chat/completions, /v1/models），路由到已注册 `/dev/llm/*` 驱动 |
 | LLM Serve CLI | `cmd/rnix/serve.go` | `rnix serve --port` 命令，启动 HTTP 网关服务 |
+| Config System | `internal/config/` | 双层配置目录解析（全局 `~/.config/rnix/` + 项目 `.rnix/`）、deep merge / shadow 合并策略、ProjectDir() 向上遍历 |
+| rnix init | `cmd/rnix/init.go` | 全局 + 项目初始化（引导 providers.yaml、复制内置 agent/skill 模板） |
+| rnix migrate | `cmd/rnix/migrate.go` | 旧配置自动迁移（根目录 `rnix-*.yaml` → `.rnix/*.yaml`） |
+| embed 模板 | `lib/` (embed.FS) | 内置 Agent/Skill 嵌入二进制，init 时复制到 `~/.config/rnix/` |
 | 教程文档 | `docs/tutorials/` | 编写 Skill + 调试 bug + 多智能体工作流 |
 | 架构文档 | `docs/architecture.md` | 微内核 + 进程模型 + 驱动层 + 上下文管理 |
 
@@ -180,8 +184,11 @@
 | HTTP API provider 端点不可用或限流 | Provider fallback 降级机制（FR144）自动切换备选 provider；NFR48 健康检查在启动时标记不可用 provider |
 | API Key 过期或轮换 | 通过环境变量引用（FR146），Key 更新无需修改配置文件，运维层面独立管理 |
 | 所有已配置 provider 均失败 | 进程正确转为 Zombie 状态并上报详细错误（含尝试过的 provider 列表和各自失败原因） |
-| `rnix-providers.yaml` 配置解析错误 | daemon 启动时校验配置文件格式，解析失败时以明确错误拒绝启动而非静默降级 |
+| `providers.yaml` 配置解析错误 | daemon 启动时校验配置文件格式（全局 + 项目级），解析失败时以明确错误拒绝启动而非静默降级 |
 | rnix serve 安全风险（未授权访问） | 默认仅绑定 127.0.0.1，外部网络不可达；未来扩展外部监听需显式配置并启用认证机制 |
+| 配置迁移数据丢失 | `rnix migrate` 迁移前自动备份原文件，迁移失败时回滚到备份状态（FR162、NFR56） |
+| 用户已修改全局 agent/skill 被覆盖 | `rnix init` 仅在目标目录不存在时复制模板，已有文件不覆盖；未来 `rnix upgrade` 需比对用户修改后合并 |
+| `.rnix/` 目录查找性能 | ProjectDir() 设置遍历上限（到 `$HOME` 或根停止），NFR54 保证 ≤ 10ms |
 
 **市场风险：**
 

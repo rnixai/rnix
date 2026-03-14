@@ -7,9 +7,9 @@ Rnix 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来�
 | 接口层 | 格式 | 用途 | 阶段 |
 |--------|------|------|------|
 | **AgentShell CLI** | 命令行 | `rnix "意图" --agent=<name>`、`rnix strace`、`rnix ps` | MVP |
-| **Agent 定义** | YAML + Markdown | `agent.yaml`（身份+模型+Skill引用）+ `instructions.md`（角色策略） | MVP |
-| **Skill 定义** | Markdown（Agent Skills 标准） | `SKILL.md`（YAML frontmatter + 程序性知识） | MVP |
-| **Agent Compose** | YAML | `rnix-compose.yaml` 多智能体编排 | Phase 2 |
+| **Agent 定义** | YAML + Markdown | `agent.yaml`（身份+模型+Skill引用）+ `instructions.md`（角色策略），位于 `.rnix/agents/<name>/` 或 `~/.config/rnix/agents/<name>/` | MVP |
+| **Skill 定义** | Markdown（Agent Skills 标准） | `SKILL.md`（YAML frontmatter + 程序性知识），位于 `.rnix/skills/<name>/` 或 `~/.config/rnix/skills/<name>/` | MVP |
+| **Agent Compose** | YAML | `.rnix/compose.yaml` 多智能体编排（仅项目级） | Phase 2 |
 | **Go SDK（待定）** | Go | 嵌入式使用，根据用户反馈决策 | Phase 2+ |
 
 ## Installation & Distribution
@@ -19,7 +19,7 @@ Rnix 是一个运行时框架而非传统库/SDK。开发者不写 Go 代码来�
 | `go install` | MVP | 唯一安装方式，单二进制分发，运行时需至少一个已配置的 LLM provider |
 | 预编译二进制 / brew / docker | Phase 2+ | 根据社区需求扩展 |
 
-**MVP 安装体验目标：** `go install github.com/rnixai/rnix/cmd/rnix@latest` → 可用。不需要 Docker；使用 HTTP API 类 provider 时需配置 `rnix-providers.yaml`（CLI 类 provider 开箱即用）。
+**MVP 安装体验目标：** `go install github.com/rnixai/rnix/cmd/rnix@latest` → `rnix init`（引导全局配置、复制内置 agent/skill 模板）→ 可用。不需要 Docker；`rnix init` 引导用户完成首次 LLM provider 配置，CLI 类 provider 开箱即用，HTTP API 类 provider 需配置 base_url 和 API Key。
 
 ## API Surface (Syscall ABI)
 
@@ -57,18 +57,18 @@ Rnix 的"API"不是 REST 端点或 Go 函数——而是 **~45 个 syscall**（P
 
 MVP 交付一个完整的参考 Agent + 参考 Skill：
 
-**参考 Agent（`lib/agents/code-analyst/`）：**
+**参考 Agent（`lib/agents/code-analyst/` → 通过 embed.FS 嵌入，`rnix init` 时复制到 `~/.config/rnix/agents/code-analyst/`）：**
 
 ```
-lib/agents/code-analyst/
+~/.config/rnix/agents/code-analyst/   （或 .rnix/agents/code-analyst/）
 ├── agent.yaml        # Agent 配置：身份、模型偏好、上下文预算、Skill 引用
 └── instructions.md   # Agent 角色定义 + 行为策略
 ```
 
-**参考 Skill（`lib/skills/code-analysis/`，遵循 Agent Skills 行业标准）：**
+**参考 Skill（`lib/skills/code-analysis/` → 通过 embed.FS 嵌入，`rnix init` 时复制到 `~/.config/rnix/skills/code-analysis/`，遵循 Agent Skills 行业标准）：**
 
 ```
-lib/skills/code-analysis/
+~/.config/rnix/skills/code-analysis/   （或 .rnix/skills/code-analysis/）
 ├── SKILL.md          # 标准格式：YAML frontmatter（name/description/allowed-tools）+ Markdown 程序性知识
 ├── scripts/          # 可选：可执行脚本
 ├── references/       # 可选：参考文档
@@ -88,7 +88,7 @@ Agent 定义"我是谁"（身份 + 模型 + 策略 + Skill 引用），Skill 定
 - goroutine → 智能体进程（轻量、高并发）
 - channel → IPC（类型安全、阻塞语义）
 - interface → syscall 契约（编译时检查）
-- 单二进制编译 → 轻量部署（运行时依赖至少一个 LLM provider）
+- 单二进制编译 → 轻量部署（内置 agent/skill 模板通过 embed.FS 嵌入，运行时依赖至少一个 LLM provider）
 
 **不适用项（Skip）：**
 - Visual design — CLI 工具，无 UI
