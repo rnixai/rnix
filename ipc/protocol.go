@@ -49,6 +49,7 @@ const (
 	MethodImmuneStatus     Method = "immune_status"
 	MethodImmuneResume     Method = "immune_resume"
 	MethodSimilarityQuery  Method = "similarity_query"
+	MethodTopologyQuery    Method = "topology_query"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -763,6 +764,18 @@ type SimilarityQueryRequest struct {
 type SimilarityQueryResponse struct {
 	Agent        string                         `json:"agent"`
 	Similarities []kernel.CapabilitySimilarity `json:"similarities"`
+}
+
+// --- Topology Query (Story 22.5) ---
+
+// TopologyQueryRequest is the payload for MethodTopologyQuery.
+type TopologyQueryRequest struct{}
+
+// TopologyQueryResponse is the response for MethodTopologyQuery.
+type TopologyQueryResponse struct {
+	Nodes           []kernel.TopologyNode    `json:"nodes"`
+	Edges           []kernel.CooperationEdge `json:"edges"`
+	ReinforcedPaths []kernel.CooperationEdge `json:"reinforced_paths"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

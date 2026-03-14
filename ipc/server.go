@@ -335,6 +335,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleImmuneResume(conn, req.Payload)
 		case MethodSimilarityQuery:
 			s.handleSimilarityQuery(conn, req.Payload)
+		case MethodTopologyQuery:
+			s.handleTopologyQuery(conn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1561,6 +1563,34 @@ func (s *Server) handleSimilarityQuery(conn net.Conn, rawPayload json.RawMessage
 		Agent:        req.AgentName,
 		Similarities: similarities,
 	}
+	respPayload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+// handleTopologyQuery returns the collaboration topology (Story 22.5).
+func (s *Server) handleTopologyQuery(conn net.Conn) {
+	var topo *kernel.CollaborationTopology
+	if s.immuneDaemon != nil {
+		topo = s.immuneDaemon.GetTopology()
+	}
+
+	resp := TopologyQueryResponse{
+		Nodes:           []kernel.TopologyNode{},
+		Edges:           []kernel.CooperationEdge{},
+		ReinforcedPaths: []kernel.CooperationEdge{},
+	}
+	if topo != nil {
+		if topo.Nodes != nil {
+			resp.Nodes = topo.Nodes
+		}
+		if topo.Edges != nil {
+			resp.Edges = topo.Edges
+		}
+		if topo.ReinforcedPaths != nil {
+			resp.ReinforcedPaths = topo.ReinforcedPaths
+		}
+	}
+
 	respPayload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }

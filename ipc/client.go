@@ -796,6 +796,19 @@ func (c *Client) SimilarityQuery(agentName string, minScore float64) (*Similarit
 	return &result, nil
 }
 
+// TopologyQuery returns the collaboration topology (Story 22.5).
+func (c *Client) TopologyQuery() (*TopologyQueryResponse, error) {
+	resp, err := c.call(MethodTopologyQuery, TopologyQueryRequest{})
+	if err != nil {
+		return nil, err
+	}
+	var result TopologyQueryResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal topology_query: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data
