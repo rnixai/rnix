@@ -583,6 +583,9 @@ type ImmuneDaemon struct {
 	coopHistory map[string]map[string]int // agentA -> agentB -> count
 	repStore    *ReputationStore
 	migrateFunc MigrateFunc
+
+	// Story 22.5: collaboration topology
+	coopRecords map[string]map[string]*CoopRecord // agentA -> agentB -> typed record
 }
 
 // NewImmuneDaemon creates a new ImmuneDaemon backed by the given store.
@@ -933,6 +936,41 @@ func (d *ImmuneDaemon) GetThreats() []ThreatSignature {
 	return result
 }
 
+// --- Story 22.5: Collaboration Topology & Reinforcement Paths ---
+
+// DefaultReinforcementThreshold is the minimum cooperation count for a path to be considered reinforced.
+const DefaultReinforcementThreshold = 5
+
+// CooperationEdge represents a directed cooperation relationship between two agents.
+type CooperationEdge struct {
+	From       string `json:"from"`
+	To         string `json:"to"`
+	SpawnCount int    `json:"spawn_count"` // parent spawned child count
+	MsgCount   int    `json:"msg_count"`   // IPC message send count
+	Total      int    `json:"total"`       // SpawnCount + MsgCount
+	Reinforced bool   `json:"reinforced"`  // true if Total >= threshold
+}
+
+// TopologyNode represents an agent in the collaboration topology.
+type TopologyNode struct {
+	Agent           string  `json:"agent"`
+	ReputationScore float64 `json:"reputation_score"`
+	Connections     int     `json:"connections"` // number of edges involving this node
+}
+
+// CollaborationTopology holds the complete collaboration graph.
+type CollaborationTopology struct {
+	Nodes           []TopologyNode    `json:"nodes"`
+	Edges           []CooperationEdge `json:"edges"`
+	ReinforcedPaths []CooperationEdge `json:"reinforced_paths"`
+}
+
+// CoopRecord stores typed cooperation counts between two agents.
+type CoopRecord struct {
+	SpawnCount int
+	MsgCount   int
+}
+
 // --- Story 22.4: Capability Migration & Similarity Matrix ---
 
 // MinMigrationSimilarity is the minimum similarity score required for capability migration.
@@ -1150,6 +1188,141 @@ func (d *ImmuneDaemon) RecordCooperation(agentA, agentB string) {
 		d.coopHistory[agentB] = make(map[string]int)
 	}
 	d.coopHistory[agentB][agentA]++
+}
+
+// RecordCooperationTyped records a typed cooperation event between two agents.
+// coopType must be "spawn" or "msg". Also calls RecordCooperation for backward compatibility.
+func (d *ImmuneDaemon) RecordCooperationTyped(agentA, agentB string, coopType string) {
+	if d == nil {
+		return
+	}
+
+	d.mu.Lock()
+	if d.coopRecords == nil {
+		d.coopRecords = make(map[string]map[string]*CoopRecord)
+	}
+
+	// Normalize direction: always store as sorted pair (lower < higher)
+	a, b := agentA, agentB
+	if a > b {
+		a, b = b, a
+	}
+
+	if d.coopRecords[a] == nil {
+		d.coopRecords[a] = make(map[string]*CoopRecord)
+	}
+	rec := d.coopRecords[a][b]
+	if rec == nil {
+		rec = &CoopRecord{}
+		d.coopRecords[a][b] = rec
+	}
+
+	switch coopType {
+	case "spawn":
+		rec.SpawnCount++
+	case "msg":
+		rec.MsgCount++
+	}
+	d.mu.Unlock()
+
+	// Backward compatibility: also update coopHistory for similarity matrix
+	d.RecordCooperation(agentA, agentB)
+}
+
+// GetTopology builds and returns the complete collaboration topology.
+// Returns nil if d is nil. Returns an empty topology if no cooperation data exists.
+func (d *ImmuneDaemon) GetTopology() *CollaborationTopology {
+	if d == nil {
+		return nil
+	}
+
+	d.mu.RLock()
+	records := d.coopRecords
+	repStore := d.repStore
+	d.mu.RUnlock()
+
+	topo := &CollaborationTopology{
+		Nodes:           []TopologyNode{},
+		Edges:           []CooperationEdge{},
+		ReinforcedPaths: []CooperationEdge{},
+	}
+
+	if len(records) == 0 {
+		return topo
+	}
+
+	// Build edges from coopRecords
+	agentSet := make(map[string]int) // agent -> connection count
+	for a, peers := range records {
+		for b, rec := range peers {
+			total := rec.SpawnCount + rec.MsgCount
+			reinforced := total >= DefaultReinforcementThreshold
+
+			edge := CooperationEdge{
+				From:       a,
+				To:         b,
+				SpawnCount: rec.SpawnCount,
+				MsgCount:   rec.MsgCount,
+				Total:      total,
+				Reinforced: reinforced,
+			}
+			topo.Edges = append(topo.Edges, edge)
+
+			agentSet[a]++
+			agentSet[b]++
+
+			if reinforced {
+				topo.ReinforcedPaths = append(topo.ReinforcedPaths, edge)
+			}
+		}
+	}
+
+	// Sort edges by Total descending for consistent output
+	sort.Slice(topo.Edges, func(i, j int) bool {
+		return topo.Edges[i].Total > topo.Edges[j].Total
+	})
+
+	// Sort reinforced paths by Total descending
+	sort.Slice(topo.ReinforcedPaths, func(i, j int) bool {
+		return topo.ReinforcedPaths[i].Total > topo.ReinforcedPaths[j].Total
+	})
+
+	// Build nodes sorted alphabetically
+	agentNames := make([]string, 0, len(agentSet))
+	for name := range agentSet {
+		agentNames = append(agentNames, name)
+	}
+	sort.Strings(agentNames)
+
+	for _, name := range agentNames {
+		repScore := 0.0
+		if repStore != nil {
+			if summary, err := repStore.GetSummary(name); err == nil {
+				repScore = summary.Score
+			}
+		}
+		topo.Nodes = append(topo.Nodes, TopologyNode{
+			Agent:           name,
+			ReputationScore: repScore,
+			Connections:     agentSet[name],
+		})
+	}
+
+	return topo
+}
+
+// GetReinforcedPaths returns cooperation edges with Total >= DefaultReinforcementThreshold,
+// sorted by Total descending. Returns nil if d is nil.
+func (d *ImmuneDaemon) GetReinforcedPaths() []CooperationEdge {
+	if d == nil {
+		return nil
+	}
+
+	topo := d.GetTopology()
+	if topo == nil || len(topo.ReinforcedPaths) == 0 {
+		return nil
+	}
+	return topo.ReinforcedPaths
 }
 
 // GetSimilarity returns the similarity between two agents, or nil if not found.
