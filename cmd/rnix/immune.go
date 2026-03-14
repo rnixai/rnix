@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,9 +34,19 @@ var immuneResumeCmd = &cobra.Command{
 	RunE:  runImmuneResume,
 }
 
+var immuneSimilarityCmd = &cobra.Command{
+	Use:   "similarity [agent-name]",
+	Short: "Show capability similarity for an agent",
+	Example: `  rnix immune similarity code-analyst    Show similar agents
+  rnix immune similarity --json code-analyst  JSON output`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runImmuneSimilarity,
+}
+
 func init() {
 	immuneCmd.AddCommand(immuneStatusCmd)
 	immuneCmd.AddCommand(immuneResumeCmd)
+	immuneCmd.AddCommand(immuneSimilarityCmd)
 	rootCmd.AddCommand(immuneCmd)
 }
 
@@ -250,4 +261,85 @@ func formatDurationMs(ms float64) string {
 	}
 	d := time.Duration(ms) * time.Millisecond
 	return strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.1fm", d.Minutes()), "0"), ".")
+}
+
+func runImmuneSimilarity(cmd *cobra.Command, args []string) error {
+	w := cmd.OutOrStdout()
+
+	agentName := ""
+	if len(args) > 0 {
+		agentName = args[0]
+	}
+
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": "daemon not available"}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintln(w, "[immune] error: daemon not available (is the daemon running?)")
+		}
+		exitCode = 1
+		return nil
+	}
+	defer client.Close()
+
+	result, err := client.SimilarityQuery(agentName, 0.0)
+	if err != nil {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": err.Error()}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintf(w, "[immune] error: %v\n", err)
+		}
+		exitCode = 1
+		return nil
+	}
+
+	if flagJSON {
+		resp := JSONResponse{OK: true, Data: result}
+		data, _ := json.Marshal(resp)
+		fmt.Fprintln(w, string(data))
+		return nil
+	}
+
+	formatSimilarityText(w, result)
+	return nil
+}
+
+func formatSimilarityText(w io.Writer, response *ipc.SimilarityQueryResponse) {
+	// Sort similarities by score descending
+	sims := make([]struct {
+		agent string
+		score float64
+		skill float64
+	}, 0, len(response.Similarities))
+	for _, s := range response.Similarities {
+		other := s.AgentB
+		if other == response.Agent {
+			other = s.AgentA
+		}
+		sims = append(sims, struct {
+			agent string
+			score float64
+			skill float64
+		}{agent: other, score: s.Score, skill: s.SkillScore})
+	}
+	sort.Slice(sims, func(i, j int) bool {
+		return sims[i].score > sims[j].score
+	})
+
+	fmt.Fprintf(w, "Capability Similarity for %q:\n\n", response.Agent)
+
+	if len(sims) == 0 {
+		fmt.Fprintln(w, "No similar agents found.")
+		return
+	}
+
+	fmt.Fprintf(w, "%-20s %10s  %10s\n", "AGENT", "SIMILARITY", "SKILL")
+	for _, s := range sims {
+		fmt.Fprintf(w, "%-20s %10.2f  %10.2f\n", truncate(s.agent, 20), s.score, s.skill)
+	}
 }

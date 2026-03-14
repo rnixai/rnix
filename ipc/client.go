@@ -783,6 +783,19 @@ func (c *Client) ImmuneResume(pid uint64) (*ImmuneResumeResponse, error) {
 	return &result, nil
 }
 
+// SimilarityQuery returns similar agents for the given agent (Story 22.4).
+func (c *Client) SimilarityQuery(agentName string, minScore float64) (*SimilarityQueryResponse, error) {
+	resp, err := c.call(MethodSimilarityQuery, SimilarityQueryRequest{AgentName: agentName, MinScore: minScore})
+	if err != nil {
+		return nil, err
+	}
+	var result SimilarityQueryResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal similarity_query: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data
