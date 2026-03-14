@@ -133,9 +133,13 @@ func runImmuneStatus(cmd *cobra.Command, args []string) error {
 	// Text output
 	statusStr := "stopped"
 	if result.Running {
-		statusStr = "running"
+		statusStr = fmt.Sprintf("running (uptime: %s)", formatUptime(result.UptimeMs))
 	}
 	fmt.Fprintf(w, "Immune Daemon: %s\n", statusStr)
+
+	// Security status summary line
+	fmt.Fprintln(w, securitySummary(len(result.Alerts), len(result.SuspendedPIDs)))
+
 	fmt.Fprintf(w, "Profiles: %d\n", result.ProfileCount)
 	fmt.Fprintf(w, "Active Monitors: %d\n", len(result.ActivePIDs))
 	fmt.Fprintf(w, "Threat Memory: %d signatures\n", result.ThreatCount)
@@ -176,6 +180,22 @@ func runImmuneStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Show suspended processes section
+	if len(result.SuspendedPIDs) > 0 {
+		fmt.Fprintf(w, "\nSUSPENDED PROCESSES (%d):\n", len(result.SuspendedPIDs))
+		for _, pid := range result.SuspendedPIDs {
+			// Find alert detail for this PID
+			detail := "anomaly"
+			for _, a := range result.Alerts {
+				if a.PID == pid {
+					detail = fmt.Sprintf("%s anomaly", a.Type)
+					break
+				}
+			}
+			fmt.Fprintf(w, "  PID %d — %s (use: rnix immune resume %d | rnix kill %d)\n", pid, detail, pid, pid)
+		}
+	}
+
 	if len(result.Profiles) == 0 && len(result.Alerts) == 0 {
 		fmt.Fprintln(w, "\nNo behavior profiles established.")
 	}
@@ -188,6 +208,36 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-1] + "~"
+}
+
+func formatUptime(ms int64) string {
+	d := time.Duration(ms) * time.Millisecond
+	totalSec := int(d.Seconds())
+	if totalSec < 60 {
+		return fmt.Sprintf("%ds", totalSec)
+	}
+	totalMin := int(d.Minutes())
+	sec := totalSec % 60
+	if totalMin < 60 {
+		return fmt.Sprintf("%dm%ds", totalMin, sec)
+	}
+	hours := totalMin / 60
+	min := totalMin % 60
+	return fmt.Sprintf("%dh%dm", hours, min)
+}
+
+func securitySummary(alertCount, suspendedCount int) string {
+	if alertCount == 0 && suspendedCount == 0 {
+		return "Security: OK"
+	}
+	var parts []string
+	if alertCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d alerts", alertCount))
+	}
+	if suspendedCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d suspended", suspendedCount))
+	}
+	return "Security: " + strings.Join(parts, ", ")
 }
 
 func formatDurationMs(ms float64) string {

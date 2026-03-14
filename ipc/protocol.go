@@ -716,12 +716,15 @@ type ImmuneStatusRequest struct{}
 
 // ImmuneStatusResponse is the response for MethodImmuneStatus.
 type ImmuneStatusResponse struct {
-	Running      bool                             `json:"running"`
-	ProfileCount int                              `json:"profile_count"`
-	Profiles     map[string]*kernel.NormalProfile  `json:"profiles"`
-	ActivePIDs   []uint64                          `json:"active_pids"`
-	Alerts       []AlertWire                       `json:"alerts"`
-	ThreatCount  int                              `json:"threat_count"`
+	Running        bool                             `json:"running"`
+	UptimeMs       int64                            `json:"uptime_ms"`
+	ProfileCount   int                              `json:"profile_count"`
+	Profiles       map[string]*kernel.NormalProfile  `json:"profiles"`
+	ActivePIDs     []uint64                          `json:"active_pids"`
+	SuspendedPIDs  []uint64                          `json:"suspended_pids"`
+	Alerts         []AlertWire                       `json:"alerts"`
+	ThreatCount    int                              `json:"threat_count"`
+	SecurityStatus string                            `json:"security_status"`
 }
 
 // AlertWire is the IPC wire format for AnomalyAlert.

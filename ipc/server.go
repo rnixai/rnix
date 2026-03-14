@@ -1444,10 +1444,12 @@ func (s *Server) handleSynergyList(conn net.Conn) {
 func (s *Server) handleImmuneStatus(conn net.Conn) {
 	if s.immuneDaemon == nil {
 		resp := ImmuneStatusResponse{
-			Running:    false,
-			Profiles:   map[string]*kernel.NormalProfile{},
-			ActivePIDs: []uint64{},
-			Alerts:     []AlertWire{},
+			Running:        false,
+			Profiles:       map[string]*kernel.NormalProfile{},
+			ActivePIDs:     []uint64{},
+			SuspendedPIDs:  []uint64{},
+			Alerts:         []AlertWire{},
+			SecurityStatus: "ok",
 		}
 		respPayload, _ := json.Marshal(resp)
 		writeResponse(conn, Response{OK: true, Payload: respPayload})
@@ -1479,13 +1481,29 @@ func (s *Server) handleImmuneStatus(conn net.Conn) {
 	}
 	threats := s.immuneDaemon.GetThreats()
 
+	// Story 22.3: uptime, suspended PIDs, security status
+	uptimeMs := s.immuneDaemon.Uptime().Milliseconds()
+	rawSuspended := s.immuneDaemon.SuspendedPIDs()
+	suspendedPIDs := make([]uint64, len(rawSuspended))
+	for i, p := range rawSuspended {
+		suspendedPIDs[i] = uint64(p)
+	}
+
+	securityStatus := "ok"
+	if len(alertWires) > 0 || len(suspendedPIDs) > 0 {
+		securityStatus = "warning"
+	}
+
 	resp := ImmuneStatusResponse{
-		Running:      s.immuneDaemon.IsRunning(),
-		ProfileCount: len(profiles),
-		Profiles:     profiles,
-		ActivePIDs:   activePIDs,
-		Alerts:       alertWires,
-		ThreatCount:  len(threats),
+		Running:        s.immuneDaemon.IsRunning(),
+		UptimeMs:       uptimeMs,
+		ProfileCount:   len(profiles),
+		Profiles:       profiles,
+		ActivePIDs:     activePIDs,
+		SuspendedPIDs:  suspendedPIDs,
+		Alerts:         alertWires,
+		ThreatCount:    len(threats),
+		SecurityStatus: securityStatus,
 	}
 	respPayload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
