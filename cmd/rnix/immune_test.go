@@ -72,3 +72,53 @@ func TestFormatDurationMs(t *testing.T) {
 		}
 	}
 }
+
+// --- Story 22.3: formatUptime tests ---
+
+func TestFormatUptime(t *testing.T) {
+	tests := []struct {
+		ms       int64
+		expected string
+	}{
+		{0, "0s"},
+		{1000, "1s"},
+		{42000, "42s"},
+		{59000, "59s"},
+		{60000, "1m0s"},
+		{330000, "5m30s"},
+		{3599000, "59m59s"},
+		{3600000, "1h0m"},
+		{8100000, "2h15m"},
+		{86400000, "24h0m"},
+	}
+
+	for _, tt := range tests {
+		got := formatUptime(tt.ms)
+		if got != tt.expected {
+			t.Errorf("formatUptime(%d) = %q, want %q", tt.ms, got, tt.expected)
+		}
+	}
+}
+
+// --- Story 22.3: securitySummary tests ---
+
+func TestSecuritySummary(t *testing.T) {
+	tests := []struct {
+		alerts    int
+		suspended int
+		expected  string
+	}{
+		{0, 0, "Security: OK"},
+		{1, 0, "Security: 1 alerts"},
+		{0, 1, "Security: 1 suspended"},
+		{2, 1, "Security: 2 alerts, 1 suspended"},
+		{3, 5, "Security: 3 alerts, 5 suspended"},
+	}
+
+	for _, tt := range tests {
+		got := securitySummary(tt.alerts, tt.suspended)
+		if got != tt.expected {
+			t.Errorf("securitySummary(%d, %d) = %q, want %q", tt.alerts, tt.suspended, got, tt.expected)
+		}
+	}
+}

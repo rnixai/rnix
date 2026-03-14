@@ -573,6 +573,9 @@ type ImmuneDaemon struct {
 	threats   []ThreatSignature
 	alerts    map[types.PID]*AnomalyAlert
 	suspendFn func(pid types.PID) error
+
+	// Story 22.3: uptime tracking
+	startedAt time.Time
 }
 
 // NewImmuneDaemon creates a new ImmuneDaemon backed by the given store.
@@ -640,6 +643,7 @@ func (d *ImmuneDaemon) Start() error {
 	}
 	d.threats = threats
 
+	d.startedAt = time.Now()
 	d.running = true
 	return nil
 }
@@ -850,6 +854,21 @@ func (d *ImmuneDaemon) IsRunning() bool {
 	return d.running
 }
 
+// Uptime returns the duration since the daemon was started.
+// Returns 0 if the daemon is nil or not running.
+func (d *ImmuneDaemon) Uptime() time.Duration {
+	if d == nil {
+		return 0
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if !d.running {
+		return 0
+	}
+	return time.Since(d.startedAt)
+}
+
 // GetAlerts returns a copy of all active anomaly alerts (keyed by PID).
 func (d *ImmuneDaemon) GetAlerts() map[types.PID]*AnomalyAlert {
 	if d == nil {
@@ -862,6 +881,23 @@ func (d *ImmuneDaemon) GetAlerts() map[types.PID]*AnomalyAlert {
 	result := make(map[types.PID]*AnomalyAlert, len(d.alerts))
 	maps.Copy(result, d.alerts)
 	return result
+}
+
+// SuspendedPIDs returns the PIDs of all processes that have active anomaly alerts.
+// These are the processes that have been suspended due to detected anomalies.
+func (d *ImmuneDaemon) SuspendedPIDs() []types.PID {
+	if d == nil {
+		return nil
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	pids := make([]types.PID, 0, len(d.alerts))
+	for pid := range d.alerts {
+		pids = append(pids, pid)
+	}
+	return pids
 }
 
 // ClearAlert removes the anomaly alert for the given PID.
