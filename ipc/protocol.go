@@ -47,6 +47,7 @@ const (
 	MethodReputationStatus Method = "reputation_status"
 	MethodSynergyList      Method = "synergy_list"
 	MethodImmuneStatus     Method = "immune_status"
+	MethodImmuneResume     Method = "immune_resume"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -719,6 +720,31 @@ type ImmuneStatusResponse struct {
 	ProfileCount int                              `json:"profile_count"`
 	Profiles     map[string]*kernel.NormalProfile  `json:"profiles"`
 	ActivePIDs   []uint64                          `json:"active_pids"`
+	Alerts       []AlertWire                       `json:"alerts"`
+	ThreatCount  int                              `json:"threat_count"`
+}
+
+// AlertWire is the IPC wire format for AnomalyAlert.
+type AlertWire struct {
+	PID           uint64  `json:"pid"`
+	AgentTemplate string  `json:"agent_template"`
+	Type          string  `json:"type"`
+	Detail        string  `json:"detail"`
+	Deviation     float64 `json:"deviation"`
+	TimestampMs   int64   `json:"timestamp_ms"`
+}
+
+// --- Immune Resume (Story 22.2) ---
+
+// ImmuneResumeRequest is the payload for MethodImmuneResume.
+type ImmuneResumeRequest struct {
+	PID uint64 `json:"pid"`
+}
+
+// ImmuneResumeResponse is the response for MethodImmuneResume.
+type ImmuneResumeResponse struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

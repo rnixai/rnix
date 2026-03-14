@@ -331,6 +331,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleSynergyList(conn)
 		case MethodImmuneStatus:
 			s.handleImmuneStatus(conn)
+		case MethodImmuneResume:
+			s.handleImmuneResume(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1445,6 +1447,7 @@ func (s *Server) handleImmuneStatus(conn net.Conn) {
 			Running:    false,
 			Profiles:   map[string]*kernel.NormalProfile{},
 			ActivePIDs: []uint64{},
+			Alerts:     []AlertWire{},
 		}
 		respPayload, _ := json.Marshal(resp)
 		writeResponse(conn, Response{OK: true, Payload: respPayload})
@@ -1461,13 +1464,60 @@ func (s *Server) handleImmuneStatus(conn net.Conn) {
 		activePIDs[i] = uint64(p)
 	}
 
+	// Story 22.2: include alerts and threat count
+	rawAlerts := s.immuneDaemon.GetAlerts()
+	alertWires := make([]AlertWire, 0, len(rawAlerts))
+	for _, a := range rawAlerts {
+		alertWires = append(alertWires, AlertWire{
+			PID:           uint64(a.PID),
+			AgentTemplate: a.AgentTemplate,
+			Type:          string(a.Type),
+			Detail:        a.Detail,
+			Deviation:     a.Deviation,
+			TimestampMs:   a.Timestamp.UnixMilli(),
+		})
+	}
+	threats := s.immuneDaemon.GetThreats()
+
 	resp := ImmuneStatusResponse{
 		Running:      s.immuneDaemon.IsRunning(),
 		ProfileCount: len(profiles),
 		Profiles:     profiles,
 		ActivePIDs:   activePIDs,
+		Alerts:       alertWires,
+		ThreatCount:  len(threats),
 	}
 	respPayload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+func (s *Server) handleImmuneResume(conn net.Conn, rawPayload json.RawMessage) {
+	var req ImmuneResumeRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid immune_resume request"}})
+		return
+	}
+
+	pid := types.PID(req.PID)
+
+	// Send SIGRESUME to the process
+	if s.kern != nil {
+		if err := s.kern.Kill(pid, types.SIGRESUME); err != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("failed to resume PID %d: %v", req.PID, err)}})
+			return
+		}
+	}
+
+	// Clear the alert in the immune daemon
+	if s.immuneDaemon != nil {
+		s.immuneDaemon.ClearAlert(pid)
+	}
+
+	result := ImmuneResumeResponse{
+		OK:      true,
+		Message: fmt.Sprintf("Process %d resumed successfully.", req.PID),
+	}
+	respPayload, _ := json.Marshal(result)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 
