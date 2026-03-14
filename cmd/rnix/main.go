@@ -1142,10 +1142,20 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	immuneDir := cwd + "/.rnix/immune"
 	immuneStore := kernel.NewImmuneStore(immuneDir)
 	immuneDaemon := kernel.NewImmuneDaemon(immuneStore)
+
+	// Story 22.2: anomaly detection and threat memory
+	anomalyDetector := kernel.NewAnomalyDetector(kernel.DefaultDeviationThreshold)
+	immuneDaemon.SetDetector(anomalyDetector)
+
 	if err := immuneDaemon.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: immune daemon start failed: %v\n", err)
 	}
 	k.SetImmuneDaemon(immuneDaemon)
+
+	// Story 22.2: set suspendFn after kernel is available (to call Kill with SIGPAUSE)
+	immuneDaemon.SetSuspendFunc(func(pid types.PID) error {
+		return k.Kill(pid, types.SIGPAUSE)
+	})
 
 	// Initialize span persistence (Story 15.1)
 	traceBaseDir := cwd + "/.rnix/traces"

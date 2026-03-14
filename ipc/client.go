@@ -770,6 +770,19 @@ func (c *Client) ImmuneStatus() (*ImmuneStatusResponse, error) {
 	return &result, nil
 }
 
+// ImmuneResume resumes a suspended process and clears its alert (Story 22.2).
+func (c *Client) ImmuneResume(pid uint64) (*ImmuneResumeResponse, error) {
+	resp, err := c.call(MethodImmuneResume, ImmuneResumeRequest{PID: pid})
+	if err != nil {
+		return nil, err
+	}
+	var result ImmuneResumeResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal immune_resume: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,9 +26,71 @@ var immuneStatusCmd = &cobra.Command{
 	RunE: runImmuneStatus,
 }
 
+var immuneResumeCmd = &cobra.Command{
+	Use:   "resume <pid>",
+	Short: "Resume a suspended process",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runImmuneResume,
+}
+
 func init() {
 	immuneCmd.AddCommand(immuneStatusCmd)
+	immuneCmd.AddCommand(immuneResumeCmd)
 	rootCmd.AddCommand(immuneCmd)
+}
+
+func runImmuneResume(cmd *cobra.Command, args []string) error {
+	w := cmd.OutOrStdout()
+
+	pidNum, err := strconv.ParseUint(args[0], 10, 64)
+	if err != nil {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": "invalid PID"}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintf(w, "[immune] error: invalid PID %q\n", args[0])
+		}
+		exitCode = 1
+		return nil
+	}
+
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": "daemon not available"}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintln(w, "[immune] error: daemon not available (is the daemon running?)")
+		}
+		exitCode = 1
+		return nil
+	}
+	defer client.Close()
+
+	result, err := client.ImmuneResume(pidNum)
+	if err != nil {
+		if flagJSON {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": err.Error()}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintf(w, "[immune] error: %v\n", err)
+		}
+		exitCode = 1
+		return nil
+	}
+
+	if flagJSON {
+		resp := JSONResponse{OK: true, Data: result}
+		data, _ := json.Marshal(resp)
+		fmt.Fprintln(w, string(data))
+		return nil
+	}
+
+	fmt.Fprintln(w, result.Message)
+	return nil
 }
 
 func runImmuneStatus(cmd *cobra.Command, args []string) error {
@@ -75,34 +138,46 @@ func runImmuneStatus(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(w, "Immune Daemon: %s\n", statusStr)
 	fmt.Fprintf(w, "Profiles: %d\n", result.ProfileCount)
 	fmt.Fprintf(w, "Active Monitors: %d\n", len(result.ActivePIDs))
+	fmt.Fprintf(w, "Threat Memory: %d signatures\n", result.ThreatCount)
 
-	if len(result.Profiles) == 0 {
+	if len(result.Profiles) > 0 {
+		fmt.Fprintln(w)
+
+		// Sort profiles by name for stable output
+		names := make([]string, 0, len(result.Profiles))
+		for name := range result.Profiles {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		fmt.Fprintf(w, "%-20s %7s  %16s  %14s  %s\n",
+			"AGENT TEMPLATE", "SAMPLES", "TOKEN RATE (avg)", "DURATION (avg)", "LAST UPDATED")
+
+		for _, name := range names {
+			p := result.Profiles[name]
+			updated := p.LastUpdated.Format("2006-01-02")
+			fmt.Fprintf(w, "%-20s %7d  %13.1f tok/s  %12s  %s\n",
+				truncate(name, 20),
+				p.SampleCount,
+				p.TokenRateMean,
+				formatDurationMs(p.DurationMeanMs),
+				updated,
+			)
+		}
+	}
+
+	// Show alerts section
+	if len(result.Alerts) > 0 {
+		fmt.Fprintf(w, "\nALERTS (%d):\n", len(result.Alerts))
+		for _, a := range result.Alerts {
+			ts := time.UnixMilli(a.TimestampMs).Format("2006-01-02 15:04:05")
+			fmt.Fprintf(w, "  PID %d: %s - %s (%s)\n", a.PID, a.Type, a.Detail, ts)
+			fmt.Fprintf(w, "    Actions: rnix immune resume %d | rnix kill %d\n", a.PID, a.PID)
+		}
+	}
+
+	if len(result.Profiles) == 0 && len(result.Alerts) == 0 {
 		fmt.Fprintln(w, "\nNo behavior profiles established.")
-		return nil
-	}
-
-	fmt.Fprintln(w)
-
-	// Sort profiles by name for stable output
-	names := make([]string, 0, len(result.Profiles))
-	for name := range result.Profiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	fmt.Fprintf(w, "%-20s %7s  %16s  %14s  %s\n",
-		"AGENT TEMPLATE", "SAMPLES", "TOKEN RATE (avg)", "DURATION (avg)", "LAST UPDATED")
-
-	for _, name := range names {
-		p := result.Profiles[name]
-		updated := p.LastUpdated.Format("2006-01-02")
-		fmt.Fprintf(w, "%-20s %7d  %13.1f tok/s  %12s  %s\n",
-			truncate(name, 20),
-			p.SampleCount,
-			p.TokenRateMean,
-			formatDurationMs(p.DurationMeanMs),
-			updated,
-		)
 	}
 
 	return nil
