@@ -745,3 +745,382 @@ func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, r *http.Requ
 **FR/NFR 覆盖：**
 - FR147（rnix serve 启动）、FR148（/v1/chat/completions）、FR149（/v1/models）、FR150（SSE 流式）、FR151（provider:model 路由）、FR152（共享 daemon 配置）
 - NFR50（HTTP 开销 ≤ 50ms）、NFR51（≥ 10 并发）、NFR52（仅绑定 127.0.0.1）
+
+---
+
+## 配置系统重构架构决策（Epic 23）
+
+_以下决策（Decision 14-22）专项针对配置系统重构，基于 [config-system-redesign-brief-2026-03-14.md](../config-system-redesign-brief-2026-03-14.md) 和 FR153-FR164 / NFR53-NFR56。_
+
+### 决策优先级分析
+
+**关键决策（阻塞实现）：**
+
+- `internal/config` 包 API 设计（所有模块依赖此包）
+- 配置加载时序（决定 daemon 和 spawn 的整体流程）
+- embed.FS 嵌入策略（影响构建和分发）
+
+**重要决策（塑造架构）：**
+
+- YAML Deep Merge 实现
+- Agent/Skill Shadow 策略
+- ProjectDir() 查找算法
+- IPC 协议扩展（project_dir 字段）
+
+**必需但低风险：**
+
+- 向后兼容与迁移
+- 运行时数据目录隔离
+- 进程级配置快照
+
+### Decision 14: `internal/config` 包 — 统一配置路径解析
+
+**决策：** 新建 `internal/config/` 包，提供双层目录的路径解析、合并引擎和嵌入资源提取，作为所有配置加载的底层基础设施。
+
+**现状问题：**
+
+- `FindProvidersConfigPath()` 在 `drivers/llm/config.go` 中独立实现 CWD→XDG 回退
+- `agents.NewAgentLoader("lib/agents", ...)` 和 `skills.NewSkillLoader("lib/skills")` 硬编码路径
+- `kernel.LoadInitConfig("rnix-init.yaml")` 仅从 CWD 读取
+- 五个模块各自实现路径查找，逻辑不一致
+
+**核心 API 设计：**
+
+```go
+// internal/config/paths.go — 路径解析（纯函数，可测试）
+
+// Scope 标识配置层级
+type Scope int
+const (
+    ScopeGlobal  Scope = iota  // ~/.config/rnix/
+    ScopeProject               // .rnix/
+)
+
+// GlobalDir 返回全局配置目录（遵循 XDG_CONFIG_HOME）
+func GlobalDir() (string, error)
+
+// ProjectDir 从 startDir 向上遍历查找 .rnix/ 目录
+// 到 $HOME 或文件系统根停止，返回 .rnix/ 的父目录路径
+func ProjectDir(startDir string) (string, error)
+
+// ResolvePath 解析指定 scope 下的文件路径
+func ResolvePath(scope Scope, projectDir string, filename string) string
+
+// ResolveDir 解析指定 scope 下的目录路径
+func ResolveDir(scope Scope, projectDir string, dirname string) string
+```
+
+```go
+// internal/config/merge.go — 合并引擎
+
+// DeepMergeYAML 将 override 深合并到 base 上
+func DeepMergeYAML(base, override map[string]any) map[string]any
+
+// ShadowResolve 在多个目录中按优先级查找命名资源（目录）
+func ShadowResolve(name string, dirs ...string) string
+
+// ListMerged 列出多个目录中所有不重复的资源名称
+func ListMerged(dirs ...string) ([]string, error)
+```
+
+```go
+// internal/config/embed.go — 嵌入资源提取
+
+// ExtractEmbedded 将 embed.FS 中指定子树复制到目标目录（不覆盖已存在文件）
+func ExtractEmbedded(fsys embed.FS, srcRoot string, targetDir string) error
+
+// ExtractEmbeddedForce 强制覆盖版本（用于 upgrade 场景）
+func ExtractEmbeddedForce(fsys embed.FS, srcRoot string, targetDir string) error
+```
+
+**依赖方向：**
+
+```
+internal/config → (仅依赖标准库 + internal/types)
+    ↑
+agents/, skills/, drivers/llm/, kernel/, ipc/, cmd/
+```
+
+**理由：**
+
+1. 与 `internal/types`、`internal/xsync` 组织模式一致
+2. 纯函数设计，易于单元测试（注入路径参数，不依赖全局状态）
+3. 所有模块通过统一 API 获取路径，消除路径硬编码
+4. `ProjectDir()` 函数签名接受 `startDir` 参数而非依赖 `os.Getwd()`，便于测试
+
+### Decision 15: 配置加载时序 — 全局缓存 + 项目级按需合并
+
+**决策：** Daemon 启动时一次性加载并缓存全局配置；CLI 端发现项目目录后通过 IPC 传入 `project_dir`；daemon 在处理 spawn 请求时按需加载项目级配置并与全局缓存合并，生成不可变的配置快照绑定到进程。
+
+**时序图：**
+
+```
+Daemon 启动（一次性）               CLI spawn 请求
+─────────────────                 ──────────────────
+1. config.GlobalDir()              1. cwd := os.Getwd()
+2. 加载全局 providers.yaml          2. projectDir := config.ProjectDir(cwd)
+3. 加载全局 config.yaml             3. 检测旧文件 → deprecation warning
+4. 加载全局 mcp.yaml               4. IPC: spawn {intent, agent, project_dir}
+5. 缓存为 GlobalConfig 结构体
+6. 注册全局 LLM 驱动                Daemon 处理 spawn
+7. 启动 IPC 监听                   ──────────────────
+                                  1. 读取 .rnix/providers.yaml（若存在）
+                                  2. DeepMergeYAML(全局providers, 项目providers)
+                                  3. 注册项目级新增的 provider（如有）
+                                  4. ShadowResolve(agentName, 项目agents/, 全局agents/)
+                                  5. 生成 ProjectConfig 快照
+                                  6. 快照绑定到 Process 结构体
+```
+
+**GlobalConfig 结构：**
+
+```go
+type GlobalConfig struct {
+    Dir          string
+    Providers    *llm.ProvidersConfig
+    Config       map[string]any
+    MCP          *mcp.MCPGlobalConfig
+    AgentsDir    string
+    SkillsDir    string
+}
+```
+
+**ProjectConfig 快照（每次 spawn 生成，不可变）：**
+
+```go
+type ProjectConfig struct {
+    ProjectDir   string
+    Providers    *llm.ProvidersConfig
+    Config       map[string]any
+    MCP          *mcp.MCPGlobalConfig
+    AgentDirs    []string   // [项目agents/, 全局agents/]
+    SkillDirs    []string   // [项目skills/, 全局skills/]
+    InitConfig   *kernel.InitConfig
+    ComposeSpec  *compose.ComposeSpec
+}
+```
+
+**理由：**
+
+1. 全局配置解析一次，避免每次 spawn 重复解析（NFR55 ≤ 50ms）
+2. 项目级配置快照不可变，多进程间无共享状态竞争
+3. 同一 daemon 可服务多个不同项目的 spawn 请求
+4. 快照绑定到进程，进程退出时自然释放
+
+### Decision 16: YAML Deep Merge 实现
+
+**决策：** 自实现递归 map 合并，不引入第三方合并库。
+
+**合并语义：**
+
+| 类型组合 | 行为 | 示例 |
+|---------|------|------|
+| map + map | 递归合并 | `{a: {x: 1}} + {a: {y: 2}} → {a: {x: 1, y: 2}}` |
+| map + 非map | override 覆盖 | `{a: {x: 1}} + {a: "str"} → {a: "str"}` |
+| slice + slice | override 替换（不追加） | `[1,2] + [3] → [3]` |
+| scalar + scalar | override 覆盖 | `1 + 2 → 2` |
+| 任意 + nil/缺失 | 保持 base | `{a: 1} + {} → {a: 1}` |
+| nil/缺失 + 任意 | 用 override | `{} + {a: 1} → {a: 1}` |
+
+**实现（~25 行）：**
+
+```go
+func DeepMergeYAML(base, override map[string]any) map[string]any {
+    result := make(map[string]any, len(base))
+    for k, v := range base {
+        result[k] = v
+    }
+    for k, ov := range override {
+        bv, exists := result[k]
+        if !exists {
+            result[k] = ov
+            continue
+        }
+        bm, bIsMap := bv.(map[string]any)
+        om, oIsMap := ov.(map[string]any)
+        if bIsMap && oIsMap {
+            result[k] = DeepMergeYAML(bm, om)
+        } else {
+            result[k] = ov
+        }
+    }
+    return result
+}
+```
+
+**适用范围：** `providers.yaml`、`config.yaml`、`mcp.yaml`。Agent/Skill 不走 merge，走 shadow。
+
+### Decision 17: Agent/Skill Shadow 策略
+
+**决策：** Agent 和 Skill 采用目录级完全遮蔽（shadow），项目级同名定义完全替代全局级，不做字段合并。
+
+**查找算法：**
+
+```go
+func ShadowResolve(name string, dirs ...string) string {
+    for _, dir := range dirs {
+        candidate := filepath.Join(dir, name)
+        if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+            return candidate
+        }
+    }
+    return ""
+}
+```
+
+**调用方式：**
+
+```go
+agentPath := config.ShadowResolve(agentName,
+    filepath.Join(projectDir, ".rnix", "agents"),
+    filepath.Join(globalDir, "agents"),
+)
+```
+
+**理由：**
+
+1. Shadow 语义简单直觉——"项目级有就用项目级的"
+2. 避免合并 agent.yaml 字段导致的复杂性
+3. 与 Claude Code 的 `.claude/` 行为一致
+4. 用户想定制 agent 时，复制全局版本到项目级后自由修改
+
+### Decision 18: embed.FS 嵌入策略
+
+**决策：** 使用 Go `embed.FS` 将 `lib/agents/` 和 `lib/skills/` 编译期嵌入到二进制中，作为安装模板。
+
+**嵌入声明（项目根目录 `embedded.go`）：**
+
+```go
+package rnix
+
+import "embed"
+
+//go:embed lib/agents
+var EmbeddedAgents embed.FS
+
+//go:embed lib/skills
+var EmbeddedSkills embed.FS
+```
+
+`cmd/rnix/main.go` 通过 import 引用：
+
+```go
+import rnix "github.com/rnixai/rnix"
+// 使用 rnix.EmbeddedAgents, rnix.EmbeddedSkills
+```
+
+**`lib/` 目录的双重角色：**
+
+| 阶段 | 作用 |
+|------|------|
+| 开发时 | 源码目录，开发者直接编辑 |
+| 构建时 | 通过 `embed.FS` 嵌入到二进制 |
+| 运行时 | 不再作为查找路径 |
+| `rnix init` | 从 embed.FS 提取到 `~/.config/rnix/` |
+
+**提取规则：** 已存在的文件不覆盖（尊重用户修改）。
+
+### Decision 19: ProjectDir() 查找算法
+
+**决策：** 从给定目录向上遍历查找 `.rnix/` 目录，到 `$HOME` 或文件系统根停止。
+
+```go
+func ProjectDir(startDir string) (string, error) {
+    absStart, err := filepath.Abs(startDir)
+    if err != nil { return "", err }
+
+    home, _ := os.UserHomeDir()
+
+    dir := absStart
+    for {
+        candidate := filepath.Join(dir, ".rnix")
+        if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+            return dir, nil
+        }
+        parent := filepath.Dir(dir)
+        if parent == dir { return "", nil }
+        if home != "" && dir == home { return "", nil }
+        dir = parent
+    }
+}
+```
+
+**边界行为：** `$HOME` 停止防止误匹配，未找到返回 `("", nil)` 不报错。
+
+**性能（NFR54）：** 20 层 stat 调用 < 1ms。
+
+### Decision 20: IPC 协议扩展 — project_dir 字段
+
+**决策：** SpawnRequest 新增可选 `ProjectDir` 字段，`omitempty` 确保向后兼容。
+
+```go
+type SpawnRequest struct {
+    // ... 现有字段 ...
+    ProjectDir string `json:"project_dir,omitempty"`  // 新增
+}
+```
+
+CLI 端负责发现并传入，daemon 端根据此字段合并项目级配置。旧版 CLI 不发送此字段，daemon 按空字符串处理（仅使用全局配置）。
+
+### Decision 21: 向后兼容与迁移
+
+**决策：** 三层向后兼容——自动检测 + 降级读取 + 自动迁移命令。
+
+**第一层：Deprecation Warning**
+
+检测到根目录旧文件（`rnix-providers.yaml` 等）→ 输出 stderr 警告。
+
+**第二层：降级读取**
+
+新路径不存在时检查旧路径作为 fallback（带 warning）。
+
+**第三层：`rnix migrate`**
+
+1. 扫描旧文件 → 2. 创建 `.rnix/` → 3. 备份到 `.rnix/backup/` → 4. 移动文件 → 5. 迁移运行时数据到 `.rnix/data/` → 6. checksum 验证 → 7. 失败回滚
+
+### Decision 22: 进程级配置快照
+
+**决策：** 每次 spawn 生成不可变 `ProjectConfig` 快照，绑定到 Process 结构体生命周期。
+
+```go
+type Process struct {
+    // ... 现有字段 ...
+    ProjectConfig *config.ProjectConfig  // 不可变配置快照
+}
+```
+
+### 配置系统决策影响分析
+
+**实现顺序（依赖驱动）：**
+
+1. `internal/config/paths.go` — 基础设施
+2. `internal/config/merge.go` — 基础设施
+3. `internal/config/embed.go` — 依赖 embed.FS
+4. `internal/config/compat.go` — 依赖 paths.go
+5. `embedded.go`（项目根）— embed 声明
+6. `ipc/protocol.go` 扩展 — SpawnRequest 新增字段
+7. `agents/loader.go` 适配 — 改用 ShadowResolve
+8. `skills/loader.go` 适配 — 改用 ShadowResolve
+9. `drivers/llm/config.go` 适配 — 改用 config 包
+10. `cmd/rnix/init.go` — rnix init 命令
+11. `cmd/rnix/migrate.go` — rnix migrate 命令
+12. `cmd/rnix/main.go` 适配 — daemon 启动 + CLI ProjectDir 发现
+
+**跨模块影响：**
+
+| 模块 | 变更类型 | 影响范围 |
+|------|---------|---------|
+| `internal/config/` | 新增 | 6 个文件 |
+| `ipc/protocol.go` | 修改 | 1 个字段 |
+| `agents/loader.go` | 修改 | 签名变更 |
+| `skills/loader.go` | 修改 | 签名变更 |
+| `drivers/llm/config.go` | 修改 | 路径逻辑迁移 |
+| `kernel/init.go` | 修改 | 路径逻辑变更 |
+| `cmd/rnix/main.go` | 修改 | daemon 启动重构 |
+| `cmd/rnix/init.go` | 新增 | rnix init 命令 |
+| `cmd/rnix/migrate.go` | 新增 | rnix migrate 命令 |
+| `embedded.go` | 新增 | embed.FS 声明 |
+
+**FR/NFR 覆盖：**
+- FR153-FR164（配置系统 12 条功能需求）
+- NFR53（init ≤ 3s）、NFR54（ProjectDir ≤ 10ms）、NFR55（合并 ≤ 50ms）、NFR56（migrate 数据完整性）

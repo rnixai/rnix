@@ -352,3 +352,195 @@ func (k *KernelImpl) Open(path string, flags int) (FD, error) {
 8. 所有 JSON 输出字段用 snake_case
 
 **模式验证：** `go vet` + `golangci-lint` + `go test -race` + 代码审查 checklist。
+
+---
+
+## 配置系统实现模式（Epic 23 增量）
+
+_以下模式补充上述 25 个通用模式，确保 AI Agent 实现配置系统时行为一致。_
+
+### 命名模式（Config 专项）
+
+**包与导入别名：**
+
+| 对象 | 规则 | 示例 | 反例 |
+|------|------|------|------|
+| 包路径 | `internal/config` | `import "github.com/rnixai/rnix/internal/config"` | `internal/cfg` |
+| 导入别名 | 不用别名（`config` 无 stdlib 冲突） | `config.GlobalDir()` | `rnixconfig.GlobalDir()` |
+| 嵌入包引用 | 根包别名 `rnix` | `import rnix "github.com/rnixai/rnix"` | `import root "..."` |
+
+**配置文件命名（新旧对照）：**
+
+| 旧名称（根目录） | 新名称（.rnix/ 或 ~/.config/rnix/） | 说明 |
+|------------------|--------------------------------------|------|
+| `rnix-providers.yaml` | `providers.yaml` | 去 `rnix-` 前缀 |
+| `rnix-init.yaml` | `init.yaml` | 去 `rnix-` 前缀 |
+| `rnix-compose.yaml` | `compose.yaml` | 去 `rnix-` 前缀 |
+| `mcp.yaml` | `mcp.yaml` | 无前缀，保持原名 |
+| N/A | `config.yaml` | 新增：通用配置 |
+
+**Config API 函数命名：**
+
+| 函数 | 命名规则 | 说明 |
+|------|---------|------|
+| 路径解析 | 名词/形容词 | `GlobalDir()`, `ProjectDir(dir)`, `ResolvePath(...)` |
+| 合并操作 | 动词 + 对象 | `DeepMergeYAML(base, override)` |
+| 查找操作 | 动词 + 语义 | `ShadowResolve(name, dirs...)`, `ListMerged(dirs...)` |
+| 嵌入提取 | 动词 + 形容词 | `ExtractEmbedded(...)`, `ExtractEmbeddedForce(...)` |
+| 兼容检测 | `Warn` + 对象 | `WarnLegacyFiles(dir)` |
+
+### 结构模式（Config 专项）
+
+**`internal/config/` 文件组织：**
+
+```
+internal/config/
+├── paths.go          // GlobalDir, ProjectDir, ResolvePath, ResolveDir
+├── paths_test.go
+├── merge.go          // DeepMergeYAML, ShadowResolve, ListMerged
+├── merge_test.go
+├── embed.go          // ExtractEmbedded, ExtractEmbeddedForce
+├── embed_test.go
+├── compat.go         // WarnLegacyFiles, LegacyFiles
+├── compat_test.go
+├── types.go          // Scope, GlobalConfig, ProjectConfig
+└── doc.go            // package doc
+```
+
+**每文件职责边界（禁止越界）：**
+
+| 文件 | 负责 | 禁止 |
+|------|------|------|
+| `paths.go` | 纯路径计算 | 不读 YAML、不解析内容 |
+| `merge.go` | 纯数据结构合并 | 不做 I/O、不读文件 |
+| `embed.go` | 嵌入资源提取到磁盘 | 不做路径解析 |
+| `compat.go` | 旧文件检测 + 警告输出 | 不做迁移（迁移在 cmd/ 中） |
+| `types.go` | 类型定义 | 不含任何函数实现 |
+
+**依赖方向扩展：**
+
+```
+internal/config → (标准库 only: os, path/filepath, io/fs, embed, fmt)
+    ↑
+agents/loader.go ← 调用 ShadowResolve, ListMerged
+skills/loader.go ← 调用 ShadowResolve, ListMerged
+drivers/llm/config.go ← 调用 GlobalDir, ResolvePath, DeepMergeYAML
+kernel/init.go ← 调用 ResolvePath
+cmd/rnix/main.go ← 调用 ProjectDir, WarnLegacyFiles, GlobalConfig/ProjectConfig
+cmd/rnix/init.go ← 调用 ExtractEmbedded, GlobalDir
+cmd/rnix/migrate.go ← 调用 WarnLegacyFiles, ResolvePath
+```
+
+### 格式模式（Config 专项）
+
+**ProjectDir() 返回值约定：**
+
+| 情况 | 返回值 | 调用方行为 |
+|------|--------|-----------|
+| 找到 `.rnix/` | `("/path/to/project", nil)` | 正常加载项目级配置 |
+| 未找到 | `("", nil)` | 仅使用全局配置，不报错 |
+| stat 系统调用失败 | `("", err)` | 记录错误日志，降级为仅全局配置 |
+
+**规则：空字符串 ≠ 错误。** 调用方用 `if projectDir != ""` 判断是否在项目中，不要用 `err != nil`。
+
+**配置合并结果不可变性：**
+
+```go
+// ✅ 正确：ProjectConfig 字段全部为值类型或不可变引用
+type ProjectConfig struct {
+    ProjectDir  string              // 值类型，不可变
+    Providers   *llm.ProvidersConfig // 指针指向新分配的副本，不共享
+    AgentDirs   []string            // 新分配的 slice，不与 GlobalConfig 共享底层数组
+}
+
+// ❌ 错误：直接引用 GlobalConfig 的 slice
+cfg.AgentDirs = globalCfg.AgentDirs  // 共享底层数组，可能被修改
+```
+
+**embed.FS 路径前缀处理：**
+
+```go
+// embed.FS 保留目录结构，WalkDir 的 path 带前缀
+// //go:embed lib/agents → fsys 中路径为 "lib/agents/code-analyst/agent.yaml"
+// 必须用 srcRoot="lib/agents" 剥离前缀
+
+// ✅ 正确
+relPath, _ := filepath.Rel("lib/agents", path)  // "code-analyst/agent.yaml"
+targetPath := filepath.Join(targetDir, relPath)
+
+// ❌ 错误
+targetPath := filepath.Join(targetDir, path)  // 会多出 "lib/agents/" 前缀
+```
+
+### 过程模式（Config 专项）
+
+**配置加载错误处理分级：**
+
+| 严重程度 | 场景 | 处理方式 |
+|---------|------|---------|
+| Fatal | 全局 `providers.yaml` YAML 语法错误 | daemon 启动失败，输出详细错误 |
+| Warning | 全局 `providers.yaml` 不存在 | 使用内置默认配置 + 输出 info 日志 |
+| Warning | 项目 `providers.yaml` 不存在 | 仅使用全局配置，静默 |
+| Warning | 检测到旧文件 `rnix-providers.yaml` | stderr 输出 deprecation warning |
+| Error | 项目 `providers.yaml` YAML 语法错误 | spawn 失败，返回 IPC 错误 |
+| Info | `rnix init` 跳过已存在文件 | 输出 "skipped: file exists" |
+
+**Deprecation Warning 统一格式：**
+
+```
+⚠️  Deprecated: rnix-providers.yaml found in project root.
+    Run 'rnix migrate' to move to .rnix/providers.yaml
+```
+
+规则：输出到 stderr，`RNIX_ASCII=1` 时用 `WARNING:` 前缀，每个旧文件每次 CLI 调用只输出一次。
+
+**`rnix init` 幂等性规则：**
+
+| 操作 | 目标已存在 | 行为 |
+|------|-----------|------|
+| 创建 `~/.config/rnix/` | 目录存在 | 跳过，不报错 |
+| 提取 agent | 同名目录存在 | 跳过整个目录 |
+| 提取 skill | 同名 `SKILL.md` 存在 | 跳过文件 |
+| 创建 `.rnix/` | 目录存在 | 跳过，不报错 |
+| 写 `providers.yaml` | 文件存在 | 跳过，输出 "skipped" |
+
+### 测试模式（Config 专项）
+
+**Config 测试 helper 标准：**
+
+```go
+// ✅ 正确：使用 t.TempDir() 创建隔离环境
+func TestProjectDir_Found(t *testing.T) {
+    root := t.TempDir()
+    os.MkdirAll(filepath.Join(root, "sub", "deep", ".rnix"), 0755)
+
+    got, err := config.ProjectDir(filepath.Join(root, "sub", "deep"))
+    require.NoError(t, err)
+    require.Equal(t, filepath.Join(root, "sub", "deep"), got)
+}
+
+// ✅ 正确：使用 t.Setenv() mock XDG 变量
+func TestGlobalDir_XDG(t *testing.T) {
+    tmp := t.TempDir()
+    t.Setenv("XDG_CONFIG_HOME", tmp)
+
+    got, err := config.GlobalDir()
+    require.NoError(t, err)
+    require.Equal(t, filepath.Join(tmp, "rnix"), got)
+}
+```
+
+**DeepMergeYAML 测试覆盖矩阵：** 必须覆盖空 map、单侧有值、嵌套递归、类型冲突（map vs scalar）、slice 替换、三层以上深度。
+
+### 配置系统强制执行指南（增量）
+
+**AI Agent 额外必须遵循：**
+
+9. 所有配置路径解析必须调用 `config.GlobalDir()` / `config.ProjectDir()` / `config.ResolvePath()`，禁止直接拼接路径
+10. `ProjectDir()` 返回空字符串时用 `if projectDir != ""` 判断，禁止 `err != nil` 判断
+11. `ProjectConfig` 创建后禁止修改任何字段——如需变更，创建新快照
+12. embed.FS 提取时必须用 `filepath.Rel(srcRoot, path)` 剥离前缀
+13. Deprecation warning 输出到 stderr，格式遵循统一模板
+14. `rnix init` 所有操作必须幂等——已存在则跳过
+15. 测试中配置路径必须用 `t.TempDir()` + `t.Setenv()`，禁止依赖真实 `$HOME`
+16. YAML 配置合并用 `DeepMergeYAML`，Agent/Skill 查找用 `ShadowResolve`，禁止混用

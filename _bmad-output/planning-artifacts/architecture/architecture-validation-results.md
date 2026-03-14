@@ -178,3 +178,73 @@ cmd/ → debug/（仅依赖 internal/types/）
 **首要实现优先级：**
 - Phase 2 剩余 Epic（Epic 10 监控/Supervisor、Epic 11 AgentShell）
 - Phase 3 规划从架构决策中的延迟决策开始
+
+---
+
+## 配置系统架构验证（Epic 23 增量）
+
+_以下验证针对 Decision 14-22（配置系统重构），基于 FR153-FR164 / NFR53-NFR56。_
+
+### 一致性验证 ✅
+
+**决策兼容性：** 9 个新增决策（D14-D22）之间无矛盾，且与现有 D1-D13 兼容。
+
+| 依赖关系 | 状态 | 说明 |
+|---------|------|------|
+| D14(config包) → D15(加载时序) | ✅ | GlobalConfig/ProjectConfig 类型由 D14 定义，D15 使用 |
+| D15(加载时序) → D16(deep merge) | ✅ | spawn 合并阶段调用 DeepMergeYAML |
+| D15(加载时序) → D17(shadow) | ✅ | spawn 阶段调用 ShadowResolve 查找 agent |
+| D18(embed.FS) → D14(embed.go) | ✅ | ExtractEmbedded 在 config 包中 |
+| D19(ProjectDir) → D20(IPC) | ✅ | CLI 调用 ProjectDir 后通过 IPC 传入 daemon |
+| D21(compat) → D14(paths) | ✅ | LegacyFiles 映射依赖 ResolvePath |
+| D22(snapshot) → D15(时序) | ✅ | ProjectConfig 在 spawn 时生成 |
+| D4(多Provider) → D15(加载时序) | ✅ | 全局 provider 注册与项目级合并兼容 |
+| D7(Agent/Skill) → D17(shadow) | ✅ | Agent 抽象层的 Loader 适配 ShadowResolve |
+
+**模式一致性：** Config 专项 8 条强制规则（#9-#16）与原有 8 条（#1-#8）无冲突。
+
+### 需求覆盖验证 ✅
+
+**功能需求覆盖（12/12）：**
+
+| FR | 覆盖决策 | 状态 |
+|----|---------|------|
+| FR153 | D14 | ✅ |
+| FR154 | D18 | ✅ |
+| FR155 | D19 | ✅ |
+| FR156 | D16+D17 | ✅ |
+| FR157 | D17 | ✅ |
+| FR158 | D18 | ✅ |
+| FR159 | D21 | ✅ |
+| FR160 | D20 | ✅ |
+| FR161 | D21 | ✅ |
+| FR162 | D21 | ✅ |
+| FR163 | D21 | ✅ |
+| FR164 | D15 | ✅ |
+
+**非功能需求覆盖（4/4）：**
+
+| NFR | 架构支撑 | 状态 |
+|-----|---------|------|
+| NFR53 ≤ 3s | embed.FS 内存读取 | ✅ |
+| NFR54 ≤ 10ms | 纯 stat 调用 | ✅ |
+| NFR55 ≤ 50ms | 全局缓存 + 增量合并 | ✅ |
+| NFR56 备份+回滚 | migrate 三步流程 | ✅ |
+
+### Gap 分析
+
+**3 个次要 gap（均不阻塞实现）：**
+
+| Gap | 严重度 | 建议 |
+|-----|--------|------|
+| `config.yaml` schema 未定义 | 低 | 延迟到 story 级别 |
+| daemon 配置热重载 | 低 | 当前不支持，需重启 daemon |
+| `rnix init` 交互流程 | 低 | MVP 做非交互式提取 |
+
+### 配置系统就绪评估
+
+**总体状态：READY FOR IMPLEMENTATION**
+
+**置信度：高** — FR/NFR 100% 覆盖，无 critical gap。
+
+**首个实现优先级：** `internal/config/paths.go` + `paths_test.go`（零外部依赖，可独立交付）

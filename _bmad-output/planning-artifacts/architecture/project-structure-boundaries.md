@@ -401,3 +401,134 @@ make all = make lint → make vet → make test → make build
 - 单二进制 `rnix`，`go install github.com/rnixai/rnix/cmd/rnix@latest`
 - 运行时自动 fork daemon 进程（`rnix daemon` 子命令）
 - Daemon 通过 `Setsid` 独立会话运行，60 秒空闲自动退出
+
+---
+
+## 配置系统目录结构（Epic 23 增量）
+
+### 全局配置目录 `~/.config/rnix/`
+
+```
+~/.config/rnix/                    # XDG_CONFIG_HOME/rnix/
+├── providers.yaml                 # 全局 LLM provider 定义
+├── config.yaml                    # 全局通用配置（log level 等）
+├── mcp.yaml                       # 全局 MCP 服务器配置
+├── agents/                        # 全局 agent 定义（rnix init 从 embed 提取）
+│   ├── code-analyst/
+│   │   ├── agent.yaml
+│   │   └── instructions.md
+│   └── task-runner/
+│       ├── agent.yaml
+│       └── instructions.md
+└── skills/                        # 全局 skill 定义（rnix init 从 embed 提取）
+    ├── code-analysis/
+    │   └── SKILL.md
+    └── task-execution/
+        └── SKILL.md
+```
+
+### 项目配置目录 `.rnix/`
+
+```
+$PROJECT/.rnix/                    # 项目级配置（类比 .git/）
+├── providers.yaml                 # 项目级 provider 覆盖（deep merge）
+├── config.yaml                    # 项目级通用配置覆盖
+├── init.yaml                      # 项目启动配置（原 rnix-init.yaml）
+├── compose.yaml                   # 多 agent 编排（原 rnix-compose.yaml）
+├── mcp.yaml                       # 项目级 MCP 配置覆盖
+├── agents/                        # 项目级 agent 定义（shadow 全局）
+│   └── custom-agent/
+│       ├── agent.yaml
+│       └── instructions.md
+├── skills/                        # 项目级 skill 定义（shadow 全局）
+│   └── project-specific/
+│       └── SKILL.md
+├── data/                          # 运行时数据（原散落在 .rnix/ 根）
+│   ├── records/                   # 时间旅行录制
+│   ├── traces/                    # 分布式追踪
+│   ├── reputation/                # Agent 声誉
+│   └── immune/                    # 行为基线
+└── backup/                        # rnix migrate 备份目录
+```
+
+### 配置系统源码变更
+
+**新增文件（10 个）：**
+
+```
+rnix/
+├── embedded.go                    # embed.FS 声明
+├── internal/
+│   └── config/                    # 配置基础设施包
+│       ├── doc.go
+│       ├── types.go               # Scope, GlobalConfig, ProjectConfig
+│       ├── paths.go               # GlobalDir, ProjectDir, ResolvePath
+│       ├── paths_test.go
+│       ├── merge.go               # DeepMergeYAML, ShadowResolve, ListMerged
+│       ├── merge_test.go
+│       ├── embed.go               # ExtractEmbedded, ExtractEmbeddedForce
+│       ├── embed_test.go
+│       ├── compat.go              # WarnLegacyFiles, LegacyFiles
+│       └── compat_test.go
+├── cmd/rnix/
+│   ├── init.go                    # rnix init 命令
+│   └── migrate.go                 # rnix migrate 命令
+```
+
+**修改文件（7 个）：**
+
+| 文件 | 变更内容 |
+|------|---------|
+| `cmd/rnix/main.go` | daemon 启动流程 + CLI ProjectDir 发现 |
+| `ipc/protocol.go` | SpawnRequest 新增 ProjectDir 字段 |
+| `agents/loader.go` | NewAgentLoader 接受多 basePath + ShadowResolve |
+| `skills/loader.go` | NewSkillLoader 接受多 basePath + ShadowResolve |
+| `drivers/llm/config.go` | FindProvidersConfigPath 迁移到 config 包 |
+| `kernel/init.go` | LoadInitConfig 使用 config.ResolvePath |
+| `kernel/process.go` | Process 结构体新增 ProjectConfig 字段 |
+
+### 配置系统架构边界
+
+```
+┌──────────────────────────────────────────────────────┐
+│ cmd/rnix/                                            │
+│  ┌─────────┐  ┌──────────┐  ┌──────────────┐       │
+│  │ init.go │  │migrate.go│  │   main.go    │       │
+│  └────┬────┘  └────┬─────┘  └──────┬───────┘       │
+│       │             │               │                │
+│       ▼             ▼               ▼                │
+├───────────────── internal/config ────────────────────┤
+│  paths.go │ merge.go │ embed.go │ compat.go │types  │
+│  (纯路径)  │ (纯合并)  │ (FS提取) │ (旧检测)   │(类型) │
+├──────────────────────────────────────────────────────┤
+│                    标准库 only                        │
+└──────────────────────────────────────────────────────┘
+```
+
+边界规则：`internal/config` 不导入项目中任何其他包，不做 YAML 解析（不依赖 goccy/go-yaml）。
+
+### 配置系统 FR→文件映射
+
+| FR | 需求描述 | 主要实现文件 |
+|----|---------|-------------|
+| FR153 | 双层配置目录 | `internal/config/paths.go`, `types.go` |
+| FR154 | rnix init | `cmd/rnix/init.go`, `internal/config/embed.go` |
+| FR155 | ProjectDir() 向上查找 | `internal/config/paths.go` |
+| FR156 | YAML deep merge + shadow | `internal/config/merge.go` |
+| FR157 | Agent/Skill 项目→全局查找 | `agents/loader.go`, `skills/loader.go` |
+| FR158 | embed.FS 嵌入 | `embedded.go`, `internal/config/embed.go` |
+| FR159 | 文件名去前缀 | `internal/config/compat.go` |
+| FR160 | IPC project_dir | `ipc/protocol.go`, `cmd/rnix/main.go` |
+| FR161 | deprecation warning | `internal/config/compat.go` |
+| FR162 | rnix migrate | `cmd/rnix/migrate.go` |
+| FR163 | 运行时数据迁移 | `cmd/rnix/migrate.go` |
+| FR164 | daemon 全局 + spawn 合并 | `cmd/rnix/main.go`, `internal/config/types.go` |
+
+### 配置系统集成点
+
+| 集成点 | 生产者 | 消费者 | 机制 |
+|--------|--------|--------|------|
+| GlobalConfig | daemon 启动 | spawn handler | 同进程引用 |
+| ProjectConfig | spawn handler | Process.reasonStep | 结构体字段 |
+| project_dir | CLI | daemon IPC server | NDJSON over socket |
+| embed.FS | embedded.go | init.go | embed.FS 参数传递 |
