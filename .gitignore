@@ -6,6 +6,7 @@ _bmad/
 .gemini/
 .codex/skills/
 .agents/
+.meta/
 
 # Binaries
 /rnix
