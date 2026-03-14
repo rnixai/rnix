@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,14 +16,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/goccy/go-yaml"
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
-	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/drivers/fs"
 	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/drivers/mcp"
 	drivershell "github.com/rnixai/rnix/drivers/shell"
+	"github.com/rnixai/rnix/intent"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -236,6 +239,7 @@ func init() {
 	rootCmd.AddCommand(applyCmd)
 	rootCmd.AddCommand(intentCmd)
 	rootCmd.AddCommand(serveCmd)
+	rootCmd.AddCommand(initCmd)
 }
 
 // levenshtein computes the standard Levenshtein distance between two strings
@@ -1069,10 +1073,27 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	}
 
-	providersCfg, err := llm.LoadOrDefaultProvidersConfig()
+	// Resolve global config directory
+	globalDir, err := config.GlobalDir()
 	if err != nil {
-		return fmt.Errorf("loading providers config: %w", err)
+		return fmt.Errorf("resolve global config directory: %w", err)
 	}
+
+	// Load providers config from global directory
+	var providersCfg *llm.ProvidersConfig
+	providersPath := filepath.Join(globalDir, "providers.yaml")
+	if _, err := os.Stat(providersPath); err == nil {
+		providersCfg, err = llm.LoadProvidersConfig(providersPath)
+		if err != nil {
+			return fmt.Errorf("loading providers config %s: %w", providersPath, err)
+		}
+	} else if os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "[kernel] info: %s not found, using default provider configuration\n", providersPath)
+		providersCfg = llm.DefaultProvidersConfig()
+	} else {
+		return fmt.Errorf("checking providers config: %w", err)
+	}
+
 	driverReg := llm.NewDriverRegistry()
 	devReg := vfs.NewDeviceRegistry()
 	if err := llm.RegisterProviders(providersCfg, driverReg, devReg); err != nil {
@@ -1084,26 +1105,52 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	shellDriver := drivershell.NewDriver()
 	_ = devReg.Register("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"))
 	ctxMgr := rnixctx.NewManager()
-	skillLoader := skills.NewSkillLoader("lib/skills")
+	skillLoader := skills.NewSkillLoader(filepath.Join(globalDir, "skills"))
 
 	// Load global MCP configuration (optional, mcp.yaml may not exist)
 	var mcpCfg *mcp.MCPGlobalConfig
-	if _, err := os.Stat("mcp.yaml"); err == nil {
-		mcpCfg, err = mcp.LoadMCPConfig("mcp.yaml")
+	mcpPath := filepath.Join(globalDir, "mcp.yaml")
+	if _, err := os.Stat(mcpPath); err == nil {
+		mcpCfg, err = mcp.LoadMCPConfig(mcpPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[kernel] warn: failed to load mcp.yaml: %v\n", err)
+			fmt.Fprintf(os.Stderr, "[kernel] warn: failed to load %s: %v\n", mcpPath, err)
 		}
 	}
 
-	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader, mcpCfg)
+	agentLoader := agents.NewAgentLoader(filepath.Join(globalDir, "agents"), skillLoader, mcpCfg)
+
+	// Load global config.yaml (optional, not critical)
+	globalConfigPath := filepath.Join(globalDir, "config.yaml")
+	if _, err := os.Stat(globalConfigPath); err == nil {
+		data, err := os.ReadFile(globalConfigPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[kernel] warn: failed to read %s: %v\n", globalConfigPath, err)
+		} else if len(data) > 0 {
+			var parsed map[string]any
+			if err := yaml.Unmarshal(data, &parsed); err != nil {
+				fmt.Fprintf(os.Stderr, "[kernel] warn: failed to parse %s: %v\n", globalConfigPath, err)
+			}
+			_ = parsed // Available for future use
+		}
+	}
+
+	// Assemble GlobalConfig
+	globalConfig := &config.GlobalConfig{
+		Dir:       globalDir,
+		Providers: providersCfg,
+		MCP:       mcpCfg,
+		AgentsDir: filepath.Join(globalDir, "agents"),
+		SkillsDir: filepath.Join(globalDir, "skills"),
+	}
+	_ = globalConfig // Cached for future use
 
 	// Create MountManager with TransportFactory for MCP server mounts
-	transportFactory := func(config vfs.MCPConfig) (vfs.MCPTransport, error) {
+	transportFactory := func(cfg vfs.MCPConfig) (vfs.MCPTransport, error) {
 		tc := mcp.TransportConfig{
-			Command: config.Command,
-			Args:    config.Args,
+			Command: cfg.Command,
+			Args:    cfg.Args,
 		}
-		for k, v := range config.Env {
+		for k, v := range cfg.Env {
 			tc.Env = append(tc.Env, k+"="+v)
 		}
 		return mcp.NewStdioTransport(tc), nil
@@ -1118,7 +1165,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetAgentLoader(agentLoader.Load) // Inject for OODA autonomous spawn (Story 20.2)
 
 	// Stem agent differentiation (Story 20.3)
-	discovery := skills.NewSkillDiscovery(skillLoader, "lib/skills")
+	discovery := skills.NewSkillDiscovery(skillLoader, filepath.Join(globalDir, "skills"))
 	stemMatcher := kernel.NewStemMatcher(discovery)
 	k.SetStemMatcher(stemMatcher)
 	k.SetSkillLoader(skillLoader.LoadFull)
@@ -1129,17 +1176,17 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 	// Initialize execution recording (Story 14.1)
 	cwd, _ := os.Getwd()
-	recordBaseDir := cwd + "/.rnix/records"
+	recordBaseDir := resolveDataDir(cwd, "records")
 	recordMgr := debug.NewRecordManager(recordBaseDir)
 	k.SetRecordManager(recordMgr)
 
 	// Initialize reputation and synergy matrix (Story 21.3, 21.5)
-	reputationDir := cwd + "/.rnix/reputation"
+	reputationDir := resolveDataDir(cwd, "reputation")
 	reputationStore := kernel.NewReputationStore(reputationDir)
 	synergyMatrix := kernel.NewSynergyMatrix(reputationDir)
 
 	// Initialize immune daemon (Story 22.1)
-	immuneDir := cwd + "/.rnix/immune"
+	immuneDir := resolveDataDir(cwd, "immune")
 	immuneStore := kernel.NewImmuneStore(immuneDir)
 	immuneDaemon := kernel.NewImmuneDaemon(immuneStore)
 
@@ -1158,7 +1205,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	})
 
 	// Initialize span persistence (Story 15.1)
-	traceBaseDir := cwd + "/.rnix/traces"
+	traceBaseDir := resolveDataDir(cwd, "traces")
 	k.SetSpanWriter(debug.NewSpanWriter(traceBaseDir))
 
 	srv.SetKernel(k)
@@ -1209,7 +1256,8 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 
 	// Init bootstrap sequence (Story 10.5)
-	initCfg, err := kernel.LoadInitConfig("rnix-init.yaml")
+	// Check CWD rnix-init.yaml first (backward compat), then global init.yaml
+	initCfg, err := loadInitConfigCompat(cwd, globalDir)
 	if err != nil {
 		srv.Shutdown()
 		srv.Wait()
@@ -1247,6 +1295,35 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	os.Remove(socketPath)
 
 	return nil
+}
+
+// resolveDataDir returns the data directory path with backward compatibility.
+// Uses .rnix/data/<name> as the new path, but falls back to .rnix/<name> if the old path exists.
+func resolveDataDir(cwd, name string) string {
+	oldPath := filepath.Join(cwd, ".rnix", name)
+	if _, err := os.Stat(oldPath); err == nil {
+		return oldPath
+	}
+	return filepath.Join(cwd, ".rnix", "data", name)
+}
+
+// loadInitConfigCompat loads init configuration with backward compatibility.
+// Checks CWD/rnix-init.yaml first, then global dir init.yaml, then defaults.
+func loadInitConfigCompat(cwd, globalDir string) (*kernel.InitConfig, error) {
+	// First: CWD rnix-init.yaml (backward compat)
+	cwdInit := filepath.Join(cwd, "rnix-init.yaml")
+	if _, err := os.Stat(cwdInit); err == nil {
+		return kernel.LoadInitConfig(cwdInit)
+	}
+
+	// Second: global dir init.yaml
+	globalInit := filepath.Join(globalDir, "init.yaml")
+	if _, err := os.Stat(globalInit); err == nil {
+		return kernel.LoadInitConfig(globalInit)
+	}
+
+	// Neither exists: use default empty config
+	return kernel.DefaultInitConfig(), nil
 }
 
 func main() {
