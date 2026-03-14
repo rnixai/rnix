@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -576,6 +577,12 @@ type ImmuneDaemon struct {
 
 	// Story 22.3: uptime tracking
 	startedAt time.Time
+
+	// Story 22.4: capability migration
+	similarity  *SimilarityMatrix
+	coopHistory map[string]map[string]int // agentA -> agentB -> count
+	repStore    *ReputationStore
+	migrateFunc MigrateFunc
 }
 
 // NewImmuneDaemon creates a new ImmuneDaemon backed by the given store.
@@ -923,5 +930,363 @@ func (d *ImmuneDaemon) GetThreats() []ThreatSignature {
 
 	result := make([]ThreatSignature, len(d.threats))
 	copy(result, d.threats)
+	return result
+}
+
+// --- Story 22.4: Capability Migration & Similarity Matrix ---
+
+// MinMigrationSimilarity is the minimum similarity score required for capability migration.
+const MinMigrationSimilarity = 0.3
+
+// CapabilitySimilarity records the similarity between two agents.
+type CapabilitySimilarity struct {
+	AgentA     string  `json:"agent_a"`
+	AgentB     string  `json:"agent_b"`
+	SkillScore float64 `json:"skill_score"` // Skill overlap 0.0~1.0 (Jaccard coefficient)
+	CoopScore  float64 `json:"coop_score"`  // Cooperation history score 0.0~1.0
+	Score      float64 `json:"score"`       // Combined = 0.7 * SkillScore + 0.3 * CoopScore
+}
+
+// SimilarityMatrix stores pairwise agent similarity scores.
+type SimilarityMatrix struct {
+	mu      sync.RWMutex
+	entries map[string]map[string]*CapabilitySimilarity // agentA -> agentB -> similarity
+}
+
+// NewSimilarityMatrix creates a new empty SimilarityMatrix.
+func NewSimilarityMatrix() *SimilarityMatrix {
+	return &SimilarityMatrix{
+		entries: make(map[string]map[string]*CapabilitySimilarity),
+	}
+}
+
+// Compute calculates the similarity matrix from agent skill mappings and cooperation history.
+// agents maps agentName -> skillNames list.
+// coopHistory maps agentA -> agentB -> cooperation count.
+func (m *SimilarityMatrix) Compute(agents map[string][]string, coopHistory map[string]map[string]int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.entries = make(map[string]map[string]*CapabilitySimilarity)
+
+	// Convert skill lists to sets for efficient lookup
+	skillSets := make(map[string]map[string]struct{}, len(agents))
+	names := make([]string, 0, len(agents))
+	for name, skills := range agents {
+		names = append(names, name)
+		set := make(map[string]struct{}, len(skills))
+		for _, s := range skills {
+			set[s] = struct{}{}
+		}
+		skillSets[name] = set
+	}
+	sort.Strings(names) // deterministic AgentA/AgentB assignment
+
+	// Find max cooperation count for normalization
+	maxCoop := 0
+	for _, peers := range coopHistory {
+		for _, count := range peers {
+			if count > maxCoop {
+				maxCoop = count
+			}
+		}
+	}
+
+	// Compute pairwise similarity
+	for i := 0; i < len(names); i++ {
+		for j := i + 1; j < len(names); j++ {
+			a, b := names[i], names[j]
+
+			// Jaccard coefficient: |A ∩ B| / |A ∪ B|
+			setA, setB := skillSets[a], skillSets[b]
+			intersection := 0
+			for s := range setA {
+				if _, ok := setB[s]; ok {
+					intersection++
+				}
+			}
+			union := len(setA) + len(setB) - intersection
+			var skillScore float64
+			if union > 0 {
+				skillScore = float64(intersection) / float64(union)
+			}
+
+			// Cooperation score: normalized by max cooperation count
+			var coopScore float64
+			if maxCoop > 0 {
+				coopCount := 0
+				if peers, ok := coopHistory[a]; ok {
+					coopCount += peers[b]
+				}
+				if peers, ok := coopHistory[b]; ok {
+					coopCount += peers[a]
+				}
+				// Average the bidirectional count
+				if coopCount > 0 {
+					avgCount := float64(coopCount) / 2.0
+					coopScore = math.Min(avgCount/float64(maxCoop), 1.0)
+				}
+			}
+
+			// Combined score
+			score := 0.7*skillScore + 0.3*coopScore
+
+			sim := &CapabilitySimilarity{
+				AgentA:     a,
+				AgentB:     b,
+				SkillScore: skillScore,
+				CoopScore:  coopScore,
+				Score:      score,
+			}
+
+			// Store in both directions
+			if m.entries[a] == nil {
+				m.entries[a] = make(map[string]*CapabilitySimilarity)
+			}
+			m.entries[a][b] = sim
+
+			if m.entries[b] == nil {
+				m.entries[b] = make(map[string]*CapabilitySimilarity)
+			}
+			m.entries[b][a] = sim
+		}
+	}
+}
+
+// Get returns the similarity between two agents, or nil if not found.
+func (m *SimilarityMatrix) Get(agentA, agentB string) *CapabilitySimilarity {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if agentA == agentB {
+		return nil
+	}
+	if peers, ok := m.entries[agentA]; ok {
+		return peers[agentB]
+	}
+	return nil
+}
+
+// GetSimilar returns agents similar to agentName with Score >= minScore, sorted by Score descending.
+func (m *SimilarityMatrix) GetSimilar(agentName string, minScore float64) []CapabilitySimilarity {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	peers, ok := m.entries[agentName]
+	if !ok {
+		return []CapabilitySimilarity{}
+	}
+
+	var result []CapabilitySimilarity
+	for _, sim := range peers {
+		if sim.Score >= minScore {
+			result = append(result, *sim)
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Score > result[j].Score
+	})
+
+	if result == nil {
+		result = []CapabilitySimilarity{}
+	}
+	return result
+}
+
+// MigrationResult records the outcome of a capability migration attempt.
+type MigrationResult struct {
+	OriginalPID   types.PID `json:"original_pid"`
+	OriginalAgent string    `json:"original_agent"`
+	TargetAgent   string    `json:"target_agent"`
+	NewPID        types.PID `json:"new_pid"`
+	Similarity    float64   `json:"similarity"`
+	DurationMs    int64     `json:"duration_ms"`
+	Success       bool      `json:"success"`
+	Reason        string    `json:"reason"` // failure reason (empty on success)
+}
+
+// MigrateFunc is the function signature for spawning a migration target process.
+type MigrateFunc func(intent string, agentName string, contextMessages []string) (types.PID, error)
+
+// --- ImmuneDaemon integration methods for Story 22.4 ---
+
+// UpdateSimilarityMatrix recomputes the similarity matrix with the given agent-skill mapping.
+func (d *ImmuneDaemon) UpdateSimilarityMatrix(agents map[string][]string) {
+	if d == nil {
+		return
+	}
+
+	d.mu.Lock()
+	coopHistory := d.coopHistory
+	if d.similarity == nil {
+		d.similarity = NewSimilarityMatrix()
+	}
+	sim := d.similarity
+	d.mu.Unlock()
+
+	sim.Compute(agents, coopHistory)
+}
+
+// RecordCooperation records a cooperation event between two agents (bidirectional).
+func (d *ImmuneDaemon) RecordCooperation(agentA, agentB string) {
+	if d == nil {
+		return
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.coopHistory == nil {
+		d.coopHistory = make(map[string]map[string]int)
+	}
+
+	if d.coopHistory[agentA] == nil {
+		d.coopHistory[agentA] = make(map[string]int)
+	}
+	d.coopHistory[agentA][agentB]++
+
+	if d.coopHistory[agentB] == nil {
+		d.coopHistory[agentB] = make(map[string]int)
+	}
+	d.coopHistory[agentB][agentA]++
+}
+
+// GetSimilarity returns the similarity between two agents, or nil if not found.
+func (d *ImmuneDaemon) GetSimilarity(agentA, agentB string) *CapabilitySimilarity {
+	if d == nil {
+		return nil
+	}
+
+	d.mu.RLock()
+	sim := d.similarity
+	d.mu.RUnlock()
+
+	if sim == nil {
+		return nil
+	}
+	return sim.Get(agentA, agentB)
+}
+
+// GetSimilarAgents returns agents similar to agentName with Score >= minScore.
+func (d *ImmuneDaemon) GetSimilarAgents(agentName string, minScore float64) []CapabilitySimilarity {
+	if d == nil {
+		return nil
+	}
+
+	d.mu.RLock()
+	sim := d.similarity
+	d.mu.RUnlock()
+
+	if sim == nil {
+		return nil
+	}
+	return sim.GetSimilar(agentName, minScore)
+}
+
+// SetReputationStore sets the reputation store for migration candidate scoring.
+func (d *ImmuneDaemon) SetReputationStore(rs *ReputationStore) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.repStore = rs
+}
+
+// SetMigrateFunc sets the function used to spawn migration target processes.
+func (d *ImmuneDaemon) SetMigrateFunc(fn MigrateFunc) {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.migrateFunc = fn
+}
+
+// AttemptMigration tries to migrate a failed process to the best alternative agent.
+// Returns nil if d is nil. Returns a MigrationResult with Success=false if no suitable candidate.
+func (d *ImmuneDaemon) AttemptMigration(pid types.PID, agentTemplate string, intent string, contextMsgs []string) *MigrationResult {
+	if d == nil {
+		return nil
+	}
+
+	startTime := time.Now()
+
+	result := &MigrationResult{
+		OriginalPID:   pid,
+		OriginalAgent: agentTemplate,
+	}
+
+	// Get similar agents above threshold
+	candidates := d.GetSimilarAgents(agentTemplate, MinMigrationSimilarity)
+	if len(candidates) == 0 {
+		result.DurationMs = time.Since(startTime).Milliseconds()
+		result.Reason = "no candidate above similarity threshold"
+		return result
+	}
+
+	// Score candidates: similarity * 0.6 + reputation * 0.4
+	type scoredCandidate struct {
+		name       string
+		similarity float64
+		finalScore float64
+	}
+
+	d.mu.RLock()
+	repStore := d.repStore
+	migrateFn := d.migrateFunc
+	d.mu.RUnlock()
+
+	scored := make([]scoredCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		// Determine the other agent name
+		other := c.AgentB
+		if other == agentTemplate {
+			other = c.AgentA
+		}
+
+		repScore := 0.5 // default neutral
+		if repStore != nil {
+			if summary, err := repStore.GetSummary(other); err == nil {
+				repScore = summary.Score
+			}
+		}
+
+		finalScore := c.Score*0.6 + repScore*0.4
+		scored = append(scored, scoredCandidate{
+			name:       other,
+			similarity: c.Score,
+			finalScore: finalScore,
+		})
+	}
+
+	// Sort by final score descending
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].finalScore > scored[j].finalScore
+	})
+
+	// Try candidates in order
+	if migrateFn == nil {
+		result.DurationMs = time.Since(startTime).Milliseconds()
+		result.Reason = "no migrate function configured"
+		return result
+	}
+
+	for _, candidate := range scored {
+		newPID, err := migrateFn(intent, candidate.name, contextMsgs)
+		if err != nil {
+			continue
+		}
+		result.TargetAgent = candidate.name
+		result.NewPID = newPID
+		result.Similarity = candidate.similarity
+		result.Success = true
+		result.DurationMs = time.Since(startTime).Milliseconds()
+		return result
+	}
+
+	result.DurationMs = time.Since(startTime).Milliseconds()
+	result.Reason = "all candidates failed migration"
 	return result
 }

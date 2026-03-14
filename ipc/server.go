@@ -333,6 +333,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleImmuneStatus(conn)
 		case MethodImmuneResume:
 			s.handleImmuneResume(conn, req.Payload)
+		case MethodSimilarityQuery:
+			s.handleSimilarityQuery(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1536,6 +1538,30 @@ func (s *Server) handleImmuneResume(conn net.Conn, rawPayload json.RawMessage) {
 		Message: fmt.Sprintf("Process %d resumed successfully.", req.PID),
 	}
 	respPayload, _ := json.Marshal(result)
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+// handleSimilarityQuery returns similar agents for the given agent (Story 22.4).
+func (s *Server) handleSimilarityQuery(conn net.Conn, rawPayload json.RawMessage) {
+	var req SimilarityQueryRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid similarity_query request"}})
+		return
+	}
+
+	var similarities []kernel.CapabilitySimilarity
+	if s.immuneDaemon != nil {
+		similarities = s.immuneDaemon.GetSimilarAgents(req.AgentName, req.MinScore)
+	}
+	if similarities == nil {
+		similarities = []kernel.CapabilitySimilarity{}
+	}
+
+	resp := SimilarityQueryResponse{
+		Agent:        req.AgentName,
+		Similarities: similarities,
+	}
+	respPayload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 

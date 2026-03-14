@@ -48,6 +48,7 @@ const (
 	MethodSynergyList      Method = "synergy_list"
 	MethodImmuneStatus     Method = "immune_status"
 	MethodImmuneResume     Method = "immune_resume"
+	MethodSimilarityQuery  Method = "similarity_query"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -748,6 +749,20 @@ type ImmuneResumeRequest struct {
 type ImmuneResumeResponse struct {
 	OK      bool   `json:"ok"`
 	Message string `json:"message"`
+}
+
+// --- Similarity Query (Story 22.4) ---
+
+// SimilarityQueryRequest is the payload for MethodSimilarityQuery.
+type SimilarityQueryRequest struct {
+	AgentName string  `json:"agent_name"`
+	MinScore  float64 `json:"min_score,omitempty"` // default 0.0
+}
+
+// SimilarityQueryResponse is the response for MethodSimilarityQuery.
+type SimilarityQueryResponse struct {
+	Agent        string                         `json:"agent"`
+	Similarities []kernel.CapabilitySimilarity `json:"similarities"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

@@ -242,7 +242,7 @@ development_status:
   22-1-immune-daemon-and-behavior-baseline: done
   22-2-anomaly-detection-and-threat-memory: done
   22-3-security-status-management: done
-  22-4-capability-migration-and-similarity-matrix: backlog
+  22-4-capability-migration-and-similarity-matrix: done
   22-5-collaboration-topology-and-reinforcement-paths: backlog
   epic-22-retrospective: optional
 

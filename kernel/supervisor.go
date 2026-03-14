@@ -72,6 +72,9 @@ type Supervisor struct {
 	exitCh       chan childExit
 	restartTimes []time.Time
 	mu           sync.Mutex
+
+	// Story 22.4: capability migration on restart exhaustion
+	immuneDaemon *ImmuneDaemon
 }
 
 // newSupervisor creates a new Supervisor instance.
@@ -122,6 +125,7 @@ func (k *KernelImpl) SpawnSupervisor(spec SupervisorSpec) (types.PID, error) {
 	k.msgQueues.Store(proc.PID, newMessageQueue())
 
 	sup := newSupervisor(proc, spec, k)
+	sup.immuneDaemon = k.immuneDaemon
 
 	k.emitEvent(proc, "SpawnSupervisor", map[string]any{
 		"strategy":     string(spec.Strategy),
@@ -316,6 +320,27 @@ func (s *Supervisor) handleChildExit(idx int, pid types.PID, exit ExitStatus) {
 			"max_restarts": s.spec.MaxRestarts,
 			"max_window":   s.spec.MaxWindow.String(),
 		}, nil, nil, 0)
+
+		// Story 22.4: attempt capability migration before shutdown
+		if s.immuneDaemon != nil && child.spec.Agent != nil {
+			agentName := child.spec.Agent.Manifest.Name
+			result := s.immuneDaemon.AttemptMigration(child.pid, agentName, child.spec.Intent, nil)
+			if result != nil && result.Success {
+				// Reap the failed child before returning
+				s.kernel.Reap(child.pid)
+				s.kernel.emitEvent(s.proc, "SupervisorMigration", map[string]any{
+					"original_pid":   child.pid,
+					"original_agent": agentName,
+					"target_agent":   result.TargetAgent,
+					"new_pid":        result.NewPID,
+					"similarity":     result.Similarity,
+					"duration_ms":    result.DurationMs,
+				}, result.NewPID, nil, 0)
+				// Migration succeeded — don't shutdown all, the migrated process continues
+				return
+			}
+		}
+
 		s.shutdownAll()
 		s.kernel.finishProcess(s.proc, ExitStatus{
 			Code:   1,

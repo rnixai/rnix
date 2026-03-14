@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
@@ -549,6 +550,108 @@ func TestSupervisor_OneForAll_NoStaleEventCascade(t *testing.T) {
 	}
 	if exit.Reason != "all children completed" {
 		t.Fatalf("reason: %q, want 'all children completed'", exit.Reason)
+	}
+}
+
+// Test 22.4: migration triggered when restart limit exceeded
+func TestSupervisor_MigrationOnRestartExceeded(t *testing.T) {
+	k := newSimpleTestKernel(t, &alwaysCrashFile{})
+
+	// Setup immune daemon with similarity matrix and migrate function
+	immuneStore := NewImmuneStore(t.TempDir())
+	daemon := NewImmuneDaemon(immuneStore)
+	if err := daemon.Start(); err != nil {
+		t.Fatalf("Start immune daemon: %v", err)
+	}
+	defer daemon.Stop()
+
+	// Build similarity matrix: "crasher-agent" is similar to "backup-agent"
+	agentSkills := map[string][]string{
+		"crasher-agent": {"analysis", "coding"},
+		"backup-agent":  {"analysis", "coding", "review"},
+	}
+	daemon.UpdateSimilarityMatrix(agentSkills)
+
+	var migrated atomic.Bool
+	daemon.SetMigrateFunc(func(intent string, agentName string, contextMessages []string) (types.PID, error) {
+		migrated.Store(true)
+		return types.PID(9999), nil
+	})
+
+	k.SetImmuneDaemon(daemon)
+
+	agentInfo := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{Name: "crasher-agent"},
+	}
+
+	spec := SupervisorSpec{
+		Strategy:    OneForOne,
+		MaxRestarts: 2,
+		MaxWindow:   10 * time.Second,
+		Children: []ChildSpec{
+			{Name: "crasher", Intent: "crash-task", Agent: agentInfo, Restart: RestartPermanent},
+		},
+	}
+
+	supPID, err := k.SpawnSupervisor(spec)
+	if err != nil {
+		t.Fatalf("SpawnSupervisor: %v", err)
+	}
+
+	_ = waitSupervisor(k, supPID)
+	if !migrated.Load() {
+		t.Error("expected migration to be attempted when restart limit exceeded")
+	}
+}
+
+// Test 22.4: migration fails, supervisor falls back to normal shutdown
+func TestSupervisor_MigrationFailed_FallbackShutdown(t *testing.T) {
+	k := newSimpleTestKernel(t, &alwaysCrashFile{})
+
+	// Setup immune daemon with no similar agents (migration will fail)
+	immuneStore := NewImmuneStore(t.TempDir())
+	daemon := NewImmuneDaemon(immuneStore)
+	if err := daemon.Start(); err != nil {
+		t.Fatalf("Start immune daemon: %v", err)
+	}
+	defer daemon.Stop()
+
+	// Empty similarity matrix: no candidates for migration
+	daemon.UpdateSimilarityMatrix(map[string][]string{
+		"crasher-agent": {"unique-skill"},
+	})
+
+	daemon.SetMigrateFunc(func(intent string, agentName string, contextMessages []string) (types.PID, error) {
+		return 0, fmt.Errorf("spawn failed")
+	})
+
+	k.SetImmuneDaemon(daemon)
+
+	agentInfo := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{Name: "crasher-agent"},
+	}
+
+	spec := SupervisorSpec{
+		Strategy:    OneForOne,
+		MaxRestarts: 2,
+		MaxWindow:   10 * time.Second,
+		Children: []ChildSpec{
+			{Name: "crasher", Intent: "crash-task", Agent: agentInfo, Restart: RestartPermanent},
+		},
+	}
+
+	supPID, err := k.SpawnSupervisor(spec)
+	if err != nil {
+		t.Fatalf("SpawnSupervisor: %v", err)
+	}
+
+	exit := waitSupervisor(k, supPID)
+	// Migration fails, so supervisor should fall back to normal shutdown
+	if exit.Code != 1 {
+		t.Fatalf("exit code %d, want 1 (migration failed, should fallback)", exit.Code)
+	}
+	if exit.Reason != "max_restarts_exceeded" {
+		t.Fatalf("reason: %q, want 'max_restarts_exceeded'", exit.Reason)
 	}
 }
 
