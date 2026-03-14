@@ -265,3 +265,10 @@ development_status:
   24-4-models-endpoint-provider-discovery: done
   24-5-rnix-serve-cli-e2e-integration: done
   epic-24-retrospective: done
+
+  # Epic 25: Configuration System Redesign (配置系统重构)
+  epic-25: in-progress
+  25-1-internal-config-package-and-embed-fs: done
+  25-2-rnix-init-and-global-config-loading: backlog
+  25-3-project-config-merge-and-module-adaptation: backlog
+  epic-25-retrospective: optional
