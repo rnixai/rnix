@@ -17,7 +17,7 @@ func TestInstaller_Install_Fresh(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	result, err := installer.Install("test-skill", InstallOpts{})
@@ -59,7 +59,7 @@ func TestInstaller_Install_AlreadyInstalled(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// First install
@@ -84,7 +84,7 @@ func TestInstaller_Install_ForceOverwrite(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// First install
@@ -123,7 +123,7 @@ checksum: "sha256:00000000000000000000000000000000000000000000000000000000000000
 	dir := t.TempDir()
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	_, err := installer.Install("bad-skill", InstallOpts{})
@@ -145,7 +145,7 @@ func TestInstaller_Install_SkillLoaderValidation(t *testing.T) {
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
 	// Use a different base path for skill loader that won't have our files
-	badLoader := skills.NewSkillLoader(t.TempDir())
+	badLoader := skills.NewSkillLoader([]string{t.TempDir()})
 	installer := NewInstaller(client, registry, badLoader, dir)
 
 	_, err := installer.Install("test-skill", InstallOpts{})
@@ -160,7 +160,7 @@ func TestInstaller_Install_NotFoundInRegistry(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	_, err := installer.Install("nonexistent-skill", InstallOpts{})

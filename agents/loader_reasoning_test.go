@@ -18,8 +18,8 @@ func TestAgentManifest_ReasoningField(t *testing.T) {
 	// Given: agent.yaml with reasoning: ooda
 	// When: loading the ooda-agent
 	// Then: AgentManifest.Reasoning == "ooda"
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	info, err := al.Load("ooda-agent")
 	if err != nil {
@@ -35,8 +35,8 @@ func TestAgentLoader_DefaultReasoningMode(t *testing.T) {
 	// Given: agent.yaml without reasoning field
 	// When: loading the mock-agent
 	// Then: AgentManifest.Reasoning == "" (empty = linear default)
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	info, err := al.Load("mock-agent")
 	if err != nil {
@@ -52,8 +52,8 @@ func TestAgentLoader_InvalidReasoningMode(t *testing.T) {
 	// Given: agent.yaml with reasoning: bogus
 	// When: loading the invalid-reasoning agent
 	// Then: Load returns error mentioning invalid reasoning mode
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	_, err := al.Load("invalid-reasoning")
 	if err == nil {
@@ -75,8 +75,8 @@ func TestAgentLoader_LinearReasoningMode(t *testing.T) {
 	// We reuse mock-agent and verify default behavior; the explicit "linear"
 	// case is tested via TestAgentLoader_InvalidReasoningMode ensuring
 	// only "", "linear", and "ooda" pass validation.
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	info, err := al.Load("mock-agent")
 	if err != nil {

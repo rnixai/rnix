@@ -48,7 +48,7 @@ func TestInstaller_ListAll_BuiltinOnly(t *testing.T) {
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// When: calling ListAll
@@ -97,7 +97,7 @@ func TestInstaller_ListAll_Mixed(t *testing.T) {
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// Register the community skill in the registry
@@ -162,7 +162,7 @@ func TestInstaller_ListAll_Empty(t *testing.T) {
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// When: calling ListAll
@@ -196,7 +196,7 @@ func TestInstaller_ListAll_InvalidSkillSkipped(t *testing.T) {
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// When: calling ListAll
@@ -233,7 +233,7 @@ func TestInstaller_ListAll_RegisteredSkillWithCorruptedSKILLMD(t *testing.T) {
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// Register the community skill
@@ -290,7 +290,7 @@ func TestInstaller_ListAll_SortedByName(t *testing.T) {
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// When: calling ListAll
@@ -321,7 +321,7 @@ func TestInstaller_ListAll_PathField(t *testing.T) {
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// When: calling ListAll
@@ -349,7 +349,7 @@ func TestInstaller_ListAll_RegistrySkipsDotFiles(t *testing.T) {
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// Create a registry entry to ensure .registry.yaml exists

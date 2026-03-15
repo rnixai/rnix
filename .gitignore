@@ -37,7 +37,6 @@ go.work.sum
 .DS_Store
 Thumbs.db
 logs/
-.rnix/records/
-.rnix/traces/
+.rnix/
 *.log
 logs/

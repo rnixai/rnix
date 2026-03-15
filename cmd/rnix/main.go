@@ -405,6 +405,10 @@ func runRoot(cmd *cobra.Command, args []string) error {
 
 	start := time.Now()
 
+	// Discover project directory (CLI-side, passed to daemon via IPC)
+	cwd, _ := os.Getwd()
+	projectDir, _ := config.ProjectDir(cwd)
+
 	client, err := ipc.EnsureDaemon()
 	if err != nil {
 		outputError(renderer, mode, "daemon", err.Error(), "daemon 启动失败", "检查 rnix 是否正确安装")
@@ -414,12 +418,12 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	defer client.Close()
 
 	if isScriptSyntax(intent) {
-		runScript(renderer, mode, progress, client, intent, start)
+		runScript(renderer, mode, progress, client, intent, start, projectDir)
 		return nil
 	}
 
 	if isPipelineSyntax(intent) {
-		runPipeline(renderer, mode, progress, client, intent, start)
+		runPipeline(renderer, mode, progress, client, intent, start, projectDir)
 		return nil
 	}
 
@@ -430,11 +434,12 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 
 	req := ipc.SpawnRequest{
-		Intent:   intent,
-		Agent:    flagAgent,
-		Model:    flagModel,
-		Provider: flagProvider,
-		MaxSteps: flagMaxSteps,
+		Intent:     intent,
+		Agent:      flagAgent,
+		Model:      flagModel,
+		Provider:   flagProvider,
+		MaxSteps:   flagMaxSteps,
+		ProjectDir: projectDir,
 	}
 
 	sigCh := make(chan os.Signal, 2)
@@ -509,7 +514,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time) {
+func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time, projectDir string) {
 	pipeline, err := agentshell.ParsePipeline(intent)
 	if err != nil {
 		outputError(renderer, mode, "shell/parser", err.Error(), "管道语法解析失败", "检查语法: spawn \"A\" | spawn \"B\"")
@@ -522,7 +527,8 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 	}
 
 	req := ipc.SpawnPipelineRequest{
-		Commands: make([]ipc.SpawnPipelineCommand, len(pipeline.Commands)),
+		Commands:   make([]ipc.SpawnPipelineCommand, len(pipeline.Commands)),
+		ProjectDir: projectDir,
 	}
 	for i, cmd := range pipeline.Commands {
 		req.Commands[i] = ipc.SpawnPipelineCommand{
@@ -611,10 +617,11 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 	outputSuccess(renderer, mode, lastStage.PID, lastStage.Result, totalTokens, elapsed)
 }
 
-func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time) {
+func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time, projectDir string) {
 	req := ipc.ExecScriptRequest{
-		Script: intent,
-		Env:    agentshell.NewEnvironmentFromOS().All(),
+		Script:     intent,
+		Env:        agentshell.NewEnvironmentFromOS().All(),
+		ProjectDir: projectDir,
 	}
 
 	sigCh := make(chan os.Signal, 2)
@@ -1105,7 +1112,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	shellDriver := drivershell.NewDriver()
 	_ = devReg.Register("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"))
 	ctxMgr := rnixctx.NewManager()
-	skillLoader := skills.NewSkillLoader(filepath.Join(globalDir, "skills"))
+	skillLoader := skills.NewSkillLoader([]string{filepath.Join(globalDir, "skills")})
 
 	// Load global MCP configuration (optional, mcp.yaml may not exist)
 	var mcpCfg *mcp.MCPGlobalConfig
@@ -1117,7 +1124,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	agentLoader := agents.NewAgentLoader(filepath.Join(globalDir, "agents"), skillLoader, mcpCfg)
+	agentLoader := agents.NewAgentLoader([]string{filepath.Join(globalDir, "agents")}, skillLoader, mcpCfg)
 
 	// Load global config.yaml (optional, not critical)
 	globalConfigPath := filepath.Join(globalDir, "config.yaml")
@@ -1142,7 +1149,6 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		AgentsDir: filepath.Join(globalDir, "agents"),
 		SkillsDir: filepath.Join(globalDir, "skills"),
 	}
-	_ = globalConfig // Cached for future use
 
 	// Create MountManager with TransportFactory for MCP server mounts
 	transportFactory := func(cfg vfs.MCPConfig) (vfs.MCPTransport, error) {
@@ -1165,7 +1171,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetAgentLoader(agentLoader.Load) // Inject for OODA autonomous spawn (Story 20.2)
 
 	// Stem agent differentiation (Story 20.3)
-	discovery := skills.NewSkillDiscovery(skillLoader, filepath.Join(globalDir, "skills"))
+	discovery := skills.NewSkillDiscovery(skillLoader, []string{filepath.Join(globalDir, "skills")})
 	stemMatcher := kernel.NewStemMatcher(discovery)
 	k.SetStemMatcher(stemMatcher)
 	k.SetSkillLoader(skillLoader.LoadFull)
@@ -1214,6 +1220,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv.SetReputationStore(reputationStore)
 	srv.SetSynergyMatrix(synergyMatrix)
 	srv.SetImmuneDaemon(immuneDaemon)
+	srv.SetGlobalConfig(globalConfig)
 	srv.SetProviderStatusFunc(func() []ipc.ProviderStatusWire {
 		statuses := driverReg.HealthStatuses()
 		wires := make([]ipc.ProviderStatusWire, len(statuses))

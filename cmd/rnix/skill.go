@@ -87,7 +87,7 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
 	basePath := "lib/skills"
 	registry := skillpkg.NewLocalRegistry(basePath)
-	skillLoader := skills.NewSkillLoader(basePath)
+	skillLoader := skills.NewSkillLoader([]string{basePath})
 	installer := skillpkg.NewInstaller(client, registry, skillLoader, basePath)
 
 	var results []skillpkg.InstallResult
@@ -264,7 +264,7 @@ func runSkillUpdate(cmd *cobra.Command, args []string) error {
 	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
 	basePath := "lib/skills"
 	registry := skillpkg.NewLocalRegistry(basePath)
-	skillLoader := skills.NewSkillLoader(basePath)
+	skillLoader := skills.NewSkillLoader([]string{basePath})
 	installer := skillpkg.NewInstaller(client, registry, skillLoader, basePath)
 
 	var results []skillpkg.UpdateResult
@@ -395,7 +395,7 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
 	basePath := "lib/skills"
 	registry := skillpkg.NewLocalRegistry(basePath)
-	skillLoader := skills.NewSkillLoader(basePath)
+	skillLoader := skills.NewSkillLoader([]string{basePath})
 	installer := skillpkg.NewInstaller(client, registry, skillLoader, basePath)
 
 	entries, err := installer.ListAll()

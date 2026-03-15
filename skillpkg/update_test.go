@@ -46,7 +46,7 @@ func TestInstaller_Update_HasUpdate(t *testing.T) {
 
 	clientV1 := NewRegistryClient(srvV1.URL, srvV1.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installerV1 := NewInstaller(clientV1, registry, skillLoader, dir)
 
 	_, err := installerV1.Install("test-skill", InstallOpts{})
@@ -106,7 +106,7 @@ func TestInstaller_Update_AlreadyUpToDate(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	_, err := installer.Install("test-skill", InstallOpts{})
@@ -141,7 +141,7 @@ func TestInstaller_Update_NotInstalled(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// When: calling Update for a skill that is not installed
@@ -162,7 +162,7 @@ func TestInstaller_UpdateAll_MultipleSkills(t *testing.T) {
 
 	client1 := NewRegistryClient(srv1.URL, srv1.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer1 := NewInstaller(client1, registry, skillLoader, dir)
 
 	_, err := installer1.Install("skill-a", InstallOpts{})
@@ -253,7 +253,7 @@ func TestInstaller_UpdateAll_SkipBuiltin(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// Manually add a builtin entry to the registry

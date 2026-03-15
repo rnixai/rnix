@@ -15,6 +15,7 @@ import (
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
 	"github.com/rnixai/rnix/skills"
@@ -46,9 +47,10 @@ type SpawnOpts struct {
 	ParentSpanID  types.SpanID  // parent process span ID
 	Provider      string        // LLM provider override (from CLI --provider); "" = use agent manifest or default "claude"
 
-	PreallocatedCtxID types.CtxID // non-zero = skip CtxAlloc, use this pre-setup context
-	SkipReasonLoop    bool        // true = don't open LLM device or start reasonStep goroutine
-	ReasoningMode     string      // "" = linear (default), "ooda" = OODA loop
+	PreallocatedCtxID types.CtxID            // non-zero = skip CtxAlloc, use this pre-setup context
+	SkipReasonLoop    bool                   // true = don't open LLM device or start reasonStep goroutine
+	ReasoningMode     string                 // "" = linear (default), "ooda" = OODA loop
+	ProjectConfig     *config.ProjectConfig  // project-level config snapshot; nil = global only
 }
 
 // ActionType classifies LLM response actions.
@@ -227,6 +229,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 	proc := NewProcess(opts.ParentPID, intent, skillNames)
 	// Note: proc.Skills may be updated below after stem differentiation (Story 20.3)
+
+	// Set project config snapshot (Story 25.3) — immutable after spawn
+	proc.ProjectConfig = opts.ProjectConfig
 
 	// Maintain parent-child tracking
 	if opts.ParentPID > 0 {

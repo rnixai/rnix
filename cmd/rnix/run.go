@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	agentshell "github.com/rnixai/rnix/shell"
@@ -81,10 +82,15 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
+	// Discover project directory
+	runCwd, _ := os.Getwd()
+	projectDir, _ := config.ProjectDir(runCwd)
+
 	req := ipc.ExecScriptRequest{
-		Script:    content,
-		Env:       env,
-		ScriptDir: scriptDir,
+		Script:     content,
+		Env:        env,
+		ScriptDir:  scriptDir,
+		ProjectDir: projectDir,
 	}
 
 	sigCh := make(chan os.Signal, 2)

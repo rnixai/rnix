@@ -1,5 +1,5 @@
 version: "1"
-default_provider: claude
+default_provider: cursor
 providers:
   - name: claude
     driver: claude-cli
