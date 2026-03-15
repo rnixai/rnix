@@ -114,6 +114,8 @@ type ProcInfoWire struct {
 	Result        string             `json:"result,omitempty"`
 	ContextBudget int                `json:"context_budget,omitempty"`
 	MaxSteps      int                `json:"max_steps,omitempty"`
+	Provider      string             `json:"provider,omitempty"`
+	Model         string             `json:"model,omitempty"`
 }
 
 // ProcInfoToWire converts a vfs.ProcInfo to wire format.
@@ -134,6 +136,8 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		Result:        p.Result,
 		ContextBudget: p.ContextBudget,
 		MaxSteps:      p.MaxSteps,
+		Provider:      p.Provider,
+		Model:         p.Model,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -155,6 +159,8 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		Result:        w.Result,
 		ContextBudget: w.ContextBudget,
 		MaxSteps:      w.MaxSteps,
+		Provider:      w.Provider,
+		Model:         w.Model,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)
@@ -304,7 +310,9 @@ type ProgressPayload struct {
 	PID   types.PID `json:"pid"`
 
 	// OnSpawn
-	Intent string `json:"intent,omitempty"`
+	Intent   string `json:"intent,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 
 	// OnStep
 	Step  int `json:"step,omitempty"`

@@ -71,14 +71,14 @@ make all      # lint + vet + test + build
 
 ```bash
 $ rnix -i "分析 ./README.md"
-[kernel] spawning PID 1...
+[kernel] spawning PID 1 (claude/haiku)...
 [agent/1] reasoning step 1...
 [agent/1] reasoning step 2...
 ══ Result ══════════════════════════════════════════════════════════════════════
   ## README.md 分析
   ...
 ════════════════════════════════════════════════════════════════════════════════
-[kernel] PID 1 exited(0) | tokens: 1024 | elapsed: 5.3s
+[kernel] PID 1 exited(0) | claude/haiku | tokens: 1024 | elapsed: 5.3s
 ```
 
 ### 使用命名 Agent

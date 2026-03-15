@@ -40,6 +40,8 @@ type ProcInfo struct {
 	CtxID          types.CtxID
 	Result         string
 	AllowedDevices []string
+	Provider       string
+	Model          string
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.

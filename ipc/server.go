@@ -715,7 +715,13 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 	defer s.kern.Reap(pid) // Reap top-level process after stream ends (no CLI Wait in daemon mode)
 
 	// Compensate for OnSpawn event lost during kern.Spawn (fires before register)
-	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent}
+	// Retrieve process to access resolved provider/model
+	proc, ok := s.kern.GetProcess(pid)
+	if !ok {
+		writeStreamEvent(conn, StreamEvent{Type: StreamError, Payload: marshalJSON(ErrorPayload{Code: "INTERNAL", Message: "process vanished after spawn"})})
+		return
+	}
+	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent, Provider: proc.Provider, Model: proc.Model}
 	spawnPayload, _ := json.Marshal(spawnPP)
 	select {
 	case eventCh <- StreamEvent{Type: StreamProgress, Payload: spawnPayload}:
@@ -724,12 +730,6 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 
 	payload, _ := json.Marshal(SpawnResponse{PID: pid})
 	writeResponse(conn, Response{OK: true, Payload: payload})
-
-	proc, ok := s.kern.GetProcess(pid)
-	if !ok {
-		writeStreamEvent(conn, StreamEvent{Type: StreamError, Payload: marshalJSON(ErrorPayload{Code: "INTERNAL", Message: "process vanished after spawn"})})
-		return
-	}
 
 	doneCh := make(chan struct{})
 	go func() {
@@ -1366,8 +1366,8 @@ func (m *callbackMux) send(pid types.PID, ev StreamEvent) {
 
 // KernelCallbacks interface implementation for the server's callbackMux.
 
-func (m *callbackMux) OnSpawn(pid types.PID, intent string) {
-	pp := ProgressPayload{Event: "spawn", PID: pid, Intent: intent}
+func (m *callbackMux) OnSpawn(pid types.PID, intent, provider, model string) {
+	pp := ProgressPayload{Event: "spawn", PID: pid, Intent: intent, Provider: provider, Model: model}
 	payload, _ := json.Marshal(pp)
 	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
 }

@@ -43,12 +43,16 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("get working directory: %w", err)
 	}
 	rnixDir := filepath.Join(cwd, ".rnix")
-	if _, err := os.Stat(rnixDir); os.IsNotExist(err) {
+	info, err := os.Stat(rnixDir)
+	switch {
+	case os.IsNotExist(err):
 		if err := initProject(cwd); err != nil {
 			return fmt.Errorf("project init failed: %w", err)
 		}
 		fmt.Fprintf(w, "initialized project config: %s\n", rnixDir)
-	} else {
+	case err == nil && !info.IsDir():
+		return fmt.Errorf(".rnix exists as a file, not a directory — please remove it first: %s", rnixDir)
+	default:
 		fmt.Fprintln(w, "project already initialized, skipping")
 	}
 

@@ -91,7 +91,7 @@ type llmResponse struct {
 // KernelCallbacks allows the CLI layer to receive progress notifications
 // from the kernel without introducing a reverse dependency on internal/ui.
 type KernelCallbacks interface {
-	OnSpawn(pid types.PID, intent string)
+	OnSpawn(pid types.PID, intent, provider, model string)
 	OnStep(pid types.PID, step int, total int)
 	OnComplete(pid types.PID, result string, exit ExitStatus)
 	OnError(pid types.PID, err error)
@@ -451,6 +451,8 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			return 0, NewSyscallError("Spawn", proc.PID, "", resolveErr, types.ErrDriver)
 		}
 		proc.PrimaryDevice = llmDevice // Store for fallback reference (Story 23.5)
+		proc.Provider = strings.TrimPrefix(llmDevice, "/dev/llm/")
+		proc.Model = opts.Model
 
 		// Open LLM device via VFS
 		openStart := time.Now()
@@ -565,7 +567,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	// Notify callback after process is registered and goroutine launched
 	if k.callbacks != nil {
-		k.callbacks.OnSpawn(proc.PID, intent)
+		k.callbacks.OnSpawn(proc.PID, intent, proc.Provider, proc.Model)
 	}
 
 	// Notify immune daemon about new process (Story 22.1)
@@ -1463,6 +1465,8 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		CtxID:          proc.CtxID,
 		Result:         proc.Result,
 		AllowedDevices: append([]string(nil), proc.AllowedDevices...),
+		Provider:       proc.Provider,
+		Model:          proc.Model,
 	}
 	proc.mu.Unlock()
 	return info, nil
@@ -1600,6 +1604,8 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			CtxID:          proc.CtxID,
 			Result:         proc.Result,
 			AllowedDevices: append([]string(nil), proc.AllowedDevices...),
+			Provider:       proc.Provider,
+			Model:          proc.Model,
 		})
 		proc.mu.Unlock()
 		return true

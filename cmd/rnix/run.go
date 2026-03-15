@@ -145,12 +145,12 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if scriptResp.LastExitCode == 0 {
-		outputSuccess(renderer, mode, 0, scriptResp.LastResult, scriptResp.TotalTokens, elapsed)
+		outputSuccess(renderer, mode, 0, scriptResp.LastResult, scriptResp.TotalTokens, elapsed, "", "")
 	} else {
 		outputError(renderer, mode, "shell/script",
 			fmt.Sprintf("script failed (exit %d)", scriptResp.LastExitCode),
 			"脚本执行中断", "检查脚本中的 spawn 命令")
-		ui.RenderSummary(renderer, 0, scriptResp.LastExitCode, scriptResp.TotalTokens, elapsed)
+		ui.RenderSummary(renderer, 0, scriptResp.LastExitCode, scriptResp.TotalTokens, elapsed, "", "")
 		exitCode = 1
 	}
 
