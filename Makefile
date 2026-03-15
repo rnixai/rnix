@@ -1,12 +1,13 @@
 BINARY := rnix
 PKG := github.com/rnixai/rnix
+GITHUB_REPO := rnixai/rnix
 GIT_VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "0.1.0")
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null)
 BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS := -X main.version=$(GIT_VERSION) -X main.gitCommit=$(GIT_COMMIT) -X main.buildDate=$(BUILD_DATE)
 
 .PHONY: build install test lint vet modernize modernize-check clean cache-clean all release help \
-	gh-status gh-view gh-pr gh-pr-list gh-issue gh-issue-list gh-release-publish gh-push
+	gh-status gh-view gh-repo-edit gh-pr gh-pr-list gh-issue gh-issue-list gh-release-publish gh-push
 .DEFAULT_GOAL := help
 
 build:
@@ -64,8 +65,15 @@ release:
 gh-status: ## Check gh auth status
 	gh auth status
 
-gh-view: ## Open repo in browser
-	gh repo view --web
+gh-view: ## Open repo in browser (rnixai/rnix)
+	gh repo view $(GITHUB_REPO) --web
+
+gh-repo-edit: ## Update GitHub repo description, homepage, topics (sync repo view)
+	gh repo edit $(GITHUB_REPO) \
+		--description "An operating system for AI agents — Unix philosophy: process, VFS, syscalls. Go 1.26." \
+		--homepage "https://rnix.ai" \
+		--add-topic "ai-agents" --add-topic "go" --add-topic "unix" \
+		--add-topic "llm" --add-topic "mcp" --add-topic "orchestration" --add-topic "cli"
 
 gh-pr: ## Create a PR (interactive)
 	gh pr create
@@ -102,7 +110,8 @@ help: ## Show this help
 	@printf "  \033[36m%-18s\033[0m %s\n" "release"         "Tag and build a release (VERSION=x.y.z)"
 	@printf "\n  \033[1mGitHub (gh):\033[0m\n"
 	@printf "  \033[36m%-18s\033[0m %s\n" "gh-status"       "Check gh auth status"
-	@printf "  \033[36m%-18s\033[0m %s\n" "gh-view"         "Open repo in browser"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-view"         "Open rnixai/rnix in browser"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-repo-edit"    "Sync repo description, homepage, topics"
 	@printf "  \033[36m%-18s\033[0m %s\n" "gh-pr"           "Create a PR (interactive)"
 	@printf "  \033[36m%-18s\033[0m %s\n" "gh-pr-list"      "List open PRs"
 	@printf "  \033[36m%-18s\033[0m %s\n" "gh-issue"       "Create an issue (interactive)"
