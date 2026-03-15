@@ -271,4 +271,4 @@ development_status:
   25-1-internal-config-package-and-embed-fs: done
   25-2-rnix-init-and-global-config-loading: done
   25-3-project-config-merge-and-module-adaptation: done
-  epic-25-retrospective: optional
+  epic-25-retrospective: done
