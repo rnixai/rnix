@@ -146,33 +146,33 @@ $ curl localhost:8080/v1/chat/completions -d '{"model":"claude","messages":[...]
 |---------|-------------|
 | `rnix -i "intent"` | Spawn an agent process with the given intent |
 | `rnix -i "intent" --agent=NAME` | Use a named agent definition |
-| `rnix -i "intent" --provider=cursor` | Use a specific LLM provider |
+| `rnix -i "intent" --provider=NAME` | Use a specific LLM provider |
+| `rnix init` | Initialize configuration environment |
 | `rnix ps` | List all processes |
 | `rnix kill <pid>` | Terminate a process |
 | `rnix strace <pid>` | Trace syscalls of a process |
+| `rnix log <pid>` | View categorized reasoning logs |
+| `rnix top` | Real-time process monitor (TUI) |
 | `rnix gdb <pid>` | Interactive debugger (breakpoints, stepping, inspection) |
-| `rnix record <pid>` | Record execution for time-travel replay |
+| `rnix dashboard` | Visual debugging TUI (multi-pane) |
+| `rnix record start/stop/list` | Execution recording management |
 | `rnix replay <id>` | Replay recorded execution |
 | `rnix trace <id>` | View distributed tracing |
 | `rnix trace blame <id>` | Root cause analysis |
 | `rnix ctx-profile <pid>` | Context memory profiling |
-| `rnix agtest <file>` | Run regression tests |
-| `rnix dashboard` | Visual debugging TUI (multi-pane) |
-| `rnix top` | Real-time process monitor (TUI) |
-| `rnix log <pid>` | View categorized reasoning logs |
-| `rnix compose up` | Run multi-agent DAG workflow |
-| `rnix compose down` | Stop all compose agents |
-| `rnix intent apply "..."` | Declarative intent decomposition |
-| `rnix intent status` | View intent tree status |
+| `rnix ctx-growth <pid>` | Context growth prediction |
+| `rnix compose up/down` | Multi-agent DAG workflow |
+| `rnix apply "intent"` | Declarative intent decomposition |
+| `rnix intent status/list` | Intent tree management |
+| `rnix run <script.ash>` | Execute AgentShell script |
 | `rnix serve` | OpenAI-compatible LLM gateway |
 | `rnix skill install/search/update/list` | Skill package management |
-| `rnix providers status` | LLM provider health check |
+| `rnix agtest <file>` | Run agent regression tests |
 | `rnix reputation [agent]` | Agent reputation scores |
 | `rnix lineage <pid>` | Stem cell differentiation path |
 | `rnix topology` | Agent collaboration topology |
 | `rnix synergy list` | Effective Skill combinations |
-| `rnix immune status` | Security monitoring status |
-| `rnix run <script.ash>` | Execute AgentShell script |
+| `rnix immune status/resume/similarity` | Adaptive security management |
 | `rnix daemon status/stop` | Daemon management |
 | `rnix version` | Show version info |
 
@@ -273,11 +273,7 @@ go test -race -run TestFunctionName ./package/...
 
 ## Contributing
 
-Contributions are welcome! Please ensure:
-
-1. All tests pass: `make test`
-2. Linter is clean: `make lint`
-3. Code follows existing conventions (see `CLAUDE.md` for details)
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
