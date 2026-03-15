@@ -140,7 +140,7 @@ func (k *KernelImpl) SpawnSupervisor(spec SupervisorSpec) (types.PID, error) {
 	})
 
 	if k.callbacks != nil {
-		k.callbacks.OnSpawn(proc.PID, proc.Intent)
+		k.callbacks.OnSpawn(proc.PID, proc.Intent, "", "")
 	}
 
 	return proc.PID, nil

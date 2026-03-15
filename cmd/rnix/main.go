@@ -108,8 +108,14 @@ type cliCallbacks struct {
 	progress *ui.ProgressReporter
 }
 
-func (c *cliCallbacks) OnSpawn(pid types.PID, intent string) {
-	c.progress.KernelMessage("spawning PID %d...", pid)
+func (c *cliCallbacks) OnSpawn(pid types.PID, intent, provider, model string) {
+	if provider != "" && model != "" {
+		c.progress.KernelMessage("spawning PID %d (%s/%s)...", pid, provider, model)
+	} else if provider != "" {
+		c.progress.KernelMessage("spawning PID %d (%s)...", pid, provider)
+	} else {
+		c.progress.KernelMessage("spawning PID %d...", pid)
+	}
 }
 
 func (c *cliCallbacks) OnStep(pid types.PID, step, total int) {
@@ -466,6 +472,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	defer signal.Stop(sigCh)
 
 	var spawnedPID atomic.Uint64
+	var spawnProvider, spawnModel string
 	cancelClient, _ := ipc.Dial(ipc.SocketPath())
 	if cancelClient != nil {
 		defer cancelClient.Close()
@@ -494,7 +501,15 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		}
 		switch pp.Event {
 		case "spawn":
-			progress.KernelMessage("spawning PID %d...", pp.PID)
+			spawnProvider = pp.Provider
+			spawnModel = pp.Model
+			if pp.Provider != "" && pp.Model != "" {
+				progress.KernelMessage("spawning PID %d (%s/%s)...", pp.PID, pp.Provider, pp.Model)
+			} else if pp.Provider != "" {
+				progress.KernelMessage("spawning PID %d (%s)...", pp.PID, pp.Provider)
+			} else {
+				progress.KernelMessage("spawning PID %d...", pp.PID)
+			}
 		case "step":
 			progress.AgentStep(pp.PID, pp.Step, pp.Total)
 		case "error":
@@ -512,7 +527,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	elapsed := time.Since(start)
 
 	if final != nil && final.ExitCode == 0 {
-		outputSuccess(renderer, mode, pid, final.Result, final.TokensUsed, elapsed)
+		outputSuccess(renderer, mode, pid, final.Result, final.TokensUsed, elapsed, spawnProvider, spawnModel)
 	} else {
 		reason := "unknown error"
 		if final != nil {
@@ -526,7 +541,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		if final != nil {
 			tokensUsed = final.TokensUsed
 		}
-		ui.RenderSummary(renderer, pid, 1, tokensUsed, elapsed)
+		ui.RenderSummary(renderer, pid, 1, tokensUsed, elapsed, spawnProvider, spawnModel)
 		exitCode = 1
 	}
 
@@ -624,7 +639,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 		for _, s := range pipeResp.Stages {
 			totalTokens += s.TokensUsed
 		}
-		ui.RenderSummary(renderer, lastStage.PID, lastStage.ExitCode, totalTokens, elapsed)
+		ui.RenderSummary(renderer, lastStage.PID, lastStage.ExitCode, totalTokens, elapsed, "", "")
 		exitCode = 1
 		return
 	}
@@ -633,7 +648,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 	for _, s := range pipeResp.Stages {
 		totalTokens += s.TokensUsed
 	}
-	outputSuccess(renderer, mode, lastStage.PID, lastStage.Result, totalTokens, elapsed)
+	outputSuccess(renderer, mode, lastStage.PID, lastStage.Result, totalTokens, elapsed, "", "")
 }
 
 func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time, projectDir string) {
@@ -695,12 +710,12 @@ func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressR
 	}
 
 	if scriptResp.LastExitCode == 0 {
-		outputSuccess(renderer, mode, 0, scriptResp.LastResult, scriptResp.TotalTokens, elapsed)
+		outputSuccess(renderer, mode, 0, scriptResp.LastResult, scriptResp.TotalTokens, elapsed, "", "")
 	} else {
 		outputError(renderer, mode, "shell/script",
 			fmt.Sprintf("script failed (exit %d)", scriptResp.LastExitCode),
 			"脚本执行中断", "检查脚本中的 spawn 命令")
-		ui.RenderSummary(renderer, 0, scriptResp.LastExitCode, scriptResp.TotalTokens, elapsed)
+		ui.RenderSummary(renderer, 0, scriptResp.LastExitCode, scriptResp.TotalTokens, elapsed, "", "")
 		exitCode = 1
 	}
 }
@@ -749,7 +764,7 @@ func outputPipelineJSON(renderer *ui.Renderer, resp *ipc.SpawnPipelineResponse, 
 	fmt.Fprintln(renderer.Writer, string(data))
 }
 
-func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, result string, tokensUsed int, elapsed time.Duration) {
+func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, result string, tokensUsed int, elapsed time.Duration, provider, model string) {
 	if mode == ui.ModeJSON {
 		resp := JSONResponse{
 			OK: true,
@@ -767,7 +782,7 @@ func outputSuccess(renderer *ui.Renderer, mode ui.OutputMode, pid types.PID, res
 	}
 
 	ui.RenderResult(renderer, "Result", result)
-	ui.RenderSummary(renderer, pid, 0, tokensUsed, elapsed)
+	ui.RenderSummary(renderer, pid, 0, tokensUsed, elapsed, provider, model)
 }
 
 func outputError(renderer *ui.Renderer, mode ui.OutputMode, device string, reason string, impact string, suggestion string) {
@@ -843,6 +858,8 @@ type jsonProcess struct {
 	Skills     []string  `json:"skills"`
 	TokensUsed int       `json:"tokens_used"`
 	ElapsedMs  int64     `json:"elapsed_ms"`
+	Provider   string    `json:"provider,omitempty"`
+	Model      string    `json:"model,omitempty"`
 }
 
 func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
@@ -861,6 +878,8 @@ func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
 			Skills:     skills,
 			TokensUsed: p.TokensUsed,
 			ElapsedMs:  now.Sub(p.CreatedAt).Milliseconds(),
+			Provider:   p.Provider,
+			Model:      p.Model,
 		}
 	}
 	resp := JSONResponse{

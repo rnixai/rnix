@@ -102,6 +102,8 @@ type Process struct {
 	FallbackProvider string // fallback provider name; "" = same as primary
 	FallbackDevice   string // resolved fallback VFS device path; "" = no fallback
 	PrimaryDevice    string // primary VFS device path (e.g. "/dev/llm/claude")
+	Provider         string // resolved provider name (immutable after spawn)
+	Model            string // resolved model name (immutable after spawn)
 
 	// Project configuration (Story 25.3) — immutable after spawn, no locking needed
 	ProjectConfig *config.ProjectConfig

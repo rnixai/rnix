@@ -62,7 +62,7 @@ func TestCliCallbacks_OnSpawn(t *testing.T) {
 	p := ui.NewProgressReporter(r)
 	cb := &cliCallbacks{progress: p}
 
-	cb.OnSpawn(1, "test intent")
+	cb.OnSpawn(1, "test intent", "claude", "sonnet")
 
 	output := buf.String()
 	if !strings.Contains(output, "[kernel]") {
@@ -70,6 +70,9 @@ func TestCliCallbacks_OnSpawn(t *testing.T) {
 	}
 	if !strings.Contains(output, "spawning PID 1") {
 		t.Errorf("expected spawning PID message, got %q", output)
+	}
+	if !strings.Contains(output, "claude/sonnet") {
+		t.Errorf("expected provider/model in output, got %q", output)
 	}
 }
 
@@ -96,7 +99,7 @@ func TestOutputSuccess_JSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
 
-	outputSuccess(renderer, ui.ModeJSON, 1, "test result", 100, 5*time.Second)
+	outputSuccess(renderer, ui.ModeJSON, 1, "test result", 100, 5*time.Second, "claude", "sonnet")
 
 	var resp JSONResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -133,7 +136,7 @@ func TestOutputSuccess_Default(t *testing.T) {
 	var buf bytes.Buffer
 	renderer := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeDefault, Profile: ui.TerminalProfile{Width: 80, ColorLevel: 0}}
 
-	outputSuccess(renderer, ui.ModeDefault, 1, "分析完成", 50, 2*time.Second)
+	outputSuccess(renderer, ui.ModeDefault, 1, "分析完成", 50, 2*time.Second, "claude", "haiku")
 
 	output := buf.String()
 	if !strings.Contains(output, "分析完成") {
@@ -266,7 +269,7 @@ func TestCLICallbacks_QuietMode(t *testing.T) {
 	p := ui.NewProgressReporter(r)
 	cb := &cliCallbacks{progress: p}
 
-	cb.OnSpawn(1, "test")
+	cb.OnSpawn(1, "test", "claude", "sonnet")
 	cb.OnStep(1, 1, 3)
 
 	if buf.Len() != 0 {

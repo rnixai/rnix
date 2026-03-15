@@ -202,6 +202,22 @@ func TestInitProject_Idempotent_SkipsExisting(t *testing.T) {
 	}
 }
 
+func TestInitProject_DotRnixIsFile_NotTreatedAsDir(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create .rnix as a FILE, not a directory
+	rnixFile := filepath.Join(tmpDir, ".rnix")
+	if err := os.WriteFile(rnixFile, []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// initProject should fail because .rnix is a file blocking MkdirAll
+	err := initProject(tmpDir)
+	if err == nil {
+		t.Error("initProject should fail when .rnix is a file, got nil")
+	}
+}
+
 func TestResolveDataDir_NewPath(t *testing.T) {
 	tmpDir := t.TempDir()
 	// No old path exists, should return new path
