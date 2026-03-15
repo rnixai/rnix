@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
@@ -1869,5 +1871,160 @@ func TestServer_CtxGrowth_ValidPID_Running(t *testing.T) {
 	}
 	if len(result.History) != 3 {
 		t.Errorf("History len = %d, want 3", len(result.History))
+	}
+}
+
+// ============================================================
+// Story 25-3: Project Config Merge & Module Adaptation
+//
+// Tests verify resolveProjectContext behavior.
+// ============================================================
+
+// --- 25.3-SRV-001: Empty projectDir returns nil config and global loader ---
+
+func TestResolveProjectContext_EmptyProjectDir(t *testing.T) {
+	srv := NewServer(nil, nil, "0.1.0-test")
+
+	// Set a mock agent loader so we can verify it is returned
+	mockLoader := func(name string) (*agents.AgentInfo, error) {
+		return nil, nil
+	}
+	srv.agentLoader = mockLoader
+
+	projCfg, loaderFn, err := srv.resolveProjectContext("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if projCfg != nil {
+		t.Errorf("expected nil ProjectConfig for empty projectDir, got %+v", projCfg)
+	}
+	if loaderFn == nil {
+		t.Error("expected non-nil loader function for empty projectDir")
+	}
+}
+
+// --- 25.3-SRV-002: Empty projectDir with no global config ---
+
+func TestResolveProjectContext_EmptyProjectDir_NoGlobalConfig(t *testing.T) {
+	srv := NewServer(nil, nil, "0.1.0-test")
+	// globalConfig is nil
+
+	projCfg, loaderFn, err := srv.resolveProjectContext("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if projCfg != nil {
+		t.Errorf("expected nil ProjectConfig, got %+v", projCfg)
+	}
+	// loaderFn should be s.agentLoader (nil in this case since not set)
+	if loaderFn != nil {
+		t.Error("expected nil loader when agentLoader is not set")
+	}
+}
+
+// --- 25.3-SRV-003: Non-empty projectDir but no global config falls back ---
+
+func TestResolveProjectContext_WithProjectDir_NoGlobalConfig(t *testing.T) {
+	srv := NewServer(nil, nil, "0.1.0-test")
+	// globalConfig is nil, so even with projectDir, should fall back to global-only mode
+
+	projCfg, _, err := srv.resolveProjectContext("/some/project")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if projCfg != nil {
+		t.Errorf("expected nil ProjectConfig when no global config, got %+v", projCfg)
+	}
+}
+
+// --- 25.3-SRV-004: Non-empty projectDir with global config returns ProjectConfig ---
+
+func TestResolveProjectContext_WithProjectDir(t *testing.T) {
+	srv := NewServer(nil, nil, "0.1.0-test")
+
+	// Set up global config
+	globalAgentsDir := t.TempDir()
+	globalSkillsDir := t.TempDir()
+	srv.SetGlobalConfig(&config.GlobalConfig{
+		Dir:       t.TempDir(),
+		AgentsDir: globalAgentsDir,
+		SkillsDir: globalSkillsDir,
+	})
+
+	// Create a project directory (no providers.yaml, so no merge needed)
+	projectDir := t.TempDir()
+	rnixDir := filepath.Join(projectDir, ".rnix")
+	if err := os.MkdirAll(rnixDir, 0o755); err != nil {
+		t.Fatalf("mkdir .rnix: %v", err)
+	}
+
+	projCfg, loaderFn, err := srv.resolveProjectContext(projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if projCfg == nil {
+		t.Fatal("expected non-nil ProjectConfig for valid projectDir")
+	}
+	if projCfg.ProjectDir != projectDir {
+		t.Errorf("ProjectDir = %q, want %q", projCfg.ProjectDir, projectDir)
+	}
+
+	// Verify agent dirs: project first, global second
+	expectedAgentDir := filepath.Join(projectDir, ".rnix", "agents")
+	if len(projCfg.AgentDirs) != 2 {
+		t.Fatalf("AgentDirs length = %d, want 2", len(projCfg.AgentDirs))
+	}
+	if projCfg.AgentDirs[0] != expectedAgentDir {
+		t.Errorf("AgentDirs[0] = %q, want %q", projCfg.AgentDirs[0], expectedAgentDir)
+	}
+	if projCfg.AgentDirs[1] != globalAgentsDir {
+		t.Errorf("AgentDirs[1] = %q, want %q", projCfg.AgentDirs[1], globalAgentsDir)
+	}
+
+	// Verify skill dirs: project first, global second
+	expectedSkillDir := filepath.Join(projectDir, ".rnix", "skills")
+	if len(projCfg.SkillDirs) != 2 {
+		t.Fatalf("SkillDirs length = %d, want 2", len(projCfg.SkillDirs))
+	}
+	if projCfg.SkillDirs[0] != expectedSkillDir {
+		t.Errorf("SkillDirs[0] = %q, want %q", projCfg.SkillDirs[0], expectedSkillDir)
+	}
+	if projCfg.SkillDirs[1] != globalSkillsDir {
+		t.Errorf("SkillDirs[1] = %q, want %q", projCfg.SkillDirs[1], globalSkillsDir)
+	}
+
+	// Verify the loader function is returned (project-aware)
+	if loaderFn == nil {
+		t.Error("expected non-nil project-aware loader function")
+	}
+}
+
+// --- 25.3-SRV-005: Invalid project providers.yaml returns error ---
+
+func TestResolveProjectContext_InvalidProjectProviders(t *testing.T) {
+	srv := NewServer(nil, nil, "0.1.0-test")
+
+	globalDir := t.TempDir()
+	srv.SetGlobalConfig(&config.GlobalConfig{
+		Dir:       globalDir,
+		AgentsDir: filepath.Join(globalDir, "agents"),
+		SkillsDir: filepath.Join(globalDir, "skills"),
+	})
+
+	// Create project dir with invalid providers.yaml
+	projectDir := t.TempDir()
+	rnixDir := filepath.Join(projectDir, ".rnix")
+	if err := os.MkdirAll(rnixDir, 0o755); err != nil {
+		t.Fatalf("mkdir .rnix: %v", err)
+	}
+	invalidYAML := []byte("{{{{not valid yaml")
+	if err := os.WriteFile(filepath.Join(rnixDir, "providers.yaml"), invalidYAML, 0o644); err != nil {
+		t.Fatalf("write providers.yaml: %v", err)
+	}
+
+	_, _, err := srv.resolveProjectContext(projectDir)
+	if err == nil {
+		t.Fatal("expected error for invalid providers.yaml, got nil")
 	}
 }

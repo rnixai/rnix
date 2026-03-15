@@ -7,16 +7,18 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+	"github.com/rnixai/rnix/internal/config"
 )
 
-// SkillLoader loads skill definitions from a base directory.
+// SkillLoader loads skill definitions from multiple search directories.
 type SkillLoader struct {
-	basePath string
+	searchDirs []string
 }
 
-// NewSkillLoader creates a new SkillLoader rooted at basePath.
-func NewSkillLoader(basePath string) *SkillLoader {
-	return &SkillLoader{basePath: basePath}
+// NewSkillLoader creates a new SkillLoader that searches directories in order.
+// The first directory containing the skill wins (shadow resolution).
+func NewSkillLoader(searchDirs []string) *SkillLoader {
+	return &SkillLoader{searchDirs: searchDirs}
 }
 
 // parseSKILLMD parses a SKILL.md file content, extracting YAML frontmatter and optionally the Markdown body.
@@ -50,26 +52,28 @@ func parseSKILLMD(content string, extractBody bool) (frontmatter string, body st
 // loadAndParse reads a SKILL.md file from disk, validates the path, and parses its frontmatter.
 // When fullLoad is true, the Markdown body is also extracted.
 func (l *SkillLoader) loadAndParse(skillName string, fullLoad bool) (*SkillManifest, string, error) {
-	dir := filepath.Join(l.basePath, skillName)
-
-	// Path containment check: prevent directory traversal
-	absBase, err := filepath.Abs(l.basePath)
-	if err != nil {
-		return nil, "", fmt.Errorf("resolve base path: %w", err)
+	// Path traversal check: reject names with path separators
+	if strings.ContainsAny(skillName, `/\`) || skillName == ".." || strings.Contains(skillName, "..") {
+		return nil, "", fmt.Errorf("invalid skill name %q: path traversal not allowed", skillName)
 	}
+
+	// Use ShadowResolve to find the skill directory in searchDirs (project-first)
+	dir := config.ShadowResolve(skillName, l.searchDirs...)
+	if dir == "" {
+		return nil, "", fmt.Errorf("skill %q not found (searched %v)", skillName, l.searchDirs)
+	}
+
+	// Path containment check: ensure resolved path is under one of the searchDirs
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve skill path: %w", err)
 	}
-	if !strings.HasPrefix(absDir, absBase+string(filepath.Separator)) {
-		return nil, "", fmt.Errorf("invalid skill name %q: path escapes base directory", skillName)
+	if !isUnderAnySkillDir(absDir, l.searchDirs) {
+		return nil, "", fmt.Errorf("invalid skill name %q: resolved path escapes search directories", skillName)
 	}
 
 	fi, err := os.Stat(dir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, "", fmt.Errorf("skill %q not found: %w", skillName, err)
-		}
 		return nil, "", fmt.Errorf("stat skill directory %q: %w", dir, err)
 	}
 	if !fi.IsDir() {
@@ -118,4 +122,18 @@ func (l *SkillLoader) LoadFull(skillName string) (*SkillInfo, error) {
 		Manifest: *manifest,
 		Body:     body,
 	}, nil
+}
+
+// isUnderAnySkillDir checks if absPath is under at least one of the given directories.
+func isUnderAnySkillDir(absPath string, dirs []string) bool {
+	for _, dir := range dirs {
+		absBase, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(absPath, absBase+string(filepath.Separator)) || absPath == absBase {
+			return true
+		}
+	}
+	return false
 }

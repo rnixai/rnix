@@ -267,8 +267,8 @@ development_status:
   epic-24-retrospective: done
 
   # Epic 25: Configuration System Redesign (配置系统重构)
-  epic-25: in-progress
+  epic-25: done
   25-1-internal-config-package-and-embed-fs: done
   25-2-rnix-init-and-global-config-loading: done
-  25-3-project-config-merge-and-module-adaptation: backlog
+  25-3-project-config-merge-and-module-adaptation: done
   epic-25-retrospective: optional

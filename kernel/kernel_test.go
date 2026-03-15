@@ -13,6 +13,7 @@ import (
 
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
@@ -2832,5 +2833,83 @@ func TestResolveLLMDevice_NoDefaultProvider_FallsBackToClaude(t *testing.T) {
 	}
 	if got != "/dev/llm/claude" {
 		t.Errorf("expected /dev/llm/claude (backward compat), got %q", got)
+	}
+}
+
+// ============================================================
+// Story 25-3: Project Config Merge & Module Adaptation
+//
+// Tests verify ProjectConfig propagation through kernel.Spawn.
+// ============================================================
+
+// --- 25.3-KERN-001: SpawnOpts.ProjectConfig is set on spawned process ---
+
+func TestSpawn_ProjectConfig_PassedToProcess(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	projCfg := &config.ProjectConfig{
+		ProjectDir: "/home/user/test-project",
+		AgentDirs:  []string{"/home/user/test-project/.rnix/agents", "/global/agents"},
+		SkillDirs:  []string{"/home/user/test-project/.rnix/skills", "/global/skills"},
+	}
+
+	pid, err := k.Spawn("project-aware intent", nil, SpawnOpts{
+		SkipReasonLoop: true,
+		ProjectConfig:  projCfg,
+	})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+	if pid == 0 {
+		t.Fatal("Spawn returned PID 0")
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatalf("process %d not found after spawn", pid)
+	}
+
+	// Verify ProjectConfig was propagated to the process
+	if proc.ProjectConfig == nil {
+		t.Fatal("process.ProjectConfig should be non-nil when set via SpawnOpts")
+	}
+	if proc.ProjectConfig.ProjectDir != "/home/user/test-project" {
+		t.Errorf("ProjectConfig.ProjectDir = %q, want %q", proc.ProjectConfig.ProjectDir, "/home/user/test-project")
+	}
+	if len(proc.ProjectConfig.AgentDirs) != 2 {
+		t.Fatalf("ProjectConfig.AgentDirs length = %d, want 2", len(proc.ProjectConfig.AgentDirs))
+	}
+	if proc.ProjectConfig.AgentDirs[0] != "/home/user/test-project/.rnix/agents" {
+		t.Errorf("ProjectConfig.AgentDirs[0] = %q, want project dir first", proc.ProjectConfig.AgentDirs[0])
+	}
+	if len(proc.ProjectConfig.SkillDirs) != 2 {
+		t.Fatalf("ProjectConfig.SkillDirs length = %d, want 2", len(proc.ProjectConfig.SkillDirs))
+	}
+
+	// Verify the pointer identity (should be the exact same pointer)
+	if proc.ProjectConfig != projCfg {
+		t.Error("ProjectConfig should be the same pointer instance set via SpawnOpts")
+	}
+}
+
+// --- 25.3-KERN-002: SpawnOpts.ProjectConfig nil gives nil on process ---
+
+func TestSpawn_ProjectConfig_NilWhenNotSet(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	pid, err := k.Spawn("global intent", nil, SpawnOpts{
+		SkipReasonLoop: true,
+	})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatalf("process %d not found after spawn", pid)
+	}
+
+	if proc.ProjectConfig != nil {
+		t.Errorf("ProjectConfig should be nil when not set in SpawnOpts, got %+v", proc.ProjectConfig)
 	}
 }

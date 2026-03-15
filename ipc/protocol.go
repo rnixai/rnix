@@ -84,6 +84,7 @@ type SpawnRequest struct {
 	TimeoutMs     int64  `json:"timeout_ms,omitempty"`
 	TraceID       string `json:"trace_id,omitempty"`
 	ParentSpanID  string `json:"parent_span_id,omitempty"`
+	ProjectDir    string `json:"project_dir,omitempty"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.
@@ -362,7 +363,8 @@ type PingResponse struct {
 
 // SpawnPipelineRequest is the payload for MethodSpawnPipeline.
 type SpawnPipelineRequest struct {
-	Commands []SpawnPipelineCommand `json:"commands"`
+	Commands   []SpawnPipelineCommand `json:"commands"`
+	ProjectDir string                 `json:"project_dir,omitempty"`
 }
 
 // SpawnPipelineCommand describes one stage of a pipeline spawn.
@@ -391,9 +393,10 @@ type PipelineStageWire struct {
 
 // ExecScriptRequest is the payload for MethodExecScript.
 type ExecScriptRequest struct {
-	Script    string            `json:"script"`
-	Env       map[string]string `json:"env,omitempty"`
-	ScriptDir string            `json:"script_dir,omitempty"`
+	Script     string            `json:"script"`
+	Env        map[string]string `json:"env,omitempty"`
+	ScriptDir  string            `json:"script_dir,omitempty"`
+	ProjectDir string            `json:"project_dir,omitempty"`
 }
 
 // ExecScriptResponse is the final result of a script execution (sent as StreamComplete payload).

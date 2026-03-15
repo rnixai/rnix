@@ -97,7 +97,7 @@ func TestSynergyDecl_Fields(t *testing.T) {
 
 func TestSkillLoader_LoadFull_WithSynergy(t *testing.T) {
 	// Given: a SKILL.md testdata with synergy field
-	loader := NewSkillLoader("testdata")
+	loader := NewSkillLoader([]string{"testdata"})
 	info, err := loader.LoadFull("with-synergy")
 	if err != nil {
 		t.Fatalf("LoadFull returned error: %v", err)
@@ -122,7 +122,7 @@ func TestSkillLoader_LoadFull_WithSynergy(t *testing.T) {
 
 func TestSkillLoader_LoadFull_WithoutSynergy(t *testing.T) {
 	// Given: existing mock-skill testdata without synergy
-	loader := NewSkillLoader("testdata")
+	loader := NewSkillLoader([]string{"testdata"})
 	info, err := loader.LoadFull("mock-skill")
 	if err != nil {
 		t.Fatalf("LoadFull returned error: %v", err)
@@ -143,7 +143,7 @@ func TestSkillLoader_LoadFull_WithoutSynergy(t *testing.T) {
 
 func TestSkillLoader_LoadFull_RealSkill_NoSynergyField(t *testing.T) {
 	// Given: real code-analysis skill without synergy field
-	loader := NewSkillLoader("../lib/skills")
+	loader := NewSkillLoader([]string{"../lib/skills"})
 	info, err := loader.LoadFull("code-analysis")
 	if err != nil {
 		t.Fatalf("LoadFull returned error: %v", err)

@@ -46,7 +46,7 @@ func TestInstaller_Install_LocalDirExists_NotInRegistry(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// Create a local skill directory with valid SKILL.md (but not in registry)
@@ -78,7 +78,7 @@ func TestInstaller_Install_LocalDirExists_ForceBypass(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// Create local skill directory
@@ -104,7 +104,7 @@ func TestInstaller_Install_LocalDirExists_InvalidSkill(t *testing.T) {
 
 	client := NewRegistryClient(srv.URL, srv.Client())
 	registry := NewLocalRegistry(dir)
-	skillLoader := skills.NewSkillLoader(dir)
+	skillLoader := skills.NewSkillLoader([]string{dir})
 	installer := NewInstaller(client, registry, skillLoader, dir)
 
 	// Create directory but WITHOUT a valid SKILL.md

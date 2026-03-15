@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 )
 
@@ -535,5 +536,53 @@ func TestChildren_ConcurrentSafe(t *testing.T) {
 	children = p.GetChildren()
 	if len(children) != 0 {
 		t.Fatalf("expected 0 children after removal, got %d", len(children))
+	}
+}
+
+// ============================================================
+// Story 25-3: Project Config Merge & Module Adaptation
+//
+// Tests verify ProjectConfig field on Process struct.
+// ============================================================
+
+// --- 25.3-PROC-001: ProjectConfig field is set and accessible ---
+
+func TestProcess_ProjectConfig_SetOnSpawn(t *testing.T) {
+	p := NewProcess(0, "project test", []string{"code-analyst"})
+
+	// Initially nil
+	if p.ProjectConfig != nil {
+		t.Fatal("ProjectConfig should be nil on new process")
+	}
+
+	// Set ProjectConfig (as kernel.Spawn does)
+	projCfg := &config.ProjectConfig{
+		ProjectDir: "/home/user/my-project",
+		AgentDirs:  []string{"/home/user/my-project/.rnix/agents", "/home/user/.config/rnix/agents"},
+		SkillDirs:  []string{"/home/user/my-project/.rnix/skills", "/home/user/.config/rnix/skills"},
+	}
+	p.ProjectConfig = projCfg
+
+	// Verify it is accessible and matches
+	if p.ProjectConfig == nil {
+		t.Fatal("ProjectConfig should be non-nil after set")
+	}
+	if p.ProjectConfig.ProjectDir != "/home/user/my-project" {
+		t.Errorf("ProjectConfig.ProjectDir = %q, want %q", p.ProjectConfig.ProjectDir, "/home/user/my-project")
+	}
+	if len(p.ProjectConfig.AgentDirs) != 2 {
+		t.Fatalf("ProjectConfig.AgentDirs length = %d, want 2", len(p.ProjectConfig.AgentDirs))
+	}
+	if p.ProjectConfig.AgentDirs[0] != "/home/user/my-project/.rnix/agents" {
+		t.Errorf("ProjectConfig.AgentDirs[0] = %q, want project dir first", p.ProjectConfig.AgentDirs[0])
+	}
+	if len(p.ProjectConfig.SkillDirs) != 2 {
+		t.Fatalf("ProjectConfig.SkillDirs length = %d, want 2", len(p.ProjectConfig.SkillDirs))
+	}
+
+	// Verify immutability: ProjectConfig is a pointer, but changing the referenced
+	// config should reflect since it's immutable after spawn (by convention)
+	if p.ProjectConfig != projCfg {
+		t.Error("ProjectConfig pointer should be the same as the one assigned")
 	}
 }

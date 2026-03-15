@@ -15,8 +15,8 @@ import (
 
 func TestSkillDiscovery_DiscoverAll(t *testing.T) {
 	// Given a testdata directory with valid skills
-	loader := NewSkillLoader("testdata")
-	discovery := NewSkillDiscovery(loader, "testdata")
+	loader := NewSkillLoader([]string{"testdata"})
+	discovery := NewSkillDiscovery(loader, []string{"testdata"})
 
 	// When DiscoverAll is called
 	skills, err := discovery.DiscoverAll()
@@ -51,8 +51,8 @@ func TestSkillDiscovery_DiscoverAll(t *testing.T) {
 
 func TestSkillDiscovery_SkipsInvalidSkills(t *testing.T) {
 	// Given a testdata directory that contains invalid SKILL.md entries
-	loader := NewSkillLoader("testdata")
-	discovery := NewSkillDiscovery(loader, "testdata")
+	loader := NewSkillLoader([]string{"testdata"})
+	discovery := NewSkillDiscovery(loader, []string{"testdata"})
 
 	// When DiscoverAll is called
 	skills, err := discovery.DiscoverAll()
@@ -74,8 +74,8 @@ func TestSkillDiscovery_SkipsInvalidSkills(t *testing.T) {
 func TestSkillDiscovery_EmptyDirectory(t *testing.T) {
 	// Given an empty directory
 	tmpDir := t.TempDir()
-	loader := NewSkillLoader(tmpDir)
-	discovery := NewSkillDiscovery(loader, tmpDir)
+	loader := NewSkillLoader([]string{tmpDir})
+	discovery := NewSkillDiscovery(loader, []string{tmpDir})
 
 	// When DiscoverAll is called
 	skills, err := discovery.DiscoverAll()
@@ -91,8 +91,8 @@ func TestSkillDiscovery_EmptyDirectory(t *testing.T) {
 
 func TestSkillDiscovery_NonexistentDirectory(t *testing.T) {
 	// Given a nonexistent directory path
-	loader := NewSkillLoader("/nonexistent/path")
-	discovery := NewSkillDiscovery(loader, "/nonexistent/path")
+	loader := NewSkillLoader([]string{"/nonexistent/path"})
+	discovery := NewSkillDiscovery(loader, []string{"/nonexistent/path"})
 
 	// When DiscoverAll is called
 	skills, err := discovery.DiscoverAll()
@@ -125,8 +125,8 @@ func TestSkillDiscovery_SkipsNonDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loader := NewSkillLoader(tmpDir)
-	discovery := NewSkillDiscovery(loader, tmpDir)
+	loader := NewSkillLoader([]string{tmpDir})
+	discovery := NewSkillDiscovery(loader, []string{tmpDir})
 
 	// When DiscoverAll is called
 	skills, err := discovery.DiscoverAll()
@@ -157,8 +157,8 @@ func TestSkillDiscovery_SkipsHiddenDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loader := NewSkillLoader(tmpDir)
-	discovery := NewSkillDiscovery(loader, tmpDir)
+	loader := NewSkillLoader([]string{tmpDir})
+	discovery := NewSkillDiscovery(loader, []string{tmpDir})
 
 	// When DiscoverAll is called
 	skills, err := discovery.DiscoverAll()

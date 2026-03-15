@@ -7,39 +7,51 @@ import (
 
 // SkillDiscovery scans available skills and provides metadata for matching.
 type SkillDiscovery struct {
-	loader   *SkillLoader
-	basePath string
+	loader     *SkillLoader
+	searchDirs []string
 }
 
-// NewSkillDiscovery creates a new SkillDiscovery that scans basePath for skills.
-func NewSkillDiscovery(loader *SkillLoader, basePath string) *SkillDiscovery {
-	return &SkillDiscovery{loader: loader, basePath: basePath}
+// NewSkillDiscovery creates a new SkillDiscovery that scans searchDirs for skills.
+// Directories are searched in order; the first occurrence of a skill name wins (shadow resolution).
+func NewSkillDiscovery(loader *SkillLoader, searchDirs []string) *SkillDiscovery {
+	return &SkillDiscovery{loader: loader, searchDirs: searchDirs}
 }
 
-// DiscoverAll scans the basePath directory for all valid skills and returns their metadata.
+// DiscoverAll scans all search directories for valid skills and returns their metadata.
+// Project-level skills shadow global skills with the same name (first directory wins).
 // Invalid skills (missing or malformed SKILL.md) are silently skipped.
-// Returns an empty list (not an error) if the directory does not exist or is empty.
+// Returns an empty list (not an error) if no directories exist or all are empty.
 func (d *SkillDiscovery) DiscoverAll() ([]SkillInfo, error) {
-	entries, err := os.ReadDir(d.basePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
+	seen := make(map[string]bool)
 	var result []SkillInfo
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
 
-		info, err := d.loader.LoadMetadata(entry.Name())
+	for _, dir := range d.searchDirs {
+		entries, err := os.ReadDir(dir)
 		if err != nil {
-			continue // skip invalid skills silently
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
 		}
 
-		result = append(result, *info)
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+
+			name := entry.Name()
+			if seen[name] {
+				continue // already discovered from higher-priority dir
+			}
+
+			info, err := d.loader.LoadMetadata(name)
+			if err != nil {
+				continue // skip invalid skills silently
+			}
+
+			seen[name] = true
+			result = append(result, *info)
+		}
 	}
 
 	return result, nil

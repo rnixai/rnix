@@ -1349,3 +1349,138 @@ func TestSLAStatusRequest_IPCEnvelope(t *testing.T) {
 		t.Errorf("group_id = %d, want 77", ss.GroupID)
 	}
 }
+
+// ============================================================
+// Story 25-3: Project Config Merge & Module Adaptation
+//
+// Tests verify ProjectDir field serialization on SpawnRequest,
+// SpawnPipelineRequest, and ExecScriptRequest.
+// ============================================================
+
+// --- 25.3-IPC-001: SpawnRequest with ProjectDir round-trip ---
+
+func TestSpawnRequest_ProjectDir_MarshalRoundTrip(t *testing.T) {
+	sr := SpawnRequest{
+		Intent:     "analyze project",
+		Agent:      "code-analyst",
+		Model:      "sonnet",
+		ProjectDir: "/home/user/my-project",
+	}
+	data, err := json.Marshal(sr)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded SpawnRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.ProjectDir != "/home/user/my-project" {
+		t.Errorf("ProjectDir = %q, want %q", decoded.ProjectDir, "/home/user/my-project")
+	}
+	if decoded.Intent != "analyze project" {
+		t.Errorf("Intent = %q, want %q", decoded.Intent, "analyze project")
+	}
+	if decoded.Agent != "code-analyst" {
+		t.Errorf("Agent = %q, want %q", decoded.Agent, "code-analyst")
+	}
+}
+
+// --- 25.3-IPC-002: SpawnRequest empty ProjectDir is omitted ---
+
+func TestSpawnRequest_ProjectDir_Omitempty(t *testing.T) {
+	sr := SpawnRequest{
+		Intent: "no project dir",
+	}
+	data, err := json.Marshal(sr)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if _, exists := raw["project_dir"]; exists {
+		t.Error("project_dir should be omitted when empty (omitempty)")
+	}
+}
+
+// --- 25.3-IPC-003: SpawnPipelineRequest with ProjectDir ---
+
+func TestSpawnPipelineRequest_ProjectDir(t *testing.T) {
+	req := SpawnPipelineRequest{
+		Commands: []SpawnPipelineCommand{
+			{Intent: "step one", Agent: "analyst"},
+		},
+		ProjectDir: "/opt/projects/alpha",
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded SpawnPipelineRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.ProjectDir != "/opt/projects/alpha" {
+		t.Errorf("ProjectDir = %q, want %q", decoded.ProjectDir, "/opt/projects/alpha")
+	}
+	if len(decoded.Commands) != 1 {
+		t.Fatalf("commands count = %d, want 1", len(decoded.Commands))
+	}
+	if decoded.Commands[0].Intent != "step one" {
+		t.Errorf("cmd[0] intent = %q, want %q", decoded.Commands[0].Intent, "step one")
+	}
+
+	// Empty ProjectDir should be omitted
+	reqEmpty := SpawnPipelineRequest{
+		Commands: []SpawnPipelineCommand{{Intent: "test"}},
+	}
+	dataEmpty, _ := json.Marshal(reqEmpty)
+	var rawEmpty map[string]json.RawMessage
+	if err := json.Unmarshal(dataEmpty, &rawEmpty); err != nil {
+		t.Fatalf("unmarshal raw: %v", err)
+	}
+	if _, exists := rawEmpty["project_dir"]; exists {
+		t.Error("project_dir should be omitted when empty in SpawnPipelineRequest")
+	}
+}
+
+// --- 25.3-IPC-004: ExecScriptRequest with ProjectDir ---
+
+func TestExecScriptRequest_ProjectDir(t *testing.T) {
+	req := ExecScriptRequest{
+		Script:     "spawn code-analyst \"test\"",
+		ProjectDir: "/home/user/workspace",
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded ExecScriptRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.ProjectDir != "/home/user/workspace" {
+		t.Errorf("ProjectDir = %q, want %q", decoded.ProjectDir, "/home/user/workspace")
+	}
+	if decoded.Script != "spawn code-analyst \"test\"" {
+		t.Errorf("Script = %q, want %q", decoded.Script, `spawn code-analyst "test"`)
+	}
+
+	// Empty ProjectDir should be omitted
+	reqEmpty := ExecScriptRequest{Script: "echo hello"}
+	dataEmpty, _ := json.Marshal(reqEmpty)
+	var rawEmpty map[string]json.RawMessage
+	if err := json.Unmarshal(dataEmpty, &rawEmpty); err != nil {
+		t.Fatalf("unmarshal raw: %v", err)
+	}
+	if _, exists := rawEmpty["project_dir"]; exists {
+		t.Error("project_dir should be omitted when empty in ExecScriptRequest")
+	}
+}

@@ -20,6 +20,8 @@ import (
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/drivers/llm"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
 	"github.com/rnixai/rnix/kernel"
@@ -94,6 +96,9 @@ type Server struct {
 
 	// immune daemon (set via SetImmuneDaemon, Story 22.1)
 	immuneDaemon *kernel.ImmuneDaemon
+
+	// global config (set via SetGlobalConfig, Story 25.3)
+	globalConfig *config.GlobalConfig
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -671,10 +676,17 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	// Build project config and project-aware loaders (Story 25.3)
+	projectCfg, agentLoaderFn, err := s.resolveProjectContext(req.ProjectDir)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "CONFIG_ERROR", Message: err.Error()}})
+		return
+	}
+
 	var agentInfo *agents.AgentInfo
-	if req.Agent != "" && s.agentLoader != nil {
+	if req.Agent != "" && agentLoaderFn != nil {
 		var err error
-		agentInfo, err = s.agentLoader(req.Agent)
+		agentInfo, err = agentLoaderFn(req.Agent)
 		if err != nil {
 			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("agent %q not found: %v", req.Agent, err)}})
 			return
@@ -691,6 +703,7 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		TimeoutMs:     req.TimeoutMs,
 		TraceID:       types.TraceID(req.TraceID),
 		ParentSpanID:  types.SpanID(req.ParentSpanID),
+		ProjectConfig: projectCfg,
 	})
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
@@ -1423,6 +1436,60 @@ func (s *Server) SetImmuneDaemon(d *kernel.ImmuneDaemon) {
 	s.immuneDaemon = d
 }
 
+// SetGlobalConfig sets the global configuration used for project-level config merging.
+func (s *Server) SetGlobalConfig(gc *config.GlobalConfig) {
+	s.globalConfig = gc
+}
+
+// resolveProjectContext builds a ProjectConfig and project-aware agent loader for a spawn request.
+// If projectDir is empty, returns (nil, s.agentLoader, nil) — pure global mode.
+// If projectDir is non-empty, merges project providers with global and creates project-aware loaders.
+func (s *Server) resolveProjectContext(projectDir string) (*config.ProjectConfig, AgentLoaderFunc, error) {
+	if projectDir == "" {
+		return nil, s.agentLoader, nil
+	}
+
+	gc := s.globalConfig
+	if gc == nil {
+		// No global config available, fall back to global-only mode
+		return nil, s.agentLoader, nil
+	}
+
+	// Build search directories (project first, global second)
+	projectAgentsDir := filepath.Join(projectDir, ".rnix", "agents")
+	projectSkillsDir := filepath.Join(projectDir, ".rnix", "skills")
+	agentDirs := []string{projectAgentsDir, gc.AgentsDir}
+	skillDirs := []string{projectSkillsDir, gc.SkillsDir}
+
+	// Load and merge project providers.yaml (optional)
+	projectProvidersPath := filepath.Join(projectDir, ".rnix", "providers.yaml")
+	var mergedProviders any
+	if _, err := os.Stat(projectProvidersPath); err == nil {
+		projCfg, err := llm.LoadProvidersConfig(projectProvidersPath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("project providers config %s: %w", projectProvidersPath, err)
+		}
+		mergedProviders = projCfg
+	}
+	if mergedProviders == nil {
+		mergedProviders = gc.Providers
+	}
+
+	// Build ProjectConfig snapshot
+	projCfg := &config.ProjectConfig{
+		ProjectDir: projectDir,
+		Providers:  mergedProviders,
+		AgentDirs:  agentDirs,
+		SkillDirs:  skillDirs,
+	}
+
+	// Create project-aware skill and agent loaders
+	projectSkillLoader := skills.NewSkillLoader(skillDirs)
+	projectAgentLoader := agents.NewAgentLoader(agentDirs, projectSkillLoader, nil)
+
+	return projCfg, projectAgentLoader.Load, nil
+}
+
 func (s *Server) handleSynergyList(conn net.Conn) {
 	if s.synergyMatrix == nil {
 		resp := SynergyListResponse{Combos: []kernel.ComboSummary{}}
@@ -1829,12 +1896,20 @@ func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) 
 		}
 	}
 
+	// Build project config and project-aware loaders (Story 25.3)
+	projectCfg, agentLoaderFn, err := s.resolveProjectContext(req.ProjectDir)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "CONFIG_ERROR", Message: err.Error()}})
+		return
+	}
+
 	writeResponse(conn, Response{OK: true})
 
 	enc := json.NewEncoder(conn)
 	spawner := &ipcKernelSpawner{
-		kernel:      s.kern,
-		agentLoader: s.agentLoader,
+		kernel:        s.kern,
+		agentLoader:   agentLoaderFn,
+		projectConfig: projectCfg,
 	}
 
 	executor := shell.NewPipelineExecutor(spawner)
@@ -1890,9 +1965,10 @@ func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) 
 
 // ipcKernelSpawner adapts the real kernel to the shell.KernelSpawner interface.
 type ipcKernelSpawner struct {
-	kernel      *kernel.KernelImpl
-	agentLoader AgentLoaderFunc
-	pids        []types.PID
+	kernel        *kernel.KernelImpl
+	agentLoader   AgentLoaderFunc
+	projectConfig *config.ProjectConfig // per-spawn project config snapshot (nil = global only)
+	pids          []types.PID
 }
 
 func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, model string) (string, int, int, error) {
@@ -1905,7 +1981,7 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 		}
 	}
 
-	pid, err := s.kernel.Spawn(intent, agentInfo, kernel.SpawnOpts{Model: model})
+	pid, err := s.kernel.Spawn(intent, agentInfo, kernel.SpawnOpts{Model: model, ProjectConfig: s.projectConfig})
 	if err != nil {
 		return "", 1, 0, err
 	}
@@ -1968,12 +2044,20 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 		env.Set(k, v)
 	}
 
+	// Build project config and project-aware loaders (Story 25.3)
+	projectCfg, agentLoaderFn, err := s.resolveProjectContext(req.ProjectDir)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "CONFIG_ERROR", Message: err.Error()}})
+		return
+	}
+
 	writeResponse(conn, Response{OK: true})
 
 	enc := json.NewEncoder(conn)
 	spawner := &ipcKernelSpawner{
-		kernel:      s.kern,
-		agentLoader: s.agentLoader,
+		kernel:        s.kern,
+		agentLoader:   agentLoaderFn,
+		projectConfig: projectCfg,
 	}
 
 	executor := shell.NewScriptExecutor(spawner, env)

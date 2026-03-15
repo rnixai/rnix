@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -9,8 +10,8 @@ import (
 )
 
 func TestAgentLoader_Load_Success(t *testing.T) {
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	info, err := al.Load("mock-agent")
 	if err != nil {
@@ -58,8 +59,8 @@ func TestAgentLoader_Load_Success(t *testing.T) {
 }
 
 func TestAgentLoader_Load_DirNotFound(t *testing.T) {
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	_, err := al.Load("nonexistent-agent")
 	if err == nil {
@@ -71,8 +72,8 @@ func TestAgentLoader_Load_DirNotFound(t *testing.T) {
 }
 
 func TestAgentLoader_Load_InvalidManifest(t *testing.T) {
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	_, err := al.Load("invalid-agent")
 	if err == nil {
@@ -84,8 +85,8 @@ func TestAgentLoader_Load_InvalidManifest(t *testing.T) {
 }
 
 func TestAgentLoader_Load_MissingInstructions(t *testing.T) {
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	_, err := al.Load("missing-instructions")
 	if err == nil {
@@ -97,8 +98,8 @@ func TestAgentLoader_Load_MissingInstructions(t *testing.T) {
 }
 
 func TestAgentLoader_Load_MissingName(t *testing.T) {
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	_, err := al.Load("missing-name")
 	if err == nil {
@@ -110,8 +111,8 @@ func TestAgentLoader_Load_MissingName(t *testing.T) {
 }
 
 func TestAgentLoader_Load_BadSkillRef(t *testing.T) {
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	_, err := al.Load("bad-skill-ref")
 	if err == nil {
@@ -200,8 +201,8 @@ func TestAgentInfo_SystemPrompt_EmptyBody(t *testing.T) {
 }
 
 func TestAgentLoader_Load_RealCodeAnalyst(t *testing.T) {
-	sl := skills.NewSkillLoader("../lib/skills")
-	al := NewAgentLoader("../lib/agents", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../lib/skills"})
+	al := NewAgentLoader([]string{"../lib/agents"}, sl, nil)
 
 	info, err := al.Load("code-analyst")
 	if err != nil {
@@ -249,14 +250,14 @@ func TestAgentLoader_Load_RealCodeAnalyst(t *testing.T) {
 }
 
 func TestAgentLoader_Load_PathTraversal(t *testing.T) {
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	_, err := al.Load("../../../etc")
 	if err == nil {
 		t.Fatal("expected error for path traversal, got nil")
 	}
-	if !strings.Contains(err.Error(), "path escapes") {
+	if !strings.Contains(err.Error(), "path traversal not allowed") {
 		t.Errorf("error = %q, want substring 'path escapes'", err.Error())
 	}
 }
@@ -285,9 +286,9 @@ func testMCPGlobalConfig() *mcp.MCPGlobalConfig {
 
 func TestAgentLoader_Load_WithMCPField(t *testing.T) {
 	// Given: an agent.yaml with mcp: ["github", "slack"] and a valid MCPGlobalConfig
-	sl := skills.NewSkillLoader("../skills/testdata")
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
 	mcpCfg := testMCPGlobalConfig()
-	al := NewAgentLoader("testdata", sl, mcpCfg)
+	al := NewAgentLoader([]string{"testdata"}, sl, mcpCfg)
 
 	// When: loading the mcp-agent
 	info, err := al.Load("mcp-agent")
@@ -309,8 +310,8 @@ func TestAgentLoader_Load_WithMCPField(t *testing.T) {
 
 func TestAgentLoader_Load_WithoutMCPField(t *testing.T) {
 	// Given: a standard agent.yaml without mcp field
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	// When: loading the mock-agent (no mcp field)
 	info, err := al.Load("mock-agent")
@@ -329,7 +330,7 @@ func TestAgentLoader_Load_WithoutMCPField(t *testing.T) {
 
 func TestAgentLoader_Load_MCPServerNotFound(t *testing.T) {
 	// Given: an agent.yaml referencing MCP servers not in the global config
-	sl := skills.NewSkillLoader("../skills/testdata")
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
 	// MCPGlobalConfig only has "github", not "slack"
 	mcpCfg := &mcp.MCPGlobalConfig{
 		Servers: map[string]mcp.MCPServerConfig{
@@ -339,7 +340,7 @@ func TestAgentLoader_Load_MCPServerNotFound(t *testing.T) {
 			},
 		},
 	}
-	al := NewAgentLoader("testdata", sl, mcpCfg)
+	al := NewAgentLoader([]string{"testdata"}, sl, mcpCfg)
 
 	// When: loading the mcp-agent which references ["github", "slack"]
 	_, err := al.Load("mcp-agent")
@@ -358,9 +359,9 @@ func TestAgentLoader_Load_MCPServerNotFound(t *testing.T) {
 
 func TestAgentLoader_Load_MCPResolvesToAgentInfo(t *testing.T) {
 	// Given: an agent.yaml with mcp field and matching global config
-	sl := skills.NewSkillLoader("../skills/testdata")
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
 	mcpCfg := testMCPGlobalConfig()
-	al := NewAgentLoader("testdata", sl, mcpCfg)
+	al := NewAgentLoader([]string{"testdata"}, sl, mcpCfg)
 
 	// When: loading the mcp-agent
 	info, err := al.Load("mcp-agent")
@@ -392,8 +393,8 @@ func TestAgentLoader_Load_MCPResolvesToAgentInfo(t *testing.T) {
 
 func TestAgentLoader_Load_NilMCPConfig_SkipsMCPResolution(t *testing.T) {
 	// Given: an agent.yaml with mcp field but mcpConfig is nil (no mcp.yaml)
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	// When: loading the mcp-agent
 	info, err := al.Load("mcp-agent")
@@ -413,8 +414,8 @@ func TestAgentLoader_Load_NilMCPConfig_SkipsMCPResolution(t *testing.T) {
 // --- Story 21.2: SLA parsing tests ---
 
 func TestAgentLoader_Load_WithSLA(t *testing.T) {
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	info, err := al.Load("sla-agent")
 	if err != nil {
@@ -436,8 +437,8 @@ func TestAgentLoader_Load_WithSLA(t *testing.T) {
 }
 
 func TestAgentLoader_Load_WithoutSLA(t *testing.T) {
-	sl := skills.NewSkillLoader("../skills/testdata")
-	al := NewAgentLoader("testdata", sl, nil)
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
 	info, err := al.Load("mock-agent")
 	if err != nil {
@@ -446,5 +447,102 @@ func TestAgentLoader_Load_WithoutSLA(t *testing.T) {
 
 	if info.Manifest.SLA != nil {
 		t.Errorf("expected SLA to be nil for agent without SLA, got %+v", info.Manifest.SLA)
+	}
+}
+
+// ============================================================
+// Story 25-3: Project Config Merge & Module Adaptation
+//
+// Tests verify shadow resolution behavior in AgentLoader
+// (project-first, global-fallback, not-found).
+// ============================================================
+
+// --- 25.3-AGENT-001: Project agent shadows global agent ---
+
+func TestAgentLoader_ShadowResolve_ProjectShadowsGlobal(t *testing.T) {
+	// Create temp directories simulating project and global agent dirs
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	// Create the same agent "test-shadow" in both dirs, with different descriptions
+	writeAgentData(t, projectDir, "test-shadow", "project-version", "Project instructions")
+	writeAgentData(t, globalDir, "test-shadow", "global-version", "Global instructions")
+
+	// Project dir is first in searchDirs, so it should win
+	sl := skills.NewSkillLoader([]string{}) // no skills needed
+	al := NewAgentLoader([]string{projectDir, globalDir}, sl, nil)
+
+	info, err := al.Load("test-shadow")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	// The project version should shadow the global version
+	if info.Manifest.Description != "project-version" {
+		t.Errorf("Description = %q, want %q (project should shadow global)", info.Manifest.Description, "project-version")
+	}
+	if !strings.Contains(info.Instructions, "Project instructions") {
+		t.Errorf("Instructions = %q, want to contain 'Project instructions'", info.Instructions)
+	}
+}
+
+// --- 25.3-AGENT-002: Fallback to global when project doesn't have agent ---
+
+func TestAgentLoader_ShadowResolve_FallbackToGlobal(t *testing.T) {
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	// Only create agent in global dir
+	writeAgentData(t, globalDir, "global-only-agent", "global-agent-desc", "Global only instructions")
+
+	sl := skills.NewSkillLoader([]string{})
+	al := NewAgentLoader([]string{projectDir, globalDir}, sl, nil)
+
+	info, err := al.Load("global-only-agent")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if info.Manifest.Description != "global-agent-desc" {
+		t.Errorf("Description = %q, want %q", info.Manifest.Description, "global-agent-desc")
+	}
+	if info.Manifest.Name != "global-only-agent" {
+		t.Errorf("Name = %q, want %q", info.Manifest.Name, "global-only-agent")
+	}
+}
+
+// --- 25.3-AGENT-003: Not found in either dir returns error ---
+
+func TestAgentLoader_ShadowResolve_NotFound(t *testing.T) {
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	// Neither dir has the agent
+	sl := skills.NewSkillLoader([]string{})
+	al := NewAgentLoader([]string{projectDir, globalDir}, sl, nil)
+
+	_, err := al.Load("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for agent not found in any dir, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error = %q, want substring 'not found'", err.Error())
+	}
+}
+
+// writeAgentData creates a minimal agent directory with agent.yaml and instructions.md
+// under baseDir/agentName/.
+func writeAgentData(t *testing.T, baseDir, agentName, description, instructions string) {
+	t.Helper()
+	agentDir := baseDir + "/" + agentName
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", agentDir, err)
+	}
+	manifest := "name: " + agentName + "\ndescription: " + description + "\n"
+	if err := os.WriteFile(agentDir+"/agent.yaml", []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write agent.yaml: %v", err)
+	}
+	if err := os.WriteFile(agentDir+"/instructions.md", []byte(instructions), 0o644); err != nil {
+		t.Fatalf("write instructions.md: %v", err)
 	}
 }

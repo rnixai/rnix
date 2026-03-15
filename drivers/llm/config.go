@@ -42,6 +42,10 @@ type ProviderConfig struct {
 
 // FindProvidersConfigPath searches for rnix-providers.yaml in CWD then
 // $XDG_CONFIG_HOME/rnix/. Returns the first path found, or "" if none exist.
+//
+// Deprecated: Use config.ResolvePath("providers.yaml") from internal/config
+// for proper global/project resolution. This function does not support
+// project-level configuration (Story 25.3).
 func FindProvidersConfigPath() string {
 	cwdPath := filepath.Join(".", ProvidersConfigFile)
 	if abs, err := filepath.Abs(cwdPath); err == nil {

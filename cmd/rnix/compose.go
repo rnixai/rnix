@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/rnixai/rnix/agents"
 	"github.com/rnixai/rnix/compose"
 	"github.com/rnixai/rnix/drivers/mcp"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/internal/xsync"
@@ -61,6 +63,7 @@ func init() {
 // ipcKernelSpawner adapts IPC Client to compose.KernelSpawner interface.
 type ipcKernelSpawner struct {
 	socketPath string
+	projectDir string
 	waitChans  *xsync.SyncMap[types.PID, chan waitResult]
 	results    *xsync.SyncMap[types.PID, string]
 	tokens     *xsync.SyncMap[types.PID, int]
@@ -72,9 +75,10 @@ type waitResult struct {
 	err    error
 }
 
-func newIPCKernelSpawner(socketPath string) *ipcKernelSpawner {
+func newIPCKernelSpawner(socketPath, projectDir string) *ipcKernelSpawner {
 	return &ipcKernelSpawner{
 		socketPath: socketPath,
+		projectDir: projectDir,
 		waitChans:  xsync.NewSyncMap[types.PID, chan waitResult](),
 		results:    xsync.NewSyncMap[types.PID, string](),
 		tokens:     xsync.NewSyncMap[types.PID, int](),
@@ -96,6 +100,7 @@ func (s *ipcKernelSpawner) Spawn(intent string, agent *agents.AgentInfo, opts co
 		TimeoutMs:     opts.TimeoutMs,
 		TraceID:       string(opts.TraceID),
 		ParentSpanID:  string(opts.ParentSpanID),
+		ProjectDir:    s.projectDir,
 	}
 	if agent != nil {
 		req.Agent = agent.Manifest.Name
@@ -199,22 +204,38 @@ func runComposeUp(cmd *cobra.Command, args []string) error {
 
 	socketPath := ipc.SocketPath()
 
-	// 3. Create IPC KernelSpawner adapter
-	spawner := newIPCKernelSpawner(socketPath)
+	// 3. Discover project directory
+	cwd, _ := os.Getwd()
+	projectDir, _ := config.ProjectDir(cwd)
 
-	// 4. Create AgentLoaderFunc (local loading)
-	skillLoader := skills.NewSkillLoader("lib/skills")
+	// 4. Create IPC KernelSpawner adapter
+	spawner := newIPCKernelSpawner(socketPath, projectDir)
+
+	// 5. Create AgentLoaderFunc (local loading)
+	globalDir, _ := config.GlobalDir()
+
+	var skillSearchDirs []string
+	var agentSearchDirs []string
+	if projectDir != "" {
+		skillSearchDirs = append(skillSearchDirs, filepath.Join(projectDir, ".rnix", "skills"))
+		agentSearchDirs = append(agentSearchDirs, filepath.Join(projectDir, ".rnix", "agents"))
+	}
+	skillSearchDirs = append(skillSearchDirs, filepath.Join(globalDir, "skills"))
+	agentSearchDirs = append(agentSearchDirs, filepath.Join(globalDir, "agents"))
+
+	skillLoader := skills.NewSkillLoader(skillSearchDirs)
 
 	// Load global MCP configuration (consistent with daemon behavior)
 	var mcpCfg *mcp.MCPGlobalConfig
-	if _, err := os.Stat("mcp.yaml"); err == nil {
-		mcpCfg, err = mcp.LoadMCPConfig("mcp.yaml")
+	mcpPath := filepath.Join(globalDir, "mcp.yaml")
+	if _, err := os.Stat(mcpPath); err == nil {
+		mcpCfg, err = mcp.LoadMCPConfig(mcpPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[compose] warn: failed to load mcp.yaml: %v\n", err)
+			fmt.Fprintf(os.Stderr, "[compose] warn: failed to load %s: %v\n", mcpPath, err)
 		}
 	}
 
-	agentLoader := agents.NewAgentLoader("lib/agents", skillLoader, mcpCfg)
+	agentLoader := agents.NewAgentLoader(agentSearchDirs, skillLoader, mcpCfg)
 	agentLoaderFunc := compose.AgentLoaderFunc(agentLoader.Load)
 
 	// 5. Create Engine

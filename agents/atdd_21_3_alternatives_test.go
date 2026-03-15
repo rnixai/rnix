@@ -44,7 +44,7 @@ alternatives:
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
-	loader := NewAgentLoader(filepath.Join(dir, "lib", "agents"), nil, nil)
+	loader := NewAgentLoader([]string{filepath.Join(dir, "lib", "agents")}, nil, nil)
 	info, err := loader.Load("code-reviewer-v2")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
@@ -90,7 +90,7 @@ skills:
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
-	loader := NewAgentLoader(filepath.Join(dir, "lib", "agents"), nil, nil)
+	loader := NewAgentLoader([]string{filepath.Join(dir, "lib", "agents")}, nil, nil)
 	info, err := loader.Load("simple-agent")
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
