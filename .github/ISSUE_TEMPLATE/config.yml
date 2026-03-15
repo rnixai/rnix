@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://rnix.ai/docs
+    about: Rnix docs and guides
+  - name: Discussions
+    url: https://github.com/rnixai/rnix/discussions
+    about: Ask questions and share ideas
