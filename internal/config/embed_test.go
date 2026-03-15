@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"testing/fstest"
 )
@@ -160,5 +161,83 @@ func TestExtractEmbeddedForce_Overwrite(t *testing.T) {
 	}
 	if string(content) != "name: coder\n" {
 		t.Errorf("coder/agent.yaml = %q, want overwritten %q", content, "name: coder\n")
+	}
+}
+
+// ============================================================
+// Epic 25 TA: Supplemental automated tests
+// ============================================================
+
+func TestExtractEmbedded_EmptyFS(t *testing.T) {
+	fsys := fstest.MapFS{}
+	target := t.TempDir()
+
+	// Extracting from an empty FS with a nonexistent srcRoot should return an error
+	err := ExtractEmbedded(fsys, "nonexistent", target)
+	if err == nil {
+		t.Error("ExtractEmbedded(empty FS, nonexistent root) expected error, got nil")
+	}
+}
+
+func TestExtractEmbedded_EmptySrcDir(t *testing.T) {
+	// FS has the directory but no files inside
+	fsys := fstest.MapFS{
+		"lib/agents": {Mode: os.ModeDir | 0o755},
+	}
+	target := t.TempDir()
+
+	err := ExtractEmbedded(fsys, "lib/agents", target)
+	if err != nil {
+		t.Fatalf("ExtractEmbedded(empty dir) error = %v", err)
+	}
+
+	// Target should exist but be empty
+	entries, err := os.ReadDir(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected empty target, got %d entries", len(entries))
+	}
+}
+
+func TestExtractEmbedded_BinaryContent(t *testing.T) {
+	// Verify binary files are extracted correctly
+	binaryData := []byte{0x00, 0x01, 0xFF, 0xFE, 0x89, 0x50, 0x4E, 0x47}
+	fsys := fstest.MapFS{
+		"data/icon.png": {Data: binaryData},
+	}
+	target := t.TempDir()
+
+	err := ExtractEmbedded(fsys, "data", target)
+	if err != nil {
+		t.Fatalf("ExtractEmbedded(binary) error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(target, "icon.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(content, binaryData) {
+		t.Errorf("binary content mismatch: got %v, want %v", content, binaryData)
+	}
+}
+
+func TestExtractEmbeddedForce_CreatesNewFiles(t *testing.T) {
+	fsys := newTestFS()
+	target := t.TempDir()
+
+	// Force extract to empty target should work the same as normal extract
+	err := ExtractEmbeddedForce(fsys, "lib/agents", target)
+	if err != nil {
+		t.Fatalf("ExtractEmbeddedForce() error = %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(target, "coder", "agent.yaml"))
+	if err != nil {
+		t.Fatalf("read coder/agent.yaml: %v", err)
+	}
+	if string(content) != "name: coder\n" {
+		t.Errorf("coder/agent.yaml = %q, want %q", content, "name: coder\n")
 	}
 }

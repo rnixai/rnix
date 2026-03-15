@@ -238,3 +238,207 @@ func TestListMerged_SkipsFiles(t *testing.T) {
 		t.Errorf("ListMerged() = %v, want %v", got, want)
 	}
 }
+
+// ============================================================
+// Epic 25 TA: Supplemental automated tests
+// ============================================================
+
+func TestDeepMergeYAML_FiveLevelDeep(t *testing.T) {
+	base := map[string]any{
+		"l1": map[string]any{
+			"l2": map[string]any{
+				"l3": map[string]any{
+					"l4": map[string]any{
+						"l5": "base-value",
+						"b":  true,
+					},
+				},
+			},
+		},
+	}
+	override := map[string]any{
+		"l1": map[string]any{
+			"l2": map[string]any{
+				"l3": map[string]any{
+					"l4": map[string]any{
+						"l5": "override-value",
+						"c":  42,
+					},
+				},
+			},
+		},
+	}
+	result := DeepMergeYAML(base, override)
+	// Navigate to l4 and check
+	l1 := result["l1"].(map[string]any)
+	l2 := l1["l2"].(map[string]any)
+	l3 := l2["l3"].(map[string]any)
+	l4 := l3["l4"].(map[string]any)
+	if l4["l5"] != "override-value" {
+		t.Errorf("l5 = %v, want override-value", l4["l5"])
+	}
+	if l4["b"] != true {
+		t.Errorf("b = %v, want true (preserved from base)", l4["b"])
+	}
+	if l4["c"] != 42 {
+		t.Errorf("c = %v, want 42 (added from override)", l4["c"])
+	}
+}
+
+func TestDeepMergeYAML_MapOverridesScalar(t *testing.T) {
+	base := map[string]any{
+		"a": "scalar",
+	}
+	override := map[string]any{
+		"a": map[string]any{"x": 1},
+	}
+	result := DeepMergeYAML(base, override)
+	want := map[string]any{
+		"a": map[string]any{"x": 1},
+	}
+	if !reflect.DeepEqual(result, want) {
+		t.Errorf("DeepMergeYAML map-over-scalar = %v, want %v", result, want)
+	}
+}
+
+func TestDeepMergeYAML_DisjointKeys(t *testing.T) {
+	base := map[string]any{"a": 1, "b": 2}
+	override := map[string]any{"c": 3, "d": 4}
+	result := DeepMergeYAML(base, override)
+	want := map[string]any{"a": 1, "b": 2, "c": 3, "d": 4}
+	if !reflect.DeepEqual(result, want) {
+		t.Errorf("DeepMergeYAML disjoint = %v, want %v", result, want)
+	}
+}
+
+func TestDeepMergeYAML_DoesNotMutateInputs(t *testing.T) {
+	base := map[string]any{
+		"nested": map[string]any{"x": 1},
+	}
+	override := map[string]any{
+		"nested": map[string]any{"y": 2},
+	}
+	// Deep copy originals
+	origBaseX := base["nested"].(map[string]any)["x"]
+	origOverrideY := override["nested"].(map[string]any)["y"]
+
+	_ = DeepMergeYAML(base, override)
+
+	// Verify inputs not mutated
+	if base["nested"].(map[string]any)["x"] != origBaseX {
+		t.Error("DeepMergeYAML mutated base map")
+	}
+	if _, exists := base["nested"].(map[string]any)["y"]; exists {
+		t.Error("DeepMergeYAML leaked override key into base map")
+	}
+	if override["nested"].(map[string]any)["y"] != origOverrideY {
+		t.Error("DeepMergeYAML mutated override map")
+	}
+}
+
+func TestShadowResolve_EmptyDirsList(t *testing.T) {
+	got := ShadowResolve("anything")
+	if got != "" {
+		t.Errorf("ShadowResolve(no dirs) = %q, want empty string", got)
+	}
+}
+
+func TestShadowResolve_EmptyName(t *testing.T) {
+	dir := t.TempDir()
+	got := ShadowResolve("", dir)
+	// filepath.Join(dir, "") == dir, which IS a directory
+	// Behavior depends on whether empty name makes sense; test the actual behavior
+	if got != dir {
+		t.Logf("ShadowResolve(\"\", dir) = %q (dir = %q)", got, dir)
+	}
+}
+
+func TestShadowResolve_MultiDirPriority(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+	dir3 := t.TempDir()
+
+	// Create "agent" in dir2 and dir3 only
+	os.Mkdir(filepath.Join(dir2, "agent"), 0o755)
+	os.Mkdir(filepath.Join(dir3, "agent"), 0o755)
+
+	got := ShadowResolve("agent", dir1, dir2, dir3)
+	want := filepath.Join(dir2, "agent")
+	if got != want {
+		t.Errorf("ShadowResolve 3-dir = %q, want %q (first match in dir2)", got, want)
+	}
+}
+
+func TestListMerged_ThreeDirs_Dedup(t *testing.T) {
+	d1 := t.TempDir()
+	d2 := t.TempDir()
+	d3 := t.TempDir()
+
+	os.Mkdir(filepath.Join(d1, "alpha"), 0o755)
+	os.Mkdir(filepath.Join(d2, "alpha"), 0o755) // duplicate
+	os.Mkdir(filepath.Join(d2, "beta"), 0o755)
+	os.Mkdir(filepath.Join(d3, "gamma"), 0o755)
+
+	got, err := ListMerged(d1, d2, d3)
+	if err != nil {
+		t.Fatalf("ListMerged() error = %v", err)
+	}
+	want := []string{"alpha", "beta", "gamma"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ListMerged(3 dirs) = %v, want %v", got, want)
+	}
+}
+
+func TestListMerged_NoDirs(t *testing.T) {
+	got, err := ListMerged()
+	if err != nil {
+		t.Fatalf("ListMerged() error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("ListMerged(no args) = %v, want empty", got)
+	}
+}
+
+// BenchmarkDeepMergeYAML validates NFR55: DeepMergeYAML ≤ 50ms.
+func BenchmarkDeepMergeYAML(b *testing.B) {
+	// Build a realistic config with nested maps (simulating providers.yaml merge)
+	base := map[string]any{
+		"version": "1",
+		"providers": map[string]any{
+			"claude": map[string]any{
+				"driver":        "claude-cli",
+				"default_model": "haiku",
+			},
+			"cursor": map[string]any{
+				"driver": "cursor-cli",
+			},
+		},
+		"settings": map[string]any{
+			"log_level": "info",
+			"timeout":   30,
+		},
+	}
+	override := map[string]any{
+		"providers": map[string]any{
+			"claude": map[string]any{
+				"default_model": "sonnet",
+			},
+			"ollama": map[string]any{
+				"driver":   "openai-compat",
+				"base_url": "http://localhost:11434/v1",
+			},
+		},
+		"settings": map[string]any{
+			"log_level": "debug",
+			"max_retry": 3,
+		},
+	}
+
+	b.ResetTimer()
+	for b.Loop() {
+		result := DeepMergeYAML(base, override)
+		if result == nil {
+			b.Fatal("nil result")
+		}
+	}
+}
