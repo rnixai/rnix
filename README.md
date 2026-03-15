@@ -40,7 +40,7 @@ Rnix runs as a background **daemon** holding the kernel and process table. CLI c
 ### Prerequisites
 
 - **Go 1.26+** — [Download](https://go.dev/dl/)
-- **At least one LLM provider** — Claude Code CLI (`npm install -g @anthropic-ai/claude-code`), or any OpenAI-compatible API (Ollama, Groq, DeepSeek) configured in `rnix-providers.yaml`
+- **At least one LLM provider** — Claude Code CLI (`npm install -g @anthropic-ai/claude-code`), Cursor CLI, or any OpenAI-compatible API (Ollama, Groq, DeepSeek) configured in `~/.config/rnix/providers.yaml`
 
 ### Install
 
@@ -53,7 +53,8 @@ Verify:
 ```bash
 $ rnix version
 rnix v0.1.0
-claude-code: 2.1.69
+commit:  cd9c568
+built:   2026-03-15T07:23:57Z
 ```
 
 ### Build from Source
@@ -198,7 +199,7 @@ cmd/rnix/          ← CLI entry point (Cobra)
 │   ├── context/   ← Per-process conversation history
 │   └── debug/     ← Strace, recording, distributed tracing
 ├── drivers/       ← VFS device implementations
-│   ├── llm/       ← /dev/llm/claude, /dev/llm/cursor
+│   ├── llm/       ← /dev/llm/* (claude, cursor, ollama, groq, ...)
 │   ├── fs/        ← /dev/fs — sandboxed host filesystem
 │   ├── shell/     ← /dev/shell — subprocess execution
 │   └── mcp/       ← /dev/mcp/* — MCP server transport

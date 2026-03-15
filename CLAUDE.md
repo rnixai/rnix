@@ -95,11 +95,13 @@ NDJSON over Unix socket. Request: `{"method": "spawn|kill|list_procs|...", "payl
 
 ### Configuration Files
 
-- `rnix-providers.yaml` — LLM provider definitions (`default_provider`, driver type, model, base URL, API key)
-- `rnix-init.yaml` — Bootstrap services and supervisor trees
-- `rnix-compose.yaml` — Multi-agent workflow DAGs
-- `lib/agents/*/agent.yaml` — Agent manifests
-- `lib/skills/*/SKILL.md` — Skill definitions
+Two-tier configuration: global (`~/.config/rnix/`) + project (`.rnix/`). Run `rnix init` to bootstrap.
+
+- `providers.yaml` — LLM provider definitions (`default_provider`, driver type, model, base URL, API key env)
+- `init.yaml` — Bootstrap services and supervisor trees
+- `compose.yaml` — Multi-agent workflow DAGs
+- `agents/*/agent.yaml` — Agent manifests
+- `skills/*/SKILL.md` — Skill definitions
 
 ## Conventions
 

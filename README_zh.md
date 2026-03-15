@@ -40,7 +40,7 @@ Rnix 运行为后台 **daemon** 进程，持有内核和进程表。CLI 命令�
 ### 前置条件
 
 - **Go 1.26+** — [下载](https://go.dev/dl/)
-- **至少一个 LLM 提供商** — Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)，或任意 OpenAI 兼容 API（Ollama、Groq、DeepSeek）通过 `rnix-providers.yaml` 配置
+- **至少一个 LLM 提供商** — Claude Code CLI (`npm install -g @anthropic-ai/claude-code`)、Cursor CLI，或任意 OpenAI 兼容 API（Ollama、Groq、DeepSeek）通过 `~/.config/rnix/providers.yaml` 配置
 
 ### 安装
 
@@ -53,7 +53,8 @@ go install github.com/rnixai/rnix/cmd/rnix@latest
 ```bash
 $ rnix version
 rnix v0.1.0
-claude-code: 2.1.69
+commit:  cd9c568
+built:   2026-03-15T07:23:57Z
 ```
 
 ### 从源码构建
@@ -196,7 +197,7 @@ cmd/rnix/          ← CLI 入口（Cobra）
 │   ├── context/   ← 进程上下文（对话历史）
 │   └── debug/     ← strace、录制、分布式追踪
 ├── drivers/       ← VFS 设备驱动实现
-│   ├── llm/       ← /dev/llm/claude、/dev/llm/cursor
+│   ├── llm/       ← /dev/llm/*（claude、cursor、ollama、groq 等）
 │   ├── fs/        ← /dev/fs — 沙箱化宿主文件系统
 │   ├── shell/     ← /dev/shell — 子进程执行
 │   └── mcp/       ← /dev/mcp/* — MCP 服务器传输
