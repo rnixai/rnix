@@ -15,7 +15,7 @@ import (
 
 // Compile-time interface checks.
 var (
-	_ LLMDriver        = (*OpenAICompatDriver)(nil)
+	_ LLMDriver         = (*OpenAICompatDriver)(nil)
 	_ ToolCallingDriver = (*OpenAICompatDriver)(nil)
 )
 
@@ -577,17 +577,17 @@ func TestOpenAICompatDriver_Stream_LargeChunk(t *testing.T) {
 		t.Fatalf("Stream: %v", err)
 	}
 
-	var gotContent string
+	var gotContent strings.Builder
 	for evt := range ch {
 		if evt.Type == "content" {
-			gotContent += evt.Content
+			gotContent.WriteString(evt.Content)
 		}
 		if evt.Type == "error" {
 			t.Fatalf("unexpected error: %v", evt.Err)
 		}
 	}
-	if len(gotContent) != len(largeContent) {
-		t.Errorf("content length = %d, want %d", len(gotContent), len(largeContent))
+	if len(gotContent.String()) != len(largeContent) {
+		t.Errorf("content length = %d, want %d", len(gotContent.String()), len(largeContent))
 	}
 }
 

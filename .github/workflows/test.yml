@@ -49,7 +49,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.9.0
           args: --allow-parallel-runners ./...
@@ -190,19 +190,26 @@ jobs:
         with:
           pattern: coverage-shard-*
           path: coverage
+        continue-on-error: true
 
       - name: Merge coverage profiles
         id: coverage
         run: |
-          # Combine all shard coverage profiles
+          # Ensure coverage dir exists (no artifacts when test failed/skipped)
+          mkdir -p coverage
           echo "mode: atomic" > coverage-merged.out
           find coverage -name '*.out' -exec grep -v '^mode:' {} \; >> coverage-merged.out
 
-          # Extract total coverage percentage
-          total_line=$(go tool cover -func=coverage-merged.out | tail -1)
-          echo "$total_line"
-          coverage_pct=$(echo "$total_line" | awk '{print $NF}' | tr -d '%')
-          echo "percentage=$coverage_pct" >> "$GITHUB_OUTPUT"
+          # Extract total coverage percentage (0 if no data)
+          total_line=$(go tool cover -func=coverage-merged.out 2>/dev/null | tail -1)
+          if [ -z "$total_line" ]; then
+            echo "No coverage data (tests may have failed or produced no coverage)"
+            echo "percentage=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "$total_line"
+            coverage_pct=$(echo "$total_line" | awk '{print $NF}' | tr -d '%')
+            echo "percentage=$coverage_pct" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Quality gate - Coverage threshold
         env:
