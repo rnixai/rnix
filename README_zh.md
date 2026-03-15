@@ -146,31 +146,33 @@ $ curl localhost:8080/v1/chat/completions -d '{"model":"claude","messages":[...]
 |------|------|
 | `rnix -i "意图"` | 以给定意图 Spawn 智能体进程 |
 | `rnix -i "意图" --agent=NAME` | 使用命名 Agent 定义 |
-| `rnix -i "意图" --provider=cursor` | 使用指定 LLM 提供商 |
+| `rnix -i "意图" --provider=NAME` | 使用指定 LLM 提供商 |
+| `rnix init` | 初始化配置环境 |
 | `rnix ps` | 列出所有进程 |
 | `rnix kill <pid>` | 终止进程 |
 | `rnix strace <pid>` | 追踪进程的系统调用 |
+| `rnix log <pid>` | 分类推理日志 |
+| `rnix top` | 实时进程监控（TUI） |
 | `rnix gdb <pid>` | 交互式调试器（断点/单步/检查） |
-| `rnix record <pid>` | 录制执行轨迹 |
+| `rnix dashboard` | 可视化调试面板（多窗格 TUI） |
+| `rnix record start/stop/list` | 执行录制管理 |
 | `rnix replay <id>` | 回放录制的执行 |
 | `rnix trace <id>` | 查看分布式追踪 |
 | `rnix trace blame <id>` | 根因分析 |
 | `rnix ctx-profile <pid>` | 上下文内存分析 |
-| `rnix agtest <file>` | 运行回归测试 |
-| `rnix dashboard` | 可视化调试面板（多窗格 TUI） |
-| `rnix top` | 实时进程监控（TUI） |
-| `rnix log <pid>` | 分类推理日志 |
+| `rnix ctx-growth <pid>` | 上下文增长预测 |
 | `rnix compose up/down` | 多智能体 DAG 工作流 |
-| `rnix intent apply/status` | 声明式意图分解 |
+| `rnix apply "意图"` | 声明式意图分解 |
+| `rnix intent status/list` | 意图树管理 |
+| `rnix run <script.ash>` | 执行 AgentShell 脚本 |
 | `rnix serve` | OpenAI 兼容 LLM 网关 |
 | `rnix skill install/search/update/list` | Skill 包管理 |
-| `rnix providers status` | LLM 提供商健康检查 |
+| `rnix agtest <file>` | 运行智能体回归测试 |
 | `rnix reputation [agent]` | 智能体声誉评分 |
 | `rnix lineage <pid>` | 干细胞分化路径 |
 | `rnix topology` | 智能体协作拓扑 |
 | `rnix synergy list` | 有效 Skill 组合 |
-| `rnix immune status` | 安全监控状态 |
-| `rnix run <script.ash>` | 执行 AgentShell 脚本 |
+| `rnix immune status/resume/similarity` | 自适应安全管理 |
 | `rnix daemon status/stop` | Daemon 管理 |
 | `rnix version` | 显示版本信息 |
 
@@ -271,11 +273,7 @@ go test -race -run TestFunctionName ./package/...
 
 ## 贡献
 
-欢迎贡献！请确保：
-
-1. 所有测试通过：`make test`
-2. Linter 无报错：`make lint`
-3. 代码遵循现有规范（详见 `CLAUDE.md`）
+欢迎贡献！请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详细规范。
 
 ## 许可证
 
