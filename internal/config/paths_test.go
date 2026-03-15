@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -245,5 +246,105 @@ func TestProjectDir_DotRnixIsFile(t *testing.T) {
 	// Should NOT match because .rnix is a file, not a directory
 	if got != "" {
 		t.Errorf("ProjectDir(%q) = %q, want empty string (.rnix is a file)", root, got)
+	}
+}
+
+// ============================================================
+// Epic 25 TA: Supplemental automated tests
+// ============================================================
+
+func TestResolvePath_UnknownScope(t *testing.T) {
+	got := ResolvePath(Scope(99), "/some/project", "foo.yaml")
+	if got != "" {
+		t.Errorf("ResolvePath(unknown scope) = %q, want empty string", got)
+	}
+}
+
+func TestResolveDir_UnknownScope(t *testing.T) {
+	got := ResolveDir(Scope(99), "/some/project", "agents")
+	if got != "" {
+		t.Errorf("ResolveDir(unknown scope) = %q, want empty string", got)
+	}
+}
+
+func TestProjectDir_EmptyStartDir(t *testing.T) {
+	// Empty string should be resolved to CWD via filepath.Abs
+	got, err := ProjectDir("")
+	if err != nil {
+		t.Fatalf("ProjectDir(\"\") error = %v", err)
+	}
+	// Just verify it doesn't panic; actual result depends on CWD
+	_ = got
+}
+
+func TestProjectDir_DeepNesting_20Layers(t *testing.T) {
+	root := t.TempDir()
+	rnixDir := filepath.Join(root, ".rnix")
+	if err := os.Mkdir(rnixDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Build 20-layer deep nested path
+	deep := root
+	for i := range 20 {
+		deep = filepath.Join(deep, fmt.Sprintf("d%d", i))
+	}
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ProjectDir(deep)
+	if err != nil {
+		t.Fatalf("ProjectDir() error = %v", err)
+	}
+	if got != root {
+		t.Errorf("ProjectDir(20-layer deep) = %q, want %q", got, root)
+	}
+}
+
+// BenchmarkProjectDir_20Layers validates NFR54: ProjectDir ≤ 10ms for ≤ 20 layers.
+func BenchmarkProjectDir_20Layers(b *testing.B) {
+	root := b.TempDir()
+	rnixDir := filepath.Join(root, ".rnix")
+	if err := os.Mkdir(rnixDir, 0o755); err != nil {
+		b.Fatal(err)
+	}
+
+	deep := root
+	for i := range 20 {
+		deep = filepath.Join(deep, fmt.Sprintf("d%d", i))
+	}
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	for b.Loop() {
+		got, err := ProjectDir(deep)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if got != root {
+			b.Fatalf("got %q, want %q", got, root)
+		}
+	}
+}
+
+func TestProjectDir_MultipleRnixDirs_ClosestWins(t *testing.T) {
+	root := t.TempDir()
+	// Create .rnix at root and at root/child
+	os.Mkdir(filepath.Join(root, ".rnix"), 0o755)
+	child := filepath.Join(root, "child")
+	os.MkdirAll(filepath.Join(child, ".rnix"), 0o755)
+	deep := filepath.Join(child, "sub")
+	os.Mkdir(deep, 0o755)
+
+	got, err := ProjectDir(deep)
+	if err != nil {
+		t.Fatalf("ProjectDir() error = %v", err)
+	}
+	// Should find the closest .rnix/ (child), not root
+	if got != child {
+		t.Errorf("ProjectDir() = %q, want %q (closest .rnix/)", got, child)
 	}
 }
