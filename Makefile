@@ -5,7 +5,8 @@ GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null)
 BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS := -X main.version=$(GIT_VERSION) -X main.gitCommit=$(GIT_COMMIT) -X main.buildDate=$(BUILD_DATE)
 
-.PHONY: build install test lint vet modernize modernize-check clean cache-clean all release help
+.PHONY: build install test lint vet modernize modernize-check clean cache-clean all release help \
+	gh-status gh-view gh-pr gh-pr-list gh-issue gh-issue-list gh-release-publish gh-push
 .DEFAULT_GOAL := help
 
 build:
@@ -59,6 +60,32 @@ release:
 	@echo "Done! Release v$(VERSION) tagged and built."
 	@echo "To publish: git push origin v$(VERSION)"
 
+# --- GitHub CLI (gh) ---
+gh-status: ## Check gh auth status
+	gh auth status
+
+gh-view: ## Open repo in browser
+	gh repo view --web
+
+gh-pr: ## Create a PR (interactive)
+	gh pr create
+
+gh-pr-list: ## List open PRs
+	gh pr list
+
+gh-issue: ## Create an issue (interactive)
+	gh issue create
+
+gh-issue-list: ## List open issues
+	gh issue list
+
+gh-release-publish: ## Create GitHub release (after make release VERSION=x.y.z). Usage: make gh-release-publish VERSION=0.2.0
+	@test -n "$(VERSION)" || (echo "ERROR: VERSION is required. Usage: make gh-release-publish VERSION=0.2.0"; exit 1)
+	gh release create "v$(VERSION)" $(BINARY) --title "v$(VERSION)" --notes "Release v$(VERSION)"
+
+gh-push: ## Push current branch and set upstream
+	git push -u origin $$(git branch --show-current)
+
 help: ## Show this help
 	@printf "\033[1mUsage:\033[0m make [target]\n\n"
 	@printf "\033[1mTargets:\033[0m\n"
@@ -73,4 +100,13 @@ help: ## Show this help
 	@printf "  \033[36m%-18s\033[0m %s\n" "clean"           "Remove build artifacts"
 	@printf "  \033[36m%-18s\033[0m %s\n" "cache-clean"     "Clean lint and Go caches"
 	@printf "  \033[36m%-18s\033[0m %s\n" "release"         "Tag and build a release (VERSION=x.y.z)"
+	@printf "\n  \033[1mGitHub (gh):\033[0m\n"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-status"       "Check gh auth status"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-view"         "Open repo in browser"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-pr"           "Create a PR (interactive)"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-pr-list"      "List open PRs"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-issue"       "Create an issue (interactive)"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-issue-list"   "List open issues"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-release-publish" "Create GitHub release (VERSION=x.y.z)"
+	@printf "  \033[36m%-18s\033[0m %s\n" "gh-push"         "Push current branch and set upstream"
 	@printf "  \033[36m%-18s\033[0m %s\n" "help"            "Show this help"
