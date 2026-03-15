@@ -285,6 +285,8 @@ func TestExitCode_InitialZero(t *testing.T) {
 }
 
 // --- Version command tests (Task 1 / AC #5) ---
+// These tests modify package-level vars (gitCommit, buildDate, flagJSON, claudeVersionChecker)
+// via save/restore. Do NOT add t.Parallel() to any of these tests.
 
 func TestVersion_WithClaude(t *testing.T) {
 	saved := claudeVersionChecker
@@ -304,8 +306,9 @@ func TestVersion_WithClaude(t *testing.T) {
 	runVersion(cmd, nil)
 
 	output := buf.String()
-	if !strings.Contains(output, "rnix v") {
-		t.Errorf("expected rnix version, got %q", output)
+	wantVersion := "rnix v" + version + "-dev"
+	if !strings.Contains(output, wantVersion) {
+		t.Errorf("expected %q, got %q", wantVersion, output)
 	}
 	if !strings.Contains(output, "claude-code: 1.0.34") {
 		t.Errorf("expected claude-code version, got %q", output)
@@ -330,8 +333,9 @@ func TestVersion_WithoutClaude(t *testing.T) {
 	runVersion(cmd, nil)
 
 	output := buf.String()
-	if !strings.Contains(output, "rnix v") {
-		t.Errorf("expected rnix version, got %q", output)
+	wantVersion := "rnix v" + version + "-dev"
+	if !strings.Contains(output, wantVersion) {
+		t.Errorf("expected %q, got %q", wantVersion, output)
 	}
 	if !strings.Contains(output, "✗ claude-code CLI not found") {
 		t.Errorf("expected not found message, got %q", output)
@@ -371,14 +375,80 @@ func TestVersion_JSON(t *testing.T) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("failed to parse data: %v", err)
 	}
-	if m["version"] != version {
-		t.Errorf("expected version %q, got %v", version, m["version"])
+	if m["version"] != versionString() {
+		t.Errorf("expected version %q, got %v", versionString(), m["version"])
+	}
+	if _, ok := m["git_commit"]; !ok {
+		t.Error("expected git_commit field in JSON output")
+	}
+	if _, ok := m["build_date"]; !ok {
+		t.Error("expected build_date field in JSON output")
 	}
 	if m["claude_code_available"] != true {
 		t.Errorf("expected claude_code_available true, got %v", m["claude_code_available"])
 	}
 	if m["claude_code"] != "1.0.34" {
 		t.Errorf("expected claude_code 1.0.34, got %v", m["claude_code"])
+	}
+}
+
+func TestVersionString_Dev(t *testing.T) {
+	savedCommit := gitCommit
+	defer func() { gitCommit = savedCommit }()
+
+	gitCommit = ""
+	got := versionString()
+	want := version + "-dev"
+	if got != want {
+		t.Errorf("versionString() = %q, want %q", got, want)
+	}
+}
+
+func TestVersionString_Release(t *testing.T) {
+	savedCommit := gitCommit
+	defer func() { gitCommit = savedCommit }()
+
+	gitCommit = "abc1234"
+	got := versionString()
+	if got != version {
+		t.Errorf("versionString() = %q, want %q", got, version)
+	}
+}
+
+func TestVersion_WithBuildInfo(t *testing.T) {
+	savedCommit := gitCommit
+	savedDate := buildDate
+	savedChecker := claudeVersionChecker
+	savedJSON := flagJSON
+	defer func() {
+		gitCommit = savedCommit
+		buildDate = savedDate
+		claudeVersionChecker = savedChecker
+		flagJSON = savedJSON
+	}()
+
+	gitCommit = "abc1234"
+	buildDate = "2026-03-15T00:00:00Z"
+	claudeVersionChecker = func() (string, error) { return "1.0.34", nil }
+	flagJSON = false
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{Use: "test"}
+	cmd.SetOut(&buf)
+	runVersion(cmd, nil)
+
+	output := buf.String()
+	if !strings.Contains(output, "rnix v"+version) {
+		t.Errorf("expected rnix v%s, got %q", version, output)
+	}
+	if strings.Contains(output, "-dev") {
+		t.Errorf("expected no -dev suffix with gitCommit set, got %q", output)
+	}
+	if !strings.Contains(output, "commit:  abc1234") {
+		t.Errorf("expected commit line, got %q", output)
+	}
+	if !strings.Contains(output, "built:   2026-03-15T00:00:00Z") {
+		t.Errorf("expected built line, got %q", output)
 	}
 }
 

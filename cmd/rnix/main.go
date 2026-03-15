@@ -36,7 +36,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var version = "0.1.0"
+var (
+	version   = "0.1.0"
+	gitCommit = ""
+	buildDate = ""
+)
+
+func versionString() string {
+	if gitCommit == "" {
+		return version + "-dev"
+	}
+	return version
+}
 
 // Global flags
 var (
@@ -189,7 +200,9 @@ func runVersion(cmd *cobra.Command, args []string) {
 
 	if flagJSON {
 		data := map[string]any{
-			"version":               version,
+			"version":               versionString(),
+			"git_commit":            gitCommit,
+			"build_date":            buildDate,
 			"claude_code_available": claudeAvailable,
 		}
 		if claudeAvailable {
@@ -201,7 +214,13 @@ func runVersion(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	fmt.Fprintf(w, "rnix v%s\n", version)
+	fmt.Fprintf(w, "rnix v%s\n", versionString())
+	if gitCommit != "" {
+		fmt.Fprintf(w, "commit:  %s\n", gitCommit)
+	}
+	if buildDate != "" {
+		fmt.Fprintf(w, "built:   %s\n", buildDate)
+	}
 	if !claudeAvailable {
 		fmt.Fprintln(w, "✗ claude-code CLI not found")
 		fmt.Fprintln(w, "  → 建议: npm install -g @anthropic-ai/claude-code")
@@ -1163,7 +1182,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 	mountMgr := vfs.NewMountManager(devReg, transportFactory)
 
-	srv := ipc.NewServer(nil, agentLoader.Load, version)
+	srv := ipc.NewServer(nil, agentLoader.Load, versionString())
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	k.SetMountManager(mountMgr)
 	k.SetProviderResolver(driverReg.Names, func(name string) bool { _, ok := driverReg.Get(name); return ok })
