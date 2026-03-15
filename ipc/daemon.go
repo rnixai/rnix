@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -86,7 +85,7 @@ func startDaemon() error {
 	}
 
 	cmd := exec.Command(daemonExe(), "daemon", "--internal")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	setDaemonSysProcAttr(cmd)
 	cmd.Stdout = nil
 	cmd.Stderr = logFile
 	cmd.Stdin = nil
