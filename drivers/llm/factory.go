@@ -18,8 +18,15 @@ type DeviceRegisterer interface {
 }
 
 // CreateDriver creates an LLMDriver instance from a ProviderConfig.
-// It dispatches to the appropriate constructor based on cfg.Driver.
+// It uses os.Getenv to resolve API key environment variables.
 func CreateDriver(cfg ProviderConfig) (LLMDriver, error) {
+	return CreateDriverWithEnv(cfg, os.Getenv)
+}
+
+// CreateDriverWithEnv creates an LLMDriver instance from a ProviderConfig,
+// using the provided envLookup function to resolve environment variables.
+// This allows project-level .env overrides without polluting os.Environ.
+func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLMDriver, error) {
 	switch cfg.Driver {
 	case DriverClaudeCLI:
 		var opts []ClaudeCliOption
@@ -41,7 +48,7 @@ func CreateDriver(cfg ProviderConfig) (LLMDriver, error) {
 			opts = append(opts, WithCompatModel(cfg.DefaultModel))
 		}
 		if cfg.APIKeyEnv != "" {
-			if key := os.Getenv(cfg.APIKeyEnv); key != "" {
+			if key := envLookup(cfg.APIKeyEnv); key != "" {
 				opts = append(opts, WithAPIKey(key))
 			} else {
 				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)

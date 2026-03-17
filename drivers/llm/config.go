@@ -80,6 +80,11 @@ func LoadProvidersConfig(path string) (*ProvidersConfig, error) {
 		return nil, fmt.Errorf("providers config file is empty: %s", path)
 	}
 
+	return ParseProvidersConfig(data)
+}
+
+// ParseProvidersConfig parses and validates providers config from raw YAML bytes.
+func ParseProvidersConfig(data []byte) (*ProvidersConfig, error) {
 	var cfg ProvidersConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing providers config: %w", err)

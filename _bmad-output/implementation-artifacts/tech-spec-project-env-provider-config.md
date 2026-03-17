@@ -2,8 +2,8 @@
 title: '项目级环境变量与 Provider 配置加载'
 slug: 'project-env-provider-config'
 created: '2026-03-17'
-status: 'review'
-stepsCompleted: [1, 2, 3]
+status: 'implementation-complete'
+stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8, 9]
 tech_stack: [Go]
 files_to_modify:
   - internal/config/dotenv.go (new)
@@ -134,7 +134,7 @@ Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` �
 
 **Task 1: 实现 `.env` parser** (`internal/config/dotenv.go`, new)
 
-- [ ] 1.1 创建 `ParseDotenv(r io.Reader) (map[string]string, error)` 函数
+- [x] 1.1 创建 `ParseDotenv(r io.Reader) (map[string]string, error)` 函数
   - File: `internal/config/dotenv.go` (new)
   - Action: 实现逐行解析器，支持：
     - `KEY=VALUE`（无引号）— 值去除首尾空白
@@ -146,63 +146,63 @@ Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` �
     - `export KEY=VALUE` 前缀（可选 `export` 关键字，忽略）
   - Notes: 不支持变量插值（`$VAR`）。使用 `io.LimitReader(r, 1<<20)` 限制读取 1MB。
 
-- [ ] 1.2 创建 `LoadDotenvFile(path string) (map[string]string, error)` 函数
+- [x] 1.2 创建 `LoadDotenvFile(path string) (map[string]string, error)` 函数
   - File: `internal/config/dotenv.go`
   - Action: 读取文件（经过 `io.LimitReader` 限制），调用 `ParseDotenv`。文件不存在返回 `(nil, nil)` 而非报错。
 
-- [ ] 1.3 创建 `ValidateEnvName(name string) bool` 函数
+- [x] 1.3 创建 `ValidateEnvName(name string) bool` 函数
   - File: `internal/config/dotenv.go`
   - Action: 验证 RNIX_ENV 值只匹配 `^[a-zA-Z0-9_-]+$`。
   - Notes: 防止路径遍历（如 `../../etc/passwd`）。
 
-- [ ] 1.4 创建 `LoadDotenvDir(dir string, rnixEnv string) (map[string]string, error)` 函数
+- [x] 1.4 创建 `LoadDotenvDir(dir string, rnixEnv string) (map[string]string, error)` 函数
   - File: `internal/config/dotenv.go`
   - Action: 先用 `ValidateEnvName(rnixEnv)` 验证。`rnixEnv` 为空时默认 `"development"`。按顺序加载并合并：`.env` → `.env.local` → `.env.{rnixEnv}` → `.env.{rnixEnv}.local`。后者覆盖前者。返回仅包含 .env 文件中变量的 map（不含 os.Environ）。
 
-- [ ] 1.5 创建 `NewEnvLookup(dotenvVars map[string]string) func(string) string` 函数
+- [x] 1.5 创建 `NewEnvLookup(dotenvVars map[string]string) func(string) string` 函数
   - File: `internal/config/dotenv.go`
   - Action: 返回闭包：先查 `dotenvVars`，未找到则 fallback 到 `os.Getenv`。`dotenvVars` 为 nil 时直接返回 `os.Getenv`。
 
 **Task 2: `.env` parser 单元测试** (`internal/config/dotenv_test.go`, new)
 
-- [ ] 2.1 table-driven 测试 `ParseDotenv`
+- [x] 2.1 table-driven 测试 `ParseDotenv`
   - File: `internal/config/dotenv_test.go` (new)
   - Action: 覆盖用例：基本 KEY=VALUE、双引号、单引号、空值、注释、export 前缀、转义字符（`\n`、`\"`、`\\`）、空行、行尾注释、多行文件、超过 1MB 截断
-- [ ] 2.2 测试 `LoadDotenvFile` — 文件存在/不存在/解析错误
-- [ ] 2.3 测试 `ValidateEnvName` — 合法值（`development`、`prod-1`）、非法值（`../etc`、空字符串、含空格）
-- [ ] 2.4 测试 `LoadDotenvDir` — 多文件合并顺序、覆盖优先级、非法 rnixEnv 值报错
-- [ ] 2.5 测试 `NewEnvLookup` — dotenv 变量优先于 os.Getenv、nil map 回退到 os.Getenv
+- [x] 2.2 测试 `LoadDotenvFile` — 文件存在/不存在/解析错误
+- [x] 2.3 测试 `ValidateEnvName` — 合法值（`development`、`prod-1`）、非法值（`../etc`、空字符串、含空格）
+- [x] 2.4 测试 `LoadDotenvDir` — 多文件合并顺序、覆盖优先级、非法 rnixEnv 值报错
+- [x] 2.5 测试 `NewEnvLookup` — dotenv 变量优先于 os.Getenv、nil map 回退到 os.Getenv
 
 **Task 3: `CreateDriverWithEnv` 支持环境快照** (`drivers/llm/factory.go`)
 
-- [ ] 3.1 新增 `CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLMDriver, error)` 函数
+- [x] 3.1 新增 `CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLMDriver, error)` 函数
   - File: `drivers/llm/factory.go`
   - Action: 从 `CreateDriver` 提取逻辑。在 `DriverOpenAICompat` 分支中，将 `os.Getenv(cfg.APIKeyEnv)` 替换为 `envLookup(cfg.APIKeyEnv)`。`ClaudeCLI` 和 `CursorCLI` 分支不使用 envLookup（它们不需要 API Key）。
-- [ ] 3.2 将 `CreateDriver` 改为调用 `CreateDriverWithEnv(cfg, os.Getenv)`
+- [x] 3.2 将 `CreateDriver` 改为调用 `CreateDriverWithEnv(cfg, os.Getenv)`
   - File: `drivers/llm/factory.go`
   - Action: 保持签名不变，一行委托。
 
 **Task 4: `CreateDriverWithEnv` 测试** (`drivers/llm/factory_test.go`)
 
-- [ ] 4.1 测试 envLookup 被正确调用
+- [x] 4.1 测试 envLookup 被正确调用
   - File: 现有 `drivers/llm/factory_test.go` 或新增测试
   - Action: 构造自定义 envLookup（记录调用的 key 并返回 mock value），验证 OpenAI-compat driver 使用 envLookup 读取 API Key。验证 claude-cli driver 不触发 envLookup。
 
 **Task 5: IPC 协议扩展** (`ipc/protocol.go`)
 
-- [ ] 5.1 `SpawnRequest` 新增 `RnixEnv` 字段
+- [x] 5.1 `SpawnRequest` 新增 `RnixEnv` 字段
   - File: `ipc/protocol.go`
   - Action: 在 `SpawnRequest` struct 中 `ProjectDir` 之后添加 `RnixEnv string \`json:"rnix_env,omitempty"\``
-- [ ] 5.2 `SpawnPipelineRequest` 同样新增 `RnixEnv` 字段
+- [x] 5.2 `SpawnPipelineRequest` 同样新增 `RnixEnv` 字段
   - File: `ipc/protocol.go`
   - Action: 在 `SpawnPipelineRequest` struct 中添加 `RnixEnv string \`json:"rnix_env,omitempty"\``
 
 **Task 6: 类型定义与 `ProjectConfig` 扩展** (`internal/types`, `internal/config/types.go`)
 
-- [ ] 6.1 在 `internal/types` 中定义 `LLMFileOpener` 类型
+- [x] 6.1 在 `internal/types` 中定义 `LLMFileOpener` 类型
   - File: `internal/types/types.go`
   - Action: 添加 `type LLMFileOpener func(provider string, flags int) (any, error)` — 返回 `any` 避免 types → vfs 依赖。调用方（kernel）做 `vfs.VFSFile` 类型断言。
-- [ ] 6.2 新增 `EnvSnapshot`、`LLMFileOpener` 和 `DefaultProvider` 字段
+- [x] 6.2 新增 `EnvSnapshot`、`LLMFileOpener` 和 `DefaultProvider` 字段
   - File: `internal/config/types.go`
   - Action: 在 `ProjectConfig` struct 中添加：
     ```go
@@ -214,33 +214,33 @@ Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` �
 
 **Task 7: CLI 传递 RNIX_ENV** (`cmd/rnix/main.go`)
 
-- [ ] 7.1 在 SpawnRequest 构造处添加 RnixEnv
+- [x] 7.1 在 SpawnRequest 构造处添加 RnixEnv
   - File: `cmd/rnix/main.go` — `req := ipc.SpawnRequest{...}` 处
   - Action: 添加 `RnixEnv: os.Getenv("RNIX_ENV")`
-- [ ] 7.2 在 `runPipeline` 中添加 RnixEnv
+- [x] 7.2 在 `runPipeline` 中添加 RnixEnv
   - File: `cmd/rnix/main.go` — `SpawnPipelineRequest` 构造处
   - Action: 添加 `RnixEnv: os.Getenv("RNIX_ENV")`
   - Notes: `ExecScriptRequest` 不添加 RnixEnv，因为它已有完整的 `Env` 快照机制。
 
 **Task 8: 扩展 `resolveProjectContext`** (`ipc/server.go`)
 
-- [ ] 8.1 在 `Server` 结构体中添加 `globalProvidersRaw []byte` 字段
+- [x] 8.1 在 `Server` 结构体中添加 `globalProvidersRaw []byte` 字段
   - File: `ipc/server.go`
   - Action: 在 `runDaemon()` 加载 providers.yaml 时，同时保存 raw bytes 到 Server。用于后续 DeepMergeYAML（避免从结构体回转 YAML）。
 
-- [ ] 8.2 增加 `rnixEnv` 参数
+- [x] 8.2 增加 `rnixEnv` 参数
   - File: `ipc/server.go` — `resolveProjectContext` 签名
   - Action: 改为 `resolveProjectContext(projectDir, rnixEnv string)`
 
-- [ ] 8.3 ProjectDir 安全验证
+- [x] 8.3 ProjectDir 安全验证
   - File: `ipc/server.go` — `resolveProjectContext` 开头
   - Action: 在现有 `projectDir == ""` 检查之后，增加 `os.Stat(filepath.Join(projectDir, ".rnix"))` 验证。不存在则回退全局模式（返回 nil ProjectConfig）。
 
-- [ ] 8.4 加载 `.env` 文件
+- [x] 8.4 加载 `.env` 文件
   - File: `ipc/server.go` — `resolveProjectContext` 内
   - Action: 调用 `config.LoadDotenvDir(projectDir, rnixEnv)` 获取 `dotenvVars`。构造 `envLookup := config.NewEnvLookup(dotenvVars)`。
 
-- [ ] 8.5 使用 raw YAML bytes DeepMergeYAML 合并 providers
+- [x] 8.5 使用 raw YAML bytes DeepMergeYAML 合并 providers
   - File: `ipc/server.go` — 替换当前简单替换逻辑
   - Action:
     1. 读取项目 `.rnix/providers.yaml` raw bytes（`os.ReadFile`）
@@ -250,7 +250,7 @@ Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` �
     5. Unmarshal 为 `*llm.ProvidersConfig` 并 Validate
     6. 如果项目无 providers.yaml，直接用全局 ProvidersConfig
 
-- [ ] 8.6 使用环境快照创建项目级 driver 并构造 `LLMFileOpener`
+- [x] 8.6 使用环境快照创建项目级 driver 并构造 `LLMFileOpener`
   - File: `ipc/server.go`
   - Action: 对合并后的 `ProvidersConfig` 中每个 provider：
     1. 调用 `llm.CreateDriverWithEnv(pc, envLookup)` 创建 driver
@@ -268,21 +268,21 @@ Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` �
     }
     ```
 
-- [ ] 8.7 设置项目级 default provider
+- [x] 8.7 设置项目级 default provider
   - File: `ipc/server.go`
   - Action: `projCfg.DefaultProvider = mergedProvidersCfg.ResolveDefaultProvider()`
 
-- [ ] 8.8 将 `dotenvVars` 存入 `ProjectConfig.EnvSnapshot`
+- [x] 8.8 将 `dotenvVars` 存入 `ProjectConfig.EnvSnapshot`
   - File: `ipc/server.go`
   - Action: `projCfg.EnvSnapshot = dotenvVars`
 
-- [ ] 8.9 更新所有 `resolveProjectContext` 调用处传入 `rnixEnv`
+- [x] 8.9 更新所有 `resolveProjectContext` 调用处传入 `rnixEnv`
   - File: `ipc/server.go` — `handleSpawn`、`handleSpawnPipeline`、以及其他调用处
   - Action: 从 `req.RnixEnv` 提取并传入。搜索 `resolveProjectContext(req.ProjectDir` 找到所有调用点。
 
 **Task 9: Kernel 支持项目级 LLM 设备** (`kernel/kernel.go`)
 
-- [ ] 9.1 修改 `Spawn` 中 LLM 设备打开逻辑
+- [x] 9.1 修改 `Spawn` 中 LLM 设备打开逻辑
   - File: `kernel/kernel.go` — 约 444-469 行
   - Action: 在 `if !opts.SkipReasonLoop {` 块内，将：
     ```go
@@ -324,7 +324,7 @@ Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` �
     ```
   - Notes: `VFS.RegisterFD` 已有（vfs.go:158），返回 FD。后续 `reasonStep` 中的 `Read`/`Write`/`Close` 都通过 FD 操作，不关心 file 来源。
 
-- [ ] 9.2 修改 `resolveLLMDevice` 增加项目级 provider 验证
+- [x] 9.2 修改 `resolveLLMDevice` 增加项目级 provider 验证
   - File: `kernel/kernel.go` — `resolveLLMDevice` 函数
   - Action: 新增第三个参数 `projectCfg *config.ProjectConfig`。
     - 当 `projectCfg != nil && projectCfg.LLMFileOpener != nil` 时：
@@ -336,7 +336,7 @@ Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` �
     2. kernel.go — `Spawn` 中 fallback 设备解析（约 line 364）：传入 `opts.ProjectConfig`
     3. 测试文件中约 30 处调用：传入 `nil`（测试不涉及项目级 provider）
 
-- [ ] 9.3 同步修改 `attemptFallback` 中的 fallback 设备打开
+- [x] 9.3 同步修改 `attemptFallback` 中的 fallback 设备打开
   - File: `kernel/kernel.go` — `attemptFallback` 函数约 729 行
   - Action: fallback 设备打开也需支持项目级 driver。提取 fallback provider name（`strings.TrimPrefix(proc.FallbackDevice, "/dev/llm/")`），检查 `proc.ProjectConfig.LLMFileOpener`：
     1. 如果 `LLMFileOpener` 非 nil，先尝试 `LLMFileOpener(fbProvider, int(vfs.O_RDWR))`
@@ -347,79 +347,79 @@ Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` �
 
 **AC1: `.env` 文件加载**
 
-- [ ] Given 项目目录下有 `.env` 文件含 `OPENROUTER_API_KEY=sk-xxx`，全局 providers.yaml 配置 openrouter 的 `api_key_env: OPENROUTER_API_KEY`
+- [x] Given 项目目录下有 `.env` 文件含 `OPENROUTER_API_KEY=sk-xxx`，全局 providers.yaml 配置 openrouter 的 `api_key_env: OPENROUTER_API_KEY`
   When 从该项目目录执行 `rnix "hello"` 触发 spawn
   Then daemon 使用 `sk-xxx` 作为 API Key 调用 OpenRouter，不出现 401 错误
 
 **AC2: 多环境 `.env` 覆盖**
 
-- [ ] Given 项目目录下有 `.env` 含 `API_KEY=base`、`.env.local` 含 `API_KEY=local`
+- [x] Given 项目目录下有 `.env` 含 `API_KEY=base`、`.env.local` 含 `API_KEY=local`
   When spawn 请求到达 daemon
   Then 环境快照中 `API_KEY` 值为 `local`（`.env.local` 覆盖 `.env`）
 
 **AC3: RNIX_ENV 环境选择**
 
-- [ ] Given 项目目录下有 `.env.production` 含 `API_KEY=prod`
+- [x] Given 项目目录下有 `.env.production` 含 `API_KEY=prod`
   When CLI 调用者设置 `RNIX_ENV=production` 后执行 spawn
   Then 环境快照中 `API_KEY` 值为 `prod`
 
 **AC4: RNIX_ENV 默认值**
 
-- [ ] Given 调用者未设置 `RNIX_ENV` 环境变量
+- [x] Given 调用者未设置 `RNIX_ENV` 环境变量
   When spawn 请求到达 daemon
   Then 默认使用 `development`，尝试加载 `.env.development` 和 `.env.development.local`
 
 **AC5: 项目级 providers.yaml merge**
 
-- [ ] Given 全局 providers.yaml 定义 provider `openrouter`（api_key_env=`GLOBAL_KEY`），项目 `.rnix/providers.yaml` 仅覆盖 `api_key_env=PROJECT_KEY`
+- [x] Given 全局 providers.yaml 定义 provider `openrouter`（api_key_env=`GLOBAL_KEY`），项目 `.rnix/providers.yaml` 仅覆盖 `api_key_env=PROJECT_KEY`
   When spawn 请求指定该项目
   Then 使用合并后的 provider 配置，API Key 从 `PROJECT_KEY` 环境变量读取（而非 `GLOBAL_KEY`）
 
 **AC6: 项目级新增 provider**
 
-- [ ] Given 全局 providers.yaml 只有 `claude`，项目 `.rnix/providers.yaml` 新增 `openrouter` provider
+- [x] Given 全局 providers.yaml 只有 `claude`，项目 `.rnix/providers.yaml` 新增 `openrouter` provider
   When 从该项目 spawn 并指定 `--provider openrouter`
   Then 成功使用项目级定义的 openrouter provider
 
 **AC7: 项目间环境隔离**
 
-- [ ] Given 项目 A 的 `.env` 有 `API_KEY=aaa`，项目 B 的 `.env` 有 `API_KEY=bbb`
+- [x] Given 项目 A 的 `.env` 有 `API_KEY=aaa`，项目 B 的 `.env` 有 `API_KEY=bbb`
   When 先从项目 A spawn 再从项目 B spawn
   Then 项目 A 进程使用 `aaa`，项目 B 进程使用 `bbb`，互不污染
 
 **AC8: 无 `.env` 文件回退**
 
-- [ ] Given 项目目录下没有任何 `.env` 文件
+- [x] Given 项目目录下没有任何 `.env` 文件
   When spawn 请求到达 daemon
   Then 回退到 daemon 进程自身的环境变量（`os.Getenv`），行为与修改前一致
 
 **AC9: 无项目目录回退**
 
-- [ ] Given CLI 不在任何 `.rnix/` 项目中（`ProjectDir` 为空）
+- [x] Given CLI 不在任何 `.rnix/` 项目中（`ProjectDir` 为空）
   When spawn 请求到达 daemon
   Then 使用全局 provider 配置和 daemon 进程环境变量，行为与修改前一致
 
 **AC10: `.env` parser 鲁棒性**
 
-- [ ] Given `.env` 文件含单引号值 `KEY='hello world'`、双引号值 `KEY2="line\nbreak"`、`export` 前缀 `export KEY3=value`、注释 `# comment`、空行
+- [x] Given `.env` 文件含单引号值 `KEY='hello world'`、双引号值 `KEY2="line\nbreak"`、`export` 前缀 `export KEY3=value`、注释 `# comment`、空行
   When 解析该文件
   Then 正确提取所有键值对，单引号保留字面值，双引号处理转义
 
 **AC11: 现有测试不回归**
 
-- [ ] Given 代码修改完成
+- [x] Given 代码修改完成
   When 执行 `make all`
   Then 所有现有测试通过，无回归
 
 **AC12: RNIX_ENV 路径遍历防护**
 
-- [ ] Given RNIX_ENV 值为 `../../etc`
+- [x] Given RNIX_ENV 值为 `../../etc`
   When spawn 请求到达 daemon
   Then `LoadDotenvDir` 返回验证错误，不尝试加载任何文件
 
 **AC13: ProjectDir 安全验证**
 
-- [ ] Given CLI 传入 ProjectDir 为 `/etc`（无 `.rnix/` 子目录）
+- [x] Given CLI 传入 ProjectDir 为 `/etc`（无 `.rnix/` 子目录）
   When spawn 请求到达 daemon
   Then 回退到全局模式，不尝试加载 `/etc/.env`
 
@@ -467,3 +467,26 @@ Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` �
   - R3-F4 (Low): 已修复 — 文件路径 `llm_file.go` → `vfsfile.go`
   - R3-F5 (Low): 已修复 — Dependencies 节 import 指引与正文一致
   - R3-F6 (Info): 已修复 — Task 8.8/8.9 编号去重
+
+## Review Notes
+
+- Adversarial review completed (implementation phase)
+- Findings: 19 total, 8 fixed, 11 skipped (4 Noise + 7 Low)
+- Resolution approach: auto-fix (Real findings at Critical/High/Medium severity)
+- Fixed findings:
+  - F-01 (Critical): projectDir 路径清理 — 添加 filepath.Clean + filepath.IsAbs 验证
+  - F-02 (High): rnixEnv 入口验证 — resolveProjectContext 增加 ValidateEnvName 检查
+  - F-05 (High): 变量遮蔽 — 所有 err 变量重命名为语义化名称
+  - F-08 (Medium): parseDoubleQuoted 闭引号后内容检查
+  - F-09 (Medium): parseSingleQuoted 闭引号后内容检查
+  - F-10 (Medium): 类型断言失败添加 log.Printf 警告
+  - F-12 (Medium): 全局 ProvidersConfig 浅拷贝保护 immutability
+  - F-16 (Low→fixed): 路径拼接改用 filepath.Join
+- Skipped findings:
+  - F-03 (High/deferred): driver 缓存/池化 — 性能优化，不阻塞功能正确性
+  - F-04 (High/Noise): 闭包 map 并发 — 当前每次新建，安全
+  - F-06 (Medium): DeepMergeYAML slice 替换 — 已有设计决策
+  - F-07 (Medium): bufio.Scanner 默认 buffer — 1MB 限制已足够
+  - F-11 (Medium/Noise): 空值屏蔽系统环境变量 — by design
+  - F-13 (Medium): 错误分支 nil loader — 调用方检查 err，安全
+  - F-14~F-19 (Low): 非阻塞性改进

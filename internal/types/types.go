@@ -186,3 +186,8 @@ type LogEntry struct {
 	Content   string
 	ToolPath  string // only populated for LogTool entries
 }
+
+// LLMFileOpener opens an LLM device file for a given provider and flags.
+// Returns any (actually vfs.VFSFile) to avoid types → vfs dependency;
+// callers do type assertion. Used by ProjectConfig to inject project-level drivers.
+type LLMFileOpener func(provider string, flags int) (any, error)

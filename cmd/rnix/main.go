@@ -465,6 +465,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		Provider:   flagProvider,
 		MaxSteps:   flagMaxSteps,
 		ProjectDir: projectDir,
+		RnixEnv:    os.Getenv("RNIX_ENV"),
 	}
 
 	sigCh := make(chan os.Signal, 2)
@@ -563,6 +564,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 	req := ipc.SpawnPipelineRequest{
 		Commands:   make([]ipc.SpawnPipelineCommand, len(pipeline.Commands)),
 		ProjectDir: projectDir,
+		RnixEnv:    os.Getenv("RNIX_ENV"),
 	}
 	for i, cmd := range pipeline.Commands {
 		req.Commands[i] = ipc.SpawnPipelineCommand{
@@ -1126,9 +1128,14 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 	// Load providers config from global directory
 	var providersCfg *llm.ProvidersConfig
+	var globalProvidersRaw []byte
 	providersPath := filepath.Join(globalDir, "providers.yaml")
 	if _, err := os.Stat(providersPath); err == nil {
-		providersCfg, err = llm.LoadProvidersConfig(providersPath)
+		globalProvidersRaw, err = os.ReadFile(providersPath)
+		if err != nil {
+			return fmt.Errorf("reading providers config %s: %w", providersPath, err)
+		}
+		providersCfg, err = llm.ParseProvidersConfig(globalProvidersRaw)
 		if err != nil {
 			return fmt.Errorf("loading providers config %s: %w", providersPath, err)
 		}
@@ -1259,6 +1266,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv.SetSynergyMatrix(synergyMatrix)
 	srv.SetImmuneDaemon(immuneDaemon)
 	srv.SetGlobalConfig(globalConfig)
+	srv.SetGlobalProvidersRaw(globalProvidersRaw)
 	srv.SetProviderStatusFunc(func() []ipc.ProviderStatusWire {
 		statuses := driverReg.HealthStatuses()
 		wires := make([]ipc.ProviderStatusWire, len(statuses))

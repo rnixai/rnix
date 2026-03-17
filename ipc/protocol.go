@@ -85,6 +85,7 @@ type SpawnRequest struct {
 	TraceID       string `json:"trace_id,omitempty"`
 	ParentSpanID  string `json:"parent_span_id,omitempty"`
 	ProjectDir    string `json:"project_dir,omitempty"`
+	RnixEnv       string `json:"rnix_env,omitempty"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.
@@ -373,6 +374,7 @@ type PingResponse struct {
 type SpawnPipelineRequest struct {
 	Commands   []SpawnPipelineCommand `json:"commands"`
 	ProjectDir string                 `json:"project_dir,omitempty"`
+	RnixEnv    string                 `json:"rnix_env,omitempty"`
 }
 
 // SpawnPipelineCommand describes one stage of a pipeline spawn.

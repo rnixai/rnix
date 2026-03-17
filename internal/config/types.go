@@ -1,5 +1,7 @@
 package config
 
+import "github.com/rnixai/rnix/internal/types"
+
 // Scope represents a configuration scope layer.
 type Scope int
 
@@ -37,4 +39,8 @@ type ProjectConfig struct {
 	SkillDirs   []string // Skill search directories in priority order (project first)
 	InitConfig  any      // Parsed rnix-init.yaml
 	ComposeSpec any      // Parsed rnix-compose.yaml
+
+	EnvSnapshot     map[string]string   // .env file vars only (not full os.Environ)
+	LLMFileOpener   types.LLMFileOpener // nil = use global VFS Open
+	DefaultProvider string              // Merged providers' resolved default; "" = use global
 }
