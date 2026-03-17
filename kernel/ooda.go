@@ -65,6 +65,13 @@ const oodaDecidePromptTemplate = `[OODA Decide] Based on orientation analysis, o
 You MUST respond with ONLY a valid JSON object in this exact format:
 {"action": "tool_call|spawn|complete|replan|specialize", "target": "...", "data": {}, "reason": "..."}
 
+For "tool_call" action: target is the VFS device path.
+  - Read file: target="/dev/fs/path/to/file", data={}
+  - Write file: target="/dev/fs/path/to/file", data={"content": "..."}
+  - List directory: target="/dev/fs/path/to/dir", data={"op": "list"}
+  - Run command: target="/dev/shell", data={"command": "..."}
+  - LLM call: target="/dev/llm/<provider>", data={"intent": "..."}
+  - MCP tool: target="/dev/mcp/<server>/<tool>", data={...}
 For "spawn" action: target is the child intent, data may include {"agent": "agent-name", "model": "model-name"}.
 For "specialize" action: target is the skill name to load dynamically.
 

@@ -53,6 +53,24 @@ type SpawnOpts struct {
 	ProjectConfig     *config.ProjectConfig  // project-level config snapshot; nil = global only
 }
 
+// linearToolProtocol is injected into the system prompt for linear-mode processes,
+// telling the LLM how to invoke VFS devices via structured JSON actions.
+const linearToolProtocol = `
+
+[Tool Call Protocol]
+To use a tool, respond with ONLY a JSON object (no markdown, no extra text):
+{"action": "tool_call", "tool": "<vfs-device-path>", "data": {<tool-specific-payload>}}
+
+Available VFS device paths:
+  - Read file: tool="/dev/fs/path/to/file", data={}
+  - Write file: tool="/dev/fs/path/to/file", data={"content": "..."}
+  - List directory: tool="/dev/fs/path/to/dir", data={"op": "list"}
+  - Run command: tool="/dev/shell", data={"command": "..."}
+  - LLM call: tool="/dev/llm/<provider>", data={"intent": "..."}
+  - MCP tool: tool="/dev/mcp/<server>/<tool>", data={...}
+
+If no tool call is needed, respond with plain text (your final answer).`
+
 // ActionType classifies LLM response actions.
 type ActionType string
 
@@ -904,6 +922,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 			sysPrompt += envSection.String()
 		}
+		// Inject tool call protocol for linear mode so the LLM knows how to
+		// produce structured JSON tool calls via VFS device paths.
+		sysPrompt += linearToolProtocol
 		req := llmRequest{
 			Intent:       proc.Intent,
 			SystemPrompt: sysPrompt,
