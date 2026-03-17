@@ -460,8 +460,37 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 
 	if !opts.SkipReasonLoop {
+		// Use project-level default provider if available and no explicit override
+		providerOverride := opts.Provider
+		if providerOverride == "" && agent != nil && agent.Manifest.Models.Provider == "" &&
+			opts.ProjectConfig != nil && opts.ProjectConfig.DefaultProvider != "" {
+			providerOverride = opts.ProjectConfig.DefaultProvider
+		}
+
 		// Resolve LLM device path based on agent provider
-		llmDevice, resolveErr := k.resolveLLMDevice(agent, opts.Provider)
+		// When project config provides an LLMFileOpener, skip global provider validation
+		// since the provider may only exist at project level
+		var llmDevice string
+		var resolveErr error
+		if opts.ProjectConfig != nil && opts.ProjectConfig.LLMFileOpener != nil {
+			// Build device path without global validation
+			provider := providerOverride
+			if provider == "" && agent != nil {
+				provider = agent.Manifest.Models.Provider
+			}
+			if provider == "" {
+				if opts.ProjectConfig.DefaultProvider != "" {
+					provider = opts.ProjectConfig.DefaultProvider
+				} else if k.defaultProvider != "" {
+					provider = k.defaultProvider
+				} else {
+					provider = "claude"
+				}
+			}
+			llmDevice = "/dev/llm/" + provider
+		} else {
+			llmDevice, resolveErr = k.resolveLLMDevice(agent, providerOverride)
+		}
 		if resolveErr != nil {
 			if opts.PreallocatedCtxID == 0 {
 				_ = k.ctxMgr.CtxFree(cid)
@@ -472,10 +501,27 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.Provider = strings.TrimPrefix(llmDevice, "/dev/llm/")
 		proc.Model = opts.Model
 
-		// Open LLM device via VFS
+		// Open LLM device via VFS (or project-level override)
 		openStart := time.Now()
 		var err error
-		llmFD, err = k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
+		if proc.ProjectConfig != nil && proc.ProjectConfig.LLMFileOpener != nil {
+			// Try project-level LLM device first
+			providerName := strings.TrimPrefix(llmDevice, "/dev/llm/")
+			file, openErr := proc.ProjectConfig.LLMFileOpener(providerName, int(vfs.O_RDWR))
+			if openErr == nil {
+				if vfsFile, ok := file.(vfs.VFSFile); ok {
+					llmFD = k.vfs.RegisterFD(proc.PID, vfsFile)
+				} else {
+					log.Printf("[kernel] warning: LLMFileOpener returned non-VFSFile type %T for provider %q, falling back to global VFS", file, providerName)
+					llmFD, err = k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
+				}
+			} else {
+				// Project opener failed — fallback to global VFS
+				llmFD, err = k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
+			}
+		} else {
+			llmFD, err = k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
+		}
 		k.emitEvent(proc, "Open", map[string]any{
 			"path":  llmDevice,
 			"flags": vfs.O_RDWR,
@@ -743,8 +789,26 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 
 	fallbackStart := time.Now()
 
-	// Open fallback device
-	fbFD, err := k.vfs.Open(proc.PID, proc.FallbackDevice, vfs.O_RDWR)
+	// Open fallback device — try project-level driver first, then global VFS
+	var fbFD types.FD
+	var err error
+	if proc.ProjectConfig != nil && proc.ProjectConfig.LLMFileOpener != nil {
+		fbProvider := strings.TrimPrefix(proc.FallbackDevice, "/dev/llm/")
+		fileAny, openErr := proc.ProjectConfig.LLMFileOpener(fbProvider, int(vfs.O_RDWR))
+		if openErr == nil {
+			if vfsFile, ok := fileAny.(vfs.VFSFile); ok {
+				fbFD = k.vfs.RegisterFD(proc.PID, vfsFile)
+			} else {
+				log.Printf("[kernel] warning: LLMFileOpener returned non-VFSFile type %T for fallback provider %q", fileAny, fbProvider)
+				fbFD, err = k.vfs.Open(proc.PID, proc.FallbackDevice, vfs.O_RDWR)
+			}
+		} else {
+			// Project opener doesn't have this provider — fallback to global VFS
+			fbFD, err = k.vfs.Open(proc.PID, proc.FallbackDevice, vfs.O_RDWR)
+		}
+	} else {
+		fbFD, err = k.vfs.Open(proc.PID, proc.FallbackDevice, vfs.O_RDWR)
+	}
 	if err != nil {
 		return nil, primaryErr // can't open fallback, return original error
 	}

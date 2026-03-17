@@ -485,3 +485,81 @@ func TestRunHealthChecks_NonBlocking(t *testing.T) {
 		t.Errorf("RunHealthChecks took %v, expected < 100ms (non-blocking)", elapsed)
 	}
 }
+
+// --- CreateDriverWithEnv tests ---
+
+func TestCreateDriverWithEnv_OpenAICompat_UsesEnvLookup(t *testing.T) {
+	t.Parallel()
+	var calledKeys []string
+	envLookup := func(key string) string {
+		calledKeys = append(calledKeys, key)
+		if key == "MY_API_KEY" {
+			return "test-secret-key"
+		}
+		return ""
+	}
+
+	d, err := CreateDriverWithEnv(ProviderConfig{
+		Name:      "test-api",
+		Driver:    DriverOpenAICompat,
+		BaseURL:   "http://localhost:1234/v1",
+		APIKeyEnv: "MY_API_KEY",
+	}, envLookup)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d == nil {
+		t.Fatal("expected non-nil driver")
+	}
+
+	// Verify envLookup was called with the right key
+	found := false
+	for _, k := range calledKeys {
+		if k == "MY_API_KEY" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("envLookup was not called with %q, called with: %v", "MY_API_KEY", calledKeys)
+	}
+}
+
+func TestCreateDriverWithEnv_ClaudeCLI_DoesNotCallEnvLookup(t *testing.T) {
+	t.Parallel()
+	called := false
+	envLookup := func(key string) string {
+		called = true
+		return ""
+	}
+
+	_, err := CreateDriverWithEnv(ProviderConfig{
+		Name:   "claude",
+		Driver: DriverClaudeCLI,
+	}, envLookup)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called {
+		t.Error("envLookup should not be called for claude-cli driver")
+	}
+}
+
+func TestCreateDriverWithEnv_CursorCLI_DoesNotCallEnvLookup(t *testing.T) {
+	t.Parallel()
+	called := false
+	envLookup := func(key string) string {
+		called = true
+		return ""
+	}
+
+	_, err := CreateDriverWithEnv(ProviderConfig{
+		Name:   "cursor",
+		Driver: DriverCursorCLI,
+	}, envLookup)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called {
+		t.Error("envLookup should not be called for cursor-cli driver")
+	}
+}

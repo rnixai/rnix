@@ -27,6 +27,9 @@ import (
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/shell"
 	"github.com/rnixai/rnix/skills"
+	"github.com/rnixai/rnix/vfs"
+
+	"github.com/goccy/go-yaml"
 )
 
 const (
@@ -99,6 +102,10 @@ type Server struct {
 
 	// global config (set via SetGlobalConfig, Story 25.3)
 	globalConfig *config.GlobalConfig
+
+	// globalProvidersRaw caches raw YAML bytes from global providers.yaml
+	// for DeepMergeYAML with project-level providers.yaml.
+	globalProvidersRaw []byte
 }
 
 // NewServer creates an IPC server backed by the given kernel.
@@ -677,7 +684,7 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	// Build project config and project-aware loaders (Story 25.3)
-	projectCfg, agentLoaderFn, err := s.resolveProjectContext(req.ProjectDir)
+	projectCfg, agentLoaderFn, err := s.resolveProjectContext(req.ProjectDir, req.RnixEnv)
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "CONFIG_ERROR", Message: err.Error()}})
 		return
@@ -1441,18 +1448,41 @@ func (s *Server) SetGlobalConfig(gc *config.GlobalConfig) {
 	s.globalConfig = gc
 }
 
+// SetGlobalProvidersRaw caches the raw YAML bytes from the global providers.yaml file.
+// Used for DeepMergeYAML with project-level providers.yaml.
+func (s *Server) SetGlobalProvidersRaw(raw []byte) {
+	s.globalProvidersRaw = raw
+}
+
 // resolveProjectContext builds a ProjectConfig and project-aware agent loader for a spawn request.
 // If projectDir is empty, returns (nil, s.agentLoader, nil) — pure global mode.
-// If projectDir is non-empty, merges project providers with global and creates project-aware loaders.
-func (s *Server) resolveProjectContext(projectDir string) (*config.ProjectConfig, AgentLoaderFunc, error) {
+// If projectDir is non-empty, loads .env files, merges project providers with global,
+// creates project-level LLM drivers, and builds project-aware loaders.
+func (s *Server) resolveProjectContext(projectDir, rnixEnv string) (*config.ProjectConfig, AgentLoaderFunc, error) {
 	if projectDir == "" {
 		return nil, s.agentLoader, nil
 	}
 
 	gc := s.globalConfig
 	if gc == nil {
-		// No global config available, fall back to global-only mode
 		return nil, s.agentLoader, nil
+	}
+
+	// F-01: Sanitize projectDir — clean path and require absolute
+	projectDir = filepath.Clean(projectDir)
+	if !filepath.IsAbs(projectDir) {
+		return nil, s.agentLoader, nil
+	}
+
+	// Safety: verify projectDir contains a .rnix/ subdirectory
+	if _, err := os.Stat(filepath.Join(projectDir, ".rnix")); err != nil {
+		// No .rnix/ directory — fall back to global mode
+		return nil, s.agentLoader, nil
+	}
+
+	// F-02: Validate rnixEnv early (also validated in LoadDotenvDir, but defense-in-depth)
+	if rnixEnv != "" && !config.ValidateEnvName(rnixEnv) {
+		return nil, nil, fmt.Errorf("invalid RNIX_ENV value: %q", rnixEnv)
 	}
 
 	// Build search directories (project first, global second)
@@ -1461,26 +1491,93 @@ func (s *Server) resolveProjectContext(projectDir string) (*config.ProjectConfig
 	agentDirs := []string{projectAgentsDir, gc.AgentsDir}
 	skillDirs := []string{projectSkillsDir, gc.SkillsDir}
 
-	// Load and merge project providers.yaml (optional)
-	projectProvidersPath := filepath.Join(projectDir, ".rnix", "providers.yaml")
-	var mergedProviders any
-	if _, err := os.Stat(projectProvidersPath); err == nil {
-		projCfg, err := llm.LoadProvidersConfig(projectProvidersPath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("project providers config %s: %w", projectProvidersPath, err)
-		}
-		mergedProviders = projCfg
+	// Load .env files from project directory
+	dotenvVars, dotenvErr := config.LoadDotenvDir(projectDir, rnixEnv)
+	if dotenvErr != nil {
+		return nil, nil, fmt.Errorf("loading .env files from %s: %w", projectDir, dotenvErr)
 	}
-	if mergedProviders == nil {
-		mergedProviders = gc.Providers
+	envLookup := config.NewEnvLookup(dotenvVars)
+
+	// Merge project providers.yaml with global (raw YAML bytes → DeepMergeYAML)
+	projectProvidersPath := filepath.Join(projectDir, ".rnix", "providers.yaml")
+	var mergedProvidersCfg *llm.ProvidersConfig
+
+	if _, statErr := os.Stat(projectProvidersPath); statErr == nil {
+		projectRaw, readErr := os.ReadFile(projectProvidersPath)
+		if readErr != nil {
+			return nil, nil, fmt.Errorf("reading project providers %s: %w", projectProvidersPath, readErr)
+		}
+
+		if len(s.globalProvidersRaw) > 0 && len(projectRaw) > 0 {
+			var globalMap, projectMap map[string]any
+			if unmarshalErr := yaml.Unmarshal(s.globalProvidersRaw, &globalMap); unmarshalErr != nil {
+				return nil, nil, fmt.Errorf("parsing global providers YAML: %w", unmarshalErr)
+			}
+			if unmarshalErr := yaml.Unmarshal(projectRaw, &projectMap); unmarshalErr != nil {
+				return nil, nil, fmt.Errorf("parsing project providers YAML: %w", unmarshalErr)
+			}
+
+			merged := config.DeepMergeYAML(globalMap, projectMap)
+			mergedBytes, marshalErr := yaml.Marshal(merged)
+			if marshalErr != nil {
+				return nil, nil, fmt.Errorf("marshaling merged providers: %w", marshalErr)
+			}
+
+			var parseErr error
+			mergedProvidersCfg, parseErr = llm.ParseProvidersConfig(mergedBytes)
+			if parseErr != nil {
+				return nil, nil, fmt.Errorf("validating merged providers config: %w", parseErr)
+			}
+		} else {
+			// No global raw bytes — just load project config directly
+			var loadErr error
+			mergedProvidersCfg, loadErr = llm.LoadProvidersConfig(projectProvidersPath)
+			if loadErr != nil {
+				return nil, nil, fmt.Errorf("project providers config %s: %w", projectProvidersPath, loadErr)
+			}
+		}
+	}
+
+	// F-12: If no project providers.yaml, shallow-copy global config to preserve immutability
+	if mergedProvidersCfg == nil {
+		if gcProviders, ok := gc.Providers.(*llm.ProvidersConfig); ok && gcProviders != nil {
+			copied := *gcProviders
+			mergedProvidersCfg = &copied
+		}
 	}
 
 	// Build ProjectConfig snapshot
 	projCfg := &config.ProjectConfig{
-		ProjectDir: projectDir,
-		Providers:  mergedProviders,
-		AgentDirs:  agentDirs,
-		SkillDirs:  skillDirs,
+		ProjectDir:  projectDir,
+		Providers:   mergedProvidersCfg,
+		AgentDirs:   agentDirs,
+		SkillDirs:   skillDirs,
+		EnvSnapshot: dotenvVars,
+	}
+
+	// Create project-level LLM drivers and LLMFileOpener if we have merged providers
+	if mergedProvidersCfg != nil {
+		factories := make(map[string]vfs.VFSFileFactory)
+		for _, pc := range mergedProvidersCfg.Providers {
+			driver, driverErr := llm.CreateDriverWithEnv(pc, envLookup)
+			if driverErr != nil {
+				log.Printf("[ipc] warning: project provider %q: %v", pc.Name, driverErr)
+				continue
+			}
+			factories[pc.Name] = llm.FileFactory(driver, "/dev/llm/"+pc.Name)
+		}
+
+		if len(factories) > 0 {
+			projCfg.LLMFileOpener = func(provider string, flags int) (any, error) {
+				factory, ok := factories[provider]
+				if !ok {
+					return nil, fmt.Errorf("project provider %q not found", provider)
+				}
+				return factory("", vfs.OpenFlag(flags))
+			}
+		}
+
+		projCfg.DefaultProvider = mergedProvidersCfg.ResolveDefaultProvider()
 	}
 
 	// Create project-aware skill and agent loaders
@@ -1897,7 +1994,7 @@ func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) 
 	}
 
 	// Build project config and project-aware loaders (Story 25.3)
-	projectCfg, agentLoaderFn, err := s.resolveProjectContext(req.ProjectDir)
+	projectCfg, agentLoaderFn, err := s.resolveProjectContext(req.ProjectDir, req.RnixEnv)
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "CONFIG_ERROR", Message: err.Error()}})
 		return
@@ -2045,7 +2142,7 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	// Build project config and project-aware loaders (Story 25.3)
-	projectCfg, agentLoaderFn, err := s.resolveProjectContext(req.ProjectDir)
+	projectCfg, agentLoaderFn, err := s.resolveProjectContext(req.ProjectDir, "")
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "CONFIG_ERROR", Message: err.Error()}})
 		return

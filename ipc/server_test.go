@@ -1891,7 +1891,7 @@ func TestResolveProjectContext_EmptyProjectDir(t *testing.T) {
 	}
 	srv.agentLoader = mockLoader
 
-	projCfg, loaderFn, err := srv.resolveProjectContext("")
+	projCfg, loaderFn, err := srv.resolveProjectContext("", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1909,7 +1909,7 @@ func TestResolveProjectContext_EmptyProjectDir_NoGlobalConfig(t *testing.T) {
 	srv := NewServer(nil, nil, "0.1.0-test")
 	// globalConfig is nil
 
-	projCfg, loaderFn, err := srv.resolveProjectContext("")
+	projCfg, loaderFn, err := srv.resolveProjectContext("", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1928,7 +1928,7 @@ func TestResolveProjectContext_WithProjectDir_NoGlobalConfig(t *testing.T) {
 	srv := NewServer(nil, nil, "0.1.0-test")
 	// globalConfig is nil, so even with projectDir, should fall back to global-only mode
 
-	projCfg, _, err := srv.resolveProjectContext("/some/project")
+	projCfg, _, err := srv.resolveProjectContext("/some/project", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1958,7 +1958,7 @@ func TestResolveProjectContext_WithProjectDir(t *testing.T) {
 		t.Fatalf("mkdir .rnix: %v", err)
 	}
 
-	projCfg, loaderFn, err := srv.resolveProjectContext(projectDir)
+	projCfg, loaderFn, err := srv.resolveProjectContext(projectDir, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2023,7 +2023,7 @@ func TestResolveProjectContext_InvalidProjectProviders(t *testing.T) {
 		t.Fatalf("write providers.yaml: %v", err)
 	}
 
-	_, _, err := srv.resolveProjectContext(projectDir)
+	_, _, err := srv.resolveProjectContext(projectDir, "")
 	if err == nil {
 		t.Fatal("expected error for invalid providers.yaml, got nil")
 	}
