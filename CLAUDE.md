@@ -111,6 +111,8 @@ Two-tier configuration: global (`~/.config/rnix/`) + project (`.rnix/`). Run `rn
 - Error codes: use `types.ErrCode` constants (TIMEOUT, NOT_FOUND, PERMISSION, etc.)
 - Signals: `types.SIGTERM`, `types.SIGKILL`, `types.SIGINT`, `types.SIGPAUSE`, `types.SIGRESUME`
 - Environment: `RNIX_ASCII=1` forces ASCII mode (disables Unicode glyphs in UI)
+- Environment: `RNIX_ENV` selects .env file set (default: `development`); CLI passes to daemon via IPC
+- Project `.env` files: loaded per-spawn from project root (`.env` → `.env.local` → `.env.{RNIX_ENV}` → `.env.{RNIX_ENV}.local`); API keys resolved via env snapshot, not `os.Getenv`
 
 ## BMAD Workflow
 
