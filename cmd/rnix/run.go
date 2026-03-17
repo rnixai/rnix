@@ -42,7 +42,7 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 		ui.InitStyles(renderer.Profile)
 		outputError(renderer, mode, "shell/script",
 			fmt.Sprintf("cannot read %q: %v", scriptPath, err),
-			"脚本文件读取失败", "检查文件路径是否正确")
+			"script file read failed", "check that the file path is correct")
 		exitCode = 1
 		return nil
 	}
@@ -76,7 +76,7 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 
 	client, err := ipc.EnsureDaemon()
 	if err != nil {
-		outputError(renderer, mode, "daemon", err.Error(), "daemon 启动失败", "检查 rnix 是否正确安装")
+		outputError(renderer, mode, "daemon", err.Error(), "daemon failed to start", "check that rnix is installed correctly")
 		exitCode = 1
 		return nil
 	}
@@ -131,7 +131,7 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	close(scriptDone)
 
 	if scriptErr != nil {
-		outputError(renderer, mode, "shell/script", scriptErr.Error(), "脚本执行失败", "检查脚本语法或重试")
+		outputError(renderer, mode, "shell/script", scriptErr.Error(), "script execution failed", "check script syntax or retry")
 		exitCode = 1
 		return nil
 	}
@@ -139,7 +139,7 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	elapsed := time.Since(start)
 
 	if scriptResp == nil {
-		outputError(renderer, mode, "shell/script", "no script result", "脚本返回空结果", "检查脚本内容")
+		outputError(renderer, mode, "shell/script", "no script result", "script returned empty result", "check script content")
 		exitCode = 1
 		return nil
 	}
@@ -149,7 +149,7 @@ func runRunCmd(cmd *cobra.Command, args []string) error {
 	} else {
 		outputError(renderer, mode, "shell/script",
 			fmt.Sprintf("script failed (exit %d)", scriptResp.LastExitCode),
-			"脚本执行中断", "检查脚本中的 spawn 命令")
+			"script execution interrupted", "check spawn commands in script")
 		ui.RenderSummary(renderer, 0, scriptResp.LastExitCode, scriptResp.TotalTokens, elapsed, "", "")
 		exitCode = 1
 	}

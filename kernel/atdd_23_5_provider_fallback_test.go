@@ -501,10 +501,11 @@ func TestATDD_23_5_AC4_StraceShowsFallback(t *testing.T) {
 
 	// Collect debug events
 	var fallbackEventFound atomic.Bool
+	debugCh := proc.DebugChan
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for evt := range proc.DebugChan {
+		for evt := range debugCh {
 			args := evt.Args
 			if args == nil {
 				continue
@@ -534,11 +535,8 @@ func TestATDD_23_5_AC4_StraceShowsFallback(t *testing.T) {
 		t.Fatal("AC4: timed out")
 	}
 
-	// Wait for event processing
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-	}
+	k.Reap(pid) // trigger resource cleanup (closes DebugChan)
+	<-done
 
 	if !fallbackEventFound.Load() {
 		t.Error("AC4: expected fallback event in DebugChan, but none found")
@@ -572,10 +570,11 @@ func TestATDD_23_5_AC4_StraceShowsExhausted(t *testing.T) {
 	}
 
 	var exhaustedEventFound atomic.Bool
+	debugCh := proc.DebugChan
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for evt := range proc.DebugChan {
+		for evt := range debugCh {
 			args := evt.Args
 			if args == nil {
 				continue
@@ -600,10 +599,8 @@ func TestATDD_23_5_AC4_StraceShowsExhausted(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-	}
+	k.Reap(pid) // trigger resource cleanup (closes DebugChan)
+	<-done
 
 	if !exhaustedEventFound.Load() {
 		t.Error("expected fallback_exhausted event in DebugChan, but none found")
@@ -727,10 +724,11 @@ func TestATDD_23_5_AC5_EmptyFallbackNoRetry(t *testing.T) {
 
 	// Drain debug events and verify no fallback event
 	var fallbackSeen atomic.Bool
+	debugCh := proc.DebugChan
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for evt := range proc.DebugChan {
+		for evt := range debugCh {
 			args := evt.Args
 			if args == nil {
 				continue
@@ -749,10 +747,8 @@ func TestATDD_23_5_AC5_EmptyFallbackNoRetry(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-	}
+	k.Reap(pid) // trigger resource cleanup (closes DebugChan)
+	<-done
 
 	if fallbackSeen.Load() {
 		t.Error("AC5: should NOT emit any fallback events when no fallback configured")

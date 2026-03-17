@@ -132,11 +132,16 @@ func TestATDD_23_6_AC2_UnreachableProvider(t *testing.T) {
 
 func TestATDD_23_6_AC2_HealthCheckTimeout(t *testing.T) {
 	t.Parallel()
+	handlerDone := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(10 * time.Second)
+		select {
+		case <-handlerDone:
+		case <-r.Context().Done():
+		}
 		w.WriteHeader(200)
 	}))
 	defer ts.Close()
+	defer close(handlerDone)
 
 	cfg := &llm.ProvidersConfig{
 		Version: "1",

@@ -708,19 +708,12 @@ func TestOODAReasonStep_SyscallEvents(t *testing.T) {
 
 	// Collect events from DebugChan
 	var events []types.SyscallEvent
+	debugCh := proc.DebugChan
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for {
-			select {
-			case evt, ok := <-proc.DebugChan:
-				if !ok {
-					return
-				}
-				events = append(events, evt)
-			case <-time.After(3 * time.Second):
-				return
-			}
+		for evt := range debugCh {
+			events = append(events, evt)
 		}
 	}()
 
@@ -730,6 +723,7 @@ func TestOODAReasonStep_SyscallEvents(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
+	k.Reap(pid) // trigger resource cleanup (closes DebugChan)
 	<-done
 
 	// Verify OODA-specific events were emitted
@@ -784,19 +778,12 @@ func TestOODAReasonStep_LogEntries(t *testing.T) {
 
 	// Collect log entries
 	var logs []types.LogEntry
+	logCh := proc.LogChan
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for {
-			select {
-			case entry, ok := <-proc.LogChan:
-				if !ok {
-					return
-				}
-				logs = append(logs, entry)
-			case <-time.After(3 * time.Second):
-				return
-			}
+		for entry := range logCh {
+			logs = append(logs, entry)
 		}
 	}()
 
@@ -806,6 +793,7 @@ func TestOODAReasonStep_LogEntries(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
+	k.Reap(pid) // trigger resource cleanup (closes LogChan)
 	<-done
 
 	// Verify LogOODA category entries exist

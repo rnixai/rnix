@@ -39,7 +39,7 @@ func runGdb(cmd *cobra.Command, args []string) error {
 			fmt.Sprintf("PID %s", args[0]),
 			"invalid PID (expected number)",
 			fmt.Sprintf("PID %s: not a valid process ID", args[0]),
-			"rnix ps  查看活跃进程")
+			"rnix ps  to see active processes")
 		exitCode = 1
 		return nil
 	}
@@ -54,7 +54,7 @@ func runGdb(cmd *cobra.Command, args []string) error {
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
 			"no active daemon (process not found)", "",
-			"rnix ps  查看活跃进程")
+			"rnix ps  to see active processes")
 		exitCode = 1
 		return nil
 	}
@@ -169,13 +169,13 @@ func runGdb(cmd *cobra.Command, args []string) error {
 			if renderer != nil {
 				ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
 					"process not found or not running",
-					fmt.Sprintf("PID %d: 不存在或已退出", pid),
-					"rnix ps  查看活跃进程")
+					fmt.Sprintf("PID %d: does not exist or has exited", pid),
+					"rnix ps  to see active processes")
 			}
 		} else {
 			if renderer != nil {
 				ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
-					err.Error(), "", "rnix ps  查看活跃进程")
+					err.Error(), "", "rnix ps  to see active processes")
 			}
 		}
 		exitCode = 1

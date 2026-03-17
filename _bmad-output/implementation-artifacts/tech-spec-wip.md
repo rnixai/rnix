@@ -1,307 +1,469 @@
 ---
-title: '版本管理体系'
-slug: 'version-management'
-created: '2026-03-15'
-status: 'completed'
-stepsCompleted: [1, 2, 3, 4]
-tech_stack: [Go, Make, Git]
+title: '项目级环境变量与 Provider 配置加载'
+slug: 'project-env-provider-config'
+created: '2026-03-17'
+status: 'review'
+stepsCompleted: [1, 2, 3]
+tech_stack: [Go]
 files_to_modify:
+  - internal/config/dotenv.go (new)
+  - internal/config/dotenv_test.go (new)
+  - drivers/llm/factory.go
+  - drivers/llm/factory_test.go
+  - ipc/protocol.go
+  - ipc/server.go
   - cmd/rnix/main.go
-  - cmd/rnix/main_test.go
-  - Makefile
+  - internal/config/types.go
+  - kernel/kernel.go
 code_patterns:
-  - 'package-level var + ldflags injection'
-  - 'Cobra Command.SetOut() for testable output'
-  - 'claudeVersionChecker function var injection for test isolation'
-  - 'JSONResponse struct for --json output'
-  - 'version string passed to ipc.NewServer()'
+  - 'CreateDriverWithEnv accepts envLookup func(string) string'
+  - 'resolveProjectContext loads .env files and merges providers via raw YAML bytes DeepMergeYAML'
+  - 'SpawnRequest carries RnixEnv field from CLI'
+  - 'ProjectConfig.EnvSnapshot stores only .env-sourced vars (not full os.Environ)'
+  - 'ProjectConfig.LLMFileOpener callback avoids kernel→llm circular import'
+  - 'VFS.RegisterFD bypasses DeviceRegistry for project-level drivers'
 test_patterns:
-  - 'save/restore global vars (claudeVersionChecker, flagJSON)'
-  - 'cobra.Command.SetOut(&buf) stdout capture'
-  - 'json.Unmarshal into JSONResponse for JSON assertions'
+  - 'table-driven tests for dotenv parser edge cases'
+  - 'tempdir-based .env file creation for integration tests'
+  - 'factory_test with envLookup injection'
+  - 'save/restore global vars pattern for test isolation'
 ---
 
-# Tech-Spec: 版本管理体系
+# Tech-Spec: 项目级环境变量与 Provider 配置加载
 
-**Created:** 2026-03-15
+**Created:** 2026-03-17
 
 ## Overview
 
 ### Problem Statement
 
-当前 rnix 的版本号硬编码在 `cmd/rnix/main.go:39` 为 `var version = "0.1.0"`，没有构建元数据（git commit、构建时间）注入，没有 git tag，无法区分开发构建和正式发布，也没有标准化的发布流程。
+Daemon 只在启动时加载全局 `~/.config/rnix/providers.yaml` 并通过 `os.Getenv()` 从 daemon 进程环境读取 API Key。项目目录下的 `.env` 文件中定义的环境变量（如 `OPENROUTER_API_KEY`）无法被 daemon 读取，导致 LLM 驱动认证失败（`status 401`）。同时，项目级 `.rnix/providers.yaml` 无法覆盖全局 provider 配置。
+
+Epic 25 已实现 `DeepMergeYAML`、`ShadowResolve` 等配置合并工具，但尚未应用到 provider 配置的项目级覆盖场景。
 
 ### Solution
 
-建立完整的语义化版本管理体系：通过 Go ldflags 在构建时注入版本号、git commit hash 和构建日期；无 ldflags 时自动显示 `-dev` 标记；增强 `rnix version` 命令输出；在 Makefile 中提供 `release` target 实现一键校验 + 打 tag + 构建的发布流程。
+Daemon 在处理 spawn 请求时，根据 `ProjectDir` 加载项目级 `.env` 文件（多环境支持）和项目级 `.rnix/providers.yaml`，与全局配置 merge 后生成项目专属的环境快照和 provider 配置。API Key 解析从 daemon 启动时延迟到 spawn 请求时，使用环境快照而非 `os.Getenv()`。不同项目的环境变量互相隔离，不污染 daemon 进程环境。
 
 ### Scope
 
 **In Scope:**
 
-- `version`、`gitCommit`、`buildDate` 三个变量改为 ldflags 注入
-- 无 ldflags 构建时显示 `dev` 标记
-- `rnix version` 命令输出增强（含 commit、构建时间）
-- `rnix version --json` 输出增强
-- Makefile `build` target 自动注入 git 信息
-- Makefile `release` target（语义化版本校验 + 打 tag + 构建）
-- git tag 使用 `v` 前缀（如 `v0.2.0`）
+- 自实现 `.env` parser（支持 `KEY=VALUE`、`#` 注释、单/双引号、空行）
+- 多环境 `.env` 加载：`.env` → `.env.local` → `.env.{RNIX_ENV}` → `.env.{RNIX_ENV}.local`（后者覆盖前者）
+- `RNIX_ENV` 从 CLI 调用者环境获取，默认 `development`
+- 环境快照隔离：每次 spawn 请求生成独立的 `map[string]string`，不写入 `os.Setenv`
+- 项目 `.rnix/providers.yaml` 与全局 `providers.yaml` 通过 `DeepMergeYAML` 合并（raw YAML bytes 层面）
+- Provider/Driver 创建支持使用环境快照解析 `api_key_env`（替代 `os.Getenv`）
+- CLI 端通过 IPC 传递 `RNIX_ENV` 值给 daemon
+- `.env.local` / `.env.{RNIX_ENV}` / `.env.{RNIX_ENV}.local` 多环境文件支持
+- 通过 `VFS.RegisterFD` 绕过全局 DeviceRegistry 注入项目级 LLM driver
 
 **Out of Scope:**
 
-- CI/CD 自动化发布（GitHub Actions）
-- Changelog 自动生成
-- 多平台交叉编译
+- CLI 端 `.env` 加载（仅 daemon 端加载）
+- `.env` 文件变更的热重载/watch
+- 变量插值（如 `BASE_URL=$HOST:$PORT`）
+- 项目级 driver 的健康检查（全局 driver 已有健康检查，项目级按需创建，生命周期短，不需要）
+- 按 ProjectDir 缓存 driver 实例（后续优化）
 
 ## Context for Development
 
 ### Codebase Patterns
 
-- **Version 变量**：`cmd/rnix/main.go:39` 声明 `var version = "0.1.0"`，是唯一的版本源。Go 标准做法是通过 `-ldflags "-X main.version=..."` 在构建时覆盖。
-- **runVersion() 函数**（`main.go:184-211`）：根据 `flagJSON` 输出两种格式 — 纯文本（`rnix v0.1.0` + claude-code 版本）或 JSON（`JSONResponse` 结构体）。
-- **Test 隔离模式**：测试通过 save/restore `claudeVersionChecker` 和 `flagJSON` 全局变量隔离副作用；通过 `cobra.Command.SetOut(&buf)` 捕获 stdout。
-- **IPC 传递**：`runDaemon()` 在 `main.go:1166` 将 `version` 传给 `ipc.NewServer()`，server 在 `handlePing()` 中返回 `PingResponse{Version: s.version}`。`daemon status` 命令通过 Ping 获取并显示版本。
-- **Makefile 风格**：简洁，使用 `$(BINARY)` 和 `$(PKG)` 变量，`.PHONY` 声明，无复杂 shell 逻辑。
+- **Provider 注册是全局一次性的**：`runDaemon()` (main.go:1142-1147) 在 daemon 启动时调用 `RegisterProviders()` 创建所有 driver 实例并注册到 `DriverRegistry` 和 `DeviceRegistry`。API Key 在 `CreateDriver()` (factory.go:44) 中通过 `os.Getenv(cfg.APIKeyEnv)` 读取 — 这是问题根源。
+- **项目级 provider 加载已有骨架但不完整**：`resolveProjectContext()` (server.go:1447-1491) 已加载项目 `.rnix/providers.yaml`，但只是**替换**全局配置（不是 merge），且加载的 `ProvidersConfig` 赋给 `ProjectConfig.Providers` 后**从未用于创建新 driver 实例**。
+- **SpawnRequest 已有 ProjectDir**：CLI (main.go:467) 已通过 `config.ProjectDir(cwd)` 发现项目目录并传给 daemon。
+- **SpawnOpts.ProjectConfig 已传入 Spawn**：kernel (kernel.go:234) 将 `ProjectConfig` 设到 `proc.ProjectConfig`，但仅用于存储，不参与 driver 选择。
+- **DeepMergeYAML 已实现**：`internal/config/merge.go` 提供通用 YAML map merge，可用于 providers.yaml 合并。
+- **环境快照模式已有先例**：`ExecScriptRequest.Env` (protocol.go:405) 已用 `map[string]string` 传递环境快照给脚本执行。
+- **VFS.RegisterFD 已存在**：`vfs/vfs.go:158` 提供 `RegisterFD(pid, file) FD`，专门用于绕过 DeviceRegistry 直接注册 VFSFile 到进程 FD table（已用于 pipe 端点）。
+- **kernel 不导入 `drivers/llm`**：kernel 只导入 `vfs`、`config`、`types`、`agents` 等包。不能直接引用 `*llm.DriverRegistry` 类型，需通过接口或回调避免循环依赖。
+- **LLM 设备打开流程**：kernel.go:460 `llmFD, err = k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)` — 通过全局 VFS Open 从 DeviceRegistry 查找设备。
 
 ### Files to Reference
 
 | File | Purpose |
 | ---- | ------- |
-| `cmd/rnix/main.go:39` | `var version = "0.1.0"` — 唯一版本源，ldflags 注入目标 |
-| `cmd/rnix/main.go:184-211` | `runVersion()` — 纯文本和 JSON 两种输出路径 |
-| `cmd/rnix/main.go:190-197` | JSON 输出 — `map[string]any` 构造，含 `version`、`claude_code_available`、`claude_code` |
-| `cmd/rnix/main.go:204` | 纯文本输出 — `fmt.Fprintf(w, "rnix v%s\n", version)` |
-| `cmd/rnix/main.go:1166` | `ipc.NewServer(nil, agentLoader.Load, version)` — 传递给 daemon |
-| `cmd/rnix/main.go:1049-1064` | `runDaemonStatus()` — 通过 IPC Ping 获取 daemon 版本 |
-| `cmd/rnix/main_test.go:289-366` | 3 个现有测试：`TestVersion_WithClaude`、`TestVersion_WithoutClaude`、`TestVersion_JSON` |
-| `ipc/server.go:65,106,356` | Server 存储 version 字段，`handlePing()` 返回 |
-| `ipc/protocol.go:358-360` | `PingResponse{Version string}` |
-| `Makefile` | `build` target：`go build -o $(BINARY) ./cmd/rnix/`，无 ldflags |
+| `drivers/llm/factory.go:22-55` | `CreateDriver()` — 使用 `os.Getenv(cfg.APIKeyEnv)` 读 API Key，需改为接受环境快照 |
+| `drivers/llm/factory.go:60-85` | `RegisterProviders()` — daemon 启动时一次性注册 |
+| `drivers/llm/config.go:29-41` | `ProvidersConfig` / `ProviderConfig` 结构体定义 |
+| `drivers/llm/config.go:74-92` | `LoadProvidersConfig()` — YAML 加载和验证 |
+| `drivers/llm/registry.go` | `DriverRegistry` — 线程安全的 driver 注册表 |
+| `drivers/llm/vfsfile.go` | `FileFactory(driver, path)` — 返回 `VFSFileFactory` |
+| `ipc/server.go:672-731` | `handleSpawn()` — 调用 `resolveProjectContext` 后传 `ProjectConfig` 给 kernel |
+| `ipc/server.go:1447-1491` | `resolveProjectContext()` — 需扩展：加载 .env、merge providers、创建项目级 driver |
+| `ipc/protocol.go:77-88` | `SpawnRequest` — 需增加 `RnixEnv` 字段 |
+| `internal/config/types.go:31-40` | `ProjectConfig` — 需增加 `EnvSnapshot` 和 `LLMFileOpener` 字段 |
+| `internal/config/merge.go:13-40` | `DeepMergeYAML()` — 已有，用于 providers merge |
+| `cmd/rnix/main.go:461-468` | CLI 构造 `SpawnRequest` — 需传 `RNIX_ENV` |
+| `cmd/rnix/main.go:1116-1215` | `runDaemon()` — 全局 provider 注册（保持不变） |
+| `kernel/kernel.go:193-217` | `resolveLLMDevice()` — 需支持项目级 provider 验证 |
+| `kernel/kernel.go:444-469` | `Spawn()` 中 LLM 设备打开 — 需改为项目级 driver 时用 `VFS.RegisterFD` 绕过全局 Open |
+| `vfs/vfs.go:158-161` | `VFS.RegisterFD()` — 已有，可直接用于注入项目级 driver 创建的 VFSFile |
 
 ### Technical Decisions
 
-1. **ldflags 变量放置**：三个变量（`version`、`gitCommit`、`buildDate`）都放在 `cmd/rnix/main.go` 作为 package-level var。这是 Go 社区标准做法，`-X main.version=...` 路径最简。
+1. **避免 kernel → llm 循环依赖：使用回调函数**。`ProjectConfig` 中不存 `*llm.DriverRegistry`，而是存一个 `LLMFileOpener` 回调。**为避免 `config` 包导入 `vfs`（违反包层级方向），回调签名定义在 `internal/types` 中**：`type LLMFileOpener func(provider string, flags int) (any, error)` — 返回 `any`（实际为 `vfs.VFSFile`），调用方在 kernel 中做类型断言。该回调在 `ipc/server.go` 的 `resolveProjectContext` 中构造（闭包捕获项目级 driver），kernel 调用它获取 VFSFile，无需知道 `llm` 包的任何类型。
 
-2. **Dev 构建检测**：通过 `gitCommit` 是否为空判断 — 无 ldflags 注入时 `gitCommit == ""`，显示 `0.1.0-dev`。有 ldflags 时显示精确版本如 `0.2.0 (abc1234, 2026-03-15)`。避免引入额外的 `isDev` 变量。
+2. **VFS 设备注入方案：使用已有的 `VFS.RegisterFD`**。当 `ProjectConfig.LLMFileOpener` 非 nil 时，kernel 在 `Spawn` 中不调用 `k.vfs.Open(pid, llmDevice, flags)`，而是：(1) 调用 `LLMFileOpener(provider, int(flags))` 获取 `any`，(2) 类型断言为 `vfs.VFSFile`，(3) 调用 `k.vfs.RegisterFD(pid, file)` 获取 FD。这完全绕过 `DeviceRegistry`，改动集中在 kernel.go:460 附近的 5-10 行代码。注意：`RegisterFD` 后还需更新 `proc.FDTable` 追踪（与现有 `Open` 路径保持一致）。
 
-3. **IPC PingResponse 不扩展**：`PingResponse.Version` 保持 `string` 类型不变。daemon status 显示的版本字符串已包含构建信息（因为注入了 `version` 变量）。详细信息（commit、date）仅在 `rnix version` CLI 命令中展示。
+3. **环境快照只存 `.env` 增量，不拷贝 `os.Environ()`**。`LoadDotenvDir` 返回仅 `.env` 文件中的变量（`map[string]string`）。`NewEnvLookup(dotenvVars)` 返回闭包：先查 dotenvVars 再 fallback `os.Getenv`。`ProjectConfig.EnvSnapshot` 只存 dotenvVars（轻量），不暴露 daemon 全量环境。`envLookup` 用于 `CreateDriverWithEnv`。
 
-4. **Makefile release 流程**：`make release VERSION=0.2.0` 执行：semver 格式校验 → 工作区干净检查 → 测试 → 打 `v0.2.0` tag → 带 ldflags 构建。不自动 push tag，让用户手动 `git push --tags` 确认。
+4. **Providers merge 在 raw YAML bytes 层面**。不将已解析的 `*ProvidersConfig` 回转为 map。直接读两个文件的 raw bytes → 各自 Unmarshal 为 `map[string]any` → `DeepMergeYAML` → Marshal 为 bytes → Unmarshal 为 `*ProvidersConfig`。全局 providers.yaml 的 raw bytes 在 daemon 启动时缓存。传递方式：`ipc.NewServer()` 新增 `globalProvidersRaw []byte` 参数（或在 `runDaemon` 中通过 setter 注入）。
 
-5. **Makefile build 也注入**：日常 `make build` 自动注入 git commit 和 date（从 `git rev-parse --short HEAD` 和 `date -u`），version 取 `git describe --tags --abbrev=0 2>/dev/null` 或回退到源码中的默认值。全局变量命名为 `GIT_VERSION`（而非 `VERSION`），避免与 `make release VERSION=x.y.z` 的用户参数冲突。
+5. **RNIX_ENV 值验证**：只允许 `^[a-zA-Z0-9_-]+$`（与 provider name 相同的正则），防止路径遍历。
+
+6. **`.env` 文件大小限制**：`LoadDotenvFile` 使用 `io.LimitReader(f, 1<<20)` 限制 1MB。
+
+7. **ProjectDir 安全验证**：`resolveProjectContext` 中验证 `projectDir` 必须包含 `.rnix/` 子目录（`os.Stat(filepath.Join(projectDir, ".rnix"))`），否则视为无项目配置，回退全局模式。这已是现有行为（`config.ProjectDir` 搜索 `.rnix/` 目录），但在 daemon 端做二次验证防止恶意 CLI。
+
+8. **`ExecScriptRequest` 不添加 `RnixEnv`**。脚本执行已有完整的 `Env` 快照传递机制，不需要 daemon 端再加载 `.env`。CLI 端的 `NewEnvironmentFromOS()` 已包含调用者的环境变量。
+
+9. **Pipeline 中 RnixEnv 传递**：`handleSpawnPipeline` 中每个子 spawn 调用 `resolveProjectContext(req.ProjectDir, req.RnixEnv)` 时统一使用 pipeline request 中的 `RnixEnv`。
+
+10. **`.env` 文件解析错误 fail-fast**：文件不存在 → 跳过（返回 nil, nil）。文件存在但解析失败（IO 错误、格式错误）→ 立即返回 error，不继续加载后续 .env 文件。
+
+11. **Fallback provider 兜底逻辑**：`attemptFallback` 中，如果 `LLMFileOpener` 返回 "provider not found"（项目级未覆盖 fallback provider），则 fallback 到全局 `k.vfs.Open`。即：项目级 driver 优先，不存在时用全局 driver。
+
+12. **项目级 default provider**：合并后的 `ProvidersConfig.ResolveDefaultProvider()` 的返回值通过 `ProjectConfig.DefaultProvider string` 字段传递给 kernel。kernel 在 `resolveLLMDevice` 中，当 `ProjectConfig` 非 nil 且 `ProjectConfig.DefaultProvider` 非空时，使用项目级 default provider 替代全局 `k.defaultProvider`。
 
 ## Implementation Plan
 
 ### Tasks
 
-**Task 1: 增加 ldflags 变量声明** (`cmd/rnix/main.go`)
+**Task 1: 实现 `.env` parser** (`internal/config/dotenv.go`, new)
 
-- [x] 1.1 将 `var version = "0.1.0"` 改为三个变量块：
-  - File: `cmd/rnix/main.go:39`
-  - Action: 替换为：
+- [ ] 1.1 创建 `ParseDotenv(r io.Reader) (map[string]string, error)` 函数
+  - File: `internal/config/dotenv.go` (new)
+  - Action: 实现逐行解析器，支持：
+    - `KEY=VALUE`（无引号）— 值去除首尾空白
+    - `KEY="VALUE"`（双引号）— 保留内部空白，支持 `\n`、`\"`、`\\` 转义
+    - `KEY='VALUE'`（单引号）— 保留字面值，不转义
+    - `KEY=`（空值）
+    - `# 注释行` 和行尾 `# 注释`（仅无引号值）
+    - 空行忽略
+    - `export KEY=VALUE` 前缀（可选 `export` 关键字，忽略）
+  - Notes: 不支持变量插值（`$VAR`）。使用 `io.LimitReader(r, 1<<20)` 限制读取 1MB。
+
+- [ ] 1.2 创建 `LoadDotenvFile(path string) (map[string]string, error)` 函数
+  - File: `internal/config/dotenv.go`
+  - Action: 读取文件（经过 `io.LimitReader` 限制），调用 `ParseDotenv`。文件不存在返回 `(nil, nil)` 而非报错。
+
+- [ ] 1.3 创建 `ValidateEnvName(name string) bool` 函数
+  - File: `internal/config/dotenv.go`
+  - Action: 验证 RNIX_ENV 值只匹配 `^[a-zA-Z0-9_-]+$`。
+  - Notes: 防止路径遍历（如 `../../etc/passwd`）。
+
+- [ ] 1.4 创建 `LoadDotenvDir(dir string, rnixEnv string) (map[string]string, error)` 函数
+  - File: `internal/config/dotenv.go`
+  - Action: 先用 `ValidateEnvName(rnixEnv)` 验证。`rnixEnv` 为空时默认 `"development"`。按顺序加载并合并：`.env` → `.env.local` → `.env.{rnixEnv}` → `.env.{rnixEnv}.local`。后者覆盖前者。返回仅包含 .env 文件中变量的 map（不含 os.Environ）。
+
+- [ ] 1.5 创建 `NewEnvLookup(dotenvVars map[string]string) func(string) string` 函数
+  - File: `internal/config/dotenv.go`
+  - Action: 返回闭包：先查 `dotenvVars`，未找到则 fallback 到 `os.Getenv`。`dotenvVars` 为 nil 时直接返回 `os.Getenv`。
+
+**Task 2: `.env` parser 单元测试** (`internal/config/dotenv_test.go`, new)
+
+- [ ] 2.1 table-driven 测试 `ParseDotenv`
+  - File: `internal/config/dotenv_test.go` (new)
+  - Action: 覆盖用例：基本 KEY=VALUE、双引号、单引号、空值、注释、export 前缀、转义字符（`\n`、`\"`、`\\`）、空行、行尾注释、多行文件、超过 1MB 截断
+- [ ] 2.2 测试 `LoadDotenvFile` — 文件存在/不存在/解析错误
+- [ ] 2.3 测试 `ValidateEnvName` — 合法值（`development`、`prod-1`）、非法值（`../etc`、空字符串、含空格）
+- [ ] 2.4 测试 `LoadDotenvDir` — 多文件合并顺序、覆盖优先级、非法 rnixEnv 值报错
+- [ ] 2.5 测试 `NewEnvLookup` — dotenv 变量优先于 os.Getenv、nil map 回退到 os.Getenv
+
+**Task 3: `CreateDriverWithEnv` 支持环境快照** (`drivers/llm/factory.go`)
+
+- [ ] 3.1 新增 `CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLMDriver, error)` 函数
+  - File: `drivers/llm/factory.go`
+  - Action: 从 `CreateDriver` 提取逻辑。在 `DriverOpenAICompat` 分支中，将 `os.Getenv(cfg.APIKeyEnv)` 替换为 `envLookup(cfg.APIKeyEnv)`。`ClaudeCLI` 和 `CursorCLI` 分支不使用 envLookup（它们不需要 API Key）。
+- [ ] 3.2 将 `CreateDriver` 改为调用 `CreateDriverWithEnv(cfg, os.Getenv)`
+  - File: `drivers/llm/factory.go`
+  - Action: 保持签名不变，一行委托。
+
+**Task 4: `CreateDriverWithEnv` 测试** (`drivers/llm/factory_test.go`)
+
+- [ ] 4.1 测试 envLookup 被正确调用
+  - File: 现有 `drivers/llm/factory_test.go` 或新增测试
+  - Action: 构造自定义 envLookup（记录调用的 key 并返回 mock value），验证 OpenAI-compat driver 使用 envLookup 读取 API Key。验证 claude-cli driver 不触发 envLookup。
+
+**Task 5: IPC 协议扩展** (`ipc/protocol.go`)
+
+- [ ] 5.1 `SpawnRequest` 新增 `RnixEnv` 字段
+  - File: `ipc/protocol.go`
+  - Action: 在 `SpawnRequest` struct 中 `ProjectDir` 之后添加 `RnixEnv string \`json:"rnix_env,omitempty"\``
+- [ ] 5.2 `SpawnPipelineRequest` 同样新增 `RnixEnv` 字段
+  - File: `ipc/protocol.go`
+  - Action: 在 `SpawnPipelineRequest` struct 中添加 `RnixEnv string \`json:"rnix_env,omitempty"\``
+
+**Task 6: 类型定义与 `ProjectConfig` 扩展** (`internal/types`, `internal/config/types.go`)
+
+- [ ] 6.1 在 `internal/types` 中定义 `LLMFileOpener` 类型
+  - File: `internal/types/types.go`
+  - Action: 添加 `type LLMFileOpener func(provider string, flags int) (any, error)` — 返回 `any` 避免 types → vfs 依赖。调用方（kernel）做 `vfs.VFSFile` 类型断言。
+- [ ] 6.2 新增 `EnvSnapshot`、`LLMFileOpener` 和 `DefaultProvider` 字段
+  - File: `internal/config/types.go`
+  - Action: 在 `ProjectConfig` struct 中添加：
     ```go
-    var (
-        version   = "0.1.0"
-        gitCommit = ""
-        buildDate = ""
-    )
+    EnvSnapshot     map[string]string   // .env file vars only (not full os.Environ)
+    LLMFileOpener   types.LLMFileOpener // nil = use global VFS Open
+    DefaultProvider string              // Merged providers' resolved default; "" = use global
     ```
-  - Notes: 默认值确保 `go run` / `go build` 无 ldflags 时仍可运行。`version` 保留 `"0.1.0"` 作为源码真实版本号（每次发布后手动 bump）。
+  - Notes: 不需要 `import "github.com/rnixai/rnix/vfs"`。需新增 `import "github.com/rnixai/rnix/internal/types"`（config 包当前未导入 types）。
 
-**Task 2: 增加 `versionString()` 辅助函数** (`cmd/rnix/main.go`)
+**Task 7: CLI 传递 RNIX_ENV** (`cmd/rnix/main.go`)
 
-- [x] 2.1 新增一个函数统一生成版本显示字符串：
-  - File: `cmd/rnix/main.go`（紧接变量声明之后）
-  - Action: 新增：
+- [ ] 7.1 在 SpawnRequest 构造处添加 RnixEnv
+  - File: `cmd/rnix/main.go` — `req := ipc.SpawnRequest{...}` 处
+  - Action: 添加 `RnixEnv: os.Getenv("RNIX_ENV")`
+- [ ] 7.2 在 `runPipeline` 中添加 RnixEnv
+  - File: `cmd/rnix/main.go` — `SpawnPipelineRequest` 构造处
+  - Action: 添加 `RnixEnv: os.Getenv("RNIX_ENV")`
+  - Notes: `ExecScriptRequest` 不添加 RnixEnv，因为它已有完整的 `Env` 快照机制。
+
+**Task 8: 扩展 `resolveProjectContext`** (`ipc/server.go`)
+
+- [ ] 8.1 在 `Server` 结构体中添加 `globalProvidersRaw []byte` 字段
+  - File: `ipc/server.go`
+  - Action: 在 `runDaemon()` 加载 providers.yaml 时，同时保存 raw bytes 到 Server。用于后续 DeepMergeYAML（避免从结构体回转 YAML）。
+
+- [ ] 8.2 增加 `rnixEnv` 参数
+  - File: `ipc/server.go` — `resolveProjectContext` 签名
+  - Action: 改为 `resolveProjectContext(projectDir, rnixEnv string)`
+
+- [ ] 8.3 ProjectDir 安全验证
+  - File: `ipc/server.go` — `resolveProjectContext` 开头
+  - Action: 在现有 `projectDir == ""` 检查之后，增加 `os.Stat(filepath.Join(projectDir, ".rnix"))` 验证。不存在则回退全局模式（返回 nil ProjectConfig）。
+
+- [ ] 8.4 加载 `.env` 文件
+  - File: `ipc/server.go` — `resolveProjectContext` 内
+  - Action: 调用 `config.LoadDotenvDir(projectDir, rnixEnv)` 获取 `dotenvVars`。构造 `envLookup := config.NewEnvLookup(dotenvVars)`。
+
+- [ ] 8.5 使用 raw YAML bytes DeepMergeYAML 合并 providers
+  - File: `ipc/server.go` — 替换当前简单替换逻辑
+  - Action:
+    1. 读取项目 `.rnix/providers.yaml` raw bytes（`os.ReadFile`）
+    2. 将 `s.globalProvidersRaw` 和项目 raw bytes 各 Unmarshal 为 `map[string]any`
+    3. 调用 `config.DeepMergeYAML(globalMap, projectMap)`
+    4. Marshal 合并结果为 YAML bytes
+    5. Unmarshal 为 `*llm.ProvidersConfig` 并 Validate
+    6. 如果项目无 providers.yaml，直接用全局 ProvidersConfig
+
+- [ ] 8.6 使用环境快照创建项目级 driver 并构造 `LLMFileOpener`
+  - File: `ipc/server.go`
+  - Action: 对合并后的 `ProvidersConfig` 中每个 provider：
+    1. 调用 `llm.CreateDriverWithEnv(pc, envLookup)` 创建 driver
+    2. 调用 `llm.FileFactory(driver, "/dev/llm/"+pc.Name)` 获取 VFSFileFactory
+    3. 存入 `map[string]vfs.VFSFileFactory`（provider name → factory）
+    4. 构造 `LLMFileOpener` 闭包（注意签名使用 `int` flags 和返回 `any`）：
     ```go
-    func versionString() string {
-        if gitCommit == "" {
-            return version + "-dev"
+    factories := map[string]vfs.VFSFileFactory{...} // 上面构建的
+    projCfg.LLMFileOpener = func(provider string, flags int) (any, error) {
+        factory, ok := factories[provider]
+        if !ok {
+            return nil, fmt.Errorf("project provider %q not found", provider)
         }
-        return version
+        return factory("", vfs.OpenFlag(flags)) // subpath="" for /dev/llm/{name}
     }
     ```
-  - Notes: 集中判断逻辑，`runVersion()` 和 IPC 传递共用。
 
-**Task 3: 增强 `runVersion()` 纯文本输出** (`cmd/rnix/main.go`)
+- [ ] 8.7 设置项目级 default provider
+  - File: `ipc/server.go`
+  - Action: `projCfg.DefaultProvider = mergedProvidersCfg.ResolveDefaultProvider()`
 
-- [x] 3.1 修改纯文本输出路径，增加 commit 和 date 信息：
-  - File: `cmd/rnix/main.go:204`
-  - Action: 将 `fmt.Fprintf(w, "rnix v%s\n", version)` 替换为：
+- [ ] 8.8 将 `dotenvVars` 存入 `ProjectConfig.EnvSnapshot`
+  - File: `ipc/server.go`
+  - Action: `projCfg.EnvSnapshot = dotenvVars`
+
+- [ ] 8.9 更新所有 `resolveProjectContext` 调用处传入 `rnixEnv`
+  - File: `ipc/server.go` — `handleSpawn`、`handleSpawnPipeline`、以及其他调用处
+  - Action: 从 `req.RnixEnv` 提取并传入。搜索 `resolveProjectContext(req.ProjectDir` 找到所有调用点。
+
+**Task 9: Kernel 支持项目级 LLM 设备** (`kernel/kernel.go`)
+
+- [ ] 9.1 修改 `Spawn` 中 LLM 设备打开逻辑
+  - File: `kernel/kernel.go` — 约 444-469 行
+  - Action: 在 `if !opts.SkipReasonLoop {` 块内，将：
     ```go
-    fmt.Fprintf(w, "rnix v%s\n", versionString())
-    if gitCommit != "" {
-        fmt.Fprintf(w, "commit:  %s\n", gitCommit)
-    }
-    if buildDate != "" {
-        fmt.Fprintf(w, "built:   %s\n", buildDate)
-    }
+    // 现有代码（约 446-464 行）：
+    llmDevice, resolveErr := k.resolveLLMDevice(agent, opts.Provider)
+    // ... error handling ...
+    llmFD, err = k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
     ```
-
-**Task 4: 增强 `runVersion()` JSON 输出** (`cmd/rnix/main.go`)
-
-- [x] 4.1 扩展 JSON 输出字段：
-  - File: `cmd/rnix/main.go:190-197`
-  - Action: 在 `data` map 中增加字段：
+    改为：
     ```go
-    data := map[string]any{
-        "version":              versionString(),
-        "git_commit":           gitCommit,
-        "build_date":           buildDate,
-        "claude_code_available": claudeAvailable,
+    llmDevice, resolveErr := k.resolveLLMDevice(agent, opts.Provider, opts.ProjectConfig)
+    // ... error handling (same) ...
+
+    // Open LLM device: project-level driver via LLMFileOpener, or global VFS Open
+    openStart := time.Now()
+    var err error
+    if opts.ProjectConfig != nil && opts.ProjectConfig.LLMFileOpener != nil {
+        fileAny, openErr := opts.ProjectConfig.LLMFileOpener(proc.Provider, int(vfs.O_RDWR))
+        if openErr != nil {
+            err = openErr
+        } else {
+            file, ok := fileAny.(vfs.VFSFile)
+            if !ok {
+                err = fmt.Errorf("LLMFileOpener returned non-VFSFile type")
+            } else {
+                llmFD = k.vfs.RegisterFD(proc.PID, file)
+            }
+        }
+    } else {
+        llmFD, err = k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
+    }
+    k.emitEvent(proc, "Open", map[string]any{
+        "path":  llmDevice,
+        "flags": vfs.O_RDWR,
+    }, llmFD, err, time.Since(openStart))
+    if err != nil {
+        // ... existing error handling (CtxFree + return SyscallError) ...
     }
     ```
+  - Notes: `VFS.RegisterFD` 已有（vfs.go:158），返回 FD。后续 `reasonStep` 中的 `Read`/`Write`/`Close` 都通过 FD 操作，不关心 file 来源。
 
-**Task 5: 更新 IPC Server version 传递** (`cmd/rnix/main.go`)
+- [ ] 9.2 修改 `resolveLLMDevice` 增加项目级 provider 验证
+  - File: `kernel/kernel.go` — `resolveLLMDevice` 函数
+  - Action: 新增第三个参数 `projectCfg *config.ProjectConfig`。
+    - 当 `projectCfg != nil && projectCfg.LLMFileOpener != nil` 时：
+      - Default provider 回退使用 `projectCfg.DefaultProvider`（非空时）替代 `k.defaultProvider`
+      - 跳过 `k.hasProvider` 验证（项目级 provider 不在全局 registry）
+    - 其他情况保持原有逻辑不变
+  - **所有调用点都必须更新**（签名变更）：
+    1. kernel.go — `Spawn` 中主设备解析（约 line 446）：传入 `opts.ProjectConfig`
+    2. kernel.go — `Spawn` 中 fallback 设备解析（约 line 364）：传入 `opts.ProjectConfig`
+    3. 测试文件中约 30 处调用：传入 `nil`（测试不涉及项目级 provider）
 
-- [x] 5.1 将传给 `NewServer()` 的 version 改用 `versionString()`：
-  - File: `cmd/rnix/main.go:1166`
-  - Action: `ipc.NewServer(nil, agentLoader.Load, version)` → `ipc.NewServer(nil, agentLoader.Load, versionString())`
-
-**Task 6: 更新现有测试 + 新增测试** (`cmd/rnix/main_test.go`)
-
-- [x] 6.1 更新 `TestVersion_WithClaude`：将断言从 `strings.Contains(output, "rnix v")` 改为 `strings.Contains(output, "rnix v0.1.0-dev")`，确保实际验证 `-dev` 后缀（测试环境无 ldflags，`gitCommit == ""`）
-- [x] 6.2 更新 `TestVersion_WithoutClaude`：同上，将 `"rnix v"` 断言改为 `"rnix v0.1.0-dev"`
-- [x] 6.3 更新 `TestVersion_JSON`：验证 JSON 包含 `git_commit` 和 `build_date` 字段
-- [x] 6.4 新增 `TestVersionString_Dev`：`gitCommit == ""` 时返回 `version + "-dev"`
-- [x] 6.5 新增 `TestVersionString_Release`：临时设置 `gitCommit = "abc1234"` 后返回纯 `version`
-- [x] 6.6 新增 `TestVersion_WithBuildInfo`：临时设置 `gitCommit` 和 `buildDate`，验证纯文本输出包含 `commit:` 和 `built:` 行
-
-**Task 7: Makefile 增加 ldflags 注入** (`Makefile`)
-
-- [x] 7.1 在 Makefile 顶部增加版本变量计算：
-  - File: `Makefile`
-  - Action: 在 `PKG` 行之后新增：
-    ```makefile
-    GIT_VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "0.1.0")
-    GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null)
-    BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-    LDFLAGS := -X main.version=$(GIT_VERSION) -X main.gitCommit=$(GIT_COMMIT) -X main.buildDate=$(BUILD_DATE)
-    ```
-  - Notes: 使用 `GIT_VERSION`（而非 `VERSION`）作为自动检测的版本变量，避免与 `release` target 中用户传入的 `VERSION` 参数冲突。
-- [x] 7.2 修改 `build` target 使用 ldflags：
-  - Action: `go build -o $(BINARY) ./cmd/rnix/` → `go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/rnix/`
-- [x] 7.3 修改 `install` target 使用 ldflags：
-  - Action: `go install ./cmd/rnix/` → `go install -ldflags "$(LDFLAGS)" ./cmd/rnix/`
-
-**Task 8: Makefile 增加 `release` target** (`Makefile`)
-
-- [x] 8.1 新增 `release` target：
-  - File: `Makefile`
-  - Action: 新增：
-    ```makefile
-    .PHONY: release
-    release:
-    	@test -n "$(VERSION)" || (echo "ERROR: VERSION is required. Usage: make release VERSION=0.2.0"; exit 1)
-    	@echo "==> Validating version format..."
-    	@echo "$(VERSION)" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || (echo "ERROR: VERSION must be semver (e.g. 0.2.0)"; exit 1)
-    	@echo "==> Checking working tree is clean..."
-    	@git diff --quiet && git diff --cached --quiet || (echo "ERROR: working tree is not clean"; exit 1)
-    	@echo "==> Running tests..."
-    	$(MAKE) all
-    	@echo "==> Creating tag v$(VERSION)..."
-    	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
-    	@echo "==> Building release binary..."
-    	go build -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$$(git rev-parse --short HEAD) -X main.buildDate=$$(date -u '+%Y-%m-%dT%H:%M:%SZ')" -o $(BINARY) ./cmd/rnix/
-    	@echo ""
-    	@echo "Done! Release v$(VERSION) tagged and built."
-    	@echo "To publish: git push origin v$(VERSION)"
-    ```
-  - Notes: `release` target 使用独立的 `VERSION` 变量（用户通过命令行传入），与顶部 `GIT_VERSION` 互不干扰。使用 shell 级 `test -n` 检查替代 Make `ifndef` 指令（后者因顶部 `GIT_VERSION` 不会检测到空 `VERSION`，而 `test -n` 在 recipe 执行时检查实际传入值）。
+- [ ] 9.3 同步修改 `attemptFallback` 中的 fallback 设备打开
+  - File: `kernel/kernel.go` — `attemptFallback` 函数约 729 行
+  - Action: fallback 设备打开也需支持项目级 driver。提取 fallback provider name（`strings.TrimPrefix(proc.FallbackDevice, "/dev/llm/")`），检查 `proc.ProjectConfig.LLMFileOpener`：
+    1. 如果 `LLMFileOpener` 非 nil，先尝试 `LLMFileOpener(fbProvider, int(vfs.O_RDWR))`
+    2. 如果返回 "not found" error（项目级未覆盖 fallback provider），fallback 到全局 `k.vfs.Open(proc.PID, proc.FallbackDevice, vfs.O_RDWR)`
+    3. 如果 `LLMFileOpener` 为 nil，直接用全局 `k.vfs.Open`（现有行为）
 
 ### Acceptance Criteria
 
-**AC1: Dev 构建标识**
+**AC1: `.env` 文件加载**
 
-- [x] Given 直接 `go build ./cmd/rnix/`（无 ldflags）
-  When 执行 `./rnix version`
-  Then 输出包含 `rnix v0.1.0-dev`，不包含 `commit:` 和 `built:` 行
+- [ ] Given 项目目录下有 `.env` 文件含 `OPENROUTER_API_KEY=sk-xxx`，全局 providers.yaml 配置 openrouter 的 `api_key_env: OPENROUTER_API_KEY`
+  When 从该项目目录执行 `rnix "hello"` 触发 spawn
+  Then daemon 使用 `sk-xxx` 作为 API Key 调用 OpenRouter，不出现 401 错误
 
-**AC2: ldflags 构建标识**
+**AC2: 多环境 `.env` 覆盖**
 
-- [x] Given 使用 `make build` 构建
-  When 执行 `./rnix version`
-  Then 输出包含 `rnix v<tag>` 且不含 `-dev`，包含 `commit: <7位hash>` 和 `built: <ISO时间>`
+- [ ] Given 项目目录下有 `.env` 含 `API_KEY=base`、`.env.local` 含 `API_KEY=local`
+  When spawn 请求到达 daemon
+  Then 环境快照中 `API_KEY` 值为 `local`（`.env.local` 覆盖 `.env`）
 
-**AC3: JSON 输出增强**
+**AC3: RNIX_ENV 环境选择**
 
-- [x] Given 使用 `make build` 构建
-  When 执行 `./rnix version --json`
-  Then JSON 包含 `version`（不含 `-dev`）、`git_commit`（非空）、`build_date`（非空）字段
+- [ ] Given 项目目录下有 `.env.production` 含 `API_KEY=prod`
+  When CLI 调用者设置 `RNIX_ENV=production` 后执行 spawn
+  Then 环境快照中 `API_KEY` 值为 `prod`
 
-**AC4: JSON 输出 — dev 构建**
+**AC4: RNIX_ENV 默认值**
 
-- [x] Given 直接 `go build`（无 ldflags）
-  When 执行 `./rnix version --json`
-  Then JSON 中 `version` 值为 `"0.1.0-dev"`，`git_commit` 为 `""`，`build_date` 为 `""`
+- [ ] Given 调用者未设置 `RNIX_ENV` 环境变量
+  When spawn 请求到达 daemon
+  Then 默认使用 `development`，尝试加载 `.env.development` 和 `.env.development.local`
 
-**AC5: Daemon 传递版本**
+**AC5: 项目级 providers.yaml merge**
 
-- [x] Given 使用 `make build` 构建并启动 daemon
-  When 执行 `rnix daemon status`
-  Then `version:` 行显示不含 `-dev` 的版本号
+- [ ] Given 全局 providers.yaml 定义 provider `openrouter`（api_key_env=`GLOBAL_KEY`），项目 `.rnix/providers.yaml` 仅覆盖 `api_key_env=PROJECT_KEY`
+  When spawn 请求指定该项目
+  Then 使用合并后的 provider 配置，API Key 从 `PROJECT_KEY` 环境变量读取（而非 `GLOBAL_KEY`）
 
-**AC6: Release — 正常流程**
+**AC6: 项目级新增 provider**
 
-- [x] Given 工作区干净，测试通过
-  When 执行 `make release VERSION=0.2.0`
-  Then 创建 annotated tag `v0.2.0`，构建的二进制 `./rnix version` 显示 `rnix v0.2.0`
+- [ ] Given 全局 providers.yaml 只有 `claude`，项目 `.rnix/providers.yaml` 新增 `openrouter` provider
+  When 从该项目 spawn 并指定 `--provider openrouter`
+  Then 成功使用项目级定义的 openrouter provider
 
-**AC7: Release — 版本格式校验**
+**AC7: 项目间环境隔离**
 
-- [x] Given 任意工作区状态
-  When 执行 `make release VERSION=abc` 或 `make release VERSION=1.0`
-  Then 报错 `VERSION must be semver` 并退出
+- [ ] Given 项目 A 的 `.env` 有 `API_KEY=aaa`，项目 B 的 `.env` 有 `API_KEY=bbb`
+  When 先从项目 A spawn 再从项目 B spawn
+  Then 项目 A 进程使用 `aaa`，项目 B 进程使用 `bbb`，互不污染
 
-**AC8: Release — 工作区脏检查**
+**AC8: 无 `.env` 文件回退**
 
-- [x] Given 工作区有未提交的修改
-  When 执行 `make release VERSION=0.2.0`
-  Then 报错 `working tree is not clean` 并退出
+- [ ] Given 项目目录下没有任何 `.env` 文件
+  When spawn 请求到达 daemon
+  Then 回退到 daemon 进程自身的环境变量（`os.Getenv`），行为与修改前一致
 
-**AC9: Release — 缺少 VERSION 参数**
+**AC9: 无项目目录回退**
 
-- [x] Given 任意状态
-  When 执行 `make release`（不传 VERSION）
-  Then 报错 `VERSION is required`
+- [ ] Given CLI 不在任何 `.rnix/` 项目中（`ProjectDir` 为空）
+  When spawn 请求到达 daemon
+  Then 使用全局 provider 配置和 daemon 进程环境变量，行为与修改前一致
 
-**AC10: 向后兼容 — 现有测试通过**
+**AC10: `.env` parser 鲁棒性**
 
-- [x] Given 代码修改完成
+- [ ] Given `.env` 文件含单引号值 `KEY='hello world'`、双引号值 `KEY2="line\nbreak"`、`export` 前缀 `export KEY3=value`、注释 `# comment`、空行
+  When 解析该文件
+  Then 正确提取所有键值对，单引号保留字面值，双引号处理转义
+
+**AC11: 现有测试不回归**
+
+- [ ] Given 代码修改完成
   When 执行 `make all`
-  Then 所有现有测试通过（含 IPC 集成测试中硬编码的 `"0.1.0-test"`）
+  Then 所有现有测试通过，无回归
+
+**AC12: RNIX_ENV 路径遍历防护**
+
+- [ ] Given RNIX_ENV 值为 `../../etc`
+  When spawn 请求到达 daemon
+  Then `LoadDotenvDir` 返回验证错误，不尝试加载任何文件
+
+**AC13: ProjectDir 安全验证**
+
+- [ ] Given CLI 传入 ProjectDir 为 `/etc`（无 `.rnix/` 子目录）
+  When spawn 请求到达 daemon
+  Then 回退到全局模式，不尝试加载 `/etc/.env`
 
 ## Additional Context
 
 ### Dependencies
 
-无新外部依赖。纯 Go 标准库 + Make + Git。
+无新外部依赖。使用 `internal/config/merge.go` 已有的 `DeepMergeYAML`。`.env` parser 纯 Go 标准库实现。`internal/config/types.go` 需新增 `import "github.com/rnixai/rnix/internal/types"`。
 
 ### Testing Strategy
 
-- **单元测试**（`cmd/rnix/main_test.go`）：
-  - `versionString()` 在有/无 `gitCommit` 时的返回值
-  - `runVersion()` 纯文本输出在 dev/release 模式下的内容差异
-  - `runVersion()` JSON 输出包含新增字段
-  - 通过临时修改 `gitCommit`/`buildDate` 包级变量测试，遵循现有 save/restore 模式
-- **现有测试兼容**：
-  - IPC 测试（`ipc/server_test.go`、`ipc/client_test.go`）使用 `"0.1.0-test"` 硬编码版本字符串传给 `NewServer()`，不受影响
-  - 现有 version 测试需更新断言：`"rnix v"` → `"rnix v0.1.0-dev"`（因为测试环境 `gitCommit == ""`）
+- **单元测试**：
+  - `internal/config/dotenv_test.go` — `.env` parser 的 table-driven 测试，覆盖所有语法变体、边界情况、安全验证
+  - `drivers/llm/factory_test.go` — `CreateDriverWithEnv` 的 envLookup 注入测试
+  - `ipc/server_test.go` — `resolveProjectContext` 的 .env 加载、provider merge、LLMFileOpener 构造测试
+
+- **集成测试**：
+  - 使用 `t.TempDir()` 创建项目目录结构（`.rnix/providers.yaml`、`.env` 文件），模拟完整的 spawn 流程验证 API Key 正确传递
+
 - **手动验证**：
-  - `go build ./cmd/rnix/ && ./rnix version`（dev 模式）
-  - `make build && ./rnix version`（ldflags 模式）
-  - `make release VERSION=99.0.0`（release 流程，使用不会冲突的测试版本号）
+  - 在实际项目中配置 `.env` + `.rnix/providers.yaml`，执行 `rnix "hello"` 验证 401 错误消失
+  - 切换 `RNIX_ENV=production` 验证多环境切换
 
 ### Notes
 
-- 每次发布后需手动更新 `cmd/rnix/main.go` 中的 `version` 默认值为下一个开发版本（如 `0.2.0` → `0.3.0`）。这是有意的设计 — 保持源码中的版本号作为 "当前开发中版本" 的 single source of truth。
-- `git describe --tags --abbrev=0` 在无 tag 时回退到 `"0.1.0"`（源码默认值），确保首次 `make build` 不会报错。**注意：Makefile 中的回退值 `"0.1.0"` 必须与 `cmd/rnix/main.go` 中 `var version = "0.1.0"` 保持同步。** 每次 bump 源码版本时，同步更新 Makefile 回退值。
-- `make release` 中使用 `git tag -a`（annotated tag）而非轻量 tag，这样 `git describe` 能正确识别。
+- **性能考虑**：每次 spawn 都会加载 `.env` 文件和创建 driver 实例。对于频繁 spawn 的场景（如 compose），后续优化为按 `(ProjectDir, rnixEnv)` 缓存 `resolveProjectContext` 的结果。当前版本不做缓存。
+- **安全考虑**：`EnvSnapshot` 只存 `.env` 文件中的变量，不包含 daemon 进程的完整环境。API Key 通过闭包传递给 driver，不会出现在日志或 IPC 响应中。`RNIX_ENV` 和 `ProjectDir` 都做了安全验证。
+- **向后兼容**：`CreateDriver` 保持原签名不变。`SpawnRequest.RnixEnv` 为 `omitempty`，旧版 CLI 不传时 daemon 默认 `development`。无 `.env` 文件时行为与修改前完全一致。
+- **资源生命周期**：项目级 driver 实例（闭包中的 `factories` map）的生命周期与 `ProjectConfig` 绑定。当进程退出并被 reap 后，`proc.ProjectConfig` 被 GC 回收，driver 实例随之释放。OpenAI-compat driver 内部的 HTTP client 无需显式 Close。
 
 ## Review Notes
 
-- 对抗性代码审查完成
-- 发现：9 个总计，4 个已修复，5 个跳过（设计选择/当前可接受）
-- 处理方式：自动修复
-- 已修复：F1（release 避免双重 build）、F2（测试并发安全注释）、F3（release 检查 untracked files）、F8（测试版本动态化）
-- 已跳过：F4（JSON 空字符串为设计选择）、F5（可重现构建当前不需要）、F6（versionString 边界可忽略）、F7（DRY 已在 Notes 记录）、F9（semver 预发布当前不需要）
+- 第一轮对抗性审查：14 项发现，全部处理（4 修复、5 已记录/跳过、5 直接修复）
+- 第二轮对抗性审查：6 项发现，全部处理：
+  - R2-F1 (Medium): 已修复 — `LLMFileOpener` 类型定义移至 `internal/types`，签名用 `(string, int) (any, error)` 避免 config→vfs 依赖
+  - R2-F2 (Medium): 已修复 — Task 9.3 明确 fallback 兜底逻辑：LLMFileOpener "not found" → 全局 vfs.Open
+  - R2-F3 (Low): 已修复 — Technical Decision 12 + Task 8.7 + Task 9.2 明确项目级 default provider 传递链
+  - R2-F4 (Low): 已修复 — Technical Decision 4 明确 raw bytes 传递方式
+  - R2-F5 (Low): 已修复 — Technical Decision 10 明确 fail-fast 策略
+  - R2-F6 (Low): 已修复 — Task 9.1 Notes 中提醒保持 proc.FDTable 追踪一致性
+- 第三轮对抗性审查：6 项发现，全部修复：
+  - R3-F1 (Medium): 已修复 — Task 6.2 Notes 更正为"需新增 import internal/types"
+  - R3-F2 (Medium): 已修复 — Task 9.2 明确列出所有 3 个生产代码调用点 + 测试文件约 30 处
+  - R3-F3 (Low): 已知 — 伪代码变量名歧义，不阻塞实现
+  - R3-F4 (Low): 已修复 — 文件路径 `llm_file.go` → `vfsfile.go`
+  - R3-F5 (Low): 已修复 — Dependencies 节 import 指引与正文一致
+  - R3-F6 (Info): 已修复 — Task 8.8/8.9 编号去重

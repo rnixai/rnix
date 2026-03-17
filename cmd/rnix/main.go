@@ -134,10 +134,10 @@ var rootCmd = &cobra.Command{
 	Use:   "rnix [command]",
 	Short: "Rnix — Agent OS for AI agents",
 	Long:  "Rnix is an operating system for AI agents.\n\nUse -i flag to spawn an agent with an intent.",
-	Example: `  rnix -i "分析 ./README.md"
-  rnix -i "重构 main.go 中的错误处理"
+	Example: `  rnix -i "analyze ./README.md"
+  rnix -i "refactor error handling in main.go"
   rnix version
-  rnix -i "分析项目结构" --json`,
+  rnix -i "analyze project structure" --json`,
 	Args: rejectPositionalArgs,
 	RunE: runRoot,
 }
@@ -229,7 +229,7 @@ func runVersion(cmd *cobra.Command, args []string) {
 	}
 	if !claudeAvailable {
 		fmt.Fprintln(w, "✗ claude-code CLI not found")
-		fmt.Fprintln(w, "  → 建议: npm install -g @anthropic-ai/claude-code")
+		fmt.Fprintln(w, "  → hint: npm install -g @anthropic-ai/claude-code")
 		return
 	}
 	fmt.Fprintf(w, "claude-code: %s\n", claudeVersion)
@@ -436,7 +436,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 
 	client, err := ipc.EnsureDaemon()
 	if err != nil {
-		outputError(renderer, mode, "daemon", err.Error(), "daemon 启动失败", "检查 rnix 是否正确安装")
+		outputError(renderer, mode, "daemon", err.Error(), "daemon failed to start", "check that rnix is installed correctly")
 		exitCode = 1
 		return nil
 	}
@@ -519,7 +519,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	spawnedPID.Store(uint64(pid))
 
 	if spawnErr != nil {
-		outputError(renderer, mode, "/dev/llm", spawnErr.Error(), "智能体启动失败", "检查 LLM CLI 是否已安装（claude 或 agent）")
+		outputError(renderer, mode, "/dev/llm", spawnErr.Error(), "agent failed to start", "check that LLM CLI is installed (claude or agent)")
 		exitCode = 1
 		return nil
 	}
@@ -536,7 +536,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 				reason = final.ErrorMessage
 			}
 		}
-		outputError(renderer, mode, "/dev/llm", reason, "智能体执行失败", "检查意图描述或重试")
+		outputError(renderer, mode, "/dev/llm", reason, "agent execution failed", "check intent description or retry")
 		tokensUsed := 0
 		if final != nil {
 			tokensUsed = final.TokensUsed
@@ -551,7 +551,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressReporter, client *ipc.Client, intent string, start time.Time, projectDir string) {
 	pipeline, err := agentshell.ParsePipeline(intent)
 	if err != nil {
-		outputError(renderer, mode, "shell/parser", err.Error(), "管道语法解析失败", "检查语法: spawn \"A\" | spawn \"B\"")
+		outputError(renderer, mode, "shell/parser", err.Error(), "pipeline syntax parse failed", "check syntax: spawn \"A\" | spawn \"B\"")
 		exitCode = 1
 		return
 	}
@@ -606,7 +606,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 	close(pipelineDone)
 
 	if pipeErr != nil {
-		outputError(renderer, mode, "shell/pipe", pipeErr.Error(), "管道执行失败", "检查管道命令或重试")
+		outputError(renderer, mode, "shell/pipe", pipeErr.Error(), "pipeline execution failed", "check pipeline commands or retry")
 		exitCode = 1
 		return
 	}
@@ -614,7 +614,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 	elapsed := time.Since(start)
 
 	if pipeResp == nil || len(pipeResp.Stages) == 0 {
-		outputError(renderer, mode, "shell/pipe", "no pipeline result", "管道返回空结果", "检查管道命令")
+		outputError(renderer, mode, "shell/pipe", "no pipeline result", "pipeline returned empty result", "check pipeline commands")
 		exitCode = 1
 		return
 	}
@@ -634,7 +634,7 @@ func runPipeline(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.Progres
 		total := len(pipeline.Commands)
 		outputError(renderer, mode, "shell/pipe",
 			fmt.Sprintf("stage %d/%d failed (exit %d): %s", failIdx, total, lastStage.ExitCode, lastStage.Intent),
-			"管道执行中断", "检查失败阶段的 intent")
+			"pipeline execution interrupted", "check the failed stage intent")
 		totalTokens := 0
 		for _, s := range pipeResp.Stages {
 			totalTokens += s.TokensUsed
@@ -696,7 +696,7 @@ func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressR
 	close(scriptDone)
 
 	if scriptErr != nil {
-		outputError(renderer, mode, "shell/script", scriptErr.Error(), "脚本执行失败", "检查脚本语法或重试")
+		outputError(renderer, mode, "shell/script", scriptErr.Error(), "script execution failed", "check script syntax or retry")
 		exitCode = 1
 		return
 	}
@@ -704,7 +704,7 @@ func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressR
 	elapsed := time.Since(start)
 
 	if scriptResp == nil {
-		outputError(renderer, mode, "shell/script", "no script result", "脚本返回空结果", "检查脚本内容")
+		outputError(renderer, mode, "shell/script", "no script result", "script returned empty result", "check script content")
 		exitCode = 1
 		return
 	}
@@ -714,7 +714,7 @@ func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressR
 	} else {
 		outputError(renderer, mode, "shell/script",
 			fmt.Sprintf("script failed (exit %d)", scriptResp.LastExitCode),
-			"脚本执行中断", "检查脚本中的 spawn 命令")
+			"script execution interrupted", "check spawn commands in script")
 		ui.RenderSummary(renderer, 0, scriptResp.LastExitCode, scriptResp.TotalTokens, elapsed, "", "")
 		exitCode = 1
 	}
@@ -910,7 +910,7 @@ func runKill(cmd *cobra.Command, args []string) error {
 			fmt.Sprintf("PID %s", args[0]),
 			"invalid PID (expected number)",
 			fmt.Sprintf("PID %s: not a valid process ID", args[0]),
-			"rnix ps  查看活跃进程")
+			"rnix ps  to see active processes")
 		exitCode = 1
 		return nil
 	}
@@ -926,7 +926,7 @@ func runKill(cmd *cobra.Command, args []string) error {
 			fmt.Sprintf("PID %d", pid),
 			"no active daemon (process not found)",
 			fmt.Sprintf("PID %d: no active process", pid),
-			"rnix ps  查看活跃进程")
+			"rnix ps  to see active processes")
 		exitCode = 1
 		return nil
 	}
@@ -943,7 +943,7 @@ func runKill(cmd *cobra.Command, args []string) error {
 			fmt.Sprintf("PID %d", pid),
 			reason,
 			impact,
-			"rnix ps  查看活跃进程")
+			"rnix ps  to see active processes")
 		exitCode = 1
 		return nil
 	}
@@ -969,7 +969,7 @@ func runStrace(cmd *cobra.Command, args []string) error {
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
 			"no active daemon (process not found)", "",
-			"rnix ps  查看活跃进程")
+			"rnix ps  to see active processes")
 		return nil
 	}
 	defer client.Close()

@@ -644,11 +644,16 @@ func TestOpenAICompatDriver_HealthCheck_HTTP401(t *testing.T) {
 }
 
 func TestOpenAICompatDriver_HealthCheck_Timeout(t *testing.T) {
+	handlerDone := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(5 * time.Second)
+		select {
+		case <-handlerDone:
+		case <-r.Context().Done():
+		}
 		w.WriteHeader(200)
 	}))
 	defer ts.Close()
+	defer close(handlerDone)
 
 	d := NewOpenAICompatDriver("test", ts.URL, WithHTTPClient(ts.Client()))
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
