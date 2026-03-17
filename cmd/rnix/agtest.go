@@ -312,7 +312,7 @@ func (j *ipcQualityJudge) Judge(ctx context.Context, output, criteria string) (*
 	defer client.Close()
 
 	intent := fmt.Sprintf(
-		"评估以下输出是否满足标准。\n\n输出:\n%s\n\n标准:\n%s\n\n请以JSON返回: {\"passed\": bool, \"score\": 0.0-1.0, \"reason\": \"...\"}",
+		"Evaluate whether the following output meets the criteria.\n\nOutput:\n%s\n\nCriteria:\n%s\n\nRespond in JSON: {\"passed\": bool, \"score\": 0.0-1.0, \"reason\": \"...\"}",
 		truncateForJudge(output, 4000),
 		criteria,
 	)

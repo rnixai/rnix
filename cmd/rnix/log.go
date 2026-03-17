@@ -62,7 +62,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
 			"no active daemon (process not found)", "",
-			"rnix ps  查看活跃进程")
+			"rnix ps  to see active processes")
 		return nil
 	}
 	defer client.Close()
@@ -121,8 +121,8 @@ func runLog(cmd *cobra.Command, args []string) error {
 			if renderer != nil {
 				ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
 					"process not found",
-					fmt.Sprintf("PID %d: 不存在或已退出", pid),
-					"rnix ps  查看活跃进程")
+					fmt.Sprintf("PID %d: does not exist or has exited", pid),
+					"rnix ps  to see active processes")
 			}
 			exitCode = 1
 		} else if !flagJSON {

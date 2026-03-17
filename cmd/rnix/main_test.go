@@ -540,7 +540,7 @@ func TestHelp_ContainsExample(t *testing.T) {
 	if !strings.Contains(output, "rnix -i") {
 		t.Errorf("expected 'rnix -i' in example, got %q", output)
 	}
-	if !strings.Contains(output, "分析 ./README.md") {
+	if !strings.Contains(output, "analyze ./README.md") {
 		t.Errorf("expected example in help output, got %q", output)
 	}
 }

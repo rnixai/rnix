@@ -69,7 +69,7 @@ func runRecordStart(cmd *cobra.Command, args []string) error {
 		renderer := ui.NewRenderer(os.Stdout, mode)
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
-			"no active daemon", "", "rnix ps  查看活跃进程")
+			"no active daemon", "", "rnix ps  to see active processes")
 		exitCode = 1
 		return nil
 	}
@@ -81,7 +81,7 @@ func runRecordStart(cmd *cobra.Command, args []string) error {
 		renderer := ui.NewRenderer(os.Stdout, mode)
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
-			err.Error(), "", "检查进程是否存在且正在运行")
+			err.Error(), "", "check that the process exists and is running")
 		exitCode = 1
 		return nil
 	}
@@ -109,7 +109,7 @@ func runRecordStop(cmd *cobra.Command, args []string) error {
 		renderer := ui.NewRenderer(os.Stdout, mode)
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
-			"no active daemon", "", "rnix ps  查看活跃进程")
+			"no active daemon", "", "rnix ps  to see active processes")
 		exitCode = 1
 		return nil
 	}
@@ -121,7 +121,7 @@ func runRecordStop(cmd *cobra.Command, args []string) error {
 		renderer := ui.NewRenderer(os.Stdout, mode)
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, fmt.Sprintf("PID %d", pid),
-			err.Error(), "", "检查进程是否正在录制")
+			err.Error(), "", "check that the process is being recorded")
 		exitCode = 1
 		return nil
 	}
@@ -156,7 +156,7 @@ func runRecordList(cmd *cobra.Command, args []string) error {
 		renderer := ui.NewRenderer(os.Stdout, mode)
 		ui.InitStyles(renderer.Profile)
 		ui.RenderError(renderer, "record",
-			err.Error(), "", "检查 daemon 是否正常运行")
+			err.Error(), "", "check that the daemon is running properly")
 		exitCode = 1
 		return nil
 	}

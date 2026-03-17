@@ -17,10 +17,10 @@ var applyCmd = &cobra.Command{
 	Use:   "apply <intent>",
 	Short: "Declare intent and auto-decompose into sub-tasks",
 	Long:  "Declare a high-level intent. The system decomposes it into a sub-intent tree (Intent Tree), each sub-intent maps to one or more agent processes.",
-	Example: `  rnix apply "我要一个完整的博客系统"
+	Example: `  rnix apply "I want a complete blog system"
   rnix apply "build a REST API for user management" --yes
   rnix apply "create a CLI tool" --model claude-opus --json
-  rnix apply "加上评论功能" --update intent-1`,
+  rnix apply "add a comment feature" --update intent-1`,
 	Args: cobra.ExactArgs(1),
 	RunE: runApply,
 }
@@ -111,7 +111,7 @@ func onEvent(r *ui.Renderer, ev ipc.StreamEvent, client *ipc.Client, intentID *s
 				confirmID = *intentID
 			}
 			if !flagAutoStart && confirmID != "" {
-				fmt.Fprint(os.Stderr, "\n确认执行此计划? [y/N] ")
+				fmt.Fprint(os.Stderr, "\nConfirm execution of this plan? [y/N] ")
 				var answer string
 				_, _ = fmt.Scanln(&answer)
 				confirm := answer == "y" || answer == "Y" || answer == "yes"

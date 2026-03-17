@@ -455,12 +455,17 @@ func TestRunHealthChecks_CLIProvider_Skipped(t *testing.T) {
 
 func TestRunHealthChecks_NonBlocking(t *testing.T) {
 	t.Parallel()
-	// Server that takes 5 seconds to respond
+	// Server that blocks until test completes
+	handlerDone := make(chan struct{})
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(5 * time.Second)
+		select {
+		case <-handlerDone:
+		case <-r.Context().Done():
+		}
 		w.WriteHeader(200)
 	}))
 	defer ts.Close()
+	defer close(handlerDone)
 
 	cfg := &ProvidersConfig{
 		Version: "1",
