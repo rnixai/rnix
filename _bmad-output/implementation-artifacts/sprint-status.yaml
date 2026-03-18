@@ -277,7 +277,7 @@ development_status:
   # Sprint Change Proposal: 2026-03-18
   # Trigger: Epic 20 post-delivery strace analysis — 6 issues found (2 Critical)
   # Decision: Deprecate linear/OODA dual mode, unify to single reasonStep loop
-  epic-26: in-progress
+  epic-26: done
   26-1-unified-reasonstep-and-actiontype-extension: done
   26-2-planning-config-and-agent-adaptation: done
   26-3-specialize-capability-migration: done
