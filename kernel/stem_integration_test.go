@@ -200,10 +200,11 @@ func TestSpawn_StemAgentDifferentiationLog(t *testing.T) {
 
 // testCallbacks is a minimal KernelCallbacks implementation for testing.
 type testCallbacks struct {
-	onSpawn    func(pid types.PID, intent, provider, model string)
-	onStep     func(pid types.PID, step int, total int)
-	onComplete func(pid types.PID, result string, exit ExitStatus)
-	onError    func(pid types.PID, err error)
+	onSpawn        func(pid types.PID, intent, provider, model string)
+	onStep         func(pid types.PID, step int, total int)
+	onStepComplete func(pid types.PID, step int, action string, summary string)
+	onComplete     func(pid types.PID, result string, exit ExitStatus)
+	onError        func(pid types.PID, err error)
 }
 
 func (tc *testCallbacks) OnSpawn(pid types.PID, intent, provider, model string) {
@@ -214,6 +215,11 @@ func (tc *testCallbacks) OnSpawn(pid types.PID, intent, provider, model string) 
 func (tc *testCallbacks) OnStep(pid types.PID, step int, total int) {
 	if tc.onStep != nil {
 		tc.onStep(pid, step, total)
+	}
+}
+func (tc *testCallbacks) OnStepComplete(pid types.PID, step int, action string, summary string) {
+	if tc.onStepComplete != nil {
+		tc.onStepComplete(pid, step, action, summary)
 	}
 }
 func (tc *testCallbacks) OnComplete(pid types.PID, result string, exit ExitStatus) {

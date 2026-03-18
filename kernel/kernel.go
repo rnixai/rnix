@@ -138,6 +138,7 @@ type llmResponse struct {
 type KernelCallbacks interface {
 	OnSpawn(pid types.PID, intent, provider, model string)
 	OnStep(pid types.PID, step int, total int)
+	OnStepComplete(pid types.PID, step int, action string, summary string)
 	OnComplete(pid types.PID, result string, exit ExitStatus)
 	OnError(pid types.PID, err error)
 }
@@ -1257,6 +1258,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"step":   step,
 				"action": "text",
 			}, action.Content, nil, time.Since(stepStart))
+			if k.callbacks != nil {
+				k.callbacks.OnStepComplete(proc.PID, step, "text", "")
+			}
 			exitCode := 0
 			reason := "completed"
 			if hadError {
@@ -1463,6 +1467,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"action": "tool_call",
 				"tool":   action.ToolPath,
 			}, string(toolResult), nil, time.Since(stepStart))
+			if k.callbacks != nil {
+				k.callbacks.OnStepComplete(proc.PID, step, "tool_call", briefToolCallSummary(action.ToolPath, string(toolResult)))
+			}
 			continue
 
 		case ActionPlan:
@@ -1501,6 +1508,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"step":   step,
 				"action": "plan",
 			}, nil, nil, time.Since(stepStart))
+			if k.callbacks != nil {
+				k.callbacks.OnStepComplete(proc.PID, step, "plan", briefPlanSummary(action.ToolData))
+			}
 			continue
 
 		case ActionSpawn:
@@ -1656,6 +1666,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"action":    "spawn",
 				"child_pid": childPID,
 			}, spawnResult, nil, time.Since(stepStart))
+			if k.callbacks != nil {
+				k.callbacks.OnStepComplete(proc.PID, step, "spawn", fmt.Sprintf("spawn PID %d %q", childPID, spawnIntent))
+			}
 			continue
 
 		case ActionComplete:
@@ -1679,6 +1692,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"step":   step,
 				"action": "complete",
 			}, result, nil, time.Since(stepStart))
+			if k.callbacks != nil {
+				k.callbacks.OnStepComplete(proc.PID, step, "complete", "")
+			}
 			k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
 			return
 
@@ -1716,6 +1732,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"step":   step,
 				"action": "replan",
 			}, nil, nil, time.Since(stepStart))
+			if k.callbacks != nil {
+				k.callbacks.OnStepComplete(proc.PID, step, "replan", briefReplanSummary(reason))
+			}
 			continue
 
 		case ActionSpecialize:
@@ -1841,12 +1860,47 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"action": "specialize",
 				"skill":  skillName,
 			}, nil, nil, time.Since(stepStart))
+			if k.callbacks != nil {
+				k.callbacks.OnStepComplete(proc.PID, step, "specialize", skillName)
+			}
 			continue
 		}
 	}
 
 	// Max steps exceeded — incomplete reasoning
 	k.finishProcess(proc, ExitStatus{Code: 1, Reason: "max steps exceeded"})
+}
+
+// briefToolCallSummary generates "{toolPath} → {briefResult}" for OnStepComplete.
+func briefToolCallSummary(toolPath, toolResult string) string {
+	brief := strings.ReplaceAll(toolResult, "\n", " ")
+	if len(brief) > 60 {
+		brief = brief[:60] + "..."
+	}
+	if brief == "" {
+		brief = "ok"
+	}
+	return toolPath + " → " + brief
+}
+
+// briefPlanSummary generates "plan (N steps)" from plan ToolData JSON.
+func briefPlanSummary(toolData json.RawMessage) string {
+	var planData struct {
+		Steps []json.RawMessage `json:"steps"`
+	}
+	if err := json.Unmarshal(toolData, &planData); err != nil || len(planData.Steps) == 0 {
+		return "plan"
+	}
+	return fmt.Sprintf("plan (%d steps)", len(planData.Steps))
+}
+
+// briefReplanSummary generates a truncated replan reason.
+func briefReplanSummary(reason string) string {
+	r := []rune(reason)
+	if len(r) > 40 {
+		return string(r[:40]) + "..."
+	}
+	return reason
 }
 
 // spawnActionData contains optional parameters parsed from spawn action data.

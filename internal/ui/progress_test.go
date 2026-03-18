@@ -43,7 +43,7 @@ func TestAgentMessage_Format(t *testing.T) {
 func TestAgentStep_Format(t *testing.T) {
 	InitStyles(TerminalProfile{ColorLevel: 0})
 	var buf bytes.Buffer
-	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{ColorLevel: 0}}
+	r := &Renderer{Writer: &buf, OutputMode: ModeVerbose, Profile: TerminalProfile{ColorLevel: 0}}
 	p := NewProgressReporter(r)
 
 	p.AgentStep(1, 2, 3)
@@ -54,6 +54,19 @@ func TestAgentStep_Format(t *testing.T) {
 	}
 	if !strings.Contains(output, "reasoning step 2...") {
 		t.Errorf("expected reasoning step format, got %q", output)
+	}
+}
+
+func TestAgentStep_DefaultMode_Silent(t *testing.T) {
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &Renderer{Writer: &buf, OutputMode: ModeDefault, Profile: TerminalProfile{ColorLevel: 0}}
+	p := NewProgressReporter(r)
+
+	p.AgentStep(1, 2, 3)
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no output in default mode, got %q", buf.String())
 	}
 }
 

@@ -1,6 +1,6 @@
 # Story 3.6: 推理步骤逐步输出（Step Output Streaming）
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -24,50 +24,50 @@ So that 我可以实时感知智能体的执行进展，而不是等待最终 Re
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: 修改 `kernel/kernel.go` — 扩展 KernelCallbacks 接口 + 在各 action 分支调用新回调 (AC: #1, #2, #3)
-  - [ ] 1.1 在 `KernelCallbacks` 接口新增 `OnStepComplete(pid types.PID, step int, action string, summary string)` 方法
-  - [ ] 1.2 在 `ActionToolCall` 分支成功处理后（L1461-1466 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "tool_call", toolCallSummary)`
-  - [ ] 1.3 在 `ActionPlan` 分支成功处理后（L1500 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "plan", planSummary)`
-  - [ ] 1.4 在 `ActionSpawn` 分支成功处理后（L1654 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "spawn", spawnSummary)`
-  - [ ] 1.5 在 `ActionComplete` 分支（L1678 `emitEvent` 之后、`finishProcess` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "complete", "")`
-  - [ ] 1.6 在 `ActionReplan` 分支成功处理后（L1715 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "replan", reason)`
-  - [ ] 1.7 在 `ActionSpecialize` 分支成功处理后（L1839 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "specialize", skillName)`
-  - [ ] 1.8 在 `ActionText` 分支（L1256 `emitEvent` 之后、`finishProcess` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "text", "")`
+- [x] Task 1: 修改 `kernel/kernel.go` — 扩展 KernelCallbacks 接口 + 在各 action 分支调用新回调 (AC: #1, #2, #3)
+  - [x] 1.1 在 `KernelCallbacks` 接口新增 `OnStepComplete(pid types.PID, step int, action string, summary string)` 方法
+  - [x] 1.2 在 `ActionToolCall` 分支成功处理后（L1461-1466 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "tool_call", toolCallSummary)`
+  - [x] 1.3 在 `ActionPlan` 分支成功处理后（L1500 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "plan", planSummary)`
+  - [x] 1.4 在 `ActionSpawn` 分支成功处理后（L1654 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "spawn", spawnSummary)`
+  - [x] 1.5 在 `ActionComplete` 分支（L1678 `emitEvent` 之后、`finishProcess` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "complete", "")`
+  - [x] 1.6 在 `ActionReplan` 分支成功处理后（L1715 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "replan", reason)`
+  - [x] 1.7 在 `ActionSpecialize` 分支成功处理后（L1839 `emitEvent` 之后、`continue` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "specialize", skillName)`
+  - [x] 1.8 在 `ActionText` 分支（L1256 `emitEvent` 之后、`finishProcess` 之前），调用 `k.callbacks.OnStepComplete(proc.PID, step, "text", "")`
 
-- [ ] Task 2: 生成各 action 类型的 summary 字符串 (AC: #1, #2, #3)
-  - [ ] 2.1 `tool_call` summary: 格式 `"{toolPath} → {briefResult}"`；`briefResult` = toolResult 前 60 字符截断（去掉换行），超长时追加 `...`
-  - [ ] 2.2 `plan` summary: 格式 `"plan ({N} steps)"`；从 `action.ToolData` 中解析 `steps` 数组长度，解析失败时用 `"plan"`
-  - [ ] 2.3 `spawn` summary: 格式 `"spawn PID {childPID} \"{intent}\""`；`intent` = `spawnIntent` 变量（已有）
+- [x] Task 2: 生成各 action 类型的 summary 字符串 (AC: #1, #2, #3)
+  - [x] 2.1 `tool_call` summary: 格式 `"{toolPath} → {briefResult}"`；`briefResult` = toolResult 前 60 字符截断（去掉换行），超长时追加 `...`
+  - [x] 2.2 `plan` summary: 格式 `"plan ({N} steps)"`；从 `action.ToolData` 中解析 `steps` 数组长度，解析失败时用 `"plan"`
+  - [x] 2.3 `spawn` summary: 格式 `"spawn PID {childPID} \"{intent}\""`；`intent` = `spawnIntent` 变量（已有）
 
-- [ ] Task 3: 修改 `ipc/protocol.go` — ProgressPayload 扩展字段 (AC: #1, #2, #3, #5)
-  - [ ] 3.1 在 `ProgressPayload` 中新增字段：`Action string \`json:"action,omitempty"\``（action 类型），`Summary string \`json:"summary,omitempty"\``（摘要文本）
-  - [ ] 3.2 ProgressPayload.Event 增加 `"step_complete"` 值（与现有 `"step"` 并存，不修改 `"step"` 语义）
+- [x] Task 3: 修改 `ipc/protocol.go` — ProgressPayload 扩展字段 (AC: #1, #2, #3, #5)
+  - [x] 3.1 在 `ProgressPayload` 中新增字段：`Action string \`json:"action,omitempty"\``（action 类型），`Summary string \`json:"summary,omitempty"\``（摘要文本）
+  - [x] 3.2 ProgressPayload.Event 增加 `"step_complete"` 值（与现有 `"step"` 并存，不修改 `"step"` 语义）
 
-- [ ] Task 4: 修改 `ipc/server.go` — callbackMux 实现 OnStepComplete (AC: #1, #2, #3)
-  - [ ] 4.1 在 `callbackMux` 上实现 `OnStepComplete(pid types.PID, step int, action string, summary string)` 方法
-  - [ ] 4.2 构建 `ProgressPayload{Event: "step_complete", PID: pid, Step: step, Action: action, Summary: summary}`
-  - [ ] 4.3 Marshal 后通过 `m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})` 发送
+- [x] Task 4: 修改 `ipc/server.go` — callbackMux 实现 OnStepComplete (AC: #1, #2, #3)
+  - [x] 4.1 在 `callbackMux` 上实现 `OnStepComplete(pid types.PID, step int, action string, summary string)` 方法
+  - [x] 4.2 构建 `ProgressPayload{Event: "step_complete", PID: pid, Step: step, Action: action, Summary: summary}`
+  - [x] 4.3 Marshal 后通过 `m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})` 发送
 
-- [ ] Task 5: 修改 `internal/ui/progress.go` — 新增 AgentStepComplete 方法 (AC: #1, #2, #3, #4)
-  - [ ] 5.1 新增 `func (p *ProgressReporter) AgentStepComplete(pid types.PID, step int, action string, summary string)`
-  - [ ] 5.2 quiet 模式直接返回（同 `AgentStep` 模式）
-  - [ ] 5.3 JSON 模式直接返回（JSON 输出由 cmd 层处理）
-  - [ ] 5.4 默认模式输出格式：`[agent/{pid}] step {step}: {action}{summary 非空时追加 " → " + summary}`
+- [x] Task 5: 修改 `internal/ui/progress.go` — 新增 AgentStepComplete 方法 (AC: #1, #2, #3, #4)
+  - [x] 5.1 新增 `func (p *ProgressReporter) AgentStepComplete(pid types.PID, step int, action string, summary string)`
+  - [x] 5.2 quiet 模式直接返回（同 `AgentStep` 模式）
+  - [x] 5.3 JSON 模式直接返回（JSON 输出由 cmd 层处理）
+  - [x] 5.4 默认模式输出格式：`[agent/{pid}] step {step}: {action}{summary 非空时追加 " → " + summary}`
 
-- [ ] Task 6: 修改 `cmd/rnix/main.go` — SpawnAndWatch 回调处理 step_complete 事件 (AC: #1-#5)
-  - [ ] 6.1 在 SpawnAndWatch 回调的 `switch pp.Event` 中新增 `case "step_complete":` 分支
-  - [ ] 6.2 默认模式：调用 `progress.AgentStepComplete(pp.PID, pp.Step, pp.Action, pp.Summary)`
-  - [ ] 6.3 JSON 模式：输出结构化 JSON 行（`{"event":"step_complete","pid":N,"step":N,"action":"...","summary":"..."}`）
+- [x] Task 6: 修改 `cmd/rnix/main.go` — SpawnAndWatch 回调处理 step_complete 事件 (AC: #1-#5)
+  - [x] 6.1 在 SpawnAndWatch 回调的 `switch pp.Event` 中新增 `case "step_complete":` 分支
+  - [x] 6.2 默认模式：调用 `progress.AgentStepComplete(pp.PID, pp.Step, pp.Action, pp.Summary)`
+  - [x] 6.3 JSON 模式：输出结构化 JSON 行（`{"event":"step_complete","pid":N,"step":N,"action":"...","summary":"..."}`）
 
-- [ ] Task 7: 移除或替换现有 `"step"` 事件的简单输出 (AC: #1)
-  - [ ] 7.1 评估：现有 `case "step":` 调用 `progress.AgentStep(pp.PID, pp.Step, pp.Total)` 输出 `[agent/N] reasoning step N...`，此行在 `step_complete` 出现后会重复。**方案**：保留 `OnStep`（步骤开始通知），但 `AgentStep` 输出改为仅在 verbose 模式输出，默认模式下静默。这样默认模式只看到步骤完成后的摘要行，verbose 模式兼得开始和完成两行。
+- [x] Task 7: 移除或替换现有 `"step"` 事件的简单输出 (AC: #1)
+  - [x] 7.1 评估：现有 `case "step":` 调用 `progress.AgentStep(pp.PID, pp.Step, pp.Total)` 输出 `[agent/N] reasoning step N...`，此行在 `step_complete` 出现后会重复。**方案**：保留 `OnStep`（步骤开始通知），但 `AgentStep` 输出改为仅在 verbose 模式输出，默认模式下静默。这样默认模式只看到步骤完成后的摘要行，verbose 模式兼得开始和完成两行。
 
-- [ ] Task 8: 添加单元测试 (AC: #1-#6)
-  - [ ] 8.1 `kernel/kernel_test.go` — 新增 `TestReasonStep_OnStepComplete_ToolCall`：mock KernelCallbacks，验证 tool_call 后 OnStepComplete 被调用且参数正确
-  - [ ] 8.2 `kernel/kernel_test.go` — 新增 `TestReasonStep_OnStepComplete_Plan`：验证 plan 后的回调
-  - [ ] 8.3 `kernel/kernel_test.go` — 新增 `TestReasonStep_OnStepComplete_Spawn`：验证 spawn 后的回调包含 child PID
-  - [ ] 8.4 `internal/ui/progress_test.go` — 新增 `TestAgentStepComplete_*`：验证各模式下（default、quiet、json）的输出
-  - [ ] 8.5 `ipc/server_test.go` — 验证 callbackMux.OnStepComplete 发送正确的 StreamEvent
+- [x] Task 8: 添加单元测试 (AC: #1-#6)
+  - [x] 8.1 `kernel/kernel_test.go` — 新增 `TestReasonStep_OnStepComplete_ToolCall`：mock KernelCallbacks，验证 tool_call 后 OnStepComplete 被调用且参数正确
+  - [x] 8.2 `kernel/kernel_test.go` — 新增 `TestReasonStep_OnStepComplete_Plan`：验证 plan 后的回调
+  - [x] 8.3 `kernel/kernel_test.go` — 新增 `TestReasonStep_OnStepComplete_Spawn`：验证 spawn 后的回调包含 child PID
+  - [x] 8.4 `internal/ui/progress_test.go` — 新增 `TestAgentStepComplete_*`：验证各模式下（default、quiet、json）的输出
+  - [x] 8.5 `ipc/server_test.go` — 验证 callbackMux.OnStepComplete 发送正确的 StreamEvent
 
 ## Dev Notes
 
@@ -374,10 +374,42 @@ internal/types/types.go — 不新增类型（ActionType 已在 kernel 中定义
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-4.6-opus-high-thinking (Cursor)
 
 ### Debug Log References
 
+无调试日志。
+
 ### Completion Notes List
 
+- KernelCallbacks 接口新增 OnStepComplete 方法，7 个 action 分支（text, tool_call, plan, spawn, complete, replan, specialize）均在 emitEvent 之后、continue/finishProcess 之前调用
+- 新增 3 个 summary 辅助函数：briefToolCallSummary（60 字符截断）、briefPlanSummary（解析 steps 数组长度）、briefReplanSummary（40 rune 截断）
+- ProgressPayload 新增 Action、Summary 字段（omitempty），Event 增加 "step_complete" 值
+- callbackMux.OnStepComplete 将 step_complete 事件序列化后通过 StreamProgress 发送到 IPC 客户端
+- AgentStepComplete 渲染方法实现四种模式：default/verbose 输出 "[agent/N] step N: action → summary"，quiet/JSON 静默
+- AgentStep 从默认模式输出改为仅 verbose 模式输出，避免与 step_complete 重复
+- SpawnAndWatch 回调新增 "step_complete" case，JSON 模式输出结构化 NDJSON 行
+- cliCallbacks 新增 OnStepComplete 方法转发到 ProgressReporter
+- 更新了 4 个 KernelCallbacks 实现：cliCallbacks、callbackMux、testCallbacks、atdd36Callbacks
+- 修复 ATDD 预写测试中的 vet 警告（%d → %v for StreamEventType）和 lint 警告（空 if 分支）
+- 更新了因 AgentStep 行为变更而失败的 3 个现有测试：TestAgentStep_Format、TestCliCallbacks_OnStep、TestE2E_SuccessFlow
+- `make all`（lint + vet + test + build）全部通过，0 lint issues，无竞态条件
+
 ### File List
+
+**修改文件：**
+- kernel/kernel.go — KernelCallbacks 新增 OnStepComplete；7 个 action 分支添加回调调用；3 个 summary 辅助函数
+- ipc/protocol.go — ProgressPayload 新增 Action、Summary 字段
+- ipc/server.go — callbackMux 实现 OnStepComplete
+- internal/ui/progress.go — 新增 AgentStepComplete 方法；AgentStep 改为仅 verbose 输出
+- cmd/rnix/main.go — cliCallbacks 新增 OnStepComplete；SpawnAndWatch 新增 "step_complete" 分支
+
+**修改测试文件：**
+- internal/ui/progress_test.go — TestAgentStep_Format 改用 verbose 模式；新增 TestAgentStep_DefaultMode_Silent
+- cmd/rnix/main_test.go — TestCliCallbacks_OnStep 改用 verbose 模式；新增 TestCliCallbacks_OnStepComplete、TestCliCallbacks_OnStep_DefaultMode_Silent
+- cmd/rnix/integration_test.go — TestE2E_SuccessFlow 改为检查 "step 1:" 替代 "reasoning step"
+- kernel/stem_integration_test.go — testCallbacks 新增 onStepComplete 字段和 OnStepComplete 方法
+
+**修改 ATDD 测试文件（修复预写问题）：**
+- ipc/atdd_3_6_step_output_streaming_test.go — 修复 %d → %v vet 警告
+- internal/ui/atdd_3_6_step_output_streaming_test.go — 修复空 if 分支 lint 警告

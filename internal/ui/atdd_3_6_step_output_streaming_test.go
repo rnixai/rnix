@@ -42,8 +42,8 @@ func TestATDD_3_6_AC1_AgentStepComplete_ToolCall_DefaultMode(t *testing.T) {
 	if !strings.Contains(output, "/dev/fs") {
 		t.Errorf("AC1: expected '/dev/fs' in summary, got %q", output)
 	}
-	if !strings.HasSuffix(strings.TrimSpace(output), "\n") || !strings.Contains(output, "\n") {
-		// output should end with newline
+	if !strings.Contains(output, "\n") {
+		t.Error("AC1: expected output to contain newline")
 	}
 }
 

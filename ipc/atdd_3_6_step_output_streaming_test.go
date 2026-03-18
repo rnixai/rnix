@@ -33,7 +33,7 @@ func TestATDD_3_6_AC1_CallbackMux_OnStepComplete_SendsEvent(t *testing.T) {
 	select {
 	case ev := <-ch:
 		if ev.Type != StreamProgress {
-			t.Fatalf("AC1: expected StreamProgress, got %d", ev.Type)
+			t.Fatalf("AC1: expected StreamProgress, got %v", ev.Type)
 		}
 
 		var pp ProgressPayload
