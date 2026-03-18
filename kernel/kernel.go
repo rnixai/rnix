@@ -49,7 +49,6 @@ type SpawnOpts struct {
 
 	PreallocatedCtxID types.CtxID            // non-zero = skip CtxAlloc, use this pre-setup context
 	SkipReasonLoop    bool                   // true = don't open LLM device or start reasonStep goroutine
-	ReasoningMode     string                 // "" = linear (default), "ooda" = OODA loop
 	ProjectConfig     *config.ProjectConfig  // project-level config snapshot; nil = global only
 }
 
@@ -157,7 +156,7 @@ type KernelImpl struct {
 	// Span recording (Story 15.1)
 	spanRecorder *debug.SpanRecorder
 
-	// Agent loader for OODA autonomous spawn (Story 20.2)
+	// Agent loader for autonomous spawn (Story 20.2)
 	agentLoader func(name string) (*agents.AgentInfo, error)
 
 	// Stem agent differentiation (Story 20.3)
@@ -270,7 +269,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// Stem agent differentiation: auto-match skills based on intent (Story 20.3)
 		if agent.Manifest.Name == "stem" && len(agent.Manifest.Skills) == 0 && k.stemMatcher != nil {
 			diffStart := time.Now()
-			k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: matching skills for intent %q", intent), "")
+			k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: matching skills for intent %q", intent), "")
 
 			// Check differentiation memory first (Story 20.4)
 			var matchedSkills []string
@@ -280,7 +279,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				if remembered, ok := k.diffMemory.Lookup(intent); ok {
 					matchedSkills = remembered
 					fromMemory = true
-					k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf(
+					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf(
 						"differentiating: reusing remembered path for intent %q: %v", intent, remembered), "")
 				}
 			}
@@ -288,7 +287,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			if !fromMemory {
 				matchedSkills, matchErr = k.stemMatcher.Match(intent)
 				if matchErr != nil {
-					k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: match error: %v", matchErr), "")
+					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: match error: %v", matchErr), "")
 				}
 			}
 
@@ -302,7 +301,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					}
 				}
 				if len(loadedNames) > 0 {
-					k.emitLog(proc, 0, types.LogOODA, fmt.Sprintf("differentiating: loading skills %v", loadedNames), "")
+					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf("differentiating: loading skills %v", loadedNames), "")
 					// Update proc.Skills so ps/ProcInfo reflects differentiated skills
 					proc.Skills = loadedNames
 
@@ -356,11 +355,6 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// Budget priority: opts (CLI/Compose) > agent manifest > 0 (no limit)
 		if opts.ContextBudget == 0 && agent.Manifest.ContextBudget > 0 {
 			opts.ContextBudget = agent.Manifest.ContextBudget
-		}
-
-		// Reasoning mode: agent.yaml > SpawnOpts (SpawnOpts is low-priority fallback)
-		if agent.Manifest.Reasoning == "ooda" {
-			opts.ReasoningMode = "ooda"
 		}
 
 		// Fallback configuration (Story 23.5)
@@ -608,24 +602,12 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// No reasoning goroutine — process starts in Running state immediately
 		_ = proc.Start() // Created → Running
 	} else {
-		// Initialize OODA state if requested
-		if opts.ReasoningMode == "ooda" {
-			proc.mu.Lock()
-			proc.oodaEnabled = true
-			proc.oodaState = &OODAState{Phase: PhaseObserve, Cycle: 0}
-			proc.mu.Unlock()
-		}
-
 		// Launch reasoning goroutine
 		// Note: CtxFree deferred to Wait/Reap (Story 4.1) per resource release order
 		proc.wg.Go(func() {
 			defer func() { _ = k.vfs.CloseAll(proc.PID) }()
 			_ = proc.Start() // Created → Running
-			if proc.oodaEnabled {
-				k.oodaReasonStep(proc, llmFD, opts)
-			} else {
-				k.reasonStep(proc, llmFD, opts)
-			}
+			k.reasonStep(proc, llmFD, opts)
 		})
 	}
 
@@ -1718,7 +1700,7 @@ func (k *KernelImpl) SetSpanWriter(w *debug.SpanWriter) {
 	}
 }
 
-// SetAgentLoader injects the agent loading function for OODA autonomous spawn.
+// SetAgentLoader injects the agent loading function for autonomous spawn.
 func (k *KernelImpl) SetAgentLoader(loader func(name string) (*agents.AgentInfo, error)) {
 	k.agentLoader = loader
 }

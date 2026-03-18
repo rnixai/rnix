@@ -14,7 +14,7 @@ Rnix 将 Unix 操作系统的核心抽象引入 AI 智能体领域。每一次�
 
 - **一切皆文件** — LLM、文件系统、Shell、MCP 工具统一为 VFS 设备。多 Provider LLM 支持，`rnix serve` 提供 OpenAI 兼容网关。
 
-- **自主智能体** — OODA 推理循环实现自主决策。干细胞分化让通用智能体根据意图自动特化。声明式意图系统配合 Reconciler 驱动目标执行。
+- **自主智能体** — 统一推理循环，LLM 自主选择行为类型（tool_call/plan/spawn/specialize/complete）。干细胞分化让通用智能体根据意图自动特化。声明式意图系统配合 Reconciler 驱动目标执行。
 
 - **深度调试工具链** — strace、GDB 风格交互式调试器（attach/断点/单步/检查）、时间旅行回放与 fork-continue、分布式因果追踪、可视化 TUI 面板、agtest 回归测试。
 

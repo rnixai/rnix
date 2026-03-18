@@ -1,8 +1,7 @@
 package agents
 
 // =============================================================================
-// ATDD Story 20.2: OODA Configuration & Mission Command
-// TDD RED PHASE - All tests designed to FAIL until implementation exists
+// ATDD Story 20.2: Reasoning Field Validation
 // =============================================================================
 
 import (
@@ -13,23 +12,6 @@ import (
 )
 
 // --- AC #1: AgentManifest Reasoning Field ---
-
-func TestAgentManifest_ReasoningField(t *testing.T) {
-	// Given: agent.yaml with reasoning: ooda
-	// When: loading the ooda-agent
-	// Then: AgentManifest.Reasoning == "ooda"
-	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
-	al := NewAgentLoader([]string{"testdata"}, sl, nil)
-
-	info, err := al.Load("ooda-agent")
-	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
-	}
-
-	if info.Manifest.Reasoning != "ooda" {
-		t.Errorf("Reasoning = %q, want %q", info.Manifest.Reasoning, "ooda")
-	}
-}
 
 func TestAgentLoader_DefaultReasoningMode(t *testing.T) {
 	// Given: agent.yaml without reasoning field
@@ -74,7 +56,7 @@ func TestAgentLoader_LinearReasoningMode(t *testing.T) {
 	// Note: This test validates that "linear" is an accepted value.
 	// We reuse mock-agent and verify default behavior; the explicit "linear"
 	// case is tested via TestAgentLoader_InvalidReasoningMode ensuring
-	// only "", "linear", and "ooda" pass validation.
+	// only "" and "linear" pass validation.
 	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
 	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 

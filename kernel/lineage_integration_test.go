@@ -7,7 +7,6 @@ package kernel
 //
 // Test Strategy:
 // - Task 2: Spawn integration (lineage created on stem differentiation)
-// - Task 3: OODA specialize integration (progressive lineage recorded)
 // - Task 4: Kernel GetLineage method
 // - Task 6: End-to-end lineage flows
 //
@@ -15,7 +14,6 @@ package kernel
 // Test Level: Integration
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -201,110 +199,6 @@ func TestSpawn_NonStemAgent_NoLineage(t *testing.T) {
 	lineage := proc.GetLineage()
 	if lineage != nil {
 		t.Error("expected nil lineage for non-stem agent, got non-nil")
-	}
-}
-
-// --- Task 3: OODA Specialize Integration with Lineage Recording (AC: #2) ---
-
-func TestOODA_Specialize_RecordsLineage(t *testing.T) {
-	// Given: a running stem agent with an initial lineage event
-	// When: oodaActSpecialize successfully loads a new skill
-	// Then: lineage has a "progressive" event appended
-	llmFile := &mockLLMFile{}
-	k, _, _ := newTestKernel(t, llmFile)
-
-	// Set up skill loader
-	k.SetSkillLoader(func(name string) (*skills.SkillInfo, error) {
-		return &skills.SkillInfo{
-			Manifest: skills.SkillManifest{
-				Name:            name,
-				Description:     "Dynamically loaded skill",
-				AllowedToolsRaw: "/dev/shell",
-			},
-			Body: "# " + name + "\nDynamic skill body.",
-		}, nil
-	})
-
-	// Create a process with lineage already initialized (simulating post-spawn)
-	proc := NewProcess(0, "analyze code quality", []string{"code-analysis"})
-	proc.oodaEnabled = true
-	proc.oodaState = &OODAState{Phase: PhaseAct}
-	lineage := NewLineage()
-	lineage.Record(LineageEvent{
-		Timestamp: time.Now(),
-		Phase:     "initial",
-		Skills:    []string{"code-analysis"},
-		Trigger:   "analyze code quality",
-	})
-	proc.SetLineage(lineage)
-
-	k.procTable.Store(proc.PID, proc)
-
-	// When: specialize action loads "test-runner" skill
-	decision := &OODADecision{
-		Action: OODASpecialize,
-		Target: "test-runner",
-		Reason: "need test execution capability for coverage analysis",
-	}
-	result := k.oodaActSpecialize(proc, decision)
-
-	// Then: result indicates success
-	if strings.HasPrefix(result, "specialize error") {
-		t.Fatalf("specialize failed: %s", result)
-	}
-
-	// And: lineage now has 2 events (initial + progressive)
-	events := proc.GetLineage().Events()
-	if len(events) != 2 {
-		t.Fatalf("expected 2 lineage events, got %d", len(events))
-	}
-
-	progressive := events[1]
-	if progressive.Phase != "progressive" {
-		t.Errorf("expected second event phase='progressive', got %q", progressive.Phase)
-	}
-	if len(progressive.Skills) != 1 || progressive.Skills[0] != "test-runner" {
-		t.Errorf("expected progressive skill=['test-runner'], got %v", progressive.Skills)
-	}
-}
-
-func TestOODA_Specialize_LineageTriggerFromReason(t *testing.T) {
-	// Given: a running stem agent with lineage
-	// When: oodaActSpecialize is called with a specific reason
-	// Then: the progressive lineage event's Trigger matches the decision.Reason
-	llmFile := &mockLLMFile{}
-	k, _, _ := newTestKernel(t, llmFile)
-
-	k.SetSkillLoader(func(name string) (*skills.SkillInfo, error) {
-		return &skills.SkillInfo{
-			Manifest: skills.SkillManifest{Name: name, Description: "test"},
-			Body:     "# " + name,
-		}, nil
-	})
-
-	proc := NewProcess(0, "build project", []string{})
-	proc.oodaEnabled = true
-	proc.oodaState = &OODAState{Phase: PhaseAct}
-	lineage := NewLineage()
-	proc.SetLineage(lineage)
-	k.procTable.Store(proc.PID, proc)
-
-	expectedReason := "discovered test files that need compilation"
-	decision := &OODADecision{
-		Action: OODASpecialize,
-		Target: "build-tools",
-		Reason: expectedReason,
-	}
-	k.oodaActSpecialize(proc, decision)
-
-	events := proc.GetLineage().Events()
-	if len(events) == 0 {
-		t.Fatal("expected lineage event after specialize")
-	}
-
-	last := events[len(events)-1]
-	if last.Trigger != expectedReason {
-		t.Errorf("expected trigger=%q, got %q", expectedReason, last.Trigger)
 	}
 }
 

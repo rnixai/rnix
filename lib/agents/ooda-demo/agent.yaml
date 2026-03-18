@@ -1,9 +1,0 @@
-name: ooda-demo
-description: "OODA 循环演示智能体"
-models:
-  provider: claude
-  preferred: sonnet
-reasoning: ooda
-context_budget: 16384
-skills:
-  - code-analysis

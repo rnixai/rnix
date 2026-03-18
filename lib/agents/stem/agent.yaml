@@ -5,4 +5,3 @@ models:
   preferred: sonnet
 context_budget: 16384
 skills: []
-reasoning: ooda

@@ -8,10 +8,9 @@ package kernel
 // Test Strategy:
 // - Task 1: DiffMemory data structure unit tests (Record, Lookup, normalize, eviction, concurrency)
 // - Task 2: Spawn integration with differentiation memory (Lookup, Record, fallback)
-// - Task 3: OODA specialize action (dynamic skill loading during execution)
 //
 // Priority: P0/P1 (core differentiation memory and progressive specialization)
-// Test Level: Unit (DiffMemory) + Integration (Spawn + OODA)
+// Test Level: Unit (DiffMemory) + Integration (Spawn)
 
 import (
 	"sort"

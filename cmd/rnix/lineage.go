@@ -122,7 +122,7 @@ func formatLineage(resp *ipc.LineageResponse) string {
 		var source string
 		switch {
 		case event.Phase == "progressive":
-			source = "ooda-specialize"
+			source = "specialize"
 		case event.FromMemory:
 			source = "memory-reuse"
 		default:
