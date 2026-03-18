@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	gocontext "context"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -13,6 +14,29 @@ import (
 	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
+
+type gatedLLMFile struct {
+	inner vfs.VFSFile
+	gate  chan struct{}
+	once  sync.Once
+}
+
+func (f *gatedLLMFile) Read(length int) ([]byte, error) {
+	f.once.Do(func() { <-f.gate })
+	return f.inner.Read(length)
+}
+
+func (f *gatedLLMFile) Write(ctx gocontext.Context, data []byte) error {
+	return f.inner.Write(ctx, data)
+}
+
+func (f *gatedLLMFile) Close() error {
+	return f.inner.Close()
+}
+
+func (f *gatedLLMFile) Stat() (vfs.FileStat, error) {
+	return f.inner.Stat()
+}
 
 // ============================================================
 // ATDD RED PHASE — Story 26.3: Specialize 能力迁移
@@ -334,7 +358,9 @@ func TestReasonStep_Specialize_LineageRecorded(t *testing.T) {
 			makeLLMResponse("done", 5),
 		},
 	}
-	k, _, _ := newSpecializeTestKernel(t, seqFile)
+	gate := make(chan struct{})
+	gated := &gatedLLMFile{inner: seqFile, gate: gate}
+	k, _, _ := newSpecializeTestKernel(t, gated)
 
 	pid, err := k.Spawn("analyze code", nil, SpawnOpts{})
 	if err != nil {
@@ -342,9 +368,10 @@ func TestReasonStep_Specialize_LineageRecorded(t *testing.T) {
 	}
 	proc, _ := k.GetProcess(pid)
 
-	// Attach lineage before reasonStep runs
-	// Note: in the real flow, lineage is attached during Spawn if stem agent
+	proc.mu.Lock()
 	proc.lineage = NewLineage()
+	proc.mu.Unlock()
+	close(gate)
 
 	select {
 	case <-proc.Done:
@@ -675,14 +702,19 @@ func TestReasonStep_Specialize_LineageTriggerFromContent(t *testing.T) {
 			makeLLMResponse("done", 5),
 		},
 	}
-	k, _, _ := newSpecializeTestKernel(t, seqFile)
+	gate := make(chan struct{})
+	gated := &gatedLLMFile{inner: seqFile, gate: gate}
+	k, _, _ := newSpecializeTestKernel(t, gated)
 
 	pid, err := k.Spawn("review pr", nil, SpawnOpts{})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}
 	proc, _ := k.GetProcess(pid)
+	proc.mu.Lock()
 	proc.lineage = NewLineage()
+	proc.mu.Unlock()
+	close(gate)
 
 	select {
 	case <-proc.Done:

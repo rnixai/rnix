@@ -1,6 +1,6 @@
 # Story 26.3: Specialize 能力迁移
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -115,7 +115,7 @@ case ActionSpecialize:
 
 ## Tasks / Subtasks
 
-### Task 1: 替换 Specialize Stub 为完整实现 [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7]
+### Task 1: 替换 Specialize Stub 为完整实现 [AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7] [x]
 
 修改 `kernel/kernel.go` 第 1596-1604 行。
 
@@ -281,7 +281,7 @@ case ActionSpecialize:
     continue
 ```
 
-### Task 2: 编译验证 [AC-9]
+### Task 2: 编译验证 [AC-9] [x]
 
 ```bash
 go build ./cmd/rnix/
@@ -426,6 +426,24 @@ k.ctxMgr.AppendToolResult(ctxID types.CtxID, toolName string, result string) err
 ## Dev Agent Record
 
 ### Agent Model Used
+claude-4.6-opus
+
 ### Debug Log References
+- 修复 ATDD 测试数据竞争：`TestReasonStep_Specialize_LineageRecorded` 和 `TestReasonStep_Specialize_LineageTriggerFromContent` 在 Spawn 后设置 `proc.lineage`，与 reasonStep goroutine 竞争。引入 `gatedLLMFile` mock 阻塞首次 LLM Read，确保 lineage 设置完成后再释放。
+
 ### Completion Notes List
+- Task 1: 替换 `kernel/kernel.go` ActionSpecialize stub（~8行）为完整实现（~105行）
+  - AC-1: Skill 加载完整流程（skillLoader 调用 → proc.Skills/AllowedDevices 更新 → context 注入 → tool message 返回）
+  - AC-2: TOCTOU 双重检查（lock→check→unlock→load→lock→check→update→unlock）
+  - AC-3: Progressive lineage 记录（Phase="progressive", FromMemory=false, Trigger=action.Content）
+  - AC-4: DiffMemory.Record(intent, allSkills) 调用
+  - AC-5: 不存在 skill 错误以 tool message 返回，不崩溃
+  - AC-6: 空 skill name 错误处理
+  - AC-7: AppendMessage 失败容错（warning log + continue）
+  - AC-8: 线程安全通过 `-race` 检测
+- Task 2: `make all` 通过（lint 0 issues, vet 通过, 全部测试通过含 race, build 成功）
+- 额外修复：ATDD 测试文件数据竞争（新增 `gatedLLMFile` mock）
+
 ### File List
+- `kernel/kernel.go` — 新增 `"slices"` import；替换 ActionSpecialize stub 为完整实现
+- `kernel/atdd_26_3_specialize_migration_test.go` — 新增 `gatedLLMFile` mock；修复 LineageRecorded / LineageTriggerFromContent 两个测试的数据竞争

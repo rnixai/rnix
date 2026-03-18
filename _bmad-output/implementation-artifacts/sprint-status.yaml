@@ -280,7 +280,7 @@ development_status:
   epic-26: in-progress
   26-1-unified-reasonstep-and-actiontype-extension: done
   26-2-planning-config-and-agent-adaptation: done
-  26-3-specialize-capability-migration: ready-for-dev
+  26-3-specialize-capability-migration: review
   26-4-test-rewrite-and-cleanup: backlog
   26-5-documentation-update: backlog
   epic-26-retrospective: optional
