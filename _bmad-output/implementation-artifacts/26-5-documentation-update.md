@@ -1,6 +1,6 @@
 # Story 26.5: 文档更新——统一推理循环
 
-Status: review
+Status: done
 
 ## Story
 
