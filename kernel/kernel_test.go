@@ -782,6 +782,117 @@ func TestParseAction_ToolCallMissingTool(t *testing.T) {
 	}
 }
 
+func TestParseAction_Plan(t *testing.T) {
+	content := `{"action": "plan", "data": {"steps": ["step1", "step2"], "reason": "complex task"}}`
+	resp := &llmResponse{Content: content, TokensUsed: 5}
+	action := parseAction(resp)
+	if action.Type != ActionPlan {
+		t.Fatalf("expected ActionPlan, got %s", action.Type)
+	}
+	if action.Content != content {
+		t.Fatalf("Content mismatch")
+	}
+	if len(action.ToolData) == 0 {
+		t.Fatal("expected ToolData to be non-empty")
+	}
+}
+
+func TestParseAction_PlanNoData(t *testing.T) {
+	resp := &llmResponse{Content: `{"action": "plan"}`, TokensUsed: 5}
+	action := parseAction(resp)
+	if action.Type != ActionPlan {
+		t.Fatalf("expected ActionPlan, got %s", action.Type)
+	}
+	if string(action.ToolData) != "{}" {
+		t.Fatalf("expected ToolData='{}', got %q", string(action.ToolData))
+	}
+}
+
+func TestParseAction_Spawn(t *testing.T) {
+	content := `{"action": "spawn", "tool": "analyze code", "data": {"agent": "analyst", "model": "haiku"}}`
+	resp := &llmResponse{Content: content, TokensUsed: 5}
+	action := parseAction(resp)
+	if action.Type != ActionSpawn {
+		t.Fatalf("expected ActionSpawn, got %s", action.Type)
+	}
+	if action.ToolPath != "analyze code" {
+		t.Fatalf("expected ToolPath='analyze code', got %q", action.ToolPath)
+	}
+	if len(action.ToolData) == 0 {
+		t.Fatal("expected ToolData to be non-empty")
+	}
+}
+
+func TestParseAction_SpawnEmptyTool(t *testing.T) {
+	resp := &llmResponse{Content: `{"action": "spawn", "tool": "", "data": {}}`, TokensUsed: 5}
+	action := parseAction(resp)
+	if action.Type != ActionSpawn {
+		t.Fatalf("expected ActionSpawn, got %s", action.Type)
+	}
+	if action.ToolPath != "" {
+		t.Fatalf("expected empty ToolPath, got %q", action.ToolPath)
+	}
+}
+
+func TestParseAction_Complete(t *testing.T) {
+	content := `{"action": "complete", "data": {"result": "task done"}}`
+	resp := &llmResponse{Content: content, TokensUsed: 5}
+	action := parseAction(resp)
+	if action.Type != ActionComplete {
+		t.Fatalf("expected ActionComplete, got %s", action.Type)
+	}
+	if len(action.ToolData) == 0 {
+		t.Fatal("expected ToolData to be non-empty")
+	}
+}
+
+func TestParseAction_CompleteNoData(t *testing.T) {
+	content := `{"action": "complete"}`
+	resp := &llmResponse{Content: content, TokensUsed: 5}
+	action := parseAction(resp)
+	if action.Type != ActionComplete {
+		t.Fatalf("expected ActionComplete, got %s", action.Type)
+	}
+	if string(action.ToolData) != "{}" {
+		t.Fatalf("expected ToolData='{}', got %q", string(action.ToolData))
+	}
+}
+
+func TestParseAction_Replan(t *testing.T) {
+	content := `{"action": "replan", "data": {"reason": "first approach failed"}}`
+	resp := &llmResponse{Content: content, TokensUsed: 5}
+	action := parseAction(resp)
+	if action.Type != ActionReplan {
+		t.Fatalf("expected ActionReplan, got %s", action.Type)
+	}
+	if len(action.ToolData) == 0 {
+		t.Fatal("expected ToolData to be non-empty")
+	}
+}
+
+func TestParseAction_Specialize(t *testing.T) {
+	content := `{"action": "specialize", "tool": "code-analyst"}`
+	resp := &llmResponse{Content: content, TokensUsed: 5}
+	action := parseAction(resp)
+	if action.Type != ActionSpecialize {
+		t.Fatalf("expected ActionSpecialize, got %s", action.Type)
+	}
+	if action.ToolPath != "code-analyst" {
+		t.Fatalf("expected ToolPath='code-analyst', got %q", action.ToolPath)
+	}
+	if len(action.ToolData) == 0 {
+		t.Fatal("expected ToolData to be non-empty")
+	}
+}
+
+func TestParseAction_UnknownAction(t *testing.T) {
+	resp := &llmResponse{Content: `{"action": "unknown_type"}`, TokensUsed: 5}
+	action := parseAction(resp)
+	if action.Type != ActionText {
+		t.Fatalf("expected ActionText for unknown action, got %s", action.Type)
+	}
+}
+
 // --- Integration test ---
 
 func TestSpawn_Integration(t *testing.T) {

@@ -100,6 +100,7 @@ type Process struct {
 	PrimaryDevice    string // primary VFS device path (e.g. "/dev/llm/claude")
 	Provider         string // resolved provider name (immutable after spawn)
 	Model            string // resolved model name (immutable after spawn)
+	PlanningEnabled  bool   // true = inject planProtocol; derived from agent manifest Planning field
 
 	// Project configuration (Story 25.3) — immutable after spawn, no locking needed
 	ProjectConfig *config.ProjectConfig
@@ -115,19 +116,20 @@ type Process struct {
 func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Process{
-		PID:       nextPID(),
-		PPID:      ppid,
-		State:     types.StateCreated,
-		Intent:    intent,
-		Skills:    skills,
-		Children:  []types.PID{},
-		FDTable:   make(map[types.FD]vfs.VFSFile),
-		DebugChan: make(chan types.SyscallEvent, 256),
-		LogChan:   make(chan types.LogEntry, 256),
-		Done:      make(chan ExitStatus, 1),
-		CreatedAt: time.Now(),
-		ctx:       ctx,
-		cancel:    cancel,
+		PID:             nextPID(),
+		PPID:            ppid,
+		State:           types.StateCreated,
+		Intent:          intent,
+		Skills:          skills,
+		PlanningEnabled: true,
+		Children:        []types.PID{},
+		FDTable:         make(map[types.FD]vfs.VFSFile),
+		DebugChan:       make(chan types.SyscallEvent, 256),
+		LogChan:         make(chan types.LogEntry, 256),
+		Done:            make(chan ExitStatus, 1),
+		CreatedAt:       time.Now(),
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 }
 

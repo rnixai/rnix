@@ -1,0 +1,7 @@
+name: planning-true
+description: "Test agent with planning explicitly enabled"
+models:
+  provider: claude
+  preferred: sonnet
+planning: true
+skills: []
