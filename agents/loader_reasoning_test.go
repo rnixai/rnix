@@ -1,22 +1,12 @@
 package agents
 
-// =============================================================================
-// ATDD Story 20.2: Reasoning Field Validation
-// =============================================================================
-
 import (
-	"strings"
 	"testing"
 
 	"github.com/rnixai/rnix/skills"
 )
 
-// --- AC #1: AgentManifest Reasoning Field ---
-
-func TestAgentLoader_DefaultReasoningMode(t *testing.T) {
-	// Given: agent.yaml without reasoning field
-	// When: loading the mock-agent
-	// Then: AgentManifest.Reasoning == "" (empty = linear default)
+func TestAgentLoader_PlanningDefault(t *testing.T) {
 	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
 	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
@@ -25,48 +15,41 @@ func TestAgentLoader_DefaultReasoningMode(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	if info.Manifest.Reasoning != "" {
-		t.Errorf("Reasoning = %q, want empty string (linear default)", info.Manifest.Reasoning)
+	if info.Manifest.Planning != nil {
+		t.Errorf("Planning = %v, want nil (default = enabled)", *info.Manifest.Planning)
 	}
 }
 
-func TestAgentLoader_InvalidReasoningMode(t *testing.T) {
-	// Given: agent.yaml with reasoning: bogus
-	// When: loading the invalid-reasoning agent
-	// Then: Load returns error mentioning invalid reasoning mode
+func TestAgentLoader_PlanningExplicitTrue(t *testing.T) {
 	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
 	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
-	_, err := al.Load("invalid-reasoning")
-	if err == nil {
-		t.Fatal("expected error for invalid reasoning mode, got nil")
-	}
-	if !strings.Contains(err.Error(), "invalid reasoning mode") {
-		t.Errorf("error = %q, want substring 'invalid reasoning mode'", err.Error())
-	}
-	if !strings.Contains(err.Error(), "bogus") {
-		t.Errorf("error = %q, want substring 'bogus'", err.Error())
-	}
-}
-
-func TestAgentLoader_LinearReasoningMode(t *testing.T) {
-	// Given: agent.yaml with reasoning: linear (explicit linear)
-	// When: loading such an agent
-	// Then: AgentManifest.Reasoning should be accepted as valid
-	// Note: This test validates that "linear" is an accepted value.
-	// We reuse mock-agent and verify default behavior; the explicit "linear"
-	// case is tested via TestAgentLoader_InvalidReasoningMode ensuring
-	// only "" and "linear" pass validation.
-	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
-	al := NewAgentLoader([]string{"testdata"}, sl, nil)
-
-	info, err := al.Load("mock-agent")
+	info, err := al.Load("planning-true")
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	// Default (empty) reasoning is equivalent to "linear"
-	if info.Manifest.Reasoning != "" && info.Manifest.Reasoning != "linear" {
-		t.Errorf("Reasoning = %q, want empty or \"linear\"", info.Manifest.Reasoning)
+	if info.Manifest.Planning == nil {
+		t.Fatal("Planning = nil, want *true")
+	}
+	if !*info.Manifest.Planning {
+		t.Errorf("Planning = %v, want true", *info.Manifest.Planning)
+	}
+}
+
+func TestAgentLoader_PlanningExplicitFalse(t *testing.T) {
+	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
+	al := NewAgentLoader([]string{"testdata"}, sl, nil)
+
+	info, err := al.Load("planning-false")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if info.Manifest.Planning == nil {
+		t.Fatal("Planning = nil, want *false")
+	}
+	if *info.Manifest.Planning {
+		t.Errorf("Planning = %v, want false", *info.Manifest.Planning)
 	}
 }

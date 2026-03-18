@@ -1,0 +1,7 @@
+name: planning-false
+description: "Test agent with planning explicitly disabled"
+models:
+  provider: claude
+  preferred: sonnet
+planning: false
+skills: []

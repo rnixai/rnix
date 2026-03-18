@@ -52,12 +52,14 @@ type SpawnOpts struct {
 	ProjectConfig     *config.ProjectConfig  // project-level config snapshot; nil = global only
 }
 
-// linearToolProtocol is injected into the system prompt for linear-mode processes,
-// telling the LLM how to invoke VFS devices via structured JSON actions.
-const linearToolProtocol = `
+// toolProtocol is injected into the system prompt, telling the LLM how to
+// invoke VFS devices and other actions via structured JSON.
+const toolProtocol = `
 
-[Tool Call Protocol]
-To use a tool, respond with ONLY a JSON object (no markdown, no extra text):
+[Action Protocol]
+Respond with a JSON object to perform an action, or plain text for your final answer.
+
+Tool call — execute a VFS device:
 {"action": "tool_call", "tool": "<vfs-device-path>", "data": {<tool-specific-payload>}}
 
 Available VFS device paths:
@@ -68,15 +70,40 @@ Available VFS device paths:
   - LLM call: tool="/dev/llm/<provider>", data={"intent": "..."}
   - MCP tool: tool="/dev/mcp/<server>/<tool>", data={...}
 
-If no tool call is needed, respond with plain text (your final answer).`
+Spawn child process:
+{"action": "spawn", "tool": "<child intent>", "data": {"agent": "<name>", "model": "<model>"}}
+
+Complete — finish with a result:
+{"action": "complete", "tool": "", "data": {"result": "<final output>"}}
+
+Replan — revise your approach:
+{"action": "replan", "tool": "", "data": {"reason": "<why replanning>"}}
+
+Specialize — dynamically load a skill:
+{"action": "specialize", "tool": "<skill-name>", "data": {}}
+
+If no action is needed, respond with plain text (your final answer).`
+
+// planProtocol is appended after toolProtocol when planning is enabled,
+// giving the LLM the ability to create execution plans before acting.
+const planProtocol = `
+
+Plan — create an execution plan before acting:
+{"action": "plan", "tool": "", "data": {"steps": ["step1", "step2", ...], "reason": "why planning"}}
+
+Use planning when the task requires multiple coordinated steps. For simple tasks, use tool_call directly.`
 
 // ActionType classifies LLM response actions.
 type ActionType string
 
 const (
-	ActionText     ActionType = "text"
-	ActionToolCall ActionType = "tool_call"
-	ActionSpawn    ActionType = "spawn"
+	ActionText       ActionType = "text"
+	ActionToolCall   ActionType = "tool_call"
+	ActionPlan       ActionType = "plan"
+	ActionSpawn      ActionType = "spawn"
+	ActionComplete   ActionType = "complete"
+	ActionReplan     ActionType = "replan"
+	ActionSpecialize ActionType = "specialize"
 )
 
 // ReasonAction represents a parsed action from an LLM response.
@@ -346,6 +373,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 		// Aggregate AllowedTools from all Skills
 		proc.AllowedDevices = agent.AllowedTools()
+
+		// Planning configuration: nil (default) = true, explicit false = disabled
+		if agent.Manifest.Planning != nil && !*agent.Manifest.Planning {
+			proc.PlanningEnabled = false
+		}
 
 		// Model selection priority: CLI --model > Agent manifest > driver default
 		if opts.Model == "" && agent.Manifest.Models.Preferred != "" {
@@ -968,9 +1000,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 			sysPrompt += envSection.String()
 		}
-		// Inject tool call protocol for linear mode so the LLM knows how to
-		// produce structured JSON tool calls via VFS device paths.
-		sysPrompt += linearToolProtocol
+		// Inject action protocol so the LLM knows how to produce structured
+		// JSON actions via VFS device paths and other action types.
+		sysPrompt += toolProtocol
+		if proc.PlanningEnabled {
+			sysPrompt += planProtocol
+		}
 		req := llmRequest{
 			Intent:       proc.Intent,
 			SystemPrompt: sysPrompt,
@@ -1335,6 +1370,238 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"tool":   action.ToolPath,
 			}, string(toolResult), nil, time.Since(stepStart))
 			continue
+
+		case ActionPlan:
+			if !proc.PlanningEnabled {
+				k.emitLog(proc, step, types.LogOutput, action.Content, "")
+				proc.mu.Lock()
+				proc.Result = action.Content
+				proc.mu.Unlock()
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "plan_as_text",
+				}, action.Content, nil, time.Since(stepStart))
+				k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
+				return
+			}
+
+			planContent := fmt.Sprintf("[Plan]\n%s", string(action.ToolData))
+			appendStart := time.Now()
+			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, planContent); err != nil {
+				k.emitEvent(proc, "CtxWrite", map[string]any{
+					"cid":  proc.CtxID,
+					"op":   "AppendMessage",
+					"role": string(rnixctx.RoleAssistant),
+				}, nil, err, time.Since(appendStart))
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append plan failed", Err: err})
+				return
+			}
+			k.emitEvent(proc, "CtxWrite", map[string]any{
+				"cid":  proc.CtxID,
+				"op":   "AppendMessage",
+				"role": string(rnixctx.RoleAssistant),
+			}, nil, nil, time.Since(appendStart))
+
+			k.emitLog(proc, step, types.LogOutput, planContent, "")
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "plan",
+			}, nil, nil, time.Since(stepStart))
+			continue
+
+		case ActionSpawn:
+			appendAssistantStart2 := time.Now()
+			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, resp.Content); err != nil {
+				k.emitEvent(proc, "CtxWrite", map[string]any{
+					"cid":  proc.CtxID,
+					"op":   "AppendMessage",
+					"role": string(rnixctx.RoleAssistant),
+				}, nil, err, time.Since(appendAssistantStart2))
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append assistant message failed", Err: err})
+				return
+			}
+			k.emitEvent(proc, "CtxWrite", map[string]any{
+				"cid":  proc.CtxID,
+				"op":   "AppendMessage",
+				"role": string(rnixctx.RoleAssistant),
+			}, nil, nil, time.Since(appendAssistantStart2))
+
+			childOpts := SpawnOpts{
+				ParentPID: proc.PID,
+				TraceID:   proc.TraceID,
+			}
+			if proc.TraceID != "" {
+				childOpts.ParentSpanID = proc.SpanID
+			}
+
+			var sd spawnActionData
+			if len(action.ToolData) > 0 {
+				_ = json.Unmarshal(action.ToolData, &sd)
+			}
+			if sd.Model != "" {
+				childOpts.Model = sd.Model
+			}
+
+			var agentInfo *agents.AgentInfo
+			spawnIntent := action.ToolPath
+			if sd.Agent != "" {
+				if k.agentLoader == nil {
+					errMsg := fmt.Sprintf("spawn error: agent %q requested but no agent loader configured", sd.Agent)
+					_ = k.ctxMgr.AppendToolResult(proc.CtxID, "spawn", errMsg)
+					k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
+					k.emitEvent(proc, "ReasonStep", map[string]any{
+						"step":   step,
+						"action": "spawn_error",
+					}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
+					continue
+				}
+				var loadErr error
+				agentInfo, loadErr = k.agentLoader(sd.Agent)
+				if loadErr != nil {
+					errMsg := fmt.Sprintf("spawn error: agent %q load failed: %v", sd.Agent, loadErr)
+					_ = k.ctxMgr.AppendToolResult(proc.CtxID, "spawn", errMsg)
+					k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
+					k.emitEvent(proc, "ReasonStep", map[string]any{
+						"step":   step,
+						"action": "spawn_error",
+					}, nil, loadErr, time.Since(stepStart))
+					continue
+				}
+			}
+
+			childPID, spawnErr := k.Spawn(spawnIntent, agentInfo, childOpts)
+			if spawnErr != nil {
+				errMsg := fmt.Sprintf("spawn error: %v", spawnErr)
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, "spawn", errMsg)
+				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "spawn_error",
+				}, nil, spawnErr, time.Since(stepStart))
+				continue
+			}
+
+			childProc, childOk := k.GetProcess(childPID)
+			if !childOk {
+				errMsg := "spawn error: child process not found after spawn"
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, "spawn", errMsg)
+				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
+				continue
+			}
+
+			var spawnResult string
+			select {
+			case exit := <-childProc.Done:
+				childProc.mu.Lock()
+				childResult := childProc.Result
+				childProc.mu.Unlock()
+				if exit.Code != 0 {
+					spawnResult = fmt.Sprintf("child exited with code %d: %s", exit.Code, exit.Reason)
+				} else {
+					spawnResult = childResult
+				}
+			case <-proc.ctx.Done():
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "cancelled_waiting_child",
+				}, nil, proc.ctx.Err(), time.Since(stepStart))
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "context cancelled while waiting for child"})
+				return
+			}
+
+			appendResultStart := time.Now()
+			if err := k.ctxMgr.AppendToolResult(proc.CtxID, "spawn", spawnResult); err != nil {
+				k.emitEvent(proc, "CtxWrite", map[string]any{
+					"cid":  proc.CtxID,
+					"op":   "AppendToolResult",
+					"tool": "spawn",
+				}, nil, err, time.Since(appendResultStart))
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append spawn result failed", Err: err})
+				return
+			}
+			k.emitEvent(proc, "CtxWrite", map[string]any{
+				"cid":  proc.CtxID,
+				"op":   "AppendToolResult",
+				"tool": "spawn",
+			}, nil, nil, time.Since(appendResultStart))
+
+			k.emitLog(proc, step, types.LogTool, spawnResult, "spawn")
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":      step,
+				"action":    "spawn",
+				"child_pid": childPID,
+			}, spawnResult, nil, time.Since(stepStart))
+			continue
+
+		case ActionComplete:
+			var completeData struct {
+				Result string `json:"result"`
+			}
+			if len(action.ToolData) > 0 {
+				_ = json.Unmarshal(action.ToolData, &completeData)
+			}
+			result := completeData.Result
+			if result == "" {
+				result = action.Content
+			}
+
+			k.emitLog(proc, step, types.LogOutput, result, "")
+			proc.mu.Lock()
+			proc.Result = result
+			proc.mu.Unlock()
+
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "complete",
+			}, result, nil, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
+			return
+
+		case ActionReplan:
+			var replanData struct {
+				Reason string `json:"reason"`
+			}
+			if len(action.ToolData) > 0 {
+				_ = json.Unmarshal(action.ToolData, &replanData)
+			}
+			reason := replanData.Reason
+			if reason == "" {
+				reason = action.Content
+			}
+
+			replanContent := fmt.Sprintf("[Replan] %s", reason)
+			appendStart := time.Now()
+			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, replanContent); err != nil {
+				k.emitEvent(proc, "CtxWrite", map[string]any{
+					"cid":  proc.CtxID,
+					"op":   "AppendMessage",
+					"role": string(rnixctx.RoleAssistant),
+				}, nil, err, time.Since(appendStart))
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append replan failed", Err: err})
+				return
+			}
+			k.emitEvent(proc, "CtxWrite", map[string]any{
+				"cid":  proc.CtxID,
+				"op":   "AppendMessage",
+				"role": string(rnixctx.RoleAssistant),
+			}, nil, nil, time.Since(appendStart))
+
+			k.emitLog(proc, step, types.LogOutput, replanContent, "")
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "replan",
+			}, nil, nil, time.Since(stepStart))
+			continue
+
+		case ActionSpecialize:
+			errMsg := "specialize action not yet implemented"
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", errMsg)
+			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "specialize_stub",
+			}, nil, nil, time.Since(stepStart))
+			continue
 		}
 	}
 
@@ -1342,27 +1609,68 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	k.finishProcess(proc, ExitStatus{Code: 1, Reason: "max steps exceeded"})
 }
 
+// spawnActionData contains optional parameters parsed from spawn action data.
+type spawnActionData struct {
+	Agent string `json:"agent,omitempty"`
+	Model string `json:"model,omitempty"`
+}
+
 // parseAction determines the action type from an LLM response.
 func parseAction(resp *llmResponse) ReasonAction {
-	// Try structured JSON action
 	var structured struct {
-		Action  string         `json:"action"`
-		Content string         `json:"content,omitempty"`
-		Tool    string         `json:"tool,omitempty"`
-		Data    map[string]any `json:"data,omitempty"`
+		Action string          `json:"action"`
+		Tool   string          `json:"tool,omitempty"`
+		Data   json.RawMessage `json:"data,omitempty"`
 	}
 	if err := json.Unmarshal([]byte(resp.Content), &structured); err == nil {
-		if structured.Action == "tool_call" && structured.Tool != "" {
-			toolData, _ := json.Marshal(structured.Data)
+		toolData := structured.Data
+		if toolData == nil {
+			toolData = []byte("{}")
+		}
+		switch ActionType(structured.Action) {
+		case ActionToolCall:
+			if structured.Tool != "" {
+				return ReasonAction{
+					Type:     ActionToolCall,
+					ToolPath: structured.Tool,
+					ToolData: toolData,
+				}
+			}
+		case ActionPlan:
 			return ReasonAction{
-				Type:     ActionToolCall,
+				Type:     ActionPlan,
+				Content:  resp.Content,
+				ToolData: toolData,
+			}
+		case ActionSpawn:
+			return ReasonAction{
+				Type:     ActionSpawn,
+				Content:  resp.Content,
 				ToolPath: structured.Tool,
+				ToolData: toolData,
+			}
+		case ActionComplete:
+			return ReasonAction{
+				Type:     ActionComplete,
+				Content:  resp.Content,
+				ToolData: toolData,
+			}
+		case ActionReplan:
+			return ReasonAction{
+				Type:     ActionReplan,
+				Content:  resp.Content,
+				ToolData: toolData,
+			}
+		case ActionSpecialize:
+			return ReasonAction{
+				Type:     ActionSpecialize,
+				ToolPath: structured.Tool,
+				Content:  resp.Content,
 				ToolData: toolData,
 			}
 		}
 	}
 
-	// Default: plain text output
 	return ReasonAction{Type: ActionText, Content: resp.Content}
 }
 
