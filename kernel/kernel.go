@@ -230,21 +230,29 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 	return k
 }
 
-// resolveLLMDevice returns the VFS device path for the LLM provider.
+// resolveLLMDevice returns the VFS device path for the LLM provider and its source.
 // providerOverride takes precedence over the agent manifest's provider field.
 // Returns "/dev/llm/claude" by default when both are empty.
 // When hasProvider is non-nil, validates against the DriverRegistry; when nil,
 // allows any provider (backward compatibility for tests without resolver injection).
-func (k *KernelImpl) resolveLLMDevice(agent *agents.AgentInfo, providerOverride string) (string, error) {
+// The source return value indicates where the provider was resolved from:
+// "cli", "agent", "project", or "default".
+func (k *KernelImpl) resolveLLMDevice(agent *agents.AgentInfo, providerOverride string) (string, string, error) {
 	provider := providerOverride
-	if provider == "" && agent != nil {
-		provider = agent.Manifest.Models.Provider
+	source := "cli"
+	if provider == "" {
+		if agent != nil && agent.Manifest.Models.Provider != "" {
+			provider = agent.Manifest.Models.Provider
+			source = "agent"
+		}
 	}
 	if provider == "" {
 		if k.defaultProvider != "" {
 			provider = k.defaultProvider
+			source = "project"
 		} else {
 			provider = "claude"
+			source = "default"
 		}
 	}
 
@@ -256,10 +264,10 @@ func (k *KernelImpl) resolveLLMDevice(agent *agents.AgentInfo, providerOverride 
 				available = strings.Join(names, ", ")
 			}
 		}
-		return "", fmt.Errorf("unsupported LLM provider: %q (available: %s)", provider, available)
+		return "", "", fmt.Errorf("unsupported LLM provider: %q (available: %s)", provider, available)
 	}
 
-	return "/dev/llm/" + provider, nil
+	return "/dev/llm/" + provider, source, nil
 }
 
 // Spawn creates a new agent process that automatically executes the reasonStep loop.
@@ -406,7 +414,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				fbProvider = p
 			}
 			proc.FallbackProvider = fbProvider
-			fbDevice, fbErr := k.resolveLLMDevice(nil, fbProvider)
+			fbDevice, _, fbErr := k.resolveLLMDevice(nil, fbProvider)
 			if fbErr == nil {
 				proc.FallbackDevice = fbDevice
 			}
@@ -487,6 +495,8 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 
 	if !opts.SkipReasonLoop {
+		resolveStart := time.Now()
+
 		// Use project-level default provider if available and no explicit override
 		providerOverride := opts.Provider
 		if providerOverride == "" && agent != nil && agent.Manifest.Models.Provider == "" &&
@@ -498,25 +508,35 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// When project config provides an LLMFileOpener, skip global provider validation
 		// since the provider may only exist at project level
 		var llmDevice string
+		var providerSource string
 		var resolveErr error
 		if opts.ProjectConfig != nil && opts.ProjectConfig.LLMFileOpener != nil {
 			// Build device path without global validation
-			provider := providerOverride
-			if provider == "" && agent != nil {
-				provider = agent.Manifest.Models.Provider
+			// Use opts.Provider (actual CLI value), not providerOverride which may
+			// have been pre-resolved from ProjectConfig.DefaultProvider
+			provider := opts.Provider
+			providerSource = "cli"
+			if provider == "" {
+				if agent != nil && agent.Manifest.Models.Provider != "" {
+					provider = agent.Manifest.Models.Provider
+					providerSource = "agent"
+				}
 			}
 			if provider == "" {
 				if opts.ProjectConfig.DefaultProvider != "" {
 					provider = opts.ProjectConfig.DefaultProvider
+					providerSource = "project"
 				} else if k.defaultProvider != "" {
 					provider = k.defaultProvider
+					providerSource = "project"
 				} else {
 					provider = "claude"
+					providerSource = "default"
 				}
 			}
 			llmDevice = "/dev/llm/" + provider
 		} else {
-			llmDevice, resolveErr = k.resolveLLMDevice(agent, providerOverride)
+			llmDevice, providerSource, resolveErr = k.resolveLLMDevice(agent, providerOverride)
 		}
 		if resolveErr != nil {
 			if opts.PreallocatedCtxID == 0 {
@@ -527,6 +547,25 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.PrimaryDevice = llmDevice // Store for fallback reference (Story 23.5)
 		proc.Provider = strings.TrimPrefix(llmDevice, "/dev/llm/")
 		proc.Model = opts.Model
+
+		// Determine model source
+		modelSource := "driver"
+		if opts.Model != "" {
+			modelSource = "cli"
+		}
+
+		// Emit ConfigResolve strace event (Story 3.5)
+		configArgs := map[string]any{
+			"provider":        proc.Provider,
+			"provider_source": providerSource,
+			"model":           opts.Model,
+			"model_source":    modelSource,
+		}
+		// When agent overrides project default, show the override relationship
+		if k.defaultProvider != "" && k.defaultProvider != proc.Provider {
+			configArgs["project_default"] = k.defaultProvider
+		}
+		k.emitEvent(proc, "ConfigResolve", configArgs, nil, nil, time.Since(resolveStart))
 
 		// Open LLM device via VFS (or project-level override)
 		openStart := time.Now()
