@@ -147,4 +147,11 @@ Supervisor 容错树自动管理子智能体生命周期 + init 引导序列初�
 **Dependencies:** 无（全新 `internal/config/` 包）
 **Architecture:** Decision 14-22（配置系统架构决策）
 
+## Epic 26: 统一推理循环（Unified Reasoning Loop）
+废弃 linear/OODA 双推理模式，统一为单一 `reasonStep` 循环。LLM 每步自主决策行为类型（tool_call/plan/spawn/complete/specialize/replan），planning 作为可配置能力而非独立模式。同步修复 strace 分析发现的 6 个问题（2 Critical + 2 High + 2 Medium）。净删除 ~2000 行代码。
+**FRs covered:** FR8（扩展）, FR10（扩展）, FR112-FR118（重写）
+**NFRs:** NFR44（重写：统一循环单步框架开销 ≤50ms）, NFR45（保留）
+**Dependencies:** Epic 20（替换其 OODA 实现）
+**Architecture:** Decision 23（统一推理循环）
+
 ---
