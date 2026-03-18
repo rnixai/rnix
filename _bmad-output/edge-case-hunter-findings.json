@@ -1,0 +1,50 @@
+[
+  {
+    "location": "kernel/kernel.go:1553-1558",
+    "trigger_condition": "Spawn returns a valid childPID but GetProcess(childPID) returns false (child not in procTable)",
+    "potential_consequence": "Spawn failure (child not found) is not counted toward circuit breaker. A process with 2 prior tool/spawn errors could hit this path, continue the loop, and never trip the breaker. Inconsistent with other spawn error paths which do increment consecutiveToolErrors.",
+    "guard_snippet": "if !childOk {\n\t\t\t\terrMsg := \"spawn error: child process not found after spawn\"\n\t\t\t\t_ = k.ctxMgr.AppendToolResult(proc.CtxID, \"spawn\", errMsg)\n\t\t\t\tk.emitLog(proc, step, types.LogTool, errMsg, \"spawn\")\n\t\t\t\tconsecutiveToolErrors++\n\t\t\t\tif consecutiveToolErrors >= 3 {\n\t\t\t\t\tk.emitEvent(proc, \"ReasonStep\", map[string]any{\"step\": step, \"action\": \"circuit_breaker\", \"consecutive_errors\": consecutiveToolErrors}, nil, nil, time.Since(stepStart))\n\t\t\t\t\tk.finishProcess(proc, ExitStatus{Code: 1, Reason: \"circuit_breaker: 3 consecutive tool errors\"})\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}"
+  },
+  {
+    "location": "kernel/kernel.go:1275-1280",
+    "trigger_condition": "LLM returns tool_call with data = [] (empty JSON array). toolDataStr becomes \"[]\", which is not in isEmpty check (only \"\", \"{}\", \"null\" are checked).",
+    "potential_consequence": "Uses O_RDWR instead of O_RDONLY. Semantically empty input is treated as non-empty. Device opened with write permission when no meaningful write payload exists; may cause unexpected behavior for devices that distinguish read-only vs read-write semantics.",
+    "guard_snippet": "isEmpty := len(action.ToolData) == 0 || toolDataStr == \"{}\" || toolDataStr == \"null\" || toolDataStr == \"[]\""
+  },
+  {
+    "location": "kernel/kernel.go:1275-1280",
+    "trigger_condition": "LLM returns tool_call with data = \"\" (empty JSON string). toolDataStr becomes '\"\"', len > 0, not in isEmpty check.",
+    "potential_consequence": "Uses O_RDWR instead of O_RDONLY. Empty string as tool input is semantically empty but treated as non-empty.",
+    "guard_snippet": "isEmpty := len(action.ToolData) == 0 || toolDataStr == \"{}\" || toolDataStr == \"null\" || toolDataStr == \"\\\"\\\"\""
+  },
+  {
+    "location": "kernel/kernel.go:1309-1312",
+    "trigger_condition": "isEmpty is true → Open with O_RDONLY. Code still unconditionally calls k.vfs.Write(proc.ctx, proc.PID, toolFD, action.ToolData).",
+    "potential_consequence": "Device opened read-only may reject Write. A device that enforces O_RDONLY (no Write allowed) would return Write error, incrementing consecutiveToolErrors and potentially tripping circuit breaker despite intent to use read-only path.",
+    "guard_snippet": "if !isEmpty {\n\t\t\t\tif err := k.vfs.Write(proc.ctx, proc.PID, toolFD, action.ToolData); err != nil { ... }\n\t\t\t} else {\n\t\t\t\tk.emitEvent(proc, \"Write\", map[string]any{\"fd\": toolFD, \"size\": 0}, nil, nil, 0)\n\t\t\t}"
+  },
+  {
+    "location": "kernel/kernel.go:1247-1269",
+    "trigger_condition": "Device permission whitelist check fails (permission_denied). continue is executed without incrementing consecutiveToolErrors.",
+    "potential_consequence": "Permission-denied iterations do not count toward circuit breaker. Sequence: 2 tool errors → 1 permission denied → 1 tool error → circuit breaker trips on 4th step. Breaker still trips eventually, but permission_denied inserts a 'free' step that does not advance the count. Arguably correct (permission is policy, not device failure), but creates asymmetry: repeated permission denials never trip breaker.",
+    "guard_snippet": null
+  },
+  {
+    "location": "kernel/kernel.go:1288-1291",
+    "trigger_condition": "Tool Open fails and k.ctxMgr.AppendToolResult returns error. Code returns via finishProcess before consecutiveToolErrors++.",
+    "potential_consequence": "Process exits with reason \"append tool error failed\" instead of \"circuit_breaker\". If this occurs on the 3rd consecutive tool error, circuit breaker event is never emitted; exit reason is different from the intended circuit_breaker path. Observers cannot distinguish \"3 tool errors + append failed\" from \"1 tool error + append failed\".",
+    "guard_snippet": null
+  },
+  {
+    "location": "kernel/kernel.go:1382-1386",
+    "trigger_condition": "Tool Read succeeds, VFS Close is called, closeErr is emitted but ignored. Then AppendToolResult fails.",
+    "potential_consequence": "Process exits with \"append tool result failed\". consecutiveToolErrors is never reset (we would have reset at 1405, but we return at 1396). If prior loop iterations had 2 errors, the counter remains 2; process exits before reset. Minor: counter state is lost on exit anyway.",
+    "guard_snippet": null
+  },
+  {
+    "location": "kernel/kernel.go:1383-1386",
+    "trigger_condition": "k.vfs.Close(proc.PID, toolFD) returns error. Error is emitted but not checked; execution continues to AppendToolResult.",
+    "potential_consequence": "Close failure does not increment consecutiveToolErrors. FD may leak or device may not clean up. Process continues and resets consecutiveToolErrors to 0. Close failure is silently ignored; no circuit breaker impact.",
+    "guard_snippet": "if closeErr != nil {\n\t\t\t\tk.emitLog(proc, step, types.LogTool, fmt.Sprintf(\"Tool error (%s): close failed: %v\", action.ToolPath, closeErr), action.ToolPath)\n\t\t\t\t// Optionally: consecutiveToolErrors++ and circuit breaker check, or at least log prominently\n\t\t\t}"
+  }
+]

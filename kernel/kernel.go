@@ -892,6 +892,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	}()
 
 	var lastResultSummary string
+	var consecutiveToolErrors int
 
 	for step := 1; step <= maxSteps; step++ {
 		stepStart := time.Now()
@@ -1269,12 +1270,18 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				}
 			}
 
-			// Open tool device
+			// Open tool device with auto-downgraded flags
 			toolOpenStart := time.Now()
-			toolFD, err := k.vfs.Open(proc.PID, action.ToolPath, vfs.O_RDWR)
+			toolDataStr := string(action.ToolData)
+			isEmpty := len(action.ToolData) == 0 || toolDataStr == "{}" || toolDataStr == "null"
+			openFlags := vfs.O_RDWR
+			if isEmpty {
+				openFlags = vfs.O_RDONLY
+			}
+			toolFD, err := k.vfs.Open(proc.PID, action.ToolPath, openFlags)
 			k.emitEvent(proc, "Open", map[string]any{
 				"path":  action.ToolPath,
-				"flags": vfs.O_RDWR,
+				"flags": openFlags,
 			}, toolFD, err, time.Since(toolOpenStart))
 			if err != nil {
 				errMsg := fmt.Sprintf("Tool error (%s): open failed: %v", action.ToolPath, err)
@@ -1286,6 +1293,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				proc.HasToolError = true
 				proc.mu.Unlock()
 				k.emitLog(proc, step, types.LogTool, errMsg, action.ToolPath)
+				consecutiveToolErrors++
+				if consecutiveToolErrors >= 3 {
+					k.emitEvent(proc, "ReasonStep", map[string]any{
+						"step":               step,
+						"action":             "circuit_breaker",
+						"consecutive_errors": consecutiveToolErrors,
+					}, nil, nil, time.Since(stepStart))
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+					return
+				}
 				continue
 			}
 
@@ -1306,6 +1323,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				proc.HasToolError = true
 				proc.mu.Unlock()
 				k.emitLog(proc, step, types.LogTool, errMsg, action.ToolPath)
+				consecutiveToolErrors++
+				if consecutiveToolErrors >= 3 {
+					k.emitEvent(proc, "ReasonStep", map[string]any{
+						"step":               step,
+						"action":             "circuit_breaker",
+						"consecutive_errors": consecutiveToolErrors,
+					}, nil, nil, time.Since(stepStart))
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+					return
+				}
 				continue
 			}
 			k.emitEvent(proc, "Write", map[string]any{
@@ -1331,6 +1358,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				proc.HasToolError = true
 				proc.mu.Unlock()
 				k.emitLog(proc, step, types.LogTool, errMsg, action.ToolPath)
+				consecutiveToolErrors++
+				if consecutiveToolErrors >= 3 {
+					k.emitEvent(proc, "ReasonStep", map[string]any{
+						"step":               step,
+						"action":             "circuit_breaker",
+						"consecutive_errors": consecutiveToolErrors,
+					}, nil, nil, time.Since(stepStart))
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+					return
+				}
 				continue
 			}
 
@@ -1365,6 +1402,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"tool": action.ToolPath,
 			}, nil, nil, time.Since(appendToolStart))
 
+			consecutiveToolErrors = 0
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "tool_call",
@@ -1454,6 +1492,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 						"step":   step,
 						"action": "spawn_error",
 					}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
+					consecutiveToolErrors++
+					if consecutiveToolErrors >= 3 {
+						k.emitEvent(proc, "ReasonStep", map[string]any{
+							"step":               step,
+							"action":             "circuit_breaker",
+							"consecutive_errors": consecutiveToolErrors,
+						}, nil, nil, time.Since(stepStart))
+						k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+						return
+					}
 					continue
 				}
 				var loadErr error
@@ -1466,6 +1514,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 						"step":   step,
 						"action": "spawn_error",
 					}, nil, loadErr, time.Since(stepStart))
+					consecutiveToolErrors++
+					if consecutiveToolErrors >= 3 {
+						k.emitEvent(proc, "ReasonStep", map[string]any{
+							"step":               step,
+							"action":             "circuit_breaker",
+							"consecutive_errors": consecutiveToolErrors,
+						}, nil, nil, time.Since(stepStart))
+						k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+						return
+					}
 					continue
 				}
 			}
@@ -1479,6 +1537,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 					"step":   step,
 					"action": "spawn_error",
 				}, nil, spawnErr, time.Since(stepStart))
+				consecutiveToolErrors++
+				if consecutiveToolErrors >= 3 {
+					k.emitEvent(proc, "ReasonStep", map[string]any{
+						"step":               step,
+						"action":             "circuit_breaker",
+						"consecutive_errors": consecutiveToolErrors,
+					}, nil, nil, time.Since(stepStart))
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+					return
+				}
 				continue
 			}
 
@@ -1526,6 +1594,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"tool": "spawn",
 			}, nil, nil, time.Since(appendResultStart))
 
+			consecutiveToolErrors = 0
 			k.emitLog(proc, step, types.LogTool, spawnResult, "spawn")
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":      step,

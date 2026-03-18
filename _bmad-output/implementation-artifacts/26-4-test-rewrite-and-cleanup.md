@@ -1,6 +1,6 @@
 # Story 26.4: 测试重写、Bug 修复与清理
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -104,7 +104,7 @@ So that 架构变更有充分的测试保障，工具调用可靠稳定。
 
 ## Tasks / Subtasks
 
-### Task 1: 实现 VFS Flags 自动降级 [AC-1, AC-7]
+### Task 1: 实现 VFS Flags 自动降级 [AC-1, AC-7] [x]
 
 修改 `kernel/kernel.go`，在 reasonStep 的 `case ActionToolCall:` 中，找到当前 tool device Open 调用（约 L1272-1278）：
 
@@ -135,7 +135,7 @@ k.emitEvent(proc, "Open", map[string]any{
 }, toolFD, err, time.Since(toolOpenStart))
 ```
 
-### Task 2: 实现熔断机制 [AC-2, AC-4, AC-5, AC-6]
+### Task 2: 实现熔断机制 [AC-2, AC-4, AC-5, AC-6] [x]
 
 修改 `kernel/kernel.go`，在 `reasonStep` 函数中：
 
@@ -172,7 +172,7 @@ consecutiveToolErrors = 0
 
 **注意：** `case ActionSpecialize:`、`case ActionPlan:`、`case ActionReplan:` 的错误路径**不**递增计数器。
 
-### Task 3: 编写统一推理循环测试矩阵 [AC-3, AC-4, AC-5, AC-6]
+### Task 3: 编写统一推理循环测试矩阵 [AC-3, AC-4, AC-5, AC-6] [x]
 
 新建文件 `kernel/atdd_26_4_unified_reasoning_test.go`。
 
@@ -278,7 +278,7 @@ func makeReplanResponse(reason string, tokens int) []byte {
 - Mock LLM 返回 tool_call with empty data `{}`
 - 验证 device factory 收到 `vfs.O_RDONLY`（而非 `O_RDWR`）
 
-### Task 4: 编译验证 [AC-8]
+### Task 4: 编译验证 [AC-8] [x]
 
 ```bash
 go build ./cmd/rnix/
@@ -446,11 +446,31 @@ k.ctxMgr.AppendMessage(ctxID types.CtxID, role rnixctx.Role, content string) err
 ## Dev Agent Record
 
 ### Agent Model Used
-
-{{agent_model_name_version}}
+claude-4.6-opus
 
 ### Debug Log References
+- VFS flags isEmpty 需额外处理 `"null"` 值：`parseAction` 在 `data` 为 JSON null 时产生 `[]byte("null")` 而非 `nil`/`{}`，isEmpty 检查新增 `toolDataStr == "null"` 条件
+- Spawn agent-loader 错误路径也需计入熔断：AC-5 "spawn action 执行失败" 涵盖所有 spawn 失败路径（agentLoader nil / agent load error / Spawn 调用 error），不仅限于 `k.Spawn()` 返回 error
 
 ### Completion Notes List
+- Task 1: VFS flags 自动降级 — 替换 `kernel.go` 硬编码 `O_RDWR` 为条件判断（`isEmpty → O_RDONLY`，否则 `O_RDWR`），增加 `"null"` 空值处理
+- Task 2: 熔断机制 — 新增 `consecutiveToolErrors` 局部变量，tool_call 3 个错误路径 + spawn 3 个错误路径均递增计数，tool_call/spawn 成功路径重置为 0，≥3 时触发 circuit_breaker 退出（code=1）
+  - AC-2: 熔断 ≥3 触发 finishProcess
+  - AC-4: 成功后 reset 为 0
+  - AC-5: spawn 所有失败路径（agentLoader nil/load error/Spawn error）计入
+  - AC-6: specialize/plan/replan 不计入
+- Task 3: 新建 `atdd_26_4_unified_reasoning_test.go`（12 个测试函数，~550 行）
+  - Scenario 1: tool_call 执行并注入结果
+  - Scenario 2: plan (planning=true) 写入 RoleAssistant
+  - Scenario 3: plan (planning=false) 当作 text 退出
+  - Scenario 4: complete 正常退出 code=0
+  - Scenario 5: spawn 创建子进程并等待结果
+  - Scenario 7: 3 次连续错误触发熔断
+  - Scenario 8: tool 错误注入上下文
+  - Scenario 9: 空 payload flags 降级 O_RDONLY
+  - 额外：熔断重置、spawn 失败计入、specialize 失败不计入、空 JSON 对象 `{}`、非空 payload O_RDWR
+- Task 4: `make all` 通过（lint 0 issues, vet 通过, 全部测试通过含 -race, build 成功）
 
 ### File List
+- `kernel/kernel.go` — VFS flags 自动降级 + consecutiveToolErrors 熔断机制
+- `kernel/atdd_26_4_unified_reasoning_test.go` — 新建，12 个统一推理循环测试
