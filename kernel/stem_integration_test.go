@@ -26,7 +26,7 @@ func stemAgentInfo() *agents.AgentInfo {
 			Models:        agents.AgentModels{Provider: "claude", Preferred: "sonnet"},
 			ContextBudget: 16384,
 			Skills:        []string{}, // empty: differentiation fills this
-			Reasoning:     "ooda",
+			
 		},
 		Instructions: "You are a Stem Agent. Execute your mission using available tools.",
 		Skills:       []*skills.SkillInfo{}, // empty: differentiation fills this
@@ -64,7 +64,7 @@ func TestSpawn_StemAgentDifferentiation(t *testing.T) {
 		return nil, errTestDiscovery
 	})
 
-	// Set LLM response for OODA orient + decide phases
+	// Set LLM response for linear reasoning
 	llmFile.mu.Lock()
 	llmFile.readData = makeLLMResponse("Orientation: analyzing code quality", 10)
 	llmFile.mu.Unlock()
@@ -99,10 +99,6 @@ func TestSpawn_StemAgentDifferentiation(t *testing.T) {
 		t.Error("expected AllowedDevices to be populated after stem differentiation")
 	}
 
-	// Verify process has OODA reasoning mode (stem declares reasoning: ooda)
-	if proc.GetOODAState() == nil {
-		t.Error("expected OODAState to be initialized for stem agent (reasoning: ooda)")
-	}
 }
 
 func TestSpawn_StemAgentNoMatch(t *testing.T) {

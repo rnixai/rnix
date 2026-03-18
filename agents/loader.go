@@ -65,10 +65,10 @@ func (l *AgentLoader) Load(agentName string) (*AgentInfo, error) {
 
 	// Validate reasoning mode
 	switch manifest.Reasoning {
-	case "", "linear", "ooda":
+	case "", "linear":
 		// valid
 	default:
-		return nil, fmt.Errorf("invalid reasoning mode %q: must be empty, \"linear\", or \"ooda\"", manifest.Reasoning)
+		return nil, fmt.Errorf("invalid reasoning mode %q: must be empty or \"linear\"", manifest.Reasoning)
 	}
 
 	// Load instructions.md

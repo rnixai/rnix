@@ -14,7 +14,7 @@ Rnix is a runtime that brings Unix operating system abstractions to AI agents. E
 
 - **Everything is a File** — LLMs, filesystem, shell, and MCP tools are unified as VFS devices. Multi-provider LLM support with `rnix serve` OpenAI-compatible gateway.
 
-- **Autonomous Agents** — OODA reasoning loop for self-directed decision-making. Stem cell differentiation auto-specializes generic agents. Declarative intent system with reconciler for goal-driven execution.
+- **Autonomous Agents** — Unified reasoning loop with LLM-driven action selection (tool_call/plan/spawn/specialize/complete). Stem cell differentiation auto-specializes generic agents. Declarative intent system with reconciler for goal-driven execution.
 
 - **Deep Debugging Toolkit** — strace, GDB-style interactive debugger (attach/breakpoint/step/inspect), time-travel replay with fork-continue, distributed causal tracing, visual TUI dashboard, and agtest regression testing.
 

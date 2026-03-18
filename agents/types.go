@@ -24,7 +24,7 @@ type AgentManifest struct {
 	ContextBudget int         `yaml:"context_budget"`
 	Skills        []string    `yaml:"skills"`
 	MCP           []string    `yaml:"mcp,omitempty"`       // MCP server references
-	Reasoning     string      `yaml:"reasoning,omitempty"` // "" = linear (default), "ooda" = OODA loop
+	Reasoning     string      `yaml:"reasoning,omitempty"` // "" = linear (default)
 	SLA           *AgentSLA   `yaml:"sla,omitempty"`       // SLA constraints (Story 21.2)
 	Alternatives  []string    `yaml:"alternatives,omitempty"` // alternative agent names for auto-selection (Story 21.3)
 }

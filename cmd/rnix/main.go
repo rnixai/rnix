@@ -1213,7 +1213,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetMountManager(mountMgr)
 	k.SetProviderResolver(driverReg.Names, func(name string) bool { _, ok := driverReg.Get(name); return ok })
 	k.SetDefaultProvider(providersCfg.ResolveDefaultProvider())
-	k.SetAgentLoader(agentLoader.Load) // Inject for OODA autonomous spawn (Story 20.2)
+	k.SetAgentLoader(agentLoader.Load)
 
 	// Stem agent differentiation (Story 20.3)
 	discovery := skills.NewSkillDiscovery(skillLoader, []string{filepath.Join(globalDir, "skills")})
