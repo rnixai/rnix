@@ -82,6 +82,8 @@ cmd/rnix           ← Entry point, Cobra CLI, all commands
 
 **Intent System** (`intent/`): LLM-based decomposition of high-level intent into a DAG of sub-tasks. Reconciler executes with retry, timeout, and drift detection. States: pending → decomposing → await_confirm → executing → completed/failed.
 
+**Unified Reasoning Loop**: Single `reasonStep` loop where LLM autonomously selects action type per step: tool_call, plan, spawn, complete, specialize, replan, text. Planning is a configurable capability (`planning: true/false`, default true), not a separate mode.
+
 ### IPC Protocol
 
 NDJSON over Unix socket. Request: `{"method": "spawn|kill|list_procs|...", "payload": {...}}`. Response: `{"ok": true/false, "payload": {...}}`. Streaming: progress events during spawn.
