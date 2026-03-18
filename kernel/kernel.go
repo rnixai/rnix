@@ -300,6 +300,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		opts.ContextBudget = 0
 	}
 
+	// Save original CLI model before agent manifest may override it (P1: model_source tracking)
+	cliModel := opts.Model
+
 	// Load Agent information if specified
 	if agent != nil {
 		// Stem agent differentiation: auto-match skills based on intent (Story 20.3)
@@ -499,9 +502,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 		// Use project-level default provider if available and no explicit override
 		providerOverride := opts.Provider
+		providerOverrideFromProject := false
 		if providerOverride == "" && agent != nil && agent.Manifest.Models.Provider == "" &&
 			opts.ProjectConfig != nil && opts.ProjectConfig.DefaultProvider != "" {
 			providerOverride = opts.ProjectConfig.DefaultProvider
+			providerOverrideFromProject = true
 		}
 
 		// Resolve LLM device path based on agent provider
@@ -537,6 +542,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			llmDevice = "/dev/llm/" + provider
 		} else {
 			llmDevice, providerSource, resolveErr = k.resolveLLMDevice(agent, providerOverride)
+			if providerOverrideFromProject && providerSource == "cli" {
+				providerSource = "project"
+			}
 		}
 		if resolveErr != nil {
 			if opts.PreallocatedCtxID == 0 {
@@ -548,10 +556,14 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.Provider = strings.TrimPrefix(llmDevice, "/dev/llm/")
 		proc.Model = opts.Model
 
-		// Determine model source
+		// Determine model source: CLI --model > agent manifest preferred > driver default
 		modelSource := "driver"
 		if opts.Model != "" {
-			modelSource = "cli"
+			if cliModel != "" {
+				modelSource = "cli"
+			} else {
+				modelSource = "agent"
+			}
 		}
 
 		// Emit ConfigResolve strace event (Story 3.5)
@@ -562,8 +574,12 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			"model_source":    modelSource,
 		}
 		// When agent overrides project default, show the override relationship
-		if k.defaultProvider != "" && k.defaultProvider != proc.Provider {
-			configArgs["project_default"] = k.defaultProvider
+		projectDefault := k.defaultProvider
+		if opts.ProjectConfig != nil && opts.ProjectConfig.DefaultProvider != "" {
+			projectDefault = opts.ProjectConfig.DefaultProvider
+		}
+		if projectDefault != "" && projectDefault != proc.Provider {
+			configArgs["project_default"] = projectDefault
 		}
 		k.emitEvent(proc, "ConfigResolve", configArgs, nil, nil, time.Since(resolveStart))
 
