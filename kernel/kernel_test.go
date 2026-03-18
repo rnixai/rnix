@@ -2605,7 +2605,7 @@ func newMinimalKernelWithProviders(providers ...string) *KernelImpl {
 func TestResolveLLMDevice_NilAgent(t *testing.T) {
 	t.Parallel()
 	k := newMinimalKernelWithProviders("claude", "cursor")
-	device, err := k.resolveLLMDevice(nil, "")
+	device, _, err := k.resolveLLMDevice(nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2622,7 +2622,7 @@ func TestResolveLLMDevice_EmptyProvider(t *testing.T) {
 			Models: agents.AgentModels{Provider: ""},
 		},
 	}
-	device, err := k.resolveLLMDevice(agent, "")
+	device, _, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2639,7 +2639,7 @@ func TestResolveLLMDevice_Claude(t *testing.T) {
 			Models: agents.AgentModels{Provider: "claude"},
 		},
 	}
-	device, err := k.resolveLLMDevice(agent, "")
+	device, _, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2656,7 +2656,7 @@ func TestResolveLLMDevice_Cursor(t *testing.T) {
 			Models: agents.AgentModels{Provider: "cursor"},
 		},
 	}
-	device, err := k.resolveLLMDevice(agent, "")
+	device, _, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2673,7 +2673,7 @@ func TestResolveLLMDevice_Unsupported(t *testing.T) {
 			Models: agents.AgentModels{Provider: "nonexistent"},
 		},
 	}
-	_, err := k.resolveLLMDevice(agent, "")
+	_, _, err := k.resolveLLMDevice(agent, "")
 	if err == nil {
 		t.Fatal("expected error for unsupported provider, got nil")
 	}
@@ -2695,7 +2695,7 @@ func TestResolveLLMDevice_PathTraversal(t *testing.T) {
 				Models: agents.AgentModels{Provider: provider},
 			},
 		}
-		_, err := k.resolveLLMDevice(agent, "")
+		_, _, err := k.resolveLLMDevice(agent, "")
 		if err == nil {
 			t.Errorf("expected error for provider %q, got nil", provider)
 		}
@@ -2711,7 +2711,7 @@ func TestResolveLLMDevice_OverrideAgent(t *testing.T) {
 			Models: agents.AgentModels{Provider: "claude"},
 		},
 	}
-	device, err := k.resolveLLMDevice(agent, "cursor")
+	device, _, err := k.resolveLLMDevice(agent, "cursor")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2724,7 +2724,7 @@ func TestResolveLLMDevice_OverrideNoAgent(t *testing.T) {
 	t.Parallel()
 	k := newMinimalKernelWithProviders("claude", "cursor")
 	// No agent, but CLI override says "cursor"
-	device, err := k.resolveLLMDevice(nil, "cursor")
+	device, _, err := k.resolveLLMDevice(nil, "cursor")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2736,7 +2736,7 @@ func TestResolveLLMDevice_OverrideNoAgent(t *testing.T) {
 func TestResolveLLMDevice_OverrideUnsupported(t *testing.T) {
 	t.Parallel()
 	k := newMinimalKernelWithProviders("claude", "cursor")
-	_, err := k.resolveLLMDevice(nil, "nonexistent")
+	_, _, err := k.resolveLLMDevice(nil, "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for unsupported override provider, got nil")
 	}
@@ -2758,7 +2758,7 @@ func TestResolveLLMDevice_DynamicProvider(t *testing.T) {
 			Models: agents.AgentModels{Provider: "ollama"},
 		},
 	}
-	device, err := k.resolveLLMDevice(agent, "")
+	device, _, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2775,7 +2775,7 @@ func TestResolveLLMDevice_UnsupportedListsAvailable(t *testing.T) {
 			Models: agents.AgentModels{Provider: "nonexist"},
 		},
 	}
-	_, err := k.resolveLLMDevice(agent, "")
+	_, _, err := k.resolveLLMDevice(agent, "")
 	if err == nil {
 		t.Fatal("expected error for unsupported provider")
 	}
@@ -2793,7 +2793,7 @@ func TestResolveLLMDevice_NilResolver(t *testing.T) {
 			Models: agents.AgentModels{Provider: "anything"},
 		},
 	}
-	device, err := k.resolveLLMDevice(agent, "")
+	device, _, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("nil resolver should allow all providers, got error: %v", err)
 	}
@@ -2810,7 +2810,7 @@ func TestResolveLLMDevice_OverrideDynamic(t *testing.T) {
 			Models: agents.AgentModels{Provider: "claude"},
 		},
 	}
-	device, err := k.resolveLLMDevice(agent, "groq")
+	device, _, err := k.resolveLLMDevice(agent, "groq")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2889,7 +2889,7 @@ func TestResolveLLMDevice_UsesDefaultProvider(t *testing.T) {
 	k := &KernelImpl{}
 	k.SetDefaultProvider("groq")
 	// No provider resolver → allow all (backward compat)
-	got, err := k.resolveLLMDevice(nil, "")
+	got, _, err := k.resolveLLMDevice(nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2907,7 +2907,7 @@ func TestResolveLLMDevice_DefaultProviderOverriddenByAgent(t *testing.T) {
 			Models: agents.AgentModels{Provider: "ollama"},
 		},
 	}
-	got, err := k.resolveLLMDevice(agent, "")
+	got, _, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2925,7 +2925,7 @@ func TestResolveLLMDevice_DefaultProviderOverriddenBySpawnOpts(t *testing.T) {
 			Models: agents.AgentModels{Provider: "ollama"},
 		},
 	}
-	got, err := k.resolveLLMDevice(agent, "claude")
+	got, _, err := k.resolveLLMDevice(agent, "claude")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2938,7 +2938,7 @@ func TestResolveLLMDevice_NoDefaultProvider_FallsBackToClaude(t *testing.T) {
 	t.Parallel()
 	k := &KernelImpl{}
 	// defaultProvider is "" (zero value), no setter called
-	got, err := k.resolveLLMDevice(nil, "")
+	got, _, err := k.resolveLLMDevice(nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

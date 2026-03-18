@@ -12,6 +12,11 @@ import (
 // FormatTraceLine formats a SyscallEvent into a styled trace line using lipgloss.
 // This is the UI-layer replacement for debug.FormatEvent's raw ANSI output.
 func FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string {
+	// ConfigResolve uses a specialized format with source annotations
+	if event.Syscall == "ConfigResolve" {
+		return formatConfigResolveTrace(r, event)
+	}
+
 	ts := traceTimestamp(event.Timestamp)
 	args := traceArgs(event.Args, verbose)
 	result := traceResult(event.Result, event.Err)
@@ -66,6 +71,57 @@ func FormatTraceLine(r *Renderer, event types.SyscallEvent, verbose bool) string
 	}
 
 	return line
+}
+
+// formatConfigResolveTrace formats a ConfigResolve event with styled source annotations.
+// Source labels use MutedStyle; provider/model values use plain text.
+func formatConfigResolveTrace(r *Renderer, event types.SyscallEvent) string {
+	ts := traceTimestamp(event.Timestamp)
+	dur := traceDuration(event.Duration)
+
+	provider, _ := event.Args["provider"].(string)
+	providerSource, _ := event.Args["provider_source"].(string)
+	model, _ := event.Args["model"].(string)
+	modelSource, _ := event.Args["model_source"].(string)
+	projectDefault, hasProjectDefault := event.Args["project_default"].(string)
+
+	noColor := r.Profile.ColorLevel == 0
+
+	var parts []string
+	if noColor {
+		parts = append(parts, fmt.Sprintf("provider=%s [%s]", provider, providerSource))
+		if model != "" {
+			parts = append(parts, fmt.Sprintf("model=%s [%s]", model, modelSource))
+		} else {
+			parts = append(parts, fmt.Sprintf("model= [%s]", modelSource))
+		}
+		if hasProjectDefault && projectDefault != "" {
+			parts = append(parts, fmt.Sprintf("project_default=%s", projectDefault))
+		}
+	} else {
+		parts = append(parts, fmt.Sprintf("provider=%s %s", provider, MutedStyle.Render("["+providerSource+"]")))
+		if model != "" {
+			parts = append(parts, fmt.Sprintf("model=%s %s", model, MutedStyle.Render("["+modelSource+"]")))
+		} else {
+			parts = append(parts, fmt.Sprintf("model= %s", MutedStyle.Render("["+modelSource+"]")))
+		}
+		if hasProjectDefault && projectDefault != "" {
+			parts = append(parts, MutedStyle.Render("project_default="+projectDefault))
+		}
+	}
+
+	argsStr := strings.Join(parts, ", ")
+
+	var styledTS, styledName string
+	if noColor {
+		styledTS = ts
+		styledName = "ConfigResolve"
+	} else {
+		styledTS = MutedStyle.Render(ts)
+		styledName = AgentBoldStyle.Render("ConfigResolve")
+	}
+
+	return fmt.Sprintf("%s %s(%s)    %s", styledTS, styledName, argsStr, dur)
 }
 
 // traceTimestamp formats a duration as a fixed-width timestamp: [  0.012s]

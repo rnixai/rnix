@@ -52,7 +52,7 @@ func TestATDD_23_3_AC1_NoHardcodedWhitelist_DynamicProvider(t *testing.T) {
 		},
 	}
 
-	device, err := k.resolveLLMDevice(agent, "")
+	device, _, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("AC1: registered provider 'ollama' should be accepted by dynamic resolution, got error: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestATDD_23_3_AC1_NilResolverAllowsAll(t *testing.T) {
 		},
 	}
 
-	device, err := k.resolveLLMDevice(agent, "")
+	device, _, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("AC1: nil resolver should allow all providers (backward compat), got error: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestATDD_23_3_AC2_DirectResolve_RegisteredProvider(t *testing.T) {
 		},
 	}
 
-	device, err := k.resolveLLMDevice(agent, "")
+	device, _, err := k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("AC2: expected no error for registered provider 'ollama', got: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestATDD_23_3_AC3_UnregisteredProviderClearError(t *testing.T) {
 		},
 	}
 
-	_, err := k.resolveLLMDevice(agent, "")
+	_, _, err := k.resolveLLMDevice(agent, "")
 	if err == nil {
 		t.Fatal("AC3: expected error for unregistered provider 'nonexist'")
 	}
@@ -194,7 +194,7 @@ func TestATDD_23_3_AC3_ErrorListsSortedProviders(t *testing.T) {
 		},
 	}
 
-	_, err := k.resolveLLMDevice(agent, "")
+	_, _, err := k.resolveLLMDevice(agent, "")
 	if err == nil {
 		t.Fatal("AC3: expected error for unregistered provider")
 	}
@@ -247,7 +247,7 @@ func TestATDD_23_3_AC4_EmptyProviderUsesDefault(t *testing.T) {
 	t.Parallel()
 	k := atddKernelWithProviders("claude", "cursor")
 
-	device, err := k.resolveLLMDevice(nil, "")
+	device, _, err := k.resolveLLMDevice(nil, "")
 	if err != nil {
 		t.Fatalf("AC4: empty provider with nil agent should default to claude, got error: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestATDD_23_3_AC4_EmptyProviderUsesDefault(t *testing.T) {
 			Models: agents.AgentModels{Provider: ""},
 		},
 	}
-	device, err = k.resolveLLMDevice(agent, "")
+	device, _, err = k.resolveLLMDevice(agent, "")
 	if err != nil {
 		t.Fatalf("AC4: agent with empty provider should default to claude, got error: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestATDD_23_3_AC5_CLIProviderOverridesAgent(t *testing.T) {
 	}
 
 	// CLI override: --provider=groq
-	device, err := k.resolveLLMDevice(agent, "groq")
+	device, _, err := k.resolveLLMDevice(agent, "groq")
 	if err != nil {
 		t.Fatalf("AC5: CLI provider override 'groq' should be accepted when registered, got error: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestATDD_23_3_AC5_OverridePrecedence(t *testing.T) {
 
 	// Agent says "ollama", CLI override says "cursor"
 	// Override should win.
-	device, err := k.resolveLLMDevice(agent, "cursor")
+	device, _, err := k.resolveLLMDevice(agent, "cursor")
 	if err != nil {
 		t.Fatalf("AC5: override 'cursor' should take precedence over agent 'ollama', got error: %v", err)
 	}

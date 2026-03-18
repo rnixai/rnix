@@ -78,6 +78,11 @@ func Attach(ctx context.Context, ch <-chan types.SyscallEvent, w io.Writer, opts
 // FormatEvent formats a single SyscallEvent into a human-readable trace line.
 // It is a pure function with no I/O or external state dependencies.
 func FormatEvent(event types.SyscallEvent, opts Options) string {
+	// ConfigResolve uses a specialized format
+	if event.Syscall == "ConfigResolve" {
+		return formatConfigResolve(event, opts)
+	}
+
 	ts := formatTimestamp(event.Timestamp)
 	args := formatArgs(event.Args, opts.Verbose)
 	result := formatResult(event.Result, event.Err)
@@ -116,6 +121,45 @@ func FormatEvent(event types.SyscallEvent, opts Options) string {
 	}
 
 	return line
+}
+
+// formatConfigResolve formats a ConfigResolve event with source annotations.
+// Format: [N.NNNs] ConfigResolve(provider=X [source], model=Y [source])    duration
+func formatConfigResolve(event types.SyscallEvent, opts Options) string {
+	ts := formatTimestamp(event.Timestamp)
+	dur := formatDuration(event.Duration)
+
+	provider, _ := event.Args["provider"].(string)
+	providerSource, _ := event.Args["provider_source"].(string)
+	model, _ := event.Args["model"].(string)
+	modelSource, _ := event.Args["model_source"].(string)
+	projectDefault, hasProjectDefault := event.Args["project_default"].(string)
+
+	// Build args with source annotations
+	var parts []string
+	if opts.ColorEnabled {
+		parts = append(parts, fmt.Sprintf("provider=%s %s[%s]%s", provider, ansiGray, providerSource, ansiReset))
+		if model != "" {
+			parts = append(parts, fmt.Sprintf("model=%s %s[%s]%s", model, ansiGray, modelSource, ansiReset))
+		} else {
+			parts = append(parts, fmt.Sprintf("model= %s[%s]%s", ansiGray, modelSource, ansiReset))
+		}
+		if hasProjectDefault && projectDefault != "" {
+			parts = append(parts, fmt.Sprintf("%sproject_default=%s%s", ansiGray, projectDefault, ansiReset))
+		}
+	} else {
+		parts = append(parts, fmt.Sprintf("provider=%s [%s]", provider, providerSource))
+		if model != "" {
+			parts = append(parts, fmt.Sprintf("model=%s [%s]", model, modelSource))
+		} else {
+			parts = append(parts, fmt.Sprintf("model= [%s]", modelSource))
+		}
+		if hasProjectDefault && projectDefault != "" {
+			parts = append(parts, fmt.Sprintf("project_default=%s", projectDefault))
+		}
+	}
+
+	return fmt.Sprintf("%s ConfigResolve(%s)    %s", ts, strings.Join(parts, ", "), dur)
 }
 
 // formatTimestamp formats a duration as a fixed-width timestamp: [  0.012s]

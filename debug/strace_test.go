@@ -672,3 +672,133 @@ func TestAttach_JSONMode(t *testing.T) {
 		t.Fatalf("expected second line syscall=Close, got %v", second["syscall"])
 	}
 }
+
+// --- ConfigResolve formatting tests (Story 3.5) ---
+
+func TestFormatEvent_ConfigResolve_Basic(t *testing.T) {
+	event := types.SyscallEvent{
+		Timestamp: 1 * time.Millisecond,
+		PID:       1,
+		Syscall:   "ConfigResolve",
+		Args: map[string]any{
+			"provider":        "openrouter",
+			"provider_source": "agent",
+			"model":           "hunter-alpha",
+			"model_source":    "cli",
+		},
+		Result:   nil,
+		Err:      nil,
+		Duration: 1 * time.Millisecond,
+	}
+	opts := Options{ColorEnabled: false, Verbose: false}
+
+	got := FormatEvent(event, opts)
+
+	// Verify timestamp
+	if !strings.HasPrefix(got, "[  0.001s]") {
+		t.Fatalf("expected timestamp prefix [  0.001s], got %q", got)
+	}
+	// Verify ConfigResolve syscall name
+	if !strings.Contains(got, "ConfigResolve(") {
+		t.Fatalf("expected 'ConfigResolve(' in output, got %q", got)
+	}
+	// Verify provider with source
+	if !strings.Contains(got, "provider=openrouter [agent]") {
+		t.Fatalf("expected 'provider=openrouter [agent]' in output, got %q", got)
+	}
+	// Verify model with source
+	if !strings.Contains(got, "model=hunter-alpha [cli]") {
+		t.Fatalf("expected 'model=hunter-alpha [cli]' in output, got %q", got)
+	}
+	// Verify duration
+	if !strings.Contains(got, "1ms") {
+		t.Fatalf("expected '1ms' in output, got %q", got)
+	}
+}
+
+func TestFormatEvent_ConfigResolve_WithProjectDefault(t *testing.T) {
+	event := types.SyscallEvent{
+		Timestamp: 1 * time.Millisecond,
+		PID:       1,
+		Syscall:   "ConfigResolve",
+		Args: map[string]any{
+			"provider":        "openrouter",
+			"provider_source": "agent",
+			"model":           "",
+			"model_source":    "driver",
+			"project_default": "cursor",
+		},
+		Result:   nil,
+		Err:      nil,
+		Duration: 500 * time.Microsecond,
+	}
+	opts := Options{ColorEnabled: false, Verbose: false}
+
+	got := FormatEvent(event, opts)
+
+	// Verify project_default is shown
+	if !strings.Contains(got, "project_default=cursor") {
+		t.Fatalf("expected 'project_default=cursor' in output, got %q", got)
+	}
+	// Verify empty model shows source
+	if !strings.Contains(got, "model= [driver]") {
+		t.Fatalf("expected 'model= [driver]' for empty model, got %q", got)
+	}
+}
+
+func TestFormatEvent_ConfigResolve_WithColor(t *testing.T) {
+	event := types.SyscallEvent{
+		Timestamp: 1 * time.Millisecond,
+		PID:       1,
+		Syscall:   "ConfigResolve",
+		Args: map[string]any{
+			"provider":        "claude",
+			"provider_source": "default",
+			"model":           "",
+			"model_source":    "driver",
+		},
+		Result:   nil,
+		Err:      nil,
+		Duration: 100 * time.Microsecond,
+	}
+	opts := Options{ColorEnabled: true, Verbose: false}
+
+	got := FormatEvent(event, opts)
+
+	// Verify gray ANSI codes are present for source labels
+	if !strings.Contains(got, ansiGray) {
+		t.Fatalf("expected gray ANSI code for source labels, got %q", got)
+	}
+	// Verify it still contains the content
+	if !strings.Contains(got, "provider=claude") {
+		t.Fatalf("expected 'provider=claude' in colored output, got %q", got)
+	}
+	if !strings.Contains(got, "[default]") {
+		t.Fatalf("expected '[default]' in colored output, got %q", got)
+	}
+}
+
+func TestFormatEvent_ConfigResolve_NoProjectDefault_WhenNotOverridden(t *testing.T) {
+	event := types.SyscallEvent{
+		Timestamp: 1 * time.Millisecond,
+		PID:       1,
+		Syscall:   "ConfigResolve",
+		Args: map[string]any{
+			"provider":        "claude",
+			"provider_source": "default",
+			"model":           "",
+			"model_source":    "driver",
+		},
+		Result:   nil,
+		Err:      nil,
+		Duration: 100 * time.Microsecond,
+	}
+	opts := Options{ColorEnabled: false, Verbose: false}
+
+	got := FormatEvent(event, opts)
+
+	// project_default should NOT appear
+	if strings.Contains(got, "project_default") {
+		t.Fatalf("expected no 'project_default' in output when not overridden, got %q", got)
+	}
+}

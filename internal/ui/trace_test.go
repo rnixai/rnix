@@ -324,3 +324,116 @@ func TestFormatTraceLine_Verbose(t *testing.T) {
 		t.Errorf("expected full path in verbose mode, got %q", gotFull)
 	}
 }
+
+// --- ConfigResolve UI formatting tests (Story 3.5) ---
+
+func TestFormatTraceLine_ConfigResolve_Basic(t *testing.T) {
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	r := &Renderer{
+		Profile:    TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+		OutputMode: ModeDefault,
+	}
+
+	event := types.SyscallEvent{
+		Timestamp: 1 * time.Millisecond,
+		PID:       1,
+		Syscall:   "ConfigResolve",
+		Args: map[string]any{
+			"provider":        "openrouter",
+			"provider_source": "agent",
+			"model":           "hunter-alpha",
+			"model_source":    "cli",
+		},
+		Result:   nil,
+		Err:      nil,
+		Duration: 1 * time.Millisecond,
+	}
+
+	got := FormatTraceLine(r, event, false)
+
+	// Verify ConfigResolve name
+	if !strings.Contains(got, "ConfigResolve(") {
+		t.Errorf("expected 'ConfigResolve(' in output, got %q", got)
+	}
+	// Verify provider with source
+	if !strings.Contains(got, "provider=openrouter [agent]") {
+		t.Errorf("expected 'provider=openrouter [agent]' in output, got %q", got)
+	}
+	// Verify model with source
+	if !strings.Contains(got, "model=hunter-alpha [cli]") {
+		t.Errorf("expected 'model=hunter-alpha [cli]' in output, got %q", got)
+	}
+	// Verify duration
+	if !strings.Contains(got, "1ms") {
+		t.Errorf("expected '1ms' in output, got %q", got)
+	}
+	// Verify no ANSI codes in ColorLevel=0
+	if strings.Contains(got, "\x1b[") {
+		t.Errorf("expected no ANSI codes in ColorLevel=0, got %q", got)
+	}
+}
+
+func TestFormatTraceLine_ConfigResolve_WithProjectDefault(t *testing.T) {
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	r := &Renderer{
+		Profile:    TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+		OutputMode: ModeDefault,
+	}
+
+	event := types.SyscallEvent{
+		Timestamp: 1 * time.Millisecond,
+		PID:       1,
+		Syscall:   "ConfigResolve",
+		Args: map[string]any{
+			"provider":        "openrouter",
+			"provider_source": "agent",
+			"model":           "",
+			"model_source":    "driver",
+			"project_default": "cursor",
+		},
+		Result:   nil,
+		Err:      nil,
+		Duration: 500 * time.Microsecond,
+	}
+
+	got := FormatTraceLine(r, event, false)
+
+	// Verify project_default is shown
+	if !strings.Contains(got, "project_default=cursor") {
+		t.Errorf("expected 'project_default=cursor' in output, got %q", got)
+	}
+	// Verify empty model shows source
+	if !strings.Contains(got, "model= [driver]") {
+		t.Errorf("expected 'model= [driver]' for empty model, got %q", got)
+	}
+}
+
+func TestFormatTraceLine_ConfigResolve_NoProjectDefault(t *testing.T) {
+	InitStyles(TerminalProfile{ColorLevel: 0})
+	r := &Renderer{
+		Profile:    TerminalProfile{Width: 80, ColorLevel: 0, IsUnicode: true},
+		OutputMode: ModeDefault,
+	}
+
+	event := types.SyscallEvent{
+		Timestamp: 1 * time.Millisecond,
+		PID:       1,
+		Syscall:   "ConfigResolve",
+		Args: map[string]any{
+			"provider":        "claude",
+			"provider_source": "default",
+			"model":           "",
+			"model_source":    "driver",
+		},
+		Result:   nil,
+		Err:      nil,
+		Duration: 100 * time.Microsecond,
+	}
+
+	got := FormatTraceLine(r, event, false)
+
+	// project_default should NOT appear
+	if strings.Contains(got, "project_default") {
+		t.Errorf("expected no 'project_default' in output, got %q", got)
+	}
+}
