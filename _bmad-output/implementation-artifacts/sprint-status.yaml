@@ -68,12 +68,17 @@ development_status:
   epic-2-retrospective: done
 
   # Epic 3: Debug Tracing (strace)
-  epic-3: done
+  # Sprint Change Proposal: 2026-03-18 (Epic 3 Reopen)
+  # Trigger: EchoMatrix 项目调试中发现配置来源不透明和步骤输出不逐步
+  # Decision: 追加 Story 3-5 (ConfigResolve strace 事件) 和 Story 3-6 (步骤逐步输出)
+  epic-3: in-progress
   3-1-syscallevent-recording-infrastructure: done
   3-2-strace-event-consumption-and-formatting: done
   3-3-strace-cli-command: done
   3-4-syscall-trace-line-ui-component: done
-  epic-3-retrospective: done
+  3-5-config-resolve-strace-event: ready-for-dev
+  3-6-step-output-streaming: backlog
+  epic-3-retrospective: optional
 
   # Epic 4: Process Management & Reliability
   epic-4: done

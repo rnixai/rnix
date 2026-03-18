@@ -9,7 +9,7 @@
 **FRs covered:** FR12, FR16, FR18, FR23, FR24, FR25, FR25a, FR25b, FR26, FR27
 
 ## Epic 3: 调试追踪（Debug Tracing — strace）
-当智能体输出不符合预期时，用户运行 `rnix strace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。包含 SyscallEvent 记录、DebugChan 事件管道、strace 命令和 Trace Line UI。
+当智能体输出不符合预期时，用户运行 `rnix strace <pid>` 实时看到完整 syscall 链路，精确定位问题根因——Rnix 的差异化核心体验。包含 SyscallEvent 记录、DebugChan 事件管道、strace 命令、Trace Line UI、配置解析来源追踪（ConfigResolve 事件）和推理步骤逐步输出。
 **FRs covered:** FR28, FR29, FR30, FR31, FR34
 
 ## Epic 4: 进程管理与可靠性（Process Management & Reliability）

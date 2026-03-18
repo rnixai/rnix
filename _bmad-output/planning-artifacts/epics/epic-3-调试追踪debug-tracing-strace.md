@@ -115,4 +115,58 @@ So that 我不需要在密集输出中翻找问题。
 **When** 渲染 Trace Line
 **Then** 颜色降级为纯文本，错误行前缀 `[ERR]`
 
+## Story 3.5: 配置解析来源追踪（ConfigResolve strace 事件）
+
+> **追加时间：** 2026-03-18
+> **触发来源：** Sprint Change Proposal — EchoMatrix 项目调试中发现配置来源不透明
+
+As a 用户,
+I want 在 strace 中看到 provider/model 的解析来源（CLI 标志 / agent 清单 / 项目配置 / 全局配置 / 默认值）,
+So that 配置问题可以一目了然定位到具体层级，无需阅读源码排查。
+
+**Acceptance Criteria:**
+
+**Given** 进程 spawn 时 provider 解析完成
+**When** strace 附着到该进程
+**Then** 输出 `ConfigResolve` 事件，包含 `provider`（最终值）和 `provider_source`（来源标签：cli/agent/project/global/default）
+
+**Given** 进程 spawn 时 model 解析完成
+**When** strace 输出 ConfigResolve 事件
+**Then** 包含 `model`（最终值）和 `model_source`（来源标签：cli/agent/driver）
+
+**Given** 项目配置中 `default_provider` 与最终 provider 不同（被 agent 覆盖）
+**When** strace 输出 ConfigResolve 事件
+**Then** 同时显示 `project_default` 和 `agent_provider` 字段，用户可清晰看到覆盖关系
+
+**Given** `ConfigResolve` 事件被 FormatEvent 格式化
+**When** 渲染为 trace line
+**Then** 输出格式为 `[N.NNNs] ConfigResolve(provider=X [source], model=Y [source], ...)  duration`
+
+## Story 3.6: 推理步骤逐步输出（Step Output Streaming）
+
+> **追加时间：** 2026-03-18
+> **触发来源：** Sprint Change Proposal — 推理过程中间文本不可见
+
+As a 用户,
+I want 在 CLI 输出中逐步看到每个 reasoning step 的摘要信息,
+So that 我可以实时感知智能体的执行进展，而不是等待最终 Result 块一次性展示。
+
+**Acceptance Criteria:**
+
+**Given** reasonStep 循环中某步执行 tool_call 完成
+**When** CLI 收到该步的进度事件
+**Then** 逐步渲染类似 `[agent/1] step 2: /dev/fs → read sprint-status.yaml` 的摘要行
+
+**Given** reasonStep 循环中某步执行 plan 完成
+**When** CLI 收到该步的进度事件
+**Then** 逐步渲染类似 `[agent/1] step 1: plan (3 steps)` 的摘要行
+
+**Given** reasonStep 循环中某步执行 spawn 完成
+**When** CLI 收到该步的进度事件
+**Then** 逐步渲染类似 `[agent/1] step 3: spawn PID 2 "子任务"` 的摘要行
+
+**Given** 用户使用 `--quiet` 或 `--json` 模式
+**When** 步骤输出事件到达
+**Then** quiet 模式静默，json 模式输出结构化 JSON
+
 ---
