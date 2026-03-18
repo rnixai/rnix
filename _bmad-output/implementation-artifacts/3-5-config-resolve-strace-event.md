@@ -1,6 +1,6 @@
 # Story 3.5: 配置解析来源追踪（ConfigResolve strace 事件）
 
-Status: review
+Status: done
 
 ## Story
 
