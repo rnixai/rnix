@@ -1,6 +1,6 @@
 # Story 26.3: Specialize 能力迁移
 
-Status: review
+Status: done
 
 ## Story
 
