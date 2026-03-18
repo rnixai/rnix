@@ -192,7 +192,7 @@ func TestE2E_SuccessFlow(t *testing.T) {
 	}{
 		{"kernel prefix", "[kernel]"},
 		{"spawning PID", "spawning PID"},
-		{"reasoning step", "reasoning step"},
+		{"step complete", "step 1:"},
 		{"Result box", "══ Result ══"},
 		{"result content", "分析完成"},
 		{"exit summary", "exited(0)"},

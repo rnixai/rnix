@@ -79,7 +79,7 @@ func TestCliCallbacks_OnSpawn(t *testing.T) {
 func TestCliCallbacks_OnStep(t *testing.T) {
 	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
 	var buf bytes.Buffer
-	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeDefault, Profile: ui.TerminalProfile{ColorLevel: 0}}
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeVerbose, Profile: ui.TerminalProfile{ColorLevel: 0}}
 	p := ui.NewProgressReporter(r)
 	cb := &cliCallbacks{progress: p}
 
@@ -91,6 +91,41 @@ func TestCliCallbacks_OnStep(t *testing.T) {
 	}
 	if !strings.Contains(output, "reasoning step 2") {
 		t.Errorf("expected step progress, got %q", output)
+	}
+}
+
+func TestCliCallbacks_OnStepComplete(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeDefault, Profile: ui.TerminalProfile{ColorLevel: 0}}
+	p := ui.NewProgressReporter(r)
+	cb := &cliCallbacks{progress: p}
+
+	cb.OnStepComplete(1, 2, "tool_call", "/dev/fs → read config.yaml")
+
+	output := buf.String()
+	if !strings.Contains(output, "[agent/1]") {
+		t.Errorf("expected [agent/1] prefix, got %q", output)
+	}
+	if !strings.Contains(output, "step 2:") {
+		t.Errorf("expected 'step 2:' in output, got %q", output)
+	}
+	if !strings.Contains(output, "/dev/fs") {
+		t.Errorf("expected tool path in output, got %q", output)
+	}
+}
+
+func TestCliCallbacks_OnStep_DefaultMode_Silent(t *testing.T) {
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+	var buf bytes.Buffer
+	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeDefault, Profile: ui.TerminalProfile{ColorLevel: 0}}
+	p := ui.NewProgressReporter(r)
+	cb := &cliCallbacks{progress: p}
+
+	cb.OnStep(1, 2, 3)
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no output in default mode, got %q", buf.String())
 	}
 }
 

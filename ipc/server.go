@@ -1385,6 +1385,12 @@ func (m *callbackMux) OnStep(pid types.PID, step int, total int) {
 	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
 }
 
+func (m *callbackMux) OnStepComplete(pid types.PID, step int, action string, summary string) {
+	pp := ProgressPayload{Event: "step_complete", PID: pid, Step: step, Action: action, Summary: summary}
+	payload, _ := json.Marshal(pp)
+	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
+}
+
 func (m *callbackMux) OnComplete(pid types.PID, result string, exit kernel.ExitStatus) {
 	// Completion is handled by the spawn handler goroutine reading from proc.Done.
 }

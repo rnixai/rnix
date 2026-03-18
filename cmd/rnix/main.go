@@ -122,6 +122,10 @@ func (c *cliCallbacks) OnStep(pid types.PID, step, total int) {
 	c.progress.AgentStep(pid, step, total)
 }
 
+func (c *cliCallbacks) OnStepComplete(pid types.PID, step int, action string, summary string) {
+	c.progress.AgentStepComplete(pid, step, action, summary)
+}
+
 func (c *cliCallbacks) OnComplete(pid types.PID, result string, exit kernel.ExitStatus) {
 	// Output handled by main flow after Done channel
 }
@@ -513,6 +517,13 @@ func runRoot(cmd *cobra.Command, args []string) error {
 			}
 		case "step":
 			progress.AgentStep(pp.PID, pp.Step, pp.Total)
+		case "step_complete":
+			if mode == ui.ModeJSON {
+				jsonLine, _ := json.Marshal(pp)
+				fmt.Fprintf(os.Stdout, "%s\n", jsonLine)
+			} else {
+				progress.AgentStepComplete(pp.PID, pp.Step, pp.Action, pp.Summary)
+			}
 		case "error":
 			// handled in final
 		}

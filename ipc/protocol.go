@@ -307,7 +307,7 @@ const (
 
 // ProgressPayload maps kernel callback events to IPC wire format.
 type ProgressPayload struct {
-	Event string    `json:"event"` // "spawn", "step", "complete", "error"
+	Event string    `json:"event"` // "spawn", "step", "step_complete", "complete", "error"
 	PID   types.PID `json:"pid"`
 
 	// OnSpawn
@@ -315,9 +315,13 @@ type ProgressPayload struct {
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
 
-	// OnStep
+	// OnStep / OnStepComplete
 	Step  int `json:"step,omitempty"`
 	Total int `json:"total,omitempty"`
+
+	// OnStepComplete
+	Action  string `json:"action,omitempty"`
+	Summary string `json:"summary,omitempty"`
 
 	// OnComplete
 	Result     string `json:"result,omitempty"`
