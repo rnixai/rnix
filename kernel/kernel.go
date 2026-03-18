@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1594,12 +1595,127 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			continue
 
 		case ActionSpecialize:
-			errMsg := "specialize action not yet implemented"
-			_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", errMsg)
-			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
+			skillName := action.ToolPath
+			if skillName == "" {
+				errMsg := "specialize error: empty skill name"
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", errMsg)
+				k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "specialize_error",
+				}, nil, nil, time.Since(stepStart))
+				continue
+			}
+			if k.skillLoader == nil {
+				errMsg := "specialize error: no skill loader configured"
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", errMsg)
+				k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "specialize_error",
+				}, nil, nil, time.Since(stepStart))
+				continue
+			}
+
+			// TOCTOU first check: is this skill already loaded?
+			proc.mu.Lock()
+			alreadyLoaded := slices.Contains(proc.Skills, skillName)
+			proc.mu.Unlock()
+			if alreadyLoaded {
+				resultMsg := fmt.Sprintf("skill %q already loaded", skillName)
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", resultMsg)
+				k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "specialize_already_loaded",
+					"skill":  skillName,
+				}, nil, nil, time.Since(stepStart))
+				continue
+			}
+
+			// Load skill outside lock (I/O may be slow)
+			skillInfo, loadErr := k.skillLoader(skillName)
+			if loadErr != nil {
+				errMsg := fmt.Sprintf("specialize error: skill %q load failed: %v", skillName, loadErr)
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", errMsg)
+				k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "specialize_error",
+					"skill":  skillName,
+				}, nil, loadErr, time.Since(stepStart))
+				continue
+			}
+
+			// TOCTOU second check under lock to prevent concurrent duplicate
+			proc.mu.Lock()
+			if slices.Contains(proc.Skills, skillName) {
+				proc.mu.Unlock()
+				resultMsg := fmt.Sprintf("skill %q already loaded", skillName)
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", resultMsg)
+				k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "specialize_already_loaded",
+					"skill":  skillName,
+				}, nil, nil, time.Since(stepStart))
+				continue
+			}
+			proc.Skills = append(proc.Skills, skillName)
+			proc.AllowedDevices = append(proc.AllowedDevices, skillInfo.Manifest.AllowedTools()...)
+			totalSkills := len(proc.Skills)
+			allSkills := make([]string, totalSkills)
+			copy(allSkills, proc.Skills)
+			proc.mu.Unlock()
+
+			// Inject skill body into context as RoleUser
+			if skillInfo.Body != "" {
+				appendStart := time.Now()
+				if appendErr := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser,
+					fmt.Sprintf("[Dynamic Skill Loaded: %s]\n%s", skillName, skillInfo.Body)); appendErr != nil {
+					k.emitLog(proc, step, types.LogTool, fmt.Sprintf(
+						"specialize warning: failed to inject skill body for %q: %v", skillName, appendErr), "specialize")
+					k.emitEvent(proc, "CtxWrite", map[string]any{
+						"cid":  proc.CtxID,
+						"op":   "AppendMessage",
+						"role": string(rnixctx.RoleUser),
+					}, nil, appendErr, time.Since(appendStart))
+				}
+			}
+
+			// Emit specialize event
+			k.emitEvent(proc, "StemSpecialize", map[string]any{
+				"skill":        skillName,
+				"total_skills": totalSkills,
+			}, nil, nil, 0)
+
+			// Update differentiation memory
+			if k.diffMemory != nil {
+				k.diffMemory.Record(proc.Intent, allSkills)
+			}
+
+			// Record progressive specialization lineage
+			if proc.lineage != nil {
+				trigger := action.Content
+				if trigger == "" {
+					trigger = "specialize"
+				}
+				proc.lineage.Record(LineageEvent{
+					Timestamp: time.Now(),
+					Phase:     "progressive",
+					Skills:    []string{skillName},
+					Trigger:   trigger,
+				})
+			}
+
+			// Return success as tool message
+			resultMsg := fmt.Sprintf("skill %q loaded successfully", skillName)
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", resultMsg)
+			k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
-				"action": "specialize_stub",
+				"action": "specialize",
+				"skill":  skillName,
 			}, nil, nil, time.Since(stepStart))
 			continue
 		}
