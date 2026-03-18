@@ -114,17 +114,24 @@ KernelImpl 内部持有的关键子系统（通过字段组合，非接口）：
 - **非法转移绝对禁止**：Running→Created、Zombie→Running、Dead→任何状态
 - **资源释放顺序**：cancel() → wg.Wait() → 关闭 FD → 关闭 DebugChan → CtxFree → 状态转 Dead → 移除进程表
 
-#### 推理循环模式
+#### 统一推理循环
 
-两种推理模式通过 `SpawnOpts.ReasoningMode` 选择：
+单一 reasonStep 循环，LLM 每步自主决策行为类型：
+- `tool_call` — 直接执行 VFS 工具调用
+- `plan` — 输出执行计划，以 RoleAssistant 写入上下文（需 `planning: true`）
+- `spawn` — 创建子进程（任务式指挥）
+- `specialize` — 动态加载 Skill（Stem Cell 渐进式特化）
+- `replan` — 修正当前计划
+- `complete` — 输出最终结果并退出
+- `text` — 纯文本输出（最终答案）
 
-- **`""` (线性模式，默认)**：经典 reasonStep 循环，LLM 输出 → 解析 action → 执行 tool → 写入 context → 下一步
-- **`"ooda"` (OODA 模式)**：4 阶段循环 Observe → Orient → Decide → Act
-  - Observe: 收集当前状态信息
-  - Orient: LLM 评估偏差与约束
-  - Decide: LLM 输出结构化 JSON `OODADecision`（action: tool_call/spawn/complete/replan/specialize）
-  - Act: 执行决策（tool 调用、子进程 spawn、完成、重新规划、技能热加载）
-  - `OODADecision.Action = "specialize"` 触发 StemMatcher 动态加载技能
+配置开关：`planning: true|false`（默认 true），false 时 prompt 不注入 plan 指引。planning 为 false 且 LLM 返回 plan 时，按 text 处理。
+
+内置安全机制：
+- VFS flags 自动降级：空 payload 时 O_RDONLY，写入时 O_RDWR
+- 工具错误以 tool message 注入上下文，LLM 可感知并调整策略
+- 连续 3 次 tool_call/spawn 失败触发熔断退出（code=1）
+- specialize/plan/replan 失败不计入熔断（可恢复逻辑错误）
 
 #### LLM 多 Provider 架构
 
@@ -316,7 +323,7 @@ cmd/rnix           → ipc, kernel, drivers/*, compose, intent, shell, agents, s
 #### 文件组织
 
 - **每文件单一职责**：`kernel.go` = Kernel + Spawn + reasonStep，`process.go` = Process + 状态机
-- **子系统独立文件**：`budget_pool.go`、`sla.go`、`reputation.go`、`synergy_matrix.go`、`immune.go`、`stem.go`、`diffmemory.go`、`lineage.go`、`ooda.go`、`supervisor.go`、`init.go`
+- **子系统独立文件**：`budget_pool.go`、`sla.go`、`reputation.go`、`synergy_matrix.go`、`immune.go`、`stem.go`、`diffmemory.go`、`lineage.go`、`supervisor.go`、`init.go`
 - **接口定义在使用方**：`LLMDriver` 定义在 `drivers/llm/driver.go`，`KernelSpawner` 定义在 `compose/types.go`
 - **共享类型独立文件**：PID/FD/ErrCode 等放在 `internal/types/types.go`
 - **内部包隔离**：UI 组件放 `internal/ui/`，泛型工具放 `internal/xsync/`
@@ -352,7 +359,7 @@ cmd/rnix           → ipc, kernel, drivers/*, compose, intent, shell, agents, s
 - **gdb 运行时修改的生效时机**：所有通过 `set` 命令的修改在下一次 `reasonStep` 迭代时生效
 - **Context 修改不可撤销**：`set context append` 永久改变上下文历史
 - **Model override 的作用域**：`proc.gdbModelOverride` 影响 reasonStep 中的 `llmRequest.Model`，不修改 `opts.Model`
-- **Skills 热加载方式**：OODA specialize action 或 gdb 技能通过 SkillLoader 加载 body 后追加到上下文
+- **Skills 热加载方式**：specialize action 或 gdb 技能通过 SkillLoader 加载 body 后追加到上下文
 
 #### Context 传播方向
 

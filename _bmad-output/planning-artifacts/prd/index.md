@@ -67,7 +67,7 @@
     - [Visualization Dashboard（可视化调试面板，Phase 3）](./functional-requirements.md#visualization-dashboard可视化调试面板phase-3)
     - [AgentShell Complete Scripting Language（AgentShell 完整脚本语言，Phase 3）](./functional-requirements.md#agentshell-complete-scripting-languageagentshell-完整脚本语言phase-3)
     - [Declarative Intent + Reconciler（声明式意图 + 控制器调和，Phase 3）](./functional-requirements.md#declarative-intent--reconciler声明式意图--控制器调和phase-3)
-    - [OODA Autonomous Decision（OODA 自主决策，Phase 3）](./functional-requirements.md#ooda-autonomous-decisionooda-自主决策phase-3)
+    - [Unified Reasoning Loop（统一推理循环，Phase 3）](./functional-requirements.md#unified-reasoning-loop统一推理循环phase-3)
     - [Stem Cell Differentiation（干细胞分化 + Skill 驱动特化，Phase 3）](./functional-requirements.md#stem-cell-differentiation干细胞分化--skill-驱动特化phase-3)
     - [Token Economy + Contract SLA + Reputation（Token 经济 + 合约 SLA + 声誉系统，Phase 3）](./functional-requirements.md#token-economy--contract-sla--reputationtoken-经济--合约-sla--声誉系统phase-3)
     - [Adaptive Immune Security（适应性免疫安全，Phase 3）](./functional-requirements.md#adaptive-immune-security适应性免疫安全phase-3)

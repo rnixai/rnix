@@ -60,7 +60,7 @@
 - gdb attach 通过 IPC 扩展，机制明确
 - 分布式追踪通过 TraceID/SpanID 自动传播
 - AgentShell Phase 3 节点类型已在 AST 设计中预留
-- 声明式意图、OODA、干细胞分化等涌现层为 Phase 3 延迟决策，不阻塞实现
+- 声明式意图、统一推理循环（Epic 26 已实现）、干细胞分化等涌现层为 Phase 3 延迟决策，不阻塞实现
 
 ### NFR 覆盖（NFR1-NFR46）：46/46 ✅
 

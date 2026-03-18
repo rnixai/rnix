@@ -1089,6 +1089,40 @@ type Process struct {
 }
 ```
 
+### Decision 23: 统一推理循环 — 废弃双模式，单一 reasonStep
+
+**决策：** 废弃 linear/OODA 双推理模式，统一为单一 reasonStep 循环。LLM 每步自主选择行为（tool_call/plan/spawn/complete/specialize/replan），planning 作为可配置能力而非独立模式。
+
+**理由：**
+- OODA 双 LLM 调用导致语义漂移和 ~20s 性能损耗
+- 人类硬编码 reasoning mode 选择不如 LLM 自主判断灵活
+- 双代码路径增加维护负担，OODA 路径存在 bug 而 linear 路径无此问题
+- 统一循环净删除 ~2000 行代码，减少代码复杂度
+
+**配置：**
+- `planning: true`（默认）— prompt 注入 plan 指引，LLM 可选择规划
+- `planning: false` — prompt 不含 plan 指引，LLM 直接执行
+
+**ActionType 枚举（7 种）：**
+
+| ActionType | 说明 |
+|------------|------|
+| `text` | 纯文本输出（最终答案） |
+| `tool_call` | 直接执行 VFS 工具调用 |
+| `plan` | 输出执行计划，以 RoleAssistant 写入上下文 |
+| `spawn` | 创建子进程（任务式指挥） |
+| `complete` | 输出最终结果并退出（code=0） |
+| `replan` | 修正当前计划 |
+| `specialize` | 动态加载 Skill（Stem Cell 渐进式特化） |
+
+**内置安全机制：**
+- VFS flags 自动降级：空 payload 时 `O_RDONLY`，非空时 `O_RDWR`
+- 工具错误以 tool message 注入 LLM 上下文
+- 连续 3 次 tool_call/spawn 失败触发熔断退出（code=1）
+- plan/replan/specialize 失败不计入熔断（可恢复逻辑错误）
+
+**FR/NFR 覆盖：** FR8（扩展）、FR10（扩展）、FR112-FR118（重写）、NFR44（重写：≤50ms）
+
 ### 配置系统决策影响分析
 
 **实现顺序（依赖驱动）：**

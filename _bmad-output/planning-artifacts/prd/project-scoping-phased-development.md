@@ -160,7 +160,7 @@
 | 可视化调试面板 | 智能体树/时间线/热力图/联动/离线回放 | FR90-96 |
 | AgentShell 完整脚本 | 循环/函数/数组/并行块/source/shebang | FR97-105 |
 | 声明式意图 + Reconciler | apply 声明/Intent State/事件驱动调和/增量更新/子意图树 | FR106-111 |
-| OODA 自主决策 | Observe/Orient/Decide/Act 循环/reasoning:ooda/任务式指挥 | FR112-117 |
+| 统一推理循环 | 单一 reasonStep 循环/LLM 自主 action 选择/planning 配置/熔断机制 | FR112-117 |
 | 干细胞分化 | Stem Agent/自动 Skill 匹配/渐进特化/表观遗传/谱系图 | FR118-122 |
 | Token 经济 + 声誉 | 预算池/价格信号/合约 SLA/声誉评分/自然选择 | FR123-128 |
 | 适应性免疫安全 | Immune Daemon/行为基线/异常检测/威胁记忆库 | FR129-133 |

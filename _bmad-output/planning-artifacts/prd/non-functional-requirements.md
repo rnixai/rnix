@@ -96,7 +96,7 @@
 ## Emergence Layer Performance（涌现层性能，Phase 3）
 
 - **NFR43:** Reconciler 从检测到 drift 到启动调和行动的延迟 ≤ 5s（事件驱动模式）
-- **NFR44:** OODA 单轮循环（Observe→Orient→Decide→Act）的框架开销（不含 LLM）≤ 200ms
+- **NFR44:** 统一推理循环单步框架开销（不含 LLM 调用时间）≤ 50ms
 - **NFR45:** 干细胞分化的 Skill 匹配和加载过程 ≤ 3s（≤ 10 个候选 Skill）
 - **NFR46:** Token 预算分配决策延迟 ≤ 100ms
 - **NFR47:** Immune Daemon 行为监控的 CPU 开销 ≤ 3%（10 个并发进程）
