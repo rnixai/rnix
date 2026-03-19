@@ -1482,6 +1482,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 					"step":   step,
 					"action": "plan_as_text",
 				}, action.Content, nil, time.Since(stepStart))
+				if k.callbacks != nil {
+					k.callbacks.OnStepComplete(proc.PID, step, "text", "")
+				}
 				k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
 				return
 			}
@@ -1874,8 +1877,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 // briefToolCallSummary generates "{toolPath} → {briefResult}" for OnStepComplete.
 func briefToolCallSummary(toolPath, toolResult string) string {
 	brief := strings.ReplaceAll(toolResult, "\n", " ")
-	if len(brief) > 60 {
-		brief = brief[:60] + "..."
+	r := []rune(brief)
+	if len(r) > 60 {
+		brief = string(r[:60]) + "..."
 	}
 	if brief == "" {
 		brief = "ok"

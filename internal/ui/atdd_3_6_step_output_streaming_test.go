@@ -14,7 +14,7 @@ import (
 // does not exist yet. They will not compile until the method is implemented.
 //
 // Tests verify:
-// AC1: default 模式输出 "[agent/{pid}] step {step}: {action} → {summary}"
+// AC1: default 模式输出 "[agent/{pid}] step {step}: {summary}" (summary 非空时直接显示)
 // AC2: plan 步骤输出 "[agent/{pid}] step {step}: plan (3 steps)"
 // AC3: spawn 步骤输出格式正确
 // AC4: quiet 模式不输出任何步骤摘要

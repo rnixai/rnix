@@ -240,6 +240,150 @@ func TestListMerged_SkipsFiles(t *testing.T) {
 }
 
 // ============================================================
+// MergeNamedSlice tests
+// ============================================================
+
+func TestMergeNamedSlice_OverridePartial(t *testing.T) {
+	base := []any{
+		map[string]any{"name": "claude", "driver": "claude-cli", "default_model": "haiku"},
+		map[string]any{"name": "cursor", "driver": "cursor-cli"},
+		map[string]any{"name": "openrouter", "driver": "openai-compat", "base_url": "https://openrouter.ai/api/v1"},
+	}
+	override := []any{
+		map[string]any{"name": "cursor", "default_model": "gpt-4o"},
+	}
+	result := MergeNamedSlice(base, override, "name")
+
+	if len(result) != 3 {
+		t.Fatalf("len = %d, want 3", len(result))
+	}
+	// claude unchanged
+	if result[0].(map[string]any)["name"] != "claude" {
+		t.Errorf("result[0].name = %v, want claude", result[0].(map[string]any)["name"])
+	}
+	// cursor merged
+	cursor := result[1].(map[string]any)
+	if cursor["driver"] != "cursor-cli" {
+		t.Errorf("cursor.driver = %v, want cursor-cli (from base)", cursor["driver"])
+	}
+	if cursor["default_model"] != "gpt-4o" {
+		t.Errorf("cursor.default_model = %v, want gpt-4o (from override)", cursor["default_model"])
+	}
+	// openrouter preserved
+	if result[2].(map[string]any)["name"] != "openrouter" {
+		t.Errorf("result[2].name = %v, want openrouter", result[2].(map[string]any)["name"])
+	}
+}
+
+func TestMergeNamedSlice_AppendNew(t *testing.T) {
+	base := []any{
+		map[string]any{"name": "claude", "driver": "claude-cli"},
+	}
+	override := []any{
+		map[string]any{"name": "cursor", "driver": "cursor-cli"},
+	}
+	result := MergeNamedSlice(base, override, "name")
+
+	if len(result) != 2 {
+		t.Fatalf("len = %d, want 2", len(result))
+	}
+	if result[0].(map[string]any)["name"] != "claude" {
+		t.Errorf("result[0].name = %v, want claude", result[0].(map[string]any)["name"])
+	}
+	if result[1].(map[string]any)["name"] != "cursor" {
+		t.Errorf("result[1].name = %v, want cursor", result[1].(map[string]any)["name"])
+	}
+}
+
+func TestMergeNamedSlice_EmptyOverride(t *testing.T) {
+	base := []any{
+		map[string]any{"name": "claude"},
+		map[string]any{"name": "cursor"},
+	}
+	result := MergeNamedSlice(base, []any{}, "name")
+
+	if len(result) != 2 {
+		t.Fatalf("len = %d, want 2", len(result))
+	}
+}
+
+func TestMergeNamedSlice_EmptyBase(t *testing.T) {
+	override := []any{
+		map[string]any{"name": "cursor"},
+	}
+	result := MergeNamedSlice([]any{}, override, "name")
+
+	if len(result) != 1 {
+		t.Fatalf("len = %d, want 1", len(result))
+	}
+	if result[0].(map[string]any)["name"] != "cursor" {
+		t.Errorf("result[0].name = %v, want cursor", result[0].(map[string]any)["name"])
+	}
+}
+
+func TestMergeNamedSlice_NoKeyField_Fallback(t *testing.T) {
+	base := []any{
+		map[string]any{"a": 1},
+	}
+	override := []any{
+		map[string]any{"b": 2},
+	}
+	result := MergeNamedSlice(base, override, "name")
+
+	if len(result) != 1 {
+		t.Fatalf("len = %d, want 1 (fallback to override)", len(result))
+	}
+	if result[0].(map[string]any)["b"] != 2 {
+		t.Errorf("result[0].b = %v, want 2", result[0].(map[string]any)["b"])
+	}
+}
+
+func TestMergeNamedSlice_NonMapElement_Fallback(t *testing.T) {
+	base := []any{"not-a-map"}
+	override := []any{"also-not-a-map"}
+	result := MergeNamedSlice(base, override, "name")
+
+	if len(result) != 1 || result[0] != "also-not-a-map" {
+		t.Errorf("result = %v, want [also-not-a-map] (fallback to override)", result)
+	}
+}
+
+func TestMergeNamedSlice_DoesNotMutateInputs(t *testing.T) {
+	base := []any{
+		map[string]any{"name": "claude", "model": "haiku"},
+	}
+	override := []any{
+		map[string]any{"name": "claude", "model": "sonnet"},
+	}
+
+	_ = MergeNamedSlice(base, override, "name")
+
+	if base[0].(map[string]any)["model"] != "haiku" {
+		t.Error("MergeNamedSlice mutated base")
+	}
+	if override[0].(map[string]any)["model"] != "sonnet" {
+		t.Error("MergeNamedSlice mutated override")
+	}
+}
+
+func TestMergeNamedSlice_AppendDoesNotMutateOverride(t *testing.T) {
+	base := []any{
+		map[string]any{"name": "claude", "driver": "claude-cli"},
+	}
+	override := []any{
+		map[string]any{"name": "cursor", "driver": "cursor-cli"},
+	}
+
+	result := MergeNamedSlice(base, override, "name")
+
+	result[1].(map[string]any)["driver"] = "mutated"
+
+	if override[0].(map[string]any)["driver"] != "cursor-cli" {
+		t.Error("MergeNamedSlice append path shares reference with override")
+	}
+}
+
+// ============================================================
 // Epic 25 TA: Supplemental automated tests
 // ============================================================
 

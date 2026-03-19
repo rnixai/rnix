@@ -1524,6 +1524,13 @@ func (s *Server) resolveProjectContext(projectDir, rnixEnv string) (*config.Proj
 			}
 
 			merged := config.DeepMergeYAML(globalMap, projectMap)
+
+			if baseSlice, ok := globalMap["providers"].([]any); ok {
+				if overSlice, ok := projectMap["providers"].([]any); ok {
+					merged["providers"] = config.MergeNamedSlice(baseSlice, overSlice, "name")
+				}
+			}
+
 			mergedBytes, marshalErr := yaml.Marshal(merged)
 			if marshalErr != nil {
 				return nil, nil, fmt.Errorf("marshaling merged providers: %w", marshalErr)
@@ -1570,7 +1577,7 @@ func (s *Server) resolveProjectContext(projectDir, rnixEnv string) (*config.Proj
 				log.Printf("[ipc] warning: project provider %q: %v", pc.Name, driverErr)
 				continue
 			}
-			factories[pc.Name] = llm.FileFactory(driver, "/dev/llm/"+pc.Name)
+			factories[pc.Name] = llm.FileFactory(driver, "/dev/llm/"+pc.Name, pc.Mode)
 		}
 
 		if len(factories) > 0 {
