@@ -400,7 +400,7 @@ func TestFileFactory_ReturnsShellFile(t *testing.T) {
 	factory := FileFactory(driver, "/dev/shell")
 
 	// O_RDWR should work
-	file, err := factory("", vfs.O_RDWR)
+	file, err := factory("", vfs.O_RDWR, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestFileFactory_ReturnsShellFile(t *testing.T) {
 	}
 
 	// O_RDONLY should also work
-	file, err = factory("", vfs.O_RDONLY)
+	file, err = factory("", vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("unexpected error for O_RDONLY: %v", err)
 	}
@@ -425,11 +425,43 @@ func TestFileFactory_ReturnsShellFile(t *testing.T) {
 	}
 
 	// O_WRONLY should also work
-	file, err = factory("", vfs.O_WRONLY)
+	file, err = factory("", vfs.O_WRONLY, "")
 	if err != nil {
 		t.Fatalf("unexpected error for O_WRONLY: %v", err)
 	}
 	if file == nil {
 		t.Fatal("expected non-nil file for O_WRONLY")
+	}
+}
+
+func TestShellFile_Write_UsesWorkDir(t *testing.T) {
+	// Use a real command to verify cmd.Dir is set correctly
+	driver := NewDriver()
+	factory := FileFactory(driver, "/dev/shell")
+
+	// Create a temp directory to use as workDir
+	tmpDir := t.TempDir()
+
+	file, err := factory("", vfs.O_RDWR, tmpDir)
+	if err != nil {
+		t.Fatalf("FileFactory failed: %v", err)
+	}
+	defer file.Close()
+
+	// pwd should return the workDir
+	ctx := context.Background()
+	err = file.Write(ctx, []byte("pwd"))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	data, err := file.Read(0)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	output := strings.TrimSpace(string(data))
+	if output != tmpDir {
+		t.Errorf("pwd output = %q, want %q", output, tmpDir)
 	}
 }

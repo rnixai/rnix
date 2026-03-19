@@ -10,7 +10,7 @@ import (
 func TestDeviceRegistry_Register(t *testing.T) {
 	t.Run("register succeeds", func(t *testing.T) {
 		reg := NewDeviceRegistry()
-		factory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return &mockFile{}, nil
 		}
 		if err := reg.Register("/dev/llm/claude", factory); err != nil {
@@ -20,7 +20,7 @@ func TestDeviceRegistry_Register(t *testing.T) {
 
 	t.Run("duplicate register returns error", func(t *testing.T) {
 		reg := NewDeviceRegistry()
-		factory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return &mockFile{}, nil
 		}
 		if err := reg.Register("/dev/llm/claude", factory); err != nil {
@@ -36,7 +36,7 @@ func TestDeviceRegistry_Open(t *testing.T) {
 	t.Run("open registered path returns VFSFile", func(t *testing.T) {
 		reg := NewDeviceRegistry()
 		called := false
-		factory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			called = true
 			if subpath != "" {
 				t.Fatalf("expected empty subpath for exact match, got %q", subpath)
@@ -48,7 +48,7 @@ func TestDeviceRegistry_Open(t *testing.T) {
 		}
 		_ = reg.Register("/dev/llm/claude", factory)
 
-		file, err := reg.Open("/dev/llm/claude", O_RDWR)
+		file, err := reg.Open("/dev/llm/claude", O_RDWR, "")
 		if err != nil {
 			t.Fatalf("Open failed: %v", err)
 		}
@@ -62,7 +62,7 @@ func TestDeviceRegistry_Open(t *testing.T) {
 
 	t.Run("open unregistered path returns error", func(t *testing.T) {
 		reg := NewDeviceRegistry()
-		_, err := reg.Open("/dev/nonexistent", O_RDONLY)
+		_, err := reg.Open("/dev/nonexistent", O_RDONLY, "")
 		if err == nil {
 			t.Fatal("expected error for unregistered path, got nil")
 		}
@@ -73,13 +73,13 @@ func TestDeviceRegistry_PrefixMatch(t *testing.T) {
 	t.Run("prefix match passes subpath", func(t *testing.T) {
 		reg := NewDeviceRegistry()
 		var capturedSubpath string
-		factory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			capturedSubpath = subpath
 			return &mockFile{}, nil
 		}
 		_ = reg.Register("/dev/fs", factory)
 
-		file, err := reg.Open("/dev/fs/path/to/file", O_RDONLY)
+		file, err := reg.Open("/dev/fs/path/to/file", O_RDONLY, "")
 		if err != nil {
 			t.Fatalf("Open with prefix failed: %v", err)
 		}
@@ -94,18 +94,18 @@ func TestDeviceRegistry_PrefixMatch(t *testing.T) {
 	t.Run("longest prefix wins", func(t *testing.T) {
 		reg := NewDeviceRegistry()
 		var calledPath string
-		shortFactory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		shortFactory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			calledPath = "short"
 			return &mockFile{}, nil
 		}
-		longFactory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		longFactory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			calledPath = "long"
 			return &mockFile{}, nil
 		}
 		_ = reg.Register("/dev", shortFactory)
 		_ = reg.Register("/dev/fs", longFactory)
 
-		_, err := reg.Open("/dev/fs/myfile", O_RDONLY)
+		_, err := reg.Open("/dev/fs/myfile", O_RDONLY, "")
 		if err != nil {
 			t.Fatalf("Open failed: %v", err)
 		}
@@ -117,18 +117,18 @@ func TestDeviceRegistry_PrefixMatch(t *testing.T) {
 	t.Run("exact match preferred over prefix", func(t *testing.T) {
 		reg := NewDeviceRegistry()
 		var calledPath string
-		prefixFactory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		prefixFactory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			calledPath = "prefix"
 			return &mockFile{}, nil
 		}
-		exactFactory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		exactFactory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			calledPath = "exact"
 			return &mockFile{}, nil
 		}
 		_ = reg.Register("/dev/fs", prefixFactory)
 		_ = reg.Register("/dev/fs/special", exactFactory)
 
-		_, err := reg.Open("/dev/fs/special", O_RDONLY)
+		_, err := reg.Open("/dev/fs/special", O_RDONLY, "")
 		if err != nil {
 			t.Fatalf("Open failed: %v", err)
 		}
@@ -141,7 +141,7 @@ func TestDeviceRegistry_PrefixMatch(t *testing.T) {
 func TestDeviceRegistry_Stat(t *testing.T) {
 	t.Run("stat registered device", func(t *testing.T) {
 		reg := NewDeviceRegistry()
-		factory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return &mockFile{}, nil
 		}
 		_ = reg.Register("/dev/llm/claude", factory)
@@ -168,7 +168,7 @@ func TestDeviceRegistry_Stat(t *testing.T) {
 
 	t.Run("stat prefix matched path", func(t *testing.T) {
 		reg := NewDeviceRegistry()
-		factory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return &mockFile{}, nil
 		}
 		_ = reg.Register("/dev/fs", factory)
@@ -193,7 +193,7 @@ func TestDeviceRegistry_ConcurrentRegister(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			path := fmt.Sprintf("/dev/test/%d", i)
-			factory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+			factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 				return &mockFile{}, nil
 			}
 			_ = reg.Register(path, factory)

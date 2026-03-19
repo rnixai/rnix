@@ -24,7 +24,7 @@ func TestReasonStep_ToolOpenFails_SetsHasToolError(t *testing.T) {
 			makeLLMResponse("I encountered a tool error but here is my best answer", 30),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 	// NOTE: /dev/nonexistent is intentionally NOT registered → Open will fail
@@ -77,12 +77,12 @@ func TestReasonStep_ToolWriteFails_SetsHasToolError(t *testing.T) {
 			makeLLMResponse("recovered from write error", 20),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 
 	// Register a tool device that fails on Write
-	_ = reg.Register("/dev/tools/failing", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/failing", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{
 			writeErr: errMockWrite,
 		}, nil
@@ -130,12 +130,12 @@ func TestReasonStep_ToolReadFails_SetsHasToolError(t *testing.T) {
 			makeLLMResponse("recovered from read error", 20),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 
 	// Register a tool device that succeeds on Write but fails on Read
-	_ = reg.Register("/dev/tools/read-fail", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/read-fail", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{
 			readErr: errMockRead,
 		}, nil
@@ -182,10 +182,10 @@ func TestReasonStep_NoToolError_ExitCodeZero(t *testing.T) {
 			makeLLMResponse("all good", 20),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/ok", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/ok", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("tool result")}, nil
 	})
 

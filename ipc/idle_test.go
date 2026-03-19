@@ -18,7 +18,7 @@ func TestTryAutoShutdown_ZombieOnlyProcs(t *testing.T) {
 	// When: tryAutoShutdown is called
 	// Then: server shuts down (Zombie processes do NOT count as active)
 	devReg := vfs.NewDeviceRegistry()
-	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return nil, types.NewDriverError("Open", "/dev/llm/claude", nil, types.ErrNotFound)
 	})
 	vfsInst := vfs.NewVFS(devReg)

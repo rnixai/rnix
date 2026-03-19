@@ -31,11 +31,11 @@ import (
 // primaryDevice receives primary calls, fallbackDevice receives fallback calls.
 func newFallbackTestKernel(t testing.TB, primaryFile, fallbackFile *mockLLMFile, primaryName, fallbackName string) *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/"+primaryName, func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/"+primaryName, func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return primaryFile, nil
 	})
 	if fallbackName != primaryName {
-		_ = reg.Register("/dev/llm/"+fallbackName, func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register("/dev/llm/"+fallbackName, func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return fallbackFile, nil
 		})
 	}
@@ -66,7 +66,7 @@ func newFallbackTestKernel(t testing.TB, primaryFile, fallbackFile *mockLLMFile,
 func newSameProviderFallbackKernel(t testing.TB, primaryFile, fallbackFile *mockLLMFile, providerName string) *KernelImpl {
 	var callCount atomic.Int32
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/"+providerName, func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/"+providerName, func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		n := callCount.Add(1)
 		if n == 1 {
 			return primaryFile, nil
@@ -624,7 +624,7 @@ func TestATDD_23_5_AC5_NoFallbackConfigured(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return primaryFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -692,7 +692,7 @@ func TestATDD_23_5_AC5_EmptyFallbackNoRetry(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return primaryFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -769,7 +769,7 @@ func TestATDD_23_5_FallbackProviderNotRegistered(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return primaryFile, nil
 	})
 	v := vfs.NewVFS(reg)

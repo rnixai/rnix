@@ -76,7 +76,7 @@ func makeSpecializeResponseWithContent(skillName, extraContent string, tokens in
 func newSpecializeTestKernel(t *testing.T, llmFile vfs.VFSFile) (*KernelImpl, *rnixctx.Manager, *[]string) {
 	t.Helper()
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -441,7 +441,7 @@ func TestReasonStep_Specialize_SkillNotFound(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -554,7 +554,7 @@ func TestReasonStep_Specialize_NoSkillLoader(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -669,7 +669,7 @@ func TestReasonStep_Specialize_ConcurrentRaceFree(t *testing.T) {
 				makeLLMResponse("done", 5),
 			},
 		}
-		_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return seqFile, nil
 		})
 
@@ -750,7 +750,7 @@ func TestReasonStep_Specialize_ErrorDoesNotCrash(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 	v := vfs.NewVFS(reg)

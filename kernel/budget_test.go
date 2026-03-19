@@ -28,7 +28,7 @@ import (
 func TestBudgetEnforcement_TerminatesAtBudget(t *testing.T) {
 	// LLM returns 1000 tokens per call; budget=2500 → 3rd call (3000 >= 2500) triggers termination
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &sequenceLLMFile{
 			responses: [][]byte{
 				makeToolCallResponse("/dev/tools/echo", map[string]any{}, 1000),
@@ -38,7 +38,7 @@ func TestBudgetEnforcement_TerminatesAtBudget(t *testing.T) {
 			},
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -194,7 +194,7 @@ func TestBudgetPriority_AgentManifestWhenOptsZero(t *testing.T) {
 
 func TestBudgetExceeded_ExitCode2(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("big response", 5000)}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -228,7 +228,7 @@ func TestBudgetExceeded_ExitCode2(t *testing.T) {
 
 func TestBudgetExceeded_EmitsLog(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("response", 3000)}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -269,7 +269,7 @@ drained:
 
 func TestBudgetExceeded_EmitsEvent(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("response", 3000)}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -313,7 +313,7 @@ func TestBudgetExceeded_EmitsEvent(t *testing.T) {
 
 func TestBudgetEnforcement_ExactBoundary(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("exact hit", 500)}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -385,7 +385,7 @@ func TestGetProcInfo_IncludesContextBudget(t *testing.T) {
 
 func TestBudgetEnforcement_MultiStep_CumulativeCheck(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &sequenceLLMFile{
 			responses: [][]byte{
 				makeToolCallResponse("/dev/tools/echo", map[string]any{}, 800),
@@ -395,7 +395,7 @@ func TestBudgetEnforcement_MultiStep_CumulativeCheck(t *testing.T) {
 			},
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -458,7 +458,7 @@ func TestBudgetEnforcement_DefaultNoLimit(t *testing.T) {
 func TestBudgetEnforcement_PreventsActionAfterExceeded(t *testing.T) {
 	actionExecuted := false
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &sequenceLLMFile{
 			responses: [][]byte{
 				makeToolCallResponse("/dev/tools/track", map[string]any{}, 5000),
@@ -466,7 +466,7 @@ func TestBudgetEnforcement_PreventsActionAfterExceeded(t *testing.T) {
 			},
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/track", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/track", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		actionExecuted = true
 		return &mockToolFile{readData: []byte("tracked")}, nil
 	})
@@ -573,7 +573,7 @@ func TestSpawn_WithAgent_UsesBudgetFromManifest(t *testing.T) {
 
 func TestBudgetWarning_EmitsWarningLevel(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("done", 850)}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -627,7 +627,7 @@ drainedWarn:
 
 func TestBudgetWarning_EmitsCriticalLevel(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("done", 920)}, nil
 	})
 	v := vfs.NewVFS(reg)

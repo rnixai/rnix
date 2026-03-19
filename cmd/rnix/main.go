@@ -1215,6 +1215,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		tc := mcp.TransportConfig{
 			Command: cfg.Command,
 			Args:    cfg.Args,
+			WorkDir: cfg.WorkDir,
 		}
 		for k, v := range cfg.Env {
 			tc.Env = append(tc.Env, k+"="+v)

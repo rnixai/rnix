@@ -174,7 +174,7 @@ func (f *LLMFile) Stat() (vfs.FileStat, error) {
 // basePath is the device mount path (e.g., "/dev/llm/claude").
 // mode is "call" or "" / "stream" (default).
 func FileFactory(driver LLMDriver, basePath string, mode string) vfs.VFSFileFactory {
-	return func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	return func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
 		return &LLMFile{
 			driver:     driver,
 			devicePath: basePath + subpath,

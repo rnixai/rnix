@@ -204,7 +204,7 @@ func TestATDD_3_5_AC3_Spawn_EmitsConfigResolve_OverrideVisible(t *testing.T) {
 		readData: makeLLMResponse("override test", 10),
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/openrouter", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/openrouter", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -361,7 +361,7 @@ func TestATDD_3_5_AC6_ConfigResolve_ArgsStructured(t *testing.T) {
 		readData: makeLLMResponse("json mode test", 10),
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/openrouter", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/openrouter", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -436,7 +436,7 @@ func TestATDD_3_5_AC1_Spawn_ProjectConfigPath_EmitsConfigResolve(t *testing.T) {
 		readData: makeLLMResponse("project config test", 10),
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/mycloud", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/mycloud", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)

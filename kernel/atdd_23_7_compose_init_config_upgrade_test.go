@@ -238,10 +238,10 @@ func TestToSupervisorSpec_ChildProvider(t *testing.T) {
 func TestBootstrap_SupervisorChildProvider(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	file := &normalFile{}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return file, nil
 	})
-	_ = reg.Register("/dev/llm/groq", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/groq", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return file, nil
 	})
 	v := vfs.NewVFS(reg)

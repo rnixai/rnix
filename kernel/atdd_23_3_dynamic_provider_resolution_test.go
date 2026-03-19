@@ -88,7 +88,7 @@ func TestATDD_23_3_AC2_RegisteredProviderReturnsCorrectPath(t *testing.T) {
 		readData: makeLLMResponse("ollama response", 10),
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/ollama", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/ollama", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -339,7 +339,7 @@ func TestATDD_23_3_AC5_CLIOverrideThroughSpawn(t *testing.T) {
 		readData: makeLLMResponse("groq response", 10),
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/groq", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/groq", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)

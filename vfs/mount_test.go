@@ -89,7 +89,7 @@ func TestMountManager_Mount(t *testing.T) {
 		}
 
 		// Verify path is accessible via DeviceRegistry
-		_, err = devReg.Open("/mnt/mcp/github/tools/test", O_RDWR)
+		_, err = devReg.Open("/mnt/mcp/github/tools/test", O_RDWR, "")
 		if err != nil {
 			t.Fatalf("expected path to be registered in DeviceRegistry, got error: %v", err)
 		}
@@ -203,7 +203,7 @@ func TestMountManager_Unmount(t *testing.T) {
 			t.Fatalf("Unmount failed: %v", err)
 		}
 
-		_, err = devReg.Open("/mnt/mcp/github/tools/test", O_RDWR)
+		_, err = devReg.Open("/mnt/mcp/github/tools/test", O_RDWR, "")
 		if err == nil {
 			t.Fatal("expected error after unmount, path should no longer be registered")
 		}
@@ -287,7 +287,7 @@ func TestMountManager_UnmountAll(t *testing.T) {
 			}
 		}
 		for _, p := range paths {
-			_, err := devReg.Open(p+"/tools/test", O_RDWR)
+			_, err := devReg.Open(p+"/tools/test", O_RDWR, "")
 			if err == nil {
 				t.Fatalf("expected path %s to be unregistered after UnmountAll", p)
 			}
@@ -418,7 +418,7 @@ func TestMountManager_IntegrationFlow(t *testing.T) {
 		}
 
 		// Open via DeviceRegistry
-		file, err := devReg.Open("/mnt/mcp/github/tools/create-issue", O_RDWR)
+		file, err := devReg.Open("/mnt/mcp/github/tools/create-issue", O_RDWR, "")
 		if err != nil {
 			t.Fatalf("Open failed: %v", err)
 		}
@@ -456,7 +456,7 @@ func TestDeviceRegistry_Unregister(t *testing.T) {
 	t.Run("unregister removes device and prevents routing", func(t *testing.T) {
 		// Given: a DeviceRegistry with a registered path
 		reg := NewDeviceRegistry()
-		factory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return &mockFile{}, nil
 		}
 		if err := reg.Register("/mnt/mcp/github", factory); err != nil {
@@ -470,7 +470,7 @@ func TestDeviceRegistry_Unregister(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Unregister failed: %v", err)
 		}
-		_, err = reg.Open("/mnt/mcp/github", O_RDONLY)
+		_, err = reg.Open("/mnt/mcp/github", O_RDONLY, "")
 		if err == nil {
 			t.Fatal("expected error after Unregister, path should no longer route")
 		}
@@ -492,7 +492,7 @@ func TestDeviceRegistry_Unregister(t *testing.T) {
 	t.Run("unregister then re-register succeeds", func(t *testing.T) {
 		// Given: a DeviceRegistry with a registered and then unregistered path
 		reg := NewDeviceRegistry()
-		factory := func(subpath string, flags OpenFlag) (VFSFile, error) {
+		factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return &mockFile{}, nil
 		}
 		_ = reg.Register("/mnt/mcp/github", factory)

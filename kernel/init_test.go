@@ -178,7 +178,7 @@ func TestBootstrap_SupervisorTreeConstruction_Succeeds(t *testing.T) {
 func TestBootstrap_RequiredSupervisorFailure_ReturnsError(t *testing.T) {
 	// Create a kernel where VFS Open always fails, so SpawnSupervisor fails.
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return nil, fmt.Errorf("device unavailable")
 	})
 	v := vfs.NewVFS(reg)

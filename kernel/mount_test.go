@@ -294,7 +294,7 @@ func newTestKernelWithMountManager(t testing.TB) *KernelImpl {
 	llmFile := &mockLLMFile{
 		readData: []byte(`{"content":"test","tokens_used":1}`),
 	}
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -314,7 +314,7 @@ func newTestKernelWithoutMountManager(t testing.TB) *KernelImpl {
 	llmFile := &mockLLMFile{
 		readData: []byte(`{"content":"test","tokens_used":1}`),
 	}
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)

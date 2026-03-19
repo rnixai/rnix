@@ -46,7 +46,8 @@ type StreamObserver interface {
 
 // VFSFileFactory creates a VFSFile for a given subpath and open flags.
 // subpath is the remaining path after prefix matching (empty for exact matches).
-type VFSFileFactory func(subpath string, flags OpenFlag) (VFSFile, error)
+// workDir is the per-process working directory; empty string means no workDir set.
+type VFSFileFactory func(subpath string, flags OpenFlag, workDir string) (VFSFile, error)
 
 // VFSError represents an error from VFS operations.
 type VFSError struct {
@@ -145,6 +146,7 @@ func (t *fdTable) closeAll() error {
 type VFS struct {
 	devRegistry *DeviceRegistry
 	fdTables    *xsync.SyncMap[types.PID, *fdTable]
+	workDirs    *xsync.SyncMap[types.PID, string]
 }
 
 // NewVFS creates a new VFS with the given device registry.
@@ -152,7 +154,21 @@ func NewVFS(devRegistry *DeviceRegistry) *VFS {
 	return &VFS{
 		devRegistry: devRegistry,
 		fdTables:    xsync.NewSyncMap[types.PID, *fdTable](),
+		workDirs:    xsync.NewSyncMap[types.PID, string](),
 	}
+}
+
+// SetWorkDir registers a working directory for the given process.
+// Called during Spawn, before the reasonStep goroutine starts.
+func (v *VFS) SetWorkDir(pid types.PID, dir string) {
+	v.workDirs.Store(pid, dir)
+}
+
+// GetWorkDir returns the working directory for the given process.
+// Returns empty string if no workDir is registered.
+func (v *VFS) GetWorkDir(pid types.PID) string {
+	dir, _ := v.workDirs.Load(pid)
+	return dir
 }
 
 // getOrCreateFDTable returns the fdTable for the given PID, creating one if needed.
@@ -188,7 +204,8 @@ func driverErrCode(err error) types.ErrCode {
 
 // Open opens a device path and returns a new FD for the process.
 func (v *VFS) Open(pid types.PID, path string, flags OpenFlag) (types.FD, error) {
-	file, err := v.devRegistry.Open(path, flags)
+	workDir := v.GetWorkDir(pid)
+	file, err := v.devRegistry.Open(path, flags, workDir)
 	if err != nil {
 		code := driverErrCode(err)
 		if errors.Is(err, errDeviceNotFound) {
@@ -279,6 +296,7 @@ func (v *VFS) Stat(path string) (FileStat, error) {
 
 // CloseAll closes all FDs for the given PID and removes the fdTable.
 func (v *VFS) CloseAll(pid types.PID) error {
+	v.workDirs.Delete(pid)
 	t, ok := v.fdTables.LoadAndDelete(pid)
 	if !ok {
 		return nil
