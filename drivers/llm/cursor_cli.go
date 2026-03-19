@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -130,24 +131,25 @@ func (d *CursorCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 }
 
 // cursorStreamEvent is the JSON structure for a single Cursor CLI stream-json line.
-// [SPIKE] Fields are assumed based on Cursor CLI docs; verify with Task 0 spike.
 type cursorStreamEvent struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype,omitempty"`
 	Model   string `json:"model,omitempty"`
+	CallID  string `json:"call_id,omitempty"`
 	Message struct {
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content,omitempty"`
 	} `json:"message,omitzero"`
-	Result       string  `json:"result,omitempty"`
-	IsError      bool    `json:"is_error,omitempty"`
-	CostUSD      float64 `json:"cost_usd,omitempty"`
-	DurationMS   int     `json:"duration_ms,omitempty"`
-	NumTurns     int     `json:"num_turns,omitempty"`
-	InputTokens  int     `json:"input_tokens,omitempty"`
-	OutputTokens int     `json:"output_tokens,omitempty"`
+	ToolCall     json.RawMessage `json:"tool_call,omitempty"` // raw JSON for tool_call details
+	Result       string          `json:"result,omitempty"`
+	IsError      bool            `json:"is_error,omitempty"`
+	CostUSD      float64         `json:"cost_usd,omitempty"`
+	DurationMS   int             `json:"duration_ms,omitempty"`
+	NumTurns     int             `json:"num_turns,omitempty"`
+	InputTokens  int             `json:"input_tokens,omitempty"`
+	OutputTokens int             `json:"output_tokens,omitempty"`
 }
 
 // Stream executes a streaming LLM request via the Cursor CLI.
@@ -196,9 +198,19 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 			}
 
 			switch evt.Type {
-			case "system", "tool_call":
-				// Skip system init and tool_call events
+			case "system":
 				continue
+			case "tool_call":
+				se := StreamEvent{
+					Type:    "tool_call",
+					Content: evt.Subtype,
+					Data:    extractToolCallInfo(evt.ToolCall),
+				}
+				select {
+				case ch <- se:
+				case <-ctx.Done():
+					return
+				}
 			case "assistant":
 				for _, c := range evt.Message.Content {
 					if c.Type == "text" {
@@ -278,6 +290,58 @@ func (d *CursorCliDriver) buildArgs(req LLMRequest, outputFormat string) []strin
 	prompt := d.buildPrompt(req)
 	args = append(args, prompt)
 	return args
+}
+
+// extractToolCallInfo extracts tool name and description from Cursor CLI tool_call JSON.
+// The tool_call object has varying structures: shellToolCall, readFileToolCall, etc.
+// Each has a "description" field and type-specific args.
+func extractToolCallInfo(raw json.RawMessage) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var tc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &tc); err != nil {
+		return nil
+	}
+	info := make(map[string]any)
+	// Find the first *ToolCall key (e.g., "shellToolCall", "readFileToolCall")
+	for key, val := range tc {
+		if key == "description" {
+			var desc string
+			if json.Unmarshal(val, &desc) == nil {
+				info["description"] = desc
+			}
+			continue
+		}
+		// Extract tool type from key (e.g., "shellToolCall" → "shell")
+		toolType := strings.TrimSuffix(key, "ToolCall")
+		if toolType != key { // it was a *ToolCall key
+			info["tool"] = toolType
+			// Try to extract description and command from the nested object
+			var inner struct {
+				Description string `json:"description"`
+				Args        struct {
+					Command string `json:"command"`
+					Path    string `json:"path"`
+				} `json:"args"`
+			}
+			if json.Unmarshal(val, &inner) == nil {
+				if inner.Description != "" {
+					info["description"] = inner.Description
+				}
+				if inner.Args.Command != "" {
+					info["command"] = inner.Args.Command
+				}
+				if inner.Args.Path != "" {
+					info["path"] = inner.Args.Path
+				}
+			}
+		}
+	}
+	if len(info) == 0 {
+		return nil
+	}
+	return info
 }
 
 // buildPrompt constructs the prompt with optional system prompt prefix.

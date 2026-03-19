@@ -617,6 +617,15 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		}
 		proc.FDTable[llmFD] = nil // VFS manages actual file internally; tracks FD existence for process inspection
 
+		// Set up stream handler if the LLM file supports it (Story: InternalStep events)
+		if file := k.vfs.GetFile(proc.PID, llmFD); file != nil {
+			if obs, ok := file.(vfs.StreamObserver); ok {
+				obs.SetStreamHandler(func(evt map[string]any) {
+					k.emitEvent(proc, "InternalStep", evt, nil, nil, 0)
+				})
+			}
+		}
+
 		// Auto-mount MCP servers referenced in agent.yaml (Story 9.2)
 		if agent != nil && len(agent.MCPConfigs) > 0 {
 			if k.mountMgr == nil {
@@ -1259,7 +1268,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"action": "text",
 			}, action.Content, nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "text", "")
+				k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(action.Content))
 			}
 			exitCode := 0
 			reason := "completed"
@@ -1483,7 +1492,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 					"action": "plan_as_text",
 				}, action.Content, nil, time.Since(stepStart))
 				if k.callbacks != nil {
-					k.callbacks.OnStepComplete(proc.PID, step, "text", "")
+					k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(action.Content))
 				}
 				k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
 				return
@@ -1696,7 +1705,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"action": "complete",
 			}, result, nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "complete", "")
+				k.callbacks.OnStepComplete(proc.PID, step, "complete", briefTextSummary(result))
 			}
 			k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
 			return
@@ -1907,6 +1916,23 @@ func briefReplanSummary(reason string) string {
 	return reason
 }
 
+// briefTextSummary extracts the first non-empty line from text content, truncated to 60 runes.
+func briefTextSummary(content string) string {
+	// Find first non-empty line
+	for line := range strings.SplitSeq(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		r := []rune(line)
+		if len(r) > 60 {
+			return string(r[:60]) + "..."
+		}
+		return line
+	}
+	return ""
+}
+
 // spawnActionData contains optional parameters parsed from spawn action data.
 type spawnActionData struct {
 	Agent string `json:"agent,omitempty"`
@@ -1915,61 +1941,122 @@ type spawnActionData struct {
 
 // parseAction determines the action type from an LLM response.
 func parseAction(resp *llmResponse) ReasonAction {
+	if action, ok := tryParseStructuredAction(resp.Content); ok {
+		return action
+	}
+
+	// Fallback: extract JSON from markdown code blocks or embedded objects.
+	// Models often wrap JSON actions in ```json ... ``` or mix text with JSON.
+	if extracted := extractEmbeddedAction(resp.Content); extracted != "" {
+		if action, ok := tryParseStructuredAction(extracted); ok {
+			return action
+		}
+	}
+
+	return ReasonAction{Type: ActionText, Content: resp.Content}
+}
+
+// tryParseStructuredAction attempts to parse raw JSON text as a structured action.
+func tryParseStructuredAction(raw string) (ReasonAction, bool) {
 	var structured struct {
 		Action string          `json:"action"`
 		Tool   string          `json:"tool,omitempty"`
 		Data   json.RawMessage `json:"data,omitempty"`
 	}
-	if err := json.Unmarshal([]byte(resp.Content), &structured); err == nil {
-		toolData := structured.Data
-		if toolData == nil {
-			toolData = []byte("{}")
+	if err := json.Unmarshal([]byte(raw), &structured); err != nil {
+		return ReasonAction{}, false
+	}
+	toolData := structured.Data
+	if toolData == nil {
+		toolData = []byte("{}")
+	}
+	switch ActionType(structured.Action) {
+	case ActionToolCall:
+		if structured.Tool != "" {
+			return ReasonAction{
+				Type:     ActionToolCall,
+				ToolPath: structured.Tool,
+				ToolData: toolData,
+			}, true
 		}
-		switch ActionType(structured.Action) {
-		case ActionToolCall:
-			if structured.Tool != "" {
-				return ReasonAction{
-					Type:     ActionToolCall,
-					ToolPath: structured.Tool,
-					ToolData: toolData,
+	case ActionPlan:
+		return ReasonAction{
+			Type:     ActionPlan,
+			Content:  raw,
+			ToolData: toolData,
+		}, true
+	case ActionSpawn:
+		return ReasonAction{
+			Type:     ActionSpawn,
+			Content:  raw,
+			ToolPath: structured.Tool,
+			ToolData: toolData,
+		}, true
+	case ActionComplete:
+		return ReasonAction{
+			Type:     ActionComplete,
+			Content:  raw,
+			ToolData: toolData,
+		}, true
+	case ActionReplan:
+		return ReasonAction{
+			Type:     ActionReplan,
+			Content:  raw,
+			ToolData: toolData,
+		}, true
+	case ActionSpecialize:
+		return ReasonAction{
+			Type:     ActionSpecialize,
+			ToolPath: structured.Tool,
+			Content:  raw,
+			ToolData: toolData,
+		}, true
+	}
+	return ReasonAction{}, false
+}
+
+// extractEmbeddedAction extracts a JSON action from text that may contain
+// markdown code blocks (```json ... ```) or inline JSON objects ({"action": ...}).
+func extractEmbeddedAction(content string) string {
+	// Strategy 1: markdown code block — ```json\n{...}\n``` or ```\n{...}\n```
+	for _, fence := range []string{"```json\n", "```json\r\n", "```\n", "```\r\n"} {
+		start := strings.Index(content, fence)
+		if start < 0 {
+			continue
+		}
+		jsonStart := start + len(fence)
+		end := strings.Index(content[jsonStart:], "\n```")
+		if end < 0 {
+			end = strings.Index(content[jsonStart:], "\r\n```")
+		}
+		if end < 0 {
+			continue
+		}
+		candidate := strings.TrimSpace(content[jsonStart : jsonStart+end])
+		if len(candidate) > 0 && candidate[0] == '{' {
+			return candidate
+		}
+	}
+
+	// Strategy 2: find the last top-level JSON object containing "action"
+	// This handles models that output text followed by a bare JSON block.
+	if idx := strings.LastIndex(content, `{"action"`); idx >= 0 {
+		candidate := content[idx:]
+		depth := 0
+		for i, c := range candidate {
+			switch c {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					return candidate[:i+1]
 				}
-			}
-		case ActionPlan:
-			return ReasonAction{
-				Type:     ActionPlan,
-				Content:  resp.Content,
-				ToolData: toolData,
-			}
-		case ActionSpawn:
-			return ReasonAction{
-				Type:     ActionSpawn,
-				Content:  resp.Content,
-				ToolPath: structured.Tool,
-				ToolData: toolData,
-			}
-		case ActionComplete:
-			return ReasonAction{
-				Type:     ActionComplete,
-				Content:  resp.Content,
-				ToolData: toolData,
-			}
-		case ActionReplan:
-			return ReasonAction{
-				Type:     ActionReplan,
-				Content:  resp.Content,
-				ToolData: toolData,
-			}
-		case ActionSpecialize:
-			return ReasonAction{
-				Type:     ActionSpecialize,
-				ToolPath: structured.Tool,
-				Content:  resp.Content,
-				ToolData: toolData,
 			}
 		}
 	}
 
-	return ReasonAction{Type: ActionText, Content: resp.Content}
+	return ""
 }
 
 // AddProcess registers a process in the kernel's process table.

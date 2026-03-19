@@ -55,7 +55,20 @@ func (d *mockLLMDriver) Call(_ context.Context, _ llm.LLMRequest) (*llm.LLMRespo
 }
 
 func (d *mockLLMDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
-	return nil, fmt.Errorf("not supported")
+	ch := make(chan llm.StreamEvent, 1)
+	if d.err != nil {
+		ch <- llm.StreamEvent{Type: "error", Err: d.err}
+	} else if d.response != nil {
+		ch <- llm.StreamEvent{
+			Type:         "done",
+			Content:      d.response.Content,
+			TokensUsed:   d.response.TokensUsed,
+			InputTokens:  d.response.InputTokens,
+			OutputTokens: d.response.OutputTokens,
+		}
+	}
+	close(ch)
+	return ch, nil
 }
 
 func (d *mockLLMDriver) Info() llm.DriverInfo {
@@ -76,8 +89,20 @@ func (d *mockSlowLLMDriver) Call(ctx context.Context, _ llm.LLMRequest) (*llm.LL
 	}
 }
 
-func (d *mockSlowLLMDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
-	return nil, fmt.Errorf("not supported")
+func (d *mockSlowLLMDriver) Stream(ctx context.Context, req llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+	ch := make(chan llm.StreamEvent, 1)
+	go func() {
+		defer close(ch)
+		select {
+		case <-time.After(d.delay):
+			if d.err != nil {
+				ch <- llm.StreamEvent{Type: "error", Err: d.err}
+			}
+		case <-ctx.Done():
+			ch <- llm.StreamEvent{Type: "error", Err: ctx.Err()}
+		}
+	}()
+	return ch, nil
 }
 
 func (d *mockSlowLLMDriver) Info() llm.DriverInfo {
@@ -134,7 +159,7 @@ func runE2E(t *testing.T, intent string, driver llm.LLMDriver, mode ui.OutputMod
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude", ""))
 	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
@@ -592,8 +617,20 @@ func (d *capturingMockLLMDriver) LastRequest() llm.LLMRequest {
 	return d.lastRequest
 }
 
-func (d *capturingMockLLMDriver) Stream(_ context.Context, _ llm.LLMRequest) (<-chan llm.StreamEvent, error) {
-	return nil, fmt.Errorf("not supported")
+func (d *capturingMockLLMDriver) Stream(_ context.Context, req llm.LLMRequest) (<-chan llm.StreamEvent, error) {
+	d.mu.Lock()
+	d.lastRequest = req
+	d.mu.Unlock()
+	ch := make(chan llm.StreamEvent, 1)
+	ch <- llm.StreamEvent{
+		Type:         "done",
+		Content:      d.response.Content,
+		TokensUsed:   d.response.TokensUsed,
+		InputTokens:  d.response.InputTokens,
+		OutputTokens: d.response.OutputTokens,
+	}
+	close(ch)
+	return ch, nil
 }
 
 func (d *capturingMockLLMDriver) Info() llm.DriverInfo {
@@ -617,7 +654,7 @@ func TestE2E_WithAgent_InjectsInstructions(t *testing.T) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude", ""))
 	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
@@ -683,7 +720,7 @@ func TestE2E_CodeAnalystAgent(t *testing.T) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude", ""))
 	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 
@@ -831,7 +868,7 @@ func TestE2E_KillWait_RaceDetection(t *testing.T) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude"))
+	_ = devReg.Register("/dev/llm/claude", llm.FileFactory(driver, "/dev/llm/claude", ""))
 	ctxMgr := rnixctx.NewManager()
 	kern := kernel.NewKernel(vfsInst, ctxMgr, cb)
 

@@ -82,6 +82,14 @@ func FormatEvent(event types.SyscallEvent, opts Options) string {
 	if event.Syscall == "ConfigResolve" {
 		return formatConfigResolve(event, opts)
 	}
+	// ReasonStep uses a specialized format to truncate large results
+	if event.Syscall == "ReasonStep" {
+		return formatReasonStep(event, opts)
+	}
+	// InternalStep shows driver-internal events (e.g., cursor tool_call)
+	if event.Syscall == "InternalStep" {
+		return formatInternalStep(event, opts)
+	}
 
 	ts := formatTimestamp(event.Timestamp)
 	args := formatArgs(event.Args, opts.Verbose)
@@ -160,6 +168,131 @@ func formatConfigResolve(event types.SyscallEvent, opts Options) string {
 	}
 
 	return fmt.Sprintf("%s ConfigResolve(%s)    %s", ts, strings.Join(parts, ", "), dur)
+}
+
+// formatReasonStep formats a ReasonStep event with truncated result.
+// Large text/complete results are truncated to the first non-empty line (max 80 chars).
+func formatReasonStep(event types.SyscallEvent, opts Options) string {
+	ts := formatTimestamp(event.Timestamp)
+	dur := formatDuration(event.Duration)
+
+	action, _ := event.Args["action"].(string)
+	stepNum, _ := event.Args["step"].(int)
+
+	// Build args excluding step and action (shown separately)
+	var extraParts []string
+	for _, k := range sortedKeys(event.Args) {
+		if k == "step" || k == "action" {
+			continue
+		}
+		v := fmt.Sprintf("%v", event.Args[k])
+		if !opts.Verbose && len(v) > 50 {
+			v = v[:47] + "..."
+		}
+		extraParts = append(extraParts, k+"="+v)
+	}
+
+	argStr := fmt.Sprintf("action=%q, step=%d", action, stepNum)
+	if len(extraParts) > 0 {
+		argStr += ", " + strings.Join(extraParts, ", ")
+	}
+
+	// Truncate result for text-heavy actions
+	resultStr := ""
+	if event.Err != nil {
+		resultStr = fmt.Sprintf("err(%v)", event.Err)
+	} else if event.Result != nil {
+		s := fmt.Sprintf("%v", event.Result)
+		// Find first non-empty line, truncate to 80 chars
+		brief := ""
+		for line := range strings.SplitSeq(s, "\n") {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				brief = line
+				break
+			}
+		}
+		if len([]rune(brief)) > 80 {
+			brief = string([]rune(brief)[:80]) + "..."
+		}
+		if brief == "" {
+			resultStr = "<nil>"
+		} else {
+			resultStr = brief
+		}
+	} else {
+		resultStr = "<nil>"
+	}
+
+	line := fmt.Sprintf("%s ReasonStep(%s) → %s    %s", ts, argStr, resultStr, dur)
+
+	// Annotations
+	if event.Duration > time.Second {
+		if opts.ColorEnabled && event.Err == nil {
+			line += "  " + ansiGray + "← 慢操作" + ansiReset
+		} else {
+			line += "  ← 慢操作"
+		}
+	}
+
+	if event.Err != nil {
+		if opts.ColorEnabled {
+			return ansiRed + line + ansiReset
+		}
+		return "[ERR] " + line
+	}
+
+	return line
+}
+
+// sortedKeys returns sorted keys from a map.
+// formatInternalStep formats an InternalStep event (driver-internal events like cursor tool_call).
+// Format: [N.NNNs] InternalStep(tool=shell, subtype=started) "description"
+func formatInternalStep(event types.SyscallEvent, opts Options) string {
+	ts := formatTimestamp(event.Timestamp)
+
+	subtype, _ := event.Args["subtype"].(string)
+	tool, _ := event.Args["tool"].(string)
+	description, _ := event.Args["description"].(string)
+	command, _ := event.Args["command"].(string)
+
+	// Build args: prefer tool name over generic type
+	var parts []string
+	if tool != "" {
+		parts = append(parts, fmt.Sprintf("tool=%s", tool))
+	}
+	if subtype != "" {
+		parts = append(parts, subtype)
+	}
+
+	line := fmt.Sprintf("%s InternalStep(%s)", ts, strings.Join(parts, ", "))
+
+	// Append description or command as summary
+	summary := description
+	if summary == "" && command != "" {
+		summary = command
+	}
+	if summary != "" {
+		r := []rune(summary)
+		if len(r) > 60 {
+			summary = string(r[:60]) + "..."
+		}
+		line += fmt.Sprintf(" %q", summary)
+	}
+
+	if opts.ColorEnabled {
+		return ansiGray + line + ansiReset
+	}
+	return line
+}
+
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // formatTimestamp formats a duration as a fixed-width timestamp: [  0.012s]
