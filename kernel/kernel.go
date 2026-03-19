@@ -1383,39 +1383,41 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				continue
 			}
 
-			// Write tool data
-			toolWriteStart := time.Now()
-			if err := k.vfs.Write(proc.ctx, proc.PID, toolFD, action.ToolData); err != nil {
+			// Write tool data (skip for read-only opens where data is empty)
+			if !isEmpty {
+				toolWriteStart := time.Now()
+				if err := k.vfs.Write(proc.ctx, proc.PID, toolFD, action.ToolData); err != nil {
+					k.emitEvent(proc, "Write", map[string]any{
+						"fd":   toolFD,
+						"size": len(action.ToolData),
+					}, nil, err, time.Since(toolWriteStart))
+					_ = k.vfs.Close(proc.PID, toolFD)
+					errMsg := fmt.Sprintf("Tool error (%s): write failed: %v", action.ToolPath, err)
+					if appendErr := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, errMsg); appendErr != nil {
+						k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append tool error failed", Err: appendErr})
+						return
+					}
+					proc.mu.Lock()
+					proc.HasToolError = true
+					proc.mu.Unlock()
+					k.emitLog(proc, step, types.LogTool, errMsg, action.ToolPath)
+					consecutiveToolErrors++
+					if consecutiveToolErrors >= 3 {
+						k.emitEvent(proc, "ReasonStep", map[string]any{
+							"step":               step,
+							"action":             "circuit_breaker",
+							"consecutive_errors": consecutiveToolErrors,
+						}, nil, nil, time.Since(stepStart))
+						k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+						return
+					}
+					continue
+				}
 				k.emitEvent(proc, "Write", map[string]any{
 					"fd":   toolFD,
 					"size": len(action.ToolData),
-				}, nil, err, time.Since(toolWriteStart))
-				_ = k.vfs.Close(proc.PID, toolFD)
-				errMsg := fmt.Sprintf("Tool error (%s): write failed: %v", action.ToolPath, err)
-				if appendErr := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, errMsg); appendErr != nil {
-					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append tool error failed", Err: appendErr})
-					return
-				}
-				proc.mu.Lock()
-				proc.HasToolError = true
-				proc.mu.Unlock()
-				k.emitLog(proc, step, types.LogTool, errMsg, action.ToolPath)
-				consecutiveToolErrors++
-				if consecutiveToolErrors >= 3 {
-					k.emitEvent(proc, "ReasonStep", map[string]any{
-						"step":               step,
-						"action":             "circuit_breaker",
-						"consecutive_errors": consecutiveToolErrors,
-					}, nil, nil, time.Since(stepStart))
-					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
-					return
-				}
-				continue
+				}, nil, nil, time.Since(toolWriteStart))
 			}
-			k.emitEvent(proc, "Write", map[string]any{
-				"fd":   toolFD,
-				"size": len(action.ToolData),
-			}, nil, nil, time.Since(toolWriteStart))
 
 			// Read tool result
 			toolReadStart := time.Now()
