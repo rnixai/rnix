@@ -119,11 +119,20 @@ type oaiRequest struct {
 }
 
 type oaiMessage struct {
-	Role       string        `json:"role"`
-	Content    string        `json:"content"`
-	Name       string        `json:"name,omitempty"`
-	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string        `json:"tool_call_id,omitempty"`
+	Role             string        `json:"role"`
+	Content          string        `json:"content"`
+	Name             string        `json:"name,omitempty"`
+	ToolCalls        []oaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string        `json:"tool_call_id,omitempty"`
+	Reasoning        string        `json:"reasoning,omitempty"`
+	ReasoningContent string        `json:"reasoning_content,omitempty"`
+}
+
+func (m oaiMessage) reasoningText() string {
+	if m.Reasoning != "" {
+		return m.Reasoning
+	}
+	return m.ReasoningContent
 }
 
 type oaiResponse struct {
@@ -379,8 +388,13 @@ func (d *OpenAICompatDriver) callInternal(ctx context.Context, req LLMRequest, t
 		OutputTokens: oaiResp.Usage.CompletionTokens,
 	}
 	if len(oaiResp.Choices) > 0 {
-		llmResp.Content = oaiResp.Choices[0].Message.Content
-		llmResp.ToolCalls = parseToolCalls(oaiResp.Choices[0].Message.ToolCalls)
+		msg := oaiResp.Choices[0].Message
+		llmResp.Content = msg.Content
+		llmResp.Reasoning = msg.reasoningText()
+		if llmResp.Content == "" && llmResp.Reasoning != "" {
+			llmResp.Content = llmResp.Reasoning
+		}
+		llmResp.ToolCalls = parseToolCalls(msg.ToolCalls)
 	}
 	return llmResp, nil
 }
@@ -493,6 +507,15 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 			if choice.Delta.Content != "" {
 				select {
 				case ch <- StreamEvent{Type: "content", Content: choice.Delta.Content}:
+				case <-ctx.Done():
+					return
+				}
+			}
+
+			// Reasoning delta (OpenRouter/GLM: "reasoning", DeepSeek: "reasoning_content")
+			if r := choice.Delta.reasoningText(); r != "" {
+				select {
+				case ch <- StreamEvent{Type: "reasoning", Content: r}:
 				case <-ctx.Done():
 					return
 				}

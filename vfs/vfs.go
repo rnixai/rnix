@@ -36,6 +36,14 @@ type VFSFile interface {
 	Stat() (FileStat, error)
 }
 
+// StreamObserver is an optional interface for VFSFile implementations that
+// support streaming with intermediate events (e.g., LLM driver internal steps).
+// The kernel checks for this interface after Open and sets a handler to receive
+// events emitted during Write (e.g., tool_call events from cursor/claude CLI).
+type StreamObserver interface {
+	SetStreamHandler(fn func(event map[string]any))
+}
+
 // VFSFileFactory creates a VFSFile for a given subpath and open flags.
 // subpath is the remaining path after prefix matching (empty for exact matches).
 type VFSFileFactory func(subpath string, flags OpenFlag) (VFSFile, error)
@@ -191,6 +199,20 @@ func (v *VFS) Open(pid types.PID, path string, flags OpenFlag) (types.FD, error)
 	t := v.getOrCreateFDTable(pid)
 	fd := t.alloc(file)
 	return fd, nil
+}
+
+// GetFile returns the VFSFile associated with the given FD for the process.
+// Returns nil if the FD or process is not found.
+func (v *VFS) GetFile(pid types.PID, fd types.FD) VFSFile {
+	t := v.getFDTable(pid)
+	if t == nil {
+		return nil
+	}
+	file, ok := t.get(fd)
+	if !ok {
+		return nil
+	}
+	return file
 }
 
 // Read reads from the file associated with the given FD.

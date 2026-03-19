@@ -323,23 +323,29 @@ func TestCursorCliDriver_Stream_Success(t *testing.T) {
 		events = append(events, evt)
 	}
 
-	// Should have 3 events: 2 content (from assistant) + 1 done (from result)
-	// system and tool_call events should be skipped
-	if len(events) != 3 {
-		t.Fatalf("expected 3 events (system/tool_call skipped), got %d: %+v", len(events), events)
+	// Should have 5 events: 2 content (from assistant) + 2 tool_call (started/completed) + 1 done (from result)
+	// system events are skipped; tool_call events are forwarded
+	if len(events) != 5 {
+		t.Fatalf("expected 5 events (system skipped, tool_call forwarded), got %d: %+v", len(events), events)
 	}
 
 	if events[0].Type != "content" || events[0].Content != "hello " {
 		t.Errorf("event[0]: expected content 'hello ', got type=%q content=%q", events[0].Type, events[0].Content)
 	}
-	if events[1].Type != "content" || events[1].Content != "world" {
-		t.Errorf("event[1]: expected content 'world', got type=%q content=%q", events[1].Type, events[1].Content)
+	if events[1].Type != "tool_call" || events[1].Content != "started" {
+		t.Errorf("event[1]: expected tool_call 'started', got type=%q content=%q", events[1].Type, events[1].Content)
 	}
-	if events[2].Type != "done" || events[2].Content != "hello world" {
-		t.Errorf("event[2]: expected done 'hello world', got type=%q content=%q", events[2].Type, events[2].Content)
+	if events[2].Type != "tool_call" || events[2].Content != "completed" {
+		t.Errorf("event[2]: expected tool_call 'completed', got type=%q content=%q", events[2].Type, events[2].Content)
 	}
-	if events[2].TokensUsed != 120 {
-		t.Errorf("expected tokens_used 120, got %d", events[2].TokensUsed)
+	if events[3].Type != "content" || events[3].Content != "world" {
+		t.Errorf("event[3]: expected content 'world', got type=%q content=%q", events[3].Type, events[3].Content)
+	}
+	if events[4].Type != "done" || events[4].Content != "hello world" {
+		t.Errorf("event[4]: expected done 'hello world', got type=%q content=%q", events[4].Type, events[4].Content)
+	}
+	if events[4].TokensUsed != 120 {
+		t.Errorf("expected tokens_used 120, got %d", events[4].TokensUsed)
 	}
 }
 

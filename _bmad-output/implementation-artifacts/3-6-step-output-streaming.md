@@ -1,6 +1,6 @@
 # Story 3.6: 推理步骤逐步输出（Step Output Streaming）
 
-Status: review
+Status: done
 
 ## Story
 
@@ -394,6 +394,16 @@ claude-4.6-opus-high-thinking (Cursor)
 - 修复 ATDD 预写测试中的 vet 警告（%d → %v for StreamEventType）和 lint 警告（空 if 分支）
 - 更新了因 AgentStep 行为变更而失败的 3 个现有测试：TestAgentStep_Format、TestCliCallbacks_OnStep、TestE2E_SuccessFlow
 - `make all`（lint + vet + test + build）全部通过，0 lint issues，无竞态条件
+
+### Code Review Fixes
+
+代码审查发现 3 个问题，已全部修复：
+
+- **P1**: `briefToolCallSummary` 按字节截断改为按 `[]rune` 截断，防止多字节 UTF-8 字符断裂（kernel/kernel.go:1875-1879）
+- **P2**: `ActionPlan` 的 `plan_as_text` 子分支缺少 `OnStepComplete` 调用，已补全（kernel/kernel.go:1485-1487）
+- **S1**: `AgentStepComplete` 输出格式优化 — summary 非空时直接显示 summary 省略 action 前缀，消除 tool_call 输出中的双箭头问题（internal/ui/progress.go:49-59）
+
+审查模型：claude-opus-4-6 (Claude Code)
 
 ### File List
 

@@ -15,13 +15,26 @@ const (
 	DriverClaudeCLI     = "claude-cli"
 	DriverCursorCLI     = "cursor-cli"
 	DriverOpenAICompat  = "openai-compat"
+	DriverOpenAI        = "openai"
 	ProvidersConfigFile = "rnix-providers.yaml"
+)
+
+const (
+	ModeStream = "stream"
+	ModeCall   = "call"
 )
 
 var validDrivers = map[string]bool{
 	DriverClaudeCLI:    true,
 	DriverCursorCLI:    true,
 	DriverOpenAICompat: true,
+	DriverOpenAI:       true,
+}
+
+var validModes = map[string]bool{
+	"":         true, // default = stream
+	ModeStream: true,
+	ModeCall:   true,
 }
 
 var nameRegexp = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
@@ -38,6 +51,7 @@ type ProviderConfig struct {
 	DefaultModel string `yaml:"default_model"`
 	BaseURL      string `yaml:"base_url"`
 	APIKeyEnv    string `yaml:"api_key_env"`
+	Mode         string `yaml:"mode"` // "stream" (default) or "call"
 }
 
 // FindProvidersConfigPath searches for rnix-providers.yaml in CWD then
@@ -120,11 +134,15 @@ func (c *ProvidersConfig) Validate() error {
 		}
 
 		if !validDrivers[p.Driver] {
-			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverOpenAICompat))
+			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverOpenAICompat, DriverOpenAI))
 		}
 
 		if p.Driver == DriverOpenAICompat && p.BaseURL == "" {
 			errs = append(errs, fmt.Errorf("provider[%d] %q: base_url is required for driver %s", i, p.Name, DriverOpenAICompat))
+		}
+
+		if !validModes[p.Mode] {
+			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid mode %q (valid: stream, call)", i, p.Name, p.Mode))
 		}
 	}
 

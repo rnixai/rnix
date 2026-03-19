@@ -56,6 +56,23 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		return NewOpenAICompatDriver(cfg.Name, cfg.BaseURL, opts...), nil
 
+	case DriverOpenAI:
+		var opts []OpenAIOption
+		if cfg.DefaultModel != "" {
+			opts = append(opts, WithOpenAIModel(cfg.DefaultModel))
+		}
+		if cfg.BaseURL != "" {
+			opts = append(opts, WithOpenAIBaseURL(cfg.BaseURL))
+		}
+		if cfg.APIKeyEnv != "" {
+			if key := envLookup(cfg.APIKeyEnv); key != "" {
+				opts = append(opts, WithOpenAIKey(key))
+			} else {
+				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)
+			}
+		}
+		return NewOpenAIDriver(cfg.Name, opts...), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported driver type: %q", cfg.Driver)
 	}
@@ -76,7 +93,7 @@ func RegisterProviders(cfg *ProvidersConfig, driverReg *DriverRegistry, devReg D
 		}
 
 		vfsPath := "/dev/llm/" + pc.Name
-		if err := devReg.Register(vfsPath, FileFactory(driver, vfsPath)); err != nil {
+		if err := devReg.Register(vfsPath, FileFactory(driver, vfsPath, pc.Mode)); err != nil {
 			return fmt.Errorf("provider %q: device registry: %w", pc.Name, err)
 		}
 	}

@@ -893,6 +893,60 @@ func TestParseAction_UnknownAction(t *testing.T) {
 	}
 }
 
+func TestParseAction_MarkdownCodeBlock(t *testing.T) {
+	content := "我将读取相关文档。\n\n```json\n{\"action\": \"tool_call\", \"tool\": \"/dev/fs/workflow.md\", \"data\": {}}\n```"
+	resp := &llmResponse{Content: content, TokensUsed: 100}
+	action := parseAction(resp)
+	if action.Type != ActionToolCall {
+		t.Fatalf("expected ActionToolCall from markdown code block, got %s", action.Type)
+	}
+	if action.ToolPath != "/dev/fs/workflow.md" {
+		t.Fatalf("expected tool path /dev/fs/workflow.md, got %s", action.ToolPath)
+	}
+}
+
+func TestParseAction_PlainCodeBlock(t *testing.T) {
+	content := "Let me read the file.\n\n```\n{\"action\": \"tool_call\", \"tool\": \"/dev/shell\", \"data\": {\"command\": \"ls\"}}\n```"
+	resp := &llmResponse{Content: content, TokensUsed: 50}
+	action := parseAction(resp)
+	if action.Type != ActionToolCall {
+		t.Fatalf("expected ActionToolCall from plain code block, got %s", action.Type)
+	}
+	if action.ToolPath != "/dev/shell" {
+		t.Fatalf("expected tool path /dev/shell, got %s", action.ToolPath)
+	}
+}
+
+func TestParseAction_TextFollowedByBareJSON(t *testing.T) {
+	content := "I'll analyze the config.\n\n{\"action\": \"tool_call\", \"tool\": \"/dev/fs/config.yaml\", \"data\": {}}"
+	resp := &llmResponse{Content: content, TokensUsed: 80}
+	action := parseAction(resp)
+	if action.Type != ActionToolCall {
+		t.Fatalf("expected ActionToolCall from trailing JSON, got %s", action.Type)
+	}
+	if action.ToolPath != "/dev/fs/config.yaml" {
+		t.Fatalf("expected tool path /dev/fs/config.yaml, got %s", action.ToolPath)
+	}
+}
+
+func TestParseAction_EmbeddedPlanInCodeBlock(t *testing.T) {
+	content := "Here is my plan:\n\n```json\n{\"action\": \"plan\", \"data\": {\"steps\": [\"step1\"]}}\n```"
+	resp := &llmResponse{Content: content, TokensUsed: 50}
+	action := parseAction(resp)
+	if action.Type != ActionPlan {
+		t.Fatalf("expected ActionPlan from code block, got %s", action.Type)
+	}
+}
+
+func TestParseAction_NoEmbeddedJSON(t *testing.T) {
+	content := "This is just regular text with no JSON at all.\nNothing to parse here."
+	resp := &llmResponse{Content: content, TokensUsed: 20}
+	action := parseAction(resp)
+	if action.Type != ActionText {
+		t.Fatalf("expected ActionText for pure text, got %s", action.Type)
+	}
+}
+
 // --- Integration test ---
 
 func TestSpawn_Integration(t *testing.T) {

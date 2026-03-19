@@ -19,7 +19,21 @@ func (m *mockDriver) Call(_ context.Context, _ LLMRequest) (*LLMResponse, error)
 }
 
 func (m *mockDriver) Stream(_ context.Context, _ LLMRequest) (<-chan StreamEvent, error) {
-	return nil, nil
+	// Convert Call result to a stream for testing
+	ch := make(chan StreamEvent, 1)
+	if m.callErr != nil {
+		ch <- StreamEvent{Type: "error", Err: m.callErr}
+	} else if m.callResp != nil {
+		ch <- StreamEvent{
+			Type:         "done",
+			Content:      m.callResp.Content,
+			TokensUsed:   m.callResp.TokensUsed,
+			InputTokens:  m.callResp.InputTokens,
+			OutputTokens: m.callResp.OutputTokens,
+		}
+	}
+	close(ch)
+	return ch, nil
 }
 
 func (m *mockDriver) Info() DriverInfo {
@@ -169,7 +183,7 @@ func TestFileFactory(t *testing.T) {
 	driver := &mockDriver{
 		callResp: &LLMResponse{Content: "factory test", TokensUsed: 1},
 	}
-	factory := FileFactory(driver, "/dev/llm/claude")
+	factory := FileFactory(driver, "/dev/llm/claude", "")
 
 	file, err := factory("", 0)
 	if err != nil {
@@ -209,8 +223,16 @@ func (d *contextDriver) Call(ctx context.Context, _ LLMRequest) (*LLMResponse, e
 	}
 }
 
-func (d *contextDriver) Stream(_ context.Context, _ LLMRequest) (<-chan StreamEvent, error) {
-	return nil, nil
+func (d *contextDriver) Stream(ctx context.Context, req LLMRequest) (<-chan StreamEvent, error) {
+	resp, err := d.Call(ctx, req)
+	ch := make(chan StreamEvent, 1)
+	if err != nil {
+		ch <- StreamEvent{Type: "error", Err: err}
+	} else {
+		ch <- StreamEvent{Type: "done", Content: resp.Content, TokensUsed: resp.TokensUsed}
+	}
+	close(ch)
+	return ch, nil
 }
 
 func (d *contextDriver) Info() DriverInfo {

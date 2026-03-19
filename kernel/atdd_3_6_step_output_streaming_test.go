@@ -275,8 +275,8 @@ func TestATDD_3_6_AC1_OnStepComplete_Complete_EmptySummary(t *testing.T) {
 	if rec == nil {
 		t.Fatal("AC1-complete: timed out — OnStepComplete never called")
 	}
-	if rec.Summary != "" {
-		t.Errorf("AC1-complete: expected empty summary for %s action, got %q", rec.Action, rec.Summary)
+	if rec.Summary == "" {
+		t.Errorf("AC1-complete: expected non-empty summary for %s action with result content", rec.Action)
 	}
 }
 
