@@ -311,10 +311,11 @@ func TestOpenAICompatDriver_Call_ToolResultMessage(t *testing.T) {
 	})
 	defer cleanup()
 
+	// When the assistant message has tool_calls, role=tool is preserved
 	_, err := d.Call(context.Background(), LLMRequest{
 		Messages: []Message{
 			{Role: "user", Content: "what's the weather?"},
-			{Role: "assistant", Content: ""},
+			{Role: "assistant", Content: "", ToolCalls: []ToolCall{{ID: "call_1", Name: "get_weather", Input: map[string]any{"city": "NYC"}}}},
 			{Role: "tool", Content: `{"temp": 25}`, ToolCallID: "call_1"},
 		},
 	})
@@ -324,6 +325,37 @@ func TestOpenAICompatDriver_Call_ToolResultMessage(t *testing.T) {
 	toolMsg := gotBody.Messages[2]
 	if toolMsg.Role != "tool" || toolMsg.ToolCallID != "call_1" {
 		t.Errorf("tool message = %+v, want role=tool tool_call_id=call_1", toolMsg)
+	}
+}
+
+// TestOpenAICompatDriver_Call_ToolResultWithoutToolCalls verifies that
+// role=tool messages are converted to role=user when the preceding assistant
+// message lacks tool_calls (rnix action protocol compatibility).
+func TestOpenAICompatDriver_Call_ToolResultWithoutToolCalls(t *testing.T) {
+	var gotBody oaiRequest
+	d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &gotBody)
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"ok"}}],"usage":{}}`)
+	})
+	defer cleanup()
+
+	_, err := d.Call(context.Background(), LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "what's the weather?"},
+			{Role: "assistant", Content: `{"action":"tool_call","tool":"/dev/fs/weather"}`},
+			{Role: "tool", Content: `{"temp": 25}`, ToolCallID: "/dev/fs/weather"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	toolMsg := gotBody.Messages[2]
+	if toolMsg.Role != "user" {
+		t.Errorf("tool message role = %q, want user (converted from tool without tool_calls)", toolMsg.Role)
+	}
+	if toolMsg.ToolCallID != "" {
+		t.Errorf("tool message tool_call_id = %q, want empty", toolMsg.ToolCallID)
 	}
 }
 

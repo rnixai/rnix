@@ -227,6 +227,15 @@ func (d *OpenAICompatDriver) buildMessages(req LLMRequest) ([]oaiMessage, error)
 					})
 				}
 			}
+			// Convert role=tool to role=user when the preceding assistant message
+			// lacks tool_calls (rnix action protocol uses JSON-in-content, not
+			// OpenAI tool_calls). Without this, DeepSeek/OpenAI APIs reject with
+			// "Messages with role 'tool' must follow a 'tool_calls' message".
+			if om.Role == "tool" && !prevAssistantHasToolCalls(msgs) {
+				om.Role = "user"
+				om.Content = fmt.Sprintf("[Tool Result: %s]\n%s", om.ToolCallID, om.Content)
+				om.ToolCallID = ""
+			}
 			msgs = append(msgs, om)
 		}
 	} else if req.Intent != "" {
@@ -238,6 +247,16 @@ func (d *OpenAICompatDriver) buildMessages(req LLMRequest) ([]oaiMessage, error)
 	}
 
 	return msgs, nil
+}
+
+// prevAssistantHasToolCalls checks if the last assistant message in msgs has tool_calls.
+func prevAssistantHasToolCalls(msgs []oaiMessage) bool {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "assistant" {
+			return len(msgs[i].ToolCalls) > 0
+		}
+	}
+	return false
 }
 
 // buildOAIRequest constructs the full OpenAI API request body.
