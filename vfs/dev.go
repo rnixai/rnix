@@ -37,11 +37,11 @@ func (d *DeviceRegistry) Unregister(path string) error {
 
 // Open looks up the factory for the given path and creates a VFSFile.
 // Supports exact match and longest-prefix match.
-func (d *DeviceRegistry) Open(path string, flags OpenFlag) (VFSFile, error) {
+func (d *DeviceRegistry) Open(path string, flags OpenFlag, workDir string) (VFSFile, error) {
 	// Try exact match first.
 	factory, ok := d.registry.Get(path)
 	if ok {
-		return factory("", flags)
+		return factory("", flags, workDir)
 	}
 
 	// Try longest prefix match.
@@ -56,7 +56,7 @@ func (d *DeviceRegistry) Open(path string, flags OpenFlag) (VFSFile, error) {
 
 	if bestPrefix != "" {
 		subpath := strings.TrimPrefix(path, bestPrefix)
-		return factory(subpath, flags)
+		return factory(subpath, flags, workDir)
 	}
 
 	return nil, fmt.Errorf("%w: %s", errDeviceNotFound, path)

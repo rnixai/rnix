@@ -219,17 +219,17 @@ func newE2EKernel(t testing.TB, llmFile vfs.VFSFile) (*KernelImpl, *spawnMockMou
 	reg := vfs.NewDeviceRegistry()
 
 	// Register LLM device
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 
 	// Register Shell device
-	_ = reg.Register("/dev/shell", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/shell", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockShellFile{}, nil
 	})
 
 	// Register FS device
-	_ = reg.Register("/dev/fs", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/fs", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockFSFile{}, nil
 	})
 
@@ -251,7 +251,7 @@ func newE2EKernel(t testing.TB, llmFile vfs.VFSFile) (*KernelImpl, *spawnMockMou
 		mm.mu.Unlock()
 
 		// Register MCP path in DeviceRegistry so VFS Open routes correctly
-		_ = reg.Register(path, func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register(path, func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &mockMCPToolFile{}, nil
 		})
 		return nil
@@ -843,7 +843,7 @@ func TestAllowedDevicesAggregation(t *testing.T) {
 		var step int
 		var mu sync.Mutex
 		reg := vfs.NewDeviceRegistry()
-		_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			mu.Lock()
 			step++
 			s := step
@@ -853,10 +853,10 @@ func TestAllowedDevicesAggregation(t *testing.T) {
 			}
 			return &mockLLMFile{readData: resp2JSON}, nil
 		})
-		_ = reg.Register("/dev/shell", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register("/dev/shell", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &mockShellFile{}, nil
 		})
-		_ = reg.Register("/dev/fs", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register("/dev/fs", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &mockFSFile{}, nil
 		})
 		v := vfs.NewVFS(reg)
@@ -867,7 +867,7 @@ func TestAllowedDevicesAggregation(t *testing.T) {
 			mm.mu.Lock()
 			mm.mounted[path] = true
 			mm.mu.Unlock()
-			_ = reg.Register(path, func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+			_ = reg.Register(path, func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 				return &mockMCPToolFile{}, nil
 			})
 			return nil
@@ -1049,13 +1049,13 @@ func TestFourLayerBoundaryConditions(t *testing.T) {
 		llm := &mockMultiStepLLM{}
 
 		reg := vfs.NewDeviceRegistry()
-		_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return llm, nil
 		})
-		_ = reg.Register("/dev/shell", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register("/dev/shell", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &mockShellFile{}, nil
 		})
-		_ = reg.Register("/dev/fs", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register("/dev/fs", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &mockFSFile{}, nil
 		})
 		v := vfs.NewVFS(reg)

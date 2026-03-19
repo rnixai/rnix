@@ -397,7 +397,7 @@ func TestSignalHandling_GracefulShutdown(t *testing.T) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingVFSFile{
 			blockCh:  blockCh,
 			readData: []byte(`{"content":"interrupted","tokens_used":1}`),
@@ -481,7 +481,7 @@ func TestSignalHandling_InterruptSummary(t *testing.T) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingVFSFile{
 			blockCh:  blockCh,
 			writeErr: fmt.Errorf("interrupted: context cancelled"),
@@ -545,7 +545,7 @@ func TestSignalHandling_DoubleInterruptForceExit(t *testing.T) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingVFSFile{
 			blockCh:  blockCh,
 			readData: []byte(`{"content":"test","tokens_used":1}`),
@@ -798,7 +798,7 @@ func TestE2E_KillWait_FullLifecycle(t *testing.T) {
 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingVFSFile{
 			blockCh:  blockCh,
 			readData: []byte(`{"content":"interrupted","tokens_used":1}`),

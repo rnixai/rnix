@@ -277,7 +277,7 @@ func TestKernel_RegisterBudgetPool(t *testing.T) {
 
 func TestKernel_ReasonStep_UpdatesBudgetPool(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("done", 2000)}, nil
 	})
 	v := vfs.NewVFS(reg)

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
@@ -71,7 +73,7 @@ func (f *HostFSFile) Stat() (vfs.FileStat, error) {
 
 // FileFactory returns a VFSFileFactory that opens host filesystem files.
 func FileFactory() vfs.VFSFileFactory {
-	return func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	return func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
 		device := "/dev/fs" + subpath
 
 		if subpath == "" {
@@ -83,7 +85,16 @@ func FileFactory() vfs.VFSFileFactory {
 			return nil, types.NewDriverError("Open", device, fmt.Errorf("read-only device"), types.ErrPermission)
 		}
 
-		f, err := os.Open(subpath)
+		// Resolve relative paths using workDir.
+		// subpath always starts with "/" from DeviceRegistry (e.g. "/src/main.go").
+		// TrimPrefix "/" first, then check if truly absolute (double-slash escape: //etc/hosts).
+		trimmed := strings.TrimPrefix(subpath, "/")
+		resolved := subpath
+		if workDir != "" && trimmed != "" && !filepath.IsAbs(trimmed) {
+			resolved = filepath.Join(workDir, trimmed)
+		}
+
+		f, err := os.Open(resolved)
 		if err != nil {
 			return nil, mapOSError("Open", device, err)
 		}
@@ -101,7 +112,7 @@ func FileFactory() vfs.VFSFileFactory {
 
 		return &HostFSFile{
 			file: f,
-			path: subpath,
+			path: resolved,
 		}, nil
 	}
 }

@@ -57,7 +57,7 @@ func TestWait_KillThenWait(t *testing.T) {
 	// Full lifecycle: Spawn → Kill → Wait → verify cleanup
 	blockCh := make(chan struct{})
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -188,7 +188,7 @@ func TestWait_ConcurrentSafe(t *testing.T) {
 	// Verify Wait doesn't race with Kill
 	blockCh := make(chan struct{})
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -298,7 +298,7 @@ func TestOrphanReparent_RunningChild(t *testing.T) {
 
 	callCount := 0
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		callCount++
 		if callCount == 1 {
 			// Parent: completes immediately when unblocked
@@ -361,7 +361,7 @@ func TestOrphanReparent_ZombieChild(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	parentBlockCh := make(chan struct{})
 	callCount := 0
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		callCount++
 		if callCount == 1 {
 			return &blockingLLMFile{blockCh: parentBlockCh}, nil
@@ -424,7 +424,7 @@ func TestOrphanReparent_SyscallEvent(t *testing.T) {
 
 	callCount := 0
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		callCount++
 		if callCount == 1 {
 			return &blockingLLMFile{blockCh: parentBlockCh}, nil
@@ -486,7 +486,7 @@ func TestAutoReap_ChildFinishesAfterParentRemoved(t *testing.T) {
 	childBlockCh := make(chan struct{})
 	callCount := 0
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		callCount++
 		if callCount == 1 {
 			return &blockingLLMFile{blockCh: parentBlockCh}, nil
@@ -537,7 +537,7 @@ func TestAutoReap_OrphanChildFinishes_ParentAlreadyGone(t *testing.T) {
 	childBlockCh := make(chan struct{})
 	callCount := 0
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		callCount++
 		if callCount == 1 {
 			return &blockingLLMFile{blockCh: parentBlockCh}, nil
@@ -593,7 +593,7 @@ func TestAutoReap_Reaper_ProcessesMultiplePIDs(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	parentBlockCh := make(chan struct{})
 	childCompletedCount := 0
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		childCompletedCount++
 		if childCompletedCount == 1 {
 			return &blockingLLMFile{blockCh: parentBlockCh}, nil
@@ -658,7 +658,7 @@ func TestIntegration_FullLifecycle(t *testing.T) {
 	childBlockCh := make(chan struct{})
 	callCount := 0
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		callCount++
 		if callCount == 1 {
 			return &blockingLLMFile{blockCh: parentBlockCh}, nil
@@ -732,7 +732,7 @@ func TestIntegration_MultipleChildren(t *testing.T) {
 	runningBlockCh := make(chan struct{})
 	callCount := 0
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		callCount++
 		switch callCount {
 		case 1: // parent
@@ -811,7 +811,7 @@ func TestIntegration_ProcessTableConsistency(t *testing.T) {
 	// 6.3: After abnormal exit, no dangling PIDs (NFR9)
 	blockCh := make(chan struct{})
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -869,7 +869,7 @@ func TestIntegration_ConcurrentExits(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	parentBlockCh := make(chan struct{})
 	callCount := 0
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		callCount++
 		if callCount == 1 {
 			return &blockingLLMFile{blockCh: parentBlockCh}, nil
@@ -1042,7 +1042,7 @@ debugClosed:
 func TestShutdown_DrainsReapCh(t *testing.T) {
 	// M3: Verify Shutdown drains remaining PIDs in reapCh before exiting.
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("drain test", 1)}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1151,7 +1151,7 @@ func TestIntegration_ReapProcess_MCPUnmountOnExit(t *testing.T) {
 		// Given: a kernel with a blocking process and MCP mounts
 		blockCh := make(chan struct{})
 		reg := vfs.NewDeviceRegistry()
-		_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+		_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &blockingLLMFile{blockCh: blockCh}, nil
 		})
 		v := vfs.NewVFS(reg)

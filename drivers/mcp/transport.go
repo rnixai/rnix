@@ -16,6 +16,7 @@ type TransportConfig struct {
 	Args          []string
 	Env           []string
 	TimeoutMillis int64
+	WorkDir       string
 }
 
 // jsonRPCRequest is the JSON-RPC 2.0 request envelope.
@@ -70,6 +71,9 @@ func (t *StdioTransport) Connect(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, t.config.Command, t.config.Args...)
 	if len(t.config.Env) > 0 {
 		cmd.Env = t.config.Env
+	}
+	if t.config.WorkDir != "" {
+		cmd.Dir = t.config.WorkDir
 	}
 
 	stdinPipe, err := cmd.StdinPipe()

@@ -60,10 +60,10 @@ func TestUnified_ToolCall_ExecutesAndInjectsResult(t *testing.T) {
 			makeCompleteResponse("done", 30),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("echo-result")}, nil
 	})
 
@@ -117,7 +117,7 @@ func TestUnified_Plan_PlanningEnabled_WritesAssistant(t *testing.T) {
 			makeCompleteResponse("planned-done", 30),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 
@@ -173,7 +173,7 @@ func TestUnified_Plan_PlanningDisabled_TreatsAsText(t *testing.T) {
 	gate := make(chan struct{})
 	gated := &gatedLLMFile{inner: seqFile, gate: gate}
 
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return gated, nil
 	})
 
@@ -245,7 +245,7 @@ func TestUnified_Spawn_CreatesChildAndWaitsResult(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 
 	var callCount atomic.Int32
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		n := callCount.Add(1)
 		if n == 1 {
 			// Parent: spawn → complete
@@ -309,7 +309,7 @@ func TestUnified_CircuitBreaker_ThreeConsecutiveErrors(t *testing.T) {
 			makeToolCallResponse("/dev/nonexistent3", map[string]any{}, 10),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 
@@ -351,10 +351,10 @@ func TestUnified_CircuitBreaker_ResetsOnSuccess(t *testing.T) {
 			makeCompleteResponse("survived", 10),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/ok", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/ok", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 
@@ -394,7 +394,7 @@ func TestUnified_CircuitBreaker_SpawnFailureCounts(t *testing.T) {
 			makeSpawnResponse("child", "nonexistent-agent", 10),             // spawn fail 3 (no agent loader)
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 
@@ -434,7 +434,7 @@ func TestUnified_CircuitBreaker_SpecializeErrorIgnored(t *testing.T) {
 			makeCompleteResponse("alive", 10),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 
@@ -477,7 +477,7 @@ func TestUnified_ToolError_InjectsToContext(t *testing.T) {
 			makeCompleteResponse("recovered", 10),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 
@@ -535,10 +535,10 @@ func TestUnified_VFSFlags_EmptyPayload_UsesReadOnly(t *testing.T) {
 			makeCompleteResponse("flags-done", 10),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/reader", func(_ string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/reader", func(_ string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		flagsMu.Lock()
 		capturedFlags = flags
 		flagsMu.Unlock()
@@ -587,10 +587,10 @@ func TestUnified_VFSFlags_NonEmptyPayload_UsesReadWrite(t *testing.T) {
 			makeCompleteResponse("write-done", 10),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/writer", func(_ string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/writer", func(_ string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		flagsMu.Lock()
 		capturedFlags = flags
 		flagsMu.Unlock()
@@ -639,10 +639,10 @@ func TestUnified_VFSFlags_EmptyJSONObject_UsesReadOnly(t *testing.T) {
 			makeCompleteResponse("empty-obj-done", 10),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/reader2", func(_ string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/reader2", func(_ string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		flagsMu.Lock()
 		capturedFlags = flags
 		flagsMu.Unlock()

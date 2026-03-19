@@ -60,7 +60,7 @@ func NewProcFS(provider ProcessInfoProvider, ctxProvider ContextSummaryProvider)
 
 // FileFactory returns a VFSFileFactory that creates procFile instances for /proc subpaths.
 func (p *ProcFS) FileFactory() VFSFileFactory {
-	return func(subpath string, flags OpenFlag) (VFSFile, error) {
+	return func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 		pid, file, err := parseProcPath(subpath)
 		if err != nil {
 			return nil, &VFSError{

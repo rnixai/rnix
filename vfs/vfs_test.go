@@ -13,7 +13,7 @@ import (
 func TestVFS_Open(t *testing.T) {
 	t.Run("returns incremental FDs starting from 3", func(t *testing.T) {
 		reg := NewDeviceRegistry()
-		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag) (VFSFile, error) {
+		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return &mockFile{}, nil
 		})
 		v := NewVFS(reg)
@@ -69,7 +69,7 @@ func TestVFS_ReadWrite(t *testing.T) {
 	t.Run("Read delegates to VFSFile", func(t *testing.T) {
 		reg := NewDeviceRegistry()
 		mf := &mockFile{readData: []byte("hello")}
-		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag) (VFSFile, error) {
+		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return mf, nil
 		})
 		v := NewVFS(reg)
@@ -88,7 +88,7 @@ func TestVFS_ReadWrite(t *testing.T) {
 	t.Run("Write delegates to VFSFile", func(t *testing.T) {
 		reg := NewDeviceRegistry()
 		mf := &mockFile{}
-		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag) (VFSFile, error) {
+		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return mf, nil
 		})
 		v := NewVFS(reg)
@@ -109,7 +109,7 @@ func TestVFS_Close(t *testing.T) {
 	t.Run("Close removes FD from table", func(t *testing.T) {
 		reg := NewDeviceRegistry()
 		mf := &mockFile{}
-		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag) (VFSFile, error) {
+		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return mf, nil
 		})
 		v := NewVFS(reg)
@@ -138,7 +138,7 @@ func TestVFS_Close(t *testing.T) {
 
 	t.Run("Close already closed FD returns error", func(t *testing.T) {
 		reg := NewDeviceRegistry()
-		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag) (VFSFile, error) {
+		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 			return &mockFile{}, nil
 		})
 		v := NewVFS(reg)
@@ -190,7 +190,7 @@ func TestVFS_InvalidFD(t *testing.T) {
 
 func TestVFS_MultiProcess(t *testing.T) {
 	reg := NewDeviceRegistry()
-	_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag) (VFSFile, error) {
+	_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 		return &mockFile{readData: []byte("data")}, nil
 	})
 	v := NewVFS(reg)
@@ -223,7 +223,7 @@ func TestVFS_MultiProcess(t *testing.T) {
 
 func TestVFS_Stat(t *testing.T) {
 	reg := NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags OpenFlag) (VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 		return &mockFile{}, nil
 	})
 	v := NewVFS(reg)
@@ -257,7 +257,7 @@ func TestVFS_CloseAll(t *testing.T) {
 	reg := NewDeviceRegistry()
 	files := make([]*mockFile, 3)
 	callCount := 0
-	_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag) (VFSFile, error) {
+	_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 		mf := &mockFile{}
 		files[callCount] = mf
 		callCount++
@@ -289,7 +289,7 @@ func TestVFS_CloseAll(t *testing.T) {
 
 func TestVFS_ConcurrentAccess(t *testing.T) {
 	reg := NewDeviceRegistry()
-	_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag) (VFSFile, error) {
+	_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 		return &mockFile{readData: []byte("ok")}, nil
 	})
 	v := NewVFS(reg)
@@ -332,7 +332,7 @@ func TestVFS_ConcurrentAccess(t *testing.T) {
 
 func TestVFS_ConcurrentSameProcess(t *testing.T) {
 	reg := NewDeviceRegistry()
-	_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag) (VFSFile, error) {
+	_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 		return &mockFile{readData: []byte("ok")}, nil
 	})
 	v := NewVFS(reg)
@@ -446,6 +446,79 @@ func TestVFS_RegisterFD(t *testing.T) {
 		}
 		if !mf.closed {
 			t.Fatal("expected registered file to be closed by CloseAll")
+		}
+	})
+}
+
+func TestVFS_SetWorkDir(t *testing.T) {
+	t.Run("set and get workDir", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		v := NewVFS(reg)
+		pid := types.PID(1)
+
+		v.SetWorkDir(pid, "/home/user/project")
+		got := v.GetWorkDir(pid)
+		if got != "/home/user/project" {
+			t.Errorf("GetWorkDir = %q, want %q", got, "/home/user/project")
+		}
+	})
+
+	t.Run("unregistered PID returns empty string", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		v := NewVFS(reg)
+
+		got := v.GetWorkDir(types.PID(999))
+		if got != "" {
+			t.Errorf("GetWorkDir = %q, want empty string", got)
+		}
+	})
+
+	t.Run("CloseAll cleans workDir", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		v := NewVFS(reg)
+		pid := types.PID(1)
+
+		v.SetWorkDir(pid, "/some/dir")
+		_ = v.CloseAll(pid)
+
+		got := v.GetWorkDir(pid)
+		if got != "" {
+			t.Errorf("after CloseAll, GetWorkDir = %q, want empty", got)
+		}
+	})
+
+	t.Run("Open passes workDir to factory", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		var receivedWorkDir string
+		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
+			receivedWorkDir = workDir
+			return &mockFile{}, nil
+		})
+		v := NewVFS(reg)
+		pid := types.PID(1)
+
+		v.SetWorkDir(pid, "/project/dir")
+		_, _ = v.Open(pid, "/dev/test", O_RDONLY)
+
+		if receivedWorkDir != "/project/dir" {
+			t.Errorf("factory received workDir = %q, want %q", receivedWorkDir, "/project/dir")
+		}
+	})
+
+	t.Run("Open passes empty workDir when not set", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		var receivedWorkDir string
+		_ = reg.Register("/dev/test", func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
+			receivedWorkDir = workDir
+			return &mockFile{}, nil
+		})
+		v := NewVFS(reg)
+		pid := types.PID(1)
+
+		_, _ = v.Open(pid, "/dev/test", O_RDONLY)
+
+		if receivedWorkDir != "" {
+			t.Errorf("factory received workDir = %q, want empty", receivedWorkDir)
 		}
 	})
 }

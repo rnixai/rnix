@@ -311,7 +311,7 @@ func TestRegisterProviders_VFSOpenRouting(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	f, err := devReg.Open("/dev/llm/ollama", 0)
+	f, err := devReg.Open("/dev/llm/ollama", 0, "")
 	if err != nil {
 		t.Fatalf("failed to open /dev/llm/ollama: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestRegisterProviders_VFSOpenNonexistent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, err := devReg.Open("/dev/llm/nonexistent", 0)
+	_, err := devReg.Open("/dev/llm/nonexistent", 0, "")
 	if err == nil {
 		t.Fatal("expected error opening nonexistent device, got nil")
 	}
@@ -353,7 +353,7 @@ func TestRegisterProviders_DefaultConfig_VFSCompat(t *testing.T) {
 	}
 
 	for _, path := range []string{"/dev/llm/claude", "/dev/llm/cursor"} {
-		f, err := devReg.Open(path, 0)
+		f, err := devReg.Open(path, 0, "")
 		if err != nil {
 			t.Errorf("failed to open %s: %v", path, err)
 			continue

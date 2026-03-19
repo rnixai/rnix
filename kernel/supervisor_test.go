@@ -84,7 +84,7 @@ func (f *routedLLMFile) Stat() (vfs.FileStat, error) {
 // newRoutedTestKernel creates a kernel with per-FD intent-routing.
 func newRoutedTestKernel(t testing.TB, router *intentRouter) *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return router.newFile(), nil
 	})
 	v := vfs.NewVFS(reg)
@@ -141,7 +141,7 @@ func (f *slowFile) Stat() (vfs.FileStat, error) {
 // newSimpleTestKernel creates a kernel with a single shared LLM file.
 func newSimpleTestKernel(t testing.TB, file vfs.VFSFile) *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return file, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -154,7 +154,7 @@ func newSimpleTestKernel(t testing.TB, file vfs.VFSFile) *KernelImpl {
 // newPerOpenTestKernel creates a kernel with a factory returning fresh files per Open.
 func newPerOpenTestKernel(t testing.TB, factory func() vfs.VFSFile) *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return factory(), nil
 	})
 	v := vfs.NewVFS(reg)
@@ -445,7 +445,7 @@ func TestSupervisor_StartupFailureRollback(t *testing.T) {
 	// This tests the Phase 1 rollback path in run().
 	var openCount atomic.Int32
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		n := openCount.Add(1)
 		if n >= 2 {
 			return nil, fmt.Errorf("simulated open failure")

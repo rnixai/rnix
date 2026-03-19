@@ -97,7 +97,7 @@ func (f *mockToolFile) Stat() (vfs.FileStat, error) {
 // Registers t.Cleanup to call Shutdown automatically.
 func newTestKernel(t testing.TB, llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *rnixctx.Manager) {
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -498,12 +498,12 @@ func TestReasonStep_ToolCallAction(t *testing.T) {
 			makeLLMResponse("file content is bar", 30),
 		},
 	}
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 
 	// Register mock tool device
-	_ = reg.Register("/dev/tools/read", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/read", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("bar")}, nil
 	})
 
@@ -625,7 +625,7 @@ func TestReasonStep_ContextCancellation(t *testing.T) {
 	// LLM that blocks so we can cancel
 	blockCh := make(chan struct{})
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -692,12 +692,12 @@ func (f *blockingLLMFile) Stat() (vfs.FileStat, error) {
 func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 	// LLM always returns tool_call to force max steps
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{
 			readData: makeToolCallResponse("/dev/tools/echo", map[string]any{}, 5),
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/echo", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("echoed")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -957,7 +957,7 @@ func TestSpawn_Integration(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1126,7 +1126,7 @@ func TestProcessTableConsistency_AfterError(t *testing.T) {
 func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
 	const n = 5
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("multi", 10)}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1185,7 +1185,7 @@ func TestProcessTableConsistency_MultipleProcesses(t *testing.T) {
 func TestProcessTableConsistency_ConcurrentSpawn(t *testing.T) {
 	const n = 10
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: makeLLMResponse("concurrent", 5)}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1328,7 +1328,7 @@ func TestSpawn_WithAgent_ModelSelection(t *testing.T) {
 		capturedReq: &capturedReq,
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return captureLLM, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1364,7 +1364,7 @@ func TestSpawn_WithAgent_ModelSelection(t *testing.T) {
 		capturedReq: &capturedReq2,
 	}
 	reg2 := vfs.NewDeviceRegistry()
-	_ = reg2.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg2.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return captureLLM2, nil
 	})
 	v2 := vfs.NewVFS(reg2)
@@ -1421,7 +1421,7 @@ func TestReasonStep_PermissionDenied_WhenDeviceNotInWhitelist(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1480,10 +1480,10 @@ func TestReasonStep_PermissionAllowed_WhenDeviceInWhitelist(t *testing.T) {
 	mockFS := &mockToolFile{readData: []byte("file content")}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return mockFS, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1523,10 +1523,10 @@ func TestReasonStep_PrefixMatch_AllowsSubpath(t *testing.T) {
 	mockFS := &mockToolFile{readData: []byte("content")}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return mockFS, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1566,10 +1566,10 @@ func TestReasonStep_NoWhitelist_AllowsAll(t *testing.T) {
 	mockDevice := &mockToolFile{readData: []byte("result")}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/any/device", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/any/device", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return mockDevice, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1606,7 +1606,7 @@ func TestReasonStep_PathTraversal_Blocked(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1882,10 +1882,10 @@ func TestToolCall_VFSAndContextEvents(t *testing.T) {
 	mockTool := &mockToolFile{readData: []byte("echoed")}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return mockTool, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1980,7 +1980,7 @@ func TestKill_RunningProcess(t *testing.T) {
 	// Kill a running process → proc.Cancel() called, reasonStep detects cancellation, process → Zombie
 	blockCh := make(chan struct{})
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -2081,7 +2081,7 @@ func TestKill_SyscallEvent(t *testing.T) {
 	// Verify Kill emits SyscallEvents when DebugChan is non-nil
 	blockCh := make(chan struct{})
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -2162,7 +2162,7 @@ func TestKill_CreatedState(t *testing.T) {
 	// Cancel() should be safe; goroutine detects ctx.Done() on start.
 	blockCh := make(chan struct{})
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -2201,7 +2201,7 @@ func TestKill_RunningProcess_SIGKILL(t *testing.T) {
 	// Kill a running process with SIGKILL (vs SIGTERM tested in TestKill_RunningProcess)
 	blockCh := make(chan struct{})
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &blockingLLMFile{blockCh: blockCh}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -2473,7 +2473,7 @@ func TestReasonStep_GdbModelOverride(t *testing.T) {
 		capturedReq: &capturedReq,
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return captureLLM, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -2518,7 +2518,7 @@ func TestReasonStep_GdbModelOverride_Empty(t *testing.T) {
 		capturedReq: &capturedReq,
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return captureLLM, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -2557,7 +2557,7 @@ func TestReasonStep_GdbEnvVarsInjection(t *testing.T) {
 		capturedReq: &capturedReq,
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return captureLLM, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -2603,7 +2603,7 @@ func TestReasonStep_GdbEnvVarsEmpty(t *testing.T) {
 		capturedReq: &capturedReq,
 	}
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return captureLLM, nil
 	})
 	v := vfs.NewVFS(reg)

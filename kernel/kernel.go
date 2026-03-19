@@ -287,6 +287,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	// Set project config snapshot (Story 25.3) — immutable after spawn
 	proc.ProjectConfig = opts.ProjectConfig
 
+	// Register per-process WorkDir for VFS path resolution
+	if opts.ProjectConfig != nil && opts.ProjectConfig.ProjectDir != "" {
+		k.vfs.SetWorkDir(proc.PID, opts.ProjectConfig.ProjectDir)
+	}
+
 	// Maintain parent-child tracking
 	if opts.ParentPID > 0 {
 		parent, ok := k.GetProcess(opts.ParentPID)
@@ -639,6 +644,10 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			var mountedPaths []string
 			for _, mcpCfg := range agent.MCPConfigs {
 				mountPath := fmt.Sprintf("/mnt/mcp/%d-%s", proc.PID, mcpCfg.ServerName)
+				// mcpCfg is a value copy from the slice — safe to mutate without affecting agent.MCPConfigs
+				if opts.ProjectConfig != nil && opts.ProjectConfig.ProjectDir != "" {
+					mcpCfg.WorkDir = opts.ProjectConfig.ProjectDir
+				}
 				mountStart := time.Now()
 				if err := k.mountMgr.Mount(mountPath, mcpCfg); err != nil {
 					k.emitEvent(proc, "Mount", map[string]any{
@@ -1543,8 +1552,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}, nil, nil, time.Since(appendAssistantStart2))
 
 			childOpts := SpawnOpts{
-				ParentPID: proc.PID,
-				TraceID:   proc.TraceID,
+				ParentPID:     proc.PID,
+				TraceID:       proc.TraceID,
+				ProjectConfig: proc.ProjectConfig,
 			}
 			if proc.TraceID != "" {
 				childOpts.ParentSpanID = proc.SpanID

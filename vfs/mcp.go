@@ -22,6 +22,7 @@ type MCPConfig struct {
 	Args          []string          `json:"args,omitempty" yaml:"args,omitempty"`
 	Env           map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	TransportType string            `json:"transport_type" yaml:"transport_type"` // "stdio" (default)
+	WorkDir       string            `json:"work_dir,omitempty" yaml:"work_dir,omitempty"`
 }
 
 // MCPTransport defines the interface for communicating with an MCP server.
@@ -154,7 +155,7 @@ func parseToolName(subpath string) string {
 // mcpFileFactory returns a VFSFileFactory that routes subpaths to the
 // appropriate MCP VFSFile type based on subpath prefix.
 func mcpFileFactory(transport MCPTransport) VFSFileFactory {
-	return func(subpath string, flags OpenFlag) (VFSFile, error) {
+	return func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
 		subpath = strings.TrimRight(subpath, "/")
 		if subpath == "" {
 			subpath = "/"

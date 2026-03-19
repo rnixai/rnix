@@ -96,7 +96,7 @@ func TestProcFS_FileFactory(t *testing.T) {
 	factory := procFS.FileFactory()
 
 	t.Run("creates file for valid path", func(t *testing.T) {
-		file, err := factory("/1/status", O_RDONLY)
+		file, err := factory("/1/status", O_RDONLY, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -113,7 +113,7 @@ func TestProcFS_Status(t *testing.T) {
 	factory := procFS.FileFactory()
 
 	t.Run("returns valid JSON with all fields", func(t *testing.T) {
-		file, err := factory("/1/status", O_RDONLY)
+		file, err := factory("/1/status", O_RDONLY, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -156,7 +156,7 @@ func TestProcFS_Status(t *testing.T) {
 	})
 
 	t.Run("zombie process returns correct state", func(t *testing.T) {
-		file, err := factory("/2/status", O_RDONLY)
+		file, err := factory("/2/status", O_RDONLY, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -178,7 +178,7 @@ func TestProcFS_Status(t *testing.T) {
 	})
 
 	t.Run("nil skills and allowed_devices become empty arrays", func(t *testing.T) {
-		file, err := factory("/2/status", O_RDONLY)
+		file, err := factory("/2/status", O_RDONLY, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -205,7 +205,7 @@ func TestProcFS_Intent(t *testing.T) {
 	factory := procFS.FileFactory()
 
 	t.Run("returns raw intent text", func(t *testing.T) {
-		file, err := factory("/1/intent", O_RDONLY)
+		file, err := factory("/1/intent", O_RDONLY, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -228,7 +228,7 @@ func TestProcFS_Context(t *testing.T) {
 	factory := procFS.FileFactory()
 
 	t.Run("returns context summary", func(t *testing.T) {
-		file, err := factory("/1/context", O_RDONLY)
+		file, err := factory("/1/context", O_RDONLY, "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -256,7 +256,7 @@ func TestProcFS_PIDNotFound(t *testing.T) {
 	factory := procFS.FileFactory()
 
 	t.Run("returns ErrNotFound for nonexistent PID", func(t *testing.T) {
-		_, err := factory("/999/status", O_RDONLY)
+		_, err := factory("/999/status", O_RDONLY, "")
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -291,7 +291,7 @@ func TestProcFS_InvalidPaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := factory(tt.subpath, O_RDONLY)
+			_, err := factory(tt.subpath, O_RDONLY, "")
 			if err == nil {
 				t.Fatalf("expected error for subpath %q, got nil", tt.subpath)
 			}
@@ -312,7 +312,7 @@ func TestProcFS_WriteRejected(t *testing.T) {
 	procFS, _, _ := newTestProcFS()
 	factory := procFS.FileFactory()
 
-	file, err := factory("/1/status", O_RDONLY)
+	file, err := factory("/1/status", O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestProcFile_ReadOffset(t *testing.T) {
 	procFS, _, _ := newTestProcFS()
 	factory := procFS.FileFactory()
 
-	file, err := factory("/1/intent", O_RDONLY)
+	file, err := factory("/1/intent", O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestProcFile_Stat(t *testing.T) {
 	procFS, _, _ := newTestProcFS()
 	factory := procFS.FileFactory()
 
-	file, err := factory("/1/intent", O_RDONLY)
+	file, err := factory("/1/intent", O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestProcFile_Close(t *testing.T) {
 	procFS, _, _ := newTestProcFS()
 	factory := procFS.FileFactory()
 
-	file, err := factory("/1/status", O_RDONLY)
+	file, err := factory("/1/status", O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestProcFS_ConcurrentReads(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 10 {
 		wg.Go(func() {
-			file, err := factory("/1/status", O_RDONLY)
+			file, err := factory("/1/status", O_RDONLY, "")
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 				return
@@ -471,7 +471,7 @@ func TestProcFS_Status_IncludesContextBudget(t *testing.T) {
 	procFS := NewProcFS(provider, ctxProvider)
 	factory := procFS.FileFactory()
 
-	file, err := factory("/1/status", O_RDONLY)
+	file, err := factory("/1/status", O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestProcFS_Status_OmitsContextBudgetWhenZero(t *testing.T) {
 	procFS := NewProcFS(provider, ctxProvider)
 	factory := procFS.FileFactory()
 
-	file, err := factory("/1/status", O_RDONLY)
+	file, err := factory("/1/status", O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

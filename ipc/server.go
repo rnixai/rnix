@@ -1641,7 +1641,7 @@ func (s *Server) resolveProjectContext(projectDir, rnixEnv string) (*config.Proj
 				if !ok {
 					return nil, fmt.Errorf("project provider %q not found", provider)
 				}
-				return factory("", vfs.OpenFlag(flags))
+				return factory("", vfs.OpenFlag(flags), projectDir)
 			}
 		}
 

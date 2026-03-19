@@ -114,10 +114,10 @@ func TestATDD_3_6_AC1_OnStepComplete_ToolCall(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llm, nil
 	})
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &atdd36ToolFile{readData: []byte("file content")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -164,7 +164,7 @@ func TestATDD_3_6_AC2_OnStepComplete_Plan(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llm, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -212,7 +212,7 @@ func TestATDD_3_6_AC3_OnStepComplete_Spawn(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llm, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -252,7 +252,7 @@ func TestATDD_3_6_AC1_OnStepComplete_Complete_EmptySummary(t *testing.T) {
 	llmFile := &mockLLMFile{readData: completeResp}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llmFile, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -302,10 +302,10 @@ func TestATDD_3_6_AC1_OnStepComplete_ToolCall_SummaryTruncation(t *testing.T) {
 	}
 
 	reg := vfs.NewDeviceRegistry()
-	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llm, nil
 	})
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag) (vfs.VFSFile, error) {
+	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &atdd36ToolFile{readData: longResult}, nil
 	})
 	v := vfs.NewVFS(reg)

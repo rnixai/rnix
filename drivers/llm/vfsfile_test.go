@@ -185,7 +185,7 @@ func TestFileFactory(t *testing.T) {
 	}
 	factory := FileFactory(driver, "/dev/llm/claude", "")
 
-	file, err := factory("", 0)
+	file, err := factory("", 0, "")
 	if err != nil {
 		t.Fatalf("FileFactory creation failed: %v", err)
 	}

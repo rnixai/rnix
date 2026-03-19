@@ -65,6 +65,7 @@ func NewDriverWithOptions(opts DriverOpts) *ShellDriver {
 type ShellFile struct {
 	driver     *ShellDriver
 	devicePath string
+	workDir    string
 	response   []byte
 	offset     int
 	closed     bool
@@ -85,6 +86,9 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 	defer cancel()
 
 	cmd := f.driver.cmdBuilder(ctx, "sh", "-c", command)
+	if f.workDir != "" {
+		cmd.Dir = f.workDir
+	}
 
 	var combined bytes.Buffer
 	cmd.Stdout = &combined
@@ -162,10 +166,11 @@ func (f *ShellFile) Stat() (vfs.FileStat, error) {
 // FileFactory returns a VFSFileFactory that creates ShellFile instances for the given driver.
 // basePath is the device mount path (e.g., "/dev/shell").
 func FileFactory(driver *ShellDriver, basePath string) vfs.VFSFileFactory {
-	return func(subpath string, flags vfs.OpenFlag) (vfs.VFSFile, error) {
+	return func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
 		return &ShellFile{
 			driver:     driver,
 			devicePath: basePath + subpath,
+			workDir:    workDir,
 		}, nil
 	}
 }

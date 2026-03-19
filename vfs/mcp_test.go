@@ -221,7 +221,7 @@ func TestMCPFileFactory_Routing(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// When: factory is called with the subpath
-			file, err := factory(tt.subpath, O_RDONLY)
+			file, err := factory(tt.subpath, O_RDONLY, "")
 
 			// Then: check expected results
 			if tt.wantErr {
