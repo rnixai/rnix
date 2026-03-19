@@ -570,10 +570,11 @@ type ImmuneDaemon struct {
 	stopCh     chan struct{}
 
 	// Story 22.2: anomaly detection and threat memory
-	detector  *AnomalyDetector
-	threats   []ThreatSignature
-	alerts    map[types.PID]*AnomalyAlert
-	suspendFn func(pid types.PID) error
+	detector   *AnomalyDetector
+	threats    []ThreatSignature
+	alerts     map[types.PID]*AnomalyAlert
+	suspendFn  func(pid types.PID) error
+	suspending map[types.PID]bool // re-entrancy guard for suspendFn
 
 	// Story 22.3: uptime tracking
 	startedAt time.Time
@@ -595,6 +596,7 @@ func NewImmuneDaemon(store *ImmuneStore) *ImmuneDaemon {
 		profiles:   make(map[string]*NormalProfile),
 		collectors: make(map[types.PID]*BehaviorCollector),
 		alerts:     make(map[types.PID]*AnomalyAlert),
+		suspending: make(map[types.PID]bool),
 		stopCh:     make(chan struct{}),
 	}
 }
@@ -703,6 +705,13 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 		d.mu.RUnlock()
 		return
 	}
+	// Re-entrancy guard: skip anomaly detection if already suspending this PID.
+	// This prevents Kill → emitEvent → OnSyscallEvent → suspendFn → Kill recursion.
+	if d.suspending[pid] {
+		d.mu.RUnlock()
+		collector.Observe(event)
+		return
+	}
 	detector := d.detector
 	agentTpl := collector.GetAgentTemplate()
 	profile := d.profiles[agentTpl]
@@ -729,10 +738,14 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 		}
 		d.mu.Lock()
 		d.alerts[pid] = alert
+		d.suspending[pid] = true
 		d.mu.Unlock()
 		if suspendFn != nil {
 			_ = suspendFn(pid)
 		}
+		d.mu.Lock()
+		delete(d.suspending, pid)
+		d.mu.Unlock()
 		return
 	}
 
@@ -757,6 +770,7 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 		CreatedAt:     time.Now(),
 	}
 	d.threats = append(d.threats, sig)
+	d.suspending[pid] = true
 	d.mu.Unlock()
 
 	// Persist threat to disk (synchronous, per 22.1 lesson)
@@ -766,6 +780,9 @@ func (d *ImmuneDaemon) OnSyscallEvent(pid types.PID, event types.SyscallEvent) {
 	if suspendFn != nil {
 		_ = suspendFn(pid)
 	}
+	d.mu.Lock()
+	delete(d.suspending, pid)
+	d.mu.Unlock()
 }
 
 // OnProcessExit finalizes the behavior sample and updates the NormalProfile.

@@ -656,7 +656,8 @@ type ProviderStatusResponse struct {
 type ProviderStatusWire struct {
 	Name   string `json:"name"`
 	Driver string `json:"driver"`
-	Health string `json:"health"` // "healthy", "unhealthy", "unchecked"
+	Health string `json:"health"`            // "healthy", "unhealthy", "unchecked"
+	Source string `json:"source,omitempty"`   // "global", "project"
 }
 
 // --- Budget Status (Story 21.1) ---

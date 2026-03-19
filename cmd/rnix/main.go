@@ -1119,7 +1119,11 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	if err == nil && len(providers) > 0 {
 		fmt.Fprintf(w, "providers:\n")
 		for _, p := range providers {
-			fmt.Fprintf(w, "  %-12s %s (%s)\n", p.Name, p.Health, p.Driver)
+			if p.Source == "project" {
+				fmt.Fprintf(w, "  %-12s %s (%s) [project]\n", p.Name, p.Health, p.Driver)
+			} else {
+				fmt.Fprintf(w, "  %-12s %s (%s)\n", p.Name, p.Health, p.Driver)
+			}
 		}
 	}
 
