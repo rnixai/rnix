@@ -494,6 +494,9 @@ func runRoot(cmd *cobra.Command, args []string) error {
 			forceExitFunc(130)
 		case <-time.After(2 * time.Second):
 		}
+		// Keep draining signals after timeout so subsequent Ctrl+C still force-exits
+		<-sigCh
+		forceExitFunc(130)
 	}()
 
 	pid, final, spawnErr := client.SpawnAndWatch(req, func(ev ipc.StreamEvent) {
