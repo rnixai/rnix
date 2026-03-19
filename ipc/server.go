@@ -106,18 +106,23 @@ type Server struct {
 	// globalProvidersRaw caches raw YAML bytes from global providers.yaml
 	// for DeepMergeYAML with project-level providers.yaml.
 	globalProvidersRaw []byte
+
+	// projectProviders tracks active project-level providers for daemon status display.
+	// Key: projectDir, Value: list of project-only providers (not in global config).
+	projectProviders *xsync.SyncMap[string, []ProviderStatusWire]
 }
 
 // NewServer creates an IPC server backed by the given kernel.
 // The callbackMux is registered as the kernel's callback handler for per-PID routing.
 func NewServer(kern *kernel.KernelImpl, agentLoader AgentLoaderFunc, version string) *Server {
 	s := &Server{
-		kern:        kern,
-		agentLoader: agentLoader,
-		callbackMux: newCallbackMux(),
-		version:     version,
-		IdleTimeout: DefaultIdleTimeout,
-		done:        make(chan struct{}),
+		kern:             kern,
+		agentLoader:      agentLoader,
+		callbackMux:      newCallbackMux(),
+		version:          version,
+		IdleTimeout:      DefaultIdleTimeout,
+		done:             make(chan struct{}),
+		projectProviders: xsync.NewSyncMap[string, []ProviderStatusWire](),
 	}
 	return s
 }
@@ -529,10 +534,30 @@ func (s *Server) handleProviderStatus(conn net.Conn) {
 	var wires []ProviderStatusWire
 	if s.providerStatuses != nil {
 		wires = s.providerStatuses()
+		// Tag global providers
+		for i := range wires {
+			wires[i].Source = "global"
+		}
 	}
 	if wires == nil {
 		wires = []ProviderStatusWire{}
 	}
+
+	// Append project-level providers
+	seen := make(map[string]bool, len(wires))
+	for _, w := range wires {
+		seen[w.Name] = true
+	}
+	s.projectProviders.Range(func(_ string, providers []ProviderStatusWire) bool {
+		for _, p := range providers {
+			if !seen[p.Name] {
+				wires = append(wires, p)
+				seen[p.Name] = true
+			}
+		}
+		return true
+	})
+
 	payload, _ := json.Marshal(ProviderStatusResponse{Providers: wires})
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
@@ -862,8 +887,8 @@ func (s *Server) handleAttachLog(conn net.Conn, rawPayload json.RawMessage) {
 	if logOK && logCh != nil {
 		for entry := range logCh {
 			lew := LogEntryToWire(entry)
-			if lew.TimestampMs < lastReplayedTs {
-				continue // skip entries older than last replayed
+			if lew.TimestampMs <= lastReplayedTs {
+				continue // skip entries already replayed from history
 			}
 			payload, _ := json.Marshal(lew)
 			se := StreamEvent{Type: StreamLogEntry, Payload: payload}
@@ -1434,6 +1459,17 @@ func (s *Server) SetProviderStatusFunc(fn func() []ProviderStatusWire) {
 	s.providerStatuses = fn
 }
 
+// globalProviderNames returns the set of provider names from the global providers config.
+func (s *Server) globalProviderNames() map[string]struct{} {
+	names := make(map[string]struct{})
+	if s.providerStatuses != nil {
+		for _, w := range s.providerStatuses() {
+			names[w.Name] = struct{}{}
+		}
+	}
+	return names
+}
+
 // SetReputationStore sets the reputation store for reputation queries (Story 21.3).
 func (s *Server) SetReputationStore(rs *kernel.ReputationStore) {
 	s.reputationStore = rs
@@ -1571,6 +1607,7 @@ func (s *Server) resolveProjectContext(projectDir, rnixEnv string) (*config.Proj
 	// Create project-level LLM drivers and LLMFileOpener if we have merged providers
 	if mergedProvidersCfg != nil {
 		factories := make(map[string]vfs.VFSFileFactory)
+		var projectOnlyProviders []ProviderStatusWire
 		for _, pc := range mergedProvidersCfg.Providers {
 			driver, driverErr := llm.CreateDriverWithEnv(pc, envLookup)
 			if driverErr != nil {
@@ -1578,6 +1615,24 @@ func (s *Server) resolveProjectContext(projectDir, rnixEnv string) (*config.Proj
 				continue
 			}
 			factories[pc.Name] = llm.FileFactory(driver, "/dev/llm/"+pc.Name, pc.Mode)
+		}
+
+		// Track project-only providers (defined in project providers.yaml but not in global)
+		if projectRawProviders := mergedProvidersCfg.Providers; len(projectRawProviders) > 0 {
+			globalNames := s.globalProviderNames()
+			for _, pc := range projectRawProviders {
+				if _, isGlobal := globalNames[pc.Name]; !isGlobal {
+					projectOnlyProviders = append(projectOnlyProviders, ProviderStatusWire{
+						Name:   pc.Name,
+						Driver: pc.Driver,
+						Health: "unchecked",
+						Source: "project",
+					})
+				}
+			}
+			if len(projectOnlyProviders) > 0 {
+				s.projectProviders.Store(projectDir, projectOnlyProviders)
+			}
 		}
 
 		if len(factories) > 0 {
