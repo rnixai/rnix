@@ -39,6 +39,62 @@ func DeepMergeYAML(base, override map[string]any) map[string]any {
 	return result
 }
 
+// MergeNamedSlice merges two []any slices whose elements are map[string]any
+// keyed by keyField (e.g. "name"). Base order is preserved; override entries
+// with the same key are deep-merged into base entries; new entries from
+// override are appended. If either slice contains an element that is not a
+// map[string]any with a string keyField, the function falls back to returning
+// override as-is (preserving DeepMergeYAML's original slice-replace semantics).
+func MergeNamedSlice(base, override []any, keyField string) []any {
+	if len(override) == 0 {
+		return base
+	}
+	if len(base) == 0 {
+		return override
+	}
+
+	baseByKey := make(map[string]int, len(base))
+	for i, item := range base {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return override
+		}
+		key, ok := m[keyField].(string)
+		if !ok {
+			return override
+		}
+		baseByKey[key] = i
+	}
+
+	result := make([]any, len(base))
+	for i, item := range base {
+		m := item.(map[string]any)
+		cp := make(map[string]any, len(m))
+		maps.Copy(cp, m)
+		result[i] = cp
+	}
+
+	for _, item := range override {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return override
+		}
+		key, ok := m[keyField].(string)
+		if !ok {
+			return override
+		}
+		if idx, exists := baseByKey[key]; exists {
+			result[idx] = DeepMergeYAML(result[idx].(map[string]any), m)
+		} else {
+			cp := make(map[string]any, len(m))
+			maps.Copy(cp, m)
+			result = append(result, cp)
+		}
+	}
+
+	return result
+}
+
 // ShadowResolve returns the full path to the first directory named name
 // found in the given dirs (searched in order). If name is not found as a
 // subdirectory in any of dirs, it returns an empty string.

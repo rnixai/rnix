@@ -45,14 +45,17 @@ func (p *ProgressReporter) AgentStep(pid types.PID, step, total int) {
 	fmt.Fprintf(p.renderer.Writer, "%s reasoning step %d...\n", prefix, step)
 }
 
-// AgentStepComplete outputs a step completion summary: [agent/{pid}] step {step}: {action} → {summary}
+// AgentStepComplete outputs a step completion summary: [agent/{pid}] step {step}: {summary}
+// When summary is non-empty, it is displayed directly (action type is omitted to avoid
+// double-arrow with tool_call summaries that already contain "→").
+// When summary is empty, only the action type is shown.
 func (p *ProgressReporter) AgentStepComplete(pid types.PID, step int, action string, summary string) {
 	if p.renderer.OutputMode == ModeQuiet || p.renderer.OutputMode == ModeJSON {
 		return
 	}
 	prefix := AgentStyle.Render(fmt.Sprintf("[agent/%d]", pid))
 	if summary != "" {
-		fmt.Fprintf(p.renderer.Writer, "%s step %d: %s → %s\n", prefix, step, action, summary)
+		fmt.Fprintf(p.renderer.Writer, "%s step %d: %s\n", prefix, step, summary)
 	} else {
 		fmt.Fprintf(p.renderer.Writer, "%s step %d: %s\n", prefix, step, action)
 	}
