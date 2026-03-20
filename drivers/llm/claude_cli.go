@@ -198,6 +198,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		defer cancel()
 
 		scanner := bufio.NewScanner(stdoutPipe)
+		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024) // 4MB max line size
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if len(line) == 0 {
@@ -293,7 +294,7 @@ func (d *ClaudeCliDriver) Info() DriverInfo {
 
 // buildArgs constructs CLI arguments for a Claude Code CLI invocation.
 func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []string {
-	args := []string{"-p", req.Intent, "--output-format", outputFormat}
+	args := []string{"-p", req.Intent, "--output-format", outputFormat, "--tools", ""}
 
 	if outputFormat == "stream-json" {
 		args = append(args, "--verbose")
