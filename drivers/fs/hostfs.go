@@ -3,6 +3,7 @@ package fs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -14,18 +15,51 @@ import (
 )
 
 // HostFSFile implements vfs.VFSFile for host filesystem file access.
+// Supports two modes:
+//   - Read mode (O_RDONLY): wraps an os.File for direct reading.
+//   - Command mode (O_WRONLY/O_RDWR): Write→Read pattern for write-file and list-directory operations.
 type HostFSFile struct {
-	file   *os.File
-	path   string
-	closed bool
+	file     *os.File // non-nil in read mode
+	path     string   // resolved host path
+	workDir  string   // sandbox root for command mode
+	mode     vfs.OpenFlag
+	response []byte // buffered result in command mode
+	closed   bool
 }
 
-// Read reads up to length bytes from the file.
-// If length <= 0, reads the entire file.
+// writeRequest is the JSON payload for /dev/fs command-mode writes.
+type writeRequest struct {
+	Content *string `json:"content"` // pointer to distinguish absent from empty string
+	Op      string  `json:"op"`      // "list"
+}
+
+// listEntry is a single entry returned by the list operation.
+type listEntry struct {
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+	IsDir bool   `json:"is_dir"`
+}
+
+// Read reads up to length bytes from the file (read mode) or returns
+// buffered command results (command mode).
 func (f *HostFSFile) Read(length int) ([]byte, error) {
 	if f.closed {
 		return nil, fmt.Errorf("read from closed hostfs file: %s", f.path)
 	}
+
+	// Command mode: return buffered response from Write.
+	if f.mode != vfs.O_RDONLY {
+		if f.response == nil {
+			return nil, &types.DriverError{
+				Op: "Read", Device: "/dev/fs", Err: fmt.Errorf("no result: write a command first"), Code: types.ErrDriver,
+			}
+		}
+		data := f.response
+		f.response = nil // one-shot read
+		return data, nil
+	}
+
+	// Read mode: delegate to underlying os.File.
 	if length <= 0 {
 		return io.ReadAll(f.file)
 	}
@@ -37,21 +71,118 @@ func (f *HostFSFile) Read(length int) ([]byte, error) {
 	return buf[:n], nil
 }
 
-// Write returns an error because /dev/fs is a read-only device in MVP.
-func (f *HostFSFile) Write(_ context.Context, _ []byte) error {
+// Write executes a filesystem command in command mode.
+// Accepts JSON: {"content": "..."} to write a file, or {"op": "list"} to list a directory.
+func (f *HostFSFile) Write(_ context.Context, data []byte) error {
 	if f.closed {
 		return fmt.Errorf("write to closed hostfs file: %s", f.path)
 	}
-	return &types.DriverError{Op: "Write", Device: "/dev/fs" + f.path, Err: fmt.Errorf("read-only device"), Code: types.ErrPermission}
+	if f.mode == vfs.O_RDONLY {
+		return &types.DriverError{Op: "Write", Device: "/dev/fs" + f.path, Err: fmt.Errorf("read-only mode"), Code: types.ErrPermission}
+	}
+
+	var req writeRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		return &types.DriverError{Op: "Write", Device: "/dev/fs", Err: fmt.Errorf("invalid JSON payload: %w", err), Code: types.ErrDriver}
+	}
+
+	switch {
+	case req.Op == "list":
+		return f.execList()
+	case req.Content != nil:
+		return f.execWrite(*req.Content)
+	default:
+		return &types.DriverError{Op: "Write", Device: "/dev/fs", Err: fmt.Errorf("unknown operation: payload must contain \"content\" or \"op\""), Code: types.ErrDriver}
+	}
 }
 
-// Close closes the underlying os.File.
+// execWrite creates/overwrites a file at f.path with the given content.
+func (f *HostFSFile) execWrite(content string) error {
+	device := "/dev/fs"
+
+	// Sandbox check: path must stay within workDir.
+	if err := f.checkSandbox(); err != nil {
+		return err
+	}
+
+	// Auto-create parent directories.
+	dir := filepath.Dir(f.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return mapOSError("Write", device, err)
+	}
+
+	if err := os.WriteFile(f.path, []byte(content), 0o644); err != nil {
+		return mapOSError("Write", device, err)
+	}
+
+	f.response = []byte("ok")
+	return nil
+}
+
+// execList reads the directory at f.path and buffers the result as JSON.
+func (f *HostFSFile) execList() error {
+	device := "/dev/fs"
+
+	entries, err := os.ReadDir(f.path)
+	if err != nil {
+		return mapOSError("Write", device, err)
+	}
+
+	result := make([]listEntry, 0, len(entries))
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue // skip entries we can't stat
+		}
+		result = append(result, listEntry{
+			Name:  e.Name(),
+			Size:  info.Size(),
+			IsDir: e.IsDir(),
+		})
+	}
+
+	b, err := json.Marshal(result)
+	if err != nil {
+		return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("marshal list result: %w", err), Code: types.ErrDriver}
+	}
+	f.response = b
+	return nil
+}
+
+// checkSandbox ensures f.path does not escape the workDir sandbox.
+func (f *HostFSFile) checkSandbox() error {
+	if f.workDir == "" {
+		return nil // no sandbox when workDir is unset
+	}
+	absPath, err := filepath.Abs(f.path)
+	if err != nil {
+		return &types.DriverError{Op: "Write", Device: "/dev/fs", Err: fmt.Errorf("cannot resolve path: %w", err), Code: types.ErrDriver}
+	}
+	absWorkDir, err := filepath.Abs(f.workDir)
+	if err != nil {
+		return &types.DriverError{Op: "Write", Device: "/dev/fs", Err: fmt.Errorf("cannot resolve workDir: %w", err), Code: types.ErrDriver}
+	}
+	if !strings.HasPrefix(absPath, absWorkDir+string(filepath.Separator)) && absPath != absWorkDir {
+		return &types.DriverError{
+			Op: "Write", Device: "/dev/fs",
+			Err:  fmt.Errorf("path outside sandbox: %s is not within %s", absPath, absWorkDir),
+			Code: types.ErrPermission,
+		}
+	}
+	return nil
+}
+
+// Close closes the underlying os.File (read mode) or releases buffers (command mode).
 func (f *HostFSFile) Close() error {
 	if f.closed {
 		return fmt.Errorf("hostfs file already closed: %s", f.path)
 	}
 	f.closed = true
-	return f.file.Close()
+	f.response = nil
+	if f.file != nil {
+		return f.file.Close()
+	}
+	return nil
 }
 
 // Stat returns metadata about this host filesystem file.
@@ -59,16 +190,39 @@ func (f *HostFSFile) Stat() (vfs.FileStat, error) {
 	if f.closed {
 		return vfs.FileStat{}, fmt.Errorf("stat on closed hostfs file: %s", f.path)
 	}
-	info, err := f.file.Stat()
-	if err != nil {
-		return vfs.FileStat{}, err
+	if f.file != nil {
+		info, err := f.file.Stat()
+		if err != nil {
+			return vfs.FileStat{}, err
+		}
+		return vfs.FileStat{
+			Name:       info.Name(),
+			Size:       info.Size(),
+			IsDevice:   false,
+			DevicePath: "/dev/fs",
+		}, nil
 	}
+	// Command mode: return basic info.
 	return vfs.FileStat{
-		Name:       info.Name(),
-		Size:       info.Size(),
+		Name:       filepath.Base(f.path),
+		Size:       int64(len(f.response)),
 		IsDevice:   false,
 		DevicePath: "/dev/fs",
 	}, nil
+}
+
+// resolvePath resolves a VFS subpath to a host filesystem path using workDir.
+func resolvePath(subpath, workDir string) string {
+	trimmed := strings.TrimPrefix(subpath, "/")
+	if workDir != "" {
+		if trimmed == "" {
+			return workDir // subpath "/" → workDir root
+		}
+		if !filepath.IsAbs(trimmed) {
+			return filepath.Join(workDir, trimmed)
+		}
+	}
+	return subpath
 }
 
 // FileFactory returns a VFSFileFactory that opens host filesystem files.
@@ -77,29 +231,27 @@ func FileFactory() vfs.VFSFileFactory {
 		device := "/dev/fs" + subpath
 
 		if subpath == "" {
-			return nil, types.NewDriverError("Open", "/dev/fs", fmt.Errorf("empty subpath"), types.ErrNotFound)
+			return nil, types.NewDriverError("Open", "/dev/fs", fmt.Errorf("missing file path: use /dev/fs/<path> (e.g. /dev/fs/src/main.go), not /dev/fs alone"), types.ErrNotFound)
 		}
 
-		// MVP: /dev/fs is read-only
+		resolved := resolvePath(subpath, workDir)
+
+		// Command mode: O_WRONLY or O_RDWR — defer actual I/O to Write.
 		if flags != vfs.O_RDONLY {
-			return nil, types.NewDriverError("Open", device, fmt.Errorf("read-only device"), types.ErrPermission)
+			return &HostFSFile{
+				path:    resolved,
+				workDir: workDir,
+				mode:    flags,
+			}, nil
 		}
 
-		// Resolve relative paths using workDir.
-		// subpath always starts with "/" from DeviceRegistry (e.g. "/src/main.go").
-		// TrimPrefix "/" first, then check if truly absolute (double-slash escape: //etc/hosts).
-		trimmed := strings.TrimPrefix(subpath, "/")
-		resolved := subpath
-		if workDir != "" && trimmed != "" && !filepath.IsAbs(trimmed) {
-			resolved = filepath.Join(workDir, trimmed)
-		}
-
+		// Read mode: open the file immediately.
 		f, err := os.Open(resolved)
 		if err != nil {
 			return nil, mapOSError("Open", device, err)
 		}
 
-		// Reject directories — only regular files allowed
+		// Reject directories — only regular files allowed in read mode.
 		info, err := f.Stat()
 		if err != nil {
 			f.Close()
@@ -113,6 +265,7 @@ func FileFactory() vfs.VFSFileFactory {
 		return &HostFSFile{
 			file: f,
 			path: resolved,
+			mode: vfs.O_RDONLY,
 		}, nil
 	}
 }

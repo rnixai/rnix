@@ -64,12 +64,17 @@ Tool call — execute a VFS device:
 {"action": "tool_call", "tool": "<vfs-device-path>", "data": {<tool-specific-payload>}}
 
 Available VFS device paths:
-  - Read file: tool="/dev/fs/path/to/file", data={}
-  - Write file: tool="/dev/fs/path/to/file", data={"content": "..."}
-  - List directory: tool="/dev/fs/path/to/dir", data={"op": "list"}
-  - Run command: tool="/dev/shell", data={"command": "..."}
+  - Read file: tool="/dev/fs/src/main.go", data={}
+  - Write file: tool="/dev/fs/docs/output.md", data={"content": "file content here"}
+  - List directory: tool="/dev/fs/src", data={"op": "list"}
+  - Run command: tool="/dev/shell", data={"command": "ls -la"}
   - LLM call: tool="/dev/llm/<provider>", data={"intent": "..."}
   - MCP tool: tool="/dev/mcp/<server>/<tool>", data={...}
+
+IMPORTANT path rules:
+  - /dev/fs paths MUST include the file/dir path after /dev/fs (e.g. /dev/fs/src/main.go). Never use /dev/fs alone.
+  - /dev/fs paths are relative to the project working directory. Do NOT include the project name.
+  - /dev/shell has no subpath — always use exactly "/dev/shell".
 
 Spawn child process:
 {"action": "spawn", "tool": "<child intent>", "data": {"agent": "<name>", "model": "<model>"}}

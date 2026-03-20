@@ -183,6 +183,9 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to start claude cli: %w", err)
@@ -192,7 +195,6 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 	go func() {
 		defer close(ch)
-		defer func() { _ = cmd.Wait() }()
 		defer cancel()
 
 		scanner := bufio.NewScanner(stdoutPipe)
@@ -244,6 +246,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 				case ch <- se:
 				case <-ctx.Done():
 				}
+				_ = cmd.Wait()
 				return
 			}
 		}
@@ -251,6 +254,25 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		if err := scanner.Err(); err != nil {
 			select {
 			case ch <- StreamEvent{Type: "error", Err: NewLLMError("claude", 0, fmt.Errorf("stream read error: %w", err))}:
+			case <-ctx.Done():
+			}
+		}
+
+		// No result event received — check exit code and stderr for error details
+		waitErr := cmd.Wait()
+		if waitErr != nil {
+			errMsg := strings.TrimSpace(stderrBuf.String())
+			if errMsg == "" {
+				errMsg = fmt.Sprintf("claude cli exited with error: %v", waitErr)
+			}
+			select {
+			case ch <- StreamEvent{Type: "error", Err: NewLLMError("claude", 0, fmt.Errorf("%s", errMsg))}:
+			case <-ctx.Done():
+			}
+		} else if stderrBuf.Len() > 0 {
+			errMsg := strings.TrimSpace(stderrBuf.String())
+			select {
+			case ch <- StreamEvent{Type: "error", Err: NewLLMError("claude", 0, fmt.Errorf("claude cli stderr: %s", errMsg))}:
 			case <-ctx.Done():
 			}
 		}
@@ -272,6 +294,10 @@ func (d *ClaudeCliDriver) Info() DriverInfo {
 // buildArgs constructs CLI arguments for a Claude Code CLI invocation.
 func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []string {
 	args := []string{"-p", req.Intent, "--output-format", outputFormat}
+
+	if outputFormat == "stream-json" {
+		args = append(args, "--verbose")
+	}
 
 	if req.SystemPrompt != "" {
 		args = append(args, "--system-prompt", req.SystemPrompt)

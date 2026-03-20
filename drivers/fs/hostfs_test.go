@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -118,7 +119,7 @@ func TestHostFSFile_Stat(t *testing.T) {
 	}
 }
 
-func TestHostFSFile_Write_ReadOnly(t *testing.T) {
+func TestHostFSFile_Write_ReadOnlyMode(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
@@ -130,7 +131,7 @@ func TestHostFSFile_Write_ReadOnly(t *testing.T) {
 
 	err = file.Write(context.Background(), []byte("data"))
 	if err == nil {
-		t.Fatal("expected error on Write to read-only device, got nil")
+		t.Fatal("expected error on Write to read-only mode file, got nil")
 	}
 }
 
@@ -189,23 +190,17 @@ func TestFileFactory_EmptySubpath(t *testing.T) {
 	}
 }
 
-func TestFileFactory_WriteFlag_Rejected(t *testing.T) {
-	dir := testdataDir(t)
+func TestFileFactory_WriteFlagAccepted(t *testing.T) {
+	tmp := t.TempDir()
 	factory := FileFactory()
 
+	// O_WRONLY and O_RDWR should now succeed (command mode).
 	for _, flag := range []vfs.OpenFlag{vfs.O_WRONLY, vfs.O_RDWR} {
-		_, err := factory(filepath.Join(dir, "sample.txt"), flag, "")
-		if err == nil {
-			t.Fatalf("expected error for flag %d, got nil", flag)
+		file, err := factory("/test.txt", flag, tmp)
+		if err != nil {
+			t.Fatalf("expected Open with flag %d to succeed, got: %v", flag, err)
 		}
-
-		var sysErr4 *types.DriverError
-		if !errors.As(err, &sysErr4) {
-			t.Fatalf("expected *types.DriverError for flag %d, got %T: %v", flag, err, err)
-		}
-		if sysErr4.Code != types.ErrPermission {
-			t.Errorf("flag %d: expected ErrPermission, got %s", flag, sysErr4.Code)
-		}
+		file.Close()
 	}
 }
 
@@ -306,6 +301,7 @@ func TestHostFSFile_Write_ReturnsDriverError(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
+	// Read-mode file should reject writes with DriverError.
 	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
@@ -314,7 +310,7 @@ func TestHostFSFile_Write_ReturnsDriverError(t *testing.T) {
 
 	err = file.Write(context.Background(), []byte("data"))
 	if err == nil {
-		t.Fatal("expected error on Write to read-only device, got nil")
+		t.Fatal("expected error on Write to read-only mode, got nil")
 	}
 
 	var drvErr *types.DriverError
@@ -420,4 +416,267 @@ func TestFileFactory_WorkDir(t *testing.T) {
 			t.Error("expected non-empty content")
 		}
 	})
+}
+
+// --- New tests for write and list support ---
+
+func TestHostFSFile_WriteFile_Success(t *testing.T) {
+	tmp := t.TempDir()
+	factory := FileFactory()
+
+	file, err := factory("/output.txt", vfs.O_RDWR, tmp)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	err = file.Write(context.Background(), []byte(`{"content": "hello world"}`))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	result, err := file.Read(0)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	if string(result) != "ok" {
+		t.Errorf("expected 'ok', got %q", result)
+	}
+
+	// Verify file was actually created on disk.
+	content, err := os.ReadFile(filepath.Join(tmp, "output.txt"))
+	if err != nil {
+		t.Fatalf("os.ReadFile failed: %v", err)
+	}
+	if string(content) != "hello world" {
+		t.Errorf("file content = %q, want %q", content, "hello world")
+	}
+}
+
+func TestHostFSFile_WriteFile_AutoMkdir(t *testing.T) {
+	tmp := t.TempDir()
+	factory := FileFactory()
+
+	file, err := factory("/deep/nested/dir/file.txt", vfs.O_RDWR, tmp)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	err = file.Write(context.Background(), []byte(`{"content": "nested content"}`))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	// Verify nested directory and file were created.
+	content, err := os.ReadFile(filepath.Join(tmp, "deep", "nested", "dir", "file.txt"))
+	if err != nil {
+		t.Fatalf("os.ReadFile failed: %v", err)
+	}
+	if string(content) != "nested content" {
+		t.Errorf("file content = %q, want %q", content, "nested content")
+	}
+}
+
+func TestHostFSFile_ListDir_Success(t *testing.T) {
+	dir := testdataDir(t)
+	factory := FileFactory()
+
+	file, err := factory("/", vfs.O_RDWR, dir)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	err = file.Write(context.Background(), []byte(`{"op": "list"}`))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	result, err := file.Read(0)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	var entries []listEntry
+	if err := json.Unmarshal(result, &entries); err != nil {
+		t.Fatalf("unmarshal list result failed: %v", err)
+	}
+
+	// testdata should contain at least sample.txt and nested/
+	names := make(map[string]bool)
+	for _, e := range entries {
+		names[e.Name] = true
+	}
+	if !names["sample.txt"] {
+		t.Error("expected sample.txt in listing")
+	}
+	if !names["nested"] {
+		t.Error("expected nested/ in listing")
+	}
+}
+
+func TestHostFSFile_ListDir_Empty(t *testing.T) {
+	tmp := t.TempDir()
+	factory := FileFactory()
+
+	file, err := factory("/", vfs.O_RDWR, tmp)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	err = file.Write(context.Background(), []byte(`{"op": "list"}`))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	result, err := file.Read(0)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+
+	if string(result) != "[]" {
+		t.Errorf("expected empty list '[]', got %q", result)
+	}
+}
+
+func TestHostFSFile_ListDir_NotFound(t *testing.T) {
+	tmp := t.TempDir()
+	factory := FileFactory()
+
+	file, err := factory("/nonexistent", vfs.O_RDWR, tmp)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	err = file.Write(context.Background(), []byte(`{"op": "list"}`))
+	if err == nil {
+		t.Fatal("expected error listing nonexistent dir, got nil")
+	}
+
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) {
+		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+	}
+	if drvErr.Code != types.ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %s", drvErr.Code)
+	}
+}
+
+func TestHostFSFile_Sandbox_PathEscape(t *testing.T) {
+	tmp := t.TempDir()
+	factory := FileFactory()
+
+	// Attempt to write outside workDir via path traversal.
+	file, err := factory("/../../etc/passwd", vfs.O_RDWR, tmp)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	err = file.Write(context.Background(), []byte(`{"content": "hacked"}`))
+	if err == nil {
+		t.Fatal("expected sandbox error, got nil")
+	}
+
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) {
+		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+	}
+	if drvErr.Code != types.ErrPermission {
+		t.Errorf("expected ErrPermission, got %s", drvErr.Code)
+	}
+}
+
+func TestHostFSFile_CommandMode_ReadWithoutWrite(t *testing.T) {
+	tmp := t.TempDir()
+	factory := FileFactory()
+
+	file, err := factory("/test.txt", vfs.O_RDWR, tmp)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	_, err = file.Read(0)
+	if err == nil {
+		t.Fatal("expected error on Read without Write, got nil")
+	}
+
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) {
+		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+	}
+	if drvErr.Code != types.ErrDriver {
+		t.Errorf("expected ErrDriver, got %s", drvErr.Code)
+	}
+}
+
+func TestHostFSFile_WriteFile_EmptyContent(t *testing.T) {
+	tmp := t.TempDir()
+	factory := FileFactory()
+
+	file, err := factory("/empty.txt", vfs.O_RDWR, tmp)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	// Writing empty content should create an empty file.
+	err = file.Write(context.Background(), []byte(`{"content": ""}`))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(tmp, "empty.txt"))
+	if err != nil {
+		t.Fatalf("os.ReadFile failed: %v", err)
+	}
+	if len(content) != 0 {
+		t.Errorf("expected empty file, got %d bytes", len(content))
+	}
+}
+
+func TestHostFSFile_InvalidJSON(t *testing.T) {
+	tmp := t.TempDir()
+	factory := FileFactory()
+
+	file, err := factory("/test.txt", vfs.O_RDWR, tmp)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	err = file.Write(context.Background(), []byte("not json"))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
+	}
+}
+
+func TestHostFSFile_Sandbox_NoWorkDir(t *testing.T) {
+	tmp := t.TempDir()
+	factory := FileFactory()
+
+	// Without workDir, no sandbox check — path used as-is.
+	target := filepath.Join(tmp, "output.txt")
+	file, err := factory("/"+target, vfs.O_RDWR, "")
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer file.Close()
+
+	err = file.Write(context.Background(), []byte(`{"content": "no sandbox"}`))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("os.ReadFile failed: %v", err)
+	}
+	if string(content) != "no sandbox" {
+		t.Errorf("expected 'no sandbox', got %q", content)
+	}
 }
