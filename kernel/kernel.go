@@ -83,6 +83,13 @@ Replan — revise your approach:
 Specialize — dynamically load a skill:
 {"action": "specialize", "tool": "<skill-name>", "data": {}}
 
+[Skills vs Tools]
+Skills are instruction sets, NOT callable VFS devices. They teach you new capabilities.
+- To load a skill: use the specialize action above.
+- Once loaded, the skill's instructions appear in your conversation. Follow them using available VFS devices.
+- Do NOT call skills via /dev/mcp/ or any other device path — skills have no device path.
+- If a skill is already loaded, its instructions are already in your system prompt. Act on them directly.
+
 If no action is needed, respond with plain text (your final answer).`
 
 // planProtocol is appended after toolProtocol when planning is enabled,
@@ -1082,6 +1089,18 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if proc.PlanningEnabled {
 			sysPrompt += planProtocol
 		}
+		// Inject loaded skills list so the LLM knows which skills are available
+		// and understands they are instructions, not callable tools.
+		proc.mu.Lock()
+		loadedSkills := make([]string, len(proc.Skills))
+		copy(loadedSkills, proc.Skills)
+		proc.mu.Unlock()
+		if len(loadedSkills) > 0 {
+			sysPrompt += "\n\n[Loaded Skills]\nThe following skills are loaded: " +
+				strings.Join(loadedSkills, ", ") +
+				".\nTheir instructions are already in your system prompt. Follow them using available VFS devices." +
+				"\nDo NOT try to call these skills via /dev/mcp/ or any device path."
+		}
 		req := llmRequest{
 			Intent:       proc.Intent,
 			SystemPrompt: sysPrompt,
@@ -1789,7 +1808,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			alreadyLoaded := slices.Contains(proc.Skills, skillName)
 			proc.mu.Unlock()
 			if alreadyLoaded {
-				resultMsg := fmt.Sprintf("skill %q already loaded", skillName)
+				resultMsg := fmt.Sprintf("skill %q is already loaded — its instructions are in your system prompt. Follow them using available VFS devices (/dev/fs, /dev/shell, etc.). Do NOT try to call this skill as a tool.", skillName)
 				_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", resultMsg)
 				k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
 				k.emitEvent(proc, "ReasonStep", map[string]any{
@@ -1818,7 +1837,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			proc.mu.Lock()
 			if slices.Contains(proc.Skills, skillName) {
 				proc.mu.Unlock()
-				resultMsg := fmt.Sprintf("skill %q already loaded", skillName)
+				resultMsg := fmt.Sprintf("skill %q is already loaded — its instructions are in your system prompt. Follow them using available VFS devices (/dev/fs, /dev/shell, etc.). Do NOT try to call this skill as a tool.", skillName)
 				_ = k.ctxMgr.AppendToolResult(proc.CtxID, "specialize", resultMsg)
 				k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
 				k.emitEvent(proc, "ReasonStep", map[string]any{
@@ -1839,7 +1858,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			if skillInfo.Body != "" {
 				appendStart := time.Now()
 				if appendErr := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser,
-					fmt.Sprintf("[Dynamic Skill Loaded: %s]\n%s", skillName, skillInfo.Body)); appendErr != nil {
+					fmt.Sprintf("[Dynamic Skill Loaded: %s]\nThe following are instructions from skill %q. Follow these instructions using VFS devices. Do NOT try to call this skill as a tool.\n\n%s", skillName, skillName, skillInfo.Body)); appendErr != nil {
 					k.emitLog(proc, step, types.LogTool, fmt.Sprintf(
 						"specialize warning: failed to inject skill body for %q: %v", skillName, appendErr), "specialize")
 					k.emitEvent(proc, "CtxWrite", map[string]any{
