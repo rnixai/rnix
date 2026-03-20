@@ -1171,9 +1171,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 	llm.RunHealthChecks(providersCfg, driverReg, 3*time.Second)
 	vfsInst := vfs.NewVFS(devReg)
-	_ = devReg.Register("/dev/fs", fs.FileFactory())
+	fsDriver := fs.NewDriver()
+	_ = devReg.RegisterWithDriver("/dev/fs", fsDriver.FileFactory(), fsDriver)
 	shellDriver := drivershell.NewDriver()
-	_ = devReg.Register("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"))
+	_ = devReg.RegisterWithDriver("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"), shellDriver)
 	ctxMgr := rnixctx.NewManager()
 	skillLoader := skills.NewSkillLoader([]string{filepath.Join(globalDir, "skills")})
 

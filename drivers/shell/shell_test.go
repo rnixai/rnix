@@ -394,6 +394,53 @@ func TestShellFile_Write_CmdExecutionFailure(t *testing.T) {
 	}
 }
 
+// TestShellFile_Write_JSONCommand verifies Write accepts JSON {"command": "..."} format
+// from kernel ToolData (the format LLM tool calls produce).
+func TestShellFile_Write_JSONCommand(t *testing.T) {
+	driver := NewDriverWithOptions(DriverOpts{
+		CmdBuilder: mockCmdBuilder("echo_hello"),
+	})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	// Write JSON format (as sent by kernel's reasonStep tool_call handler)
+	err := f.Write(context.Background(), []byte(`{"command": "echo hello"}`))
+	if err != nil {
+		t.Fatalf("unexpected Write error: %v", err)
+	}
+
+	data, err := f.Read(0)
+	if err != nil {
+		t.Fatalf("unexpected Read error: %v", err)
+	}
+	if string(data) != "hello world" {
+		t.Errorf("expected 'hello world', got %q", string(data))
+	}
+}
+
+// TestExtractCommand verifies both JSON and plain string formats.
+func TestExtractCommand(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"plain string", "echo hello", "echo hello"},
+		{"JSON object", `{"command": "ls -la"}`, "ls -la"},
+		{"JSON empty command", `{"command": ""}`, `{"command": ""}`},
+		{"empty string", "", ""},
+		{"invalid JSON", `{bad json`, "{bad json"},
+		{"JSON without command field", `{"foo": "bar"}`, `{"foo": "bar"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractCommand([]byte(tt.input))
+			if got != tt.want {
+				t.Errorf("extractCommand(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // Task 2.15: TestFileFactory_ReturnsShellFile
 func TestFileFactory_ReturnsShellFile(t *testing.T) {
 	driver := NewDriver()
@@ -463,5 +510,39 @@ func TestShellFile_Write_UsesWorkDir(t *testing.T) {
 	output := strings.TrimSpace(string(data))
 	if output != tmpDir {
 		t.Errorf("pwd output = %q, want %q", output, tmpDir)
+	}
+}
+
+func TestShellDriver_ToolDefs(t *testing.T) {
+	d := NewDriver()
+	defs := d.ToolDefs()
+
+	if len(defs) != 1 {
+		t.Fatalf("expected 1 tool def, got %d", len(defs))
+	}
+	if defs[0].Name != "shell" {
+		t.Fatalf("expected tool name 'shell', got %q", defs[0].Name)
+	}
+	if defs[0].Description == "" {
+		t.Fatal("expected non-empty description")
+	}
+
+	params := defs[0].Parameters
+	if params["type"] != "object" {
+		t.Fatalf("expected parameters type 'object', got %v", params["type"])
+	}
+	props, ok := params["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("expected properties map")
+	}
+	if _, ok := props["command"]; !ok {
+		t.Fatal("expected 'command' property")
+	}
+	req, ok := params["required"].([]string)
+	if !ok {
+		t.Fatal("expected required to be []string")
+	}
+	if len(req) != 1 || req[0] != "command" {
+		t.Fatalf("expected required=['command'], got %v", req)
 	}
 }

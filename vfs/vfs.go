@@ -44,6 +44,30 @@ type StreamObserver interface {
 	SetStreamHandler(fn func(event map[string]any))
 }
 
+// ToolDef describes a tool that a VFS device provides.
+// Fields and JSON tags are intentionally identical to llm.ToolDef for
+// serialization compatibility across package boundaries.
+type ToolDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"` // JSON Schema
+}
+
+// ToolDescriptor is an optional interface for VFS device drivers that can
+// describe their capabilities as structured tool definitions.
+// The kernel collects ToolDefs at spawn time to build native function-calling
+// tool lists or auto-generated text protocols.
+type ToolDescriptor interface {
+	ToolDefs() []ToolDef
+}
+
+// ToolCapable is an optional interface for VFSFile implementations that
+// indicate whether the underlying driver supports native tool calling
+// (i.e., the LLM driver implements ToolCallingDriver).
+type ToolCapable interface {
+	SupportsToolCalling() bool
+}
+
 // VFSFileFactory creates a VFSFile for a given subpath and open flags.
 // subpath is the remaining path after prefix matching (empty for exact matches).
 // workDir is the per-process working directory; empty string means no workDir set.
@@ -156,6 +180,12 @@ func NewVFS(devRegistry *DeviceRegistry) *VFS {
 		fdTables:    xsync.NewSyncMap[types.PID, *fdTable](),
 		workDirs:    xsync.NewSyncMap[types.PID, string](),
 	}
+}
+
+// DeviceRegistry returns the underlying device registry.
+// Used by the kernel to access driver objects for ToolDescriptor discovery.
+func (v *VFS) DeviceRegistry() *DeviceRegistry {
+	return v.devRegistry
 }
 
 // SetWorkDir registers a working directory for the given process.

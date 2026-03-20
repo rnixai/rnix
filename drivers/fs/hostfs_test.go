@@ -680,3 +680,47 @@ func TestHostFSFile_Sandbox_NoWorkDir(t *testing.T) {
 		t.Errorf("expected 'no sandbox', got %q", content)
 	}
 }
+
+func TestHostFSDriver_ToolDefs(t *testing.T) {
+	d := NewDriver()
+	defs := d.ToolDefs()
+
+	if len(defs) != 3 {
+		t.Fatalf("expected 3 tool defs, got %d", len(defs))
+	}
+
+	expected := map[string]bool{"read_file": false, "write_file": false, "list_dir": false}
+	for _, def := range defs {
+		if _, ok := expected[def.Name]; !ok {
+			t.Fatalf("unexpected tool name: %q", def.Name)
+		}
+		expected[def.Name] = true
+		if def.Description == "" {
+			t.Fatalf("expected non-empty description for %q", def.Name)
+		}
+		if def.Parameters["type"] != "object" {
+			t.Fatalf("expected parameters type 'object' for %q, got %v", def.Name, def.Parameters["type"])
+		}
+	}
+
+	for name, found := range expected {
+		if !found {
+			t.Fatalf("missing tool def: %q", name)
+		}
+	}
+}
+
+func TestFileFactory_Compat(t *testing.T) {
+	// Package-level FileFactory should still work
+	factory := FileFactory()
+	if factory == nil {
+		t.Fatal("FileFactory() returned nil")
+	}
+
+	// Also verify NewDriver().FileFactory() works
+	d := NewDriver()
+	dfactory := d.FileFactory()
+	if dfactory == nil {
+		t.Fatal("NewDriver().FileFactory() returned nil")
+	}
+}

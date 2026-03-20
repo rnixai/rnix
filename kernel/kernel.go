@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -53,8 +54,12 @@ type SpawnOpts struct {
 	ProjectConfig     *config.ProjectConfig  // project-level config snapshot; nil = global only
 }
 
-// toolProtocol is injected into the system prompt, telling the LLM how to
-// invoke VFS devices and other actions via structured JSON.
+// toolProtocol is the legacy text-based action protocol, preserved as a
+// fallback reference and test baseline. New processes use generateToolProtocol()
+// from kernel/toolgen.go which auto-generates the protocol from ToolDefs.
+var _ = toolProtocol  //nolint:unused
+var _ = planProtocol  //nolint:unused
+
 const toolProtocol = `
 
 [Action Protocol]
@@ -97,8 +102,7 @@ Skills are instruction sets, NOT callable VFS devices. They teach you new capabi
 
 If no action is needed, respond with plain text (your final answer).`
 
-// planProtocol is appended after toolProtocol when planning is enabled,
-// giving the LLM the ability to create execution plans before acting.
+// planProtocol is the legacy plan action protocol text, preserved alongside toolProtocol.
 const planProtocol = `
 
 Plan — create an execution plan before acting:
@@ -136,13 +140,23 @@ type llmRequest struct {
 	MaxTurns     int               `json:"max_turns,omitempty"`
 	TimeoutMs    int64             `json:"timeout_ms,omitempty"`
 	Messages     []rnixctx.Message `json:"messages,omitempty"`
+	Tools        []vfs.ToolDef     `json:"tools,omitempty"`
+}
+
+// llmToolCall represents a tool invocation in an LLM response.
+// Fields and JSON tags are compatible with llm.ToolCall and context.ToolCall.
+type llmToolCall struct {
+	ID    string         `json:"id"`
+	Name  string         `json:"name"`
+	Input map[string]any `json:"input,omitempty"`
 }
 
 // llmResponse is the JSON payload read from the LLM VFS device.
 // Field names and json tags are compatible with drivers/llm.LLMResponse.
 type llmResponse struct {
-	Content    string `json:"content"`
-	TokensUsed int    `json:"tokens_used"`
+	Content    string        `json:"content"`
+	TokensUsed int           `json:"tokens_used"`
+	ToolCalls  []llmToolCall `json:"tool_calls,omitempty"`
 }
 
 // KernelCallbacks allows the CLI layer to receive progress notifications
@@ -641,6 +655,25 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					k.emitEvent(proc, "InternalStep", evt, nil, nil, 0)
 				})
 			}
+			// Detect native tool calling capability
+			if tc, ok := file.(vfs.ToolCapable); ok && tc.SupportsToolCalling() {
+				proc.UseNativeTools = true
+				vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
+				metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled)
+				allDefs := make([]vfs.ToolDef, 0, len(vfsDefs)+len(metaDefs))
+				allDefs = append(allDefs, vfsDefs...)
+				allDefs = append(allDefs, metaDefs...)
+				proc.nativeToolDefs = allDefs
+				proc.toolMap = make(map[string]toolMapping, len(vfsMap)+len(metaMap))
+				maps.Copy(proc.toolMap, vfsMap)
+				maps.Copy(proc.toolMap, metaMap)
+			}
+			// Extract MCP device paths for mixed mode text injection
+			for _, dev := range proc.AllowedDevices {
+				if strings.HasPrefix(dev, "/dev/mcp/") || strings.HasPrefix(dev, "/mnt/mcp/") {
+					proc.mcpDevicePaths = append(proc.mcpDevicePaths, dev)
+				}
+			}
 		}
 
 		// Auto-mount MCP servers referenced in agent.yaml (Story 9.2)
@@ -1090,9 +1123,19 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 		// Inject action protocol so the LLM knows how to produce structured
 		// JSON actions via VFS device paths and other action types.
-		sysPrompt += toolProtocol
-		if proc.PlanningEnabled {
-			sysPrompt += planProtocol
+		if proc.UseNativeTools {
+			// Native tool calling: inject MCP text descriptions if needed (mixed mode)
+			if len(proc.mcpDevicePaths) > 0 {
+				sysPrompt += mcpToolProtocolSnippet(proc.mcpDevicePaths)
+			}
+		} else {
+			// Text protocol: auto-generate from ToolDefs (or use cached per-process protocol)
+			if proc.generatedProtocol == "" {
+				vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
+				metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled)
+				proc.generatedProtocol = generateToolProtocol(vfsDefs, vfsMap, metaDefs, metaMap, proc.PlanningEnabled)
+			}
+			sysPrompt += proc.generatedProtocol
 		}
 		// Inject loaded skills list so the LLM knows which skills are available
 		// and understands they are instructions, not callable tools.
@@ -1113,6 +1156,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			MaxTurns:     0,
 			TimeoutMs:    opts.TimeoutMs,
 			Messages:     promptResult.Messages,
+		}
+		if proc.UseNativeTools {
+			req.Tools = proc.nativeToolDefs
 		}
 		reqJSON, err := json.Marshal(req)
 		if err != nil {
@@ -1266,7 +1312,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 		}
 
-		// Parse action
+		// Native tool calls path: handle ToolCalls from LLM response directly
+		if proc.UseNativeTools && len(resp.ToolCalls) > 0 {
+			shouldContinue := k.executeNativeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors)
+			if !shouldContinue {
+				return
+			}
+			continue
+		}
+
+		// Parse action (text protocol path, or native mode fallback when no ToolCalls)
 		action := parseAction(&resp)
 
 		// Check gdb quality breakpoint (Story 13.2)
@@ -1967,6 +2022,303 @@ func briefTextSummary(content string) string {
 		return line
 	}
 	return ""
+}
+
+// executeNativeToolCalls processes native tool calls from the LLM response.
+// Returns true if the reasonStep loop should continue, false if the process should exit.
+func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int) bool {
+	// Append assistant message with tool calls to context
+	if err := k.ctxMgr.AppendAssistantWithToolCalls(proc.CtxID, resp.Content, convertToolCalls(resp.ToolCalls)); err != nil {
+		k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append assistant with tool calls failed", Err: err})
+		return false
+	}
+
+	// Emit [think] log entry
+	k.emitLog(proc, step, types.LogThink, resp.Content, "")
+
+	for _, tc := range resp.ToolCalls {
+		mapping, ok := proc.toolMap[tc.Name]
+		if !ok {
+			// Unknown tool
+			errMsg := "error: unknown tool " + tc.Name
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+			k.emitLog(proc, step, types.LogTool, errMsg, tc.Name)
+			*consecutiveToolErrors++
+			if *consecutiveToolErrors >= 3 {
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+				return false
+			}
+			continue
+		}
+
+		switch mapping.Type {
+		case "vfs":
+			result, err := k.executeNativeVFSTool(proc, tc, mapping)
+			if err != nil {
+				errMsg := fmt.Sprintf("Tool error (%s): %v", tc.Name, err)
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+				proc.mu.Lock()
+				proc.HasToolError = true
+				proc.mu.Unlock()
+				k.emitLog(proc, step, types.LogTool, errMsg, mapping.VFSPath)
+				*consecutiveToolErrors++
+				if *consecutiveToolErrors >= 3 {
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+					return false
+				}
+				continue
+			}
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, result)
+			toolContent := result
+			if len(toolContent) > 500 {
+				toolContent = toolContent[:500] + fmt.Sprintf("... (truncated, %d bytes total)", len(result))
+			}
+			k.emitLog(proc, step, types.LogTool, toolContent, mapping.VFSPath)
+			*consecutiveToolErrors = 0
+
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "native_tool_call",
+				"tool":   tc.Name,
+			}, result, nil, time.Since(stepStart))
+			if k.callbacks != nil {
+				k.callbacks.OnStepComplete(proc.PID, step, "tool_call", briefToolCallSummary(mapping.VFSPath, result))
+			}
+
+		case "meta":
+			shouldContinue := k.executeNativeMetaAction(proc, tc, mapping, step, stepStart)
+			if !shouldContinue {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// executeNativeVFSTool executes a VFS tool call from native function calling.
+func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping toolMapping) (string, error) {
+	// Permission check using VFS path
+	if len(proc.AllowedDevices) > 0 {
+		cleanPath := path.Clean(mapping.VFSPath)
+		allowed := false
+		for _, dev := range proc.AllowedDevices {
+			if cleanPath == dev || strings.HasPrefix(cleanPath, dev+"/") {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return "", fmt.Errorf("permission denied: device %s not in allowed list %v", mapping.VFSPath, proc.AllowedDevices)
+		}
+	}
+
+	switch mapping.FSOperation {
+	case "read_file":
+		pathStr, _ := tc.Input["path"].(string)
+		if pathStr == "" {
+			return "", fmt.Errorf("read_file: missing path parameter")
+		}
+		vfsPath := mapping.VFSPath + "/" + pathStr
+		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_RDONLY)
+		if err != nil {
+			return "", fmt.Errorf("open failed: %w", err)
+		}
+		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
+		_ = k.vfs.Close(proc.PID, fd)
+		if err != nil {
+			return "", fmt.Errorf("read failed: %w", err)
+		}
+		return string(data), nil
+
+	case "write_file":
+		pathStr, _ := tc.Input["path"].(string)
+		if pathStr == "" {
+			return "", fmt.Errorf("write_file: missing path parameter")
+		}
+		contentStr, _ := tc.Input["content"].(string)
+		vfsPath := mapping.VFSPath + "/" + pathStr
+		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_WRONLY)
+		if err != nil {
+			return "", fmt.Errorf("open failed: %w", err)
+		}
+		writeData, _ := json.Marshal(map[string]string{"content": contentStr})
+		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
+			_ = k.vfs.Close(proc.PID, fd)
+			return "", fmt.Errorf("write failed: %w", err)
+		}
+		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
+		_ = k.vfs.Close(proc.PID, fd)
+		if err != nil {
+			return "", fmt.Errorf("read result failed: %w", err)
+		}
+		return string(data), nil
+
+	case "list_dir":
+		pathStr, _ := tc.Input["path"].(string)
+		if pathStr == "" {
+			return "", fmt.Errorf("list_dir: missing path parameter")
+		}
+		vfsPath := mapping.VFSPath + "/" + pathStr
+		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_WRONLY)
+		if err != nil {
+			return "", fmt.Errorf("open failed: %w", err)
+		}
+		writeData, _ := json.Marshal(map[string]string{"op": "list"})
+		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
+			_ = k.vfs.Close(proc.PID, fd)
+			return "", fmt.Errorf("write failed: %w", err)
+		}
+		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
+		_ = k.vfs.Close(proc.PID, fd)
+		if err != nil {
+			return "", fmt.Errorf("read result failed: %w", err)
+		}
+		return string(data), nil
+
+	default:
+		// Generic VFS tool (e.g., shell)
+		inputData, _ := json.Marshal(tc.Input)
+		fd, err := k.vfs.Open(proc.PID, mapping.VFSPath, vfs.O_RDWR)
+		if err != nil {
+			return "", fmt.Errorf("open failed: %w", err)
+		}
+		if err := k.vfs.Write(proc.ctx, proc.PID, fd, inputData); err != nil {
+			_ = k.vfs.Close(proc.PID, fd)
+			return "", fmt.Errorf("write failed: %w", err)
+		}
+		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
+		_ = k.vfs.Close(proc.PID, fd)
+		if err != nil {
+			return "", fmt.Errorf("read failed: %w", err)
+		}
+		return string(data), nil
+	}
+}
+
+// executeNativeMetaAction executes a kernel meta action from native function calling.
+// Returns true if the reasonStep loop should continue.
+func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapping toolMapping, step int, stepStart time.Time) bool {
+	switch mapping.Action {
+	case ActionComplete:
+		resultStr, _ := tc.Input["result"].(string)
+		proc.mu.Lock()
+		proc.Result = resultStr
+		hadError := proc.HasToolError
+		proc.mu.Unlock()
+		k.emitLog(proc, step, types.LogOutput, resultStr, "")
+		k.emitEvent(proc, "ReasonStep", map[string]any{
+			"step":   step,
+			"action": "complete",
+		}, resultStr, nil, time.Since(stepStart))
+		if k.callbacks != nil {
+			k.callbacks.OnStepComplete(proc.PID, step, "complete", briefTextSummary(resultStr))
+		}
+		exitCode := 0
+		reason := "completed"
+		if hadError {
+			exitCode = 1
+			reason = "completed_with_tool_errors"
+		}
+		k.finishProcess(proc, ExitStatus{Code: exitCode, Reason: reason})
+		return false
+
+	case ActionSpawn:
+		intentStr, _ := tc.Input["intent"].(string)
+		agentStr, _ := tc.Input["agent"].(string)
+		modelStr, _ := tc.Input["model"].(string)
+		childOpts := SpawnOpts{Model: modelStr}
+		var agentInfo *agents.AgentInfo
+		if agentStr != "" && k.agentLoader != nil {
+			if ai, err := k.agentLoader(agentStr); err == nil {
+				agentInfo = ai
+			}
+		}
+		childPID, err := k.Spawn(intentStr, agentInfo, childOpts)
+		if err != nil {
+			errMsg := fmt.Sprintf("spawn failed: %v", err)
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+			return true
+		}
+		// Wait for child
+		childExit, _ := k.Wait(childPID)
+		childProc, _ := k.GetProcess(childPID)
+		result := ""
+		if childProc != nil {
+			result = childProc.Result
+		}
+		if result == "" {
+			result = fmt.Sprintf("child PID %d exited: %s (code %d)", childPID, childExit.Reason, childExit.Code)
+		}
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, result)
+		k.emitEvent(proc, "ReasonStep", map[string]any{
+			"step":      step,
+			"action":    "spawn",
+			"child_pid": childPID,
+		}, result, nil, time.Since(stepStart))
+		return true
+
+	case ActionReplan:
+		reasonStr, _ := tc.Input["reason"].(string)
+		msg := fmt.Sprintf("Replanning: %s", reasonStr)
+		_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, msg)
+		k.emitLog(proc, step, types.LogOutput, msg, "")
+		k.emitEvent(proc, "ReasonStep", map[string]any{
+			"step":   step,
+			"action": "replan",
+		}, msg, nil, time.Since(stepStart))
+		return true
+
+	case ActionSpecialize:
+		skillName, _ := tc.Input["skill_name"].(string)
+		var resultMsg string
+		if k.skillLoader != nil {
+			if skill, err := k.skillLoader(skillName); err == nil {
+				_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleSystem, skill.Body)
+				proc.mu.Lock()
+				proc.Skills = append(proc.Skills, skillName)
+				proc.mu.Unlock()
+				resultMsg = fmt.Sprintf("Skill '%s' loaded successfully", skillName)
+			} else {
+				resultMsg = fmt.Sprintf("Failed to load skill '%s': %v", skillName, err)
+			}
+		} else {
+			resultMsg = "skill loader not available"
+		}
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, resultMsg)
+		k.emitEvent(proc, "ReasonStep", map[string]any{
+			"step":   step,
+			"action": "specialize",
+			"skill":  skillName,
+		}, resultMsg, nil, time.Since(stepStart))
+		return true
+
+	case ActionPlan:
+		stepsAny, _ := tc.Input["steps"].([]any)
+		reasonStr, _ := tc.Input["reason"].(string)
+		var steps []string
+		for _, s := range stepsAny {
+			if str, ok := s.(string); ok {
+				steps = append(steps, str)
+			}
+		}
+		planContent := fmt.Sprintf("Plan (%s):\n", reasonStr)
+		for i, s := range steps {
+			planContent += fmt.Sprintf("  %d. %s\n", i+1, s)
+		}
+		_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, planContent)
+		k.emitLog(proc, step, types.LogOutput, planContent, "")
+		k.emitEvent(proc, "ReasonStep", map[string]any{
+			"step":   step,
+			"action": "plan",
+		}, planContent, nil, time.Since(stepStart))
+		if k.callbacks != nil {
+			k.callbacks.OnStepComplete(proc.PID, step, "plan", "Created plan with "+fmt.Sprintf("%d steps", len(steps)))
+		}
+		return true
+	}
+
+	return true
 }
 
 // spawnActionData contains optional parameters parsed from spawn action data.

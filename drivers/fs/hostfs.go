@@ -14,6 +14,75 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
+// HostFSDriver is the driver object for the host filesystem device.
+// Implements vfs.ToolDescriptor to describe read_file, write_file, list_dir tools.
+type HostFSDriver struct{}
+
+// compile-time interface check
+var _ vfs.ToolDescriptor = (*HostFSDriver)(nil)
+
+// NewDriver creates a new HostFSDriver instance.
+func NewDriver() *HostFSDriver {
+	return &HostFSDriver{}
+}
+
+// ToolDefs returns tool definitions for the host filesystem device.
+func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
+	return []vfs.ToolDef{
+		{
+			Name:        "read_file",
+			Description: "Read the contents of a file at the given path.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "File path relative to the working directory",
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+		{
+			Name:        "write_file",
+			Description: "Create or overwrite a file at the given path with the provided content.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "File path relative to the working directory",
+					},
+					"content": map[string]any{
+						"type":        "string",
+						"description": "Content to write to the file",
+					},
+				},
+				"required": []string{"path", "content"},
+			},
+		},
+		{
+			Name:        "list_dir",
+			Description: "List the contents of a directory at the given path.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"path": map[string]any{
+						"type":        "string",
+						"description": "Directory path relative to the working directory",
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+	}
+}
+
+// FileFactoryFromDriver returns a VFSFileFactory from the driver.
+func (d *HostFSDriver) FileFactory() vfs.VFSFileFactory {
+	return FileFactory()
+}
+
 // HostFSFile implements vfs.VFSFile for host filesystem file access.
 // Supports two modes:
 //   - Read mode (O_RDONLY): wraps an os.File for direct reading.

@@ -22,11 +22,21 @@ const (
 	RoleTool      Role = "tool"
 )
 
+// ToolCall represents a tool invocation requested by the LLM.
+// Fields and JSON tags are intentionally identical to llm.ToolCall for
+// serialization compatibility across package boundaries.
+type ToolCall struct {
+	ID    string         `json:"id"`
+	Name  string         `json:"name"`
+	Input map[string]any `json:"input,omitempty"`
+}
+
 // Message represents a single message in a conversation context.
 type Message struct {
-	Role       Role   `json:"role"`
-	Content    string `json:"content"`
-	ToolCallID string `json:"tool_call_id,omitempty"`
+	Role       Role       `json:"role"`
+	Content    string     `json:"content"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
 // Context represents an independent context space for accumulating conversation history.
@@ -278,6 +288,33 @@ func (m *Manager) AppendToolResult(cid types.CtxID, toolCallID string, content s
 		Role:       RoleTool,
 		Content:    content,
 		ToolCallID: toolCallID,
+	})
+	return nil
+}
+
+// AppendAssistantWithToolCalls appends an assistant message that includes tool calls.
+func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, toolCalls []ToolCall) error {
+	ctx, err := m.getContext("AppendAssistantWithToolCalls", cid)
+	if err != nil {
+		return err
+	}
+
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+
+	if len(ctx.Messages) >= ctx.MaxSize {
+		return &ContextError{
+			Op:   "AppendAssistantWithToolCalls",
+			CID:  cid,
+			Err:  fmt.Errorf("context full"),
+			Code: types.ErrInternal,
+		}
+	}
+
+	ctx.Messages = append(ctx.Messages, Message{
+		Role:      RoleAssistant,
+		Content:   content,
+		ToolCalls: toolCalls,
 	})
 	return nil
 }

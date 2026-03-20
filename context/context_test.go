@@ -998,3 +998,74 @@ func TestManager_CtxFreeAllOperationsFail(t *testing.T) {
 func containsStr(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
+
+func TestAppendAssistantWithToolCalls(t *testing.T) {
+	m := NewManager()
+	cid, _ := m.CtxAlloc(10)
+
+	toolCalls := []ToolCall{
+		{ID: "tc_1", Name: "shell", Input: map[string]any{"command": "ls"}},
+		{ID: "tc_2", Name: "read_file", Input: map[string]any{"path": "main.go"}},
+	}
+
+	if err := m.AppendAssistantWithToolCalls(cid, "Let me run some commands", toolCalls); err != nil {
+		t.Fatalf("AppendAssistantWithToolCalls failed: %v", err)
+	}
+
+	prompt, _ := m.BuildPrompt(cid)
+	if len(prompt.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(prompt.Messages))
+	}
+	msg := prompt.Messages[0]
+	if msg.Role != RoleAssistant {
+		t.Fatalf("expected role assistant, got %s", msg.Role)
+	}
+	if msg.Content != "Let me run some commands" {
+		t.Fatalf("content mismatch: %q", msg.Content)
+	}
+	if len(msg.ToolCalls) != 2 {
+		t.Fatalf("expected 2 tool calls, got %d", len(msg.ToolCalls))
+	}
+	if msg.ToolCalls[0].Name != "shell" {
+		t.Fatalf("expected first tool call name 'shell', got %q", msg.ToolCalls[0].Name)
+	}
+	if msg.ToolCalls[1].ID != "tc_2" {
+		t.Fatalf("expected second tool call ID 'tc_2', got %q", msg.ToolCalls[1].ID)
+	}
+}
+
+func TestMessage_JSONCompat_ToolCalls(t *testing.T) {
+	msg := Message{
+		Role:    RoleAssistant,
+		Content: "using tools",
+		ToolCalls: []ToolCall{
+			{ID: "call_123", Name: "shell", Input: map[string]any{"command": "echo hi"}},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	// Verify the JSON contains tool_calls
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Unmarshal to map failed: %v", err)
+	}
+	if _, ok := raw["tool_calls"]; !ok {
+		t.Fatal("expected 'tool_calls' key in JSON")
+	}
+
+	// Round-trip back
+	var decoded Message
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal back failed: %v", err)
+	}
+	if len(decoded.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call after round-trip, got %d", len(decoded.ToolCalls))
+	}
+	if decoded.ToolCalls[0].Name != "shell" {
+		t.Fatalf("tool call name mismatch: %q", decoded.ToolCalls[0].Name)
+	}
+}
