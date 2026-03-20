@@ -102,6 +102,13 @@ type Process struct {
 	Model            string // resolved model name (immutable after spawn)
 	PlanningEnabled  bool   // true = inject planProtocol; derived from agent manifest Planning field
 
+	// Native tool calling support (immutable after Spawn)
+	UseNativeTools    bool                // true when LLM driver implements ToolCallingDriver
+	toolMap           map[string]toolMapping // tool name → VFS path mapping; immutable after Spawn
+	nativeToolDefs    []vfs.ToolDef       // collected ToolDefs for req.Tools; immutable after Spawn
+	generatedProtocol string              // auto-generated toolProtocol text; immutable after first reasonStep
+	mcpDevicePaths    []string            // MCP device paths for mixed mode text injection; immutable after Spawn
+
 	// Project configuration (Story 25.3) — immutable after spawn, no locking needed
 	ProjectConfig *config.ProjectConfig
 

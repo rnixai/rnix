@@ -4,6 +4,7 @@ package shell
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"time"
@@ -36,6 +37,29 @@ type DriverOpts struct {
 type ShellDriver struct {
 	defaultTimeout time.Duration
 	cmdBuilder     CommandBuilder
+}
+
+// compile-time interface check
+var _ vfs.ToolDescriptor = (*ShellDriver)(nil)
+
+// ToolDefs returns the tool definitions for the shell device.
+func (d *ShellDriver) ToolDefs() []vfs.ToolDef {
+	return []vfs.ToolDef{
+		{
+			Name:        "shell",
+			Description: "Execute a shell command and return stdout+stderr. Commands run via sh -c in the process working directory. Non-zero exit codes are reported in output, not as errors.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"command": map[string]any{
+						"type":        "string",
+						"description": "Shell command to execute",
+					},
+				},
+				"required": []string{"command"},
+			},
+		},
+	}
 }
 
 // NewDriver creates a ShellDriver with default configuration.
@@ -77,7 +101,7 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("shell file closed"), Code: types.ErrDriver}
 	}
 
-	command := string(data)
+	command := extractCommand(data)
 	if command == "" {
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("empty command"), Code: types.ErrDriver}
 	}
@@ -161,6 +185,18 @@ func (f *ShellFile) Stat() (vfs.FileStat, error) {
 		IsDevice:   true,
 		DevicePath: "/dev/shell",
 	}, nil
+}
+
+// extractCommand extracts the command string from data.
+// Accepts both JSON format {"command": "..."} (from kernel ToolData) and plain strings.
+func extractCommand(data []byte) string {
+	var req struct {
+		Command string `json:"command"`
+	}
+	if json.Unmarshal(data, &req) == nil && req.Command != "" {
+		return req.Command
+	}
+	return string(data)
 }
 
 // FileFactory returns a VFSFileFactory that creates ShellFile instances for the given driver.

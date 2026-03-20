@@ -24,6 +24,7 @@ type LLMRequest struct {
 	Messages     []Message     `json:"messages,omitempty"`
 	Temperature  *float64      `json:"temperature,omitempty"`
 	MaxTokens    int           `json:"max_tokens,omitempty"`
+	Tools        []ToolDef     `json:"tools,omitempty"`
 }
 
 // LLMResponse represents a response from an LLM driver.

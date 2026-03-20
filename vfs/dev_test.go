@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -202,6 +203,77 @@ func TestDeviceRegistry_ConcurrentRegister(t *testing.T) {
 	wg.Wait()
 }
 
+func TestDeviceRegistry_RegisterWithDriver(t *testing.T) {
+	t.Run("register with driver and retrieve", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
+			return &mockFile{}, nil
+		}
+		driver := "test-driver"
+		if err := reg.RegisterWithDriver("/dev/shell", factory, driver); err != nil {
+			t.Fatalf("RegisterWithDriver failed: %v", err)
+		}
+
+		got, ok := reg.GetDriver("/dev/shell")
+		if !ok {
+			t.Fatal("expected GetDriver to return true")
+		}
+		if got != "test-driver" {
+			t.Fatalf("expected driver 'test-driver', got %v", got)
+		}
+	})
+
+	t.Run("get driver returns false for unregistered path", func(t *testing.T) {
+		reg := NewDeviceRegistry()
+		_, ok := reg.GetDriver("/dev/nonexistent")
+		if ok {
+			t.Fatal("expected GetDriver to return false for unregistered path")
+		}
+	})
+}
+
+func TestDeviceRegistry_RangeDrivers(t *testing.T) {
+	reg := NewDeviceRegistry()
+	factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
+		return &mockFile{}, nil
+	}
+	_ = reg.RegisterWithDriver("/dev/shell", factory, "shell-driver")
+	_ = reg.RegisterWithDriver("/dev/fs", factory, "fs-driver")
+
+	paths := make(map[string]bool)
+	reg.RangeDrivers(func(path string, driver any) bool {
+		paths[path] = true
+		return true
+	})
+
+	if !paths["/dev/shell"] {
+		t.Fatal("expected /dev/shell in RangeDrivers")
+	}
+	if !paths["/dev/fs"] {
+		t.Fatal("expected /dev/fs in RangeDrivers")
+	}
+}
+
+func TestDeviceRegistry_UnregisterCleansDriverMap(t *testing.T) {
+	reg := NewDeviceRegistry()
+	factory := func(subpath string, flags OpenFlag, workDir string) (VFSFile, error) {
+		return &mockFile{}, nil
+	}
+	_ = reg.RegisterWithDriver("/dev/test", factory, "driver")
+
+	if _, ok := reg.GetDriver("/dev/test"); !ok {
+		t.Fatal("expected driver before unregister")
+	}
+
+	if err := reg.Unregister("/dev/test"); err != nil {
+		t.Fatalf("Unregister failed: %v", err)
+	}
+
+	if _, ok := reg.GetDriver("/dev/test"); ok {
+		t.Fatal("expected driver to be cleaned after unregister")
+	}
+}
+
 // mockFile implements VFSFile for testing.
 type mockFile struct {
 	readData  []byte
@@ -218,3 +290,40 @@ func (m *mockFile) Read(length int) ([]byte, error)            { return m.readDa
 func (m *mockFile) Write(_ context.Context, data []byte) error { m.writeData = data; return m.writeErr }
 func (m *mockFile) Close() error                               { m.closed = true; return m.closeErr }
 func (m *mockFile) Stat() (FileStat, error)                    { return m.stat, m.statErr }
+
+func TestToolDef_JSONRoundTrip(t *testing.T) {
+	original := ToolDef{
+		Name:        "shell",
+		Description: "Execute a shell command",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"command": map[string]any{
+					"type":        "string",
+					"description": "Shell command to execute",
+				},
+			},
+			"required": []any{"command"},
+		},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded ToolDef
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if decoded.Name != original.Name {
+		t.Fatalf("Name mismatch: got %q, want %q", decoded.Name, original.Name)
+	}
+	if decoded.Description != original.Description {
+		t.Fatalf("Description mismatch: got %q, want %q", decoded.Description, original.Description)
+	}
+	if decoded.Parameters["type"] != "object" {
+		t.Fatalf("Parameters.type mismatch: got %v", decoded.Parameters["type"])
+	}
+}

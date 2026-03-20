@@ -27,6 +27,13 @@ func (f *LLMFile) SetStreamHandler(fn func(event map[string]any)) {
 	f.onEvent = fn
 }
 
+// SupportsToolCalling reports whether the underlying driver supports native tool calling.
+// Implements vfs.ToolCapable.
+func (f *LLMFile) SupportsToolCalling() bool {
+	_, ok := f.driver.(ToolCallingDriver)
+	return ok
+}
+
 // Write accepts a JSON-encoded LLMRequest, invokes the driver, and buffers the response.
 func (f *LLMFile) Write(ctx context.Context, data []byte) error {
 	if f.closed {
@@ -46,7 +53,19 @@ func (f *LLMFile) Write(ctx context.Context, data []byte) error {
 
 // writeCall uses the synchronous Call API.
 func (f *LLMFile) writeCall(ctx context.Context, req LLMRequest) error {
-	resp, err := f.driver.Call(ctx, req)
+	var resp *LLMResponse
+	var err error
+
+	if len(req.Tools) > 0 {
+		if tcd, ok := f.driver.(ToolCallingDriver); ok {
+			resp, err = tcd.CallWithTools(ctx, req, req.Tools)
+		} else {
+			resp, err = f.driver.Call(ctx, req)
+		}
+	} else {
+		resp, err = f.driver.Call(ctx, req)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -55,7 +74,18 @@ func (f *LLMFile) writeCall(ctx context.Context, req LLMRequest) error {
 
 // writeStream uses the streaming API, accumulating content and forwarding intermediate events.
 func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
-	ch, err := f.driver.Stream(ctx, req)
+	var ch <-chan StreamEvent
+	var err error
+
+	if len(req.Tools) > 0 {
+		if tcd, ok := f.driver.(ToolCallingDriver); ok {
+			ch, err = tcd.StreamWithTools(ctx, req, req.Tools)
+		} else {
+			ch, err = f.driver.Stream(ctx, req)
+		}
+	} else {
+		ch, err = f.driver.Stream(ctx, req)
+	}
 	if err != nil {
 		return err
 	}
@@ -63,6 +93,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 	var content strings.Builder
 	var reasoning strings.Builder
 	var tokens, inputTokens, outputTokens int
+	var toolCalls []ToolCall
 
 	for evt := range ch {
 		switch evt.Type {
@@ -89,6 +120,10 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 			tokens = evt.TokensUsed
 			inputTokens = evt.InputTokens
 			outputTokens = evt.OutputTokens
+			// Collect ToolCalls from done event (OpenAI stream flushes them here)
+			if len(evt.ToolCalls) > 0 {
+				toolCalls = evt.ToolCalls
+			}
 		case "error":
 			if evt.Err != nil {
 				return evt.Err
@@ -108,6 +143,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 		TokensUsed:   tokens,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
+		ToolCalls:    toolCalls,
 	}
 	return f.bufferResponse(resp)
 }
