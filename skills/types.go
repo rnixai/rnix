@@ -30,4 +30,5 @@ func (m *SkillManifest) AllowedTools() []string {
 type SkillInfo struct {
 	Manifest SkillManifest
 	Body     string
+	Dir      string // absolute path to the skill directory on disk
 }

@@ -67,7 +67,12 @@ func (a *AgentInfo) SystemPrompt() string {
 	prompt.WriteString(a.Instructions)
 	for _, skill := range a.Skills {
 		if skill.Body != "" {
-			prompt.WriteString("\n\n" + skill.Body)
+			if skill.Dir != "" {
+				prompt.WriteString("\n\nBase directory for this skill: " + skill.Dir + "\n\n")
+			} else {
+				prompt.WriteString("\n\n")
+			}
+			prompt.WriteString(skill.Body)
 		}
 	}
 	// Synergy detection: append emergent instructions

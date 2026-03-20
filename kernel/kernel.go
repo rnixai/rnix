@@ -146,9 +146,10 @@ type llmRequest struct {
 // llmToolCall represents a tool invocation in an LLM response.
 // Fields and JSON tags are compatible with llm.ToolCall and context.ToolCall.
 type llmToolCall struct {
-	ID    string         `json:"id"`
-	Name  string         `json:"name"`
-	Input map[string]any `json:"input,omitempty"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Input      map[string]any `json:"input,omitempty"`
+	ParseError string         `json:"parse_error,omitempty"`
 }
 
 // llmResponse is the JSON payload read from the LLM VFS device.
@@ -1917,8 +1918,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			// Inject skill body into context as RoleUser
 			if skillInfo.Body != "" {
 				appendStart := time.Now()
+				dirHint := ""
+				if skillInfo.Dir != "" {
+					dirHint = fmt.Sprintf("Base directory for this skill: %s\n\n", skillInfo.Dir)
+				}
 				if appendErr := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser,
-					fmt.Sprintf("[Dynamic Skill Loaded: %s]\nThe following are instructions from skill %q. Follow these instructions using VFS devices. Do NOT try to call this skill as a tool.\n\n%s", skillName, skillName, skillInfo.Body)); appendErr != nil {
+					fmt.Sprintf("[Dynamic Skill Loaded: %s]\nThe following are instructions from skill %q. Follow these instructions using VFS devices. Do NOT try to call this skill as a tool.\n\n%s%s", skillName, skillName, dirHint, skillInfo.Body)); appendErr != nil {
 					k.emitLog(proc, step, types.LogTool, fmt.Sprintf(
 						"specialize warning: failed to inject skill body for %q: %v", skillName, appendErr), "specialize")
 					k.emitEvent(proc, "CtxWrite", map[string]any{
@@ -2037,6 +2042,19 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 	k.emitLog(proc, step, types.LogThink, resp.Content, "")
 
 	for _, tc := range resp.ToolCalls {
+		// Check for argument parse errors before dispatch
+		if tc.ParseError != "" {
+			errMsg := fmt.Sprintf("Tool error (%s): arguments parse failed: %s", tc.Name, tc.ParseError)
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+			k.emitLog(proc, step, types.LogTool, errMsg, tc.Name)
+			*consecutiveToolErrors++
+			if *consecutiveToolErrors >= 3 {
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+				return false
+			}
+			continue
+		}
+
 		mapping, ok := proc.toolMap[tc.Name]
 		if !ok {
 			// Unknown tool
@@ -2117,7 +2135,8 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 	case "read_file":
 		pathStr, _ := tc.Input["path"].(string)
 		if pathStr == "" {
-			return "", fmt.Errorf("read_file: missing path parameter")
+			received, _ := json.Marshal(tc.Input)
+			return "", fmt.Errorf("read_file: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\"}", string(received))
 		}
 		vfsPath := mapping.VFSPath + "/" + pathStr
 		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_RDONLY)
@@ -2134,7 +2153,8 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 	case "write_file":
 		pathStr, _ := tc.Input["path"].(string)
 		if pathStr == "" {
-			return "", fmt.Errorf("write_file: missing path parameter")
+			received, _ := json.Marshal(tc.Input)
+			return "", fmt.Errorf("write_file: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\", \"content\": \"<text>\"}", string(received))
 		}
 		contentStr, _ := tc.Input["content"].(string)
 		vfsPath := mapping.VFSPath + "/" + pathStr
@@ -2157,7 +2177,8 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 	case "list_dir":
 		pathStr, _ := tc.Input["path"].(string)
 		if pathStr == "" {
-			return "", fmt.Errorf("list_dir: missing path parameter")
+			received, _ := json.Marshal(tc.Input)
+			return "", fmt.Errorf("list_dir: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\"}", string(received))
 		}
 		vfsPath := mapping.VFSPath + "/" + pathStr
 		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_WRONLY)
