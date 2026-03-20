@@ -1327,6 +1327,19 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("daemon: listen failed: %w", err)
 	}
 
+	// Register signal handler early so Ctrl+C works during bootstrap and cleanup.
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	// Force exit on second signal (covers both bootstrap phase and cleanup phase).
+	go func() {
+		<-sigCh // first signal — handled by main select below
+		<-sigCh // second signal — force exit
+		fmt.Fprintln(os.Stderr, "\n[daemon] forced exit")
+		os.Exit(1)
+	}()
+
 	// Init bootstrap sequence (Story 10.5)
 	// Check CWD rnix-init.yaml first (backward compat), then global init.yaml
 	initCfg, err := loadInitConfigCompat(cwd, globalDir)
@@ -1352,11 +1365,9 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "[init] \u26a0 %s\n", warn)
 	}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
 	select {
 	case <-sigCh:
+		fmt.Fprintln(os.Stderr, "[daemon] shutting down...")
 		srv.Shutdown()
 	case <-srv.Done():
 	}
