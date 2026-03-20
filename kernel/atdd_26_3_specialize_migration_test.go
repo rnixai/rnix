@@ -338,14 +338,14 @@ func TestReasonStep_Specialize_AlreadyLoaded(t *testing.T) {
 	foundAlready := false
 	for _, m := range prompt.Messages {
 		if m.Role == rnixctx.RoleTool {
-			if strings.Contains(m.Content, `skill "code-analysis" already loaded`) {
+			if strings.Contains(m.Content, `skill "code-analysis" is already loaded`) {
 				foundAlready = true
 				break
 			}
 		}
 	}
 	if !foundAlready {
-		t.Error("expected tool message: skill \"code-analysis\" already loaded")
+		t.Error("expected tool message containing: skill \"code-analysis\" is already loaded")
 	}
 }
 
