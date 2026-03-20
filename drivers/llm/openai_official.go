@@ -273,7 +273,9 @@ func convertSDKToolCalls(sdkCalls []openai.ChatCompletionMessageToolCallUnion) [
 		}
 		if tc.Function.Arguments != "" {
 			var input map[string]any
-			if json.Unmarshal([]byte(tc.Function.Arguments), &input) == nil {
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &input); err != nil {
+				result[i].ParseError = fmt.Sprintf("invalid arguments JSON: %v; raw: %.200s", err, tc.Function.Arguments)
+			} else {
 				result[i].Input = input
 			}
 		}

@@ -51,61 +51,62 @@ func parseSKILLMD(content string, extractBody bool) (frontmatter string, body st
 
 // loadAndParse reads a SKILL.md file from disk, validates the path, and parses its frontmatter.
 // When fullLoad is true, the Markdown body is also extracted.
-func (l *SkillLoader) loadAndParse(skillName string, fullLoad bool) (*SkillManifest, string, error) {
+// Returns (manifest, body, skillDirAbsPath, error).
+func (l *SkillLoader) loadAndParse(skillName string, fullLoad bool) (*SkillManifest, string, string, error) {
 	// Path traversal check: reject names with path separators
 	if strings.ContainsAny(skillName, `/\`) || skillName == ".." || strings.Contains(skillName, "..") {
-		return nil, "", fmt.Errorf("invalid skill name %q: path traversal not allowed", skillName)
+		return nil, "", "", fmt.Errorf("invalid skill name %q: path traversal not allowed", skillName)
 	}
 
 	// Use ShadowResolve to find the skill directory in searchDirs (project-first)
 	dir := config.ShadowResolve(skillName, l.searchDirs...)
 	if dir == "" {
-		return nil, "", fmt.Errorf("skill %q not found (searched %v)", skillName, l.searchDirs)
+		return nil, "", "", fmt.Errorf("skill %q not found (searched %v)", skillName, l.searchDirs)
 	}
 
 	// Path containment check: ensure resolved path is under one of the searchDirs
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, "", fmt.Errorf("resolve skill path: %w", err)
+		return nil, "", "", fmt.Errorf("resolve skill path: %w", err)
 	}
 	if !isUnderAnySkillDir(absDir, l.searchDirs) {
-		return nil, "", fmt.Errorf("invalid skill name %q: resolved path escapes search directories", skillName)
+		return nil, "", "", fmt.Errorf("invalid skill name %q: resolved path escapes search directories", skillName)
 	}
 
 	fi, err := os.Stat(dir)
 	if err != nil {
-		return nil, "", fmt.Errorf("stat skill directory %q: %w", dir, err)
+		return nil, "", "", fmt.Errorf("stat skill directory %q: %w", dir, err)
 	}
 	if !fi.IsDir() {
-		return nil, "", fmt.Errorf("skill path %q is not a directory", dir)
+		return nil, "", "", fmt.Errorf("skill path %q is not a directory", dir)
 	}
 
 	skillPath := filepath.Join(dir, "SKILL.md")
 	data, err := os.ReadFile(skillPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("read SKILL.md for skill %q: %w", skillName, err)
+		return nil, "", "", fmt.Errorf("read SKILL.md for skill %q: %w", skillName, err)
 	}
 
 	fm, body, err := parseSKILLMD(string(data), fullLoad)
 	if err != nil {
-		return nil, "", fmt.Errorf("parse SKILL.md for skill %q: %w", skillName, err)
+		return nil, "", "", fmt.Errorf("parse SKILL.md for skill %q: %w", skillName, err)
 	}
 
 	var manifest SkillManifest
 	if err := yaml.Unmarshal([]byte(fm), &manifest); err != nil {
-		return nil, "", fmt.Errorf("parse frontmatter for skill %q: %w", skillName, err)
+		return nil, "", "", fmt.Errorf("parse frontmatter for skill %q: %w", skillName, err)
 	}
 
 	if manifest.Name == "" {
-		return nil, "", fmt.Errorf("skill %q manifest missing required field: name", skillName)
+		return nil, "", "", fmt.Errorf("skill %q manifest missing required field: name", skillName)
 	}
 
-	return &manifest, body, nil
+	return &manifest, body, absDir, nil
 }
 
 // LoadMetadata reads only the YAML frontmatter of a SKILL.md file.
 func (l *SkillLoader) LoadMetadata(skillName string) (*SkillInfo, error) {
-	manifest, _, err := l.loadAndParse(skillName, false)
+	manifest, _, _, err := l.loadAndParse(skillName, false)
 	if err != nil {
 		return nil, err
 	}
@@ -114,13 +115,14 @@ func (l *SkillLoader) LoadMetadata(skillName string) (*SkillInfo, error) {
 
 // LoadFull reads the complete SKILL.md file (frontmatter + body).
 func (l *SkillLoader) LoadFull(skillName string) (*SkillInfo, error) {
-	manifest, body, err := l.loadAndParse(skillName, true)
+	manifest, body, dir, err := l.loadAndParse(skillName, true)
 	if err != nil {
 		return nil, err
 	}
 	return &SkillInfo{
 		Manifest: *manifest,
 		Body:     body,
+		Dir:      dir,
 	}, nil
 }
 

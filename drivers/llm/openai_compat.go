@@ -353,7 +353,9 @@ func parseToolCalls(oaiCalls []oaiToolCall) []ToolCall {
 		}
 		if oc.Function.Arguments != "" {
 			var input map[string]any
-			if json.Unmarshal([]byte(oc.Function.Arguments), &input) == nil {
+			if err := json.Unmarshal([]byte(oc.Function.Arguments), &input); err != nil {
+				tc.ParseError = fmt.Sprintf("invalid arguments JSON: %v; raw: %.200s", err, oc.Function.Arguments)
+			} else {
 				tc.Input = input
 			}
 		}
@@ -604,7 +606,9 @@ func flushToolCalls(pending map[int]*toolCallAccumulator) []ToolCall {
 		args := acc.arguments.String()
 		if args != "" {
 			var input map[string]any
-			if json.Unmarshal([]byte(args), &input) == nil {
+			if err := json.Unmarshal([]byte(args), &input); err != nil {
+				tc.ParseError = fmt.Sprintf("invalid arguments JSON: %v; raw: %.200s", err, args)
+			} else {
 				tc.Input = input
 			}
 		}

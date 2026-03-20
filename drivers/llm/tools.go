@@ -13,9 +13,10 @@ type ToolDef struct {
 
 // ToolCall represents a tool invocation requested by the LLM.
 type ToolCall struct {
-	ID    string         `json:"id"`
-	Name  string         `json:"name"`
-	Input map[string]any `json:"input,omitempty"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Input      map[string]any `json:"input,omitempty"`
+	ParseError string         `json:"parse_error,omitempty"` // set when arguments JSON cannot be parsed
 }
 
 // ToolResult represents the outcome of executing a tool call.
