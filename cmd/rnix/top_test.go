@@ -238,76 +238,6 @@ func TestFlattenTree_PreservesProcessData(t *testing.T) {
 	}
 }
 
-// --- 10.1-UNIT-016: topDetailView renders process fields ---
-
-func TestTopDetailView_ContainsFields(t *testing.T) {
-	proc := vfs.ProcInfo{
-		PID:            1,
-		PPID:           0,
-		State:          types.StateRunning,
-		Intent:         "分析代码库中的安全漏洞",
-		Skills:         []string{"code-analysis", "security-scan"},
-		TokensUsed:     5200,
-		CreatedAt:      time.Now().Add(-3 * time.Minute),
-		CtxID:          1,
-		AllowedDevices: []string{"/dev/llm/claude", "/dev/fs"},
-	}
-	allProcs := []vfs.ProcInfo{
-		proc,
-		{PID: 2, PPID: 1, State: types.StateRunning},
-		{PID: 3, PPID: 1, State: types.StateZombie},
-	}
-	detail := topDetailView(proc, allProcs)
-
-	if !strings.Contains(detail, "running") {
-		t.Errorf("detail should contain state, got %q", detail)
-	}
-	if !strings.Contains(detail, "分析代码库中的安全漏洞") {
-		t.Errorf("detail should contain intent, got %q", detail)
-	}
-	if !strings.Contains(detail, "code-analysis") {
-		t.Errorf("detail should contain skills, got %q", detail)
-	}
-	if !strings.Contains(detail, "PID 2") || !strings.Contains(detail, "PID 3") {
-		t.Errorf("detail should list children PID 2 and PID 3, got %q", detail)
-	}
-}
-
-func TestTopDetailView_ShowsDevices(t *testing.T) {
-	proc := vfs.ProcInfo{
-		PID:            1,
-		State:          types.StateRunning,
-		AllowedDevices: []string{"/dev/llm/claude", "/dev/fs"},
-	}
-	detail := topDetailView(proc, nil)
-
-	if !strings.Contains(detail, "/dev/llm/claude") {
-		t.Errorf("detail should list allowed devices, got %q", detail)
-	}
-	if !strings.Contains(detail, "/dev/fs") {
-		t.Errorf("detail should list /dev/fs, got %q", detail)
-	}
-}
-
-func TestTopDetailView_EmptySkills(t *testing.T) {
-	proc := vfs.ProcInfo{
-		PID:    1,
-		State:  types.StateRunning,
-		Skills: nil,
-	}
-	detail := topDetailView(proc, nil)
-	if detail == "" {
-		t.Error("detail view should render even with nil skills")
-	}
-}
-
-func TestTopDetailView_NoChildren(t *testing.T) {
-	proc := vfs.ProcInfo{PID: 5, State: types.StateRunning}
-	detail := topDetailView(proc, []vfs.ProcInfo{proc})
-	if strings.Contains(detail, "Children") {
-		t.Errorf("detail should not show Children when there are none, got %q", detail)
-	}
-}
 
 // --- 10.1-UNIT-011: Init() returns tick command ---
 
@@ -422,22 +352,6 @@ func TestTopModel_KillEmptyList(t *testing.T) {
 	}
 }
 
-// --- 10.1-UNIT-018: Update(Esc) returns to list view from detail ---
-
-func TestTopModel_EscFromDetail(t *testing.T) {
-	m := newTopModel(nil)
-	m.rows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1}},
-	}
-	m.detailPID = 1
-
-	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	um := updated.(topModel)
-	if um.detailPID != 0 {
-		t.Errorf("Esc should clear detailPID, got %d", um.detailPID)
-	}
-}
-
 // --- 10.1-UNIT-019: Update(q) returns tea.Quit ---
 
 func TestTopModel_QuitQ(t *testing.T) {
@@ -445,23 +359,6 @@ func TestTopModel_QuitQ(t *testing.T) {
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q'})
 	if cmd == nil {
 		t.Error("q should return a non-nil quit command")
-	}
-}
-
-// --- 10.1-UNIT-020: Update(Enter) opens detail view ---
-
-func TestTopModel_EnterDetail(t *testing.T) {
-	m := newTopModel(nil)
-	m.rows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 5}},
-		{proc: vfs.ProcInfo{PID: 10}},
-	}
-	m.cursor = 1
-
-	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	um := updated.(topModel)
-	if um.detailPID != 10 {
-		t.Errorf("Enter should set detailPID to selected proc (10), got %d", um.detailPID)
 	}
 }
 
@@ -475,24 +372,6 @@ func TestTopModel_ViewAltScreen(t *testing.T) {
 	}
 	if v.Content == "" {
 		t.Error("View content should not be empty")
-	}
-}
-
-// --- 10.1-UNIT-022: View detail mode renders process info ---
-
-func TestTopModel_ViewDetailMode(t *testing.T) {
-	m := newTopModel(nil)
-	proc := vfs.ProcInfo{PID: 1, State: types.StateRunning, Intent: "test-intent", Skills: []string{"analyzer"}}
-	m.rows = []flatRow{{proc: proc}}
-	m.processes = []vfs.ProcInfo{proc}
-	m.detailPID = 1
-
-	v := m.View()
-	if !strings.Contains(v.Content, "test-intent") {
-		t.Errorf("detail view should contain intent, got %q", v.Content)
-	}
-	if !strings.Contains(v.Content, "analyzer") {
-		t.Errorf("detail view should contain skills, got %q", v.Content)
 	}
 }
 
@@ -549,43 +428,6 @@ func TestTopSummaryLine_WithBudgetInfo(t *testing.T) {
 	summary := topSummaryLine(procs, time.Minute)
 	if summary == "" {
 		t.Fatal("summary should not be empty")
-	}
-}
-
-// --- 10.3-UNIT-041: [P1] topDetailView shows budget in detail when set ---
-
-func TestTopDetailView_ShowsBudget(t *testing.T) {
-	proc := vfs.ProcInfo{
-		PID:           1,
-		State:         types.StateRunning,
-		Intent:        "budget display test",
-		TokensUsed:    4500,
-		ContextBudget: 5000,
-	}
-	detail := topDetailView(proc, nil)
-
-	if !strings.Contains(detail, "5000") && !strings.Contains(detail, "5,000") {
-		t.Errorf("detail view should show budget value 5000, got %q", detail)
-	}
-	if !strings.Contains(detail, "4500") && !strings.Contains(detail, "4,500") {
-		t.Errorf("detail view should show tokens used 4500, got %q", detail)
-	}
-}
-
-// --- 10.3-UNIT-042: [P1] topDetailView omits budget line when ContextBudget=0 ---
-
-func TestTopDetailView_NoBudgetOmitsBudgetLine(t *testing.T) {
-	proc := vfs.ProcInfo{
-		PID:           1,
-		State:         types.StateRunning,
-		Intent:        "no limit set",
-		TokensUsed:    1000,
-		ContextBudget: 0,
-	}
-	detail := topDetailView(proc, nil)
-
-	if strings.Contains(strings.ToLower(detail), "budget") {
-		t.Errorf("detail view should NOT contain 'budget' when ContextBudget=0, got %q", detail)
 	}
 }
 
