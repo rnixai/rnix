@@ -22,13 +22,14 @@ var (
 // OpenAICompatDriver implements LLMDriver and ToolCallingDriver for any
 // OpenAI-compatible /v1/chat/completions endpoint (Ollama, Groq, DeepSeek, etc).
 type OpenAICompatDriver struct {
-	baseURL        string
-	apiKey         string
-	name           string
-	defaultModel   string
-	defaultTimeout time.Duration
-	httpClient     *http.Client
-	streamUsage    bool
+	baseURL         string
+	apiKey          string
+	name            string
+	defaultModel    string
+	defaultTimeout  time.Duration
+	httpClient      *http.Client
+	streamUsage     bool
+	defaultMaxTokens int
 }
 
 // CompatOption configures an OpenAICompatDriver.
@@ -57,6 +58,11 @@ func WithAPIKey(key string) CompatOption {
 // WithStreamUsage enables sending stream_options.include_usage in stream requests.
 func WithStreamUsage(enabled bool) CompatOption {
 	return func(d *OpenAICompatDriver) { d.streamUsage = enabled }
+}
+
+// WithCompatMaxTokens sets the default max output tokens for requests that don't specify one.
+func WithCompatMaxTokens(n int) CompatOption {
+	return func(d *OpenAICompatDriver) { d.defaultMaxTokens = n }
 }
 
 // NewOpenAICompatDriver creates a new driver for an OpenAI-compatible endpoint.
@@ -278,6 +284,9 @@ func (d *OpenAICompatDriver) buildOAIRequest(req LLMRequest, stream bool, tools 
 	}
 	if req.MaxTokens > 0 {
 		mt := req.MaxTokens
+		oai.MaxTokens = &mt
+	} else if d.defaultMaxTokens > 0 {
+		mt := d.defaultMaxTokens
 		oai.MaxTokens = &mt
 	}
 	if stream && d.streamUsage {

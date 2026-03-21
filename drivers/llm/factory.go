@@ -47,6 +47,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		if cfg.DefaultModel != "" {
 			opts = append(opts, WithCompatModel(cfg.DefaultModel))
 		}
+		if cfg.MaxTokens > 0 {
+			opts = append(opts, WithCompatMaxTokens(cfg.MaxTokens))
+		}
 		if cfg.APIKeyEnv != "" {
 			if key := envLookup(cfg.APIKeyEnv); key != "" {
 				opts = append(opts, WithAPIKey(key))
@@ -60,6 +63,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		var opts []OpenAIOption
 		if cfg.DefaultModel != "" {
 			opts = append(opts, WithOpenAIModel(cfg.DefaultModel))
+		}
+		if cfg.MaxTokens > 0 {
+			opts = append(opts, WithOpenAIMaxTokens(cfg.MaxTokens))
 		}
 		if cfg.BaseURL != "" {
 			opts = append(opts, WithOpenAIBaseURL(cfg.BaseURL))

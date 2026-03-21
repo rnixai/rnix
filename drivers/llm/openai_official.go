@@ -22,21 +22,23 @@ var (
 // OpenAIDriver implements LLMDriver and ToolCallingDriver using the official
 // openai-go SDK (github.com/openai/openai-go/v3).
 type OpenAIDriver struct {
-	client         openai.Client
-	name           string
-	defaultModel   string
-	defaultTimeout time.Duration
-	streamUsage    bool
+	client          openai.Client
+	name            string
+	defaultModel    string
+	defaultTimeout  time.Duration
+	streamUsage     bool
+	defaultMaxTokens int
 }
 
 // OpenAIOption configures an OpenAIDriver.
 type OpenAIOption func(*openaiDriverConfig)
 
 type openaiDriverConfig struct {
-	model       string
-	timeout     time.Duration
-	sdkOpts     []option.RequestOption
-	streamUsage bool
+	model        string
+	timeout      time.Duration
+	sdkOpts      []option.RequestOption
+	streamUsage  bool
+	maxTokens    int
 }
 
 func WithOpenAIModel(model string) OpenAIOption {
@@ -73,6 +75,11 @@ func WithOpenAIStreamUsage(enabled bool) OpenAIOption {
 	return func(c *openaiDriverConfig) { c.streamUsage = enabled }
 }
 
+// WithOpenAIMaxTokens sets the default max output tokens for requests that don't specify one.
+func WithOpenAIMaxTokens(n int) OpenAIOption {
+	return func(c *openaiDriverConfig) { c.maxTokens = n }
+}
+
 // WithOpenAISDKOption appends a raw SDK request option.
 func WithOpenAISDKOption(opt option.RequestOption) OpenAIOption {
 	return func(c *openaiDriverConfig) {
@@ -92,11 +99,12 @@ func NewOpenAIDriver(name string, opts ...OpenAIOption) *OpenAIDriver {
 	}
 	client := openai.NewClient(cfg.sdkOpts...)
 	return &OpenAIDriver{
-		client:         client,
-		name:           name,
-		defaultModel:   cfg.model,
-		defaultTimeout: cfg.timeout,
-		streamUsage:    cfg.streamUsage,
+		client:          client,
+		name:            name,
+		defaultModel:    cfg.model,
+		defaultTimeout:  cfg.timeout,
+		streamUsage:     cfg.streamUsage,
+		defaultMaxTokens: cfg.maxTokens,
 	}
 }
 
@@ -211,6 +219,8 @@ func (d *OpenAIDriver) buildParams(req LLMRequest, tools []ToolDef) openai.ChatC
 	}
 	if req.MaxTokens > 0 {
 		params.MaxTokens = openai.Int(int64(req.MaxTokens))
+	} else if d.defaultMaxTokens > 0 {
+		params.MaxTokens = openai.Int(int64(d.defaultMaxTokens))
 	}
 	if sdkTools := convertToolDefsToSDK(tools); len(sdkTools) > 0 {
 		params.Tools = sdkTools

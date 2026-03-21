@@ -51,7 +51,8 @@ type ProviderConfig struct {
 	DefaultModel string `yaml:"default_model"`
 	BaseURL      string `yaml:"base_url"`
 	APIKeyEnv    string `yaml:"api_key_env"`
-	Mode         string `yaml:"mode"` // "stream" (default) or "call"
+	Mode         string `yaml:"mode"`       // "stream" (default) or "call"
+	MaxTokens    int    `yaml:"max_tokens"` // default max output tokens; 0 = use API default
 }
 
 // FindProvidersConfigPath searches for rnix-providers.yaml in CWD then
