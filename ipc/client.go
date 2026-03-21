@@ -692,6 +692,57 @@ func (c *Client) GetStepDetail(pid types.PID, step int) (*GetStepDetailResponse,
 	return &result, nil
 }
 
+// WatchProcess attaches to a running process and streams progress events.
+// The onEvent callback receives each StreamEvent (replay + live). Returns
+// the final ProgressPayload when the stream ends.
+func (c *Client) WatchProcess(pid types.PID, onEvent func(StreamEvent)) (*ProgressPayload, error) {
+	if err := c.sendRequest(MethodWatch, WatchRequest{PID: pid}); err != nil {
+		return nil, err
+	}
+
+	if !c.scanner.Scan() {
+		return nil, fmt.Errorf("ipc: no initial watch response")
+	}
+	var resp Response
+	if err := json.Unmarshal(c.scanner.Bytes(), &resp); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal watch response: %w", err)
+	}
+	if !resp.OK {
+		msg := "watch failed"
+		if resp.Error != nil {
+			msg = resp.Error.Message
+		}
+		return nil, fmt.Errorf("ipc: %s", msg)
+	}
+
+	var finalPayload *ProgressPayload
+	for c.scanner.Scan() {
+		var ev StreamEvent
+		if err := json.Unmarshal(c.scanner.Bytes(), &ev); err != nil {
+			continue
+		}
+
+		if onEvent != nil {
+			onEvent(ev)
+		}
+
+		if ev.Type == StreamComplete || ev.Type == StreamError || ev.Type == StreamEOF {
+			if ev.Payload != nil {
+				var pp ProgressPayload
+				if err := json.Unmarshal(ev.Payload, &pp); err == nil {
+					finalPayload = &pp
+				}
+			}
+			break
+		}
+	}
+
+	if err := c.scanner.Err(); err != nil {
+		return finalPayload, fmt.Errorf("ipc: watch stream: %w", err)
+	}
+	return finalPayload, nil
+}
+
 // Lineage returns the differentiation lineage for the given PID.
 func (c *Client) Lineage(pid types.PID) (*LineageResponse, error) {
 	resp, err := c.call(MethodLineage, LineageRequest{PID: pid})
