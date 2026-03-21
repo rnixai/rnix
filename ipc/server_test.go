@@ -374,7 +374,7 @@ func TestCallbackMux_RegisterUnregister(t *testing.T) {
 		t.Fatal("timeout waiting for event")
 	}
 
-	mux.unregister(1)
+	mux.unregister(1, ch)
 
 	mux.OnStep(1, 2, 10)
 	select {
