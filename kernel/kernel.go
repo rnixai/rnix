@@ -32,7 +32,7 @@ type MountManager interface {
 }
 
 // DefaultMaxSteps is the maximum number of reasoning steps before forced completion.
-const DefaultMaxSteps = 10
+const DefaultMaxSteps = 30
 
 // DefaultCtxSize is the default context size (message count) for new contexts.
 const DefaultCtxSize = 64
@@ -460,7 +460,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	proc.ContextBudget = opts.ContextBudget
 
+	// MaxSteps priority: CLI --max-steps > agent manifest max_steps > DefaultMaxSteps
 	maxStepsForProc := DefaultMaxSteps
+	if agent != nil && agent.Manifest.MaxSteps > 0 {
+		maxStepsForProc = agent.Manifest.MaxSteps
+	}
 	if opts.MaxTurns > 0 {
 		maxStepsForProc = opts.MaxTurns
 	}
@@ -2282,7 +2286,7 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 	case ActionReplan:
 		reasonStr, _ := tc.Input["reason"].(string)
 		msg := fmt.Sprintf("Replanning: %s", reasonStr)
-		_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, msg)
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, msg)
 		k.emitLog(proc, step, types.LogOutput, msg, "")
 		k.emitEvent(proc, "ReasonStep", map[string]any{
 			"step":   step,
@@ -2327,7 +2331,7 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 		for i, s := range steps {
 			planContent += fmt.Sprintf("  %d. %s\n", i+1, s)
 		}
-		_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, planContent)
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, planContent)
 		k.emitLog(proc, step, types.LogOutput, planContent, "")
 		k.emitEvent(proc, "ReasonStep", map[string]any{
 			"step":   step,
