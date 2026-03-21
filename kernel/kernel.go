@@ -269,6 +269,11 @@ func (k *KernelImpl) SetStepDataDir(dir string) {
 	k.stepDataDir = dir
 }
 
+// GetStepDataDir returns the base directory for step data output.
+func (k *KernelImpl) GetStepDataDir() string {
+	return k.stepDataDir
+}
+
 // resolveLLMDevice returns the VFS device path for the LLM provider and its source.
 // providerOverride takes precedence over the agent manifest's provider field.
 // Returns "/dev/llm/claude" by default when both are empty.

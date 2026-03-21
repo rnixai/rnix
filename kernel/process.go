@@ -166,6 +166,48 @@ func (p *Process) GetState() types.ProcessState {
 	return p.State
 }
 
+// GetFinalSystemPrompt returns the captured system prompt (thread-safe).
+func (p *Process) GetFinalSystemPrompt() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.FinalSystemPrompt
+}
+
+// GetNativeToolDefs returns the native tool definitions (immutable after Spawn).
+func (p *Process) GetNativeToolDefs() []vfs.ToolDef {
+	return p.nativeToolDefs
+}
+
+// GetProjectConfig returns the project config (immutable after Spawn).
+func (p *Process) GetProjectConfig() *config.ProjectConfig {
+	return p.ProjectConfig
+}
+
+// SetFinalSystemPrompt sets the captured system prompt (thread-safe).
+func (p *Process) SetFinalSystemPrompt(s string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.FinalSystemPrompt = s
+}
+
+// SetNativeToolDefs sets the native tool definitions.
+func (p *Process) SetNativeToolDefs(defs []vfs.ToolDef) {
+	p.nativeToolDefs = defs
+}
+
+// Finish is a test convenience that records a result, writes to Done, and transitions to Zombie.
+func (p *Process) Finish(result string, code int, err error) {
+	p.mu.Lock()
+	p.Result = result
+	p.mu.Unlock()
+	exit := ExitStatus{Code: code, Reason: result, Err: err}
+	_ = p.Terminate(exit)
+	select {
+	case p.Done <- exit:
+	default:
+	}
+}
+
 // transitionLocked attempts to move the process to the target state.
 // Caller must hold p.mu.
 func (p *Process) transitionLocked(target types.ProcessState) error {
