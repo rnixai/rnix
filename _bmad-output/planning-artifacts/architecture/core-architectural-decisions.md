@@ -1158,3 +1158,384 @@ type Process struct {
 **FR/NFR 覆盖：**
 - FR153-FR164（配置系统 12 条功能需求）
 - NFR53（init ≤ 3s）、NFR54（ProjectDir ≤ 10ms）、NFR55（合并 ≤ 50ms）、NFR56（migrate 数据完整性）
+
+---
+
+## 统一观察系统架构决策（Unified Observation System）
+
+### Decision 23: StepRecord — 默认全量步骤记录
+
+**决策：** 每个 reasonStep 完成时自动记录完整的 StepRecord（LLM 输入快照 + LLM 响应 + 工具执行结果），写入磁盘 JSONL 文件，无需用户手动开启。
+
+**背景问题：**
+
+现有 strace/log/record 三套观察系统均不保存完整数据：
+
+| 现有系统 | 缺失内容 |
+|---------|---------|
+| strace (DebugChan) | 无 prompt 内容，无消息历史 |
+| log (LogChan) | 仅摘要，无完整数据 |
+| record | 需手动开启，且仅存 SystemPrompt 哈希 + LLM 响应 500 字截断 + 消息数统计 |
+
+这意味着"agent 当时收到了什么指令"和"agent 完整回复了什么"在系统中没有记录——这是架构级的可观测性盲区。
+
+**设计要点：**
+
+**1. StepRecord 数据结构**
+
+```go
+type StepRecord struct {
+    Step         int             // 步骤号
+    Timestamp    time.Duration   // 相对进程创建时间
+
+    // === LLM 输入（BuildPrompt 时的完整快照）===
+    Messages     []Message       // 深拷贝，不可变
+    MessageCount int             // 便于统计
+    TokenCount   int             // 估算 token 数
+    // 注：SystemPrompt 和 Tools 在 Process 上存一次，不重复存储
+
+    // === LLM 输出 ===
+    RawResponse    string        // LLM 原始响应（完整，不截断）
+    Action         string        // 解析后的 action type
+    Summary        string        // 一行摘要（给 watch Level 1）
+
+    // === 工具执行（仅 tool_call 时有值）===
+    ToolPath       string        // VFS 设备路径
+    ToolInput      string        // 写入工具的完整数据
+    ToolResult     string        // 工具返回的完整结果
+    ToolError      string        // 错误信息
+    ToolDuration   time.Duration // 执行耗时
+
+    // === Token 统计 ===
+    RequestTokens  int           // 请求 token
+    ResponseTokens int           // 响应 token
+}
+```
+
+**2. 存储方案：磁盘 JSONL，无内存缓冲**
+
+```
+存储路径：.rnix/data/steps/<pid>/steps.jsonl
+格式：    append-only NDJSON，每行一个完整 StepRecord
+写入：    每步完成时 append + flush（步间隔秒级，flush 开销可忽略）
+读取：    GetStepDetail 打开文件顺序扫描至目标 step 行
+```
+
+不设内存环形缓冲，理由：
+- 文件小（30 步 ≈ 1-2MB），OS page cache 就是天然的内存缓冲
+- 写频率低（每步一次，秒级间隔），flush-per-write 无性能代价
+- 少一层抽象 = 少一类 bug（缓冲一致性、容量管理、并发锁）
+
+**3. 不可变数据存在 Process 上（Spawn 后不变，存一次）**
+
+```go
+type Process struct {
+    // ... 现有字段 ...
+
+    // 观察系统：不可变数据（Spawn 后不修改）
+    FinalSystemPrompt string    // 含注入的 protocol/skills/env 的完整 SystemPrompt
+    // NativeToolDefs []ToolDef // 已有字段，工具定义
+}
+```
+
+`FinalSystemPrompt` 在 reasonStep 循环首次构建完整 SystemPrompt（含 protocol 注入、skills 列表、gdb env vars）后保存一次。后续步骤如有 gdb override 导致变更，记录差异即可。
+
+**4. 捕获时机**
+
+在 reasonStep 循环中，BuildPrompt 返回后、LLM 响应解析后、工具执行完成后，组装 StepRecord 并 append 写入：
+
+```
+BuildPrompt()
+  → 深拷贝 Messages（BuildPrompt 已做 copy，零额外成本）
+  → 发送 LLM 请求
+  → 收到 LLM 响应
+  → 解析 action + 执行工具
+  → 组装 StepRecord，append 到 steps.jsonl
+  → OnStepComplete 回调
+```
+
+**5. 性能评估**
+
+| 操作 | 耗时 | 对比 |
+|------|------|------|
+| Messages 深拷贝 | < 1ms | BuildPrompt 已做，零额外成本 |
+| JSON 序列化 + 磁盘写入 | < 1ms | buffered append + flush |
+| **LLM API 调用** | **2-30 秒** | 绝对瓶颈，占 95%+ |
+
+StepRecord 写入开销相对 LLM 调用完全可忽略。
+
+**理由：**
+- LLM 调用本身就传输了这些数据，多存一份拷贝的边际成本 ≈ 0
+- "默认全记录"消除了"忘记开 record 导致问题无法复现"的用户痛点
+- 一个存储层 + 一个通知层的极简设计，避免维护多套部分重叠的观察系统
+
+**与现有系统的关系：**
+
+| 现有系统 | 处置 |
+|---------|------|
+| DebugChan (strace) | 保留，定位为**低级调试工具**（调试 VFS 驱动、syscall 时序），不参与 watch 主数据流 |
+| LogChan (log) | **废弃**，watch 直接从 StepRecord 读取，OnStepComplete 回调提供实时摘要 |
+| record（RecordManager） | **简化**，去掉 ContextSnapshotData/LLMResponseData 的摘要 hack，record list/replay 改为读 steps.jsonl |
+| record start / record start --full | **删除**，默认就是全量记录 |
+
+**FR/NFR 覆盖：** FR170（PromptSnapshot → 合并为 StepRecord）、FR172（record --full → 默认行为）、NFR62（写入开销 ≤ 1ms/步）
+
+### Decision 24: 统一观察系统架构 — Progress 回调 + StepRecord
+
+**决策：** 整个观察系统只有两个概念：Progress 回调（实时通知）和 StepRecord（完整数据存储）。所有观察功能均从这两者派生。
+
+**架构总览：**
+
+```
+                 reasonStep 循环
+                       │
+          ┌────────────┴────────────┐
+          ▼                         ▼
+   Progress 回调                StepRecord
+   (实时轻量通知)              (完整数据存储)
+          │                         │
+          │                    steps.jsonl
+          │                    (磁盘 JSONL)
+          │                         │
+    ┌─────┴─────┐            ┌──────┴──────┐
+    ▼           ▼            ▼             ▼
+  watch      TUI 进度     watch 详情    replay
+  Level 1    spawn 输出   Level 2/3     事后分析
+  (实时流)                GetStepDetail
+```
+
+**Progress 回调（已有机制，无需新建）：**
+
+```go
+// KernelCallbacks 接口（已有）
+OnStep(pid, step, total)                    // 步骤开始
+OnStepComplete(pid, step, action, summary)  // 步骤完成 + 一行摘要
+OnComplete(pid, result, exitStatus)         // 进程结束
+OnError(pid, err)                           // 进程错误
+```
+
+- 推送方式：通过 IPC StreamEvent 实时传输到 CLI
+- 数据量：每条 < 200 字节（仅摘要）
+- 用途：watch Level 1 每步一行、TUI 进度条、spawn 命令输出
+
+**StepRecord（新建，Decision 23）：**
+
+- 存储方式：磁盘 JSONL，append-only
+- 数据量：每步 5-50KB（完整 prompt + 响应 + 工具结果）
+- 用途：watch Level 2/3 展开详情、p 键查看完整 prompt、replay 回放
+
+**watch 命令的三级详细度数据来源：**
+
+| Level | 触发 | 数据来源 | 延迟要求 |
+|-------|------|---------|---------|
+| Level 1 | 默认 | Progress 回调 `OnStepComplete.summary` | 实时推送 |
+| Level 2 (v 键) | 用户按键 | StepRecord：RawResponse、ToolResult、TokenCount | NFR60 ≤ 50ms |
+| Level 3 (V 键) | 用户按键 | StepRecord：MessageCount、TokenCount、首条消息预览 | NFR60 ≤ 50ms |
+| Prompt (p 键) | 用户按键 | Process.FinalSystemPrompt + StepRecord.Messages + Process.NativeToolDefs | NFR61 ≤ 500ms |
+
+**FR/NFR 覆盖：** FR165-FR169（watch 命令全部功能需求）、NFR57-NFR64（观察系统全部性能需求）
+
+### Decision 25: GetStepDetail IPC 方法 — 按需查询步骤完整数据
+
+**决策：** 新增 `MethodGetStepDetail` IPC 方法，从 steps.jsonl 按需读取指定步骤的完整数据，组合 Process 上的不可变数据返回。
+
+**IPC 协议定义：**
+
+```go
+const MethodGetStepDetail Method = "get_step_detail"
+
+type GetStepDetailRequest struct {
+    PID  types.PID `json:"pid"`
+    Step int       `json:"step"`
+}
+
+type GetStepDetailResponse struct {
+    // 不可变数据（从 Process 读取）
+    SystemPrompt string        `json:"system_prompt"`
+    Tools        []vfs.ToolDef `json:"tools,omitempty"`
+
+    // 步骤数据（从 steps.jsonl 读取）
+    Step           int           `json:"step"`
+    Messages       []MessageWire `json:"messages"`
+    MessageCount   int           `json:"message_count"`
+    TokenCount     int           `json:"token_count"`
+    RawResponse    string        `json:"raw_response"`
+    Action         string        `json:"action"`
+    Summary        string        `json:"summary"`
+    ToolPath       string        `json:"tool_path,omitempty"`
+    ToolInput      string        `json:"tool_input,omitempty"`
+    ToolResult     string        `json:"tool_result,omitempty"`
+    ToolError      string        `json:"tool_error,omitempty"`
+    ToolDurationMs float64       `json:"tool_duration_ms,omitempty"`
+    RequestTokens  int           `json:"request_tokens"`
+    ResponseTokens int           `json:"response_tokens"`
+}
+
+type MessageWire struct {
+    Role       string         `json:"role"`
+    Content    string         `json:"content"`
+    ToolCallID string         `json:"tool_call_id,omitempty"`
+    ToolCalls  []ToolCallWire `json:"tool_calls,omitempty"`
+}
+```
+
+**查询路径：**
+
+```
+CLI (watch p 键) → GetStepDetail(pid=5, step=3)
+  → IPC Server
+  → 查找 Process（获取 FinalSystemPrompt + NativeToolDefs）
+  → 打开 .rnix/data/steps/5/steps.jsonl
+  → 顺序扫描至 step=3 的行
+  → JSON 反序列化
+  → 组装 GetStepDetailResponse
+  → 返回
+```
+
+**进程已死的处理：**
+
+- Process 在 Zombie/Dead 状态时仍在内存中 → 正常查询
+- Process 被 reaper 清理后 → steps.jsonl 仍在磁盘上，但 FinalSystemPrompt 和 NativeToolDefs 丢失
+- 解决：reaper 清理 Process 前，将 FinalSystemPrompt 和 NativeToolDefs 序列化写入 `steps/<pid>/process-meta.json`
+- 保留策略：steps 目录默认保留 7 天，`rnix record clean` 手动清理
+
+**并发安全：**
+
+- 写入端（reasonStep goroutine）：append + flush，每步一次
+- 读取端（IPC handler goroutine）：独立 open 文件读到 EOF
+- NDJSON append-only 语义保证：读取端看到的行要么完整要么不存在，无需加锁
+
+**错误处理：**
+
+| 场景 | 响应 |
+|------|------|
+| PID 不存在且无磁盘文件 | `ErrorPayload{Code: "not_found"}` |
+| Step 超出已记录范围 | `ErrorPayload{Code: "not_found", Message: "step N not yet recorded"}` |
+| 文件读取失败 | `ErrorPayload{Code: "internal", Message: "..."}` |
+
+**FR/NFR 覆盖：** FR171（GetStepDetail IPC 方法）、NFR61（返回延迟 ≤ 500ms）
+
+### Decision 26: watch 命令 — 双流聚合 TUI
+
+**决策：** `rnix watch <pid>` 实现为 BubbleTea TUI 程序，消费 Progress 回调流实现实时展示，按需从 steps.jsonl 读取详情。
+
+**命令入口：**
+
+```
+rnix watch <pid>           # 观察运行中的进程
+rnix spawn --watch "意图"  # 启动并立即观察
+```
+
+**TUI 架构：**
+
+```
+┌─ watch TUI (BubbleTea) ─────────────────────────┐
+│                                                   │
+│  数据源 1: IPC StreamEvent（Progress 回调）        │
+│    → 实时接收 OnStep/OnStepComplete               │
+│    → 驱动 Level 1 列表渲染                         │
+│                                                   │
+│  数据源 2: IPC GetStepDetail（按需查询）           │
+│    → 用户按 v/V/p 键时发起                        │
+│    → 填充 Level 2/3 详情面板                       │
+│                                                   │
+│  UI 状态机:                                       │
+│    Normal → v → Expanded → V → Debug → p → Pager │
+│      ↑                                      │     │
+│      └──────────── q ──────────────────────┘     │
+└───────────────────────────────────────────────────┘
+```
+
+**三级详细度渲染：**
+
+| Level | 渲染内容 | 数据来源 |
+|-------|---------|---------|
+| Level 1（默认） | `Step 3/30 [tool_call] /dev/fs → main.go 内容… 218ms` | OnStepComplete.summary |
+| Level 2（v 键） | 展开：完整响应、工具输入/输出、token 消耗 | GetStepDetail |
+| Level 3（V 键） | 调试级：消息数、token 数、首条用户消息预览 | GetStepDetail |
+| Prompt（p 键） | less 式翻页：SystemPrompt + Messages + Tools | GetStepDetail |
+
+**自动展开规则（FR167）：**
+
+- 步骤出错（ToolError 非空）→ 自动展开到 Level 2
+- 步骤慢（ToolDuration > 1s）→ 自动展开到 Level 2
+- 自动展开触发时机：OnStepComplete 推送中包含 action 和 summary，CLI 侧根据 summary 中的错误标记或 ProgressPayload 扩展字段判断
+
+**top↔watch 导航（FR62）：**
+
+```
+rnix top
+  ├── 上下键选择进程
+  ├── Enter → 切换到 watch 视图（≤ 100ms，NFR63）
+  └── watch 中按 q → 返回 top（≤ 50ms，NFR63）
+```
+
+实现方式：top 和 watch 共享同一个 BubbleTea program，通过 Model 切换实现视图转换，避免进程重建开销。
+
+**spawn --watch 零延迟 attach（FR169）：**
+
+```
+CLI:
+  1. 发送 SpawnRequest → 收到 SpawnResponse{PID}
+  2. 立即发送 AttachProgress(PID) 开始接收 StreamEvent
+  3. 进入 watch TUI
+
+时序：spawn 返回 PID 到 watch 首条事件 ≤ 100ms（NFR58）
+```
+
+**ProgressPayload 扩展：**
+
+```go
+type ProgressPayload struct {
+    // ... 现有字段 ...
+
+    // watch 自动展开判断（Decision 26 新增）
+    HasError    bool    `json:"has_error,omitempty"`    // 步骤出错
+    DurationMs  float64 `json:"duration_ms,omitempty"`  // 步骤耗时
+}
+```
+
+**FR/NFR 覆盖：** FR62（top 下钻）、FR165-FR169（watch 全部功能需求）、NFR57-NFR64（观察系统全部性能需求）
+
+### 统一观察系统决策影响分析
+
+**实现顺序（依赖驱动）：**
+
+1. `internal/types/step_record.go` — StepRecord 类型定义
+2. `kernel/step_writer.go` — JSONL 写入器（append + flush）
+3. `kernel/process.go` — Process 新增 FinalSystemPrompt 字段 + stepWriter
+4. `kernel/kernel.go` — reasonStep 循环中捕获 StepRecord
+5. `ipc/protocol.go` — 新增 MethodGetStepDetail + 请求/响应类型 + ProgressPayload 扩展
+6. `ipc/server.go` — GetStepDetail handler（读 steps.jsonl + 组装响应）
+7. `ipc/client.go` — GetStepDetail 客户端方法
+8. `cmd/rnix/watch.go` — watch TUI（BubbleTea，双数据源）
+9. `cmd/rnix/main.go` — 注册 watch 命令 + spawn --watch flag
+10. `cmd/rnix/top.go` — top↔watch 视图切换
+
+**简化现有 record 系统：**
+
+11. `debug/record.go` — 删除 ContextSnapshotData、LLMResponseData（StepRecord 已涵盖）
+12. `kernel/kernel.go` — 删除 recordContextSnapshot、recordLLMResponse 调用
+13. `debug/recorder.go` — replay 改为读 steps.jsonl
+14. `ipc/protocol.go` — 删除 MethodRecordStart 的 `--full` 模式概念
+
+**废弃 LogChan：**
+
+15. `kernel/process.go` — 标记 LogChan 为 deprecated
+16. `ipc/server.go` — AttachLog handler 保留但标记 deprecated
+17. watch 不依赖 LogChan，仅使用 Progress 回调 + StepRecord
+
+**跨模块影响：**
+
+| 模块 | 变更类型 | 影响范围 |
+|------|---------|---------|
+| `internal/types/` | 新增 | StepRecord 类型 |
+| `kernel/` | 修改+新增 | step_writer.go 新增，kernel.go 捕获逻辑，process.go 新字段 |
+| `ipc/` | 修改 | protocol.go 新增方法+类型，server.go/client.go 新增 handler |
+| `cmd/rnix/` | 新增+修改 | watch.go 新增，main.go/top.go 修改 |
+| `debug/` | 简化 | 删除摘要 hack，replay 改读 steps.jsonl |
+
+**FR/NFR 覆盖汇总：**
+
+- FR62（top 下钻）、FR165-FR172（观察系统全部 8 条功能需求）
+- NFR57-NFR64（观察系统全部 8 条性能需求）

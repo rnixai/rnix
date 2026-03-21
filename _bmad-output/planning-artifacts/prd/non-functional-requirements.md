@@ -71,7 +71,18 @@
 - **NFR53:** `rnix init` 全局初始化（含内置 agent/skill 模板复制）执行时间 ≤ 3 秒（冷启动场景，SSD 磁盘，通过 CLI 计时测量）
 - **NFR54:** ProjectDir() 向上遍历查找 `.rnix/` 目录延迟 ≤ 10ms（≤ 20 层目录深度，通过基准测试测量）
 - **NFR55:** 配置合并（全局 + 项目级 deep merge）处理时间 ≤ 50ms（≤ 10 个配置文件场景，通过基准测试测量）
-- **NFR56:** `rnix migrate` 迁移过程保证数据完整性——迁移前自动备份原文件到 `.rnix/backup/`，迁移失败时回滚到备份状态，通过迁移前后文件 checksum 比对验证不丢失用户数据
+- **NFR56:** ~~推迟~~ `rnix migrate` 迁移过程保证数据完整性——迁移前自动备份原文件到 `.rnix/backup/`，迁移失败时回滚到备份状态，通过迁移前后文件 checksum 比对验证不丢失用户数据 *（推迟：与 FR161/FR162 同步推迟，全新项目无现有用户需要迁移）*
+
+## Unified Observation System Quality（统一观察系统质量，Phase 2）
+
+- **NFR57:** `rnix watch <pid>` attach 延迟（从命令执行到首条事件显示）≤ 200ms，通过 CLI 计时测量
+- **NFR58:** `spawn --watch` 从 spawn 返回 PID 到 watch 流首条事件显示的延迟 ≤ 100ms
+- **NFR59:** watch 视图 Level 1 渲染开销 ≤ 1ms/行，Level 2 展开渲染 ≤ 5ms/步骤，保证实时流畅不卡顿
+- **NFR60:** watch 的三级详细度切换（v/V 键）响应延迟 ≤ 50ms，用户感知为即时
+- **NFR61:** GetStepDetail IPC 方法返回完整 prompt 的延迟 ≤ 500ms（≤ 100 条消息、≤ 50k token 的上下文场景）
+- **NFR62:** StepRecord 磁盘写入（JSONL append + flush）开销 ≤ 1ms/步（不影响 reasonStep 循环性能），steps.jsonl 文件随进程生命周期自动管理，默认保留 7 天
+- **NFR63:** top 下钻到 watch 视图的切换延迟 ≤ 100ms，从 watch 返回 top 的切换延迟 ≤ 50ms
+- **NFR64:** watch 消费 Progress 回调流 + 按需查询 StepRecord 不影响 reasonStep 循环性能，StepRecord 写入与 Progress 回调推送之间无竞争
 
 ---
 

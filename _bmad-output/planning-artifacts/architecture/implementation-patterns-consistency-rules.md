@@ -544,3 +544,152 @@ func TestGlobalDir_XDG(t *testing.T) {
 14. `rnix init` 所有操作必须幂等——已存在则跳过
 15. 测试中配置路径必须用 `t.TempDir()` + `t.Setenv()`，禁止依赖真实 `$HOME`
 16. YAML 配置合并用 `DeepMergeYAML`，Agent/Skill 查找用 `ShadowResolve`，禁止混用
+
+---
+
+### 统一观察系统实现模式（Unified Observation System 增量）
+
+### 命名模式（观察系统专项）
+
+| 组件 | 命名规范 | 示例 |
+|------|---------|------|
+| StepRecord 类型 | `types.StepRecord` | `internal/types/step_record.go` |
+| JSONL 写入器 | `StepWriter` | `kernel/step_writer.go` |
+| 磁盘存储路径 | `.rnix/data/steps/<pid>/steps.jsonl` | `.rnix/data/steps/42/steps.jsonl` |
+| 进程元数据文件 | `.rnix/data/steps/<pid>/process-meta.json` | reaper 清理前写入 |
+| IPC 方法名 | `get_step_detail` | 小写下划线，与现有方法一致 |
+| CLI 命令 | `rnix watch` | 动词形式 |
+| CLI Flag | `--watch` | `rnix spawn --watch "意图"` |
+
+### 结构模式（观察系统专项）
+
+**StepWriter 标准实现：**
+
+```go
+// ✅ 正确：每步完成时 append + flush
+type StepWriter struct {
+    file   *os.File
+    writer *bufio.Writer
+    mu     sync.Mutex
+}
+
+func (w *StepWriter) WriteStep(rec types.StepRecord) error {
+    w.mu.Lock()
+    defer w.mu.Unlock()
+    data, err := json.Marshal(rec)
+    if err != nil {
+        return err
+    }
+    if _, err := w.writer.Write(data); err != nil {
+        return err
+    }
+    if err := w.writer.WriteByte('\n'); err != nil {
+        return err
+    }
+    return w.writer.Flush() // 每步 flush，保证读取端可见
+}
+
+// ✅ 正确：读取端独立打开文件，无需加锁
+func ReadStep(path string, targetStep int) (*types.StepRecord, error) {
+    f, err := os.Open(path)
+    // 顺序扫描至目标 step...
+}
+```
+
+**Messages 深拷贝规则：**
+
+```go
+// ✅ 正确：复用 BuildPrompt 已有的拷贝
+promptResult, _ := k.ctxMgr.BuildPrompt(proc.CtxID)
+// promptResult.Messages 已经是深拷贝，直接赋值给 StepRecord
+rec.Messages = promptResult.Messages
+
+// ❌ 错误：从 Context 再做一次拷贝（浪费）
+msgs, _ := k.ctxMgr.GetMessages(proc.CtxID)
+rec.Messages = deepCopy(msgs)
+```
+
+**FinalSystemPrompt 捕获时机：**
+
+```go
+// ✅ 正确：在 reasonStep 循环中构建完整 sysPrompt 后保存
+sysPrompt := promptResult.SystemPrompt
+sysPrompt += proc.generatedProtocol // 注入 protocol
+sysPrompt += skillsSection          // 注入 skills
+proc.mu.Lock()
+if proc.FinalSystemPrompt == "" {
+    proc.FinalSystemPrompt = sysPrompt // 首次保存
+}
+proc.mu.Unlock()
+
+// ❌ 错误：在 Spawn 时保存（此时 protocol/skills 尚未注入）
+```
+
+### 过程模式（观察系统专项）
+
+**StepRecord 捕获流程（在 reasonStep 循环内）：**
+
+```
+1. BuildPrompt() → promptResult（Messages 已拷贝）
+2. 保存 FinalSystemPrompt（首次）
+3. 构建 LLM 请求 → 发送 → 接收响应
+4. 解析 action type
+5. 执行工具（如果是 tool_call）
+6. 组装 StepRecord{Messages, RawResponse, ToolResult, ...}
+7. stepWriter.WriteStep(rec)
+8. OnStepComplete 回调
+9. AppendMessage 写回 Context
+```
+
+注意：步骤 7（写 StepRecord）必须在步骤 9（修改 Context）之前，确保 Messages 快照反映的是该步 LLM 实际看到的输入。
+
+**进程生命周期与数据保留：**
+
+```
+Created → Running → Zombie → Dead → Reaped
+                                      │
+                                      ├─ 写入 process-meta.json
+                                      └─ steps/ 目录保留 7 天（可配置）
+```
+
+### 测试模式（观察系统专项）
+
+**StepWriter 测试 helper：**
+
+```go
+func TestStepWriter_AppendAndRead(t *testing.T) {
+    dir := t.TempDir()
+    w, err := NewStepWriter(dir, 1)
+    require.NoError(t, err)
+    defer w.Close()
+
+    rec := types.StepRecord{Step: 1, Action: "tool_call", Summary: "test"}
+    require.NoError(t, w.WriteStep(rec))
+
+    // 验证可立即读取（flush 生效）
+    got, err := ReadStep(filepath.Join(dir, "steps.jsonl"), 1)
+    require.NoError(t, err)
+    require.Equal(t, "tool_call", got.Action)
+}
+```
+
+**并发读写测试：**
+
+```go
+func TestStepWriter_ConcurrentReadWrite(t *testing.T) {
+    // 写入 goroutine 持续 append
+    // 读取 goroutine 持续扫描
+    // 验证读取端永远看到完整行（不会读到半截 JSON）
+}
+```
+
+### 观察系统强制执行指南（增量）
+
+**AI Agent 额外必须遵循：**
+
+17. reasonStep 中 StepRecord 的 Messages 必须来自 `BuildPrompt()` 返回的拷贝，禁止从 Context Manager 二次读取
+18. StepWriter.WriteStep() 必须在 `AppendMessage()` 之前调用，确保快照一致性
+19. FinalSystemPrompt 仅在首次 reasonStep 中保存，后续步骤不覆盖（除非有 gdb override 变更）
+20. GetStepDetail handler 读取 steps.jsonl 时必须独立 open 文件，禁止复用 StepWriter 的 file handle
+21. steps.jsonl 中每行必须是完整的 JSON 对象，禁止跨行写入
+22. 进程 reap 前必须将 FinalSystemPrompt + NativeToolDefs 写入 process-meta.json

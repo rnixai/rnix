@@ -532,3 +532,100 @@ rnix/
 | ProjectConfig | spawn handler | Process.reasonStep | 结构体字段 |
 | project_dir | CLI | daemon IPC server | NDJSON over socket |
 | embed.FS | embedded.go | init.go | embed.FS 参数传递 |
+
+---
+
+### 统一观察系统目录结构（Unified Observation System 增量）
+
+**运行时数据目录：**
+
+```
+.rnix/data/steps/
+├── <pid>/
+│   ├── steps.jsonl          # StepRecord NDJSON（每步一行）
+│   └── process-meta.json    # reaper 清理前写入（SystemPrompt + ToolDefs）
+├── <pid>/
+│   ├── steps.jsonl
+│   └── process-meta.json
+└── ...
+```
+
+**源码变更：**
+
+```
+internal/types/
+└── step_record.go           # 新增：StepRecord 类型定义
+
+kernel/
+├── step_writer.go           # 新增：JSONL 写入器
+├── process.go               # 修改：新增 FinalSystemPrompt 字段 + stepWriter
+└── kernel.go                # 修改：reasonStep 中捕获 StepRecord
+
+ipc/
+├── protocol.go              # 修改：新增 MethodGetStepDetail + 类型 + ProgressPayload 扩展
+├── server.go                # 修改：新增 GetStepDetail handler
+└── client.go                # 修改：新增 GetStepDetail 客户端方法
+
+cmd/rnix/
+├── watch.go                 # 新增：watch TUI（BubbleTea）
+├── main.go                  # 修改：注册 watch 命令 + spawn --watch flag
+└── top.go                   # 修改：top↔watch 视图切换
+
+debug/
+├── record.go                # 简化：删除 ContextSnapshotData / LLMResponseData
+└── recorder.go              # 简化：replay 改读 steps.jsonl
+```
+
+### 统一观察系统架构边界
+
+```
+┌──────────────────────────────────────────────────┐
+│ cmd/rnix/                                        │
+│  ┌─────────┐  ┌─────────┐                       │
+│  │watch.go │  │ top.go  │                       │
+│  └────┬────┘  └────┬────┘                       │
+│       │             │                            │
+│       ▼             ▼                            │
+├──────────────── ipc (client) ────────────────────┤
+│  GetStepDetail │ AttachProgress │ Spawn          │
+├──────────────────────────────────────────────────┤
+│                 ipc (server)                     │
+│  GetStepDetail handler: 读 steps.jsonl + Process │
+├──────────────────────────────────────────────────┤
+│                   kernel                         │
+│  reasonStep → StepWriter.WriteStep()             │
+│  Process.FinalSystemPrompt (不可变)               │
+├──────────────────────────────────────────────────┤
+│              internal/types                      │
+│  StepRecord │ MessageWire                        │
+└──────────────────────────────────────────────────┘
+```
+
+边界规则：
+- `StepWriter` 只在 kernel 包内使用，不暴露给 ipc 或 cmd
+- `GetStepDetail` handler 直接读磁盘文件 + Process 结构体，不经过 StepWriter
+- watch TUI 不直接读 steps.jsonl，必须通过 IPC GetStepDetail 方法
+
+### 统一观察系统 FR→文件映射
+
+| FR | 需求描述 | 主要实现文件 |
+|----|---------|-------------|
+| FR62 | top 下钻到 watch | `cmd/rnix/top.go`, `cmd/rnix/watch.go` |
+| FR165 | rnix watch 统一观察 | `cmd/rnix/watch.go` |
+| FR166 | 三级详细度 | `cmd/rnix/watch.go` |
+| FR167 | 自动展开错误/慢步骤 | `cmd/rnix/watch.go`, `ipc/protocol.go` (ProgressPayload 扩展) |
+| FR168 | p 键查看完整 prompt | `cmd/rnix/watch.go`, `ipc/client.go` (GetStepDetail) |
+| FR169 | spawn --watch | `cmd/rnix/main.go` |
+| FR170 | PromptSnapshot → StepRecord | `kernel/step_writer.go`, `kernel/kernel.go` |
+| FR171 | GetStepDetail IPC | `ipc/protocol.go`, `ipc/server.go`, `ipc/client.go` |
+| FR172 | record --full → 默认全记录 | `kernel/step_writer.go`（默认行为，无需手动开启） |
+
+### 统一观察系统集成点
+
+| 集成点 | 生产者 | 消费者 | 机制 |
+|--------|--------|--------|------|
+| StepRecord | kernel.reasonStep | ipc.GetStepDetail handler | 磁盘 JSONL 文件 |
+| FinalSystemPrompt | kernel.reasonStep (首次) | ipc.GetStepDetail handler | Process 结构体字段 |
+| process-meta.json | kernel.reapProcess | ipc.GetStepDetail handler | 磁盘 JSON 文件 |
+| Progress 回调 | kernel.KernelCallbacks | cmd/rnix/watch.go | IPC StreamEvent |
+| ProgressPayload.HasError | kernel.OnStepComplete | cmd/rnix/watch.go | IPC StreamEvent 字段 |

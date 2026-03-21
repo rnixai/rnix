@@ -200,13 +200,13 @@ Use planning when the task requires multiple coordinated steps. For simple tasks
 
 ---
 
-## Story 26.3: Bug 修复——VFS Flags 降级、错误注入与熔断机制
+## Story 26.3a: VFS Flags 自动降级
 
 As a 平台构建者,
-I want 统一推理循环修复 strace 分析发现的所有 bug（flags 硬编码、错误未注入上下文、缺少熔断）,
-So that 工具调用可靠稳定，不会因 read-only 设备报错或无限错误循环。
+I want tool_call 的 VFS Open 操作根据 payload 自动选择 flags（读取用 O_RDONLY，写入用 O_RDWR）,
+So that `/dev/fs` 读取操作不再报 permission denied。
 
-**FRs:** FR115, FR116
+**FRs:** FR116（部分）
 
 **Acceptance Criteria:**
 
@@ -218,12 +218,48 @@ So that 工具调用可靠稳定，不会因 read-only 设备报错或无限错�
 **And** `/dev/fs/path/to/file` 读取操作（payload 为空或 `{}`）不再报 `permission denied`
 **And** `/dev/fs/path/to/file` 写入操作（payload 含 `content`）使用 `O_RDWR` 正常工作
 
+**Given** `/dev/fs/path` 读取操作的 flags 降级测试
+**When** 使用 `O_RDONLY` 打开 hostfs 设备
+**Then** 读取成功，不触发 `drivers/fs/hostfs.go:82` 的 flags 检查错误
+
+**Technical Notes:**
+- 修改文件：`kernel/kernel.go`（VFS Open flags 逻辑）
+- flags 降级判断：`isEmpty := len(action.ToolData) == 0 || string(action.ToolData) == "{}"`——两种空 payload 用 `O_RDONLY`，其余 `O_RDWR`
+
+---
+
+## Story 26.3b: 工具错误注入上下文
+
+As a 平台构建者,
+I want 所有 tool_call 的 Open/Write/Read 错误以 tool message 格式注入 LLM 上下文,
+So that LLM 可感知错误并在下一步调整策略。
+
+**FRs:** FR116
+
+**Acceptance Criteria:**
+
 **Given** `reasonStep` 中任何 tool_call 的 Open/Write/Read 失败
 **When** 错误发生
 **Then** 所有错误路径调用 `k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, errMsg)`
 **And** 错误以 `role: "tool"` 格式注入 LLM 上下文
 **And** LLM 在下一步可感知错误并调整策略
 **And** 这与当前 linear 模式 `kernel.go:1262-1271` 的正确实现保持一致
+
+**Technical Notes:**
+- 修改文件：`kernel/kernel.go`（错误注入路径）
+- 错误注入路径确保与现有 linear 模式一致（kernel.go:1262-1271 是正确模板）
+
+---
+
+## Story 26.3c: 熔断机制
+
+As a 平台构建者,
+I want 连续 3 次 tool_call/spawn 失败时自动终止进程,
+So that 智能体不会陷入无限错误循环。
+
+**FRs:** FR115
+
+**Acceptance Criteria:**
 
 **Given** `reasonStep` 中新增 `consecutiveToolErrors int` 计数器
 **When** tool_call 执行成功
@@ -250,20 +286,14 @@ So that 工具调用可靠稳定，不会因 read-only 设备报错或无限错�
 **When** 模拟 2 次失败后 1 次成功
 **Then** 计数器重置，进程继续正常运行
 
-**Given** `/dev/fs/path` 读取操作的 flags 降级测试
-**When** 使用 `O_RDONLY` 打开 hostfs 设备
-**Then** 读取成功，不触发 `drivers/fs/hostfs.go:82` 的 flags 检查错误
-
 **Given** 统一循环单步框架开销测试
 **When** 使用 mock LLM 即时返回运行性能基准测试
 **Then** 单步纯框架代码开销（不含 LLM 调用时间）≤ 50ms（NFR44 重写版）
 **And** 通过 `go test -race` 无数据竞争
 
 **Technical Notes:**
-- 修改文件：`kernel/kernel.go`（VFS Open flags 逻辑 + consecutiveToolErrors 变量 + 熔断逻辑）
-- flags 降级判断：`isEmpty := len(action.ToolData) == 0 || string(action.ToolData) == "{}"`——两种空 payload 用 `O_RDONLY`，其余 `O_RDWR`
+- 修改文件：`kernel/kernel.go`（consecutiveToolErrors 变量 + 熔断逻辑）
 - 熔断计数范围：tool_call 失败 + spawn 失败；plan/replan/specialize 失败不计入
-- 错误注入路径确保与现有 linear 模式一致（kernel.go:1262-1271 是正确模板）
 - NFR44 性能指标从 200ms（OODA 框架开销）调整为 50ms（统一循环单步开销）
 
 ---

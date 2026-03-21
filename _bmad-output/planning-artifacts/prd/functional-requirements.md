@@ -2,10 +2,10 @@
 
 > **编号说明：** FR 编号按 Phase 分组分配，后续迭代新增的需求使用跳跃编号以保持逻辑归属：
 > - Phase 1: FR1-FR40（含 FR25a/b）
-> - Phase 2: FR41-FR70 + FR141-FR152（Multi-LLM Provider + LLM Serve Gateway）+ FR153-FR164（Configuration System）
+> - Phase 2: FR41-FR70 + FR141-FR152（Multi-LLM Provider + LLM Serve Gateway）+ FR153-FR164（Configuration System）+ FR165-FR172（Unified Observation System）
 > - Phase 3: FR71-FR140（含 FR72a, FR76a）
 >
-> NFR 编号同样存在跳跃：NFR1-NFR33（Phase 1-2 原始需求）+ NFR34-NFR49（Phase 3）+ NFR50-NFR52（LLM Serve Gateway）+ NFR53-NFR56（Configuration System）。
+> NFR 编号同样存在跳跃：NFR1-NFR33（Phase 1-2 原始需求）+ NFR34-NFR49（Phase 3）+ NFR50-NFR52（LLM Serve Gateway）+ NFR53-NFR56（Configuration System）+ NFR57-NFR64（Unified Observation System）。
 > 跳跃不影响覆盖完整性，仅反映需求演进历史。
 
 ## Agent Lifecycle Management（智能体生命周期管理）
@@ -109,10 +109,21 @@
 ## Monitoring & Observability（监控与可观测性，Phase 2）
 
 - **FR58:** 用户可以通过 `rnix top` 实时查看所有运行中智能体的树状关系、状态、token 消耗和执行进度
-- **FR59:** 用户可以通过 `rnix log <pid>` 查看指定智能体的推理日志
+- **FR59:** 用户可以通过 `rnix log <pid>` 查看指定智能体的推理日志，支持 `--prompt` 参数在每步 think 日志前插入该步的 prompt 摘要（消息数、token 数、首条消息预览）
 - **FR60:** 系统可以将 `rnix log` 输出按 `[think]`/`[tool]`/`[output]` 三段式分类显示，支持 `--filter <category>` 按类别过滤
 - **FR61:** 用户可以为智能体设置 token 预算上限（通过 agent.yaml `context_budget` 或 compose 中覆盖），系统在达到上限时终止推理并上报原因
-- **FR62:** 用户可以在 `rnix top` 中通过交互式操作选中进程并执行 kill 或查看详情
+- **FR62:** 用户可以在 `rnix top` 中通过交互式操作选中进程，按回车下钻到 watch 视图查看该进程的实时观察流，按 q 返回 top 全局视图
+
+## Unified Observation System（统一观察系统，Phase 2）
+
+- **FR165:** 用户可以通过 `rnix watch <pid>` 进入统一实时观察视图，系统通过 Progress 回调接收实时步骤通知（OnStep/OnStepComplete），并按需从 StepRecord（磁盘 JSONL）查询步骤详情，按时间线聚合呈现
+- **FR166:** watch 视图支持三级详细度切换：Level 1（默认）每步一行摘要（步骤号 + 动作类型 + 目标 + 耗时）；Level 2（按 v 键）展开当前步骤的参数、返回值和 token 消耗；Level 3（按 V 键）调试级详情含 prompt 摘要
+- **FR167:** watch 视图中出错（错误返回）或慢操作（耗时 > 1 秒）的步骤自动展开到 Level 2，用户无需手动切换即可看到异常详情
+- **FR168:** 用户可以在 watch 视图中按 p 键查看当前步骤的完整 prompt 内容，进入类似 less 的翻页查看模式，按 q 返回 watch 流
+- **FR169:** 用户可以通过 `rnix spawn --watch "意图"` 启动智能体并立即进入 watch 视图，spawn 返回 PID 后零延迟 attach，消除手动查找 PID 的操作
+- **FR170:** 系统为每个进程默认维护 StepRecord 全量步骤记录，在每个 reasonStep 完成后自动将该步的完整数据（BuildPrompt 时的 Messages 深拷贝、LLM 原始响应、工具执行结果、token 统计）以 NDJSON 格式 append 写入磁盘文件（`.rnix/data/steps/<pid>/steps.jsonl`），无需用户手动开启
+- **FR171:** 系统提供 GetStepDetail IPC 方法，支持按需拉取指定进程指定步骤的完整 prompt 内容（SystemPrompt + Messages + Tools 定义），仅在用户明确请求时传输，不走实时事件流
+- **FR172:** 系统默认为每个进程记录完整的 LLM 请求数据（StepRecord 包含每步的完整 Messages 快照和 LLM 原始响应），`rnix record list` 和 `rnix replay` 直接从 steps.jsonl 读取，支持事后回放时查看"agent 当时收到了什么指令"，无需预先开启特殊录制模式
 
 ## Supervisor & System Bootstrap（容错与系统引导，Phase 2）
 
@@ -156,7 +167,7 @@
 - **FR155:** 系统从 CWD 向上遍历目录树查找 `.rnix/` 目录（类似 git 查找 `.git/`），到 `$HOME` 或文件系统根停止；CLI 将发现的 `project_dir` 通过 IPC 传入 daemon
 - **FR156:** YAML 配置文件（providers.yaml、config.yaml、mcp.yaml）采用 deep merge 合并策略——项目级字段覆盖全局级同名字段；Agent 和 Skill 目录采用 shadow 策略——项目级同名定义完全遮蔽全局级，不做字段合并
 - **FR157:** Agent/Skill 查找按项目级 → 全局级顺序——项目级 `.rnix/agents/<name>/` 优先于全局级 `~/.config/rnix/agents/<name>/`，同名时项目级完全遮蔽全局级
-- **FR158:** 内置 Agent/Skill（当前 `lib/agents/` 和 `lib/skills/`）打包在二进制中，不再作为运行时查找路径；`rnix init` 全局初始化时复制到 `~/.config/rnix/agents/` 和 `~/.config/rnix/skills/`，用户获得独立副本可自由修改
+- **FR158:** 内置 Agent/Skill（当前 `lib/agents/` 和 `lib/skills/`）打包在二进制中（内置模板随二进制分发），不再作为运行时查找路径；`rnix init` 全局初始化时复制到 `~/.config/rnix/agents/` 和 `~/.config/rnix/skills/`，用户获得独立副本可自由修改
 - **FR159:** 配置文件进入 `.rnix/` 或 `~/.config/rnix/` 目录后去掉 `rnix-` 前缀（`rnix-providers.yaml` → `providers.yaml`、`rnix-init.yaml` → `init.yaml`、`rnix-compose.yaml` → `compose.yaml`）
 - **FR160:** IPC spawn 请求 payload 增加 `project_dir` 字段，daemon 端根据 `project_dir` 读取并合并项目级 `.rnix/` 配置；同一 daemon 可同时服务不同项目的进程
 - **FR161:** ~~推迟~~ 系统检测到根目录旧配置文件（如 `rnix-providers.yaml`）时输出 deprecation warning，旧文件仍可识别但优先使用新路径 *（推迟：全新项目无现有用户需要迁移，待有实际迁移需求时在后续 Epic 中实现）*

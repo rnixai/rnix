@@ -112,26 +112,45 @@ As a 平台构建者,
 I want 系统提供进程、线程、协程三级并发原语,
 So that 我可以为不同粒度的任务选择最合适的并发模型。
 
+> **并发模型定义：** Rnix 的三级并发模型将 Go 的并发原语映射为智能体的执行粒度层级：
+>
+> | 级别 | Rnix 概念 | Go 实现 | 隔离程度 | 通信方式 | 典型用途 |
+> |------|----------|---------|---------|---------|---------|
+> | **进程** | Process（已有） | 独立 goroutine + 独立 Context | 完全隔离 | IPC（Send/Recv/Pipe） | 独立智能体，各自有 LLM 会话 |
+> | **线程** | Thread | 独立 goroutine，共享父进程 Context | 共享上下文 | 直接读写共享 Context | 同一智能体内的并行子任务（如并行读取多个文件） |
+> | **协程** | Coroutine | 协作式调度（channel-based yield/resume） | 共享上下文 | yield/resume 语义 | 上下文内的轻量子任务分解（如分步分析） |
+>
+> **设计约束：** 线程和协程不创建新的 PID，不拥有独立 LLM 会话，是进程内的执行细分。
+
 **Acceptance Criteria:**
 
-**Given** 三级并发模型已实现
-**When** 创建进程级智能体（`Spawn`）
+**Given** `kernel/thread.go` 中线程级执行单元已实现
+**When** 进程内创建线程（`proc.SpawnThread(fn func(ctx ThreadContext))`）
+**Then** 启动新 goroutine，共享父进程的 CtxID 和上下文空间
+**And** ThreadContext 提供只读访问父进程上下文 + 独立的 scratchpad 区域
+**And** 线程通过 `ThreadContext.Write(key, value)` 写入 scratchpad，父进程可读取结果
+**And** 线程完成后自动合并 scratchpad 到父进程上下文
+
+**Given** `kernel/coroutine.go` 中协程级执行单元已实现
+**When** 进程内创建协程（`proc.SpawnCoroutine(fn func(ctx CoroutineContext))`）
+**Then** 在当前 goroutine 中协作式调度（通过 channel 实现 yield/resume）
+**And** CoroutineContext 提供 `Yield(data)` 和 `Resume()` 方法
+**And** 适用于需要分步执行但不需要并行的子任务
+
+**Given** 进程级智能体通过 `Spawn` 创建
+**When** 创建进程级智能体
 **Then** 拥有独立上下文和独立 LLM 会话
 **And** 完全隔离，通过 IPC 通信
-
-**Given** 三级并发模型已实现
-**When** 创建线程级执行单元
-**Then** 共享父进程的上下文空间
-**And** 拥有独立执行流（goroutine）
-**And** 通过共享上下文交换数据
-
-**Given** 三级并发模型已实现
-**When** 创建协程级执行单元
-**Then** 轻量协作调度，yield 语义
-**And** 适用于上下文内的子任务分解
 
 **Given** ≥ 10 个并发智能体（进程级）
 **When** 同时运行
 **Then** 进程表操作延迟不超过单进程场景的 2 倍（NFR24）
+
+**Technical Notes:**
+- 新增文件：`kernel/thread.go`、`kernel/coroutine.go`
+- 线程和协程不分配 PID，不出现在 `rnix ps` 输出中
+- 线程通过 `sync.WaitGroup` 管理生命周期，父进程退出时等待所有线程完成
+- 协程通过 `chan struct{}` 实现 yield/resume 语义
+- Phase 2 仅提供内核 API，AgentShell 语法支持（`parallel {}` 块）在 Phase 3 Epic 18 中实现
 
 ---

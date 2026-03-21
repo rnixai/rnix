@@ -107,7 +107,7 @@ agents:
 
 ---
 
-### 旅程 5：陈明切换本地模型降低成本（用户 A — 平台构建者，多 Provider 路径）
+## 旅程 5：陈明切换本地模型降低成本（用户 A — 平台构建者，多 Provider 路径）
 
 **背景：** 陈明在开发阶段频繁迭代，Claude API 调用成本快速累积。他在本地部署了 Ollama 运行 Llama3，希望日常开发用本地模型，关键任务切回 Claude。
 
@@ -126,7 +126,7 @@ agents:
 
 ---
 
-### 旅程 6：陈明通过 rnix serve 让外部工具使用 LLM（用户 A — 平台构建者，网关路径）
+## 旅程 6：陈明通过 rnix serve 让外部工具使用 LLM（用户 A — 平台构建者，网关路径）
 
 **背景：** 陈明习惯在不同场景用不同工具——用 Aider 做代码重构、用 Open WebUI 做知识问答、用自研脚本做批量分析。这些工具都支持 OpenAI API，但他的 Cursor Pro 配额和本地 Ollama 只能在各自的生态里用。他希望有一个统一入口。
 
@@ -142,6 +142,40 @@ agents:
 **结果：** 一个端口统一所有 LLM 访问。Cursor Pro 配额不再被锁在 IDE 里，本地模型不再需要每个工具单独配置。任何支持 OpenAI API 的工具都可以即插即用。
 
 **覆盖能力：** FR147（rnix serve 启动）、FR148（/v1/chat/completions 路由）、FR149（/v1/models 发现）、FR150（SSE 流式）、FR151（provider:model 复合路由）、FR152（共享 daemon 配置）、NFR50-52（网关性能与安全）
+
+---
+
+## 旅程 7：陈明通过 top 下钻定位 prompt 注入错误（用户 A — 平台构建者，统一观察路径）
+
+陈明的 3-agent 审查系统又出了问题——reviewer agent 偶尔忽略文件中的安全问题。他之前用 strace 调试过类似问题，但这次他决定试试新的 watch 功能。
+
+他打开 `rnix top`，终端里显示三个 agent 的实时状态。他触发一次审查，看到 reviewer（PID 42）开始跑了。按下回车，top 无缝切换到 watch 视图。
+
+每一步实时滚动：
+```
+[step 1] tool_call → /dev/fs/read     0.1s  ✓
+[step 2] tool_call → /dev/fs/read     0.1s  ✓
+[step 3] thinking...                  2.8s  ✓
+[step 4] tool_call → /dev/shell/exec  1.2s  ✗  ← 自动展开
+  ├─ args: cmd="grep -r 'TODO' ."
+  ├─ result: exit code 1 (no match)
+  └─ tokens: +320
+```
+
+第 4 步自动展开了——grep 没找到任何 TODO，但这不是问题所在。审查结果看起来正常但遗漏了安全问题。他按 `p` 查看 prompt：
+
+```
+[prompt] step 5 — 12 条消息, 8432 tokens
+  [system] You are a code reviewer focused on code quality...
+```
+
+找到了。system prompt 里写的是"focused on code quality"，完全没提安全审查。这是 Skill 的 instructions.md 里遗漏了安全相关指令。
+
+按 `q` 回到 top，其他两个 agent 还在正常跑。他打开 Skill 文件，补上安全审查指令，重新触发审查。这次 reviewer 正确识别了一个 SQL 注入风险。
+
+**从发现问题到修复：4 分钟。** 如果用传统方式，他需要：开新终端 → `rnix ps` → 找 PID → `rnix strace 42` → 发现 strace 看不到 prompt → 切到 `rnix log 42` → 翻看日志但没有 prompt 信息 → 只能猜测问题出在哪。
+
+**覆盖能力：** FR62（top 下钻）、FR165（watch 命令）、FR166（三级详细度）、FR167（异常自动展开）、FR168（prompt 查看）、FR170（StepRecord）、FR171（GetStepDetail）、NFR57-64（观察系统性能）
 
 ---
 
@@ -172,3 +206,8 @@ agents:
 | 多 Provider 支持（provider 注册 + fallback） | 旅程 5 | | ✓ (Phase 2) | FR141-FR146 |
 | LLM 网关服务（rnix serve OpenAI 兼容 API） | 旅程 6 | | ✓ (Phase 2) | FR147-FR152 |
 | 配置系统（双层目录 + rnix init + 迁移） | 旅程 1, 3, 5 | | ✓ (Phase 2) | FR153-FR164 |
+| `rnix watch` 统一观察 | 旅程 7 | | ✓ (Phase 2) | FR165-FR168 |
+| `spawn --watch` 启动即观察 | 旅程 7 | | ✓ (Phase 2) | FR169 |
+| Prompt 可观测性（PromptSnapshot + GetStepDetail） | 旅程 7 | | ✓ (Phase 2) | FR170-FR171 |
+| `top` 下钻到 watch | 旅程 7 | | ✓ (Phase 2) | FR62 |
+| `record --full` 完整 prompt 录制 | 旅程 7 | | ✓ (Phase 2) | FR172 |

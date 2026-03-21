@@ -37,7 +37,7 @@ Rnix 的 UX 核心不是视觉设计，而是 **CLI 信息架构与交互反馈�
 
 **用户 B — 应用开发者（林薇，Phase 2 用户）**
 - 全栈开发者，不关心内核实现，只要能快速组装工作流
-- 通过 `skill install` + `rnix-compose.yaml` 使用现成能力
+- 通过 `skill install` + `.rnix/compose.yaml` 使用现成能力
 - 核心痛点：现有框架编排太复杂，能力不可共享
 - UX 期望：简单、声明式、开箱即用——20 行 YAML 替代 2000 行代码
 - 顿悟时刻：`rnix compose up` 一键启动完整流水线
@@ -99,7 +99,7 @@ rnix "审查 PR" → 结果异常 → rnix strace 1 → 定位问题 → 修复 
 | **平台** | 终端 CLI（纯键盘交互） |
 | **运行环境** | macOS / Linux 终端（开发者工作站） |
 | **安装方式** | `go install` 单命令，单二进制，零配置 |
-| **前置依赖** | Claude Code CLI 已安装 |
+| **前置依赖** | 至少一个已配置的 LLM provider（默认 Claude Code CLI） |
 | **输出模式** | 结构化可读（默认） / JSON（`--json`） |
 | **离线支持** | 不适用（依赖 LLM API） |
 | **终端兼容性** | 支持 ANSI 256 色，graceful 降级到无色模式 |
@@ -112,7 +112,7 @@ rnix "审查 PR" → 结果异常 → rnix strace 1 → 定位问题 → 修复 
 ```bash
 $ rnix "分析这段代码的性能瓶颈"
 ```
-用户只需要表达意图。系统自动完成：Skill 匹配与加载 → 模型选择 → 上下文分配 → 进程创建 → 推理循环启动。**不需要指定 `--skill`、`--model`、`--budget`。** 这些参数存在但作为可选覆盖项，而非必填。
+用户只需要表达意图。系统自动完成：Skill 匹配与加载 → 模型选择 → 上下文分配 → 进程创建 → 推理循环启动。**不需要指定 `--agent`、`--model`、`--budget`。** 这些参数存在但作为可选覆盖项，而非必填。
 
 **2. Skill 智能匹配**
 系统根据意图文本自动推荐/加载最合适的 Skill。如果匹配到多个候选，显示简短选择列表。如果没有匹配到，使用通用模式（无 Skill 注入）仍然可以执行。**用户永远不会因为"不知道该用哪个 Skill"而卡住。**
@@ -552,7 +552,7 @@ Rnix 的核心交互采用"**Unix 外壳 + 同事内核**"的混合模式——�
 | 层面 | 策略 | 具体体现 |
 |------|------|---------|
 | **命令语法** | 沿用 Unix 传统 | `rnix "意图"`、`rnix ps`、`rnix strace <pid>` |
-| **参数设计** | 沿用 Unix 传统 | `--skill`、`--model`、`--json`、`--verbose` |
+| **参数设计** | 沿用 Unix 传统 | `--agent`、`--model`、`--json`、`--verbose` |
 | **管道组合** | 沿用 Unix 传统 | `rnix strace 1 \| grep "llm"`（Phase 2: 智能体管道） |
 | **输出语气** | 创新：汇报式 | `[agent/1] reading...` 而非 `INFO: reading...` |
 | **结果呈现** | 创新：交付物式 | 双线边框包裹的结构化报告 |
@@ -887,7 +887,7 @@ flowchart TD
 
 **首次体验的特殊设计：**
 - `rnix --version` 自动检测 Claude Code CLI 是否可用，不可用时直接告知安装方式
-- 首次执行无需指定 `--skill`，系统自动使用内置的 `code-analyst` Skill
+- 首次执行无需指定 `--agent`，系统自动使用内置的 `code-analyst` Agent
 - 如果用户没有指定文件路径，提示"试试 `rnix \"分析 ./README.md\"`"
 
 ---
@@ -900,7 +900,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["rnix \"审查这段代码\" --skill=code-analyst"] --> B["[kernel] spawning PID 1..."]
+    A["rnix \"审查这段代码\" --agent=code-analyst"] --> B["[kernel] spawning PID 1..."]
     B --> C["[agent/1] loading skill: code-analyst"]
     C --> D["[agent/1] reasoning step 1/3..."]
     D --> E["[agent/1] reasoning step 2/3..."]
@@ -912,7 +912,7 @@ flowchart TD
     J --> K["[0.015s] Read fd=3 → scheduler.go ← 错误文件!"]
     K --> L[陈明: 找到了! 第 3 步读错了文件]
     L --> M[修复 Skill 配置或意图描述]
-    M --> N["rnix \"审查这段代码\" --skill=code-analyst"]
+    M --> N["rnix \"审查这段代码\" --agent=code-analyst"]
     N --> O["══ 审查结果 ══\n  (结果正确)"]
     O --> P["✓ 问题定位 + 修复完成"]
 ```
@@ -980,7 +980,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["skill install pr-reviewer code-analyst tech-writer"] --> B["✓ 3 skills installed"]
-    B --> C[编写 rnix-compose.yaml]
+    B --> C[编写 .rnix/compose.yaml]
     C --> D["rnix compose up"]
     D --> E["[compose] starting 3 agents..."]
     E --> F["[agent/1:reviewer] reasoning step 1/2..."]
@@ -998,7 +998,7 @@ flowchart TD
 | 阶段 | 交互 | 设计要点 |
 |------|------|---------|
 | Skill 安装 | `skill install` 批量 | 一条命令装多个，安装结果逐行确认 |
-| 编写 YAML | 用户编辑 `rnix-compose.yaml` | 参考模板 + 校验提示 |
+| 编写 YAML | 用户编辑 `.rnix/compose.yaml` | 参考模板 + 校验提示 |
 | 启动编排 | `rnix compose up` | 类比 `docker compose up`，开发者已有心智模型 |
 | 执行过程 | 多智能体按依赖顺序执行 | 每个智能体的进度独立汇报，依赖关系可见 |
 | 实时监控 | `rnix top`（可选） | 全局视图：所有智能体状态 + token 汇总 |
@@ -1019,7 +1019,7 @@ flowchart TD
     C --> D{用户查看 tool 部分}
     D --> E["发现: Read(diff) → 内容被截断"]
     E --> F[原因: 上下文预算不足]
-    F --> G["编辑 rnix-compose.yaml:\n  reviewer:\n    budget: 8000  # 加大预算"]
+    F --> G["编辑 .rnix/compose.yaml:\n  reviewer:\n    budget: 8000  # 加大预算"]
     G --> H["rnix compose up  重新执行"]
     H --> I["✓ 结果正确"]
 ```
@@ -1098,12 +1098,15 @@ flowchart TD
 #### 1. Agent Progress Reporter
 
 **用途：** 智能体执行过程中的实时汇报输出
-**出现旅程：** 0, 1, 2, 3
+**出现旅程：** 0, 1, 2, 3, 7
 
 ```
 [agent/1] loading skill: code-analyst
 [agent/1] reading /dev/fs/kernel/scheduler.go...
 [agent/1] reasoning step 1/3...
+[agent/1] planning: 分析代码结构 → 检查性能瓶颈 → 生成报告
+[agent/1] spawning child: code-formatter
+[agent/1] specializing: loading skill db-migrator
 [agent/1] reasoning step 2/3...
 [agent/1] reasoning step 3/3...
 ```
@@ -1115,6 +1118,22 @@ flowchart TD
 | **进度指示** | reasoning 步骤显示 `step N/M`，其他动作无计数 |
 | **状态** | 活跃（蓝色前缀）、完成（绿色 ✓）、错误（红色 ✗） |
 | **实现** | lipgloss 样式 + fmt 格式化，逐行输出到 stdout |
+
+**统一推理循环行为类型展示规范（Epic 26）：**
+
+| ActionType | 进度输出格式 | 颜色 |
+|-----------|-------------|------|
+| `tool_call` | `[agent/N] tool_call → /dev/fs/path  0.2s  ✓` | 蓝色（默认） |
+| `plan` | `[agent/N] planning: {步骤摘要}` | 青色（Rnix Cyan） |
+| `spawn` | `[agent/N] spawning child: {agent-name/intent摘要}` | 蓝色（默认） |
+| `complete` | `[agent/N] ✓ completed` | 绿色 |
+| `specialize` | `[agent/N] specializing: loading skill {name}` | 青色（Rnix Cyan） |
+| `replan` | `[agent/N] replanning: {原因摘要}` | 黄色（警告色） |
+| `text` | `[agent/N] reasoning step N/M...` | 蓝色（默认） |
+
+- `plan` 和 `specialize` 使用 Rnix Cyan 以区分于常规 tool_call（两者都是"系统正在调整能力"的元操作）
+- `replan` 使用黄色表示策略变更（不是错误，但值得注意）
+- `complete` 使用绿色 `✓` 前缀，与全局成功反馈一致
 
 ---
 
@@ -1289,10 +1308,10 @@ internal/ui/
 | **主命令格式** | `rnix <子命令> [参数] [flags]` | `rnix ps`, `rnix strace 1` |
 | **意图模式** | `rnix "自然语言意图"` 引号包裹 | `rnix "分析代码性能瓶颈"` |
 | **PID 引用** | 位置参数，纯数字 | `rnix strace 1`, `rnix kill 3` |
-| **长 flag** | `--flag-name` 连字符分隔 | `--skill`, `--model`, `--verbose` |
+| **长 flag** | `--flag-name` 连字符分隔 | `--agent`, `--model`, `--verbose` |
 | **短 flag** | 单字母 `-x`，常用 flag 必须有短形式 | `-v`, `-q`, `-s` |
 | **布尔 flag** | 存在即为 true，无需赋值 | `--json`, `--verbose` |
-| **赋值 flag** | `--flag=value` 或 `--flag value` 两种均支持 | `--skill=code-analyst` |
+| **赋值 flag** | `--flag=value` 或 `--flag value` 两种均支持 | `--agent=code-analyst` |
 
 **Flag 命名约定：**
 
@@ -1301,7 +1320,7 @@ internal/ui/
 | `--json` | （无） | 输出 JSON 格式 | 所有输出命令 |
 | `--verbose` | `-v` | 详细输出（方向 C 级别） | 所有输出命令 |
 | `--quiet` | `-q` | 静默输出（只显示结果） | 所有输出命令 |
-| `--skill` | `-s` | 指定 Skill | `rnix "意图"` |
+| `--agent` | `-a` | 指定 Agent | `rnix "意图"` |
 | `--model` | `-m` | 指定 LLM 模型 | `rnix "意图"` |
 | `--filter` | `-f` | 过滤条件 | `rnix strace`, `rnix ps` |
 | `--help` | `-h` | 显示帮助 | 所有命令 |
@@ -2246,3 +2265,243 @@ $ rnix "分析代码"
 | **搜索路径** | 显示向上遍历的终点目录（$HOME 或 /） |
 | **降级行为** | 明确说明使用全局配置继续运行 |
 | **仅首次** | 同一 daemon 会话中相同 CWD 仅警告一次 |
+
+---
+
+## Appendix C: Epic 27 UX 交互补充设计
+
+> **补充日期：** 2026-03-21
+> **背景：** Epic 27（统一观察系统）引入 `rnix watch`、三级详细度、StepRecord、top↔watch 下钻等新交互，本节补充相关 CLI 交互设计规范。
+
+### Journey 7: Chen Ming Drills Down from top to watch (Phase 2 — Unified Observation Path)
+
+**用户：** 陈明（平台构建者）
+**目标：** 从系统全局视图（top）下钻到单进程实时观察（watch），精确定位 prompt 注入问题
+**成功标准：** 从发现异常到定位根因 ≤ 4 分钟
+
+```mermaid
+flowchart TD
+    A["rnix top"] --> B["选中 PID 42（reviewer agent）"]
+    B --> C["按 Enter → 无缝切换到 watch 视图"]
+    C --> D["[step 1] tool_call → /dev/fs/read  0.1s  ✓"]
+    D --> E["[step 2] tool_call → /dev/fs/read  0.1s  ✓"]
+    E --> F["[step 3] thinking...  2.8s  ✓"]
+    F --> G["[step 4] tool_call → /dev/shell/exec  1.2s  ✗ ← 自动展开"]
+    G --> H["按 p 查看 prompt"]
+    H --> I["发现 system prompt 遗漏安全审查指令"]
+    I --> J["按 q 返回 top"]
+    J --> K["修复 Skill instructions.md"]
+    K --> L["重新触发审查 → 正确"]
+```
+
+---
+
+### rnix watch 输出规范
+
+#### Level 1 — 默认摘要视图
+
+每步一行摘要，实时流式追加：
+
+```
+$ rnix watch 42
+
+  watching PID 42 (agent: code-analyst, provider: claude)
+  ─────────────────────────────────────────────────────
+
+  [step 1] tool_call → /dev/fs/read     0.1s  ✓
+  [step 2] tool_call → /dev/fs/read     0.1s  ✓
+  [step 3] thinking                     2.8s  ✓
+  [step 4] tool_call → /dev/shell/exec  1.2s  ✗  ← 自动展开
+    ├─ args: cmd="grep -r 'TODO' ."
+    ├─ result: exit code 1 (no match)
+    └─ tokens: +320
+  [step 5] thinking                     3.1s  ✓
+  [step 6] ✓ completed                  0.0s
+
+  PID 42 exited(0) | tokens: 2,341 | elapsed: 7.3s
+```
+
+| 属性 | 规范 |
+|------|------|
+| **header** | `watching PID N (agent: name, provider: name)`，lipgloss 粗体 |
+| **分隔线** | `─` 重复至 header 宽度，灰色 |
+| **步骤格式** | `[step N] {action_type} → {target}  {duration}  {status}` |
+| **动作类型颜色** | tool_call=蓝、thinking=灰、plan=青、spawn=蓝、specialize=青、replan=黄、complete=绿 |
+| **状态符号** | `✓`（绿色）/ `✗`（红色） |
+| **耗时** | 右对齐，固定宽度 |
+| **自动展开** | 错误（`✗`）或耗时 > 1s 的步骤自动展开到 Level 2 |
+| **完成行** | 与 spawn 汇总格式一致：`PID N exited(code) | tokens | elapsed` |
+| **ASCII 降级** | `RNIX_ASCII=1` 时 `─` → `-`，`├─` → `|-`，`└─` → `\-`，`✓` → `[OK]`，`✗` → `[ERR]` |
+
+#### Level 2 — 展开详情（按 v 或自动展开）
+
+选中步骤展开参数、返回值和 token 消耗：
+
+```
+  [step 4] tool_call → /dev/shell/exec  1.2s  ✗
+    ├─ args: cmd="grep -r 'TODO' ."
+    ├─ result: exit code 1 (no match)
+    ├─ tokens: req +120, resp +200
+    └─ error: command returned non-zero exit code
+```
+
+| 属性 | 规范 |
+|------|------|
+| **展开指示** | 使用树状缩进 `├─` / `└─`（最后一项），暗灰色 |
+| **args** | 工具输入参数摘要（截断到 80 字符） |
+| **result** | 工具返回值摘要（截断到 120 字符） |
+| **tokens** | 请求和响应 token 分开显示 |
+| **error** | 红色，仅在出错时显示 |
+| **渲染性能** | Level 2 展开渲染 ≤ 5ms/步（NFR59） |
+| **切换** | 按 `v` 展开/折叠，响应延迟 ≤ 50ms（NFR60） |
+
+#### Level 3 — 调试级详情（按 V）
+
+在 Level 2 基础上追加 prompt 摘要信息：
+
+```
+  [step 4] tool_call → /dev/shell/exec  1.2s  ✗
+    ├─ args: cmd="grep -r 'TODO' ."
+    ├─ result: exit code 1 (no match)
+    ├─ tokens: req +120, resp +200
+    ├─ error: command returned non-zero exit code
+    ├─ prompt: 12 messages, 8432 tokens
+    └─ first_user: "分析 ./src/auth/login.go 的安全..."
+```
+
+| 属性 | 规范 |
+|------|------|
+| **prompt** | 消息数 + token 数（灰色） |
+| **first_user** | 首条 user 消息预览（截断到 50 字符，灰色斜体） |
+| **切换** | 按 `V`（大写），响应延迟 ≤ 50ms（NFR60） |
+
+#### Prompt 查看模式（按 p）
+
+进入 less 式全屏翻页视图，展示当前步骤的完整 prompt：
+
+```
+  ┌─ Prompt for step 4 ─────────────────────────────┐
+  │                                                   │
+  │  [system]                                         │
+  │  You are a code reviewer focused on code          │
+  │  quality. Analyze the provided code for...        │
+  │                                                   │
+  │  [user] (msg 1/12)                                │
+  │  分析 ./src/auth/login.go 的安全性                 │
+  │                                                   │
+  │  [assistant] (msg 2/12)                           │
+  │  我会先读取文件内容...                              │
+  │                                                   │
+  │  [tool] (msg 3/12) /dev/fs → 2847 bytes           │
+  │  package auth...                                  │
+  │                                                   │
+  │  ── Tools (3 defined) ──                          │
+  │  /dev/fs: Read host filesystem files              │
+  │  /dev/shell: Execute shell commands               │
+  │  /dev/llm/claude: LLM inference                   │
+  │                                                   │
+  ├─ q: back to watch │ ↑↓: scroll │ /: search ──────┤
+  └───────────────────────────────────────────────────┘
+```
+
+| 属性 | 规范 |
+|------|------|
+| **框架** | BubbleTea viewport 组件，支持上下滚动和搜索 |
+| **内容结构** | SystemPrompt → Messages（按顺序）→ Tools 定义 |
+| **消息标记** | `[system]` 灰色、`[user]` 蓝色、`[assistant]` 绿色、`[tool]` 青色 |
+| **消息编号** | `(msg N/M)` 灰色，帮助定位 |
+| **Tools 区** | 分隔线 `──` 后列出所有 tool 定义（名称 + 描述） |
+| **数据来源** | GetStepDetail IPC，延迟 ≤ 500ms（NFR61） |
+| **退出** | 按 `q` 返回 watch 实时流 |
+| **搜索** | 按 `/` 进入搜索模式，高亮匹配文本 |
+
+---
+
+### spawn --watch 交互
+
+```
+$ rnix spawn --watch "分析 main.go 的代码质量" --agent=code-analyst
+
+[kernel] spawning PID 5 (provider: claude)...
+
+  watching PID 5 (agent: code-analyst, provider: claude)
+  ─────────────────────────────────────────────────────
+
+  [step 1] tool_call → /dev/fs/read  0.1s  ✓
+  ...
+```
+
+| 属性 | 规范 |
+|------|------|
+| **spawn 输出** | 先显示标准 spawn 信息行 `[kernel] spawning PID N...` |
+| **零延迟过渡** | spawn 返回 PID 后 ≤ 100ms 进入 watch 视图（NFR58） |
+| **watch header** | 紧接在 spawn 行之后，无需额外操作 |
+| **结束行为** | 进程完成后显示汇总行，watch 自动退出 |
+
+---
+
+### top↔watch 导航交互
+
+#### top → watch（按 Enter）
+
+```
+$ rnix top
+
+  PID   STATE     AGENT          PROVIDER   TOKENS   ELAPSED
+  ───   ─────     ─────          ────────   ──────   ───────
+   42   running   code-analyst   claude      1,200   4.2s     ← 选中
+   43   running   tech-writer    ollama        800   3.1s
+   44   pending   pr-reviewer    claude          0   0.0s
+
+  [Enter: watch | k: kill | q: quit]
+```
+
+用户按 Enter 后：
+
+```
+  watching PID 42 (agent: code-analyst, provider: claude)
+  ─────────────────────────────────────────────────────
+
+  [step 3] tool_call → /dev/fs/read  0.1s  ✓
+  [step 4] thinking...
+```
+
+| 属性 | 规范 |
+|------|------|
+| **切换延迟** | top → watch ≤ 100ms（NFR63） |
+| **视图共享** | top 和 watch 共享同一 BubbleTea program，Model 切换 |
+| **状态保留** | watch 接入正在进行的 Progress 回调流，显示当前步骤 |
+
+#### watch → top（按 q）
+
+| 属性 | 规范 |
+|------|------|
+| **切换延迟** | watch → top ≤ 50ms（NFR63） |
+| **top 恢复** | 返回到之前的进程列表状态（选中位置保留） |
+| **进程不受影响** | 断开 watch 流不影响目标进程继续运行 |
+
+---
+
+### watch 键盘操作汇总
+
+| 按键 | 操作 | 适用视图 |
+|------|------|---------|
+| `v` | 展开/折叠选中步骤到 Level 2 | watch 主视图 |
+| `V` | 切换到 Level 3 调试详情 | watch 主视图 |
+| `p` | 查看当前步骤完整 prompt | watch 主视图 |
+| `q` | 退出（返回 top 或终端） | 所有视图 |
+| `↑` `↓` | 选择步骤 / 滚动 | watch 主视图 / prompt 翻页 |
+| `/` | 搜索 | prompt 翻页模式 |
+| `Ctrl+C` | 断开 watch，不影响进程 | 所有视图 |
+
+---
+
+### watch 边界场景
+
+| 场景 | 输出 | 设计要点 |
+|------|------|---------|
+| PID 不存在 | `✗ process 999 not found`<br>`  → 建议: rnix ps 查看活跃进程` | 三行错误结构 |
+| 进程已完成 | 显示已记录的步骤 + 完成汇总（从 steps.jsonl 回放） | 支持事后查看 |
+| watch 中进程异常退出 | 最后一步显示错误详情 + 退出状态 | 自动展开错误步骤 |
+| StepRecord 文件不存在 | `⚠ no step records for PID 42` | 可能是极早期退出 |
+| GetStepDetail 超时 | `⚠ loading prompt... (slow)` | 显示加载指示，不阻塞 watch 流 |
