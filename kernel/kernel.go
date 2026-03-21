@@ -1594,7 +1594,10 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"fd": toolFD,
 			}, nil, closeErr, time.Since(closeStart))
 
-			// Write StepRecord before AppendToolResult (Story 27.1 AC-6)
+			// Write StepRecord before AppendToolResult (Story 27.1 AC-6).
+			// Placed after tool execution to capture ToolResult/ToolDuration, but before
+			// AppendToolResult. Messages snapshot consistency is guaranteed because
+			// rec.Messages uses promptResult (immutable from BuildPrompt), not live context.
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
 				"tool_call", briefToolCallSummary(action.ToolPath, string(toolResult)),
 				action.ToolPath, string(action.ToolData), string(toolResult), "", time.Since(toolOpenStart))
@@ -2817,15 +2820,23 @@ func (k *KernelImpl) writeStepRecord(proc *Process, step int, promptResult *rnix
 	}
 
 	var msgsRaw json.RawMessage
+	var msgCount int
 	if promptResult != nil {
-		msgsRaw, _ = json.Marshal(promptResult.Messages)
+		msgCount = len(promptResult.Messages)
+		var marshalErr error
+		msgsRaw, marshalErr = json.Marshal(promptResult.Messages)
+		if marshalErr != nil {
+			log.Printf("[step_writer] messages marshal error pid=%d step=%d: %v", proc.PID, step, marshalErr)
+			msgsRaw = nil
+			msgCount = 0
+		}
 	}
 
 	rec := types.StepRecord{
 		Step:         step,
 		Timestamp:    time.Since(proc.CreatedAt),
 		Messages:     msgsRaw,
-		MessageCount: len(promptResult.Messages),
+		MessageCount: msgCount,
 		RawResponse:  rawResponse,
 		Action:       actionType,
 		Summary:      summary,

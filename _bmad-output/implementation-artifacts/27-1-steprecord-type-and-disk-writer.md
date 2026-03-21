@@ -1,6 +1,6 @@
 # Story 27.1: StepRecord 类型定义与磁盘写入器
 
-Status: review
+Status: done
 
 ## Story
 
@@ -305,6 +305,16 @@ Claude Opus 4.6 (1M context)
 - ✅ 性能验证：StepWriter 单次写入平均 < 1ms
 - ✅ `make all`（lint + vet + test + build）22 个包全部通过，0 lint issues
 
+### Code Review Fixes (CR Pass)
+
+- ✅ P-1: `writeStepRecord` 中 `promptResult` nil 时 `len(promptResult.Messages)` 防御 — 移入 nil 守卫内
+- ✅ P-2: `json.Marshal(promptResult.Messages)` 失败时记录日志并置零 msgCount
+- ✅ P-3: `reapProcess` 中 `json.Marshal(meta)` 失败时增加 `log.Printf` 错误日志
+- ✅ P-4: `sw.Close()` 错误不再丢弃，增加 `log.Printf` 错误日志
+- ✅ P-5: `ActionToolCall` 路径 writeStepRecord 位于 AppendToolResult 之前，注释说明 Messages 快照通过 promptResult 不可变性保证一致性
+- ℹ️ IG-1（RequestTokens 永为 0）：LLM 驱动不提供 request token 数据，字段留位待后续扩展
+- ℹ️ IG-2（7 天清理未实现）：追加到后续 Story 27.x 或独立清理任务
+
 ### File List
 
 **新增文件：**
@@ -329,3 +339,4 @@ Claude Opus 4.6 (1M context)
 ### Change Log
 
 - 2026-03-21: Story 27.1 完整实现 — StepRecord 类型定义、StepWriter 磁盘写入器、reasonStep 集成、reaper 清理、record 系统简化
+- 2026-03-21: Code Review 通过 — 修复 5 项 Patch（nil 守卫、marshal 错误日志、Close 错误日志、注释精确化），记录 2 项 Intent Gap（RequestTokens 留位、7 天清理延后）

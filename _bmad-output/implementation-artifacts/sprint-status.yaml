@@ -293,7 +293,7 @@ development_status:
 
   # Epic 27: Unified Observation System (统一观察系统)
   epic-27: in-progress
-  27-1-steprecord-type-and-disk-writer: review
+  27-1-steprecord-type-and-disk-writer: done
   27-2-getstepdetail-ipc-method: backlog
   27-3-watch-command-level1-realtime-stream: backlog
   27-4-watch-three-level-detail-and-prompt-view: backlog

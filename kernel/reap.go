@@ -84,8 +84,12 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 				if err := os.WriteFile(filepath.Join(metaDir, "process-meta.json"), metaJSON, 0o644); err != nil {
 					log.Printf("[step_writer] process-meta.json write error pid=%d: %v", proc.PID, err)
 				}
+			} else {
+				log.Printf("[step_writer] process-meta.json marshal error pid=%d: %v", proc.PID, err)
 			}
-			_ = sw.Close()
+			if err := sw.Close(); err != nil {
+				log.Printf("[step_writer] close error pid=%d: %v", proc.PID, err)
+			}
 		}
 
 		// 3. close(DebugChan) — nil out under lock first to prevent races with emitEvent
