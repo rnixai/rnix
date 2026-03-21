@@ -37,24 +37,18 @@ func buildForkTestEvents() []RecordEvent {
 		// First context snapshot (5 messages)
 		{SeqNum: 3, Timestamp: 300 * time.Millisecond, PID: 42, Type: RecordContextSnapshot,
 			Context: &ContextSnapshotData{
-				SystemPromptHash: "a1b2c3d4e5f6a7b8",
-				MessageCount:     5,
-				Messages:         []string{"[system] You are...", "[user] Hello", "[assistant] Hi", "[user] Analyze code", "[assistant] OK"},
-				TokenEstimate:    2500,
+				Messages: []string{"[system] You are...", "[user] Hello", "[assistant] Hi", "[user] Analyze code", "[assistant] OK"},
 			}},
 		// Syscall between snapshots
 		{SeqNum: 4, Timestamp: 400 * time.Millisecond, PID: 42, Type: RecordSyscall,
 			Syscall: &SyscallEventData{Syscall: "Open", Duration: 2 * time.Millisecond}},
 		// LLM Response
 		{SeqNum: 5, Timestamp: 500 * time.Millisecond, PID: 42, Type: RecordLLMResponse,
-			LLM: &LLMResponseData{Model: "claude", RequestTokens: 2500, ResponseTokens: 300, ResponseSummary: "analysis result"}},
+			LLM: &LLMResponseData{Model: "claude", RequestTokens: 2500, ResponseTokens: 300}},
 		// Second context snapshot (8 messages)
 		{SeqNum: 6, Timestamp: 1800 * time.Millisecond, PID: 42, Type: RecordContextSnapshot,
 			Context: &ContextSnapshotData{
-				SystemPromptHash: "a1b2c3d4e5f6a7b8",
-				MessageCount:     8,
-				Messages:         []string{"[system] You are...", "[user] Hello", "[assistant] Hi", "[user] Analyze code", "[assistant] OK", "[user] Analyze perf", "[assistant] Analyzing...", "[user] Optimize findUser"},
-				TokenEstimate:    4200,
+				Messages: []string{"[system] You are...", "[user] Hello", "[assistant] Hi", "[user] Analyze code", "[assistant] OK", "[user] Analyze perf", "[assistant] Analyzing...", "[user] Optimize findUser"},
 			}},
 		// More events after second snapshot
 		{SeqNum: 7, Timestamp: 2000 * time.Millisecond, PID: 42, Type: RecordSyscall,

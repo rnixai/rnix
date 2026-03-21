@@ -1,8 +1,12 @@
 package kernel
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -53,6 +57,36 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 
 		// 2. wg.Wait() — wait for goroutine to complete (internal defer executes CloseAll)
 		proc.wg.Wait()
+
+		// 2.5 Write process-meta.json and close StepWriter (Story 27.1 AC-8)
+		proc.mu.Lock()
+		sw := proc.stepWriter
+		proc.stepWriter = nil
+		fsp := proc.FinalSystemPrompt
+		toolDefs := proc.nativeToolDefs
+		proc.mu.Unlock()
+		if sw != nil {
+			// Write process-meta.json to the same directory
+			metaDir := filepath.Dir(sw.file.Name())
+			meta := struct {
+				SystemPrompt string     `json:"system_prompt"`
+				ToolDefs     []any      `json:"tool_defs"`
+			}{
+				SystemPrompt: fsp,
+			}
+			if toolDefs != nil {
+				meta.ToolDefs = make([]any, len(toolDefs))
+				for i, td := range toolDefs {
+					meta.ToolDefs[i] = td
+				}
+			}
+			if metaJSON, err := json.Marshal(meta); err == nil {
+				if err := os.WriteFile(filepath.Join(metaDir, "process-meta.json"), metaJSON, 0o644); err != nil {
+					log.Printf("[step_writer] process-meta.json write error pid=%d: %v", proc.PID, err)
+				}
+			}
+			_ = sw.Close()
+		}
 
 		// 3. close(DebugChan) — nil out under lock first to prevent races with emitEvent
 		proc.mu.Lock()

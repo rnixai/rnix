@@ -98,24 +98,18 @@ func ComputeContextDiff(from, to *ContextSnapshotData, fromEv, toEv *RecordEvent
 		ToTimestamp:   toEv.Timestamp,
 	}
 
-	// System prompt comparison
+	// System prompt comparison (simplified in Story 27.1 — hash no longer available)
 	diff.SystemPrompt = PromptDiff{
-		Changed:  from.SystemPromptHash != to.SystemPromptHash,
-		FromHash: from.SystemPromptHash,
-		ToHash:   to.SystemPromptHash,
+		Changed: false,
 	}
 
 	// Messages comparison using common-prefix algorithm
 	diff.Messages = computeMessagesDiff(from.Messages, to.Messages)
-	diff.Messages.FromCount = from.MessageCount
-	diff.Messages.ToCount = to.MessageCount
+	diff.Messages.FromCount = len(from.Messages)
+	diff.Messages.ToCount = len(to.Messages)
 
-	// Token delta
-	diff.TokenDelta = TokenDelta{
-		FromTokens: from.TokenEstimate,
-		ToTokens:   to.TokenEstimate,
-		Delta:      to.TokenEstimate - from.TokenEstimate,
-	}
+	// Token delta (simplified in Story 27.1 — estimate no longer available)
+	diff.TokenDelta = TokenDelta{}
 
 	return diff
 }
