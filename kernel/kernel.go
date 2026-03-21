@@ -8,6 +8,7 @@ import (
 	"log"
 	"maps"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -236,6 +237,10 @@ type KernelImpl struct {
 
 	// Immune daemon (Story 22.1)
 	immuneDaemon *ImmuneDaemon
+
+	// Step data directory override for testing (Story 27.1)
+	// When non-empty, StepWriter writes to this dir instead of <projectDir>/.rnix/
+	stepDataDir string
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -256,6 +261,12 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 	}
 	k.startReaper()
 	return k
+}
+
+// SetStepDataDir overrides the base directory for StepWriter output.
+// Used in tests to redirect step data to a temp directory.
+func (k *KernelImpl) SetStepDataDir(dir string) {
+	k.stepDataDir = dir
 }
 
 // resolveLLMDevice returns the VFS device path for the LLM provider and its source.
@@ -1008,6 +1019,23 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		maxSteps = opts.MaxTurns
 	}
 
+	// Initialize StepWriter for observation system (Story 27.1)
+	stepBaseDir := k.stepDataDir
+	if stepBaseDir == "" {
+		if proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+			stepBaseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
+		}
+	}
+	if stepBaseDir != "" {
+		sw, err := NewStepWriter(stepBaseDir, proc.PID)
+		if err == nil {
+			proc.mu.Lock()
+			proc.stepWriter = sw
+			proc.mu.Unlock()
+		}
+		// Non-fatal: step recording is best-effort
+	}
+
 	defer func() {
 		// Ensure process always transitions to Zombie
 		if proc.GetState() == types.StateRunning {
@@ -1154,6 +1182,13 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				".\nTheir instructions are already in your system prompt. Follow them using available VFS devices." +
 				"\nDo NOT try to call these skills via /dev/mcp/ or any device path."
 		}
+		// Capture FinalSystemPrompt on first reasonStep (Story 27.1 AC-5)
+		proc.mu.Lock()
+		if proc.FinalSystemPrompt == "" {
+			proc.FinalSystemPrompt = sysPrompt
+		}
+		proc.mu.Unlock()
+
 		req := llmRequest{
 			Intent:       proc.Intent,
 			SystemPrompt: sysPrompt,
@@ -1228,6 +1263,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		// Parse LLM response
 		var resp llmResponse
+		rawResponseStr := string(respData)
 		if err := json.Unmarshal(respData, &resp); err != nil {
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
@@ -1250,9 +1286,8 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				PID:       proc.PID,
 				Type:      debug.RecordLLMResponse,
 				LLM: &debug.LLMResponseData{
-					Model:           model,
-					ResponseTokens:  resp.TokensUsed,
-					ResponseSummary: debug.TruncateString(resp.Content, 500),
+					Model:          model,
+					ResponseTokens: resp.TokensUsed,
 				},
 			}
 			if err := k.recordMgr.RecordEvent(proc.PID, llmEvent); err != nil {
@@ -1319,6 +1354,13 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		// Native tool calls path: handle ToolCalls from LLM response directly
 		if proc.UseNativeTools && len(resp.ToolCalls) > 0 {
+			// Write StepRecord before context modification (Story 27.1 AC-6)
+			toolNames := make([]string, len(resp.ToolCalls))
+			for i, tc := range resp.ToolCalls {
+				toolNames[i] = tc.Name
+			}
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"native_tool_call", strings.Join(toolNames, ","), "", "", "", "", 0)
 			shouldContinue := k.executeNativeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors)
 			if !shouldContinue {
 				return
@@ -1351,6 +1393,10 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		case ActionText:
 			// Emit [output] log entry with the final text
 			k.emitLog(proc, step, types.LogOutput, action.Content, "")
+
+			// Write StepRecord before modifying context (Story 27.1 AC-6)
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"text", briefTextSummary(action.Content), "", "", "", "", 0)
 
 			proc.mu.Lock()
 			proc.Result = action.Content
@@ -1548,6 +1594,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"fd": toolFD,
 			}, nil, closeErr, time.Since(closeStart))
 
+			// Write StepRecord before AppendToolResult (Story 27.1 AC-6)
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"tool_call", briefToolCallSummary(action.ToolPath, string(toolResult)),
+				action.ToolPath, string(action.ToolData), string(toolResult), "", time.Since(toolOpenStart))
+
 			// Append tool result to context
 			appendToolStart := time.Now()
 			if err := k.ctxMgr.AppendToolResult(proc.CtxID, action.ToolPath, string(toolResult)); err != nil {
@@ -1579,6 +1630,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		case ActionPlan:
 			if !proc.PlanningEnabled {
 				k.emitLog(proc, step, types.LogOutput, action.Content, "")
+				// Write StepRecord (Story 27.1)
+				k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+					"plan_as_text", briefTextSummary(action.Content), "", "", "", "", 0)
 				proc.mu.Lock()
 				proc.Result = action.Content
 				proc.mu.Unlock()
@@ -1594,6 +1648,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 
 			planContent := fmt.Sprintf("[Plan]\n%s", string(action.ToolData))
+			// Write StepRecord before AppendMessage (Story 27.1 AC-6)
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"plan", briefPlanSummary(action.ToolData), "", "", "", "", 0)
 			appendStart := time.Now()
 			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, planContent); err != nil {
 				k.emitEvent(proc, "CtxWrite", map[string]any{
@@ -1621,6 +1678,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			continue
 
 		case ActionSpawn:
+			// Write StepRecord before AppendMessage (Story 27.1 AC-6)
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"spawn", action.ToolPath, "", "", "", "", 0)
 			appendAssistantStart2 := time.Now()
 			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, resp.Content); err != nil {
 				k.emitEvent(proc, "CtxWrite", map[string]any{
@@ -1792,6 +1852,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 
 			k.emitLog(proc, step, types.LogOutput, result, "")
+			// Write StepRecord (Story 27.1)
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"complete", briefTextSummary(result), "", "", "", "", 0)
 			proc.mu.Lock()
 			proc.Result = result
 			proc.mu.Unlock()
@@ -1819,6 +1882,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 
 			replanContent := fmt.Sprintf("[Replan] %s", reason)
+			// Write StepRecord before AppendMessage (Story 27.1 AC-6)
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"replan", reason, "", "", "", "", 0)
 			appendStart := time.Now()
 			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, replanContent); err != nil {
 				k.emitEvent(proc, "CtxWrite", map[string]any{
@@ -1846,6 +1912,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			continue
 
 		case ActionSpecialize:
+			// Write StepRecord (Story 27.1)
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"specialize", action.ToolPath, "", "", "", "", 0)
 			skillName := action.ToolPath
 			if skillName == "" {
 				errMsg := "specialize error: empty skill name"
@@ -2721,40 +2790,58 @@ func (k *KernelImpl) GetDebugChan(pid types.PID) (chan types.SyscallEvent, bool)
 }
 
 // recordContextSnapshot captures a context snapshot for recording (Story 14.1).
-// Uses GetContextInfo for a lightweight snapshot instead of BuildPrompt to avoid
-// doubling the prompt construction cost in the hot path.
+// Simplified in Story 27.1: removed summary fields (StepRecord captures complete data).
 func (k *KernelImpl) recordContextSnapshot(proc *Process) {
-	info, err := k.ctxMgr.GetContextInfo(proc.CtxID)
-	if err != nil {
-		log.Printf("[record] context snapshot error pid=%d: %v", proc.PID, err)
-		return
-	}
-
-	messageCount := 0
-	if mc, ok := info["total_messages"].(int); ok {
-		messageCount = mc
-	}
-	totalTokens := 0
-	if tt, ok := info["total_tokens"].(int); ok {
-		totalTokens = tt
-	}
-	promptChars := 0
-	if pc, ok := info["system_prompt_chars"].(int); ok {
-		promptChars = pc
-	}
-
 	ctxEvent := debug.RecordEvent{
 		Timestamp: time.Since(proc.CreatedAt),
 		PID:       proc.PID,
 		Type:      debug.RecordContextSnapshot,
-		Context: &debug.ContextSnapshotData{
-			SystemPromptHash: fmt.Sprintf("len:%d", promptChars),
-			MessageCount:     messageCount,
-			TokenEstimate:    totalTokens,
-		},
+		Context:   &debug.ContextSnapshotData{},
 	}
 	if err := k.recordMgr.RecordEvent(proc.PID, ctxEvent); err != nil {
 		log.Printf("[record] context snapshot write error pid=%d: %v", proc.PID, err)
+	}
+}
+
+// writeStepRecord assembles and writes a StepRecord to the process's StepWriter.
+// Best-effort: errors are logged but do not affect the reasoning loop.
+func (k *KernelImpl) writeStepRecord(proc *Process, step int, promptResult *rnixctx.PromptResult,
+	rawResponse string, resp *llmResponse, actionType string, summary string,
+	toolPath string, toolInput string, toolResult string, toolError string, toolDuration time.Duration) {
+
+	proc.mu.Lock()
+	sw := proc.stepWriter
+	proc.mu.Unlock()
+	if sw == nil {
+		return
+	}
+
+	var msgsRaw json.RawMessage
+	if promptResult != nil {
+		msgsRaw, _ = json.Marshal(promptResult.Messages)
+	}
+
+	rec := types.StepRecord{
+		Step:         step,
+		Timestamp:    time.Since(proc.CreatedAt),
+		Messages:     msgsRaw,
+		MessageCount: len(promptResult.Messages),
+		RawResponse:  rawResponse,
+		Action:       actionType,
+		Summary:      summary,
+		ToolPath:     toolPath,
+		ToolInput:    toolInput,
+		ToolResult:   toolResult,
+		ToolError:    toolError,
+		ToolDuration: toolDuration,
+	}
+	if resp != nil {
+		rec.TokenCount = resp.TokensUsed
+		rec.ResponseTokens = resp.TokensUsed
+	}
+
+	if err := sw.WriteStep(rec); err != nil {
+		log.Printf("[step_writer] write error pid=%d step=%d: %v", proc.PID, step, err)
 	}
 }
 

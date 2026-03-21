@@ -82,10 +82,6 @@ func formatLLMEvent(seq, ts string, event *RecordEvent, verbose bool) string {
 	l := event.LLM
 	base := fmt.Sprintf("[%s %s] llm: model=%s req=%dtok resp=%dtok",
 		seq, ts, l.Model, l.RequestTokens, l.ResponseTokens)
-
-	if verbose && l.ResponseSummary != "" {
-		return base + fmt.Sprintf(" %q", l.ResponseSummary)
-	}
 	return base
 }
 
@@ -94,12 +90,8 @@ func formatContextEvent(seq, ts string, event *RecordEvent, verbose bool) string
 		return fmt.Sprintf("[%s %s] context: (no data)", seq, ts)
 	}
 	c := event.Context
-	base := fmt.Sprintf("[%s %s] context: msgs=%d tokens≈%d",
-		seq, ts, c.MessageCount, c.TokenEstimate)
-
-	if verbose && c.SystemPromptHash != "" {
-		return base + fmt.Sprintf(" sysPromptHash=%s", c.SystemPromptHash)
-	}
+	base := fmt.Sprintf("[%s %s] context: msgs=%d",
+		seq, ts, len(c.Messages))
 	return base
 }
 
@@ -159,7 +151,7 @@ func formatListDetail(ev *RecordEvent) string {
 		}
 	case RecordContextSnapshot:
 		if ev.Context != nil {
-			return fmt.Sprintf("msgs=%d", ev.Context.MessageCount)
+			return fmt.Sprintf("msgs=%d", len(ev.Context.Messages))
 		}
 	case RecordStateChange:
 		if ev.State != nil {

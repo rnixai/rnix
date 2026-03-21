@@ -51,10 +51,9 @@ func TestFormatReplayEvent_LLM(t *testing.T) {
 		PID:       42,
 		Type:      RecordLLMResponse,
 		LLM: &LLMResponseData{
-			Model:           "claude-opus-4-6",
-			RequestTokens:   1200,
-			ResponseTokens:  800,
-			ResponseSummary: "analyzed the code",
+			Model:          "claude-opus-4-6",
+			RequestTokens:  1200,
+			ResponseTokens: 800,
 		},
 	}
 
@@ -79,9 +78,7 @@ func TestFormatReplayEvent_Context(t *testing.T) {
 		PID:       42,
 		Type:      RecordContextSnapshot,
 		Context: &ContextSnapshotData{
-			SystemPromptHash: "a1b2c3d4",
-			MessageCount:     12,
-			TokenEstimate:    4500,
+			Messages: []string{"msg1", "msg2", "msg3", "msg4", "msg5", "msg6", "msg7", "msg8", "msg9", "msg10", "msg11", "msg12"},
 		},
 	}
 

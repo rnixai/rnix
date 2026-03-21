@@ -102,6 +102,10 @@ type Process struct {
 	Model            string // resolved model name (immutable after spawn)
 	PlanningEnabled  bool   // true = inject planProtocol; derived from agent manifest Planning field
 
+	// Observation system (Story 27.1)
+	FinalSystemPrompt string      // Full system prompt captured on first reasonStep (mu protected)
+	stepWriter        *StepWriter // NDJSON step recorder (mu protected)
+
 	// Native tool calling support (immutable after Spawn)
 	UseNativeTools    bool                // true when LLM driver implements ToolCallingDriver
 	toolMap           map[string]toolMapping // tool name → VFS path mapping; immutable after Spawn

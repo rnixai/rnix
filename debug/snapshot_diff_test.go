@@ -24,21 +24,15 @@ func buildSnapshotTestEvents() []RecordEvent {
 			Syscall: &SyscallEventData{Syscall: "CtxAlloc", Duration: 1 * time.Millisecond}},
 		{SeqNum: 3, Timestamp: 300 * time.Millisecond, PID: 42, Type: RecordContextSnapshot,
 			Context: &ContextSnapshotData{
-				SystemPromptHash: "a1b2c3d4e5f6a7b8",
-				MessageCount:     5,
-				Messages:         []string{"[system] You are...", "[user] Hello", "[assistant] Hi", "[user] Analyze code", "[assistant] OK"},
-				TokenEstimate:    2500,
+				Messages: []string{"[system] You are...", "[user] Hello", "[assistant] Hi", "[user] Analyze code", "[assistant] OK"},
 			}},
 		{SeqNum: 4, Timestamp: 400 * time.Millisecond, PID: 42, Type: RecordSyscall,
 			Syscall: &SyscallEventData{Syscall: "Open", Duration: 2 * time.Millisecond}},
 		{SeqNum: 5, Timestamp: 500 * time.Millisecond, PID: 42, Type: RecordLLMResponse,
-			LLM: &LLMResponseData{Model: "claude", RequestTokens: 2500, ResponseTokens: 300, ResponseSummary: "analysis result"}},
+			LLM: &LLMResponseData{Model: "claude", RequestTokens: 2500, ResponseTokens: 300}},
 		{SeqNum: 6, Timestamp: 1800 * time.Millisecond, PID: 42, Type: RecordContextSnapshot,
 			Context: &ContextSnapshotData{
-				SystemPromptHash: "a1b2c3d4e5f6a7b8",
-				MessageCount:     8,
-				Messages:         []string{"[system] You are...", "[user] Hello", "[assistant] Hi", "[user] Analyze code", "[assistant] OK", "[user] Analyze perf", "[assistant] Analyzing...", "[user] Optimize findUser"},
-				TokenEstimate:    4200,
+				Messages: []string{"[system] You are...", "[user] Hello", "[assistant] Hi", "[user] Analyze code", "[assistant] OK", "[user] Analyze perf", "[assistant] Analyzing...", "[user] Optimize findUser"},
 			}},
 		{SeqNum: 7, Timestamp: 2000 * time.Millisecond, PID: 42, Type: RecordSyscall,
 			Syscall: &SyscallEventData{Syscall: "Write", Duration: 1 * time.Millisecond}},
@@ -206,33 +200,23 @@ func TestComputeContextDiff_MessageAdditions(t *testing.T) {
 	}
 }
 
-// 14.3-DIFF-002: [P0] ComputeContextDiff detects system prompt change
+// 14.3-DIFF-002: [P0] ComputeContextDiff system prompt change detection
+// (Simplified in Story 27.1 AC-9: SystemPromptHash removed, Changed is always false)
 func TestComputeContextDiff_SystemPromptChanged(t *testing.T) {
 	from := &ContextSnapshotData{
-		SystemPromptHash: "a1b2c3d4e5f6a7b8",
-		MessageCount:     3,
-		Messages:         []string{"[system] v1", "[user] hi", "[assistant] hello"},
-		TokenEstimate:    1000,
+		Messages: []string{"[system] v1", "[user] hi", "[assistant] hello"},
 	}
 	to := &ContextSnapshotData{
-		SystemPromptHash: "b2c3d4e5f6a7b8c9",
-		MessageCount:     3,
-		Messages:         []string{"[system] v2", "[user] hi", "[assistant] hello"},
-		TokenEstimate:    1100,
+		Messages: []string{"[system] v2", "[user] hi", "[assistant] hello"},
 	}
 	fromEv := &RecordEvent{SeqNum: 1, Timestamp: 100 * time.Millisecond}
 	toEv := &RecordEvent{SeqNum: 5, Timestamp: 500 * time.Millisecond}
 
 	diff := ComputeContextDiff(from, to, fromEv, toEv)
 
-	if !diff.SystemPrompt.Changed {
-		t.Fatal("expected SystemPrompt.Changed=true, got false")
-	}
-	if diff.SystemPrompt.FromHash != "a1b2c3d4e5f6a7b8" {
-		t.Fatalf("expected FromHash=a1b2c3d4e5f6a7b8, got %s", diff.SystemPrompt.FromHash)
-	}
-	if diff.SystemPrompt.ToHash != "b2c3d4e5f6a7b8c9" {
-		t.Fatalf("expected ToHash=b2c3d4e5f6a7b8c9, got %s", diff.SystemPrompt.ToHash)
+	// SystemPromptHash removed in Story 27.1, so Changed is always false
+	if diff.SystemPrompt.Changed {
+		t.Fatal("expected SystemPrompt.Changed=false (hash no longer tracked), got true")
 	}
 }
 
@@ -252,59 +236,53 @@ func TestComputeContextDiff_SystemPromptUnchanged(t *testing.T) {
 	}
 }
 
-// 14.3-DIFF-004: [P0] ComputeContextDiff calculates positive token delta
+// 14.3-DIFF-004: [P0] ComputeContextDiff token delta
+// (Simplified in Story 27.1 AC-9: TokenEstimate removed, delta always 0)
 func TestComputeContextDiff_TokenDeltaPositive(t *testing.T) {
 	events := buildSnapshotTestEvents()
 
-	from := events[2].Context  // 2500 tokens
-	to := events[5].Context    // 4200 tokens
+	from := events[2].Context
+	to := events[5].Context
 	fromEv := &events[2]
 	toEv := &events[5]
 
 	diff := ComputeContextDiff(from, to, fromEv, toEv)
 
-	if diff.TokenDelta.FromTokens != 2500 {
-		t.Fatalf("expected FromTokens=2500, got %d", diff.TokenDelta.FromTokens)
+	// TokenEstimate removed in Story 27.1 AC-9, so all token values are 0
+	if diff.TokenDelta.FromTokens != 0 {
+		t.Fatalf("expected FromTokens=0, got %d", diff.TokenDelta.FromTokens)
 	}
-	if diff.TokenDelta.ToTokens != 4200 {
-		t.Fatalf("expected ToTokens=4200, got %d", diff.TokenDelta.ToTokens)
+	if diff.TokenDelta.ToTokens != 0 {
+		t.Fatalf("expected ToTokens=0, got %d", diff.TokenDelta.ToTokens)
 	}
-	if diff.TokenDelta.Delta != 1700 {
-		t.Fatalf("expected Delta=+1700, got %d", diff.TokenDelta.Delta)
+	if diff.TokenDelta.Delta != 0 {
+		t.Fatalf("expected Delta=0, got %d", diff.TokenDelta.Delta)
 	}
 }
 
 // 14.3-DIFF-005: [P1] ComputeContextDiff calculates negative token delta
 func TestComputeContextDiff_TokenDeltaNegative(t *testing.T) {
 	from := &ContextSnapshotData{
-		SystemPromptHash: "aabbccdd",
-		MessageCount:     5,
-		Messages:         []string{"a", "b", "c", "d", "e"},
-		TokenEstimate:    5000,
+		Messages: []string{"a", "b", "c", "d", "e"},
 	}
 	to := &ContextSnapshotData{
-		SystemPromptHash: "aabbccdd",
-		MessageCount:     3,
-		Messages:         []string{"a", "b", "c"},
-		TokenEstimate:    3000,
+		Messages: []string{"a", "b", "c"},
 	}
 	fromEv := &RecordEvent{SeqNum: 10, Timestamp: time.Second}
 	toEv := &RecordEvent{SeqNum: 20, Timestamp: 2 * time.Second}
 
 	diff := ComputeContextDiff(from, to, fromEv, toEv)
 
-	if diff.TokenDelta.Delta != -2000 {
-		t.Fatalf("expected Delta=-2000, got %d", diff.TokenDelta.Delta)
+	// TokenEstimate removed in Story 27.1 AC-9, so Delta is always 0
+	if diff.TokenDelta.Delta != 0 {
+		t.Fatalf("expected Delta=0, got %d", diff.TokenDelta.Delta)
 	}
 }
 
 // 14.3-DIFF-006: [P1] ComputeContextDiff detects zero changes (identical snapshots)
 func TestComputeContextDiff_NoChanges(t *testing.T) {
 	snap := &ContextSnapshotData{
-		SystemPromptHash: "aabbccdd",
-		MessageCount:     3,
-		Messages:         []string{"a", "b", "c"},
-		TokenEstimate:    1500,
+		Messages: []string{"a", "b", "c"},
 	}
 	fromEv := &RecordEvent{SeqNum: 3, Timestamp: 300 * time.Millisecond}
 	toEv := &RecordEvent{SeqNum: 6, Timestamp: 600 * time.Millisecond}
@@ -328,16 +306,10 @@ func TestComputeContextDiff_NoChanges(t *testing.T) {
 // 14.3-DIFF-007: [P1] ComputeContextDiff detects message removals
 func TestComputeContextDiff_MessageRemovals(t *testing.T) {
 	from := &ContextSnapshotData{
-		SystemPromptHash: "aabbccdd",
-		MessageCount:     5,
-		Messages:         []string{"a", "b", "c", "d", "e"},
-		TokenEstimate:    2000,
+		Messages: []string{"a", "b", "c", "d", "e"},
 	}
 	to := &ContextSnapshotData{
-		SystemPromptHash: "aabbccdd",
-		MessageCount:     3,
-		Messages:         []string{"a", "b", "c"},
-		TokenEstimate:    1200,
+		Messages: []string{"a", "b", "c"},
 	}
 	fromEv := &RecordEvent{SeqNum: 3, Timestamp: 300 * time.Millisecond}
 	toEv := &RecordEvent{SeqNum: 6, Timestamp: 600 * time.Millisecond}
@@ -355,16 +327,10 @@ func TestComputeContextDiff_MessageRemovals(t *testing.T) {
 // 14.3-DIFF-008: [P1] ComputeContextDiff captures timestamps from events
 func TestComputeContextDiff_Timestamps(t *testing.T) {
 	from := &ContextSnapshotData{
-		SystemPromptHash: "aabbccdd",
-		MessageCount:     1,
-		Messages:         []string{"a"},
-		TokenEstimate:    100,
+		Messages: []string{"a"},
 	}
 	to := &ContextSnapshotData{
-		SystemPromptHash: "aabbccdd",
-		MessageCount:     2,
-		Messages:         []string{"a", "b"},
-		TokenEstimate:    200,
+		Messages: []string{"a", "b"},
 	}
 	fromEv := &RecordEvent{SeqNum: 3, Timestamp: 300 * time.Millisecond}
 	toEv := &RecordEvent{SeqNum: 6, Timestamp: 1800 * time.Millisecond}

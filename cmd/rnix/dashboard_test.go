@@ -1656,10 +1656,7 @@ func newTestRecordReader(t *testing.T) *debug.RecordReader {
 			FromState: "running", ToState: "sleeping", Reason: "waiting for LLM",
 		}},
 		{SeqNum: 3, Timestamp: 400 * time.Millisecond, PID: 2, Type: debug.RecordContextSnapshot, Context: &debug.ContextSnapshotData{
-			SystemPromptHash: "abc123",
-			MessageCount:     3,
-			Messages:         []string{"[system] You are an assistant", "[user] Hello", "[assistant] Hi there"},
-			TokenEstimate:    450,
+			Messages: []string{"[system] You are an assistant", "[user] Hello", "[assistant] Hi there"},
 		}},
 		{SeqNum: 4, Timestamp: 500 * time.Millisecond, PID: 2, Type: debug.RecordSyscall, Syscall: &debug.SyscallEventData{
 			Syscall: "Read", Args: map[string]any{"fd": 3}, Err: "EOF", Duration: 1 * time.Millisecond,
@@ -1850,8 +1847,8 @@ func TestReplayDashboard_Heatmap(t *testing.T) {
 	if profile == nil {
 		t.Fatal("buildReplayHeatmap should return non-nil for recording with ContextSnapshot")
 	}
-	if profile.TotalTokens != 450 {
-		t.Errorf("TotalTokens should be 450 (from ContextSnapshot), got %d", profile.TotalTokens)
+	if profile.TotalTokens != 0 {
+		t.Errorf("TotalTokens should be 0 (TokenEstimate removed in Story 27.1 AC-9), got %d", profile.TotalTokens)
 	}
 
 	profileBefore := buildReplayHeatmap(reader, 2)

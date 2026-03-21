@@ -40,19 +40,19 @@ type SyscallEventData struct {
 }
 
 // ContextSnapshotData holds a snapshot of the context state.
+// Simplified in Story 27.1 AC-9: removed SystemPromptHash, MessageCount, TokenEstimate
+// (StepRecord now captures complete data).
 type ContextSnapshotData struct {
-	SystemPromptHash string   `json:"system_prompt_hash"`
-	MessageCount     int      `json:"message_count"`
-	Messages         []string `json:"messages"`
-	TokenEstimate    int      `json:"token_estimate"`
+	Messages []string `json:"messages"`
 }
 
 // LLMResponseData holds LLM response metadata.
+// Simplified in Story 27.1 AC-9: removed ResponseSummary
+// (StepRecord now captures complete RawResponse).
 type LLMResponseData struct {
-	Model           string `json:"model"`
-	RequestTokens   int    `json:"request_tokens"`
-	ResponseTokens  int    `json:"response_tokens"`
-	ResponseSummary string `json:"response_summary"`
+	Model          string `json:"model"`
+	RequestTokens  int    `json:"request_tokens"`
+	ResponseTokens int    `json:"response_tokens"`
 }
 
 // StateChangeData records a process state transition.

@@ -1459,7 +1459,8 @@ func buildReplayProcessTree(reader *debug.RecordReader, cursor int) []vfs.ProcIn
 			}
 		}
 		if ev.Type == debug.RecordContextSnapshot && ev.Context != nil {
-			tokensUsed = ev.Context.TokenEstimate
+			// TokenEstimate removed in Story 27.1 AC-9; token tracking via StepRecord now
+			_ = ev.Context
 		}
 	}
 
@@ -1511,7 +1512,7 @@ func buildReplayHeatmap(reader *debug.RecordReader, cursor int) *debug.CtxProfil
 		return nil
 	}
 
-	totalTokens := snap.TokenEstimate
+	totalTokens := 0 // TokenEstimate removed in Story 27.1 AC-9
 	var consumers []debug.ConsumerEntry
 	kindTokens := map[string]int{}
 
