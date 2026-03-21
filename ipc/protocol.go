@@ -50,6 +50,7 @@ const (
 	MethodImmuneResume     Method = "immune_resume"
 	MethodSimilarityQuery  Method = "similarity_query"
 	MethodTopologyQuery    Method = "topology_query"
+	MethodGetStepDetail    Method = "get_step_detail"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -794,6 +795,56 @@ type TopologyQueryResponse struct {
 	Nodes           []kernel.TopologyNode    `json:"nodes"`
 	Edges           []kernel.CooperationEdge `json:"edges"`
 	ReinforcedPaths []kernel.CooperationEdge `json:"reinforced_paths"`
+}
+
+// --- GetStepDetail (Story 27.2) ---
+
+// GetStepDetailRequest is the payload for MethodGetStepDetail.
+type GetStepDetailRequest struct {
+	PID  types.PID `json:"pid"`
+	Step int       `json:"step"`
+}
+
+// GetStepDetailResponse is the response for MethodGetStepDetail.
+type GetStepDetailResponse struct {
+	SystemPrompt   string         `json:"system_prompt"`
+	Tools          []ToolDefWire  `json:"tools"`
+	Step           int            `json:"step"`
+	Messages       []MessageWire  `json:"messages"`
+	MessageCount   int            `json:"message_count"`
+	TokenCount     int            `json:"token_count"`
+	RawResponse    string         `json:"raw_response"`
+	Action         string         `json:"action"`
+	Summary        string         `json:"summary"`
+	ToolPath       string         `json:"tool_path,omitempty"`
+	ToolInput      string         `json:"tool_input,omitempty"`
+	ToolResult     string         `json:"tool_result,omitempty"`
+	ToolError      string         `json:"tool_error,omitempty"`
+	ToolDurationMs float64        `json:"tool_duration_ms,omitempty"`
+	RequestTokens  int            `json:"request_tokens"`
+	ResponseTokens int            `json:"response_tokens"`
+}
+
+// MessageWire is the wire-format representation of context.Message.
+type MessageWire struct {
+	Role       string         `json:"role"`
+	Content    string         `json:"content"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+	ToolCalls  []ToolCallWire `json:"tool_calls,omitempty"`
+}
+
+// ToolCallWire is the wire-format representation of context.ToolCall.
+type ToolCallWire struct {
+	ID    string         `json:"id"`
+	Name  string         `json:"name"`
+	Input map[string]any `json:"input,omitempty"`
+}
+
+// ToolDefWire is the wire-format representation of vfs.ToolDef.
+type ToolDefWire struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

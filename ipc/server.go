@@ -354,6 +354,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleSimilarityQuery(conn, req.Payload)
 		case MethodTopologyQuery:
 			s.handleTopologyQuery(conn)
+		case MethodGetStepDetail:
+			s.handleGetStepDetail(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1825,6 +1827,163 @@ func (s *Server) handleTopologyQuery(conn net.Conn) {
 
 	respPayload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+// handleGetStepDetail returns the full prompt and step data for a specific process step (Story 27.2).
+func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) {
+	var req GetStepDetailRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid get_step_detail request"}})
+		return
+	}
+
+	// Phase A: resolve SystemPrompt + ToolDefs
+	var systemPrompt string
+	var toolDefs []vfs.ToolDef
+	var stepsPath string
+
+	proc, procFound := s.kern.GetProcess(req.PID)
+	if procFound {
+		systemPrompt = proc.GetFinalSystemPrompt()
+		toolDefs = proc.GetNativeToolDefs()
+		stepsPath = s.resolveStepsPathFromProc(proc, req.PID)
+	} else {
+		// Process not in memory — try disk
+		stepsPath = s.resolveStepsPathFallback(req.PID)
+		if stepsPath == "" {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+			return
+		}
+		metaPath := filepath.Join(filepath.Dir(stepsPath), "process-meta.json")
+		meta, err := readProcessMeta(metaPath)
+		if err != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+			return
+		}
+		systemPrompt = meta.SystemPrompt
+		toolDefs = meta.ToolDefs
+	}
+
+	if stepsPath == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		return
+	}
+
+	// Phase B: read StepRecord
+	rec, err := kernel.ReadStep(stepsPath, req.Step)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("step %d not yet recorded", req.Step)}})
+		return
+	}
+
+	// Phase C: assemble response
+	resp := GetStepDetailResponse{
+		SystemPrompt:   systemPrompt,
+		Tools:          toolDefsToWire(toolDefs),
+		Step:           rec.Step,
+		Messages:       messagesToWire(rec.Messages),
+		MessageCount:   rec.MessageCount,
+		TokenCount:     rec.TokenCount,
+		RawResponse:    rec.RawResponse,
+		Action:         rec.Action,
+		Summary:        rec.Summary,
+		ToolPath:       rec.ToolPath,
+		ToolInput:      rec.ToolInput,
+		ToolResult:     rec.ToolResult,
+		ToolError:      rec.ToolError,
+		ToolDurationMs: float64(rec.ToolDuration.Microseconds()) / 1000.0,
+		RequestTokens:  rec.RequestTokens,
+		ResponseTokens: rec.ResponseTokens,
+	}
+
+	payload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// resolveStepsPathFromProc resolves the steps.jsonl path from a living process.
+func (s *Server) resolveStepsPathFromProc(proc *kernel.Process, pid types.PID) string {
+	pidStr := fmt.Sprintf("%d", pid)
+	pc := proc.GetProjectConfig()
+	if pc != nil && pc.ProjectDir != "" {
+		return filepath.Join(pc.ProjectDir, ".rnix", "data", "steps", pidStr, "steps.jsonl")
+	}
+	base := s.kern.GetStepDataDir()
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, "data", "steps", pidStr, "steps.jsonl")
+}
+
+// resolveStepsPathFallback resolves steps.jsonl path when process is not in memory.
+func (s *Server) resolveStepsPathFallback(pid types.PID) string {
+	pidStr := fmt.Sprintf("%d", pid)
+	base := s.kern.GetStepDataDir()
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, "data", "steps", pidStr, "steps.jsonl")
+}
+
+type processMetaFile struct {
+	SystemPrompt string        `json:"system_prompt"`
+	ToolDefs     []vfs.ToolDef `json:"tool_defs"`
+}
+
+func readProcessMeta(path string) (*processMetaFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var meta processMetaFile
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return nil, err
+	}
+	return &meta, nil
+}
+
+func toolDefsToWire(defs []vfs.ToolDef) []ToolDefWire {
+	if defs == nil {
+		return []ToolDefWire{}
+	}
+	wires := make([]ToolDefWire, len(defs))
+	for i, d := range defs {
+		wires[i] = ToolDefWire{
+			Name:        d.Name,
+			Description: d.Description,
+			Parameters:  d.Parameters,
+		}
+	}
+	return wires
+}
+
+func messagesToWire(raw json.RawMessage) []MessageWire {
+	if len(raw) == 0 {
+		return []MessageWire{}
+	}
+	var msgs []rnixctx.Message
+	if err := json.Unmarshal(raw, &msgs); err != nil {
+		return []MessageWire{}
+	}
+	wires := make([]MessageWire, len(msgs))
+	for i, m := range msgs {
+		wm := MessageWire{
+			Role:       string(m.Role),
+			Content:    m.Content,
+			ToolCallID: m.ToolCallID,
+		}
+		if len(m.ToolCalls) > 0 {
+			wm.ToolCalls = make([]ToolCallWire, len(m.ToolCalls))
+			for j, tc := range m.ToolCalls {
+				wm.ToolCalls[j] = ToolCallWire{
+					ID:    tc.ID,
+					Name:  tc.Name,
+					Input: tc.Input,
+				}
+			}
+		}
+		wires[i] = wm
+	}
+	return wires
 }
 
 // handleRecordStart starts execution recording for a process.

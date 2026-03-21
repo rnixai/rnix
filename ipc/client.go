@@ -679,6 +679,19 @@ func (c *Client) IntentList() (*IntentStatusResponse, error) {
 	return &statusResp, nil
 }
 
+// GetStepDetail returns the full prompt and step detail for a specific process step (Story 27.2).
+func (c *Client) GetStepDetail(pid types.PID, step int) (*GetStepDetailResponse, error) {
+	resp, err := c.call(MethodGetStepDetail, GetStepDetailRequest{PID: pid, Step: step})
+	if err != nil {
+		return nil, err
+	}
+	var result GetStepDetailResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal get_step_detail: %w", err)
+	}
+	return &result, nil
+}
+
 // Lineage returns the differentiation lineage for the given PID.
 func (c *Client) Lineage(pid types.PID) (*LineageResponse, error) {
 	resp, err := c.call(MethodLineage, LineageRequest{PID: pid})
