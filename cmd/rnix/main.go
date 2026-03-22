@@ -59,7 +59,6 @@ var (
 	flagAgent    string
 	flagProvider string
 	flagIntent   string
-	flagWatch    bool
 )
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
@@ -123,7 +122,7 @@ func (c *cliCallbacks) OnStep(pid types.PID, step, total int) {
 	c.progress.AgentStep(pid, step, total)
 }
 
-func (c *cliCallbacks) OnStepComplete(pid types.PID, step int, action string, summary string, _ time.Duration, _ bool) {
+func (c *cliCallbacks) OnStepComplete(pid types.PID, step int, action string, summary string) {
 	c.progress.AgentStepComplete(pid, step, action, summary)
 }
 
@@ -250,7 +249,6 @@ func init() {
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
-	rootCmd.Flags().BoolVar(&flagWatch, "watch", false, "Stream reasoning steps in watch format during spawn")
 	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
 	_ = daemonCmd.Flags().MarkHidden("internal")
 	daemonCmd.AddCommand(daemonStopCmd)
@@ -271,7 +269,6 @@ func init() {
 	rootCmd.AddCommand(intentCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(watchCmd)
 }
 
 // levenshtein computes the standard Levenshtein distance between two strings
@@ -502,12 +499,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		forceExitFunc(130)
 	}()
 
-	watchProfile := ui.DetectProfile(os.Stdout)
 	pid, final, spawnErr := client.SpawnAndWatch(req, func(ev ipc.StreamEvent) {
-		if flagWatch && (ev.Type == ipc.StreamComplete || ev.Type == ipc.StreamError) {
-			renderWatchEvent(ev, watchProfile)
-			return
-		}
 		if ev.Type != ipc.StreamProgress {
 			return
 		}
@@ -527,15 +519,9 @@ func runRoot(cmd *cobra.Command, args []string) error {
 				progress.KernelMessage("spawning PID %d...", pp.PID)
 			}
 		case "step":
-			if flagWatch {
-				renderWatchEvent(ev, watchProfile)
-			} else {
-				progress.AgentStep(pp.PID, pp.Step, pp.Total)
-			}
+			progress.AgentStep(pp.PID, pp.Step, pp.Total)
 		case "step_complete":
-			if flagWatch {
-				renderWatchEvent(ev, watchProfile)
-			} else if mode == ui.ModeJSON {
+			if mode == ui.ModeJSON {
 				jsonLine, _ := json.Marshal(pp)
 				fmt.Fprintf(os.Stdout, "%s\n", jsonLine)
 			} else {
