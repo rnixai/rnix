@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/spf13/cobra"
 )
 
 var replayCmd = &cobra.Command{
@@ -41,6 +44,11 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	mgr := debug.NewRecordManager(findRecordBaseDir())
 	recordDir, findErr := mgr.FindRecord(recordID)
 	if findErr != nil {
+		// Try UUID prefix match against step sessions
+		stepsPath := findStepsByUUIDPrefix(recordID)
+		if stepsPath != "" {
+			return runStepReplay(w, recordID, stepsPath, jsonMode)
+		}
 		if jsonMode {
 			resp := JSONResponse{OK: false, Error: map[string]string{"message": fmt.Sprintf("recording %q not found", recordID)}}
 			data, _ := json.Marshal(resp)
@@ -531,4 +539,210 @@ func executeForkContinue(w interface{ Write([]byte) (int, error) }, forkCtx *deb
 		fmt.Fprintf(w, "[fork] Use 'rnix ps' to check status, 'rnix strace %d' to trace.\n", fcResp.PID)
 		fmt.Fprintln(w, "[fork] Returning to replay mode.")
 	}
+}
+
+func findStepsByUUIDPrefix(prefix string) string {
+	cwd, _ := os.Getwd()
+	stepsDir := resolveDataDir(cwd, "steps")
+	entries, err := os.ReadDir(stepsDir)
+	if err != nil {
+		return ""
+	}
+	var match string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if !isUUIDDir(e.Name()) {
+			continue
+		}
+		if strings.HasPrefix(e.Name(), prefix) {
+			if match != "" {
+				return "" // ambiguous prefix
+			}
+			match = filepath.Join(stepsDir, e.Name(), "steps.jsonl")
+		}
+	}
+	if match == "" {
+		return ""
+	}
+	if _, err := os.Stat(match); err != nil {
+		return ""
+	}
+	return match
+}
+
+func runStepReplay(w interface{ Write([]byte) (int, error) }, recordID, stepsPath string, jsonMode bool) error {
+	records, total, err := kernel.ReadAllSteps(stepsPath, 0)
+	if err != nil {
+		if jsonMode {
+			resp := JSONResponse{OK: false, Error: map[string]string{"message": err.Error()}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		} else {
+			fmt.Fprintf(w, "[replay] error reading steps: %v\n", err)
+		}
+		exitCode = 1
+		return nil
+	}
+
+	dirName := filepath.Base(filepath.Dir(stepsPath))
+	pid := readMetaPID(filepath.Join(filepath.Dir(stepsPath), "process-meta.json"))
+
+	if !jsonMode {
+		fmt.Fprintf(w, "[replay] Loading step session %s...\n", dirName)
+		if pid > 0 {
+			fmt.Fprintf(w, "[replay] PID: %d | Steps: %d\n", pid, total)
+		} else {
+			fmt.Fprintf(w, "[replay] Steps: %d\n", total)
+		}
+		fmt.Fprintf(w, "[replay] Type 'next' to step forward, 'quit' to exit\n\n")
+	}
+
+	cursor := -1
+	scanner := bufio.NewScanner(os.Stdin)
+	if !jsonMode {
+		fmt.Fprint(w, "step-replay> ")
+	}
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			if !jsonMode {
+				fmt.Fprint(w, "step-replay> ")
+			}
+			continue
+		}
+
+		switch parts[0] {
+		case "next", "n":
+			cursor++
+			if cursor >= len(records) {
+				if jsonMode {
+					resp := JSONResponse{OK: false, Error: map[string]string{"message": "no more steps"}}
+					data, _ := json.Marshal(resp)
+					fmt.Fprintln(w, string(data))
+				} else {
+					fmt.Fprintln(w, "[replay] end of steps")
+				}
+				cursor = len(records) - 1
+			} else {
+				printStepRecord(w, records[cursor], cursor, total, jsonMode)
+			}
+
+		case "prev", "p":
+			if cursor <= 0 {
+				if !jsonMode {
+					fmt.Fprintln(w, "[replay] at the beginning")
+				}
+				cursor = 0
+			} else {
+				cursor--
+				printStepRecord(w, records[cursor], cursor, total, jsonMode)
+			}
+
+		case "goto":
+			if len(parts) < 2 {
+				if !jsonMode {
+					fmt.Fprintln(w, "[replay] usage: goto <step_num>")
+				}
+			} else {
+				stepNum, parseErr := strconv.Atoi(parts[1])
+				if parseErr != nil {
+					if !jsonMode {
+						fmt.Fprintf(w, "[replay] invalid step: %s\n", parts[1])
+					}
+				} else {
+					found := false
+					for i, r := range records {
+						if r.Step == stepNum {
+							cursor = i
+							printStepRecord(w, records[cursor], cursor, total, jsonMode)
+							found = true
+							break
+						}
+					}
+					if !found && !jsonMode {
+						fmt.Fprintf(w, "[replay] step %d not found\n", stepNum)
+					}
+				}
+			}
+
+		case "list", "l":
+			if !jsonMode {
+				start := max(cursor-2, 0)
+				end := min(start+5, len(records))
+				for i := start; i < end; i++ {
+					marker := "  "
+					if i == cursor {
+						marker = "→ "
+					}
+					fmt.Fprintf(w, "%s#%03d [step %d] %s — %s\n",
+						marker, i+1, records[i].Step, records[i].Action, records[i].Summary)
+				}
+			}
+
+		case "info", "i":
+			if !jsonMode {
+				fmt.Fprintf(w, "[replay] Session: %s\n", dirName)
+				if pid > 0 {
+					fmt.Fprintf(w, "[replay] PID: %d\n", pid)
+				}
+				fmt.Fprintf(w, "[replay] Total steps: %d\n", total)
+				if cursor >= 0 {
+					fmt.Fprintf(w, "[replay] Position: %d/%d\n", cursor+1, total)
+				}
+			}
+
+		case "help", "h":
+			if !jsonMode {
+				fmt.Fprintln(w, "  next / n            - Forward one step")
+				fmt.Fprintln(w, "  prev / p            - Backward one step")
+				fmt.Fprintln(w, "  goto <step_num>     - Jump to step by number")
+				fmt.Fprintln(w, "  list / l            - Show steps around current position")
+				fmt.Fprintln(w, "  info / i            - Show session info")
+				fmt.Fprintln(w, "  help / h            - Show this help")
+				fmt.Fprintln(w, "  quit / q            - Exit replay")
+			}
+
+		case "quit", "q":
+			if !jsonMode {
+				fmt.Fprintln(w, "[replay] session ended.")
+			}
+			return nil
+
+		default:
+			if !jsonMode {
+				fmt.Fprintf(w, "[replay] unknown command: %s (type 'help' for commands)\n", line)
+			}
+		}
+
+		if !jsonMode {
+			fmt.Fprint(w, "step-replay> ")
+		}
+	}
+	return nil
+}
+
+func printStepRecord(w interface{ Write([]byte) (int, error) }, rec types.StepRecord, idx, total int, jsonMode bool) {
+	if jsonMode {
+		data, _ := json.Marshal(rec)
+		fmt.Fprintln(w, string(data))
+		return
+	}
+	fmt.Fprintf(w, "── Step %d (%s) ──\n", rec.Step, rec.Action)
+	fmt.Fprintf(w, "Summary: %s\n", rec.Summary)
+	if rec.ToolPath != "" {
+		fmt.Fprintf(w, "Tool: %s\n", rec.ToolPath)
+	}
+	if rec.ToolError != "" {
+		fmt.Fprintf(w, "Error: %s\n", rec.ToolError)
+	}
+	fmt.Fprintf(w, "Tokens: req=%d resp=%d total=%d\n",
+		rec.RequestTokens, rec.ResponseTokens, rec.TokenCount)
+	if rec.ToolDuration > 0 {
+		fmt.Fprintf(w, "Duration: %s\n", rec.ToolDuration)
+	}
+	fmt.Fprintf(w, "[%d/%d]\n", idx+1, total)
 }

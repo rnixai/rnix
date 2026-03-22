@@ -99,9 +99,8 @@ func TestATDD27_1_StepRecord_JSONRoundTrip(t *testing.T) {
 
 func TestATDD27_1_StepWriter_AppendAndRead(t *testing.T) {
 	baseDir := t.TempDir()
-	pid := types.PID(42)
 
-	sw, err := NewStepWriter(baseDir, pid)
+	sw, err := NewStepWriter(baseDir, "test-uuid-42")
 	if err != nil {
 		t.Fatalf("NewStepWriter: %v", err)
 	}
@@ -119,7 +118,7 @@ func TestATDD27_1_StepWriter_AppendAndRead(t *testing.T) {
 		}
 	}
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", "42", "steps.jsonl")
+	stepsFile := filepath.Join(baseDir, "data", "steps", "test-uuid-42", "steps.jsonl")
 	for i := range 3 {
 		rec, err := ReadStep(stepsFile, i+1)
 		if err != nil {
@@ -137,9 +136,8 @@ func TestATDD27_1_StepWriter_AppendAndRead(t *testing.T) {
 
 func TestATDD27_1_StepWriter_ConcurrentSafety(t *testing.T) {
 	baseDir := t.TempDir()
-	pid := types.PID(99)
 
-	sw, err := NewStepWriter(baseDir, pid)
+	sw, err := NewStepWriter(baseDir, "test-uuid-99")
 	if err != nil {
 		t.Fatalf("NewStepWriter: %v", err)
 	}
@@ -166,7 +164,7 @@ func TestATDD27_1_StepWriter_ConcurrentSafety(t *testing.T) {
 	}
 	wg.Wait()
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", "99", "steps.jsonl")
+	stepsFile := filepath.Join(baseDir, "data", "steps", "test-uuid-99", "steps.jsonl")
 	f, err := os.Open(stepsFile)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -194,9 +192,8 @@ func TestATDD27_1_StepWriter_ConcurrentSafety(t *testing.T) {
 
 func TestATDD27_1_StepWriter_FlushGuarantee(t *testing.T) {
 	baseDir := t.TempDir()
-	pid := types.PID(77)
 
-	sw, err := NewStepWriter(baseDir, pid)
+	sw, err := NewStepWriter(baseDir, "test-uuid-77")
 	if err != nil {
 		t.Fatalf("NewStepWriter: %v", err)
 	}
@@ -211,7 +208,7 @@ func TestATDD27_1_StepWriter_FlushGuarantee(t *testing.T) {
 		t.Fatalf("WriteStep: %v", err)
 	}
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", "77", "steps.jsonl")
+	stepsFile := filepath.Join(baseDir, "data", "steps", "test-uuid-77", "steps.jsonl")
 	data, err := os.ReadFile(stepsFile)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -232,15 +229,14 @@ func TestATDD27_1_StepWriter_FlushGuarantee(t *testing.T) {
 
 func TestATDD27_1_StepWriter_CreatesDirStructure(t *testing.T) {
 	baseDir := t.TempDir()
-	pid := types.PID(123)
 
-	sw, err := NewStepWriter(baseDir, pid)
+	sw, err := NewStepWriter(baseDir, "test-uuid-123")
 	if err != nil {
 		t.Fatalf("NewStepWriter: %v", err)
 	}
 	defer sw.Close()
 
-	expectedDir := filepath.Join(baseDir, "data", "steps", "123")
+	expectedDir := filepath.Join(baseDir, "data", "steps", "test-uuid-123")
 	info, err := os.Stat(expectedDir)
 	if err != nil {
 		t.Fatalf("directory not created: %v", err)
@@ -259,9 +255,8 @@ func TestATDD27_1_StepWriter_CreatesDirStructure(t *testing.T) {
 
 func TestATDD27_1_StepWriter_WritePerformance(t *testing.T) {
 	baseDir := t.TempDir()
-	pid := types.PID(88)
 
-	sw, err := NewStepWriter(baseDir, pid)
+	sw, err := NewStepWriter(baseDir, "test-uuid-88")
 	if err != nil {
 		t.Fatalf("NewStepWriter: %v", err)
 	}
@@ -346,8 +341,8 @@ func TestATDD27_1_Integration_StepRecordAutoCreatedOnSpawn(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	// AC-3: StepWriter 应已自动创建并写入 steps.jsonl
-	stepsFile := filepath.Join(baseDir, "data", "steps", fmt.Sprintf("%d", pid), "steps.jsonl")
+	// AC-3: StepWriter 应已自动创建并写入 steps.jsonl (UUID path since Story 28-2)
+	stepsFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "steps.jsonl")
 	data, err := os.ReadFile(stepsFile)
 	if err != nil {
 		t.Fatalf("steps.jsonl not found — StepWriter not auto-created: %v", err)
@@ -471,8 +466,9 @@ func TestATDD27_1_Integration_ProcessMetaWrittenOnExit(t *testing.T) {
 		t.Fatalf("exit code %d: %s", exit.Code, exit.Reason)
 	}
 
-	// AC-8: process-meta.json 应被写入
-	metaFile := filepath.Join(baseDir, "data", "steps", fmt.Sprintf("%d", pid), "process-meta.json")
+	proc, _ := k.GetProcess(pid)
+	// AC-8: process-meta.json 应被写入 (uses UUID path since Story 28-2)
+	metaFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "process-meta.json")
 	data, err := os.ReadFile(metaFile)
 	if err != nil {
 		t.Fatalf("process-meta.json not found: %v", err)
@@ -532,7 +528,7 @@ func TestATDD27_1_Integration_WrittenBeforeAppendMessage(t *testing.T) {
 		t.Fatal("timeout")
 	}
 
-	stepsFile := filepath.Join(baseDir, "data", "steps", fmt.Sprintf("%d", pid), "steps.jsonl")
+	stepsFile := filepath.Join(baseDir, "data", "steps", proc.UUID, "steps.jsonl")
 	data, err := os.ReadFile(stepsFile)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
