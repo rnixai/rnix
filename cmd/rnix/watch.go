@@ -201,8 +201,6 @@ type watchModel struct {
 
 	thinkingStep  int
 	thinkingTotal int
-
-	embeddedInTop bool // true when launched from top; q returns to top instead of quitting
 }
 
 func newWatchModel(pid types.PID, streamClient *ipc.Client, queryClient *ipc.Client, profile ui.TerminalProfile) watchModel {
