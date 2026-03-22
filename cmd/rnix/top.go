@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -178,7 +180,7 @@ func topDetailView(info vfs.ProcInfo, allProcs []vfs.ProcInfo) string {
 		fmt.Fprintf(&b, "  Children: %s\n", strings.Join(childPIDs, ", "))
 	}
 	fmt.Fprintf(&b, "──────────────────────────────\n")
-	fmt.Fprintf(&b, "  [Esc] Back  [K] Kill")
+	fmt.Fprintf(&b, "  [Esc: back | K: kill | q: quit]")
 	return b.String()
 }
 
@@ -187,17 +189,18 @@ func topDetailView(info vfs.ProcInfo, allProcs []vfs.ProcInfo) string {
 type tickMsg time.Time
 
 type topModel struct {
-	processes []vfs.ProcInfo
-	rows      []flatRow
-	cursor    int
-	detailPID types.PID // 0 = list view
-	client    *ipc.Client
-	width     int
-	height    int
-	startTime time.Time
-	connected bool
-	err       error
-	statusMsg string
+	processes          []vfs.ProcInfo
+	rows               []flatRow
+	cursor             int
+	detailPID          types.PID // 0 = list view
+	launchDashboardPID types.PID // Story 27-5: set by Enter to launch dashboard
+	client             *ipc.Client
+	width              int
+	height             int
+	startTime          time.Time
+	connected          bool
+	err                error
+	statusMsg          string
 }
 
 func newTopModel(client *ipc.Client) topModel {
@@ -300,7 +303,8 @@ func (m topModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if m.cursor < len(m.rows) {
-			m.detailPID = m.rows[m.cursor].proc.PID
+			m.launchDashboardPID = m.rows[m.cursor].proc.PID
+			return m, tea.Quit
 		}
 	case "K":
 		if m.cursor < len(m.rows) {
@@ -406,7 +410,7 @@ func (m topModel) View() tea.View {
 		b.WriteString(m.statusMsg)
 		b.WriteString("\n")
 	}
-	b.WriteString("  [q] Quit  [K] Kill  [Enter] Details  [↑↓/jk] Navigate")
+	b.WriteString("  [Enter: dashboard | K: kill | q: quit | ↑↓/jk: navigate]")
 	b.WriteString("\n")
 
 	v := tea.NewView(b.String())
@@ -429,7 +433,27 @@ func runTop(_ *cobra.Command, _ []string) error {
 		client.Close()
 		return fmt.Errorf("top: %w", err)
 	}
-	if fm, ok := final.(topModel); ok && fm.client != nil {
+
+	fm, ok := final.(topModel)
+	if !ok {
+		client.Close()
+		return nil
+	}
+
+	if fm.launchDashboardPID > 0 {
+		if fm.client != nil {
+			fm.client.Close()
+		} else {
+			client.Close()
+		}
+		exe, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("top: cannot find rnix executable: %w", err)
+		}
+		return syscall.Exec(exe, []string{"rnix", "dashboard", fmt.Sprintf("--pid=%d", fm.launchDashboardPID)}, os.Environ())
+	}
+
+	if fm.client != nil {
 		fm.client.Close()
 	} else {
 		client.Close()

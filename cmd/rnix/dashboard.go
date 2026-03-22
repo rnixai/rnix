@@ -204,6 +204,9 @@ type dashboardModel struct {
 	promptContent  string
 	promptStep     int
 
+	// Story 27-5: initial PID focus from --pid flag
+	initialPIDFocus types.PID
+
 	// Offline replay fields (Story 17-5)
 	replayMode       bool
 	replayReader     *debug.RecordReader
@@ -362,6 +365,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	if m.treeCursor >= len(m.treeRows) {
 		m.treeCursor = max(0, len(m.treeRows)-1)
 	}
+
+	m.applyInitialPIDFocus()
+
 	if m.treeCursor < len(m.treeRows) {
 		m.selectedPID = m.treeRows[m.treeCursor].proc.PID
 	}
@@ -396,6 +402,29 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+func (m *dashboardModel) applyInitialPIDFocus() {
+	if m.initialPIDFocus <= 0 || len(m.treeRows) == 0 {
+		return
+	}
+	found := false
+	for i, row := range m.treeRows {
+		if row.proc.PID == m.initialPIDFocus {
+			m.treeCursor = i
+			visibleLines := m.dashboardVisibleLines()
+			if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
+				m.treeOffset = m.treeCursor - visibleLines/2
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		m.statusMsg = fmt.Sprintf("⚠ PID %d not found, showing all processes", m.initialPIDFocus)
+		m.statusMsgTTL = 10
+	}
+	m.initialPIDFocus = 0
 }
 
 func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -2108,6 +2137,7 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	if cmd != nil {
 		if focusPID, _ := cmd.Flags().GetInt("pid"); focusPID > 0 {
 			model.selectedPID = types.PID(focusPID)
+			model.initialPIDFocus = types.PID(focusPID)
 		}
 	}
 	p := tea.NewProgram(model)
