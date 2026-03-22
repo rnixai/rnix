@@ -19,9 +19,9 @@ type StepWriter struct {
 	mu     sync.Mutex
 }
 
-// NewStepWriter creates a StepWriter that writes to .rnix/data/steps/<pid>/steps.jsonl.
-func NewStepWriter(baseDir string, pid types.PID) (*StepWriter, error) {
-	dir := filepath.Join(baseDir, "data", "steps", fmt.Sprintf("%d", pid))
+// NewStepWriter creates a StepWriter that writes to .rnix/data/steps/<uuid>/steps.jsonl.
+func NewStepWriter(baseDir string, procUUID string) (*StepWriter, error) {
+	dir := filepath.Join(baseDir, "data", "steps", procUUID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}

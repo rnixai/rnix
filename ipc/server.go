@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
@@ -1944,31 +1945,64 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 
-// resolveStepsPathFromProc resolves the steps.jsonl path from a living process.
+// resolveStepsPathFromProc resolves the steps.jsonl path from a living process using UUID.
 func (s *Server) resolveStepsPathFromProc(proc *kernel.Process, pid types.PID) string {
-	pidStr := fmt.Sprintf("%d", pid)
+	procUUID := proc.UUID
 	pc := proc.GetProjectConfig()
 	if pc != nil && pc.ProjectDir != "" {
-		return filepath.Join(pc.ProjectDir, ".rnix", "data", "steps", pidStr, "steps.jsonl")
+		return filepath.Join(pc.ProjectDir, ".rnix", "data", "steps", procUUID, "steps.jsonl")
 	}
 	base := s.kern.GetStepDataDir()
 	if base == "" {
 		return ""
 	}
-	return filepath.Join(base, "data", "steps", pidStr, "steps.jsonl")
+	return filepath.Join(base, "data", "steps", procUUID, "steps.jsonl")
 }
 
 // resolveStepsPathFallback resolves steps.jsonl path when process is not in memory.
+// Tries UUID directories first (scanning process-meta.json for PID match), then legacy PID path.
 func (s *Server) resolveStepsPathFallback(pid types.PID) string {
-	pidStr := fmt.Sprintf("%d", pid)
 	base := s.kern.GetStepDataDir()
 	if base == "" {
 		return ""
 	}
-	return filepath.Join(base, "data", "steps", pidStr, "steps.jsonl")
+	stepsBase := filepath.Join(base, "data", "steps")
+
+	entries, err := os.ReadDir(stepsBase)
+	if err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if !isUUIDDir(name) {
+				continue
+			}
+			metaPath := filepath.Join(stepsBase, name, "process-meta.json")
+			metaData, err := os.ReadFile(metaPath)
+			if err != nil {
+				continue
+			}
+			var meta struct {
+				PID types.PID `json:"pid"`
+			}
+			if json.Unmarshal(metaData, &meta) == nil && meta.PID == pid {
+				return filepath.Join(stepsBase, name, "steps.jsonl")
+			}
+		}
+	}
+
+	// Legacy PID fallback
+	pidStr := fmt.Sprintf("%d", pid)
+	legacyPath := filepath.Join(stepsBase, pidStr, "steps.jsonl")
+	if _, err := os.Stat(legacyPath); err == nil {
+		return legacyPath
+	}
+	return ""
 }
 
 type processMetaFile struct {
+	PID          types.PID     `json:"pid,omitempty"`
 	SystemPrompt string        `json:"system_prompt"`
 	ToolDefs     []vfs.ToolDef `json:"tool_defs"`
 }
@@ -1983,6 +2017,11 @@ func readProcessMeta(path string) (*processMetaFile, error) {
 		return nil, err
 	}
 	return &meta, nil
+}
+
+func isUUIDDir(name string) bool {
+	_, err := uuid.Parse(name)
+	return err == nil
 }
 
 func toolDefsToWire(defs []vfs.ToolDef) []ToolDefWire {

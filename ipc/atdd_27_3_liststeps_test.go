@@ -231,7 +231,7 @@ func TestATDD_27_3_AC8_ServerHandler_AllSteps(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	srv.kern.SetStepDataDir(tmpDir)
-	writeTestSteps(t, tmpDir, proc.PID, []types.StepRecord{
+	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -280,7 +280,7 @@ func TestATDD_27_3_AC8_ServerHandler_IncrementalFetch(t *testing.T) {
 	for i := range steps {
 		steps[i] = testStepRecord(i + 1)
 	}
-	writeTestSteps(t, tmpDir, proc.PID, steps)
+	writeTestStepsUUID(t, tmpDir, proc.UUID, steps)
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -320,7 +320,7 @@ func TestATDD_27_3_AC8_ServerHandler_HasError_FromToolError(t *testing.T) {
 
 	rec := testStepRecord(1)
 	rec.ToolError = "exit status 1"
-	writeTestSteps(t, tmpDir, proc.PID, []types.StepRecord{rec})
+	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{rec})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -357,7 +357,7 @@ func TestATDD_27_3_AC8_ServerHandler_DurationMs(t *testing.T) {
 
 	rec := testStepRecord(1)
 	rec.ToolDuration = 1500 * time.Millisecond
-	writeTestSteps(t, tmpDir, proc.PID, []types.StepRecord{rec})
+	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{rec})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)
@@ -449,7 +449,7 @@ func TestATDD_27_3_AC8_ClientMethod(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	srv.kern.SetStepDataDir(tmpDir)
-	writeTestSteps(t, tmpDir, proc.PID, []types.StepRecord{
+	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -491,7 +491,7 @@ func TestATDD_27_3_AC8_ClientMethod_Incremental(t *testing.T) {
 	for i := range steps {
 		steps[i] = testStepRecord(i + 1)
 	}
-	writeTestSteps(t, tmpDir, proc.PID, steps)
+	writeTestStepsUUID(t, tmpDir, proc.UUID, steps)
 	srv.kern.AddProcess(proc)
 
 	client, err := DialTimeout(sockPath, 3*time.Second)
@@ -529,7 +529,7 @@ func TestATDD_27_3_AC8_Performance(t *testing.T) {
 	for i := range steps {
 		steps[i] = testStepRecord(i + 1)
 	}
-	writeTestSteps(t, tmpDir, proc.PID, steps)
+	writeTestStepsUUID(t, tmpDir, proc.UUID, steps)
 	srv.kern.AddProcess(proc)
 
 	client, err := DialTimeout(sockPath, 3*time.Second)

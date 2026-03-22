@@ -69,9 +69,11 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 			// Write process-meta.json to the same directory
 			metaDir := filepath.Dir(sw.file.Name())
 			meta := struct {
-				SystemPrompt string     `json:"system_prompt"`
-				ToolDefs     []any      `json:"tool_defs"`
+				PID          types.PID `json:"pid"`
+				SystemPrompt string    `json:"system_prompt"`
+				ToolDefs     []any     `json:"tool_defs"`
 			}{
+				PID:          proc.PID,
 				SystemPrompt: fsp,
 			}
 			if toolDefs != nil {

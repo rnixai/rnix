@@ -177,10 +177,10 @@ func TestATDD_27_2_AC2_RunningProcess(t *testing.T) {
 		{Name: "read_file", Description: "Read a file", Parameters: map[string]any{"path": "string"}},
 	})
 
-	// Write steps to disk
+	// Write steps to disk (UUID path since Story 28-2)
 	tmpDir := t.TempDir()
 	srv.kern.SetStepDataDir(tmpDir)
-	writeTestSteps(t, tmpDir, proc.PID, []types.StepRecord{
+	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
@@ -235,7 +235,7 @@ func TestATDD_27_2_AC3_ZombieProcess(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	srv.kern.SetStepDataDir(tmpDir)
-	writeTestSteps(t, tmpDir, proc.PID, []types.StepRecord{
+	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 	})
 
@@ -356,7 +356,7 @@ func TestATDD_27_2_AC6_StepNotFound(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	srv.kern.SetStepDataDir(tmpDir)
-	writeTestSteps(t, tmpDir, proc.PID, []types.StepRecord{
+	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 	})
@@ -392,7 +392,7 @@ func TestATDD_27_2_AC7_ClientMethod(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	srv.kern.SetStepDataDir(tmpDir)
-	writeTestSteps(t, tmpDir, proc.PID, []types.StepRecord{
+	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{
 		testStepRecord(1),
 	})
 	srv.kern.AddProcess(proc)
@@ -437,7 +437,7 @@ func TestATDD_27_2_AC8_Performance(t *testing.T) {
 	for i := range steps {
 		steps[i] = testStepRecord(i + 1)
 	}
-	writeTestSteps(t, tmpDir, proc.PID, steps)
+	writeTestStepsUUID(t, tmpDir, proc.UUID, steps)
 	srv.kern.AddProcess(proc)
 
 	client, err := DialTimeout(sockPath, 3*time.Second)
@@ -505,7 +505,7 @@ func TestATDD_27_2_AC2_MessagesConversion(t *testing.T) {
 		RequestTokens:  300,
 		ResponseTokens: 200,
 	}
-	writeTestSteps(t, tmpDir, proc.PID, []types.StepRecord{rec})
+	writeTestStepsUUID(t, tmpDir, proc.UUID, []types.StepRecord{rec})
 	srv.kern.AddProcess(proc)
 
 	conn := dial(t, sockPath)

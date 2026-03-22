@@ -1032,7 +1032,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 	}
 	if stepBaseDir != "" {
-		sw, err := NewStepWriter(stepBaseDir, proc.PID)
+		sw, err := NewStepWriter(stepBaseDir, proc.UUID)
 		if err == nil {
 			proc.mu.Lock()
 			proc.stepWriter = sw

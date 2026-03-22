@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-06
-last_updated: 2026-03-22  # Story 28-1 done (Process UUID v7 Introduction) — code review passed
+last_updated: 2026-03-22  # Story 28-2 done (StepRecord Path Migration to UUID — code review passed)
 project: rnix
 project_key: NOKEY
 tracking_system: file-system
@@ -315,7 +315,7 @@ development_status:
   # Sprint Change Proposal: sprint-change-proposal-2026-03-22.md
   epic-28: in-progress
   28-1-process-uuid-v7-introduction: done                       # Process UUID v7 引入
-  28-2-steprecord-path-migration-to-uuid: backlog              # StepRecord 路径迁移
+  28-2-steprecord-path-migration-to-uuid: done                    # StepRecord 路径迁移
   28-3-ipc-pid-uuid-mapping: backlog                           # IPC PID→UUID 映射
   28-4-dashboard-pid-validity-check: backlog                   # Dashboard PID 有效性检查
   epic-28-retrospective: optional
