@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/viewport"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
@@ -76,6 +77,13 @@ type stepListMsg struct {
 }
 
 type stepDetailResultMsg struct {
+	step   int
+	detail *ipc.GetStepDetailResponse
+	err    error
+}
+
+type promptPagerMsg struct {
+	pid    types.PID
 	step   int
 	detail *ipc.GetStepDetailResponse
 	err    error
@@ -190,6 +198,12 @@ type dashboardModel struct {
 	lastFetchedStep  int
 	fetchingDetail   bool
 
+	// Prompt pager fields (Story 27-4)
+	promptPager    bool
+	promptViewport viewport.Model
+	promptContent  string
+	promptStep     int
+
 	// Offline replay fields (Story 17-5)
 	replayMode       bool
 	replayReader     *debug.RecordReader
@@ -224,6 +238,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.promptPager {
+			m.promptViewport.SetWidth(msg.Width)
+			m.promptViewport.SetHeight(max(msg.Height-2, 1))
+		}
 		return m, nil
 	case timelineStreamStartedMsg:
 		m.timelineEventCh = msg.eventCh
@@ -281,6 +299,21 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fetchingDetail = false
 		if msg.err == nil && msg.detail != nil {
 			m.stepDetailCache[msg.step] = msg.detail
+		}
+		return m, nil
+	case promptPagerMsg:
+		m.fetchingDetail = false
+		if msg.pid != m.selectedPID {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("✗ prompt load: %v", msg.err)
+			m.statusMsgTTL = statusMsgDefaultTTL
+			return m, nil
+		}
+		if msg.detail != nil {
+			m.stepDetailCache[msg.step] = msg.detail
+			m.enterPromptPager(msg.detail, msg.step)
 		}
 		return m, nil
 	}
@@ -368,6 +401,27 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	if m.promptPager {
+		if key == "ctrl+c" {
+			return m, tea.Quit
+		}
+		if key == "q" || key == "esc" {
+			m.promptPager = false
+			return m, nil
+		}
+		if key == "home" {
+			m.promptViewport.GotoTop()
+			return m, nil
+		}
+		if key == "end" {
+			m.promptViewport.GotoBottom()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.promptViewport, cmd = m.promptViewport.Update(msg)
+		return m, cmd
+	}
+
 	if m.confirmKill {
 		switch key {
 		case "y":
@@ -426,6 +480,18 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 			case levelDebug:
 				entry.level = levelExpanded
+			}
+			return m, nil
+		}
+		if msg.Code == 'p' {
+			entry := m.stepEntries[m.stepCursor]
+			if cached := m.stepDetailCache[entry.summary.Step]; cached != nil {
+				m.enterPromptPager(cached, entry.summary.Step)
+				return m, nil
+			}
+			if !m.fetchingDetail && m.selectedPID > 0 {
+				m.fetchingDetail = true
+				return m, fetchStepDetailForPagerCmd(m.selectedPID, entry.summary.Step)
 			}
 			return m, nil
 		}
@@ -520,7 +586,12 @@ func (m dashboardModel) dashboardVisibleLines() int {
 }
 
 func (m dashboardModel) View() tea.View {
-	content := m.renderDashboard()
+	var content string
+	if m.promptPager {
+		content = m.renderPromptPager()
+	} else {
+		content = m.renderDashboard()
+	}
 	v := tea.NewView(content)
 	v.AltScreen = true
 	return v
@@ -545,6 +616,10 @@ func colorState(s types.ProcessState) string {
 // --- Layout rendering ---
 
 func (m dashboardModel) renderDashboard() string {
+	if m.promptPager {
+		return m.renderPromptPager()
+	}
+
 	w := m.width
 	h := m.height
 	if w == 0 {
@@ -902,6 +977,7 @@ func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
 	m.lastFetchedStep = 0
 	m.fetchingDetail = false
+	m.promptPager = false
 	return m
 }
 
@@ -2046,4 +2122,122 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 		client.Close()
 	}
 	return nil
+}
+
+// --- Prompt Pager (Story 27-4) ---
+
+var (
+	promptRoleSystem    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	promptRoleUser      = lipgloss.NewStyle().Foreground(lipgloss.Color("#6BCB77"))
+	promptRoleAssistant = lipgloss.NewStyle().Foreground(lipgloss.Color("#5B9BD5"))
+	promptRoleTool      = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD93D"))
+)
+
+const promptContentTruncateLimit = 2000
+
+func formatPromptContent(detail *ipc.GetStepDetailResponse, step int) string {
+	var b strings.Builder
+
+	sysLen := utf8.RuneCountInString(detail.SystemPrompt)
+	fmt.Fprintf(&b, "═══ System Prompt (%s chars) ═══\n\n", formatCharCount(sysLen))
+	b.WriteString(detail.SystemPrompt)
+	b.WriteString("\n\n")
+
+	tokenLabel := formatTokenCount(detail.TokenCount)
+	fmt.Fprintf(&b, "═══ Messages (%d msgs, ~%s tokens) ═══\n\n", detail.MessageCount, tokenLabel)
+
+	toolCallNames := make(map[string]string)
+	for _, msg := range detail.Messages {
+		for _, tc := range msg.ToolCalls {
+			toolCallNames[tc.ID] = tc.Name
+		}
+	}
+
+	for _, msg := range detail.Messages {
+		roleTag := formatRoleTag(msg, toolCallNames)
+		content := msg.Content
+		contentLen := utf8.RuneCountInString(content)
+		if contentLen > promptContentTruncateLimit {
+			runes := []rune(content)
+			content = string(runes[:promptContentTruncateLimit]) + fmt.Sprintf("\n... (truncated, %d chars total)", contentLen)
+		}
+		fmt.Fprintf(&b, "%s %s\n\n", roleTag, content)
+	}
+
+	fmt.Fprintf(&b, "═══ Tools (%d) ═══\n\n", len(detail.Tools))
+	for _, tool := range detail.Tools {
+		desc := tool.Description
+		if desc == "" {
+			desc = "(no description)"
+		}
+		fmt.Fprintf(&b, "• %s — %s\n", tool.Name, desc)
+	}
+
+	return b.String()
+}
+
+func formatRoleTag(msg ipc.MessageWire, toolCallNames map[string]string) string {
+	switch msg.Role {
+	case "system":
+		return promptRoleSystem.Render("[system]")
+	case "user":
+		return promptRoleUser.Render("[user]")
+	case "assistant":
+		return promptRoleAssistant.Render("[assistant]")
+	case "tool":
+		label := ""
+		if name, ok := toolCallNames[msg.ToolCallID]; ok && name != "" {
+			label = ":" + name
+		} else if msg.ToolCallID != "" {
+			label = ":" + msg.ToolCallID
+		}
+		return promptRoleTool.Render("[tool" + label + "]")
+	default:
+		return "[" + msg.Role + "]"
+	}
+}
+
+func formatCharCount(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000.0)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+func (m *dashboardModel) enterPromptPager(detail *ipc.GetStepDetailResponse, step int) {
+	content := formatPromptContent(detail, step)
+	vp := viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(max(m.height-2, 1)))
+	vp.SetContent(content)
+	m.promptViewport = vp
+	m.promptContent = content
+	m.promptStep = step
+	m.promptPager = true
+}
+
+func (m dashboardModel) renderPromptPager() string {
+	detail := m.stepDetailCache[m.promptStep]
+	msgCount := 0
+	tokenLabel := "0"
+	if detail != nil {
+		msgCount = detail.MessageCount
+		tokenLabel = formatTokenCount(detail.TokenCount)
+	}
+
+	title := fmt.Sprintf("  Prompt View | PID %d Step %d | %d msgs ~%s tokens",
+		m.selectedPID, m.promptStep, msgCount, tokenLabel)
+	help := "  j/k:scroll  PgUp/PgDn:page  Home/End:jump  q:back"
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, m.promptViewport.View(), help)
+}
+
+func fetchStepDetailForPagerCmd(pid types.PID, step int) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return promptPagerMsg{pid: pid, step: step, err: err}
+		}
+		defer client.Close()
+		detail, err := client.GetStepDetail(pid, step)
+		return promptPagerMsg{pid: pid, step: step, detail: detail, err: err}
+	}
 }
