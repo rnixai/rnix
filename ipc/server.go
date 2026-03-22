@@ -17,7 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
@@ -393,16 +392,22 @@ func (s *Server) handleCtxProfile(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	info, err := s.kern.GetProcInfo(req.PID)
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	info, err := s.kern.GetProcInfo(pid)
 	if err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
 	if info.State != types.StateRunning && info.State != types.StateZombie {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{
 			Code:    "INVALID",
-			Message: fmt.Sprintf("process %d is in %s state; ctx-profile requires running or zombie", req.PID, info.State),
+			Message: fmt.Sprintf("process %d is in %s state; ctx-profile requires running or zombie", pid, info.State),
 		}})
 		return
 	}
@@ -462,21 +467,27 @@ func (s *Server) handleCtxGrowth(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	info, err := s.kern.GetProcInfo(req.PID)
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	info, err := s.kern.GetProcInfo(pid)
 	if err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
 	if info.State != types.StateRunning {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{
 			Code:    "INVALID",
-			Message: fmt.Sprintf("process %d is in %s state; ctx-growth requires running", req.PID, info.State),
+			Message: fmt.Sprintf("process %d is in %s state; ctx-growth requires running", pid, info.State),
 		}})
 		return
 	}
 
-	history, err := s.kern.GetTokenHistory(req.PID)
+	history, err := s.kern.GetTokenHistory(pid)
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
 		return
@@ -508,9 +519,15 @@ func (s *Server) handleLineage(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	events, err := s.kern.GetLineage(req.PID)
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	events, err := s.kern.GetLineage(pid)
 	if err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
@@ -530,7 +547,7 @@ func (s *Server) handleLineage(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	resp := LineageResponse{
-		PID:    req.PID,
+		PID:    pid,
 		Events: ipcEvents,
 	}
 	payload, _ := json.Marshal(resp)
@@ -691,7 +708,13 @@ func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {
 		req.Signal = types.SIGTERM
 	}
 
-	if err := s.kern.Kill(req.PID, req.Signal); err != nil {
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	if err := s.kern.Kill(pid, req.Signal); err != nil {
 		code := "INTERNAL"
 		var sysErr *kernel.SyscallError
 		if errors.As(err, &sysErr) {
@@ -837,7 +860,13 @@ func (s *Server) handleAttachDebug(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	debugCh, ok := s.kern.GetDebugChan(req.PID)
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	debugCh, ok := s.kern.GetDebugChan(pid)
 	if !ok || debugCh == nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found or no debug channel"}})
 		return
@@ -864,9 +893,15 @@ func (s *Server) handleAttachLog(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
 	// Check process existence via both history and live channel
-	history, histOK := s.kern.GetLogHistory(req.PID)
-	logCh, logOK := s.kern.GetLogChan(req.PID)
+	history, histOK := s.kern.GetLogHistory(pid)
+	logCh, logOK := s.kern.GetLogChan(pid)
 
 	if !histOK && (!logOK || logCh == nil) {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
@@ -915,19 +950,25 @@ func (s *Server) handleAttachGdb(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
 	// Validate process exists and is Running
-	info, infoErr := s.kern.GetProcInfo(req.PID)
+	info, infoErr := s.kern.GetProcInfo(pid)
 	if infoErr != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 	if info.State != types.StateRunning {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID_STATE", Message: fmt.Sprintf("process %d is %s, not running", req.PID, info.State)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID_STATE", Message: fmt.Sprintf("process %d is %s, not running", pid, info.State)}})
 		return
 	}
 
-	debugCh, debugOK := s.kern.GetDebugChan(req.PID)
-	logCh, logOK := s.kern.GetLogChan(req.PID)
+	debugCh, debugOK := s.kern.GetDebugChan(pid)
+	logCh, logOK := s.kern.GetLogChan(pid)
 
 	if (!debugOK || debugCh == nil) && (!logOK || logCh == nil) {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found or no channels"}})
@@ -935,7 +976,7 @@ func (s *Server) handleAttachGdb(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	// Get process for Done channel monitoring
-	proc, procOK := s.kern.GetProcess(req.PID)
+	proc, procOK := s.kern.GetProcess(pid)
 	if !procOK {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
@@ -943,7 +984,7 @@ func (s *Server) handleAttachGdb(conn net.Conn, rawPayload json.RawMessage) {
 
 	// Check if process was cancelled (Kill called but state not yet transitioned)
 	if proc.IsCancelled() {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID_STATE", Message: fmt.Sprintf("process %d has been terminated", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID_STATE", Message: fmt.Sprintf("process %d has been terminated", pid)}})
 		return
 	}
 
@@ -954,16 +995,16 @@ func (s *Server) handleAttachGdb(conn net.Conn, rawPayload json.RawMessage) {
 	if s.gdbDetachCh == nil {
 		s.gdbDetachCh = make(map[types.PID]chan struct{})
 	}
-	if _, exists := s.gdbDetachCh[req.PID]; exists {
+	if _, exists := s.gdbDetachCh[pid]; exists {
 		s.gdbMu.Unlock()
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "ALREADY_ATTACHED", Message: fmt.Sprintf("process %d already has an active gdb session", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "ALREADY_ATTACHED", Message: fmt.Sprintf("process %d already has an active gdb session", pid)}})
 		return
 	}
-	s.gdbDetachCh[req.PID] = detachCh
+	s.gdbDetachCh[pid] = detachCh
 	s.gdbMu.Unlock()
 	defer func() {
 		s.gdbMu.Lock()
-		delete(s.gdbDetachCh, req.PID)
+		delete(s.gdbDetachCh, pid)
 		s.gdbMu.Unlock()
 	}()
 
@@ -1053,11 +1094,17 @@ func (s *Server) handleDetachGdb(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
 	s.gdbMu.Lock()
-	ch, ok := s.gdbDetachCh[req.PID]
+	ch, ok := s.gdbDetachCh[pid]
 	if ok {
 		close(ch)
-		delete(s.gdbDetachCh, req.PID)
+		delete(s.gdbDetachCh, pid)
 	}
 	s.gdbMu.Unlock()
 
@@ -1072,9 +1119,9 @@ func (s *Server) handleGdbCommand(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	proc, ok := s.kern.GetProcess(req.PID)
+	proc, ok := s.resolveProcess(req.PID, req.UUID)
 	if !ok {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
@@ -1759,12 +1806,16 @@ func (s *Server) handleImmuneResume(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	pid := types.PID(req.PID)
+	pid, pidOK := s.resolvePID(types.PID(req.PID), req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
 
 	// Send SIGRESUME to the process
 	if s.kern != nil {
 		if err := s.kern.Kill(pid, types.SIGRESUME); err != nil {
-			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("failed to resume PID %d: %v", req.PID, err)}})
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: fmt.Sprintf("failed to resume PID %d: %v", pid, err)}})
 			return
 		}
 	}
@@ -1776,7 +1827,7 @@ func (s *Server) handleImmuneResume(conn net.Conn, rawPayload json.RawMessage) {
 
 	result := ImmuneResumeResponse{
 		OK:      true,
-		Message: fmt.Sprintf("Process %d resumed successfully.", req.PID),
+		Message: fmt.Sprintf("Process %d resumed successfully.", pid),
 	}
 	respPayload, _ := json.Marshal(result)
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
@@ -1847,22 +1898,22 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 	var toolDefs []vfs.ToolDef
 	var stepsPath string
 
-	proc, procFound := s.kern.GetProcess(req.PID)
+	proc, procFound := s.resolveProcess(req.PID, req.UUID)
 	if procFound {
 		systemPrompt = proc.GetFinalSystemPrompt()
 		toolDefs = proc.GetNativeToolDefs()
-		stepsPath = s.resolveStepsPathFromProc(proc, req.PID)
+		stepsPath = s.resolveStepsPathFromProc(proc)
 	} else {
-		// Process not in memory — try disk
-		stepsPath = s.resolveStepsPathFallback(req.PID)
+		// Process not in memory — UUID can read from disk, PID-only returns not_found
+		stepsPath = s.resolveStepsPath(req.PID, req.UUID)
 		if stepsPath == "" {
-			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 			return
 		}
 		metaPath := filepath.Join(filepath.Dir(stepsPath), "process-meta.json")
 		meta, err := readProcessMeta(metaPath)
 		if err != nil {
-			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 			return
 		}
 		systemPrompt = meta.SystemPrompt
@@ -1870,7 +1921,7 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 	}
 
 	if stepsPath == "" {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
@@ -1913,22 +1964,16 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	var stepsPath string
-	proc, procFound := s.kern.GetProcess(req.PID)
-	if procFound {
-		stepsPath = s.resolveStepsPathFromProc(proc, req.PID)
-	} else {
-		stepsPath = s.resolveStepsPathFallback(req.PID)
-	}
+	stepsPath := s.resolveStepsPath(req.PID, req.UUID)
 
 	if stepsPath == "" {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
 	records, total, err := kernel.ReadAllSteps(stepsPath, req.AfterStep)
 	if err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
@@ -1955,9 +2000,9 @@ func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) 
 		return
 	}
 
-	proc, ok := s.kern.GetProcess(req.PID)
+	proc, ok := s.resolveProcess(req.PID, req.UUID)
 	if !ok {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 		return
 	}
 
@@ -2059,8 +2104,78 @@ func isSensitiveEnvKey(key string) bool {
 	return false
 }
 
+// isValidUUID checks if a string looks like a valid UUID (8-4-4-4-12 hex format).
+func isValidUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+		} else {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// resolveProcess tries to find a process in memory. UUID takes priority over PID.
+func (s *Server) resolveProcess(pid types.PID, uuid string) (*kernel.Process, bool) {
+	if uuid != "" && isValidUUID(uuid) {
+		if proc, ok := s.kern.GetProcessByUUID(uuid); ok {
+			return proc, true
+		}
+	}
+	if pid != 0 {
+		return s.kern.GetProcess(pid)
+	}
+	return nil, false
+}
+
+// resolvePID resolves a PID from either PID or UUID. UUID takes priority.
+// Returns (pid, true) on success, (0, false) on failure.
+func (s *Server) resolvePID(pid types.PID, uuid string) (types.PID, bool) {
+	if uuid != "" && isValidUUID(uuid) {
+		if proc, ok := s.kern.GetProcessByUUID(uuid); ok {
+			return proc.PID, true
+		}
+		// UUID provided but not found in memory → fail
+		return 0, false
+	}
+	if pid != 0 {
+		return pid, true
+	}
+	return 0, false
+}
+
+// resolveStepsPath resolves the steps.jsonl path. UUID takes priority.
+// For reaped processes: UUID query reads from disk, PID query returns empty.
+func (s *Server) resolveStepsPath(pid types.PID, uuid string) string {
+	proc, found := s.resolveProcess(pid, uuid)
+	if found {
+		return s.resolveStepsPathFromProc(proc)
+	}
+	// Process not in memory — UUID can read from disk
+	if uuid != "" && isValidUUID(uuid) {
+		base := s.kern.GetStepDataDir()
+		if base != "" {
+			p := filepath.Join(base, "data", "steps", uuid, "steps.jsonl")
+			if _, err := os.Stat(p); err == nil {
+				return p
+			}
+		}
+		return ""
+	}
+	// PID only, process not in memory → not found
+	return ""
+}
+
 // resolveStepsPathFromProc resolves the steps.jsonl path from a living process using UUID.
-func (s *Server) resolveStepsPathFromProc(proc *kernel.Process, pid types.PID) string {
+func (s *Server) resolveStepsPathFromProc(proc *kernel.Process) string {
 	procUUID := proc.UUID
 	pc := proc.GetProjectConfig()
 	if pc != nil && pc.ProjectDir != "" {
@@ -2073,47 +2188,6 @@ func (s *Server) resolveStepsPathFromProc(proc *kernel.Process, pid types.PID) s
 	return filepath.Join(base, "data", "steps", procUUID, "steps.jsonl")
 }
 
-// resolveStepsPathFallback resolves steps.jsonl path when process is not in memory.
-// Tries UUID directories first (scanning process-meta.json for PID match), then legacy PID path.
-func (s *Server) resolveStepsPathFallback(pid types.PID) string {
-	base := s.kern.GetStepDataDir()
-	if base == "" {
-		return ""
-	}
-	stepsBase := filepath.Join(base, "data", "steps")
-
-	entries, err := os.ReadDir(stepsBase)
-	if err == nil {
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			name := e.Name()
-			if !isUUIDDir(name) {
-				continue
-			}
-			metaPath := filepath.Join(stepsBase, name, "process-meta.json")
-			metaData, err := os.ReadFile(metaPath)
-			if err != nil {
-				continue
-			}
-			var meta struct {
-				PID types.PID `json:"pid"`
-			}
-			if json.Unmarshal(metaData, &meta) == nil && meta.PID == pid {
-				return filepath.Join(stepsBase, name, "steps.jsonl")
-			}
-		}
-	}
-
-	// Legacy PID fallback
-	pidStr := fmt.Sprintf("%d", pid)
-	legacyPath := filepath.Join(stepsBase, pidStr, "steps.jsonl")
-	if _, err := os.Stat(legacyPath); err == nil {
-		return legacyPath
-	}
-	return ""
-}
 
 type processMetaFile struct {
 	PID          types.PID     `json:"pid,omitempty"`
@@ -2133,10 +2207,6 @@ func readProcessMeta(path string) (*processMetaFile, error) {
 	return &meta, nil
 }
 
-func isUUIDDir(name string) bool {
-	_, err := uuid.Parse(name)
-	return err == nil
-}
 
 func toolDefsToWire(defs []vfs.ToolDef) []ToolDefWire {
 	if defs == nil {
@@ -2191,7 +2261,13 @@ func (s *Server) handleRecordStart(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	recordID, err := s.kern.StartRecording(req.PID)
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	recordID, err := s.kern.StartRecording(pid)
 	if err != nil {
 		code := "INTERNAL"
 		var sysErr *kernel.SyscallError
@@ -2214,13 +2290,19 @@ func (s *Server) handleRecordStop(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
 	// Get event count before stopping
 	var eventCount uint64
 	if mgr := s.kern.GetRecordManager(); mgr != nil {
-		eventCount = mgr.GetEventCount(req.PID)
+		eventCount = mgr.GetEventCount(pid)
 	}
 
-	if err := s.kern.StopRecording(req.PID); err != nil {
+	if err := s.kern.StopRecording(pid); err != nil {
 		code := "INTERNAL"
 		var sysErr *kernel.SyscallError
 		if errors.As(err, &sysErr) {

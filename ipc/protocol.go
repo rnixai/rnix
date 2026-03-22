@@ -181,6 +181,7 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 // KillRequest is the payload for MethodKill.
 type KillRequest struct {
 	PID    types.PID    `json:"pid"`
+	UUID   string       `json:"uuid,omitempty"`
 	Signal types.Signal `json:"signal"`
 }
 
@@ -188,21 +189,24 @@ type KillRequest struct {
 
 // AttachDebugRequest is the payload for MethodAttachDebug.
 type AttachDebugRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // --- AttachLog ---
 
 // AttachLogRequest is the payload for MethodAttachLog.
 type AttachLogRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // --- AttachGdb ---
 
 // AttachGdbRequest is the payload for MethodAttachGdb.
 type AttachGdbRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // AttachGdbResponse is the initial response for MethodAttachGdb,
@@ -227,12 +231,14 @@ func (r AttachGdbResponse) MarshalJSON() ([]byte, error) {
 
 // DetachGdbRequest is sent by the client to explicitly detach from a gdb session.
 type DetachGdbRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // GdbCommandRequest sends a gdb command to a process via the daemon.
 type GdbCommandRequest struct {
 	PID     types.PID `json:"pid"`
+	UUID    string    `json:"uuid,omitempty"`
 	Command string    `json:"command"`
 	Args    []string  `json:"args,omitempty"`
 }
@@ -435,7 +441,8 @@ type ExecScriptResponse struct {
 
 // RecordStartRequest is the payload for MethodRecordStart.
 type RecordStartRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // RecordStartResponse is the response for MethodRecordStart.
@@ -445,7 +452,8 @@ type RecordStartResponse struct {
 
 // RecordStopRequest is the payload for MethodRecordStop.
 type RecordStopRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // RecordStopResponse is the response for MethodRecordStop.
@@ -518,14 +526,16 @@ type ForkContinueResponse struct {
 
 // CtxProfileRequest is the payload for MethodCtxProfile.
 type CtxProfileRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // --- Ctx Growth ---
 
 // CtxGrowthRequest is the payload for MethodCtxGrowth.
 type CtxGrowthRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // --- Socket Path ---
@@ -637,7 +647,8 @@ type DriftItemWire struct {
 
 // LineageRequest is the payload for MethodLineage.
 type LineageRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // LineageEvent is the wire-format representation of kernel.LineageEvent.
@@ -771,7 +782,8 @@ type AlertWire struct {
 
 // ImmuneResumeRequest is the payload for MethodImmuneResume.
 type ImmuneResumeRequest struct {
-	PID uint64 `json:"pid"`
+	PID  uint64 `json:"pid"`
+	UUID string `json:"uuid,omitempty"`
 }
 
 // ImmuneResumeResponse is the response for MethodImmuneResume.
@@ -811,6 +823,7 @@ type TopologyQueryResponse struct {
 // GetStepDetailRequest is the payload for MethodGetStepDetail.
 type GetStepDetailRequest struct {
 	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 	Step int       `json:"step"`
 }
 
@@ -861,6 +874,7 @@ type ToolDefWire struct {
 // ListStepsRequest is the payload for MethodListSteps.
 type ListStepsRequest struct {
 	PID       types.PID `json:"pid"`
+	UUID      string    `json:"uuid,omitempty"`
 	AfterStep int       `json:"after_step,omitempty"`
 }
 
@@ -883,7 +897,8 @@ type ListStepsResponse struct {
 
 // GetProcDetailRequest is the payload for MethodGetProcDetail.
 type GetProcDetailRequest struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // GetProcDetailResponse is the response for MethodGetProcDetail.

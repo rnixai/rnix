@@ -272,36 +272,42 @@ func TestATDD_27_2_AC4_ReapedProcess(t *testing.T) {
 	tmpDir := t.TempDir()
 	srv.kern.SetStepDataDir(tmpDir)
 
+	// Story 28-3: PID-only query for reaped process returns NOT_FOUND.
+	// Use UUID to query reaped process data from disk.
+	procUUID := "019576f5-ac04-7000-8000-ac0400000001"
 	pid := types.PID(9999)
 
-	// Write process-meta.json and steps.jsonl to disk (simulating reaper output)
-	stepsDir := filepath.Join(tmpDir, "data", "steps", fmt.Sprintf("%d", pid))
-	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
+	// Write process-meta.json and steps.jsonl under UUID directory
+	uuidDir := filepath.Join(tmpDir, "data", "steps", procUUID)
+	if err := os.MkdirAll(uuidDir, 0o755); err != nil {
 		t.Fatalf("AC-4: mkdir: %v", err)
 	}
 
 	meta := struct {
-		SystemPrompt string    `json:"system_prompt"`
+		PID          types.PID     `json:"pid"`
+		SystemPrompt string        `json:"system_prompt"`
 		ToolDefs     []vfs.ToolDef `json:"tool_defs"`
 	}{
+		PID:          pid,
 		SystemPrompt: "Reaped system prompt",
 		ToolDefs: []vfs.ToolDef{
 			{Name: "shell", Description: "Run command"},
 		},
 	}
 	metaJSON, _ := json.Marshal(meta)
-	if err := os.WriteFile(filepath.Join(stepsDir, "process-meta.json"), metaJSON, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(uuidDir, "process-meta.json"), metaJSON, 0o644); err != nil {
 		t.Fatalf("AC-4: write meta: %v", err)
 	}
 
-	writeTestSteps(t, tmpDir, pid, []types.StepRecord{
+	writeTestStepsUUID(t, tmpDir, procUUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 		testStepRecord(3),
 	})
 
+	// Query by UUID (Story 28-3: PID-only → NOT_FOUND for reaped processes)
 	conn := dial(t, sockPath)
-	resp := sendRequest(t, conn, MethodGetStepDetail, GetStepDetailRequest{PID: pid, Step: 2})
+	resp := sendRequest(t, conn, MethodGetStepDetail, GetStepDetailRequest{UUID: procUUID, Step: 2})
 
 	if !resp.OK {
 		t.Fatalf("AC-4: request failed: %+v", resp.Error)
@@ -338,8 +344,8 @@ func TestATDD_27_2_AC5_PIDNotFound(t *testing.T) {
 	if resp.Error == nil {
 		t.Fatal("AC-5: expected error payload")
 	}
-	if resp.Error.Code != "not_found" {
-		t.Errorf("AC-5: error code = %q, want %q", resp.Error.Code, "not_found")
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("AC-5: error code = %q, want %q", resp.Error.Code, "NOT_FOUND")
 	}
 }
 

@@ -14,7 +14,6 @@ package ipc
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -389,19 +388,21 @@ func TestATDD_27_3_AC8_ServerHandler_ReapedProcess(t *testing.T) {
 	tmpDir := t.TempDir()
 	srv.kern.SetStepDataDir(tmpDir)
 
-	pid := types.PID(7777)
-	stepsDir := filepath.Join(tmpDir, "data", "steps", fmt.Sprintf("%d", pid))
-	if err := os.MkdirAll(stepsDir, 0o755); err != nil {
+	// Story 28-3: Use UUID to query reaped process (PID-only returns NOT_FOUND)
+	procUUID := "019576f5-ac08-7000-8000-ac0800000001"
+
+	uuidDir := filepath.Join(tmpDir, "data", "steps", procUUID)
+	if err := os.MkdirAll(uuidDir, 0o755); err != nil {
 		t.Fatalf("AC-8: mkdir: %v", err)
 	}
 
-	writeTestSteps(t, tmpDir, pid, []types.StepRecord{
+	writeTestStepsUUID(t, tmpDir, procUUID, []types.StepRecord{
 		testStepRecord(1),
 		testStepRecord(2),
 	})
 
 	conn := dial(t, sockPath)
-	resp := sendRequest(t, conn, MethodListSteps, ListStepsRequest{PID: pid})
+	resp := sendRequest(t, conn, MethodListSteps, ListStepsRequest{UUID: procUUID})
 
 	if !resp.OK {
 		t.Fatalf("AC-8: request failed for reaped process: %+v", resp.Error)
@@ -432,8 +433,8 @@ func TestATDD_27_3_AC8_ServerHandler_PIDNotFound(t *testing.T) {
 	if resp.Error == nil {
 		t.Fatal("AC-8: expected error payload")
 	}
-	if resp.Error.Code != "not_found" {
-		t.Errorf("AC-8: error code = %q, want %q", resp.Error.Code, "not_found")
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("AC-8: error code = %q, want %q", resp.Error.Code, "NOT_FOUND")
 	}
 }
 
