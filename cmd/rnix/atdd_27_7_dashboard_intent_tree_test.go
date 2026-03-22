@@ -123,15 +123,15 @@ func TestATDD_27_7_AC1_PaneIntentConstant(t *testing.T) {
 	}
 }
 
-// --- AC-1.2: [P0] Tab cycles through 5 panes ---
+// --- AC-1.2: [P0] Tab cycles through 6 panes (updated for Story 27-8 Security pane) ---
 func TestATDD_27_7_AC1_TabCycles5Panes(t *testing.T) {
 	m := newDashboardModel(nil)
 	m.width = 120
 	m.height = 40
 	m.activePane = paneTree // 0
 
-	// Press Tab 5 times and verify full cycle
-	expectedOrder := []paneType{paneTimeline, paneHeatmap, paneDetail, paneIntent, paneTree}
+	// Press Tab 6 times and verify full cycle (Tree→Timeline→Heatmap→Detail→Intent→Security→Tree)
+	expectedOrder := []paneType{paneTimeline, paneHeatmap, paneDetail, paneIntent, paneSecurity, paneTree}
 	for i, expected := range expectedOrder {
 		m2, _ := m.Update(tea.KeyPressMsg{Code: '\t'})
 		model := m2.(dashboardModel)
