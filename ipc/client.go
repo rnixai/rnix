@@ -865,6 +865,19 @@ func (c *Client) TopologyQuery() (*TopologyQueryResponse, error) {
 	return &result, nil
 }
 
+// GetProcDetail returns full process detail including env, skills, FD table, context stats (Story 27.6).
+func (c *Client) GetProcDetail(pid types.PID) (*GetProcDetailResponse, error) {
+	resp, err := c.call(MethodGetProcDetail, GetProcDetailRequest{PID: pid})
+	if err != nil {
+		return nil, err
+	}
+	var result GetProcDetailResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal get_proc_detail: %w", err)
+	}
+	return &result, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

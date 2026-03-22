@@ -186,6 +186,81 @@ func (p *Process) GetProjectConfig() *config.ProjectConfig {
 	return p.ProjectConfig
 }
 
+// FDSnapshot represents a point-in-time copy of a file descriptor entry.
+type FDSnapshot struct {
+	FD         types.FD
+	DevicePath string
+}
+
+// GetFDSnapshot returns a thread-safe snapshot of the current FD table.
+// Collects FD-to-file references under lock, then calls Stat() outside the lock
+// to avoid potential deadlock if a VFS driver acquires another lock in Stat().
+func (p *Process) GetFDSnapshot() []FDSnapshot {
+	p.mu.Lock()
+	type fdRef struct {
+		fd   types.FD
+		file vfs.VFSFile
+	}
+	refs := make([]fdRef, 0, len(p.FDTable))
+	for fd, file := range p.FDTable {
+		refs = append(refs, fdRef{fd: fd, file: file})
+	}
+	p.mu.Unlock()
+
+	entries := make([]FDSnapshot, 0, len(refs))
+	for _, r := range refs {
+		devPath := ""
+		if r.file != nil {
+			if stat, err := r.file.Stat(); err == nil {
+				devPath = stat.DevicePath
+			}
+		}
+		entries = append(entries, FDSnapshot{FD: r.fd, DevicePath: devPath})
+	}
+	slices.SortFunc(entries, func(a, b FDSnapshot) int { return int(a.FD) - int(b.FD) })
+	return entries
+}
+
+// GetDetailSnapshot returns a thread-safe snapshot of process fields needed for detail view.
+type DetailSnapshot struct {
+	PID            types.PID
+	UUID           string
+	PPID           types.PID
+	State          types.ProcessState
+	Intent         string
+	Provider       string
+	Model          string
+	CreatedAt      time.Time
+	DeadAt         time.Time
+	Skills         []string
+	AllowedDevices []string
+	CtxID          types.CtxID
+	TokensUsed     int
+	ContextBudget  int
+}
+
+// GetDetailSnapshot returns a thread-safe copy of process detail fields.
+func (p *Process) GetDetailSnapshot() DetailSnapshot {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return DetailSnapshot{
+		PID:            p.PID,
+		UUID:           p.UUID,
+		PPID:           p.PPID,
+		State:          p.State,
+		Intent:         p.Intent,
+		Provider:       p.Provider,
+		Model:          p.Model,
+		CreatedAt:      p.CreatedAt,
+		DeadAt:         p.DeadAt,
+		Skills:         append([]string(nil), p.Skills...),
+		AllowedDevices: append([]string(nil), p.AllowedDevices...),
+		CtxID:          p.CtxID,
+		TokensUsed:     p.TokensUsed,
+		ContextBudget:  p.ContextBudget,
+	}
+}
+
 // SetFinalSystemPrompt sets the captured system prompt (thread-safe).
 func (p *Process) SetFinalSystemPrompt(s string) {
 	p.mu.Lock()

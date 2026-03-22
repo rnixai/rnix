@@ -359,6 +359,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleGetStepDetail(conn, req.Payload)
 		case MethodListSteps:
 			s.handleListSteps(conn, req.Payload)
+		case MethodGetProcDetail:
+			s.handleGetProcDetail(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1943,6 +1945,118 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 
 	respPayload, _ := json.Marshal(ListStepsResponse{Steps: wires, Total: total})
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+// handleGetProcDetail returns full process detail including env, skills, FD table, context stats (Story 27.6).
+func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) {
+	var req GetProcDetailRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "invalid_request", Message: "invalid get_proc_detail request"}})
+		return
+	}
+
+	proc, ok := s.kern.GetProcess(req.PID)
+	if !ok {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		return
+	}
+
+	// Thread-safe snapshots
+	snap := proc.GetDetailSnapshot()
+	fdSnap := proc.GetFDSnapshot()
+
+	resp := GetProcDetailResponse{
+		PID:            snap.PID,
+		UUID:           snap.UUID,
+		PPID:           snap.PPID,
+		State:          snap.State.String(),
+		Intent:         snap.Intent,
+		Provider:       snap.Provider,
+		Model:          snap.Model,
+		CreatedAtMs:    snap.CreatedAt.UnixMilli(),
+		AllowedDevices: snap.AllowedDevices,
+	}
+	if !snap.DeadAt.IsZero() {
+		resp.DeadAtMs = snap.DeadAt.UnixMilli()
+	}
+
+	// FD table
+	fdEntries := make([]FDEntryWire, len(fdSnap))
+	for i, f := range fdSnap {
+		fdEntries[i] = FDEntryWire{FD: f.FD, DevicePath: f.DevicePath}
+	}
+	resp.FDTable = fdEntries
+
+	// Env snapshot with masking
+	envSnapshot := make(map[string]string)
+	pc := proc.GetProjectConfig()
+	if pc != nil && pc.EnvSnapshot != nil {
+		for k, v := range pc.EnvSnapshot {
+			if isSensitiveEnvKey(k) {
+				envSnapshot[k] = "***"
+			} else {
+				envSnapshot[k] = v
+			}
+		}
+	}
+	resp.EnvSnapshot = envSnapshot
+
+	// Build skill info with AllowedTools
+	skillInfos := make([]SkillInfoWire, 0, len(snap.Skills))
+	for _, name := range snap.Skills {
+		si := SkillInfoWire{Name: name}
+		if s.skillLoader != nil {
+			info, err := s.skillLoader.LoadMetadata(name)
+			if err == nil {
+				si.AllowedTools = info.Manifest.AllowedTools()
+			}
+		}
+		if si.AllowedTools == nil {
+			si.AllowedTools = []string{}
+		}
+		skillInfos = append(skillInfos, si)
+	}
+	resp.Skills = skillInfos
+
+	// Context stats from CtxManager
+	resp.ContextStats = ContextStatsWire{
+		TokensUsed:    snap.TokensUsed,
+		ContextBudget: snap.ContextBudget,
+	}
+	if snap.ContextBudget > 0 {
+		resp.ContextStats.UsagePct = float64(snap.TokensUsed) * 100.0 / float64(snap.ContextBudget)
+	}
+	if s.ctxMgr != nil && snap.CtxID > 0 {
+		info, err := s.ctxMgr.GetContextInfo(snap.CtxID)
+		if err == nil {
+			switch mc := info["message_count"].(type) {
+			case int:
+				resp.ContextStats.MessageCount = mc
+			case int64:
+				resp.ContextStats.MessageCount = int(mc)
+			case float64:
+				resp.ContextStats.MessageCount = int(mc)
+			}
+		}
+	}
+
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("marshal get_proc_detail: %v", err)}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// isSensitiveEnvKey returns true if the key name suggests it holds a secret.
+func isSensitiveEnvKey(key string) bool {
+	upper := strings.ToUpper(key)
+	for _, s := range []string{"KEY", "SECRET", "TOKEN", "PASSWORD"} {
+		if strings.Contains(upper, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveStepsPathFromProc resolves the steps.jsonl path from a living process using UUID.
