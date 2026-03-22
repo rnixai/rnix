@@ -448,9 +448,9 @@ func TestTopModel_QuitQ(t *testing.T) {
 	}
 }
 
-// --- 10.1-UNIT-020: Update(Enter) opens detail view ---
+// --- 10.1-UNIT-020: Update(Enter) launches dashboard (Story 27-5 changed behavior) ---
 
-func TestTopModel_EnterDetail(t *testing.T) {
+func TestTopModel_EnterLaunchesDashboard(t *testing.T) {
 	m := newTopModel(nil)
 	m.rows = []flatRow{
 		{proc: vfs.ProcInfo{PID: 5}},
@@ -458,10 +458,13 @@ func TestTopModel_EnterDetail(t *testing.T) {
 	}
 	m.cursor = 1
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	updated, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	um := updated.(topModel)
-	if um.detailPID != 10 {
-		t.Errorf("Enter should set detailPID to selected proc (10), got %d", um.detailPID)
+	if um.launchDashboardPID != 10 {
+		t.Errorf("Enter should set launchDashboardPID to selected proc (10), got %d", um.launchDashboardPID)
+	}
+	if cmd == nil {
+		t.Error("Enter should return a quit command for dashboard launch")
 	}
 }
 
