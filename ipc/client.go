@@ -692,6 +692,49 @@ func (c *Client) GetStepDetail(pid types.PID, step int) (*GetStepDetailResponse,
 	return &result, nil
 }
 
+// SpawnDetached sends a spawn request and returns the PID without watching events.
+// The process runs in the daemon; events are not consumed.
+func (c *Client) SpawnDetached(req SpawnRequest) (types.PID, error) {
+	if err := c.sendRequest(MethodSpawn, req); err != nil {
+		return 0, err
+	}
+
+	if !c.scanner.Scan() {
+		return 0, fmt.Errorf("ipc: no initial spawn response")
+	}
+	var resp Response
+	if err := json.Unmarshal(c.scanner.Bytes(), &resp); err != nil {
+		return 0, fmt.Errorf("ipc: unmarshal spawn response: %w", err)
+	}
+	if !resp.OK {
+		msg := "spawn failed"
+		if resp.Error != nil {
+			msg = resp.Error.Message
+		}
+		return 0, fmt.Errorf("ipc: %s", msg)
+	}
+
+	var sr SpawnResponse
+	if err := json.Unmarshal(resp.Payload, &sr); err != nil {
+		return 0, fmt.Errorf("ipc: unmarshal spawn payload: %w", err)
+	}
+	return sr.PID, nil
+}
+
+// ListSteps returns step summaries for a process (Story 27.3).
+// If afterStep > 0, only steps after that step number are returned.
+func (c *Client) ListSteps(pid types.PID, afterStep int) (*ListStepsResponse, error) {
+	resp, err := c.call(MethodListSteps, ListStepsRequest{PID: pid, AfterStep: afterStep})
+	if err != nil {
+		return nil, err
+	}
+	var result ListStepsResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal list_steps: %w", err)
+	}
+	return &result, nil
+}
+
 // Lineage returns the differentiation lineage for the given PID.
 func (c *Client) Lineage(pid types.PID) (*LineageResponse, error) {
 	resp, err := c.call(MethodLineage, LineageRequest{PID: pid})

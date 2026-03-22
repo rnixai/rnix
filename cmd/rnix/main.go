@@ -122,7 +122,7 @@ func (c *cliCallbacks) OnStep(pid types.PID, step, total int) {
 	c.progress.AgentStep(pid, step, total)
 }
 
-func (c *cliCallbacks) OnStepComplete(pid types.PID, step int, action string, summary string) {
+func (c *cliCallbacks) OnStepComplete(pid types.PID, step int, action string, summary string, hasError bool, durationMs float64) {
 	c.progress.AgentStepComplete(pid, step, action, summary)
 }
 
@@ -249,6 +249,7 @@ func init() {
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
+	rootCmd.Flags().Bool("dashboard", false, "Open dashboard after spawning agent")
 	daemonCmd.Flags().BoolVar(&flagDaemonInternal, "internal", false, "Internal flag (not for user use)")
 	_ = daemonCmd.Flags().MarkHidden("internal")
 	daemonCmd.AddCommand(daemonStopCmd)
@@ -264,6 +265,7 @@ func init() {
 	rootCmd.AddCommand(logCmd)
 	rootCmd.AddCommand(gdbCmd)
 	dashboardCmd.Flags().String("load", "", "Load a recording for offline replay (path or record-id)")
+	dashboardCmd.Flags().Int("pid", 0, "Focus on a specific process PID at startup")
 	rootCmd.AddCommand(dashboardCmd)
 	rootCmd.AddCommand(applyCmd)
 	rootCmd.AddCommand(intentCmd)
@@ -470,6 +472,20 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		MaxSteps:   flagMaxSteps,
 		ProjectDir: projectDir,
 		RnixEnv:    os.Getenv("RNIX_ENV"),
+	}
+
+	dashboardFlag, _ := cmd.Flags().GetBool("dashboard")
+	if dashboardFlag {
+		pid, spawnErr := client.SpawnDetached(req)
+		client.Close()
+		if spawnErr != nil {
+			outputError(renderer, mode, "/dev/llm", spawnErr.Error(), "agent failed to start", "check that LLM CLI is installed")
+			exitCode = 1
+			return nil
+		}
+		progress.KernelMessage("spawned PID %d, launching dashboard...", pid)
+		exe, _ := os.Executable()
+		return syscall.Exec(exe, []string{"rnix", "dashboard", fmt.Sprintf("--pid=%d", pid)}, os.Environ())
 	}
 
 	sigCh := make(chan os.Signal, 2)

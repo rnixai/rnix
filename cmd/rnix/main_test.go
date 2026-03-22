@@ -101,7 +101,7 @@ func TestCliCallbacks_OnStepComplete(t *testing.T) {
 	p := ui.NewProgressReporter(r)
 	cb := &cliCallbacks{progress: p}
 
-	cb.OnStepComplete(1, 2, "tool_call", "/dev/fs → read config.yaml")
+	cb.OnStepComplete(1, 2, "tool_call", "/dev/fs → read config.yaml", false, 123.4)
 
 	output := buf.String()
 	if !strings.Contains(output, "[agent/1]") {

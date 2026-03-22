@@ -202,7 +202,7 @@ func TestSpawn_StemAgentDifferentiationLog(t *testing.T) {
 type testCallbacks struct {
 	onSpawn        func(pid types.PID, intent, provider, model string)
 	onStep         func(pid types.PID, step int, total int)
-	onStepComplete func(pid types.PID, step int, action string, summary string)
+	onStepComplete func(pid types.PID, step int, action string, summary string, hasError bool, durationMs float64)
 	onComplete     func(pid types.PID, result string, exit ExitStatus)
 	onError        func(pid types.PID, err error)
 }
@@ -217,9 +217,9 @@ func (tc *testCallbacks) OnStep(pid types.PID, step int, total int) {
 		tc.onStep(pid, step, total)
 	}
 }
-func (tc *testCallbacks) OnStepComplete(pid types.PID, step int, action string, summary string) {
+func (tc *testCallbacks) OnStepComplete(pid types.PID, step int, action string, summary string, hasError bool, durationMs float64) {
 	if tc.onStepComplete != nil {
-		tc.onStepComplete(pid, step, action, summary)
+		tc.onStepComplete(pid, step, action, summary, hasError, durationMs)
 	}
 }
 func (tc *testCallbacks) OnComplete(pid types.PID, result string, exit ExitStatus) {

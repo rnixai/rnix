@@ -53,6 +53,34 @@ const maxTimelineEvents = 1000
 
 const statusMsgDefaultTTL = 4
 
+const slowStepThresholdMs = 1000.0
+
+type stepDetailLevel int
+
+const (
+	levelSummary  stepDetailLevel = 0
+	levelExpanded stepDetailLevel = 1
+	levelDebug    stepDetailLevel = 2
+)
+
+type stepEntry struct {
+	summary    ipc.StepSummaryWire
+	level      stepDetailLevel
+	autoExpand bool
+}
+
+type stepListMsg struct {
+	steps []ipc.StepSummaryWire
+	total int
+	err   error
+}
+
+type stepDetailResultMsg struct {
+	step   int
+	detail *ipc.GetStepDetailResponse
+	err    error
+}
+
 type timelineEvent struct {
 	wire     ipc.SyscallEventWire
 	category eventCategory
@@ -154,6 +182,14 @@ type dashboardModel struct {
 	recording    map[types.PID]string
 	statusMsgTTL int
 
+	// Step timeline fields (Story 27-3)
+	stepTimelineMode bool
+	stepEntries      []stepEntry
+	stepCursor       int
+	stepDetailCache  map[int]*ipc.GetStepDetailResponse
+	lastFetchedStep  int
+	fetchingDetail   bool
+
 	// Offline replay fields (Story 17-5)
 	replayMode       bool
 	replayReader     *debug.RecordReader
@@ -165,11 +201,13 @@ type dashboardModel struct {
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
 	return dashboardModel{
-		client:          client,
-		startTime:       time.Now(),
-		connected:       client != nil,
-		timelineFilters: defaultTimelineFilters(),
-		recording:       make(map[types.PID]string),
+		client:           client,
+		startTime:        time.Now(),
+		connected:        client != nil,
+		timelineFilters:  defaultTimelineFilters(),
+		recording:        make(map[types.PID]string),
+		stepTimelineMode: true,
+		stepDetailCache:  make(map[int]*ipc.GetStepDetailResponse),
 	}
 }
 
@@ -230,6 +268,20 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = fmt.Sprintf("Recording started (ID: %s)", msg.recordID)
 		}
 		m.statusMsgTTL = statusMsgDefaultTTL
+		return m, nil
+	case stepListMsg:
+		if msg.err == nil && len(msg.steps) > 0 {
+			m = m.applyNewSteps(msg.steps)
+			if last := msg.steps[len(msg.steps)-1]; last.Step > m.lastFetchedStep {
+				m.lastFetchedStep = last.Step
+			}
+		}
+		return m, nil
+	case stepDetailResultMsg:
+		m.fetchingDetail = false
+		if msg.err == nil && msg.detail != nil {
+			m.stepDetailCache[msg.step] = msg.detail
+		}
 		return m, nil
 	}
 	return m, nil
@@ -294,6 +346,10 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 	}
 
+	if m.stepTimelineMode && m.selectedPID > 0 && m.connected {
+		cmds = append(cmds, fetchStepsCmd(m.selectedPID, m.lastFetchedStep))
+	}
+
 	if len(m.recording) > 0 {
 		pidSet := make(map[types.PID]bool, len(m.processes))
 		for _, p := range m.processes {
@@ -343,6 +399,36 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.replayMode {
 		m2, cmd := m.handleReplayKey(key)
 		return m2, cmd
+	}
+
+	if m.stepTimelineMode && len(m.stepEntries) > 0 && m.stepCursor < len(m.stepEntries) {
+		if msg.Code == 'v' {
+			entry := &m.stepEntries[m.stepCursor]
+			if entry.level == levelSummary {
+				entry.level = levelExpanded
+				if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
+					m.fetchingDetail = true
+					return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+				}
+			} else {
+				entry.level = levelSummary
+			}
+			return m, nil
+		}
+		if msg.Code == 'V' {
+			entry := &m.stepEntries[m.stepCursor]
+			switch entry.level {
+			case levelSummary, levelExpanded:
+				entry.level = levelDebug
+				if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
+					m.fetchingDetail = true
+					return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+				}
+			case levelDebug:
+				entry.level = levelExpanded
+			}
+			return m, nil
+		}
 	}
 
 	if m.activePane == paneTree {
@@ -811,10 +897,18 @@ func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 	m.timelineViewStart = 0
 	m.timelineEventCursor = 0
 	m.timelineAttachedPID = m.selectedPID
+	m.stepEntries = nil
+	m.stepCursor = 0
+	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
+	m.lastFetchedStep = 0
+	m.fetchingDetail = false
 	return m
 }
 
 func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
+	if m.stepTimelineMode {
+		return m.handleStepTimelineKey(key)
+	}
 	if m.timelineFilters == nil {
 		m.timelineFilters = defaultTimelineFilters()
 	}
@@ -853,6 +947,24 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		m.timelineFilters[catIPC] = !m.timelineFilters[catIPC]
 	case "4":
 		m.timelineFilters[catVFS] = !m.timelineFilters[catVFS]
+	case "s":
+		m.stepTimelineMode = true
+	}
+	return m
+}
+
+func (m dashboardModel) handleStepTimelineKey(key string) dashboardModel {
+	switch key {
+	case "up", "k":
+		if m.stepCursor > 0 {
+			m.stepCursor--
+		}
+	case "down", "j":
+		if m.stepCursor < len(m.stepEntries)-1 {
+			m.stepCursor++
+		}
+	case "s":
+		m.stepTimelineMode = false
 	}
 	return m
 }
@@ -895,6 +1007,10 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 		BorderForeground(borderColor).
 		Width(innerW).
 		Height(innerH)
+
+	if m.stepTimelineMode {
+		return style.Render(m.renderStepTimeline(innerW, innerH))
+	}
 
 	var b strings.Builder
 
@@ -964,6 +1080,103 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 	}
 
 	return style.Render(b.String())
+}
+
+func (m dashboardModel) renderStepTimeline(width, height int) string {
+	var b strings.Builder
+
+	b.WriteString(" Timeline")
+	if m.selectedPID > 0 {
+		fmt.Fprintf(&b, " | PID %d", m.selectedPID)
+	}
+	total := len(m.stepEntries)
+	fmt.Fprintf(&b, " | %d/%d steps", total, total)
+	b.WriteString("\n")
+
+	if total == 0 {
+		b.WriteString("\n    Waiting for steps...")
+		return b.String()
+	}
+
+	listLines := max(height-2, 1)
+	startIdx := 0
+	if m.stepCursor >= listLines {
+		startIdx = m.stepCursor - listLines + 1
+	}
+	endIdx := min(startIdx+listLines, total)
+
+	for i := startIdx; i < endIdx; i++ {
+		entry := m.stepEntries[i]
+		s := entry.summary
+
+		cursor := "  "
+		if i == m.stepCursor {
+			cursor = "▸ "
+		}
+
+		errMark := ""
+		if s.HasError {
+			errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
+		}
+
+		dur := formatTimelineDuration(s.DurationMs)
+		line := fmt.Sprintf("%sStep %d/%d  %s  %s  %s%s",
+			cursor, s.Step, total, s.Action, s.Summary, dur, errMark)
+		b.WriteString(line)
+		b.WriteString("\n")
+
+		if entry.level >= levelExpanded {
+			detail := m.stepDetailCache[s.Step]
+			if detail != nil {
+				if detail.ToolInput != "" {
+					input := detail.ToolInput
+					if utf8.RuneCountInString(input) > 60 {
+						runes := []rune(input)
+						input = string(runes[:57]) + "..."
+					}
+					fmt.Fprintf(&b, "      Input: %s\n", input)
+				}
+				if detail.ToolResult != "" {
+					result := detail.ToolResult
+					if utf8.RuneCountInString(result) > 60 {
+						runes := []rune(result)
+						result = string(runes[:57]) + "..."
+					}
+					fmt.Fprintf(&b, "      Result: %s\n", result)
+				}
+				if detail.ToolError != "" {
+					fmt.Fprintf(&b, "      Error: %s\n",
+						lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(detail.ToolError))
+				}
+				fmt.Fprintf(&b, "      Tokens: %d req / %d resp\n", detail.RequestTokens, detail.ResponseTokens)
+			}
+		}
+
+		if entry.level >= levelDebug {
+			detail := m.stepDetailCache[s.Step]
+			if detail != nil {
+				fmt.Fprintf(&b, "      Messages: %d  Tokens: %s\n",
+					detail.MessageCount, formatTokenCount(detail.TokenCount))
+				if len(detail.Messages) > 0 {
+					preview := detail.Messages[0].Content
+					if utf8.RuneCountInString(preview) > 60 {
+						runes := []rune(preview)
+						preview = string(runes[:57]) + "..."
+					}
+					fmt.Fprintf(&b, "      [%s] %s\n", detail.Messages[0].Role, preview)
+				}
+			}
+		}
+	}
+
+	return b.String()
+}
+
+func formatTokenCount(tokens int) string {
+	if tokens >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(tokens)/1000.0)
+	}
+	return fmt.Sprintf("%d", tokens)
 }
 
 func (m dashboardModel) renderTimelineBar(events []timelineEvent, width int) string {
@@ -1043,6 +1256,25 @@ func formatTimelineArgs(args map[string]any, maxLen int) string {
 		result = string(runes[:maxLen-3]) + "..."
 	}
 	return result
+}
+
+// --- Step timeline logic (Story 27-3) ---
+
+func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardModel {
+	for _, s := range steps {
+		level := levelSummary
+		autoExpand := false
+		if s.HasError || s.DurationMs > slowStepThresholdMs {
+			level = levelExpanded
+			autoExpand = true
+		}
+		m.stepEntries = append(m.stepEntries, stepEntry{
+			summary:    s,
+			level:      level,
+			autoExpand: autoExpand,
+		})
+	}
+	return m
 }
 
 // --- Heatmap logic (Story 17-3) ---
@@ -1252,6 +1484,33 @@ func fetchHeatmapCmd(pid types.PID) tea.Cmd {
 		defer client.Close()
 		profile, err := client.CtxProfile(pid)
 		return heatmapProfileMsg{profile: profile, err: err}
+	}
+}
+
+func fetchStepsCmd(pid types.PID, afterStep int) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return stepListMsg{err: err}
+		}
+		defer client.Close()
+		resp, err := client.ListSteps(pid, afterStep)
+		if err != nil {
+			return stepListMsg{err: err}
+		}
+		return stepListMsg{steps: resp.Steps, total: resp.Total}
+	}
+}
+
+func fetchStepDetailCmd(pid types.PID, step int) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return stepDetailResultMsg{step: step, err: err}
+		}
+		defer client.Close()
+		detail, err := client.GetStepDetail(pid, step)
+		return stepDetailResultMsg{step: step, detail: detail, err: err}
 	}
 }
 
@@ -1770,6 +2029,11 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	}
 
 	model := newDashboardModel(client)
+	if cmd != nil {
+		if focusPID, _ := cmd.Flags().GetInt("pid"); focusPID > 0 {
+			model.selectedPID = types.PID(focusPID)
+		}
+	}
 	p := tea.NewProgram(model)
 	final, err := p.Run()
 	if err != nil {

@@ -44,7 +44,7 @@ func (c *atdd36Callbacks) OnStep(_ types.PID, _ int, _ int)               {}
 func (c *atdd36Callbacks) OnComplete(_ types.PID, _ string, _ ExitStatus) {}
 func (c *atdd36Callbacks) OnError(_ types.PID, _ error)                   {}
 
-func (c *atdd36Callbacks) OnStepComplete(pid types.PID, step int, action string, summary string) {
+func (c *atdd36Callbacks) OnStepComplete(pid types.PID, step int, action string, summary string, hasError bool, durationMs float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.stepCompletes = append(c.stepCompletes, stepCompleteRecord{

@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-06
-last_updated: 2026-03-22  # Story 27-3/27-4/27-5 rolled back (watch → dashboard enhancement)
+last_updated: 2026-03-22  # Story 27-3 done (dashboard timeline three-level detail)
 project: rnix
 project_key: NOKEY
 tracking_system: file-system
@@ -299,7 +299,7 @@ development_status:
   epic-27: in-progress
   27-1-steprecord-type-and-disk-writer: done
   27-2-getstepdetail-ipc-method: done
-  27-3-dashboard-timeline-three-level-detail: backlog          # 重定义：dashboard 时间线三级详细度
+  27-3-dashboard-timeline-three-level-detail: done               # 重定义：dashboard 时间线三级详细度
   27-4-dashboard-prompt-view: backlog                          # 重定义：dashboard prompt 查看
   27-5-top-to-dashboard-navigation: backlog                    # 重定义：top→dashboard 导航
   27-6-dashboard-process-detail-panel: backlog                 # 新增：进程详情面板

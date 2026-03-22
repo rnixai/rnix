@@ -503,6 +503,7 @@ func newTestTimelineDashboardModel() dashboardModel {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.activePane = paneTimeline
+	m.stepTimelineMode = false
 	events := mockTimelineEvents()
 	for _, ev := range events {
 		m.timelineEvents = append(m.timelineEvents, timelineEvent{

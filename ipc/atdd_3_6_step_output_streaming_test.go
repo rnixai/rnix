@@ -28,7 +28,7 @@ func TestATDD_3_6_AC1_CallbackMux_OnStepComplete_SendsEvent(t *testing.T) {
 	ch := make(chan StreamEvent, 10)
 	mux.register(types.PID(1), ch)
 
-	mux.OnStepComplete(types.PID(1), 3, "tool_call", "/dev/fs → read config.yaml")
+	mux.OnStepComplete(types.PID(1), 3, "tool_call", "/dev/fs → read config.yaml", false, 42.5)
 
 	select {
 	case ev := <-ch:
