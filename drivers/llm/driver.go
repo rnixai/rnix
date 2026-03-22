@@ -2,8 +2,30 @@
 package llm
 
 import (
+	"bufio"
 	"context"
+	"io"
 )
+
+const (
+	// streamChanBuffer is the buffer size for stream event channels.
+	streamChanBuffer = 64
+
+	// scannerMaxSize is the maximum token size for bufio.Scanner instances
+	// that read LLM streaming output. LLM responses can produce very long
+	// single-line JSON (e.g. large tool_call results), easily exceeding the
+	// default 64 KB limit. 4 MB covers all practical cases.
+	scannerMaxSize = 4 * 1024 * 1024 // 4 MB
+)
+
+// newStreamScanner creates a bufio.Scanner with a buffer large enough for
+// LLM streaming output. All LLM drivers should use this instead of plain
+// bufio.NewScanner to avoid "token too long" errors on large responses.
+func newStreamScanner(r io.Reader) *bufio.Scanner {
+	s := bufio.NewScanner(r)
+	s.Buffer(make([]byte, 0, 64*1024), scannerMaxSize)
+	return s
+}
 
 // Message represents a single message in a conversation.
 // JSON tags are compatible with context.Message for VFS bridge interop.

@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -484,8 +483,7 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 		defer resp.Body.Close()
 		defer cancel()
 
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		scanner := newStreamScanner(resp.Body)
 
 		pendingToolCalls := make(map[int]*toolCallAccumulator)
 		var lastUsage *oaiUsage

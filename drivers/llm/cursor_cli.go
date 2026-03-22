@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -181,7 +180,7 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		defer func() { _ = cmd.Wait() }()
 		defer cancel()
 
-		scanner := bufio.NewScanner(stdoutPipe)
+		scanner := newStreamScanner(stdoutPipe)
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if len(line) == 0 {

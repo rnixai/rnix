@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -19,8 +18,6 @@ const (
 	// Claude Code CLI tasks vary widely (simple: ~5s, complex with tool use: 2-3min).
 	// 5 minutes provides headroom for multi-turn agentic tasks.
 	DefaultTimeout = 5 * time.Minute
-	// streamChanBuffer is the buffer size for stream event channels.
-	streamChanBuffer = 64
 )
 
 // CommandBuilder is a function type that creates exec.Cmd instances.
@@ -197,8 +194,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		defer close(ch)
 		defer cancel()
 
-		scanner := bufio.NewScanner(stdoutPipe)
-		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024) // 4MB max line size
+		scanner := newStreamScanner(stdoutPipe)
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			if len(line) == 0 {
