@@ -30,10 +30,10 @@ import (
 func mockDashboardProcs() []vfs.ProcInfo {
 	now := time.Now()
 	return []vfs.ProcInfo{
-		{PID: 1, PPID: 0, State: types.StateRunning, Intent: "init", Skills: []string{"supervisor"}, TokensUsed: 500, CreatedAt: now},
-		{PID: 2, PPID: 1, State: types.StateRunning, Intent: "review", Skills: []string{"code-analyst"}, TokensUsed: 3200, CreatedAt: now},
-		{PID: 3, PPID: 1, State: types.StateZombie, Intent: "build", Skills: []string{"builder"}, TokensUsed: 8000, CreatedAt: now},
-		{PID: 5, PPID: 2, State: types.StateRunning, Intent: "lint", Skills: []string{"linter"}, TokensUsed: 1100, CreatedAt: now},
+		{PID: 1, PPID: 0, UUID: "uuid-mock-001", State: types.StateRunning, Intent: "init", Skills: []string{"supervisor"}, TokensUsed: 500, CreatedAt: now},
+		{PID: 2, PPID: 1, UUID: "uuid-mock-002", State: types.StateRunning, Intent: "review", Skills: []string{"code-analyst"}, TokensUsed: 3200, CreatedAt: now},
+		{PID: 3, PPID: 1, UUID: "uuid-mock-003", State: types.StateZombie, Intent: "build", Skills: []string{"builder"}, TokensUsed: 8000, CreatedAt: now},
+		{PID: 5, PPID: 2, UUID: "uuid-mock-005", State: types.StateRunning, Intent: "lint", Skills: []string{"linter"}, TokensUsed: 1100, CreatedAt: now},
 	}
 }
 
@@ -1456,13 +1456,13 @@ func TestExecResultMsg_Error(t *testing.T) {
 
 func TestRecordToggleMsg_Start(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.recording = make(map[types.PID]string)
+	m.recording = make(map[string]string)
 
-	updated, _ := m.Update(recordToggleMsg{pid: 2, recordID: "rec-001"})
+	updated, _ := m.Update(recordToggleMsg{pid: 2, uuid: "uuid-mock-002", recordID: "rec-001"})
 	um := updated.(dashboardModel)
 
-	if um.recording[2] != "rec-001" {
-		t.Errorf("recording[2] should be 'rec-001', got %q", um.recording[2])
+	if um.recording["uuid-mock-002"] != "rec-001" {
+		t.Errorf("recording[uuid-mock-002] should be 'rec-001', got %q", um.recording["uuid-mock-002"])
 	}
 	if um.statusMsg == "" {
 		t.Error("start recording should set statusMsg")
@@ -1473,13 +1473,13 @@ func TestRecordToggleMsg_Start(t *testing.T) {
 
 func TestRecordToggleMsg_Stop(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.recording = map[types.PID]string{2: "rec-001"}
+	m.recording = map[string]string{"uuid-mock-002": "rec-001"}
 
-	updated, _ := m.Update(recordToggleMsg{pid: 2, stopped: true, eventCount: 42})
+	updated, _ := m.Update(recordToggleMsg{pid: 2, uuid: "uuid-mock-002", stopped: true, eventCount: 42})
 	um := updated.(dashboardModel)
 
-	if _, exists := um.recording[2]; exists {
-		t.Error("stop recording should remove PID from recording map")
+	if _, exists := um.recording["uuid-mock-002"]; exists {
+		t.Error("stop recording should remove UUID from recording map")
 	}
 	if um.statusMsg == "" {
 		t.Error("stop recording should set statusMsg")
@@ -1493,7 +1493,7 @@ func TestRecordToggleMsg_Stop(t *testing.T) {
 
 func TestRecordToggleMsg_Error(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.recording = make(map[types.PID]string)
+	m.recording = make(map[string]string)
 
 	updated, _ := m.Update(recordToggleMsg{pid: 2, err: fmt.Errorf("connection refused")})
 	um := updated.(dashboardModel)
@@ -1547,7 +1547,8 @@ func TestDashboardModel_GlobalRecordKey(t *testing.T) {
 func TestDashboardModel_StatusBarRecording(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
-	m.recording = map[types.PID]string{2: "rec-001"}
+	m.selectedUUID = "uuid-mock-002"
+	m.recording = map[string]string{"uuid-mock-002": "rec-001"}
 
 	v := m.View()
 	if !strings.Contains(v.Content, "●REC") {
@@ -1606,7 +1607,7 @@ func TestDashboardModel_StatusMsgTTL(t *testing.T) {
 
 func TestDashboardModel_TreeRecordingIndicator(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.recording = map[types.PID]string{2: "rec-001"}
+	m.recording = map[string]string{"uuid-mock-002": "rec-001"}
 
 	v := m.View()
 
