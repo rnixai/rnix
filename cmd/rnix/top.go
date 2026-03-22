@@ -2,18 +2,17 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/spf13/cobra"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/vfs"
-	"github.com/spf13/cobra"
 )
 
 var topCmd = &cobra.Command{
@@ -142,14 +141,48 @@ func topSummaryLine(procs []vfs.ProcInfo, uptime time.Duration) string {
 	return b.String()
 }
 
+// topDetailView renders the detail panel for a selected process,
+// showing Intent, Skills, Tokens, Elapsed, Context, Devices, and Children.
+func topDetailView(info vfs.ProcInfo, allProcs []vfs.ProcInfo) string {
+	var b strings.Builder
+	elapsed := time.Since(info.CreatedAt)
+
+	fmt.Fprintf(&b, "── Process Detail ── PID %d ──\n", info.PID)
+	fmt.Fprintf(&b, "  State:    %s\n", strings.ToLower(info.State.String()))
+	fmt.Fprintf(&b, "  Intent:   %s\n", info.Intent)
+	if len(info.Skills) > 0 {
+		fmt.Fprintf(&b, "  Skills:   %s\n", strings.Join(info.Skills, ", "))
+	} else {
+		fmt.Fprintf(&b, "  Skills:   —\n")
+	}
+	if info.ContextBudget > 0 {
+		pct := info.TokensUsed * 100 / info.ContextBudget
+		fmt.Fprintf(&b, "  Budget:   %s/%s (%d%%)\n",
+			ui.FormatTokens(info.TokensUsed),
+			ui.FormatTokens(info.ContextBudget), pct)
+	} else {
+		fmt.Fprintf(&b, "  Tokens:   %s\n", ui.FormatTokens(info.TokensUsed))
+	}
+	fmt.Fprintf(&b, "  Elapsed:  %s\n", ui.FormatDuration(elapsed))
+	fmt.Fprintf(&b, "  Context:  CtxID=%d\n", info.CtxID)
+	if len(info.AllowedDevices) > 0 {
+		fmt.Fprintf(&b, "  Devices:  %s\n", strings.Join(info.AllowedDevices, ", "))
+	}
+	var childPIDs []string
+	for _, p := range allProcs {
+		if p.PPID == info.PID {
+			childPIDs = append(childPIDs, fmt.Sprintf("PID %d", p.PID))
+		}
+	}
+	if len(childPIDs) > 0 {
+		fmt.Fprintf(&b, "  Children: %s\n", strings.Join(childPIDs, ", "))
+	}
+	fmt.Fprintf(&b, "──────────────────────────────\n")
+	fmt.Fprintf(&b, "  [Esc] Back  [K] Kill")
+	return b.String()
+}
+
 // --- bubbletea Model ---
-
-type appMode int
-
-const (
-	appModeTop   appMode = iota
-	appModeWatch
-)
 
 type tickMsg time.Time
 
@@ -157,6 +190,7 @@ type topModel struct {
 	processes []vfs.ProcInfo
 	rows      []flatRow
 	cursor    int
+	detailPID types.PID // 0 = list view
 	client    *ipc.Client
 	width     int
 	height    int
@@ -240,6 +274,22 @@ func (m topModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "q", "ctrl+c":
 		return m, tea.Quit
+
+	case "esc":
+		if m.detailPID != 0 {
+			m.detailPID = 0
+		}
+		return m, nil
+	}
+
+	if m.detailPID != 0 {
+		if key == "K" {
+			m.killSelected(m.detailPID)
+		}
+		return m, nil
+	}
+
+	switch key {
 	case "up", "k":
 		if m.cursor > 0 {
 			m.cursor--
@@ -247,6 +297,10 @@ func (m topModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		if m.cursor < len(m.rows)-1 {
 			m.cursor++
+		}
+	case "enter":
+		if m.cursor < len(m.rows) {
+			m.detailPID = m.rows[m.cursor].proc.PID
 		}
 	case "K":
 		if m.cursor < len(m.rows) {
@@ -278,6 +332,19 @@ func (m topModel) View() tea.View {
 	}
 	b.WriteString(summary)
 	b.WriteString("\n")
+
+	if m.detailPID != 0 {
+		for _, r := range m.rows {
+			if r.proc.PID == m.detailPID {
+				b.WriteString("\n")
+				b.WriteString(topDetailView(r.proc, m.processes))
+				b.WriteString("\n")
+				v := tea.NewView(b.String())
+				v.AltScreen = true
+				return v
+			}
+		}
+	}
 
 	b.WriteString("\n")
 	header := fmt.Sprintf("  %-5s %-5s %-9s %-15s %12s %8s", "PID", "PPID", "STATE", "AGENT", "TOKENS", "ELAPSED")
@@ -339,124 +406,12 @@ func (m topModel) View() tea.View {
 		b.WriteString(m.statusMsg)
 		b.WriteString("\n")
 	}
-	b.WriteString("  [q] Quit  [K] Kill  [Enter] Watch  [↑↓/jk] Navigate")
+	b.WriteString("  [q] Quit  [K] Kill  [Enter] Details  [↑↓/jk] Navigate")
 	b.WriteString("\n")
 
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	return v
-}
-
-// --- appModel: unified BubbleTea wrapper for top↔watch navigation ---
-
-type appModel struct {
-	mode     appMode
-	topModel topModel
-	watch    *watchModel
-	dialFn   func() (*ipc.Client, error) // nil = use ipc.Dial(ipc.SocketPath())
-}
-
-func (m appModel) Init() tea.Cmd {
-	return m.topModel.Init()
-}
-
-func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyPressMsg); ok {
-		if key.String() == "ctrl+c" {
-			return m, tea.Quit
-		}
-		if m.mode == appModeTop && key.String() == "enter" {
-			return m.switchToWatch()
-		}
-		if m.mode == appModeWatch && m.watch != nil &&
-			key.String() == "q" && m.watch.state != watchStatePager {
-			return m.backToTop()
-		}
-	}
-
-	if wsm, ok := msg.(tea.WindowSizeMsg); ok {
-		m.topModel.width = wsm.Width
-		m.topModel.height = wsm.Height
-		if m.watch != nil {
-			m.watch.width = wsm.Width
-			m.watch.height = wsm.Height
-		}
-		return m, nil
-	}
-
-	switch m.mode {
-	case appModeTop:
-		updated, cmd := m.topModel.Update(msg)
-		m.topModel = updated.(topModel)
-		return m, cmd
-	case appModeWatch:
-		if m.watch == nil {
-			return m, nil
-		}
-		updated, cmd := m.watch.Update(msg)
-		w := updated.(watchModel)
-		m.watch = &w
-		return m, cmd
-	}
-	return m, nil
-}
-
-func (m appModel) View() tea.View {
-	if m.mode == appModeWatch && m.watch != nil {
-		return m.watch.View()
-	}
-	return m.topModel.View()
-}
-
-func (m appModel) dial() (*ipc.Client, error) {
-	if m.dialFn != nil {
-		return m.dialFn()
-	}
-	return ipc.Dial(ipc.SocketPath())
-}
-
-func (m appModel) switchToWatch() (tea.Model, tea.Cmd) {
-	if len(m.topModel.rows) == 0 || m.topModel.cursor >= len(m.topModel.rows) {
-		return m, nil
-	}
-	pid := m.topModel.rows[m.topModel.cursor].proc.PID
-
-	streamClient, err := m.dial()
-	if err != nil {
-		m.topModel.statusMsg = fmt.Sprintf("✗ watch: %v", err)
-		return m, nil
-	}
-	queryClient, err := m.dial()
-	if err != nil {
-		if streamClient != nil {
-			streamClient.Close()
-		}
-		m.topModel.statusMsg = fmt.Sprintf("✗ watch: %v", err)
-		return m, nil
-	}
-
-	profile := ui.DetectProfile(os.Stdout)
-	wm := newWatchModel(pid, streamClient, queryClient, profile)
-	wm.embeddedInTop = true
-	wm.width = m.topModel.width
-	wm.height = m.topModel.height
-	m.watch = &wm
-	m.mode = appModeWatch
-	return m, wm.Init()
-}
-
-func (m appModel) backToTop() (tea.Model, tea.Cmd) {
-	if m.watch != nil {
-		if m.watch.streamClient != nil {
-			m.watch.streamClient.Close()
-		}
-		if m.watch.queryClient != nil {
-			m.watch.queryClient.Close()
-		}
-		m.watch = nil
-	}
-	m.mode = appModeTop
-	return m, tickCmd()
 }
 
 // runTop is the cobra RunE handler for the "rnix top" command.
@@ -467,26 +422,15 @@ func runTop(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	tm := newTopModel(client)
-	model := appModel{mode: appModeTop, topModel: tm}
+	model := newTopModel(client)
 	p := tea.NewProgram(model)
-	final, runErr := p.Run()
-	if runErr != nil {
+	final, err := p.Run()
+	if err != nil {
 		client.Close()
-		return fmt.Errorf("top: %w", runErr)
+		return fmt.Errorf("top: %w", err)
 	}
-	if fm, ok := final.(appModel); ok {
-		if fm.topModel.client != nil {
-			fm.topModel.client.Close()
-		}
-		if fm.watch != nil {
-			if fm.watch.streamClient != nil {
-				fm.watch.streamClient.Close()
-			}
-			if fm.watch.queryClient != nil {
-				fm.watch.queryClient.Close()
-			}
-		}
+	if fm, ok := final.(topModel); ok && fm.client != nil {
+		fm.client.Close()
 	} else {
 		client.Close()
 	}
