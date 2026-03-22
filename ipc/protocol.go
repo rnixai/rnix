@@ -52,6 +52,7 @@ const (
 	MethodTopologyQuery    Method = "topology_query"
 	MethodGetStepDetail    Method = "get_step_detail"
 	MethodListSteps        Method = "list_steps"
+	MethodGetProcDetail    Method = "get_proc_detail"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -876,6 +877,51 @@ type StepSummaryWire struct {
 type ListStepsResponse struct {
 	Steps []StepSummaryWire `json:"steps"`
 	Total int               `json:"total"`
+}
+
+// --- GetProcDetail (Story 27.6) ---
+
+// GetProcDetailRequest is the payload for MethodGetProcDetail.
+type GetProcDetailRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// GetProcDetailResponse is the response for MethodGetProcDetail.
+type GetProcDetailResponse struct {
+	PID            types.PID            `json:"pid"`
+	UUID           string               `json:"uuid"`
+	PPID           types.PID            `json:"ppid"`
+	State          string               `json:"state"`
+	Intent         string               `json:"intent"`
+	Provider       string               `json:"provider"`
+	Model          string               `json:"model"`
+	CreatedAtMs    int64                `json:"created_at_ms"`
+	DeadAtMs       int64                `json:"dead_at_ms,omitempty"`
+	Skills         []SkillInfoWire      `json:"skills"`
+	AllowedDevices []string             `json:"allowed_devices"`
+	EnvSnapshot    map[string]string    `json:"env_snapshot"`
+	FDTable        []FDEntryWire        `json:"fd_table"`
+	ContextStats   ContextStatsWire     `json:"context_stats"`
+}
+
+// SkillInfoWire is the wire-format representation of a loaded skill with its allowed tools.
+type SkillInfoWire struct {
+	Name         string   `json:"name"`
+	AllowedTools []string `json:"allowed_tools"`
+}
+
+// FDEntryWire is the wire-format representation of an open file descriptor.
+type FDEntryWire struct {
+	FD         types.FD `json:"fd"`
+	DevicePath string   `json:"device_path"`
+}
+
+// ContextStatsWire is the wire-format representation of context usage statistics.
+type ContextStatsWire struct {
+	MessageCount  int     `json:"message_count"`
+	TokensUsed    int     `json:"tokens_used"`
+	ContextBudget int     `json:"context_budget"`
+	UsagePct      float64 `json:"usage_pct"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

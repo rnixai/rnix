@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-06
-last_updated: 2026-03-22  # Story 28-2 done (StepRecord Path Migration to UUID — code review passed)
+last_updated: 2026-03-22  # Story 27-6 done (Dashboard Process Detail Panel)
 project: rnix
 project_key: NOKEY
 tracking_system: file-system
@@ -302,7 +302,7 @@ development_status:
   27-3-dashboard-timeline-three-level-detail: done               # 重定义：dashboard 时间线三级详细度
   27-4-dashboard-prompt-view: done                              # 重定义：dashboard prompt 查看
   27-5-top-to-dashboard-navigation: done                         # 重定义：top→dashboard 导航
-  27-6-dashboard-process-detail-panel: backlog                 # 新增：进程详情面板
+  27-6-dashboard-process-detail-panel: done                      # 新增：进程详情面板
   27-7-dashboard-intent-tree-integration: backlog              # 新增：意图树集成
   27-8-dashboard-security-anomaly-panel: backlog               # 新增：安全异常面板
   27-9-dashboard-distributed-tracing-integration: backlog      # 新增：分布式追踪集成

@@ -36,6 +36,7 @@ const (
 	paneTree paneType = iota
 	paneTimeline
 	paneHeatmap
+	paneDetail
 )
 
 type eventCategory int
@@ -79,6 +80,12 @@ type stepListMsg struct {
 type stepDetailResultMsg struct {
 	step   int
 	detail *ipc.GetStepDetailResponse
+	err    error
+}
+
+type procDetailResultMsg struct {
+	pid    types.PID
+	detail *ipc.GetProcDetailResponse
 	err    error
 }
 
@@ -207,6 +214,12 @@ type dashboardModel struct {
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
 
+	// Detail pane fields (Story 27-6)
+	procDetail      *ipc.GetProcDetailResponse
+	procDetailPID   types.PID
+	procDetailCache map[types.PID]*ipc.GetProcDetailResponse
+	procDetailTick  int // tick counter for periodic cache refresh
+
 	// Offline replay fields (Story 17-5)
 	replayMode       bool
 	replayReader     *debug.RecordReader
@@ -225,6 +238,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		recording:        make(map[types.PID]string),
 		stepTimelineMode: true,
 		stepDetailCache:  make(map[int]*ipc.GetStepDetailResponse),
+		procDetailCache:  make(map[types.PID]*ipc.GetProcDetailResponse),
 	}
 }
 
@@ -302,6 +316,15 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fetchingDetail = false
 		if msg.err == nil && msg.detail != nil {
 			m.stepDetailCache[msg.step] = msg.detail
+		}
+		return m, nil
+	case procDetailResultMsg:
+		if msg.err == nil && msg.detail != nil {
+			m.procDetailCache[msg.pid] = msg.detail
+			if msg.pid == m.selectedPID {
+				m.procDetail = msg.detail
+				m.procDetailPID = msg.pid
+			}
 		}
 		return m, nil
 	case promptPagerMsg:
@@ -387,6 +410,26 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	if m.stepTimelineMode && m.selectedPID > 0 && m.connected {
 		cmds = append(cmds, fetchStepsCmd(m.selectedPID, m.lastFetchedStep))
+	}
+
+	// Fetch proc detail when Detail pane is active and data is missing or stale
+	if m.activePane == paneDetail && m.selectedPID > 0 && m.connected {
+		m.procDetailTick++
+		needsFetch := m.procDetail == nil || m.procDetailPID != m.selectedPID
+		// Refresh every 5 ticks (~5s) for live processes
+		if !needsFetch && m.procDetail != nil && m.procDetail.State != "dead" && m.procDetailTick%5 == 0 {
+			delete(m.procDetailCache, m.selectedPID)
+			needsFetch = true
+		}
+		if needsFetch {
+			// Check cache first (only for initial load, not periodic refresh)
+			if cached, ok := m.procDetailCache[m.selectedPID]; ok {
+				m.procDetail = cached
+				m.procDetailPID = m.selectedPID
+			} else {
+				cmds = append(cmds, fetchProcDetailCmd(m.selectedPID))
+			}
+		}
 	}
 
 	if len(m.recording) > 0 {
@@ -475,7 +518,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "tab":
-		m.activePane = (m.activePane + 1) % 3
+		m.activePane = (m.activePane + 1) % 4
 		return m, nil
 	}
 
@@ -671,9 +714,15 @@ func (m dashboardModel) renderDashboard() string {
 	topRightH := contentHeight / 2
 	bottomRightH := contentHeight - topRightH
 	timelinePane := m.renderTimelinePane(rightWidth, topRightH)
-	heatmapPane := m.renderHeatmapPane(rightWidth, bottomRightH)
 
-	rightPane := lipgloss.JoinVertical(lipgloss.Left, timelinePane, heatmapPane)
+	var bottomPane string
+	if m.activePane == paneDetail {
+		bottomPane = m.renderDetailPane(rightWidth, bottomRightH)
+	} else {
+		bottomPane = m.renderHeatmapPane(rightWidth, bottomRightH)
+	}
+
+	rightPane := lipgloss.JoinVertical(lipgloss.Left, timelinePane, bottomPane)
 	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, treePane, rightPane)
 
 	return lipgloss.JoinVertical(lipgloss.Left, titleBar, mainContent, statusBar)
@@ -724,6 +773,9 @@ func (m dashboardModel) renderDashboardStatus() string {
 	}
 	if m.activePane == paneHeatmap {
 		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Select  Enter:Details%s", rec, ops)
+	}
+	if m.activePane == paneDetail {
+		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  Detail: process info%s", rec, ops)
 	}
 	return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Select%s", rec, ops)
 }
@@ -1650,10 +1702,23 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m = m.handleHeatmapPIDChange()
 	m.timelineAttachedPID = m.selectedPID
 	m.heatmapPID = m.selectedPID
+
+	// Detail pane: check cache or reset
+	if cached, ok := m.procDetailCache[m.selectedPID]; ok {
+		m.procDetail = cached
+		m.procDetailPID = m.selectedPID
+	} else {
+		m.procDetail = nil
+		m.procDetailPID = 0
+	}
+
 	var cmds []tea.Cmd
 	if m.connected {
 		cmds = append(cmds, startTimelineCmd(m.selectedPID))
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+		if m.activePane == paneDetail && m.procDetail == nil {
+			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID))
+		}
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -2270,4 +2335,133 @@ func fetchStepDetailForPagerCmd(pid types.PID, step int) tea.Cmd {
 		detail, err := client.GetStepDetail(pid, step)
 		return promptPagerMsg{pid: pid, step: step, detail: detail, err: err}
 	}
+}
+
+// --- Detail Pane (Story 27-6) ---
+
+func fetchProcDetailCmd(pid types.PID) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return procDetailResultMsg{pid: pid, err: err}
+		}
+		defer client.Close()
+		resp, err := client.GetProcDetail(pid)
+		return procDetailResultMsg{pid: pid, detail: resp, err: err}
+	}
+}
+
+func (m dashboardModel) renderDetailPane(width, height int) string {
+	isActive := m.activePane == paneDetail
+
+	borderColor := lipgloss.Color(ui.ColorMuted)
+	if isActive {
+		borderColor = lipgloss.Color(ui.ColorAgent)
+	}
+
+	innerW := max(width-2, 1)
+	innerH := max(height-2, 1)
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Width(innerW).
+		Height(innerH)
+
+	var b strings.Builder
+
+	b.WriteString(" Detail")
+	if m.selectedPID > 0 {
+		fmt.Fprintf(&b, " | PID %d", m.selectedPID)
+	}
+	b.WriteString("\n")
+
+	if m.selectedPID == 0 {
+		b.WriteString("\n    Select a process to view detail")
+		return style.Render(b.String())
+	}
+
+	d := m.procDetail
+	if d == nil || d.PID != m.selectedPID {
+		b.WriteString("\n    Loading...")
+		return style.Render(b.String())
+	}
+
+	// Section 1: Basic info
+	var uptime time.Duration
+	if d.CreatedAtMs > 0 {
+		created := time.UnixMilli(d.CreatedAtMs)
+		if d.DeadAtMs > 0 {
+			uptime = time.UnixMilli(d.DeadAtMs).Sub(created)
+		} else {
+			uptime = time.Since(created)
+		}
+	}
+	fmt.Fprintf(&b, "  PID: %d  UUID: %s\n", d.PID, truncateUUID(d.UUID))
+	fmt.Fprintf(&b, "  State: %s  Intent: %s\n", d.State, truncateStr(d.Intent, 40))
+	fmt.Fprintf(&b, "  Provider: %s  Model: %s\n", d.Provider, d.Model)
+	fmt.Fprintf(&b, "  Uptime: %s\n", ui.FormatDuration(uptime))
+
+	// Section 1b: Allowed devices
+	if len(d.AllowedDevices) > 0 {
+		fmt.Fprintf(&b, "  Devices: %s\n", strings.Join(d.AllowedDevices, ", "))
+	}
+
+	// Section 2: Skills
+	b.WriteString("  ──── Skills ────\n")
+	if len(d.Skills) == 0 {
+		b.WriteString("    (none)\n")
+	}
+	for _, sk := range d.Skills {
+		tools := strings.Join(sk.AllowedTools, ", ")
+		if tools == "" {
+			tools = "—"
+		}
+		fmt.Fprintf(&b, "    %s → %s\n", sk.Name, tools)
+	}
+
+	// Section 3: FD table
+	b.WriteString("  ──── FD Table ────\n")
+	if len(d.FDTable) == 0 {
+		if d.State == "dead" {
+			b.WriteString("    (closed)\n")
+		} else {
+			b.WriteString("    (empty)\n")
+		}
+	}
+	for _, fd := range d.FDTable {
+		fmt.Fprintf(&b, "    %d: %s\n", fd.FD, fd.DevicePath)
+	}
+
+	// Section 4: Context stats
+	b.WriteString("  ──── Context ────\n")
+	fmt.Fprintf(&b, "    %d msgs | %s tok\n", d.ContextStats.MessageCount, ui.FormatTokens(d.ContextStats.TokensUsed))
+	if d.ContextStats.ContextBudget > 0 {
+		barWidth := max(innerW-10, 10)
+		filled := int(d.ContextStats.UsagePct / 100.0 * float64(barWidth))
+		filled = min(filled, barWidth)
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+		pct := min(d.ContextStats.UsagePct, 100.0)
+		fmt.Fprintf(&b, "    [%s] %.0f%%\n", bar, pct)
+	}
+
+	return style.Render(b.String())
+}
+
+func truncateUUID(s string) string {
+	if len(s) > 8 {
+		return s[:8]
+	}
+	return s
+}
+
+func truncateStr(s string, maxLen int) string {
+	if maxLen < 4 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		return string(runes[:maxLen-3]) + "..."
+	}
+	return s
 }
