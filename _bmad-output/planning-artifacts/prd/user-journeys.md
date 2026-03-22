@@ -147,11 +147,11 @@ agents:
 
 ## 旅程 7：陈明通过 top 下钻定位 prompt 注入错误（用户 A — 平台构建者，统一观察路径）
 
-陈明的 3-agent 审查系统又出了问题——reviewer agent 偶尔忽略文件中的安全问题。他之前用 strace 调试过类似问题，但这次他决定试试新的 watch 功能。
+陈明的 3-agent 审查系统又出了问题——reviewer agent 偶尔忽略文件中的安全问题。他之前用 strace 调试过类似问题，但这次他决定用 dashboard 的增强功能。
 
-他打开 `rnix top`，终端里显示三个 agent 的实时状态。他触发一次审查，看到 reviewer（PID 42）开始跑了。按下回车，top 无缝切换到 watch 视图。
+他打开 `rnix top`，终端里显示三个 agent 的实时状态。他触发一次审查，看到 reviewer（PID 42）开始跑了。按下回车，top 跳转到 dashboard 并自动聚焦 PID 42。
 
-每一步实时滚动：
+时间线窗格实时滚动：
 ```
 [step 1] tool_call → /dev/fs/read     0.1s  ✓
 [step 2] tool_call → /dev/fs/read     0.1s  ✓
@@ -175,7 +175,7 @@ agents:
 
 **从发现问题到修复：4 分钟。** 如果用传统方式，他需要：开新终端 → `rnix ps` → 找 PID → `rnix strace 42` → 发现 strace 看不到 prompt → 切到 `rnix log 42` → 翻看日志但没有 prompt 信息 → 只能猜测问题出在哪。
 
-**覆盖能力：** FR62（top 下钻）、FR165（watch 命令）、FR166（三级详细度）、FR167（异常自动展开）、FR168（prompt 查看）、FR170（StepRecord）、FR171（GetStepDetail）、NFR57-64（观察系统性能）
+**覆盖能力：** FR62（top 下钻到 dashboard）、FR165（时间线三级详细度）、FR166（异常自动展开）、FR167（prompt 查看）、FR169（StepRecord）、FR170（GetStepDetail）、NFR57-62-obs（观察系统性能）
 
 ---
 
@@ -206,8 +206,8 @@ agents:
 | 多 Provider 支持（provider 注册 + fallback） | 旅程 5 | | ✓ (Phase 2) | FR141-FR146 |
 | LLM 网关服务（rnix serve OpenAI 兼容 API） | 旅程 6 | | ✓ (Phase 2) | FR147-FR152 |
 | 配置系统（双层目录 + rnix init + 迁移） | 旅程 1, 3, 5 | | ✓ (Phase 2) | FR153-FR164 |
-| `rnix watch` 统一观察 | 旅程 7 | | ✓ (Phase 2) | FR165-FR168 |
-| `spawn --watch` 启动即观察 | 旅程 7 | | ✓ (Phase 2) | FR169 |
-| Prompt 可观测性（PromptSnapshot + GetStepDetail） | 旅程 7 | | ✓ (Phase 2) | FR170-FR171 |
-| `top` 下钻到 watch | 旅程 7 | | ✓ (Phase 2) | FR62 |
-| `record --full` 完整 prompt 录制 | 旅程 7 | | ✓ (Phase 2) | FR172 |
+| dashboard 时间线增强（三级详细度 + prompt 查看） | 旅程 7 | | ✓ (Phase 2) | FR165-FR167 |
+| `spawn --dashboard` 启动即观察 | 旅程 7 | | ✓ (Phase 2) | FR168 |
+| StepRecord + GetStepDetail（已实现） | 旅程 7 | | ✓ (Phase 2) | FR169-FR170 |
+| `top` 下钻到 dashboard | 旅程 7 | | ✓ (Phase 2) | FR62 |
+| 默认全量步骤录制 | 旅程 7 | | ✓ (Phase 2) | FR171 |

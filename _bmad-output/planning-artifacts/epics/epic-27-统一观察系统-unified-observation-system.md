@@ -1,23 +1,25 @@
-# Epic 27: 统一观察系统（Unified Observation System）
+# Epic 27: 统一观察系统（Unified Observation System — Dashboard 增强）
 
-用户可以通过 `rnix watch` 实时观察智能体的每一步推理过程——从一行摘要到完整 prompt 内容，三级详细度按需展开。系统默认记录每步完整的 LLM 输入/输出/工具结果，无需手动开启录制，事后可随时回放分析。从 `rnix top` 选中进程直接下钻到 watch 视图，实现"系统全局 → 单进程深入"的连贯调试路径。
+用户可以在 Dashboard 中查看三级详细度时间线、完整 prompt 内容、进程详情面板和 Intent DAG 可视化。系统默认记录每步完整的 LLM 输入/输出/工具结果（StepRecord），无需手动开启录制。从 `rnix top` 选中进程按回车跳转到 Dashboard 并自动聚焦。Dashboard 集成安全异常、分布式追踪和多智能体评价视图——成为 Rnix 的完整能力透视窗。
 
 > **设计基础**
 >
 > | 文档 | 说明 |
 > |------|------|
-> | [PRD FR165-FR172](../prd/functional-requirements.md#unified-observation-system统一观察系统phase-2) | 统一观察系统功能需求 |
-> | [PRD NFR57-NFR64](../prd/non-functional-requirements.md#unified-observation-system-quality统一观察系统质量phase-2) | 观察系统性能需求 |
+> | [PRD FR62, FR165-FR173](../prd/functional-requirements.md#unified-observation-system统一观察系统--dashboard-增强phase-2) | 统一观察系统功能需求 |
+> | [PRD FR174-FR176](../prd/functional-requirements.md#dashboard-advanced-integrationdashboard-高级集成phase-3) | Dashboard 高级集成功能需求 |
+> | [PRD NFR57-NFR65](../prd/non-functional-requirements.md#unified-observation-system-quality统一观察系统质量--dashboard-增强phase-2) | 观察系统性能需求 |
 > | [Architecture Decision 23-26](../architecture/core-architectural-decisions.md#decision-23-steprecord--默认全量步骤记录) | 统一观察系统架构决策 |
 > | [User Journey 7](../prd/user-journeys.md#旅程-7陈明通过-top-下钻定位-prompt-注入错误用户-a-平台构建者统一观察路径) | 统一观察用户旅程 |
-> | [Product Brief](../product-brief-rnix-2026-03-21.md) | 统一观察系统产品简报 |
+> | [Sprint Change Proposal](../sprint-change-proposal-2026-03-22.md) | watch→dashboard 增强决策 |
 >
 > **核心架构：** Progress 回调（实时通知）+ StepRecord（磁盘 JSONL 完整数据存储），LogChan 废弃。
+> **设计变更（2026-03-22）：** watch 与 dashboard 功能重叠，选择增强 dashboard 而非新建独立 watch 命令。Story 27-3/27-4/27-5 已回滚并重定义。
 
-**架构决策：** Decision 23（StepRecord）、Decision 24（双层架构）、Decision 25（GetStepDetail）、Decision 26（watch TUI）
-**FRs covered:** FR62, FR165, FR166, FR167, FR168, FR169, FR170, FR171, FR172
-**NFRs:** NFR57-NFR64
-**Dependencies:** Epic 10（top 命令基础）、Epic 26（统一推理循环 reasonStep）
+**架构决策：** Decision 23（StepRecord）、Decision 24（双层架构）、Decision 25（GetStepDetail）、Decision 26（Dashboard 增强）
+**FRs covered:** FR62, FR165, FR166, FR167, FR168, FR169, FR170, FR171, FR172, FR173, FR174, FR175, FR176
+**NFRs:** NFR57 ~ NFR64-obs
+**Dependencies:** Epic 10（top 命令基础）、Epic 17（Dashboard 基础框架 1785 行）、Epic 26（统一推理循环 reasonStep）
 
 ---
 
@@ -159,166 +161,288 @@ So that 我可以在 watch 视图中按 p 键看到 agent 当时收到了什么�
 
 ---
 
-## Story 27.3: watch 命令基础 — Level 1 实时流
+## Story 27.3: Dashboard 时间线三级详细度（重定义）
+
+> **变更说明（2026-03-22）：** 原 Story 27-3（watch 命令 Level 1 实时流）已回滚（git revert）。重定义为 Dashboard 时间线增强——复用 Epic 17 已实现的 dashboard 1785 行代码基础，而非新建独立 watch 命令。
 
 As a 平台构建者,
-I want 通过 `rnix watch <pid>` 实时看到智能体每一步的摘要（步骤号 + 动作类型 + 目标 + 耗时）,
-So that 我可以了解 agent 当前在做什么。
+I want 在 dashboard 时间线窗格中通过 v/V 键切换三级详细度，出错和慢操作自动展开,
+So that 我可以从一行摘要逐级深入到调试级详情，快速定位异常步骤。
 
-**FRs:** FR165, FR169
-**NFRs:** NFR57（attach 延迟 ≤ 200ms）、NFR58（spawn --watch ≤ 100ms）、NFR59（Level 1 渲染 ≤ 1ms/行）
+**FRs:** FR165, FR166
+**NFRs:** NFR57（切换 ≤ 50ms）、NFR58-obs（Level 1 ≤ 1ms/行, Level 2 ≤ 5ms/步）
 
 **Acceptance Criteria:**
 
-**Given** `cmd/rnix/watch.go` 不存在
-**When** 创建 watch 命令
-**Then** 注册 `rnix watch <pid>` Cobra 命令
-**And** 命令接受一个位置参数 `<pid>`（整数）
+**Given** dashboard 时间线窗格显示步骤列表（Level 1 默认）
+**When** 每步执行完成
+**Then** 显示一行摘要：步骤号 + 动作类型 + 目标 + 耗时
+**And** 单行渲染耗时 ≤ 1ms（NFR58-obs）
 
-**Given** 用户执行 `rnix watch 42`
-**When** 进程 PID=42 存在且正在运行
-**Then** CLI 通过 IPC 发送 attach 请求，开始接收 StreamEvent（Progress 回调）
-**And** 从命令执行到首条事件显示的延迟 ≤ 200ms（NFR57）
+**Given** dashboard 时间线处于 Level 1
+**When** 用户按 `v` 键
+**Then** 当前选中步骤展开到 Level 2：显示参数、返回值、token 消耗
+**And** 数据通过 GetStepDetail IPC 获取（Story 27.2 已实现）
+**And** 展开渲染耗时 ≤ 5ms/步（NFR58-obs）
+**And** v 键响应延迟 ≤ 50ms（NFR57）
 
-**Given** watch 视图正在接收 Progress 回调
-**When** 收到 OnStepComplete 事件（step=3, action="tool_call", summary="/dev/fs → main.go 内容..."）
-**Then** 渲染一行：`[step 3] tool_call → /dev/fs  0.2s  ✓`
-**And** 单行渲染耗时 ≤ 1ms（NFR59）
+**Given** dashboard 时间线处于 Level 2
+**When** 用户按 `V` 键（大写）
+**Then** 切换到 Level 3 调试级详情：显示 prompt 摘要（消息数、token 数、首条消息预览）
+**And** V 键响应延迟 ≤ 50ms（NFR57）
 
-**Given** watch 视图正在接收 Progress 回调
-**When** 收到 OnStep 事件（step=4, total=30）
-**Then** 显示进行中指示：`[step 4/30] thinking...`
+**Given** Level 2 或 Level 3 展开状态
+**When** 用户再次按 `v` 键
+**Then** 折叠回 Level 1
 
-**Given** watch 视图正在接收 Progress 回调
-**When** 收到 OnComplete 事件（result, exitStatus）
-**Then** 显示完成状态行并退出 watch 视图
+**Given** 某步骤出错（返回错误）或耗时 > 1 秒
+**When** 该步骤的 OnStepComplete 事件到达
+**Then** 自动展开到 Level 2（FR166），用户无需手动切换
 
 **Given** ProgressPayload 结构体
-**When** 扩展以支持 watch 自动展开判断
-**Then** 新增 `HasError bool` 字段（json:"has_error,omitempty"）
-**And** 新增 `DurationMs float64` 字段（json:"duration_ms,omitempty"）
-**And** IPC server 的 `callbackMux.OnStepComplete` 填充这两个字段
+**When** 扩展以支持自动展开判断
+**Then** 新增 `HasError bool` 和 `DurationMs float64` 字段
+**And** IPC server 的 callbackMux.OnStepComplete 填充这两个字段
 
-**Given** 用户执行 `rnix spawn --watch "分析 main.go"`
-**When** 添加 `--watch` flag 到 spawn 命令
-**Then** spawn 返回 PID 后立即进入 watch 视图
-**And** 从 spawn 返回 PID 到 watch 首条事件显示的延迟 ≤ 100ms（NFR58）
-
-**Given** 用户在 watch 视图中按 `q` 键
-**When** 处理退出
-**Then** 断开 IPC 流式连接，返回终端
-**And** 进程继续运行不受影响
-
-**Given** 目标 PID 不存在
-**When** 用户执行 `rnix watch 999`
-**Then** 输出错误信息 `error: process 999 not found` 并退出
+**Given** 用户执行 `rnix spawn --dashboard "意图"`
+**When** spawn 返回 PID
+**Then** 立即进入 dashboard 视图并聚焦该进程（FR168）
+**And** 延迟 ≤ 500ms（NFR62-obs）
 
 **Technical Notes:**
-- 新增文件：`cmd/rnix/watch.go`
-- 修改文件：`cmd/rnix/main.go`（注册 watch 命令 + spawn --watch flag）、`ipc/protocol.go`（ProgressPayload 扩展）、`ipc/server.go`（填充新字段）
-- watch TUI 初始版本使用简单的终端输出（逐行打印），不依赖 BubbleTea（降低复杂度）
-- BubbleTea 升级留给 Story 27.4（需要交互式键盘处理）
+- 修改文件：`cmd/rnix/dashboard.go`（时间线窗格增加详细度切换）、`ipc/protocol.go`（ProgressPayload 扩展）
+- 依赖：Story 27.2（GetStepDetail IPC）
+- Level 2/3 数据缓存在 dashboard Model 中，避免重复 IPC 查询
 
 ---
 
-## Story 27.4: watch 三级详细度 + prompt 查看
+## Story 27.4: Dashboard prompt 查看（重定义）
+
+> **变更说明（2026-03-22）：** 原 Story 27-4（watch 三级详细度 + prompt 查看）已回滚。重定义为在 dashboard 时间线中集成 prompt 查看功能。
 
 As a 平台构建者,
-I want 在 watch 视图中按 v/V 键展开步骤详情，按 p 键查看完整 prompt 内容,
-So that 我可以从摘要逐级深入到完整的 LLM 输入，精确定位问题根因。
+I want 在 dashboard 时间线窗格中按 p 键查看选中步骤的完整 prompt 内容,
+So that 我可以看到 agent 当时收到了什么指令，精确定位 prompt 注入或上下文问题。
 
-**FRs:** FR166, FR167, FR168
-**NFRs:** NFR59（Level 2 展开 ≤ 5ms/步）、NFR60（v/V 键切换 ≤ 50ms）、NFR61（GetStepDetail ≤ 500ms）
+**FRs:** FR167
+**NFRs:** NFR59-obs（GetStepDetail ≤ 500ms）
 
 **Acceptance Criteria:**
 
-**Given** watch 视图升级为 BubbleTea TUI
-**When** 重构 watch.go
-**Then** watch 使用 BubbleTea Model 实现，支持键盘事件处理
-**And** 维护 UI 状态机：Normal → Expanded → Debug → Pager
-
-**Given** watch 视图显示 Level 1 步骤列表
-**When** 用户按 `v` 键
-**Then** 当前选中步骤展开到 Level 2：显示完整 LLM 响应、工具输入/输出、token 消耗
-**And** 数据通过 GetStepDetail IPC 获取
-**And** 展开渲染耗时 ≤ 5ms/步（NFR59）
-**And** v 键响应延迟 ≤ 50ms（NFR60）
-
-**Given** watch 视图显示 Level 2 展开详情
-**When** 用户按 `V` 键（大写）
-**Then** 切换到 Level 3 调试级详情：显示消息数、token 数、首条用户消息预览
-**And** V 键响应延迟 ≤ 50ms（NFR60）
-
-**Given** watch 视图中某步骤出错（ProgressPayload.HasError = true）
-**When** 该步骤的 OnStepComplete 事件到达
-**Then** 自动展开到 Level 2（FR167），用户无需手动按 v
-
-**Given** watch 视图中某步骤耗时 > 1 秒（ProgressPayload.DurationMs > 1000）
-**When** 该步骤的 OnStepComplete 事件到达
-**Then** 自动展开到 Level 2（FR167）
-
-**Given** watch 视图处于任何 Level
+**Given** dashboard 时间线窗格中选中了某个步骤
 **When** 用户按 `p` 键
 **Then** 发起 GetStepDetail IPC 请求获取完整 prompt
-**And** 进入 less 式翻页模式，显示 SystemPrompt + Messages + Tools 定义
-**And** GetStepDetail 返回延迟 ≤ 500ms（NFR61）
+**And** 进入类似 less 的翻页查看模式
+**And** 显示 SystemPrompt + Messages + Tools 定义
+**And** GetStepDetail 返回延迟 ≤ 500ms（NFR59-obs）
+
+**Given** prompt 翻页模式
+**When** 用户使用 j/k 或上下键滚动
+**Then** 内容平滑滚动
 
 **Given** prompt 翻页模式
 **When** 用户按 `q` 键
-**Then** 返回 watch 实时流视图
+**Then** 返回 dashboard 时间线视图，保持之前的选中状态
 
-**Given** Level 2/3 展开状态
-**When** 用户按 `v` 键（再次）
-**Then** 折叠回 Level 1
+**Given** 进程已被 reaper 清理（不在内存中）
+**When** 用户按 p 键查看该进程的某步骤 prompt
+**Then** 从 `.rnix/data/steps/<pid>/process-meta.json` 和 `steps.jsonl` 读取
+**And** 正常显示完整 prompt（离线查看能力）
 
 **Technical Notes:**
-- 修改文件：`cmd/rnix/watch.go`（升级为 BubbleTea TUI）
-- 依赖：Story 27.2（GetStepDetail IPC）、Story 27.3（watch 基础框架）
-- prompt 翻页模式可使用 BubbleTea viewport 组件
-- Level 2/3 数据缓存在 TUI Model 中，避免重复 IPC 查询
+- 修改文件：`cmd/rnix/dashboard.go`（新增 prompt pager 子视图）
+- 依赖：Story 27.2（GetStepDetail IPC）、Story 27.3（时间线详细度切换）
+- prompt 翻页使用 BubbleTea viewport 组件
 
 ---
 
-## Story 27.5: top↔watch 双向导航
+## Story 27.5: top→dashboard 导航（重定义）
+
+> **变更说明（2026-03-22）：** 原 Story 27-5（top↔watch 双向导航）已回滚。重定义为 top→dashboard 单向跳转——dashboard 是独立全屏 TUI，不适合嵌入 top。
 
 As a 平台构建者,
-I want 在 `rnix top` 中选中进程按回车直接进入 watch 视图，在 watch 中按 q 返回 top,
-So that 我可以在系统全局视图和单进程观察之间无缝切换。
+I want 在 `rnix top` 中选中进程按回车跳转到 `rnix dashboard` 并自动聚焦该进程,
+So that 我可以从系统全局视图快速深入到单进程的详细观察。
 
 **FRs:** FR62
-**NFRs:** NFR63（top→watch ≤ 100ms、watch→top ≤ 50ms）
+**NFRs:** NFR61-obs（top→dashboard 切换 ≤ 200ms）
 
 **Acceptance Criteria:**
 
 **Given** `rnix top` 显示进程列表
 **When** 用户通过上下键选中某进程并按 Enter
-**Then** 无缝切换到该进程的 watch 视图
-**And** 切换延迟 ≤ 100ms（NFR63）
-**And** watch 立即开始接收该进程的 Progress 回调流
+**Then** 退出 top，启动 dashboard 并自动聚焦选中的进程
+**And** 切换延迟 ≤ 200ms（NFR61-obs，含 dashboard 初始化和进程聚焦）
 
-**Given** 用户在 watch 视图中
-**When** 按 `q` 键
-**Then** 返回 top 全局视图
-**And** 切换延迟 ≤ 50ms（NFR63）
-**And** top 视图恢复到之前的进程列表状态
+**Given** top 中选中的进程 PID
+**When** 跳转到 dashboard
+**Then** dashboard 的进程树窗格中高亮该进程
+**And** 时间线窗格显示该进程的步骤数据
+**And** 上下文热力图显示该进程的 token 分布
 
-**Given** top 和 watch 的 TUI 实现
-**When** 实现视图切换
-**Then** top 和 watch 共享同一个 BubbleTea program
-**And** 通过 Model 切换实现视图转换，避免进程重建开销
+**Given** dashboard 中
+**When** 用户按 `q` 键
+**Then** 退出 dashboard 回到终端（不返回 top，因为是独立进程）
 
-**Given** 用户从 top 进入 watch 后目标进程已结束
-**When** watch 收到 OnComplete 事件
-**Then** 显示进程完成状态
-**And** 用户按 q 返回 top 视图
-
-**Given** top 命令当前为独立 TUI（cmd/rnix/top.go）
-**When** 集成 watch 视图
-**Then** 重构为统一的 BubbleTea program，包含 TopModel 和 WatchModel
-**And** top.go 中的 Enter 键处理调用 WatchModel 初始化
-**And** watch.go 中的 q 键处理回调 TopModel 恢复
+**Given** top 中选中的进程已结束（Dead 状态）
+**When** 用户按 Enter 跳转
+**Then** dashboard 正常显示该进程的历史数据（从 steps.jsonl 读取）
 
 **Technical Notes:**
-- 修改文件：`cmd/rnix/top.go`（集成 watch 导航）、`cmd/rnix/watch.go`（支持作为 top 子视图）
-- 依赖：Story 27.3（watch 基础）、Story 27.4（watch 完整 TUI）
-- 如果 top.go 当前不是 BubbleTea 实现，需要先评估重构成本；可选方案是通过 exec 子进程切换
+- 修改文件：`cmd/rnix/top.go`（Enter 键处理调用 dashboard）
+- 实现方式：top 退出后通过 exec 启动 `rnix dashboard --pid=<pid>`
+- 新增 `--pid` flag 到 dashboard 命令，支持启动时自动聚焦指定进程
+
+---
+
+## Story 27.6: Dashboard 进程详情面板
+
+As a 平台构建者,
+I want 在 dashboard 中选中进程后查看完整的运行时信息面板,
+So that 我可以了解进程的环境变量、已加载 Skill、FD 表和上下文统计。
+
+**FRs:** FR172
+**NFRs:** NFR63-obs（窗格切换 ≤ 100ms, 数据加载 ≤ 1s）
+
+**Acceptance Criteria:**
+
+**Given** dashboard 中选中了某个进程
+**When** 用户切换到进程详情窗格（按 Tab 或快捷键）
+**Then** 显示进程详情面板，包含：
+- 环境变量快照
+- 已加载 Skill 列表（名称、描述、allowed-tools）
+- FD 表（已打开的 VFS 设备路径及状态）
+- 上下文统计（消息数、token 消耗、上下文预算使用率）
+
+**Given** 进程详情面板显示中
+**When** 数据通过 IPC 查询
+**Then** 数据加载延迟 ≤ 1s（NFR63-obs）
+**And** 窗格切换渲染延迟 ≤ 100ms（NFR63-obs）
+
+**Technical Notes:**
+- 修改文件：`cmd/rnix/dashboard.go`（新增详情窗格）
+- 可能需要新增 IPC 方法获取进程详情（或扩展现有 get_proc_info）
+
+---
+
+## Story 27.7: Dashboard 意图树集成
+
+As a 平台构建者,
+I want 在 dashboard 中查看 Intent DAG 可视化窗格,
+So that 我可以了解意图分解结构，通过节点状态着色快速识别问题子任务。
+
+**FRs:** FR173
+**NFRs:** NFR63-obs（窗格切换 ≤ 100ms, 数据加载 ≤ 1s）
+
+**Acceptance Criteria:**
+
+**Given** 进程通过 `rnix apply` 声明式意图创建
+**When** 用户在 dashboard 中切换到意图树窗格
+**Then** 以树状 / DAG 图展示意图分解结构
+**And** 节点按状态着色（pending=灰、executing=蓝、completed=绿、failed=红）
+
+**Given** 意图树中某个节点
+**When** 用户选中该节点
+**Then** 联动切换时间线和上下文视图到对应进程的数据
+
+**Given** 没有活跃的意图分解（普通 spawn 启动）
+**When** 用户切换到意图树窗格
+**Then** 显示空状态提示："当前无活跃的意图分解任务"
+
+**Technical Notes:**
+- 修改文件：`cmd/rnix/dashboard.go`（新增意图树窗格）
+- 依赖：Epic 19（Intent 系统已实现）
+- 数据源：Intent 系统的 IntentTree 结构
+
+---
+
+## Story 27.8: Dashboard 安全异常面板
+
+As a 平台构建者,
+I want 在 dashboard 中查看安全异常面板，集成 Immune Daemon 的实时告警信息,
+So that 我可以及时发现异常行为并处理安全威胁。
+
+**FRs:** FR174
+**NFRs:** NFR63-obs（窗格切换 ≤ 100ms）
+**Priority:** P2
+
+**Acceptance Criteria:**
+
+**Given** Immune Daemon 检测到异常行为
+**When** 用户在 dashboard 中切换到安全异常窗格
+**Then** 显示按严重度排序的告警列表（异常行为检测、已挂起进程、威胁模式匹配）
+
+**Given** 安全告警列表中某条告警
+**When** 用户选中并按 Enter
+**Then** 跳转到对应进程的详情视图
+
+**Given** 没有活跃的安全告警
+**When** 用户切换到安全异常窗格
+**Then** 显示绿色安全状态："所有进程行为正常"
+
+**Technical Notes:**
+- 修改文件：`cmd/rnix/dashboard.go`（新增安全窗格）
+- 依赖：Epic 22（Immune Daemon 已实现）
+- 数据源：`rnix immune status` 对应的内部 API
+
+---
+
+## Story 27.9: Dashboard 分布式追踪集成
+
+As a 平台构建者,
+I want 在 dashboard 中查看分布式追踪集成窗格，以 span 树展示 Compose 编排的跨进程追踪数据,
+So that 我可以在可视化面板中直接分析多智能体协作的时序关系和调用链路。
+
+**FRs:** FR175
+**NFRs:** NFR63-obs（窗格切换 ≤ 100ms）
+**Priority:** P2
+
+**Acceptance Criteria:**
+
+**Given** Compose 编排正在运行（有活跃的 Trace）
+**When** 用户在 dashboard 中切换到追踪窗格
+**Then** 以 span 树形式展示跨进程追踪数据
+**And** 包含时序关系、调用链路、耗时瀑布图
+**And** 数据与 `rnix trace` 命令行输出一致
+
+**Given** 追踪窗格中某个 span 节点
+**When** 用户选中
+**Then** 联动切换到对应进程的时间线视图
+
+**Given** 没有活跃的 Compose 追踪
+**When** 用户切换到追踪窗格
+**Then** 显示空状态提示
+
+**Technical Notes:**
+- 修改文件：`cmd/rnix/dashboard.go`（新增追踪窗格）
+- 依赖：Epic 15（分布式追踪已实现）
+- 数据源：trace 系统的 Span 数据
+
+---
+
+## Story 27.10: Dashboard 多智能体评价视图
+
+As a 平台构建者,
+I want 在 dashboard 中查看多智能体评价视图，集成声誉系统数据和协作拓扑,
+So that 我可以了解各 Agent 模板的历史表现和协作模式，优化智能体配置。
+
+**FRs:** FR176
+**NFRs:** NFR63-obs（窗格切换 ≤ 100ms）
+**Priority:** P2
+
+**Acceptance Criteria:**
+
+**Given** 系统有声誉系统数据
+**When** 用户在 dashboard 中切换到评价窗格
+**Then** 显示各 Agent 模板的成功率、token 效率、SLA 达标率
+**And** 显示协作拓扑图（进程间通信频率和方向）
+**And** 显示能力重叠度矩阵
+
+**Given** 没有足够的历史数据
+**When** 用户切换到评价窗格
+**Then** 显示提示："需要更多执行数据以生成评价"
+
+**Technical Notes:**
+- 修改文件：`cmd/rnix/dashboard.go`（新增评价窗格）
+- 依赖：Epic 21（声誉系统已实现）、Epic 22（协作拓扑已实现）
+- 数据源：reputation 系统和 topology 系统数据

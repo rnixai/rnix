@@ -93,6 +93,7 @@ func (t *StdioTransport) Connect(ctx context.Context) error {
 	t.cmd = cmd
 	t.stdin = json.NewEncoder(stdinPipe)
 	t.stdout = bufio.NewScanner(stdoutPipe)
+	t.stdout.Buffer(make([]byte, 0, 64*1024), 4*1024*1024) // 4 MB max line
 
 	// Perform MCP initialize handshake (JSON-RPC initialize + initialized notification)
 	if err := t.initialize(); err != nil {

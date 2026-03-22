@@ -59,12 +59,12 @@ Rnix 用户在观察 agent 行为时面临**三个断裂点**：
 ```
 Layer 1（全局）：top — "系统里有什么在跑？"
     │
-    └── 选中进程 → 回车 → 下钻
+    └── 选中进程 → 回车 → 下钻到 dashboard
             │
-Layer 2（日常）：watch — "这个 agent 在做什么？"
-    │           ├─ 默认：进度摘要（每步一行）
-    │           ├─ v 键：展开参数和结果
-    │           ├─ V 键：调试级详情 + prompt 摘要
+Layer 2（全景调试）：dashboard — "这个 agent 在做什么？"
+    │           ├─ 智能体树窗格：进程状态全览
+    │           ├─ 时间线窗格：syscall 事件流 + 三级详细度（v/V 键）
+    │           ├─ 热力图窗格：上下文 token 分布
     │           ├─ p 键：查看完整 prompt
     │           └─ q 键：返回 top
     │
@@ -74,10 +74,10 @@ Layer 3（专业）：strace / log / trace / record
 
 **核心产品设计：**
 
-1. **`rnix watch`**（新增）— 统一的实时进程观察命令，同时消费 DebugChan + LogChan，以时间线聚合呈现。三级详细度：进度摘要 → 展开详情 → 调试级（含 prompt）。
-2. **`top` 下钻**（增强）— 在 top 的 bubbletea TUI 中内嵌 watch 视图，选中进程按回车即下钻，按 q 返回。消除"切终端找 PID"的痛点。
-3. **`spawn --watch`**（新增）— 启动即观察，零延迟 attach。
-4. **Prompt 可观测性**（新增底层能力）— 按需拉取模式：进程的 `promptSnapshots` 环形缓冲记录每步 prompt 摘要，新增 `GetStepDetail` IPC 方法支持按需查看完整 prompt。不影响 DebugChan 的实时性能。
+1. **`dashboard` 增强**（增强现有）— 在时间线窗格中增加三级详细度（摘要→展开→调试级含 prompt），复用已有的多窗格联动能力。
+2. **`top` 下钻到 dashboard**（增强）— 在 top 中选中进程按回车跳转到 dashboard 并聚焦该进程，消除"切终端找 PID"的痛点。
+3. **`spawn --dashboard`**（新增）— 启动即进入 dashboard 观察，零延迟 attach。
+4. **Prompt 可观测性**（已实现底层能力）— 按需拉取模式：进程的 StepRecord 记录每步完整数据，GetStepDetail IPC 方法支持按需查看完整 prompt。不影响 DebugChan 的实时性能。
 5. **`log --prompt`**（增强）— 在思维链日志中插入 prompt 摘要。
 6. **`record --full`**（增强）— 可选记录完整 prompt，支持事后回放。
 
@@ -200,20 +200,19 @@ Rnix 是开源项目，业务目标以产品完整度和用户体验为核心：
 
 | 功能 | 说明 | 涉及模块 |
 |------|------|---------|
-| **`rnix watch <pid>`** | 统一实时观察命令，同时消费 DebugChan + LogChan，按时间线聚合呈现 | 新增 `cmd/rnix/watch.go` |
-| **三级详细度** | Level 1 每步一行摘要；Level 2 展开参数/结果；Level 3 含 prompt 摘要 | watch 渲染器 |
-| **`rnix spawn --watch`** | 启动即观察，spawn 返回 PID 后自动进入 watch | `cmd/rnix/main.go` spawn 命令扩展 |
-| **`top` 下钻** | 在 top TUI 中选中进程按回车进入 watch 视图，按 q 返回 | `cmd/rnix/top.go` 扩展 |
-| **PromptSnapshot 环形缓冲** | 每步记录 prompt 摘要（消息数、token 数、首条消息预览） | `kernel/process.go` 新增字段 |
-| **`GetStepDetail` IPC** | 按需拉取某步的完整 prompt 内容 | `ipc/protocol.go` + `ipc/server.go` + `ipc/client.go` |
-| **`p` 键查看 prompt** | watch 中按 p 进入 prompt 查看模式（类似 less 翻页） | watch TUI |
+| **dashboard 时间线三级详细度** | Level 1 每步一行摘要；Level 2 展开参数/结果；Level 3 含 prompt 摘要（v/V 键切换） | `cmd/rnix/dashboard.go` 增强 |
+| **dashboard prompt 查看** | 时间线窗格中按 p 键查看选中步骤的完整 prompt 内容 | `cmd/rnix/dashboard.go` 增强 |
+| **`top` 下钻到 dashboard** | top 中选中进程按回车跳转到 dashboard 并聚焦该进程 | `cmd/rnix/top.go` + `cmd/rnix/dashboard.go` |
+| **`spawn --dashboard`** | 启动即进入 dashboard 观察，零延迟 attach | `cmd/rnix/main.go` spawn 命令扩展 |
+| **StepRecord 自动记录** | 每步自动记录完整数据（已实现 27-1） | `kernel/` |
+| **`GetStepDetail` IPC** | 按需拉取某步的完整 prompt 内容（已实现 27-2） | `ipc/` |
 
 **P1 — 增强（MVP 后快速跟进）：**
 
 | 功能 | 说明 |
 |------|------|
 | **`log --prompt`** | 在思维链日志中插入 prompt 摘要 |
-| **异常自动展开** | watch 中出错或慢操作的步骤自动展开到 Level 2 |
+| **时间线异常自动展开** | dashboard 时间线中出错或慢操作的步骤自动展开到 Level 2 |
 | **格式化器统一** | 消除 `debug.FormatEvent()` 与 `ui.FormatTraceLine()` 的重叠 |
 
 **P2 — 后续迭代：**
@@ -221,13 +220,13 @@ Rnix 是开源项目，业务目标以产品完整度和用户体验为核心：
 | 功能 | 说明 |
 |------|------|
 | **`record --full`** | 可选记录完整 prompt，支持事后回放时查看 |
-| **watch 中的 token 消耗统计** | 每步显示增量 token，累计 token |
+| **时间线 token 消耗统计** | 每步显示增量 token，累计 token |
 
 ### MVP 明确排除
 
 | 排除项 | 理由 |
 |--------|------|
-| 独立的 watch TUI 框架 | 不需要，纯 terminal streaming + ANSI 控制码 + 键盘监听足够 |
+| 独立的 watch 命令 | 与 dashboard 功能重叠，已回滚（27-3/27-4/27-5） |
 | 修改 strace/log 默认行为 | 保持向后兼容，只在 verbose 模式增强 |
 | 修改 DebugChan/LogChan 协议 | prompt 走按需拉取，不走实时事件流，不影响性能 |
 | 可视化 Web 面板 | 属于更远期的愿景，当前 TUI 满足需求 |
@@ -237,20 +236,19 @@ Rnix 是开源项目，业务目标以产品完整度和用户体验为核心：
 
 | 检查项 | 通过条件 |
 |--------|---------|
-| watch 基本功能 | `rnix watch <pid>` 显示实时步骤摘要流 |
-| 三级详细度 | v/V 键正确切换 Level 1/2/3 |
-| prompt 查看 | p 键显示当前步骤的 prompt 摘要和全文 |
-| top 下钻 | top 中选中进程按回车进入 watch，q 返回 |
-| spawn --watch | `rnix spawn --watch "意图"` 启动后立即显示 watch 流 |
-| 向后兼容 | 现有 20 个测试包全部通过，strace/log/trace/record 行为不变 |
-| 自举验证 | 用 `rnix spawn --watch` 启动一个 agent 任务，在 watch 中观察其完整生命周期 |
+| dashboard 三级详细度 | 时间线窗格中 v/V 键正确切换 Level 1/2/3 |
+| prompt 查看 | 时间线窗格中 p 键显示选中步骤的 prompt 摘要和全文 |
+| top 下钻 | top 中选中进程按回车跳转到 dashboard |
+| spawn --dashboard | `rnix spawn --dashboard "意图"` 启动后立即进入 dashboard |
+| 向后兼容 | 现有测试包全部通过，strace/log/trace/record/dashboard 现有行为不变 |
+| 自举验证 | 用 `rnix spawn --dashboard` 启动一个 agent 任务，在 dashboard 时间线中观察其完整生命周期并查看 prompt |
 
 ### 未来愿景
 
 MVP 是 Rnix 可观测性体系从"专业工具集"到"产品级体验"的关键转折点。后续演进方向：
 
-- **实时告警规则**：用户可定义异常检测规则（如 token 超阈值、连续失败），watch 自动高亮
-- **watch 历史回看**：watch 不仅看实时流，也可以回看已完成进程的执行历史
-- **跨进程关联视图**：在 compose DAG 场景中，watch 展示多进程间的因果关系
-- **导出与分享**：将 watch 会话导出为可分享的 HTML 报告
+- **实时告警规则**：用户可定义异常检测规则（如 token 超阈值、连续失败），dashboard 自动高亮
+- **dashboard 历史回看**：dashboard 不仅看实时流，也可以回看已完成进程的执行历史（已有离线回放基础）
+- **跨进程关联视图**：在 compose DAG 场景中，dashboard 展示多进程间的因果关系
+- **导出与分享**：将 dashboard 会话导出为可分享的 HTML 报告
 - **从 ToolDefs 自动生成 toolProtocol**：消除 toolProtocol 硬编码，ToolDescriptor 作为单一事实来源

@@ -73,16 +73,17 @@
 - **NFR55:** 配置合并（全局 + 项目级 deep merge）处理时间 ≤ 50ms（≤ 10 个配置文件场景，通过基准测试测量）
 - **NFR56:** ~~推迟~~ `rnix migrate` 迁移过程保证数据完整性——迁移前自动备份原文件到 `.rnix/backup/`，迁移失败时回滚到备份状态，通过迁移前后文件 checksum 比对验证不丢失用户数据 *（推迟：与 FR161/FR162 同步推迟，全新项目无现有用户需要迁移）*
 
-## Unified Observation System Quality（统一观察系统质量，Phase 2）
+## Unified Observation System Quality（统一观察系统质量 — Dashboard 增强，Phase 2）
 
-- **NFR57:** `rnix watch <pid>` attach 延迟（从命令执行到首条事件显示）≤ 200ms，通过 CLI 计时测量
-- **NFR58:** `spawn --watch` 从 spawn 返回 PID 到 watch 流首条事件显示的延迟 ≤ 100ms
-- **NFR59:** watch 视图 Level 1 渲染开销 ≤ 1ms/行，Level 2 展开渲染 ≤ 5ms/步骤，保证实时流畅不卡顿
-- **NFR60:** watch 的三级详细度切换（v/V 键）响应延迟 ≤ 50ms，用户感知为即时
-- **NFR61:** GetStepDetail IPC 方法返回完整 prompt 的延迟 ≤ 500ms（≤ 100 条消息、≤ 50k token 的上下文场景）
-- **NFR62:** StepRecord 磁盘写入（JSONL append + flush）开销 ≤ 1ms/步（不影响 reasonStep 循环性能），steps.jsonl 文件随进程生命周期自动管理，默认保留 7 天
-- **NFR63:** top 下钻到 watch 视图的切换延迟 ≤ 100ms，从 watch 返回 top 的切换延迟 ≤ 50ms
-- **NFR64:** watch 消费 Progress 回调流 + 按需查询 StepRecord 不影响 reasonStep 循环性能，StepRecord 写入与 Progress 回调推送之间无竞争
+- **NFR57:** dashboard 时间线三级详细度切换（v/V 键）响应延迟 ≤ 50ms，用户感知为即时
+- **NFR58-obs:** dashboard 时间线 Level 1 渲染开销 ≤ 1ms/行，Level 2 展开渲染 ≤ 5ms/步骤，保证实时流畅不卡顿
+- **NFR59-obs:** GetStepDetail IPC 方法返回完整 prompt 的延迟 ≤ 500ms（≤ 100 条消息、≤ 50k token 的上下文场景）
+- **NFR60-obs:** StepRecord 磁盘写入（JSONL append + flush）开销 ≤ 1ms/步（不影响 reasonStep 循环性能），steps.jsonl 文件随进程生命周期自动管理，默认保留 7 天
+- **NFR61-obs:** top 下钻到 dashboard 的切换延迟 ≤ 200ms（含 dashboard 初始化和进程聚焦）
+- **NFR62-obs:** `spawn --dashboard` 从 spawn 返回 PID 到 dashboard 显示该进程数据的延迟 ≤ 500ms
+- **NFR63-obs:** Dashboard 进程详情面板、意图树、安全异常、追踪、评价视图的窗格切换渲染延迟 ≤ 100ms，数据加载（IPC 查询）延迟 ≤ 1s
+- **NFR64-obs:** Dashboard 多窗格同时活跃（≥ 4 个窗格含实时数据更新）时，整体 TUI 刷新帧率 ≥ 2fps，单核 CPU 占用 ≤ 15%（10 个并发进程场景）
+- **NFR65-obs:** UUID v7 生成延迟 ≤ 1ms/次，不影响 Spawn 性能；UUID 存储开销 ≤ 36 bytes/进程（标准 UUID 字符串格式）
 
 ---
 

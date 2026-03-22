@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-06
-last_updated: 2026-03-21
+last_updated: 2026-03-22  # Story 27-3/27-4/27-5 rolled back (watch → dashboard enhancement)
 project: rnix
 project_key: NOKEY
 tracking_system: file-system
@@ -291,11 +291,31 @@ development_status:
   26-5-documentation-update: done
   epic-26-retrospective: done
 
-  # Epic 27: Unified Observation System (统一观察系统)
+  # Epic 27: Unified Observation System (统一观察系统 → Dashboard 增强)
+  # Decision: 2026-03-22 — watch 与 dashboard 功能重叠，选择方案 A（增强 dashboard）
+  # Rolled back: 27-3, 27-4, 27-5 (git revert) — 重定义为 dashboard 增强 Story
+  # Kept: 27-1 (StepRecord), 27-2 (GetStepDetail IPC) — 底层基础设施
+  # Sprint Change Proposal: sprint-change-proposal-2026-03-22.md
   epic-27: in-progress
   27-1-steprecord-type-and-disk-writer: done
   27-2-getstepdetail-ipc-method: done
-  27-3-watch-command-level1-realtime-stream: backlog
-  27-4-watch-three-level-detail-and-prompt-view: backlog
-  27-5-top-watch-bidirectional-navigation: backlog
+  27-3-dashboard-timeline-three-level-detail: backlog          # 重定义：dashboard 时间线三级详细度
+  27-4-dashboard-prompt-view: backlog                          # 重定义：dashboard prompt 查看
+  27-5-top-to-dashboard-navigation: backlog                    # 重定义：top→dashboard 导航
+  27-6-dashboard-process-detail-panel: backlog                 # 新增：进程详情面板
+  27-7-dashboard-intent-tree-integration: backlog              # 新增：意图树集成
+  27-8-dashboard-security-anomaly-panel: backlog               # 新增：安全异常面板
+  27-9-dashboard-distributed-tracing-integration: backlog      # 新增：分布式追踪集成
+  27-10-dashboard-multi-agent-evaluation-view: backlog         # 新增：多智能体评价视图
   epic-27-retrospective: optional
+
+  # Epic 28: PID Identity System (PID 标识体系重构)
+  # Trigger: Dashboard 刷新问题调查发现 PID 跨 daemon 复用导致数据混淆
+  # Decision: 引入 UUID v7 作为持久化唯一标识，PID 保留为用户友好短标识
+  # Sprint Change Proposal: sprint-change-proposal-2026-03-22.md
+  epic-28: backlog
+  28-1-process-uuid-v7-introduction: backlog                   # Process UUID v7 引入
+  28-2-steprecord-path-migration-to-uuid: backlog              # StepRecord 路径迁移
+  28-3-ipc-pid-uuid-mapping: backlog                           # IPC PID→UUID 映射
+  28-4-dashboard-pid-validity-check: backlog                   # Dashboard PID 有效性检查
+  epic-28-retrospective: optional

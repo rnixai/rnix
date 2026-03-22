@@ -555,11 +555,11 @@ func TestGlobalDir_XDG(t *testing.T) {
 |------|---------|------|
 | StepRecord 类型 | `types.StepRecord` | `internal/types/step_record.go` |
 | JSONL 写入器 | `StepWriter` | `kernel/step_writer.go` |
-| 磁盘存储路径 | `.rnix/data/steps/<pid>/steps.jsonl` | `.rnix/data/steps/42/steps.jsonl` |
-| 进程元数据文件 | `.rnix/data/steps/<pid>/process-meta.json` | reaper 清理前写入 |
+| 磁盘存储路径 | `.rnix/data/steps/<uuid>/steps.jsonl` | `.rnix/data/steps/01968a3e-.../steps.jsonl`（Decision 27: UUID 替代 PID） |
+| 进程元数据文件 | `.rnix/data/steps/<uuid>/process-meta.json` | reaper 清理前写入（Decision 27: UUID 替代 PID） |
 | IPC 方法名 | `get_step_detail` | 小写下划线，与现有方法一致 |
-| CLI 命令 | `rnix watch` | 动词形式 |
-| CLI Flag | `--watch` | `rnix spawn --watch "意图"` |
+| CLI 命令 | `rnix dashboard` | 已有命令，增强时间线窗格 |
+| CLI Flag | `--dashboard` | `rnix spawn --dashboard "意图"` |
 
 ### 结构模式（观察系统专项）
 
@@ -693,3 +693,187 @@ func TestStepWriter_ConcurrentReadWrite(t *testing.T) {
 20. GetStepDetail handler 读取 steps.jsonl 时必须独立 open 文件，禁止复用 StepWriter 的 file handle
 21. steps.jsonl 中每行必须是完整的 JSON 对象，禁止跨行写入
 22. 进程 reap 前必须将 FinalSystemPrompt + NativeToolDefs 写入 process-meta.json
+
+---
+
+### 进程标识体系实现模式（Process Identity System 增量）
+
+### 命名模式（PID/UUID 专项）
+
+| 组件 | 命名规范 | 示例 |
+|------|---------|------|
+| Process UUID 字段 | `UUID string` | `proc.UUID` |
+| 反向索引表 | `byUUID` | `*xsync.SyncMap[string, types.PID]` |
+| UUID 生成函数 | `uuid.NewV7()` | `github.com/google/uuid` |
+| 磁盘存储路径 | `.rnix/data/steps/<uuid>/` | `.rnix/data/steps/01968a3e-.../steps.jsonl` |
+| 进程元数据文件 | `.rnix/data/steps/<uuid>/process-meta.json` | reaper 清理前写入 |
+| IPC 请求 UUID 字段 | `UUID string \`json:"uuid,omitempty"\`` | 可选字段，omitempty |
+| CLI 输出 UUID 列 | `UUID` 列头 | `rnix ps` 输出末列 |
+
+**UUID 显示截断规则：**
+
+| 场景 | 格式 | 示例 |
+|------|------|------|
+| `rnix ps` 列表 | 前 8 字符 | `01968a3e` |
+| `rnix spawn` 输出 | 完整 36 字符 | `01968a3e-7b2c-7000-...` |
+| 日志/strace | 前 8 字符 | `[01968a3e]` |
+| IPC 传输 | 完整 36 字符 | 不截断 |
+
+### 结构模式（PID/UUID 专项）
+
+**ProcessTable 双向索引标准实现：**
+
+```go
+// ✅ 正确：双表同步维护
+func (k *KernelImpl) Spawn(...) (types.PID, error) {
+    pid := k.nextPID()
+    procUUID := uuid.NewV7().String()
+
+    proc := &Process{
+        PID:  pid,
+        UUID: procUUID,
+        // ...
+    }
+
+    k.procs.Store(pid, proc)
+    k.procsByUUID.Store(procUUID, pid)
+    return pid, nil
+}
+
+// ✅ 正确：reaper 双表同步删除
+func (k *KernelImpl) reapProcess(pid types.PID) {
+    proc, ok := k.procs.Load(pid)
+    if !ok { return }
+
+    // 写入 process-meta.json 到 UUID 路径
+    k.writeProcessMeta(proc)
+
+    k.procsByUUID.Delete(proc.UUID)
+    k.procs.Delete(pid)
+}
+
+// ❌ 错误：只删一张表
+func (k *KernelImpl) reapProcess(pid types.PID) {
+    k.procs.Delete(pid)  // byUUID 泄漏！
+}
+```
+
+**UUID 查询解析（IPC handler）：**
+
+```go
+// ✅ 正确：UUID 优先，PID 回退
+func (s *Server) resolveProcess(req GetStepDetailRequest) (*Process, error) {
+    if req.UUID != "" {
+        pid, ok := s.kernel.procsByUUID.Load(req.UUID)
+        if !ok {
+            return nil, fmt.Errorf("process uuid %s not found", req.UUID)
+        }
+        return s.kernel.procs.Load(pid)
+    }
+    return s.kernel.procs.Load(req.PID)
+}
+
+// ❌ 错误：遍历进程表查 UUID
+func (s *Server) resolveProcess(req GetStepDetailRequest) (*Process, error) {
+    var found *Process
+    s.kernel.procs.Range(func(_ types.PID, p *Process) bool {
+        if p.UUID == req.UUID { found = p; return false }
+        return true
+    })  // O(n) 遍历，禁止
+}
+```
+
+### 过程模式（PID/UUID 专项）
+
+**StepWriter 路径初始化：**
+
+```go
+// ✅ 正确：用 UUID 作为目录名
+func NewStepWriter(dataDir string, procUUID string) (*StepWriter, error) {
+    dir := filepath.Join(dataDir, "steps", procUUID)
+    os.MkdirAll(dir, 0755)
+    f, err := os.OpenFile(filepath.Join(dir, "steps.jsonl"),
+        os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+    // ...
+}
+
+// ❌ 错误：用 PID 作为目录名
+func NewStepWriter(dataDir string, pid types.PID) (*StepWriter, error) {
+    dir := filepath.Join(dataDir, "steps", fmt.Sprintf("%d", pid))
+    // daemon 重启后 PID 复用，数据覆盖！
+}
+```
+
+**Dashboard 同一性验证流程：**
+
+```
+刷新周期（每 1s）：
+1. IPC 获取进程列表（包含 PID + UUID）
+2. if selectedPID != 0 {
+3.   查找 selectedPID 对应的进程
+4.   if 未找到 || 进程.UUID != selectedUUID {
+5.     清除选中状态（进程已死或被 PID 复用替换）
+6.   }
+7. }
+```
+
+### 测试模式（PID/UUID 专项）
+
+**UUID 双索引测试 helper：**
+
+```go
+func TestProcessTable_DualIndex(t *testing.T) {
+    k := newTestKernel(t)
+
+    pid, err := k.Spawn("test", testAgent, SpawnOpts{})
+    require.NoError(t, err)
+
+    // 通过 PID 查到进程
+    proc, ok := k.procs.Load(pid)
+    require.True(t, ok)
+    require.NotEmpty(t, proc.UUID)
+
+    // 通过 UUID 反查 PID
+    gotPID, ok := k.procsByUUID.Load(proc.UUID)
+    require.True(t, ok)
+    require.Equal(t, pid, gotPID)
+
+    // reap 后双表都清理
+    k.reapProcess(pid)
+    _, ok = k.procs.Load(pid)
+    require.False(t, ok)
+    _, ok = k.procsByUUID.Load(proc.UUID)
+    require.False(t, ok)
+}
+```
+
+**UUID 唯一性跨重启测试：**
+
+```go
+func TestUUID_UniqueAcrossRestart(t *testing.T) {
+    // 模拟两次 daemon 生命周期
+    k1 := newTestKernel(t)
+    pid1, _ := k1.Spawn("test", testAgent, SpawnOpts{})
+    proc1, _ := k1.procs.Load(pid1)
+    uuid1 := proc1.UUID
+
+    k2 := newTestKernel(t)  // 新 kernel = daemon 重启
+    pid2, _ := k2.Spawn("test", testAgent, SpawnOpts{})
+    proc2, _ := k2.procs.Load(pid2)
+    uuid2 := proc2.UUID
+
+    // PID 可能相同（都是 1），但 UUID 必须不同
+    require.NotEqual(t, uuid1, uuid2)
+}
+```
+
+### 进程标识体系强制执行指南（增量）
+
+**AI Agent 额外必须遵循：**
+
+23. 所有磁盘持久化路径必须使用 `proc.UUID` 而非 `proc.PID`，禁止 `fmt.Sprintf("%d", pid)` 作为目录名
+24. `ProcessTable` 双表（byPID + byUUID）必须在 Spawn/Reaper 中同步维护，禁止只操作单表
+25. IPC handler 接收到同时包含 PID 和 UUID 的请求时，UUID 优先
+26. UUID 查询必须通过 `byUUID` 反向索引 O(1) 查找，禁止 `Range()` 遍历
+27. Dashboard 刷新时必须通过 UUID 验证进程同一性，禁止仅靠 PID 判断
+28. `rnix ps` 输出的 UUID 列使用前 8 字符截断，完整 UUID 仅在详情/IPC 中展示

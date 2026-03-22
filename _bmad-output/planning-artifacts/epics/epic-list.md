@@ -154,12 +154,20 @@ Supervisor 容错树自动管理子智能体生命周期 + init 引导序列初�
 **Dependencies:** Epic 20（替换其 OODA 实现）
 **Architecture:** Decision 23（统一推理循环）
 
-## Epic 27: 统一观察系统（Unified Observation System）
-用户可以通过 `rnix watch` 实时观察智能体的每一步推理过程——从一行摘要到完整 prompt 内容，三级详细度按需展开。系统默认记录每步完整的 LLM 输入/输出/工具结果（StepRecord），无需手动开启录制。从 `rnix top` 选中进程直接下钻到 watch 视图，实现"系统全局 → 单进程深入"的连贯调试路径。
-**FRs covered:** FR62, FR165, FR166, FR167, FR168, FR169, FR170, FR171, FR172
-**NFRs:** NFR57-NFR64
-**Dependencies:** Epic 10（top 命令基础）、Epic 26（统一推理循环 reasonStep）
+## Epic 27: 统一观察系统 — Dashboard 增强（Unified Observation System — Dashboard Enhancement）
+用户可以在 Dashboard 中查看三级详细度时间线、完整 prompt 内容、进程详情面板和 Intent DAG 可视化。系统默认记录每步完整的 LLM 输入/输出/工具结果（StepRecord），无需手动开启录制。从 `rnix top` 选中进程按回车跳转到 Dashboard 并自动聚焦。Dashboard 集成安全异常、分布式追踪和多智能体评价视图。
+**FRs covered:** FR62, FR165, FR166, FR167, FR168, FR169, FR170, FR171, FR172, FR173, FR174, FR175, FR176
+**NFRs:** NFR57 ~ NFR64-obs
+**Dependencies:** Epic 10（top 命令基础）、Epic 17（Dashboard 基础框架）、Epic 26（统一推理循环 reasonStep）
 **Architecture:** Decision 23-26（统一观察系统）
 **User Journey:** 旅程 7（陈明通过 top 下钻定位 prompt 注入错误）
+**Design Change (2026-03-22):** watch→dashboard 增强，Story 27-3/27-4/27-5 已回滚并重定义
+
+## Epic 28: PID 标识体系重构（Process Identity System）
+系统引入 UUID v7 作为进程的持久化唯一标识，PID 保留为 daemon 内递增的用户友好短标识。所有持久化数据路径使用 UUID 而非 PID，消除 daemon 重启后 PID 复用导致的数据覆盖。IPC 方法支持按 PID 或 UUID 查询，Dashboard 通过 UUID 验证进程同一性。
+**FRs covered:** FR177, FR178, FR179, FR180
+**NFRs:** NFR65-obs
+**Dependencies:** 无（可与 Epic 27 并行）
+**Architecture:** Decision 27（UUID v7 标识体系）
 
 ---

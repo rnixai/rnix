@@ -1197,7 +1197,7 @@ type StepRecord struct {
     // === LLM 输出 ===
     RawResponse    string        // LLM 原始响应（完整，不截断）
     Action         string        // 解析后的 action type
-    Summary        string        // 一行摘要（给 watch Level 1）
+    Summary        string        // 一行摘要（给 dashboard 时间线 Level 1）
 
     // === 工具执行（仅 tool_call 时有值）===
     ToolPath       string        // VFS 设备路径
@@ -1273,8 +1273,8 @@ StepRecord 写入开销相对 LLM 调用完全可忽略。
 
 | 现有系统 | 处置 |
 |---------|------|
-| DebugChan (strace) | 保留，定位为**低级调试工具**（调试 VFS 驱动、syscall 时序），不参与 watch 主数据流 |
-| LogChan (log) | **废弃**，watch 直接从 StepRecord 读取，OnStepComplete 回调提供实时摘要 |
+| DebugChan (strace) | 保留，定位为**低级调试工具**（调试 VFS 驱动、syscall 时序），不参与 dashboard 时间线主数据流 |
+| LogChan (log) | **废弃**，dashboard 时间线直接从 StepRecord 读取，OnStepComplete 回调提供实时摘要 |
 | record（RecordManager） | **简化**，去掉 ContextSnapshotData/LLMResponseData 的摘要 hack，record list/replay 改为读 steps.jsonl |
 | record start / record start --full | **删除**，默认就是全量记录 |
 
@@ -1299,8 +1299,9 @@ StepRecord 写入开销相对 LLM 调用完全可忽略。
           │                         │
     ┌─────┴─────┐            ┌──────┴──────┐
     ▼           ▼            ▼             ▼
-  watch      TUI 进度     watch 详情    replay
-  Level 1    spawn 输出   Level 2/3     事后分析
+  dashboard  TUI 进度     dashboard     replay
+  时间线     spawn 输出   详情展开      事后分析
+  Level 1                 Level 2/3
   (实时流)                GetStepDetail
 ```
 
@@ -1316,15 +1317,15 @@ OnError(pid, err)                           // 进程错误
 
 - 推送方式：通过 IPC StreamEvent 实时传输到 CLI
 - 数据量：每条 < 200 字节（仅摘要）
-- 用途：watch Level 1 每步一行、TUI 进度条、spawn 命令输出
+- 用途：dashboard 时间线 Level 1 每步一行、TUI 进度条、spawn 命令输出
 
 **StepRecord（新建，Decision 23）：**
 
 - 存储方式：磁盘 JSONL，append-only
 - 数据量：每步 5-50KB（完整 prompt + 响应 + 工具结果）
-- 用途：watch Level 2/3 展开详情、p 键查看完整 prompt、replay 回放
+- 用途：dashboard 时间线 Level 2/3 展开详情、p 键查看完整 prompt、replay 回放
 
-**watch 命令的三级详细度数据来源：**
+**dashboard 时间线窗格的三级详细度数据来源：**
 
 | Level | 触发 | 数据来源 | 延迟要求 |
 |-------|------|---------|---------|
@@ -1333,7 +1334,7 @@ OnError(pid, err)                           // 进程错误
 | Level 3 (V 键) | 用户按键 | StepRecord：MessageCount、TokenCount、首条消息预览 | NFR60 ≤ 50ms |
 | Prompt (p 键) | 用户按键 | Process.FinalSystemPrompt + StepRecord.Messages + Process.NativeToolDefs | NFR61 ≤ 500ms |
 
-**FR/NFR 覆盖：** FR165-FR169（watch 命令全部功能需求）、NFR57-NFR64（观察系统全部性能需求）
+**FR/NFR 覆盖：** FR165-FR171（dashboard 时间线增强全部功能需求）、NFR57-NFR62-obs（观察系统全部性能需求）
 
 ### Decision 25: GetStepDetail IPC 方法 — 按需查询步骤完整数据
 
@@ -1382,7 +1383,7 @@ type MessageWire struct {
 **查询路径：**
 
 ```
-CLI (watch p 键) → GetStepDetail(pid=5, step=3)
+CLI (dashboard p 键) → GetStepDetail(pid=5, step=3)
   → IPC Server
   → 查找 Process（获取 FinalSystemPrompt + NativeToolDefs）
   → 打开 .rnix/data/steps/5/steps.jsonl
@@ -1415,35 +1416,37 @@ CLI (watch p 键) → GetStepDetail(pid=5, step=3)
 
 **FR/NFR 覆盖：** FR171（GetStepDetail IPC 方法）、NFR61（返回延迟 ≤ 500ms）
 
-### Decision 26: watch 命令 — 双流聚合 TUI
+### Decision 26: Dashboard 增强 — 时间线三级详细度 + Prompt 查看
 
-**决策：** `rnix watch <pid>` 实现为 BubbleTea TUI 程序，消费 Progress 回调流实现实时展示，按需从 steps.jsonl 读取详情。
+**决策：** 增强现有 `rnix dashboard` 的时间线窗格（timeline pane），在 BubbleTea TUI 中实现三级详细度切换（v/V 键）和 prompt 查看（p 键），消费 Progress 回调流实现实时展示，按需从 steps.jsonl 读取详情。
+
+**背景：** dashboard 已有三窗格布局——智能体树（agent tree pane）、时间线（timeline pane）、热力图（heatmap pane），共 1785 行实现。增强的是 timeline pane 的详细度层级。
 
 **命令入口：**
 
 ```
-rnix watch <pid>           # 观察运行中的进程
-rnix spawn --watch "意图"  # 启动并立即观察
+rnix dashboard                # 打开 dashboard（已有）
+rnix spawn --dashboard "意图" # 启动并立即打开 dashboard
 ```
 
-**TUI 架构：**
+**时间线窗格增强架构：**
 
 ```
-┌─ watch TUI (BubbleTea) ─────────────────────────┐
-│                                                   │
-│  数据源 1: IPC StreamEvent（Progress 回调）        │
-│    → 实时接收 OnStep/OnStepComplete               │
-│    → 驱动 Level 1 列表渲染                         │
-│                                                   │
-│  数据源 2: IPC GetStepDetail（按需查询）           │
-│    → 用户按 v/V/p 键时发起                        │
-│    → 填充 Level 2/3 详情面板                       │
-│                                                   │
-│  UI 状态机:                                       │
-│    Normal → v → Expanded → V → Debug → p → Pager │
-│      ↑                                      │     │
-│      └──────────── q ──────────────────────┘     │
-└───────────────────────────────────────────────────┘
+┌─ dashboard timeline pane 增强 ─────────────────────┐
+│                                                      │
+│  数据源 1: IPC StreamEvent（Progress 回调）           │
+│    → 实时接收 OnStep/OnStepComplete                  │
+│    → 驱动 Level 1 列表渲染                            │
+│                                                      │
+│  数据源 2: IPC GetStepDetail（按需查询）              │
+│    → 用户按 v/V/p 键时发起                           │
+│    → 填充 Level 2/3 详情面板                          │
+│                                                      │
+│  UI 状态机:                                          │
+│    Normal → v → Expanded → V → Debug → p → Pager    │
+│      ↑                                      │        │
+│      └──────────── q ──────────────────────┘        │
+└──────────────────────────────────────────────────────┘
 ```
 
 **三级详细度渲染：**
@@ -1461,26 +1464,26 @@ rnix spawn --watch "意图"  # 启动并立即观察
 - 步骤慢（ToolDuration > 1s）→ 自动展开到 Level 2
 - 自动展开触发时机：OnStepComplete 推送中包含 action 和 summary，CLI 侧根据 summary 中的错误标记或 ProgressPayload 扩展字段判断
 
-**top↔watch 导航（FR62）：**
+**top→dashboard 导航（FR62）：**
 
 ```
 rnix top
   ├── 上下键选择进程
-  ├── Enter → 切换到 watch 视图（≤ 100ms，NFR63）
-  └── watch 中按 q → 返回 top（≤ 50ms，NFR63）
+  ├── Enter → 切换到 dashboard 视图（≤ 100ms，NFR63）
+  └── dashboard 中按 q → 返回 top（≤ 50ms，NFR63）
 ```
 
-实现方式：top 和 watch 共享同一个 BubbleTea program，通过 Model 切换实现视图转换，避免进程重建开销。
+实现方式：top 按 Enter 后启动 dashboard TUI，通过 IPC 传递选中的 PID。
 
-**spawn --watch 零延迟 attach（FR169）：**
+**spawn --dashboard 零延迟 attach（FR169）：**
 
 ```
 CLI:
   1. 发送 SpawnRequest → 收到 SpawnResponse{PID}
-  2. 立即发送 AttachProgress(PID) 开始接收 StreamEvent
-  3. 进入 watch TUI
+  2. 立即启动 dashboard TUI，聚焦到该 PID 的时间线
+  3. dashboard 时间线通过 IPC AttachProgress(PID) 接收 StreamEvent
 
-时序：spawn 返回 PID 到 watch 首条事件 ≤ 100ms（NFR58）
+时序：spawn 返回 PID 到 dashboard 时间线首条事件 ≤ 100ms（NFR58）
 ```
 
 **ProgressPayload 扩展：**
@@ -1489,13 +1492,13 @@ CLI:
 type ProgressPayload struct {
     // ... 现有字段 ...
 
-    // watch 自动展开判断（Decision 26 新增）
+    // dashboard 自动展开判断（Decision 26 新增）
     HasError    bool    `json:"has_error,omitempty"`    // 步骤出错
     DurationMs  float64 `json:"duration_ms,omitempty"`  // 步骤耗时
 }
 ```
 
-**FR/NFR 覆盖：** FR62（top 下钻）、FR165-FR169（watch 全部功能需求）、NFR57-NFR64（观察系统全部性能需求）
+**FR/NFR 覆盖：** FR62（top 下钻）、FR165-FR171（dashboard 时间线增强全部功能需求）、NFR57-NFR62-obs（观察系统全部性能需求）
 
 ### 统一观察系统决策影响分析
 
@@ -1508,9 +1511,9 @@ type ProgressPayload struct {
 5. `ipc/protocol.go` — 新增 MethodGetStepDetail + 请求/响应类型 + ProgressPayload 扩展
 6. `ipc/server.go` — GetStepDetail handler（读 steps.jsonl + 组装响应）
 7. `ipc/client.go` — GetStepDetail 客户端方法
-8. `cmd/rnix/watch.go` — watch TUI（BubbleTea，双数据源）
-9. `cmd/rnix/main.go` — 注册 watch 命令 + spawn --watch flag
-10. `cmd/rnix/top.go` — top↔watch 视图切换
+8. `cmd/rnix/dashboard.go` — dashboard 时间线窗格增强（三级详细度 + prompt 查看）
+9. `cmd/rnix/main.go` — spawn --dashboard flag
+10. `cmd/rnix/top.go` — top→dashboard 导航
 
 **简化现有 record 系统：**
 
@@ -1523,7 +1526,7 @@ type ProgressPayload struct {
 
 15. `kernel/process.go` — 标记 LogChan 为 deprecated
 16. `ipc/server.go` — AttachLog handler 保留但标记 deprecated
-17. watch 不依赖 LogChan，仅使用 Progress 回调 + StepRecord
+17. dashboard 时间线不依赖 LogChan，仅使用 Progress 回调 + StepRecord
 
 **跨模块影响：**
 
@@ -1532,10 +1535,153 @@ type ProgressPayload struct {
 | `internal/types/` | 新增 | StepRecord 类型 |
 | `kernel/` | 修改+新增 | step_writer.go 新增，kernel.go 捕获逻辑，process.go 新字段 |
 | `ipc/` | 修改 | protocol.go 新增方法+类型，server.go/client.go 新增 handler |
-| `cmd/rnix/` | 新增+修改 | watch.go 新增，main.go/top.go 修改 |
+| `cmd/rnix/` | 增强+修改 | dashboard.go 增强时间线窗格，main.go/top.go 修改 |
 | `debug/` | 简化 | 删除摘要 hack，replay 改读 steps.jsonl |
 
 **FR/NFR 覆盖汇总：**
 
-- FR62（top 下钻）、FR165-FR172（观察系统全部 8 条功能需求）
-- NFR57-NFR64（观察系统全部 8 条性能需求）
+- FR62（top 下钻）、FR165-FR171（观察系统全部功能需求）
+- NFR57-NFR62-obs（观察系统全部性能需求）
+
+---
+
+## 进程标识体系重构架构决策（Epic 28）
+
+_以下决策（Decision 27）专项针对 PID 标识体系重构，基于 [sprint-change-proposal-2026-03-22.md](../sprint-change-proposal-2026-03-22.md) 和 FR177-FR180 / NFR65-obs。触发事件：Dashboard 刷新问题调查中发现 PID 跨 daemon 复用导致 StepRecord 数据混淆。_
+
+### Decision 27: Process UUID v7 标识体系 — PID 短标识 + UUID 持久化唯一标识
+
+**决策：** 每个进程在 Spawn 时生成 UUID v7 作为全局唯一持久化标识。PID 保留为 daemon 内递增的用户友好短标识。所有磁盘持久化路径使用 UUID，IPC 方法通过双向索引支持 PID 或 UUID 查询。
+
+**背景问题：**
+
+`pidCounter` 为 daemon 内存全局变量（`kernel/process.go:16-23`），daemon 重启后从 1 开始。跨 daemon 的 PID 复用导致：
+- StepRecord 路径 `.rnix/data/steps/<pid>/` 新进程数据覆盖旧进程
+- GetStepDetail 可能返回混合数据
+- Dashboard selectedPID 无法区分新旧进程
+
+**1. UUID 版本与生成**
+
+- 版本：UUID v7（RFC 9562），时间戳排序 + 随机尾部
+- 库：`github.com/google/uuid`（v1.6.0+ 支持 `uuid.NewV7()`）
+- 时机：`Spawn()` 内部，PID 分配后立即生成
+- 格式：标准 36 字符字符串（`550e8400-e29b-7000-...`）
+
+**理由：** UUID v7 的时间排序特性使 `rnix record list` 按目录名自然排序即为时间序，无需额外索引。
+
+**2. Process 结构体扩展**
+
+```go
+type Process struct {
+    // ... 现有字段 ...
+    PID   types.PID  // 保留：daemon 内递增短标识（用户可见）
+    UUID  string     // 新增：UUID v7 全局唯一标识（内部持久化）
+}
+```
+
+UUID 在 Spawn 时赋值，不可变。序列化输出（`ps`、`spawn` 响应）同时展示 PID 和 UUID。
+
+**3. 双向索引查询**
+
+新增 `SyncMap[string, types.PID]` 反向索引（UUID→PID），与进程表 `SyncMap[PID, *Process]` 同步维护：
+
+```go
+type ProcessTable struct {
+    byPID  *xsync.SyncMap[types.PID, *Process]   // 现有
+    byUUID *xsync.SyncMap[string, types.PID]      // 新增：UUID → PID
+}
+```
+
+- Spawn 时：双表同时写入
+- Reaper 清理时：双表同时删除
+- PID 查询：`byPID.Load(pid)` → O(1)
+- UUID 查询：`byUUID.Load(uuid)` → 取 PID → `byPID.Load(pid)` → O(1)
+
+**4. 持久化路径迁移**
+
+```
+旧：.rnix/data/steps/<pid>/steps.jsonl
+新：.rnix/data/steps/<uuid>/steps.jsonl
+
+旧：.rnix/data/steps/<pid>/process-meta.json
+新：.rnix/data/steps/<uuid>/process-meta.json
+```
+
+**迁移策略：全量清空，不保留旧数据。** StepRecord 是调试辅助数据，非业务数据，丢失可接受。实现时 `rnix migrate` 直接清空 `steps/` 目录。
+
+**5. IPC 协议扩展**
+
+GetStepDetail 等方法扩展支持 UUID 查询：
+
+```go
+type GetStepDetailRequest struct {
+    PID  types.PID `json:"pid,omitempty"`
+    UUID string    `json:"uuid,omitempty"`
+    Step int       `json:"step"`
+}
+```
+
+daemon 处理逻辑：优先使用 UUID（若提供），否则用 PID。客户端 dashboard 在获取进程列表时缓存 PID→UUID 映射。
+
+**6. Dashboard 同一性验证**
+
+Dashboard 维护 `selectedPID` + `selectedUUID` 双标识：
+
+```go
+type DashboardModel struct {
+    // ... 现有字段 ...
+    selectedPID  types.PID
+    selectedUUID string    // 新增
+}
+```
+
+每次刷新时通过 UUID 验证进程同一性。若 PID 对应的 UUID 变化（旧进程已死、新进程复用 PID），自动清除选中状态。
+
+**7. Reaper 清理扩展**
+
+Process 被 reaper 清理前，`process-meta.json` 写入 UUID 路径（已有逻辑迁移路径即可）。清理后 `byUUID` 反向索引同步删除。
+
+**FR/NFR 覆盖：**
+
+- FR177（UUID v7 生成）、FR178（持久化路径改用 UUID）、FR179（双标识查询）、FR180（Dashboard UUID 验证）
+- NFR65-obs（生成 ≤ 1ms，存储 ≤ 36 bytes）
+
+### 进程标识体系决策影响分析
+
+**实现顺序（依赖驱动）：**
+
+1. 引入 `github.com/google/uuid` 依赖
+2. `kernel/process.go` — Process 新增 UUID 字段
+3. `kernel/kernel.go` — Spawn 中生成 UUID，ProcessTable 双向索引
+4. `kernel/step_writer.go` — 路径从 `<pid>` 改为 `<uuid>`
+5. `ipc/protocol.go` — GetStepDetailRequest 扩展 UUID 字段
+6. `ipc/server.go` — GetStepDetail handler 支持 UUID 查询
+7. `cmd/rnix/dashboard.go` — selectedUUID 同一性验证
+8. `cmd/rnix/ps.go` — ps 输出增加 UUID 列
+
+**跨模块影响：**
+
+| 模块 | 变更类型 | 影响范围 |
+|------|---------|---------|
+| `kernel/process.go` | 修改 | 新增 UUID 字段 |
+| `kernel/kernel.go` | 修改 | Spawn + Reaper + ProcessTable 双索引 |
+| `kernel/step_writer.go` | 修改 | 路径从 PID 改 UUID |
+| `ipc/protocol.go` | 修改 | GetStepDetailRequest 扩展 |
+| `ipc/server.go` | 修改 | handler 支持双标识 |
+| `cmd/rnix/dashboard.go` | 修改 | selectedUUID 验证 |
+| `cmd/rnix/ps.go` | 修改 | 输出增加 UUID |
+| `go.mod` | 修改 | 新增 google/uuid 依赖 |
+
+**与现有决策的交叉影响：**
+
+| 现有决策 | 影响 | 变更内容 |
+|---------|------|---------|
+| Decision 8（数据持久化） | 路径格式变更 | `<pid>` → `<uuid>` |
+| Decision 23（StepRecord） | 存储路径迁移 | `steps/<pid>/` → `steps/<uuid>/` |
+| Decision 25（GetStepDetail） | 查询参数扩展 | 支持 UUID 查询 |
+| Decision 26（Dashboard 增强） | 同一性验证 | selectedPID + selectedUUID 双标识 |
+
+**FR/NFR 覆盖汇总：**
+
+- FR177-FR180（进程标识体系全部功能需求）
+- NFR65-obs（UUID 生成性能约束）

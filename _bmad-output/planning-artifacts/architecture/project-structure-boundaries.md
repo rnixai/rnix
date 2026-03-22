@@ -25,6 +25,7 @@
 | Epic 12（Phase 2 文档）| `docs/` | FR69-70 |
 | Epic 23（多 LLM Provider 配置）| `drivers/llm/`、`kernel/`、`cmd/rnix/` | FR141-FR146 |
 | Epic 24（LLM Serve 网关）| `ipc/`、`cmd/rnix/` | FR147-FR152 |
+| Epic 28（PID 标识体系重构）| `kernel/`、`ipc/`、`cmd/rnix/` | FR177-FR180 |
 
 ## 完整项目目录结构
 
@@ -541,7 +542,7 @@ rnix/
 
 ```
 .rnix/data/steps/
-├── <pid>/
+├── <uuid>/                   # Decision 27: 使用 UUID v7 替代 PID
 │   ├── steps.jsonl          # StepRecord NDJSON（每步一行）
 │   └── process-meta.json    # reaper 清理前写入（SystemPrompt + ToolDefs）
 ├── <pid>/
@@ -567,9 +568,9 @@ ipc/
 └── client.go                # 修改：新增 GetStepDetail 客户端方法
 
 cmd/rnix/
-├── watch.go                 # 新增：watch TUI（BubbleTea）
-├── main.go                  # 修改：注册 watch 命令 + spawn --watch flag
-└── top.go                   # 修改：top↔watch 视图切换
+├── watch.go                 # 已删除（功能合入 dashboard.go 时间线窗格）
+├── main.go                  # 修改：spawn --dashboard flag
+└── top.go                   # 修改：top→dashboard 导航
 
 debug/
 ├── record.go                # 简化：删除 ContextSnapshotData / LLMResponseData
@@ -581,8 +582,8 @@ debug/
 ```
 ┌──────────────────────────────────────────────────┐
 │ cmd/rnix/                                        │
-│  ┌─────────┐  ┌─────────┐                       │
-│  │watch.go │  │ top.go  │                       │
+│  ┌───────────────┐  ┌─────────┐                       │
+│  │ dashboard.go  │  │ top.go  │                       │
 │  └────┬────┘  └────┬────┘                       │
 │       │             │                            │
 │       ▼             ▼                            │
@@ -604,18 +605,18 @@ debug/
 边界规则：
 - `StepWriter` 只在 kernel 包内使用，不暴露给 ipc 或 cmd
 - `GetStepDetail` handler 直接读磁盘文件 + Process 结构体，不经过 StepWriter
-- watch TUI 不直接读 steps.jsonl，必须通过 IPC GetStepDetail 方法
+- dashboard 时间线不直接读 steps.jsonl，必须通过 IPC GetStepDetail 方法
 
 ### 统一观察系统 FR→文件映射
 
 | FR | 需求描述 | 主要实现文件 |
 |----|---------|-------------|
-| FR62 | top 下钻到 watch | `cmd/rnix/top.go`, `cmd/rnix/watch.go` |
-| FR165 | rnix watch 统一观察 | `cmd/rnix/watch.go` |
-| FR166 | 三级详细度 | `cmd/rnix/watch.go` |
-| FR167 | 自动展开错误/慢步骤 | `cmd/rnix/watch.go`, `ipc/protocol.go` (ProgressPayload 扩展) |
-| FR168 | p 键查看完整 prompt | `cmd/rnix/watch.go`, `ipc/client.go` (GetStepDetail) |
-| FR169 | spawn --watch | `cmd/rnix/main.go` |
+| FR62 | top 下钻到 dashboard | `cmd/rnix/top.go`, `cmd/rnix/dashboard.go` |
+| FR165 | dashboard 时间线增强 — 统一观察 | `cmd/rnix/dashboard.go` |
+| FR166 | 三级详细度 | `cmd/rnix/dashboard.go` |
+| FR167 | 自动展开错误/慢步骤 | `cmd/rnix/dashboard.go`, `ipc/protocol.go` (ProgressPayload 扩展) |
+| FR168 | p 键查看完整 prompt | `cmd/rnix/dashboard.go`, `ipc/client.go` (GetStepDetail) |
+| FR169 | spawn --dashboard | `cmd/rnix/main.go` |
 | FR170 | PromptSnapshot → StepRecord | `kernel/step_writer.go`, `kernel/kernel.go` |
 | FR171 | GetStepDetail IPC | `ipc/protocol.go`, `ipc/server.go`, `ipc/client.go` |
 | FR172 | record --full → 默认全记录 | `kernel/step_writer.go`（默认行为，无需手动开启） |
@@ -627,5 +628,83 @@ debug/
 | StepRecord | kernel.reasonStep | ipc.GetStepDetail handler | 磁盘 JSONL 文件 |
 | FinalSystemPrompt | kernel.reasonStep (首次) | ipc.GetStepDetail handler | Process 结构体字段 |
 | process-meta.json | kernel.reapProcess | ipc.GetStepDetail handler | 磁盘 JSON 文件 |
-| Progress 回调 | kernel.KernelCallbacks | cmd/rnix/watch.go | IPC StreamEvent |
-| ProgressPayload.HasError | kernel.OnStepComplete | cmd/rnix/watch.go | IPC StreamEvent 字段 |
+| Progress 回调 | kernel.KernelCallbacks | cmd/rnix/dashboard.go | IPC StreamEvent |
+| ProgressPayload.HasError | kernel.OnStepComplete | cmd/rnix/dashboard.go | IPC StreamEvent 字段 |
+
+---
+
+### 进程标识体系目录结构（Process Identity System 增量）
+
+**源码变更：**
+
+```
+kernel/
+├── process.go               # 修改：新增 UUID 字段
+├── kernel.go                # 修改：Spawn 生成 UUID，ProcessTable 双向索引，Reaper 双表清理
+└── step_writer.go           # 修改：路径参数从 PID 改为 UUID
+
+ipc/
+├── protocol.go              # 修改：GetStepDetailRequest 新增 UUID 字段
+└── server.go                # 修改：GetStepDetail handler 支持 UUID 查询
+
+cmd/rnix/
+├── dashboard.go             # 修改：selectedUUID 同一性验证
+└── ps.go                    # 修改：ps 输出新增 UUID 列
+
+go.mod                       # 修改：新增 github.com/google/uuid 依赖
+```
+
+### 进程标识体系架构边界
+
+```
+┌──────────────────────────────────────────────────┐
+│                  kernel/                          │
+│                                                  │
+│  ProcessTable                                    │
+│    byPID:  SyncMap[PID, *Process]    (现有)      │
+│    byUUID: SyncMap[string, PID]      (新增)      │
+│                                                  │
+│  Spawn() → uuid.NewV7() → 双表写入              │
+│  Reap()  → process-meta.json → 双表删除         │
+│                                                  │
+│  StepWriter                                      │
+│    路径: .rnix/data/steps/<uuid>/steps.jsonl     │
+└──────────────────────┬───────────────────────────┘
+                       │
+                  IPC Protocol
+                       │
+┌──────────────────────▼───────────────────────────┐
+│                  ipc/                             │
+│                                                  │
+│  GetStepDetailRequest{PID, UUID, Step}           │
+│    UUID 优先 → byUUID.Load() → byPID.Load()     │
+│    PID 回退 → byPID.Load()                      │
+└──────────────────────┬───────────────────────────┘
+                       │
+┌──────────────────────▼───────────────────────────┐
+│               cmd/rnix/                           │
+│                                                  │
+│  dashboard.go: selectedPID + selectedUUID        │
+│    刷新时: UUID 不匹配 → 清除选中状态           │
+│                                                  │
+│  ps.go: 输出表增加 UUID 列（前 8 字符）         │
+└──────────────────────────────────────────────────┘
+```
+
+### 进程标识体系 FR→文件映射
+
+| FR | 需求描述 | 主要实现文件 |
+|----|---------|-------------|
+| FR177 | Spawn 生成 UUID v7 | `kernel/process.go`（UUID 字段）, `kernel/kernel.go`（Spawn 生成） |
+| FR178 | 持久化路径改用 UUID | `kernel/step_writer.go`（路径参数改 UUID） |
+| FR179 | IPC 双标识查询 | `ipc/protocol.go`（请求扩展）, `ipc/server.go`（handler 解析） |
+| FR180 | Dashboard UUID 验证 | `cmd/rnix/dashboard.go`（selectedUUID 验证） |
+
+### 进程标识体系集成点
+
+| 集成点 | 生产者 | 消费者 | 机制 |
+|--------|--------|--------|------|
+| proc.UUID | kernel.Spawn | 所有持久化路径 | Process 结构体字段 |
+| byUUID 索引 | kernel.Spawn | ipc.GetStepDetail handler | SyncMap 反向索引 |
+| UUID→PID 映射 | kernel.ProcessTable | ipc.Server.resolveProcess | O(1) 双向查找 |
+| selectedUUID | ipc.ListProcs 响应 | cmd/rnix/dashboard.go | 进程同一性验证 |

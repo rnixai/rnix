@@ -2,10 +2,10 @@
 
 > **编号说明：** FR 编号按 Phase 分组分配，后续迭代新增的需求使用跳跃编号以保持逻辑归属：
 > - Phase 1: FR1-FR40（含 FR25a/b）
-> - Phase 2: FR41-FR70 + FR141-FR152（Multi-LLM Provider + LLM Serve Gateway）+ FR153-FR164（Configuration System）+ FR165-FR172（Unified Observation System）
-> - Phase 3: FR71-FR140（含 FR72a, FR76a）
+> - Phase 2: FR41-FR70 + FR141-FR152（Multi-LLM Provider + LLM Serve Gateway）+ FR153-FR164（Configuration System）+ FR165-FR173（Unified Observation System — Dashboard 增强）+ FR177-FR180（Process Identity System — PID 标识体系）
+> - Phase 3: FR71-FR140（含 FR72a, FR76a）+ FR174-FR176（Dashboard Advanced Integration）
 >
-> NFR 编号同样存在跳跃：NFR1-NFR33（Phase 1-2 原始需求）+ NFR34-NFR49（Phase 3）+ NFR50-NFR52（LLM Serve Gateway）+ NFR53-NFR56（Configuration System）+ NFR57-NFR64（Unified Observation System）。
+> NFR 编号同样存在跳跃：NFR1-NFR33（Phase 1-2 原始需求）+ NFR34-NFR49（Phase 3）+ NFR50-NFR52（LLM Serve Gateway）+ NFR53-NFR56（Configuration System）+ NFR57-NFR65（Unified Observation System + Process Identity）。
 > 跳跃不影响覆盖完整性，仅反映需求演进历史。
 
 ## Agent Lifecycle Management（智能体生命周期管理）
@@ -112,18 +112,26 @@
 - **FR59:** 用户可以通过 `rnix log <pid>` 查看指定智能体的推理日志，支持 `--prompt` 参数在每步 think 日志前插入该步的 prompt 摘要（消息数、token 数、首条消息预览）
 - **FR60:** 系统可以将 `rnix log` 输出按 `[think]`/`[tool]`/`[output]` 三段式分类显示，支持 `--filter <category>` 按类别过滤
 - **FR61:** 用户可以为智能体设置 token 预算上限（通过 agent.yaml `context_budget` 或 compose 中覆盖），系统在达到上限时终止推理并上报原因
-- **FR62:** 用户可以在 `rnix top` 中通过交互式操作选中进程，按回车下钻到 watch 视图查看该进程的实时观察流，按 q 返回 top 全局视图
+- **FR62:** 用户可以在 `rnix top` 中通过交互式操作选中进程，按回车跳转到 `rnix dashboard` 并自动聚焦该进程，按 q 返回 top 全局视图
 
-## Unified Observation System（统一观察系统，Phase 2）
+## Unified Observation System（统一观察系统 — Dashboard 增强，Phase 2）
 
-- **FR165:** 用户可以通过 `rnix watch <pid>` 进入统一实时观察视图，系统通过 Progress 回调接收实时步骤通知（OnStep/OnStepComplete），并按需从 StepRecord（磁盘 JSONL）查询步骤详情，按时间线聚合呈现
-- **FR166:** watch 视图支持三级详细度切换：Level 1（默认）每步一行摘要（步骤号 + 动作类型 + 目标 + 耗时）；Level 2（按 v 键）展开当前步骤的参数、返回值和 token 消耗；Level 3（按 V 键）调试级详情含 prompt 摘要
-- **FR167:** watch 视图中出错（错误返回）或慢操作（耗时 > 1 秒）的步骤自动展开到 Level 2，用户无需手动切换即可看到异常详情
-- **FR168:** 用户可以在 watch 视图中按 p 键查看当前步骤的完整 prompt 内容，进入类似 less 的翻页查看模式，按 q 返回 watch 流
-- **FR169:** 用户可以通过 `rnix spawn --watch "意图"` 启动智能体并立即进入 watch 视图，spawn 返回 PID 后零延迟 attach，消除手动查找 PID 的操作
-- **FR170:** 系统为每个进程默认维护 StepRecord 全量步骤记录，在每个 reasonStep 完成后自动将该步的完整数据（BuildPrompt 时的 Messages 深拷贝、LLM 原始响应、工具执行结果、token 统计）以 NDJSON 格式 append 写入磁盘文件（`.rnix/data/steps/<pid>/steps.jsonl`），无需用户手动开启
-- **FR171:** 系统提供 GetStepDetail IPC 方法，支持按需拉取指定进程指定步骤的完整 prompt 内容（SystemPrompt + Messages + Tools 定义），仅在用户明确请求时传输，不走实时事件流
-- **FR172:** 系统默认为每个进程记录完整的 LLM 请求数据（StepRecord 包含每步的完整 Messages 快照和 LLM 原始响应），`rnix record list` 和 `rnix replay` 直接从 steps.jsonl 读取，支持事后回放时查看"agent 当时收到了什么指令"，无需预先开启特殊录制模式
+- **FR165:** 用户可以在 `rnix dashboard` 的时间线窗格中切换三级详细度：Level 1（默认）每步一行摘要（步骤号 + 动作类型 + 目标 + 耗时）；Level 2（按 v 键）展开当前步骤的参数、返回值和 token 消耗；Level 3（按 V 键）调试级详情含 prompt 摘要
+- **FR166:** dashboard 时间线窗格中出错（错误返回）或慢操作（耗时 > 1 秒）的步骤自动展开到 Level 2，用户无需手动切换即可看到异常详情
+- **FR167:** 用户可以在 dashboard 时间线窗格中按 p 键查看选中步骤的完整 prompt 内容，进入类似 less 的翻页查看模式，按 q 返回时间线
+- **FR168:** 用户可以通过 `rnix spawn --dashboard "意图"` 启动智能体并立即进入 dashboard 视图，spawn 返回 PID 后零延迟聚焦该进程，消除手动查找 PID 的操作
+- **FR169:** 系统为每个进程默认维护 StepRecord 全量步骤记录，在每个 reasonStep 完成后自动将该步的完整数据（BuildPrompt 时的 Messages 深拷贝、LLM 原始响应、工具执行结果、token 统计）以 NDJSON 格式 append 写入磁盘文件（`.rnix/data/steps/<pid>/steps.jsonl`），无需用户手动开启（已实现：Story 27-1）*（注：路径中的 `<pid>` 将由 FR178 迁移为 `<uuid>`，消除 daemon 重启后 PID 复用导致的数据覆盖风险）*
+- **FR170:** 系统提供 GetStepDetail IPC 方法，支持按需拉取指定进程指定步骤的完整 prompt 内容（SystemPrompt + Messages + Tools 定义），仅在用户明确请求时传输，不走实时事件流（已实现：Story 27-2）
+- **FR171:** 系统默认为每个进程记录完整的 LLM 请求数据（StepRecord 包含每步的完整 Messages 快照和 LLM 原始响应），`rnix record list` 和 `rnix replay` 直接从 steps.jsonl 读取，支持事后回放时查看"agent 当时收到了什么指令"，无需预先开启特殊录制模式
+- **FR172:** 用户可以在 dashboard 中选中进程后查看进程详情面板，展示进程的完整运行时信息：环境变量快照、已加载 Skill 列表、FD 表（已打开的 VFS 设备）、上下文统计（消息数、token 消耗、上下文预算使用率）
+- **FR173:** 用户可以在 dashboard 中查看 Intent DAG 可视化窗格，以树状 / DAG 图展示意图分解结构，节点按状态着色（pending/executing/completed/failed），点击节点联动切换到对应进程的时间线和上下文视图
+
+## Process Identity System（进程标识体系，Phase 2）
+
+- **FR177:** 系统为每个进程在 Spawn 时生成 UUID v7 唯一标识符，UUID 在跨 daemon 重启后保持唯一，PID 保留为 daemon 内递增的用户友好短标识
+- **FR178:** 所有持久化数据路径使用 UUID 而非 PID（StepRecord 路径 `.rnix/data/steps/<uuid>/`、process-meta.json 等），避免 daemon 重启后 PID 复用导致的数据覆盖
+- **FR179:** IPC 方法（GetStepDetail 等）支持按 PID 或 UUID 查询——PID 在当前 daemon 生命周期内唯一，UUID 全局唯一；客户端可使用任一标识，daemon 内部统一转换为 UUID
+- **FR180:** Dashboard 通过 UUID 验证进程同一性——selectedPID 对应的进程死亡并被 Reaper 清理后，Dashboard 正确检测并清除选中状态，防止新进程复用 PID 导致的误显示
 
 ## Supervisor & System Bootstrap（容错与系统引导，Phase 2）
 
@@ -222,6 +230,12 @@
 - **FR94:** 用户可以在 dashboard 中点击任意智能体节点，联动切换时间线和热力图到该智能体的数据
 - **FR95:** 用户可以在 dashboard 中直接对选中进程执行操作：kill、attach gdb、查看 log、开启录制
 - **FR96:** dashboard 支持从持久化的录制文件加载历史数据，提供离线回放和分析能力
+
+## Dashboard Advanced Integration（Dashboard 高级集成，Phase 3）
+
+- **FR174:** 用户可以在 dashboard 中查看安全异常面板，集成 Immune Daemon 的实时告警信息（异常行为检测、已挂起进程、威胁模式匹配），按严重度排序，点击告警可跳转到对应进程详情（依赖 Phase 3 FR129-FR133 Adaptive Immune Security 底层能力）
+- **FR175:** 用户可以在 dashboard 中查看分布式追踪集成窗格，以 span 树形式展示 Compose 编排的跨进程追踪数据（时序关系、调用链路、耗时瀑布图），与 `rnix trace` 命令行数据一致（依赖 Phase 3 FR80-FR83 Distributed Causal Tracing 底层能力）
+- **FR176:** 用户可以在 dashboard 中查看多智能体评价视图，集成声誉系统数据（各 Agent 模板的成功率、token 效率、SLA 达标率）、协作拓扑图（进程间通信频率和方向）和能力重叠度矩阵（依赖 Phase 3 FR123-FR128 Token Economy + Reputation 底层能力）
 
 ## AgentShell Complete Scripting Language（AgentShell 完整脚本语言，Phase 3）
 

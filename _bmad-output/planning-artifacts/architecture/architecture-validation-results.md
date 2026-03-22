@@ -248,3 +248,55 @@ _以下验证针对 Decision 14-22（配置系统重构），基于 FR153-FR164 
 **置信度：高** — FR/NFR 100% 覆盖，无 critical gap。
 
 **首个实现优先级：** `internal/config/paths.go` + `paths_test.go`（零外部依赖，可独立交付）
+
+---
+
+### 进程标识体系验证（Epic 28 增量）
+
+### 一致性验证 ✅
+
+| 交叉决策对 | 状态 | 说明 |
+|-----------|------|------|
+| D27(UUID) → D8(一切皆文件) | ✅ | UUID 路径仍是文件系统持久化 |
+| D27(UUID) → D23(StepRecord) | ✅ | StepWriter 路径参数从 PID 改 UUID，JSONL 格式不变 |
+| D27(UUID) → D25(GetStepDetail) | ✅ | 请求扩展 UUID 字段，UUID 优先 PID 回退 |
+| D27(UUID) → D26(Dashboard) | ✅ | selectedPID + selectedUUID 双标识验证 |
+| D27(ProcessTable) → D2(进程模型) | ✅ | 双向索引追加，不改变进程状态机 |
+| D27(google/uuid) → Go 1.26 | ✅ | google/uuid v1.6+ 兼容 |
+
+**模式一致性：** PID/UUID 专项 6 条强制规则（#23-#28）与原有 22 条无冲突。
+
+### 需求覆盖验证 ✅
+
+**功能需求覆盖（4/4）：**
+
+| FR | 覆盖决策 | 状态 |
+|----|---------|------|
+| FR177 | D27 §1-2 | ✅ |
+| FR178 | D27 §4 | ✅ |
+| FR179 | D27 §5 | ✅ |
+| FR180 | D27 §6 | ✅ |
+
+**非功能需求覆盖（1/1）：**
+
+| NFR | 架构支撑 | 状态 |
+|-----|---------|------|
+| NFR65-obs ≤ 1ms | uuid.NewV7() 标准实现 | ✅ |
+
+### Gap 分析
+
+**0 个 critical gap，3 个低优先级 gap（均不阻塞实现）：**
+
+| Gap | 严重度 | 建议 |
+|-----|--------|------|
+| ProcInfo 需新增 UUID 字段 | 低 | Story 实现时补充 |
+| `rnix record list` 适配 UUID 目录 | 低 | 延迟到 Story 级别 |
+| UUID 前 8 字符截断冲突 | 极低 | UUID v7 时间戳保证，不需处理 |
+
+### 进程标识体系就绪评估
+
+**总体状态：READY FOR IMPLEMENTATION**
+
+**置信度：高** — FR/NFR 100% 覆盖，无 critical gap，与现有 26 个决策无冲突。
+
+**首个实现优先级：** `kernel/process.go`（新增 UUID 字段）+ `kernel/kernel.go`（Spawn 生成 UUID + 双向索引）
