@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-06
-last_updated: 2026-03-22
+last_updated: 2026-03-21
 project: rnix
 project_key: NOKEY
 tracking_system: file-system
@@ -295,7 +295,7 @@ development_status:
   epic-27: in-progress
   27-1-steprecord-type-and-disk-writer: done
   27-2-getstepdetail-ipc-method: done
-  27-3-watch-command-level1-realtime-stream: done
+  27-3-watch-command-level1-realtime-stream: backlog
   27-4-watch-three-level-detail-and-prompt-view: backlog
   27-5-top-watch-bidirectional-navigation: backlog
   epic-27-retrospective: optional

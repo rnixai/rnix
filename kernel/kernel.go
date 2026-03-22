@@ -166,7 +166,7 @@ type llmResponse struct {
 type KernelCallbacks interface {
 	OnSpawn(pid types.PID, intent, provider, model string)
 	OnStep(pid types.PID, step int, total int)
-	OnStepComplete(pid types.PID, step int, action string, summary string, duration time.Duration, hasError bool)
+	OnStepComplete(pid types.PID, step int, action string, summary string)
 	OnComplete(pid types.PID, result string, exit ExitStatus)
 	OnError(pid types.PID, err error)
 }
@@ -1412,7 +1412,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"action": "text",
 			}, action.Content, nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(action.Content), time.Since(stepStart), false)
+				k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(action.Content))
 			}
 			exitCode := 0
 			reason := "completed"
@@ -1631,7 +1631,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"tool":   action.ToolPath,
 			}, string(toolResult), nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "tool_call", briefToolCallSummary(action.ToolPath, string(toolResult)), time.Since(stepStart), false)
+				k.callbacks.OnStepComplete(proc.PID, step, "tool_call", briefToolCallSummary(action.ToolPath, string(toolResult)))
 			}
 			continue
 
@@ -1649,7 +1649,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 					"action": "plan_as_text",
 				}, action.Content, nil, time.Since(stepStart))
 				if k.callbacks != nil {
-					k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(action.Content), time.Since(stepStart), false)
+					k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(action.Content))
 				}
 				k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
 				return
@@ -1681,7 +1681,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"action": "plan",
 			}, nil, nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "plan", briefPlanSummary(action.ToolData), time.Since(stepStart), false)
+				k.callbacks.OnStepComplete(proc.PID, step, "plan", briefPlanSummary(action.ToolData))
 			}
 			continue
 
@@ -1843,7 +1843,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"child_pid": childPID,
 			}, spawnResult, nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "spawn", fmt.Sprintf("spawn PID %d %q", childPID, spawnIntent), time.Since(stepStart), false)
+				k.callbacks.OnStepComplete(proc.PID, step, "spawn", fmt.Sprintf("spawn PID %d %q", childPID, spawnIntent))
 			}
 			continue
 
@@ -1872,7 +1872,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"action": "complete",
 			}, result, nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "complete", briefTextSummary(result), time.Since(stepStart), false)
+				k.callbacks.OnStepComplete(proc.PID, step, "complete", briefTextSummary(result))
 			}
 			k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
 			return
@@ -1915,7 +1915,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"action": "replan",
 			}, nil, nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "replan", briefReplanSummary(reason), time.Since(stepStart), false)
+				k.callbacks.OnStepComplete(proc.PID, step, "replan", briefReplanSummary(reason))
 			}
 			continue
 
@@ -2050,7 +2050,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"skill":  skillName,
 			}, nil, nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "specialize", skillName, time.Since(stepStart), false)
+				k.callbacks.OnStepComplete(proc.PID, step, "specialize", skillName)
 			}
 			continue
 		}
@@ -2181,7 +2181,7 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 				"tool":   tc.Name,
 			}, result, nil, time.Since(stepStart))
 			if k.callbacks != nil {
-				k.callbacks.OnStepComplete(proc.PID, step, "tool_call", briefToolCallSummary(mapping.VFSPath, result), time.Since(stepStart), false)
+				k.callbacks.OnStepComplete(proc.PID, step, "tool_call", briefToolCallSummary(mapping.VFSPath, result))
 			}
 
 		case "meta":
@@ -2314,7 +2314,7 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 			"action": "complete",
 		}, resultStr, nil, time.Since(stepStart))
 		if k.callbacks != nil {
-			k.callbacks.OnStepComplete(proc.PID, step, "complete", briefTextSummary(resultStr), time.Since(stepStart), false)
+			k.callbacks.OnStepComplete(proc.PID, step, "complete", briefTextSummary(resultStr))
 		}
 		exitCode := 0
 		reason := "completed"
@@ -2415,7 +2415,7 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 			"action": "plan",
 		}, planContent, nil, time.Since(stepStart))
 		if k.callbacks != nil {
-			k.callbacks.OnStepComplete(proc.PID, step, "plan", "Created plan with "+fmt.Sprintf("%d steps", len(steps)), time.Since(stepStart), false)
+			k.callbacks.OnStepComplete(proc.PID, step, "plan", "Created plan with "+fmt.Sprintf("%d steps", len(steps)))
 		}
 		return true
 	}

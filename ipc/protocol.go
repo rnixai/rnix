@@ -51,7 +51,6 @@ const (
 	MethodSimilarityQuery  Method = "similarity_query"
 	MethodTopologyQuery    Method = "topology_query"
 	MethodGetStepDetail    Method = "get_step_detail"
-	MethodWatch            Method = "watch"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -322,10 +321,8 @@ type ProgressPayload struct {
 	Total int `json:"total,omitempty"`
 
 	// OnStepComplete
-	Action     string  `json:"action,omitempty"`
-	Summary    string  `json:"summary,omitempty"`
-	HasError   bool    `json:"has_error,omitempty"`
-	DurationMs float64 `json:"duration_ms,omitempty"`
+	Action  string `json:"action,omitempty"`
+	Summary string `json:"summary,omitempty"`
 
 	// OnComplete
 	Result     string `json:"result,omitempty"`
@@ -848,13 +845,6 @@ type ToolDefWire struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
-}
-
-// --- Watch (Story 27.3) ---
-
-// WatchRequest is the payload for MethodWatch.
-type WatchRequest struct {
-	PID types.PID `json:"pid"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

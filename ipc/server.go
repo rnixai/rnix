@@ -356,9 +356,6 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleTopologyQuery(conn)
 		case MethodGetStepDetail:
 			s.handleGetStepDetail(conn, req.Payload)
-		case MethodWatch:
-			s.handleWatch(conn, req.Payload)
-			return // streaming method — handler manages connection lifetime
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -748,7 +745,7 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	s.callbackMux.register(pid, eventCh)
-	defer s.callbackMux.unregister(pid, eventCh)
+	defer s.callbackMux.unregister(pid)
 	defer s.kern.Reap(pid) // Reap top-level process after stream ends (no CLI Wait in daemon mode)
 
 	// Compensate for OnSpawn event lost during kern.Spawn (fires before register)
@@ -1373,61 +1370,32 @@ func bpConditionString(bp *kernel.Breakpoint) string {
 }
 
 // callbackMux routes KernelCallbacks events to per-PID channels for streaming to clients.
-type subscriberList struct {
-	mu       sync.Mutex
-	channels []chan<- StreamEvent
-}
-
 type callbackMux struct {
-	handlers *xsync.SyncMap[types.PID, *subscriberList]
+	handlers *xsync.SyncMap[types.PID, chan<- StreamEvent]
 }
 
 func newCallbackMux() *callbackMux {
 	return &callbackMux{
-		handlers: xsync.NewSyncMap[types.PID, *subscriberList](),
+		handlers: xsync.NewSyncMap[types.PID, chan<- StreamEvent](),
 	}
 }
 
 func (m *callbackMux) register(pid types.PID, ch chan<- StreamEvent) {
-	sl := &subscriberList{}
-	actual, _ := m.handlers.LoadOrStore(pid, sl)
-	actual.mu.Lock()
-	actual.channels = append(actual.channels, ch)
-	actual.mu.Unlock()
+	m.handlers.Store(pid, ch)
 }
 
-func (m *callbackMux) unregister(pid types.PID, ch chan<- StreamEvent) {
-	sl, ok := m.handlers.Load(pid)
-	if !ok {
-		return
-	}
-	sl.mu.Lock()
-	for i, c := range sl.channels {
-		if c == ch {
-			sl.channels = append(sl.channels[:i], sl.channels[i+1:]...)
-			break
-		}
-	}
-	empty := len(sl.channels) == 0
-	sl.mu.Unlock()
-	if empty {
-		m.handlers.Delete(pid)
-	}
+func (m *callbackMux) unregister(pid types.PID) {
+	m.handlers.Delete(pid)
 }
 
 func (m *callbackMux) send(pid types.PID, ev StreamEvent) {
-	sl, ok := m.handlers.Load(pid)
-	if !ok {
-		return
-	}
-	sl.mu.Lock()
-	for _, ch := range sl.channels {
+	ch, ok := m.handlers.Load(pid)
+	if ok {
 		select {
 		case ch <- ev:
 		default:
 		}
 	}
-	sl.mu.Unlock()
 }
 
 // KernelCallbacks interface implementation for the server's callbackMux.
@@ -1444,33 +1412,14 @@ func (m *callbackMux) OnStep(pid types.PID, step int, total int) {
 	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
 }
 
-func (m *callbackMux) OnStepComplete(pid types.PID, step int, action string, summary string, duration time.Duration, hasError bool) {
-	pp := ProgressPayload{
-		Event:      "step_complete",
-		PID:        pid,
-		Step:       step,
-		Action:     action,
-		Summary:    summary,
-		DurationMs: float64(duration.Microseconds()) / 1000.0,
-		HasError:   hasError,
-	}
+func (m *callbackMux) OnStepComplete(pid types.PID, step int, action string, summary string) {
+	pp := ProgressPayload{Event: "step_complete", PID: pid, Step: step, Action: action, Summary: summary}
 	payload, _ := json.Marshal(pp)
 	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
 }
 
 func (m *callbackMux) OnComplete(pid types.PID, result string, exit kernel.ExitStatus) {
-	pp := ProgressPayload{
-		Event:      "complete",
-		PID:        pid,
-		Result:     result,
-		ExitCode:   exit.Code,
-		ExitReason: exit.Reason,
-	}
-	if exit.Err != nil {
-		pp.ErrorMessage = exit.Err.Error()
-	}
-	payload, _ := json.Marshal(pp)
-	m.send(pid, StreamEvent{Type: StreamComplete, Payload: payload})
+	// Completion is handled by the spawn handler goroutine reading from proc.Done.
 }
 
 func (m *callbackMux) OnError(pid types.PID, err error) {
@@ -1949,110 +1898,6 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 
 	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})
-}
-
-func (s *Server) handleWatch(conn net.Conn, rawPayload json.RawMessage) {
-	var req WatchRequest
-	if err := json.Unmarshal(rawPayload, &req); err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "invalid", Message: "invalid watch request"}})
-		return
-	}
-
-	proc, procOK := s.kern.GetProcess(req.PID)
-	var stepsPath string
-	if procOK {
-		stepsPath = s.resolveStepsPathFromProc(proc, req.PID)
-	} else {
-		stepsPath = s.resolveStepsPathFallback(req.PID)
-		if stepsPath == "" {
-			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
-			return
-		}
-		if _, err := os.Stat(stepsPath); err != nil {
-			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
-			return
-		}
-	}
-
-	eventCh := make(chan StreamEvent, 64)
-	s.callbackMux.register(req.PID, eventCh)
-	defer s.callbackMux.unregister(req.PID, eventCh)
-
-	writeResponse(conn, Response{OK: true})
-	enc := json.NewEncoder(conn)
-
-	var lastReplayedStep int
-	if stepsPath != "" {
-		if f, err := os.Open(stepsPath); err == nil {
-			scanner := bufio.NewScanner(f)
-			scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-			var prevTimestamp time.Duration
-			for scanner.Scan() {
-				var rec types.StepRecord
-				if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
-					continue
-				}
-				dur := rec.Timestamp
-				if prevTimestamp > 0 {
-					dur = rec.Timestamp - prevTimestamp
-				}
-				pp := ProgressPayload{
-					Event:      "step_complete",
-					PID:        req.PID,
-					Step:       rec.Step,
-					Action:     rec.Action,
-					Summary:    rec.Summary,
-					DurationMs: float64(dur.Microseconds()) / 1000.0,
-					HasError:   rec.ToolError != "",
-				}
-				payload, _ := json.Marshal(pp)
-				if err := enc.Encode(StreamEvent{Type: StreamProgress, Payload: payload}); err != nil {
-					f.Close()
-					return
-				}
-				if rec.Step > lastReplayedStep {
-					lastReplayedStep = rec.Step
-				}
-				prevTimestamp = rec.Timestamp
-			}
-			if err := scanner.Err(); err != nil {
-				log.Printf("watch: steps.jsonl scan error for PID %d: %v", req.PID, err)
-			}
-			f.Close()
-		}
-	}
-
-	if procOK {
-		for {
-			select {
-			case ev, ok := <-eventCh:
-				if !ok {
-					return
-				}
-				if ev.Type == StreamProgress {
-					var pp ProgressPayload
-					if err := json.Unmarshal(ev.Payload, &pp); err == nil {
-						if pp.Event == "step_complete" && pp.Step <= lastReplayedStep {
-							continue
-						}
-						if pp.Event == "step_complete" {
-							lastReplayedStep = pp.Step
-						}
-					}
-				}
-				if err := enc.Encode(ev); err != nil {
-					return
-				}
-				if ev.Type == StreamComplete || ev.Type == StreamError {
-					return
-				}
-			case <-s.done:
-				return
-			}
-		}
-	}
-
-	_ = enc.Encode(StreamEvent{Type: StreamEOF})
 }
 
 // resolveStepsPathFromProc resolves the steps.jsonl path from a living process.
