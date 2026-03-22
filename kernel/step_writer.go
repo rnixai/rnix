@@ -89,3 +89,34 @@ func ReadStep(path string, targetStep int) (*types.StepRecord, error) {
 	}
 	return nil, fmt.Errorf("step %d not found", targetStep)
 }
+
+// ReadAllSteps reads all step records from a steps.jsonl file.
+// If afterStep > 0, only records with Step > afterStep are returned.
+// Returns the matching records and the total count of all records in the file.
+func ReadAllSteps(path string, afterStep int) ([]types.StepRecord, int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+
+	var all []types.StepRecord
+	total := 0
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		var rec types.StepRecord
+		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+			continue
+		}
+		total++
+		if afterStep > 0 && rec.Step <= afterStep {
+			continue
+		}
+		all = append(all, rec)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, 0, err
+	}
+	return all, total, nil
+}

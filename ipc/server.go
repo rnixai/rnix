@@ -356,6 +356,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleTopologyQuery(conn)
 		case MethodGetStepDetail:
 			s.handleGetStepDetail(conn, req.Payload)
+		case MethodListSteps:
+			s.handleListSteps(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1412,8 +1414,8 @@ func (m *callbackMux) OnStep(pid types.PID, step int, total int) {
 	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
 }
 
-func (m *callbackMux) OnStepComplete(pid types.PID, step int, action string, summary string) {
-	pp := ProgressPayload{Event: "step_complete", PID: pid, Step: step, Action: action, Summary: summary}
+func (m *callbackMux) OnStepComplete(pid types.PID, step int, action string, summary string, hasError bool, durationMs float64) {
+	pp := ProgressPayload{Event: "step_complete", PID: pid, Step: step, Action: action, Summary: summary, HasError: hasError, DurationMs: durationMs}
 	payload, _ := json.Marshal(pp)
 	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
 }
@@ -1898,6 +1900,48 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 
 	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleListSteps returns step summaries for a process (Story 27.3).
+func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
+	var req ListStepsRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid list_steps request"}})
+		return
+	}
+
+	var stepsPath string
+	proc, procFound := s.kern.GetProcess(req.PID)
+	if procFound {
+		stepsPath = s.resolveStepsPathFromProc(proc, req.PID)
+	} else {
+		stepsPath = s.resolveStepsPathFallback(req.PID)
+	}
+
+	if stepsPath == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		return
+	}
+
+	records, total, err := kernel.ReadAllSteps(stepsPath, req.AfterStep)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_found", Message: fmt.Sprintf("process %d not found", req.PID)}})
+		return
+	}
+
+	wires := make([]StepSummaryWire, len(records))
+	for i, r := range records {
+		wires[i] = StepSummaryWire{
+			Step:       r.Step,
+			Action:     r.Action,
+			Summary:    r.Summary,
+			HasError:   r.ToolError != "",
+			DurationMs: float64(r.ToolDuration.Microseconds()) / 1000.0,
+		}
+	}
+
+	respPayload, _ := json.Marshal(ListStepsResponse{Steps: wires, Total: total})
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
 }
 
 // resolveStepsPathFromProc resolves the steps.jsonl path from a living process.

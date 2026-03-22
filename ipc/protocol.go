@@ -51,6 +51,7 @@ const (
 	MethodSimilarityQuery  Method = "similarity_query"
 	MethodTopologyQuery    Method = "topology_query"
 	MethodGetStepDetail    Method = "get_step_detail"
+	MethodListSteps        Method = "list_steps"
 )
 
 // Request is the top-level IPC request envelope (NDJSON).
@@ -321,8 +322,10 @@ type ProgressPayload struct {
 	Total int `json:"total,omitempty"`
 
 	// OnStepComplete
-	Action  string `json:"action,omitempty"`
-	Summary string `json:"summary,omitempty"`
+	Action     string  `json:"action,omitempty"`
+	Summary    string  `json:"summary,omitempty"`
+	HasError   bool    `json:"has_error,omitempty"`
+	DurationMs float64 `json:"duration_ms,omitempty"`
 
 	// OnComplete
 	Result     string `json:"result,omitempty"`
@@ -845,6 +848,29 @@ type ToolDefWire struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+// --- ListSteps (Story 27.3) ---
+
+// ListStepsRequest is the payload for MethodListSteps.
+type ListStepsRequest struct {
+	PID       types.PID `json:"pid"`
+	AfterStep int       `json:"after_step,omitempty"`
+}
+
+// StepSummaryWire is the wire-format summary of a single step.
+type StepSummaryWire struct {
+	Step       int     `json:"step"`
+	Action     string  `json:"action"`
+	Summary    string  `json:"summary"`
+	HasError   bool    `json:"has_error"`
+	DurationMs float64 `json:"duration_ms"`
+}
+
+// ListStepsResponse is the response for MethodListSteps.
+type ListStepsResponse struct {
+	Steps []StepSummaryWire `json:"steps"`
+	Total int               `json:"total"`
 }
 
 func unixMilliToTime(ms int64) time.Time {
