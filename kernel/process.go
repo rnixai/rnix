@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
@@ -32,6 +33,7 @@ type ExitStatus struct {
 // Process represents an agent process.
 type Process struct {
 	PID            types.PID
+	UUID           string // UUID v7 — immutable after creation, globally unique across daemon restarts
 	PPID           types.PID
 	State          types.ProcessState // guarded by mu
 	Intent         string             // immutable after creation
@@ -128,6 +130,7 @@ func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Process{
 		PID:             nextPID(),
+		UUID:            uuid.Must(uuid.NewV7()).String(),
 		PPID:            ppid,
 		State:           types.StateCreated,
 		Intent:          intent,

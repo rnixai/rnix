@@ -39,7 +39,7 @@ type atdd36Callbacks struct {
 	stepCompletes []stepCompleteRecord
 }
 
-func (c *atdd36Callbacks) OnSpawn(_ types.PID, _, _, _ string)            {}
+func (c *atdd36Callbacks) OnSpawn(_ types.PID, _, _, _, _ string)         {}
 func (c *atdd36Callbacks) OnStep(_ types.PID, _ int, _ int)               {}
 func (c *atdd36Callbacks) OnComplete(_ types.PID, _ string, _ ExitStatus) {}
 func (c *atdd36Callbacks) OnError(_ types.PID, _ error)                   {}

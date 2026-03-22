@@ -54,6 +54,7 @@ var (
 	flagJSON     bool
 	flagVerbose  bool
 	flagQuiet    bool
+	flagUUID     bool
 	flagModel    string
 	flagMaxSteps int
 	flagAgent    string
@@ -108,13 +109,17 @@ type cliCallbacks struct {
 	progress *ui.ProgressReporter
 }
 
-func (c *cliCallbacks) OnSpawn(pid types.PID, intent, provider, model string) {
+func (c *cliCallbacks) OnSpawn(pid types.PID, intent, provider, model, procUUID string) {
+	uuidShort := procUUID
+	if len(uuidShort) > 12 {
+		uuidShort = uuidShort[:12] + "..."
+	}
 	if provider != "" && model != "" {
-		c.progress.KernelMessage("spawning PID %d (%s/%s)...", pid, provider, model)
+		c.progress.KernelMessage("spawning PID %d (uuid: %s, %s/%s)...", pid, uuidShort, provider, model)
 	} else if provider != "" {
-		c.progress.KernelMessage("spawning PID %d (%s)...", pid, provider)
+		c.progress.KernelMessage("spawning PID %d (uuid: %s, %s)...", pid, uuidShort, provider)
 	} else {
-		c.progress.KernelMessage("spawning PID %d...", pid)
+		c.progress.KernelMessage("spawning PID %d (uuid: %s)...", pid, uuidShort)
 	}
 }
 
@@ -256,6 +261,7 @@ func init() {
 	daemonCmd.AddCommand(daemonStatusCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(straceCmd)
+	psCmd.Flags().BoolVar(&flagUUID, "uuid", false, "Show UUID column in process table")
 	rootCmd.AddCommand(psCmd)
 	rootCmd.AddCommand(killCmd)
 	rootCmd.AddCommand(daemonCmd)
@@ -527,12 +533,16 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		case "spawn":
 			spawnProvider = pp.Provider
 			spawnModel = pp.Model
+			uuidShort := pp.UUID
+			if len(uuidShort) > 12 {
+				uuidShort = uuidShort[:12] + "..."
+			}
 			if pp.Provider != "" && pp.Model != "" {
-				progress.KernelMessage("spawning PID %d (%s/%s)...", pp.PID, pp.Provider, pp.Model)
+				progress.KernelMessage("spawning PID %d (uuid: %s, %s/%s)...", pp.PID, uuidShort, pp.Provider, pp.Model)
 			} else if pp.Provider != "" {
-				progress.KernelMessage("spawning PID %d (%s)...", pp.PID, pp.Provider)
+				progress.KernelMessage("spawning PID %d (uuid: %s, %s)...", pp.PID, uuidShort, pp.Provider)
 			} else {
-				progress.KernelMessage("spawning PID %d...", pp.PID)
+				progress.KernelMessage("spawning PID %d (uuid: %s)...", pp.PID, uuidShort)
 			}
 		case "step":
 			progress.AgentStep(pp.PID, pp.Step, pp.Total)
@@ -873,9 +883,9 @@ func runPs(cmd *cobra.Command, args []string) error {
 	case ui.ModeQuiet:
 		renderPsQuiet(renderer, procs)
 	case ui.ModeVerbose:
-		ui.RenderProcessTable(renderer, procs, true)
+		ui.RenderProcessTable(renderer, procs, true, flagUUID)
 	default:
-		ui.RenderProcessTable(renderer, procs, false)
+		ui.RenderProcessTable(renderer, procs, false, flagUUID)
 	}
 
 	return nil
@@ -884,6 +894,7 @@ func runPs(cmd *cobra.Command, args []string) error {
 // jsonProcess is the JSON representation of a single process for rnix ps --json.
 type jsonProcess struct {
 	PID        types.PID `json:"pid"`
+	UUID       string    `json:"uuid,omitempty"`
 	PPID       types.PID `json:"ppid"`
 	State      string    `json:"state"`
 	Intent     string    `json:"intent"`
@@ -904,6 +915,7 @@ func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
 		}
 		entries[i] = jsonProcess{
 			PID:        p.PID,
+			UUID:       p.UUID,
 			PPID:       p.PPID,
 			State:      p.State.String(),
 			Intent:     p.Intent,

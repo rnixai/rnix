@@ -161,7 +161,7 @@ func TestSpawn_StemAgentDifferentiationLog(t *testing.T) {
 	var events []string
 	var eventMu sync.Mutex
 	captureCallback := &testCallbacks{
-		onSpawn: func(pid types.PID, intent, provider, model string) {
+		onSpawn: func(pid types.PID, intent, provider, model, uuid string) {
 			eventMu.Lock()
 			defer eventMu.Unlock()
 			events = append(events, "spawn:"+intent)
@@ -200,16 +200,16 @@ func TestSpawn_StemAgentDifferentiationLog(t *testing.T) {
 
 // testCallbacks is a minimal KernelCallbacks implementation for testing.
 type testCallbacks struct {
-	onSpawn        func(pid types.PID, intent, provider, model string)
+	onSpawn        func(pid types.PID, intent, provider, model, uuid string)
 	onStep         func(pid types.PID, step int, total int)
 	onStepComplete func(pid types.PID, step int, action string, summary string, hasError bool, durationMs float64)
 	onComplete     func(pid types.PID, result string, exit ExitStatus)
 	onError        func(pid types.PID, err error)
 }
 
-func (tc *testCallbacks) OnSpawn(pid types.PID, intent, provider, model string) {
+func (tc *testCallbacks) OnSpawn(pid types.PID, intent, provider, model, uuid string) {
 	if tc.onSpawn != nil {
-		tc.onSpawn(pid, intent, provider, model)
+		tc.onSpawn(pid, intent, provider, model, uuid)
 	}
 }
 func (tc *testCallbacks) OnStep(pid types.PID, step int, total int) {
