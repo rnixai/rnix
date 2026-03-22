@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-06
-last_updated: 2026-03-22  # Story 27-5 done (top→dashboard navigation CR passed)
+last_updated: 2026-03-22  # Story 28-1 done (Process UUID v7 Introduction) — code review passed
 project: rnix
 project_key: NOKEY
 tracking_system: file-system
@@ -313,8 +313,8 @@ development_status:
   # Trigger: Dashboard 刷新问题调查发现 PID 跨 daemon 复用导致数据混淆
   # Decision: 引入 UUID v7 作为持久化唯一标识，PID 保留为用户友好短标识
   # Sprint Change Proposal: sprint-change-proposal-2026-03-22.md
-  epic-28: backlog
-  28-1-process-uuid-v7-introduction: backlog                   # Process UUID v7 引入
+  epic-28: in-progress
+  28-1-process-uuid-v7-introduction: done                       # Process UUID v7 引入
   28-2-steprecord-path-migration-to-uuid: backlog              # StepRecord 路径迁移
   28-3-ipc-pid-uuid-mapping: backlog                           # IPC PID→UUID 映射
   28-4-dashboard-pid-validity-check: backlog                   # Dashboard PID 有效性检查

@@ -757,14 +757,14 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		writeStreamEvent(conn, StreamEvent{Type: StreamError, Payload: marshalJSON(ErrorPayload{Code: "INTERNAL", Message: "process vanished after spawn"})})
 		return
 	}
-	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent, Provider: proc.Provider, Model: proc.Model}
+	spawnPP := ProgressPayload{Event: "spawn", PID: pid, Intent: req.Intent, Provider: proc.Provider, Model: proc.Model, UUID: proc.UUID}
 	spawnPayload, _ := json.Marshal(spawnPP)
 	select {
 	case eventCh <- StreamEvent{Type: StreamProgress, Payload: spawnPayload}:
 	default:
 	}
 
-	payload, _ := json.Marshal(SpawnResponse{PID: pid})
+	payload, _ := json.Marshal(SpawnResponse{PID: pid, UUID: proc.UUID})
 	writeResponse(conn, Response{OK: true, Payload: payload})
 
 	doneCh := make(chan struct{})
@@ -1402,8 +1402,8 @@ func (m *callbackMux) send(pid types.PID, ev StreamEvent) {
 
 // KernelCallbacks interface implementation for the server's callbackMux.
 
-func (m *callbackMux) OnSpawn(pid types.PID, intent, provider, model string) {
-	pp := ProgressPayload{Event: "spawn", PID: pid, Intent: intent, Provider: provider, Model: model}
+func (m *callbackMux) OnSpawn(pid types.PID, intent, provider, model, procUUID string) {
+	pp := ProgressPayload{Event: "spawn", PID: pid, Intent: intent, Provider: provider, Model: model, UUID: procUUID}
 	payload, _ := json.Marshal(pp)
 	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
 }

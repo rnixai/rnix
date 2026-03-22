@@ -164,7 +164,7 @@ type llmResponse struct {
 // KernelCallbacks allows the CLI layer to receive progress notifications
 // from the kernel without introducing a reverse dependency on internal/ui.
 type KernelCallbacks interface {
-	OnSpawn(pid types.PID, intent, provider, model string)
+	OnSpawn(pid types.PID, intent, provider, model, uuid string)
 	OnStep(pid types.PID, step int, total int)
 	OnStepComplete(pid types.PID, step int, action string, summary string, hasError bool, durationMs float64)
 	OnComplete(pid types.PID, result string, exit ExitStatus)
@@ -786,7 +786,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	// Notify callback after process is registered and goroutine launched
 	if k.callbacks != nil {
-		k.callbacks.OnSpawn(proc.PID, intent, proc.Provider, proc.Model)
+		k.callbacks.OnSpawn(proc.PID, intent, proc.Provider, proc.Model, proc.UUID)
 	}
 
 	// Notify immune daemon about new process (Story 22.1)
@@ -2714,6 +2714,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 	proc.mu.Lock()
 	info := &vfs.ProcInfo{
 		PID:            proc.PID,
+		UUID:           proc.UUID,
 		PPID:           proc.PPID,
 		State:          proc.State,
 		Intent:         proc.Intent,
@@ -2880,6 +2881,7 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 		proc.mu.Lock()
 		infos = append(infos, vfs.ProcInfo{
 			PID:            proc.PID,
+			UUID:           proc.UUID,
 			PPID:           proc.PPID,
 			State:          proc.State,
 			Intent:         proc.Intent,

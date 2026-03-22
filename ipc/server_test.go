@@ -356,7 +356,7 @@ func TestCallbackMux_RegisterUnregister(t *testing.T) {
 	ch := make(chan StreamEvent, 10)
 
 	mux.register(1, ch)
-	mux.OnSpawn(1, "test intent", "claude", "sonnet")
+	mux.OnSpawn(1, "test intent", "claude", "sonnet", "019534a1-7c6b-7000-8abc-123456789012")
 
 	select {
 	case ev := <-ch:
@@ -419,7 +419,7 @@ func TestCallbackMux_OnError(t *testing.T) {
 
 func TestCallbackMux_UnregisteredPID(t *testing.T) {
 	mux := newCallbackMux()
-	mux.OnSpawn(999, "ignored", "", "")
+	mux.OnSpawn(999, "ignored", "", "", "")
 }
 
 func TestCallbackMux_ImplementsKernelCallbacks(t *testing.T) {

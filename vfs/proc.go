@@ -28,6 +28,7 @@ type ContextSummaryProvider interface {
 // Value type (not a reference to *Process) to avoid concurrency issues and cross-package dependencies.
 type ProcInfo struct {
 	PID            types.PID
+	UUID           string
 	PPID           types.PID
 	State          types.ProcessState
 	Intent         string

@@ -62,7 +62,7 @@ func TestCliCallbacks_OnSpawn(t *testing.T) {
 	p := ui.NewProgressReporter(r)
 	cb := &cliCallbacks{progress: p}
 
-	cb.OnSpawn(1, "test intent", "claude", "sonnet")
+	cb.OnSpawn(1, "test intent", "claude", "sonnet", "019534a1-7c6b-7000-8abc-123456789012")
 
 	output := buf.String()
 	if !strings.Contains(output, "[kernel]") {
@@ -73,6 +73,9 @@ func TestCliCallbacks_OnSpawn(t *testing.T) {
 	}
 	if !strings.Contains(output, "claude/sonnet") {
 		t.Errorf("expected provider/model in output, got %q", output)
+	}
+	if !strings.Contains(output, "uuid:") {
+		t.Errorf("expected uuid in output, got %q", output)
 	}
 }
 
@@ -304,7 +307,7 @@ func TestCLICallbacks_QuietMode(t *testing.T) {
 	p := ui.NewProgressReporter(r)
 	cb := &cliCallbacks{progress: p}
 
-	cb.OnSpawn(1, "test", "claude", "sonnet")
+	cb.OnSpawn(1, "test", "claude", "sonnet", "019534a1-7c6b-7000-8abc-123456789012")
 	cb.OnStep(1, 1, 3)
 
 	if buf.Len() != 0 {

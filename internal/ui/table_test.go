@@ -44,7 +44,7 @@ func TestRenderProcessTable_BasicOutput(t *testing.T) {
 	InitStyles(defaultTestProfile())
 	r, buf := testRenderer(defaultTestProfile(), ModeDefault)
 
-	RenderProcessTable(r, sampleProcs(), false)
+	RenderProcessTable(r, sampleProcs(), false, false)
 	out := buf.String()
 
 	// Header should contain column names
@@ -95,7 +95,7 @@ func TestRenderProcessTable_ColumnAlignment(t *testing.T) {
 		{PID: 1, PPID: 0, State: types.StateRunning, Skills: []string{"a"}, TokensUsed: 100, CreatedAt: time.Now()},
 		{PID: 99, PPID: 0, State: types.StateDead, Skills: []string{"b"}, TokensUsed: 99999, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	lines := strings.Split(buf.String(), "\n")
 
 	// PID column should be right-aligned (5 chars wide)
@@ -166,7 +166,7 @@ func TestRenderProcessTable_EmptyList(t *testing.T) {
 	InitStyles(defaultTestProfile())
 	r, buf := testRenderer(defaultTestProfile(), ModeDefault)
 
-	RenderProcessTable(r, nil, false)
+	RenderProcessTable(r, nil, false, false)
 	out := strings.TrimSpace(buf.String())
 	if out != "No active processes." {
 		t.Fatalf("expected 'No active processes.', got: %q", out)
@@ -177,7 +177,7 @@ func TestRenderProcessTable_EmptySlice(t *testing.T) {
 	InitStyles(defaultTestProfile())
 	r, buf := testRenderer(defaultTestProfile(), ModeDefault)
 
-	RenderProcessTable(r, []vfs.ProcInfo{}, false)
+	RenderProcessTable(r, []vfs.ProcInfo{}, false, false)
 	out := strings.TrimSpace(buf.String())
 	if out != "No active processes." {
 		t.Fatalf("expected 'No active processes.', got: %q", out)
@@ -192,7 +192,7 @@ func TestRenderProcessTable_WidthAdaptation_Narrow(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, Skills: []string{"x"}, TokensUsed: 100, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	header := strings.Split(buf.String(), "\n")[0]
 
 	// Width 40: only PID + STATE
@@ -218,7 +218,7 @@ func TestRenderProcessTable_WidthAdaptation_60(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, Skills: []string{"x"}, TokensUsed: 100, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	header := strings.Split(buf.String(), "\n")[0]
 
 	if !strings.Contains(header, "SKILL") {
@@ -237,7 +237,7 @@ func TestRenderProcessTable_WidthAdaptation_80(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, Skills: []string{"x"}, TokensUsed: 100, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	header := strings.Split(buf.String(), "\n")[0]
 
 	if !strings.Contains(header, "SKILL") {
@@ -259,7 +259,7 @@ func TestRenderProcessTable_WidthAdaptation_120(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, Intent: "分析代码", Skills: []string{"x"}, TokensUsed: 100, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	header := strings.Split(buf.String(), "\n")[0]
 
 	if !strings.Contains(header, "INTENT") {
@@ -275,7 +275,7 @@ func TestRenderProcessTable_NoColor(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	out := buf.String()
 
 	// Should not contain ANSI escape sequences
@@ -291,7 +291,7 @@ func TestRenderProcessTable_VerboseMode(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, PPID: 0, State: types.StateRunning, Intent: "分析代码", Skills: []string{"x"}, TokensUsed: 100, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, true)
+	RenderProcessTable(r, procs, true, false)
 	header := strings.Split(buf.String(), "\n")[0]
 
 	if !strings.Contains(header, "PPID") {
@@ -310,7 +310,7 @@ func TestRenderProcessTable_UnicodeSeparator(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	lines := strings.Split(buf.String(), "\n")
 
 	if !strings.Contains(lines[1], "─") {
@@ -326,7 +326,7 @@ func TestRenderProcessTable_ASCIISeparator(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	lines := strings.Split(buf.String(), "\n")
 
 	if strings.Contains(lines[1], "─") {
@@ -345,7 +345,7 @@ func TestRenderProcessTable_NoSkillDash(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, Skills: nil, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	out := buf.String()
 
 	// With Unicode, no-skill shows "—"
@@ -362,7 +362,7 @@ func TestRenderProcessTable_NoSkillASCII(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, Skills: nil, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	lines := strings.Split(buf.String(), "\n")
 
 	// Data row should contain "-" for no skills (ASCII mode)
@@ -388,7 +388,7 @@ func TestRenderProcessTable_Footer(t *testing.T) {
 		{PID: 3, State: types.StateZombie, CreatedAt: time.Now()},
 		{PID: 4, State: types.StateDead, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	out := buf.String()
 
 	// active includes Running + Created
@@ -488,7 +488,7 @@ func TestRenderProcessTable_PIDSortVerification(t *testing.T) {
 		{PID: 1, State: types.StateDead, CreatedAt: time.Now()},
 		{PID: 10, State: types.StateZombie, CreatedAt: time.Now()},
 	}
-	RenderProcessTable(r, procs, false)
+	RenderProcessTable(r, procs, false, false)
 	lines := strings.Split(buf.String(), "\n")
 
 	// Data rows start at line 2 (after header and separator)

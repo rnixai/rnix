@@ -18,6 +18,7 @@ const (
 	colWidthTokens  = 8
 	colWidthElapsed = 8
 	colWidthPPID    = 5
+	colWidthUUID    = 11 // 8 hex chars + "..."
 	colGap          = 3
 )
 
@@ -31,7 +32,8 @@ const (
 // RenderProcessTable renders a formatted process table to the renderer's writer.
 // PID and STATE columns are always shown. Additional columns appear based on terminal width.
 // When verbose is true, PPID and full INTENT columns are included.
-func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool) {
+// When showUUID is true, a truncated UUID column is displayed after PID.
+func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID bool) {
 	if len(procs) == 0 {
 		fmt.Fprintln(r.Writer, "No active processes.")
 		return
@@ -56,6 +58,10 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool) {
 	// Build header
 	var hdr strings.Builder
 	fmt.Fprintf(&hdr, "%*s", colWidthPID, "PID")
+	if showUUID {
+		hdr.WriteString(gap)
+		fmt.Fprintf(&hdr, "%-*s", colWidthUUID, "UUID")
+	}
 	if verbose {
 		hdr.WriteString(gap)
 		fmt.Fprintf(&hdr, "%*s", colWidthPPID, "PPID")
@@ -82,6 +88,10 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool) {
 	// Build separator line
 	var sepLine strings.Builder
 	sepLine.WriteString(strings.Repeat(sep, colWidthPID))
+	if showUUID {
+		sepLine.WriteString(gap)
+		sepLine.WriteString(strings.Repeat(sep, colWidthUUID))
+	}
 	if verbose {
 		sepLine.WriteString(gap)
 		sepLine.WriteString(strings.Repeat(sep, colWidthPPID))
@@ -117,6 +127,11 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose bool) {
 
 		var row strings.Builder
 		fmt.Fprintf(&row, "%*d", colWidthPID, proc.PID)
+		if showUUID {
+			row.WriteString(gap)
+			uuidDisplay := truncateUUID(proc.UUID, colWidthUUID)
+			fmt.Fprintf(&row, "%-*s", colWidthUUID, uuidDisplay)
+		}
 		if verbose {
 			row.WriteString(gap)
 			fmt.Fprintf(&row, "%*d", colWidthPPID, proc.PPID)
@@ -217,6 +232,17 @@ func FormatTokens(n int) string {
 		buf = append(buf, byte(c))
 	}
 	return string(buf)
+}
+
+// truncateUUID truncates a UUID for display. Shows first 8 hex chars + "...".
+func truncateUUID(uuid string, maxWidth int) string {
+	if uuid == "" {
+		return "—"
+	}
+	if len(uuid) <= maxWidth {
+		return uuid
+	}
+	return uuid[:8] + "..."
 }
 
 // StripAnsi removes ANSI escape sequences from a string to calculate visible width.

@@ -92,7 +92,8 @@ type SpawnRequest struct {
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.
 type SpawnResponse struct {
-	PID types.PID `json:"pid"`
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
 }
 
 // --- ListProcs ---
@@ -106,6 +107,7 @@ type ListProcsResponse struct {
 // Times are serialized as milliseconds for JSON portability.
 type ProcInfoWire struct {
 	PID           types.PID          `json:"pid"`
+	UUID          string             `json:"uuid,omitempty"`
 	PPID          types.PID          `json:"ppid"`
 	State         types.ProcessState `json:"state"`
 	Intent        string             `json:"intent"`
@@ -129,6 +131,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 	}
 	w := ProcInfoWire{
 		PID:           p.PID,
+		UUID:          p.UUID,
 		PPID:          p.PPID,
 		State:         p.State,
 		Intent:        p.Intent,
@@ -152,6 +155,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 	p := vfs.ProcInfo{
 		PID:           w.PID,
+		UUID:          w.UUID,
 		PPID:          w.PPID,
 		State:         w.State,
 		Intent:        w.Intent,
@@ -316,6 +320,7 @@ type ProgressPayload struct {
 	Intent   string `json:"intent,omitempty"`
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
+	UUID     string `json:"uuid,omitempty"`
 
 	// OnStep / OnStepComplete
 	Step  int `json:"step,omitempty"`
