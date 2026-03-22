@@ -381,8 +381,8 @@ func TestATDD_27_6_AC5_PIDNotFound(t *testing.T) {
 	if resp.Error == nil {
 		t.Fatal("AC-5: expected error payload")
 	}
-	if resp.Error.Code != "not_found" {
-		t.Errorf("AC-5: error code = %q, want %q", resp.Error.Code, "not_found")
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("AC-5: error code = %q, want %q", resp.Error.Code, "NOT_FOUND")
 	}
 }
 

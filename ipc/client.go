@@ -721,10 +721,36 @@ func (c *Client) SpawnDetached(req SpawnRequest) (types.PID, error) {
 	return sr.PID, nil
 }
 
+// GetStepDetailByUUID returns the full prompt and step detail for a specific process step by UUID (Story 28.3).
+func (c *Client) GetStepDetailByUUID(uuid string, step int) (*GetStepDetailResponse, error) {
+	resp, err := c.call(MethodGetStepDetail, GetStepDetailRequest{UUID: uuid, Step: step})
+	if err != nil {
+		return nil, err
+	}
+	var result GetStepDetailResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal get_step_detail: %w", err)
+	}
+	return &result, nil
+}
+
 // ListSteps returns step summaries for a process (Story 27.3).
 // If afterStep > 0, only steps after that step number are returned.
 func (c *Client) ListSteps(pid types.PID, afterStep int) (*ListStepsResponse, error) {
 	resp, err := c.call(MethodListSteps, ListStepsRequest{PID: pid, AfterStep: afterStep})
+	if err != nil {
+		return nil, err
+	}
+	var result ListStepsResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal list_steps: %w", err)
+	}
+	return &result, nil
+}
+
+// ListStepsByUUID returns step summaries for a process by UUID (Story 28.3).
+func (c *Client) ListStepsByUUID(uuid string, afterStep int) (*ListStepsResponse, error) {
+	resp, err := c.call(MethodListSteps, ListStepsRequest{UUID: uuid, AfterStep: afterStep})
 	if err != nil {
 		return nil, err
 	}

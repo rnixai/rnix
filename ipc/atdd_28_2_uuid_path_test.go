@@ -223,10 +223,9 @@ func TestATDD_28_2_AC6_Fallback_ReapedProcess_UUID(t *testing.T) {
 		testStepRecord(2),
 	})
 
-	// Process not in memory — server must find via UUID fallback
-	// RED: Current resolveStepsPathFallback only tries PID path
+	// Story 28-3: Use UUID to query reaped process (PID-only returns NOT_FOUND)
 	conn := dial(t, sockPath)
-	resp := sendRequest(t, conn, MethodGetStepDetail, GetStepDetailRequest{PID: pid, Step: 1})
+	resp := sendRequest(t, conn, MethodGetStepDetail, GetStepDetailRequest{UUID: procUUID, Step: 1})
 
 	if !resp.OK {
 		t.Fatalf("AC-6: reaped process should resolve via UUID fallback: %+v", resp.Error)
@@ -272,10 +271,9 @@ func TestATDD_28_2_AC6_Fallback_ReapedProcess_ListSteps_UUID(t *testing.T) {
 		testStepRecord(3),
 	})
 
+	// Story 28-3: Use UUID to query reaped process (PID-only returns NOT_FOUND)
 	conn := dial(t, sockPath)
-	resp := sendRequest(t, conn, MethodListSteps, ListStepsRequest{PID: pid})
-
-	// RED: Fallback only tries PID path
+	resp := sendRequest(t, conn, MethodListSteps, ListStepsRequest{UUID: procUUID})
 	if !resp.OK {
 		t.Fatalf("AC-6: reaped ListSteps should resolve via UUID fallback: %+v", resp.Error)
 	}
@@ -293,7 +291,9 @@ func TestATDD_28_2_AC6_Fallback_ReapedProcess_ListSteps_UUID(t *testing.T) {
 // AC-6 + AC-3: Legacy PID path still works (backward compat through IPC)
 // ---------------------------------------------------------------------------
 
-func TestATDD_28_2_AC6_LegacyPIDPath_GetStepDetail_StillWorks(t *testing.T) {
+// Story 28-3: Legacy PID-only path for reaped processes now returns NOT_FOUND.
+// Clients should use UUID for querying reaped processes.
+func TestATDD_28_2_AC6_LegacyPIDPath_GetStepDetail_ReturnsNotFound(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
 
 	tmpDir := t.TempDir()
@@ -305,17 +305,6 @@ func TestATDD_28_2_AC6_LegacyPIDPath_GetStepDetail_StillWorks(t *testing.T) {
 		t.Fatalf("AC-6: mkdir: %v", err)
 	}
 
-	meta := struct {
-		SystemPrompt string        `json:"system_prompt"`
-		ToolDefs     []vfs.ToolDef `json:"tool_defs"`
-	}{
-		SystemPrompt: "Legacy prompt",
-	}
-	metaJSON, _ := json.Marshal(meta)
-	if err := os.WriteFile(filepath.Join(stepsDir, "process-meta.json"), metaJSON, 0o644); err != nil {
-		t.Fatalf("AC-6: write meta: %v", err)
-	}
-
 	writeTestSteps(t, tmpDir, pid, []types.StepRecord{
 		testStepRecord(1),
 	})
@@ -323,20 +312,16 @@ func TestATDD_28_2_AC6_LegacyPIDPath_GetStepDetail_StillWorks(t *testing.T) {
 	conn := dial(t, sockPath)
 	resp := sendRequest(t, conn, MethodGetStepDetail, GetStepDetailRequest{PID: pid, Step: 1})
 
-	if !resp.OK {
-		t.Fatalf("AC-6: legacy PID path should still work: %+v", resp.Error)
+	// Story 28-3: PID-only query for reaped process returns NOT_FOUND
+	if resp.OK {
+		t.Fatal("AC-6: legacy PID-only path for reaped process should return NOT_FOUND after Story 28-3")
 	}
-
-	var detail GetStepDetailResponse
-	if err := json.Unmarshal(resp.Payload, &detail); err != nil {
-		t.Fatalf("AC-6: unmarshal: %v", err)
-	}
-	if detail.SystemPrompt != "Legacy prompt" {
-		t.Errorf("AC-6: SystemPrompt = %q, want %q", detail.SystemPrompt, "Legacy prompt")
+	if resp.Error == nil || resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("AC-6: expected NOT_FOUND, got %+v", resp.Error)
 	}
 }
 
-func TestATDD_28_2_AC6_LegacyPIDPath_ListSteps_StillWorks(t *testing.T) {
+func TestATDD_28_2_AC6_LegacyPIDPath_ListSteps_ReturnsNotFound(t *testing.T) {
 	srv, sockPath, _ := setupTestServer(t)
 
 	tmpDir := t.TempDir()
@@ -351,16 +336,12 @@ func TestATDD_28_2_AC6_LegacyPIDPath_ListSteps_StillWorks(t *testing.T) {
 	conn := dial(t, sockPath)
 	resp := sendRequest(t, conn, MethodListSteps, ListStepsRequest{PID: pid})
 
-	if !resp.OK {
-		t.Fatalf("AC-6: legacy PID ListSteps should still work: %+v", resp.Error)
+	// Story 28-3: PID-only query for reaped process returns NOT_FOUND
+	if resp.OK {
+		t.Fatal("AC-6: legacy PID-only ListSteps for reaped process should return NOT_FOUND after Story 28-3")
 	}
-
-	var result ListStepsResponse
-	if err := json.Unmarshal(resp.Payload, &result); err != nil {
-		t.Fatalf("AC-6: unmarshal: %v", err)
-	}
-	if result.Total != 2 {
-		t.Errorf("AC-6: Total = %d, want 2", result.Total)
+	if resp.Error == nil || resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("AC-6: expected NOT_FOUND, got %+v", resp.Error)
 	}
 }
 

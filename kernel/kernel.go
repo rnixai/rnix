@@ -2570,6 +2570,23 @@ func (k *KernelImpl) GetProcess(pid types.PID) (*Process, bool) {
 	return k.procTable.Load(pid)
 }
 
+// GetProcessByUUID finds a process by UUID in the process table.
+// Returns (nil, false) if no matching process is found or uuid is empty.
+func (k *KernelImpl) GetProcessByUUID(uuid string) (*Process, bool) {
+	if uuid == "" {
+		return nil, false
+	}
+	var found *Process
+	k.procTable.Range(func(pid types.PID, proc *Process) bool {
+		if proc.UUID == uuid {
+			found = proc
+			return false // stop iteration
+		}
+		return true
+	})
+	return found, found != nil
+}
+
 // RemoveProcess removes a process from the process table.
 func (k *KernelImpl) RemoveProcess(pid types.PID) {
 	k.procTable.Delete(pid)
