@@ -86,6 +86,7 @@ type stepDetailResultMsg struct {
 
 type procDetailResultMsg struct {
 	pid    types.PID
+	uuid   string
 	detail *ipc.GetProcDetailResponse
 	err    error
 }
@@ -169,6 +170,7 @@ type execResultMsg struct {
 
 type recordToggleMsg struct {
 	pid        types.PID
+	uuid       string
 	recordID   string
 	stopped    bool
 	eventCount uint64
@@ -179,9 +181,10 @@ type dashboardModel struct {
 	client      *ipc.Client
 	width       int
 	height      int
-	activePane  paneType
-	selectedPID types.PID
-	processes   []vfs.ProcInfo
+	activePane   paneType
+	selectedPID  types.PID
+	selectedUUID string
+	processes    []vfs.ProcInfo
 	treeRows    []flatRow
 	treeCursor  int
 	treeOffset  int
@@ -212,7 +215,7 @@ type dashboardModel struct {
 	heatmapErr       error
 
 	// Pane linkage & process operations (Story 17-4)
-	recording    map[types.PID]string
+	recording    map[string]string
 	statusMsgTTL int
 
 	// Step timeline fields (Story 27-3)
@@ -235,7 +238,7 @@ type dashboardModel struct {
 	// Detail pane fields (Story 27-6)
 	procDetail      *ipc.GetProcDetailResponse
 	procDetailPID   types.PID
-	procDetailCache map[types.PID]*ipc.GetProcDetailResponse
+	procDetailCache map[string]*ipc.GetProcDetailResponse
 	procDetailTick  int // tick counter for periodic cache refresh
 
 	// Intent tree pane fields (Story 27-7)
@@ -260,11 +263,17 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		startTime:        time.Now(),
 		connected:        client != nil,
 		timelineFilters:  defaultTimelineFilters(),
-		recording:        make(map[types.PID]string),
+		recording:        make(map[string]string),
 		stepTimelineMode: true,
 		stepDetailCache:  make(map[int]*ipc.GetStepDetailResponse),
-		procDetailCache:  make(map[types.PID]*ipc.GetProcDetailResponse),
+		procDetailCache:  make(map[string]*ipc.GetProcDetailResponse),
 	}
+}
+
+func selectProcess(m dashboardModel, row flatRow) dashboardModel {
+	m.selectedPID = row.proc.PID
+	m.selectedUUID = row.proc.UUID
+	return m
 }
 
 func (m dashboardModel) Init() tea.Cmd {
@@ -321,10 +330,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.stopped {
-			delete(m.recording, msg.pid)
+			delete(m.recording, msg.uuid)
 			m.statusMsg = fmt.Sprintf("Recording stopped (%d events)", msg.eventCount)
 		} else {
-			m.recording[msg.pid] = msg.recordID
+			m.recording[msg.uuid] = msg.recordID
 			m.statusMsg = fmt.Sprintf("Recording started (ID: %s)", msg.recordID)
 		}
 		m.statusMsgTTL = statusMsgDefaultTTL
@@ -345,8 +354,8 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case procDetailResultMsg:
 		if msg.err == nil && msg.detail != nil {
-			m.procDetailCache[msg.pid] = msg.detail
-			if msg.pid == m.selectedPID {
+			m.procDetailCache[msg.uuid] = msg.detail
+			if msg.pid == m.selectedPID && msg.uuid == m.selectedUUID {
 				m.procDetail = msg.detail
 				m.procDetailPID = msg.pid
 			}
@@ -433,8 +442,27 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	m.applyInitialPIDFocus()
 
+	// Validate selected process UUID consistency BEFORE updating selection (AC-2, AC-3)
+	if m.selectedPID > 0 {
+		found := false
+		for _, p := range m.processes {
+			if p.PID == m.selectedPID {
+				if m.selectedUUID == "" || p.UUID == m.selectedUUID {
+					found = true // PID exists and UUID matches (or UUID empty for backward compat)
+				}
+				// PID match but UUID mismatch → PID reuse detected
+				break
+			}
+		}
+		if !found {
+			m.selectedPID = 0
+			m.selectedUUID = ""
+		}
+	}
+
+	// Update selection from current cursor position (after validation)
 	if m.treeCursor < len(m.treeRows) {
-		m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+		m = selectProcess(m, m.treeRows[m.treeCursor])
 	}
 
 	cmds := []tea.Cmd{tickCmd()}
@@ -460,16 +488,16 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		needsFetch := m.procDetail == nil || m.procDetailPID != m.selectedPID
 		// Refresh every 5 ticks (~5s) for live processes
 		if !needsFetch && m.procDetail != nil && m.procDetail.State != "dead" && m.procDetailTick%5 == 0 {
-			delete(m.procDetailCache, m.selectedPID)
+			delete(m.procDetailCache, m.selectedUUID)
 			needsFetch = true
 		}
 		if needsFetch {
 			// Check cache first (only for initial load, not periodic refresh)
-			if cached, ok := m.procDetailCache[m.selectedPID]; ok {
+			if cached, ok := m.procDetailCache[m.selectedUUID]; ok {
 				m.procDetail = cached
 				m.procDetailPID = m.selectedPID
 			} else {
-				cmds = append(cmds, fetchProcDetailCmd(m.selectedPID))
+				cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
 			}
 		}
 	}
@@ -482,13 +510,13 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	if len(m.recording) > 0 {
-		pidSet := make(map[types.PID]bool, len(m.processes))
+		uuidSet := make(map[string]bool, len(m.processes))
 		for _, p := range m.processes {
-			pidSet[p.PID] = true
+			uuidSet[p.UUID] = true
 		}
-		for pid := range m.recording {
-			if !pidSet[pid] {
-				delete(m.recording, pid)
+		for uuid := range m.recording {
+			if !uuidSet[uuid] {
+				delete(m.recording, uuid)
 			}
 		}
 	}
@@ -626,7 +654,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.treeCursor > 0 {
 				m.treeCursor--
 				if m.treeCursor < len(m.treeRows) {
-					m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+					m = selectProcess(m, m.treeRows[m.treeCursor])
 				}
 				if m.treeCursor < m.treeOffset {
 					m.treeOffset = m.treeCursor
@@ -636,7 +664,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.treeCursor < len(m.treeRows)-1 {
 				m.treeCursor++
 				if m.treeCursor < len(m.treeRows) {
-					m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+					m = selectProcess(m, m.treeRows[m.treeCursor])
 				}
 				if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
 					m.treeOffset = m.treeCursor - visibleLines + 1
@@ -644,7 +672,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if m.treeCursor < len(m.treeRows) {
-				m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+				m = selectProcess(m, m.treeRows[m.treeCursor])
 			}
 		default:
 			if (msg.Code == 'K' || msg.ShiftedCode == 'K') && msg.Mod&tea.ModShift != 0 {
@@ -682,9 +710,11 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					targetPID := types.PID(n.node.PID)
 					// Verify PID exists in current process list
 					pidFound := false
+					var targetUUID string
 					for _, p := range m.processes {
 						if p.PID == targetPID {
 							pidFound = true
+							targetUUID = p.UUID
 							break
 						}
 					}
@@ -694,6 +724,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 					m.selectedPID = targetPID
+					m.selectedUUID = targetUUID
 					m.activePane = paneTimeline
 					m2, cmd := m.handlePIDChange()
 					return m2, cmd
@@ -725,8 +756,8 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return execResultMsg{err: err}
 			})
 		case "r":
-			recordID := m.recording[m.selectedPID]
-			return m, toggleRecordCmd(m.selectedPID, recordID)
+			recordID := m.recording[m.selectedUUID]
+			return m, toggleRecordCmd(m.selectedPID, m.selectedUUID, recordID)
 		}
 	}
 
@@ -857,7 +888,7 @@ func (m dashboardModel) renderDashboardStatus() string {
 	}
 
 	rec := ""
-	if m.selectedPID > 0 && m.recording[m.selectedPID] != "" {
+	if m.selectedPID > 0 && m.recording[m.selectedUUID] != "" {
 		rec = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●REC") + "  "
 	}
 
@@ -931,7 +962,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		line := fmt.Sprintf("%s%sPID %-3d %-9s %-12s %s %s",
 			cursor, row.prefix, row.proc.PID, state, skills, tokens, elapsed)
-		if m.recording[row.proc.PID] != "" {
+		if m.recording[row.proc.UUID] != "" {
 			line += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●")
 		}
 		b.WriteString(line)
@@ -1771,25 +1802,26 @@ func fetchStepDetailCmd(pid types.PID, step int) tea.Cmd {
 	}
 }
 
-func toggleRecordCmd(pid types.PID, currentRecordID string) tea.Cmd {
+func toggleRecordCmd(pid types.PID, uuid string, currentRecordID string) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return recordToggleMsg{pid: pid, err: err}
+			return recordToggleMsg{pid: pid, uuid: uuid, err: err}
 		}
 		defer client.Close()
 
 		if currentRecordID == "" {
 			recordID, err := client.RecordStart(pid)
-			return recordToggleMsg{pid: pid, recordID: recordID, err: err}
+			return recordToggleMsg{pid: pid, uuid: uuid, recordID: recordID, err: err}
 		}
 		count, err := client.RecordStop(pid)
-		return recordToggleMsg{pid: pid, stopped: true, eventCount: count, err: err}
+		return recordToggleMsg{pid: pid, uuid: uuid, stopped: true, eventCount: count, err: err}
 	}
 }
 
 func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	if m.selectedPID == 0 {
+		m.selectedUUID = ""
 		m = m.stopTimelineStream()
 		m = m.handleTimelinePIDChange()
 		m = m.handleHeatmapPIDChange()
@@ -1804,7 +1836,7 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.heatmapPID = m.selectedPID
 
 	// Detail pane: check cache or reset
-	if cached, ok := m.procDetailCache[m.selectedPID]; ok {
+	if cached, ok := m.procDetailCache[m.selectedUUID]; ok {
 		m.procDetail = cached
 		m.procDetailPID = m.selectedPID
 	} else {
@@ -1817,7 +1849,7 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 		cmds = append(cmds, startTimelineCmd(m.selectedPID))
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 		if m.activePane == paneDetail && m.procDetail == nil {
-			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID))
+			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
 		}
 	}
 	return m, tea.Batch(cmds...)
@@ -1944,7 +1976,7 @@ func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
 		startTime:        time.Now(),
 		connected:        false,
 		timelineFilters:  defaultTimelineFilters(),
-		recording:        make(map[types.PID]string),
+		recording:        make(map[string]string),
 		replayMode:       true,
 		replayReader:     reader,
 		replayCursor:     -1,
@@ -2135,7 +2167,7 @@ func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
 		roots := buildProcessTree(m.processes)
 		m.treeRows = flattenTree(roots)
 		if len(m.treeRows) > 0 {
-			m.selectedPID = m.treeRows[0].proc.PID
+			m = selectProcess(m, m.treeRows[0])
 		}
 		m.timelineEvents = loadReplayTimeline(m.replayReader, m.replayCursor)
 		m.heatmapProfile = buildReplayHeatmap(m.replayReader, m.replayCursor)
@@ -2186,7 +2218,7 @@ func (m dashboardModel) handleReplayKey(key string) (dashboardModel, tea.Cmd) {
 			if m.treeCursor > 0 {
 				m.treeCursor--
 				if m.treeCursor < len(m.treeRows) {
-					m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+					m = selectProcess(m, m.treeRows[m.treeCursor])
 				}
 				if m.treeCursor < m.treeOffset {
 					m.treeOffset = m.treeCursor
@@ -2220,7 +2252,7 @@ func (m dashboardModel) handleReplayKey(key string) (dashboardModel, tea.Cmd) {
 				if m.treeCursor > 0 {
 					m.treeCursor--
 					if m.treeCursor < len(m.treeRows) {
-						m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+						m = selectProcess(m, m.treeRows[m.treeCursor])
 					}
 					if m.treeCursor < m.treeOffset {
 						m.treeOffset = m.treeCursor
@@ -2230,7 +2262,7 @@ func (m dashboardModel) handleReplayKey(key string) (dashboardModel, tea.Cmd) {
 				if m.treeCursor < len(m.treeRows)-1 {
 					m.treeCursor++
 					if m.treeCursor < len(m.treeRows) {
-						m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+						m = selectProcess(m, m.treeRows[m.treeCursor])
 					}
 					if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
 						m.treeOffset = m.treeCursor - visibleLines + 1
@@ -2439,15 +2471,15 @@ func fetchStepDetailForPagerCmd(pid types.PID, step int) tea.Cmd {
 
 // --- Detail Pane (Story 27-6) ---
 
-func fetchProcDetailCmd(pid types.PID) tea.Cmd {
+func fetchProcDetailCmd(pid types.PID, uuid string) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return procDetailResultMsg{pid: pid, err: err}
+			return procDetailResultMsg{pid: pid, uuid: uuid, err: err}
 		}
 		defer client.Close()
 		resp, err := client.GetProcDetail(pid)
-		return procDetailResultMsg{pid: pid, detail: resp, err: err}
+		return procDetailResultMsg{pid: pid, uuid: uuid, detail: resp, err: err}
 	}
 }
 
