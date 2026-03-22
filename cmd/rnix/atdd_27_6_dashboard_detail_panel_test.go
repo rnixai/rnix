@@ -54,10 +54,10 @@ func newDetailPanelModel() dashboardModel {
 }
 
 // ---------------------------------------------------------------------------
-// AC-2: Tab key cycles through 4 panes (Tree → Timeline → Heatmap → Detail)
+// AC-2: Tab key cycles through 5 panes (Tree → Timeline → Heatmap → Detail → Intent)
 // ---------------------------------------------------------------------------
 
-func TestATDD_27_6_AC2_Tab_CyclesThrough4Panes(t *testing.T) {
+func TestATDD_27_6_AC2_Tab_CyclesThrough5Panes(t *testing.T) {
 	m := newDetailPanelModel()
 
 	// Start at Tree (pane 0)
@@ -79,31 +79,38 @@ func TestATDD_27_6_AC2_Tab_CyclesThrough4Panes(t *testing.T) {
 		t.Errorf("AC-2: after 2nd Tab, pane = %d, want %d (Heatmap)", m.activePane, paneHeatmap)
 	}
 
-	// Tab → Detail (new pane)
+	// Tab → Detail
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = updated.(dashboardModel)
 	if m.activePane != paneDetail {
 		t.Errorf("AC-2: after 3rd Tab, pane = %d, want %d (Detail)", m.activePane, paneDetail)
 	}
 
+	// Tab → Intent
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updated.(dashboardModel)
+	if m.activePane != paneIntent {
+		t.Errorf("AC-2: after 4th Tab, pane = %d, want %d (Intent)", m.activePane, paneIntent)
+	}
+
 	// Tab → back to Tree
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = updated.(dashboardModel)
 	if m.activePane != paneTree {
-		t.Errorf("AC-2: after 4th Tab, pane = %d, want %d (Tree)", m.activePane, paneTree)
+		t.Errorf("AC-2: after 5th Tab, pane = %d, want %d (Tree)", m.activePane, paneTree)
 	}
 }
 
-func TestATDD_27_6_AC2_Tab_ModuloIs4(t *testing.T) {
+func TestATDD_27_6_AC2_Tab_ModuloIs5(t *testing.T) {
 	m := newDetailPanelModel()
 
-	// Press Tab 8 times — should return to Tree
-	for range 8 {
+	// Press Tab 10 times (2 full cycles of 5 panes) — should return to Tree
+	for range 10 {
 		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		m = updated.(dashboardModel)
 	}
 	if m.activePane != paneTree {
-		t.Errorf("AC-2: after 8 Tabs, pane = %d, want %d (Tree)", m.activePane, paneTree)
+		t.Errorf("AC-2: after 10 Tabs, pane = %d, want %d (Tree)", m.activePane, paneTree)
 	}
 }
 
