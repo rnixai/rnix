@@ -170,4 +170,12 @@ Supervisor 容错树自动管理子智能体生命周期 + init 引导序列初�
 **Dependencies:** 无（可与 Epic 27 并行）
 **Architecture:** Decision 27（UUID v7 标识体系）
 
+## Epic 29: Dashboard UX 重设计（Dashboard UX Redesign）
+Dashboard 从 4000 行单文件重构为模块化架构，引入视图模式状态机（数字键 1-8 直达 + Esc 回退 + Shift-Tab 反向）、进程聚焦卡片（2×3 信息摘要）、进程历史保留（Dead 进程可追溯）和全屏 LLM 对话查看器（完整 request/response 审查）。消除 Tab 循环痛点，实现信息分层，支持事后分析。
+**FRs covered:** FR90-FR96（扩展）
+**Dependencies:** Epic 17（Dashboard 基础框架）、Epic 27（观察系统面板）、Epic 28（UUID 标识体系）
+**Design Spec:** dashboard-redesign-spec-2026-03-23.md
+**Design Thinking:** design-thinking-2026-03-23.md
+**Sprint Change Proposal (2026-03-23):** 新增 Epic，6 Story / 4 Phase
+
 ---
