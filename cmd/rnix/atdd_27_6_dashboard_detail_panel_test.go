@@ -107,24 +107,31 @@ func TestATDD_27_6_AC2_Tab_CyclesThrough5Panes(t *testing.T) {
 		t.Errorf("AC-2: after 6th Tab, pane = %d, want %d (Trace)", m.activePane, paneTrace)
 	}
 
+	// Tab → back to Tree (via Eval, Story 27-10)
+	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	m = updated.(dashboardModel)
+	if m.activePane != paneEval {
+		t.Errorf("AC-2: after 7th Tab, pane = %d, want %d (Eval)", m.activePane, paneEval)
+	}
+
 	// Tab → back to Tree
 	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = updated.(dashboardModel)
 	if m.activePane != paneTree {
-		t.Errorf("AC-2: after 7th Tab, pane = %d, want %d (Tree)", m.activePane, paneTree)
+		t.Errorf("AC-2: after 8th Tab, pane = %d, want %d (Tree)", m.activePane, paneTree)
 	}
 }
 
 func TestATDD_27_6_AC2_Tab_ModuloIs5(t *testing.T) {
 	m := newDetailPanelModel()
 
-	// Press Tab 14 times (2 full cycles of 7 panes) — should return to Tree
-	for range 14 {
+	// Press Tab 16 times (2 full cycles of 8 panes) — should return to Tree
+	for range 16 {
 		updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		m = updated.(dashboardModel)
 	}
 	if m.activePane != paneTree {
-		t.Errorf("AC-2: after 14 Tabs, pane = %d, want %d (Tree)", m.activePane, paneTree)
+		t.Errorf("AC-2: after 16 Tabs, pane = %d, want %d (Tree)", m.activePane, paneTree)
 	}
 }
 
