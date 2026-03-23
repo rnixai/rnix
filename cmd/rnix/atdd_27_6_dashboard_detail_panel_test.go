@@ -38,6 +38,8 @@ func newDetailPanelModel() dashboardModel {
 	m.width = 120
 	m.height = 40
 	m.connected = true
+	m.viewMode = viewExpanded
+	m.expandedPane = paneDetail
 	m.treeRows = []flatRow{
 		{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, Intent: "analyze code", CreatedAt: time.Now()}},
 		{proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, Intent: "build feature", CreatedAt: time.Now()}},

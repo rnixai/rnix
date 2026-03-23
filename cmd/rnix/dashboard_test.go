@@ -122,8 +122,9 @@ func TestDashboardModel_ViewMultiPaneLayout(t *testing.T) {
 	if !strings.Contains(content, "Timeline") {
 		t.Errorf("view should contain 'Timeline' pane placeholder, got %q", content)
 	}
-	if !strings.Contains(content, "Heatmap") {
-		t.Errorf("view should contain 'Heatmap' pane placeholder, got %q", content)
+	// Story 29.3: default view now shows Focus Card instead of Heatmap
+	if !strings.Contains(content, "Focus Card") && !strings.Contains(content, "FOCUS") {
+		t.Errorf("view should contain Focus Card in default layout, got %q", content)
 	}
 }
 
@@ -680,6 +681,9 @@ func TestDashboardModel_TimelineRenderEmpty(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 0
 	m.activePane = paneTimeline
+	m.viewMode = viewExpanded
+	m.expandedPane = paneTimeline
+	m.stepTimelineMode = false
 	m.timelineFilters = defaultTimelineFilters()
 
 	v := m.View()
@@ -876,6 +880,8 @@ func newTestHeatmapDashboardModel() dashboardModel {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.activePane = paneHeatmap
+	m.viewMode = viewExpanded
+	m.expandedPane = paneHeatmap
 	m.heatmapProfile = mockHeatmapProfile()
 	m.heatmapPID = 2
 	m.heatmapSegments = []heatmapSegment{
@@ -1007,6 +1013,8 @@ func TestDashboardModel_HeatmapRenderEmpty(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 0
 	m.activePane = paneHeatmap
+	m.viewMode = viewExpanded
+	m.expandedPane = paneHeatmap
 
 	v := m.View()
 	content := v.Content
@@ -1203,6 +1211,8 @@ func TestDashboardModel_HeatmapProfileError(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.activePane = paneHeatmap
+	m.viewMode = viewExpanded
+	m.expandedPane = paneHeatmap
 
 	updated, _ := m.Update(heatmapProfileMsg{err: fmt.Errorf("connection refused")})
 	um := updated.(dashboardModel)
