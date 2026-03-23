@@ -269,7 +269,7 @@ func TestImmuneDaemon_UpdateSimilarityMatrix(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestImmuneDaemon_RecordCooperation(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestImmuneDaemon_AttemptMigration_Success(t *testing.T) {
 	// Given: a running ImmuneDaemon with similarity matrix and migrate function
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestImmuneDaemon_AttemptMigration_NoCandidate(t *testing.T) {
 	// Given: a running ImmuneDaemon with no similar agents above threshold
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestImmuneDaemon_AttemptMigration_BelowThreshold(t *testing.T) {
 	// Given: a running ImmuneDaemon where all agents have similarity < MinMigrationSimilarity (0.3)
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -485,7 +485,7 @@ func TestImmuneDaemon_AttemptMigration_ReputationWeighted(t *testing.T) {
 	// Given: two equally similar agents but different reputation scores
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -648,7 +648,7 @@ func TestImmuneDaemon_RecordCooperation_Bidirectional(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}

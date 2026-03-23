@@ -122,7 +122,7 @@ func TestImmuneDaemon_RecordCooperationTyped_Spawn(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestImmuneDaemon_RecordCooperationTyped_Msg(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestImmuneDaemon_RecordCooperationTyped_Mixed(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestImmuneDaemon_RecordCooperationTyped_BackwardCompat(t *testing.T) {
 	// Given: a running ImmuneDaemon with similarity matrix
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestImmuneDaemon_GetTopology_Basic(t *testing.T) {
 	// Given: a running ImmuneDaemon with cooperation history
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestImmuneDaemon_GetTopology_WithReputation(t *testing.T) {
 	// Given: a running ImmuneDaemon with cooperation and reputation data
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestImmuneDaemon_GetTopology_ReinforcedPaths(t *testing.T) {
 	// Given: a running ImmuneDaemon with high-frequency cooperation
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestImmuneDaemon_GetTopology_Empty(t *testing.T) {
 	// Given: a running ImmuneDaemon with no cooperation history
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -499,7 +499,7 @@ func TestImmuneDaemon_GetReinforcedPaths_Sorted(t *testing.T) {
 	// Given: a running ImmuneDaemon with multiple reinforced paths of different frequencies
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -555,7 +555,7 @@ func TestImmuneDaemon_GetReinforcedPaths_NoneAboveThreshold(t *testing.T) {
 	// Given: a running ImmuneDaemon with only low-frequency cooperation
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -581,7 +581,7 @@ func TestImmuneDaemon_GetTopology_NodeConnections(t *testing.T) {
 	// Given: a running ImmuneDaemon with cooperation forming a star topology
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -617,7 +617,7 @@ func TestImmuneDaemon_GetTopology_ReinforcedAtExactThreshold(t *testing.T) {
 	// Given: a running ImmuneDaemon with cooperation exactly at threshold
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -658,7 +658,7 @@ func TestImmuneDaemon_RecordCooperationTyped_ConcurrentAccess(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -689,7 +689,7 @@ func TestImmuneDaemon_GetTopology_NoReputationStore(t *testing.T) {
 	// Given: a running ImmuneDaemon without reputation store
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -717,7 +717,7 @@ func TestImmuneDaemon_GetTopology_EdgeDirectionConsistent(t *testing.T) {
 	// Given: a running ImmuneDaemon with cooperation in one direction
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}

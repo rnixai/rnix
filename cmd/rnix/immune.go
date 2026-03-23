@@ -142,9 +142,14 @@ func runImmuneStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	// Text output
-	statusStr := "stopped"
-	if result.Running {
+	var statusStr string
+	switch {
+	case result.Running:
 		statusStr = fmt.Sprintf("running (uptime: %s)", formatUptime(result.UptimeMs))
+	case result.ProfileCount == 0 && result.ThreatCount == 0 && len(result.ActivePIDs) == 0:
+		statusStr = "disabled"
+	default:
+		statusStr = "stopped"
 	}
 	fmt.Fprintf(w, "Immune Daemon: %s\n", statusStr)
 

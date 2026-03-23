@@ -1219,6 +1219,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	agentLoader := agents.NewAgentLoader([]string{filepath.Join(globalDir, "agents")}, skillLoader, mcpCfg)
 
 	// Load global config.yaml (optional, not critical)
+	immuneCfg := kernel.DefaultImmuneConfig()
 	globalConfigPath := filepath.Join(globalDir, "config.yaml")
 	if _, err := os.Stat(globalConfigPath); err == nil {
 		data, err := os.ReadFile(globalConfigPath)
@@ -1228,8 +1229,13 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 			var parsed map[string]any
 			if err := yaml.Unmarshal(data, &parsed); err != nil {
 				fmt.Fprintf(os.Stderr, "[kernel] warn: failed to parse %s: %v\n", globalConfigPath, err)
+			} else if immuneRaw, ok := parsed["immune"].(map[string]any); ok {
+				var warnings []string
+				immuneCfg, warnings = kernel.ParseImmuneConfig(immuneRaw)
+				for _, w := range warnings {
+					fmt.Fprintf(os.Stderr, "[kernel] warn: %s\n", w)
+				}
 			}
-			_ = parsed // Available for future use
 		}
 	}
 
@@ -1279,29 +1285,50 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	recordMgr := debug.NewRecordManager(recordBaseDir)
 	k.SetRecordManager(recordMgr)
 
+	// Load project-level .rnix/config.yaml immune overrides
+	projectConfigPath := filepath.Join(cwd, ".rnix", "config.yaml")
+	if _, err := os.Stat(projectConfigPath); err == nil {
+		data, err := os.ReadFile(projectConfigPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[kernel] warn: failed to read %s: %v\n", projectConfigPath, err)
+		} else if len(data) > 0 {
+			var parsed map[string]any
+			if err := yaml.Unmarshal(data, &parsed); err != nil {
+				fmt.Fprintf(os.Stderr, "[kernel] warn: failed to parse %s: %v\n", projectConfigPath, err)
+			} else if parsed != nil {
+				if immuneRaw, ok := parsed["immune"].(map[string]any); ok {
+					var warnings []string
+					immuneCfg, warnings = kernel.ParseImmuneConfig(immuneRaw, immuneCfg)
+					for _, w := range warnings {
+						fmt.Fprintf(os.Stderr, "[kernel] warn: %s\n", w)
+					}
+				}
+			}
+		}
+	}
+
 	// Initialize reputation and synergy matrix (Story 21.3, 21.5)
 	reputationDir := resolveDataDir(cwd, "reputation")
 	reputationStore := kernel.NewReputationStore(reputationDir)
 	synergyMatrix := kernel.NewSynergyMatrix(reputationDir)
 
-	// Initialize immune daemon (Story 22.1)
-	immuneDir := resolveDataDir(cwd, "immune")
-	immuneStore := kernel.NewImmuneStore(immuneDir)
-	immuneDaemon := kernel.NewImmuneDaemon(immuneStore)
+	// Initialize immune daemon (Story 22.1) — conditional on config
+	var immuneDaemon *kernel.ImmuneDaemon
+	if immuneCfg.Enabled {
+		immuneDir := resolveDataDir(cwd, "immune")
+		immuneStore := kernel.NewImmuneStore(immuneDir)
+		immuneDaemon = kernel.NewImmuneDaemon(immuneStore, immuneCfg)
 
-	// Story 22.2: anomaly detection and threat memory
-	anomalyDetector := kernel.NewAnomalyDetector(kernel.DefaultDeviationThreshold)
-	immuneDaemon.SetDetector(anomalyDetector)
+		if err := immuneDaemon.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "[kernel] warn: immune daemon start failed: %v\n", err)
+		}
+		k.SetImmuneDaemon(immuneDaemon)
 
-	if err := immuneDaemon.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "[kernel] warn: immune daemon start failed: %v\n", err)
+		// Story 22.2: set suspendFn after kernel is available (to call Kill with SIGPAUSE)
+		immuneDaemon.SetSuspendFunc(func(pid types.PID) error {
+			return k.Kill(pid, types.SIGPAUSE)
+		})
 	}
-	k.SetImmuneDaemon(immuneDaemon)
-
-	// Story 22.2: set suspendFn after kernel is available (to call Kill with SIGPAUSE)
-	immuneDaemon.SetSuspendFunc(func(pid types.PID) error {
-		return k.Kill(pid, types.SIGPAUSE)
-	})
 
 	// Initialize span persistence (Story 15.1)
 	traceBaseDir := resolveDataDir(cwd, "traces")
