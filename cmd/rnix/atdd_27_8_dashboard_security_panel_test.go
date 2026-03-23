@@ -129,8 +129,8 @@ func TestATDD_27_8_AC1_TabCycles6Panes(t *testing.T) {
 	m.height = 40
 	m.activePane = paneTree // 0
 
-	// Press Tab 7 times and verify full cycle back to paneTree
-	expectedOrder := []paneType{paneTimeline, paneHeatmap, paneDetail, paneIntent, paneSecurity, paneTrace, paneTree}
+	// Press Tab 8 times and verify full cycle back to paneTree (updated for 8 panes after Story 27-10)
+	expectedOrder := []paneType{paneTimeline, paneHeatmap, paneDetail, paneIntent, paneSecurity, paneTrace, paneEval, paneTree}
 	for i, expected := range expectedOrder {
 		m2, _ := m.Update(tea.KeyPressMsg{Code: '\t'})
 		model := m2.(dashboardModel)

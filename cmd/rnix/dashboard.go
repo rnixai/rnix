@@ -19,6 +19,7 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -40,6 +41,7 @@ const (
 	paneIntent
 	paneSecurity
 	paneTrace
+	paneEval
 )
 
 type eventCategory int
@@ -140,6 +142,23 @@ type spanFlatNode struct {
 	depth  int
 	prefix string
 	isRoot bool
+}
+
+// --- Eval pane types (Story 27-10) ---
+
+type evalReputationMsg struct {
+	summaries []kernel.ReputationSummary
+	err       error
+}
+
+type evalTopologyMsg struct {
+	topology *ipc.TopologyQueryResponse
+	err      error
+}
+
+type evalSynergyMsg struct {
+	combos []kernel.ComboSummary
+	err    error
 }
 
 type promptPagerMsg struct {
@@ -300,6 +319,21 @@ type dashboardModel struct {
 	spanFlatNodes     []spanFlatNode
 	spanCursor        int
 	spanScrollOffset  int
+
+	// Eval pane fields (Story 27-10)
+	evalSubView        int // 0=reputation, 1=topology, 2=synergy
+	evalReputations    []kernel.ReputationSummary
+	evalRepErr         error
+	evalRepCursor      int
+	evalRepScrollOffset int
+	evalTopology       *ipc.TopologyQueryResponse
+	evalTopoErr        error
+	evalTopoCursor     int
+	evalTopoScrollOffset int
+	evalSynergies      []kernel.ComboSummary
+	evalSynErr         error
+	evalSynCursor      int
+	evalSynScrollOffset int
 
 	// Offline replay fields (Story 17-5)
 	replayMode       bool
@@ -479,6 +513,46 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.traceViewMode = 1
 		}
 		return m, nil
+	case evalReputationMsg:
+		if msg.err != nil {
+			m.evalRepErr = msg.err
+			return m, nil
+		}
+		m.evalRepErr = nil
+		m.evalReputations = msg.summaries
+		// Sort by score descending
+		sort.Slice(m.evalReputations, func(i, j int) bool {
+			return m.evalReputations[i].Score > m.evalReputations[j].Score
+		})
+		if m.evalRepCursor >= len(m.evalReputations) {
+			m.evalRepCursor = max(0, len(m.evalReputations)-1)
+		}
+		return m, nil
+	case evalTopologyMsg:
+		if msg.err != nil {
+			m.evalTopoErr = msg.err
+			return m, nil
+		}
+		m.evalTopoErr = nil
+		m.evalTopology = msg.topology
+		if msg.topology != nil {
+			totalItems := len(msg.topology.Nodes) + len(msg.topology.Edges)
+			if m.evalTopoCursor >= totalItems {
+				m.evalTopoCursor = max(0, totalItems-1)
+			}
+		}
+		return m, nil
+	case evalSynergyMsg:
+		if msg.err != nil {
+			m.evalSynErr = msg.err
+			return m, nil
+		}
+		m.evalSynErr = nil
+		m.evalSynergies = msg.combos
+		if m.evalSynCursor >= len(m.evalSynergies) {
+			m.evalSynCursor = max(0, len(m.evalSynergies)-1)
+		}
+		return m, nil
 	case promptPagerMsg:
 		m.fetchingDetail = false
 		if msg.pid != m.selectedPID {
@@ -624,6 +698,19 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Fetch eval data when Eval pane is active (Story 27-10)
+	if m.activePane == paneEval && m.connected {
+		if m.evalReputations == nil || m.heatmapTickCount%5 == 0 {
+			cmds = append(cmds, fetchReputationCmd())
+		}
+		if m.evalSubView == 1 && (m.evalTopology == nil || m.heatmapTickCount%5 == 0) {
+			cmds = append(cmds, fetchTopologyCmd())
+		}
+		if m.evalSubView == 2 && (m.evalSynergies == nil || m.heatmapTickCount%5 == 0) {
+			cmds = append(cmds, fetchSynergyCmd())
+		}
+	}
+
 	if len(m.recording) > 0 {
 		uuidSet := make(map[string]bool, len(m.processes))
 		for _, p := range m.processes {
@@ -710,7 +797,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "tab":
-		m.activePane = (m.activePane + 1) % 7
+		m.activePane = (m.activePane + 1) % 8
 		return m, nil
 	}
 
@@ -899,6 +986,10 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleTraceKey(key)
 	}
 
+	if m.activePane == paneEval {
+		return m.handleEvalKey(key)
+	}
+
 	isPaneNavConflict := (m.activePane == paneTimeline && (key == "l" || key == "h" || key == "k")) ||
 		(m.activePane == paneHeatmap && key == "k")
 	if !isPaneNavConflict && m.selectedPID > 0 && m.connected {
@@ -1012,6 +1103,8 @@ func (m dashboardModel) renderDashboard() string {
 		bottomPane = m.renderSecurityPane(rightWidth, bottomRightH)
 	case paneTrace:
 		bottomPane = m.renderTracePane(rightWidth, bottomRightH)
+	case paneEval:
+		bottomPane = m.renderEvalPane(rightWidth, bottomRightH)
 	default:
 		bottomPane = m.renderHeatmapPane(rightWidth, bottomRightH)
 	}
@@ -1082,6 +1175,9 @@ func (m dashboardModel) renderDashboardStatus() string {
 			return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Expand Trace%s", rec, ops)
 		}
 		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Jump to Process  Esc:Back%s", rec, ops)
+	}
+	if m.activePane == paneEval {
+		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  1/2/3:Sub-view%s", rec, ops)
 	}
 	return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Select%s", rec, ops)
 }
@@ -3598,5 +3694,415 @@ func spanAdjustScroll(m *dashboardModel) {
 	}
 	if m.spanCursor >= m.spanScrollOffset+visibleLines {
 		m.spanScrollOffset = m.spanCursor - visibleLines + 1
+	}
+}
+
+// =============================================================================
+// Eval Pane (Story 27-10)
+// =============================================================================
+
+func fetchReputationCmd() tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return evalReputationMsg{err: err}
+		}
+		defer client.Close()
+		resp, err := client.ReputationStatus("")
+		if err != nil {
+			return evalReputationMsg{err: err}
+		}
+		if resp != nil {
+			return evalReputationMsg{summaries: resp.Summaries}
+		}
+		return evalReputationMsg{}
+	}
+}
+
+func fetchTopologyCmd() tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return evalTopologyMsg{err: err}
+		}
+		defer client.Close()
+		resp, err := client.TopologyQuery()
+		if err != nil {
+			return evalTopologyMsg{err: err}
+		}
+		return evalTopologyMsg{topology: resp}
+	}
+}
+
+func fetchSynergyCmd() tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return evalSynergyMsg{err: err}
+		}
+		defer client.Close()
+		resp, err := client.SynergyList()
+		if err != nil {
+			return evalSynergyMsg{err: err}
+		}
+		if resp != nil {
+			return evalSynergyMsg{combos: resp.Combos}
+		}
+		return evalSynergyMsg{}
+	}
+}
+
+func (m dashboardModel) handleEvalKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "1":
+		m.evalSubView = 0
+		return m, nil
+	case "2":
+		m.evalSubView = 1
+		if m.evalTopology == nil && m.connected {
+			return m, fetchTopologyCmd()
+		}
+		return m, nil
+	case "3":
+		m.evalSubView = 2
+		if m.evalSynergies == nil && m.connected {
+			return m, fetchSynergyCmd()
+		}
+		return m, nil
+	case "down", "j":
+		switch m.evalSubView {
+		case 0:
+			if len(m.evalReputations) > 0 && m.evalRepCursor < len(m.evalReputations)-1 {
+				m.evalRepCursor++
+				evalRepAdjustScroll(&m)
+			}
+		case 1:
+			totalItems := evalTopoItemCount(&m)
+			if totalItems > 0 && m.evalTopoCursor < totalItems-1 {
+				m.evalTopoCursor++
+				evalTopoAdjustScroll(&m)
+			}
+		case 2:
+			if len(m.evalSynergies) > 0 && m.evalSynCursor < len(m.evalSynergies)-1 {
+				m.evalSynCursor++
+				evalSynAdjustScroll(&m)
+			}
+		}
+		return m, nil
+	case "up", "k":
+		switch m.evalSubView {
+		case 0:
+			if m.evalRepCursor > 0 {
+				m.evalRepCursor--
+				evalRepAdjustScroll(&m)
+			}
+		case 1:
+			if m.evalTopoCursor > 0 {
+				m.evalTopoCursor--
+				evalTopoAdjustScroll(&m)
+			}
+		case 2:
+			if m.evalSynCursor > 0 {
+				m.evalSynCursor--
+				evalSynAdjustScroll(&m)
+			}
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+func evalTopoItemCount(m *dashboardModel) int {
+	if m.evalTopology == nil {
+		return 0
+	}
+	return len(m.evalTopology.Nodes) + len(m.evalTopology.Edges)
+}
+
+func (m dashboardModel) renderEvalPane(width, height int) string {
+	isActive := m.activePane == paneEval
+
+	borderColor := lipgloss.Color(ui.ColorMuted)
+	if isActive {
+		borderColor = lipgloss.Color(ui.ColorAgent)
+	}
+
+	innerW := max(width-2, 1)
+	innerH := max(height-2, 1)
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Width(innerW).
+		Height(innerH)
+
+	var b strings.Builder
+
+	// Header with sub-view tabs
+	repTab := "[1]Reputation"
+	topoTab := "[2]Topology"
+	synTab := "[3]Synergy"
+	switch m.evalSubView {
+	case 0:
+		repTab = lipgloss.NewStyle().Bold(true).Render(repTab)
+	case 1:
+		topoTab = lipgloss.NewStyle().Bold(true).Render(topoTab)
+	case 2:
+		synTab = lipgloss.NewStyle().Bold(true).Render(synTab)
+	}
+	fmt.Fprintf(&b, " Evaluation  %s %s %s\n", repTab, topoTab, synTab)
+
+	switch m.evalSubView {
+	case 0:
+		b.WriteString(m.renderEvalReputationView(innerW, innerH-1))
+	case 1:
+		b.WriteString(m.renderEvalTopologyView(innerW, innerH-1))
+	case 2:
+		b.WriteString(m.renderEvalSynergyView(innerW, innerH-1))
+	}
+
+	return style.Render(b.String())
+}
+
+func (m dashboardModel) renderEvalReputationView(width, height int) string {
+	var b strings.Builder
+
+	if m.evalRepErr != nil {
+		fmt.Fprintf(&b, " Error: %v\n", m.evalRepErr)
+		return b.String()
+	}
+
+	if len(m.evalReputations) == 0 {
+		b.WriteString("\n    需要更多执行数据以生成评价。使用 rnix spawn 或 rnix compose up 执行任务以积累数据。\n")
+		return b.String()
+	}
+
+	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
+	cursorChar := "▸"
+	if ascii {
+		cursorChar = ">"
+	}
+
+	// Header
+	fmt.Fprintf(&b, " %-16s %5s  %7s  %7s  %7s  %3s  %s\n",
+		"AGENT", "SCORE", "SUCCESS", "AVG TOK", "AVG DUR", "N", "TREND")
+
+	visibleLines := max(height-2, 1)
+	startIdx := m.evalRepScrollOffset
+	endIdx := min(startIdx+visibleLines, len(m.evalReputations))
+
+	for i := startIdx; i < endIdx; i++ {
+		r := m.evalReputations[i]
+		cursor := "  "
+		if i == m.evalRepCursor {
+			cursor = cursorChar + " "
+		}
+
+		var trendIcon string
+		var trendColor string
+		switch r.RecentTrend {
+		case "improving":
+			trendColor = ui.ColorSuccess
+			if ascii {
+				trendIcon = "^"
+			} else {
+				trendIcon = "↑"
+			}
+		case "declining":
+			trendColor = ui.ColorError
+			if ascii {
+				trendIcon = "v"
+			} else {
+				trendIcon = "↓"
+			}
+		default:
+			trendColor = ui.ColorMuted
+			if ascii {
+				trendIcon = "-"
+			} else {
+				trendIcon = "→"
+			}
+		}
+		trendStr := lipgloss.NewStyle().Foreground(lipgloss.Color(trendColor)).Render(trendIcon)
+
+		durStr := formatTimelineDuration(float64(r.AvgDurationMs))
+
+		fmt.Fprintf(&b, "%s%-16s %5.2f  %5.1f%%  %7d  %7s  %3d  %s\n",
+			cursor, r.AgentName, r.Score, r.SuccessRate*100, r.AvgTokens, durStr, r.TotalRecords, trendStr)
+	}
+
+	return b.String()
+}
+
+func (m dashboardModel) renderEvalTopologyView(_, height int) string {
+	var b strings.Builder
+
+	if m.evalTopoErr != nil {
+		fmt.Fprintf(&b, " Error: %v\n", m.evalTopoErr)
+		return b.String()
+	}
+
+	if m.evalTopology == nil {
+		b.WriteString("\n    无协作拓扑数据。运行多智能体编排以生成协作关系。\n")
+		return b.String()
+	}
+
+	nodeCount := len(m.evalTopology.Nodes)
+	edgeCount := len(m.evalTopology.Edges)
+
+	if nodeCount == 0 && edgeCount == 0 {
+		b.WriteString("\n    无协作拓扑数据。运行多智能体编排以生成协作关系。\n")
+		return b.String()
+	}
+
+	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
+	cursorChar := "▸"
+	if ascii {
+		cursorChar = ">"
+	}
+	reinforcedMark := "★"
+	if ascii {
+		reinforcedMark = "*"
+	}
+
+	// Nodes section header (always visible)
+	b.WriteString(" ── Nodes ──\n")
+	fmt.Fprintf(&b, " %-16s  %5s  %s\n", "AGENT", "SCORE", "CONNECTIONS")
+
+	totalItems := nodeCount + edgeCount
+	visibleLines := max(height-2, 1) // -2 for section header + column header
+	startIdx := m.evalTopoScrollOffset
+	endIdx := min(startIdx+visibleLines, totalItems)
+
+	edgesHeaderPrinted := false
+	for i := startIdx; i < endIdx; i++ {
+		cursor := "  "
+		if i == m.evalTopoCursor {
+			cursor = cursorChar + " "
+		}
+		if i < nodeCount {
+			node := m.evalTopology.Nodes[i]
+			fmt.Fprintf(&b, "%s%-16s  %5.2f  %11d\n", cursor, node.Agent, node.ReputationScore, node.Connections)
+		} else {
+			if !edgesHeaderPrinted {
+				b.WriteString("\n ── Edges ──\n")
+				headerArrow := "→"
+				if ascii {
+					headerArrow = "->"
+				}
+				fmt.Fprintf(&b, " %-26s  %5s  %3s  %5s  %s\n", "FROM "+headerArrow+" TO", "SPAWN", "MSG", "TOTAL", "REINFORCED")
+				edgesHeaderPrinted = true
+			}
+			edge := m.evalTopology.Edges[i-nodeCount]
+			rMark := ""
+			if edge.Reinforced {
+				rMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(reinforcedMark)
+			}
+			arrowStr := " → "
+			if ascii {
+				arrowStr = " -> "
+			}
+			label := fmt.Sprintf("%s%s%s", edge.From, arrowStr, edge.To)
+			fmt.Fprintf(&b, "%s%-26s  %5d  %3d  %5d  %s\n", cursor, label, edge.SpawnCount, edge.MsgCount, edge.Total, rMark)
+		}
+	}
+
+	return b.String()
+}
+
+func (m dashboardModel) renderEvalSynergyView(width, height int) string {
+	var b strings.Builder
+
+	if m.evalSynErr != nil {
+		fmt.Fprintf(&b, " Error: %v\n", m.evalSynErr)
+		return b.String()
+	}
+
+	if len(m.evalSynergies) == 0 {
+		b.WriteString("\n    无技能组合数据。当 Agent 使用多个 Skill 执行任务时将自动记录。\n")
+		return b.String()
+	}
+
+	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
+	cursorChar := "▸"
+	if ascii {
+		cursorChar = ">"
+	}
+
+	fmt.Fprintf(&b, " %-20s  %7s  %7s  %4s  %8s  %s\n",
+		"SKILLS", "SUCCESS", "AVG TOK", "EXEC", "VS SOLO", "REC")
+
+	visibleLines := max(height-2, 1)
+	startIdx := m.evalSynScrollOffset
+	endIdx := min(startIdx+visibleLines, len(m.evalSynergies))
+
+	for i := startIdx; i < endIdx; i++ {
+		combo := m.evalSynergies[i]
+		cursor := "  "
+		if i == m.evalSynCursor {
+			cursor = cursorChar + " "
+		}
+
+		skills := strings.Join(combo.Skills, ",")
+		if len(skills) > 20 {
+			skills = skills[:17] + "..."
+		}
+
+		var recStr string
+		if combo.Recommended {
+			if ascii {
+				recStr = "Y"
+			} else {
+				recStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("✓")
+			}
+		}
+
+		improvement := fmt.Sprintf("%+.1f%%", combo.TokenImprovement*100)
+
+		fmt.Fprintf(&b, "%s%-20s  %5.1f%%  %7d  %4d  %8s  %s\n",
+			cursor, skills, combo.SuccessRate*100, combo.AvgTokens, combo.TotalExecutions, improvement, recStr)
+	}
+
+	return b.String()
+}
+
+// evalBottomInnerH returns the inner height available for eval sub-views,
+// matching the render path: renderDashboard → renderEvalPane → sub-view.
+func evalBottomInnerH(termHeight int) int {
+	contentHeight := max(termHeight-4, 3)
+	bottomRightH := contentHeight - contentHeight/2
+	return max(bottomRightH-2, 1) // subtract border
+}
+
+// evalRepAdjustScroll ensures evalRepCursor is visible within the viewport.
+func evalRepAdjustScroll(m *dashboardModel) {
+	visibleLines := max(evalBottomInnerH(m.height)-3, 1) // match renderEvalReputationView
+	if m.evalRepCursor < m.evalRepScrollOffset {
+		m.evalRepScrollOffset = m.evalRepCursor
+	}
+	if m.evalRepCursor >= m.evalRepScrollOffset+visibleLines {
+		m.evalRepScrollOffset = m.evalRepCursor - visibleLines + 1
+	}
+}
+
+// evalTopoAdjustScroll ensures evalTopoCursor is visible within the viewport.
+func evalTopoAdjustScroll(m *dashboardModel) {
+	visibleLines := max(evalBottomInnerH(m.height)-3, 1) // match renderEvalTopologyView
+	if m.evalTopoCursor < m.evalTopoScrollOffset {
+		m.evalTopoScrollOffset = m.evalTopoCursor
+	}
+	if m.evalTopoCursor >= m.evalTopoScrollOffset+visibleLines {
+		m.evalTopoScrollOffset = m.evalTopoCursor - visibleLines + 1
+	}
+}
+
+// evalSynAdjustScroll ensures evalSynCursor is visible within the viewport.
+func evalSynAdjustScroll(m *dashboardModel) {
+	visibleLines := max(evalBottomInnerH(m.height)-3, 1) // match renderEvalSynergyView
+	if m.evalSynCursor < m.evalSynScrollOffset {
+		m.evalSynScrollOffset = m.evalSynCursor
+	}
+	if m.evalSynCursor >= m.evalSynScrollOffset+visibleLines {
+		m.evalSynScrollOffset = m.evalSynCursor - visibleLines + 1
 	}
 }
