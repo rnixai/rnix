@@ -45,9 +45,9 @@ type NormalProfile struct {
 const MinSamplesForProfile = 5
 
 // ComputeProfile builds a NormalProfile from historical behavior samples.
-// Returns nil if fewer than MinSamplesForProfile samples are provided.
-func ComputeProfile(agentTemplate string, samples []BehaviorSample) *NormalProfile {
-	if len(samples) < MinSamplesForProfile {
+// Returns nil if fewer than minSamples samples are provided.
+func ComputeProfile(agentTemplate string, samples []BehaviorSample, minSamples int) *NormalProfile {
+	if len(samples) < minSamples {
 		return nil
 	}
 
@@ -563,6 +563,7 @@ func (d *AnomalyDetector) MatchThreat(
 // It passively monitors agent behavior through event-driven hooks (no polling).
 type ImmuneDaemon struct {
 	mu         sync.RWMutex
+	config     ImmuneConfig
 	store      *ImmuneStore
 	profiles   map[string]*NormalProfile
 	collectors map[types.PID]*BehaviorCollector
@@ -589,9 +590,10 @@ type ImmuneDaemon struct {
 	coopRecords map[string]map[string]*CoopRecord // agentA -> agentB -> typed record
 }
 
-// NewImmuneDaemon creates a new ImmuneDaemon backed by the given store.
-func NewImmuneDaemon(store *ImmuneStore) *ImmuneDaemon {
+// NewImmuneDaemon creates a new ImmuneDaemon backed by the given store and config.
+func NewImmuneDaemon(store *ImmuneStore, cfg ImmuneConfig) *ImmuneDaemon {
 	return &ImmuneDaemon{
+		config:     cfg,
 		store:      store,
 		profiles:   make(map[string]*NormalProfile),
 		collectors: make(map[types.PID]*BehaviorCollector),
@@ -637,7 +639,7 @@ func (d *ImmuneDaemon) Start() error {
 
 	// Initialize default anomaly detector if none set (Story 22.2)
 	if d.detector == nil {
-		d.detector = NewAnomalyDetector(DefaultDeviationThreshold)
+		d.detector = NewAnomalyDetector(d.config.DeviationThreshold)
 	}
 
 	// Load existing profiles from disk
@@ -815,7 +817,7 @@ func (d *ImmuneDaemon) updateProfile(agentTemplate string) {
 		return
 	}
 
-	profile := ComputeProfile(agentTemplate, samples)
+	profile := ComputeProfile(agentTemplate, samples, d.config.MinSamples)
 	if profile == nil {
 		return
 	}
@@ -868,6 +870,14 @@ func (d *ImmuneDaemon) ActivePIDs() []types.PID {
 		pids = append(pids, pid)
 	}
 	return pids
+}
+
+// GetConfig returns a copy of the ImmuneConfig used by this daemon.
+func (d *ImmuneDaemon) GetConfig() ImmuneConfig {
+	if d == nil {
+		return DefaultImmuneConfig()
+	}
+	return d.config
 }
 
 // IsRunning reports whether the ImmuneDaemon is currently running.
@@ -1273,7 +1283,7 @@ func (d *ImmuneDaemon) GetTopology() *CollaborationTopology {
 	for a, peers := range records {
 		for b, rec := range peers {
 			total := rec.SpawnCount + rec.MsgCount
-			reinforced := total >= DefaultReinforcementThreshold
+			reinforced := total >= d.config.ReinforcementThreshold
 
 			edge := CooperationEdge{
 				From:       a,
@@ -1409,7 +1419,7 @@ func (d *ImmuneDaemon) AttemptMigration(pid types.PID, agentTemplate string, int
 	}
 
 	// Get similar agents above threshold
-	candidates := d.GetSimilarAgents(agentTemplate, MinMigrationSimilarity)
+	candidates := d.GetSimilarAgents(agentTemplate, d.config.MinMigrationSimilarity)
 	if len(candidates) == 0 {
 		result.DurationMs = time.Since(startTime).Milliseconds()
 		result.Reason = "no candidate above similarity threshold"

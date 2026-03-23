@@ -534,7 +534,7 @@ func TestImmuneDaemon_AnomalyDetection(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -617,7 +617,7 @@ func TestImmuneDaemon_ThreatMemoryMatch(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -656,7 +656,7 @@ func TestImmuneDaemon_NoProfileNoDetection(t *testing.T) {
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -691,7 +691,7 @@ func TestImmuneDaemon_ClearAlert(t *testing.T) {
 	// Given: a daemon with an active alert
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -709,7 +709,7 @@ func TestImmuneDaemon_ClearAlert(t *testing.T) {
 	}
 	// Restart to load profile
 	daemon.Stop()
-	daemon = NewImmuneDaemon(store)
+	daemon = NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -749,7 +749,7 @@ func TestImmuneDaemon_GetAlerts(t *testing.T) {
 	// Given: a daemon (without alerts)
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -786,7 +786,7 @@ func TestImmuneDaemon_GetThreats(t *testing.T) {
 		}
 	}
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -822,7 +822,7 @@ func TestImmuneDaemon_ThreatPersistence(t *testing.T) {
 
 	// When: creating a new daemon (simulating restart)
 	store2 := NewImmuneStore(dir)
-	daemon2 := NewImmuneDaemon(store2)
+	daemon2 := NewImmuneDaemon(store2, DefaultImmuneConfig())
 	if err := daemon2.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -855,7 +855,7 @@ func TestImmuneDaemon_SuspendFnNil(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -918,7 +918,7 @@ func TestImmuneDaemon_ConcurrentAnomalyDetection(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}

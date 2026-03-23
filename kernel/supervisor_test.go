@@ -559,7 +559,7 @@ func TestSupervisor_MigrationOnRestartExceeded(t *testing.T) {
 
 	// Setup immune daemon with similarity matrix and migrate function
 	immuneStore := NewImmuneStore(t.TempDir())
-	daemon := NewImmuneDaemon(immuneStore)
+	daemon := NewImmuneDaemon(immuneStore, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start immune daemon: %v", err)
 	}
@@ -610,7 +610,7 @@ func TestSupervisor_MigrationFailed_FallbackShutdown(t *testing.T) {
 
 	// Setup immune daemon with no similar agents (migration will fail)
 	immuneStore := NewImmuneStore(t.TempDir())
-	daemon := NewImmuneDaemon(immuneStore)
+	daemon := NewImmuneDaemon(immuneStore, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start immune daemon: %v", err)
 	}

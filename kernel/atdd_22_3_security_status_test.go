@@ -25,7 +25,7 @@ func TestImmuneDaemon_Uptime_Running(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestImmuneDaemon_Uptime_NotRunning(t *testing.T) {
 	// Given: an ImmuneDaemon that has NOT been started
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 
 	// When: getting the uptime
 	uptime := daemon.Uptime()
@@ -81,7 +81,7 @@ func TestImmuneDaemon_Uptime_AfterStop(t *testing.T) {
 	// Given: a daemon that was started then stopped
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestImmuneDaemon_SuspendedPIDs_Empty(t *testing.T) {
 	// Given: a running ImmuneDaemon with no alerts
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestImmuneDaemon_SuspendedPIDs_WithAlerts(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestImmuneDaemon_SuspendedPIDs_AfterClear(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestImmuneDaemon_Uptime_Concurrent(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestImmuneDaemon_SuspendedPIDs_Concurrent(t *testing.T) {
 		t.Fatalf("SaveProfile failed: %v", err)
 	}
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}

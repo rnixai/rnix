@@ -125,7 +125,7 @@ func TestComputeProfile_SufficientSamples(t *testing.T) {
 	}
 
 	// When: computing profile
-	profile := ComputeProfile("code-analyst", samples)
+	profile := ComputeProfile("code-analyst", samples, MinSamplesForProfile)
 
 	// Then: profile is not nil
 	if profile == nil {
@@ -185,7 +185,7 @@ func TestComputeProfile_InsufficientSamples(t *testing.T) {
 	}
 
 	// When: computing profile
-	profile := ComputeProfile("reviewer", samples)
+	profile := ComputeProfile("reviewer", samples, MinSamplesForProfile)
 
 	// Then: returns nil
 	if profile != nil {
@@ -197,7 +197,7 @@ func TestComputeProfile_InsufficientSamples(t *testing.T) {
 
 func TestComputeProfile_EmptySamples(t *testing.T) {
 	// Given: empty sample list
-	profile := ComputeProfile("any-agent", []BehaviorSample{})
+	profile := ComputeProfile("any-agent", []BehaviorSample{}, MinSamplesForProfile)
 
 	// Then: returns nil
 	if profile != nil {
@@ -221,7 +221,7 @@ func TestComputeProfile_SingleSyscall(t *testing.T) {
 	}
 
 	// When: computing profile
-	profile := ComputeProfile("simple-agent", samples)
+	profile := ComputeProfile("simple-agent", samples, MinSamplesForProfile)
 
 	// Then: profile has only "Write" in syscall stats
 	if profile == nil {
@@ -251,7 +251,7 @@ func TestComputeProfile_ZeroVariance(t *testing.T) {
 	}
 
 	// When: computing profile
-	profile := ComputeProfile("uniform-agent", samples)
+	profile := ComputeProfile("uniform-agent", samples, MinSamplesForProfile)
 
 	// Then: standard deviations are 0
 	if profile == nil {
@@ -648,7 +648,7 @@ func TestImmuneDaemon_StartStop(t *testing.T) {
 	// Given: an ImmuneDaemon with a store
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 
 	// When: starting the daemon
 	if err := daemon.Start(); err != nil {
@@ -666,7 +666,7 @@ func TestImmuneDaemon_OnProcessLifecycle(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -706,7 +706,7 @@ func TestImmuneDaemon_ProfileBuilding(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -757,7 +757,7 @@ func TestImmuneDaemon_ProfilePersistence(t *testing.T) {
 	}
 	// Compute and save profile
 	samples, _ := store.GetSamples("persistent-agent")
-	profile := ComputeProfile("persistent-agent", samples)
+	profile := ComputeProfile("persistent-agent", samples, MinSamplesForProfile)
 	if profile == nil {
 		t.Fatal("expected non-nil profile from 6 samples")
 	}
@@ -767,7 +767,7 @@ func TestImmuneDaemon_ProfilePersistence(t *testing.T) {
 
 	// When: creating a new daemon (simulating restart) and starting it
 	store2 := NewImmuneStore(dir)
-	daemon2 := NewImmuneDaemon(store2)
+	daemon2 := NewImmuneDaemon(store2, DefaultImmuneConfig())
 	if err := daemon2.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -812,7 +812,7 @@ func TestImmuneDaemon_ConcurrentAccess(t *testing.T) {
 	// Given: a running ImmuneDaemon
 	dir := t.TempDir()
 	store := NewImmuneStore(dir)
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -933,7 +933,7 @@ func TestImmuneDaemon_GetAllProfiles(t *testing.T) {
 		}
 	}
 
-	daemon := NewImmuneDaemon(store)
+	daemon := NewImmuneDaemon(store, DefaultImmuneConfig())
 	if err := daemon.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
