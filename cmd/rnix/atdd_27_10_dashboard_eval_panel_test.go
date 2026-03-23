@@ -188,11 +188,14 @@ func TestATDD_27_10_AC1_EvalPaneRenders(t *testing.T) {
 func TestATDD_27_10_AC1_StatusBarEvalHelp(t *testing.T) {
 	m := newEvalModel()
 	m.activePane = paneEval
+	// Story 29.2: pane-specific hints shown in viewExpanded mode
+	m.viewMode = viewExpanded
+	m.expandedPane = paneEval
 
 	output := m.renderDashboardStatus()
 
-	if !strings.Contains(output, "1/2/3") || !strings.Contains(output, "Sub-view") {
-		t.Error("AC-1: eval pane status help should mention 1/2/3 and Sub-view")
+	if !strings.Contains(output, "1/2/3") || !strings.Contains(output, "sub-view") {
+		t.Error("AC-1: eval pane status help should mention 1/2/3 and sub-view")
 	}
 }
 
@@ -390,6 +393,9 @@ func TestATDD_27_10_AC2_RepCursorBounds(t *testing.T) {
 func TestATDD_27_10_AC3_Key1_SelectsReputation(t *testing.T) {
 	m := newEvalModel()
 	m.evalSubView = 1 // currently on topology
+	// Story 29.2: digit keys 1-3 pass to eval only in viewExpanded + paneEval
+	m.viewMode = viewExpanded
+	m.expandedPane = paneEval
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '1'})
 	model := m2.(dashboardModel)
@@ -403,6 +409,9 @@ func TestATDD_27_10_AC3_Key1_SelectsReputation(t *testing.T) {
 func TestATDD_27_10_AC3_Key2_SelectsTopology(t *testing.T) {
 	m := newEvalModel()
 	m.evalSubView = 0 // currently on reputation
+	// Story 29.2: digit keys 1-3 pass to eval only in viewExpanded + paneEval
+	m.viewMode = viewExpanded
+	m.expandedPane = paneEval
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'})
 	model := m2.(dashboardModel)
@@ -416,6 +425,9 @@ func TestATDD_27_10_AC3_Key2_SelectsTopology(t *testing.T) {
 func TestATDD_27_10_AC3_Key3_SelectsSynergy(t *testing.T) {
 	m := newEvalModel()
 	m.evalSubView = 0 // currently on reputation
+	// Story 29.2: digit keys 1-3 pass to eval only in viewExpanded + paneEval
+	m.viewMode = viewExpanded
+	m.expandedPane = paneEval
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '3'})
 	model := m2.(dashboardModel)

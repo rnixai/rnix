@@ -655,10 +655,13 @@ func TestATDD_27_7_AC2_CursorClampedAfterRefresh(t *testing.T) {
 func TestATDD_27_7_AC1_StatusBarIntentHelp(t *testing.T) {
 	m := newIntentTreeModel()
 	m.activePane = paneIntent
+	// Story 29.2: pane-specific hints shown in viewExpanded mode
+	m.viewMode = viewExpanded
+	m.expandedPane = paneIntent
 
 	output := m.renderDashboardStatus()
 
-	if !strings.Contains(output, "Navigate") || !strings.Contains(output, "Enter") {
-		t.Error("AC-1: intent pane status help should mention Navigate and Enter")
+	if !strings.Contains(output, "nav") || !strings.Contains(output, "Enter") {
+		t.Error("AC-1: intent pane status help should mention nav and Enter")
 	}
 }

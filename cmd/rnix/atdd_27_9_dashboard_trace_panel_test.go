@@ -172,11 +172,14 @@ func TestATDD_27_9_AC1_StatusBarTraceHelp_ListMode(t *testing.T) {
 	m := newTraceModel()
 	m.activePane = paneTrace
 	m.traceViewMode = 0 // list mode
+	// Story 29.2: pane-specific hints shown in viewExpanded mode
+	m.viewMode = viewExpanded
+	m.expandedPane = paneTrace
 
 	output := m.renderDashboardStatus()
 
-	if !strings.Contains(output, "Navigate") || !strings.Contains(output, "Enter") {
-		t.Error("AC-1: trace pane list mode status help should mention Navigate and Enter")
+	if !strings.Contains(output, "nav") || !strings.Contains(output, "Enter") {
+		t.Error("AC-1: trace pane list mode status help should mention nav and Enter")
 	}
 }
 
@@ -185,11 +188,14 @@ func TestATDD_27_9_AC1_StatusBarTraceHelp_TreeMode(t *testing.T) {
 	m := newTraceModel()
 	m.activePane = paneTrace
 	m.traceViewMode = 1 // tree mode
+	// Story 29.2: pane-specific hints shown in viewExpanded mode
+	m.viewMode = viewExpanded
+	m.expandedPane = paneTrace
 
 	output := m.renderDashboardStatus()
 
-	if !strings.Contains(output, "Esc") || !strings.Contains(output, "Process") {
-		t.Error("AC-1: trace pane tree mode status help should mention Esc and Process")
+	if !strings.Contains(output, "Esc") || !strings.Contains(output, "jump") {
+		t.Error("AC-1: trace pane tree mode status help should mention Esc and jump")
 	}
 }
 

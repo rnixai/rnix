@@ -137,8 +137,8 @@ func TestDashboardModel_ViewTitleBar(t *testing.T) {
 	if !strings.Contains(content, "Rnix Dashboard") {
 		t.Errorf("view should contain 'Rnix Dashboard' title, got %q", content)
 	}
-	if !strings.Contains(content, "Connected") {
-		t.Errorf("view should show connection status, got %q", content)
+	if !strings.Contains(content, "●") {
+		t.Errorf("view should show connection status indicator, got %q", content)
 	}
 }
 
@@ -149,7 +149,7 @@ func TestDashboardModel_ViewStatusBar(t *testing.T) {
 	v := m.View()
 	content := v.Content
 
-	if !strings.Contains(content, "Quit") {
+	if !strings.Contains(content, "quit") && !strings.Contains(content, "Quit") {
 		t.Errorf("status bar should contain quit hint, got %q", content)
 	}
 	if !strings.Contains(content, "Tab") {
@@ -748,6 +748,9 @@ func TestDashboardModel_TimelineZoom(t *testing.T) {
 
 func TestDashboardModel_TimelineFilter(t *testing.T) {
 	m := newTestTimelineDashboardModel()
+	// Story 29.2: digit keys 1-4 only pass to timeline in viewExpanded + paneTimeline
+	m.viewMode = viewExpanded
+	m.expandedPane = paneTimeline
 
 	if !m.timelineFilters[catLLM] {
 		t.Fatal("LLM filter should be true by default")
@@ -1565,7 +1568,7 @@ func TestDashboardModel_StatusBarOperationKeys(t *testing.T) {
 	v := m.View()
 	content := v.Content
 
-	for _, hint := range []string{"k:Kill", "a:GDB", "l:Log", "r:Record"} {
+	for _, hint := range []string{"k:Kill", "a:GDB", "l:Log", "r:Rec"} {
 		if !strings.Contains(content, hint) {
 			t.Errorf("status bar should contain '%s'", hint)
 		}
