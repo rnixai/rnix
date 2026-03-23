@@ -904,6 +904,32 @@ func (c *Client) GetProcDetail(pid types.PID) (*GetProcDetailResponse, error) {
 	return &result, nil
 }
 
+// TraceList returns all trace summaries (Story 27.9).
+func (c *Client) TraceList() ([]TraceSummaryWire, error) {
+	resp, err := c.call(MethodTraceList, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result TraceListResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal trace_list: %w", err)
+	}
+	return result.Traces, nil
+}
+
+// TraceTree returns the span tree for a given trace ID (Story 27.9).
+func (c *Client) TraceTree(traceID string) (*SpanTreeWire, error) {
+	resp, err := c.call(MethodTraceTree, TraceTreeRequest{TraceID: traceID})
+	if err != nil {
+		return nil, err
+	}
+	var result TraceTreeResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal trace_tree: %w", err)
+	}
+	return result.Tree, nil
+}
+
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data

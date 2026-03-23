@@ -122,15 +122,15 @@ func TestATDD_27_8_AC1_PaneSecurityConstant(t *testing.T) {
 	}
 }
 
-// --- AC-1.2: [P0] Tab cycles through 6 panes ---
+// --- AC-1.2: [P0] Tab cycles through 7 panes (updated for Story 27-9 Trace pane) ---
 func TestATDD_27_8_AC1_TabCycles6Panes(t *testing.T) {
 	m := newDashboardModel(nil)
 	m.width = 120
 	m.height = 40
 	m.activePane = paneTree // 0
 
-	// Press Tab 6 times and verify full cycle back to paneTree
-	expectedOrder := []paneType{paneTimeline, paneHeatmap, paneDetail, paneIntent, paneSecurity, paneTree}
+	// Press Tab 7 times and verify full cycle back to paneTree
+	expectedOrder := []paneType{paneTimeline, paneHeatmap, paneDetail, paneIntent, paneSecurity, paneTrace, paneTree}
 	for i, expected := range expectedOrder {
 		m2, _ := m.Update(tea.KeyPressMsg{Code: '\t'})
 		model := m2.(dashboardModel)

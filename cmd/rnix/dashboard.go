@@ -39,6 +39,7 @@ const (
 	paneDetail
 	paneIntent
 	paneSecurity
+	paneTrace
 )
 
 type eventCategory int
@@ -114,6 +115,31 @@ type intentTreesMsg struct {
 type immuneStatusMsg struct {
 	status *ipc.ImmuneStatusResponse
 	err    error
+}
+
+// --- Trace pane types (Story 27-9) ---
+
+type traceListMsg struct {
+	summaries []ipc.TraceSummaryWire
+	err       error
+}
+
+type traceTreeMsg struct {
+	traceID string
+	tree    *ipc.SpanTreeWire
+	err     error
+}
+
+type spanFlatNode struct {
+	spanID string
+	pid    types.PID
+	name   string
+	durMs  int64
+	tokens int
+	status string
+	depth  int
+	prefix string
+	isRoot bool
 }
 
 type promptPagerMsg struct {
@@ -263,6 +289,18 @@ type dashboardModel struct {
 	securityCursor       int
 	securityScrollOffset int
 
+	// Trace pane fields (Story 27-9)
+	traceSummaries    []ipc.TraceSummaryWire
+	traceErr          error
+	traceCursor       int
+	traceScrollOffset int
+	traceViewMode     int // 0=list, 1=tree
+	selectedTraceID   string
+	selectedSpanTree  *ipc.SpanTreeWire
+	spanFlatNodes     []spanFlatNode
+	spanCursor        int
+	spanScrollOffset  int
+
 	// Offline replay fields (Story 17-5)
 	replayMode       bool
 	replayReader     *debug.RecordReader
@@ -407,6 +445,40 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case traceListMsg:
+		if msg.err != nil {
+			m.traceErr = msg.err
+			return m, nil
+		}
+		m.traceErr = nil
+		m.traceSummaries = msg.summaries
+		// Sort by StartTimeMs descending (newest first)
+		sort.Slice(m.traceSummaries, func(i, j int) bool {
+			return m.traceSummaries[i].StartTimeMs > m.traceSummaries[j].StartTimeMs
+		})
+		if m.traceCursor >= len(m.traceSummaries) {
+			m.traceCursor = max(0, len(m.traceSummaries)-1)
+		}
+		return m, nil
+	case traceTreeMsg:
+		if msg.err != nil {
+			m.traceErr = msg.err
+			return m, nil
+		}
+		m.traceErr = nil
+		m.selectedTraceID = msg.traceID
+		m.selectedSpanTree = msg.tree
+		m.spanFlatNodes = flattenSpanTree(msg.tree)
+		m.spanCursor = 0
+		m.spanScrollOffset = 0
+		if msg.tree == nil || msg.tree.Root == nil {
+			// Empty trace — stay in list mode, show status message
+			m.statusMsg = "此追踪无 span 数据"
+			m.statusMsgTTL = statusMsgDefaultTTL
+		} else {
+			m.traceViewMode = 1
+		}
+		return m, nil
 	case promptPagerMsg:
 		m.fetchingDetail = false
 		if msg.pid != m.selectedPID {
@@ -545,6 +617,13 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Fetch trace list when Trace pane is active (Story 27-9)
+	if m.activePane == paneTrace && m.connected {
+		if m.traceSummaries == nil || m.heatmapTickCount%5 == 0 {
+			cmds = append(cmds, fetchTraceListCmd())
+		}
+	}
+
 	if len(m.recording) > 0 {
 		uuidSet := make(map[string]bool, len(m.processes))
 		for _, p := range m.processes {
@@ -631,7 +710,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "tab":
-		m.activePane = (m.activePane + 1) % 6
+		m.activePane = (m.activePane + 1) % 7
 		return m, nil
 	}
 
@@ -640,7 +719,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m2, cmd
 	}
 
-	if m.stepTimelineMode && len(m.stepEntries) > 0 && m.stepCursor < len(m.stepEntries) {
+	if m.activePane == paneTimeline && m.stepTimelineMode && len(m.stepEntries) > 0 && m.stepCursor < len(m.stepEntries) {
 		if msg.Code == 'v' {
 			entry := &m.stepEntries[m.stepCursor]
 			if entry.level == levelSummary {
@@ -816,6 +895,10 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if m.activePane == paneTrace {
+		return m.handleTraceKey(key)
+	}
+
 	isPaneNavConflict := (m.activePane == paneTimeline && (key == "l" || key == "h" || key == "k")) ||
 		(m.activePane == paneHeatmap && key == "k")
 	if !isPaneNavConflict && m.selectedPID > 0 && m.connected {
@@ -927,6 +1010,8 @@ func (m dashboardModel) renderDashboard() string {
 		bottomPane = m.renderIntentPane(rightWidth, bottomRightH)
 	case paneSecurity:
 		bottomPane = m.renderSecurityPane(rightWidth, bottomRightH)
+	case paneTrace:
+		bottomPane = m.renderTracePane(rightWidth, bottomRightH)
 	default:
 		bottomPane = m.renderHeatmapPane(rightWidth, bottomRightH)
 	}
@@ -991,6 +1076,12 @@ func (m dashboardModel) renderDashboardStatus() string {
 	}
 	if m.activePane == paneSecurity {
 		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Jump to Process%s", rec, ops)
+	}
+	if m.activePane == paneTrace {
+		if m.traceViewMode == 0 {
+			return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Expand Trace%s", rec, ops)
+		}
+		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Jump to Process  Esc:Back%s", rec, ops)
 	}
 	return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Select%s", rec, ops)
 }
@@ -3187,5 +3278,325 @@ func securityAdjustScroll(m *dashboardModel) {
 	}
 	if m.securityCursor >= m.securityScrollOffset+visibleLines {
 		m.securityScrollOffset = m.securityCursor - visibleLines + 1
+	}
+}
+
+// =============================================================================
+// Trace Pane (Story 27-9)
+// =============================================================================
+
+func fetchTraceListCmd() tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return traceListMsg{err: err}
+		}
+		defer client.Close()
+		summaries, err := client.TraceList()
+		return traceListMsg{summaries: summaries, err: err}
+	}
+}
+
+func fetchTraceTreeCmd(traceID string) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return traceTreeMsg{traceID: traceID, err: err}
+		}
+		defer client.Close()
+		tree, err := client.TraceTree(traceID)
+		return traceTreeMsg{traceID: traceID, tree: tree, err: err}
+	}
+}
+
+func (m dashboardModel) handleTraceKey(key string) (tea.Model, tea.Cmd) {
+	if m.traceViewMode == 0 {
+		// List mode
+		switch key {
+		case "down", "j":
+			if len(m.traceSummaries) > 0 && m.traceCursor < len(m.traceSummaries)-1 {
+				m.traceCursor++
+				traceAdjustScroll(&m)
+			}
+			return m, nil
+		case "up", "k":
+			if m.traceCursor > 0 {
+				m.traceCursor--
+				traceAdjustScroll(&m)
+			}
+			return m, nil
+		case "enter":
+			if len(m.traceSummaries) > 0 && m.traceCursor < len(m.traceSummaries) {
+				traceID := m.traceSummaries[m.traceCursor].TraceID
+				m.selectedTraceID = traceID
+				return m, fetchTraceTreeCmd(traceID)
+			}
+			return m, nil
+		}
+	} else {
+		// Tree mode
+		switch key {
+		case "down", "j":
+			if len(m.spanFlatNodes) > 0 && m.spanCursor < len(m.spanFlatNodes)-1 {
+				m.spanCursor++
+				spanAdjustScroll(&m)
+			}
+			return m, nil
+		case "up", "k":
+			if m.spanCursor > 0 {
+				m.spanCursor--
+				spanAdjustScroll(&m)
+			}
+			return m, nil
+		case "enter":
+			if len(m.spanFlatNodes) > 0 && m.spanCursor < len(m.spanFlatNodes) {
+				node := m.spanFlatNodes[m.spanCursor]
+				if node.pid > 0 {
+					targetPID := node.pid
+					pidFound := false
+					var targetUUID string
+					for _, p := range m.processes {
+						if p.PID == targetPID {
+							pidFound = true
+							targetUUID = p.UUID
+							break
+						}
+					}
+					if !pidFound {
+						m.statusMsg = "该进程已不存在"
+						m.statusMsgTTL = statusMsgDefaultTTL
+						return m, nil
+					}
+					m.selectedPID = targetPID
+					m.selectedUUID = targetUUID
+					m.activePane = paneTimeline
+					m2, cmd := m.handlePIDChange()
+					return m2, cmd
+				}
+			}
+			return m, nil
+		case "esc", "escape":
+			m.traceViewMode = 0
+			// Reset scroll and clamp cursor to current list bounds
+			if m.traceCursor >= len(m.traceSummaries) {
+				m.traceCursor = max(0, len(m.traceSummaries)-1)
+			}
+			m.traceScrollOffset = 0
+			traceAdjustScroll(&m)
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func flattenSpanTree(tree *ipc.SpanTreeWire) []spanFlatNode {
+	if tree == nil || tree.Root == nil {
+		return nil
+	}
+	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
+	var nodes []spanFlatNode
+	flattenSpanNode(tree.Root, 0, true, "", ascii, &nodes)
+	return nodes
+}
+
+func flattenSpanNode(node *ipc.SpanNodeWire, depth int, isLast bool, parentPrefix string, ascii bool, out *[]spanFlatNode) {
+	var prefix string
+	if depth == 0 {
+		if ascii {
+			prefix = "+-- "
+		} else {
+			prefix = "┌─ "
+		}
+	} else {
+		if isLast {
+			if ascii {
+				prefix = parentPrefix + "`-- "
+			} else {
+				prefix = parentPrefix + "└─ "
+			}
+		} else {
+			if ascii {
+				prefix = parentPrefix + "|-- "
+			} else {
+				prefix = parentPrefix + "├─ "
+			}
+		}
+	}
+	*out = append(*out, spanFlatNode{
+		spanID: node.SpanID,
+		pid:    types.PID(node.PID),
+		name:   node.Name,
+		durMs:  node.DurationMs,
+		tokens: node.TokensUsed,
+		status: node.Status,
+		depth:  depth,
+		prefix: prefix,
+		isRoot: depth == 0,
+	})
+	childPrefix := parentPrefix
+	if depth > 0 {
+		if isLast {
+			childPrefix += "   "
+		} else {
+			if ascii {
+				childPrefix += "|  "
+			} else {
+				childPrefix += "│  "
+			}
+		}
+	}
+	for i, child := range node.Children {
+		flattenSpanNode(&child, depth+1, i == len(node.Children)-1, childPrefix, ascii, out)
+	}
+}
+
+func spanStatusColor(status string) lipgloss.Color {
+	switch status {
+	case "ok":
+		return lipgloss.Color("42")
+	case "error":
+		return lipgloss.Color("196")
+	case "timeout":
+		return lipgloss.Color("208")
+	default:
+		return lipgloss.Color("240")
+	}
+}
+
+func (m dashboardModel) renderTracePane(width, height int) string {
+	isActive := m.activePane == paneTrace
+
+	borderColor := lipgloss.Color(ui.ColorMuted)
+	if isActive {
+		borderColor = lipgloss.Color(ui.ColorAgent)
+	}
+
+	innerW := max(width-2, 1)
+	innerH := max(height-2, 1)
+
+	style := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Width(innerW).
+		Height(innerH)
+
+	if m.traceViewMode == 1 {
+		return style.Render(m.renderTraceTreeView(innerW, innerH))
+	}
+	return style.Render(m.renderTraceListView(innerW, innerH))
+}
+
+func (m dashboardModel) renderTraceListView(width, height int) string {
+	var b strings.Builder
+	b.WriteString(" Traces\n")
+
+	if m.traceErr != nil {
+		fmt.Fprintf(&b, "\n    Error: %v\n", m.traceErr)
+		return b.String()
+	}
+
+	if len(m.traceSummaries) == 0 {
+		b.WriteString("\n    无活跃的 Compose 追踪数据。使用 rnix compose up 启动编排以生成追踪。\n")
+		return b.String()
+	}
+
+	// Header
+	fmt.Fprintf(&b, " %-16s  %-12s  %5s  %8s\n", "TRACE ID", "ROOT", "SPANS", "DUR")
+
+	visibleLines := max(height-3, 1)
+	startIdx := m.traceScrollOffset
+	endIdx := min(startIdx+visibleLines, len(m.traceSummaries))
+
+	for i := startIdx; i < endIdx; i++ {
+		ts := m.traceSummaries[i]
+		cursor := "  "
+		if i == m.traceCursor {
+			if os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true" {
+				cursor = "> "
+			} else {
+				cursor = "▸ "
+			}
+		}
+		tid := ts.TraceID
+		if len(tid) > 16 {
+			tid = tid[:16]
+		}
+		dur := formatTimelineDuration(float64(ts.TotalDurationMs))
+		fmt.Fprintf(&b, "%s%-16s  %-12s  %5d  %8s\n", cursor, tid, ts.RootSpanName, ts.SpanCount, dur)
+	}
+
+	return b.String()
+}
+
+func (m dashboardModel) renderTraceTreeView(width, height int) string {
+	var b strings.Builder
+
+	if m.selectedSpanTree == nil || len(m.spanFlatNodes) == 0 {
+		b.WriteString(" Trace: (loading...)\n")
+		return b.String()
+	}
+
+	meta := m.selectedSpanTree.Metadata
+	tid := m.selectedTraceID
+	if len(tid) > 16 {
+		tid = tid[:16]
+	}
+	dur := formatTimelineDuration(float64(meta.TotalDurationMs))
+	fmt.Fprintf(&b, " Trace: %s  %d spans  %s  %d tok\n", tid, meta.TotalSpans, dur, meta.TotalTokens)
+
+	visibleLines := max(height-2, 1)
+	startIdx := m.spanScrollOffset
+	endIdx := min(startIdx+visibleLines, len(m.spanFlatNodes))
+
+	for i := startIdx; i < endIdx; i++ {
+		node := m.spanFlatNodes[i]
+		cursor := "  "
+		if i == m.spanCursor {
+			if os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true" {
+				cursor = "> "
+			} else {
+				cursor = "▸ "
+			}
+		}
+
+		dur := formatTimelineDuration(float64(node.durMs))
+		tokStr := fmt.Sprintf("%dtok", node.tokens)
+		statusStyle := lipgloss.NewStyle().Foreground(spanStatusColor(node.status))
+
+		line := fmt.Sprintf("%s%s%s (PID %d)  %s  %s  %s",
+			cursor, node.prefix, node.name, node.pid, dur, tokStr, statusStyle.Render(node.status))
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+// traceBottomInnerH computes the inner height of the bottom-right pane from terminal height.
+func traceBottomInnerH(termHeight int) int {
+	contentHeight := max(termHeight-4, 3)
+	bottomRightH := contentHeight - contentHeight/2
+	return max(bottomRightH-2, 1) // subtract border
+}
+
+// traceAdjustScroll ensures traceCursor is visible within the viewport.
+func traceAdjustScroll(m *dashboardModel) {
+	visibleLines := max(traceBottomInnerH(m.height)-3, 1) // match renderTraceListView
+	if m.traceCursor < m.traceScrollOffset {
+		m.traceScrollOffset = m.traceCursor
+	}
+	if m.traceCursor >= m.traceScrollOffset+visibleLines {
+		m.traceScrollOffset = m.traceCursor - visibleLines + 1
+	}
+}
+
+// spanAdjustScroll ensures spanCursor is visible within the viewport.
+func spanAdjustScroll(m *dashboardModel) {
+	visibleLines := max(traceBottomInnerH(m.height)-2, 1) // match renderTraceTreeView
+	if m.spanCursor < m.spanScrollOffset {
+		m.spanScrollOffset = m.spanCursor
+	}
+	if m.spanCursor >= m.spanScrollOffset+visibleLines {
+		m.spanScrollOffset = m.spanCursor - visibleLines + 1
 	}
 }

@@ -35,6 +35,7 @@ func newStepTimelineModel() dashboardModel {
 	m.height = 40
 	m.connected = true
 	m.selectedPID = 1
+	m.activePane = paneTimeline
 	m.stepTimelineMode = true
 
 	m.stepEntries = []stepEntry{

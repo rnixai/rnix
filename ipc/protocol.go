@@ -53,7 +53,55 @@ const (
 	MethodGetStepDetail    Method = "get_step_detail"
 	MethodListSteps        Method = "list_steps"
 	MethodGetProcDetail    Method = "get_proc_detail"
+	MethodTraceList        Method = "trace_list"
+	MethodTraceTree        Method = "trace_tree"
 )
+
+// --- Trace Wire Types (Story 27.9) ---
+
+type TraceSummaryWire struct {
+	TraceID         string `json:"trace_id"`
+	SpanCount       int    `json:"span_count"`
+	StartTimeMs     int64  `json:"start_time_ms"`
+	TotalDurationMs int64  `json:"total_duration_ms"`
+	RootSpanName    string `json:"root_span_name"`
+}
+
+type TraceListResponse struct {
+	Traces []TraceSummaryWire `json:"traces"`
+}
+
+type TraceTreeRequest struct {
+	TraceID string `json:"trace_id"`
+}
+
+type TraceTreeResponse struct {
+	Tree *SpanTreeWire `json:"tree"`
+}
+
+type SpanTreeWire struct {
+	Root     *SpanNodeWire `json:"root"`
+	TraceID  string        `json:"trace_id"`
+	Metadata TraceMetaWire `json:"metadata"`
+}
+
+type SpanNodeWire struct {
+	SpanID       string         `json:"span_id"`
+	ParentSpanID string         `json:"parent_span_id,omitempty"`
+	PID          uint64         `json:"pid"`
+	Name         string         `json:"name"`
+	DurationMs   int64          `json:"duration_ms"`
+	TokensUsed   int            `json:"tokens_used"`
+	Status       string         `json:"status"`
+	Children     []SpanNodeWire `json:"children,omitempty"`
+}
+
+type TraceMetaWire struct {
+	TotalSpans      int   `json:"total_spans"`
+	TotalTokens     int   `json:"total_tokens"`
+	TotalDurationMs int64 `json:"total_duration_ms"`
+	ErrorCount      int   `json:"error_count"`
+}
 
 // Request is the top-level IPC request envelope (NDJSON).
 type Request struct {
