@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -35,6 +34,8 @@ type dashboardModel struct {
 	width       int
 	height      int
 	activePane   paneType
+	viewMode     viewMode  // 当前视图模式（默认 viewDefault，零值即默认）
+	expandedPane paneType  // viewExpanded 模式下展开的面板
 	selectedPID  types.PID
 	selectedUUID string
 	processes    []vfs.ProcInfo
@@ -549,286 +550,6 @@ func (m *dashboardModel) applyInitialPIDFocus() {
 	m.initialPIDFocus = 0
 }
 
-func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
-	if m.promptPager {
-		if key == "ctrl+c" {
-			return m, tea.Quit
-		}
-		if key == "q" || key == "esc" {
-			m.promptPager = false
-			return m, nil
-		}
-		if key == "home" {
-			m.promptViewport.GotoTop()
-			return m, nil
-		}
-		if key == "end" {
-			m.promptViewport.GotoBottom()
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.promptViewport, cmd = m.promptViewport.Update(msg)
-		return m, cmd
-	}
-
-	if m.confirmKill {
-		switch key {
-		case "y":
-			if m.client != nil && m.confirmPID > 0 {
-				if err := m.client.Kill(m.confirmPID, types.SIGTERM); err != nil {
-					m.statusMsg = fmt.Sprintf("✗ kill PID %d: %v", m.confirmPID, err)
-				} else {
-					m.statusMsg = fmt.Sprintf("Killed PID %d", m.confirmPID)
-				}
-				m.statusMsgTTL = statusMsgDefaultTTL
-			}
-			m.confirmKill = false
-			m.confirmPID = 0
-		default:
-			m.confirmKill = false
-			m.confirmPID = 0
-		}
-		return m, nil
-	}
-
-	switch key {
-	case "q", "ctrl+c":
-		return m, tea.Quit
-	case "tab":
-		m.activePane = (m.activePane + 1) % 8
-		return m, nil
-	}
-
-	if m.replayMode {
-		m2, cmd := m.handleReplayKey(key)
-		return m2, cmd
-	}
-
-	if m.activePane == paneTimeline && m.stepTimelineMode && len(m.stepEntries) > 0 && m.stepCursor < len(m.stepEntries) {
-		if msg.Code == 'v' {
-			entry := &m.stepEntries[m.stepCursor]
-			if entry.level == levelSummary {
-				entry.level = levelExpanded
-				if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
-					m.fetchingDetail = true
-					return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
-				}
-			} else {
-				entry.level = levelSummary
-			}
-			return m, nil
-		}
-		if msg.Code == 'V' {
-			entry := &m.stepEntries[m.stepCursor]
-			switch entry.level {
-			case levelSummary, levelExpanded:
-				entry.level = levelDebug
-				if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
-					m.fetchingDetail = true
-					return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
-				}
-			case levelDebug:
-				entry.level = levelExpanded
-			}
-			return m, nil
-		}
-		if msg.Code == 'p' {
-			entry := m.stepEntries[m.stepCursor]
-			if cached := m.stepDetailCache[entry.summary.Step]; cached != nil {
-				m.enterPromptPager(cached, entry.summary.Step)
-				return m, nil
-			}
-			if !m.fetchingDetail && m.selectedPID > 0 {
-				m.fetchingDetail = true
-				return m, fetchStepDetailForPagerCmd(m.selectedPID, entry.summary.Step)
-			}
-			return m, nil
-		}
-	}
-
-	if m.activePane == paneTree {
-		prevPID := m.selectedPID
-		visibleLines := m.dashboardVisibleLines()
-		switch key {
-		case "up", "k":
-			if m.treeCursor > 0 {
-				m.treeCursor--
-				if m.treeCursor < len(m.treeRows) {
-					m = selectProcess(m, m.treeRows[m.treeCursor])
-				}
-				if m.treeCursor < m.treeOffset {
-					m.treeOffset = m.treeCursor
-				}
-			}
-		case "down", "j":
-			if m.treeCursor < len(m.treeRows)-1 {
-				m.treeCursor++
-				if m.treeCursor < len(m.treeRows) {
-					m = selectProcess(m, m.treeRows[m.treeCursor])
-				}
-				if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
-					m.treeOffset = m.treeCursor - visibleLines + 1
-				}
-			}
-		case "enter":
-			if m.treeCursor < len(m.treeRows) {
-				m = selectProcess(m, m.treeRows[m.treeCursor])
-			}
-		default:
-			if (msg.Code == 'K' || msg.ShiftedCode == 'K') && msg.Mod&tea.ModShift != 0 {
-				if len(m.treeRows) > 0 && m.treeCursor < len(m.treeRows) {
-					m.confirmKill = true
-					m.confirmPID = m.treeRows[m.treeCursor].proc.PID
-				}
-			}
-		}
-		if m.selectedPID != prevPID {
-			m2, cmd := m.handlePIDChange()
-			return m2, cmd
-		}
-		return m, nil
-	}
-
-	if m.activePane == paneIntent {
-		switch key {
-		case "down", "j":
-			if m.intentCursor < len(m.intentFlatNodes)-1 {
-				m.intentCursor++
-				intentAdjustScroll(&m)
-			}
-			return m, nil
-		case "up", "k":
-			if m.intentCursor > 0 {
-				m.intentCursor--
-				intentAdjustScroll(&m)
-			}
-			return m, nil
-		case "enter":
-			if m.intentCursor < len(m.intentFlatNodes) {
-				n := m.intentFlatNodes[m.intentCursor]
-				if n.node != nil && n.node.PID > 0 {
-					targetPID := types.PID(n.node.PID)
-					// Verify PID exists in current process list
-					pidFound := false
-					var targetUUID string
-					for _, p := range m.processes {
-						if p.PID == targetPID {
-							pidFound = true
-							targetUUID = p.UUID
-							break
-						}
-					}
-					if !pidFound {
-						m.statusMsg = "该进程已不存在"
-						m.statusMsgTTL = statusMsgDefaultTTL
-						return m, nil
-					}
-					m.selectedPID = targetPID
-					m.selectedUUID = targetUUID
-					m.activePane = paneTimeline
-					m2, cmd := m.handlePIDChange()
-					return m2, cmd
-				} else if n.node != nil {
-					m.statusMsg = "该节点尚未分配进程"
-					m.statusMsgTTL = statusMsgDefaultTTL
-				}
-			}
-			return m, nil
-		}
-	}
-
-	if m.activePane == paneSecurity {
-		switch key {
-		case "down", "j":
-			if len(m.securityAlerts) > 0 && m.securityCursor < len(m.securityAlerts)-1 {
-				m.securityCursor++
-				securityAdjustScroll(&m)
-			}
-			return m, nil
-		case "up", "k":
-			if m.securityCursor > 0 {
-				m.securityCursor--
-				securityAdjustScroll(&m)
-			}
-			return m, nil
-		case "enter":
-			if len(m.securityAlerts) > 0 && m.securityCursor < len(m.securityAlerts) {
-				alert := m.securityAlerts[m.securityCursor]
-				targetPID := types.PID(alert.PID)
-				// Verify PID exists in current process list
-				pidFound := false
-				var targetUUID string
-				for _, p := range m.processes {
-					if p.PID == targetPID {
-						pidFound = true
-						targetUUID = p.UUID
-						break
-					}
-				}
-				if !pidFound {
-					m.statusMsg = "该进程已不存在"
-					m.statusMsgTTL = statusMsgDefaultTTL
-					return m, nil
-				}
-				m.selectedPID = targetPID
-				m.selectedUUID = targetUUID
-				m.activePane = paneTimeline
-				m2, cmd := m.handlePIDChange()
-				return m2, cmd
-			}
-			return m, nil
-		}
-	}
-
-	if m.activePane == paneTrace {
-		return m.handleTraceKey(key)
-	}
-
-	if m.activePane == paneEval {
-		return m.handleEvalKey(key)
-	}
-
-	isPaneNavConflict := (m.activePane == paneTimeline && (key == "l" || key == "h" || key == "k")) ||
-		(m.activePane == paneHeatmap && key == "k")
-	if !isPaneNavConflict && m.selectedPID > 0 && m.connected {
-		switch key {
-		case "k":
-			m.confirmKill = true
-			m.confirmPID = m.selectedPID
-			return m, nil
-		case "a":
-			c := exec.Command(os.Args[0], "gdb", fmt.Sprint(m.selectedPID))
-			return m, tea.ExecProcess(c, func(err error) tea.Msg {
-				return execResultMsg{err: err}
-			})
-		case "l":
-			c := exec.Command(os.Args[0], "log", fmt.Sprint(m.selectedPID))
-			return m, tea.ExecProcess(c, func(err error) tea.Msg {
-				return execResultMsg{err: err}
-			})
-		case "r":
-			recordID := m.recording[m.selectedUUID]
-			return m, toggleRecordCmd(m.selectedPID, m.selectedUUID, recordID)
-		}
-	}
-
-	if (msg.Code == 'K' || msg.ShiftedCode == 'K') && msg.Mod&tea.ModShift != 0 && m.selectedPID > 0 {
-		m.confirmKill = true
-		m.confirmPID = m.selectedPID
-		return m, nil
-	}
-
-	switch m.activePane {
-	case paneTimeline:
-		m = m.handleTimelineKey(key)
-	case paneHeatmap:
-		m = m.handleHeatmapKey(key)
-	}
-
-	return m, nil
-}
 
 func (m dashboardModel) dashboardVisibleLines() int {
 	v := max(m.height-7, 1)
@@ -884,13 +605,25 @@ func (m dashboardModel) renderDashboard() string {
 
 	contentHeight := max(h-4, 3)
 
+	var mainContent string
+	switch m.viewMode {
+	case viewExpanded:
+		mainContent = m.renderExpandedLayout(w, contentHeight)
+	default: // viewDefault
+		mainContent = m.renderDefaultLayout(w, contentHeight)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, titleBar, mainContent, statusBar)
+}
+
+func (m dashboardModel) renderDefaultLayout(w, h int) string {
 	treeWidth := min(max(w*40/100, 30), 60)
 	rightWidth := max(w-treeWidth, 10)
 
-	treePane := m.renderDashboardTreePane(treeWidth, contentHeight)
+	treePane := m.renderDashboardTreePane(treeWidth, h)
 
-	topRightH := contentHeight / 2
-	bottomRightH := contentHeight - topRightH
+	topRightH := h / 2
+	bottomRightH := h - topRightH
 	timelinePane := m.renderTimelinePane(rightWidth, topRightH)
 
 	var bottomPane string
@@ -910,18 +643,70 @@ func (m dashboardModel) renderDashboard() string {
 	}
 
 	rightPane := lipgloss.JoinVertical(lipgloss.Left, timelinePane, bottomPane)
-	mainContent := lipgloss.JoinHorizontal(lipgloss.Top, treePane, rightPane)
+	return lipgloss.JoinHorizontal(lipgloss.Top, treePane, rightPane)
+}
 
-	return lipgloss.JoinVertical(lipgloss.Left, titleBar, mainContent, statusBar)
+func (m dashboardModel) renderExpandedLayout(w, h int) string {
+	if m.expandedPane == paneTree {
+		return m.renderDashboardTreePane(w, h)
+	}
+	treeWidth := min(max(w*40/100, 30), 60)
+	rightWidth := max(w-treeWidth, 10)
+	treePane := m.renderDashboardTreePane(treeWidth, h)
+
+	var expandedPane string
+	switch m.expandedPane {
+	case paneTimeline:
+		expandedPane = m.renderTimelinePane(rightWidth, h)
+	case paneHeatmap:
+		expandedPane = m.renderHeatmapPane(rightWidth, h)
+	case paneDetail:
+		expandedPane = m.renderDetailPane(rightWidth, h)
+	case paneIntent:
+		expandedPane = m.renderIntentPane(rightWidth, h)
+	case paneSecurity:
+		expandedPane = m.renderSecurityPane(rightWidth, h)
+	case paneTrace:
+		expandedPane = m.renderTracePane(rightWidth, h)
+	case paneEval:
+		expandedPane = m.renderEvalPane(rightWidth, h)
+	default:
+		expandedPane = m.renderHeatmapPane(rightWidth, h)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, treePane, expandedPane)
 }
 
 func (m dashboardModel) renderDashboardTitle() string {
 	var b strings.Builder
 	b.WriteString("  Rnix Dashboard")
 	if m.connected {
-		b.WriteString("  ● Connected")
+		b.WriteString(" ●")
 	} else {
-		b.WriteString("  ○ Disconnected")
+		b.WriteString(" ○")
+	}
+	b.WriteString(" ──")
+
+	panes := []struct {
+		key  string
+		name string
+		pane paneType
+	}{
+		{"1", "Tree", paneTree},
+		{"2", "Time", paneTimeline},
+		{"3", "Heat", paneHeatmap},
+		{"4", "Detail", paneDetail},
+		{"5", "Intent", paneIntent},
+		{"6", "Sec", paneSecurity},
+		{"7", "Trace", paneTrace},
+		{"8", "Eval", paneEval},
+	}
+
+	for _, p := range panes {
+		if m.viewMode == viewExpanded && m.expandedPane == p.pane {
+			fmt.Fprintf(&b, " %s:%s*", p.key, p.name)
+		} else {
+			fmt.Fprintf(&b, " [%s]%s", p.key, p.name)
+		}
 	}
 
 	active := 0
@@ -932,7 +717,9 @@ func (m dashboardModel) renderDashboardTitle() string {
 		}
 		totalTokens += p.TokensUsed
 	}
-	fmt.Fprintf(&b, " | Processes: %d | Tokens: %s", active, ui.FormatTokens(totalTokens))
+	if active > 0 || totalTokens > 0 {
+		fmt.Fprintf(&b, " │ %d proc %s tok", active, ui.FormatTokens(totalTokens))
+	}
 
 	return b.String()
 }
@@ -951,35 +738,49 @@ func (m dashboardModel) renderDashboardStatus() string {
 		rec = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●REC") + "  "
 	}
 
-	ops := "  k:Kill  a:GDB  l:Log  r:Record"
+	ops := "  k:Kill a:GDB l:Log r:Rec"
+
 	if m.statusMsg != "" {
-		return fmt.Sprintf("  %s%s  |  q:Quit  Tab:Switch Pane%s", rec, m.statusMsg, ops)
+		return fmt.Sprintf("  %s%s  |  q:Quit  Tab:Switch%s", rec, m.statusMsg, ops)
 	}
-	if m.activePane == paneTimeline {
-		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  h/l:Scroll  +/-:Zoom  1-4:Filter%s", rec, ops)
+
+	var hints string
+	switch m.viewMode {
+	case viewExpanded:
+		hints = m.paneSpecificHints()
+	default: // viewDefault
+		hints = "Tab:cycle 1-8:jump L:llm H:hist Esc:back q:quit"
 	}
-	if m.activePane == paneHeatmap {
-		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Select  Enter:Details%s", rec, ops)
-	}
-	if m.activePane == paneDetail {
-		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  Detail: process info%s", rec, ops)
-	}
-	if m.activePane == paneIntent {
-		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Jump to Process%s", rec, ops)
-	}
-	if m.activePane == paneSecurity {
-		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Jump to Process%s", rec, ops)
-	}
-	if m.activePane == paneTrace {
-		if m.traceViewMode == 0 {
-			return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Expand Trace%s", rec, ops)
+
+	return fmt.Sprintf("  %s%s%s", rec, hints, ops)
+}
+
+func (m dashboardModel) paneSpecificHints() string {
+	base := "1-8:jump Esc:back q:quit"
+	switch m.expandedPane {
+	case paneTimeline:
+		if m.stepTimelineMode && len(m.stepEntries) > 0 {
+			return "j/k:nav v:expand p:prompt h/l:scroll +/-:zoom " + base
 		}
-		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Jump to Process  Esc:Back%s", rec, ops)
+		return "j/k:nav h/l:scroll +/-:zoom " + base
+	case paneHeatmap:
+		return "j/k:select Enter:details " + base
+	case paneDetail:
+		return "Detail " + base
+	case paneIntent:
+		return "j/k:nav Enter:jump " + base
+	case paneSecurity:
+		return "j/k:nav Enter:jump " + base
+	case paneTrace:
+		if m.traceViewMode == 0 {
+			return "j/k:nav Enter:expand " + base
+		}
+		return "j/k:nav Enter:jump Esc:back " + base
+	case paneEval:
+		return "j/k:nav 1/2/3:sub-view " + base
+	default:
+		return "j/k:nav Enter:select " + base
 	}
-	if m.activePane == paneEval {
-		return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  1/2/3:Sub-view%s", rec, ops)
-	}
-	return fmt.Sprintf("  %sq:Quit  Tab:Switch Pane  j/k:Navigate  Enter:Select%s", rec, ops)
 }
 
 

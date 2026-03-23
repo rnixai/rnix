@@ -24,6 +24,15 @@ const (
 	paneEval
 )
 
+type viewMode int
+
+const (
+	viewDefault  viewMode = iota // 默认：Tree + Timeline + 底部面板
+	viewExpanded                 // 数字键展开某面板
+	viewLLM                      // L：全屏 LLM 对话查看器（Story 29.6 实现）
+	viewHistory                  // H：全屏历史进程列表（Story 29.5 实现）
+)
+
 type eventCategory int
 
 const (

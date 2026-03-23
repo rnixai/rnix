@@ -157,11 +157,14 @@ func TestATDD_27_8_AC1_SecurityPaneBorderHighlight(t *testing.T) {
 func TestATDD_27_8_AC1_StatusBarSecurityHelp(t *testing.T) {
 	m := newSecurityModel()
 	m.activePane = paneSecurity
+	// Story 29.2: pane-specific hints shown in viewExpanded mode
+	m.viewMode = viewExpanded
+	m.expandedPane = paneSecurity
 
 	output := m.renderDashboardStatus()
 
-	if !strings.Contains(output, "Navigate") || !strings.Contains(output, "Enter") {
-		t.Error("AC-1: security pane status help should mention Navigate and Enter")
+	if !strings.Contains(output, "nav") || !strings.Contains(output, "Enter") {
+		t.Error("AC-1: security pane status help should mention nav and Enter")
 	}
 }
 
