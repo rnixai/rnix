@@ -143,6 +143,9 @@ type dashboardModel struct {
 	replayPlaying    bool
 	replaySpeed      float64
 	prevReplayCursor int
+
+	// Focus Card fields (Story 29-3)
+	focusCardData *focusCardState
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -441,6 +444,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		m = selectProcess(m, m.treeRows[m.treeCursor])
 	}
 
+	// Aggregate Focus Card data from cached fields (Story 29-3)
+	m.aggregateFocusCard()
+
 	cmds := []tea.Cmd{tickCmd()}
 
 	pidChanged := m.selectedPID != m.timelineAttachedPID || m.selectedPID != m.heatmapPID
@@ -458,8 +464,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchStepsCmd(m.selectedPID, m.lastFetchedStep))
 	}
 
-	// Fetch proc detail when Detail pane is active and data is missing or stale
-	if m.activePane == paneDetail && m.selectedPID > 0 && m.connected {
+	// Fetch proc detail when Detail pane is active or in default view (Focus Card needs it)
+	focusCardNeedsData := m.viewMode == viewDefault
+	if (m.activePane == paneDetail || focusCardNeedsData) && m.selectedPID > 0 && m.connected {
 		m.procDetailTick++
 		needsFetch := m.procDetail == nil || m.procDetailPID != m.selectedPID
 		// Refresh every 5 ticks (~5s) for live processes
@@ -478,22 +485,22 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Fetch intent trees when Intent pane is active
-	if m.activePane == paneIntent && m.connected {
+	// Fetch intent trees when Intent pane is active or in default view (Focus Card)
+	if (m.activePane == paneIntent || focusCardNeedsData) && m.connected {
 		if m.intentTrees == nil || m.heatmapTickCount%5 == 0 {
 			cmds = append(cmds, fetchIntentTreesCmd())
 		}
 	}
 
-	// Fetch immune status when Security pane is active (Story 27-8)
-	if m.activePane == paneSecurity && m.connected {
+	// Fetch immune status when Security pane is active or in default view (Focus Card)
+	if (m.activePane == paneSecurity || focusCardNeedsData) && m.connected {
 		if m.immuneStatus == nil || m.heatmapTickCount%5 == 0 {
 			cmds = append(cmds, fetchImmuneStatusCmd())
 		}
 	}
 
-	// Fetch trace list when Trace pane is active (Story 27-9)
-	if m.activePane == paneTrace && m.connected {
+	// Fetch trace list when Trace pane is active or in default view (Focus Card)
+	if (m.activePane == paneTrace || focusCardNeedsData) && m.connected {
 		if m.traceSummaries == nil || m.heatmapTickCount%5 == 0 {
 			cmds = append(cmds, fetchTraceListCmd())
 		}
@@ -625,24 +632,9 @@ func (m dashboardModel) renderDefaultLayout(w, h int) string {
 	topRightH := h / 2
 	bottomRightH := h - topRightH
 	timelinePane := m.renderTimelinePane(rightWidth, topRightH)
+	focusCard := m.renderFocusCard(rightWidth, bottomRightH)
 
-	var bottomPane string
-	switch m.activePane {
-	case paneDetail:
-		bottomPane = m.renderDetailPane(rightWidth, bottomRightH)
-	case paneIntent:
-		bottomPane = m.renderIntentPane(rightWidth, bottomRightH)
-	case paneSecurity:
-		bottomPane = m.renderSecurityPane(rightWidth, bottomRightH)
-	case paneTrace:
-		bottomPane = m.renderTracePane(rightWidth, bottomRightH)
-	case paneEval:
-		bottomPane = m.renderEvalPane(rightWidth, bottomRightH)
-	default:
-		bottomPane = m.renderHeatmapPane(rightWidth, bottomRightH)
-	}
-
-	rightPane := lipgloss.JoinVertical(lipgloss.Left, timelinePane, bottomPane)
+	rightPane := lipgloss.JoinVertical(lipgloss.Left, timelinePane, focusCard)
 	return lipgloss.JoinHorizontal(lipgloss.Top, treePane, rightPane)
 }
 

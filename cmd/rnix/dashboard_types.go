@@ -244,3 +244,54 @@ var (
 )
 
 const promptContentTruncateLimit = 2000
+
+// --- Focus Card types (Story 29-3) ---
+
+type focusCardState struct {
+	pid       types.PID
+	agent     string
+	state     types.ProcessState
+	elapsed   string
+	isHistory bool
+	exitCode  int
+
+	// Tokens card data
+	totalTokens int
+	tokenBudget int
+	tokenRate   string
+	stepCount   int
+
+	// Context card data
+	systemPct    float64
+	userPct      float64
+	assistantPct float64
+	toolPct      float64
+
+	// Status card data
+	skills  []string
+	devices []string
+	ppid    types.PID
+
+	// Intent card data
+	intentTasks []intentMiniTask
+
+	// Trace card data
+	spanCount int
+	avgLatMs  float64
+	errCount  int
+
+	// Alerts card data
+	alertCount int
+	topAlerts  []string
+
+	// Result card data (Dead processes only)
+	resultText string
+
+	// Historical snapshot info (Dead processes)
+	livedRange string
+}
+
+type intentMiniTask struct {
+	name  string
+	state string
+}
