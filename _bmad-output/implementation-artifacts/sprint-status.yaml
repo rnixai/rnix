@@ -34,7 +34,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-06
-last_updated: 2026-03-23  # Sprint Change Proposal approved: Epic 27 closed, Epic 29 created
+last_updated: 2026-03-23  # Story 29-1 done
 project: rnix
 project_key: NOKEY
 tracking_system: file-system
@@ -325,8 +325,8 @@ development_status:
   # Decision: 新增 Epic 29，文件拆分 + 导航重构 + Focus Card + 进程历史 + LLM 查看器
   # Sprint Change Proposal: sprint-change-proposal-2026-03-23.md
   # Design Spec: dashboard-redesign-spec-2026-03-23.md
-  epic-29: backlog
-  29-1-dashboard-file-splitting: backlog                              # Phase 1: 文件拆分（纯重构）
+  epic-29: in-progress
+  29-1-dashboard-file-splitting: done                                 # Phase 1: 文件拆分（纯重构）
   29-2-view-mode-system-and-navigation-overhaul: backlog              # Phase 1: 视图模式 + 导航重构
   29-3-default-view-focus-card: backlog                               # Phase 2: Focus Card 2×3 摘要
   29-4-kernel-process-history-and-ipc: backlog                        # Phase 3: 进程历史保留 + IPC
