@@ -235,6 +235,9 @@ type KernelImpl struct {
 	slaResults   *xsync.SyncMap[types.PGID, []*SLAResult]
 	slaResultsMu sync.Mutex // guards Load+Modify+Store on slaResults
 
+	// Process history (Story 29.4)
+	procHistory *ProcessHistory
+
 	// Immune daemon (Story 22.1)
 	immuneDaemon *ImmuneDaemon
 
@@ -256,6 +259,7 @@ func NewKernel(v *vfs.VFS, ctxMgr *rnixctx.Manager, cb KernelCallbacks) *KernelI
 		msgQueues:    xsync.NewSyncMap[types.PID, *MessageQueue](),
 		procGroups:   xsync.NewSyncMap[types.PGID, *ProcGroup](),
 		spanRecorder: debug.NewSpanRecorder(),
+		procHistory:  NewProcessHistory(1000),
 		budgetPools:  xsync.NewSyncMap[types.PGID, *BudgetPool](),
 		slaResults:   xsync.NewSyncMap[types.PGID, []*SLAResult](),
 	}
@@ -2917,6 +2921,31 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 		return true
 	})
 	return infos
+}
+
+// ListAllProcs returns the union of active processes (from procTable) and
+// historical processes (reaped and removed). Results are deduplicated by PID
+// (active entries take precedence) and sorted by CreatedAt ascending.
+func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
+	active := k.ListProcs()
+	historical := k.procHistory.List()
+
+	seen := make(map[types.PID]bool, len(active))
+	result := make([]vfs.ProcInfo, 0, len(active)+len(historical))
+	for _, p := range active {
+		seen[p.PID] = true
+		result = append(result, p)
+	}
+	for _, p := range historical {
+		if !seen[p.PID] {
+			result = append(result, p)
+		}
+	}
+
+	slices.SortFunc(result, func(a, b vfs.ProcInfo) int {
+		return a.CreatedAt.Compare(b.CreatedAt)
+	})
+	return result
 }
 
 // SetMountManager sets the MCP mount manager on the kernel.

@@ -70,6 +70,23 @@ func (c *Client) ListProcs() ([]vfs.ProcInfo, error) {
 	return result, nil
 }
 
+// ListAllProcs returns all processes (active + historical) from the daemon.
+func (c *Client) ListAllProcs() ([]vfs.ProcInfo, error) {
+	resp, err := c.call(MethodListAllProcs, nil)
+	if err != nil {
+		return nil, err
+	}
+	var lr ListProcsResponse
+	if err := json.Unmarshal(resp.Payload, &lr); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal list_all_procs: %w", err)
+	}
+	result := make([]vfs.ProcInfo, len(lr.Processes))
+	for i, w := range lr.Processes {
+		result[i] = WireToProcInfo(w)
+	}
+	return result, nil
+}
+
 // CtxProfile returns context profiling results for the given PID.
 func (c *Client) CtxProfile(pid types.PID) (*debug.CtxProfileResult, error) {
 	resp, err := c.call(MethodCtxProfile, CtxProfileRequest{PID: pid})
