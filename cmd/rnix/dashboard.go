@@ -147,6 +147,17 @@ type dashboardModel struct {
 	// Focus Card fields (Story 29-3)
 	focusCardData *focusCardState
 
+	// LLM Viewer fields (Story 29-6)
+	llmViewerPID      types.PID
+	llmViewerUUID     string
+	llmViewerStep     int
+	llmViewerStepMax  int
+	llmViewerSteps    []ipc.StepSummaryWire
+	llmViewerDetail   *ipc.GetStepDetailResponse
+	llmViewerViewport viewport.Model
+	llmViewerContent  string
+	llmViewerPrevMode viewMode
+
 	// History view fields (Story 29-5)
 	historyProcs        []vfs.ProcInfo
 	historyCursor       int
@@ -191,6 +202,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.promptPager {
 			m.promptViewport.SetWidth(msg.Width)
 			m.promptViewport.SetHeight(max(msg.Height-2, 1))
+		}
+		if m.viewMode == viewLLM {
+			m.llmViewerViewport.SetWidth(msg.Width)
+			m.llmViewerViewport.SetHeight(max(msg.Height-4, 1))
 		}
 		return m, nil
 	case timelineStreamStartedMsg:
@@ -378,6 +393,27 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.detail != nil {
 			m.stepDetailCache[msg.step] = msg.detail
 			m.enterPromptPager(msg.detail, msg.step)
+		}
+		return m, nil
+	case llmViewerMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("✗ LLM viewer: %v", msg.err)
+			m.statusMsgTTL = statusMsgDefaultTTL
+		} else if msg.detail != nil && msg.pid == m.llmViewerPID {
+			m.llmViewerDetail = msg.detail
+			m.llmViewerStep = msg.step
+			content := m.buildLLMViewerContent()
+			m.llmViewerContent = content
+			m.llmViewerViewport.SetContent(content)
+		}
+		return m, nil
+	case llmStepListMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("✗ LLM steps: %v", msg.err)
+			m.statusMsgTTL = statusMsgDefaultTTL
+		} else if len(msg.steps) > 0 && msg.pid == m.llmViewerPID {
+			m.llmViewerSteps = msg.steps
+			m.llmViewerStepMax = msg.steps[len(msg.steps)-1].Step
 		}
 		return m, nil
 	case historyProcsMsg:
@@ -637,6 +673,8 @@ func (m dashboardModel) renderDashboard() string {
 		mainContent = m.renderExpandedLayout(w, contentHeight)
 	case viewHistory:
 		mainContent = m.renderHistoryView(w, contentHeight)
+	case viewLLM:
+		mainContent = m.renderLLMViewer(w, contentHeight)
 	default: // viewDefault
 		mainContent = m.renderDefaultLayout(w, contentHeight)
 	}
@@ -767,6 +805,18 @@ func (m dashboardModel) renderDashboardStatus() string {
 		} else {
 			hints = "j/k:nav Enter:focus L:llm /:search 1/2/3:sort Esc:back q:quit"
 		}
+	case viewLLM:
+		d := m.llmViewerDetail
+		reqTok := 0
+		respTok := 0
+		durMs := 0.0
+		if d != nil {
+			reqTok = d.RequestTokens
+			respTok = d.ResponseTokens
+			durMs = d.ToolDurationMs
+		}
+		hints = fmt.Sprintf("req:%d tok │ resp:%d tok │ %.0fms ── j/k:scroll h/l:prev/next y:copy Esc:close",
+			reqTok, respTok, durMs)
 	default: // viewDefault
 		hints = "Tab:cycle 1-8:jump L:llm H:hist Esc:back q:quit"
 	}

@@ -56,6 +56,11 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.historyKey(msg)
 	}
 
+	// === Layer 2.5: LLM Viewer 覆盖层 (Story 29-6) ===
+	if m.viewMode == viewLLM {
+		return m.llmViewerKey(msg)
+	}
+
 	// === Layer 3: Kill 确认 ===
 	if m.confirmKill {
 		switch key {
@@ -89,10 +94,8 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// === Layer 5: 主视图全局快捷键 ===
 	switch key {
-	case "L":
-		m.statusMsg = "LLM 查看器尚未实现（Story 29.6）"
-		m.statusMsgTTL = statusMsgDefaultTTL
-		return m, nil
+	case "L", "shift+L":
+		return m.enterLLMViewer()
 	case "H":
 		return m.enterHistoryView()
 	case "esc":
