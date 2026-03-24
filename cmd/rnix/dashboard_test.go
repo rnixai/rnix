@@ -1578,7 +1578,7 @@ func TestDashboardModel_StatusBarOperationKeys(t *testing.T) {
 	v := m.View()
 	content := v.Content
 
-	for _, hint := range []string{"k:Kill", "a:GDB", "l:Log", "r:Rec"} {
+	for _, hint := range []string{"K:Kill", "a:GDB", "l:Log", "r:Rec"} {
 		if !strings.Contains(content, hint) {
 			t.Errorf("status bar should contain '%s'", hint)
 		}
