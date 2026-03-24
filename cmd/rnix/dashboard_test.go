@@ -748,11 +748,11 @@ func TestDashboardModel_TimelineZoom(t *testing.T) {
 	}
 }
 
-// --- 17.2-UNIT-012: [P0] 1-4 toggles category filter (AC2) ---
+// --- 17.2-UNIT-012: [P0] !/@ /#/$ toggles category filter (AC2) ---
 
 func TestDashboardModel_TimelineFilter(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	// Story 29.2: digit keys 1-4 only pass to timeline in viewExpanded + paneTimeline
+	// Story 29.2: shifted digit keys !/@ /#/$ only pass to timeline in viewExpanded + paneTimeline
 	m.viewMode = viewExpanded
 	m.expandedPane = paneTimeline
 
@@ -760,34 +760,34 @@ func TestDashboardModel_TimelineFilter(t *testing.T) {
 		t.Fatal("LLM filter should be true by default")
 	}
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: '1'})
+	updated, _ := m.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
 	um := updated.(dashboardModel)
 	if um.timelineFilters[catLLM] {
-		t.Error("pressing '1' should toggle LLM filter to false")
+		t.Error("pressing '!' should toggle LLM filter to false")
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '1'})
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
 	um = updated.(dashboardModel)
 	if !um.timelineFilters[catLLM] {
-		t.Error("pressing '1' again should toggle LLM filter back to true")
+		t.Error("pressing '!' again should toggle LLM filter back to true")
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '2'})
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '@', Text: "@"})
 	um = updated.(dashboardModel)
 	if um.timelineFilters[catTool] {
-		t.Error("pressing '2' should toggle Tool filter to false")
+		t.Error("pressing '@' should toggle Tool filter to false")
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '3'})
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '#', Text: "#"})
 	um = updated.(dashboardModel)
 	if um.timelineFilters[catIPC] {
-		t.Error("pressing '3' should toggle IPC filter to false")
+		t.Error("pressing '#' should toggle IPC filter to false")
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '4'})
+	updated, _ = um.Update(tea.KeyPressMsg{Code: '$', Text: "$"})
 	um = updated.(dashboardModel)
 	if um.timelineFilters[catVFS] {
-		t.Error("pressing '4' should toggle VFS filter to false")
+		t.Error("pressing '$' should toggle VFS filter to false")
 	}
 }
 

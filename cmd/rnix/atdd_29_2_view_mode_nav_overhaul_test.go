@@ -656,21 +656,34 @@ func TestViewModeSystem_DigitKeyEvalConflict(t *testing.T) {
 	m.activePane = paneEval
 	m.evalSubView = 0 // reputation
 
-	// 按 "2" → 应切换 evalSubView 而非跳转到 paneTimeline
+	// 按 "2" → 应跳转到 paneTimeline（数字键始终用于面板跳转）
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'})
 	model := m2.(dashboardModel)
 
-	if model.evalSubView != 1 {
-		t.Errorf("expected evalSubView=1 (topology) after '2' in eval pane, got %d", model.evalSubView)
+	if model.expandedPane != paneTimeline {
+		t.Errorf("expected expandedPane=paneTimeline after '2' in eval pane, got %d", model.expandedPane)
 	}
-	// 应保持在 viewExpanded + paneEval
-	if model.viewMode != viewExpanded || model.expandedPane != paneEval {
-		t.Errorf("expected to stay in viewExpanded+paneEval, got viewMode=%d expandedPane=%d", model.viewMode, model.expandedPane)
+	if model.viewMode != viewExpanded {
+		t.Errorf("expected viewMode=viewExpanded, got %d", model.viewMode)
+	}
+
+	// 按 '@' (Shift+2) → 应切换 evalSubView 到 topology
+	m3 := newDashboardModel(nil)
+	m3.viewMode = viewExpanded
+	m3.expandedPane = paneEval
+	m3.activePane = paneEval
+	m3.evalSubView = 0
+
+	m4, _ := m3.Update(tea.KeyPressMsg{Code: '@', Text: "@"})
+	model2 := m4.(dashboardModel)
+
+	if model2.evalSubView != 1 {
+		t.Errorf("expected evalSubView=1 (topology) after '@' in eval pane, got %d", model2.evalSubView)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// 29.2-INT-012: [P0] AC-2 — Timeline 面板展开时 1-4 传给面板处理 filter
+// 29.2-INT-012: [P0] AC-2 — Timeline 面板展开时 Shift+数字键切换 filter
 // ---------------------------------------------------------------------------
 
 func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
@@ -679,19 +692,38 @@ func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
 	m.expandedPane = paneTimeline
 	m.activePane = paneTimeline
 
-	// 按 "1" → 应切换 timeline filter 而非跳转到 paneTree
+	// 按 "1" → 应跳转到 paneTree（数字键始终用于面板跳转）
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '1'})
 	model := m2.(dashboardModel)
 
-	// 应保持在 viewExpanded + paneTimeline（不跳转到 paneTree）
-	if model.expandedPane != paneTimeline {
-		t.Errorf("expected expandedPane=paneTimeline after '1' in timeline, got %d", model.expandedPane)
+	if model.expandedPane != paneTree {
+		t.Errorf("expected expandedPane=paneTree after '1' in timeline, got %d", model.expandedPane)
 	}
 	if model.viewMode != viewExpanded {
 		t.Errorf("expected viewMode=viewExpanded, got %d", model.viewMode)
 	}
-}
 
+	// 按 '!' (Shift+1) → 应切换 timeline filter
+	m3 := newDashboardModel(nil)
+	m3.viewMode = viewExpanded
+	m3.expandedPane = paneTimeline
+	m3.activePane = paneTimeline
+	m3.timelineFilters = defaultTimelineFilters()
+
+	if !m3.timelineFilters[catLLM] {
+		t.Fatal("LLM filter should be true by default")
+	}
+
+	m4, _ := m3.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
+	model2 := m4.(dashboardModel)
+
+	if model2.timelineFilters[catLLM] {
+		t.Error("pressing '!' should toggle LLM filter to false")
+	}
+	if model2.expandedPane != paneTimeline {
+		t.Errorf("expected to stay in paneTimeline after '!', got %d", model2.expandedPane)
+	}
+}
 // ---------------------------------------------------------------------------
 // 29.2-INT-013: [P1] AC-6 — Timeline 展开时 stepTimelineMode=false 不显示 v/p 提示
 // ---------------------------------------------------------------------------

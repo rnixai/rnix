@@ -851,7 +851,7 @@ func (m dashboardModel) paneSpecificHints() string {
 		}
 		return "j/k:nav Enter:jump Esc:back " + base
 	case paneEval:
-		return "j/k:nav 1/2/3:sub-view " + base
+		return "j/k:nav !/@/#:sub-view " + base
 	default:
 		return "j/k:nav Enter:select " + base
 	}

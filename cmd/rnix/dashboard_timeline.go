@@ -211,13 +211,13 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		if m.timelineEventCursor < len(visible)-1 {
 			m.timelineEventCursor++
 		}
-	case "1":
+	case "!":
 		m.timelineFilters[catLLM] = !m.timelineFilters[catLLM]
-	case "2":
+	case "@":
 		m.timelineFilters[catTool] = !m.timelineFilters[catTool]
-	case "3":
+	case "#":
 		m.timelineFilters[catIPC] = !m.timelineFilters[catIPC]
-	case "4":
+	case "$":
 		m.timelineFilters[catVFS] = !m.timelineFilters[catVFS]
 	case "s":
 		m.stepTimelineMode = true
@@ -237,6 +237,26 @@ func (m dashboardModel) handleStepTimelineKey(key string) dashboardModel {
 		}
 	case "s":
 		m.stepTimelineMode = false
+	case "!":
+		if m.timelineFilters == nil {
+			m.timelineFilters = defaultTimelineFilters()
+		}
+		m.timelineFilters[catLLM] = !m.timelineFilters[catLLM]
+	case "@":
+		if m.timelineFilters == nil {
+			m.timelineFilters = defaultTimelineFilters()
+		}
+		m.timelineFilters[catTool] = !m.timelineFilters[catTool]
+	case "#":
+		if m.timelineFilters == nil {
+			m.timelineFilters = defaultTimelineFilters()
+		}
+		m.timelineFilters[catIPC] = !m.timelineFilters[catIPC]
+	case "$":
+		if m.timelineFilters == nil {
+			m.timelineFilters = defaultTimelineFilters()
+		}
+		m.timelineFilters[catVFS] = !m.timelineFilters[catVFS]
 	}
 	return m
 }
