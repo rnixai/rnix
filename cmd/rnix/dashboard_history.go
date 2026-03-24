@@ -157,13 +157,12 @@ func (m dashboardModel) historyKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m2, cmd
 		}
 		return m, nil
-	case "L":
+	case "L", "shift+L":
 		if m.historyCursor < len(filtered) {
 			proc := filtered[m.historyCursor]
 			m.selectedPID = proc.PID
 			m.selectedUUID = proc.UUID
-			m.statusMsg = "LLM 查看器尚未实现（Story 29.6）"
-			m.statusMsgTTL = statusMsgDefaultTTL
+			return m.enterLLMViewer()
 		}
 		return m, nil
 	case "/":

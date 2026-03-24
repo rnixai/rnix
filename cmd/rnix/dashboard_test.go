@@ -2141,3 +2141,270 @@ func TestDashboardModel_HeatmapRefreshTick(t *testing.T) {
 		t.Errorf("after 5 ticks, heatmapTickCount should be 5, got %d", m.heatmapTickCount)
 	}
 }
+
+// ============================================================
+// ATDD RED PHASE — Story 29.6: LLM 对话查看器
+// All tests assert EXPECTED behavior. They FAIL because the
+// LLM viewer overlay (viewLLM) is not implemented yet.
+// ============================================================
+
+// --- LLM viewer test helpers ---
+
+func newTestLLMViewerModel() dashboardModel {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-mock-002"
+	m.viewMode = viewLLM
+	m.activePane = paneTree
+	return m
+}
+
+// --- 29.6-UNIT-001: [P0] L 键选中进程后进入 viewLLM (AC1) ---
+
+func TestLLMViewer_LKeyEntersViewer(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.treeCursor = 1
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-mock-002"
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'L', ShiftedCode: 'L', Mod: tea.ModShift})
+	um := updated.(dashboardModel)
+
+	if um.viewMode != viewLLM {
+		t.Errorf("L key should enter viewLLM mode, got viewMode=%d", um.viewMode)
+	}
+}
+
+// --- 29.6-UNIT-002: [P0] L 键返回非 nil cmd 获取步骤数据 (AC1) ---
+
+func TestLLMViewer_LKeyReturnsCmd(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.treeCursor = 1
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-mock-002"
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'L', ShiftedCode: 'L', Mod: tea.ModShift})
+
+	if cmd == nil {
+		t.Error("L key should return non-nil cmd (fetch step detail and step list)")
+	}
+}
+
+// --- 29.6-UNIT-003: [P0] 未选中进程按 L 显示 "No process selected" (AC2) ---
+
+func TestLLMViewer_LKeyNoProcessSelected(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 0
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'L', ShiftedCode: 'L', Mod: tea.ModShift})
+	um := updated.(dashboardModel)
+
+	if !strings.Contains(um.statusMsg, "No process selected") {
+		t.Errorf("L with no selectedPID should show 'No process selected', got %q", um.statusMsg)
+	}
+	if um.viewMode == viewLLM {
+		t.Error("should not enter viewLLM when no process selected")
+	}
+}
+
+// --- 29.6-UNIT-004: [P0] viewLLM View 包含 "REQUEST" 区块 (AC3) ---
+
+func TestLLMViewer_ViewContainsRequest(t *testing.T) {
+	m := newTestLLMViewerModel()
+	v := m.View()
+
+	if !strings.Contains(v.Content, "REQUEST") {
+		t.Error("viewLLM should contain 'REQUEST' section header")
+	}
+}
+
+// --- 29.6-UNIT-005: [P0] viewLLM View 包含 "RESPONSE" 区块 (AC3) ---
+
+func TestLLMViewer_ViewContainsResponse(t *testing.T) {
+	m := newTestLLMViewerModel()
+	v := m.View()
+
+	if !strings.Contains(v.Content, "RESPONSE") {
+		t.Error("viewLLM should contain 'RESPONSE' section header")
+	}
+}
+
+// --- 29.6-UNIT-006: [P0] viewLLM View 包含步骤导航栏 (AC4) ---
+
+func TestLLMViewer_ViewContainsStepNav(t *testing.T) {
+	m := newTestLLMViewerModel()
+	v := m.View()
+
+	if !strings.Contains(v.Content, "Steps:") {
+		t.Error("viewLLM should contain 'Steps:' navigation bar")
+	}
+}
+
+// --- 29.6-UNIT-007: [P0] viewLLM h 键返回非 nil cmd（获取上一步）(AC5) ---
+
+func TestLLMViewer_HKeyPrevStep(t *testing.T) {
+	m := newTestLLMViewerModel()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'h'})
+
+	if cmd == nil {
+		t.Error("h key in viewLLM should return non-nil cmd (fetch previous step)")
+	}
+}
+
+// --- 29.6-UNIT-008: [P0] viewLLM l 键返回非 nil cmd（获取下一步）(AC5) ---
+
+func TestLLMViewer_LKeyNextStep(t *testing.T) {
+	m := newTestLLMViewerModel()
+	m.llmViewerStepMax = 5 // step list loaded
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
+
+	if cmd == nil {
+		t.Error("l key in viewLLM should return non-nil cmd (fetch next step)")
+	}
+}
+
+func TestLLMViewer_LKeyNextStepBlockedBeforeLoad(t *testing.T) {
+	m := newTestLLMViewerModel()
+	// llmViewerStepMax == 0 (step list not loaded)
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
+
+	if cmd != nil {
+		t.Error("l key in viewLLM should return nil cmd when step list not loaded")
+	}
+}
+
+// --- 29.6-UNIT-009: [P0] viewLLM j 键滚动 viewport 而非移动 treeCursor (AC6) ---
+
+func TestLLMViewer_JKeyScrollsNotTree(t *testing.T) {
+	m := newTestLLMViewerModel()
+	m.treeCursor = 0
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
+	um := updated.(dashboardModel)
+
+	if um.treeCursor != 0 {
+		t.Errorf("j in viewLLM should scroll viewport, not move treeCursor: expected 0, got %d", um.treeCursor)
+	}
+}
+
+// --- 29.6-UNIT-010: [P1] viewLLM y 键返回非 nil cmd（剪贴板复制）(AC7) ---
+
+func TestLLMViewer_YKeyCopy(t *testing.T) {
+	m := newTestLLMViewerModel()
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'y'})
+
+	if cmd == nil {
+		t.Error("y key in viewLLM should return non-nil cmd (clipboard copy)")
+	}
+}
+
+// --- 29.6-UNIT-011: [P0] viewLLM Esc 恢复 viewDefault (AC8) ---
+
+func TestLLMViewer_EscExitsViewer(t *testing.T) {
+	m := newTestLLMViewerModel()
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	um := updated.(dashboardModel)
+
+	if um.viewMode != viewDefault {
+		t.Errorf("Esc in viewLLM should return to viewDefault, got viewMode=%d", um.viewMode)
+	}
+}
+
+// --- 29.6-UNIT-012: [P1] viewLLM Status bar 包含快捷键提示 (AC9) ---
+
+func TestLLMViewer_ViewContainsKeyHints(t *testing.T) {
+	m := newTestLLMViewerModel()
+	v := m.View()
+	content := v.Content
+
+	for _, hint := range []string{"scroll", "copy", "Esc"} {
+		if !strings.Contains(content, hint) {
+			t.Errorf("viewLLM status bar should contain '%s' hint", hint)
+		}
+	}
+}
+
+// --- 29.6-UNIT-013: [P0] 历史视图 L 键进入 viewLLM (AC10) ---
+
+func TestLLMViewer_HistoryViewLKey(t *testing.T) {
+	procs := mockDashboardProcs()
+	m := newTestDashboardModel(procs)
+	m.viewMode = viewHistory
+	m.historyProcs = procs // populate history list so filtered is non-empty
+	m.historyCursor = 1    // select PID 2
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-mock-002"
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'L', ShiftedCode: 'L', Mod: tea.ModShift})
+	um := updated.(dashboardModel)
+
+	if um.viewMode != viewLLM {
+		t.Errorf("L in history view should enter viewLLM, got viewMode=%d", um.viewMode)
+	}
+	if um.llmViewerPrevMode != viewHistory {
+		t.Errorf("LLM viewer should save prev mode as viewHistory, got %d", um.llmViewerPrevMode)
+	}
+}
+
+// --- 29.6-UNIT-014: [P0] viewLLM 渲染全屏覆盖层内容（非默认面板）(AC1, AC3) ---
+
+func TestLLMViewer_ViewFullScreenOverlay(t *testing.T) {
+	m := newTestLLMViewerModel()
+	v := m.View()
+	content := v.Content
+
+	// viewLLM should render LLM-specific content, not default pane layout
+	hasLLMContent := strings.Contains(content, "LLM") ||
+		strings.Contains(content, "REQUEST") ||
+		strings.Contains(content, "RESPONSE") ||
+		strings.Contains(content, "Viewer")
+	if !hasLLMContent {
+		t.Error("viewLLM should render LLM viewer content (LLM/REQUEST/RESPONSE/Viewer)")
+	}
+}
+
+// --- 29.6-UNIT-015: [P0] viewLLM k 键滚动 viewport 而非移动 treeCursor (AC6) ---
+
+func TestLLMViewer_KKeyScrollsNotTree(t *testing.T) {
+	m := newTestLLMViewerModel()
+	m.treeCursor = 2
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
+	um := updated.(dashboardModel)
+
+	if um.treeCursor != 2 {
+		t.Errorf("k in viewLLM should scroll viewport, not move treeCursor: expected 2, got %d", um.treeCursor)
+	}
+}
+
+// --- 29.6-UNIT-CR-001: Esc 从历史视图进入后回退到历史视图 ---
+
+func TestLLMViewer_EscReturnsToHistoryView(t *testing.T) {
+	m := newTestLLMViewerModel()
+	m.llmViewerPrevMode = viewHistory
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	um := updated.(dashboardModel)
+
+	if um.viewMode != viewHistory {
+		t.Errorf("Esc in viewLLM should return to previous viewHistory, got viewMode=%d", um.viewMode)
+	}
+}
+
+// --- 29.6-UNIT-016: [P1] viewLLM Status bar 包含 token 统计 (AC9) ---
+
+func TestLLMViewer_ViewContainsTokenStats(t *testing.T) {
+	m := newTestLLMViewerModel()
+	v := m.View()
+	content := v.Content
+
+	// AC9: Status bar 格式 "req:X tok │ resp:Y tok │ Zms"
+	if !strings.Contains(content, "req:") || !strings.Contains(content, "resp:") {
+		t.Error("viewLLM status bar should contain token stats (req: and resp:)")
+	}
+}

@@ -162,6 +162,22 @@ type promptPagerMsg struct {
 	err    error
 }
 
+// --- LLM Viewer types (Story 29-6) ---
+
+type llmViewerMsg struct {
+	pid    types.PID
+	step   int
+	detail *ipc.GetStepDetailResponse
+	err    error
+}
+
+type llmStepListMsg struct {
+	pid   types.PID
+	steps []ipc.StepSummaryWire
+	total int
+	err   error
+}
+
 // --- History view types (Story 29-5) ---
 
 type historyProcsMsg struct {
