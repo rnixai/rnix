@@ -194,8 +194,8 @@ func TestATDD_27_10_AC1_StatusBarEvalHelp(t *testing.T) {
 
 	output := m.renderDashboardStatus()
 
-	if !strings.Contains(output, "1/2/3") || !strings.Contains(output, "sub-view") {
-		t.Error("AC-1: eval pane status help should mention 1/2/3 and sub-view")
+	if !strings.Contains(output, "!/@/#") || !strings.Contains(output, "sub-view") {
+		t.Error("AC-1: eval pane status help should mention !/@ /# and sub-view")
 	}
 }
 
@@ -389,62 +389,62 @@ func TestATDD_27_10_AC2_RepCursorBounds(t *testing.T) {
 // AC-3: Sub-view switching (1/2/3 keys)
 // =============================================================================
 
-// --- AC-3.1: [P0] Key '1' selects reputation sub-view ---
+// --- AC-3.1: [P0] Key '!' (Shift+1) selects reputation sub-view ---
 func TestATDD_27_10_AC3_Key1_SelectsReputation(t *testing.T) {
 	m := newEvalModel()
 	m.evalSubView = 1 // currently on topology
-	// Story 29.2: digit keys 1-3 pass to eval only in viewExpanded + paneEval
+	// Story 29.2: shifted digit keys !/@ /# pass to eval only in viewExpanded + paneEval
 	m.viewMode = viewExpanded
 	m.expandedPane = paneEval
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: '1'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
 	model := m2.(dashboardModel)
 
 	if model.evalSubView != 0 {
-		t.Errorf("AC-3: after pressing '1', evalSubView = %d, want 0 (reputation)", model.evalSubView)
+		t.Errorf("AC-3: after pressing '!', evalSubView = %d, want 0 (reputation)", model.evalSubView)
 	}
 }
 
-// --- AC-3.2: [P0] Key '2' selects topology sub-view ---
+// --- AC-3.2: [P0] Key '@' (Shift+2) selects topology sub-view ---
 func TestATDD_27_10_AC3_Key2_SelectsTopology(t *testing.T) {
 	m := newEvalModel()
 	m.evalSubView = 0 // currently on reputation
-	// Story 29.2: digit keys 1-3 pass to eval only in viewExpanded + paneEval
+	// Story 29.2: shifted digit keys !/@ /# pass to eval only in viewExpanded + paneEval
 	m.viewMode = viewExpanded
 	m.expandedPane = paneEval
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: '@', Text: "@"})
 	model := m2.(dashboardModel)
 
 	if model.evalSubView != 1 {
-		t.Errorf("AC-3: after pressing '2', evalSubView = %d, want 1 (topology)", model.evalSubView)
+		t.Errorf("AC-3: after pressing '@', evalSubView = %d, want 1 (topology)", model.evalSubView)
 	}
 }
 
-// --- AC-3.3: [P0] Key '3' selects synergy sub-view ---
+// --- AC-3.3: [P0] Key '#' (Shift+3) selects synergy sub-view ---
 func TestATDD_27_10_AC3_Key3_SelectsSynergy(t *testing.T) {
 	m := newEvalModel()
 	m.evalSubView = 0 // currently on reputation
-	// Story 29.2: digit keys 1-3 pass to eval only in viewExpanded + paneEval
+	// Story 29.2: shifted digit keys !/@ /# pass to eval only in viewExpanded + paneEval
 	m.viewMode = viewExpanded
 	m.expandedPane = paneEval
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: '3'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: '#', Text: "#"})
 	model := m2.(dashboardModel)
 
 	if model.evalSubView != 2 {
-		t.Errorf("AC-3: after pressing '3', evalSubView = %d, want 2 (synergy)", model.evalSubView)
+		t.Errorf("AC-3: after pressing '#', evalSubView = %d, want 2 (synergy)", model.evalSubView)
 	}
 }
 
-// --- AC-3.4: [P0] 1/2/3 keys only work in eval pane ---
+// --- AC-3.4: [P0] digit keys in non-eval pane jump to pane, not eval sub-view ---
 func TestATDD_27_10_AC3_SubViewKeysOnlyInEvalPane(t *testing.T) {
 	m := newDashboardModel(nil)
 	m.width = 120
 	m.height = 40
 	m.activePane = paneTree // not eval pane
 
-	// Pressing '2' in tree pane should NOT set evalSubView
+	// Pressing '2' in tree pane should NOT set evalSubView — it should jump to pane
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'})
 	model := m2.(dashboardModel)
 

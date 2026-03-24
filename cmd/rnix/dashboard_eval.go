@@ -70,16 +70,16 @@ func fetchSynergyCmd() tea.Cmd {
 
 func (m dashboardModel) handleEvalKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "1":
+	case "!":
 		m.evalSubView = 0
 		return m, nil
-	case "2":
+	case "@":
 		m.evalSubView = 1
 		if m.evalTopology == nil && m.connected {
 			return m, fetchTopologyCmd()
 		}
 		return m, nil
-	case "3":
+	case "#":
 		m.evalSubView = 2
 		if m.evalSynergies == nil && m.connected {
 			return m, fetchSynergyCmd()
@@ -155,9 +155,9 @@ func (m dashboardModel) renderEvalPane(width, height int) string {
 	var b strings.Builder
 
 	// Header with sub-view tabs
-	repTab := "[1]Reputation"
-	topoTab := "[2]Topology"
-	synTab := "[3]Synergy"
+	repTab := "[!]Reputation"
+	topoTab := "[@]Topology"
+	synTab := "[#]Synergy"
 	switch m.evalSubView {
 	case 0:
 		repTab = lipgloss.NewStyle().Bold(true).Render(repTab)

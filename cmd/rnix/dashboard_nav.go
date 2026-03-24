@@ -119,16 +119,22 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "1", "2", "3", "4", "5", "6", "7", "8":
 		n, _ := strconv.Atoi(key)
-		// 展开 Eval 面板时 1/2/3 传给面板处理子视图切换
-		if m.viewMode == viewExpanded && m.expandedPane == paneEval && n >= 1 && n <= 3 {
+		return m.jumpToPane(paneType(n - 1))
+	// 展开 Eval 面板时 !/@ /#（Shift+1/2/3）切换子视图
+	case "!", "@", "#":
+		if m.viewMode == viewExpanded && m.expandedPane == paneEval {
 			return m.handleEvalKey(key)
 		}
-		// 展开 Timeline 面板时 1-4 传给面板处理 filter 键
-		if m.viewMode == viewExpanded && m.expandedPane == paneTimeline && n >= 1 && n <= 4 {
+		// 展开 Timeline 面板时 !/@/#/$（Shift+1/2/3/4）切换筛选器
+		if m.viewMode == viewExpanded && m.expandedPane == paneTimeline {
 			m = m.handleTimelineKey(key)
 			return m, nil
 		}
-		return m.jumpToPane(paneType(n - 1))
+	case "$":
+		if m.viewMode == viewExpanded && m.expandedPane == paneTimeline {
+			m = m.handleTimelineKey(key)
+			return m, nil
+		}
 	}
 
 	// === Layer 6: 面板内按键分发 ===
