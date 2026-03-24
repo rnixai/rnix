@@ -65,3 +65,9 @@ func isFailedResult(result string) bool {
 		strings.Contains(lower, "fail") ||
 		strings.Contains(lower, "timeout")
 }
+
+// IsFailedResult is the exported form of isFailedResult.
+// Returns true when the result string indicates failure.
+func IsFailedResult(result string) bool {
+	return isFailedResult(result)
+}

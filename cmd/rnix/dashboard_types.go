@@ -7,6 +7,7 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // --- Pane and category enums ---
@@ -159,6 +160,13 @@ type promptPagerMsg struct {
 	step   int
 	detail *ipc.GetStepDetailResponse
 	err    error
+}
+
+// --- History view types (Story 29-5) ---
+
+type historyProcsMsg struct {
+	procs []vfs.ProcInfo
+	err   error
 }
 
 // --- Timeline types ---

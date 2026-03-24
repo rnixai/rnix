@@ -307,8 +307,20 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 	}
 
 	filtered := m.filteredTimelineEvents()
+
+	// AC-10: Auto-filter for Dead processes — only show events for selectedPID
+	pidFiltered := false
+	if m.isSelectedProcessDead() && m.selectedPID > 0 {
+		filtered = filterTimelineByPID(filtered, m.selectedPID)
+		pidFiltered = true
+	}
+
 	if len(filtered) == 0 {
-		b.WriteString("\n    Waiting for events...")
+		if pidFiltered {
+			b.WriteString("\n    No events for this process")
+		} else {
+			b.WriteString("\n    Waiting for events...")
+		}
 		return style.Render(b.String())
 	}
 
@@ -529,6 +541,30 @@ func formatTimelineArgs(args map[string]any, maxLen int) string {
 }
 
 // --- Step timeline logic (Story 27-3) ---
+
+// isSelectedProcessDead returns true if the currently selected process is in Dead state.
+func (m dashboardModel) isSelectedProcessDead() bool {
+	if m.selectedPID == 0 {
+		return false
+	}
+	for _, p := range m.processes {
+		if p.PID == m.selectedPID {
+			return p.State == types.StateDead
+		}
+	}
+	return false
+}
+
+// filterTimelineByPID returns only events whose PID matches the given PID.
+func filterTimelineByPID(events []timelineEvent, pid types.PID) []timelineEvent {
+	var result []timelineEvent
+	for _, ev := range events {
+		if ev.wire.PID == pid {
+			result = append(result, ev)
+		}
+	}
+	return result
+}
 
 func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardModel {
 	for _, s := range steps {

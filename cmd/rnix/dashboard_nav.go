@@ -18,10 +18,11 @@ import (
 // Layered dispatch:
 //   Layer 0: 全局退出 (q, ctrl+c)
 //   Layer 1: Prompt Pager 覆盖层
-//   Layer 2: Kill 确认
-//   Layer 3: Replay 模式
-//   Layer 4: 主视图全局快捷键 (Esc, Tab, Shift-Tab, digit keys, L, H)
-//   Layer 5: 面板内按键分发
+//   Layer 2: History 覆盖层 (Story 29-5)
+//   Layer 3: Kill 确认
+//   Layer 4: Replay 模式
+//   Layer 5: 主视图全局快捷键 (Esc, Tab, Shift-Tab, digit keys, L, H)
+//   Layer 6: 面板内按键分发
 
 func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
@@ -50,7 +51,12 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// === Layer 2: Kill 确认 ===
+	// === Layer 2: History 覆盖层 (Story 29-5) ===
+	if m.viewMode == viewHistory {
+		return m.historyKey(msg)
+	}
+
+	// === Layer 3: Kill 确认 ===
 	if m.confirmKill {
 		switch key {
 		case "y":
@@ -76,21 +82,19 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// === Layer 3: Replay 模式 ===
+	// === Layer 4: Replay 模式 ===
 	if m.replayMode {
 		return m.handleReplayKey(key)
 	}
 
-	// === Layer 4: 主视图全局快捷键 ===
+	// === Layer 5: 主视图全局快捷键 ===
 	switch key {
 	case "L":
 		m.statusMsg = "LLM 查看器尚未实现（Story 29.6）"
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	case "H":
-		m.statusMsg = "历史视图尚未实现（Story 29.5）"
-		m.statusMsgTTL = statusMsgDefaultTTL
-		return m, nil
+		return m.enterHistoryView()
 	case "esc":
 		if m.viewMode == viewExpanded {
 			// 让面板先处理内部 Esc（如 Trace 的 tree→list）
@@ -124,7 +128,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.jumpToPane(paneType(n - 1))
 	}
 
-	// === Layer 5: 面板内按键分发 ===
+	// === Layer 6: 面板内按键分发 ===
 	return m.dispatchPaneKey(msg)
 }
 
