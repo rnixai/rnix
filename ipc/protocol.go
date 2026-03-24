@@ -55,6 +55,7 @@ const (
 	MethodGetProcDetail    Method = "get_proc_detail"
 	MethodTraceList        Method = "trace_list"
 	MethodTraceTree        Method = "trace_tree"
+	MethodListAllProcs     Method = "list_all_procs"
 )
 
 // --- Trace Wire Types (Story 27.9) ---

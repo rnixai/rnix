@@ -271,6 +271,9 @@ func (k *KernelImpl) cleanupExpiredDead(ttl time.Duration) {
 		return true
 	})
 	for _, pid := range toRemove {
+		if info, err := k.GetProcInfo(pid); err == nil {
+			k.procHistory.Add(*info)
+		}
 		k.RemoveProcess(pid)
 	}
 }

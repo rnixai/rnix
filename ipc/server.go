@@ -364,6 +364,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleTraceList(conn)
 		case MethodTraceTree:
 			s.handleTraceTree(conn, req.Payload)
+		case MethodListAllProcs:
+			s.handleListAllProcs(conn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -381,6 +383,16 @@ func (s *Server) handlePing(conn net.Conn) {
 
 func (s *Server) handleListProcs(conn net.Conn) {
 	procs := s.kern.ListProcs()
+	wireProcs := make([]ProcInfoWire, len(procs))
+	for i, p := range procs {
+		wireProcs[i] = ProcInfoToWire(p)
+	}
+	payload, _ := json.Marshal(ListProcsResponse{Processes: wireProcs})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleListAllProcs(conn net.Conn) {
+	procs := s.kern.ListAllProcs()
 	wireProcs := make([]ProcInfoWire, len(procs))
 	for i, p := range procs {
 		wireProcs[i] = ProcInfoToWire(p)
