@@ -45,7 +45,13 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			cursor = "▸ "
 		}
 
-		state := colorState(row.proc.State)
+		// Use StateSymbol for dead/zombie processes (AC-9), colorState for others
+		var stateStr string
+		if row.proc.State == types.StateDead || row.proc.State == types.StateZombie {
+			stateStr = ui.StateSymbol(row.proc.State, row.proc.Result)
+		} else {
+			stateStr = colorState(row.proc.State)
+		}
 
 		skills := ui.FormatSkills(row.proc.Skills, 12, "—")
 
@@ -60,10 +66,21 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			}
 		}
 
-		elapsed := ui.FormatDuration(now.Sub(row.proc.CreatedAt))
+		// AC-9: Dead processes show elapsed using DeadAt, plus exit code
+		var elapsed string
+		if row.proc.State == types.StateDead && !row.proc.DeadAt.IsZero() {
+			elapsed = ui.FormatDuration(row.proc.DeadAt.Sub(row.proc.CreatedAt))
+			exitStr := "exit:0"
+			if ui.IsFailedResult(row.proc.Result) {
+				exitStr = "exit:1"
+			}
+			elapsed = elapsed + " " + exitStr
+		} else {
+			elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
+		}
 
 		line := fmt.Sprintf("%s%sPID %-3d %-9s %-12s %s %s",
-			cursor, row.prefix, row.proc.PID, state, skills, tokens, elapsed)
+			cursor, row.prefix, row.proc.PID, stateStr, skills, tokens, elapsed)
 		if m.recording[row.proc.UUID] != "" {
 			line += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●")
 		}

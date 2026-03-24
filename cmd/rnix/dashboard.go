@@ -146,6 +146,14 @@ type dashboardModel struct {
 
 	// Focus Card fields (Story 29-3)
 	focusCardData *focusCardState
+
+	// History view fields (Story 29-5)
+	historyProcs        []vfs.ProcInfo
+	historyCursor       int
+	historyScrollOffset int
+	historySortMode     int // 0=time, 1=name, 2=pid
+	historySearchQuery  string
+	historySearchMode   bool
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -372,6 +380,15 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.enterPromptPager(msg.detail, msg.step)
 		}
 		return m, nil
+	case historyProcsMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("✗ history: %v", msg.err)
+			m.statusMsgTTL = statusMsgDefaultTTL
+			return m, nil
+		}
+		m.historyProcs = msg.procs
+		m.sortHistoryProcs()
+		return m, nil
 	}
 	return m, nil
 }
@@ -400,7 +417,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		m.connected = true
 	}
 
-	procs, err := m.client.ListProcs()
+	procs, err := m.client.ListAllProcs()
 	if err != nil {
 		m.client.Close()
 		m.client = nil
@@ -520,12 +537,14 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	if len(m.recording) > 0 {
-		uuidSet := make(map[string]bool, len(m.processes))
+		activeUUIDs := make(map[string]bool, len(m.processes))
 		for _, p := range m.processes {
-			uuidSet[p.UUID] = true
+			if p.State != types.StateDead {
+				activeUUIDs[p.UUID] = true
+			}
 		}
 		for uuid := range m.recording {
-			if !uuidSet[uuid] {
+			if !activeUUIDs[uuid] {
 				delete(m.recording, uuid)
 			}
 		}
@@ -616,6 +635,8 @@ func (m dashboardModel) renderDashboard() string {
 	switch m.viewMode {
 	case viewExpanded:
 		mainContent = m.renderExpandedLayout(w, contentHeight)
+	case viewHistory:
+		mainContent = m.renderHistoryView(w, contentHeight)
 	default: // viewDefault
 		mainContent = m.renderDefaultLayout(w, contentHeight)
 	}
@@ -706,8 +727,8 @@ func (m dashboardModel) renderDashboardTitle() string {
 	for _, p := range m.processes {
 		if p.State == types.StateRunning || p.State == types.StateCreated {
 			active++
+			totalTokens += p.TokensUsed
 		}
-		totalTokens += p.TokensUsed
 	}
 	if active > 0 || totalTokens > 0 {
 		fmt.Fprintf(&b, " │ %d proc %s tok", active, ui.FormatTokens(totalTokens))
@@ -740,8 +761,19 @@ func (m dashboardModel) renderDashboardStatus() string {
 	switch m.viewMode {
 	case viewExpanded:
 		hints = m.paneSpecificHints()
+	case viewHistory:
+		if m.historySearchMode {
+			hints = "Type to search | Enter:confirm Esc:cancel"
+		} else {
+			hints = "j/k:nav Enter:focus L:llm /:search 1/2/3:sort Esc:back q:quit"
+		}
 	default: // viewDefault
 		hints = "Tab:cycle 1-8:jump L:llm H:hist Esc:back q:quit"
+	}
+
+	// AC-10: Append "(filtered: PID N)" when a Dead process is selected in Timeline context
+	if m.viewMode != viewHistory && m.isSelectedProcessDead() && m.selectedPID > 0 {
+		hints += fmt.Sprintf("  (filtered: PID %d)", m.selectedPID)
 	}
 
 	return fmt.Sprintf("  %s%s%s", rec, hints, ops)
