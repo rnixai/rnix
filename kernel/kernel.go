@@ -50,16 +50,16 @@ type SpawnOpts struct {
 	ParentSpanID  types.SpanID  // parent process span ID
 	Provider      string        // LLM provider override (from CLI --provider); "" = use agent manifest or default "claude"
 
-	PreallocatedCtxID types.CtxID            // non-zero = skip CtxAlloc, use this pre-setup context
-	SkipReasonLoop    bool                   // true = don't open LLM device or start reasonStep goroutine
-	ProjectConfig     *config.ProjectConfig  // project-level config snapshot; nil = global only
+	PreallocatedCtxID types.CtxID           // non-zero = skip CtxAlloc, use this pre-setup context
+	SkipReasonLoop    bool                  // true = don't open LLM device or start reasonStep goroutine
+	ProjectConfig     *config.ProjectConfig // project-level config snapshot; nil = global only
 }
 
 // toolProtocol is the legacy text-based action protocol, preserved as a
 // fallback reference and test baseline. New processes use generateToolProtocol()
 // from kernel/toolgen.go which auto-generates the protocol from ToolDefs.
-var _ = toolProtocol  //nolint:unused
-var _ = planProtocol  //nolint:unused
+var _ = toolProtocol //nolint:unused
+var _ = planProtocol //nolint:unused
 
 const toolProtocol = `
 
@@ -1230,17 +1230,17 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}, nil, err, time.Since(writeStart))
 
 			// Attempt fallback (Story 23.5)
-		fbData, fbErr := k.attemptFallback(proc, req, proc.PrimaryDevice, err, step)
-		if fbErr != nil {
-			reason := "llm write failed"
-			if proc.FallbackDevice != "" {
-				reason = "all providers exhausted"
-			}
-			k.emitEvent(proc, "ReasonStep", map[string]any{
-				"step":   step,
-				"action": "error",
-			}, nil, fbErr, time.Since(stepStart))
-			k.finishProcess(proc, ExitStatus{Code: 1, Reason: reason, Err: fbErr})
+			fbData, fbErr := k.attemptFallback(proc, req, proc.PrimaryDevice, err, step)
+			if fbErr != nil {
+				reason := "llm write failed"
+				if proc.FallbackDevice != "" {
+					reason = "all providers exhausted"
+				}
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "error",
+				}, nil, fbErr, time.Since(stepStart))
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: reason, Err: fbErr})
 				return
 			}
 			// Fallback succeeded
@@ -2418,16 +2418,17 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 				steps = append(steps, str)
 			}
 		}
-		planContent := fmt.Sprintf("Plan (%s):\n", reasonStr)
+		var planContent strings.Builder
+		fmt.Fprintf(&planContent, "Plan (%s):\n", reasonStr)
 		for i, s := range steps {
-			planContent += fmt.Sprintf("  %d. %s\n", i+1, s)
+			fmt.Fprintf(&planContent, "  %d. %s\n", i+1, s)
 		}
-		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, planContent)
-		k.emitLog(proc, step, types.LogOutput, planContent, "")
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, planContent.String())
+		k.emitLog(proc, step, types.LogOutput, planContent.String(), "")
 		k.emitEvent(proc, "ReasonStep", map[string]any{
 			"step":   step,
 			"action": "plan",
-		}, planContent, nil, time.Since(stepStart))
+		}, planContent.String(), nil, time.Since(stepStart))
 		stepDur := time.Since(stepStart)
 		if k.callbacks != nil {
 			k.callbacks.OnStepComplete(proc.PID, step, "plan", "Created plan with "+fmt.Sprintf("%d steps", len(steps)), false, float64(stepDur.Microseconds())/1000.0)

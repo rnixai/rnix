@@ -27,7 +27,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.26"
+  GO_VERSION: "1.26.1"
   COVERAGE_THRESHOLD: "30"
   # Use Node.js 24 for actions (Node 20 deprecated on GitHub-hosted runners)
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
