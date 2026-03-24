@@ -70,21 +70,25 @@ func fetchSynergyCmd() tea.Cmd {
 
 func (m dashboardModel) handleEvalKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "!":
-		m.evalSubView = 0
-		return m, nil
+	case "!", "h", "left":
+		if key == "!" {
+			m.evalSubView = 0
+		} else {
+			// h/left: 向左切换子视图
+			m.evalSubView = (m.evalSubView + 2) % 3
+		}
+		return m, m.evalEnsureSubViewData()
 	case "@":
 		m.evalSubView = 1
-		if m.evalTopology == nil && m.connected {
-			return m, fetchTopologyCmd()
+		return m, m.evalEnsureSubViewData()
+	case "#", "l", "right":
+		if key == "#" {
+			m.evalSubView = 2
+		} else {
+			// l/right: 向右切换子视图
+			m.evalSubView = (m.evalSubView + 1) % 3
 		}
-		return m, nil
-	case "#":
-		m.evalSubView = 2
-		if m.evalSynergies == nil && m.connected {
-			return m, fetchSynergyCmd()
-		}
-		return m, nil
+		return m, m.evalEnsureSubViewData()
 	case "down", "j":
 		switch m.evalSubView {
 		case 0:
@@ -128,6 +132,21 @@ func (m dashboardModel) handleEvalKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// evalEnsureSubViewData 确保当前子视图的数据已加载
+func (m dashboardModel) evalEnsureSubViewData() tea.Cmd {
+	switch m.evalSubView {
+	case 1:
+		if m.evalTopology == nil && m.connected {
+			return fetchTopologyCmd()
+		}
+	case 2:
+		if m.evalSynergies == nil && m.connected {
+			return fetchSynergyCmd()
+		}
+	}
+	return nil
+}
+
 func evalTopoItemCount(m *dashboardModel) int {
 	if m.evalTopology == nil {
 		return 0
@@ -154,19 +173,17 @@ func (m dashboardModel) renderEvalPane(width, height int) string {
 
 	var b strings.Builder
 
-	// Header with sub-view tabs
-	repTab := "[!]Reputation"
-	topoTab := "[@]Topology"
-	synTab := "[#]Synergy"
-	switch m.evalSubView {
-	case 0:
-		repTab = lipgloss.NewStyle().Bold(true).Render(repTab)
-	case 1:
-		topoTab = lipgloss.NewStyle().Bold(true).Render(topoTab)
-	case 2:
-		synTab = lipgloss.NewStyle().Bold(true).Render(synTab)
+	// Header with sub-view tabs (h/l to cycle)
+	tabs := []string{"Reputation", "Topology", "Synergy"}
+	var tabParts []string
+	for i, name := range tabs {
+		if i == m.evalSubView {
+			tabParts = append(tabParts, lipgloss.NewStyle().Bold(true).Render("▸ "+name))
+		} else {
+			tabParts = append(tabParts, "  "+name)
+		}
 	}
-	fmt.Fprintf(&b, " Evaluation  %s %s %s\n", repTab, topoTab, synTab)
+	fmt.Fprintf(&b, " Evaluation  %s\n", strings.Join(tabParts, "  "))
 
 	switch m.evalSubView {
 	case 0:

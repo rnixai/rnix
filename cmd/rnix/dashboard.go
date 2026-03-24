@@ -789,7 +789,7 @@ func (m dashboardModel) renderDashboardStatus() string {
 		rec = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●REC") + "  "
 	}
 
-	ops := "  k:Kill a:GDB l:Log r:Rec"
+	ops := m.contextualOps()
 
 	if m.statusMsg != "" {
 		return fmt.Sprintf("  %s%s  |  q:Quit  Tab:Switch%s", rec, m.statusMsg, ops)
@@ -851,12 +851,23 @@ func (m dashboardModel) paneSpecificHints() string {
 		}
 		return "j/k:nav Enter:jump Esc:back " + base
 	case paneEval:
-		return "j/k:nav !/@/#:sub-view " + base
+		return "j/k:nav h/l:sub-view " + base
 	default:
 		return "j/k:nav Enter:select " + base
 	}
 }
 
+// contextualOps 根据当前活动面板生成进程操作提示栏。
+// 小写 k 在几乎所有面板都被 j/k 导航消费，统一显示 K:Kill（Shift+K）。
+// l:Log 在 Timeline 面板被滚动消费，该面板不显示。
+func (m dashboardModel) contextualOps() string {
+	switch m.activePane {
+	case paneTimeline:
+		return "  K:Kill a:GDB r:Rec"
+	default:
+		return "  K:Kill a:GDB l:Log r:Rec"
+	}
+}
 
 func toggleRecordCmd(pid types.PID, uuid string, currentRecordID string) tea.Cmd {
 	return func() tea.Msg {
