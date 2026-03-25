@@ -147,6 +147,26 @@ func (m dashboardModel) historyKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.adjustHistoryScroll()
 		}
 		return m, nil
+	case "pgdown":
+		pageSize := max(m.height-8, 1)
+		m.historyCursor = min(m.historyCursor+pageSize, len(filtered)-1)
+		m.adjustHistoryScroll()
+		return m, nil
+	case "pgup":
+		pageSize := max(m.height-8, 1)
+		m.historyCursor = max(m.historyCursor-pageSize, 0)
+		m.adjustHistoryScroll()
+		return m, nil
+	case "g", "home":
+		m.historyCursor = 0
+		m.historyScrollOffset = 0
+		return m, nil
+	case "G", "shift+G", "end":
+		if len(filtered) > 0 {
+			m.historyCursor = len(filtered) - 1
+			m.adjustHistoryScroll()
+		}
+		return m, nil
 	case "enter":
 		if m.historyCursor < len(filtered) {
 			proc := filtered[m.historyCursor]
