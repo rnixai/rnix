@@ -26,6 +26,12 @@ func classifySyscall(ev ipc.SyscallEventWire) eventCategory {
 		return catLLM
 	}
 	switch ev.Syscall {
+	case "DriverToolCall":
+		return catTool
+	case "DriverThinking":
+		return catLLM
+	case "DriverInit", "DriverUser", "DriverEvent":
+		return catVFS
 	case "Send", "Recv", "Pipe", "Signal", "SigBlock", "SigUnblock",
 		"JoinGroup", "LeaveGroup", "GetProcGroup", "SignalGroup":
 		return catIPC
@@ -393,6 +399,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	}
 	total := len(m.stepEntries)
 	fmt.Fprintf(&b, " | %d/%d steps", total, total)
+	b.WriteString("  [s] syscall view")
 	b.WriteString("\n")
 
 	if total == 0 {

@@ -58,6 +58,13 @@ func TestCursorHelperProcess(t *testing.T) {
 	case "cursor_exit1_valid_result":
 		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"partial output","is_error":false,"num_turns":1,"input_tokens":60,"output_tokens":40}`)
 		os.Exit(1)
+	case "cursor_stream_with_thinking":
+		fmt.Fprintln(os.Stdout, `{"type":"system","subtype":"init","model":"gpt-4"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"user","message":{"content":[{"type":"text","text":"test"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"thinking","subtype":"delta","text":"analyzing..."}`)
+		fmt.Fprintln(os.Stdout, `{"type":"thinking","subtype":"completed"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"result"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"result","is_error":false,"input_tokens":50,"output_tokens":20}`)
 	}
 	os.Exit(0)
 }
@@ -323,29 +330,32 @@ func TestCursorCliDriver_Stream_Success(t *testing.T) {
 		events = append(events, evt)
 	}
 
-	// Should have 5 events: 2 content (from assistant) + 2 tool_call (started/completed) + 1 done (from result)
-	// system events are skipped; tool_call events are forwarded
-	if len(events) != 5 {
-		t.Fatalf("expected 5 events (system skipped, tool_call forwarded), got %d: %+v", len(events), events)
+	// Should have 6 events: 1 system + 2 content (from assistant) + 2 tool_call (started/completed) + 1 done (from result)
+	// system events are now forwarded; tool_call events are forwarded
+	if len(events) != 6 {
+		t.Fatalf("expected 6 events (system forwarded, tool_call forwarded), got %d: %+v", len(events), events)
 	}
 
-	if events[0].Type != "content" || events[0].Content != "hello " {
-		t.Errorf("event[0]: expected content 'hello ', got type=%q content=%q", events[0].Type, events[0].Content)
+	if events[0].Type != "system" || events[0].Content != "init" {
+		t.Errorf("event[0]: expected system 'init', got type=%q content=%q", events[0].Type, events[0].Content)
 	}
-	if events[1].Type != "tool_call" || events[1].Content != "started" {
-		t.Errorf("event[1]: expected tool_call 'started', got type=%q content=%q", events[1].Type, events[1].Content)
+	if events[1].Type != "content" || events[1].Content != "hello " {
+		t.Errorf("event[1]: expected content 'hello ', got type=%q content=%q", events[1].Type, events[1].Content)
 	}
-	if events[2].Type != "tool_call" || events[2].Content != "completed" {
-		t.Errorf("event[2]: expected tool_call 'completed', got type=%q content=%q", events[2].Type, events[2].Content)
+	if events[2].Type != "tool_call" || events[2].Content != "started" {
+		t.Errorf("event[2]: expected tool_call 'started', got type=%q content=%q", events[2].Type, events[2].Content)
 	}
-	if events[3].Type != "content" || events[3].Content != "world" {
-		t.Errorf("event[3]: expected content 'world', got type=%q content=%q", events[3].Type, events[3].Content)
+	if events[3].Type != "tool_call" || events[3].Content != "completed" {
+		t.Errorf("event[3]: expected tool_call 'completed', got type=%q content=%q", events[3].Type, events[3].Content)
 	}
-	if events[4].Type != "done" || events[4].Content != "hello world" {
-		t.Errorf("event[4]: expected done 'hello world', got type=%q content=%q", events[4].Type, events[4].Content)
+	if events[4].Type != "content" || events[4].Content != "world" {
+		t.Errorf("event[4]: expected content 'world', got type=%q content=%q", events[4].Type, events[4].Content)
 	}
-	if events[4].TokensUsed != 120 {
-		t.Errorf("expected tokens_used 120, got %d", events[4].TokensUsed)
+	if events[5].Type != "done" || events[5].Content != "hello world" {
+		t.Errorf("event[5]: expected done 'hello world', got type=%q content=%q", events[5].Type, events[5].Content)
+	}
+	if events[5].TokensUsed != 120 {
+		t.Errorf("expected tokens_used 120, got %d", events[5].TokensUsed)
 	}
 }
 
@@ -540,5 +550,58 @@ func TestCursorCliDriver_Stream_IsErrorEmptyResult(t *testing.T) {
 	}
 	if !strings.Contains(llmErr.Error(), "unknown error") {
 		t.Errorf("expected 'unknown error' fallback, got: %v", llmErr)
+	}
+}
+
+func TestCursorCliDriver_Stream_ThinkingEvents(t *testing.T) {
+	t.Parallel()
+	d := NewCursorCliDriver(CursorWithCommandBuilder(cursorMockCmdBuilder("cursor_stream_with_thinking")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+
+	typeSeq := make([]string, len(events))
+	for i, e := range events {
+		typeSeq[i] = e.Type
+	}
+
+	// Verify thinking events
+	thinkingCount := 0
+	for _, e := range events {
+		if e.Type == "thinking" {
+			thinkingCount++
+			if e.Content == "analyzing..." {
+				if e.Data["subtype"] != "delta" {
+					t.Errorf("expected thinking delta subtype, got %v", e.Data["subtype"])
+				}
+			}
+		}
+	}
+	if thinkingCount != 2 {
+		t.Errorf("expected 2 thinking events (delta+completed), got %d, types: %v", thinkingCount, typeSeq)
+	}
+
+	// Verify user event
+	found := false
+	for _, e := range events {
+		if e.Type == "user" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected user event, got types: %v", typeSeq)
+	}
+
+	// Verify done event at end
+	last := events[len(events)-1]
+	if last.Type != "done" {
+		t.Errorf("expected last event to be done, got %q", last.Type)
 	}
 }

@@ -86,9 +86,9 @@ func FormatEvent(event types.SyscallEvent, opts Options) string {
 	if event.Syscall == "ReasonStep" {
 		return formatReasonStep(event, opts)
 	}
-	// InternalStep shows driver-internal events (e.g., cursor tool_call)
-	if event.Syscall == "InternalStep" {
-		return formatInternalStep(event, opts)
+	// Driver events (DriverToolCall, DriverThinking, DriverInit, DriverUser, DriverEvent)
+	if strings.HasPrefix(event.Syscall, "Driver") {
+		return formatDriverEvent(event, opts)
 	}
 
 	ts := formatTimestamp(event.Timestamp)
@@ -245,32 +245,45 @@ func formatReasonStep(event types.SyscallEvent, opts Options) string {
 	return line
 }
 
-// sortedKeys returns sorted keys from a map.
-// formatInternalStep formats an InternalStep event (driver-internal events like cursor tool_call).
-// Format: [N.NNNs] InternalStep(tool=shell, subtype=started) "description"
-func formatInternalStep(event types.SyscallEvent, opts Options) string {
+// formatDriverEvent formats a driver event (DriverToolCall, DriverThinking, etc.).
+// Format: [N.NNNs] DriverToolCall(tool=shell, started) "description"
+func formatDriverEvent(event types.SyscallEvent, opts Options) string {
 	ts := formatTimestamp(event.Timestamp)
 
 	subtype, _ := event.Args["subtype"].(string)
 	tool, _ := event.Args["tool"].(string)
 	description, _ := event.Args["description"].(string)
 	command, _ := event.Args["command"].(string)
+	path, _ := event.Args["path"].(string)
 
-	// Build args: prefer tool name over generic type
+	// Build args
 	var parts []string
 	if tool != "" {
 		parts = append(parts, fmt.Sprintf("tool=%s", tool))
+	}
+	if path != "" {
+		r := []rune(path)
+		if len(r) > 50 {
+			path = "..." + string(r[len(r)-47:])
+		}
+		parts = append(parts, fmt.Sprintf("path=%q", path))
 	}
 	if subtype != "" {
 		parts = append(parts, subtype)
 	}
 
-	line := fmt.Sprintf("%s InternalStep(%s)", ts, strings.Join(parts, ", "))
+	line := fmt.Sprintf("%s %s(%s)", ts, event.Syscall, strings.Join(parts, ", "))
 
-	// Append description or command as summary
+	// Append description, command, or content as summary
 	summary := description
 	if summary == "" && command != "" {
 		summary = command
+	}
+	// For DriverThinking, use content text as summary
+	if summary == "" && event.Syscall == "DriverThinking" {
+		if c, ok := event.Args["content"].(string); ok && c != "" && c != subtype {
+			summary = c
+		}
 	}
 	if summary != "" {
 		r := []rune(summary)

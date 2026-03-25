@@ -55,6 +55,14 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(1)
 	case "stream_is_error_empty":
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error","result":"","is_error":true}`)
+	case "claude_stream_with_events":
+		fmt.Fprintln(os.Stdout, `{"type":"system","subtype":"init","model":"haiku","session_id":"s1"}`)
+		fmt.Fprintln(os.Stdout, `{"type":"user","message":{"content":[{"type":"text","text":"test"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"tool_use","name":"Read","id":"toolu_1"}}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"thinking"}}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"let me think"}}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"done","is_error":false,"input_tokens":50,"output_tokens":20}`)
 	}
 	os.Exit(0)
 }
@@ -475,5 +483,81 @@ func TestClaudeCliDriver_Stream_IsErrorEmptyResult(t *testing.T) {
 	}
 	if !strings.Contains(llmErr.Error(), "unknown error") {
 		t.Errorf("expected 'unknown error' fallback, got: %v", llmErr)
+	}
+}
+
+func TestClaudeCliDriver_Stream_AllEventTypes(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("claude_stream_with_events")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+
+	// Expect: system, user, tool_call(started), thinking(started), thinking(delta), content, done
+	typeSeq := make([]string, len(events))
+	for i, e := range events {
+		typeSeq[i] = e.Type
+	}
+
+	// Verify system event
+	found := false
+	for _, e := range events {
+		if e.Type == "system" && e.Content == "init" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected system:init event, got types: %v", typeSeq)
+	}
+
+	// Verify user event
+	found = false
+	for _, e := range events {
+		if e.Type == "user" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected user event, got types: %v", typeSeq)
+	}
+
+	// Verify tool_call event from stream_event
+	found = false
+	for _, e := range events {
+		if e.Type == "tool_call" && e.Content == "started" {
+			if e.Data["tool"] == "Read" {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected tool_call:started event with tool=Read, got types: %v", typeSeq)
+	}
+
+	// Verify thinking event from stream_event
+	found = false
+	for _, e := range events {
+		if e.Type == "thinking" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected thinking event, got types: %v", typeSeq)
+	}
+
+	// Verify done event at end
+	last := events[len(events)-1]
+	if last.Type != "done" {
+		t.Errorf("expected last event to be done, got %q", last.Type)
 	}
 }
