@@ -2032,7 +2032,8 @@ func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) 
 
 	proc, ok := s.resolveProcess(req.PID, req.UUID)
 	if !ok {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		// Fallback: check procHistory for reaped processes
+		s.handleGetProcDetailFromHistory(conn, req.PID, req.UUID)
 		return
 	}
 
@@ -2113,6 +2114,71 @@ func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) 
 				resp.ContextStats.MessageCount = int(mc)
 			}
 		}
+	}
+
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("marshal get_proc_detail: %v", err)}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleGetProcDetailFromHistory constructs a GetProcDetailResponse from procHistory
+// for processes that have been reaped from the active process table.
+func (s *Server) handleGetProcDetailFromHistory(conn net.Conn, pid types.PID, uuid string) {
+	var info *vfs.ProcInfo
+	if uuid != "" && isValidUUID(uuid) {
+		info = s.kern.FindHistoryByUUID(uuid)
+	}
+	if info == nil && pid != 0 {
+		info = s.kern.FindHistoryByPID(pid)
+	}
+	if info == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	resp := GetProcDetailResponse{
+		PID:            info.PID,
+		UUID:           info.UUID,
+		PPID:           info.PPID,
+		State:          info.State.String(),
+		Intent:         info.Intent,
+		Provider:       info.Provider,
+		Model:          info.Model,
+		CreatedAtMs:    info.CreatedAt.UnixMilli(),
+		AllowedDevices: info.AllowedDevices,
+		FDTable:        []FDEntryWire{},
+		EnvSnapshot:    map[string]string{},
+	}
+	if !info.DeadAt.IsZero() {
+		resp.DeadAtMs = info.DeadAt.UnixMilli()
+	}
+
+	// Build skill info from history
+	skillInfos := make([]SkillInfoWire, 0, len(info.Skills))
+	for _, name := range info.Skills {
+		si := SkillInfoWire{Name: name}
+		if s.skillLoader != nil {
+			meta, err := s.skillLoader.LoadMetadata(name)
+			if err == nil {
+				si.AllowedTools = meta.Manifest.AllowedTools()
+			}
+		}
+		if si.AllowedTools == nil {
+			si.AllowedTools = []string{}
+		}
+		skillInfos = append(skillInfos, si)
+	}
+	resp.Skills = skillInfos
+
+	resp.ContextStats = ContextStatsWire{
+		TokensUsed:    info.TokensUsed,
+		ContextBudget: info.ContextBudget,
+	}
+	if info.ContextBudget > 0 {
+		resp.ContextStats.UsagePct = float64(info.TokensUsed) * 100.0 / float64(info.ContextBudget)
 	}
 
 	payload, err := json.Marshal(resp)

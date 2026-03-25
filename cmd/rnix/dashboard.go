@@ -517,7 +517,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		if pidCmd != nil {
 			cmds = append(cmds, pidCmd)
 		}
-	} else if m.selectedPID > 0 && m.connected && m.heatmapTickCount%5 == 0 {
+	} else if m.selectedPID > 0 && m.connected && m.heatmapTickCount%5 == 0 && !m.isSelectedProcessDead() {
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 	}
 
@@ -945,7 +945,9 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	var cmds []tea.Cmd
 	if m.connected {
 		cmds = append(cmds, startTimelineCmd(m.selectedPID))
-		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+		if !m.isSelectedProcessDead() {
+			cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+		}
 		if m.activePane == paneDetail && m.procDetail == nil {
 			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
 		}

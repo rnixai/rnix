@@ -135,6 +135,17 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		proc.mu.Lock()
 		proc.DeadAt = time.Now()
 		proc.mu.Unlock()
+
+		// 12. Persist proc-info.json for history recovery after daemon restart
+		baseDir := k.stepDataDir
+		if baseDir == "" && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+			baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
+		}
+		if info, err := k.GetProcInfo(proc.PID); err == nil {
+			if err := SaveProcInfo(baseDir, *info); err != nil {
+				log.Printf("[reaper] proc-info.json write error pid=%d: %v", proc.PID, err)
+			}
+		}
 	})
 }
 
@@ -273,6 +284,16 @@ func (k *KernelImpl) cleanupExpiredDead(ttl time.Duration) {
 	for _, pid := range toRemove {
 		if info, err := k.GetProcInfo(pid); err == nil {
 			k.procHistory.Add(*info)
+			// Best-effort persist (safety net if reapProcess didn't write it)
+			baseDir := k.stepDataDir
+			if baseDir == "" {
+				if proc, ok := k.GetProcess(pid); ok && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+					baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
+				}
+			}
+			if err := SaveProcInfo(baseDir, *info); err != nil {
+				log.Printf("[reaper] proc-info.json write error pid=%d: %v", pid, err)
+			}
 		}
 		k.RemoveProcess(pid)
 	}

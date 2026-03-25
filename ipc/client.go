@@ -909,8 +909,12 @@ func (c *Client) TopologyQuery() (*TopologyQueryResponse, error) {
 }
 
 // GetProcDetail returns full process detail including env, skills, FD table, context stats (Story 27.6).
-func (c *Client) GetProcDetail(pid types.PID) (*GetProcDetailResponse, error) {
-	resp, err := c.call(MethodGetProcDetail, GetProcDetailRequest{PID: pid})
+func (c *Client) GetProcDetail(pid types.PID, uuid ...string) (*GetProcDetailResponse, error) {
+	req := GetProcDetailRequest{PID: pid}
+	if len(uuid) > 0 {
+		req.UUID = uuid[0]
+	}
+	resp, err := c.call(MethodGetProcDetail, req)
 	if err != nil {
 		return nil, err
 	}

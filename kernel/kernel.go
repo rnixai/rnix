@@ -2630,6 +2630,25 @@ func (k *KernelImpl) FindHistoryByPID(pid types.PID) *vfs.ProcInfo {
 	return k.procHistory.FindByPID(pid)
 }
 
+// FindHistoryByUUID returns the most recent history snapshot for the given UUID, or nil.
+func (k *KernelImpl) FindHistoryByUUID(uuid string) *vfs.ProcInfo {
+	return k.procHistory.FindByUUID(uuid)
+}
+
+// LoadHistory loads process history from disk into the in-memory ring buffer.
+// Must be called after SetStepDataDir and before any processes are spawned.
+func (k *KernelImpl) LoadHistory() error {
+	if k.stepDataDir == "" {
+		return nil
+	}
+	history, err := LoadProcHistory(k.stepDataDir, 1000)
+	if err != nil {
+		return err
+	}
+	k.procHistory = history
+	return nil
+}
+
 // RegisterBudgetPool associates a BudgetPool with a process group.
 func (k *KernelImpl) RegisterBudgetPool(groupID types.PGID, pool *BudgetPool) {
 	k.budgetPools.Store(groupID, pool)
