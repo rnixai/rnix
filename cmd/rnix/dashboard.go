@@ -853,7 +853,7 @@ func (m dashboardModel) renderDashboardStatus() string {
 			core = []string{hint("Type ", "search"), hint("Enter ", "ok")}
 			exit = hint("Esc ", "cancel")
 		} else {
-			core = []string{hint("j/k", "nav"), hint("Enter", "focus"), hint("L", "llm"), hint("/", "search"), hint("?", "help")}
+			core = []string{hint("j/k", "nav"), hint("PgDn/Up", "page"), hint("Enter", "focus"), hint("L", "llm"), hint("/", "search"), hint("?", "help")}
 			exit = hint("Esc", "back")
 		}
 	case viewLLM:

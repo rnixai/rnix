@@ -12,7 +12,7 @@ So that 我可以查看、搜索和聚焦已结束的进程，实现事后分析
 
 1. **H 键进入历史视图** — 在 Dashboard 任意主视图中按 `H` 键，进入全屏覆盖层历史视图（`viewHistory`），通过 `ListAllProcs` IPC 获取存活+历史进程列表
 2. **进程表渲染** — 历史视图显示列：`PID | ST(符号) | AGENT | MODEL | TOKENS | CREATED | ELAPSED | EXIT | REASON`；底部统计：Running/Done/Failed 计数、总 token、平均存活时间
-3. **光标导航** — 按 `j/k` 或上/下键在进程列表中上下导航
+3. **光标导航** — 按 `j/k` 或上/下键在进程列表中上下导航；`PgDn/PgUp` 翻页；`g/Home` 跳顶；`G/End` 跳底
 4. **Enter 聚焦** — 选中一个进程后按 Enter，设置 `selectedPID` + `selectedUUID`，回到默认视图并聚焦该进程
 5. **L 键跳转 LLM 查看器** — 选中一个进程后按 `L`，直接跳转到该进程的 LLM 对话查看器（placeholder，Story 29.6 实现完整功能）
 6. **搜索过滤** — 按 `/` 进入搜索模式，按 agent 名称过滤进程列表

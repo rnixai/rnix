@@ -264,6 +264,38 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 					m.treeOffset = m.treeCursor - visibleLines + 1
 				}
 			}
+		case "pgdown":
+			jump := max(visibleLines-1, 1)
+			m.treeCursor = min(m.treeCursor+jump, len(m.treeRows)-1)
+			if m.treeCursor < len(m.treeRows) {
+				m = selectProcess(m, m.treeRows[m.treeCursor])
+			}
+			if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
+				m.treeOffset = m.treeCursor - visibleLines + 1
+			}
+		case "pgup":
+			jump := max(visibleLines-1, 1)
+			m.treeCursor = max(m.treeCursor-jump, 0)
+			if m.treeCursor < len(m.treeRows) {
+				m = selectProcess(m, m.treeRows[m.treeCursor])
+			}
+			if m.treeCursor < m.treeOffset {
+				m.treeOffset = m.treeCursor
+			}
+		case "home", "g":
+			m.treeCursor = 0
+			m.treeOffset = 0
+			if len(m.treeRows) > 0 {
+				m = selectProcess(m, m.treeRows[0])
+			}
+		case "end", "G", "shift+G":
+			if len(m.treeRows) > 0 {
+				m.treeCursor = len(m.treeRows) - 1
+				m = selectProcess(m, m.treeRows[m.treeCursor])
+				if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
+					m.treeOffset = m.treeCursor - visibleLines + 1
+				}
+			}
 		case "enter":
 			if m.treeCursor < len(m.treeRows) {
 				m = selectProcess(m, m.treeRows[m.treeCursor])

@@ -1,6 +1,6 @@
 # Story 29.4: Kernel 进程历史保留与 IPC
 
-Status: dev-complete
+Status: done
 
 ## Story
 
@@ -113,8 +113,46 @@ sort by CreatedAt ascending
 
 ### 不应该做的事
 
-- **不要修改 `reapProcess()`** — 快照点在 `cleanupExpiredDead`，不在 reap 流程中
+- ~~**不要修改 `reapProcess()`**~~ — **已更新**：`reapProcess` 步骤 12 现在也调用 `SaveProcInfo` 写入磁盘（2026-03-25 持久化增强）
 - **不要修改 `vfs.ProcInfo` 类型** — 已有字段足够，不需要新增 ExitCode 字段
+
+### 2026-03-25 增强：进程历史磁盘持久化
+
+**问题**：ProcessHistory 是纯内存 FIFO 环形缓冲区，daemon 重启后全部清空。Dashboard 重启后无法显示任何历史进程。
+
+**解决方案**：在每个进程的 UUID 目录下保存 `proc-info.json`，daemon 启动时扫描加载。
+
+**磁盘布局**：
+```
+.rnix/data/steps/<uuid>/
+├── steps.jsonl          (已有)
+├── process-meta.json    (已有)
+└── proc-info.json       (新增 — 完整 ProcInfo 快照)
+```
+
+**新增文件/方法**：
+| 文件 | 内容 |
+|------|------|
+| `kernel/process_history.go` | `procInfoDisk` 序列化结构体、`SaveProcInfo()` 原子写入、`LoadProcHistory()` 扫描加载、`FindByUUID()` |
+| `kernel/reap.go` | `reapProcess` 步骤 12 调用 `SaveProcInfo`；`cleanupExpiredDead` 安全网写入 |
+| `kernel/kernel.go` | `LoadHistory()` 方法、`FindHistoryByUUID()` 方法 |
+| `cmd/rnix/main.go` | `runDaemon` 中 `SetStepDataDir` + `LoadHistory` |
+| `ipc/server.go` | `handleGetProcDetailFromHistory()` 从 procHistory 构造 detail 响应 |
+| `ipc/client.go` | `GetProcDetail` 支持可选 UUID 参数 |
+
+**Dashboard 侧修复**：
+- `fetchProcDetailCmd` 传递 UUID 参数
+- Focus Card token 数据在无 heatmap 时从 procDetail 回退
+- Heatmap 对已结束进程显示友好提示
+
+### 2026-03-25 增强：翻页快捷键
+
+在 Tree、Timeline、History 三个可滚动视图中添加：
+- `PgDn` / `PgUp` — 翻页
+- `g` / `Home` — 跳到顶部
+- `G` / `End` — 跳到底部
+
+Help overlay 修正：`h/l` 描述从 "Scroll timeline" 改为 "Pan time axis"
 - **不要新增 CLI command** — `list_all_procs` 仅供 Dashboard 内部使用，无需 Cobra 命令
 - **不要使用 `sync.Map`** — 项目禁止使用标准库 sync.Map，但 ProcessHistory 用切片+RWMutex 即可，无需 SyncMap
 - **不要修改 `DeadProcessTTL`** — 60 秒 TTL 保持不变

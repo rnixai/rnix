@@ -223,6 +223,20 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		if m.timelineEventCursor < len(visible)-1 {
 			m.timelineEventCursor++
 		}
+	case "pgdown":
+		visible := m.filteredTimelineEvents()
+		pageSize := max(m.dashboardVisibleLines()-4, 1)
+		m.timelineEventCursor = min(m.timelineEventCursor+pageSize, len(visible)-1)
+	case "pgup":
+		pageSize := max(m.dashboardVisibleLines()-4, 1)
+		m.timelineEventCursor = max(m.timelineEventCursor-pageSize, 0)
+	case "home", "g":
+		m.timelineEventCursor = 0
+	case "end", "G", "shift+G":
+		visible := m.filteredTimelineEvents()
+		if len(visible) > 0 {
+			m.timelineEventCursor = len(visible) - 1
+		}
 	case "enter":
 		if m.timelineExpandedIdx == m.timelineEventCursor {
 			m.timelineExpandedIdx = noExpandedEvent
