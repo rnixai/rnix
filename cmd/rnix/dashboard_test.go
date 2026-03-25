@@ -150,11 +150,11 @@ func TestDashboardModel_ViewStatusBar(t *testing.T) {
 	v := m.View()
 	content := v.Content
 
-	if !strings.Contains(content, "quit") && !strings.Contains(content, "Quit") {
+	if !strings.Contains(content, "quit") {
 		t.Errorf("status bar should contain quit hint, got %q", content)
 	}
-	if !strings.Contains(content, "Tab") {
-		t.Errorf("status bar should contain Tab hint, got %q", content)
+	if !strings.Contains(content, "help") {
+		t.Errorf("status bar should contain help hint, got %q", content)
 	}
 }
 
@@ -748,46 +748,71 @@ func TestDashboardModel_TimelineZoom(t *testing.T) {
 	}
 }
 
-// --- 17.2-UNIT-012: [P0] !/@ /#/$ toggles category filter (AC2) ---
+// --- 17.2-UNIT-012: [P0] f key enters filter mode, l/t/i/v toggles filters (AC2) ---
 
 func TestDashboardModel_TimelineFilter(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	// Story 29.2: shifted digit keys !/@ /#/$ only pass to timeline in viewExpanded + paneTimeline
-	m.viewMode = viewExpanded
-	m.expandedPane = paneTimeline
+	// f key works in viewDefault (Timeline always visible) and viewExpanded+paneTimeline
+	m.viewMode = viewDefault
 
 	if !m.timelineFilters[catLLM] {
 		t.Fatal("LLM filter should be true by default")
 	}
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
+	// Press f to enter filter mode
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'f'})
 	um := updated.(dashboardModel)
-	if um.timelineFilters[catLLM] {
-		t.Error("pressing '!' should toggle LLM filter to false")
+	if !um.timelineFilterMode {
+		t.Error("pressing 'f' should enter filter mode")
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
+	// Press l to toggle LLM
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'l'})
+	um = updated.(dashboardModel)
+	if um.timelineFilters[catLLM] {
+		t.Error("pressing 'l' in filter mode should toggle LLM filter to false")
+	}
+
+	// Press l again to re-enable
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'l'})
 	um = updated.(dashboardModel)
 	if !um.timelineFilters[catLLM] {
-		t.Error("pressing '!' again should toggle LLM filter back to true")
+		t.Error("pressing 'l' again should toggle LLM filter back to true")
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '@', Text: "@"})
+	// Press t to toggle Tool
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 't'})
 	um = updated.(dashboardModel)
 	if um.timelineFilters[catTool] {
-		t.Error("pressing '@' should toggle Tool filter to false")
+		t.Error("pressing 't' should toggle Tool filter to false")
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '#', Text: "#"})
+	// Press i to toggle IPC
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'i'})
 	um = updated.(dashboardModel)
 	if um.timelineFilters[catIPC] {
-		t.Error("pressing '#' should toggle IPC filter to false")
+		t.Error("pressing 'i' should toggle IPC filter to false")
 	}
 
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '$', Text: "$"})
+	// Press v to toggle VFS
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'v'})
 	um = updated.(dashboardModel)
 	if um.timelineFilters[catVFS] {
-		t.Error("pressing '$' should toggle VFS filter to false")
+		t.Error("pressing 'v' should toggle VFS filter to false")
+	}
+
+	// Press a to enable all
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'a'})
+	um = updated.(dashboardModel)
+	if !um.timelineFilters[catLLM] || !um.timelineFilters[catTool] || !um.timelineFilters[catIPC] || !um.timelineFilters[catVFS] {
+		t.Error("pressing 'a' should enable all filters")
+	}
+
+	// Press f to exit filter mode
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'f'})
+	um = updated.(dashboardModel)
+	if um.timelineFilterMode {
+		t.Error("pressing 'f' again should exit filter mode")
 	}
 }
 
@@ -1575,13 +1600,13 @@ func TestDashboardModel_StatusBarOperationKeys(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 
+	// Process ops (kill/gdb/log/rec) are now in ? help overlay, not in status bar.
+	// Status bar should contain ? help hint instead.
 	v := m.View()
 	content := v.Content
 
-	for _, hint := range []string{"K:Kill", "a:GDB", "l:Log", "r:Rec"} {
-		if !strings.Contains(content, hint) {
-			t.Errorf("status bar should contain '%s'", hint)
-		}
+	if !strings.Contains(content, "help") {
+		t.Error("status bar should contain 'help' hint (press ? for full shortcuts)")
 	}
 }
 
@@ -2403,8 +2428,175 @@ func TestLLMViewer_ViewContainsTokenStats(t *testing.T) {
 	v := m.View()
 	content := v.Content
 
-	// AC9: Status bar 格式 "req:X tok │ resp:Y tok │ Zms"
-	if !strings.Contains(content, "req:") || !strings.Contains(content, "resp:") {
-		t.Error("viewLLM status bar should contain token stats (req: and resp:)")
+	// Status bar now shows simplified hints; token stats are in ? help or title
+	if !strings.Contains(content, "scroll") || !strings.Contains(content, "copy") {
+		t.Error("viewLLM status bar should contain scroll and copy hints")
+	}
+}
+
+// ============================================================
+// Timeline UX 重构测试
+// ============================================================
+
+// --- extractResource 资源提取 ---
+
+func TestExtractResource_LLMPath(t *testing.T) {
+	ev := ipc.SyscallEventWire{Args: map[string]any{"path": "/dev/llm/claude"}}
+	got := extractResource(ev)
+	if got != "claude" {
+		t.Errorf("extractResource(llm path) = %q, want 'claude'", got)
+	}
+}
+
+func TestExtractResource_ShellPath(t *testing.T) {
+	ev := ipc.SyscallEventWire{Args: map[string]any{"path": "/dev/shell/bash"}}
+	got := extractResource(ev)
+	if got != "bash" {
+		t.Errorf("extractResource(shell path) = %q, want 'bash'", got)
+	}
+}
+
+func TestExtractResource_FSPath(t *testing.T) {
+	ev := ipc.SyscallEventWire{Args: map[string]any{"path": "/dev/fs/src/main.go"}}
+	got := extractResource(ev)
+	if got != "src/main.go" {
+		t.Errorf("extractResource(fs path) = %q, want 'src/main.go'", got)
+	}
+}
+
+func TestExtractResource_Intent(t *testing.T) {
+	ev := ipc.SyscallEventWire{Args: map[string]any{"intent": "build"}}
+	got := extractResource(ev)
+	if got != "build" {
+		t.Errorf("extractResource(intent) = %q, want 'build'", got)
+	}
+}
+
+func TestExtractResource_TargetPID(t *testing.T) {
+	ev := ipc.SyscallEventWire{Args: map[string]any{"target_pid": 3}}
+	got := extractResource(ev)
+	if got != "→pid:3" {
+		t.Errorf("extractResource(target_pid) = %q, want '→pid:3'", got)
+	}
+}
+
+func TestExtractResource_FD(t *testing.T) {
+	ev := ipc.SyscallEventWire{Args: map[string]any{"fd": 3}}
+	got := extractResource(ev)
+	if got != "fd:3" {
+		t.Errorf("extractResource(fd) = %q, want 'fd:3'", got)
+	}
+}
+
+func TestExtractResource_Empty(t *testing.T) {
+	ev := ipc.SyscallEventWire{Args: map[string]any{}}
+	got := extractResource(ev)
+	if got != "" {
+		t.Errorf("extractResource(empty) = %q, want ''", got)
+	}
+}
+
+// --- formatEventLine 资源优先行格式 ---
+
+func TestFormatEventLine_ContainsResource(t *testing.T) {
+	ev := timelineEvent{
+		wire:     ipc.SyscallEventWire{Syscall: "Open", Args: map[string]any{"path": "/dev/llm/claude"}, DurationMs: 2.0},
+		category: catLLM,
+	}
+	line := formatEventLine(ev, 80)
+	if !strings.Contains(line, "claude") {
+		t.Errorf("formatEventLine should contain resource 'claude', got %q", line)
+	}
+	if !strings.Contains(line, "LLM") {
+		t.Errorf("formatEventLine should contain category 'LLM', got %q", line)
+	}
+}
+
+// --- 事件展开/折叠 ---
+
+func TestTimelineExpandCollapse(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+	m.timelineExpandedIdx = noExpandedEvent
+	m.timelineEventCursor = 1
+
+	// Enter 展开
+	m = m.handleTimelineKey("enter")
+	if m.timelineExpandedIdx != 1 {
+		t.Errorf("Enter should expand event at cursor, got expandedIdx=%d", m.timelineExpandedIdx)
+	}
+
+	// Enter 再次折叠
+	m = m.handleTimelineKey("enter")
+	if m.timelineExpandedIdx != noExpandedEvent {
+		t.Errorf("Enter again should collapse, got expandedIdx=%d", m.timelineExpandedIdx)
+	}
+}
+
+// --- renderEventDetail ---
+
+func TestRenderEventDetail_ContainsTimestamp(t *testing.T) {
+	ev := timelineEvent{
+		wire: ipc.SyscallEventWire{
+			TimestampMs: 1500,
+			Syscall:     "Open",
+			Args:        map[string]any{"path": "/dev/llm/claude"},
+		},
+		category: catLLM,
+	}
+	lines := renderEventDetail(ev, 80)
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "1.500s") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("renderEventDetail should contain timestamp '1.500s', got %v", lines)
+	}
+}
+
+// --- 过滤模式：默认视图下 f 键可操作 ---
+
+func TestTimelineFilterFromDefaultView(t *testing.T) {
+	m := newTestTimelineDashboardModel()
+	m.viewMode = viewDefault
+	m.activePane = paneTree // Tree 面板活跃
+
+	// f 键应触发过滤模式
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'f'})
+	um := updated.(dashboardModel)
+	if !um.timelineFilterMode {
+		t.Error("f key in default view should enter timeline filter mode even from tree pane")
+	}
+
+	// 在过滤模式按 l 应能切换 LLM
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 'l'})
+	um = updated.(dashboardModel)
+	if um.timelineFilters[catLLM] {
+		t.Error("l in filter mode should toggle LLM filter to false")
+	}
+
+	// Esc 退出过滤模式
+	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	um = updated.(dashboardModel)
+	if um.timelineFilterMode {
+		t.Error("Esc should exit filter mode")
+	}
+}
+
+// --- truncateAnsi ---
+
+func TestTruncateAnsi_ShortString(t *testing.T) {
+	s := "hello"
+	got := truncateAnsi(s, 10)
+	if got != "hello" {
+		t.Errorf("truncateAnsi should not modify short string, got %q", got)
+	}
+}
+
+func TestTruncateAnsi_ZeroWidth(t *testing.T) {
+	got := truncateAnsi("hello", 0)
+	if got != "" {
+		t.Errorf("truncateAnsi(0) should return empty, got %q", got)
 	}
 }

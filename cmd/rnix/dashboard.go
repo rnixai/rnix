@@ -58,6 +58,8 @@ type dashboardModel struct {
 	timelineViewStart   int64
 	timelineEventCursor int
 	timelineFilters     map[eventCategory]bool
+	timelineFilterMode  bool // f 键进入过滤编辑模式
+	timelineExpandedIdx int  // syscall 事件展开索引，-1=无
 
 	// Heatmap fields (Story 17-3)
 	heatmapProfile   *debug.CtxProfileResult
@@ -165,18 +167,22 @@ type dashboardModel struct {
 	historySortMode     int // 0=time, 1=name, 2=pid
 	historySearchQuery  string
 	historySearchMode   bool
+
+	// Help overlay
+	helpOverlay bool
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
 	return dashboardModel{
-		client:           client,
-		startTime:        time.Now(),
-		connected:        client != nil,
-		timelineFilters:  defaultTimelineFilters(),
-		recording:        make(map[string]string),
-		stepTimelineMode: true,
-		stepDetailCache:  make(map[int]*ipc.GetStepDetailResponse),
-		procDetailCache:  make(map[string]*ipc.GetProcDetailResponse),
+		client:              client,
+		startTime:           time.Now(),
+		connected:           client != nil,
+		timelineFilters:     defaultTimelineFilters(),
+		timelineExpandedIdx: noExpandedEvent,
+		recording:           make(map[string]string),
+		stepTimelineMode:    true,
+		stepDetailCache:     make(map[int]*ipc.GetStepDetailResponse),
+		procDetailCache:     make(map[string]*ipc.GetProcDetailResponse),
 	}
 }
 
@@ -620,7 +626,9 @@ func (m dashboardModel) dashboardVisibleLines() int {
 
 func (m dashboardModel) View() tea.View {
 	var content string
-	if m.promptPager {
+	if m.helpOverlay {
+		content = m.renderHelpOverlay()
+	} else if m.promptPager {
 		content = m.renderPromptPager()
 	} else {
 		content = m.renderDashboard()
@@ -775,7 +783,37 @@ func (m dashboardModel) renderDashboardTitle() string {
 	return b.String()
 }
 
+// --- Hint 格式化 ---
+
+// hintKeyStyle 和 hintDescStyle 在 renderDashboardStatus 中延迟初始化。
+var (
+	hintKeyStyle  lipgloss.Style
+	hintDescStyle lipgloss.Style
+	hintInited    bool
+)
+
+func initHintStyles() {
+	if hintInited {
+		return
+	}
+	hintKeyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Bold(true)
+	hintDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	hintInited = true
+}
+
+// hint 渲染单个 key+desc 对：高亮 key，暗淡 desc
+func hint(key, desc string) string {
+	return hintKeyStyle.Render(key) + hintDescStyle.Render(desc)
+}
+
+// hintGroup 用双空格连接一组 hints
+func hintGroup(hints ...string) string {
+	return strings.Join(hints, "  ")
+}
+
 func (m dashboardModel) renderDashboardStatus() string {
+	initHintStyles()
+
 	if m.replayMode {
 		return m.renderReplayStatus()
 	}
@@ -789,83 +827,65 @@ func (m dashboardModel) renderDashboardStatus() string {
 		rec = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●REC") + "  "
 	}
 
-	ops := m.contextualOps()
-
 	if m.statusMsg != "" {
-		return fmt.Sprintf("  %s%s  |  q:Quit  Tab:Switch%s", rec, m.statusMsg, ops)
+		return "  " + rec + m.statusMsg + "    " + hint("q", "quit")
 	}
 
-	var hints string
+	var core []string
+	exit := hint("q", "quit")
+
 	switch m.viewMode {
 	case viewExpanded:
-		hints = m.paneSpecificHints()
+		core, exit = m.paneHints()
 	case viewHistory:
 		if m.historySearchMode {
-			hints = "Type to search | Enter:confirm Esc:cancel"
+			core = []string{hint("Type ", "search"), hint("Enter ", "ok")}
+			exit = hint("Esc ", "cancel")
 		} else {
-			hints = "j/k:nav Enter:focus L:llm /:search 1/2/3:sort Esc:back q:quit"
+			core = []string{hint("j/k", "nav"), hint("Enter", "focus"), hint("L", "llm"), hint("/", "search"), hint("?", "help")}
+			exit = hint("Esc", "back")
 		}
 	case viewLLM:
-		d := m.llmViewerDetail
-		reqTok := 0
-		respTok := 0
-		durMs := 0.0
-		if d != nil {
-			reqTok = d.RequestTokens
-			respTok = d.ResponseTokens
-			durMs = d.ToolDurationMs
-		}
-		hints = fmt.Sprintf("req:%d tok │ resp:%d tok │ %.0fms ── j/k:scroll h/l:prev/next y:copy Esc:close",
-			reqTok, respTok, durMs)
+		core = []string{hint("j/k", "scroll"), hint("h/l", "step"), hint("y", "copy"), hint("?", "help")}
+		exit = hint("Esc", "close")
 	default: // viewDefault
-		hints = "Tab:cycle 1-8:jump L:llm H:hist Esc:back q:quit"
+		core = []string{hint("j/k", "nav"), hint("z", "expand"), hint("f", "filter"), hint("H", "hist"), hint("?", "help")}
 	}
 
-	// AC-10: Append "(filtered: PID N)" when a Dead process is selected in Timeline context
+	hints := hintGroup(core...) + "    " + exit
+
+	// Dead process filter indicator
 	if m.viewMode != viewHistory && m.isSelectedProcessDead() && m.selectedPID > 0 {
-		hints += fmt.Sprintf("  (filtered: PID %d)", m.selectedPID)
+		hints += hintDescStyle.Render(fmt.Sprintf("  (PID %d)", m.selectedPID))
 	}
 
-	return fmt.Sprintf("  %s%s%s", rec, hints, ops)
+	return "  " + rec + hints
 }
 
-func (m dashboardModel) paneSpecificHints() string {
-	base := "1-8:jump Esc:back q:quit"
+// paneHints returns core hints and exit hint for the current expanded pane.
+func (m dashboardModel) paneHints() (core []string, exit string) {
+	exit = hint("q", "quit")
+
 	switch m.expandedPane {
 	case paneTimeline:
+		if m.timelineFilterMode {
+			return []string{hint("l", "LLM"), hint("t", "Tool"), hint("i", "IPC"), hint("v", "VFS"), hint("a", "All")},
+				hint("f/Esc", "done")
+		}
 		if m.stepTimelineMode && len(m.stepEntries) > 0 {
-			return "j/k:nav v:expand p:prompt h/l:scroll +/-:zoom " + base
+			return []string{hint("j/k", "nav"), hint("v", "detail"), hint("p", "prompt"), hint("s", "syscall"), hint("?", "help")}, exit
 		}
-		return "j/k:nav h/l:scroll +/-:zoom " + base
+		return []string{hint("j/k", "nav"), hint("Enter", "detail"), hint("s", "step"), hint("f", "filter"), hint("?", "help")}, exit
 	case paneHeatmap:
-		return "j/k:select Enter:details " + base
-	case paneDetail:
-		return "Detail " + base
-	case paneIntent:
-		return "j/k:nav Enter:jump " + base
-	case paneSecurity:
-		return "j/k:nav Enter:jump " + base
+		return []string{hint("j/k", "nav"), hint("Enter", "detail"), hint("z", "restore"), hint("?", "help")}, exit
+	case paneIntent, paneSecurity:
+		return []string{hint("j/k", "nav"), hint("Enter", "jump"), hint("z", "restore"), hint("?", "help")}, exit
 	case paneTrace:
-		if m.traceViewMode == 0 {
-			return "j/k:nav Enter:expand " + base
-		}
-		return "j/k:nav Enter:jump Esc:back " + base
+		return []string{hint("j/k", "nav"), hint("Enter", "expand"), hint("z", "restore"), hint("?", "help")}, exit
 	case paneEval:
-		return "j/k:nav h/l:sub-view " + base
+		return []string{hint("j/k", "nav"), hint("h/l", "view"), hint("z", "restore"), hint("?", "help")}, exit
 	default:
-		return "j/k:nav Enter:select " + base
-	}
-}
-
-// contextualOps 根据当前活动面板生成进程操作提示栏。
-// 小写 k 在几乎所有面板都被 j/k 导航消费，统一显示 K:Kill（Shift+K）。
-// l:Log 在 Timeline 面板被滚动消费，该面板不显示。
-func (m dashboardModel) contextualOps() string {
-	switch m.activePane {
-	case paneTimeline:
-		return "  K:Kill a:GDB r:Rec"
-	default:
-		return "  K:Kill a:GDB l:Log r:Rec"
+		return []string{hint("j/k", "nav"), hint("Enter", "select"), hint("z", "restore"), hint("?", "help")}, exit
 	}
 }
 

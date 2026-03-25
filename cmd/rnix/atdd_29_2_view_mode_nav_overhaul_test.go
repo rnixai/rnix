@@ -305,11 +305,11 @@ func TestViewModeSystem_StatusBarDefaultView(t *testing.T) {
 
 	status := m.renderDashboardStatus()
 
-	// 默认视图应包含 1-8 jump 提示
-	requiredHints := []string{"1-8", "Tab", "q"}
-	for _, hint := range requiredHints {
-		if !strings.Contains(status, hint) {
-			t.Errorf("expected default status bar to contain %q, got: %s", hint, status)
+	// 默认视图应包含核心 hints
+	requiredHints := []string{"nav", "expand", "help", "quit"}
+	for _, h := range requiredHints {
+		if !strings.Contains(status, h) {
+			t.Errorf("expected default status bar to contain %q, got: %s", h, status)
 		}
 	}
 }
@@ -328,11 +328,10 @@ func TestViewModeSystem_StatusBarExpandedView(t *testing.T) {
 	status := m.renderDashboardStatus()
 
 	// 展开 Timeline 时应包含面板特定提示
-	if !strings.Contains(status, "Esc") {
-		t.Errorf("expected expanded status bar to contain 'Esc' hint, got: %s", status)
-	}
-	if !strings.Contains(status, "1-8") {
-		t.Errorf("expected expanded status bar to contain '1-8' hint, got: %s", status)
+	for _, kw := range []string{"detail", "help", "quit"} {
+		if !strings.Contains(status, kw) {
+			t.Errorf("expected expanded status bar to contain '%s', got: %s", kw, status)
+		}
 	}
 }
 
@@ -353,14 +352,14 @@ func TestViewModeSystem_PaneSpecificHintsExists(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		if slices.Contains(funcs, "paneSpecificHints") {
+		if slices.Contains(funcs, "paneHints") {
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		t.Error("expected paneSpecificHints method to exist in dashboard.go or dashboard_nav.go")
+		t.Error("expected paneHints method to exist in dashboard.go or dashboard_nav.go")
 	}
 }
 
@@ -497,9 +496,9 @@ func TestViewModeSystem_StatusBarRetainsOps(t *testing.T) {
 
 	status := m.renderDashboardStatus()
 
-	// 操作快捷键保留
-	if !strings.Contains(status, "Kill") {
-		t.Errorf("expected status bar to contain 'Kill' operation, got: %s", status)
+	// 操作快捷键已移入 ? 帮助覆盖层
+	if !strings.Contains(status, "help") {
+		t.Errorf("expected status bar to contain 'help' hint, got: %s", status)
 	}
 }
 
@@ -703,7 +702,7 @@ func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
 		t.Errorf("expected viewMode=viewExpanded, got %d", model.viewMode)
 	}
 
-	// 按 '!' (Shift+1) → 应切换 timeline filter
+	// 按 'f' 进入过滤模式，再按 'l' → 应切换 LLM filter
 	m3 := newDashboardModel(nil)
 	m3.viewMode = viewExpanded
 	m3.expandedPane = paneTimeline
@@ -714,14 +713,21 @@ func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
 		t.Fatal("LLM filter should be true by default")
 	}
 
-	m4, _ := m3.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
+	// f 进入过滤模式
+	m4, _ := m3.Update(tea.KeyPressMsg{Code: 'f'})
 	model2 := m4.(dashboardModel)
-
-	if model2.timelineFilters[catLLM] {
-		t.Error("pressing '!' should toggle LLM filter to false")
+	if !model2.timelineFilterMode {
+		t.Error("pressing 'f' should enter filter mode")
 	}
-	if model2.expandedPane != paneTimeline {
-		t.Errorf("expected to stay in paneTimeline after '!', got %d", model2.expandedPane)
+
+	// l 切换 LLM
+	m5, _ := model2.Update(tea.KeyPressMsg{Code: 'l'})
+	model3 := m5.(dashboardModel)
+	if model3.timelineFilters[catLLM] {
+		t.Error("pressing 'l' in filter mode should toggle LLM filter to false")
+	}
+	if model3.expandedPane != paneTimeline {
+		t.Errorf("expected to stay in paneTimeline after filter toggle, got %d", model3.expandedPane)
 	}
 }
 // ---------------------------------------------------------------------------
@@ -734,13 +740,16 @@ func TestViewModeSystem_TimelineHintsConditional(t *testing.T) {
 	m.expandedPane = paneTimeline
 	m.stepTimelineMode = false
 
-	hints := m.paneSpecificHints()
+	core, _ := m.paneHints()
+	hints := hintGroup(core...)
 
-	if strings.Contains(hints, "v:expand") || strings.Contains(hints, "p:prompt") {
-		t.Errorf("expected no v/p hints when stepTimelineMode=false, got: %s", hints)
+	// syscall mode should NOT show v/p hints
+	if strings.Contains(hints, "prompt") {
+		t.Errorf("expected no prompt hint when stepTimelineMode=false, got: %s", hints)
 	}
-	if !strings.Contains(hints, "h/l:scroll") {
-		t.Errorf("expected h/l:scroll hint regardless of stepTimelineMode, got: %s", hints)
+	// should show step switching hint
+	if !strings.Contains(hints, "step") {
+		t.Errorf("expected step hint when stepTimelineMode=false, got: %s", hints)
 	}
 }
 

@@ -194,8 +194,8 @@ func TestATDD_27_9_AC1_StatusBarTraceHelp_TreeMode(t *testing.T) {
 
 	output := m.renderDashboardStatus()
 
-	if !strings.Contains(output, "Esc") || !strings.Contains(output, "jump") {
-		t.Error("AC-1: trace pane tree mode status help should mention Esc and jump")
+	if !strings.Contains(output, "expand") || !strings.Contains(output, "help") {
+		t.Error("AC-1: trace pane status help should mention expand and help")
 	}
 }
 

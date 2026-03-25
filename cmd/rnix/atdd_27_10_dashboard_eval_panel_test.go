@@ -194,8 +194,8 @@ func TestATDD_27_10_AC1_StatusBarEvalHelp(t *testing.T) {
 
 	output := m.renderDashboardStatus()
 
-	if !strings.Contains(output, "h/l:sub-view") {
-		t.Error("AC-1: eval pane status help should mention h/l:sub-view")
+	if !strings.Contains(output, "view") {
+		t.Error("AC-1: eval pane status help should mention view")
 	}
 }
 
