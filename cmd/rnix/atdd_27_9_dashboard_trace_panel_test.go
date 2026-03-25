@@ -133,23 +133,26 @@ func TestATDD_27_9_AC1_PaneTraceConstant(t *testing.T) {
 	}
 }
 
-// --- AC-1.2: [P0] Tab cycles through 7 panes ---
+// --- AC-1.2: [P0] Digit keys switch through all panes (replaces Tab cycling) ---
 func TestATDD_27_9_AC1_TabCycles7Panes(t *testing.T) {
 	m := newDashboardModel(nil)
 	m.width = 120
 	m.height = 40
 	m.activePane = paneTree // 0
 
-	// Press Tab 8 times and verify full cycle back to paneTree (updated for 8 panes after Story 27-10)
-	expectedOrder := []paneType{
-		paneTimeline, paneHeatmap, paneDetail, paneIntent,
-		paneSecurity, paneTrace, paneEval, paneTree,
+	// Use digit keys to verify all panes are reachable
+	expectedOrder := []struct {
+		key  rune
+		pane paneType
+	}{
+		{'2', paneTimeline}, {'3', paneHeatmap}, {'4', paneDetail}, {'5', paneIntent},
+		{'6', paneSecurity}, {'7', paneTrace}, {'8', paneEval}, {'1', paneTree},
 	}
-	for i, expected := range expectedOrder {
-		m2, _ := m.Update(tea.KeyPressMsg{Code: '\t'})
+	for i, tt := range expectedOrder {
+		m2, _ := m.Update(tea.KeyPressMsg{Code: tt.key})
 		model := m2.(dashboardModel)
-		if model.activePane != expected {
-			t.Errorf("AC-1: Tab press %d: activePane = %d, want %d", i+1, model.activePane, expected)
+		if model.activePane != tt.pane {
+			t.Errorf("AC-1: key '%c' (step %d): activePane = %d, want %d", tt.key, i+1, model.activePane, tt.pane)
 		}
 		m = model
 	}
@@ -897,30 +900,28 @@ func TestATDD_27_9_SpanAdjustScroll(t *testing.T) {
 // Cross-pane interaction tests
 // =============================================================================
 
-// --- AC-4.12: [P1] Tab away from Trace and back preserves view mode ---
+// --- AC-4.12: [P1] Switching panes and back preserves trace view mode ---
 func TestATDD_27_9_TabPreservesViewMode(t *testing.T) {
 	m := newTraceModel()
 	m.traceViewMode = 1 // tree mode
 	m.selectedSpanTree = makeSpanTree()
 	m.spanFlatNodes = flattenSpanTree(m.selectedSpanTree)
 
-	// Tab away to next pane
-	m2, _ := m.Update(tea.KeyPressMsg{Code: '\t'})
+	// Switch to another pane via digit key
+	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'}) // Timeline
 	model := m2.(dashboardModel)
 
-	// Tab back to Trace pane (7 more tabs to cycle around for 8 panes)
-	for range 7 {
-		m3, _ := model.Update(tea.KeyPressMsg{Code: '\t'})
-		model = m3.(dashboardModel)
-	}
+	// Switch back to Trace pane via digit key
+	m3, _ := model.Update(tea.KeyPressMsg{Code: '7'}) // Trace
+	model = m3.(dashboardModel)
 
 	if model.activePane != paneTrace {
-		t.Errorf("AC-4: after cycling tabs, activePane = %d, want paneTrace (%d)",
+		t.Errorf("AC-4: after switching back, activePane = %d, want paneTrace (%d)",
 			model.activePane, paneTrace)
 	}
 	// View mode should be preserved (tree mode=1)
 	if model.traceViewMode != 1 {
-		t.Errorf("AC-4: traceViewMode should be preserved after tab cycle, got %d", model.traceViewMode)
+		t.Errorf("AC-4: traceViewMode should be preserved after pane switch, got %d", model.traceViewMode)
 	}
 }
 

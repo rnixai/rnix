@@ -260,9 +260,9 @@ func TestFocusCard_ExpandedLayoutUnchanged(t *testing.T) {
 		t.Error("renderExpandedLayout should NOT contain renderFocusCard — Focus Card is only for default view")
 	}
 
-	// 展开视图应保留 renderHeatmapPane
-	if !strings.Contains(funcBody, "renderHeatmapPane") {
-		t.Error("renderExpandedLayout should still contain renderHeatmapPane")
+	// 展开视图应通过 renderSinglePane 委托各面板渲染（包括 Heatmap）
+	if !strings.Contains(funcBody, "renderSinglePane") {
+		t.Error("renderExpandedLayout should contain renderSinglePane")
 	}
 }
 

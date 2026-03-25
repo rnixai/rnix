@@ -40,6 +40,7 @@ func newDetailPanelModel() dashboardModel {
 	m.connected = true
 	m.viewMode = viewExpanded
 	m.expandedPane = paneDetail
+	m.rightPane = paneDetail
 	m.treeRows = []flatRow{
 		{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, Intent: "analyze code", CreatedAt: time.Now()}},
 		{proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, Intent: "build feature", CreatedAt: time.Now()}},
@@ -67,60 +68,27 @@ func TestATDD_27_6_AC2_Tab_CyclesThrough5Panes(t *testing.T) {
 		t.Fatalf("AC-2: initial pane should be Tree, got %d", m.activePane)
 	}
 
-	// Tab → Timeline
-	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	m = updated.(dashboardModel)
-	if m.activePane != paneTimeline {
-		t.Errorf("AC-2: after 1st Tab, pane = %d, want %d (Timeline)", m.activePane, paneTimeline)
+	// Digit keys now switch panes (Tab only toggles Tree ↔ rightPane)
+	paneTests := []struct {
+		key  rune
+		pane paneType
+		name string
+	}{
+		{'2', paneTimeline, "Timeline"},
+		{'3', paneHeatmap, "Heatmap"},
+		{'4', paneDetail, "Detail"},
+		{'5', paneIntent, "Intent"},
+		{'6', paneSecurity, "Security"},
+		{'7', paneTrace, "Trace"},
+		{'8', paneEval, "Eval"},
+		{'1', paneTree, "Tree"},
 	}
-
-	// Tab → Heatmap
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	m = updated.(dashboardModel)
-	if m.activePane != paneHeatmap {
-		t.Errorf("AC-2: after 2nd Tab, pane = %d, want %d (Heatmap)", m.activePane, paneHeatmap)
-	}
-
-	// Tab → Detail
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	m = updated.(dashboardModel)
-	if m.activePane != paneDetail {
-		t.Errorf("AC-2: after 3rd Tab, pane = %d, want %d (Detail)", m.activePane, paneDetail)
-	}
-
-	// Tab → Intent
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	m = updated.(dashboardModel)
-	if m.activePane != paneIntent {
-		t.Errorf("AC-2: after 4th Tab, pane = %d, want %d (Intent)", m.activePane, paneIntent)
-	}
-
-	// Tab → Security (Story 27-8)
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	m = updated.(dashboardModel)
-	if m.activePane != paneSecurity {
-		t.Errorf("AC-2: after 5th Tab, pane = %d, want %d (Security)", m.activePane, paneSecurity)
-	}
-
-	// Tab → Trace (Story 27-9)
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	m = updated.(dashboardModel)
-	if m.activePane != paneTrace {
-		t.Errorf("AC-2: after 6th Tab, pane = %d, want %d (Trace)", m.activePane, paneTrace)
-	}
-
-	// Tab → back to Tree (via Eval, Story 27-10)
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	m = updated.(dashboardModel)
-	if m.activePane != paneEval {
-		t.Errorf("AC-2: after 7th Tab, pane = %d, want %d (Eval)", m.activePane, paneEval)
-	}
-
-	// Tab → back to Tree
-	updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	m = updated.(dashboardModel)
-	if m.activePane != paneTree {
-		t.Errorf("AC-2: after 8th Tab, pane = %d, want %d (Tree)", m.activePane, paneTree)
+	for i, tt := range paneTests {
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tt.key})
+		m = updated.(dashboardModel)
+		if m.activePane != tt.pane {
+			t.Errorf("AC-2: after key '%c' (step %d), pane = %d, want %d (%s)", tt.key, i+1, m.activePane, tt.pane, tt.name)
+		}
 	}
 }
 

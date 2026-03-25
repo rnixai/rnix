@@ -34,8 +34,9 @@ type dashboardModel struct {
 	width       int
 	height      int
 	activePane   paneType
+	rightPane    paneType  // 右侧显示的面板（默认 Timeline）
 	viewMode     viewMode  // 当前视图模式（默认 viewDefault，零值即默认）
-	expandedPane paneType  // viewExpanded 模式下展开的面板
+	expandedPane paneType  // viewExpanded 模式下展开的面板（兼容遗留，等于 rightPane）
 	selectedPID  types.PID
 	selectedUUID string
 	processes    []vfs.ProcInfo
@@ -177,6 +178,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		client:              client,
 		startTime:           time.Now(),
 		connected:           client != nil,
+		rightPane:           paneTimeline,
 		timelineFilters:     defaultTimelineFilters(),
 		timelineExpandedIdx: noExpandedEvent,
 		recording:           make(map[string]string),
@@ -696,43 +698,48 @@ func (m dashboardModel) renderDefaultLayout(w, h int) string {
 
 	treePane := m.renderDashboardTreePane(treeWidth, h)
 
-	topRightH := h / 2
-	bottomRightH := h - topRightH
-	timelinePane := m.renderTimelinePane(rightWidth, topRightH)
-	focusCard := m.renderFocusCard(rightWidth, bottomRightH)
-
-	rightPane := lipgloss.JoinVertical(lipgloss.Left, timelinePane, focusCard)
-	return lipgloss.JoinHorizontal(lipgloss.Top, treePane, rightPane)
+	var right string
+	switch m.rightPane {
+	case paneTimeline:
+		// Timeline 默认分上下：Timeline + FocusCard
+		topRightH := h / 2
+		bottomRightH := h - topRightH
+		timelinePane := m.renderTimelinePane(rightWidth, topRightH)
+		focusCard := m.renderFocusCard(rightWidth, bottomRightH)
+		right = lipgloss.JoinVertical(lipgloss.Left, timelinePane, focusCard)
+	default:
+		right = m.renderSinglePane(m.rightPane, rightWidth, h)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, treePane, right)
 }
 
 func (m dashboardModel) renderExpandedLayout(w, h int) string {
-	if m.expandedPane == paneTree {
-		return m.renderDashboardTreePane(w, h)
-	}
-	treeWidth := min(max(w*40/100, 30), 60)
-	rightWidth := max(w-treeWidth, 10)
-	treePane := m.renderDashboardTreePane(treeWidth, h)
+	// Tree 隐藏，rightPane 全屏
+	return m.renderSinglePane(m.rightPane, w, h)
+}
 
-	var expandedPane string
-	switch m.expandedPane {
+// renderSinglePane 渲染单个面板（全宽）
+func (m dashboardModel) renderSinglePane(p paneType, w, h int) string {
+	switch p {
+	case paneTree:
+		return m.renderDashboardTreePane(w, h)
 	case paneTimeline:
-		expandedPane = m.renderTimelinePane(rightWidth, h)
+		return m.renderTimelinePane(w, h)
 	case paneHeatmap:
-		expandedPane = m.renderHeatmapPane(rightWidth, h)
+		return m.renderHeatmapPane(w, h)
 	case paneDetail:
-		expandedPane = m.renderDetailPane(rightWidth, h)
+		return m.renderDetailPane(w, h)
 	case paneIntent:
-		expandedPane = m.renderIntentPane(rightWidth, h)
+		return m.renderIntentPane(w, h)
 	case paneSecurity:
-		expandedPane = m.renderSecurityPane(rightWidth, h)
+		return m.renderSecurityPane(w, h)
 	case paneTrace:
-		expandedPane = m.renderTracePane(rightWidth, h)
+		return m.renderTracePane(w, h)
 	case paneEval:
-		expandedPane = m.renderEvalPane(rightWidth, h)
+		return m.renderEvalPane(w, h)
 	default:
-		expandedPane = m.renderHeatmapPane(rightWidth, h)
+		return m.renderTimelinePane(w, h)
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, treePane, expandedPane)
 }
 
 func (m dashboardModel) renderDashboardTitle() string {
@@ -760,11 +767,15 @@ func (m dashboardModel) renderDashboardTitle() string {
 		{"8", "Eval", paneEval},
 	}
 
+	selectedStyle := lipgloss.NewStyle().Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+
 	for _, p := range panes {
-		if m.viewMode == viewExpanded && m.expandedPane == p.pane {
-			fmt.Fprintf(&b, " %s:%s*", p.key, p.name)
+		label := fmt.Sprintf(" [%s]%s", p.key, p.name)
+		if m.activePane == p.pane {
+			b.WriteString(selectedStyle.Render(label))
 		} else {
-			fmt.Fprintf(&b, " [%s]%s", p.key, p.name)
+			b.WriteString(dimStyle.Render(label))
 		}
 	}
 

@@ -123,20 +123,26 @@ func TestATDD_27_7_AC1_PaneIntentConstant(t *testing.T) {
 	}
 }
 
-// --- AC-1.2: [P0] Tab cycles through 7 panes (updated for Story 27-9 Trace pane) ---
+// --- AC-1.2: [P0] Digit keys switch through all panes (replaces Tab cycling) ---
 func TestATDD_27_7_AC1_TabCycles5Panes(t *testing.T) {
 	m := newDashboardModel(nil)
 	m.width = 120
 	m.height = 40
 	m.activePane = paneTree // 0
 
-	// Press Tab 8 times and verify full cycle (updated for 8 panes after Story 27-10)
-	expectedOrder := []paneType{paneTimeline, paneHeatmap, paneDetail, paneIntent, paneSecurity, paneTrace, paneEval, paneTree}
-	for i, expected := range expectedOrder {
-		m2, _ := m.Update(tea.KeyPressMsg{Code: '\t'})
+	// Use digit keys to verify all panes are reachable
+	expectedOrder := []struct {
+		key  rune
+		pane paneType
+	}{
+		{'2', paneTimeline}, {'3', paneHeatmap}, {'4', paneDetail}, {'5', paneIntent},
+		{'6', paneSecurity}, {'7', paneTrace}, {'8', paneEval}, {'1', paneTree},
+	}
+	for i, tt := range expectedOrder {
+		m2, _ := m.Update(tea.KeyPressMsg{Code: tt.key})
 		model := m2.(dashboardModel)
-		if model.activePane != expected {
-			t.Errorf("AC-1: Tab press %d: activePane = %d, want %d", i+1, model.activePane, expected)
+		if model.activePane != tt.pane {
+			t.Errorf("AC-1: key '%c' (step %d): activePane = %d, want %d", tt.key, i+1, model.activePane, tt.pane)
 		}
 		m = model
 	}
