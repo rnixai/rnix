@@ -112,62 +112,78 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		if m.viewMode == viewExpanded {
 			// 让面板先处理内部 Esc（如 Trace 的 tree→list）
-			if m.expandedPane == paneTrace && m.traceViewMode != 0 {
+			if m.activePane == paneTrace && m.traceViewMode != 0 {
 				return m.handleTraceKey(key)
 			}
+			// z 还原：显示 Tree
 			m.viewMode = viewDefault
 			return m, nil
 		}
 	case "tab":
-		m.activePane = (m.activePane + 1) % 8
-		m.viewMode = viewExpanded
-		m.expandedPane = m.activePane
+		// Tab：在 Tree 和右侧面板之间切换焦点
+		if m.viewMode == viewDefault {
+			if m.activePane == paneTree {
+				m.activePane = m.rightPane
+			} else {
+				m.activePane = paneTree
+			}
+		}
 		return m, nil
 	case "shift+tab":
-		m.activePane = (m.activePane + 7) % 8
-		m.viewMode = viewExpanded
-		m.expandedPane = m.activePane
+		// Shift+Tab：同 Tab，双向切换
+		if m.viewMode == viewDefault {
+			if m.activePane == paneTree {
+				m.activePane = m.rightPane
+			} else {
+				m.activePane = paneTree
+			}
+		}
 		return m, nil
-	case "1", "2", "3", "4", "5", "6", "7", "8":
+	case "1":
+		// 1：聚焦 Tree 侧边栏
+		m.activePane = paneTree
+		if m.viewMode == viewExpanded {
+			m.viewMode = viewDefault // Tree 不可见时，切回 default 显示 Tree
+		}
+		return m, nil
+	case "2", "3", "4", "5", "6", "7", "8":
+		// 2-8：切换右侧面板内容
 		n, _ := strconv.Atoi(key)
-		return m.jumpToPane(paneType(n - 1))
+		p := paneType(n - 1)
+		m.rightPane = p
+		m.activePane = p
+		if m.viewMode == viewExpanded {
+			m.expandedPane = p
+		}
+		return m, nil
 	// 展开 Eval 面板时 !/@ /#（Shift+1/2/3）切换子视图
 	case "!", "@", "#":
-		if m.viewMode == viewExpanded && m.expandedPane == paneEval {
+		if m.activePane == paneEval {
 			return m.handleEvalKey(key)
 		}
 	case "f":
-		// f 键进入过滤模式：默认视图（Timeline 始终可见）或展开 Timeline 面板
-		if m.viewMode == viewDefault || (m.viewMode == viewExpanded && m.expandedPane == paneTimeline) {
+		// f 键进入过滤模式：Timeline 可见时可用
+		if m.rightPane == paneTimeline || m.activePane == paneTimeline {
 			m = m.handleTimelineKey(key)
 			return m, nil
 		}
 	case "z":
-		// z 键：放大当前面板 / 还原默认视图
+		// z 键：切换 Tree 侧边栏显隐（类似 VS Code Ctrl+B）
 		switch m.viewMode {
-		case viewExpanded:
-			m.viewMode = viewDefault
 		case viewDefault:
 			m.viewMode = viewExpanded
-			m.expandedPane = m.activePane
+			m.expandedPane = m.rightPane
+			if m.activePane == paneTree {
+				m.activePane = m.rightPane // Tree 隐藏时，焦点移到右侧
+			}
+		case viewExpanded:
+			m.viewMode = viewDefault
 		}
 		return m, nil
 	}
 
 	// === Layer 6: 面板内按键分发 ===
 	return m.dispatchPaneKey(msg)
-}
-
-// jumpToPane 跳转到指定面板，若已在该面板则 toggle 回默认视图
-func (m dashboardModel) jumpToPane(p paneType) (tea.Model, tea.Cmd) {
-	if m.viewMode == viewExpanded && m.expandedPane == p {
-		m.viewMode = viewDefault
-	} else {
-		m.viewMode = viewExpanded
-		m.expandedPane = p
-	}
-	m.activePane = p
-	return m, nil
 }
 
 // dispatchPaneKey 将按键分发给当前活动面板处理

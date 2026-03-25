@@ -137,7 +137,6 @@ func TestViewModeSystem_NavFileExists(t *testing.T) {
 
 	expectedFuncs := []string{
 		"dashboardKey",
-		"jumpToPane",
 		"dispatchPaneKey",
 	}
 	for _, fn := range expectedFuncs {
@@ -166,78 +165,67 @@ func TestViewModeSystem_DashboardKeyRemovedFromMain(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 29.2-UNIT-006: [P0] AC-2 — jumpToPane toggle 行为：第一次展开，再次回默认
+// 29.2-UNIT-006: [P0] AC-2 — 数字键切换右侧面板
 // ---------------------------------------------------------------------------
 
-func TestViewModeSystem_JumpToPaneToggle(t *testing.T) {
+func TestViewModeSystem_DigitKeySwitchesRightPane(t *testing.T) {
 	m := newDashboardModel(nil)
 
-	// 首次按：从 viewDefault 跳转到 viewExpanded + paneTimeline
-	m2, _ := m.jumpToPane(paneTimeline)
+	// 按 2：rightPane 切换到 paneTimeline，activePane 也跟随
+	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'})
 	m = m2.(dashboardModel)
-	if m.viewMode != viewExpanded {
-		t.Errorf("expected viewExpanded after first jump, got %d", m.viewMode)
-	}
-	if m.expandedPane != paneTimeline {
-		t.Errorf("expected expandedPane=paneTimeline, got %d", m.expandedPane)
+	if m.rightPane != paneTimeline {
+		t.Errorf("expected rightPane=paneTimeline, got %d", m.rightPane)
 	}
 	if m.activePane != paneTimeline {
 		t.Errorf("expected activePane=paneTimeline, got %d", m.activePane)
 	}
 
-	// 再次按同一面板：toggle 回 viewDefault
-	m2, _ = m.jumpToPane(paneTimeline)
+	// 按 7：rightPane 切换到 paneTrace
+	m2, _ = m.Update(tea.KeyPressMsg{Code: '7'})
 	m = m2.(dashboardModel)
-	if m.viewMode != viewDefault {
-		t.Errorf("expected viewDefault after toggle, got %d", m.viewMode)
+	if m.rightPane != paneTrace {
+		t.Errorf("expected rightPane=paneTrace, got %d", m.rightPane)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// 29.2-UNIT-007: [P0] AC-2 — jumpToPane 切换到不同面板时保持 viewExpanded
+// 29.2-UNIT-007: [P0] AC-2 — 按 1 聚焦 Tree 侧边栏
 // ---------------------------------------------------------------------------
 
-func TestViewModeSystem_JumpToDifferentPane(t *testing.T) {
+func TestViewModeSystem_DigitOneFocusesTree(t *testing.T) {
 	m := newDashboardModel(nil)
+	m.activePane = paneTimeline
 
-	// 先跳到 paneTimeline
-	m2, _ := m.jumpToPane(paneTimeline)
+	m2, _ := m.Update(tea.KeyPressMsg{Code: '1'})
 	m = m2.(dashboardModel)
-
-	// 再跳到 paneTrace（不同面板 → 不 toggle，而是切换）
-	m2, _ = m.jumpToPane(paneTrace)
-	m = m2.(dashboardModel)
-	if m.viewMode != viewExpanded {
-		t.Errorf("expected viewExpanded when jumping to different pane, got %d", m.viewMode)
-	}
-	if m.expandedPane != paneTrace {
-		t.Errorf("expected expandedPane=paneTrace, got %d", m.expandedPane)
+	if m.activePane != paneTree {
+		t.Errorf("expected activePane=paneTree, got %d", m.activePane)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// 29.2-UNIT-008: [P0] AC-2 — 所有 8 个面板都可通过 jumpToPane 展开
+// 29.2-UNIT-008: [P0] AC-2 — 所有面板 2-8 都可通过数字键切换
 // ---------------------------------------------------------------------------
 
-func TestViewModeSystem_AllPanesJumpable(t *testing.T) {
-	panes := []paneType{
-		paneTree, paneTimeline, paneHeatmap, paneDetail,
-		paneIntent, paneSecurity, paneTrace, paneEval,
+func TestViewModeSystem_AllPanesSwitchable(t *testing.T) {
+	panes := []struct {
+		key  rune
+		pane paneType
+	}{
+		{'2', paneTimeline}, {'3', paneHeatmap}, {'4', paneDetail},
+		{'5', paneIntent}, {'6', paneSecurity}, {'7', paneTrace}, {'8', paneEval},
 	}
 
 	for _, p := range panes {
 		m := newDashboardModel(nil)
-		m2, _ := m.jumpToPane(p)
+		m2, _ := m.Update(tea.KeyPressMsg{Code: p.key})
 		m = m2.(dashboardModel)
-
-		if m.viewMode != viewExpanded {
-			t.Errorf("pane %d: expected viewExpanded, got %d", p, m.viewMode)
+		if m.rightPane != p.pane {
+			t.Errorf("key %c: expected rightPane=%d, got %d", p.key, p.pane, m.rightPane)
 		}
-		if m.expandedPane != p {
-			t.Errorf("pane %d: expected expandedPane=%d, got %d", p, p, m.expandedPane)
-		}
-		if m.activePane != p {
-			t.Errorf("pane %d: expected activePane=%d, got %d", p, p, m.activePane)
+		if m.activePane != p.pane {
+			t.Errorf("key %c: expected activePane=%d, got %d", p.key, p.pane, m.activePane)
 		}
 	}
 }
@@ -277,20 +265,16 @@ func TestViewModeSystem_TitleBarExpandedHighlight(t *testing.T) {
 	m.connected = true
 	m.viewMode = viewExpanded
 	m.expandedPane = paneTimeline
+	m.activePane = paneTimeline
 
 	title := m.renderDashboardTitle()
 
-	// 展开的面板应显示 2:Time* 而不是 [2]Time
-	if !strings.Contains(title, "2:") {
-		t.Errorf("expected expanded pane to show '2:' prefix, got: %s", title)
+	// 所有面板统一 [N]Name 格式，选中面板加粗
+	if !strings.Contains(title, "[2]") {
+		t.Errorf("expected active pane to show '[2]', got: %s", title)
 	}
-	if !strings.Contains(title, "*") {
-		t.Errorf("expected expanded pane to show '*' suffix, got: %s", title)
-	}
-
-	// 其他面板仍显示 [N]Name 格式
 	if !strings.Contains(title, "[1]") {
-		t.Errorf("expected non-expanded pane to show '[1]', got: %s", title)
+		t.Errorf("expected non-active pane to show '[1]', got: %s", title)
 	}
 }
 
@@ -427,9 +411,9 @@ func TestViewModeSystem_TreeFullScreenWhenExpanded(t *testing.T) {
 		t.Error("renderDashboard returned empty string in tree expanded mode")
 	}
 
-	// 标题应反映树面板展开状态
-	if !strings.Contains(output, "1:") && !strings.Contains(output, "Tree*") {
-		t.Error("expected title to indicate tree pane is expanded")
+	// 标题栏应包含 Tree 面板标签
+	if !strings.Contains(output, "[1]Tree") {
+		t.Error("expected title to contain '[1]Tree'")
 	}
 }
 
@@ -524,7 +508,7 @@ func TestViewModeSystem_StubKeysExist(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 29.2-INT-005: [P0] AC-7 — Tab 键经 dashboardKey 进入 viewExpanded
+// 29.2-INT-005: [P0] AC-7 — Tab 键在 Tree 和 rightPane 之间切换焦点
 // ---------------------------------------------------------------------------
 
 func TestViewModeSystem_TabKeyEntersExpanded(t *testing.T) {
@@ -534,19 +518,17 @@ func TestViewModeSystem_TabKeyEntersExpanded(t *testing.T) {
 	m2, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	model := m2.(dashboardModel)
 
-	if model.viewMode != viewExpanded {
-		t.Errorf("expected viewExpanded after Tab, got %d", model.viewMode)
+	// Tab now toggles focus between Tree and rightPane (default: paneTimeline)
+	if model.viewMode != viewDefault {
+		t.Errorf("expected viewDefault after Tab, got %d", model.viewMode)
 	}
 	if model.activePane != paneTimeline {
 		t.Errorf("expected activePane=paneTimeline after Tab from paneTree, got %d", model.activePane)
 	}
-	if model.expandedPane != paneTimeline {
-		t.Errorf("expected expandedPane=paneTimeline after Tab, got %d", model.expandedPane)
-	}
 }
 
 // ---------------------------------------------------------------------------
-// 29.2-INT-006: [P0] AC-4 — Shift-Tab 键经 dashboardKey 反向导航
+// 29.2-INT-006: [P0] AC-4 — Shift-Tab 键同 Tab，双向切换 Tree ↔ rightPane
 // ---------------------------------------------------------------------------
 
 func TestViewModeSystem_ShiftTabKeyReverseCycle(t *testing.T) {
@@ -556,15 +538,12 @@ func TestViewModeSystem_ShiftTabKeyReverseCycle(t *testing.T) {
 	m2, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	model := m2.(dashboardModel)
 
-	// (0 + 7) % 8 = 7 = paneEval
-	if model.activePane != paneEval {
-		t.Errorf("expected activePane=paneEval after Shift-Tab from paneTree, got %d", model.activePane)
+	// Shift+Tab now same as Tab: toggle Tree ↔ rightPane
+	if model.activePane != paneTimeline {
+		t.Errorf("expected activePane=paneTimeline after Shift-Tab from paneTree, got %d", model.activePane)
 	}
-	if model.viewMode != viewExpanded {
-		t.Errorf("expected viewExpanded after Shift-Tab, got %d", model.viewMode)
-	}
-	if model.expandedPane != paneEval {
-		t.Errorf("expected expandedPane=paneEval after Shift-Tab, got %d", model.expandedPane)
+	if model.viewMode != viewDefault {
+		t.Errorf("expected viewDefault after Shift-Tab, got %d", model.viewMode)
 	}
 }
 
@@ -603,22 +582,22 @@ func TestViewModeSystem_EscNoopInDefault(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 29.2-INT-009: [P0] AC-2 — 数字键经 dashboardKey 跳转到面板
+// 29.2-INT-009: [P0] AC-2 — 数字键设置 rightPane 和 activePane
 // ---------------------------------------------------------------------------
 
 func TestViewModeSystem_DigitKeyJumpsToPane(t *testing.T) {
 	m := newDashboardModel(nil)
 	m.viewMode = viewDefault
 
-	// 按 "3" → paneHeatmap (index 2)
+	// 按 "3" → rightPane=paneHeatmap, activePane=paneHeatmap, viewMode stays viewDefault
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '3'})
 	model := m2.(dashboardModel)
 
-	if model.viewMode != viewExpanded {
-		t.Errorf("expected viewExpanded after digit key, got %d", model.viewMode)
+	if model.viewMode != viewDefault {
+		t.Errorf("expected viewDefault after digit key, got %d", model.viewMode)
 	}
-	if model.expandedPane != paneHeatmap {
-		t.Errorf("expected expandedPane=paneHeatmap, got %d", model.expandedPane)
+	if model.rightPane != paneHeatmap {
+		t.Errorf("expected rightPane=paneHeatmap, got %d", model.rightPane)
 	}
 	if model.activePane != paneHeatmap {
 		t.Errorf("expected activePane=paneHeatmap, got %d", model.activePane)
@@ -626,7 +605,7 @@ func TestViewModeSystem_DigitKeyJumpsToPane(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 29.2-INT-010: [P0] AC-2 — 数字键 toggle：再次按同一键回到 viewDefault
+// 29.2-INT-010: [P0] AC-2 — 数字键：再次按同一键仍保持 rightPane 设置
 // ---------------------------------------------------------------------------
 
 func TestViewModeSystem_DigitKeyToggleBack(t *testing.T) {
@@ -634,13 +613,17 @@ func TestViewModeSystem_DigitKeyToggleBack(t *testing.T) {
 	m.viewMode = viewExpanded
 	m.expandedPane = paneHeatmap
 	m.activePane = paneHeatmap
+	m.rightPane = paneHeatmap
 
-	// 再按 "3" → toggle 回 viewDefault
+	// 再按 "3" → 在 viewExpanded 下更新 rightPane 和 expandedPane
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '3'})
 	model := m2.(dashboardModel)
 
-	if model.viewMode != viewDefault {
-		t.Errorf("expected viewDefault after toggle, got %d", model.viewMode)
+	if model.rightPane != paneHeatmap {
+		t.Errorf("expected rightPane=paneHeatmap, got %d", model.rightPane)
+	}
+	if model.activePane != paneHeatmap {
+		t.Errorf("expected activePane=paneHeatmap, got %d", model.activePane)
 	}
 }
 
@@ -690,16 +673,17 @@ func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
 	m.viewMode = viewExpanded
 	m.expandedPane = paneTimeline
 	m.activePane = paneTimeline
+	m.rightPane = paneTimeline
 
-	// 按 "1" → 应跳转到 paneTree（数字键始终用于面板跳转）
+	// 按 "1" → 聚焦 Tree，从 viewExpanded 切回 viewDefault
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '1'})
 	model := m2.(dashboardModel)
 
-	if model.expandedPane != paneTree {
-		t.Errorf("expected expandedPane=paneTree after '1' in timeline, got %d", model.expandedPane)
+	if model.activePane != paneTree {
+		t.Errorf("expected activePane=paneTree after '1' in timeline, got %d", model.activePane)
 	}
-	if model.viewMode != viewExpanded {
-		t.Errorf("expected viewMode=viewExpanded, got %d", model.viewMode)
+	if model.viewMode != viewDefault {
+		t.Errorf("expected viewMode=viewDefault after '1' from viewExpanded, got %d", model.viewMode)
 	}
 
 	// 按 'f' 进入过滤模式，再按 'l' → 应切换 LLM filter
@@ -707,6 +691,7 @@ func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
 	m3.viewMode = viewExpanded
 	m3.expandedPane = paneTimeline
 	m3.activePane = paneTimeline
+	m3.rightPane = paneTimeline
 	m3.timelineFilters = defaultTimelineFilters()
 
 	if !m3.timelineFilters[catLLM] {
@@ -726,8 +711,8 @@ func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
 	if model3.timelineFilters[catLLM] {
 		t.Error("pressing 'l' in filter mode should toggle LLM filter to false")
 	}
-	if model3.expandedPane != paneTimeline {
-		t.Errorf("expected to stay in paneTimeline after filter toggle, got %d", model3.expandedPane)
+	if model3.rightPane != paneTimeline {
+		t.Errorf("expected to stay in rightPane=paneTimeline after filter toggle, got %d", model3.rightPane)
 	}
 }
 // ---------------------------------------------------------------------------

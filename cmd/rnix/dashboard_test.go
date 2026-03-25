@@ -683,6 +683,7 @@ func TestDashboardModel_TimelineRenderEmpty(t *testing.T) {
 	m.activePane = paneTimeline
 	m.viewMode = viewExpanded
 	m.expandedPane = paneTimeline
+	m.rightPane = paneTimeline
 	m.stepTimelineMode = false
 	m.timelineFilters = defaultTimelineFilters()
 
@@ -907,6 +908,7 @@ func newTestHeatmapDashboardModel() dashboardModel {
 	m.activePane = paneHeatmap
 	m.viewMode = viewExpanded
 	m.expandedPane = paneHeatmap
+	m.rightPane = paneHeatmap
 	m.heatmapProfile = mockHeatmapProfile()
 	m.heatmapPID = 2
 	m.heatmapSegments = []heatmapSegment{
@@ -1040,6 +1042,7 @@ func TestDashboardModel_HeatmapRenderEmpty(t *testing.T) {
 	m.activePane = paneHeatmap
 	m.viewMode = viewExpanded
 	m.expandedPane = paneHeatmap
+	m.rightPane = paneHeatmap
 
 	v := m.View()
 	content := v.Content
@@ -1131,16 +1134,20 @@ func TestDashboardModel_HeatmapPIDChange(t *testing.T) {
 	}
 }
 
-// --- 17.3-UNIT-011: [P1] Tab switches to paneHeatmap (AC1) ---
+// --- 17.3-UNIT-011: [P1] Digit key 3 switches to paneHeatmap (AC1) ---
 
 func TestDashboardModel_TabToHeatmap(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.activePane = paneTimeline
 
-	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	// Use digit key '3' to switch to Heatmap (Tab now toggles Tree ↔ rightPane)
+	updated, _ := m.Update(tea.KeyPressMsg{Code: '3'})
 	um := updated.(dashboardModel)
 	if um.activePane != paneHeatmap {
-		t.Errorf("Tab from timeline should switch to paneHeatmap, got %d", um.activePane)
+		t.Errorf("Digit '3' should switch to paneHeatmap, got %d", um.activePane)
+	}
+	if um.rightPane != paneHeatmap {
+		t.Errorf("Digit '3' should set rightPane to paneHeatmap, got %d", um.rightPane)
 	}
 }
 
@@ -1238,6 +1245,7 @@ func TestDashboardModel_HeatmapProfileError(t *testing.T) {
 	m.activePane = paneHeatmap
 	m.viewMode = viewExpanded
 	m.expandedPane = paneHeatmap
+	m.rightPane = paneHeatmap
 
 	updated, _ := m.Update(heatmapProfileMsg{err: fmt.Errorf("connection refused")})
 	um := updated.(dashboardModel)
