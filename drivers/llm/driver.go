@@ -61,7 +61,7 @@ type LLMResponse struct {
 
 // StreamEvent represents a single event in a streaming LLM response.
 type StreamEvent struct {
-	Type         string         `json:"type"` // "content", "done", "error", "tool_call"
+	Type         string         `json:"type"` // "content", "reasoning", "done", "error", "tool_call", "thinking", "system", "user"
 	Content      string         `json:"content,omitempty"`
 	TokensUsed   int            `json:"tokens_used,omitempty"`
 	InputTokens  int            `json:"input_tokens,omitempty"`

@@ -673,11 +673,39 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		}
 		proc.FDTable[llmFD] = nil // VFS manages actual file internally; tracks FD existence for process inspection
 
-		// Set up stream handler if the LLM file supports it (Story: InternalStep events)
+		// Set up stream handler for driver events (tool_call, thinking, system, etc.)
 		if file := k.vfs.GetFile(proc.PID, llmFD); file != nil {
 			if obs, ok := file.(vfs.StreamObserver); ok {
+				driverStep := 0 // sub-step counter for driver events within a single reasoning step
 				obs.SetStreamHandler(func(evt map[string]any) {
-					k.emitEvent(proc, "InternalStep", evt, nil, nil, 0)
+					evtType, _ := evt["type"].(string)
+					syscallName := driverEventToSyscall(evtType)
+					k.emitEvent(proc, syscallName, evt, nil, nil, 0)
+
+					// Also emit to LogChan for rnix log visibility
+					if cat, content, toolPath, ok := driverEventToLog(evt); ok {
+						k.emitLog(proc, 0, cat, content, toolPath)
+					}
+
+					// Write StepRecord for tool_call events so Dashboard Step Timeline shows them
+					if evtType == "tool_call" {
+						contentVal, _ := evt["content"].(string)
+						if contentVal == "started" {
+							driverStep++
+							tool, _ := evt["tool"].(string)
+							desc, _ := evt["description"].(string)
+							path, _ := evt["path"].(string)
+							summary := desc
+							if summary == "" {
+								summary = tool
+							}
+							toolPath := tool
+							if path != "" {
+								toolPath = tool + ":" + path
+							}
+							k.writeDriverStepRecord(proc, driverStep, "tool_call", summary, toolPath)
+						}
+					}
 				})
 			}
 			// Detect native tool calling capability
@@ -2774,6 +2802,63 @@ func (k *KernelImpl) GetTokenHistory(pid types.PID) ([]types.TokenSnapshot, erro
 	return history, nil
 }
 
+// driverEventToSyscall maps a driver event type to a precise syscall name.
+func driverEventToSyscall(evtType string) string {
+	switch evtType {
+	case "tool_call":
+		return "DriverToolCall"
+	case "thinking":
+		return "DriverThinking"
+	case "system":
+		return "DriverInit"
+	case "user":
+		return "DriverUser"
+	default:
+		return "DriverEvent"
+	}
+}
+
+// driverEventToLog maps a driver event to a LogEntry category and content.
+// Returns false if the event should not be logged (e.g., system init, user, empty thinking deltas).
+func driverEventToLog(evt map[string]any) (types.LogCategory, string, string, bool) {
+	evtType, _ := evt["type"].(string)
+	subtype, _ := evt["subtype"].(string)
+	contentField, _ := evt["content"].(string)
+
+	switch evtType {
+	case "tool_call":
+		tool, _ := evt["tool"].(string)
+		desc, _ := evt["description"].(string)
+		path, _ := evt["path"].(string)
+		// Prefer description, fall back to content field ("started"/"completed"), then subtype
+		content := contentField
+		if subtype != "" && content == "" {
+			content = subtype
+		}
+		if desc != "" {
+			content = desc
+		}
+		toolPath := tool
+		if path != "" {
+			toolPath = tool + ":" + path
+		}
+		return types.LogTool, content, toolPath, true
+	case "thinking":
+		text := strings.TrimSpace(contentField)
+		if text == "" || text == subtype {
+			// Skip empty thinking deltas and bare "delta"/"completed" labels
+			return "", "", "", false
+		}
+		r := []rune(text)
+		if len(r) > 80 {
+			text = string(r[:80]) + "..."
+		}
+		return types.LogThink, text, "", true
+	default:
+		return "", "", "", false
+	}
+}
+
 // emitLog sends a LogEntry to the process LogChan (non-blocking).
 // Holds proc.mu only during channel access to prevent races with reapProcess close.
 func (k *KernelImpl) emitLog(proc *Process, step int, cat types.LogCategory, content, toolPath string) {
@@ -2897,6 +2982,28 @@ func (k *KernelImpl) writeStepRecord(proc *Process, step int, promptResult *rnix
 
 	if err := sw.WriteStep(rec); err != nil {
 		log.Printf("[step_writer] write error pid=%d step=%d: %v", proc.PID, step, err)
+	}
+}
+
+// writeDriverStepRecord writes a lightweight StepRecord for CLI driver events (tool_call).
+// This makes driver tool calls visible in Dashboard Step Timeline.
+func (k *KernelImpl) writeDriverStepRecord(proc *Process, step int, action, summary, toolPath string) {
+	proc.mu.Lock()
+	sw := proc.stepWriter
+	proc.mu.Unlock()
+	if sw == nil {
+		return
+	}
+
+	rec := types.StepRecord{
+		Step:      step,
+		Timestamp: time.Since(proc.CreatedAt),
+		Action:    action,
+		Summary:   summary,
+		ToolPath:  toolPath,
+	}
+	if err := sw.WriteStep(rec); err != nil {
+		log.Printf("[step_writer] driver step write error pid=%d step=%d: %v", proc.PID, step, err)
 	}
 }
 

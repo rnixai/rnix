@@ -154,13 +154,14 @@ type claudeStreamEvent struct {
 			Text string `json:"text"`
 		} `json:"content,omitempty"`
 	} `json:"message,omitzero"`
-	Result       string  `json:"result,omitempty"`
-	IsError      bool    `json:"is_error,omitempty"`
-	CostUSD      float64 `json:"cost_usd,omitempty"`
-	DurationMS   int     `json:"duration_ms,omitempty"`
-	NumTurns     int     `json:"num_turns,omitempty"`
-	InputTokens  int     `json:"input_tokens,omitempty"`
-	OutputTokens int     `json:"output_tokens,omitempty"`
+	Event        json.RawMessage `json:"event,omitempty"` // raw API event for stream_event type
+	Result       string          `json:"result,omitempty"`
+	IsError      bool            `json:"is_error,omitempty"`
+	CostUSD      float64         `json:"cost_usd,omitempty"`
+	DurationMS   int             `json:"duration_ms,omitempty"`
+	NumTurns     int             `json:"num_turns,omitempty"`
+	InputTokens  int             `json:"input_tokens,omitempty"`
+	OutputTokens int             `json:"output_tokens,omitempty"`
 }
 
 // Stream executes a streaming LLM request via the Claude Code CLI.
@@ -211,6 +212,34 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 			}
 
 			switch evt.Type {
+			case "system":
+				se := StreamEvent{
+					Type:    "system",
+					Content: evt.Subtype,
+					Data:    map[string]any{"subtype": evt.Subtype},
+				}
+				select {
+				case ch <- se:
+				case <-ctx.Done():
+					return
+				}
+			case "user":
+				// User message (includes tool_use_result for tool execution results)
+				se := StreamEvent{Type: "user"}
+				select {
+				case ch <- se:
+				case <-ctx.Done():
+					return
+				}
+			case "stream_event":
+				// Raw Claude API streaming event — extract tool_use and thinking blocks
+				if se := extractClaudeStreamEvent(evt.Event); se != nil {
+					select {
+					case ch <- *se:
+					case <-ctx.Done():
+						return
+					}
+				}
 			case "assistant":
 				for _, c := range evt.Message.Content {
 					if c.Type == "text" {
@@ -293,7 +322,7 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []strin
 	args := []string{"-p", req.Intent, "--output-format", outputFormat, "--tools", ""}
 
 	if outputFormat == "stream-json" {
-		args = append(args, "--verbose")
+		args = append(args, "--verbose", "--include-partial-messages")
 	}
 
 	if req.SystemPrompt != "" {
@@ -327,4 +356,66 @@ func classifyCliError(msg string) (int, error) {
 	default:
 		return 0, nil
 	}
+}
+
+// extractClaudeStreamEvent extracts tool_use and thinking blocks from a raw Claude API stream event.
+// Returns nil for events that don't map to a driver-level event (e.g., text_delta, ping, message_start).
+func extractClaudeStreamEvent(raw json.RawMessage) *StreamEvent {
+	if len(raw) == 0 {
+		return nil
+	}
+	var event struct {
+		Type         string `json:"type"`
+		ContentBlock struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+			ID   string `json:"id"`
+		} `json:"content_block,omitzero"`
+		Delta struct {
+			Type        string `json:"type"`
+			PartialJSON string `json:"partial_json"`
+			Thinking    string `json:"thinking"`
+		} `json:"delta,omitzero"`
+	}
+	if err := json.Unmarshal(raw, &event); err != nil {
+		return nil
+	}
+
+	switch event.Type {
+	case "content_block_start":
+		switch event.ContentBlock.Type {
+		case "tool_use":
+			return &StreamEvent{
+				Type:    "tool_call",
+				Content: "started",
+				Data: map[string]any{
+					"tool":    event.ContentBlock.Name,
+					"call_id": event.ContentBlock.ID,
+					"subtype": "started",
+				},
+			}
+		case "thinking":
+			return &StreamEvent{
+				Type:    "thinking",
+				Content: "started",
+				Data:    map[string]any{"subtype": "started"},
+			}
+		}
+	case "content_block_stop":
+		// We don't have the block type here, but it signals completion
+		return nil
+	case "content_block_delta":
+		switch event.Delta.Type {
+		case "thinking_delta":
+			return &StreamEvent{
+				Type:    "thinking",
+				Content: event.Delta.Thinking,
+				Data:    map[string]any{"subtype": "delta"},
+			}
+		case "input_json_delta":
+			// Tool input streaming — not critical for driver events
+			return nil
+		}
+	}
+	return nil
 }

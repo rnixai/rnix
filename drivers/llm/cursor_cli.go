@@ -135,6 +135,7 @@ type cursorStreamEvent struct {
 	Subtype string `json:"subtype,omitempty"`
 	Model   string `json:"model,omitempty"`
 	CallID  string `json:"call_id,omitempty"`
+	Text    string `json:"text,omitempty"` // thinking delta text
 	Message struct {
 		Content []struct {
 			Type string `json:"type"`
@@ -198,7 +199,34 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 			switch evt.Type {
 			case "system":
-				continue
+				se := StreamEvent{
+					Type:    "system",
+					Content: evt.Subtype,
+					Data:    map[string]any{"subtype": evt.Subtype},
+				}
+				select {
+				case ch <- se:
+				case <-ctx.Done():
+					return
+				}
+			case "user":
+				se := StreamEvent{Type: "user"}
+				select {
+				case ch <- se:
+				case <-ctx.Done():
+					return
+				}
+			case "thinking":
+				se := StreamEvent{
+					Type:    "thinking",
+					Content: evt.Text,
+					Data:    map[string]any{"subtype": evt.Subtype},
+				}
+				select {
+				case ch <- se:
+				case <-ctx.Done():
+					return
+				}
 			case "tool_call":
 				se := StreamEvent{
 					Type:    "tool_call",

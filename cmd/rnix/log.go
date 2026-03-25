@@ -173,7 +173,7 @@ func FormatLogEntry(r *ui.Renderer, lew ipc.LogEntryWire) string {
 		}
 	}
 
-	content := lew.Content
+	content := strings.TrimSpace(lew.Content)
 	if types.LogCategory(category) == types.LogTool && lew.ToolPath != "" {
 		content = lew.ToolPath + " → " + content
 	}

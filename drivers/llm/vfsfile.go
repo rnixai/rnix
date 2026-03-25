@@ -101,13 +101,15 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 			content.WriteString(evt.Content)
 		case "reasoning":
 			reasoning.WriteString(evt.Content)
-		case "tool_call":
+		case "tool_call", "thinking", "system", "user":
 			if f.onEvent != nil {
 				evtData := map[string]any{
-					"type":    "tool_call",
-					"subtype": evt.Content,
+					"type": evt.Type,
 				}
-				// Merge driver-specific metadata (tool name, description, command, etc.)
+				if evt.Content != "" {
+					evtData["content"] = evt.Content
+				}
+				// Merge driver-specific metadata (tool name, description, subtype, etc.)
 				maps.Copy(evtData, evt.Data)
 				f.onEvent(evtData)
 			}
