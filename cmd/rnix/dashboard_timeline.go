@@ -174,6 +174,8 @@ func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 	m.timelineViewStart = 0
 	m.timelineEventCursor = 0
 	m.timelineAttachedPID = m.selectedPID
+	m.timelineExpandedIdx = noExpandedEvent
+	m.timelineFilterMode = false
 	m.stepEntries = nil
 	m.stepCursor = 0
 	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
@@ -184,6 +186,10 @@ func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 }
 
 func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
+	// 过滤模式拦截
+	if m.timelineFilterMode {
+		return m.handleTimelineFilterKey(key)
+	}
 	if m.stepTimelineMode {
 		return m.handleStepTimelineKey(key)
 	}
@@ -217,21 +223,26 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		if m.timelineEventCursor < len(visible)-1 {
 			m.timelineEventCursor++
 		}
-	case "!":
-		m.timelineFilters[catLLM] = !m.timelineFilters[catLLM]
-	case "@":
-		m.timelineFilters[catTool] = !m.timelineFilters[catTool]
-	case "#":
-		m.timelineFilters[catIPC] = !m.timelineFilters[catIPC]
-	case "$":
-		m.timelineFilters[catVFS] = !m.timelineFilters[catVFS]
+	case "enter":
+		if m.timelineExpandedIdx == m.timelineEventCursor {
+			m.timelineExpandedIdx = noExpandedEvent
+		} else {
+			m.timelineExpandedIdx = m.timelineEventCursor
+		}
+	case "f":
+		m.timelineFilterMode = true
 	case "s":
 		m.stepTimelineMode = true
+		m.timelineExpandedIdx = noExpandedEvent
 	}
 	return m
 }
 
 func (m dashboardModel) handleStepTimelineKey(key string) dashboardModel {
+	// 过滤模式拦截
+	if m.timelineFilterMode {
+		return m.handleTimelineFilterKey(key)
+	}
 	switch key {
 	case "up", "k":
 		if m.stepCursor > 0 {
@@ -243,26 +254,34 @@ func (m dashboardModel) handleStepTimelineKey(key string) dashboardModel {
 		}
 	case "s":
 		m.stepTimelineMode = false
-	case "!":
-		if m.timelineFilters == nil {
-			m.timelineFilters = defaultTimelineFilters()
-		}
+	case "f":
+		m.timelineFilterMode = true
+	}
+	return m
+}
+
+// handleTimelineFilterKey 处理过滤模式下的按键
+func (m dashboardModel) handleTimelineFilterKey(key string) dashboardModel {
+	if m.timelineFilters == nil {
+		m.timelineFilters = defaultTimelineFilters()
+	}
+	switch key {
+	case "l":
 		m.timelineFilters[catLLM] = !m.timelineFilters[catLLM]
-	case "@":
-		if m.timelineFilters == nil {
-			m.timelineFilters = defaultTimelineFilters()
-		}
+	case "t":
 		m.timelineFilters[catTool] = !m.timelineFilters[catTool]
-	case "#":
-		if m.timelineFilters == nil {
-			m.timelineFilters = defaultTimelineFilters()
-		}
+	case "i":
 		m.timelineFilters[catIPC] = !m.timelineFilters[catIPC]
-	case "$":
-		if m.timelineFilters == nil {
-			m.timelineFilters = defaultTimelineFilters()
-		}
+	case "v":
 		m.timelineFilters[catVFS] = !m.timelineFilters[catVFS]
+	case "a":
+		m.timelineFilters[catLLM] = true
+		m.timelineFilters[catTool] = true
+		m.timelineFilters[catIPC] = true
+		m.timelineFilters[catVFS] = true
+		m.timelineFilters[catError] = true
+	case "f", "esc":
+		m.timelineFilterMode = false
 	}
 	return m
 }
@@ -309,21 +328,13 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 	}
 
 	var b strings.Builder
+	truncW := max(innerW-1, 1)
 
-	b.WriteString(" Timeline")
-	if m.selectedPID > 0 {
-		fmt.Fprintf(&b, " | PID %d", m.selectedPID)
-	}
-	fmt.Fprintf(&b, " | %d events", len(m.timelineEvents))
-
-	b.WriteString("  ")
-	for _, cat := range []eventCategory{catLLM, catTool, catIPC, catVFS} {
-		label := categoryLabel(cat)
-		if m.timelineFilters != nil && !m.timelineFilters[cat] {
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render("[" + label + "]"))
-		} else {
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(categoryColor(cat))).Render("[" + label + "]"))
-		}
+	// 标题栏：根据过滤模式显示不同内容
+	if m.timelineFilterMode {
+		b.WriteString(m.renderFilterBar(truncW))
+	} else {
+		b.WriteString(m.renderTimelineHeader(truncW))
 	}
 	b.WriteString("\n")
 
@@ -365,26 +376,31 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 	}
 	endIdx := min(startIdx+listLines, len(filtered))
 
-	for i := startIdx; i < endIdx; i++ {
+	linesUsed := 0
+	for i := startIdx; i < endIdx && linesUsed < listLines; i++ {
 		ev := filtered[i]
 		cursor := "  "
 		if i == m.timelineEventCursor {
 			cursor = "▸ "
 		}
 
-		ts := fmt.Sprintf("[%7.3fs]", float64(ev.wire.TimestampMs)/1000.0)
-		dur := formatTimelineDuration(ev.wire.DurationMs)
-		catColor := categoryColor(ev.category)
-		catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(catColor))
-
-		args := formatTimelineArgs(ev.wire.Args, 30)
-		line := fmt.Sprintf("%s%s %s(%s) %s",
-			cursor, ts, catStyle.Render(ev.wire.Syscall), args, dur)
-		if ev.wire.Error != "" {
-			line += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("ERR:"+ev.wire.Error)
-		}
-		b.WriteString(line)
+		line := cursor + formatEventLine(ev, truncW-2)
+		b.WriteString(truncateAnsi(line, truncW))
 		b.WriteString("\n")
+		linesUsed++
+
+		// 展开详情
+		if m.timelineExpandedIdx == i && linesUsed < listLines {
+			detailLines := renderEventDetail(ev, truncW)
+			for _, dl := range detailLines {
+				if linesUsed >= listLines {
+					break
+				}
+				b.WriteString(truncateAnsi(dl, truncW))
+				b.WriteString("\n")
+				linesUsed++
+			}
+		}
 	}
 
 	return style.Render(b.String())
@@ -392,14 +408,19 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 
 func (m dashboardModel) renderStepTimeline(width, height int) string {
 	var b strings.Builder
-
-	b.WriteString(" Timeline")
-	if m.selectedPID > 0 {
-		fmt.Fprintf(&b, " | PID %d", m.selectedPID)
-	}
+	truncW := max(width-1, 1)
 	total := len(m.stepEntries)
-	fmt.Fprintf(&b, " | %d/%d steps", total, total)
-	b.WriteString("  [s] syscall view")
+
+	if m.timelineFilterMode {
+		b.WriteString(m.renderFilterBar(truncW))
+	} else {
+		b.WriteString(" Timeline")
+		if m.selectedPID > 0 {
+			fmt.Fprintf(&b, " │ PID %d", m.selectedPID)
+		}
+		fmt.Fprintf(&b, " │ %d steps", total)
+		b.WriteString("  [s]syscall  f:filter")
+	}
 	b.WriteString("\n")
 
 	if total == 0 {
@@ -431,7 +452,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		dur := formatTimelineDuration(s.DurationMs)
 		line := fmt.Sprintf("%sStep %d/%d  %s  %s  %s%s",
 			cursor, s.Step, total, s.Action, s.Summary, dur, errMark)
-		b.WriteString(line)
+		b.WriteString(truncateAnsi(line, truncW))
 		b.WriteString("\n")
 
 		if entry.level >= levelExpanded {
@@ -565,6 +586,226 @@ func formatTimelineArgs(args map[string]any, maxLen int) string {
 		result = string(runes[:maxLen-3]) + "..."
 	}
 	return result
+}
+
+// --- Resource-first event display ---
+
+// renderTimelineHeader 渲染正常模式标题栏
+func (m dashboardModel) renderTimelineHeader(maxW int) string {
+	var b strings.Builder
+	b.WriteString(" Timeline")
+	if m.selectedPID > 0 {
+		fmt.Fprintf(&b, " │ PID %d", m.selectedPID)
+	}
+	fmt.Fprintf(&b, " │ %d events", len(m.timelineEvents))
+
+	// 过滤状态指示
+	active := 0
+	total := 4
+	for _, cat := range []eventCategory{catLLM, catTool, catIPC, catVFS} {
+		if m.timelineFilters == nil || m.timelineFilters[cat] {
+			active++
+		}
+	}
+	if active < total {
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+		fmt.Fprintf(&b, "  %s", dimStyle.Render(fmt.Sprintf("filter:%d/%d", active, total)))
+	}
+	b.WriteString("  f:filter")
+	return truncateAnsi(b.String(), maxW)
+}
+
+// renderFilterBar 渲染过滤编辑模式标题栏
+func (m dashboardModel) renderFilterBar(maxW int) string {
+	var b strings.Builder
+	b.WriteString(" Filter:")
+
+	cats := []struct {
+		key   string
+		label string
+		cat   eventCategory
+	}{
+		{"L", "LLM", catLLM},
+		{"T", "Tool", catTool},
+		{"I", "IPC", catIPC},
+		{"V", "VFS", catVFS},
+	}
+
+	for _, c := range cats {
+		on := m.timelineFilters == nil || m.timelineFilters[c.cat]
+		mark := "✓"
+		color := categoryColor(c.cat)
+		if !on {
+			mark = "·"
+			color = ui.ColorMuted
+		}
+		catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+		fmt.Fprintf(&b, " [%s]%s %s", c.key, catStyle.Render(c.label), mark)
+	}
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	b.WriteString("  [A]ll  " + dimStyle.Render("f/Esc:done"))
+	return truncateAnsi(b.String(), maxW)
+}
+
+// extractResource 从事件 Args 中提取最有意义的资源标识
+func extractResource(ev ipc.SyscallEventWire) string {
+	// 优先从 path 提取
+	if path, ok := ev.Args["path"].(string); ok {
+		return extractPathResource(path)
+	}
+	// tool 字段（如 DriverToolCall）
+	if tool, ok := ev.Args["tool"].(string); ok {
+		return extractPathResource(tool)
+	}
+	// Spawn: 用 intent
+	if intent, ok := ev.Args["intent"].(string); ok {
+		if utf8.RuneCountInString(intent) > 16 {
+			return string([]rune(intent)[:13]) + "..."
+		}
+		return intent
+	}
+	// IPC: target_pid
+	if target, ok := ev.Args["target_pid"]; ok {
+		return fmt.Sprintf("→pid:%v", target)
+	}
+	if target, ok := ev.Args["target"]; ok {
+		return fmt.Sprintf("→%v", target)
+	}
+	// Context: cid
+	if cid, ok := ev.Args["cid"]; ok {
+		return fmt.Sprintf("ctx:%v", cid)
+	}
+	// FD
+	if fd, ok := ev.Args["fd"]; ok {
+		return fmt.Sprintf("fd:%v", fd)
+	}
+	// size (CtxAlloc)
+	if size, ok := ev.Args["size"]; ok {
+		return fmt.Sprintf("size:%v", size)
+	}
+	return ""
+}
+
+func extractPathResource(path string) string {
+	parts := strings.Split(path, "/")
+	if len(parts) >= 4 && parts[0] == "" && parts[1] == "dev" {
+		switch parts[2] {
+		case "llm":
+			return parts[3]
+		case "shell":
+			return parts[3]
+		case "fs":
+			rest := strings.Join(parts[3:], "/")
+			if utf8.RuneCountInString(rest) > 20 {
+				return string([]rune(rest)[:17]) + "..."
+			}
+			return rest
+		case "mcp":
+			return "mcp:" + parts[3]
+		default:
+			return strings.Join(parts[2:], "/")
+		}
+	}
+	if utf8.RuneCountInString(path) > 20 {
+		return string([]rune(path)[:17]) + "..."
+	}
+	return path
+}
+
+// formatEventLine 生成资源优先的事件行：TAG RESOURCE OP DUR [ERR]
+func formatEventLine(ev timelineEvent, maxW int) string {
+	catColor := categoryColor(ev.category)
+	catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(catColor))
+	tag := catStyle.Render(fmt.Sprintf("%-4s", categoryLabel(ev.category)))
+
+	resource := extractResource(ev.wire)
+	if resource == "" {
+		resource = ev.wire.Syscall
+	}
+
+	op := ev.wire.Syscall
+	dur := formatTimelineDuration(ev.wire.DurationMs)
+	durStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+
+	var line string
+	if ev.wire.Error != "" {
+		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+		errMsg := ev.wire.Error
+		if utf8.RuneCountInString(errMsg) > 20 {
+			errMsg = string([]rune(errMsg)[:17]) + "..."
+		}
+		line = fmt.Sprintf("%s %-14s %-10s %s  %s",
+			tag, resource, op, durStyle.Render(dur), errStyle.Render(errMsg))
+	} else {
+		line = fmt.Sprintf("%s %-14s %-10s %s",
+			tag, resource, op, durStyle.Render(dur))
+	}
+	return line
+}
+
+// renderEventDetail 渲染展开事件的详情行
+func renderEventDetail(ev timelineEvent, maxW int) []string {
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	var lines []string
+
+	// Path
+	if path, ok := ev.wire.Args["path"].(string); ok {
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  ├ Path:   %s", path)))
+	}
+
+	// 其他 Args
+	args := make(map[string]any)
+	for k, v := range ev.wire.Args {
+		if k == "path" || k == "tool" {
+			continue
+		}
+		args[k] = v
+	}
+	if len(args) > 0 {
+		argStr := formatTimelineArgs(args, max(maxW-12, 20))
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  ├ Args:   %s", argStr)))
+	}
+
+	// Result
+	if ev.wire.Result != nil {
+		result := fmt.Sprintf("%v", ev.wire.Result)
+		if utf8.RuneCountInString(result) > 40 {
+			result = string([]rune(result)[:37]) + "..."
+		}
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  ├ Result: %s", result)))
+	}
+
+	// Error
+	if ev.wire.Error != "" {
+		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+		lines = append(lines, fmt.Sprintf("  ├ %s %s", dimStyle.Render("Error:"), errStyle.Render(ev.wire.Error)))
+	}
+
+	// Timestamp
+	ts := fmt.Sprintf("%.3fs", float64(ev.wire.TimestampMs)/1000.0)
+	last := "└"
+	if ev.wire.TraceID != "" {
+		last = "├"
+	}
+	lines = append(lines, dimStyle.Render(fmt.Sprintf("  %s Time:   %s", last, ts)))
+
+	// TraceID
+	if ev.wire.TraceID != "" {
+		lines = append(lines, dimStyle.Render(fmt.Sprintf("  └ Trace:  %s", ev.wire.TraceID)))
+	}
+
+	return lines
+}
+
+// truncateAnsi 按可见宽度截断包含 ANSI 转义码的字符串
+func truncateAnsi(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+	return lipgloss.NewStyle().MaxWidth(maxWidth).Render(s)
 }
 
 // --- Step timeline logic (Story 27-3) ---

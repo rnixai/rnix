@@ -51,6 +51,14 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	// === Layer 1.5: Help 覆盖层 ===
+	if m.helpOverlay {
+		if key == "?" || key == "esc" || key == "q" {
+			m.helpOverlay = false
+		}
+		return m, nil
+	}
+
 	// === Layer 2: History 覆盖层 (Story 29-5) ===
 	if m.viewMode == viewHistory {
 		return m.historyKey(msg)
@@ -94,6 +102,9 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// === Layer 5: 主视图全局快捷键 ===
 	switch key {
+	case "?":
+		m.helpOverlay = true
+		return m, nil
 	case "L", "shift+L":
 		return m.enterLLMViewer()
 	case "H":
@@ -125,16 +136,22 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.viewMode == viewExpanded && m.expandedPane == paneEval {
 			return m.handleEvalKey(key)
 		}
-		// 展开 Timeline 面板时 !/@/#/$（Shift+1/2/3/4）切换筛选器
-		if m.viewMode == viewExpanded && m.expandedPane == paneTimeline {
+	case "f":
+		// f 键进入过滤模式：默认视图（Timeline 始终可见）或展开 Timeline 面板
+		if m.viewMode == viewDefault || (m.viewMode == viewExpanded && m.expandedPane == paneTimeline) {
 			m = m.handleTimelineKey(key)
 			return m, nil
 		}
-	case "$":
-		if m.viewMode == viewExpanded && m.expandedPane == paneTimeline {
-			m = m.handleTimelineKey(key)
-			return m, nil
+	case "z":
+		// z 键：放大当前面板 / 还原默认视图
+		switch m.viewMode {
+		case viewExpanded:
+			m.viewMode = viewDefault
+		case viewDefault:
+			m.viewMode = viewExpanded
+			m.expandedPane = m.activePane
 		}
+		return m, nil
 	}
 
 	// === Layer 6: 面板内按键分发 ===
@@ -156,6 +173,12 @@ func (m dashboardModel) jumpToPane(p paneType) (tea.Model, tea.Cmd) {
 // dispatchPaneKey 将按键分发给当前活动面板处理
 func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+
+	// 过滤模式：无论哪个面板活跃，都路由到 timeline 处理
+	if m.timelineFilterMode {
+		m = m.handleTimelineKey(key)
+		return m, nil
+	}
 
 	// Step Timeline 按键（v/V/p）
 	if m.activePane == paneTimeline && m.stepTimelineMode && len(m.stepEntries) > 0 && m.stepCursor < len(m.stepEntries) {

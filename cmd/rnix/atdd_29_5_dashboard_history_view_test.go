@@ -637,7 +637,7 @@ func TestHistoryView_TimelineAutoFilterDeadProcess(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_StatusBarShowsFilteredHint(t *testing.T) {
-	// Status bar 或 Timeline 渲染中应有 "(filtered: PID N)" 格式的提示文本
+	// Status bar should contain "(PID N)" indicator when dead process is selected
 	paths := []string{
 		filepath.Join(cmdRnixDir(), "dashboard.go"),
 		filepath.Join(cmdRnixDir(), "dashboard_timeline.go"),
@@ -650,16 +650,14 @@ func TestHistoryView_StatusBarShowsFilteredHint(t *testing.T) {
 			continue
 		}
 		content := string(data)
-		// 精确匹配 "filtered: PID" 格式（不是泛化的 "filtered" 和 "PID" 分别存在）
-		if strings.Contains(content, "filtered: PID") || strings.Contains(content, "filtered:PID") ||
-			strings.Contains(content, `"(filtered: PID`) {
+		if strings.Contains(content, "(PID %d)") {
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		t.Error("dashboard.go or dashboard_timeline.go should contain '(filtered: PID N)' status message for Dead process timeline filtering")
+		t.Error("dashboard.go or dashboard_timeline.go should contain '(PID N)' status message for Dead process timeline filtering")
 	}
 }
 

@@ -52,6 +52,9 @@ const statusMsgDefaultTTL = 4
 
 const slowStepThresholdMs = 1000.0
 
+// noExpandedEvent indicates no event is expanded in syscall timeline.
+const noExpandedEvent = -1
+
 // --- Step detail types ---
 
 type stepDetailLevel int
