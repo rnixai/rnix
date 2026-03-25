@@ -251,7 +251,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Quiet output")
 	rootCmd.PersistentFlags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
 	rootCmd.PersistentFlags().StringVar(&flagProvider, "provider", "", "LLM provider override (see rnix-providers.yaml)")
-	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 10)")
+	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (default 100)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
 	rootCmd.Flags().Bool("dashboard", false, "Open dashboard after spawning agent")

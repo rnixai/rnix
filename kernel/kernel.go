@@ -33,7 +33,7 @@ type MountManager interface {
 }
 
 // DefaultMaxSteps is the maximum number of reasoning steps before forced completion.
-const DefaultMaxSteps = 30
+const DefaultMaxSteps = 100
 
 // DefaultCtxSize is the default context size (message count) for new contexts.
 const DefaultCtxSize = 64
@@ -1023,9 +1023,9 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 
 // reasonStep executes the reasoning loop for a process.
 func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
-	maxSteps := DefaultMaxSteps
-	if opts.MaxTurns > 0 {
-		maxSteps = opts.MaxTurns
+	maxSteps := proc.MaxSteps
+	if maxSteps <= 0 {
+		maxSteps = DefaultMaxSteps
 	}
 
 	// Initialize StepWriter for observation system (Story 27.1)
@@ -2595,6 +2595,11 @@ func (k *KernelImpl) GetProcessByUUID(uuid string) (*Process, bool) {
 // RemoveProcess removes a process from the process table.
 func (k *KernelImpl) RemoveProcess(pid types.PID) {
 	k.procTable.Delete(pid)
+}
+
+// FindHistoryByPID returns the most recent history snapshot for a reaped process, or nil.
+func (k *KernelImpl) FindHistoryByPID(pid types.PID) *vfs.ProcInfo {
+	return k.procHistory.FindByPID(pid)
 }
 
 // RegisterBudgetPool associates a BudgetPool with a process group.
