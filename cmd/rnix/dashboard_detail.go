@@ -23,7 +23,7 @@ func fetchProcDetailCmd(pid types.PID, uuid string) tea.Cmd {
 			return procDetailResultMsg{pid: pid, uuid: uuid, err: err}
 		}
 		defer client.Close()
-		resp, err := client.GetProcDetail(pid)
+		resp, err := client.GetProcDetail(pid, uuid)
 		return procDetailResultMsg{pid: pid, uuid: uuid, detail: resp, err: err}
 	}
 }

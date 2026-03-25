@@ -1281,6 +1281,13 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 	// Initialize execution recording (Story 14.1)
 	cwd, _ := os.Getwd()
+
+	// Set step data dir and load process history from disk
+	k.SetStepDataDir(filepath.Join(cwd, ".rnix"))
+	if err := k.LoadHistory(); err != nil {
+		fmt.Fprintf(os.Stderr, "[kernel] warn: load process history: %v\n", err)
+	}
+
 	recordBaseDir := resolveDataDir(cwd, "records")
 	recordMgr := debug.NewRecordManager(recordBaseDir)
 	k.SetRecordManager(recordMgr)

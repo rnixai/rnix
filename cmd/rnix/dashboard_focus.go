@@ -55,14 +55,17 @@ func (m *dashboardModel) aggregateFocusCard() {
 		isHistory: isHistory,
 	}
 
-	// Tokens card — from heatmapProfile
+	// Tokens card — from heatmapProfile, fallback to procDetail for reaped processes
 	if m.heatmapProfile != nil {
 		fc.totalTokens = m.heatmapProfile.TotalTokens
 		fc.tokenBudget = m.heatmapProfile.ContextBudget
+	} else if isHistory && m.procDetail != nil {
+		fc.totalTokens = m.procDetail.ContextStats.TokensUsed
+		fc.tokenBudget = m.procDetail.ContextStats.ContextBudget
 	}
 
 	// Token rate — estimate from process tokens and time
-	if m.heatmapProfile != nil && fc.totalTokens > 0 && !proc.CreatedAt.IsZero() {
+	if fc.totalTokens > 0 && !proc.CreatedAt.IsZero() {
 		elapsed := time.Since(proc.CreatedAt).Seconds()
 		// P-2: Use DeadAt for dead processes
 		if isHistory && !proc.DeadAt.IsZero() {
