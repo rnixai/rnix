@@ -516,7 +516,7 @@ func (s *Server) handleCtxGrowth(conn net.Conn, rawPayload json.RawMessage) {
 
 	maxSteps := info.MaxSteps
 	if maxSteps <= 0 {
-		maxSteps = 10 // fallback to kernel.DefaultMaxSteps
+		maxSteps = 100 // fallback to kernel.DefaultMaxSteps
 	}
 	result := debug.PredictGrowth(info.PID, info.TokensUsed, info.ContextBudget, currentStep, maxSteps, history)
 
@@ -1920,8 +1920,14 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 		toolDefs = proc.GetNativeToolDefs()
 		stepsPath = s.resolveStepsPathFromProc(proc)
 	} else {
-		// Process not in memory — UUID can read from disk, PID-only returns not_found
-		stepsPath = s.resolveStepsPath(req.PID, req.UUID)
+		// Process not in memory — try UUID from request, then fall back to process history
+		uuid := req.UUID
+		if uuid == "" && req.PID != 0 {
+			if hist := s.kern.FindHistoryByPID(req.PID); hist != nil {
+				uuid = hist.UUID
+			}
+		}
+		stepsPath = s.resolveStepsPath(req.PID, uuid)
 		if stepsPath == "" {
 			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
 			return
@@ -1980,7 +1986,15 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	stepsPath := s.resolveStepsPath(req.PID, req.UUID)
+	uuid := req.UUID
+	if uuid == "" && req.PID != 0 {
+		if _, ok := s.kern.GetProcess(req.PID); !ok {
+			if hist := s.kern.FindHistoryByPID(req.PID); hist != nil {
+				uuid = hist.UUID
+			}
+		}
+	}
+	stepsPath := s.resolveStepsPath(req.PID, uuid)
 
 	if stepsPath == "" {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})

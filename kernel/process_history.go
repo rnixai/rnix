@@ -3,6 +3,7 @@ package kernel
 import (
 	"sync"
 
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -43,6 +44,21 @@ func (h *ProcessHistory) List() []vfs.ProcInfo {
 	out := make([]vfs.ProcInfo, len(h.entries))
 	copy(out, h.entries)
 	return out
+}
+
+// FindByPID returns the most recent snapshot for the given PID, or nil if not found.
+func (h *ProcessHistory) FindByPID(pid types.PID) *vfs.ProcInfo {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// Search backwards for the most recent entry with this PID.
+	for i := len(h.entries) - 1; i >= 0; i-- {
+		if h.entries[i].PID == pid {
+			info := h.entries[i]
+			return &info
+		}
+	}
+	return nil
 }
 
 // Len returns the current number of stored entries.
