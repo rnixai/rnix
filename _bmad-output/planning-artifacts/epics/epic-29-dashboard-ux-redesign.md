@@ -1,6 +1,6 @@
-# Epic 29: Dashboard UX 重设计（Dashboard UX Redesign）
+# Epic 29: Dashboard UX 重设计（Dashboard UX Redesign）— ✅ 完成
 
-Dashboard 从 4000 行单文件重构为模块化架构，引入视图模式状态机（数字键 1-8 直达 + Esc 回退 + Shift-Tab 反向）、进程聚焦卡片（2×3 信息摘要）、进程历史保留（Dead 进程可追溯）和全屏 LLM 对话查看器（完整 request/response 审查）。消除 Tab 循环痛点，实现信息分层，支持事后分析。
+Dashboard 从 4000 行单文件重构为模块化架构，引入视图模式状态机（数字键 1-8 直达 + Esc 回退 + Shift-Tab 反向）、进程聚焦卡片（2×3 信息摘要）、进程历史保留（Dead 进程可追溯，磁盘持久化跨重启）和全屏 LLM 对话查看器（完整 request/response 审查）。消除 Tab 循环痛点，实现信息分层，支持事后分析。翻页导航（PgDn/PgUp/g/G）覆盖所有可滚动视图。分层发现状态栏 + `?` 帮助覆盖层提供完整快捷键参考。
 
 > **设计基础**
 >
@@ -206,10 +206,13 @@ So that Dead 进程被 reaper 清除后仍可在 Dashboard 中追溯。
 **And** `RNIX_ASCII=1` 时使用 `*`, `o`, `+`, `x`, `=`
 
 **Technical Notes:**
-- 新增：`kernel/process_history.go`（ProcessHistory 结构体）
-- 修改：`kernel/kernel.go`（reaper 中保存快照 + ListAllProcs 方法）
-- 修改：`ipc/protocol.go`（新增方法）、`ipc/server.go`（handler）、`ipc/client.go`（客户端方法）
+- 新增：`kernel/process_history.go`（ProcessHistory 结构体 + `SaveProcInfo` / `LoadProcHistory` 磁盘持久化）
+- 修改：`kernel/kernel.go`（reaper 中保存快照 + ListAllProcs 方法 + `LoadHistory()` 启动加载 + `FindHistoryByUUID()`）
+- 修改：`kernel/reap.go`（`reapProcess` 步骤 12 写 proc-info.json + `cleanupExpiredDead` 安全网写入）
+- 修改：`cmd/rnix/main.go`（`runDaemon` 中 `SetStepDataDir` + `LoadHistory`）
+- 修改：`ipc/protocol.go`（新增方法）、`ipc/server.go`（handler + `handleGetProcDetailFromHistory`）、`ipc/client.go`（`GetProcDetail` 支持 UUID）
 - 新增/扩展：`internal/ui/symbols.go`（统一状态符号）
+- 磁盘格式：`.rnix/data/steps/<uuid>/proc-info.json`（原子写入，daemon 启动时扫描加载）
 - 参考实现：`dashboard-redesign-spec-2026-03-23.md` Section 7（历史进程列表规格）
 
 ---
@@ -239,6 +242,7 @@ So that 我可以查看、搜索和聚焦已结束的进程。
 **Given** 历史视图
 **When** 按 `j/k` 或上/下键
 **Then** 光标在进程列表中导航
+**And** `PgDn/PgUp` 翻页，`g/Home` 跳顶，`G/End` 跳底
 
 **Given** 历史视图中选中一个进程
 **When** 按 Enter
@@ -343,3 +347,62 @@ So that 我可以查看选中进程任意步骤的完整 LLM request/response。
 - 修改文件：`dashboard_detail.go`（Enter 入口）、`dashboard_timeline.go`（Enter 入口）、`dashboard_heatmap.go`（Enter 入口）
 - 数据源：复用现有 GetStepDetail API（Story 27.2 已实现）
 - 参考实现：`dashboard-redesign-spec-2026-03-23.md` Section 6（LLM 对话查看器规格）
+
+---
+
+## 实现完成总结
+
+### Story 完成状态
+
+| Story | 标题 | 状态 | 完成日期 |
+|-------|------|------|---------|
+| 29.1 | Dashboard 文件拆分 | ✅ Done | 2026-03-24 |
+| 29.2 | 视图模式系统与导航重构 | ✅ Done | 2026-03-24 |
+| 29.3 | 默认视图 Focus Card | ✅ Done | 2026-03-24 |
+| 29.4 | Kernel 进程历史保留与 IPC | ✅ Done | 2026-03-25 |
+| 29.5 | Dashboard 历史进程视图 | ✅ Done | 2026-03-25 |
+| 29.6 | LLM 对话查看器 | ✅ Done | 2026-03-25 |
+
+### 实现产物清单
+
+**Dashboard 文件（15 文件）**：
+```
+cmd/rnix/
+├── dashboard.go, dashboard_tree.go, dashboard_timeline.go
+├── dashboard_heatmap.go, dashboard_detail.go, dashboard_intent.go
+├── dashboard_security.go, dashboard_trace.go, dashboard_eval.go
+├── dashboard_focus.go, dashboard_llm_viewer.go, dashboard_history.go
+├── dashboard_nav.go, dashboard_help.go, dashboard_types.go
+```
+
+**内核与 IPC 扩展**：
+- `kernel/process_history.go` — ProcessHistory + 磁盘持久化
+- `kernel/event_writer.go` — EventWriter NDJSON 写入
+- `internal/ui/symbols.go` — 统一状态符号体系
+- IPC 新增方法：`list_all_procs`、`list_events`
+
+**观察数据持久化（每个进程 UUID 目录）**：
+```
+.rnix/data/steps/<uuid>/
+├── proc-info.json       # 进程基本信息快照
+├── steps.jsonl          # 推理步骤
+├── events.jsonl         # Syscall 事件流
+├── ctx-profile.json     # Context heatmap 快照
+└── process-meta.json    # System prompt + tool defs
+```
+
+### Post-Epic 增强（2026-03-25）
+
+- Dead 进程 detail/focus card 数据加载修复（resolveProcess 回退到 procHistory）
+- PID 复用去重改为 UUID（ListAllProcs）
+- Help overlay `h/l` 描述修正
+- Focus Card token 数据 fallback
+- Heatmap 死进程提示改善
+
+### 关联设计文档
+
+| 文档 | 说明 |
+|------|------|
+| [dashboard-redesign-spec-2026-03-23.md](../dashboard-redesign-spec-2026-03-23.md) | 代码级实现规格（已更新） |
+| [ux-statusbar-redesign.md](../ux-statusbar-redesign.md) | 状态栏 + 帮助覆盖层设计（已实现） |
+| [design-thinking-2026-03-23.md](../design-thinking-2026-03-23.md) | 用户旅程、共情分析、HMW 问题 |

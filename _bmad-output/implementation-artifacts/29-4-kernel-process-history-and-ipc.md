@@ -127,23 +127,29 @@ sort by CreatedAt ascending
 .rnix/data/steps/<uuid>/
 ├── steps.jsonl          (已有)
 ├── process-meta.json    (已有)
-└── proc-info.json       (新增 — 完整 ProcInfo 快照)
+├── proc-info.json       (新增 — 完整 ProcInfo 快照)
+├── events.jsonl         (新增 — Syscall 事件流)
+└── ctx-profile.json     (新增 — Context heatmap 快照)
 ```
 
 **新增文件/方法**：
 | 文件 | 内容 |
 |------|------|
 | `kernel/process_history.go` | `procInfoDisk` 序列化结构体、`SaveProcInfo()` 原子写入、`LoadProcHistory()` 扫描加载、`FindByUUID()` |
-| `kernel/reap.go` | `reapProcess` 步骤 12 调用 `SaveProcInfo`；`cleanupExpiredDead` 安全网写入 |
-| `kernel/kernel.go` | `LoadHistory()` 方法、`FindHistoryByUUID()` 方法 |
+| `kernel/event_writer.go` | `EventWriter`（NDJSON syscall 事件写入）、`SyscallEventDisk`、`ReadAllEvents()` |
+| `kernel/reap.go` | `reapProcess` 步骤 12 调用 `SaveProcInfo`；步骤 8.5 保存 `ctx-profile.json`；关闭 EventWriter；`cleanupExpiredDead` 安全网写入 |
+| `kernel/kernel.go` | `LoadHistory()` 方法、`FindHistoryByUUID()` 方法；`emitEvent` 写入 EventWriter；`reasonStep` 初始化 EventWriter |
+| `kernel/process.go` | 新增 `eventWriter *EventWriter` 字段 |
 | `cmd/rnix/main.go` | `runDaemon` 中 `SetStepDataDir` + `LoadHistory` |
-| `ipc/server.go` | `handleGetProcDetailFromHistory()` 从 procHistory 构造 detail 响应 |
-| `ipc/client.go` | `GetProcDetail` 支持可选 UUID 参数 |
+| `ipc/protocol.go` | 新增 `MethodListEvents` + Request/Response 类型 |
+| `ipc/server.go` | `handleGetProcDetailFromHistory()`、`handleListEvents()`（磁盘读取）、`handleCtxProfileFromDisk()`（磁盘回退） |
+| `ipc/client.go` | `GetProcDetail` 支持可选 UUID 参数；新增 `ListEvents()` 方法 |
 
 **Dashboard 侧修复**：
 - `fetchProcDetailCmd` 传递 UUID 参数
 - Focus Card token 数据在无 heatmap 时从 procDetail 回退
-- Heatmap 对已结束进程显示友好提示
+- 已结束进程 Timeline 从磁盘加载事件（`fetchEventsFromDiskCmd` → `list_events` IPC）
+- 已结束进程 Heatmap 从磁盘加载快照（`handleCtxProfileFromDisk` → `ctx-profile.json`）
 
 ### 2026-03-25 增强：翻页快捷键
 

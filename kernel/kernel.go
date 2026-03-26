@@ -869,10 +869,16 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 	event.SpanID = proc.SpanID
 	hasTrace := proc.TraceID != ""
 	ch := proc.DebugChan
+	ew := proc.eventWriter
 	if ch != nil {
 		debug.EmitEvent(ch, event)
 	}
 	proc.mu.Unlock()
+
+	// Persist syscall event to disk (always-on)
+	if ew != nil {
+		_ = ew.WriteEvent(event)
+	}
 
 	// Recording hook (Story 14.1): write event to disk if recording is active
 	if k.recordMgr != nil && k.recordMgr.IsRecording(proc.PID) {
@@ -1071,6 +1077,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			proc.mu.Unlock()
 		}
 		// Non-fatal: step recording is best-effort
+		ew, err := NewEventWriter(stepBaseDir, proc.UUID)
+		if err == nil {
+			proc.mu.Lock()
+			proc.eventWriter = ew
+			proc.mu.Unlock()
+		}
 	}
 
 	defer func() {
@@ -3062,14 +3074,15 @@ func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
 	active := k.ListProcs()
 	historical := k.procHistory.List()
 
-	seen := make(map[types.PID]bool, len(active))
+	// Deduplicate by UUID (not PID — PID reuses across daemon restarts)
+	seen := make(map[string]bool, len(active))
 	result := make([]vfs.ProcInfo, 0, len(active)+len(historical))
 	for _, p := range active {
-		seen[p.PID] = true
+		seen[p.UUID] = true
 		result = append(result, p)
 	}
 	for _, p := range historical {
-		if !seen[p.PID] {
+		if !seen[p.UUID] {
 			result = append(result, p)
 		}
 	}

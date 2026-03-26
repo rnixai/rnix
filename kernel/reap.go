@@ -58,13 +58,20 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		// 2. wg.Wait() — wait for goroutine to complete (internal defer executes CloseAll)
 		proc.wg.Wait()
 
-		// 2.5 Write process-meta.json and close StepWriter (Story 27.1 AC-8)
+		// 2.5 Write process-meta.json and close StepWriter + EventWriter (Story 27.1 AC-8)
 		proc.mu.Lock()
 		sw := proc.stepWriter
 		proc.stepWriter = nil
+		ew := proc.eventWriter
+		proc.eventWriter = nil
 		fsp := proc.FinalSystemPrompt
 		toolDefs := proc.nativeToolDefs
 		proc.mu.Unlock()
+		if ew != nil {
+			if err := ew.Close(); err != nil {
+				log.Printf("[event_writer] close error pid=%d: %v", proc.PID, err)
+			}
+		}
 		if sw != nil {
 			// Write process-meta.json to the same directory
 			metaDir := filepath.Dir(sw.file.Name())
@@ -125,6 +132,17 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		// 8. ClearCoroutines — clean up all coroutines (Story 6.5)
 		proc.ClearCoroutines()
 
+		// Resolve base directory for persistence (used by steps 8.5 and 12)
+		baseDir := k.stepDataDir
+		if baseDir == "" && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+			baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
+		}
+
+		// 8.5 Snapshot context profile before freeing (for dead process heatmap)
+		if k.ctxMgr != nil && proc.CtxID > 0 {
+			k.saveCtxProfile(proc, baseDir)
+		}
+
 		// 9. CtxFree(CtxID) — release context space
 		_ = k.ctxMgr.CtxFree(proc.CtxID)
 
@@ -137,10 +155,6 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		proc.mu.Unlock()
 
 		// 12. Persist proc-info.json for history recovery after daemon restart
-		baseDir := k.stepDataDir
-		if baseDir == "" && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
-			baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
-		}
 		if info, err := k.GetProcInfo(proc.PID); err == nil {
 			if err := SaveProcInfo(baseDir, *info); err != nil {
 				log.Printf("[reaper] proc-info.json write error pid=%d: %v", proc.PID, err)
@@ -296,6 +310,37 @@ func (k *KernelImpl) cleanupExpiredDead(ttl time.Duration) {
 			}
 		}
 		k.RemoveProcess(pid)
+	}
+}
+
+// saveCtxProfile snapshots the context profile to disk before CtxFree.
+// Best-effort: errors are logged but do not halt reaping.
+func (k *KernelImpl) saveCtxProfile(proc *Process, baseDir string) {
+	if baseDir == "" || proc.UUID == "" {
+		return
+	}
+	rawCtx, err := k.ctxMgr.CtxRead(proc.CtxID, 0, 0)
+	if err != nil {
+		return
+	}
+	var ctxData debug.ContextData
+	if err := json.Unmarshal(rawCtx, &ctxData); err != nil {
+		return
+	}
+	proc.mu.Lock()
+	tokensUsed := proc.TokensUsed
+	contextBudget := proc.ContextBudget
+	proc.mu.Unlock()
+
+	result := debug.AnalyzeContext(&ctxData, proc.PID, proc.CtxID, tokensUsed, contextBudget)
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(baseDir, "data", "steps", proc.UUID)
+	_ = os.MkdirAll(dir, 0o755)
+	if err := os.WriteFile(filepath.Join(dir, "ctx-profile.json"), data, 0o644); err != nil {
+		log.Printf("[reaper] ctx-profile.json write error pid=%d: %v", proc.PID, err)
 	}
 }
 

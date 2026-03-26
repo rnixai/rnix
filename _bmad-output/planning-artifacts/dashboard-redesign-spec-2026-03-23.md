@@ -1,8 +1,9 @@
 # Dashboard 信息架构重设计 — 实现规格
 
-**日期:** 2026-03-23
+**日期:** 2026-03-23（最后更新: 2026-03-25）
 **输入:** design-thinking-2026-03-23.md
 **范围:** `cmd/rnix/dashboard.go` 及相关模块的重构
+**状态:** ✅ 全部实现完成（Epic 29 所有 Story Done + Post-epic 增强）
 
 ---
 
@@ -10,22 +11,24 @@
 
 ### 1.1 当前架构
 
-- **文件**: `cmd/rnix/dashboard.go` (~4000 行单文件)
-- **模型**: `dashboardModel` 结构体，包含 ~60 个字段
-- **布局**: 左树 (40%) + 右上 Timeline + 右下可切换面板
-- **导航**: `Tab` 线性循环 `(activePane+1) % 8`，无反向 Tab，无数字键直达
+- **文件**: 已拆分为 15+ 独立文件（原 `dashboard.go` ~4000 行 → 模块化架构）
+- **模型**: `dashboardModel` 结构体，包含 ~80 个字段（含 viewMode、LLM viewer、History 等新增状态）
+- **布局**: 默认视图 = 左 Tree (40%) + 右上 Timeline + 右下 Focus Card (2×3)；支持展开/覆盖层视图
+- **导航**: 数字键 1-8 直达 + Tab/Shift-Tab 循环 + Esc 回退 + 全局 L/H 覆盖层
 - **面板**: 8 个 `paneType` 枚举 (Tree/Timeline/Heatmap/Detail/Intent/Security/Trace/Eval)
-- **进程数据**: `ListProcs()` 仅返回存活进程，Dead 进程被 reaper 清除后不可追溯
-- **Prompt 查看**: 有 `promptPager` 全屏覆盖层，但入口仅 Timeline 的 `p` 键
+- **进程数据**: `ListAllProcs()` 返回存活+历史进程，Dead 进程快照持久化到 `.rnix/data/steps/<uuid>/proc-info.json`，daemon 重启后通过 `LoadHistory()` 恢复
+- **观察数据**: 每个进程完整数据持久化（steps.jsonl + events.jsonl + ctx-profile.json + process-meta.json + proc-info.json）
+- **Prompt 查看**: `promptPager` 全屏覆盖层（Timeline `p` 键入口）
+- **帮助系统**: `?` 全屏帮助覆盖层 + 上下文感知状态栏提示
 
 ### 1.2 关键痛点（Design Thinking 结论）
 
-| 痛点 | 根因 |
-|------|------|
-| Tab 循环地狱 | `(activePane+1) % 8` 线性循环，7 次才能到 Eval |
-| 进程历史丢失 | `ListProcs()` 只返回存活进程 |
-| 信息过载 | 右下 6 面板共享同一区域，无优先级分层 |
-| LLM 交互不可见 | 无法查看完整的 LLM request/response |
+| 痛点 | 根因 | 解决方案（已实现） |
+|------|------|------|
+| Tab 循环地狱 | `(activePane+1) % 8` 线性循环，7 次才能到 Eval | ✅ 数字键 1-8 直达 + Shift-Tab 反向 |
+| 进程历史丢失 | `ListProcs()` 只返回存活进程 | ✅ ProcessHistory + ListAllProcs + 磁盘持久化 |
+| 信息过载 | 右下 6 面板共享同一区域，无优先级分层 | ✅ Focus Card 2×3 信息摘要 + 分层发现模型 |
+| LLM 交互不可见 | 无法查看完整的 LLM request/response | ✅ L 键全屏 LLM 对话查看器 |
 
 ---
 
@@ -48,7 +51,7 @@ H 视图      = 历史进程列表（全屏覆盖层）
 | 回退 | 无 | `Esc` 回到默认视图 |
 | LLM 查看 | `p` 键（仅 Timeline） | **`L` 全局快捷键**（任意视图） |
 | 历史列表 | 无 | **`H` 全局快捷键** |
-| 面板内导航 | `j/k` | `j/k`（不变） |
+| 面板内导航 | `j/k` | `j/k`（不变）+ **`PgDn/PgUp` 翻页** + **`g/G` 跳顶/底** |
 
 ---
 
@@ -56,24 +59,25 @@ H 视图      = 历史进程列表（全屏覆盖层）
 
 ### 3.1 文件拆分计划
 
-当前 `dashboard.go` ~4000 行需要拆分为独立文件：
+当前 Dashboard 文件架构（已实现）：
 
 ```
 cmd/rnix/
-├── dashboard.go              # 主模型、Init/Update/View、布局编排（~500 行）
+├── dashboard.go              # 主模型、Init/Update/View、布局编排
 ├── dashboard_tree.go         # Tree 面板渲染 + Tree 扩展视图
-├── dashboard_timeline.go     # Timeline 面板渲染 + Step 导航
+├── dashboard_timeline.go     # Timeline 面板渲染 + Step 导航 + 系统调用混合视图
 ├── dashboard_heatmap.go      # Heatmap 面板渲染
 ├── dashboard_detail.go       # Detail 面板渲染
 ├── dashboard_intent.go       # Intent DAG 面板渲染
 ├── dashboard_security.go     # Security 面板渲染
 ├── dashboard_trace.go        # Trace 面板渲染
 ├── dashboard_eval.go         # Eval 面板渲染
-├── dashboard_focus.go        # ★ 新增：Focus Card（默认视图右下 2×3 卡片）
-├── dashboard_llm_viewer.go   # ★ 新增：LLM 对话查看器（全屏覆盖层）
-├── dashboard_history.go      # ★ 新增：历史进程列表（全屏覆盖层）
-├── dashboard_nav.go          # ★ 新增：统一导航逻辑（键绑定分发）
-└── dashboard_types.go        # ★ 新增：所有 dashboard 相关的类型定义
+├── dashboard_focus.go        # Focus Card（默认视图右下 2×3 卡片）
+├── dashboard_llm_viewer.go   # LLM 对话查看器（全屏覆盖层）
+├── dashboard_history.go      # 历史进程列表（全屏覆盖层）
+├── dashboard_nav.go          # 统一导航逻辑（6 层键绑定分发）
+├── dashboard_help.go         # ? 帮助覆盖层（全屏快捷键参考卡）
+└── dashboard_types.go        # 所有 dashboard 相关的类型定义
 ```
 
 ### 3.2 模型重构
@@ -644,32 +648,68 @@ func (m dashboardModel) renderDashboardTitle() string {
 }
 ```
 
-### 8.2 Status Bar 规格
+### 8.2 Status Bar 规格（分层发现模型 — 已实现）
+
+> **详细规范**: [ux-statusbar-redesign.md](../ux-statusbar-redesign.md)
+
+**设计原则**: 分层发现 — 状态栏只回答"我现在最可能需要按什么？"（5-6 个核心键），帮助覆盖层（`?`）回答"所有能按的键是什么？"
+
+**渲染格式**:
+- 按键部分：`ColorAgent (#5B9BD5)` + Bold
+- 描述部分：`ColorMuted (#666666)`
+- 按键与描述紧凑（无空格），hints 之间双空格，退出区前 4 空格
+- 宽度预算 ≤ 55 字符（80/60 列终端安全）
 
 ```go
 func (m dashboardModel) renderDashboardStatus() string {
-    // 左侧：进程统计
-    running, done, failed := countByState(m.processes)
-    totalTok := sumTokens(m.processes)
-    left := fmt.Sprintf(" %d procs (%d● %d✓ %d✕) │ %s tok │ ⚠%d",
-        len(m.processes), running, done, failed,
-        formatTokens(totalTok), countAlerts(m))
-
-    // 右侧：上下文相关快捷键
-    var right string
-    switch {
-    case m.viewMode == viewLLM:
-        right = "j/k:scroll  h/l:prev/next  y:copy  Esc:close"
-    case m.viewMode == viewHistory:
-        right = "j/k:navigate  Enter:focus  L:llm  /:search  Esc:close  q:quit"
-    case m.viewMode == viewExpanded:
-        right = paneSpecificHints(m.expandedPane)
-    default:
-        right = "Tab:cycle 1-8:jump L:llm H:history Esc:back q:quit"
-    }
-
-    return fmt.Sprintf("%s ── %s", left, right)
+    // 1. statusMsg 优先（TTL=4 ticks），替换全部 hints 仅保留 q quit
+    // 2. 录制指示 ●REC 在最左侧（ColorError 红色）
+    // 3. 根据 viewMode + activePane 选择上下文提示（paneHints()）
+    // 4. 组装：缩进 + rec + hints + 4空格 + exitHint
 }
+```
+
+**各视图模式的状态栏内容**:
+
+| 视图模式 | 提示内容 |
+|----------|---------|
+| viewDefault | `j/k nav  z expand  f filter  H hist  ? help    q quit` |
+| viewExpanded (Timeline Step) | `j/k nav  v detail  p prompt  s syscall  ? help    q quit` |
+| viewExpanded (Timeline Syscall) | `j/k nav  Enter detail  s step  f filter  ? help    q quit` |
+| viewExpanded (其他面板) | `j/k nav  Enter select  z restore  ? help    q quit` |
+| timelineFilterMode | `l LLM  t Tool  i IPC  v VFS  a All    f/Esc done` |
+| viewHistory | `j/k nav  Enter focus  L llm  / search  ? help    Esc back` |
+| viewLLM | `j/k scroll  h/l step  y copy  ? help    Esc close` |
+| Replay 模式 | `Space play  ,/. step  [/] speed  0 start  $ end    q quit` |
+
+### 8.3 帮助覆盖层规格（`?` 键 — 已实现）
+
+**文件**: `dashboard_help.go`
+
+**触发**: 任何非模态视图下按 `?` 键（过滤模式、Kill 确认、Prompt Pager 中不响应）
+**退出**: 按 `?` 或 `Esc`
+
+**布局**: 全屏覆盖层，两列并排，使用 `lipgloss.RoundedBorder()` + `ColorAgent` 边框
+
+**内容分组**:
+
+| 左列 | 右列 |
+|------|------|
+| **Navigation**: j/k, Tab, Enter | **View**: z, 1-8, Esc |
+| **Timeline**: f, s, h/l, v, p, +/- | **Process**: K, a, l, r |
+| **Filter Mode**: l, t, i, v, a, Esc | **Global**: L, H, ?, q |
+
+**按键路由层级**:
+```
+Layer 0:  ctrl+c（强制退出）
+Layer 1:  Prompt Pager
+Layer 1.5: Help Overlay ← ? 或 Esc 关闭
+Layer 2:  History 视图
+Layer 2.5: LLM Viewer
+Layer 3:  Kill 确认对话框
+Layer 4:  Replay 模式
+Layer 5:  全局快捷键 (L/H/1-8/Tab/z/?)
+Layer 6:  面板内按键
 ```
 
 ---
@@ -723,47 +763,72 @@ const (
 
 ---
 
-## 11. 实现路线图
+## 11. 实现路线图（全部完成 ✅）
 
-### Phase 1: 导航重构 + 文件拆分（优先级最高）
+### Phase 1: 导航重构 + 文件拆分 ✅
 
-**目标**: 消除 Tab 循环痛点，改善代码可维护性
+**Story 29.1 + 29.2** — 完成于 2026-03-24
 
-1. **拆分 dashboard.go** 为独立文件（纯重构，不改行为）
-2. **引入 viewMode 枚举** 和 expandedPane
-3. **数字键 1-8 直达**
-4. **Shift-Tab 反向导航**
-5. **Esc 回到默认视图**
-6. **Title bar 标签高亮**
+1. ✅ 拆分 dashboard.go 为 15 独立文件（4108 行 → 模块化）
+2. ✅ 引入 viewMode 枚举和 expandedPane
+3. ✅ 数字键 1-8 直达（toggle 行为）
+4. ✅ Shift-Tab 反向导航
+5. ✅ Esc 回到默认视图
+6. ✅ Title bar 标签高亮
 
-### Phase 2: 默认视图 Focus Card
+### Phase 1.5: Status Bar 重设计 + 帮助覆盖层 ✅
 
-**目标**: 信息分层，减少认知负荷
+**追加实现** — 完成于 2026-03-25
 
-1. 实现 `focusCardState` 数据聚合
-2. 实现 2×3 网格渲染
-3. 默认视图用 Focus Card 替代当前的 Heatmap
-4. 支持已结束进程的 Focus Card 差异渲染
+1. ✅ 分层发现模型：状态栏 5-6 个核心键 + `?` 帮助覆盖层
+2. ✅ 上下文感知提示（每个视图模式不同 hints）
+3. ✅ 帮助覆盖层两列布局 + 分组快捷键参考
+4. ✅ 录制指示器 ●REC
+5. ✅ 宽度预算 ≤ 55 字符（80/60 列安全）
 
-### Phase 3: 进程历史保留
+### Phase 2: 默认视图 Focus Card ✅
 
-**目标**: Dead 进程可追溯
+**Story 29.3** — 完成于 2026-03-24
 
-1. kernel 增加 `ProcessHistory`
-2. IPC 增加 `list_all_procs`
-3. Dashboard 增加 H 视图
-4. Tree 面板显示已结束进程（状态符号区分）
-5. 统一状态符号体系
+1. ✅ focusCardState 数据聚合
+2. ✅ 2×3 网格渲染
+3. ✅ 默认视图用 Focus Card 替代当前的面板
+4. ✅ 已结束进程的 Focus Card 差异渲染（Historical snapshot + exit code）
 
-### Phase 4: LLM 对话查看器
+### Phase 3: 进程历史保留 ✅
 
-**目标**: 深入 LLM 交互调试
+**Story 29.4 + 29.5** — 完成于 2026-03-25
 
-1. 实现 `dashboard_llm_viewer.go`
-2. 全局 `L` 快捷键入口
-3. Step 导航 (`h/l`)
-4. Request/Response 分块渲染
-5. 从 Detail/Timeline/Heatmap 的 Enter 入口
+1. ✅ kernel ProcessHistory（内存 FIFO 1000 条）
+2. ✅ IPC list_all_procs
+3. ✅ Dashboard H 视图（全屏覆盖层 + 搜索/排序）
+4. ✅ Tree 面板显示已结束进程（✓/✕ 状态符号）
+5. ✅ 统一状态符号体系（Unicode + ASCII 模式）
+6. ✅ 磁盘持久化 — proc-info.json + daemon 启动 LoadHistory()
+7. ✅ Dead 进程 Detail 面板 — handleGetProcDetailFromHistory()
+8. ✅ 翻页导航 — PgDn/PgUp/g/G/Home/End（Tree/Timeline/History）
+9. ✅ Syscall 事件持久化 — EventWriter + events.jsonl + list_events IPC
+10. ✅ Context Profile 快照 — ctx-profile.json + 磁盘回退
+
+### Phase 4: LLM 对话查看器 ✅
+
+**Story 29.6** — 完成于 2026-03-25
+
+1. ✅ dashboard_llm_viewer.go
+2. ✅ 全局 L 快捷键入口
+3. ✅ Step 导航 (h/l)
+4. ✅ Request/Response 分块渲染
+5. ✅ 从 Detail/Timeline/Heatmap 的 Enter 入口
+
+### Post-Epic 增强（2026-03-25）
+
+Bug 修复与鲁棒性改进：
+- ✅ Dead 进程 detail/focus card 数据加载修复
+- ✅ PID 复用去重改为 UUID（ListAllProcs）
+- ✅ Dashboard UUID 校验（focus/detail/timeline）
+- ✅ Help overlay `h/l` 描述修正（"Pan time axis"）
+- ✅ Focus Card token 数据 fallback（从 procDetail 回退）
+- ✅ Heatmap 死进程提示改善
 
 ---
 

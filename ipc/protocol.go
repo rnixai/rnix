@@ -52,6 +52,7 @@ const (
 	MethodTopologyQuery    Method = "topology_query"
 	MethodGetStepDetail    Method = "get_step_detail"
 	MethodListSteps        Method = "list_steps"
+	MethodListEvents       Method = "list_events"
 	MethodGetProcDetail    Method = "get_proc_detail"
 	MethodTraceList        Method = "trace_list"
 	MethodTraceTree        Method = "trace_tree"
@@ -940,6 +941,19 @@ type StepSummaryWire struct {
 type ListStepsResponse struct {
 	Steps []StepSummaryWire `json:"steps"`
 	Total int               `json:"total"`
+}
+
+// --- ListEvents ---
+
+// ListEventsRequest is the payload for MethodListEvents.
+type ListEventsRequest struct {
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
+}
+
+// ListEventsResponse is the response for MethodListEvents.
+type ListEventsResponse struct {
+	Events []SyscallEventWire `json:"events"`
 }
 
 // --- GetProcDetail (Story 27.6) ---

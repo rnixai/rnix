@@ -59,7 +59,7 @@ func (m dashboardModel) renderDetailPane(width, height int) string {
 	}
 
 	d := m.procDetail
-	if d == nil || d.PID != m.selectedPID {
+	if d == nil || d.PID != m.selectedPID || (m.selectedUUID != "" && d.UUID != m.selectedUUID) {
 		b.WriteString("\n    Loading...")
 		return style.Render(b.String())
 	}

@@ -4,7 +4,7 @@ parent: ux-design-specification.md
 scope: Dashboard Status Bar Redesign
 date: '2026-03-25'
 author: Decker
-status: approved
+status: implemented
 decisions:
   - Layered discovery: core hints visible + ? overlay for full help
   - Process ops (K/a/l/r) removed from status bar, moved to ? help
@@ -292,13 +292,13 @@ func (m dashboardModel) renderDashboardStatus() string {
 
 ## 7. 验收标准
 
-- [ ] AC-1: 默认视图状态栏 ≤ 55 字符可见宽度
-- [ ] AC-2: 展开任何面板后状态栏 ≤ 55 字符
-- [ ] AC-3: 过滤模式状态栏仅显示过滤操作
-- [ ] AC-4: 按 `?` 打开帮助覆盖层，显示全部快捷键
-- [ ] AC-5: 帮助覆盖层按 `?` 或 `Esc` 关闭
-- [ ] AC-6: 帮助覆盖层内容为英文
-- [ ] AC-7: 进程操作键 (K/a/l/r) 仅在帮助覆盖层中出现
-- [ ] AC-8: 录制状态 ●REC 在状态栏最左侧可见
-- [ ] AC-9: statusMsg 显示时替换 hints，仅保留 q quit
-- [ ] AC-10: 80 列终端下所有模式状态栏无截断
+- [x] AC-1: 默认视图状态栏 ≤ 55 字符可见宽度
+- [x] AC-2: 展开任何面板后状态栏 ≤ 55 字符
+- [x] AC-3: 过滤模式状态栏仅显示过滤操作
+- [x] AC-4: 按 `?` 打开帮助覆盖层，显示全部快捷键
+- [x] AC-5: 帮助覆盖层按 `?` 或 `Esc` 关闭
+- [x] AC-6: 帮助覆盖层内容为英文
+- [x] AC-7: 进程操作键 (K/a/l/r) 仅在帮助覆盖层中出现
+- [x] AC-8: 录制状态 ●REC 在状态栏最左侧可见
+- [x] AC-9: statusMsg 显示时替换 hints，仅保留 q quit
+- [x] AC-10: 80 列终端下所有模式状态栏无截断

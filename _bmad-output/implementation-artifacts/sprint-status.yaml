@@ -338,6 +338,12 @@ development_status:
   # - Fix: Dead process detail/focus card data not loading (resolveProcess only checked procTable)
   # - Fix: Process history lost on daemon restart (proc-info.json persistence + LoadHistory on startup)
   # - Fix: Help overlay h/l description corrected ("Pan time axis" not "Scroll timeline")
+  # - Fix: PID reuse across daemon restarts — ListAllProcs dedup changed from PID to UUID;
+  #     dashboard focus/detail/timeline UUID validation added
   # - Enhancement: Page navigation (PgUp/PgDn/g/G/Home/End) in Tree, Timeline, History views
   # - Enhancement: Focus Card token data fallback from procDetail for dead processes
-  # - Enhancement: Heatmap graceful message for dead processes
+  # - Enhancement: Full observation data persistence for dead processes:
+  #     events.jsonl (syscall events via EventWriter, always-on)
+  #     ctx-profile.json (context heatmap snapshot before CtxFree)
+  #     IPC: list_events + ctx_profile disk fallback
+  #     Dashboard: fetchEventsFromDiskCmd for dead process timeline
