@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/viewport"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -16,322 +16,178 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// --- Timeline logic (Story 17-2) ---
+// --- Step-unified Timeline (UX Timeline Unification) ---
 
-func classifySyscall(ev ipc.SyscallEventWire) eventCategory {
-	if ev.Error != "" {
-		return catError
-	}
-	if isLLMEvent(ev) {
-		return catLLM
-	}
-	switch ev.Syscall {
-	case "DriverToolCall":
-		return catTool
-	case "DriverThinking":
-		return catLLM
-	case "DriverInit", "DriverUser", "DriverEvent":
-		return catVFS
-	case "Send", "Recv", "Pipe", "Signal", "SigBlock", "SigUnblock",
-		"JoinGroup", "LeaveGroup", "GetProcGroup", "SignalGroup":
-		return catIPC
-	case "Spawn", "Kill", "Wait", "Reparent", "SpawnThread", "JoinThread",
-		"SpawnSupervisor", "SpawnCoroutine", "Yield", "ResumeCoroutine":
-		return catTool
-	}
-	if isToolPathEvent(ev) {
-		return catTool
-	}
-	return catVFS
-}
-
-func isLLMEvent(ev ipc.SyscallEventWire) bool {
-	for _, key := range []string{"path", "tool"} {
-		if v, ok := ev.Args[key]; ok {
-			if s, ok := v.(string); ok && strings.Contains(s, "/dev/llm/") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func isToolPathEvent(ev ipc.SyscallEventWire) bool {
-	if v, ok := ev.Args["path"]; ok {
-		if s, ok := v.(string); ok {
-			return strings.Contains(s, "/dev/shell/") || strings.Contains(s, "/dev/fs/")
-		}
-	}
-	return false
-}
-
-func categoryColor(cat eventCategory) string {
-	switch cat {
-	case catLLM:
-		return ui.ColorAgent
-	case catTool:
-		return ui.ColorSuccess
-	case catIPC:
-		return colorIPC
-	case catVFS:
-		return ui.ColorWarning
-	case catError:
-		return ui.ColorError
+// actionColor returns the display color for a step action type.
+func actionColor(action string) lipgloss.Color {
+	switch action {
+	case "tool_call":
+		return lipgloss.Color("#6BCB77")
+	case "plan":
+		return lipgloss.Color("#5B9BD5")
+	case "text":
+		return lipgloss.Color("#FFFFFF")
+	case "complete":
+		return lipgloss.Color("#6BCB77")
+	case "spawn":
+		return lipgloss.Color("#9B59B6")
+	case "specialize":
+		return lipgloss.Color("#4EC9B0")
+	case "replan":
+		return lipgloss.Color("#E5C07B")
 	default:
-		return ui.ColorMuted
+		return lipgloss.Color("#FFFFFF")
 	}
 }
 
-func categoryLabel(cat eventCategory) string {
-	switch cat {
-	case catLLM:
-		return "LLM"
-	case catTool:
-		return "Tool"
-	case catIPC:
-		return "IPC"
-	case catVFS:
-		return "VFS"
-	case catError:
-		return "Err"
+// actionAbbrev returns a shortened action name for narrow screens.
+func actionAbbrev(action string) string {
+	switch action {
+	case "tool_call":
+		return "tool"
+	case "complete":
+		return "done"
+	case "specialize":
+		return "spec"
 	default:
-		return "?"
+		return action
 	}
 }
 
-func defaultTimelineFilters() map[eventCategory]bool {
-	return map[eventCategory]bool{
-		catLLM:   true,
-		catTool:  true,
-		catIPC:   true,
-		catVFS:   true,
-		catError: true,
+// defaultStepFilters returns a map with all action types enabled.
+func defaultStepFilters() map[string]bool {
+	return map[string]bool{
+		"tool_call":  true,
+		"plan":       true,
+		"text":       true,
+		"complete":   true,
+		"spawn":      true,
+		"replan":     true,
+		"specialize": true,
 	}
 }
 
-func (m dashboardModel) handleTimelineEvent(msg timelineEventMsg) dashboardModel {
-	ev := timelineEvent{
-		wire:     msg.event,
-		category: classifySyscall(msg.event),
-	}
-	m.timelineEvents = append(m.timelineEvents, ev)
-	if len(m.timelineEvents) > maxTimelineEvents {
-		m.timelineEvents = m.timelineEvents[len(m.timelineEvents)-maxTimelineEvents:]
-	}
-	return m
-}
-
-func startTimelineCmd(pid types.PID) tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return timelineStreamDoneMsg{}
-		}
-		ch := make(chan ipc.SyscallEventWire, 64)
-		stopCh := make(chan struct{})
-		go func() {
-			defer close(ch)
-			defer client.Close()
-			_ = client.AttachDebug(pid, func(ev ipc.SyscallEventWire) {
-				select {
-				case ch <- ev:
-				case <-stopCh:
-				}
-			})
-		}()
-		return timelineStreamStartedMsg{eventCh: ch, stopCh: stopCh}
-	}
-}
-
-func waitTimelineEventCmd(ch <-chan ipc.SyscallEventWire) tea.Cmd {
-	if ch == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		ev, ok := <-ch
-		if !ok {
-			return timelineStreamDoneMsg{}
-		}
-		return timelineEventMsg{event: ev}
-	}
-}
-
-// fetchEventsFromDiskCmd loads persisted syscall events for dead processes.
-func fetchEventsFromDiskCmd(pid types.PID, uuid string) tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return timelineDiskEventsMsg{err: err}
-		}
-		defer client.Close()
-		events, err := client.ListEvents(pid, uuid)
-		return timelineDiskEventsMsg{events: events, err: err}
-	}
-}
-
-func (m dashboardModel) stopTimelineStream() dashboardModel {
-	if m.timelineStopCh != nil {
-		close(m.timelineStopCh)
-		m.timelineStopCh = nil
-	}
-	m.timelineEventCh = nil
-	return m
-}
-
+// handleTimelinePIDChange resets timeline state when selected PID changes.
 func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 	if m.selectedPID == m.timelineAttachedPID {
 		return m
 	}
-	m.timelineEvents = nil
-	m.timelineZoomLevel = 0
-	m.timelineViewStart = 0
-	m.timelineEventCursor = 0
 	m.timelineAttachedPID = m.selectedPID
-	m.timelineExpandedIdx = noExpandedEvent
-	m.timelineFilterMode = false
 	m.stepEntries = nil
 	m.stepCursor = 0
 	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
 	m.lastFetchedStep = 0
 	m.fetchingDetail = false
 	m.promptPager = false
+	m.stepFilterMode = false
+	m.stepExpandedIdx = -1
 	return m
 }
 
+// handleTimelineKey dispatches keys for the unified Step timeline.
 func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
-	// 过滤模式拦截
-	if m.timelineFilterMode {
-		return m.handleTimelineFilterKey(key)
+	if m.stepFilterMode {
+		return m.handleStepFilterKey(key)
 	}
-	if m.stepTimelineMode {
-		return m.handleStepTimelineKey(key)
-	}
-	if m.timelineFilters == nil {
-		m.timelineFilters = defaultTimelineFilters()
-	}
-	switch key {
-	case "+", "=":
-		if m.timelineZoomLevel < 5 {
-			m.timelineZoomLevel++
-		}
-	case "-":
-		if m.timelineZoomLevel > 0 {
-			m.timelineZoomLevel--
-		}
-	case "h", "left":
-		step := m.timelineScrollStep()
-		if m.timelineViewStart > step {
-			m.timelineViewStart -= step
-		} else {
-			m.timelineViewStart = 0
-		}
-	case "l", "right":
-		m.timelineViewStart += m.timelineScrollStep()
-	case "up", "k":
-		if m.timelineEventCursor > 0 {
-			m.timelineEventCursor--
-		}
-	case "down", "j":
-		visible := m.filteredTimelineEvents()
-		if m.timelineEventCursor < len(visible)-1 {
-			m.timelineEventCursor++
-		}
-	case "pgdown":
-		visible := m.filteredTimelineEvents()
-		pageSize := max(m.dashboardVisibleLines()-4, 1)
-		m.timelineEventCursor = min(m.timelineEventCursor+pageSize, len(visible)-1)
-	case "pgup":
-		pageSize := max(m.dashboardVisibleLines()-4, 1)
-		m.timelineEventCursor = max(m.timelineEventCursor-pageSize, 0)
-	case "home", "g":
-		m.timelineEventCursor = 0
-	case "end", "G", "shift+G":
-		visible := m.filteredTimelineEvents()
-		if len(visible) > 0 {
-			m.timelineEventCursor = len(visible) - 1
-		}
-	case "enter":
-		if m.timelineExpandedIdx == m.timelineEventCursor {
-			m.timelineExpandedIdx = noExpandedEvent
-		} else {
-			m.timelineExpandedIdx = m.timelineEventCursor
-		}
-	case "f":
-		m.timelineFilterMode = true
-	case "s":
-		m.stepTimelineMode = true
-		m.timelineExpandedIdx = noExpandedEvent
-	}
-	return m
-}
-
-func (m dashboardModel) handleStepTimelineKey(key string) dashboardModel {
-	// 过滤模式拦截
-	if m.timelineFilterMode {
-		return m.handleTimelineFilterKey(key)
-	}
+	filtered := m.filteredStepEntries()
 	switch key {
 	case "up", "k":
 		if m.stepCursor > 0 {
 			m.stepCursor--
 		}
 	case "down", "j":
-		if m.stepCursor < len(m.stepEntries)-1 {
+		if m.stepCursor < len(filtered)-1 {
 			m.stepCursor++
 		}
-	case "s":
-		m.stepTimelineMode = false
+	case "pgdown":
+		pageSize := max(m.dashboardVisibleLines()-4, 1)
+		m.stepCursor = min(m.stepCursor+pageSize, max(len(filtered)-1, 0))
+	case "pgup":
+		pageSize := max(m.dashboardVisibleLines()-4, 1)
+		m.stepCursor = max(m.stepCursor-pageSize, 0)
+	case "home", "g":
+		m.stepCursor = 0
+	case "end", "G", "shift+G":
+		if len(filtered) > 0 {
+			m.stepCursor = len(filtered) - 1
+		}
 	case "f":
-		m.timelineFilterMode = true
+		m.stepFilterMode = true
 	}
 	return m
 }
 
-// handleTimelineFilterKey 处理过滤模式下的按键
-func (m dashboardModel) handleTimelineFilterKey(key string) dashboardModel {
-	if m.timelineFilters == nil {
-		m.timelineFilters = defaultTimelineFilters()
+// handleStepFilterKey handles keys in filter editing mode.
+func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
+	if m.stepFilters == nil {
+		m.stepFilters = defaultStepFilters()
 	}
 	switch key {
-	case "l":
-		m.timelineFilters[catLLM] = !m.timelineFilters[catLLM]
 	case "t":
-		m.timelineFilters[catTool] = !m.timelineFilters[catTool]
-	case "i":
-		m.timelineFilters[catIPC] = !m.timelineFilters[catIPC]
-	case "v":
-		m.timelineFilters[catVFS] = !m.timelineFilters[catVFS]
+		m.stepFilters["tool_call"] = !m.stepFilters["tool_call"]
+	case "p":
+		m.stepFilters["plan"] = !m.stepFilters["plan"]
+	case "x":
+		m.stepFilters["text"] = !m.stepFilters["text"]
+	case "c":
+		m.stepFilters["complete"] = !m.stepFilters["complete"]
+	case "s":
+		m.stepFilters["spawn"] = !m.stepFilters["spawn"]
+	case "r":
+		m.stepFilters["replan"] = !m.stepFilters["replan"]
+	case "z":
+		m.stepFilters["specialize"] = !m.stepFilters["specialize"]
 	case "a":
-		m.timelineFilters[catLLM] = true
-		m.timelineFilters[catTool] = true
-		m.timelineFilters[catIPC] = true
-		m.timelineFilters[catVFS] = true
-		m.timelineFilters[catError] = true
+		m.stepFilters = defaultStepFilters()
 	case "f", "esc":
-		m.timelineFilterMode = false
+		m.stepFilterMode = false
 	}
 	return m
 }
 
-func (m dashboardModel) timelineScrollStep() int64 {
-	if m.timelineZoomLevel >= 1 && m.timelineZoomLevel < len(zoomWindowMs) {
-		return zoomWindowMs[m.timelineZoomLevel] / 10
+// filteredStepEntries returns step entries matching current filters.
+func (m dashboardModel) filteredStepEntries() []int {
+	if len(m.stepFilters) == 0 {
+		indices := make([]int, len(m.stepEntries))
+		for i := range m.stepEntries {
+			indices[i] = i
+		}
+		return indices
 	}
-	return 500
-}
-
-func (m dashboardModel) filteredTimelineEvents() []timelineEvent {
-	if m.timelineFilters == nil {
-		return m.timelineEvents
+	// Check if all filters are on
+	allOn := true
+	for _, v := range m.stepFilters {
+		if !v {
+			allOn = false
+			break
+		}
 	}
-	var result []timelineEvent
-	for _, ev := range m.timelineEvents {
-		if m.timelineFilters[ev.category] {
-			result = append(result, ev)
+	if allOn {
+		indices := make([]int, len(m.stepEntries))
+		for i := range m.stepEntries {
+			indices[i] = i
+		}
+		return indices
+	}
+	var result []int
+	for i, e := range m.stepEntries {
+		if m.stepFilters[e.summary.Action] {
+			result = append(result, i)
 		}
 	}
 	return result
 }
+
+// resolveStepIndex converts cursor position in filtered view to actual stepEntries index.
+func (m dashboardModel) resolveStepIndex() int {
+	filtered := m.filteredStepEntries()
+	if m.stepCursor < 0 || m.stepCursor >= len(filtered) {
+		return -1
+	}
+	return filtered[m.stepCursor]
+}
+
+// --- Rendering ---
 
 func (m dashboardModel) renderTimelinePane(width, height int) string {
 	isActive := m.activePane == paneTimeline
@@ -350,233 +206,385 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 		Width(innerW).
 		Height(innerH)
 
-	if m.stepTimelineMode {
-		return style.Render(m.renderStepTimeline(innerW, innerH))
-	}
-
-	var b strings.Builder
-	truncW := max(innerW-1, 1)
-
-	// 标题栏：根据过滤模式显示不同内容
-	if m.timelineFilterMode {
-		b.WriteString(m.renderFilterBar(truncW))
-	} else {
-		b.WriteString(m.renderTimelineHeader(truncW))
-	}
-	b.WriteString("\n")
-
-	if m.selectedPID == 0 {
-		b.WriteString("\n    Select an agent to view timeline")
-		return style.Render(b.String())
-	}
-
-	filtered := m.filteredTimelineEvents()
-
-	// AC-10: Auto-filter for Dead processes — only show events for selectedPID
-	pidFiltered := false
-	if m.isSelectedProcessDead() && m.selectedPID > 0 {
-		filtered = filterTimelineByPID(filtered, m.selectedPID)
-		pidFiltered = true
-	}
-
-	if len(filtered) == 0 {
-		if pidFiltered {
-			b.WriteString("\n    No events for this process")
-		} else {
-			b.WriteString("\n    Waiting for events...")
-		}
-		return style.Render(b.String())
-	}
-
-	barWidth := max(innerW-2, 10)
-	b.WriteString(m.renderTimelineBar(filtered, barWidth))
-	b.WriteString("\n")
-
-	listLines := max(innerH-3, 1)
-	if m.timelineEventCursor >= len(filtered) {
-		m.timelineEventCursor = len(filtered) - 1
-	}
-
-	startIdx := 0
-	if m.timelineEventCursor >= listLines {
-		startIdx = m.timelineEventCursor - listLines + 1
-	}
-	endIdx := min(startIdx+listLines, len(filtered))
-
-	linesUsed := 0
-	for i := startIdx; i < endIdx && linesUsed < listLines; i++ {
-		ev := filtered[i]
-		cursor := "  "
-		if i == m.timelineEventCursor {
-			cursor = "▸ "
-		}
-
-		line := cursor + formatEventLine(ev, truncW-2)
-		b.WriteString(truncateAnsi(line, truncW))
-		b.WriteString("\n")
-		linesUsed++
-
-		// 展开详情
-		if m.timelineExpandedIdx == i && linesUsed < listLines {
-			detailLines := renderEventDetail(ev, truncW)
-			for _, dl := range detailLines {
-				if linesUsed >= listLines {
-					break
-				}
-				b.WriteString(truncateAnsi(dl, truncW))
-				b.WriteString("\n")
-				linesUsed++
-			}
-		}
-	}
-
-	return style.Render(b.String())
+	return style.Render(m.renderStepTimeline(innerW, innerH))
 }
 
 func (m dashboardModel) renderStepTimeline(width, height int) string {
 	var b strings.Builder
 	truncW := max(width-1, 1)
 	total := len(m.stepEntries)
+	filtered := m.filteredStepEntries()
 
-	if m.timelineFilterMode {
-		b.WriteString(m.renderFilterBar(truncW))
+	// Header
+	if m.stepFilterMode {
+		b.WriteString(m.renderStepFilterBar(truncW))
 	} else {
-		b.WriteString(" Timeline")
-		if m.selectedPID > 0 {
-			fmt.Fprintf(&b, " │ PID %d", m.selectedPID)
-		}
-		fmt.Fprintf(&b, " │ %d steps", total)
-		b.WriteString("  [s]syscall  f:filter")
+		b.WriteString(m.renderStepHeader(truncW, total, filtered))
 	}
 	b.WriteString("\n")
 
-	if total == 0 {
-		b.WriteString("\n    Waiting for steps...")
+	if m.selectedPID == 0 {
+		b.WriteString("\n    Select an agent to view timeline")
 		return b.String()
 	}
 
+	if total == 0 {
+		b.WriteString("\n    Waiting for steps…")
+		return b.String()
+	}
+
+	if len(filtered) == 0 {
+		b.WriteString("\n    No steps match filter")
+		return b.String()
+	}
+
+	cursor := min(m.stepCursor, max(len(filtered)-1, 0))
+
 	listLines := max(height-2, 1)
 	startIdx := 0
-	if m.stepCursor >= listLines {
-		startIdx = m.stepCursor - listLines + 1
+	if cursor >= listLines {
+		startIdx = cursor - listLines + 1
 	}
-	endIdx := min(startIdx+listLines, total)
+	endIdx := min(startIdx+listLines, len(filtered))
 
-	for i := startIdx; i < endIdx; i++ {
-		entry := m.stepEntries[i]
+	// Layout params
+	showDuration := width >= 100
+	showTokenFull := width >= 90
+	showToken := width >= 80
+	useAbbrev := width < 80
+
+	linesUsed := 0
+	for fi := startIdx; fi < endIdx && linesUsed < listLines; fi++ {
+		idx := filtered[fi]
+		entry := m.stepEntries[idx]
 		s := entry.summary
 
 		cursor := "  "
-		if i == m.stepCursor {
+		if fi == m.stepCursor {
 			cursor = "▸ "
 		}
 
+		// Collapse indicator
+		levelMark := " "
+		if entry.level >= levelExpanded {
+			levelMark = "▾"
+		}
+
+		// Step number
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+		stepLabel := dimStyle.Render(fmt.Sprintf("Step %-3d", s.Step))
+
+		// Action with color
+		actionStr := s.Action
+		if useAbbrev {
+			actionStr = actionAbbrev(actionStr)
+		}
+		actionStyle := lipgloss.NewStyle().Foreground(actionColor(s.Action))
+		if s.Action == "complete" {
+			actionStyle = actionStyle.Bold(true)
+		}
+		actionLabel := actionStyle.Render(fmt.Sprintf("%-12s", actionStr))
+
+		// Token
+		var tokenLabel string
+		if showToken {
+			if s.TokenCount == 0 {
+				tokenLabel = dimStyle.Render("     —")
+			} else if showTokenFull {
+				tokenLabel = dimStyle.Render(fmt.Sprintf("%6s tok", formatTokenCount(s.TokenCount)))
+			} else {
+				tokenLabel = dimStyle.Render(fmt.Sprintf("%6stok", formatTokenCount(s.TokenCount)))
+			}
+		}
+
+		// Duration
+		var durLabel string
+		if showDuration {
+			dur := formatTimelineDuration(s.DurationMs)
+			durStyle := dimStyle
+			if s.DurationMs > slowStepThresholdMs {
+				durStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5C07B"))
+			}
+			durLabel = durStyle.Render(fmt.Sprintf("%6s", dur))
+		}
+
+		// Error mark
 		errMark := ""
 		if s.HasError {
 			errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
 		}
 
-		dur := formatTimelineDuration(s.DurationMs)
-		line := fmt.Sprintf("%sStep %d/%d  %s  %s  %s%s",
-			cursor, s.Step, total, s.Action, s.Summary, dur, errMark)
+		// Summary (elastic width)
+		fixedWidth := 2 + 1 + 8 + 1 + 12 + 1 // cursor + level + step + space + action + space
+		if showToken {
+			fixedWidth += 10
+		}
+		if showDuration {
+			fixedWidth += 7
+		}
+		if s.HasError {
+			fixedWidth += 2
+		}
+		summaryW := max(truncW-fixedWidth, 20)
+		summary := truncateRuneWidth(s.Summary, summaryW)
+
+		// Error step: highlight entire line
+		var line string
+		if showDuration {
+			line = fmt.Sprintf("%s%s%s %s %s  %s  %s%s", cursor, levelMark, stepLabel, actionLabel, summary, tokenLabel, durLabel, errMark)
+		} else if showToken {
+			line = fmt.Sprintf("%s%s%s %s %s  %s%s", cursor, levelMark, stepLabel, actionLabel, summary, tokenLabel, errMark)
+		} else {
+			line = fmt.Sprintf("%s%s%s %s %s%s", cursor, levelMark, stepLabel, actionLabel, summary, errMark)
+		}
+
+		if s.HasError {
+			line = lipgloss.NewStyle().Background(lipgloss.Color("#3D1F1F")).Render(line)
+		} else if fi == m.stepCursor {
+			line = lipgloss.NewStyle().Reverse(true).Render(line)
+		}
+
 		b.WriteString(truncateAnsi(line, truncW))
 		b.WriteString("\n")
+		linesUsed++
 
-		if entry.level >= levelExpanded {
+		// Level 2: Expanded detail
+		if entry.level >= levelExpanded && linesUsed < listLines {
 			detail := m.stepDetailCache[s.Step]
-			if detail != nil {
-				if detail.ToolInput != "" {
-					input := detail.ToolInput
-					if utf8.RuneCountInString(input) > 60 {
-						runes := []rune(input)
-						input = string(runes[:57]) + "..."
-					}
-					fmt.Fprintf(&b, "      Input: %s\n", input)
-				}
-				if detail.ToolResult != "" {
-					result := detail.ToolResult
-					if utf8.RuneCountInString(result) > 60 {
-						runes := []rune(result)
-						result = string(runes[:57]) + "..."
-					}
-					fmt.Fprintf(&b, "      Result: %s\n", result)
-				}
-				if detail.ToolError != "" {
-					fmt.Fprintf(&b, "      Error: %s\n",
-						lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(detail.ToolError))
-				}
-				fmt.Fprintf(&b, "      Tokens: %d req / %d resp\n", detail.RequestTokens, detail.ResponseTokens)
+			if detail == nil {
+				b.WriteString(dimStyle.Render("   ┊ Loading…") + "\n")
+				linesUsed++
+			} else {
+				linesUsed += m.renderExpandedDetail(&b, detail, s, truncW, listLines-linesUsed)
 			}
 		}
 
-		if entry.level >= levelDebug {
+		// Level 3: Debug detail
+		if entry.level >= levelDebug && linesUsed < listLines {
 			detail := m.stepDetailCache[s.Step]
 			if detail != nil {
-				fmt.Fprintf(&b, "      Messages: %d  Tokens: %s\n",
-					detail.MessageCount, formatTokenCount(detail.TokenCount))
-				if len(detail.Messages) > 0 {
-					preview := detail.Messages[0].Content
-					if utf8.RuneCountInString(preview) > 60 {
-						runes := []rune(preview)
-						preview = string(runes[:57]) + "..."
-					}
-					fmt.Fprintf(&b, "      [%s] %s\n", detail.Messages[0].Role, preview)
-				}
+				linesUsed += m.renderDebugDetail(&b, detail, truncW, listLines-linesUsed)
 			}
 		}
 	}
 
 	return b.String()
 }
+
+// renderExpandedDetail renders Level 2 detail lines for a step.
+func (m dashboardModel) renderExpandedDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire, maxW, maxLines int) int {
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+	lines := 0
+	contentW := max(maxW-14, 20) // 3 indent + "┊" + " " + 8 label + " " padding
+
+	// Input (tool_call only)
+	if detail.ToolInput != "" && lines < maxLines {
+		input := detail.ToolInput
+		if runewidth.StringWidth(input) > contentW {
+			totalBytes := len(detail.ToolInput)
+			input = runewidth.Truncate(input, contentW-15, "") + fmt.Sprintf("… (%d bytes)", totalBytes)
+		}
+		fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("  Input"), input)
+		lines++
+	}
+
+	// Result or Error
+	if detail.ToolError != "" && lines < maxLines {
+		errMsg := detail.ToolError
+		errLines := strings.Split(errMsg, "\n")
+		if len(errLines) > 3 {
+			errMsg = strings.Join(errLines[:3], "\n") + fmt.Sprintf("\n… (%d more lines)", len(errLines)-3)
+		}
+		for i, el := range strings.Split(errMsg, "\n") {
+			if lines >= maxLines {
+				break
+			}
+			if i == 0 {
+				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("  Error"), errStyle.Render(el))
+			} else {
+				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("       "), errStyle.Render(el))
+			}
+			lines++
+		}
+	} else if detail.ToolResult != "" && lines < maxLines {
+		result := detail.ToolResult
+		resultLines := strings.Split(result, "\n")
+		if len(resultLines) > 3 {
+			result = strings.Join(resultLines[:3], "\n") + fmt.Sprintf("\n… (%d more lines)", len(resultLines)-3)
+		}
+		for i, rl := range strings.Split(result, "\n") {
+			if lines >= maxLines {
+				break
+			}
+			if i == 0 {
+				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render(" Result"), rl)
+			} else {
+				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("       "), rl)
+			}
+			lines++
+		}
+	} else if s.Action == "plan" || s.Action == "text" || s.Action == "complete" {
+		// Show RawResponse snippet for non-tool actions
+		if detail.RawResponse != "" && lines < maxLines {
+			rawLines := strings.Split(detail.RawResponse, "\n")
+			showLines := min(3, len(rawLines))
+			for i := range showLines {
+				if lines >= maxLines {
+					break
+				}
+				fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), rawLines[i])
+				lines++
+			}
+			if len(rawLines) > 3 && lines < maxLines {
+				fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(fmt.Sprintf("… (%d more lines)", len(rawLines)-3)))
+				lines++
+			}
+		}
+	}
+
+	// Token breakdown
+	if lines < maxLines {
+		fmt.Fprintf(b, "   %s %s %d req → %d resp\n", dimStyle.Render("┊"), dimStyle.Render("  Token"), detail.RequestTokens, detail.ResponseTokens)
+		lines++
+	}
+
+	return lines
+}
+
+// renderDebugDetail renders Level 3 debug lines (messages preview).
+func (m dashboardModel) renderDebugDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, maxW, maxLines int) int {
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	lines := 0
+
+	// Separator
+	if lines < maxLines {
+		sep := strings.Repeat("─", min(maxW-6, 60))
+		fmt.Fprintf(b, "   %s\n", dimStyle.Render("┊"+sep))
+		lines++
+	}
+
+	// Messages header
+	if lines < maxLines {
+		totalTok := formatTokenCount(detail.TokenCount)
+		fmt.Fprintf(b, "   %s Messages (%d)%s%s\n",
+			dimStyle.Render("┊"),
+			detail.MessageCount,
+			strings.Repeat(" ", max(maxW-30-len(totalTok), 2)),
+			dimStyle.Render("累计 "+totalTok+" tok"))
+		lines++
+	}
+
+	// Message preview
+	msgCount := len(detail.Messages)
+	showCount := min(msgCount, min(maxLines-lines, 6))
+	showCount = max(showCount, min(msgCount, 2))
+	// Show the last N messages
+	startMsg := max(msgCount-showCount, 0)
+	for i := startMsg; i < msgCount && lines < maxLines; i++ {
+		msg := detail.Messages[i]
+		roleStyle := promptRoleForRole(msg.Role)
+		content := msg.Content
+		if runewidth.StringWidth(content) > 60 {
+			content = runewidth.Truncate(content, 57, "…")
+		}
+		fmt.Fprintf(b, "   %s  %s %s\n", dimStyle.Render("┊"), roleStyle, content)
+		lines++
+	}
+
+	// Hint
+	if lines < maxLines {
+		fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看完整 prompt"))
+		lines++
+	}
+
+	return lines
+}
+
+func promptRoleForRole(role string) string {
+	switch role {
+	case "system":
+		return promptRoleSystem.Render("[system]")
+	case "user":
+		return promptRoleUser.Render("[user]  ")
+	case "assistant":
+		return promptRoleAssistant.Render("[asst]  ")
+	case "tool":
+		return promptRoleTool.Render("[tool]  ")
+	default:
+		return "[" + role + "]"
+	}
+}
+
+// renderStepHeader renders the normal mode header.
+func (m dashboardModel) renderStepHeader(maxW, total int, filtered []int) string {
+	var b strings.Builder
+	b.WriteString(" Timeline")
+	if m.selectedPID > 0 {
+		fmt.Fprintf(&b, " │ PID %d", m.selectedPID)
+	}
+	fmt.Fprintf(&b, " │ %d steps", total)
+
+	// Total tokens from step summaries
+	totalTok := 0
+	for _, e := range m.stepEntries {
+		totalTok += e.summary.TokenCount
+	}
+	if totalTok > 0 {
+		fmt.Fprintf(&b, " │ %s tok", formatTokenCount(totalTok))
+	}
+
+	// Filter indicator
+	if len(filtered) < total {
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+		fmt.Fprintf(&b, "  %s", dimStyle.Render(fmt.Sprintf("filter: %d/%d", len(filtered), total)))
+	}
+
+	return truncateAnsi(b.String(), maxW)
+}
+
+// renderStepFilterBar renders the filter editing mode header.
+func (m dashboardModel) renderStepFilterBar(maxW int) string {
+	var b strings.Builder
+	b.WriteString(" Filter:")
+
+	types := []struct {
+		key    string
+		label  string
+		action string
+	}{
+		{"T", "tool_call", "tool_call"},
+		{"P", "plan", "plan"},
+		{"X", "text", "text"},
+		{"C", "complete", "complete"},
+		{"S", "spawn", "spawn"},
+		{"R", "replan", "replan"},
+		{"Z", "specialize", "specialize"},
+	}
+
+	for _, t := range types {
+		on := m.stepFilters == nil || m.stepFilters[t.action]
+		mark := "✓"
+		color := actionColor(t.action)
+		if !on {
+			mark = "·"
+			color = lipgloss.Color(ui.ColorMuted)
+		}
+		catStyle := lipgloss.NewStyle().Foreground(color)
+		fmt.Fprintf(&b, " [%s]%s %s", t.key, catStyle.Render(t.label), mark)
+	}
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	b.WriteString("  [A]ll  " + dimStyle.Render("f/Esc:done"))
+	return truncateAnsi(b.String(), maxW)
+}
+
+// --- Step timeline helpers ---
 
 func formatTokenCount(tokens int) string {
 	if tokens >= 1000 {
 		return fmt.Sprintf("%.1fk", float64(tokens)/1000.0)
 	}
 	return fmt.Sprintf("%d", tokens)
-}
-
-func (m dashboardModel) renderTimelineBar(events []timelineEvent, width int) string {
-	if len(events) == 0 || width <= 0 {
-		return ""
-	}
-
-	minTs := events[0].wire.TimestampMs
-	maxTs := events[len(events)-1].wire.TimestampMs
-	if m.timelineZoomLevel > 0 && m.timelineZoomLevel < len(zoomWindowMs) {
-		windowMs := zoomWindowMs[m.timelineZoomLevel]
-		minTs = m.timelineViewStart
-		maxTs = m.timelineViewStart + windowMs
-	}
-
-	span := maxTs - minTs
-	if span <= 0 {
-		span = 1
-	}
-
-	bar := make([]eventCategory, width)
-	barSet := make([]bool, width)
-	for _, ev := range events {
-		pos := int((ev.wire.TimestampMs - minTs) * int64(width) / span)
-		if pos < 0 || pos >= width {
-			continue
-		}
-		if !barSet[pos] || ev.category == catError {
-			bar[pos] = ev.category
-			barSet[pos] = true
-		}
-	}
-
-	var b strings.Builder
-	for i := range width {
-		if !barSet[i] {
-			b.WriteString("·")
-		} else {
-			catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(categoryColor(bar[i])))
-			b.WriteString(catStyle.Render("█"))
-		}
-	}
-	return b.String()
 }
 
 func formatTimelineDuration(ms float64) string {
@@ -589,242 +597,15 @@ func formatTimelineDuration(ms float64) string {
 	return fmt.Sprintf("%.2fs", ms/1000)
 }
 
-func formatTimelineArgs(args map[string]any, maxLen int) string {
-	if len(args) == 0 {
-		return ""
+// truncateRuneWidth truncates a string to fit within maxWidth display columns.
+func truncateRuneWidth(s string, maxWidth int) string {
+	if runewidth.StringWidth(s) <= maxWidth {
+		return s
 	}
-	keys := make([]string, 0, len(args))
-	for k := range args {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var parts []string
-	for _, k := range keys {
-		v := fmt.Sprintf("%v", args[k])
-		if utf8.RuneCountInString(v) > 20 {
-			runes := []rune(v)
-			v = string(runes[:17]) + "..."
-		}
-		parts = append(parts, k+"="+v)
-	}
-	result := strings.Join(parts, ", ")
-	if utf8.RuneCountInString(result) > maxLen {
-		runes := []rune(result)
-		result = string(runes[:maxLen-3]) + "..."
-	}
-	return result
+	return runewidth.Truncate(s, maxWidth-1, "…")
 }
 
-// --- Resource-first event display ---
-
-// renderTimelineHeader 渲染正常模式标题栏
-func (m dashboardModel) renderTimelineHeader(maxW int) string {
-	var b strings.Builder
-	b.WriteString(" Timeline")
-	if m.selectedPID > 0 {
-		fmt.Fprintf(&b, " │ PID %d", m.selectedPID)
-	}
-	fmt.Fprintf(&b, " │ %d events", len(m.timelineEvents))
-
-	// 过滤状态指示
-	active := 0
-	total := 4
-	for _, cat := range []eventCategory{catLLM, catTool, catIPC, catVFS} {
-		if m.timelineFilters == nil || m.timelineFilters[cat] {
-			active++
-		}
-	}
-	if active < total {
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-		fmt.Fprintf(&b, "  %s", dimStyle.Render(fmt.Sprintf("filter:%d/%d", active, total)))
-	}
-	b.WriteString("  f:filter")
-	return truncateAnsi(b.String(), maxW)
-}
-
-// renderFilterBar 渲染过滤编辑模式标题栏
-func (m dashboardModel) renderFilterBar(maxW int) string {
-	var b strings.Builder
-	b.WriteString(" Filter:")
-
-	cats := []struct {
-		key   string
-		label string
-		cat   eventCategory
-	}{
-		{"L", "LLM", catLLM},
-		{"T", "Tool", catTool},
-		{"I", "IPC", catIPC},
-		{"V", "VFS", catVFS},
-	}
-
-	for _, c := range cats {
-		on := m.timelineFilters == nil || m.timelineFilters[c.cat]
-		mark := "✓"
-		color := categoryColor(c.cat)
-		if !on {
-			mark = "·"
-			color = ui.ColorMuted
-		}
-		catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-		fmt.Fprintf(&b, " [%s]%s %s", c.key, catStyle.Render(c.label), mark)
-	}
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	b.WriteString("  [A]ll  " + dimStyle.Render("f/Esc:done"))
-	return truncateAnsi(b.String(), maxW)
-}
-
-// extractResource 从事件 Args 中提取最有意义的资源标识
-func extractResource(ev ipc.SyscallEventWire) string {
-	// 优先从 path 提取
-	if path, ok := ev.Args["path"].(string); ok {
-		return extractPathResource(path)
-	}
-	// tool 字段（如 DriverToolCall）
-	if tool, ok := ev.Args["tool"].(string); ok {
-		return extractPathResource(tool)
-	}
-	// Spawn: 用 intent
-	if intent, ok := ev.Args["intent"].(string); ok {
-		if utf8.RuneCountInString(intent) > 16 {
-			return string([]rune(intent)[:13]) + "..."
-		}
-		return intent
-	}
-	// IPC: target_pid
-	if target, ok := ev.Args["target_pid"]; ok {
-		return fmt.Sprintf("→pid:%v", target)
-	}
-	if target, ok := ev.Args["target"]; ok {
-		return fmt.Sprintf("→%v", target)
-	}
-	// Context: cid
-	if cid, ok := ev.Args["cid"]; ok {
-		return fmt.Sprintf("ctx:%v", cid)
-	}
-	// FD
-	if fd, ok := ev.Args["fd"]; ok {
-		return fmt.Sprintf("fd:%v", fd)
-	}
-	// size (CtxAlloc)
-	if size, ok := ev.Args["size"]; ok {
-		return fmt.Sprintf("size:%v", size)
-	}
-	return ""
-}
-
-func extractPathResource(path string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) >= 4 && parts[0] == "" && parts[1] == "dev" {
-		switch parts[2] {
-		case "llm":
-			return parts[3]
-		case "shell":
-			return parts[3]
-		case "fs":
-			rest := strings.Join(parts[3:], "/")
-			if utf8.RuneCountInString(rest) > 20 {
-				return string([]rune(rest)[:17]) + "..."
-			}
-			return rest
-		case "mcp":
-			return "mcp:" + parts[3]
-		default:
-			return strings.Join(parts[2:], "/")
-		}
-	}
-	if utf8.RuneCountInString(path) > 20 {
-		return string([]rune(path)[:17]) + "..."
-	}
-	return path
-}
-
-// formatEventLine 生成资源优先的事件行：TAG RESOURCE OP DUR [ERR]
-func formatEventLine(ev timelineEvent, maxW int) string {
-	catColor := categoryColor(ev.category)
-	catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(catColor))
-	tag := catStyle.Render(fmt.Sprintf("%-4s", categoryLabel(ev.category)))
-
-	resource := extractResource(ev.wire)
-	if resource == "" {
-		resource = ev.wire.Syscall
-	}
-
-	op := ev.wire.Syscall
-	dur := formatTimelineDuration(ev.wire.DurationMs)
-	durStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-
-	var line string
-	if ev.wire.Error != "" {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-		errMsg := ev.wire.Error
-		if utf8.RuneCountInString(errMsg) > 20 {
-			errMsg = string([]rune(errMsg)[:17]) + "..."
-		}
-		line = fmt.Sprintf("%s %-14s %-10s %s  %s",
-			tag, resource, op, durStyle.Render(dur), errStyle.Render(errMsg))
-	} else {
-		line = fmt.Sprintf("%s %-14s %-10s %s",
-			tag, resource, op, durStyle.Render(dur))
-	}
-	return line
-}
-
-// renderEventDetail 渲染展开事件的详情行
-func renderEventDetail(ev timelineEvent, maxW int) []string {
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	var lines []string
-
-	// Path
-	if path, ok := ev.wire.Args["path"].(string); ok {
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("  ├ Path:   %s", path)))
-	}
-
-	// 其他 Args
-	args := make(map[string]any)
-	for k, v := range ev.wire.Args {
-		if k == "path" || k == "tool" {
-			continue
-		}
-		args[k] = v
-	}
-	if len(args) > 0 {
-		argStr := formatTimelineArgs(args, max(maxW-12, 20))
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("  ├ Args:   %s", argStr)))
-	}
-
-	// Result
-	if ev.wire.Result != nil {
-		result := fmt.Sprintf("%v", ev.wire.Result)
-		if utf8.RuneCountInString(result) > 40 {
-			result = string([]rune(result)[:37]) + "..."
-		}
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("  ├ Result: %s", result)))
-	}
-
-	// Error
-	if ev.wire.Error != "" {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-		lines = append(lines, fmt.Sprintf("  ├ %s %s", dimStyle.Render("Error:"), errStyle.Render(ev.wire.Error)))
-	}
-
-	// Timestamp
-	ts := fmt.Sprintf("%.3fs", float64(ev.wire.TimestampMs)/1000.0)
-	last := "└"
-	if ev.wire.TraceID != "" {
-		last = "├"
-	}
-	lines = append(lines, dimStyle.Render(fmt.Sprintf("  %s Time:   %s", last, ts)))
-
-	// TraceID
-	if ev.wire.TraceID != "" {
-		lines = append(lines, dimStyle.Render(fmt.Sprintf("  └ Trace:  %s", ev.wire.TraceID)))
-	}
-
-	return lines
-}
-
-// truncateAnsi 按可见宽度截断包含 ANSI 转义码的字符串
+// truncateAnsi truncates ANSI-styled string by visible width.
 func truncateAnsi(s string, maxWidth int) string {
 	if maxWidth <= 0 {
 		return ""
@@ -835,31 +616,7 @@ func truncateAnsi(s string, maxWidth int) string {
 	return lipgloss.NewStyle().MaxWidth(maxWidth).Render(s)
 }
 
-// --- Step timeline logic (Story 27-3) ---
-
-// isSelectedProcessDead returns true if the currently selected process is in Dead state.
-func (m dashboardModel) isSelectedProcessDead() bool {
-	if m.selectedPID == 0 {
-		return false
-	}
-	for _, p := range m.processes {
-		if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
-			return p.State == types.StateDead
-		}
-	}
-	return false
-}
-
-// filterTimelineByPID returns only events whose PID matches the given PID.
-func filterTimelineByPID(events []timelineEvent, pid types.PID) []timelineEvent {
-	var result []timelineEvent
-	for _, ev := range events {
-		if ev.wire.PID == pid {
-			result = append(result, ev)
-		}
-	}
-	return result
-}
+// --- Step data flow ---
 
 func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardModel {
 	for _, s := range steps {
@@ -876,6 +633,19 @@ func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardMode
 		})
 	}
 	return m
+}
+
+// isSelectedProcessDead returns true if the currently selected process is in Dead state.
+func (m dashboardModel) isSelectedProcessDead() bool {
+	if m.selectedPID == 0 {
+		return false
+	}
+	for _, p := range m.processes {
+		if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
+			return p.State == types.StateDead
+		}
+	}
+	return false
 }
 
 // --- Fetch commands ---
@@ -907,18 +677,21 @@ func fetchStepDetailCmd(pid types.PID, step int) tea.Cmd {
 	}
 }
 
-// --- Prompt Pager (Story 27-4) ---
+// --- Prompt Pager (Story 27-4, enhanced with Tab) ---
 
-func formatPromptContent(detail *ipc.GetStepDetailResponse, step int) string {
+func formatPromptContent(detail *ipc.GetStepDetailResponse, _ int, tab promptPagerTab) string {
+	switch tab {
+	case promptTabSystem:
+		return formatPromptSystemTab(detail)
+	case promptTabTools:
+		return formatPromptToolsTab(detail)
+	default:
+		return formatPromptMessagesTab(detail)
+	}
+}
+
+func formatPromptMessagesTab(detail *ipc.GetStepDetailResponse) string {
 	var b strings.Builder
-
-	sysLen := utf8.RuneCountInString(detail.SystemPrompt)
-	fmt.Fprintf(&b, "═══ System Prompt (%s chars) ═══\n\n", formatCharCount(sysLen))
-	b.WriteString(detail.SystemPrompt)
-	b.WriteString("\n\n")
-
-	tokenLabel := formatTokenCount(detail.TokenCount)
-	fmt.Fprintf(&b, "═══ Messages (%d msgs, ~%s tokens) ═══\n\n", detail.MessageCount, tokenLabel)
 
 	toolCallNames := make(map[string]string)
 	for _, msg := range detail.Messages {
@@ -927,26 +700,47 @@ func formatPromptContent(detail *ipc.GetStepDetailResponse, step int) string {
 		}
 	}
 
-	for _, msg := range detail.Messages {
-		roleTag := formatRoleTag(msg, toolCallNames)
-		content := msg.Content
-		contentLen := utf8.RuneCountInString(content)
-		if contentLen > promptContentTruncateLimit {
-			runes := []rune(content)
-			content = string(runes[:promptContentTruncateLimit]) + fmt.Sprintf("\n... (truncated, %d chars total)", contentLen)
+	for i, msg := range detail.Messages {
+		if i > 0 {
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(strings.Repeat("─", 70)) + "\n")
 		}
-		fmt.Fprintf(&b, "%s %s\n\n", roleTag, content)
+		roleTag := formatRoleTag(msg, toolCallNames)
+		fmt.Fprintf(&b, "%s\n", roleTag)
+		b.WriteString(msg.Content)
+		b.WriteString("\n\n")
 	}
 
+	return b.String()
+}
+
+func formatPromptSystemTab(detail *ipc.GetStepDetailResponse) string {
+	var b strings.Builder
+	sysLen := utf8.RuneCountInString(detail.SystemPrompt)
+	fmt.Fprintf(&b, "═══ System Prompt (%s chars) ═══\n\n", formatCharCount(sysLen))
+	b.WriteString(detail.SystemPrompt)
+	return b.String()
+}
+
+func formatPromptToolsTab(detail *ipc.GetStepDetailResponse) string {
+	var b strings.Builder
 	fmt.Fprintf(&b, "═══ Tools (%d) ═══\n\n", len(detail.Tools))
-	for _, tool := range detail.Tools {
+	for i, tool := range detail.Tools {
+		if i > 0 {
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(strings.Repeat("─", 70)) + "\n")
+		}
+		nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6BCB77")).Bold(true)
+		b.WriteString(nameStyle.Render(tool.Name))
 		desc := tool.Description
 		if desc == "" {
 			desc = "(no description)"
 		}
-		fmt.Fprintf(&b, "• %s — %s\n", tool.Name, desc)
+		b.WriteString(" — " + desc + "\n")
+		if len(tool.Parameters) > 0 {
+			dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+			b.WriteString(dimStyle.Render(fmt.Sprintf("  Parameters: %v", tool.Parameters)) + "\n")
+		}
+		b.WriteString("\n")
 	}
-
 	return b.String()
 }
 
@@ -979,13 +773,14 @@ func formatCharCount(n int) string {
 }
 
 func (m *dashboardModel) enterPromptPager(detail *ipc.GetStepDetailResponse, step int) {
-	content := formatPromptContent(detail, step)
+	content := formatPromptContent(detail, step, promptTabMessages)
 	vp := viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(max(m.height-2, 1)))
 	vp.SetContent(content)
 	m.promptViewport = vp
 	m.promptContent = content
 	m.promptStep = step
 	m.promptPager = true
+	m.promptTab = promptTabMessages
 }
 
 func (m dashboardModel) renderPromptPager() string {
@@ -997,9 +792,20 @@ func (m dashboardModel) renderPromptPager() string {
 		tokenLabel = formatTokenCount(detail.TokenCount)
 	}
 
-	title := fmt.Sprintf("  Prompt View | PID %d Step %d | %d msgs ~%s tokens",
-		m.selectedPID, m.promptStep, msgCount, tokenLabel)
-	help := "  j/k:scroll  PgUp/PgDn:page  Home/End:jump  q:back"
+	tabNames := []string{"Messages", "System", "Tools"}
+	var tabs strings.Builder
+	for i, name := range tabNames {
+		if promptPagerTab(i) == m.promptTab {
+			tabs.WriteString(lipgloss.NewStyle().Bold(true).Render("[" + name + "]"))
+		} else {
+			tabs.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(" " + name + " "))
+		}
+		tabs.WriteString(" ")
+	}
+
+	title := fmt.Sprintf("  Prompt Viewer │ Step %d │ %d messages │ %s tok ─── %s",
+		m.promptStep, msgCount, tokenLabel, tabs.String())
+	help := "  j/k:scroll  PgUp/PgDn:page  Home/End:jump  Tab:switch  p/q:back"
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, m.promptViewport.View(), help)
 }

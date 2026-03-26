@@ -309,7 +309,7 @@ func TestATDD_27_4_AC5_FormatPromptContent_SystemPromptSection(t *testing.T) {
 		TokenCount:   500,
 	}
 
-	content := formatPromptContent(detail, 1)
+	content := formatPromptContent(detail, 1, promptTabSystem)
 
 	if !strings.Contains(content, "System Prompt") {
 		t.Error("AC-5: should contain 'System Prompt' section header")
@@ -331,11 +331,8 @@ func TestATDD_27_4_AC5_FormatPromptContent_MessagesSection(t *testing.T) {
 		TokenCount:   1000,
 	}
 
-	content := formatPromptContent(detail, 1)
+	content := formatPromptContent(detail, 1, promptTabMessages)
 
-	if !strings.Contains(content, "Messages") {
-		t.Error("AC-5: should contain 'Messages' section header")
-	}
 	if !strings.Contains(content, "user") {
 		t.Error("AC-5: should show 'user' role label")
 	}
@@ -359,7 +356,7 @@ func TestATDD_27_4_AC5_FormatPromptContent_ToolsSection(t *testing.T) {
 		TokenCount:   500,
 	}
 
-	content := formatPromptContent(detail, 1)
+	content := formatPromptContent(detail, 1, promptTabTools)
 
 	if !strings.Contains(content, "Tools") {
 		t.Error("AC-5: should contain 'Tools' section header")
@@ -379,20 +376,28 @@ func TestATDD_27_4_AC5_FormatPromptContent_SectionSeparators(t *testing.T) {
 	detail := &ipc.GetStepDetailResponse{
 		SystemPrompt: "sys prompt",
 		Step:         1,
-		Messages:     []ipc.MessageWire{{Role: "user", Content: "hi"}},
+		Messages:     []ipc.MessageWire{{Role: "user", Content: "hi"}, {Role: "assistant", Content: "hello"}},
 		Tools:        []ipc.ToolDefWire{{Name: "t1", Description: "desc"}},
-		MessageCount: 1,
+		MessageCount: 2,
 		TokenCount:   100,
 	}
 
-	content := formatPromptContent(detail, 1)
+	// System tab has section header
+	sysContent := formatPromptContent(detail, 1, promptTabSystem)
+	if !strings.Contains(sysContent, "═══") {
+		t.Error("AC-5: System tab should have section separator (═══)")
+	}
 
-	if strings.Count(content, "═══") < 3 {
-		t.Errorf("AC-5: should have at least 3 section separators (═══), got %d", strings.Count(content, "═══"))
+	// Messages tab has dividers between messages
+	msgContent := formatPromptContent(detail, 1, promptTabMessages)
+	if !strings.Contains(msgContent, "─") {
+		t.Error("AC-5: Messages tab should have dividers (─) between messages")
 	}
 }
 
 func TestATDD_27_4_AC5_FormatPromptContent_MessageCount(t *testing.T) {
+	// Message count is shown in the Prompt Viewer title bar, not in tab content.
+	// Verify that messages tab renders all messages.
 	detail := &ipc.GetStepDetailResponse{
 		SystemPrompt: "sys",
 		Step:         1,
@@ -401,10 +406,10 @@ func TestATDD_27_4_AC5_FormatPromptContent_MessageCount(t *testing.T) {
 		TokenCount:   12500,
 	}
 
-	content := formatPromptContent(detail, 1)
+	content := formatPromptContent(detail, 1, promptTabMessages)
 
-	if !strings.Contains(content, "23") {
-		t.Error("AC-5: Messages section should show message count '23'")
+	if !strings.Contains(content, "hi") {
+		t.Error("AC-5: Messages tab should contain message content")
 	}
 }
 
@@ -419,7 +424,7 @@ func TestATDD_27_4_AC5_FormatPromptContent_ToolCount(t *testing.T) {
 		TokenCount:   500,
 	}
 
-	content := formatPromptContent(detail, 1)
+	content := formatPromptContent(detail, 1, promptTabTools)
 
 	if !strings.Contains(content, "5") {
 		t.Error("AC-5: Tools section should show tool count '5'")
@@ -435,7 +440,7 @@ func TestATDD_27_4_AC5_FormatPromptContent_EmptySystemPrompt(t *testing.T) {
 		TokenCount:   100,
 	}
 
-	content := formatPromptContent(detail, 1)
+	content := formatPromptContent(detail, 1, promptTabSystem)
 
 	if !strings.Contains(content, "System Prompt") {
 		t.Error("AC-5: should still show System Prompt section even when empty")
@@ -452,7 +457,7 @@ func TestATDD_27_4_AC5_FormatPromptContent_NoTools(t *testing.T) {
 		TokenCount:   100,
 	}
 
-	content := formatPromptContent(detail, 1)
+	content := formatPromptContent(detail, 1, promptTabTools)
 
 	if !strings.Contains(content, "Tools (0)") {
 		t.Error("AC-5: Tools section should show '(0)' when no tools defined")
@@ -472,7 +477,7 @@ func TestATDD_27_4_AC5_FormatPromptContent_ToolRoleMessage(t *testing.T) {
 		TokenCount:   2000,
 	}
 
-	content := formatPromptContent(detail, 1)
+	content := formatPromptContent(detail, 1, promptTabMessages)
 
 	if !strings.Contains(content, "tool") {
 		t.Error("AC-5: should show 'tool' role for tool result messages")
@@ -671,18 +676,20 @@ func TestATDD_27_4_Extra_PKey_WhileFetching_Noop(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Extra: p 键仅在 stepTimelineMode 下工作
+// Extra: p 键仅在 Timeline 面板下工作（Syscall 模式已移除，此测试已过时）
 // ---------------------------------------------------------------------------
 
 func TestATDD_27_4_Extra_PKey_NotInStepTimelineMode_Noop(t *testing.T) {
+	// With Syscall mode removed, step timeline is always active.
+	// This test validates that p does nothing when no steps are loaded.
 	m := newPromptPagerModel()
-	m.stepTimelineMode = false
+	m.stepEntries = nil // no steps
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
 
 	model := m2.(dashboardModel)
 	if model.promptPager {
-		t.Error("Extra: p key outside stepTimelineMode should NOT enter pager")
+		t.Error("Extra: p key with no steps should NOT enter pager")
 	}
 }
 
@@ -809,7 +816,7 @@ func TestATDD_27_4_CR_FormatPromptContent_ToolNameResolved(t *testing.T) {
 		TokenCount:   1000,
 	}
 
-	content := formatPromptContent(detail, 1)
+	content := formatPromptContent(detail, 1, promptTabMessages)
 
 	if !strings.Contains(content, "read_file") {
 		t.Error("CR: formatted prompt should show tool name 'read_file' in tool role tag")

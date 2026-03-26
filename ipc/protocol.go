@@ -935,6 +935,7 @@ type StepSummaryWire struct {
 	Summary    string  `json:"summary"`
 	HasError   bool    `json:"has_error"`
 	DurationMs float64 `json:"duration_ms"`
+	TokenCount int     `json:"token_count"`
 }
 
 // ListStepsResponse is the response for MethodListSteps.

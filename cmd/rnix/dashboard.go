@@ -50,17 +50,8 @@ type dashboardModel struct {
 	confirmKill bool
 	confirmPID  types.PID
 
-	// Timeline fields (Story 17-2)
-	timelineEvents      []timelineEvent
+	// Timeline tracking
 	timelineAttachedPID types.PID
-	timelineEventCh     <-chan ipc.SyscallEventWire
-	timelineStopCh      chan struct{}
-	timelineZoomLevel   int
-	timelineViewStart   int64
-	timelineEventCursor int
-	timelineFilters     map[eventCategory]bool
-	timelineFilterMode  bool // f 键进入过滤编辑模式
-	timelineExpandedIdx int  // syscall 事件展开索引，-1=无
 
 	// Heatmap fields (Story 17-3)
 	heatmapProfile   *debug.CtxProfileResult
@@ -75,19 +66,22 @@ type dashboardModel struct {
 	recording    map[string]string
 	statusMsgTTL int
 
-	// Step timeline fields (Story 27-3)
-	stepTimelineMode bool
-	stepEntries      []stepEntry
-	stepCursor       int
-	stepDetailCache  map[int]*ipc.GetStepDetailResponse
-	lastFetchedStep  int
-	fetchingDetail   bool
+	// Step timeline fields (unified)
+	stepEntries     []stepEntry
+	stepCursor      int
+	stepDetailCache map[int]*ipc.GetStepDetailResponse
+	lastFetchedStep int
+	fetchingDetail  bool
+	stepFilters     map[string]bool
+	stepFilterMode  bool
+	stepExpandedIdx int
 
 	// Prompt pager fields (Story 27-4)
 	promptPager    bool
 	promptViewport viewport.Model
 	promptContent  string
 	promptStep     int
+	promptTab      promptPagerTab
 
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
@@ -175,16 +169,15 @@ type dashboardModel struct {
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
 	return dashboardModel{
-		client:              client,
-		startTime:           time.Now(),
-		connected:           client != nil,
-		rightPane:           paneTimeline,
-		timelineFilters:     defaultTimelineFilters(),
-		timelineExpandedIdx: noExpandedEvent,
-		recording:           make(map[string]string),
-		stepTimelineMode:    true,
-		stepDetailCache:     make(map[int]*ipc.GetStepDetailResponse),
-		procDetailCache:     make(map[string]*ipc.GetProcDetailResponse),
+		client:          client,
+		startTime:       time.Now(),
+		connected:       client != nil,
+		rightPane:       paneTimeline,
+		recording:       make(map[string]string),
+		stepDetailCache: make(map[int]*ipc.GetStepDetailResponse),
+		procDetailCache: make(map[string]*ipc.GetProcDetailResponse),
+		stepExpandedIdx: -1,
+		stepFilters:     defaultStepFilters(),
 	}
 }
 
@@ -214,23 +207,6 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.viewMode == viewLLM {
 			m.llmViewerViewport.SetWidth(msg.Width)
 			m.llmViewerViewport.SetHeight(max(msg.Height-4, 1))
-		}
-		return m, nil
-	case timelineStreamStartedMsg:
-		m.timelineEventCh = msg.eventCh
-		m.timelineStopCh = msg.stopCh
-		return m, waitTimelineEventCmd(msg.eventCh)
-	case timelineEventMsg:
-		m = m.handleTimelineEvent(msg)
-		return m, waitTimelineEventCmd(m.timelineEventCh)
-	case timelineStreamDoneMsg:
-		m.timelineEventCh = nil
-		return m, nil
-	case timelineDiskEventsMsg:
-		if msg.err == nil {
-			for _, ev := range msg.events {
-				m = m.handleTimelineEvent(timelineEventMsg{event: ev})
-			}
 		}
 		return m, nil
 	case heatmapProfileMsg:
@@ -528,7 +504,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 	}
 
-	if m.stepTimelineMode && m.selectedPID > 0 && m.connected {
+	if m.selectedPID > 0 && m.connected {
 		cmds = append(cmds, fetchStepsCmd(m.selectedPID, m.lastFetchedStep))
 	}
 
@@ -886,14 +862,11 @@ func (m dashboardModel) paneHints() (core []string, exit string) {
 
 	switch m.expandedPane {
 	case paneTimeline:
-		if m.timelineFilterMode {
-			return []string{hint("l", "LLM"), hint("t", "Tool"), hint("i", "IPC"), hint("v", "VFS"), hint("a", "All")},
+		if m.stepFilterMode {
+			return []string{hint("t", "tool"), hint("p", "plan"), hint("c", "done"), hint("s", "spawn"), hint("a", "All")},
 				hint("f/Esc", "done")
 		}
-		if m.stepTimelineMode && len(m.stepEntries) > 0 {
-			return []string{hint("j/k", "nav"), hint("v", "detail"), hint("p", "prompt"), hint("s", "syscall"), hint("?", "help")}, exit
-		}
-		return []string{hint("j/k", "nav"), hint("Enter", "detail"), hint("s", "step"), hint("f", "filter"), hint("?", "help")}, exit
+		return []string{hint("j/k", "nav"), hint("v", "detail"), hint("p", "prompt"), hint("f", "filter"), hint("?", "help")}, exit
 	case paneHeatmap:
 		return []string{hint("j/k", "nav"), hint("Enter", "detail"), hint("z", "restore"), hint("?", "help")}, exit
 	case paneIntent, paneSecurity:
@@ -927,14 +900,12 @@ func toggleRecordCmd(pid types.PID, uuid string, currentRecordID string) tea.Cmd
 func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	if m.selectedPID == 0 {
 		m.selectedUUID = ""
-		m = m.stopTimelineStream()
 		m = m.handleTimelinePIDChange()
 		m = m.handleHeatmapPIDChange()
 		m.timelineAttachedPID = 0
 		m.heatmapPID = 0
 		return m, nil
 	}
-	m = m.stopTimelineStream()
 	m = m.handleTimelinePIDChange()
 	m = m.handleHeatmapPIDChange()
 	m.timelineAttachedPID = m.selectedPID
@@ -951,12 +922,6 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	if m.connected {
-		if m.isSelectedProcessDead() {
-			// Dead process: load events from disk instead of streaming
-			cmds = append(cmds, fetchEventsFromDiskCmd(m.selectedPID, m.selectedUUID))
-		} else {
-			cmds = append(cmds, startTimelineCmd(m.selectedPID))
-		}
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 		if m.activePane == paneDetail && m.procDetail == nil {
 			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
@@ -972,29 +937,15 @@ func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
 	return dashboardModel{
 		startTime:        time.Now(),
 		connected:        false,
-		timelineFilters:  defaultTimelineFilters(),
 		recording:        make(map[string]string),
+		stepExpandedIdx:  -1,
+		stepFilters:      defaultStepFilters(),
 		replayMode:       true,
 		replayReader:     reader,
 		replayCursor:     -1,
 		replayPlaying:    false,
 		replaySpeed:      1.0,
 		prevReplayCursor: -2,
-	}
-}
-
-func recordEventToWire(ev debug.RecordEvent) ipc.SyscallEventWire {
-	if ev.Type != debug.RecordSyscall || ev.Syscall == nil {
-		return ipc.SyscallEventWire{}
-	}
-	return ipc.SyscallEventWire{
-		TimestampMs: ev.Timestamp.Milliseconds(),
-		PID:         ev.PID,
-		Syscall:     ev.Syscall.Syscall,
-		Args:        ev.Syscall.Args,
-		Result:      ev.Syscall.Result,
-		Error:       ev.Syscall.Err,
-		DurationMs:  float64(ev.Syscall.Duration.Milliseconds()),
 	}
 }
 
@@ -1030,27 +981,6 @@ func buildReplayProcessTree(reader *debug.RecordReader, cursor int) []vfs.ProcIn
 		TokensUsed: tokensUsed,
 		CreatedAt:  meta.StartTime,
 	}}
-}
-
-func loadReplayTimeline(reader *debug.RecordReader, cursor int) []timelineEvent {
-	if cursor < 0 {
-		return nil
-	}
-	var result []timelineEvent
-	for _, ev := range reader.Events() {
-		if int(ev.SeqNum) > cursor {
-			break
-		}
-		if ev.Type != debug.RecordSyscall || ev.Syscall == nil {
-			continue
-		}
-		wire := recordEventToWire(ev)
-		result = append(result, timelineEvent{
-			wire:     wire,
-			category: classifySyscall(wire),
-		})
-	}
-	return result
 }
 
 func buildReplayHeatmap(reader *debug.RecordReader, cursor int) *debug.CtxProfileResult {
@@ -1166,7 +1096,6 @@ func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
 		if len(m.treeRows) > 0 {
 			m = selectProcess(m, m.treeRows[0])
 		}
-		m.timelineEvents = loadReplayTimeline(m.replayReader, m.replayCursor)
 		m.heatmapProfile = buildReplayHeatmap(m.replayReader, m.replayCursor)
 		if m.heatmapProfile != nil {
 			m.heatmapSegments = buildHeatmapSegments(m.heatmapProfile)

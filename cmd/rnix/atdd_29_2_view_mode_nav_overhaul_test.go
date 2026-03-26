@@ -686,55 +686,53 @@ func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
 		t.Errorf("expected viewMode=viewDefault after '1' from viewExpanded, got %d", model.viewMode)
 	}
 
-	// 按 'f' 进入过滤模式，再按 'l' → 应切换 LLM filter
+	// 按 'f' 进入过滤模式，再按 't' → 应切换 tool_call filter
 	m3 := newDashboardModel(nil)
 	m3.viewMode = viewExpanded
 	m3.expandedPane = paneTimeline
 	m3.activePane = paneTimeline
 	m3.rightPane = paneTimeline
-	m3.timelineFilters = defaultTimelineFilters()
+	m3.stepFilters = defaultStepFilters()
 
-	if !m3.timelineFilters[catLLM] {
-		t.Fatal("LLM filter should be true by default")
+	if !m3.stepFilters["tool_call"] {
+		t.Fatal("tool_call filter should be true by default")
 	}
 
 	// f 进入过滤模式
 	m4, _ := m3.Update(tea.KeyPressMsg{Code: 'f'})
 	model2 := m4.(dashboardModel)
-	if !model2.timelineFilterMode {
+	if !model2.stepFilterMode {
 		t.Error("pressing 'f' should enter filter mode")
 	}
 
-	// l 切换 LLM
-	m5, _ := model2.Update(tea.KeyPressMsg{Code: 'l'})
+	// t 切换 tool_call
+	m5, _ := model2.Update(tea.KeyPressMsg{Code: 't'})
 	model3 := m5.(dashboardModel)
-	if model3.timelineFilters[catLLM] {
-		t.Error("pressing 'l' in filter mode should toggle LLM filter to false")
+	if model3.stepFilters["tool_call"] {
+		t.Error("pressing 't' in filter mode should toggle tool_call filter to false")
 	}
 	if model3.rightPane != paneTimeline {
 		t.Errorf("expected to stay in rightPane=paneTimeline after filter toggle, got %d", model3.rightPane)
 	}
 }
 // ---------------------------------------------------------------------------
-// 29.2-INT-013: [P1] AC-6 — Timeline 展开时 stepTimelineMode=false 不显示 v/p 提示
+// 29.2-INT-013: [P1] AC-6 — Timeline 展开时显示 step nav 提示
 // ---------------------------------------------------------------------------
 
 func TestViewModeSystem_TimelineHintsConditional(t *testing.T) {
 	m := newDashboardModel(nil)
 	m.viewMode = viewExpanded
 	m.expandedPane = paneTimeline
-	m.stepTimelineMode = false
 
 	core, _ := m.paneHints()
 	hints := hintGroup(core...)
 
-	// syscall mode should NOT show v/p hints
-	if strings.Contains(hints, "prompt") {
-		t.Errorf("expected no prompt hint when stepTimelineMode=false, got: %s", hints)
+	// unified step mode should show v/p hints
+	if !strings.Contains(hints, "detail") {
+		t.Errorf("expected detail hint in step timeline, got: %s", hints)
 	}
-	// should show step switching hint
-	if !strings.Contains(hints, "step") {
-		t.Errorf("expected step hint when stepTimelineMode=false, got: %s", hints)
+	if !strings.Contains(hints, "filter") {
+		t.Errorf("expected filter hint in step timeline, got: %s", hints)
 	}
 }
 
