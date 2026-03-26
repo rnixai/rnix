@@ -34,8 +34,20 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// === Layer 1: Prompt Pager 覆盖层 ===
 	if m.promptPager {
-		if key == "q" || key == "esc" {
+		if key == "q" || key == "esc" || key == "p" {
 			m.promptPager = false
+			return m, nil
+		}
+		if key == "tab" {
+			// Cycle tabs: Messages → System → Tools → Messages
+			m.promptTab = (m.promptTab + 1) % 3
+			detail := m.stepDetailCache[m.promptStep]
+			if detail != nil {
+				content := formatPromptContent(detail, m.promptStep, m.promptTab)
+				m.promptContent = content
+				m.promptViewport.SetContent(content)
+				m.promptViewport.GotoTop()
+			}
 			return m, nil
 		}
 		if key == "home" {
@@ -191,51 +203,54 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	key := msg.String()
 
 	// 过滤模式：无论哪个面板活跃，都路由到 timeline 处理
-	if m.timelineFilterMode {
+	if m.stepFilterMode {
 		m = m.handleTimelineKey(key)
 		return m, nil
 	}
 
-	// Step Timeline 按键（v/V/p）
-	if m.activePane == paneTimeline && m.stepTimelineMode && len(m.stepEntries) > 0 && m.stepCursor < len(m.stepEntries) {
-		if msg.Code == 'v' {
-			entry := &m.stepEntries[m.stepCursor]
-			if entry.level == levelSummary {
-				entry.level = levelExpanded
-				if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
-					m.fetchingDetail = true
-					return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+	// Step Timeline 按键（enter/v/V/p）
+	if m.activePane == paneTimeline && len(m.stepEntries) > 0 {
+		idx := m.resolveStepIndex()
+		if idx >= 0 && idx < len(m.stepEntries) {
+			if msg.Code == 'v' || key == "enter" {
+				entry := &m.stepEntries[idx]
+				if entry.level == levelSummary {
+					entry.level = levelExpanded
+					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
+						m.fetchingDetail = true
+						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+					}
+				} else {
+					entry.level = levelSummary
 				}
-			} else {
-				entry.level = levelSummary
-			}
-			return m, nil
-		}
-		if msg.Code == 'V' {
-			entry := &m.stepEntries[m.stepCursor]
-			switch entry.level {
-			case levelSummary, levelExpanded:
-				entry.level = levelDebug
-				if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
-					m.fetchingDetail = true
-					return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
-				}
-			case levelDebug:
-				entry.level = levelExpanded
-			}
-			return m, nil
-		}
-		if msg.Code == 'p' {
-			entry := m.stepEntries[m.stepCursor]
-			if cached := m.stepDetailCache[entry.summary.Step]; cached != nil {
-				m.enterPromptPager(cached, entry.summary.Step)
 				return m, nil
 			}
-			if !m.fetchingDetail && m.selectedPID > 0 {
-				m.fetchingDetail = true
-				return m, fetchStepDetailForPagerCmd(m.selectedPID, entry.summary.Step)
+			if msg.Code == 'V' {
+				entry := &m.stepEntries[idx]
+				switch entry.level {
+				case levelSummary, levelExpanded:
+					entry.level = levelDebug
+					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
+						m.fetchingDetail = true
+						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+					}
+				case levelDebug:
+					entry.level = levelExpanded
+				}
+				return m, nil
 			}
-			return m, nil
+			if msg.Code == 'p' {
+				entry := m.stepEntries[idx]
+				if cached := m.stepDetailCache[entry.summary.Step]; cached != nil {
+					m.enterPromptPager(cached, entry.summary.Step)
+					return m, nil
+				}
+				if !m.fetchingDetail && m.selectedPID > 0 {
+					m.fetchingDetail = true
+					return m, fetchStepDetailForPagerCmd(m.selectedPID, entry.summary.Step)
+				}
+				return m, nil
+			}
 		}
 	}
 

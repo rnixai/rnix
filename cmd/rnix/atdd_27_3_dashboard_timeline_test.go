@@ -36,7 +36,6 @@ func newStepTimelineModel() dashboardModel {
 	m.connected = true
 	m.selectedPID = 1
 	m.activePane = paneTimeline
-	m.stepTimelineMode = true
 
 	m.stepEntries = []stepEntry{
 		{
@@ -79,8 +78,9 @@ func TestATDD_27_3_AC1_Level1_StepSummary_Rendered(t *testing.T) {
 
 func TestATDD_27_3_AC1_Level1_ShowsDuration(t *testing.T) {
 	m := newStepTimelineModel()
+	m.width = 120 // wide enough to show duration
 
-	output := m.renderTimelinePane(100, 20)
+	output := m.renderTimelinePane(120, 20)
 
 	if !strings.Contains(output, "218") {
 		t.Errorf("AC-1: Level 1 should show duration '218ms', got: %s", output)
@@ -114,8 +114,8 @@ func TestATDD_27_3_AC1_Level1_StepTotal(t *testing.T) {
 
 	output := m.renderTimelinePane(100, 20)
 
-	if !strings.Contains(output, "/3") {
-		t.Errorf("AC-1: Level 1 should show step total '/3', got: %s", output)
+	if !strings.Contains(output, "3 steps") {
+		t.Errorf("AC-1: Level 1 should show step total '3 steps', got: %s", output)
 	}
 }
 
@@ -473,8 +473,15 @@ func TestATDD_27_3_StepCursor_KKey_MovesUp(t *testing.T) {
 
 func TestATDD_27_3_StepTimelineMode_Default(t *testing.T) {
 	m := newDashboardModel(nil)
-	if !m.stepTimelineMode {
-		t.Errorf("stepTimelineMode should default to true (step view is default)")
+	m.width = 120
+	m.height = 40
+	m.selectedPID = 1
+	m.stepEntries = []stepEntry{
+		{summary: ipc.StepSummaryWire{Step: 1, Action: "text", Summary: "hello"}},
+	}
+	output := m.renderTimelinePane(100, 20)
+	if !strings.Contains(output, "Step") {
+		t.Errorf("Timeline should default to step view, got: %s", output)
 	}
 }
 

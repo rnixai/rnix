@@ -125,7 +125,7 @@ func TestDashboardFileSplitting_FunctionDistribution(t *testing.T) {
 			"renderDashboardTreePane", "renderDashboardPlaceholder", "buildProcessTree",
 		},
 		"dashboard_timeline.go": {
-			"classifySyscall", "renderTimelinePane", "renderStepTimeline",
+			"renderTimelinePane", "renderStepTimeline",
 			"fetchStepsCmd", "fetchStepDetailCmd", "renderPromptPager",
 		},
 		"dashboard_heatmap.go": {
@@ -285,7 +285,6 @@ func TestDashboardFileSplitting_TypesFileContainsTypes(t *testing.T) {
 	// Verify key type definitions are present
 	expectedTypes := []string{
 		"type paneType",
-		"type eventCategory",
 		"type stepDetailLevel",
 		"type segmentKind",
 		"type activityLevel",
@@ -293,7 +292,6 @@ func TestDashboardFileSplitting_TypesFileContainsTypes(t *testing.T) {
 		"type heatmapSegment struct",
 		"type intentFlatNode struct",
 		"type spanFlatNode struct",
-		"type timelineEvent struct",
 	}
 
 	for _, typeDef := range expectedTypes {
@@ -313,7 +311,6 @@ func TestDashboardFileSplitting_TypesFileContainsTypes(t *testing.T) {
 		"type traceTreeMsg",
 		"type evalReputationMsg",
 		"type promptPagerMsg",
-		"type timelineEventMsg",
 		"type heatmapProfileMsg",
 	}
 

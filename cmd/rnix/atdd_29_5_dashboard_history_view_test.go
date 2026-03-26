@@ -624,9 +624,10 @@ func TestHistoryView_TimelineAutoFilterDeadProcess(t *testing.T) {
 	content := string(data)
 
 	// Timeline 应有 PID 过滤逻辑
-	hasFilterFunc := strings.Contains(content, "filterTimeline") ||
+	hasFilterFunc := strings.Contains(content, "filteredStepEntries") ||
 		strings.Contains(content, "FilterByPID") ||
-		strings.Contains(content, "filteredEvents")
+		strings.Contains(content, "filteredEvents") ||
+		strings.Contains(content, "stepFilters")
 	if !hasFilterFunc {
 		t.Error("dashboard_timeline.go should contain timeline event filtering logic for Dead processes")
 	}

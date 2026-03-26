@@ -34,26 +34,11 @@ const (
 	viewHistory                  // H：全屏历史进程列表（Story 29.5 实现）
 )
 
-type eventCategory int
-
-const (
-	catLLM eventCategory = iota
-	catTool
-	catIPC
-	catVFS
-	catError
-)
-
 const colorIPC = "#9B59B6"
-
-const maxTimelineEvents = 1000
 
 const statusMsgDefaultTTL = 4
 
 const slowStepThresholdMs = 1000.0
-
-// noExpandedEvent indicates no event is expanded in syscall timeline.
-const noExpandedEvent = -1
 
 // --- Step detail types ---
 
@@ -190,26 +175,14 @@ type historyProcsMsg struct {
 
 // --- Timeline types ---
 
-type timelineEvent struct {
-	wire     ipc.SyscallEventWire
-	category eventCategory
-}
+// promptPagerTab represents the active tab in the Prompt Viewer.
+type promptPagerTab int
 
-type timelineEventMsg struct {
-	event ipc.SyscallEventWire
-}
-
-type timelineStreamDoneMsg struct{}
-
-type timelineDiskEventsMsg struct {
-	events []ipc.SyscallEventWire
-	err    error
-}
-
-type timelineStreamStartedMsg struct {
-	eventCh <-chan ipc.SyscallEventWire
-	stopCh  chan struct{}
-}
+const (
+	promptTabMessages promptPagerTab = iota
+	promptTabSystem
+	promptTabTools
+)
 
 // --- Heatmap types (Story 17-3) ---
 
@@ -261,10 +234,6 @@ type recordToggleMsg struct {
 	eventCount uint64
 	err        error
 }
-
-// --- Timeline zoom ---
-
-var zoomWindowMs = []int64{0, 1000, 5000, 30000, 300000, 1800000}
 
 // --- Prompt Pager styles (Story 27-4) ---
 

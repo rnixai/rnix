@@ -2048,6 +2048,7 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 			Summary:    r.Summary,
 			HasError:   r.ToolError != "",
 			DurationMs: float64(r.ToolDuration.Microseconds()) / 1000.0,
+			TokenCount: r.TokenCount,
 		}
 	}
 

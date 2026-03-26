@@ -14,7 +14,6 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
-	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -490,189 +489,19 @@ func TestDashboardModel_ViewTokenBudgetWarning(t *testing.T) {
 
 // --- timeline test helpers ---
 
-func mockTimelineEvents() []ipc.SyscallEventWire {
-	return []ipc.SyscallEventWire{
-		{TimestampMs: 100, PID: 2, Syscall: "Open", Args: map[string]any{"path": "/dev/llm/claude"}, DurationMs: 1.5},
-		{TimestampMs: 200, PID: 2, Syscall: "Spawn", Args: map[string]any{"intent": "build"}, DurationMs: 5.0},
-		{TimestampMs: 300, PID: 2, Syscall: "Send", Args: map[string]any{"target_pid": 3}, DurationMs: 0.5},
-		{TimestampMs: 400, PID: 2, Syscall: "CtxAlloc", Args: map[string]any{"size": 64}, DurationMs: 0.2},
-		{TimestampMs: 500, PID: 2, Syscall: "Read", Args: map[string]any{"fd": 3}, Error: "EOF", DurationMs: 0.1},
-	}
-}
-
 func newTestTimelineDashboardModel() dashboardModel {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.activePane = paneTimeline
-	m.stepTimelineMode = false
-	events := mockTimelineEvents()
-	for _, ev := range events {
-		m.timelineEvents = append(m.timelineEvents, timelineEvent{
-			wire:     ev,
-			category: classifySyscall(ev),
-		})
+	m.stepEntries = []stepEntry{
+		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "Open /dev/llm/claude"}},
+		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "Planning build step"}},
+		{summary: ipc.StepSummaryWire{Step: 3, Action: "spawn", Summary: "Spawn builder"}},
+		{summary: ipc.StepSummaryWire{Step: 4, Action: "tool_call", Summary: "Read file"}},
+		{summary: ipc.StepSummaryWire{Step: 5, Action: "complete", Summary: "Done"}},
 	}
-	m.timelineFilters = defaultTimelineFilters()
+	m.stepFilters = defaultStepFilters()
 	return m
-}
-
-// --- 17.2-UNIT-001: [P0] classifySyscall — LLM event (AC1) ---
-
-func TestClassifySyscall_LLM(t *testing.T) {
-	ev := ipc.SyscallEventWire{
-		Syscall: "Open",
-		Args:    map[string]any{"path": "/dev/llm/claude"},
-	}
-	cat := classifySyscall(ev)
-	if cat != catLLM {
-		t.Errorf("Open(/dev/llm/claude) should be catLLM, got %d", cat)
-	}
-
-	ev2 := ipc.SyscallEventWire{
-		Syscall: "Write",
-		Args:    map[string]any{"tool": "/dev/llm/claude"},
-	}
-	cat2 := classifySyscall(ev2)
-	if cat2 != catLLM {
-		t.Errorf("Write(tool=/dev/llm/claude) should be catLLM, got %d", cat2)
-	}
-}
-
-// --- 17.2-UNIT-002: [P0] classifySyscall — IPC event (AC1) ---
-
-func TestClassifySyscall_IPC(t *testing.T) {
-	for _, syscall := range []string{"Send", "Recv", "Pipe", "Signal", "SigBlock", "SigUnblock", "JoinGroup", "LeaveGroup", "GetProcGroup", "SignalGroup"} {
-		ev := ipc.SyscallEventWire{Syscall: syscall}
-		cat := classifySyscall(ev)
-		if cat != catIPC {
-			t.Errorf("%s should be catIPC, got %d", syscall, cat)
-		}
-	}
-}
-
-// --- 17.2-UNIT-003: [P0] classifySyscall — Tool event (AC1) ---
-
-func TestClassifySyscall_Tool(t *testing.T) {
-	for _, syscall := range []string{"Spawn", "Kill", "Wait", "Reparent", "SpawnThread", "JoinThread", "SpawnSupervisor", "SpawnCoroutine", "Yield", "ResumeCoroutine"} {
-		ev := ipc.SyscallEventWire{Syscall: syscall}
-		cat := classifySyscall(ev)
-		if cat != catTool {
-			t.Errorf("%s should be catTool, got %d", syscall, cat)
-		}
-	}
-
-	evShell := ipc.SyscallEventWire{
-		Syscall: "Open",
-		Args:    map[string]any{"path": "/dev/shell/bash"},
-	}
-	if classifySyscall(evShell) != catTool {
-		t.Error("Open(/dev/shell/bash) should be catTool")
-	}
-
-	evFs := ipc.SyscallEventWire{
-		Syscall: "Read",
-		Args:    map[string]any{"path": "/dev/fs/workspace"},
-	}
-	if classifySyscall(evFs) != catTool {
-		t.Error("Read(/dev/fs/workspace) should be catTool")
-	}
-}
-
-// --- 17.2-UNIT-004: [P0] classifySyscall — VFS event (AC1) ---
-
-func TestClassifySyscall_VFS(t *testing.T) {
-	for _, syscall := range []string{"Open", "Read", "Write", "Close", "Mount", "Unmount", "CtxAlloc", "CtxRead", "CtxWrite", "ReasonStep"} {
-		ev := ipc.SyscallEventWire{Syscall: syscall}
-		cat := classifySyscall(ev)
-		if cat != catVFS {
-			t.Errorf("%s (no special path) should be catVFS, got %d", syscall, cat)
-		}
-	}
-}
-
-// --- 17.2-UNIT-005: [P0] classifySyscall — error takes priority (AC1) ---
-
-func TestClassifySyscall_ErrorPriority(t *testing.T) {
-	ev := ipc.SyscallEventWire{
-		Syscall: "Open",
-		Args:    map[string]any{"path": "/dev/llm/claude"},
-		Error:   "connection refused",
-	}
-	cat := classifySyscall(ev)
-	if cat != catError {
-		t.Errorf("event with error should be catError regardless of syscall, got %d", cat)
-	}
-}
-
-// --- 17.2-UNIT-006: [P1] categoryColor returns correct color values (AC1) ---
-
-func TestCategoryColor(t *testing.T) {
-	tests := []struct {
-		cat   eventCategory
-		color string
-	}{
-		{catLLM, ui.ColorAgent},
-		{catTool, ui.ColorSuccess},
-		{catIPC, colorIPC},
-		{catVFS, ui.ColorWarning},
-		{catError, ui.ColorError},
-	}
-	for _, tt := range tests {
-		got := categoryColor(tt.cat)
-		if got != tt.color {
-			t.Errorf("categoryColor(%d) = %q, want %q", tt.cat, got, tt.color)
-		}
-	}
-}
-
-// --- 17.2-UNIT-007: [P0] timelineEventMsg appends to timelineEvents (AC1) ---
-
-func TestDashboardModel_TimelineEventAppend(t *testing.T) {
-	m := newTestDashboardModel(mockDashboardProcs())
-	m.selectedPID = 2
-	m.timelineFilters = defaultTimelineFilters()
-
-	ev := ipc.SyscallEventWire{
-		TimestampMs: 100,
-		PID:         2,
-		Syscall:     "Open",
-		Args:        map[string]any{"path": "/dev/llm/claude"},
-	}
-
-	updated, _ := m.Update(timelineEventMsg{event: ev})
-	um := updated.(dashboardModel)
-
-	if len(um.timelineEvents) != 1 {
-		t.Fatalf("expected 1 timeline event, got %d", len(um.timelineEvents))
-	}
-	if um.timelineEvents[0].category != catLLM {
-		t.Errorf("expected catLLM, got %d", um.timelineEvents[0].category)
-	}
-}
-
-// --- 17.2-UNIT-008: [P0] timelineEvents FIFO eviction at 1000 (AC1) ---
-
-func TestDashboardModel_TimelineEventsFIFO(t *testing.T) {
-	m := newTestDashboardModel(mockDashboardProcs())
-	m.selectedPID = 2
-	m.timelineFilters = defaultTimelineFilters()
-
-	for i := range maxTimelineEvents + 50 {
-		ev := ipc.SyscallEventWire{
-			TimestampMs: int64(i),
-			PID:         2,
-			Syscall:     "Read",
-		}
-		updated, _ := m.Update(timelineEventMsg{event: ev})
-		m = updated.(dashboardModel)
-	}
-
-	if len(m.timelineEvents) != maxTimelineEvents {
-		t.Fatalf("expected %d events after FIFO eviction, got %d", maxTimelineEvents, len(m.timelineEvents))
-	}
-	if m.timelineEvents[0].wire.TimestampMs != 50 {
-		t.Errorf("oldest event should be timestamp 50 after eviction, got %d", m.timelineEvents[0].wire.TimestampMs)
-	}
 }
 
 // --- 17.2-UNIT-009: [P0] timeline renders empty state text (AC1) ---
@@ -684,8 +513,6 @@ func TestDashboardModel_TimelineRenderEmpty(t *testing.T) {
 	m.viewMode = viewExpanded
 	m.expandedPane = paneTimeline
 	m.rightPane = paneTimeline
-	m.stepTimelineMode = false
-	m.timelineFilters = defaultTimelineFilters()
 
 	v := m.View()
 	content := v.Content
@@ -698,151 +525,33 @@ func TestDashboardModel_TimelineRenderEmpty(t *testing.T) {
 	}
 }
 
-// --- 17.2-UNIT-010: [P0] timeline renders events without 'Coming Soon' (AC1) ---
-
-func TestDashboardModel_TimelineRenderEvents(t *testing.T) {
-	m := newTestTimelineDashboardModel()
-	v := m.View()
-	content := v.Content
-
-	if !strings.Contains(content, "5 events") {
-		t.Error("timeline with events should show event count")
-	}
-	if !strings.Contains(content, "Timeline") {
-		t.Error("timeline pane should show 'Timeline' title")
-	}
-	if strings.Contains(content, "Select an agent") {
-		t.Error("timeline with events should not show 'Select an agent'")
-	}
-}
-
-// --- 17.2-UNIT-011: [P0] +/- adjusts zoomLevel (AC2) ---
-
-func TestDashboardModel_TimelineZoom(t *testing.T) {
-	m := newTestTimelineDashboardModel()
-	m.timelineZoomLevel = 2
-
-	updated, _ := m.Update(tea.KeyPressMsg{Code: '+'})
-	um := updated.(dashboardModel)
-	if um.timelineZoomLevel != 3 {
-		t.Errorf("+ should increase zoomLevel: expected 3, got %d", um.timelineZoomLevel)
-	}
-
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '-'})
-	um = updated.(dashboardModel)
-	if um.timelineZoomLevel != 2 {
-		t.Errorf("- should decrease zoomLevel: expected 2, got %d", um.timelineZoomLevel)
-	}
-
-	um.timelineZoomLevel = 0
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '-'})
-	um = updated.(dashboardModel)
-	if um.timelineZoomLevel != 0 {
-		t.Error("zoomLevel should not go below 0")
-	}
-
-	um.timelineZoomLevel = 5
-	updated, _ = um.Update(tea.KeyPressMsg{Code: '+'})
-	um = updated.(dashboardModel)
-	if um.timelineZoomLevel != 5 {
-		t.Error("zoomLevel should not go above 5")
-	}
-}
-
-// --- 17.2-UNIT-012: [P0] f key enters filter mode, l/t/i/v toggles filters (AC2) ---
+// --- 17.2-UNIT-012: [P0] f key enters step filter mode (AC2) ---
 
 func TestDashboardModel_TimelineFilter(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	// f key works in viewDefault (Timeline always visible) and viewExpanded+paneTimeline
 	m.viewMode = viewDefault
-
-	if !m.timelineFilters[catLLM] {
-		t.Fatal("LLM filter should be true by default")
-	}
 
 	// Press f to enter filter mode
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'f'})
 	um := updated.(dashboardModel)
-	if !um.timelineFilterMode {
-		t.Error("pressing 'f' should enter filter mode")
-	}
-
-	// Press l to toggle LLM
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 'l'})
-	um = updated.(dashboardModel)
-	if um.timelineFilters[catLLM] {
-		t.Error("pressing 'l' in filter mode should toggle LLM filter to false")
-	}
-
-	// Press l again to re-enable
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 'l'})
-	um = updated.(dashboardModel)
-	if !um.timelineFilters[catLLM] {
-		t.Error("pressing 'l' again should toggle LLM filter back to true")
-	}
-
-	// Press t to toggle Tool
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 't'})
-	um = updated.(dashboardModel)
-	if um.timelineFilters[catTool] {
-		t.Error("pressing 't' should toggle Tool filter to false")
-	}
-
-	// Press i to toggle IPC
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 'i'})
-	um = updated.(dashboardModel)
-	if um.timelineFilters[catIPC] {
-		t.Error("pressing 'i' should toggle IPC filter to false")
-	}
-
-	// Press v to toggle VFS
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 'v'})
-	um = updated.(dashboardModel)
-	if um.timelineFilters[catVFS] {
-		t.Error("pressing 'v' should toggle VFS filter to false")
-	}
-
-	// Press a to enable all
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 'a'})
-	um = updated.(dashboardModel)
-	if !um.timelineFilters[catLLM] || !um.timelineFilters[catTool] || !um.timelineFilters[catIPC] || !um.timelineFilters[catVFS] {
-		t.Error("pressing 'a' should enable all filters")
+	if !um.stepFilterMode {
+		t.Error("pressing 'f' should enter step filter mode")
 	}
 
 	// Press f to exit filter mode
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'f'})
 	um = updated.(dashboardModel)
-	if um.timelineFilterMode {
-		t.Error("pressing 'f' again should exit filter mode")
+	if um.stepFilterMode {
+		t.Error("pressing 'f' again should exit step filter mode")
 	}
 }
 
-// --- 17.2-UNIT-013: [P0] h/l scrolls timeline viewStart (AC2) ---
-
-func TestDashboardModel_TimelineScroll(t *testing.T) {
-	m := newTestTimelineDashboardModel()
-	m.timelineViewStart = 500
-
-	updated, _ := m.Update(tea.KeyPressMsg{Code: 'l'})
-	um := updated.(dashboardModel)
-	if um.timelineViewStart <= 500 {
-		t.Errorf("l should scroll right (increase viewStart), got %d", um.timelineViewStart)
-	}
-
-	prevStart := um.timelineViewStart
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 'h'})
-	um = updated.(dashboardModel)
-	if um.timelineViewStart >= prevStart {
-		t.Errorf("h should scroll left (decrease viewStart), got %d", um.timelineViewStart)
-	}
-}
-
-// --- 17.2-UNIT-014: [P0] PID change clears timeline events (AC1) ---
+// --- 17.2-UNIT-014: [P0] PID change clears step entries (AC1) ---
 
 func TestDashboardModel_TimelinePIDChange(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	if len(m.timelineEvents) == 0 {
-		t.Fatal("pre-condition: model should have timeline events")
+	if len(m.stepEntries) == 0 {
+		t.Fatal("pre-condition: model should have step entries")
 	}
 
 	prevPID := m.selectedPID
@@ -851,8 +560,8 @@ func TestDashboardModel_TimelinePIDChange(t *testing.T) {
 
 	m = m.handleTimelinePIDChange()
 
-	if len(m.timelineEvents) != 0 {
-		t.Errorf("PID change should clear timelineEvents, got %d", len(m.timelineEvents))
+	if len(m.stepEntries) != 0 {
+		t.Errorf("PID change should clear stepEntries, got %d", len(m.stepEntries))
 	}
 	if m.timelineAttachedPID != 999 {
 		t.Errorf("timelineAttachedPID should update to new PID, got %d", m.timelineAttachedPID)
@@ -1343,8 +1052,8 @@ func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
 	m.selectedPID = 999
 	m2, _ := m.handlePIDChange()
 
-	if len(m2.timelineEvents) != 0 {
-		t.Errorf("handlePIDChange should clear timelineEvents, got %d", len(m2.timelineEvents))
+	if len(m2.stepEntries) != 0 {
+		t.Errorf("handlePIDChange should clear stepEntries, got %d", len(m2.stepEntries))
 	}
 	if m2.heatmapProfile != nil {
 		t.Error("handlePIDChange should clear heatmapProfile")
@@ -1383,7 +1092,7 @@ func TestDashboardModel_GlobalKillConfirmTimeline(t *testing.T) {
 
 func TestDashboardModel_TimelineKNavigatesNotKill(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	m.timelineEventCursor = 2
+	m.stepCursor = 2
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
@@ -1391,8 +1100,8 @@ func TestDashboardModel_TimelineKNavigatesNotKill(t *testing.T) {
 	if um.confirmKill {
 		t.Error("k in timeline pane should navigate, not trigger kill")
 	}
-	if um.timelineEventCursor != 1 {
-		t.Errorf("k in timeline should move cursor up: expected 1, got %d", um.timelineEventCursor)
+	if um.stepCursor != 1 {
+		t.Errorf("k in timeline should move cursor up: expected 1, got %d", um.stepCursor)
 	}
 }
 
@@ -1761,68 +1470,8 @@ func TestReplayDashboard_Init(t *testing.T) {
 	if m.connected {
 		t.Error("connected should be false in replay mode")
 	}
-	if m.timelineFilters == nil {
-		t.Error("timelineFilters should be initialized (defaultTimelineFilters)")
-	}
 	if m.recording == nil {
 		t.Error("recording map should be initialized")
-	}
-}
-
-// --- 17.5-UNIT-002: [P0] recordEventToWire converts syscall events correctly (AC1) ---
-
-func TestRecordEventToWire(t *testing.T) {
-	ev := debug.RecordEvent{
-		SeqNum:    0,
-		Timestamp: 100 * time.Millisecond,
-		PID:       2,
-		Type:      debug.RecordSyscall,
-		Syscall: &debug.SyscallEventData{
-			Syscall:  "Open",
-			Args:     map[string]any{"path": "/dev/llm/claude"},
-			Result:   "fd=3",
-			Err:      "",
-			Duration: 10 * time.Millisecond,
-		},
-	}
-
-	wire := recordEventToWire(ev)
-
-	if wire.TimestampMs != 100 {
-		t.Errorf("TimestampMs should be 100, got %d", wire.TimestampMs)
-	}
-	if wire.PID != 2 {
-		t.Errorf("PID should be 2, got %d", wire.PID)
-	}
-	if wire.Syscall != "Open" {
-		t.Errorf("Syscall should be 'Open', got %q", wire.Syscall)
-	}
-	if wire.DurationMs != 10.0 {
-		t.Errorf("DurationMs should be 10.0, got %f", wire.DurationMs)
-	}
-}
-
-// --- 17.5-UNIT-003: [P1] recordEventToWire returns zero for non-syscall events (AC1) ---
-
-func TestRecordEventToWire_NonSyscall(t *testing.T) {
-	ev := debug.RecordEvent{
-		SeqNum:    2,
-		Timestamp: 300 * time.Millisecond,
-		PID:       2,
-		Type:      debug.RecordStateChange,
-		State: &debug.StateChangeData{
-			FromState: "running",
-			ToState:   "sleeping",
-		},
-	}
-
-	wire := recordEventToWire(ev)
-
-	if wire.Syscall != "" {
-		t.Errorf("non-syscall event should produce zero-value wire, got Syscall=%q", wire.Syscall)
-	}
-	if wire.PID != 0 {
-		t.Errorf("non-syscall event should produce zero-value wire, got PID=%d", wire.PID)
 	}
 }
 
@@ -1850,39 +1499,6 @@ func TestReplayDashboard_TreePane(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected PID 2 in process tree (from recording metadata)")
-	}
-}
-
-// --- 17.5-UNIT-005: [P0] loadReplayTimeline loads events up to cursor (AC1) ---
-
-func TestReplayDashboard_Timeline(t *testing.T) {
-	reader := newTestRecordReader(t)
-
-	eventsAtCursor2 := loadReplayTimeline(reader, 2)
-	syscallCount := 0
-	for _, ev := range eventsAtCursor2 {
-		if ev.wire.Syscall != "" {
-			syscallCount++
-		}
-	}
-	if syscallCount != 2 {
-		t.Errorf("cursor=2: expected 2 syscall events (SeqNum 0,1), got %d", syscallCount)
-	}
-
-	eventsAtMinus1 := loadReplayTimeline(reader, -1)
-	if len(eventsAtMinus1) != 0 {
-		t.Errorf("cursor=-1: expected 0 events, got %d", len(eventsAtMinus1))
-	}
-
-	eventsAtEnd := loadReplayTimeline(reader, 4)
-	endSyscallCount := 0
-	for _, ev := range eventsAtEnd {
-		if ev.wire.Syscall != "" {
-			endSyscallCount++
-		}
-	}
-	if endSyscallCount != 3 {
-		t.Errorf("cursor=4: expected 3 syscall events (SeqNum 0,1,4), got %d", endSyscallCount)
 	}
 }
 
@@ -2442,130 +2058,9 @@ func TestLLMViewer_ViewContainsTokenStats(t *testing.T) {
 	}
 }
 
-// ============================================================
-// Timeline UX 重构测试
-// ============================================================
+// --- Step filter from default view ---
 
-// --- extractResource 资源提取 ---
-
-func TestExtractResource_LLMPath(t *testing.T) {
-	ev := ipc.SyscallEventWire{Args: map[string]any{"path": "/dev/llm/claude"}}
-	got := extractResource(ev)
-	if got != "claude" {
-		t.Errorf("extractResource(llm path) = %q, want 'claude'", got)
-	}
-}
-
-func TestExtractResource_ShellPath(t *testing.T) {
-	ev := ipc.SyscallEventWire{Args: map[string]any{"path": "/dev/shell/bash"}}
-	got := extractResource(ev)
-	if got != "bash" {
-		t.Errorf("extractResource(shell path) = %q, want 'bash'", got)
-	}
-}
-
-func TestExtractResource_FSPath(t *testing.T) {
-	ev := ipc.SyscallEventWire{Args: map[string]any{"path": "/dev/fs/src/main.go"}}
-	got := extractResource(ev)
-	if got != "src/main.go" {
-		t.Errorf("extractResource(fs path) = %q, want 'src/main.go'", got)
-	}
-}
-
-func TestExtractResource_Intent(t *testing.T) {
-	ev := ipc.SyscallEventWire{Args: map[string]any{"intent": "build"}}
-	got := extractResource(ev)
-	if got != "build" {
-		t.Errorf("extractResource(intent) = %q, want 'build'", got)
-	}
-}
-
-func TestExtractResource_TargetPID(t *testing.T) {
-	ev := ipc.SyscallEventWire{Args: map[string]any{"target_pid": 3}}
-	got := extractResource(ev)
-	if got != "→pid:3" {
-		t.Errorf("extractResource(target_pid) = %q, want '→pid:3'", got)
-	}
-}
-
-func TestExtractResource_FD(t *testing.T) {
-	ev := ipc.SyscallEventWire{Args: map[string]any{"fd": 3}}
-	got := extractResource(ev)
-	if got != "fd:3" {
-		t.Errorf("extractResource(fd) = %q, want 'fd:3'", got)
-	}
-}
-
-func TestExtractResource_Empty(t *testing.T) {
-	ev := ipc.SyscallEventWire{Args: map[string]any{}}
-	got := extractResource(ev)
-	if got != "" {
-		t.Errorf("extractResource(empty) = %q, want ''", got)
-	}
-}
-
-// --- formatEventLine 资源优先行格式 ---
-
-func TestFormatEventLine_ContainsResource(t *testing.T) {
-	ev := timelineEvent{
-		wire:     ipc.SyscallEventWire{Syscall: "Open", Args: map[string]any{"path": "/dev/llm/claude"}, DurationMs: 2.0},
-		category: catLLM,
-	}
-	line := formatEventLine(ev, 80)
-	if !strings.Contains(line, "claude") {
-		t.Errorf("formatEventLine should contain resource 'claude', got %q", line)
-	}
-	if !strings.Contains(line, "LLM") {
-		t.Errorf("formatEventLine should contain category 'LLM', got %q", line)
-	}
-}
-
-// --- 事件展开/折叠 ---
-
-func TestTimelineExpandCollapse(t *testing.T) {
-	m := newTestTimelineDashboardModel()
-	m.timelineExpandedIdx = noExpandedEvent
-	m.timelineEventCursor = 1
-
-	// Enter 展开
-	m = m.handleTimelineKey("enter")
-	if m.timelineExpandedIdx != 1 {
-		t.Errorf("Enter should expand event at cursor, got expandedIdx=%d", m.timelineExpandedIdx)
-	}
-
-	// Enter 再次折叠
-	m = m.handleTimelineKey("enter")
-	if m.timelineExpandedIdx != noExpandedEvent {
-		t.Errorf("Enter again should collapse, got expandedIdx=%d", m.timelineExpandedIdx)
-	}
-}
-
-// --- renderEventDetail ---
-
-func TestRenderEventDetail_ContainsTimestamp(t *testing.T) {
-	ev := timelineEvent{
-		wire: ipc.SyscallEventWire{
-			TimestampMs: 1500,
-			Syscall:     "Open",
-			Args:        map[string]any{"path": "/dev/llm/claude"},
-		},
-		category: catLLM,
-	}
-	lines := renderEventDetail(ev, 80)
-	found := false
-	for _, l := range lines {
-		if strings.Contains(l, "1.500s") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("renderEventDetail should contain timestamp '1.500s', got %v", lines)
-	}
-}
-
-// --- 过滤模式：默认视图下 f 键可操作 ---
-
-func TestTimelineFilterFromDefaultView(t *testing.T) {
+func TestStepFilterFromDefaultView(t *testing.T) {
 	m := newTestTimelineDashboardModel()
 	m.viewMode = viewDefault
 	m.activePane = paneTree // Tree 面板活跃
@@ -2573,21 +2068,21 @@ func TestTimelineFilterFromDefaultView(t *testing.T) {
 	// f 键应触发过滤模式
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'f'})
 	um := updated.(dashboardModel)
-	if !um.timelineFilterMode {
-		t.Error("f key in default view should enter timeline filter mode even from tree pane")
+	if !um.stepFilterMode {
+		t.Error("f key in default view should enter step filter mode even from tree pane")
 	}
 
-	// 在过滤模式按 l 应能切换 LLM
-	updated, _ = um.Update(tea.KeyPressMsg{Code: 'l'})
+	// 在过滤模式按 t 应能切换 tool_call
+	updated, _ = um.Update(tea.KeyPressMsg{Code: 't'})
 	um = updated.(dashboardModel)
-	if um.timelineFilters[catLLM] {
-		t.Error("l in filter mode should toggle LLM filter to false")
+	if um.stepFilters["tool_call"] {
+		t.Error("t in filter mode should toggle tool_call filter to false")
 	}
 
 	// Esc 退出过滤模式
 	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	um = updated.(dashboardModel)
-	if um.timelineFilterMode {
+	if um.stepFilterMode {
 		t.Error("Esc should exit filter mode")
 	}
 }
