@@ -24,7 +24,7 @@ func (m *dashboardModel) aggregateFocusCard() {
 	// P-8: Cache process reference — single lookup instead of repeated traversals
 	var proc *procInfoRef
 	for i := range m.processes {
-		if m.processes[i].PID == m.selectedPID {
+		if m.processes[i].PID == m.selectedPID && (m.selectedUUID == "" || m.processes[i].UUID == m.selectedUUID) {
 			proc = &procInfoRef{
 				State:     m.processes[i].State,
 				Intent:    m.processes[i].Intent,

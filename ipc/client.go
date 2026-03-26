@@ -925,6 +925,19 @@ func (c *Client) GetProcDetail(pid types.PID, uuid ...string) (*GetProcDetailRes
 	return &result, nil
 }
 
+// ListEvents returns persisted syscall events from disk for a process.
+func (c *Client) ListEvents(pid types.PID, uuid string) ([]SyscallEventWire, error) {
+	resp, err := c.call(MethodListEvents, ListEventsRequest{PID: pid, UUID: uuid})
+	if err != nil {
+		return nil, err
+	}
+	var result ListEventsResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal list_events: %w", err)
+	}
+	return result.Events, nil
+}
+
 // TraceList returns all trace summaries (Story 27.9).
 func (c *Client) TraceList() ([]TraceSummaryWire, error) {
 	resp, err := c.call(MethodTraceList, nil)

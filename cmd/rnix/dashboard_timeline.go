@@ -156,6 +156,19 @@ func waitTimelineEventCmd(ch <-chan ipc.SyscallEventWire) tea.Cmd {
 	}
 }
 
+// fetchEventsFromDiskCmd loads persisted syscall events for dead processes.
+func fetchEventsFromDiskCmd(pid types.PID, uuid string) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return timelineDiskEventsMsg{err: err}
+		}
+		defer client.Close()
+		events, err := client.ListEvents(pid, uuid)
+		return timelineDiskEventsMsg{events: events, err: err}
+	}
+}
+
 func (m dashboardModel) stopTimelineStream() dashboardModel {
 	if m.timelineStopCh != nil {
 		close(m.timelineStopCh)
@@ -830,7 +843,7 @@ func (m dashboardModel) isSelectedProcessDead() bool {
 		return false
 	}
 	for _, p := range m.processes {
-		if p.PID == m.selectedPID {
+		if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
 			return p.State == types.StateDead
 		}
 	}

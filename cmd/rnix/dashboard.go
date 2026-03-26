@@ -226,6 +226,13 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case timelineStreamDoneMsg:
 		m.timelineEventCh = nil
 		return m, nil
+	case timelineDiskEventsMsg:
+		if msg.err == nil {
+			for _, ev := range msg.events {
+				m = m.handleTimelineEvent(timelineEventMsg{event: ev})
+			}
+		}
+		return m, nil
 	case heatmapProfileMsg:
 		if msg.err != nil {
 			m.heatmapErr = msg.err
@@ -944,10 +951,13 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 
 	var cmds []tea.Cmd
 	if m.connected {
-		cmds = append(cmds, startTimelineCmd(m.selectedPID))
-		if !m.isSelectedProcessDead() {
-			cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+		if m.isSelectedProcessDead() {
+			// Dead process: load events from disk instead of streaming
+			cmds = append(cmds, fetchEventsFromDiskCmd(m.selectedPID, m.selectedUUID))
+		} else {
+			cmds = append(cmds, startTimelineCmd(m.selectedPID))
 		}
+		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 		if m.activePane == paneDetail && m.procDetail == nil {
 			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
 		}

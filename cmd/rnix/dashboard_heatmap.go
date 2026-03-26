@@ -290,19 +290,11 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 		return style.Render(b.String())
 	}
 	if m.heatmapErr != nil {
-		if m.isSelectedProcessDead() {
-			b.WriteString("\n    Context profile unavailable (process exited)")
-		} else {
-			fmt.Fprintf(&b, "\n    ✗ %v", m.heatmapErr)
-		}
+		fmt.Fprintf(&b, "\n    ✗ %v", m.heatmapErr)
 		return style.Render(b.String())
 	}
 	if len(m.heatmapSegments) == 0 {
-		if m.isSelectedProcessDead() {
-			b.WriteString("\n    Context profile unavailable (process exited)")
-		} else {
-			b.WriteString("\n    Loading context profile...")
-		}
+		b.WriteString("\n    Loading context profile...")
 		return style.Render(b.String())
 	}
 

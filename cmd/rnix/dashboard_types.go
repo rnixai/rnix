@@ -201,6 +201,11 @@ type timelineEventMsg struct {
 
 type timelineStreamDoneMsg struct{}
 
+type timelineDiskEventsMsg struct {
+	events []ipc.SyscallEventWire
+	err    error
+}
+
 type timelineStreamStartedMsg struct {
 	eventCh <-chan ipc.SyscallEventWire
 	stopCh  chan struct{}

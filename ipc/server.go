@@ -358,6 +358,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleGetStepDetail(conn, req.Payload)
 		case MethodListSteps:
 			s.handleListSteps(conn, req.Payload)
+		case MethodListEvents:
+			s.handleListEvents(conn, req.Payload)
 		case MethodGetProcDetail:
 			s.handleGetProcDetail(conn, req.Payload)
 		case MethodTraceList:
@@ -410,21 +412,27 @@ func (s *Server) handleCtxProfile(conn net.Conn, rawPayload json.RawMessage) {
 
 	pid, pidOK := s.resolvePID(req.PID, req.UUID)
 	if !pidOK {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		// Fallback: try loading ctx-profile.json from disk for reaped processes
+		s.handleCtxProfileFromDisk(conn, req.PID, req.UUID)
 		return
 	}
 
 	info, err := s.kern.GetProcInfo(pid)
 	if err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		s.handleCtxProfileFromDisk(conn, req.PID, req.UUID)
 		return
 	}
 
 	if info.State != types.StateRunning && info.State != types.StateZombie {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{
-			Code:    "INVALID",
-			Message: fmt.Sprintf("process %d is in %s state; ctx-profile requires running or zombie", pid, info.State),
-		}})
+		if info.State == types.StateDead {
+			// Dead process: try loading snapshot from disk
+			s.handleCtxProfileFromDisk(conn, req.PID, req.UUID)
+		} else {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{
+				Code:    "INVALID",
+				Message: fmt.Sprintf("process %d is in %s state; ctx-profile requires running or zombie", pid, info.State),
+			}})
+		}
 		return
 	}
 
@@ -474,6 +482,31 @@ func (s *Server) handleCtxProfile(conn net.Conn, rawPayload json.RawMessage) {
 	case <-ctx.Done():
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "ctx-profile analysis timed out (NFR34: 1s limit)"}})
 	}
+}
+
+// handleCtxProfileFromDisk loads a saved ctx-profile.json from disk for dead processes.
+func (s *Server) handleCtxProfileFromDisk(conn net.Conn, pid types.PID, uuid string) {
+	if uuid == "" && pid != 0 {
+		if hist := s.kern.FindHistoryByPID(pid); hist != nil {
+			uuid = hist.UUID
+		}
+	}
+	if uuid == "" || !isValidUUID(uuid) {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+	baseDir := s.kern.GetStepDataDir()
+	if baseDir == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "no step data dir"}})
+		return
+	}
+	path := filepath.Join(baseDir, "data", "steps", uuid, "ctx-profile.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "context profile not available"}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: json.RawMessage(data)})
 }
 
 func (s *Server) handleCtxGrowth(conn net.Conn, rawPayload json.RawMessage) {
@@ -2020,6 +2053,75 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 
 	respPayload, _ := json.Marshal(ListStepsResponse{Steps: wires, Total: total})
 	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+// handleListEvents returns persisted syscall events from events.jsonl for a process.
+func (s *Server) handleListEvents(conn net.Conn, rawPayload json.RawMessage) {
+	var req ListEventsRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid list_events request"}})
+		return
+	}
+
+	uuid := req.UUID
+	if uuid == "" && req.PID != 0 {
+		if proc, ok := s.kern.GetProcess(req.PID); ok {
+			uuid = proc.UUID
+		} else if hist := s.kern.FindHistoryByPID(req.PID); hist != nil {
+			uuid = hist.UUID
+		}
+	}
+
+	eventsPath := s.resolveEventsPath(uuid)
+	if eventsPath == "" {
+		writeResponse(conn, Response{OK: true, Payload: mustMarshal(ListEventsResponse{Events: []SyscallEventWire{}})})
+		return
+	}
+
+	diskEvents, err := kernel.ReadAllEvents(eventsPath)
+	if err != nil {
+		writeResponse(conn, Response{OK: true, Payload: mustMarshal(ListEventsResponse{Events: []SyscallEventWire{}})})
+		return
+	}
+
+	wires := make([]SyscallEventWire, len(diskEvents))
+	for i, d := range diskEvents {
+		wires[i] = SyscallEventWire{
+			TimestampMs: int64(d.TimestampMs),
+			PID:         types.PID(d.PID),
+			Syscall:     d.Syscall,
+			Args:        d.Args,
+			Result:      d.Result,
+			Error:       d.Error,
+			DurationMs:  d.DurationMs,
+			TraceID:     d.TraceID,
+			SpanID:      d.SpanID,
+		}
+	}
+
+	respPayload, _ := json.Marshal(ListEventsResponse{Events: wires})
+	writeResponse(conn, Response{OK: true, Payload: respPayload})
+}
+
+// resolveEventsPath returns the path to events.jsonl for a UUID.
+func (s *Server) resolveEventsPath(uuid string) string {
+	if uuid == "" || !isValidUUID(uuid) {
+		return ""
+	}
+	baseDir := s.kern.GetStepDataDir()
+	if baseDir == "" {
+		return ""
+	}
+	path := filepath.Join(baseDir, "data", "steps", uuid, "events.jsonl")
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+func mustMarshal(v any) json.RawMessage {
+	data, _ := json.Marshal(v)
+	return data
 }
 
 // handleGetProcDetail returns full process detail including env, skills, FD table, context stats (Story 27.6).

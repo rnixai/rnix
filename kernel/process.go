@@ -105,8 +105,9 @@ type Process struct {
 	PlanningEnabled  bool   // true = inject planProtocol; derived from agent manifest Planning field
 
 	// Observation system (Story 27.1)
-	FinalSystemPrompt string      // Full system prompt captured on first reasonStep (mu protected)
-	stepWriter        *StepWriter // NDJSON step recorder (mu protected)
+	FinalSystemPrompt string       // Full system prompt captured on first reasonStep (mu protected)
+	stepWriter        *StepWriter  // NDJSON step recorder (mu protected)
+	eventWriter       *EventWriter // NDJSON syscall event recorder (mu protected)
 
 	// Native tool calling support (immutable after Spawn)
 	UseNativeTools    bool                // true when LLM driver implements ToolCallingDriver
