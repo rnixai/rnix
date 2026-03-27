@@ -1,21 +1,42 @@
 # Rnix
 
-**An Operating System for AI Agents — Powered by Unix Philosophy**
+<div align="center">
 
-[中文版](README_zh.md) | [Documentation](https://rnix.ai/docs) | [GitHub](https://github.com/rnixai/rnix)
+**An Operating System for AI Agents — Built with Unix Philosophy**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE) [![Go Report Card](https://goreportcard.com/badge/github.com/rnixai/rnix)](https://goreportcard.com/report/github.com/rnixai/rnix) [![GitHub Stars](https://img.shields.io/github/stars/rnixai/rnix?style=social)](https://github.com/rnixai/rnix/stargazers)
+
+[Documentation](https://docs.rnix.ai/) | [中文版](README_zh.md) | [Changelog](CHANGELOG.md)
+
+</div>
 
 ---
 
-Rnix brings Unix operating system abstractions to AI agents. Every agent execution is a **process** with its own PID and state machine. Every resource — LLM, filesystem, shell — is a **file** accessed through a virtual filesystem. If you know Unix, you already know Rnix.
+```bash
+# You know Unix? You already know Rnix.
+go install github.com/rnixai/rnix/cmd/rnix@latest
+rnix -i "Analyze the project structure"
+rnix strace 1   # See exactly what your agent did
+rnix top        # Real-time process monitor
+```
 
-## Why Rnix
+## The Problem
 
-Most AI agent frameworks are libraries — you import them and hope for the best. Rnix is different: it's a **runtime** with the same battle-tested abstractions that power operating systems.
+You've built a complex multi-agent workflow — orchestrations, tool chains, retry logic. It breaks. The error is somewhere in a tangled chain of callbacks, role definitions, and LLM calls. You can't see what happened, can't trace execution, can't kill a runaway agent.
 
-- **Processes, not callbacks** — Each agent gets a PID, state machine, FD table, and signal handling. Kill a runaway agent with `rnix kill`. Debug one with `rnix gdb`.
-- **Files, not APIs** — LLMs, filesystem, shell, and MCP tools are unified as VFS devices. Read from `/dev/llm/claude` like reading from a file.
-- **Compose, not code** — Define multi-agent workflows in YAML. Pipe agent outputs. Use AgentShell for scripting.
-- **Observe, not guess** — `rnix strace` traces every syscall. `rnix dashboard` gives a real-time TUI. `rnix replay` rewinds execution.
+**Rnix gives your agents the same tools you use to debug operating systems.**
+
+## How Rnix Is Different
+
+| | LangChain | CrewAI | AutoGen | **Rnix** |
+|---|---|---|---|---|
+| Architecture | Library | Library | Library | **Runtime** |
+| Agent Model | Callbacks | Roles | Conversations | **Processes (PID)** |
+| Resource Access | APIs | APIs | APIs | **Virtual Filesystem** |
+| Debugging | LangSmith | Logs | Manual | **rnix strace** |
+| Dashboard | No | No | No | **rnix dashboard** |
+| Kill Agent | No | No | No | **rnix kill** |
+| Language | Python | Python | Python/.NET | **Go** |
 
 ## Quick Start
 
@@ -23,36 +44,30 @@ Most AI agent frameworks are libraries — you import them and hope for the best
 # Install
 go install github.com/rnixai/rnix/cmd/rnix@latest
 
+# Initialize configuration
+rnix init
+
 # Run your first agent
 rnix -i "Analyze the project structure"
-
-# Trace what it actually did
+#
+# Trace syscalls
 rnix strace 1
 
-# Real-time process monitor
-rnix top
+# Real-time dashboard
+rnix dashboard
 ```
 
 ## v0.7 Highlights
 
-- **Dashboard UX** — Redesigned TUI with multi-pane views: process history, LLM conversation viewer, intent tree, distributed tracing, and evaluation panel.
-- **Unified Reasoning Loop** — Single loop where the LLM autonomously selects actions (tool_call / plan / spawn / specialize / complete). No more dual-loop confusion.
-- **UUID v7 Processes** — Processes now use time-sortable UUIDs, enabling distributed process tracking across machines.
-- **Native ToolCalls** — VFS devices self-describe their capabilities. The LLM discovers tools dynamically.
-
-## Architecture
-
-```
-CLI → Unix Socket → Daemon (Kernel + Process Table)
-                         │
-                    ReasonStep Loop ←→ VFS Devices
-                    (LLM, FS, Shell, MCP)
-```
-
-## Documentation
-
-Full documentation — CLI reference, configuration, agent/skill model, VFS device paths, and development guide — lives at **[rnix.ai/docs](https://rnix.ai/docs)**.
+- **Dashboard UX** — Multi-pane TUI: process history, LLM conversation viewer, intent tree, distributed tracing
+- **Unified Reasoning Loop** — LLM autonomously selects: tool_call / plan / spawn / specialize / complete
+- **UUID v7 Processes** — Time-sortable UUIDs for distributed process tracking
+- **Native ToolCalls** — VFS devices self-describe capabilities, LLM discovers tools dynamically
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+If Rnix helps you debug AI agents, give us a star on GitHub!
