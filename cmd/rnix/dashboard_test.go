@@ -160,12 +160,12 @@ func TestDashboardModel_ViewStatusBar(t *testing.T) {
 // --- 17.1-UNIT-006: [P0] buildProcessTree empty list → empty tree (AC2) ---
 
 func TestDashboardBuildProcessTree_Empty(t *testing.T) {
-	roots := buildProcessTree(nil)
+	roots := buildProcessTree(nil, treeSortPID, false)
 	if len(roots) != 0 {
 		t.Errorf("expected 0 roots for nil input, got %d", len(roots))
 	}
 
-	roots = buildProcessTree([]vfs.ProcInfo{})
+	roots = buildProcessTree([]vfs.ProcInfo{}, treeSortPID, false)
 	if len(roots) != 0 {
 		t.Errorf("expected 0 roots for empty input, got %d", len(roots))
 	}
@@ -179,7 +179,7 @@ func TestDashboardBuildProcessTree_ParentChild(t *testing.T) {
 		{PID: 2, PPID: 1, State: types.StateRunning},
 		{PID: 3, PPID: 1, State: types.StateZombie},
 	}
-	roots := buildProcessTree(procs)
+	roots := buildProcessTree(procs, treeSortPID, true)
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(roots))
 	}
@@ -203,7 +203,7 @@ func TestDashboardBuildProcessTree_DeepNesting(t *testing.T) {
 		{PID: 3, PPID: 2, State: types.StateRunning},
 		{PID: 4, PPID: 3, State: types.StateRunning},
 	}
-	roots := buildProcessTree(procs)
+	roots := buildProcessTree(procs, treeSortPID, true)
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(roots))
 	}
@@ -227,7 +227,7 @@ func TestDashboardFlattenTree_Indentation(t *testing.T) {
 		{PID: 2, PPID: 1},
 		{PID: 3, PPID: 1},
 	}
-	roots := buildProcessTree(procs)
+	roots := buildProcessTree(procs, treeSortPID, true)
 	rows := flattenTree(roots)
 
 	if len(rows) != 3 {
@@ -1715,7 +1715,7 @@ func TestReplayDashboard_LiveKeysBlocked(t *testing.T) {
 	m2.replayReader = m.replayReader
 	// trigger tick to populate treeRows so k can navigate
 	m2.processes = buildReplayProcessTree(m2.replayReader, 0)
-	roots := buildProcessTree(m2.processes)
+	roots := buildProcessTree(m2.processes, treeSortPID, false)
 	m2.treeRows = flattenTree(roots)
 	m2.treeCursor = 0
 	m2.selectedPID = m2.treeRows[0].proc.PID

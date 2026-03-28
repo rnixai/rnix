@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
@@ -30,25 +30,27 @@ var dashboardCmd = &cobra.Command{
 }
 
 type dashboardModel struct {
-	client      *ipc.Client
-	width       int
-	height      int
+	client       *ipc.Client
+	width        int
+	height       int
 	activePane   paneType
-	rightPane    paneType  // 右侧显示的面板（默认 Timeline）
-	viewMode     viewMode  // 当前视图模式（默认 viewDefault，零值即默认）
-	expandedPane paneType  // viewExpanded 模式下展开的面板（兼容遗留，等于 rightPane）
+	rightPane    paneType // 右侧显示的面板（默认 Timeline）
+	viewMode     viewMode // 当前视图模式（默认 viewDefault，零值即默认）
+	expandedPane paneType // viewExpanded 模式下展开的面板（兼容遗留，等于 rightPane）
 	selectedPID  types.PID
 	selectedUUID string
 	processes    []vfs.ProcInfo
-	treeRows    []flatRow
-	treeCursor  int
-	treeOffset  int
-	connected   bool
-	err         error
-	statusMsg   string
-	startTime   time.Time
-	confirmKill bool
-	confirmPID  types.PID
+	treeRows     []flatRow
+	treeCursor   int
+	treeOffset   int
+	treeSortMode int  // 0=Time, 1=PID, 2=State
+	treeSortAsc  bool // false=descending (default), true=ascending
+	connected    bool
+	err          error
+	statusMsg    string
+	startTime    time.Time
+	confirmKill  bool
+	confirmPID   types.PID
 
 	// Timeline tracking
 	timelineAttachedPID types.PID
@@ -101,8 +103,8 @@ type dashboardModel struct {
 	intentScrollOffset int
 
 	// Security pane fields (Story 27-8)
-	immuneStatus   *ipc.ImmuneStatusResponse
-	immuneErr      error
+	immuneStatus         *ipc.ImmuneStatusResponse
+	immuneErr            error
 	securityAlerts       []ipc.AlertWire
 	securityCursor       int
 	securityScrollOffset int
@@ -120,19 +122,19 @@ type dashboardModel struct {
 	spanScrollOffset  int
 
 	// Eval pane fields (Story 27-10)
-	evalSubView        int // 0=reputation, 1=topology, 2=synergy
-	evalReputations    []kernel.ReputationSummary
-	evalRepErr         error
-	evalRepCursor      int
-	evalRepScrollOffset int
-	evalTopology       *ipc.TopologyQueryResponse
-	evalTopoErr        error
-	evalTopoCursor     int
+	evalSubView          int // 0=reputation, 1=topology, 2=synergy
+	evalReputations      []kernel.ReputationSummary
+	evalRepErr           error
+	evalRepCursor        int
+	evalRepScrollOffset  int
+	evalTopology         *ipc.TopologyQueryResponse
+	evalTopoErr          error
+	evalTopoCursor       int
 	evalTopoScrollOffset int
-	evalSynergies      []kernel.ComboSummary
-	evalSynErr         error
-	evalSynCursor      int
-	evalSynScrollOffset int
+	evalSynergies        []kernel.ComboSummary
+	evalSynErr           error
+	evalSynCursor        int
+	evalSynScrollOffset  int
 
 	// Offline replay fields (Story 17-5)
 	replayMode       bool
@@ -467,7 +469,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	m.err = nil
 	m.connected = true
 	m.processes = procs
-	roots := buildProcessTree(procs)
+	roots := buildProcessTree(procs, m.treeSortMode, m.treeSortAsc)
 	m.treeRows = flattenTree(roots)
 
 	if m.treeCursor >= len(m.treeRows) {
@@ -613,7 +615,6 @@ func (m *dashboardModel) applyInitialPIDFocus() {
 	}
 	m.initialPIDFocus = 0
 }
-
 
 func (m dashboardModel) dashboardVisibleLines() int {
 	v := max(m.height-7, 1)
@@ -854,7 +855,7 @@ func (m dashboardModel) renderDashboardStatus() string {
 		core = []string{hint("j/k", "scroll"), hint("h/l", "step"), hint("y", "copy"), hint("?", "help")}
 		exit = hint("Esc", "close")
 	default: // viewDefault
-		core = []string{hint("j/k", "nav"), hint("z", "expand"), hint("f", "filter"), hint("H", "hist"), hint("?", "help")}
+		core = []string{hint("j/k", "nav"), hint("s/S", "sort"), hint("z", "expand"), hint("f", "filter"), hint("H", "hist"), hint("?", "help")}
 	}
 
 	hints := hintGroup(core...) + "    " + exit
@@ -940,7 +941,6 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	}
 	return m, tea.Batch(cmds...)
 }
-
 
 // --- Offline replay (Story 17-5) ---
 
@@ -1102,7 +1102,7 @@ func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
 
 	if m.replayCursor != m.prevReplayCursor && m.replayReader != nil {
 		m.processes = buildReplayProcessTree(m.replayReader, m.replayCursor)
-		roots := buildProcessTree(m.processes)
+		roots := buildProcessTree(m.processes, treeSortPID, false)
 		m.treeRows = flattenTree(roots)
 		if len(m.treeRows) > 0 {
 			m = selectProcess(m, m.treeRows[0])
@@ -1287,4 +1287,3 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	}
 	return nil
 }
-
