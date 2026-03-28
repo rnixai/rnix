@@ -208,35 +208,41 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		return m, nil
 	}
 
-	// Step Timeline 按键（enter/v/V/p）
+	// Step Timeline 按键（enter/v/V/p）— V must be checked before v
 	if m.activePane == paneTimeline && len(m.stepEntries) > 0 {
 		idx := m.resolveStepIndex()
 		if idx >= 0 && idx < len(m.stepEntries) {
-			if msg.Code == 'v' || key == "enter" {
-				entry := &m.stepEntries[idx]
-				if entry.level == levelSummary {
-					entry.level = levelExpanded
-					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
-						m.fetchingDetail = true
-						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
-					}
-				} else {
-					entry.level = levelSummary
-				}
-				return m, nil
-			}
-			if msg.Code == 'V' {
+			// V (Shift+V) → Level 3 debug toggle — MUST be before v check
+			if key == "V" || key == "shift+V" || msg.ShiftedCode == 'V' {
 				entry := &m.stepEntries[idx]
 				switch entry.level {
 				case levelSummary, levelExpanded:
 					entry.level = levelDebug
 					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
 						m.fetchingDetail = true
+						m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
 					}
 				case levelDebug:
 					entry.level = levelExpanded
 				}
+				m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
+				return m, nil
+			}
+			// v or enter → Level 2 expand toggle
+			if key == "v" || key == "enter" {
+				entry := &m.stepEntries[idx]
+				if entry.level == levelSummary {
+					entry.level = levelExpanded
+					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
+						m.fetchingDetail = true
+						m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
+						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+					}
+				} else {
+					entry.level = levelSummary
+				}
+				m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 				return m, nil
 			}
 			if msg.Code == 'p' {

@@ -101,7 +101,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 			content.WriteString(evt.Content)
 		case "reasoning":
 			reasoning.WriteString(evt.Content)
-		case "tool_call", "thinking", "system", "user":
+		case "tool_call", "thinking", "system", "user", "assistant":
 			if f.onEvent != nil {
 				evtData := map[string]any{
 					"type": evt.Type,

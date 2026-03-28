@@ -287,21 +287,28 @@ func TestClaudeCliDriver_Stream_Success(t *testing.T) {
 		events = append(events, evt)
 	}
 
-	if len(events) != 3 {
-		t.Fatalf("expected 3 events, got %d", len(events))
+	// 5 events: 2 assistant + 2 content (text extracted) + 1 done
+	if len(events) != 5 {
+		t.Fatalf("expected 5 events, got %d: %+v", len(events), events)
 	}
 
-	if events[0].Type != "content" || events[0].Content != "hello " {
-		t.Errorf("event[0]: expected content 'hello ', got type=%q content=%q", events[0].Type, events[0].Content)
+	if events[0].Type != "assistant" {
+		t.Errorf("event[0]: expected assistant, got type=%q", events[0].Type)
 	}
-	if events[1].Type != "content" || events[1].Content != "world" {
-		t.Errorf("event[1]: expected content 'world', got type=%q content=%q", events[1].Type, events[1].Content)
+	if events[1].Type != "content" || events[1].Content != "hello " {
+		t.Errorf("event[1]: expected content 'hello ', got type=%q content=%q", events[1].Type, events[1].Content)
 	}
-	if events[2].Type != "done" || events[2].Content != "hello world" {
-		t.Errorf("event[2]: expected done 'hello world', got type=%q content=%q", events[2].Type, events[2].Content)
+	if events[2].Type != "assistant" {
+		t.Errorf("event[2]: expected assistant, got type=%q", events[2].Type)
 	}
-	if events[2].TokensUsed != 100 {
-		t.Errorf("expected tokens_used 100, got %d", events[2].TokensUsed)
+	if events[3].Type != "content" || events[3].Content != "world" {
+		t.Errorf("event[3]: expected content 'world', got type=%q content=%q", events[3].Type, events[3].Content)
+	}
+	if events[4].Type != "done" || events[4].Content != "hello world" {
+		t.Errorf("event[4]: expected done 'hello world', got type=%q content=%q", events[4].Type, events[4].Content)
+	}
+	if events[4].TokensUsed != 100 {
+		t.Errorf("expected tokens_used 100, got %d", events[4].TokensUsed)
 	}
 }
 

@@ -149,12 +149,11 @@ type claudeStreamEvent struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype,omitempty"`
 	Message struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content,omitempty"`
+		Content []claudeContentBlock `json:"content,omitempty"`
+		Role    string               `json:"role,omitempty"`
 	} `json:"message,omitzero"`
-	Event        json.RawMessage `json:"event,omitempty"` // raw API event for stream_event type
+	Tools        []string        `json:"tools,omitempty"`        // system:init tools list
+	Event        json.RawMessage `json:"event,omitempty"`        // raw API event for stream_event type
 	Result       string          `json:"result,omitempty"`
 	IsError      bool            `json:"is_error,omitempty"`
 	CostUSD      float64         `json:"cost_usd,omitempty"`
@@ -162,6 +161,17 @@ type claudeStreamEvent struct {
 	NumTurns     int             `json:"num_turns,omitempty"`
 	InputTokens  int             `json:"input_tokens,omitempty"`
 	OutputTokens int             `json:"output_tokens,omitempty"`
+}
+
+// claudeContentBlock represents a content block in an assistant/user message.
+type claudeContentBlock struct {
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`
+	ID        string `json:"id,omitempty"`         // tool_use block id
+	Name      string `json:"name,omitempty"`       // tool_use tool name
+	Input     any    `json:"input,omitempty"`       // tool_use input
+	ToolUseID string `json:"tool_use_id,omitempty"` // tool_result reference
+	Content   any    `json:"content,omitempty"`     // tool_result content (string or array)
 }
 
 // Stream executes a streaming LLM request via the Claude Code CLI.
@@ -213,10 +223,14 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 			switch evt.Type {
 			case "system":
+				data := map[string]any{"subtype": evt.Subtype}
+				if len(evt.Tools) > 0 {
+					data["tools"] = evt.Tools
+				}
 				se := StreamEvent{
 					Type:    "system",
 					Content: evt.Subtype,
-					Data:    map[string]any{"subtype": evt.Subtype},
+					Data:    data,
 				}
 				select {
 				case ch <- se:
@@ -224,8 +238,12 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					return
 				}
 			case "user":
-				// User message (includes tool_use_result for tool execution results)
-				se := StreamEvent{Type: "user"}
+				// User message (includes tool_result for tool execution results)
+				data := map[string]any{"role": "user"}
+				if len(evt.Message.Content) > 0 {
+					data["content"] = contentBlocksToAny(evt.Message.Content)
+				}
+				se := StreamEvent{Type: "user", Data: data}
 				select {
 				case ch <- se:
 				case <-ctx.Done():
@@ -241,6 +259,18 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					}
 				}
 			case "assistant":
+				// Forward full message content (text + tool_use blocks) for message history
+				data := map[string]any{"role": "assistant"}
+				if len(evt.Message.Content) > 0 {
+					data["content"] = contentBlocksToAny(evt.Message.Content)
+				}
+				se := StreamEvent{Type: "assistant", Data: data}
+				select {
+				case ch <- se:
+				case <-ctx.Done():
+					return
+				}
+				// Also emit text content events for existing consumers
 				for _, c := range evt.Message.Content {
 					if c.Type == "text" {
 						select {
@@ -342,6 +372,34 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []strin
 	return args
 }
 
+// contentBlocksToAny converts content blocks to a generic slice for StreamEvent.Data.
+func contentBlocksToAny(blocks []claudeContentBlock) []map[string]any {
+	result := make([]map[string]any, 0, len(blocks))
+	for _, b := range blocks {
+		m := map[string]any{"type": b.Type}
+		if b.Text != "" {
+			m["text"] = b.Text
+		}
+		if b.ID != "" {
+			m["id"] = b.ID
+		}
+		if b.Name != "" {
+			m["name"] = b.Name
+		}
+		if b.Input != nil {
+			m["input"] = b.Input
+		}
+		if b.ToolUseID != "" {
+			m["tool_use_id"] = b.ToolUseID
+		}
+		if b.Content != nil {
+			m["content"] = b.Content
+		}
+		result = append(result, m)
+	}
+	return result
+}
+
 // classifyCliError attempts to categorize an error message from the CLI
 // into a sentinel error and HTTP status code. Returns (0, nil) if no match.
 func classifyCliError(msg string) (int, error) {
@@ -402,7 +460,7 @@ func extractClaudeStreamEvent(raw json.RawMessage) *StreamEvent {
 			}
 		}
 	case "content_block_stop":
-		// We don't have the block type here, but it signals completion
+		// Signals end of a content block; kernel uses next event to finalize pending tool steps
 		return nil
 	case "content_block_delta":
 		switch event.Delta.Type {
@@ -413,8 +471,12 @@ func extractClaudeStreamEvent(raw json.RawMessage) *StreamEvent {
 				Data:    map[string]any{"subtype": "delta"},
 			}
 		case "input_json_delta":
-			// Tool input streaming — not critical for driver events
-			return nil
+			// Forward tool input fragments for step record accumulation
+			return &StreamEvent{
+				Type:    "tool_call",
+				Content: "input_delta",
+				Data:    map[string]any{"partial_json": event.Delta.PartialJSON},
+			}
 		}
 	}
 	return nil

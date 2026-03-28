@@ -75,6 +75,7 @@ func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 	m.timelineAttachedPID = m.selectedPID
 	m.stepEntries = nil
 	m.stepCursor = 0
+	m.stepScrollTop = 0
 	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
 	m.lastFetchedStep = 0
 	m.fetchingDetail = false
@@ -107,6 +108,7 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		m.stepCursor = max(m.stepCursor-pageSize, 0)
 	case "home", "g":
 		m.stepCursor = 0
+		m.stepScrollTop = 0
 	case "end", "G", "shift+G":
 		if len(filtered) > 0 {
 			m.stepCursor = len(filtered) - 1
@@ -114,6 +116,7 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	case "f":
 		m.stepFilterMode = true
 	}
+	m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 	return m
 }
 
@@ -241,11 +244,46 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	cursor := min(m.stepCursor, max(len(filtered)-1, 0))
 
 	listLines := max(height-2, 1)
-	startIdx := 0
-	if cursor >= listLines {
-		startIdx = cursor - listLines + 1
+
+	// Variable-height scroll: ensure cursor is visible via stepScrollTop
+	startIdx := m.stepScrollTop
+	if startIdx < 0 || startIdx >= len(filtered) {
+		startIdx = 0
 	}
-	endIdx := min(startIdx+listLines, len(filtered))
+	// If cursor is above scrollTop, snap up
+	if cursor < startIdx {
+		startIdx = cursor
+	}
+	// Check if cursor fits in viewport from startIdx
+	{
+		linesUsed := 0
+		cursorVisible := false
+		for fi := startIdx; fi < len(filtered); fi++ {
+			h := m.stepItemHeight(filtered[fi])
+			if fi == cursor && linesUsed+h <= listLines {
+				cursorVisible = true
+				break
+			}
+			linesUsed += h
+			if linesUsed >= listLines {
+				break
+			}
+		}
+		if !cursorVisible {
+			// Scroll down: walk backward from cursor to fill viewport
+			linesUsed := m.stepItemHeight(filtered[cursor])
+			startIdx = cursor
+			for startIdx > 0 {
+				h := m.stepItemHeight(filtered[startIdx-1])
+				if linesUsed+h > listLines {
+					break
+				}
+				linesUsed += h
+				startIdx--
+			}
+		}
+	}
+	endIdx := len(filtered) // render loop uses linesUsed to stop
 
 	// Layout params
 	showDuration := width >= 100
@@ -378,6 +416,17 @@ func (m dashboardModel) renderExpandedDetail(b *strings.Builder, detail *ipc.Get
 	lines := 0
 	contentW := max(maxW-14, 20) // 3 indent + "┊" + " " + 8 label + " " padding
 
+	// ToolPath (always show for tool_call if available)
+	if detail.ToolPath != "" && lines < maxLines {
+		pathLabel := detail.ToolPath
+		if runewidth.StringWidth(pathLabel) > contentW {
+			pathLabel = runewidth.Truncate(pathLabel, contentW-1, "…")
+		}
+		pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4EC9B0"))
+		fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("   Path"), pathStyle.Render(pathLabel))
+		lines++
+	}
+
 	// Input (tool_call only)
 	if detail.ToolInput != "" && lines < maxLines {
 		input := detail.ToolInput
@@ -443,8 +492,19 @@ func (m dashboardModel) renderExpandedDetail(b *strings.Builder, detail *ipc.Get
 		}
 	}
 
+	// Duration (when available from driver step records)
+	if detail.ToolDurationMs > 0 && lines < maxLines {
+		durStr := formatTimelineDuration(detail.ToolDurationMs)
+		durStyle := dimStyle
+		if detail.ToolDurationMs > slowStepThresholdMs {
+			durStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5C07B"))
+		}
+		fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("   Dur."), durStyle.Render(durStr))
+		lines++
+	}
+
 	// Token breakdown
-	if lines < maxLines {
+	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && lines < maxLines {
 		fmt.Fprintf(b, "   %s %s %d req → %d resp\n", dimStyle.Render("┊"), dimStyle.Render("  Token"), detail.RequestTokens, detail.ResponseTokens)
 		lines++
 	}
@@ -464,6 +524,21 @@ func (m dashboardModel) renderDebugDetail(b *strings.Builder, detail *ipc.GetSte
 		lines++
 	}
 
+	msgCount := len(detail.Messages)
+
+	if msgCount == 0 {
+		// CLI driver process: no message history available
+		if lines < maxLines {
+			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("CLI driver — no message history"))
+			lines++
+		}
+		if lines < maxLines {
+			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看 system prompt"))
+			lines++
+		}
+		return lines
+	}
+
 	// Messages header
 	if lines < maxLines {
 		totalTok := formatTokenCount(detail.TokenCount)
@@ -476,7 +551,6 @@ func (m dashboardModel) renderDebugDetail(b *strings.Builder, detail *ipc.GetSte
 	}
 
 	// Message preview
-	msgCount := len(detail.Messages)
 	showCount := min(msgCount, min(maxLines-lines, 6))
 	showCount = max(showCount, min(msgCount, 2))
 	// Show the last N messages
@@ -578,6 +652,106 @@ func (m dashboardModel) renderStepFilterBar(maxW int) string {
 	return truncateAnsi(b.String(), maxW)
 }
 
+// --- Step item height estimation (for scroll) ---
+
+// stepItemHeight returns the estimated number of lines a filtered item occupies.
+func (m dashboardModel) stepItemHeight(entryIdx int) int {
+	entry := m.stepEntries[entryIdx]
+	n := 1 // Level 1 line always present
+	if entry.level >= levelExpanded {
+		detail := m.stepDetailCache[entry.summary.Step]
+		if detail == nil {
+			n++ // "Loading…"
+		} else {
+			n += m.estimateExpandedLines(detail, entry.summary)
+		}
+	}
+	if entry.level >= levelDebug {
+		detail := m.stepDetailCache[entry.summary.Step]
+		if detail != nil {
+			n += m.estimateDebugLines(detail)
+		}
+	}
+	return n
+}
+
+func (m dashboardModel) estimateExpandedLines(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) int {
+	n := 0
+	if detail.ToolPath != "" {
+		n++ // Path line
+	}
+	if detail.ToolInput != "" {
+		n++ // Input line
+	}
+	if detail.ToolError != "" {
+		errLines := strings.Count(detail.ToolError, "\n") + 1
+		n += min(errLines, 4) // Error: up to 3 lines + overflow
+	} else if detail.ToolResult != "" {
+		resLines := strings.Count(detail.ToolResult, "\n") + 1
+		n += min(resLines, 4) // Result: up to 3 lines + overflow
+	} else if s.Action == "plan" || s.Action == "text" || s.Action == "complete" {
+		if detail.RawResponse != "" {
+			rawLines := strings.Count(detail.RawResponse, "\n") + 1
+			n += min(rawLines, 4) // RawResponse: up to 3 lines + overflow
+		}
+	}
+	if detail.ToolDurationMs > 0 {
+		n++ // Duration line
+	}
+	if detail.RequestTokens > 0 || detail.ResponseTokens > 0 {
+		n++ // Token line
+	}
+	return max(n, 1) // at least 1 line for expanded
+}
+
+func (m dashboardModel) estimateDebugLines(detail *ipc.GetStepDetailResponse) int {
+	n := 2 // separator + messages header
+	msgCount := len(detail.Messages)
+	n += min(msgCount, 6) // message preview lines
+	n++                    // hint line
+	return n
+}
+
+// ensureStepCursorVisible adjusts stepScrollTop so the cursor item is within the viewport.
+func (m *dashboardModel) ensureStepCursorVisible(viewportLines int) {
+	filtered := m.filteredStepEntries()
+	if len(filtered) == 0 {
+		m.stepScrollTop = 0
+		return
+	}
+	cursor := min(m.stepCursor, len(filtered)-1)
+
+	// If cursor is above scroll top, snap to cursor
+	if cursor < m.stepScrollTop {
+		m.stepScrollTop = cursor
+		return
+	}
+
+	// Walk from scrollTop counting lines; if cursor fits, done
+	linesUsed := 0
+	for fi := m.stepScrollTop; fi <= cursor && fi < len(filtered); fi++ {
+		h := m.stepItemHeight(filtered[fi])
+		if fi == cursor && linesUsed+h <= viewportLines {
+			return // cursor is visible
+		}
+		linesUsed += h
+	}
+
+	// Cursor not visible: scroll down until it fits
+	// Walk backward from cursor filling the viewport
+	linesUsed = m.stepItemHeight(filtered[cursor])
+	newTop := cursor
+	for newTop > 0 {
+		h := m.stepItemHeight(filtered[newTop-1])
+		if linesUsed+h > viewportLines {
+			break
+		}
+		linesUsed += h
+		newTop--
+	}
+	m.stepScrollTop = newTop
+}
+
 // --- Step timeline helpers ---
 
 func formatTokenCount(tokens int) string {
@@ -648,6 +822,22 @@ func (m dashboardModel) isSelectedProcessDead() bool {
 	return false
 }
 
+// --- Auto-fetch for expanded steps ---
+
+// fetchNextExpandedDetail returns a Cmd to fetch the next expanded step that has no cached detail.
+// Returns nil if nothing to fetch or already fetching.
+func (m dashboardModel) fetchNextExpandedDetail() tea.Cmd {
+	if m.fetchingDetail || m.selectedPID == 0 {
+		return nil
+	}
+	for _, entry := range m.stepEntries {
+		if entry.level >= levelExpanded && m.stepDetailCache[entry.summary.Step] == nil {
+			return fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+		}
+	}
+	return nil
+}
+
 // --- Fetch commands ---
 
 func fetchStepsCmd(pid types.PID, afterStep int) tea.Cmd {
@@ -691,6 +881,16 @@ func formatPromptContent(detail *ipc.GetStepDetailResponse, _ int, tab promptPag
 }
 
 func formatPromptMessagesTab(detail *ipc.GetStepDetailResponse) string {
+	if len(detail.Messages) == 0 {
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+		return dimStyle.Render("No message history available.\n\n" +
+			"CLI driver processes (Claude CLI / Cursor CLI) manage their\n" +
+			"conversation history internally. Rnix can only observe tool\n" +
+			"calls and their inputs/outputs, not the full prompt context.\n\n" +
+			"For native-driver processes, this tab shows the complete\n" +
+			"message history snapshot at this step.")
+	}
+
 	var b strings.Builder
 
 	toolCallNames := make(map[string]string)
@@ -722,6 +922,13 @@ func formatPromptSystemTab(detail *ipc.GetStepDetailResponse) string {
 }
 
 func formatPromptToolsTab(detail *ipc.GetStepDetailResponse) string {
+	if len(detail.Tools) == 0 && len(detail.Messages) == 0 {
+		// CLI driver process: no tool definitions or messages available
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+		return dimStyle.Render("No tool definitions available.\n\n" +
+			"CLI driver processes manage tool definitions internally.\n" +
+			"The System tab shows the agent's system prompt.")
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "═══ Tools (%d) ═══\n\n", len(detail.Tools))
 	for i, tool := range detail.Tools {
