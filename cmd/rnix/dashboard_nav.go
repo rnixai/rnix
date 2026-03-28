@@ -321,6 +321,38 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			if m.treeCursor < len(m.treeRows) {
 				m = selectProcess(m, m.treeRows[m.treeCursor])
 			}
+		case "s":
+			// Cycle tree sort mode: Time → PID → State → Time
+			m.treeSortMode = (m.treeSortMode + 1) % 3
+			roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
+			m.treeRows = flattenTree(roots)
+			m.treeCursor = 0
+			m.treeOffset = 0
+			if len(m.treeRows) > 0 {
+				m = selectProcess(m, m.treeRows[0])
+			}
+			label := "Time"
+			if m.treeSortMode < len(treeSortLabels) {
+				label = treeSortLabels[m.treeSortMode]
+			}
+			m.statusMsg = fmt.Sprintf("Tree sort: %s", label)
+			m.statusMsgTTL = statusMsgDefaultTTL
+		case "S", "shift+S":
+			// Toggle sort direction: asc ↔ desc
+			m.treeSortAsc = !m.treeSortAsc
+			roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
+			m.treeRows = flattenTree(roots)
+			m.treeCursor = 0
+			m.treeOffset = 0
+			if len(m.treeRows) > 0 {
+				m = selectProcess(m, m.treeRows[0])
+			}
+			dir := "desc"
+			if m.treeSortAsc {
+				dir = "asc"
+			}
+			m.statusMsg = fmt.Sprintf("Tree sort: %s %s", treeSortLabels[m.treeSortMode], dir)
+			m.statusMsgTTL = statusMsgDefaultTTL
 		default:
 			if (msg.Code == 'K' || msg.ShiftedCode == 'K') && msg.Mod&tea.ModShift != 0 {
 				if len(m.treeRows) > 0 && m.treeCursor < len(m.treeRows) {
