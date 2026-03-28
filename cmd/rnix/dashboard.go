@@ -69,6 +69,7 @@ type dashboardModel struct {
 	// Step timeline fields (unified)
 	stepEntries     []stepEntry
 	stepCursor      int
+	stepScrollTop   int // index in filtered view of first visible item
 	stepDetailCache map[int]*ipc.GetStepDetailResponse
 	lastFetchedStep int
 	fetchingDetail  bool
@@ -250,11 +251,21 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastFetchedStep = last.Step
 			}
 		}
+		// Auto-fetch detail for expanded steps (e.g., auto-expanded on error/slow)
+		if cmd := m.fetchNextExpandedDetail(); cmd != nil {
+			m.fetchingDetail = true
+			return m, cmd
+		}
 		return m, nil
 	case stepDetailResultMsg:
 		m.fetchingDetail = false
 		if msg.err == nil && msg.detail != nil {
 			m.stepDetailCache[msg.step] = msg.detail
+		}
+		// Chain-fetch next expanded step without cached detail
+		if cmd := m.fetchNextExpandedDetail(); cmd != nil {
+			m.fetchingDetail = true
+			return m, cmd
 		}
 		return m, nil
 	case procDetailResultMsg:

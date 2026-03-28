@@ -677,6 +677,38 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		if file := k.vfs.GetFile(proc.PID, llmFD); file != nil {
 			if obs, ok := file.(vfs.StreamObserver); ok {
 				driverStep := 0 // sub-step counter for driver events within a single reasoning step
+				// Pending tool state for accumulating input and tracking duration
+				var pendingTool struct {
+					step     int
+					tool     string
+					summary  string
+					toolPath string
+					start    time.Time
+					inputBuf strings.Builder
+				}
+				// Message history accumulation from assistant/user events
+				var msgHistory []rnixctx.Message
+
+				flushPendingTool := func() {
+					if pendingTool.step == 0 {
+						return
+					}
+					dur := time.Since(pendingTool.start)
+					toolInput := pendingTool.inputBuf.String()
+					// Include accumulated messages in step record
+					var msgsRaw json.RawMessage
+					msgCount := len(msgHistory)
+					if msgCount > 0 {
+						if data, err := json.Marshal(msgHistory); err == nil {
+							msgsRaw = data
+						}
+					}
+					k.writeDriverStepRecordFull(proc, pendingTool.step, "tool_call",
+						pendingTool.summary, pendingTool.toolPath, toolInput, dur,
+						msgsRaw, msgCount)
+					pendingTool.step = 0
+					pendingTool.inputBuf.Reset()
+				}
 				obs.SetStreamHandler(func(evt map[string]any) {
 					evtType, _ := evt["type"].(string)
 					syscallName := driverEventToSyscall(evtType)
@@ -687,10 +719,110 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 						k.emitLog(proc, 0, cat, content, toolPath)
 					}
 
+					// Capture tools from system:init event
+					if evtType == "system" {
+						if tools, ok := evt["tools"].([]string); ok && len(tools) > 0 {
+							defs := make([]vfs.ToolDef, len(tools))
+							for i, name := range tools {
+								defs[i] = vfs.ToolDef{Name: name}
+							}
+							proc.mu.Lock()
+							proc.nativeToolDefs = defs
+							proc.mu.Unlock()
+						}
+						// Also try []any (JSON unmarshals string arrays as []any)
+						if toolsAny, ok := evt["tools"].([]any); ok && len(toolsAny) > 0 {
+							defs := make([]vfs.ToolDef, 0, len(toolsAny))
+							for _, t := range toolsAny {
+								if name, ok := t.(string); ok {
+									defs = append(defs, vfs.ToolDef{Name: name})
+								}
+							}
+							if len(defs) > 0 {
+								proc.mu.Lock()
+								proc.nativeToolDefs = defs
+								proc.mu.Unlock()
+							}
+						}
+					}
+
+					// Accumulate messages from assistant/user events
+					if evtType == "assistant" || evtType == "user" {
+						role, _ := evt["role"].(string)
+						if role == "" {
+							role = evtType
+							if role == "assistant" {
+								role = "assistant"
+							}
+						}
+						msg := rnixctx.Message{Role: rnixctx.Role(role)}
+						if contentBlocks, ok := evt["content"].([]map[string]any); ok {
+							for _, block := range contentBlocks {
+								blockType, _ := block["type"].(string)
+								switch blockType {
+								case "text":
+									if text, ok := block["text"].(string); ok {
+										if msg.Content != "" {
+											msg.Content += "\n"
+										}
+										msg.Content += text
+									}
+								case "tool_use":
+									name, _ := block["name"].(string)
+									id, _ := block["id"].(string)
+									msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{
+										ID:   id,
+										Name: name,
+									})
+								case "tool_result":
+									toolUseID, _ := block["tool_use_id"].(string)
+									msg.ToolCallID = toolUseID
+									if text, ok := block["content"].(string); ok {
+										msg.Content = text
+									}
+								}
+							}
+						}
+						// Also try []any (JSON roundtrip produces []any not []map[string]any)
+						if contentAny, ok := evt["content"].([]any); ok {
+							for _, item := range contentAny {
+								if block, ok := item.(map[string]any); ok {
+									blockType, _ := block["type"].(string)
+									switch blockType {
+									case "text":
+										if text, ok := block["text"].(string); ok {
+											if msg.Content != "" {
+												msg.Content += "\n"
+											}
+											msg.Content += text
+										}
+									case "tool_use":
+										name, _ := block["name"].(string)
+										id, _ := block["id"].(string)
+										msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{
+											ID:   id,
+											Name: name,
+										})
+									case "tool_result":
+										toolUseID, _ := block["tool_use_id"].(string)
+										msg.ToolCallID = toolUseID
+										if text, ok := block["content"].(string); ok {
+											msg.Content = text
+										}
+									}
+								}
+							}
+						}
+						msgHistory = append(msgHistory, msg)
+					}
+
 					// Write StepRecord for tool_call events so Dashboard Step Timeline shows them
 					if evtType == "tool_call" {
 						contentVal, _ := evt["content"].(string)
-						if contentVal == "started" {
+						switch contentVal {
+						case "started":
+							// Flush any previous pending tool before starting a new one
+							flushPendingTool()
 							driverStep++
 							tool, _ := evt["tool"].(string)
 							desc, _ := evt["description"].(string)
@@ -703,8 +835,23 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 							if path != "" {
 								toolPath = tool + ":" + path
 							}
-							k.writeDriverStepRecord(proc, driverStep, "tool_call", summary, toolPath)
+							pendingTool.step = driverStep
+							pendingTool.tool = tool
+							pendingTool.summary = summary
+							pendingTool.toolPath = toolPath
+							pendingTool.start = time.Now()
+							pendingTool.inputBuf.Reset()
+						case "input_delta":
+							// Accumulate tool input JSON fragments
+							if partial, ok := evt["partial_json"].(string); ok {
+								pendingTool.inputBuf.WriteString(partial)
+							}
+						case "completed":
+							flushPendingTool()
 						}
+					} else if evtType == "user" {
+						// User event means previous tool completed; flush pending
+						flushPendingTool()
 					}
 				})
 			}
@@ -3016,9 +3163,9 @@ func (k *KernelImpl) writeStepRecord(proc *Process, step int, promptResult *rnix
 	}
 }
 
-// writeDriverStepRecord writes a lightweight StepRecord for CLI driver events (tool_call).
-// This makes driver tool calls visible in Dashboard Step Timeline.
-func (k *KernelImpl) writeDriverStepRecord(proc *Process, step int, action, summary, toolPath string) {
+// writeDriverStepRecordFull writes a StepRecord with accumulated tool data for CLI driver events.
+// Called when a tool_call completes, capturing input, duration, and accumulated messages.
+func (k *KernelImpl) writeDriverStepRecordFull(proc *Process, step int, action, summary, toolPath, toolInput string, toolDuration time.Duration, messages json.RawMessage, messageCount int) {
 	proc.mu.Lock()
 	sw := proc.stepWriter
 	proc.mu.Unlock()
@@ -3027,11 +3174,15 @@ func (k *KernelImpl) writeDriverStepRecord(proc *Process, step int, action, summ
 	}
 
 	rec := types.StepRecord{
-		Step:      step,
-		Timestamp: time.Since(proc.CreatedAt),
-		Action:    action,
-		Summary:   summary,
-		ToolPath:  toolPath,
+		Step:         step,
+		Timestamp:    time.Since(proc.CreatedAt),
+		Action:       action,
+		Summary:      summary,
+		ToolPath:     toolPath,
+		ToolInput:    toolInput,
+		ToolDuration: toolDuration,
+		Messages:     messages,
+		MessageCount: messageCount,
 	}
 	if err := sw.WriteStep(rec); err != nil {
 		log.Printf("[step_writer] driver step write error pid=%d step=%d: %v", proc.PID, step, err)
