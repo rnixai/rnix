@@ -353,23 +353,35 @@ func extractToolCallInfo(raw json.RawMessage) map[string]any {
 		toolType := strings.TrimSuffix(key, "ToolCall")
 		if toolType != key { // it was a *ToolCall key
 			info["tool"] = toolType
-			// Try to extract description and command from the nested object
+			// Try to extract description, command, and path from the nested object
 			var inner struct {
-				Description string `json:"description"`
-				Args        struct {
-					Command string `json:"command"`
-					Path    string `json:"path"`
-				} `json:"args"`
+				Description string          `json:"description"`
+				Args        json.RawMessage `json:"args"`
+				Result      json.RawMessage `json:"result"`
 			}
 			if json.Unmarshal(val, &inner) == nil {
 				if inner.Description != "" {
 					info["description"] = inner.Description
 				}
-				if inner.Args.Command != "" {
-					info["command"] = inner.Args.Command
+				// Parse args for common fields and pass full args to kernel
+				if len(inner.Args) > 0 {
+					var args map[string]any
+					if json.Unmarshal(inner.Args, &args) == nil {
+						if cmd, ok := args["command"].(string); ok && cmd != "" {
+							info["command"] = cmd
+						}
+						if p, ok := args["path"].(string); ok && p != "" {
+							info["path"] = p
+						}
+						if pattern, ok := args["pattern"].(string); ok && pattern != "" {
+							info["path"] = pattern // reuse path slot for pattern
+						}
+					}
+					info["args"] = string(inner.Args)
 				}
-				if inner.Args.Path != "" {
-					info["path"] = inner.Args.Path
+				// Pass result to kernel
+				if len(inner.Result) > 0 {
+					info["result"] = string(inner.Result)
 				}
 			}
 		}
