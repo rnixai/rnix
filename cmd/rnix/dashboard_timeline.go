@@ -1112,62 +1112,34 @@ func formatPromptToolsTab(detail *ipc.GetStepDetailResponse) string {
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6BCB77")).Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 
-	// Section 1: This step's tool invocation details
-	if detail.Action != "" {
-		b.WriteString("═══ This Step ═══\n\n")
-		b.WriteString(nameStyle.Render(detail.Action))
-		if detail.Summary != "" {
-			b.WriteString(" — " + detail.Summary + "\n")
-		} else {
-			b.WriteString("\n")
-		}
-		if detail.ToolPath != "" {
-			b.WriteString(dimStyle.Render("  Path: ") + detail.ToolPath + "\n")
-		}
-		if detail.ToolInput != "" {
-			b.WriteString(dimStyle.Render("  Input: ") + detail.ToolInput + "\n")
-		}
-		if detail.ToolResult != "" {
-			result := detail.ToolResult
-			if len(result) > 500 {
-				result = result[:500] + "..."
-			}
-			b.WriteString(dimStyle.Render("  Result: ") + result + "\n")
-		}
-		if detail.ToolError != "" {
-			b.WriteString(dimStyle.Render("  Error: ") + detail.ToolError + "\n")
-		}
-		if detail.ToolDurationMs > 0 {
-			b.WriteString(dimStyle.Render(fmt.Sprintf("  Duration: %.0fms\n", detail.ToolDurationMs)))
-		}
+	if detail.Action == "" {
+		return dimStyle.Render("No tool information for this step.")
+	}
+
+	b.WriteString(nameStyle.Render(detail.Action))
+	if detail.Summary != "" {
+		b.WriteString(" — " + detail.Summary + "\n")
+	} else {
 		b.WriteString("\n")
 	}
-
-	// Section 2: Available tools list
-	if len(detail.Tools) > 0 {
-		if detail.Action != "" {
-			b.WriteString(dimStyle.Render(strings.Repeat("─", 70)) + "\n\n")
-		}
-		fmt.Fprintf(&b, "═══ Available Tools (%d) ═══\n\n", len(detail.Tools))
-		for i, tool := range detail.Tools {
-			if i > 0 {
-				b.WriteString(dimStyle.Render(strings.Repeat("─", 70)) + "\n")
-			}
-			b.WriteString(nameStyle.Render(tool.Name))
-			desc := tool.Description
-			if desc == "" {
-				desc = "(no description)"
-			}
-			b.WriteString(" — " + desc + "\n")
-			if len(tool.Parameters) > 0 {
-				b.WriteString(dimStyle.Render(fmt.Sprintf("  Parameters: %v", tool.Parameters)) + "\n")
-			}
-			b.WriteString("\n")
-		}
+	if detail.ToolPath != "" {
+		b.WriteString(dimStyle.Render("  Path: ") + detail.ToolPath + "\n")
 	}
-
-	if b.Len() == 0 {
-		return dimStyle.Render("No tool information available.")
+	if detail.ToolInput != "" {
+		b.WriteString(dimStyle.Render("  Input: ") + detail.ToolInput + "\n")
+	}
+	if detail.ToolResult != "" {
+		result := detail.ToolResult
+		if len(result) > 500 {
+			result = result[:500] + "..."
+		}
+		b.WriteString(dimStyle.Render("  Result: ") + result + "\n")
+	}
+	if detail.ToolError != "" {
+		b.WriteString(dimStyle.Render("  Error: ") + detail.ToolError + "\n")
+	}
+	if detail.ToolDurationMs > 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf("  Duration: %.0fms", detail.ToolDurationMs)) + "\n")
 	}
 	return b.String()
 }

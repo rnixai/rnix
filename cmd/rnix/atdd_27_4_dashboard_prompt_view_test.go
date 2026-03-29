@@ -348,27 +348,23 @@ func TestATDD_27_4_AC5_FormatPromptContent_ToolsSection(t *testing.T) {
 	detail := &ipc.GetStepDetailResponse{
 		SystemPrompt: "sys",
 		Step:         1,
-		Tools: []ipc.ToolDefWire{
-			{Name: "read_file", Description: "Read a file from the virtual filesystem"},
-			{Name: "shell_exec", Description: "Execute a shell command"},
-		},
+		Action:       "read_file",
+		Summary:      "Read a file from the virtual filesystem",
+		ToolPath:     "/tmp/test.txt",
 		MessageCount: 1,
 		TokenCount:   500,
 	}
 
 	content := formatPromptContent(detail, 1, promptTabTools)
 
-	if !strings.Contains(content, "Tools") {
-		t.Error("AC-5: should contain 'Tools' section header")
-	}
 	if !strings.Contains(content, "read_file") {
 		t.Error("AC-5: should show tool name 'read_file'")
 	}
-	if !strings.Contains(content, "shell_exec") {
-		t.Error("AC-5: should show tool name 'shell_exec'")
-	}
 	if !strings.Contains(content, "Read a file") {
 		t.Error("AC-5: should show tool description")
+	}
+	if !strings.Contains(content, "/tmp/test.txt") {
+		t.Error("AC-5: should show tool path")
 	}
 }
 
@@ -417,17 +413,16 @@ func TestATDD_27_4_AC5_FormatPromptContent_ToolCount(t *testing.T) {
 	detail := &ipc.GetStepDetailResponse{
 		SystemPrompt: "sys",
 		Step:         1,
-		Tools: []ipc.ToolDefWire{
-			{Name: "t1"}, {Name: "t2"}, {Name: "t3"}, {Name: "t4"}, {Name: "t5"},
-		},
+		Action:       "read",
+		Summary:      "Read file contents",
 		MessageCount: 1,
 		TokenCount:   500,
 	}
 
 	content := formatPromptContent(detail, 1, promptTabTools)
 
-	if !strings.Contains(content, "5") {
-		t.Error("AC-5: Tools section should show tool count '5'")
+	if !strings.Contains(content, "read") {
+		t.Error("AC-5: Tools section should show tool name")
 	}
 }
 
@@ -459,8 +454,8 @@ func TestATDD_27_4_AC5_FormatPromptContent_NoTools(t *testing.T) {
 
 	content := formatPromptContent(detail, 1, promptTabTools)
 
-	if !strings.Contains(content, "No tool information available") {
-		t.Error("AC-5: Tools section should show 'No tool information available' when no tools and no action")
+	if !strings.Contains(content, "No tool information for this step") {
+		t.Error("AC-5: Tools section should show 'No tool information for this step' when no action")
 	}
 }
 
