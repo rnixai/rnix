@@ -685,6 +685,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					toolPath string
 					start    time.Time
 					inputBuf strings.Builder
+					result   string
 				}
 				// Message history accumulation from assistant/user events
 				var msgHistory []rnixctx.Message
@@ -713,11 +714,12 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 							msgsRaw = data
 						}
 					}
-					k.writeDriverStepRecordFull(proc, pendingTool.step, "tool_call",
-						summary, pendingTool.toolPath, toolInput, dur,
+					k.writeDriverStepRecordFull(proc, pendingTool.step, pendingTool.tool,
+						summary, pendingTool.toolPath, toolInput, pendingTool.result, dur,
 						msgsRaw, msgCount)
 					pendingTool.step = 0
 					pendingTool.inputBuf.Reset()
+					pendingTool.result = ""
 				}
 				obs.SetStreamHandler(func(evt map[string]any) {
 					evtType, _ := evt["type"].(string)
@@ -912,6 +914,31 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 								pendingTool.inputBuf.WriteString(partial)
 							}
 						case "completed":
+							// Capture tool result before flushing
+							if toolCallData, ok := evt["tool_call"].(map[string]any); ok {
+								for _, val := range toolCallData {
+									if inner, ok := val.(map[string]any); ok {
+										if result, ok := inner["result"]; ok {
+											if resultStr, ok := result.(string); ok {
+												pendingTool.result = resultStr
+											} else if resultData, err := json.Marshal(result); err == nil {
+												pendingTool.result = string(resultData)
+											}
+										}
+										break
+									}
+								}
+							}
+							// Also check for result at event level (VFS device tools)
+							if pendingTool.result == "" {
+								if result, ok := evt["result"].(string); ok {
+									pendingTool.result = result
+								} else if result, ok := evt["result"]; ok && result != nil {
+									if resultData, err := json.Marshal(result); err == nil {
+										pendingTool.result = string(resultData)
+									}
+								}
+							}
 							flushPendingTool()
 						}
 					case "user":
@@ -3345,7 +3372,7 @@ func (k *KernelImpl) writeStepRecord(proc *Process, step int, promptResult *rnix
 
 // writeDriverStepRecordFull writes a StepRecord with accumulated tool data for CLI driver events.
 // Called when a tool_call completes, capturing input, duration, and accumulated messages.
-func (k *KernelImpl) writeDriverStepRecordFull(proc *Process, step int, action, summary, toolPath, toolInput string, toolDuration time.Duration, messages json.RawMessage, messageCount int) {
+func (k *KernelImpl) writeDriverStepRecordFull(proc *Process, step int, action, summary, toolPath, toolInput, toolResult string, toolDuration time.Duration, messages json.RawMessage, messageCount int) {
 	proc.mu.Lock()
 	sw := proc.stepWriter
 	proc.mu.Unlock()
@@ -3360,6 +3387,7 @@ func (k *KernelImpl) writeDriverStepRecordFull(proc *Process, step int, action, 
 		Summary:      summary,
 		ToolPath:     toolPath,
 		ToolInput:    toolInput,
+		ToolResult:   toolResult,
 		ToolDuration: toolDuration,
 		Messages:     messages,
 		MessageCount: messageCount,
