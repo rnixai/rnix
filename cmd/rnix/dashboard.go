@@ -36,7 +36,7 @@ type dashboardModel struct {
 	activePane   paneType
 	rightPane    paneType // 右侧显示的面板（默认 Timeline）
 	viewMode     viewMode // 当前视图模式（默认 viewDefault，零值即默认）
-	expandedPane paneType // viewExpanded 模式下展开的面板（兼容遗留，等于 rightPane）
+	expandedPane paneType // viewExpanded 模式下展开的面板
 	selectedPID  types.PID
 	selectedUUID string
 	processes    []vfs.ProcInfo
@@ -715,8 +715,8 @@ func (m dashboardModel) renderDefaultLayout(w, h int) string {
 }
 
 func (m dashboardModel) renderExpandedLayout(w, h int) string {
-	// Tree 隐藏，rightPane 全屏
-	return m.renderSinglePane(m.rightPane, w, h)
+	// expandedPane 全屏
+	return m.renderSinglePane(m.expandedPane, w, h)
 }
 
 // renderSinglePane 渲染单个面板（全宽）

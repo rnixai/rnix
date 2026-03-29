@@ -180,14 +180,11 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case "z":
-		// z 键：切换 Tree 侧边栏显隐（类似 VS Code Ctrl+B）
+		// z 键：最大化当前活动面板
 		switch m.viewMode {
 		case viewDefault:
 			m.viewMode = viewExpanded
-			m.expandedPane = m.rightPane
-			if m.activePane == paneTree {
-				m.activePane = m.rightPane // Tree 隐藏时，焦点移到右侧
-			}
+			m.expandedPane = m.activePane
 		case viewExpanded:
 			m.viewMode = viewDefault
 		}
