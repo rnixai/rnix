@@ -871,6 +871,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 							tool, _ := evt["tool"].(string)
 							desc, _ := evt["description"].(string)
 							path, _ := evt["path"].(string)
+							cmd, _ := evt["command"].(string)
 							summary := desc
 							if summary == "" {
 								summary = tool
@@ -885,6 +886,18 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 							pendingTool.toolPath = toolPath
 							pendingTool.start = time.Now()
 							pendingTool.inputBuf.Reset()
+							// Capture input from tool_call args (Cursor CLI format)
+							if cmd != "" {
+								pendingTool.inputBuf.WriteString(cmd)
+							} else if path != "" {
+								pendingTool.inputBuf.WriteString(path)
+							}
+							// Also capture full args from event
+							if argsStr, ok := evt["args"].(string); ok && argsStr != "" {
+								if pendingTool.inputBuf.Len() == 0 {
+									pendingTool.inputBuf.WriteString(argsStr)
+								}
+							}
 							// Fallback: build tool defs from tool_call events if system event didn't provide them
 							if tool != "" {
 								proc.mu.Lock()
@@ -915,28 +928,13 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 							}
 						case "completed":
 							// Capture tool result before flushing
-							if toolCallData, ok := evt["tool_call"].(map[string]any); ok {
-								for _, val := range toolCallData {
-									if inner, ok := val.(map[string]any); ok {
-										if result, ok := inner["result"]; ok {
-											if resultStr, ok := result.(string); ok {
-												pendingTool.result = resultStr
-											} else if resultData, err := json.Marshal(result); err == nil {
-												pendingTool.result = string(resultData)
-											}
-										}
-										break
-									}
-								}
+							if result, ok := evt["result"].(string); ok && result != "" {
+								pendingTool.result = result
 							}
-							// Also check for result at event level (VFS device tools)
+							// Also check for result at event level
 							if pendingTool.result == "" {
-								if result, ok := evt["result"].(string); ok {
+								if result, ok := evt["tool_result"].(string); ok {
 									pendingTool.result = result
-								} else if result, ok := evt["result"]; ok && result != nil {
-									if resultData, err := json.Marshal(result); err == nil {
-										pendingTool.result = string(resultData)
-									}
 								}
 							}
 							flushPendingTool()
