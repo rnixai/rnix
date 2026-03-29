@@ -563,3 +563,79 @@ func TestCreateDriverWithEnv_CursorCLI_DoesNotCallEnvLookup(t *testing.T) {
 		t.Error("envLookup should not be called for cursor-cli driver")
 	}
 }
+
+// --- Command alias tests ---
+
+func TestCreateDriver_ClaudeCLI_WithCommand(t *testing.T) {
+	t.Parallel()
+	d, err := CreateDriver(ProviderConfig{
+		Name:    "claude",
+		Driver:  DriverClaudeCLI,
+		Command: "claude-custom",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	claude, ok := d.(*ClaudeCliDriver)
+	if !ok {
+		t.Fatal("expected *ClaudeCliDriver")
+	}
+	if claude.cliCommand != "claude-custom" {
+		t.Errorf("expected cliCommand %q, got %q", "claude-custom", claude.cliCommand)
+	}
+}
+
+func TestCreateDriver_CursorCLI_WithCommand(t *testing.T) {
+	t.Parallel()
+	d, err := CreateDriver(ProviderConfig{
+		Name:    "cursor",
+		Driver:  DriverCursorCLI,
+		Command: "cursor-agent",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cursor, ok := d.(*CursorCliDriver)
+	if !ok {
+		t.Fatal("expected *CursorCliDriver")
+	}
+	if cursor.cliCommand != "cursor-agent" {
+		t.Errorf("expected cliCommand %q, got %q", "cursor-agent", cursor.cliCommand)
+	}
+}
+
+func TestCreateDriver_ClaudeCLI_DefaultCommand(t *testing.T) {
+	t.Parallel()
+	d, err := CreateDriver(ProviderConfig{
+		Name:   "claude",
+		Driver: DriverClaudeCLI,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	claude, ok := d.(*ClaudeCliDriver)
+	if !ok {
+		t.Fatal("expected *ClaudeCliDriver")
+	}
+	if claude.cliCommand != "claude" {
+		t.Errorf("expected default cliCommand %q, got %q", "claude", claude.cliCommand)
+	}
+}
+
+func TestCreateDriver_CursorCLI_DefaultCommand(t *testing.T) {
+	t.Parallel()
+	d, err := CreateDriver(ProviderConfig{
+		Name:   "cursor",
+		Driver: DriverCursorCLI,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cursor, ok := d.(*CursorCliDriver)
+	if !ok {
+		t.Fatal("expected *CursorCliDriver")
+	}
+	if cursor.cliCommand != "agent" {
+		t.Errorf("expected default cliCommand %q, got %q", "agent", cursor.cliCommand)
+	}
+}

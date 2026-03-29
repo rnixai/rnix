@@ -31,6 +31,7 @@ func defaultCommandBuilder(ctx context.Context, name string, args ...string) *ex
 
 // ClaudeCliDriver implements LLMDriver by invoking the Claude Code CLI.
 type ClaudeCliDriver struct {
+	cliCommand     string
 	defaultModel   string
 	defaultTimeout time.Duration
 	cmdBuilder     CommandBuilder
@@ -53,6 +54,13 @@ func WithTimeout(timeout time.Duration) ClaudeCliOption {
 	}
 }
 
+// WithCommand sets the CLI binary name for the driver.
+func WithCommand(cmd string) ClaudeCliOption {
+	return func(d *ClaudeCliDriver) {
+		d.cliCommand = cmd
+	}
+}
+
 // WithCommandBuilder sets a custom CommandBuilder for the driver.
 func WithCommandBuilder(cb CommandBuilder) ClaudeCliOption {
 	return func(d *ClaudeCliDriver) {
@@ -63,6 +71,7 @@ func WithCommandBuilder(cb CommandBuilder) ClaudeCliOption {
 // NewClaudeCliDriver creates a new ClaudeCliDriver with the given options.
 func NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver {
 	d := &ClaudeCliDriver{
+		cliCommand:     "claude",
 		defaultModel:   DefaultModel,
 		defaultTimeout: DefaultTimeout,
 		cmdBuilder:     defaultCommandBuilder,
@@ -97,7 +106,7 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	defer cancel()
 
 	args := d.buildArgs(req, "json")
-	cmd := d.cmdBuilder(ctx, "claude", args...)
+	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -152,8 +161,8 @@ type claudeStreamEvent struct {
 		Content []claudeContentBlock `json:"content,omitempty"`
 		Role    string               `json:"role,omitempty"`
 	} `json:"message,omitzero"`
-	Tools        []string        `json:"tools,omitempty"`        // system:init tools list
-	Event        json.RawMessage `json:"event,omitempty"`        // raw API event for stream_event type
+	Tools        []string        `json:"tools,omitempty"` // system:init tools list
+	Event        json.RawMessage `json:"event,omitempty"` // raw API event for stream_event type
 	Result       string          `json:"result,omitempty"`
 	IsError      bool            `json:"is_error,omitempty"`
 	CostUSD      float64         `json:"cost_usd,omitempty"`
@@ -167,8 +176,8 @@ type claudeStreamEvent struct {
 type claudeContentBlock struct {
 	Type      string `json:"type"`
 	Text      string `json:"text,omitempty"`
-	ID        string `json:"id,omitempty"`         // tool_use block id
-	Name      string `json:"name,omitempty"`       // tool_use tool name
+	ID        string `json:"id,omitempty"`          // tool_use block id
+	Name      string `json:"name,omitempty"`        // tool_use tool name
 	Input     any    `json:"input,omitempty"`       // tool_use input
 	ToolUseID string `json:"tool_use_id,omitempty"` // tool_result reference
 	Content   any    `json:"content,omitempty"`     // tool_result content (string or array)
@@ -183,7 +192,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 
 	args := d.buildArgs(req, "stream-json")
-	cmd := d.cmdBuilder(ctx, "claude", args...)
+	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {

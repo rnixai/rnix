@@ -16,7 +16,7 @@ const (
 	DriverCursorCLI     = "cursor-cli"
 	DriverOpenAICompat  = "openai-compat"
 	DriverOpenAI        = "openai"
-	ProvidersConfigFile = "rnix-providers.yaml"
+	ProvidersConfigFile = "providers.yaml"
 )
 
 const (
@@ -48,6 +48,7 @@ type ProvidersConfig struct {
 type ProviderConfig struct {
 	Name         string `yaml:"name"`
 	Driver       string `yaml:"driver"`
+	Command      string `yaml:"command"` // CLI binary name override (e.g., "agent" for cursor-cli)
 	DefaultModel string `yaml:"default_model"`
 	BaseURL      string `yaml:"base_url"`
 	APIKeyEnv    string `yaml:"api_key_env"`
@@ -55,20 +56,39 @@ type ProviderConfig struct {
 	MaxTokens    int    `yaml:"max_tokens"` // default max output tokens; 0 = use API default
 }
 
-// FindProvidersConfigPath searches for rnix-providers.yaml in CWD then
-// $XDG_CONFIG_HOME/rnix/. Returns the first path found, or "" if none exist.
+// FindProvidersConfigPath searches for providers.yaml in CWD then
+// $XDG_CONFIG_HOME/rnix/. Falls back to legacy rnix-providers.yaml for
+// backward compatibility. Returns the first path found, or "" if none exist.
 //
 // Deprecated: Use config.ResolvePath("providers.yaml") from internal/config
 // for proper global/project resolution. This function does not support
 // project-level configuration (Story 25.3).
 func FindProvidersConfigPath() string {
-	cwdPath := filepath.Join(".", ProvidersConfigFile)
-	if abs, err := filepath.Abs(cwdPath); err == nil {
-		if _, err := os.Stat(abs); err == nil {
-			return abs
+	// Search order: CWD → $XDG_CONFIG_HOME/rnix/
+	// For each location, try new name first, then legacy name.
+	locations := func(dir string) string {
+		// New name: providers.yaml
+		newPath := filepath.Join(dir, ProvidersConfigFile)
+		if _, err := os.Stat(newPath); err == nil {
+			return newPath
 		}
+		// Legacy name: rnix-providers.yaml
+		legacyPath := filepath.Join(dir, "rnix-providers.yaml")
+		if _, err := os.Stat(legacyPath); err == nil {
+			return legacyPath
+		}
+		return ""
 	}
 
+	// 1. Check CWD
+	if p := locations("."); p != "" {
+		if abs, err := filepath.Abs(p); err == nil {
+			return abs
+		}
+		return p
+	}
+
+	// 2. Check $XDG_CONFIG_HOME/rnix/
 	xdgConfig := os.Getenv("XDG_CONFIG_HOME")
 	if xdgConfig == "" {
 		home, err := os.UserHomeDir()
@@ -77,12 +97,7 @@ func FindProvidersConfigPath() string {
 		}
 		xdgConfig = filepath.Join(home, ".config")
 	}
-	xdgPath := filepath.Join(xdgConfig, "rnix", ProvidersConfigFile)
-	if _, err := os.Stat(xdgPath); err == nil {
-		return xdgPath
-	}
-
-	return ""
+	return locations(filepath.Join(xdgConfig, "rnix"))
 }
 
 // LoadProvidersConfig reads and validates a providers YAML file at the given path.
@@ -183,7 +198,7 @@ func DefaultProvidersConfig() *ProvidersConfig {
 func LoadOrDefaultProvidersConfig() (*ProvidersConfig, error) {
 	path := FindProvidersConfigPath()
 	if path == "" {
-		log.Println("no rnix-providers.yaml found, using default provider configuration")
+		log.Println("no providers.yaml found, using default provider configuration")
 		return DefaultProvidersConfig(), nil
 	}
 	return LoadProvidersConfig(path)
