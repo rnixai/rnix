@@ -887,17 +887,21 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 							if tool != "" {
 								proc.mu.Lock()
 								if len(proc.nativeToolDefs) == 0 {
-									proc.nativeToolDefs = []vfs.ToolDef{{Name: tool}}
+									proc.nativeToolDefs = []vfs.ToolDef{{Name: tool, Description: desc}}
 								} else {
 									found := false
-									for _, td := range proc.nativeToolDefs {
+									for i, td := range proc.nativeToolDefs {
 										if td.Name == tool {
+											// Update description if previously empty
+											if td.Description == "" && desc != "" {
+												proc.nativeToolDefs[i].Description = desc
+											}
 											found = true
 											break
 										}
 									}
 									if !found {
-										proc.nativeToolDefs = append(proc.nativeToolDefs, vfs.ToolDef{Name: tool})
+										proc.nativeToolDefs = append(proc.nativeToolDefs, vfs.ToolDef{Name: tool, Description: desc})
 									}
 								}
 								proc.mu.Unlock()
