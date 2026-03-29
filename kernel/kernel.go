@@ -1640,19 +1640,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		// Native tool calls path: handle ToolCalls from LLM response directly
 		if proc.UseNativeTools && len(resp.ToolCalls) > 0 {
-			// Write StepRecord before context modification (Story 27.1 AC-6)
-			toolNames := make([]string, len(resp.ToolCalls))
-			for i, tc := range resp.ToolCalls {
-				toolNames[i] = tc.Name
-			}
-			// Truncate raw response for step record — tool details are in per-tool records
-			truncatedResp := resp.Content
-			if len(truncatedResp) > 200 {
-				truncatedResp = truncatedResp[:200] + "..."
-			}
-			k.writeStepRecord(proc, step, promptResult, truncatedResp, &resp,
-				"native_tool_call", strings.Join(toolNames, ","), "", "", truncatedResp, "", 0)
-			shouldContinue := k.executeNativeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors)
+			shouldContinue := k.executeNativeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors, promptResult, rawResponseStr)
 			if !shouldContinue {
 				return
 			}
@@ -2478,7 +2466,7 @@ func briefTextSummary(content string) string {
 
 // executeNativeToolCalls processes native tool calls from the LLM response.
 // Returns true if the reasonStep loop should continue, false if the process should exit.
-func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int) bool {
+func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int, promptResult *rnixctx.PromptResult, rawResponseStr string) bool {
 	// Append assistant message with tool calls to context
 	if err := k.ctxMgr.AppendAssistantWithToolCalls(proc.CtxID, resp.Content, convertToolCalls(resp.ToolCalls)); err != nil {
 		k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append assistant with tool calls failed", Err: err})
@@ -2565,6 +2553,18 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 			}
 		}
 	}
+
+	// Write overall step record after all tool calls complete
+	toolNames := make([]string, len(resp.ToolCalls))
+	for i, tc := range resp.ToolCalls {
+		toolNames[i] = tc.Name
+	}
+	summary := resp.Content
+	if len(summary) > 200 {
+		summary = summary[:200] + "..."
+	}
+	k.writeStepRecord(proc, step, promptResult, summary, &resp,
+		"native_tool_call", strings.Join(toolNames, ","), "", "", summary, "", 0)
 
 	return true
 }
