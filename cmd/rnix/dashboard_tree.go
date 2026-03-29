@@ -51,17 +51,24 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			cursor = "▸ "
 		}
 
-		// Use StateSymbol for dead/zombie processes (AC-9), colorState for others
-		var stateStr string
+		// State indicator (compact)
+		var stateMark string
 		if row.proc.State == types.StateDead || row.proc.State == types.StateZombie {
-			stateStr = ui.StateSymbol(row.proc.State, row.proc.Result)
+			stateMark = ui.StateSymbol(row.proc.State, row.proc.Result)
 		} else {
-			stateStr = colorState(row.proc.State)
+			stateMark = colorState(row.proc.State)
 		}
 
-		skills := ui.FormatSkills(row.proc.Skills, 12, "—")
+		// Intent is the primary content — show full text, gets elastic width
+		intent := row.proc.Intent
+		if intent == "" {
+			intent = "—"
+		}
 
-		tokens := ui.FormatTokens(row.proc.TokensUsed)
+		// Compact metadata suffix: "1 ● 0 1.8m"
+		pidPart := fmt.Sprintf("%d", row.proc.PID)
+
+		var tokens string
 		if row.proc.ContextBudget > 0 {
 			pct := row.proc.TokensUsed * 100 / row.proc.ContextBudget
 			tokens = fmt.Sprintf("%s/%s(%d%%)",
@@ -70,42 +77,45 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			if pct >= 80 {
 				tokens = ui.WarningStyle.Render(tokens)
 			}
+		} else {
+			tokens = ui.FormatTokens(row.proc.TokensUsed)
 		}
 
-		// AC-9: Dead processes show elapsed using DeadAt, plus exit code
 		var elapsed string
 		if row.proc.State == types.StateDead && !row.proc.DeadAt.IsZero() {
 			elapsed = ui.FormatDuration(row.proc.DeadAt.Sub(row.proc.CreatedAt))
-			exitStr := "exit:0"
 			if ui.IsFailedResult(row.proc.Result) {
-				exitStr = "exit:1"
+				elapsed += " ✗"
 			}
-			elapsed = elapsed + " " + exitStr
 		} else {
 			elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
 		}
 
-		// PID reuse indicator: append short UUID suffix when multiple processes share the same PID
-		pidStr := fmt.Sprintf("PID %-3d", row.proc.PID)
+		// PID reuse indicator
 		if _, isReused := reused[row.proc.PID]; isReused {
 			uuidShort := row.proc.UUID
-			if len(uuidShort) > 8 {
-				uuidShort = uuidShort[:8]
+			if len(uuidShort) > 6 {
+				uuidShort = uuidShort[:6]
 			}
-			if row.proc.State == types.StateDead {
-				pidStr = fmt.Sprintf("PID %-3d %s", row.proc.PID,
-					ui.MutedStyle.Render("("+uuidShort+")"))
-			} else {
-				pidStr = fmt.Sprintf("PID %-3d %s", row.proc.PID,
-					ui.WarningStyle.Render("("+uuidShort+")"))
-			}
+			pidPart = fmt.Sprintf("%d(%s)", row.proc.PID, uuidShort)
 		}
 
-		line := fmt.Sprintf("%s%s%s %-9s %-12s %s %s",
-			cursor, row.prefix, pidStr, stateStr, skills, tokens, elapsed)
+		// Recording indicator
+		rec := ""
 		if m.recording[row.proc.UUID] != "" {
-			line += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●")
+			rec = " ●"
 		}
+
+		// Calculate available width for intent (elastic)
+		prefixW := lipgloss.Width(cursor + row.prefix)
+		suffixParts := []string{pidPart, stateMark, tokens, elapsed}
+		suffixStr := strings.Join(suffixParts, " ") + rec
+		suffixW := lipgloss.Width(suffixStr)
+		intentW := max(innerW-prefixW-suffixW-3, 8)
+		intentTrunc := truncateRuneWidth(intent, intentW)
+
+		line := fmt.Sprintf("%s%s%-*s %s",
+			cursor, row.prefix, intentW, intentTrunc, suffixStr)
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
