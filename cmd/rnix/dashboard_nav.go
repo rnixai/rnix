@@ -230,6 +230,12 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			if key == "v" || key == "enter" {
 				entry := &m.stepEntries[idx]
 				if entry.level == levelSummary {
+					// Check if detail is loaded and has no expandable content
+					if cached, ok := m.stepDetailCache[entry.summary.Step]; ok && !hasExpandableContent(cached, entry.summary) {
+						m.statusMsg = "(no additional detail)"
+						m.statusMsgTTL = statusMsgDefaultTTL
+						return m, nil
+					}
 					entry.level = levelExpanded
 					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
 						m.fetchingDetail = true
