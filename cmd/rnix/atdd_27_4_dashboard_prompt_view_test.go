@@ -459,8 +459,8 @@ func TestATDD_27_4_AC5_FormatPromptContent_NoTools(t *testing.T) {
 
 	content := formatPromptContent(detail, 1, promptTabTools)
 
-	if !strings.Contains(content, "Tools (0)") {
-		t.Error("AC-5: Tools section should show '(0)' when no tools defined")
+	if !strings.Contains(content, "No tool information available") {
+		t.Error("AC-5: Tools section should show 'No tool information available' when no tools and no action")
 	}
 }
 
