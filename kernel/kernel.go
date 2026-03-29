@@ -688,6 +688,13 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				}
 				// Message history accumulation from assistant/user events
 				var msgHistory []rnixctx.Message
+				// Seed with initial user intent (Claude CLI doesn't emit it as a user event)
+				if proc.Intent != "" {
+					msgHistory = append(msgHistory, rnixctx.Message{
+						Role:    rnixctx.RoleUser,
+						Content: proc.Intent,
+					})
+				}
 
 				flushPendingTool := func() {
 					if pendingTool.step == 0 {
@@ -751,45 +758,23 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 					// Accumulate messages from assistant/user events
 					if evtType == "assistant" || evtType == "user" {
-						role, _ := evt["role"].(string)
-						if role == "" {
-							role = evtType
-							if role == "assistant" {
-								role = "assistant"
-							}
-						}
-						msg := rnixctx.Message{Role: rnixctx.Role(role)}
-						contentVal := evt["content"]
-						switch c := contentVal.(type) {
-						case []map[string]any:
-							for _, block := range c {
-								blockType, _ := block["type"].(string)
-								switch blockType {
-								case "text":
-									if text, ok := block["text"].(string); ok {
-										if msg.Content != "" {
-											msg.Content += "\n"
-										}
-										msg.Content += text
-									}
-								case "tool_use":
-									name, _ := block["name"].(string)
-									id, _ := block["id"].(string)
-									msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{
-										ID:   id,
-										Name: name,
-									})
-								case "tool_result":
-									toolUseID, _ := block["tool_use_id"].(string)
-									msg.ToolCallID = toolUseID
-									if text := extractContentText(block["content"]); text != "" {
-										msg.Content = text
-									}
+						// Skip user events with nil content (Claude CLI emits these as
+						// empty notifications; the initial intent is already seeded above)
+						if evtType == "user" && evt["content"] == nil {
+							// do nothing — intent already seeded
+						} else {
+							role, _ := evt["role"].(string)
+							if role == "" {
+								role = evtType
+								if role == "assistant" {
+									role = "assistant"
 								}
 							}
-						case []any:
-							for _, item := range c {
-								if block, ok := item.(map[string]any); ok {
+							msg := rnixctx.Message{Role: rnixctx.Role(role)}
+							contentVal := evt["content"]
+							switch c := contentVal.(type) {
+							case []map[string]any:
+								for _, block := range c {
 									blockType, _ := block["type"].(string)
 									switch blockType {
 									case "text":
@@ -814,34 +799,62 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 										}
 									}
 								}
-							}
-						case map[string]any:
-							// Single content block (not wrapped in array)
-							blockType, _ := c["type"].(string)
-							switch blockType {
-							case "text":
-								if text, ok := c["text"].(string); ok {
-									msg.Content = text
+							case []any:
+								for _, item := range c {
+									if block, ok := item.(map[string]any); ok {
+										blockType, _ := block["type"].(string)
+										switch blockType {
+										case "text":
+											if text, ok := block["text"].(string); ok {
+												if msg.Content != "" {
+													msg.Content += "\n"
+												}
+												msg.Content += text
+											}
+										case "tool_use":
+											name, _ := block["name"].(string)
+											id, _ := block["id"].(string)
+											msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{
+												ID:   id,
+												Name: name,
+											})
+										case "tool_result":
+											toolUseID, _ := block["tool_use_id"].(string)
+											msg.ToolCallID = toolUseID
+											if text := extractContentText(block["content"]); text != "" {
+												msg.Content = text
+											}
+										}
+									}
 								}
-							case "tool_use":
-								name, _ := c["name"].(string)
-								id, _ := c["id"].(string)
-								msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{
-									ID:   id,
-									Name: name,
-								})
-							case "tool_result":
-								toolUseID, _ := c["tool_use_id"].(string)
-								msg.ToolCallID = toolUseID
-								if text := extractContentText(c["content"]); text != "" {
-									msg.Content = text
+							case map[string]any:
+								// Single content block (not wrapped in array)
+								blockType, _ := c["type"].(string)
+								switch blockType {
+								case "text":
+									if text, ok := c["text"].(string); ok {
+										msg.Content = text
+									}
+								case "tool_use":
+									name, _ := c["name"].(string)
+									id, _ := c["id"].(string)
+									msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{
+										ID:   id,
+										Name: name,
+									})
+								case "tool_result":
+									toolUseID, _ := c["tool_use_id"].(string)
+									msg.ToolCallID = toolUseID
+									if text := extractContentText(c["content"]); text != "" {
+										msg.Content = text
+									}
 								}
+							case string:
+								// Plain string content (not a content block array)
+								msg.Content = c
 							}
-						case string:
-							// Plain string content (not a content block array)
-							msg.Content = c
-						}
-						msgHistory = append(msgHistory, msg)
+							msgHistory = append(msgHistory, msg)
+						} // end else (non-nil content)
 					}
 
 					// Write StepRecord for tool_call events so Dashboard Step Timeline shows them
