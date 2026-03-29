@@ -792,3 +792,26 @@ func TestResolveDefaultProvider_BuiltinDefault(t *testing.T) {
 		t.Errorf("DefaultProvidersConfig().ResolveDefaultProvider() = %q, want %q", got, "claude")
 	}
 }
+
+func TestParseProvidersConfig_WithCommand(t *testing.T) {
+	t.Parallel()
+	yaml := `version: "1"
+providers:
+  - name: claude
+    driver: claude-cli
+    command: /usr/local/bin/claude
+  - name: cursor
+    driver: cursor-cli
+    command: cursor-agent
+`
+	cfg, err := ParseProvidersConfig([]byte(yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Providers[0].Command != "/usr/local/bin/claude" {
+		t.Errorf("expected command %q, got %q", "/usr/local/bin/claude", cfg.Providers[0].Command)
+	}
+	if cfg.Providers[1].Command != "cursor-agent" {
+		t.Errorf("expected command %q, got %q", "cursor-agent", cfg.Providers[1].Command)
+	}
+}

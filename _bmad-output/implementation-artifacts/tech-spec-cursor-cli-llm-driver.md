@@ -117,8 +117,9 @@ Rnix 当前只有 Claude CLI 作为 LLM 后端（`/dev/llm/claude`），无法�
   - Action: 实现 `CursorCliDriver` 结构体及 `LLMDriver` 接口
   - Notes:
     - 参照 `claude_cli.go` 的结构，复用 `CommandBuilder` 类型
-    - **Option 函数独立命名**：`CursorWithModel()`、`CursorWithTimeout()`、`CursorWithCommandBuilder()`，类型为 `type CursorCliOption func(*CursorCliDriver)`
+    - **Option 函数独立命名**：`CursorWithModel()`、`CursorWithTimeout()`、`CursorWithCommand()`、`CursorWithCommandBuilder()`，类型为 `type CursorCliOption func(*CursorCliDriver)`
     - 常量：`CursorDefaultTimeout = 5 * time.Minute`。默认模型为空字符串（省略 `--model` 参数）
+    - 默认 CLI 命令：`"agent"`（Cursor CLI 的官方命令名，可通过 `CursorWithCommand()` 或配置文件 `command` 字段覆盖）
     - **`buildArgs(req, outputFormat)` 参数序列**（Cursor CLI 的 `--print` 是布尔开关，prompt 是位置参数放最后）：
       ```
       ["--print", "--output-format", format, "--force", "--trust", "--approve-mcps"]

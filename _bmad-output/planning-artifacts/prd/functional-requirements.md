@@ -152,7 +152,7 @@
 
 ## Multi-LLM Provider Management（多 LLM 提供方管理，Phase 2）
 
-- **FR141:** 系统通过 `providers.yaml` 配置文件（全局 `~/.config/rnix/providers.yaml` 或项目级 `.rnix/providers.yaml`）声明式定义 LLM provider，daemon 启动时动态解析并注册到 VFS `/dev/llm/<name>` 路径，新增 provider 无需修改源码
+- **FR141:** 系统通过 `providers.yaml` 配置文件（全局 `~/.config/rnix/providers.yaml` 或项目级 `.rnix/providers.yaml`）声明式定义 LLM provider，daemon 启动时动态解析并注册到 VFS `/dev/llm/<name>` 路径，新增 provider 无需修改源码；CLI 类 provider 支持通过 `command` 字段配置命令别名（如 cursor-cli 默认命令为 `agent`，可覆盖为 `cursor-agent`）
 - **FR142:** 系统支持两类 provider 驱动：CLI 驱动（通过本地 CLI 工具交互，如 claude/cursor）和 HTTP API 驱动（通过 OpenAI 兼容 API 端点交互，如 Ollama/Groq/DeepSeek）
 - **FR143:** Agent 的 `agent.yaml` 中 `models.provider` 字段指定 LLM provider，系统在 spawn 时解析为对应的 `/dev/llm/<provider>` VFS 设备路径
 - **FR144:** 系统支持 provider fallback 降级——当 `models.preferred` 对应的 provider 调用失败（HTTP 5xx、连接超时、连接拒绝、认证失败）时，自动尝试 `models.fallback` 指定的备选 provider/model 组合

@@ -45,6 +45,7 @@ So that 新增 provider 无需修改源码，仅需编辑配置文件。
   type ProviderConfig struct {
       Name         string `yaml:"name"`
       Driver       string `yaml:"driver"`        // "claude-cli" | "cursor-cli" | "openai-compat"
+      Command      string `yaml:"command"`       // CLI binary name override (e.g., "agent" for cursor-cli)
       DefaultModel string `yaml:"default_model"`
       BaseURL      string `yaml:"base_url"`      // required for openai-compat
       APIKeyEnv    string `yaml:"api_key_env"`   // env var name for API key (openai-compat)

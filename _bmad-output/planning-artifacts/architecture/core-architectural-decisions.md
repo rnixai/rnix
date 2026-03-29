@@ -142,15 +142,17 @@ type VFSFile interface {
 | CLI 驱动 | `exec.CommandContext` 调用本地 CLI 工具 | CLI 自身处理 | claude、cursor |
 | HTTP API 驱动 | `net/http` 调用 OpenAI 兼容端点 | 环境变量引用 API Key | Ollama、Groq、DeepSeek |
 
-**Provider 配置（`rnix-providers.yaml`）：**
+**Provider 配置（`providers.yaml`）：**
 
 ```yaml
 providers:
   claude:
     driver: claude-cli
+    command: claude            # 可选：CLI 二进制命令名称，默认 "claude"
     default_model: sonnet
   cursor:
     driver: cursor-cli
+    command: agent             # 可选：CLI 二进制命令名称，默认 "agent"
     default_model: ""
   ollama:
     driver: openai-compat

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -159,7 +160,8 @@ func (s *OpenAIServer) handleChatCompletions(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		writeError(w, http.StatusBadGateway, "server_error", "upstream_error",
-			"LLM driver returned an error")
+			formatUpstreamError(err))
+		log.Printf("[serve] upstream error: model=%s provider=%s err=%v", req.Model, provider, err)
 		return
 	}
 
@@ -238,7 +240,8 @@ func (s *OpenAIServer) handleStreamingResponse(w http.ResponseWriter, r *http.Re
 			return
 		}
 		writeError(w, http.StatusBadGateway, "server_error", "upstream_error",
-			"LLM driver failed to start stream")
+			formatUpstreamError(err))
+		log.Printf("[serve] upstream stream error: model=%s err=%v", model, err)
 		return
 	}
 
@@ -417,17 +420,26 @@ func writeError(w http.ResponseWriter, statusCode int, errType, code, message st
 // driver will use its configured default_model.
 func toLLMRequest(req ChatCompletionRequest, modelOverride string) llm.LLMRequest {
 	msgs := make([]llm.Message, len(req.Messages))
+	var systemPrompt string
+	var intentParts []string
 	for i, m := range req.Messages {
 		msgs[i] = llm.Message{
 			Role:    m.Role,
 			Content: m.Content,
 		}
+		if m.Role == "system" {
+			systemPrompt = m.Content
+		} else {
+			intentParts = append(intentParts, m.Content)
+		}
 	}
 	return llm.LLMRequest{
-		Model:       modelOverride,
-		Messages:    msgs,
-		Temperature: req.Temperature,
-		MaxTokens:   req.MaxTokens,
+		Model:        modelOverride,
+		Messages:     msgs,
+		Temperature:  req.Temperature,
+		MaxTokens:    req.MaxTokens,
+		Intent:       strings.Join(intentParts, "\n"),
+		SystemPrompt: systemPrompt,
 	}
 }
 
@@ -482,6 +494,40 @@ func toChatCompletionChunk(event llm.StreamEvent, streamID, model string, isFirs
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
+
+// formatUpstreamError returns a safe, user-facing error message from an
+// upstream LLM driver error. It checks for known sentinel errors (rate limit,
+// auth, context length, timeout, model not found) and returns a descriptive
+// message. For unknown errors, a generic message is returned to avoid leaking
+// internal details like API keys or file paths.
+func formatUpstreamError(err error) string {
+	var llmErr *llm.LLMError
+	if errors.As(err, &llmErr) {
+		// Check sentinel errors first.
+		switch {
+		case errors.Is(llmErr.Err, llm.ErrRateLimit):
+			return "rate limit exceeded, please retry later"
+		case errors.Is(llmErr.Err, llm.ErrAuth):
+			return "authentication failed, check API key configuration"
+		case errors.Is(llmErr.Err, llm.ErrContextLength):
+			return "context length exceeded, reduce input size"
+		case errors.Is(llmErr.Err, llm.ErrModelNotFound):
+			return "model not found, check model name"
+		case errors.Is(llmErr.Err, llm.ErrTimeout):
+			return "LLM request timed out"
+		}
+		// Check status code for additional context.
+		switch llmErr.StatusCode {
+		case 401:
+			return "authentication failed, check API key configuration"
+		case 429:
+			return "rate limit exceeded, please retry later"
+		case 400:
+			return "invalid request sent to LLM provider"
+		}
+	}
+	return "LLM driver returned an error"
+}
 
 // parseModel splits a model string into provider and model name.
 // Format: "provider:model" → (provider, model).

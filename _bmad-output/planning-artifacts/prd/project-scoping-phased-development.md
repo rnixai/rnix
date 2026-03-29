@@ -35,6 +35,7 @@
 | 配置字段 | 说明 | 示例 |
 |---------|------|------|
 | `driver` | 驱动类型标识 | `claude-cli` / `cursor-cli` / `openai-compat` |
+| `command` | CLI 二进制命令名称（仅 CLI 驱动） | `agent` / `claude` / `/usr/local/bin/claude` |
 | `default_model` | 该 provider 的默认模型 | `sonnet` / `llama3` |
 | `base_url` | HTTP API 端点（仅 HTTP 驱动） | `http://localhost:11434/v1` |
 | `api_key_env` | API Key 环境变量名（仅 HTTP 驱动） | `GROQ_API_KEY` |

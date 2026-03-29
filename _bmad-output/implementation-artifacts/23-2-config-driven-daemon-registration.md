@@ -38,8 +38,8 @@ So that 所有已配置的 provider 自动可用，无需硬编码。
 - [ ] 1.1 新建 `drivers/llm/factory.go`，实现 `CreateDriver(cfg ProviderConfig) (LLMDriver, error)` 工厂函数：
 
   根据 `cfg.Driver` 字段分发到对应构造函数：
-  - `DriverClaudeCLI` → `NewClaudeCliDriver(opts...)` — 若 `cfg.DefaultModel` 非空，传入 `WithModel(cfg.DefaultModel)`
-  - `DriverCursorCLI` → `NewCursorCliDriver(opts...)` — 若 `cfg.DefaultModel` 非空，传入 `CursorWithModel(cfg.DefaultModel)`
+  - `DriverClaudeCLI` → `NewClaudeCliDriver(opts...)` — 若 `cfg.Command` 非空，传入 `WithCommand(cfg.Command)`；若 `cfg.DefaultModel` 非空，传入 `WithModel(cfg.DefaultModel)`
+  - `DriverCursorCLI` → `NewCursorCliDriver(opts...)` — 若 `cfg.Command` 非空，传入 `CursorWithCommand(cfg.Command)`；若 `cfg.DefaultModel` 非空，传入 `CursorWithModel(cfg.DefaultModel)`
   - `DriverOpenAICompat` → `NewOpenAICompatDriver(cfg.Name, cfg.BaseURL, opts...)` — 若 `cfg.DefaultModel` 非空，传入 `WithCompatModel(cfg.DefaultModel)`
   - 未知 driver 类型返回 `fmt.Errorf("unsupported driver type: %q", cfg.Driver)`
 

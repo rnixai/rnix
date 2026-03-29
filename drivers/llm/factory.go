@@ -30,6 +30,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 	switch cfg.Driver {
 	case DriverClaudeCLI:
 		var opts []ClaudeCliOption
+		if cfg.Command != "" {
+			opts = append(opts, WithCommand(cfg.Command))
+		}
 		if cfg.DefaultModel != "" {
 			opts = append(opts, WithModel(cfg.DefaultModel))
 		}
@@ -37,6 +40,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 
 	case DriverCursorCLI:
 		var opts []CursorCliOption
+		if cfg.Command != "" {
+			opts = append(opts, CursorWithCommand(cfg.Command))
+		}
 		if cfg.DefaultModel != "" {
 			opts = append(opts, CursorWithModel(cfg.DefaultModel))
 		}

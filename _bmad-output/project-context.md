@@ -141,15 +141,16 @@ rnix-providers.yaml → LoadProvidersConfig → CreateDriver → DriverRegistry
                                                     VFS: /dev/llm/{name}
 ```
 
-- **三种驱动类型**：`claude-cli`（Claude Code CLI）、`cursor-cli`（Cursor CLI）、`openai-compat`（HTTP OpenAI API）
+- **三种驱动类型**：`claude-cli`（Claude Code CLI，默认命令 `claude`）、`cursor-cli`（Cursor CLI，默认命令 `agent`）、`openai-compat`（HTTP OpenAI API）
 - **驱动接口**：`LLMDriver` = `Call(ctx, req)` + `Stream(ctx, req)` + `Info()`
 - **可选接口**：`HealthChecker` = `HealthCheck(ctx)` — 驱动可选实现健康检查
 - **DriverRegistry**：线程安全注册表，持有所有 LLM 驱动实例 + 健康状态
 - **Provider 解析优先级**：CLI `--provider` > agent manifest `models.provider` > `default_provider` > `"claude"`
 - **配置文件搜索路径**：CWD `rnix-providers.yaml` → `$XDG_CONFIG_HOME/rnix/rnix-providers.yaml`
 - **Provider 名称约束**：必须匹配 `^[a-zA-Z0-9_-]+$`
+- **CLI 命令别名**：`command` 字段可覆盖 CLI 驱动的二进制命令名称（如 cursor-cli 默认 `agent`，可改为 `cursor-agent`）
 - **VFS 路径映射**：provider name `foo` → `/dev/llm/foo`
-- **Factory 模式**：`CreateDriver(ProviderConfig)` 按 driver 类型分发构造
+- **Factory 模式**：`CreateDriver(ProviderConfig)` 按 driver 类型分发构造，`command` 字段通过 `WithCommand`/`CursorWithCommand` 传递
 
 #### OpenAI 兼容 HTTP 网关
 

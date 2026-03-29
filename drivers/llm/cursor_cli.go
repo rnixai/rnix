@@ -16,6 +16,7 @@ const (
 
 // CursorCliDriver implements LLMDriver by invoking the Cursor CLI (agent --print).
 type CursorCliDriver struct {
+	cliCommand     string
 	defaultModel   string
 	defaultTimeout time.Duration
 	cmdBuilder     CommandBuilder
@@ -38,6 +39,13 @@ func CursorWithTimeout(timeout time.Duration) CursorCliOption {
 	}
 }
 
+// CursorWithCommand sets the CLI binary name for the driver.
+func CursorWithCommand(cmd string) CursorCliOption {
+	return func(d *CursorCliDriver) {
+		d.cliCommand = cmd
+	}
+}
+
 // CursorWithCommandBuilder sets a custom CommandBuilder for the driver.
 func CursorWithCommandBuilder(cb CommandBuilder) CursorCliOption {
 	return func(d *CursorCliDriver) {
@@ -48,6 +56,7 @@ func CursorWithCommandBuilder(cb CommandBuilder) CursorCliOption {
 // NewCursorCliDriver creates a new CursorCliDriver with the given options.
 func NewCursorCliDriver(opts ...CursorCliOption) *CursorCliDriver {
 	d := &CursorCliDriver{
+		cliCommand:     "agent",
 		defaultModel:   "",
 		defaultTimeout: CursorDefaultTimeout,
 		cmdBuilder:     defaultCommandBuilder,
@@ -84,7 +93,7 @@ func (d *CursorCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	defer cancel()
 
 	args := d.buildArgs(req, "json")
-	cmd := d.cmdBuilder(ctx, "agent", args...)
+	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -161,7 +170,7 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 
 	args := d.buildArgs(req, "stream-json")
-	cmd := d.cmdBuilder(ctx, "agent", args...)
+	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
