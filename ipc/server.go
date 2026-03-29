@@ -1987,6 +1987,11 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 		return
 	}
 
+	// Fallback: if toolDefs is empty, build from StepRecord
+	if len(toolDefs) == 0 && rec.Action != "" {
+		toolDefs = []vfs.ToolDef{{Name: rec.Action, Description: rec.Summary}}
+	}
+
 	// Phase C: assemble response
 	resp := GetStepDetailResponse{
 		SystemPrompt:   systemPrompt,
