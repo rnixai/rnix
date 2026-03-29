@@ -57,12 +57,17 @@ rnix strace 1
 rnix dashboard
 ```
 
-## v0.7 Highlights
+## Core Concepts
 
-- **Dashboard UX** — Multi-pane TUI: process history, LLM conversation viewer, intent tree, distributed tracing
-- **Unified Reasoning Loop** — LLM autonomously selects: tool_call / plan / spawn / specialize / complete
-- **UUID v7 Processes** — Time-sortable UUIDs for distributed process tracking
-- **Native ToolCalls** — VFS devices self-describe capabilities, LLM discovers tools dynamically
+| Unix | Rnix | Description |
+|------|------|-------------|
+| `process` | Agent process | Every agent run gets a PID, state machine, and resource table |
+| `/dev/*` | VFS devices | LLM, filesystem, shell, MCP — all accessed as files via Open/Read/Write |
+| `strace` | `rnix strace` | See every syscall your agent makes, in real time |
+| `kill` | `rnix kill` | Terminate any agent from any terminal |
+| `top` | `rnix top` | Real-time process monitor with token and time metrics |
+| `gdb` | `rnix gdb` | Interactive debugger: breakpoints, single-step, inspect context |
+| `init` | `rnix init` | Bootstrap configuration for providers, agents, and skills |
 
 ## License
 

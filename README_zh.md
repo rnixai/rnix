@@ -57,12 +57,17 @@ rnix strace 1
 rnix dashboard
 ```
 
-## v0.7 亮点
+## 核心概念
 
-- **Dashboard 体验** — 多窗格 TUI：进程历史、LLM 对话查看器、意图树、分布式追踪
-- **统一推理循环** — LLM 自主选择：tool_call / plan / spawn / specialize / complete
-- **UUID v7 进程** — 时间有序 UUID，支持分布式进程追踪
-- **原生 ToolCalls** — VFS 设备自描述能力，LLM 动态发现工具
+| Unix | Rnix | 说明 |
+|------|------|------|
+| `process` | 智能体进程 | 每次运行分配 PID、状态机和资源表 |
+| `/dev/*` | VFS 设备 | LLM、文件系统、Shell、MCP — 统一通过 Open/Read/Write 访问 |
+| `strace` | `rnix strace` | 实时查看智能体的每一次系统调用 |
+| `kill` | `rnix kill` | 从任意终端终止任意智能体 |
+| `top` | `rnix top` | 实时进程监控，显示 token 和耗时指标 |
+| `gdb` | `rnix gdb` | 交互式调试器：断点、单步、检查上下文 |
+| `init` | `rnix init` | 引导配置 Provider、Agent 和 Skill |
 
 ## 许可证
 
