@@ -3375,6 +3375,7 @@ func (k *KernelImpl) writeDriverStepRecordFull(proc *Process, step int, action, 
 	sw := proc.stepWriter
 	proc.mu.Unlock()
 	if sw == nil {
+		log.Printf("[step_writer] WARNING: stepWriter is nil for pid=%d, step=%d will not be recorded", proc.PID, step)
 		return
 	}
 
