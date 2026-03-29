@@ -780,7 +780,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 								case "tool_result":
 									toolUseID, _ := block["tool_use_id"].(string)
 									msg.ToolCallID = toolUseID
-									if text, ok := block["content"].(string); ok {
+									if text := extractContentText(block["content"]); text != "" {
 										msg.Content = text
 									}
 								}
@@ -809,7 +809,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 									case "tool_result":
 										toolUseID, _ := block["tool_use_id"].(string)
 										msg.ToolCallID = toolUseID
-										if text, ok := block["content"].(string); ok {
+										if text := extractContentText(block["content"]); text != "" {
 											msg.Content = text
 										}
 									}
@@ -3054,6 +3054,49 @@ func (k *KernelImpl) GetTokenHistory(pid types.PID) ([]types.TokenSnapshot, erro
 		return []types.TokenSnapshot{}, nil
 	}
 	return history, nil
+}
+
+// extractContentText extracts text from a content field that may be a string,
+// []map[string]any, or []any (Claude CLI tool_result content can be any of these).
+func extractContentText(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case map[string]any:
+		if v["type"] == "text" {
+			if text, ok := v["text"].(string); ok {
+				return text
+			}
+		}
+		return ""
+	case []map[string]any:
+		var parts []string
+		for _, block := range v {
+			if block == nil {
+				continue
+			}
+			if block["type"] == "text" {
+				if text, ok := block["text"].(string); ok && text != "" {
+					parts = append(parts, text)
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	case []any:
+		var parts []string
+		for _, item := range v {
+			if block, ok := item.(map[string]any); ok {
+				if block["type"] == "text" {
+					if text, ok := block["text"].(string); ok && text != "" {
+						parts = append(parts, text)
+					}
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
 }
 
 // driverEventToSyscall maps a driver event type to a precise syscall name.
