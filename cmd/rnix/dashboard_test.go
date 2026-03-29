@@ -554,17 +554,17 @@ func TestDashboardModel_TimelinePIDChange(t *testing.T) {
 		t.Fatal("pre-condition: model should have step entries")
 	}
 
-	prevPID := m.selectedPID
+	m.timelineAttachedUUID = m.selectedUUID
 	m.selectedPID = 999
-	m.timelineAttachedPID = prevPID
+	m.selectedUUID = "uuid-999"
 
 	m = m.handleTimelinePIDChange()
 
 	if len(m.stepEntries) != 0 {
-		t.Errorf("PID change should clear stepEntries, got %d", len(m.stepEntries))
+		t.Errorf("UUID change should clear stepEntries, got %d", len(m.stepEntries))
 	}
-	if m.timelineAttachedPID != 999 {
-		t.Errorf("timelineAttachedPID should update to new PID, got %d", m.timelineAttachedPID)
+	if m.timelineAttachedUUID != "uuid-999" {
+		t.Errorf("timelineAttachedUUID should update to new UUID, got %q", m.timelineAttachedUUID)
 	}
 }
 
@@ -1050,6 +1050,7 @@ func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
 	m.heatmapPID = 2
 
 	m.selectedPID = 999
+	m.selectedUUID = "uuid-999"
 	m2, _ := m.handlePIDChange()
 
 	if len(m2.stepEntries) != 0 {
@@ -1061,8 +1062,8 @@ func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
 	if len(m2.heatmapSegments) != 0 {
 		t.Errorf("handlePIDChange should clear heatmapSegments, got %d", len(m2.heatmapSegments))
 	}
-	if m2.timelineAttachedPID != 999 {
-		t.Errorf("timelineAttachedPID should be 999, got %d", m2.timelineAttachedPID)
+	if m2.timelineAttachedUUID != "uuid-999" {
+		t.Errorf("timelineAttachedUUID should be uuid-999, got %q", m2.timelineAttachedUUID)
 	}
 	if m2.heatmapPID != 999 {
 		t.Errorf("heatmapPID should be 999, got %d", m2.heatmapPID)

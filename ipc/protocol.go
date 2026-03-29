@@ -16,47 +16,47 @@ import (
 type Method string
 
 const (
-	MethodPing          Method = "ping"
-	MethodSpawn         Method = "spawn"
-	MethodListProcs     Method = "list_procs"
-	MethodKill          Method = "kill"
-	MethodAttachDebug   Method = "attach_debug"
-	MethodAttachLog     Method = "attach_log"
-	MethodShutdown      Method = "shutdown"
-	MethodSpawnPipeline Method = "spawn_pipeline"
-	MethodExecScript    Method = "exec_script"
-	MethodAttachGdb     Method = "attach_gdb"
-	MethodDetachGdb     Method = "detach_gdb"
-	MethodGdbCommand    Method = "gdb_command"
-	MethodRecordStart   Method = "record_start"
-	MethodRecordStop    Method = "record_stop"
-	MethodRecordList    Method = "record_list"
-	MethodReplayLoad    Method = "replay_load"
-	MethodForkContinue  Method = "fork_continue"
-	MethodCtxProfile    Method = "ctx_profile"
-	MethodCtxGrowth     Method = "ctx_growth"
-	MethodApplyIntent   Method = "apply_intent"
-	MethodIntentStatus  Method = "intent_status"
-	MethodIntentConfirm Method = "intent_confirm"
+	MethodPing                   Method = "ping"
+	MethodSpawn                  Method = "spawn"
+	MethodListProcs              Method = "list_procs"
+	MethodKill                   Method = "kill"
+	MethodAttachDebug            Method = "attach_debug"
+	MethodAttachLog              Method = "attach_log"
+	MethodShutdown               Method = "shutdown"
+	MethodSpawnPipeline          Method = "spawn_pipeline"
+	MethodExecScript             Method = "exec_script"
+	MethodAttachGdb              Method = "attach_gdb"
+	MethodDetachGdb              Method = "detach_gdb"
+	MethodGdbCommand             Method = "gdb_command"
+	MethodRecordStart            Method = "record_start"
+	MethodRecordStop             Method = "record_stop"
+	MethodRecordList             Method = "record_list"
+	MethodReplayLoad             Method = "replay_load"
+	MethodForkContinue           Method = "fork_continue"
+	MethodCtxProfile             Method = "ctx_profile"
+	MethodCtxGrowth              Method = "ctx_growth"
+	MethodApplyIntent            Method = "apply_intent"
+	MethodIntentStatus           Method = "intent_status"
+	MethodIntentConfirm          Method = "intent_confirm"
 	MethodApplyIncrementalIntent Method = "apply_incremental_intent"
-	MethodIntentList    Method = "intent_list"
-	MethodLineage       Method = "lineage"
-	MethodProviderStatus Method = "provider_status"
-	MethodBudgetStatus  Method = "budget_status"
-	MethodSLAStatus     Method = "sla_status"
-	MethodReputationStatus Method = "reputation_status"
-	MethodSynergyList      Method = "synergy_list"
-	MethodImmuneStatus     Method = "immune_status"
-	MethodImmuneResume     Method = "immune_resume"
-	MethodSimilarityQuery  Method = "similarity_query"
-	MethodTopologyQuery    Method = "topology_query"
-	MethodGetStepDetail    Method = "get_step_detail"
-	MethodListSteps        Method = "list_steps"
-	MethodListEvents       Method = "list_events"
-	MethodGetProcDetail    Method = "get_proc_detail"
-	MethodTraceList        Method = "trace_list"
-	MethodTraceTree        Method = "trace_tree"
-	MethodListAllProcs     Method = "list_all_procs"
+	MethodIntentList             Method = "intent_list"
+	MethodLineage                Method = "lineage"
+	MethodProviderStatus         Method = "provider_status"
+	MethodBudgetStatus           Method = "budget_status"
+	MethodSLAStatus              Method = "sla_status"
+	MethodReputationStatus       Method = "reputation_status"
+	MethodSynergyList            Method = "synergy_list"
+	MethodImmuneStatus           Method = "immune_status"
+	MethodImmuneResume           Method = "immune_resume"
+	MethodSimilarityQuery        Method = "similarity_query"
+	MethodTopologyQuery          Method = "topology_query"
+	MethodGetStepDetail          Method = "get_step_detail"
+	MethodListSteps              Method = "list_steps"
+	MethodListEvents             Method = "list_events"
+	MethodGetProcDetail          Method = "get_proc_detail"
+	MethodTraceList              Method = "trace_list"
+	MethodTraceTree              Method = "trace_tree"
+	MethodListAllProcs           Method = "list_all_procs"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -113,7 +113,7 @@ type Request struct {
 
 // Response is the top-level IPC response envelope (NDJSON).
 type Response struct {
-	OK      bool            `json:"ok"`              // Required. True if the request succeeded.
+	OK      bool            `json:"ok"`                // Required. True if the request succeeded.
 	Payload json.RawMessage `json:"payload,omitempty"` // Optional. Contains the method-specific response struct (JSON).
 	Error   *ErrorPayload   `json:"error,omitempty"`   // Optional. Present only when OK is false.
 }
@@ -354,17 +354,17 @@ const (
 	StreamGdbPrompt      StreamEventType = "gdb_prompt"
 
 	// intent-specific stream event types
-	StreamIntentDecomposed    StreamEventType = "intent_decomposed"
-	StreamIntentConfirmReq    StreamEventType = "intent_confirm_required"
-	StreamIntentNodeStart     StreamEventType = "intent_node_start"
-	StreamIntentNodeDone      StreamEventType = "intent_node_done"
-	StreamIntentNodeFailed    StreamEventType = "intent_node_failed"
-	StreamIntentProgress      StreamEventType = "intent_progress"
-	StreamIntentComplete      StreamEventType = "intent_complete"
-	StreamIntentNodeRetry     StreamEventType = "intent_node_retry"
-	StreamIntentNodeTimeout   StreamEventType = "intent_node_timeout"
-	StreamIntentDriftDetected StreamEventType = "intent_drift_detected"
-	StreamIntentDriftResolved StreamEventType = "intent_drift_resolved"
+	StreamIntentDecomposed        StreamEventType = "intent_decomposed"
+	StreamIntentConfirmReq        StreamEventType = "intent_confirm_required"
+	StreamIntentNodeStart         StreamEventType = "intent_node_start"
+	StreamIntentNodeDone          StreamEventType = "intent_node_done"
+	StreamIntentNodeFailed        StreamEventType = "intent_node_failed"
+	StreamIntentProgress          StreamEventType = "intent_progress"
+	StreamIntentComplete          StreamEventType = "intent_complete"
+	StreamIntentNodeRetry         StreamEventType = "intent_node_retry"
+	StreamIntentNodeTimeout       StreamEventType = "intent_node_timeout"
+	StreamIntentDriftDetected     StreamEventType = "intent_drift_detected"
+	StreamIntentDriftResolved     StreamEventType = "intent_drift_resolved"
 	StreamIntentIncrementalMerged StreamEventType = "intent_incremental_merged"
 )
 
@@ -518,13 +518,13 @@ type RecordListResponse struct {
 
 // RecordMetadataWire is the wire-format representation of debug.RecordMetadata.
 type RecordMetadataWire struct {
-	RecordID   string    `json:"record_id"`              // Required. Unique recording identifier.
-	PID        types.PID `json:"pid"`                    // Required. PID of the recorded process.
-	Intent     string    `json:"intent"`                 // Required. Original intent of the recorded process.
-	StartTime  int64     `json:"start_time_ms"`          // Required. Recording start time as Unix milliseconds.
-	EndTime    int64     `json:"end_time_ms,omitempty"`  // Optional. Recording end time; zero if still recording.
-	EventCount uint64    `json:"event_count"`            // Required. Number of events captured so far.
-	Status     string    `json:"status"`                 // Required. One of "recording", "completed", "stopped".
+	RecordID   string    `json:"record_id"`             // Required. Unique recording identifier.
+	PID        types.PID `json:"pid"`                   // Required. PID of the recorded process.
+	Intent     string    `json:"intent"`                // Required. Original intent of the recorded process.
+	StartTime  int64     `json:"start_time_ms"`         // Required. Recording start time as Unix milliseconds.
+	EndTime    int64     `json:"end_time_ms,omitempty"` // Optional. Recording end time; zero if still recording.
+	EventCount uint64    `json:"event_count"`           // Required. Number of events captured so far.
+	Status     string    `json:"status"`                // Required. One of "recording", "completed", "stopped".
 }
 
 // --- Replay ---
@@ -549,9 +549,9 @@ type ReplayLoadResponse struct {
 
 // ForkContinueMessage represents a single message in a fork-continue request.
 type ForkContinueMessage struct {
-	Role       string `json:"role"`                    // Required. One of "user", "assistant", "system", "tool".
-	Content    string `json:"content"`                 // Required. Message text content.
-	ToolCallID string `json:"tool_call_id,omitempty"`  // Optional. Tool call ID for role="tool" messages.
+	Role       string `json:"role"`                   // Required. One of "user", "assistant", "system", "tool".
+	Content    string `json:"content"`                // Required. Message text content.
+	ToolCallID string `json:"tool_call_id,omitempty"` // Optional. Tool call ID for role="tool" messages.
 }
 
 // ForkMessageWire is an alias for ForkContinueMessage for backward compatibility.
@@ -727,8 +727,8 @@ type ProviderStatusResponse struct {
 type ProviderStatusWire struct {
 	Name   string `json:"name"`
 	Driver string `json:"driver"`
-	Health string `json:"health"`            // "healthy", "unhealthy", "unchecked"
-	Source string `json:"source,omitempty"`   // "global", "project"
+	Health string `json:"health"`           // "healthy", "unhealthy", "unchecked"
+	Source string `json:"source,omitempty"` // "global", "project"
 }
 
 // --- Budget Status (Story 21.1) ---
@@ -810,12 +810,12 @@ type ImmuneStatusResponse struct {
 	Running        bool                             `json:"running"`
 	UptimeMs       int64                            `json:"uptime_ms"`
 	ProfileCount   int                              `json:"profile_count"`
-	Profiles       map[string]*kernel.NormalProfile  `json:"profiles"`
-	ActivePIDs     []uint64                          `json:"active_pids"`
-	SuspendedPIDs  []uint64                          `json:"suspended_pids"`
-	Alerts         []AlertWire                       `json:"alerts"`
+	Profiles       map[string]*kernel.NormalProfile `json:"profiles"`
+	ActivePIDs     []uint64                         `json:"active_pids"`
+	SuspendedPIDs  []uint64                         `json:"suspended_pids"`
+	Alerts         []AlertWire                      `json:"alerts"`
 	ThreatCount    int                              `json:"threat_count"`
-	SecurityStatus string                            `json:"security_status"`
+	SecurityStatus string                           `json:"security_status"`
 }
 
 // AlertWire is the IPC wire format for AnomalyAlert.
@@ -852,7 +852,7 @@ type SimilarityQueryRequest struct {
 
 // SimilarityQueryResponse is the response for MethodSimilarityQuery.
 type SimilarityQueryResponse struct {
-	Agent        string                         `json:"agent"`
+	Agent        string                        `json:"agent"`
 	Similarities []kernel.CapabilitySimilarity `json:"similarities"`
 }
 
@@ -879,22 +879,22 @@ type GetStepDetailRequest struct {
 
 // GetStepDetailResponse is the response for MethodGetStepDetail.
 type GetStepDetailResponse struct {
-	SystemPrompt   string         `json:"system_prompt"`
-	Tools          []ToolDefWire  `json:"tools"`
-	Step           int            `json:"step"`
-	Messages       []MessageWire  `json:"messages"`
-	MessageCount   int            `json:"message_count"`
-	TokenCount     int            `json:"token_count"`
-	RawResponse    string         `json:"raw_response"`
-	Action         string         `json:"action"`
-	Summary        string         `json:"summary"`
-	ToolPath       string         `json:"tool_path,omitempty"`
-	ToolInput      string         `json:"tool_input,omitempty"`
-	ToolResult     string         `json:"tool_result,omitempty"`
-	ToolError      string         `json:"tool_error,omitempty"`
-	ToolDurationMs float64        `json:"tool_duration_ms,omitempty"`
-	RequestTokens  int            `json:"request_tokens"`
-	ResponseTokens int            `json:"response_tokens"`
+	SystemPrompt   string        `json:"system_prompt"`
+	Tools          []ToolDefWire `json:"tools"`
+	Step           int           `json:"step"`
+	Messages       []MessageWire `json:"messages"`
+	MessageCount   int           `json:"message_count"`
+	TokenCount     int           `json:"token_count"`
+	RawResponse    string        `json:"raw_response"`
+	Action         string        `json:"action"`
+	Summary        string        `json:"summary"`
+	ToolPath       string        `json:"tool_path,omitempty"`
+	ToolInput      string        `json:"tool_input,omitempty"`
+	ToolResult     string        `json:"tool_result,omitempty"`
+	ToolError      string        `json:"tool_error,omitempty"`
+	ToolDurationMs float64       `json:"tool_duration_ms,omitempty"`
+	RequestTokens  int           `json:"request_tokens"`
+	ResponseTokens int           `json:"response_tokens"`
 }
 
 // MessageWire is the wire-format representation of context.Message.
@@ -933,6 +933,7 @@ type StepSummaryWire struct {
 	Step       int     `json:"step"`
 	Action     string  `json:"action"`
 	Summary    string  `json:"summary"`
+	ToolPath   string  `json:"tool_path,omitempty"`
 	HasError   bool    `json:"has_error"`
 	DurationMs float64 `json:"duration_ms"`
 	TokenCount int     `json:"token_count"`
@@ -967,20 +968,20 @@ type GetProcDetailRequest struct {
 
 // GetProcDetailResponse is the response for MethodGetProcDetail.
 type GetProcDetailResponse struct {
-	PID            types.PID            `json:"pid"`
-	UUID           string               `json:"uuid"`
-	PPID           types.PID            `json:"ppid"`
-	State          string               `json:"state"`
-	Intent         string               `json:"intent"`
-	Provider       string               `json:"provider"`
-	Model          string               `json:"model"`
-	CreatedAtMs    int64                `json:"created_at_ms"`
-	DeadAtMs       int64                `json:"dead_at_ms,omitempty"`
-	Skills         []SkillInfoWire      `json:"skills"`
-	AllowedDevices []string             `json:"allowed_devices"`
-	EnvSnapshot    map[string]string    `json:"env_snapshot"`
-	FDTable        []FDEntryWire        `json:"fd_table"`
-	ContextStats   ContextStatsWire     `json:"context_stats"`
+	PID            types.PID         `json:"pid"`
+	UUID           string            `json:"uuid"`
+	PPID           types.PID         `json:"ppid"`
+	State          string            `json:"state"`
+	Intent         string            `json:"intent"`
+	Provider       string            `json:"provider"`
+	Model          string            `json:"model"`
+	CreatedAtMs    int64             `json:"created_at_ms"`
+	DeadAtMs       int64             `json:"dead_at_ms,omitempty"`
+	Skills         []SkillInfoWire   `json:"skills"`
+	AllowedDevices []string          `json:"allowed_devices"`
+	EnvSnapshot    map[string]string `json:"env_snapshot"`
+	FDTable        []FDEntryWire     `json:"fd_table"`
+	ContextStats   ContextStatsWire  `json:"context_stats"`
 }
 
 // SkillInfoWire is the wire-format representation of a loaded skill with its allowed tools.

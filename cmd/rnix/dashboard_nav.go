@@ -245,7 +245,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 				return m, nil
 			}
-			if msg.Code == 'p' {
+			if key == "P" || key == "shift+P" || msg.ShiftedCode == 'P' {
 				entry := m.stepEntries[idx]
 				if cached := m.stepDetailCache[entry.summary.Step]; cached != nil {
 					m.enterPromptPager(cached, entry.summary.Step)

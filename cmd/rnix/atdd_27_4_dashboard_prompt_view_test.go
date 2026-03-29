@@ -6,12 +6,12 @@ package main
 // =============================================================================
 //
 // Test Strategy:
-//   AC-1: p key enters Prompt Pager (with GetStepDetail fetch or cache hit)
+//   AC-1: P key enters Prompt Pager (with GetStepDetail fetch or cache hit)
 //   AC-2: Pager scrolling (j/k, PgUp/PgDn, Home/End via viewport)
 //   AC-3: q key returns to Dashboard (preserves stepCursor & activePane)
 //   AC-5: Prompt content formatting (System/Messages/Tools sections)
 //   AC-6: Cache reuse (no IPC call when cache exists)
-//   AC-7: No step → p key is no-op
+//   AC-7: No step → P key is no-op
 //   Extra: PID change exits pager, Escape exits pager, WindowResize in pager
 //
 // Note: AC-4 (offline viewing) is an IPC/server-side concern — not testable
@@ -61,14 +61,14 @@ func newPromptPagerModel() dashboardModel {
 }
 
 // ---------------------------------------------------------------------------
-// AC-1: p 键进入 Prompt Pager
+// AC-1: P 键进入 Prompt Pager
 // ---------------------------------------------------------------------------
 
 func TestATDD_27_4_AC1_PKey_EntersPromptPager_CacheHit(t *testing.T) {
 	m := newPromptPagerModel()
 	m.stepCursor = 0
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
 
 	model := m2.(dashboardModel)
 	if !model.promptPager {
@@ -80,7 +80,7 @@ func TestATDD_27_4_AC1_PKey_SetsPromptStep(t *testing.T) {
 	m := newPromptPagerModel()
 	m.stepCursor = 0
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
 
 	model := m2.(dashboardModel)
 	if model.promptStep != 1 {
@@ -92,7 +92,7 @@ func TestATDD_27_4_AC1_PKey_SetsPromptContent(t *testing.T) {
 	m := newPromptPagerModel()
 	m.stepCursor = 0
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
 
 	model := m2.(dashboardModel)
 	if model.promptContent == "" {
@@ -105,7 +105,7 @@ func TestATDD_27_4_AC1_PKey_CacheMiss_ReturnsCmd(t *testing.T) {
 	m.stepCursor = 0
 	// No cache entry for step 1
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'p'})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 80})
 
 	if cmd == nil {
 		t.Error("AC-1: cache miss should return a fetch Cmd, got nil")
@@ -116,7 +116,7 @@ func TestATDD_27_4_AC1_PKey_CacheMiss_SetsFetchingDetail(t *testing.T) {
 	m := newStepTimelineModel()
 	m.stepCursor = 0
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
 
 	model := m2.(dashboardModel)
 	if !model.fetchingDetail {
@@ -190,7 +190,7 @@ func TestATDD_27_4_AC1_PromptPagerMsg_Error_NoPager(t *testing.T) {
 func TestATDD_27_4_AC2_PagerMode_KeysForwardToViewport(t *testing.T) {
 	m := newPromptPagerModel()
 	m.stepCursor = 0
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
 	model := m2.(dashboardModel)
 	if !model.promptPager {
 		t.Skip("AC-2: pager not entered, skipping scroll test")
@@ -492,7 +492,7 @@ func TestATDD_27_4_AC6_CacheHit_NoFetchCmd(t *testing.T) {
 	m := newPromptPagerModel() // cache pre-filled for step 1
 	m.stepCursor = 0
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'p'})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 80})
 
 	if cmd != nil {
 		t.Error("AC-6: cache hit should NOT return a fetch Cmd")
@@ -503,7 +503,7 @@ func TestATDD_27_4_AC6_CacheHit_ImmediatePager(t *testing.T) {
 	m := newPromptPagerModel()
 	m.stepCursor = 0
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
 
 	model := m2.(dashboardModel)
 	if !model.promptPager {
@@ -516,7 +516,7 @@ func TestATDD_27_4_AC6_CacheHit_NoFetchingDetailFlag(t *testing.T) {
 	m.stepCursor = 0
 	m.fetchingDetail = false
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
 
 	model := m2.(dashboardModel)
 	if model.fetchingDetail {
@@ -532,7 +532,7 @@ func TestATDD_27_4_AC7_NoSteps_PKey_Noop(t *testing.T) {
 	m := newStepTimelineModel()
 	m.stepEntries = nil // empty
 
-	m2, cmd := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, cmd := m.Update(tea.KeyPressMsg{Code: 80})
 
 	model := m2.(dashboardModel)
 	if model.promptPager {
@@ -547,7 +547,7 @@ func TestATDD_27_4_AC7_EmptyStepEntries_PKey_Silent(t *testing.T) {
 	m := newStepTimelineModel()
 	m.stepEntries = []stepEntry{} // empty slice
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
 
 	model := m2.(dashboardModel)
 	if model.promptPager {
@@ -564,8 +564,9 @@ func TestATDD_27_4_Extra_PIDChange_ExitsPager(t *testing.T) {
 	m.promptPager = true
 	m.promptContent = "old content"
 	m.promptStep = 1
-	m.timelineAttachedPID = 1
-	m.selectedPID = 2 // force PID change
+	m.timelineAttachedUUID = "uuid-1"
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-2" // force process change
 
 	m2 := m.handleTimelinePIDChange()
 
@@ -668,7 +669,7 @@ func TestATDD_27_4_Extra_PKey_WhileFetching_Noop(t *testing.T) {
 	m.stepCursor = 0
 	m.fetchingDetail = true // already fetching
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'p'})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 80})
 
 	if cmd != nil {
 		t.Error("Extra: p key while fetchingDetail=true should NOT issue another fetch")
@@ -685,7 +686,7 @@ func TestATDD_27_4_Extra_PKey_NotInStepTimelineMode_Noop(t *testing.T) {
 	m := newPromptPagerModel()
 	m.stepEntries = nil // no steps
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'p'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
 
 	model := m2.(dashboardModel)
 	if model.promptPager {
