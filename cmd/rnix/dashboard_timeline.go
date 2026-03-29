@@ -41,6 +41,7 @@ func actionColor(action string) lipgloss.Color {
 }
 
 // actionAbbrev returns a shortened action name for narrow screens.
+// "text" is displayed as "asst" (assistant) to match the conversation role.
 func actionAbbrev(action string) string {
 	switch action {
 	case "tool_call":
@@ -49,6 +50,8 @@ func actionAbbrev(action string) string {
 		return "done"
 	case "specialize":
 		return "spec"
+	case "text":
+		return "x"
 	default:
 		return action
 	}
@@ -67,12 +70,14 @@ func defaultStepFilters() map[string]bool {
 	}
 }
 
-// handleTimelinePIDChange resets timeline state when selected PID changes.
+// handleTimelinePIDChange resets timeline state when selected process changes.
+// Uses UUID for reliable identification (PIDs can be reused).
 func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
-	if m.selectedPID == m.timelineAttachedPID {
+	if m.selectedUUID == m.timelineAttachedUUID {
 		return m
 	}
 	m.timelineAttachedPID = m.selectedPID
+	m.timelineAttachedUUID = m.selectedUUID
 	m.stepEntries = nil
 	m.stepCursor = 0
 	m.stepScrollTop = 0
@@ -115,6 +120,8 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		}
 	case "f":
 		m.stepFilterMode = true
+		m.statusMsg = "过滤模式: 按 T/P/A/C/S/R/Z 切换, * 全选, Esc 退出"
+		m.statusMsgTTL = statusMsgDefaultTTL
 	}
 	m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 	return m
@@ -130,7 +137,7 @@ func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
 		m.stepFilters["tool_call"] = !m.stepFilters["tool_call"]
 	case "p":
 		m.stepFilters["plan"] = !m.stepFilters["plan"]
-	case "x":
+	case "a":
 		m.stepFilters["text"] = !m.stepFilters["text"]
 	case "c":
 		m.stepFilters["complete"] = !m.stepFilters["complete"]
@@ -140,10 +147,13 @@ func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
 		m.stepFilters["replan"] = !m.stepFilters["replan"]
 	case "z":
 		m.stepFilters["specialize"] = !m.stepFilters["specialize"]
-	case "a":
+	case "*":
 		m.stepFilters = defaultStepFilters()
 	case "f", "esc":
 		m.stepFilterMode = false
+	default:
+		m.statusMsg = "过滤模式: 按 T/P/A/C/S/R/Z 切换, * 全选, Esc 退出"
+		m.statusMsgTTL = statusMsgDefaultTTL
 	}
 	return m
 }
@@ -285,11 +295,11 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	}
 	endIdx := len(filtered) // render loop uses linesUsed to stop
 
-	// Layout params
-	showDuration := width >= 100
-	showTokenFull := width >= 90
-	showToken := width >= 80
-	useAbbrev := width < 80
+	// Layout params — new structure: summary is primary, step+action are compact suffix
+	// Before: [cursor][collapse][Step N  ][action     ] summary    [token] [dur] [err]
+	// After:  [cursor][collapse] summary                                [N abbr] [token] [dur] [err]
+	showDuration := width >= 90
+	showToken := width >= 70
 
 	linesUsed := 0
 	for fi := startIdx; fi < endIdx && linesUsed < listLines; fi++ {
@@ -308,30 +318,18 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			levelMark = "▾"
 		}
 
-		// Step number
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-		stepLabel := dimStyle.Render(fmt.Sprintf("Step %-3d", s.Step))
 
-		// Action with color
-		actionStr := s.Action
-		if useAbbrev {
-			actionStr = actionAbbrev(actionStr)
-		}
-		actionStyle := lipgloss.NewStyle().Foreground(actionColor(s.Action))
-		if s.Action == "complete" {
-			actionStyle = actionStyle.Bold(true)
-		}
-		actionLabel := actionStyle.Render(fmt.Sprintf("%-12s", actionStr))
+		// Compact step+action suffix: "3 tc" / "1 pl" / "4 dn"
+		stepAction := dimStyle.Render(fmt.Sprintf("%d %s", s.Step, actionAbbrev(s.Action)))
 
 		// Token
 		var tokenLabel string
 		if showToken {
 			if s.TokenCount == 0 {
-				tokenLabel = dimStyle.Render("     —")
-			} else if showTokenFull {
-				tokenLabel = dimStyle.Render(fmt.Sprintf("%6s tok", formatTokenCount(s.TokenCount)))
+				tokenLabel = dimStyle.Render("    —")
 			} else {
-				tokenLabel = dimStyle.Render(fmt.Sprintf("%6stok", formatTokenCount(s.TokenCount)))
+				tokenLabel = dimStyle.Render(fmt.Sprintf("%5s", formatTokenCount(s.TokenCount)))
 			}
 		}
 
@@ -352,10 +350,17 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
 		}
 
-		// Summary (elastic width)
-		fixedWidth := 2 + 1 + 8 + 1 + 12 + 1 // cursor + level + step + space + action + space
+		// Summary is the primary content — gets maximum width.
+		// For CLI driver steps, Summary is often just the tool name (e.g. "read").
+		// ToolPath contains richer context (e.g. "read:/path/to/file").
+		// Prefer ToolPath when Summary is short (< 8 chars) and ToolPath is available.
+		displaySummary := s.Summary
+		if s.ToolPath != "" && len(s.Summary) < 8 {
+			displaySummary = s.ToolPath
+		}
+		fixedWidth := 2 + 1 + 1 + 5 // cursor(2) + collapse(1) + space(1) + stepAction(5)
 		if showToken {
-			fixedWidth += 10
+			fixedWidth += 6
 		}
 		if showDuration {
 			fixedWidth += 7
@@ -363,23 +368,28 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		if s.HasError {
 			fixedWidth += 2
 		}
-		summaryW := max(truncW-fixedWidth, 20)
-		summary := truncateRuneWidth(s.Summary, summaryW)
+		summaryW := max(truncW-fixedWidth, 10)
+		summaryText := truncateRuneWidth(displaySummary, summaryW)
 
-		// Error step: highlight entire line
+		// Build line
 		var line string
+		parts := []string{cursor, levelMark, summaryText}
 		if showDuration {
-			line = fmt.Sprintf("%s%s%s %s %s  %s  %s%s", cursor, levelMark, stepLabel, actionLabel, summary, tokenLabel, durLabel, errMark)
+			parts = append(parts, tokenLabel, durLabel, stepAction, errMark)
 		} else if showToken {
-			line = fmt.Sprintf("%s%s%s %s %s  %s%s", cursor, levelMark, stepLabel, actionLabel, summary, tokenLabel, errMark)
+			parts = append(parts, tokenLabel, stepAction, errMark)
 		} else {
-			line = fmt.Sprintf("%s%s%s %s %s%s", cursor, levelMark, stepLabel, actionLabel, summary, errMark)
+			parts = append(parts, stepAction, errMark)
 		}
+		line = strings.Join(parts, " ")
 
 		if s.HasError {
 			line = lipgloss.NewStyle().Background(lipgloss.Color("#3D1F1F")).Render(line)
 		} else if fi == m.stepCursor {
-			line = lipgloss.NewStyle().Reverse(true).Render(line)
+			line = lipgloss.NewStyle().
+				Background(lipgloss.Color("#2D2D3D")).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Render(line)
 		}
 
 		b.WriteString(truncateAnsi(line, truncW))
@@ -629,7 +639,7 @@ func (m dashboardModel) renderStepFilterBar(maxW int) string {
 	}{
 		{"T", "tool_call", "tool_call"},
 		{"P", "plan", "plan"},
-		{"X", "text", "text"},
+		{"A", "assistant", "text"},
 		{"C", "complete", "complete"},
 		{"S", "spawn", "spawn"},
 		{"R", "replan", "replan"},
@@ -648,7 +658,7 @@ func (m dashboardModel) renderStepFilterBar(maxW int) string {
 		fmt.Fprintf(&b, " [%s]%s %s", t.key, catStyle.Render(t.label), mark)
 	}
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	b.WriteString("  [A]ll  " + dimStyle.Render("f/Esc:done"))
+	b.WriteString("  [*]all  " + dimStyle.Render("f/Esc:done"))
 	return truncateAnsi(b.String(), maxW)
 }
 
@@ -708,7 +718,7 @@ func (m dashboardModel) estimateDebugLines(detail *ipc.GetStepDetailResponse) in
 	n := 2 // separator + messages header
 	msgCount := len(detail.Messages)
 	n += min(msgCount, 6) // message preview lines
-	n++                    // hint line
+	n++                   // hint line
 	return n
 }
 
@@ -840,18 +850,23 @@ func (m dashboardModel) fetchNextExpandedDetail() tea.Cmd {
 
 // --- Fetch commands ---
 
-func fetchStepsCmd(pid types.PID, afterStep int) tea.Cmd {
+func fetchStepsCmd(uuid string, pid types.PID, afterStep int) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return stepListMsg{err: err}
+			return stepListMsg{uuid: uuid, pid: pid, err: err}
 		}
 		defer client.Close()
-		resp, err := client.ListSteps(pid, afterStep)
-		if err != nil {
-			return stepListMsg{err: err}
+		var resp *ipc.ListStepsResponse
+		if uuid != "" {
+			resp, err = client.ListStepsByUUID(uuid, afterStep)
+		} else {
+			resp, err = client.ListSteps(pid, afterStep)
 		}
-		return stepListMsg{steps: resp.Steps, total: resp.Total}
+		if err != nil {
+			return stepListMsg{uuid: uuid, pid: pid, err: err}
+		}
+		return stepListMsg{uuid: uuid, pid: pid, steps: resp.Steps, total: resp.Total}
 	}
 }
 

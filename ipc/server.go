@@ -2046,6 +2046,7 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 			Step:       r.Step,
 			Action:     r.Action,
 			Summary:    r.Summary,
+			ToolPath:   r.ToolPath,
 			HasError:   r.ToolError != "",
 			DurationMs: float64(r.ToolDuration.Microseconds()) / 1000.0,
 			TokenCount: r.TokenCount,
@@ -2387,7 +2388,6 @@ func (s *Server) resolveStepsPathFromProc(proc *kernel.Process) string {
 	return filepath.Join(base, "data", "steps", procUUID, "steps.jsonl")
 }
 
-
 type processMetaFile struct {
 	PID          types.PID     `json:"pid,omitempty"`
 	SystemPrompt string        `json:"system_prompt"`
@@ -2405,7 +2405,6 @@ func readProcessMeta(path string) (*processMetaFile, error) {
 	}
 	return &meta, nil
 }
-
 
 func toolDefsToWire(defs []vfs.ToolDef) []ToolDefWire {
 	if defs == nil {

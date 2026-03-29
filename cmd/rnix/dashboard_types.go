@@ -59,6 +59,8 @@ type stepEntry struct {
 // --- Message types ---
 
 type stepListMsg struct {
+	uuid  string
+	pid   types.PID
 	steps []ipc.StepSummaryWire
 	total int
 	err   error

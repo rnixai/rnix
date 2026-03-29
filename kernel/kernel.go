@@ -695,6 +695,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					}
 					dur := time.Since(pendingTool.start)
 					toolInput := pendingTool.inputBuf.String()
+					// Generate better summary from tool input at completion time.
+					// At tool start, only the tool name was available; now we have the full input.
+					summary := driverToolSummary(pendingTool.tool, pendingTool.toolPath, toolInput)
 					// Include accumulated messages in step record
 					var msgsRaw json.RawMessage
 					msgCount := len(msgHistory)
@@ -704,7 +707,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 						}
 					}
 					k.writeDriverStepRecordFull(proc, pendingTool.step, "tool_call",
-						pendingTool.summary, pendingTool.toolPath, toolInput, dur,
+						summary, pendingTool.toolPath, toolInput, dur,
 						msgsRaw, msgCount)
 					pendingTool.step = 0
 					pendingTool.inputBuf.Reset()
@@ -817,7 +820,8 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					}
 
 					// Write StepRecord for tool_call events so Dashboard Step Timeline shows them
-					if evtType == "tool_call" {
+					switch evtType {
+					case "tool_call":
 						contentVal, _ := evt["content"].(string)
 						switch contentVal {
 						case "started":
@@ -849,7 +853,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 						case "completed":
 							flushPendingTool()
 						}
-					} else if evtType == "user" {
+					case "user":
 						// User event means previous tool completed; flush pending
 						flushPendingTool()
 					}
@@ -2270,6 +2274,78 @@ func briefToolCallSummary(toolPath, toolResult string) string {
 		brief = "ok"
 	}
 	return toolPath + " → " + brief
+}
+
+// driverToolSummary generates a human-readable summary for CLI driver tool calls.
+// At tool start, only the tool name was known. Now (at flush time) the full input JSON
+// is available. Extract the most meaningful field based on tool type.
+//
+// Common CLI tool input formats:
+//
+//	Bash:   {"command": "go build ./cmd/rnix/", "description": "build"}
+//	glob:   {"pattern": "**/*.go"}
+//	Grep:   {"pattern": "func main", "path": "/src"}
+//	Read:   {"file_path": "/path/to/file"}
+//	Write:  {"file_path": "/path/to/file", "content": "..."}
+//	WebFetch: {"url": "https://example.com"}
+func driverToolSummary(tool, toolPath, toolInput string) string {
+	if toolInput == "" {
+		// No input available — use toolPath as-is (e.g. "glob:**/*.go" or "Bash")
+		if toolPath != "" {
+			return toolPath
+		}
+		return tool
+	}
+
+	// Try to extract the most meaningful field from the JSON input
+	var input map[string]any
+	if err := json.Unmarshal([]byte(toolInput), &input); err != nil {
+		// Not valid JSON — fall back to toolPath
+		if toolPath != "" {
+			return toolPath
+		}
+		return tool
+	}
+
+	// Extract key field based on tool type
+	var key string
+	switch tool {
+	case "Bash":
+		key = "command"
+	case "glob", "Grep":
+		key = "pattern"
+	case "Read", "Write", "Edit":
+		key = "file_path"
+	case "WebFetch":
+		key = "url"
+	default:
+		// Try common field names in order of preference
+		for _, k := range []string{"command", "pattern", "file_path", "url", "query", "text"} {
+			if v, ok := input[k]; ok {
+				key = k
+				_ = v
+				break
+			}
+		}
+	}
+
+	if key != "" {
+		if val, ok := input[key]; ok {
+			valStr := fmt.Sprintf("%v", val)
+			// Truncate long values
+			r := []rune(valStr)
+			if len(r) > 60 {
+				valStr = string(r[:60]) + "..."
+			}
+			return tool + ": " + valStr
+		}
+	}
+
+	// Fallback
+	if toolPath != "" {
+		return toolPath
+	}
+	return tool
 }
 
 // briefPlanSummary generates "plan (N steps)" from plan ToolData JSON.

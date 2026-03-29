@@ -53,7 +53,8 @@ type dashboardModel struct {
 	confirmPID   types.PID
 
 	// Timeline tracking
-	timelineAttachedPID types.PID
+	timelineAttachedPID  types.PID
+	timelineAttachedUUID string
 
 	// Heatmap fields (Story 17-3)
 	heatmapProfile   *debug.CtxProfileResult
@@ -247,6 +248,11 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	case stepListMsg:
+		// Discard steps from a stale process (in-flight fetch from before process change).
+		// uuid == "" means old daemon without UUID tracking — skip check for backward compat.
+		if msg.uuid != "" && msg.uuid != m.selectedUUID {
+			return m, nil
+		}
 		if msg.err == nil && len(msg.steps) > 0 {
 			m = m.applyNewSteps(msg.steps)
 			if last := msg.steps[len(msg.steps)-1]; last.Step > m.lastFetchedStep {
@@ -506,7 +512,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	cmds := []tea.Cmd{tickCmd()}
 
-	pidChanged := m.selectedPID != m.timelineAttachedPID || m.selectedPID != m.heatmapPID
+	pidChanged := m.selectedUUID != m.timelineAttachedUUID || m.selectedPID != m.heatmapPID
 	if pidChanged {
 		m2, pidCmd := m.handlePIDChange()
 		m = m2
@@ -518,7 +524,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	if m.selectedPID > 0 && m.connected {
-		cmds = append(cmds, fetchStepsCmd(m.selectedPID, m.lastFetchedStep))
+		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, m.lastFetchedStep))
 	}
 
 	// Fetch proc detail when Detail pane is active or in default view (Focus Card needs it)
@@ -923,6 +929,9 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.timelineAttachedPID = m.selectedPID
 	m.heatmapPID = m.selectedPID
 
+	m.statusMsg = fmt.Sprintf("Switched to PID %d, fetching steps...", m.selectedPID)
+	m.statusMsgTTL = statusMsgDefaultTTL
+
 	// Detail pane: check cache or reset
 	if cached, ok := m.procDetailCache[m.selectedUUID]; ok {
 		m.procDetail = cached
@@ -935,6 +944,7 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	var cmds []tea.Cmd
 	if m.connected {
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, 0))
 		if m.activePane == paneDetail && m.procDetail == nil {
 			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
 		}

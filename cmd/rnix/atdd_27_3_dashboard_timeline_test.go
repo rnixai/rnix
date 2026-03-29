@@ -65,14 +65,17 @@ func TestATDD_27_3_AC1_Level1_StepSummary_Rendered(t *testing.T) {
 
 	output := m.renderTimelinePane(100, 20)
 
-	if !strings.Contains(output, "Step 1") {
-		t.Errorf("AC-1: Level 1 should show 'Step 1', got: %s", output)
-	}
-	if !strings.Contains(output, "tool_call") {
-		t.Errorf("AC-1: Level 1 should show action type 'tool_call', got: %s", output)
-	}
+	// Summary is the primary content — must be prominently displayed
 	if !strings.Contains(output, "/dev/fs") {
-		t.Errorf("AC-1: Level 1 should show target '/dev/fs', got: %s", output)
+		t.Errorf("AC-1: Level 1 should show summary '/dev/fs', got: %s", output)
+	}
+	// Action abbreviation visible in suffix
+	if !strings.Contains(output, "tool") {
+		t.Errorf("AC-1: Level 1 should show action abbreviation 'tool', got: %s", output)
+	}
+	// Step number visible in suffix
+	if !strings.Contains(output, " 1 ") && !strings.Contains(output, " 1\n") {
+		t.Errorf("AC-1: Level 1 should show step number '1', got: %s", output)
 	}
 }
 
@@ -92,8 +95,12 @@ func TestATDD_27_3_AC1_Level1_ShowsErrorMarker(t *testing.T) {
 
 	output := m.renderTimelinePane(100, 20)
 
-	if !strings.Contains(output, "Step 2") {
-		t.Errorf("AC-1: Level 1 should show 'Step 2'")
+	// Error step summary should be visible with error marker
+	if !strings.Contains(output, "/dev/shell") {
+		t.Errorf("AC-1: Level 1 should show error step summary '/dev/shell'")
+	}
+	if !strings.Contains(output, "✗") {
+		t.Errorf("AC-1: Level 1 should show error marker '✗'")
 	}
 }
 
@@ -102,9 +109,10 @@ func TestATDD_27_3_AC1_Level1_AllSteps(t *testing.T) {
 
 	output := m.renderTimelinePane(100, 20)
 
-	for _, step := range []string{"Step 1", "Step 2", "Step 3"} {
-		if !strings.Contains(output, step) {
-			t.Errorf("AC-1: Level 1 should show %q", step)
+	// Each step's summary content must be visible
+	for _, summary := range []string{"/dev/fs → read main.go", "/dev/shell → go build", "任务完成"} {
+		if !strings.Contains(output, summary) {
+			t.Errorf("AC-1: Level 1 should show summary %q", summary)
 		}
 	}
 }
@@ -480,8 +488,8 @@ func TestATDD_27_3_StepTimelineMode_Default(t *testing.T) {
 		{summary: ipc.StepSummaryWire{Step: 1, Action: "text", Summary: "hello"}},
 	}
 	output := m.renderTimelinePane(100, 20)
-	if !strings.Contains(output, "Step") {
-		t.Errorf("Timeline should default to step view, got: %s", output)
+	if !strings.Contains(output, "hello") {
+		t.Errorf("Timeline should show step summary 'hello', got: %s", output)
 	}
 }
 
@@ -499,5 +507,72 @@ func TestATDD_27_3_ShiftV_FromLevel3_GoesToLevel2(t *testing.T) {
 	model := m2.(dashboardModel)
 	if model.stepEntries[0].level != levelExpanded {
 		t.Errorf("V from Level 3 should downgrade to Level 2, got level %d", model.stepEntries[0].level)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PID switch: timeline resets and shows new process steps
+// ---------------------------------------------------------------------------
+
+func TestTimeline_PIDSwitch_ClearsOldSteps(t *testing.T) {
+	m := newStepTimelineModel() // PID=1, 3 steps
+	m.selectedUUID = "uuid-1"
+	m.timelineAttachedUUID = "uuid-1"
+
+	// Verify PID 1 has steps
+	if len(m.stepEntries) != 3 {
+		t.Fatalf("setup: expected 3 steps, got %d", len(m.stepEntries))
+	}
+
+	// Switch to different process
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-2"
+	m = m.handleTimelinePIDChange()
+
+	if len(m.stepEntries) != 0 {
+		t.Errorf("after UUID change, stepEntries should be empty, got %d", len(m.stepEntries))
+	}
+	if m.lastFetchedStep != 0 {
+		t.Errorf("after UUID change, lastFetchedStep should be 0, got %d", m.lastFetchedStep)
+	}
+}
+
+func TestTimeline_PIDSwitch_IgnoresStaleStepListMsg(t *testing.T) {
+	m := newStepTimelineModel() // PID=1, 3 steps
+	m.selectedUUID = "uuid-1"
+	m.timelineAttachedUUID = "uuid-1"
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-2"
+	m = m.handleTimelinePIDChange()
+
+	// Stale msg from uuid-1 should be discarded
+	staleMsg := stepListMsg{
+		uuid: "uuid-1",
+		pid:  1,
+		steps: []ipc.StepSummaryWire{
+			{Step: 4, Action: "tool_call", Summary: "stale-step"},
+		},
+	}
+	m2, _ := m.Update(staleMsg)
+	m = m2.(dashboardModel)
+
+	if len(m.stepEntries) != 0 {
+		t.Errorf("stale uuid-1 msg should be discarded, got %d steps", len(m.stepEntries))
+	}
+
+	// Valid msg from uuid-2 should be applied
+	validMsg := stepListMsg{
+		uuid: "uuid-2",
+		pid:  2,
+		steps: []ipc.StepSummaryWire{
+			{Step: 1, Action: "plan", Summary: "PID-2-step-1"},
+			{Step: 2, Action: "tool_call", Summary: "PID-2-step-2"},
+		},
+	}
+	m3, _ := m.Update(validMsg)
+	m = m3.(dashboardModel)
+
+	if len(m.stepEntries) != 2 {
+		t.Errorf("uuid-2 msg should be applied, expected 2 steps, got %d", len(m.stepEntries))
 	}
 }

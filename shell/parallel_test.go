@@ -27,7 +27,7 @@ type concurrentMockSpawner struct {
 	results map[string]mockResult
 	// ordered results for tests that need deterministic ordering
 	orderedResults []mockResult
-	callIdx        int32 // atomic counter for ordered results
+	callIdx        atomic.Int32 // atomic counter for ordered results
 }
 
 func (m *concurrentMockSpawner) SpawnAndWait(_ context.Context, intent, agent, model string) (string, int, int, error) {
@@ -42,7 +42,7 @@ func (m *concurrentMockSpawner) SpawnAndWait(_ context.Context, intent, agent, m
 	}
 
 	if m.orderedResults != nil {
-		idx := int(atomic.AddInt32(&m.callIdx, 1)) - 1
+		idx := int(m.callIdx.Add(1)) - 1
 		if idx < len(m.orderedResults) {
 			r := m.orderedResults[idx]
 			return r.result, r.exitCode, r.tokens, r.err
