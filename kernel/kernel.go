@@ -1645,8 +1645,13 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			for i, tc := range resp.ToolCalls {
 				toolNames[i] = tc.Name
 			}
-			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
-				"native_tool_call", strings.Join(toolNames, ","), "", "", "", "", 0)
+			// Truncate raw response for step record — tool details are in per-tool records
+			truncatedResp := resp.Content
+			if len(truncatedResp) > 200 {
+				truncatedResp = truncatedResp[:200] + "..."
+			}
+			k.writeStepRecord(proc, step, promptResult, truncatedResp, &resp,
+				"native_tool_call", strings.Join(toolNames, ","), "", "", truncatedResp, "", 0)
 			shouldContinue := k.executeNativeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors)
 			if !shouldContinue {
 				return
@@ -2535,6 +2540,13 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 			}
 			k.emitLog(proc, step, types.LogTool, toolContent, mapping.VFSPath)
 			*consecutiveToolErrors = 0
+
+			// Write per-tool StepRecord so Prompt Viewer shows correct tool details
+			inputJSON, _ := json.Marshal(tc.Input)
+			k.writeDriverStepRecordFull(proc, step, tc.Name,
+				driverToolSummary(tc.Name, mapping.VFSPath, string(inputJSON)),
+				mapping.VFSPath, string(inputJSON), result, time.Since(stepStart),
+				nil, 0)
 
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
