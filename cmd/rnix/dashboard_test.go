@@ -1370,13 +1370,13 @@ func TestDashboardModel_TreeRecordingIndicator(t *testing.T) {
 	lines := strings.Split(v.Content, "\n")
 	found := false
 	for _, line := range lines {
-		if strings.Contains(line, "PID 2") && strings.Contains(line, "●") {
+		if strings.Contains(line, "review") && strings.Contains(line, "●") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("tree pane should show '●' indicator on the line for recording PID 2")
+		t.Error("tree pane should show '●' indicator on the line for recording PID 2 (intent: review)")
 	}
 }
 
