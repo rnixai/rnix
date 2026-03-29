@@ -3078,3 +3078,39 @@ func TestSpawn_ProjectConfig_NilWhenNotSet(t *testing.T) {
 		t.Errorf("ProjectConfig should be nil when not set in SpawnOpts, got %+v", proc.ProjectConfig)
 	}
 }
+
+func TestExtractContentText(t *testing.T) {
+	tests := []struct {
+		name    string
+		content any
+		want    string
+	}{
+		{"nil content", nil, ""},
+		{"string content", "hello world", "hello world"},
+		{"empty string", "", ""},
+		{"map text", map[string]any{"type": "text", "text": "from map"}, "from map"},
+		{"map non-text type", map[string]any{"type": "image", "data": "xxx"}, ""},
+		{"map missing text", map[string]any{"type": "text"}, ""},
+		{"[]map single text", []map[string]any{{"type": "text", "text": "block1"}}, "block1"},
+		{"[]map multiple text", []map[string]any{{"type": "text", "text": "a"}, {"type": "text", "text": "b"}}, "a\nb"},
+		{"[]map mixed types", []map[string]any{{"type": "text", "text": "ok"}, {"type": "image", "data": "img"}}, "ok"},
+		{"[]map nil block", []map[string]any{nil, {"type": "text", "text": "safe"}}, "safe"},
+		{"[]map empty text skipped", []map[string]any{{"type": "text", "text": ""}}, ""},
+		{"[]any single text", []any{map[string]any{"type": "text", "text": "from any"}}, "from any"},
+		{"[]any multiple text", []any{map[string]any{"type": "text", "text": "x"}, map[string]any{"type": "text", "text": "y"}}, "x\ny"},
+		{"[]any non-map item skipped", []any{"plain string", map[string]any{"type": "text", "text": "ok"}}, "ok"},
+		{"[]any nil item skipped", []any{nil, map[string]any{"type": "text", "text": "ok"}}, "ok"},
+		{"empty slice []map", []map[string]any{}, ""},
+		{"empty slice []any", []any{}, ""},
+		{"int content returns empty", 42, ""},
+		{"bool content returns empty", true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractContentText(tt.content)
+			if got != tt.want {
+				t.Errorf("extractContentText(%v) = %q, want %q", tt.content, got, tt.want)
+			}
+		})
+	}
+}
