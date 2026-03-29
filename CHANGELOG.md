@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Dashboard Prompt Viewer**:
+  - Prompt Viewer Messages tab showing empty `[user]` entries for CLI driver processes — seed initial intent as first user message and skip nil-content user events from CLI drivers
+  - Prompt Viewer Tools tab showing `Tools (0)` for CLI driver processes — build tool definitions from tool_call events as fallback when system event doesn't include tools
+  - Prompt Viewer Tools tab showing incomplete tool info — now displays step-level tool details: name, description, path, input, result, duration from StepRecord
+  - StepRecord Action field incorrectly set to `"tool_call"` instead of actual tool name
+  - StepRecord missing ToolResult and ToolInput for CLI driver processes
+  - Cursor CLI driver not extracting full tool args and result from tool_call events
+  - `extractContentText` not handling `map[string]any` and `string` content formats for assistant/user events
+  - `tool_result` content in `[]any` format not being parsed for text extraction
+
 ## [0.7.0] - 2026-03-24
 
 ### Added
