@@ -39,15 +39,15 @@ func newStepTimelineModel() dashboardModel {
 
 	m.stepEntries = []stepEntry{
 		{
-			summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "/dev/fs → read main.go", HasError: false, DurationMs: 218.0},
+			summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "/dev/fs → read main.go", HasError: false, DurationMs: 218.0, TokenCount: 150},
 			level:   levelSummary,
 		},
 		{
-			summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "/dev/shell → go build", HasError: true, DurationMs: 1200.0},
+			summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "/dev/shell → go build", HasError: true, DurationMs: 1200.0, TokenCount: 280},
 			level:   levelSummary,
 		},
 		{
-			summary: ipc.StepSummaryWire{Step: 3, Action: "complete", Summary: "任务完成", HasError: false, DurationMs: 45.0},
+			summary: ipc.StepSummaryWire{Step: 3, Action: "complete", Summary: "任务完成", HasError: false, DurationMs: 45.0, TokenCount: 50},
 			level:   levelSummary,
 		},
 	}
@@ -574,5 +574,351 @@ func TestTimeline_PIDSwitch_IgnoresStaleStepListMsg(t *testing.T) {
 
 	if len(m.stepEntries) != 2 {
 		t.Errorf("uuid-2 msg should be applied, expected 2 steps, got %d", len(m.stepEntries))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Expand Dedup Tests (spec-timeline-expand-dedup)
+// ---------------------------------------------------------------------------
+
+func newExpandDedupModel() dashboardModel {
+	m := newStepTimelineModel()
+	// Add detail cache for step 1 (tool_call with ToolPath already shown as summary)
+	m.stepDetailCache[1] = &ipc.GetStepDetailResponse{
+		Step:           1,
+		ToolPath:       "/dev/fs → read main.go",
+		ToolInput:      "path: main.go",
+		ToolResult:     "package main\nfunc main() {}",
+		ToolDurationMs: 218.0,
+		RequestTokens:  100,
+		ResponseTokens: 50,
+		TokenCount:     150,
+	}
+	// Add detail cache for step 2 (error)
+	m.stepDetailCache[2] = &ipc.GetStepDetailResponse{
+		Step:           2,
+		ToolPath:       "/dev/shell → go build",
+		ToolInput:      "go build -o rnix ./cmd/rnix/",
+		ToolError:      "exit status 1: undefined: ProcessManager",
+		ToolDurationMs: 1200.0,
+		RequestTokens:  200,
+		ResponseTokens: 80,
+		TokenCount:     280,
+	}
+	// Add detail cache for step 3 (complete)
+	m.stepDetailCache[3] = &ipc.GetStepDetailResponse{
+		Step:           3,
+		RawResponse:    "任务完成，输出已生成。",
+		RequestTokens:  30,
+		ResponseTokens: 20,
+		TokenCount:     50,
+	}
+	return m
+}
+
+// AC-1: Path dedup — when Level 1 already shows ToolPath, Level 2 should not repeat it
+func TestExpandDedup_AC1_PathDedupWhenSummaryIsToolPath(t *testing.T) {
+	m := newExpandDedupModel()
+	m.stepEntries[0].level = levelExpanded // expand step 1
+
+	output := m.renderTimelinePane(100, 30)
+
+	// Level 1 should show the ToolPath as summary
+	if !strings.Contains(output, "/dev/fs") {
+		t.Errorf("AC-1: Level 1 should show ToolPath summary, got: %s", output)
+	}
+	// Level 2 should NOT contain a separate "Path" line since Level 1 already shows it
+	// Count "Path" occurrences — should be 0 for this step (only other steps might show it)
+	lines := strings.Split(output, "\n")
+	pathCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "Path") && strings.Contains(line, "┊") {
+			pathCount++
+		}
+	}
+	if pathCount != 0 {
+		t.Errorf("AC-1: Level 2 should not show Path when Level 1 already displays ToolPath, found %d Path lines", pathCount)
+	}
+}
+
+// AC-2: Dur. dedup — Level 2 should never show Duration (Level 1 already has it)
+func TestExpandDedup_AC2_DurationRemovedFromExpanded(t *testing.T) {
+	m := newExpandDedupModel()
+	m.stepEntries[0].level = levelExpanded
+
+	output := m.renderTimelinePane(100, 30)
+
+	// "Dur." should not appear anywhere in the expanded view
+	if strings.Contains(output, "Dur.") {
+		t.Errorf("AC-2: Level 2 should not show 'Dur.' (Level 1 already has duration), got: %s", output)
+	}
+}
+
+// AC-3: Token conditional — when req+resp == TokenCount, skip Token line
+func TestExpandDedup_AC3_TokenSkippedWhenMatchesTotal(t *testing.T) {
+	m := newExpandDedupModel()
+	m.stepEntries[0].level = levelExpanded // step 1: req=100, resp=50, total=150 → match
+
+	output := m.renderTimelinePane(100, 30)
+
+	// "Token" in the ┊ section should not appear since req+resp == TokenCount
+	lines := strings.Split(output, "\n")
+	tokenLineFound := false
+	for _, line := range lines {
+		if strings.Contains(line, "┊") && strings.Contains(line, "Token") {
+			tokenLineFound = true
+			break
+		}
+	}
+	if tokenLineFound {
+		t.Errorf("AC-3: Token breakdown should be hidden when req+resp matches total, got: %s", output)
+	}
+}
+
+// AC-3b: Token shown when req+resp != TokenCount
+func TestExpandDedup_AC3b_TokenShownWhenMismatch(t *testing.T) {
+	m := newExpandDedupModel()
+	// Step 2 entry has TokenCount: 280, detail req+resp=280 matches
+	// Set entry TokenCount to different value to trigger mismatch
+	m.stepEntries[1].summary.TokenCount = 500 // entry says 500 total
+	m.stepDetailCache[2].RequestTokens = 200
+	m.stepDetailCache[2].ResponseTokens = 80 // 200+80=280 != 500
+	m.stepEntries[1].level = levelExpanded
+
+	output := m.renderTimelinePane(100, 30)
+
+	lines := strings.Split(output, "\n")
+	tokenLineFound := false
+	for _, line := range lines {
+		if strings.Contains(line, "┊") && strings.Contains(line, "Token") {
+			tokenLineFound = true
+			break
+		}
+	}
+	if !tokenLineFound {
+		t.Errorf("AC-3b: Token breakdown should be shown when req+resp != TokenCount, got: %s", output)
+	}
+}
+
+// AC-4: Header shows stage statistics on wide screens
+func TestExpandDedup_AC4_HeaderStageStats(t *testing.T) {
+	m := newExpandDedupModel()
+	m.width = 120
+
+	output := m.renderTimelinePane(120, 20)
+
+	// Header should contain action counts
+	if !strings.Contains(output, "tool:") {
+		t.Errorf("AC-4: Header should show 'tool:' count on wide screens, got: %s", output)
+	}
+	if !strings.Contains(output, "done:") {
+		t.Errorf("AC-4: Header should show 'done:' count on wide screens, got: %s", output)
+	}
+}
+
+// AC-5: Header shows scroll position
+func TestExpandDedup_AC5_HeaderScrollPosition(t *testing.T) {
+	m := newExpandDedupModel()
+	m.width = 100
+	m.stepCursor = 1
+
+	output := m.renderTimelinePane(100, 20)
+
+	// Header should show position like "2/3"
+	if !strings.Contains(output, "2/3") {
+		t.Errorf("AC-5: Header should show scroll position '2/3', got: %s", output)
+	}
+}
+
+// AC-6: e key expands all visible steps
+func TestExpandDedup_AC6_ExpandAllWithE(t *testing.T) {
+	m := newExpandDedupModel()
+	// All at levelSummary
+	for i := range m.stepEntries {
+		m.stepEntries[i].level = levelSummary
+	}
+
+	m = m.handleTimelineKey("e")
+
+	for i, entry := range m.stepEntries {
+		if entry.level < levelExpanded {
+			t.Errorf("AC-6: step %d should be expanded after 'e' key, got level %d", i+1, entry.level)
+		}
+	}
+}
+
+// AC-7: E key collapses all steps
+func TestExpandDedup_AC7_CollapseAllWithShiftE(t *testing.T) {
+	m := newExpandDedupModel()
+	// Expand some
+	m.stepEntries[0].level = levelExpanded
+	m.stepEntries[1].level = levelDebug
+
+	m = m.handleTimelineKey("E")
+
+	for i, entry := range m.stepEntries {
+		if entry.level != levelSummary {
+			t.Errorf("AC-7: step %d should be at levelSummary after 'E' key, got level %d", i+1, entry.level)
+		}
+	}
+}
+
+// AC-8: n key jumps to next error
+func TestExpandDedup_AC8_JumpToNextError(t *testing.T) {
+	m := newExpandDedupModel()
+	m.stepCursor = 0 // at step 1 (no error)
+
+	m = m.handleTimelineKey("n")
+
+	// Should jump to step 2 (has error), which is index 1 in filtered
+	if m.stepCursor != 1 {
+		t.Errorf("AC-8: 'n' should jump to next error (index 1), got cursor %d", m.stepCursor)
+	}
+}
+
+// AC-9: N key jumps to previous error
+func TestExpandDedup_AC9_JumpToPrevError(t *testing.T) {
+	m := newExpandDedupModel()
+	m.stepCursor = 2 // at step 3 (no error)
+
+	m = m.handleTimelineKey("N")
+
+	// Should jump to step 2 (has error), which is index 1
+	if m.stepCursor != 1 {
+		t.Errorf("AC-9: 'N' should jump to previous error (index 1), got cursor %d", m.stepCursor)
+	}
+}
+
+// AC-10: Filter bar labels match action abbreviations
+func TestExpandDedup_AC10_FilterLabelsMatchAbbreviations(t *testing.T) {
+	m := newExpandDedupModel()
+	m.stepFilterMode = true
+
+	output := m.renderStepFilterBar(120)
+
+	// Labels should use actionAbbrev values
+	if !strings.Contains(output, "tool") {
+		t.Errorf("AC-10: filter should show 'tool' (not 'tool_call'), got: %s", output)
+	}
+	if !strings.Contains(output, "done") {
+		t.Errorf("AC-10: filter should show 'done' (not 'complete'), got: %s", output)
+	}
+	if !strings.Contains(output, "spec") {
+		t.Errorf("AC-10: filter should show 'spec' (not 'specialize'), got: %s", output)
+	}
+	if strings.Contains(output, "tool_call") {
+		t.Errorf("AC-10: filter should NOT show 'tool_call', got: %s", output)
+	}
+	if strings.Contains(output, "specialize") {
+		t.Errorf("AC-10: filter should NOT show 'specialize', got: %s", output)
+	}
+}
+
+// AC-11: Path shown when Level 1 Summary is NOT ToolPath
+func TestExpandDedup_AC11_PathShownWhenSummaryDiffers(t *testing.T) {
+	m := newExpandDedupModel()
+	// Step 1 has Summary "/dev/fs → read main.go" (long, >= 8 chars), so Level 1 shows Summary, not ToolPath
+	// But ToolPath in detail is the same as Summary... Let's use step 2 instead
+	m.stepEntries[1].level = levelExpanded
+	m.stepDetailCache[2].ToolPath = "/dev/shell → go build -o rnix ./cmd/rnix/"
+
+	output := m.renderTimelinePane(100, 30)
+
+	// Step 2 summary is "/dev/shell → go build" which is >= 8 chars
+	// So Level 1 shows Summary, Level 2 should show the different ToolPath
+	lines := strings.Split(output, "\n")
+	pathFound := false
+	for _, line := range lines {
+		if strings.Contains(line, "┊") && strings.Contains(line, "Path") {
+			pathFound = true
+			break
+		}
+	}
+	if !pathFound {
+		t.Errorf("AC-11: Level 2 should show Path when it differs from Level 1 summary, got: %s", output)
+	}
+}
+
+// AC-6: Error inline preview — Level 1 shows ToolError first line from cached detail
+func TestExpandDedup_AC6_ErrorInlinePreview(t *testing.T) {
+	m := newExpandDedupModel()
+	m.width = 120
+
+	output := m.renderTimelinePane(120, 30)
+
+	// Step 2 has HasError=true and detail cached with ToolError
+	// Level 1 should show error preview text after ✗
+	if !strings.Contains(output, "exit status 1") {
+		t.Errorf("AC-6: Level 1 error step should show ToolError preview 'exit status 1', got: %s", output)
+	}
+}
+
+// AC-6b: Error preview NOT shown when detail is not cached
+func TestExpandDedup_AC6b_ErrorPreviewHiddenWithoutCache(t *testing.T) {
+	m := newExpandDedupModel()
+	m.width = 120
+	// Clear detail cache for step 2
+	delete(m.stepDetailCache, 2)
+
+	output := m.renderTimelinePane(120, 30)
+
+	// Should still have ✗ but no error preview text
+	for line := range strings.SplitSeq(output, "\n") {
+		if strings.Contains(line, "go build") && strings.Contains(line, "exit status") {
+			t.Errorf("AC-6b: error preview should not show without cache, got: %s", line)
+		}
+	}
+}
+
+// AC-1b: Path dedup when Summary is short and replaced by ToolPath in Level 1
+func TestExpandDedup_AC1b_PathDedupShortSummary(t *testing.T) {
+	m := newExpandDedupModel()
+	// Set step 1 summary to short text so Level 1 uses ToolPath
+	m.stepEntries[0].summary.Summary = "read"
+	m.stepEntries[0].summary.ToolPath = "/dev/fs → read main.go"
+	m.stepDetailCache[1].ToolPath = "/dev/fs → read main.go"
+	m.stepEntries[0].level = levelExpanded
+
+	output := m.renderTimelinePane(100, 30)
+
+	// Level 1 should show ToolPath (since Summary < 8)
+	// Level 2 should NOT show Path (same as Level 1 display)
+	lines := strings.Split(output, "\n")
+	pathCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "┊") && strings.Contains(line, "Path") {
+			pathCount++
+		}
+	}
+	if pathCount != 0 {
+		t.Errorf("AC-1b: Level 2 should not show Path when Level 1 uses ToolPath (short summary), found %d Path lines", pathCount)
+	}
+}
+
+// E key — only collapses filtered steps (symmetric with e)
+func TestExpandDedup_E_CollapsesOnlyFiltered(t *testing.T) {
+	m := newExpandDedupModel()
+	// Expand all
+	for i := range m.stepEntries {
+		m.stepEntries[i].level = levelExpanded
+	}
+	// Filter to only show tool_call (indices 0, 1)
+	m.stepFilters = map[string]bool{
+		"tool_call": true, "plan": false, "text": false,
+		"complete": false, "spawn": false, "replan": false, "specialize": false,
+	}
+
+	m = m.handleTimelineKey("E")
+
+	// Only filtered steps (0, 1) should be collapsed
+	if m.stepEntries[0].level != levelSummary {
+		t.Errorf("filtered step 0 should be collapsed, got level %d", m.stepEntries[0].level)
+	}
+	if m.stepEntries[1].level != levelSummary {
+		t.Errorf("filtered step 1 should be collapsed, got level %d", m.stepEntries[1].level)
+	}
+	// Step 3 (not filtered) should remain expanded
+	if m.stepEntries[2].level != levelExpanded {
+		t.Errorf("unfiltered step 2 should remain expanded, got level %d", m.stepEntries[2].level)
 	}
 }

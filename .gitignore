@@ -41,3 +41,4 @@ logs/
 *.log
 logs/
 logo/
+.opencode/

@@ -122,6 +122,60 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		m.stepFilterMode = true
 		m.statusMsg = "过滤模式: 按 T/P/A/C/S/R/Z 切换, * 全选, Esc 退出"
 		m.statusMsgTTL = statusMsgDefaultTTL
+	case "e":
+		// Expand all visible (filtered) steps that have expandable content
+		expanded := 0
+		for _, fi := range filtered {
+			if fi >= 0 && fi < len(m.stepEntries) {
+				entry := &m.stepEntries[fi]
+				if entry.level < levelExpanded {
+					detail := m.stepDetailCache[entry.summary.Step]
+					if detail == nil || hasExpandableContent(detail, entry.summary) {
+						entry.level = levelExpanded
+						expanded++
+					}
+				}
+			}
+		}
+		if expanded == 0 {
+			m.statusMsg = "No expandable steps"
+			m.statusMsgTTL = statusMsgDefaultTTL
+		}
+	case "E":
+		// Collapse all visible (filtered) steps to Level 1
+		for _, fi := range filtered {
+			if fi >= 0 && fi < len(m.stepEntries) {
+				m.stepEntries[fi].level = levelSummary
+			}
+		}
+	case "n":
+		// Jump to next error step
+		found := false
+		for i := m.stepCursor + 1; i < len(filtered); i++ {
+			if m.stepEntries[filtered[i]].summary.HasError {
+				m.stepCursor = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.statusMsg = "No more errors"
+			m.statusMsgTTL = statusMsgDefaultTTL
+		}
+	case "N", "shift+N":
+		// Jump to previous error step
+		found := false
+		for i := m.stepCursor - 1; i >= 0; i-- {
+			if m.stepEntries[filtered[i]].summary.HasError {
+				m.stepCursor = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.statusMsg = "No more errors"
+			m.statusMsgTTL = statusMsgDefaultTTL
+		}
 	}
 	m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 	return m
@@ -313,14 +367,24 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		}
 
 		// Collapse indicator
+		//   ▾ = expanded
+		//   ▸ = collapsed, detail loaded, has expandable content
+		//     = collapsed, detail not loaded or no content
 		levelMark := " "
 		if entry.level >= levelExpanded {
-			levelMark = "▾"
+			detail := m.stepDetailCache[s.Step]
+			if detail == nil || hasExpandableContent(detail, s) {
+				levelMark = "▾"
+			}
+		} else {
+			if detail, ok := m.stepDetailCache[s.Step]; ok && hasExpandableContent(detail, s) {
+				levelMark = "▸"
+			}
 		}
 
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 
-		// Compact step+action suffix: "3 tc" / "1 pl" / "4 dn"
+		// Compact step+action suffix: "3 tool" / "1 plan" / "4 done"
 		stepAction := dimStyle.Render(fmt.Sprintf("%d %s", s.Step, actionAbbrev(s.Action)))
 
 		// Token
@@ -345,8 +409,9 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		}
 
 		// Error mark
+		hasError := s.HasError
 		errMark := ""
-		if s.HasError {
+		if hasError {
 			errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
 		}
 
@@ -365,11 +430,24 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		if showDuration {
 			fixedWidth += 7
 		}
-		if s.HasError {
+		if hasError {
 			fixedWidth += 2
 		}
 		summaryW := max(truncW-fixedWidth, 10)
 		summaryText := truncateRuneWidth(displaySummary, summaryW)
+
+		// Inline error preview from cached detail (after summary width is known)
+		if hasError && width >= 80 {
+			if cached := m.stepDetailCache[s.Step]; cached != nil && cached.ToolError != "" {
+				errLine := strings.SplitN(cached.ToolError, "\n", 2)[0]
+				errPreviewW := max(truncW-fixedWidth-runewidth.StringWidth(summaryText)-4, 10)
+				if runewidth.StringWidth(errLine) > errPreviewW {
+					errLine = runewidth.Truncate(errLine, errPreviewW-1, "…")
+				}
+				errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+				errMark = errStyle.Render(" ✗ " + errLine)
+			}
+		}
 
 		// Build line
 		var line string
@@ -383,7 +461,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		}
 		line = strings.Join(parts, " ")
 
-		if s.HasError {
+		if hasError {
 			line = lipgloss.NewStyle().Background(lipgloss.Color("#3D1F1F")).Render(line)
 		} else if fi == m.stepCursor {
 			line = lipgloss.NewStyle().
@@ -426,8 +504,12 @@ func (m dashboardModel) renderExpandedDetail(b *strings.Builder, detail *ipc.Get
 	lines := 0
 	contentW := max(maxW-14, 20) // 3 indent + "┊" + " " + 8 label + " " padding
 
-	// ToolPath (always show for tool_call if available)
-	if detail.ToolPath != "" && lines < maxLines {
+	// ToolPath — skip when Level 1 already shows it as displaySummary
+	displayedAsSummary := s.Summary
+	if s.ToolPath != "" && len(s.Summary) < 8 {
+		displayedAsSummary = s.ToolPath
+	}
+	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary && lines < maxLines {
 		pathLabel := detail.ToolPath
 		if runewidth.StringWidth(pathLabel) > contentW {
 			pathLabel = runewidth.Truncate(pathLabel, contentW-1, "…")
@@ -483,40 +565,49 @@ func (m dashboardModel) renderExpandedDetail(b *strings.Builder, detail *ipc.Get
 			}
 			lines++
 		}
-	} else if s.Action == "plan" || s.Action == "text" || s.Action == "complete" {
-		// Show RawResponse snippet for non-tool actions
-		if detail.RawResponse != "" && lines < maxLines {
-			rawLines := strings.Split(detail.RawResponse, "\n")
-			showLines := min(3, len(rawLines))
-			for i := range showLines {
-				if lines >= maxLines {
-					break
-				}
-				fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), rawLines[i])
-				lines++
+	} else if detail.RawResponse != "" && lines < maxLines {
+		// Show RawResponse snippet as fallback for any action type
+		rawLines := strings.Split(detail.RawResponse, "\n")
+		showLines := min(3, len(rawLines))
+		for i := range showLines {
+			if lines >= maxLines {
+				break
 			}
-			if len(rawLines) > 3 && lines < maxLines {
-				fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(fmt.Sprintf("… (%d more lines)", len(rawLines)-3)))
-				lines++
-			}
+			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), rawLines[i])
+			lines++
+		}
+		if len(rawLines) > 3 && lines < maxLines {
+			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(fmt.Sprintf("… (%d more lines)", len(rawLines)-3)))
+			lines++
 		}
 	}
 
-	// Duration (when available from driver step records)
-	if detail.ToolDurationMs > 0 && lines < maxLines {
-		durStr := formatTimelineDuration(detail.ToolDurationMs)
-		durStyle := dimStyle
-		if detail.ToolDurationMs > slowStepThresholdMs {
-			durStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5C07B"))
-		}
-		fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("   Dur."), durStyle.Render(durStr))
-		lines++
-	}
-
-	// Token breakdown
-	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && lines < maxLines {
+	// Token breakdown — skip when total already shown in Level 1 and breakdown matches
+	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) && lines < maxLines {
 		fmt.Fprintf(b, "   %s %s %d req → %d resp\n", dimStyle.Render("┊"), dimStyle.Render("  Token"), detail.RequestTokens, detail.ResponseTokens)
 		lines++
+	}
+
+	// Fallback: if all fields were deduped or empty (should be rare — hasExpandableContent prevents most cases)
+	if lines == 0 {
+		// Try full ToolPath if Level 1 showed a truncated Summary
+		if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
+			tp := detail.ToolPath
+			if runewidth.StringWidth(tp) > contentW {
+				tp = runewidth.Truncate(tp, contentW-1, "…")
+			}
+			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(tp))
+			lines++
+		}
+		// Try RawResponse as last resort
+		if lines == 0 && detail.RawResponse != "" {
+			raw := detail.RawResponse
+			if runewidth.StringWidth(raw) > contentW {
+				raw = runewidth.Truncate(raw, contentW-1, "…")
+			}
+			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(raw))
+			lines++
+		}
 	}
 
 	return lines
@@ -618,6 +709,35 @@ func (m dashboardModel) renderStepHeader(maxW, total int, filtered []int) string
 		fmt.Fprintf(&b, " │ %s tok", formatTokenCount(totalTok))
 	}
 
+	// Stage statistics (wide screens only)
+	if maxW >= 100 && total > 0 {
+		counts := make(map[string]int)
+		errCount := 0
+		for _, e := range m.stepEntries {
+			counts[e.summary.Action]++
+			if e.summary.HasError {
+				errCount++
+			}
+		}
+		b.WriteString(" │")
+		for _, action := range []string{"plan", "tool_call", "spawn", "specialize", "replan", "text", "complete"} {
+			if c, ok := counts[action]; ok && c > 0 {
+				color := actionColor(action)
+				label := actionAbbrev(action)
+				fmt.Fprintf(&b, " %s", lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%s:%d", label, c)))
+			}
+		}
+		if errCount > 0 {
+			fmt.Fprintf(&b, " %s", lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf("err:%d", errCount)))
+		}
+	}
+
+	// Scroll position (medium+ screens)
+	if maxW >= 80 && len(filtered) > 0 {
+		pos := min(m.stepCursor+1, len(filtered))
+		fmt.Fprintf(&b, " │ %d/%d", pos, len(filtered))
+	}
+
 	// Filter indicator
 	if len(filtered) < total {
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
@@ -637,13 +757,13 @@ func (m dashboardModel) renderStepFilterBar(maxW int) string {
 		label  string
 		action string
 	}{
-		{"T", "tool_call", "tool_call"},
-		{"P", "plan", "plan"},
-		{"A", "assistant", "text"},
-		{"C", "complete", "complete"},
-		{"S", "spawn", "spawn"},
-		{"R", "replan", "replan"},
-		{"Z", "specialize", "specialize"},
+		{"T", actionAbbrev("tool_call"), "tool_call"},
+		{"P", actionAbbrev("plan"), "plan"},
+		{"A", actionAbbrev("text"), "text"},
+		{"C", actionAbbrev("complete"), "complete"},
+		{"S", actionAbbrev("spawn"), "spawn"},
+		{"R", actionAbbrev("replan"), "replan"},
+		{"Z", actionAbbrev("specialize"), "specialize"},
 	}
 
 	for _, t := range types {
@@ -660,6 +780,39 @@ func (m dashboardModel) renderStepFilterBar(maxW int) string {
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 	b.WriteString("  [*]all  " + dimStyle.Render("f/Esc:done"))
 	return truncateAnsi(b.String(), maxW)
+}
+
+// hasExpandableContent checks whether expanding this step would show any new information.
+// Returns true if detail is not yet loaded (unknown), or if at least one field survives dedup.
+func hasExpandableContent(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) bool {
+	if detail == nil {
+		return true // not loaded yet — treat as potentially expandable
+	}
+	// ToolPath — new info if different from Level 1 display
+	displayedAsSummary := s.Summary
+	if s.ToolPath != "" && len(s.Summary) < 8 {
+		displayedAsSummary = s.ToolPath
+	}
+	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
+		return true
+	}
+	// ToolInput
+	if detail.ToolInput != "" {
+		return true
+	}
+	// ToolError or ToolResult
+	if detail.ToolError != "" || detail.ToolResult != "" {
+		return true
+	}
+	// RawResponse (fallback for any action type)
+	if detail.RawResponse != "" {
+		return true
+	}
+	// Token breakdown (only if it differs from Level 1 total)
+	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) {
+		return true
+	}
+	return false
 }
 
 // --- Step item height estimation (for scroll) ---
@@ -687,7 +840,12 @@ func (m dashboardModel) stepItemHeight(entryIdx int) int {
 
 func (m dashboardModel) estimateExpandedLines(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) int {
 	n := 0
-	if detail.ToolPath != "" {
+	// Path — skip when Level 1 already shows it as displaySummary
+	displayedAsSummary := s.Summary
+	if s.ToolPath != "" && len(s.Summary) < 8 {
+		displayedAsSummary = s.ToolPath
+	}
+	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
 		n++ // Path line
 	}
 	if detail.ToolInput != "" {
@@ -699,19 +857,19 @@ func (m dashboardModel) estimateExpandedLines(detail *ipc.GetStepDetailResponse,
 	} else if detail.ToolResult != "" {
 		resLines := strings.Count(detail.ToolResult, "\n") + 1
 		n += min(resLines, 4) // Result: up to 3 lines + overflow
-	} else if s.Action == "plan" || s.Action == "text" || s.Action == "complete" {
-		if detail.RawResponse != "" {
-			rawLines := strings.Count(detail.RawResponse, "\n") + 1
-			n += min(rawLines, 4) // RawResponse: up to 3 lines + overflow
-		}
+	} else if detail.RawResponse != "" {
+		rawLines := strings.Count(detail.RawResponse, "\n") + 1
+		n += min(rawLines, 4) // RawResponse fallback: up to 3 lines + overflow
 	}
-	if detail.ToolDurationMs > 0 {
-		n++ // Duration line
-	}
-	if detail.RequestTokens > 0 || detail.ResponseTokens > 0 {
+	// Token breakdown — skip when total already shown in Level 1 and breakdown matches
+	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) {
 		n++ // Token line
 	}
-	return max(n, 1) // at least 1 line for expanded
+	// Fallback line when all content was deduped
+	if n == 0 {
+		n++ // always at least 1 line for fallback (ToolPath/RawResponse/no-detail)
+	}
+	return n
 }
 
 func (m dashboardModel) estimateDebugLines(detail *ipc.GetStepDetailResponse) int {
@@ -840,8 +998,21 @@ func (m dashboardModel) fetchNextExpandedDetail() tea.Cmd {
 	if m.fetchingDetail || m.selectedPID == 0 {
 		return nil
 	}
+	// Priority 1: expanded steps without cached detail
 	for _, entry := range m.stepEntries {
 		if entry.level >= levelExpanded && m.stepDetailCache[entry.summary.Step] == nil {
+			return fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+		}
+	}
+	// Priority 2: visible collapsed steps without cached detail (for ▸ indicator)
+	filtered := m.filteredStepEntries()
+	pageSize := max(m.dashboardVisibleLines()-4, 1)
+	visStart := m.stepScrollTop
+	visEnd := min(visStart+pageSize, len(filtered))
+	for i := visStart; i < visEnd; i++ {
+		idx := filtered[i]
+		entry := m.stepEntries[idx]
+		if entry.level < levelExpanded && m.stepDetailCache[entry.summary.Step] == nil {
 			return fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
 		}
 	}

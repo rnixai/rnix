@@ -881,10 +881,10 @@ func (m dashboardModel) paneHints() (core []string, exit string) {
 	switch m.expandedPane {
 	case paneTimeline:
 		if m.stepFilterMode {
-			return []string{hint("t", "tool"), hint("p", "plan"), hint("c", "done"), hint("s", "spawn"), hint("a", "All")},
+			return []string{hint("t", "tool"), hint("p", "plan"), hint("a", "text"), hint("c", "done"), hint("s", "spawn"), hint("r", "repl"), hint("z", "spec"), hint("*", "all")},
 				hint("f/Esc", "done")
 		}
-		return []string{hint("j/k", "nav"), hint("v", "detail"), hint("p", "prompt"), hint("f", "filter"), hint("?", "help")}, exit
+		return []string{hint("j/k", "nav"), hint("v", "detail"), hint("e/E", "expand"), hint("n/N", "err"), hint("f", "filter"), hint("?", "help")}, exit
 	case paneHeatmap:
 		return []string{hint("j/k", "nav"), hint("Enter", "detail"), hint("z", "restore"), hint("?", "help")}, exit
 	case paneIntent, paneSecurity:
