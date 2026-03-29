@@ -961,7 +961,20 @@ func truncateAnsi(s string, maxWidth int) string {
 // --- Step data flow ---
 
 func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardModel {
+	// Build a set of already-known step numbers for dedup protection.
+	// Concurrent fetches (e.g. PID-change fetch + tick fetch) can return
+	// overlapping step ranges; appending duplicates causes the Timeline to
+	// show the same entry twice.
+	known := make(map[int]struct{}, len(m.stepEntries))
+	for _, e := range m.stepEntries {
+		known[e.summary.Step] = struct{}{}
+	}
+
 	for _, s := range steps {
+		if _, dup := known[s.Step]; dup {
+			continue
+		}
+		known[s.Step] = struct{}{}
 		level := levelSummary
 		autoExpand := false
 		if s.HasError || s.DurationMs > slowStepThresholdMs {

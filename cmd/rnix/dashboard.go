@@ -523,7 +523,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 	}
 
-	if m.selectedPID > 0 && m.connected {
+	if m.selectedPID > 0 && m.connected && !pidChanged {
 		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, m.lastFetchedStep))
 	}
 
