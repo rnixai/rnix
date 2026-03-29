@@ -759,8 +759,10 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 							}
 						}
 						msg := rnixctx.Message{Role: rnixctx.Role(role)}
-						if contentBlocks, ok := evt["content"].([]map[string]any); ok {
-							for _, block := range contentBlocks {
+						contentVal := evt["content"]
+						switch c := contentVal.(type) {
+						case []map[string]any:
+							for _, block := range c {
 								blockType, _ := block["type"].(string)
 								switch blockType {
 								case "text":
@@ -785,10 +787,8 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 									}
 								}
 							}
-						}
-						// Also try []any (JSON roundtrip produces []any not []map[string]any)
-						if contentAny, ok := evt["content"].([]any); ok {
-							for _, item := range contentAny {
+						case []any:
+							for _, item := range c {
 								if block, ok := item.(map[string]any); ok {
 									blockType, _ := block["type"].(string)
 									switch blockType {
@@ -815,6 +815,31 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 									}
 								}
 							}
+						case map[string]any:
+							// Single content block (not wrapped in array)
+							blockType, _ := c["type"].(string)
+							switch blockType {
+							case "text":
+								if text, ok := c["text"].(string); ok {
+									msg.Content = text
+								}
+							case "tool_use":
+								name, _ := c["name"].(string)
+								id, _ := c["id"].(string)
+								msg.ToolCalls = append(msg.ToolCalls, rnixctx.ToolCall{
+									ID:   id,
+									Name: name,
+								})
+							case "tool_result":
+								toolUseID, _ := c["tool_use_id"].(string)
+								msg.ToolCallID = toolUseID
+								if text := extractContentText(c["content"]); text != "" {
+									msg.Content = text
+								}
+							}
+						case string:
+							// Plain string content (not a content block array)
+							msg.Content = c
 						}
 						msgHistory = append(msgHistory, msg)
 					}
@@ -845,6 +870,25 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 							pendingTool.toolPath = toolPath
 							pendingTool.start = time.Now()
 							pendingTool.inputBuf.Reset()
+							// Fallback: build tool defs from tool_call events if system event didn't provide them
+							if tool != "" {
+								proc.mu.Lock()
+								if len(proc.nativeToolDefs) == 0 {
+									proc.nativeToolDefs = []vfs.ToolDef{{Name: tool}}
+								} else {
+									found := false
+									for _, td := range proc.nativeToolDefs {
+										if td.Name == tool {
+											found = true
+											break
+										}
+									}
+									if !found {
+										proc.nativeToolDefs = append(proc.nativeToolDefs, vfs.ToolDef{Name: tool})
+									}
+								}
+								proc.mu.Unlock()
+							}
 						case "input_delta":
 							// Accumulate tool input JSON fragments
 							if partial, ok := evt["partial_json"].(string); ok {
