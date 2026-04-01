@@ -101,6 +101,16 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 			}
 		}
 
+		// 2.6 Drain checkpoint error channel (Story 30.2)
+		// Don't close the channel — a goroutine may still be writing.
+		// It uses default-send so it won't block.
+		if proc.checkpointErrCh != nil {
+			select {
+			case <-proc.checkpointErrCh:
+			default:
+			}
+		}
+
 		// 3. close(DebugChan) — nil out under lock first to prevent races with emitEvent
 		proc.mu.Lock()
 		ch := proc.DebugChan

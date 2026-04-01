@@ -175,6 +175,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			proc.eventWriter = ew
 			proc.mu.Unlock()
 		}
+		// Initialize checkpoint channel and resolve steps directory (Story 30.2)
+		stepsDir := filepath.Join(stepBaseDir, "data", "steps", proc.UUID)
+		proc.mu.Lock()
+		proc.checkpointErrCh = make(chan error, 1)
+		proc.stepsDir = stepsDir
+		proc.mu.Unlock()
 	}
 
 	defer func() {
@@ -189,6 +195,18 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 	for step := 1; maxSteps == 0 || step <= maxSteps; step++ {
 		stepStart := time.Now()
+
+		// Check previous checkpoint write error (Story 30.2 AC#10)
+		if proc.checkpointErrCh != nil {
+			select {
+			case err := <-proc.checkpointErrCh:
+				k.emitEvent(proc, "CheckpointWriteError", map[string]any{
+					"step": step - 1,
+					"err":  err.Error(),
+				}, nil, err, 0)
+			default:
+			}
+		}
 
 		if k.callbacks != nil {
 			k.callbacks.OnStep(proc.PID, step, maxSteps)
@@ -430,6 +448,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			if !shouldContinue {
 				return
 			}
+			k.asyncWriteCheckpoint(proc, step, consecutiveToolErrors)
 			continue
 		}
 
@@ -462,9 +481,44 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if !shouldContinue {
 			return
 		}
+		k.asyncWriteCheckpoint(proc, step, consecutiveToolErrors)
 	}
 
 	k.finishProcess(proc, ExitStatus{Code: 1, Reason: "max steps exceeded"})
+}
+
+// asyncWriteCheckpoint serializes context synchronously, then dispatches
+// checkpoint write to a fire-and-forget goroutine. Errors are sent to
+// proc.checkpointErrCh (buffered, cap=1); the next step checks this channel.
+func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveToolErrors int) {
+	proc.mu.Lock()
+	dir := proc.stepsDir
+	errCh := proc.checkpointErrCh
+	proc.mu.Unlock()
+	if dir == "" || errCh == nil {
+		return
+	}
+
+	// Serialize context synchronously (main goroutine) before launching async write
+	ctx, err := k.ctxMgr.GetContext(proc.CtxID)
+	if err != nil {
+		return
+	}
+	ctxSnap, err := ctx.Serialize()
+	if err != nil {
+		return
+	}
+
+	cpData := buildCheckpointData(proc, step, json.RawMessage(ctxSnap), consecutiveToolErrors)
+
+	go func() {
+		if err := writeCheckpoint(dir, cpData); err != nil {
+			select {
+			case errCh <- err:
+			default: // channel full, discard old error
+			}
+		}
+	}()
 }
 
 // handleLoopDetection processes a loop detection result. Returns true if the process was terminated.

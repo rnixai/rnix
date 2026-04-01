@@ -48,6 +48,60 @@ type Context struct {
 	mu           sync.RWMutex
 }
 
+// contextSnapshot is the wire format for Context serialization.
+type contextSnapshot struct {
+	SystemPrompt string    `json:"system_prompt"`
+	Messages     []Message `json:"messages"`
+	MaxSize      int       `json:"max_size"`
+}
+
+// Serialize serializes the complete Context state (system prompt, messages, max size) to JSON.
+// The caller must hold no lock on the Context; this method acquires a read lock internally.
+func (c *Context) Serialize() ([]byte, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	msgs := make([]Message, len(c.Messages))
+	copy(msgs, c.Messages)
+	// Deep-copy ToolCalls slices to prevent aliasing
+	for i, m := range msgs {
+		if len(m.ToolCalls) > 0 {
+			tcs := make([]ToolCall, len(m.ToolCalls))
+			copy(tcs, m.ToolCalls)
+			msgs[i].ToolCalls = tcs
+		}
+	}
+
+	snap := contextSnapshot{
+		SystemPrompt: c.SystemPrompt,
+		Messages:     msgs,
+		MaxSize:      c.MaxSize,
+	}
+	return json.Marshal(snap)
+}
+
+// Deserialize restores a Context from JSON produced by Serialize.
+// Overwrites all state fields (SystemPrompt, Messages, MaxSize).
+// The caller must hold no lock on the Context; this method acquires a write lock internally.
+func (c *Context) Deserialize(data []byte) error {
+	var snap contextSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return fmt.Errorf("context deserialize: %w", err)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.SystemPrompt = snap.SystemPrompt
+	if snap.Messages == nil {
+		c.Messages = make([]Message, 0)
+	} else {
+		c.Messages = snap.Messages
+	}
+	c.MaxSize = snap.MaxSize
+	return nil
+}
+
 // PromptResult is the return value of BuildPrompt, ready for LLM driver consumption.
 type PromptResult struct {
 	SystemPrompt string
@@ -132,6 +186,12 @@ func (m *Manager) getContext(op string, cid types.CtxID) (*Context, error) {
 		}
 	}
 	return ctx, nil
+}
+
+// GetContext returns the Context for the given CtxID.
+// Exported for use by checkpoint serialization in the kernel package.
+func (m *Manager) GetContext(cid types.CtxID) (*Context, error) {
+	return m.getContext("GetContext", cid)
 }
 
 // CtxWrite writes raw byte data to the context.

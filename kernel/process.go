@@ -109,6 +109,10 @@ type Process struct {
 	stepWriter        *StepWriter  // NDJSON step recorder (mu protected)
 	eventWriter       *EventWriter // NDJSON syscall event recorder (mu protected)
 
+	// Checkpoint system (Story 30.2) — fire-and-forget async write per step
+	checkpointErrCh chan error // buffered cap=1; carries last async write error
+	stepsDir        string    // resolved directory for checkpoint writes; "" = no checkpoint
+
 	// Native tool calling support (immutable after Spawn)
 	UseNativeTools    bool                // true when LLM driver implements ToolCallingDriver
 	toolMap           map[string]toolMapping // tool name → VFS path mapping; immutable after Spawn
