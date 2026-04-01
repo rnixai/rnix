@@ -157,21 +157,23 @@ type ListProcsResponse struct {
 // ProcInfoWire is the wire-format representation of vfs.ProcInfo.
 // Times are serialized as milliseconds for JSON portability.
 type ProcInfoWire struct {
-	PID           types.PID          `json:"pid"`
-	UUID          string             `json:"uuid,omitempty"`
-	PPID          types.PID          `json:"ppid"`
-	State         types.ProcessState `json:"state"`
-	Intent        string             `json:"intent"`
-	Skills        []string           `json:"skills"`
-	TokensUsed    int                `json:"tokens_used"`
-	CreatedAt     int64              `json:"created_at_ms"`
-	DeadAt        int64              `json:"dead_at_ms,omitempty"`
-	CtxID         types.CtxID        `json:"ctx_id"`
-	Result        string             `json:"result,omitempty"`
-	ContextBudget int                `json:"context_budget,omitempty"`
-	MaxSteps      int                `json:"max_steps,omitempty"`
-	Provider      string             `json:"provider,omitempty"`
-	Model         string             `json:"model,omitempty"`
+	PID             types.PID          `json:"pid"`
+	UUID            string             `json:"uuid,omitempty"`
+	PPID            types.PID          `json:"ppid"`
+	State           types.ProcessState `json:"state"`
+	Intent          string             `json:"intent"`
+	Skills          []string           `json:"skills"`
+	TokensUsed      int                `json:"tokens_used"`
+	CreatedAt       int64              `json:"created_at_ms"`
+	DeadAt          int64              `json:"dead_at_ms,omitempty"`
+	CtxID           types.CtxID        `json:"ctx_id"`
+	Result          string             `json:"result,omitempty"`
+	ContextBudget   int                `json:"context_budget,omitempty"`
+	MaxSteps        int                `json:"max_steps,omitempty"`
+	Provider        string             `json:"provider,omitempty"`
+	Model           string             `json:"model,omitempty"`
+	LastHeartbeatMs int64              `json:"last_heartbeat_ms,omitempty"`
+	StepTimeoutMs   int64              `json:"step_timeout_ms,omitempty"`
 }
 
 // ProcInfoToWire converts a vfs.ProcInfo to wire format.
@@ -195,9 +197,13 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		MaxSteps:      p.MaxSteps,
 		Provider:      p.Provider,
 		Model:         p.Model,
+		StepTimeoutMs: p.StepTimeout.Milliseconds(),
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
+	}
+	if !p.LastHeartbeat.IsZero() {
+		w.LastHeartbeatMs = p.LastHeartbeat.UnixMilli()
 	}
 	return w
 }
@@ -219,9 +225,13 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		MaxSteps:      w.MaxSteps,
 		Provider:      w.Provider,
 		Model:         w.Model,
+		StepTimeout:   time.Duration(w.StepTimeoutMs) * time.Millisecond,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)
+	}
+	if w.LastHeartbeatMs != 0 {
+		p.LastHeartbeat = unixMilliToTime(w.LastHeartbeatMs)
 	}
 	return p
 }

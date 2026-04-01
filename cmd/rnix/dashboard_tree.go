@@ -59,6 +59,10 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			stateMark = colorState(row.proc.State)
 		}
 
+		// Stale detection (Story 30.5)
+		isStale := (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) &&
+			ui.IsStale(row.proc.LastHeartbeat, row.proc.StepTimeout)
+
 		// Intent is the primary content — show full text, gets elastic width
 		intent := row.proc.Intent
 		if intent == "" {
@@ -116,6 +120,11 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		line := fmt.Sprintf("%s%s%-*s %s",
 			cursor, row.prefix, intentW, intentTrunc, suffixStr)
+		if isStale {
+			line = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("196")).
+				Render(line)
+		}
 		b.WriteString(line)
 		b.WriteString("\n")
 	}

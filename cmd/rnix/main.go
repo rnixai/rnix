@@ -901,16 +901,18 @@ func runPs(cmd *cobra.Command, args []string) error {
 
 // jsonProcess is the JSON representation of a single process for rnix ps --json.
 type jsonProcess struct {
-	PID        types.PID `json:"pid"`
-	UUID       string    `json:"uuid,omitempty"`
-	PPID       types.PID `json:"ppid"`
-	State      string    `json:"state"`
-	Intent     string    `json:"intent"`
-	Skills     []string  `json:"skills"`
-	TokensUsed int       `json:"tokens_used"`
-	ElapsedMs  int64     `json:"elapsed_ms"`
-	Provider   string    `json:"provider,omitempty"`
-	Model      string    `json:"model,omitempty"`
+	PID             types.PID `json:"pid"`
+	UUID            string    `json:"uuid,omitempty"`
+	PPID            types.PID `json:"ppid"`
+	State           string    `json:"state"`
+	Intent          string    `json:"intent"`
+	Skills          []string  `json:"skills"`
+	TokensUsed      int       `json:"tokens_used"`
+	ElapsedMs       int64     `json:"elapsed_ms"`
+	Provider        string    `json:"provider,omitempty"`
+	Model           string    `json:"model,omitempty"`
+	LastHeartbeatMs int64     `json:"last_heartbeat_ms,omitempty"`
+	StepTimeoutMs   int64     `json:"step_timeout_ms,omitempty"`
 }
 
 func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
@@ -922,16 +924,20 @@ func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
 			skills = []string{}
 		}
 		entries[i] = jsonProcess{
-			PID:        p.PID,
-			UUID:       p.UUID,
-			PPID:       p.PPID,
-			State:      p.State.String(),
-			Intent:     p.Intent,
-			Skills:     skills,
-			TokensUsed: p.TokensUsed,
-			ElapsedMs:  now.Sub(p.CreatedAt).Milliseconds(),
-			Provider:   p.Provider,
-			Model:      p.Model,
+			PID:           p.PID,
+			UUID:          p.UUID,
+			PPID:          p.PPID,
+			State:         p.State.String(),
+			Intent:        p.Intent,
+			Skills:        skills,
+			TokensUsed:    p.TokensUsed,
+			ElapsedMs:     now.Sub(p.CreatedAt).Milliseconds(),
+			Provider:      p.Provider,
+			Model:         p.Model,
+			StepTimeoutMs: p.StepTimeout.Milliseconds(),
+		}
+		if !p.LastHeartbeat.IsZero() {
+			entries[i].LastHeartbeatMs = p.LastHeartbeat.UnixMilli()
 		}
 	}
 	resp := JSONResponse{

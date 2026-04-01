@@ -208,6 +208,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 		}
 
+		// Update heartbeat (Story 30.5)
+		proc.mu.Lock()
+		proc.LastHeartbeat = time.Now()
+		proc.mu.Unlock()
+
 		if k.callbacks != nil {
 			k.callbacks.OnStep(proc.PID, step, maxSteps)
 		}

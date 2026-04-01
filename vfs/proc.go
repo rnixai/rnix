@@ -43,6 +43,8 @@ type ProcInfo struct {
 	AllowedDevices []string
 	Provider       string
 	Model          string
+	LastHeartbeat  time.Time
+	StepTimeout    time.Duration
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.

@@ -109,6 +109,10 @@ type Process struct {
 	stepWriter        *StepWriter  // NDJSON step recorder (mu protected)
 	eventWriter       *EventWriter // NDJSON syscall event recorder (mu protected)
 
+	// Heartbeat liveness (Story 30.5) — mu protected
+	LastHeartbeat time.Time     // updated at each step start
+	StepTimeout   time.Duration // 0 = disabled; >0 = stale threshold
+
 	// Checkpoint system (Story 30.2) — fire-and-forget async write per step
 	checkpointErrCh chan error // buffered cap=1; carries last async write error
 	stepsDir        string    // resolved directory for checkpoint writes; "" = no checkpoint

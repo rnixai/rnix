@@ -26,6 +26,7 @@ type AgentManifest struct {
 	MCP           []string    `yaml:"mcp,omitempty"`       // MCP server references
 	MaxSteps      int         `yaml:"max_steps,omitempty"` // max reasoning steps; 0 = use default
 	Planning      *bool       `yaml:"planning,omitempty"`  // nil = not set (true), *true = enabled, *false = disabled
+	StepTimeout   string      `yaml:"step_timeout,omitempty"` // duration string e.g. "10m"; default "5m"; "0" = disabled
 	SLA           *AgentSLA   `yaml:"sla,omitempty"`       // SLA constraints (Story 21.2)
 	Alternatives  []string    `yaml:"alternatives,omitempty"` // alternative agent names for auto-selection (Story 21.3)
 }

@@ -292,6 +292,10 @@ type focusCardState struct {
 
 	// Historical snapshot info (Dead processes)
 	livedRange string
+
+	// Heartbeat liveness (Story 30.5)
+	lastActive string // relative heartbeat time
+	isStale    bool   // true if running + exceeded step timeout
 }
 
 type intentMiniTask struct {

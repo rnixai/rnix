@@ -42,6 +42,7 @@ type SpawnOpts struct {
 	TraceID       types.TraceID // inherited trace ID; empty = no tracing
 	ParentSpanID  types.SpanID  // parent process span ID
 	Provider      string        // LLM provider override (from CLI --provider); "" = use agent manifest or default "claude"
+	StepTimeout   time.Duration // per-step heartbeat timeout; 0 = use agent manifest or default 5m
 
 	PreallocatedCtxID types.CtxID           // non-zero = skip CtxAlloc, use this pre-setup context
 	SkipReasonLoop    bool                  // true = don't open LLM device or start reasonStep goroutine

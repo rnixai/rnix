@@ -208,6 +208,8 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		AllowedDevices: append([]string(nil), proc.AllowedDevices...),
 		Provider:       proc.Provider,
 		Model:          proc.Model,
+		LastHeartbeat:  proc.LastHeartbeat,
+		StepTimeout:    proc.StepTimeout,
 	}
 	proc.mu.Unlock()
 	return info, nil
@@ -247,6 +249,8 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			AllowedDevices: append([]string(nil), proc.AllowedDevices...),
 			Provider:       proc.Provider,
 			Model:          proc.Model,
+			LastHeartbeat:  proc.LastHeartbeat,
+			StepTimeout:    proc.StepTimeout,
 		})
 		proc.mu.Unlock()
 		return true

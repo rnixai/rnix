@@ -26,11 +26,13 @@ func (m *dashboardModel) aggregateFocusCard() {
 	for i := range m.processes {
 		if m.processes[i].PID == m.selectedPID && (m.selectedUUID == "" || m.processes[i].UUID == m.selectedUUID) {
 			proc = &procInfoRef{
-				State:     m.processes[i].State,
-				Intent:    m.processes[i].Intent,
-				Result:    m.processes[i].Result,
-				CreatedAt: m.processes[i].CreatedAt,
-				DeadAt:    m.processes[i].DeadAt,
+				State:         m.processes[i].State,
+				Intent:        m.processes[i].Intent,
+				Result:        m.processes[i].Result,
+				CreatedAt:     m.processes[i].CreatedAt,
+				DeadAt:        m.processes[i].DeadAt,
+				LastHeartbeat: m.processes[i].LastHeartbeat,
+				StepTimeout:   m.processes[i].StepTimeout,
 			}
 			break
 		}
@@ -109,6 +111,12 @@ func (m *dashboardModel) aggregateFocusCard() {
 		} else {
 			fc.elapsed = ui.FormatDuration(time.Since(proc.CreatedAt))
 		}
+	}
+
+	// Heartbeat liveness (Story 30.5)
+	if !isHistory && !proc.LastHeartbeat.IsZero() {
+		fc.lastActive = ui.FormatRelativeTime(proc.LastHeartbeat)
+		fc.isStale = ui.IsStale(proc.LastHeartbeat, proc.StepTimeout)
 	}
 
 	// P-6: Steps count for both running and dead processes
@@ -195,11 +203,13 @@ func (m *dashboardModel) aggregateFocusCard() {
 
 // procInfoRef caches process fields to avoid repeated m.processes traversals.
 type procInfoRef struct {
-	State     types.ProcessState
-	Intent    string
-	Result    string
-	CreatedAt time.Time
-	DeadAt    time.Time
+	State         types.ProcessState
+	Intent        string
+	Result        string
+	CreatedAt     time.Time
+	DeadAt        time.Time
+	LastHeartbeat time.Time
+	StepTimeout   time.Duration
 }
 
 // renderFocusCard renders a 2×3 grid of info cards for the selected process.
@@ -340,6 +350,13 @@ func (m dashboardModel) renderStatusCard(w, h int) string {
 	}
 
 	fmt.Fprintf(&b, " state: %s\n", colorState(fc.state))
+	if fc.lastActive != "" {
+		if fc.isStale {
+			fmt.Fprintf(&b, " active: ⚠️ %s\n", fc.lastActive)
+		} else {
+			fmt.Fprintf(&b, " active: %s\n", fc.lastActive)
+		}
+	}
 	if fc.ppid > 0 {
 		fmt.Fprintf(&b, " ppid: %d\n", fc.ppid)
 	}

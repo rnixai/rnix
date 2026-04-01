@@ -16,6 +16,7 @@ const (
 	colWidthState   = 9
 	colWidthSkill   = 15
 	colWidthTokens  = 8
+	colWidthActive  = 10
 	colWidthElapsed = 8
 	colWidthPPID    = 5
 	colWidthUUID    = 11 // 8 hex chars + "..."
@@ -76,6 +77,8 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 		hdr.WriteString(gap)
 		fmt.Fprintf(&hdr, "%*s", colWidthTokens, "TOKENS")
 		hdr.WriteString(gap)
+		fmt.Fprintf(&hdr, "%-*s", colWidthActive, "ACTIVE")
+		hdr.WriteString(gap)
 		fmt.Fprintf(&hdr, "%*s", colWidthElapsed, "ELAPSED")
 	}
 	if showIntent {
@@ -105,6 +108,8 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	if showMetrics {
 		sepLine.WriteString(gap)
 		sepLine.WriteString(strings.Repeat(sep, colWidthTokens))
+		sepLine.WriteString(gap)
+		sepLine.WriteString(strings.Repeat(sep, colWidthActive))
 		sepLine.WriteString(gap)
 		sepLine.WriteString(strings.Repeat(sep, colWidthElapsed))
 	}
@@ -147,6 +152,22 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 		if showMetrics {
 			row.WriteString(gap)
 			fmt.Fprintf(&row, "%*s", colWidthTokens, FormatTokens(proc.TokensUsed))
+			row.WriteString(gap)
+			// ACTIVE column: relative heartbeat time for running processes
+			var activeStr string
+			if proc.State == types.StateRunning || proc.State == types.StateCreated {
+				activeStr = FormatRelativeTime(proc.LastHeartbeat)
+				if IsStale(proc.LastHeartbeat, proc.StepTimeout) {
+					staleWarning := "⚠️"
+					if !r.Profile.IsUnicode {
+						staleWarning = "!!"
+					}
+					activeStr = staleWarning + " " + activeStr
+				}
+			} else {
+				activeStr = dash
+			}
+			fmt.Fprintf(&row, "%-*s", colWidthActive, activeStr)
 			row.WriteString(gap)
 			elapsed := time.Since(proc.CreatedAt)
 			fmt.Fprintf(&row, "%*s", colWidthElapsed, FormatDuration(elapsed))
@@ -263,4 +284,29 @@ func StripAnsi(s string) string {
 		out.WriteRune(r)
 	}
 	return out.String()
+}
+
+// FormatRelativeTime formats a time as a relative duration string like "3s ago", "2m ago".
+func FormatRelativeTime(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", max(int(d.Seconds()), 0))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+}
+
+// IsStale returns true if a process has exceeded its step timeout.
+// Returns false if timeout is disabled (0) or heartbeat is zero.
+func IsStale(lastHeartbeat time.Time, stepTimeout time.Duration) bool {
+	if stepTimeout <= 0 || lastHeartbeat.IsZero() {
+		return false
+	}
+	return time.Since(lastHeartbeat) > stepTimeout
 }

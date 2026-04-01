@@ -226,6 +226,21 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 	proc.MaxSteps = maxStepsForProc
 
+	// StepTimeout priority: CLI opts > agent manifest step_timeout > default 5 minutes
+	// 0 explicitly disables timeout detection
+	stepTimeout := 5 * time.Minute
+	if opts.StepTimeout > 0 {
+		stepTimeout = opts.StepTimeout
+	} else if agent != nil && agent.Manifest.StepTimeout != "" {
+		if d, err := time.ParseDuration(agent.Manifest.StepTimeout); err == nil {
+			stepTimeout = d // includes 0 = disabled
+		}
+	}
+	proc.mu.Lock()
+	proc.StepTimeout = stepTimeout
+	proc.LastHeartbeat = time.Now()
+	proc.mu.Unlock()
+
 	if opts.TraceID != "" {
 		proc.TraceID = opts.TraceID
 		proc.ParentSpanID = opts.ParentSpanID
