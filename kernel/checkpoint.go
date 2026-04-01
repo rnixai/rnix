@@ -49,7 +49,7 @@ func writeCheckpoint(dir string, data *CheckpointData) error {
 	tmpPath := filepath.Join(dir, "checkpoint.json.tmp")
 	finalPath := filepath.Join(dir, "checkpoint.json")
 
-	if err := os.WriteFile(tmpPath, jsonBytes, 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, jsonBytes, 0o600); err != nil {
 		return fmt.Errorf("checkpoint write tmp: %w", err)
 	}
 

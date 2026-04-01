@@ -502,10 +502,12 @@ func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveTo
 	// Serialize context synchronously (main goroutine) before launching async write
 	ctx, err := k.ctxMgr.GetContext(proc.CtxID)
 	if err != nil {
+		log.Printf("[checkpoint] pid=%d step=%d GetContext failed: %v", proc.PID, step, err)
 		return
 	}
 	ctxSnap, err := ctx.Serialize()
 	if err != nil {
+		log.Printf("[checkpoint] pid=%d step=%d Serialize failed: %v", proc.PID, step, err)
 		return
 	}
 
