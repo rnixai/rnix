@@ -61,6 +61,9 @@ func (d *LoopDetector) Check(hash uint64) LoopStatus {
 				d.warned = true
 				return LoopWarning
 			}
+		} else {
+			// Pattern broken — reset warned so a new loop pattern can trigger LoopWarning
+			d.warned = false
 		}
 	}
 

@@ -728,10 +728,18 @@ func runScript(renderer *ui.Renderer, mode ui.OutputMode, progress *ui.ProgressR
 			return
 		}
 		if pp.Event == "script_step" {
-			if pp.Intent != "" {
-				progress.KernelMessage("script step %d/%d: %s", pp.Step, pp.Total, pp.Intent)
+			if pp.Total > 0 {
+				if pp.Intent != "" {
+					progress.KernelMessage("script step %d/%d: %s", pp.Step, pp.Total, pp.Intent)
+				} else {
+					progress.KernelMessage("script step %d/%d...", pp.Step, pp.Total)
+				}
 			} else {
-				progress.KernelMessage("script step %d/%d...", pp.Step, pp.Total)
+				if pp.Intent != "" {
+					progress.KernelMessage("script step %d: %s", pp.Step, pp.Intent)
+				} else {
+					progress.KernelMessage("script step %d...", pp.Step)
+				}
 			}
 		}
 	})

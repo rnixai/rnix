@@ -78,6 +78,31 @@ func TestLoopDetector_ResetAfterDifferentAction(t *testing.T) {
 	}
 }
 
+func TestLoopDetector_WarnedResetsOnPatternBreak(t *testing.T) {
+	d := NewLoopDetector(3)
+	hashA := uint64(42)
+	hashB := uint64(77)
+
+	// Trigger LoopWarning with pattern A
+	d.Check(hashA)
+	d.Check(hashA)
+	status := d.Check(hashA)
+	if status != LoopWarning {
+		t.Fatalf("expected LoopWarning on 3rd identical step, got %d", status)
+	}
+
+	// Break pattern
+	d.Check(uint64(99))
+
+	// Start new pattern B — should get a fresh LoopWarning
+	d.Check(hashB)
+	d.Check(hashB)
+	status = d.Check(hashB)
+	if status != LoopWarning {
+		t.Errorf("expected LoopWarning for new pattern after break, got %d", status)
+	}
+}
+
 func TestLoopDetector_DefaultThreshold(t *testing.T) {
 	d := NewLoopDetector(0)
 	if d.threshold != DefaultLoopThreshold {
