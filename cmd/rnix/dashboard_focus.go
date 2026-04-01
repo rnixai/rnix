@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -352,7 +353,11 @@ func (m dashboardModel) renderStatusCard(w, h int) string {
 	fmt.Fprintf(&b, " state: %s\n", colorState(fc.state))
 	if fc.lastActive != "" {
 		if fc.isStale {
-			fmt.Fprintf(&b, " active: ⚠️ %s\n", fc.lastActive)
+			staleIcon := "⚠️"
+			if os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true" {
+				staleIcon = "!!"
+			}
+			fmt.Fprintf(&b, " active: %s %s\n", staleIcon, fc.lastActive)
 		} else {
 			fmt.Fprintf(&b, " active: %s\n", fc.lastActive)
 		}

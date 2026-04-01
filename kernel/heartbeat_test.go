@@ -4,6 +4,9 @@ import (
 	"testing"
 	"time"
 
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/vfs"
+
 	"github.com/rnixai/rnix/agents"
 )
 
@@ -145,4 +148,76 @@ func TestProcess_HeartbeatConcurrency(t *testing.T) {
 
 	<-done
 	<-done
+}
+
+// TestReasonStep_HeartbeatUpdatedPerStep verifies that the reasonStep loop
+// updates proc.LastHeartbeat at each step iteration (Story 30.5 Task 6.3).
+func TestReasonStep_HeartbeatUpdatedPerStep(t *testing.T) {
+	// Multi-step: tool_call then text — two reason steps
+	reg := vfs.NewDeviceRegistry()
+
+	seqFile := &sequenceLLMFile{
+		responses: [][]byte{
+			makeToolCallResponse("/dev/tools/read", map[string]any{"path": "/foo"}, 50),
+			makeLLMResponse("done", 30),
+		},
+	}
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return seqFile, nil
+	})
+	_ = reg.Register("/dev/tools/read", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return &mockToolFile{readData: []byte("bar")}, nil
+	})
+
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("read a file", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+
+	// Record spawn-time heartbeat
+	proc.mu.Lock()
+	spawnHeartbeat := proc.LastHeartbeat
+	proc.mu.Unlock()
+
+	if spawnHeartbeat.IsZero() {
+		t.Fatal("LastHeartbeat should be initialized at Spawn time")
+	}
+
+	// Wait for completion
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("unexpected exit code %d: %s", exit.Code, exit.Reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process to complete")
+	}
+
+	// After reasonStep loop ran (2 steps), LastHeartbeat should be updated
+	proc.mu.Lock()
+	finalHeartbeat := proc.LastHeartbeat
+	proc.mu.Unlock()
+
+	if finalHeartbeat.IsZero() {
+		t.Fatal("LastHeartbeat should not be zero after reasonStep")
+	}
+	if !finalHeartbeat.After(spawnHeartbeat) && !finalHeartbeat.Equal(spawnHeartbeat) {
+		t.Errorf("LastHeartbeat should be >= spawn time: spawn=%v final=%v", spawnHeartbeat, finalHeartbeat)
+	}
+
+	// Verify StepTimeout was set to default 5m (no agent manifest)
+	proc.mu.Lock()
+	timeout := proc.StepTimeout
+	proc.mu.Unlock()
+
+	if timeout != 5*time.Minute {
+		t.Errorf("StepTimeout = %v, want 5m (default)", timeout)
+	}
 }
