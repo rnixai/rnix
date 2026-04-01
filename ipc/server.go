@@ -548,8 +548,16 @@ func (s *Server) handleCtxGrowth(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	maxSteps := info.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = 100 // fallback to kernel.DefaultMaxSteps
+	if maxSteps == 0 {
+		// Infinite steps: cannot predict step exhaustion, return empty prediction
+		result := debug.PredictGrowth(info.PID, info.TokensUsed, info.ContextBudget, currentStep, 0, history)
+		payload, err := json.Marshal(result)
+		if err != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
+			return
+		}
+		writeResponse(conn, Response{OK: true, Payload: payload})
+		return
 	}
 	result := debug.PredictGrowth(info.PID, info.TokensUsed, info.ContextBudget, currentStep, maxSteps, history)
 

@@ -2565,7 +2565,7 @@ func TestReasonStep_GdbEnvVarsInjection(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	pid, err := k.Spawn("test env injection", nil, SpawnOpts{Model: "test-model"})
+	pid, err := k.Spawn("test env injection", nil, SpawnOpts{Model: "test-model", MaxTurns: 100})
 	if err != nil {
 		t.Fatalf("Spawn failed: %v", err)
 	}

@@ -24,8 +24,9 @@ type MountManager interface {
 	UnmountAll() error
 }
 
-// DefaultMaxSteps is the maximum number of reasoning steps before forced completion.
-const DefaultMaxSteps = 100
+// DefaultMaxSteps is the default maximum number of reasoning steps.
+// 0 means infinite (no step limit).
+const DefaultMaxSteps = 0
 
 // DefaultCtxSize is the default context size (message count) for new contexts.
 const DefaultCtxSize = 64

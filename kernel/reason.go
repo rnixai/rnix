@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
@@ -154,9 +155,6 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 // reasonStep executes the reasoning loop for a process.
 func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	maxSteps := proc.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = DefaultMaxSteps
-	}
 
 	stepBaseDir := k.stepDataDir
 	if stepBaseDir == "" {
@@ -187,8 +185,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 	var lastResultSummary string
 	var consecutiveToolErrors int
+	loopDetector := NewLoopDetector(DefaultLoopThreshold)
 
-	for step := 1; step <= maxSteps; step++ {
+	for step := 1; maxSteps == 0 || step <= maxSteps; step++ {
 		stepStart := time.Now()
 
 		if k.callbacks != nil {
@@ -412,6 +411,21 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		// Native tool calls path
 		if proc.UseNativeTools && len(resp.ToolCalls) > 0 {
+			// Loop detection for native tool calls: hash first tool call
+			tc := resp.ToolCalls[0]
+			inputStr := ""
+			if tc.Input != nil {
+				if raw, err := json.Marshal(tc.Input); err == nil {
+					inputStr = string(raw)
+				}
+			}
+			loopHash := ActionHash("tool_call", tc.Name, inputStr)
+			if loopResult := loopDetector.Check(loopHash); loopResult != LoopNone {
+				if stopped := k.handleLoopDetection(proc, loopResult, step, stepStart); stopped {
+					return
+				}
+			}
+
 			shouldContinue := k.executeNativeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors)
 			if !shouldContinue {
 				return
@@ -421,6 +435,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		// Parse action (text protocol path)
 		action := parseAction(&resp)
+
+		// Loop detection: skip complete/text actions (normal termination signals)
+		if action.Type != ActionComplete && action.Type != ActionText {
+			loopHash := ActionHash(string(action.Type), action.ToolPath, string(action.ToolData))
+			if loopResult := loopDetector.Check(loopHash); loopResult != LoopNone {
+				if stopped := k.handleLoopDetection(proc, loopResult, step, stepStart); stopped {
+					return
+				}
+			}
+		}
 
 		if hit := proc.CheckBreakpoint(BreakpointContext{BPType: BPQuality, LLMResponse: resp.Content, StepNumber: step}); hit != nil {
 			proc.GdbPause(fmt.Sprintf("quality breakpoint hit at step %d", step), hit)
@@ -441,4 +465,31 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	}
 
 	k.finishProcess(proc, ExitStatus{Code: 1, Reason: "max steps exceeded"})
+}
+
+// handleLoopDetection processes a loop detection result. Returns true if the process was terminated.
+func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, step int, stepStart time.Time) bool {
+	switch status {
+	case LoopWarning:
+		k.emitEvent(proc, "LoopDetected", map[string]any{
+			"step":      step,
+			"threshold": DefaultLoopThreshold,
+		}, nil, nil, time.Since(stepStart))
+		log.Printf("[kernel] pid=%d loop detected at step %d: same action repeated %d times", proc.PID, step, DefaultLoopThreshold)
+		// Inject warning into context as RoleUser message
+		msg := LoopWarningMessage(DefaultLoopThreshold)
+		if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, msg); err != nil {
+			log.Printf("[kernel] pid=%d failed to inject loop warning: %v", proc.PID, err)
+		}
+	case LoopSuspend:
+		k.emitEvent(proc, "LoopSuspend", map[string]any{
+			"step":      step,
+			"threshold": 2 * DefaultLoopThreshold,
+		}, nil, nil, time.Since(stepStart))
+		log.Printf("[kernel] pid=%d loop suspend at step %d: same action repeated %d times", proc.PID, step, 2*DefaultLoopThreshold)
+		// TODO(30.3): replace with Suspend(pid)
+		k.finishProcess(proc, ExitStatus{Code: 1, Reason: fmt.Sprintf("loop detected: same action repeated %d times", 2*DefaultLoopThreshold)})
+		return true
+	}
+	return false
 }

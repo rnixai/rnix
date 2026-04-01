@@ -77,7 +77,10 @@ func PredictGrowth(pid types.PID, tokensUsed, contextBudget, currentStep, maxSte
 
 	if contextBudget > 0 && p.RecentRate > 0 {
 		p.EstRemaining = max(int(math.Floor(float64(p.RemainingBudget)/p.RecentRate)), 0)
-		p.PredictExhaust = currentStep+p.EstRemaining <= maxSteps
+		if maxSteps > 0 {
+			p.PredictExhaust = currentStep+p.EstRemaining <= maxSteps
+		}
+		// maxSteps == 0: infinite steps, PredictExhaust stays false
 	}
 
 	if contextBudget > 0 {
