@@ -909,6 +909,9 @@ type jsonProcess struct {
 	Intent          string    `json:"intent"`
 	Skills          []string  `json:"skills"`
 	TokensUsed      int       `json:"tokens_used"`
+	MaxTokens       int64     `json:"max_tokens,omitempty"`
+	MaxCost         float64   `json:"max_cost,omitempty"`
+	UsedCost        float64   `json:"used_cost,omitempty"`
 	ElapsedMs       int64     `json:"elapsed_ms"`
 	Provider        string    `json:"provider,omitempty"`
 	Model           string    `json:"model,omitempty"`
@@ -932,6 +935,9 @@ func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
 			Intent:        p.Intent,
 			Skills:        skills,
 			TokensUsed:    p.TokensUsed,
+			MaxTokens:     p.MaxTokens,
+			MaxCost:       p.MaxCost,
+			UsedCost:      p.UsedCost,
 			ElapsedMs:     now.Sub(p.CreatedAt).Milliseconds(),
 			Provider:      p.Provider,
 			Model:         p.Model,
@@ -1282,6 +1288,14 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetMountManager(mountMgr)
 	k.SetProviderResolver(driverReg.Names, func(name string) bool { _, ok := driverReg.Get(name); return ok })
 	k.SetDefaultProvider(providersCfg.ResolveDefaultProvider())
+	k.SetCostPerToken(func(provider string) float64 {
+		for _, p := range providersCfg.Providers {
+			if p.Name == provider {
+				return p.CostPerToken
+			}
+		}
+		return 0
+	})
 	k.SetAgentLoader(agentLoader.Load)
 
 	// Stem agent differentiation (Story 20.3)

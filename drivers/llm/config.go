@@ -52,8 +52,9 @@ type ProviderConfig struct {
 	DefaultModel string `yaml:"default_model"`
 	BaseURL      string `yaml:"base_url"`
 	APIKeyEnv    string `yaml:"api_key_env"`
-	Mode         string `yaml:"mode"`       // "stream" (default) or "call"
-	MaxTokens    int    `yaml:"max_tokens"` // default max output tokens; 0 = use API default
+	Mode         string  `yaml:"mode"`           // "stream" (default) or "call"
+	MaxTokens    int     `yaml:"max_tokens"`     // default max output tokens; 0 = use API default
+	CostPerToken float64 `yaml:"cost_per_token"` // cost per token in USD; 0 = cost tracking disabled
 }
 
 // FindProvidersConfigPath searches for providers.yaml in CWD then

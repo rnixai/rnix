@@ -23,6 +23,14 @@ func nextPID() types.PID {
 	return types.PID(pidCounter.Add(1))
 }
 
+// ProcessBudget tracks per-process resource budget for cost/token limiting.
+// When a budget limit is reached, the process is suspended (not terminated).
+type ProcessBudget struct {
+	MaxTokens int64   // 0 = unlimited
+	MaxCost   float64 // 0 = unlimited (USD)
+	UsedCost  float64 // accumulated cost
+}
+
 // ExitStatus records how a process terminated.
 type ExitStatus struct {
 	Code   int    // 0 = normal, non-zero = abnormal
@@ -49,8 +57,9 @@ type Process struct {
 	CtxID          types.CtxID // context allocated by Spawn
 	Result         string      // final output from reasoning
 	TokensUsed     int         // cumulative token consumption
-	ContextBudget  int         // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
-	MaxSteps       int         // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
+	ContextBudget  int            // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	Budget         ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
+	MaxSteps       int            // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
 	AllowedDevices []string    // nil/empty = all devices allowed; non-empty = whitelist only
 	MCPMounts      []string    // MCP mount paths auto-mounted by Spawn
 	TraceID        types.TraceID
@@ -251,6 +260,9 @@ type DetailSnapshot struct {
 	CtxID          types.CtxID
 	TokensUsed     int
 	ContextBudget  int
+	MaxTokens      int64
+	MaxCost        float64
+	UsedCost       float64
 }
 
 // GetDetailSnapshot returns a thread-safe copy of process detail fields.
@@ -272,6 +284,9 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 		CtxID:          p.CtxID,
 		TokensUsed:     p.TokensUsed,
 		ContextBudget:  p.ContextBudget,
+		MaxTokens:      p.Budget.MaxTokens,
+		MaxCost:        p.Budget.MaxCost,
+		UsedCost:       p.Budget.UsedCost,
 	}
 }
 

@@ -15,7 +15,8 @@ const (
 	colWidthPID     = 5
 	colWidthState   = 9
 	colWidthSkill   = 15
-	colWidthTokens  = 8
+	colWidthTokens  = 14
+	colWidthCost    = 12
 	colWidthActive  = 10
 	colWidthElapsed = 8
 	colWidthPPID    = 5
@@ -48,6 +49,15 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	showMetrics := w >= thresholdMetrics
 	showIntent := w >= thresholdIntent || verbose
 
+	// Conditional COST column: shown only when any process has MaxCost > 0
+	showCost := false
+	for _, p := range procs {
+		if p.MaxCost > 0 {
+			showCost = true
+			break
+		}
+	}
+
 	// Separator character
 	sep := "─"
 	dash := "—"
@@ -76,6 +86,10 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	if showMetrics {
 		hdr.WriteString(gap)
 		fmt.Fprintf(&hdr, "%*s", colWidthTokens, "TOKENS")
+		if showCost {
+			hdr.WriteString(gap)
+			fmt.Fprintf(&hdr, "%*s", colWidthCost, "COST")
+		}
 		hdr.WriteString(gap)
 		fmt.Fprintf(&hdr, "%-*s", colWidthActive, "ACTIVE")
 		hdr.WriteString(gap)
@@ -108,6 +122,10 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	if showMetrics {
 		sepLine.WriteString(gap)
 		sepLine.WriteString(strings.Repeat(sep, colWidthTokens))
+		if showCost {
+			sepLine.WriteString(gap)
+			sepLine.WriteString(strings.Repeat(sep, colWidthCost))
+		}
 		sepLine.WriteString(gap)
 		sepLine.WriteString(strings.Repeat(sep, colWidthActive))
 		sepLine.WriteString(gap)
@@ -153,7 +171,11 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 		}
 		if showMetrics {
 			row.WriteString(gap)
-			fmt.Fprintf(&row, "%*s", colWidthTokens, FormatTokens(proc.TokensUsed))
+			fmt.Fprintf(&row, "%*s", colWidthTokens, FormatTokensBudget(proc.TokensUsed, proc.MaxTokens))
+			if showCost {
+				row.WriteString(gap)
+				fmt.Fprintf(&row, "%*s", colWidthCost, FormatCostBudget(proc.UsedCost, proc.MaxCost))
+			}
 			row.WriteString(gap)
 			// ACTIVE column: relative heartbeat time for running processes
 			var activeStr string
@@ -322,4 +344,25 @@ func IsStale(lastHeartbeat time.Time, stepTimeout time.Duration) bool {
 		return false
 	}
 	return time.Since(lastHeartbeat) > stepTimeout
+}
+
+// FormatTokensBudget formats token usage with optional budget limit.
+// Returns "12,345/50,000" when maxTokens > 0, or "12,345" otherwise.
+func FormatTokensBudget(used int, maxTokens int64) string {
+	if maxTokens > 0 {
+		return FormatTokens(used) + "/" + FormatTokens(int(maxTokens))
+	}
+	return FormatTokens(used)
+}
+
+// FormatCostBudget formats cost usage with budget limit.
+// Returns "$0.15/$1.00" when maxCost > 0, or "-" otherwise.
+func FormatCostBudget(usedCost, maxCost float64) string {
+	if maxCost > 0 {
+		return fmt.Sprintf("$%.2f/$%.2f", usedCost, maxCost)
+	}
+	if usedCost > 0 {
+		return fmt.Sprintf("$%.2f", usedCost)
+	}
+	return "-"
 }

@@ -436,6 +436,34 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			return
 		}
 
+		// Cost accumulation + budget check (Story 30.7) — suspend instead of terminate
+		proc.mu.Lock()
+		if proc.Budget.MaxCost > 0 {
+			cpt := k.getCostPerToken(proc.Provider)
+			if cpt < 0 {
+				cpt = 0
+			}
+			if cpt == 0 {
+				log.Printf("[kernel] pid=%d warning: MaxCost=$%.2f set but costPerToken=0 for provider %q — cost budget will not trigger", proc.PID, proc.Budget.MaxCost, proc.Provider)
+			}
+			proc.Budget.UsedCost += float64(resp.TokensUsed) * cpt
+		}
+		budgetCheck := proc.Budget
+		proc.mu.Unlock()
+		if (budgetCheck.MaxTokens > 0 && int64(tokens) >= budgetCheck.MaxTokens) ||
+			(budgetCheck.MaxCost > 0 && budgetCheck.UsedCost >= budgetCheck.MaxCost) {
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step": step, "action": "budget_exhausted",
+				"used_tokens": tokens, "max_tokens": budgetCheck.MaxTokens,
+				"used_cost": budgetCheck.UsedCost, "max_cost": budgetCheck.MaxCost,
+			}, nil, nil, time.Since(stepStart))
+			if err := k.selfSuspend(proc, "budget_exhausted"); err != nil {
+				log.Printf("[kernel] pid=%d budget suspend failed: %v, falling back to terminate", proc.PID, err)
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "budget_exhausted + suspend failed"})
+			}
+			return
+		}
+
 		if hit := proc.CheckBreakpoint(BreakpointContext{BPType: BPBudget, TokensUsed: tokens, StepNumber: step}); hit != nil {
 			proc.GdbPause(fmt.Sprintf("budget breakpoint hit: %d tokens used", tokens), hit)
 			select {
@@ -569,4 +597,13 @@ func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, step 
 		return true
 	}
 	return false
+}
+
+// getCostPerToken returns the cost per token for a given provider.
+// Returns 0 if no cost configuration is available (cost tracking disabled).
+func (k *KernelImpl) getCostPerToken(provider string) float64 {
+	if k.costPerToken == nil {
+		return 0
+	}
+	return k.costPerToken(provider)
 }

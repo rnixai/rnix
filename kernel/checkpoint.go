@@ -34,6 +34,9 @@ type CheckpointProcState struct {
 	IntentID              string            `json:"intent_id,omitempty"`
 	MaxSteps              int               `json:"max_steps"`
 	UsedTokens            int               `json:"used_tokens"`
+	MaxTokens             int64             `json:"max_tokens,omitempty"`
+	MaxCost               float64           `json:"max_cost,omitempty"`
+	UsedCost              float64           `json:"used_cost,omitempty"`
 	ConsecutiveToolErrors int               `json:"consecutive_tool_errors"`
 	EnvSnapshot           map[string]string `json:"env_snapshot"`
 }
@@ -91,6 +94,7 @@ func ReadCheckpointPublic(dir string) (*CheckpointData, error) {
 func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessage, consecutiveToolErrors int) *CheckpointData {
 	proc.mu.Lock()
 	tokensUsed := proc.TokensUsed
+	budgetSnap := proc.Budget
 	skills := make([]string, len(proc.Skills))
 	copy(skills, proc.Skills)
 	proc.mu.Unlock()
@@ -110,6 +114,9 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 			Intent:                proc.Intent,
 			MaxSteps:              proc.MaxSteps,
 			UsedTokens:            tokensUsed,
+			MaxTokens:             budgetSnap.MaxTokens,
+			MaxCost:               budgetSnap.MaxCost,
+			UsedCost:              budgetSnap.UsedCost,
 			ConsecutiveToolErrors: consecutiveToolErrors,
 		},
 	}

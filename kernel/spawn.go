@@ -216,6 +216,26 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	proc.ContextBudget = opts.ContextBudget
 
+	// ProcessBudget priority: opts (CLI/Compose) > agent manifest > 0 (unlimited)
+	if opts.MaxTokens < 0 {
+		opts.MaxTokens = 0
+	}
+	if opts.MaxCost < 0 {
+		opts.MaxCost = 0
+	}
+	if opts.MaxTokens == 0 && agent != nil && agent.Manifest.MaxTokens > 0 {
+		opts.MaxTokens = agent.Manifest.MaxTokens
+	}
+	if opts.MaxCost == 0 && agent != nil && agent.Manifest.MaxCost > 0 {
+		opts.MaxCost = agent.Manifest.MaxCost
+	}
+	proc.mu.Lock()
+	proc.Budget = ProcessBudget{
+		MaxTokens: opts.MaxTokens,
+		MaxCost:   opts.MaxCost,
+	}
+	proc.mu.Unlock()
+
 	// MaxSteps priority: CLI --max-steps > agent manifest max_steps > DefaultMaxSteps
 	maxStepsForProc := DefaultMaxSteps
 	if agent != nil && agent.Manifest.MaxSteps > 0 {

@@ -39,6 +39,8 @@ type SpawnOpts struct {
 	TimeoutMs     int64
 	ParentPID     types.PID     // parent process PID; 0 = top-level/CLI spawn
 	ContextBudget int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	MaxTokens     int64         // per-process token budget; 0 = unlimited; >0 = suspend when exhausted
+	MaxCost       float64       // per-process cost budget (USD); 0 = unlimited; >0 = suspend when exhausted
 	TraceID       types.TraceID // inherited trace ID; empty = no tracing
 	ParentSpanID  types.SpanID  // parent process span ID
 	Provider      string        // LLM provider override (from CLI --provider); "" = use agent manifest or default "claude"
@@ -112,6 +114,7 @@ type KernelImpl struct {
 	// Provider resolution callbacks (Story 23.3)
 	providerNames   func() []string
 	hasProvider     func(name string) bool
+	costPerToken    func(provider string) float64 // returns cost per token for a provider; 0 = unknown
 	defaultProvider string // injected default provider name; "" = fall back to "claude"
 
 	// Budget pools (Story 21.1)
@@ -212,6 +215,11 @@ func (k *KernelImpl) SetProviderResolver(names func() []string, has func(name st
 // SetDefaultProvider injects the default LLM provider name.
 func (k *KernelImpl) SetDefaultProvider(name string) {
 	k.defaultProvider = name
+}
+
+// SetCostPerToken injects the cost-per-token lookup function for process budget tracking.
+func (k *KernelImpl) SetCostPerToken(fn func(provider string) float64) {
+	k.costPerToken = fn
 }
 
 // StartRecording starts execution recording for the given PID.

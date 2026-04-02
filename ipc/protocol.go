@@ -170,6 +170,9 @@ type ProcInfoWire struct {
 	CtxID           types.CtxID        `json:"ctx_id"`
 	Result          string             `json:"result,omitempty"`
 	ContextBudget   int                `json:"context_budget,omitempty"`
+	MaxTokens       int64              `json:"max_tokens,omitempty"`
+	MaxCost         float64            `json:"max_cost,omitempty"`
+	UsedCost        float64            `json:"used_cost,omitempty"`
 	MaxSteps        int                `json:"max_steps,omitempty"`
 	Provider        string             `json:"provider,omitempty"`
 	Model           string             `json:"model,omitempty"`
@@ -195,6 +198,9 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		CtxID:         p.CtxID,
 		Result:        p.Result,
 		ContextBudget: p.ContextBudget,
+		MaxTokens:     p.MaxTokens,
+		MaxCost:       p.MaxCost,
+		UsedCost:      p.UsedCost,
 		MaxSteps:      p.MaxSteps,
 		Provider:      p.Provider,
 		Model:         p.Model,
@@ -223,6 +229,9 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		CtxID:         w.CtxID,
 		Result:        w.Result,
 		ContextBudget: w.ContextBudget,
+		MaxTokens:     w.MaxTokens,
+		MaxCost:       w.MaxCost,
+		UsedCost:      w.UsedCost,
 		MaxSteps:      w.MaxSteps,
 		Provider:      w.Provider,
 		Model:         w.Model,

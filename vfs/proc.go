@@ -35,6 +35,9 @@ type ProcInfo struct {
 	Skills         []string
 	TokensUsed     int
 	ContextBudget  int
+	MaxTokens      int64
+	MaxCost        float64
+	UsedCost       float64
 	MaxSteps       int
 	CreatedAt      time.Time
 	DeadAt         time.Time
