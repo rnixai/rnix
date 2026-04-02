@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	gocontext "context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -200,7 +201,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	var consecutiveToolErrors int
 	loopDetector := NewLoopDetector(DefaultLoopThreshold)
 
-	for step := 1; maxSteps == 0 || step <= maxSteps; step++ {
+	startStep := 1
+	if opts.StartStep > 0 {
+		startStep = opts.StartStep
+	}
+	for step := startStep; maxSteps == 0 || step <= maxSteps; step++ {
 		stepStart := time.Now()
 
 		// Check previous checkpoint write error (Story 30.2 AC#10)
@@ -346,10 +351,28 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			return
 		}
 
-		// Write request to LLM device
+		// Write request to LLM device — use step-level context (Story 30.6)
+		stepCtx, stepCancel := gocontext.WithCancel(proc.ctx)
+		proc.SetStepCancel(stepCancel)
+
 		writeStart := time.Now()
 		var respData []byte
-		if err := k.vfs.Write(proc.ctx, proc.PID, llmFD, reqJSON); err != nil {
+		if err := k.vfs.Write(stepCtx, proc.PID, llmFD, reqJSON); err != nil {
+			proc.SetStepCancel(nil)
+
+			// Check if this was a step-level cancel (heartbeat retry), not process cancel
+			// Must check BEFORE calling stepCancel() to distinguish real cancellation from cleanup
+			if stepCtx.Err() != nil && proc.ctx.Err() == nil {
+				stepCancel()
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "step_retry",
+					"reason": "heartbeat_monitor_retry",
+				}, nil, nil, time.Since(stepStart))
+				continue // retry current step
+			}
+			stepCancel()
+
 			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model}, nil, err, time.Since(writeStart))
 			fbData, fbErr := k.attemptFallback(proc, req, proc.PrimaryDevice, err, step)
 			if fbErr != nil {
@@ -363,6 +386,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 			respData = fbData
 		} else {
+			proc.SetStepCancel(nil)
+			stepCancel()
+
 			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model}, nil, nil, time.Since(writeStart))
 			readStart := time.Now()
 			var readErr error
@@ -570,6 +596,15 @@ func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveTo
 	}()
 }
 
+// getCostPerToken returns the cost per token for a given provider.
+// Returns 0 if no cost configuration is available (cost tracking disabled).
+func (k *KernelImpl) getCostPerToken(provider string) float64 {
+	if k.costPerToken == nil {
+		return 0
+	}
+	return k.costPerToken(provider)
+}
+
 // handleLoopDetection processes a loop detection result. Returns true if the process was terminated.
 func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, step int, stepStart time.Time) bool {
 	switch status {
@@ -597,13 +632,4 @@ func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, step 
 		return true
 	}
 	return false
-}
-
-// getCostPerToken returns the cost per token for a given provider.
-// Returns 0 if no cost configuration is available (cost tracking disabled).
-func (k *KernelImpl) getCostPerToken(provider string) float64 {
-	if k.costPerToken == nil {
-		return 0
-	}
-	return k.costPerToken(provider)
 }

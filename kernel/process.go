@@ -130,6 +130,9 @@ type Process struct {
 	suspendRequested atomic.Bool   // set by Suspend(), checked by reasonStep
 	SuspendReason    string        // reason for suspension (mu protected)
 
+	// Step-level cancel (Story 30.6) — cancel current LLM call without killing process
+	stepCancel context.CancelFunc // mu protected; cancel for current step's LLM call
+
 	// Native tool calling support (immutable after Spawn)
 	UseNativeTools    bool                // true when LLM driver implements ToolCallingDriver
 	toolMap           map[string]toolMapping // tool name → VFS path mapping; immutable after Spawn
@@ -639,6 +642,22 @@ func (p *Process) IsPaused() bool {
 // IsSuspendRequested reports whether suspend has been requested for this process.
 func (p *Process) IsSuspendRequested() bool {
 	return p.suspendRequested.Load()
+}
+
+// SetStepCancel sets the cancel function for the current step's LLM call.
+func (p *Process) SetStepCancel(cancel context.CancelFunc) {
+	p.mu.Lock()
+	p.stepCancel = cancel
+	p.mu.Unlock()
+}
+
+// CancelStep cancels the current step's LLM call without affecting the process context.
+func (p *Process) CancelStep() {
+	p.mu.Lock()
+	if p.stepCancel != nil {
+		p.stepCancel()
+	}
+	p.mu.Unlock()
 }
 
 // Suspend transitions the process from Running to Suspended.

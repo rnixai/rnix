@@ -370,6 +370,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleListAllProcs(conn)
 		case MethodSuspend:
 			s.handleSuspend(conn, req.Payload)
+		case MethodResume:
+			s.handleResume(conn, req.Payload)
+		case MethodHeartbeatStatus:
+			s.handleHeartbeatStatus(conn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -828,6 +832,38 @@ func (s *Server) handleSuspend(conn net.Conn, rawPayload json.RawMessage) {
 		UUID:           proc.UUID,
 		State:          "suspended",
 		CheckpointStep: checkpointStep,
+	}
+	payload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleResume(conn net.Conn, rawPayload json.RawMessage) {
+	var req ResumeRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid resume request"}})
+		return
+	}
+
+	if req.UUID == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "uuid is required"}})
+		return
+	}
+
+	result, err := s.kern.Resume(req.UUID)
+	if err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+
+	resp := ResumeResponse{
+		PID:             result.PID,
+		UUID:            result.UUID,
+		ResumedFromStep: result.ResumedFromStep,
 	}
 	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})
@@ -3275,4 +3311,34 @@ func (s *Server) handleIntentList(conn net.Conn) {
 	}
 
 	writeResponse(conn, Response{OK: true, Payload: data})
+}
+
+func (s *Server) handleHeartbeatStatus(conn net.Conn) {
+	hm := s.kern.GetHeartbeatMonitor()
+	if hm == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "not_available", Message: "heartbeat monitor not initialized"}})
+		return
+	}
+
+	status := hm.Status()
+	stalled := make([]StalledProcWire, len(status.CurrentStalled))
+	for i, sp := range status.CurrentStalled {
+		stalled[i] = StalledProcWire{
+			PID:               sp.PID,
+			UUID:              sp.UUID,
+			ConsecutiveStalls: sp.ConsecutiveStalls,
+			StalledDurationMs: sp.StalledDuration.Milliseconds(),
+			LastAction:        sp.LastAction,
+		}
+	}
+
+	resp := HeartbeatStatusResponse{
+		Running:              status.Running,
+		CheckIntervalMs:      status.CheckInterval.Milliseconds(),
+		TotalStalledDetected: status.TotalStalledDetected,
+		CurrentStalled:       stalled,
+	}
+
+	payload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: payload})
 }

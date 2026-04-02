@@ -45,6 +45,7 @@ type SpawnOpts struct {
 	ParentSpanID  types.SpanID  // parent process span ID
 	Provider      string        // LLM provider override (from CLI --provider); "" = use agent manifest or default "claude"
 	StepTimeout   time.Duration // per-step heartbeat timeout; 0 = use agent manifest or default 5m
+	StartStep     int           // Resume: start reasoning loop from this step (0 = normal start from 1)
 
 	PreallocatedCtxID types.CtxID           // non-zero = skip CtxAlloc, use this pre-setup context
 	SkipReasonLoop    bool                  // true = don't open LLM device or start reasonStep goroutine
@@ -132,6 +133,9 @@ type KernelImpl struct {
 
 	// Step data directory override for testing (Story 27.1)
 	stepDataDir string
+
+	// Heartbeat monitor (Story 30.6)
+	heartbeatMonitor *HeartbeatMonitor
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -204,6 +208,16 @@ func (k *KernelImpl) SetDiffMemory(m *DiffMemory) {
 // SetImmuneDaemon injects the immune daemon for behavioral monitoring (Story 22.1).
 func (k *KernelImpl) SetImmuneDaemon(d *ImmuneDaemon) {
 	k.immuneDaemon = d
+}
+
+// SetHeartbeatMonitor injects the heartbeat monitor for stalled process detection (Story 30.6).
+func (k *KernelImpl) SetHeartbeatMonitor(hm *HeartbeatMonitor) {
+	k.heartbeatMonitor = hm
+}
+
+// GetHeartbeatMonitor returns the heartbeat monitor, or nil if not set.
+func (k *KernelImpl) GetHeartbeatMonitor() *HeartbeatMonitor {
+	return k.heartbeatMonitor
 }
 
 // SetProviderResolver injects callbacks for dynamic LLM provider validation.

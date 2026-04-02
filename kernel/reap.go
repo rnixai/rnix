@@ -359,6 +359,10 @@ func (k *KernelImpl) saveCtxProfile(proc *Process, baseDir string) {
 // Safe to call multiple times — only the first call closes stopCh.
 func (k *KernelImpl) Shutdown() {
 	k.shutdownOnce.Do(func() {
+		// Stop heartbeat monitor before reaper (Story 30.6)
+		if k.heartbeatMonitor != nil {
+			k.heartbeatMonitor.Stop()
+		}
 		// Close all active recordings before stopping reaper
 		if k.recordMgr != nil {
 			k.recordMgr.CloseAll()

@@ -58,6 +58,8 @@ const (
 	MethodTraceTree              Method = "trace_tree"
 	MethodListAllProcs           Method = "list_all_procs"
 	MethodSuspend                Method = "suspend"
+	MethodResume                 Method = "resume"
+	MethodHeartbeatStatus        Method = "heartbeat_status"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -269,6 +271,20 @@ type SuspendResponse struct {
 	UUID           string    `json:"uuid"`
 	State          string    `json:"state"`
 	CheckpointStep int       `json:"checkpoint_step"`
+}
+
+// --- Resume ---
+
+// ResumeRequest is the payload for MethodResume.
+type ResumeRequest struct {
+	UUID string `json:"uuid"`
+}
+
+// ResumeResponse is the response for MethodResume.
+type ResumeResponse struct {
+	PID             types.PID `json:"pid"`
+	UUID            string    `json:"uuid"`
+	ResumedFromStep int       `json:"resumed_from_step"`
 }
 
 // --- AttachDebug ---
@@ -1042,6 +1058,28 @@ type ContextStatsWire struct {
 
 func unixMilliToTime(ms int64) time.Time {
 	return time.UnixMilli(ms)
+}
+
+// --- Heartbeat Status (Story 30.6) ---
+
+// HeartbeatStatusRequest is the payload for MethodHeartbeatStatus (empty).
+type HeartbeatStatusRequest struct{}
+
+// HeartbeatStatusResponse is the response for MethodHeartbeatStatus.
+type HeartbeatStatusResponse struct {
+	Running              bool              `json:"running"`
+	CheckIntervalMs      int64             `json:"check_interval_ms"`
+	TotalStalledDetected int               `json:"total_stalled_detected"`
+	CurrentStalled       []StalledProcWire `json:"current_stalled"`
+}
+
+// StalledProcWire is the wire-format representation of a stalled process.
+type StalledProcWire struct {
+	PID               types.PID `json:"pid"`
+	UUID              string    `json:"uuid"`
+	ConsecutiveStalls int       `json:"consecutive_stalls"`
+	StalledDurationMs int64     `json:"stalled_duration_ms"`
+	LastAction        string    `json:"last_action"`
 }
 
 // SocketPathOverride allows tests to inject a custom socket path.

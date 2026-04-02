@@ -265,6 +265,8 @@ func init() {
 	rootCmd.AddCommand(psCmd)
 	rootCmd.AddCommand(killCmd)
 	rootCmd.AddCommand(suspendCmd)
+	rootCmd.AddCommand(resumeCmd)
+	rootCmd.AddCommand(heartbeatCmd)
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(composeCmd)
 	rootCmd.AddCommand(skillCmd)
@@ -1369,6 +1371,11 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// Initialize span persistence (Story 15.1)
 	traceBaseDir := resolveDataDir(cwd, "traces")
 	k.SetSpanWriter(debug.NewSpanWriter(traceBaseDir))
+
+	// Initialize heartbeat monitor (Story 30.6)
+	hm := kernel.NewHeartbeatMonitor(k, 30*time.Second)
+	k.SetHeartbeatMonitor(hm)
+	hm.Start()
 
 	srv.SetKernel(k)
 	srv.SetContextManager(ctxMgr)

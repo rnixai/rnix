@@ -132,6 +132,19 @@ func (c *Client) Suspend(pid types.PID) (*SuspendResponse, error) {
 	return &result, nil
 }
 
+// Resume resumes a suspended process from its checkpoint.
+func (c *Client) Resume(uuid string) (*ResumeResponse, error) {
+	resp, err := c.call(MethodResume, ResumeRequest{UUID: uuid})
+	if err != nil {
+		return nil, err
+	}
+	var result ResumeResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal resume response: %w", err)
+	}
+	return &result, nil
+}
+
 // SpawnAndWatch spawns a process and streams events until completion.
 // The onEvent callback is called for each StreamEvent. Returns the final SpawnResponse PID
 // and the complete ProgressPayload (from the complete/error event).
@@ -980,4 +993,17 @@ func (c *Client) TraceTree(traceID string) (*SpanTreeWire, error) {
 func marshalPayload(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data
+}
+
+// HeartbeatStatus returns the heartbeat monitor status from the daemon (Story 30.6).
+func (c *Client) HeartbeatStatus() (*HeartbeatStatusResponse, error) {
+	resp, err := c.call(MethodHeartbeatStatus, HeartbeatStatusRequest{})
+	if err != nil {
+		return nil, err
+	}
+	var result HeartbeatStatusResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal heartbeat_status: %w", err)
+	}
+	return &result, nil
 }
