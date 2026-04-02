@@ -200,7 +200,7 @@ func (s *Server) checkIdle() {
 	procs := s.kern.ListProcs()
 	activeProcs := 0
 	for _, p := range procs {
-		if p.State == types.StateRunning || p.State == types.StateCreated {
+		if p.State == types.StateRunning || p.State == types.StateCreated || p.State == types.StateSuspended {
 			activeProcs++
 		}
 	}
@@ -226,7 +226,7 @@ func (s *Server) tryAutoShutdown() {
 	procs := s.kern.ListProcs()
 	activeProcs := 0
 	for _, p := range procs {
-		if p.State == types.StateRunning || p.State == types.StateCreated {
+		if p.State == types.StateRunning || p.State == types.StateCreated || p.State == types.StateSuspended {
 			activeProcs++
 		}
 	}

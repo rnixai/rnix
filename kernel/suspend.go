@@ -101,18 +101,22 @@ func (k *KernelImpl) Suspend(pid types.PID) error {
 	// Mark suspend requested (reasonStep checks this to skip finishProcess)
 	proc.suspendRequested.Store(true)
 
+	// Pre-set exit status so defer's notifySuspendDone sends the correct reason
+	exit := ExitStatus{Code: 2, Reason: "suspended: user_suspended"}
+	proc.mu.Lock()
+	proc.SuspendReason = "user_suspended"
+	proc.Exit = &exit
+	proc.mu.Unlock()
+
 	// Cancel context to exit the reasoning loop
 	proc.Cancel()
 
-	// Wait for reasoning goroutine to exit
+	// Wait for reasoning goroutine to exit (defer fires notifySuspendDone with correct Exit)
 	proc.wg.Wait()
 
 	if err := k.suspendProcess(proc, "user_suspended"); err != nil {
 		return err
 	}
-
-	// For external suspend, goroutine is already done — safe to notify Done.
-	notifySuspendDone(proc)
 
 	log.Printf("[kernel] pid=%d suspended (took %v)", pid, time.Since(start))
 	return nil
@@ -187,4 +191,29 @@ func (k *KernelImpl) reapSuspendedProcess(proc *Process) {
 			}
 		}
 	})
+}
+
+// killSuspendedProcess transitions a Suspended process to Dead, notifies waiters,
+// and reaps resources. Shared by Kill() and Signal() for suspended process handling.
+func (k *KernelImpl) killSuspendedProcess(proc *Process, sig types.Signal, syscall string, start time.Time) error {
+	if err := proc.Transition(types.StateDead); err != nil {
+		return NewSyscallError(syscall, proc.PID, "", err, types.ErrInternal)
+	}
+	exit := ExitStatus{Code: 1, Reason: fmt.Sprintf("%s while suspended", sig.String())}
+	proc.mu.Lock()
+	proc.Exit = &exit
+	proc.DeadAt = time.Now()
+	proc.mu.Unlock()
+	k.emitEvent(proc, syscall, map[string]any{
+		"pid":    proc.PID,
+		"signal": sig.String(),
+		"action": "killed_suspended",
+	}, nil, nil, time.Since(start))
+	// Notify waiters so Wait() does not hang
+	select {
+	case proc.Done <- exit:
+	default:
+	}
+	k.reapSuspendedProcess(proc)
+	return nil
 }

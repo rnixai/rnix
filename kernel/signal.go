@@ -44,21 +44,7 @@ func (k *KernelImpl) Signal(pid types.PID, sig types.Signal) error {
 	// Suspended process: no running goroutine to deliver signals through context
 	if state == types.StateSuspended {
 		if sig.IsTermination() {
-			// Kill the suspended process directly
-			if err := proc.Transition(types.StateDead); err != nil {
-				return NewSyscallError("Signal", pid, "", err, types.ErrInternal)
-			}
-			proc.mu.Lock()
-			proc.Exit = &ExitStatus{Code: 1, Reason: "signal while suspended"}
-			proc.DeadAt = time.Now()
-			proc.mu.Unlock()
-			k.emitEvent(proc, "Signal", map[string]any{
-				"pid":    pid,
-				"signal": sig.String(),
-				"action": "killed_suspended",
-			}, nil, nil, time.Since(start))
-			k.reapSuspendedProcess(proc)
-			return nil
+			return k.killSuspendedProcess(proc, sig, "Signal", start)
 		}
 		// Non-termination signals on suspended: ignored (SIGPAUSE redundant, SIGRESUME for 30.4)
 		k.emitEvent(proc, "Signal", map[string]any{

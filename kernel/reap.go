@@ -186,7 +186,7 @@ func (k *KernelImpl) handleOrphanChildren(parent *Process) {
 
 		state := child.GetState()
 		switch state {
-		case types.StateRunning, types.StateCreated:
+		case types.StateRunning, types.StateCreated, types.StateSuspended:
 			// Reparent to init (PID 0)
 			child.mu.Lock()
 			child.PPID = 0

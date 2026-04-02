@@ -633,6 +633,7 @@ func (p *Process) Suspend() error {
 
 // Unsuspend transitions the process from Suspended to Running.
 func (p *Process) Unsuspend() error {
+	p.suspendRequested.Store(false)
 	return p.Transition(types.StateRunning)
 }
 

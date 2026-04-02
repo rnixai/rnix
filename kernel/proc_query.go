@@ -148,22 +148,7 @@ func (k *KernelImpl) Kill(pid types.PID, signal types.Signal) error {
 	// Suspended process: no running goroutine, handle signal directly
 	if state == types.StateSuspended {
 		if signal.IsTermination() {
-			// Suspended → Dead directly, then reap
-			if err := proc.Transition(types.StateDead); err != nil {
-				return NewSyscallError("Kill", pid, "", err, types.ErrInternal)
-			}
-			proc.mu.Lock()
-			proc.Exit = &ExitStatus{Code: 1, Reason: "killed while suspended"}
-			proc.DeadAt = time.Now()
-			proc.mu.Unlock()
-			k.emitEvent(proc, "Kill", map[string]any{
-				"pid":    pid,
-				"signal": signal.String(),
-				"action": "killed_suspended",
-			}, nil, nil, time.Since(start))
-			// Reap resources (checkpoint files preserved)
-			k.reapSuspendedProcess(proc)
-			return nil
+			return k.killSuspendedProcess(proc, signal, "Kill", start)
 		}
 		// Non-termination signals on suspended process: noop
 		k.emitEvent(proc, "Kill", map[string]any{
