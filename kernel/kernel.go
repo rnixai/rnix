@@ -136,6 +136,9 @@ type KernelImpl struct {
 
 	// Heartbeat monitor (Story 30.6)
 	heartbeatMonitor *HeartbeatMonitor
+
+	// Resume serialization — prevents concurrent Resume for the same UUID (Story 30.4 review)
+	resumeMu sync.Mutex
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.

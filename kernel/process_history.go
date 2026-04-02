@@ -92,6 +92,29 @@ func (h *ProcessHistory) Len() int {
 	return len(h.entries)
 }
 
+// RemoveByUUID removes all entries matching the given UUID from history.
+// Returns true if any entry was removed.
+func (h *ProcessHistory) RemoveByUUID(uuid string) bool {
+	if uuid == "" {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	n := 0
+	for _, e := range h.entries {
+		if e.UUID != uuid {
+			h.entries[n] = e
+			n++
+		}
+	}
+	if n == len(h.entries) {
+		return false
+	}
+	h.entries = h.entries[:n]
+	return true
+}
+
 // ---------------------------------------------------------------------------
 // Disk persistence for proc-info.json
 // ---------------------------------------------------------------------------

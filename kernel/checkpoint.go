@@ -99,6 +99,14 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 	copy(skills, proc.Skills)
 	proc.mu.Unlock()
 
+	// Snapshot relevant environment variables for resume drift detection (Story 30.4 review)
+	envSnapshot := make(map[string]string)
+	for _, key := range []string{"RNIX_ENV", "RNIX_ASCII", "HOME", "RNIX_LOG_DIR"} {
+		if val := os.Getenv(key); val != "" {
+			envSnapshot[key] = val
+		}
+	}
+
 	return &CheckpointData{
 		Version:         CheckpointVersion,
 		UUID:            proc.UUID,
@@ -118,6 +126,7 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 			MaxCost:               budgetSnap.MaxCost,
 			UsedCost:              budgetSnap.UsedCost,
 			ConsecutiveToolErrors: consecutiveToolErrors,
+			EnvSnapshot:           envSnapshot,
 		},
 	}
 }
