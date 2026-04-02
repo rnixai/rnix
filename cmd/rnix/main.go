@@ -264,6 +264,7 @@ func init() {
 	psCmd.Flags().BoolVar(&flagUUID, "uuid", false, "Show UUID column in process table")
 	rootCmd.AddCommand(psCmd)
 	rootCmd.AddCommand(killCmd)
+	rootCmd.AddCommand(suspendCmd)
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(composeCmd)
 	rootCmd.AddCommand(skillCmd)

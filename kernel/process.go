@@ -117,6 +117,10 @@ type Process struct {
 	checkpointErrCh chan error // buffered cap=1; carries last async write error
 	stepsDir        string    // resolved directory for checkpoint writes; "" = no checkpoint
 
+	// Suspend system (Story 30.3) — atomic flag for graceful suspend
+	suspendRequested atomic.Bool   // set by Suspend(), checked by reasonStep
+	SuspendReason    string        // reason for suspension (mu protected)
+
 	// Native tool calling support (immutable after Spawn)
 	UseNativeTools    bool                // true when LLM driver implements ToolCallingDriver
 	toolMap           map[string]toolMapping // tool name → VFS path mapping; immutable after Spawn
@@ -158,9 +162,10 @@ func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 
 // validTransitions defines the legal state transitions.
 var validTransitions = map[types.ProcessState][]types.ProcessState{
-	types.StateCreated: {types.StateRunning},
-	types.StateRunning: {types.StateZombie},
-	types.StateZombie:  {types.StateDead},
+	types.StateCreated:   {types.StateRunning},
+	types.StateRunning:   {types.StateZombie, types.StateSuspended},
+	types.StateZombie:    {types.StateDead},
+	types.StateSuspended: {types.StateRunning, types.StateDead},
 	// StateDead has no valid transitions
 }
 
@@ -614,6 +619,28 @@ func (p *Process) IsPaused() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.resumeCh != nil
+}
+
+// IsSuspendRequested reports whether suspend has been requested for this process.
+func (p *Process) IsSuspendRequested() bool {
+	return p.suspendRequested.Load()
+}
+
+// Suspend transitions the process from Running to Suspended.
+func (p *Process) Suspend() error {
+	return p.Transition(types.StateSuspended)
+}
+
+// Unsuspend transitions the process from Suspended to Running.
+func (p *Process) Unsuspend() error {
+	return p.Transition(types.StateRunning)
+}
+
+// GetStepsDir returns the checkpoint steps directory (thread-safe).
+func (p *Process) GetStepsDir() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stepsDir
 }
 
 const tokenHistoryCap = 50

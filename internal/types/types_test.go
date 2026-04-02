@@ -92,6 +92,7 @@ func TestProcessState_String(t *testing.T) {
 		{StateRunning, "running"},
 		{StateZombie, "zombie"},
 		{StateDead, "dead"},
+		{StateSuspended, "suspended"},
 		{ProcessState(99), "unknown(99)"},
 	}
 	for _, tt := range tests {

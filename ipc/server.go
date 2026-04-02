@@ -368,6 +368,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleTraceTree(conn, req.Payload)
 		case MethodListAllProcs:
 			s.handleListAllProcs(conn)
+		case MethodSuspend:
+			s.handleSuspend(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -781,6 +783,54 @@ func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 	writeResponse(conn, Response{OK: true})
+}
+
+func (s *Server) handleSuspend(conn net.Conn, rawPayload json.RawMessage) {
+	var req SuspendRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid suspend request"}})
+		return
+	}
+
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	if err := s.kern.Suspend(pid); err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+
+	proc, ok := s.kern.GetProcess(pid)
+	if !ok {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: "process disappeared after suspend"}})
+		return
+	}
+
+	// Read last checkpoint step (best-effort)
+	checkpointStep := 0
+	stepsDir := proc.GetStepsDir()
+	if stepsDir != "" {
+		if cp, err := kernel.ReadCheckpointPublic(stepsDir); err == nil {
+			checkpointStep = cp.LastStep
+		}
+	}
+
+	resp := SuspendResponse{
+		PID:            pid,
+		UUID:           proc.UUID,
+		State:          "suspended",
+		CheckpointStep: checkpointStep,
+	}
+	payload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 
 func (s *Server) handleShutdown(conn net.Conn) {

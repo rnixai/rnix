@@ -80,6 +80,11 @@ func readCheckpoint(dir string) (*CheckpointData, error) {
 	return &cp, nil
 }
 
+// ReadCheckpointPublic is the exported wrapper for readCheckpoint.
+func ReadCheckpointPublic(dir string) (*CheckpointData, error) {
+	return readCheckpoint(dir)
+}
+
 // buildCheckpointData constructs a CheckpointData from the current process state.
 // contextSnapshot must be pre-serialized by the caller (in the main goroutine)
 // before handing off to an async writer.

@@ -95,10 +95,11 @@ func (s Signal) Blockable() bool {
 type ProcessState int
 
 const (
-	StateCreated ProcessState = iota
-	StateRunning
-	StateZombie
-	StateDead
+	StateCreated   ProcessState = iota // 0
+	StateRunning                       // 1
+	StateZombie                        // 2
+	StateDead                          // 3
+	StateSuspended                     // 4
 )
 
 // String returns the human-readable name for the ProcessState.
@@ -112,6 +113,8 @@ func (s ProcessState) String() string {
 		return "zombie"
 	case StateDead:
 		return "dead"
+	case StateSuspended:
+		return "suspended"
 	default:
 		return fmt.Sprintf("unknown(%d)", s)
 	}

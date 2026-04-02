@@ -586,3 +586,130 @@ func TestProcess_ProjectConfig_SetOnSpawn(t *testing.T) {
 		t.Error("ProjectConfig pointer should be the same as the one assigned")
 	}
 }
+
+// ============================================================
+// Story 30-3: Suspended State Machine Extension
+// ============================================================
+
+func TestSuspendedTransitions_Legal(t *testing.T) {
+	t.Run("Running→Suspended", func(t *testing.T) {
+		p := NewProcess(0, "test", nil)
+		_ = p.Start()
+		if err := p.Transition(types.StateSuspended); err != nil {
+			t.Fatalf("Running→Suspended failed: %v", err)
+		}
+		if p.GetState() != types.StateSuspended {
+			t.Fatalf("expected StateSuspended, got %d", p.GetState())
+		}
+	})
+
+	t.Run("Suspended→Running", func(t *testing.T) {
+		p := NewProcess(0, "test", nil)
+		_ = p.Start()
+		_ = p.Transition(types.StateSuspended)
+		if err := p.Transition(types.StateRunning); err != nil {
+			t.Fatalf("Suspended→Running failed: %v", err)
+		}
+		if p.GetState() != types.StateRunning {
+			t.Fatalf("expected StateRunning, got %d", p.GetState())
+		}
+	})
+
+	t.Run("Suspended→Dead", func(t *testing.T) {
+		p := NewProcess(0, "test", nil)
+		_ = p.Start()
+		_ = p.Transition(types.StateSuspended)
+		if err := p.Transition(types.StateDead); err != nil {
+			t.Fatalf("Suspended→Dead failed: %v", err)
+		}
+		if p.GetState() != types.StateDead {
+			t.Fatalf("expected StateDead, got %d", p.GetState())
+		}
+	})
+}
+
+func TestSuspendedTransitions_Illegal(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func(*Process)
+		target    types.ProcessState
+		wantState types.ProcessState
+	}{
+		{
+			name:      "Created→Suspended",
+			setup:     func(p *Process) {},
+			target:    types.StateSuspended,
+			wantState: types.StateCreated,
+		},
+		{
+			name: "Zombie→Suspended",
+			setup: func(p *Process) {
+				_ = p.Start()
+				_ = p.Terminate(ExitStatus{Code: 0, Reason: "done"})
+			},
+			target:    types.StateSuspended,
+			wantState: types.StateZombie,
+		},
+		{
+			name: "Suspended→Zombie",
+			setup: func(p *Process) {
+				_ = p.Start()
+				_ = p.Transition(types.StateSuspended)
+			},
+			target:    types.StateZombie,
+			wantState: types.StateSuspended,
+		},
+		{
+			name: "Suspended→Created",
+			setup: func(p *Process) {
+				_ = p.Start()
+				_ = p.Transition(types.StateSuspended)
+			},
+			target:    types.StateCreated,
+			wantState: types.StateSuspended,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewProcess(0, "test", nil)
+			tc.setup(p)
+			err := p.Transition(tc.target)
+			if err == nil {
+				t.Fatal("expected error for illegal transition, got nil")
+			}
+			if p.GetState() != tc.wantState {
+				t.Fatalf("state should be %d, got %d", tc.wantState, p.GetState())
+			}
+		})
+	}
+}
+
+func TestProcess_SuspendUnsuspend(t *testing.T) {
+	p := NewProcess(0, "test", nil)
+	_ = p.Start()
+
+	if err := p.Suspend(); err != nil {
+		t.Fatalf("Suspend failed: %v", err)
+	}
+	if p.GetState() != types.StateSuspended {
+		t.Fatalf("expected StateSuspended, got %d", p.GetState())
+	}
+
+	if err := p.Unsuspend(); err != nil {
+		t.Fatalf("Unsuspend failed: %v", err)
+	}
+	if p.GetState() != types.StateRunning {
+		t.Fatalf("expected StateRunning, got %d", p.GetState())
+	}
+}
+
+func TestProcess_IsSuspendRequested(t *testing.T) {
+	p := NewProcess(0, "test", nil)
+	if p.IsSuspendRequested() {
+		t.Fatal("new process should not have suspend requested")
+	}
+	p.suspendRequested.Store(true)
+	if !p.IsSuspendRequested() {
+		t.Fatal("suspend should be requested after Store(true)")
+	}
+}

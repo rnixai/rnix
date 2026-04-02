@@ -119,6 +119,19 @@ func (c *Client) Kill(pid types.PID, signal types.Signal) error {
 	return err
 }
 
+// Suspend suspends the specified running process.
+func (c *Client) Suspend(pid types.PID) (*SuspendResponse, error) {
+	resp, err := c.call(MethodSuspend, SuspendRequest{PID: pid})
+	if err != nil {
+		return nil, err
+	}
+	var result SuspendResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal suspend response: %w", err)
+	}
+	return &result, nil
+}
+
 // SpawnAndWatch spawns a process and streams events until completion.
 // The onEvent callback is called for each StreamEvent. Returns the final SpawnResponse PID
 // and the complete ProgressPayload (from the complete/error event).

@@ -120,7 +120,7 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	fmt.Fprintln(r.Writer, sepLine.String())
 
 	// Render rows
-	var active, zombie, total int
+	var active, zombie, suspended, total int
 	for _, proc := range procs {
 		total++
 		switch proc.State {
@@ -128,6 +128,8 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 			active++
 		case types.StateZombie:
 			zombie++
+		case types.StateSuspended:
+			suspended++
 		}
 
 		var row strings.Builder
@@ -155,7 +157,8 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 			row.WriteString(gap)
 			// ACTIVE column: relative heartbeat time for running processes
 			var activeStr string
-			if proc.State == types.StateRunning || proc.State == types.StateCreated {
+			switch proc.State {
+			case types.StateRunning, types.StateCreated:
 				activeStr = FormatRelativeTime(proc.LastHeartbeat)
 				if IsStale(proc.LastHeartbeat, proc.StepTimeout) {
 					staleWarning := "⚠️"
@@ -164,7 +167,9 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 					}
 					activeStr = staleWarning + " " + activeStr
 				}
-			} else {
+			case types.StateSuspended:
+				activeStr = dash + " (susp)"
+			default:
 				activeStr = dash
 			}
 			fmt.Fprintf(&row, "%-*s", colWidthActive, activeStr)
@@ -185,7 +190,13 @@ func RenderProcessTable(r *Renderer, procs []vfs.ProcInfo, verbose, showUUID boo
 	}
 
 	// Footer
-	fmt.Fprintf(r.Writer, "\n%d active, %d zombie, %d total\n", active, zombie, total)
+	var footer string
+	if suspended > 0 {
+		footer = fmt.Sprintf("\n%d active, %d suspended, %d zombie, %d total\n", active, suspended, zombie, total)
+	} else {
+		footer = fmt.Sprintf("\n%d active, %d zombie, %d total\n", active, zombie, total)
+	}
+	fmt.Fprint(r.Writer, footer)
 }
 
 // renderState renders a state string with color coding and left-aligned padding.
@@ -199,6 +210,8 @@ func renderState(r *Renderer, state types.ProcessState, width int) string {
 	case types.StateRunning:
 		styled = AgentStyle.Render(name)
 	case types.StateZombie:
+		styled = WarningStyle.Render(name)
+	case types.StateSuspended:
 		styled = WarningStyle.Render(name)
 	case types.StateDead:
 		styled = MutedStyle.Render(name)

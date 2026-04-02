@@ -57,6 +57,7 @@ const (
 	MethodTraceList              Method = "trace_list"
 	MethodTraceTree              Method = "trace_tree"
 	MethodListAllProcs           Method = "list_all_procs"
+	MethodSuspend                Method = "suspend"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -243,6 +244,22 @@ type KillRequest struct {
 	PID    types.PID    `json:"pid"`
 	UUID   string       `json:"uuid,omitempty"`
 	Signal types.Signal `json:"signal"`
+}
+
+// --- Suspend ---
+
+// SuspendRequest is the payload for MethodSuspend.
+type SuspendRequest struct {
+	PID  types.PID `json:"pid"`
+	UUID string    `json:"uuid,omitempty"`
+}
+
+// SuspendResponse is the response for MethodSuspend.
+type SuspendResponse struct {
+	PID            types.PID `json:"pid"`
+	UUID           string    `json:"uuid"`
+	State          string    `json:"state"`
+	CheckpointStep int       `json:"checkpoint_step"`
 }
 
 // --- AttachDebug ---

@@ -184,7 +184,14 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	}
 
 	defer func() {
-		if proc.GetState() == types.StateRunning {
+		// Check atomic flag first (no lock needed) to avoid deadlock if
+		// a panic unwind occurs while proc.mu is held by suspendProcess.
+		if proc.IsSuspendRequested() {
+			notifySuspendDone(proc)
+			return
+		}
+		state := proc.GetState()
+		if state == types.StateRunning {
 			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "unexpected exit"})
 		}
 	}()
@@ -224,6 +231,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			case <-ch:
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "resumed"}, nil, nil, time.Since(stepStart))
 			case <-proc.ctx.Done():
+				if proc.IsSuspendRequested() {
+					return
+				}
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "cancelled_while_paused"}, nil, proc.ctx.Err(), time.Since(stepStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "context cancelled while paused"})
 				return
@@ -233,6 +243,10 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// Check context cancellation
 		select {
 		case <-proc.ctx.Done():
+			if proc.IsSuspendRequested() {
+				// Suspend exit: Kernel.Suspend() handles state transition and cleanup
+				return
+			}
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "cancelled"}, nil, proc.ctx.Err(), time.Since(stepStart))
 			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "context cancelled"})
 			return
@@ -548,8 +562,10 @@ func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, step 
 			"threshold": 2 * DefaultLoopThreshold,
 		}, nil, nil, time.Since(stepStart))
 		log.Printf("[kernel] pid=%d loop suspend at step %d: same action repeated %d times", proc.PID, step, 2*DefaultLoopThreshold)
-		// TODO(30.3): replace with Suspend(pid)
-		k.finishProcess(proc, ExitStatus{Code: 1, Reason: fmt.Sprintf("loop detected: same action repeated %d times", 2*DefaultLoopThreshold)})
+		if err := k.selfSuspend(proc, "loop_detected"); err != nil {
+			log.Printf("[kernel] pid=%d suspend failed: %v, falling back to terminate", proc.PID, err)
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "loop detected + suspend failed"})
+		}
 		return true
 	}
 	return false
