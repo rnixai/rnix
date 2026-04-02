@@ -8,10 +8,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
 )
 
 // aggregateFocusCard builds a focusCardState from existing dashboardModel fields.
@@ -34,6 +36,11 @@ func (m *dashboardModel) aggregateFocusCard() {
 				DeadAt:        m.processes[i].DeadAt,
 				LastHeartbeat: m.processes[i].LastHeartbeat,
 				StepTimeout:   m.processes[i].StepTimeout,
+				MaxTokens:     m.processes[i].MaxTokens,
+				MaxCost:       m.processes[i].MaxCost,
+				UsedCost:      m.processes[i].UsedCost,
+				MaxSteps:      m.processes[i].MaxSteps,
+				SuspendReason: m.processes[i].SuspendReason,
 			}
 			break
 		}
@@ -120,8 +127,30 @@ func (m *dashboardModel) aggregateFocusCard() {
 		fc.isStale = ui.IsStale(proc.LastHeartbeat, proc.StepTimeout)
 	}
 
+	// Check if Supervisor is recovering this process (Story 30.8 AC#2)
+	if fc.isStale && m.heartbeatStatus != nil {
+		for _, stalled := range m.heartbeatStatus.CurrentStalled {
+			if stalled.UUID == m.selectedUUID || stalled.PID == m.selectedPID {
+				fc.isRecovering = true
+				break
+			}
+		}
+	}
+
 	// P-6: Steps count for both running and dead processes
 	fc.stepCount = len(m.stepEntries)
+
+	// Resource budget (Story 30.8)
+	fc.maxTokensBudget = proc.MaxTokens
+	fc.usedCost = proc.UsedCost
+	fc.maxCost = proc.MaxCost
+	fc.maxSteps = proc.MaxSteps
+	fc.suspendReason = proc.SuspendReason
+
+	// Checkpoint step for suspended processes
+	if proc.State == types.StateSuspended {
+		fc.checkpointStep = len(m.stepEntries)
+	}
 
 	// P-7: Intent card — from intentTrees, sorted by key for deterministic order
 	if len(m.intentTrees) > 0 {
@@ -211,6 +240,11 @@ type procInfoRef struct {
 	DeadAt        time.Time
 	LastHeartbeat time.Time
 	StepTimeout   time.Duration
+	MaxTokens     int64
+	MaxCost       float64
+	UsedCost      float64
+	MaxSteps      int
+	SuspendReason string
 }
 
 // renderFocusCard renders a 2×3 grid of info cards for the selected process.
@@ -307,16 +341,36 @@ func (m dashboardModel) renderTokensCard(w, h int) string {
 		pct := float64(fc.totalTokens) * 100.0 / float64(fc.tokenBudget)
 		fmt.Fprintf(&b, " budget: %s (%.0f%%)\n", ui.FormatTokens(fc.tokenBudget), pct)
 	}
+	// Resource budget: token budget from MaxTokens (Story 30.8)
+	if fc.maxTokensBudget > 0 {
+		fmt.Fprintf(&b, " tokens: %s/%s\n", ui.FormatTokens(fc.totalTokens), ui.FormatTokens(int(fc.maxTokensBudget)))
+	} else if fc.totalTokens > 0 {
+		fmt.Fprintf(&b, " tokens: %s/∞\n", ui.FormatTokens(fc.totalTokens))
+	}
+	// Cost budget (Story 30.8)
+	if fc.maxCost > 0 || fc.usedCost > 0 {
+		if fc.maxCost > 0 {
+			fmt.Fprintf(&b, " cost: $%.2f/$%.2f\n", fc.usedCost, fc.maxCost)
+		} else {
+			fmt.Fprintf(&b, " cost: $%.2f/∞\n", fc.usedCost)
+		}
+	}
 	if fc.tokenRate != "" {
 		fmt.Fprintf(&b, " rate: %s\n", fc.tokenRate)
 	}
-	// P-4/P-6: Show steps separately from token rate
+	// P-4/P-6: Show steps with MaxSteps awareness
 	if fc.stepCount > 0 {
 		if fc.isHistory {
 			fmt.Fprintf(&b, " steps: %d (final)\n", fc.stepCount)
+		} else if fc.maxSteps > 0 {
+			fmt.Fprintf(&b, " step: %d/%d\n", fc.stepCount, fc.maxSteps)
 		} else {
-			fmt.Fprintf(&b, " steps: %d\n", fc.stepCount)
+			fmt.Fprintf(&b, " step: %d\n", fc.stepCount)
 		}
+	}
+	// Checkpoint step for suspended processes
+	if fc.state == types.StateSuspended && fc.checkpointStep > 0 {
+		fmt.Fprintf(&b, " checkpoint: step %d\n", fc.checkpointStep)
 	}
 
 	return style.Render(b.String())
@@ -351,6 +405,10 @@ func (m dashboardModel) renderStatusCard(w, h int) string {
 	}
 
 	fmt.Fprintf(&b, " state: %s\n", colorState(fc.state))
+	// Suspended state: show reason and resume hint (Story 30.8 AC#3)
+	if fc.state == types.StateSuspended && fc.suspendReason != "" {
+		fmt.Fprintf(&b, " reason: %s\n", fc.suspendReason)
+	}
 	if fc.lastActive != "" {
 		if fc.isStale {
 			staleIcon := "⚠️"
@@ -378,6 +436,10 @@ func (m dashboardModel) renderStatusCard(w, h int) string {
 			devs = devs[:3]
 		}
 		fmt.Fprintf(&b, " devs: %s\n", strings.Join(devs, ","))
+	}
+	// Resume hint for suspended processes (Story 30.8 AC#3)
+	if fc.state == types.StateSuspended {
+		fmt.Fprintf(&b, " Press R to resume\n")
 	}
 
 	return style.Render(b.String())
@@ -459,6 +521,14 @@ func (m dashboardModel) renderAlertsCard(w, h int) string {
 	}
 
 	fmt.Fprintf(&b, " count: %d\n", fc.alertCount)
+	// Supervisor recovering indicator (Story 30.8 AC#2)
+	if fc.isRecovering && fc.isStale {
+		recoverIcon := "🔄"
+		if os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true" {
+			recoverIcon = "[R]"
+		}
+		fmt.Fprintf(&b, " %s Recovering...\n", recoverIcon)
+	}
 	for _, alert := range fc.topAlerts {
 		// P-1: Safe rune-aware truncation
 		alert = truncateRuneSafe(alert, w-4)
@@ -500,4 +570,30 @@ func truncateRuneSafe(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "…"
+}
+
+// resumeProcessCmd sends a Resume IPC call for the given UUID (Story 30.8 AC#4).
+func resumeProcessCmd(uuid string) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return resumeResultMsg{err: err}
+		}
+		defer client.Close()
+		result, err := client.Resume(uuid)
+		return resumeResultMsg{result: result, err: err}
+	}
+}
+
+// fetchHeartbeatStatusCmd fetches the heartbeat monitor status via IPC (Story 30.8).
+func fetchHeartbeatStatusCmd() tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return heartbeatStatusMsg{err: err}
+		}
+		defer client.Close()
+		status, err := client.HeartbeatStatus()
+		return heartbeatStatusMsg{status: status, err: err}
+	}
 }

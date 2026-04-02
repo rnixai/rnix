@@ -63,6 +63,12 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		isStale := (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) &&
 			ui.IsStale(row.proc.LastHeartbeat, row.proc.StepTimeout)
 
+		// Suspended reason abbreviation (Story 30.8 AC#6)
+		isSuspended := row.proc.State == types.StateSuspended
+		if isSuspended {
+			stateMark += " " + suspendReasonAbbrev(row.proc.SuspendReason)
+		}
+
 		// Intent is the primary content — show full text, gets elastic width
 		intent := row.proc.Intent
 		if intent == "" {
@@ -124,12 +130,32 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			line = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("196")).
 				Render(line)
+		} else if isSuspended {
+			line = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFD93D")).
+				Render(line)
 		}
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
 
 	return style.Render(b.String())
+}
+
+// suspendReasonAbbrev maps a SuspendReason string to a short tag for the tree pane (Story 30.8 AC#6).
+func suspendReasonAbbrev(reason string) string {
+	switch {
+	case reason == "":
+		return ""
+	case strings.HasPrefix(reason, "budget_exhausted"):
+		return "[budget]"
+	case reason == "heartbeat_timeout":
+		return "[stalled]"
+	case reason == "loop_detected":
+		return "[loop]"
+	default:
+		return "[user]"
+	}
 }
 
 func renderDashboardPlaceholder(title, placeholder string, width, height int, active bool) string { //nolint:unused // reserved for future pane rendering
@@ -234,12 +260,14 @@ func stateRank(s types.ProcessState) int {
 		return 0
 	case types.StateCreated:
 		return 1
-	case types.StateZombie:
+	case types.StateSuspended:
 		return 2
-	case types.StateDead:
+	case types.StateZombie:
 		return 3
-	default:
+	case types.StateDead:
 		return 4
+	default:
+		return 5
 	}
 }
 

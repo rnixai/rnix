@@ -148,6 +148,12 @@ type dashboardModel struct {
 	// Focus Card fields (Story 29-3)
 	focusCardData *focusCardState
 
+	// HeartbeatStatus fields (Story 30.8)
+	heartbeatStatus *ipc.HeartbeatStatusResponse
+
+	// Timeline aggregation (Story 30.8 AC#5)
+	expandedAggGroups map[int]bool
+
 	// LLM Viewer fields (Story 29-6)
 	llmViewerPID      types.PID
 	llmViewerUUID     string
@@ -173,15 +179,16 @@ type dashboardModel struct {
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
 	return dashboardModel{
-		client:          client,
-		startTime:       time.Now(),
-		connected:       client != nil,
-		rightPane:       paneTimeline,
-		recording:       make(map[string]string),
-		stepDetailCache: make(map[int]*ipc.GetStepDetailResponse),
-		procDetailCache: make(map[string]*ipc.GetProcDetailResponse),
-		stepExpandedIdx: -1,
-		stepFilters:     defaultStepFilters(),
+		client:            client,
+		startTime:         time.Now(),
+		connected:         client != nil,
+		rightPane:         paneTimeline,
+		recording:         make(map[string]string),
+		stepDetailCache:   make(map[int]*ipc.GetStepDetailResponse),
+		procDetailCache:   make(map[string]*ipc.GetProcDetailResponse),
+		stepExpandedIdx:   -1,
+		stepFilters:       defaultStepFilters(),
+		expandedAggGroups: make(map[int]bool),
 	}
 }
 
@@ -314,6 +321,25 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.securityCursor >= len(m.securityAlerts) {
 				m.securityCursor = max(0, len(m.securityAlerts)-1)
 			}
+		}
+		return m, nil
+	case heartbeatStatusMsg:
+		if msg.err == nil && msg.status != nil {
+			m.heartbeatStatus = msg.status
+		}
+		return m, nil
+	case resumeResultMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("✗ Resume: %v", msg.err)
+		} else if msg.result != nil {
+			m.statusMsg = fmt.Sprintf("Resumed PID %d from step %d", msg.result.PID, msg.result.ResumedFromStep)
+			// Update selectedPID to the new PID (may change after resume)
+			m.selectedPID = msg.result.PID
+			m.selectedUUID = msg.result.UUID
+		}
+		m.statusMsgTTL = statusMsgDefaultTTL
+		if msg.err == nil && msg.result != nil {
+			return m, fetchProcDetailCmd(msg.result.PID, msg.result.UUID)
 		}
 		return m, nil
 	case traceListMsg:
@@ -562,6 +588,11 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Fetch heartbeat status periodically for Focus Card recovering indicator (Story 30.8)
+	if focusCardNeedsData && m.connected && m.heatmapTickCount%5 == 0 {
+		cmds = append(cmds, fetchHeartbeatStatusCmd())
+	}
+
 	// Fetch trace list when Trace pane is active or in default view (Focus Card)
 	if (m.activePane == paneTrace || focusCardNeedsData) && m.connected {
 		if m.traceSummaries == nil || m.heatmapTickCount%5 == 0 {
@@ -652,6 +683,8 @@ func colorState(s types.ProcessState) string {
 		return ui.MutedStyle.Render(name)
 	case types.StateCreated:
 		return ui.KernelStyle.Render(name)
+	case types.StateSuspended:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD93D")).Render(name)
 	default:
 		return name
 	}
@@ -956,17 +989,18 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 
 func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
 	return dashboardModel{
-		startTime:        time.Now(),
-		connected:        false,
-		recording:        make(map[string]string),
-		stepExpandedIdx:  -1,
-		stepFilters:      defaultStepFilters(),
-		replayMode:       true,
-		replayReader:     reader,
-		replayCursor:     -1,
-		replayPlaying:    false,
-		replaySpeed:      1.0,
-		prevReplayCursor: -2,
+		startTime:         time.Now(),
+		connected:         false,
+		recording:         make(map[string]string),
+		stepExpandedIdx:   -1,
+		stepFilters:       defaultStepFilters(),
+		expandedAggGroups: make(map[int]bool),
+		replayMode:        true,
+		replayReader:      reader,
+		replayCursor:      -1,
+		replayPlaying:     false,
+		replaySpeed:       1.0,
+		prevReplayCursor:  -2,
 	}
 }
 

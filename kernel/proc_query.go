@@ -227,6 +227,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		Model:          proc.Model,
 		LastHeartbeat:  proc.LastHeartbeat,
 		StepTimeout:    proc.StepTimeout,
+		SuspendReason:  proc.SuspendReason,
 	}
 	proc.mu.Unlock()
 	return info, nil
@@ -271,6 +272,8 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			Model:          proc.Model,
 			LastHeartbeat:  proc.LastHeartbeat,
 			StepTimeout:    proc.StepTimeout,
+			SuspendReason:  proc.SuspendReason,
+			MaxSteps:       proc.MaxSteps,
 		})
 		proc.mu.Unlock()
 		return true

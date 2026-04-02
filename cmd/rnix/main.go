@@ -919,6 +919,7 @@ type jsonProcess struct {
 	Model           string    `json:"model,omitempty"`
 	LastHeartbeatMs int64     `json:"last_heartbeat_ms,omitempty"`
 	StepTimeoutMs   int64     `json:"step_timeout_ms,omitempty"`
+	SuspendReason   string    `json:"suspend_reason,omitempty"`
 }
 
 func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
@@ -944,6 +945,7 @@ func renderPsJSON(r *ui.Renderer, procs []vfs.ProcInfo) {
 			Provider:      p.Provider,
 			Model:         p.Model,
 			StepTimeoutMs: p.StepTimeout.Milliseconds(),
+			SuspendReason: p.SuspendReason,
 		}
 		if !p.LastHeartbeat.IsZero() {
 			entries[i].LastHeartbeatMs = p.LastHeartbeat.UnixMilli()

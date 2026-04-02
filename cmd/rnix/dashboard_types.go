@@ -91,6 +91,16 @@ type intentFlatNode struct {
 	treeWire     *ipc.IntentTreeWire
 }
 
+type heartbeatStatusMsg struct {
+	status *ipc.HeartbeatStatusResponse
+	err    error
+}
+
+type resumeResultMsg struct {
+	result *ipc.ResumeResponse
+	err    error
+}
+
 type intentTreesMsg struct {
 	trees *ipc.IntentStatusResponse
 	err   error
@@ -296,6 +306,15 @@ type focusCardState struct {
 	// Heartbeat liveness (Story 30.5)
 	lastActive string // relative heartbeat time
 	isStale    bool   // true if running + exceeded step timeout
+
+	// Resource budget (Story 30.8)
+	maxTokensBudget int64
+	usedCost        float64
+	maxCost         float64
+	maxSteps        int
+	checkpointStep  int
+	suspendReason   string
+	isRecovering    bool
 }
 
 type intentMiniTask struct {

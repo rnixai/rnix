@@ -48,6 +48,7 @@ type ProcInfo struct {
 	Model          string
 	LastHeartbeat  time.Time
 	StepTimeout    time.Duration
+	SuspendReason  string
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.

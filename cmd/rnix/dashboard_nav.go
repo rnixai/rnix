@@ -121,6 +121,12 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.enterLLMViewer()
 	case "H":
 		return m.enterHistoryView()
+	case "R", "shift+R":
+		// Resume suspended process (Story 30.8 AC#4)
+		if m.focusCardData != nil && m.focusCardData.state == types.StateSuspended && m.selectedUUID != "" && m.connected {
+			return m, resumeProcessCmd(m.selectedUUID)
+		}
+		return m, nil
 	case "esc":
 		if m.viewMode == viewExpanded {
 			// 让面板先处理内部 Esc（如 Trace 的 tree→list）
@@ -207,6 +213,19 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 
 	// Step Timeline 按键（enter/v/V/p）— V must be checked before v
 	if m.activePane == paneTimeline && len(m.stepEntries) > 0 {
+		// Aggregation group toggle (Story 30.8 AC#5)
+		filtered := m.filteredStepEntries()
+		if len(filtered) > 100 && key == "enter" {
+			const aggGroupSize = 50
+			cursorIdx := min(m.stepCursor, len(filtered)-1)
+			groupIdx := cursorIdx / aggGroupSize
+			if m.expandedAggGroups == nil {
+				m.expandedAggGroups = make(map[int]bool)
+			}
+			m.expandedAggGroups[groupIdx] = !m.expandedAggGroups[groupIdx]
+			return m, nil
+		}
+
 		idx := m.resolveStepIndex()
 		if idx >= 0 && idx < len(m.stepEntries) {
 			// V (Shift+V) → Level 3 debug toggle — MUST be before v check

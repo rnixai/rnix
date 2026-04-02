@@ -180,6 +180,7 @@ type ProcInfoWire struct {
 	Model           string             `json:"model,omitempty"`
 	LastHeartbeatMs int64              `json:"last_heartbeat_ms,omitempty"`
 	StepTimeoutMs   int64              `json:"step_timeout_ms,omitempty"`
+	SuspendReason   string             `json:"suspend_reason,omitempty"`
 }
 
 // ProcInfoToWire converts a vfs.ProcInfo to wire format.
@@ -207,6 +208,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		Provider:      p.Provider,
 		Model:         p.Model,
 		StepTimeoutMs: p.StepTimeout.Milliseconds(),
+		SuspendReason: p.SuspendReason,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -238,6 +240,7 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		Provider:      w.Provider,
 		Model:         w.Model,
 		StepTimeout:   time.Duration(w.StepTimeoutMs) * time.Millisecond,
+		SuspendReason: w.SuspendReason,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)
