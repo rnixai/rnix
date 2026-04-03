@@ -211,7 +211,9 @@ func (m *Manager) compactWithPTLRetry(llmCall func(string, []Message) (string, e
 		return "", fmt.Errorf("not enough messages for compact")
 	}
 	compactPromptMsg := messages[len(messages)-1]
-	convMessages := messages[:len(messages)-1]
+	// Clone to avoid aliasing the caller's backing array on append
+	convMessages := make([]Message, len(messages)-1)
+	copy(convMessages, messages[:len(messages)-1])
 
 	for attempt := range maxPTLRetries {
 		allMessages := append(convMessages, compactPromptMsg)
@@ -390,17 +392,27 @@ func restoreSkills(skills []SkillEntry) []Message {
 }
 
 // truncateToTokens truncates text to approximately the given token budget.
-// Uses rune-based truncation (not byte-based) per project convention.
+// Uses EstimateTokens for accurate budget enforcement across ASCII and CJK content.
 func truncateToTokens(text string, maxTokens int) string {
 	if maxTokens <= 0 {
 		return ""
 	}
-	// Estimate: 3.5 chars/token for ASCII, 1.5 runes/token for CJK
-	// Use a conservative estimate of ~3 runes per token
-	maxRunes := maxTokens * 3
-	runes := []rune(text)
-	if len(runes) <= maxRunes {
+	if EstimateTokens(text) <= maxTokens {
 		return text
 	}
-	return string(runes[:maxRunes])
+	// Binary search for the right rune cutoff
+	runes := []rune(text)
+	lo, hi := 0, len(runes)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if EstimateTokens(string(runes[:mid])) <= maxTokens {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	if lo == 0 {
+		return ""
+	}
+	return string(runes[:lo])
 }

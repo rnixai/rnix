@@ -134,6 +134,7 @@ type Process struct {
 	// Context compact (Story 31.2) — mu protected
 	CompactThreshold float64                           // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
 	ReadFileState    map[string]rnixctx.ReadFileEntry   // tracks recently read files for post-compact restore
+	compactMu        sync.Mutex                         // prevents concurrent compact operations (auto + manual IPC)
 
 	// Step-level cancel (Story 30.6) — cancel current LLM call without killing process
 	stepCancel context.CancelFunc // mu protected; cancel for current step's LLM call
@@ -692,6 +693,17 @@ func (p *Process) effectiveCompactThreshold() float64 {
 		return p.CompactThreshold
 	}
 	return DefaultCompactThreshold
+}
+
+// TryLockCompact attempts to acquire the compact mutex without blocking.
+// Returns true if acquired, false if another compact is in progress.
+func (p *Process) TryLockCompact() bool {
+	return p.compactMu.TryLock()
+}
+
+// UnlockCompact releases the compact mutex.
+func (p *Process) UnlockCompact() {
+	p.compactMu.Unlock()
 }
 
 const tokenHistoryCap = 50

@@ -17,6 +17,12 @@ import (
 // and triggers automatic compaction if so. Best-effort: failures are logged but
 // do not terminate the process (AC#2).
 func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
+	// Prevent concurrent compact (auto + manual IPC)
+	if !proc.compactMu.TryLock() {
+		return
+	}
+	defer proc.compactMu.Unlock()
+
 	usage, err := k.ctxMgr.TokenUsage(proc.CtxID)
 	if err != nil {
 		return
@@ -30,26 +36,9 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 	compactStart := time.Now()
 	log.Printf("[kernel] pid=%d step=%d auto-compact triggered: %.1f%% > %.1f%%", proc.PID, step, usage.Percentage, threshold)
 
-	// Build CompactOpts
-	proc.mu.Lock()
-	readFileState := make(map[string]rnixctx.ReadFileEntry, len(proc.ReadFileState))
-	maps.Copy(readFileState, proc.ReadFileState)
-	loadedSkills := make([]string, len(proc.Skills))
-	copy(loadedSkills, proc.Skills)
-	proc.mu.Unlock()
-
-	// Build ActiveSkills from loaded skill names
-	var activeSkills []rnixctx.SkillEntry
-	if k.skillLoader != nil {
-		for _, name := range loadedSkills {
-			if skill, err := k.skillLoader(name); err == nil {
-				activeSkills = append(activeSkills, rnixctx.SkillEntry{
-					Name:    name,
-					Content: skill.Body,
-				})
-			}
-		}
-	}
+	// Build CompactOpts using shared helpers
+	readFileState := k.SnapshotReadFileState(proc)
+	activeSkills := k.BuildActiveSkills(proc)
 
 	// Get active plan from the most recent plan action in context
 	activePlan := k.extractActivePlan(proc.CtxID)
@@ -74,9 +63,7 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 	}
 
 	// Clear ReadFileState after successful compact
-	proc.mu.Lock()
-	proc.ReadFileState = nil
-	proc.mu.Unlock()
+	k.ClearReadFileState(proc)
 
 	k.emitEvent(proc, "Compact", map[string]any{
 		"step":           step,
@@ -168,6 +155,51 @@ func (k *KernelImpl) extractActivePlan(cid types.CtxID) string {
 		}
 	}
 	return ""
+}
+
+// ExtractActivePlan is the exported variant for IPC server use.
+func (k *KernelImpl) ExtractActivePlan(cid types.CtxID) string {
+	return k.extractActivePlan(cid)
+}
+
+// SnapshotReadFileState returns a copy of the process's ReadFileState under lock.
+func (k *KernelImpl) SnapshotReadFileState(proc *Process) map[string]rnixctx.ReadFileEntry {
+	proc.mu.Lock()
+	defer proc.mu.Unlock()
+	if len(proc.ReadFileState) == 0 {
+		return nil
+	}
+	snapshot := make(map[string]rnixctx.ReadFileEntry, len(proc.ReadFileState))
+	maps.Copy(snapshot, proc.ReadFileState)
+	return snapshot
+}
+
+// ClearReadFileState nils out the process's ReadFileState under lock.
+func (k *KernelImpl) ClearReadFileState(proc *Process) {
+	proc.mu.Lock()
+	proc.ReadFileState = nil
+	proc.mu.Unlock()
+}
+
+// BuildActiveSkills constructs SkillEntry list from the process's loaded skills.
+func (k *KernelImpl) BuildActiveSkills(proc *Process) []rnixctx.SkillEntry {
+	proc.mu.Lock()
+	loadedSkills := make([]string, len(proc.Skills))
+	copy(loadedSkills, proc.Skills)
+	proc.mu.Unlock()
+
+	var activeSkills []rnixctx.SkillEntry
+	if k.skillLoader != nil {
+		for _, name := range loadedSkills {
+			if skill, err := k.skillLoader(name); err == nil {
+				activeSkills = append(activeSkills, rnixctx.SkillEntry{
+					Name:    name,
+					Content: skill.Body,
+				})
+			}
+		}
+	}
+	return activeSkills
 }
 
 // trackReadFile records a file read into the process's ReadFileState for

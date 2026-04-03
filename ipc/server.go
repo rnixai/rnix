@@ -3365,10 +3365,20 @@ func (s *Server) handleCompact(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	// Prevent concurrent compact (auto + manual IPC)
+	if !proc.TryLockCompact() {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: "compact already in progress"}})
+		return
+	}
+	defer proc.UnlockCompact()
+
 	opts := rnixctx.CompactOpts{
 		LLMCall:            s.kern.BuildCompactLLMCall(proc),
 		Trigger:            "manual",
 		CustomInstructions: req.CustomInstructions,
+		ReadFileState:      s.kern.SnapshotReadFileState(proc),
+		ActiveSkills:       s.kern.BuildActiveSkills(proc),
+		ActivePlan:         s.kern.ExtractActivePlan(proc.CtxID),
 	}
 
 	result, err := s.ctxMgr.Compact(proc.CtxID, opts)
@@ -3376,6 +3386,9 @@ func (s *Server) handleCompact(conn net.Conn, rawPayload json.RawMessage) {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("compact failed: %v", err)}})
 		return
 	}
+
+	// Clear ReadFileState after successful compact
+	s.kern.ClearReadFileState(proc)
 
 	compactResp := CompactResponse{
 		PreTokens:  result.PreTokens,
