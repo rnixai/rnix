@@ -116,6 +116,22 @@ Two-tier configuration: global (`~/.config/rnix/`) + project (`.rnix/`). Run `rn
 - Environment: `RNIX_ENV` selects .env file set (default: `development`); CLI passes to daemon via IPC
 - Project `.env` files: loaded per-spawn from project root (`.env` → `.env.local` → `.env.{RNIX_ENV}` → `.env.{RNIX_ENV}.local`); API keys resolved via env snapshot, not `os.Getenv`
 
+### Prompt Design Convention (Architecture Decision 33)
+
+All prompt text (system prompts, VFS device descriptions, Action Protocol, compact prompts) follows the "Claude Code Baseline" principle:
+- Reference Claude Code source files in `cc-src/src/` for established prompt patterns
+- Apply concept mapping (Tool → VFS Device, Session → Process, Team → ProcGroup, etc.)
+- Do NOT rewrite validated behavioral guidelines — adapt minimally
+- New Rnix-specific content (signals, supervisor, intent) follows CC writing style
+
+### VFS Device Registration Convention (Architecture Decision 35)
+
+VFS device registration must declare full ToolDef metadata:
+- Set IsReadOnly, IsConcurrencySafe, IsDestructive explicitly (fail-closed defaults: all false)
+- Set MaxResultTokens to prevent context overflow
+- Use ShouldDefer + SearchHint for non-core devices
+- Device descriptions use Go embed templates (not hardcoded strings)
+
 ## BMAD Workflow
 
 Story artifacts live in `_bmad-output/implementation-artifacts/`. Sprint status tracked in `sprint-status.yaml`. Development follows the BMAD pipeline: create-story → ATDD → dev-story → code-review → traceability.
