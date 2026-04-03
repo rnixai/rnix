@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"time"
 
+	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -16,6 +17,12 @@ import (
 const (
 	// DefaultTimeout is the default timeout for shell command execution.
 	DefaultTimeout = 30 * time.Second
+	// maxOutputChars is the maximum character count before shell output is truncated.
+	maxOutputChars = 30000
+	// headLines is the number of leading lines to preserve when truncating.
+	headLines = 200
+	// tailLines is the number of trailing lines to preserve when truncating.
+	tailLines = 200
 )
 
 // CommandBuilder is a function type that creates exec.Cmd instances.
@@ -46,8 +53,9 @@ var _ vfs.ToolDescriptor = (*ShellDriver)(nil)
 func (d *ShellDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:        "shell",
-			Description: "Execute a shell command and return stdout+stderr. Commands run via sh -c in the process working directory. Non-zero exit codes are reported in output, not as errors.",
+			Name:            "shell",
+			Description:     "Execute a shell command and return stdout+stderr. Commands run via sh -c in the process working directory. Non-zero exit codes are reported in output, not as errors.",
+			MaxResultTokens: 30000,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -136,6 +144,20 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 
 	f.response = combined.Bytes()
 	f.offset = 0
+
+	// Apply EndTruncatingAccumulator for large outputs.
+	output := string(f.response)
+	truncated, didTruncate := rnixctx.EndTruncatingAccumulator(output, maxOutputChars, headLines, tailLines)
+	if didTruncate {
+		if f.workDir != "" {
+			overflowPath, _ := rnixctx.WriteOverflow(output, f.workDir)
+			if overflowPath != "" {
+				truncated += fmt.Sprintf("\n[Full output saved to %s]", overflowPath)
+			}
+		}
+		f.response = []byte(truncated)
+	}
+
 	return nil
 }
 

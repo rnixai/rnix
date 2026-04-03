@@ -399,6 +399,31 @@ func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
 	}, nil
 }
 
+// TokenUsage returns token usage statistics for the given context.
+// Estimates tokens across the system prompt and all messages.
+func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {
+	ctx, err := m.getContext("TokenUsage", cid)
+	if err != nil {
+		return TokenStats{}, err
+	}
+
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+
+	total := EstimateTokens(ctx.SystemPrompt)
+	for _, msg := range ctx.Messages {
+		total += EstimateTokens(msg.Content)
+	}
+
+	limit := DefaultTokenLimit
+	pct := float64(total) / float64(limit) * 100
+	return TokenStats{
+		Used:       total,
+		Limit:      limit,
+		Percentage: pct,
+	}, nil
+}
+
 // GetContextSummary returns a human-readable summary of the context.
 // Satisfies vfs.ContextSummaryProvider interface via duck typing.
 func (m *Manager) GetContextSummary(ctxID types.CtxID) (string, error) {
@@ -461,41 +486,44 @@ func (m *Manager) GetContextInfo(ctxID types.CtxID) (map[string]any, error) {
 	defer ctx.mu.RUnlock()
 
 	var systemCount, userCount, assistantCount, toolCount int
-	var systemChars, userChars, assistantChars, toolChars int
+	var systemTokens, userTokens, assistantTokens, toolTokens int
 	for _, msg := range ctx.Messages {
-		chars := len(msg.Content)
+		tokens := EstimateTokens(msg.Content)
 		switch msg.Role {
 		case RoleSystem:
 			systemCount++
-			systemChars += chars
+			systemTokens += tokens
 		case RoleUser:
 			userCount++
-			userChars += chars
+			userTokens += tokens
 		case RoleAssistant:
 			assistantCount++
-			assistantChars += chars
+			assistantTokens += tokens
 		case RoleTool:
 			toolCount++
-			toolChars += chars
+			toolTokens += tokens
 		}
 	}
 
 	promptChars := len(ctx.SystemPrompt)
-	totalTokens := (promptChars + systemChars + userChars + assistantChars + toolChars) / 4
+	promptTokens := EstimateTokens(ctx.SystemPrompt)
+	totalTokens := promptTokens + systemTokens + userTokens + assistantTokens + toolTokens
+	tokenUsagePct := float64(totalTokens) / float64(DefaultTokenLimit) * 100
 
 	info := map[string]any{
 		"system_prompt_chars":  promptChars,
-		"system_prompt_tokens": promptChars / 4,
+		"system_prompt_tokens": promptTokens,
 		"total_messages":       len(ctx.Messages),
 		"system_count":         systemCount,
 		"user_count":           userCount,
 		"assistant_count":      assistantCount,
 		"tool_count":           toolCount,
-		"system_tokens":        systemChars / 4,
-		"user_tokens":          userChars / 4,
-		"assistant_tokens":     assistantChars / 4,
-		"tool_tokens":          toolChars / 4,
+		"system_tokens":        systemTokens,
+		"user_tokens":          userTokens,
+		"assistant_tokens":     assistantTokens,
+		"tool_tokens":          toolTokens,
 		"total_tokens":         totalTokens,
+		"token_usage_percent":  tokenUsagePct,
 	}
 
 	if len(ctx.Messages) > 0 {

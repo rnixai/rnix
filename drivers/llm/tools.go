@@ -6,9 +6,10 @@ import (
 
 // ToolDef describes a tool that an LLM can invoke.
 type ToolDef struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"` // JSON Schema
+	Name            string         `json:"name"`
+	Description     string         `json:"description,omitempty"`
+	Parameters      map[string]any `json:"parameters,omitempty"`      // JSON Schema
+	MaxResultTokens int            `json:"max_result_tokens,omitempty"` // 0 = unlimited
 }
 
 // ToolCall represents a tool invocation requested by the LLM.

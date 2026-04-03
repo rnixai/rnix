@@ -48,9 +48,10 @@ type StreamObserver interface {
 // Fields and JSON tags are intentionally identical to llm.ToolDef for
 // serialization compatibility across package boundaries.
 type ToolDef struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"` // JSON Schema
+	Name            string         `json:"name"`
+	Description     string         `json:"description,omitempty"`
+	Parameters      map[string]any `json:"parameters,omitempty"`      // JSON Schema
+	MaxResultTokens int            `json:"max_result_tokens,omitempty"` // 0 = unlimited
 }
 
 // ToolDescriptor is an optional interface for VFS device drivers that can

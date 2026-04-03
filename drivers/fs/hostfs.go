@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -30,8 +31,9 @@ func NewDriver() *HostFSDriver {
 func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:        "read_file",
-			Description: "Read the contents of a file at the given path.",
+			Name:            "read_file",
+			Description:     "Read the contents of a file at the given path.",
+			MaxResultTokens: 25000,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -44,8 +46,9 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:        "write_file",
-			Description: "Create or overwrite a file at the given path with the provided content.",
+			Name:            "write_file",
+			Description:     "Create or overwrite a file at the given path with the provided content.",
+			MaxResultTokens: 0,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -62,8 +65,9 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:        "list_dir",
-			Description: "List the contents of a directory at the given path.",
+			Name:            "list_dir",
+			Description:     "List the contents of a directory at the given path.",
+			MaxResultTokens: 5000,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -82,6 +86,13 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 func (d *HostFSDriver) FileFactory() vfs.VFSFileFactory {
 	return FileFactory()
 }
+
+const (
+	// maxReadFileTokens is the maximum token count for read_file results.
+	maxReadFileTokens = 25000
+	// maxListDirEntries is the maximum number of entries returned by list_dir.
+	maxListDirEntries = 100
+)
 
 // HostFSFile implements vfs.VFSFile for host filesystem file access.
 // Supports two modes:
@@ -129,15 +140,40 @@ func (f *HostFSFile) Read(length int) ([]byte, error) {
 	}
 
 	// Read mode: delegate to underlying os.File.
+	var data []byte
+	var readErr error
 	if length <= 0 {
-		return io.ReadAll(f.file)
+		data, readErr = io.ReadAll(f.file)
+	} else {
+		buf := make([]byte, length)
+		n, err := io.ReadAtLeast(f.file, buf, 1)
+		if err != nil && err != io.ErrUnexpectedEOF {
+			return nil, err
+		}
+		data = buf[:n]
+		readErr = nil
 	}
-	buf := make([]byte, length)
-	n, err := io.ReadAtLeast(f.file, buf, 1)
-	if err != nil && err != io.ErrUnexpectedEOF {
-		return nil, err
+	if readErr != nil {
+		return nil, readErr
 	}
-	return buf[:n], nil
+
+	// Apply token-based truncation for read_file results.
+	content := string(data)
+	truncated, didTruncate := rnixctx.TruncateResult(content, maxReadFileTokens)
+	if didTruncate {
+		originalTokens := rnixctx.EstimateTokens(content)
+		shownTokens := rnixctx.EstimateTokens(truncated)
+
+		var overflowPath string
+		if f.workDir != "" {
+			overflowPath, _ = rnixctx.WriteOverflow(content, f.workDir)
+		}
+
+		truncated += rnixctx.FormatTruncationNotice(originalTokens, shownTokens, overflowPath)
+		return []byte(truncated), nil
+	}
+
+	return data, nil
 }
 
 // Write executes a filesystem command in command mode.
@@ -197,8 +233,11 @@ func (f *HostFSFile) execList() error {
 		return mapOSError("Write", device, err)
 	}
 
-	result := make([]listEntry, 0, len(entries))
+	result := make([]listEntry, 0, min(len(entries), maxListDirEntries))
 	for _, e := range entries {
+		if len(result) >= maxListDirEntries {
+			break
+		}
 		info, err := e.Info()
 		if err != nil {
 			continue // skip entries we can't stat
@@ -214,6 +253,12 @@ func (f *HostFSFile) execList() error {
 	if err != nil {
 		return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("marshal list result: %w", err), Code: types.ErrDriver}
 	}
+
+	if len(entries) > maxListDirEntries {
+		notice := fmt.Sprintf("\n[Showing %d of %d entries. Use glob pattern for targeted search.]", maxListDirEntries, len(entries))
+		b = append(b, []byte(notice)...)
+	}
+
 	f.response = b
 	return nil
 }
