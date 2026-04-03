@@ -374,6 +374,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleResume(conn, req.Payload)
 		case MethodHeartbeatStatus:
 			s.handleHeartbeatStatus(conn)
+		case MethodCompact:
+			s.handleCompact(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -3341,4 +3343,45 @@ func (s *Server) handleHeartbeatStatus(conn net.Conn) {
 
 	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleCompact manually triggers context compaction for a running process (Story 31.2).
+func (s *Server) handleCompact(conn net.Conn, rawPayload json.RawMessage) {
+	var req CompactRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid compact request"}})
+		return
+	}
+
+	proc, ok := s.kern.GetProcess(req.PID)
+	if !ok {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrNotFound), Message: "process not found"}})
+		return
+	}
+
+	state := proc.GetState()
+	if state != types.StateRunning {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("process not running (state=%d)", state)}})
+		return
+	}
+
+	opts := rnixctx.CompactOpts{
+		LLMCall:            s.kern.BuildCompactLLMCall(proc),
+		Trigger:            "manual",
+		CustomInstructions: req.CustomInstructions,
+	}
+
+	result, err := s.ctxMgr.Compact(proc.CtxID, opts)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrInternal), Message: fmt.Sprintf("compact failed: %v", err)}})
+		return
+	}
+
+	compactResp := CompactResponse{
+		PreTokens:  result.PreTokens,
+		PostTokens: result.PostTokens,
+		Restored:   result.ItemsRestored,
+	}
+	compactPayload, _ := json.Marshal(compactResp)
+	writeResponse(conn, Response{OK: true, Payload: compactPayload})
 }

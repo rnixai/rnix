@@ -521,6 +521,8 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			if !shouldContinue {
 				return
 			}
+			// Auto-compact check (Story 31.2): after tool calls processed, before checkpoint
+			k.autoCompactIfNeeded(proc, step)
 			k.asyncWriteCheckpoint(proc, step, consecutiveToolErrors)
 			continue
 		}
@@ -554,6 +556,10 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if !shouldContinue {
 			return
 		}
+
+		// Auto-compact check (Story 31.2): after action processed, before checkpoint
+		k.autoCompactIfNeeded(proc, step)
+
 		k.asyncWriteCheckpoint(proc, step, consecutiveToolErrors)
 	}
 

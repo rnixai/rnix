@@ -1007,3 +1007,16 @@ func (c *Client) HeartbeatStatus() (*HeartbeatStatusResponse, error) {
 	}
 	return &result, nil
 }
+
+// Compact triggers manual context compaction for a running process (Story 31.2).
+func (c *Client) Compact(pid types.PID, instructions string) (*CompactResponse, error) {
+	resp, err := c.call(MethodCompact, CompactRequest{PID: pid, CustomInstructions: instructions})
+	if err != nil {
+		return nil, err
+	}
+	var result CompactResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal compact: %w", err)
+	}
+	return &result, nil
+}

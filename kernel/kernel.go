@@ -50,6 +50,7 @@ type SpawnOpts struct {
 	PreallocatedCtxID types.CtxID           // non-zero = skip CtxAlloc, use this pre-setup context
 	SkipReasonLoop    bool                  // true = don't open LLM device or start reasonStep goroutine
 	ProjectConfig     *config.ProjectConfig // project-level config snapshot; nil = global only
+	CompactThreshold  float64               // 0 = use default (80%); >0 = trigger compact when TokenUsage > threshold
 }
 
 // KernelCallbacks allows the CLI layer to receive progress notifications

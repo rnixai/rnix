@@ -133,6 +133,8 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 		if err != nil {
 			return "", fmt.Errorf("read failed: %w", err)
 		}
+		// Track ReadFileState for post-compact restore (Story 31.2)
+		k.trackReadFile(proc, pathStr, string(data))
 		return string(data), nil
 
 	case "write_file":

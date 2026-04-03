@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
@@ -129,6 +130,10 @@ type Process struct {
 	// Suspend system (Story 30.3) — atomic flag for graceful suspend
 	suspendRequested atomic.Bool   // set by Suspend(), checked by reasonStep
 	SuspendReason    string        // reason for suspension (mu protected)
+
+	// Context compact (Story 31.2) — mu protected
+	CompactThreshold float64                           // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
+	ReadFileState    map[string]rnixctx.ReadFileEntry   // tracks recently read files for post-compact restore
 
 	// Step-level cancel (Story 30.6) — cancel current LLM call without killing process
 	stepCancel context.CancelFunc // mu protected; cancel for current step's LLM call
@@ -676,6 +681,17 @@ func (p *Process) GetStepsDir() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.stepsDir
+}
+
+// DefaultCompactThreshold is the default token usage percentage that triggers auto-compact.
+const DefaultCompactThreshold = 80.0
+
+// effectiveCompactThreshold returns the configured compact threshold, defaulting to 80%.
+func (p *Process) effectiveCompactThreshold() float64 {
+	if p.CompactThreshold > 0 {
+		return p.CompactThreshold
+	}
+	return DefaultCompactThreshold
 }
 
 const tokenHistoryCap = 50

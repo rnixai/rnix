@@ -60,6 +60,7 @@ const (
 	MethodSuspend                Method = "suspend"
 	MethodResume                 Method = "resume"
 	MethodHeartbeatStatus        Method = "heartbeat_status"
+	MethodCompact                Method = "compact"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -1087,6 +1088,21 @@ type StalledProcWire struct {
 
 // SocketPathOverride allows tests to inject a custom socket path.
 var SocketPathOverride string
+
+// --- Compact (Story 31.2) ---
+
+// CompactRequest is the payload for MethodCompact.
+type CompactRequest struct {
+	PID                types.PID `json:"pid"`
+	CustomInstructions string    `json:"custom_instructions,omitempty"`
+}
+
+// CompactResponse is the response for MethodCompact.
+type CompactResponse struct {
+	PreTokens  int      `json:"pre_tokens"`
+	PostTokens int      `json:"post_tokens"`
+	Restored   []string `json:"restored"`
+}
 
 // SocketPath returns the platform-appropriate Unix socket path for the rnix daemon.
 // Prefers $XDG_RUNTIME_DIR/rnix/rnix.sock, falls back to /tmp/rnix-$UID/rnix.sock.

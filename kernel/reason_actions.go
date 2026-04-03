@@ -207,6 +207,12 @@ func (k *KernelImpl) handleActionToolCall(proc *Process, action ReasonAction, re
 	}
 	k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendToolResult", "tool": action.ToolPath}, nil, nil, time.Since(appendToolStart))
 
+	// Track file reads for post-compact restore (Story 31.2)
+	if strings.HasPrefix(action.ToolPath, "/dev/fs/") && isEmpty {
+		filePath := strings.TrimPrefix(action.ToolPath, "/dev/fs/")
+		k.trackReadFile(proc, filePath, string(toolResult))
+	}
+
 	*consecutiveToolErrors = 0
 	stepDur := time.Since(stepStart)
 	k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "tool_call", "tool": action.ToolPath}, string(toolResult), nil, stepDur)
