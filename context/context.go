@@ -45,6 +45,7 @@ type Context struct {
 	SystemPrompt string
 	Messages     []Message
 	MaxSize      int // Max message count; MVP does not limit content byte size
+	TokenLimit   int // Max token budget for this context; 0 = DefaultTokenLimit
 	mu           sync.RWMutex
 }
 
@@ -53,6 +54,27 @@ type contextSnapshot struct {
 	SystemPrompt string    `json:"system_prompt"`
 	Messages     []Message `json:"messages"`
 	MaxSize      int       `json:"max_size"`
+}
+
+// effectiveTokenLimit returns the context's token limit, defaulting to DefaultTokenLimit if unset.
+func (c *Context) effectiveTokenLimit() int {
+	if c.TokenLimit > 0 {
+		return c.TokenLimit
+	}
+	return DefaultTokenLimit
+}
+
+// SetTokenLimit sets the token limit on a context.
+// Must be called under the Manager's registry to locate the context.
+func (m *Manager) SetTokenLimit(cid types.CtxID, limit int) error {
+	ctx, err := m.getContext("SetTokenLimit", cid)
+	if err != nil {
+		return err
+	}
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	ctx.TokenLimit = limit
+	return nil
 }
 
 // Serialize serializes the complete Context state (system prompt, messages, max size) to JSON.
@@ -415,7 +437,7 @@ func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {
 		total += EstimateTokens(msg.Content)
 	}
 
-	limit := DefaultTokenLimit
+	limit := ctx.effectiveTokenLimit()
 	pct := float64(total) / float64(limit) * 100
 	return TokenStats{
 		Used:       total,
@@ -475,7 +497,7 @@ func (m *Manager) GetContextSummary(ctxID types.CtxID) (string, error) {
 
 // GetContextInfo returns structured context information for gdb inspect.
 // Returns a map with system_prompt_chars, message counts by role,
-// token estimates (chars/4), and last message preview.
+// token estimates via EstimateTokens, and last message preview.
 func (m *Manager) GetContextInfo(ctxID types.CtxID) (map[string]any, error) {
 	ctx, err := m.getContext("GetContextInfo", ctxID)
 	if err != nil {
@@ -508,7 +530,7 @@ func (m *Manager) GetContextInfo(ctxID types.CtxID) (map[string]any, error) {
 	promptChars := len(ctx.SystemPrompt)
 	promptTokens := EstimateTokens(ctx.SystemPrompt)
 	totalTokens := promptTokens + systemTokens + userTokens + assistantTokens + toolTokens
-	tokenUsagePct := float64(totalTokens) / float64(DefaultTokenLimit) * 100
+	tokenUsagePct := float64(totalTokens) / float64(ctx.effectiveTokenLimit()) * 100
 
 	info := map[string]any{
 		"system_prompt_chars":  promptChars,

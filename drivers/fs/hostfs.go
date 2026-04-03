@@ -224,6 +224,12 @@ func (f *HostFSFile) execWrite(content string) error {
 	return nil
 }
 
+// listDirResult wraps list entries with an optional truncation notice.
+type listDirResult struct {
+	Entries []listEntry `json:"entries"`
+	Notice  string      `json:"notice,omitempty"`
+}
+
 // execList reads the directory at f.path and buffers the result as JSON.
 func (f *HostFSFile) execList() error {
 	device := "/dev/fs"
@@ -233,30 +239,30 @@ func (f *HostFSFile) execList() error {
 		return mapOSError("Write", device, err)
 	}
 
-	result := make([]listEntry, 0, min(len(entries), maxListDirEntries))
+	listed := make([]listEntry, 0, min(len(entries), maxListDirEntries))
 	for _, e := range entries {
-		if len(result) >= maxListDirEntries {
+		if len(listed) >= maxListDirEntries {
 			break
 		}
 		info, err := e.Info()
 		if err != nil {
 			continue // skip entries we can't stat
 		}
-		result = append(result, listEntry{
+		listed = append(listed, listEntry{
 			Name:  e.Name(),
 			Size:  info.Size(),
 			IsDir: e.IsDir(),
 		})
 	}
 
-	b, err := json.Marshal(result)
-	if err != nil {
-		return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("marshal list result: %w", err), Code: types.ErrDriver}
+	out := listDirResult{Entries: listed}
+	if len(entries) > maxListDirEntries {
+		out.Notice = fmt.Sprintf("Showing %d of %d entries. Use glob pattern for targeted search.", maxListDirEntries, len(entries))
 	}
 
-	if len(entries) > maxListDirEntries {
-		notice := fmt.Sprintf("\n[Showing %d of %d entries. Use glob pattern for targeted search.]", maxListDirEntries, len(entries))
-		b = append(b, []byte(notice)...)
+	b, err := json.Marshal(out)
+	if err != nil {
+		return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("marshal list result: %w", err), Code: types.ErrDriver}
 	}
 
 	f.response = b
@@ -377,9 +383,10 @@ func FileFactory() vfs.VFSFileFactory {
 		}
 
 		return &HostFSFile{
-			file: f,
-			path: resolved,
-			mode: vfs.O_RDONLY,
+			file:    f,
+			path:    resolved,
+			workDir: workDir,
+			mode:    vfs.O_RDONLY,
 		}, nil
 	}
 }

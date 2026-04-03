@@ -43,7 +43,7 @@ func TestAnalyzeContext_Nil(t *testing.T) {
 
 func TestAnalyzeContext_SystemPromptOnly(t *testing.T) {
 	data := &ContextData{
-		SystemPrompt: strings.Repeat("x", 400), // 100 tokens
+		SystemPrompt: strings.Repeat("x", 350), // ceil(350/3.5) = 100 tokens
 	}
 	result := AnalyzeContext(data, 1, 1, 100, 0)
 
@@ -63,10 +63,10 @@ func TestAnalyzeContext_SystemPromptOnly(t *testing.T) {
 
 func TestAnalyzeContext_Classification_10Messages(t *testing.T) {
 	data := &ContextData{
-		SystemPrompt: strings.Repeat("s", 40), // 10 tokens
+		SystemPrompt: strings.Repeat("s", 35), // ceil(35/3.5) = 10 tokens
 	}
 	for range 10 {
-		data.Messages = append(data.Messages, makeCtxMessage("user", strings.Repeat("m", 40))) // 10 tok each
+		data.Messages = append(data.Messages, makeCtxMessage("user", strings.Repeat("m", 35))) // 10 tok each
 	}
 
 	result := AnalyzeContext(data, 1, 1, 0, 0)
@@ -91,10 +91,10 @@ func TestAnalyzeContext_Classification_10Messages(t *testing.T) {
 
 func TestAnalyzeContext_Classification_20Messages(t *testing.T) {
 	data := &ContextData{
-		SystemPrompt: strings.Repeat("s", 40), // 10 tokens
+		SystemPrompt: strings.Repeat("s", 35), // ceil(35/3.5) = 10 tokens
 	}
 	for range 20 {
-		data.Messages = append(data.Messages, makeCtxMessage("user", strings.Repeat("m", 40)))
+		data.Messages = append(data.Messages, makeCtxMessage("user", strings.Repeat("m", 35)))
 	}
 
 	result := AnalyzeContext(data, 1, 1, 0, 0)
@@ -113,15 +113,15 @@ func TestAnalyzeContext_Classification_20Messages(t *testing.T) {
 
 func TestAnalyzeContext_LeakedToolResults(t *testing.T) {
 	data := &ContextData{
-		SystemPrompt: strings.Repeat("s", 40),
+		SystemPrompt: strings.Repeat("s", 35), // ceil(35/3.5) = 10 tokens
 	}
 	// 20 messages: first 10 cold zone, next 6 warm, last 4 active
 	for i := range 20 {
 		if i < 5 {
 			// Big tool results in cold zone → leaked
-			data.Messages = append(data.Messages, makeToolMessage(strings.Repeat("t", 2000), "toolu_big"))
+			data.Messages = append(data.Messages, makeToolMessage(strings.Repeat("t", 1750), "toolu_big"))
 		} else {
-			data.Messages = append(data.Messages, makeCtxMessage("user", strings.Repeat("m", 40)))
+			data.Messages = append(data.Messages, makeCtxMessage("user", strings.Repeat("m", 35)))
 		}
 	}
 
@@ -130,7 +130,7 @@ func TestAnalyzeContext_LeakedToolResults(t *testing.T) {
 	if result.Classification.Leaked.Messages != 5 {
 		t.Fatalf("expected Leaked.Messages=5, got %d", result.Classification.Leaked.Messages)
 	}
-	if result.Classification.Leaked.Tokens != 2500 { // 5 * 2000/4
+	if result.Classification.Leaked.Tokens != 2500 { // 5 * ceil(1750/3.5) = 5 * 500
 		t.Fatalf("expected Leaked.Tokens=2500, got %d", result.Classification.Leaked.Tokens)
 	}
 }

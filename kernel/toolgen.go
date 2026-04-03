@@ -66,8 +66,9 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 func metaToolDefs(planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) {
 	defs := []vfs.ToolDef{
 		{
-			Name:        "complete",
-			Description: "Finish the task with a final result.",
+			Name:            "complete",
+			Description:     "Finish the task with a final result.",
+			MaxResultTokens: 0, // unlimited — meta action, no VFS result
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -80,8 +81,9 @@ func metaToolDefs(planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) 
 			},
 		},
 		{
-			Name:        "spawn",
-			Description: "Spawn a child process to handle a sub-task.",
+			Name:            "spawn",
+			Description:     "Spawn a child process to handle a sub-task.",
+			MaxResultTokens: 0, // unlimited — meta action
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -102,8 +104,9 @@ func metaToolDefs(planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) 
 			},
 		},
 		{
-			Name:        "replan",
-			Description: "Revise the current approach with a new plan.",
+			Name:            "replan",
+			Description:     "Revise the current approach with a new plan.",
+			MaxResultTokens: 0, // unlimited — meta action
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -116,8 +119,9 @@ func metaToolDefs(planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) 
 			},
 		},
 		{
-			Name:        "specialize",
-			Description: "Dynamically load a skill to gain new capabilities.",
+			Name:            "specialize",
+			Description:     "Dynamically load a skill to gain new capabilities.",
+			MaxResultTokens: 0, // unlimited — meta action
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -140,8 +144,9 @@ func metaToolDefs(planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) 
 
 	if planningEnabled {
 		defs = append(defs, vfs.ToolDef{
-			Name:        "plan",
-			Description: "Create an execution plan before acting. Use when the task requires multiple coordinated steps.",
+			Name:            "plan",
+			Description:     "Create an execution plan before acting. Use when the task requires multiple coordinated steps.",
+			MaxResultTokens: 0, // unlimited — meta action
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

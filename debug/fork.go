@@ -63,12 +63,12 @@ func (fc *ForkContext) Summary() string {
 	if fc.SystemPrompt != "" {
 		fmt.Fprintf(&b, "System Prompt: len:%d\n", len(fc.SystemPrompt))
 	}
-	// Estimate tokens (~4 chars per token)
-	totalChars := len(fc.SystemPrompt)
+	// Estimate tokens using EstimateTokens
+	totalTokens := estimateTokens(fc.SystemPrompt)
 	for _, msg := range fc.Messages {
-		totalChars += len(msg.Content)
+		totalTokens += estimateTokens(msg.Content)
 	}
-	fmt.Fprintf(&b, "Tokens (est): ~%d\n", totalChars/4)
+	fmt.Fprintf(&b, "Tokens (est): ~%d\n", totalTokens)
 	return b.String()
 }
 

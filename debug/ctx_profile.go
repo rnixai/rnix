@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 )
 
@@ -112,7 +113,7 @@ func AnalyzeContext(data *ContextData, pid types.PID, ctxID types.CtxID, tokensU
 }
 
 func estimateTokens(s string) int {
-	return len(s) / 4
+	return rnixctx.EstimateTokens(s)
 }
 
 func roundPct(value float64) float64 {

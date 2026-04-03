@@ -31,7 +31,7 @@ func TruncateResult(content string, maxTokens int) (string, bool) {
 	// Refine: ensure we don't exceed maxTokens
 	truncated := string(runes[:cutIdx])
 	for EstimateTokens(truncated) > maxTokens && cutIdx > 0 {
-		cutIdx -= cutIdx / 10
+		cutIdx -= max(cutIdx/10, 1)
 		if cutIdx < 0 {
 			cutIdx = 0
 		}

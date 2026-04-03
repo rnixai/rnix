@@ -498,14 +498,14 @@ func TestHostFSFile_ListDir_Success(t *testing.T) {
 		t.Fatalf("Read failed: %v", err)
 	}
 
-	var entries []listEntry
-	if err := json.Unmarshal(result, &entries); err != nil {
+	var listResult listDirResult
+	if err := json.Unmarshal(result, &listResult); err != nil {
 		t.Fatalf("unmarshal list result failed: %v", err)
 	}
 
 	// testdata should contain at least sample.txt and nested/
 	names := make(map[string]bool)
-	for _, e := range entries {
+	for _, e := range listResult.Entries {
 		names[e.Name] = true
 	}
 	if !names["sample.txt"] {
@@ -536,8 +536,9 @@ func TestHostFSFile_ListDir_Empty(t *testing.T) {
 		t.Fatalf("Read failed: %v", err)
 	}
 
-	if string(result) != "[]" {
-		t.Errorf("expected empty list '[]', got %q", result)
+	expected := `{"entries":[]}`
+	if string(result) != expected {
+		t.Errorf("expected empty list %q, got %q", expected, result)
 	}
 }
 
