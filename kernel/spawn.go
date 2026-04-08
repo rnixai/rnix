@@ -266,6 +266,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.CompactThreshold = opts.CompactThreshold
 	}
 
+	// GracePeriod: opts > default (10s via effectiveGracePeriod)
+	if opts.GracePeriod > 0 {
+		proc.GracePeriod = opts.GracePeriod
+	}
+
 	if opts.TraceID != "" {
 		proc.TraceID = opts.TraceID
 		proc.ParentSpanID = opts.ParentSpanID

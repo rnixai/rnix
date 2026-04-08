@@ -130,7 +130,15 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 			queue.close()
 		}
 
-		// 5. removeFromAllGroups — clean up process group memberships (Story 6.3)
+		// 5. IPC persist cleanup — on normal exit, remove persisted messages
+		if proc.IPCPersist && exit != nil && exit.Code == 0 {
+			baseDir := k.resolveBaseDir(proc)
+			if baseDir != "" {
+				_ = removePersistedMessages(baseDir, proc.UUID)
+			}
+		}
+
+		// 6. removeFromAllGroups — clean up process group memberships (Story 6.3)
 		k.removeFromAllGroups(proc.PID, proc)
 
 		// 6. ClearSignalState — clean up signal handlers/blocked/pending/resume (Story 6.4)

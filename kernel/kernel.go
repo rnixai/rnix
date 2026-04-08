@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,6 +52,7 @@ type SpawnOpts struct {
 	SkipReasonLoop    bool                  // true = don't open LLM device or start reasonStep goroutine
 	ProjectConfig     *config.ProjectConfig // project-level config snapshot; nil = global only
 	CompactThreshold  float64               // 0 = use default (80%); >0 = trigger compact when TokenUsage > threshold
+	GracePeriod       time.Duration          // 0 = use DefaultGracePeriod; >0 = custom SIGTERM grace period
 }
 
 // KernelCallbacks allows the CLI layer to receive progress notifications
@@ -170,6 +172,17 @@ func (k *KernelImpl) SetStepDataDir(dir string) {
 // GetStepDataDir returns the base directory for step data output.
 func (k *KernelImpl) GetStepDataDir() string {
 	return k.stepDataDir
+}
+
+// resolveBaseDir returns the base .rnix directory for persistence data.
+func (k *KernelImpl) resolveBaseDir(proc *Process) string {
+	if k.stepDataDir != "" {
+		return k.stepDataDir
+	}
+	if proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+		return filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
+	}
+	return ""
 }
 
 // SetMountManager sets the MCP mount manager on the kernel.

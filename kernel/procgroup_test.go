@@ -324,12 +324,12 @@ func TestSignalGroup_Basic(t *testing.T) {
 		t.Fatalf("SignalGroup failed: %v", err)
 	}
 
-	// All processes should have their context cancelled
+	// All processes should have their context cancelled (two-phase shutdown is async)
 	for _, p := range []*Process{p1, p2, p3} {
 		select {
 		case <-p.ctx.Done():
 			// expected
-		default:
+		case <-time.After(time.Second):
 			t.Errorf("PID %d context not cancelled after SignalGroup", p.PID)
 		}
 	}
@@ -361,7 +361,7 @@ func TestSignalGroup_PartialExit(t *testing.T) {
 	select {
 	case <-p2.ctx.Done():
 		// expected
-	default:
+	case <-time.After(time.Second):
 		t.Error("p2 context not cancelled after SignalGroup")
 	}
 }

@@ -46,6 +46,7 @@ type SupervisorSpec struct {
 	MaxRestarts int
 	MaxWindow   time.Duration
 	Children    []ChildSpec
+	GracePeriod time.Duration // 0 = use DefaultGracePeriod; >0 = custom grace period for stopChild
 }
 
 // childExit carries information about a child process exiting.
@@ -59,6 +60,7 @@ type childExit struct {
 type supervisedChild struct {
 	spec  ChildSpec
 	pid   types.PID
+	uuid  string // UUID of the child process, for IPC message recovery on restart
 	index int
 	alive bool
 }
@@ -163,6 +165,7 @@ func (s *Supervisor) run() {
 		s.children[i] = &supervisedChild{
 			spec:  childSpec,
 			pid:   pid,
+			uuid:  s.childUUID(pid),
 			index: i,
 			alive: true,
 		}
@@ -208,6 +211,21 @@ func (s *Supervisor) startChild(idx int, spec ChildSpec) (types.PID, error) {
 		return 0, err
 	}
 
+	// Enable IPC persistence for permanent children
+	if spec.Restart == RestartPermanent {
+		childProc, ok := s.kernel.GetProcess(pid)
+		if ok {
+			childProc.IPCPersist = true
+			baseDir := s.kernel.resolveBaseDir(childProc)
+			if baseDir != "" {
+				queue, qok := s.kernel.msgQueues.Load(pid)
+				if qok {
+					_ = enablePersistence(queue, baseDir, childProc.UUID)
+				}
+			}
+		}
+	}
+
 	s.kernel.emitEvent(s.proc, "SupervisorStartChild", map[string]any{
 		"child_name":  spec.Name,
 		"child_pid":   pid,
@@ -223,9 +241,8 @@ func (s *Supervisor) startChild(idx int, spec ChildSpec) (types.PID, error) {
 	return pid, nil
 }
 
-// stopChild kills and reaps a single child process.
-// Uses wg.Wait() instead of <-Done to avoid races with the monitor goroutine
-// that also reads from Done.
+// stopChild performs two-phase shutdown of a single child process.
+// Sends SIGTERM first, waits for grace period, then SIGKILL if still alive.
 func (s *Supervisor) stopChild(idx int) {
 	child := s.children[idx]
 	if child == nil || !child.alive {
@@ -240,24 +257,53 @@ func (s *Supervisor) stopChild(idx int) {
 
 	state := childProc.GetState()
 	if state != types.StateZombie && state != types.StateDead {
-		_ = s.kernel.Kill(child.pid, types.SIGKILL)
+		// Phase 1: Send SIGTERM for graceful shutdown
+		_ = s.kernel.Kill(child.pid, types.SIGTERM)
 	}
 
-	// Wait for the process goroutine to finish (with timeout).
+	// Wait for the process goroutine to finish (with grace period + buffer).
+	gracePeriod := s.effectiveGracePeriod()
 	done := make(chan struct{})
 	go func() {
 		childProc.wg.Wait()
 		close(done)
 	}()
 
-	timer := time.NewTimer(5 * time.Second)
+	// Grace period + 2s buffer for cleanup after context cancellation
+	timer := time.NewTimer(gracePeriod + 2*time.Second)
 	defer timer.Stop()
 	select {
 	case <-done:
 	case <-timer.C:
+		// Grace period expired, force kill
+		_ = s.kernel.Kill(child.pid, types.SIGKILL)
+		// Brief wait for force kill to complete
+		forceTimer := time.NewTimer(2 * time.Second)
+		defer forceTimer.Stop()
+		select {
+		case <-done:
+		case <-forceTimer.C:
+		}
 	}
 
 	s.kernel.Reap(child.pid)
+}
+
+// effectiveGracePeriod returns the supervisor's grace period or the default.
+func (s *Supervisor) effectiveGracePeriod() time.Duration {
+	if s.spec.GracePeriod > 0 {
+		return s.spec.GracePeriod
+	}
+	return DefaultGracePeriod
+}
+
+// childUUID returns the UUID of a child process by PID.
+func (s *Supervisor) childUUID(pid types.PID) string {
+	proc, ok := s.kernel.GetProcess(pid)
+	if !ok {
+		return ""
+	}
+	return proc.UUID
 }
 
 // shutdownAll stops all alive children in reverse startup order.
@@ -394,6 +440,7 @@ func (s *Supervisor) shouldRestart(spec ChildSpec, exit ExitStatus) bool {
 // restartOneForOne restarts only the crashed child.
 func (s *Supervisor) restartOneForOne(idx int) error {
 	child := s.children[idx]
+	oldUUID := child.uuid
 	s.kernel.Reap(child.pid)
 
 	pid, err := s.startChild(idx, child.spec)
@@ -403,14 +450,23 @@ func (s *Supervisor) restartOneForOne(idx int) error {
 	s.children[idx] = &supervisedChild{
 		spec:  child.spec,
 		pid:   pid,
+		uuid:  s.childUUID(pid),
 		index: idx,
 		alive: true,
 	}
+
+	s.recoverMessages(pid, oldUUID, child.spec)
 	return nil
 }
 
 // restartOneForAll stops all children in reverse order, then restarts all.
 func (s *Supervisor) restartOneForAll(crashedIdx int) error {
+	// Save old UUIDs for message recovery
+	oldUUIDs := make([]string, len(s.children))
+	for i, child := range s.children {
+		oldUUIDs[i] = child.uuid
+	}
+
 	// Stop all alive children in reverse order (crashed one is already dead)
 	for i := len(s.children) - 1; i >= 0; i-- {
 		if i != crashedIdx {
@@ -430,9 +486,11 @@ func (s *Supervisor) restartOneForAll(crashedIdx int) error {
 		s.children[i] = &supervisedChild{
 			spec:  child.spec,
 			pid:   pid,
+			uuid:  s.childUUID(pid),
 			index: i,
 			alive: true,
 		}
+		s.recoverMessages(pid, oldUUIDs[i], child.spec)
 	}
 	return nil
 }
@@ -440,6 +498,12 @@ func (s *Supervisor) restartOneForAll(crashedIdx int) error {
 // restartRestForOne stops children after the crashed one in reverse order,
 // then restarts the crashed one and all subsequent children.
 func (s *Supervisor) restartRestForOne(crashedIdx int) error {
+	// Save old UUIDs for message recovery
+	oldUUIDs := make([]string, len(s.children))
+	for i := crashedIdx; i < len(s.children); i++ {
+		oldUUIDs[i] = s.children[i].uuid
+	}
+
 	// Stop children after crashedIdx in reverse order
 	for i := len(s.children) - 1; i > crashedIdx; i-- {
 		s.stopChild(i)
@@ -458,11 +522,43 @@ func (s *Supervisor) restartRestForOne(crashedIdx int) error {
 		s.children[i] = &supervisedChild{
 			spec:  child.spec,
 			pid:   pid,
+			uuid:  s.childUUID(pid),
 			index: i,
 			alive: true,
 		}
+		s.recoverMessages(pid, oldUUIDs[i], child.spec)
 	}
 	return nil
+}
+
+// recoverMessages loads persisted IPC messages from a previous incarnation of a
+// permanent child and injects them into the new child's queue.
+func (s *Supervisor) recoverMessages(newPID types.PID, oldUUID string, spec ChildSpec) {
+	if spec.Restart != RestartPermanent || oldUUID == "" {
+		return
+	}
+	newProc, ok := s.kernel.GetProcess(newPID)
+	if !ok {
+		return
+	}
+	baseDir := s.kernel.resolveBaseDir(newProc)
+	if baseDir == "" {
+		return
+	}
+
+	msgs, err := loadPersistedMessages(baseDir, oldUUID)
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+
+	queue, qok := s.kernel.msgQueues.Load(newPID)
+	if !qok {
+		return
+	}
+	for _, m := range msgs {
+		_ = queue.enqueue(m)
+	}
+	_ = removePersistedMessages(baseDir, oldUUID)
 }
 
 // recordRestart appends the current time to the restart history.

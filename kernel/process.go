@@ -127,6 +127,11 @@ type Process struct {
 	checkpointErrCh chan error // buffered cap=1; carries last async write error
 	stepsDir        string    // resolved directory for checkpoint writes; "" = no checkpoint
 
+	// Two-phase shutdown (Story 31.3)
+	GracePeriod     time.Duration // 0 = use DefaultGracePeriod; >0 = custom grace period for SIGTERM
+	shutdownStarted atomic.Bool   // CAS guard: prevents duplicate twoPhaseShutdown goroutines
+	IPCPersist      bool          // true = persist IPC messages to disk (set for permanent supervised processes)
+
 	// Suspend system (Story 30.3) — atomic flag for graceful suspend
 	suspendRequested atomic.Bool   // set by Suspend(), checked by reasonStep
 	SuspendReason    string        // reason for suspension (mu protected)
@@ -686,6 +691,17 @@ func (p *Process) GetStepsDir() string {
 
 // DefaultCompactThreshold is the default token usage percentage that triggers auto-compact.
 const DefaultCompactThreshold = 80.0
+
+// DefaultGracePeriod is the default grace period for two-phase SIGTERM shutdown.
+const DefaultGracePeriod = 10 * time.Second
+
+// effectiveGracePeriod returns the configured grace period, defaulting to 10s.
+func (p *Process) effectiveGracePeriod() time.Duration {
+	if p.GracePeriod > 0 {
+		return p.GracePeriod
+	}
+	return DefaultGracePeriod
+}
 
 // effectiveCompactThreshold returns the configured compact threshold, defaulting to 80%.
 func (p *Process) effectiveCompactThreshold() float64 {

@@ -31,10 +31,11 @@ func TestSignal_Basic(t *testing.T) {
 		t.Fatalf("Signal failed: %v", err)
 	}
 
+	// SIGTERM now triggers two-phase shutdown in a goroutine, so wait briefly
 	select {
 	case <-proc.ctx.Done():
 		// expected: context cancelled
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("expected context to be cancelled after SIGTERM")
 	}
 }
@@ -238,11 +239,11 @@ func TestSigUnblock_TriggersPending(t *testing.T) {
 		t.Fatalf("SigUnblock failed: %v", err)
 	}
 
-	// Now context should be cancelled
+	// Now context should be cancelled (two-phase shutdown runs in goroutine)
 	select {
 	case <-proc.ctx.Done():
 		// expected
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("expected context cancelled after unblocking pending SIGTERM")
 	}
 }
@@ -336,7 +337,7 @@ func TestKill_DelegatesToSignal(t *testing.T) {
 	select {
 	case <-proc.ctx.Done():
 		// expected
-	default:
+	case <-time.After(time.Second):
 		t.Fatal("expected context cancelled after Kill")
 	}
 }

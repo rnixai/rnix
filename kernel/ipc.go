@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 	"time"
 
@@ -36,10 +37,12 @@ var _ IPCManager = (*KernelImpl)(nil)
 
 // MessageQueue is a per-process receive queue for IPC messages.
 type MessageQueue struct {
-	mu       sync.Mutex
-	messages []*Message
-	notify   chan struct{}
-	closed   bool
+	mu          sync.Mutex
+	messages    []*Message
+	notify      chan struct{}
+	closed      bool
+	persistFile *os.File // NDJSON append-mode file for IPC persistence; nil = no persistence
+	persistPath string   // path to the persistence file
 }
 
 // newMessageQueue creates a new empty MessageQueue.
@@ -58,6 +61,9 @@ func (q *MessageQueue) enqueue(msg *Message) error {
 		return fmt.Errorf("message queue closed")
 	}
 	q.messages = append(q.messages, msg)
+	if q.persistFile != nil {
+		_ = persistMessage(q.persistFile, msg) // best-effort; don't block enqueue on write errors
+	}
 	q.mu.Unlock()
 
 	// Non-blocking signal to wake up a blocked dequeue.
@@ -97,7 +103,13 @@ func (q *MessageQueue) dequeue(ctx context.Context) (*Message, error) {
 func (q *MessageQueue) close() {
 	q.mu.Lock()
 	q.closed = true
+	f := q.persistFile
+	q.persistFile = nil
 	q.mu.Unlock()
+
+	if f != nil {
+		_ = f.Close()
+	}
 
 	// Wake any blocked dequeue calls.
 	select {

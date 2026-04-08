@@ -87,7 +87,23 @@ func (k *KernelImpl) deliverSignal(proc *Process, sig types.Signal) string {
 // defaultSignalAction executes the default behavior for a signal.
 func (k *KernelImpl) defaultSignalAction(proc *Process, sig types.Signal) string {
 	switch {
+	case sig == types.SIGTERM:
+		// Two-phase shutdown: SIGTERM triggers graceful shutdown with grace period.
+		// CAS prevents duplicate shutdown goroutines from concurrent Kill/Signal calls.
+		if !proc.shutdownStarted.CompareAndSwap(false, true) {
+			return "shutdown_already_started"
+		}
+		// Phase 1: cancel context synchronously so callers see immediate effect
+		proc.Cancel()
+		// Phase 2: goroutine waits for exit or escalates to force-kill on timeout
+		go k.twoPhaseShutdown(proc, proc.effectiveGracePeriod())
+		return "shutdown_initiated"
+	case sig == types.SIGKILL:
+		// SIGKILL: immediate termination, no grace period
+		proc.Cancel()
+		return "terminated"
 	case sig.IsTermination():
+		// Other termination signals (future): immediate cancel
 		proc.Cancel()
 		return "terminated"
 	case sig == types.SIGPAUSE:
