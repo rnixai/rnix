@@ -29,6 +29,9 @@ func ipcPersistDir(baseDir, uuid string) string {
 
 // enablePersistence sets up NDJSON append-mode file for the message queue.
 func enablePersistence(q *MessageQueue, baseDir, uuid string) error {
+	if uuid == "" {
+		return fmt.Errorf("enablePersistence: empty uuid")
+	}
 	dir := ipcPersistDir(baseDir, uuid)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create ipc persist dir: %w", err)
@@ -39,6 +42,9 @@ func enablePersistence(q *MessageQueue, baseDir, uuid string) error {
 		return fmt.Errorf("open ipc persist file: %w", err)
 	}
 	q.mu.Lock()
+	if q.persistFile != nil {
+		q.persistFile.Close()
+	}
 	q.persistFile = f
 	q.persistPath = path
 	q.mu.Unlock()
@@ -105,6 +111,9 @@ func loadPersistedMessages(baseDir, uuid string) ([]*Message, error) {
 
 // removePersistedMessages removes the IPC persistence directory for a UUID.
 func removePersistedMessages(baseDir, uuid string) error {
+	if uuid == "" {
+		return fmt.Errorf("removePersistedMessages: empty uuid")
+	}
 	dir := ipcPersistDir(baseDir, uuid)
 	return os.RemoveAll(dir)
 }

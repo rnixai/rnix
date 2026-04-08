@@ -2,6 +2,8 @@ package kernel
 
 import (
 	"time"
+
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // twoPhaseShutdown implements the two-phase SIGTERM shutdown protocol.
@@ -15,6 +17,7 @@ func (k *KernelImpl) twoPhaseShutdown(proc *Process, gracePeriod time.Duration) 
 	k.emitEvent(proc, "Shutdown", map[string]any{
 		"phase":           "sigterm_sent",
 		"grace_period_ms": gracePeriod.Milliseconds(),
+		"elapsed_ms":      int64(0),
 	}, nil, nil, 0)
 
 	// Wait for process to exit or timeout
@@ -38,9 +41,7 @@ func (k *KernelImpl) twoPhaseShutdown(proc *Process, gracePeriod time.Duration) 
 			"elapsed_ms":      time.Since(start).Milliseconds(),
 		}, nil, nil, time.Since(start))
 
-		// Force cancel again (idempotent) — the reasonStep loop should have
-		// already exited via ctx.Done(), but if cleanup is stuck, this ensures
-		// the goroutine terminates.
-		proc.Cancel()
+		// Escalate to SIGKILL — force-terminate the process.
+		_ = k.Kill(proc.PID, types.SIGKILL)
 	}
 }

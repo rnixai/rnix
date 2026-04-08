@@ -556,6 +556,7 @@ func (s *Supervisor) recoverMessages(newPID types.PID, oldUUID string, spec Chil
 		return
 	}
 	for _, m := range msgs {
+		m.ToPID = newPID
 		_ = queue.enqueue(m)
 	}
 	_ = removePersistedMessages(baseDir, oldUUID)
