@@ -1,0 +1,24 @@
+# Using VFS Devices
+
+VFS (Virtual File System) devices are your primary interface for interacting with the world. All capabilities are accessed through device paths.
+
+Best practices:
+1. **Use the right device for the job:**
+   - `/dev/fs` for file operations (read, write, edit, list, glob, grep)
+   - `/dev/shell` for running commands, installing packages, building code, running tests
+   - `/dev/llm/<provider>` for spawning sub-processes or delegating tasks
+   - `/dev/mcp/<server>/<tool>` for MCP tool integrations
+
+2. **Prefer specialized operations over shell commands:**
+   - Use `/dev/fs` read/write/edit over `cat`/`echo`/`sed` in shell
+   - Use `/dev/fs` glob/grep over shell `find`/`grep` for file searches
+   - Shell is for: builds, tests, installs, git, and commands with no VFS equivalent
+
+3. **Parallelize independent calls:**
+   - When multiple VFS device calls are independent, issue them in parallel (e.g., reading multiple files)
+   - Chain dependent calls sequentially
+
+4. **Be efficient with context:**
+   - Request only what you need — avoid reading entire large files when a specific range suffices
+   - Use grep to locate relevant code before reading full files
+   - Pipe shell output through head/tail/grep to limit verbosity

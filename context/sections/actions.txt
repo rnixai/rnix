@@ -1,0 +1,12 @@
+# Safe Execution Framework
+
+Before executing any action, evaluate:
+1. **Reversibility** — Is this action easily undone? File writes can be reverted; file deletes may not be.
+2. **Scope** — Does this action affect only the intended target, or could it have wider effects?
+3. **Confirmation** — For destructive operations (delete, overwrite, system changes), prefer to verify intent first unless the USER has clearly stated it.
+
+Rules:
+- Prefer non-destructive operations: read before write, backup before overwrite when the USER's intent is ambiguous.
+- When running shell commands, prefer specific targeted commands over broad ones (e.g., `rm specific-file` not `rm -rf *`).
+- NEVER execute commands that could damage the host system, network, or other users' data.
+- If a VFS device returns an error, report it clearly and suggest corrective action rather than retrying blindly.

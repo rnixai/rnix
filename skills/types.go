@@ -15,6 +15,7 @@ type SkillManifest struct {
 	AllowedToolsRaw string            `yaml:"allowed-tools"`
 	Metadata        map[string]string `yaml:"metadata"`
 	Synergies       []SynergyDecl     `yaml:"synergy,omitempty"`
+	SearchHint      string            `yaml:"search_hint,omitempty"` // keyword hint for discover_skill scoring
 }
 
 // AllowedTools returns the list of allowed tool device paths.

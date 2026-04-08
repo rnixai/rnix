@@ -39,6 +39,14 @@ type ExitStatus struct {
 	Err    error  // underlying error, if any
 }
 
+// DeferredSkillMeta holds lightweight metadata for a deferred skill,
+// used by discover_skill to score relevance without loading the full skill body.
+type DeferredSkillMeta struct {
+	Name        string
+	Description string
+	SearchHint  string
+}
+
 // Process represents an agent process.
 type Process struct {
 	PID            types.PID
@@ -47,6 +55,7 @@ type Process struct {
 	State          types.ProcessState // guarded by mu
 	Intent         string             // immutable after creation
 	Skills         []string
+	DeferredSkills []DeferredSkillMeta // metadata-only skills for discover_skill scoring
 	Children       []types.PID
 	FDTable        map[types.FD]vfs.VFSFile // per architecture doc; VFS manages actual FD state internally
 	DebugChan      chan types.SyscallEvent
@@ -146,6 +155,8 @@ type Process struct {
 
 	// Native tool calling support (immutable after Spawn)
 	UseNativeTools    bool                // true when LLM driver implements ToolCallingDriver
+	HasSections       bool                // true when SectionRegistry is attached to context
+	sections          *rnixctx.SectionRegistry // prompt section registry (nil for bare spawns)
 	toolMap           map[string]toolMapping // tool name → VFS path mapping; immutable after Spawn
 	nativeToolDefs    []vfs.ToolDef       // collected ToolDefs for req.Tools; immutable after Spawn
 	generatedProtocol string              // auto-generated toolProtocol text; immutable after first reasonStep

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -476,6 +477,43 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 		}
 		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, resultMsg)
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize", "skill": skillName}, resultMsg, nil, time.Since(stepStart))
+		return true
+
+	case ActionDiscoverSkill:
+		query, _ := tc.Input["query"].(string)
+		if query == "" {
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, "discover_skill error: empty query")
+			return true
+		}
+		proc.mu.Lock()
+		deferred := make([]DeferredSkillMeta, len(proc.DeferredSkills))
+		copy(deferred, proc.DeferredSkills)
+		loadedSkills := make([]string, len(proc.Skills))
+		copy(loadedSkills, proc.Skills)
+		proc.mu.Unlock()
+		queryLower := strings.ToLower(query)
+		keywords := strings.Fields(queryLower)
+		var matches []discoverHit
+		for _, ds := range deferred {
+			if slices.Contains(loadedSkills, ds.Name) {
+				continue
+			}
+			score := scoreSkillMatch(ds, keywords)
+			if score > 0 {
+				matches = append(matches, discoverHit{Name: ds.Name, Description: ds.Description, Score: score})
+			}
+		}
+		for i := 0; i < len(matches); i++ {
+			for j := i + 1; j < len(matches); j++ {
+				if matches[j].Score > matches[i].Score {
+					matches[i], matches[j] = matches[j], matches[i]
+				}
+			}
+		}
+		result := discoverResult{Query: query, Matches: matches}
+		resultJSON, _ := json.Marshal(result)
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, string(resultJSON))
+		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "discover_skill", "query": query, "matches": len(matches)}, nil, nil, time.Since(stepStart))
 		return true
 
 	case ActionPlan:

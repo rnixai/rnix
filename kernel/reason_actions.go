@@ -38,6 +38,8 @@ func (k *KernelImpl) handleAction(proc *Process, action ReasonAction, resp llmRe
 		return k.handleActionReplan(proc, action, resp, rawResponseStr, promptResult, step, stepStart)
 	case ActionSpecialize:
 		return k.handleActionSpecialize(proc, action, resp, rawResponseStr, promptResult, step, stepStart, consecutiveToolErrors)
+	case ActionDiscoverSkill:
+		return k.handleActionDiscoverSkill(proc, action, resp, rawResponseStr, promptResult, step, stepStart, consecutiveToolErrors)
 	}
 	return true
 }
@@ -547,4 +549,130 @@ func (k *KernelImpl) handleActionSpecialize(proc *Process, action ReasonAction, 
 		k.callbacks.OnStepComplete(proc.PID, step, "specialize", skillName, false, float64(stepDur.Microseconds())/1000.0)
 	}
 	return true
+}
+
+// discoverResult is the JSON envelope returned to the LLM for discover_skill.
+type discoverResult struct {
+	Query   string        `json:"query"`
+	Matches []discoverHit `json:"matches"`
+}
+
+type discoverHit struct {
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Score       float64 `json:"score"`
+}
+
+func (k *KernelImpl) handleActionDiscoverSkill(proc *Process, action ReasonAction, resp llmResponse,
+	rawResponseStr string, promptResult *rnixctx.PromptResult, step int, stepStart time.Time,
+	consecutiveToolErrors *int) bool {
+
+	k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp, "discover_skill", action.ToolPath, "", "", "", "", 0)
+
+	// Parse query from ToolData or ToolPath
+	query := action.ToolPath
+	if query == "" && len(action.ToolData) > 0 {
+		var payload struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal(action.ToolData, &payload); err == nil && payload.Query != "" {
+			query = payload.Query
+		}
+	}
+	if query == "" {
+		errMsg := "discover_skill error: empty query"
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, "discover_skill", errMsg)
+		k.emitLog(proc, step, types.LogTool, errMsg, "discover_skill")
+		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "discover_skill_error"}, nil, nil, time.Since(stepStart))
+		return true
+	}
+
+	proc.mu.Lock()
+	deferred := make([]DeferredSkillMeta, len(proc.DeferredSkills))
+	copy(deferred, proc.DeferredSkills)
+	loadedSkills := make([]string, len(proc.Skills))
+	copy(loadedSkills, proc.Skills)
+	proc.mu.Unlock()
+
+	// Score each deferred skill against query keywords
+	queryLower := strings.ToLower(query)
+	keywords := strings.Fields(queryLower)
+	var matches []discoverHit
+	for _, ds := range deferred {
+		// Skip already loaded skills
+		if slices.Contains(loadedSkills, ds.Name) {
+			continue
+		}
+		score := scoreSkillMatch(ds, keywords)
+		if score > 0 {
+			matches = append(matches, discoverHit{
+				Name:        ds.Name,
+				Description: ds.Description,
+				Score:       score,
+			})
+		}
+	}
+
+	// Sort by score descending
+	for i := 0; i < len(matches); i++ {
+		for j := i + 1; j < len(matches); j++ {
+			if matches[j].Score > matches[i].Score {
+				matches[i], matches[j] = matches[j], matches[i]
+			}
+		}
+	}
+
+	result := discoverResult{Query: query, Matches: matches}
+	resultJSON, _ := json.Marshal(result)
+	resultStr := string(resultJSON)
+
+	_ = k.ctxMgr.AppendToolResult(proc.CtxID, "discover_skill", resultStr)
+	k.emitLog(proc, step, types.LogTool, fmt.Sprintf("discover_skill: query=%q matches=%d", query, len(matches)), "discover_skill")
+	k.emitEvent(proc, "ReasonStep", map[string]any{
+		"step":    step,
+		"action":  "discover_skill",
+		"query":   query,
+		"matches": len(matches),
+	}, nil, nil, time.Since(stepStart))
+	stepDur := time.Since(stepStart)
+	if k.callbacks != nil {
+		k.callbacks.OnStepComplete(proc.PID, step, "discover_skill", query, false, float64(stepDur.Microseconds())/1000.0)
+	}
+	return true
+}
+
+// scoreSkillMatch scores a deferred skill against query keywords.
+// Returns 0.0 if no match, up to 1.0 for best match.
+func scoreSkillMatch(ds DeferredSkillMeta, keywords []string) float64 {
+	nameLower := strings.ToLower(ds.Name)
+	descLower := strings.ToLower(ds.Description)
+	hintLower := strings.ToLower(ds.SearchHint)
+
+	var score float64
+	for _, kw := range keywords {
+		if kw == "" {
+			continue
+		}
+		// Name match: highest weight
+		if strings.Contains(nameLower, kw) {
+			score += 0.4
+		}
+		// SearchHint match: high weight
+		if hintLower != "" && strings.Contains(hintLower, kw) {
+			score += 0.35
+		}
+		// Description match: moderate weight
+		if strings.Contains(descLower, kw) {
+			score += 0.25
+		}
+	}
+	// Normalize by keyword count
+	if len(keywords) > 0 {
+		score /= float64(len(keywords))
+	}
+	// Cap at 1.0
+	if score > 1.0 {
+		score = 1.0
+	}
+	return score
 }

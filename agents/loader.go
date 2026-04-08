@@ -84,6 +84,20 @@ func (l *AgentLoader) Load(agentName string) (*AgentInfo, error) {
 		loadedSkills = append(loadedSkills, skillInfo)
 	}
 
+	// Load deferred skills (metadata-only, body loaded on discover_skill)
+	var deferredSkills []*skills.SkillInfo
+	for _, skillName := range manifest.DeferredSkills {
+		if l.skillLoader == nil {
+			break
+		}
+		skillInfo, err := l.skillLoader.LoadMetadata(skillName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load deferred skill metadata %q referenced by agent %q: %w",
+				skillName, agentName, err)
+		}
+		deferredSkills = append(deferredSkills, skillInfo)
+	}
+
 	// Resolve MCP references from global config
 	var mcpConfigs []vfs.MCPConfig
 	if len(manifest.MCP) > 0 && l.mcpConfig != nil {
@@ -97,10 +111,11 @@ func (l *AgentLoader) Load(agentName string) (*AgentInfo, error) {
 	}
 
 	return &AgentInfo{
-		Manifest:     manifest,
-		Instructions: string(instructionsData),
-		Skills:       loadedSkills,
-		MCPConfigs:   mcpConfigs,
+		Manifest:       manifest,
+		Instructions:   string(instructionsData),
+		Skills:         loadedSkills,
+		DeferredSkills: deferredSkills,
+		MCPConfigs:     mcpConfigs,
 	}, nil
 }
 

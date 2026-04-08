@@ -133,13 +133,30 @@ func metaToolDefs(planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) 
 				"required": []string{"skill_name"},
 			},
 		},
+		{
+			Name:            "discover_skill",
+			Description:     "Search deferred skills by keyword to find relevant capabilities without loading them. Returns matching skill names with descriptions and relevance scores.",
+			MaxResultTokens: 0,
+			ShouldDefer:     true,
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "Keywords describing the capability you need",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
 	}
 
 	metaMap := map[string]toolMapping{
-		"complete":   {Type: "meta", Action: ActionComplete},
-		"spawn":      {Type: "meta", Action: ActionSpawn},
-		"replan":     {Type: "meta", Action: ActionReplan},
-		"specialize": {Type: "meta", Action: ActionSpecialize},
+		"complete":       {Type: "meta", Action: ActionComplete},
+		"spawn":          {Type: "meta", Action: ActionSpawn},
+		"replan":         {Type: "meta", Action: ActionReplan},
+		"specialize":     {Type: "meta", Action: ActionSpecialize},
+		"discover_skill": {Type: "meta", Action: ActionDiscoverSkill},
 	}
 
 	if planningEnabled {
@@ -251,6 +268,10 @@ func generateToolProtocol(toolDefs []vfs.ToolDef, toolMap map[string]toolMapping
 		case ActionSpecialize:
 			sb.WriteString("Specialize — dynamically load a skill:\n")
 			sb.WriteString(`{"action": "specialize", "tool": "<skill-name>", "data": {}}`)
+			sb.WriteString("\n\n")
+		case ActionDiscoverSkill:
+			sb.WriteString("Discover Skill — search deferred skills by keyword:\n")
+			sb.WriteString(`{"action": "discover_skill", "tool": "<query keywords>", "data": {}}`)
 			sb.WriteString("\n\n")
 		case ActionPlan:
 			sb.WriteString("Plan — create an execution plan before acting:\n")

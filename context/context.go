@@ -43,6 +43,7 @@ type Message struct {
 type Context struct {
 	ID           types.CtxID
 	SystemPrompt string
+	Sections     *SectionRegistry // When non-nil, Build() produces the system prompt
 	Messages     []Message
 	MaxSize      int // Max message count; MVP does not limit content byte size
 	TokenLimit   int // Max token budget for this context; 0 = DefaultTokenLimit
@@ -321,6 +322,36 @@ func (m *Manager) SetSystemPrompt(cid types.CtxID, prompt string) error {
 	return nil
 }
 
+// SetSections attaches a SectionRegistry to the context.
+// When set, BuildPrompt uses Sections.Build() instead of the raw SystemPrompt string.
+func (m *Manager) SetSections(cid types.CtxID, sections *SectionRegistry) error {
+	ctx, err := m.getContext("SetSections", cid)
+	if err != nil {
+		return err
+	}
+
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	ctx.Sections = sections
+	return nil
+}
+
+// InvalidateSections resets cached section values for the context.
+// No-op if the context has no SectionRegistry.
+func (m *Manager) InvalidateSections(cid types.CtxID) error {
+	ctx, err := m.getContext("InvalidateSections", cid)
+	if err != nil {
+		return err
+	}
+
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	if ctx.Sections != nil {
+		ctx.Sections.Invalidate()
+	}
+	return nil
+}
+
 // AppendMessage appends a conversation message with the given role and content.
 func (m *Manager) AppendMessage(cid types.CtxID, role Role, content string) error {
 	ctx, err := m.getContext("AppendMessage", cid)
@@ -403,6 +434,8 @@ func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, 
 
 // BuildPrompt assembles the full LLM prompt from the context.
 // Returns SystemPrompt separately and Messages in append order.
+// When the context has a SectionRegistry, Build() produces the system prompt;
+// otherwise the legacy SystemPrompt string is used directly.
 func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
 	ctx, err := m.getContext("BuildPrompt", cid)
 	if err != nil {
@@ -412,11 +445,16 @@ func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
 	ctx.mu.RLock()
 	defer ctx.mu.RUnlock()
 
+	sysPrompt := ctx.SystemPrompt
+	if ctx.Sections != nil {
+		sysPrompt = ctx.Sections.Build()
+	}
+
 	msgs := make([]Message, len(ctx.Messages))
 	copy(msgs, ctx.Messages)
 
 	return &PromptResult{
-		SystemPrompt: ctx.SystemPrompt,
+		SystemPrompt: sysPrompt,
 		Messages:     msgs,
 	}, nil
 }
@@ -432,7 +470,11 @@ func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {
 	ctx.mu.RLock()
 	defer ctx.mu.RUnlock()
 
-	total := EstimateTokens(ctx.SystemPrompt)
+	sysPrompt := ctx.SystemPrompt
+	if ctx.Sections != nil {
+		sysPrompt = ctx.Sections.Build()
+	}
+	total := EstimateTokens(sysPrompt)
 	for _, msg := range ctx.Messages {
 		total += EstimateTokens(msg.Content)
 	}

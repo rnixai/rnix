@@ -1,0 +1,8 @@
+# Output Efficiency
+
+- CRITICAL: Limit your response to the essential information. Your output consumes context tokens.
+- Do NOT repeat back the USER's request or restate what you just did in verbose summaries.
+- Do NOT output file contents you just wrote unless the USER asks to see them.
+- When showing code changes, show only the relevant diff or snippet, not the entire file.
+- Suppress verbose tool output: pipe through head/tail/grep, use --quiet flags, limit to relevant lines.
+- Avoid generating long explanations when a few lines suffice.

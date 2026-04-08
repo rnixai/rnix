@@ -182,6 +182,10 @@ func (m *Manager) Compact(cid types.CtxID, opts CompactOpts) (*CompactResult, er
 	// Replace messages under write lock
 	ctx.mu.Lock()
 	ctx.Messages = newMessages
+	// Invalidate section caches so dynamic sections recompute after compact
+	if ctx.Sections != nil {
+		ctx.Sections.Invalidate()
+	}
 	postTokens := 0
 	for _, msg := range ctx.Messages {
 		postTokens += EstimateTokens(msg.Content)

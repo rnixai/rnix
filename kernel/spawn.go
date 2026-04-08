@@ -172,8 +172,23 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			opts.SystemPrompt = opts.SystemPrompt + "\n\n" + agentPrompt
 		}
 
+		// Register section-based prompt assembly
+		proc.HasSections = true
+		proc.sections = registerSections(proc, k, opts.SystemPrompt)
+
 		// Aggregate AllowedTools from all Skills
 		proc.AllowedDevices = agent.AllowedTools()
+
+		// Populate deferred skill metadata for discover_skill scoring
+		if len(agent.DeferredSkills) > 0 {
+			for _, ds := range agent.DeferredSkills {
+				proc.DeferredSkills = append(proc.DeferredSkills, DeferredSkillMeta{
+					Name:        ds.Manifest.Name,
+					Description: ds.Manifest.Description,
+					SearchHint:  ds.Manifest.SearchHint,
+				})
+			}
+		}
 
 		// Planning configuration: nil (default) = true, explicit false = disabled
 		if agent.Manifest.Planning != nil && !*agent.Manifest.Planning {
@@ -315,6 +330,14 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 				"cid": cid,
 				"op":  "SetSystemPrompt",
 			}, nil, nil, time.Since(setPromptStart))
+		}
+
+		// Attach section registry to context when available
+		if proc.HasSections && proc.sections != nil {
+			if err := k.ctxMgr.SetSections(cid, proc.sections); err != nil {
+				_ = k.ctxMgr.CtxFree(cid)
+				return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)
+			}
 		}
 
 		// Append initial intent as user message

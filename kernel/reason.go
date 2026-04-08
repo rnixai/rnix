@@ -297,35 +297,39 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			model = override
 		}
 		sysPrompt := promptResult.SystemPrompt
-		if envVars := proc.GetGdbEnvVars(); len(envVars) > 0 {
-			var envSection strings.Builder
-			envSection.WriteString("\n\n[GDB Environment Variables]\n")
-			for k, v := range envVars {
-				fmt.Fprintf(&envSection, "%s=%s\n", k, v)
+
+		// When sections are NOT used, manually append dynamic prompt parts (legacy path)
+		if !proc.HasSections {
+			if envVars := proc.GetGdbEnvVars(); len(envVars) > 0 {
+				var envSection strings.Builder
+				envSection.WriteString("\n\n[GDB Environment Variables]\n")
+				for k, v := range envVars {
+					fmt.Fprintf(&envSection, "%s=%s\n", k, v)
+				}
+				sysPrompt += envSection.String()
 			}
-			sysPrompt += envSection.String()
-		}
-		if proc.UseNativeTools {
-			if len(proc.mcpDevicePaths) > 0 {
-				sysPrompt += mcpToolProtocolSnippet(proc.mcpDevicePaths)
+			if proc.UseNativeTools {
+				if len(proc.mcpDevicePaths) > 0 {
+					sysPrompt += mcpToolProtocolSnippet(proc.mcpDevicePaths)
+				}
+			} else {
+				if proc.generatedProtocol == "" {
+					vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
+					metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled)
+					proc.generatedProtocol = generateToolProtocol(vfsDefs, vfsMap, metaDefs, metaMap, proc.PlanningEnabled)
+				}
+				sysPrompt += proc.generatedProtocol
 			}
-		} else {
-			if proc.generatedProtocol == "" {
-				vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
-				metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled)
-				proc.generatedProtocol = generateToolProtocol(vfsDefs, vfsMap, metaDefs, metaMap, proc.PlanningEnabled)
+			proc.mu.Lock()
+			loadedSkills := make([]string, len(proc.Skills))
+			copy(loadedSkills, proc.Skills)
+			proc.mu.Unlock()
+			if len(loadedSkills) > 0 {
+				sysPrompt += "\n\n[Loaded Skills]\nThe following skills are loaded: " +
+					strings.Join(loadedSkills, ", ") +
+					".\nTheir instructions are already in your system prompt. Follow them using available VFS devices." +
+					"\nDo NOT try to call these skills via /dev/mcp/ or any device path."
 			}
-			sysPrompt += proc.generatedProtocol
-		}
-		proc.mu.Lock()
-		loadedSkills := make([]string, len(proc.Skills))
-		copy(loadedSkills, proc.Skills)
-		proc.mu.Unlock()
-		if len(loadedSkills) > 0 {
-			sysPrompt += "\n\n[Loaded Skills]\nThe following skills are loaded: " +
-				strings.Join(loadedSkills, ", ") +
-				".\nTheir instructions are already in your system prompt. Follow them using available VFS devices." +
-				"\nDo NOT try to call these skills via /dev/mcp/ or any device path."
 		}
 		proc.mu.Lock()
 		if proc.FinalSystemPrompt == "" {

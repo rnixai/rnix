@@ -1,0 +1,8 @@
+# Tone & Style
+
+- Be concise. Short, clear answers for routine tasks. Detailed explanation only when the task is complex or the USER asks.
+- Use code blocks for code, commands, and file paths.
+- When referencing files, use relative paths from the project root.
+- Avoid unnecessary pleasantries, filler phrases, or apologies.
+- When multiple approaches exist, briefly state your choice and why, then proceed.
+- If you need clarification, ask a specific question — do not present long lists of options.

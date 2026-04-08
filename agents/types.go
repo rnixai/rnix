@@ -18,19 +18,20 @@ type AgentModels struct {
 
 // AgentManifest represents the parsed contents of an agent's agent.yaml.
 type AgentManifest struct {
-	Name          string      `yaml:"name"`
-	Description   string      `yaml:"description"`
-	Models        AgentModels `yaml:"models"`
-	ContextBudget int         `yaml:"context_budget"`
-	Skills        []string    `yaml:"skills"`
-	MCP           []string    `yaml:"mcp,omitempty"`       // MCP server references
-	MaxSteps      int         `yaml:"max_steps,omitempty"` // max reasoning steps; 0 = use default
-	Planning      *bool       `yaml:"planning,omitempty"`  // nil = not set (true), *true = enabled, *false = disabled
-	MaxTokens     int64       `yaml:"max_tokens,omitempty"` // per-process token budget; 0 = unlimited
-	MaxCost       float64     `yaml:"max_cost,omitempty"`   // per-process cost budget (USD); 0 = unlimited
-	StepTimeout   string      `yaml:"step_timeout,omitempty"` // duration string e.g. "10m"; default "5m"; "0" = disabled
-	SLA           *AgentSLA   `yaml:"sla,omitempty"`       // SLA constraints (Story 21.2)
-	Alternatives  []string    `yaml:"alternatives,omitempty"` // alternative agent names for auto-selection (Story 21.3)
+	Name           string      `yaml:"name"`
+	Description    string      `yaml:"description"`
+	Models         AgentModels `yaml:"models"`
+	ContextBudget  int         `yaml:"context_budget"`
+	Skills         []string    `yaml:"skills"`
+	DeferredSkills []string    `yaml:"deferred_skills,omitempty"` // skill names loaded metadata-only (body loaded on discover_skill)
+	MCP            []string    `yaml:"mcp,omitempty"`             // MCP server references
+	MaxSteps       int         `yaml:"max_steps,omitempty"`       // max reasoning steps; 0 = use default
+	Planning       *bool       `yaml:"planning,omitempty"`        // nil = not set (true), *true = enabled, *false = disabled
+	MaxTokens      int64       `yaml:"max_tokens,omitempty"`      // per-process token budget; 0 = unlimited
+	MaxCost        float64     `yaml:"max_cost,omitempty"`        // per-process cost budget (USD); 0 = unlimited
+	StepTimeout    string      `yaml:"step_timeout,omitempty"`    // duration string e.g. "10m"; default "5m"; "0" = disabled
+	SLA            *AgentSLA   `yaml:"sla,omitempty"`             // SLA constraints (Story 21.2)
+	Alternatives   []string    `yaml:"alternatives,omitempty"`    // alternative agent names for auto-selection (Story 21.3)
 }
 
 // AgentSLA defines SLA constraints in agent.yaml.
@@ -43,10 +44,11 @@ type AgentSLA struct {
 
 // AgentInfo contains the fully loaded agent definition.
 type AgentInfo struct {
-	Manifest     AgentManifest
-	Instructions string
-	Skills       []*skills.SkillInfo
-	MCPConfigs   []vfs.MCPConfig // resolved MCP configurations from global mcp.yaml
+	Manifest       AgentManifest
+	Instructions   string
+	Skills         []*skills.SkillInfo
+	DeferredSkills []*skills.SkillInfo // metadata-only skills (body loaded on discover_skill)
+	MCPConfigs     []vfs.MCPConfig     // resolved MCP configurations from global mcp.yaml
 }
 
 // AllowedTools aggregates AllowedTools from all referenced skills, deduplicated and sorted.
@@ -86,4 +88,33 @@ func (a *AgentInfo) SystemPrompt() string {
 		prompt.WriteString(strings.Join(synergyInstructions, "\n"))
 	}
 	return prompt.String()
+}
+
+// InstructionSections returns agent instructions and skill bodies as separate strings,
+// suitable for registering as independent prompt sections.
+func (a *AgentInfo) InstructionSections() (instructions string, skillBodies string) {
+	instructions = a.Instructions
+
+	var sb strings.Builder
+	for _, skill := range a.Skills {
+		if skill.Body != "" {
+			if sb.Len() > 0 {
+				sb.WriteString("\n\n")
+			}
+			if skill.Dir != "" {
+				sb.WriteString("Base directory for this skill: " + skill.Dir + "\n\n")
+			}
+			sb.WriteString(skill.Body)
+		}
+	}
+	// Synergy detection: append emergent instructions
+	synergyInstructions := skills.DetectSynergies(a.Skills)
+	if len(synergyInstructions) > 0 {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString("[Skill Synergy]\n\n")
+		sb.WriteString(strings.Join(synergyInstructions, "\n"))
+	}
+	return instructions, sb.String()
 }

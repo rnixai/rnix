@@ -68,13 +68,14 @@ Use planning when the task requires multiple coordinated steps. For simple tasks
 type ActionType string
 
 const (
-	ActionText       ActionType = "text"
-	ActionToolCall   ActionType = "tool_call"
-	ActionPlan       ActionType = "plan"
-	ActionSpawn      ActionType = "spawn"
-	ActionComplete   ActionType = "complete"
-	ActionReplan     ActionType = "replan"
-	ActionSpecialize ActionType = "specialize"
+	ActionText          ActionType = "text"
+	ActionToolCall      ActionType = "tool_call"
+	ActionPlan          ActionType = "plan"
+	ActionSpawn         ActionType = "spawn"
+	ActionComplete      ActionType = "complete"
+	ActionReplan        ActionType = "replan"
+	ActionSpecialize    ActionType = "specialize"
+	ActionDiscoverSkill ActionType = "discover_skill"
 )
 
 // ReasonAction represents a parsed action from an LLM response.
@@ -188,6 +189,13 @@ func tryParseStructuredAction(raw string) (ReasonAction, bool) {
 	case ActionSpecialize:
 		return ReasonAction{
 			Type:     ActionSpecialize,
+			ToolPath: structured.Tool,
+			Content:  raw,
+			ToolData: toolData,
+		}, true
+	case ActionDiscoverSkill:
+		return ReasonAction{
+			Type:     ActionDiscoverSkill,
 			ToolPath: structured.Tool,
 			Content:  raw,
 			ToolData: toolData,
