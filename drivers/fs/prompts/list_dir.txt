@@ -1,0 +1,8 @@
+List the contents of a directory. Returns file and directory names with type indicators (trailing / for directories).
+
+- The path must be relative to the process working directory
+- Results are sorted alphabetically
+- Hidden files (starting with .) are included
+- Large directories may be truncated
+
+This is a read-only operation that does not modify the file system.

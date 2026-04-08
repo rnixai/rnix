@@ -1,0 +1,23 @@
+A search operation built on regex matching, similar to ripgrep.
+
+Usage:
+- ALWAYS use grep for content search tasks. NEVER invoke `grep` or `rg` as a /dev/shell command. The grep operation has been optimized for correct permissions, sandbox enforcement, and context-aware output
+- Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
+- Filter files with the glob parameter (e.g., "*.js", "**/*.tsx")
+- Output modes: "files_with_matches" shows only file paths (default), "content" shows matching lines with context, "count" shows match counts per file
+- When you are doing an open-ended search that may require multiple rounds, consider spawning a child process instead
+- Pattern syntax: Uses regex (not shell glob) — literal braces need escaping (use `interface\{\}` to find `interface{}` in Go code)
+- By default, patterns match within single lines only
+
+Parameters:
+- pattern: Regular expression to search for
+- path: Directory or file to search in (default: process working directory)
+- output_mode: One of "files_with_matches" (default), "content", or "count"
+- case_insensitive: Ignore case when matching (default: false)
+- glob: File name filter (e.g., "*.go")
+- context: Number of context lines around matches (only with output_mode "content")
+- head_limit: Maximum number of results to return
+
+Results are limited to prevent context overflow. Use glob patterns to narrow the search scope.
+
+This is a read-only operation. The search scope is limited to the process sandbox.

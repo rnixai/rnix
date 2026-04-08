@@ -1,0 +1,19 @@
+Fast file pattern matching that works with any codebase size. Searches recursively within the process sandbox.
+
+- Supports glob patterns like "**/*.js" or "src/**/*.ts"
+- Returns matching file paths sorted by modification time (newest first)
+- Use this operation when you need to find files by name patterns
+- When you are doing an open-ended search that may require multiple rounds of globbing and grepping, consider spawning a child process instead
+
+Pattern syntax:
+- * matches any characters within a path segment
+- ** matches across directory boundaries
+- ? matches a single character
+- {a,b} matches either a or b
+
+Examples:
+- **/*.go — all Go files
+- src/**/*.test.js — all test files under src
+- *.{ts,tsx} — TypeScript files in current directory
+
+This is a read-only operation. The search scope is limited to the process sandbox.
