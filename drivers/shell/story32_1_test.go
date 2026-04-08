@@ -124,8 +124,8 @@ func TestToolDefs_ShellMetadata(t *testing.T) {
 	if shell.Name != "shell" {
 		t.Fatalf("expected shell tool, got %q", shell.Name)
 	}
-	if !shell.IsDestructive {
-		t.Error("shell should be IsDestructive")
+	if shell.IsDestructive {
+		t.Error("shell should not be IsDestructive (per spec table)")
 	}
 	if shell.Description == "" {
 		t.Error("shell description should not be empty (embed)")

@@ -508,10 +508,10 @@ func TestToolDefs_MetadataAnnotations(t *testing.T) {
 		t.Error("read_file ToolDef not found")
 	}
 
-	// write_file: destructive
+	// write_file: concurrency safe, not destructive (per spec table)
 	if wr, ok := defMap["write_file"]; ok {
-		if !wr.IsDestructive {
-			t.Error("write_file should be IsDestructive")
+		if !wr.IsConcurrencySafe {
+			t.Error("write_file should be IsConcurrencySafe")
 		}
 		if wr.IsReadOnly {
 			t.Error("write_file should not be IsReadOnly")
@@ -525,7 +525,7 @@ func TestToolDefs_MetadataAnnotations(t *testing.T) {
 		t.Error("edit_file ToolDef not found")
 	}
 
-	// glob: read-only, concurrency safe, has search hint
+	// glob: read-only, concurrency safe
 	if g, ok := defMap["glob"]; ok {
 		if !g.IsReadOnly {
 			t.Error("glob should be IsReadOnly")
@@ -533,23 +533,17 @@ func TestToolDefs_MetadataAnnotations(t *testing.T) {
 		if !g.IsConcurrencySafe {
 			t.Error("glob should be IsConcurrencySafe")
 		}
-		if g.SearchHint == "" {
-			t.Error("glob should have SearchHint")
-		}
 	} else {
 		t.Error("glob ToolDef not found")
 	}
 
-	// grep: read-only, concurrency safe, has search hint
+	// grep: read-only, concurrency safe
 	if g, ok := defMap["grep"]; ok {
 		if !g.IsReadOnly {
 			t.Error("grep should be IsReadOnly")
 		}
 		if !g.IsConcurrencySafe {
 			t.Error("grep should be IsConcurrencySafe")
-		}
-		if g.SearchHint == "" {
-			t.Error("grep should have SearchHint")
 		}
 	} else {
 		t.Error("grep ToolDef not found")

@@ -58,7 +58,6 @@ func (d *ShellDriver) ToolDefs() []vfs.ToolDef {
 			Name:            "shell",
 			Description:     loadPrompt("shell"),
 			MaxResultTokens: 30000,
-			IsDestructive:   true,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -232,16 +231,20 @@ func extractCommand(data []byte) string {
 // dangerousPatterns lists regex patterns for commands that are too dangerous to execute.
 // Basic pattern matching only — AST parsing is deferred to Phase 3+ (Decision 35).
 var dangerousPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?/\s*$`), // rm -rf /
-	regexp.MustCompile(`>\s*/dev/sd[a-z]`),                          // > /dev/sda
-	regexp.MustCompile(`\bmkfs\b`),                                  // mkfs
-	regexp.MustCompile(`\bdd\b.*\bof=/dev/`),                        // dd of=/dev/
-	regexp.MustCompile(`:\(\)\s*\{\s*:\|\s*:\s*&\s*\}\s*;`),        // fork bomb :(){ :|:& };
-	regexp.MustCompile(`\bchmod\s+(-[rR]\s+)?777\s+/\s*$`),         // chmod 777 /
-	regexp.MustCompile(`\b(halt|poweroff|shutdown|reboot)\b`),       // system power commands
-	regexp.MustCompile(`>\s*/etc/(passwd|shadow|sudoers)`),          // overwrite auth files
-	regexp.MustCompile(`\bcurl\b.*\|\s*(ba)?sh`),                    // curl | sh (pipe to shell)
-	regexp.MustCompile(`\bwget\b.*\|\s*(ba)?sh`),                    // wget | sh
+	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?/\s*$`),        // rm -rf /
+	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+)+-rf\s+/\*`),    // rm -rf /*
+	regexp.MustCompile(`>\s*/dev/sd[a-z]`),                                 // > /dev/sda
+	regexp.MustCompile(`\bmkfs\b`),                                         // mkfs
+	regexp.MustCompile(`\bdd\b.*\bof=/dev/`),                               // dd of=/dev/
+	regexp.MustCompile(`:\(\)\s*\{\s*:\|\s*:\s*&\s*\}\s*;`),               // fork bomb :(){ :|:& };
+	regexp.MustCompile(`\bchmod\s+(-[rR]\s+)?777\s+/\s*$`),                // chmod 777 /
+	regexp.MustCompile(`\bchmod\s+(-[rR]\s+)?777\s+/etc\b`),               // chmod 777 /etc
+	regexp.MustCompile(`\b(halt|poweroff|shutdown|reboot)\b`),              // system power commands
+	regexp.MustCompile(`>\s*/etc/(passwd|shadow|sudoers)`),                 // overwrite auth files
+	regexp.MustCompile(`\bcurl\b.*\|\s*(ba)?sh`),                           // curl | sh (pipe to shell)
+	regexp.MustCompile(`\bwget\b.*\|\s*(ba)?sh`),                           // wget | sh
+	regexp.MustCompile(`\bcurl\b.*\|\s*(zsh|python[23]?|perl|ruby)\b`),    // curl | python/perl/ruby/zsh
+	regexp.MustCompile(`\bwget\b.*\|\s*(zsh|python[23]?|perl|ruby)\b`),    // wget | python/perl/ruby/zsh
 }
 
 // checkDangerousCommand returns an error if the command matches a dangerous pattern.

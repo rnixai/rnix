@@ -11,6 +11,7 @@ import (
 
 	"github.com/rnixai/rnix/agents"
 	rnixctx "github.com/rnixai/rnix/context"
+	drivershell "github.com/rnixai/rnix/drivers/shell"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -81,11 +82,19 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 				mapping.VFSPath, string(inputJSON), result, time.Since(stepStart),
 				nil, 0)
 
-			k.emitEvent(proc, "ReasonStep", map[string]any{
-				"step":   step,
-				"action": "native_tool_call",
-				"tool":   tc.Name,
-			}, result, nil, time.Since(stepStart))
+			k.emitEvent(proc, "ReasonStep", func() map[string]any {
+				meta := map[string]any{
+					"step":   step,
+					"action": "native_tool_call",
+					"tool":   tc.Name,
+				}
+				if tc.Name == "shell" {
+					if cmd, _ := tc.Input["command"].(string); cmd != "" {
+						meta["is_read_only"] = drivershell.IsReadOnlyCommand(cmd)
+					}
+				}
+				return meta
+			}(), result, nil, time.Since(stepStart))
 			stepDur := time.Since(stepStart)
 			if k.callbacks != nil {
 				k.callbacks.OnStepComplete(proc.PID, step, "tool_call", briefToolCallSummary(mapping.VFSPath, result), false, float64(stepDur.Microseconds())/1000.0)
@@ -136,8 +145,9 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 		// Dedup: if same path with same mtime was already read, return stub
 		proc.mu.Lock()
 		if prev, ok := proc.ReadFileState[pathStr]; ok && !fileMtime.IsZero() && prev.Mtime.Equal(fileMtime) {
+			tokens := rnixctx.EstimateTokens(prev.Content)
 			proc.mu.Unlock()
-			return fmt.Sprintf("<file_unchanged path=%q mtime=%d/>", pathStr, fileMtime.UnixMilli()), nil
+			return fmt.Sprintf("<file_unchanged path=%q mtime=%d tokens=%d/>", pathStr, fileMtime.UnixMilli(), tokens), nil
 		}
 		proc.mu.Unlock()
 
@@ -163,7 +173,10 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 		}
 
 		// Read-before-write safety check (Story 32.1 AC#3)
-		warning := k.checkReadBeforeWrite(proc, pathStr)
+		warning, rbwErr := k.checkReadBeforeWrite(proc, pathStr)
+		if rbwErr != nil {
+			return "", rbwErr
+		}
 
 		contentStr, _ := tc.Input["content"].(string)
 		vfsPath := mapping.VFSPath + "/" + pathStr
@@ -185,6 +198,7 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 		if warning != "" {
 			result = warning + "\n" + result
 		}
+		k.updateReadFileMtime(proc, pathStr)
 		return result, nil
 
 	case "list_dir":
@@ -218,7 +232,10 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 		}
 
 		// Read-before-write safety check (Story 32.1 AC#3)
-		warning := k.checkReadBeforeWrite(proc, pathStr)
+		warning, rbwErr := k.checkReadBeforeWrite(proc, pathStr)
+		if rbwErr != nil {
+			return "", rbwErr
+		}
 
 		// Build the writeRequest for the driver
 		editReq := map[string]any{
@@ -249,6 +266,7 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 		if warning != "" {
 			result = warning + "\n" + result
 		}
+		k.updateReadFileMtime(proc, pathStr)
 		return result, nil
 
 	case "glob":
@@ -331,14 +349,14 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 }
 
 // checkReadBeforeWrite validates that the file was read before writing (Story 32.1 AC#3).
-// Returns a warning string if there's a concern, empty string if all clear.
-// Allows writes to new files (file doesn't exist on disk).
-func (k *KernelImpl) checkReadBeforeWrite(proc *Process, pathStr string) string {
+// Returns (warning, nil) for mtime drift, ("", error) to block writes to unread files,
+// and ("", nil) when all clear. Allows writes to new files (file doesn't exist on disk).
+func (k *KernelImpl) checkReadBeforeWrite(proc *Process, pathStr string) (string, error) {
 	absPath := filepath.Join(k.vfs.GetWorkDir(proc.PID), pathStr)
 
 	// Allow writing new files without prior read
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
-		return ""
+		return "", nil
 	}
 
 	proc.mu.Lock()
@@ -346,7 +364,7 @@ func (k *KernelImpl) checkReadBeforeWrite(proc *Process, pathStr string) string 
 	proc.mu.Unlock()
 
 	if !hasRead {
-		return fmt.Sprintf("⚠️  WARNING: Writing to %q without reading it first. Read the file before modifying to avoid data loss.", pathStr)
+		return "", fmt.Errorf("file %q must be read before writing — read the file first to avoid data loss", pathStr)
 	}
 
 	// Check mtime drift: file changed on disk since last read
@@ -355,13 +373,30 @@ func (k *KernelImpl) checkReadBeforeWrite(proc *Process, pathStr string) string 
 			currentMtime := info.ModTime()
 			if !currentMtime.Equal(entry.Mtime) {
 				return fmt.Sprintf("⚠️  WARNING: %q has been modified on disk since last read (read mtime: %s, current mtime: %s). Re-read the file to see latest changes.",
-					pathStr, entry.Mtime.Format(time.RFC3339Nano), currentMtime.Format(time.RFC3339Nano))
+					pathStr, entry.Mtime.Format(time.RFC3339Nano), currentMtime.Format(time.RFC3339Nano)), nil
 			}
 		}
 	}
 
-	return ""
+	return "", nil
 }
+
+// updateReadFileMtime refreshes the mtime in ReadFileState after a successful write/edit
+// so subsequent dedup checks use the post-write mtime.
+func (k *KernelImpl) updateReadFileMtime(proc *Process, pathStr string) {
+	absPath := filepath.Join(k.vfs.GetWorkDir(proc.PID), pathStr)
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return
+	}
+	proc.mu.Lock()
+	defer proc.mu.Unlock()
+	if entry, ok := proc.ReadFileState[pathStr]; ok {
+		entry.Mtime = info.ModTime()
+		proc.ReadFileState[pathStr] = entry
+	}
+}
+
 func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapping toolMapping, step int, stepStart time.Time) bool {
 	switch mapping.Action {
 	case ActionComplete:

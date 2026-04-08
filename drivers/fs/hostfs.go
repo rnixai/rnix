@@ -51,9 +51,9 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:          "write_file",
-			Description:   loadPrompt("write_file"),
-			IsDestructive: true,
+			Name:              "write_file",
+			Description:       loadPrompt("write_file"),
+			IsConcurrencySafe: true,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -104,6 +104,10 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 						"type":        "string",
 						"description": "The replacement text",
 					},
+					"replace_all": map[string]any{
+						"type":        "boolean",
+						"description": "Replace all occurrences (default: false, requires unique match)",
+					},
 				},
 				"required": []string{"path", "old_string", "new_string"},
 			},
@@ -114,7 +118,6 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 			MaxResultTokens:   5000,
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
-			SearchHint:        "file name search",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -140,7 +143,6 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 			MaxResultTokens:   10000,
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
-			SearchHint:        "file content search",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -154,8 +156,8 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 					},
 					"output_mode": map[string]any{
 						"type":        "string",
-						"enum":        []string{"files_with_matches", "content", "count"},
-						"description": "Output format (default: files_with_matches)",
+						"enum":        []string{"content", "files_with_matches", "count"},
+						"description": "Output format (default: content)",
 					},
 					"case_insensitive": map[string]any{
 						"type":        "boolean",
@@ -365,7 +367,11 @@ func (f *HostFSFile) execEdit(req writeRequest) error {
 	newStr := *req.NewString
 
 	if oldStr == "" {
-		return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("old_string must not be empty"), Code: types.ErrDriver}
+		if newStr != "" {
+			// Create new file — equivalent to write_file (AC1: skip read-before-write)
+			return f.execWrite(newStr)
+		}
+		return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("old_string and new_string must not both be empty"), Code: types.ErrDriver}
 	}
 
 	count := strings.Count(content, oldStr)
@@ -451,7 +457,7 @@ const (
 	// maxGrepFileResults is the default max files returned by grep.
 	maxGrepFileResults = 50
 	// maxGrepContentLines is the max matching lines returned by grep content mode.
-	maxGrepContentLines = 200
+	maxGrepContentLines = 250
 )
 
 // globEntry represents a single glob match result.
@@ -474,12 +480,15 @@ func (f *HostFSFile) execGlob(req writeRequest) error {
 	if searchRoot == "" {
 		searchRoot = f.path
 	}
+	if req.Path != "" {
+		searchRoot = resolvePath("/"+req.Path, f.workDir)
+	}
 
 	// Sandbox check on the search root
 	if f.workDir != "" {
 		absRoot, _ := filepath.Abs(searchRoot)
 		absWork, _ := filepath.Abs(f.workDir)
-		if !strings.HasPrefix(absRoot, absWork) && absRoot != absWork {
+		if !strings.HasPrefix(absRoot, absWork+string(filepath.Separator)) && absRoot != absWork {
 			return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("search root outside sandbox"), Code: types.ErrPermission}
 		}
 	}
@@ -572,7 +581,8 @@ func matchGlob(pattern, name string) bool {
 		segments := strings.Split(name, string(filepath.Separator))
 		for i := range segments {
 			tail := strings.Join(segments[i:], string(filepath.Separator))
-			if matched, _ := filepath.Match(suffix, tail); matched {
+			// Recurse to handle chained ** in suffix
+			if matchGlob(suffix, tail) {
 				return true
 			}
 			// Also try matching just the filename for patterns like **/*.go
@@ -628,14 +638,20 @@ func (f *HostFSFile) execGrep(req writeRequest) error {
 	if f.workDir != "" {
 		absRoot, _ := filepath.Abs(searchRoot)
 		absWork, _ := filepath.Abs(f.workDir)
-		if !strings.HasPrefix(absRoot, absWork) && absRoot != absWork {
+		if !strings.HasPrefix(absRoot, absWork+string(filepath.Separator)) && absRoot != absWork {
 			return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("search path outside sandbox"), Code: types.ErrPermission}
 		}
 	}
 
 	outputMode := req.OutputMode
 	if outputMode == "" {
-		outputMode = "files_with_matches"
+		outputMode = "content"
+	}
+	switch outputMode {
+	case "content", "files_with_matches", "count":
+		// valid
+	default:
+		return &types.DriverError{Op: "Write", Device: device, Err: fmt.Errorf("unrecognized output_mode: %q", outputMode), Code: types.ErrDriver}
 	}
 
 	limit := req.HeadLimit
@@ -789,12 +805,24 @@ type matchedLine struct {
 
 // matchLines returns matching lines with optional context from a file.
 func matchLines(path string, re *regexp.Regexp, contextLines int) []matchedLine {
+	// Clamp negative context
+	if contextLines < 0 {
+		contextLines = 0
+	}
+
+	// Skip files larger than 50MB
+	info, err := os.Stat(path)
+	if err != nil || info.Size() > 50*1024*1024 {
+		return nil
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 
+	const maxLineLen = 500
 	var allLines []string
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
@@ -815,7 +843,11 @@ func matchLines(path string, re *regexp.Regexp, contextLines int) []matchedLine 
 			for j := start; j <= end; j++ {
 				if !included[j] {
 					included[j] = true
-					results = append(results, matchedLine{Line: j + 1, Content: allLines[j]})
+					content := allLines[j]
+					if len(content) > maxLineLen {
+						content = content[:maxLineLen] + "…"
+					}
+					results = append(results, matchedLine{Line: j + 1, Content: content})
 				}
 			}
 		}
