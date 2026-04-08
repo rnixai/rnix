@@ -204,7 +204,7 @@ func (k *KernelImpl) BuildActiveSkills(proc *Process) []rnixctx.SkillEntry {
 
 // trackReadFile records a file read into the process's ReadFileState for
 // post-compact restore (Story 31.2 AC#5).
-func (k *KernelImpl) trackReadFile(proc *Process, path string, content string) {
+func (k *KernelImpl) trackReadFile(proc *Process, path string, content string, mtime time.Time) {
 	proc.mu.Lock()
 	defer proc.mu.Unlock()
 	if proc.ReadFileState == nil {
@@ -213,5 +213,6 @@ func (k *KernelImpl) trackReadFile(proc *Process, path string, content string) {
 	proc.ReadFileState[path] = rnixctx.ReadFileEntry{
 		Content:   content,
 		Timestamp: time.Now(),
+		Mtime:     mtime,
 	}
 }

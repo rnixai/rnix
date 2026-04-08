@@ -3,7 +3,9 @@ package kernel
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -123,6 +125,22 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 			received, _ := json.Marshal(tc.Input)
 			return "", fmt.Errorf("read_file: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\"}", string(received))
 		}
+
+		// Get file mtime for dedup and tracking
+		var fileMtime time.Time
+		absPath := filepath.Join(k.vfs.GetWorkDir(proc.PID), pathStr)
+		if info, err := os.Stat(absPath); err == nil {
+			fileMtime = info.ModTime()
+		}
+
+		// Dedup: if same path with same mtime was already read, return stub
+		proc.mu.Lock()
+		if prev, ok := proc.ReadFileState[pathStr]; ok && !fileMtime.IsZero() && prev.Mtime.Equal(fileMtime) {
+			proc.mu.Unlock()
+			return fmt.Sprintf("<file_unchanged path=%q mtime=%d/>", pathStr, fileMtime.UnixMilli()), nil
+		}
+		proc.mu.Unlock()
+
 		vfsPath := mapping.VFSPath + "/" + pathStr
 		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_RDONLY)
 		if err != nil {
@@ -134,7 +152,7 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 			return "", fmt.Errorf("read failed: %w", err)
 		}
 		// Track ReadFileState for post-compact restore (Story 31.2)
-		k.trackReadFile(proc, pathStr, string(data))
+		k.trackReadFile(proc, pathStr, string(data), fileMtime)
 		return string(data), nil
 
 	case "write_file":
@@ -143,6 +161,10 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 			received, _ := json.Marshal(tc.Input)
 			return "", fmt.Errorf("write_file: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\", \"content\": \"<text>\"}", string(received))
 		}
+
+		// Read-before-write safety check (Story 32.1 AC#3)
+		warning := k.checkReadBeforeWrite(proc, pathStr)
+
 		contentStr, _ := tc.Input["content"].(string)
 		vfsPath := mapping.VFSPath + "/" + pathStr
 		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_WRONLY)
@@ -159,7 +181,11 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 		if err != nil {
 			return "", fmt.Errorf("read result failed: %w", err)
 		}
-		return string(data), nil
+		result := string(data)
+		if warning != "" {
+			result = warning + "\n" + result
+		}
+		return result, nil
 
 	case "list_dir":
 		pathStr, _ := tc.Input["path"].(string)
@@ -173,6 +199,107 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 			return "", fmt.Errorf("open failed: %w", err)
 		}
 		writeData, _ := json.Marshal(map[string]string{"op": "list"})
+		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
+			_ = k.vfs.Close(proc.PID, fd)
+			return "", fmt.Errorf("write failed: %w", err)
+		}
+		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
+		_ = k.vfs.Close(proc.PID, fd)
+		if err != nil {
+			return "", fmt.Errorf("read result failed: %w", err)
+		}
+		return string(data), nil
+
+	case "edit_file":
+		pathStr, _ := tc.Input["path"].(string)
+		if pathStr == "" {
+			received, _ := json.Marshal(tc.Input)
+			return "", fmt.Errorf("edit_file: missing required 'path' parameter. Received: %s", string(received))
+		}
+
+		// Read-before-write safety check (Story 32.1 AC#3)
+		warning := k.checkReadBeforeWrite(proc, pathStr)
+
+		// Build the writeRequest for the driver
+		editReq := map[string]any{
+			"op":         "edit",
+			"old_string": tc.Input["old_string"],
+			"new_string": tc.Input["new_string"],
+		}
+		if v, ok := tc.Input["replace_all"]; ok {
+			editReq["replace_all"] = v
+		}
+
+		vfsPath := mapping.VFSPath + "/" + pathStr
+		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_WRONLY)
+		if err != nil {
+			return "", fmt.Errorf("open failed: %w", err)
+		}
+		writeData, _ := json.Marshal(editReq)
+		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
+			_ = k.vfs.Close(proc.PID, fd)
+			return "", fmt.Errorf("write failed: %w", err)
+		}
+		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
+		_ = k.vfs.Close(proc.PID, fd)
+		if err != nil {
+			return "", fmt.Errorf("read result failed: %w", err)
+		}
+		result := string(data)
+		if warning != "" {
+			result = warning + "\n" + result
+		}
+		return result, nil
+
+	case "glob":
+		patternStr, _ := tc.Input["pattern"].(string)
+		if patternStr == "" {
+			received, _ := json.Marshal(tc.Input)
+			return "", fmt.Errorf("glob: missing required 'pattern' parameter. Received: %s", string(received))
+		}
+		globReq := map[string]any{"op": "glob", "pattern": patternStr}
+		if v, ok := tc.Input["path"]; ok {
+			globReq["path"] = v
+		}
+		if v, ok := tc.Input["head_limit"]; ok {
+			globReq["head_limit"] = v
+		}
+
+		// Open at the workDir root (no subpath)
+		fd, err := k.vfs.Open(proc.PID, mapping.VFSPath+"/.", vfs.O_WRONLY)
+		if err != nil {
+			return "", fmt.Errorf("open failed: %w", err)
+		}
+		writeData, _ := json.Marshal(globReq)
+		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
+			_ = k.vfs.Close(proc.PID, fd)
+			return "", fmt.Errorf("write failed: %w", err)
+		}
+		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
+		_ = k.vfs.Close(proc.PID, fd)
+		if err != nil {
+			return "", fmt.Errorf("read result failed: %w", err)
+		}
+		return string(data), nil
+
+	case "grep":
+		patternStr, _ := tc.Input["pattern"].(string)
+		if patternStr == "" {
+			received, _ := json.Marshal(tc.Input)
+			return "", fmt.Errorf("grep: missing required 'pattern' parameter. Received: %s", string(received))
+		}
+		grepReq := map[string]any{"op": "grep", "pattern": patternStr}
+		for _, key := range []string{"path", "output_mode", "case_insensitive", "glob", "context", "head_limit"} {
+			if v, ok := tc.Input[key]; ok {
+				grepReq[key] = v
+			}
+		}
+
+		fd, err := k.vfs.Open(proc.PID, mapping.VFSPath+"/.", vfs.O_WRONLY)
+		if err != nil {
+			return "", fmt.Errorf("open failed: %w", err)
+		}
+		writeData, _ := json.Marshal(grepReq)
 		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
 			_ = k.vfs.Close(proc.PID, fd)
 			return "", fmt.Errorf("write failed: %w", err)
@@ -203,7 +330,38 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 	}
 }
 
-// executeNativeMetaAction executes a kernel meta action from native function calling.
+// checkReadBeforeWrite validates that the file was read before writing (Story 32.1 AC#3).
+// Returns a warning string if there's a concern, empty string if all clear.
+// Allows writes to new files (file doesn't exist on disk).
+func (k *KernelImpl) checkReadBeforeWrite(proc *Process, pathStr string) string {
+	absPath := filepath.Join(k.vfs.GetWorkDir(proc.PID), pathStr)
+
+	// Allow writing new files without prior read
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		return ""
+	}
+
+	proc.mu.Lock()
+	entry, hasRead := proc.ReadFileState[pathStr]
+	proc.mu.Unlock()
+
+	if !hasRead {
+		return fmt.Sprintf("⚠️  WARNING: Writing to %q without reading it first. Read the file before modifying to avoid data loss.", pathStr)
+	}
+
+	// Check mtime drift: file changed on disk since last read
+	if !entry.Mtime.IsZero() {
+		if info, err := os.Stat(absPath); err == nil {
+			currentMtime := info.ModTime()
+			if !currentMtime.Equal(entry.Mtime) {
+				return fmt.Sprintf("⚠️  WARNING: %q has been modified on disk since last read (read mtime: %s, current mtime: %s). Re-read the file to see latest changes.",
+					pathStr, entry.Mtime.Format(time.RFC3339Nano), currentMtime.Format(time.RFC3339Nano))
+			}
+		}
+	}
+
+	return ""
+}
 func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapping toolMapping, step int, stepStart time.Time) bool {
 	switch mapping.Action {
 	case ActionComplete:

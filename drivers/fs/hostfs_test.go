@@ -686,11 +686,11 @@ func TestHostFSDriver_ToolDefs(t *testing.T) {
 	d := NewDriver()
 	defs := d.ToolDefs()
 
-	if len(defs) != 3 {
-		t.Fatalf("expected 3 tool defs, got %d", len(defs))
+	if len(defs) != 6 {
+		t.Fatalf("expected 6 tool defs, got %d", len(defs))
 	}
 
-	expected := map[string]bool{"read_file": false, "write_file": false, "list_dir": false}
+	expected := map[string]bool{"read_file": false, "write_file": false, "list_dir": false, "edit_file": false, "glob": false, "grep": false}
 	for _, def := range defs {
 		if _, ok := expected[def.Name]; !ok {
 			t.Fatalf("unexpected tool name: %q", def.Name)

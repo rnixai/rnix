@@ -37,7 +37,7 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 			m := toolMapping{Type: "vfs", VFSPath: devPath}
 			// Tag FS operations for special handling in executeNativeVFSTool
 			switch def.Name {
-			case "read_file", "write_file", "list_dir":
+			case "read_file", "write_file", "list_dir", "edit_file", "glob", "grep":
 				m.FSOperation = def.Name
 			}
 			toolMap[def.Name] = m
@@ -200,6 +200,18 @@ func generateToolProtocol(toolDefs []vfs.ToolDef, toolMap map[string]toolMapping
 			sb.WriteString("  - List directory: tool=\"")
 			sb.WriteString(m.VFSPath)
 			sb.WriteString("/src\", data={\"op\": \"list\"}\n")
+		case "edit_file":
+			sb.WriteString("  - Edit file (string replace): tool=\"")
+			sb.WriteString(m.VFSPath)
+			sb.WriteString("/src/main.go\", data={\"op\": \"edit\", \"old_string\": \"old text\", \"new_string\": \"new text\"}\n")
+		case "glob":
+			sb.WriteString("  - Glob (find files): tool=\"")
+			sb.WriteString(m.VFSPath)
+			sb.WriteString("/.\", data={\"op\": \"glob\", \"pattern\": \"**/*.go\"}\n")
+		case "grep":
+			sb.WriteString("  - Grep (search content): tool=\"")
+			sb.WriteString(m.VFSPath)
+			sb.WriteString("/.\", data={\"op\": \"grep\", \"pattern\": \"func main\"}\n")
 		default:
 			// Generic VFS tool (e.g., shell)
 			sb.WriteString("  - ")

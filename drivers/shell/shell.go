@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
+	"strings"
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
@@ -54,8 +56,9 @@ func (d *ShellDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
 			Name:            "shell",
-			Description:     "Execute a shell command and return stdout+stderr. Commands run via sh -c in the process working directory. Non-zero exit codes are reported in output, not as errors.",
+			Description:     loadPrompt("shell"),
 			MaxResultTokens: 30000,
+			IsDestructive:   true,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -112,6 +115,11 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 	command := extractCommand(data)
 	if command == "" {
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("empty command"), Code: types.ErrDriver}
+	}
+
+	// Safety check: block dangerous commands (Story 32.1 AC#9)
+	if err := checkDangerousCommand(command); err != nil {
+		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: err, Code: types.ErrPermission}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, f.driver.defaultTimeout)
@@ -219,6 +227,58 @@ func extractCommand(data []byte) string {
 		return req.Command
 	}
 	return string(data)
+}
+
+// dangerousPatterns lists regex patterns for commands that are too dangerous to execute.
+// Basic pattern matching only — AST parsing is deferred to Phase 3+ (Decision 35).
+var dangerousPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?/\s*$`), // rm -rf /
+	regexp.MustCompile(`>\s*/dev/sd[a-z]`),                          // > /dev/sda
+	regexp.MustCompile(`\bmkfs\b`),                                  // mkfs
+	regexp.MustCompile(`\bdd\b.*\bof=/dev/`),                        // dd of=/dev/
+	regexp.MustCompile(`:\(\)\s*\{\s*:\|\s*:\s*&\s*\}\s*;`),        // fork bomb :(){ :|:& };
+	regexp.MustCompile(`\bchmod\s+(-[rR]\s+)?777\s+/\s*$`),         // chmod 777 /
+	regexp.MustCompile(`\b(halt|poweroff|shutdown|reboot)\b`),       // system power commands
+	regexp.MustCompile(`>\s*/etc/(passwd|shadow|sudoers)`),          // overwrite auth files
+	regexp.MustCompile(`\bcurl\b.*\|\s*(ba)?sh`),                    // curl | sh (pipe to shell)
+	regexp.MustCompile(`\bwget\b.*\|\s*(ba)?sh`),                    // wget | sh
+}
+
+// checkDangerousCommand returns an error if the command matches a dangerous pattern.
+func checkDangerousCommand(cmd string) error {
+	for _, pat := range dangerousPatterns {
+		if pat.MatchString(cmd) {
+			return fmt.Errorf("dangerous command blocked: matches pattern %q", pat.String())
+		}
+	}
+	return nil
+}
+
+// readOnlyPrefixes lists command prefixes that are known to be read-only.
+var readOnlyPrefixes = []string{
+	"ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep",
+	"find", "which", "whereis", "whoami", "hostname", "uname",
+	"date", "uptime", "df", "du", "free", "ps", "top",
+	"echo", "printf", "env", "printenv", "id", "pwd",
+	"file", "stat", "readlink", "realpath", "basename", "dirname",
+	"diff", "sort", "uniq", "tr", "cut", "awk", "sed -n",
+	"git log", "git status", "git diff", "git show", "git branch",
+	"git remote", "git tag", "git rev-parse", "git describe",
+	"go version", "go list", "go env", "node --version",
+	"python --version", "python3 --version", "pip list",
+	"npm list", "npm ls", "cargo --version", "rustc --version",
+}
+
+// IsReadOnlyCommand returns true if the command appears to be read-only
+// based on simple prefix matching. Used for strace event tagging.
+func IsReadOnlyCommand(cmd string) bool {
+	trimmed := strings.TrimSpace(cmd)
+	for _, prefix := range readOnlyPrefixes {
+		if trimmed == prefix || strings.HasPrefix(trimmed, prefix+" ") || strings.HasPrefix(trimmed, prefix+"\t") {
+			return true
+		}
+	}
+	return false
 }
 
 // FileFactory returns a VFSFileFactory that creates ShellFile instances for the given driver.

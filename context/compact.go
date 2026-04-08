@@ -13,6 +13,7 @@ import (
 type ReadFileEntry struct {
 	Content   string
 	Timestamp time.Time
+	Mtime     time.Time // file modification time at read
 }
 
 // SkillEntry represents a loaded skill's name and body content.

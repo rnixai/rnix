@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -210,7 +212,12 @@ func (k *KernelImpl) handleActionToolCall(proc *Process, action ReasonAction, re
 	// Track file reads for post-compact restore (Story 31.2)
 	if strings.HasPrefix(action.ToolPath, "/dev/fs/") && isEmpty {
 		filePath := strings.TrimPrefix(action.ToolPath, "/dev/fs/")
-		k.trackReadFile(proc, filePath, string(toolResult))
+		var fileMtime time.Time
+		absPath := filepath.Join(k.vfs.GetWorkDir(proc.PID), filePath)
+		if info, err := os.Stat(absPath); err == nil {
+			fileMtime = info.ModTime()
+		}
+		k.trackReadFile(proc, filePath, string(toolResult), fileMtime)
 	}
 
 	*consecutiveToolErrors = 0
