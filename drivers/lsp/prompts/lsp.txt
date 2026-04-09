@@ -1,0 +1,25 @@
+Interact with a Language Server Protocol (LSP) server for precise code intelligence. Use this for navigating code, finding definitions, references, and understanding code structure.
+
+Supported operations:
+- goToDefinition: Find where a symbol is defined
+- findReferences: Find all usages of a symbol
+- hover: Get type info and documentation for a symbol
+- documentSymbol: List all symbols in a file
+- workspaceSymbol: Search for symbols across the workspace
+- goToImplementation: Find implementations of an interface/abstract method
+- prepareCallHierarchy: Get the call hierarchy item for a function
+- incomingCalls: Find all callers of a function (requires item from prepareCallHierarchy)
+- outgoingCalls: Find all functions called by a function (requires item from prepareCallHierarchy)
+
+Parameters:
+- operation (required): One of the operations listed above
+- filePath (required for most): File path relative to the working directory
+- line (required for position-based ops): Line number (1-based)
+- character (required for position-based ops): Column number (1-based)
+- query (required for workspaceSymbol): Search query string
+- item (required for incomingCalls/outgoingCalls): Call hierarchy item from prepareCallHierarchy
+
+Notes:
+- Line and character are 1-based (first line is 1, first column is 1)
+- The LSP server is started lazily on first use
+- Default LSP server is gopls; override with RNIX_LSP_COMMAND

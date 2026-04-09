@@ -1,0 +1,18 @@
+Search the web and return results. Use this tool to find up-to-date information, documentation, or resources on the internet.
+
+The tool will:
+- Execute a web search query
+- Return results as a list of titles, URLs, and snippets
+- Support domain filtering (include or exclude specific domains)
+
+Parameters:
+- query (required): The search query string
+- allowed_domains (optional): Array of domains to restrict results to (e.g., ["docs.python.org", "stackoverflow.com"])
+- blocked_domains (optional): Array of domains to exclude from results
+
+Notes:
+- Returns structured results: [{title, url, snippet}, ...]
+- Use allowed_domains to focus on authoritative sources
+- Use blocked_domains to filter out unwanted content
+- For reading a specific URL, use web_fetch instead
+- Requires a search backend (SearXNG or Brave Search API)

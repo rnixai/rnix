@@ -1,0 +1,17 @@
+Fetch a URL and return its content as markdown. Use this tool to read web pages, documentation, API references, or any HTTP-accessible resource.
+
+The tool will:
+- Fetch the URL content via HTTP(S)
+- Convert HTML to clean markdown
+- Cache results for 15 minutes (same URL returns cached content)
+- Automatically upgrade HTTP to HTTPS
+
+Parameters:
+- url (required): The URL to fetch
+- prompt (optional): An extraction prompt — if provided, it will be prepended to guide you in extracting specific information from the returned content
+
+Notes:
+- Returns markdown content truncated to 100K characters
+- Cross-domain redirects are reported but not followed automatically
+- Use this for reading documentation, blog posts, API specs, or any web content
+- For searching the web, use web_search instead

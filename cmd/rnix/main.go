@@ -22,8 +22,10 @@ import (
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/drivers/fs"
 	"github.com/rnixai/rnix/drivers/llm"
+	"github.com/rnixai/rnix/drivers/lsp"
 	"github.com/rnixai/rnix/drivers/mcp"
 	drivershell "github.com/rnixai/rnix/drivers/shell"
+	"github.com/rnixai/rnix/drivers/web"
 	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
@@ -1228,6 +1230,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	_ = devReg.RegisterWithDriver("/dev/fs", fsDriver.FileFactory(), fsDriver)
 	shellDriver := drivershell.NewDriver()
 	_ = devReg.RegisterWithDriver("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"), shellDriver)
+	webDriver := web.NewDriver()
+	_ = devReg.RegisterWithDriver("/dev/web", web.FileFactory(webDriver), webDriver)
+	lspDriver := lsp.NewDriver()
+	_ = devReg.RegisterWithDriver("/dev/lsp", lsp.FileFactory(lspDriver), lspDriver)
 	ctxMgr := rnixctx.NewManager()
 	skillLoader := skills.NewSkillLoader([]string{filepath.Join(globalDir, "skills")})
 
