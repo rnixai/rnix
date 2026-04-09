@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -12,7 +13,8 @@ import (
 )
 
 // SpawnFunc is called when a cron job triggers. It spawns a new agent process.
-type SpawnFunc func(agent, prompt string) error
+// Returns the PID of the spawned process.
+type SpawnFunc func(intent string, agentName string) (types.PID, error)
 
 // CronDriver manages scheduled recurring jobs.
 type CronDriver struct {
@@ -255,16 +257,25 @@ func (d *CronDriver) scheduleJob(job *CronJob) {
 		return
 	}
 
-	delay := time.Until(job.NextRun)
+	nextRun := job.NextRun
+	delay := time.Until(nextRun)
 	if delay < 0 {
 		// If next run is in the past, compute new next run
 		expr, err := ParseCron(job.Schedule)
 		if err != nil {
 			return
 		}
-		job.NextRun = expr.NextAfter(time.Now())
-		d.store.UpdateNextRun(job.ID, job.NextRun)
-		delay = time.Until(job.NextRun)
+		nextRun = expr.NextAfter(time.Now())
+		if nextRun.IsZero() {
+			log.Printf("[cron] job %s: no valid next run time, disabling", job.ID)
+			return
+		}
+		d.store.UpdateNextRun(job.ID, nextRun)
+		delay = time.Until(nextRun)
+	}
+	if nextRun.IsZero() {
+		log.Printf("[cron] job %s: next run is zero, disabling", job.ID)
+		return
 	}
 
 	timer := time.AfterFunc(delay, func() {
@@ -284,17 +295,26 @@ func (d *CronDriver) fireJob(job *CronJob) {
 
 	// Spawn the agent process
 	if d.spawn != nil {
-		_ = d.spawn(job.Agent, job.Prompt)
+		pid, err := d.spawn(job.Prompt, job.Agent)
+		if err != nil {
+			log.Printf("[cron] job %s spawn failed (agent=%s): %v", job.ID, job.Agent, err)
+		} else {
+			log.Printf("[cron] job %s spawned PID %d", job.ID, pid)
+		}
 	}
 
 	// Compute next run
 	expr, err := ParseCron(job.Schedule)
 	if err != nil {
+		log.Printf("[cron] job %s: invalid schedule on reschedule: %v", job.ID, err)
 		return
 	}
 	nextRun := expr.NextAfter(time.Now())
+	if nextRun.IsZero() {
+		log.Printf("[cron] job %s: no valid next run time after fire, disabling", job.ID)
+		return
+	}
 	d.store.UpdateNextRun(job.ID, nextRun)
-	job.NextRun = nextRun
 
 	// Reschedule
 	d.scheduleJob(job)

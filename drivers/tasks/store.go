@@ -3,6 +3,7 @@ package tasks
 import (
 	"fmt"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -46,6 +47,7 @@ type Task struct {
 type TaskStore struct {
 	tasks   *xsync.SyncMap[string, *Task]
 	counter atomic.Int64
+	mu      sync.Mutex // protects Update and AddBlocks for field-level safety
 }
 
 // NewTaskStore creates an empty TaskStore.
@@ -91,14 +93,21 @@ func (s *TaskStore) Get(id string) *Task {
 
 // Update modifies an existing task. Returns the updated task or nil if not found.
 func (s *TaskStore) Update(id string, fn func(t *Task)) *Task {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	t, ok := s.tasks.Load(id)
 	if !ok {
 		return nil
 	}
-	fn(t)
-	t.UpdatedAt = time.Now()
-	s.tasks.Store(id, t)
-	return t
+	// Clone to avoid data races with concurrent List/Get/Marshal
+	clone := *t
+	clone.Blocks = slices.Clone(t.Blocks)
+	clone.BlockedBy = slices.Clone(t.BlockedBy)
+	fn(&clone)
+	clone.UpdatedAt = time.Now()
+	s.tasks.Store(id, &clone)
+	return &clone
 }
 
 // List returns all tasks, optionally filtered by status.
@@ -116,6 +125,9 @@ func (s *TaskStore) List(statusFilter TaskStatus) []*Task {
 // AddBlocks adds a "blocks" dependency: task `id` blocks task `blockedID`.
 // Updates both sides of the relationship.
 func (s *TaskStore) AddBlocks(id, blockedID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	blocker, ok := s.tasks.Load(id)
 	if !ok {
 		return fmt.Errorf("task %q not found", id)
@@ -125,14 +137,26 @@ func (s *TaskStore) AddBlocks(id, blockedID string) error {
 		return fmt.Errorf("task %q not found", blockedID)
 	}
 
-	if !containsStr(blocker.Blocks, blockedID) {
-		blocker.Blocks = append(blocker.Blocks, blockedID)
-		blocker.UpdatedAt = time.Now()
+	// Clone both tasks to avoid data races
+	blockerClone := *blocker
+	blockerClone.Blocks = slices.Clone(blocker.Blocks)
+	blockerClone.BlockedBy = slices.Clone(blocker.BlockedBy)
+
+	blockedClone := *blocked
+	blockedClone.Blocks = slices.Clone(blocked.Blocks)
+	blockedClone.BlockedBy = slices.Clone(blocked.BlockedBy)
+
+	if !containsStr(blockerClone.Blocks, blockedID) {
+		blockerClone.Blocks = append(blockerClone.Blocks, blockedID)
+		blockerClone.UpdatedAt = time.Now()
 	}
-	if !containsStr(blocked.BlockedBy, id) {
-		blocked.BlockedBy = append(blocked.BlockedBy, id)
-		blocked.UpdatedAt = time.Now()
+	if !containsStr(blockedClone.BlockedBy, id) {
+		blockedClone.BlockedBy = append(blockedClone.BlockedBy, id)
+		blockedClone.UpdatedAt = time.Now()
 	}
+
+	s.tasks.Store(id, &blockerClone)
+	s.tasks.Store(blockedID, &blockedClone)
 	return nil
 }
 

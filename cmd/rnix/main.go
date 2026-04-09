@@ -897,46 +897,76 @@ func handleAskUserEvent(payload json.RawMessage, socketPath string) {
 
 	scanner := bufio.NewScanner(os.Stdin)
 	var answers []json.RawMessage
+	stdinFailed := false
 
 	for _, q := range questions {
 		fmt.Fprintf(os.Stdout, "\n❓ %s\n", q.Question)
 
-		if len(q.Options) > 0 {
-			for i, opt := range q.Options {
+		// Auto-append "Other" option per AC1 when options are present
+		opts := q.Options
+		if len(opts) > 0 {
+			opts = append(opts, "Other")
+			for i, opt := range opts {
 				fmt.Fprintf(os.Stdout, "  %d) %s\n", i+1, opt)
 			}
 			if q.MultiSelect {
 				fmt.Fprint(os.Stdout, "Enter choices (comma-separated numbers): ")
 			} else {
-				fmt.Fprint(os.Stdout, "Enter choice number: ")
+				fmt.Fprint(os.Stdout, "Enter choice number (or type free text): ")
 			}
 		} else {
 			fmt.Fprint(os.Stdout, "> ")
 		}
 
 		if !scanner.Scan() {
-			// EOF or error
-			break
+			// EOF or error — pad remaining with empty answers
+			stdinFailed = true
+			answers = append(answers, json.RawMessage(`{"answer":""}`))
+			continue
+		}
+		if stdinFailed {
+			// stdin already failed, pad with empty
+			answers = append(answers, json.RawMessage(`{"answer":""}`))
+			continue
 		}
 		input := strings.TrimSpace(scanner.Text())
 
 		var ansJSON []byte
-		if len(q.Options) > 0 && q.MultiSelect {
+		if len(opts) > 0 && q.MultiSelect {
 			// Parse comma-separated numbers
 			var selected []string
 			for part := range strings.SplitSeq(input, ",") {
 				idx, err := strconv.Atoi(strings.TrimSpace(part))
-				if err == nil && idx >= 1 && idx <= len(q.Options) {
-					selected = append(selected, q.Options[idx-1])
+				if err == nil && idx >= 1 && idx <= len(opts) {
+					if opts[idx-1] == "Other" {
+						// "Other" selected in multi-select — prompt for free text
+						fmt.Fprint(os.Stdout, "  Enter your answer: ")
+						if scanner.Scan() {
+							selected = append(selected, strings.TrimSpace(scanner.Text()))
+						}
+					} else {
+						selected = append(selected, opts[idx-1])
+					}
 				}
 			}
 			ansJSON, _ = json.Marshal(map[string]any{"answers": selected})
-		} else if len(q.Options) > 0 {
+		} else if len(opts) > 0 {
 			// Single select by number
 			idx, err := strconv.Atoi(input)
-			if err == nil && idx >= 1 && idx <= len(q.Options) {
-				ansJSON, _ = json.Marshal(map[string]any{"answer": q.Options[idx-1]})
+			if err == nil && idx >= 1 && idx <= len(opts) {
+				if opts[idx-1] == "Other" {
+					// "Other" selected — prompt for free text
+					fmt.Fprint(os.Stdout, "  Enter your answer: ")
+					if scanner.Scan() {
+						ansJSON, _ = json.Marshal(map[string]any{"answer": strings.TrimSpace(scanner.Text())})
+					} else {
+						ansJSON, _ = json.Marshal(map[string]any{"answer": ""})
+					}
+				} else {
+					ansJSON, _ = json.Marshal(map[string]any{"answer": opts[idx-1]})
+				}
 			} else {
+				// Free text fallback
 				ansJSON, _ = json.Marshal(map[string]any{"answer": input})
 			}
 		} else {
@@ -1534,26 +1564,42 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		// Extract PID from process context (uses kernel context key)
 		pid := kernel.PIDFromContext(ctx)
 		requestID := fmt.Sprintf("ask-%d-%d", pid, time.Now().UnixNano())
-		answersJSON, err := srv.CallbackMux().(interface {
-			OnAskUser(types.PID, string, []byte) ([]byte, error)
-		}).OnAskUser(pid, requestID, questionsJSON)
-		if err != nil {
-			return nil, err
+
+		// Run OnAskUser in a goroutine so we can select on ctx.Done()
+		type askResult struct {
+			data []byte
+			err  error
 		}
-		var answers []tty.Answer
-		if err := json.Unmarshal(answersJSON, &answers); err != nil {
-			return nil, fmt.Errorf("unmarshal answers: %w", err)
+		resultCh := make(chan askResult, 1)
+		go func() {
+			data, err := srv.CallbackMux().OnAskUser(pid, requestID, questionsJSON)
+			resultCh <- askResult{data, err}
+		}()
+
+		select {
+		case res := <-resultCh:
+			if res.err != nil {
+				return nil, res.err
+			}
+			var answers []tty.Answer
+			if err := json.Unmarshal(res.data, &answers); err != nil {
+				return nil, fmt.Errorf("unmarshal answers: %w", err)
+			}
+			return answers, nil
+		case <-ctx.Done():
+			return nil, fmt.Errorf("process cancelled while waiting for user response: %w", ctx.Err())
 		}
-		return answers, nil
 	})
 	_ = devReg.RegisterWithDriver("/dev/tty", tty.FileFactory(ttyDriver), ttyDriver)
 
 	// /dev/cron (Story 33-2) — scheduled recurring jobs
 	cronDataDir := resolveDataDir(cwd, "cron")
-	cronDriver := cron.NewDriver(cronDataDir, func(agent, prompt string) error {
-		agentInfo, _ := agentLoader.Load(agent)
-		_, err := k.Spawn(prompt, agentInfo, kernel.SpawnOpts{})
-		return err
+	cronDriver := cron.NewDriver(cronDataDir, func(intent, agent string) (types.PID, error) {
+		agentInfo, err := agentLoader.Load(agent)
+		if err != nil {
+			return 0, fmt.Errorf("cron: load agent %q: %w", agent, err)
+		}
+		return k.Spawn(intent, agentInfo, kernel.SpawnOpts{})
 	})
 	if err := cronDriver.LoadAndStart(); err != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: cron load failed: %v\n", err)

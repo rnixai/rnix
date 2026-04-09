@@ -5,29 +5,33 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
 )
 
 // CronJob represents a scheduled cron job.
 type CronJob struct {
-	ID        string    `json:"id"`
-	Schedule  string    `json:"schedule"`
-	Prompt    string    `json:"prompt"`
-	Agent     string    `json:"agent"`
-	Durable   bool      `json:"durable"`
-	CreatedAt time.Time `json:"created_at"`
-	NextRun   time.Time `json:"next_run"`
-	LastRun   time.Time `json:"last_run,omitzero"`
-	RunCount  int       `json:"run_count"`
+	ID         string    `json:"id"`
+	Schedule   string    `json:"schedule"`
+	Prompt     string    `json:"prompt"`
+	Agent      string    `json:"agent"`
+	Durable    bool      `json:"durable"`
+	CreatorPID types.PID `json:"creator_pid"`
+	CreatedAt  time.Time `json:"created_at"`
+	NextRun    time.Time `json:"next_run"`
+	LastRun    time.Time `json:"last_run,omitzero"`
+	RunCount   int       `json:"run_count"`
 }
 
 // JobStore manages cron job persistence and lookup.
 type JobStore struct {
 	jobs    *xsync.SyncMap[string, *CronJob]
 	counter atomic.Int64
+	mu      sync.Mutex // protects Add (TOCTOU) and UpdateNextRun (field races)
 	dataDir string
 }
 
@@ -58,6 +62,9 @@ func (s *JobStore) Count() int {
 
 // Add creates a new cron job and persists if durable.
 func (s *JobStore) Add(schedule, prompt, agent string, durable bool, nextRun time.Time) (*CronJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.Count() >= MaxActiveJobs {
 		return nil, fmt.Errorf("maximum %d active cron jobs reached", MaxActiveJobs)
 	}
@@ -117,15 +124,20 @@ func (s *JobStore) List() []*CronJob {
 
 // UpdateNextRun updates the next run time and increments run count.
 func (s *JobStore) UpdateNextRun(id string, nextRun time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	job, ok := s.jobs.Load(id)
 	if !ok {
 		return
 	}
-	job.LastRun = time.Now()
-	job.NextRun = nextRun
-	job.RunCount++
-	s.jobs.Store(id, job)
-	if job.Durable {
+	// Clone the job to avoid races with concurrent List/Marshal
+	updated := *job
+	updated.LastRun = time.Now()
+	updated.NextRun = nextRun
+	updated.RunCount++
+	s.jobs.Store(id, &updated)
+	if updated.Durable {
 		_ = s.persist()
 	}
 }
@@ -176,7 +188,7 @@ func (s *JobStore) Load() error {
 	return nil
 }
 
-// persist writes all durable jobs to disk.
+// persist writes all durable jobs to disk atomically.
 func (s *JobStore) persist() error {
 	if s.dataDir == "" {
 		return nil
@@ -200,5 +212,9 @@ func (s *JobStore) persist() error {
 	}
 
 	path := filepath.Join(s.dataDir, "jobs.json")
-	return os.WriteFile(path, data, 0o644)
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }

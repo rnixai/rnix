@@ -245,6 +245,9 @@ func (s *Server) Shutdown() {
 		s.idleTimer.Stop()
 		s.mu.Unlock()
 
+		// Close callbackMux done channel to unblock pending OnAskUser calls
+		close(s.callbackMux.done)
+
 		s.closeOnce.Do(func() { close(s.done) })
 		if s.listener != nil {
 			s.listener.Close()
@@ -1572,12 +1575,14 @@ func bpConditionString(bp *kernel.Breakpoint) string {
 type callbackMux struct {
 	handlers    *xsync.SyncMap[types.PID, chan<- StreamEvent]
 	pendingAsks *xsync.SyncMap[string, chan []byte]
+	done        chan struct{}
 }
 
 func newCallbackMux() *callbackMux {
 	return &callbackMux{
 		handlers:    xsync.NewSyncMap[types.PID, chan<- StreamEvent](),
 		pendingAsks: xsync.NewSyncMap[string, chan []byte](),
+		done:        make(chan struct{}),
 	}
 }
 
@@ -1630,22 +1635,42 @@ func (m *callbackMux) OnError(pid types.PID, err error) {
 }
 
 func (m *callbackMux) OnAskUser(pid types.PID, requestID string, questions []byte) ([]byte, error) {
+	if pid == 0 {
+		return nil, fmt.Errorf("ask_user: cannot send to PID 0 (no process context)")
+	}
+
 	// Create answer channel before sending event
 	answerCh := make(chan []byte, 1)
 	m.pendingAsks.Store(requestID, answerCh)
 	defer m.pendingAsks.Delete(requestID)
 
-	// Send ask_user event to CLI via the spawn stream
+	// Send ask_user event to CLI via the spawn stream.
+	// Use blocking send for ask_user events (critical, must not be dropped).
 	askEv := AskUserEvent{PID: pid, RequestID: requestID, Questions: questions}
 	payload, _ := json.Marshal(askEv)
-	m.send(pid, StreamEvent{Type: StreamAskUser, Payload: payload})
+	ev := StreamEvent{Type: StreamAskUser, Payload: payload}
 
-	// Block waiting for answer (with 5-minute timeout)
+	ch, ok := m.handlers.Load(pid)
+	if !ok {
+		return nil, fmt.Errorf("ask_user: no handler registered for PID %d", pid)
+	}
+	select {
+	case ch <- ev:
+	case <-m.done:
+		return nil, fmt.Errorf("ask_user: server shutting down")
+	}
+
+	// Block waiting for answer (with timeout and shutdown awareness)
+	timer := time.NewTimer(5 * time.Minute)
+	defer timer.Stop()
+
 	select {
 	case answer := <-answerCh:
 		return answer, nil
-	case <-time.After(5 * time.Minute):
+	case <-timer.C:
 		return nil, fmt.Errorf("ask_user timeout: no answer received within 5 minutes")
+	case <-m.done:
+		return nil, fmt.Errorf("ask_user: server shutting down while waiting for answer")
 	}
 }
 

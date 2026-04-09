@@ -284,9 +284,9 @@ func TestJobStore_PruneExpired(t *testing.T) {
 
 func TestCronFile_Create(t *testing.T) {
 	spawned := make(chan string, 1)
-	d := NewDriver("", func(agent, prompt string) error {
-		spawned <- prompt
-		return nil
+	d := NewDriver("", func(intent, agent string) (types.PID, error) {
+		spawned <- intent
+		return 1, nil
 	})
 	f := &CronFile{driver: d, devicePath: "/dev/cron"}
 

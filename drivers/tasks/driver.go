@@ -184,16 +184,17 @@ func (f *TasksFile) Write(_ context.Context, data []byte) error {
 	var result any
 	var opErr error
 
-	// Dispatch based on which fields are present
-	if _, hasSubject := raw["subject"]; hasSubject {
-		result, opErr = f.handleCreate(data)
-	} else if _, hasID := raw["id"]; hasID {
-		// Could be update or get — check for other update fields
+	// Dispatch based on which fields are present.
+	// Check "id" first — update/get always requires an id, while create requires subject.
+	// This prevents {id, subject} from being routed to create instead of update.
+	if _, hasID := raw["id"]; hasID {
 		if f.hasUpdateFields(raw) {
 			result, opErr = f.handleUpdate(data)
 		} else {
 			result, opErr = f.handleGet(data)
 		}
+	} else if _, hasSubject := raw["subject"]; hasSubject {
+		result, opErr = f.handleCreate(data)
 	} else if _, hasStatus := raw["status"]; hasStatus {
 		result, opErr = f.handleList(data)
 	} else {
