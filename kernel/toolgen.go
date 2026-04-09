@@ -63,7 +63,7 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 }
 
 // metaToolDefs returns ToolDefs for kernel meta actions (complete, spawn, replan, specialize, plan).
-func metaToolDefs(planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) {
+func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]vfs.ToolDef, map[string]toolMapping) {
 	defs := []vfs.ToolDef{
 		{
 			Name:            "complete",
@@ -137,7 +137,6 @@ func metaToolDefs(planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) 
 			Name:            "discover_skill",
 			Description:     "Search deferred skills by keyword to find relevant capabilities without loading them. Returns matching skill names with descriptions and relevance scores.",
 			MaxResultTokens: 0,
-			ShouldDefer:     true,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -181,6 +180,21 @@ func metaToolDefs(planningEnabled bool) ([]vfs.ToolDef, map[string]toolMapping) 
 			},
 		})
 		metaMap["plan"] = toolMapping{Type: "meta", Action: ActionPlan}
+	}
+
+	// Add placeholder ToolDefs for each deferred skill (D6: ShouldDefer on individual ToolDefs)
+	for _, ds := range deferredSkills {
+		toolName := "skill_" + ds.Name
+		defs = append(defs, vfs.ToolDef{
+			Name:        toolName,
+			Description: fmt.Sprintf("[Deferred Skill] %s — %s. Use discover_skill to search, then specialize to load.", ds.Name, ds.Description),
+			ShouldDefer: true,
+			Parameters: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		})
+		metaMap[toolName] = toolMapping{Type: "meta", Action: ActionDeferredSkillPlaceholder}
 	}
 
 	return defs, metaMap

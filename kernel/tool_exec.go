@@ -6,7 +6,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -464,10 +463,29 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 		var resultMsg string
 		if k.skillLoader != nil {
 			if skill, err := k.skillLoader(skillName); err == nil {
-				_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleSystem, skill.Body)
 				proc.mu.Lock()
 				proc.Skills = append(proc.Skills, skillName)
+				proc.AllowedDevices = append(proc.AllowedDevices, skill.Manifest.AllowedTools()...)
+				if skill.Body != "" {
+					if proc.SkillBodies == nil {
+						proc.SkillBodies = make(map[string]string)
+					}
+					body := skill.Body
+					if skill.Dir != "" {
+						body = "Base directory for this skill: " + skill.Dir + "\n\n" + body
+					}
+					proc.SkillBodies[skillName] = body
+				}
 				proc.mu.Unlock()
+				// Legacy path: inject skill body into context for non-section processes
+				if !proc.HasSections && skill.Body != "" {
+					body := skill.Body
+					if skill.Dir != "" {
+						body = "Base directory for this skill: " + skill.Dir + "\n\n" + body
+					}
+					header := fmt.Sprintf("[Dynamic Skill Loaded: %s]", skillName)
+					_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, header+"\n\n"+body)
+				}
 				resultMsg = fmt.Sprintf("Skill '%s' loaded successfully", skillName)
 			} else {
 				resultMsg = fmt.Sprintf("Failed to load skill '%s': %v", skillName, err)
@@ -481,39 +499,21 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 
 	case ActionDiscoverSkill:
 		query, _ := tc.Input["query"].(string)
-		if query == "" {
-			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, "discover_skill error: empty query")
+		matches, err := discoverSkills(proc, query)
+		if err != nil {
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, "discover_skill error: "+err.Error())
 			return true
 		}
-		proc.mu.Lock()
-		deferred := make([]DeferredSkillMeta, len(proc.DeferredSkills))
-		copy(deferred, proc.DeferredSkills)
-		loadedSkills := make([]string, len(proc.Skills))
-		copy(loadedSkills, proc.Skills)
-		proc.mu.Unlock()
-		queryLower := strings.ToLower(query)
-		keywords := strings.Fields(queryLower)
-		var matches []discoverHit
-		for _, ds := range deferred {
-			if slices.Contains(loadedSkills, ds.Name) {
-				continue
-			}
-			score := scoreSkillMatch(ds, keywords)
-			if score > 0 {
-				matches = append(matches, discoverHit{Name: ds.Name, Description: ds.Description, Score: score})
-			}
-		}
-		for i := 0; i < len(matches); i++ {
-			for j := i + 1; j < len(matches); j++ {
-				if matches[j].Score > matches[i].Score {
-					matches[i], matches[j] = matches[j], matches[i]
-				}
-			}
-		}
-		result := discoverResult{Query: query, Matches: matches}
-		resultJSON, _ := json.Marshal(result)
-		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, string(resultJSON))
+		resultStr := discoverResultJSON(query, matches)
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, resultStr)
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "discover_skill", "query": query, "matches": len(matches)}, nil, nil, time.Since(stepStart))
+		return true
+
+	case ActionDeferredSkillPlaceholder:
+		// LLM tried to call a deferred skill placeholder — guide it to use discover_skill + specialize
+		skillName := strings.TrimPrefix(tc.Name, "skill_")
+		msg := fmt.Sprintf("This skill (%s) is deferred and not yet loaded. Use discover_skill to search for it, then specialize to load it.", skillName)
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, msg)
 		return true
 
 	case ActionPlan:

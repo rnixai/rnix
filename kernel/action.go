@@ -70,12 +70,13 @@ type ActionType string
 const (
 	ActionText          ActionType = "text"
 	ActionToolCall      ActionType = "tool_call"
-	ActionPlan          ActionType = "plan"
-	ActionSpawn         ActionType = "spawn"
-	ActionComplete      ActionType = "complete"
-	ActionReplan        ActionType = "replan"
-	ActionSpecialize    ActionType = "specialize"
-	ActionDiscoverSkill ActionType = "discover_skill"
+	ActionPlan                     ActionType = "plan"
+	ActionSpawn                    ActionType = "spawn"
+	ActionComplete                 ActionType = "complete"
+	ActionReplan                   ActionType = "replan"
+	ActionSpecialize               ActionType = "specialize"
+	ActionDiscoverSkill            ActionType = "discover_skill"
+	ActionDeferredSkillPlaceholder ActionType = "deferred_skill_placeholder"
 )
 
 // ReasonAction represents a parsed action from an LLM response.

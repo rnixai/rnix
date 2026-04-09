@@ -1,6 +1,7 @@
 package context
 
 import (
+	"log"
 	"strings"
 	"sync"
 )
@@ -42,22 +43,51 @@ func (r *SectionRegistry) Register(name string, fn func() string, cached bool) {
 // Build assembles all sections into a single system prompt string.
 // Cached sections reuse their previously computed value; non-cached sections
 // recompute on every call. Empty section results are skipped.
+// If a section's ComputeFn panics, the panic is recovered and the section is skipped.
+//
+// Lock ordering: Build() releases r.mu before calling ComputeFn to avoid holding
+// SectionRegistry.mu while ComputeFn acquires proc.mu or other locks.
 func (r *SectionRegistry) Build() string {
+	// Phase 1: snapshot sections and identify which need computation
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	var parts []string
-	for _, s := range r.sections {
-		var val string
-		if s.Cached {
-			if !s.computed {
-				s.value = s.ComputeFn()
-				s.computed = true
-			}
-			val = s.value
+	type sectionWork struct {
+		section    *PromptSection
+		needsWork  bool
+		cachedVal  string
+	}
+	work := make([]sectionWork, len(r.sections))
+	for i, s := range r.sections {
+		if s.Cached && s.computed {
+			work[i] = sectionWork{section: s, needsWork: false, cachedVal: s.value}
 		} else {
-			val = s.ComputeFn()
+			work[i] = sectionWork{section: s, needsWork: true}
 		}
+	}
+	r.mu.Unlock()
+
+	// Phase 2: compute values WITHOUT holding the lock
+	values := make([]string, len(work))
+	for i, w := range work {
+		if !w.needsWork {
+			values[i] = w.cachedVal
+			continue
+		}
+		values[i] = r.computeSection(w.section)
+	}
+
+	// Phase 3: store cached results
+	r.mu.Lock()
+	for i, w := range work {
+		if w.needsWork && w.section.Cached {
+			w.section.value = values[i]
+			w.section.computed = true
+		}
+	}
+	r.mu.Unlock()
+
+	// Phase 4: assemble
+	var parts []string
+	for _, val := range values {
 		if val != "" {
 			parts = append(parts, val)
 		}
@@ -74,6 +104,17 @@ func (r *SectionRegistry) Build() string {
 		b.WriteString(parts[i])
 	}
 	return b.String()
+}
+
+// computeSection evaluates a section's ComputeFn with panic recovery.
+func (r *SectionRegistry) computeSection(s *PromptSection) (result string) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("[section] panic in ComputeFn for section %q: %v", s.Name, rec)
+			result = ""
+		}
+	}()
+	return s.ComputeFn()
 }
 
 // Invalidate resets all cached sections so they recompute on the next Build().

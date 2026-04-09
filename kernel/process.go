@@ -56,6 +56,7 @@ type Process struct {
 	Intent         string             // immutable after creation
 	Skills         []string
 	DeferredSkills []DeferredSkillMeta // metadata-only skills for discover_skill scoring
+	SkillBodies    map[string]string   // skill name → body content (mu protected); updated by spawn + specialize
 	Children       []types.PID
 	FDTable        map[types.FD]vfs.VFSFile // per architecture doc; VFS manages actual FD state internally
 	DebugChan      chan types.SyscallEvent

@@ -315,7 +315,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			} else {
 				if proc.generatedProtocol == "" {
 					vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
-					metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled)
+					metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled, proc.DeferredSkills)
 					proc.generatedProtocol = generateToolProtocol(vfsDefs, vfsMap, metaDefs, metaMap, proc.PlanningEnabled)
 				}
 				sysPrompt += proc.generatedProtocol

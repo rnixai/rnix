@@ -503,23 +503,21 @@ func (k *KernelImpl) handleActionSpecialize(proc *Process, action ReasonAction, 
 	}
 	proc.Skills = append(proc.Skills, skillName)
 	proc.AllowedDevices = append(proc.AllowedDevices, skillInfo.Manifest.AllowedTools()...)
+	// Store body in SkillBodies for the loaded_skills section to pick up on next Build()
+	if skillInfo.Body != "" {
+		if proc.SkillBodies == nil {
+			proc.SkillBodies = make(map[string]string)
+		}
+		body := skillInfo.Body
+		if skillInfo.Dir != "" {
+			body = "Base directory for this skill: " + skillInfo.Dir + "\n\n" + body
+		}
+		proc.SkillBodies[skillName] = body
+	}
 	totalSkills := len(proc.Skills)
 	allSkills := make([]string, totalSkills)
 	copy(allSkills, proc.Skills)
 	proc.mu.Unlock()
-
-	if skillInfo.Body != "" {
-		appendStart := time.Now()
-		dirHint := ""
-		if skillInfo.Dir != "" {
-			dirHint = fmt.Sprintf("Base directory for this skill: %s\n\n", skillInfo.Dir)
-		}
-		if appendErr := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser,
-			fmt.Sprintf("[Dynamic Skill Loaded: %s]\nThe following are instructions from skill %q. Follow these instructions using VFS devices. Do NOT try to call this skill as a tool.\n\n%s%s", skillName, skillName, dirHint, skillInfo.Body)); appendErr != nil {
-			k.emitLog(proc, step, types.LogTool, fmt.Sprintf("specialize warning: failed to inject skill body for %q: %v", skillName, appendErr), "specialize")
-			k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendMessage", "role": string(rnixctx.RoleUser)}, nil, appendErr, time.Since(appendStart))
-		}
-	}
 
 	k.emitEvent(proc, "StemSpecialize", map[string]any{"skill": skillName, "total_skills": totalSkills}, nil, nil, 0)
 
@@ -538,6 +536,17 @@ func (k *KernelImpl) handleActionSpecialize(proc *Process, action ReasonAction, 
 			Skills:    []string{skillName},
 			Trigger:   trigger,
 		})
+	}
+
+	// For the legacy (non-section) path, inject the skill body into context as a user message
+	// so the LLM sees it. In the section-based path, the loaded_skills section handles this.
+	if !proc.HasSections && skillInfo.Body != "" {
+		body := skillInfo.Body
+		if skillInfo.Dir != "" {
+			body = "Base directory for this skill: " + skillInfo.Dir + "\n\n" + body
+		}
+		header := fmt.Sprintf("[Dynamic Skill Loaded: %s]", skillName)
+		_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, header+"\n\n"+body)
 	}
 
 	resultMsg := fmt.Sprintf("skill %q loaded successfully", skillName)
@@ -579,53 +588,17 @@ func (k *KernelImpl) handleActionDiscoverSkill(proc *Process, action ReasonActio
 			query = payload.Query
 		}
 	}
-	if query == "" {
-		errMsg := "discover_skill error: empty query"
+
+	matches, err := discoverSkills(proc, query)
+	if err != nil {
+		errMsg := "discover_skill error: " + err.Error()
 		_ = k.ctxMgr.AppendToolResult(proc.CtxID, "discover_skill", errMsg)
 		k.emitLog(proc, step, types.LogTool, errMsg, "discover_skill")
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "discover_skill_error"}, nil, nil, time.Since(stepStart))
 		return true
 	}
 
-	proc.mu.Lock()
-	deferred := make([]DeferredSkillMeta, len(proc.DeferredSkills))
-	copy(deferred, proc.DeferredSkills)
-	loadedSkills := make([]string, len(proc.Skills))
-	copy(loadedSkills, proc.Skills)
-	proc.mu.Unlock()
-
-	// Score each deferred skill against query keywords
-	queryLower := strings.ToLower(query)
-	keywords := strings.Fields(queryLower)
-	var matches []discoverHit
-	for _, ds := range deferred {
-		// Skip already loaded skills
-		if slices.Contains(loadedSkills, ds.Name) {
-			continue
-		}
-		score := scoreSkillMatch(ds, keywords)
-		if score > 0 {
-			matches = append(matches, discoverHit{
-				Name:        ds.Name,
-				Description: ds.Description,
-				Score:       score,
-			})
-		}
-	}
-
-	// Sort by score descending
-	for i := 0; i < len(matches); i++ {
-		for j := i + 1; j < len(matches); j++ {
-			if matches[j].Score > matches[i].Score {
-				matches[i], matches[j] = matches[j], matches[i]
-			}
-		}
-	}
-
-	result := discoverResult{Query: query, Matches: matches}
-	resultJSON, _ := json.Marshal(result)
-	resultStr := string(resultJSON)
-
+	resultStr := discoverResultJSON(query, matches)
 	_ = k.ctxMgr.AppendToolResult(proc.CtxID, "discover_skill", resultStr)
 	k.emitLog(proc, step, types.LogTool, fmt.Sprintf("discover_skill: query=%q matches=%d", query, len(matches)), "discover_skill")
 	k.emitEvent(proc, "ReasonStep", map[string]any{
@@ -641,38 +614,102 @@ func (k *KernelImpl) handleActionDiscoverSkill(proc *Process, action ReasonActio
 	return true
 }
 
-// scoreSkillMatch scores a deferred skill against query keywords.
-// Returns 0.0 if no match, up to 1.0 for best match.
-func scoreSkillMatch(ds DeferredSkillMeta, keywords []string) float64 {
+// discoverSkills is the shared discover_skill search logic used by both the
+// text-protocol handler and the native-tool handler. It searches all registered
+// skills (deferred + loaded metadata) and returns the top maxDiscoverResults matches.
+// Already-loaded skills are excluded from results.
+func discoverSkills(proc *Process, query string) ([]discoverHit, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("empty query")
+	}
+
+	proc.mu.Lock()
+	deferred := make([]DeferredSkillMeta, len(proc.DeferredSkills))
+	copy(deferred, proc.DeferredSkills)
+	loadedSkills := make([]string, len(proc.Skills))
+	copy(loadedSkills, proc.Skills)
+	proc.mu.Unlock()
+
+	queryLower := strings.ToLower(query)
+
+	var matches []discoverHit
+	for _, ds := range deferred {
+		if slices.Contains(loadedSkills, ds.Name) {
+			continue
+		}
+		score := scoreSkillMatch(ds, queryLower)
+		if score > 0 {
+			matches = append(matches, discoverHit{
+				Name:        ds.Name,
+				Description: ds.Description,
+				Score:       float64(score),
+			})
+		}
+	}
+
+	slices.SortFunc(matches, func(a, b discoverHit) int {
+		if a.Score > b.Score {
+			return -1
+		}
+		if a.Score < b.Score {
+			return 1
+		}
+		return 0
+	})
+
+	if len(matches) > maxDiscoverResults {
+		matches = matches[:maxDiscoverResults]
+	}
+
+	return matches, nil
+}
+
+// discoverResultJSON marshals a discover_skill result to JSON with error fallback.
+func discoverResultJSON(query string, matches []discoverHit) string {
+	result := discoverResult{Query: query, Matches: matches}
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Sprintf(`{"query":%q,"matches":[],"error":"marshal failed: %v"}`, query, err)
+	}
+	return string(resultJSON)
+}
+
+// maxDiscoverResults is the maximum number of results returned by discover_skill (AC6).
+const maxDiscoverResults = 5
+
+// scoreSkillMatch scores a deferred skill against a query string using discrete scoring per AC6:
+//   - Exact name match: 12 points
+//   - Partial name match: 6 points
+//   - SearchHint match: 4 points
+//   - Description match: 2 points
+func scoreSkillMatch(ds DeferredSkillMeta, queryLower string) int {
+	if queryLower == "" {
+		return 0
+	}
 	nameLower := strings.ToLower(ds.Name)
 	descLower := strings.ToLower(ds.Description)
 	hintLower := strings.ToLower(ds.SearchHint)
 
-	var score float64
-	for _, kw := range keywords {
-		if kw == "" {
-			continue
-		}
-		// Name match: highest weight
-		if strings.Contains(nameLower, kw) {
-			score += 0.4
-		}
-		// SearchHint match: high weight
-		if hintLower != "" && strings.Contains(hintLower, kw) {
-			score += 0.35
-		}
-		// Description match: moderate weight
-		if strings.Contains(descLower, kw) {
-			score += 0.25
-		}
+	score := 0
+
+	// Name exact match (highest)
+	if nameLower == queryLower {
+		score += 12
+	} else if strings.Contains(nameLower, queryLower) || strings.Contains(queryLower, nameLower) {
+		// Partial name match
+		score += 6
 	}
-	// Normalize by keyword count
-	if len(keywords) > 0 {
-		score /= float64(len(keywords))
+
+	// SearchHint match
+	if hintLower != "" && strings.Contains(hintLower, queryLower) {
+		score += 4
 	}
-	// Cap at 1.0
-	if score > 1.0 {
-		score = 1.0
+
+	// Description match
+	if strings.Contains(descLower, queryLower) {
+		score += 2
 	}
+
 	return score
 }

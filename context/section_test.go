@@ -162,11 +162,13 @@ func TestLoadSection_ReturnsContent(t *testing.T) {
 	}
 }
 
-func TestLoadSection_UnknownReturnsEmpty(t *testing.T) {
-	got := LoadSection("nonexistent_section_xyz")
-	if got != "" {
-		t.Errorf("LoadSection(nonexistent) = %q, want empty", got)
-	}
+func TestLoadSection_UnknownPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("LoadSection(nonexistent) should panic, but did not")
+		}
+	}()
+	LoadSection("nonexistent_section_xyz")
 }
 
 func TestLoadSection_AllStandard(t *testing.T) {

@@ -164,13 +164,26 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			k.emitEvent(proc, "StemDifferentiate", eventArgs, nil, eventErr, diffDuration)
 		}
 
-		// System prompt = Agent instructions + Skill bodies
-		agentPrompt := agent.SystemPrompt()
+		// System prompt = Agent instructions only (skill bodies handled by loaded_skills section per AC4)
+		agentInstructions, _ := agent.InstructionSections()
 		if opts.SystemPrompt == "" {
-			opts.SystemPrompt = agentPrompt
+			opts.SystemPrompt = agentInstructions
 		} else {
-			opts.SystemPrompt = opts.SystemPrompt + "\n\n" + agentPrompt
+			opts.SystemPrompt = opts.SystemPrompt + "\n\n" + agentInstructions
 		}
+
+		// Populate skill body map for loaded_skills section to use
+		skillBodies := make(map[string]string)
+		for _, s := range agent.Skills {
+			if s.Body != "" {
+				body := s.Body
+				if s.Dir != "" {
+					body = "Base directory for this skill: " + s.Dir + "\n\n" + body
+				}
+				skillBodies[s.Manifest.Name] = body
+			}
+		}
+		proc.SkillBodies = skillBodies
 
 		// Register section-based prompt assembly
 		proc.HasSections = true

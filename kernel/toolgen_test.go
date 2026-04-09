@@ -124,7 +124,7 @@ func TestBuildToolDefs_UnknownPath_SkipsSilently(t *testing.T) {
 }
 
 func TestMetaToolDefs(t *testing.T) {
-	defs, metaMap := metaToolDefs(true)
+	defs, metaMap := metaToolDefs(true, nil)
 
 	expectedNames := map[string]bool{
 		"complete": false, "spawn": false, "replan": false, "specialize": false, "plan": false,
@@ -149,7 +149,7 @@ func TestMetaToolDefs(t *testing.T) {
 }
 
 func TestMetaToolDefs_PlanningDisabled(t *testing.T) {
-	defs, metaMap := metaToolDefs(false)
+	defs, metaMap := metaToolDefs(false, nil)
 
 	for _, d := range defs {
 		if d.Name == "plan" {
@@ -162,7 +162,7 @@ func TestMetaToolDefs_PlanningDisabled(t *testing.T) {
 }
 
 func TestMetaToolDefs_JSONSchemaComplete(t *testing.T) {
-	defs, _ := metaToolDefs(true)
+	defs, _ := metaToolDefs(true, nil)
 
 	for _, d := range defs {
 		if d.Parameters == nil {
@@ -196,7 +196,7 @@ func TestGenerateToolProtocol(t *testing.T) {
 	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)
 
 	defs, toolMap := buildToolDefs(reg, nil, true)
-	metaDefs, metaMap := metaToolDefs(true)
+	metaDefs, metaMap := metaToolDefs(true, nil)
 
 	protocol := generateToolProtocol(defs, toolMap, metaDefs, metaMap, true)
 
@@ -212,14 +212,14 @@ func TestGenerateToolProtocol(t *testing.T) {
 }
 
 func TestGenerateToolProtocol_PlanningConditional(t *testing.T) {
-	metaDefs, metaMap := metaToolDefs(false)
+	metaDefs, metaMap := metaToolDefs(false, nil)
 	protocol := generateToolProtocol(nil, nil, metaDefs, metaMap, false)
 
 	if strings.Contains(protocol, "Plan —") {
 		t.Fatal("expected no plan section when planning disabled")
 	}
 
-	metaDefsEnabled, metaMapEnabled := metaToolDefs(true)
+	metaDefsEnabled, metaMapEnabled := metaToolDefs(true, nil)
 	protocolEnabled := generateToolProtocol(nil, nil, metaDefsEnabled, metaMapEnabled, true)
 
 	if !strings.Contains(protocolEnabled, "Plan —") {
