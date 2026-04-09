@@ -57,10 +57,9 @@ func registerSections(proc *Process, k *KernelImpl, agentInstructions string) *r
 			return ""
 		}
 		var b strings.Builder
-		b.WriteString("[Loaded Skills]\nThe following skills are loaded: ")
+		b.WriteString("[Loaded Skills]\nCurrently loaded: ")
 		b.WriteString(strings.Join(skills, ", "))
-		b.WriteString(".\nFollow their instructions using available VFS devices.")
-		b.WriteString("\nDo NOT try to call these skills via /dev/mcp/ or any device path.\n")
+		b.WriteString("\n")
 		for _, name := range skills {
 			if body, ok := bodies[name]; ok && body != "" {
 				b.WriteString("\n--- Skill: ")
