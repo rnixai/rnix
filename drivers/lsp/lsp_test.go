@@ -336,6 +336,129 @@ func TestBuildParams_FindReferences_IncludesContext(t *testing.T) {
 	}
 }
 
+func TestBuildParams_Hover(t *testing.T) {
+	d := NewDriverWithCommand("gopls")
+	req := lspRequest{
+		Operation: "hover",
+		FilePath:  "main.go",
+		Line:      5,
+		Character: 10,
+	}
+
+	params, err := d.buildParams(req, "textDocument/hover", "/work")
+	if err != nil {
+		t.Fatalf("buildParams failed: %v", err)
+	}
+
+	m := params.(map[string]any)
+	td := m["textDocument"].(map[string]any)
+	if td["uri"] != "file:///work/main.go" {
+		t.Errorf("unexpected URI: %v", td["uri"])
+	}
+	pos := m["position"].(map[string]any)
+	if pos["line"] != 4 || pos["character"] != 9 {
+		t.Errorf("unexpected position: line=%v char=%v", pos["line"], pos["character"])
+	}
+}
+
+func TestBuildParams_GoToImplementation(t *testing.T) {
+	d := NewDriverWithCommand("gopls")
+	req := lspRequest{
+		Operation: "goToImplementation",
+		FilePath:  "iface.go",
+		Line:      3,
+		Character: 7,
+	}
+
+	params, err := d.buildParams(req, "textDocument/implementation", "/work")
+	if err != nil {
+		t.Fatalf("buildParams failed: %v", err)
+	}
+
+	m := params.(map[string]any)
+	td := m["textDocument"].(map[string]any)
+	if td["uri"] != "file:///work/iface.go" {
+		t.Errorf("unexpected URI: %v", td["uri"])
+	}
+	pos := m["position"].(map[string]any)
+	if pos["line"] != 2 || pos["character"] != 6 {
+		t.Errorf("unexpected position: line=%v char=%v", pos["line"], pos["character"])
+	}
+}
+
+func TestBuildParams_PrepareCallHierarchy(t *testing.T) {
+	d := NewDriverWithCommand("gopls")
+	req := lspRequest{
+		Operation: "prepareCallHierarchy",
+		FilePath:  "main.go",
+		Line:      1,
+		Character: 1,
+	}
+
+	params, err := d.buildParams(req, "textDocument/prepareCallHierarchy", "/work")
+	if err != nil {
+		t.Fatalf("buildParams failed: %v", err)
+	}
+
+	m := params.(map[string]any)
+	if m["position"] == nil {
+		t.Error("expected position in params")
+	}
+}
+
+func TestBuildParams_OutgoingCalls_WithItem(t *testing.T) {
+	d := NewDriverWithCommand("gopls")
+	item := json.RawMessage(`{"name":"func2","uri":"file:///y.go"}`)
+	req := lspRequest{
+		Operation: "outgoingCalls",
+		Item:      item,
+	}
+
+	params, err := d.buildParams(req, "callHierarchy/outgoingCalls", "/work")
+	if err != nil {
+		t.Fatalf("buildParams failed: %v", err)
+	}
+
+	m := params.(map[string]any)
+	if m["item"] == nil {
+		t.Error("expected item in params")
+	}
+}
+
+func TestBuildParams_OutgoingCalls_MissingItem(t *testing.T) {
+	d := NewDriverWithCommand("gopls")
+	req := lspRequest{
+		Operation: "outgoingCalls",
+	}
+
+	_, err := d.buildParams(req, "callHierarchy/outgoingCalls", "/work")
+	if err == nil {
+		t.Error("expected error when item is missing for outgoingCalls")
+	}
+}
+
+func TestBuildParams_PathTraversal(t *testing.T) {
+	d := NewDriverWithCommand("gopls")
+	req := lspRequest{
+		Operation: "goToDefinition",
+		FilePath:  "../../etc/passwd",
+		Line:      1,
+		Character: 1,
+	}
+
+	_, err := d.buildParams(req, "textDocument/definition", "/work")
+	if err == nil {
+		t.Error("expected error for path traversal attempt")
+	}
+	de, ok := err.(*types.DriverError)
+	if !ok {
+		t.Fatalf("expected *types.DriverError, got %T", err)
+	}
+	if de.Code != types.ErrPermission {
+		t.Errorf("expected ErrPermission, got %v", de.Code)
+	}
+}
+
 // --- lspOperations mapping test ---
 
 func TestLspOperations_AllMapped(t *testing.T) {

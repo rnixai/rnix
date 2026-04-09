@@ -1230,10 +1230,13 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	_ = devReg.RegisterWithDriver("/dev/fs", fsDriver.FileFactory(), fsDriver)
 	shellDriver := drivershell.NewDriver()
 	_ = devReg.RegisterWithDriver("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"), shellDriver)
-	webDriver := web.NewDriver()
+	webDriver := web.NewDriverWithOptions(web.DriverOpts{
+		Extractor: newLLMExtractor(driverReg, providersCfg),
+	})
 	_ = devReg.RegisterWithDriver("/dev/web", web.FileFactory(webDriver), webDriver)
 	lspDriver := lsp.NewDriver()
 	_ = devReg.RegisterWithDriver("/dev/lsp", lsp.FileFactory(lspDriver), lspDriver)
+	defer lspDriver.CloseAll()
 	ctxMgr := rnixctx.NewManager()
 	skillLoader := skills.NewSkillLoader([]string{filepath.Join(globalDir, "skills")})
 
@@ -1514,6 +1517,43 @@ func loadInitConfigCompat(cwd, globalDir string) (*kernel.InitConfig, error) {
 
 	// Neither exists: use default empty config
 	return kernel.DefaultInitConfig(), nil
+}
+
+// llmExtractorAdapter adapts an llm.LLMDriver to the web.ContentExtractor
+// interface, enabling web_fetch to process content+prompt through a secondary
+// model (following CC's queryHaiku pattern).
+type llmExtractorAdapter struct {
+	driver llm.LLMDriver
+	model  string
+}
+
+func (a *llmExtractorAdapter) Extract(ctx context.Context, content, prompt string) (string, error) {
+	modelPrompt := web.MakeSecondaryModelPrompt(content, prompt)
+	resp, err := a.driver.Call(ctx, llm.LLMRequest{
+		Intent:    modelPrompt,
+		Model:     a.model,
+		MaxTokens: 4000,
+	})
+	if err != nil {
+		return "", err
+	}
+	if resp.Content == "" {
+		return "", fmt.Errorf("empty response from secondary model")
+	}
+	return resp.Content, nil
+}
+
+// newLLMExtractor creates a ContentExtractor from the default LLM provider.
+// Returns nil if no suitable provider is available.
+func newLLMExtractor(driverReg *llm.DriverRegistry, cfg *llm.ProvidersConfig) web.ContentExtractor {
+	providerName := cfg.ResolveDefaultProvider()
+	driver, ok := driverReg.Get(providerName)
+	if !ok {
+		return nil
+	}
+	// Use the provider's default model — the provider config should point to
+	// a fast model suitable for utility calls.
+	return &llmExtractorAdapter{driver: driver, model: driver.Info().DefaultModel}
 }
 
 func main() {

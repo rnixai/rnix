@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,8 @@ const (
 	cacheTTL = 15 * time.Minute
 	// httpTimeout is the HTTP client request timeout.
 	httpTimeout = 30 * time.Second
+	// maxCacheEntries limits cache growth to prevent unbounded memory usage.
+	maxCacheEntries = 1000
 )
 
 // cacheEntry holds a cached page result with expiry.
@@ -55,11 +58,20 @@ type HTMLConverter interface {
 	Convert(htmlContent string) (string, error)
 }
 
+// ContentExtractor abstracts LLM-based content extraction for web_fetch.
+// When a prompt is provided, fetched content is processed through a secondary
+// model (following CC's queryHaiku pattern) to extract/summarize relevant
+// information rather than returning raw content.
+type ContentExtractor interface {
+	Extract(ctx context.Context, content, prompt string) (string, error)
+}
+
 // WebDriver manages web access operations.
 type WebDriver struct {
 	httpClient HTTPClient
 	converter  HTMLConverter
 	search     SearchBackend
+	extractor  ContentExtractor
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
@@ -76,6 +88,7 @@ func (d *WebDriver) ToolDefs() []vfs.ToolDef {
 			Description:       loadPrompt("web_fetch"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
+			IsDestructive:     false,
 			ShouldDefer:       true,
 			SearchHint:        "web fetch url page content",
 			MaxResultTokens:   100000,
@@ -99,6 +112,7 @@ func (d *WebDriver) ToolDefs() []vfs.ToolDef {
 			Description:       loadPrompt("web_search"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
+			IsDestructive:     false,
 			ShouldDefer:       true,
 			SearchHint:        "web search query internet",
 			MaxResultTokens:   100000,
@@ -131,14 +145,16 @@ type DriverOpts struct {
 	HTTPClient HTTPClient
 	Converter  HTMLConverter
 	Search     SearchBackend
+	Extractor  ContentExtractor
 }
 
 // NewDriver creates a WebDriver with default production configuration.
 func NewDriver() *WebDriver {
+	searchURL := os.Getenv("RNIX_SEARCH_URL")
 	return &WebDriver{
 		httpClient: defaultHTTPClient(),
 		converter:  &simpleHTMLConverter{},
-		search:     &searxngBackend{client: defaultHTTPClient()},
+		search:     &searxngBackend{client: defaultHTTPClient(), baseURL: searchURL},
 		cache:      make(map[string]cacheEntry),
 	}
 }
@@ -149,6 +165,7 @@ func NewDriverWithOptions(opts DriverOpts) *WebDriver {
 		httpClient: opts.HTTPClient,
 		converter:  opts.Converter,
 		search:     opts.Search,
+		extractor:  opts.Extractor,
 		cache:      make(map[string]cacheEntry),
 	}
 	if d.httpClient == nil {
@@ -158,7 +175,8 @@ func NewDriverWithOptions(opts DriverOpts) *WebDriver {
 		d.converter = &simpleHTMLConverter{}
 	}
 	if d.search == nil {
-		d.search = &searxngBackend{client: d.httpClient}
+		searchURL := os.Getenv("RNIX_SEARCH_URL")
+		d.search = &searxngBackend{client: d.httpClient, baseURL: searchURL}
 	}
 	return d
 }
@@ -193,10 +211,25 @@ func (d *WebDriver) getCached(rawURL string) (string, bool) {
 	return entry.data, true
 }
 
-// setCache stores content in the cache.
+// setCache stores content in the cache, evicting expired entries if full.
 func (d *WebDriver) setCache(rawURL, content string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if len(d.cache) >= maxCacheEntries {
+		now := time.Now()
+		for k, v := range d.cache {
+			if now.After(v.expiresAt) {
+				delete(d.cache, k)
+			}
+		}
+		// If still full after evicting expired, remove one arbitrary entry.
+		if len(d.cache) >= maxCacheEntries {
+			for k := range d.cache {
+				delete(d.cache, k)
+				break
+			}
+		}
+	}
 	d.cache[rawURL] = cacheEntry{data: content, expiresAt: time.Now().Add(cacheTTL)}
 }
 
@@ -214,13 +247,13 @@ func (d *WebDriver) fetch(ctx context.Context, rawURL, prompt string) (string, e
 	// Auto-upgrade HTTP → HTTPS
 	fetchURL := rawURL
 	if parsed.Scheme == "http" {
-		httpsURL := "https" + rawURL[4:]
-		fetchURL = httpsURL
+		parsed.Scheme = "https"
+		fetchURL = parsed.String()
 	}
 
 	// Check cache
 	if cached, ok := d.getCached(fetchURL); ok {
-		return d.formatResult(cached, prompt), nil
+		return d.formatResult(ctx, cached, prompt)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
@@ -282,14 +315,41 @@ func (d *WebDriver) fetch(ctx context.Context, rawURL, prompt string) (string, e
 	// Cache the result
 	d.setCache(fetchURL, truncated)
 
-	return d.formatResult(truncated, prompt), nil
+	return d.formatResult(ctx, truncated, prompt)
 }
 
-func (d *WebDriver) formatResult(content, prompt string) string {
-	if prompt != "" {
-		return fmt.Sprintf("[Extraction prompt]: %s\n\n---\n\n%s", prompt, content)
+// formatResult processes fetched content through the secondary model when a
+// prompt is provided and a ContentExtractor is available. This mirrors CC's
+// applyPromptToMarkdown pattern where a small/fast model (Haiku) processes
+// the content with the user's extraction prompt. Falls back to raw content
+// prepended with the prompt tag if no extractor is configured or the call fails.
+func (d *WebDriver) formatResult(ctx context.Context, content, prompt string) (string, error) {
+	if prompt == "" || d.extractor == nil {
+		if prompt != "" {
+			return fmt.Sprintf("[Extraction prompt]: %s\n\n---\n\n%s", prompt, content), nil
+		}
+		return content, nil
 	}
-	return content
+
+	result, err := d.extractor.Extract(ctx, content, prompt)
+	if err != nil {
+		// Graceful fallback: return raw content with prompt tag
+		return fmt.Sprintf("[Extraction prompt]: %s\n\n---\n\n%s", prompt, content), nil
+	}
+	return result, nil
+}
+
+// MakeSecondaryModelPrompt builds the prompt sent to the secondary model for
+// content extraction. Exported for testing. Mirrors CC's makeSecondaryModelPrompt.
+func MakeSecondaryModelPrompt(content, prompt string) string {
+	return fmt.Sprintf(`Web page content:
+---
+%s
+---
+
+%s
+
+Provide a concise response based on the content above. Include relevant details, code examples, and documentation excerpts as needed.`, content, prompt)
 }
 
 // isCrossDomainRedirect checks if a redirect crosses domain boundaries.
@@ -541,7 +601,12 @@ func (s *searxngBackend) Search(ctx context.Context, query string, allowedDomain
 	searchURL := fmt.Sprintf("%s/search?q=%s&format=json", strings.TrimRight(baseURL, "/"), url.QueryEscape(q))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating search request: %w", err)
+		return nil, &types.DriverError{
+			Op:     "Search",
+			Device: "/dev/web",
+			Err:    fmt.Errorf("creating search request: %w", err),
+			Code:   types.ErrDriver,
+		}
 	}
 
 	resp, err := s.client.Do(req)
@@ -566,7 +631,12 @@ func (s *searxngBackend) Search(ctx context.Context, query string, allowedDomain
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, fmt.Errorf("reading search response: %w", err)
+		return nil, &types.DriverError{
+			Op:     "Search",
+			Device: "/dev/web",
+			Err:    fmt.Errorf("reading search response: %w", err),
+			Code:   types.ErrDriver,
+		}
 	}
 
 	var searxResp struct {
@@ -577,7 +647,12 @@ func (s *searxngBackend) Search(ctx context.Context, query string, allowedDomain
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(body, &searxResp); err != nil {
-		return nil, fmt.Errorf("parsing search response: %w", err)
+		return nil, &types.DriverError{
+			Op:     "Search",
+			Device: "/dev/web",
+			Err:    fmt.Errorf("parsing search response: %w", err),
+			Code:   types.ErrDriver,
+		}
 	}
 
 	var results []SearchResult

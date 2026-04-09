@@ -99,7 +99,9 @@ func (c *Client) EnsureInitialized(ctx context.Context) error {
 		return nil
 	}
 
-	cmd := c.cmdStarter(ctx, c.command, c.args...)
+	// Use background context for the process lifetime — the server must outlive
+	// individual request contexts.
+	cmd := c.cmdStarter(context.Background(), c.command, c.args...)
 	cmd.Dir = c.workDir
 
 	stdin, err := cmd.StdinPipe()
@@ -165,9 +167,47 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 		c.mu.Unlock()
 		return nil, fmt.Errorf("LSP client not initialized")
 	}
-	result, err := c.callLocked(ctx, method, params)
+
+	id := c.nextID.Add(1)
+	ch := make(chan *jsonRPCResponse, 1)
+	c.pendingMu.Lock()
+	c.pending[id] = ch
+	c.pendingMu.Unlock()
+
+	req := jsonRPCRequest{
+		JSONRPC: "2.0",
+		ID:      id,
+		Method:  method,
+		Params:  params,
+	}
+
+	if err := c.writeMessage(req); err != nil {
+		c.mu.Unlock()
+		c.pendingMu.Lock()
+		delete(c.pending, id)
+		c.pendingMu.Unlock()
+		return nil, err
+	}
+
+	// Capture readDone before releasing mu to avoid race with Close().
+	readDone := c.readDone
 	c.mu.Unlock()
-	return result, err
+
+	// Wait for response without holding mu — allows concurrent Close() and other calls.
+	select {
+	case resp := <-ch:
+		if resp.Error != nil {
+			return nil, resp.Error
+		}
+		return resp.Result, nil
+	case <-ctx.Done():
+		c.pendingMu.Lock()
+		delete(c.pending, id)
+		c.pendingMu.Unlock()
+		return nil, ctx.Err()
+	case <-readDone:
+		return nil, fmt.Errorf("LSP server connection closed")
+	}
 }
 
 // callLocked sends a request while the mutex is held.

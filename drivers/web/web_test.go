@@ -198,6 +198,126 @@ func TestWebFile_Fetch_WithPrompt(t *testing.T) {
 	}
 }
 
+// --- ContentExtractor tests ---
+
+type mockExtractor struct {
+	fn func(ctx context.Context, content, prompt string) (string, error)
+}
+
+func (m *mockExtractor) Extract(ctx context.Context, content, prompt string) (string, error) {
+	return m.fn(ctx, content, prompt)
+}
+
+func TestWebFile_Fetch_WithExtractor(t *testing.T) {
+	client := newMockHTTPClient(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/plain"}},
+			Body:       io.NopCloser(strings.NewReader("Go is a programming language.")),
+			Request:    req,
+		}, nil
+	})
+
+	extractor := &mockExtractor{fn: func(_ context.Context, content, prompt string) (string, error) {
+		return fmt.Sprintf("Extracted: %s from content of length %d", prompt, len(content)), nil
+	}}
+
+	d := NewDriverWithOptions(DriverOpts{HTTPClient: client, Converter: &mockConverter{}, Extractor: extractor})
+	f := &WebFile{driver: d, devicePath: "/dev/web"}
+
+	err := f.Write(context.Background(), []byte(`{"url":"https://example.com","prompt":"what language is described?"}`))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	data, _ := f.Read(1 << 20)
+	result := string(data)
+	if !strings.Contains(result, "Extracted:") {
+		t.Errorf("expected extractor output, got: %q", result)
+	}
+	if strings.Contains(result, "[Extraction prompt]") {
+		t.Errorf("should not contain raw prompt tag when extractor succeeds, got: %q", result)
+	}
+}
+
+func TestWebFile_Fetch_ExtractorFallback(t *testing.T) {
+	client := newMockHTTPClient(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/plain"}},
+			Body:       io.NopCloser(strings.NewReader("raw content")),
+			Request:    req,
+		}, nil
+	})
+
+	extractor := &mockExtractor{fn: func(_ context.Context, _, _ string) (string, error) {
+		return "", fmt.Errorf("model unavailable")
+	}}
+
+	d := NewDriverWithOptions(DriverOpts{HTTPClient: client, Converter: &mockConverter{}, Extractor: extractor})
+	f := &WebFile{driver: d, devicePath: "/dev/web"}
+
+	err := f.Write(context.Background(), []byte(`{"url":"https://example.com","prompt":"extract info"}`))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	data, _ := f.Read(1 << 20)
+	result := string(data)
+	// Should fall back to raw content with prompt tag
+	if !strings.Contains(result, "[Extraction prompt]") {
+		t.Errorf("expected fallback with prompt tag, got: %q", result)
+	}
+	if !strings.Contains(result, "raw content") {
+		t.Errorf("expected raw content in fallback, got: %q", result)
+	}
+}
+
+func TestWebFile_Fetch_NoPrompt_SkipsExtractor(t *testing.T) {
+	extractorCalled := false
+	client := newMockHTTPClient(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     http.Header{"Content-Type": []string{"text/plain"}},
+			Body:       io.NopCloser(strings.NewReader("raw content")),
+			Request:    req,
+		}, nil
+	})
+
+	extractor := &mockExtractor{fn: func(_ context.Context, _, _ string) (string, error) {
+		extractorCalled = true
+		return "should not be called", nil
+	}}
+
+	d := NewDriverWithOptions(DriverOpts{HTTPClient: client, Converter: &mockConverter{}, Extractor: extractor})
+	f := &WebFile{driver: d, devicePath: "/dev/web"}
+
+	err := f.Write(context.Background(), []byte(`{"url":"https://example.com"}`))
+	if err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+
+	if extractorCalled {
+		t.Error("extractor should not be called when prompt is empty")
+	}
+}
+
+func TestMakeSecondaryModelPrompt(t *testing.T) {
+	result := MakeSecondaryModelPrompt("Hello world", "extract title")
+	if !strings.Contains(result, "Hello world") {
+		t.Error("expected content in prompt")
+	}
+	if !strings.Contains(result, "extract title") {
+		t.Error("expected prompt text in prompt")
+	}
+	if !strings.Contains(result, "Web page content:") {
+		t.Error("expected prompt structure marker")
+	}
+	if !strings.Contains(result, "concise response") {
+		t.Error("expected guidelines in prompt")
+	}
+}
+
 func TestWebFile_Fetch_HTTPError(t *testing.T) {
 	client := newMockHTTPClient(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
@@ -592,5 +712,54 @@ func TestSearxngBackend_NoBaseURL(t *testing.T) {
 	_, err := backend.Search(context.Background(), "test", nil, nil)
 	if err == nil {
 		t.Error("expected error when baseURL is empty")
+	}
+}
+
+// --- Device registration integration test (Task 4.3) ---
+
+func TestDeviceRegistration_Integration(t *testing.T) {
+	devReg := vfs.NewDeviceRegistry()
+
+	webDriver := NewDriverWithOptions(DriverOpts{
+		Search: &mockSearchBackend{fn: func(ctx context.Context, q string, a, b []string) ([]SearchResult, error) {
+			return nil, nil
+		}},
+	})
+	err := devReg.RegisterWithDriver("/dev/web", FileFactory(webDriver), webDriver)
+	if err != nil {
+		t.Fatalf("RegisterWithDriver failed: %v", err)
+	}
+
+	driver, ok := devReg.GetDriver("/dev/web")
+	if !ok {
+		t.Fatal("driver not found after registration")
+	}
+
+	td, ok := driver.(vfs.ToolDescriptor)
+	if !ok {
+		t.Fatal("driver does not implement ToolDescriptor")
+	}
+
+	defs := td.ToolDefs()
+	if len(defs) != 2 {
+		t.Errorf("expected 2 ToolDefs, got %d", len(defs))
+	}
+	if defs[0].Name != "web_fetch" {
+		t.Errorf("expected first ToolDef name 'web_fetch', got %q", defs[0].Name)
+	}
+	if defs[1].Name != "web_search" {
+		t.Errorf("expected second ToolDef name 'web_search', got %q", defs[1].Name)
+	}
+
+	found := false
+	devReg.RangeDrivers(func(path string, d any) bool {
+		if path == "/dev/web" {
+			found = true
+			return false
+		}
+		return true
+	})
+	if !found {
+		t.Error("driver not found via RangeDrivers")
 	}
 }

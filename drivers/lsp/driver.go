@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/rnixai/rnix/internal/types"
@@ -49,6 +50,7 @@ func (d *LspDriver) ToolDefs() []vfs.ToolDef {
 			Description:       loadPrompt("lsp"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
+			IsDestructive:     false,
 			ShouldDefer:       true,
 			SearchHint:        "lsp code definition references symbol",
 			MaxResultTokens:   100000,
@@ -121,7 +123,14 @@ func (d *LspDriver) getOrCreateClient(ctx context.Context, workDir string) (*Cli
 	defer d.mu.Unlock()
 
 	if client, ok := d.clients[workDir]; ok {
-		return client, nil
+		// Check if client is still alive by probing readDone channel.
+		select {
+		case <-client.readDone:
+			// Client is dead — remove and fall through to create a new one.
+			delete(d.clients, workDir)
+		default:
+			return client, nil
+		}
 	}
 
 	client := NewClient(d.command, nil, workDir)
@@ -204,7 +213,7 @@ func (d *LspDriver) buildParams(req lspRequest, method string, workDir string) (
 		return map[string]any{"query": req.Query}, nil
 
 	case "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls":
-		if req.Item == nil {
+		if len(req.Item) == 0 || string(req.Item) == "null" {
 			return nil, &types.DriverError{
 				Op:     "Write",
 				Device: "/dev/lsp",
@@ -228,6 +237,16 @@ func (d *LspDriver) buildParams(req lspRequest, method string, workDir string) (
 		absPath := req.FilePath
 		if !filepath.IsAbs(absPath) {
 			absPath = filepath.Join(workDir, req.FilePath)
+		}
+		absPath = filepath.Clean(absPath)
+		cleanWork := filepath.Clean(workDir)
+		if absPath != cleanWork && !strings.HasPrefix(absPath, cleanWork+string(filepath.Separator)) {
+			return nil, &types.DriverError{
+				Op:     "Write",
+				Device: "/dev/lsp",
+				Err:    fmt.Errorf("filePath escapes working directory: %s", req.FilePath),
+				Code:   types.ErrPermission,
+			}
 		}
 		uri := "file://" + absPath
 
