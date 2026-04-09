@@ -1,0 +1,12 @@
+Update an existing task's properties. Use this to change status, description, dependencies, or other task fields.
+
+Parameters:
+- id (required): The task ID to update
+- subject (optional): New task title
+- description (optional): New task description
+- status (optional): New status - "pending", "in_progress", "completed", or "deleted"
+- owner (optional): New owner
+- addBlocks (optional): Array of task IDs to add as blocked by this task
+- addBlockedBy (optional): Array of task IDs to add as blocking this task
+
+Returns the updated task.

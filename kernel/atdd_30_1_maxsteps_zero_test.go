@@ -115,3 +115,4 @@ func (c *s301Callbacks) OnStep(pid types.PID, step, total int) {
 func (c *s301Callbacks) OnStepComplete(_ types.PID, _ int, _ string, _ string, _ bool, _ float64) {}
 func (c *s301Callbacks) OnComplete(_ types.PID, _ string, _ ExitStatus)                            {}
 func (c *s301Callbacks) OnError(_ types.PID, _ error)                                              {}
+func (c *s301Callbacks) OnAskUser(_ types.PID, _ string, _ []byte) ([]byte, error)                 { return nil, nil }

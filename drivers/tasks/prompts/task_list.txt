@@ -1,0 +1,6 @@
+List all tasks, optionally filtered by status. Use this to see what work items exist and their current state.
+
+Parameters:
+- status (optional): Filter by status - "pending", "in_progress", "completed", or "deleted". If omitted, returns all tasks.
+
+Returns an array of tasks with their IDs, subjects, statuses, and dependency information.

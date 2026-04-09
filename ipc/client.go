@@ -394,6 +394,22 @@ func (c *Client) Shutdown() error {
 	return err
 }
 
+// AnswerUser sends an answer for a pending ask_user request.
+// Uses a separate connection to avoid interfering with the spawn stream.
+func AnswerUser(socketPath string, requestID string, answers json.RawMessage) error {
+	client, err := Dial(socketPath)
+	if err != nil {
+		return fmt.Errorf("dial for answer_user: %w", err)
+	}
+	defer client.Close()
+
+	_, err = client.call(MethodAnswerUser, AnswerUserRequest{
+		RequestID: requestID,
+		Answers:   answers,
+	})
+	return err
+}
+
 // RecordStart starts execution recording for a process.
 // Returns the recording ID.
 func (c *Client) RecordStart(pid types.PID) (string, error) {

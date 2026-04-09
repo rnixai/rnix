@@ -1,0 +1,11 @@
+Create a new task to track work items. Tasks represent units of work that can be assigned, tracked, and organized with dependencies.
+
+Parameters:
+- subject (required): Brief title describing the task
+- description (optional): Detailed description of what the task involves
+- status (optional): Initial status - "pending" (default) or "in_progress"
+- owner (optional): Who is responsible for this task
+- addBlocks (optional): Array of task IDs that this task blocks (cannot proceed until this task completes)
+- addBlockedBy (optional): Array of task IDs that block this task (this task cannot proceed until those complete)
+
+Returns the created task with its auto-generated ID.

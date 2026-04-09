@@ -61,6 +61,7 @@ const (
 	MethodResume                 Method = "resume"
 	MethodHeartbeatStatus        Method = "heartbeat_status"
 	MethodCompact                Method = "compact"
+	MethodAnswerUser             Method = "answer_user"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -422,6 +423,9 @@ const (
 	StreamIntentDriftDetected     StreamEventType = "intent_drift_detected"
 	StreamIntentDriftResolved     StreamEventType = "intent_drift_resolved"
 	StreamIntentIncrementalMerged StreamEventType = "intent_incremental_merged"
+
+	// tty ask_user stream event type (Story 33-2)
+	StreamAskUser StreamEventType = "ask_user"
 )
 
 // ProgressPayload maps kernel callback events to IPC wire format.
@@ -1114,4 +1118,19 @@ func SocketPath() string {
 		return filepath.Join(dir, "rnix", "rnix.sock")
 	}
 	return filepath.Join(os.TempDir(), fmt.Sprintf("rnix-%d", os.Getuid()), "rnix.sock")
+}
+
+// --- /dev/tty AskUser Wire Types (Story 33-2) ---
+
+// AskUserEvent is sent from daemon to CLI as a StreamAskUser event during spawn.
+type AskUserEvent struct {
+	PID       types.PID       `json:"pid"`
+	RequestID string          `json:"request_id"`
+	Questions json.RawMessage `json:"questions"` // raw JSON array of Question
+}
+
+// AnswerUserRequest is sent from CLI to daemon via MethodAnswerUser.
+type AnswerUserRequest struct {
+	RequestID string          `json:"request_id"`
+	Answers   json.RawMessage `json:"answers"` // raw JSON array of Answer
 }

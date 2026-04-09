@@ -1,0 +1,18 @@
+Ask the user a question and wait for their response. Use this tool when you need to ask the user questions during your reasoning process. This allows you to:
+1. Gather user preferences or requirements
+2. Clarify ambiguous instructions
+3. Get decisions on implementation choices as you work
+4. Confirm potentially destructive or irreversible actions
+
+Parameters:
+- questions (required): Array of 1-4 question objects, each containing:
+  - question (required): The question text to display
+  - options (optional): Array of predefined answer choices. An "Other" free-text option is automatically appended.
+  - multi_select (optional): If true and options are provided, user can select multiple answers
+
+Notes:
+- This tool BLOCKS execution until the user responds or timeout (5 minutes)
+- Ask one focused question at a time for best results; use multiple questions only when they are closely related
+- Provide options when the answer space is well-defined to reduce ambiguity
+- Keep questions clear and concise
+- Do not use this tool for simple confirmations that can be inferred from context

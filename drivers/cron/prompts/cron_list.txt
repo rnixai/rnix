@@ -1,0 +1,3 @@
+List all active cron jobs, showing their schedule, prompt, agent, next run time, and status.
+
+No parameters required. Returns an array of all active cron jobs.

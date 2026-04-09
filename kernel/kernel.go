@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	gocontext "context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,22 @@ type MountManager interface {
 	Mount(path string, config vfs.MCPConfig) error
 	Unmount(path string) error
 	UnmountAll() error
+}
+
+// pidContextKey is used to store PID in context for VFS device callbacks.
+type pidContextKey struct{}
+
+// ContextWithPID returns a context carrying the given PID.
+func ContextWithPID(ctx gocontext.Context, pid types.PID) gocontext.Context {
+	return gocontext.WithValue(ctx, pidContextKey{}, pid)
+}
+
+// PIDFromContext extracts the PID from a context, returning 0 if not present.
+func PIDFromContext(ctx gocontext.Context) types.PID {
+	if pid, ok := ctx.Value(pidContextKey{}).(types.PID); ok {
+		return pid
+	}
+	return 0
 }
 
 // DefaultMaxSteps is the default maximum number of reasoning steps.
@@ -63,6 +80,7 @@ type KernelCallbacks interface {
 	OnStepComplete(pid types.PID, step int, action string, summary string, hasError bool, durationMs float64)
 	OnComplete(pid types.PID, result string, exit ExitStatus)
 	OnError(pid types.PID, err error)
+	OnAskUser(pid types.PID, requestID string, questions []byte) ([]byte, error)
 }
 
 // ProcessManager defines the kernel's process management interface.

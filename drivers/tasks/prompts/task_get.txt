@@ -1,0 +1,6 @@
+Get detailed information about a specific task by its ID.
+
+Parameters:
+- id (required): The task ID to retrieve
+
+Returns the full task details including subject, description, status, owner, dependencies (blocks/blocked_by), and timestamps.

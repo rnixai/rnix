@@ -541,6 +541,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 
 	// Set up goroutine context for cancellation
 	ctx, cancel := gocontext.WithCancel(gocontext.Background())
+	ctx = ContextWithPID(ctx, proc.PID)
 	proc.cancel = cancel
 	proc.ctx = ctx
 

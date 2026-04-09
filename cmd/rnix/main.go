@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,9 @@ import (
 	"github.com/rnixai/rnix/drivers/lsp"
 	"github.com/rnixai/rnix/drivers/mcp"
 	drivershell "github.com/rnixai/rnix/drivers/shell"
+	"github.com/rnixai/rnix/drivers/tty"
+	"github.com/rnixai/rnix/drivers/tasks"
+	"github.com/rnixai/rnix/drivers/cron"
 	"github.com/rnixai/rnix/drivers/web"
 	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/internal/config"
@@ -139,6 +143,11 @@ func (c *cliCallbacks) OnComplete(pid types.PID, result string, exit kernel.Exit
 
 func (c *cliCallbacks) OnError(pid types.PID, err error) {
 	// Output handled by main flow after Done channel
+}
+
+func (c *cliCallbacks) OnAskUser(pid types.PID, requestID string, questions []byte) ([]byte, error) {
+	// Not used in embedded mode — /dev/tty requires daemon mode with IPC
+	return nil, fmt.Errorf("ask_user not supported in embedded mode")
 }
 
 var rootCmd = &cobra.Command{
@@ -527,9 +536,16 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}()
 
 	pid, final, spawnErr := client.SpawnAndWatch(req, func(ev ipc.StreamEvent) {
-		if ev.Type != ipc.StreamProgress {
+		switch ev.Type {
+		case ipc.StreamAskUser:
+			handleAskUserEvent(ev.Payload, ipc.SocketPath())
+			return
+		case ipc.StreamProgress:
+			// fall through to progress handling below
+		default:
 			return
 		}
+
 		var pp ipc.ProgressPayload
 		if err := json.Unmarshal(ev.Payload, &pp); err != nil {
 			return
@@ -857,6 +873,82 @@ func outputError(renderer *ui.Renderer, mode ui.OutputMode, device string, reaso
 	}
 
 	ui.RenderError(renderer, device, reason, impact, suggestion)
+}
+
+// handleAskUserEvent processes a StreamAskUser event from the daemon during spawn.
+// It displays questions to the user via stdin/stdout and sends answers back.
+func handleAskUserEvent(payload json.RawMessage, socketPath string) {
+	var ev ipc.AskUserEvent
+	if err := json.Unmarshal(payload, &ev); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ ask_user: invalid event: %v\n", err)
+		return
+	}
+
+	// Parse questions from raw JSON
+	var questions []struct {
+		Question    string   `json:"question"`
+		Options     []string `json:"options,omitempty"`
+		MultiSelect bool     `json:"multi_select,omitempty"`
+	}
+	if err := json.Unmarshal(ev.Questions, &questions); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ ask_user: invalid questions: %v\n", err)
+		return
+	}
+
+	scanner := bufio.NewScanner(os.Stdin)
+	var answers []json.RawMessage
+
+	for _, q := range questions {
+		fmt.Fprintf(os.Stdout, "\n❓ %s\n", q.Question)
+
+		if len(q.Options) > 0 {
+			for i, opt := range q.Options {
+				fmt.Fprintf(os.Stdout, "  %d) %s\n", i+1, opt)
+			}
+			if q.MultiSelect {
+				fmt.Fprint(os.Stdout, "Enter choices (comma-separated numbers): ")
+			} else {
+				fmt.Fprint(os.Stdout, "Enter choice number: ")
+			}
+		} else {
+			fmt.Fprint(os.Stdout, "> ")
+		}
+
+		if !scanner.Scan() {
+			// EOF or error
+			break
+		}
+		input := strings.TrimSpace(scanner.Text())
+
+		var ansJSON []byte
+		if len(q.Options) > 0 && q.MultiSelect {
+			// Parse comma-separated numbers
+			var selected []string
+			for part := range strings.SplitSeq(input, ",") {
+				idx, err := strconv.Atoi(strings.TrimSpace(part))
+				if err == nil && idx >= 1 && idx <= len(q.Options) {
+					selected = append(selected, q.Options[idx-1])
+				}
+			}
+			ansJSON, _ = json.Marshal(map[string]any{"answers": selected})
+		} else if len(q.Options) > 0 {
+			// Single select by number
+			idx, err := strconv.Atoi(input)
+			if err == nil && idx >= 1 && idx <= len(q.Options) {
+				ansJSON, _ = json.Marshal(map[string]any{"answer": q.Options[idx-1]})
+			} else {
+				ansJSON, _ = json.Marshal(map[string]any{"answer": input})
+			}
+		} else {
+			ansJSON, _ = json.Marshal(map[string]any{"answer": input})
+		}
+		answers = append(answers, ansJSON)
+	}
+
+	answersJSON, _ := json.Marshal(answers)
+	if err := ipc.AnswerUser(socketPath, ev.RequestID, answersJSON); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ ask_user: failed to send answer: %v\n", err)
+	}
 }
 
 func runPs(cmd *cobra.Command, args []string) error {
@@ -1237,6 +1329,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	lspDriver := lsp.NewDriver()
 	_ = devReg.RegisterWithDriver("/dev/lsp", lsp.FileFactory(lspDriver), lspDriver)
 	defer lspDriver.CloseAll()
+
+	// /dev/tasks (Story 33-2) — session-level task store, shared across processes
+	tasksDriver := tasks.NewDriver()
+	_ = devReg.RegisterWithDriver("/dev/tasks", tasks.FileFactory(tasksDriver), tasksDriver)
 	ctxMgr := rnixctx.NewManager()
 	skillLoader := skills.NewSkillLoader([]string{filepath.Join(globalDir, "skills")})
 
@@ -1428,6 +1524,42 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 	intentMgr := intent.NewManager(intentDecomposer, intentSpawner, intent.DefaultReconcilerConfig())
 	srv.SetIntentManager(ipc.NewIntentManagerAdapter(intentMgr))
+
+	// /dev/tty (Story 33-2) — user interaction via ask_user callback through IPC
+	ttyDriver := tty.NewDriver(func(ctx context.Context, questions []tty.Question) ([]tty.Answer, error) {
+		questionsJSON, err := json.Marshal(questions)
+		if err != nil {
+			return nil, fmt.Errorf("marshal questions: %w", err)
+		}
+		// Extract PID from process context (uses kernel context key)
+		pid := kernel.PIDFromContext(ctx)
+		requestID := fmt.Sprintf("ask-%d-%d", pid, time.Now().UnixNano())
+		answersJSON, err := srv.CallbackMux().(interface {
+			OnAskUser(types.PID, string, []byte) ([]byte, error)
+		}).OnAskUser(pid, requestID, questionsJSON)
+		if err != nil {
+			return nil, err
+		}
+		var answers []tty.Answer
+		if err := json.Unmarshal(answersJSON, &answers); err != nil {
+			return nil, fmt.Errorf("unmarshal answers: %w", err)
+		}
+		return answers, nil
+	})
+	_ = devReg.RegisterWithDriver("/dev/tty", tty.FileFactory(ttyDriver), ttyDriver)
+
+	// /dev/cron (Story 33-2) — scheduled recurring jobs
+	cronDataDir := resolveDataDir(cwd, "cron")
+	cronDriver := cron.NewDriver(cronDataDir, func(agent, prompt string) error {
+		agentInfo, _ := agentLoader.Load(agent)
+		_, err := k.Spawn(prompt, agentInfo, kernel.SpawnOpts{})
+		return err
+	})
+	if err := cronDriver.LoadAndStart(); err != nil {
+		fmt.Fprintf(os.Stderr, "[kernel] warn: cron load failed: %v\n", err)
+	}
+	_ = devReg.RegisterWithDriver("/dev/cron", cron.FileFactory(cronDriver), cronDriver)
+	defer cronDriver.Close()
 
 	procFS := vfs.NewProcFS(k, ctxMgr)
 	_ = devReg.Register("/proc", procFS.FileFactory())

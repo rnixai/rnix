@@ -1,0 +1,6 @@
+Delete a cron job by its ID, stopping all future scheduled executions.
+
+Parameters:
+- id (required): The cron job ID to delete
+
+The job is immediately removed and will not trigger again.

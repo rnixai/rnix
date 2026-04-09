@@ -376,6 +376,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleHeartbeatStatus(conn)
 		case MethodCompact:
 			s.handleCompact(conn, req.Payload)
+		case MethodAnswerUser:
+			s.handleAnswerUser(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -1568,12 +1570,14 @@ func bpConditionString(bp *kernel.Breakpoint) string {
 
 // callbackMux routes KernelCallbacks events to per-PID channels for streaming to clients.
 type callbackMux struct {
-	handlers *xsync.SyncMap[types.PID, chan<- StreamEvent]
+	handlers    *xsync.SyncMap[types.PID, chan<- StreamEvent]
+	pendingAsks *xsync.SyncMap[string, chan []byte]
 }
 
 func newCallbackMux() *callbackMux {
 	return &callbackMux{
-		handlers: xsync.NewSyncMap[types.PID, chan<- StreamEvent](),
+		handlers:    xsync.NewSyncMap[types.PID, chan<- StreamEvent](),
+		pendingAsks: xsync.NewSyncMap[string, chan []byte](),
 	}
 }
 
@@ -1623,6 +1627,40 @@ func (m *callbackMux) OnError(pid types.PID, err error) {
 	pp := ProgressPayload{Event: "error", PID: pid, ErrorMessage: err.Error()}
 	payload, _ := json.Marshal(pp)
 	m.send(pid, StreamEvent{Type: StreamProgress, Payload: payload})
+}
+
+func (m *callbackMux) OnAskUser(pid types.PID, requestID string, questions []byte) ([]byte, error) {
+	// Create answer channel before sending event
+	answerCh := make(chan []byte, 1)
+	m.pendingAsks.Store(requestID, answerCh)
+	defer m.pendingAsks.Delete(requestID)
+
+	// Send ask_user event to CLI via the spawn stream
+	askEv := AskUserEvent{PID: pid, RequestID: requestID, Questions: questions}
+	payload, _ := json.Marshal(askEv)
+	m.send(pid, StreamEvent{Type: StreamAskUser, Payload: payload})
+
+	// Block waiting for answer (with 5-minute timeout)
+	select {
+	case answer := <-answerCh:
+		return answer, nil
+	case <-time.After(5 * time.Minute):
+		return nil, fmt.Errorf("ask_user timeout: no answer received within 5 minutes")
+	}
+}
+
+// deliverAnswer routes an answer to the pending ask_user request.
+func (m *callbackMux) deliverAnswer(requestID string, answers []byte) error {
+	ch, ok := m.pendingAsks.Load(requestID)
+	if !ok {
+		return fmt.Errorf("no pending ask for request_id %q", requestID)
+	}
+	select {
+	case ch <- answers:
+		return nil
+	default:
+		return fmt.Errorf("answer channel full for request_id %q", requestID)
+	}
 }
 
 // Compile-time check that callbackMux implements KernelCallbacks.
@@ -3397,4 +3435,23 @@ func (s *Server) handleCompact(conn net.Conn, rawPayload json.RawMessage) {
 	}
 	compactPayload, _ := json.Marshal(compactResp)
 	writeResponse(conn, Response{OK: true, Payload: compactPayload})
+}
+
+func (s *Server) handleAnswerUser(conn net.Conn, rawPayload json.RawMessage) {
+	var req AnswerUserRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid answer_user request"}})
+		return
+	}
+	if req.RequestID == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "request_id is required"}})
+		return
+	}
+
+	if err := s.callbackMux.deliverAnswer(req.RequestID, req.Answers); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: string(types.ErrNotFound), Message: err.Error()}})
+		return
+	}
+
+	writeResponse(conn, Response{OK: true})
 }

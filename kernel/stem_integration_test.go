@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -231,5 +232,9 @@ func (tc *testCallbacks) OnError(pid types.PID, err error) {
 	if tc.onError != nil {
 		tc.onError(pid, err)
 	}
+}
+
+func (tc *testCallbacks) OnAskUser(pid types.PID, requestID string, questions []byte) ([]byte, error) {
+	return nil, fmt.Errorf("ask_user not supported in test")
 }
 

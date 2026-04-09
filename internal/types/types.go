@@ -45,6 +45,7 @@ const (
 	ErrBrokenPipe         ErrCode = "BROKEN_PIPE"
 	ErrServiceUnavailable ErrCode = "SERVICE_UNAVAILABLE"
 	ErrAlreadyMounted     ErrCode = "ALREADY_MOUNTED"
+	ErrResourceExhausted  ErrCode = "RESOURCE_EXHAUSTED"
 )
 
 // Signal represents a process signal.

@@ -212,6 +212,9 @@ func (m *mockCallbacksWithUUID) OnStep(pid types.PID, step, total int)          
 func (m *mockCallbacksWithUUID) OnStepComplete(pid types.PID, step int, action, summary string, hasError bool, durationMs float64) {}
 func (m *mockCallbacksWithUUID) OnComplete(pid types.PID, result string, exit ExitStatus)        {}
 func (m *mockCallbacksWithUUID) OnError(pid types.PID, err error)                                {}
+func (m *mockCallbacksWithUUID) OnAskUser(pid types.PID, requestID string, questions []byte) ([]byte, error) {
+	return nil, nil
+}
 
 func TestATDD_28_1_AC5_OnSpawn_ReceivesUUID(t *testing.T) {
 	// This test verifies KernelCallbacks.OnSpawn signature includes uuid.

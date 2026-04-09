@@ -1,0 +1,14 @@
+Create a scheduled recurring task that runs on a cron schedule. The task spawns a new agent process with the given prompt at each scheduled time.
+
+Parameters:
+- schedule (required): Cron schedule expression. Supports:
+  - Standard 5-field format: "minute hour day-of-month month day-of-week" (e.g., "*/15 * * * *" for every 15 minutes)
+  - Predefined macros: @every <duration> (e.g., "@every 5m"), @hourly, @daily, @weekly, @monthly
+- prompt (required): The intent/prompt to pass to the spawned agent process
+- agent (optional): Agent name to use for the spawned process (default: "stem")
+- durable (optional): If true, the cron job persists across daemon restarts (default: false)
+
+Notes:
+- Non-durable jobs automatically expire after 7 days
+- Maximum 50 active cron jobs allowed
+- Each trigger spawns a new agent process
