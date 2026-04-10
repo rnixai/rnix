@@ -198,6 +198,19 @@ type dashboardModel struct {
 	alertCursor    int              // cursor position within alert strip
 	alertEvents    []UnifiedEvent   // cached alerts (Severity >= SevWarn, sorted)
 	alertJumpTarget *UnifiedEvent   // pending alert jump after PID change
+
+	// Story 34.6: Debug mode — strace fusion
+	debugMode           bool                        // Debug mode active
+	debugEvents         []UnifiedEvent              // merged debug timeline (steps + strace)
+	debugStraceEvents   []UnifiedEvent              // strace event ring buffer
+	debugClient         *ipc.Client                 // independent IPC connection for strace stream
+	debugStraceCh       <-chan ipc.SyscallEventWire  // strace event channel from goroutine
+	debugShowStrace     bool                        // toggle strace visibility (default true)
+	debugCtxProfile     *debug.CtxProfileResult     // Context Profile data
+	debugDeviceLatency  map[string]*deviceLatencyStats // device latency stats
+	debugAttachedPID    types.PID                   // currently attached PID for strace
+	debugScrollTop      int                         // debug timeline scroll offset
+	debugCursor         int                         // debug timeline cursor
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -218,6 +231,8 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		sysEventSeen:       make(map[string]struct{}),
 		lastEventByPID:     make(map[types.PID]time.Time),
 		collapsedDeadTrees: make(map[string]bool),
+		debugShowStrace:    true, // Story 34.6: show strace events by default
+		debugDeviceLatency: make(map[string]*deviceLatencyStats),
 	}
 }
 
@@ -510,6 +525,11 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.historyProcs = msg.procs
 		m.sortHistoryProcs()
 		return m, nil
+	default:
+		// Story 34.6: Debug mode messages
+		if m2, cmd, handled := m.handleDebugMsg(msg); handled {
+			return m2, cmd
+		}
 	}
 	return m, nil
 }
@@ -807,6 +827,12 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Story 34.6: Debug mode tick processing
+	cmds = append(cmds, m.debugTickCmds()...)
+	if m.debugMode && m.connected && m.heatmapTickCount%5 == 0 && m.selectedPID > 0 {
+		cmds = append(cmds, m.fetchDebugCtxProfileCmd())
+	}
+
 	return m, tea.Batch(cmds...)
 }
 
@@ -895,6 +921,8 @@ func (m dashboardModel) renderDashboard() string {
 		mainContent = m.renderHistoryView(w, contentHeight)
 	case viewLLM:
 		mainContent = m.renderLLMViewer(w, contentHeight)
+	case viewDebug:
+		mainContent = m.renderDebugLayout(w, contentHeight)
 	default: // viewDefault
 		mainContent = m.renderDefaultLayout(w, contentHeight)
 	}
@@ -959,114 +987,6 @@ func (m dashboardModel) renderSinglePane(p paneType, w, h int) string {
 		return m.renderEvalPane(w, h)
 	default:
 		return m.renderTimelinePane(w, h)
-	}
-}
-
-// --- Hint 格式化 ---
-
-// hintKeyStyle 和 hintDescStyle 在 renderDashboardStatus 中延迟初始化。
-var (
-	hintKeyStyle  lipgloss.Style
-	hintDescStyle lipgloss.Style
-	hintInited    bool
-)
-
-func initHintStyles() {
-	if hintInited {
-		return
-	}
-	hintKeyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Bold(true)
-	hintDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	hintInited = true
-}
-
-// hint 渲染单个 key+desc 对：高亮 key，暗淡 desc
-func hint(key, desc string) string {
-	return hintKeyStyle.Render(key) + hintDescStyle.Render(desc)
-}
-
-// hintGroup 用双空格连接一组 hints
-func hintGroup(hints ...string) string {
-	return strings.Join(hints, "  ")
-}
-
-func (m dashboardModel) renderDashboardStatus() string {
-	initHintStyles()
-
-	if m.replayMode {
-		return m.renderReplayStatus()
-	}
-
-	if m.confirmKill {
-		return fmt.Sprintf("  Kill PID %d? [y/N]", m.confirmPID)
-	}
-
-	rec := ""
-	if m.selectedPID > 0 && m.recording[m.selectedUUID] != "" {
-		rec = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●REC") + "  "
-	}
-
-	if m.statusMsg != "" {
-		return "  " + rec + m.statusMsg + "    " + hint("q", "quit")
-	}
-
-	var core []string
-	exit := hint("q", "quit")
-
-	switch m.viewMode {
-	case viewExpanded:
-		core, exit = m.paneHints()
-	case viewHistory:
-		if m.historySearchMode {
-			core = []string{hint("Type ", "search"), hint("Enter ", "ok")}
-			exit = hint("Esc ", "cancel")
-		} else {
-			core = []string{hint("j/k", "nav"), hint("PgDn/Up", "page"), hint("Enter", "focus"), hint("L", "llm"), hint("/", "search"), hint("?", "help")}
-			exit = hint("Esc", "back")
-		}
-	case viewLLM:
-		core = []string{hint("j/k", "scroll"), hint("h/l", "step"), hint("y", "copy"), hint("?", "help")}
-		exit = hint("Esc", "close")
-	default: // viewDefault
-		core = []string{hint("j/k", "nav"), hint("s/S", "sort"), hint("z", "expand"), hint("f", "filter"), hint("H", "hist"), hint("?", "help")}
-	}
-
-	hints := hintGroup(core...) + "    " + exit
-
-	// Dead process filter indicator
-	if m.viewMode != viewHistory && m.isSelectedProcessDead() && m.selectedPID > 0 {
-		hints += hintDescStyle.Render(fmt.Sprintf("  (PID %d)", m.selectedPID))
-	}
-
-	return "  " + rec + hints
-}
-
-// paneHints returns core hints and exit hint for the current expanded pane.
-func (m dashboardModel) paneHints() (core []string, exit string) {
-	exit = hint("q", "quit")
-
-	switch m.expandedPane {
-	case paneTimeline:
-		if m.stepFilterMode {
-			return []string{hint("t", "tool"), hint("p", "plan"), hint("a", "text"), hint("c", "done"), hint("s", "spawn"), hint("r", "repl"), hint("z", "spec"), hint("C/b/x/X/T/i", "sys"), hint("*", "all")},
-				hint("f/Esc", "done")
-		}
-		hints := []string{hint("j/k", "nav"), hint("v", "detail"), hint("e/E", "expand"), hint("n/N", "err"), hint("f", "filter")}
-		if len(m.alertEvents) > 0 {
-			hints = append(hints, hint("a", "alerts"))
-		}
-		hints = append(hints, hint("?", "help"))
-		return hints, exit
-	case paneHeatmap:
-		return []string{hint("j/k", "nav"), hint("Enter", "detail"), hint("z", "restore"), hint("?", "help")}, exit
-	case paneIntent, paneSecurity:
-		return []string{hint("j/k", "nav"), hint("Enter", "jump"), hint("z", "restore"), hint("?", "help")}, exit
-	case paneTrace:
-		return []string{hint("j/k", "nav"), hint("Enter", "expand"), hint("z", "restore"), hint("?", "help")}, exit
-	case paneEval:
-		return []string{hint("j/k", "nav"), hint("h/l", "view"), hint("z", "restore"), hint("?", "help")}, exit
-	default:
-		return []string{hint("j/k", "nav"), hint("Enter", "select"), hint("z", "restore"), hint("?", "help")}, exit
 	}
 }
 

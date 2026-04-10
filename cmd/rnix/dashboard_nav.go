@@ -81,6 +81,48 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.llmViewerKey(msg)
 	}
 
+	// === Layer 2.6: Debug 模式覆盖层 (Story 34.6) ===
+	if m.viewMode == viewDebug {
+		if key == "d" || key == "esc" {
+			m = m.exitDebugMode()
+			return m, nil
+		}
+		// Tree pane navigation when tree is active in debug mode
+		if m.activePane == paneTree {
+			prevPID := m.selectedPID
+			visibleLines := m.dashboardVisibleLines()
+			switch key {
+			case "up", "k":
+				m.userManualSelect = true
+				if m.treeCursor > 0 {
+					m.treeCursor--
+					if m.treeCursor < len(m.treeRows) {
+						m = selectProcess(m, m.treeRows[m.treeCursor])
+					}
+					if m.treeCursor < m.treeOffset {
+						m.treeOffset = m.treeCursor
+					}
+				}
+			case "down", "j":
+				m.userManualSelect = true
+				if m.treeCursor < len(m.treeRows)-1 {
+					m.treeCursor++
+					if m.treeCursor < len(m.treeRows) {
+						m = selectProcess(m, m.treeRows[m.treeCursor])
+					}
+					if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
+						m.treeOffset = m.treeCursor - visibleLines + 1
+					}
+				}
+			default:
+				return m.handleDebugKey(key)
+			}
+			_ = prevPID
+			return m, nil
+		}
+		return m.handleDebugKey(key)
+	}
+
 	// === Layer 3: Kill 确认 ===
 	if m.confirmKill {
 		switch key {
@@ -117,6 +159,17 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.helpOverlay = true
 		return m, nil
+	case "d":
+		// Debug mode (Story 34.6): only from viewDefault, requires selected process
+		if m.viewMode == viewDefault {
+			if m.selectedPID == 0 {
+				m.statusMsg = "Select a process first"
+				m.statusMsgTTL = statusMsgDefaultTTL
+				return m, nil
+			}
+			m2, cmd := m.enterDebugMode()
+			return m2, cmd
+		}
 	case "L", "shift+L":
 		return m.enterLLMViewer()
 	case "H":

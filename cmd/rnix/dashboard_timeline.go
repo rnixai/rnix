@@ -96,6 +96,7 @@ func defaultStepFilters() map[string]bool {
 		EventExit:      true,
 		EventStall:     true,
 		EventImmune:    true,
+		EventSyscall:   true, // Story 34.6: strace events in debug mode
 	}
 }
 

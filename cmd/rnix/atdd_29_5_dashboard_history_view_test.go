@@ -642,6 +642,7 @@ func TestHistoryView_StatusBarShowsFilteredHint(t *testing.T) {
 	paths := []string{
 		filepath.Join(cmdRnixDir(), "dashboard.go"),
 		filepath.Join(cmdRnixDir(), "dashboard_timeline.go"),
+		filepath.Join(cmdRnixDir(), "dashboard_status.go"),
 	}
 
 	found := false

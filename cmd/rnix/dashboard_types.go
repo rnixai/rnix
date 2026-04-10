@@ -32,6 +32,7 @@ const (
 	EventStall   = "stall"
 	EventImmune  = "immune"
 	EventError   = "error"
+	EventSyscall = "syscall"
 )
 
 // UnifiedEvent merges reasoning steps and system events into a single type
@@ -85,6 +86,7 @@ const (
 	viewExpanded                 // 数字键展开某面板
 	viewLLM                      // L：全屏 LLM 对话查看器（Story 29.6 实现）
 	viewHistory                  // H：全屏历史进程列表（Story 29.5 实现）
+	viewDebug                    // d：Debug 模式（Story 34.6 实现）
 )
 
 const colorIPC = "#9B59B6"

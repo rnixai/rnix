@@ -249,7 +249,6 @@ func TestDashboardFileSplitting_CoreFunctionsRemainInMain(t *testing.T) {
 		"dashboardTick",
 		"dashboardVisibleLines",
 		"renderDashboard",
-		"renderDashboardStatus",
 		"handlePIDChange",
 		"runDashboard",
 		"newReplayDashboardModel",

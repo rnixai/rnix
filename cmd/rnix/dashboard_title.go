@@ -96,6 +96,12 @@ func (m dashboardModel) renderDashboardTitle() string {
 
 	base := "  rnix " + connChar
 
+	// Story 34.6: Add DEBUG marker when in debug mode
+	if m.debugMode {
+		debugLabel := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true).Render("DEBUG")
+		base += " " + debugLabel
+	}
+
 	// Build left part (base + optional provider)
 	leftPart := base
 	leftPlain := base

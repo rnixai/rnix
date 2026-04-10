@@ -328,6 +328,7 @@ func TestViewModeSystem_PaneSpecificHintsExists(t *testing.T) {
 	paths := []string{
 		filepath.Join(cmdRnixDir(), "dashboard.go"),
 		filepath.Join(cmdRnixDir(), "dashboard_nav.go"),
+		filepath.Join(cmdRnixDir(), "dashboard_status.go"),
 	}
 
 	found := false
