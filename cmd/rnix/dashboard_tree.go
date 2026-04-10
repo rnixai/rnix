@@ -41,23 +41,21 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	now := time.Now()
 	reused := reusedPIDs(m.processes)
 	visibleLines := max(innerH-1, 1)
+	showCtxBar := innerW >= 30
 
-	endIdx := min(m.treeOffset+visibleLines, len(m.treeRows))
+	// Build collapsed intent map for common prefix folding (AC4)
+	collapsedIntents := m.buildCollapsedIntents()
 
-	for i := m.treeOffset; i < endIdx; i++ {
+	linesRendered := 0
+	for i := m.treeOffset; i < len(m.treeRows) && linesRendered < visibleLines; i++ {
 		row := m.treeRows[i]
 		cursor := "  "
 		if i == m.treeCursor {
 			cursor = "▸ "
 		}
 
-		// State indicator (compact)
-		var stateMark string
-		if row.proc.State == types.StateDead || row.proc.State == types.StateZombie {
-			stateMark = ui.StateSymbol(row.proc.State, row.proc.Result)
-		} else {
-			stateMark = colorState(row.proc.State)
-		}
+		// State badge (AC1)
+		stateMark := ui.StateBadge(row.proc.State, row.proc.Result)
 
 		// Stale detection (Story 30.5)
 		isStale := (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) &&
@@ -69,35 +67,60 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			stateMark += " " + suspendReasonAbbrev(row.proc.SuspendReason)
 		}
 
-		// Intent is the primary content — show full text, gets elastic width
+		// Collapsed dead subtree prefix (AC3)
+		collapsePrefix := ""
+		if row.collapsed {
+			if ui.IsASCIIMode() {
+				collapsePrefix = "> "
+			} else {
+				collapsePrefix = "▶ "
+			}
+		}
+
+		// Intent: use collapsed prefix if available (AC4)
 		intent := row.proc.Intent
 		if intent == "" {
 			intent = "—"
 		}
-
-		// Compact metadata suffix: "1 ● 0 1.8m"
-		pidPart := fmt.Sprintf("%d", row.proc.PID)
-
-		var tokens string
-		if row.proc.ContextBudget > 0 {
-			pct := row.proc.TokensUsed * 100 / row.proc.ContextBudget
-			tokens = fmt.Sprintf("%s/%s(%d%%)",
-				ui.FormatTokens(row.proc.TokensUsed),
-				ui.FormatTokens(row.proc.ContextBudget), pct)
-			if pct >= 80 {
-				tokens = ui.WarningStyle.Render(tokens)
-			}
-		} else {
-			tokens = ui.FormatTokens(row.proc.TokensUsed)
+		if collapsed, ok := collapsedIntents[row.proc.UUID]; ok {
+			intent = collapsed
 		}
 
+		// Compact metadata suffix
+		pidPart := fmt.Sprintf("%d", row.proc.PID)
+
+		isDead := row.proc.State == types.StateDead || row.proc.State == types.StateZombie
+		var tokens string
 		var elapsed string
-		if row.proc.State == types.StateDead && !row.proc.DeadAt.IsZero() {
-			elapsed = ui.FormatDuration(row.proc.DeadAt.Sub(row.proc.CreatedAt))
+
+		if isDead {
+			// Dead processes: show [exit_code] instead of tokens (AC2)
+			exitCode := row.proc.Result
+			if exitCode == "" {
+				exitCode = "?"
+			}
 			if ui.IsFailedResult(row.proc.Result) {
-				elapsed += " ✗"
+				tokens = ui.ErrorStyle.Render("[" + exitCode + "]")
+			} else {
+				tokens = "[" + exitCode + "]"
+			}
+			if !row.proc.DeadAt.IsZero() {
+				elapsed = ui.FormatDuration(row.proc.DeadAt.Sub(row.proc.CreatedAt))
+			} else {
+				elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
 			}
 		} else {
+			if row.proc.ContextBudget > 0 {
+				pct := int(int64(row.proc.TokensUsed) * 100 / int64(row.proc.ContextBudget))
+				tokens = fmt.Sprintf("%s/%s(%d%%)",
+					ui.FormatTokens(row.proc.TokensUsed),
+					ui.FormatTokens(row.proc.ContextBudget), pct)
+				if pct >= 80 {
+					tokens = ui.WarningStyle.Render(tokens)
+				}
+			} else {
+				tokens = ui.FormatTokens(row.proc.TokensUsed)
+			}
 			elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
 		}
 
@@ -117,15 +140,25 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		}
 
 		// Calculate available width for intent (elastic)
-		prefixW := lipgloss.Width(cursor + row.prefix)
+		prefixW := lipgloss.Width(cursor + collapsePrefix + row.prefix)
 		suffixParts := []string{pidPart, stateMark, tokens, elapsed}
 		suffixStr := strings.Join(suffixParts, " ") + rec
 		suffixW := lipgloss.Width(suffixStr)
 		intentW := max(innerW-prefixW-suffixW-3, 8)
 		intentTrunc := truncateRuneWidth(intent, intentW)
 
-		line := fmt.Sprintf("%s%s%-*s %s",
-			cursor, row.prefix, intentW, intentTrunc, suffixStr)
+		// Most active process highlight (AC5): bold if event within 2s
+		isMostActive := false
+		if row.proc.State == types.StateRunning || row.proc.State == types.StateCreated {
+			if lastEvt, ok := m.lastEventByPID[row.proc.PID]; ok {
+				if now.Sub(lastEvt) < 2*time.Second {
+					isMostActive = true
+				}
+			}
+		}
+
+		line := fmt.Sprintf("%s%s%s%-*s %s",
+			cursor, collapsePrefix, row.prefix, intentW, intentTrunc, suffixStr)
 		if isStale {
 			line = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("196")).
@@ -134,9 +167,22 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			line = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFD93D")).
 				Render(line)
+		} else if isMostActive {
+			line = lipgloss.NewStyle().Bold(true).Render(line)
 		}
 		b.WriteString(line)
 		b.WriteString("\n")
+		linesRendered++
+
+		// Context bar for running/created processes (AC2)
+		if showCtxBar && !isDead && linesRendered < visibleLines {
+			if row.proc.ContextBudget > 0 {
+				barPrefix := strings.Repeat(" ", lipgloss.Width(cursor+collapsePrefix+row.prefix))
+				ctxBar := renderCtxBar(row.proc.TokensUsed, row.proc.ContextBudget, 10)
+				b.WriteString(barPrefix + ctxBar + "\n")
+				linesRendered++
+			}
+		}
 	}
 
 	return style.Render(b.String())
@@ -191,7 +237,8 @@ var treeSortLabels = []string{"Time", "PID", "State"}
 // buildProcessTree constructs a process tree from a flat list of ProcInfo.
 // Uses UUID as the node key so that PID-reused processes (old dead + new active)
 // can coexist in the tree without overwriting each other.
-// Active processes link by parent PID; dead processes are placed as roots.
+// Active processes link by parent PID; dead processes also attempt PPID
+// lookup to preserve hierarchy (Story 34.3 AC3).
 // Falls back to PID key when UUID is empty (e.g. test data).
 func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode {
 	if len(procs) == 0 {
@@ -203,6 +250,8 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 	nodes := make(map[string]*treeNode, len(procs))
 	// PID → node key index for parent lookup (active processes only)
 	pidToKey := make(map[types.PID]string, len(procs))
+	// allPidToKey includes dead processes for dead→dead parent lookup (AC3)
+	allPidToKey := make(map[types.PID]string, len(procs))
 
 	nodeKey := func(p vfs.ProcInfo) string {
 		if p.UUID != "" {
@@ -218,26 +267,45 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 		if p.State != types.StateDead {
 			pidToKey[p.PID] = key
 		}
+		// For allPidToKey, prefer the earliest CreatedAt (most likely true parent)
+		if existing, ok := allPidToKey[p.PID]; ok {
+			if existingNode, ok2 := nodes[existing]; ok2 {
+				if p.CreatedAt.Before(existingNode.proc.CreatedAt) {
+					allPidToKey[p.PID] = key
+				}
+			}
+		} else {
+			allPidToKey[p.PID] = key
+		}
 	}
 
 	var roots []*treeNode
 	for _, n := range nodes {
 		p := n.proc
-		// Dead processes are always roots (parent may have been reaped or PID-reused)
-		if p.State == types.StateDead {
-			roots = append(roots, n)
-			continue
-		}
+		myKey := nodeKey(p)
 		// Self-parent or orphan → root
 		if p.PID == p.PPID || p.PPID == 0 {
 			roots = append(roots, n)
 			continue
 		}
-		// Try to find parent by PPID in active processes
+		// Try to find parent by PPID in active processes first
 		if parentKey, ok := pidToKey[p.PPID]; ok {
-			if parent, ok := nodes[parentKey]; ok {
-				parent.children = append(parent.children, n)
-				continue
+			if parentKey != myKey {
+				if parent, ok := nodes[parentKey]; ok {
+					parent.children = append(parent.children, n)
+					continue
+				}
+			}
+		}
+		// For dead processes, also try allPidToKey (dead→dead hierarchy, AC3)
+		if p.State == types.StateDead {
+			if parentKey, ok := allPidToKey[p.PPID]; ok {
+				if parentKey != myKey {
+					if parent, ok := nodes[parentKey]; ok {
+						parent.children = append(parent.children, n)
+						continue
+					}
+				}
 			}
 		}
 		roots = append(roots, n)
@@ -336,4 +404,205 @@ func reusedPIDs(procs []vfs.ProcInfo) map[types.PID]int {
 		}
 	}
 	return reused
+}
+
+// --- Story 34.3 helper functions ---
+
+// renderCtxBar renders a context usage bar: "ctx ████████░░ 78%"
+// barWidth is the number of bar characters (typically 10).
+// Returns an empty string if contextBudget <= 0.
+func renderCtxBar(tokensUsed, contextBudget, barWidth int) string {
+	if contextBudget <= 0 {
+		return ""
+	}
+	pct := min(int(int64(tokensUsed)*100/int64(contextBudget)), 100)
+	filled := barWidth * pct / 100
+
+	ascii := ui.IsASCIIMode()
+	var filledChar, emptyChar string
+	if ascii {
+		filledChar = "#"
+		emptyChar = "."
+	} else {
+		filledChar = "█"
+		emptyChar = "░"
+	}
+
+	bar := strings.Repeat(filledChar, filled) + strings.Repeat(emptyChar, barWidth-filled)
+	label := fmt.Sprintf("ctx %s %d%%", bar, pct)
+
+	// Color based on percentage
+	switch {
+	case pct > 80:
+		return ui.ErrorStyle.Render(label)
+	case pct >= 50:
+		return ui.WarningStyle.Render(label)
+	default:
+		return ui.SuccessStyle.Render(label)
+	}
+}
+
+// flattenTreeWithCollapse converts a tree into a flat list, skipping children
+// of collapsed dead subtrees. Collapsed nodes get the collapsed flag set.
+func flattenTreeWithCollapse(roots []*treeNode, collapsedSet map[string]bool) []flatRow {
+	if len(roots) == 0 {
+		return nil
+	}
+
+	var rows []flatRow
+	var walk func(node *treeNode, depth int, parentPrefix string, isLast bool, isRoot bool)
+	walk = func(node *treeNode, depth int, parentPrefix string, isLast bool, isRoot bool) {
+		var prefix string
+		if isRoot {
+			prefix = ""
+		} else if isLast {
+			prefix = parentPrefix + "└─ "
+		} else {
+			prefix = parentPrefix + "├─ "
+		}
+
+		isCollapsed := collapsedSet[node.proc.UUID] && len(node.children) > 0
+
+		rows = append(rows, flatRow{
+			proc:      node.proc,
+			prefix:    prefix,
+			depth:     depth,
+			collapsed: isCollapsed,
+		})
+
+		if isCollapsed {
+			return // skip children
+		}
+
+		var childPrefix string
+		if isRoot {
+			childPrefix = parentPrefix
+		} else if isLast {
+			childPrefix = parentPrefix + "   "
+		} else {
+			childPrefix = parentPrefix + "│  "
+		}
+
+		for i, child := range node.children {
+			walk(child, depth+1, childPrefix, i == len(node.children)-1, false)
+		}
+	}
+
+	for _, root := range roots {
+		walk(root, 0, "", true, true)
+	}
+	return rows
+}
+
+// collapseCommonPrefix replaces a shared prefix among intents with "…/" (or ".../" in ASCII).
+// Only collapses when the common prefix exceeds 50% of the average intent length
+// and is truncated to the nearest word boundary.
+func collapseCommonPrefix(intents []string) []string {
+	if len(intents) <= 1 {
+		return intents
+	}
+	prefix := longestCommonPrefix(intents)
+	prefix = truncateToWordBoundary(prefix)
+	if len(prefix) == 0 {
+		return intents
+	}
+	// Only collapse if prefix > 50% of average length
+	totalLen := 0
+	for _, s := range intents {
+		totalLen += len(s)
+	}
+	avgLen := totalLen / len(intents)
+	if len(prefix) <= avgLen/2 {
+		return intents
+	}
+
+	ellipsis := "…/"
+	if ui.IsASCIIMode() {
+		ellipsis = ".../"
+	}
+
+	result := make([]string, len(intents))
+	for i, s := range intents {
+		result[i] = ellipsis + s[len(prefix):]
+	}
+	return result
+}
+
+// longestCommonPrefix finds the longest common prefix among strings.
+func longestCommonPrefix(strs []string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	prefix := strs[0]
+	for _, s := range strs[1:] {
+		for len(prefix) > 0 && !strings.HasPrefix(s, prefix) {
+			prefix = prefix[:len(prefix)-1]
+		}
+	}
+	return prefix
+}
+
+// truncateToWordBoundary truncates a string to the last word boundary character.
+func truncateToWordBoundary(s string) string {
+	if s == "" {
+		return ""
+	}
+	// Find last word boundary in s
+	lastBound := -1
+	for i, c := range s {
+		if c == '/' || c == ' ' || c == '-' || c == '_' {
+			lastBound = i + 1 // include the boundary character
+		}
+	}
+	if lastBound <= 0 {
+		return ""
+	}
+	return s[:lastBound]
+}
+
+// buildCollapsedIntents groups child intents by parent UUID and applies
+// common prefix collapsing (AC4). Returns a map of UUID → collapsed intent string.
+func (m dashboardModel) buildCollapsedIntents() map[string]string {
+	result := make(map[string]string)
+	if len(m.treeRows) == 0 {
+		return result
+	}
+
+	// Build parent UUID → child rows mapping from the tree structure
+	parentChildren := make(map[string][]int) // parentUUID → indices in treeRows
+	// We need to know each row's parent. Use the process hierarchy.
+	pidToUUID := make(map[types.PID]string)
+	for _, row := range m.treeRows {
+		if row.proc.UUID != "" {
+			pidToUUID[row.proc.PID] = row.proc.UUID
+		}
+	}
+	for i, row := range m.treeRows {
+		if row.proc.PPID > 0 && row.proc.PPID != row.proc.PID {
+			parentUUID := pidToUUID[row.proc.PPID]
+			if parentUUID != "" {
+				parentChildren[parentUUID] = append(parentChildren[parentUUID], i)
+			}
+		}
+	}
+
+	// For each parent group with >1 children, try prefix collapse
+	for _, indices := range parentChildren {
+		if len(indices) <= 1 {
+			continue
+		}
+		intents := make([]string, len(indices))
+		for j, idx := range indices {
+			intents[j] = m.treeRows[idx].proc.Intent
+		}
+		collapsed := collapseCommonPrefix(intents)
+		// If collapse changed anything, store the results
+		for j, idx := range indices {
+			if collapsed[j] != intents[j] {
+				result[m.treeRows[idx].proc.UUID] = collapsed[j]
+			}
+		}
+	}
+
+	return result
 }

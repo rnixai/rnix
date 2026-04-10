@@ -14,6 +14,7 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -465,8 +466,9 @@ func TestDashboardModel_ViewProcessStates(t *testing.T) {
 	v := m.View()
 	content := v.Content
 
-	if !strings.Contains(content, "running") && !strings.Contains(content, "Running") {
-		t.Errorf("view should display running state, got %q", content)
+	// Story 34.3 replaced text state labels with emoji badges (🟢/🔴/etc.)
+	if !strings.Contains(content, "running") && !strings.Contains(content, "Running") && !strings.Contains(content, "🟢") {
+		t.Errorf("view should display running state indicator, got %q", content)
 	}
 }
 
@@ -2407,5 +2409,291 @@ func TestComputeHealthCounts_ErrorDedup(t *testing.T) {
 	e, _ := computeHealthCounts(procs, events, nil)
 	if e != 1 {
 		t.Errorf("expected errorCount=1 (dedup by PID), got %d", e)
+	}
+}
+
+// ============================================================
+// Story 34.3: Process Tree Visual Enhancement
+// ============================================================
+
+// --- 34.3-UNIT-001: [P0] StateBadge returns emoji badges in Unicode mode (AC1) ---
+
+func TestStateBadge_Unicode(t *testing.T) {
+	os.Setenv("RNIX_ASCII", "0")
+	defer os.Unsetenv("RNIX_ASCII")
+
+	tests := []struct {
+		state  types.ProcessState
+		result string
+		want   string
+	}{
+		{types.StateRunning, "", "🟢"},
+		{types.StateCreated, "", "🟢"},
+		{types.StateSuspended, "", "🟡"},
+		{types.StateDead, "error: crash", "🔴"},
+		{types.StateDead, "", "🔴"}, // empty result = failure
+		{types.StateDead, "done", "⚪"},
+	}
+	for _, tc := range tests {
+		got := ui.StateBadge(tc.state, tc.result)
+		if got != tc.want {
+			t.Errorf("StateBadge(%v, %q) = %q, want %q", tc.state, tc.result, got, tc.want)
+		}
+	}
+}
+
+// --- 34.3-UNIT-002: [P0] StateBadge returns ASCII badges when RNIX_ASCII=1 (AC1) ---
+
+func TestStateBadge_ASCII(t *testing.T) {
+	os.Setenv("RNIX_ASCII", "1")
+	defer os.Setenv("RNIX_ASCII", "0")
+
+	tests := []struct {
+		state  types.ProcessState
+		result string
+		want   string
+	}{
+		{types.StateRunning, "", "[R]"},
+		{types.StateSuspended, "", "[S]"},
+		{types.StateDead, "error: crash", "[E]"},
+		{types.StateDead, "done", "[D]"},
+	}
+	for _, tc := range tests {
+		got := ui.StateBadge(tc.state, tc.result)
+		if got != tc.want {
+			t.Errorf("StateBadge(%v, %q) = %q, want %q", tc.state, tc.result, got, tc.want)
+		}
+	}
+}
+
+// --- 34.3-UNIT-003: [P1] renderCtxBar uses correct colors based on percentage (AC2) ---
+
+func TestRenderCtxBar_Colors(t *testing.T) {
+	os.Setenv("RNIX_ASCII", "0")
+	defer os.Unsetenv("RNIX_ASCII")
+	// InitStyles with no-color so we get plain text but can still check content
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+
+	tests := []struct {
+		used, budget int
+		wantContains string
+	}{
+		{30, 100, "30%"},   // <50% → green
+		{60, 100, "60%"},   // 50-80 → yellow
+		{90, 100, "90%"},   // >80 → red
+		{0, 100, "0%"},     // 0%
+		{100, 100, "100%"}, // 100%
+	}
+	for _, tc := range tests {
+		bar := renderCtxBar(tc.used, tc.budget, 10)
+		if !strings.Contains(bar, tc.wantContains) {
+			t.Errorf("renderCtxBar(%d, %d, 10) should contain %q, got %q",
+				tc.used, tc.budget, tc.wantContains, bar)
+		}
+	}
+
+	// Zero budget → empty string
+	if got := renderCtxBar(100, 0, 10); got != "" {
+		t.Errorf("renderCtxBar with zero budget should return empty, got %q", got)
+	}
+}
+
+// --- 34.3-UNIT-004: [P1] renderCtxBar uses # and . in ASCII mode (AC2) ---
+
+func TestRenderCtxBar_ASCII(t *testing.T) {
+	os.Setenv("RNIX_ASCII", "1")
+	defer os.Setenv("RNIX_ASCII", "0")
+	ui.InitStyles(ui.TerminalProfile{ColorLevel: 0})
+
+	bar := renderCtxBar(50, 100, 10)
+	if !strings.Contains(bar, "#") {
+		t.Errorf("ASCII mode renderCtxBar should use '#' for filled, got %q", bar)
+	}
+	if !strings.Contains(bar, ".") {
+		t.Errorf("ASCII mode renderCtxBar should use '.' for empty, got %q", bar)
+	}
+}
+
+// --- 34.3-UNIT-005: [P0] buildProcessTree preserves dead process hierarchy (AC3) ---
+
+func TestBuildProcessTree_DeadHierarchy(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "u1", State: types.StateRunning, CreatedAt: now},
+		{PID: 2, PPID: 1, UUID: "u2", State: types.StateDead, CreatedAt: now.Add(time.Second), DeadAt: now.Add(2 * time.Second)},
+		{PID: 3, PPID: 2, UUID: "u3", State: types.StateDead, CreatedAt: now.Add(time.Second), DeadAt: now.Add(3 * time.Second)},
+	}
+	roots := buildProcessTree(procs, treeSortPID, true)
+	if len(roots) != 1 {
+		t.Fatalf("expected 1 root, got %d", len(roots))
+	}
+	// PID 2 should be child of PID 1
+	root := roots[0]
+	if root.proc.PID != 1 {
+		t.Fatalf("root should be PID 1, got %d", root.proc.PID)
+	}
+	if len(root.children) != 1 {
+		t.Fatalf("PID 1 should have 1 child (PID 2), got %d", len(root.children))
+	}
+	child := root.children[0]
+	if child.proc.PID != 2 {
+		t.Fatalf("child of PID 1 should be PID 2, got %d", child.proc.PID)
+	}
+	// PID 3 should be child of PID 2 (dead→dead hierarchy)
+	if len(child.children) != 1 {
+		t.Fatalf("PID 2 should have 1 child (PID 3), got %d children", len(child.children))
+	}
+	if child.children[0].proc.PID != 3 {
+		t.Errorf("child of PID 2 should be PID 3, got %d", child.children[0].proc.PID)
+	}
+}
+
+// --- 34.3-UNIT-006: [P1] buildProcessTree dead orphan becomes root (AC3) ---
+
+func TestBuildProcessTree_DeadOrphan(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "u1", State: types.StateRunning, CreatedAt: now},
+		{PID: 5, PPID: 99, UUID: "u5", State: types.StateDead, CreatedAt: now.Add(time.Second)},
+	}
+	roots := buildProcessTree(procs, treeSortPID, true)
+	if len(roots) != 2 {
+		t.Fatalf("expected 2 roots (PID 1 active + PID 5 dead orphan), got %d", len(roots))
+	}
+	pids := map[types.PID]bool{}
+	for _, r := range roots {
+		pids[r.proc.PID] = true
+	}
+	if !pids[5] {
+		t.Error("dead process with missing PPID 99 should become root")
+	}
+}
+
+// --- 34.3-UNIT-007: [P0] collapseCommonPrefix collapses when prefix > 50% (AC4) ---
+
+func TestCollapseCommonPrefix(t *testing.T) {
+	// Long common prefix (>50% of avg length) → should collapse
+	intents := []string{
+		"deploy/staging/service-a",
+		"deploy/staging/service-b",
+		"deploy/staging/service-c",
+	}
+	result := collapseCommonPrefix(intents)
+	// "deploy/staging/" is 15 chars, average is ~24 chars → 15/24 = 62% > 50% → collapse
+	for _, r := range result {
+		if strings.HasPrefix(r, "deploy/staging/") {
+			t.Errorf("common prefix should be collapsed, got %q", r)
+		}
+	}
+
+	// Short prefix (≤50%) → should NOT collapse
+	short := []string{
+		"a/unique-suffix-one-with-lots-of-extra-content",
+		"b/unique-suffix-two-with-lots-of-extra-content",
+	}
+	shortResult := collapseCommonPrefix(short)
+	// No common prefix at all (starts with a/ vs b/) → no collapse
+	for i, r := range shortResult {
+		if r != short[i] {
+			t.Errorf("short prefix should not collapse: got %q, want %q", r, short[i])
+		}
+	}
+
+	// Single intent → no collapse
+	single := collapseCommonPrefix([]string{"only one"})
+	if single[0] != "only one" {
+		t.Errorf("single intent should not collapse: got %q", single[0])
+	}
+}
+
+// --- 34.3-UNIT-008: [P1] collapseCommonPrefix truncates to word boundary (AC4) ---
+
+func TestCollapseCommonPrefix_WordBoundary(t *testing.T) {
+	intents := []string{
+		"review code changes in module alpha",
+		"review code changes in module beta",
+	}
+	result := collapseCommonPrefix(intents)
+	// Common prefix is "review code changes in module " (with space boundary)
+	// Should collapse at word boundary, not mid-word
+	for _, r := range result {
+		// Collapsed result should start with ellipsis marker
+		if !strings.Contains(r, "…/") && !strings.Contains(r, ".../") {
+			t.Errorf("collapsed intent should start with ellipsis marker, got %q", r)
+		}
+		// Should contain the unique suffix
+		if !strings.Contains(r, "alpha") && !strings.Contains(r, "beta") {
+			t.Errorf("collapsed intent should preserve unique suffix, got %q", r)
+		}
+	}
+}
+
+// --- 34.3-UNIT-009: [P1] Most active process gets bold highlight within 2s (AC5) ---
+
+func TestMostActiveHighlight(t *testing.T) {
+	now := time.Now()
+	m := newTestDashboardModel([]vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "u1", State: types.StateRunning, Intent: "worker-a", CreatedAt: now},
+		{PID: 2, PPID: 0, UUID: "u2", State: types.StateRunning, Intent: "worker-b", CreatedAt: now},
+	})
+
+	// PID 1 had event 1 second ago → should be "most active"
+	m.lastEventByPID[1] = now.Add(-1 * time.Second)
+	// PID 2 had event 5 seconds ago → not active
+	m.lastEventByPID[2] = now.Add(-5 * time.Second)
+
+	v := m.View()
+	content := v.Content
+	// We can't easily check for bold in test output, but at minimum the view renders without panic
+	if !strings.Contains(content, "worker-a") {
+		t.Error("view should show worker-a intent")
+	}
+	if !strings.Contains(content, "worker-b") {
+		t.Error("view should show worker-b intent")
+	}
+}
+
+// --- 34.3-UNIT-010: [P0] flattenTreeWithCollapse respects collapsed state (AC3) ---
+
+func TestDeadTreeCollapse(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "root-u", State: types.StateRunning, CreatedAt: now},
+		{PID: 2, PPID: 1, UUID: "dead-parent-u", State: types.StateDead, CreatedAt: now.Add(time.Second)},
+		{PID: 3, PPID: 2, UUID: "dead-child-u", State: types.StateDead, CreatedAt: now.Add(2 * time.Second)},
+	}
+	roots := buildProcessTree(procs, treeSortPID, true)
+
+	// Not collapsed → all 3 visible
+	rows := flattenTreeWithCollapse(roots, nil)
+	if len(rows) != 3 {
+		t.Fatalf("uncollapsed: expected 3 rows, got %d", len(rows))
+	}
+
+	// Collapse the dead parent → child hidden
+	collapsed := map[string]bool{"dead-parent-u": true}
+	rows = flattenTreeWithCollapse(roots, collapsed)
+	if len(rows) != 2 {
+		t.Fatalf("collapsed: expected 2 rows (root + collapsed dead-parent), got %d", len(rows))
+	}
+	// The collapsed row should have collapsed=true
+	found := false
+	for _, r := range rows {
+		if r.proc.UUID == "dead-parent-u" {
+			found = true
+			if !r.collapsed {
+				t.Error("dead-parent-u row should have collapsed=true")
+			}
+		}
+	}
+	if !found {
+		t.Error("dead-parent-u should be in the flattened rows")
+	}
+
+	// Expand again → all visible
+	collapsed["dead-parent-u"] = false
+	rows = flattenTreeWithCollapse(roots, collapsed)
+	if len(rows) != 3 {
+		t.Fatalf("re-expanded: expected 3 rows, got %d", len(rows))
 	}
 }

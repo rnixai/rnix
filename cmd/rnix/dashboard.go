@@ -190,24 +190,31 @@ type dashboardModel struct {
 	// Health counters for title bar (Story 34.2)
 	errorCount int
 	warnCount  int
+
+	// Story 34.3: Process tree visual enhancement
+	lastEventByPID     map[types.PID]time.Time // AC5: most active tracking
+	userManualSelect   bool                     // AC5: user manual select flag
+	collapsedDeadTrees map[string]bool          // AC3: dead subtree collapse state (key=UUID)
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
 	return dashboardModel{
-		client:            client,
-		startTime:         time.Now(),
-		connected:         client != nil,
-		rightPane:         paneTimeline,
-		recording:         make(map[string]string),
-		stepDetailCache:   make(map[int]*ipc.GetStepDetailResponse),
-		procDetailCache:   make(map[string]*ipc.GetProcDetailResponse),
-		stepExpandedIdx:   -1,
-		stepFilters:       defaultStepFilters(),
-		expandedAggGroups: make(map[int]bool),
-		prevProcessPIDs:   make(map[types.PID]vfs.ProcInfo),
-		budgetAlertSeen:   make(map[types.PID]int),
-		stallSeen:         make(map[types.PID]struct{}),
-		sysEventSeen:      make(map[string]struct{}),
+		client:             client,
+		startTime:          time.Now(),
+		connected:          client != nil,
+		rightPane:          paneTimeline,
+		recording:          make(map[string]string),
+		stepDetailCache:    make(map[int]*ipc.GetStepDetailResponse),
+		procDetailCache:    make(map[string]*ipc.GetProcDetailResponse),
+		stepExpandedIdx:    -1,
+		stepFilters:        defaultStepFilters(),
+		expandedAggGroups:  make(map[int]bool),
+		prevProcessPIDs:    make(map[types.PID]vfs.ProcInfo),
+		budgetAlertSeen:    make(map[types.PID]int),
+		stallSeen:          make(map[types.PID]struct{}),
+		sysEventSeen:       make(map[string]struct{}),
+		lastEventByPID:     make(map[types.PID]time.Time),
+		collapsedDeadTrees: make(map[string]bool),
 	}
 }
 
@@ -541,7 +548,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	m.connected = true
 	m.processes = procs
 	roots := buildProcessTree(procs, m.treeSortMode, m.treeSortAsc)
-	m.treeRows = flattenTree(roots)
+	m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
 
 	if m.treeCursor >= len(m.treeRows) {
 		m.treeCursor = max(0, len(m.treeRows)-1)
@@ -614,6 +621,66 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Compute health counters for title bar (Story 34.2)
 	m.errorCount, m.warnCount = computeHealthCounts(m.processes, m.unifiedEvents, m.heartbeatStatus)
+
+	// --- Story 34.3 AC5: Most active process tracking ---
+	now := time.Now()
+	// Update lastEventByPID from unified events
+	for _, ev := range m.unifiedEvents {
+		if ev.PID > 0 {
+			if existing, ok := m.lastEventByPID[ev.PID]; !ok || ev.Timestamp.After(existing) {
+				m.lastEventByPID[ev.PID] = ev.Timestamp
+			}
+		}
+	}
+	// Prune lastEventByPID for processes no longer in the list
+	activePIDs := make(map[types.PID]struct{}, len(m.processes))
+	for _, p := range m.processes {
+		activePIDs[p.PID] = struct{}{}
+	}
+	for pid := range m.lastEventByPID {
+		if _, ok := activePIDs[pid]; !ok {
+			delete(m.lastEventByPID, pid)
+		}
+	}
+	// Auto-track: if user hasn't manually selected, follow most active process
+	if !m.userManualSelect {
+		var mostActivePID types.PID
+		var mostActiveTime time.Time
+		for pid, t := range m.lastEventByPID {
+			if now.Sub(t) < 2*time.Second && t.After(mostActiveTime) {
+				// Only track running processes
+				for _, p := range m.processes {
+					if p.PID == pid && (p.State == types.StateRunning || p.State == types.StateCreated) {
+						mostActivePID = pid
+						mostActiveTime = t
+						break
+					}
+				}
+			}
+		}
+		if mostActivePID > 0 {
+			for i, row := range m.treeRows {
+				if row.proc.PID == mostActivePID {
+					m.treeCursor = i
+					m = selectProcess(m, row)
+					break
+				}
+			}
+		}
+	}
+	// Reset userManualSelect after 5s of all processes being silent
+	if m.userManualSelect {
+		allSilent := true
+		for _, t := range m.lastEventByPID {
+			if now.Sub(t) < 5*time.Second {
+				allSilent = false
+				break
+			}
+		}
+		if allSilent {
+			m.userManualSelect = false
+		}
+	}
 
 	cmds := []tea.Cmd{tickCmd()}
 
@@ -1199,7 +1266,7 @@ func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
 	if m.replayCursor != m.prevReplayCursor && m.replayReader != nil {
 		m.processes = buildReplayProcessTree(m.replayReader, m.replayCursor)
 		roots := buildProcessTree(m.processes, treeSortPID, false)
-		m.treeRows = flattenTree(roots)
+		m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
 		if len(m.treeRows) > 0 {
 			m = selectProcess(m, m.treeRows[0])
 		}

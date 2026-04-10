@@ -577,9 +577,9 @@ func TestHistoryView_TreePaneUsesStateSymbol(t *testing.T) {
 	}
 	content := string(data)
 
-	// Tree 面板应使用 StateSymbol 或 ui.StateSymbol
-	if !strings.Contains(content, "StateSymbol") {
-		t.Error("dashboard_tree.go should use ui.StateSymbol() for process state symbols (✓/✕)")
+	// Tree 面板应使用 StateSymbol 或 StateBadge (Story 34.3 upgraded to emoji badges)
+	if !strings.Contains(content, "StateSymbol") && !strings.Contains(content, "StateBadge") {
+		t.Error("dashboard_tree.go should use ui.StateSymbol() or ui.StateBadge() for process state symbols")
 	}
 }
 

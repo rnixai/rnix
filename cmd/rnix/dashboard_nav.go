@@ -288,6 +288,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		visibleLines := m.dashboardVisibleLines()
 		switch key {
 		case "up", "k":
+			m.userManualSelect = true // AC5
 			if m.treeCursor > 0 {
 				m.treeCursor--
 				if m.treeCursor < len(m.treeRows) {
@@ -298,6 +299,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				}
 			}
 		case "down", "j":
+			m.userManualSelect = true // AC5
 			if m.treeCursor < len(m.treeRows)-1 {
 				m.treeCursor++
 				if m.treeCursor < len(m.treeRows) {
@@ -308,6 +310,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				}
 			}
 		case "pgdown":
+			m.userManualSelect = true // AC5
 			jump := max(visibleLines-1, 1)
 			m.treeCursor = min(m.treeCursor+jump, len(m.treeRows)-1)
 			if m.treeCursor < len(m.treeRows) {
@@ -317,6 +320,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				m.treeOffset = m.treeCursor - visibleLines + 1
 			}
 		case "pgup":
+			m.userManualSelect = true // AC5
 			jump := max(visibleLines-1, 1)
 			m.treeCursor = max(m.treeCursor-jump, 0)
 			if m.treeCursor < len(m.treeRows) {
@@ -326,12 +330,14 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				m.treeOffset = m.treeCursor
 			}
 		case "home", "g":
+			m.userManualSelect = true // AC5
 			m.treeCursor = 0
 			m.treeOffset = 0
 			if len(m.treeRows) > 0 {
 				m = selectProcess(m, m.treeRows[0])
 			}
 		case "end", "G", "shift+G":
+			m.userManualSelect = true // AC5
 			if len(m.treeRows) > 0 {
 				m.treeCursor = len(m.treeRows) - 1
 				m = selectProcess(m, m.treeRows[m.treeCursor])
@@ -339,15 +345,45 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 					m.treeOffset = m.treeCursor - visibleLines + 1
 				}
 			}
-		case "enter":
+		case "enter", " ":
+			// AC3: Toggle dead subtree collapse on Enter/Space
 			if m.treeCursor < len(m.treeRows) {
+				row := m.treeRows[m.treeCursor]
+				if row.proc.State == types.StateDead && row.proc.UUID != "" {
+					// Check if this dead node has children in the tree
+					hasChildren := false
+					roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
+					var findNode func(nodes []*treeNode) *treeNode
+					findNode = func(nodes []*treeNode) *treeNode {
+						for _, n := range nodes {
+							if n.proc.UUID == row.proc.UUID {
+								return n
+							}
+							if found := findNode(n.children); found != nil {
+								return found
+							}
+						}
+						return nil
+					}
+					if node := findNode(roots); node != nil && len(node.children) > 0 {
+						hasChildren = true
+					}
+					if hasChildren {
+						m.collapsedDeadTrees[row.proc.UUID] = !m.collapsedDeadTrees[row.proc.UUID]
+						m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
+						if m.treeCursor >= len(m.treeRows) {
+							m.treeCursor = max(0, len(m.treeRows)-1)
+						}
+						return m, nil
+					}
+				}
 				m = selectProcess(m, m.treeRows[m.treeCursor])
 			}
 		case "s":
 			// Cycle tree sort mode: Time → PID → State → Time
 			m.treeSortMode = (m.treeSortMode + 1) % 3
 			roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
-			m.treeRows = flattenTree(roots)
+			m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
 			m.treeCursor = 0
 			m.treeOffset = 0
 			if len(m.treeRows) > 0 {
@@ -363,7 +399,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			// Toggle sort direction: asc ↔ desc
 			m.treeSortAsc = !m.treeSortAsc
 			roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
-			m.treeRows = flattenTree(roots)
+			m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
 			m.treeCursor = 0
 			m.treeOffset = 0
 			if len(m.treeRows) > 0 {

@@ -33,9 +33,10 @@ type treeNode struct {
 
 // flatRow is a pre-rendered row from the tree, ready for display.
 type flatRow struct {
-	proc   vfs.ProcInfo
-	prefix string
-	depth  int
+	proc      vfs.ProcInfo
+	prefix    string
+	depth     int
+	collapsed bool // 34.3: dead subtree is collapsed
 }
 
 // buildTree constructs a process tree from a flat list of ProcInfo.

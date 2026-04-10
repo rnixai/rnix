@@ -66,6 +66,44 @@ func isFailedResult(result string) bool {
 		strings.Contains(lower, "timeout")
 }
 
+// StateBadge returns a coloured emoji or ASCII badge for a process state.
+// For Dead processes, result distinguishes success (exit 0) from failure.
+//
+// Unicode: Running/Created → 🟢, Suspended → 🟡, Dead+fail → 🔴, Dead+success → ⚪
+// ASCII:   [R], [S], [E], [D]
+func StateBadge(state types.ProcessState, result string) string {
+	ascii := isASCIIMode()
+
+	switch state {
+	case types.StateRunning, types.StateCreated:
+		if ascii {
+			return "[R]"
+		}
+		return "🟢"
+	case types.StateSuspended:
+		if ascii {
+			return "[S]"
+		}
+		return "🟡"
+	case types.StateDead, types.StateZombie:
+		if isFailedResult(result) {
+			if ascii {
+				return "[E]"
+			}
+			return "🔴"
+		}
+		if ascii {
+			return "[D]"
+		}
+		return "⚪"
+	default:
+		if ascii {
+			return "[?]"
+		}
+		return "❓"
+	}
+}
+
 // IsASCIIMode is the exported form of isASCIIMode.
 // Returns true when RNIX_ASCII=1 or RNIX_ASCII=true.
 func IsASCIIMode() bool {
