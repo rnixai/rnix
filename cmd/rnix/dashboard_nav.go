@@ -123,8 +123,11 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.enterHistoryView()
 	case "R", "shift+R":
 		// Resume suspended process (Story 30.8 AC#4)
-		if m.focusCardData != nil && m.focusCardData.state == types.StateSuspended && m.selectedUUID != "" && m.connected {
-			return m, resumeProcessCmd(m.selectedUUID)
+		if m.selectedPID > 0 && m.selectedUUID != "" && m.connected {
+			proc := findSelectedProcess(&m)
+			if proc != nil && proc.State == types.StateSuspended {
+				return m, resumeProcessCmd(m.selectedUUID)
+			}
 		}
 		return m, nil
 	case "esc":

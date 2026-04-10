@@ -122,9 +122,9 @@ func TestDashboardModel_ViewMultiPaneLayout(t *testing.T) {
 	if !strings.Contains(content, "Timeline") {
 		t.Errorf("view should contain 'Timeline' pane placeholder, got %q", content)
 	}
-	// Story 29.3: default view now shows Focus Card instead of Heatmap
-	if !strings.Contains(content, "Focus Card") && !strings.Contains(content, "FOCUS") {
-		t.Errorf("view should contain Focus Card in default layout, got %q", content)
+	// Story 34.5: default view now shows detail card instead of Focus Card
+	if !strings.Contains(content, "Select a process") && !strings.Contains(content, "Provider:") {
+		t.Errorf("view should contain detail card placeholder or content in default layout, got %q", content)
 	}
 }
 

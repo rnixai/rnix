@@ -145,9 +145,6 @@ type dashboardModel struct {
 	replaySpeed      float64
 	prevReplayCursor int
 
-	// Focus Card fields (Story 29-3)
-	focusCardData *focusCardState
-
 	// HeartbeatStatus fields (Story 30.8)
 	heartbeatStatus *ipc.HeartbeatStatusResponse
 
@@ -585,9 +582,6 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		m = selectProcess(m, m.treeRows[m.treeCursor])
 	}
 
-	// Aggregate Focus Card data from cached fields (Story 29-3)
-	m.aggregateFocusCard()
-
 	// --- Unified event stream detection (Story 34.1) ---
 	// Detect spawn/exit events by comparing with previous tick's process list
 	spawnExitEvents := detectSpawnExitEvents(m.prevProcessPIDs, m.processes)
@@ -728,9 +722,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, m.lastFetchedStep))
 	}
 
-	// Fetch proc detail when Detail pane is active or in default view (Focus Card needs it)
-	focusCardNeedsData := m.viewMode == viewDefault
-	if (m.activePane == paneDetail || focusCardNeedsData) && m.selectedPID > 0 && m.connected {
+	// Fetch proc detail when Detail pane is active or in default view (detail card needs it)
+	detailCardNeedsData := m.viewMode == viewDefault && m.selectedPID > 0
+	if (m.activePane == paneDetail || detailCardNeedsData) && m.selectedPID > 0 && m.connected {
 		m.procDetailTick++
 		needsFetch := m.procDetail == nil || m.procDetailPID != m.selectedPID
 		// Refresh every 5 ticks (~5s) for live processes
@@ -749,22 +743,22 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Fetch intent trees when Intent pane is active or in default view (Focus Card)
-	if (m.activePane == paneIntent || focusCardNeedsData) && m.connected {
+	// Fetch intent trees only when Intent pane is active (no longer needed every tick)
+	if m.activePane == paneIntent && m.connected {
 		if m.intentTrees == nil || m.heatmapTickCount%5 == 0 {
 			cmds = append(cmds, fetchIntentTreesCmd())
 		}
 	}
 
-	// Fetch immune status when Security pane is active or in default view (Focus Card)
-	if (m.activePane == paneSecurity || focusCardNeedsData) && m.connected {
+	// Fetch immune status only when Security pane is active
+	if m.activePane == paneSecurity && m.connected {
 		if m.immuneStatus == nil || m.heatmapTickCount%5 == 0 {
 			cmds = append(cmds, fetchImmuneStatusCmd())
 		}
 	}
 
-	// Fetch heartbeat status periodically for Focus Card recovering indicator (Story 30.8)
-	if focusCardNeedsData && m.connected && m.heatmapTickCount%5 == 0 {
+	// Fetch heartbeat status only when Security pane is active (Story 30.8)
+	if m.activePane == paneSecurity && m.connected && m.heatmapTickCount%5 == 0 {
 		cmds = append(cmds, fetchHeartbeatStatusCmd())
 	}
 
@@ -774,8 +768,8 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchCompactEventsCmd(m.client, m.selectedPID, m.selectedUUID))
 	}
 
-	// Fetch trace list when Trace pane is active or in default view (Focus Card)
-	if (m.activePane == paneTrace || focusCardNeedsData) && m.connected {
+	// Fetch trace list only when Trace pane is active
+	if m.activePane == paneTrace && m.connected {
 		if m.traceSummaries == nil || m.heatmapTickCount%5 == 0 {
 			cmds = append(cmds, fetchTraceListCmd())
 		}
@@ -853,24 +847,6 @@ func (m dashboardModel) View() tea.View {
 	return v
 }
 
-func colorState(s types.ProcessState) string {
-	name := strings.ToLower(s.String())
-	switch s {
-	case types.StateRunning:
-		return ui.SuccessStyle.Render(name)
-	case types.StateZombie:
-		return ui.WarningStyle.Render(name)
-	case types.StateDead:
-		return ui.MutedStyle.Render(name)
-	case types.StateCreated:
-		return ui.KernelStyle.Render(name)
-	case types.StateSuspended:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD93D")).Render(name)
-	default:
-		return name
-	}
-}
-
 // --- Layout rendering ---
 
 func (m dashboardModel) renderDashboard() string {
@@ -923,24 +899,29 @@ func (m dashboardModel) renderDashboard() string {
 }
 
 func (m dashboardModel) renderDefaultLayout(w, h int) string {
-	treeWidth := min(max(w*40/100, 30), 60)
-	rightWidth := max(w-treeWidth, 10)
+	treeWidth := max(28, min(w*35/100, 50))
+	rightWidth := w - treeWidth
 
-	treePane := m.renderDashboardTreePane(treeWidth, h)
+	detailH := 3 // 1 separator + 2 content lines
+	mainH := max(h-detailH, 3)
 
-	var right string
+	// Main area: Tree + right pane
+	treePane := m.renderDashboardTreePane(treeWidth, mainH)
+	var rightPane string
 	switch m.rightPane {
 	case paneTimeline:
-		// Timeline 默认分上下：Timeline + FocusCard
-		topRightH := h / 2
-		bottomRightH := h - topRightH
-		timelinePane := m.renderTimelinePane(rightWidth, topRightH)
-		focusCard := m.renderFocusCard(rightWidth, bottomRightH)
-		right = lipgloss.JoinVertical(lipgloss.Left, timelinePane, focusCard)
+		rightPane = m.renderTimelinePane(rightWidth, mainH)
 	default:
-		right = m.renderSinglePane(m.rightPane, rightWidth, h)
+		rightPane = m.renderSinglePane(m.rightPane, rightWidth, mainH)
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, treePane, right)
+	mainRow := lipgloss.JoinHorizontal(lipgloss.Top, treePane, rightPane)
+
+	// Detail card area (replaces Focus Card)
+	detailLeft := renderDetailCardLeft(&m, treeWidth, 2)
+	detailRight := renderDetailCardRight(&m, rightWidth, 2)
+	detailRow := lipgloss.JoinHorizontal(lipgloss.Top, detailLeft, detailRight)
+
+	return lipgloss.JoinVertical(lipgloss.Left, mainRow, detailRow)
 }
 
 func (m dashboardModel) renderExpandedLayout(w, h int) string {

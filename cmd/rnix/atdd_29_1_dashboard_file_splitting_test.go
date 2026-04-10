@@ -71,6 +71,46 @@ func topLevelFuncNames(path string) ([]string, error) {
 	return names, nil
 }
 
+// extractFuncBody extracts the full body of a function from Go source code.
+// Searches by function name across receiver patterns.
+func extractFuncBody(content string, funcName string) string {
+	searchPatterns := []string{
+		"func (m dashboardModel) " + funcName + "(",
+		"func (m *dashboardModel) " + funcName + "(",
+		"func " + funcName + "(",
+	}
+
+	idx := -1
+	for _, pattern := range searchPatterns {
+		idx = strings.Index(content, pattern)
+		if idx >= 0 {
+			break
+		}
+	}
+	if idx == -1 {
+		return ""
+	}
+
+	funcBody := content[idx:]
+	braceCount := 0
+	funcEnd := -1
+	for i, ch := range funcBody {
+		if ch == '{' {
+			braceCount++
+		} else if ch == '}' {
+			braceCount--
+			if braceCount == 0 {
+				funcEnd = i
+				break
+			}
+		}
+	}
+	if funcEnd == -1 {
+		return ""
+	}
+	return funcBody[:funcEnd+1]
+}
+
 // ---------------------------------------------------------------------------
 // 29.1-UNIT-001: [P0] 验证 10 个目标文件全部存在
 // ---------------------------------------------------------------------------
@@ -208,7 +248,6 @@ func TestDashboardFileSplitting_CoreFunctionsRemainInMain(t *testing.T) {
 		"selectProcess",
 		"dashboardTick",
 		"dashboardVisibleLines",
-		"colorState",
 		"renderDashboard",
 		"renderDashboardStatus",
 		"handlePIDChange",

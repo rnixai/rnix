@@ -4,6 +4,11 @@
 
 Rnix is an operating system for AI agents, inspired by Unix design philosophy. Written in Go 1.26 (`github.com/rnixai/rnix`). It provides process management, a virtual filesystem (VFS), IPC via Unix domain sockets, multi-agent orchestration, intent decomposition, and debugging tools.
 
+## 语言
+
+- 回复语言使用简体中文
+- 代码注释使用英文
+
 ## Build & Test Commands
 
 ```bash
