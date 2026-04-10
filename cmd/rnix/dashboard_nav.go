@@ -117,7 +117,11 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			default:
 				return m.handleDebugKey(key)
 			}
-			_ = prevPID
+			// F3: Trigger PID change handling when tree selection changes in debug mode.
+			if m.selectedPID != prevPID {
+				m2, cmd := m.handlePIDChange()
+				return m2, cmd
+			}
 			return m, nil
 		}
 		return m.handleDebugKey(key)

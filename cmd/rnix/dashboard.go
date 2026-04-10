@@ -1402,6 +1402,10 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("dashboard: %w", err)
 	}
 	if fm, ok := final.(dashboardModel); ok && fm.client != nil {
+		// F5: Close debug IPC client if active.
+		if fm.debugClient != nil {
+			fm.debugClient.Close()
+		}
 		fm.client.Close()
 	} else {
 		client.Close()

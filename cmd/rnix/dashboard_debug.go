@@ -39,6 +39,7 @@ func (s deviceLatencyStats) AvgMs() float64 {
 type debugStraceStartedMsg struct {
 	client *ipc.Client
 	ch     <-chan ipc.SyscallEventWire
+	errCh  <-chan error // F6: reports AttachDebug error when goroutine finishes
 }
 
 type debugStraceErrorMsg struct {
@@ -55,20 +56,49 @@ type debugHistoricalStraceMsg struct {
 	err    error
 }
 
+// debugStraceStreamEndMsg is sent when the AttachDebug goroutine finishes.
+type debugStraceStreamEndMsg struct {
+	err error
+}
+
 // handleDebugMsg dispatches debug-related tea.Msg types.
 // Returns (model, cmd, handled). If handled is false, the msg was not a debug msg.
 func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case debugStraceStartedMsg:
+		// F2: If debug mode was exited before this msg arrived, clean up the leaked client.
+		if !m.debugMode {
+			msg.client.Close()
+			return m, nil, true
+		}
 		m.debugClient = msg.client
 		m.debugStraceCh = msg.ch
+		// F6: Watch for AttachDebug completion to report errors.
+		var cmd tea.Cmd
+		if msg.errCh != nil {
+			errCh := msg.errCh
+			cmd = func() tea.Msg {
+				err := <-errCh
+				return debugStraceStreamEndMsg{err: err}
+			}
+		}
+		return m, cmd, true
+	case debugStraceStreamEndMsg:
+		if msg.err != nil && m.debugMode {
+			m.statusMsg = fmt.Sprintf("✗ strace stream: %v", msg.err)
+			m.statusMsgTTL = statusMsgDefaultTTL
+		}
 		return m, nil, true
 	case debugStraceErrorMsg:
 		m.statusMsg = fmt.Sprintf("✗ strace: %v", msg.err)
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil, true
 	case debugCtxProfileMsg:
-		if msg.err == nil && msg.profile != nil {
+		// F6: Show error feedback instead of silently swallowing.
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("✗ ctx profile: %v", msg.err)
+			m.statusMsgTTL = statusMsgDefaultTTL
+		} else if msg.profile != nil {
 			m.debugCtxProfile = msg.profile
 		}
 		return m, nil, true
@@ -76,6 +106,10 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("✗ strace history: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
+			return m, nil, true
+		}
+		// F1: Guard against async msg arriving after exitDebugMode nils the map.
+		if !m.debugMode {
 			return m, nil, true
 		}
 		for _, sew := range msg.events {
@@ -106,6 +140,8 @@ func (m *dashboardModel) debugTickCmds() []tea.Cmd {
 // --- Mode lifecycle ---
 
 func (m dashboardModel) enterDebugMode() (dashboardModel, tea.Cmd) {
+	// F2: Clean up any existing strace stream before starting a new one.
+	m.stopStraceStream()
 	m.viewMode = viewDebug
 	m.debugMode = true
 	m.debugShowStrace = true
@@ -157,16 +193,18 @@ func (m dashboardModel) startStraceStreamCmd() tea.Cmd {
 			return debugStraceErrorMsg{err: err}
 		}
 		ch := make(chan ipc.SyscallEventWire, 100)
+		errCh := make(chan error, 1)
 		go func() {
 			defer close(ch)
-			_ = client.AttachDebug(pid, func(sew ipc.SyscallEventWire) {
+			err := client.AttachDebug(pid, func(sew ipc.SyscallEventWire) {
 				select {
 				case ch <- sew:
 				default: // channel full, drop
 				}
 			})
+			errCh <- err
 		}()
-		return debugStraceStartedMsg{client: client, ch: ch}
+		return debugStraceStartedMsg{client: client, ch: ch, errCh: errCh}
 	}
 }
 
@@ -300,27 +338,33 @@ func extractDeviceName(sew ipc.SyscallEventWire) string {
 
 // --- Filtered debug events ---
 
+// F9: Reuse isEventVisible() for filter logic, adding debugShowStrace as the only extra check.
 func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
 	if len(m.debugEvents) == 0 {
 		return nil
 	}
 	var result []UnifiedEvent
 	for _, ev := range m.debugEvents {
-		if ev.Type == EventSyscall {
-			if !m.debugShowStrace {
-				continue
-			}
-			if !m.stepFilters[EventSyscall] {
-				continue
-			}
-		} else if ev.Type == EventStep {
-			if ev.StepEntry != nil && !m.stepFilters[ev.StepEntry.summary.Action] {
-				continue
-			}
+		if ev.Type == EventSyscall && !m.debugShowStrace {
+			continue
+		}
+		if !isEventVisible(ev, m.stepFilters) {
+			continue
 		}
 		result = append(result, ev)
 	}
 	return result
+}
+
+// clampDebugCursor ensures the cursor stays within the filtered event range.
+func (m *dashboardModel) clampDebugCursor() {
+	filtered := m.filteredDebugEvents()
+	if m.debugCursor >= len(filtered) {
+		m.debugCursor = max(len(filtered)-1, 0)
+	}
+	if m.debugScrollTop > m.debugCursor {
+		m.debugScrollTop = m.debugCursor
+	}
 }
 
 // --- Debug tick processing ---
@@ -534,6 +578,7 @@ func (m dashboardModel) renderDebugStepLine(ev UnifiedEvent, cursorMark string, 
 // --- Bottom detail cards ---
 
 // renderDebugDetailLeft renders the Context Profile summary card.
+// F10: Aggregates TopConsumers by role (system, user, asst, tools) for clarity.
 func (m dashboardModel) renderDebugDetailLeft(width, height int) string {
 	borderStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -546,19 +591,73 @@ func (m dashboardModel) renderDebugDetailLeft(width, height int) string {
 	}
 
 	p := m.debugCtxProfile
-	c := p.Classification
+
+	// Aggregate consumers by role category.
+	type roleAgg struct {
+		tokens int
+		pct    float64
+	}
+	roles := map[string]*roleAgg{
+		"system": {},
+		"user":   {},
+		"asst":   {},
+		"tools":  {},
+	}
+	for _, c := range p.TopConsumers {
+		switch {
+		case c.Kind == "system_prompt":
+			roles["system"].tokens += c.Tokens
+			roles["system"].pct += c.Pct
+		case c.Kind == "user":
+			roles["user"].tokens += c.Tokens
+			roles["user"].pct += c.Pct
+		case c.Kind == "assistant":
+			roles["asst"].tokens += c.Tokens
+			roles["asst"].pct += c.Pct
+		case strings.HasPrefix(c.Kind, "tool"):
+			roles["tools"].tokens += c.Tokens
+			roles["tools"].pct += c.Pct
+		default:
+			roles["tools"].tokens += c.Tokens
+			roles["tools"].pct += c.Pct
+		}
+	}
 
 	sep := "│"
 	if ui.IsASCIIMode() {
 		sep = "|"
 	}
 
-	line := fmt.Sprintf("active:%s(%.0f%%) %s warm:%s(%.0f%%) %s cold:%s(%.0f%%) %s leaked:%s(%.0f%%)",
-		ui.FormatTokens(c.Active.Tokens), c.Active.Pct, sep,
-		ui.FormatTokens(c.Warm.Tokens), c.Warm.Pct, sep,
-		ui.FormatTokens(c.Cold.Tokens), c.Cold.Pct, sep,
-		ui.FormatTokens(c.Leaked.Tokens), c.Leaked.Pct,
-	)
+	// Order: system | user | asst | tools
+	order := []struct {
+		label string
+		key   string
+	}{
+		{"sys", "system"},
+		{"user", "user"},
+		{"asst", "asst"},
+		{"tools", "tools"},
+	}
+
+	var parts []string
+	for _, o := range order {
+		r := roles[o.key]
+		if r.tokens > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%s(%.0f%%)", o.label, ui.FormatTokens(r.tokens), r.pct))
+		}
+	}
+
+	var line string
+	if len(parts) == 0 {
+		// Fallback to classification view if no TopConsumers.
+		c := p.Classification
+		line = fmt.Sprintf("active:%s(%.0f%%) %s cold:%s(%.0f%%)",
+			ui.FormatTokens(c.Active.Tokens), c.Active.Pct, sep,
+			ui.FormatTokens(c.Cold.Tokens), c.Cold.Pct,
+		)
+	} else {
+		line = strings.Join(parts, " "+sep+" ")
+	}
 
 	return borderStyle.Render(truncateAnsi(line, max(width-4, 1)))
 }
@@ -616,6 +715,12 @@ func (m dashboardModel) renderDebugDetailRight(width, height int) string {
 // --- Debug mode navigation ---
 
 func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd) {
+	// F8: When in filter sub-mode, delegate to handleStepFilterKey.
+	if m.stepFilterMode {
+		m = m.handleStepFilterKey(key)
+		m.clampDebugCursor()
+		return m, nil
+	}
 	filtered := m.filteredDebugEvents()
 	switch key {
 	case "up", "k":
@@ -641,8 +746,12 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd) {
 			m.statusMsg = "strace: off"
 		}
 		m.statusMsgTTL = statusMsgDefaultTTL
+		// F4: Clamp cursor after visibility change.
+		m.clampDebugCursor()
 	case "f":
 		m.stepFilterMode = !m.stepFilterMode
+		// F4: Clamp cursor after filter change.
+		m.clampDebugCursor()
 	case "tab":
 		if m.activePane == paneTree {
 			m.activePane = paneTimeline
