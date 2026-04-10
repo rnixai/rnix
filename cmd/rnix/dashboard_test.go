@@ -2146,7 +2146,7 @@ func TestComputeHealthCounts_DeadProcess(t *testing.T) {
 
 // --- 34.2-UNIT-003: ctx 85% → W=1 ---
 
-func TestComputeHealthCounts_BudgetWarn(t *testing.T) {
+func TestComputeHealthCounts_CtxWarn(t *testing.T) {
 	procs := []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, TokensUsed: 850, ContextBudget: 1000},
 	}
@@ -2156,6 +2156,39 @@ func TestComputeHealthCounts_BudgetWarn(t *testing.T) {
 	}
 	if w != 1 {
 		t.Errorf("expected warnCount=1 for ctx>=80%%, got %d", w)
+	}
+}
+
+// --- 34.2-UNIT-003b: cost budget 85% → W=1 ---
+
+func TestComputeHealthCounts_BudgetCostWarn(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, TokensUsed: 100, ContextBudget: 1000, MaxCost: 10.0, UsedCost: 8.5},
+	}
+	e, w := computeHealthCounts(procs, nil, nil)
+	if e != 0 {
+		t.Errorf("expected errorCount=0, got %d", e)
+	}
+	if w != 1 {
+		t.Errorf("expected warnCount=1 for cost budget>=80%%, got %d", w)
+	}
+}
+
+// --- 34.2-UNIT-003c: ctx+stall same PID → W=1 (no double-count) ---
+
+func TestComputeHealthCounts_CtxAndStallSamePID(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, TokensUsed: 900, ContextBudget: 1000},
+	}
+	heartbeat := &ipc.HeartbeatStatusResponse{
+		CurrentStalled: []ipc.StalledProcWire{{PID: 1}},
+	}
+	e, w := computeHealthCounts(procs, nil, heartbeat)
+	if e != 0 {
+		t.Errorf("expected errorCount=0, got %d", e)
+	}
+	if w != 1 {
+		t.Errorf("expected warnCount=1 (no double-count for same PID), got %d", w)
 	}
 }
 

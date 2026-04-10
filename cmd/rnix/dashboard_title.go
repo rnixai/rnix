@@ -152,7 +152,7 @@ func (m dashboardModel) renderDashboardTitle() string {
 
 	var titleLine string
 	for _, c := range candidates {
-		if len(c.plain) <= maxW {
+		if lipgloss.Width(c.plain) <= maxW {
 			titleLine = c.rendered
 			break
 		}
@@ -223,17 +223,31 @@ func computeHealthCounts(processes []vfs.ProcInfo, events []UnifiedEvent, heartb
 		}
 	}
 
+	warnPIDs := make(map[types.PID]struct{})
 	for _, p := range processes {
-		if (p.State == types.StateRunning || p.State == types.StateCreated) && p.ContextBudget > 0 {
-			if int64(p.TokensUsed)*100/int64(p.ContextBudget) >= 80 {
-				warnCount++
+		if p.State == types.StateRunning || p.State == types.StateCreated {
+			// ctx usage >= 80%
+			if p.ContextBudget > 0 && int64(p.TokensUsed)*100/int64(p.ContextBudget) >= 80 {
+				warnPIDs[p.PID] = struct{}{}
+			}
+			// cost budget >= 80%
+			if p.MaxCost > 0 && p.UsedCost*100/p.MaxCost >= 80 {
+				warnPIDs[p.PID] = struct{}{}
+			}
+			// token budget >= 80%
+			if p.MaxTokens > 0 && int64(p.TokensUsed)*100/p.MaxTokens >= 80 {
+				warnPIDs[p.PID] = struct{}{}
 			}
 		}
 	}
 
 	if heartbeat != nil {
-		warnCount += len(heartbeat.CurrentStalled)
+		for _, s := range heartbeat.CurrentStalled {
+			warnPIDs[s.PID] = struct{}{}
+		}
 	}
+
+	warnCount = len(warnPIDs)
 
 	errorCount = len(errorPIDs)
 	return
@@ -246,7 +260,7 @@ func computeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
 		for _, p := range processes {
 			if p.PID == selectedPID {
 				if p.ContextBudget > 0 {
-					return int(int64(p.TokensUsed) * 100 / int64(p.ContextBudget))
+					return clampPercent(int(int64(p.TokensUsed) * 100 / int64(p.ContextBudget)))
 				}
 				return 0
 			}
@@ -260,7 +274,7 @@ func computeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
 		}
 	}
 	if totalBudget > 0 {
-		return int(totalUsed * 100 / totalBudget)
+		return clampPercent(int(totalUsed * 100 / totalBudget))
 	}
 	return 0
 }
@@ -274,15 +288,26 @@ func computeBudgetPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
 	for _, p := range processes {
 		if p.PID == selectedPID {
 			if p.MaxCost > 0 {
-				return int(p.UsedCost * 100 / p.MaxCost)
+				return clampPercent(int(p.UsedCost * 100 / p.MaxCost))
 			}
 			if p.MaxTokens > 0 {
-				return int(int64(p.TokensUsed) * 100 / p.MaxTokens)
+				return clampPercent(int(int64(p.TokensUsed) * 100 / p.MaxTokens))
 			}
 			return 0
 		}
 	}
 	return 0
+}
+
+// clampPercent restricts a percentage value to the displayable range [0, 999].
+func clampPercent(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 999 {
+		return 999
+	}
+	return v
 }
 
 // styleProviderName colors the provider name based on process health.
