@@ -397,7 +397,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			readStart := time.Now()
 			var readErr error
 			respData, readErr = k.vfs.Read(proc.PID, llmFD, 1<<20)
-			k.emitEvent(proc, "Read", map[string]any{"fd": llmFD, "length": 1 << 20}, len(respData), readErr, time.Since(readStart))
+			readArgs := map[string]any{"fd": llmFD, "length": 1 << 20}
+			if len(respData) > 0 {
+				readArgs["content"] = string(respData)
+			}
+			k.emitEvent(proc, "Read", readArgs, len(respData), readErr, time.Since(readStart))
 			if readErr != nil {
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, readErr, time.Since(stepStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm read failed", Err: readErr})
