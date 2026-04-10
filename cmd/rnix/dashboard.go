@@ -658,7 +658,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		if mostActivePID > 0 {
+		if mostActivePID > 0 && mostActivePID != m.selectedPID {
 			for i, row := range m.treeRows {
 				if row.proc.PID == mostActivePID {
 					m.treeCursor = i
@@ -669,7 +669,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 	// Reset userManualSelect after 5s of all processes being silent
-	if m.userManualSelect {
+	if m.userManualSelect && len(m.lastEventByPID) > 0 {
 		allSilent := true
 		for _, t := range m.lastEventByPID {
 			if now.Sub(t) < 5*time.Second {

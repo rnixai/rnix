@@ -111,7 +111,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			}
 		} else {
 			if row.proc.ContextBudget > 0 {
-				pct := int(int64(row.proc.TokensUsed) * 100 / int64(row.proc.ContextBudget))
+				pct := max(0, min(int(int64(row.proc.TokensUsed)*100/int64(row.proc.ContextBudget)), 100))
 				tokens = fmt.Sprintf("%s/%s(%d%%)",
 					ui.FormatTokens(row.proc.TokensUsed),
 					ui.FormatTokens(row.proc.ContextBudget), pct)
@@ -174,8 +174,8 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		b.WriteString("\n")
 		linesRendered++
 
-		// Context bar for running/created processes (AC2)
-		if showCtxBar && !isDead && linesRendered < visibleLines {
+		// Context bar for running/created processes only (AC2)
+		if showCtxBar && (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) && linesRendered < visibleLines {
 			if row.proc.ContextBudget > 0 {
 				barPrefix := strings.Repeat(" ", lipgloss.Width(cursor+collapsePrefix+row.prefix))
 				ctxBar := renderCtxBar(row.proc.TokensUsed, row.proc.ContextBudget, 10)
@@ -415,8 +415,8 @@ func renderCtxBar(tokensUsed, contextBudget, barWidth int) string {
 	if contextBudget <= 0 {
 		return ""
 	}
-	pct := min(int(int64(tokensUsed)*100/int64(contextBudget)), 100)
-	filled := barWidth * pct / 100
+	pct := max(0, min(int(int64(tokensUsed)*100/int64(contextBudget)), 100))
+	filled := max(0, barWidth*pct/100)
 
 	ascii := ui.IsASCIIMode()
 	var filledChar, emptyChar string
@@ -461,7 +461,7 @@ func flattenTreeWithCollapse(roots []*treeNode, collapsedSet map[string]bool) []
 			prefix = parentPrefix + "├─ "
 		}
 
-		isCollapsed := collapsedSet[node.proc.UUID] && len(node.children) > 0
+		isCollapsed := node.proc.UUID != "" && collapsedSet[node.proc.UUID] && len(node.children) > 0
 
 		rows = append(rows, flatRow{
 			proc:      node.proc,
@@ -522,8 +522,17 @@ func collapseCommonPrefix(intents []string) []string {
 	}
 
 	result := make([]string, len(intents))
+	changed := false
 	for i, s := range intents {
-		result[i] = ellipsis + s[len(prefix):]
+		if len(prefix) >= len(s) {
+			result[i] = s // prefix covers entire intent, don't collapse to empty
+		} else {
+			result[i] = ellipsis + s[len(prefix):]
+			changed = true
+		}
+	}
+	if !changed {
+		return intents
 	}
 	return result
 }

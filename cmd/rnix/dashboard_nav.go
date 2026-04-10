@@ -346,10 +346,11 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				}
 			}
 		case "enter", " ":
+			m.userManualSelect = true // AC5
 			// AC3: Toggle dead subtree collapse on Enter/Space
 			if m.treeCursor < len(m.treeRows) {
 				row := m.treeRows[m.treeCursor]
-				if row.proc.State == types.StateDead && row.proc.UUID != "" {
+				if (row.proc.State == types.StateDead || row.proc.State == types.StateZombie) && row.proc.UUID != "" {
 					// Check if this dead node has children in the tree
 					hasChildren := false
 					roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
