@@ -70,6 +70,12 @@ type SpawnOpts struct {
 	ProjectConfig     *config.ProjectConfig // project-level config snapshot; nil = global only
 	CompactThreshold  float64               // 0 = use default (80%); >0 = trigger compact when TokenUsage > threshold
 	GracePeriod       time.Duration          // 0 = use DefaultGracePeriod; >0 = custom SIGTERM grace period
+
+	// Orchestration metadata (Story 34.7)
+	ComposeNode   string   // compose node name (e.g. "summarizer")
+	ComposeDeps   []string // upstream dependency node names
+	PipelineIndex int      // 0-based stage index; -1 = not pipeline
+	PipelineTotal int      // total stages; 0 = not pipeline
 }
 
 // KernelCallbacks allows the CLI layer to receive progress notifications

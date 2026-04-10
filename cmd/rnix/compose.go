@@ -101,6 +101,8 @@ func (s *ipcKernelSpawner) Spawn(intent string, agent *agents.AgentInfo, opts co
 		TraceID:       string(opts.TraceID),
 		ParentSpanID:  string(opts.ParentSpanID),
 		ProjectDir:    s.projectDir,
+		ComposeNode:   opts.ComposeNode,
+		ComposeDeps:   opts.ComposeDeps,
 	}
 	if agent != nil {
 		req.Agent = agent.Manifest.Name

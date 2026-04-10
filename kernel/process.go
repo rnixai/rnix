@@ -142,6 +142,12 @@ type Process struct {
 	shutdownStarted atomic.Bool   // CAS guard: prevents duplicate twoPhaseShutdown goroutines
 	IPCPersist      bool          // true = persist IPC messages to disk (set for permanent supervised processes)
 
+	// Orchestration metadata (Story 34.7) — immutable after spawn, no locking needed
+	ComposeNode   string   // compose node name (e.g. "summarizer"), empty = not compose
+	ComposeDeps   []string // depends_on node names (e.g. ["researcher", "analyst"])
+	PipelineIndex int      // 0-based stage index in pipeline, -1 = not pipeline
+	PipelineTotal int      // total stages in pipeline, 0 = not pipeline
+
 	// Suspend system (Story 30.3) — atomic flag for graceful suspend
 	suspendRequested atomic.Bool   // set by Suspend(), checked by reasonStep
 	SuspendReason    string        // reason for suspension (mu protected)
@@ -289,6 +295,10 @@ type DetailSnapshot struct {
 	MaxTokens      int64
 	MaxCost        float64
 	UsedCost       float64
+	ComposeNode    string
+	ComposeDeps    []string
+	PipelineIndex  int
+	PipelineTotal  int
 }
 
 // GetDetailSnapshot returns a thread-safe copy of process detail fields.
@@ -313,6 +323,10 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 		MaxTokens:      p.Budget.MaxTokens,
 		MaxCost:        p.Budget.MaxCost,
 		UsedCost:       p.Budget.UsedCost,
+		ComposeNode:    p.ComposeNode,
+		ComposeDeps:    append([]string(nil), p.ComposeDeps...),
+		PipelineIndex:  p.PipelineIndex,
+		PipelineTotal:  p.PipelineTotal,
 	}
 }
 

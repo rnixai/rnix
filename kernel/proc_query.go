@@ -228,6 +228,10 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		LastHeartbeat:  proc.LastHeartbeat,
 		StepTimeout:    proc.StepTimeout,
 		SuspendReason:  proc.SuspendReason,
+		ComposeNode:    proc.ComposeNode,
+		ComposeDeps:    append([]string(nil), proc.ComposeDeps...),
+		PipelineIndex:  proc.PipelineIndex,
+		PipelineTotal:  proc.PipelineTotal,
 	}
 	proc.mu.Unlock()
 	return info, nil
@@ -274,6 +278,10 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			StepTimeout:    proc.StepTimeout,
 			SuspendReason:  proc.SuspendReason,
 			MaxSteps:       proc.MaxSteps,
+			ComposeNode:    proc.ComposeNode,
+			ComposeDeps:    append([]string(nil), proc.ComposeDeps...),
+			PipelineIndex:  proc.PipelineIndex,
+			PipelineTotal:  proc.PipelineTotal,
 		})
 		proc.mu.Unlock()
 		return true

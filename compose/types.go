@@ -56,6 +56,8 @@ type ComposeSpawnOpts struct {
 	TimeoutMs     int64
 	TraceID       types.TraceID
 	ParentSpanID  types.SpanID
+	ComposeNode   string   // compose node name
+	ComposeDeps   []string // upstream dependency node names
 }
 
 // ComposeExitStatus records a process exit status for compose.

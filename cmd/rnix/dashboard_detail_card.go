@@ -48,7 +48,7 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 	line1 := fmt.Sprintf("  Provider: %s │ Devices: %s", d.Provider, deviceList)
 	line1 = fitLine(line1, width)
 
-	// Line 2: Skills
+	// Line 2: Skills + Orchestration info
 	var skillNames []string
 	for _, sk := range d.Skills {
 		skillNames = append(skillNames, sk.Name)
@@ -58,6 +58,10 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 		line2 = "  Skills: " + strings.Join(skillNames, ", ")
 	} else {
 		line2 = "  Skills: —"
+	}
+	orchInfo := detailOrchestrationInfo(d)
+	if orchInfo != "" {
+		line2 += " │ " + orchInfo
 	}
 	line2 = fitLine(line2, width)
 
@@ -314,4 +318,19 @@ func fetchHeartbeatStatusCmd() tea.Cmd {
 		status, err := client.HeartbeatStatus()
 		return heartbeatStatusMsg{status: status, err: err}
 	}
+}
+
+// detailOrchestrationInfo returns a compact orchestration description for the detail card.
+func detailOrchestrationInfo(d *ipc.GetProcDetailResponse) string {
+	if d.ComposeNode != "" {
+		s := "Compose:" + d.ComposeNode
+		if len(d.ComposeDeps) > 0 {
+			s += " deps=" + strings.Join(d.ComposeDeps, ",")
+		}
+		return s
+	}
+	if d.PipelineTotal > 0 {
+		return fmt.Sprintf("Pipeline[%d/%d]", d.PipelineIndex+1, d.PipelineTotal)
+	}
+	return ""
 }

@@ -139,9 +139,15 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			rec = " ●"
 		}
 
+		// Orchestration annotation (Story 34.7)
+		orchAnnotation := orchestrationAnnotation(row.proc)
+
 		// Calculate available width for intent (elastic)
 		prefixW := lipgloss.Width(cursor + collapsePrefix + row.prefix)
 		suffixParts := []string{pidPart, stateMark, tokens, elapsed}
+		if orchAnnotation != "" {
+			suffixParts = append(suffixParts, orchAnnotation)
+		}
 		suffixStr := strings.Join(suffixParts, " ") + rec
 		suffixW := lipgloss.Width(suffixStr)
 		intentW := max(innerW-prefixW-suffixW-3, 8)
@@ -614,4 +620,30 @@ func (m dashboardModel) buildCollapsedIntents() map[string]string {
 	}
 
 	return result
+}
+
+// orchestrationAnnotation returns a compact orchestration label for the tree row.
+// Compose: "◄╌deps" or "<-deps" (ASCII). Pipeline: "│►[i/n]" or "|>[i/n]" (ASCII).
+func orchestrationAnnotation(p vfs.ProcInfo) string {
+	if p.ComposeNode != "" {
+		if len(p.ComposeDeps) > 0 {
+			deps := strings.Join(p.ComposeDeps, ",")
+			if ui.IsASCIIMode() {
+				return "<-" + deps
+			}
+			return "◄╌" + deps
+		}
+		if ui.IsASCIIMode() {
+			return "[C:" + p.ComposeNode + "]"
+		}
+		return "[C:" + p.ComposeNode + "]"
+	}
+	if p.PipelineTotal > 0 {
+		label := fmt.Sprintf("[%d/%d]", p.PipelineIndex+1, p.PipelineTotal)
+		if ui.IsASCIIMode() {
+			return "|>" + label
+		}
+		return "│►" + label
+	}
+	return ""
 }

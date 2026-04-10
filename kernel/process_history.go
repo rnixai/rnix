@@ -137,6 +137,10 @@ type procInfoDisk struct {
 	AllowedDevices []string `json:"allowed_devices,omitempty"`
 	Provider       string   `json:"provider,omitempty"`
 	Model          string   `json:"model,omitempty"`
+	ComposeNode    string   `json:"compose_node,omitempty"`
+	ComposeDeps    []string `json:"compose_deps,omitempty"`
+	PipelineIndex  int      `json:"pipeline_index,omitempty"`
+	PipelineTotal  int      `json:"pipeline_total,omitempty"`
 }
 
 func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
@@ -156,6 +160,10 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		AllowedDevices: info.AllowedDevices,
 		Provider:       info.Provider,
 		Model:          info.Model,
+		ComposeNode:    info.ComposeNode,
+		ComposeDeps:    info.ComposeDeps,
+		PipelineIndex:  info.PipelineIndex,
+		PipelineTotal:  info.PipelineTotal,
 	}
 	if !info.DeadAt.IsZero() {
 		d.DeadAt = info.DeadAt.Format(time.RFC3339Nano)
@@ -179,6 +187,10 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		AllowedDevices: d.AllowedDevices,
 		Provider:       d.Provider,
 		Model:          d.Model,
+		ComposeNode:    d.ComposeNode,
+		ComposeDeps:    d.ComposeDeps,
+		PipelineIndex:  d.PipelineIndex,
+		PipelineTotal:  d.PipelineTotal,
 	}
 	if d.CreatedAt != "" {
 		info.CreatedAt, _ = time.Parse(time.RFC3339Nano, d.CreatedAt)

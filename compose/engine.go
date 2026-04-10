@@ -228,6 +228,10 @@ func (e *Engine) executeNode(ctx context.Context, name string, traceID types.Tra
 		ContextBudget: agentSpec.ContextBudget,
 		TimeoutMs:     agentSpec.TimeoutMs,
 		TraceID:       traceID,
+		ComposeNode:   name,
+	}
+	if node != nil {
+		opts.ComposeDeps = append([]string(nil), node.DependsOn...)
 	}
 
 	// Apply BudgetPool quota to ContextBudget (Story 21.1)

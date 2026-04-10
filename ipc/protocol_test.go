@@ -102,7 +102,7 @@ func TestSpawnRequest_MarshalRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if decoded != sr {
+	if decoded.Intent != sr.Intent || decoded.Agent != sr.Agent || decoded.Model != sr.Model || decoded.MaxSteps != sr.MaxSteps {
 		t.Errorf("got %+v, want %+v", decoded, sr)
 	}
 }

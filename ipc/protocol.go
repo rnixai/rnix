@@ -142,8 +142,12 @@ type SpawnRequest struct {
 	TimeoutMs     int64  `json:"timeout_ms,omitempty"`
 	TraceID       string `json:"trace_id,omitempty"`
 	ParentSpanID  string `json:"parent_span_id,omitempty"`
-	ProjectDir    string `json:"project_dir,omitempty"`
-	RnixEnv       string `json:"rnix_env,omitempty"`
+	ProjectDir    string   `json:"project_dir,omitempty"`
+	RnixEnv       string   `json:"rnix_env,omitempty"`
+	ComposeNode   string   `json:"compose_node,omitempty"`
+	ComposeDeps   []string `json:"compose_deps,omitempty"`
+	PipelineIndex int      `json:"pipeline_index,omitempty"`
+	PipelineTotal int      `json:"pipeline_total,omitempty"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.
@@ -183,6 +187,10 @@ type ProcInfoWire struct {
 	LastHeartbeatMs int64              `json:"last_heartbeat_ms,omitempty"`
 	StepTimeoutMs   int64              `json:"step_timeout_ms,omitempty"`
 	SuspendReason   string             `json:"suspend_reason,omitempty"`
+	ComposeNode     string             `json:"compose_node,omitempty"`
+	ComposeDeps     []string           `json:"compose_deps,omitempty"`
+	PipelineIndex   int                `json:"pipeline_index,omitempty"`
+	PipelineTotal   int                `json:"pipeline_total,omitempty"`
 }
 
 // ProcInfoToWire converts a vfs.ProcInfo to wire format.
@@ -211,6 +219,10 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		Model:         p.Model,
 		StepTimeoutMs: p.StepTimeout.Milliseconds(),
 		SuspendReason: p.SuspendReason,
+		ComposeNode:   p.ComposeNode,
+		ComposeDeps:   p.ComposeDeps,
+		PipelineIndex: p.PipelineIndex,
+		PipelineTotal: p.PipelineTotal,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -243,6 +255,10 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		Model:         w.Model,
 		StepTimeout:   time.Duration(w.StepTimeoutMs) * time.Millisecond,
 		SuspendReason: w.SuspendReason,
+		ComposeNode:   w.ComposeNode,
+		ComposeDeps:   w.ComposeDeps,
+		PipelineIndex: w.PipelineIndex,
+		PipelineTotal: w.PipelineTotal,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)
@@ -1042,6 +1058,10 @@ type GetProcDetailResponse struct {
 	EnvSnapshot    map[string]string `json:"env_snapshot"`
 	FDTable        []FDEntryWire     `json:"fd_table"`
 	ContextStats   ContextStatsWire  `json:"context_stats"`
+	ComposeNode    string            `json:"compose_node,omitempty"`
+	ComposeDeps    []string          `json:"compose_deps,omitempty"`
+	PipelineIndex  int               `json:"pipeline_index,omitempty"`
+	PipelineTotal  int               `json:"pipeline_total,omitempty"`
 }
 
 // SkillInfoWire is the wire-format representation of a loaded skill with its allowed tools.

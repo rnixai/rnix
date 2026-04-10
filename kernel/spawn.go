@@ -299,6 +299,12 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.GracePeriod = opts.GracePeriod
 	}
 
+	// Orchestration metadata (Story 34.7)
+	proc.ComposeNode = opts.ComposeNode
+	proc.ComposeDeps = opts.ComposeDeps
+	proc.PipelineIndex = opts.PipelineIndex
+	proc.PipelineTotal = opts.PipelineTotal
+
 	if opts.TraceID != "" {
 		proc.TraceID = opts.TraceID
 		proc.ParentSpanID = opts.ParentSpanID

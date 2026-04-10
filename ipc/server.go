@@ -916,6 +916,10 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 		TraceID:       types.TraceID(req.TraceID),
 		ParentSpanID:  types.SpanID(req.ParentSpanID),
 		ProjectConfig: projectCfg,
+		ComposeNode:   req.ComposeNode,
+		ComposeDeps:   req.ComposeDeps,
+		PipelineIndex: req.PipelineIndex,
+		PipelineTotal: req.PipelineTotal,
 	})
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})
@@ -2319,6 +2323,10 @@ func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) 
 		Model:          snap.Model,
 		CreatedAtMs:    snap.CreatedAt.UnixMilli(),
 		AllowedDevices: snap.AllowedDevices,
+		ComposeNode:    snap.ComposeNode,
+		ComposeDeps:    snap.ComposeDeps,
+		PipelineIndex:  snap.PipelineIndex,
+		PipelineTotal:  snap.PipelineTotal,
 	}
 	if !snap.DeadAt.IsZero() {
 		resp.DeadAtMs = snap.DeadAt.UnixMilli()
@@ -2419,6 +2427,10 @@ func (s *Server) handleGetProcDetailFromHistory(conn net.Conn, pid types.PID, uu
 		AllowedDevices: info.AllowedDevices,
 		FDTable:        []FDEntryWire{},
 		EnvSnapshot:    map[string]string{},
+		ComposeNode:    info.ComposeNode,
+		ComposeDeps:    info.ComposeDeps,
+		PipelineIndex:  info.PipelineIndex,
+		PipelineTotal:  info.PipelineTotal,
 	}
 	if !info.DeadAt.IsZero() {
 		resp.DeadAtMs = info.DeadAt.UnixMilli()
@@ -2875,6 +2887,7 @@ func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) 
 		kernel:        s.kern,
 		agentLoader:   agentLoaderFn,
 		projectConfig: projectCfg,
+		pipelineTotal: len(req.Commands),
 	}
 
 	executor := shell.NewPipelineExecutor(spawner)
@@ -2934,6 +2947,7 @@ type ipcKernelSpawner struct {
 	agentLoader   AgentLoaderFunc
 	projectConfig *config.ProjectConfig // per-spawn project config snapshot (nil = global only)
 	pids          []types.PID
+	pipelineTotal int // total stages in pipeline (set before Execute)
 }
 
 func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, model string) (string, int, int, error) {
@@ -2946,7 +2960,12 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 		}
 	}
 
-	pid, err := s.kernel.Spawn(intent, agentInfo, kernel.SpawnOpts{Model: model, ProjectConfig: s.projectConfig})
+	pid, err := s.kernel.Spawn(intent, agentInfo, kernel.SpawnOpts{
+		Model:         model,
+		ProjectConfig: s.projectConfig,
+		PipelineIndex: len(s.pids),
+		PipelineTotal: s.pipelineTotal,
+	})
 	if err != nil {
 		return "", 1, 0, err
 	}
