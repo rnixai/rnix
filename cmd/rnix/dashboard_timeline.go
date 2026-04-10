@@ -81,18 +81,18 @@ func sysEventStyle(ev UnifiedEvent) lipgloss.Style {
 }
 
 // defaultStepFilters returns a map with all action types and system event types enabled.
-// Note: step action "spawn" and EventSpawn ("spawn") share the same key — both are toggled together.
 func defaultStepFilters() map[string]bool {
 	return map[string]bool{
 		"tool_call":    true,
 		"plan":         true,
 		"text":         true,
 		"complete":     true,
-		"spawn":        true, // shared by step-action spawn and EventSpawn
+		"spawn":        true,
 		"replan":       true,
 		"specialize":   true,
 		EventCompact:   true,
 		EventBudget:    true,
+		"sys_spawn":    true, // F7: distinct from step-action "spawn" filter key
 		EventExit:      true,
 		EventStall:     true,
 		EventImmune:    true,
@@ -150,7 +150,7 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		}
 	case "f":
 		m.stepFilterMode = true
-		m.statusMsg = "Filter: T/P/A/C/S/R/Z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
+		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "e":
 		// Expand all visible step events that have expandable content
@@ -245,13 +245,14 @@ func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
 	case "z":
 		m.stepFilters["specialize"] = !m.stepFilters["specialize"]
 	// Row 2: System event types (uppercase or distinct keys)
+	// F7: Use 'x' for system spawn and 'X' for exit per spec Task 5.4
 	case "C":
 		m.stepFilters[EventCompact] = !m.stepFilters[EventCompact]
 	case "b":
 		m.stepFilters[EventBudget] = !m.stepFilters[EventBudget]
-	case "A":
-		m.stepFilters[EventSpawn] = !m.stepFilters[EventSpawn] // shared with step-action "spawn"
 	case "x":
+		m.stepFilters["sys_spawn"] = !m.stepFilters["sys_spawn"]
+	case "X":
 		m.stepFilters[EventExit] = !m.stepFilters[EventExit]
 	case "T":
 		m.stepFilters[EventStall] = !m.stepFilters[EventStall]
@@ -262,7 +263,7 @@ func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
 	case "f", "esc":
 		m.stepFilterMode = false
 	default:
-		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/A/x/T/i (sys) | * all | Esc exit"
+		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
 		m.statusMsgTTL = statusMsgDefaultTTL
 	}
 	return m
@@ -311,6 +312,10 @@ func isEventVisible(ev UnifiedEvent, filters map[string]bool) bool {
 			return filters[ev.StepEntry.summary.Action]
 		}
 		return true
+	}
+	// F7: system spawn uses distinct filter key "sys_spawn" to avoid collision with step-action "spawn"
+	if ev.Type == EventSpawn {
+		return filters["sys_spawn"]
 	}
 	return filters[ev.Type]
 }
@@ -445,13 +450,18 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	}
 
 	// Aggregation mode: when >100 step events, group step events into chunks (Story 30.8 AC#5)
-	// System events are always shown in non-aggregated form.
+	// F2: System events are rendered inline between aggregation groups.
 	const aggThreshold = 100
 	useAggregation := stepCount > aggThreshold
 
 	cursor := min(m.stepCursor, max(len(filtered)-1, 0))
 
-	listLines := max(height-2, 1)
+	// F4: Filter bar is 2 lines when active; account for extra line
+	headerLines := 1
+	if m.stepFilterMode {
+		headerLines = 2
+	}
+	listLines := max(height-headerLines-1, 1)
 
 	// Variable-height scroll: ensure cursor is visible via stepScrollTop
 	startIdx := m.stepScrollTop
@@ -497,8 +507,9 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 	// Aggregation rendering path (Story 30.8 AC#5)
 	if useAggregation {
-		// For aggregation, extract step entry indices and delegate
+		// F2: Extract step indices for aggregation; render system events inline after
 		var stepIndices []int
+		var sysEventsForAgg []UnifiedEvent
 		for _, ev := range filtered {
 			if ev.StepEntry != nil {
 				for i := range m.stepEntries {
@@ -507,9 +518,24 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 						break
 					}
 				}
+			} else {
+				sysEventsForAgg = append(sysEventsForAgg, ev)
 			}
 		}
-		m.renderAggregatedTimeline(&b, stepIndices, truncW, listLines, showToken, showDuration)
+		aggLines := m.renderAggregatedTimeline(&b, stepIndices, truncW, listLines, showToken, showDuration)
+		// Render system events after aggregation groups (always visible)
+		remaining := listLines - aggLines
+		for _, ev := range sysEventsForAgg {
+			if remaining <= 0 {
+				break
+			}
+			icon := ui.EventTypeIcon(ev.Type)
+			style := sysEventStyle(ev)
+			line := fmt.Sprintf("   %s %s", style.Render(icon), style.Render(ev.Summary))
+			b.WriteString(truncateAnsi(line, truncW))
+			b.WriteString("\n")
+			remaining--
+		}
 		return b.String()
 	}
 
@@ -910,8 +936,25 @@ func (m dashboardModel) renderUnifiedStepHeader(maxW, totalSteps, filteredCount,
 	// Filter indicator
 	totalEvents := len(m.unifiedEvents)
 	if filteredCount < totalEvents {
+		// Build list of disabled type names for quick insight
+		allTypes := []struct{ key, label string }{
+			{"tool_call", "tool"}, {"plan", "plan"}, {"text", "txt"},
+			{"complete", "done"}, {"spawn", "spn"}, {"replan", "rpl"}, {"specialize", "spec"},
+			{EventCompact, "cmp"}, {EventBudget, "bgt"}, {"sys_spawn", "sspn"},
+			{EventExit, "exit"}, {EventStall, "stl"}, {EventImmune, "imm"},
+		}
+		var hidden []string
+		for _, t := range allTypes {
+			if !m.stepFilters[t.key] {
+				hidden = append(hidden, t.label)
+			}
+		}
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-		fmt.Fprintf(&b, "  %s", dimStyle.Render(fmt.Sprintf("filter: %d/%d", filteredCount, totalEvents)))
+		label := fmt.Sprintf("filter: %d/%d", filteredCount, totalEvents)
+		if len(hidden) > 0 {
+			label += " -" + strings.Join(hidden, ",")
+		}
+		fmt.Fprintf(&b, "  %s", dimStyle.Render(label))
 	}
 
 	return truncateAnsi(b.String(), maxW)
@@ -959,8 +1002,8 @@ func (m dashboardModel) renderStepFilterBar(maxW int) string {
 	}{
 		{"C", "compact", EventCompact},
 		{"b", "budget", EventBudget},
-		{"A", "spawn", EventSpawn},
-		{"x", "exit", EventExit},
+		{"x", "spawn", "sys_spawn"},
+		{"X", "exit", EventExit},
 		{"T", "stall", EventStall},
 		{"i", "immune", EventImmune},
 	}

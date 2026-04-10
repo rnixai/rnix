@@ -70,6 +70,7 @@ func renderAlertStrip(m *dashboardModel, width, maxLines int) string {
 		alert := alerts[i]
 		icon := ui.AlertSeverityIcon(alert.Severity)
 		line := fmt.Sprintf("%s %s", icon, alert.Summary)
+		line = truncateAnsi(line, width-1)
 
 		// Highlight cursor line
 		if m.alertExpanded && i == m.alertCursor {
@@ -88,7 +89,10 @@ func renderAlertStrip(m *dashboardModel, width, maxLines int) string {
 	content := strings.Join(lines, "\n")
 
 	if ascii {
-		separator := strings.Repeat("-", min(width, 20)) + " Alerts " + strings.Repeat("-", max(width-28, 3))
+		w := max(width, 1)
+		lpad := min(w, 20)
+		rpad := max(w-lpad-len(" Alerts "), 0)
+		separator := strings.Repeat("-", lpad) + " Alerts " + strings.Repeat("-", rpad)
 		return separator + "\n" + content
 	}
 

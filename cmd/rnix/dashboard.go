@@ -197,9 +197,10 @@ type dashboardModel struct {
 	collapsedDeadTrees map[string]bool          // AC3: dead subtree collapse state (key=UUID)
 
 	// Story 34.4: Alert strip + unified timeline
-	alertExpanded bool           // alert strip expanded state
-	alertCursor   int            // cursor position within alert strip
-	alertEvents   []UnifiedEvent // cached alerts (Severity >= SevWarn, sorted)
+	alertExpanded  bool             // alert strip expanded state
+	alertCursor    int              // cursor position within alert strip
+	alertEvents    []UnifiedEvent   // cached alerts (Severity >= SevWarn, sorted)
+	alertJumpTarget *UnifiedEvent   // pending alert jump after PID change
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -626,20 +627,34 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Build alert events for alert strip (Story 34.4)
 	m.alertEvents = buildAlertEvents(m.unifiedEvents)
-	// Reset cursor when collapsing if out of visible range
-	if !m.alertExpanded {
-		visible := alertStripHeight(len(m.alertEvents), false)
+	// F5: Always clamp alertCursor to valid range (even when expanded)
+	if len(m.alertEvents) == 0 {
+		m.alertCursor = 0
+	} else {
+		visible := alertStripHeight(len(m.alertEvents), m.alertExpanded)
 		if m.alertCursor >= visible {
-			m.alertCursor = 0
+			m.alertCursor = max(visible-1, 0)
+		}
+	}
+
+	// F1: Resolve pending alert jump target after PID change
+	if m.alertJumpTarget != nil {
+		target := m.alertJumpTarget
+		m.alertJumpTarget = nil
+		filtered := m.filteredUnifiedEvents()
+		for i, ev := range filtered {
+			if ev.Type == target.Type && ev.Timestamp.Equal(target.Timestamp) && ev.PID == target.PID {
+				m.stepCursor = i
+				break
+			}
 		}
 	}
 
 	// Compute health counters for title bar (Story 34.2)
 	m.errorCount, m.warnCount = computeHealthCounts(m.processes, m.unifiedEvents, m.heartbeatStatus)
 
-	// --- Story 34.3 AC5: Most active process tracking ---
+	// Most active process tracking — update lastEventByPID from unified events
 	now := time.Now()
-	// Update lastEventByPID from unified events
 	for _, ev := range m.unifiedEvents {
 		if ev.PID > 0 {
 			if existing, ok := m.lastEventByPID[ev.PID]; !ok || ev.Timestamp.After(existing) {
@@ -647,8 +662,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	// Prune lastEventByPID for processes no longer in the list
-	activePIDs := make(map[types.PID]struct{}, len(m.processes))
+	activePIDs := make(map[types.PID]struct{}, len(m.processes)) // prune stale entries
 	for _, p := range m.processes {
 		activePIDs[p.PID] = struct{}{}
 	}
@@ -1044,7 +1058,7 @@ func (m dashboardModel) paneHints() (core []string, exit string) {
 	switch m.expandedPane {
 	case paneTimeline:
 		if m.stepFilterMode {
-			return []string{hint("t", "tool"), hint("p", "plan"), hint("a", "text"), hint("c", "done"), hint("s", "spawn"), hint("r", "repl"), hint("z", "spec"), hint("C/b/x/T/i", "sys"), hint("*", "all")},
+			return []string{hint("t", "tool"), hint("p", "plan"), hint("a", "text"), hint("c", "done"), hint("s", "spawn"), hint("r", "repl"), hint("z", "spec"), hint("C/b/x/X/T/i", "sys"), hint("*", "all")},
 				hint("f/Esc", "done")
 		}
 		hints := []string{hint("j/k", "nav"), hint("v", "detail"), hint("e/E", "expand"), hint("n/N", "err"), hint("f", "filter")}

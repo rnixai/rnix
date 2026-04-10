@@ -2799,8 +2799,8 @@ func TestRenderAlertStrip_ASCII(t *testing.T) {
 		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: time.Now()},
 	}
 	result := renderAlertStrip(&m, 80, 2)
-	if !strings.Contains(result, "(!)") {
-		t.Errorf("ASCII mode should use (!) icon, got %q", result)
+	if !strings.Contains(result, "[!]") {
+		t.Errorf("ASCII mode should use [!] icon for error severity, got %q", result)
 	}
 	if !strings.Contains(result, "Alerts") {
 		t.Errorf("ASCII mode should use text separator, got %q", result)
@@ -3056,8 +3056,12 @@ func TestAlertSeverityIcon(t *testing.T) {
 	}
 	t.Setenv("RNIX_ASCII", "1")
 	icon = ui.AlertSeverityIcon(SevError)
+	if icon != "[!]" {
+		t.Errorf("SevError ASCII icon = %q, want [!]", icon)
+	}
+	icon = ui.AlertSeverityIcon(SevWarn)
 	if icon != "(!)" {
-		t.Errorf("SevError ASCII icon = %q, want (!)", icon)
+		t.Errorf("SevWarn ASCII icon = %q, want (!)", icon)
 	}
 }
 

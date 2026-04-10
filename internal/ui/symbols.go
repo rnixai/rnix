@@ -157,10 +157,13 @@ func EventTypeIcon(eventType string) string {
 }
 
 // AlertSeverityIcon returns the icon for an alert severity level.
-// In ASCII mode, all severity levels use "(!)".
+// In ASCII mode, error/critical use "[!]" and warn uses "(!)".
 func AlertSeverityIcon(severity int) string {
 	ascii := isASCIIMode()
 	if ascii {
+		if severity >= 2 {
+			return "[!]"
+		}
 		return "(!)"
 	}
 	// SevError(2) / SevCritical(3) → 🔴, SevWarn(1) → ⚠

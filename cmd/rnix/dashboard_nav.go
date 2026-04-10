@@ -219,8 +219,49 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Alert cursor down (Story 34.4)
 		if m.alertExpanded && len(m.alertEvents) > 0 {
 			maxLines := alertStripHeight(len(m.alertEvents), true)
-			if m.alertCursor < maxLines-1 {
+			// F6: reserve last line for overflow indicator when alerts exceed visible lines
+			maxCursor := maxLines - 1
+			if len(m.alertEvents) > maxLines {
+				maxCursor = maxLines - 2
+			}
+			if m.alertCursor < maxCursor {
 				m.alertCursor++
+			}
+			return m, nil
+		}
+	case "enter":
+		// F1: Alert jump — Enter on expanded alert strip jumps to associated process
+		if m.alertExpanded && len(m.alertEvents) > 0 && m.alertCursor < len(m.alertEvents) {
+			alert := m.alertEvents[m.alertCursor]
+			if alert.PID > 0 {
+				// Switch to the alert's process if different
+				if alert.PID != m.selectedPID {
+					var targetUUID string
+					for _, p := range m.processes {
+						if p.PID == alert.PID {
+							targetUUID = p.UUID
+							break
+						}
+					}
+					m.selectedPID = alert.PID
+					m.selectedUUID = targetUUID
+					m.activePane = paneTimeline
+					m.alertExpanded = false
+					m2, cmd := m.handlePIDChange()
+					// After PID change, scroll to matching event on next tick
+					m2.alertJumpTarget = &alert
+					return m2, cmd
+				}
+				// Same PID: find the matching event in unified timeline and scroll to it
+				m.activePane = paneTimeline
+				m.alertExpanded = false
+				filtered := m.filteredUnifiedEvents()
+				for i, ev := range filtered {
+					if ev.Type == alert.Type && ev.Timestamp.Equal(alert.Timestamp) && ev.PID == alert.PID {
+						m.stepCursor = i
+						break
+					}
+				}
 			}
 			return m, nil
 		}
@@ -243,11 +284,20 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	// Step Timeline 按键（enter/v/V/p）— V must be checked before v
 	if m.activePane == paneTimeline && (len(m.stepEntries) > 0 || len(m.unifiedEvents) > 0) {
 		// Aggregation group toggle (Story 30.8 AC#5)
+		// F3: Use step-only count from filtered unified events, not filteredStepEntries
 		filteredStep := m.filteredStepEntries()
 		if len(filteredStep) > 100 && key == "enter" {
 			const aggGroupSize = 50
-			cursorIdx := min(m.stepCursor, len(filteredStep)-1)
-			groupIdx := cursorIdx / aggGroupSize
+			// F3: Convert unified cursor to step-only index for group calculation
+			stepIdx := 0
+			filtered := m.filteredUnifiedEvents()
+			cursorPos := min(m.stepCursor, len(filtered)-1)
+			for i := 0; i < cursorPos && i < len(filtered); i++ {
+				if filtered[i].StepEntry != nil {
+					stepIdx++
+				}
+			}
+			groupIdx := stepIdx / aggGroupSize
 			if m.expandedAggGroups == nil {
 				m.expandedAggGroups = make(map[int]bool)
 			}
