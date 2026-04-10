@@ -175,6 +175,17 @@ type dashboardModel struct {
 
 	// Help overlay
 	helpOverlay bool
+
+	// Unified event stream fields (Story 34.1)
+	unifiedEvents      []UnifiedEvent
+	sysEvents          []UnifiedEvent
+	prevProcessPIDs    map[types.PID]vfs.ProcInfo
+	budgetAlertSeen    map[types.PID]int
+	stallSeen          map[types.PID]struct{}
+	compactEvents      []ipc.SyscallEventWire
+	lastCompactEventMs int64
+	fetchingCompact    bool
+	sysEventSeen       map[string]struct{}
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -189,6 +200,10 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		stepExpandedIdx:   -1,
 		stepFilters:       defaultStepFilters(),
 		expandedAggGroups: make(map[int]bool),
+		prevProcessPIDs:   make(map[types.PID]vfs.ProcInfo),
+		budgetAlertSeen:   make(map[types.PID]int),
+		stallSeen:         make(map[types.PID]struct{}),
+		sysEventSeen:      make(map[string]struct{}),
 	}
 }
 
@@ -326,6 +341,20 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case heartbeatStatusMsg:
 		if msg.err == nil && msg.status != nil {
 			m.heartbeatStatus = msg.status
+		}
+		return m, nil
+	case compactEventsMsg:
+		m.fetchingCompact = false
+		if msg.err != nil || msg.pid != m.selectedPID {
+			return m, nil
+		}
+		for _, ev := range msg.events {
+			if ev.Syscall == "Compact" && ev.TimestampMs > m.lastCompactEventMs {
+				m.compactEvents = append(m.compactEvents, ev)
+				m.lastCompactEventMs = ev.TimestampMs
+				ue := compactEventFromSyscall(ev)
+				m.sysEvents = append(m.sysEvents, ue)
+			}
 		}
 		return m, nil
 	case resumeResultMsg:
@@ -536,6 +565,40 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Aggregate Focus Card data from cached fields (Story 29-3)
 	m.aggregateFocusCard()
 
+	// --- Unified event stream detection (Story 34.1) ---
+	// Detect spawn/exit events by comparing with previous tick's process list
+	spawnExitEvents := detectSpawnExitEvents(m.prevProcessPIDs, m.processes)
+	if len(spawnExitEvents) > 0 {
+		deduped := sysEventDedup(spawnExitEvents, m.sysEventSeen)
+		m.sysEvents = append(m.sysEvents, deduped...)
+	}
+
+	// Detect budget threshold events
+	budgetEvents := detectBudgetEvents(m.processes, m.budgetAlertSeen)
+	if len(budgetEvents) > 0 {
+		deduped := sysEventDedup(budgetEvents, m.sysEventSeen)
+		m.sysEvents = append(m.sysEvents, deduped...)
+	}
+
+	// Detect heartbeat stall events
+	stallEvents := detectStallEvents(m.heartbeatStatus, m.stallSeen)
+	if len(stallEvents) > 0 {
+		deduped := sysEventDedup(stallEvents, m.sysEventSeen)
+		m.sysEvents = append(m.sysEvents, deduped...)
+	}
+
+	// FIFO eviction on system events
+	m.sysEvents = sysEventFIFO(m.sysEvents)
+
+	// Update previous process snapshot for next tick
+	m.prevProcessPIDs = make(map[types.PID]vfs.ProcInfo, len(m.processes))
+	for _, p := range m.processes {
+		m.prevProcessPIDs[p.PID] = p
+	}
+
+	// Merge step entries + system events into unified event list
+	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID)
+
 	cmds := []tea.Cmd{tickCmd()}
 
 	pidChanged := m.selectedUUID != m.timelineAttachedUUID || m.selectedPID != m.heatmapPID
@@ -591,6 +654,12 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Fetch heartbeat status periodically for Focus Card recovering indicator (Story 30.8)
 	if focusCardNeedsData && m.connected && m.heatmapTickCount%5 == 0 {
 		cmds = append(cmds, fetchHeartbeatStatusCmd())
+	}
+
+	// Fetch compact events for selected process (Story 34.1)
+	if m.selectedPID > 0 && m.connected && !m.fetchingCompact && m.heatmapTickCount%3 == 0 {
+		m.fetchingCompact = true
+		cmds = append(cmds, fetchCompactEventsCmd(m.client, m.selectedPID, m.selectedUUID))
 	}
 
 	// Fetch trace list when Trace pane is active or in default view (Focus Card)
@@ -962,6 +1031,11 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.timelineAttachedPID = m.selectedPID
 	m.heatmapPID = m.selectedPID
 
+	// Reset compact event tracking for new process (Story 34.1)
+	m.compactEvents = nil
+	m.lastCompactEventMs = 0
+	m.fetchingCompact = false
+
 	m.statusMsg = fmt.Sprintf("Switched to PID %d, fetching steps...", m.selectedPID)
 	m.statusMsgTTL = statusMsgDefaultTTL
 
@@ -995,6 +1069,10 @@ func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
 		stepExpandedIdx:   -1,
 		stepFilters:       defaultStepFilters(),
 		expandedAggGroups: make(map[int]bool),
+		prevProcessPIDs:   make(map[types.PID]vfs.ProcInfo),
+		budgetAlertSeen:   make(map[types.PID]int),
+		stallSeen:         make(map[types.PID]struct{}),
+		sysEventSeen:      make(map[string]struct{}),
 		replayMode:        true,
 		replayReader:      reader,
 		replayCursor:      -1,

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
@@ -9,6 +11,57 @@ import (
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
 )
+
+// --- Severity levels for UnifiedEvent (Story 34.1 AC#1) ---
+
+const (
+	SevInfo     = 0
+	SevWarn     = 1
+	SevError    = 2
+	SevCritical = 3
+)
+
+// --- Event type constants for UnifiedEvent (Story 34.1 AC#1) ---
+
+const (
+	EventStep    = "step"
+	EventCompact = "compact"
+	EventBudget  = "budget"
+	EventSpawn   = "spawn"
+	EventExit    = "exit"
+	EventStall   = "stall"
+	EventImmune  = "immune"
+	EventError   = "error"
+)
+
+// UnifiedEvent merges reasoning steps and system events into a single type
+// for the unified event stream (Story 34.1). This is a Dashboard-layer type only.
+type UnifiedEvent struct {
+	Type      string
+	Severity  int
+	Timestamp time.Time
+	PID       types.PID
+	Summary   string
+	Detail    string
+	StepEntry *stepEntry
+	RawEvent  *ipc.SyscallEventWire
+}
+
+// UnifiedEventSlice implements sort.Interface, sorting by Timestamp ascending.
+type UnifiedEventSlice []UnifiedEvent
+
+func (s UnifiedEventSlice) Len() int           { return len(s) }
+func (s UnifiedEventSlice) Less(i, j int) bool { return s[i].Timestamp.Before(s[j].Timestamp) }
+func (s UnifiedEventSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
+// --- compactEventsMsg is the tea.Msg for async compact event fetching (Story 34.1) ---
+
+type compactEventsMsg struct {
+	pid    types.PID
+	uuid   string
+	events []ipc.SyscallEventWire
+	err    error
+}
 
 // --- Pane and category enums ---
 
