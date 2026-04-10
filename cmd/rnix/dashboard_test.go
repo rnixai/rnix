@@ -134,11 +134,14 @@ func TestDashboardModel_ViewTitleBar(t *testing.T) {
 	v := m.View()
 	content := v.Content
 
-	if !strings.Contains(content, "Rnix Dashboard") {
-		t.Errorf("view should contain 'Rnix Dashboard' title, got %q", content)
+	if !strings.Contains(content, "rnix") {
+		t.Errorf("view should contain 'rnix' title, got %q", content)
 	}
 	if !strings.Contains(content, "●") {
 		t.Errorf("view should show connection status indicator, got %q", content)
+	}
+	if !strings.Contains(content, "P") {
+		t.Errorf("view should contain process count indicator 'P', got %q", content)
 	}
 }
 
@@ -2102,5 +2105,269 @@ func TestTruncateAnsi_ZeroWidth(t *testing.T) {
 	got := truncateAnsi("hello", 0)
 	if got != "" {
 		t.Errorf("truncateAnsi(0) should return empty, got %q", got)
+	}
+}
+
+// ============================================================
+// Story 34.2: 标题状态栏与全局健康指标
+// ============================================================
+
+// --- 34.2-UNIT-001: computeHealthCounts with no errors → E=0, W=0 ---
+
+func TestComputeHealthCounts_NoErrors(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, TokensUsed: 100, ContextBudget: 1000},
+		{PID: 2, State: types.StateRunning, TokensUsed: 200, ContextBudget: 1000},
+	}
+	e, w := computeHealthCounts(procs, nil, nil)
+	if e != 0 {
+		t.Errorf("expected errorCount=0, got %d", e)
+	}
+	if w != 0 {
+		t.Errorf("expected warnCount=0, got %d", w)
+	}
+}
+
+// --- 34.2-UNIT-002: Dead+failed process → E=1 ---
+
+func TestComputeHealthCounts_DeadProcess(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, TokensUsed: 100, ContextBudget: 1000},
+		{PID: 2, State: types.StateDead, Result: "error: timeout"},
+	}
+	e, w := computeHealthCounts(procs, nil, nil)
+	if e != 1 {
+		t.Errorf("expected errorCount=1 for dead+failed process, got %d", e)
+	}
+	if w != 0 {
+		t.Errorf("expected warnCount=0, got %d", w)
+	}
+}
+
+// --- 34.2-UNIT-003: ctx 85% → W=1 ---
+
+func TestComputeHealthCounts_BudgetWarn(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, TokensUsed: 850, ContextBudget: 1000},
+	}
+	e, w := computeHealthCounts(procs, nil, nil)
+	if e != 0 {
+		t.Errorf("expected errorCount=0, got %d", e)
+	}
+	if w != 1 {
+		t.Errorf("expected warnCount=1 for ctx>=80%%, got %d", w)
+	}
+}
+
+// --- 34.2-UNIT-004: heartbeat stall → W includes stall count ---
+
+func TestComputeHealthCounts_StallWarn(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, TokensUsed: 100, ContextBudget: 1000},
+	}
+	heartbeat := &ipc.HeartbeatStatusResponse{
+		CurrentStalled: []ipc.StalledProcWire{
+			{PID: 3},
+			{PID: 4},
+		},
+	}
+	e, w := computeHealthCounts(procs, nil, heartbeat)
+	if e != 0 {
+		t.Errorf("expected errorCount=0, got %d", e)
+	}
+	if w != 2 {
+		t.Errorf("expected warnCount=2 for stalled processes, got %d", w)
+	}
+}
+
+// --- 34.2-UNIT-005: renderDashboardTitle connected → contains "rnix", "●", "P", "E", "W" ---
+
+func TestRenderDashboardTitle_Connected(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	title := m.renderDashboardTitle()
+
+	for _, expect := range []string{"rnix", "●", "P", "E", "W"} {
+		if !strings.Contains(title, expect) {
+			t.Errorf("expected title to contain %q, got: %s", expect, title)
+		}
+	}
+}
+
+// --- 34.2-UNIT-006: renderDashboardTitle disconnected → contains "○" ---
+
+func TestRenderDashboardTitle_Disconnected(t *testing.T) {
+	m := newDashboardModel(nil)
+	m.width = 120
+	m.height = 40
+	m.connected = false
+
+	title := m.renderDashboardTitle()
+	if !strings.Contains(title, "○") {
+		t.Errorf("expected disconnected indicator '○', got: %s", title)
+	}
+	if strings.Contains(title, "●") {
+		t.Errorf("should NOT contain connected indicator '●' when disconnected, got: %s", title)
+	}
+}
+
+// --- 34.2-UNIT-007: narrow terminal (width=60) → omits elapsed, budget, ctx ---
+
+func TestRenderDashboardTitle_NarrowTerminal(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.width = 60
+	title := m.renderDashboardTitle()
+
+	// Should still contain core info
+	if !strings.Contains(title, "rnix") {
+		t.Errorf("narrow title should still contain 'rnix', got: %s", title)
+	}
+	if !strings.Contains(title, "P") {
+		t.Errorf("narrow title should still contain process count, got: %s", title)
+	}
+}
+
+// --- 34.2-UNIT-008: RNIX_ASCII=1 → uses * and o instead of ● and ○ ---
+
+func TestRenderDashboardTitle_ASCII(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+
+	m := newTestDashboardModel(mockDashboardProcs())
+	title := m.renderDashboardTitle()
+	if !strings.Contains(title, "*") {
+		t.Errorf("ASCII mode should use '*' for connected, got: %s", title)
+	}
+	if strings.Contains(title, "●") {
+		t.Errorf("ASCII mode should NOT use '●', got: %s", title)
+	}
+	// Separator should be --
+	if !strings.Contains(title, "--") {
+		t.Errorf("ASCII mode should use '--' separator, got: %s", title)
+	}
+
+	// Disconnected
+	m.connected = false
+	title = m.renderDashboardTitle()
+	if !strings.Contains(title, "o") {
+		t.Errorf("ASCII mode disconnected should use 'o', got: %s", title)
+	}
+}
+
+// --- 34.2-UNIT-009: computeCtxPercent ---
+
+func TestComputeCtxPercent(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, TokensUsed: 620, ContextBudget: 1000},
+		{PID: 2, State: types.StateRunning, TokensUsed: 800, ContextBudget: 1000},
+	}
+	// Selected process
+	pct := computeCtxPercent(1, procs)
+	if pct != 62 {
+		t.Errorf("expected ctx 62%% for PID 1, got %d%%", pct)
+	}
+	// No selection → average
+	pct = computeCtxPercent(0, procs)
+	if pct != 71 { // (620+800)/(1000+1000)*100 = 71
+		t.Errorf("expected ctx average 71%%, got %d%%", pct)
+	}
+}
+
+// --- 34.2-UNIT-010: computeBudgetPercent ---
+
+func TestComputeBudgetPercent(t *testing.T) {
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, UsedCost: 0.45, MaxCost: 1.0},
+	}
+	pct := computeBudgetPercent(1, procs)
+	if pct != 45 {
+		t.Errorf("expected budget 45%%, got %d%%", pct)
+	}
+	// Token-based fallback
+	procs2 := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning, TokensUsed: 5000, MaxTokens: 10000},
+	}
+	pct = computeBudgetPercent(1, procs2)
+	if pct != 50 {
+		t.Errorf("expected budget 50%%, got %d%%", pct)
+	}
+}
+
+// --- 34.2-UNIT-011: formatElapsedHHMMSS ---
+
+func TestFormatElapsedHHMMSS(t *testing.T) {
+	tests := []struct {
+		dur    time.Duration
+		expect string
+	}{
+		{0, "00:00:00"},
+		{5 * time.Second, "00:00:05"},
+		{12*time.Minute + 34*time.Second, "00:12:34"},
+		{1*time.Hour + 2*time.Minute + 3*time.Second, "01:02:03"},
+	}
+	for _, tt := range tests {
+		got := formatElapsedHHMMSS(tt.dur)
+		if got != tt.expect {
+			t.Errorf("formatElapsedHHMMSS(%v) = %q, want %q", tt.dur, got, tt.expect)
+		}
+	}
+}
+
+// --- 34.2-UNIT-012: styleProviderName coloring ---
+
+func TestStyleProviderName(t *testing.T) {
+	// Healthy → contains provider name (green-styled)
+	proc := &vfs.ProcInfo{Provider: "claude-sonnet", State: types.StateRunning, TokensUsed: 100, ContextBudget: 1000}
+	s := styleProviderName(true, proc)
+	if !strings.Contains(s, "claude-sonnet") {
+		t.Errorf("expected provider name in styled output, got %q", s)
+	}
+
+	// Dead+failed → red
+	proc2 := &vfs.ProcInfo{Provider: "claude-sonnet", State: types.StateDead, Result: "error: crash"}
+	s2 := styleProviderName(true, proc2)
+	if !strings.Contains(s2, "claude-sonnet") {
+		t.Errorf("expected provider name for dead process, got %q", s2)
+	}
+
+	// Nil/empty → empty
+	s3 := styleProviderName(true, nil)
+	if s3 != "" {
+		t.Errorf("expected empty for nil proc, got %q", s3)
+	}
+}
+
+// --- 34.2-UNIT-013: panel tabs on second line ---
+
+func TestRenderDashboardTitle_PanelTabs(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.width = 120
+	title := m.renderDashboardTitle()
+
+	// Title should have two lines (panel tabs on second line)
+	lines := strings.Split(title, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected title to have at least 2 lines, got %d: %s", len(lines), title)
+	}
+
+	// Second line should contain panel labels
+	for _, label := range []string{"[1]", "[2]", "[3]", "[4]", "[5]", "[6]", "[7]", "[8]"} {
+		if !strings.Contains(lines[1], label) {
+			t.Errorf("expected panel tabs line to contain %q, got: %s", label, lines[1])
+		}
+	}
+}
+
+// --- 34.2-UNIT-014: E dedup by PID ---
+
+func TestComputeHealthCounts_ErrorDedup(t *testing.T) {
+	// Same PID dead+failed AND has error event — should count as 1 error, not 2
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateDead, Result: "error: crash"},
+	}
+	events := []UnifiedEvent{
+		{Type: EventExit, Severity: SevError, PID: 1},
+	}
+	e, _ := computeHealthCounts(procs, events, nil)
+	if e != 1 {
+		t.Errorf("expected errorCount=1 (dedup by PID), got %d", e)
 	}
 }

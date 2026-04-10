@@ -66,6 +66,12 @@ func isFailedResult(result string) bool {
 		strings.Contains(lower, "timeout")
 }
 
+// IsASCIIMode is the exported form of isASCIIMode.
+// Returns true when RNIX_ASCII=1 or RNIX_ASCII=true.
+func IsASCIIMode() bool {
+	return isASCIIMode()
+}
+
 // IsFailedResult is the exported form of isFailedResult.
 // Returns true when the result string indicates failure.
 func IsFailedResult(result string) bool {

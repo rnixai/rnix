@@ -366,8 +366,8 @@ func TestViewModeSystem_DefaultLayoutUnchanged(t *testing.T) {
 	}
 
 	// 验证包含 dashboard 标志性内容
-	if !strings.Contains(output, "Rnix Dashboard") {
-		t.Error("expected renderDashboard output to contain 'Rnix Dashboard'")
+	if !strings.Contains(output, "rnix") {
+		t.Error("expected renderDashboard output to contain 'rnix'")
 	}
 }
 

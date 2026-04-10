@@ -83,6 +83,7 @@ func TestDashboardFileSplitting_AllFilesExist(t *testing.T) {
 		"dashboard_timeline.go",
 		"dashboard_heatmap.go",
 		"dashboard_detail.go",
+		"dashboard_title.go",
 		"dashboard_intent.go",
 		"dashboard_security.go",
 		"dashboard_trace.go",
@@ -151,6 +152,10 @@ func TestDashboardFileSplitting_FunctionDistribution(t *testing.T) {
 			"fetchReputationCmd", "renderEvalPane", "handleEvalKey",
 			"renderEvalReputationView", "renderEvalTopologyView", "renderEvalSynergyView",
 		},
+		"dashboard_title.go": {
+			"renderDashboardTitle", "renderPanelTabsLine", "computeHealthCounts",
+			"computeCtxPercent", "computeBudgetPercent", "styleProviderName", "formatElapsedHHMMSS",
+		},
 	}
 
 	dir := cmdRnixDir()
@@ -205,7 +210,6 @@ func TestDashboardFileSplitting_CoreFunctionsRemainInMain(t *testing.T) {
 		"dashboardVisibleLines",
 		"colorState",
 		"renderDashboard",
-		"renderDashboardTitle",
 		"renderDashboardStatus",
 		"handlePIDChange",
 		"runDashboard",
@@ -230,6 +234,7 @@ func TestDashboardFileSplitting_AllFilesPackageMain(t *testing.T) {
 		"dashboard_timeline.go",
 		"dashboard_heatmap.go",
 		"dashboard_detail.go",
+		"dashboard_title.go",
 		"dashboard_intent.go",
 		"dashboard_security.go",
 		"dashboard_trace.go",

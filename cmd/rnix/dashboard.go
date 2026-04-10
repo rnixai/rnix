@@ -186,6 +186,10 @@ type dashboardModel struct {
 	lastCompactEventMs int64
 	fetchingCompact    bool
 	sysEventSeen       map[string]struct{}
+
+	// Health counters for title bar (Story 34.2)
+	errorCount int
+	warnCount  int
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -608,6 +612,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Merge step entries + system events into unified event list
 	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID)
 
+	// Compute health counters for title bar (Story 34.2)
+	m.errorCount, m.warnCount = computeHealthCounts(m.processes, m.unifiedEvents, m.heartbeatStatus)
+
 	cmds := []tea.Cmd{tickCmd()}
 
 	pidChanged := m.selectedUUID != m.timelineAttachedUUID || m.selectedPID != m.heatmapPID
@@ -787,7 +794,8 @@ func (m dashboardModel) renderDashboard() string {
 	titleBar := m.renderDashboardTitle()
 	statusBar := m.renderDashboardStatus()
 
-	contentHeight := max(h-4, 3)
+	titleLines := strings.Count(titleBar, "\n") + 1
+	contentHeight := max(h-titleLines-3, 3)
 
 	var mainContent string
 	switch m.viewMode {
@@ -852,58 +860,6 @@ func (m dashboardModel) renderSinglePane(p paneType, w, h int) string {
 	default:
 		return m.renderTimelinePane(w, h)
 	}
-}
-
-func (m dashboardModel) renderDashboardTitle() string {
-	var b strings.Builder
-	b.WriteString("  Rnix Dashboard")
-	if m.connected {
-		b.WriteString(" ●")
-	} else {
-		b.WriteString(" ○")
-	}
-	b.WriteString(" ──")
-
-	panes := []struct {
-		key  string
-		name string
-		pane paneType
-	}{
-		{"1", "Tree", paneTree},
-		{"2", "Time", paneTimeline},
-		{"3", "Heat", paneHeatmap},
-		{"4", "Detail", paneDetail},
-		{"5", "Intent", paneIntent},
-		{"6", "Sec", paneSecurity},
-		{"7", "Trace", paneTrace},
-		{"8", "Eval", paneEval},
-	}
-
-	selectedStyle := lipgloss.NewStyle().Bold(true)
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-
-	for _, p := range panes {
-		label := fmt.Sprintf(" [%s]%s", p.key, p.name)
-		if m.activePane == p.pane {
-			b.WriteString(selectedStyle.Render(label))
-		} else {
-			b.WriteString(dimStyle.Render(label))
-		}
-	}
-
-	active := 0
-	totalTokens := 0
-	for _, p := range m.processes {
-		if p.State == types.StateRunning || p.State == types.StateCreated {
-			active++
-			totalTokens += p.TokensUsed
-		}
-	}
-	if active > 0 || totalTokens > 0 {
-		fmt.Fprintf(&b, " │ %d proc %s tok", active, ui.FormatTokens(totalTokens))
-	}
-
-	return b.String()
 }
 
 // --- Hint 格式化 ---

@@ -1,0 +1,319 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
+
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/vfs"
+)
+
+// renderDashboardTitle renders the health indicator title bar (Story 34.2).
+// Format: rnix {conn} {provider} ── {counts} ── ctx {pct}% ── budget {pct}% ── {elapsed}
+// Segments are progressively trimmed for narrow terminals.
+func (m dashboardModel) renderDashboardTitle() string {
+	ascii := ui.IsASCIIMode()
+
+	sep := " ── "
+	if ascii {
+		sep = " -- "
+	}
+
+	// Connection indicator
+	var connChar string
+	if m.connected {
+		if ascii {
+			connChar = "*"
+		} else {
+			connChar = "●"
+		}
+	} else {
+		if ascii {
+			connChar = "o"
+		} else {
+			connChar = "○"
+		}
+	}
+
+	// Active process count
+	active := 0
+	for _, p := range m.processes {
+		if p.State == types.StateRunning || p.State == types.StateCreated {
+			active++
+		}
+	}
+
+	// Selected process
+	var selectedProc *vfs.ProcInfo
+	if m.selectedPID > 0 {
+		for i := range m.processes {
+			if m.processes[i].PID == m.selectedPID {
+				selectedProc = &m.processes[i]
+				break
+			}
+		}
+	}
+
+	// Provider segment (colored)
+	providerStyled := ""
+	if selectedProc != nil && selectedProc.Provider != "" {
+		providerStyled = styleProviderName(m.connected, selectedProc)
+	}
+
+	// Count segment: NP ME KW with color
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)
+	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
+
+	ePart := fmt.Sprintf("%dE", m.errorCount)
+	if m.errorCount > 0 {
+		ePart = errStyle.Render(ePart)
+	}
+	wPart := fmt.Sprintf("%dW", m.warnCount)
+	if m.warnCount > 0 {
+		wPart = warnStyle.Render(wPart)
+	}
+	countSeg := fmt.Sprintf("%dP %s %s", active, ePart, wPart)
+	countPlain := fmt.Sprintf("%dP %dE %dW", active, m.errorCount, m.warnCount)
+
+	// ctx% segment
+	ctxPct := computeCtxPercent(m.selectedPID, m.processes)
+	ctxSeg := fmt.Sprintf("ctx %d%%", ctxPct)
+
+	// budget% segment
+	budgetPct := computeBudgetPercent(m.selectedPID, m.processes)
+	budgetSeg := fmt.Sprintf("budget %d%%", budgetPct)
+
+	// elapsed segment
+	elapsedSeg := ""
+	if selectedProc != nil {
+		elapsedSeg = formatElapsedHHMMSS(time.Since(selectedProc.CreatedAt))
+	}
+
+	base := "  rnix " + connChar
+
+	// Build left part (base + optional provider)
+	leftPart := base
+	leftPlain := base
+	if providerStyled != "" {
+		leftPart = base + " " + providerStyled
+		leftPlain = base + " " + selectedProc.Provider
+	}
+
+	// Build candidates from widest to narrowest (trim order: elapsed → budget → ctx → provider)
+	type candidate struct {
+		rendered string
+		plain    string
+	}
+
+	candidates := []candidate{}
+
+	// Level 5 (full): left + counts + ctx + budget + elapsed
+	if elapsedSeg != "" {
+		candidates = append(candidates, candidate{
+			leftPart + sep + countSeg + sep + ctxSeg + sep + budgetSeg + sep + elapsedSeg,
+			leftPlain + sep + countPlain + sep + ctxSeg + sep + budgetSeg + sep + elapsedSeg,
+		})
+	}
+	// Level 4: left + counts + ctx + budget
+	candidates = append(candidates, candidate{
+		leftPart + sep + countSeg + sep + ctxSeg + sep + budgetSeg,
+		leftPlain + sep + countPlain + sep + ctxSeg + sep + budgetSeg,
+	})
+	// Level 3: left + counts + ctx
+	candidates = append(candidates, candidate{
+		leftPart + sep + countSeg + sep + ctxSeg,
+		leftPlain + sep + countPlain + sep + ctxSeg,
+	})
+	// Level 2: left + counts
+	candidates = append(candidates, candidate{
+		leftPart + sep + countSeg,
+		leftPlain + sep + countPlain,
+	})
+	// Level 1 (minimum): base + NP ME (no provider, no W)
+	minEPart := fmt.Sprintf("%dE", m.errorCount)
+	if m.errorCount > 0 {
+		minEPart = errStyle.Render(minEPart)
+	}
+	minCount := fmt.Sprintf("%dP %s", active, minEPart)
+	candidates = append(candidates, candidate{
+		base + " " + minCount,
+		fmt.Sprintf("%s %dP %dE", base, active, m.errorCount),
+	})
+
+	maxW := m.width
+	if maxW == 0 {
+		maxW = 120
+	}
+
+	var titleLine string
+	for _, c := range candidates {
+		if len(c.plain) <= maxW {
+			titleLine = c.rendered
+			break
+		}
+	}
+	if titleLine == "" {
+		titleLine = candidates[len(candidates)-1].rendered
+	}
+
+	// Panel tabs on second line (AC5: move pane labels to second row)
+	if maxW >= 60 {
+		tabLine := m.renderPanelTabsLine()
+		return titleLine + "\n" + tabLine
+	}
+	return titleLine
+}
+
+// renderPanelTabsLine renders the [1]Tree [2]Time ... pane navigation labels.
+func (m dashboardModel) renderPanelTabsLine() string {
+	selectedStyle := lipgloss.NewStyle().Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+
+	panes := []struct {
+		key  string
+		name string
+		pane paneType
+	}{
+		{"1", "Tree", paneTree},
+		{"2", "Time", paneTimeline},
+		{"3", "Heat", paneHeatmap},
+		{"4", "Detail", paneDetail},
+		{"5", "Intent", paneIntent},
+		{"6", "Sec", paneSecurity},
+		{"7", "Trace", paneTrace},
+		{"8", "Eval", paneEval},
+	}
+
+	var b strings.Builder
+	b.WriteString("  ")
+	for i, p := range panes {
+		label := fmt.Sprintf("[%s]%s", p.key, p.name)
+		if i < len(panes)-1 {
+			label += " "
+		}
+		if m.activePane == p.pane {
+			b.WriteString(selectedStyle.Render(label))
+		} else {
+			b.WriteString(dimStyle.Render(label))
+		}
+	}
+	return b.String()
+}
+
+// computeHealthCounts counts errors and warnings from process state and events.
+// E: Dead+failed processes + error events (deduped by PID).
+// W: Processes with ctx>=80% + heartbeat-stalled processes.
+func computeHealthCounts(processes []vfs.ProcInfo, events []UnifiedEvent, heartbeat *ipc.HeartbeatStatusResponse) (errorCount, warnCount int) {
+	errorPIDs := make(map[types.PID]struct{})
+
+	for _, p := range processes {
+		if p.State == types.StateDead && ui.IsFailedResult(p.Result) {
+			errorPIDs[p.PID] = struct{}{}
+		}
+	}
+
+	for _, e := range events {
+		if e.Type == EventError || (e.Type == EventExit && e.Severity >= SevError) {
+			errorPIDs[e.PID] = struct{}{}
+		}
+	}
+
+	for _, p := range processes {
+		if (p.State == types.StateRunning || p.State == types.StateCreated) && p.ContextBudget > 0 {
+			if int64(p.TokensUsed)*100/int64(p.ContextBudget) >= 80 {
+				warnCount++
+			}
+		}
+	}
+
+	if heartbeat != nil {
+		warnCount += len(heartbeat.CurrentStalled)
+	}
+
+	errorCount = len(errorPIDs)
+	return
+}
+
+// computeCtxPercent returns context usage percentage for the selected process,
+// or average across running processes if none is selected.
+func computeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
+	if selectedPID > 0 {
+		for _, p := range processes {
+			if p.PID == selectedPID {
+				if p.ContextBudget > 0 {
+					return int(int64(p.TokensUsed) * 100 / int64(p.ContextBudget))
+				}
+				return 0
+			}
+		}
+	}
+	var totalUsed, totalBudget int64
+	for _, p := range processes {
+		if (p.State == types.StateRunning || p.State == types.StateCreated) && p.ContextBudget > 0 {
+			totalUsed += int64(p.TokensUsed)
+			totalBudget += int64(p.ContextBudget)
+		}
+	}
+	if totalBudget > 0 {
+		return int(totalUsed * 100 / totalBudget)
+	}
+	return 0
+}
+
+// computeBudgetPercent returns budget usage percentage for the selected process.
+// Tries cost-based (UsedCost/MaxCost) first, falls back to token-based (TokensUsed/MaxTokens).
+func computeBudgetPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
+	if selectedPID <= 0 {
+		return 0
+	}
+	for _, p := range processes {
+		if p.PID == selectedPID {
+			if p.MaxCost > 0 {
+				return int(p.UsedCost * 100 / p.MaxCost)
+			}
+			if p.MaxTokens > 0 {
+				return int(int64(p.TokensUsed) * 100 / p.MaxTokens)
+			}
+			return 0
+		}
+	}
+	return 0
+}
+
+// styleProviderName colors the provider name based on process health.
+// Green=healthy, Yellow=warning (ctx>80%), Red=failed/disconnected.
+func styleProviderName(connected bool, proc *vfs.ProcInfo) string {
+	if proc == nil || proc.Provider == "" {
+		return ""
+	}
+
+	var color string
+	switch {
+	case !connected:
+		color = ui.ColorError
+	case proc.State == types.StateDead && ui.IsFailedResult(proc.Result):
+		color = ui.ColorError
+	case proc.ContextBudget > 0 && int64(proc.TokensUsed)*100/int64(proc.ContextBudget) >= 80:
+		color = ui.ColorWarning
+	default:
+		color = ui.ColorSuccess
+	}
+
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(proc.Provider)
+}
+
+// formatElapsedHHMMSS formats a duration as HH:MM:SS.
+func formatElapsedHHMMSS(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+}
