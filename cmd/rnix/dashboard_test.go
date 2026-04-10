@@ -2302,6 +2302,11 @@ func TestComputeCtxPercent(t *testing.T) {
 	if pct != 71 { // (620+800)/(1000+1000)*100 = 71
 		t.Errorf("expected ctx average 71%%, got %d%%", pct)
 	}
+	// Selected PID not found → 0, not average
+	pct = computeCtxPercent(999, procs)
+	if pct != 0 {
+		t.Errorf("expected ctx 0%% for missing PID, got %d%%", pct)
+	}
 }
 
 // --- 34.2-UNIT-010: computeBudgetPercent ---

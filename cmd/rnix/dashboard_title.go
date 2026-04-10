@@ -265,6 +265,7 @@ func computeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
 				return 0
 			}
 		}
+		return 0 // selected PID not found (reaped between ticks)
 	}
 	var totalUsed, totalBudget int64
 	for _, p := range processes {
