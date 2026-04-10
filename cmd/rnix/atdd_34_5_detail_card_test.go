@@ -49,8 +49,8 @@ func TestRenderDetailCardLeft_Running(t *testing.T) {
 	if !strings.Contains(result, "Provider: claude") {
 		t.Errorf("expected Provider info, got %q", result)
 	}
-	if !strings.Contains(result, "D:3") {
-		t.Errorf("expected device count D:3, got %q", result)
+	if !strings.Contains(result, "Devices: /dev/fs") {
+		t.Errorf("expected device list, got %q", result)
 	}
 	if !strings.Contains(result, "Skills: code-analyst") {
 		t.Errorf("expected skill name, got %q", result)
@@ -392,7 +392,7 @@ func TestDetailCardFile_ExistsWithExpectedFunctions(t *testing.T) {
 		"renderDetailCardLeft",
 		"renderDetailCardRight",
 		"findSelectedProcess",
-		"countCompactEvents",
+		"compactStats",
 		"fitLine",
 		"safeRepeat",
 	}

@@ -757,9 +757,12 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Fetch heartbeat status only when Security pane is active (Story 30.8)
-	if m.activePane == paneSecurity && m.connected && m.heatmapTickCount%5 == 0 {
-		cmds = append(cmds, fetchHeartbeatStatusCmd())
+	// Fetch heartbeat status when Security pane is active or in default view (reduced frequency)
+	// Stall detection and health counts depend on heartbeat data regardless of active pane.
+	if m.connected && m.heatmapTickCount%5 == 0 {
+		if m.activePane == paneSecurity || m.viewMode == viewDefault {
+			cmds = append(cmds, fetchHeartbeatStatusCmd())
+		}
 	}
 
 	// Fetch compact events for selected process (Story 34.1)
@@ -768,10 +771,12 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchCompactEventsCmd(m.client, m.selectedPID, m.selectedUUID))
 	}
 
-	// Fetch trace list only when Trace pane is active
-	if m.activePane == paneTrace && m.connected {
-		if m.traceSummaries == nil || m.heatmapTickCount%5 == 0 {
-			cmds = append(cmds, fetchTraceListCmd())
+	// Fetch trace list when Trace pane is active or in default view (detail card needs it)
+	if m.connected {
+		if m.activePane == paneTrace || m.viewMode == viewDefault {
+			if m.traceSummaries == nil || m.heatmapTickCount%5 == 0 {
+				cmds = append(cmds, fetchTraceListCmd())
+			}
 		}
 	}
 
@@ -829,7 +834,11 @@ func (m *dashboardModel) applyInitialPIDFocus() {
 }
 
 func (m dashboardModel) dashboardVisibleLines() int {
-	v := max(m.height-7, 1)
+	detailOffset := 0
+	if m.viewMode == viewDefault {
+		detailOffset = 3 // detail card: 1 separator + 2 content lines
+	}
+	v := max(m.height-7-detailOffset, 1)
 	return v
 }
 
@@ -900,7 +909,7 @@ func (m dashboardModel) renderDashboard() string {
 
 func (m dashboardModel) renderDefaultLayout(w, h int) string {
 	treeWidth := max(28, min(w*35/100, 50))
-	rightWidth := w - treeWidth
+	rightWidth := max(w-treeWidth, 1)
 
 	detailH := 3 // 1 separator + 2 content lines
 	mainH := max(h-detailH, 3)

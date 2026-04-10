@@ -40,8 +40,12 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 
 	d := m.procDetail
 
-	// Line 1: Provider + Device count
-	line1 := fmt.Sprintf("  Provider: %s │ D:%d", d.Provider, len(d.AllowedDevices))
+	// Line 1: Provider + Device list
+	deviceList := "—"
+	if len(d.AllowedDevices) > 0 {
+		deviceList = strings.Join(d.AllowedDevices, ", ")
+	}
+	line1 := fmt.Sprintf("  Provider: %s │ Devices: %s", d.Provider, deviceList)
 	line1 = fitLine(line1, width)
 
 	// Line 2: Skills
@@ -88,23 +92,31 @@ func renderDetailCardRight(m *dashboardModel, width, height int) string {
 
 	d := m.procDetail
 
-	// Line 1: Intent + Compact stats
+	// Line 1: Intent + Compact stats with avg pct
 	intent := "—"
 	if proc != nil && proc.Intent != "" {
 		intent = proc.Intent
 	}
-	compactCount := countCompactEvents(m.sysEvents, m.selectedPID)
-	line1 := fmt.Sprintf("  Intent: %s │ Compact: %d×", intent, compactCount)
+	compactCount, avgPct := compactStats(m.sysEvents, m.selectedPID)
+	if compactCount > 0 {
+		line1 := fmt.Sprintf("  Intent: %s │ Compact: %d× (avg %d%%)", intent, compactCount, avgPct)
+		line1 = fitLine(line1, width)
+
+		// Line 2: Trace + Budget + Steps (spec format)
+		line2 := formatTraceBudgetSteps(m, d)
+		line2 = fitLine(line2, width)
+
+		content := lipgloss.NewStyle().Width(width).Height(height).Render(
+			lipgloss.JoinVertical(lipgloss.Left, line1, line2),
+		)
+		return lipgloss.JoinVertical(lipgloss.Left, sep, content)
+	}
+
+	line1 := fmt.Sprintf("  Intent: %s │ Compact: 0×", intent)
 	line1 = fitLine(line1, width)
 
-	// Line 2: Trace + Budget + Steps
-	stepCount := len(m.stepEntries)
-	budgetPct := 0
-	if d.ContextStats.ContextBudget > 0 {
-		budgetPct = int(int64(d.ContextStats.TokensUsed) * 100 / int64(d.ContextStats.ContextBudget))
-	}
-	line2 := fmt.Sprintf("  Steps: %d │ Budget: %d%% │ Tokens: %s",
-		stepCount, budgetPct, ui.FormatTokens(d.ContextStats.TokensUsed))
+	// Line 2: Trace + Budget + Steps (spec format)
+	line2 := formatTraceBudgetSteps(m, d)
 	line2 = fitLine(line2, width)
 
 	content := lipgloss.NewStyle().Width(width).Height(height).Render(
@@ -128,15 +140,16 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 		line1 = fmt.Sprintf("  %s Done (exit 0) │ %s │ %s tokens",
 			checkmark, formatLivedDuration(d), ui.FormatTokens(d.ContextStats.TokensUsed))
 	} else {
-		summary := proc.Result
-		if len(summary) > 40 {
-			summary = summary[:40] + "…"
-		}
-		line1 = fmt.Sprintf("  %s Failed │ %s", failmark, summary)
+		summary := truncateRuneSafe(proc.Result, 40)
+		line1 = fmt.Sprintf("  %s Failed (exit 1) │ %s", failmark, summary)
 	}
 	line1 = fitLine(line1, width)
 
-	line2 := fmt.Sprintf("  Provider: %s │ D:%d", d.Provider, len(d.AllowedDevices))
+	deadDeviceList := "—"
+	if len(d.AllowedDevices) > 0 {
+		deadDeviceList = strings.Join(d.AllowedDevices, ", ")
+	}
+	line2 := fmt.Sprintf("  Provider: %s │ Devices: %s", d.Provider, deadDeviceList)
 	line2 = fitLine(line2, width)
 
 	content := lipgloss.NewStyle().Width(width).Height(height).Render(
@@ -185,15 +198,46 @@ func findSelectedProcess(m *dashboardModel) *selectedProcRef {
 	return nil
 }
 
-// countCompactEvents counts compact events for a specific PID.
-func countCompactEvents(events []UnifiedEvent, pid types.PID) int {
-	count := 0
+// compactStats returns the count of compact events and average compaction percentage for a PID.
+func compactStats(events []UnifiedEvent, pid types.PID) (count int, avgPct int) {
+	var totalPct float64
 	for _, ev := range events {
 		if ev.Type == EventCompact && ev.PID == pid {
 			count++
+			var pre, post int
+			if _, err := fmt.Sscanf(ev.Detail, "pre=%d post=%d", &pre, &post); err == nil && pre > 0 && post < pre {
+				totalPct += float64(pre-post) / float64(pre) * 100
+			}
 		}
 	}
-	return count
+	if count > 0 {
+		avgPct = int(totalPct / float64(count))
+	}
+	return
+}
+
+// formatTraceBudgetSteps formats the detail card right line 2 per AC2 spec:
+// "Trace: span-{id} {dur}s │ Budget: {pct}% │ Steps: {N}"
+func formatTraceBudgetSteps(m *dashboardModel, d *ipc.GetProcDetailResponse) string {
+	stepCount := len(m.stepEntries)
+	budgetPct := 0
+	if d.ContextStats.ContextBudget > 0 {
+		budgetPct = int(int64(d.ContextStats.TokensUsed) * 100 / int64(d.ContextStats.ContextBudget))
+	}
+
+	traceInfo := "—"
+	if len(m.traceSummaries) > 0 {
+		ts := m.traceSummaries[0]
+		durS := float64(ts.TotalDurationMs) / 1000.0
+		spanID := ts.TraceID
+		if len(spanID) > 8 {
+			spanID = spanID[:8]
+		}
+		traceInfo = fmt.Sprintf("span-%s %.1fs", spanID, durS)
+	}
+
+	return fmt.Sprintf("  Trace: %s │ Budget: %d%% │ Steps: %d",
+		traceInfo, budgetPct, stepCount)
 }
 
 // formatLivedDuration returns a formatted duration string from procDetail timestamps.
@@ -232,7 +276,7 @@ func safeRepeat(s string, n int) string {
 // Moved from dashboard_focus.go (Story 34-5).
 func truncateRuneSafe(s string, maxLen int) string {
 	if maxLen <= 0 {
-		return s
+		return ""
 	}
 	if utf8.RuneCountInString(s) <= maxLen {
 		return s
