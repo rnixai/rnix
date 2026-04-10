@@ -195,6 +195,11 @@ type dashboardModel struct {
 	lastEventByPID     map[types.PID]time.Time // AC5: most active tracking
 	userManualSelect   bool                     // AC5: user manual select flag
 	collapsedDeadTrees map[string]bool          // AC3: dead subtree collapse state (key=UUID)
+
+	// Story 34.4: Alert strip + unified timeline
+	alertExpanded bool           // alert strip expanded state
+	alertCursor   int            // cursor position within alert strip
+	alertEvents   []UnifiedEvent // cached alerts (Severity >= SevWarn, sorted)
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -619,6 +624,16 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Merge step entries + system events into unified event list
 	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID)
 
+	// Build alert events for alert strip (Story 34.4)
+	m.alertEvents = buildAlertEvents(m.unifiedEvents)
+	// Reset cursor when collapsing if out of visible range
+	if !m.alertExpanded {
+		visible := alertStripHeight(len(m.alertEvents), false)
+		if m.alertCursor >= visible {
+			m.alertCursor = 0
+		}
+	}
+
 	// Compute health counters for title bar (Story 34.2)
 	m.errorCount, m.warnCount = computeHealthCounts(m.processes, m.unifiedEvents, m.heartbeatStatus)
 
@@ -862,7 +877,16 @@ func (m dashboardModel) renderDashboard() string {
 	statusBar := m.renderDashboardStatus()
 
 	titleLines := strings.Count(titleBar, "\n") + 1
-	contentHeight := max(h-titleLines-3, 3)
+
+	// Reserve lines for alert strip (Story 34.4)
+	alertH := alertStripHeight(len(m.alertEvents), m.alertExpanded)
+	// Alert strip with border takes 1 extra line for the top border
+	alertReserve := alertH
+	if alertH > 0 {
+		alertReserve = alertH + 1
+	}
+
+	contentHeight := max(h-titleLines-3-alertReserve, 3)
 
 	var mainContent string
 	switch m.viewMode {
@@ -876,6 +900,11 @@ func (m dashboardModel) renderDashboard() string {
 		mainContent = m.renderDefaultLayout(w, contentHeight)
 	}
 
+	// Build alert strip if there are alerts
+	alertStrip := renderAlertStrip(&m, w, alertH)
+	if alertStrip != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, titleBar, mainContent, alertStrip, statusBar)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, titleBar, mainContent, statusBar)
 }
 
@@ -1015,10 +1044,15 @@ func (m dashboardModel) paneHints() (core []string, exit string) {
 	switch m.expandedPane {
 	case paneTimeline:
 		if m.stepFilterMode {
-			return []string{hint("t", "tool"), hint("p", "plan"), hint("a", "text"), hint("c", "done"), hint("s", "spawn"), hint("r", "repl"), hint("z", "spec"), hint("*", "all")},
+			return []string{hint("t", "tool"), hint("p", "plan"), hint("a", "text"), hint("c", "done"), hint("s", "spawn"), hint("r", "repl"), hint("z", "spec"), hint("C/b/x/T/i", "sys"), hint("*", "all")},
 				hint("f/Esc", "done")
 		}
-		return []string{hint("j/k", "nav"), hint("v", "detail"), hint("e/E", "expand"), hint("n/N", "err"), hint("f", "filter"), hint("?", "help")}, exit
+		hints := []string{hint("j/k", "nav"), hint("v", "detail"), hint("e/E", "expand"), hint("n/N", "err"), hint("f", "filter")}
+		if len(m.alertEvents) > 0 {
+			hints = append(hints, hint("a", "alerts"))
+		}
+		hints = append(hints, hint("?", "help"))
+		return hints, exit
 	case paneHeatmap:
 		return []string{hint("j/k", "nav"), hint("Enter", "detail"), hint("z", "restore"), hint("?", "help")}, exit
 	case paneIntent, paneSecurity:

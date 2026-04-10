@@ -1267,15 +1267,19 @@ func TestRecordToggleMsg_Error(t *testing.T) {
 	}
 }
 
-// --- CR-FIX-009: [P0] a key returns non-nil cmd for GDB (AC2) ---
+// --- CR-FIX-009: [P0] a key toggles alert strip (was GDB, now Story 34.4) ---
 
-func TestDashboardModel_GlobalGDBKey(t *testing.T) {
+func TestDashboardModel_GlobalAlertToggleKey(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
+	m.alertEvents = []UnifiedEvent{
+		{Type: EventStall, Severity: SevWarn, Summary: "stall"},
+	}
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'a'})
+	m2, _ := m.Update(tea.KeyPressMsg{Code: 'a'})
+	model := m2.(dashboardModel)
 
-	if cmd == nil {
-		t.Error("a key with selectedPID > 0 should return non-nil cmd (ExecProcess for gdb)")
+	if !model.alertExpanded {
+		t.Error("a key with alertEvents should toggle alertExpanded to true")
 	}
 }
 
@@ -2695,5 +2699,379 @@ func TestDeadTreeCollapse(t *testing.T) {
 	rows = flattenTreeWithCollapse(roots, collapsed)
 	if len(rows) != 3 {
 		t.Fatalf("re-expanded: expected 3 rows, got %d", len(rows))
+	}
+}
+
+// ============================================================
+// Story 34.4: Alert Strip and Unified Timeline
+// ============================================================
+
+// --- 34.4 Test Helpers ---
+
+func makeTestUnifiedEvents() []UnifiedEvent {
+	now := time.Now()
+	return []UnifiedEvent{
+		{Type: EventStep, Summary: "read file", Severity: SevInfo, Timestamp: now.Add(-5 * time.Second), PID: 1,
+			StepEntry: &stepEntry{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}}},
+		{Type: EventCompact, Summary: "compact PID 1: 500→250 tok", Severity: SevInfo, Timestamp: now.Add(-4 * time.Second), PID: 1},
+		{Type: EventBudget, Summary: "PID 2 budget 80% used", Severity: SevWarn, Timestamp: now.Add(-3 * time.Second), PID: 2},
+		{Type: EventStep, Summary: "write code", Severity: SevInfo, Timestamp: now.Add(-2 * time.Second), PID: 1,
+			StepEntry: &stepEntry{summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "write code"}}},
+		{Type: EventExit, Summary: "PID 3 exited code=1", Severity: SevError, Timestamp: now.Add(-1 * time.Second), PID: 3},
+		{Type: EventStall, Summary: "PID 1 stalled >30s", Severity: SevWarn, Timestamp: now, PID: 1},
+	}
+}
+
+// --- 7.1: TestRenderAlertStrip_NoAlerts ---
+
+func TestRenderAlertStrip_NoAlerts(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.alertEvents = nil
+	result := renderAlertStrip(&m, 80, 2)
+	if result != "" {
+		t.Errorf("expected empty string for no alerts, got %q", result)
+	}
+}
+
+// --- 7.2: TestRenderAlertStrip_SingleAlert ---
+
+func TestRenderAlertStrip_SingleAlert(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.alertEvents = []UnifiedEvent{
+		{Type: EventBudget, Summary: "PID 2 budget 80%", Severity: SevWarn, Timestamp: time.Now()},
+	}
+	result := renderAlertStrip(&m, 80, 2)
+	if result == "" {
+		t.Fatal("expected non-empty alert strip")
+	}
+	if !strings.Contains(result, "PID 2 budget 80%") {
+		t.Errorf("alert strip should contain summary, got %q", result)
+	}
+}
+
+// --- 7.3: TestRenderAlertStrip_Overflow ---
+
+func TestRenderAlertStrip_Overflow(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.alertEvents = []UnifiedEvent{
+		{Type: EventExit, Summary: "error 1", Severity: SevError, Timestamp: time.Now()},
+		{Type: EventExit, Summary: "error 2", Severity: SevError, Timestamp: time.Now()},
+		{Type: EventBudget, Summary: "warn 1", Severity: SevWarn, Timestamp: time.Now()},
+		{Type: EventBudget, Summary: "warn 2", Severity: SevWarn, Timestamp: time.Now()},
+	}
+	// Collapsed mode: 2 lines max, 4 alerts → should show "+N more"
+	result := renderAlertStrip(&m, 80, 2)
+	if !strings.Contains(result, "+3 more") {
+		t.Errorf("expected overflow indicator, got %q", result)
+	}
+}
+
+// --- 7.4: TestRenderAlertStrip_SeverityOrder ---
+
+func TestRenderAlertStrip_SeverityOrder(t *testing.T) {
+	now := time.Now()
+	events := []UnifiedEvent{
+		{Type: EventBudget, Summary: "warn old", Severity: SevWarn, Timestamp: now.Add(-10 * time.Second)},
+		{Type: EventExit, Summary: "error new", Severity: SevError, Timestamp: now},
+		{Type: EventBudget, Summary: "warn new", Severity: SevWarn, Timestamp: now},
+	}
+	alerts := buildAlertEvents(events)
+	if len(alerts) != 3 {
+		t.Fatalf("expected 3 alerts, got %d", len(alerts))
+	}
+	if alerts[0].Severity != SevError {
+		t.Errorf("first alert should be SevError, got %d", alerts[0].Severity)
+	}
+	if alerts[1].Summary != "warn new" {
+		t.Errorf("second alert should be warn new, got %q", alerts[1].Summary)
+	}
+	if alerts[2].Summary != "warn old" {
+		t.Errorf("third alert should be warn old, got %q", alerts[2].Summary)
+	}
+}
+
+// --- 7.5: TestRenderAlertStrip_ASCII ---
+
+func TestRenderAlertStrip_ASCII(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.alertEvents = []UnifiedEvent{
+		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: time.Now()},
+	}
+	result := renderAlertStrip(&m, 80, 2)
+	if !strings.Contains(result, "(!)") {
+		t.Errorf("ASCII mode should use (!) icon, got %q", result)
+	}
+	if !strings.Contains(result, "Alerts") {
+		t.Errorf("ASCII mode should use text separator, got %q", result)
+	}
+}
+
+// --- 7.6: TestRenderUnifiedTimeline_StepEvents ---
+
+func TestRenderUnifiedTimeline_StepEvents(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 1
+	m.selectedUUID = "uuid-mock-001"
+	m.stepEntries = []stepEntry{
+		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
+		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan next steps"}},
+	}
+	m.unifiedEvents = []UnifiedEvent{
+		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read file", Timestamp: time.Now().Add(-2 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.stepEntries[1], Summary: "plan next steps", Timestamp: time.Now(), PID: 1},
+	}
+	result := m.renderStepTimeline(80, 20)
+	if !strings.Contains(result, "read file") {
+		t.Errorf("should contain step summary, got %q", result)
+	}
+	if !strings.Contains(result, "plan next") {
+		t.Errorf("should contain plan step, got %q", result)
+	}
+}
+
+// --- 7.7: TestRenderUnifiedTimeline_SystemEvents ---
+
+func TestRenderUnifiedTimeline_SystemEvents(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 1
+	m.selectedUUID = "uuid-mock-001"
+	m.stepEntries = []stepEntry{
+		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+	}
+	now := time.Now()
+	m.unifiedEvents = []UnifiedEvent{
+		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
+		{Type: EventCompact, Summary: "compact PID 1", Severity: SevInfo, Timestamp: now.Add(-2 * time.Second), PID: 1},
+		{Type: EventSpawn, Summary: "spawned PID 5", Severity: SevInfo, Timestamp: now.Add(-1 * time.Second), PID: 1},
+		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: now, PID: 3},
+	}
+	result := m.renderStepTimeline(80, 20)
+	if !strings.Contains(result, "compact PID 1") {
+		t.Errorf("should render compact event, got %q", result)
+	}
+	if !strings.Contains(result, "spawned PID 5") {
+		t.Errorf("should render spawn event, got %q", result)
+	}
+	if !strings.Contains(result, "PID 3 exited") {
+		t.Errorf("should render exit event, got %q", result)
+	}
+}
+
+// --- 7.8: TestRenderUnifiedTimeline_MixedEvents ---
+
+func TestRenderUnifiedTimeline_MixedEvents(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 1
+	m.selectedUUID = "uuid-mock-001"
+	m.stepEntries = []stepEntry{
+		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
+	}
+	now := time.Now()
+	m.unifiedEvents = []UnifiedEvent{
+		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read file", Timestamp: now.Add(-2 * time.Second), PID: 1},
+		{Type: EventBudget, Summary: "budget warning", Severity: SevWarn, Timestamp: now, PID: 1},
+	}
+	result := m.renderStepTimeline(80, 20)
+	if !strings.Contains(result, "read file") {
+		t.Errorf("should contain step event")
+	}
+	if !strings.Contains(result, "budget warning") {
+		t.Errorf("should contain system event")
+	}
+}
+
+// --- 7.9: TestEventTypeIcon_Unicode ---
+
+func TestEventTypeIcon_Unicode(t *testing.T) {
+	tests := []struct {
+		eventType string
+		expected  string
+	}{
+		{EventCompact, "★"},
+		{EventBudget, "⚠"},
+		{EventSpawn, "↳"},
+		{EventExit, "↲"},
+		{EventStall, "⚠"},
+		{EventImmune, "🛡"},
+	}
+	for _, tt := range tests {
+		icon := ui.EventTypeIcon(tt.eventType)
+		if icon != tt.expected {
+			t.Errorf("EventTypeIcon(%q) = %q, want %q", tt.eventType, icon, tt.expected)
+		}
+	}
+}
+
+// --- 7.10: TestEventTypeIcon_ASCII ---
+
+func TestEventTypeIcon_ASCII(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+	tests := []struct {
+		eventType string
+		expected  string
+	}{
+		{EventCompact, "*"},
+		{EventBudget, "(!)"},
+		{EventSpawn, ">"},
+		{EventExit, "<"},
+		{EventStall, "(!)"},
+		{EventImmune, "[I]"},
+	}
+	for _, tt := range tests {
+		icon := ui.EventTypeIcon(tt.eventType)
+		if icon != tt.expected {
+			t.Errorf("EventTypeIcon(%q) ASCII = %q, want %q", tt.eventType, icon, tt.expected)
+		}
+	}
+}
+
+// --- 7.11: TestEventFilter_SystemEvents ---
+
+func TestEventFilter_SystemEvents(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 1
+	m.stepEntries = []stepEntry{
+		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+	}
+	now := time.Now()
+	m.unifiedEvents = []UnifiedEvent{
+		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read", Timestamp: now.Add(-1 * time.Second), PID: 1},
+		{Type: EventCompact, Summary: "compact", Severity: SevInfo, Timestamp: now, PID: 1},
+	}
+	m.stepFilters = defaultStepFilters()
+	filtered := m.filteredUnifiedEvents()
+	if len(filtered) != 2 {
+		t.Fatalf("all filters on: expected 2 events, got %d", len(filtered))
+	}
+	m.stepFilters[EventCompact] = false
+	filtered = m.filteredUnifiedEvents()
+	if len(filtered) != 1 {
+		t.Fatalf("compact off: expected 1 event, got %d", len(filtered))
+	}
+	if filtered[0].Type != EventStep {
+		t.Errorf("remaining event should be step, got %q", filtered[0].Type)
+	}
+}
+
+// --- 7.12: TestEventFilter_MixedFilter ---
+
+func TestEventFilter_MixedFilter(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.selectedPID = 1
+	entries := []stepEntry{
+		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan"}},
+	}
+	m.stepEntries = entries
+	now := time.Now()
+	m.unifiedEvents = []UnifiedEvent{
+		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
+		{Type: EventCompact, Summary: "compact", Severity: SevInfo, Timestamp: now.Add(-2 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.stepEntries[1], Summary: "plan", Timestamp: now.Add(-1 * time.Second), PID: 1},
+		{Type: EventBudget, Summary: "budget", Severity: SevWarn, Timestamp: now, PID: 1},
+	}
+	m.stepFilters = defaultStepFilters()
+	m.stepFilters["tool_call"] = false
+	m.stepFilters[EventBudget] = false
+	filtered := m.filteredUnifiedEvents()
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 filtered events, got %d", len(filtered))
+	}
+	types := []string{filtered[0].Type, filtered[1].Type}
+	if types[0] != EventCompact || types[1] != EventStep {
+		t.Errorf("expected [compact, step], got %v", types)
+	}
+}
+
+// --- 7.13: TestAlertJump_ToProcess ---
+
+func TestAlertJump_ToProcess(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.alertEvents = []UnifiedEvent{
+		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: time.Now(), PID: 3},
+		{Type: EventBudget, Summary: "PID 2 budget", Severity: SevWarn, Timestamp: time.Now(), PID: 2},
+	}
+	m.alertExpanded = true
+	m.alertCursor = 0
+	alert := m.alertEvents[m.alertCursor]
+	if alert.PID != 3 {
+		t.Errorf("expected alert PID 3, got %d", alert.PID)
+	}
+	m.alertCursor = 1
+	alert = m.alertEvents[m.alertCursor]
+	if alert.PID != 2 {
+		t.Errorf("expected alert PID 2, got %d", alert.PID)
+	}
+}
+
+// --- 7.14: TestAlertStrip_ExpandCollapse ---
+
+func TestAlertStrip_ExpandCollapse(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.alertEvents = []UnifiedEvent{
+		{Type: EventExit, Summary: "err1", Severity: SevError, Timestamp: time.Now()},
+		{Type: EventExit, Summary: "err2", Severity: SevError, Timestamp: time.Now()},
+		{Type: EventBudget, Summary: "warn1", Severity: SevWarn, Timestamp: time.Now()},
+		{Type: EventBudget, Summary: "warn2", Severity: SevWarn, Timestamp: time.Now()},
+		{Type: EventBudget, Summary: "warn3", Severity: SevWarn, Timestamp: time.Now()},
+	}
+
+	h := alertStripHeight(len(m.alertEvents), false)
+	if h != 2 {
+		t.Errorf("collapsed height: expected 2, got %d", h)
+	}
+
+	h = alertStripHeight(len(m.alertEvents), true)
+	if h != 5 {
+		t.Errorf("expanded height: expected 5, got %d", h)
+	}
+
+	m.alertExpanded = false
+	m.alertCursor = 3
+	m.alertExpanded = true
+	if m.alertCursor != 3 {
+		t.Errorf("cursor should stay at 3 when expanding, got %d", m.alertCursor)
+	}
+	m.alertExpanded = false
+	visible := alertStripHeight(len(m.alertEvents), false)
+	if m.alertCursor >= visible {
+		m.alertCursor = 0
+	}
+	if m.alertCursor != 0 {
+		t.Errorf("cursor should reset to 0 when collapsing, got %d", m.alertCursor)
+	}
+}
+
+// --- 7.15a: TestAlertSeverityIcon ---
+
+func TestAlertSeverityIcon(t *testing.T) {
+	icon := ui.AlertSeverityIcon(SevError)
+	if icon != "🔴" {
+		t.Errorf("SevError icon = %q, want 🔴", icon)
+	}
+	icon = ui.AlertSeverityIcon(SevWarn)
+	if icon != "⚠" {
+		t.Errorf("SevWarn icon = %q, want ⚠", icon)
+	}
+	t.Setenv("RNIX_ASCII", "1")
+	icon = ui.AlertSeverityIcon(SevError)
+	if icon != "(!)" {
+		t.Errorf("SevError ASCII icon = %q, want (!)", icon)
+	}
+}
+
+// --- 7.15b: TestBuildAlertEvents_OnlySevWarnOrHigher ---
+
+func TestBuildAlertEvents_OnlySevWarnOrHigher(t *testing.T) {
+	events := makeTestUnifiedEvents()
+	alerts := buildAlertEvents(events)
+	for _, a := range alerts {
+		if a.Severity < SevWarn {
+			t.Errorf("alert with severity %d < SevWarn should not be included", a.Severity)
+		}
+	}
+	if len(alerts) != 3 {
+		t.Fatalf("expected 3 alerts, got %d", len(alerts))
 	}
 }

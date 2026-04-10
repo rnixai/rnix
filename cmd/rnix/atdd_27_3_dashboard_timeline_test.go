@@ -19,6 +19,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -53,6 +54,17 @@ func newStepTimelineModel() dashboardModel {
 	}
 	m.stepCursor = 0
 	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
+	// Populate unifiedEvents from stepEntries (pointers allow level mutations to propagate).
+	now := time.Now()
+	for i := range m.stepEntries {
+		m.unifiedEvents = append(m.unifiedEvents, UnifiedEvent{
+			Type:      EventStep,
+			Timestamp: now.Add(time.Duration(i) * time.Second),
+			PID:       1,
+			Summary:   m.stepEntries[i].summary.Summary,
+			StepEntry: &m.stepEntries[i],
+		})
+	}
 	return m
 }
 
@@ -486,6 +498,9 @@ func TestATDD_27_3_StepTimelineMode_Default(t *testing.T) {
 	m.selectedPID = 1
 	m.stepEntries = []stepEntry{
 		{summary: ipc.StepSummaryWire{Step: 1, Action: "text", Summary: "hello"}},
+	}
+	m.unifiedEvents = []UnifiedEvent{
+		{Type: EventStep, PID: 1, Summary: "hello", StepEntry: &m.stepEntries[0]},
 	}
 	output := m.renderTimelinePane(100, 20)
 	if !strings.Contains(output, "hello") {

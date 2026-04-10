@@ -195,6 +195,35 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = viewDefault
 		}
 		return m, nil
+	case "a":
+		// Alert strip toggle (Story 34.4): only in non-filter mode
+		if !m.stepFilterMode && len(m.alertEvents) > 0 {
+			m.alertExpanded = !m.alertExpanded
+			if !m.alertExpanded {
+				visible := alertStripHeight(len(m.alertEvents), false)
+				if m.alertCursor >= visible {
+					m.alertCursor = 0
+				}
+			}
+			return m, nil
+		}
+	case "[":
+		// Alert cursor up (Story 34.4)
+		if m.alertExpanded && len(m.alertEvents) > 0 {
+			if m.alertCursor > 0 {
+				m.alertCursor--
+			}
+			return m, nil
+		}
+	case "]":
+		// Alert cursor down (Story 34.4)
+		if m.alertExpanded && len(m.alertEvents) > 0 {
+			maxLines := alertStripHeight(len(m.alertEvents), true)
+			if m.alertCursor < maxLines-1 {
+				m.alertCursor++
+			}
+			return m, nil
+		}
 	}
 
 	// === Layer 6: 面板内按键分发 ===
@@ -212,12 +241,12 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	}
 
 	// Step Timeline 按键（enter/v/V/p）— V must be checked before v
-	if m.activePane == paneTimeline && len(m.stepEntries) > 0 {
+	if m.activePane == paneTimeline && (len(m.stepEntries) > 0 || len(m.unifiedEvents) > 0) {
 		// Aggregation group toggle (Story 30.8 AC#5)
-		filtered := m.filteredStepEntries()
-		if len(filtered) > 100 && key == "enter" {
+		filteredStep := m.filteredStepEntries()
+		if len(filteredStep) > 100 && key == "enter" {
 			const aggGroupSize = 50
-			cursorIdx := min(m.stepCursor, len(filtered)-1)
+			cursorIdx := min(m.stepCursor, len(filteredStep)-1)
 			groupIdx := cursorIdx / aggGroupSize
 			if m.expandedAggGroups == nil {
 				m.expandedAggGroups = make(map[int]bool)
@@ -528,7 +557,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		return m.handleEvalKey(key)
 	}
 
-	// 全局进程操作（k/a/l/r）— 需排除面板内冲突
+	// 全局進程操作（k/l/r）— 需排除面板内冲突
 	isPaneNavConflict := (m.activePane == paneTimeline && (key == "l" || key == "h" || key == "k")) ||
 		(m.activePane == paneHeatmap && key == "k")
 	if !isPaneNavConflict && m.selectedPID > 0 && m.connected {
@@ -537,11 +566,6 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			m.confirmKill = true
 			m.confirmPID = m.selectedPID
 			return m, nil
-		case "a":
-			c := exec.Command(os.Args[0], "gdb", fmt.Sprint(m.selectedPID))
-			return m, tea.ExecProcess(c, func(err error) tea.Msg {
-				return execResultMsg{err: err}
-			})
 		case "l":
 			c := exec.Command(os.Args[0], "log", fmt.Sprint(m.selectedPID))
 			return m, tea.ExecProcess(c, func(err error) tea.Msg {

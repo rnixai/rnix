@@ -115,3 +115,57 @@ func IsASCIIMode() bool {
 func IsFailedResult(result string) bool {
 	return isFailedResult(result)
 }
+
+// EventTypeIcon returns the display icon for a unified event type.
+// In ASCII mode, emoji/Unicode symbols are replaced with terminal-safe equivalents.
+func EventTypeIcon(eventType string) string {
+	ascii := isASCIIMode()
+	switch eventType {
+	case "compact":
+		if ascii {
+			return "*"
+		}
+		return "★"
+	case "budget":
+		if ascii {
+			return "(!)"
+		}
+		return "⚠"
+	case "spawn":
+		if ascii {
+			return ">"
+		}
+		return "↳"
+	case "exit":
+		if ascii {
+			return "<"
+		}
+		return "↲"
+	case "stall":
+		if ascii {
+			return "(!)"
+		}
+		return "⚠"
+	case "immune":
+		if ascii {
+			return "[I]"
+		}
+		return "🛡"
+	default:
+		return "·"
+	}
+}
+
+// AlertSeverityIcon returns the icon for an alert severity level.
+// In ASCII mode, all severity levels use "(!)".
+func AlertSeverityIcon(severity int) string {
+	ascii := isASCIIMode()
+	if ascii {
+		return "(!)"
+	}
+	// SevError(2) / SevCritical(3) → 🔴, SevWarn(1) → ⚠
+	if severity >= 2 {
+		return "🔴"
+	}
+	return "⚠"
+}

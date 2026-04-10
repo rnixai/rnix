@@ -57,16 +57,45 @@ func actionAbbrev(action string) string {
 	}
 }
 
-// defaultStepFilters returns a map with all action types enabled.
+// sysEventStyle returns a lipgloss style for a system event type.
+func sysEventStyle(ev UnifiedEvent) lipgloss.Style {
+	switch ev.Type {
+	case EventCompact:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#00CED1")).Bold(true)
+	case EventBudget:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
+	case EventSpawn:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
+	case EventExit:
+		if ev.Severity >= SevError {
+			return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+		}
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	case EventStall:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true)
+	case EventImmune:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#9B59B6"))
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	}
+}
+
+// defaultStepFilters returns a map with all action types and system event types enabled.
+// Note: step action "spawn" and EventSpawn ("spawn") share the same key — both are toggled together.
 func defaultStepFilters() map[string]bool {
 	return map[string]bool{
-		"tool_call":  true,
-		"plan":       true,
-		"text":       true,
-		"complete":   true,
-		"spawn":      true,
-		"replan":     true,
-		"specialize": true,
+		"tool_call":    true,
+		"plan":         true,
+		"text":         true,
+		"complete":     true,
+		"spawn":        true, // shared by step-action spawn and EventSpawn
+		"replan":       true,
+		"specialize":   true,
+		EventCompact:   true,
+		EventBudget:    true,
+		EventExit:      true,
+		EventStall:     true,
+		EventImmune:    true,
 	}
 }
 
@@ -96,7 +125,7 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	if m.stepFilterMode {
 		return m.handleStepFilterKey(key)
 	}
-	filtered := m.filteredStepEntries()
+	filtered := m.filteredUnifiedEvents()
 	switch key {
 	case "up", "k":
 		if m.stepCursor > 0 {
@@ -121,14 +150,14 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		}
 	case "f":
 		m.stepFilterMode = true
-		m.statusMsg = "过滤模式: 按 T/P/A/C/S/R/Z 切换, * 全选, Esc 退出"
+		m.statusMsg = "Filter: T/P/A/C/S/R/Z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "e":
-		// Expand all visible (filtered) steps that have expandable content
+		// Expand all visible step events that have expandable content
 		expanded := 0
-		for _, fi := range filtered {
-			if fi >= 0 && fi < len(m.stepEntries) {
-				entry := &m.stepEntries[fi]
+		for _, ev := range filtered {
+			if ev.StepEntry != nil {
+				entry := ev.StepEntry
 				if entry.level < levelExpanded {
 					detail := m.stepDetailCache[entry.summary.Step]
 					if detail == nil || hasExpandableContent(detail, entry.summary) {
@@ -143,17 +172,23 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
 	case "E":
-		// Collapse all visible (filtered) steps to Level 1
-		for _, fi := range filtered {
-			if fi >= 0 && fi < len(m.stepEntries) {
-				m.stepEntries[fi].level = levelSummary
+		// Collapse all visible step events to Level 1
+		for _, ev := range filtered {
+			if ev.StepEntry != nil {
+				ev.StepEntry.level = levelSummary
 			}
 		}
 	case "n":
-		// Jump to next error step
+		// Jump to next error: step event with HasError or system event with Severity >= SevError
 		found := false
 		for i := m.stepCursor + 1; i < len(filtered); i++ {
-			if m.stepEntries[filtered[i]].summary.HasError {
+			ev := filtered[i]
+			if ev.StepEntry != nil && ev.StepEntry.summary.HasError {
+				m.stepCursor = i
+				found = true
+				break
+			}
+			if ev.StepEntry == nil && ev.Severity >= SevError {
 				m.stepCursor = i
 				found = true
 				break
@@ -164,10 +199,16 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
 	case "N", "shift+N":
-		// Jump to previous error step
+		// Jump to previous error
 		found := false
 		for i := m.stepCursor - 1; i >= 0; i-- {
-			if m.stepEntries[filtered[i]].summary.HasError {
+			ev := filtered[i]
+			if ev.StepEntry != nil && ev.StepEntry.summary.HasError {
+				m.stepCursor = i
+				found = true
+				break
+			}
+			if ev.StepEntry == nil && ev.Severity >= SevError {
 				m.stepCursor = i
 				found = true
 				break
@@ -188,6 +229,7 @@ func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
 		m.stepFilters = defaultStepFilters()
 	}
 	switch key {
+	// Row 1: Step action types (lowercase)
 	case "t":
 		m.stepFilters["tool_call"] = !m.stepFilters["tool_call"]
 	case "p":
@@ -202,12 +244,25 @@ func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
 		m.stepFilters["replan"] = !m.stepFilters["replan"]
 	case "z":
 		m.stepFilters["specialize"] = !m.stepFilters["specialize"]
+	// Row 2: System event types (uppercase or distinct keys)
+	case "C":
+		m.stepFilters[EventCompact] = !m.stepFilters[EventCompact]
+	case "b":
+		m.stepFilters[EventBudget] = !m.stepFilters[EventBudget]
+	case "A":
+		m.stepFilters[EventSpawn] = !m.stepFilters[EventSpawn] // shared with step-action "spawn"
+	case "x":
+		m.stepFilters[EventExit] = !m.stepFilters[EventExit]
+	case "T":
+		m.stepFilters[EventStall] = !m.stepFilters[EventStall]
+	case "i":
+		m.stepFilters[EventImmune] = !m.stepFilters[EventImmune]
 	case "*":
 		m.stepFilters = defaultStepFilters()
 	case "f", "esc":
 		m.stepFilterMode = false
 	default:
-		m.statusMsg = "过滤模式: 按 T/P/A/C/S/R/Z 切换, * 全选, Esc 退出"
+		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/A/x/T/i (sys) | * all | Esc exit"
 		m.statusMsgTTL = statusMsgDefaultTTL
 	}
 	return m
@@ -246,13 +301,85 @@ func (m dashboardModel) filteredStepEntries() []int {
 	return result
 }
 
-// resolveStepIndex converts cursor position in filtered view to actual stepEntries index.
+// isEventVisible checks if a unified event passes the current filters.
+func isEventVisible(ev UnifiedEvent, filters map[string]bool) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	if ev.Type == EventStep {
+		if ev.StepEntry != nil {
+			return filters[ev.StepEntry.summary.Action]
+		}
+		return true
+	}
+	return filters[ev.Type]
+}
+
+// filteredUnifiedEvents returns unified events matching current filters.
+func (m dashboardModel) filteredUnifiedEvents() []UnifiedEvent {
+	if len(m.stepFilters) == 0 {
+		return m.unifiedEvents
+	}
+	allOn := true
+	for _, v := range m.stepFilters {
+		if !v {
+			allOn = false
+			break
+		}
+	}
+	if allOn {
+		return m.unifiedEvents
+	}
+	var result []UnifiedEvent
+	for _, ev := range m.unifiedEvents {
+		if isEventVisible(ev, m.stepFilters) {
+			result = append(result, ev)
+		}
+	}
+	return result
+}
+
+// unifiedItemHeight returns the number of lines a unified event occupies.
+func (m dashboardModel) unifiedItemHeight(ev UnifiedEvent) int {
+	if ev.StepEntry == nil {
+		return 1 // system events are always single-line
+	}
+	entry := ev.StepEntry
+	n := 1
+	if entry.level >= levelExpanded {
+		detail := m.stepDetailCache[entry.summary.Step]
+		if detail == nil {
+			n++
+		} else {
+			n += m.estimateExpandedLines(detail, entry.summary)
+		}
+	}
+	if entry.level >= levelDebug {
+		detail := m.stepDetailCache[entry.summary.Step]
+		if detail != nil {
+			n += m.estimateDebugLines(detail)
+		}
+	}
+	return n
+}
+
+// resolveStepIndex converts cursor position in filtered unified view to actual stepEntries index.
+// Returns -1 if cursor points to a system event or is out of range.
 func (m dashboardModel) resolveStepIndex() int {
-	filtered := m.filteredStepEntries()
+	filtered := m.filteredUnifiedEvents()
 	if m.stepCursor < 0 || m.stepCursor >= len(filtered) {
 		return -1
 	}
-	return filtered[m.stepCursor]
+	ev := filtered[m.stepCursor]
+	if ev.StepEntry == nil {
+		return -1
+	}
+	for i := range m.stepEntries {
+		if &m.stepEntries[i] == ev.StepEntry {
+			return i
+		}
+	}
+	return -1
 }
 
 // --- Rendering ---
@@ -281,13 +408,24 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	var b strings.Builder
 	truncW := max(width-1, 1)
 	total := len(m.stepEntries)
-	filtered := m.filteredStepEntries()
+	filtered := m.filteredUnifiedEvents()
+
+	// Count step events and system events in filtered list
+	stepCount := 0
+	sysCount := 0
+	for _, ev := range filtered {
+		if ev.Type == EventStep {
+			stepCount++
+		} else {
+			sysCount++
+		}
+	}
 
 	// Header
 	if m.stepFilterMode {
 		b.WriteString(m.renderStepFilterBar(truncW))
 	} else {
-		b.WriteString(m.renderStepHeader(truncW, total, filtered))
+		b.WriteString(m.renderUnifiedStepHeader(truncW, total, len(filtered), sysCount))
 	}
 	b.WriteString("\n")
 
@@ -296,19 +434,20 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		return b.String()
 	}
 
-	if total == 0 {
+	if total == 0 && len(m.unifiedEvents) == 0 {
 		b.WriteString("\n    Waiting for steps…")
 		return b.String()
 	}
 
 	if len(filtered) == 0 {
-		b.WriteString("\n    No steps match filter")
+		b.WriteString("\n    No events match filter")
 		return b.String()
 	}
 
-	// Aggregation mode: when >100 filtered steps, group into chunks (Story 30.8 AC#5)
+	// Aggregation mode: when >100 step events, group step events into chunks (Story 30.8 AC#5)
+	// System events are always shown in non-aggregated form.
 	const aggThreshold = 100
-	useAggregation := len(filtered) > aggThreshold
+	useAggregation := stepCount > aggThreshold
 
 	cursor := min(m.stepCursor, max(len(filtered)-1, 0))
 
@@ -319,16 +458,14 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	if startIdx < 0 || startIdx >= len(filtered) {
 		startIdx = 0
 	}
-	// If cursor is above scrollTop, snap up
 	if cursor < startIdx {
 		startIdx = cursor
 	}
-	// Check if cursor fits in viewport from startIdx
 	{
 		linesUsed := 0
 		cursorVisible := false
 		for fi := startIdx; fi < len(filtered); fi++ {
-			h := m.stepItemHeight(filtered[fi])
+			h := m.unifiedItemHeight(filtered[fi])
 			if fi == cursor && linesUsed+h <= listLines {
 				cursorVisible = true
 				break
@@ -339,11 +476,10 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			}
 		}
 		if !cursorVisible {
-			// Scroll down: walk backward from cursor to fill viewport
-			linesUsed := m.stepItemHeight(filtered[cursor])
+			linesUsed := m.unifiedItemHeight(filtered[cursor])
 			startIdx = cursor
 			for startIdx > 0 {
-				h := m.stepItemHeight(filtered[startIdx-1])
+				h := m.unifiedItemHeight(filtered[startIdx-1])
 				if linesUsed+h > listLines {
 					break
 				}
@@ -352,9 +488,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			}
 		}
 	}
-	endIdx := len(filtered) // render loop uses linesUsed to stop
+	endIdx := len(filtered)
 
-	// Layout params — new structure: summary is primary, step+action are compact suffix
 	showDuration := width >= 90
 	showToken := width >= 70
 
@@ -362,24 +497,55 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 	// Aggregation rendering path (Story 30.8 AC#5)
 	if useAggregation {
-		m.renderAggregatedTimeline(&b, filtered, truncW, listLines, showToken, showDuration)
+		// For aggregation, extract step entry indices and delegate
+		var stepIndices []int
+		for _, ev := range filtered {
+			if ev.StepEntry != nil {
+				for i := range m.stepEntries {
+					if &m.stepEntries[i] == ev.StepEntry {
+						stepIndices = append(stepIndices, i)
+						break
+					}
+				}
+			}
+		}
+		m.renderAggregatedTimeline(&b, stepIndices, truncW, listLines, showToken, showDuration)
 		return b.String()
 	}
 
 	for fi := startIdx; fi < endIdx && linesUsed < listLines; fi++ {
-		idx := filtered[fi]
-		entry := m.stepEntries[idx]
-		s := entry.summary
+		ev := filtered[fi]
 
-		cursor := "  "
-		if fi == m.stepCursor {
-			cursor = "▸ "
+		// System event: single-line rendering
+		if ev.StepEntry == nil {
+			cursorMark := "  "
+			if fi == m.stepCursor {
+				cursorMark = "▸ "
+			}
+			icon := ui.EventTypeIcon(ev.Type)
+			style := sysEventStyle(ev)
+			line := fmt.Sprintf("%s %s %s", cursorMark, style.Render(icon), style.Render(ev.Summary))
+			if fi == m.stepCursor {
+				line = lipgloss.NewStyle().
+					Background(lipgloss.Color("#2D2D3D")).
+					Foreground(lipgloss.Color("#FFFFFF")).
+					Render(line)
+			}
+			b.WriteString(truncateAnsi(line, truncW))
+			b.WriteString("\n")
+			linesUsed++
+			continue
 		}
 
-		// Collapse indicator
-		//   ▾ = expanded
-		//   ▸ = collapsed, detail loaded, has expandable content
-		//     = collapsed, detail not loaded or no content
+		// Step event: full Level 1/2/3 rendering (existing logic)
+		entry := ev.StepEntry
+		s := entry.summary
+
+		cursorMark := "  "
+		if fi == m.stepCursor {
+			cursorMark = "▸ "
+		}
+
 		levelMark := " "
 		if entry.level >= levelExpanded {
 			detail := m.stepDetailCache[s.Step]
@@ -394,10 +560,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 
-		// Compact step+action suffix: "3 tool" / "1 plan" / "4 done"
 		stepAction := dimStyle.Render(fmt.Sprintf("%d %s", s.Step, actionAbbrev(s.Action)))
 
-		// Token
 		var tokenLabel string
 		if showToken {
 			if s.TokenCount == 0 {
@@ -407,7 +571,6 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			}
 		}
 
-		// Duration
 		var durLabel string
 		if showDuration {
 			dur := formatTimelineDuration(s.DurationMs)
@@ -418,22 +581,17 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			durLabel = durStyle.Render(fmt.Sprintf("%6s", dur))
 		}
 
-		// Error mark
 		hasError := s.HasError
 		errMark := ""
 		if hasError {
 			errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
 		}
 
-		// Summary is the primary content — gets maximum width.
-		// For CLI driver steps, Summary is often just the tool name (e.g. "read").
-		// ToolPath contains richer context (e.g. "read:/path/to/file").
-		// Prefer ToolPath when Summary is short (< 8 chars) and ToolPath is available.
 		displaySummary := s.Summary
 		if s.ToolPath != "" && len(s.Summary) < 8 {
 			displaySummary = s.ToolPath
 		}
-		fixedWidth := 2 + 1 + 1 + 5 // cursor(2) + collapse(1) + space(1) + stepAction(5)
+		fixedWidth := 2 + 1 + 1 + 5
 		if showToken {
 			fixedWidth += 6
 		}
@@ -446,7 +604,6 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		summaryW := max(truncW-fixedWidth, 10)
 		summaryText := truncateRuneWidth(displaySummary, summaryW)
 
-		// Inline error preview from cached detail (after summary width is known)
 		if hasError && width >= 80 {
 			if cached := m.stepDetailCache[s.Step]; cached != nil && cached.ToolError != "" {
 				errLine := strings.SplitN(cached.ToolError, "\n", 2)[0]
@@ -459,9 +616,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			}
 		}
 
-		// Build line
 		var line string
-		parts := []string{cursor, levelMark, summaryText}
+		parts := []string{cursorMark, levelMark, summaryText}
 		if showDuration {
 			parts = append(parts, tokenLabel, durLabel, stepAction, errMark)
 		} else if showToken {
@@ -701,14 +857,17 @@ func promptRoleForRole(role string) string {
 	}
 }
 
-// renderStepHeader renders the normal mode header.
-func (m dashboardModel) renderStepHeader(maxW, total int, filtered []int) string {
+// renderUnifiedStepHeader renders the timeline header with unified event counts.
+func (m dashboardModel) renderUnifiedStepHeader(maxW, totalSteps, filteredCount, sysCount int) string {
 	var b strings.Builder
 	b.WriteString(" Timeline")
 	if m.selectedPID > 0 {
 		fmt.Fprintf(&b, " │ PID %d", m.selectedPID)
 	}
-	fmt.Fprintf(&b, " │ %d steps", total)
+	fmt.Fprintf(&b, " │ %d steps", totalSteps)
+	if sysCount > 0 {
+		fmt.Fprintf(&b, " + %d events", sysCount)
+	}
 
 	// Total tokens from step summaries
 	totalTok := 0
@@ -720,7 +879,7 @@ func (m dashboardModel) renderStepHeader(maxW, total int, filtered []int) string
 	}
 
 	// Stage statistics (wide screens only)
-	if maxW >= 100 && total > 0 {
+	if maxW >= 100 && totalSteps > 0 {
 		counts := make(map[string]int)
 		errCount := 0
 		for _, e := range m.stepEntries {
@@ -743,43 +902,73 @@ func (m dashboardModel) renderStepHeader(maxW, total int, filtered []int) string
 	}
 
 	// Scroll position (medium+ screens)
-	if maxW >= 80 && len(filtered) > 0 {
-		pos := min(m.stepCursor+1, len(filtered))
-		fmt.Fprintf(&b, " │ %d/%d", pos, len(filtered))
+	if maxW >= 80 && filteredCount > 0 {
+		pos := min(m.stepCursor+1, filteredCount)
+		fmt.Fprintf(&b, " │ %d/%d", pos, filteredCount)
 	}
 
 	// Filter indicator
-	if len(filtered) < total {
+	totalEvents := len(m.unifiedEvents)
+	if filteredCount < totalEvents {
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-		fmt.Fprintf(&b, "  %s", dimStyle.Render(fmt.Sprintf("filter: %d/%d", len(filtered), total)))
+		fmt.Fprintf(&b, "  %s", dimStyle.Render(fmt.Sprintf("filter: %d/%d", filteredCount, totalEvents)))
 	}
 
 	return truncateAnsi(b.String(), maxW)
 }
 
-// renderStepFilterBar renders the filter editing mode header.
+// renderStepFilterBar renders the filter editing mode header with two rows.
 func (m dashboardModel) renderStepFilterBar(maxW int) string {
 	var b strings.Builder
-	b.WriteString(" Filter:")
+	b.WriteString(" Step:  ")
 
-	types := []struct {
+	// Row 1: Step action types
+	stepTypes := []struct {
 		key    string
 		label  string
 		action string
 	}{
-		{"T", actionAbbrev("tool_call"), "tool_call"},
-		{"P", actionAbbrev("plan"), "plan"},
-		{"A", actionAbbrev("text"), "text"},
-		{"C", actionAbbrev("complete"), "complete"},
-		{"S", actionAbbrev("spawn"), "spawn"},
-		{"R", actionAbbrev("replan"), "replan"},
-		{"Z", actionAbbrev("specialize"), "specialize"},
+		{"t", actionAbbrev("tool_call"), "tool_call"},
+		{"p", actionAbbrev("plan"), "plan"},
+		{"a", actionAbbrev("text"), "text"},
+		{"c", actionAbbrev("complete"), "complete"},
+		{"s", actionAbbrev("spawn"), "spawn"},
+		{"r", actionAbbrev("replan"), "replan"},
+		{"z", actionAbbrev("specialize"), "specialize"},
 	}
 
-	for _, t := range types {
+	for _, t := range stepTypes {
 		on := m.stepFilters == nil || m.stepFilters[t.action]
 		mark := "✓"
 		color := actionColor(t.action)
+		if !on {
+			mark = "·"
+			color = lipgloss.Color(ui.ColorMuted)
+		}
+		catStyle := lipgloss.NewStyle().Foreground(color)
+		fmt.Fprintf(&b, " [%s]%s %s", t.key, catStyle.Render(t.label), mark)
+	}
+
+	// Row 2: System event types
+	b.WriteString("\n Events:")
+
+	sysTypes := []struct {
+		key       string
+		label     string
+		eventType string
+	}{
+		{"C", "compact", EventCompact},
+		{"b", "budget", EventBudget},
+		{"A", "spawn", EventSpawn},
+		{"x", "exit", EventExit},
+		{"T", "stall", EventStall},
+		{"i", "immune", EventImmune},
+	}
+
+	for _, t := range sysTypes {
+		on := m.stepFilters == nil || m.stepFilters[t.eventType]
+		mark := "✓"
+		color := lipgloss.Color("#00CED1") // default system event color
 		if !on {
 			mark = "·"
 			color = lipgloss.Color(ui.ColorMuted)
@@ -1049,27 +1238,6 @@ func hasExpandableContent(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWi
 
 // --- Step item height estimation (for scroll) ---
 
-// stepItemHeight returns the estimated number of lines a filtered item occupies.
-func (m dashboardModel) stepItemHeight(entryIdx int) int {
-	entry := m.stepEntries[entryIdx]
-	n := 1 // Level 1 line always present
-	if entry.level >= levelExpanded {
-		detail := m.stepDetailCache[entry.summary.Step]
-		if detail == nil {
-			n++ // "Loading…"
-		} else {
-			n += m.estimateExpandedLines(detail, entry.summary)
-		}
-	}
-	if entry.level >= levelDebug {
-		detail := m.stepDetailCache[entry.summary.Step]
-		if detail != nil {
-			n += m.estimateDebugLines(detail)
-		}
-	}
-	return n
-}
-
 func (m dashboardModel) estimateExpandedLines(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) int {
 	n := 0
 	// Path — skip when Level 1 already shows it as displaySummary
@@ -1114,7 +1282,7 @@ func (m dashboardModel) estimateDebugLines(detail *ipc.GetStepDetailResponse) in
 
 // ensureStepCursorVisible adjusts stepScrollTop so the cursor item is within the viewport.
 func (m *dashboardModel) ensureStepCursorVisible(viewportLines int) {
-	filtered := m.filteredStepEntries()
+	filtered := m.filteredUnifiedEvents()
 	if len(filtered) == 0 {
 		m.stepScrollTop = 0
 		return
@@ -1130,7 +1298,7 @@ func (m *dashboardModel) ensureStepCursorVisible(viewportLines int) {
 	// Walk from scrollTop counting lines; if cursor fits, done
 	linesUsed := 0
 	for fi := m.stepScrollTop; fi <= cursor && fi < len(filtered); fi++ {
-		h := m.stepItemHeight(filtered[fi])
+		h := m.unifiedItemHeight(filtered[fi])
 		if fi == cursor && linesUsed+h <= viewportLines {
 			return // cursor is visible
 		}
@@ -1139,10 +1307,10 @@ func (m *dashboardModel) ensureStepCursorVisible(viewportLines int) {
 
 	// Cursor not visible: scroll down until it fits
 	// Walk backward from cursor filling the viewport
-	linesUsed = m.stepItemHeight(filtered[cursor])
+	linesUsed = m.unifiedItemHeight(filtered[cursor])
 	newTop := cursor
 	for newTop > 0 {
-		h := m.stepItemHeight(filtered[newTop-1])
+		h := m.unifiedItemHeight(filtered[newTop-1])
 		if linesUsed+h > viewportLines {
 			break
 		}
@@ -1250,13 +1418,16 @@ func (m dashboardModel) fetchNextExpandedDetail() tea.Cmd {
 		}
 	}
 	// Priority 2: visible collapsed steps without cached detail (for ▸ indicator)
-	filtered := m.filteredStepEntries()
+	filteredEvs := m.filteredUnifiedEvents()
 	pageSize := max(m.dashboardVisibleLines()-4, 1)
 	visStart := m.stepScrollTop
-	visEnd := min(visStart+pageSize, len(filtered))
+	visEnd := min(visStart+pageSize, len(filteredEvs))
 	for i := visStart; i < visEnd; i++ {
-		idx := filtered[i]
-		entry := m.stepEntries[idx]
+		ev := filteredEvs[i]
+		if ev.StepEntry == nil {
+			continue
+		}
+		entry := ev.StepEntry
 		if entry.level < levelExpanded && m.stepDetailCache[entry.summary.Step] == nil {
 			return fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
 		}
