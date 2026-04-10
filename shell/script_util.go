@@ -1,5 +1,7 @@
 package shell
 
+import "strings"
+
 func countExecutableStages(script *Script) int {
 	return countStagesInBlock(script.Statements)
 }
@@ -57,10 +59,11 @@ func expandPipelineIntentsStrict(env *Environment, p *Pipeline) (*Pipeline, erro
 			return nil, err
 		}
 		expanded.Commands[i] = Command{
-			Type:   cmd.Type,
-			Intent: intent,
-			Agent:  cmd.Agent,
-			Model:  cmd.Model,
+			Type:           cmd.Type,
+			Intent:         intent,
+			Agent:          cmd.Agent,
+			Model:          cmd.Model,
+			ResultLastLine: cmd.ResultLastLine,
 		}
 	}
 	return expanded, nil
@@ -72,4 +75,17 @@ func sortStrings(s []string) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+// extractLastLine returns the last non-empty trimmed line from s.
+// Used by --result-last-line to extract a keyword from verbose LLM output.
+func extractLastLine(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			return line
+		}
+	}
+	return strings.TrimSpace(s)
 }

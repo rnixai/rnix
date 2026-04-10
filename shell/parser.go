@@ -7,10 +7,11 @@ import (
 
 // Command represents a single parsed command in a pipeline.
 type Command struct {
-	Type   string // "spawn"
-	Intent string
-	Agent  string
-	Model  string
+	Type           string // "spawn"
+	Intent         string
+	Agent          string
+	Model          string
+	ResultLastLine bool // --result-last-line: capture only last non-empty line
 }
 
 // Pipeline represents a sequence of commands connected by pipes.
@@ -93,6 +94,8 @@ func parseSpawnCommand(seg string) (Command, error) {
 			cmd.Agent = after
 		} else if after, ok := strings.CutPrefix(tok, "--model="); ok {
 			cmd.Model = after
+		} else if tok == "--result-last-line" {
+			cmd.ResultLastLine = true
 		} else if !intentFound {
 			cmd.Intent = tok
 			intentFound = true

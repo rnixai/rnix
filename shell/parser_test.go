@@ -178,3 +178,33 @@ func TestParsePipeline_CaseInsensitiveSpawn(t *testing.T) {
 		t.Fatalf("commands count = %d, want 2", len(pipeline.Commands))
 	}
 }
+
+func TestParsePipeline_ResultLastLine(t *testing.T) {
+	pipeline, err := ParsePipeline(`spawn "分析" --agent=planner --result-last-line`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pipeline.Commands) != 1 {
+		t.Fatalf("commands = %d, want 1", len(pipeline.Commands))
+	}
+	cmd := pipeline.Commands[0]
+	if !cmd.ResultLastLine {
+		t.Error("ResultLastLine = false, want true")
+	}
+	if cmd.Agent != "planner" {
+		t.Errorf("agent = %q, want %q", cmd.Agent, "planner")
+	}
+	if cmd.Intent != "分析" {
+		t.Errorf("intent = %q, want %q", cmd.Intent, "分析")
+	}
+}
+
+func TestParsePipeline_ResultLastLine_WithoutFlag(t *testing.T) {
+	pipeline, err := ParsePipeline(`spawn "分析" --agent=planner`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pipeline.Commands[0].ResultLastLine {
+		t.Error("ResultLastLine = true, want false")
+	}
+}

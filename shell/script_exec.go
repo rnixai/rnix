@@ -159,6 +159,9 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 			if err != nil {
 				return fmt.Errorf("spawn: %w", err)
 			}
+			if stmt.Spawn.ResultLastLine {
+				res = extractLastLine(res)
+			}
 			result.LastResult = res
 			result.LastExitCode = exitCode
 			result.TotalTokens += tokens
@@ -183,6 +186,9 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 					ctx, hIntent, stmt.OnError.Agent, stmt.OnError.Model)
 				if hErr != nil {
 					return fmt.Errorf("on-error: %w", hErr)
+				}
+				if stmt.OnError.ResultLastLine {
+					hRes = extractLastLine(hRes)
 				}
 				result.LastResult = hRes
 				result.LastExitCode = hExitCode
@@ -234,6 +240,9 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 					ctx, hIntent, stmt.OnError.Agent, stmt.OnError.Model)
 				if hErr != nil {
 					return fmt.Errorf("on-error: %w", hErr)
+				}
+				if stmt.OnError.ResultLastLine {
+					hRes = extractLastLine(hRes)
 				}
 				result.LastResult = hRes
 				result.LastExitCode = hExitCode
@@ -558,9 +567,15 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 			switch t.stmt.Kind {
 			case StmtSpawn:
 				res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, t.expandedIntent, t.stmt.Spawn.Agent, t.stmt.Spawn.Model)
+				if err == nil && t.stmt.Spawn.ResultLastLine {
+					res = extractLastLine(res)
+				}
 				if exitCode != 0 && t.stmt.OnError != nil && err == nil {
 					hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(ctx, t.expandedOnError, t.stmt.OnError.Agent, t.stmt.OnError.Model)
 					if hErr == nil {
+						if t.stmt.OnError.ResultLastLine {
+							hRes = extractLastLine(hRes)
+						}
 						res, exitCode, tokens = hRes, hExitCode, tokens+hTokens
 					} else {
 						err = hErr

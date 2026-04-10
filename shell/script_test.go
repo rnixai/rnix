@@ -3365,3 +3365,96 @@ var (
 	_ = context.Background
 	_ = time.Duration(0)
 )
+
+// --- ResultLastLine flag tests ---
+
+func TestParseScript_ResultLastLine(t *testing.T) {
+	input := `decision = spawn "分析状态" --agent=planner --result-last-line`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(script.Statements) != 1 {
+		t.Fatalf("statements = %d, want 1", len(script.Statements))
+	}
+	stmt := script.Statements[0]
+	if stmt.Spawn == nil {
+		t.Fatal("Spawn should not be nil")
+	}
+	if !stmt.Spawn.ResultLastLine {
+		t.Error("ResultLastLine = false, want true")
+	}
+	if stmt.Spawn.Agent != "planner" {
+		t.Errorf("agent = %q, want %q", stmt.Spawn.Agent, "planner")
+	}
+	if stmt.Assign != "decision" {
+		t.Errorf("assign = %q, want %q", stmt.Assign, "decision")
+	}
+}
+
+func TestParseScript_ResultLastLine_OnError(t *testing.T) {
+	input := `spawn "test" --result-last-line on-error spawn "recover" --result-last-line`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	stmt := script.Statements[0]
+	if !stmt.Spawn.ResultLastLine {
+		t.Error("main spawn ResultLastLine = false, want true")
+	}
+	if stmt.OnError == nil {
+		t.Fatal("OnError should not be nil")
+	}
+	if !stmt.OnError.ResultLastLine {
+		t.Error("on-error ResultLastLine = false, want true")
+	}
+}
+
+func TestExtractLastLine(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"multiline", "正在分析...\n\n所有 Story 均为 backlog\n\nmanage", "manage"},
+		{"single_line", "manage", "manage"},
+		{"trailing_newlines", "manage\n\n\n", "manage"},
+		{"empty", "", ""},
+		{"whitespace_last", "hello\n  world  \n", "world"},
+		{"only_newlines", "\n\n\n", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractLastLine(tc.input)
+			if got != tc.want {
+				t.Errorf("extractLastLine(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExecute_ResultLastLine_StripsToLastLine(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			{result: "正在分析...\n\n所有 Story 均为 backlog\n\nmanage", exitCode: 0, tokens: 100},
+		},
+	}
+	input := `decision = spawn "分析" --agent=planner --result-last-line`
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	exec := NewScriptExecutor(spawner, NewEnvironment())
+	result, err := exec.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if result.LastResult != "manage" {
+		t.Errorf("LastResult = %q, want %q", result.LastResult, "manage")
+	}
+	if cap, ok := exec.captures["decision"]; !ok {
+		t.Error("capture 'decision' not found")
+	} else if cap.Result != "manage" {
+		t.Errorf("capture result = %q, want %q", cap.Result, "manage")
+	}
+}
