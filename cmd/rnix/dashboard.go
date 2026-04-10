@@ -345,7 +345,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case compactEventsMsg:
 		m.fetchingCompact = false
-		if msg.err != nil || msg.pid != m.selectedPID {
+		if msg.err != nil || msg.pid != m.selectedPID || msg.uuid != m.selectedUUID {
 			return m, nil
 		}
 		for _, ev := range msg.events {
@@ -353,8 +353,14 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.compactEvents = append(m.compactEvents, ev)
 				m.lastCompactEventMs = ev.TimestampMs
 				ue := compactEventFromSyscall(ev)
-				m.sysEvents = append(m.sysEvents, ue)
+				deduped := sysEventDedup([]UnifiedEvent{ue}, m.sysEventSeen)
+				m.sysEvents = append(m.sysEvents, deduped...)
+				m.sysEvents = sysEventFIFO(m.sysEvents, m.sysEventSeen)
 			}
+		}
+		// Cap compact events FIFO
+		if len(m.compactEvents) > maxSysEvents {
+			m.compactEvents = m.compactEvents[len(m.compactEvents)-maxSysEvents:]
 		}
 		return m, nil
 	case resumeResultMsg:
@@ -588,7 +594,10 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// FIFO eviction on system events
-	m.sysEvents = sysEventFIFO(m.sysEvents)
+	m.sysEvents = sysEventFIFO(m.sysEvents, m.sysEventSeen)
+
+	// Prune budget alert entries for dead processes (F5)
+	pruneBudgetAlertSeen(m.budgetAlertSeen, m.processes)
 
 	// Update previous process snapshot for next tick
 	m.prevProcessPIDs = make(map[types.PID]vfs.ProcInfo, len(m.processes))
@@ -1035,6 +1044,15 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.compactEvents = nil
 	m.lastCompactEventMs = 0
 	m.fetchingCompact = false
+
+	// Filter out stale compact UnifiedEvents from sysEvents on PID change (F4)
+	filtered := m.sysEvents[:0]
+	for _, ev := range m.sysEvents {
+		if ev.Type != EventCompact {
+			filtered = append(filtered, ev)
+		}
+	}
+	m.sysEvents = filtered
 
 	m.statusMsg = fmt.Sprintf("Switched to PID %d, fetching steps...", m.selectedPID)
 	m.statusMsgTTL = statusMsgDefaultTTL

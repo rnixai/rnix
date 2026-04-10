@@ -47,11 +47,11 @@ type UnifiedEvent struct {
 	RawEvent  *ipc.SyscallEventWire
 }
 
-// UnifiedEventSlice implements sort.Interface, sorting by Timestamp ascending.
+// UnifiedEventSlice implements sort.Interface, sorting by Timestamp descending (newest first).
 type UnifiedEventSlice []UnifiedEvent
 
 func (s UnifiedEventSlice) Len() int           { return len(s) }
-func (s UnifiedEventSlice) Less(i, j int) bool { return s[i].Timestamp.Before(s[j].Timestamp) }
+func (s UnifiedEventSlice) Less(i, j int) bool { return s[i].Timestamp.After(s[j].Timestamp) }
 func (s UnifiedEventSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
 
 // --- compactEventsMsg is the tea.Msg for async compact event fetching (Story 34.1) ---

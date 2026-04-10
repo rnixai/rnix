@@ -16,12 +16,13 @@ import (
 const maxSysEvents = 200
 
 // stepToUnifiedEvent converts a stepEntry to a UnifiedEvent.
-func stepToUnifiedEvent(e *stepEntry) UnifiedEvent {
+// baseTime is the reference time; step index offsets ensure stable ordering.
+func stepToUnifiedEvent(e *stepEntry, baseTime time.Time, index int) UnifiedEvent {
 	sev := SevInfo
 	if e.summary.HasError {
 		sev = SevError
 	}
-	ts := time.Now()
+	ts := baseTime.Add(time.Duration(index) * time.Millisecond)
 	summary := fmt.Sprintf("[%d] %s — %s (%.0fms)",
 		e.summary.Step, e.summary.Action, e.summary.Summary, e.summary.DurationMs)
 	return UnifiedEvent{
@@ -58,7 +59,11 @@ func compactEventFromSyscall(ev ipc.SyscallEventWire) UnifiedEvent {
 }
 
 // detectSpawnExitEvents compares previous and current process lists to detect spawns and exits.
+// Returns nil on the first tick (when prev is empty) to avoid spurious spawn events.
 func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo) []UnifiedEvent {
+	if len(prev) == 0 {
+		return nil
+	}
 	var events []UnifiedEvent
 	currMap := make(map[types.PID]vfs.ProcInfo, len(curr))
 	for _, p := range curr {
@@ -120,12 +125,12 @@ func detectBudgetEvents(processes []vfs.ProcInfo, alertSeen map[types.PID]int) [
 		if p.ContextBudget <= 0 || p.TokensUsed <= 0 {
 			continue
 		}
-		usagePct := p.TokensUsed * 100 / p.ContextBudget
+		usagePct := int(int64(p.TokensUsed) * 100 / int64(p.ContextBudget))
 		var sev int
 		switch {
-		case usagePct > 95:
+		case usagePct >= 95:
 			sev = SevError
-		case usagePct > 80:
+		case usagePct >= 80:
 			sev = SevWarn
 		default:
 			// Below threshold — clear any previous alert
@@ -152,6 +157,10 @@ func detectBudgetEvents(processes []vfs.ProcInfo, alertSeen map[types.PID]int) [
 // detectStallEvents generates stall events from heartbeat status.
 func detectStallEvents(hbStatus *ipc.HeartbeatStatusResponse, stallSeen map[types.PID]struct{}) []UnifiedEvent {
 	if hbStatus == nil {
+		// Clear stale entries when heartbeat data is unavailable
+		for pid := range stallSeen {
+			delete(stallSeen, pid)
+		}
 		return nil
 	}
 	var events []UnifiedEvent
@@ -187,9 +196,10 @@ func detectStallEvents(hbStatus *ipc.HeartbeatStatusResponse, stallSeen map[type
 func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selectedPID types.PID) []UnifiedEvent {
 	merged := make([]UnifiedEvent, 0, len(stepEntries)+len(sysEvents))
 
-	// Convert step entries
+	// Convert step entries with monotonic timestamp offsets for stable ordering
+	baseTime := time.Now()
 	for i := range stepEntries {
-		ue := stepToUnifiedEvent(&stepEntries[i])
+		ue := stepToUnifiedEvent(&stepEntries[i], baseTime, i)
 		ue.PID = selectedPID
 		merged = append(merged, ue)
 	}
@@ -221,11 +231,30 @@ func sysEventDedup(events []UnifiedEvent, seen map[string]struct{}) []UnifiedEve
 }
 
 // sysEventFIFO trims system events to maxSysEvents, keeping the newest.
-func sysEventFIFO(events []UnifiedEvent) []UnifiedEvent {
+func sysEventFIFO(events []UnifiedEvent, seen map[string]struct{}) []UnifiedEvent {
 	if len(events) <= maxSysEvents {
 		return events
 	}
+	// Prune dedup keys for evicted events
+	evicted := events[:len(events)-maxSysEvents]
+	for _, e := range evicted {
+		key := fmt.Sprintf("%s:%d:%d", e.Type, e.PID, e.Timestamp.UnixMilli())
+		delete(seen, key)
+	}
 	return events[len(events)-maxSysEvents:]
+}
+
+// pruneBudgetAlertSeen removes entries for PIDs no longer in the process list.
+func pruneBudgetAlertSeen(alertSeen map[types.PID]int, processes []vfs.ProcInfo) {
+	active := make(map[types.PID]struct{}, len(processes))
+	for _, p := range processes {
+		active[p.PID] = struct{}{}
+	}
+	for pid := range alertSeen {
+		if _, exists := active[pid]; !exists {
+			delete(alertSeen, pid)
+		}
+	}
 }
 
 // --- helpers ---

@@ -21,14 +21,15 @@ func TestUnifiedEvent_SortByTimestamp(t *testing.T) {
 	}
 	sort.Sort(events)
 
-	if events[0].Summary != "first" {
-		t.Errorf("expected first event 'first', got %q", events[0].Summary)
+	// Descending order: newest first
+	if events[0].Summary != "third" {
+		t.Errorf("expected first event 'third' (newest), got %q", events[0].Summary)
 	}
 	if events[1].Summary != "second" {
 		t.Errorf("expected second event 'second', got %q", events[1].Summary)
 	}
-	if events[2].Summary != "third" {
-		t.Errorf("expected third event 'third', got %q", events[2].Summary)
+	if events[2].Summary != "first" {
+		t.Errorf("expected third event 'first' (oldest), got %q", events[2].Summary)
 	}
 }
 
@@ -45,7 +46,8 @@ func TestStepToUnifiedEvent(t *testing.T) {
 				HasError:   false,
 			},
 		}
-		ue := stepToUnifiedEvent(e)
+		baseTime := time.Now()
+		ue := stepToUnifiedEvent(e, baseTime, 0)
 		if ue.Type != EventStep {
 			t.Errorf("expected type %q, got %q", EventStep, ue.Type)
 		}
@@ -69,9 +71,21 @@ func TestStepToUnifiedEvent(t *testing.T) {
 				HasError: true,
 			},
 		}
-		ue := stepToUnifiedEvent(e)
+		baseTime := time.Now()
+		ue := stepToUnifiedEvent(e, baseTime, 0)
 		if ue.Severity != SevError {
 			t.Errorf("expected severity %d for error step, got %d", SevError, ue.Severity)
+		}
+	})
+
+	t.Run("index offsets produce monotonic timestamps", func(t *testing.T) {
+		e1 := &stepEntry{summary: ipc.StepSummaryWire{Step: 1, Action: "a", Summary: "s1"}}
+		e2 := &stepEntry{summary: ipc.StepSummaryWire{Step: 2, Action: "b", Summary: "s2"}}
+		baseTime := time.Now()
+		ue1 := stepToUnifiedEvent(e1, baseTime, 0)
+		ue2 := stepToUnifiedEvent(e2, baseTime, 1)
+		if !ue2.Timestamp.After(ue1.Timestamp) {
+			t.Error("expected index 1 timestamp to be after index 0")
 		}
 	})
 }
@@ -203,14 +217,14 @@ func TestDetectSpawnExitEvents(t *testing.T) {
 		}
 	})
 
-	t.Run("empty previous", func(t *testing.T) {
+	t.Run("empty previous returns nil (first tick)", func(t *testing.T) {
 		prev := map[types.PID]vfs.ProcInfo{}
 		curr := []vfs.ProcInfo{
 			{PID: 1, State: types.StateRunning, Intent: "init", CreatedAt: now},
 		}
 		events := detectSpawnExitEvents(prev, curr)
-		if len(events) != 1 {
-			t.Fatalf("expected 1 spawn event, got %d", len(events))
+		if events != nil {
+			t.Errorf("expected nil on first tick (empty prev), got %d events", len(events))
 		}
 	})
 }
@@ -282,6 +296,20 @@ func TestDetectBudgetEvents(t *testing.T) {
 		}
 	})
 
+	t.Run("exactly 80 pct triggers warning", func(t *testing.T) {
+		procs := []vfs.ProcInfo{
+			{PID: 1, TokensUsed: 80000, ContextBudget: 100000},
+		}
+		alertSeen := make(map[types.PID]int)
+		events := detectBudgetEvents(procs, alertSeen)
+		if len(events) != 1 {
+			t.Fatalf("expected 1 budget event at exactly 80%%, got %d", len(events))
+		}
+		if events[0].Severity != SevWarn {
+			t.Errorf("expected severity %d, got %d", SevWarn, events[0].Severity)
+		}
+	})
+
 	t.Run("zero budget ignored", func(t *testing.T) {
 		procs := []vfs.ProcInfo{
 			{PID: 1, TokensUsed: 5000, ContextBudget: 0},
@@ -292,6 +320,25 @@ func TestDetectBudgetEvents(t *testing.T) {
 			t.Errorf("expected 0 events for zero budget, got %d", len(events))
 		}
 	})
+}
+
+// --- Task 4.5b: TestPruneBudgetAlertSeen ---
+
+func TestPruneBudgetAlertSeen(t *testing.T) {
+	alertSeen := map[types.PID]int{1: SevWarn, 2: SevError, 3: SevWarn}
+	procs := []vfs.ProcInfo{
+		{PID: 1, State: types.StateRunning},
+	}
+	pruneBudgetAlertSeen(alertSeen, procs)
+	if _, exists := alertSeen[1]; !exists {
+		t.Error("PID 1 should still be in alertSeen (alive)")
+	}
+	if _, exists := alertSeen[2]; exists {
+		t.Error("PID 2 should be pruned (not in process list)")
+	}
+	if _, exists := alertSeen[3]; exists {
+		t.Error("PID 3 should be pruned (not in process list)")
+	}
 }
 
 // --- Task 4.6: TestDetectStallEvents ---
@@ -346,11 +393,14 @@ func TestDetectStallEvents(t *testing.T) {
 		}
 	})
 
-	t.Run("nil heartbeat status", func(t *testing.T) {
-		stallSeen := make(map[types.PID]struct{})
+	t.Run("nil heartbeat status clears stallSeen", func(t *testing.T) {
+		stallSeen := map[types.PID]struct{}{42: {}, 99: {}}
 		events := detectStallEvents(nil, stallSeen)
 		if len(events) != 0 {
 			t.Errorf("expected 0 events for nil status, got %d", len(events))
+		}
+		if len(stallSeen) != 0 {
+			t.Errorf("expected stallSeen to be cleared, got %d entries", len(stallSeen))
 		}
 	})
 }
@@ -377,6 +427,7 @@ func TestMergeUnifiedEvents_Dedup(t *testing.T) {
 
 func TestMergeUnifiedEvents_FIFOEviction(t *testing.T) {
 	now := time.Now()
+	seen := make(map[string]struct{})
 	events := make([]UnifiedEvent, 250)
 	for i := range events {
 		events[i] = UnifiedEvent{
@@ -387,7 +438,7 @@ func TestMergeUnifiedEvents_FIFOEviction(t *testing.T) {
 		}
 	}
 
-	result := sysEventFIFO(events)
+	result := sysEventFIFO(events, seen)
 	if len(result) != maxSysEvents {
 		t.Errorf("expected %d events after FIFO, got %d", maxSysEvents, len(result))
 	}
@@ -446,11 +497,12 @@ func TestUnifiedEvents_BackwardCompat(t *testing.T) {
 }
 
 func TestSysEventFIFO_UnderLimit(t *testing.T) {
+	seen := make(map[string]struct{})
 	events := []UnifiedEvent{
 		{Type: EventSpawn, Summary: "a"},
 		{Type: EventExit, Summary: "b"},
 	}
-	result := sysEventFIFO(events)
+	result := sysEventFIFO(events, seen)
 	if len(result) != 2 {
 		t.Errorf("expected 2 events (under limit), got %d", len(result))
 	}
