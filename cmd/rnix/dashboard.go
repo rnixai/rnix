@@ -788,7 +788,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Fetch compact events for selected process (Story 34.1)
 	if m.selectedPID > 0 && m.connected && !m.fetchingCompact && m.heatmapTickCount%3 == 0 {
 		m.fetchingCompact = true
-		cmds = append(cmds, fetchCompactEventsCmd(m.client, m.selectedPID, m.selectedUUID))
+		cmds = append(cmds, fetchCompactEventsCmd(m.selectedPID, m.selectedUUID))
 	}
 
 	// Fetch trace list when Trace pane is active or in default view (detail card needs it)

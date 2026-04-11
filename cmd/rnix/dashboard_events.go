@@ -302,11 +302,14 @@ func getArgFloat(args map[string]any, key string) float64 {
 }
 
 // fetchCompactEventsCmd returns a tea.Cmd that fetches syscall events for a process.
-func fetchCompactEventsCmd(client *ipc.Client, pid types.PID, uuid string) tea.Cmd {
+// Creates its own IPC client to avoid racing with the synchronous dashboardTick.
+func fetchCompactEventsCmd(pid types.PID, uuid string) tea.Cmd {
 	return func() tea.Msg {
-		if client == nil {
-			return compactEventsMsg{pid: pid, uuid: uuid, err: fmt.Errorf("no client")}
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return compactEventsMsg{pid: pid, uuid: uuid, err: err}
 		}
+		defer client.Close()
 		events, err := client.ListEvents(pid, uuid)
 		return compactEventsMsg{pid: pid, uuid: uuid, events: events, err: err}
 	}

@@ -148,9 +148,11 @@ func (m dashboardModel) historyKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "pgdown":
-		pageSize := max(m.height-8, 1)
-		m.historyCursor = min(m.historyCursor+pageSize, len(filtered)-1)
-		m.adjustHistoryScroll()
+		if len(filtered) > 0 {
+			pageSize := max(m.height-8, 1)
+			m.historyCursor = min(m.historyCursor+pageSize, len(filtered)-1)
+			m.adjustHistoryScroll()
+		}
 		return m, nil
 	case "pgup":
 		pageSize := max(m.height-8, 1)
@@ -259,6 +261,7 @@ func (m *dashboardModel) adjustHistoryScroll() {
 	if m.historyCursor >= m.historyScrollOffset+visibleLines {
 		m.historyScrollOffset = m.historyCursor - visibleLines + 1
 	}
+	m.historyScrollOffset = max(m.historyScrollOffset, 0)
 }
 
 // renderHistoryView renders the full-screen history overlay.
