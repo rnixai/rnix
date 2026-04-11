@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +28,9 @@ func TestOrchestrationAnnotation_ComposeWithDeps(t *testing.T) {
 	}
 	if !strings.Contains(ann, "researcher") || !strings.Contains(ann, "analyst") {
 		t.Errorf("annotation %q should contain dep names", ann)
+	}
+	if !strings.Contains(ann, "╌╌►") {
+		t.Errorf("annotation %q should contain Unicode arrow '╌╌►'", ann)
 	}
 }
 
@@ -73,25 +75,23 @@ func TestOrchestrationAnnotation_NotOrchestrated(t *testing.T) {
 // --- AC2: ASCII mode support ---
 
 func TestOrchestrationAnnotation_ComposeASCII(t *testing.T) {
-	os.Setenv("RNIX_ASCII", "1")
-	defer os.Unsetenv("RNIX_ASCII")
+	t.Setenv("RNIX_ASCII", "1")
 
 	p := vfs.ProcInfo{
 		ComposeNode: "summarizer",
 		ComposeDeps: []string{"researcher"},
 	}
 	ann := orchestrationAnnotation(p)
-	if strings.ContainsAny(ann, "◄╌│►") {
+	if strings.ContainsAny(ann, "◄╌│►◆") {
 		t.Errorf("ASCII mode annotation %q should not contain Unicode glyphs", ann)
 	}
-	if !strings.Contains(ann, "<-") {
-		t.Errorf("ASCII mode annotation %q should contain '<-'", ann)
+	if !strings.Contains(ann, "-->") {
+		t.Errorf("ASCII mode annotation %q should contain '-->'", ann)
 	}
 }
 
 func TestOrchestrationAnnotation_PipelineASCII(t *testing.T) {
-	os.Setenv("RNIX_ASCII", "1")
-	defer os.Unsetenv("RNIX_ASCII")
+	t.Setenv("RNIX_ASCII", "1")
 
 	p := vfs.ProcInfo{
 		PipelineIndex: 0,
@@ -152,18 +152,30 @@ func TestTreeRow_PipelineAnnotationInSuffix(t *testing.T) {
 
 func TestDetailOrchestrationInfo_Compose(t *testing.T) {
 	d := &ipc.GetProcDetailResponse{
+		PPID:        10,
 		ComposeNode: "analyst",
 		ComposeDeps: []string{"researcher"},
 	}
-	info := detailOrchestrationInfo(d)
+	procs := []vfs.ProcInfo{
+		{PID: 10, PPID: 0, ComposeNode: ""},
+		{PID: 20, PPID: 10, ComposeNode: "researcher"},
+		{PID: 21, PPID: 10, ComposeNode: "analyst", ComposeDeps: []string{"researcher"}},
+	}
+	info := detailOrchestrationInfo(d, procs)
 	if info == "" {
 		t.Fatal("expected non-empty orchestration info for compose node")
 	}
 	if !strings.Contains(info, "Compose:analyst") {
 		t.Errorf("info %q should contain 'Compose:analyst'", info)
 	}
-	if !strings.Contains(info, "deps=researcher") {
-		t.Errorf("info %q should contain 'deps=researcher'", info)
+	if !strings.Contains(info, "PID 20") {
+		t.Errorf("info %q should contain PID-mapped dep 'PID 20'", info)
+	}
+	if !strings.Contains(info, "depends_on:") {
+		t.Errorf("info %q should contain 'depends_on:'", info)
+	}
+	if !strings.Contains(info, "stage") {
+		t.Errorf("info %q should contain DAG stage info", info)
 	}
 }
 
@@ -172,7 +184,7 @@ func TestDetailOrchestrationInfo_Pipeline(t *testing.T) {
 		PipelineIndex: 2,
 		PipelineTotal: 5,
 	}
-	info := detailOrchestrationInfo(d)
+	info := detailOrchestrationInfo(d, nil)
 	if info == "" {
 		t.Fatal("expected non-empty orchestration info for pipeline")
 	}
@@ -186,7 +198,7 @@ func TestDetailOrchestrationInfo_None(t *testing.T) {
 		PID:    1,
 		Intent: "hello",
 	}
-	info := detailOrchestrationInfo(d)
+	info := detailOrchestrationInfo(d, nil)
 	if info != "" {
 		t.Errorf("expected empty orchestration info, got %q", info)
 	}

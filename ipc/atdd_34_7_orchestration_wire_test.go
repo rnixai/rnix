@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,8 +86,12 @@ func TestProcInfoWire_OmitemptyBackwardCompat(t *testing.T) {
 	if containsField(jsonStr, "compose_node") {
 		t.Error("empty compose_node should be omitted from JSON (omitempty)")
 	}
-	if containsField(jsonStr, "pipeline_total") {
-		t.Error("zero pipeline_total should be omitted from JSON (omitempty)")
+	// pipeline_index and pipeline_total are always present (no omitempty) to avoid stage-0 ambiguity
+	if !strings.Contains(jsonStr, `"pipeline_index"`) {
+		t.Error("pipeline_index should always be present in JSON")
+	}
+	if !strings.Contains(jsonStr, `"pipeline_total"`) {
+		t.Error("pipeline_total should always be present in JSON")
 	}
 }
 
@@ -171,15 +176,5 @@ func TestSpawnRequest_OrchestrationFields(t *testing.T) {
 
 // containsField checks if a JSON key appears in the raw JSON string.
 func containsField(jsonStr, field string) bool {
-	return json.Valid([]byte(jsonStr)) && len(jsonStr) > 0 &&
-		(len(field) > 0 && searchForString(jsonStr, `"`+field+`"`))
-}
-
-func searchForString(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
+	return json.Valid([]byte(jsonStr)) && strings.Contains(jsonStr, `"`+field+`"`)
 }

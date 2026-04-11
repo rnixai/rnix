@@ -139,8 +139,8 @@ type procInfoDisk struct {
 	Model          string   `json:"model,omitempty"`
 	ComposeNode    string   `json:"compose_node,omitempty"`
 	ComposeDeps    []string `json:"compose_deps,omitempty"`
-	PipelineIndex  int      `json:"pipeline_index,omitempty"`
-	PipelineTotal  int      `json:"pipeline_total,omitempty"`
+	PipelineIndex  int      `json:"pipeline_index"`
+	PipelineTotal  int      `json:"pipeline_total"`
 }
 
 func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
@@ -161,7 +161,7 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		Provider:       info.Provider,
 		Model:          info.Model,
 		ComposeNode:    info.ComposeNode,
-		ComposeDeps:    info.ComposeDeps,
+		ComposeDeps:    append([]string(nil), info.ComposeDeps...),
 		PipelineIndex:  info.PipelineIndex,
 		PipelineTotal:  info.PipelineTotal,
 	}

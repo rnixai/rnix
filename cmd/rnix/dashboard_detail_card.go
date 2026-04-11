@@ -12,6 +12,7 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // renderDetailCardLeft renders the left detail card (below tree pane, 2 content lines).
@@ -59,7 +60,7 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 	} else {
 		line2 = "  Skills: —"
 	}
-	orchInfo := detailOrchestrationInfo(d)
+	orchInfo := detailOrchestrationInfo(d, m.processes)
 	if orchInfo != "" {
 		line2 += " │ " + orchInfo
 	}
@@ -321,11 +322,33 @@ func fetchHeartbeatStatusCmd() tea.Cmd {
 }
 
 // detailOrchestrationInfo returns a compact orchestration description for the detail card.
-func detailOrchestrationInfo(d *ipc.GetProcDetailResponse) string {
+// Includes PID mapping for deps and DAG stage calculation (AC4).
+func detailOrchestrationInfo(d *ipc.GetProcDetailResponse, procs []vfs.ProcInfo) string {
 	if d.ComposeNode != "" {
+		// Build node→PID mapping from sibling compose processes (same PPID)
+		nodeToPID := make(map[string]types.PID)
+		nodeGraph := make(map[string][]string)
+		for _, p := range procs {
+			if p.ComposeNode != "" && p.PPID == d.PPID {
+				nodeToPID[p.ComposeNode] = p.PID
+				nodeGraph[p.ComposeNode] = p.ComposeDeps
+			}
+		}
+
 		s := "Compose:" + d.ComposeNode
 		if len(d.ComposeDeps) > 0 {
-			s += " deps=" + strings.Join(d.ComposeDeps, ",")
+			var depLabels []string
+			for _, dep := range d.ComposeDeps {
+				if pid, ok := nodeToPID[dep]; ok {
+					depLabels = append(depLabels, fmt.Sprintf("PID %d", pid))
+				} else {
+					depLabels = append(depLabels, dep)
+				}
+			}
+			s += " depends_on:[" + strings.Join(depLabels, ",") + "]"
+		}
+		if stage, total := composeDAGStage(d.ComposeNode, nodeGraph); total > 0 {
+			s += fmt.Sprintf(" stage %d/%d", stage, total)
 		}
 		return s
 	}
@@ -333,4 +356,60 @@ func detailOrchestrationInfo(d *ipc.GetProcDetailResponse) string {
 		return fmt.Sprintf("Pipeline[%d/%d]", d.PipelineIndex+1, d.PipelineTotal)
 	}
 	return ""
+}
+
+// composeDAGStage computes the topological layer (1-based) for a node using Kahn's algorithm.
+func composeDAGStage(node string, graph map[string][]string) (stage, total int) {
+	if len(graph) == 0 {
+		return 0, 0
+	}
+
+	inDegree := make(map[string]int, len(graph))
+	dependedBy := make(map[string][]string)
+	for n, deps := range graph {
+		count := 0
+		for _, dep := range deps {
+			if _, exists := graph[dep]; exists {
+				count++
+				dependedBy[dep] = append(dependedBy[dep], n)
+			}
+		}
+		inDegree[n] = count
+	}
+
+	var currentLayer []string
+	for n, deg := range inDegree {
+		if deg == 0 {
+			currentLayer = append(currentLayer, n)
+		}
+	}
+
+	nodeLayer := make(map[string]int)
+	layerNum := 0
+	processed := 0
+
+	for len(currentLayer) > 0 {
+		layerNum++
+		for _, n := range currentLayer {
+			nodeLayer[n] = layerNum
+		}
+		processed += len(currentLayer)
+
+		var nextLayer []string
+		for _, n := range currentLayer {
+			for _, downstream := range dependedBy[n] {
+				inDegree[downstream]--
+				if inDegree[downstream] == 0 {
+					nextLayer = append(nextLayer, downstream)
+				}
+			}
+		}
+		currentLayer = nextLayer
+	}
+
+	if processed != len(graph) {
+		return 0, 0
+	}
+
+	return nodeLayer[node], layerNum
 }

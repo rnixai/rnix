@@ -623,20 +623,23 @@ func (m dashboardModel) buildCollapsedIntents() map[string]string {
 }
 
 // orchestrationAnnotation returns a compact orchestration label for the tree row.
-// Compose: "◄╌deps" or "<-deps" (ASCII). Pipeline: "│►[i/n]" or "|>[i/n]" (ASCII).
+// Compose: "╌╌►deps" or "-->deps" (ASCII). Pipeline: "│►[i/n]" or "|>[i/n]" (ASCII).
 func orchestrationAnnotation(p vfs.ProcInfo) string {
 	if p.ComposeNode != "" {
 		if len(p.ComposeDeps) > 0 {
 			deps := strings.Join(p.ComposeDeps, ",")
-			if ui.IsASCIIMode() {
-				return "<-" + deps
+			if len(deps) > 30 {
+				deps = deps[:27] + "..."
 			}
-			return "◄╌" + deps
+			if ui.IsASCIIMode() {
+				return "-->" + deps
+			}
+			return "╌╌►" + deps
 		}
 		if ui.IsASCIIMode() {
 			return "[C:" + p.ComposeNode + "]"
 		}
-		return "[C:" + p.ComposeNode + "]"
+		return "◆" + p.ComposeNode
 	}
 	if p.PipelineTotal > 0 {
 		label := fmt.Sprintf("[%d/%d]", p.PipelineIndex+1, p.PipelineTotal)

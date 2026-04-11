@@ -146,8 +146,8 @@ type SpawnRequest struct {
 	RnixEnv       string   `json:"rnix_env,omitempty"`
 	ComposeNode   string   `json:"compose_node,omitempty"`
 	ComposeDeps   []string `json:"compose_deps,omitempty"`
-	PipelineIndex int      `json:"pipeline_index,omitempty"`
-	PipelineTotal int      `json:"pipeline_total,omitempty"`
+	PipelineIndex int      `json:"pipeline_index"`
+	PipelineTotal int      `json:"pipeline_total"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.
@@ -189,8 +189,8 @@ type ProcInfoWire struct {
 	SuspendReason   string             `json:"suspend_reason,omitempty"`
 	ComposeNode     string             `json:"compose_node,omitempty"`
 	ComposeDeps     []string           `json:"compose_deps,omitempty"`
-	PipelineIndex   int                `json:"pipeline_index,omitempty"`
-	PipelineTotal   int                `json:"pipeline_total,omitempty"`
+	PipelineIndex   int                `json:"pipeline_index"`
+	PipelineTotal   int                `json:"pipeline_total"`
 }
 
 // ProcInfoToWire converts a vfs.ProcInfo to wire format.
@@ -220,7 +220,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		StepTimeoutMs: p.StepTimeout.Milliseconds(),
 		SuspendReason: p.SuspendReason,
 		ComposeNode:   p.ComposeNode,
-		ComposeDeps:   p.ComposeDeps,
+		ComposeDeps:   append([]string(nil), p.ComposeDeps...),
 		PipelineIndex: p.PipelineIndex,
 		PipelineTotal: p.PipelineTotal,
 	}
@@ -1060,8 +1060,8 @@ type GetProcDetailResponse struct {
 	ContextStats   ContextStatsWire  `json:"context_stats"`
 	ComposeNode    string            `json:"compose_node,omitempty"`
 	ComposeDeps    []string          `json:"compose_deps,omitempty"`
-	PipelineIndex  int               `json:"pipeline_index,omitempty"`
-	PipelineTotal  int               `json:"pipeline_total,omitempty"`
+	PipelineIndex  int               `json:"pipeline_index"`
+	PipelineTotal  int               `json:"pipeline_total"`
 }
 
 // SkillInfoWire is the wire-format representation of a loaded skill with its allowed tools.

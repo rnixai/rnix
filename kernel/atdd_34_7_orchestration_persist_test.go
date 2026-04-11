@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,12 +87,13 @@ func TestProcInfoDisk_NoOrchestration(t *testing.T) {
 	}
 
 	jsonStr := string(data)
-	// With omitempty, compose_node/pipeline_total should not appear
-	if containsStr(jsonStr, `"compose_node"`) {
+	// With omitempty, compose_node should not appear
+	if strings.Contains(jsonStr, `"compose_node"`) {
 		t.Error("empty compose_node should be omitted from disk JSON")
 	}
-	if containsStr(jsonStr, `"pipeline_total"`) {
-		t.Error("zero pipeline_total should be omitted from disk JSON")
+	// pipeline_index and pipeline_total are always present (no omitempty)
+	if !strings.Contains(jsonStr, `"pipeline_index"`) {
+		t.Error("pipeline_index should always be present in disk JSON")
 	}
 }
 
@@ -130,13 +132,4 @@ func TestSaveProcInfo_WithOrchestration(t *testing.T) {
 	if len(disk.ComposeDeps) != 1 || disk.ComposeDeps[0] != "input" {
 		t.Errorf("saved ComposeDeps = %v, want [input]", disk.ComposeDeps)
 	}
-}
-
-func containsStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

@@ -145,7 +145,7 @@ type Process struct {
 	// Orchestration metadata (Story 34.7) — immutable after spawn, no locking needed
 	ComposeNode   string   // compose node name (e.g. "summarizer"), empty = not compose
 	ComposeDeps   []string // depends_on node names (e.g. ["researcher", "analyst"])
-	PipelineIndex int      // 0-based stage index in pipeline, -1 = not pipeline
+	PipelineIndex int      // 0-based stage index in pipeline (only meaningful when PipelineTotal > 0)
 	PipelineTotal int      // total stages in pipeline, 0 = not pipeline
 
 	// Suspend system (Story 30.3) — atomic flag for graceful suspend
