@@ -175,6 +175,16 @@ func (m dashboardModel) historyKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.selectedPID = proc.PID
 			m.selectedUUID = proc.UUID
 			m.viewMode = viewDefault
+			// Sync treeCursor to the selected process so the tick loop's
+			// unconditional selectProcess(treeRows[treeCursor]) doesn't
+			// immediately overwrite the selection we just made.
+			for i, row := range m.treeRows {
+				if (proc.UUID != "" && row.proc.UUID == proc.UUID) ||
+					(proc.UUID == "" && row.proc.PID == proc.PID) {
+					m.treeCursor = i
+					break
+				}
+			}
 			m2, cmd := m.handlePIDChange()
 			return m2, cmd
 		}
