@@ -149,13 +149,13 @@ func (m dashboardModel) historyKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "pgdown":
 		if len(filtered) > 0 {
-			pageSize := max(m.height-8, 1)
+			pageSize := m.historyVisibleLines()
 			m.historyCursor = min(m.historyCursor+pageSize, len(filtered)-1)
 			m.adjustHistoryScroll()
 		}
 		return m, nil
 	case "pgup":
-		pageSize := max(m.height-8, 1)
+		pageSize := m.historyVisibleLines()
 		m.historyCursor = max(m.historyCursor-pageSize, 0)
 		m.adjustHistoryScroll()
 		return m, nil
@@ -252,9 +252,28 @@ func (m dashboardModel) historySearchKey(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 	}
 }
 
+// historyVisibleLines returns the number of process rows visible in the history overlay,
+// matching the layout used by renderHistoryView. This keeps scroll logic and render in sync.
+func (m *dashboardModel) historyVisibleLines() int {
+	h := m.height
+	if h == 0 {
+		h = 40
+	}
+	// Mirror renderDashboard's contentHeight calculation:
+	//   titleLines(1) + statusBar(1) + alertReserve
+	alertH := alertStripHeight(len(m.alertEvents), m.alertExpanded)
+	alertReserve := alertH
+	if alertH > 0 {
+		alertReserve = alertH + 1
+	}
+	contentHeight := max(h-1-1-alertReserve, 3) // 1 = titleBar, 1 = statusBar
+	// renderHistoryView subtracts 4: title(1) + header(1) + stats_gap(1) + stats(1)
+	return max(contentHeight-4, 1)
+}
+
 // adjustHistoryScroll ensures the cursor is visible within the scroll window.
 func (m *dashboardModel) adjustHistoryScroll() {
-	visibleLines := max(m.height-8, 1)
+	visibleLines := m.historyVisibleLines()
 	if m.historyCursor < m.historyScrollOffset {
 		m.historyScrollOffset = m.historyCursor
 	}
@@ -295,6 +314,15 @@ func (m dashboardModel) renderHistoryView(width, height int) string {
 
 	// Process rows
 	visibleLines := max(height-4, 1) // title + header + stats + margin
+
+	// Safety: clamp scrollOffset to valid range
+	if len(filtered) > 0 {
+		m.historyScrollOffset = max(m.historyScrollOffset, 0)
+		m.historyScrollOffset = min(m.historyScrollOffset, len(filtered)-1)
+	} else {
+		m.historyScrollOffset = 0
+	}
+
 	endIdx := min(m.historyScrollOffset+visibleLines, len(filtered))
 
 	now := time.Now()

@@ -558,7 +558,16 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		m.connected = true
 	}
 
+	// Set a read deadline so a hung server doesn't block the UI forever.
+	if err := m.client.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		m.client.Close()
+		m.client = nil
+		m.connected = false
+		return m, tickCmd()
+	}
 	procs, err := m.client.ListAllProcs()
+	// Clear deadline for future non-tick operations.
+	_ = m.client.SetReadDeadline(time.Time{})
 	if err != nil {
 		m.client.Close()
 		m.client = nil

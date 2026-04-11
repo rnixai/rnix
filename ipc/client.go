@@ -40,6 +40,12 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+// SetReadDeadline sets a deadline for future read operations on the connection.
+// A zero time value clears the deadline.
+func (c *Client) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
+}
+
 // Ping checks if the daemon is alive and returns its version.
 func (c *Client) Ping() (string, error) {
 	resp, err := c.call(MethodPing, nil)
