@@ -263,13 +263,6 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 	}
 
 	innerW := max(width-2, 1)
-	innerH := max(height-2, 1)
-
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(innerW).
-		Height(innerH)
 
 	var b strings.Builder
 
@@ -287,15 +280,15 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 
 	if m.selectedPID == 0 {
 		b.WriteString("\n    Select an agent to view heatmap")
-		return style.Render(b.String())
+		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 	if m.heatmapErr != nil {
 		fmt.Fprintf(&b, "\n    ✗ %v", m.heatmapErr)
-		return style.Render(b.String())
+		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 	if len(m.heatmapSegments) == 0 {
 		b.WriteString("\n    Loading context profile...")
-		return style.Render(b.String())
+		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
 	barWidth := max(innerW-2, 10)
@@ -337,5 +330,5 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 		}
 	}
 
-	return style.Render(b.String())
+	return renderFixedPanel(b.String(), width, height, borderColor)
 }

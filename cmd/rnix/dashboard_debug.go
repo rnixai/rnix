@@ -451,13 +451,7 @@ func (m dashboardModel) renderDebugTimeline(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(innerW).
-		Height(innerH)
-
-	return style.Render(m.renderDebugTimelineContent(innerW, innerH))
+	return renderFixedPanel(m.renderDebugTimelineContent(innerW, innerH), width, height, borderColor)
 }
 
 func (m dashboardModel) renderDebugTimelineContent(width, height int) string {

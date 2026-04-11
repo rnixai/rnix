@@ -401,13 +401,7 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(innerW).
-		Height(innerH)
-
-	return style.Render(m.renderStepTimeline(innerW, innerH))
+	return renderFixedPanel(m.renderStepTimeline(innerW, innerH), width, height, borderColor)
 }
 
 func (m dashboardModel) renderStepTimeline(width, height int) string {
@@ -1421,7 +1415,7 @@ func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardMode
 		known[s.Step] = struct{}{}
 		level := levelSummary
 		autoExpand := false
-		if s.HasError || s.DurationMs > slowStepThresholdMs {
+		if s.HasError {
 			level = levelExpanded
 			autoExpand = true
 		}

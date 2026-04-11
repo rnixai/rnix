@@ -37,13 +37,6 @@ func (m dashboardModel) renderDetailPane(width, height int) string {
 	}
 
 	innerW := max(width-2, 1)
-	innerH := max(height-2, 1)
-
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(innerW).
-		Height(innerH)
 
 	var b strings.Builder
 
@@ -55,13 +48,13 @@ func (m dashboardModel) renderDetailPane(width, height int) string {
 
 	if m.selectedPID == 0 {
 		b.WriteString("\n    Select a process to view detail")
-		return style.Render(b.String())
+		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
 	d := m.procDetail
 	if d == nil || d.PID != m.selectedPID || (m.selectedUUID != "" && d.UUID != m.selectedUUID) {
 		b.WriteString("\n    Loading...")
-		return style.Render(b.String())
+		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
 	// Section 1: Basic info
@@ -122,7 +115,7 @@ func (m dashboardModel) renderDetailPane(width, height int) string {
 		fmt.Fprintf(&b, "    [%s] %.0f%%\n", bar, pct)
 	}
 
-	return style.Render(b.String())
+	return renderFixedPanel(b.String(), width, height, borderColor)
 }
 
 func truncateUUID(s string) string {

@@ -86,14 +86,7 @@ func (m dashboardModel) renderSecurityPane(width, height int) string {
 		borderColor = lipgloss.Color(ui.ColorAgent)
 	}
 
-	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
-
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(innerW).
-		Height(innerH)
 
 	var b strings.Builder
 	b.WriteString(" Security \n")
@@ -105,14 +98,14 @@ func (m dashboardModel) renderSecurityPane(width, height int) string {
 		} else {
 			b.WriteString(" Loading...\n")
 		}
-		return style.Render(b.String())
+		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
 	// AC-7: Immune Daemon not running
 	if !m.immuneStatus.Running {
 		b.WriteString(" Immune Daemon not running.\n")
 		b.WriteString(" Security monitoring unavailable.\n")
-		return style.Render(b.String())
+		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
 	// AC-5: Security status summary
@@ -189,7 +182,7 @@ func (m dashboardModel) renderSecurityPane(width, height int) string {
 		}
 	}
 
-	return style.Render(b.String())
+	return renderFixedPanel(b.String(), width, height, borderColor)
 }
 
 func formatTimeAgo(timestampMs int64) string {

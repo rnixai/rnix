@@ -220,21 +220,14 @@ func (m dashboardModel) renderIntentPane(width, height int) string {
 		borderColor = lipgloss.Color(ui.ColorAgent)
 	}
 
-	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
-
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(innerW).
-		Height(innerH)
 
 	var b strings.Builder
 	b.WriteString(" Intent Tree\n")
 
 	if len(m.intentFlatNodes) == 0 {
 		b.WriteString("\n    当前无意图分解任务。使用 rnix apply 创建声明式意图。")
-		return style.Render(b.String())
+		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
 	// Determine the treeIndex of the currently selected cursor
@@ -303,7 +296,7 @@ func (m dashboardModel) renderIntentPane(width, height int) string {
 		b.WriteString("\n")
 	}
 
-	return style.Render(b.String())
+	return renderFixedPanel(b.String(), width, height, borderColor)
 }
 
 // intentAdjustScroll ensures intentCursor is visible within the viewport.

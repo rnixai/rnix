@@ -24,19 +24,18 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(innerW).
-		Height(innerH)
-
 	var b strings.Builder
 	sortLabel := treeSortLabels[m.treeSortMode]
 	dirArrow := "↓"
 	if m.treeSortAsc {
 		dirArrow = "↑"
 	}
-	fmt.Fprintf(&b, " Agent Tree [%s %s]\n", sortLabel, dirArrow)
+	if len(m.treeRows) > 0 {
+		pos := min(m.treeCursor+1, len(m.treeRows))
+		fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d\n", sortLabel, dirArrow, pos, len(m.treeRows))
+	} else {
+		fmt.Fprintf(&b, " Agent Tree [%s %s]\n", sortLabel, dirArrow)
+	}
 
 	now := time.Now()
 	reused := reusedPIDs(m.processes)
@@ -94,15 +93,19 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		var elapsed string
 
 		if isDead {
-			// Dead processes: show [exit_code] instead of tokens (AC2)
-			exitCode := row.proc.Result
-			if exitCode == "" {
-				exitCode = "?"
-			}
+			// Dead processes: compact exit marker (result detail in Detail Card)
 			if ui.IsFailedResult(row.proc.Result) {
-				tokens = ui.ErrorStyle.Render("[" + exitCode + "]")
+				if ui.IsASCIIMode() {
+					tokens = ui.ErrorStyle.Render("x")
+				} else {
+					tokens = ui.ErrorStyle.Render("✗")
+				}
 			} else {
-				tokens = "[" + exitCode + "]"
+				if ui.IsASCIIMode() {
+					tokens = "ok"
+				} else {
+					tokens = "✓"
+				}
 			}
 			if !row.proc.DeadAt.IsZero() {
 				elapsed = ui.FormatDuration(row.proc.DeadAt.Sub(row.proc.CreatedAt))
@@ -191,7 +194,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		}
 	}
 
-	return style.Render(b.String())
+	return renderFixedPanel(b.String(), width, height, borderColor)
 }
 
 // suspendReasonAbbrev maps a SuspendReason string to a short tag for the tree pane (Story 30.8 AC#6).

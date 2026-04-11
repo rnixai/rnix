@@ -864,7 +864,8 @@ func (m dashboardModel) dashboardVisibleLines() int {
 	if m.viewMode == viewDefault {
 		detailOffset = 3 // detail card: 1 separator + 2 content lines
 	}
-	v := max(m.height-7-detailOffset, 1)
+	// titleBar(2) + statusBar(1) + panelBorder(2) + headerLine(1) = 6
+	v := max(m.height-6-detailOffset, 1)
 	return v
 }
 
@@ -911,7 +912,7 @@ func (m dashboardModel) renderDashboard() string {
 		alertReserve = alertH + 1
 	}
 
-	contentHeight := max(h-titleLines-3-alertReserve, 3)
+	contentHeight := max(h-titleLines-1-alertReserve, 3)
 
 	var mainContent string
 	switch m.viewMode {

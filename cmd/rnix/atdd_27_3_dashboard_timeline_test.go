@@ -416,8 +416,10 @@ func TestATDD_27_3_AC5_AutoExpand_SlowStep(t *testing.T) {
 	if len(m.stepEntries) != 1 {
 		t.Fatalf("AC-5: expected 1 step entry, got %d", len(m.stepEntries))
 	}
-	if m.stepEntries[0].level != levelExpanded {
-		t.Errorf("AC-5: slow step (>1s) should auto-expand to Level 2, got level %d", m.stepEntries[0].level)
+	// Slow steps no longer auto-expand (layout-first redesign: only HasError triggers expand).
+	// Duration is indicated by yellow color badge in Level 1 view.
+	if m.stepEntries[0].level != levelSummary {
+		t.Errorf("AC-5: slow step should stay at Level 1 (summary), got level %d", m.stepEntries[0].level)
 	}
 }
 

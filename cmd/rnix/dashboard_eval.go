@@ -165,12 +165,6 @@ func (m dashboardModel) renderEvalPane(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(innerW).
-		Height(innerH)
-
 	var b strings.Builder
 
 	// Header with sub-view tabs (h/l to cycle)
@@ -194,7 +188,7 @@ func (m dashboardModel) renderEvalPane(width, height int) string {
 		b.WriteString(m.renderEvalSynergyView(innerW, innerH-1))
 	}
 
-	return style.Render(b.String())
+	return renderFixedPanel(b.String(), width, height, borderColor)
 }
 
 func (m dashboardModel) renderEvalReputationView(width, height int) string {

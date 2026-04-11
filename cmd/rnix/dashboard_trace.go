@@ -207,16 +207,10 @@ func (m dashboardModel) renderTracePane(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
-	style := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Width(innerW).
-		Height(innerH)
-
 	if m.traceViewMode == 1 {
-		return style.Render(m.renderTraceTreeView(innerW, innerH))
+		return renderFixedPanel(m.renderTraceTreeView(innerW, innerH), width, height, borderColor)
 	}
-	return style.Render(m.renderTraceListView(innerW, innerH))
+	return renderFixedPanel(m.renderTraceListView(innerW, innerH), width, height, borderColor)
 }
 
 func (m dashboardModel) renderTraceListView(width, height int) string {
