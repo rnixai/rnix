@@ -214,6 +214,7 @@ func (k *KernelImpl) killSuspendedProcess(proc *Process, sig types.Signal, sysca
 	case proc.Done <- exit:
 	default:
 	}
+	proc.closeTerminated() // unblock twoPhaseShutdown if it's watching this process
 	k.reapSuspendedProcess(proc)
 	return nil
 }

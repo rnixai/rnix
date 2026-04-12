@@ -20,12 +20,14 @@ func (k *KernelImpl) twoPhaseShutdown(proc *Process, gracePeriod time.Duration) 
 		"elapsed_ms":      int64(0),
 	}, nil, nil, 0)
 
-	// Wait for process to exit or timeout
+	// Wait for process to exit or timeout.
+	// Use proc.terminated (closed-channel broadcast) instead of proc.Done
+	// so we don't race with kern.Wait(), which is the sole consumer of proc.Done.
 	timer := time.NewTimer(gracePeriod)
 	defer timer.Stop()
 
 	select {
-	case <-proc.Done:
+	case <-proc.terminated:
 		// Process exited within grace period
 		k.emitEvent(proc, "Shutdown", map[string]any{
 			"phase":           "grace_completed",

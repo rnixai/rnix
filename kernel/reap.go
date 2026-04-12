@@ -385,4 +385,15 @@ func (k *KernelImpl) Shutdown() {
 		close(k.stopCh)
 	})
 	k.reaperWg.Wait()
+
+	// Drain all process goroutines (reasoning loops + async checkpoint writers).
+	// This prevents file-I/O races when tests use t.TempDir() as the step data
+	// directory: without this, a checkpoint goroutine spawned by asyncWriteCheckpoint
+	// may still be writing files when Go's TempDir cleanup tries to remove the dir.
+	// proc.Cancel() is idempotent — safe to call even if already cancelled.
+	k.procTable.Range(func(_ types.PID, proc *Process) bool {
+		proc.Cancel()
+		proc.wg.Wait()
+		return true
+	})
 }

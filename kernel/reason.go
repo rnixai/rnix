@@ -600,14 +600,17 @@ func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveTo
 
 	cpData := buildCheckpointData(proc, step, json.RawMessage(ctxSnap), consecutiveToolErrors)
 
-	go func() {
+	// Track the write goroutine in proc.wg so reapProcess and Shutdown wait for it to
+	// finish before TempDir cleanup. Safe to call Go here: this function runs inside the
+	// reasoning goroutine, which is itself tracked by proc.wg, so the counter is > 0.
+	proc.wg.Go(func() {
 		if err := writeCheckpoint(dir, cpData); err != nil {
 			select {
 			case errCh <- err:
 			default: // channel full, discard old error
 			}
 		}
-	}()
+	})
 }
 
 // getCostPerToken returns the cost per token for a given provider.

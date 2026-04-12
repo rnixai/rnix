@@ -172,11 +172,13 @@ type Process struct {
 	// Project configuration (Story 25.3) — immutable after spawn, no locking needed
 	ProjectConfig *config.ProjectConfig
 
-	mu       sync.Mutex
-	cancel   context.CancelFunc
-	ctx      context.Context
-	wg       sync.WaitGroup
-	reapOnce sync.Once // ensures reap executes at most once
+	mu             sync.Mutex
+	cancel         context.CancelFunc
+	ctx            context.Context
+	wg             sync.WaitGroup
+	reapOnce       sync.Once  // ensures reap executes at most once
+	terminateOnce  sync.Once  // ensures terminated channel is closed exactly once
+	terminated     chan struct{} // closed when process transitions to Zombie; broadcast to all waiters
 }
 
 // NewProcess creates a new process in the Created state with a unique PID.
@@ -195,6 +197,7 @@ func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 		DebugChan:       make(chan types.SyscallEvent, 256),
 		LogChan:         make(chan types.LogEntry, 256),
 		Done:            make(chan ExitStatus, 1),
+		terminated:      make(chan struct{}),
 		CreatedAt:       time.Now(),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -386,6 +389,8 @@ func (p *Process) Start() error {
 }
 
 // Terminate transitions the process from Running to Zombie and records the exit status.
+// It also closes the terminated channel (broadcast) so twoPhaseShutdown and other
+// zero-or-more waiters can detect process exit without racing on the one-shot Done channel.
 func (p *Process) Terminate(exit ExitStatus) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -394,12 +399,20 @@ func (p *Process) Terminate(exit ExitStatus) error {
 		return err
 	}
 	p.Exit = &exit
+	p.terminateOnce.Do(func() { close(p.terminated) })
 	return nil
 }
 
 // Reap transitions the process from Zombie to Dead.
 func (p *Process) Reap() error {
 	return p.Transition(types.StateDead)
+}
+
+// closeTerminated closes the terminated broadcast channel exactly once.
+// Called by Terminate() for normal exit paths. Also safe to call from
+// alternative exit paths (e.g., killSuspendedProcess) via Once.
+func (p *Process) closeTerminated() {
+	p.terminateOnce.Do(func() { close(p.terminated) })
 }
 
 // Cancel cancels the process context, signaling the reasoning goroutine to stop.
