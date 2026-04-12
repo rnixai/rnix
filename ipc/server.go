@@ -2947,7 +2947,8 @@ type ipcKernelSpawner struct {
 	agentLoader   AgentLoaderFunc
 	projectConfig *config.ProjectConfig // per-spawn project config snapshot (nil = global only)
 	pids          []types.PID
-	pipelineTotal int // total stages in pipeline (set before Execute)
+	pipelineTotal int       // total stages in pipeline (set before Execute)
+	parentPID     types.PID // script runner PID; 0 if not in a script context
 }
 
 func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, model string) (string, int, int, error) {
@@ -2965,6 +2966,7 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 		ProjectConfig: s.projectConfig,
 		PipelineIndex: len(s.pids),
 		PipelineTotal: s.pipelineTotal,
+		ParentPID:     s.parentPID,
 	})
 	if err != nil {
 		return "", 1, 0, err
@@ -3035,13 +3037,61 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	// Derive a display name for the script runner process.
+	scriptIntent := "run: script"
+	if f, ok := req.Env["RNIX_SCRIPT_FILE"]; ok && f != "" {
+		scriptIntent = "run: " + filepath.Base(f)
+	}
+
+	// Register the script itself as a kernel process (visible in rnix top, killable via K).
+	scriptPID, err := s.kern.Spawn(scriptIntent, nil, kernel.SpawnOpts{
+		SkipReasonLoop: true,
+		ProjectConfig:  projectCfg,
+	})
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "SPAWN_ERROR", Message: err.Error()}})
+		return
+	}
+	scriptProc, ok := s.kern.GetProcess(scriptPID)
+	if !ok {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: "script runner process vanished after spawn"}})
+		return
+	}
+
 	writeResponse(conn, Response{OK: true})
 
 	enc := json.NewEncoder(conn)
+
+	// Build a context that is cancelled when:
+	//   1. The script runner process receives SIGTERM/SIGKILL (K in rnix top)
+	//   2. The daemon is shutting down
+	//   3. The client disconnects (Ctrl+C or terminal close)
+	scriptCtx, scriptCancel := context.WithCancel(context.Background())
+	defer scriptCancel()
+
+	go func() {
+		select {
+		case <-s.done:
+			scriptCancel()
+		case <-scriptProc.CancelledCh():
+			scriptCancel()
+		case <-scriptCtx.Done():
+		}
+	}()
+
+	// Detect client disconnect: the client only writes the initial request, so any
+	// subsequent read returns EOF/error when the client closes the connection.
+	go func() {
+		buf := make([]byte, 1)
+		conn.Read(buf) //nolint:errcheck // intentional: only care about close, not the value
+		scriptCancel()
+	}()
+
 	spawner := &ipcKernelSpawner{
 		kernel:        s.kern,
 		agentLoader:   agentLoaderFn,
 		projectConfig: projectCfg,
+		parentPID:     scriptPID,
 	}
 
 	executor := shell.NewScriptExecutor(spawner, env)
@@ -3059,17 +3109,17 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 		_ = enc.Encode(StreamEvent{Type: StreamProgress, Payload: payload})
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		select {
-		case <-s.done:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
+	result, execErr := executor.Execute(scriptCtx, script)
 
-	result, execErr := executor.Execute(ctx, script)
+	// Finalise the script runner process so it transitions Running→Zombie and is reaped.
+	// twoPhaseShutdown (if running because of a K kill) will unblock on proc.terminated.
+	if execErr != nil {
+		scriptProc.Finish("", 1, execErr)
+	} else {
+		scriptProc.Finish(result.LastResult, result.LastExitCode, nil)
+	}
+	s.kern.Reap(scriptPID)
+
 	if execErr != nil {
 		ep := ErrorPayload{Code: "SCRIPT_ERROR", Message: execErr.Error()}
 		payload, _ := json.Marshal(ep)
