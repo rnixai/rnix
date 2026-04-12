@@ -118,7 +118,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		}
 
 		// Intent: use collapsed prefix if available (AC4)
-		intent := row.proc.Intent
+		intent := strings.ReplaceAll(row.proc.Intent, "\n", " ")
 		if intent == "" {
 			intent = "—"
 		}
@@ -135,8 +135,16 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		if isDead {
 			if isExpanded {
-				// Expanded mode: show reason text alongside the exit marker
-				resultText := row.proc.Result
+				// Expanded mode: show reason text alongside the exit marker.
+				// Strip newlines/control chars so embedded \n in LLM output
+				// cannot split a single process row into multiple display lines.
+				resultText := strings.Map(func(r rune) rune {
+					if r == '\n' || r == '\r' || r == '\t' {
+						return ' '
+					}
+					return r
+				}, row.proc.Result)
+				resultText = strings.TrimSpace(resultText)
 				if resultText == "" {
 					resultText = "—"
 				}
