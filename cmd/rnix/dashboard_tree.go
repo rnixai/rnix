@@ -130,6 +130,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		pidPart := fmt.Sprintf("%d", row.proc.PID)
 
 		isDead := row.proc.State == types.StateDead || row.proc.State == types.StateZombie
+		isDeadOk := isDead && !ui.IsFailedResult(row.proc.Result)
 		var tokens string
 		var elapsed string
 
@@ -211,13 +212,20 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		// Orchestration annotation (Story 34.7)
 		orchAnnotation := orchestrationAnnotation(row.proc)
 
-		// Calculate available width for intent (elastic)
+		// Calculate available width for intent (elastic).
+		// Filter empty parts so an absent state badge (dead+success) doesn't produce double-space.
 		prefixW := lipgloss.Width(cursor + collapsePrefix + row.prefix)
 		suffixParts := []string{pidPart, stateMark, tokens, elapsed}
 		if orchAnnotation != "" {
 			suffixParts = append(suffixParts, orchAnnotation)
 		}
-		suffixStr := strings.Join(suffixParts, " ") + rec
+		var filtered []string
+		for _, p := range suffixParts {
+			if p != "" {
+				filtered = append(filtered, p)
+			}
+		}
+		suffixStr := strings.Join(filtered, " ") + rec
 		suffixW := lipgloss.Width(suffixStr)
 		intentW := max(innerW-prefixW-suffixW-3, 8)
 		intentTrunc := truncateRuneWidth(intent, intentW)
@@ -246,6 +254,9 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 				Render(line)
 		} else if isMostActive {
 			line = lipgloss.NewStyle().Bold(true).Render(line)
+		} else if isDeadOk {
+			// Dim successfully-completed rows so they recede visually.
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(line)
 		}
 		b.WriteString(line)
 		b.WriteString("\n")
