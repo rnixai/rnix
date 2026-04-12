@@ -9,7 +9,6 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/kernel"
-	"github.com/rnixai/rnix/vfs"
 )
 
 // --- Severity levels for UnifiedEvent (Story 34.1 AC#1) ---
@@ -85,7 +84,7 @@ const (
 	viewDefault  viewMode = iota // 默认：Tree + Timeline + 底部面板
 	viewExpanded                 // 数字键展开某面板
 	viewLLM                      // L：全屏 LLM 对话查看器（Story 29.6 实现）
-	viewHistory                  // H：全屏历史进程列表（Story 29.5 实现）
+	viewHistory // kept for iota stability; no longer used for the H key
 	viewDebug                    // d：Debug 模式（Story 34.6 实现）
 )
 
@@ -230,13 +229,6 @@ type llmStepListMsg struct {
 	pid   types.PID
 	steps []ipc.StepSummaryWire
 	total int
-	err   error
-}
-
-// --- History view types (Story 29-5) ---
-
-type historyProcsMsg struct {
-	procs []vfs.ProcInfo
 	err   error
 }
 

@@ -1988,14 +1988,14 @@ func TestLLMViewer_ViewContainsKeyHints(t *testing.T) {
 	}
 }
 
-// --- 29.6-UNIT-013: [P0] 历史视图 L 键进入 viewLLM (AC10) ---
+// --- 29.6-UNIT-013: [P0] 展开 Tree 视图 L 键进入 viewLLM (AC10) ---
 
-func TestLLMViewer_HistoryViewLKey(t *testing.T) {
+func TestLLMViewer_ExpandedTreeLKey(t *testing.T) {
 	procs := mockDashboardProcs()
 	m := newTestDashboardModel(procs)
-	m.viewMode = viewHistory
-	m.historyProcs = procs // populate history list so filtered is non-empty
-	m.historyCursor = 1    // select PID 2
+	m.viewMode = viewExpanded
+	m.expandedPane = paneTree
+	m.activePane = paneTree
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
 
@@ -2003,10 +2003,10 @@ func TestLLMViewer_HistoryViewLKey(t *testing.T) {
 	um := updated.(dashboardModel)
 
 	if um.viewMode != viewLLM {
-		t.Errorf("L in history view should enter viewLLM, got viewMode=%d", um.viewMode)
+		t.Errorf("L in expanded tree view should enter viewLLM, got viewMode=%d", um.viewMode)
 	}
-	if um.llmViewerPrevMode != viewHistory {
-		t.Errorf("LLM viewer should save prev mode as viewHistory, got %d", um.llmViewerPrevMode)
+	if um.llmViewerPrevMode != viewExpanded {
+		t.Errorf("LLM viewer should save prev mode as viewExpanded, got %d", um.llmViewerPrevMode)
 	}
 }
 
@@ -2041,17 +2041,17 @@ func TestLLMViewer_KKeyScrollsNotTree(t *testing.T) {
 	}
 }
 
-// --- 29.6-UNIT-CR-001: Esc 从历史视图进入后回退到历史视图 ---
+// --- 29.6-UNIT-CR-001: Esc 从展开视图进入 LLM 后回退到展开视图 ---
 
-func TestLLMViewer_EscReturnsToHistoryView(t *testing.T) {
+func TestLLMViewer_EscReturnsToExpandedView(t *testing.T) {
 	m := newTestLLMViewerModel()
-	m.llmViewerPrevMode = viewHistory
+	m.llmViewerPrevMode = viewExpanded
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	um := updated.(dashboardModel)
 
-	if um.viewMode != viewHistory {
-		t.Errorf("Esc in viewLLM should return to previous viewHistory, got viewMode=%d", um.viewMode)
+	if um.viewMode != viewExpanded {
+		t.Errorf("Esc in viewLLM should return to previous viewExpanded, got viewMode=%d", um.viewMode)
 	}
 }
 
