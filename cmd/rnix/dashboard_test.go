@@ -2434,8 +2434,8 @@ func TestStateBadge_Unicode(t *testing.T) {
 		{types.StateRunning, "", "🟢"},
 		{types.StateCreated, "", "🟢"},
 		{types.StateSuspended, "", "🟡"},
-		{types.StateDead, "error: crash", "🔴"},
-		{types.StateDead, "", "🔴"}, // empty result = failure
+		{types.StateDead, "error: crash", ""},
+		{types.StateDead, "", ""},  // empty result = failure
 		{types.StateDead, "done", ""},
 	}
 	for _, tc := range tests {

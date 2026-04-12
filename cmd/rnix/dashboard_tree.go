@@ -131,6 +131,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		isDead := row.proc.State == types.StateDead || row.proc.State == types.StateZombie
 		isDeadOk := isDead && !ui.IsFailedResult(row.proc.Result)
+		isDeadFail := isDead && ui.IsFailedResult(row.proc.Result)
 		var tokens string
 		var elapsed string
 
@@ -254,6 +255,9 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 				Render(line)
 		} else if isMostActive {
 			line = lipgloss.NewStyle().Bold(true).Render(line)
+		} else if isDeadFail {
+			// Style failed rows red so the row itself signals failure (badge removed).
+			line = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(line)
 		} else if isDeadOk {
 			// Dim successfully-completed rows so they recede visually.
 			line = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(line)
