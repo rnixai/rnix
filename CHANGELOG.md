@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-04-12
+
+### Fixed
+
+- **`rnix run` 脚本进程可见性与可终止性**：脚本运行器现以 `SkipReasonLoop` 进程注册到内核进程表，在 `rnix top` 中可见并可通过 `K` 键终止；子 Agent 的 `ParentPID` 指向脚本运行器，进程树层级正确；终止信号（SIGTERM/SIGKILL）、daemon 关闭、客户端断开（Ctrl+C）三路上下文联动，执行完毕后调用 `Finish()+Reap()` 确保资源完整回收
+
 ## [0.7.2] - 2026-04-12
 
 ### Added
@@ -179,6 +185,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **IPC Protocol**: NDJSON over Unix socket request/response protocol
 - **VFS Devices**: `/dev/llm/claude`, `/dev/fs`, `/dev/shell` device implementations
 
+[0.7.3]: https://github.com/rnixai/rnix/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/rnixai/rnix/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/rnixai/rnix/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/rnixai/rnix/compare/v0.6.8...v0.7.0
