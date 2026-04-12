@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-04-12
+
+### Added
+
+- **可靠性与恢复（Epic 30）**:
+  - 无限推理步骤：`DefaultMaxSteps` 改为 `0`（不限步数），引入 `LoopDetector` 检测重复动作并自动暂停
+  - 步骤持久化与快照检查点：异步写入 `CheckpointData`，支持从断点恢复
+  - 进程挂起状态：新增 `Suspended` 状态，内核提供 `Suspend()` / `Unsuspend()` 方法
+  - 恢复机制：`rnix resume <pid|uuid>` 命令，从检查点还原上下文并分配新 PID
+  - 心跳存活检测：进程执行期间定期更新心跳，Dashboard 显示 stale 指示器
+  - Supervisor 心跳监控：`HeartbeatMonitor` 扫描超时进程，三级恢复策略（重试步骤 → 挂起 → 通知）
+  - 资源预算：`MaxTokens` / `MaxCost` 配置项，超出预算自动挂起进程
+  - Dashboard 长任务可观测性：Focus Card 展示资源预算和心跳状态，`R` 键恢复挂起进程，Timeline 超 100 步自动聚合
+
+- **上下文与 Token 管理（Epic 31）**:
+  - Token 计量与 VFS 结果控制：`ToolDef` 新增 `MaxResultTokens` 字段，文件读取和 Shell 输出超限自动截断
+  - 上下文压缩与恢复：支持手动和自动触发 compact，压缩后上下文可传递给新进程
+  - 两阶段关闭与 IPC 消息持久化：SIGTERM 优先，超出宽限期后升级为 SIGKILL；永久进程的 IPC 消息写盘并在重启后还原
+
+- **Skill 系统增强（Epic 32）**:
+  - 新增文件操作：`edit_file`（精确字符串替换）、`glob`（路径模式匹配）、`grep`（内容搜索）
+  - `ToolDef` 安全元数据：`IsReadOnly`、`IsConcurrencySafe`、`IsDestructive` 标志，写入前强制读取保护（read-before-write），mtime 追踪
+  - 声明式 Section 化系统提示词组装：`PromptSection` + `SectionRegistry`，静态/动态分区缓存，Agent compact 流程自动失效
+  - 延迟 Skill 加载：`agent.yaml` 新增 `deferred_skills` 字段，仅加载元数据；新增 `discover_skill` Action Type 按关键词评分按需加载
+
+- **新 VFS 设备（Epic 33）**:
+  - `/dev/web`：网页内容抓取与搜索，内置结果缓存
+  - `/dev/lsp`：代码智能，支持 9 种操作（跳转定义、查找引用、悬浮文档、符号搜索等）
+  - `/dev/tty`：进程与用户交互，支持提问和确认
+  - `/dev/tasks`：动态任务管理，进程可创建和追踪子任务
+  - `/dev/cron`：定时任务调度执行
+
+- **Dashboard V2 事件流架构（Epic 34）**:
+  - 四层信息层级：进程树 + 事件流 + 全局状态栏 + 告警条，取代原等权 8 面板布局
+  - 进程树视觉增强：状态徽章、上下文用量指标、保留已退出进程层级、公共前缀折叠、高亮最活跃进程
+  - 告警条与统一 Timeline：所有事件类型（推理步骤、compact、预算、spawn、exit、心跳超时）合并为单一时间轴，告警条高亮错误与异常
+  - Detail Card 集成：取代 Focus Card，集成进程详情、上下文和资源信息，进程树自适应宽度
+  - Debug 模式：`d` 键进入，strace 事件与推理步骤交织展示；上下文 Profile 卡（Active/Warm/Cold/Leaked）；设备延迟卡（各 VFS 设备平均延迟）
+  - 编排关系可视化：Compose DAG 依赖边注解（`◄╌deps`）、Pipeline 阶段标记（`│►[i/n]`），流经进程模型、Wire 协议和磁盘持久化全链路
+
+### Changed
+
+- **VFS 设备提示词**：按架构决策 33（CC Baseline 原则）重写全部 6 个设备提示文件（`read_file`、`write_file`、`edit_file`、`glob`、`grep`、`shell`），恢复 CC 原版行为指引
+- **AgentShell 代码拆分**：`shell/script.go`（2152 行）拆分为 5 个职责独立文件，零 API 变更
+- **Dashboard 渲染框架**：引入 `renderFixedPanel` 统一面板尺寸，防止内容溢出
+
+### Fixed
+
+- Dashboard 历史视图翻页时界面冻结
+- Dashboard 历史视图滚动位置与 IPC 读取超时不同步
+- `treeCursor` 与历史视图选中进程不同步
+- Agent 树意图列 CJK 字符显示宽度填充错误
+- Agent 树行中意图和结果文本包含多余换行符
+- `computeCtxPercent` 在 PID 未找到时错误降级至全局平均值
+
+### Removed
+
+- 历史视图（History View）功能：统一由扩展树视图（Expanded Tree）承接，`L` 键从扩展树视图进入 LLM Viewer
+
 ## [0.7.1] - 2026-03-28
 
 ### Fixed
@@ -120,6 +179,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **IPC Protocol**: NDJSON over Unix socket request/response protocol
 - **VFS Devices**: `/dev/llm/claude`, `/dev/fs`, `/dev/shell` device implementations
 
+[0.7.2]: https://github.com/rnixai/rnix/compare/v0.7.1...v0.7.2
+[0.7.1]: https://github.com/rnixai/rnix/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/rnixai/rnix/compare/v0.6.8...v0.7.0
 [0.6.8]: https://github.com/rnixai/rnix/compare/v0.6.6...v0.6.8
 [0.6.6]: https://github.com/rnixai/rnix/compare/v0.1.0...v0.6.6
