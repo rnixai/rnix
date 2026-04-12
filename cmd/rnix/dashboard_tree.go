@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -15,6 +16,7 @@ import (
 
 func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	isActive := m.activePane == paneTree
+	isExpanded := m.viewMode == viewExpanded && m.expandedPane == paneTree
 
 	borderColor := lipgloss.Color(ui.ColorMuted)
 	if isActive {
@@ -24,32 +26,71 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
+	// Determine which rows and cursor position to use
+	displayRows := m.treeRows
+	displayCursor := m.treeCursor
+	displayOffset := m.treeOffset
+	if isExpanded && m.treeSearchQuery != "" {
+		displayRows = m.filteredExpandedRows()
+		displayCursor = m.treeSearchCursor
+		displayOffset = m.treeSearchOffset
+	}
+
 	var b strings.Builder
 	sortLabel := treeSortLabels[m.treeSortMode]
 	dirArrow := "↓"
 	if m.treeSortAsc {
 		dirArrow = "↑"
 	}
-	if len(m.treeRows) > 0 {
-		pos := min(m.treeCursor+1, len(m.treeRows))
-		fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d\n", sortLabel, dirArrow, pos, len(m.treeRows))
+
+	// Title line — show search state when in expanded mode
+	if isExpanded {
+		pos := min(displayCursor+1, len(displayRows))
+		total := len(displayRows)
+		if total == 0 {
+			pos = 0
+		}
+		if m.treeSearchMode {
+			fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d | Search: %s_\n",
+				sortLabel, dirArrow, pos, total, m.treeSearchQuery)
+		} else if m.treeSearchQuery != "" {
+			fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d | Filter: %q  (Esc to clear)\n",
+				sortLabel, dirArrow, pos, total, m.treeSearchQuery)
+		} else {
+			if len(m.treeRows) > 0 {
+				fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d | / to search\n",
+					sortLabel, dirArrow, min(m.treeCursor+1, len(m.treeRows)), len(m.treeRows))
+			} else {
+				fmt.Fprintf(&b, " Agent Tree [%s %s] | / to search\n", sortLabel, dirArrow)
+			}
+		}
 	} else {
-		fmt.Fprintf(&b, " Agent Tree [%s %s]\n", sortLabel, dirArrow)
+		if len(m.treeRows) > 0 {
+			pos := min(m.treeCursor+1, len(m.treeRows))
+			fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d\n", sortLabel, dirArrow, pos, len(m.treeRows))
+		} else {
+			fmt.Fprintf(&b, " Agent Tree [%s %s]\n", sortLabel, dirArrow)
+		}
 	}
 
 	now := time.Now()
 	reused := reusedPIDs(m.processes)
-	visibleLines := max(innerH-1, 1)
+	// Stats bar occupies 2 lines (blank line + content) when expanded
+	statsLines := 0
+	if isExpanded {
+		statsLines = 2
+	}
+	visibleLines := max(innerH-1-statsLines, 1)
 	showCtxBar := innerW >= 30
 
 	// Build collapsed intent map for common prefix folding (AC4)
 	collapsedIntents := m.buildCollapsedIntents()
 
 	linesRendered := 0
-	for i := m.treeOffset; i < len(m.treeRows) && linesRendered < visibleLines; i++ {
-		row := m.treeRows[i]
+	for i := displayOffset; i < len(displayRows) && linesRendered < visibleLines; i++ {
+		row := displayRows[i]
 		cursor := "  "
-		if i == m.treeCursor {
+		if i == displayCursor {
 			cursor = "▸ "
 		}
 
@@ -93,18 +134,35 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		var elapsed string
 
 		if isDead {
-			// Dead processes: compact exit marker (result detail in Detail Card)
-			if ui.IsFailedResult(row.proc.Result) {
-				if ui.IsASCIIMode() {
-					tokens = ui.ErrorStyle.Render("x")
+			if isExpanded {
+				// Expanded mode: show reason text alongside the exit marker
+				resultText := row.proc.Result
+				if resultText == "" {
+					resultText = "—"
+				}
+				runes := []rune(resultText)
+				if len(runes) > 22 {
+					resultText = string(runes[:21]) + "…"
+				}
+				if ui.IsFailedResult(row.proc.Result) {
+					tokens = ui.ErrorStyle.Render("✗ " + resultText)
 				} else {
-					tokens = ui.ErrorStyle.Render("✗")
+					tokens = "✓ " + resultText
 				}
 			} else {
-				if ui.IsASCIIMode() {
-					tokens = "ok"
+				// Compact exit marker (result detail in Detail Card)
+				if ui.IsFailedResult(row.proc.Result) {
+					if ui.IsASCIIMode() {
+						tokens = ui.ErrorStyle.Render("x")
+					} else {
+						tokens = ui.ErrorStyle.Render("✗")
+					}
 				} else {
-					tokens = "✓"
+					if ui.IsASCIIMode() {
+						tokens = "ok"
+					} else {
+						tokens = "✓"
+					}
 				}
 			}
 			if !row.proc.DeadAt.IsZero() {
@@ -166,8 +224,10 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			}
 		}
 
-		line := fmt.Sprintf("%s%s%s%-*s %s",
-			cursor, collapsePrefix, row.prefix, intentW, intentTrunc, suffixStr)
+		// Use display-width padding to avoid CJK double-width chars causing line wraps.
+		intentPad := max(intentW-runewidth.StringWidth(intentTrunc), 0)
+		line := fmt.Sprintf("%s%s%s%s%s %s",
+			cursor, collapsePrefix, row.prefix, intentTrunc, strings.Repeat(" ", intentPad), suffixStr)
 		if isStale {
 			line = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("196")).
@@ -194,7 +254,35 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		}
 	}
 
+	// Stats bar — only in expanded mode
+	if isExpanded {
+		allProcs := make([]vfs.ProcInfo, len(m.treeRows))
+		for i, r := range m.treeRows {
+			allProcs[i] = r.proc
+		}
+		b.WriteString(m.renderHistoryStats(allProcs))
+		b.WriteString("\n")
+	}
+
 	return renderFixedPanel(b.String(), width, height, borderColor)
+}
+
+// filteredExpandedRows returns tree rows whose agent label or intent text
+// contains the current treeSearchQuery (case-insensitive).
+func (m dashboardModel) filteredExpandedRows() []flatRow {
+	if m.treeSearchQuery == "" {
+		return m.treeRows
+	}
+	q := strings.ToLower(m.treeSearchQuery)
+	result := make([]flatRow, 0, len(m.treeRows))
+	for _, row := range m.treeRows {
+		label := strings.ToLower(agentLabel(row.proc))
+		intent := strings.ToLower(row.proc.Intent)
+		if strings.Contains(label, q) || strings.Contains(intent, q) {
+			result = append(result, row)
+		}
+	}
+	return result
 }
 
 // suspendReasonAbbrev maps a SuspendReason string to a short tag for the tree pane (Story 30.8 AC#6).
