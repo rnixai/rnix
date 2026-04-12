@@ -50,7 +50,7 @@ release:
 	@echo "==> Validating version format..."
 	@echo "$(VERSION)" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || (echo "ERROR: VERSION must be semver (e.g. 0.2.0)"; exit 1)
 	@echo "==> Checking working tree is clean..."
-	@test -z "$$(git status --porcelain)" || (echo "ERROR: working tree is not clean"; exit 1)
+	@test -z "$$(git status --porcelain --ignore-submodules=dirty)" || (echo "ERROR: working tree is not clean"; exit 1)
 	@echo "==> Running tests..."
 	$(MAKE) lint vet modernize-check test
 	@echo "==> Creating tag v$(VERSION)..."
