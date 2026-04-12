@@ -499,13 +499,11 @@ func TestViewModeSystem_StubKeysExist(t *testing.T) {
 	}
 	content := string(data)
 
-	// L 和 H 键应在导航文件中有处理（即使只是 stub）
+	// L 键应在导航文件中有处理（即使只是 stub）
 	if !strings.Contains(content, `"L"`) && !strings.Contains(content, `case "L"`) {
 		t.Error("expected dashboard_nav.go to handle 'L' key (LLM viewer stub)")
 	}
-	if !strings.Contains(content, `"H"`) && !strings.Contains(content, `case "H"`) {
-		t.Error("expected dashboard_nav.go to handle 'H' key (history viewer stub)")
-	}
+	// H key has been removed — z expand replaces it
 }
 
 // ---------------------------------------------------------------------------

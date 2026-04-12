@@ -128,22 +128,22 @@ func TestHistoryView_DashboardModelHistoryFields(t *testing.T) {
 // 29.5-UNIT-005: H 键设置 viewMode=viewExpanded, expandedPane=paneTree
 // ---------------------------------------------------------------------------
 
+// 29.5-UNIT-005: H key no longer exists in dashboard_nav.go (z expand is used instead)
 func TestHistoryView_EnterHistoryViewSetsViewMode(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
 	if err != nil {
 		t.Fatalf("failed to read dashboard_nav.go: %v", err)
 	}
 	content := string(data)
-	hIdx := strings.Index(content, "case \"H\":")
-	if hIdx == -1 {
-		t.Fatal("H key case not found in dashboard_nav.go")
+	if strings.Contains(content, "case \"H\":") {
+		t.Error("H key case should have been removed from dashboard_nav.go (z expand replaces it)")
 	}
-	block := content[hIdx : hIdx+400]
-	if !strings.Contains(block, "viewExpanded") {
-		t.Error("H key handler should set viewMode to viewExpanded")
+	// z key expands the tree pane
+	if !strings.Contains(content, "viewExpanded") {
+		t.Error("viewExpanded should still exist in dashboard_nav.go for z key")
 	}
-	if !strings.Contains(block, "paneTree") {
-		t.Error("H key handler should set expandedPane to paneTree")
+	if !strings.Contains(content, "paneTree") {
+		t.Error("paneTree should still exist in dashboard_nav.go for z key")
 	}
 }
 
@@ -165,6 +165,7 @@ func TestHistoryView_FetchAllProcsCmdCallsListAllProcs(t *testing.T) {
 // 29.5-UNIT-007: H 键不再调用 enterHistoryView
 // ---------------------------------------------------------------------------
 
+// 29.5-UNIT-007: H key removed; z expand is used instead
 func TestHistoryView_HKeyCallsEnterHistoryView(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
 	if err != nil {
@@ -174,12 +175,8 @@ func TestHistoryView_HKeyCallsEnterHistoryView(t *testing.T) {
 	if strings.Contains(content, "enterHistoryView") {
 		t.Error("dashboard_nav.go should NOT call enterHistoryView (history view removed)")
 	}
-	hIdx := strings.Index(content, "case \"H\":")
-	if hIdx == -1 {
-		t.Fatal("H key case not found in dashboard_nav.go")
-	}
-	if !strings.Contains(content[hIdx:hIdx+400], "paneTree") {
-		t.Error("H key should set expandedPane to paneTree")
+	if strings.Contains(content, "case \"H\":") {
+		t.Error("H key case should have been removed from dashboard_nav.go (z expand replaces it)")
 	}
 }
 
@@ -576,18 +573,19 @@ func TestHistoryView_HistoryKeyFuncSignature(t *testing.T) {
 // 29.5-UNIT-029: H 键处理中清空 treeSearchQuery
 // ---------------------------------------------------------------------------
 
+// 29.5-UNIT-029: H key has been removed; z expand pane replaces it
 func TestHistoryView_EnterHistoryViewSignature(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
 	if err != nil {
 		t.Fatalf("failed to read dashboard_nav.go: %v", err)
 	}
 	content := string(data)
-	hIdx := strings.Index(content, "case \"H\":")
-	if hIdx == -1 {
-		t.Fatal("H key case not found in dashboard_nav.go")
+	if strings.Contains(content, "case \"H\":") {
+		t.Error("H key case should have been removed from dashboard_nav.go")
 	}
-	if !strings.Contains(content[hIdx:hIdx+400], "treeSearchQuery") {
-		t.Error("H key handler should reset treeSearchQuery to empty string")
+	// z key expands tree and should clear search state
+	if !strings.Contains(content, "treeSearchQuery") {
+		t.Error("z expand handler should reset treeSearchQuery")
 	}
 }
 

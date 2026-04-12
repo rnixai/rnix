@@ -75,7 +75,6 @@ func (m dashboardModel) renderHelpOverlay() string {
 	right.WriteString(groupTitle.Render("Global") + "\n")
 	right.WriteString(entry("d", "Debug mode") + "\n")
 	right.WriteString(entry("L", "LLM conversation") + "\n")
-	right.WriteString(entry("H", "History view") + "\n")
 	right.WriteString(entry("?", "This help") + "\n")
 	right.WriteString(entry("q", "Quit") + "\n")
 	right.WriteString("\n")

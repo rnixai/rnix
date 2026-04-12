@@ -71,11 +71,6 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// === Layer 2: History 覆盖层 (Story 29-5) ===
-	if m.viewMode == viewHistory {
-		return m.historyKey(msg)
-	}
-
 	// === Layer 2.5: LLM Viewer 覆盖层 (Story 29-6) ===
 	if m.viewMode == viewLLM {
 		return m.llmViewerKey(msg)
@@ -176,8 +171,6 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "L", "shift+L":
 		return m.enterLLMViewer()
-	case "H":
-		return m.enterHistoryView()
 	case "R", "shift+R":
 		// Resume suspended process (Story 30.8 AC#4)
 		if m.selectedPID > 0 && m.selectedUUID != "" && m.connected {
@@ -193,7 +186,17 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.activePane == paneTrace && m.traceViewMode != 0 {
 				return m.handleTraceKey(key)
 			}
+			// If tree search is active, esc clears search first
+			if m.expandedPane == paneTree && (m.treeSearchMode || m.treeSearchQuery != "") {
+				m.treeSearchMode = false
+				m.treeSearchQuery = ""
+				m.treeSearchCursor = 0
+				m.treeSearchOffset = 0
+				return m, nil
+			}
 			// z 还原：显示 Tree
+			m.treeSearchQuery = ""
+			m.treeSearchMode = false
 			m.viewMode = viewDefault
 			return m, nil
 		}
@@ -251,7 +254,16 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case viewDefault:
 			m.viewMode = viewExpanded
 			m.expandedPane = m.activePane
+			// Reset search state when entering expanded tree
+			if m.activePane == paneTree {
+				m.treeSearchQuery = ""
+				m.treeSearchMode = false
+				m.treeSearchCursor = 0
+				m.treeSearchOffset = 0
+			}
 		case viewExpanded:
+			m.treeSearchQuery = ""
+			m.treeSearchMode = false
 			m.viewMode = viewDefault
 		}
 		return m, nil
@@ -423,6 +435,12 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 
 	// Tree 面板
 	if m.activePane == paneTree {
+		// In expanded mode, route to search-aware handler first
+		if m.viewMode == viewExpanded && m.expandedPane == paneTree {
+			if result, cmd, handled := m.handleExpandedTreeKey(key); handled {
+				return result, cmd
+			}
+		}
 		prevPID := m.selectedPID
 		visibleLines := m.dashboardVisibleLines()
 		switch key {
@@ -702,4 +720,112 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	}
 
 	return m, nil
+}
+
+// handleExpandedTreeKey handles keys specific to the expanded Agent Tree view
+// (search mode, filtered navigation). Returns (model, cmd, handled).
+// When handled=false the caller should fall through to the normal tree handler.
+func (m dashboardModel) handleExpandedTreeKey(key string) (dashboardModel, tea.Cmd, bool) {
+	// --- Search input mode ---
+	if m.treeSearchMode {
+		switch key {
+		case "esc":
+			m.treeSearchMode = false
+			m.treeSearchQuery = ""
+			m.treeSearchCursor = 0
+			m.treeSearchOffset = 0
+			return m, nil, true
+		case "enter":
+			m.treeSearchMode = false
+			return m, nil, true
+		case "backspace":
+			runes := []rune(m.treeSearchQuery)
+			if len(runes) > 0 {
+				m.treeSearchQuery = string(runes[:len(runes)-1])
+				m.treeSearchCursor = 0
+				m.treeSearchOffset = 0
+			}
+			return m, nil, true
+		default:
+			if len([]rune(key)) == 1 {
+				m.treeSearchQuery += key
+				m.treeSearchCursor = 0
+				m.treeSearchOffset = 0
+			}
+			return m, nil, true
+		}
+	}
+
+	// '/' enters search input mode
+	if key == "/" {
+		m.treeSearchMode = true
+		m.treeSearchCursor = 0
+		m.treeSearchOffset = 0
+		return m, nil, true
+	}
+
+	// Without an active query, fall through to the normal tree handler
+	if m.treeSearchQuery == "" {
+		return m, nil, false
+	}
+
+	// --- Navigate within filtered results ---
+	filtered := m.filteredExpandedRows()
+	visibleLines := m.dashboardVisibleLines()
+	prevPID := m.selectedPID
+
+	navigate := func(newCursor int) {
+		if len(filtered) == 0 {
+			return
+		}
+		m.treeSearchCursor = max(0, min(newCursor, len(filtered)-1))
+		// Scroll to keep cursor visible
+		if m.treeSearchCursor < m.treeSearchOffset {
+			m.treeSearchOffset = m.treeSearchCursor
+		}
+		if visibleLines > 0 && m.treeSearchCursor >= m.treeSearchOffset+visibleLines {
+			m.treeSearchOffset = m.treeSearchCursor - visibleLines + 1
+		}
+		// Sync treeCursor to the same process in treeRows
+		row := filtered[m.treeSearchCursor]
+		for i, r := range m.treeRows {
+			if (row.proc.UUID != "" && r.proc.UUID == row.proc.UUID) ||
+				(row.proc.UUID == "" && r.proc.PID == row.proc.PID) {
+				m.treeCursor = i
+				break
+			}
+		}
+		m = selectProcess(m, row)
+		m.userManualSelect = true
+	}
+
+	switch key {
+	case "up", "k":
+		navigate(m.treeSearchCursor - 1)
+	case "down", "j":
+		navigate(m.treeSearchCursor + 1)
+	case "pgdown":
+		navigate(m.treeSearchCursor + max(visibleLines-1, 1))
+	case "pgup":
+		navigate(m.treeSearchCursor - max(visibleLines-1, 1))
+	case "home", "g":
+		navigate(0)
+	case "end", "G", "shift+G":
+		navigate(len(filtered) - 1)
+	case "enter", " ":
+		navigate(m.treeSearchCursor)
+		if m.selectedPID != prevPID {
+			m2, cmd := m.handlePIDChange()
+			return m2, cmd, true
+		}
+		return m, nil, true
+	default:
+		return m, nil, false
+	}
+
+	if m.selectedPID != prevPID {
+		m2, cmd := m.handlePIDChange()
+		return m2, cmd, true
+	}
+	return m, nil, true
 }

@@ -63,14 +63,6 @@ func (m dashboardModel) renderDashboardStatus() string {
 	switch m.viewMode {
 	case viewExpanded:
 		core, exit = m.paneHints()
-	case viewHistory:
-		if m.historySearchMode {
-			core = []string{hint("Type ", "search"), hint("Enter ", "ok")}
-			exit = hint("Esc ", "cancel")
-		} else {
-			core = []string{hint("j/k", "nav"), hint("PgDn/Up", "page"), hint("Enter", "focus"), hint("L", "llm"), hint("/", "search"), hint("?", "help")}
-			exit = hint("Esc", "back")
-		}
 	case viewLLM:
 		core = []string{hint("j/k", "scroll"), hint("h/l", "step"), hint("y", "copy"), hint("?", "help")}
 		exit = hint("Esc", "close")
@@ -78,13 +70,13 @@ func (m dashboardModel) renderDashboardStatus() string {
 		core = []string{hint("j/k", "nav"), hint("s", "strace"), hint("v", "detail"), hint("f", "filter"), hint("?", "help")}
 		exit = hint("d/Esc", "monitor")
 	default: // viewDefault
-		core = []string{hint("j/k", "nav"), hint("s/S", "sort"), hint("z", "expand"), hint("f", "filter"), hint("H", "hist"), hint("?", "help")}
+		core = []string{hint("j/k", "nav"), hint("s/S", "sort"), hint("z", "expand"), hint("f", "filter"), hint("?", "help")}
 	}
 
 	hints := hintGroup(core...) + "    " + exit
 
 	// Dead process filter indicator
-	if m.viewMode != viewHistory && m.isSelectedProcessDead() && m.selectedPID > 0 {
+	if m.isSelectedProcessDead() && m.selectedPID > 0 {
 		hints += hintDescStyle.Render(fmt.Sprintf("  (PID %d)", m.selectedPID))
 	}
 

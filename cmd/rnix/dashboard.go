@@ -45,6 +45,12 @@ type dashboardModel struct {
 	treeOffset   int
 	treeSortMode int  // 0=Time, 1=PID, 2=State
 	treeSortAsc  bool // false=descending (default), true=ascending
+
+	// Expanded-tree search (only active in viewExpanded + paneTree)
+	treeSearchQuery  string
+	treeSearchMode   bool
+	treeSearchCursor int
+	treeSearchOffset int
 	connected    bool
 	err          error
 	statusMsg    string
@@ -162,13 +168,7 @@ type dashboardModel struct {
 	llmViewerContent  string
 	llmViewerPrevMode viewMode
 
-	// History view fields (Story 29-5)
-	historyProcs        []vfs.ProcInfo
-	historyCursor       int
-	historyScrollOffset int
-	historySortMode     int // 0=time, 1=name, 2=pid
-	historySearchQuery  string
-	historySearchMode   bool
+	// History view fields have been removed — H key now expands Agent Tree directly.
 
 	// Help overlay
 	helpOverlay bool
@@ -515,15 +515,6 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.llmViewerSteps = msg.steps
 			m.llmViewerStepMax = msg.steps[len(msg.steps)-1].Step
 		}
-		return m, nil
-	case historyProcsMsg:
-		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("✗ history: %v", msg.err)
-			m.statusMsgTTL = statusMsgDefaultTTL
-			return m, nil
-		}
-		m.historyProcs = msg.procs
-		m.sortHistoryProcs()
 		return m, nil
 	default:
 		// Story 34.6: Debug mode messages
@@ -873,9 +864,13 @@ func (m dashboardModel) dashboardVisibleLines() int {
 	if m.viewMode == viewDefault {
 		detailOffset = 3 // detail card: 1 separator + 2 content lines
 	}
+	// In expanded tree mode subtract the 2-line stats bar rendered at the bottom of the pane.
+	statsOffset := 0
+	if m.viewMode == viewExpanded && m.expandedPane == paneTree {
+		statsOffset = 2
+	}
 	// titleBar(2) + statusBar(1) + panelBorder(2) + headerLine(1) = 6
-	v := max(m.height-6-detailOffset, 1)
-	return v
+	return max(m.height-6-detailOffset-statsOffset, 1)
 }
 
 func (m dashboardModel) View() tea.View {
@@ -927,8 +922,6 @@ func (m dashboardModel) renderDashboard() string {
 	switch m.viewMode {
 	case viewExpanded:
 		mainContent = m.renderExpandedLayout(w, contentHeight)
-	case viewHistory:
-		mainContent = m.renderHistoryView(w, contentHeight)
 	case viewLLM:
 		mainContent = m.renderLLMViewer(w, contentHeight)
 	case viewDebug:
