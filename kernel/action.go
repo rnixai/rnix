@@ -16,7 +16,7 @@ var _ = planProtocol //nolint:unused
 
 const toolProtocol = `
 
-[Action Protocol]
+# Action Protocol
 Respond with a JSON object to perform an action, or plain text for your final answer.
 
 Tool call — execute a VFS device:
@@ -47,7 +47,7 @@ Replan — revise your approach:
 Specialize — dynamically load a skill:
 {"action": "specialize", "tool": "<skill-name>", "data": {}}
 
-[Skills vs Tools]
+## Skills vs Tools
 Skills are instruction sets, NOT callable VFS devices. They teach you new capabilities.
 - To load a skill: use the specialize action above.
 - Once loaded, the skill's instructions appear in your conversation. Follow them using available VFS devices.

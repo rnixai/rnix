@@ -3,7 +3,11 @@ package kernel
 import (
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
 	skillpkg "github.com/rnixai/rnix/skills"
@@ -101,17 +105,51 @@ Best practices:
 		return buildMCPInstructionsSection(proc.mcpConfigs)
 	}, true)
 
-	// env_info: GDB environment variables
+	// env_info: working directory, git status, platform, model, date (CC-aligned)
 	reg.Register("env_info", func() string {
-		envVars := proc.GetGdbEnvVars()
-		if len(envVars) == 0 {
-			return ""
+		var items []string
+
+		workDir := ""
+		if proc.ProjectConfig != nil {
+			workDir = proc.ProjectConfig.ProjectDir
 		}
+		if workDir != "" {
+			items = append(items, "Working directory: "+workDir)
+			if _, err := os.Stat(filepath.Join(workDir, ".git")); err == nil {
+				items = append(items, "Is a git repository: Yes")
+			} else {
+				items = append(items, "Is a git repository: No")
+			}
+		}
+
+		items = append(items, "Platform: "+runtime.GOOS+"/"+runtime.GOARCH)
+
+		if proc.Model != "" {
+			modelDesc := proc.Model
+			if proc.Provider != "" {
+				modelDesc = proc.Provider + "/" + proc.Model
+			}
+			items = append(items, "Model: "+modelDesc)
+		}
+
+		items = append(items, "Date: "+time.Now().Format("2006-01-02"))
+
 		var b strings.Builder
-		b.WriteString("[GDB Environment Variables]\n")
-		for envKey, envVal := range envVars {
-			fmt.Fprintf(&b, "%s=%s\n", envKey, envVal)
+		b.WriteString("# Environment\n\nYou have been invoked in the following environment:\n")
+		for _, item := range items {
+			b.WriteString(" - ")
+			b.WriteString(item)
+			b.WriteString("\n")
 		}
+
+		// GDB environment variables (debug mode only)
+		if envVars := proc.GetGdbEnvVars(); len(envVars) > 0 {
+			b.WriteString("\n## Debug Environment Variables\n")
+			for k, v := range envVars {
+				fmt.Fprintf(&b, "%s=%s\n", k, v)
+			}
+		}
+
 		return b.String()
 	}, false)
 
@@ -127,14 +165,14 @@ Best practices:
 			return ""
 		}
 		var b strings.Builder
-		b.WriteString("[Loaded Skills]\nCurrently loaded: ")
+		b.WriteString("# Loaded Skills\nCurrently loaded: ")
 		b.WriteString(strings.Join(skills, ", "))
 		b.WriteString("\n")
 		for _, name := range skills {
 			if body, ok := bodies[name]; ok && body != "" {
-				b.WriteString("\n--- Skill: ")
+				b.WriteString("\n## ")
 				b.WriteString(name)
-				b.WriteString(" ---\n")
+				b.WriteString("\n")
 				b.WriteString(body)
 				b.WriteString("\n")
 			}
@@ -149,7 +187,7 @@ Best practices:
 			}
 			synergyInstructions := skillpkg.DetectSynergies(skillInfos)
 			if len(synergyInstructions) > 0 {
-				b.WriteString("\n[Skill Synergy]\n\n")
+				b.WriteString("\n## Skill Synergies\n\n")
 				b.WriteString(strings.Join(synergyInstructions, "\n"))
 			}
 		}

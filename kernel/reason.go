@@ -329,7 +329,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			copy(loadedSkills, proc.Skills)
 			proc.mu.Unlock()
 			if len(loadedSkills) > 0 {
-				sysPrompt += "\n\n[Loaded Skills]\nThe following skills are loaded: " +
+				sysPrompt += "\n\n# Loaded Skills\nThe following skills are loaded: " +
 					strings.Join(loadedSkills, ", ") +
 					".\nTheir instructions are already in your system prompt. Follow them using available VFS devices." +
 					"\nDo NOT try to call these skills via /dev/mcp/ or any device path."

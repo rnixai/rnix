@@ -205,7 +205,7 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 func generateToolProtocol(toolDefs []vfs.ToolDef, toolMap map[string]toolMapping, metaDefs []vfs.ToolDef, metaMap map[string]toolMapping, planningEnabled bool) string {
 	var sb strings.Builder
 
-	sb.WriteString("[Action Protocol]\n")
+	sb.WriteString("# Action Protocol\n")
 	sb.WriteString("Respond with a JSON object to perform an action, or plain text for your final answer.\n\n")
 
 	// VFS tool calls
@@ -268,9 +268,9 @@ func generateToolProtocol(toolDefs []vfs.ToolDef, toolMap map[string]toolMapping
 		if !ok {
 			continue
 		}
-		sb.WriteString("\n--- ")
+		sb.WriteString("\n## ")
 		sb.WriteString(def.Name)
-		sb.WriteString(" ---\n")
+		sb.WriteString("\n")
 		sb.WriteString("Usage: tool=\"")
 		sb.WriteString(m.VFSPath)
 		sb.WriteString("\", data=")
@@ -285,7 +285,7 @@ func generateToolProtocol(toolDefs []vfs.ToolDef, toolMap map[string]toolMapping
 	sb.WriteString("\n")
 
 	// Meta actions
-	sb.WriteString("[Meta Actions]\n\n")
+	sb.WriteString("## Meta Actions\n\n")
 	for _, def := range metaDefs {
 		m, ok := metaMap[def.Name]
 		if !ok {
@@ -323,7 +323,7 @@ func generateToolProtocol(toolDefs []vfs.ToolDef, toolMap map[string]toolMapping
 		}
 	}
 
-	sb.WriteString("[Skills vs Tools]\n")
+	sb.WriteString("## Skills vs Tools\n")
 	sb.WriteString("Skills are instruction sets, NOT callable VFS devices. They teach you new capabilities.\n")
 	sb.WriteString("- To load a skill: use the specialize action above.\n")
 	sb.WriteString("- Once loaded, the skill's instructions appear in your system prompt. Follow them using available VFS devices.\n")
@@ -359,7 +359,7 @@ func mcpToolProtocolSnippet(mcpDevices []string) string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("\n\n[MCP Tools (text protocol)]\n")
+	sb.WriteString("\n\n# MCP Tools (text protocol)\n")
 	sb.WriteString("The following MCP tools are available via text protocol:\n")
 	for _, dev := range mcpDevices {
 		fmt.Fprintf(&sb, "  - MCP tool: tool=\"%s\", data={...tool-specific-params...}\n", dev)

@@ -10,7 +10,7 @@ IMPORTANT: Avoid using /dev/shell to run grep, find, cat, head, tail, sed, awk, 
 - Write files: Use write_file (NOT echo >/cat <<EOF via /dev/shell)
 - Communication: Output text directly (NOT echo/printf via /dev/shell)
 
-# Instructions
+## Instructions
 - If your command will create new directories or files, first use this device to run `ls` to verify the parent directory exists and is the correct location.
 - Always quote file paths that contain spaces with double quotes in your command (e.g., cd "path with spaces/file.txt").
 - Try to maintain your current working directory throughout the process by using relative paths from the process working directory and avoiding usage of `cd`. You may use `cd` if the user explicitly requests it.
@@ -33,5 +33,5 @@ IMPORTANT: Avoid using /dev/shell to run grep, find, cat, head, tail, sed, awk, 
   - Do not sleep between commands that can run immediately — just run them.
   - Do not retry failing commands in a sleep loop — diagnose the root cause.
 
-# Dangerous command protection
+## Dangerous command protection
 The system blocks obviously dangerous commands (rm -rf /, mkfs, dd of=/dev/, etc.). If a command is blocked, you will receive an error explaining why.
