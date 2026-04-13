@@ -169,6 +169,7 @@ type ProcInfoWire struct {
 	PID             types.PID          `json:"pid"`
 	UUID            string             `json:"uuid,omitempty"`
 	PPID            types.PID          `json:"ppid"`
+	ParentUUID      string             `json:"parent_uuid,omitempty"`
 	State           types.ProcessState `json:"state"`
 	Intent          string             `json:"intent"`
 	Skills          []string           `json:"skills"`
@@ -203,6 +204,7 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		PID:           p.PID,
 		UUID:          p.UUID,
 		PPID:          p.PPID,
+		ParentUUID:    p.ParentUUID,
 		State:         p.State,
 		Intent:        p.Intent,
 		Skills:        skills,
@@ -239,6 +241,7 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		PID:           w.PID,
 		UUID:          w.UUID,
 		PPID:          w.PPID,
+		ParentUUID:    w.ParentUUID,
 		State:         w.State,
 		Intent:        w.Intent,
 		Skills:        w.Skills,
