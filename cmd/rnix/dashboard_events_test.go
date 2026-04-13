@@ -458,10 +458,10 @@ func TestMergeUnifiedEvents_MergesAndSorts(t *testing.T) {
 		{summary: ipc.StepSummaryWire{Step: 2, Action: "complete", Summary: "done"}},
 	}
 	sysEvts := []UnifiedEvent{
-		{Type: EventSpawn, PID: 5, Timestamp: now.Add(-10 * time.Second), Summary: "spawn"},
+		{Type: EventSpawn, PID: 1, UUID: "uuid-1", Timestamp: now.Add(-10 * time.Second), Summary: "spawn"},
 	}
 
-	merged := mergeUnifiedEvents(steps, sysEvts, 1)
+	merged := mergeUnifiedEvents(steps, sysEvts, 1, "uuid-1")
 	if len(merged) != 3 {
 		t.Fatalf("expected 3 merged events, got %d", len(merged))
 	}
@@ -470,6 +470,77 @@ func TestMergeUnifiedEvents_MergesAndSorts(t *testing.T) {
 		if merged[i].Timestamp.Before(merged[i+1].Timestamp) {
 			t.Errorf("event %d timestamp before event %d — expected descending", i, i+1)
 		}
+	}
+}
+
+func TestMergeUnifiedEvents_FiltersBySelectedPID(t *testing.T) {
+	now := time.Now()
+	steps := []stepEntry{
+		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+	}
+	sysEvts := []UnifiedEvent{
+		{Type: EventSpawn, PID: 1, UUID: "uuid-1", Timestamp: now.Add(-10 * time.Second), Summary: "spawn pid 1"},
+		{Type: EventSpawn, PID: 5, UUID: "uuid-5", Timestamp: now.Add(-5 * time.Second), Summary: "spawn pid 5"},
+		{Type: EventExit, PID: 1, UUID: "uuid-1", Timestamp: now.Add(-1 * time.Second), Summary: "exit pid 1"},
+	}
+
+	merged := mergeUnifiedEvents(steps, sysEvts, 1, "uuid-1")
+	// Should include 1 step + 2 sys events for UUID uuid-1, excluding UUID uuid-5
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 merged events (1 step + 2 sys for UUID uuid-1), got %d", len(merged))
+	}
+	for _, ev := range merged {
+		if ev.UUID != "uuid-1" {
+			t.Errorf("expected all events to have UUID uuid-1, got UUID %q: %s", ev.UUID, ev.Summary)
+		}
+	}
+}
+
+func TestMergeUnifiedEvents_FiltersByUUID_SamePID(t *testing.T) {
+	now := time.Now()
+	// Two processes with same PID but different UUIDs (PID reuse)
+	sysEvts := []UnifiedEvent{
+		{Type: EventSpawn, PID: 2, UUID: "uuid-old", Timestamp: now.Add(-20 * time.Second), Summary: "spawn old"},
+		{Type: EventExit, PID: 2, UUID: "uuid-old", Timestamp: now.Add(-15 * time.Second), Summary: "exit old"},
+		{Type: EventSpawn, PID: 2, UUID: "uuid-new", Timestamp: now.Add(-5 * time.Second), Summary: "spawn new"},
+	}
+
+	merged := mergeUnifiedEvents(nil, sysEvts, 2, "uuid-new")
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 event for uuid-new, got %d", len(merged))
+	}
+	if merged[0].UUID != "uuid-new" {
+		t.Errorf("expected UUID uuid-new, got %q", merged[0].UUID)
+	}
+}
+
+func TestMergeUnifiedEvents_NoPIDShowsAll(t *testing.T) {
+	now := time.Now()
+	sysEvts := []UnifiedEvent{
+		{Type: EventSpawn, PID: 1, UUID: "uuid-1", Timestamp: now.Add(-10 * time.Second), Summary: "spawn pid 1"},
+		{Type: EventSpawn, PID: 5, UUID: "uuid-5", Timestamp: now.Add(-5 * time.Second), Summary: "spawn pid 5"},
+	}
+
+	merged := mergeUnifiedEvents(nil, sysEvts, 0, "")
+	if len(merged) != 2 {
+		t.Fatalf("expected 2 merged events when no PID selected, got %d", len(merged))
+	}
+}
+
+func TestMergeUnifiedEvents_PIDFallbackWhenNoUUID(t *testing.T) {
+	now := time.Now()
+	// Events without UUID (backward compat with old daemons)
+	sysEvts := []UnifiedEvent{
+		{Type: EventSpawn, PID: 1, Timestamp: now.Add(-10 * time.Second), Summary: "spawn pid 1"},
+		{Type: EventSpawn, PID: 5, Timestamp: now.Add(-5 * time.Second), Summary: "spawn pid 5"},
+	}
+
+	merged := mergeUnifiedEvents(nil, sysEvts, 1, "")
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 event for PID 1 (fallback), got %d", len(merged))
+	}
+	if merged[0].PID != 1 {
+		t.Errorf("expected PID 1, got %d", merged[0].PID)
 	}
 }
 

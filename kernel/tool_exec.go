@@ -30,6 +30,11 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 			errMsg := fmt.Sprintf("Tool error (%s): arguments parse failed: %s", tc.Name, tc.ParseError)
 			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
 			k.emitLog(proc, step, types.LogTool, errMsg, tc.Name)
+			// Record the failed step so it's visible in LLM viewer and step timeline
+			k.writeDriverStepRecordFull(proc, step, tc.Name,
+				fmt.Sprintf("✗ parse_error: %s", tc.Name),
+				tc.Name, tc.ParseError, errMsg, time.Since(stepStart),
+				nil, 0)
 			*consecutiveToolErrors++
 			if *consecutiveToolErrors >= 3 {
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
@@ -43,6 +48,11 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 			errMsg := "error: unknown tool " + tc.Name
 			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
 			k.emitLog(proc, step, types.LogTool, errMsg, tc.Name)
+			// Record the failed step so it's visible in LLM viewer
+			k.writeDriverStepRecordFull(proc, step, tc.Name,
+				fmt.Sprintf("✗ unknown tool: %s", tc.Name),
+				tc.Name, "", errMsg, time.Since(stepStart),
+				nil, 0)
 			*consecutiveToolErrors++
 			if *consecutiveToolErrors >= 3 {
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
@@ -61,6 +71,12 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 				proc.HasToolError = true
 				proc.mu.Unlock()
 				k.emitLog(proc, step, types.LogTool, errMsg, mapping.VFSPath)
+				// Record the failed tool call so it appears in step timeline
+				inputJSON, _ := json.Marshal(tc.Input)
+				k.writeDriverStepRecordFull(proc, step, tc.Name,
+					fmt.Sprintf("✗ %s: %v", tc.Name, err),
+					mapping.VFSPath, string(inputJSON), errMsg, time.Since(stepStart),
+					nil, 0)
 				*consecutiveToolErrors++
 				if *consecutiveToolErrors >= 3 {
 					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})

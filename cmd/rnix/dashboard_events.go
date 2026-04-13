@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -78,6 +79,7 @@ func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo)
 				Severity:  SevInfo,
 				Timestamp: p.CreatedAt,
 				PID:       p.PID,
+				UUID:      p.UUID,
 				Summary:   fmt.Sprintf("↑ SPAWN PID %d %q", p.PID, p.Intent),
 			})
 		}
@@ -93,7 +95,9 @@ func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo)
 				Severity:  SevInfo,
 				Timestamp: time.Now(),
 				PID:       pid,
-				Summary:   fmt.Sprintf("↓ EXIT PID %d %q", pid, prevProc.Intent),
+				UUID:      prevProc.UUID,
+				Summary:   exitEventSummary(pid, prevProc.Intent, prevProc.Result),
+				Detail:    prevProc.Result,
 			})
 			continue
 		}
@@ -111,7 +115,9 @@ func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo)
 				Severity:  sev,
 				Timestamp: ts,
 				PID:       pid,
-				Summary:   fmt.Sprintf("↓ EXIT PID %d %q", pid, currProc.Intent),
+				UUID:      currProc.UUID,
+				Summary:   exitEventSummary(pid, currProc.Intent, currProc.Result),
+				Detail:    currProc.Result,
 			})
 		}
 	}
@@ -147,6 +153,7 @@ func detectBudgetEvents(processes []vfs.ProcInfo, alertSeen map[types.PID]int) [
 			Severity:  sev,
 			Timestamp: time.Now(),
 			PID:       p.PID,
+			UUID:      p.UUID,
 			Summary:   fmt.Sprintf("⚠ BUDGET PID %d %d%% threshold reached", p.PID, usagePct),
 			Detail:    fmt.Sprintf("tokens_used=%d context_budget=%d usage=%d%%", p.TokensUsed, p.ContextBudget, usagePct),
 		})
@@ -178,6 +185,7 @@ func detectStallEvents(hbStatus *ipc.HeartbeatStatusResponse, stallSeen map[type
 			Severity:  SevError,
 			Timestamp: time.Now(),
 			PID:       sp.PID,
+			UUID:      sp.UUID,
 			Summary:   fmt.Sprintf("⚠ STALL PID %d no heartbeat %ds", sp.PID, durSec),
 			Detail:    fmt.Sprintf("stalled_duration_ms=%d consecutive_stalls=%d last_action=%s", sp.StalledDurationMs, sp.ConsecutiveStalls, sp.LastAction),
 		})
@@ -193,7 +201,9 @@ func detectStallEvents(hbStatus *ipc.HeartbeatStatusResponse, stallSeen map[type
 }
 
 // mergeUnifiedEvents merges step entries and system events into a single sorted list.
-func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selectedPID types.PID) []UnifiedEvent {
+// When selectedUUID is non-empty, only system events matching that UUID are included.
+// Falls back to PID-based filtering when UUID is empty (backward compat with old daemons).
+func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selectedPID types.PID, selectedUUID string) []UnifiedEvent {
 	merged := make([]UnifiedEvent, 0, len(stepEntries)+len(sysEvents))
 
 	// Convert step entries with monotonic timestamp offsets for stable ordering
@@ -201,11 +211,25 @@ func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selec
 	for i := range stepEntries {
 		ue := stepToUnifiedEvent(&stepEntries[i], baseTime, i)
 		ue.PID = selectedPID
+		ue.UUID = selectedUUID
 		merged = append(merged, ue)
 	}
 
-	// Add system events
-	merged = append(merged, sysEvents...)
+	// Add system events filtered by selected process identity
+	for _, ev := range sysEvents {
+		if selectedUUID != "" {
+			// Prefer UUID matching (exact process instance)
+			if ev.UUID != selectedUUID {
+				continue
+			}
+		} else if selectedPID > 0 {
+			// Fallback: PID-only (old daemons without UUID)
+			if ev.PID != selectedPID {
+				continue
+			}
+		}
+		merged = append(merged, ev)
+	}
 
 	// Sort by timestamp descending (newest first)
 	sort.Slice(merged, func(i, j int) bool {
@@ -215,12 +239,61 @@ func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selec
 	return merged
 }
 
+// seedHistoricalSysEvents generates SPAWN and EXIT events for processes that were
+// already in their final state when the dashboard started. This ensures the timeline
+// shows meaningful history when opened after a multi-agent run has already completed.
+func seedHistoricalSysEvents(processes []vfs.ProcInfo) []UnifiedEvent {
+	var events []UnifiedEvent
+	for _, p := range processes {
+		// Seed SPAWN event using CreatedAt timestamp
+		spawnTs := p.CreatedAt
+		if spawnTs.IsZero() {
+			spawnTs = time.Now()
+		}
+		events = append(events, UnifiedEvent{
+			Type:      EventSpawn,
+			Severity:  SevInfo,
+			Timestamp: spawnTs,
+			PID:       p.PID,
+			UUID:      p.UUID,
+			Summary:   fmt.Sprintf("↑ SPAWN PID %d %q", p.PID, p.Intent),
+		})
+
+		// Seed EXIT event only for dead processes
+		if p.State != types.StateDead {
+			continue
+		}
+		exitTs := p.DeadAt
+		if exitTs.IsZero() {
+			exitTs = spawnTs.Add(time.Millisecond)
+		}
+		sev := SevInfo
+		if ui.IsFailedResult(p.Result) {
+			sev = SevError
+		}
+		events = append(events, UnifiedEvent{
+			Type:      EventExit,
+			Severity:  sev,
+			Timestamp: exitTs,
+			PID:       p.PID,
+			UUID:      p.UUID,
+			Summary:   exitEventSummary(p.PID, p.Intent, p.Result),
+			Detail:    p.Result,
+		})
+	}
+	// Sort by timestamp so the timeline renders in chronological order.
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Timestamp.Before(events[j].Timestamp)
+	})
+	return events
+}
+
 // sysEventDedup deduplicates system events using a seen map.
-// Key format: "Type:PID:TimestampMs"
+// Key format: "Type:PID:UUID:TimestampMs"
 func sysEventDedup(events []UnifiedEvent, seen map[string]struct{}) []UnifiedEvent {
 	var result []UnifiedEvent
 	for _, e := range events {
-		key := fmt.Sprintf("%s:%d:%d", e.Type, e.PID, e.Timestamp.UnixMilli())
+		key := fmt.Sprintf("%s:%d:%s:%d", e.Type, e.PID, e.UUID, e.Timestamp.UnixMilli())
 		if _, exists := seen[key]; exists {
 			continue
 		}
@@ -238,7 +311,7 @@ func sysEventFIFO(events []UnifiedEvent, seen map[string]struct{}) []UnifiedEven
 	// Prune dedup keys for evicted events
 	evicted := events[:len(events)-maxSysEvents]
 	for _, e := range evicted {
-		key := fmt.Sprintf("%s:%d:%d", e.Type, e.PID, e.Timestamp.UnixMilli())
+		key := fmt.Sprintf("%s:%d:%s:%d", e.Type, e.PID, e.UUID, e.Timestamp.UnixMilli())
 		delete(seen, key)
 	}
 	return events[len(events)-maxSysEvents:]
@@ -258,6 +331,18 @@ func pruneBudgetAlertSeen(alertSeen map[types.PID]int, processes []vfs.ProcInfo)
 }
 
 // --- helpers ---
+
+// exitEventSummary builds the summary line for an EXIT event.
+// For failed exits with a non-empty result, the result snippet replaces the intent
+// so the user can see why the process failed directly in the timeline.
+// For successful or result-less exits, shows the intent as before.
+func exitEventSummary(pid types.PID, intent, result string) string {
+	if result != "" && ui.IsFailedResult(result) {
+		snippet := truncateRuneSafe(result, 70)
+		return fmt.Sprintf("↓ EXIT PID %d ✗ %s", pid, snippet)
+	}
+	return fmt.Sprintf("↓ EXIT PID %d %q", pid, intent)
+}
 
 func inferExitError(p vfs.ProcInfo) bool {
 	if p.Result == "" {

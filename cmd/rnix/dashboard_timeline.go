@@ -435,7 +435,19 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	}
 
 	if total == 0 && len(m.unifiedEvents) == 0 {
-		b.WriteString("\n    Waiting for steps…")
+		if m.isSelectedProcessDead() {
+			b.WriteString("\n    No steps recorded.")
+			for _, p := range m.processes {
+				if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
+					if p.Result != "" {
+						b.WriteString("\n    Exit: " + p.Result)
+					}
+					break
+				}
+			}
+		} else {
+			b.WriteString("\n    Waiting for steps…")
+		}
 		return b.String()
 	}
 
@@ -537,7 +549,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	for fi := startIdx; fi < endIdx && linesUsed < listLines; fi++ {
 		ev := filtered[fi]
 
-		// System event: single-line rendering
+		// System event: single-line rendering (plus optional detail line when selected)
 		if ev.StepEntry == nil {
 			cursorMark := "  "
 			if fi == m.stepCursor {
@@ -555,6 +567,15 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			b.WriteString(truncateAnsi(line, truncW))
 			b.WriteString("\n")
 			linesUsed++
+			// Show full Detail on a second line when cursor is on a sys event with detail
+			if fi == m.stepCursor && ev.Detail != "" && linesUsed < listLines {
+				detailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+				detail := strings.ReplaceAll(ev.Detail, "\n", " ")
+				detailLine := "    ┊ " + detail
+				b.WriteString(truncateAnsi(detailStyle.Render(detailLine), truncW))
+				b.WriteString("\n")
+				linesUsed++
+			}
 			continue
 		}
 

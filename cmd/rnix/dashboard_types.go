@@ -41,6 +41,7 @@ type UnifiedEvent struct {
 	Severity  int
 	Timestamp time.Time
 	PID       types.PID
+	UUID      string
 	Summary   string
 	Detail    string
 	StepEntry *stepEntry

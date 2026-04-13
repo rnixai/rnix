@@ -413,6 +413,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		var resp llmResponse
 		rawResponseStr := string(respData)
 		if err := json.Unmarshal(respData, &resp); err != nil {
+			// Record the failed step with raw response so it's visible in LLM viewer
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, nil,
+				"error", fmt.Sprintf("unmarshal response failed: %v", err), "", "", "", "", 0)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, err, time.Since(stepStart))
 			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "unmarshal response failed", Err: err})
 			return
@@ -466,6 +469,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if budget > 0 && tokens >= budget {
 			k.emitLog(proc, step, types.LogOutput, fmt.Sprintf("Token budget exceeded: %d/%d", tokens, budget), "")
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "budget_exceeded", "tokens": tokens, "budget": budget}, nil, nil, time.Since(stepStart))
+			// Record the step that triggered budget exceeded so LLM viewer shows the interaction
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"error", fmt.Sprintf("budget_exceeded: %d/%d tokens", tokens, budget), "", "", "", "", 0)
 			k.finishProcess(proc, ExitStatus{Code: 2, Reason: "budget_exceeded", Err: fmt.Errorf("token budget exceeded: %d/%d", tokens, budget)})
 			return
 		}
@@ -491,6 +497,11 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"used_tokens": tokens, "max_tokens": budgetCheck.MaxTokens,
 				"used_cost": budgetCheck.UsedCost, "max_cost": budgetCheck.MaxCost,
 			}, nil, nil, time.Since(stepStart))
+			// Record the step that triggered budget exhaustion
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"error", fmt.Sprintf("budget_exhausted: tokens=%d/%d cost=%.4f/%.4f",
+					tokens, budgetCheck.MaxTokens, budgetCheck.UsedCost, budgetCheck.MaxCost),
+				"", "", "", "", 0)
 			if err := k.selfSuspend(proc, "budget_exhausted"); err != nil {
 				log.Printf("[kernel] pid=%d budget suspend failed: %v, falling back to terminate", proc.PID, err)
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "budget_exhausted + suspend failed"})
