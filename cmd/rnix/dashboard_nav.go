@@ -440,6 +440,13 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		}
 	}
 
+	// P key on timeline when no events at all (0 steps + 0 system events)
+	if m.activePane == paneTimeline && (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.stepEntries) == 0 {
+		m.statusMsg = "No step data for this process"
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return m, nil
+	}
+
 	// Tree 面板
 	if m.activePane == paneTree {
 		// In expanded mode, route to search-aware handler first
