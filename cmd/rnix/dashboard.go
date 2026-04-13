@@ -182,7 +182,8 @@ type dashboardModel struct {
 	compactEvents      []ipc.SyscallEventWire
 	lastCompactEventMs int64
 	fetchingCompact    bool
-	sysEventSeen       map[string]struct{}
+	sysEventSeen        map[string]struct{}
+	historicalSeedDone  bool // seeded EXIT events for already-dead procs on startup
 
 	// Health counters for title bar (Story 34.2)
 	errorCount int
@@ -499,6 +500,12 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("✗ LLM viewer: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
+			// Show error in viewer when no detail has been loaded yet
+			if m.llmViewerDetail == nil && m.viewMode == viewLLM && msg.pid == m.llmViewerPID {
+				noData := "  No step data available for this process.\n  (Process may have failed before completing any reasoning step)\n"
+				m.llmViewerContent = noData
+				m.llmViewerViewport.SetContent(noData)
+			}
 		} else if msg.detail != nil && msg.pid == m.llmViewerPID {
 			m.llmViewerDetail = msg.detail
 			m.llmViewerStep = msg.step
@@ -514,6 +521,11 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if len(msg.steps) > 0 && msg.pid == m.llmViewerPID {
 			m.llmViewerSteps = msg.steps
 			m.llmViewerStepMax = msg.steps[len(msg.steps)-1].Step
+		} else if len(msg.steps) == 0 && msg.pid == m.llmViewerPID && m.viewMode == viewLLM {
+			// Process has 0 completed steps — show informational message in viewer
+			noData := "  No step data recorded for this process.\n  (Process may have failed before completing any reasoning step)\n"
+			m.llmViewerContent = noData
+			m.llmViewerViewport.SetContent(noData)
 		}
 		return m, nil
 	default:
@@ -603,6 +615,19 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// --- Unified event stream detection (Story 34.1) ---
+	// On first successful tick, seed EXIT/SPAWN events for already-dead historical processes.
+	// Scope to treeRows only so we don't generate events for processes from unrelated old sessions.
+	if !m.historicalSeedDone && len(m.treeRows) > 0 {
+		m.historicalSeedDone = true
+		visibleProcs := make([]vfs.ProcInfo, 0, len(m.treeRows))
+		for _, row := range m.treeRows {
+			visibleProcs = append(visibleProcs, row.proc)
+		}
+		if seedEvents := seedHistoricalSysEvents(visibleProcs); len(seedEvents) > 0 {
+			m.sysEvents = append(m.sysEvents, sysEventDedup(seedEvents, m.sysEventSeen)...)
+		}
+	}
+
 	// Detect spawn/exit events by comparing with previous tick's process list
 	spawnExitEvents := detectSpawnExitEvents(m.prevProcessPIDs, m.processes)
 	if len(spawnExitEvents) > 0 {
@@ -637,7 +662,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// Merge step entries + system events into unified event list
-	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID)
+	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID, m.selectedUUID)
 
 	// Build alert events for alert strip (Story 34.4)
 	m.alertEvents = buildAlertEvents(m.unifiedEvents)

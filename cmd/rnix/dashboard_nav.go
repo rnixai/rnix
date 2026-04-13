@@ -431,6 +431,13 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				return m, nil
 			}
 		}
+
+		// P key fallback: process has 0 completed steps
+		if (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.stepEntries) == 0 {
+			m.statusMsg = "No step data for this process"
+			m.statusMsgTTL = statusMsgDefaultTTL
+			return m, nil
+		}
 	}
 
 	// Tree 面板
