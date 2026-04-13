@@ -16,6 +16,7 @@ const (
 	DriverCursorCLI     = "cursor-cli"
 	DriverOpenAICompat  = "openai-compat"
 	DriverOpenAI        = "openai"
+	DriverGemini        = "gemini"
 	ProvidersConfigFile = "providers.yaml"
 )
 
@@ -29,6 +30,7 @@ var validDrivers = map[string]bool{
 	DriverCursorCLI:    true,
 	DriverOpenAICompat: true,
 	DriverOpenAI:       true,
+	DriverGemini:       true,
 }
 
 var validModes = map[string]bool{
@@ -46,15 +48,16 @@ type ProvidersConfig struct {
 }
 
 type ProviderConfig struct {
-	Name         string `yaml:"name"`
-	Driver       string `yaml:"driver"`
-	Command      string `yaml:"command"` // CLI binary name override (e.g., "agent" for cursor-cli)
-	DefaultModel string `yaml:"default_model"`
-	BaseURL      string `yaml:"base_url"`
-	APIKeyEnv    string `yaml:"api_key_env"`
-	Mode         string  `yaml:"mode"`           // "stream" (default) or "call"
-	MaxTokens    int     `yaml:"max_tokens"`     // default max output tokens; 0 = use API default
-	CostPerToken float64 `yaml:"cost_per_token"` // cost per token in USD; 0 = cost tracking disabled
+	Name           string  `yaml:"name"`
+	Driver         string  `yaml:"driver"`
+	Command        string  `yaml:"command"` // CLI binary name override (e.g., "agent" for cursor-cli)
+	DefaultModel   string  `yaml:"default_model"`
+	BaseURL        string  `yaml:"base_url"`
+	APIKeyEnv      string  `yaml:"api_key_env"`
+	Mode           string  `yaml:"mode"`            // "stream" (default) or "call"
+	MaxTokens      int     `yaml:"max_tokens"`      // default max output tokens; 0 = use API default
+	CostPerToken   float64 `yaml:"cost_per_token"`  // cost per token in USD; 0 = cost tracking disabled
+	ThinkingBudget int     `yaml:"thinking_budget"` // thinking budget tokens (gemini driver only; 0 = disabled)
 }
 
 // FindProvidersConfigPath searches for providers.yaml in CWD then
@@ -151,7 +154,7 @@ func (c *ProvidersConfig) Validate() error {
 		}
 
 		if !validDrivers[p.Driver] {
-			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverOpenAICompat, DriverOpenAI))
+			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverOpenAICompat, DriverOpenAI, DriverGemini))
 		}
 
 		if p.Driver == DriverOpenAICompat && p.BaseURL == "" {

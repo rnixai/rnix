@@ -85,6 +85,23 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		return NewOpenAIDriver(cfg.Name, opts...), nil
 
+	case DriverGemini:
+		var opts []GeminiOption
+		if cfg.DefaultModel != "" {
+			opts = append(opts, WithGeminiModel(cfg.DefaultModel))
+		}
+		if cfg.ThinkingBudget > 0 {
+			opts = append(opts, WithGeminiThinkingBudget(cfg.ThinkingBudget))
+		}
+		if cfg.APIKeyEnv != "" {
+			if key := envLookup(cfg.APIKeyEnv); key != "" {
+				opts = append(opts, WithGeminiAPIKey(key))
+			} else {
+				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)
+			}
+		}
+		return NewGeminiDriver(cfg.Name, opts...), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported driver type: %q", cfg.Driver)
 	}
