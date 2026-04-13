@@ -36,10 +36,7 @@ func (m dashboardModel) enterLLMViewer() (tea.Model, tea.Cmd) {
 	vp := viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(max(m.height-4, 1)))
 	m.llmViewerViewport = vp
 
-	return m, tea.Batch(
-		fetchLLMStepListCmd(m.selectedPID, m.selectedUUID),
-		fetchLLMStepCmd(m.selectedPID, m.selectedUUID, 0),
-	)
+	return m, fetchLLMStepListCmd(m.selectedPID, m.selectedUUID)
 }
 
 // fetchLLMStepListCmd fetches the step summary list for the LLM viewer.

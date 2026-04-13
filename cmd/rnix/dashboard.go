@@ -500,12 +500,6 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("✗ LLM viewer: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
-			// Show error in viewer when no detail has been loaded yet
-			if m.llmViewerDetail == nil && m.viewMode == viewLLM && msg.pid == m.llmViewerPID {
-				noData := "  No step data available for this process.\n  (Process may have failed before completing any reasoning step)\n"
-				m.llmViewerContent = noData
-				m.llmViewerViewport.SetContent(noData)
-			}
 		} else if msg.detail != nil && msg.pid == m.llmViewerPID {
 			m.llmViewerDetail = msg.detail
 			m.llmViewerStep = msg.step
@@ -521,6 +515,13 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if len(msg.steps) > 0 && msg.pid == m.llmViewerPID {
 			m.llmViewerSteps = msg.steps
 			m.llmViewerStepMax = msg.steps[len(msg.steps)-1].Step
+			// Auto-fetch the first step's detail if none loaded yet (steps are 1-indexed;
+			// the initial fetch of step 0 in enterLLMViewer always fails).
+			if m.llmViewerDetail == nil && m.viewMode == viewLLM {
+				firstStep := msg.steps[0].Step
+				m.llmViewerStep = firstStep
+				return m, fetchLLMStepCmd(m.llmViewerPID, m.llmViewerUUID, firstStep)
+			}
 		} else if len(msg.steps) == 0 && msg.pid == m.llmViewerPID && m.viewMode == viewLLM {
 			// Process has 0 completed steps — show informational message in viewer
 			noData := "  No step data recorded for this process.\n  (Process may have failed before completing any reasoning step)\n"
