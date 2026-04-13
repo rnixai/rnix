@@ -112,10 +112,18 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 		if !m.debugMode {
 			return m, nil, true
 		}
+		// Historical events from disk are the authoritative complete set.
+		// Always replace the current events to avoid duplicates from periodic refresh.
+		m.debugStraceEvents = nil
+		m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
 		for _, sew := range msg.events {
 			ev := straceToUnifiedEvent(sew)
 			m.appendStraceEvent(ev)
 			m.updateDeviceLatency(sew)
+			// Track watermark for dedup against live stream events.
+			if sew.TimestampMs > m.debugHistWatermark {
+				m.debugHistWatermark = sew.TimestampMs
+			}
 		}
 		m.debugEvents = mergeDebugEvents(m.stepEntries, m.debugStraceEvents, m.selectedPID)
 		return m, nil, true
@@ -126,7 +134,23 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 // debugTickCmds returns tea.Cmds needed for debug mode during the tick cycle.
 func (m *dashboardModel) debugTickCmds() []tea.Cmd {
 	var cmds []tea.Cmd
-	m.debugTickProcess()
+	streamClosed := m.debugTickProcess()
+	// When the live stream ends, auto-reload complete events from disk.
+	// This ensures all events are shown even if some were missed during streaming
+	// (e.g., events emitted before dashboard attached, or dropped due to buffer full).
+	if streamClosed && !m.debugAutoReloaded && m.selectedPID != 0 {
+		m.debugAutoReloaded = true
+		cmds = append(cmds, m.loadHistoricalStraceCmd())
+	}
+	// Periodic historical refresh for running processes (every ~3s = 6 ticks at 500ms).
+	// Compensates for events consumed by competing DebugChan readers (e.g. `rnix strace`).
+	if m.debugMode && m.selectedPID != 0 && !m.isSelectedProcessDead() && !streamClosed {
+		m.debugRefreshCounter++
+		if m.debugRefreshCounter >= 6 {
+			m.debugRefreshCounter = 0
+			cmds = append(cmds, m.loadHistoricalStraceCmd())
+		}
+	}
 	if m.debugMode && m.debugAttachedPID != m.selectedPID {
 		m2, debugCmd := m.handleDebugPIDChange()
 		*m = m2
@@ -152,11 +176,18 @@ func (m dashboardModel) enterDebugMode() (dashboardModel, tea.Cmd) {
 	m.debugCursor = 0
 	m.debugCtxProfile = nil
 	m.debugAttachedPID = m.selectedPID
+	m.debugAutoReloaded = false
+	m.debugHistWatermark = 0
+	m.debugRefreshCounter = 0
 
 	if m.isSelectedProcessDead() {
 		return m, m.loadHistoricalStraceCmd()
 	}
-	return m, m.startStraceStreamCmd()
+	// For running processes, load historical events from disk immediately
+	// (for events emitted before dashboard attached) AND start live stream
+	// (for real-time new events). The DebugChan is single-consumer, so events
+	// emitted before attachment are only available from disk persistence.
+	return m, tea.Batch(m.loadHistoricalStraceCmd(), m.startStraceStreamCmd())
 }
 
 func (m dashboardModel) exitDebugMode() dashboardModel {
@@ -239,20 +270,12 @@ func (m dashboardModel) fetchDebugCtxProfileCmd() tea.Cmd {
 
 func straceToUnifiedEvent(sew ipc.SyscallEventWire) UnifiedEvent {
 	ts := time.UnixMilli(sew.TimestampMs)
-	resource := ""
-	if p, ok := sew.Args["path"]; ok {
-		resource = fmt.Sprintf("%v", p)
-	} else if fd, ok := sew.Args["fd"]; ok {
-		resource = fmt.Sprintf("fd=%v", fd)
-	}
 
-	ascii := ui.IsASCIIMode()
-	prefix := "·"
-	if ascii {
-		prefix = "."
-	}
+	// Convert wire format to SyscallEvent and format with debug.FormatEvent
+	// for full strace output (e.g. "[  0.000s] CtxAlloc(size=64) → 17    1µs").
+	se := wireToSyscallEvent(sew)
+	summary := debug.FormatEvent(se, debug.Options{ColorEnabled: false})
 
-	summary := fmt.Sprintf("%s %s %s %.0fms", prefix, sew.Syscall, resource, sew.DurationMs)
 	sev := SevInfo
 	if sew.Error != "" {
 		sev = SevError
@@ -369,10 +392,13 @@ func (m *dashboardModel) clampDebugCursor() {
 
 // --- Debug tick processing ---
 
-func (m *dashboardModel) debugTickProcess() {
+// debugTickProcess drains the strace channel and merges events.
+// Returns true if the stream channel was closed this tick (triggers auto-reload).
+func (m *dashboardModel) debugTickProcess() bool {
 	if !m.debugMode {
-		return
+		return false
 	}
+	streamClosed := false
 	// Non-blocking read from strace channel
 	if m.debugStraceCh != nil {
 		for {
@@ -380,7 +406,12 @@ func (m *dashboardModel) debugTickProcess() {
 			case sew, ok := <-m.debugStraceCh:
 				if !ok {
 					m.debugStraceCh = nil
-					return
+					streamClosed = true
+					goto doneReading
+				}
+				// Skip events already covered by historical load to avoid duplicates.
+				if m.debugHistWatermark > 0 && sew.TimestampMs <= m.debugHistWatermark {
+					continue
 				}
 				ev := straceToUnifiedEvent(sew)
 				m.appendStraceEvent(ev)
@@ -391,8 +422,9 @@ func (m *dashboardModel) debugTickProcess() {
 		}
 	doneReading:
 	}
-	// Merge debug events
+	// Always merge debug events (including when channel closes)
 	m.debugEvents = mergeDebugEvents(m.stepEntries, m.debugStraceEvents, m.selectedPID)
+	return streamClosed
 }
 
 // --- Debug PID change handling ---
@@ -409,6 +441,9 @@ func (m dashboardModel) handleDebugPIDChange() (dashboardModel, tea.Cmd) {
 	m.debugScrollTop = 0
 	m.debugCursor = 0
 	m.debugAttachedPID = m.selectedPID
+	m.debugAutoReloaded = false
+	m.debugHistWatermark = 0
+	m.debugRefreshCounter = 0
 
 	if m.selectedPID == 0 {
 		return m, nil
@@ -416,7 +451,7 @@ func (m dashboardModel) handleDebugPIDChange() (dashboardModel, tea.Cmd) {
 	if m.isSelectedProcessDead() {
 		return m, m.loadHistoricalStraceCmd()
 	}
-	return m, m.startStraceStreamCmd()
+	return m, tea.Batch(m.loadHistoricalStraceCmd(), m.startStraceStreamCmd())
 }
 
 // --- Rendering ---
@@ -533,17 +568,14 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 	return b.String()
 }
 
-// renderSyscallLine renders a single strace event line.
+// renderSyscallLine renders a single strace event line using the full strace format.
 func (m dashboardModel) renderSyscallLine(ev UnifiedEvent, cursorMark string, maxWidth int) string {
-	ts := ev.Timestamp.Format("15:04:05.000")
-	tsStyled := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render(ts)
-
-	summaryStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 	if ev.Severity >= SevError {
-		summaryStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+		style = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
 	}
 
-	return fmt.Sprintf("%s%s %s", cursorMark, tsStyled, summaryStyle.Render(ev.Summary))
+	return fmt.Sprintf("%s%s", cursorMark, style.Render(ev.Summary))
 }
 
 // renderDebugStepLine renders a step event in the debug timeline.

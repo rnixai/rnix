@@ -64,9 +64,10 @@ func TestStraceToUnifiedEvent(t *testing.T) {
 	sew := ipc.SyscallEventWire{
 		TimestampMs: now.UnixMilli(),
 		PID:         42,
-		Syscall:     "open",
-		Args:        map[string]any{"path": "/dev/llm/claude"},
-		DurationMs:  125.5,
+		Syscall:     "Open",
+		Args:        map[string]any{"path": "/dev/llm/claude", "flags": float64(2)},
+		Result:      float64(3),
+		DurationMs:  0.002,
 	}
 	ev := straceToUnifiedEvent(sew)
 	if ev.Type != EventSyscall {
@@ -78,15 +79,12 @@ func TestStraceToUnifiedEvent(t *testing.T) {
 	if ev.Severity != SevInfo {
 		t.Errorf("expected SevInfo, got %v", ev.Severity)
 	}
-	if !strings.Contains(ev.Summary, "open") {
-		t.Errorf("expected summary to contain 'open', got %q", ev.Summary)
+	// Full strace format should contain syscall name with args and result
+	if !strings.Contains(ev.Summary, "Open(") {
+		t.Errorf("expected summary to contain 'Open(', got %q", ev.Summary)
 	}
-	if !strings.Contains(ev.Summary, "/dev/llm/claude") {
-		t.Errorf("expected summary to contain path, got %q", ev.Summary)
-	}
-	if !strings.Contains(ev.Summary, "126ms") && !strings.Contains(ev.Summary, "125ms") {
-		// DurationMs=125.5 → "%.0fms" = "126ms" or "125ms" depending on rounding
-		t.Logf("summary: %s", ev.Summary)
+	if !strings.Contains(ev.Summary, "→") {
+		t.Errorf("expected summary to contain '→', got %q", ev.Summary)
 	}
 
 	// Error case
@@ -95,6 +93,9 @@ func TestStraceToUnifiedEvent(t *testing.T) {
 	evErr := straceToUnifiedEvent(sewErr)
 	if evErr.Severity != SevError {
 		t.Errorf("expected SevError for error syscall, got %v", evErr.Severity)
+	}
+	if !strings.Contains(evErr.Summary, "err(") {
+		t.Errorf("expected error summary to contain 'err(', got %q", evErr.Summary)
 	}
 }
 
@@ -340,5 +341,66 @@ func TestDefaultFiltersIncludeSyscall(t *testing.T) {
 	filters := defaultStepFilters()
 	if !filters[EventSyscall] {
 		t.Error("expected EventSyscall to be enabled in default filters")
+	}
+}
+
+func TestWireToSyscallEvent_Dashboard(t *testing.T) {
+	sew := ipc.SyscallEventWire{
+		TimestampMs: 1234,
+		PID:         5,
+		Syscall:     "CtxAlloc",
+		Args:        map[string]any{"size": float64(64)},
+		Result:      float64(5),
+		DurationMs:  0.001,
+	}
+	se := wireToSyscallEvent(sew)
+	if se.PID != 5 {
+		t.Errorf("expected PID 5, got %v", se.PID)
+	}
+	if se.Syscall != "CtxAlloc" {
+		t.Errorf("expected syscall CtxAlloc, got %v", se.Syscall)
+	}
+	if se.Err != nil {
+		t.Errorf("expected nil error, got %v", se.Err)
+	}
+
+	// Error case
+	sewErr := sew
+	sewErr.Error = "not found"
+	seErr := wireToSyscallEvent(sewErr)
+	if seErr.Err == nil || seErr.Err.Error() != "not found" {
+		t.Errorf("expected error 'not found', got %v", seErr.Err)
+	}
+}
+
+func TestDebugTickProcess_ChannelCloseMerges(t *testing.T) {
+	m := newDashboardModel(nil)
+	m.debugMode = true
+	m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
+	m.selectedPID = 1
+
+	// Create a channel with one event, then close it
+	ch := make(chan ipc.SyscallEventWire, 10)
+	ch <- ipc.SyscallEventWire{
+		TimestampMs: time.Now().UnixMilli(),
+		PID:         1,
+		Syscall:     "Open",
+		Args:        map[string]any{"path": "/dev/fs"},
+		DurationMs:  1.0,
+	}
+	close(ch)
+
+	m.debugStraceCh = ch
+	streamClosed := m.debugTickProcess()
+
+	if !streamClosed {
+		t.Error("expected streamClosed=true when channel is closed")
+	}
+	// Events should be merged despite channel close
+	if len(m.debugStraceEvents) != 1 {
+		t.Errorf("expected 1 strace event, got %d", len(m.debugStraceEvents))
+	}
+	if len(m.debugEvents) == 0 {
+		t.Error("expected merged events to be non-empty after channel close")
 	}
 }

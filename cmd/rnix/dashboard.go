@@ -210,6 +210,9 @@ type dashboardModel struct {
 	debugCtxProfile     *debug.CtxProfileResult     // Context Profile data
 	debugDeviceLatency  map[string]*deviceLatencyStats // device latency stats
 	debugAttachedPID    types.PID                   // currently attached PID for strace
+	debugAutoReloaded   bool                        // prevents repeated historical reload after stream end
+	debugHistWatermark  int64                       // max TimestampMs from historical load; stream events ≤ this are skipped
+	debugRefreshCounter int                         // tick counter for periodic historical refresh
 	debugScrollTop      int                         // debug timeline scroll offset
 	debugCursor         int                         // debug timeline cursor
 }
