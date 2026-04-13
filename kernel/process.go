@@ -52,6 +52,7 @@ type Process struct {
 	PID            types.PID
 	UUID           string // UUID v7 — immutable after creation, globally unique across daemon restarts
 	PPID           types.PID
+	ParentUUID     string // UUID of parent process — immutable after creation
 	State          types.ProcessState // guarded by mu
 	Intent         string             // immutable after creation
 	Skills         []string

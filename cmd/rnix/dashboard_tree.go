@@ -357,9 +357,8 @@ var treeSortLabels = []string{"Time", "PID", "State"}
 // buildProcessTree constructs a process tree from a flat list of ProcInfo.
 // Uses UUID as the node key so that PID-reused processes (old dead + new active)
 // can coexist in the tree without overwriting each other.
-// Active processes link by parent PID; dead processes also attempt PPID
-// lookup to preserve hierarchy (Story 34.3 AC3).
-// Falls back to PID key when UUID is empty (e.g. test data).
+// Parent lookup uses ParentUUID first (exact match across daemon restarts),
+// then falls back to PPID-based lookup for backwards compatibility.
 func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode {
 	if len(procs) == 0 {
 		return nil
@@ -368,9 +367,9 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 	// UUID-keyed nodes — allows multiple processes with the same PID.
 	// Falls back to "!pid:<N>" key when UUID is empty.
 	nodes := make(map[string]*treeNode, len(procs))
-	// PID → node key index for parent lookup (active processes only)
+	// PID → node key index for parent lookup (active processes only, PPID fallback)
 	pidToKey := make(map[types.PID]string, len(procs))
-	// allPidToKey includes dead processes for dead→dead parent lookup (AC3)
+	// allPidToKey includes dead processes for dead→dead parent lookup (AC3, PPID fallback)
 	allPidToKey := make(map[types.PID]string, len(procs))
 
 	nodeKey := func(p vfs.ProcInfo) string {
@@ -408,7 +407,19 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 			roots = append(roots, n)
 			continue
 		}
-		// Try to find parent by PPID in active processes first
+
+		// Primary: use ParentUUID for exact parent matching (avoids PID reuse confusion)
+		if p.ParentUUID != "" {
+			if parent, ok := nodes[p.ParentUUID]; ok {
+				parent.children = append(parent.children, n)
+				continue
+			}
+			// ParentUUID set but parent not in current view → orphan root
+			roots = append(roots, n)
+			continue
+		}
+
+		// Fallback: PPID-based lookup for old processes without ParentUUID
 		if parentKey, ok := pidToKey[p.PPID]; ok {
 			if parentKey != myKey {
 				if parent, ok := nodes[parentKey]; ok {
@@ -699,18 +710,19 @@ func (m dashboardModel) buildCollapsedIntents() map[string]string {
 
 	// Build parent UUID → child rows mapping from the tree structure
 	parentChildren := make(map[string][]int) // parentUUID → indices in treeRows
-	// We need to know each row's parent. Use the process hierarchy.
-	pidToUUID := make(map[types.PID]string)
-	for _, row := range m.treeRows {
-		if row.proc.UUID != "" {
-			pidToUUID[row.proc.PID] = row.proc.UUID
-		}
-	}
 	for i, row := range m.treeRows {
+		puuid := row.proc.ParentUUID
+		if puuid != "" {
+			parentChildren[puuid] = append(parentChildren[puuid], i)
+			continue
+		}
+		// Fallback: PPID → UUID lookup for old processes without ParentUUID
 		if row.proc.PPID > 0 && row.proc.PPID != row.proc.PID {
-			parentUUID := pidToUUID[row.proc.PPID]
-			if parentUUID != "" {
-				parentChildren[parentUUID] = append(parentChildren[parentUUID], i)
+			for _, other := range m.treeRows {
+				if other.proc.PID == row.proc.PPID && other.proc.UUID != "" {
+					parentChildren[other.proc.UUID] = append(parentChildren[other.proc.UUID], i)
+					break
+				}
 			}
 		}
 	}

@@ -124,6 +124,7 @@ type procInfoDisk struct {
 	PID            uint64   `json:"pid"`
 	UUID           string   `json:"uuid"`
 	PPID           uint64   `json:"ppid"`
+	ParentUUID     string   `json:"parent_uuid,omitempty"`
 	State          string   `json:"state"`
 	Intent         string   `json:"intent"`
 	Skills         []string `json:"skills,omitempty"`
@@ -148,6 +149,7 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		PID:            uint64(info.PID),
 		UUID:           info.UUID,
 		PPID:           uint64(info.PPID),
+		ParentUUID:     info.ParentUUID,
 		State:          info.State.String(),
 		Intent:         info.Intent,
 		Skills:         info.Skills,
@@ -176,6 +178,7 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		PID:            types.PID(d.PID),
 		UUID:           d.UUID,
 		PPID:           types.PID(d.PPID),
+		ParentUUID:     d.ParentUUID,
 		State:          parseProcessState(d.State),
 		Intent:         d.Intent,
 		Skills:         d.Skills,

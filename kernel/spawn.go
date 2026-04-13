@@ -81,6 +81,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		if !ok {
 			return 0, NewSyscallError("Spawn", opts.ParentPID, "", fmt.Errorf("parent process %d not found", opts.ParentPID), types.ErrNotFound)
 		}
+		proc.ParentUUID = parent.UUID
 		parent.AddChild(proc.PID)
 	}
 

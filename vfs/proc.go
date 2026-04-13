@@ -30,6 +30,7 @@ type ProcInfo struct {
 	PID            types.PID
 	UUID           string
 	PPID           types.PID
+	ParentUUID     string // UUID of parent process — used for accurate tree building across PID reuse
 	State          types.ProcessState
 	Intent         string
 	Skills         []string
