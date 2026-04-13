@@ -12,7 +12,8 @@ type MCPServerConfig struct {
 	Command       string            `yaml:"command"`
 	Args          []string          `yaml:"args,omitempty"`
 	Env           map[string]string `yaml:"env,omitempty"`
-	TransportType string            `yaml:"transport_type"` // "stdio" (default)
+	TransportType string            `yaml:"transport_type"`                       // "stdio" (default)
+	Instructions  string            `yaml:"instructions,omitempty"`               // usage instructions injected into system prompt
 }
 
 // ToMCPConfig converts an MCPServerConfig to a vfs.MCPConfig with the given server name.
@@ -23,6 +24,7 @@ func (c MCPServerConfig) ToMCPConfig(name string) vfs.MCPConfig {
 		Args:          c.Args,
 		Env:           c.Env,
 		TransportType: c.TransportType,
+		Instructions:  c.Instructions,
 	}
 }
 

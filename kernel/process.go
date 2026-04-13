@@ -124,6 +124,7 @@ type Process struct {
 	Provider         string // resolved provider name (immutable after spawn)
 	Model            string // resolved model name (immutable after spawn)
 	PlanningEnabled  bool   // true = inject planProtocol; derived from agent manifest Planning field
+	Language         string // preferred response language (from agent manifest); empty = no preference
 
 	// Observation system (Story 27.1)
 	FinalSystemPrompt string       // Full system prompt captured on first reasonStep (mu protected)
@@ -137,6 +138,7 @@ type Process struct {
 	// Checkpoint system (Story 30.2) — fire-and-forget async write per step
 	checkpointErrCh chan error // buffered cap=1; carries last async write error
 	stepsDir        string    // resolved directory for checkpoint writes; "" = no checkpoint
+	scratchDir      string    // per-process temp directory for intermediate files; "" = not created
 
 	// Two-phase shutdown (Story 31.3)
 	GracePeriod     time.Duration // 0 = use DefaultGracePeriod; >0 = custom grace period for SIGTERM
@@ -169,6 +171,7 @@ type Process struct {
 	nativeToolDefs    []vfs.ToolDef       // collected ToolDefs for req.Tools; immutable after Spawn
 	generatedProtocol string              // auto-generated toolProtocol text; immutable after first reasonStep
 	mcpDevicePaths    []string            // MCP device paths for mixed mode text injection; immutable after Spawn
+	mcpConfigs        []vfs.MCPConfig     // MCP server configs for Instructions injection; immutable after Spawn
 
 	// Project configuration (Story 25.3) — immutable after spawn, no locking needed
 	ProjectConfig *config.ProjectConfig
@@ -727,6 +730,13 @@ func (p *Process) GetStepsDir() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.stepsDir
+}
+
+// GetScratchDir returns the per-process scratchpad directory path.
+func (p *Process) GetScratchDir() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.scratchDir
 }
 
 // DefaultCompactThreshold is the default token usage percentage that triggers auto-compact.

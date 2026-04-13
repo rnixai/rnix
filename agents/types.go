@@ -32,6 +32,7 @@ type AgentManifest struct {
 	StepTimeout    string      `yaml:"step_timeout,omitempty"`    // duration string e.g. "10m"; default "5m"; "0" = disabled
 	SLA            *AgentSLA   `yaml:"sla,omitempty"`             // SLA constraints (Story 21.2)
 	Alternatives   []string    `yaml:"alternatives,omitempty"`    // alternative agent names for auto-selection (Story 21.3)
+	Language       string      `yaml:"language,omitempty"`         // preferred response language (e.g. "Chinese", "English"); empty = no preference
 }
 
 // AgentSLA defines SLA constraints in agent.yaml.

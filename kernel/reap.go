@@ -111,6 +111,14 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 			}
 		}
 
+		// 2.7 Clean up scratchpad directory if it exists and is empty
+		proc.mu.Lock()
+		scratchDir := proc.scratchDir
+		proc.mu.Unlock()
+		if scratchDir != "" {
+			_ = os.Remove(scratchDir) // only removes if empty; non-empty preserved for user
+		}
+
 		// 3. close(DebugChan) — nil out under lock first to prevent races with emitEvent
 		proc.mu.Lock()
 		ch := proc.DebugChan

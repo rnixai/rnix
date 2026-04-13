@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -178,9 +179,12 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		}
 		// Initialize checkpoint channel and resolve steps directory (Story 30.2)
 		stepsDir := filepath.Join(stepBaseDir, "data", "steps", proc.UUID)
+		scratchDir := filepath.Join(stepBaseDir, "data", "scratch", proc.UUID)
+		_ = os.MkdirAll(scratchDir, 0o755)
 		proc.mu.Lock()
 		proc.checkpointErrCh = make(chan error, 1)
 		proc.stepsDir = stepsDir
+		proc.scratchDir = scratchDir
 		proc.mu.Unlock()
 	}
 

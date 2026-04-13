@@ -7,6 +7,7 @@ import (
 
 	rnixctx "github.com/rnixai/rnix/context"
 	skillpkg "github.com/rnixai/rnix/skills"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // registerSections creates a SectionRegistry with all standard sections for an agent-based spawn.
@@ -30,6 +31,75 @@ func registerSections(proc *Process, k *KernelImpl, agentInstructions string) *r
 	reg.Register("agent_instructions", func() string { return agentInstructions }, true)
 
 	// --- Dynamic sections (recomputed on each Build) ---
+
+	// language: language preference (CC-aligned)
+	reg.Register("language", func() string {
+		lang := proc.Language
+		if lang == "" {
+			return ""
+		}
+		return fmt.Sprintf("# Language\n\nAlways respond in %s. Use %s for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.", lang, lang)
+	}, true)
+
+	// scratchpad: per-process scratchpad directory instructions (CC-aligned)
+	reg.Register("scratchpad", func() string {
+		dir := proc.GetScratchDir()
+		if dir == "" {
+			return ""
+		}
+		return fmt.Sprintf(`# Scratchpad Directory
+
+IMPORTANT: Always use this scratchpad directory for temporary files instead of /tmp or other system temp directories:
+%s
+
+Use this directory for ALL temporary file needs:
+- Storing intermediate results or data during multi-step tasks
+- Writing temporary scripts or configuration files
+- Saving outputs that don't belong in the user's project
+- Creating working files during analysis or processing
+- Any file that would otherwise go to /tmp
+
+Only use /tmp if the user explicitly requests it.
+
+The scratchpad directory is process-specific, isolated from the user's project, and can be used freely without permission prompts.`, dir)
+	}, false)
+
+	// frc: Function Result Clearing guidance (CC-aligned)
+	reg.Register("frc", func() string {
+		return `# Function Result Clearing
+
+Old device results may be automatically cleared from context to free up space. When working with device results, write down any important information you might need later in your response, as the original result may be cleared later.`
+	}, true)
+
+	// spawn_guidance: guidance on when/how to spawn child processes
+	reg.Register("spawn_guidance", func() string {
+		if !proc.PlanningEnabled {
+			return ""
+		}
+		return `# Spawning Sub-Processes
+
+You can spawn child processes for parallel or delegated work via the spawn meta-action. Guidelines:
+
+When to spawn:
+- Independent sub-tasks that can run in parallel (e.g., researching multiple modules simultaneously)
+- Large delegated tasks that benefit from a separate context window
+- Work requiring a different agent specialization or skill set
+
+When NOT to spawn:
+- Simple lookups or single-step operations — do them directly
+- Tasks requiring tight back-and-forth with the user — stay in the current process
+- When the overhead of spawning outweighs the benefit (trivial tasks)
+
+Best practices:
+- Provide complete context to child processes — they do not inherit your conversation history
+- Prefer fewer, well-scoped child processes over many tiny ones
+- Monitor child process results and synthesize them into a coherent response`
+	}, true)
+
+	// mcp_instructions: per-MCP-server usage instructions (CC-aligned)
+	reg.Register("mcp_instructions", func() string {
+		return buildMCPInstructionsSection(proc.mcpConfigs)
+	}, true)
 
 	// env_info: GDB environment variables
 	reg.Register("env_info", func() string {
@@ -100,4 +170,23 @@ func registerSections(proc *Process, k *KernelImpl, agentInstructions string) *r
 	}, false)
 
 	return reg
+}
+
+// buildMCPInstructionsSection formats MCP server instructions for the system prompt.
+// Follows CC's getMcpInstructions pattern: only includes servers that have non-empty Instructions.
+func buildMCPInstructionsSection(configs []vfs.MCPConfig) string {
+	if len(configs) == 0 {
+		return ""
+	}
+	var blocks []string
+	for _, cfg := range configs {
+		if cfg.Instructions == "" {
+			continue
+		}
+		blocks = append(blocks, fmt.Sprintf("## %s\n%s", cfg.ServerName, cfg.Instructions))
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("# MCP Server Instructions\n\nThe following MCP servers have provided instructions for how to use their tools and resources:\n\n%s", strings.Join(blocks, "\n\n"))
 }

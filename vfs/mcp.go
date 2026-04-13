@@ -23,6 +23,7 @@ type MCPConfig struct {
 	Env           map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	TransportType string            `json:"transport_type" yaml:"transport_type"` // "stdio" (default)
 	WorkDir       string            `json:"work_dir,omitempty" yaml:"work_dir,omitempty"`
+	Instructions  string            `json:"instructions,omitempty" yaml:"instructions,omitempty"` // usage instructions injected into system prompt
 }
 
 // MCPTransport defines the interface for communicating with an MCP server.

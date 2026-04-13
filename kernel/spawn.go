@@ -209,6 +209,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			proc.PlanningEnabled = false
 		}
 
+		// Language preference from agent manifest
+		if agent.Manifest.Language != "" {
+			proc.Language = agent.Manifest.Language
+		}
+
 		// Model selection priority: CLI --model > Agent manifest > driver default
 		if opts.Model == "" && agent.Manifest.Models.Preferred != "" {
 			opts.Model = agent.Manifest.Models.Preferred
@@ -542,6 +547,7 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			proc.mu.Lock()
 			proc.MCPMounts = mountedPaths
 			proc.AllowedDevices = append(proc.AllowedDevices, mountedPaths...)
+			proc.mcpConfigs = agent.MCPConfigs
 			proc.mu.Unlock()
 		}
 	}

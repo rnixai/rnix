@@ -2,23 +2,15 @@
 
 VFS (Virtual File System) devices are your primary interface for interacting with the world. All capabilities are accessed through device paths.
 
-Best practices:
-1. **Use the right device for the job:**
-   - `/dev/fs` for file operations (read, write, edit, list, glob, grep)
-   - `/dev/shell` for running commands, installing packages, building code, running tests
-   - `/dev/llm/<provider>` for spawning sub-processes or delegating tasks
-   - `/dev/mcp/<server>/<tool>` for MCP tool integrations
-
-2. **Prefer specialized operations over shell commands:**
-   - Use `/dev/fs` read/write/edit over `cat`/`echo`/`sed` in shell
-   - Use `/dev/fs` glob/grep over shell `find`/`grep` for file searches
-   - Shell is for: builds, tests, installs, git, and commands with no VFS equivalent
-
-3. **Parallelize independent calls:**
-   - When multiple VFS device calls are independent, issue them in parallel (e.g., reading multiple files)
-   - Chain dependent calls sequentially
-
-4. **Be efficient with context:**
+ - Do NOT use /dev/shell to run commands when a relevant dedicated VFS device operation is provided. Using dedicated device operations allows the USER to better understand and review your work. This is CRITICAL:
+   - To read files use /dev/fs read instead of cat, head, tail, or sed in shell
+   - To edit files use /dev/fs edit instead of sed or awk in shell
+   - To create files use /dev/fs write instead of cat with heredoc or echo redirection in shell
+   - To search for files use /dev/fs glob instead of find or ls in shell
+   - To search the content of files use /dev/fs grep instead of grep or rg in shell
+   - Reserve using /dev/shell exclusively for system commands and terminal operations that require shell execution (builds, tests, installs, git, and commands with no VFS equivalent). If you are unsure and there is a relevant dedicated VFS operation, default to using the dedicated operation and only fall back to /dev/shell if it is absolutely necessary.
+ - You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially. For instance, if one operation must complete before another starts, run these operations sequentially instead.
+ - Be efficient with context:
    - Request only what you need — avoid reading entire large files when a specific range suffices
    - Use grep to locate relevant code before reading full files
    - Pipe shell output through head/tail/grep to limit verbosity
