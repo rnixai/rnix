@@ -311,3 +311,25 @@ func contains(s, substr string) bool {
 			return false
 		}())
 }
+
+func TestConvertToolDefsToGenai_NilParameters(t *testing.T) {
+	tools := []ToolDef{
+		{Name: "cron_create", Description: "create a cron job"},
+		{Name: "with_params", Description: "tool with params", Parameters: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"x": map[string]any{"type": "string"}},
+		}},
+	}
+	decls := convertToolDefsToGenai(tools)
+	if len(decls) != 2 {
+		t.Fatalf("expected 2 declarations, got %d", len(decls))
+	}
+	// Tool with nil Parameters must NOT set ParametersJsonSchema (would serialize as null).
+	if decls[0].ParametersJsonSchema != nil {
+		t.Errorf("tool with nil Parameters: expected ParametersJsonSchema == nil, got %v", decls[0].ParametersJsonSchema)
+	}
+	// Tool with non-nil Parameters must set ParametersJsonSchema.
+	if decls[1].ParametersJsonSchema == nil {
+		t.Error("tool with Parameters: expected ParametersJsonSchema != nil")
+	}
+}

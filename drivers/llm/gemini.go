@@ -139,11 +139,17 @@ func (d *GeminiDriver) buildConfig(req LLMRequest, tools []ToolDef) *genai.Gener
 func convertToolDefsToGenai(tools []ToolDef) []*genai.FunctionDeclaration {
 	decls := make([]*genai.FunctionDeclaration, len(tools))
 	for i, td := range tools {
-		decls[i] = &genai.FunctionDeclaration{
-			Name:                 td.Name,
-			Description:          td.Description,
-			ParametersJsonSchema: td.Parameters,
+		decl := &genai.FunctionDeclaration{
+			Name:        td.Name,
+			Description: td.Description,
 		}
+		// Only set ParametersJsonSchema when Parameters is non-nil and non-empty.
+		// A nil map assigned to `any` creates a non-nil interface that serializes as
+		// JSON null rather than being omitted, causing Gemini API to return HTTP 400.
+		if len(td.Parameters) > 0 {
+			decl.ParametersJsonSchema = td.Parameters
+		}
+		decls[i] = decl
 	}
 	return decls
 }
