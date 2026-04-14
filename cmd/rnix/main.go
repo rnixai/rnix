@@ -30,6 +30,7 @@ import (
 	"github.com/rnixai/rnix/drivers/tasks"
 	"github.com/rnixai/rnix/drivers/cron"
 	driversmemory "github.com/rnixai/rnix/drivers/memory"
+	driverskills "github.com/rnixai/rnix/drivers/skills"
 	"github.com/rnixai/rnix/drivers/web"
 	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/internal/config"
@@ -1524,6 +1525,20 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		}
 		recallDriver := driversmemory.NewRecallDriver(recallIdx, recallCaller)
 		_ = devReg.RegisterWithDriver("/dev/memory/recall", driversmemory.RecallFileFactory(recallDriver), recallDriver)
+	}
+
+	// Skill dynamic management (Story 35.5)
+	if memoryCfg.Skills.DynamicManage {
+		projectSkillDir := filepath.Join(cwd, ".rnix", "skills")
+		skillMgr := skills.NewSkillManager(projectSkillDir)
+
+		skillDriver := driverskills.NewSkillManageDriverFromManager(skillMgr)
+		_ = devReg.RegisterWithDriver("/dev/skills/manage", driverskills.SkillManageFileFactory(skillDriver), skillDriver)
+
+		// Wire SkillManager as SkillWriter into WritebackWorker
+		if k.WritebackWorker() != nil {
+			k.WritebackWorker().SetSkillWriter(skillMgr)
+		}
 	}
 
 	recordBaseDir := resolveDataDir(cwd, "records")

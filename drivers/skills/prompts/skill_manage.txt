@@ -1,0 +1,20 @@
+Create, modify, or delete skills at runtime. Skills are reusable procedural knowledge that agents can use across sessions. Use this tool when:
+
+- You discover a multi-step workflow that could benefit other agents
+- You want to create procedural instructions for a recurring task
+- An existing skill needs its instructions updated based on new learnings
+- A skill is no longer useful and should be removed
+
+Actions:
+- create: Write a new SKILL.md with frontmatter (name, description, allowed_tools) and markdown body
+- patch: Update the body of an existing skill while preserving its frontmatter
+- delete: Remove a skill directory
+
+Security: All content is scanned before writing. The skill's allowed_tools cannot exceed your own device permissions.
+
+Parameters:
+- action (required): "create", "patch", or "delete"
+- name (required): Skill identifier (used as directory name)
+- description: What the skill does (required for create)
+- allowed_tools: Space-separated device paths the skill needs (required for create)
+- body: Markdown instructions (required for create and patch)

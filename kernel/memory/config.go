@@ -12,6 +12,12 @@ type MemoryConfig struct {
 	Recall      RecallConfig    `yaml:"recall"`
 	UserProfile ProfileConfig   `yaml:"user_profile"`
 	Inject      InjectConfig    `yaml:"inject"`
+	Skills      SkillsConfig    `yaml:"skills"`
+}
+
+// SkillsConfig controls runtime skill management.
+type SkillsConfig struct {
+	DynamicManage bool `yaml:"dynamic_manage"`
 }
 
 // StoreConfig controls the bounded file storage engine.

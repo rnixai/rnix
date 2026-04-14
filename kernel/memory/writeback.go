@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,12 @@ const (
 // Implemented by the daemon layer using DriverRegistry.
 type LLMCaller interface {
 	Call(ctx context.Context, systemPrompt string, userPrompt string, maxTokens int) (string, error)
+}
+
+// SkillWriter abstracts runtime skill creation for writeback suggestions.
+// Implemented by skills.SkillManager.
+type SkillWriter interface {
+	CreateSkill(name, description, allowedTools, body string) error
 }
 
 // writebackJob carries the minimal data needed for async knowledge extraction.
@@ -69,6 +76,7 @@ type WritebackWorker struct {
 	stopOnce        sync.Once
 	callerMu        sync.Mutex // protects caller replacement (for testing)
 	recallIndex     *RecallIndex // optional, for incremental index updates (Story 35.4)
+	skillWriter     SkillWriter  // optional, for skill suggestions (Story 35.5)
 }
 
 // NewWritebackWorker creates a new WritebackWorker.
@@ -90,6 +98,11 @@ func (w *WritebackWorker) Config() WritebackConfig {
 // SetRecallIndex injects the recall index for incremental updates after knowledge extraction.
 func (w *WritebackWorker) SetRecallIndex(ri *RecallIndex) {
 	w.recallIndex = ri
+}
+
+// SetSkillWriter injects the skill writer for automatic skill suggestions after knowledge extraction.
+func (w *WritebackWorker) SetSkillWriter(sw SkillWriter) {
+	w.skillWriter = sw
 }
 
 // Start launches the background worker goroutine that consumes writeback jobs.
@@ -216,6 +229,14 @@ func (w *WritebackWorker) processJob(job writebackJob) {
 			log.Printf("[writeback] recall index update failed uuid=%s: %v", job.UUID, err)
 		}
 	}
+
+	// 9. Skill suggestion (Story 35.5)
+	if w.skillWriter != nil {
+		suggestion := w.analyzeForSkill(stepsData)
+		if suggestion != nil {
+			w.suggestSkill(suggestion, job.UUID)
+		}
+	}
 }
 
 // buildExtractionPrompt constructs the user prompt for the auxiliary LLM,
@@ -309,4 +330,135 @@ func countToolCalls(path string) int {
 		}
 	}
 	return count
+}
+
+// skillSuggestion holds analyzed tool call data for potential skill creation.
+type skillSuggestion struct {
+	ToolCalls   []string
+	UniqueTools map[string]bool
+}
+
+// skillSuggestionResponse is the expected JSON from the skill suggestion LLM call.
+type skillSuggestionResponse struct {
+	Skip         bool   `json:"skip"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	AllowedTools string `json:"allowed_tools"`
+	Body         string `json:"body"`
+}
+
+// analyzeForSkill checks if a completed process has reusable workflow patterns.
+// Returns a skill suggestion if a pattern is detected, nil otherwise.
+func (w *WritebackWorker) analyzeForSkill(stepsData []byte) *skillSuggestion {
+	// Parse steps to extract tool call sequences
+	var toolCalls []string
+	for line := range strings.SplitSeq(string(stepsData), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var step struct {
+			Action string `json:"action"`
+			Tool   string `json:"tool"`
+		}
+		if json.Unmarshal([]byte(line), &step) == nil && step.Action == "tool_call" && step.Tool != "" {
+			toolCalls = append(toolCalls, step.Tool)
+		}
+	}
+
+	// Check minimum diversity: >= 3 different tool paths
+	uniqueTools := make(map[string]bool)
+	for _, tc := range toolCalls {
+		uniqueTools[tc] = true
+	}
+	if len(uniqueTools) < 3 {
+		return nil
+	}
+
+	// Check minimum length: >= 5 total tool calls
+	if len(toolCalls) < 5 {
+		return nil
+	}
+
+	return &skillSuggestion{
+		ToolCalls:   toolCalls,
+		UniqueTools: uniqueTools,
+	}
+}
+
+// suggestSkill calls the auxiliary LLM to generate a SKILL.md draft from analyzed tool calls,
+// then writes it via SkillWriter after security scanning.
+func (w *WritebackWorker) suggestSkill(suggestion *skillSuggestion, uuid string) {
+	caller := w.getCaller()
+	if caller == nil {
+		return
+	}
+
+	// Build user prompt with tool call sequence
+	var b strings.Builder
+	b.WriteString("Tool call sequence:\n")
+	for i, tc := range suggestion.ToolCalls {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, tc)
+	}
+	b.WriteString("\nUnique tools used: ")
+	tools := make([]string, 0, len(suggestion.UniqueTools))
+	for t := range suggestion.UniqueTools {
+		tools = append(tools, t)
+	}
+	slices.Sort(tools)
+	b.WriteString(strings.Join(tools, ", "))
+
+	ctx, cancel := context.WithTimeout(context.Background(), writebackLLMTimeout)
+	defer cancel()
+
+	systemPrompt := loadPromptTemplate("writeback_skill_suggest.txt")
+	resp, err := caller.Call(ctx, systemPrompt, b.String(), writebackMaxTokens)
+	if err != nil {
+		log.Printf("[writeback] skill suggestion LLM call failed uuid=%s: %v", uuid, err)
+		return
+	}
+
+	// Parse skill suggestion response
+	var skillResp skillSuggestionResponse
+	respContent := strings.TrimSpace(resp)
+	// Strip markdown code fences if present
+	if strings.HasPrefix(respContent, "```") {
+		lines := strings.Split(respContent, "\n")
+		if len(lines) >= 3 {
+			end := len(lines) - 1
+			for end > 0 && strings.TrimSpace(lines[end]) == "" {
+				end--
+			}
+			if strings.TrimSpace(lines[end]) == "```" {
+				lines = lines[1:end]
+			} else {
+				lines = lines[1:]
+			}
+			respContent = strings.Join(lines, "\n")
+		}
+	}
+
+	if err := json.Unmarshal([]byte(strings.TrimSpace(respContent)), &skillResp); err != nil {
+		log.Printf("[writeback] skill suggestion parse failed uuid=%s: %v", uuid, err)
+		return
+	}
+
+	if skillResp.Skip || skillResp.Name == "" {
+		return
+	}
+
+	// Security scan before writing
+	fullContent := skillResp.Description + "\n" + skillResp.Body
+	if result := ScanContent(fullContent); result.Rejected {
+		log.Printf("[writeback] skill suggestion security scan rejected uuid=%s: %s", uuid, result.Reason)
+		return
+	}
+
+	// Write skill via SkillWriter
+	if err := w.skillWriter.CreateSkill(skillResp.Name, skillResp.Description, skillResp.AllowedTools, skillResp.Body); err != nil {
+		log.Printf("[writeback] skill creation failed uuid=%s: %v", uuid, err)
+		return
+	}
+
+	log.Printf("[writeback] created skill suggestion %q from uuid=%s", skillResp.Name, uuid)
 }
