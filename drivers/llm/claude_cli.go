@@ -358,7 +358,7 @@ func (d *ClaudeCliDriver) Info() DriverInfo {
 
 // buildArgs constructs CLI arguments for a Claude Code CLI invocation.
 func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []string {
-	args := []string{"-p", req.Intent, "--output-format", outputFormat, "--tools", ""}
+	args := []string{"-p", req.Intent, "--output-format", outputFormat, "--bare"}
 
 	if outputFormat == "stream-json" {
 		args = append(args, "--verbose", "--include-partial-messages")
