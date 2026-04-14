@@ -10,6 +10,7 @@ import (
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/kernel/memory"
 	skillpkg "github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -33,6 +34,14 @@ func registerSections(proc *Process, k *KernelImpl, agentInstructions string) *r
 
 	// --- Agent instructions section (cached) ---
 	reg.Register("agent_instructions", func() string { return agentInstructions }, true)
+
+	// --- Memory section (cached — frozen snapshot per-process, Story 35.2) ---
+	reg.Register("memory", func() string {
+		if k.memoryStore == nil {
+			return ""
+		}
+		return memory.BuildMemoryBlock(k.memoryStore)
+	}, true)
 
 	// --- Dynamic sections (recomputed on each Build) ---
 

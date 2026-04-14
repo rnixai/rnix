@@ -15,6 +15,7 @@ import (
 	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
+	"github.com/rnixai/rnix/kernel/memory"
 	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -166,6 +167,9 @@ type KernelImpl struct {
 
 	// Resume serialization — prevents concurrent Resume for the same UUID (Story 30.4 review)
 	resumeMu sync.Mutex
+
+	// Memory store (Story 35.2)
+	memoryStore *memory.MemoryStore
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -212,6 +216,16 @@ func (k *KernelImpl) resolveBaseDir(proc *Process) string {
 // SetMountManager sets the MCP mount manager on the kernel.
 func (k *KernelImpl) SetMountManager(mgr MountManager) {
 	k.mountMgr = mgr
+}
+
+// SetMemoryStore injects the memory store for BuildPrompt injection and VFS device access.
+func (k *KernelImpl) SetMemoryStore(store *memory.MemoryStore) {
+	k.memoryStore = store
+}
+
+// MemoryStore returns the kernel's memory store, or nil if memory is disabled.
+func (k *KernelImpl) MemoryStore() *memory.MemoryStore {
+	return k.memoryStore
 }
 
 // SetRecordManager sets the execution recording manager on the kernel.

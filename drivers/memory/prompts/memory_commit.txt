@@ -1,0 +1,38 @@
+Read and write persistent memory entries across sessions.
+
+Use this tool to save, update, or remove knowledge that should persist across agent sessions. Memory entries are stored in structured files and automatically injected into future agents' system prompts.
+
+## When to use
+
+Save knowledge when you discover:
+- **Project conventions**: coding standards, library choices, architectural patterns (e.g., "this project uses goccy/go-yaml, not gopkg.in/yaml.v3")
+- **User corrections**: when the user corrects your approach, save the correction to avoid repeating mistakes
+- **Error recovery patterns**: when you recover from an error, save what went wrong and how to fix it
+- **Non-trivial workflows**: multi-step procedures that would be useful for future agents
+
+## When NOT to use
+
+Do not save:
+- Temporary task details or current conversation context
+- Information already obvious from the codebase (file structure, imports)
+- Sensitive data (passwords, API keys, tokens)
+- Ephemeral state that changes frequently
+
+## Actions
+
+- **add**: Append a new knowledge entry. Requires `content`.
+- **replace**: Swap an existing entry with new content. Requires `old` (exact match) and `new`.
+- **remove**: Delete an existing entry. Requires `old` (exact match).
+- **snapshot**: Read all current memory entries. No additional fields needed.
+- **capacity**: Check remaining storage space. Returns used and limit character counts.
+
+## Target scopes
+
+- `memory` (default): Project-level memory, stored in `.rnix/memory/MEMORY.md`. Use for project-specific knowledge.
+- `global_memory`: Global memory, stored in `~/.config/rnix/memory/MEMORY.md`. Use for cross-project knowledge (user preferences, general patterns).
+
+## Notes
+
+- All writes are security-scanned before persistence. Prompt injection attempts, hidden Unicode, and exfiltration commands are rejected.
+- Each scope has an independent character capacity limit. Check with `capacity` action before large writes.
+- Entries persist immediately to disk. Future agents receive a frozen snapshot at spawn time.

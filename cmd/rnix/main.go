@@ -29,6 +29,7 @@ import (
 	"github.com/rnixai/rnix/drivers/tty"
 	"github.com/rnixai/rnix/drivers/tasks"
 	"github.com/rnixai/rnix/drivers/cron"
+	driversmemory "github.com/rnixai/rnix/drivers/memory"
 	"github.com/rnixai/rnix/drivers/web"
 	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/internal/config"
@@ -36,6 +37,7 @@ import (
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/kernel"
+	kernelmemory "github.com/rnixai/rnix/kernel/memory"
 	agentshell "github.com/rnixai/rnix/shell"
 	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
@@ -1363,6 +1365,22 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// /dev/tasks (Story 33-2) — session-level task store, shared across processes
 	tasksDriver := tasks.NewDriver()
 	_ = devReg.RegisterWithDriver("/dev/tasks", tasks.FileFactory(tasksDriver), tasksDriver)
+
+	// /dev/memory/commit (Story 35.2) — persistent memory read/write
+	var memStore *kernelmemory.MemoryStore
+	memoryCfg := kernelmemory.DefaultMemoryConfig()
+	if memoryCfg.Enabled {
+		globalMemDir := filepath.Join(globalDir, "memory")
+		daemonCwd, _ := os.Getwd()
+		projectMemDir := filepath.Join(daemonCwd, ".rnix", "memory")
+		memStore = kernelmemory.NewMemoryStore(globalMemDir, projectMemDir, memoryCfg)
+		if err := memStore.Load(); err != nil {
+			fmt.Fprintf(os.Stderr, "[memory] warn: failed to load memory: %v\n", err)
+		}
+		memDriver := driversmemory.NewDriver(memStore)
+		_ = devReg.RegisterWithDriver("/dev/memory/commit", driversmemory.FileFactory(memDriver), memDriver)
+	}
+
 	ctxMgr := rnixctx.NewManager()
 	skillLoader := skills.NewSkillLoader([]string{filepath.Join(globalDir, "skills")})
 
@@ -1446,6 +1464,11 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// Differentiation memory (Story 20.4)
 	diffMemory := kernel.NewDiffMemory(256)
 	k.SetDiffMemory(diffMemory)
+
+	// Memory store injection (Story 35.2)
+	if memStore != nil {
+		k.SetMemoryStore(memStore)
+	}
 
 	// Initialize execution recording (Story 14.1)
 	cwd, _ := os.Getwd()
