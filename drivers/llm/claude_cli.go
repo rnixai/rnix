@@ -35,6 +35,7 @@ type ClaudeCliDriver struct {
 	defaultModel   string
 	defaultTimeout time.Duration
 	cmdBuilder     CommandBuilder
+	extraArgs      []string
 }
 
 // ClaudeCliOption configures a ClaudeCliDriver.
@@ -65,6 +66,13 @@ func WithCommand(cmd string) ClaudeCliOption {
 func WithCommandBuilder(cb CommandBuilder) ClaudeCliOption {
 	return func(d *ClaudeCliDriver) {
 		d.cmdBuilder = cb
+	}
+}
+
+// WithExtraArgs appends additional CLI arguments to every invocation.
+func WithExtraArgs(args []string) ClaudeCliOption {
+	return func(d *ClaudeCliDriver) {
+		d.extraArgs = args
 	}
 }
 
@@ -377,6 +385,8 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []strin
 	if req.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(req.MaxTurns))
 	}
+
+	args = append(args, d.extraArgs...)
 
 	return args
 }

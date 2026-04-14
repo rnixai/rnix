@@ -622,6 +622,28 @@ func TestCreateDriver_ClaudeCLI_DefaultCommand(t *testing.T) {
 	}
 }
 
+func TestCreateDriver_ClaudeCLI_ExtraArgs(t *testing.T) {
+	t.Parallel()
+	d, err := CreateDriver(ProviderConfig{
+		Name:      "claude",
+		Driver:    DriverClaudeCLI,
+		ExtraArgs: []string{"--dangerously-skip-permissions", "--custom"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	claude, ok := d.(*ClaudeCliDriver)
+	if !ok {
+		t.Fatal("expected *ClaudeCliDriver")
+	}
+	if len(claude.extraArgs) != 2 {
+		t.Fatalf("expected 2 extra args, got %d", len(claude.extraArgs))
+	}
+	if claude.extraArgs[0] != "--dangerously-skip-permissions" {
+		t.Errorf("extraArgs[0] = %q, want %q", claude.extraArgs[0], "--dangerously-skip-permissions")
+	}
+}
+
 func TestCreateDriver_CursorCLI_DefaultCommand(t *testing.T) {
 	t.Parallel()
 	d, err := CreateDriver(ProviderConfig{

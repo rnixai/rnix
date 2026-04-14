@@ -272,6 +272,25 @@ func TestClaudeCliDriver_Options(t *testing.T) {
 			t.Error("custom command builder was not called")
 		}
 	})
+
+	t.Run("WithExtraArgs", func(t *testing.T) {
+		var capturedArgs []string
+		d := NewClaudeCliDriver(
+			WithExtraArgs([]string{"--dangerously-skip-permissions", "--custom-flag"}),
+			WithCommandBuilder(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+				capturedArgs = args
+				return mockCmdBuilder("success")(ctx, name, args...)
+			}),
+		)
+		_, _ = d.Call(context.Background(), LLMRequest{Intent: "test"})
+		argsStr := strings.Join(capturedArgs, " ")
+		if !strings.Contains(argsStr, "--dangerously-skip-permissions") {
+			t.Errorf("expected --dangerously-skip-permissions in args, got: %s", argsStr)
+		}
+		if !strings.Contains(argsStr, "--custom-flag") {
+			t.Errorf("expected --custom-flag in args, got: %s", argsStr)
+		}
+	})
 }
 
 func TestClaudeCliDriver_Stream_Success(t *testing.T) {

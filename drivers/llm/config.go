@@ -48,16 +48,17 @@ type ProvidersConfig struct {
 }
 
 type ProviderConfig struct {
-	Name           string  `yaml:"name"`
-	Driver         string  `yaml:"driver"`
-	Command        string  `yaml:"command"` // CLI binary name override (e.g., "agent" for cursor-cli)
-	DefaultModel   string  `yaml:"default_model"`
-	BaseURL        string  `yaml:"base_url"`
-	APIKeyEnv      string  `yaml:"api_key_env"`
-	Mode           string  `yaml:"mode"`            // "stream" (default) or "call"
-	MaxTokens      int     `yaml:"max_tokens"`      // default max output tokens; 0 = use API default
-	CostPerToken   float64 `yaml:"cost_per_token"`  // cost per token in USD; 0 = cost tracking disabled
-	ThinkingBudget int     `yaml:"thinking_budget"` // thinking budget tokens (gemini driver only; 0 = disabled)
+	Name           string   `yaml:"name"`
+	Driver         string   `yaml:"driver"`
+	Command        string   `yaml:"command"` // CLI binary name override (e.g., "agent" for cursor-cli)
+	DefaultModel   string   `yaml:"default_model"`
+	BaseURL        string   `yaml:"base_url"`
+	APIKeyEnv      string   `yaml:"api_key_env"`
+	Mode           string   `yaml:"mode"`            // "stream" (default) or "call"
+	MaxTokens      int      `yaml:"max_tokens"`      // default max output tokens; 0 = use API default
+	CostPerToken   float64  `yaml:"cost_per_token"`  // cost per token in USD; 0 = cost tracking disabled
+	ThinkingBudget int      `yaml:"thinking_budget"` // thinking budget tokens (gemini driver only; 0 = disabled)
+	ExtraArgs      []string `yaml:"extra_args"`      // additional CLI arguments (claude-cli/cursor-cli only)
 }
 
 // FindProvidersConfigPath searches for providers.yaml in CWD then

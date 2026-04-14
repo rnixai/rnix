@@ -145,7 +145,7 @@ func TestInitProject_CreatesDirectoryStructure(t *testing.T) {
 		t.Fatalf("initProject failed: %v", err)
 	}
 
-	for _, sub := range []string{".rnix/agents", ".rnix/skills", ".rnix/data"} {
+	for _, sub := range []string{".rnix/agents", ".rnix/skills", ".rnix/data", ".rnix/state"} {
 		dir := filepath.Join(tmpDir, sub)
 		info, err := os.Stat(dir)
 		if err != nil {

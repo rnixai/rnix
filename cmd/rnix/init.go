@@ -96,7 +96,7 @@ func initGlobal(globalDir string) error {
 
 func initProject(projectDir string) error {
 	// Create directory structure
-	for _, sub := range []string{".rnix/agents", ".rnix/skills", ".rnix/data"} {
+	for _, sub := range []string{".rnix/agents", ".rnix/skills", ".rnix/data", ".rnix/state"} {
 		if err := os.MkdirAll(filepath.Join(projectDir, sub), 0o755); err != nil {
 			return err
 		}
