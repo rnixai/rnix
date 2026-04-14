@@ -170,6 +170,9 @@ type KernelImpl struct {
 
 	// Memory store (Story 35.2)
 	memoryStore *memory.MemoryStore
+
+	// Writeback worker (Story 35.3)
+	writebackWorker *memory.WritebackWorker
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -226,6 +229,11 @@ func (k *KernelImpl) SetMemoryStore(store *memory.MemoryStore) {
 // MemoryStore returns the kernel's memory store, or nil if memory is disabled.
 func (k *KernelImpl) MemoryStore() *memory.MemoryStore {
 	return k.memoryStore
+}
+
+// SetWritebackWorker injects the writeback worker for async knowledge extraction.
+func (k *KernelImpl) SetWritebackWorker(w *memory.WritebackWorker) {
+	k.writebackWorker = w
 }
 
 // SetRecordManager sets the execution recording manager on the kernel.

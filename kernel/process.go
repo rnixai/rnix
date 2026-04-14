@@ -181,6 +181,7 @@ type Process struct {
 	ctx            context.Context
 	wg             sync.WaitGroup
 	reapOnce       sync.Once  // ensures reap executes at most once
+	writebackOnce  sync.Once  // ensures writeback submit runs at most once (Story 35.3)
 	terminateOnce  sync.Once  // ensures terminated channel is closed exactly once
 	terminated     chan struct{} // closed when process transitions to Zombie; broadcast to all waiters
 }

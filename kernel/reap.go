@@ -12,6 +12,7 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/kernel/memory"
 )
 
 // DeadProcessTTL is how long a Dead process stays in the procTable before removal.
@@ -187,6 +188,28 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 			}
 		}
 	})
+
+	// 13. Writeback async knowledge extraction (Story 35.3, Architecture Decision 36)
+	// Runs AFTER reapOnce.Do completes — stepsDir and proc-info.json are finalized.
+	// Uses writebackOnce to ensure only one invocation per process even if reapProcess
+	// is called multiple times (from both Wait and reaper goroutine).
+	if k.writebackWorker != nil {
+		proc.writebackOnce.Do(func() {
+			proc.mu.Lock()
+			exit := proc.Exit
+			proc.mu.Unlock()
+			if exit == nil {
+				return
+			}
+			stepsDir := k.resolveStepsDir(proc)
+			if stepsDir == "" {
+				return
+			}
+			if memory.ShouldExtract(k.writebackWorker.Config(), exit.Code, exit.Reason, stepsDir) {
+				k.writebackWorker.Submit(memory.NewWritebackJob(proc.UUID, stepsDir, exit.Code, exit.Reason))
+			}
+		})
+	}
 }
 
 // handleOrphanChildren processes a dying parent's children:
@@ -276,6 +299,11 @@ func (k *KernelImpl) Reap(pid types.PID) {
 // startReaper launches the background goroutine that auto-reaps orphan zombies
 // and periodically cleans up expired Dead processes.
 func (k *KernelImpl) startReaper() {
+	// Start writeback worker if available (Story 35.3)
+	if k.writebackWorker != nil {
+		k.writebackWorker.Start()
+	}
+
 	k.deadTicker = time.NewTicker(10 * time.Second)
 	k.reaperWg.Go(func() {
 		for {
@@ -339,6 +367,18 @@ func (k *KernelImpl) cleanupExpiredDead(ttl time.Duration) {
 	}
 }
 
+// resolveStepsDir returns the .rnix/data/steps/<uuid>/ directory for a process.
+func (k *KernelImpl) resolveStepsDir(proc *Process) string {
+	baseDir := k.stepDataDir
+	if baseDir == "" && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+		baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
+	}
+	if baseDir == "" || proc.UUID == "" {
+		return ""
+	}
+	return filepath.Join(baseDir, "data", "steps", proc.UUID)
+}
+
 // saveCtxProfile snapshots the context profile to disk before CtxFree.
 // Best-effort: errors are logged but do not halt reaping.
 func (k *KernelImpl) saveCtxProfile(proc *Process, baseDir string) {
@@ -375,6 +415,10 @@ func (k *KernelImpl) saveCtxProfile(proc *Process, baseDir string) {
 // Safe to call multiple times — only the first call closes stopCh.
 func (k *KernelImpl) Shutdown() {
 	k.shutdownOnce.Do(func() {
+		// Stop writeback worker first — drain pending jobs (Story 35.3)
+		if k.writebackWorker != nil {
+			k.writebackWorker.Stop()
+		}
 		// Stop heartbeat monitor before reaper (Story 30.6)
 		if k.heartbeatMonitor != nil {
 			k.heartbeatMonitor.Stop()

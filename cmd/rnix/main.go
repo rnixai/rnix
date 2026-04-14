@@ -1470,6 +1470,21 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		k.SetMemoryStore(memStore)
 	}
 
+	// Writeback async knowledge extraction (Story 35.3)
+	if memStore != nil && memoryCfg.Writeback.Enabled {
+		defaultProv := ""
+		if providersCfg != nil {
+			defaultProv = providersCfg.DefaultProvider
+		}
+		wbCaller := &writebackLLMAdapter{
+			driverReg:       driverReg,
+			model:           memoryCfg.Writeback.Model,
+			defaultProvider: defaultProv,
+		}
+		wbWorker := kernelmemory.NewWritebackWorker(memStore, wbCaller, memoryCfg.Writeback, defaultProv)
+		k.SetWritebackWorker(wbWorker)
+	}
+
 	// Initialize execution recording (Story 14.1)
 	cwd, _ := os.Getwd()
 
@@ -1755,6 +1770,34 @@ func newLLMExtractor(driverReg *llm.DriverRegistry, cfg *llm.ProvidersConfig) we
 	// Use the provider's default model — the provider config should point to
 	// a fast model suitable for utility calls.
 	return &llmExtractorAdapter{driver: driver, model: driver.Info().DefaultModel}
+}
+
+// writebackLLMAdapter adapts an llm.DriverRegistry to the kernelmemory.LLMCaller
+// interface for async writeback knowledge extraction (Story 35.3).
+type writebackLLMAdapter struct {
+	driverReg       *llm.DriverRegistry
+	model           string
+	defaultProvider string
+}
+
+func (a *writebackLLMAdapter) Call(ctx context.Context, systemPrompt, userPrompt string, maxTokens int) (string, error) {
+	providerName := a.model
+	if providerName == "" {
+		providerName = a.defaultProvider
+	}
+	driver, ok := a.driverReg.Get(providerName)
+	if !ok {
+		return "", fmt.Errorf("LLM provider %q not found for writeback", providerName)
+	}
+	resp, err := driver.Call(ctx, llm.LLMRequest{
+		Intent:       userPrompt,
+		SystemPrompt: systemPrompt,
+		MaxTokens:    maxTokens,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.Content, nil
 }
 
 func main() {
