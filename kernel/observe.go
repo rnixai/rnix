@@ -478,27 +478,32 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			}
 
 			if evtType == "system" {
-				if tools, ok := evt["tools"].([]string); ok && len(tools) > 0 {
-					defs := make([]vfs.ToolDef, len(tools))
-					for i, name := range tools {
-						defs[i] = vfs.ToolDef{Name: name}
-					}
-					proc.mu.Lock()
-					proc.nativeToolDefs = defs
-					proc.mu.Unlock()
-				}
-				if toolsAny, ok := evt["tools"].([]any); ok && len(toolsAny) > 0 {
-					defs := make([]vfs.ToolDef, 0, len(toolsAny))
+				// Merge driver-reported tools into existing nativeToolDefs
+				// (which already contains VFS + meta tools from buildToolDefs).
+				// Never overwrite — only append new entries to avoid losing
+				// kernel-injected tools (Story 35-bug: observe.go overwrite).
+				var driverTools []string
+				if tools, ok := evt["tools"].([]string); ok {
+					driverTools = tools
+				} else if toolsAny, ok := evt["tools"].([]any); ok {
 					for _, t := range toolsAny {
 						if name, ok := t.(string); ok {
-							defs = append(defs, vfs.ToolDef{Name: name})
+							driverTools = append(driverTools, name)
 						}
 					}
-					if len(defs) > 0 {
-						proc.mu.Lock()
-						proc.nativeToolDefs = defs
-						proc.mu.Unlock()
+				}
+				if len(driverTools) > 0 {
+					proc.mu.Lock()
+					existing := make(map[string]bool, len(proc.nativeToolDefs))
+					for _, td := range proc.nativeToolDefs {
+						existing[td.Name] = true
 					}
+					for _, name := range driverTools {
+						if !existing[name] {
+							proc.nativeToolDefs = append(proc.nativeToolDefs, vfs.ToolDef{Name: name})
+						}
+					}
+					proc.mu.Unlock()
 				}
 			}
 

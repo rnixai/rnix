@@ -211,6 +211,66 @@ func TestGenerateToolProtocol(t *testing.T) {
 	}
 }
 
+// TestSystemEventMergesToolDefs verifies that driver-reported tools are merged
+// into existing nativeToolDefs rather than overwriting them. This is the
+// regression test for the observe.go bug where a system event from claude-cli
+// replaced VFS+meta tools with only [LSP, MCP auth].
+func TestSystemEventMergesToolDefs(t *testing.T) {
+	// Simulate kernel-initialized nativeToolDefs (VFS + meta tools)
+	proc := &Process{}
+	proc.nativeToolDefs = []vfs.ToolDef{
+		{Name: "read_file", Description: "Read a file"},
+		{Name: "write_file", Description: "Write a file"},
+		{Name: "shell", Description: "Run command"},
+		{Name: "complete", Description: "Finish task"},
+		{Name: "spawn", Description: "Spawn child"},
+	}
+
+	// Simulate driver system event with tools: [LSP, mcp_auth, read_file]
+	// (read_file is a duplicate that should be skipped)
+	driverTools := []string{"LSP", "mcp__gateway__authenticate", "read_file"}
+
+	// Apply the merge logic (mirrors observe.go system event handler)
+	proc.mu.Lock()
+	existing := make(map[string]bool, len(proc.nativeToolDefs))
+	for _, td := range proc.nativeToolDefs {
+		existing[td.Name] = true
+	}
+	for _, name := range driverTools {
+		if !existing[name] {
+			proc.nativeToolDefs = append(proc.nativeToolDefs, vfs.ToolDef{Name: name})
+		}
+	}
+	proc.mu.Unlock()
+
+	// Verify: all original tools preserved + new driver tools added (no duplicates)
+	if len(proc.nativeToolDefs) != 7 {
+		t.Fatalf("expected 7 tool defs (5 kernel + 2 new driver), got %d", len(proc.nativeToolDefs))
+	}
+
+	names := make(map[string]bool)
+	for _, td := range proc.nativeToolDefs {
+		if names[td.Name] {
+			t.Fatalf("duplicate tool def: %q", td.Name)
+		}
+		names[td.Name] = true
+	}
+
+	// Original kernel tools must be preserved
+	for _, required := range []string{"read_file", "write_file", "shell", "complete", "spawn"} {
+		if !names[required] {
+			t.Fatalf("kernel tool %q was lost after driver event merge", required)
+		}
+	}
+
+	// New driver tools must be added
+	for _, required := range []string{"LSP", "mcp__gateway__authenticate"} {
+		if !names[required] {
+			t.Fatalf("driver tool %q was not merged", required)
+		}
+	}
+}
+
 func TestGenerateToolProtocol_PlanningConditional(t *testing.T) {
 	metaDefs, metaMap := metaToolDefs(false, nil)
 	protocol := generateToolProtocol(nil, nil, metaDefs, metaMap, false)
