@@ -43,6 +43,14 @@ func registerSections(proc *Process, k *KernelImpl, agentInstructions string) *r
 		return memory.BuildMemoryBlock(k.memoryStore)
 	}, true)
 
+	// --- User profile section (cached — frozen snapshot per-process, Story 35.6) ---
+	reg.Register("user_profile", func() string {
+		if k.memoryStore == nil {
+			return ""
+		}
+		return memory.BuildUserProfileBlock(k.memoryStore)
+	}, true)
+
 	// --- Dynamic sections (recomputed on each Build) ---
 
 	// language: language preference (CC-aligned)

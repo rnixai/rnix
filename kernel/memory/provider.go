@@ -10,7 +10,16 @@ import (
 )
 
 // MemoryProvider is the storage backend interface for memory files.
-// target values: "memory" → MEMORY.md, "user" → USER.md (Story 35.6).
+//
+// Target values: "memory" → MEMORY.md, "user" → USER.md.
+//
+// Phase 1-3 (current): FileMemoryProvider implements this interface using local
+// filesystem files with per-target capacity limits.
+//
+// Phase 4 evolution (Architecture Decision 38): MemoryProvider may be backed by
+// an external service via MCP stdio transport, reusing the existing /dev/mcp/*
+// driver infrastructure. The interface contract remains unchanged; only the
+// underlying storage mechanism changes from local files to remote RPC.
 type MemoryProvider interface {
 	Load() error
 	Add(target string, content string) error
@@ -29,19 +38,32 @@ const entrySepRuneLen = 1
 // FileMemoryProvider implements MemoryProvider using local filesystem files.
 // Each target maps to a file in baseDir (e.g. baseDir/MEMORY.md).
 type FileMemoryProvider struct {
-	mu       sync.Mutex
-	baseDir  string
-	limit    int
-	entries  map[string][]string // target → list of entries
+	mu           sync.Mutex
+	baseDir      string
+	targetLimits map[string]int   // per-target char limits: {"memory": 4096, "user": 2048}
+	entries      map[string][]string // target → list of entries
 }
 
 // NewFileMemoryProvider creates a provider backed by files in baseDir.
-func NewFileMemoryProvider(baseDir string, charLimit int) *FileMemoryProvider {
+// targetLimits maps target names to their char limits (e.g. {"memory": 4096, "user": 2048}).
+func NewFileMemoryProvider(baseDir string, targetLimits map[string]int) *FileMemoryProvider {
 	return &FileMemoryProvider{
-		baseDir: baseDir,
-		limit:   charLimit,
-		entries: make(map[string][]string),
+		baseDir:      baseDir,
+		targetLimits: targetLimits,
+		entries:      make(map[string][]string),
 	}
+}
+
+// limitFor returns the char limit for a target. Falls back to "memory" limit,
+// then to a hardcoded default of 4096.
+func (p *FileMemoryProvider) limitFor(target string) int {
+	if limit, ok := p.targetLimits[target]; ok {
+		return limit
+	}
+	if limit, ok := p.targetLimits["memory"]; ok {
+		return limit
+	}
+	return 4096
 }
 
 func (p *FileMemoryProvider) targetFile(target string) string {
@@ -79,10 +101,11 @@ func (p *FileMemoryProvider) Add(target string, content string) error {
 	defer p.mu.Unlock()
 
 	// Capacity check
+	limit := p.limitFor(target)
 	current := p.usedLocked(target)
 	addition := len([]rune(content)) + entrySepRuneLen + 1 // §content\n
-	if current+addition > p.limit {
-		return fmt.Errorf("memory capacity limit exceeded: used=%d, limit=%d, needed=%d additional chars", current, p.limit, addition)
+	if current+addition > limit {
+		return fmt.Errorf("memory capacity limit exceeded: used=%d, limit=%d, needed=%d additional chars", current, limit, addition)
 	}
 
 	p.entries[target] = append(p.entries[target], content)
@@ -103,9 +126,10 @@ func (p *FileMemoryProvider) Replace(target string, old string, new string) erro
 	oldLen := len([]rune(old)) + entrySepRuneLen + 1
 	newLen := len([]rune(new)) + entrySepRuneLen + 1
 	if delta := newLen - oldLen; delta > 0 {
+		limit := p.limitFor(target)
 		current := p.usedLocked(target)
-		if current+delta > p.limit {
-			return fmt.Errorf("memory capacity limit exceeded: used=%d, limit=%d, needed=%d additional chars", current, p.limit, delta)
+		if current+delta > limit {
+			return fmt.Errorf("memory capacity limit exceeded: used=%d, limit=%d, needed=%d additional chars", current, limit, delta)
 		}
 	}
 
@@ -142,7 +166,7 @@ func (p *FileMemoryProvider) Snapshot(target string) string {
 func (p *FileMemoryProvider) Capacity(target string) (used int, limit int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.usedLocked(target), p.limit
+	return p.usedLocked(target), p.limitFor(target)
 }
 
 // usedLocked computes total chars (including § delimiters and newlines). Must hold mu.

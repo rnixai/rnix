@@ -1,0 +1,32 @@
+Read and write user profile entries that personalize agent interactions.
+
+The user profile stores information about the user's role, expertise, preferences, and communication style. Profile entries persist across sessions and are automatically injected into future agents' system prompts as a dedicated section.
+
+## When to use
+
+Save profile information when you observe:
+- **User role and expertise**: "I'm a senior Go developer", "I'm new to React"
+- **Communication preferences**: "I prefer concise explanations", "Show me examples first"
+- **Domain knowledge**: areas of expertise or unfamiliarity that should influence explanation depth
+- **Working style**: preferred approaches, tools, or workflows
+
+## When NOT to use
+
+Do not save:
+- Temporary task preferences (use project memory instead)
+- Sensitive personal information (PII, credentials)
+- Project-specific knowledge (use /dev/memory/commit instead)
+
+## Actions
+
+- **add**: Append a new profile entry. Requires `content`.
+- **replace**: Update an existing entry. Requires `old` (exact match) and `new`.
+- **remove**: Delete an entry. Requires `old` (exact match).
+- **snapshot**: Read all current profile entries.
+- **capacity**: Check remaining profile storage space.
+
+## Notes
+
+- Profile entries are security-scanned before persistence.
+- Profile has a separate capacity limit (default 2048 chars) from project memory.
+- All operations target USER.md — no scope parameter needed.

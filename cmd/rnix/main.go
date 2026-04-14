@@ -1380,6 +1380,12 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		}
 		memDriver := driversmemory.NewDriver(memStore)
 		_ = devReg.RegisterWithDriver("/dev/memory/commit", driversmemory.FileFactory(memDriver), memDriver)
+
+		// /dev/memory/profile (Story 35.6) — user profile read/write
+		if memoryCfg.UserProfile.Enabled {
+			profileDriver := driversmemory.NewProfileDriver(memStore)
+			_ = devReg.RegisterWithDriver("/dev/memory/profile", driversmemory.ProfileFileFactory(profileDriver), profileDriver)
+		}
 	}
 
 	ctxMgr := rnixctx.NewManager()

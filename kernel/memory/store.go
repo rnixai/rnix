@@ -15,9 +15,10 @@ type MemoryStore struct {
 
 // NewMemoryStore creates a new MemoryStore with dual-scope providers.
 func NewMemoryStore(globalDir, projectDir string, cfg MemoryConfig) *MemoryStore {
+	limits := map[string]int{"memory": cfg.Store.MemoryCharLimit, "user": cfg.Store.UserCharLimit}
 	return &MemoryStore{
-		global:  NewFileMemoryProvider(globalDir, cfg.Store.MemoryCharLimit),
-		project: NewFileMemoryProvider(projectDir, cfg.Store.MemoryCharLimit),
+		global:  NewFileMemoryProvider(globalDir, limits),
+		project: NewFileMemoryProvider(projectDir, limits),
 		cfg:     cfg,
 	}
 }

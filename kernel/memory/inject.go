@@ -33,3 +33,18 @@ func BuildMemoryBlock(store *MemoryStore) string {
 
 	return b.String()
 }
+
+// BuildUserProfileBlock builds the user profile section for system prompt injection.
+// Returns empty string if no user profile entries exist.
+func BuildUserProfileBlock(store *MemoryStore) string {
+	userSnap := store.Snapshot("user")
+	if userSnap == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("# User Profile\n\nPersonalized context about the current user. Use this to tailor your responses.\n\n")
+	b.WriteString(userSnap)
+	b.WriteString("\n")
+	return b.String()
+}

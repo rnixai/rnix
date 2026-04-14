@@ -82,7 +82,7 @@ func TestMemoryStore_ProviderLoad(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(memDir, "MEMORY.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	p := NewFileMemoryProvider(memDir, 4096)
+	p := NewFileMemoryProvider(memDir, map[string]int{"memory": 4096})
 	if err := p.Load(); err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
