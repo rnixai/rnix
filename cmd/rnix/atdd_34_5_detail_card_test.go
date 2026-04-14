@@ -116,8 +116,8 @@ func TestRenderDetailCardLeft_Dead(t *testing.T) {
 	if !strings.Contains(result, "Done") && !strings.Contains(result, "[ok]") {
 		t.Errorf("expected success marker for exit 0, got %q", result)
 	}
-	if !strings.Contains(result, "lived") {
-		t.Errorf("expected lived duration, got %q", result)
+	if !strings.Contains(result, "5.0s") {
+		t.Errorf("expected duration in time range, got %q", result)
 	}
 }
 

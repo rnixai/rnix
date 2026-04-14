@@ -213,10 +213,20 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		// Orchestration annotation (Story 34.7)
 		orchAnnotation := orchestrationAnnotation(row.proc)
 
+		// Wall-clock start time (compact: HH:MM when width allows, expanded: HH:MM:SS)
+		var wallClock string
+		if !row.proc.CreatedAt.IsZero() {
+			if isExpanded {
+				wallClock = ui.FormatWallClock(row.proc.CreatedAt)
+			} else if innerW >= 50 {
+				wallClock = ui.FormatWallClockShort(row.proc.CreatedAt)
+			}
+		}
+
 		// Calculate available width for intent (elastic).
 		// Filter empty parts so an absent state badge (dead+success) doesn't produce double-space.
 		prefixW := lipgloss.Width(cursor + collapsePrefix + row.prefix)
-		suffixParts := []string{pidPart, stateMark, tokens, elapsed}
+		suffixParts := []string{pidPart, stateMark, wallClock, tokens, elapsed}
 		if orchAnnotation != "" {
 			suffixParts = append(suffixParts, orchAnnotation)
 		}
@@ -399,6 +409,10 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 	}
 
 	var roots []*treeNode
+	// Track orphans by ParentUUID for synthetic parent grouping.
+	// When multiple children share the same missing ParentUUID, we create a
+	// synthetic placeholder node so the tree structure is preserved.
+	orphansByParent := make(map[string][]*treeNode)
 	for _, n := range nodes {
 		p := n.proc
 		myKey := nodeKey(p)
@@ -414,8 +428,8 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 				parent.children = append(parent.children, n)
 				continue
 			}
-			// ParentUUID set but parent not in current view → orphan root
-			roots = append(roots, n)
+			// ParentUUID set but parent not in current view → collect for synthetic grouping
+			orphansByParent[p.ParentUUID] = append(orphansByParent[p.ParentUUID], n)
 			continue
 		}
 
@@ -440,6 +454,31 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 			}
 		}
 		roots = append(roots, n)
+	}
+
+	// Create synthetic parent nodes for orphan groups sharing the same missing ParentUUID.
+	// This preserves tree structure when the parent process was not persisted (e.g., daemon crash).
+	for parentUUID, children := range orphansByParent {
+		if len(children) == 1 {
+			// Single orphan: just make it a root, no need for synthetic wrapper
+			roots = append(roots, children[0])
+			continue
+		}
+		// Create synthetic parent placeholder
+		uuidShort := parentUUID
+		if len(uuidShort) > 8 {
+			uuidShort = uuidShort[:8]
+		}
+		synthetic := &treeNode{
+			proc: vfs.ProcInfo{
+				PID:    children[0].proc.PPID,
+				UUID:   parentUUID,
+				State:  types.StateDead,
+				Intent: fmt.Sprintf("[missing parent %s…]", uuidShort),
+			},
+			children: children,
+		}
+		roots = append(roots, synthetic)
 	}
 
 	sortTreeNodes(roots, sortMode, asc)

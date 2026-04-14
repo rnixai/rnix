@@ -41,12 +41,16 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 
 	d := m.procDetail
 
-	// Line 1: Provider + Device list
+	// Line 1: Provider + Started + Device list
+	startedSeg := ""
+	if d.CreatedAtMs > 0 {
+		startedSeg = fmt.Sprintf(" │ Started: %s", ui.FormatWallClock(time.UnixMilli(d.CreatedAtMs)))
+	}
 	deviceList := "—"
 	if len(d.AllowedDevices) > 0 {
 		deviceList = strings.Join(d.AllowedDevices, ", ")
 	}
-	line1 := fmt.Sprintf("  Provider: %s │ Devices: %s", d.Provider, deviceList)
+	line1 := fmt.Sprintf("  Provider: %s%s │ Devices: %s", d.Provider, startedSeg, deviceList)
 	line1 = fitLine(line1, width)
 
 	// Line 2: Skills + Orchestration info
@@ -140,13 +144,15 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 	}
 
 	d := m.procDetail
+	// Time range: "HH:MM:SS→HH:MM:SS dur" or just "HH:MM:SS dur"
+	timeRange := formatDetailTimeRange(d)
 	var line1 string
 	if !ui.IsFailedResult(proc.Result) {
 		line1 = fmt.Sprintf("  %s Done (exit 0) │ %s │ %s tokens",
-			checkmark, formatLivedDuration(d), ui.FormatTokens(d.ContextStats.TokensUsed))
+			checkmark, timeRange, ui.FormatTokens(d.ContextStats.TokensUsed))
 	} else {
 		summary := truncateRuneSafe(proc.Result, 40)
-		line1 = fmt.Sprintf("  %s Failed (exit 1) │ %s", failmark, summary)
+		line1 = fmt.Sprintf("  %s Failed (exit 1) │ %s │ %s", failmark, timeRange, summary)
 	}
 	line1 = fitLine(line1, width)
 
@@ -255,6 +261,24 @@ func formatLivedDuration(d *ipc.GetProcDetailResponse) string {
 		}
 	}
 	return "—"
+}
+
+// formatDetailTimeRange returns "HH:MM:SS→HH:MM:SS dur" for dead processes.
+func formatDetailTimeRange(d *ipc.GetProcDetailResponse) string {
+	if d.CreatedAtMs <= 0 {
+		return formatLivedDuration(d)
+	}
+	start := ui.FormatWallClock(time.UnixMilli(d.CreatedAtMs))
+	if d.DeadAtMs > 0 {
+		end := ui.FormatWallClock(time.UnixMilli(d.DeadAtMs))
+		durMs := d.DeadAtMs - d.CreatedAtMs
+		if durMs > 0 {
+			dur := ui.FormatDuration(time.Duration(durMs) * time.Millisecond)
+			return start + "→" + end + " " + dur
+		}
+		return start + "→" + end
+	}
+	return start
 }
 
 // fitLine truncates a line to fit within width using lipgloss.Width for measurement.

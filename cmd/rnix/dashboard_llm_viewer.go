@@ -124,6 +124,15 @@ func (m dashboardModel) renderLLMViewer(w, h int) string {
 
 	// Title bar
 	fmt.Fprintf(&b, " LLM Viewer | PID %d", m.llmViewerPID)
+	// Show process start time
+	for _, p := range m.processes {
+		if p.PID == m.llmViewerPID && (m.llmViewerUUID == "" || p.UUID == m.llmViewerUUID) {
+			if !p.CreatedAt.IsZero() {
+				fmt.Fprintf(&b, " | %s", ui.FormatWallClock(p.CreatedAt))
+			}
+			break
+		}
+	}
 	if m.llmViewerDetail != nil {
 		fmt.Fprintf(&b, " | Step %d", m.llmViewerStep)
 		if m.llmViewerDetail.Action != "" {

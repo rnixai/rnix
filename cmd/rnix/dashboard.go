@@ -898,8 +898,14 @@ func (m dashboardModel) dashboardVisibleLines() int {
 	if m.viewMode == viewExpanded && m.expandedPane == paneTree {
 		statsOffset = 2
 	}
+	// Alert strip height: alerts occupy extra lines at the bottom of the screen.
+	alertH := alertStripHeight(len(m.alertEvents), m.alertExpanded)
+	alertOffset := 0
+	if alertH > 0 {
+		alertOffset = alertH + 1 // +1 for top border
+	}
 	// titleBar(2) + statusBar(1) + panelBorder(2) + headerLine(1) = 6
-	return max(m.height-6-detailOffset-statsOffset, 1)
+	return max(m.height-6-detailOffset-statsOffset-alertOffset, 1)
 }
 
 func (m dashboardModel) View() tea.View {

@@ -404,4 +404,26 @@ func (k *KernelImpl) Shutdown() {
 		proc.wg.Wait()
 		return true
 	})
+
+	// Persist all remaining processes that weren't reaped before shutdown.
+	// This catches Running/Created processes that were cancelled above but whose
+	// reapProcess never ran because the reaper was already stopped.
+	k.procTable.Range(func(pid types.PID, proc *Process) bool {
+		baseDir := k.stepDataDir
+		if baseDir == "" && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+			baseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
+		}
+		if baseDir == "" {
+			return true
+		}
+		info, err := k.GetProcInfo(pid)
+		if err != nil {
+			return true
+		}
+		// Best-effort persist: SaveProcInfo skips if file already exists and is fresh.
+		if err := SaveProcInfo(baseDir, *info); err != nil {
+			log.Printf("[shutdown] proc-info.json write error pid=%d: %v", pid, err)
+		}
+		return true
+	})
 }

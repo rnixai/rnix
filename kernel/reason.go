@@ -388,6 +388,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				if proc.FallbackDevice != "" {
 					reason = "all providers exhausted"
 				}
+				// Record the failed step with prompt data so it's visible in LLM viewer
+				k.writeStepRecord(proc, step, promptResult, "",
+					nil, "error", fmt.Sprintf("%s: %v", reason, fbErr), "", "", "", "", 0)
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, fbErr, time.Since(stepStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: reason, Err: fbErr})
 				return
@@ -407,6 +410,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 			k.emitEvent(proc, "Read", readArgs, len(respData), readErr, time.Since(readStart))
 			if readErr != nil {
+				// Record the failed step with prompt data so it's visible in LLM viewer
+				k.writeStepRecord(proc, step, promptResult, string(respData),
+					nil, "error", fmt.Sprintf("llm read failed: %v", readErr), "", "", "", "", 0)
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, readErr, time.Since(stepStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm read failed", Err: readErr})
 				return

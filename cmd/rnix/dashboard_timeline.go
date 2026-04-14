@@ -509,6 +509,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 	showDuration := width >= 90
 	showToken := width >= 70
+	showStepOffset := width >= 110
 
 	linesUsed := 0
 
@@ -557,7 +558,12 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			}
 			icon := ui.EventTypeIcon(ev.Type)
 			style := sysEventStyle(ev)
-			line := fmt.Sprintf("%s %s %s", cursorMark, style.Render(icon), style.Render(ev.Summary))
+			tsLabel := ""
+			if !ev.Timestamp.IsZero() {
+				tsLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).
+					Render(ui.FormatWallClock(ev.Timestamp)) + " "
+			}
+			line := fmt.Sprintf("%s%s%s %s", cursorMark, tsLabel, style.Render(icon), style.Render(ev.Summary))
 			if fi == m.stepCursor {
 				line = lipgloss.NewStyle().
 					Background(lipgloss.Color("#2D2D3D")).
@@ -623,6 +629,22 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			durLabel = durStyle.Render(fmt.Sprintf("%6s", dur))
 		}
 
+		// Step offset from process start (wide screens only)
+		var offsetLabel string
+		if showStepOffset && !ev.Timestamp.IsZero() {
+			for _, p := range m.processes {
+				if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
+					if !p.CreatedAt.IsZero() {
+						offset := ev.Timestamp.Sub(p.CreatedAt)
+						if offset >= 0 {
+							offsetLabel = dimStyle.Render(fmt.Sprintf("%8s", ui.FormatOffsetFromStart(offset)))
+						}
+					}
+					break
+				}
+			}
+		}
+
 		hasError := s.HasError
 		errMark := ""
 		if hasError {
@@ -639,6 +661,9 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		}
 		if showDuration {
 			fixedWidth += 7
+		}
+		if offsetLabel != "" {
+			fixedWidth += 9
 		}
 		if hasError {
 			fixedWidth += 2
@@ -660,6 +685,9 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 		var line string
 		parts := []string{cursorMark, levelMark, summaryText}
+		if offsetLabel != "" {
+			parts = append(parts, offsetLabel)
+		}
 		if showDuration {
 			parts = append(parts, tokenLabel, durLabel, stepAction, errMark)
 		} else if showToken {
@@ -905,6 +933,15 @@ func (m dashboardModel) renderUnifiedStepHeader(maxW, totalSteps, filteredCount,
 	b.WriteString(" Timeline")
 	if m.selectedPID > 0 {
 		fmt.Fprintf(&b, " │ PID %d", m.selectedPID)
+	}
+	// Wall-clock start time for selected process
+	for _, p := range m.processes {
+		if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
+			if !p.CreatedAt.IsZero() {
+				fmt.Fprintf(&b, " │ %s", ui.FormatWallClock(p.CreatedAt))
+			}
+			break
+		}
 	}
 	fmt.Fprintf(&b, " │ %d steps", totalSteps)
 	if sysCount > 0 {

@@ -337,6 +337,44 @@ func FormatRelativeTime(t time.Time) string {
 	}
 }
 
+// FormatWallClock formats a time as HH:MM:SS for dashboard display.
+// Returns "—" for zero time.
+func FormatWallClock(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return t.Format("15:04:05")
+}
+
+// FormatWallClockShort formats a time as HH:MM for narrow dashboard display.
+// Returns "—" for zero time.
+func FormatWallClockShort(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return t.Format("15:04")
+}
+
+// FormatOffsetFromStart formats a duration offset from process start
+// as a compact string like "+0.0s", "+5.2s", "+2m13s", "+1h05m".
+func FormatOffsetFromStart(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("+%.1fs", d.Seconds())
+	case d < time.Hour:
+		m := int(d.Minutes())
+		s := int(d.Seconds()) % 60
+		return fmt.Sprintf("+%dm%02ds", m, s)
+	default:
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		return fmt.Sprintf("+%dh%02dm", h, m)
+	}
+}
+
 // IsStale returns true if a process has exceeded its step timeout.
 // Returns false if timeout is disabled (0) or heartbeat is zero.
 func IsStale(lastHeartbeat time.Time, stepTimeout time.Duration) bool {

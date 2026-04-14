@@ -69,7 +69,11 @@ func renderAlertStrip(m *dashboardModel, width, maxLines int) string {
 
 		alert := alerts[i]
 		icon := ui.AlertSeverityIcon(alert.Severity)
-		line := fmt.Sprintf("%s %s", icon, alert.Summary)
+		ts := ""
+		if !alert.Timestamp.IsZero() {
+			ts = ui.FormatWallClockShort(alert.Timestamp) + " "
+		}
+		line := fmt.Sprintf("%s %s%s", icon, ts, alert.Summary)
 		line = truncateAnsi(line, width-1)
 
 		// Highlight cursor line
