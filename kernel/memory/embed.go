@@ -13,3 +13,9 @@ func loadPromptTemplate(name string) string {
 	}
 	return string(data)
 }
+
+// LoadRecallSummarizePrompt returns the recall summarization prompt template.
+// Exported for use by drivers/memory/recall_file.go.
+func LoadRecallSummarizePrompt() string {
+	return loadPromptTemplate("recall_summarize.txt")
+}

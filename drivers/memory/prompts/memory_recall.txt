@@ -1,0 +1,31 @@
+Search historical conversations and past agent knowledge.
+
+Use this tool to find relevant information from completed agent processes. The recall system maintains an in-memory inverted index over all historical step records, enabling fast keyword search across the entire process history.
+
+## When to use
+
+- Before starting a task, check if a previous agent has already solved a similar problem
+- When you encounter an unfamiliar part of the codebase, search for past agents that worked on it
+- When debugging, search for prior error patterns and recovery strategies
+- When you need project context that may have been discovered by earlier agents
+
+## Parameters
+
+- **query** (required): Keywords describing what you want to find (e.g., "yaml config merge", "test failure database")
+- **max_results** (optional): Maximum number of results to return (default: 20)
+- **summarize** (optional): If true, results are summarized by an auxiliary LLM for concise context injection (default: false). Use sparingly — adds latency.
+
+## Response
+
+Returns a JSON object with:
+- `ok`: Whether the search succeeded
+- `results`: Array of matching records with UUID, summary, and timestamp
+- `summary`: LLM-generated summary (only when summarize=true)
+- `count`: Number of results returned
+
+## Notes
+
+- The recall index builds asynchronously at daemon startup. If the index is not ready, the search returns an error — retry shortly.
+- Search uses keyword intersection: multi-word queries return results containing ALL keywords.
+- Results are sorted by recency (newest first).
+- This is a read-only device. It does not modify any stored data.

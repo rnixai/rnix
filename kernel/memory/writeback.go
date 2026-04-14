@@ -68,6 +68,7 @@ type WritebackWorker struct {
 	wg              sync.WaitGroup
 	stopOnce        sync.Once
 	callerMu        sync.Mutex // protects caller replacement (for testing)
+	recallIndex     *RecallIndex // optional, for incremental index updates (Story 35.4)
 }
 
 // NewWritebackWorker creates a new WritebackWorker.
@@ -84,6 +85,11 @@ func NewWritebackWorker(store *MemoryStore, caller LLMCaller, cfg WritebackConfi
 // Config returns the worker's writeback configuration.
 func (w *WritebackWorker) Config() WritebackConfig {
 	return w.cfg
+}
+
+// SetRecallIndex injects the recall index for incremental updates after knowledge extraction.
+func (w *WritebackWorker) SetRecallIndex(ri *RecallIndex) {
+	w.recallIndex = ri
 }
 
 // Start launches the background worker goroutine that consumes writeback jobs.
@@ -202,6 +208,13 @@ func (w *WritebackWorker) processJob(job writebackJob) {
 	}
 	if written > 0 {
 		log.Printf("[writeback] extracted %d knowledge entries from uuid=%s", written, job.UUID)
+	}
+
+	// 8. Incremental recall index update (Story 35.4)
+	if w.recallIndex != nil {
+		if err := w.recallIndex.IndexProcess(job.UUID, job.StepsDir); err != nil {
+			log.Printf("[writeback] recall index update failed uuid=%s: %v", job.UUID, err)
+		}
 	}
 }
 

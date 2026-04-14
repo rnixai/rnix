@@ -1494,6 +1494,38 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: load process history: %v\n", err)
 	}
 
+	// Recall cross-process search index (Story 35.4)
+	if memStore != nil && memoryCfg.Recall.Enabled {
+		recallIdx := kernelmemory.NewRecallIndex()
+		k.SetRecallIndex(recallIdx)
+
+		// Start background index build — stepsDir is .rnix/data/steps/
+		stepsDir := filepath.Join(cwd, ".rnix", "data", "steps")
+		recallIdx.BuildFromDiskAsync(stepsDir)
+
+		// Inject recall index into writeback worker for incremental updates
+		if k.WritebackWorker() != nil {
+			k.WritebackWorker().SetRecallIndex(recallIdx)
+		}
+
+		// Register /dev/memory/recall VFS device
+		var recallCaller kernelmemory.LLMCaller
+		if memoryCfg.Writeback.Enabled {
+			// Reuse the writeback LLM adapter for recall summarization
+			defaultProv := ""
+			if providersCfg != nil {
+				defaultProv = providersCfg.DefaultProvider
+			}
+			recallCaller = &writebackLLMAdapter{
+				driverReg:       driverReg,
+				model:           memoryCfg.Writeback.Model,
+				defaultProvider: defaultProv,
+			}
+		}
+		recallDriver := driversmemory.NewRecallDriver(recallIdx, recallCaller)
+		_ = devReg.RegisterWithDriver("/dev/memory/recall", driversmemory.RecallFileFactory(recallDriver), recallDriver)
+	}
+
 	recordBaseDir := resolveDataDir(cwd, "records")
 	recordMgr := debug.NewRecordManager(recordBaseDir)
 	k.SetRecordManager(recordMgr)

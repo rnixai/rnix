@@ -173,6 +173,9 @@ type KernelImpl struct {
 
 	// Writeback worker (Story 35.3)
 	writebackWorker *memory.WritebackWorker
+
+	// Recall index (Story 35.4)
+	recallIndex *memory.RecallIndex
 }
 
 // NewKernel creates a new KernelImpl with the given VFS, context manager, and optional callbacks.
@@ -234,6 +237,21 @@ func (k *KernelImpl) MemoryStore() *memory.MemoryStore {
 // SetWritebackWorker injects the writeback worker for async knowledge extraction.
 func (k *KernelImpl) SetWritebackWorker(w *memory.WritebackWorker) {
 	k.writebackWorker = w
+}
+
+// WritebackWorker returns the kernel's writeback worker, or nil if writeback is disabled.
+func (k *KernelImpl) WritebackWorker() *memory.WritebackWorker {
+	return k.writebackWorker
+}
+
+// SetRecallIndex injects the recall index for cross-process search.
+func (k *KernelImpl) SetRecallIndex(ri *memory.RecallIndex) {
+	k.recallIndex = ri
+}
+
+// RecallIndex returns the kernel's recall index, or nil if recall is disabled.
+func (k *KernelImpl) RecallIndex() *memory.RecallIndex {
+	return k.recallIndex
 }
 
 // SetRecordManager sets the execution recording manager on the kernel.
