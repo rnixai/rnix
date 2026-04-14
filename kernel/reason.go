@@ -20,6 +20,11 @@ import (
 func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	proc.mu.Lock()
 	mcpMounts := append([]string(nil), proc.MCPMounts...)
+	// Backfill Result from exit reason when empty — ensures Dashboard always has
+	// diagnostic info for failed processes (e.g., empty LLM response, context cancelled).
+	if proc.Result == "" && exit.Code != 0 && exit.Reason != "" {
+		proc.Result = exit.Reason
+	}
 	proc.mu.Unlock()
 	if k.mountMgr != nil {
 		for _, mountPath := range mcpMounts {
@@ -428,6 +433,16 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"error", fmt.Sprintf("unmarshal response failed: %v", err), "", "", "", "", 0)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, err, time.Since(stepStart))
 			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "unmarshal response failed", Err: err})
+			return
+		}
+
+		// Guard: detect empty LLM response (common symptom of misconfigured provider)
+		if resp.Content == "" && resp.TokensUsed == 0 && len(resp.ToolCalls) == 0 {
+			emptyErr := fmt.Errorf("LLM returned empty response (content=\"\", tokens=0, no tool_calls) — check provider/model configuration")
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"error", "empty_llm_response", "", "", "", "", 0)
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "empty_response"}, nil, emptyErr, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "empty_llm_response", Err: emptyErr})
 			return
 		}
 

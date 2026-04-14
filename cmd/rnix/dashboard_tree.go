@@ -416,8 +416,26 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 	for _, n := range nodes {
 		p := n.proc
 		myKey := nodeKey(p)
-		// Self-parent or orphan → root
-		if p.PID == p.PPID || p.PPID == 0 {
+		// Self-parent → root
+		if p.PID == p.PPID {
+			roots = append(roots, n)
+			continue
+		}
+
+		// PPID == 0 with ParentUUID: reparented orphan — try to preserve tree
+		// structure by resolving via ParentUUID before falling through to root.
+		if p.PPID == 0 && p.ParentUUID != "" {
+			if parent, ok := nodes[p.ParentUUID]; ok {
+				parent.children = append(parent.children, n)
+				continue
+			}
+			// Parent not in current view — collect for synthetic grouping
+			orphansByParent[p.ParentUUID] = append(orphansByParent[p.ParentUUID], n)
+			continue
+		}
+
+		// True root: PPID == 0 with no ParentUUID
+		if p.PPID == 0 {
 			roots = append(roots, n)
 			continue
 		}

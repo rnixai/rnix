@@ -3114,3 +3114,79 @@ func TestExtractContentText(t *testing.T) {
 		})
 	}
 }
+
+// TestReasonStep_EmptyLLMResponse verifies that an LLM returning an empty response
+// (content="", tokens_used=0, no tool_calls) causes the process to exit with code 1
+// and a diagnostic Result message, rather than silently succeeding.
+func TestReasonStep_EmptyLLMResponse(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("", 0), // empty content, 0 tokens
+	}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	pid, err := k.Spawn("test empty response", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatalf("process %d not found", pid)
+	}
+
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 1 {
+			t.Errorf("expected exit code 1 for empty LLM response, got %d", exit.Code)
+		}
+		if exit.Reason != "empty_llm_response" {
+			t.Errorf("expected Reason 'empty_llm_response', got %q", exit.Reason)
+		}
+		if exit.Err == nil {
+			t.Error("expected non-nil Err for empty LLM response")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process completion")
+	}
+
+	// Result should be backfilled from exit reason for Dashboard visibility
+	if proc.Result == "" {
+		t.Error("proc.Result should be backfilled with exit reason, got empty")
+	}
+	if !strings.Contains(proc.Result, "empty_llm_response") {
+		t.Errorf("proc.Result should contain 'empty_llm_response', got %q", proc.Result)
+	}
+}
+
+// TestFinishProcess_BackfillsEmptyResult verifies that finishProcess sets
+// proc.Result from exit.Reason when Result is empty and exit code is non-zero.
+func TestFinishProcess_BackfillsEmptyResult(t *testing.T) {
+	llmFile := &mockLLMFile{
+		readData: makeLLMResponse("actual content", 10),
+	}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	pid, err := k.Spawn("test backfill", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatalf("process %d not found", pid)
+	}
+
+	// Wait for normal completion (exit code 0) — Result should be "actual content"
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0, got %d: %s", exit.Code, exit.Reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process completion")
+	}
+
+	if proc.Result != "actual content" {
+		t.Errorf("expected Result 'actual content', got %q", proc.Result)
+	}
+}

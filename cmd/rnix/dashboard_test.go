@@ -2573,6 +2573,49 @@ func TestBuildProcessTree_DeadOrphan(t *testing.T) {
 	}
 }
 
+// TestBuildProcessTree_ReparentedOrphanPreservesTree verifies that a process
+// reparented to PPID=0 by handleOrphanChildren still appears under its original
+// parent in the tree when ParentUUID is set.
+func TestBuildProcessTree_ReparentedOrphanPreservesTree(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "parent-uuid", State: types.StateDead, CreatedAt: now},
+		{PID: 13, PPID: 0, UUID: "child-uuid", ParentUUID: "parent-uuid", State: types.StateDead, CreatedAt: now.Add(time.Second)},
+	}
+	roots := buildProcessTree(procs, treeSortPID, true)
+	if len(roots) != 1 {
+		t.Fatalf("expected 1 root (PID 1), got %d roots", len(roots))
+	}
+	root := roots[0]
+	if root.proc.PID != 1 {
+		t.Fatalf("root should be PID 1, got %d", root.proc.PID)
+	}
+	if len(root.children) != 1 {
+		t.Fatalf("PID 1 should have 1 child (PID 13 reparented but ParentUUID preserved), got %d", len(root.children))
+	}
+	if root.children[0].proc.PID != 13 {
+		t.Errorf("child of PID 1 should be PID 13, got %d", root.children[0].proc.PID)
+	}
+}
+
+// TestBuildProcessTree_ReparentedOrphanSyntheticParent verifies that when a
+// reparented process (PPID=0, ParentUUID set) has its parent missing from the
+// view, it gets a synthetic parent node rather than becoming a bare root.
+func TestBuildProcessTree_ReparentedOrphanSyntheticParent(t *testing.T) {
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 10, PPID: 0, UUID: "c1", ParentUUID: "missing-parent", State: types.StateDead, CreatedAt: now},
+		{PID: 11, PPID: 0, UUID: "c2", ParentUUID: "missing-parent", State: types.StateDead, CreatedAt: now.Add(time.Second)},
+	}
+	roots := buildProcessTree(procs, treeSortPID, true)
+	if len(roots) != 1 {
+		t.Fatalf("expected 1 synthetic root for missing parent, got %d roots", len(roots))
+	}
+	if len(roots[0].children) != 2 {
+		t.Errorf("synthetic parent should have 2 children, got %d", len(roots[0].children))
+	}
+}
+
 // --- 34.3-UNIT-007: [P0] collapseCommonPrefix collapses when prefix > 50% (AC4) ---
 
 func TestCollapseCommonPrefix(t *testing.T) {
