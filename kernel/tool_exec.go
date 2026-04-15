@@ -43,6 +43,19 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 			continue
 		}
 
+		// Handle LLM thinking output — not a tool error, just record and continue
+		if tc.Name == "think" || tc.Name == "thinking" {
+			thinkContent, _ := tc.Input["content"].(string)
+			if thinkContent == "" {
+				thinkContent = fmt.Sprintf("%v", tc.Input)
+			}
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, "ok")
+			k.writeDriverStepRecordFull(proc, step, tc.Name,
+				"think", tc.Name, "", thinkContent, time.Since(stepStart),
+				nil, 0)
+			continue
+		}
+
 		mapping, ok := proc.toolMap[tc.Name]
 		if !ok {
 			errMsg := "error: unknown tool " + tc.Name
@@ -91,6 +104,10 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 			}
 			k.emitLog(proc, step, types.LogTool, toolContent, mapping.VFSPath)
 			*consecutiveToolErrors = 0
+			// Clear HasToolError: a successful tool call means the LLM recovered from prior errors
+			proc.mu.Lock()
+			proc.HasToolError = false
+			proc.mu.Unlock()
 
 			inputJSON, _ := json.Marshal(tc.Input)
 			k.writeDriverStepRecordFull(proc, step, tc.Name,

@@ -225,3 +225,64 @@ var (
 	errMockWrite = types.NewDriverError("Write", "/dev/tools/failing", nil, types.ErrInternal)
 	errMockRead  = types.NewDriverError("Read", "/dev/tools/read-fail", nil, types.ErrInternal)
 )
+
+func TestReasonStep_ToolErrorRecovered_ExitCodeZero(t *testing.T) {
+	// When a tool call fails but the LLM recovers by making a subsequent
+	// successful tool call, HasToolError should be cleared and exit code should be 0.
+	reg := vfs.NewDeviceRegistry()
+
+	seqFile := &sequenceLLMFile{
+		responses: [][]byte{
+			// Step 1: LLM requests a tool at a non-existent path (will fail → HasToolError = true)
+			makeToolCallResponse("/dev/nonexistent", map[string]any{"query": "test"}, 50),
+			// Step 2: LLM recovers by calling a working tool (should clear HasToolError)
+			makeToolCallResponse("/dev/tools/ok", map[string]any{"data": "recovery"}, 40),
+			// Step 3: LLM produces final text response
+			makeLLMResponse("recovered successfully", 20),
+		},
+	}
+	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return seqFile, nil
+	})
+	// /dev/nonexistent is NOT registered → Open will fail
+	// /dev/tools/ok IS registered → will succeed
+	_ = reg.Register("/dev/tools/ok", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return &mockToolFile{readData: []byte("tool result")}, nil
+	})
+
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	defer k.Shutdown()
+
+	pid, err := k.Spawn("tool error recovery test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case exit := <-proc.Done:
+		if exit.Code != 0 {
+			t.Fatalf("expected exit code 0 (error recovered), got %d: reason=%q", exit.Code, exit.Reason)
+		}
+		if exit.Reason != "completed" {
+			t.Fatalf("expected reason 'completed', got %q", exit.Reason)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for process to complete")
+	}
+
+	// Verify HasToolError was cleared by the successful recovery
+	proc.mu.Lock()
+	hasErr := proc.HasToolError
+	proc.mu.Unlock()
+	if hasErr {
+		t.Error("expected HasToolError to be false after successful recovery")
+	}
+
+	// Verify process produced a result
+	if proc.Result == "" {
+		t.Error("expected non-empty result after recovery")
+	}
+}

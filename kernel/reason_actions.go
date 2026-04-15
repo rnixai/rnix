@@ -223,6 +223,10 @@ func (k *KernelImpl) handleActionToolCall(proc *Process, action ReasonAction, re
 	}
 
 	*consecutiveToolErrors = 0
+	// Clear HasToolError: a successful tool call means the LLM recovered from prior errors
+	proc.mu.Lock()
+	proc.HasToolError = false
+	proc.mu.Unlock()
 	stepDur := time.Since(stepStart)
 	k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "tool_call", "tool": action.ToolPath}, string(toolResult), nil, stepDur)
 	if k.callbacks != nil {
