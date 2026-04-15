@@ -381,6 +381,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleCompact(conn, req.Payload)
 		case MethodAnswerUser:
 			s.handleAnswerUser(conn, req.Payload)
+		case MethodSignalTree:
+			s.handleSignalTree(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
@@ -794,6 +796,36 @@ func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 	writeResponse(conn, Response{OK: true})
+}
+
+func (s *Server) handleSignalTree(conn net.Conn, rawPayload json.RawMessage) {
+	var req SignalTreeRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid signal_tree request"}})
+		return
+	}
+	if req.Signal == 0 {
+		req.Signal = types.SIGPAUSE
+	}
+
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	affected, err := s.kern.SignalTree(pid, req.Signal)
+	if err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+	payload, _ := json.Marshal(SignalTreeResponse{Affected: affected})
+	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 
 func (s *Server) handleSuspend(conn net.Conn, rawPayload json.RawMessage) {

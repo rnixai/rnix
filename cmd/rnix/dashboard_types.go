@@ -295,6 +295,13 @@ type recordToggleMsg struct {
 	err        error
 }
 
+type pauseToggleMsg struct {
+	pid      types.PID
+	affected int
+	paused   bool // true=SIGPAUSE, false=SIGRESUME
+	err      error
+}
+
 // --- Prompt Pager styles (Story 27-4) ---
 
 var (

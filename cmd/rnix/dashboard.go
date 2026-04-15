@@ -410,6 +410,22 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, fetchProcDetailCmd(msg.result.PID, msg.result.UUID)
 		}
 		return m, nil
+	case pauseToggleMsg:
+		if msg.err != nil {
+			m.statusMsg = fmt.Sprintf("✗ Pause/resume: %v", msg.err)
+		} else {
+			action := "Resumed"
+			if msg.paused {
+				action = "Paused"
+			}
+			if msg.affected > 1 {
+				m.statusMsg = fmt.Sprintf("%s PID %d (+%d children)", action, msg.pid, msg.affected-1)
+			} else {
+				m.statusMsg = fmt.Sprintf("%s PID %d", action, msg.pid)
+			}
+		}
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return m, nil
 	case traceListMsg:
 		if msg.err != nil {
 			m.traceErr = msg.err

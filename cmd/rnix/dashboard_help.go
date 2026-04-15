@@ -67,6 +67,7 @@ func (m dashboardModel) renderHelpOverlay() string {
 	right.WriteString("\n")
 	right.WriteString(groupTitle.Render("Process") + "\n")
 	right.WriteString(entry("K", "Kill process") + "\n")
+	right.WriteString(entry("p", "Pause/resume tree") + "\n")
 	right.WriteString(entry("R", "Resume suspended") + "\n")
 	right.WriteString(entry("a", "Toggle alerts") + "\n")
 	right.WriteString(entry("l", "View log") + "\n")

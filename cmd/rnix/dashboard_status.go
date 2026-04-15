@@ -70,7 +70,7 @@ func (m dashboardModel) renderDashboardStatus() string {
 		core = []string{hint("j/k", "nav"), hint("s", "strace"), hint("v", "detail"), hint("f", "filter"), hint("?", "help")}
 		exit = hint("d/Esc", "monitor")
 	default: // viewDefault
-		core = []string{hint("j/k", "nav"), hint("s/S", "sort"), hint("z", "expand"), hint("f", "filter"), hint("?", "help")}
+		core = []string{hint("j/k", "nav"), hint("s/S", "sort"), hint("z", "expand"), hint("p", "pause"), hint("f", "filter"), hint("?", "help")}
 	}
 
 	hints := hintGroup(core...) + "    " + exit

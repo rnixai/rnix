@@ -180,6 +180,27 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "p":
+		// Pause/resume process tree (SIGPAUSE/SIGRESUME cascade)
+		// Skip when timeline filter mode is active — 'p' toggles plan filter in Layer 6
+		if m.stepFilterMode {
+			break
+		}
+		if m.selectedPID > 0 && m.connected {
+			proc := findSelectedProcess(&m)
+			if proc != nil && proc.State == types.StateRunning {
+				sig := types.SIGPAUSE
+				if proc.IsPaused {
+					sig = types.SIGRESUME
+				}
+				return m, pauseTreeCmd(m.selectedPID, sig)
+			}
+		}
+		if m.selectedPID == 0 {
+			m.statusMsg = "Select a process first"
+			m.statusMsgTTL = statusMsgDefaultTTL
+		}
+		return m, nil
 	case "esc":
 		if m.viewMode == viewExpanded {
 			// 让面板先处理内部 Esc（如 Trace 的 tree→list）

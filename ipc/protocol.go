@@ -62,6 +62,7 @@ const (
 	MethodHeartbeatStatus        Method = "heartbeat_status"
 	MethodCompact                Method = "compact"
 	MethodAnswerUser             Method = "answer_user"
+	MethodSignalTree             Method = "signal_tree"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -279,6 +280,18 @@ type KillRequest struct {
 	PID    types.PID    `json:"pid"`
 	UUID   string       `json:"uuid,omitempty"`
 	Signal types.Signal `json:"signal"`
+}
+
+// SignalTreeRequest is the payload for MethodSignalTree.
+type SignalTreeRequest struct {
+	PID    types.PID    `json:"pid"`
+	UUID   string       `json:"uuid,omitempty"`
+	Signal types.Signal `json:"signal"`
+}
+
+// SignalTreeResponse is the response for MethodSignalTree.
+type SignalTreeResponse struct {
+	Affected int `json:"affected"`
 }
 
 // --- Suspend ---

@@ -97,6 +97,15 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		// State badge (AC1)
 		stateMark := ui.StateBadge(row.proc.State, row.proc.Result)
 
+		// Paused indicator: override state badge when process is paused
+		if row.proc.IsPaused && (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) {
+			if ui.IsASCIIMode() {
+				stateMark = "[P]"
+			} else {
+				stateMark = "⏸"
+			}
+		}
+
 		// Stale detection (Story 30.5)
 		isStale := (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) &&
 			ui.IsStale(row.proc.LastHeartbeat, row.proc.StepTimeout)

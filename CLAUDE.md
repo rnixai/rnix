@@ -8,7 +8,7 @@ Rnix is an operating system for AI agents, inspired by Unix design philosophy. I
 
 ## 子代理
 
-如果子代理任务复杂，使用相同的模型 `opus[1m]` 创建子代理，如果是简单任务，可以使用 `haiku[1m]` 模型
+所有子代理或agent team ，使用相同的模型 `opus[1m]` 创建
 
 ## Build & Development Commands
 

@@ -187,9 +187,10 @@ func renderDeadDetailCardRight(m *dashboardModel, proc *selectedProcRef, width, 
 
 // selectedProcRef caches selected process fields for detail card rendering.
 type selectedProcRef struct {
-	State  types.ProcessState
-	Intent string
-	Result string
+	State    types.ProcessState
+	Intent   string
+	Result   string
+	IsPaused bool
 }
 
 // findSelectedProcess returns a reference to the selected process, or nil.
@@ -200,9 +201,10 @@ func findSelectedProcess(m *dashboardModel) *selectedProcRef {
 	for i := range m.processes {
 		if m.processes[i].PID == m.selectedPID && (m.selectedUUID == "" || m.processes[i].UUID == m.selectedUUID) {
 			return &selectedProcRef{
-				State:  m.processes[i].State,
-				Intent: m.processes[i].Intent,
-				Result: m.processes[i].Result,
+				State:    m.processes[i].State,
+				Intent:   m.processes[i].Intent,
+				Result:   m.processes[i].Result,
+				IsPaused: m.processes[i].IsPaused,
 			}
 		}
 	}
@@ -328,6 +330,24 @@ func resumeProcessCmd(uuid string) tea.Cmd {
 		defer client.Close()
 		result, err := client.Resume(uuid)
 		return resumeResultMsg{result: result, err: err}
+	}
+}
+
+// pauseTreeCmd sends SIGPAUSE or SIGRESUME to a process and its entire subtree via IPC.
+func pauseTreeCmd(pid types.PID, signal types.Signal) tea.Cmd {
+	paused := signal == types.SIGPAUSE
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return pauseToggleMsg{pid: pid, paused: paused, err: err}
+		}
+		defer client.Close()
+		result, err := client.SignalTree(pid, signal)
+		affected := 0
+		if result != nil {
+			affected = result.Affected
+		}
+		return pauseToggleMsg{pid: pid, affected: affected, paused: paused, err: err}
 	}
 }
 

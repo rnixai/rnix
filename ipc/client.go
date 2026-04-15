@@ -125,6 +125,19 @@ func (c *Client) Kill(pid types.PID, signal types.Signal) error {
 	return err
 }
 
+// SignalTree sends a signal to the target process and all its living descendants.
+func (c *Client) SignalTree(pid types.PID, signal types.Signal) (*SignalTreeResponse, error) {
+	resp, err := c.call(MethodSignalTree, SignalTreeRequest{PID: pid, Signal: signal})
+	if err != nil {
+		return nil, err
+	}
+	var result SignalTreeResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal signal_tree response: %w", err)
+	}
+	return &result, nil
+}
+
 // Suspend suspends the specified running process.
 func (c *Client) Suspend(pid types.PID) (*SuspendResponse, error) {
 	resp, err := c.call(MethodSuspend, SuspendRequest{PID: pid})

@@ -117,6 +117,49 @@ func (k *KernelImpl) defaultSignalAction(proc *Process, sig types.Signal) string
 	}
 }
 
+// SignalTree delivers a signal to the target process and all its living descendants.
+// It traverses the process tree recursively via Children, skipping zombie/dead processes.
+// Returns the total number of processes affected (including the root).
+func (k *KernelImpl) SignalTree(pid types.PID, sig types.Signal) (int, error) {
+	if !sig.Valid() {
+		return 0, NewSyscallError("SignalTree", pid, "",
+			fmt.Errorf("invalid signal: %d", sig), types.ErrInvalid)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		return 0, NewSyscallError("SignalTree", pid, "",
+			fmt.Errorf("process not found"), types.ErrNotFound)
+	}
+
+	affected := 0
+	k.signalTreeRecursive(proc, sig, &affected)
+	return affected, nil
+}
+
+// signalTreeRecursive sends the signal to proc and recurses into its children.
+func (k *KernelImpl) signalTreeRecursive(proc *Process, sig types.Signal, affected *int) {
+	state := proc.GetState()
+	if state == types.StateZombie || state == types.StateDead {
+		return
+	}
+
+	// Signal this process (reuse Kill which handles all dispatch logic)
+	if err := k.Kill(proc.PID, sig); err == nil {
+		*affected++
+	}
+
+	// Recurse into children
+	children := proc.GetChildren()
+	for _, childPID := range children {
+		childProc, ok := k.GetProcess(childPID)
+		if !ok {
+			continue
+		}
+		k.signalTreeRecursive(childProc, sig, affected)
+	}
+}
+
 // SigBlock blocks a signal for the target process.
 func (k *KernelImpl) SigBlock(pid types.PID, sig types.Signal) error {
 	start := time.Now()
