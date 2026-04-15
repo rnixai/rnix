@@ -215,6 +215,7 @@ type dashboardModel struct {
 	debugRefreshCounter int                         // tick counter for periodic historical refresh
 	debugScrollTop      int                         // debug timeline scroll offset
 	debugCursor         int                         // debug timeline cursor
+	debugAutoScroll     bool                        // auto-scroll to latest event
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -613,7 +614,30 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Update selection from current cursor position (after validation)
+	// Stabilize cursor after tree rebuild: if treeRows reordered and the cursor
+	// now points to a different PID, relocate cursor to the previously selected PID.
+	// This prevents unintentional PID changes (which clear debug events, reset detail, etc.)
+	// while still allowing user-initiated cursor moves (handled in keyboard path).
+	//
+	// In debug mode, use debugAttachedPID as the anchor — it survives even when
+	// the UUID validation above resets selectedPID to 0 (which happens when the
+	// daemon's process list briefly omits a recently reaped process).
+	anchorPID := m.selectedPID
+	if m.debugMode && anchorPID == 0 && m.debugAttachedPID > 0 {
+		anchorPID = m.debugAttachedPID
+	}
+	if anchorPID > 0 && m.treeCursor < len(m.treeRows) {
+		if m.treeRows[m.treeCursor].proc.PID != anchorPID {
+			for i, row := range m.treeRows {
+				if row.proc.PID == anchorPID {
+					m.treeCursor = i
+					break
+				}
+			}
+		}
+	}
+
+	// Update selection from current cursor position (after stabilization)
 	if m.treeCursor < len(m.treeRows) {
 		m = selectProcess(m, m.treeRows[m.treeCursor])
 	}

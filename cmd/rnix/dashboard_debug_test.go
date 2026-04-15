@@ -121,9 +121,9 @@ func TestMergeDebugEvents_TimeOrdered(t *testing.T) {
 	if len(result) < 2 {
 		t.Fatalf("expected >= 2 events, got %d", len(result))
 	}
-	// Newest first (descending)
-	if result[0].Timestamp.Before(result[1].Timestamp) {
-		t.Error("expected descending timestamp order")
+	// Oldest first (ascending) — natural message flow
+	if result[0].Timestamp.After(result[1].Timestamp) {
+		t.Error("expected ascending timestamp order")
 	}
 }
 

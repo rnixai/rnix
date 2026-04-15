@@ -3458,3 +3458,54 @@ func TestExecute_ResultLastLine_StripsToLastLine(t *testing.T) {
 		t.Errorf("capture result = %q, want %q", cap.Result, "manage")
 	}
 }
+
+// TestScriptExecutor_WhileLoop_AssignedSpawnFailure verifies that when an
+// assigned spawn and its on-error handler both fail, the while loop continues
+// iterating (the script handles errors via the variable, not via LastExitCode).
+func TestScriptExecutor_WhileLoop_AssignedSpawnFailure(t *testing.T) {
+	spawner := &mockSpawner{
+		results: []mockResult{
+			// Iteration 1: main spawn fails, on-error also fails
+			{result: "empty_llm_response", exitCode: 1, tokens: 10},
+			{result: "error_handler_failed", exitCode: 1, tokens: 10},
+			// Iteration 2: main spawn succeeds with "done"
+			{result: "done", exitCode: 0, tokens: 10},
+		},
+	}
+
+	input := `export project_done=false
+while $project_done != true
+  decision = spawn "planner" on-error spawn "error handler"
+  if $decision.result == done
+    export project_done=true
+  end
+end`
+
+	script, err := ParseScript(input)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	env := NewEnvironment()
+	executor := NewScriptExecutor(spawner, env)
+	result, err := executor.Execute(context.Background(), script)
+	if err != nil {
+		t.Fatalf("execute error: %v", err)
+	}
+
+	// Should have 3 calls: fail + on-error + success
+	if len(spawner.calls) != 3 {
+		t.Fatalf("calls = %d, want 3 (planner:fail + error-handler:fail + planner:success)", len(spawner.calls))
+	}
+
+	// While loop should have continued past the first iteration failure
+	val, ok := env.Get("project_done")
+	if !ok || val != "true" {
+		t.Errorf("project_done = %q, want %q (loop should have continued to iteration 2)", val, "true")
+	}
+
+	if result.LastExitCode != 0 {
+		t.Errorf("final LastExitCode = %d, want 0", result.LastExitCode)
+	}
+}
+

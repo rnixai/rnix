@@ -202,6 +202,12 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 				}
 			}
 
+			// When result is assigned to a variable, the script handles errors
+			// via the variable — don't let LastExitCode leak to loop break checks.
+			if stmt.Assign != "" {
+				result.LastExitCode = 0
+			}
+
 			if result.LastExitCode != 0 && stmt.Assign == "" {
 				return nil
 			}

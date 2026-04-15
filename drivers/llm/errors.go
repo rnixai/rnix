@@ -7,12 +7,23 @@ import (
 
 // Sentinel errors for LLM-specific failure categories.
 var (
-	ErrRateLimit     = errors.New("llm: rate limit exceeded")
-	ErrAuth          = errors.New("llm: authentication failed")
-	ErrContextLength = errors.New("llm: context length exceeded")
-	ErrModelNotFound = errors.New("llm: model not found")
-	ErrTimeout       = errors.New("llm: request timed out")
+	ErrRateLimit        = errors.New("llm: rate limit exceeded")
+	ErrAuth             = errors.New("llm: authentication failed")
+	ErrContextLength    = errors.New("llm: context length exceeded")
+	ErrModelNotFound    = errors.New("llm: model not found")
+	ErrTimeout          = errors.New("llm: request timed out")
+	ErrTransient        = errors.New("llm: transient error")
+	ErrStreamIncomplete = errors.New("llm: stream ended without result")
 )
+
+// IsTransient returns true if the error is a transient LLM error that may
+// succeed on retry (socket disconnect, connection reset, overloaded, etc.).
+func IsTransient(err error) bool {
+	return errors.Is(err, ErrTransient) ||
+		errors.Is(err, ErrRateLimit) ||
+		errors.Is(err, ErrTimeout) ||
+		errors.Is(err, ErrStreamIncomplete)
+}
 
 // LLMError represents a typed error from an LLM driver.
 type LLMError struct {

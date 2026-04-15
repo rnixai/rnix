@@ -3,6 +3,7 @@ package kernel
 import (
 	gocontext "context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -83,6 +85,39 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 			}
 		}
 	}
+}
+
+// isTransientLLMError checks if an error from the LLM driver is transient
+// and worth retrying (socket disconnect, overloaded, connection reset, etc.).
+func isTransientLLMError(err error) bool {
+	// Check via the llm package's IsTransient (uses sentinel errors including ErrStreamIncomplete)
+	if llm.IsTransient(err) {
+		return true
+	}
+	var llmErr interface{ Unwrap() error }
+	if errors.As(err, &llmErr) {
+		inner := llmErr.Unwrap()
+		if inner != nil {
+			if llm.IsTransient(inner) {
+				return true
+			}
+			lower := strings.ToLower(inner.Error())
+			if strings.Contains(lower, "socket") ||
+				strings.Contains(lower, "connection") ||
+				strings.Contains(lower, "overloaded") ||
+				strings.Contains(lower, "eof") ||
+				strings.Contains(lower, "reset by peer") ||
+				strings.Contains(lower, "stream") {
+				return true
+			}
+		}
+	}
+	// Also match on the outer error string as a fallback
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "socket") ||
+		strings.Contains(lower, "connection") ||
+		strings.Contains(lower, "overloaded") ||
+		strings.Contains(lower, "stream ended without result")
 }
 
 // attemptFallback tries the fallback provider when primary LLM call fails.
@@ -208,6 +243,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 	var lastResultSummary string
 	var consecutiveToolErrors int
+	var consecutiveTransientRetries int
 	loopDetector := NewLoopDetector(DefaultLoopThreshold)
 
 	startStep := 1
@@ -386,6 +422,18 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 			stepCancel()
 
+			// Transient error retry (socket disconnect, overloaded, etc.)
+			if isTransientLLMError(err) && consecutiveTransientRetries < 2 {
+				consecutiveTransientRetries++
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":    step,
+					"action":  "transient_retry",
+					"attempt": consecutiveTransientRetries,
+					"reason":  err.Error(),
+				}, nil, nil, time.Since(stepStart))
+				continue // retry current step
+			}
+
 			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model}, nil, err, time.Since(writeStart))
 			fbData, fbErr := k.attemptFallback(proc, req, proc.PrimaryDevice, err, step)
 			if fbErr != nil {
@@ -404,6 +452,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		} else {
 			proc.SetStepCancel(nil)
 			stepCancel()
+			consecutiveTransientRetries = 0 // reset on success
 
 			k.emitEvent(proc, "Write", map[string]any{"fd": llmFD, "size": len(reqJSON), "model": model}, nil, nil, time.Since(writeStart))
 			readStart := time.Now()

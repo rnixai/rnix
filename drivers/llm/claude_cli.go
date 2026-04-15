@@ -396,6 +396,8 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []strin
 // When Messages is empty (first turn), returns Intent as-is.
 // When Messages contains prior turns, serializes the full conversation so the
 // LLM sees previous actions and tool results across stateless CLI invocations.
+// The original intent is re-stated at the end to keep the LLM focused on its
+// assigned task rather than drifting into unrelated actions.
 func (d *ClaudeCliDriver) buildPrompt(req LLMRequest) string {
 	if len(req.Messages) <= 1 {
 		return req.Intent
@@ -412,7 +414,7 @@ func (d *ClaudeCliDriver) buildPrompt(req LLMRequest) string {
 			fmt.Fprintf(&sb, "[Tool Result (%s)]\n%s\n\n", msg.ToolCallID, msg.Content)
 		}
 	}
-	sb.WriteString("Based on the conversation above, continue with your next action.")
+	fmt.Fprintf(&sb, "Continue. Your original task: %s", req.Intent)
 	return sb.String()
 }
 
@@ -451,6 +453,10 @@ func classifyCliError(msg string) (int, error) {
 	switch {
 	case strings.Contains(lower, "rate limit"):
 		return 429, ErrRateLimit
+	case strings.Contains(lower, "overloaded") || strings.Contains(lower, "529"):
+		return 529, ErrTransient
+	case strings.Contains(lower, "socket") || strings.Contains(lower, "connection"):
+		return 0, ErrTransient
 	case strings.Contains(lower, "auth") || strings.Contains(lower, "key"):
 		return 401, ErrAuth
 	case strings.Contains(lower, "too long") || strings.Contains(lower, "context"):

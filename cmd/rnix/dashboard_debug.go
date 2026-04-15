@@ -113,19 +113,37 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 			return m, nil, true
 		}
 		// Historical events from disk are the authoritative complete set.
-		// Always replace the current events to avoid duplicates from periodic refresh.
+		// Replace strace events with disk data, preserving any live stream events
+		// that arrived after the disk watermark.
+		var newWatermark int64
+		for _, sew := range msg.events {
+			if sew.TimestampMs > newWatermark {
+				newWatermark = sew.TimestampMs
+			}
+		}
+		// Preserve live stream events newer than what's on disk.
+		var preserved []UnifiedEvent
+		for _, ev := range m.debugStraceEvents {
+			if ev.RawEvent != nil && ev.RawEvent.TimestampMs > newWatermark {
+				preserved = append(preserved, ev)
+			}
+		}
 		m.debugStraceEvents = nil
 		m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
 		for _, sew := range msg.events {
 			ev := straceToUnifiedEvent(sew)
 			m.appendStraceEvent(ev)
 			m.updateDeviceLatency(sew)
-			// Track watermark for dedup against live stream events.
-			if sew.TimestampMs > m.debugHistWatermark {
-				m.debugHistWatermark = sew.TimestampMs
-			}
 		}
-		m.debugEvents = mergeDebugEvents(m.stepEntries, m.debugStraceEvents, m.selectedPID)
+		// Re-add preserved live stream events.
+		m.debugStraceEvents = append(m.debugStraceEvents, preserved...)
+		m.debugHistWatermark = newWatermark
+		merged := mergeDebugEvents(m.stepEntries, m.debugStraceEvents, m.selectedPID)
+		// Only overwrite debugEvents if the merge produced results;
+		// avoid clearing events that were already displayed from a previous load or stream.
+		if len(merged) > 0 || len(m.debugEvents) == 0 {
+			m.debugEvents = merged
+		}
 		return m, nil, true
 	}
 	return m, nil, false
@@ -174,11 +192,13 @@ func (m dashboardModel) enterDebugMode() (dashboardModel, tea.Cmd) {
 	m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
 	m.debugScrollTop = 0
 	m.debugCursor = 0
+	m.debugAutoScroll = true
 	m.debugCtxProfile = nil
 	m.debugAttachedPID = m.selectedPID
 	m.debugAutoReloaded = false
 	m.debugHistWatermark = 0
 	m.debugRefreshCounter = 0
+	m.debugAutoScroll = true
 
 	if m.isSelectedProcessDead() {
 		return m, m.loadHistoricalStraceCmd()
@@ -294,7 +314,7 @@ func straceToUnifiedEvent(sew ipc.SyscallEventWire) UnifiedEvent {
 // --- Event merging ---
 
 // mergeDebugEvents merges step entries and strace events into a single timeline,
-// sorted by timestamp descending (newest first).
+// sorted by timestamp ascending (oldest first) for natural message-flow reading.
 func mergeDebugEvents(stepEntries []stepEntry, straceEvents []UnifiedEvent, pid types.PID) []UnifiedEvent {
 	var result []UnifiedEvent
 
@@ -309,9 +329,166 @@ func mergeDebugEvents(stepEntries []stepEntry, straceEvents []UnifiedEvent, pid 
 	// Append strace events
 	result = append(result, straceEvents...)
 
-	// Sort descending by timestamp (newest first)
-	sort.Sort(UnifiedEventSlice(result))
+	// Sort ascending by timestamp (oldest first) for natural message flow
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.Before(result[j].Timestamp)
+	})
 	return result
+}
+
+// consolidateDebugEvents merges consecutive driver stream events into
+// user-readable logical entries. E.g., 100 DriverThinking deltas become
+// a single "Thinking: <summary>" line.
+func consolidateDebugEvents(events []UnifiedEvent) []UnifiedEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	var result []UnifiedEvent
+	var cur *UnifiedEvent
+	var curSyscall string
+	var thinkBuf strings.Builder
+
+	flush := func() {
+		if cur == nil {
+			return
+		}
+		if curSyscall == "DriverThinking" && thinkBuf.Len() > 0 {
+			text := thinkBuf.String()
+			// Use first meaningful line as summary
+			summary := briefConsolidatedSummary(text, 80)
+			cur.Summary = fmt.Sprintf("💭 %s", summary)
+			thinkBuf.Reset()
+		}
+		result = append(result, *cur)
+		cur = nil
+		curSyscall = ""
+	}
+
+	for i := range events {
+		ev := &events[i]
+
+		// Non-syscall events pass through unchanged
+		if ev.Type != EventSyscall || ev.RawEvent == nil {
+			flush()
+			result = append(result, *ev)
+			continue
+		}
+
+		sc := ev.RawEvent.Syscall
+
+		// Events that should never be consolidated
+		switch sc {
+		case "Write", "Read", "ReasonStep", "CtxRead", "CtxWrite",
+			"Open", "Close", "Kill", "Shutdown":
+			flush()
+			result = append(result, *ev)
+			continue
+		}
+
+		// Start new group or continue existing
+		if sc != curSyscall {
+			flush()
+			curSyscall = sc
+			clone := *ev
+			cur = &clone
+
+			switch sc {
+			case "DriverThinking":
+				thinkBuf.Reset()
+				content, _ := ev.RawEvent.Args["content"].(string)
+				subtype, _ := ev.RawEvent.Args["subtype"].(string)
+				if subtype == "delta" && content != "" && content != "started" {
+					thinkBuf.WriteString(content)
+				}
+				cur.Summary = "💭 Thinking..."
+			case "DriverToolCall":
+				tool, _ := ev.RawEvent.Args["tool"].(string)
+				content, _ := ev.RawEvent.Args["content"].(string)
+				if tool != "" {
+					cur.Summary = fmt.Sprintf("🔧 %s", tool)
+				} else if content == "started" || content == "completed" {
+					cur.Summary = fmt.Sprintf("🔧 Tool %s", content)
+				} else {
+					cur.Summary = "🔧 Tool call"
+				}
+			case "DriverInit":
+				cur.Summary = "⚡ Init"
+			case "DriverUser":
+				cur.Summary = "📋 Tool result"
+			case "DriverEvent":
+				// Assistant message — extract text preview
+				text := extractConsolidatedText(ev.RawEvent.Args["content"])
+				if text != "" {
+					cur.Summary = fmt.Sprintf("💬 %s", briefConsolidatedSummary(text, 70))
+				} else {
+					cur.Summary = "💬 Assistant"
+				}
+			}
+		} else {
+			// Continue existing group — accumulate data
+			switch sc {
+			case "DriverThinking":
+				content, _ := ev.RawEvent.Args["content"].(string)
+				subtype, _ := ev.RawEvent.Args["subtype"].(string)
+				if subtype == "delta" && content != "" && content != "started" {
+					thinkBuf.WriteString(content)
+				}
+			case "DriverToolCall":
+				// Update tool name if we get it later
+				tool, _ := ev.RawEvent.Args["tool"].(string)
+				if tool != "" && cur != nil {
+					cur.Summary = fmt.Sprintf("🔧 %s", tool)
+				}
+			case "DriverEvent":
+				// Update summary with latest text
+				text := extractConsolidatedText(ev.RawEvent.Args["content"])
+				if text != "" && cur != nil {
+					cur.Summary = fmt.Sprintf("💬 %s", briefConsolidatedSummary(text, 70))
+				}
+			}
+			// Update timestamp to span duration
+			if cur != nil {
+				cur.Detail = fmt.Sprintf("%.1fs", ev.Timestamp.Sub(cur.Timestamp).Seconds())
+			}
+		}
+	}
+	flush()
+	return result
+}
+
+// briefConsolidatedSummary extracts the first meaningful line, truncated.
+func briefConsolidatedSummary(text string, maxRunes int) string {
+	for line := range strings.SplitSeq(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		r := []rune(line)
+		if len(r) > maxRunes {
+			return string(r[:maxRunes]) + "..."
+		}
+		return line
+	}
+	return ""
+}
+
+// extractContentText extracts text from a content field for consolidated display.
+func extractConsolidatedText(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []any:
+		for _, item := range v {
+			if block, ok := item.(map[string]any); ok {
+				if block["type"] == "text" {
+					if text, ok := block["text"].(string); ok && text != "" {
+						return text
+					}
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // --- Ring buffer ---
@@ -362,6 +539,7 @@ func extractDeviceName(sew ipc.SyscallEventWire) string {
 // --- Filtered debug events ---
 
 // F9: Reuse isEventVisible() for filter logic, adding debugShowStrace as the only extra check.
+// Returns consolidated events for user-friendly display (driver stream deltas merged into logical entries).
 func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
 	if len(m.debugEvents) == 0 {
 		return nil
@@ -376,7 +554,7 @@ func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
 		}
 		result = append(result, ev)
 	}
-	return result
+	return consolidateDebugEvents(result)
 }
 
 // clampDebugCursor ensures the cursor stays within the filtered event range.
@@ -399,6 +577,7 @@ func (m *dashboardModel) debugTickProcess() bool {
 		return false
 	}
 	streamClosed := false
+	drainedAny := false
 	// Non-blocking read from strace channel
 	if m.debugStraceCh != nil {
 		for {
@@ -413,6 +592,7 @@ func (m *dashboardModel) debugTickProcess() bool {
 				if m.debugHistWatermark > 0 && sew.TimestampMs <= m.debugHistWatermark {
 					continue
 				}
+				drainedAny = true
 				ev := straceToUnifiedEvent(sew)
 				m.appendStraceEvent(ev)
 				m.updateDeviceLatency(sew)
@@ -422,8 +602,11 @@ func (m *dashboardModel) debugTickProcess() bool {
 		}
 	doneReading:
 	}
-	// Always merge debug events (including when channel closes)
-	m.debugEvents = mergeDebugEvents(m.stepEntries, m.debugStraceEvents, m.selectedPID)
+	// Re-merge only when new strace data arrived or stream closed;
+	// avoid overwriting debugEvents with stale/nil stepEntries during PID transitions.
+	if streamClosed || drainedAny {
+		m.debugEvents = mergeDebugEvents(m.stepEntries, m.debugStraceEvents, m.selectedPID)
+	}
 	return streamClosed
 }
 
@@ -518,9 +701,14 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 	}
 
 	listLines := max(height-2, 1)
+
+	// Auto-scroll: keep cursor at the end (latest events, ascending order)
+	if m.debugAutoScroll {
+		m.debugCursor = max(len(filtered)-1, 0)
+	}
 	cursor := min(m.debugCursor, max(len(filtered)-1, 0))
 
-	// Scroll management
+	// Scroll management — ensure cursor is visible
 	startIdx := m.debugScrollTop
 	if startIdx < 0 || startIdx >= len(filtered) {
 		startIdx = 0
@@ -750,6 +938,7 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd) {
 	filtered := m.filteredDebugEvents()
 	switch key {
 	case "up", "k":
+		m.debugAutoScroll = false
 		if m.debugCursor > 0 {
 			m.debugCursor--
 		}
@@ -757,12 +946,17 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd) {
 			m.debugScrollTop = m.debugCursor
 		}
 	case "down", "j":
+		m.debugAutoScroll = false
 		if m.debugCursor < len(filtered)-1 {
 			m.debugCursor++
 		}
 		visibleLines := max(m.dashboardVisibleLines()-4, 1)
 		if m.debugCursor >= m.debugScrollTop+visibleLines {
 			m.debugScrollTop = m.debugCursor - visibleLines + 1
+		}
+		// Re-enable auto-scroll when user reaches the bottom
+		if m.debugCursor >= len(filtered)-1 {
+			m.debugAutoScroll = true
 		}
 	case "s":
 		m.debugShowStrace = !m.debugShowStrace

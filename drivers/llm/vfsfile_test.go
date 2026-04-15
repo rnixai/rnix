@@ -272,3 +272,99 @@ func TestLLMFile_Write_ContextPropagated(t *testing.T) {
 }
 
 type contextKey string
+
+// streamMockDriver lets tests specify exactly which stream events to send.
+type streamMockDriver struct {
+	events []StreamEvent
+}
+
+func (m *streamMockDriver) Call(_ context.Context, _ LLMRequest) (*LLMResponse, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (m *streamMockDriver) Stream(_ context.Context, _ LLMRequest) (<-chan StreamEvent, error) {
+	ch := make(chan StreamEvent, len(m.events))
+	for _, evt := range m.events {
+		ch <- evt
+	}
+	close(ch)
+	return ch, nil
+}
+
+func (m *streamMockDriver) Info() DriverInfo {
+	return DriverInfo{Name: "stream-mock", Provider: "test"}
+}
+
+func TestWriteStream_NoResultEvent(t *testing.T) {
+	// Simulate stream that sends system+user but no done event (Cursor CLI silent exit)
+	driver := &streamMockDriver{
+		events: []StreamEvent{
+			{Type: "system", Content: "init"},
+			{Type: "user"},
+		},
+	}
+	f := &LLMFile{driver: driver, devicePath: "/dev/llm/cursor"}
+
+	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
+	err := f.Write(context.Background(), reqJSON)
+	if err == nil {
+		t.Fatal("expected ErrStreamIncomplete, got nil")
+	}
+	if !errors.Is(err, ErrStreamIncomplete) {
+		t.Errorf("expected error wrapping ErrStreamIncomplete, got: %v", err)
+	}
+}
+
+func TestWriteStream_EmptyDoneEvent(t *testing.T) {
+	// Stream sends done event but with empty result — should still succeed
+	// (the empty content is a valid response; reasonStep handles it)
+	driver := &streamMockDriver{
+		events: []StreamEvent{
+			{Type: "system", Content: "init"},
+			{Type: "done", Content: ""},
+		},
+	}
+	f := &LLMFile{driver: driver, devicePath: "/dev/llm/cursor"}
+
+	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
+	err := f.Write(context.Background(), reqJSON)
+	if err != nil {
+		t.Fatalf("expected nil error for empty done event, got: %v", err)
+	}
+}
+
+func TestWriteStream_ContentWithoutDone(t *testing.T) {
+	// Stream sends content events but no done — should NOT error
+	// because accumulated content is usable
+	driver := &streamMockDriver{
+		events: []StreamEvent{
+			{Type: "content", Content: "partial result"},
+		},
+	}
+	f := &LLMFile{driver: driver, devicePath: "/dev/llm/test"}
+
+	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
+	err := f.Write(context.Background(), reqJSON)
+	if err != nil {
+		t.Fatalf("expected nil error when content exists without done, got: %v", err)
+	}
+
+	data, _ := f.Read(0)
+	var resp LLMResponse
+	_ = json.Unmarshal(data, &resp)
+	if resp.Content != "partial result" {
+		t.Errorf("expected content 'partial result', got %q", resp.Content)
+	}
+}
+
+func TestIsTransient_StreamIncomplete(t *testing.T) {
+	if !IsTransient(ErrStreamIncomplete) {
+		t.Error("ErrStreamIncomplete should be classified as transient")
+	}
+	// Wrapped version
+	wrapped := fmt.Errorf("stream closed: %w", ErrStreamIncomplete)
+	if !IsTransient(wrapped) {
+		t.Error("wrapped ErrStreamIncomplete should be classified as transient")
+	}
+}
+

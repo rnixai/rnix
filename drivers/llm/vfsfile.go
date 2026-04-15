@@ -94,6 +94,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 	var reasoning strings.Builder
 	var tokens, inputTokens, outputTokens int
 	var toolCalls []ToolCall
+	var receivedDone bool
 
 	for evt := range ch {
 		switch evt.Type {
@@ -114,6 +115,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 				f.onEvent(evtData)
 			}
 		case "done":
+			receivedDone = true
 			// Use result content if available (CLI drivers put final result here)
 			if evt.Content != "" {
 				content.Reset()
@@ -137,6 +139,11 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 	finalContent := content.String()
 	if finalContent == "" && reasoning.Len() > 0 {
 		finalContent = reasoning.String()
+	}
+
+	// Guard: stream closed without a "done" event and no usable content
+	if !receivedDone && finalContent == "" && len(toolCalls) == 0 {
+		return fmt.Errorf("stream closed without result event: %w", ErrStreamIncomplete)
 	}
 
 	resp := &LLMResponse{
