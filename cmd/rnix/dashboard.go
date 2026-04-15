@@ -609,6 +609,15 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 			}
 		}
 		if !found {
+			// In debug mode, preserve selection for dead processes with loaded events.
+			// The process list may briefly omit a reaped process during TTL cleanup
+			// transitions. Resetting selectedPID here cascades into handleDebugPIDChange
+			// which clears all events, causing the "Waiting for events…" flicker.
+			if m.debugMode && m.debugAttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+				found = true
+			}
+		}
+		if !found {
 			m.selectedPID = 0
 			m.selectedUUID = ""
 		}

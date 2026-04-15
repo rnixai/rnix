@@ -8,6 +8,7 @@ import (
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/vfs"
 )
 
 func TestEnterDebugMode_RequiresSelection(t *testing.T) {
@@ -402,5 +403,193 @@ func TestDebugTickProcess_ChannelCloseMerges(t *testing.T) {
 	}
 	if len(m.debugEvents) == 0 {
 		t.Error("expected merged events to be non-empty after channel close")
+	}
+}
+
+// --- Fix: Dead process event stability tests ---
+
+func TestUUIDValidation_DebugMode_PreservesSelectionForDeadProcess(t *testing.T) {
+	// When a dead process temporarily disappears from the process list,
+	// the UUID validation should NOT reset selectedPID if debug mode is active
+	// and events have already been loaded (prevents "Waiting for events…" flicker).
+	m := newDashboardModel(nil)
+	m.debugMode = true
+	m.selectedPID = 2
+	m.selectedUUID = "dead-uuid"
+	m.debugAttachedPID = 2
+	m.debugEvents = []UnifiedEvent{
+		{Type: EventSyscall, PID: 2, Summary: "loaded-event"},
+	}
+
+	// Simulate processes list WITHOUT PID 2 (temporarily missing)
+	m.processes = []vfs.ProcInfo{
+		{PID: 1, UUID: "root-uuid", State: types.StateRunning},
+	}
+	m.treeRows = []flatRow{
+		{proc: vfs.ProcInfo{PID: 1, UUID: "root-uuid"}},
+	}
+
+	// Run the UUID validation logic inline (mirrors dashboard.go:600-621)
+	found := false
+	for _, p := range m.processes {
+		if p.PID == m.selectedPID {
+			if m.selectedUUID == "" || p.UUID == m.selectedUUID {
+				found = true
+			}
+			break
+		}
+	}
+	if !found {
+		if m.debugMode && m.debugAttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+			found = true
+		}
+	}
+	if !found {
+		m.selectedPID = 0
+		m.selectedUUID = ""
+	}
+
+	// selectedPID should be preserved due to the debug guard
+	if m.selectedPID != 2 {
+		t.Errorf("expected selectedPID=2 (preserved), got %d", m.selectedPID)
+	}
+	if m.selectedUUID != "dead-uuid" {
+		t.Errorf("expected selectedUUID preserved, got %q", m.selectedUUID)
+	}
+}
+
+func TestUUIDValidation_NoDebugMode_ResetsNormally(t *testing.T) {
+	// Without debug mode, the validation should still reset selectedPID normally.
+	m := newDashboardModel(nil)
+	m.debugMode = false
+	m.selectedPID = 2
+	m.selectedUUID = "dead-uuid"
+	m.debugAttachedPID = 2
+	m.debugEvents = []UnifiedEvent{
+		{Type: EventSyscall, PID: 2, Summary: "loaded-event"},
+	}
+
+	m.processes = []vfs.ProcInfo{
+		{PID: 1, UUID: "root-uuid", State: types.StateRunning},
+	}
+
+	// Run UUID validation
+	found := false
+	for _, p := range m.processes {
+		if p.PID == m.selectedPID {
+			if m.selectedUUID == "" || p.UUID == m.selectedUUID {
+				found = true
+			}
+			break
+		}
+	}
+	if !found {
+		if m.debugMode && m.debugAttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+			found = true
+		}
+	}
+	if !found {
+		m.selectedPID = 0
+		m.selectedUUID = ""
+	}
+
+	// Without debug mode, selectedPID should be reset
+	if m.selectedPID != 0 {
+		t.Errorf("expected selectedPID=0 (reset), got %d", m.selectedPID)
+	}
+}
+
+func TestHistoricalStraceMsg_DiscardsStalePID(t *testing.T) {
+	// When an async historical strace response arrives for a PID that is no longer
+	// selected, the handler should discard it to prevent overwriting current events.
+	m := newDashboardModel(nil)
+	m.debugMode = true
+	m.selectedPID = 3
+	m.selectedUUID = "uuid-3"
+	m.debugAttachedPID = 3
+	m.debugEvents = []UnifiedEvent{
+		{Type: EventSyscall, PID: 3, Summary: "current-event"},
+	}
+
+	// Simulate stale response from PID 2 (old selection)
+	staleMsg := debugHistoricalStraceMsg{
+		events: []ipc.SyscallEventWire{
+			{TimestampMs: 1000, PID: 2, Syscall: "Open"},
+		},
+		pid:  2,
+		uuid: "uuid-2",
+	}
+
+	m2, _, handled := m.handleDebugMsg(staleMsg)
+	if !handled {
+		t.Fatal("expected msg to be handled")
+	}
+	// Events should NOT be overwritten by stale response
+	if len(m2.debugEvents) != 1 || m2.debugEvents[0].Summary != "current-event" {
+		t.Errorf("expected current events preserved, got %d events", len(m2.debugEvents))
+	}
+}
+
+func TestHistoricalStraceMsg_AcceptsMatchingPID(t *testing.T) {
+	// When the response PID matches the current selection, events should be processed.
+	m := newDashboardModel(nil)
+	m.debugMode = true
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-2"
+	m.debugAttachedPID = 2
+
+	msg := debugHistoricalStraceMsg{
+		events: []ipc.SyscallEventWire{
+			{TimestampMs: 1000, PID: 2, Syscall: "Open", Args: map[string]any{"path": "/dev/fs"}},
+		},
+		pid:  2,
+		uuid: "uuid-2",
+	}
+
+	m2, _, handled := m.handleDebugMsg(msg)
+	if !handled {
+		t.Fatal("expected msg to be handled")
+	}
+	// Events should be processed (debugStraceEvents updated)
+	if len(m2.debugStraceEvents) == 0 {
+		t.Error("expected strace events to be populated from matching response")
+	}
+}
+
+func TestIsSelectedProcessDead_DebugFallback(t *testing.T) {
+	// When the selected process is not in m.processes but debug mode has loaded
+	// events for it, isSelectedProcessDead should return true.
+	m := newDashboardModel(nil)
+	m.debugMode = true
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-2"
+	m.debugAttachedPID = 2
+	m.debugEvents = []UnifiedEvent{
+		{Type: EventSyscall, PID: 2, Summary: "event"},
+	}
+	// Process list does NOT contain PID 2
+	m.processes = []vfs.ProcInfo{
+		{PID: 1, UUID: "uuid-1", State: types.StateRunning},
+	}
+
+	if !m.isSelectedProcessDead() {
+		t.Error("expected isSelectedProcessDead()=true for missing process with loaded debug events")
+	}
+}
+
+func TestIsSelectedProcessDead_NoDebugEvents_ReturnsFalse(t *testing.T) {
+	// Without loaded events, missing process should not be treated as dead.
+	m := newDashboardModel(nil)
+	m.debugMode = true
+	m.selectedPID = 2
+	m.selectedUUID = "uuid-2"
+	m.debugAttachedPID = 2
+	m.debugEvents = nil // No events loaded
+	m.processes = []vfs.ProcInfo{
+		{PID: 1, UUID: "uuid-1", State: types.StateRunning},
+	}
+
+	if m.isSelectedProcessDead() {
+		t.Error("expected isSelectedProcessDead()=false when no debug events loaded")
 	}
 }

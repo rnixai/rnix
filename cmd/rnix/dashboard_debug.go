@@ -54,6 +54,8 @@ type debugCtxProfileMsg struct {
 type debugHistoricalStraceMsg struct {
 	events []ipc.SyscallEventWire
 	err    error
+	pid    types.PID // PID the request was made for (staleness guard)
+	uuid   string    // UUID the request was made for (staleness guard)
 }
 
 // debugStraceStreamEndMsg is sent when the AttachDebug goroutine finishes.
@@ -110,6 +112,13 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 		}
 		// F1: Guard against async msg arriving after exitDebugMode nils the map.
 		if !m.debugMode {
+			return m, nil, true
+		}
+		// F2: Guard against stale async responses from a previous PID selection.
+		// loadHistoricalStraceCmd captures PID/UUID at dispatch time. If the user
+		// (or periodic tick) switched to a different process before the response
+		// arrived, discard it to prevent overwriting the current process's events.
+		if msg.pid != m.selectedPID || (msg.uuid != "" && msg.uuid != m.selectedUUID) {
 			return m, nil, true
 		}
 		// Historical events from disk are the authoritative complete set.
@@ -265,11 +274,11 @@ func (m dashboardModel) loadHistoricalStraceCmd() tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return debugHistoricalStraceMsg{err: err}
+			return debugHistoricalStraceMsg{err: err, pid: pid, uuid: uuid}
 		}
 		defer client.Close()
 		events, err := client.ListEvents(pid, uuid)
-		return debugHistoricalStraceMsg{events: events, err: err}
+		return debugHistoricalStraceMsg{events: events, err: err, pid: pid, uuid: uuid}
 	}
 }
 
