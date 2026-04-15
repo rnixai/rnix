@@ -329,14 +329,7 @@ func TestExitCode_InitialZero(t *testing.T) {
 // These tests modify package-level vars (gitCommit, buildDate, flagJSON, claudeVersionChecker)
 // via save/restore. Do NOT add t.Parallel() to any of these tests.
 
-func TestVersion_WithClaude(t *testing.T) {
-	saved := claudeVersionChecker
-	defer func() { claudeVersionChecker = saved }()
-
-	claudeVersionChecker = func() (string, error) {
-		return "1.0.34", nil
-	}
-
+func TestVersion_Basic(t *testing.T) {
 	savedJSON := flagJSON
 	defer func() { flagJSON = savedJSON }()
 	flagJSON = false
@@ -351,49 +344,12 @@ func TestVersion_WithClaude(t *testing.T) {
 	if !strings.Contains(output, wantVersion) {
 		t.Errorf("expected %q, got %q", wantVersion, output)
 	}
-	if !strings.Contains(output, "claude-code: 1.0.34") {
-		t.Errorf("expected claude-code version, got %q", output)
+	if strings.Contains(output, "claude-code") {
+		t.Errorf("version should not contain claude-code info, got %q", output)
 	}
 }
 
-func TestVersion_WithoutClaude(t *testing.T) {
-	saved := claudeVersionChecker
-	defer func() { claudeVersionChecker = saved }()
-
-	claudeVersionChecker = func() (string, error) {
-		return "", fmt.Errorf("exec: not found")
-	}
-
-	savedJSON := flagJSON
-	defer func() { flagJSON = savedJSON }()
-	flagJSON = false
-
-	var buf bytes.Buffer
-	cmd := &cobra.Command{Use: "test"}
-	cmd.SetOut(&buf)
-	runVersion(cmd, nil)
-
-	output := buf.String()
-	wantVersion := "rnix v" + version + "-dev"
-	if !strings.Contains(output, wantVersion) {
-		t.Errorf("expected %q, got %q", wantVersion, output)
-	}
-	if !strings.Contains(output, "✗ claude-code CLI not found") {
-		t.Errorf("expected not found message, got %q", output)
-	}
-	if !strings.Contains(output, "npm install -g @anthropic-ai/claude-code") {
-		t.Errorf("expected install suggestion, got %q", output)
-	}
-}
-
-func TestVersion_JSON(t *testing.T) {
-	saved := claudeVersionChecker
-	defer func() { claudeVersionChecker = saved }()
-
-	claudeVersionChecker = func() (string, error) {
-		return "1.0.34", nil
-	}
-
+func TestVersion_JSON_Basic(t *testing.T) {
 	savedJSON := flagJSON
 	defer func() { flagJSON = savedJSON }()
 	flagJSON = true
@@ -425,11 +381,8 @@ func TestVersion_JSON(t *testing.T) {
 	if _, ok := m["build_date"]; !ok {
 		t.Error("expected build_date field in JSON output")
 	}
-	if m["claude_code_available"] != true {
-		t.Errorf("expected claude_code_available true, got %v", m["claude_code_available"])
-	}
-	if m["claude_code"] != "1.0.34" {
-		t.Errorf("expected claude_code 1.0.34, got %v", m["claude_code"])
+	if _, exists := m["claude_code_available"]; exists {
+		t.Errorf("version JSON should not contain claude_code_available field")
 	}
 }
 
@@ -459,18 +412,15 @@ func TestVersionString_Release(t *testing.T) {
 func TestVersion_WithBuildInfo(t *testing.T) {
 	savedCommit := gitCommit
 	savedDate := buildDate
-	savedChecker := claudeVersionChecker
 	savedJSON := flagJSON
 	defer func() {
 		gitCommit = savedCommit
 		buildDate = savedDate
-		claudeVersionChecker = savedChecker
 		flagJSON = savedJSON
 	}()
 
 	gitCommit = "abc1234"
 	buildDate = "2026-03-15T00:00:00Z"
-	claudeVersionChecker = func() (string, error) { return "1.0.34", nil }
 	flagJSON = false
 
 	var buf bytes.Buffer
@@ -490,44 +440,6 @@ func TestVersion_WithBuildInfo(t *testing.T) {
 	}
 	if !strings.Contains(output, "built:   2026-03-15T00:00:00Z") {
 		t.Errorf("expected built line, got %q", output)
-	}
-}
-
-func TestVersion_JSON_WithoutClaude(t *testing.T) {
-	saved := claudeVersionChecker
-	defer func() { claudeVersionChecker = saved }()
-
-	claudeVersionChecker = func() (string, error) {
-		return "", fmt.Errorf("not found")
-	}
-
-	savedJSON := flagJSON
-	defer func() { flagJSON = savedJSON }()
-	flagJSON = true
-
-	var buf bytes.Buffer
-	cmd := &cobra.Command{Use: "test"}
-	cmd.SetOut(&buf)
-	runVersion(cmd, nil)
-
-	var resp JSONResponse
-	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid JSON: %v\nraw: %s", err, buf.String())
-	}
-	if !resp.OK {
-		t.Error("expected ok=true for version even without claude")
-	}
-
-	data, _ := json.Marshal(resp.Data)
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatalf("failed to parse data: %v", err)
-	}
-	if m["claude_code_available"] != false {
-		t.Errorf("expected claude_code_available false, got %v", m["claude_code_available"])
-	}
-	if _, exists := m["claude_code"]; exists {
-		t.Errorf("expected no claude_code field when not available, got %v", m["claude_code"])
 	}
 }
 

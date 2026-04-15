@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sort"
@@ -76,18 +75,6 @@ var exitCode int
 
 // forceExitFunc is called on double-SIGINT for force exit. Package-level variable for test injection.
 var forceExitFunc = os.Exit
-
-// claudeVersionChecker returns the Claude Code CLI version string, or an error if not available.
-// Package-level variable to allow test injection.
-var claudeVersionChecker = defaultClaudeVersionChecker
-
-func defaultClaudeVersionChecker() (string, error) {
-	out, err := exec.Command("claude", "--version").Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
 
 // JSONResponse is the standard JSON output wrapper.
 type JSONResponse struct {
@@ -224,18 +211,11 @@ var flagDaemonInternal bool
 func runVersion(cmd *cobra.Command, args []string) {
 	w := cmd.OutOrStdout()
 
-	claudeVersion, err := claudeVersionChecker()
-	claudeAvailable := err == nil
-
 	if flagJSON {
 		data := map[string]any{
-			"version":               versionString(),
-			"git_commit":            gitCommit,
-			"build_date":            buildDate,
-			"claude_code_available": claudeAvailable,
-		}
-		if claudeAvailable {
-			data["claude_code"] = claudeVersion
+			"version":    versionString(),
+			"git_commit": gitCommit,
+			"build_date": buildDate,
 		}
 		resp := JSONResponse{OK: true, Data: data}
 		out, _ := json.Marshal(resp)
@@ -250,12 +230,6 @@ func runVersion(cmd *cobra.Command, args []string) {
 	if buildDate != "" {
 		fmt.Fprintf(w, "built:   %s\n", buildDate)
 	}
-	if !claudeAvailable {
-		fmt.Fprintln(w, "✗ claude-code CLI not found")
-		fmt.Fprintln(w, "  → hint: npm install -g @anthropic-ai/claude-code")
-		return
-	}
-	fmt.Fprintf(w, "claude-code: %s\n", claudeVersion)
 }
 
 func init() {

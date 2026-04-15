@@ -100,34 +100,6 @@ func TestStraceToUnifiedEvent(t *testing.T) {
 	}
 }
 
-func TestMergeDebugEvents_TimeOrdered(t *testing.T) {
-	now := time.Now()
-
-	strace1 := UnifiedEvent{
-		Type:      EventSyscall,
-		Timestamp: now.Add(-2 * time.Second),
-		PID:       1,
-		Summary:   "strace-old",
-	}
-	strace2 := UnifiedEvent{
-		Type:      EventSyscall,
-		Timestamp: now,
-		PID:       1,
-		Summary:   "strace-new",
-	}
-
-	var steps []stepEntry // empty steps
-
-	result := mergeDebugEvents(steps, []UnifiedEvent{strace1, strace2}, 1)
-	if len(result) < 2 {
-		t.Fatalf("expected >= 2 events, got %d", len(result))
-	}
-	// Oldest first (ascending) — natural message flow
-	if result[0].Timestamp.After(result[1].Timestamp) {
-		t.Error("expected ascending timestamp order")
-	}
-}
-
 func TestRenderSyscallLine_Format(t *testing.T) {
 	now := time.Now()
 	sew := ipc.SyscallEventWire{

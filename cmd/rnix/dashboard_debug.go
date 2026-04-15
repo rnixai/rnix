@@ -147,11 +147,9 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 		// Re-add preserved live stream events.
 		m.debugStraceEvents = append(m.debugStraceEvents, preserved...)
 		m.debugHistWatermark = newWatermark
-		merged := mergeDebugEvents(m.stepEntries, m.debugStraceEvents, m.selectedPID)
-		// Only overwrite debugEvents if the merge produced results;
-		// avoid clearing events that were already displayed from a previous load or stream.
-		if len(merged) > 0 || len(m.debugEvents) == 0 {
-			m.debugEvents = merged
+		// Events panel shows only syscall events (steps are in the Steps panel).
+		if len(m.debugStraceEvents) > 0 || len(m.debugEvents) == 0 {
+			m.debugEvents = m.debugStraceEvents
 		}
 		return m, nil, true
 	}
@@ -168,15 +166,6 @@ func (m *dashboardModel) debugTickCmds() []tea.Cmd {
 	if streamClosed && !m.debugAutoReloaded && m.selectedPID != 0 {
 		m.debugAutoReloaded = true
 		cmds = append(cmds, m.loadHistoricalStraceCmd())
-	}
-	// Periodic historical refresh for running processes (every ~3s = 6 ticks at 500ms).
-	// Compensates for events consumed by competing DebugChan readers (e.g. `rnix strace`).
-	if m.debugMode && m.selectedPID != 0 && !m.isSelectedProcessDead() && !streamClosed {
-		m.debugRefreshCounter++
-		if m.debugRefreshCounter >= 6 {
-			m.debugRefreshCounter = 0
-			cmds = append(cmds, m.loadHistoricalStraceCmd())
-		}
 	}
 	if m.debugMode && m.debugAttachedPID != m.selectedPID {
 		m2, debugCmd := m.handleDebugPIDChange()
@@ -206,7 +195,6 @@ func (m dashboardModel) enterDebugMode() (dashboardModel, tea.Cmd) {
 	m.debugAttachedPID = m.selectedPID
 	m.debugAutoReloaded = false
 	m.debugHistWatermark = 0
-	m.debugRefreshCounter = 0
 	m.debugAutoScroll = true
 
 	if m.isSelectedProcessDead() {
@@ -320,186 +308,6 @@ func straceToUnifiedEvent(sew ipc.SyscallEventWire) UnifiedEvent {
 	}
 }
 
-// --- Event merging ---
-
-// mergeDebugEvents merges step entries and strace events into a single timeline,
-// sorted by timestamp ascending (oldest first) for natural message-flow reading.
-func mergeDebugEvents(stepEntries []stepEntry, straceEvents []UnifiedEvent, pid types.PID) []UnifiedEvent {
-	var result []UnifiedEvent
-
-	// Convert step entries to unified events
-	baseTime := time.Now()
-	for i := range stepEntries {
-		ue := stepToUnifiedEvent(&stepEntries[i], baseTime, i)
-		ue.PID = pid
-		result = append(result, ue)
-	}
-
-	// Append strace events
-	result = append(result, straceEvents...)
-
-	// Sort ascending by timestamp (oldest first) for natural message flow
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Timestamp.Before(result[j].Timestamp)
-	})
-	return result
-}
-
-// consolidateDebugEvents merges consecutive driver stream events into
-// user-readable logical entries. E.g., 100 DriverThinking deltas become
-// a single "Thinking: <summary>" line.
-func consolidateDebugEvents(events []UnifiedEvent) []UnifiedEvent {
-	if len(events) == 0 {
-		return nil
-	}
-	var result []UnifiedEvent
-	var cur *UnifiedEvent
-	var curSyscall string
-	var thinkBuf strings.Builder
-
-	flush := func() {
-		if cur == nil {
-			return
-		}
-		if curSyscall == "DriverThinking" && thinkBuf.Len() > 0 {
-			text := thinkBuf.String()
-			// Use first meaningful line as summary
-			summary := briefConsolidatedSummary(text, 80)
-			cur.Summary = fmt.Sprintf("💭 %s", summary)
-			thinkBuf.Reset()
-		}
-		result = append(result, *cur)
-		cur = nil
-		curSyscall = ""
-	}
-
-	for i := range events {
-		ev := &events[i]
-
-		// Non-syscall events pass through unchanged
-		if ev.Type != EventSyscall || ev.RawEvent == nil {
-			flush()
-			result = append(result, *ev)
-			continue
-		}
-
-		sc := ev.RawEvent.Syscall
-
-		// Events that should never be consolidated
-		switch sc {
-		case "Write", "Read", "ReasonStep", "CtxRead", "CtxWrite",
-			"Open", "Close", "Kill", "Shutdown":
-			flush()
-			result = append(result, *ev)
-			continue
-		}
-
-		// Start new group or continue existing
-		if sc != curSyscall {
-			flush()
-			curSyscall = sc
-			clone := *ev
-			cur = &clone
-
-			switch sc {
-			case "DriverThinking":
-				thinkBuf.Reset()
-				content, _ := ev.RawEvent.Args["content"].(string)
-				subtype, _ := ev.RawEvent.Args["subtype"].(string)
-				if subtype == "delta" && content != "" && content != "started" {
-					thinkBuf.WriteString(content)
-				}
-				cur.Summary = "💭 Thinking..."
-			case "DriverToolCall":
-				tool, _ := ev.RawEvent.Args["tool"].(string)
-				content, _ := ev.RawEvent.Args["content"].(string)
-				if tool != "" {
-					cur.Summary = fmt.Sprintf("🔧 %s", tool)
-				} else if content == "started" || content == "completed" {
-					cur.Summary = fmt.Sprintf("🔧 Tool %s", content)
-				} else {
-					cur.Summary = "🔧 Tool call"
-				}
-			case "DriverInit":
-				cur.Summary = "⚡ Init"
-			case "DriverUser":
-				cur.Summary = "📋 Tool result"
-			case "DriverEvent":
-				// Assistant message — extract text preview
-				text := extractConsolidatedText(ev.RawEvent.Args["content"])
-				if text != "" {
-					cur.Summary = fmt.Sprintf("💬 %s", briefConsolidatedSummary(text, 70))
-				} else {
-					cur.Summary = "💬 Assistant"
-				}
-			}
-		} else {
-			// Continue existing group — accumulate data
-			switch sc {
-			case "DriverThinking":
-				content, _ := ev.RawEvent.Args["content"].(string)
-				subtype, _ := ev.RawEvent.Args["subtype"].(string)
-				if subtype == "delta" && content != "" && content != "started" {
-					thinkBuf.WriteString(content)
-				}
-			case "DriverToolCall":
-				// Update tool name if we get it later
-				tool, _ := ev.RawEvent.Args["tool"].(string)
-				if tool != "" && cur != nil {
-					cur.Summary = fmt.Sprintf("🔧 %s", tool)
-				}
-			case "DriverEvent":
-				// Update summary with latest text
-				text := extractConsolidatedText(ev.RawEvent.Args["content"])
-				if text != "" && cur != nil {
-					cur.Summary = fmt.Sprintf("💬 %s", briefConsolidatedSummary(text, 70))
-				}
-			}
-			// Update timestamp to span duration
-			if cur != nil {
-				cur.Detail = fmt.Sprintf("%.1fs", ev.Timestamp.Sub(cur.Timestamp).Seconds())
-			}
-		}
-	}
-	flush()
-	return result
-}
-
-// briefConsolidatedSummary extracts the first meaningful line, truncated.
-func briefConsolidatedSummary(text string, maxRunes int) string {
-	for line := range strings.SplitSeq(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		r := []rune(line)
-		if len(r) > maxRunes {
-			return string(r[:maxRunes]) + "..."
-		}
-		return line
-	}
-	return ""
-}
-
-// extractContentText extracts text from a content field for consolidated display.
-func extractConsolidatedText(content any) string {
-	switch v := content.(type) {
-	case string:
-		return v
-	case []any:
-		for _, item := range v {
-			if block, ok := item.(map[string]any); ok {
-				if block["type"] == "text" {
-					if text, ok := block["text"].(string); ok && text != "" {
-						return text
-					}
-				}
-			}
-		}
-	}
-	return ""
-}
-
 // --- Ring buffer ---
 
 func (m *dashboardModel) appendStraceEvent(ev UnifiedEvent) {
@@ -563,7 +371,7 @@ func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
 		}
 		result = append(result, ev)
 	}
-	return consolidateDebugEvents(result)
+	return result
 }
 
 // clampDebugCursor ensures the cursor stays within the filtered event range.
@@ -611,10 +419,10 @@ func (m *dashboardModel) debugTickProcess() bool {
 		}
 	doneReading:
 	}
-	// Re-merge only when new strace data arrived or stream closed;
-	// avoid overwriting debugEvents with stale/nil stepEntries during PID transitions.
+	// Re-assign only when new strace data arrived or stream closed;
+	// avoid overwriting debugEvents during PID transitions.
 	if streamClosed || drainedAny {
-		m.debugEvents = mergeDebugEvents(m.stepEntries, m.debugStraceEvents, m.selectedPID)
+		m.debugEvents = m.debugStraceEvents
 	}
 	return streamClosed
 }
@@ -635,7 +443,6 @@ func (m dashboardModel) handleDebugPIDChange() (dashboardModel, tea.Cmd) {
 	m.debugAttachedPID = m.selectedPID
 	m.debugAutoReloaded = false
 	m.debugHistWatermark = 0
-	m.debugRefreshCounter = 0
 
 	if m.selectedPID == 0 {
 		return m, nil
