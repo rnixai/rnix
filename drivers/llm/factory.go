@@ -51,6 +51,19 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		return NewCursorCliDriver(opts...), nil
 
+	case DriverQwenCLI:
+		var opts []QwenCliOption
+		if cfg.Command != "" {
+			opts = append(opts, QwenWithCommand(cfg.Command))
+		}
+		if cfg.DefaultModel != "" {
+			opts = append(opts, QwenWithModel(cfg.DefaultModel))
+		}
+		if len(cfg.ExtraArgs) > 0 {
+			opts = append(opts, QwenWithExtraArgs(cfg.ExtraArgs))
+		}
+		return NewQwenCliDriver(opts...), nil
+
 	case DriverOpenAICompat:
 		var opts []CompatOption
 		if cfg.DefaultModel != "" {

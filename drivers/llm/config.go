@@ -14,6 +14,7 @@ import (
 const (
 	DriverClaudeCLI     = "claude-cli"
 	DriverCursorCLI     = "cursor-cli"
+	DriverQwenCLI       = "qwen-cli"
 	DriverOpenAICompat  = "openai-compat"
 	DriverOpenAI        = "openai"
 	DriverGemini        = "gemini"
@@ -28,6 +29,7 @@ const (
 var validDrivers = map[string]bool{
 	DriverClaudeCLI:    true,
 	DriverCursorCLI:    true,
+	DriverQwenCLI:      true,
 	DriverOpenAICompat: true,
 	DriverOpenAI:       true,
 	DriverGemini:       true,
@@ -155,7 +157,7 @@ func (c *ProvidersConfig) Validate() error {
 		}
 
 		if !validDrivers[p.Driver] {
-			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverOpenAICompat, DriverOpenAI, DriverGemini))
+			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s, %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverQwenCLI, DriverOpenAICompat, DriverOpenAI, DriverGemini))
 		}
 
 		if p.Driver == DriverOpenAICompat && p.BaseURL == "" {
