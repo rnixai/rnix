@@ -18,6 +18,7 @@ const (
 	DriverOpenAICompat  = "openai-compat"
 	DriverOpenAI        = "openai"
 	DriverGemini        = "gemini"
+	DriverAnthropic     = "anthropic"
 	ProvidersConfigFile = "providers.yaml"
 )
 
@@ -33,6 +34,7 @@ var validDrivers = map[string]bool{
 	DriverOpenAICompat: true,
 	DriverOpenAI:       true,
 	DriverGemini:       true,
+	DriverAnthropic:    true,
 }
 
 var validModes = map[string]bool{
@@ -157,7 +159,7 @@ func (c *ProvidersConfig) Validate() error {
 		}
 
 		if !validDrivers[p.Driver] {
-			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s, %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverQwenCLI, DriverOpenAICompat, DriverOpenAI, DriverGemini))
+			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid driver %q (valid: %s, %s, %s, %s, %s, %s, %s)", i, p.Name, p.Driver, DriverClaudeCLI, DriverCursorCLI, DriverQwenCLI, DriverOpenAICompat, DriverOpenAI, DriverGemini, DriverAnthropic))
 		}
 
 		if p.Driver == DriverOpenAICompat && p.BaseURL == "" {

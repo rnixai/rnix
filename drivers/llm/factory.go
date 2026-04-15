@@ -118,6 +118,26 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		return NewGeminiDriver(cfg.Name, opts...), nil
 
+	case DriverAnthropic:
+		var opts []AnthropicOption
+		if cfg.DefaultModel != "" {
+			opts = append(opts, WithAnthropicModel(cfg.DefaultModel))
+		}
+		if cfg.MaxTokens > 0 {
+			opts = append(opts, WithAnthropicMaxTokens(cfg.MaxTokens))
+		}
+		if cfg.BaseURL != "" {
+			opts = append(opts, WithAnthropicBaseURL(cfg.BaseURL))
+		}
+		if cfg.APIKeyEnv != "" {
+			if key := envLookup(cfg.APIKeyEnv); key != "" {
+				opts = append(opts, WithAnthropicKey(key))
+			} else {
+				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)
+			}
+		}
+		return NewAnthropicDriver(cfg.Name, opts...), nil
+
 	default:
 		return nil, fmt.Errorf("unsupported driver type: %q", cfg.Driver)
 	}
