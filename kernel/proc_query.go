@@ -230,6 +230,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		StepTimeout:    proc.StepTimeout,
 		SuspendReason:  proc.SuspendReason,
 		IsPaused:       proc.resumeCh != nil,
+		PausedAt:       proc.pausedAt,
 		ComposeNode:    proc.ComposeNode,
 		ComposeDeps:    append([]string(nil), proc.ComposeDeps...),
 		PipelineIndex:  proc.PipelineIndex,

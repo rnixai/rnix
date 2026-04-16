@@ -186,6 +186,8 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			}
 			if !row.proc.DeadAt.IsZero() {
 				elapsed = ui.FormatDuration(row.proc.DeadAt.Sub(row.proc.CreatedAt))
+			} else if row.proc.IsPaused && !row.proc.PausedAt.IsZero() {
+				elapsed = ui.FormatDuration(row.proc.PausedAt.Sub(row.proc.CreatedAt))
 			} else {
 				elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
 			}
@@ -201,7 +203,11 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			} else {
 				tokens = ui.FormatTokens(row.proc.TokensUsed)
 			}
-			elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
+			if row.proc.IsPaused && !row.proc.PausedAt.IsZero() {
+				elapsed = ui.FormatDuration(row.proc.PausedAt.Sub(row.proc.CreatedAt))
+			} else {
+				elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
+			}
 		}
 
 		// PID reuse indicator

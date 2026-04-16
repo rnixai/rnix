@@ -96,6 +96,7 @@ type Process struct {
 	blockedSignals map[types.Signal]struct{}
 	pendingSignals map[types.Signal]struct{}
 	resumeCh       chan struct{} // nil=not paused; non-nil=paused, close to resume
+	pausedAt       time.Time    // when Pause() was called; zero if not paused
 
 	// Thread system (mu protected for threads map, atomic for counter)
 	threads    map[types.TID]*Thread
@@ -665,6 +666,7 @@ func (p *Process) Pause() {
 	defer p.mu.Unlock()
 	if p.resumeCh == nil {
 		p.resumeCh = make(chan struct{})
+		p.pausedAt = time.Now()
 	}
 }
 
@@ -676,6 +678,7 @@ func (p *Process) Resume() {
 	if p.resumeCh != nil {
 		close(p.resumeCh)
 		p.resumeCh = nil
+		p.pausedAt = time.Time{}
 	}
 }
 

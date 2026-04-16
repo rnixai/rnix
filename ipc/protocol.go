@@ -190,6 +190,7 @@ type ProcInfoWire struct {
 	StepTimeoutMs   int64              `json:"step_timeout_ms,omitempty"`
 	SuspendReason   string             `json:"suspend_reason,omitempty"`
 	IsPaused        bool               `json:"is_paused,omitempty"`
+	PausedAtMs      int64              `json:"paused_at_ms,omitempty"`
 	ComposeNode     string             `json:"compose_node,omitempty"`
 	ComposeDeps     []string           `json:"compose_deps,omitempty"`
 	PipelineIndex   int                `json:"pipeline_index"`
@@ -235,6 +236,9 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 	if !p.LastHeartbeat.IsZero() {
 		w.LastHeartbeatMs = p.LastHeartbeat.UnixMilli()
 	}
+	if !p.PausedAt.IsZero() {
+		w.PausedAtMs = p.PausedAt.UnixMilli()
+	}
 	return w
 }
 
@@ -272,6 +276,9 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 	}
 	if w.LastHeartbeatMs != 0 {
 		p.LastHeartbeat = unixMilliToTime(w.LastHeartbeatMs)
+	}
+	if w.PausedAtMs != 0 {
+		p.PausedAt = unixMilliToTime(w.PausedAtMs)
 	}
 	return p
 }
