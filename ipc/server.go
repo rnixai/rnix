@@ -3020,6 +3020,11 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 		}
 		return info.Result, exit.Code, info.TokensUsed, nil
 	case <-ctx.Done():
+		// Don't kill paused child processes — they are intentionally suspended
+		// and should survive parent context cancellation.
+		if info, err := s.kernel.GetProcInfo(pid); err == nil && info.IsPaused {
+			return "", 1, 0, ctx.Err()
+		}
 		_ = s.kernel.Kill(pid, types.SIGTERM)
 		s.kernel.Reap(pid)
 		return "", 1, 0, ctx.Err()
