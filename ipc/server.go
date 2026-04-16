@@ -3011,23 +3011,45 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 		return "", 1, 0, fmt.Errorf("process vanished after spawn")
 	}
 
-	select {
-	case exit := <-proc.Done:
-		info, infoErr := s.kernel.GetProcInfo(pid)
-		s.kernel.Reap(pid)
-		if infoErr != nil {
-			return "", exit.Code, 0, nil
+	// Keep parent's heartbeat alive while waiting for child, so
+	// HeartbeatMonitor doesn't mistake the idle parent for stalled.
+	var heartbeatTicker *time.Ticker
+	var parentProc *kernel.Process
+	if s.parentPID > 0 {
+		if pp, ppOK := s.kernel.GetProcess(s.parentPID); ppOK {
+			parentProc = pp
+			heartbeatTicker = time.NewTicker(10 * time.Second)
+			defer heartbeatTicker.Stop()
 		}
-		return info.Result, exit.Code, info.TokensUsed, nil
-	case <-ctx.Done():
-		// Don't kill paused child processes — they are intentionally suspended
-		// and should survive parent context cancellation.
-		if info, err := s.kernel.GetProcInfo(pid); err == nil && info.IsPaused {
+	}
+	hbCh := func() <-chan time.Time {
+		if heartbeatTicker != nil {
+			return heartbeatTicker.C
+		}
+		return nil
+	}()
+
+	for {
+		select {
+		case exit := <-proc.Done:
+			info, infoErr := s.kernel.GetProcInfo(pid)
+			s.kernel.Reap(pid)
+			if infoErr != nil {
+				return "", exit.Code, 0, nil
+			}
+			return info.Result, exit.Code, info.TokensUsed, nil
+		case <-ctx.Done():
+			// Don't kill paused child processes — they are intentionally suspended
+			// and should survive parent context cancellation.
+			if info, err := s.kernel.GetProcInfo(pid); err == nil && info.IsPaused {
+				return "", 1, 0, ctx.Err()
+			}
+			_ = s.kernel.Kill(pid, types.SIGTERM)
+			s.kernel.Reap(pid)
 			return "", 1, 0, ctx.Err()
+		case <-hbCh:
+			parentProc.TouchHeartbeat()
 		}
-		_ = s.kernel.Kill(pid, types.SIGTERM)
-		s.kernel.Reap(pid)
-		return "", 1, 0, ctx.Err()
 	}
 }
 

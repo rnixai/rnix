@@ -697,6 +697,14 @@ func (p *Process) IsPaused() bool {
 	return p.resumeCh != nil
 }
 
+// TouchHeartbeat updates LastHeartbeat to now (thread-safe).
+// Used by SpawnAndWait to keep the parent alive while waiting for a child.
+func (p *Process) TouchHeartbeat() {
+	p.mu.Lock()
+	p.LastHeartbeat = time.Now()
+	p.mu.Unlock()
+}
+
 // IsSuspendRequested reports whether suspend has been requested for this process.
 func (p *Process) IsSuspendRequested() bool {
 	return p.suspendRequested.Load()
