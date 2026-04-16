@@ -23,7 +23,11 @@ func stepToUnifiedEvent(e *stepEntry, baseTime time.Time, index int) UnifiedEven
 	if e.summary.HasError {
 		sev = SevError
 	}
+	// Use real timestamp from step record if available; fall back to synthetic ordering
 	ts := baseTime.Add(time.Duration(index) * time.Millisecond)
+	if e.summary.TimestampMs > 0 {
+		ts = baseTime.Add(time.Duration(e.summary.TimestampMs) * time.Millisecond)
+	}
 	summary := fmt.Sprintf("[%d] %s — %s (%.0fms)",
 		e.summary.Step, e.summary.Action, e.summary.Summary, e.summary.DurationMs)
 	return UnifiedEvent{
@@ -203,11 +207,20 @@ func detectStallEvents(hbStatus *ipc.HeartbeatStatusResponse, stallSeen map[type
 // mergeUnifiedEvents merges step entries and system events into a single sorted list.
 // When selectedUUID is non-empty, only system events matching that UUID are included.
 // Falls back to PID-based filtering when UUID is empty (backward compat with old daemons).
-func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selectedPID types.PID, selectedUUID string) []UnifiedEvent {
+func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selectedPID types.PID, selectedUUID string, processes []vfs.ProcInfo) []UnifiedEvent {
 	merged := make([]UnifiedEvent, 0, len(stepEntries)+len(sysEvents))
 
-	// Convert step entries with monotonic timestamp offsets for stable ordering
-	baseTime := time.Now()
+	// Resolve process CreatedAt for real step timestamps
+	var baseTime time.Time
+	for _, p := range processes {
+		if p.PID == selectedPID && (selectedUUID == "" || p.UUID == selectedUUID) {
+			baseTime = p.CreatedAt
+			break
+		}
+	}
+	if baseTime.IsZero() {
+		baseTime = time.Now()
+	}
 	for i := range stepEntries {
 		ue := stepToUnifiedEvent(&stepEntries[i], baseTime, i)
 		ue.PID = selectedPID

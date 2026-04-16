@@ -2243,13 +2243,14 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 	wires := make([]StepSummaryWire, len(records))
 	for i, r := range records {
 		wires[i] = StepSummaryWire{
-			Step:       r.Step,
-			Action:     r.Action,
-			Summary:    r.Summary,
-			ToolPath:   r.ToolPath,
-			HasError:   r.ToolError != "",
-			DurationMs: float64(r.ToolDuration.Microseconds()) / 1000.0,
-			TokenCount: r.TokenCount,
+			Step:        r.Step,
+			Action:      r.Action,
+			Summary:     r.Summary,
+			ToolPath:    r.ToolPath,
+			HasError:    r.ToolError != "",
+			DurationMs:  float64(r.ToolDuration.Microseconds()) / 1000.0,
+			TokenCount:  r.TokenCount,
+			TimestampMs: r.Timestamp.Milliseconds(),
 		}
 	}
 

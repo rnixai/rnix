@@ -1025,13 +1025,14 @@ type ListStepsRequest struct {
 
 // StepSummaryWire is the wire-format summary of a single step.
 type StepSummaryWire struct {
-	Step       int     `json:"step"`
-	Action     string  `json:"action"`
-	Summary    string  `json:"summary"`
-	ToolPath   string  `json:"tool_path,omitempty"`
-	HasError   bool    `json:"has_error"`
-	DurationMs float64 `json:"duration_ms"`
-	TokenCount int     `json:"token_count"`
+	Step        int     `json:"step"`
+	Action      string  `json:"action"`
+	Summary     string  `json:"summary"`
+	ToolPath    string  `json:"tool_path,omitempty"`
+	HasError    bool    `json:"has_error"`
+	DurationMs  float64 `json:"duration_ms"`
+	TokenCount  int     `json:"token_count"`
+	TimestampMs int64   `json:"timestamp_ms,omitempty"` // offset from process start in ms
 }
 
 // ListStepsResponse is the response for MethodListSteps.

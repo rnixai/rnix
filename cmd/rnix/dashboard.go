@@ -714,7 +714,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// Merge step entries + system events into unified event list
-	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID, m.selectedUUID)
+	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID, m.selectedUUID, m.processes)
 
 	// Build alert events for alert strip (Story 34.4)
 	m.alertEvents = buildAlertEvents(m.unifiedEvents)
