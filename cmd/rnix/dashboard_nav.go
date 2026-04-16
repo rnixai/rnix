@@ -76,50 +76,19 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.llmViewerKey(msg)
 	}
 
-	// === Layer 2.6: Debug 模式覆盖层 (Story 34.6) ===
+	// === Layer 2.6: Debug 模式 (Story 34.6) ===
+	// Debug is a view mode, not a modal overlay. Only intercept debug-specific
+	// keys; unhandled keys fall through to Layer 3+ so global shortcuts
+	// (q, ?, L, p, 1-8, etc.) and tree navigation continue to work.
 	if m.viewMode == viewDebug {
 		if key == "d" || key == "esc" {
 			m = m.exitDebugMode()
 			return m, nil
 		}
-		// Tree pane navigation when tree is active in debug mode
-		if m.activePane == paneTree {
-			prevPID := m.selectedPID
-			visibleLines := m.dashboardVisibleLines()
-			switch key {
-			case "up", "k":
-				m.userManualSelect = true
-				if m.treeCursor > 0 {
-					m.treeCursor--
-					if m.treeCursor < len(m.treeRows) {
-						m = selectProcess(m, m.treeRows[m.treeCursor])
-					}
-					if m.treeCursor < m.treeOffset {
-						m.treeOffset = m.treeCursor
-					}
-				}
-			case "down", "j":
-				m.userManualSelect = true
-				if m.treeCursor < len(m.treeRows)-1 {
-					m.treeCursor++
-					if m.treeCursor < len(m.treeRows) {
-						m = selectProcess(m, m.treeRows[m.treeCursor])
-					}
-					if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
-						m.treeOffset = m.treeCursor - visibleLines + 1
-					}
-				}
-			default:
-				return m.handleDebugKey(key)
-			}
-			// F3: Trigger PID change handling when tree selection changes in debug mode.
-			if m.selectedPID != prevPID {
-				m2, cmd := m.handlePIDChange()
-				return m2, cmd
-			}
-			return m, nil
+		if m2, cmd, handled := m.handleDebugKey(key); handled {
+			return m2, cmd
 		}
-		return m.handleDebugKey(key)
+		// Unhandled keys fall through to Layer 3+
 	}
 
 	// === Layer 3: Kill 确认 ===

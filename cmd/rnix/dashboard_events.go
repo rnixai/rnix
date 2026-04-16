@@ -183,15 +183,19 @@ func detectStallEvents(hbStatus *ipc.HeartbeatStatusResponse, stallSeen map[type
 			continue // already reported
 		}
 		stallSeen[sp.PID] = struct{}{}
-		durSec := sp.StalledDurationMs / 1000
+		gapSec := sp.HeartbeatGapMs / 1000
+		severity := SevWarn
+		if sp.ConsecutiveStalls >= 3 {
+			severity = SevError
+		}
 		events = append(events, UnifiedEvent{
 			Type:      EventStall,
-			Severity:  SevError,
+			Severity:  severity,
 			Timestamp: time.Now(),
 			PID:       sp.PID,
 			UUID:      sp.UUID,
-			Summary:   fmt.Sprintf("⚠ STALL PID %d no heartbeat %ds", sp.PID, durSec),
-			Detail:    fmt.Sprintf("stalled_duration_ms=%d consecutive_stalls=%d last_action=%s", sp.StalledDurationMs, sp.ConsecutiveStalls, sp.LastAction),
+			Summary:   fmt.Sprintf("⚠ STALL PID %d no heartbeat %ds", sp.PID, gapSec),
+			Detail:    fmt.Sprintf("heartbeat_gap_ms=%d detected_ago_ms=%d consecutive_stalls=%d last_action=%s", sp.HeartbeatGapMs, sp.StalledDurationMs, sp.ConsecutiveStalls, sp.LastAction),
 		})
 	}
 

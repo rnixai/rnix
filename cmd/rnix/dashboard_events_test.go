@@ -348,7 +348,7 @@ func TestDetectStallEvents(t *testing.T) {
 		hb := &ipc.HeartbeatStatusResponse{
 			Running: true,
 			CurrentStalled: []ipc.StalledProcWire{
-				{PID: 42, StalledDurationMs: 15000, ConsecutiveStalls: 3, LastAction: "tool_call"},
+				{PID: 42, StalledDurationMs: 15000, HeartbeatGapMs: 315000, ConsecutiveStalls: 3, LastAction: "tool_call"},
 			},
 		}
 		stallSeen := make(map[types.PID]struct{})

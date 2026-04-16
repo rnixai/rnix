@@ -744,13 +744,44 @@ func (m dashboardModel) renderDebugDetailRight(width, height int) string {
 
 // --- Debug mode navigation ---
 
-func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd) {
+func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, bool) {
 	// F8: When in filter sub-mode, delegate to handleStepFilterKey.
 	if m.stepFilterMode {
 		m = m.handleStepFilterKey(key)
 		m.clampDebugCursor()
-		return m, nil
+		return m, nil, true
 	}
+
+	// Keys handled regardless of active pane
+	switch key {
+	case "tab":
+		if m.activePane == paneTree {
+			m.activePane = paneTimeline
+		} else {
+			m.activePane = paneTree
+		}
+		return m, nil, true
+	case "shift+tab":
+		if m.activePane == paneTree {
+			m.activePane = paneTimeline
+		} else {
+			m.activePane = paneTree
+		}
+		return m, nil, true
+	case "f":
+		m.stepFilterMode = !m.stepFilterMode
+		// F4: Clamp cursor after filter change.
+		m.clampDebugCursor()
+		return m, nil, true
+	}
+
+	// Timeline-specific keys: only when debug timeline pane is active.
+	// When tree pane is active, unhandled keys fall through to Layer 3+
+	// so global shortcuts (q, ?, L, p, 1-8, etc.) and tree navigation work.
+	if m.activePane != paneTimeline {
+		return m, nil, false
+	}
+
 	filtered := m.filteredDebugEvents()
 	switch key {
 	case "up", "k":
@@ -761,6 +792,7 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd) {
 		if m.debugCursor < m.debugScrollTop {
 			m.debugScrollTop = m.debugCursor
 		}
+		return m, nil, true
 	case "down", "j":
 		m.debugAutoScroll = false
 		if m.debugCursor < len(filtered)-1 {
@@ -774,6 +806,7 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd) {
 		if m.debugCursor >= len(filtered)-1 {
 			m.debugAutoScroll = true
 		}
+		return m, nil, true
 	case "s":
 		m.debugShowStrace = !m.debugShowStrace
 		if m.debugShowStrace {
@@ -784,22 +817,7 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd) {
 		m.statusMsgTTL = statusMsgDefaultTTL
 		// F4: Clamp cursor after visibility change.
 		m.clampDebugCursor()
-	case "f":
-		m.stepFilterMode = !m.stepFilterMode
-		// F4: Clamp cursor after filter change.
-		m.clampDebugCursor()
-	case "tab":
-		if m.activePane == paneTree {
-			m.activePane = paneTimeline
-		} else {
-			m.activePane = paneTree
-		}
-	case "shift+tab":
-		if m.activePane == paneTree {
-			m.activePane = paneTimeline
-		} else {
-			m.activePane = paneTree
-		}
+		return m, nil, true
 	case "v", "enter":
 		// Step expand (if cursor on a step event)
 		if m.debugCursor >= 0 && m.debugCursor < len(filtered) {
@@ -810,13 +828,15 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd) {
 					entry.level = levelExpanded
 					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
 						m.fetchingDetail = true
-						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step), true
 					}
 				} else {
 					entry.level = levelSummary
 				}
 			}
 		}
+		return m, nil, true
+	default:
+		return m, nil, false
 	}
-	return m, nil
 }
