@@ -469,6 +469,10 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 			pendingTool.result = ""
 		}
 		obs.SetStreamHandler(func(evt map[string]any) {
+			// Driver activity refreshes heartbeat — prevents false stall
+			// detection during long-running streaming LLM calls.
+			proc.TouchHeartbeat()
+
 			evtType, _ := evt["type"].(string)
 			syscallName := driverEventToSyscall(evtType)
 			k.emitEvent(proc, syscallName, evt, nil, nil, 0)
