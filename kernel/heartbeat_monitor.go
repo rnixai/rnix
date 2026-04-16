@@ -104,10 +104,17 @@ func (hm *HeartbeatMonitor) scan() {
 		proc.mu.Lock()
 		lastHB := proc.LastHeartbeat
 		timeout := proc.StepTimeout
+		isPaused := proc.resumeCh != nil
 		proc.mu.Unlock()
 
 		// StepTimeout == 0 means user disabled timeout detection
 		if timeout == 0 {
+			return true
+		}
+
+		// Skip paused processes — they intentionally stop sending heartbeats
+		if isPaused {
+			hm.cleanupIfTracked(pid)
 			return true
 		}
 
