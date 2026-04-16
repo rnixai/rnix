@@ -77,7 +77,13 @@ func (ew *EventWriter) WriteEvent(ev types.SyscallEvent) error {
 	if _, err := ew.writer.Write(data); err != nil {
 		return err
 	}
-	return ew.writer.WriteByte('\n')
+	if err := ew.writer.WriteByte('\n'); err != nil {
+		return err
+	}
+	// Flush immediately so events are available on disk for historical reads
+	// (e.g., debug panel reload on PID switch). The 64KB buffer provides no
+	// benefit for NDJSON line-by-line writes at syscall frequency.
+	return ew.writer.Flush()
 }
 
 // Flush flushes the buffered writer to disk.
