@@ -1134,6 +1134,7 @@ type StalledProcWire struct {
 	UUID              string    `json:"uuid"`
 	ConsecutiveStalls int       `json:"consecutive_stalls"`
 	StalledDurationMs int64     `json:"stalled_duration_ms"`
+	HeartbeatGapMs    int64     `json:"heartbeat_gap_ms"`
 	LastAction        string    `json:"last_action"`
 }
 

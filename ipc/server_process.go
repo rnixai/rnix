@@ -1,0 +1,345 @@
+package ipc
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/vfs"
+)
+
+func (s *Server) handleListProcs(conn net.Conn) {
+	procs := s.kern.ListProcs()
+	wireProcs := make([]ProcInfoWire, len(procs))
+	for i, p := range procs {
+		wireProcs[i] = ProcInfoToWire(p)
+	}
+	payload, _ := json.Marshal(ListProcsResponse{Processes: wireProcs})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleListAllProcs(conn net.Conn) {
+	procs := s.kern.ListAllProcs()
+	wireProcs := make([]ProcInfoWire, len(procs))
+	for i, p := range procs {
+		wireProcs[i] = ProcInfoToWire(p)
+	}
+	payload, _ := json.Marshal(ListProcsResponse{Processes: wireProcs})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {
+	var req KillRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid kill request"}})
+		return
+	}
+	if req.Signal == 0 {
+		req.Signal = types.SIGTERM
+	}
+
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	if err := s.kern.Kill(pid, req.Signal); err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+	writeResponse(conn, Response{OK: true})
+}
+
+func (s *Server) handleSignalTree(conn net.Conn, rawPayload json.RawMessage) {
+	var req SignalTreeRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid signal_tree request"}})
+		return
+	}
+	if req.Signal == 0 {
+		req.Signal = types.SIGPAUSE
+	}
+
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	affected, err := s.kern.SignalTree(pid, req.Signal)
+	if err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+	payload, _ := json.Marshal(SignalTreeResponse{Affected: affected})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleSuspend(conn net.Conn, rawPayload json.RawMessage) {
+	var req SuspendRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid suspend request"}})
+		return
+	}
+
+	pid, pidOK := s.resolvePID(req.PID, req.UUID)
+	if !pidOK {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	if err := s.kern.Suspend(pid); err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+
+	proc, ok := s.kern.GetProcess(pid)
+	if !ok {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: "process disappeared after suspend"}})
+		return
+	}
+
+	// Read last checkpoint step (best-effort)
+	checkpointStep := 0
+	stepsDir := proc.GetStepsDir()
+	if stepsDir != "" {
+		if cp, err := kernel.ReadCheckpointPublic(stepsDir); err == nil {
+			checkpointStep = cp.LastStep
+		}
+	}
+
+	resp := SuspendResponse{
+		PID:            pid,
+		UUID:           proc.UUID,
+		State:          "suspended",
+		CheckpointStep: checkpointStep,
+	}
+	payload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+func (s *Server) handleResume(conn net.Conn, rawPayload json.RawMessage) {
+	var req ResumeRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid resume request"}})
+		return
+	}
+
+	if req.UUID == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "uuid is required"}})
+		return
+	}
+
+	result, err := s.kern.Resume(req.UUID)
+	if err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+
+	resp := ResumeResponse{
+		PID:             result.PID,
+		UUID:            result.UUID,
+		ResumedFromStep: result.ResumedFromStep,
+	}
+	payload, _ := json.Marshal(resp)
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleGetProcDetail returns full process detail including env, skills, FD table, context stats (Story 27.6).
+func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) {
+	var req GetProcDetailRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "invalid_request", Message: "invalid get_proc_detail request"}})
+		return
+	}
+
+	proc, ok := s.resolveProcess(req.PID, req.UUID)
+	if !ok {
+		// Fallback: check procHistory for reaped processes
+		s.handleGetProcDetailFromHistory(conn, req.PID, req.UUID)
+		return
+	}
+
+	// Thread-safe snapshots
+	snap := proc.GetDetailSnapshot()
+	fdSnap := proc.GetFDSnapshot()
+
+	resp := GetProcDetailResponse{
+		PID:            snap.PID,
+		UUID:           snap.UUID,
+		PPID:           snap.PPID,
+		State:          snap.State.String(),
+		Intent:         snap.Intent,
+		Provider:       snap.Provider,
+		Model:          snap.Model,
+		CreatedAtMs:    snap.CreatedAt.UnixMilli(),
+		AllowedDevices: snap.AllowedDevices,
+		ComposeNode:    snap.ComposeNode,
+		ComposeDeps:    snap.ComposeDeps,
+		PipelineIndex:  snap.PipelineIndex,
+		PipelineTotal:  snap.PipelineTotal,
+	}
+	if !snap.DeadAt.IsZero() {
+		resp.DeadAtMs = snap.DeadAt.UnixMilli()
+	}
+
+	// FD table
+	fdEntries := make([]FDEntryWire, len(fdSnap))
+	for i, f := range fdSnap {
+		fdEntries[i] = FDEntryWire{FD: f.FD, DevicePath: f.DevicePath}
+	}
+	resp.FDTable = fdEntries
+
+	// Env snapshot with masking
+	envSnapshot := make(map[string]string)
+	pc := proc.GetProjectConfig()
+	if pc != nil && pc.EnvSnapshot != nil {
+		for k, v := range pc.EnvSnapshot {
+			if isSensitiveEnvKey(k) {
+				envSnapshot[k] = "***"
+			} else {
+				envSnapshot[k] = v
+			}
+		}
+	}
+	resp.EnvSnapshot = envSnapshot
+
+	// Build skill info with AllowedTools
+	skillInfos := make([]SkillInfoWire, 0, len(snap.Skills))
+	for _, name := range snap.Skills {
+		si := SkillInfoWire{Name: name}
+		if s.skillLoader != nil {
+			info, err := s.skillLoader.LoadMetadata(name)
+			if err == nil {
+				si.AllowedTools = info.Manifest.AllowedTools()
+			}
+		}
+		if si.AllowedTools == nil {
+			si.AllowedTools = []string{}
+		}
+		skillInfos = append(skillInfos, si)
+	}
+	resp.Skills = skillInfos
+
+	// Context stats from CtxManager
+	resp.ContextStats = ContextStatsWire{
+		TokensUsed:    snap.TokensUsed,
+		ContextBudget: snap.ContextBudget,
+	}
+	if snap.ContextBudget > 0 {
+		resp.ContextStats.UsagePct = float64(snap.TokensUsed) * 100.0 / float64(snap.ContextBudget)
+	}
+	if s.ctxMgr != nil && snap.CtxID > 0 {
+		info, err := s.ctxMgr.GetContextInfo(snap.CtxID)
+		if err == nil {
+			switch mc := info["message_count"].(type) {
+			case int:
+				resp.ContextStats.MessageCount = mc
+			case int64:
+				resp.ContextStats.MessageCount = int(mc)
+			case float64:
+				resp.ContextStats.MessageCount = int(mc)
+			}
+		}
+	}
+
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("marshal get_proc_detail: %v", err)}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleGetProcDetailFromHistory constructs a GetProcDetailResponse from procHistory
+// for processes that have been reaped from the active process table.
+func (s *Server) handleGetProcDetailFromHistory(conn net.Conn, pid types.PID, uuid string) {
+	var info *vfs.ProcInfo
+	if uuid != "" && isValidUUID(uuid) {
+		info = s.kern.FindHistoryByUUID(uuid)
+	}
+	if info == nil && pid != 0 {
+		info = s.kern.FindHistoryByPID(pid)
+	}
+	if info == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: "process not found"}})
+		return
+	}
+
+	resp := GetProcDetailResponse{
+		PID:            info.PID,
+		UUID:           info.UUID,
+		PPID:           info.PPID,
+		State:          info.State.String(),
+		Intent:         info.Intent,
+		Provider:       info.Provider,
+		Model:          info.Model,
+		CreatedAtMs:    info.CreatedAt.UnixMilli(),
+		AllowedDevices: info.AllowedDevices,
+		FDTable:        []FDEntryWire{},
+		EnvSnapshot:    map[string]string{},
+		ComposeNode:    info.ComposeNode,
+		ComposeDeps:    info.ComposeDeps,
+		PipelineIndex:  info.PipelineIndex,
+		PipelineTotal:  info.PipelineTotal,
+	}
+	if !info.DeadAt.IsZero() {
+		resp.DeadAtMs = info.DeadAt.UnixMilli()
+	}
+
+	// Build skill info from history
+	skillInfos := make([]SkillInfoWire, 0, len(info.Skills))
+	for _, name := range info.Skills {
+		si := SkillInfoWire{Name: name}
+		if s.skillLoader != nil {
+			meta, err := s.skillLoader.LoadMetadata(name)
+			if err == nil {
+				si.AllowedTools = meta.Manifest.AllowedTools()
+			}
+		}
+		if si.AllowedTools == nil {
+			si.AllowedTools = []string{}
+		}
+		skillInfos = append(skillInfos, si)
+	}
+	resp.Skills = skillInfos
+
+	resp.ContextStats = ContextStatsWire{
+		TokensUsed:    info.TokensUsed,
+		ContextBudget: info.ContextBudget,
+	}
+	if info.ContextBudget > 0 {
+		resp.ContextStats.UsagePct = float64(info.TokensUsed) * 100.0 / float64(info.ContextBudget)
+	}
+
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("marshal get_proc_detail: %v", err)}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
