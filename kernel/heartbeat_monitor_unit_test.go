@@ -109,7 +109,7 @@ func TestHeartbeatMonitor_ScanDetectsStalled(t *testing.T) {
 	}
 }
 
-func TestHeartbeatMonitor_Level1CancelStep(t *testing.T) {
+func TestHeartbeatMonitor_Level1WarnOnly(t *testing.T) {
 	k := newHeartbeatTestKernel(t)
 	proc := NewProcess(0, "test-level1", nil)
 	proc.mu.Lock()
@@ -119,7 +119,7 @@ func TestHeartbeatMonitor_Level1CancelStep(t *testing.T) {
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
-	// Set a step cancel to verify it gets called
+	// Set a step cancel to verify it does NOT get called at Level 1
 	var cancelCalled bool
 	var mu sync.Mutex
 	proc.SetStepCancel(func() {
@@ -134,8 +134,8 @@ func TestHeartbeatMonitor_Level1CancelStep(t *testing.T) {
 	mu.Lock()
 	called := cancelCalled
 	mu.Unlock()
-	if !called {
-		t.Error("expected CancelStep to be called for Level 1 retry")
+	if called {
+		t.Error("expected CancelStep NOT to be called at Level 1 (warn only)")
 	}
 
 	// Verify consecutive stalls = 1
@@ -150,9 +150,50 @@ func TestHeartbeatMonitor_Level1CancelStep(t *testing.T) {
 	}
 }
 
-func TestHeartbeatMonitor_Level2Suspend(t *testing.T) {
+func TestHeartbeatMonitor_Level3CancelStep(t *testing.T) {
 	k := newHeartbeatTestKernel(t)
-	proc := NewProcess(0, "test-level2", nil)
+	proc := NewProcess(0, "test-level3", nil)
+	proc.mu.Lock()
+	proc.State = types.StateRunning
+	proc.StepTimeout = 100 * time.Millisecond
+	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
+	proc.mu.Unlock()
+	k.procTable.Store(proc.PID, proc)
+
+	// Set a step cancel to verify it gets called at Level 3
+	var cancelCalled bool
+	var mu sync.Mutex
+	proc.SetStepCancel(func() {
+		mu.Lock()
+		cancelCalled = true
+		mu.Unlock()
+	})
+
+	hm := NewHeartbeatMonitor(k, 50*time.Millisecond)
+
+	// Pre-seed with ConsecutiveStalls=2 so next scan triggers Level 3
+	hm.mu.Lock()
+	hm.stalledProcs[proc.PID] = &stallRecord{
+		PID:               proc.PID,
+		UUID:              proc.UUID,
+		ConsecutiveStalls: 2,
+		FirstStalledAt:    time.Now().Add(-1 * time.Second),
+	}
+	hm.mu.Unlock()
+
+	hm.scan()
+
+	mu.Lock()
+	called := cancelCalled
+	mu.Unlock()
+	if !called {
+		t.Error("expected CancelStep to be called at Level 3")
+	}
+}
+
+func TestHeartbeatMonitor_Level4Suspend(t *testing.T) {
+	k := newHeartbeatTestKernel(t)
+	proc := NewProcess(0, "test-level4", nil)
 	proc.mu.Lock()
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
@@ -167,13 +208,13 @@ func TestHeartbeatMonitor_Level2Suspend(t *testing.T) {
 
 	hm := NewHeartbeatMonitor(k, 50*time.Millisecond)
 
-	// Pre-seed stall record with ConsecutiveStalls=1 to trigger Level 2
+	// Pre-seed stall record with ConsecutiveStalls=3 to trigger Level 4
 	hm.mu.Lock()
 	hm.stalledProcs[proc.PID] = &stallRecord{
 		PID:               proc.PID,
 		UUID:              proc.UUID,
-		ConsecutiveStalls: 1,
-		FirstStalledAt:    time.Now().Add(-1 * time.Second),
+		ConsecutiveStalls: 3,
+		FirstStalledAt:    time.Now().Add(-2 * time.Second),
 		LastActionAt:      time.Now().Add(-500 * time.Millisecond),
 	}
 	hm.mu.Unlock()
@@ -182,7 +223,7 @@ func TestHeartbeatMonitor_Level2Suspend(t *testing.T) {
 
 	state := proc.GetState()
 	if state != types.StateSuspended {
-		t.Errorf("expected StateSuspended after Level 2, got %s", state)
+		t.Errorf("expected StateSuspended after Level 4, got %s", state)
 	}
 
 	// Verify removed from stalledProcs

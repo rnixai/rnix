@@ -16,10 +16,15 @@ type stallRecord struct {
 	ConsecutiveStalls int       // number of consecutive stalled detections
 	FirstStalledAt    time.Time // when first detected as stalled
 	LastActionAt      time.Time // when the last recovery action was taken
+	LastHeartbeat     time.Time // snapshot of process's LastHeartbeat at detection time
 }
 
 // HeartbeatMonitor periodically scans all Running processes for stalled heartbeats
-// and executes a three-level recovery strategy: retry → suspend → notify.
+// and executes a four-level graduated recovery strategy:
+//
+//	Level 1-2 (warn): emit event, no destructive action
+//	Level 3 (cancel_step): cancel current LLM call to trigger retry
+//	Level 4 (suspend): suspend the process for manual intervention
 type HeartbeatMonitor struct {
 	kernel        *KernelImpl
 	checkInterval time.Duration
@@ -130,54 +135,63 @@ func (hm *HeartbeatMonitor) scan() {
 			return true
 		}
 
-		// Stalled! Execute recovery strategy
+		// Stalled! Execute graduated recovery strategy
 		hm.handleStalled(pid, proc, stalledDuration)
 		return true
 	})
 }
 
-// handleStalled executes the three-level recovery strategy for a stalled process.
+// handleStalled executes the four-level graduated recovery strategy for a stalled process.
+//
+//	Level 1-2: warn only — the process may be in a legitimate long LLM call
+//	Level 3:   cancel_step — sustained silence, likely genuinely hung
+//	Level 4:   suspend — persistent stall, needs manual intervention
 func (hm *HeartbeatMonitor) handleStalled(pid types.PID, proc *Process, stalledDuration time.Duration) {
 	hm.mu.Lock()
 	record, exists := hm.stalledProcs[pid]
 	if !exists {
-		// First detection — create record
 		record = &stallRecord{
-			PID:               pid,
-			UUID:              proc.UUID,
-			ConsecutiveStalls: 0,
-			FirstStalledAt:    time.Now(),
+			PID:            pid,
+			UUID:           proc.UUID,
+			FirstStalledAt: time.Now(),
 		}
 		hm.stalledProcs[pid] = record
 		hm.totalStalledDetected++
 	}
 	record.ConsecutiveStalls++
 	consecutiveStalls := record.ConsecutiveStalls
-	hm.mu.Unlock()
 
 	proc.mu.Lock()
+	record.LastHeartbeat = proc.LastHeartbeat
 	stepTimeout := proc.StepTimeout
-	lastHB := proc.LastHeartbeat
 	proc.mu.Unlock()
+	hm.mu.Unlock()
 
-	// Level 3 (Notify): always emit ProcessStalled event
-	action := "retry"
-	if consecutiveStalls >= 2 {
+	// Determine action level
+	var action string
+	switch {
+	case consecutiveStalls >= 4:
 		action = "suspend"
+	case consecutiveStalls >= 3:
+		action = "cancel_step"
+	default:
+		action = "warn"
 	}
+
+	// Always emit ProcessStalled event
 	hm.kernel.emitEvent(proc, "HeartbeatMonitor", map[string]any{
-		"event":              "ProcessStalled",
-		"pid":                pid,
-		"uuid":               proc.UUID,
-		"last_heartbeat_ms":  lastHB.UnixMilli(),
-		"stalled_duration_ms": stalledDuration.Milliseconds(),
-		"step_timeout_ms":    stepTimeout.Milliseconds(),
+		"event":             "ProcessStalled",
+		"pid":               pid,
+		"uuid":              proc.UUID,
+		"heartbeat_gap_ms":  stalledDuration.Milliseconds(),
+		"detected_ago_ms":   time.Since(record.FirstStalledAt).Milliseconds(),
+		"step_timeout_ms":   stepTimeout.Milliseconds(),
 		"consecutive_stalls": consecutiveStalls,
-		"action":             action,
+		"action":            action,
 	}, nil, nil, 0)
 
-	if consecutiveStalls >= 2 {
-		// Level 2 (Suspend): consecutive stalls, suspend the process
+	switch action {
+	case "suspend":
 		log.Printf("[heartbeat] pid=%d stalled %d times, suspending (heartbeat_timeout)", pid, consecutiveStalls)
 		proc.mu.Lock()
 		proc.SuspendReason = "heartbeat_timeout"
@@ -185,17 +199,18 @@ func (hm *HeartbeatMonitor) handleStalled(pid types.PID, proc *Process, stalledD
 		if err := hm.kernel.Suspend(pid); err != nil {
 			log.Printf("[heartbeat] pid=%d suspend failed: %v", pid, err)
 		}
-		// Remove from stalledProcs since process is now Suspended
 		hm.mu.Lock()
 		delete(hm.stalledProcs, pid)
 		hm.mu.Unlock()
-	} else {
-		// Level 1 (Retry): cancel current step to trigger retry
-		log.Printf("[heartbeat] pid=%d stalled, cancelling current step for retry", pid)
+	case "cancel_step":
+		log.Printf("[heartbeat] pid=%d stalled %d times, cancelling step for retry", pid, consecutiveStalls)
 		proc.CancelStep()
 		hm.mu.Lock()
 		record.LastActionAt = time.Now()
 		hm.mu.Unlock()
+	default:
+		// warn only — no destructive action, give legitimate long calls time
+		log.Printf("[heartbeat] pid=%d stall warning (%d), waiting", pid, consecutiveStalls)
 	}
 }
 
@@ -213,9 +228,9 @@ func (hm *HeartbeatMonitor) checkRecovery(pid types.PID, proc *Process) {
 
 	// Emit ProcessRecovered event
 	hm.kernel.emitEvent(proc, "HeartbeatMonitor", map[string]any{
-		"event":             "ProcessRecovered",
-		"pid":               pid,
-		"uuid":              proc.UUID,
+		"event":              "ProcessRecovered",
+		"pid":                pid,
+		"uuid":               proc.UUID,
 		"recovered_after_ms": recoveredAfter.Milliseconds(),
 		"consecutive_stalls": record.ConsecutiveStalls,
 	}, nil, nil, 0)
@@ -238,15 +253,21 @@ func (hm *HeartbeatMonitor) Status() HeartbeatStatusInfo {
 
 	stalled := make([]StalledProcInfo, 0, len(hm.stalledProcs))
 	for _, record := range hm.stalledProcs {
-		lastAction := "retry"
-		if record.ConsecutiveStalls >= 2 {
+		var lastAction string
+		switch {
+		case record.ConsecutiveStalls >= 4:
 			lastAction = "suspend"
+		case record.ConsecutiveStalls >= 3:
+			lastAction = "cancel_step"
+		default:
+			lastAction = "warn"
 		}
 		stalled = append(stalled, StalledProcInfo{
 			PID:               record.PID,
 			UUID:              record.UUID,
 			ConsecutiveStalls: record.ConsecutiveStalls,
 			StalledDuration:   time.Since(record.FirstStalledAt),
+			HeartbeatGap:      time.Since(record.LastHeartbeat),
 			LastAction:        lastAction,
 		})
 	}
@@ -272,6 +293,7 @@ type StalledProcInfo struct {
 	PID               types.PID
 	UUID              string
 	ConsecutiveStalls int
-	StalledDuration   time.Duration
+	StalledDuration   time.Duration // time since first stall detection
+	HeartbeatGap      time.Duration // actual time since last heartbeat
 	LastAction        string
 }

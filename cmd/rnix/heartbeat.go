@@ -69,15 +69,16 @@ func runHeartbeatStatus(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(w, "No stalled processes.")
 	} else {
 		fmt.Fprintln(w, "\nCurrent Stalled Processes:")
-		fmt.Fprintf(w, "  %-6s %-14s %-8s %-12s %s\n", "PID", "UUID", "STALLS", "DURATION", "ACTION")
+		fmt.Fprintf(w, "  %-6s %-14s %-8s %-12s %-12s %s\n", "PID", "UUID", "STALLS", "HB GAP", "DETECTED", "ACTION")
 		for _, sp := range status.CurrentStalled {
 			uuidShort := sp.UUID
 			if len(uuidShort) > 12 {
 				uuidShort = uuidShort[:12] + "..."
 			}
-			dur := time.Duration(sp.StalledDurationMs) * time.Millisecond
-			fmt.Fprintf(w, "  %-6d %-14s %-8d %-12s %s\n",
-				sp.PID, uuidShort, sp.ConsecutiveStalls, dur.Round(time.Second), sp.LastAction)
+			gap := time.Duration(sp.HeartbeatGapMs) * time.Millisecond
+			detected := time.Duration(sp.StalledDurationMs) * time.Millisecond
+			fmt.Fprintf(w, "  %-6d %-14s %-8d %-12s %-12s %s\n",
+				sp.PID, uuidShort, sp.ConsecutiveStalls, gap.Round(time.Second), detected.Round(time.Second), sp.LastAction)
 		}
 	}
 
