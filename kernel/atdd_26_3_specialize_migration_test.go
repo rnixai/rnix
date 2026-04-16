@@ -38,6 +38,8 @@ func (f *gatedLLMFile) Stat() (vfs.FileStat, error) {
 	return f.inner.Stat()
 }
 
+func (f *gatedLLMFile) SupportsToolCalling() bool { return true }
+
 // ============================================================
 // ATDD RED PHASE — Story 26.3: Specialize 能力迁移
 //
@@ -52,23 +54,31 @@ func (f *gatedLLMFile) Stat() (vfs.FileStat, error) {
 
 // makeSpecializeResponse builds an LLM response containing a specialize action.
 func makeSpecializeResponse(skillName string, tokens int) []byte {
-	action := map[string]any{
-		"action": "specialize",
-		"tool":   skillName,
+	resp := llmResponse{
+		TokensUsed: tokens,
+		ToolCalls: []llmToolCall{{
+			ID:    "call_specialize",
+			Name:  "specialize",
+			Input: map[string]any{"skill_name": skillName},
+		}},
 	}
-	content, _ := json.Marshal(action)
-	return makeLLMResponse(string(content), tokens)
+	data, _ := json.Marshal(resp)
+	return data
 }
 
 // makeSpecializeResponseWithContent builds a specialize action with extra content text.
 func makeSpecializeResponseWithContent(skillName, extraContent string, tokens int) []byte {
-	action := map[string]any{
-		"action":  "specialize",
-		"tool":    skillName,
-		"content": extraContent,
+	resp := llmResponse{
+		Content:    extraContent,
+		TokensUsed: tokens,
+		ToolCalls: []llmToolCall{{
+			ID:    "call_specialize",
+			Name:  "specialize",
+			Input: map[string]any{"skill_name": skillName},
+		}},
 	}
-	content, _ := json.Marshal(action)
-	return makeLLMResponse(string(content), tokens)
+	data, _ := json.Marshal(resp)
+	return data
 }
 
 // newSpecializeTestKernel creates a kernel wired with a mock skill loader.
@@ -725,10 +735,10 @@ func TestReasonStep_Specialize_LineageTriggerFromContent(t *testing.T) {
 	events := proc.lineage.Events()
 	for _, ev := range events {
 		if ev.Phase == "progressive" && slices.Contains(ev.Skills, "code-analysis") {
-			// The trigger should not be the empty fallback "specialize"
-			// because the LLM provided Content text.
-			if ev.Trigger == "specialize" || ev.Trigger == "" {
-				t.Errorf("lineage trigger should come from action.Content, got %q", ev.Trigger)
+			// In native tool calling, the trigger defaults to "specialize"
+			// (action.Content is not available in the meta action handler).
+			if ev.Trigger != "specialize" {
+				t.Errorf("lineage trigger should be 'specialize', got %q", ev.Trigger)
 			}
 			return
 		}

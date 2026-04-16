@@ -8,7 +8,7 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// toolMapping describes how a native tool name maps back to a VFS device or meta action.
+// toolMapping describes how a tool name maps back to a VFS device or meta action.
 type toolMapping struct {
 	Type        string     // "vfs" or "meta"
 	VFSPath     string     // VFS device path (for Type="vfs")
@@ -35,7 +35,7 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 		for _, def := range td.ToolDefs() {
 			defs = append(defs, def)
 			m := toolMapping{Type: "vfs", VFSPath: devPath}
-			// Tag FS operations for special handling in executeNativeVFSTool
+			// Tag FS operations for special handling in executeVFSTool
 			switch def.Name {
 			case "read_file", "write_file", "list_dir", "edit_file", "glob", "grep":
 				m.FSOperation = def.Name
@@ -198,174 +198,6 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 	}
 
 	return defs, metaMap
-}
-
-// generateToolProtocol generates a text-based action protocol from ToolDefs.
-// Used for CLI drivers that don't support native function calling.
-func generateToolProtocol(toolDefs []vfs.ToolDef, toolMap map[string]toolMapping, metaDefs []vfs.ToolDef, metaMap map[string]toolMapping, planningEnabled bool) string {
-	var sb strings.Builder
-
-	sb.WriteString("# Action Protocol\n")
-	sb.WriteString("Respond with a JSON object to perform an action, or plain text for your final answer.\n\n")
-
-	// VFS tool calls
-	sb.WriteString("Tool call — execute a VFS device:\n")
-	sb.WriteString(`{"action": "tool_call", "tool": "<vfs-device-path>", "data": {<tool-specific-payload>}}`)
-	sb.WriteString("\n\n")
-
-	// Separate FS tools (compact one-liners) from rich tools (full description blocks)
-	var richDefs []vfs.ToolDef
-	hasFS := false
-	for _, def := range toolDefs {
-		m, ok := toolMap[def.Name]
-		if !ok {
-			continue
-		}
-		if m.FSOperation != "" {
-			if !hasFS {
-				sb.WriteString("Available VFS device paths:\n")
-				hasFS = true
-			}
-			switch m.FSOperation {
-			case "read_file":
-				sb.WriteString("  - Read file: tool=\"")
-				sb.WriteString(m.VFSPath)
-				sb.WriteString("/src/main.go\", data={}\n")
-			case "write_file":
-				sb.WriteString("  - Write file: tool=\"")
-				sb.WriteString(m.VFSPath)
-				sb.WriteString("/docs/output.md\", data={\"content\": \"file content here\"}\n")
-			case "list_dir":
-				sb.WriteString("  - List directory: tool=\"")
-				sb.WriteString(m.VFSPath)
-				sb.WriteString("/src\", data={\"op\": \"list\"}\n")
-			case "edit_file":
-				sb.WriteString("  - Edit file (string replace): tool=\"")
-				sb.WriteString(m.VFSPath)
-				sb.WriteString("/src/main.go\", data={\"op\": \"edit\", \"old_string\": \"old text\", \"new_string\": \"new text\"}\n")
-			case "glob":
-				sb.WriteString("  - Glob (find files): tool=\"")
-				sb.WriteString(m.VFSPath)
-				sb.WriteString("/.\", data={\"op\": \"glob\", \"pattern\": \"**/*.go\"}\n")
-			case "grep":
-				sb.WriteString("  - Grep (search content): tool=\"")
-				sb.WriteString(m.VFSPath)
-				sb.WriteString("/.\", data={\"op\": \"grep\", \"pattern\": \"func main\"}\n")
-			}
-		} else {
-			richDefs = append(richDefs, def)
-		}
-	}
-
-	sb.WriteString("\nIMPORTANT path rules:\n")
-	sb.WriteString("  - /dev/fs paths MUST include the file/dir path after /dev/fs (e.g. /dev/fs/src/main.go). Never use /dev/fs alone.\n")
-	sb.WriteString("  - /dev/fs paths are relative to the project working directory. Do NOT include the project name.\n")
-	sb.WriteString("  - /dev/shell has no subpath — always use exactly \"/dev/shell\".\n")
-
-	// Rich tools: each gets a clearly separated block with header, usage, and description
-	for _, def := range richDefs {
-		m, ok := toolMap[def.Name]
-		if !ok {
-			continue
-		}
-		sb.WriteString("\n## ")
-		sb.WriteString(def.Name)
-		sb.WriteString("\n")
-		sb.WriteString("Usage: tool=\"")
-		sb.WriteString(m.VFSPath)
-		sb.WriteString("\", data=")
-		writeExampleData(&sb, def)
-		sb.WriteString("\n")
-		if def.Description != "" {
-			sb.WriteString(strings.TrimRight(def.Description, "\n"))
-			sb.WriteString("\n")
-		}
-	}
-
-	sb.WriteString("\n")
-
-	// Meta actions
-	sb.WriteString("## Meta Actions\n\n")
-	for _, def := range metaDefs {
-		m, ok := metaMap[def.Name]
-		if !ok {
-			continue
-		}
-		switch m.Action {
-		case ActionSpawn:
-			sb.WriteString("Spawn child process:\n")
-			sb.WriteString(`{"action": "spawn", "tool": "<child intent>", "data": {"agent": "<name>", "model": "<model>"}}`)
-			sb.WriteString("\n\n")
-		case ActionComplete:
-			sb.WriteString("Complete — finish with a result:\n")
-			sb.WriteString(`{"action": "complete", "tool": "", "data": {"result": "<final output>"}}`)
-			sb.WriteString("\n\n")
-		case ActionReplan:
-			sb.WriteString("Replan — revise your approach:\n")
-			sb.WriteString(`{"action": "replan", "tool": "", "data": {"reason": "<why replanning>"}}`)
-			sb.WriteString("\n\n")
-		case ActionSpecialize:
-			sb.WriteString("Specialize — dynamically load a skill:\n")
-			sb.WriteString(`{"action": "specialize", "tool": "<skill-name>", "data": {}}`)
-			sb.WriteString("\n\n")
-		case ActionDiscoverSkill:
-			sb.WriteString("Discover Skill — search deferred skills by keyword:\n")
-			sb.WriteString(`{"action": "discover_skill", "tool": "<query keywords>", "data": {}}`)
-			sb.WriteString("\n\n")
-		case ActionPlan:
-			sb.WriteString("Plan — create an execution plan before acting:\n")
-			sb.WriteString(`{"action": "plan", "tool": "", "data": {"steps": ["step1", "step2", ...], "reason": "why planning"}}`)
-			sb.WriteString("\n\nUse planning when the task requires multiple coordinated steps. For simple tasks, use tool_call directly.\n\n")
-		case ActionDeferredSkillPlaceholder:
-			// Deferred skill placeholders are not rendered individually in the text protocol;
-			// they are accessible via discover_skill.
-			continue
-		}
-	}
-
-	sb.WriteString("## Skills vs Tools\n")
-	sb.WriteString("Skills are instruction sets, NOT callable VFS devices. They teach you new capabilities.\n")
-	sb.WriteString("- To load a skill: use the specialize action above.\n")
-	sb.WriteString("- Once loaded, the skill's instructions appear in your system prompt. Follow them using available VFS devices.\n")
-	sb.WriteString("- Do NOT call skills via /dev/mcp/ or any other device path — skills have no device path.\n")
-	sb.WriteString("- If a skill is already loaded, its instructions are already in your system prompt. Act on them directly.\n")
-	sb.WriteString("\nIf no action is needed, respond with plain text (your final answer).")
-
-	return sb.String()
-}
-
-// writeExampleData writes an example JSON data object based on tool parameters.
-func writeExampleData(sb *strings.Builder, def vfs.ToolDef) {
-	props, _ := def.Parameters["properties"].(map[string]any)
-	if len(props) == 0 {
-		sb.WriteString("{}")
-		return
-	}
-	sb.WriteString("{")
-	first := true
-	for k := range props {
-		if !first {
-			sb.WriteString(", ")
-		}
-		fmt.Fprintf(sb, `"%s": "..."`, k)
-		first = false
-	}
-	sb.WriteString("}")
-}
-
-// mcpToolProtocolSnippet generates a text description for MCP devices in mixed mode.
-func mcpToolProtocolSnippet(mcpDevices []string) string {
-	if len(mcpDevices) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("\n\n# MCP Tools (text protocol)\n")
-	sb.WriteString("The following MCP tools are available via text protocol:\n")
-	for _, dev := range mcpDevices {
-		fmt.Fprintf(&sb, "  - MCP tool: tool=\"%s\", data={...tool-specific-params...}\n", dev)
-	}
-	sb.WriteString("Call MCP tools using the tool_call action with the device path above.\n")
-	return sb.String()
 }
 
 // convertToolCalls converts kernel llmToolCall slice to context.ToolCall slice.

@@ -567,6 +567,8 @@ func TestCodexCliDriver_BuildPrompt_WithSystemPrompt(t *testing.T) {
 }
 
 func TestCodexCliDriver_BuildPrompt_MultiTurn(t *testing.T) {
+	// CLI Agents manage their own agent loop internally, so each Call is an
+	// independent task — buildPrompt only returns the intent, ignoring Messages.
 	d := NewCodexCliDriver()
 	req := LLMRequest{
 		Intent: "fix the bug",
@@ -578,16 +580,7 @@ func TestCodexCliDriver_BuildPrompt_MultiTurn(t *testing.T) {
 		},
 	}
 	prompt := d.buildPrompt(req)
-	if !strings.Contains(prompt, "Human: hello") {
-		t.Errorf("expected 'Human: hello' in prompt, got: %s", prompt)
-	}
-	if !strings.Contains(prompt, "Assistant: hi there") {
-		t.Errorf("expected 'Assistant: hi there' in prompt, got: %s", prompt)
-	}
-	if !strings.Contains(prompt, "[Tool Result (tc1)]") {
-		t.Errorf("expected tool result in prompt, got: %s", prompt)
-	}
-	if !strings.Contains(prompt, "Continue. Your original task: fix the bug") {
-		t.Errorf("expected task reminder in prompt, got: %s", prompt)
+	if prompt != "fix the bug" {
+		t.Errorf("expected intent-only prompt, got: %s", prompt)
 	}
 }

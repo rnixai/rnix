@@ -81,6 +81,8 @@ func (f *routedLLMFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
 
+func (f *routedLLMFile) SupportsToolCalling() bool { return true }
+
 // newRoutedTestKernel creates a kernel with per-FD intent-routing.
 func newRoutedTestKernel(t testing.TB, router *intentRouter) *KernelImpl {
 	reg := vfs.NewDeviceRegistry()
@@ -109,6 +111,8 @@ func (f *alwaysCrashFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
 
+func (f *alwaysCrashFile) SupportsToolCalling() bool { return true }
+
 // normalFile returns "done" on Read (children exit code 0).
 type normalFile struct{}
 
@@ -122,6 +126,8 @@ func (f *normalFile) Close() error { return nil }
 func (f *normalFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
+
+func (f *normalFile) SupportsToolCalling() bool { return true }
 
 // slowFile delays Read to simulate long-running children.
 type slowFile struct{ delay time.Duration }
@@ -137,6 +143,8 @@ func (f *slowFile) Close() error { return nil }
 func (f *slowFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
+
+func (f *slowFile) SupportsToolCalling() bool { return true }
 
 // newSimpleTestKernel creates a kernel with a single shared LLM file.
 func newSimpleTestKernel(t testing.TB, file vfs.VFSFile) *KernelImpl {

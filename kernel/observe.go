@@ -172,19 +172,6 @@ func (k *KernelImpl) writeDriverStepRecordFull(proc *Process, step int, action, 
 	}
 }
 
-// recordContextSnapshot captures a context snapshot for recording (Story 14.1).
-func (k *KernelImpl) recordContextSnapshot(proc *Process) {
-	ctxEvent := debug.RecordEvent{
-		Timestamp: time.Since(proc.CreatedAt),
-		PID:       proc.PID,
-		Type:      debug.RecordContextSnapshot,
-		Context:   &debug.ContextSnapshotData{},
-	}
-	if err := k.recordMgr.RecordEvent(proc.PID, ctxEvent); err != nil {
-		log.Printf("[record] context snapshot write error pid=%d: %v", proc.PID, err)
-	}
-}
-
 // briefToolCallSummary generates "{toolPath} -> {briefResult}" for OnStepComplete.
 func briefToolCallSummary(toolPath, toolResult string) string {
 	brief := strings.ReplaceAll(toolResult, "\n", " ")
@@ -250,26 +237,6 @@ func driverToolSummary(tool, toolPath, toolInput string) string {
 		return toolPath
 	}
 	return tool
-}
-
-// briefPlanSummary generates "plan (N steps)" from plan ToolData JSON.
-func briefPlanSummary(toolData json.RawMessage) string {
-	var planData struct {
-		Steps []json.RawMessage `json:"steps"`
-	}
-	if err := json.Unmarshal(toolData, &planData); err != nil || len(planData.Steps) == 0 {
-		return "plan"
-	}
-	return fmt.Sprintf("plan (%d steps)", len(planData.Steps))
-}
-
-// briefReplanSummary generates a truncated replan reason.
-func briefReplanSummary(reason string) string {
-	r := []rune(reason)
-	if len(r) > 40 {
-		return string(r[:40]) + "..."
-	}
-	return reason
 }
 
 // briefTextSummary extracts the first non-empty line from text content, truncated to 60 runes.
@@ -673,7 +640,6 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 	}
 
 	if tc, ok := file.(vfs.ToolCapable); ok && tc.SupportsToolCalling() {
-		proc.UseNativeTools = true
 		vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
 		metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled, proc.DeferredSkills)
 		allDefs := make([]vfs.ToolDef, 0, len(vfsDefs)+len(metaDefs))

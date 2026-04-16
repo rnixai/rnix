@@ -120,7 +120,7 @@ func TestATDD_3_6_AC1_OnStepComplete_ToolCall(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llm, nil
 	})
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &atdd36ToolFile{readData: []byte("file content")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -159,7 +159,7 @@ func TestATDD_3_6_AC1_OnStepComplete_ToolCall(t *testing.T) {
 // ============================================================
 
 func TestATDD_3_6_AC2_OnStepComplete_Plan(t *testing.T) {
-	planResp := makeLLMResponse(`{"action":"plan","data":{"steps":["step1","step2","step3"]}}`, 10)
+	planResp := makePlanResponse([]string{"step1", "step2", "step3"}, "test", 10)
 	completeResp := makeLLMResponse("done", 5)
 
 	llm := &sequenceLLMFile{
@@ -207,7 +207,7 @@ func TestATDD_3_6_AC2_OnStepComplete_Plan(t *testing.T) {
 // ============================================================
 
 func TestATDD_3_6_AC3_OnStepComplete_Spawn(t *testing.T) {
-	spawnResp := makeLLMResponse(`{"action":"spawn","data":{"intent":"analyze code"}}`, 10)
+	spawnResp := makeSpawnResponse("analyze code", "", 10)
 	completeResp := makeLLMResponse("done", 5)
 
 	llm := &sequenceLLMFile{
@@ -308,7 +308,7 @@ func TestATDD_3_6_AC1_OnStepComplete_ToolCall_SummaryTruncation(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return llm, nil
 	})
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &atdd36ToolFile{readData: longResult}, nil
 	})
 	v := vfs.NewVFS(reg)

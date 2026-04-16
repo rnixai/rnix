@@ -12,13 +12,13 @@ import (
 // --- BUG-004: Tool Error Propagation Tests ---
 
 func TestReasonStep_ToolOpenFails_SetsHasToolError(t *testing.T) {
-	// When LLM requests a tool at a non-existent device path,
-	// VFS Open fails → HasToolError is set → exit code is 1.
+	// When LLM requests a tool whose VFS device Open fails,
+	// the error is caught → HasToolError is set → exit code is 1.
 	reg := vfs.NewDeviceRegistry()
 
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
-			// Step 1: LLM requests a tool_call to /dev/nonexistent (not registered)
+			// Step 1: LLM requests a tool_call to /dev/nonexistent (Open will fail)
 			makeToolCallResponse("/dev/nonexistent", map[string]any{"query": "test"}, 50),
 			// Step 2: LLM returns a text response (completing the reasoning)
 			makeLLMResponse("I encountered a tool error but here is my best answer", 30),
@@ -27,7 +27,11 @@ func TestReasonStep_ToolOpenFails_SetsHasToolError(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	// NOTE: /dev/nonexistent is intentionally NOT registered → Open will fail
+	// Register /dev/nonexistent with a factory that always fails on Open,
+	// so the tool appears in toolMap but VFS Open returns an error.
+	registerMockTool(reg, "/dev/nonexistent", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return nil, types.NewDriverError("Open", "/dev/nonexistent", nil, types.ErrInternal)
+	})
 
 	v := vfs.NewVFS(reg)
 	ctxMgr := rnixctx.NewManager()
@@ -82,7 +86,7 @@ func TestReasonStep_ToolWriteFails_SetsHasToolError(t *testing.T) {
 	})
 
 	// Register a tool device that fails on Write
-	_ = reg.Register("/dev/tools/failing", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/failing", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{
 			writeErr: errMockWrite,
 		}, nil
@@ -135,7 +139,7 @@ func TestReasonStep_ToolReadFails_SetsHasToolError(t *testing.T) {
 	})
 
 	// Register a tool device that succeeds on Write but fails on Read
-	_ = reg.Register("/dev/tools/read-fail", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/read-fail", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{
 			readErr: errMockRead,
 		}, nil
@@ -185,7 +189,7 @@ func TestReasonStep_NoToolError_ExitCodeZero(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/ok", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/ok", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("tool result")}, nil
 	})
 
@@ -246,7 +250,7 @@ func TestReasonStep_ToolErrorRecovered_ExitCodeZero(t *testing.T) {
 	})
 	// /dev/nonexistent is NOT registered → Open will fail
 	// /dev/tools/ok IS registered → will succeed
-	_ = reg.Register("/dev/tools/ok", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/ok", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("tool result")}, nil
 	})
 

@@ -374,32 +374,13 @@ func (d *CodexCliDriver) buildArgs(req LLMRequest, jsonMode bool) []string {
 	return args
 }
 
-// buildPrompt constructs the prompt from intent, system prompt, and conversation history.
+// buildPrompt constructs the prompt for a CLI Agent invocation.
 // Codex CLI has no --system-prompt flag, so system instructions are prepended to the prompt.
+// CLI Agents manage their own agent loop internally, so each Call is an
+// independent task — no cross-invocation history serialization needed.
 func (d *CodexCliDriver) buildPrompt(req LLMRequest) string {
-	var sb strings.Builder
-
-	// Prepend system prompt if present.
 	if req.SystemPrompt != "" {
-		fmt.Fprintf(&sb, "[System Instructions]\n%s\n\n[Task]\n", req.SystemPrompt)
+		return fmt.Sprintf("[System Instructions]\n%s\n\n[Task]\n%s", req.SystemPrompt, req.Intent)
 	}
-
-	if len(req.Messages) <= 1 {
-		sb.WriteString(req.Intent)
-		return sb.String()
-	}
-
-	// Multi-turn: serialize conversation history.
-	for _, msg := range req.Messages {
-		switch msg.Role {
-		case "user":
-			fmt.Fprintf(&sb, "Human: %s\n\n", msg.Content)
-		case "assistant":
-			fmt.Fprintf(&sb, "Assistant: %s\n\n", msg.Content)
-		case "tool":
-			fmt.Fprintf(&sb, "[Tool Result (%s)]\n%s\n\n", msg.ToolCallID, msg.Content)
-		}
-	}
-	fmt.Fprintf(&sb, "Continue. Your original task: %s", req.Intent)
-	return sb.String()
+	return req.Intent
 }

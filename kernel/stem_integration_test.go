@@ -171,7 +171,7 @@ func TestSpawn_StemAgentDifferentiationLog(t *testing.T) {
 	k.callbacks = captureCallback
 
 	llmFile.mu.Lock()
-	llmFile.readData = makeLLMResponse(`{"action":"complete","target":"","data":null,"reason":"done"}`, 10)
+	llmFile.readData = makeCompleteResponse("done", 10)
 	llmFile.mu.Unlock()
 
 	agent := stemAgentInfo()

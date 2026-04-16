@@ -42,7 +42,7 @@ func TestSpawn_StemAgentDifferentiationMemory_RecordAndReuse(t *testing.T) {
 	k.SetDiffMemory(dm)
 
 	llmFile.mu.Lock()
-	llmFile.readData = makeLLMResponse(`{"action":"complete","target":"","data":null,"reason":"done"}`, 10)
+	llmFile.readData = makeCompleteResponse("done", 10)
 	llmFile.mu.Unlock()
 
 	agent := stemAgentInfo()
@@ -114,7 +114,7 @@ func TestSpawn_StemAgentDifferentiationMemory_FallbackToMatch(t *testing.T) {
 	k.SetDiffMemory(dm)
 
 	llmFile.mu.Lock()
-	llmFile.readData = makeLLMResponse(`{"action":"complete","target":"","data":null,"reason":"done"}`, 10)
+	llmFile.readData = makeCompleteResponse("done", 10)
 	llmFile.mu.Unlock()
 
 	agent := stemAgentInfo()
@@ -176,7 +176,7 @@ func TestSpawn_StemAgentDifferentiationMemory_EventFromMemory(t *testing.T) {
 	k.recordMgr = nil // ensure no file recording
 
 	llmFile.mu.Lock()
-	llmFile.readData = makeLLMResponse(`{"action":"complete","target":"","data":null,"reason":"done"}`, 10)
+	llmFile.readData = makeCompleteResponse("done", 10)
 	llmFile.mu.Unlock()
 
 	agent := stemAgentInfo()
@@ -226,7 +226,7 @@ func TestE2E_StemDifferentiation_MemoryReuse(t *testing.T) {
 	k.SetDiffMemory(dm)
 
 	llmFile.mu.Lock()
-	llmFile.readData = makeLLMResponse(`{"action":"complete","target":"","data":null,"reason":"done"}`, 10)
+	llmFile.readData = makeCompleteResponse("done", 10)
 	llmFile.mu.Unlock()
 
 	// First spawn - populates memory
@@ -289,7 +289,7 @@ func TestE2E_StemDifferentiation_NormalizedIntentReuse(t *testing.T) {
 	k.SetDiffMemory(dm)
 
 	llmFile.mu.Lock()
-	llmFile.readData = makeLLMResponse(`{"action":"complete","target":"","data":null,"reason":"done"}`, 10)
+	llmFile.readData = makeCompleteResponse("done", 10)
 	llmFile.mu.Unlock()
 
 	// First spawn with "analyze code"

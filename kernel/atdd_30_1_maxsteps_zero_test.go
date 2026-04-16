@@ -24,7 +24,7 @@ func TestReasonStep_MaxStepsZero_CompleteTerminates(t *testing.T) {
 		return llm, nil
 	})
 	// Register /dev/fs so tool calls don't fail on missing device
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: []byte("file content")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -68,7 +68,7 @@ func TestReasonStep_MaxStepsPositive_Exceeds(t *testing.T) {
 			readData: makeToolCallResponse("/dev/fs", map[string]any{"path": "/tmp/step", "n": step}, 1),
 		}, nil
 	})
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockLLMFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)

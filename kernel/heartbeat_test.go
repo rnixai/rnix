@@ -165,7 +165,7 @@ func TestReasonStep_HeartbeatUpdatedPerStep(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/read", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/read", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("bar")}, nil
 	})
 

@@ -353,18 +353,6 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				}
 				sysPrompt += envSection.String()
 			}
-			if proc.UseNativeTools {
-				if len(proc.mcpDevicePaths) > 0 {
-					sysPrompt += mcpToolProtocolSnippet(proc.mcpDevicePaths)
-				}
-			} else {
-				if proc.generatedProtocol == "" {
-					vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
-					metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled, proc.DeferredSkills)
-					proc.generatedProtocol = generateToolProtocol(vfsDefs, vfsMap, metaDefs, metaMap, proc.PlanningEnabled)
-				}
-				sysPrompt += proc.generatedProtocol
-			}
 			proc.mu.Lock()
 			loadedSkills := make([]string, len(proc.Skills))
 			copy(loadedSkills, proc.Skills)
@@ -390,9 +378,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			TimeoutMs:    opts.TimeoutMs,
 			Messages:     promptResult.Messages,
 		}
-		if proc.UseNativeTools {
-			req.Tools = proc.nativeToolDefs
-		}
+		req.Tools = proc.nativeToolDefs
 		reqJSON, err := json.Marshal(req)
 		if err != nil {
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, err, time.Since(stepStart))
@@ -593,9 +579,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 		}
 
-		// Native tool calls path
-		if proc.UseNativeTools && len(resp.ToolCalls) > 0 {
-			// Loop detection for native tool calls: hash first tool call
+		// Tool calls path: execute tools and continue reasoning loop
+		if len(resp.ToolCalls) > 0 {
+			// Loop detection: hash first tool call
 			tc := resp.ToolCalls[0]
 			inputStr := ""
 			if tc.Input != nil {
@@ -610,7 +596,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				}
 			}
 
-			shouldContinue := k.executeNativeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors)
+			shouldContinue := k.executeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors, promptResult, rawResponseStr)
 			if !shouldContinue {
 				return
 			}
@@ -620,19 +606,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			continue
 		}
 
-		// Parse action (text protocol path)
-		action := parseAction(&resp)
-
-		// Loop detection: skip complete/text actions (normal termination signals)
-		if action.Type != ActionComplete && action.Type != ActionText {
-			loopHash := ActionHash(string(action.Type), action.ToolPath, string(action.ToolData))
-			if loopResult := loopDetector.Check(loopHash); loopResult != LoopNone {
-				if stopped := k.handleLoopDetection(proc, loopResult, step, stepStart); stopped {
-					return
-				}
-			}
-		}
-
+		// No tool calls: final result (CLI Agent completed or SDK model finished)
 		if hit := proc.CheckBreakpoint(BreakpointContext{BPType: BPQuality, LLMResponse: resp.Content, StepNumber: step}); hit != nil {
 			proc.GdbPause(fmt.Sprintf("quality breakpoint hit at step %d", step), hit)
 			select {
@@ -643,17 +617,27 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 		}
 
-		k.emitLog(proc, step, types.LogThink, resp.Content, "")
+		k.emitLog(proc, step, types.LogOutput, resp.Content, "")
+		k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+			"text", briefTextSummary(resp.Content), "", "", "", "", 0)
 
-		shouldContinue := k.handleAction(proc, action, resp, rawResponseStr, promptResult, step, stepStart, &consecutiveToolErrors, opts)
-		if !shouldContinue {
-			return
+		proc.mu.Lock()
+		proc.Result = resp.Content
+		hadError := proc.HasToolError
+		proc.mu.Unlock()
+		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "text"}, resp.Content, nil, time.Since(stepStart))
+		stepDur := time.Since(stepStart)
+		if k.callbacks != nil {
+			k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(resp.Content), false, float64(stepDur.Microseconds())/1000.0)
 		}
-
-		// Auto-compact check (Story 31.2): after action processed, before checkpoint
-		k.autoCompactIfNeeded(proc, step)
-
-		k.asyncWriteCheckpoint(proc, step, consecutiveToolErrors)
+		exitCode := 0
+		reason := "completed"
+		if hadError {
+			exitCode = 1
+			reason = "completed_with_tool_errors"
+		}
+		k.finishProcess(proc, ExitStatus{Code: exitCode, Reason: reason})
+		return
 	}
 
 	k.finishProcess(proc, ExitStatus{Code: 1, Reason: "max steps exceeded"})

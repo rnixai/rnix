@@ -315,7 +315,7 @@ func TestATDD27_1_Integration_StepRecordAutoCreatedOnSpawn(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("echo-result")}, nil
 	})
 
@@ -406,7 +406,7 @@ func TestATDD27_1_Integration_FinalSystemPromptCaptured(t *testing.T) {
 	k := NewKernel(v, ctxMgr, nil)
 	defer k.Shutdown()
 
-	pid, err := k.Spawn("finalsysprompt test", nil, SpawnOpts{})
+	pid, err := k.Spawn("finalsysprompt test", nil, SpawnOpts{SystemPrompt: "You are a test assistant."})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestATDD27_1_Integration_ProcessMetaWrittenOnExit(t *testing.T) {
 
 	k.SetStepDataDir(baseDir)
 
-	pid, err := k.Spawn("meta exit test", nil, SpawnOpts{})
+	pid, err := k.Spawn("meta exit test", nil, SpawnOpts{SystemPrompt: "You are a test assistant."})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestATDD27_1_Integration_WrittenBeforeAppendMessage(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("order-result")}, nil
 	})
 

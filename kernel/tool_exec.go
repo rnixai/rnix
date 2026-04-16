@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -16,12 +17,15 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// executeNativeToolCalls processes native tool calls from the LLM response.
-func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int) bool {
+// executeToolCalls processes native tool calls from the LLM response.
+func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int, promptResult *rnixctx.PromptResult, rawResponseStr string) bool {
+	appendStart := time.Now()
 	if err := k.ctxMgr.AppendAssistantWithToolCalls(proc.CtxID, resp.Content, convertToolCalls(resp.ToolCalls)); err != nil {
+		k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendAssistantWithToolCalls"}, nil, err, time.Since(appendStart))
 		k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append assistant with tool calls failed", Err: err})
 		return false
 	}
+	k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendAssistantWithToolCalls"}, nil, nil, time.Since(appendStart))
 
 	k.emitLog(proc, step, types.LogThink, resp.Content, "")
 
@@ -58,14 +62,29 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 
 		mapping, ok := proc.toolMap[tc.Name]
 		if !ok {
+			// MCP devices are mounted under /mnt/ after spawn, so they won't be
+			// in toolMap. Create a synthetic mapping to route through VFS.
+			// /dev/ paths are NOT included here: if a /dev/ device isn't in
+			// toolMap, it's a genuine "unknown tool" (permission denied).
+			if strings.HasPrefix(tc.Name, "/mnt/") {
+				mapping = toolMapping{Type: "vfs", VFSPath: tc.Name}
+				ok = true
+			}
+		}
+		if !ok {
 			errMsg := "error: unknown tool " + tc.Name
+			appendToolStart := time.Now()
 			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+			k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendToolResult", "tool": tc.Name}, nil, nil, time.Since(appendToolStart))
 			k.emitLog(proc, step, types.LogTool, errMsg, tc.Name)
-			// Record the failed step so it's visible in LLM viewer
-			k.writeDriverStepRecordFull(proc, step, tc.Name,
-				fmt.Sprintf("✗ unknown tool: %s", tc.Name),
-				tc.Name, "", errMsg, time.Since(stepStart),
-				nil, 0)
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"permission_denied", fmt.Sprintf("✗ unknown tool: %s", tc.Name),
+				tc.Name, "", "", errMsg, time.Since(stepStart))
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":   step,
+				"action": "permission_denied",
+				"tool":   tc.Name,
+			}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
 			*consecutiveToolErrors++
 			if *consecutiveToolErrors >= 3 {
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
@@ -76,20 +95,20 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 
 		switch mapping.Type {
 		case "vfs":
-			result, err := k.executeNativeVFSTool(proc, tc, mapping)
+			result, err := k.executeVFSTool(proc, tc, mapping)
 			if err != nil {
 				errMsg := fmt.Sprintf("Tool error (%s): %v", tc.Name, err)
+				appendToolStart := time.Now()
 				_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+				k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendToolResult", "tool": tc.Name}, nil, nil, time.Since(appendToolStart))
 				proc.mu.Lock()
 				proc.HasToolError = true
 				proc.mu.Unlock()
 				k.emitLog(proc, step, types.LogTool, errMsg, mapping.VFSPath)
-				// Record the failed tool call so it appears in step timeline
 				inputJSON, _ := json.Marshal(tc.Input)
-				k.writeDriverStepRecordFull(proc, step, tc.Name,
-					fmt.Sprintf("✗ %s: %v", tc.Name, err),
-					mapping.VFSPath, string(inputJSON), errMsg, time.Since(stepStart),
-					nil, 0)
+				k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+					"tool_call", fmt.Sprintf("✗ %s: %v", tc.Name, err),
+					mapping.VFSPath, string(inputJSON), "", errMsg, time.Since(stepStart))
 				*consecutiveToolErrors++
 				if *consecutiveToolErrors >= 3 {
 					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
@@ -97,23 +116,23 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 				}
 				continue
 			}
+			appendToolStart := time.Now()
 			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, result)
+			k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendToolResult", "tool": tc.Name}, nil, nil, time.Since(appendToolStart))
 			toolContent := result
 			if len(toolContent) > 500 {
 				toolContent = toolContent[:500] + fmt.Sprintf("... (truncated, %d bytes total)", len(result))
 			}
 			k.emitLog(proc, step, types.LogTool, toolContent, mapping.VFSPath)
 			*consecutiveToolErrors = 0
-			// Clear HasToolError: a successful tool call means the LLM recovered from prior errors
 			proc.mu.Lock()
 			proc.HasToolError = false
 			proc.mu.Unlock()
 
 			inputJSON, _ := json.Marshal(tc.Input)
-			k.writeDriverStepRecordFull(proc, step, tc.Name,
-				driverToolSummary(tc.Name, mapping.VFSPath, string(inputJSON)),
-				mapping.VFSPath, string(inputJSON), result, time.Since(stepStart),
-				nil, 0)
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"tool_call", driverToolSummary(tc.Name, mapping.VFSPath, string(inputJSON)),
+				mapping.VFSPath, string(inputJSON), result, "", time.Since(stepStart))
 
 			k.emitEvent(proc, "ReasonStep", func() map[string]any {
 				meta := map[string]any{
@@ -134,7 +153,7 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 			}
 
 		case "meta":
-			shouldContinue := k.executeNativeMetaAction(proc, tc, mapping, step, stepStart)
+			shouldContinue := k.executeMetaAction(proc, tc, mapping, step, stepStart, consecutiveToolErrors, promptResult, rawResponseStr, &resp)
 			if !shouldContinue {
 				return false
 			}
@@ -144,8 +163,8 @@ func (k *KernelImpl) executeNativeToolCalls(proc *Process, resp llmResponse, ste
 	return true
 }
 
-// executeNativeVFSTool executes a VFS tool call from native function calling.
-func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping toolMapping) (string, error) {
+// executeVFSTool executes a VFS tool call from native function calling.
+func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolMapping) (string, error) {
 	if len(proc.AllowedDevices) > 0 {
 		cleanPath := path.Clean(mapping.VFSPath)
 		allowed := false
@@ -364,16 +383,32 @@ func (k *KernelImpl) executeNativeVFSTool(proc *Process, tc llmToolCall, mapping
 
 	default:
 		inputData, _ := json.Marshal(tc.Input)
-		fd, err := k.vfs.Open(proc.PID, mapping.VFSPath, vfs.O_RDWR)
+		isEmpty := len(tc.Input) == 0
+		openFlags := vfs.O_RDWR
+		if isEmpty {
+			openFlags = vfs.O_RDONLY
+		}
+		openStart := time.Now()
+		fd, err := k.vfs.Open(proc.PID, mapping.VFSPath, openFlags)
+		k.emitEvent(proc, "Open", map[string]any{"path": mapping.VFSPath, "flags": int(openFlags)}, fd, err, time.Since(openStart))
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
-		if err := k.vfs.Write(proc.ctx, proc.PID, fd, inputData); err != nil {
-			_ = k.vfs.Close(proc.PID, fd)
-			return "", fmt.Errorf("write failed: %w", err)
+		if !isEmpty {
+			writeStart := time.Now()
+			if err := k.vfs.Write(proc.ctx, proc.PID, fd, inputData); err != nil {
+				k.emitEvent(proc, "Write", map[string]any{"fd": fd, "size": len(inputData)}, nil, err, time.Since(writeStart))
+				_ = k.vfs.Close(proc.PID, fd)
+				return "", fmt.Errorf("write failed: %w", err)
+			}
+			k.emitEvent(proc, "Write", map[string]any{"fd": fd, "size": len(inputData)}, nil, nil, time.Since(writeStart))
 		}
+		readStart := time.Now()
 		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
-		_ = k.vfs.Close(proc.PID, fd)
+		k.emitEvent(proc, "Read", map[string]any{"fd": fd, "length": 1 << 20}, len(data), err, time.Since(readStart))
+		closeStart := time.Now()
+		closeErr := k.vfs.Close(proc.PID, fd)
+		k.emitEvent(proc, "Close", map[string]any{"fd": fd}, nil, closeErr, time.Since(closeStart))
 		if err != nil {
 			return "", fmt.Errorf("read failed: %w", err)
 		}
@@ -430,7 +465,7 @@ func (k *KernelImpl) updateReadFileMtime(proc *Process, pathStr string) {
 	}
 }
 
-func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapping toolMapping, step int, stepStart time.Time) bool {
+func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping toolMapping, step int, stepStart time.Time, consecutiveToolErrors *int, promptResult *rnixctx.PromptResult, rawResponseStr string, resp *llmResponse) bool {
 	switch mapping.Action {
 	case ActionComplete:
 		resultStr, _ := tc.Input["result"].(string)
@@ -439,6 +474,8 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 		hadError := proc.HasToolError
 		proc.mu.Unlock()
 		k.emitLog(proc, step, types.LogOutput, resultStr, "")
+		k.writeStepRecord(proc, step, promptResult, rawResponseStr, resp,
+			"complete", briefTextSummary(resultStr), "", "", "", "", time.Since(stepStart))
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "complete"}, resultStr, nil, time.Since(stepStart))
 		stepDur := time.Since(stepStart)
 		if k.callbacks != nil {
@@ -457,17 +494,58 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 		intentStr, _ := tc.Input["intent"].(string)
 		agentStr, _ := tc.Input["agent"].(string)
 		modelStr, _ := tc.Input["model"].(string)
-		childOpts := SpawnOpts{Model: modelStr}
-		var agentInfo *agents.AgentInfo
-		if agentStr != "" && k.agentLoader != nil {
-			if ai, err := k.agentLoader(agentStr); err == nil {
-				agentInfo = ai
-			}
+		childOpts := SpawnOpts{
+			Model:         modelStr,
+			ParentPID:     proc.PID,
+			TraceID:       proc.TraceID,
+			ProjectConfig: proc.ProjectConfig,
 		}
+		if proc.TraceID != "" {
+			childOpts.ParentSpanID = proc.SpanID
+		}
+
+		var agentInfo *agents.AgentInfo
+		if agentStr != "" {
+			if k.agentLoader == nil {
+				errMsg := fmt.Sprintf("spawn error: agent %q requested but no agent loader configured", agentStr)
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
+				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
+				*consecutiveToolErrors++
+				if *consecutiveToolErrors >= 3 {
+					k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": *consecutiveToolErrors}, nil, nil, time.Since(stepStart))
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+					return false
+				}
+				return true
+			}
+			ai, loadErr := k.agentLoader(agentStr)
+			if loadErr != nil {
+				errMsg := fmt.Sprintf("spawn error: agent %q load failed: %v", agentStr, loadErr)
+				_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
+				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, loadErr, time.Since(stepStart))
+				*consecutiveToolErrors++
+				if *consecutiveToolErrors >= 3 {
+					k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": *consecutiveToolErrors}, nil, nil, time.Since(stepStart))
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+					return false
+				}
+				return true
+			}
+			agentInfo = ai
+		}
+
 		childPID, err := k.Spawn(intentStr, agentInfo, childOpts)
 		if err != nil {
 			errMsg := fmt.Sprintf("spawn failed: %v", err)
 			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, err, time.Since(stepStart))
+			*consecutiveToolErrors++
+			if *consecutiveToolErrors >= 3 {
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+				return false
+			}
 			return true
 		}
 		childExit, _ := k.Wait(childPID)
@@ -481,6 +559,10 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 		}
 		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, result)
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn", "child_pid": childPID}, result, nil, time.Since(stepStart))
+		stepDur := time.Since(stepStart)
+		if k.callbacks != nil {
+			k.callbacks.OnStepComplete(proc.PID, step, "spawn", fmt.Sprintf("child pid=%d", childPID), false, float64(stepDur.Microseconds())/1000.0)
+		}
 		return true
 
 	case ActionReplan:
@@ -493,41 +575,103 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 
 	case ActionSpecialize:
 		skillName, _ := tc.Input["skill_name"].(string)
-		var resultMsg string
-		if k.skillLoader != nil {
-			if skill, err := k.skillLoader(skillName); err == nil {
-				proc.mu.Lock()
-				proc.Skills = append(proc.Skills, skillName)
-				proc.AllowedDevices = append(proc.AllowedDevices, skill.Manifest.AllowedTools()...)
-				if skill.Body != "" {
-					if proc.SkillBodies == nil {
-						proc.SkillBodies = make(map[string]string)
-					}
-					body := skill.Body
-					if skill.Dir != "" {
-						body = "Base directory for this skill: " + skill.Dir + "\n\n" + body
-					}
-					proc.SkillBodies[skillName] = body
-				}
-				proc.mu.Unlock()
-				// Legacy path: inject skill body into context for non-section processes
-				if !proc.HasSections && skill.Body != "" {
-					body := skill.Body
-					if skill.Dir != "" {
-						body = "Base directory for this skill: " + skill.Dir + "\n\n" + body
-					}
-					header := fmt.Sprintf("[Dynamic Skill Loaded: %s]", skillName)
-					_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, header+"\n\n"+body)
-				}
-				resultMsg = fmt.Sprintf("Skill '%s' loaded successfully", skillName)
-			} else {
-				resultMsg = fmt.Sprintf("Failed to load skill '%s': %v", skillName, err)
-			}
-		} else {
-			resultMsg = "skill loader not available"
+		if skillName == "" {
+			errMsg := "specialize error: empty skill name"
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error"}, nil, nil, time.Since(stepStart))
+			return true
 		}
+		if k.skillLoader == nil {
+			errMsg := "specialize error: no skill loader configured"
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error"}, nil, nil, time.Since(stepStart))
+			return true
+		}
+
+		proc.mu.Lock()
+		alreadyLoaded := slices.Contains(proc.Skills, skillName)
+		proc.mu.Unlock()
+		if alreadyLoaded {
+			resultMsg := fmt.Sprintf("skill %q is already loaded — its instructions are in your system prompt. Follow them using available VFS devices (/dev/fs, /dev/shell, etc.). Do NOT try to call this skill as a tool.", skillName)
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, resultMsg)
+			k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_already_loaded", "skill": skillName}, nil, nil, time.Since(stepStart))
+			return true
+		}
+
+		skillInfo, loadErr := k.skillLoader(skillName)
+		if loadErr != nil {
+			errMsg := fmt.Sprintf("specialize error: skill %q load failed: %v", skillName, loadErr)
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, errMsg)
+			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error", "skill": skillName}, nil, loadErr, time.Since(stepStart))
+			return true
+		}
+
+		proc.mu.Lock()
+		if slices.Contains(proc.Skills, skillName) {
+			proc.mu.Unlock()
+			resultMsg := fmt.Sprintf("skill %q is already loaded — its instructions are in your system prompt.", skillName)
+			_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, resultMsg)
+			return true
+		}
+		proc.Skills = append(proc.Skills, skillName)
+		proc.AllowedDevices = append(proc.AllowedDevices, skillInfo.Manifest.AllowedTools()...)
+		if skillInfo.Body != "" {
+			if proc.SkillBodies == nil {
+				proc.SkillBodies = make(map[string]string)
+			}
+			body := skillInfo.Body
+			if skillInfo.Dir != "" {
+				body = "Base directory for this skill: " + skillInfo.Dir + "\n\n" + body
+			}
+			proc.SkillBodies[skillName] = body
+		}
+		totalSkills := len(proc.Skills)
+		allSkills := make([]string, totalSkills)
+		copy(allSkills, proc.Skills)
+		proc.mu.Unlock()
+
+		k.emitEvent(proc, "StemSpecialize", map[string]any{"skill": skillName, "total_skills": totalSkills}, nil, nil, 0)
+
+		if k.diffMemory != nil {
+			k.diffMemory.Record(proc.Intent, allSkills)
+		}
+
+		if proc.lineage != nil {
+			trigger := "specialize"
+			if tc.Input != nil {
+				if t, ok := tc.Input["trigger"].(string); ok && t != "" {
+					trigger = t
+				}
+			}
+			proc.lineage.Record(LineageEvent{
+				Timestamp: time.Now(),
+				Phase:     "progressive",
+				Skills:    []string{skillName},
+				Trigger:   trigger,
+			})
+		}
+
+		if !proc.HasSections && skillInfo.Body != "" {
+			body := skillInfo.Body
+			if skillInfo.Dir != "" {
+				body = "Base directory for this skill: " + skillInfo.Dir + "\n\n" + body
+			}
+			header := fmt.Sprintf("[Dynamic Skill Loaded: %s]", skillName)
+			_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, header+"\n\n"+body)
+		}
+
+		resultMsg := fmt.Sprintf("skill %q loaded successfully", skillName)
 		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, resultMsg)
-		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize", "skill": skillName}, resultMsg, nil, time.Since(stepStart))
+		k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
+		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize", "skill": skillName}, nil, nil, time.Since(stepStart))
+		stepDur := time.Since(stepStart)
+		if k.callbacks != nil {
+			k.callbacks.OnStepComplete(proc.PID, step, "specialize", skillName, false, float64(stepDur.Microseconds())/1000.0)
+		}
 		return true
 
 	case ActionDiscoverSkill:
@@ -558,17 +702,42 @@ func (k *KernelImpl) executeNativeMetaAction(proc *Process, tc llmToolCall, mapp
 				steps = append(steps, str)
 			}
 		}
+
+		if !proc.PlanningEnabled {
+			// Planning disabled: treat as text output and finish
+			content := fmt.Sprintf("Plan (%s): %v", reasonStr, steps)
+			k.emitLog(proc, step, types.LogOutput, content, "")
+			proc.mu.Lock()
+			proc.Result = content
+			proc.mu.Unlock()
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "plan_as_text"}, content, nil, time.Since(stepStart))
+			stepDur := time.Since(stepStart)
+			if k.callbacks != nil {
+				k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(content), false, float64(stepDur.Microseconds())/1000.0)
+			}
+			k.finishProcess(proc, ExitStatus{Code: 0, Reason: "completed"})
+			return false
+		}
+
 		var planContent strings.Builder
-		fmt.Fprintf(&planContent, "Plan (%s):\n", reasonStr)
+		fmt.Fprintf(&planContent, "[Plan]\n")
 		for i, s := range steps {
 			fmt.Fprintf(&planContent, "  %d. %s\n", i+1, s)
 		}
-		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, planContent.String())
-		k.emitLog(proc, step, types.LogOutput, planContent.String(), "")
-		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "plan"}, planContent.String(), nil, time.Since(stepStart))
+		planStr := planContent.String()
+		appendStart := time.Now()
+		if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleAssistant, planStr); err != nil {
+			k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendMessage", "role": string(rnixctx.RoleAssistant)}, nil, err, time.Since(appendStart))
+			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append plan failed", Err: err})
+			return false
+		}
+		k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendMessage", "role": string(rnixctx.RoleAssistant)}, nil, nil, time.Since(appendStart))
+		_ = k.ctxMgr.AppendToolResult(proc.CtxID, tc.ID, planStr)
+		k.emitLog(proc, step, types.LogOutput, planStr, "")
+		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "plan"}, planStr, nil, time.Since(stepStart))
 		stepDur := time.Since(stepStart)
 		if k.callbacks != nil {
-			k.callbacks.OnStepComplete(proc.PID, step, "plan", "Created plan with "+fmt.Sprintf("%d steps", len(steps)), false, float64(stepDur.Microseconds())/1000.0)
+			k.callbacks.OnStepComplete(proc.PID, step, "plan", fmt.Sprintf("plan (%d steps)", len(steps)), false, float64(stepDur.Microseconds())/1000.0)
 		}
 		return true
 	}

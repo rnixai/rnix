@@ -39,21 +39,21 @@ func (m *mockMultiStepLLM) Read(length int) ([]byte, error) {
 	m.step++
 	switch m.step {
 	case 1:
-		action := map[string]any{
-			"action": "tool_call",
-			"tool":   "/dev/shell",
-			"data":   map[string]any{"command": "echo hello"},
-		}
-		content, _ := json.Marshal(action)
-		return json.Marshal(llmResponse{Content: string(content), TokensUsed: 10})
+		return json.Marshal(llmResponse{
+			TokensUsed: 10,
+			ToolCalls: []llmToolCall{{
+				ID: "call_1", Name: "/dev/shell",
+				Input: map[string]any{"command": "echo hello"},
+			}},
+		})
 	case 2:
-		action := map[string]any{
-			"action": "tool_call",
-			"tool":   fmt.Sprintf("/mnt/mcp/%d-mock-server/tools/query", m.pid),
-			"data":   map[string]any{"query": "test"},
-		}
-		content, _ := json.Marshal(action)
-		return json.Marshal(llmResponse{Content: string(content), TokensUsed: 10})
+		return json.Marshal(llmResponse{
+			TokensUsed: 10,
+			ToolCalls: []llmToolCall{{
+				ID: "call_2", Name: fmt.Sprintf("/mnt/mcp/%d-mock-server/tools/query", m.pid),
+				Input: map[string]any{"query": "test"},
+			}},
+		})
 	default:
 		return json.Marshal(llmResponse{Content: "E2E test completed", TokensUsed: 5})
 	}
@@ -64,6 +64,8 @@ func (m *mockMultiStepLLM) Close() error { return nil }
 func (m *mockMultiStepLLM) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
+
+func (f *mockMultiStepLLM) SupportsToolCalling() bool { return true }
 
 // mockShellFile simulates /dev/shell for e2e testing.
 type mockShellFile struct {
@@ -224,12 +226,12 @@ func newE2EKernel(t testing.TB, llmFile vfs.VFSFile) (*KernelImpl, *spawnMockMou
 	})
 
 	// Register Shell device
-	_ = reg.Register("/dev/shell", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/shell", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockShellFile{}, nil
 	})
 
 	// Register FS device
-	_ = reg.Register("/dev/fs", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/fs", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockFSFile{}, nil
 	})
 
@@ -826,13 +828,13 @@ func TestAllowedDevicesAggregation(t *testing.T) {
 		agent := e2eAgentInfo()
 
 		// First response: tool_call to /dev/unknown
-		action1 := map[string]any{
-			"action": "tool_call",
-			"tool":   "/dev/unknown",
-			"data":   map[string]any{},
+		resp1 := llmResponse{
+			TokensUsed: 5,
+			ToolCalls: []llmToolCall{{
+				ID: "call_unknown", Name: "/dev/unknown",
+				Input: map[string]any{},
+			}},
 		}
-		content1, _ := json.Marshal(action1)
-		resp1 := llmResponse{Content: string(content1), TokensUsed: 5}
 		resp1JSON, _ := json.Marshal(resp1)
 
 		// Second response: text (done)
@@ -853,10 +855,10 @@ func TestAllowedDevicesAggregation(t *testing.T) {
 			}
 			return &mockLLMFile{readData: resp2JSON}, nil
 		})
-		_ = reg.Register("/dev/shell", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		registerMockTool(reg, "/dev/shell", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &mockShellFile{}, nil
 		})
-		_ = reg.Register("/dev/fs", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		registerMockTool(reg, "/dev/fs", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &mockFSFile{}, nil
 		})
 		v := vfs.NewVFS(reg)
@@ -1052,10 +1054,10 @@ func TestFourLayerBoundaryConditions(t *testing.T) {
 		_ = reg.Register("/dev/llm/claude", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return llm, nil
 		})
-		_ = reg.Register("/dev/shell", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		registerMockTool(reg, "/dev/shell", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &mockShellFile{}, nil
 		})
-		_ = reg.Register("/dev/fs", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		registerMockTool(reg, "/dev/fs", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 			return &mockFSFile{}, nil
 		})
 		v := vfs.NewVFS(reg)
@@ -1234,3 +1236,5 @@ func (f *e2eBlockingLLM) Close() error { return nil }
 func (f *e2eBlockingLLM) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
+
+func (f *e2eBlockingLLM) SupportsToolCalling() bool { return true }

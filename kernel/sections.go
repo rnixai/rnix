@@ -211,17 +211,11 @@ Best practices:
 		return b.String()
 	}, false)
 
-	// action_protocol: tool protocol or MCP snippet (dynamic per AC3 — AllowedDevices may change via specialize)
+	// action_protocol: no longer used (text protocol removed); section returns empty.
+	// Tool definitions are passed via req.Tools for SDK providers;
+	// CLI Agent providers use their own built-in tools.
 	reg.Register("action_protocol", func() string {
-		if proc.UseNativeTools {
-			if len(proc.mcpDevicePaths) > 0 {
-				return mcpToolProtocolSnippet(proc.mcpDevicePaths)
-			}
-			return ""
-		}
-		vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
-		metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled, proc.DeferredSkills)
-		return generateToolProtocol(vfsDefs, vfsMap, metaDefs, metaMap, proc.PlanningEnabled)
+		return ""
 	}, false)
 
 	return reg

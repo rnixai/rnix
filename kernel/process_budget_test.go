@@ -116,7 +116,7 @@ func TestProcessBudget_MaxTokensExhausted_Suspends(t *testing.T) {
 			},
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -158,7 +158,7 @@ func TestProcessBudget_MaxCostExhausted_Suspends(t *testing.T) {
 			},
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)

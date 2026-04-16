@@ -367,7 +367,7 @@ func (d *ClaudeCliDriver) Info() DriverInfo {
 // buildArgs constructs CLI arguments for a Claude Code CLI invocation.
 func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []string {
 	prompt := d.buildPrompt(req)
-	args := []string{"-p", prompt, "--output-format", outputFormat, "--bare", "--tools", ""}
+	args := []string{"-p", prompt, "--output-format", outputFormat}
 
 	if outputFormat == "stream-json" {
 		args = append(args, "--verbose", "--include-partial-messages")
@@ -392,30 +392,11 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []strin
 	return args
 }
 
-// buildPrompt constructs the prompt from intent and conversation history.
-// When Messages is empty (first turn), returns Intent as-is.
-// When Messages contains prior turns, serializes the full conversation so the
-// LLM sees previous actions and tool results across stateless CLI invocations.
-// The original intent is re-stated at the end to keep the LLM focused on its
-// assigned task rather than drifting into unrelated actions.
+// buildPrompt constructs the prompt for a CLI Agent invocation.
+// CLI Agents manage their own agent loop internally, so each Call is an
+// independent task — no cross-invocation history serialization needed.
 func (d *ClaudeCliDriver) buildPrompt(req LLMRequest) string {
-	if len(req.Messages) <= 1 {
-		return req.Intent
-	}
-
-	var sb strings.Builder
-	for _, msg := range req.Messages {
-		switch msg.Role {
-		case "user":
-			fmt.Fprintf(&sb, "Human: %s\n\n", msg.Content)
-		case "assistant":
-			fmt.Fprintf(&sb, "Assistant: %s\n\n", msg.Content)
-		case "tool":
-			fmt.Fprintf(&sb, "[Tool Result (%s)]\n%s\n\n", msg.ToolCallID, msg.Content)
-		}
-	}
-	fmt.Fprintf(&sb, "Continue. Your original task: %s", req.Intent)
-	return sb.String()
+	return req.Intent
 }
 
 // contentBlocksToAny converts content blocks to a generic slice for StreamEvent.Data.

@@ -14,40 +14,49 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// --- response builders ---
+// --- response builders (native ToolCalls format) ---
 
 func makePlanResponse(steps []string, reason string, tokens int) []byte {
-	action := map[string]any{
-		"action": "plan",
-		"tool":   "",
-		"data":   map[string]any{"steps": steps, "reason": reason},
+	resp := llmResponse{
+		TokensUsed: tokens,
+		ToolCalls: []llmToolCall{{
+			ID:    "call_plan",
+			Name:  "plan",
+			Input: map[string]any{"steps": steps, "reason": reason},
+		}},
 	}
-	content, _ := json.Marshal(action)
-	return makeLLMResponse(string(content), tokens)
+	data, _ := json.Marshal(resp)
+	return data
 }
 
 func makeCompleteResponse(result string, tokens int) []byte {
-	action := map[string]any{
-		"action": "complete",
-		"tool":   "",
-		"data":   map[string]any{"result": result},
+	resp := llmResponse{
+		TokensUsed: tokens,
+		ToolCalls: []llmToolCall{{
+			ID:    "call_complete",
+			Name:  "complete",
+			Input: map[string]any{"result": result},
+		}},
 	}
-	content, _ := json.Marshal(action)
-	return makeLLMResponse(string(content), tokens)
+	data, _ := json.Marshal(resp)
+	return data
 }
 
 func makeSpawnResponse(intent string, agent string, tokens int) []byte {
-	data := map[string]any{}
+	input := map[string]any{"intent": intent}
 	if agent != "" {
-		data["agent"] = agent
+		input["agent"] = agent
 	}
-	action := map[string]any{
-		"action": "spawn",
-		"tool":   intent,
-		"data":   data,
+	resp := llmResponse{
+		TokensUsed: tokens,
+		ToolCalls: []llmToolCall{{
+			ID:    "call_spawn",
+			Name:  "spawn",
+			Input: input,
+		}},
 	}
-	content, _ := json.Marshal(action)
-	return makeLLMResponse(string(content), tokens)
+	data, _ := json.Marshal(resp)
+	return data
 }
 
 // --- Scenario 1: tool_call executes and injects result ---
@@ -63,7 +72,7 @@ func TestUnified_ToolCall_ExecutesAndInjectsResult(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("echo-result")}, nil
 	})
 
@@ -354,7 +363,7 @@ func TestUnified_CircuitBreaker_ResetsOnSuccess(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/ok", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/ok", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 
@@ -507,7 +516,7 @@ func TestUnified_ToolError_InjectsToContext(t *testing.T) {
 	}
 	var errorFound bool
 	for _, m := range prompt.Messages {
-		if m.Role == rnixctx.RoleTool && strings.Contains(m.Content, "Tool error") {
+		if m.Role == rnixctx.RoleTool && (strings.Contains(m.Content, "Tool error") || strings.Contains(m.Content, "error: unknown tool")) {
 			errorFound = true
 			break
 		}
@@ -538,7 +547,7 @@ func TestUnified_VFSFlags_EmptyPayload_UsesReadOnly(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/reader", func(_ string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/reader", func(_ string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		flagsMu.Lock()
 		capturedFlags = flags
 		flagsMu.Unlock()
@@ -590,7 +599,7 @@ func TestUnified_VFSFlags_NonEmptyPayload_UsesReadWrite(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/writer", func(_ string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/writer", func(_ string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		flagsMu.Lock()
 		capturedFlags = flags
 		flagsMu.Unlock()
@@ -642,7 +651,7 @@ func TestUnified_VFSFlags_EmptyJSONObject_UsesReadOnly(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/reader2", func(_ string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/reader2", func(_ string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		flagsMu.Lock()
 		capturedFlags = flags
 		flagsMu.Unlock()

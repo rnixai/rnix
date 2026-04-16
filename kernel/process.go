@@ -164,13 +164,11 @@ type Process struct {
 	// Step-level cancel (Story 30.6) — cancel current LLM call without killing process
 	stepCancel context.CancelFunc // mu protected; cancel for current step's LLM call
 
-	// Native tool calling support (immutable after Spawn)
-	UseNativeTools    bool                // true when LLM driver implements ToolCallingDriver
+	// Tool calling support (immutable after Spawn)
 	HasSections       bool                // true when SectionRegistry is attached to context
 	sections          *rnixctx.SectionRegistry // prompt section registry (nil for bare spawns)
 	toolMap           map[string]toolMapping // tool name → VFS path mapping; immutable after Spawn
 	nativeToolDefs    []vfs.ToolDef       // collected ToolDefs for req.Tools; immutable after Spawn
-	generatedProtocol string              // auto-generated toolProtocol text; immutable after first reasonStep
 	mcpDevicePaths    []string            // MCP device paths for mixed mode text injection; immutable after Spawn
 	mcpConfigs        []vfs.MCPConfig     // MCP server configs for Instructions injection; immutable after Spawn
 

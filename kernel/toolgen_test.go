@@ -1,7 +1,6 @@
 package kernel
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/rnixai/rnix/vfs"
@@ -180,41 +179,6 @@ func TestMetaToolDefs_JSONSchemaComplete(t *testing.T) {
 	}
 }
 
-func TestGenerateToolProtocol(t *testing.T) {
-	reg := vfs.NewDeviceRegistry()
-	factory := func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
-		return nil, nil
-	}
-	shellDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
-		{Name: "shell", Description: "Run command", Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"command": map[string]any{"type": "string"},
-			},
-		}},
-	}}
-	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)
-
-	defs, toolMap := buildToolDefs(reg, nil, true)
-	metaDefs, metaMap := metaToolDefs(true, nil)
-
-	protocol := generateToolProtocol(defs, toolMap, metaDefs, metaMap, true)
-
-	if !strings.Contains(protocol, "Action Protocol") {
-		t.Fatal("expected protocol to contain 'Action Protocol'")
-	}
-	if !strings.Contains(protocol, "/dev/shell") {
-		t.Fatal("expected protocol to contain '/dev/shell'")
-	}
-	if !strings.Contains(protocol, "complete") {
-		t.Fatal("expected protocol to contain 'complete' action")
-	}
-}
-
-// TestSystemEventMergesToolDefs verifies that driver-reported tools are merged
-// into existing nativeToolDefs rather than overwriting them. This is the
-// regression test for the observe.go bug where a system event from claude-cli
-// replaced VFS+meta tools with only [LSP, MCP auth].
 func TestSystemEventMergesToolDefs(t *testing.T) {
 	// Simulate kernel-initialized nativeToolDefs (VFS + meta tools)
 	proc := &Process{}
@@ -271,18 +235,3 @@ func TestSystemEventMergesToolDefs(t *testing.T) {
 	}
 }
 
-func TestGenerateToolProtocol_PlanningConditional(t *testing.T) {
-	metaDefs, metaMap := metaToolDefs(false, nil)
-	protocol := generateToolProtocol(nil, nil, metaDefs, metaMap, false)
-
-	if strings.Contains(protocol, "Plan —") {
-		t.Fatal("expected no plan section when planning disabled")
-	}
-
-	metaDefsEnabled, metaMapEnabled := metaToolDefs(true, nil)
-	protocolEnabled := generateToolProtocol(nil, nil, metaDefsEnabled, metaMapEnabled, true)
-
-	if !strings.Contains(protocolEnabled, "Plan —") {
-		t.Fatal("expected plan section when planning enabled")
-	}
-}

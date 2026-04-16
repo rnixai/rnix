@@ -61,6 +61,10 @@ func (f *mockLLMFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
 
+// SupportsToolCalling implements vfs.ToolCapable so that the kernel
+// populates proc.nativeToolDefs/toolMap during spawn (observe.go).
+func (f *mockLLMFile) SupportsToolCalling() bool { return true }
+
 // mockToolFile simulates a tool device for testing.
 type mockToolFile struct {
 	mu        sync.Mutex
@@ -93,6 +97,29 @@ func (f *mockToolFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true}, nil
 }
 
+// mockToolDriver implements vfs.ToolDescriptor so that buildToolDefs
+// can discover tool definitions from mock devices during Spawn.
+// Uses the VFS device path as the tool name for test convenience.
+type mockToolDriver struct {
+	devPath string // VFS device path used as both tool name and VFS path
+}
+
+func (d *mockToolDriver) ToolDefs() []vfs.ToolDef {
+	return []vfs.ToolDef{{
+		Name:        d.devPath,
+		Description: "mock tool " + d.devPath,
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+	}}
+}
+
+// registerMockTool registers a mock tool device with ToolDescriptor support.
+// The VFS device path is used as the native tool name so that existing
+// makeToolCallResponse("/dev/tools/echo", ...) calls work without changes.
+func registerMockTool(reg *vfs.DeviceRegistry, devPath string, factory vfs.VFSFileFactory) {
+	driver := &mockToolDriver{devPath: devPath}
+	_ = reg.RegisterWithDriver(devPath, factory, driver)
+}
+
 // newTestKernel creates a kernel with a VFS containing a mock LLM device.
 // Registers t.Cleanup to call Shutdown automatically.
 func newTestKernel(t testing.TB, llmFile *mockLLMFile) (*KernelImpl, *vfs.VFS, *rnixctx.Manager) {
@@ -114,15 +141,18 @@ func makeLLMResponse(content string, tokens int) []byte {
 	return data
 }
 
-// makeToolCallResponse builds a JSON-encoded LLM response containing a tool_call action.
-func makeToolCallResponse(toolPath string, toolData map[string]any, tokens int) []byte {
-	action := map[string]any{
-		"action": "tool_call",
-		"tool":   toolPath,
-		"data":   toolData,
+// makeToolCallResponse builds a JSON-encoded LLM response containing a native tool call.
+func makeToolCallResponse(toolName string, toolInput map[string]any, tokens int) []byte {
+	resp := llmResponse{
+		TokensUsed: tokens,
+		ToolCalls: []llmToolCall{{
+			ID:    "call_" + toolName,
+			Name:  toolName,
+			Input: toolInput,
+		}},
 	}
-	content, _ := json.Marshal(action)
-	return makeLLMResponse(string(content), tokens)
+	data, _ := json.Marshal(resp)
+	return data
 }
 
 // testAgentInfo creates a test AgentInfo mimicking the mock-skill behavior.
@@ -503,7 +533,7 @@ func TestReasonStep_ToolCallAction(t *testing.T) {
 	})
 
 	// Register mock tool device
-	_ = reg.Register("/dev/tools/read", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/read", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("bar")}, nil
 	})
 
@@ -568,6 +598,8 @@ func (f *sequenceLLMFile) Close() error {
 func (f *sequenceLLMFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true}, nil
 }
+
+func (f *sequenceLLMFile) SupportsToolCalling() bool { return true }
 
 func TestReasonStep_LLMError(t *testing.T) {
 	llmFile := &mockLLMFile{
@@ -689,6 +721,8 @@ func (f *blockingLLMFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true}, nil
 }
 
+func (f *blockingLLMFile) SupportsToolCalling() bool { return true }
+
 func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 	// LLM always returns tool_call to force max steps
 	reg := vfs.NewDeviceRegistry()
@@ -697,7 +731,7 @@ func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 			readData: makeToolCallResponse("/dev/tools/echo", map[string]any{}, 5),
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/echo", func(subpath string, flags vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("echoed")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -727,226 +761,6 @@ func TestReasonStep_MaxStepsExceeded(t *testing.T) {
 		t.Fatalf("expected Zombie, got %d", proc.GetState())
 	}
 }
-
-// --- parseAction tests ---
-
-func TestParseAction_PlainText(t *testing.T) {
-	resp := &llmResponse{Content: "Hello, world!", TokensUsed: 10}
-	action := parseAction(resp)
-	if action.Type != ActionText {
-		t.Fatalf("expected ActionText, got %s", action.Type)
-	}
-	if action.Content != "Hello, world!" {
-		t.Fatalf("expected 'Hello, world!', got %q", action.Content)
-	}
-}
-
-func TestParseAction_ToolCall(t *testing.T) {
-	toolAction := map[string]any{
-		"action": "tool_call",
-		"tool":   "/dev/fs/read",
-		"data":   map[string]any{"path": "/etc/config"},
-	}
-	content, _ := json.Marshal(toolAction)
-	resp := &llmResponse{Content: string(content), TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionToolCall {
-		t.Fatalf("expected ActionToolCall, got %s", action.Type)
-	}
-	if action.ToolPath != "/dev/fs/read" {
-		t.Fatalf("expected '/dev/fs/read', got %q", action.ToolPath)
-	}
-}
-
-func TestParseAction_InvalidJSON(t *testing.T) {
-	resp := &llmResponse{Content: "not json at all", TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionText {
-		t.Fatalf("expected ActionText for invalid JSON, got %s", action.Type)
-	}
-}
-
-func TestParseAction_JSONWithoutAction(t *testing.T) {
-	resp := &llmResponse{Content: `{"key": "value"}`, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionText {
-		t.Fatalf("expected ActionText for JSON without action field, got %s", action.Type)
-	}
-}
-
-func TestParseAction_ToolCallMissingTool(t *testing.T) {
-	resp := &llmResponse{Content: `{"action": "tool_call"}`, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionText {
-		t.Fatalf("expected ActionText for tool_call without tool, got %s", action.Type)
-	}
-}
-
-func TestParseAction_Plan(t *testing.T) {
-	content := `{"action": "plan", "data": {"steps": ["step1", "step2"], "reason": "complex task"}}`
-	resp := &llmResponse{Content: content, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionPlan {
-		t.Fatalf("expected ActionPlan, got %s", action.Type)
-	}
-	if action.Content != content {
-		t.Fatalf("Content mismatch")
-	}
-	if len(action.ToolData) == 0 {
-		t.Fatal("expected ToolData to be non-empty")
-	}
-}
-
-func TestParseAction_PlanNoData(t *testing.T) {
-	resp := &llmResponse{Content: `{"action": "plan"}`, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionPlan {
-		t.Fatalf("expected ActionPlan, got %s", action.Type)
-	}
-	if string(action.ToolData) != "{}" {
-		t.Fatalf("expected ToolData='{}', got %q", string(action.ToolData))
-	}
-}
-
-func TestParseAction_Spawn(t *testing.T) {
-	content := `{"action": "spawn", "tool": "analyze code", "data": {"agent": "analyst", "model": "haiku"}}`
-	resp := &llmResponse{Content: content, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionSpawn {
-		t.Fatalf("expected ActionSpawn, got %s", action.Type)
-	}
-	if action.ToolPath != "analyze code" {
-		t.Fatalf("expected ToolPath='analyze code', got %q", action.ToolPath)
-	}
-	if len(action.ToolData) == 0 {
-		t.Fatal("expected ToolData to be non-empty")
-	}
-}
-
-func TestParseAction_SpawnEmptyTool(t *testing.T) {
-	resp := &llmResponse{Content: `{"action": "spawn", "tool": "", "data": {}}`, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionSpawn {
-		t.Fatalf("expected ActionSpawn, got %s", action.Type)
-	}
-	if action.ToolPath != "" {
-		t.Fatalf("expected empty ToolPath, got %q", action.ToolPath)
-	}
-}
-
-func TestParseAction_Complete(t *testing.T) {
-	content := `{"action": "complete", "data": {"result": "task done"}}`
-	resp := &llmResponse{Content: content, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionComplete {
-		t.Fatalf("expected ActionComplete, got %s", action.Type)
-	}
-	if len(action.ToolData) == 0 {
-		t.Fatal("expected ToolData to be non-empty")
-	}
-}
-
-func TestParseAction_CompleteNoData(t *testing.T) {
-	content := `{"action": "complete"}`
-	resp := &llmResponse{Content: content, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionComplete {
-		t.Fatalf("expected ActionComplete, got %s", action.Type)
-	}
-	if string(action.ToolData) != "{}" {
-		t.Fatalf("expected ToolData='{}', got %q", string(action.ToolData))
-	}
-}
-
-func TestParseAction_Replan(t *testing.T) {
-	content := `{"action": "replan", "data": {"reason": "first approach failed"}}`
-	resp := &llmResponse{Content: content, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionReplan {
-		t.Fatalf("expected ActionReplan, got %s", action.Type)
-	}
-	if len(action.ToolData) == 0 {
-		t.Fatal("expected ToolData to be non-empty")
-	}
-}
-
-func TestParseAction_Specialize(t *testing.T) {
-	content := `{"action": "specialize", "tool": "code-analyst"}`
-	resp := &llmResponse{Content: content, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionSpecialize {
-		t.Fatalf("expected ActionSpecialize, got %s", action.Type)
-	}
-	if action.ToolPath != "code-analyst" {
-		t.Fatalf("expected ToolPath='code-analyst', got %q", action.ToolPath)
-	}
-	if len(action.ToolData) == 0 {
-		t.Fatal("expected ToolData to be non-empty")
-	}
-}
-
-func TestParseAction_UnknownAction(t *testing.T) {
-	resp := &llmResponse{Content: `{"action": "unknown_type"}`, TokensUsed: 5}
-	action := parseAction(resp)
-	if action.Type != ActionText {
-		t.Fatalf("expected ActionText for unknown action, got %s", action.Type)
-	}
-}
-
-func TestParseAction_MarkdownCodeBlock(t *testing.T) {
-	content := "我将读取相关文档。\n\n```json\n{\"action\": \"tool_call\", \"tool\": \"/dev/fs/workflow.md\", \"data\": {}}\n```"
-	resp := &llmResponse{Content: content, TokensUsed: 100}
-	action := parseAction(resp)
-	if action.Type != ActionToolCall {
-		t.Fatalf("expected ActionToolCall from markdown code block, got %s", action.Type)
-	}
-	if action.ToolPath != "/dev/fs/workflow.md" {
-		t.Fatalf("expected tool path /dev/fs/workflow.md, got %s", action.ToolPath)
-	}
-}
-
-func TestParseAction_PlainCodeBlock(t *testing.T) {
-	content := "Let me read the file.\n\n```\n{\"action\": \"tool_call\", \"tool\": \"/dev/shell\", \"data\": {\"command\": \"ls\"}}\n```"
-	resp := &llmResponse{Content: content, TokensUsed: 50}
-	action := parseAction(resp)
-	if action.Type != ActionToolCall {
-		t.Fatalf("expected ActionToolCall from plain code block, got %s", action.Type)
-	}
-	if action.ToolPath != "/dev/shell" {
-		t.Fatalf("expected tool path /dev/shell, got %s", action.ToolPath)
-	}
-}
-
-func TestParseAction_TextFollowedByBareJSON(t *testing.T) {
-	content := "I'll analyze the config.\n\n{\"action\": \"tool_call\", \"tool\": \"/dev/fs/config.yaml\", \"data\": {}}"
-	resp := &llmResponse{Content: content, TokensUsed: 80}
-	action := parseAction(resp)
-	if action.Type != ActionToolCall {
-		t.Fatalf("expected ActionToolCall from trailing JSON, got %s", action.Type)
-	}
-	if action.ToolPath != "/dev/fs/config.yaml" {
-		t.Fatalf("expected tool path /dev/fs/config.yaml, got %s", action.ToolPath)
-	}
-}
-
-func TestParseAction_EmbeddedPlanInCodeBlock(t *testing.T) {
-	content := "Here is my plan:\n\n```json\n{\"action\": \"plan\", \"data\": {\"steps\": [\"step1\"]}}\n```"
-	resp := &llmResponse{Content: content, TokensUsed: 50}
-	action := parseAction(resp)
-	if action.Type != ActionPlan {
-		t.Fatalf("expected ActionPlan from code block, got %s", action.Type)
-	}
-}
-
-func TestParseAction_NoEmbeddedJSON(t *testing.T) {
-	content := "This is just regular text with no JSON at all.\nNothing to parse here."
-	resp := &llmResponse{Content: content, TokensUsed: 20}
-	action := parseAction(resp)
-	if action.Type != ActionText {
-		t.Fatalf("expected ActionText for pure text, got %s", action.Type)
-	}
-}
-
 // --- Integration test ---
 
 func TestSpawn_Integration(t *testing.T) {
@@ -1413,10 +1227,13 @@ func TestSpawn_WithoutAgent_AllDevicesAllowed(t *testing.T) {
 // Permission check tests
 
 func TestReasonStep_PermissionDenied_WhenDeviceNotInWhitelist(t *testing.T) {
+	// In native tool calling, tool calls to non-whitelisted devices result in
+	// "unknown tool" errors because the device is not in proc.toolMap.
+	// This implicitly enforces the permission model.
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
 			makeToolCallResponse("/dev/llm/claude", map[string]any{}, 10),
-			makeLLMResponse("permission handled", 5),
+			makeCompleteResponse("permission handled", 5),
 		},
 	}
 
@@ -1445,27 +1262,20 @@ func TestReasonStep_PermissionDenied_WhenDeviceNotInWhitelist(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	if proc.Result != "permission handled" {
-		t.Errorf("expected 'permission handled', got %q", proc.Result)
+	// In native path, the tool error is "unknown tool" which is injected into context
+	prompt, buildErr := ctxMgr.BuildPrompt(proc.CtxID)
+	if buildErr != nil {
+		t.Fatalf("BuildPrompt: %v", buildErr)
 	}
-
-	// Verify permission denied event was emitted
-	var foundPermDenied bool
-	for {
-		select {
-		case ev := <-proc.DebugChan:
-			if ev.Syscall == "ReasonStep" {
-				if action, ok := ev.Args["action"]; ok && action == "permission_denied" {
-					foundPermDenied = true
-				}
-			}
-		default:
-			goto drained
+	var foundError bool
+	for _, m := range prompt.Messages {
+		if m.Role == rnixctx.RoleTool && strings.Contains(m.Content, "unknown tool") {
+			foundError = true
+			break
 		}
 	}
-drained:
-	if !foundPermDenied {
-		t.Error("expected permission_denied event in DebugChan")
+	if !foundError {
+		t.Error("expected unknown tool error in context for non-whitelisted device")
 	}
 }
 
@@ -1483,7 +1293,7 @@ func TestReasonStep_PermissionAllowed_WhenDeviceInWhitelist(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return mockFS, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1526,7 +1336,7 @@ func TestReasonStep_PrefixMatch_AllowsSubpath(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/fs", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return mockFS, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1569,7 +1379,7 @@ func TestReasonStep_NoWhitelist_AllowsAll(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/any/device", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/any/device", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return mockDevice, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -1676,6 +1486,8 @@ func (f *capturingLLMFile) Close() error {
 func (f *capturingLLMFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil
 }
+
+func (f *capturingLLMFile) SupportsToolCalling() bool { return true }
 
 // --- Story 3.1: SyscallEvent Recording Infrastructure Tests ---
 
@@ -1885,7 +1697,7 @@ func TestToolCall_VFSAndContextEvents(t *testing.T) {
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return seqFile, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return mockTool, nil
 	})
 	v := vfs.NewVFS(reg)

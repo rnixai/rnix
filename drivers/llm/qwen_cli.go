@@ -417,24 +417,9 @@ func (d *QwenCliDriver) buildArgs(req LLMRequest, outputFormat string) []string 
 	return args
 }
 
-// buildPrompt constructs the prompt from intent and conversation history.
-// Same strategy as Claude CLI: serialize full conversation for multi-turn context.
+// buildPrompt constructs the prompt for a CLI Agent invocation.
+// CLI Agents manage their own agent loop internally, so each Call is an
+// independent task — no cross-invocation history serialization needed.
 func (d *QwenCliDriver) buildPrompt(req LLMRequest) string {
-	if len(req.Messages) <= 1 {
-		return req.Intent
-	}
-
-	var sb strings.Builder
-	for _, msg := range req.Messages {
-		switch msg.Role {
-		case "user":
-			fmt.Fprintf(&sb, "Human: %s\n\n", msg.Content)
-		case "assistant":
-			fmt.Fprintf(&sb, "Assistant: %s\n\n", msg.Content)
-		case "tool":
-			fmt.Fprintf(&sb, "[Tool Result (%s)]\n%s\n\n", msg.ToolCallID, msg.Content)
-		}
-	}
-	fmt.Fprintf(&sb, "Continue. Your original task: %s", req.Intent)
-	return sb.String()
+	return req.Intent
 }

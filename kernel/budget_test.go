@@ -38,7 +38,7 @@ func TestBudgetEnforcement_TerminatesAtBudget(t *testing.T) {
 			},
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -395,7 +395,7 @@ func TestBudgetEnforcement_MultiStep_CumulativeCheck(t *testing.T) {
 			},
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/echo", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		return &mockToolFile{readData: []byte("ok")}, nil
 	})
 	v := vfs.NewVFS(reg)
@@ -466,7 +466,7 @@ func TestBudgetEnforcement_PreventsActionAfterExceeded(t *testing.T) {
 			},
 		}, nil
 	})
-	_ = reg.Register("/dev/tools/track", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+	registerMockTool(reg, "/dev/tools/track", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
 		actionExecuted = true
 		return &mockToolFile{readData: []byte("tracked")}, nil
 	})
@@ -491,7 +491,7 @@ func TestBudgetEnforcement_PreventsActionAfterExceeded(t *testing.T) {
 	}
 
 	if actionExecuted {
-		t.Error("tool action should NOT execute after budget exceeded; budget check must precede parseAction")
+		t.Error("tool action should NOT execute after budget exceeded; budget check must precede tool execution")
 	}
 }
 
