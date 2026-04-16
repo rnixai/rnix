@@ -5,6 +5,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-04-16
+
+### Added
+
+- **Agent Memory System (Epic 35)**:
+  - MemoryStore with dual-scope providers (global + project) and security scanning
+  - `/dev/memory/commit`: persistent memory management VFS device
+  - `/dev/memory/recall`: cross-process knowledge search VFS device
+  - `/dev/memory/profile`: user profile management VFS device
+  - Writeback: async knowledge extraction from conversation context
+  - Dynamic skill management: runtime skill add/remove/list operations
+
+- **New LLM Drivers**:
+  - Native Gemini driver (`gemini`)
+  - Anthropic official SDK driver (`anthropic`)
+  - Qwen Code CLI driver (`qwen-cli`)
+
+- **Dashboard Enhancements**:
+  - `p` key for pause/resume processes directly from process tree
+  - Enhanced debug mode event handling and error reporting
+  - Debug mode process selection stability improvements
+
+- **CLI Driver Improvements**:
+  - Claude CLI driver dynamic prompt construction
+  - `extra_args` provider config field for CLI driver sandbox bypass
+
+### Changed
+
+- Claude CLI driver uses `--bare` flag to prevent native tool interference
+- Driver-reported tools merged into existing nativeToolDefs without overwriting
+- Action execution guidelines and task handling instructions updated
+
+### Fixed
+
+- LLM viewer navigation and fetching logic
+- Parent heartbeat kept alive while waiting for child in SpawnAndWait
+- Paused child processes no longer killed on parent context cancel
+- Stale detection skipped for paused processes in tree pane
+- `Process.Model` backfilled from driver default at spawn time
+- EventWriter flushed on every write for immediate disk persistence
+- `PausedAt` added to ListProcs wire protocol
+- Heartbeat monitor skips paused processes correctly
+- Elapsed timer freezes in tree pane when process is paused
+- Real step timestamps used in timeline offset column
+- `IsPaused` added to ProcInfoWire for IPC transmission
+- Tool error handling and recovery logic
+- Empty LLM response detection and orphan process tree structure preservation
+- Gemini nil parameters schema serialization
+- System prompt `env_info` and format consistency
+- `ParentUUID` added to IPC wire protocol for correct agent tree hierarchy
+- Cross-session tree pollution prevented via ParentUUID
+- Error step data recorded at all failure points in reason loop
+- Dashboard scroll clipping, orphan tree display, and failed process observability
+- Wall-clock timestamps added across all dashboard panels
+- Dashboard debug event handling and historical data management
+- `P` key unresponsive when timeline has 0 steps + 0 events
+- LLM viewer showing "no step data" for processes with data
+- "No step data" message for `P`/`L` keys on 0-step processes
+
 ## [0.7.3] - 2026-04-12
 
 ### Fixed
