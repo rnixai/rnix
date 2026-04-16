@@ -74,6 +74,14 @@ type ToolCapable interface {
 	SupportsToolCalling() bool
 }
 
+// ModelInfoProvider is an optional interface for VFSFile implementations
+// that can report the default model configured for their driver.
+// The kernel uses this at spawn time to backfill Process.Model when
+// no explicit model was specified.
+type ModelInfoProvider interface {
+	DefaultModel() string
+}
+
 // VFSFileFactory creates a VFSFile for a given subpath and open flags.
 // subpath is the remaining path after prefix matching (empty for exact matches).
 // workDir is the per-process working directory; empty string means no workDir set.

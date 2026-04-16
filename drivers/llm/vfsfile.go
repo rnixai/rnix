@@ -34,6 +34,12 @@ func (f *LLMFile) SupportsToolCalling() bool {
 	return ok
 }
 
+// DefaultModel returns the driver's configured default model.
+// Implements vfs.ModelInfoProvider.
+func (f *LLMFile) DefaultModel() string {
+	return f.driver.Info().DefaultModel
+}
+
 // Write accepts a JSON-encoded LLMRequest, invokes the driver, and buffers the response.
 func (f *LLMFile) Write(ctx context.Context, data []byte) error {
 	if f.closed {

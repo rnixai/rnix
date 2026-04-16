@@ -442,33 +442,6 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		proc.Provider = strings.TrimPrefix(llmDevice, "/dev/llm/")
 		proc.Model = opts.Model
 
-		// Determine model source: CLI --model > agent manifest preferred > driver default
-		modelSource := "driver"
-		if opts.Model != "" {
-			if cliModel != "" {
-				modelSource = "cli"
-			} else {
-				modelSource = "agent"
-			}
-		}
-
-		// Emit ConfigResolve strace event (Story 3.5)
-		configArgs := map[string]any{
-			"provider":        proc.Provider,
-			"provider_source": providerSource,
-			"model":           opts.Model,
-			"model_source":    modelSource,
-		}
-		// When agent overrides project default, show the override relationship
-		projectDefault := k.defaultProvider
-		if opts.ProjectConfig != nil && opts.ProjectConfig.DefaultProvider != "" {
-			projectDefault = opts.ProjectConfig.DefaultProvider
-		}
-		if projectDefault != "" && projectDefault != proc.Provider {
-			configArgs["project_default"] = projectDefault
-		}
-		k.emitEvent(proc, "ConfigResolve", configArgs, nil, nil, time.Since(resolveStart))
-
 		// Open LLM device via VFS (or project-level override)
 		openStart := time.Now()
 		var err error
@@ -501,6 +474,40 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			return 0, NewSyscallError("Spawn", proc.PID, llmDevice, err, types.ErrDriver)
 		}
 		proc.FDTable[llmFD] = nil // VFS manages actual file internally; tracks FD existence for process inspection
+
+		// Backfill Process.Model from driver's default when no explicit model was specified.
+		// This ensures proc-info.json and dashboard always show the actual model used.
+		if proc.Model == "" {
+			if file := k.vfs.GetFile(proc.PID, llmFD); file != nil {
+				if mip, ok := file.(vfs.ModelInfoProvider); ok {
+					proc.Model = mip.DefaultModel()
+				}
+			}
+		}
+
+		// Determine model source: CLI --model > agent manifest preferred > driver default
+		modelSource := "driver"
+		if cliModel != "" {
+			modelSource = "cli"
+		} else if opts.Model != "" {
+			modelSource = "agent"
+		}
+
+		// Emit ConfigResolve strace event (after Open so proc.Model is resolved)
+		configArgs := map[string]any{
+			"provider":        proc.Provider,
+			"provider_source": providerSource,
+			"model":           proc.Model,
+			"model_source":    modelSource,
+		}
+		projectDefault := k.defaultProvider
+		if opts.ProjectConfig != nil && opts.ProjectConfig.DefaultProvider != "" {
+			projectDefault = opts.ProjectConfig.DefaultProvider
+		}
+		if projectDefault != "" && projectDefault != proc.Provider {
+			configArgs["project_default"] = projectDefault
+		}
+		k.emitEvent(proc, "ConfigResolve", configArgs, nil, nil, time.Since(resolveStart))
 
 		// Set up stream handler for driver events (tool_call, thinking, system, etc.)
 		k.setupDriverStreamHandler(proc, llmFD)
