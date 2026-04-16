@@ -106,8 +106,9 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			}
 		}
 
-		// Stale detection (Story 30.5)
-		isStale := (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) &&
+		// Stale detection (Story 30.5) — skip paused processes (they intentionally stop heartbeats)
+		isStale := !row.proc.IsPaused &&
+			(row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) &&
 			ui.IsStale(row.proc.LastHeartbeat, row.proc.StepTimeout)
 
 		// Suspended reason abbreviation (Story 30.8 AC#6)
