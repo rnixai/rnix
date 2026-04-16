@@ -282,6 +282,7 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			StepTimeout:    proc.StepTimeout,
 			SuspendReason:  proc.SuspendReason,
 			IsPaused:       proc.resumeCh != nil,
+			PausedAt:       proc.pausedAt,
 			MaxSteps:       proc.MaxSteps,
 			ComposeNode:    proc.ComposeNode,
 			ComposeDeps:    append([]string(nil), proc.ComposeDeps...),
