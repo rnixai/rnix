@@ -64,6 +64,19 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		return NewQwenCliDriver(opts...), nil
 
+	case DriverCodexCLI:
+		var opts []CodexCliOption
+		if cfg.Command != "" {
+			opts = append(opts, CodexWithCommand(cfg.Command))
+		}
+		if cfg.DefaultModel != "" {
+			opts = append(opts, CodexWithModel(cfg.DefaultModel))
+		}
+		if len(cfg.ExtraArgs) > 0 {
+			opts = append(opts, CodexWithExtraArgs(cfg.ExtraArgs))
+		}
+		return NewCodexCliDriver(opts...), nil
+
 	case DriverOpenAICompat:
 		var opts []CompatOption
 		if cfg.DefaultModel != "" {

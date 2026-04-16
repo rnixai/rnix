@@ -223,7 +223,7 @@ func runVersion(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	fmt.Fprintf(w, "rnix v%s\n", versionString())
+	fmt.Fprintf(w, "rnix %s\n", versionString())
 	if gitCommit != "" {
 		fmt.Fprintf(w, "commit:  %s\n", gitCommit)
 	}
