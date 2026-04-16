@@ -1903,11 +1903,23 @@ func TestLLMViewer_ViewContainsStepNav(t *testing.T) {
 
 func TestLLMViewer_HKeyPrevStep(t *testing.T) {
 	m := newTestLLMViewerModel()
+	m.llmViewerStep = 2 // not at boundary — h should fetch step 1
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'h'})
 
 	if cmd == nil {
 		t.Error("h key in viewLLM should return non-nil cmd (fetch previous step)")
+	}
+}
+
+func TestLLMViewer_HKeyBoundaryNoFetch(t *testing.T) {
+	m := newTestLLMViewerModel()
+	m.llmViewerStep = 0 // already at boundary
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'h'})
+
+	if cmd != nil {
+		t.Error("h key at step 0 boundary should return nil cmd (no redundant fetch)")
 	}
 }
 
@@ -1932,6 +1944,35 @@ func TestLLMViewer_LKeyNextStepBlockedBeforeLoad(t *testing.T) {
 
 	if cmd != nil {
 		t.Error("l key in viewLLM should return nil cmd when step list not loaded")
+	}
+}
+
+func TestLLMViewer_LKeyBoundaryNoFetch(t *testing.T) {
+	m := newTestLLMViewerModel()
+	m.llmViewerStepMax = 5
+	m.llmViewerStep = 5 // already at max boundary
+
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
+
+	if cmd != nil {
+		t.Error("l key at max step boundary should return nil cmd (no redundant fetch)")
+	}
+}
+
+func TestLLMViewer_FetchingGuardBlocksConcurrent(t *testing.T) {
+	m := newTestLLMViewerModel()
+	m.llmViewerStep = 2
+	m.llmViewerStepMax = 5
+	m.llmViewerFetching = true // fetch already in progress
+
+	_, cmdH := m.Update(tea.KeyPressMsg{Code: 'h'})
+	_, cmdL := m.Update(tea.KeyPressMsg{Code: 'l'})
+
+	if cmdH != nil {
+		t.Error("h key should return nil cmd when fetch already in progress")
+	}
+	if cmdL != nil {
+		t.Error("l key should return nil cmd when fetch already in progress")
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
@@ -32,6 +33,7 @@ func (m dashboardModel) enterLLMViewer() (tea.Model, tea.Cmd) {
 	m.llmViewerSteps = nil
 	m.llmViewerDetail = nil
 	m.llmViewerContent = ""
+	m.llmViewerFetching = false
 
 	vp := viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(max(m.height-4, 1)))
 	m.llmViewerViewport = vp
@@ -69,6 +71,7 @@ func fetchLLMStepCmd(pid types.PID, uuid string, step int) tea.Cmd {
 			return llmViewerMsg{pid: pid, step: step, err: err}
 		}
 		defer client.Close()
+		_ = client.SetReadDeadline(time.Now().Add(3 * time.Second))
 
 		var detail *ipc.GetStepDetailResponse
 		if uuid != "" {
@@ -92,14 +95,22 @@ func (m dashboardModel) llmViewerKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "h", "left":
 		newStep := max(m.llmViewerStep-1, 0)
+		if newStep == m.llmViewerStep || m.llmViewerFetching {
+			return m, nil
+		}
 		m.llmViewerStep = newStep
+		m.llmViewerFetching = true
 		return m, fetchLLMStepCmd(m.llmViewerPID, m.llmViewerUUID, newStep)
 	case "l", "right":
-		if m.llmViewerStepMax == 0 {
-			return m, nil // step list not loaded yet
+		if m.llmViewerStepMax == 0 || m.llmViewerFetching {
+			return m, nil // step list not loaded yet or fetch in progress
 		}
 		newStep := min(m.llmViewerStep+1, m.llmViewerStepMax)
+		if newStep == m.llmViewerStep {
+			return m, nil
+		}
 		m.llmViewerStep = newStep
+		m.llmViewerFetching = true
 		return m, fetchLLMStepCmd(m.llmViewerPID, m.llmViewerUUID, newStep)
 	case "y":
 		return m, tea.SetClipboard(m.llmViewerContent)

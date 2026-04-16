@@ -167,8 +167,7 @@ type dashboardModel struct {
 	llmViewerViewport viewport.Model
 	llmViewerContent  string
 	llmViewerPrevMode viewMode
-
-	// History view fields have been removed — H key now expands Agent Tree directly.
+	llmViewerFetching bool
 
 	// Help overlay
 	helpOverlay bool
@@ -516,6 +515,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case llmViewerMsg:
+		m.llmViewerFetching = false
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("✗ LLM viewer: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
