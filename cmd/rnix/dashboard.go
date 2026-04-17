@@ -616,8 +616,11 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 			m.processFirstSeenAt[p.PID] = nowHL
 		}
 	}
-	for pid, t := range m.processFirstSeenAt {
-		if !seenNow[pid] || nowHL.Sub(t) > 3*time.Second {
+	// Clean up entries for PIDs no longer in procs. No time-based cleanup —
+	// the map is bounded by the number of active+visible processes and entries
+	// for exited PIDs are removed immediately when they leave the procs list.
+	for pid := range m.processFirstSeenAt {
+		if !seenNow[pid] {
 			delete(m.processFirstSeenAt, pid)
 		}
 	}

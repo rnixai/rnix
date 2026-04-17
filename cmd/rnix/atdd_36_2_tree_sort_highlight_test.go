@@ -42,47 +42,20 @@ func TestSortTreeNodes_TimeSortAsc_OldestFirst(t *testing.T) {
 
 func TestSortTreeNodes_TimeSortDesc_DifferentStateSameTime(t *testing.T) {
 	// Same CreatedAt, different State — stateRank is secondary key.
+	// In desc mode, cmp is a>b, so higher stateRank sorts first.
+	// stateRank: Running=0, Created=1 → desc cmp(0,1)=false → Created before Running.
 	ts := time.Now()
 	created := &treeNode{proc: vfs.ProcInfo{PID: 1, State: types.StateCreated, CreatedAt: ts}}
 	running := &treeNode{proc: vfs.ProcInfo{PID: 2, State: types.StateRunning, CreatedAt: ts}}
 	nodes := []*treeNode{created, running}
 
 	sortTreeNodes(nodes, treeSortTime, false) // desc
-	// stateRank: Running=0 < Created=1, so in desc (a > b → false for lower rank first)
-	// cmp(0,1) with asc=false → 0 > 1 = false, so running should come second? No...
-	// cmp returns a > b when desc. So cmp(0,1) = 0>1 = false → running NOT before created.
-	// Wait — that means created (rank 1) > running (rank 0) → created first.
-	// But we want running first (lower rank = higher priority).
-	// Actually cmp for desc: return a > b. stateRank running=0, created=1.
-	// cmp(0, 1) → 0 > 1 → false → running is NOT "less" than created.
-	// So created is considered "less" (earlier). That seems wrong for state sort intent.
-	// Let me re-read: sort.SliceStable less function returns true if i should come before j.
-	// In desc mode for rank: we want lower rank first. cmp desc: a > b.
-	// For running(0) vs created(1): cmp(0,1) = false → running should NOT come before created.
-	// That means created comes first. But lower rank = higher priority should be first.
-	// Hmm, the cmp function is defined as:
-	//   desc: a > b (higher value first)
-	//   asc: a < b (lower value first)
-	// For stateRank, lower value = higher priority (running=0).
-	// In desc mode: cmp(0,1) = 0>1 = false → running does NOT sort before created.
-	// So in desc sort, stateRank secondary key puts higher rank first? That seems off...
-	// Actually wait — the asc/desc is for the TIME primary key direction. The secondary
-	// key (stateRank) always uses the same cmp direction. Let me check the actual behavior.
-	// With desc=false (asc), cmp is a<b. stateRank running=0,created=1 → cmp(0,1)=true → running first.
-	// With asc=true, cmp is a<b. Same result.
-	// With asc=false (desc), cmp is a>b. cmp(0,1) = false → created first, then running.
-	// So in desc mode, higher-ranked states come first? That seems like the state sort
-	// direction follows the asc flag. Actually for same-time tiebreaker, it makes sense that
-	// the sort direction affects all keys consistently.
-	//
-	// Let's just verify the actual behavior matches the code:
 	if nodes[0].proc.PID == nodes[1].proc.PID {
 		t.Fatal("nodes should have different PIDs after sort")
 	}
-	// In desc mode with same time: cmp(stateRank) uses desc direction.
-	// running(0) vs created(1): desc → 0>1 = false → created sorts before running.
 	if nodes[0].proc.State != types.StateCreated {
-		t.Logf("desc sort same-time: first=%v, second=%v", nodes[0].proc.State, nodes[1].proc.State)
+		t.Errorf("desc sort same-time: expected Created first, got first=%v second=%v",
+			nodes[0].proc.State, nodes[1].proc.State)
 	}
 }
 

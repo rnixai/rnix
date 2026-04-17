@@ -247,9 +247,25 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			}
 		}
 
+		// New process highlight (Story 36-2 AC-4): sparkle icon + highlight bg
+		isNewProcess := false
+		if firstSeen, ok := m.processFirstSeenAt[row.proc.PID]; ok && now.Sub(firstSeen) < highlightDisplayWindow {
+			isNewProcess = true
+		}
+
+		// New process highlight prefix (Story 36-2 AC-4/AC-5)
+		highlightPrefix := ""
+		if isNewProcess {
+			if ui.IsASCIIMode() {
+				highlightPrefix = "* "
+			} else {
+				highlightPrefix = "✨ "
+			}
+		}
+
 		// Calculate available width for intent (elastic).
 		// Filter empty parts so an absent state badge (dead+success) doesn't produce double-space.
-		prefixW := lipgloss.Width(cursor + collapsePrefix + row.prefix)
+		prefixW := lipgloss.Width(highlightPrefix+cursor+collapsePrefix+row.prefix)
 		suffixParts := []string{pidPart, stateMark, wallClock, tokens, elapsed}
 		if orchAnnotation != "" {
 			suffixParts = append(suffixParts, orchAnnotation)
@@ -265,12 +281,6 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		intentW := max(innerW-prefixW-suffixW-3, 8)
 		intentTrunc := truncateRuneWidth(intent, intentW)
 
-		// New process highlight (Story 36-2 AC-4): sparkle icon + highlight bg for 1.5s
-		isNewProcess := false
-		if firstSeen, ok := m.processFirstSeenAt[row.proc.PID]; ok && now.Sub(firstSeen) < 1500*time.Millisecond {
-			isNewProcess = true
-		}
-
 		// Most active process highlight (AC5): bold if event within 2s
 		isMostActive := false
 		if row.proc.State == types.StateRunning || row.proc.State == types.StateCreated {
@@ -283,16 +293,6 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		// Use display-width padding to avoid CJK double-width chars causing line wraps.
 		intentPad := max(intentW-runewidth.StringWidth(intentTrunc), 0)
-
-		// New process highlight prefix (Story 36-2 AC-4/AC-5)
-		highlightPrefix := ""
-		if isNewProcess {
-			if ui.IsASCIIMode() {
-				highlightPrefix = "* "
-			} else {
-				highlightPrefix = "✨ "
-			}
-		}
 
 		line := fmt.Sprintf("%s%s%s%s%s%s %s",
 			highlightPrefix, cursor, collapsePrefix, row.prefix, intentTrunc, strings.Repeat(" ", intentPad), suffixStr)
@@ -401,6 +401,10 @@ func renderDashboardPlaceholder(title, placeholder string, width, height int, ac
 }
 
 // --- Process tree construction ---
+
+// highlightDisplayWindow is how long a newly-spawned process row is
+// highlighted in the Agent Tree (sparkle icon + background).
+const highlightDisplayWindow = 1500 * time.Millisecond
 
 // treeSortMode constants define sort orders for the tree pane.
 const (
