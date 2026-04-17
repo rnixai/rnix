@@ -6,12 +6,13 @@ import (
 
 // Color constants for the Rnix design system.
 const (
-	ColorKernel  = "#888888"
-	ColorAgent   = "#5B9BD5"
-	ColorSuccess = "#6BCB77"
-	ColorWarning = "#FFD93D"
-	ColorError   = "#FF6B6B"
-	ColorMuted   = "#666666"
+	ColorKernel    = "#888888"
+	ColorAgent     = "#5B9BD5"
+	ColorSuccess   = "#6BCB77"
+	ColorWarning   = "#FFD93D"
+	ColorError     = "#FF6B6B"
+	ColorMuted     = "#666666"
+	ColorHighlight = "#FFFACD" // LemonChiffon — new process highlight background
 )
 
 // Style set for styled terminal output.
@@ -24,6 +25,7 @@ var (
 	WarningStyle   lipgloss.Style
 	MutedStyle     lipgloss.Style
 	BoldStyle      lipgloss.Style
+	HighlightStyle lipgloss.Style // New process highlight (background=ColorHighlight)
 )
 
 // InitStyles initializes the lipgloss style set based on the terminal profile.
@@ -38,6 +40,7 @@ func InitStyles(profile TerminalProfile) {
 		WarningStyle = lipgloss.NewStyle()
 		MutedStyle = lipgloss.NewStyle()
 		BoldStyle = lipgloss.NewStyle().Bold(true)
+		HighlightStyle = lipgloss.NewStyle().Reverse(true)
 		return
 	}
 
@@ -49,4 +52,5 @@ func InitStyles(profile TerminalProfile) {
 	WarningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorWarning))
 	MutedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorMuted))
 	BoldStyle = lipgloss.NewStyle().Bold(true)
+	HighlightStyle = lipgloss.NewStyle().Background(lipgloss.Color(ColorHighlight))
 }

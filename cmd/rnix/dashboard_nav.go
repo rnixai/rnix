@@ -557,7 +557,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			}
 			m.statusMsg = fmt.Sprintf("Tree sort: %s", label)
 			m.statusMsgTTL = statusMsgDefaultTTL
-		case "S", "shift+S":
+		case "o", "S", "shift+S":
 			// Toggle sort direction: asc ↔ desc
 			m.treeSortAsc = !m.treeSortAsc
 			roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)

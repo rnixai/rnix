@@ -42,6 +42,14 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	if m.treeSortAsc {
 		dirArrow = "↑"
 	}
+	ascIdx := 0
+	if m.treeSortAsc {
+		ascIdx = 1
+	}
+	dirLabel := treeSortDirLabels[m.treeSortMode][ascIdx]
+	if ui.IsASCIIMode() {
+		dirLabel = treeSortDirLabelsASCII[m.treeSortMode][ascIdx]
+	}
 
 	// Title line — show search state when in expanded mode
 	if isExpanded {
@@ -51,25 +59,25 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 			pos = 0
 		}
 		if m.treeSearchMode {
-			fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d | Search: %s_\n",
-				sortLabel, dirArrow, pos, total, m.treeSearchQuery)
+			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d | Search: %s_\n",
+				sortLabel, dirArrow, dirLabel, pos, total, m.treeSearchQuery)
 		} else if m.treeSearchQuery != "" {
-			fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d | Filter: %q  (Esc to clear)\n",
-				sortLabel, dirArrow, pos, total, m.treeSearchQuery)
+			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d | Filter: %q  (Esc to clear)\n",
+				sortLabel, dirArrow, dirLabel, pos, total, m.treeSearchQuery)
 		} else {
 			if len(m.treeRows) > 0 {
-				fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d | / to search\n",
-					sortLabel, dirArrow, min(m.treeCursor+1, len(m.treeRows)), len(m.treeRows))
+				fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d | / to search\n",
+					sortLabel, dirArrow, dirLabel, min(m.treeCursor+1, len(m.treeRows)), len(m.treeRows))
 			} else {
-				fmt.Fprintf(&b, " Agent Tree [%s %s] | / to search\n", sortLabel, dirArrow)
+				fmt.Fprintf(&b, " Agent Tree [%s %s %s] | / to search\n", sortLabel, dirArrow, dirLabel)
 			}
 		}
 	} else {
 		if len(m.treeRows) > 0 {
 			pos := min(m.treeCursor+1, len(m.treeRows))
-			fmt.Fprintf(&b, " Agent Tree [%s %s] %d/%d\n", sortLabel, dirArrow, pos, len(m.treeRows))
+			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d\n", sortLabel, dirArrow, dirLabel, pos, len(m.treeRows))
 		} else {
-			fmt.Fprintf(&b, " Agent Tree [%s %s]\n", sortLabel, dirArrow)
+			fmt.Fprintf(&b, " Agent Tree [%s %s %s]\n", sortLabel, dirArrow, dirLabel)
 		}
 	}
 
@@ -257,6 +265,12 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		intentW := max(innerW-prefixW-suffixW-3, 8)
 		intentTrunc := truncateRuneWidth(intent, intentW)
 
+		// New process highlight (Story 36-2 AC-4): sparkle icon + highlight bg for 1.5s
+		isNewProcess := false
+		if firstSeen, ok := m.processFirstSeenAt[row.proc.PID]; ok && now.Sub(firstSeen) < 1500*time.Millisecond {
+			isNewProcess = true
+		}
+
 		// Most active process highlight (AC5): bold if event within 2s
 		isMostActive := false
 		if row.proc.State == types.StateRunning || row.proc.State == types.StateCreated {
@@ -269,9 +283,26 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		// Use display-width padding to avoid CJK double-width chars causing line wraps.
 		intentPad := max(intentW-runewidth.StringWidth(intentTrunc), 0)
-		line := fmt.Sprintf("%s%s%s%s%s %s",
-			cursor, collapsePrefix, row.prefix, intentTrunc, strings.Repeat(" ", intentPad), suffixStr)
-		if isStale {
+
+		// New process highlight prefix (Story 36-2 AC-4/AC-5)
+		highlightPrefix := ""
+		if isNewProcess {
+			if ui.IsASCIIMode() {
+				highlightPrefix = "* "
+			} else {
+				highlightPrefix = "✨ "
+			}
+		}
+
+		line := fmt.Sprintf("%s%s%s%s%s%s %s",
+			highlightPrefix, cursor, collapsePrefix, row.prefix, intentTrunc, strings.Repeat(" ", intentPad), suffixStr)
+		if isNewProcess {
+			if ui.IsASCIIMode() {
+				line = lipgloss.NewStyle().Reverse(true).Render(line)
+			} else {
+				line = ui.HighlightStyle.Render(line)
+			}
+		} else if isStale {
 			line = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("196")).
 				Render(line)
@@ -379,6 +410,19 @@ const (
 )
 
 var treeSortLabels = []string{"Time", "PID", "State"}
+
+// treeSortDirLabels[sortMode][ascIndex] — ascIndex 0=desc, 1=asc
+var treeSortDirLabels = [3][2]string{
+	{"新→旧", "旧→新"},   // treeSortTime
+	{"大→小", "小→大"},   // treeSortPID
+	{"↓", "↑"},          // treeSortState
+}
+
+var treeSortDirLabelsASCII = [3][2]string{
+	{"新->旧", "旧->新"},
+	{"大->小", "小->大"},
+	{"v", "^"},
+}
 
 // buildProcessTree constructs a process tree from a flat list of ProcInfo.
 // Uses UUID as the node key so that PID-reused processes (old dead + new active)
@@ -564,14 +608,14 @@ func sortTreeNodes(ns []*treeNode, sortMode int, asc bool) {
 	case treeSortTime:
 		sort.SliceStable(ns, func(i, j int) bool {
 			ai, aj := ns[i].proc, ns[j].proc
+			if !ai.CreatedAt.Equal(aj.CreatedAt) {
+				return cmpTime(ai.CreatedAt, aj.CreatedAt) // primary: time
+			}
 			ri, rj := stateRank(ai.State), stateRank(aj.State)
 			if ri != rj {
-				return cmp(ri, rj)
+				return cmp(ri, rj) // secondary: state (running first when same time)
 			}
-			if !ai.CreatedAt.Equal(aj.CreatedAt) {
-				return cmpTime(ai.CreatedAt, aj.CreatedAt)
-			}
-			return ai.PID < aj.PID // secondary: PID ascending always
+			return ai.PID < aj.PID // tertiary: PID ascending always
 		})
 	case treeSortState:
 		sort.SliceStable(ns, func(i, j int) bool {

@@ -193,6 +193,9 @@ type dashboardModel struct {
 	userManualSelect   bool                     // AC5: user manual select flag
 	collapsedDeadTrees map[string]bool          // AC3: dead subtree collapse state (key=UUID)
 
+	// Story 36-2: New process highlight
+	processFirstSeenAt map[types.PID]time.Time // tracks when each PID was first seen
+
 	// Story 34.4: Alert strip + unified timeline
 	alertExpanded  bool             // alert strip expanded state
 	alertCursor    int              // cursor position within alert strip
@@ -234,6 +237,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		sysEventSeen:       make(map[string]struct{}),
 		lastEventByPID:     make(map[types.PID]time.Time),
 		collapsedDeadTrees: make(map[string]bool),
+		processFirstSeenAt: make(map[types.PID]time.Time),
 		debugShowStrace:    true, // Story 34.6: show strace events by default
 		debugDeviceLatency: make(map[string]*deviceLatencyStats),
 	}
@@ -602,6 +606,22 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	m.err = nil
 	m.connected = true
 	m.processes = procs
+
+	// Story 36-2: Track first-seen time for new process highlight
+	seenNow := make(map[types.PID]bool, len(procs))
+	nowHL := time.Now()
+	for _, p := range procs {
+		seenNow[p.PID] = true
+		if _, exists := m.processFirstSeenAt[p.PID]; !exists {
+			m.processFirstSeenAt[p.PID] = nowHL
+		}
+	}
+	for pid, t := range m.processFirstSeenAt {
+		if !seenNow[pid] || nowHL.Sub(t) > 3*time.Second {
+			delete(m.processFirstSeenAt, pid)
+		}
+	}
+
 	roots := buildProcessTree(procs, m.treeSortMode, m.treeSortAsc)
 	m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
 
