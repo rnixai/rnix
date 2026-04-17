@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -365,6 +366,73 @@ func TestIsTransient_StreamIncomplete(t *testing.T) {
 	wrapped := fmt.Errorf("stream closed: %w", ErrStreamIncomplete)
 	if !IsTransient(wrapped) {
 		t.Error("wrapped ErrStreamIncomplete should be classified as transient")
+	}
+}
+
+// mockBundleDriver is a mockDriver that also implements SkillsBundleCapable.
+type mockBundleDriver struct{ mockDriver }
+
+func (m *mockBundleDriver) UsesSkillsBundle() {}
+
+// TestLLMFile_MergeSkills_NonBundleDriver verifies R5 fallback: when the
+// driver does NOT implement SkillsBundleCapable, skill bodies are merged into
+// req.SystemPrompt before invoking the driver, and req.Skills is cleared.
+func TestLLMFile_MergeSkills_NonBundleDriver(t *testing.T) {
+	f := &LLMFile{driver: &mockDriver{}, devicePath: "/dev/llm/test"}
+
+	req := LLMRequest{
+		SystemPrompt: "base system prompt",
+		Skills: []Skill{
+			{Name: "s1", Body: "body-one", Dir: "/tmp/s1"},
+			{Name: "s2", Body: "body-two"},
+		},
+	}
+	f.maybeMergeSkillsIntoPrompt(&req)
+
+	if len(req.Skills) != 0 {
+		t.Errorf("expected Skills cleared after merge, got %d entries", len(req.Skills))
+	}
+	if !strings.Contains(req.SystemPrompt, "base system prompt") {
+		t.Errorf("lost original SystemPrompt: %q", req.SystemPrompt)
+	}
+	if !strings.Contains(req.SystemPrompt, "## s1") || !strings.Contains(req.SystemPrompt, "body-one") {
+		t.Errorf("s1 body not merged: %q", req.SystemPrompt)
+	}
+	if !strings.Contains(req.SystemPrompt, "Base directory for this skill: /tmp/s1") {
+		t.Errorf("s1 dir hint not merged: %q", req.SystemPrompt)
+	}
+	if !strings.Contains(req.SystemPrompt, "## s2") || !strings.Contains(req.SystemPrompt, "body-two") {
+		t.Errorf("s2 body not merged: %q", req.SystemPrompt)
+	}
+}
+
+// TestLLMFile_MergeSkills_BundleDriver verifies R5 fallback is skipped when
+// the driver implements SkillsBundleCapable — the driver will consume Skills
+// directly via its own bundle mechanism.
+func TestLLMFile_MergeSkills_BundleDriver(t *testing.T) {
+	f := &LLMFile{driver: &mockBundleDriver{}, devicePath: "/dev/llm/bundle"}
+
+	req := LLMRequest{
+		SystemPrompt: "base",
+		Skills:       []Skill{{Name: "s1", Body: "body-one", Dir: "/tmp/s1"}},
+	}
+	f.maybeMergeSkillsIntoPrompt(&req)
+
+	if len(req.Skills) != 1 {
+		t.Errorf("expected Skills preserved for bundle driver, got %d entries", len(req.Skills))
+	}
+	if req.SystemPrompt != "base" {
+		t.Errorf("SystemPrompt should not change, got %q", req.SystemPrompt)
+	}
+}
+
+// TestLLMFile_MergeSkills_Empty ensures merge is a no-op when no skills.
+func TestLLMFile_MergeSkills_Empty(t *testing.T) {
+	f := &LLMFile{driver: &mockDriver{}, devicePath: "/dev/llm/test"}
+	req := LLMRequest{SystemPrompt: "sp"}
+	f.maybeMergeSkillsIntoPrompt(&req)
+	if req.SystemPrompt != "sp" {
+		t.Errorf("expected unchanged SystemPrompt, got %q", req.SystemPrompt)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -58,6 +59,10 @@ func TestQwenHelperProcess(t *testing.T) {
 		os.Exit(1)
 	case "qwen_stream_is_error_empty":
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error_during_execution","result":"","is_error":true,"usage":{"input_tokens":0,"output_tokens":0}}`)
+	case "qwen_stdin_echo":
+		// R1: prompt is delivered via stdin; echo back as result.
+		data, _ := io.ReadAll(os.Stdin)
+		fmt.Fprintf(os.Stdout, `[{"type":"result","subtype":"success","result":%q,"is_error":false,"usage":{"input_tokens":1,"output_tokens":1}}]`, string(data))
 	}
 	os.Exit(0)
 }
@@ -221,8 +226,12 @@ func TestQwenCliDriver_Call_Args(t *testing.T) {
 	}
 
 	argsStr := strings.Join(capturedArgs, " ")
-	if !strings.Contains(argsStr, "-p analyze code") {
-		t.Errorf("expected -p flag with intent, got: %s", argsStr)
+	// R5/R1: prompt now delivered via stdin, not argv
+	if strings.Contains(argsStr, "analyze code") {
+		t.Errorf("prompt should not be in argv (stdin mode), got: %s", argsStr)
+	}
+	if strings.Contains(argsStr, "-p ") {
+		t.Errorf("-p flag should be removed (stdin mode), got: %s", argsStr)
 	}
 	if !strings.Contains(argsStr, "--system-prompt you are an expert") {
 		t.Errorf("expected --system-prompt flag, got: %s", argsStr)
@@ -658,5 +667,19 @@ func TestQwenCliDriver_BuildPrompt_MultiTurn(t *testing.T) {
 	prompt := d.buildPrompt(req)
 	if prompt != "fix the bug" {
 		t.Errorf("expected intent-only prompt, got: %s", prompt)
+	}
+}
+
+// TestQwenCliDriver_Call_StdinPrompt verifies R1: prompt reaches qwen via
+// stdin rather than the deprecated `-p <str>` argv flag.
+func TestQwenCliDriver_Call_StdinPrompt(t *testing.T) {
+	t.Parallel()
+	d := NewQwenCliDriver(QwenWithCommandBuilder(qwenMockCmdBuilder("qwen_stdin_echo")))
+	resp, err := d.Call(context.Background(), LLMRequest{Intent: "QWEN_STDIN_SECRET"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Content != "QWEN_STDIN_SECRET" {
+		t.Errorf("prompt did not reach stdin; content=%q", resp.Content)
 	}
 }

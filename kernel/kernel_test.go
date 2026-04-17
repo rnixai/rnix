@@ -1097,9 +1097,15 @@ func TestSpawn_WithAgent_InjectsInstructions(t *testing.T) {
 	if !strings.Contains(prompt.SystemPrompt, "Code Analyst") {
 		t.Errorf("expected system prompt to contain 'Code Analyst', got %q", prompt.SystemPrompt)
 	}
-	// Also verify skill body is in system prompt
-	if !strings.Contains(prompt.SystemPrompt, "Mock Skill") {
-		t.Errorf("expected system prompt to contain 'Mock Skill' from skill body, got %q", prompt.SystemPrompt)
+	// R5: skill body is no longer in system prompt; it's carried via proc.SkillBodies
+	// and delivered to drivers out-of-band (bundle for claude-cli, merged in
+	// system prompt by vfsfile for others).
+	if !strings.Contains(proc.SkillBodies["mock-skill"], "Mock Skill") {
+		t.Errorf("expected proc.SkillBodies[mock-skill] to contain 'Mock Skill', got %q", proc.SkillBodies["mock-skill"])
+	}
+	// System prompt should still mention the loaded skill name for visibility.
+	if !strings.Contains(prompt.SystemPrompt, "mock-skill") {
+		t.Errorf("expected system prompt to mention loaded skill name, got %q", prompt.SystemPrompt)
 	}
 }
 

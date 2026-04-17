@@ -38,3 +38,13 @@ type ToolCallingDriver interface {
 	CallWithTools(ctx context.Context, req LLMRequest, tools []ToolDef) (*LLMResponse, error)
 	StreamWithTools(ctx context.Context, req LLMRequest, tools []ToolDef) (<-chan StreamEvent, error)
 }
+
+// SkillsBundleCapable marks drivers that consume req.Skills directly — typically
+// by materializing a content-addressed skills directory and instructing the
+// underlying CLI to discover it (e.g. Claude CLI's --add-dir). Drivers that do
+// NOT implement this interface will have req.Skills' body auto-merged into
+// req.SystemPrompt by the VFS layer before the driver is invoked.
+type SkillsBundleCapable interface {
+	LLMDriver
+	UsesSkillsBundle() // marker method, no-op
+}

@@ -36,17 +36,29 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 }
 
+// Skill carries an individual skill's content to the driver layer.
+// Bundle-capable drivers (SkillsBundleCapable) materialize it into an external
+// directory tree and inform the CLI via flags like --add-dir. Non-bundle
+// drivers see skill bodies auto-merged into SystemPrompt by the VFS layer.
+type Skill struct {
+	Name string `json:"name"`
+	Body string `json:"body"`           // raw SKILL.md body (no frontmatter)
+	Dir  string `json:"dir,omitempty"`  // absolute path to the source skill directory
+}
+
 // LLMRequest represents a request to an LLM driver.
 type LLMRequest struct {
-	Intent       string        `json:"intent"`
-	SystemPrompt string        `json:"system_prompt,omitempty"`
-	Model        string        `json:"model,omitempty"`
-	MaxTurns     int           `json:"max_turns,omitempty"`
-	TimeoutMs    int64         `json:"timeout_ms,omitempty"`
-	Messages     []Message     `json:"messages,omitempty"`
-	Temperature  *float64      `json:"temperature,omitempty"`
-	MaxTokens    int           `json:"max_tokens,omitempty"`
-	Tools        []ToolDef     `json:"tools,omitempty"`
+	Intent       string    `json:"intent"`
+	SystemPrompt string    `json:"system_prompt,omitempty"`
+	Model        string    `json:"model,omitempty"`
+	MaxTurns     int       `json:"max_turns,omitempty"`
+	TimeoutMs    int64     `json:"timeout_ms,omitempty"`
+	Messages     []Message `json:"messages,omitempty"`
+	Temperature  *float64  `json:"temperature,omitempty"`
+	MaxTokens    int       `json:"max_tokens,omitempty"`
+	Tools        []ToolDef `json:"tools,omitempty"`
+	Skills       []Skill   `json:"skills,omitempty"`      // R5: carried to bundle-capable drivers
+	ProjectDir   string    `json:"project_dir,omitempty"` // R5: project root for bundle placement
 }
 
 // LLMResponse represents a response from an LLM driver.

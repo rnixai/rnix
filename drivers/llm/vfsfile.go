@@ -51,10 +51,44 @@ func (f *LLMFile) Write(ctx context.Context, data []byte) error {
 		return fmt.Errorf("failed to parse llm request: %w", err)
 	}
 
+	f.maybeMergeSkillsIntoPrompt(&req)
+
 	if f.mode == ModeCall {
 		return f.writeCall(ctx, req)
 	}
 	return f.writeStream(ctx, req)
+}
+
+// maybeMergeSkillsIntoPrompt lets non-bundle drivers still receive skill
+// content by appending each skill's body onto req.SystemPrompt. Drivers that
+// implement SkillsBundleCapable (e.g. claude-cli) consume req.Skills directly
+// and this function is a no-op for them.
+//
+// After merging, req.Skills is cleared so the driver sees a single source of
+// truth and doesn't accidentally double-process the content.
+func (f *LLMFile) maybeMergeSkillsIntoPrompt(req *LLMRequest) {
+	if len(req.Skills) == 0 {
+		return
+	}
+	if _, ok := f.driver.(SkillsBundleCapable); ok {
+		return
+	}
+	var b strings.Builder
+	if req.SystemPrompt != "" {
+		b.WriteString(req.SystemPrompt)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("# Loaded Skills\n")
+	for _, s := range req.Skills {
+		fmt.Fprintf(&b, "\n## %s\n", s.Name)
+		if s.Dir != "" {
+			fmt.Fprintf(&b, "Base directory for this skill: %s\n\n", s.Dir)
+		}
+		b.WriteString(s.Body)
+		b.WriteString("\n")
+	}
+	req.SystemPrompt = b.String()
+	req.Skills = nil
 }
 
 // writeCall uses the synchronous Call API.

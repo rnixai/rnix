@@ -110,6 +110,7 @@ func (d *QwenCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse,
 
 	args := d.buildArgs(req, "json")
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -216,6 +217,7 @@ func (d *QwenCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Stre
 
 	args := d.buildArgs(req, "stream-json")
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -388,9 +390,11 @@ func (d *QwenCliDriver) Info() DriverInfo {
 }
 
 // buildArgs constructs CLI arguments for a Qwen Code CLI invocation.
+// The prompt itself is delivered via stdin (qwen --prompt is deprecated in
+// favor of positional arg / stdin). System prompt is still passed via argv
+// because qwen CLI has no --system-prompt-file equivalent.
 func (d *QwenCliDriver) buildArgs(req LLMRequest, outputFormat string) []string {
-	prompt := d.buildPrompt(req)
-	args := []string{"-p", prompt, "--output-format", outputFormat, "--yolo"}
+	args := []string{"--output-format", outputFormat, "--yolo"}
 
 	if outputFormat == "stream-json" {
 		args = append(args, "--include-partial-messages")

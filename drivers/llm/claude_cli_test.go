@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -831,5 +833,74 @@ func TestClaudeCliDriver_BuildArgs_SystemPromptFile(t *testing.T) {
 	}
 	if string(data) != sysPrompt {
 		t.Errorf("tempfile content mismatch: got %q, want %q", string(data), sysPrompt)
+	}
+}
+
+// TestClaudeCliDriver_ImplementsSkillsBundleCapable verifies R5: the driver
+// satisfies SkillsBundleCapable so the VFS layer will skip merging Skills
+// into SystemPrompt and let the driver consume them directly.
+func TestClaudeCliDriver_ImplementsSkillsBundleCapable(t *testing.T) {
+	t.Parallel()
+	var _ SkillsBundleCapable = (*ClaudeCliDriver)(nil)
+}
+
+// TestClaudeCliDriver_BuildArgs_WithSkills verifies R5: when req.Skills is
+// populated with a ProjectDir, buildArgs materializes a bundle and appends
+// --add-dir <bundleRoot>.
+func TestClaudeCliDriver_BuildArgs_WithSkills(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver()
+
+	projectDir := t.TempDir()
+	skillSrc := filepath.Join(t.TempDir(), "code-analysis")
+	if err := os.MkdirAll(skillSrc, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillSrc, "SKILL.md"), []byte("# code-analysis"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+
+	args, _, err := d.buildArgs(LLMRequest{
+		Intent:     "analyze",
+		ProjectDir: projectDir,
+		Skills:     []Skill{{Name: "code-analysis", Body: "# code-analysis", Dir: skillSrc}},
+	}, "json")
+	if err != nil {
+		t.Fatalf("buildArgs error: %v", err)
+	}
+
+	// Find the --add-dir flag and its value
+	bundleRoot := ""
+	for i, a := range args {
+		if a == "--add-dir" && i+1 < len(args) {
+			bundleRoot = args[i+1]
+			break
+		}
+	}
+	if bundleRoot == "" {
+		t.Fatalf("expected --add-dir in args, got: %v", args)
+	}
+	// Verify bundle structure
+	symlink := filepath.Join(bundleRoot, ".claude", "skills", "code-analysis")
+	target, err := os.Readlink(symlink)
+	if err != nil {
+		t.Fatalf("readlink bundle symlink: %v", err)
+	}
+	if target != skillSrc {
+		t.Errorf("symlink target = %q, want %q", target, skillSrc)
+	}
+}
+
+// TestClaudeCliDriver_BuildArgs_NoSkills verifies that when req.Skills is
+// empty, no --add-dir is appended.
+func TestClaudeCliDriver_BuildArgs_NoSkills(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver()
+	args, _, err := d.buildArgs(LLMRequest{Intent: "x"}, "json")
+	if err != nil {
+		t.Fatalf("buildArgs error: %v", err)
+	}
+	if slices.Contains(args, "--add-dir") {
+		t.Errorf("unexpected --add-dir in args: %v", args)
 	}
 }

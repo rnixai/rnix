@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -170,13 +169,14 @@ Best practices:
 		return b.String()
 	}, false)
 
-	// loaded_skills: current skill bodies + synergies (dynamic — skills can change via specialize)
+	// loaded_skills: currently loaded skill names + synergies.
+	// Skill bodies are delivered out-of-band:
+	//   • Claude CLI gets them via a content-addressed bundle + --add-dir;
+	//   • Other drivers receive them merged into SystemPrompt by the VFS layer.
 	reg.Register("loaded_skills", func() string {
 		proc.mu.Lock()
 		skills := make([]string, len(proc.Skills))
 		copy(skills, proc.Skills)
-		bodies := make(map[string]string, len(proc.SkillBodies))
-		maps.Copy(bodies, proc.SkillBodies)
 		proc.mu.Unlock()
 		if len(skills) == 0 {
 			return ""
@@ -184,16 +184,7 @@ Best practices:
 		var b strings.Builder
 		b.WriteString("# Loaded Skills\nCurrently loaded: ")
 		b.WriteString(strings.Join(skills, ", "))
-		b.WriteString("\n")
-		for _, name := range skills {
-			if body, ok := bodies[name]; ok && body != "" {
-				b.WriteString("\n## ")
-				b.WriteString(name)
-				b.WriteString("\n")
-				b.WriteString(body)
-				b.WriteString("\n")
-			}
-		}
+		b.WriteString(".\nSkill instructions are delivered out-of-band.\n")
 		// Synergy detection via skillLoader (needs SkillInfo objects)
 		if k.skillLoader != nil {
 			var skillInfos []*skillpkg.SkillInfo

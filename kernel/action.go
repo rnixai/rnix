@@ -2,6 +2,7 @@ package kernel
 
 import (
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/drivers/llm"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -30,6 +31,8 @@ type llmRequest struct {
 	TimeoutMs    int64             `json:"timeout_ms,omitempty"`
 	Messages     []rnixctx.Message `json:"messages,omitempty"`
 	Tools        []vfs.ToolDef     `json:"tools,omitempty"`
+	Skills       []llm.Skill       `json:"skills,omitempty"`
+	ProjectDir   string            `json:"project_dir,omitempty"`
 }
 
 // llmToolCall represents a tool invocation in an LLM response.

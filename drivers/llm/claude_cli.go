@@ -92,6 +92,12 @@ func NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver {
 	return d
 }
 
+// UsesSkillsBundle marks this driver as SkillsBundleCapable — it consumes
+// req.Skills directly by materializing a content-addressed bundle and passing
+// it via --add-dir. The VFS layer will NOT merge skill bodies into
+// req.SystemPrompt for this driver.
+func (d *ClaudeCliDriver) UsesSkillsBundle() {}
+
 // claudeCliResponse is the JSON structure returned by `claude -p ... --output-format json`.
 type claudeCliResponse struct {
 	Type         string  `json:"type"`
@@ -512,6 +518,17 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) ([]stri
 
 	if req.MaxTurns > 0 {
 		args = append(args, "--max-turns", strconv.Itoa(req.MaxTurns))
+	}
+
+	// R5: materialize a content-addressed skills bundle so Claude CLI can
+	// discover them via --add-dir. Symlink to source skill dirs for stable
+	// paths across reasonSteps (prompt cache prefix).
+	bundleRoot, err := prepareClaudeSkillsBundle(req.ProjectDir, req.Skills)
+	if err != nil {
+		return nil, sysPromptFile, fmt.Errorf("prepare skills bundle: %w", err)
+	}
+	if bundleRoot != "" {
+		args = append(args, "--add-dir", bundleRoot)
 	}
 
 	args = append(args, d.extraArgs...)

@@ -173,8 +173,9 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			opts.SystemPrompt = opts.SystemPrompt + "\n\n" + agentInstructions
 		}
 
-		// Populate skill body map for loaded_skills section to use
+		// Populate skill body + dir maps for loaded_skills section and bundle drivers
 		skillBodies := make(map[string]string)
+		skillDirs := make(map[string]string)
 		for _, s := range agent.Skills {
 			if s.Body != "" {
 				body := s.Body
@@ -182,9 +183,13 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 					body = "Base directory for this skill: " + s.Dir + "\n\n" + body
 				}
 				skillBodies[s.Manifest.Name] = body
+				if s.Dir != "" {
+					skillDirs[s.Manifest.Name] = s.Dir
+				}
 			}
 		}
 		proc.SkillBodies = skillBodies
+		proc.SkillDirs = skillDirs
 
 		// Register section-based prompt assembly
 		proc.HasSections = true

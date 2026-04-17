@@ -358,15 +358,36 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			copy(loadedSkills, proc.Skills)
 			proc.mu.Unlock()
 			if len(loadedSkills) > 0 {
-				sysPrompt += "\n\n# Loaded Skills\nThe following skills are loaded: " +
+				// R5: skill bodies are delivered out-of-band; here we only advertise
+				// which skills are loaded so the agent knows about them.
+				sysPrompt += "\n\n# Loaded Skills\nCurrently loaded: " +
 					strings.Join(loadedSkills, ", ") +
-					".\nTheir instructions are already in your system prompt. Follow them using available VFS devices." +
-					"\nDo NOT try to call these skills via /dev/mcp/ or any device path."
+					".\nSkill instructions are delivered out-of-band."
 			}
 		}
 		proc.mu.Lock()
 		if proc.FinalSystemPrompt == "" {
 			proc.FinalSystemPrompt = sysPrompt
+		}
+		proc.mu.Unlock()
+
+		// R5: collect skills with their on-disk dirs for bundle-capable drivers.
+		var projectDir string
+		if proc.ProjectConfig != nil {
+			projectDir = proc.ProjectConfig.ProjectDir
+		}
+		proc.mu.Lock()
+		skillList := make([]llm.Skill, 0, len(proc.Skills))
+		for _, name := range proc.Skills {
+			body := proc.SkillBodies[name]
+			if body == "" {
+				continue
+			}
+			skillList = append(skillList, llm.Skill{
+				Name: name,
+				Body: body,
+				Dir:  proc.SkillDirs[name],
+			})
 		}
 		proc.mu.Unlock()
 
@@ -377,6 +398,8 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			MaxTurns:     0,
 			TimeoutMs:    opts.TimeoutMs,
 			Messages:     promptResult.Messages,
+			Skills:       skillList,
+			ProjectDir:   projectDir,
 		}
 		req.Tools = proc.nativeToolDefs
 		reqJSON, err := json.Marshal(req)

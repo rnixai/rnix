@@ -629,6 +629,12 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			}
 			proc.SkillBodies[skillName] = body
 		}
+		if skillInfo.Dir != "" {
+			if proc.SkillDirs == nil {
+				proc.SkillDirs = make(map[string]string)
+			}
+			proc.SkillDirs[skillName] = skillInfo.Dir
+		}
 		totalSkills := len(proc.Skills)
 		allSkills := make([]string, totalSkills)
 		copy(allSkills, proc.Skills)
