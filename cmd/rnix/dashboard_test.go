@@ -1817,6 +1817,11 @@ func newTestStepInspectorModel() dashboardModel {
 	m.inspectorUUID = "uuid-mock-002"
 	m.inspectorLens = lensConversation
 	m.activePane = paneTree
+	// Provide default step list for navigation tests
+	m.inspectorSteps = []ipc.StepSummaryWire{
+		{Step: 0}, {Step: 1}, {Step: 2}, {Step: 3}, {Step: 4}, {Step: 5},
+	}
+	m.inspectorStepMax = 5
 	return m
 }
 
@@ -1934,7 +1939,9 @@ func TestStepInspector_LKeyNextStep(t *testing.T) {
 
 func TestStepInspector_LKeyNextStepBlockedBeforeLoad(t *testing.T) {
 	m := newTestStepInspectorModel()
-	// inspectorStepMax == 0 (step list not loaded)
+	// Clear step list to simulate "not loaded yet"
+	m.inspectorSteps = nil
+	m.inspectorStepMax = 0
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 

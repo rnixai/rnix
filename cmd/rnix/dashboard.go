@@ -87,18 +87,21 @@ type dashboardModel struct {
 	stepExpandedIdx int
 
 	// Step Inspector fields (Story 36-1, replaces LLM Viewer + Prompt Pager)
-	inspectorPID        types.PID
-	inspectorUUID       string
-	inspectorStep       int
-	inspectorStepMax    int
-	inspectorSteps      []ipc.StepSummaryWire
-	inspectorDetail     *ipc.GetStepDetailResponse
-	inspectorPrevDetail *ipc.GetStepDetailResponse
-	inspectorLens       inspectorLens
-	inspectorViewports  [inspectorLensCount]viewport.Model
-	inspectorContents   [inspectorLensCount]string
-	inspectorPrevMode   viewMode
-	inspectorFetching   bool
+	inspectorPID            types.PID
+	inspectorUUID           string
+	inspectorStep           int
+	inspectorStepMax        int
+	inspectorSteps          []ipc.StepSummaryWire
+	inspectorDetail         *ipc.GetStepDetailResponse
+	inspectorPrevDetail     *ipc.GetStepDetailResponse
+	inspectorPrevStep       int
+	inspectorCurDetailStep  int
+	inspectorLens           inspectorLens
+	inspectorViewports      [inspectorLensCount]viewport.Model
+	inspectorContents       [inspectorLensCount]string
+	inspectorPrevMode       viewMode
+	inspectorFetching       bool
+	inspectorSystemExpanded bool
 
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
@@ -505,22 +508,28 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.detail != nil {
 			m.stepDetailCache[msg.step] = msg.detail
-			// Story 36-1: redirect to Step Inspector with System lens
-			m2, cmd := m.enterStepInspector()
-			m3 := m2.(dashboardModel)
-			m3.inspectorLens = lensSystem
-			return m3, cmd
+			// Story 36-1: redirect to Inspector (guard: skip if already in Inspector)
+			if m.viewMode != viewStepInspector {
+				m2, cmd := m.enterStepInspector()
+				m3 := m2.(dashboardModel)
+				m3.inspectorLens = lensSystem
+				return m3, cmd
+			}
 		}
 		return m, nil
 	case inspectorDetailMsg:
-		m.inspectorFetching = false
 		if msg.err != nil {
+			m.inspectorFetching = false
 			m.statusMsg = fmt.Sprintf("✗ Inspector: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
-		} else if msg.detail != nil && msg.pid == m.inspectorPID {
+		} else if msg.detail != nil && msg.pid == m.inspectorPID && msg.step == m.inspectorStep {
+			m.inspectorFetching = false
+			m.inspectorPrevStep = m.inspectorCurDetailStep
 			m.inspectorPrevDetail = m.inspectorDetail
 			m.inspectorDetail = msg.detail
+			m.inspectorCurDetailStep = msg.step
 			m.inspectorStep = msg.step
+			m.inspectorSystemExpanded = false
 			m.rebuildInspectorContents()
 		}
 		return m, nil
@@ -531,9 +540,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if len(msg.steps) > 0 && msg.pid == m.inspectorPID {
 			m.inspectorSteps = msg.steps
 			m.inspectorStepMax = msg.steps[len(msg.steps)-1].Step
-			if m.inspectorDetail == nil && m.viewMode == viewStepInspector {
+			if m.inspectorDetail == nil && m.viewMode == viewStepInspector && !m.inspectorFetching {
 				firstStep := msg.steps[0].Step
 				m.inspectorStep = firstStep
+				m.inspectorFetching = true
 				return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, firstStep)
 			}
 		} else if len(msg.steps) == 0 && msg.pid == m.inspectorPID && m.viewMode == viewStepInspector {

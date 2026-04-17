@@ -36,8 +36,11 @@ func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
 	m.inspectorSteps = nil
 	m.inspectorDetail = nil
 	m.inspectorPrevDetail = nil
+	m.inspectorPrevStep = 0
+	m.inspectorCurDetailStep = 0
 	m.inspectorLens = lensConversation
 	m.inspectorFetching = false
+	m.inspectorSystemExpanded = false
 
 	contentH := m.inspectorContentHeight()
 	for i := range m.inspectorViewports {
@@ -64,6 +67,7 @@ func fetchInspectorStepListCmd(pid types.PID, uuid string) tea.Cmd {
 			return inspectorStepListMsg{pid: pid, err: err}
 		}
 		defer client.Close()
+		_ = client.SetReadDeadline(time.Now().Add(3 * time.Second))
 
 		var resp *ipc.ListStepsResponse
 		if uuid != "" {
@@ -121,23 +125,28 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "5":
 		return m.switchInspectorLens(lensRawJSON), nil
 
-	// Step navigation
+	// Step navigation (index-based for sparse step support)
 	case "h", "left":
-		newStep := max(m.inspectorStep-1, 0)
-		if newStep == m.inspectorStep || m.inspectorFetching {
+		if m.inspectorFetching || len(m.inspectorSteps) == 0 {
 			return m, nil
 		}
+		idx := m.findStepIndex(m.inspectorStep)
+		if idx <= 0 {
+			return m, nil
+		}
+		newStep := m.inspectorSteps[idx-1].Step
 		m.inspectorStep = newStep
 		m.inspectorFetching = true
 		return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, newStep)
 	case "l", "right":
-		if m.inspectorStepMax == 0 || m.inspectorFetching {
+		if m.inspectorFetching || len(m.inspectorSteps) == 0 {
 			return m, nil
 		}
-		newStep := min(m.inspectorStep+1, m.inspectorStepMax)
-		if newStep == m.inspectorStep {
+		idx := m.findStepIndex(m.inspectorStep)
+		if idx < 0 || idx >= len(m.inspectorSteps)-1 {
 			return m, nil
 		}
+		newStep := m.inspectorSteps[idx+1].Step
 		m.inspectorStep = newStep
 		m.inspectorFetching = true
 		return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, newStep)
@@ -153,15 +162,16 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.inspectorFetching = true
 		return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, firstStep)
 	case "L", "end":
-		if m.inspectorStepMax == 0 || m.inspectorFetching {
+		if len(m.inspectorSteps) == 0 || m.inspectorFetching {
 			return m, nil
 		}
-		if m.inspectorStepMax == m.inspectorStep {
+		lastStep := m.inspectorSteps[len(m.inspectorSteps)-1].Step
+		if lastStep == m.inspectorStep {
 			return m, nil
 		}
-		m.inspectorStep = m.inspectorStepMax
+		m.inspectorStep = lastStep
 		m.inspectorFetching = true
-		return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, m.inspectorStepMax)
+		return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, lastStep)
 
 	// Copy
 	case "y":
@@ -174,6 +184,24 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Open full in $PAGER
 	case "o":
 		return m.openInspectorInPager()
+
+	// Enter: expand collapsed system lens
+	case "enter":
+		if m.inspectorLens == lensSystem && !m.inspectorSystemExpanded {
+			m.inspectorSystemExpanded = true
+			if m.inspectorDetail != nil {
+				content := m.buildLensContent(lensSystem, m.inspectorDetail, m.inspectorPrevDetail)
+				m.inspectorContents[lensSystem] = content
+				m.inspectorViewports[lensSystem].SetContent(content)
+				m.inspectorViewports[lensSystem].GotoTop()
+			}
+			return m, nil
+		}
+		// Fall through to viewport scroll
+		lens := m.inspectorLens
+		var cmd tea.Cmd
+		m.inspectorViewports[lens], cmd = m.inspectorViewports[lens].Update(msg)
+		return m, cmd
 
 	default:
 		// j/k/PgUp/PgDn → current lens viewport scroll
@@ -204,7 +232,7 @@ func (m dashboardModel) openInspectorInPager() (tea.Model, tea.Cmd) {
 	tmpFile := fmt.Sprintf("/tmp/rnix-step-%s-%d-%s.txt",
 		m.inspectorUUID, m.inspectorStep, lensNames[m.inspectorLens])
 
-	if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(tmpFile, []byte(content), 0o600); err != nil {
 		m.statusMsg = fmt.Sprintf("write error: %v", err)
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
@@ -215,8 +243,12 @@ func (m dashboardModel) openInspectorInPager() (tea.Model, tea.Cmd) {
 		pager = "less"
 	}
 
-	c := exec.Command(pager, tmpFile)
+	// Split PAGER to support flags (e.g. "less -R")
+	parts := strings.Fields(pager)
+	args := append(parts[1:], tmpFile)
+	c := exec.Command(parts[0], args...)
 	return m, tea.ExecProcess(c, func(err error) tea.Msg {
+		os.Remove(tmpFile) // clean up temp file after pager exits
 		return execResultMsg{err: err}
 	})
 }
@@ -241,6 +273,10 @@ func (m dashboardModel) renderStepInspector(w, h int) string {
 			content = "  (loading...)"
 		} else if len(m.inspectorSteps) == 0 {
 			content = "  No step data recorded for this process.\n  (Process may have failed before completing any reasoning step)"
+		}
+		// Set viewport content so it renders through viewport.View()
+		if content != "" && m.inspectorViewports[lens].Width() > 0 {
+			m.inspectorViewports[lens].SetContent(content)
 		}
 	}
 
@@ -485,9 +521,18 @@ func (m dashboardModel) buildConversationLensFull(detail *ipc.GetStepDetailRespo
 func (m dashboardModel) buildSystemLens(detail, prevDetail *ipc.GetStepDetailResponse) string {
 	var b strings.Builder
 
-	if prevDetail != nil && prevDetail.SystemPrompt == detail.SystemPrompt {
+	isUnchanged := prevDetail != nil && m.inspectorStep > 0 && prevDetail.SystemPrompt == detail.SystemPrompt
+
+	if isUnchanged && !m.inspectorSystemExpanded {
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-		b.WriteString(dimStyle.Render(fmt.Sprintf("unchanged from step %d [press Enter to expand]", m.inspectorStep-1)))
+		b.WriteString(dimStyle.Render(fmt.Sprintf("unchanged from step %d [press Enter to expand]", m.inspectorPrevStep)))
+		b.WriteString("\n")
+		return b.String()
+	}
+
+	if isUnchanged {
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+		b.WriteString(dimStyle.Render(fmt.Sprintf("(unchanged from step %d)", m.inspectorPrevStep)))
 		b.WriteString("\n\n")
 	}
 
@@ -545,7 +590,16 @@ func (m dashboardModel) buildToolIOLens(detail *ipc.GetStepDetailResponse) strin
 	if detail.ToolError != "" {
 		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
 		b.WriteString(dimStyle.Render("Error:") + "\n")
-		b.WriteString(errStyle.Render(detail.ToolError))
+		toolErr := detail.ToolError
+		totalLen := utf8.RuneCountInString(toolErr)
+		if totalLen > inspectorTruncateThreshold {
+			runes := []rune(toolErr)
+			toolErr = string(runes[:inspectorTruncateThreshold])
+			b.WriteString(errStyle.Render(toolErr))
+			b.WriteString(renderTruncationNotice(inspectorTruncateThreshold, totalLen))
+		} else {
+			b.WriteString(errStyle.Render(toolErr))
+		}
 		b.WriteString("\n\n")
 	}
 
@@ -642,6 +696,16 @@ func renderTruncationNotice(shown, total int) string {
 	}
 	return fmt.Sprintf("\n(truncated %s / total %s%so open full)",
 		formatCharCount(shown), formatCharCount(total), sep)
+}
+
+// findStepIndex finds the index of a step number in inspectorSteps, or -1 if not found.
+func (m dashboardModel) findStepIndex(step int) int {
+	for i, s := range m.inspectorSteps {
+		if s.Step == step {
+			return i
+		}
+	}
+	return -1
 }
 
 // buildToolCallNameMap maps tool call IDs to names.
