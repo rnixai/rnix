@@ -764,18 +764,19 @@ func TestExpandDedup_AC6_ExpandAllWithE(t *testing.T) {
 	}
 }
 
-// AC-7: E key collapses all steps
+// AC-7: C key collapses all steps (Story 36-4: E repurposed to ErrorsOnly;
+// collapse-all is now on C. Preserved the original intent by testing C.)
 func TestExpandDedup_AC7_CollapseAllWithShiftE(t *testing.T) {
 	m := newExpandDedupModel()
 	// Expand some
 	m.stepEntries[0].level = levelExpanded
 	m.stepEntries[1].level = levelDebug
 
-	m = m.handleTimelineKey("E")
+	m = m.handleTimelineKey("C")
 
 	for i, entry := range m.stepEntries {
 		if entry.level != levelSummary {
-			t.Errorf("AC-7: step %d should be at levelSummary after 'E' key, got level %d", i+1, entry.level)
+			t.Errorf("AC-7: step %d should be at levelSummary after 'C' key, got level %d", i+1, entry.level)
 		}
 	}
 }
@@ -912,7 +913,9 @@ func TestExpandDedup_AC1b_PathDedupShortSummary(t *testing.T) {
 	}
 }
 
-// E key — only collapses filtered steps (symmetric with e)
+// Story 36-4: C (collapse-all) applies to ALL step entries, not just filtered —
+// expand-mode changes are intentionally global so filter changes do not leak
+// stale expanded state. The original E-only-filtered test is superseded by this.
 func TestExpandDedup_E_CollapsesOnlyFiltered(t *testing.T) {
 	m := newExpandDedupModel()
 	// Expand all
@@ -925,17 +928,15 @@ func TestExpandDedup_E_CollapsesOnlyFiltered(t *testing.T) {
 		"complete": false, "spawn": false, "replan": false, "specialize": false,
 	}
 
-	m = m.handleTimelineKey("E")
+	m = m.handleTimelineKey("C")
 
-	// Only filtered steps (0, 1) should be collapsed
-	if m.stepEntries[0].level != levelSummary {
-		t.Errorf("filtered step 0 should be collapsed, got level %d", m.stepEntries[0].level)
+	// Story 36-4: all entries collapse (including step 2 outside the filter)
+	for i, e := range m.stepEntries {
+		if e.level != levelSummary {
+			t.Errorf("Story 36-4: step %d should collapse globally, got level %d", i+1, e.level)
+		}
 	}
-	if m.stepEntries[1].level != levelSummary {
-		t.Errorf("filtered step 1 should be collapsed, got level %d", m.stepEntries[1].level)
-	}
-	// Step 3 (not filtered) should remain expanded
-	if m.stepEntries[2].level != levelExpanded {
-		t.Errorf("unfiltered step 2 should remain expanded, got level %d", m.stepEntries[2].level)
+	if m.expandMode != expandModeCollapsed {
+		t.Errorf("expected expandMode=Collapsed after C, got %d", m.expandMode)
 	}
 }

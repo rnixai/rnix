@@ -186,6 +186,28 @@ func defaultStepFilters() map[string]bool {
 	}
 }
 
+// maybeShowTimelineMigrationNotice shows a one-time status bar notice when the
+// user enters升序 Timeline for the first time. Persists the shown flag to
+// ~/.config/rnix/ui-state.json so the notice never repeats across sessions.
+// Story 36-4 AC-3.
+func (m dashboardModel) maybeShowTimelineMigrationNotice() dashboardModel {
+	if m.timelineMigrationChecked {
+		return m
+	}
+	m.timelineMigrationChecked = true
+	if m.uiState == nil {
+		m.uiState = &ui.UIState{}
+	}
+	if m.uiState.TimelineSortMigrationShown || !m.timelineSortAsc {
+		return m
+	}
+	m.statusMsg = "Timeline 已改为升序（最新在底）。按 o 切换。"
+	m.statusMsgTTL = 5
+	m.uiState.TimelineSortMigrationShown = true
+	_ = ui.SaveUIState(m.uiState) // 写入失败不阻塞 UI
+	return m
+}
+
 // handleTimelinePIDChange resets timeline state when selected process changes.
 // Uses UUID for reliable identification (PIDs can be reused).
 func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
@@ -204,6 +226,8 @@ func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 	m.stepFilterMode = false
 	m.stepExpandedIdx = -1
 	m.expandedAggGroups = make(map[int]bool)
+	// Story 36-4: expandMode 按进程作用域，切 PID 重置为 collapsed（sortAsc 不重置）
+	m.expandMode = expandModeCollapsed
 	return m
 }
 
@@ -240,31 +264,55 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "e":
-		// Expand all visible step events that have expandable content
+		// Story 36-4: Sticky expand mode — 切换到 Expanded，幂等。
+		m.expandMode = expandModeExpanded
 		expanded := 0
-		for _, ev := range filtered {
-			if ev.StepEntry != nil {
-				entry := ev.StepEntry
-				if entry.level < levelExpanded {
-					detail := m.stepDetailCache[entry.summary.Step]
-					if detail == nil || hasExpandableContent(detail, entry.summary) {
-						entry.level = levelExpanded
-						expanded++
-					}
+		for i := range m.stepEntries {
+			entry := &m.stepEntries[i]
+			if entry.level < levelExpanded {
+				detail := m.stepDetailCache[entry.summary.Step]
+				if detail == nil || hasExpandableContent(detail, entry.summary) {
+					entry.level = levelExpanded
+					expanded++
 				}
 			}
 		}
-		if expanded == 0 {
-			m.statusMsg = "No expandable steps"
-			m.statusMsgTTL = statusMsgDefaultTTL
+		m.statusMsg = "Expand mode: all"
+		m.statusMsgTTL = statusMsgDefaultTTL
+		if expanded == 0 && len(m.stepEntries) == 0 {
+			m.statusMsg = "Expand mode: all (no steps yet)"
 		}
 	case "E":
-		// Collapse all visible step events to Level 1
-		for _, ev := range filtered {
-			if ev.StepEntry != nil {
-				ev.StepEntry.level = levelSummary
+		// Story 36-4: ErrorsOnly mode — 仅展开 HasError=true 的 step。
+		m.expandMode = expandModeErrorsOnly
+		for i := range m.stepEntries {
+			entry := &m.stepEntries[i]
+			if entry.summary.HasError {
+				entry.level = levelExpanded
+			} else {
+				entry.level = levelSummary
 			}
 		}
+		m.statusMsg = "Expand mode: errors only"
+		m.statusMsgTTL = statusMsgDefaultTTL
+	case "C":
+		// Story 36-4: Collapsed mode — 全部折叠到 summary。
+		// 仅非 filter 模式生效（filter 模式下的 C 由 handleStepFilterKey 处理）。
+		m.expandMode = expandModeCollapsed
+		for i := range m.stepEntries {
+			m.stepEntries[i].level = levelSummary
+		}
+		m.statusMsg = "Expand mode: collapsed"
+		m.statusMsgTTL = statusMsgDefaultTTL
+	case "o":
+		// Story 36-4: 切换 Timeline 排序方向（升 ↔ 降）
+		m.timelineSortAsc = !m.timelineSortAsc
+		if m.timelineSortAsc {
+			m.statusMsg = "Timeline 已切换到升序（旧→新）"
+		} else {
+			m.statusMsg = "Timeline 已切换到降序（新→旧）"
+		}
+		m.statusMsgTTL = statusMsgDefaultTTL
 	case "n":
 		// Jump to next error: step event with HasError or system event with Severity >= SevError
 		found := false
@@ -1182,6 +1230,41 @@ func (m dashboardModel) renderUnifiedStepHeader(maxW, totalSteps, filteredCount,
 		fmt.Fprintf(&b, " + %d events", sysCount)
 	}
 
+	// Story 36-4: 排序方向 & expandMode 指示（dim 颜色，放在 steps 数量之后）
+	{
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+		ascii := ui.IsASCIIMode()
+		var dirText string
+		if m.timelineSortAsc {
+			if ascii {
+				dirText = "^ old->new"
+			} else {
+				dirText = "↑ 旧→新"
+			}
+		} else {
+			if ascii {
+				dirText = "v new->old"
+			} else {
+				dirText = "↓ 新→旧"
+			}
+		}
+		fmt.Fprintf(&b, " %s", dimStyle.Render("│ "+dirText))
+		switch m.expandMode {
+		case expandModeExpanded:
+			sep := "·"
+			if ascii {
+				sep = "-"
+			}
+			fmt.Fprintf(&b, " %s", dimStyle.Render(sep+" all"))
+		case expandModeErrorsOnly:
+			sep := "·"
+			if ascii {
+				sep = "-"
+			}
+			fmt.Fprintf(&b, " %s", dimStyle.Render(sep+" errors"))
+		}
+	}
+
 	// Total tokens from step summaries
 	totalTok := 0
 	for _, e := range m.stepEntries {
@@ -1705,11 +1788,23 @@ func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardMode
 			continue
 		}
 		known[s.Step] = struct{}{}
+		// Story 36-4: 按 expandMode 决定新 step 的初始 level。
 		level := levelSummary
 		autoExpand := false
-		if s.HasError {
+		switch m.expandMode {
+		case expandModeExpanded:
 			level = levelExpanded
 			autoExpand = true
+		case expandModeErrorsOnly:
+			if s.HasError {
+				level = levelExpanded
+				autoExpand = true
+			}
+		default: // expandModeCollapsed — safety net：错误始终展开
+			if s.HasError {
+				level = levelExpanded
+				autoExpand = true
+			}
 		}
 		m.stepEntries = append(m.stepEntries, stepEntry{
 			summary:    s,
