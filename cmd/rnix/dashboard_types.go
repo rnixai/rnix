@@ -84,7 +84,7 @@ type viewMode int
 const (
 	viewDefault  viewMode = iota // 默认：Tree + Timeline + 底部面板
 	viewExpanded                 // 数字键展开某面板
-	viewLLM                      // L：全屏 LLM 对话查看器（Story 29.6 实现）
+	viewStepInspector            // L：全屏 Step Inspector（Story 36.1, replaces LLM Viewer + Prompt Pager）
 	viewHistory // kept for iota stability; no longer used for the H key
 	viewDebug                    // d：Debug 模式（Story 34.6 实现）
 )
@@ -217,16 +217,28 @@ type promptPagerMsg struct {
 	err    error
 }
 
-// --- LLM Viewer types (Story 29-6) ---
+// --- Step Inspector types (Story 36-1, replaces LLM Viewer + Prompt Pager) ---
 
-type llmViewerMsg struct {
+type inspectorLens int
+
+const (
+	lensConversation inspectorLens = iota // ❶ Message flow
+	lensSystem                            // ❷ System prompt
+	lensToolIO                            // ❸ Tool call details
+	lensMeta                              // ❹ Metadata
+	lensRawJSON                           // ❺ Raw JSON
+)
+
+const inspectorLensCount = 5
+
+type inspectorDetailMsg struct {
 	pid    types.PID
 	step   int
 	detail *ipc.GetStepDetailResponse
 	err    error
 }
 
-type llmStepListMsg struct {
+type inspectorStepListMsg struct {
 	pid   types.PID
 	steps []ipc.StepSummaryWire
 	total int
@@ -234,15 +246,6 @@ type llmStepListMsg struct {
 }
 
 // --- Timeline types ---
-
-// promptPagerTab represents the active tab in the Prompt Viewer.
-type promptPagerTab int
-
-const (
-	promptTabMessages promptPagerTab = iota
-	promptTabSystem
-	promptTabTools
-)
 
 // --- Heatmap types (Story 17-3) ---
 
@@ -311,4 +314,5 @@ var (
 	promptRoleTool      = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD93D"))
 )
 
-const promptContentTruncateLimit = 2000
+// Inspector truncation threshold: show first 10k chars, then truncation notice
+const inspectorTruncateThreshold = 10000

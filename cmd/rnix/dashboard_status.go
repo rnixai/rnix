@@ -63,8 +63,8 @@ func (m dashboardModel) renderDashboardStatus() string {
 	switch m.viewMode {
 	case viewExpanded:
 		core, exit = m.paneHints()
-	case viewLLM:
-		core = []string{hint("j/k", "scroll"), hint("h/l", "step"), hint("y", "copy"), hint("?", "help")}
+	case viewStepInspector:
+		core = []string{hint("j/k", "scroll"), hint("h/l", "step"), hint("1-5", "lens"), hint("y", "copy"), hint("o", "open"), hint("?", "help")}
 		exit = hint("Esc", "close")
 	case viewDebug:
 		core = []string{hint("j/k", "nav"), hint("s", "strace"), hint("v", "detail"), hint("f", "filter"), hint("?", "help")}

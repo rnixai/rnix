@@ -317,7 +317,7 @@ func TestHistoryView_HistoryKeyHandlesEnterFocus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 29.5-UNIT-015: L 键由全局层 enterLLMViewer 处理
+// 29.5-UNIT-015: L 键由全局层 enterStepInspector 处理
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_HistoryKeyHandlesLKey(t *testing.T) {
@@ -325,8 +325,8 @@ func TestHistoryView_HistoryKeyHandlesLKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read dashboard_nav.go: %v", err)
 	}
-	if !strings.Contains(string(data), "enterLLMViewer") {
-		t.Error("dashboard_nav.go should call enterLLMViewer for L key (global handler)")
+	if !strings.Contains(string(data), "enterStepInspector") {
+		t.Error("dashboard_nav.go should call enterStepInspector for L key (global handler)")
 	}
 }
 

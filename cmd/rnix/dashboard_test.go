@@ -1802,25 +1802,27 @@ func TestDashboardModel_HeatmapRefreshTick(t *testing.T) {
 }
 
 // ============================================================
-// ATDD RED PHASE — Story 29.6: LLM 对话查看器
-// All tests assert EXPECTED behavior. They FAIL because the
-// LLM viewer overlay (viewLLM) is not implemented yet.
+// Story 36.1: Step Inspector (replaces LLM Viewer from 29.6)
+// Tests adapted to use the unified Step Inspector API.
 // ============================================================
 
-// --- LLM viewer test helpers ---
+// --- Step Inspector test helpers ---
 
-func newTestLLMViewerModel() dashboardModel {
+func newTestStepInspectorModel() dashboardModel {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
-	m.viewMode = viewLLM
+	m.viewMode = viewStepInspector
+	m.inspectorPID = 2
+	m.inspectorUUID = "uuid-mock-002"
+	m.inspectorLens = lensConversation
 	m.activePane = paneTree
 	return m
 }
 
-// --- 29.6-UNIT-001: [P0] L 键选中进程后进入 viewLLM (AC1) ---
+// --- 36.1-UNIT-001: [P0] L 键选中进程后进入 viewStepInspector (AC1) ---
 
-func TestLLMViewer_LKeyEntersViewer(t *testing.T) {
+func TestStepInspector_LKeyEntersViewer(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.treeCursor = 1
 	m.selectedPID = 2
@@ -1829,14 +1831,14 @@ func TestLLMViewer_LKeyEntersViewer(t *testing.T) {
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'L', ShiftedCode: 'L', Mod: tea.ModShift})
 	um := updated.(dashboardModel)
 
-	if um.viewMode != viewLLM {
-		t.Errorf("L key should enter viewLLM mode, got viewMode=%d", um.viewMode)
+	if um.viewMode != viewStepInspector {
+		t.Errorf("L key should enter viewStepInspector mode, got viewMode=%d", um.viewMode)
 	}
 }
 
-// --- 29.6-UNIT-002: [P0] L 键返回非 nil cmd 获取步骤数据 (AC1) ---
+// --- 36.1-UNIT-002: [P0] L 键返回非 nil cmd 获取步骤数据 (AC1) ---
 
-func TestLLMViewer_LKeyReturnsCmd(t *testing.T) {
+func TestStepInspector_LKeyReturnsCmd(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.treeCursor = 1
 	m.selectedPID = 2
@@ -1845,13 +1847,13 @@ func TestLLMViewer_LKeyReturnsCmd(t *testing.T) {
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'L', ShiftedCode: 'L', Mod: tea.ModShift})
 
 	if cmd == nil {
-		t.Error("L key should return non-nil cmd (fetch step detail and step list)")
+		t.Error("L key should return non-nil cmd (fetch step list)")
 	}
 }
 
-// --- 29.6-UNIT-003: [P0] 未选中进程按 L 显示 "No process selected" (AC2) ---
+// --- 36.1-UNIT-003: [P0] 未选中进程按 L 显示 "No process selected" (AC2) ---
 
-func TestLLMViewer_LKeyNoProcessSelected(t *testing.T) {
+func TestStepInspector_LKeyNoProcessSelected(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 0
 
@@ -1861,60 +1863,54 @@ func TestLLMViewer_LKeyNoProcessSelected(t *testing.T) {
 	if !strings.Contains(um.statusMsg, "No process selected") {
 		t.Errorf("L with no selectedPID should show 'No process selected', got %q", um.statusMsg)
 	}
-	if um.viewMode == viewLLM {
-		t.Error("should not enter viewLLM when no process selected")
+	if um.viewMode == viewStepInspector {
+		t.Error("should not enter viewStepInspector when no process selected")
 	}
 }
 
-// --- 29.6-UNIT-004: [P0] viewLLM View 包含 "REQUEST" 区块 (AC3) ---
+// --- 36.1-UNIT-004: [P0] viewStepInspector View 包含 Step Inspector 标题 (AC3) ---
 
-func TestLLMViewer_ViewContainsRequest(t *testing.T) {
-	m := newTestLLMViewerModel()
+func TestStepInspector_ViewContainsTitle(t *testing.T) {
+	m := newTestStepInspectorModel()
 	v := m.View()
 
-	if !strings.Contains(v.Content, "REQUEST") {
-		t.Error("viewLLM should contain 'REQUEST' section header")
+	if !strings.Contains(v.Content, "Step Inspector") {
+		t.Error("viewStepInspector should contain 'Step Inspector' title")
 	}
 }
 
-// --- 29.6-UNIT-005: [P0] viewLLM View 包含 "RESPONSE" 区块 (AC3) ---
+// --- 36.1-UNIT-005: [P0] viewStepInspector View 包含 Lens tabs (AC3) ---
 
-func TestLLMViewer_ViewContainsResponse(t *testing.T) {
-	m := newTestLLMViewerModel()
+func TestStepInspector_ViewContainsLensTabs(t *testing.T) {
+	m := newTestStepInspectorModel()
 	v := m.View()
 
-	if !strings.Contains(v.Content, "RESPONSE") {
-		t.Error("viewLLM should contain 'RESPONSE' section header")
+	// Should contain at least one lens label
+	hasLens := strings.Contains(v.Content, "Conv") ||
+		strings.Contains(v.Content, "Conversation") ||
+		strings.Contains(v.Content, "Sys") ||
+		strings.Contains(v.Content, "System")
+	if !hasLens {
+		t.Error("viewStepInspector should contain lens tab labels")
 	}
 }
 
-// --- 29.6-UNIT-006: [P0] viewLLM View 包含步骤导航栏 (AC4) ---
+// --- 36.1-UNIT-006: [P0] viewStepInspector h 键返回非 nil cmd（获取上一步）(AC5) ---
 
-func TestLLMViewer_ViewContainsStepNav(t *testing.T) {
-	m := newTestLLMViewerModel()
-	v := m.View()
-
-	if !strings.Contains(v.Content, "Steps:") {
-		t.Error("viewLLM should contain 'Steps:' navigation bar")
-	}
-}
-
-// --- 29.6-UNIT-007: [P0] viewLLM h 键返回非 nil cmd（获取上一步）(AC5) ---
-
-func TestLLMViewer_HKeyPrevStep(t *testing.T) {
-	m := newTestLLMViewerModel()
-	m.llmViewerStep = 2 // not at boundary — h should fetch step 1
+func TestStepInspector_HKeyPrevStep(t *testing.T) {
+	m := newTestStepInspectorModel()
+	m.inspectorStep = 2
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'h'})
 
 	if cmd == nil {
-		t.Error("h key in viewLLM should return non-nil cmd (fetch previous step)")
+		t.Error("h key in viewStepInspector should return non-nil cmd (fetch previous step)")
 	}
 }
 
-func TestLLMViewer_HKeyBoundaryNoFetch(t *testing.T) {
-	m := newTestLLMViewerModel()
-	m.llmViewerStep = 0 // already at boundary
+func TestStepInspector_HKeyBoundaryNoFetch(t *testing.T) {
+	m := newTestStepInspectorModel()
+	m.inspectorStep = 0
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'h'})
 
@@ -1923,34 +1919,34 @@ func TestLLMViewer_HKeyBoundaryNoFetch(t *testing.T) {
 	}
 }
 
-// --- 29.6-UNIT-008: [P0] viewLLM l 键返回非 nil cmd（获取下一步）(AC5) ---
+// --- 36.1-UNIT-007: [P0] viewStepInspector l 键返回非 nil cmd（获取下一步）(AC5) ---
 
-func TestLLMViewer_LKeyNextStep(t *testing.T) {
-	m := newTestLLMViewerModel()
-	m.llmViewerStepMax = 5 // step list loaded
+func TestStepInspector_LKeyNextStep(t *testing.T) {
+	m := newTestStepInspectorModel()
+	m.inspectorStepMax = 5
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 
 	if cmd == nil {
-		t.Error("l key in viewLLM should return non-nil cmd (fetch next step)")
+		t.Error("l key in viewStepInspector should return non-nil cmd (fetch next step)")
 	}
 }
 
-func TestLLMViewer_LKeyNextStepBlockedBeforeLoad(t *testing.T) {
-	m := newTestLLMViewerModel()
-	// llmViewerStepMax == 0 (step list not loaded)
+func TestStepInspector_LKeyNextStepBlockedBeforeLoad(t *testing.T) {
+	m := newTestStepInspectorModel()
+	// inspectorStepMax == 0 (step list not loaded)
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 
 	if cmd != nil {
-		t.Error("l key in viewLLM should return nil cmd when step list not loaded")
+		t.Error("l key in viewStepInspector should return nil cmd when step list not loaded")
 	}
 }
 
-func TestLLMViewer_LKeyBoundaryNoFetch(t *testing.T) {
-	m := newTestLLMViewerModel()
-	m.llmViewerStepMax = 5
-	m.llmViewerStep = 5 // already at max boundary
+func TestStepInspector_LKeyBoundaryNoFetch(t *testing.T) {
+	m := newTestStepInspectorModel()
+	m.inspectorStepMax = 5
+	m.inspectorStep = 5
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 
@@ -1959,11 +1955,11 @@ func TestLLMViewer_LKeyBoundaryNoFetch(t *testing.T) {
 	}
 }
 
-func TestLLMViewer_FetchingGuardBlocksConcurrent(t *testing.T) {
-	m := newTestLLMViewerModel()
-	m.llmViewerStep = 2
-	m.llmViewerStepMax = 5
-	m.llmViewerFetching = true // fetch already in progress
+func TestStepInspector_FetchingGuardBlocksConcurrent(t *testing.T) {
+	m := newTestStepInspectorModel()
+	m.inspectorStep = 2
+	m.inspectorStepMax = 5
+	m.inspectorFetching = true
 
 	_, cmdH := m.Update(tea.KeyPressMsg{Code: 'h'})
 	_, cmdL := m.Update(tea.KeyPressMsg{Code: 'l'})
@@ -1976,62 +1972,62 @@ func TestLLMViewer_FetchingGuardBlocksConcurrent(t *testing.T) {
 	}
 }
 
-// --- 29.6-UNIT-009: [P0] viewLLM j 键滚动 viewport 而非移动 treeCursor (AC6) ---
+// --- 36.1-UNIT-008: [P0] viewStepInspector j 键滚动 viewport 而非移动 treeCursor (AC6) ---
 
-func TestLLMViewer_JKeyScrollsNotTree(t *testing.T) {
-	m := newTestLLMViewerModel()
+func TestStepInspector_JKeyScrollsNotTree(t *testing.T) {
+	m := newTestStepInspectorModel()
 	m.treeCursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	um := updated.(dashboardModel)
 
 	if um.treeCursor != 0 {
-		t.Errorf("j in viewLLM should scroll viewport, not move treeCursor: expected 0, got %d", um.treeCursor)
+		t.Errorf("j in viewStepInspector should scroll viewport, not move treeCursor: expected 0, got %d", um.treeCursor)
 	}
 }
 
-// --- 29.6-UNIT-010: [P1] viewLLM y 键返回非 nil cmd（剪贴板复制）(AC7) ---
+// --- 36.1-UNIT-009: [P1] viewStepInspector y 键返回非 nil cmd（剪贴板复制）(AC7) ---
 
-func TestLLMViewer_YKeyCopy(t *testing.T) {
-	m := newTestLLMViewerModel()
+func TestStepInspector_YKeyCopy(t *testing.T) {
+	m := newTestStepInspectorModel()
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'y'})
 
 	if cmd == nil {
-		t.Error("y key in viewLLM should return non-nil cmd (clipboard copy)")
+		t.Error("y key in viewStepInspector should return non-nil cmd (clipboard copy)")
 	}
 }
 
-// --- 29.6-UNIT-011: [P0] viewLLM Esc 恢复 viewDefault (AC8) ---
+// --- 36.1-UNIT-010: [P0] viewStepInspector Esc 恢复 viewDefault (AC8) ---
 
-func TestLLMViewer_EscExitsViewer(t *testing.T) {
-	m := newTestLLMViewerModel()
+func TestStepInspector_EscExitsViewer(t *testing.T) {
+	m := newTestStepInspectorModel()
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	um := updated.(dashboardModel)
 
 	if um.viewMode != viewDefault {
-		t.Errorf("Esc in viewLLM should return to viewDefault, got viewMode=%d", um.viewMode)
+		t.Errorf("Esc in viewStepInspector should return to viewDefault, got viewMode=%d", um.viewMode)
 	}
 }
 
-// --- 29.6-UNIT-012: [P1] viewLLM Status bar 包含快捷键提示 (AC9) ---
+// --- 36.1-UNIT-011: [P1] viewStepInspector Status bar 包含快捷键提示 (AC9) ---
 
-func TestLLMViewer_ViewContainsKeyHints(t *testing.T) {
-	m := newTestLLMViewerModel()
+func TestStepInspector_ViewContainsKeyHints(t *testing.T) {
+	m := newTestStepInspectorModel()
 	v := m.View()
 	content := v.Content
 
 	for _, hint := range []string{"scroll", "copy", "Esc"} {
 		if !strings.Contains(content, hint) {
-			t.Errorf("viewLLM status bar should contain '%s' hint", hint)
+			t.Errorf("viewStepInspector status bar should contain '%s' hint", hint)
 		}
 	}
 }
 
-// --- 29.6-UNIT-013: [P0] 展开 Tree 视图 L 键进入 viewLLM (AC10) ---
+// --- 36.1-UNIT-012: [P0] 展开 Tree 视图 L 键进入 viewStepInspector (AC10) ---
 
-func TestLLMViewer_ExpandedTreeLKey(t *testing.T) {
+func TestStepInspector_ExpandedTreeLKey(t *testing.T) {
 	procs := mockDashboardProcs()
 	m := newTestDashboardModel(procs)
 	m.viewMode = viewExpanded
@@ -2043,69 +2039,89 @@ func TestLLMViewer_ExpandedTreeLKey(t *testing.T) {
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'L', ShiftedCode: 'L', Mod: tea.ModShift})
 	um := updated.(dashboardModel)
 
-	if um.viewMode != viewLLM {
-		t.Errorf("L in expanded tree view should enter viewLLM, got viewMode=%d", um.viewMode)
+	if um.viewMode != viewStepInspector {
+		t.Errorf("L in expanded tree view should enter viewStepInspector, got viewMode=%d", um.viewMode)
 	}
-	if um.llmViewerPrevMode != viewExpanded {
-		t.Errorf("LLM viewer should save prev mode as viewExpanded, got %d", um.llmViewerPrevMode)
+	if um.inspectorPrevMode != viewExpanded {
+		t.Errorf("Inspector should save prev mode as viewExpanded, got %d", um.inspectorPrevMode)
 	}
 }
 
-// --- 29.6-UNIT-014: [P0] viewLLM 渲染全屏覆盖层内容（非默认面板）(AC1, AC3) ---
+// --- 36.1-UNIT-013: [P0] viewStepInspector 渲染全屏覆盖层内容（非默认面板）(AC1, AC3) ---
 
-func TestLLMViewer_ViewFullScreenOverlay(t *testing.T) {
-	m := newTestLLMViewerModel()
+func TestStepInspector_ViewFullScreenOverlay(t *testing.T) {
+	m := newTestStepInspectorModel()
 	v := m.View()
 	content := v.Content
 
-	// viewLLM should render LLM-specific content, not default pane layout
-	hasLLMContent := strings.Contains(content, "LLM") ||
-		strings.Contains(content, "REQUEST") ||
-		strings.Contains(content, "RESPONSE") ||
-		strings.Contains(content, "Viewer")
-	if !hasLLMContent {
-		t.Error("viewLLM should render LLM viewer content (LLM/REQUEST/RESPONSE/Viewer)")
+	hasInspectorContent := strings.Contains(content, "Step Inspector") ||
+		strings.Contains(content, "lens") ||
+		strings.Contains(content, "step")
+	if !hasInspectorContent {
+		t.Error("viewStepInspector should render inspector-specific content")
 	}
 }
 
-// --- 29.6-UNIT-015: [P0] viewLLM k 键滚动 viewport 而非移动 treeCursor (AC6) ---
+// --- 36.1-UNIT-014: [P0] viewStepInspector k 键滚动 viewport 而非移动 treeCursor (AC6) ---
 
-func TestLLMViewer_KKeyScrollsNotTree(t *testing.T) {
-	m := newTestLLMViewerModel()
+func TestStepInspector_KKeyScrollsNotTree(t *testing.T) {
+	m := newTestStepInspectorModel()
 	m.treeCursor = 2
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
 
 	if um.treeCursor != 2 {
-		t.Errorf("k in viewLLM should scroll viewport, not move treeCursor: expected 2, got %d", um.treeCursor)
+		t.Errorf("k in viewStepInspector should scroll viewport, not move treeCursor: expected 2, got %d", um.treeCursor)
 	}
 }
 
-// --- 29.6-UNIT-CR-001: Esc 从展开视图进入 LLM 后回退到展开视图 ---
+// --- 36.1-UNIT-015: Esc 从展开视图进入 Inspector 后回退到展开视图 ---
 
-func TestLLMViewer_EscReturnsToExpandedView(t *testing.T) {
-	m := newTestLLMViewerModel()
-	m.llmViewerPrevMode = viewExpanded
+func TestStepInspector_EscReturnsToExpandedView(t *testing.T) {
+	m := newTestStepInspectorModel()
+	m.inspectorPrevMode = viewExpanded
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	um := updated.(dashboardModel)
 
 	if um.viewMode != viewExpanded {
-		t.Errorf("Esc in viewLLM should return to previous viewExpanded, got viewMode=%d", um.viewMode)
+		t.Errorf("Esc in viewStepInspector should return to previous viewExpanded, got viewMode=%d", um.viewMode)
 	}
 }
 
-// --- 29.6-UNIT-016: [P1] viewLLM Status bar 包含 token 统计 (AC9) ---
+// --- 36.1-UNIT-016: [P1] viewStepInspector 底部包含 scroll 和 copy 提示 (AC9) ---
 
-func TestLLMViewer_ViewContainsTokenStats(t *testing.T) {
-	m := newTestLLMViewerModel()
+func TestStepInspector_ViewContainsFooterHints(t *testing.T) {
+	m := newTestStepInspectorModel()
 	v := m.View()
 	content := v.Content
 
-	// Status bar now shows simplified hints; token stats are in ? help or title
 	if !strings.Contains(content, "scroll") || !strings.Contains(content, "copy") {
-		t.Error("viewLLM status bar should contain scroll and copy hints")
+		t.Error("viewStepInspector footer should contain scroll and copy hints")
+	}
+}
+
+// --- 36.1-UNIT-017: [P0] 数字键 1-5 切换 Lens ---
+
+func TestStepInspector_LensSwitching(t *testing.T) {
+	tests := []struct {
+		key      rune
+		expected inspectorLens
+	}{
+		{'1', lensConversation},
+		{'2', lensSystem},
+		{'3', lensToolIO},
+		{'4', lensMeta},
+		{'5', lensRawJSON},
+	}
+	for _, tt := range tests {
+		m := newTestStepInspectorModel()
+		updated, _ := m.Update(tea.KeyPressMsg{Code: tt.key})
+		um := updated.(dashboardModel)
+		if um.inspectorLens != tt.expected {
+			t.Errorf("key '%c' should switch to lens %d, got %d", tt.key, tt.expected, um.inspectorLens)
+		}
 	}
 }
 

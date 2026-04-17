@@ -167,7 +167,7 @@ func TestDashboardFileSplitting_FunctionDistribution(t *testing.T) {
 		},
 		"dashboard_timeline.go": {
 			"renderTimelinePane", "renderStepTimeline",
-			"fetchStepsCmd", "fetchStepDetailCmd", "renderPromptPager",
+			"fetchStepsCmd", "fetchStepDetailCmd",
 		},
 		"dashboard_heatmap.go": {
 			"buildHeatmapSegments", "renderHeatmapPane", "fetchHeatmapCmd",

@@ -51,7 +51,7 @@ func TestViewModeSystem_TypeAndConstantsExist(t *testing.T) {
 	expectedConstants := []string{
 		"viewDefault",
 		"viewExpanded",
-		"viewLLM",
+		"viewStepInspector",
 		"viewHistory",
 	}
 	for _, c := range expectedConstants {

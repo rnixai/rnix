@@ -3,9 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
-	"charm.land/bubbles/v2/viewport"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
@@ -114,7 +112,6 @@ func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
 	m.lastFetchedStep = 0
 	m.fetchingDetail = false
-	m.promptPager = false
 	m.stepFilterMode = false
 	m.stepExpandedIdx = -1
 	m.expandedAggGroups = make(map[int]bool)
@@ -1571,96 +1568,7 @@ func fetchStepDetailCmd(pid types.PID, step int) tea.Cmd {
 	}
 }
 
-// --- Prompt Pager (Story 27-4, enhanced with Tab) ---
-
-func formatPromptContent(detail *ipc.GetStepDetailResponse, _ int, tab promptPagerTab) string {
-	switch tab {
-	case promptTabSystem:
-		return formatPromptSystemTab(detail)
-	case promptTabTools:
-		return formatPromptToolsTab(detail)
-	default:
-		return formatPromptMessagesTab(detail)
-	}
-}
-
-func formatPromptMessagesTab(detail *ipc.GetStepDetailResponse) string {
-	if len(detail.Messages) == 0 {
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-		return dimStyle.Render("No message history available.\n\n" +
-			"CLI driver processes (Claude CLI / Cursor CLI) manage their\n" +
-			"conversation history internally. Rnix can only observe tool\n" +
-			"calls and their inputs/outputs, not the full prompt context.\n\n" +
-			"For native-driver processes, this tab shows the complete\n" +
-			"message history snapshot at this step.")
-	}
-
-	var b strings.Builder
-
-	toolCallNames := make(map[string]string)
-	for _, msg := range detail.Messages {
-		for _, tc := range msg.ToolCalls {
-			toolCallNames[tc.ID] = tc.Name
-		}
-	}
-
-	for i, msg := range detail.Messages {
-		if i > 0 {
-			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(strings.Repeat("─", 70)) + "\n")
-		}
-		roleTag := formatRoleTag(msg, toolCallNames)
-		fmt.Fprintf(&b, "%s\n", roleTag)
-		b.WriteString(msg.Content)
-		b.WriteString("\n\n")
-	}
-
-	return b.String()
-}
-
-func formatPromptSystemTab(detail *ipc.GetStepDetailResponse) string {
-	var b strings.Builder
-	sysLen := utf8.RuneCountInString(detail.SystemPrompt)
-	fmt.Fprintf(&b, "═══ System Prompt (%s chars) ═══\n\n", formatCharCount(sysLen))
-	b.WriteString(detail.SystemPrompt)
-	return b.String()
-}
-
-func formatPromptToolsTab(detail *ipc.GetStepDetailResponse) string {
-	var b strings.Builder
-	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6BCB77")).Bold(true)
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-
-	if detail.Action == "" {
-		return dimStyle.Render("No tool information for this step.")
-	}
-
-	b.WriteString(nameStyle.Render(detail.Action))
-	if detail.Summary != "" {
-		b.WriteString(" — " + detail.Summary + "\n")
-	} else {
-		b.WriteString("\n")
-	}
-	if detail.ToolPath != "" {
-		b.WriteString(dimStyle.Render("  Path: ") + detail.ToolPath + "\n")
-	}
-	if detail.ToolInput != "" {
-		b.WriteString(dimStyle.Render("  Input: ") + detail.ToolInput + "\n")
-	}
-	if detail.ToolResult != "" {
-		result := detail.ToolResult
-		if len(result) > 500 {
-			result = result[:500] + "..."
-		}
-		b.WriteString(dimStyle.Render("  Result: ") + result + "\n")
-	}
-	if detail.ToolError != "" {
-		b.WriteString(dimStyle.Render("  Error: ") + detail.ToolError + "\n")
-	}
-	if detail.ToolDurationMs > 0 {
-		b.WriteString(dimStyle.Render(fmt.Sprintf("  Duration: %.0fms", detail.ToolDurationMs)) + "\n")
-	}
-	return b.String()
-}
+// --- Helper functions (retained from Story 27-4, used by Step Inspector) ---
 
 func formatRoleTag(msg ipc.MessageWire, toolCallNames map[string]string) string {
 	switch msg.Role {
@@ -1688,54 +1596,4 @@ func formatCharCount(n int) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1000.0)
 	}
 	return fmt.Sprintf("%d", n)
-}
-
-func (m *dashboardModel) enterPromptPager(detail *ipc.GetStepDetailResponse, step int) {
-	content := formatPromptContent(detail, step, promptTabMessages)
-	vp := viewport.New(viewport.WithWidth(m.width), viewport.WithHeight(max(m.height-2, 1)))
-	vp.SetContent(content)
-	m.promptViewport = vp
-	m.promptContent = content
-	m.promptStep = step
-	m.promptPager = true
-	m.promptTab = promptTabMessages
-}
-
-func (m dashboardModel) renderPromptPager() string {
-	detail := m.stepDetailCache[m.promptStep]
-	msgCount := 0
-	tokenLabel := "0"
-	if detail != nil {
-		msgCount = detail.MessageCount
-		tokenLabel = formatTokenCount(detail.TokenCount)
-	}
-
-	tabNames := []string{"Messages", "System", "Tools"}
-	var tabs strings.Builder
-	for i, name := range tabNames {
-		if promptPagerTab(i) == m.promptTab {
-			tabs.WriteString(lipgloss.NewStyle().Bold(true).Render("[" + name + "]"))
-		} else {
-			tabs.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(" " + name + " "))
-		}
-		tabs.WriteString(" ")
-	}
-
-	title := fmt.Sprintf("  Prompt Viewer │ Step %d │ %d messages │ %s tok ─── %s",
-		m.promptStep, msgCount, tokenLabel, tabs.String())
-	help := "  j/k:scroll  PgUp/PgDn:page  Home/End:jump  Tab:switch  p/q:back"
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, m.promptViewport.View(), help)
-}
-
-func fetchStepDetailForPagerCmd(pid types.PID, step int) tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return promptPagerMsg{pid: pid, step: step, err: err}
-		}
-		defer client.Close()
-		detail, err := client.GetStepDetail(pid, step)
-		return promptPagerMsg{pid: pid, step: step, detail: detail, err: err}
-	}
 }

@@ -32,36 +32,8 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	// === Layer 1: Prompt Pager 覆盖层 ===
-	if m.promptPager {
-		if key == "q" || key == "esc" || key == "p" {
-			m.promptPager = false
-			return m, nil
-		}
-		if key == "tab" {
-			// Cycle tabs: Messages → System → Tools → Messages
-			m.promptTab = (m.promptTab + 1) % 3
-			detail := m.stepDetailCache[m.promptStep]
-			if detail != nil {
-				content := formatPromptContent(detail, m.promptStep, m.promptTab)
-				m.promptContent = content
-				m.promptViewport.SetContent(content)
-				m.promptViewport.GotoTop()
-			}
-			return m, nil
-		}
-		if key == "home" {
-			m.promptViewport.GotoTop()
-			return m, nil
-		}
-		if key == "end" {
-			m.promptViewport.GotoBottom()
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.promptViewport, cmd = m.promptViewport.Update(msg)
-		return m, cmd
-	}
+	// === Layer 1: Step Inspector 覆盖层 (Story 36-1, replaces Prompt Pager) ===
+	// (Inspector is handled at Layer 2.5 via viewMode check below)
 
 	// === Layer 1.5: Help 覆盖层 ===
 	if m.helpOverlay {
@@ -71,9 +43,9 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// === Layer 2.5: LLM Viewer 覆盖层 (Story 29-6) ===
-	if m.viewMode == viewLLM {
-		return m.llmViewerKey(msg)
+	// === Layer 2.5: Step Inspector 覆盖层 (Story 36-1) ===
+	if m.viewMode == viewStepInspector {
+		return m.inspectorKey(msg)
 	}
 
 	// === Layer 2.6: Debug 模式 (Story 34.6) ===
@@ -139,7 +111,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m2, cmd
 		}
 	case "L", "shift+L":
-		return m.enterLLMViewer()
+		return m.enterStepInspector()
 	case "R", "shift+R":
 		// Resume suspended process (Story 30.8 AC#4)
 		if m.selectedPID > 0 && m.selectedUUID != "" && m.connected {
@@ -409,32 +381,29 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				return m, nil
 			}
 			if key == "P" || key == "shift+P" || msg.ShiftedCode == 'P' {
-				entry := m.stepEntries[idx]
-				if cached := m.stepDetailCache[entry.summary.Step]; cached != nil {
-					m.enterPromptPager(cached, entry.summary.Step)
-					return m, nil
-				}
-				if !m.fetchingDetail && m.selectedPID > 0 {
-					m.fetchingDetail = true
-					return m, fetchStepDetailForPagerCmd(m.selectedPID, entry.summary.Step)
-				}
-				return m, nil
+				// Story 36-1: P key enters Inspector with System Lens
+				m2, cmd := m.enterStepInspector()
+				m3 := m2.(dashboardModel)
+				m3.inspectorLens = lensSystem
+				return m3, cmd
 			}
 		}
 
-		// P key fallback: process has 0 completed steps
+		// P key fallback: process has 0 completed steps → enter Inspector anyway
 		if (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.stepEntries) == 0 {
-			m.statusMsg = "No step data for this process"
-			m.statusMsgTTL = statusMsgDefaultTTL
-			return m, nil
+			m2, cmd := m.enterStepInspector()
+			m3 := m2.(dashboardModel)
+			m3.inspectorLens = lensSystem
+			return m3, cmd
 		}
 	}
 
-	// P key on timeline when no events at all (0 steps + 0 system events)
+	// P key on timeline when no events at all
 	if m.activePane == paneTimeline && (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.stepEntries) == 0 {
-		m.statusMsg = "No step data for this process"
-		m.statusMsgTTL = statusMsgDefaultTTL
-		return m, nil
+		m2, cmd := m.enterStepInspector()
+		m3 := m2.(dashboardModel)
+		m3.inspectorLens = lensSystem
+		return m3, cmd
 	}
 
 	// Tree 面板

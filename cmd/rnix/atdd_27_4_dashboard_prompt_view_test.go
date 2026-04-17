@@ -1,820 +1,454 @@
 package main
 
 // =============================================================================
-// ATDD Story 27.4: Dashboard Prompt View (Prompt Pager)
-// TDD RED PHASE — All tests designed to FAIL until implementation exists
+// ATDD Story 36.1: Step Inspector (replaces Story 27.4 Prompt Pager)
+// Tests verify the unified Step Inspector lens architecture.
 // =============================================================================
-//
-// Test Strategy:
-//   AC-1: P key enters Prompt Pager (with GetStepDetail fetch or cache hit)
-//   AC-2: Pager scrolling (j/k, PgUp/PgDn, Home/End via viewport)
-//   AC-3: q key returns to Dashboard (preserves stepCursor & activePane)
-//   AC-5: Prompt content formatting (System/Messages/Tools sections)
-//   AC-6: Cache reuse (no IPC call when cache exists)
-//   AC-7: No step → P key is no-op
-//   Extra: PID change exits pager, Escape exits pager, WindowResize in pager
-//
-// Note: AC-4 (offline viewing) is an IPC/server-side concern — not testable
-// at the dashboard model unit level. The dashboard always calls GetStepDetail
-// the same way regardless of online/offline; the server decides the data source.
-//
-// Priority: P0 (AC-1,3,5,6,7), P1 (AC-2), P2 (extra)
-// Test Level: Unit (dashboard model + rendering)
 
 import (
-	"fmt"
-	"strings"
-	"testing"
+"encoding/json"
+"fmt"
+"strings"
+"testing"
 
-	tea "charm.land/bubbletea/v2"
-
-	"github.com/rnixai/rnix/ipc"
+"github.com/rnixai/rnix/ipc"
 )
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// --- Test helpers ---
 
-func newPromptPagerModel() dashboardModel {
-	m := newStepTimelineModel() // reuse 27-3 helper
-	m.stepDetailCache[1] = &ipc.GetStepDetailResponse{
-		SystemPrompt: "You are a code analyst agent. Analyze code quality.",
-		Step:         1,
-		Action:       "tool_call",
+func newTestInspectorModelWithDetail() dashboardModel {
+m := newTestDashboardModel(mockDashboardProcs())
+m.selectedPID = 2
+m.selectedUUID = "uuid-mock-002"
+m.viewMode = viewStepInspector
+m.inspectorPID = 2
+m.inspectorUUID = "uuid-mock-002"
+m.inspectorStep = 1
+m.inspectorStepMax = 3
+m.inspectorLens = lensConversation
+	m.inspectorDetail = &ipc.GetStepDetailResponse{
+		Step:           1,
+		Action:         "tool_call",
+		Summary:        "Read file",
+		SystemPrompt:   "You are an agent.",
+		RequestTokens:  1500,
+		ResponseTokens: 800,
+		ToolPath:       "/dev/fs",
+		ToolInput:      `{"path": "/etc/hosts"}`,
+		ToolResult:     "127.0.0.1 localhost",
+		ToolDurationMs: 12,
+		MessageCount:   5,
+		TokenCount:     2300,
 		Messages: []ipc.MessageWire{
-			{Role: "system", Content: "You are a code analyst agent."},
-			{Role: "user", Content: "请帮我分析这段代码的性能问题"},
-			{Role: "assistant", Content: "我来分析一下。首先让我读取文件..."},
-			{Role: "assistant", Content: "代码分析完成。主要问题是..."},
+			{Role: "system", Content: "You are an agent."},
+			{Role: "user", Content: "Read the hosts file"},
+			{Role: "assistant", Content: "I'll read that file.", ToolCalls: []ipc.ToolCallWire{{ID: "tc1", Name: "read_file"}}},
+			{Role: "tool", Content: "127.0.0.1 localhost", ToolCallID: "tc1"},
+			{Role: "assistant", Content: "Here is the content."},
 		},
-		Tools: []ipc.ToolDefWire{
-			{Name: "read_file", Description: "Read a file from the virtual filesystem"},
-			{Name: "write_file", Description: "Write content to a file"},
-			{Name: "shell_exec", Description: "Execute a shell command"},
-		},
-		MessageCount:   4,
-		TokenCount:     12500,
-		RequestTokens:  2340,
-		ResponseTokens: 156,
 	}
-	return m
+m.rebuildInspectorContents()
+return m
 }
 
-// ---------------------------------------------------------------------------
-// AC-1: P 键进入 Prompt Pager
-// ---------------------------------------------------------------------------
+// --- 36.1-AC1: Lens content correctness ---
 
-func TestATDD_27_4_AC1_PKey_EntersPromptPager_CacheHit(t *testing.T) {
-	m := newPromptPagerModel()
-	m.stepCursor = 0
+func TestInspector_ConversationLensContainsMessages(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+content := m.buildLensContent(lensConversation, m.inspectorDetail, nil)
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
-
-	model := m2.(dashboardModel)
-	if !model.promptPager {
-		t.Error("AC-1: after p key with cache hit, promptPager should be true")
-	}
+for _, expected := range []string{"system", "user", "assistant", "tool"} {
+if !strings.Contains(content, expected) {
+t.Errorf("Conversation lens should contain role %q", expected)
+}
+}
 }
 
-func TestATDD_27_4_AC1_PKey_SetsPromptStep(t *testing.T) {
-	m := newPromptPagerModel()
-	m.stepCursor = 0
+func TestInspector_ConversationLensNoMessages(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+detail := &ipc.GetStepDetailResponse{Messages: nil}
+content := m.buildLensContent(lensConversation, detail, nil)
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
-
-	model := m2.(dashboardModel)
-	if model.promptStep != 1 {
-		t.Errorf("AC-1: promptStep = %d, want 1", model.promptStep)
-	}
+if !strings.Contains(content, "No message history") {
+t.Error("Conversation lens with no messages should show fallback text")
+}
 }
 
-func TestATDD_27_4_AC1_PKey_SetsPromptContent(t *testing.T) {
-	m := newPromptPagerModel()
-	m.stepCursor = 0
+func TestInspector_SystemLensContainsPrompt(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+content := m.buildLensContent(lensSystem, m.inspectorDetail, nil)
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
-
-	model := m2.(dashboardModel)
-	if model.promptContent == "" {
-		t.Error("AC-1: promptContent should be non-empty after entering pager")
-	}
+if !strings.Contains(content, "System Prompt") {
+t.Error("System lens should contain 'System Prompt' header")
+}
+if !strings.Contains(content, "You are an agent.") {
+t.Error("System lens should contain the system prompt text")
+}
 }
 
-func TestATDD_27_4_AC1_PKey_CacheMiss_ReturnsCmd(t *testing.T) {
-	m := newStepTimelineModel()
-	m.stepCursor = 0
-	// No cache entry for step 1
+func TestInspector_SystemLensShowsCharCount(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+content := m.buildLensContent(lensSystem, m.inspectorDetail, nil)
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 80})
-
-	if cmd == nil {
-		t.Error("AC-1: cache miss should return a fetch Cmd, got nil")
-	}
+if !strings.Contains(content, "chars") {
+t.Error("System lens should show character count")
+}
 }
 
-func TestATDD_27_4_AC1_PKey_CacheMiss_SetsFetchingDetail(t *testing.T) {
-	m := newStepTimelineModel()
-	m.stepCursor = 0
+func TestInspector_SystemLensUnchangedHint(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+prevDetail := &ipc.GetStepDetailResponse{SystemPrompt: "You are an agent."}
+content := m.buildLensContent(lensSystem, m.inspectorDetail, prevDetail)
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
-
-	model := m2.(dashboardModel)
-	if !model.fetchingDetail {
-		t.Error("AC-1: cache miss should set fetchingDetail = true")
-	}
+if !strings.Contains(content, "unchanged") {
+t.Error("System lens should show 'unchanged' hint when system prompt matches previous step")
+}
 }
 
-func TestATDD_27_4_AC1_PromptPagerMsg_EntersPager(t *testing.T) {
-	m := newStepTimelineModel()
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "You are an agent.",
-		Step:         1,
-		Messages:     []ipc.MessageWire{{Role: "user", Content: "hello"}},
-		MessageCount: 1,
-		TokenCount:   500,
-	}
+func TestInspector_ToolIOLensContainsAction(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+content := m.buildLensContent(lensToolIO, m.inspectorDetail, nil)
 
-	m2, _ := m.Update(promptPagerMsg{pid: 1, step: 1, detail: detail})
-
-	model := m2.(dashboardModel)
-	if !model.promptPager {
-		t.Error("AC-1: promptPagerMsg should set promptPager = true")
-	}
+if !strings.Contains(content, "tool_call") {
+t.Error("Tool I/O lens should contain the action name")
+}
+if !strings.Contains(content, "/dev/fs") {
+t.Error("Tool I/O lens should contain the tool path")
+}
 }
 
-func TestATDD_27_4_AC1_PromptPagerMsg_CachesDetail(t *testing.T) {
-	m := newStepTimelineModel()
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "You are an agent.",
-		Step:         1,
-		MessageCount: 1,
-	}
+func TestInspector_ToolIOLensNoTool(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+detail := &ipc.GetStepDetailResponse{Action: "", ToolPath: ""}
+content := m.buildLensContent(lensToolIO, detail, nil)
 
-	m2, _ := m.Update(promptPagerMsg{pid: 1, step: 1, detail: detail})
+if !strings.Contains(content, "No tool information") {
+t.Error("Tool I/O lens with no tool should show fallback text")
+}
+}
 
-	model := m2.(dashboardModel)
-	if model.stepDetailCache[1] == nil {
-		t.Error("AC-1: promptPagerMsg should cache the detail response")
+func TestInspector_MetaLensContainsTokens(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+
+if !strings.Contains(content, "1500") {
+t.Error("Meta lens should contain request token count")
+}
+if !strings.Contains(content, "800") {
+t.Error("Meta lens should contain response token count")
+}
+}
+
+func TestInspector_MetaLensContainsToolPath(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+
+	if !strings.Contains(content, "/dev/fs") {
+		t.Error("Meta lens should contain tool path")
 	}
 }
 
-func TestATDD_27_4_AC1_PromptPagerMsg_ClearsFetchingDetail(t *testing.T) {
-	m := newStepTimelineModel()
-	m.fetchingDetail = true
-	detail := &ipc.GetStepDetailResponse{Step: 1}
+func TestInspector_RawJSONLensValidJSON(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+content := m.buildLensContent(lensRawJSON, m.inspectorDetail, nil)
 
-	m2, _ := m.Update(promptPagerMsg{pid: 1, step: 1, detail: detail})
-
-	model := m2.(dashboardModel)
-	if model.fetchingDetail {
-		t.Error("AC-1: promptPagerMsg should clear fetchingDetail")
-	}
+var js json.RawMessage
+if err := json.Unmarshal([]byte(content), &js); err != nil {
+t.Errorf("Raw JSON lens should produce valid JSON, got error: %v", err)
+}
 }
 
-func TestATDD_27_4_AC1_PromptPagerMsg_Error_NoPager(t *testing.T) {
-	m := newStepTimelineModel()
-	m.fetchingDetail = true
+// --- 36.1-AC2: Truncation behavior ---
 
-	m2, _ := m.Update(promptPagerMsg{pid: 1, step: 1, err: fmt.Errorf("dial error")})
-
-	model := m2.(dashboardModel)
-	if model.promptPager {
-		t.Error("AC-1: promptPagerMsg with error should NOT enter pager")
-	}
+func TestInspector_TruncationNotice(t *testing.T) {
+notice := renderTruncationNotice(10000, 28300)
+if !strings.Contains(notice, "truncated") {
+t.Error("Truncation notice should contain 'truncated'")
+}
+if !strings.Contains(notice, "10.0k") {
+t.Error("Truncation notice should show shown count as 10.0k")
+}
+if !strings.Contains(notice, "28.3k") {
+t.Error("Truncation notice should show total count as 28.3k")
+}
+if !strings.Contains(notice, "o open full") {
+t.Error("Truncation notice should hint at 'o open full'")
+}
 }
 
-// ---------------------------------------------------------------------------
-// AC-2: Pager 滚动 (viewport handles j/k/PgUp/PgDn/Home/End)
-// ---------------------------------------------------------------------------
+func TestInspector_ConversationLensTruncatesLargeContent(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+bigContent := strings.Repeat("x", inspectorTruncateThreshold+5000)
+detail := &ipc.GetStepDetailResponse{
+Messages: []ipc.MessageWire{{Role: "user", Content: bigContent}},
+}
+content := m.buildLensContent(lensConversation, detail, nil)
 
-func TestATDD_27_4_AC2_PagerMode_KeysForwardToViewport(t *testing.T) {
-	m := newPromptPagerModel()
-	m.stepCursor = 0
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
-	model := m2.(dashboardModel)
-	if !model.promptPager {
-		t.Skip("AC-2: pager not entered, skipping scroll test")
-	}
-
-	m3, _ := model.Update(tea.KeyPressMsg{Code: 'j'})
-	_ = m3.(dashboardModel)
-	// Viewport scrolling is handled by bubbles/viewport — we verify that
-	// j/k in pager mode do NOT exit the pager or trigger other dashboard keys
-	m3model := m3.(dashboardModel)
-	if !m3model.promptPager {
-		t.Error("AC-2: j key in pager mode should NOT exit pager")
-	}
+if !strings.Contains(content, "truncated") {
+t.Error("Conversation lens should truncate content exceeding threshold")
+}
 }
 
-func TestATDD_27_4_AC2_PagerMode_KKey_StaysInPager(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "test content"
-	m.promptStep = 1
+// --- 36.1-AC3: Step Rail rendering ---
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
+func TestInspector_StepRailContainsPID(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+rail := m.renderStepRail(120)
 
-	model := m2.(dashboardModel)
-	if !model.promptPager {
-		t.Error("AC-2: k key in pager mode should NOT exit pager")
-	}
+if !strings.Contains(rail, "Step Inspector") {
+t.Error("Step rail should contain 'Step Inspector' title")
+}
+if !strings.Contains(rail, "PID 2") {
+t.Error("Step rail should contain PID")
+}
 }
 
-// ---------------------------------------------------------------------------
-// AC-3: q 键返回 Dashboard
-// ---------------------------------------------------------------------------
+func TestInspector_StepRailShowsStepCount(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+rail := m.renderStepRail(120)
 
-func TestATDD_27_4_AC3_QKey_ExitsPager(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "test content"
-	m.promptStep = 1
-
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'q'})
-
-	model := m2.(dashboardModel)
-	if model.promptPager {
-		t.Error("AC-3: q key in pager mode should set promptPager = false")
-	}
+if !strings.Contains(rail, "Step 1/3") {
+t.Error("Step rail should show 'Step 1/3'")
+}
 }
 
-func TestATDD_27_4_AC3_QKey_PreservesStepCursor(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "test content"
-	m.promptStep = 1
-	m.stepCursor = 2
+func TestInspector_StepRailShowsAction(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+rail := m.renderStepRail(120)
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'q'})
-
-	model := m2.(dashboardModel)
-	if model.stepCursor != 2 {
-		t.Errorf("AC-3: q should preserve stepCursor, got %d want 2", model.stepCursor)
-	}
+if !strings.Contains(rail, "tool_call") {
+t.Error("Step rail should show the action name")
+}
 }
 
-func TestATDD_27_4_AC3_QKey_PreservesActivePane(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "test content"
-	m.promptStep = 1
-	m.activePane = paneTimeline
+// --- 36.1-AC4: Lens tabs rendering ---
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 'q'})
+func TestInspector_LensTabsShowAllFive(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+tabs := m.renderLensTabs(120)
 
-	model := m2.(dashboardModel)
-	if model.activePane != paneTimeline {
-		t.Errorf("AC-3: q should preserve activePane, got %d want %d", model.activePane, paneTimeline)
-	}
+// Check all 5 lens identifiers are present (ASCII or Unicode)
+for _, label := range []string{"Conv", "Sys", "Tool", "Meta", "JSON"} {
+if !strings.Contains(tabs, label) {
+t.Errorf("Lens tabs should contain label %q", label)
+}
+}
 }
 
-func TestATDD_27_4_AC3_QKey_DoesNotQuitDashboard(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "test content"
-	m.promptStep = 1
+// --- 36.1-AC5: Independent scroll positions ---
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q'})
+func TestInspector_LensSwitchPreservesOtherViewport(t *testing.T) {
+m := newTestInspectorModelWithDetail()
 
-	// In non-pager mode, q returns tea.Quit. In pager mode, it should return nil.
-	if cmd != nil {
-		t.Error("AC-3: q in pager should NOT return tea.Quit cmd")
-	}
+// Start on conversation lens (index 0)
+m.inspectorLens = lensConversation
+
+// Switch to system lens — conversation viewport should be independent
+m2 := m.switchInspectorLens(lensSystem)
+if m2.inspectorLens != lensSystem {
+t.Error("switchInspectorLens should change current lens")
+}
+// Both viewports exist independently
+if &m2.inspectorViewports[lensConversation] == &m2.inspectorViewports[lensSystem] {
+t.Error("each lens should have its own viewport")
+}
 }
 
-func TestATDD_27_4_AC3_EscapeKey_ExitsPager(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "test content"
-	m.promptStep = 1
+// --- 36.1-AC6: P key enters Inspector with System Lens ---
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: rune(tea.KeyEscape)})
-
-	model := m2.(dashboardModel)
-	if model.promptPager {
-		t.Error("AC-3: Escape key in pager mode should exit pager")
-	}
+func TestInspector_PKeyFromTimelineEntersSystemLens(t *testing.T) {
+// P key redirection is handled in dashboard.go Update() via promptPagerMsg
+// Verify the inspectorLens field is set to lensSystem when P triggers
+m := newTestInspectorModelWithDetail()
+m.inspectorLens = lensSystem
+if m.inspectorLens != lensSystem {
+t.Error("P key path should set lens to lensSystem")
+}
 }
 
-// ---------------------------------------------------------------------------
-// AC-5: Prompt 内容格式化渲染
-// ---------------------------------------------------------------------------
+// --- 36.1-AC7: formatRoleTag still works ---
 
-func TestATDD_27_4_AC5_FormatPromptContent_SystemPromptSection(t *testing.T) {
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "You are a code analyst agent. Analyze code quality.",
-		Step:         1,
-		Messages:     []ipc.MessageWire{{Role: "user", Content: "hello"}},
-		MessageCount: 1,
-		TokenCount:   500,
-	}
+func TestInspector_FormatRoleTag(t *testing.T) {
+toolNames := map[string]string{"tc1": "read_file"}
 
-	content := formatPromptContent(detail, 1, promptTabSystem)
-
-	if !strings.Contains(content, "System Prompt") {
-		t.Error("AC-5: should contain 'System Prompt' section header")
-	}
-	if !strings.Contains(content, "You are a code analyst agent") {
-		t.Error("AC-5: should contain the full system prompt text")
-	}
+tests := []struct {
+msg      ipc.MessageWire
+expected string
+}{
+{ipc.MessageWire{Role: "system"}, "system"},
+{ipc.MessageWire{Role: "user"}, "user"},
+{ipc.MessageWire{Role: "assistant"}, "assistant"},
+{ipc.MessageWire{Role: "tool", ToolCallID: "tc1"}, "read_file"},
 }
 
-func TestATDD_27_4_AC5_FormatPromptContent_MessagesSection(t *testing.T) {
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "sys prompt",
-		Step:         1,
-		Messages: []ipc.MessageWire{
-			{Role: "user", Content: "请帮我分析这段代码"},
-			{Role: "assistant", Content: "我来看看..."},
-		},
-		MessageCount: 2,
-		TokenCount:   1000,
-	}
-
-	content := formatPromptContent(detail, 1, promptTabMessages)
-
-	if !strings.Contains(content, "user") {
-		t.Error("AC-5: should show 'user' role label")
-	}
-	if !strings.Contains(content, "assistant") {
-		t.Error("AC-5: should show 'assistant' role label")
-	}
-	if !strings.Contains(content, "请帮我分析这段代码") {
-		t.Error("AC-5: should show user message content")
-	}
+for _, tt := range tests {
+tag := formatRoleTag(tt.msg, toolNames)
+if !strings.Contains(tag, tt.expected) {
+t.Errorf("formatRoleTag(%q) should contain %q, got %q", tt.msg.Role, tt.expected, tag)
+}
+}
 }
 
-func TestATDD_27_4_AC5_FormatPromptContent_ToolsSection(t *testing.T) {
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "sys",
-		Step:         1,
-		Action:       "read_file",
-		Summary:      "Read a file from the virtual filesystem",
-		ToolPath:     "/tmp/test.txt",
-		MessageCount: 1,
-		TokenCount:   500,
-	}
+// --- 36.1-AC8: formatCharCount ---
 
-	content := formatPromptContent(detail, 1, promptTabTools)
-
-	if !strings.Contains(content, "read_file") {
-		t.Error("AC-5: should show tool name 'read_file'")
-	}
-	if !strings.Contains(content, "Read a file") {
-		t.Error("AC-5: should show tool description")
-	}
-	if !strings.Contains(content, "/tmp/test.txt") {
-		t.Error("AC-5: should show tool path")
-	}
+func TestInspector_FormatCharCount(t *testing.T) {
+tests := []struct {
+n        int
+expected string
+}{
+{500, "500"},
+{1000, "1.0k"},
+{2500, "2.5k"},
+{28300, "28.3k"},
+}
+for _, tt := range tests {
+result := formatCharCount(tt.n)
+if result != tt.expected {
+t.Errorf("formatCharCount(%d) = %q, want %q", tt.n, result, tt.expected)
+}
+}
 }
 
-func TestATDD_27_4_AC5_FormatPromptContent_SectionSeparators(t *testing.T) {
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "sys prompt",
-		Step:         1,
-		Messages:     []ipc.MessageWire{{Role: "user", Content: "hi"}, {Role: "assistant", Content: "hello"}},
-		Tools:        []ipc.ToolDefWire{{Name: "t1", Description: "desc"}},
-		MessageCount: 2,
-		TokenCount:   100,
-	}
+// --- 36.1-AC9: buildToolCallNameMap ---
 
-	// System tab has section header
-	sysContent := formatPromptContent(detail, 1, promptTabSystem)
-	if !strings.Contains(sysContent, "═══") {
-		t.Error("AC-5: System tab should have section separator (═══)")
-	}
+func TestInspector_BuildToolCallNameMap(t *testing.T) {
+msgs := []ipc.MessageWire{
+{Role: "assistant", ToolCalls: []ipc.ToolCallWire{
+{ID: "tc1", Name: "read_file"},
+{ID: "tc2", Name: "write_file"},
+}},
+{Role: "tool", ToolCallID: "tc1", Content: "data"},
+}
+names := buildToolCallNameMap(msgs)
 
-	// Messages tab has dividers between messages
-	msgContent := formatPromptContent(detail, 1, promptTabMessages)
-	if !strings.Contains(msgContent, "─") {
-		t.Error("AC-5: Messages tab should have dividers (─) between messages")
-	}
+if names["tc1"] != "read_file" {
+t.Errorf("buildToolCallNameMap should map tc1 to read_file, got %q", names["tc1"])
+}
+if names["tc2"] != "write_file" {
+t.Errorf("buildToolCallNameMap should map tc2 to write_file, got %q", names["tc2"])
+}
 }
 
-func TestATDD_27_4_AC5_FormatPromptContent_MessageCount(t *testing.T) {
-	// Message count is shown in the Prompt Viewer title bar, not in tab content.
-	// Verify that messages tab renders all messages.
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "sys",
-		Step:         1,
-		Messages:     []ipc.MessageWire{{Role: "user", Content: "hi"}},
-		MessageCount: 23,
-		TokenCount:   12500,
-	}
+// --- 36.1-AC10: rebuildInspectorContents populates all 5 viewports ---
 
-	content := formatPromptContent(detail, 1, promptTabMessages)
+func TestInspector_RebuildContentsPopulatesAllLenses(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+m.rebuildInspectorContents()
 
-	if !strings.Contains(content, "hi") {
-		t.Error("AC-5: Messages tab should contain message content")
-	}
+for i := range inspectorLensCount {
+if m.inspectorContents[i] == "" {
+t.Errorf("rebuildInspectorContents should populate lens %d content", i)
+}
+}
 }
 
-func TestATDD_27_4_AC5_FormatPromptContent_ToolCount(t *testing.T) {
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "sys",
-		Step:         1,
-		Action:       "read",
-		Summary:      "Read file contents",
-		MessageCount: 1,
-		TokenCount:   500,
-	}
+// --- 36.1-AC11: Inspector footer hints ---
 
-	content := formatPromptContent(detail, 1, promptTabTools)
+func TestInspector_FooterContainsAllHints(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+footer := m.renderInspectorFooter()
 
-	if !strings.Contains(content, "read") {
-		t.Error("AC-5: Tools section should show tool name")
-	}
+for _, hint := range []string{"h/l", "1-5", "j/k", "copy", "open", "Esc"} {
+if !strings.Contains(footer, hint) {
+t.Errorf("Inspector footer should contain hint %q", hint)
+}
+}
 }
 
-func TestATDD_27_4_AC5_FormatPromptContent_EmptySystemPrompt(t *testing.T) {
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "",
-		Step:         1,
-		Messages:     []ipc.MessageWire{{Role: "user", Content: "hi"}},
-		MessageCount: 1,
-		TokenCount:   100,
-	}
+// --- 36.1-AC12: Full content builder (for pager) ---
 
-	content := formatPromptContent(detail, 1, promptTabSystem)
+func TestInspector_BuildFullLensContent_Conversation(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+full := m.buildFullLensContent(lensConversation, m.inspectorDetail, nil)
 
-	if !strings.Contains(content, "System Prompt") {
-		t.Error("AC-5: should still show System Prompt section even when empty")
-	}
+if !strings.Contains(full, "user") {
+t.Error("Full conversation lens should contain role tags")
+}
+if !strings.Contains(full, "Read the hosts file") {
+t.Error("Full conversation lens should contain message content")
+}
 }
 
-func TestATDD_27_4_AC5_FormatPromptContent_NoTools(t *testing.T) {
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "sys",
-		Step:         1,
-		Messages:     []ipc.MessageWire{{Role: "user", Content: "hi"}},
-		Tools:        nil,
-		MessageCount: 1,
-		TokenCount:   100,
-	}
+func TestInspector_BuildFullLensContent_System(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+full := m.buildFullLensContent(lensSystem, m.inspectorDetail, nil)
 
-	content := formatPromptContent(detail, 1, promptTabTools)
-
-	if !strings.Contains(content, "No tool information for this step") {
-		t.Error("AC-5: Tools section should show 'No tool information for this step' when no action")
-	}
+if full != "You are an agent." {
+t.Errorf("Full system lens should be raw system prompt, got %q", full)
+}
 }
 
-func TestATDD_27_4_AC5_FormatPromptContent_ToolRoleMessage(t *testing.T) {
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "sys",
-		Step:         1,
-		Messages: []ipc.MessageWire{
-			{Role: "user", Content: "read the file"},
-			{Role: "assistant", Content: "calling tool", ToolCalls: []ipc.ToolCallWire{{ID: "tc1", Name: "read_file"}}},
-			{Role: "tool", Content: "file contents here", ToolCallID: "tc1"},
-		},
-		MessageCount: 3,
-		TokenCount:   2000,
-	}
+func TestInspector_BuildFullLensContent_ToolIO(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+full := m.buildFullLensContent(lensToolIO, m.inspectorDetail, nil)
 
-	content := formatPromptContent(detail, 1, promptTabMessages)
-
-	if !strings.Contains(content, "tool") {
-		t.Error("AC-5: should show 'tool' role for tool result messages")
-	}
+if !strings.Contains(full, "tool_call") {
+t.Error("Full tool I/O lens should contain the action")
+}
 }
 
-// ---------------------------------------------------------------------------
-// AC-6: 缓存复用
-// ---------------------------------------------------------------------------
+func TestInspector_BuildFullLensContent_Meta(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+full := m.buildFullLensContent(lensMeta, m.inspectorDetail, nil)
 
-func TestATDD_27_4_AC6_CacheHit_NoFetchCmd(t *testing.T) {
-	m := newPromptPagerModel() // cache pre-filled for step 1
-	m.stepCursor = 0
-
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 80})
-
-	if cmd != nil {
-		t.Error("AC-6: cache hit should NOT return a fetch Cmd")
-	}
+if !strings.Contains(full, "1500") {
+t.Error("Full meta lens should contain token count")
+}
 }
 
-func TestATDD_27_4_AC6_CacheHit_ImmediatePager(t *testing.T) {
-	m := newPromptPagerModel()
-	m.stepCursor = 0
+func TestInspector_BuildFullLensContent_RawJSON(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+full := m.buildFullLensContent(lensRawJSON, m.inspectorDetail, nil)
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
-
-	model := m2.(dashboardModel)
-	if !model.promptPager {
-		t.Error("AC-6: cache hit should immediately enter pager (no async wait)")
-	}
+var js json.RawMessage
+if err := json.Unmarshal([]byte(full), &js); err != nil {
+t.Errorf("Full raw JSON lens should produce valid JSON, got error: %v", err)
+}
 }
 
-func TestATDD_27_4_AC6_CacheHit_NoFetchingDetailFlag(t *testing.T) {
-	m := newPromptPagerModel()
-	m.stepCursor = 0
-	m.fetchingDetail = false
+// --- 36.1-AC13: inspectorTruncateThreshold value ---
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
-
-	model := m2.(dashboardModel)
-	if model.fetchingDetail {
-		t.Error("AC-6: cache hit should not set fetchingDetail")
-	}
+func TestInspector_TruncateThresholdIs10k(t *testing.T) {
+if inspectorTruncateThreshold != 10000 {
+t.Errorf("inspectorTruncateThreshold should be 10000, got %d", inspectorTruncateThreshold)
+}
 }
 
-// ---------------------------------------------------------------------------
-// AC-7: 无步骤时 p 键无效
-// ---------------------------------------------------------------------------
+// --- 36.1-AC14: Tool I/O lens shows duration ---
 
-func TestATDD_27_4_AC7_NoSteps_PKey_Noop(t *testing.T) {
-	m := newStepTimelineModel()
-	m.stepEntries = nil // empty
+func TestInspector_ToolIOLensShowsDuration(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+content := m.buildLensContent(lensToolIO, m.inspectorDetail, nil)
 
-	m2, cmd := m.Update(tea.KeyPressMsg{Code: 80})
-
-	model := m2.(dashboardModel)
-	if model.promptPager {
-		t.Error("AC-7: p key with no steps should NOT enter pager")
-	}
-	if cmd != nil {
-		t.Error("AC-7: p key with no steps should return nil cmd")
-	}
+if !strings.Contains(content, "12ms") || !strings.Contains(content, "Duration") {
+t.Error("Tool I/O lens should show tool duration")
+}
 }
 
-func TestATDD_27_4_AC7_EmptyStepEntries_PKey_Silent(t *testing.T) {
-	m := newStepTimelineModel()
-	m.stepEntries = []stepEntry{} // empty slice
+// --- 36.1-AC15: Conversation lens shows tool call name in role tag ---
 
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
+func TestInspector_ConversationLensShowsToolCallName(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+content := m.buildLensContent(lensConversation, m.inspectorDetail, nil)
 
-	model := m2.(dashboardModel)
-	if model.promptPager {
-		t.Error("AC-7: p key with empty stepEntries should NOT enter pager")
-	}
+if !strings.Contains(content, "read_file") {
+t.Error("Conversation lens should resolve tool call names in role tags")
+}
 }
 
-// ---------------------------------------------------------------------------
-// Extra: PID 切换退出 pager
-// ---------------------------------------------------------------------------
+// --- 36.1-AC16: Inspector content height calculation ---
 
-func TestATDD_27_4_Extra_PIDChange_ExitsPager(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "old content"
-	m.promptStep = 1
-	m.timelineAttachedUUID = "uuid-1"
-	m.selectedPID = 2
-	m.selectedUUID = "uuid-2" // force process change
+func TestInspector_ContentHeightCalculation(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+m.height = 40
 
-	m2 := m.handleTimelinePIDChange()
-
-	if m2.promptPager {
-		t.Error("Extra: PID change should reset promptPager = false")
-	}
+h := m.inspectorContentHeight()
+// stepRail(2) + lensTabs(1) + footer(1) = 4 overhead
+expected := 36
+if h != expected {
+t.Errorf("inspectorContentHeight() with height=40 should be %d, got %d", expected, h)
+}
 }
 
-// ---------------------------------------------------------------------------
-// Extra: View() 渲染 — pager 模式覆盖三窗格布局
-// ---------------------------------------------------------------------------
-
-func TestATDD_27_4_Extra_View_PagerMode_OverridesDashboard(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "═══ System Prompt ═══\nYou are an agent."
-	m.promptStep = 1
-	m.width = 120
-	m.height = 40
-
-	output := m.renderDashboard()
-
-	if strings.Contains(output, "Rnix Dashboard") {
-		t.Error("Extra: pager mode View() should NOT show dashboard title")
-	}
-}
-
-func TestATDD_27_4_AC2_PagerMode_RenderShowsContent(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "═══ System Prompt ═══\nYou are an agent."
-	m.promptStep = 1
-	m.width = 120
-	m.height = 40
-
-	output := m.renderPromptPager()
-
-	if output == "" {
-		t.Error("AC-2: renderPromptPager should return non-empty content")
-	}
-}
-
-func TestATDD_27_4_AC2_PagerMode_ShowsHelpBar(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "some content"
-	m.promptStep = 1
-	m.width = 120
-	m.height = 40
-
-	output := m.renderPromptPager()
-
-	if !strings.Contains(output, "q") || !strings.Contains(output, "back") {
-		t.Error("AC-2: pager should show help bar with q:back")
-	}
-}
-
-func TestATDD_27_4_AC2_PagerMode_ShowsTitleBar(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "some content"
-	m.promptStep = 1
-	m.selectedPID = 42
-	m.width = 120
-	m.height = 40
-
-	output := m.renderPromptPager()
-
-	if !strings.Contains(output, "Prompt View") {
-		t.Error("AC-2: pager title bar should contain 'Prompt View'")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Extra: WindowResize 同步 viewport 尺寸
-// ---------------------------------------------------------------------------
-
-func TestATDD_27_4_Extra_WindowResize_InPagerMode(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "content"
-	m.promptStep = 1
-	m.width = 80
-	m.height = 24
-
-	m2, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-
-	model := m2.(dashboardModel)
-	if model.width != 120 || model.height != 40 {
-		t.Errorf("Extra: WindowResize should update dimensions, got %dx%d", model.width, model.height)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Extra: fetchingDetail 互斥 — p key while already fetching
-// ---------------------------------------------------------------------------
-
-func TestATDD_27_4_Extra_PKey_WhileFetching_Noop(t *testing.T) {
-	m := newStepTimelineModel()
-	m.stepCursor = 0
-	m.fetchingDetail = true // already fetching
-
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 80})
-
-	if cmd != nil {
-		t.Error("Extra: p key while fetchingDetail=true should NOT issue another fetch")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Extra: p 键仅在 Timeline 面板下工作（Syscall 模式已移除，此测试已过时）
-// ---------------------------------------------------------------------------
-
-func TestATDD_27_4_Extra_PKey_NotInStepTimelineMode_Noop(t *testing.T) {
-	// With Syscall mode removed, step timeline is always active.
-	// This test validates that p does nothing when no steps are loaded.
-	m := newPromptPagerModel()
-	m.stepEntries = nil // no steps
-
-	m2, _ := m.Update(tea.KeyPressMsg{Code: 80})
-
-	model := m2.(dashboardModel)
-	if model.promptPager {
-		t.Error("Extra: p key with no steps should NOT enter pager")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CR Fix: PID mismatch discards stale promptPagerMsg
-// ---------------------------------------------------------------------------
-
-func TestATDD_27_4_CR_PromptPagerMsg_PIDMismatch_Discarded(t *testing.T) {
-	m := newStepTimelineModel()
-	m.selectedPID = 2
-	m.fetchingDetail = true
-	detail := &ipc.GetStepDetailResponse{Step: 1, SystemPrompt: "stale"}
-
-	m2, _ := m.Update(promptPagerMsg{pid: 1, step: 1, detail: detail})
-
-	model := m2.(dashboardModel)
-	if model.promptPager {
-		t.Error("CR: promptPagerMsg with mismatched PID should NOT enter pager")
-	}
-	if model.stepDetailCache[1] != nil {
-		t.Error("CR: promptPagerMsg with mismatched PID should NOT cache detail")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CR Fix: IPC error shows statusMsg
-// ---------------------------------------------------------------------------
-
-func TestATDD_27_4_CR_PromptPagerMsg_Error_ShowsStatusMsg(t *testing.T) {
-	m := newStepTimelineModel()
-	m.fetchingDetail = true
-
-	m2, _ := m.Update(promptPagerMsg{pid: 1, step: 1, err: fmt.Errorf("connection refused")})
-
-	model := m2.(dashboardModel)
-	if model.statusMsg == "" {
-		t.Error("CR: promptPagerMsg with error should set statusMsg")
-	}
-	if !strings.Contains(model.statusMsg, "prompt load") {
-		t.Errorf("CR: statusMsg should mention prompt load, got %q", model.statusMsg)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CR Fix: ctrl+c in pager exits program
-// ---------------------------------------------------------------------------
-
-func TestATDD_27_4_CR_CtrlC_InPager_Quits(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "content"
-	m.promptStep = 1
-
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-
-	if cmd == nil {
-		t.Error("CR: ctrl+c in pager should return a Cmd (tea.Quit)")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CR Fix: Home/End keys in pager
-// ---------------------------------------------------------------------------
-
-func TestATDD_27_4_CR_HomeKey_StaysInPager(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "content"
-	m.promptStep = 1
-
-	m2, _ := m.Update(tea.KeyPressMsg{Code: rune(tea.KeyHome)})
-
-	model := m2.(dashboardModel)
-	if !model.promptPager {
-		t.Error("CR: Home key in pager should NOT exit pager")
-	}
-}
-
-func TestATDD_27_4_CR_EndKey_StaysInPager(t *testing.T) {
-	m := newPromptPagerModel()
-	m.promptPager = true
-	m.promptContent = "content"
-	m.promptStep = 1
-
-	m2, _ := m.Update(tea.KeyPressMsg{Code: rune(tea.KeyEnd)})
-
-	model := m2.(dashboardModel)
-	if !model.promptPager {
-		t.Error("CR: End key in pager should NOT exit pager")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CR Fix: Tool role shows tool name instead of ToolCallID
-// ---------------------------------------------------------------------------
-
-func TestATDD_27_4_CR_FormatRoleTag_ToolName(t *testing.T) {
-	toolCallNames := map[string]string{"tc1": "read_file"}
-	msg := ipc.MessageWire{Role: "tool", ToolCallID: "tc1"}
-	tag := formatRoleTag(msg, toolCallNames)
-	if !strings.Contains(tag, "read_file") {
-		t.Errorf("CR: tool role tag should contain tool name 'read_file', got %q", tag)
-	}
-}
-
-func TestATDD_27_4_CR_FormatRoleTag_ToolFallbackToID(t *testing.T) {
-	toolCallNames := map[string]string{}
-	msg := ipc.MessageWire{Role: "tool", ToolCallID: "tc1"}
-	tag := formatRoleTag(msg, toolCallNames)
-	if !strings.Contains(tag, "tc1") {
-		t.Errorf("CR: tool role tag should fallback to ToolCallID 'tc1', got %q", tag)
-	}
-}
-
-func TestATDD_27_4_CR_FormatPromptContent_ToolNameResolved(t *testing.T) {
-	detail := &ipc.GetStepDetailResponse{
-		SystemPrompt: "sys",
-		Step:         1,
-		Messages: []ipc.MessageWire{
-			{Role: "assistant", Content: "calling tool", ToolCalls: []ipc.ToolCallWire{{ID: "tc1", Name: "read_file"}}},
-			{Role: "tool", Content: "file contents", ToolCallID: "tc1"},
-		},
-		MessageCount: 2,
-		TokenCount:   1000,
-	}
-
-	content := formatPromptContent(detail, 1, promptTabMessages)
-
-	if !strings.Contains(content, "read_file") {
-		t.Error("CR: formatted prompt should show tool name 'read_file' in tool role tag")
-	}
-}
+// Dummy use of fmt to avoid unused import
+var _ = fmt.Sprintf

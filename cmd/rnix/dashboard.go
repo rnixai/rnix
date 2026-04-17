@@ -86,12 +86,19 @@ type dashboardModel struct {
 	stepFilterMode  bool
 	stepExpandedIdx int
 
-	// Prompt pager fields (Story 27-4)
-	promptPager    bool
-	promptViewport viewport.Model
-	promptContent  string
-	promptStep     int
-	promptTab      promptPagerTab
+	// Step Inspector fields (Story 36-1, replaces LLM Viewer + Prompt Pager)
+	inspectorPID        types.PID
+	inspectorUUID       string
+	inspectorStep       int
+	inspectorStepMax    int
+	inspectorSteps      []ipc.StepSummaryWire
+	inspectorDetail     *ipc.GetStepDetailResponse
+	inspectorPrevDetail *ipc.GetStepDetailResponse
+	inspectorLens       inspectorLens
+	inspectorViewports  [inspectorLensCount]viewport.Model
+	inspectorContents   [inspectorLensCount]string
+	inspectorPrevMode   viewMode
+	inspectorFetching   bool
 
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
@@ -156,18 +163,6 @@ type dashboardModel struct {
 
 	// Timeline aggregation (Story 30.8 AC#5)
 	expandedAggGroups map[int]bool
-
-	// LLM Viewer fields (Story 29-6)
-	llmViewerPID      types.PID
-	llmViewerUUID     string
-	llmViewerStep     int
-	llmViewerStepMax  int
-	llmViewerSteps    []ipc.StepSummaryWire
-	llmViewerDetail   *ipc.GetStepDetailResponse
-	llmViewerViewport viewport.Model
-	llmViewerContent  string
-	llmViewerPrevMode viewMode
-	llmViewerFetching bool
 
 	// Help overlay
 	helpOverlay bool
@@ -258,13 +253,12 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		if m.promptPager {
-			m.promptViewport.SetWidth(msg.Width)
-			m.promptViewport.SetHeight(max(msg.Height-2, 1))
-		}
-		if m.viewMode == viewLLM {
-			m.llmViewerViewport.SetWidth(msg.Width)
-			m.llmViewerViewport.SetHeight(max(msg.Height-4, 1))
+		if m.viewMode == viewStepInspector {
+			contentH := m.inspectorContentHeight()
+			for i := range m.inspectorViewports {
+				m.inspectorViewports[i].SetWidth(msg.Width)
+				m.inspectorViewports[i].SetHeight(contentH)
+			}
 		}
 		return m, nil
 	case heatmapProfileMsg:
@@ -511,41 +505,43 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.detail != nil {
 			m.stepDetailCache[msg.step] = msg.detail
-			m.enterPromptPager(msg.detail, msg.step)
+			// Story 36-1: redirect to Step Inspector with System lens
+			m2, cmd := m.enterStepInspector()
+			m3 := m2.(dashboardModel)
+			m3.inspectorLens = lensSystem
+			return m3, cmd
 		}
 		return m, nil
-	case llmViewerMsg:
-		m.llmViewerFetching = false
+	case inspectorDetailMsg:
+		m.inspectorFetching = false
 		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("✗ LLM viewer: %v", msg.err)
+			m.statusMsg = fmt.Sprintf("✗ Inspector: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
-		} else if msg.detail != nil && msg.pid == m.llmViewerPID {
-			m.llmViewerDetail = msg.detail
-			m.llmViewerStep = msg.step
-			content := m.buildLLMViewerContent()
-			m.llmViewerContent = content
-			m.llmViewerViewport.SetContent(content)
+		} else if msg.detail != nil && msg.pid == m.inspectorPID {
+			m.inspectorPrevDetail = m.inspectorDetail
+			m.inspectorDetail = msg.detail
+			m.inspectorStep = msg.step
+			m.rebuildInspectorContents()
 		}
 		return m, nil
-	case llmStepListMsg:
+	case inspectorStepListMsg:
 		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("✗ LLM steps: %v", msg.err)
+			m.statusMsg = fmt.Sprintf("✗ Inspector steps: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
-		} else if len(msg.steps) > 0 && msg.pid == m.llmViewerPID {
-			m.llmViewerSteps = msg.steps
-			m.llmViewerStepMax = msg.steps[len(msg.steps)-1].Step
-			// Auto-fetch the first step's detail if none loaded yet (steps are 1-indexed;
-			// the initial fetch of step 0 in enterLLMViewer always fails).
-			if m.llmViewerDetail == nil && m.viewMode == viewLLM {
+		} else if len(msg.steps) > 0 && msg.pid == m.inspectorPID {
+			m.inspectorSteps = msg.steps
+			m.inspectorStepMax = msg.steps[len(msg.steps)-1].Step
+			if m.inspectorDetail == nil && m.viewMode == viewStepInspector {
 				firstStep := msg.steps[0].Step
-				m.llmViewerStep = firstStep
-				return m, fetchLLMStepCmd(m.llmViewerPID, m.llmViewerUUID, firstStep)
+				m.inspectorStep = firstStep
+				return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, firstStep)
 			}
-		} else if len(msg.steps) == 0 && msg.pid == m.llmViewerPID && m.viewMode == viewLLM {
-			// Process has 0 completed steps — show informational message in viewer
+		} else if len(msg.steps) == 0 && msg.pid == m.inspectorPID && m.viewMode == viewStepInspector {
 			noData := "  No step data recorded for this process.\n  (Process may have failed before completing any reasoning step)\n"
-			m.llmViewerContent = noData
-			m.llmViewerViewport.SetContent(noData)
+			for i := range m.inspectorContents {
+				m.inspectorContents[i] = noData
+				m.inspectorViewports[i].SetContent(noData)
+			}
 		}
 		return m, nil
 	default:
@@ -960,8 +956,6 @@ func (m dashboardModel) View() tea.View {
 	var content string
 	if m.helpOverlay {
 		content = m.renderHelpOverlay()
-	} else if m.promptPager {
-		content = m.renderPromptPager()
 	} else {
 		content = m.renderDashboard()
 	}
@@ -973,10 +967,6 @@ func (m dashboardModel) View() tea.View {
 // --- Layout rendering ---
 
 func (m dashboardModel) renderDashboard() string {
-	if m.promptPager {
-		return m.renderPromptPager()
-	}
-
 	w := m.width
 	h := m.height
 	if w == 0 {
@@ -1005,8 +995,8 @@ func (m dashboardModel) renderDashboard() string {
 	switch m.viewMode {
 	case viewExpanded:
 		mainContent = m.renderExpandedLayout(w, contentHeight)
-	case viewLLM:
-		mainContent = m.renderLLMViewer(w, contentHeight)
+	case viewStepInspector:
+		mainContent = m.renderStepInspector(w, contentHeight)
 	case viewDebug:
 		mainContent = m.renderDebugLayout(w, contentHeight)
 	default: // viewDefault
