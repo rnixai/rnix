@@ -300,6 +300,9 @@ func TestCodexCliDriver_Stream_Success(t *testing.T) {
 	if last.OutputTokens != 50 {
 		t.Errorf("expected output_tokens 50, got %d", last.OutputTokens)
 	}
+	if last.CachedInputTokens != 400 {
+		t.Errorf("expected cached_input_tokens 400, got %d", last.CachedInputTokens)
+	}
 	if last.TokensUsed != 550 {
 		t.Errorf("expected tokens_used 550, got %d", last.TokensUsed)
 	}

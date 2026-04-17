@@ -36,6 +36,7 @@ type ClaudeCliDriver struct {
 	cliCommand     string
 	defaultModel   string
 	defaultTimeout time.Duration
+	graceSec       int
 	cmdBuilder     CommandBuilder
 	extraArgs      []string
 }
@@ -54,6 +55,14 @@ func WithModel(model string) ClaudeCliOption {
 func WithTimeout(timeout time.Duration) ClaudeCliOption {
 	return func(d *ClaudeCliDriver) {
 		d.defaultTimeout = timeout
+	}
+}
+
+// WithGrace sets the grace period (seconds) between SIGTERM and SIGKILL when
+// the process is cancelled. 0 = DefaultGracePeriod.
+func WithGrace(graceSec int) ClaudeCliOption {
+	return func(d *ClaudeCliDriver) {
+		d.graceSec = graceSec
 	}
 }
 
@@ -155,6 +164,7 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 		defer func() { _ = os.Remove(sysPromptFile) }()
 	}
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	configureCommandGrace(cmd, d.graceSec)
 	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
 
 	var stdout, stderr bytes.Buffer
@@ -269,6 +279,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 		return nil, NewLLMError("claude", 0, err)
 	}
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	configureCommandGrace(cmd, d.graceSec)
 	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
 
 	stdoutPipe, err := cmd.StdoutPipe()

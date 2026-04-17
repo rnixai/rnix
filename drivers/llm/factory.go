@@ -39,6 +39,12 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		if len(cfg.ExtraArgs) > 0 {
 			opts = append(opts, WithExtraArgs(cfg.ExtraArgs))
 		}
+		if cfg.TimeoutSec > 0 {
+			opts = append(opts, WithTimeout(time.Duration(cfg.TimeoutSec)*time.Second))
+		}
+		if cfg.GraceSec > 0 {
+			opts = append(opts, WithGrace(cfg.GraceSec))
+		}
 		return NewClaudeCliDriver(opts...), nil
 
 	case DriverCursorCLI:
@@ -48,6 +54,12 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.DefaultModel != "" {
 			opts = append(opts, CursorWithModel(cfg.DefaultModel))
+		}
+		if cfg.TimeoutSec > 0 {
+			opts = append(opts, CursorWithTimeout(time.Duration(cfg.TimeoutSec)*time.Second))
+		}
+		if cfg.GraceSec > 0 {
+			opts = append(opts, CursorWithGrace(cfg.GraceSec))
 		}
 		return NewCursorCliDriver(opts...), nil
 
@@ -62,6 +74,12 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		if len(cfg.ExtraArgs) > 0 {
 			opts = append(opts, QwenWithExtraArgs(cfg.ExtraArgs))
 		}
+		if cfg.TimeoutSec > 0 {
+			opts = append(opts, QwenWithTimeout(time.Duration(cfg.TimeoutSec)*time.Second))
+		}
+		if cfg.GraceSec > 0 {
+			opts = append(opts, QwenWithGrace(cfg.GraceSec))
+		}
 		return NewQwenCliDriver(opts...), nil
 
 	case DriverCodexCLI:
@@ -74,6 +92,12 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if len(cfg.ExtraArgs) > 0 {
 			opts = append(opts, CodexWithExtraArgs(cfg.ExtraArgs))
+		}
+		if cfg.TimeoutSec > 0 {
+			opts = append(opts, CodexWithTimeout(time.Duration(cfg.TimeoutSec)*time.Second))
+		}
+		if cfg.GraceSec > 0 {
+			opts = append(opts, CodexWithGrace(cfg.GraceSec))
 		}
 		return NewCodexCliDriver(opts...), nil
 
@@ -91,6 +115,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 			} else {
 				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)
 			}
+		}
+		if cfg.TimeoutSec > 0 {
+			opts = append(opts, WithCompatTimeout(time.Duration(cfg.TimeoutSec)*time.Second))
 		}
 		return NewOpenAICompatDriver(cfg.Name, cfg.BaseURL, opts...), nil
 
@@ -112,6 +139,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)
 			}
 		}
+		if cfg.TimeoutSec > 0 {
+			opts = append(opts, WithOpenAITimeout(time.Duration(cfg.TimeoutSec)*time.Second))
+		}
 		return NewOpenAIDriver(cfg.Name, opts...), nil
 
 	case DriverGemini:
@@ -128,6 +158,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 			} else {
 				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)
 			}
+		}
+		if cfg.TimeoutSec > 0 {
+			opts = append(opts, WithGeminiTimeout(time.Duration(cfg.TimeoutSec)*time.Second))
 		}
 		return NewGeminiDriver(cfg.Name, opts...), nil
 
@@ -148,6 +181,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 			} else {
 				log.Printf("[llm] warning: provider %q: API key env var %s not set", cfg.Name, cfg.APIKeyEnv)
 			}
+		}
+		if cfg.TimeoutSec > 0 {
+			opts = append(opts, WithAnthropicTimeout(time.Duration(cfg.TimeoutSec)*time.Second))
 		}
 		return NewAnthropicDriver(cfg.Name, opts...), nil
 

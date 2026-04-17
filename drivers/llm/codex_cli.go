@@ -22,6 +22,7 @@ type CodexCliDriver struct {
 	cliCommand     string
 	defaultModel   string
 	defaultTimeout time.Duration
+	graceSec       int
 	cmdBuilder     CommandBuilder
 	extraArgs      []string
 }
@@ -40,6 +41,14 @@ func CodexWithModel(model string) CodexCliOption {
 func CodexWithTimeout(timeout time.Duration) CodexCliOption {
 	return func(d *CodexCliDriver) {
 		d.defaultTimeout = timeout
+	}
+}
+
+// CodexWithGrace sets the grace period (seconds) between SIGTERM and SIGKILL.
+// 0 = DefaultGracePeriod.
+func CodexWithGrace(graceSec int) CodexCliOption {
+	return func(d *CodexCliDriver) {
+		d.graceSec = graceSec
 	}
 }
 
@@ -111,6 +120,7 @@ func (d *CodexCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse
 
 	args := d.buildArgs(req, false)
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	configureCommandGrace(cmd, d.graceSec)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -158,6 +168,7 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 
 	args := d.buildArgs(req, true)
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	configureCommandGrace(cmd, d.graceSec)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -180,8 +191,9 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 		defer cancel()
 
 		var lastUsage struct {
-			inputTokens  int
-			outputTokens int
+			inputTokens       int
+			outputTokens      int
+			cachedInputTokens int
 		}
 		var lastAgentMessage string
 
@@ -278,6 +290,7 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 				if evt.Usage != nil {
 					lastUsage.inputTokens += evt.Usage.InputTokens
 					lastUsage.outputTokens += evt.Usage.OutputTokens
+					lastUsage.cachedInputTokens += evt.Usage.CachedInputTokens
 				}
 
 			case "turn.failed":
@@ -318,11 +331,12 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 
 		// Emit done event with the last agent message and accumulated usage.
 		se := StreamEvent{
-			Type:         "done",
-			Content:      lastAgentMessage,
-			TokensUsed:   lastUsage.inputTokens + lastUsage.outputTokens,
-			InputTokens:  lastUsage.inputTokens,
-			OutputTokens: lastUsage.outputTokens,
+			Type:              "done",
+			Content:           lastAgentMessage,
+			TokensUsed:        lastUsage.inputTokens + lastUsage.outputTokens,
+			InputTokens:       lastUsage.inputTokens,
+			OutputTokens:      lastUsage.outputTokens,
+			CachedInputTokens: lastUsage.cachedInputTokens,
 		}
 		if lastAgentMessage == "" {
 			se.Type = "error"

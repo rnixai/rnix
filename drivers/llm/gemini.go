@@ -243,6 +243,7 @@ func extractResponse(resp *genai.GenerateContentResponse) *LLMResponse {
 	if resp.UsageMetadata != nil {
 		out.InputTokens = int(resp.UsageMetadata.PromptTokenCount)
 		out.OutputTokens = int(resp.UsageMetadata.CandidatesTokenCount)
+		out.CachedInputTokens = int(resp.UsageMetadata.CachedContentTokenCount)
 		out.TokensUsed = int(resp.UsageMetadata.TotalTokenCount)
 	}
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
@@ -329,10 +330,11 @@ func (d *GeminiDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 		defer cancel()
 
 		var (
-			inputTokens  int
-			outputTokens int
-			totalTokens  int
-			toolCalls    []ToolCall
+			inputTokens       int
+			outputTokens      int
+			cachedInputTokens int
+			totalTokens       int
+			toolCalls         []ToolCall
 		)
 
 		for resp, err := range client.Models.GenerateContentStream(
@@ -358,6 +360,7 @@ func (d *GeminiDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 			if resp.UsageMetadata != nil {
 				inputTokens = int(resp.UsageMetadata.PromptTokenCount)
 				outputTokens = int(resp.UsageMetadata.CandidatesTokenCount)
+				cachedInputTokens = int(resp.UsageMetadata.CachedContentTokenCount)
 				totalTokens = int(resp.UsageMetadata.TotalTokenCount)
 			}
 
@@ -390,11 +393,12 @@ func (d *GeminiDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 		}
 
 		evt := StreamEvent{
-			Type:         "done",
-			TokensUsed:   totalTokens,
-			InputTokens:  inputTokens,
-			OutputTokens: outputTokens,
-			ToolCalls:    toolCalls,
+			Type:              "done",
+			TokensUsed:        totalTokens,
+			InputTokens:       inputTokens,
+			OutputTokens:      outputTokens,
+			CachedInputTokens: cachedInputTokens,
+			ToolCalls:         toolCalls,
 		}
 		select {
 		case ch <- evt:

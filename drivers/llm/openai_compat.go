@@ -152,9 +152,12 @@ type oaiChoice struct {
 }
 
 type oaiUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	PromptTokensDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitzero"`
 }
 
 type oaiStreamChunk struct {
@@ -416,9 +419,10 @@ func (d *OpenAICompatDriver) callInternal(ctx context.Context, req LLMRequest, t
 	}
 
 	llmResp := &LLMResponse{
-		TokensUsed:   oaiResp.Usage.TotalTokens,
-		InputTokens:  oaiResp.Usage.PromptTokens,
-		OutputTokens: oaiResp.Usage.CompletionTokens,
+		TokensUsed:        oaiResp.Usage.TotalTokens,
+		InputTokens:       oaiResp.Usage.PromptTokens,
+		OutputTokens:      oaiResp.Usage.CompletionTokens,
+		CachedInputTokens: oaiResp.Usage.PromptTokensDetails.CachedTokens,
 	}
 	if len(oaiResp.Choices) > 0 {
 		msg := oaiResp.Choices[0].Message
@@ -505,6 +509,7 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 					evt.TokensUsed = lastUsage.TotalTokens
 					evt.InputTokens = lastUsage.PromptTokens
 					evt.OutputTokens = lastUsage.CompletionTokens
+					evt.CachedInputTokens = lastUsage.PromptTokensDetails.CachedTokens
 				}
 				if len(pendingToolCalls) > 0 {
 					evt.ToolCalls = flushToolCalls(pendingToolCalls)
@@ -574,6 +579,7 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 					evt.TokensUsed = lastUsage.TotalTokens
 					evt.InputTokens = lastUsage.PromptTokens
 					evt.OutputTokens = lastUsage.CompletionTokens
+					evt.CachedInputTokens = lastUsage.PromptTokensDetails.CachedTokens
 				}
 				evt.ToolCalls = flushToolCalls(pendingToolCalls)
 				select {

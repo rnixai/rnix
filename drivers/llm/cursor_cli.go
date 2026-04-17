@@ -19,6 +19,7 @@ type CursorCliDriver struct {
 	cliCommand     string
 	defaultModel   string
 	defaultTimeout time.Duration
+	graceSec       int
 	cmdBuilder     CommandBuilder
 }
 
@@ -36,6 +37,14 @@ func CursorWithModel(model string) CursorCliOption {
 func CursorWithTimeout(timeout time.Duration) CursorCliOption {
 	return func(d *CursorCliDriver) {
 		d.defaultTimeout = timeout
+	}
+}
+
+// CursorWithGrace sets the grace period (seconds) between SIGTERM and SIGKILL.
+// 0 = DefaultGracePeriod.
+func CursorWithGrace(graceSec int) CursorCliOption {
+	return func(d *CursorCliDriver) {
+		d.graceSec = graceSec
 	}
 }
 
@@ -94,6 +103,7 @@ func (d *CursorCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 
 	args := d.buildArgs(req, "json")
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	configureCommandGrace(cmd, d.graceSec)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -171,6 +181,7 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 	args := d.buildArgs(req, "stream-json")
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	configureCommandGrace(cmd, d.graceSec)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {

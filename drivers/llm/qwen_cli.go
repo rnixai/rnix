@@ -22,6 +22,7 @@ type QwenCliDriver struct {
 	cliCommand     string
 	defaultModel   string
 	defaultTimeout time.Duration
+	graceSec       int
 	cmdBuilder     CommandBuilder
 	extraArgs      []string
 }
@@ -40,6 +41,14 @@ func QwenWithModel(model string) QwenCliOption {
 func QwenWithTimeout(timeout time.Duration) QwenCliOption {
 	return func(d *QwenCliDriver) {
 		d.defaultTimeout = timeout
+	}
+}
+
+// QwenWithGrace sets the grace period (seconds) between SIGTERM and SIGKILL.
+// 0 = DefaultGracePeriod.
+func QwenWithGrace(graceSec int) QwenCliOption {
+	return func(d *QwenCliDriver) {
+		d.graceSec = graceSec
 	}
 }
 
@@ -110,6 +119,7 @@ func (d *QwenCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse,
 
 	args := d.buildArgs(req, "json")
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	configureCommandGrace(cmd, d.graceSec)
 	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
 
 	var stdout, stderr bytes.Buffer
@@ -217,6 +227,7 @@ func (d *QwenCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Stre
 
 	args := d.buildArgs(req, "stream-json")
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	configureCommandGrace(cmd, d.graceSec)
 	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
 
 	stdoutPipe, err := cmd.StdoutPipe()

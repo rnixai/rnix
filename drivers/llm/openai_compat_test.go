@@ -71,6 +71,28 @@ func TestOpenAICompatDriver_Call_Success(t *testing.T) {
 	}
 }
 
+// TestOpenAICompatDriver_Call_CachedTokens verifies R8: cached prompt tokens
+// reported via prompt_tokens_details.cached_tokens surface on CachedInputTokens.
+func TestOpenAICompatDriver_Call_CachedTokens(t *testing.T) {
+	d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {
+		resp := `{"choices":[{"message":{"content":"cached"},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"prompt_tokens_details":{"cached_tokens":75}}}`
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	})
+	defer cleanup()
+
+	resp, err := d.Call(context.Background(), LLMRequest{Intent: "hi"})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if resp.CachedInputTokens != 75 {
+		t.Errorf("CachedInputTokens = %d, want 75", resp.CachedInputTokens)
+	}
+	if resp.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100", resp.InputTokens)
+	}
+}
+
 func TestOpenAICompatDriver_Call_WithMessages(t *testing.T) {
 	var gotBody oaiRequest
 	d, _, cleanup := newTestDriver(func(w http.ResponseWriter, r *http.Request) {

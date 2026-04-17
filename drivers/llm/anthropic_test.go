@@ -232,6 +232,40 @@ func TestAnthropicDriver_ConvertMessage(t *testing.T) {
 	}
 }
 
+// TestAnthropicDriver_ConvertMessage_CachedTokens verifies R8: cache_read
+// tokens reported by the Anthropic API surface on LLMResponse.CachedInputTokens.
+func TestAnthropicDriver_ConvertMessage_CachedTokens(t *testing.T) {
+	d := NewAnthropicDriver("test")
+
+	msgJSON := `{
+		"id": "msg_02",
+		"type": "message",
+		"role": "assistant",
+		"content": [{"type": "text", "text": "cached"}],
+		"model": "claude-sonnet-4-20250514",
+		"stop_reason": "end_turn",
+		"stop_sequence": null,
+		"usage": {
+			"input_tokens": 100,
+			"output_tokens": 50,
+			"cache_read_input_tokens": 80,
+			"cache_creation_input_tokens": 10
+		}
+	}`
+	var msg anthropic.Message
+	if err := json.Unmarshal([]byte(msgJSON), &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	resp := d.convertMessage(&msg)
+	if resp.CachedInputTokens != 80 {
+		t.Errorf("CachedInputTokens = %d, want 80", resp.CachedInputTokens)
+	}
+	if resp.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100", resp.InputTokens)
+	}
+}
+
 // TestAnthropicDriver_ClassifyError verifies HTTP status code → sentinel mapping.
 func TestAnthropicDriver_ClassifyError(t *testing.T) {
 	d := NewAnthropicDriver("anthropic-test")

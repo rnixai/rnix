@@ -65,6 +65,8 @@ type ProviderConfig struct {
 	CostPerToken   float64  `yaml:"cost_per_token"`  // cost per token in USD; 0 = cost tracking disabled
 	ThinkingBudget int      `yaml:"thinking_budget"` // thinking budget tokens (gemini driver only; 0 = disabled)
 	ExtraArgs      []string `yaml:"extra_args"`      // additional CLI arguments (claude-cli/cursor-cli only)
+	TimeoutSec     int      `yaml:"timeout_sec"`     // per-request timeout in seconds; 0 = driver default (5 min for CLI)
+	GraceSec       int      `yaml:"grace_sec"`       // CLI grace period between SIGTERM and SIGKILL; 0 = driver default (20s)
 }
 
 // FindProvidersConfigPath searches for providers.yaml in CWD then

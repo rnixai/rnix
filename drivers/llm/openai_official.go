@@ -259,9 +259,10 @@ func (d *OpenAIDriver) CallWithTools(ctx context.Context, req LLMRequest, tools 
 
 func (d *OpenAIDriver) convertCompletion(c *openai.ChatCompletion) *LLMResponse {
 	resp := &LLMResponse{
-		TokensUsed:   int(c.Usage.TotalTokens),
-		InputTokens:  int(c.Usage.PromptTokens),
-		OutputTokens: int(c.Usage.CompletionTokens),
+		TokensUsed:        int(c.Usage.TotalTokens),
+		InputTokens:       int(c.Usage.PromptTokens),
+		OutputTokens:      int(c.Usage.CompletionTokens),
+		CachedInputTokens: int(c.Usage.PromptTokensDetails.CachedTokens),
 	}
 	if len(c.Choices) > 0 {
 		msg := c.Choices[0].Message
@@ -350,6 +351,7 @@ func (d *OpenAIDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 			evt.TokensUsed = int(acc.Usage.TotalTokens)
 			evt.InputTokens = int(acc.Usage.PromptTokens)
 			evt.OutputTokens = int(acc.Usage.CompletionTokens)
+			evt.CachedInputTokens = int(acc.Usage.PromptTokensDetails.CachedTokens)
 		}
 		if len(acc.Choices) > 0 {
 			evt.ToolCalls = convertSDKToolCalls(acc.Choices[0].Message.ToolCalls)

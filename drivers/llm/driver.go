@@ -5,6 +5,9 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"os/exec"
+	"syscall"
+	"time"
 )
 
 const (
@@ -16,6 +19,10 @@ const (
 	// single-line JSON (e.g. large tool_call results), easily exceeding the
 	// default 64 KB limit. 4 MB covers all practical cases.
 	scannerMaxSize = 4 * 1024 * 1024 // 4 MB
+
+	// DefaultGracePeriod is the default time a CLI process has to shut down
+	// gracefully after receiving SIGTERM before being force-killed.
+	DefaultGracePeriod = 20 * time.Second
 )
 
 // newStreamScanner creates a bufio.Scanner with a buffer large enough for
@@ -25,6 +32,30 @@ func newStreamScanner(r io.Reader) *bufio.Scanner {
 	s := bufio.NewScanner(r)
 	s.Buffer(make([]byte, 0, 64*1024), scannerMaxSize)
 	return s
+}
+
+// configureCommandGrace installs a SIGTERM→grace→SIGKILL shutdown policy on
+// an exec.Cmd. When the associated context is cancelled (e.g. caller timeout
+// or explicit Kill), the process first receives SIGTERM. If it does not exit
+// within graceSec seconds, Go's exec machinery force-kills it. Passing
+// graceSec<=0 uses DefaultGracePeriod.
+//
+// Must be called BEFORE cmd.Start().
+func configureCommandGrace(cmd *exec.Cmd, graceSec int) {
+	if cmd == nil {
+		return
+	}
+	grace := time.Duration(graceSec) * time.Second
+	if grace <= 0 {
+		grace = DefaultGracePeriod
+	}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return cmd.Process.Signal(syscall.SIGTERM)
+	}
+	cmd.WaitDelay = grace
 }
 
 // Message represents a single message in a conversation.
