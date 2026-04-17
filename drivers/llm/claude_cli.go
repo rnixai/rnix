@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -96,12 +98,38 @@ type claudeCliResponse struct {
 	Subtype      string  `json:"subtype"`
 	Result       string  `json:"result"`
 	IsError      bool    `json:"is_error"`
+	StopReason   string  `json:"stop_reason,omitempty"`
+	TotalCostUSD float64 `json:"total_cost_usd,omitempty"`
+	Usage        struct {
+		InputTokens          int `json:"input_tokens"`
+		CacheReadInputTokens int `json:"cache_read_input_tokens"`
+		OutputTokens         int `json:"output_tokens"`
+	} `json:"usage,omitzero"`
 	CostUSD      float64 `json:"cost_usd"`
 	DurationMS   int     `json:"duration_ms"`
 	NumTurns     int     `json:"num_turns"`
 	SessionID    string  `json:"session_id"`
 	InputTokens  int     `json:"input_tokens"`
 	OutputTokens int     `json:"output_tokens"`
+}
+
+// mergeClaudeUsage returns the effective token / cost values, preferring the
+// structured Usage block (newer CLI format) over the flat legacy fields.
+func (c *claudeCliResponse) mergeClaudeUsage() (input, cached, output int, cost float64) {
+	input = c.Usage.InputTokens
+	cached = c.Usage.CacheReadInputTokens
+	output = c.Usage.OutputTokens
+	if input == 0 && c.InputTokens != 0 {
+		input = c.InputTokens
+	}
+	if output == 0 && c.OutputTokens != 0 {
+		output = c.OutputTokens
+	}
+	cost = c.TotalCostUSD
+	if cost == 0 && c.CostUSD != 0 {
+		cost = c.CostUSD
+	}
+	return
 }
 
 // Call executes a synchronous LLM request via the Claude Code CLI.
@@ -113,14 +141,21 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	args := d.buildArgs(req, "json")
+	args, sysPromptFile, err := d.buildArgs(req, "json")
+	if err != nil {
+		return nil, NewLLMError("claude", 0, err)
+	}
+	if sysPromptFile != "" {
+		defer func() { _ = os.Remove(sysPromptFile) }()
+	}
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		return nil, NewLLMError("claude", 0, ErrTimeout)
 	}
@@ -128,10 +163,22 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 	// Try parsing stdout JSON even when exit code is non-zero
 	var cliResp claudeCliResponse
 	if parseErr := json.Unmarshal(stdout.Bytes(), &cliResp); parseErr == nil {
+		// max_turns: agentic loop exhausted its budget. Return a typed sentinel so
+		// callers can distinguish this from misconfiguration / true errors.
+		if isMaxTurnsResult(&cliResp) {
+			return nil, NewLLMError("claude", 0, ErrMaxTurns)
+		}
 		if cliResp.IsError {
 			errMsg := cliResp.Result
 			if errMsg == "" {
 				errMsg = "unknown error (empty result)"
+			}
+			if required, loginURL := detectLoginRequired(cliResp.Result, stderr.String()); required {
+				e := NewLLMError("claude", 401, ErrLoginRequired)
+				if loginURL != "" {
+					e.Meta = map[string]string{"login_url": loginURL}
+				}
+				return nil, e
 			}
 			code, sentinel := classifyCliError(errMsg)
 			if sentinel != nil {
@@ -145,11 +192,15 @@ func (d *ClaudeCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMRespons
 		if cliResp.Result == "" {
 			return nil, NewLLMError("claude", 0, fmt.Errorf("response truncated: no result (possible max_turns limit)"))
 		}
+		input, cached, output, cost := cliResp.mergeClaudeUsage()
 		return &LLMResponse{
-			Content:      cliResp.Result,
-			TokensUsed:   cliResp.InputTokens + cliResp.OutputTokens,
-			InputTokens:  cliResp.InputTokens,
-			OutputTokens: cliResp.OutputTokens,
+			Content:           cliResp.Result,
+			TokensUsed:        input + output,
+			InputTokens:       input,
+			OutputTokens:      output,
+			CachedInputTokens: cached,
+			CostUSD:           cost,
+			StopReason:        cliResp.StopReason,
 		}, nil
 	}
 
@@ -173,11 +224,18 @@ type claudeStreamEvent struct {
 	Event        json.RawMessage `json:"event,omitempty"` // raw API event for stream_event type
 	Result       string          `json:"result,omitempty"`
 	IsError      bool            `json:"is_error,omitempty"`
-	CostUSD      float64         `json:"cost_usd,omitempty"`
-	DurationMS   int             `json:"duration_ms,omitempty"`
-	NumTurns     int             `json:"num_turns,omitempty"`
-	InputTokens  int             `json:"input_tokens,omitempty"`
-	OutputTokens int             `json:"output_tokens,omitempty"`
+	StopReason   string          `json:"stop_reason,omitempty"`
+	TotalCostUSD float64         `json:"total_cost_usd,omitempty"`
+	Usage        struct {
+		InputTokens          int `json:"input_tokens"`
+		CacheReadInputTokens int `json:"cache_read_input_tokens"`
+		OutputTokens         int `json:"output_tokens"`
+	} `json:"usage,omitzero"`
+	CostUSD      float64 `json:"cost_usd,omitempty"`
+	DurationMS   int     `json:"duration_ms,omitempty"`
+	NumTurns     int     `json:"num_turns,omitempty"`
+	InputTokens  int     `json:"input_tokens,omitempty"`
+	OutputTokens int     `json:"output_tokens,omitempty"`
 }
 
 // claudeContentBlock represents a content block in an assistant/user message.
@@ -199,12 +257,20 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 
-	args := d.buildArgs(req, "stream-json")
+	args, sysPromptFile, err := d.buildArgs(req, "stream-json")
+	if err != nil {
+		cancel()
+		return nil, NewLLMError("claude", 0, err)
+	}
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
+	cmd.Stdin = strings.NewReader(d.buildPrompt(req))
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
+		if sysPromptFile != "" {
+			_ = os.Remove(sysPromptFile)
+		}
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
@@ -213,6 +279,9 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 	if err := cmd.Start(); err != nil {
 		cancel()
+		if sysPromptFile != "" {
+			_ = os.Remove(sysPromptFile)
+		}
 		return nil, fmt.Errorf("failed to start claude cli: %w", err)
 	}
 
@@ -221,6 +290,9 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 	go func() {
 		defer close(ch)
 		defer cancel()
+		if sysPromptFile != "" {
+			defer func() { _ = os.Remove(sysPromptFile) }()
+		}
 
 		scanner := newStreamScanner(stdoutPipe)
 		for scanner.Scan() {
@@ -298,18 +370,53 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					}
 				}
 			case "result":
-				se := StreamEvent{Type: "done", Content: evt.Result, TokensUsed: evt.InputTokens + evt.OutputTokens, InputTokens: evt.InputTokens, OutputTokens: evt.OutputTokens}
-				if evt.IsError {
+				input := evt.Usage.InputTokens
+				cached := evt.Usage.CacheReadInputTokens
+				output := evt.Usage.OutputTokens
+				if input == 0 && evt.InputTokens != 0 {
+					input = evt.InputTokens
+				}
+				if output == 0 && evt.OutputTokens != 0 {
+					output = evt.OutputTokens
+				}
+				cost := evt.TotalCostUSD
+				if cost == 0 && evt.CostUSD != 0 {
+					cost = evt.CostUSD
+				}
+				se := StreamEvent{
+					Type:              "done",
+					Content:           evt.Result,
+					TokensUsed:        input + output,
+					InputTokens:       input,
+					OutputTokens:      output,
+					CachedInputTokens: cached,
+					CostUSD:           cost,
+					StopReason:        evt.StopReason,
+				}
+				if isMaxTurnsStreamEvent(evt) {
+					se.Type = "error"
+					se.Err = NewLLMError("claude", 0, ErrMaxTurns)
+				} else if evt.IsError {
 					se.Type = "error"
 					errMsg := evt.Result
 					if errMsg == "" {
 						errMsg = "unknown error (empty result)"
 					}
-					code, sentinel := classifyCliError(errMsg)
-					if sentinel != nil {
-						se.Err = NewLLMError("claude", code, sentinel)
+					// Stream mode: only inspect evt.Result (reading stderrBuf here
+					// would race the subprocess still writing to stderr).
+					if required, loginURL := detectLoginRequired(evt.Result, ""); required {
+						e := NewLLMError("claude", 401, ErrLoginRequired)
+						if loginURL != "" {
+							e.Meta = map[string]string{"login_url": loginURL}
+						}
+						se.Err = e
 					} else {
-						se.Err = NewLLMError("claude", 0, fmt.Errorf("%s", errMsg))
+						code, sentinel := classifyCliError(errMsg)
+						if sentinel != nil {
+							se.Err = NewLLMError("claude", code, sentinel)
+						} else {
+							se.Err = NewLLMError("claude", 0, fmt.Errorf("%s", errMsg))
+						}
 					}
 				} else if evt.Result == "" {
 					se.Type = "error"
@@ -365,16 +472,36 @@ func (d *ClaudeCliDriver) Info() DriverInfo {
 }
 
 // buildArgs constructs CLI arguments for a Claude Code CLI invocation.
-func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []string {
-	prompt := d.buildPrompt(req)
-	args := []string{"-p", prompt, "--output-format", outputFormat}
+// The prompt itself is NOT embedded in argv — callers pass it via stdin using
+// the "--print -" convention. Returns the args slice, the path to a temp file
+// holding the system prompt (empty if none), and any setup error.
+//
+// The caller MUST defer os.Remove(sysPromptFile) when it is non-empty,
+// after cmd.Wait() / cmd.Run() returns.
+func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) ([]string, string, error) {
+	args := []string{"--print", "-", "--output-format", outputFormat}
 
 	if outputFormat == "stream-json" {
 		args = append(args, "--verbose", "--include-partial-messages")
 	}
 
+	var sysPromptFile string
 	if req.SystemPrompt != "" {
-		args = append(args, "--system-prompt", req.SystemPrompt)
+		f, err := os.CreateTemp("", "rnix-claude-sys-*.md")
+		if err != nil {
+			return nil, "", fmt.Errorf("create system prompt tempfile: %w", err)
+		}
+		if _, err := f.WriteString(req.SystemPrompt); err != nil {
+			_ = f.Close()
+			_ = os.Remove(f.Name())
+			return nil, "", fmt.Errorf("write system prompt tempfile: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			_ = os.Remove(f.Name())
+			return nil, "", fmt.Errorf("close system prompt tempfile: %w", err)
+		}
+		sysPromptFile = f.Name()
+		args = append(args, "--append-system-prompt-file", sysPromptFile)
 	}
 
 	model := req.Model
@@ -389,7 +516,7 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) []strin
 
 	args = append(args, d.extraArgs...)
 
-	return args
+	return args, sysPromptFile, nil
 }
 
 // buildPrompt constructs the prompt for a CLI Agent invocation.
@@ -445,6 +572,65 @@ func classifyCliError(msg string) (int, error) {
 	default:
 		return 0, nil
 	}
+}
+
+// isMaxTurnsResult reports whether a CLI result signals an agentic loop
+// exhausted its turn budget. Matches either subtype=error_max_turns (older
+// schema) or stop_reason=max_turns (newer schema).
+func isMaxTurnsResult(r *claudeCliResponse) bool {
+	if strings.EqualFold(r.Subtype, "error_max_turns") {
+		return true
+	}
+	if strings.EqualFold(r.StopReason, "max_turns") {
+		return true
+	}
+	return false
+}
+
+// isMaxTurnsStreamEvent applies the same logic to a stream `result` event.
+func isMaxTurnsStreamEvent(e claudeStreamEvent) bool {
+	if strings.EqualFold(e.Subtype, "error_max_turns") {
+		return true
+	}
+	if strings.EqualFold(e.StopReason, "max_turns") {
+		return true
+	}
+	return false
+}
+
+var (
+	// claudeAuthRequiredRegex matches phrases the Claude CLI uses when the
+	// user is not authenticated. Adapted from paperclip's claude-local
+	// adapter (packages/adapters/claude-local/src/server/parse.ts).
+	claudeAuthRequiredRegex = regexp.MustCompile(
+		`(?i)not\s+logged\s+in|please\s+log\s+in|please\s+run\s+'?claude\s+login'?|login\s+required|requires\s+login|unauthorized|authentication\s+required`,
+	)
+	// claudeURLRegex extracts the first HTTP(S) URL from text; used to
+	// surface a clickable login URL in error messages.
+	claudeURLRegex = regexp.MustCompile(
+		`https?://[^\s'"` + "`" + `<>()\[\]{};,!?]+[^\s'"` + "`" + `<>()\[\]{};,!.?:]+`,
+	)
+)
+
+// detectLoginRequired scans the CLI output (result + stderr) for phrases
+// indicating the user must run `claude login`. Returns (true, loginURL) on
+// match; loginURL is empty when no URL is found.
+func detectLoginRequired(result, stderr string) (bool, string) {
+	combined := result + "\n" + stderr
+	if !claudeAuthRequiredRegex.MatchString(combined) {
+		return false, ""
+	}
+	matches := claudeURLRegex.FindAllString(combined, -1)
+	for _, url := range matches {
+		lower := strings.ToLower(url)
+		if strings.Contains(lower, "claude") || strings.Contains(lower, "anthropic") || strings.Contains(lower, "auth") {
+			return true, url
+		}
+	}
+	if len(matches) > 0 {
+		return true, matches[0]
+	}
+	return true, ""
 }
 
 // extractClaudeStreamEvent extracts tool_use and thinking blocks from a raw Claude API stream event.

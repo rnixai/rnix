@@ -9,11 +9,13 @@ import (
 var (
 	ErrRateLimit        = errors.New("llm: rate limit exceeded")
 	ErrAuth             = errors.New("llm: authentication failed")
+	ErrLoginRequired    = errors.New("llm: login required")
 	ErrContextLength    = errors.New("llm: context length exceeded")
 	ErrModelNotFound    = errors.New("llm: model not found")
 	ErrTimeout          = errors.New("llm: request timed out")
 	ErrTransient        = errors.New("llm: transient error")
 	ErrStreamIncomplete = errors.New("llm: stream ended without result")
+	ErrMaxTurns         = errors.New("llm: agent loop exhausted max turns")
 )
 
 // IsTransient returns true if the error is a transient LLM error that may
@@ -27,9 +29,10 @@ func IsTransient(err error) bool {
 
 // LLMError represents a typed error from an LLM driver.
 type LLMError struct {
-	Provider   string // "claude", "openai", "gemini", "ollama"
-	StatusCode int    // HTTP status code (0 if not applicable)
-	Err        error  // underlying sentinel or raw error
+	Provider   string            // "claude", "openai", "gemini", "ollama"
+	StatusCode int               // HTTP status code (0 if not applicable)
+	Err        error             // underlying sentinel or raw error
+	Meta       map[string]string // optional structured context (e.g., login_url)
 }
 
 // Error formats the error as "llm [provider] (status N): message".

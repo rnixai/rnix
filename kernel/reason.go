@@ -471,6 +471,17 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			return
 		}
 
+		// max_turns: agentic loop (CLI side) hit its turn limit. Record and exit
+		// with a distinct reason so the Dashboard / parent process can react
+		// differently from a true "empty response" configuration error. (R2)
+		if resp.StopReason == "max_turns" && len(resp.ToolCalls) == 0 {
+			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
+				"error", "max_turns_reached", "", "", "", "", 0)
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "max_turns_reached"}, nil, nil, time.Since(stepStart))
+			k.finishProcess(proc, ExitStatus{Code: 2, Reason: "max_turns_reached"})
+			return
+		}
+
 		// Guard: detect empty LLM response (common symptom of misconfigured provider)
 		if resp.Content == "" && resp.TokensUsed == 0 && len(resp.ToolCalls) == 0 {
 			emptyErr := fmt.Errorf("LLM returned empty response (content=\"\", tokens=0, no tool_calls) — check provider/model configuration")
@@ -539,14 +550,21 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// Cost accumulation + budget check (Story 30.7) — suspend instead of terminate
 		proc.mu.Lock()
 		if proc.Budget.MaxCost > 0 {
-			cpt := k.getCostPerToken(proc.Provider)
-			if cpt < 0 {
-				cpt = 0
+			if resp.CostUSD > 0 {
+				// Prefer the cost reported by the CLI (paperclip-style R4).
+				// More accurate than token × rate estimation, especially for
+				// Bedrock / subscription accounts where cost_per_token is unknown.
+				proc.Budget.UsedCost += resp.CostUSD
+			} else {
+				cpt := k.getCostPerToken(proc.Provider)
+				if cpt < 0 {
+					cpt = 0
+				}
+				if cpt == 0 {
+					log.Printf("[kernel] pid=%d warning: MaxCost=$%.2f set but no CostUSD reported and costPerToken=0 for provider %q — cost budget will not trigger", proc.PID, proc.Budget.MaxCost, proc.Provider)
+				}
+				proc.Budget.UsedCost += float64(resp.TokensUsed) * cpt
 			}
-			if cpt == 0 {
-				log.Printf("[kernel] pid=%d warning: MaxCost=$%.2f set but costPerToken=0 for provider %q — cost budget will not trigger", proc.PID, proc.Budget.MaxCost, proc.Provider)
-			}
-			proc.Budget.UsedCost += float64(resp.TokensUsed) * cpt
 		}
 		budgetCheck := proc.Budget
 		proc.mu.Unlock()

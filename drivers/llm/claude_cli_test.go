@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -63,6 +64,24 @@ func TestHelperProcess(t *testing.T) {
 		fmt.Fprintln(os.Stdout, `{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"let me think"}}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"done","is_error":false,"input_tokens":50,"output_tokens":20}`)
+	case "cost_usd_full":
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"ok","is_error":false,"total_cost_usd":0.042,"stop_reason":"end_turn","usage":{"input_tokens":100,"cache_read_input_tokens":50,"output_tokens":20}}`)
+	case "cost_usd_stream":
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"hi","is_error":false,"total_cost_usd":0.042,"stop_reason":"end_turn","usage":{"input_tokens":100,"cache_read_input_tokens":50,"output_tokens":20}}`)
+	case "max_turns_result":
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"error_max_turns","result":"partial","is_error":true,"stop_reason":"max_turns","usage":{"input_tokens":200,"output_tokens":50}}`)
+	case "max_turns_stream":
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"content":[{"type":"text","text":"still thinking"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error_max_turns","result":"partial","is_error":true,"stop_reason":"max_turns","usage":{"input_tokens":200,"output_tokens":50}}`)
+	case "auth_required":
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"error","result":"Please run 'claude login' and visit https://claude.ai/oauth/authorize?redirect=abc to continue.","is_error":true}`)
+	case "auth_required_stream":
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"error","result":"Not logged in. Please log in at https://claude.ai/auth to continue.","is_error":true}`)
+	case "stdin_echo":
+		// R1: validate prompt is delivered via stdin (not argv). Echo back as result.
+		data, _ := io.ReadAll(os.Stdin)
+		fmt.Fprintf(os.Stdout, `{"type":"result","subtype":"success","result":%q,"is_error":false,"input_tokens":1,"output_tokens":1}`, string(data))
 	}
 	os.Exit(0)
 }
@@ -190,11 +209,19 @@ func TestClaudeCliDriver_Call_Args(t *testing.T) {
 	}
 
 	argsStr := strings.Join(capturedArgs, " ")
-	if !strings.Contains(argsStr, "-p analyze code") {
-		t.Errorf("expected -p flag with intent, got: %s", argsStr)
+	// R1: prompt now goes to stdin (--print -), NOT argv
+	if !strings.Contains(argsStr, "--print -") {
+		t.Errorf("expected --print - for stdin mode, got: %s", argsStr)
 	}
-	if !strings.Contains(argsStr, "--system-prompt you are an expert") {
-		t.Errorf("expected --system-prompt flag, got: %s", argsStr)
+	if strings.Contains(argsStr, "analyze code") {
+		t.Errorf("prompt should not be in argv (stdin mode), got: %s", argsStr)
+	}
+	// R1: system prompt goes via --append-system-prompt-file, NOT --system-prompt
+	if !strings.Contains(argsStr, "--append-system-prompt-file") {
+		t.Errorf("expected --append-system-prompt-file, got: %s", argsStr)
+	}
+	if strings.Contains(argsStr, "you are an expert") {
+		t.Errorf("system prompt should not be in argv (file mode), got: %s", argsStr)
 	}
 	if !strings.Contains(argsStr, "--model opus") {
 		t.Errorf("expected --model opus, got: %s", argsStr)
@@ -224,9 +251,9 @@ func TestClaudeCliDriver_Call_DefaultArgs(t *testing.T) {
 	if strings.Contains(argsStr, "--max-turns") {
 		t.Errorf("expected no --max-turns in default args, got: %s", argsStr)
 	}
-	// system-prompt should NOT be present when empty
-	if strings.Contains(argsStr, "--system-prompt") {
-		t.Errorf("unexpected --system-prompt flag for empty system prompt, got: %s", argsStr)
+	// R1: --append-system-prompt-file should NOT be present when SystemPrompt empty
+	if strings.Contains(argsStr, "--append-system-prompt-file") {
+		t.Errorf("unexpected --append-system-prompt-file for empty system prompt, got: %s", argsStr)
 	}
 }
 
@@ -585,5 +612,224 @@ func TestClaudeCliDriver_Stream_AllEventTypes(t *testing.T) {
 	last := events[len(events)-1]
 	if last.Type != "done" {
 		t.Errorf("expected last event to be done, got %q", last.Type)
+	}
+}
+
+// TestClaudeCliDriver_Call_CostUSD verifies R4: total_cost_usd and Usage fields
+// are parsed from the CLI response and surfaced on LLMResponse.
+func TestClaudeCliDriver_Call_CostUSD(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("cost_usd_full")))
+	resp, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.CostUSD != 0.042 {
+		t.Errorf("CostUSD = %v, want 0.042", resp.CostUSD)
+	}
+	if resp.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100", resp.InputTokens)
+	}
+	if resp.OutputTokens != 20 {
+		t.Errorf("OutputTokens = %d, want 20", resp.OutputTokens)
+	}
+	if resp.CachedInputTokens != 50 {
+		t.Errorf("CachedInputTokens = %d, want 50", resp.CachedInputTokens)
+	}
+	if resp.TokensUsed != 120 {
+		t.Errorf("TokensUsed = %d, want 120 (input+output)", resp.TokensUsed)
+	}
+	if resp.StopReason != "end_turn" {
+		t.Errorf("StopReason = %q, want %q", resp.StopReason, "end_turn")
+	}
+}
+
+// TestClaudeCliDriver_Stream_CostUSD verifies the stream path preserves the
+// new usage/cost fields through the StreamEvent done event.
+func TestClaudeCliDriver_Stream_CostUSD(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("cost_usd_stream")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var done StreamEvent
+	for evt := range ch {
+		if evt.Type == "done" {
+			done = evt
+		}
+	}
+	if done.Type != "done" {
+		t.Fatal("never received done event")
+	}
+	if done.CostUSD != 0.042 {
+		t.Errorf("CostUSD = %v, want 0.042", done.CostUSD)
+	}
+	if done.CachedInputTokens != 50 {
+		t.Errorf("CachedInputTokens = %d, want 50", done.CachedInputTokens)
+	}
+	if done.StopReason != "end_turn" {
+		t.Errorf("StopReason = %q, want %q", done.StopReason, "end_turn")
+	}
+}
+
+// TestClaudeCliDriver_Call_MaxTurns verifies R2: a CLI result carrying
+// subtype=error_max_turns (or stop_reason=max_turns) surfaces as ErrMaxTurns.
+func TestClaudeCliDriver_Call_MaxTurns(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("max_turns_result")))
+	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrMaxTurns) {
+		t.Errorf("expected errors.Is(err, ErrMaxTurns), got: %v", err)
+	}
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected *LLMError")
+	}
+	if llmErr.Provider != "claude" {
+		t.Errorf("Provider = %q, want %q", llmErr.Provider, "claude")
+	}
+}
+
+// TestClaudeCliDriver_Stream_MaxTurns verifies stream path emits an error event
+// carrying ErrMaxTurns when the result carries max_turns markers.
+func TestClaudeCliDriver_Stream_MaxTurns(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("max_turns_stream")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var finalEvt StreamEvent
+	for evt := range ch {
+		finalEvt = evt
+	}
+	if finalEvt.Type != "error" {
+		t.Fatalf("expected final event type=error, got %q", finalEvt.Type)
+	}
+	if !errors.Is(finalEvt.Err, ErrMaxTurns) {
+		t.Errorf("expected errors.Is(err, ErrMaxTurns), got: %v", finalEvt.Err)
+	}
+}
+
+// TestClaudeCliDriver_Call_LoginRequired verifies R3: auth-required phrases
+// surface as ErrLoginRequired with a Meta["login_url"] hint.
+func TestClaudeCliDriver_Call_LoginRequired(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("auth_required")))
+	_, err := d.Call(context.Background(), LLMRequest{Intent: "test"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, ErrLoginRequired) {
+		t.Errorf("expected errors.Is(err, ErrLoginRequired), got: %v", err)
+	}
+	var llmErr *LLMError
+	if !errors.As(err, &llmErr) {
+		t.Fatal("expected *LLMError")
+	}
+	if llmErr.StatusCode != 401 {
+		t.Errorf("StatusCode = %d, want 401", llmErr.StatusCode)
+	}
+	if got := llmErr.Meta["login_url"]; !strings.Contains(got, "claude.ai") {
+		t.Errorf("Meta[login_url] = %q, want to contain claude.ai", got)
+	}
+}
+
+// TestClaudeCliDriver_Stream_LoginRequired verifies stream path surfaces
+// ErrLoginRequired in the final error event.
+func TestClaudeCliDriver_Stream_LoginRequired(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("auth_required_stream")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var finalEvt StreamEvent
+	for evt := range ch {
+		finalEvt = evt
+	}
+	if !errors.Is(finalEvt.Err, ErrLoginRequired) {
+		t.Errorf("expected errors.Is(err, ErrLoginRequired), got: %v", finalEvt.Err)
+	}
+	var llmErr *LLMError
+	if !errors.As(finalEvt.Err, &llmErr) {
+		t.Fatal("expected *LLMError")
+	}
+	if got := llmErr.Meta["login_url"]; !strings.Contains(got, "claude.ai") {
+		t.Errorf("Meta[login_url] = %q, want to contain claude.ai", got)
+	}
+}
+
+// TestClaudeCliDriver_Call_StdinPrompt verifies R1: the prompt is delivered
+// via stdin (not argv). The helper echoes stdin back as the result.
+func TestClaudeCliDriver_Call_StdinPrompt(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stdin_echo")))
+	resp, err := d.Call(context.Background(), LLMRequest{Intent: "secret-prompt-xyz"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Content != "secret-prompt-xyz" {
+		t.Errorf("prompt did not reach stdin; content=%q", resp.Content)
+	}
+}
+
+// TestClaudeCliDriver_BuildArgs_PromptNotInArgv verifies R1: the prompt string
+// no longer appears in argv (avoids ps-ef leaks and ARG_MAX risk).
+func TestClaudeCliDriver_BuildArgs_PromptNotInArgv(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver()
+	args, sysFile, err := d.buildArgs(LLMRequest{Intent: "LEAKABLE_SECRET"}, "json")
+	if err != nil {
+		t.Fatalf("buildArgs error: %v", err)
+	}
+	if sysFile != "" {
+		t.Errorf("expected no system prompt file when SystemPrompt empty, got %q", sysFile)
+	}
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "LEAKABLE_SECRET") {
+		t.Errorf("prompt leaked into argv: %s", joined)
+	}
+	if !strings.Contains(joined, "--print -") {
+		t.Errorf("expected --print - for stdin mode, got: %s", joined)
+	}
+}
+
+// TestClaudeCliDriver_BuildArgs_SystemPromptFile verifies R1: a non-empty
+// SystemPrompt is written to a temp file and referenced via
+// --append-system-prompt-file (not injected as an argv string).
+func TestClaudeCliDriver_BuildArgs_SystemPromptFile(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver()
+	sysPrompt := "You are a helpful assistant with LONG CONTEXT instructions..."
+	args, sysFile, err := d.buildArgs(LLMRequest{Intent: "ignored", SystemPrompt: sysPrompt}, "json")
+	if err != nil {
+		t.Fatalf("buildArgs error: %v", err)
+	}
+	if sysFile == "" {
+		t.Fatal("expected system prompt tempfile, got empty")
+	}
+	defer os.Remove(sysFile)
+
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, sysPrompt) {
+		t.Errorf("system prompt leaked into argv: %s", joined)
+	}
+	if !strings.Contains(joined, "--append-system-prompt-file") {
+		t.Errorf("expected --append-system-prompt-file in args, got: %s", joined)
+	}
+	if !strings.Contains(joined, sysFile) {
+		t.Errorf("expected %q in args, got: %s", sysFile, joined)
+	}
+	data, err := os.ReadFile(sysFile)
+	if err != nil {
+		t.Fatalf("read system prompt tempfile: %v", err)
+	}
+	if string(data) != sysPrompt {
+		t.Errorf("tempfile content mismatch: got %q, want %q", string(data), sysPrompt)
 	}
 }

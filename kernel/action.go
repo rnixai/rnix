@@ -47,4 +47,6 @@ type llmResponse struct {
 	Content    string        `json:"content"`
 	TokensUsed int           `json:"tokens_used"`
 	ToolCalls  []llmToolCall `json:"tool_calls,omitempty"`
+	CostUSD    float64       `json:"cost_usd,omitempty"`
+	StopReason string        `json:"stop_reason,omitempty"`
 }

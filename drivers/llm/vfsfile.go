@@ -98,7 +98,9 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 
 	var content strings.Builder
 	var reasoning strings.Builder
-	var tokens, inputTokens, outputTokens int
+	var tokens, inputTokens, outputTokens, cachedInputTokens int
+	var costUSD float64
+	var stopReason string
 	var toolCalls []ToolCall
 	var receivedDone bool
 
@@ -130,6 +132,9 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 			tokens = evt.TokensUsed
 			inputTokens = evt.InputTokens
 			outputTokens = evt.OutputTokens
+			cachedInputTokens = evt.CachedInputTokens
+			costUSD = evt.CostUSD
+			stopReason = evt.StopReason
 			// Collect ToolCalls from done event (OpenAI stream flushes them here)
 			if len(evt.ToolCalls) > 0 {
 				toolCalls = evt.ToolCalls
@@ -153,12 +158,15 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 	}
 
 	resp := &LLMResponse{
-		Content:      finalContent,
-		Reasoning:    reasoning.String(),
-		TokensUsed:   tokens,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-		ToolCalls:    toolCalls,
+		Content:           finalContent,
+		Reasoning:         reasoning.String(),
+		TokensUsed:        tokens,
+		InputTokens:       inputTokens,
+		OutputTokens:      outputTokens,
+		CachedInputTokens: cachedInputTokens,
+		CostUSD:           costUSD,
+		StopReason:        stopReason,
+		ToolCalls:         toolCalls,
 	}
 	return f.bufferResponse(resp)
 }
