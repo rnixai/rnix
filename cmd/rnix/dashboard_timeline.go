@@ -639,6 +639,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	aggGroupByStart := make(map[int]*toolAggGroup, len(aggGroups))
 	// Set of filtered indices that belong to a collapsed group (non-start)
 	aggSkipSet := make(map[int]bool)
+	// Set of filtered indices inside expanded groups (for indent detection)
+	aggExpandedSet := make(map[int]bool)
 	for i := range aggGroups {
 		g := &aggGroups[i]
 		aggGroupByStart[g.startIdx] = g
@@ -646,6 +648,10 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		if !expanded {
 			for fi := g.startIdx + 1; fi < g.endIdx; fi++ {
 				aggSkipSet[fi] = true
+			}
+		} else {
+			for fi := g.startIdx + 1; fi < g.endIdx; fi++ {
+				aggExpandedSet[fi] = true
 			}
 		}
 	}
@@ -704,7 +710,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				if cursorInGroup {
 					cursorMark = "▸ "
 				}
-				dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+				dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 				marker := "▼"
 				if ui.IsASCIIMode() {
 					marker = "v"
@@ -720,10 +726,14 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				avgDur := totalDur / float64(len(g.stepNums))
 				avgLabel := formatTimelineDuration(avgDur)
 
-				headerLine := fmt.Sprintf("%s%s %d–%d ▸ %s × %d  avg %s",
+				aggSep := "▸"
+				if ui.IsASCIIMode() {
+					aggSep = ">"
+				}
+				headerLine := fmt.Sprintf("%s%s %d–%d %s %s × %d  avg %s",
 					cursorMark, marker,
 					g.stepNums[0], g.stepNums[len(g.stepNums)-1],
-					g.toolPath, len(g.stepNums), avgLabel)
+					aggSep, g.toolPath, len(g.stepNums), avgLabel)
 
 				// Add offset range if available
 				if showStepOffset {
@@ -762,15 +772,18 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				continue
 			}
 			// Expanded group: render header then fall through to individual steps
-			dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+			dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 			marker := "▽"
 			if ui.IsASCIIMode() {
 				marker = "V"
 			}
-			expandHeader := fmt.Sprintf("  %s %d–%d ▸ %s × %d",
-				marker,
-				g.stepNums[0], g.stepNums[len(g.stepNums)-1],
-				g.toolPath, len(g.stepNums))
+			aggSep := "▸"
+			if ui.IsASCIIMode() {
+				aggSep = ">"
+			}
+			expandHeader := fmt.Sprintf("  %s %d–%d %s %s × %d",
+				marker, g.stepNums[0], g.stepNums[len(g.stepNums)-1],
+				aggSep, g.toolPath, len(g.stepNums))
 			b.WriteString(dimStyle.Render(expandHeader))
 			b.WriteString("\n")
 			linesUsed++
@@ -785,14 +798,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		s := entry.summary
 
 		// Check if this step is inside an expanded aggregation group (needs indent)
-		inExpandedGroup := false
-		for i := range aggGroups {
-			g := &aggGroups[i]
-			if fi > g.startIdx && fi < g.endIdx && m.expandedAggGroups[g.stepNums[0]] {
-				inExpandedGroup = true
-				break
-			}
-		}
+		inExpandedGroup := aggExpandedSet[fi]
 
 		cursorMark := "  "
 		if inExpandedGroup {
@@ -818,7 +824,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			}
 		}
 
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 
 		// New layout: step# ▸ action · summary  duration  +relTime
 		detail := m.stepDetailCache[s.Step]
@@ -858,10 +864,14 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		}
 
 		// Calculate available width for summary
-		// Fixed parts: cursor(2) + levelMark(1) + space(1) + step#(len) + " ▸ "(3) + action(len)
+		// Fixed parts: cursor(cursorW) + levelMark(1) + space(1) + step#(len) + " ▸ "(3) + action(len)
 		actionW := runewidth.StringWidth(actionText)
 		stepNumW := utf8.RuneCountInString(stepNumStr)
-		fixedWidth := 2 + 1 + 1 + stepNumW + 3 + actionW
+		cursorW := 2
+		if inExpandedGroup {
+			cursorW = 4
+		}
+		fixedWidth := cursorW + 1 + 1 + stepNumW + 3 + actionW
 		if summaryText != "" {
 			fixedWidth += 3 // " · " separator
 		}
@@ -878,15 +888,21 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		summaryW := max(truncW-fixedWidth, 0)
 		var summaryPart string
 		if summaryW >= 10 && summaryText != "" {
-			summaryPart = " · " + truncateRuneWidth(summaryText, summaryW)
-		} else if summaryW > 0 && summaryText != "" {
-			summaryPart = " · " + truncateRuneWidth(summaryText, summaryW)
+			sep := " · "
+			if ui.IsASCIIMode() {
+				sep = " - "
+			}
+			summaryPart = sep + truncateRuneWidth(summaryText, summaryW)
 		}
 
 		if hasError && width >= 80 {
 			if cached := m.stepDetailCache[s.Step]; cached != nil && cached.ToolError != "" {
 				errLine := strings.SplitN(cached.ToolError, "\n", 2)[0]
-				errPreviewW := max(summaryW-runewidth.StringWidth(summaryPart)-2, 10)
+				// errPreviewW: remaining width after summary (avoid double-counting)
+				errPreviewW := max(summaryW-2, 10)
+				if summaryPart != "" {
+					errPreviewW = max(summaryW-runewidth.StringWidth(summaryText)-2, 10)
+				}
 				if runewidth.StringWidth(errLine) > errPreviewW {
 					errLine = runewidth.Truncate(errLine, errPreviewW-1, "…")
 				}
@@ -897,9 +913,13 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 		// Build line: cursorMark levelMark step# ▸ action[· summary] [duration] [+offset] [errMark]
 		actionStyle := lipgloss.NewStyle().Foreground(actionColor(s.Action))
+		stepSep := "▸"
+		if ui.IsASCIIMode() {
+			stepSep = ">"
+		}
 		var line string
-		lineCore := fmt.Sprintf("%s%s %s ▸ %s%s",
-			cursorMark, levelMark, stepNumStr,
+		lineCore := fmt.Sprintf("%s%s %s %s %s%s",
+			cursorMark, levelMark, stepNumStr, stepSep,
 			actionStyle.Render(actionText), summaryPart)
 		parts := []string{lineCore}
 		if showDuration {

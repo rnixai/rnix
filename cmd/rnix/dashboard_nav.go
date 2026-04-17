@@ -370,15 +370,17 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		// Semantic tool aggregation group toggle (Story 36.3 AC#4)
 		if key == "enter" && len(filteredStep) <= 100 {
 			filtered := m.filteredUnifiedEvents()
-			aggGroups := buildToolAggGroups(filtered)
-			cursorPos := min(m.stepCursor, len(filtered)-1)
-			for _, g := range aggGroups {
-				if cursorPos >= g.startIdx && cursorPos < g.endIdx {
-					if m.expandedAggGroups == nil {
-						m.expandedAggGroups = make(map[int]bool)
+			if len(filtered) > 0 {
+				aggGroups := buildToolAggGroups(filtered)
+				cursorPos := min(m.stepCursor, len(filtered)-1)
+				for _, g := range aggGroups {
+					if cursorPos >= g.startIdx && cursorPos < g.endIdx {
+						if m.expandedAggGroups == nil {
+							m.expandedAggGroups = make(map[int]bool)
+						}
+						m.expandedAggGroups[g.stepNums[0]] = !m.expandedAggGroups[g.stepNums[0]]
+						return m, nil
 					}
-					m.expandedAggGroups[g.stepNums[0]] = !m.expandedAggGroups[g.stepNums[0]]
-					return m, nil
 				}
 			}
 		}

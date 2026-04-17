@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/rnixai/rnix/ipc"
 )
 
@@ -389,8 +390,8 @@ func TestATDD_36_3_ShortenArgs_LongInput(t *testing.T) {
 	input := "this is a very long argument string that should be truncated at the specified maximum length"
 	result := shortenArgs(input, 20)
 
-	if len(result) > 25 { // allow for multi-byte truncation char
-		t.Errorf("shortenArgs: result too long, got %d chars: %q", len(result), result)
+	if runewidth.StringWidth(result) > 20 {
+		t.Errorf("shortenArgs: result rune-width %d exceeds maxLen 20: %q", runewidth.StringWidth(result), result)
 	}
 	if !strings.Contains(result, "…") {
 		t.Errorf("shortenArgs: truncated result should contain ellipsis, got: %q", result)
