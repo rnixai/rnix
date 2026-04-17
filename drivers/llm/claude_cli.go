@@ -266,12 +266,17 @@ type claudeContentBlock struct {
 }
 
 // Stream executes a streaming LLM request via the Claude Code CLI.
+//
+// Timeout semantics (see streamtimeout.go): the timeout value applies as an
+// idle timeout — cancelled only when no event flows from the claude subprocess
+// for `timeout`. Long agent loops with steady event output will not be killed
+// by wall-clock.
 func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan StreamEvent, error) {
 	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = d.defaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, idle, cancel := NewIdleTimer(ctx, timeout)
 
 	args, sysPromptFile, err := d.buildArgs(req, "stream-json")
 	if err != nil {
@@ -313,6 +318,7 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 		scanner := newStreamScanner(stdoutPipe)
 		for scanner.Scan() {
+			idle.Reset()
 			line := scanner.Bytes()
 			if len(line) == 0 {
 				continue

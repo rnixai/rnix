@@ -461,7 +461,8 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 	if timeout <= 0 {
 		timeout = d.defaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// Timeout applies as an idle timeout on the SSE stream (see streamtimeout.go).
+	ctx, idle, cancel := NewIdleTimer(ctx, timeout)
 
 	oaiReq, err := d.buildOAIRequest(req, true, tools)
 	if err != nil {
@@ -471,7 +472,7 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 	resp, err := d.doHTTP(ctx, oaiReq)
 	if err != nil {
 		cancel()
-		if ctx.Err() == context.DeadlineExceeded {
+		if IsStreamTimeout(ctx) {
 			return nil, NewLLMError(d.name, 0, ErrTimeout)
 		}
 		return nil, fmt.Errorf("http request failed: %w", err)
@@ -497,6 +498,7 @@ func (d *OpenAICompatDriver) streamInternal(ctx context.Context, req LLMRequest,
 		var lastUsage *oaiUsage
 
 		for scanner.Scan() {
+			idle.Reset()
 			line := scanner.Text()
 			if line == "" || !strings.HasPrefix(line, "data: ") {
 				continue

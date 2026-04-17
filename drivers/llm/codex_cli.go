@@ -159,12 +159,17 @@ func (d *CodexCliDriver) Call(ctx context.Context, req LLMRequest) (*LLMResponse
 }
 
 // Stream executes a streaming LLM request via the Codex CLI with --json output.
+//
+// Timeout semantics (see streamtimeout.go): the timeout value applies as an
+// idle timeout — the context is cancelled only when no event flows from the
+// codex subprocess for `timeout`. Long agent loops that continuously emit
+// tool calls and messages will NOT be killed by wall-clock elapsed time.
 func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan StreamEvent, error) {
 	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = d.defaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, idle, cancel := NewIdleTimer(ctx, timeout)
 
 	args := d.buildArgs(req, true)
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
@@ -199,6 +204,7 @@ func (d *CodexCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan Str
 
 		scanner := newStreamScanner(stdoutPipe)
 		for scanner.Scan() {
+			idle.Reset()
 			line := scanner.Bytes()
 			if len(line) == 0 {
 				continue

@@ -316,7 +316,8 @@ func (d *AnthropicDriver) streamInternal(ctx context.Context, req LLMRequest, to
 	if timeout <= 0 {
 		timeout = d.defaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// Timeout applies as an idle timeout on the SSE event stream (see streamtimeout.go).
+	ctx, idle, cancel := NewIdleTimer(ctx, timeout)
 
 	params := d.buildParams(req, tools)
 	stream := d.client.Messages.NewStreaming(ctx, params)
@@ -331,6 +332,7 @@ func (d *AnthropicDriver) streamInternal(ctx context.Context, req LLMRequest, to
 		acc := anthropic.Message{}
 
 		for stream.Next() {
+			idle.Reset()
 			event := stream.Current()
 			if err := acc.Accumulate(event); err != nil {
 				log.Printf("[llm] anthropic [%s]: accumulate error: %v", d.name, err)

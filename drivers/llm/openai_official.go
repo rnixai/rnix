@@ -301,7 +301,8 @@ func (d *OpenAIDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 	if timeout <= 0 {
 		timeout = d.defaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// Timeout applies as an idle timeout on the SSE stream (see streamtimeout.go).
+	ctx, idle, cancel := NewIdleTimer(ctx, timeout)
 
 	params := d.buildParams(req, tools)
 	if d.streamUsage {
@@ -322,6 +323,7 @@ func (d *OpenAIDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 		acc := openai.ChatCompletionAccumulator{}
 
 		for stream.Next() {
+			idle.Reset()
 			chunk := stream.Current()
 			acc.AddChunk(chunk)
 

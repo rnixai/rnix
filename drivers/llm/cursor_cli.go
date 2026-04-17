@@ -172,12 +172,15 @@ type cursorStreamEvent struct {
 }
 
 // Stream executes a streaming LLM request via the Cursor CLI.
+//
+// Timeout semantics (see streamtimeout.go): timeout is interpreted as an idle
+// timeout on the subprocess event stream, not as wall-clock.
 func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan StreamEvent, error) {
 	timeout := time.Duration(req.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = d.defaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, idle, cancel := NewIdleTimer(ctx, timeout)
 
 	args := d.buildArgs(req, "stream-json")
 	cmd := d.cmdBuilder(ctx, d.cliCommand, args...)
@@ -203,6 +206,7 @@ func (d *CursorCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 		scanner := newStreamScanner(stdoutPipe)
 		for scanner.Scan() {
+			idle.Reset()
 			line := scanner.Bytes()
 			if len(line) == 0 {
 				continue

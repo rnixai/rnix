@@ -315,7 +315,8 @@ func (d *GeminiDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 	if timeout <= 0 {
 		timeout = d.defaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	// Timeout applies as an idle timeout on the stream iterator (see streamtimeout.go).
+	ctx, idle, cancel := NewIdleTimer(ctx, timeout)
 
 	client, err := d.newClient(ctx)
 	if err != nil {
@@ -343,9 +344,10 @@ func (d *GeminiDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 			d.buildContents(req),
 			d.buildConfig(req, tools),
 		) {
+			idle.Reset()
 			if err != nil {
 				var llmErr error
-				if ctx.Err() == context.DeadlineExceeded {
+				if IsStreamTimeout(ctx) {
 					llmErr = NewLLMError(d.name, 0, ErrTimeout)
 				} else {
 					llmErr = d.classifyError(err)
