@@ -367,6 +367,22 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			return m, nil
 		}
 
+		// Semantic tool aggregation group toggle (Story 36.3 AC#4)
+		if key == "enter" && len(filteredStep) <= 100 {
+			filtered := m.filteredUnifiedEvents()
+			aggGroups := buildToolAggGroups(filtered)
+			cursorPos := min(m.stepCursor, len(filtered)-1)
+			for _, g := range aggGroups {
+				if cursorPos >= g.startIdx && cursorPos < g.endIdx {
+					if m.expandedAggGroups == nil {
+						m.expandedAggGroups = make(map[int]bool)
+					}
+					m.expandedAggGroups[g.stepNums[0]] = !m.expandedAggGroups[g.stepNums[0]]
+					return m, nil
+				}
+			}
+		}
+
 		idx := m.resolveStepIndex()
 		if idx >= 0 && idx < len(m.stepEntries) {
 			// V (Shift+V) → Level 3 debug toggle — MUST be before v check

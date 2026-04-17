@@ -57,6 +57,92 @@ func actionAbbrev(action string) string {
 	}
 }
 
+// timelineAggThreshold is the minimum consecutive steps with the same ToolPath
+// required to trigger semantic aggregation (non-bulk mode, <100 steps).
+const timelineAggThreshold = 3
+
+// toolAggGroup represents a consecutive run of steps sharing the same ToolPath.
+type toolAggGroup struct {
+	startIdx int    // index in filtered unified events
+	endIdx   int    // exclusive
+	toolPath string // shared ToolPath for the group
+	stepNums []int  // step numbers for display
+}
+
+// buildToolAggGroups scans unified events and identifies consecutive runs of
+// step events with the same ToolPath that meet the aggregation threshold.
+func buildToolAggGroups(events []UnifiedEvent) []toolAggGroup {
+	var groups []toolAggGroup
+	n := len(events)
+	i := 0
+	for i < n {
+		ev := events[i]
+		if ev.StepEntry == nil || ev.StepEntry.summary.ToolPath == "" {
+			i++
+			continue
+		}
+		tp := ev.StepEntry.summary.ToolPath
+		runStart := i
+		var stepNums []int
+		stepNums = append(stepNums, ev.StepEntry.summary.Step)
+		j := i + 1
+		for j < n {
+			ej := events[j]
+			if ej.StepEntry == nil || ej.StepEntry.summary.ToolPath != tp {
+				break
+			}
+			stepNums = append(stepNums, ej.StepEntry.summary.Step)
+			j++
+		}
+		if len(stepNums) >= timelineAggThreshold {
+			groups = append(groups, toolAggGroup{
+				startIdx: runStart,
+				endIdx:   j,
+				toolPath: tp,
+				stepNums: stepNums,
+			})
+		}
+		i = j
+	}
+	return groups
+}
+
+// shortenArgs takes the first line of input and truncates to maxLen rune-width.
+func shortenArgs(input string, maxLen int) string {
+	line, _, _ := strings.Cut(input, "\n")
+	if runewidth.StringWidth(line) > maxLen {
+		return runewidth.Truncate(line, maxLen-1, "…")
+	}
+	return line
+}
+
+// formatDefaultLine derives the display action and summary for a timeline step.
+// When detail is available, it uses the richer fields; otherwise falls back to
+// StepSummaryWire fields.
+func formatDefaultLine(s ipc.StepSummaryWire, detail *ipc.GetStepDetailResponse) (action, summary string) {
+	if detail != nil {
+		action = detail.Action
+		if detail.ToolPath != "" {
+			action = detail.ToolPath
+		}
+		summary = detail.Summary
+		if summary == "" && detail.ToolInput != "" {
+			summary = shortenArgs(detail.ToolInput, 60)
+		}
+	}
+	// Fallback: use StepSummaryWire fields
+	if action == "" {
+		action = s.Action
+		if s.ToolPath != "" {
+			action = s.ToolPath
+		}
+	}
+	if summary == "" {
+		summary = s.Summary
+	}
+	return action, summary
+}
+
 // sysEventStyle returns a lipgloss style for a system event type.
 func sysEventStyle(ev UnifiedEvent) lipgloss.Style {
 	switch ev.Type {
@@ -547,6 +633,23 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		return b.String()
 	}
 
+	// Build semantic tool aggregation groups for non-bulk mode
+	aggGroups := buildToolAggGroups(filtered)
+	// Map: filtered index → group pointer (for startIdx of each group)
+	aggGroupByStart := make(map[int]*toolAggGroup, len(aggGroups))
+	// Set of filtered indices that belong to a collapsed group (non-start)
+	aggSkipSet := make(map[int]bool)
+	for i := range aggGroups {
+		g := &aggGroups[i]
+		aggGroupByStart[g.startIdx] = g
+		expanded := m.expandedAggGroups[g.stepNums[0]]
+		if !expanded {
+			for fi := g.startIdx + 1; fi < g.endIdx; fi++ {
+				aggSkipSet[fi] = true
+			}
+		}
+	}
+
 	for fi := startIdx; fi < endIdx && linesUsed < listLines; fi++ {
 		ev := filtered[fi]
 
@@ -585,13 +688,122 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			continue
 		}
 
-		// Step event: full Level 1/2/3 rendering (existing logic)
+		// Semantic tool aggregation: skip items inside collapsed groups
+		if aggSkipSet[fi] {
+			continue
+		}
+
+		// Semantic tool aggregation: render group header at startIdx
+		if g, ok := aggGroupByStart[fi]; ok {
+			expanded := m.expandedAggGroups[g.stepNums[0]]
+			cursorInGroup := m.stepCursor >= g.startIdx && m.stepCursor < g.endIdx
+
+			if !expanded {
+				// Collapsed group header line
+				cursorMark := "  "
+				if cursorInGroup {
+					cursorMark = "▸ "
+				}
+				dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+				marker := "▼"
+				if ui.IsASCIIMode() {
+					marker = "v"
+				}
+
+				// Calculate avg duration
+				var totalDur float64
+				for idx := g.startIdx; idx < g.endIdx; idx++ {
+					if filtered[idx].StepEntry != nil {
+						totalDur += filtered[idx].StepEntry.summary.DurationMs
+					}
+				}
+				avgDur := totalDur / float64(len(g.stepNums))
+				avgLabel := formatTimelineDuration(avgDur)
+
+				headerLine := fmt.Sprintf("%s%s %d–%d ▸ %s × %d  avg %s",
+					cursorMark, marker,
+					g.stepNums[0], g.stepNums[len(g.stepNums)-1],
+					g.toolPath, len(g.stepNums), avgLabel)
+
+				// Add offset range if available
+				if showStepOffset {
+					var startOff, endOff string
+					for _, p := range m.processes {
+						if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
+							if !p.CreatedAt.IsZero() {
+								startEv := filtered[g.startIdx]
+								endEv := filtered[g.endIdx-1]
+								if !startEv.Timestamp.IsZero() {
+									startOff = ui.FormatOffsetFromStart(startEv.Timestamp.Sub(p.CreatedAt))
+								}
+								if !endEv.Timestamp.IsZero() {
+									endOff = ui.FormatOffsetFromStart(endEv.Timestamp.Sub(p.CreatedAt))
+								}
+							}
+							break
+						}
+					}
+					if startOff != "" && endOff != "" {
+						headerLine += dimStyle.Render(fmt.Sprintf("  %s–%s", startOff, endOff))
+					}
+				}
+
+				if cursorInGroup {
+					headerLine = lipgloss.NewStyle().
+						Background(lipgloss.Color("#2D2D3D")).
+						Foreground(lipgloss.Color("#FFFFFF")).
+						Render(headerLine)
+				}
+
+				b.WriteString(truncateAnsi(headerLine, truncW))
+				b.WriteString("\n")
+				linesUsed++
+				// Skip to end of group (startIdx handled, rest in aggSkipSet)
+				continue
+			}
+			// Expanded group: render header then fall through to individual steps
+			dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+			marker := "▽"
+			if ui.IsASCIIMode() {
+				marker = "V"
+			}
+			expandHeader := fmt.Sprintf("  %s %d–%d ▸ %s × %d",
+				marker,
+				g.stepNums[0], g.stepNums[len(g.stepNums)-1],
+				g.toolPath, len(g.stepNums))
+			b.WriteString(dimStyle.Render(expandHeader))
+			b.WriteString("\n")
+			linesUsed++
+			if linesUsed >= listLines {
+				continue
+			}
+			// Fall through to render individual steps below (they are not in aggSkipSet when expanded)
+		}
+
+		// Step event: full Level 1/2/3 rendering
 		entry := ev.StepEntry
 		s := entry.summary
 
+		// Check if this step is inside an expanded aggregation group (needs indent)
+		inExpandedGroup := false
+		for i := range aggGroups {
+			g := &aggGroups[i]
+			if fi > g.startIdx && fi < g.endIdx && m.expandedAggGroups[g.stepNums[0]] {
+				inExpandedGroup = true
+				break
+			}
+		}
+
 		cursorMark := "  "
+		if inExpandedGroup {
+			cursorMark = "    " // 4-char indent for sub-steps
+		}
 		if fi == m.stepCursor {
-			cursorMark = "▸ "
+			if inExpandedGroup {
+				cursorMark = "  ▸ "
+			} else {
+				cursorMark = "▸ "
+			}
 		}
 
 		levelMark := " "
@@ -608,16 +820,10 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 
-		stepAction := dimStyle.Render(fmt.Sprintf("%d %s", s.Step, actionAbbrev(s.Action)))
-
-		var tokenLabel string
-		if showToken {
-			if s.TokenCount == 0 {
-				tokenLabel = dimStyle.Render("    —")
-			} else {
-				tokenLabel = dimStyle.Render(fmt.Sprintf("%5s", formatTokenCount(s.TokenCount)))
-			}
-		}
+		// New layout: step# ▸ action · summary  duration  +relTime
+		detail := m.stepDetailCache[s.Step]
+		actionText, summaryText := formatDefaultLine(s, detail)
+		stepNumStr := fmt.Sprintf("%d", s.Step)
 
 		var durLabel string
 		if showDuration {
@@ -651,30 +857,36 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
 		}
 
-		displaySummary := s.Summary
-		if s.ToolPath != "" && len(s.Summary) < 8 {
-			displaySummary = s.ToolPath
-		}
-		fixedWidth := 2 + 1 + 1 + 5
-		if showToken {
-			fixedWidth += 6
+		// Calculate available width for summary
+		// Fixed parts: cursor(2) + levelMark(1) + space(1) + step#(len) + " ▸ "(3) + action(len)
+		actionW := runewidth.StringWidth(actionText)
+		stepNumW := utf8.RuneCountInString(stepNumStr)
+		fixedWidth := 2 + 1 + 1 + stepNumW + 3 + actionW
+		if summaryText != "" {
+			fixedWidth += 3 // " · " separator
 		}
 		if showDuration {
-			fixedWidth += 7
+			fixedWidth += 7 // space + 6-char duration
 		}
 		if offsetLabel != "" {
-			fixedWidth += 9
+			fixedWidth += 9 // space + 8-char offset
 		}
 		if hasError {
 			fixedWidth += 2
 		}
-		summaryW := max(truncW-fixedWidth, 10)
-		summaryText := truncateRuneWidth(displaySummary, summaryW)
+
+		summaryW := max(truncW-fixedWidth, 0)
+		var summaryPart string
+		if summaryW >= 10 && summaryText != "" {
+			summaryPart = " · " + truncateRuneWidth(summaryText, summaryW)
+		} else if summaryW > 0 && summaryText != "" {
+			summaryPart = " · " + truncateRuneWidth(summaryText, summaryW)
+		}
 
 		if hasError && width >= 80 {
 			if cached := m.stepDetailCache[s.Step]; cached != nil && cached.ToolError != "" {
 				errLine := strings.SplitN(cached.ToolError, "\n", 2)[0]
-				errPreviewW := max(truncW-fixedWidth-runewidth.StringWidth(summaryText)-4, 10)
+				errPreviewW := max(summaryW-runewidth.StringWidth(summaryPart)-2, 10)
 				if runewidth.StringWidth(errLine) > errPreviewW {
 					errLine = runewidth.Truncate(errLine, errPreviewW-1, "…")
 				}
@@ -683,18 +895,20 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			}
 		}
 
+		// Build line: cursorMark levelMark step# ▸ action[· summary] [duration] [+offset] [errMark]
+		actionStyle := lipgloss.NewStyle().Foreground(actionColor(s.Action))
 		var line string
-		parts := []string{cursorMark, levelMark, summaryText}
+		lineCore := fmt.Sprintf("%s%s %s ▸ %s%s",
+			cursorMark, levelMark, stepNumStr,
+			actionStyle.Render(actionText), summaryPart)
+		parts := []string{lineCore}
+		if showDuration {
+			parts = append(parts, durLabel)
+		}
 		if offsetLabel != "" {
 			parts = append(parts, offsetLabel)
 		}
-		if showDuration {
-			parts = append(parts, tokenLabel, durLabel, stepAction, errMark)
-		} else if showToken {
-			parts = append(parts, tokenLabel, stepAction, errMark)
-		} else {
-			parts = append(parts, stepAction, errMark)
-		}
+		parts = append(parts, errMark)
 		line = strings.Join(parts, " ")
 
 		if hasError {
@@ -712,12 +926,12 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 		// Level 2: Expanded detail
 		if entry.level >= levelExpanded && linesUsed < listLines {
-			detail := m.stepDetailCache[s.Step]
-			if detail == nil {
+			expandDetail := m.stepDetailCache[s.Step]
+			if expandDetail == nil {
 				b.WriteString(dimStyle.Render("   ┊ Loading…") + "\n")
 				linesUsed++
 			} else {
-				linesUsed += m.renderExpandedDetail(&b, detail, s, truncW, listLines-linesUsed)
+				linesUsed += m.renderExpandedDetail(&b, expandDetail, s, truncW, listLines-linesUsed)
 			}
 		}
 
