@@ -403,6 +403,8 @@ func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
 		if len(runes) > 0 {
 			m.searchQuery = string(runes[:len(runes)-1])
 		}
+	case " ", "space":
+		m.searchQuery += " "
 	default:
 		if len([]rune(key)) == 1 {
 			m.searchQuery += key

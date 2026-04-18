@@ -41,6 +41,12 @@ func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
 	m.inspectorLens = lensConversation
 	m.inspectorFetching = false
 	m.inspectorSystemExpanded = false
+	// Story 36-5 fix: reset cross-pane search state when entering Inspector to
+	// avoid stale searchQuery carried over from Timeline.
+	m.searchMode = false
+	m.searchQuery = ""
+	m.searchMatches = nil
+	m.searchMatchIdx = 0
 
 	contentH := m.inspectorContentHeight()
 	for i := range m.inspectorViewports {
@@ -274,6 +280,9 @@ func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd
 		if len(runes) > 0 {
 			m.searchQuery = string(runes[:len(runes)-1])
 		}
+		return m, nil
+	case " ", "space":
+		m.searchQuery += " "
 		return m, nil
 	default:
 		if len([]rune(key)) == 1 {
@@ -537,7 +546,11 @@ func (m *dashboardModel) rebuildInspectorContents() {
 		}
 		m.inspectorContents[i] = content
 		m.inspectorViewports[i].SetContent(content)
-		m.inspectorViewports[i].GotoTop()
+		// Story 36-5 fix: only reset scroll on the active lens; preserve per-lens
+		// scroll position on other lenses (Story 36-1 invariant).
+		if inspectorLens(i) == m.inspectorLens {
+			m.inspectorViewports[i].GotoTop()
+		}
 	}
 }
 

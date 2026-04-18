@@ -31,7 +31,7 @@ func (m dashboardModel) renderHelpOverlay() string {
 	var left, right strings.Builder
 
 	// Left column
-	left.WriteString(groupTitle.Render("Navigation") + dimStyle.Render(" (applies to all scrollable panes)") + "\n")
+	left.WriteString(groupTitle.Render("Navigation") + dimStyle.Render(" (all scrollable panes, except Security)") + "\n")
 	left.WriteString(entry("j/k", "Move up / down") + "\n")
 	left.WriteString(entry("PgDn/Up", "Page down / up") + "\n")
 	left.WriteString(entry("Ctrl-d/u", "Half page down / up") + "\n")
