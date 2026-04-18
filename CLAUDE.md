@@ -6,10 +6,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Rnix is an operating system for AI agents, inspired by Unix design philosophy. It provides process management, a virtual filesystem (VFS), IPC via Unix domain sockets, multi-agent orchestration, intent decomposition, and debugging tools. Written in Go 1.26, module `github.com/rnixai/rnix`.
 
-## 子代理
-
-所有子代理的创建，都要明确继承使用创建者相同的模型，默认是 `opus[1m]`
-
 ## Build & Development Commands
 
 每次会话的编码工作完成后，要运行一次 `make all` 检查是否有错误需要修复。

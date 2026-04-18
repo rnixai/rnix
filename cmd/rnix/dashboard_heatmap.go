@@ -239,16 +239,11 @@ func (m dashboardModel) handleHeatmapPIDChange() dashboardModel {
 }
 
 func (m dashboardModel) handleHeatmapKey(key string) dashboardModel {
-	switch key {
-	case "up", "k":
-		if m.heatmapCursor > 0 {
-			m.heatmapCursor--
-		}
-	case "down", "j":
-		if m.heatmapCursor < len(m.heatmapSegments)-1 {
-			m.heatmapCursor++
-		}
-	case "enter":
+	// Story 36-5: 统一导航键集合（补齐 pgdn/pgup/ctrl+d/u/g/G/home/end）
+	if ui.HandleListKey(key, nil, &m.heatmapCursor, len(m.heatmapSegments), ui.ListNavOpts{PageSize: 8}) {
+		return m
+	}
+	if key == "enter" {
 		m.heatmapExpanded = !m.heatmapExpanded
 	}
 	return m

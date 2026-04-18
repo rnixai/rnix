@@ -234,29 +234,39 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	if m.stepFilterMode {
 		return m.handleStepFilterKey(key)
 	}
+	// Story 36-5: search input mode for Timeline
+	if m.searchMode {
+		return m.handleTimelineSearchKey(key)
+	}
 	filtered := m.filteredUnifiedEvents()
+	// Story 36-5: 统一导航键集合
+	pageSize := max(m.dashboardVisibleLines()-4, 1)
+	// itemCount: prefer filtered view; fall back to stepEntries so cursor
+	// movement still works in tests / early frames before unified events are built.
+	itemCount := len(filtered)
+	if itemCount == 0 {
+		itemCount = len(m.stepEntries)
+	}
+	navOpts := ui.ListNavOpts{
+		PageSize: pageSize,
+		OnCursorChange: func(int) {
+			m.ensureStepCursorVisible(pageSize)
+		},
+	}
+	if ui.HandleListKey(key, nil, &m.stepCursor, itemCount, navOpts) {
+		// g/home 额外重置 stepScrollTop（与 Tree 对齐）
+		if key == "g" || key == "home" {
+			m.stepScrollTop = 0
+		}
+		m.ensureStepCursorVisible(pageSize)
+		return m
+	}
 	switch key {
-	case "up", "k":
-		if m.stepCursor > 0 {
-			m.stepCursor--
-		}
-	case "down", "j":
-		if m.stepCursor < len(filtered)-1 {
-			m.stepCursor++
-		}
-	case "pgdown":
-		pageSize := max(m.dashboardVisibleLines()-4, 1)
-		m.stepCursor = min(m.stepCursor+pageSize, max(len(filtered)-1, 0))
-	case "pgup":
-		pageSize := max(m.dashboardVisibleLines()-4, 1)
-		m.stepCursor = max(m.stepCursor-pageSize, 0)
-	case "home", "g":
-		m.stepCursor = 0
-		m.stepScrollTop = 0
-	case "end", "G", "shift+G":
-		if len(filtered) > 0 {
-			m.stepCursor = len(filtered) - 1
-		}
+	case "/":
+		// Story 36-5: enter search input mode (Timeline).
+		m.searchMode = true
+		m.searchQuery = ""
+		return m
 	case "f":
 		m.stepFilterMode = true
 		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
@@ -353,6 +363,51 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		}
 	}
 	m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
+	return m
+}
+
+// handleTimelineSearchKey handles search input in Timeline. Story 36-5 AC-12.
+func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
+	switch key {
+	case "esc":
+		m.searchMode = false
+		m.searchQuery = ""
+	case "enter":
+		m.searchMode = false
+		if m.searchQuery == "" {
+			return m
+		}
+		// Find first event whose summary/action/detail contains the query (case-insensitive).
+		q := strings.ToLower(m.searchQuery)
+		filtered := m.filteredUnifiedEvents()
+		found := -1
+		for i, ev := range filtered {
+			hay := strings.ToLower(ev.Summary + " " + ev.Detail)
+			if ev.StepEntry != nil {
+				hay += " " + strings.ToLower(ev.StepEntry.summary.Action+" "+ev.StepEntry.summary.Summary+" "+ev.StepEntry.summary.ToolPath)
+			}
+			if strings.Contains(hay, q) {
+				found = i
+				break
+			}
+		}
+		if found < 0 {
+			m.statusMsg = fmt.Sprintf("No matches for %q", m.searchQuery)
+			m.statusMsgTTL = statusMsgDefaultTTL
+			return m
+		}
+		m.stepCursor = found
+		m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
+	case "backspace":
+		runes := []rune(m.searchQuery)
+		if len(runes) > 0 {
+			m.searchQuery = string(runes[:len(runes)-1])
+		}
+	default:
+		if len([]rune(key)) == 1 {
+			m.searchQuery += key
+		}
+	}
 	return m
 }
 

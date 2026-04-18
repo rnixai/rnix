@@ -106,10 +106,23 @@ func fetchInspectorDetailCmd(pid types.PID, uuid string, step int) tea.Cmd {
 func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// Story 36-5: search mode input handling takes priority.
+	if m.searchMode {
+		return m.handleInspectorSearchKey(key)
+	}
+
 	switch key {
 	case "q":
 		return m, tea.Quit
 	case "esc":
+		// Clear active search highlights before closing
+		if m.searchQuery != "" {
+			m.searchQuery = ""
+			m.searchMatches = nil
+			m.searchMatchIdx = 0
+			m.rebuildInspectorContents()
+			return m, nil
+		}
 		m.viewMode = m.inspectorPrevMode
 		return m, nil
 
@@ -203,13 +216,96 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.inspectorViewports[lens], cmd = m.inspectorViewports[lens].Update(msg)
 		return m, cmd
 
+	// Story 36-5: Search entry for Conversation / Tool I/O / System / Meta / Raw lenses
+	case "/":
+		m.searchMode = true
+		m.searchQuery = ""
+		m.searchMatches = nil
+		m.searchMatchIdx = 0
+		return m, nil
+
+	// Story 36-5: Cycle through current search matches
+	case "n":
+		return m.inspectorJumpSearchMatch(1), nil
+	case "N", "shift+N":
+		return m.inspectorJumpSearchMatch(-1), nil
+
 	default:
-		// j/k/PgUp/PgDn → current lens viewport scroll
+		// Story 36-5: j/k/PgUp/PgDn/Ctrl-d/u/g/G/home/end → viewport scroll.
+		// Uses HandleListKey so behaviour matches other panes; falls back to
+		// viewport.Update for any keys we don't recognise (e.g. mouse events).
 		lens := m.inspectorLens
+		vp := m.inspectorViewports[lens]
+		if ui.HandleListKey(key, &vp, nil, 0, ui.ListNavOpts{}) {
+			m.inspectorViewports[lens] = vp
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.inspectorViewports[lens], cmd = m.inspectorViewports[lens].Update(msg)
 		return m, cmd
 	}
+}
+
+// handleInspectorSearchKey handles keystrokes while the Inspector is in
+// search-input mode. Story 36-5 AC-12.
+func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.searchMode = false
+		m.searchQuery = ""
+		m.searchMatches = nil
+		m.searchMatchIdx = 0
+		m.rebuildInspectorContents()
+		return m, nil
+	case "enter":
+		m.searchMode = false
+		m.refreshInspectorSearchMatches()
+		if len(m.searchMatches) == 0 {
+			m.statusMsg = fmt.Sprintf("No matches for %q", m.searchQuery)
+			m.statusMsgTTL = statusMsgDefaultTTL
+			return m, nil
+		}
+		m.searchMatchIdx = 0
+		m.rebuildInspectorContents()
+		m.scrollInspectorToCurrentMatch()
+		return m, nil
+	case "backspace":
+		runes := []rune(m.searchQuery)
+		if len(runes) > 0 {
+			m.searchQuery = string(runes[:len(runes)-1])
+		}
+		return m, nil
+	default:
+		if len([]rune(key)) == 1 {
+			m.searchQuery += key
+		}
+		return m, nil
+	}
+}
+
+func (m *dashboardModel) refreshInspectorSearchMatches() {
+	content := m.inspectorContents[m.inspectorLens]
+	m.searchMatches = ui.FindMatches(content, m.searchQuery)
+}
+
+func (m dashboardModel) inspectorJumpSearchMatch(dir int) dashboardModel {
+	if len(m.searchMatches) == 0 {
+		return m
+	}
+	n := len(m.searchMatches)
+	m.searchMatchIdx = ((m.searchMatchIdx + dir) % n + n) % n
+	m.scrollInspectorToCurrentMatch()
+	return m
+}
+
+func (m *dashboardModel) scrollInspectorToCurrentMatch() {
+	if len(m.searchMatches) == 0 {
+		return
+	}
+	line := m.searchMatches[m.searchMatchIdx]
+	vp := m.inspectorViewports[m.inspectorLens]
+	vp.SetYOffset(line)
+	m.inspectorViewports[m.inspectorLens] = vp
 }
 
 func (m dashboardModel) switchInspectorLens(lens inspectorLens) dashboardModel {
@@ -409,13 +505,36 @@ func (m dashboardModel) renderLensTabs(w int) string {
 // renderInspectorFooter renders the bottom shortcut hints.
 func (m dashboardModel) renderInspectorFooter() string {
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	return dimStyle.Render(" h/l step · 1-5 lens · j/k scroll · y copy · o open · Esc back")
+	// Story 36-5: search overlay takes over the footer while active.
+	if m.searchMode {
+		return fmt.Sprintf(" Search: %s_", m.searchQuery)
+	}
+	if m.searchQuery != "" && len(m.searchMatches) > 0 {
+		return dimStyle.Render(fmt.Sprintf(" /%s  [%d/%d]  n/N next/prev · Esc clear",
+			m.searchQuery, m.searchMatchIdx+1, len(m.searchMatches)))
+	}
+	return dimStyle.Render(" h/l step · 1-5 lens · j/k scroll · / search · y copy · o open · Esc back")
 }
 
 // rebuildInspectorContents rebuilds all lens content from the current detail.
 func (m *dashboardModel) rebuildInspectorContents() {
+	reverse := lipgloss.NewStyle().Reverse(true)
 	for i := range inspectorLensCount {
 		content := m.buildLensContent(inspectorLens(i), m.inspectorDetail, m.inspectorPrevDetail)
+		// Story 36-5: Apply reverse-video highlight to matched lines for the active lens.
+		if inspectorLens(i) == m.inspectorLens && m.searchQuery != "" {
+			lines := strings.Split(content, "\n")
+			matchSet := make(map[int]struct{}, len(m.searchMatches))
+			for _, ln := range m.searchMatches {
+				matchSet[ln] = struct{}{}
+			}
+			for idx, line := range lines {
+				if _, ok := matchSet[idx]; ok {
+					lines[idx] = reverse.Render(line)
+				}
+			}
+			content = strings.Join(lines, "\n")
+		}
 		m.inspectorContents[i] = content
 		m.inspectorViewports[i].SetContent(content)
 		m.inspectorViewports[i].GotoTop()

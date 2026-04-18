@@ -103,6 +103,12 @@ type dashboardModel struct {
 	inspectorFetching       bool
 	inspectorSystemExpanded bool
 
+	// Story 36-5: Universal search state (Inspector + Timeline)
+	searchMode     bool
+	searchQuery    string
+	searchMatches  []int
+	searchMatchIdx int
+
 	// Story 36-4: Timeline 排序方向 & expandMode 粘性
 	timelineSortAsc          bool               // true=旧→新（底部最新），session 内持久
 	expandMode               timelineExpandMode // 按进程作用域，切 PID 时重置为 collapsed

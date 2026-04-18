@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
 )
 
 // =============================================================================
@@ -434,65 +435,31 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		}
 		prevPID := m.selectedPID
 		visibleLines := m.dashboardVisibleLines()
+		// Story 36-5: 六方向导航统一走 HandleListKey
+		navOpts := ui.ListNavOpts{
+			PageSize: max(visibleLines-1, 1),
+			OnCursorChange: func(newCursor int) {
+				m.userManualSelect = true // AC5
+				if newCursor < len(m.treeRows) {
+					m = selectProcess(m, m.treeRows[newCursor])
+				}
+				if newCursor < m.treeOffset {
+					m.treeOffset = newCursor
+				}
+				if visibleLines > 0 && newCursor >= m.treeOffset+visibleLines {
+					m.treeOffset = newCursor - visibleLines + 1
+				}
+			},
+		}
+		if ui.HandleListKey(key, nil, &m.treeCursor, len(m.treeRows), navOpts) {
+			m.userManualSelect = true // AC5
+			if m.selectedPID != prevPID {
+				m2, cmd := m.handlePIDChange()
+				return m2, cmd
+			}
+			return m, nil
+		}
 		switch key {
-		case "up", "k":
-			m.userManualSelect = true // AC5
-			if m.treeCursor > 0 {
-				m.treeCursor--
-				if m.treeCursor < len(m.treeRows) {
-					m = selectProcess(m, m.treeRows[m.treeCursor])
-				}
-				if m.treeCursor < m.treeOffset {
-					m.treeOffset = m.treeCursor
-				}
-			}
-		case "down", "j":
-			m.userManualSelect = true // AC5
-			if m.treeCursor < len(m.treeRows)-1 {
-				m.treeCursor++
-				if m.treeCursor < len(m.treeRows) {
-					m = selectProcess(m, m.treeRows[m.treeCursor])
-				}
-				if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
-					m.treeOffset = m.treeCursor - visibleLines + 1
-				}
-			}
-		case "pgdown":
-			m.userManualSelect = true // AC5
-			jump := max(visibleLines-1, 1)
-			m.treeCursor = min(m.treeCursor+jump, len(m.treeRows)-1)
-			if m.treeCursor < len(m.treeRows) {
-				m = selectProcess(m, m.treeRows[m.treeCursor])
-			}
-			if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
-				m.treeOffset = m.treeCursor - visibleLines + 1
-			}
-		case "pgup":
-			m.userManualSelect = true // AC5
-			jump := max(visibleLines-1, 1)
-			m.treeCursor = max(m.treeCursor-jump, 0)
-			if m.treeCursor < len(m.treeRows) {
-				m = selectProcess(m, m.treeRows[m.treeCursor])
-			}
-			if m.treeCursor < m.treeOffset {
-				m.treeOffset = m.treeCursor
-			}
-		case "home", "g":
-			m.userManualSelect = true // AC5
-			m.treeCursor = 0
-			m.treeOffset = 0
-			if len(m.treeRows) > 0 {
-				m = selectProcess(m, m.treeRows[0])
-			}
-		case "end", "G", "shift+G":
-			m.userManualSelect = true // AC5
-			if len(m.treeRows) > 0 {
-				m.treeCursor = len(m.treeRows) - 1
-				m = selectProcess(m, m.treeRows[m.treeCursor])
-				if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
-					m.treeOffset = m.treeCursor - visibleLines + 1
-				}
-			}
 		case "enter", " ":
 			m.userManualSelect = true // AC5
 			// AC3: Toggle dead subtree collapse on Enter/Space
@@ -577,19 +544,17 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 
 	// Intent 面板
 	if m.activePane == paneIntent {
+		// Story 36-5: 统一导航键集合
+		navOpts := ui.ListNavOpts{
+			PageSize: max(m.dashboardVisibleLines()-1, 1),
+			OnCursorChange: func(int) {
+				intentAdjustScroll(&m)
+			},
+		}
+		if ui.HandleListKey(key, nil, &m.intentCursor, len(m.intentFlatNodes), navOpts) {
+			return m, nil
+		}
 		switch key {
-		case "down", "j":
-			if m.intentCursor < len(m.intentFlatNodes)-1 {
-				m.intentCursor++
-				intentAdjustScroll(&m)
-			}
-			return m, nil
-		case "up", "k":
-			if m.intentCursor > 0 {
-				m.intentCursor--
-				intentAdjustScroll(&m)
-			}
-			return m, nil
 		case "enter":
 			if m.intentCursor < len(m.intentFlatNodes) {
 				n := m.intentFlatNodes[m.intentCursor]
