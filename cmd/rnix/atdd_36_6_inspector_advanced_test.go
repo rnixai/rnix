@@ -401,7 +401,7 @@ func TestATDD_36_6_AC12_FollowAppend(t *testing.T) {
 
 	// Simulate a new step arriving.
 	newSteps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}, {Step: 3}}
-	m2, _ := m.Update(inspectorStepListMsg{pid: m.inspectorPID, steps: newSteps})
+	m2, _ := m.Update(inspectorStepListMsg{pid: m.inspectorPID, uuid: m.inspectorUUID, steps: newSteps})
 	mm := m2.(dashboardModel)
 	if mm.inspectorStep != 3 {
 		t.Errorf("follow should auto-jump to new latest=3; got %d", mm.inspectorStep)

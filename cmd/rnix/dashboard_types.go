@@ -242,6 +242,7 @@ const inspectorLensCount = 5
 
 type inspectorDetailMsg struct {
 	pid    types.PID
+	uuid   string
 	step   int
 	detail *ipc.GetStepDetailResponse
 	err    error
@@ -249,6 +250,7 @@ type inspectorDetailMsg struct {
 
 type inspectorStepListMsg struct {
 	pid   types.PID
+	uuid  string
 	steps []ipc.StepSummaryWire
 	total int
 	err   error

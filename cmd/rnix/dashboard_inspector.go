@@ -80,7 +80,7 @@ func fetchInspectorStepListCmd(pid types.PID, uuid string) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return inspectorStepListMsg{pid: pid, err: err}
+			return inspectorStepListMsg{pid: pid, uuid: uuid, err: err}
 		}
 		defer client.Close()
 		_ = client.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -92,9 +92,9 @@ func fetchInspectorStepListCmd(pid types.PID, uuid string) tea.Cmd {
 			resp, err = client.ListSteps(pid, 0)
 		}
 		if err != nil {
-			return inspectorStepListMsg{pid: pid, err: err}
+			return inspectorStepListMsg{pid: pid, uuid: uuid, err: err}
 		}
-		return inspectorStepListMsg{pid: pid, steps: resp.Steps, total: resp.Total}
+		return inspectorStepListMsg{pid: pid, uuid: uuid, steps: resp.Steps, total: resp.Total}
 	}
 }
 
@@ -103,7 +103,7 @@ func fetchInspectorDetailCmd(pid types.PID, uuid string, step int) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return inspectorDetailMsg{pid: pid, step: step, err: err}
+			return inspectorDetailMsg{pid: pid, uuid: uuid, step: step, err: err}
 		}
 		defer client.Close()
 		_ = client.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -114,7 +114,7 @@ func fetchInspectorDetailCmd(pid types.PID, uuid string, step int) tea.Cmd {
 		} else {
 			detail, err = client.GetStepDetail(pid, step)
 		}
-		return inspectorDetailMsg{pid: pid, step: step, detail: detail, err: err}
+		return inspectorDetailMsg{pid: pid, uuid: uuid, step: step, detail: detail, err: err}
 	}
 }
 
@@ -150,9 +150,10 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m = m.exitInspectorDiff()
 			return m, nil
 		}
-		// Story 36-6: Esc also stops follow live
+		// Story 36-6: Esc also stops follow live (via helper so the user sees
+		// the standard off-status line, consistent with other exit paths).
 		if m.inspectorFollowLive {
-			m.inspectorFollowLive = false
+			m = m.stopFollowLiveWithStatus()
 		}
 		m.viewMode = m.inspectorPrevMode
 		return m, nil
@@ -252,9 +253,9 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Enter: toggle diff fold, expand system lens, or scroll
 	case "enter":
-		// Story 36-6: in diff mode, Enter toggles the fold under cursor
+		// Story 36-6: in diff mode, Enter toggles all fold regions at once
 		if m.inspectorDiffMode {
-			m = m.toggleDiffFoldAtCursor()
+			m = m.toggleAllDiffFolds()
 			return m, nil
 		}
 		if m.inspectorLens == lensSystem && !m.inspectorSystemExpanded {
@@ -436,10 +437,26 @@ func (m *dashboardModel) scrollInspectorToCurrentMatch() {
 
 func (m dashboardModel) switchInspectorLens(lens inspectorLens) dashboardModel {
 	m.inspectorLens = lens
-	// Story 36-6: when in diff mode, recompute diff for the new lens.
+	// Story 36-6 fix (AC-6): when diff mode is active, recompute diff for the new
+	// lens. Diff-line indices are lens-specific, so stale unfold keys must drop.
 	if m.inspectorDiffMode {
-		m.rebuildInspectorContents()
+		m.inspectorDiffUnfolded = make(map[int]bool)
 	}
+	// Story 36-6 fix (AC-9): search matches are line-indexed per lens; rebuild
+	// them before rebuildInspectorContents so highlights stay correct.
+	if m.searchQuery != "" {
+		// Rebuild without highlights first so FindMatches sees raw content; the
+		// subsequent rebuildInspectorContents re-applies highlights.
+		content := m.buildLensContent(lens, m.inspectorDetail, m.inspectorPrevDetail)
+		m.inspectorContents[lens] = content
+		m.searchMatches = ui.FindMatches(content, m.searchQuery)
+		if len(m.searchMatches) == 0 {
+			m.searchMatchIdx = 0
+		} else if m.searchMatchIdx >= len(m.searchMatches) {
+			m.searchMatchIdx = len(m.searchMatches) - 1
+		}
+	}
+	m.rebuildInspectorContents()
 	return m
 }
 

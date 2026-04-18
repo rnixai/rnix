@@ -205,17 +205,20 @@ const followLiveTickInterval = 800 * time.Millisecond
 
 // followLiveTickMsg wakes the Update loop so we can refresh the step list and
 // schedule the next tick. Follow auto-cancels itself by returning a nil cmd
-// when inspectorFollowLive is false at tick time.
+// when inspectorFollowLive is false at tick time. The `gen` field identifies
+// the Follow activation generation — stale ticks scheduled during a previous
+// on-period are discarded to avoid tick multiplication under rapid F toggles.
 type followLiveTickMsg struct {
 	pid  types.PID
 	uuid string
+	gen  int
 }
 
 // followLiveTickCmd schedules a single follow-live tick. Callers should issue
 // this only while inspectorFollowLive is true; the handler re-arms the timer.
-func followLiveTickCmd(pid types.PID, uuid string) tea.Cmd {
+func followLiveTickCmd(pid types.PID, uuid string, gen int) tea.Cmd {
 	return tea.Tick(followLiveTickInterval, func(time.Time) tea.Msg {
-		return followLiveTickMsg{pid: pid, uuid: uuid}
+		return followLiveTickMsg{pid: pid, uuid: uuid, gen: gen}
 	})
 }
 
@@ -272,7 +275,11 @@ func (m dashboardModel) handleInspectorDiffKey() (tea.Model, tea.Cmd) {
 // exitInspectorDiff clears all diff-mode state and restores the lens viewport
 // to its normal (non-diff) content. Called on Esc from diff mode and on the
 // trailing lone `d` that falls outside the dd window.
+//
+// Per AC-4, the active lens viewport's Y offset is preserved across the exit
+// (rebuildInspectorContents normally snaps the active lens to the top).
 func (m dashboardModel) exitInspectorDiff() dashboardModel {
+	savedYOffset := m.inspectorViewports[m.inspectorLens].YOffset()
 	m.inspectorDiffMode = false
 	m.inspectorDiffBase = 0
 	m.inspectorDiffDelta = 0
@@ -281,6 +288,9 @@ func (m dashboardModel) exitInspectorDiff() dashboardModel {
 	m.inspectorDiffPickerCursor = 0
 	m.inspectorDiffDdDeadline = time.Time{}
 	m.rebuildInspectorContents()
+	vp := m.inspectorViewports[m.inspectorLens]
+	vp.SetYOffset(savedYOffset)
+	m.inspectorViewports[m.inspectorLens] = vp
 	return m
 }
 
@@ -343,10 +353,13 @@ func (m dashboardModel) handleDiffPickerKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// toggleDiffFoldAtCursor toggles the fold region that begins at the current
-// viewport cursor line. If the cursor sits inside a fold, the entire run is
-// expanded; pressing Enter again on a start line collapses it back.
-func (m dashboardModel) toggleDiffFoldAtCursor() dashboardModel {
+// toggleAllDiffFolds toggles every fold region (runs of diffFoldThreshold+
+// consecutive equal lines) between collapsed and expanded in one shot. This
+// is a documented simplification of AC-2's per-segment contract (see Dev
+// Notes in the story spec): users typically want to expand/collapse all
+// unchanged blocks together, and tracking per-segment state across lens
+// switches is lens-specific. Callers: Enter key in diff mode.
+func (m dashboardModel) toggleAllDiffFolds() dashboardModel {
 	if m.inspectorDiffUnfolded == nil {
 		m.inspectorDiffUnfolded = make(map[int]bool)
 	}
@@ -462,9 +475,9 @@ func (m dashboardModel) toggleFollowLive() (tea.Model, tea.Cmd) {
 
 	state, known := m.inspectorProcessState()
 	if known && state == types.StateDead {
+		// Story 36-6 AC-11: status bar 3s notice; no Follow state change.
 		m.statusMsg = "Process ended — Follow live unavailable"
-		m.statusMsgTTL = statusMsgDefaultTTL
-		m.searchNoMatchExpireAt = time.Now().Add(3 * time.Second)
+		m.statusMsgTTL = 3
 		return m, nil
 	}
 
@@ -474,6 +487,9 @@ func (m dashboardModel) toggleFollowLive() (tea.Model, tea.Cmd) {
 	}
 
 	m.inspectorFollowLive = true
+	// Story 36-6 fix: bump generation so stale ticks (scheduled during a prior
+	// on-period) see a mismatch in handleFollowLiveTickMsg and self-terminate.
+	m.inspectorFollowGen++
 	m.statusMsg = "Follow live: on (F 关闭)"
 	m.statusMsgTTL = statusMsgDefaultTTL
 
@@ -487,7 +503,7 @@ func (m dashboardModel) toggleFollowLive() (tea.Model, tea.Cmd) {
 			cmds = append(cmds, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, latest))
 		}
 	}
-	cmds = append(cmds, followLiveTickCmd(m.inspectorPID, m.inspectorUUID))
+	cmds = append(cmds, followLiveTickCmd(m.inspectorPID, m.inspectorUUID, m.inspectorFollowGen))
 	return m, tea.Batch(cmds...)
 }
 
@@ -508,16 +524,56 @@ func (m dashboardModel) inspectorProcessState() (types.ProcessState, bool) {
 	return types.StateCreated, false
 }
 
+// handleInspectorDetailMsg absorbs a single-step detail IPC response. The
+// response is cached whenever PID+UUID match (even if msg.step differs from
+// the current cursor) so that diff-base prefetches from ensureDiffBaseDetailCmd
+// reach lookupDiffBaseDetail later. When msg.step matches the current step,
+// the Inspector foreground state is advanced; when it matches the active
+// diff base, the current lens is re-rendered to show the now-available diff.
+func (m dashboardModel) handleInspectorDetailMsg(msg inspectorDetailMsg) (dashboardModel, tea.Cmd) {
+	if msg.err != nil {
+		m.inspectorFetching = false
+		m.statusMsg = fmt.Sprintf("✗ Inspector: %v", msg.err)
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return m, nil
+	}
+	if msg.detail == nil || msg.pid != m.inspectorPID || msg.uuid != m.inspectorUUID {
+		return m, nil
+	}
+	if m.stepDetailCache != nil {
+		m.stepDetailCache[msg.step] = msg.detail
+	}
+	if msg.step == m.inspectorStep {
+		m.inspectorFetching = false
+		m.inspectorPrevStep = m.inspectorCurDetailStep
+		m.inspectorPrevDetail = m.inspectorDetail
+		m.inspectorDetail = msg.detail
+		m.inspectorCurDetailStep = msg.step
+		m.inspectorStep = msg.step
+		m.inspectorSystemExpanded = false
+		m.rebuildInspectorContents()
+	} else if m.inspectorDiffMode && msg.step == m.inspectorDiffBase {
+		m.rebuildInspectorContents()
+	}
+	return m, nil
+}
+
 // handleInspectorStepListMsg absorbs the step-list IPC response and, when
 // Follow live is active, auto-jumps to the latest step as new entries arrive.
 // Extracted from the dashboard Update switch to keep dashboard.go compact.
+// Story 36-6 fix: PID+UUID both matched — a stale step-list fetch (from a
+// prior inspector session on the same PID but different UUID) must not
+// overwrite the current session's step list.
 func (m dashboardModel) handleInspectorStepListMsg(msg inspectorStepListMsg) (dashboardModel, tea.Cmd) {
 	if msg.err != nil {
 		m.statusMsg = fmt.Sprintf("✗ Inspector steps: %v", msg.err)
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	}
-	if len(msg.steps) > 0 && msg.pid == m.inspectorPID {
+	if msg.pid != m.inspectorPID || msg.uuid != m.inspectorUUID {
+		return m, nil
+	}
+	if len(msg.steps) > 0 {
 		prevLen := len(m.inspectorSteps)
 		m.inspectorSteps = msg.steps
 		m.inspectorStepMax = msg.steps[len(msg.steps)-1].Step
@@ -540,7 +596,7 @@ func (m dashboardModel) handleInspectorStepListMsg(msg inspectorStepListMsg) (da
 		}
 		return m, nil
 	}
-	if len(msg.steps) == 0 && msg.pid == m.inspectorPID && m.viewMode == viewStepInspector {
+	if m.viewMode == viewStepInspector {
 		noData := "  No step data recorded for this process.\n  (Process may have failed before completing any reasoning step)\n"
 		for i := range m.inspectorContents {
 			m.inspectorContents[i] = noData
@@ -552,16 +608,21 @@ func (m dashboardModel) handleInspectorStepListMsg(msg inspectorStepListMsg) (da
 
 // handleFollowLiveTickMsg re-arms the poll if Follow live is still active and
 // issues a fresh step-list fetch. Returns a no-op cmd when Follow has been
-// disabled since the last tick was scheduled.
+// disabled since the last tick was scheduled, when the inspector has moved on
+// to a different process (PID or UUID changed), or when the tick belongs to a
+// prior Follow activation generation (rapid F-toggle dedup).
 func (m dashboardModel) handleFollowLiveTickMsg(msg followLiveTickMsg) (dashboardModel, tea.Cmd) {
 	if !m.inspectorFollowLive || m.viewMode != viewStepInspector {
 		return m, nil
 	}
-	if msg.pid != m.inspectorPID {
+	if msg.pid != m.inspectorPID || msg.uuid != m.inspectorUUID {
+		return m, nil
+	}
+	if msg.gen != m.inspectorFollowGen {
 		return m, nil
 	}
 	return m, tea.Batch(
 		fetchInspectorStepListCmd(m.inspectorPID, m.inspectorUUID),
-		followLiveTickCmd(m.inspectorPID, m.inspectorUUID),
+		followLiveTickCmd(m.inspectorPID, m.inspectorUUID, m.inspectorFollowGen),
 	)
 }

@@ -125,6 +125,7 @@ type dashboardModel struct {
 
 	// Story 36-6: Follow live
 	inspectorFollowLive bool // Auto-jump to latest step as new steps arrive
+	inspectorFollowGen  int  // Generation counter — stale ticks (prior generation) are ignored
 
 	// Story 36-4: Timeline 排序方向 & expandMode 粘性
 	timelineSortAsc          bool               // true=旧→新（底部最新），session 内持久
@@ -558,21 +559,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case inspectorDetailMsg:
-		if msg.err != nil {
-			m.inspectorFetching = false
-			m.statusMsg = fmt.Sprintf("✗ Inspector: %v", msg.err)
-			m.statusMsgTTL = statusMsgDefaultTTL
-		} else if msg.detail != nil && msg.pid == m.inspectorPID && msg.step == m.inspectorStep {
-			m.inspectorFetching = false
-			m.inspectorPrevStep = m.inspectorCurDetailStep
-			m.inspectorPrevDetail = m.inspectorDetail
-			m.inspectorDetail = msg.detail
-			m.inspectorCurDetailStep = msg.step
-			m.inspectorStep = msg.step
-			m.inspectorSystemExpanded = false
-			m.rebuildInspectorContents()
-		}
-		return m, nil
+		return m.handleInspectorDetailMsg(msg)
 	case inspectorStepListMsg:
 		return m.handleInspectorStepListMsg(msg)
 	case followLiveTickMsg:
