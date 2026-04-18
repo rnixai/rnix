@@ -47,6 +47,16 @@ func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
 	m.searchQuery = ""
 	m.searchMatches = nil
 	m.searchMatchIdx = 0
+	m.searchReverse = false
+	m.searchCrossLens = false
+	// Story 36-6: reset diff/follow state on entry.
+	m.inspectorDiffMode = false
+	m.inspectorDiffBase = 0
+	m.inspectorDiffDelta = 0
+	m.inspectorDiffUnfolded = nil
+	m.inspectorDiffPicker = false
+	m.inspectorDiffPickerCursor = 0
+	m.inspectorFollowLive = false
 
 	contentH := m.inspectorContentHeight()
 	for i := range m.inspectorViewports {
@@ -112,6 +122,11 @@ func fetchInspectorDetailCmd(pid types.PID, uuid string, step int) tea.Cmd {
 func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// Story 36-6: Diff base picker intercepts most keys while active.
+	if m.inspectorDiffPicker {
+		return m.handleDiffPickerKey(key)
+	}
+
 	// Story 36-5: search mode input handling takes priority.
 	if m.searchMode {
 		return m.handleInspectorSearchKey(key)
@@ -126,13 +141,23 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.searchQuery = ""
 			m.searchMatches = nil
 			m.searchMatchIdx = 0
+			m.searchReverse = false
 			m.rebuildInspectorContents()
 			return m, nil
+		}
+		// Story 36-6: Esc also exits diff mode if active
+		if m.inspectorDiffMode {
+			m = m.exitInspectorDiff()
+			return m, nil
+		}
+		// Story 36-6: Esc also stops follow live
+		if m.inspectorFollowLive {
+			m.inspectorFollowLive = false
 		}
 		m.viewMode = m.inspectorPrevMode
 		return m, nil
 
-	// Lens switching: 1-5
+	// Lens switching: 1-5 (doesn't stop follow — just changing viewpoint)
 	case "1":
 		return m.switchInspectorLens(lensConversation), nil
 	case "2":
@@ -146,6 +171,8 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Step navigation (index-based for sparse step support)
 	case "h", "left":
+		// Story 36-6: Follow auto-off on back-step
+		m = m.stopFollowLiveWithStatus()
 		if m.inspectorFetching || len(m.inspectorSteps) == 0 {
 			return m, nil
 		}
@@ -155,6 +182,10 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		newStep := m.inspectorSteps[idx-1].Step
 		m.inspectorStep = newStep
+		// Story 36-6: keep diff base relative
+		if m.inspectorDiffMode {
+			m = m.slideDiffBase(newStep)
+		}
 		m.inspectorFetching = true
 		return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, newStep)
 	case "l", "right":
@@ -166,10 +197,19 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		newStep := m.inspectorSteps[idx+1].Step
+		// Story 36-6: follow auto-off unless advancing to latest step
+		if newStep != m.inspectorSteps[len(m.inspectorSteps)-1].Step {
+			m = m.stopFollowLiveWithStatus()
+		}
 		m.inspectorStep = newStep
+		if m.inspectorDiffMode {
+			m = m.slideDiffBase(newStep)
+		}
 		m.inspectorFetching = true
 		return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, newStep)
 	case "H", "home":
+		// Story 36-6: Follow auto-off on back-step
+		m = m.stopFollowLiveWithStatus()
 		if len(m.inspectorSteps) == 0 || m.inspectorFetching {
 			return m, nil
 		}
@@ -178,6 +218,9 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.inspectorStep = firstStep
+		if m.inspectorDiffMode {
+			m = m.slideDiffBase(firstStep)
+		}
 		m.inspectorFetching = true
 		return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, firstStep)
 	case "L", "end":
@@ -189,6 +232,9 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.inspectorStep = lastStep
+		if m.inspectorDiffMode {
+			m = m.slideDiffBase(lastStep)
+		}
 		m.inspectorFetching = true
 		return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, lastStep)
 
@@ -204,8 +250,13 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "o":
 		return m.openInspectorInPager()
 
-	// Enter: expand collapsed system lens
+	// Enter: toggle diff fold, expand system lens, or scroll
 	case "enter":
+		// Story 36-6: in diff mode, Enter toggles the fold under cursor
+		if m.inspectorDiffMode {
+			m = m.toggleDiffFoldAtCursor()
+			return m, nil
+		}
 		if m.inspectorLens == lensSystem && !m.inspectorSystemExpanded {
 			m.inspectorSystemExpanded = true
 			if m.inspectorDetail != nil {
@@ -222,24 +273,54 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.inspectorViewports[lens], cmd = m.inspectorViewports[lens].Update(msg)
 		return m, cmd
 
+	// Story 36-6: Diff mode toggle / dd picker
+	case "d":
+		return m.handleInspectorDiffKey()
+
+	// Story 36-6: Follow live toggle
+	case "F", "shift+F":
+		return m.toggleFollowLive()
+
 	// Story 36-5: Search entry for Conversation / Tool I/O / System / Meta / Raw lenses
 	case "/":
+		// Story 36-6: stop follow when entering search
+		m = m.stopFollowLiveWithStatus()
 		m.searchMode = true
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchMatchIdx = 0
+		m.searchReverse = false
+		return m, nil
+
+	// Story 36-6: Reverse search `?`
+	case "?":
+		m = m.stopFollowLiveWithStatus()
+		m.searchMode = true
+		m.searchQuery = ""
+		m.searchMatches = nil
+		m.searchMatchIdx = 0
+		m.searchReverse = true
+		return m, nil
+
+	// Story 36-6: Ctrl-/ cross-lens search placeholder (Story 36-7)
+	case "ctrl+_", "ctrl+/":
+		m.searchCrossLens = true
+		m.statusMsg = "Cross-lens search: TODO (Story 36-7)"
+		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 
 	// Story 36-5: Cycle through current search matches
 	case "n":
-		return m.inspectorJumpSearchMatch(1), nil
+		return m.inspectorJumpSearchMatch(+1), nil
 	case "N", "shift+N":
 		return m.inspectorJumpSearchMatch(-1), nil
 
 	default:
 		// Story 36-5: j/k/PgUp/PgDn/Ctrl-d/u/g/G/home/end → viewport scroll.
-		// Uses HandleListKey so behaviour matches other panes; falls back to
-		// viewport.Update for any keys we don't recognise (e.g. mouse events).
+		// Story 36-6: back-scrolling stops follow live.
+		if isBackScrollKey(key) {
+			m = m.stopFollowLiveWithStatus()
+		}
 		lens := m.inspectorLens
 		vp := m.inspectorViewports[lens]
 		if ui.HandleListKey(key, &vp, nil, 0, ui.ListNavOpts{}) {
@@ -252,8 +333,32 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// isBackScrollKey reports whether the given key scrolls the viewport in the
+// "back" direction (upwards / toward earlier content), triggering Follow live
+// auto-off per Story 36-6 AC-13.
+func isBackScrollKey(key string) bool {
+	switch key {
+	case "k", "up", "pgup", "pageup", "ctrl+u", "ctrl+b", "g":
+		return true
+	}
+	return false
+}
+
+// stopFollowLiveWithStatus disables inspectorFollowLive and emits the
+// user-facing status line described in Story 36-6 AC-13. No-op if follow is
+// already off.
+func (m dashboardModel) stopFollowLiveWithStatus() dashboardModel {
+	if !m.inspectorFollowLive {
+		return m
+	}
+	m.inspectorFollowLive = false
+	m.statusMsg = "Follow live: off (F 恢复)"
+	m.statusMsgTTL = statusMsgDefaultTTL
+	return m
+}
+
 // handleInspectorSearchKey handles keystrokes while the Inspector is in
-// search-input mode. Story 36-5 AC-12.
+// search-input mode. Story 36-5 AC-12; Story 36-6 adds reverse flag.
 func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
@@ -261,6 +366,7 @@ func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchMatchIdx = 0
+		m.searchReverse = false
 		m.rebuildInspectorContents()
 		return m, nil
 	case "enter":
@@ -269,9 +375,16 @@ func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd
 		if len(m.searchMatches) == 0 {
 			m.statusMsg = fmt.Sprintf("No matches for %q", m.searchQuery)
 			m.statusMsgTTL = statusMsgDefaultTTL
+			// Story 36-6: TTL for "No matches" notice
+			m.searchNoMatchExpireAt = time.Now().Add(3 * time.Second)
 			return m, nil
 		}
-		m.searchMatchIdx = 0
+		// Story 36-6 AC-6: reverse search jumps to the last match first.
+		if m.searchReverse {
+			m.searchMatchIdx = len(m.searchMatches) - 1
+		} else {
+			m.searchMatchIdx = 0
+		}
 		m.rebuildInspectorContents()
 		m.scrollInspectorToCurrentMatch()
 		return m, nil
@@ -301,8 +414,12 @@ func (m dashboardModel) inspectorJumpSearchMatch(dir int) dashboardModel {
 	if len(m.searchMatches) == 0 {
 		return m
 	}
+	// Story 36-6 AC-6: reverse search flips n/N semantics.
+	if m.searchReverse {
+		dir = -dir
+	}
 	n := len(m.searchMatches)
-	m.searchMatchIdx = ((m.searchMatchIdx + dir) % n + n) % n
+	m.searchMatchIdx = ((m.searchMatchIdx+dir)%n + n) % n
 	m.scrollInspectorToCurrentMatch()
 	return m
 }
@@ -319,6 +436,10 @@ func (m *dashboardModel) scrollInspectorToCurrentMatch() {
 
 func (m dashboardModel) switchInspectorLens(lens inspectorLens) dashboardModel {
 	m.inspectorLens = lens
+	// Story 36-6: when in diff mode, recompute diff for the new lens.
+	if m.inspectorDiffMode {
+		m.rebuildInspectorContents()
+	}
 	return m
 }
 
@@ -369,6 +490,12 @@ func (m dashboardModel) renderStepInspector(w, h int) string {
 	// Lens Tabs
 	b.WriteString(m.renderLensTabs(w))
 	b.WriteString("\n")
+
+	// Story 36-6: Diff base picker overlay — rendered above the content area
+	if m.inspectorDiffPicker {
+		b.WriteString(renderDiffBasePicker(m.inspectorSteps, m.inspectorDiffPickerCursor, w))
+		b.WriteString("\n")
+	}
 
 	// Content area — current lens viewport
 	lens := m.inspectorLens
@@ -429,6 +556,11 @@ func (m dashboardModel) renderStepRail(w int) string {
 		maxStep := m.inspectorStepMax
 		fmt.Fprintf(&b, " | Step %d/%d", step, maxStep)
 
+		// Story 36-6: diff base badge
+		if m.inspectorDiffMode {
+			fmt.Fprintf(&b, " vs #%d", m.inspectorDiffBase)
+		}
+
 		if m.inspectorDetail.Action != "" {
 			fmt.Fprintf(&b, " | %s", m.inspectorDetail.Action)
 		}
@@ -454,14 +586,46 @@ func (m dashboardModel) renderStepRail(w int) string {
 		}
 	}
 
+	// Story 36-6: Follow live indicator
+	if m.inspectorFollowLive {
+		accent := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)
+		label := " ● FOLLOW"
+		if ascii {
+			label = " [FOLLOW]"
+		}
+		b.WriteString(accent.Render(label))
+	}
+
 	// Truncate to width
 	result := b.String()
-	if w > 0 && utf8.RuneCountInString(result) > w {
+	if w > 0 && utf8.RuneCountInString(stripANSIApprox(result)) > w {
 		runes := []rune(result)
 		result = string(runes[:w])
 	}
 
 	return result
+}
+
+// stripANSIApprox removes common ANSI escape codes for width measurement.
+// This is a minimal approximation (full ANSI parsing is in lipgloss); it is
+// adequate for the step rail where we only insert a single styled label.
+func stripANSIApprox(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		if r == 0x1b {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // renderLensTabs renders the lens selector tabs.
@@ -516,20 +680,47 @@ func (m dashboardModel) renderInspectorFooter() string {
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	// Story 36-5: search overlay takes over the footer while active.
 	if m.searchMode {
-		return fmt.Sprintf(" Search: %s_", m.searchQuery)
+		prefix := "/"
+		if m.searchReverse {
+			prefix = "?"
+		}
+		return fmt.Sprintf(" Search: %s%s_", prefix, m.searchQuery)
 	}
+	// Story 36-6: diff-mode status line
+	if m.inspectorDiffMode {
+		return dimStyle.Render(fmt.Sprintf(" Diff: step %d vs %d (dd to pick base, Esc/d to exit)", m.inspectorStep, m.inspectorDiffBase))
+	}
+	// Story 36-6: show Match X/Y counter when a search is active
 	if m.searchQuery != "" && len(m.searchMatches) > 0 {
-		return dimStyle.Render(fmt.Sprintf(" /%s  [%d/%d]  n/N next/prev · Esc clear",
+		return dimStyle.Render(fmt.Sprintf(" /%s  Match %d/%d  n/N next/prev · Esc clear",
 			m.searchQuery, m.searchMatchIdx+1, len(m.searchMatches)))
 	}
-	return dimStyle.Render(" h/l step · 1-5 lens · j/k scroll · / search · y copy · o open · Esc back")
+	// Story 36-6: show "No matches" TTL notice
+	if !m.searchNoMatchExpireAt.IsZero() && time.Now().Before(m.searchNoMatchExpireAt) && m.searchQuery != "" {
+		return dimStyle.Render(fmt.Sprintf(" /%s  No matches · Esc clear", m.searchQuery))
+	}
+	return dimStyle.Render(" h/l step · 1-5 lens · j/k scroll · / ? search · d diff · F follow · y copy · o open · Esc back")
 }
 
 // rebuildInspectorContents rebuilds all lens content from the current detail.
 func (m *dashboardModel) rebuildInspectorContents() {
 	reverse := lipgloss.NewStyle().Reverse(true)
+	// Story 36-6: when diff mode is active, render diff for the current lens
+	// against the captured base step; other lenses still render their normal
+	// contents (user sees diff for the lens they've focused, switching lenses
+	// recomputes diff for the new lens via switchInspectorLens).
+	var baseDetail *ipc.GetStepDetailResponse
+	if m.inspectorDiffMode {
+		baseDetail = m.lookupDiffBaseDetail()
+	}
+
 	for i := range inspectorLensCount {
-		content := m.buildLensContent(inspectorLens(i), m.inspectorDetail, m.inspectorPrevDetail)
+		var content string
+		if m.inspectorDiffMode && inspectorLens(i) == m.inspectorLens && baseDetail != nil {
+			content = m.buildDiffLensContent(inspectorLens(i), baseDetail, m.inspectorDetail)
+		} else {
+			content = m.buildLensContent(inspectorLens(i), m.inspectorDetail, m.inspectorPrevDetail)
+		}
 		// Story 36-5: Apply reverse-video highlight to matched lines for the active lens.
 		if inspectorLens(i) == m.inspectorLens && m.searchQuery != "" {
 			lines := strings.Split(content, "\n")

@@ -109,6 +109,23 @@ type dashboardModel struct {
 	searchMatches  []int
 	searchMatchIdx int
 
+	// Story 36-6: Search enhancements
+	searchReverse         bool      // true for reverse `?` search (n/N reversed)
+	searchCrossLens       bool      // placeholder — Ctrl-/ cross-lens (TODO, Story 36-7)
+	searchNoMatchExpireAt time.Time // TTL for the status-bar "No matches" notice
+
+	// Story 36-6: Inspector diff mode
+	inspectorDiffMode         bool          // Diff mode active
+	inspectorDiffBase         int           // base step number for diff
+	inspectorDiffDelta        int           // captured relative offset (current - base)
+	inspectorDiffUnfolded     map[int]bool  // expanded fold regions keyed by diff-line index
+	inspectorDiffPicker       bool          // base picker overlay active
+	inspectorDiffPickerCursor int           // cursor index in picker (into inspectorSteps)
+	inspectorDiffDdDeadline   time.Time     // dd double-tap window deadline
+
+	// Story 36-6: Follow live
+	inspectorFollowLive bool // Auto-jump to latest step as new steps arrive
+
 	// Story 36-4: Timeline 排序方向 & expandMode 粘性
 	timelineSortAsc          bool               // true=旧→新（底部最新），session 内持久
 	expandMode               timelineExpandMode // 按进程作用域，切 PID 时重置为 collapsed
@@ -557,26 +574,9 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case inspectorStepListMsg:
-		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("✗ Inspector steps: %v", msg.err)
-			m.statusMsgTTL = statusMsgDefaultTTL
-		} else if len(msg.steps) > 0 && msg.pid == m.inspectorPID {
-			m.inspectorSteps = msg.steps
-			m.inspectorStepMax = msg.steps[len(msg.steps)-1].Step
-			if m.inspectorDetail == nil && m.viewMode == viewStepInspector && !m.inspectorFetching {
-				firstStep := msg.steps[0].Step
-				m.inspectorStep = firstStep
-				m.inspectorFetching = true
-				return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, firstStep)
-			}
-		} else if len(msg.steps) == 0 && msg.pid == m.inspectorPID && m.viewMode == viewStepInspector {
-			noData := "  No step data recorded for this process.\n  (Process may have failed before completing any reasoning step)\n"
-			for i := range m.inspectorContents {
-				m.inspectorContents[i] = noData
-				m.inspectorViewports[i].SetContent(noData)
-			}
-		}
-		return m, nil
+		return m.handleInspectorStepListMsg(msg)
+	case followLiveTickMsg:
+		return m.handleFollowLiveTickMsg(msg)
 	default:
 		// Story 34.6: Debug mode messages
 		if m2, cmd, handled := m.handleDebugMsg(msg); handled {
