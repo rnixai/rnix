@@ -211,7 +211,9 @@ func detectStallEvents(hbStatus *ipc.HeartbeatStatusResponse, stallSeen map[type
 // mergeUnifiedEvents merges step entries and system events into a single sorted list.
 // When selectedUUID is non-empty, only system events matching that UUID are included.
 // Falls back to PID-based filtering when UUID is empty (backward compat with old daemons).
-func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selectedPID types.PID, selectedUUID string, processes []vfs.ProcInfo) []UnifiedEvent {
+// Story 36-4: ascending=true renders oldest-first (newest at bottom, aligns with Debug
+// mode and common log tools); ascending=false preserves the legacy newest-first order.
+func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selectedPID types.PID, selectedUUID string, processes []vfs.ProcInfo, ascending bool) []UnifiedEvent {
 	merged := make([]UnifiedEvent, 0, len(stepEntries)+len(sysEvents))
 
 	// Resolve process CreatedAt for real step timestamps
@@ -248,9 +250,22 @@ func mergeUnifiedEvents(stepEntries []stepEntry, sysEvents []UnifiedEvent, selec
 		merged = append(merged, ev)
 	}
 
-	// Sort by timestamp descending (newest first)
-	sort.Slice(merged, func(i, j int) bool {
-		return merged[i].Timestamp.After(merged[j].Timestamp)
+	// Sort by timestamp. Stable tie-breaker: StepEntry-carrying events sort
+	// before raw sys events when timestamps collide (preserves legacy ordering).
+	sort.SliceStable(merged, func(i, j int) bool {
+		ti := merged[i].Timestamp
+		tj := merged[j].Timestamp
+		if !ti.Equal(tj) {
+			if ascending {
+				return ti.Before(tj)
+			}
+			return ti.After(tj)
+		}
+		// Tie-break: step entries first (under both directions)
+		if (merged[i].StepEntry != nil) != (merged[j].StepEntry != nil) {
+			return merged[i].StepEntry != nil
+		}
+		return false
 	})
 
 	return merged

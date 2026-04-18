@@ -111,6 +111,15 @@ type stepEntry struct {
 	autoExpand bool
 }
 
+// Story 36-4: Timeline expand mode 三态
+type timelineExpandMode int
+
+const (
+	expandModeCollapsed   timelineExpandMode = 0
+	expandModeExpanded    timelineExpandMode = 1
+	expandModeErrorsOnly  timelineExpandMode = 2
+)
+
 // --- Message types ---
 
 type stepListMsg struct {

@@ -103,6 +103,12 @@ type dashboardModel struct {
 	inspectorFetching       bool
 	inspectorSystemExpanded bool
 
+	// Story 36-4: Timeline 排序方向 & expandMode 粘性
+	timelineSortAsc          bool               // true=旧→新（底部最新），session 内持久
+	expandMode               timelineExpandMode // 按进程作用域，切 PID 时重置为 collapsed
+	uiState                  *ui.UIState        // 首次升级提示的持久化状态
+	timelineMigrationChecked bool               // session 内是否已检查过首次升级提示
+
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
 
@@ -191,6 +197,9 @@ type dashboardModel struct {
 	userManualSelect   bool                     // AC5: user manual select flag
 	collapsedDeadTrees map[string]bool          // AC3: dead subtree collapse state (key=UUID)
 
+	// Story 36-2: New process highlight
+	processFirstSeenAt map[types.PID]time.Time // tracks when each PID was first seen
+
 	// Story 34.4: Alert strip + unified timeline
 	alertExpanded  bool             // alert strip expanded state
 	alertCursor    int              // cursor position within alert strip
@@ -215,6 +224,10 @@ type dashboardModel struct {
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
+	uiState, _ := ui.LoadUIState()
+	if uiState == nil {
+		uiState = &ui.UIState{}
+	}
 	return dashboardModel{
 		client:             client,
 		startTime:          time.Now(),
@@ -232,8 +245,12 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		sysEventSeen:       make(map[string]struct{}),
 		lastEventByPID:     make(map[types.PID]time.Time),
 		collapsedDeadTrees: make(map[string]bool),
+		processFirstSeenAt: make(map[types.PID]time.Time),
 		debugShowStrace:    true, // Story 34.6: show strace events by default
 		debugDeviceLatency: make(map[string]*deviceLatencyStats),
+		timelineSortAsc:    true,                // Story 36-4: 默认升序（最新在底）
+		expandMode:         expandModeCollapsed, // Story 36-4
+		uiState:            uiState,             // Story 36-4: 首次升级提示持久化状态
 	}
 }
 
@@ -566,6 +583,9 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	m.heatmapTickCount++
 
+	// Story 36-4: 首次升级到升序时展示一次提示（写入在 statusMsgTTL 衰减之前）
+	m = m.maybeShowTimelineMigrationNotice()
+
 	if m.statusMsgTTL > 0 {
 		m.statusMsgTTL--
 		if m.statusMsgTTL == 0 {
@@ -608,6 +628,25 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	m.err = nil
 	m.connected = true
 	m.processes = procs
+
+	// Story 36-2: Track first-seen time for new process highlight
+	seenNow := make(map[types.PID]bool, len(procs))
+	nowHL := time.Now()
+	for _, p := range procs {
+		seenNow[p.PID] = true
+		if _, exists := m.processFirstSeenAt[p.PID]; !exists {
+			m.processFirstSeenAt[p.PID] = nowHL
+		}
+	}
+	// Clean up entries for PIDs no longer in procs. No time-based cleanup —
+	// the map is bounded by the number of active+visible processes and entries
+	// for exited PIDs are removed immediately when they leave the procs list.
+	for pid := range m.processFirstSeenAt {
+		if !seenNow[pid] {
+			delete(m.processFirstSeenAt, pid)
+		}
+	}
+
 	roots := buildProcessTree(procs, m.treeSortMode, m.treeSortAsc)
 	m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
 
@@ -720,7 +759,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// Merge step entries + system events into unified event list
-	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID, m.selectedUUID, m.processes)
+	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID, m.selectedUUID, m.processes, m.timelineSortAsc)
 
 	// Build alert events for alert strip (Story 34.4)
 	m.alertEvents = buildAlertEvents(m.unifiedEvents)

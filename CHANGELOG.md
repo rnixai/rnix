@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Dashboard Inspector & Tree-Timeline Unification (Epic 36)**:
+  - Step Inspector merge: unified step + system event timeline replaces separate panels (Story 36-1)
+  - Agent tree sort fix: time-based priority sorting and new process highlight with fade animation (Story 36-2)
+  - Timeline information architecture refactor: default 1-line layout, tool call aggregation with expand, action-typed icons (Story 36-3)
+  - Timeline ascending sort default (`o` key toggles direction) aligned with debug mode reading order (Story 36-4)
+  - Three-state expand mode: `e` (expand all, sticky), `E` (errors only), `C` (collapse all) with new-step stickiness (Story 36-4)
+  - Header indicators for sort direction and expand mode with ASCII fallback (Story 36-4)
+  - One-time migration notice for ascending sort change, persisted to `~/.config/rnix/ui-state.json` (Story 36-4)
+
 ## [0.8.0] - 2026-04-16
 
 ### Added

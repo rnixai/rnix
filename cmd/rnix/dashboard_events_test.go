@@ -461,7 +461,7 @@ func TestMergeUnifiedEvents_MergesAndSorts(t *testing.T) {
 		{Type: EventSpawn, PID: 1, UUID: "uuid-1", Timestamp: now.Add(-10 * time.Second), Summary: "spawn"},
 	}
 
-	merged := mergeUnifiedEvents(steps, sysEvts, 1, "uuid-1", nil)
+	merged := mergeUnifiedEvents(steps, sysEvts, 1, "uuid-1", nil, false)
 	if len(merged) != 3 {
 		t.Fatalf("expected 3 merged events, got %d", len(merged))
 	}
@@ -484,7 +484,7 @@ func TestMergeUnifiedEvents_FiltersBySelectedPID(t *testing.T) {
 		{Type: EventExit, PID: 1, UUID: "uuid-1", Timestamp: now.Add(-1 * time.Second), Summary: "exit pid 1"},
 	}
 
-	merged := mergeUnifiedEvents(steps, sysEvts, 1, "uuid-1", nil)
+	merged := mergeUnifiedEvents(steps, sysEvts, 1, "uuid-1", nil, false)
 	// Should include 1 step + 2 sys events for UUID uuid-1, excluding UUID uuid-5
 	if len(merged) != 3 {
 		t.Fatalf("expected 3 merged events (1 step + 2 sys for UUID uuid-1), got %d", len(merged))
@@ -505,7 +505,7 @@ func TestMergeUnifiedEvents_FiltersByUUID_SamePID(t *testing.T) {
 		{Type: EventSpawn, PID: 2, UUID: "uuid-new", Timestamp: now.Add(-5 * time.Second), Summary: "spawn new"},
 	}
 
-	merged := mergeUnifiedEvents(nil, sysEvts, 2, "uuid-new", nil)
+	merged := mergeUnifiedEvents(nil, sysEvts, 2, "uuid-new", nil, false)
 	if len(merged) != 1 {
 		t.Fatalf("expected 1 event for uuid-new, got %d", len(merged))
 	}
@@ -521,7 +521,7 @@ func TestMergeUnifiedEvents_NoPIDShowsAll(t *testing.T) {
 		{Type: EventSpawn, PID: 5, UUID: "uuid-5", Timestamp: now.Add(-5 * time.Second), Summary: "spawn pid 5"},
 	}
 
-	merged := mergeUnifiedEvents(nil, sysEvts, 0, "", nil)
+	merged := mergeUnifiedEvents(nil, sysEvts, 0, "", nil, false)
 	if len(merged) != 2 {
 		t.Fatalf("expected 2 merged events when no PID selected, got %d", len(merged))
 	}
@@ -535,7 +535,7 @@ func TestMergeUnifiedEvents_PIDFallbackWhenNoUUID(t *testing.T) {
 		{Type: EventSpawn, PID: 5, Timestamp: now.Add(-5 * time.Second), Summary: "spawn pid 5"},
 	}
 
-	merged := mergeUnifiedEvents(nil, sysEvts, 1, "", nil)
+	merged := mergeUnifiedEvents(nil, sysEvts, 1, "", nil, false)
 	if len(merged) != 1 {
 		t.Fatalf("expected 1 event for PID 1 (fallback), got %d", len(merged))
 	}
