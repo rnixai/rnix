@@ -142,3 +142,31 @@ func TestVFSCaller_Call_EmptyModel(t *testing.T) {
 		t.Errorf("got %q, want %q", result, "result")
 	}
 }
+
+func TestVFSCaller_Call_ReadError(t *testing.T) {
+	mock := &mockLLMFile{readErr: fmt.Errorf("device read failure")}
+	reg := newMockDeviceRegistry("broken-read", mock)
+
+	caller := NewVFSCaller(reg, "broken-read")
+	_, err := caller.Call(context.Background(), "test", "")
+	if err == nil {
+		t.Fatal("expected error on read failure")
+	}
+	if !strings.Contains(err.Error(), "read response") {
+		t.Errorf("expected 'read response' in error, got: %v", err)
+	}
+}
+
+func TestVFSCaller_Call_EmptyResponse(t *testing.T) {
+	mock := &mockLLMFile{responseJSON: []byte{}}
+	reg := newMockDeviceRegistry("empty", mock)
+
+	caller := NewVFSCaller(reg, "empty")
+	_, err := caller.Call(context.Background(), "test", "")
+	if err == nil {
+		t.Fatal("expected error for empty response")
+	}
+	if !strings.Contains(err.Error(), "empty response") {
+		t.Errorf("expected 'empty response' in error, got: %v", err)
+	}
+}

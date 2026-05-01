@@ -8,7 +8,7 @@ var promptsFS embed.FS
 func loadPrompt(name string) string {
 	data, err := promptsFS.ReadFile("prompts/" + name + ".txt")
 	if err != nil {
-		return ""
+		panic("intentdriver: missing embedded prompt: " + name + ".txt")
 	}
 	return string(data)
 }

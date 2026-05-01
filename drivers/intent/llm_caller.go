@@ -53,6 +53,9 @@ func (c *VFSCaller) Call(ctx context.Context, prompt string, model string) (stri
 	if err != nil {
 		return "", fmt.Errorf("VFSCaller: provider %q via %s: read response: %w", c.provider, devicePath, err)
 	}
+	if len(respData) == 0 {
+		return "", fmt.Errorf("VFSCaller: provider %q via %s: empty response", c.provider, devicePath)
+	}
 
 	var resp llmResponse
 	if err := json.Unmarshal(respData, &resp); err != nil {

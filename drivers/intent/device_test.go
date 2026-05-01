@@ -3,6 +3,7 @@ package intentdriver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -293,9 +294,7 @@ func TestIntentFile_UnknownSubpath(t *testing.T) {
 	mgr := newTestManager(&mockDecomposeCaller{})
 	driver := NewDriver(mgr)
 	factory := FileFactory(driver)
-	file, _ := factory("/unknown", vfs.O_RDWR, "")
-
-	err := file.Write(context.Background(), []byte(`{}`))
+	_, err := factory("/unknown", vfs.O_RDWR, "")
 	if err == nil {
 		t.Fatal("expected error for unknown subpath")
 	}
@@ -357,13 +356,6 @@ func TestIntentFile_Decompose_EmptySubpath(t *testing.T) {
 	file.Close()
 }
 
-// isDriverError checks if err is a *types.DriverError using errors.As.
 func isDriverError(err error, target **types.DriverError) bool {
-	return err != nil && func() bool {
-		de, ok := err.(*types.DriverError)
-		if ok {
-			*target = de
-		}
-		return ok
-	}()
+	return errors.As(err, target)
 }

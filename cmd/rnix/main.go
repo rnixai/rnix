@@ -1624,7 +1624,9 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 	// /dev/intent VFS device (Story 37.1)
 	intentDrv := intentdriver.NewDriver(intentMgr)
-	_ = devReg.RegisterWithDriver("/dev/intent", intentdriver.FileFactory(intentDrv), intentDrv)
+	if err := devReg.RegisterWithDriver("/dev/intent", intentdriver.FileFactory(intentDrv), intentDrv); err != nil {
+		return fmt.Errorf("register /dev/intent: %w", err)
+	}
 
 	// /dev/tty (Story 33-2) — user interaction via ask_user callback through IPC
 	ttyDriver := tty.NewDriver(func(ctx context.Context, questions []tty.Question) ([]tty.Answer, error) {

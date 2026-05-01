@@ -79,6 +79,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 			IsDestructive:     false,
 			ShouldDefer:       false,
 			SearchHint:        "intent confirm approve",
+			MaxResultTokens:   256,
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -276,9 +277,20 @@ func (f *IntentFile) Stat() (vfs.FileStat, error) {
 	}, nil
 }
 
+var validSubpaths = map[string]bool{
+	"":           true,
+	"/decompose": true,
+	"/status":    true,
+	"/confirm":   true,
+	"/execute":   true,
+}
+
 // FileFactory returns a VFSFileFactory that creates IntentFile instances.
 func FileFactory(driver *IntentDriver) vfs.VFSFileFactory {
 	return func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
+		if !validSubpaths[subpath] {
+			return nil, &types.DriverError{Op: "Open", Device: "/dev/intent" + subpath, Err: fmt.Errorf("unknown subpath %q", subpath), Code: types.ErrNotFound}
+		}
 		return &IntentFile{
 			driver:     driver,
 			subpath:    subpath,
