@@ -226,6 +226,12 @@ func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 	m.expandedAggGroups = make(map[int]bool)
 	// Story 36-4: expandMode 按进程作用域，切 PID 重置为 collapsed（sortAsc 不重置）
 	m.expandMode = expandModeCollapsed
+	// Story 36-5 P-1: search state is per-process; reset to avoid carrying a
+	// stale "ghost input mode" or stale matches across PID switches.
+	m.searchMode = false
+	m.searchQuery = ""
+	m.searchMatches = nil
+	m.searchMatchIdx = 0
 	return m
 }
 
@@ -241,10 +247,13 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	filtered := m.filteredUnifiedEvents()
 	// Story 36-5: 统一导航键集合
 	pageSize := max(m.dashboardVisibleLines()-4, 1)
-	// itemCount: prefer filtered view; fall back to stepEntries so cursor
-	// movement still works in tests / early frames before unified events are built.
+	// Story 36-5 P-4: itemCount must reflect the list the cursor indexes into.
+	// Use len(filtered) in steady state. Only fall back to len(stepEntries) when
+	// unifiedEvents has not been built yet (early frame / test setup), NOT when
+	// the user's filters happen to exclude everything. This prevents stepCursor
+	// from being driven past the filtered range during interactive filtering.
 	itemCount := len(filtered)
-	if itemCount == 0 {
+	if itemCount == 0 && len(m.unifiedEvents) == 0 {
 		itemCount = len(m.stepEntries)
 	}
 	navOpts := ui.ListNavOpts{
@@ -322,6 +331,15 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		}
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "n":
+		// Story 36-5 P-7: when a search is active, n cycles to the next match.
+		// Otherwise, fall back to the legacy "next error" semantics (AC-5).
+		if len(m.searchMatches) > 0 {
+			n := len(m.searchMatches)
+			m.searchMatchIdx = (m.searchMatchIdx + 1) % n
+			m.stepCursor = m.searchMatches[m.searchMatchIdx]
+			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
+			break
+		}
 		// Jump to next error: step event with HasError or system event with Severity >= SevError
 		found := false
 		for i := m.stepCursor + 1; i < len(filtered); i++ {
@@ -342,6 +360,14 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
 	case "N", "shift+N":
+		// Story 36-5 P-7: same modal split for N (previous match vs previous error).
+		if len(m.searchMatches) > 0 {
+			n := len(m.searchMatches)
+			m.searchMatchIdx = ((m.searchMatchIdx-1)%n + n) % n
+			m.stepCursor = m.searchMatches[m.searchMatchIdx]
+			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
+			break
+		}
 		// Jump to previous error
 		found := false
 		for i := m.stepCursor - 1; i >= 0; i-- {
@@ -377,26 +403,28 @@ func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
 		if m.searchQuery == "" {
 			return m
 		}
-		// Find first event whose summary/action/detail contains the query (case-insensitive).
+		// Story 36-5 P-7: collect ALL match indices (not just the first), so n/N
+		// can cycle through them per the modal n/N semantics.
 		q := strings.ToLower(m.searchQuery)
 		filtered := m.filteredUnifiedEvents()
-		found := -1
+		var matches []int
 		for i, ev := range filtered {
 			hay := strings.ToLower(ev.Summary + " " + ev.Detail)
 			if ev.StepEntry != nil {
 				hay += " " + strings.ToLower(ev.StepEntry.summary.Action+" "+ev.StepEntry.summary.Summary+" "+ev.StepEntry.summary.ToolPath)
 			}
 			if strings.Contains(hay, q) {
-				found = i
-				break
+				matches = append(matches, i)
 			}
 		}
-		if found < 0 {
+		if len(matches) == 0 {
 			m.statusMsg = fmt.Sprintf("No matches for %q", m.searchQuery)
 			m.statusMsgTTL = statusMsgDefaultTTL
 			return m
 		}
-		m.stepCursor = found
+		m.searchMatches = matches
+		m.searchMatchIdx = 0
+		m.stepCursor = matches[0]
 		m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 	case "backspace":
 		runes := []rune(m.searchQuery)

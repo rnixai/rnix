@@ -40,7 +40,9 @@ type ListNavOpts struct {
 // g/home, G/shift+G/end.
 func HandleListKey(key string, vp *viewport.Model, cursor *int, itemCount int, opts ListNavOpts) bool {
 	pageSize := pageSizeFor(vp, opts.PageSize)
-	halfPage := max(pageSize/2, 1)
+	// Story 36-5 AC-1 fix: half-page is computed from vp.Height() (not pageSize=h-1),
+	// so halfPage = max(vp.Height()/2, 1) per spec. Without vp, fall back to opts.PageSize/2.
+	halfPage := halfPageFor(vp, opts.PageSize)
 
 	// Empty-list safety: consume the key but take no action.
 	if itemCount <= 0 && cursor != nil {
@@ -152,6 +154,19 @@ func pageSizeFor(vp *viewport.Model, fallback int) int {
 		return fallback
 	}
 	return 10
+}
+
+// halfPageFor returns the half-page step. Per Story 36-5 AC-1, this is
+// max(vp.Height()/2, 1) when a viewport is supplied, independent of the integer
+// page size used by PgUp/PgDn (which is vp.Height()-1).
+func halfPageFor(vp *viewport.Model, fallback int) int {
+	if vp != nil {
+		return max(vp.Height()/2, 1)
+	}
+	if fallback > 0 {
+		return max(fallback/2, 1)
+	}
+	return 5
 }
 
 // FindMatches returns the 0-based line numbers in content that contain query

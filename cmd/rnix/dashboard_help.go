@@ -31,13 +31,13 @@ func (m dashboardModel) renderHelpOverlay() string {
 	var left, right strings.Builder
 
 	// Left column
-	left.WriteString(groupTitle.Render("Navigation") + dimStyle.Render(" (all scrollable panes, except Security)") + "\n")
+	left.WriteString(groupTitle.Render("Navigation") + dimStyle.Render(" (applies to all scrollable panes)") + "\n")
 	left.WriteString(entry("j/k", "Move up / down") + "\n")
 	left.WriteString(entry("PgDn/Up", "Page down / up") + "\n")
 	left.WriteString(entry("Ctrl-d/u", "Half page down / up") + "\n")
 	left.WriteString(entry("g/G", "Jump to top / bottom") + "\n")
 	left.WriteString(entry("Home/End", "Same as g/G") + "\n")
-	left.WriteString(entry("/", "Search (Timeline, Inspector)") + "\n")
+	left.WriteString(entry("/", "Search (Timeline, Inspector lens)") + "\n")
 	left.WriteString(entry("n/N", "Next / previous match") + "\n")
 	left.WriteString(entry("Tab", "Cycle panes") + "\n")
 	left.WriteString(entry("Enter", "Expand / select") + "\n")

@@ -286,21 +286,34 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		// Story 36-6: stop follow when entering search
 		m = m.stopFollowLiveWithStatus()
+		// Story 36-5 P-2: clear stale highlight from previous search BEFORE
+		// resetting searchQuery, so rebuildInspectorContents sees the no-query
+		// path and renders raw content. Without this, the next FindMatches runs
+		// over content that already contains reverse-render ANSI escapes from
+		// the prior search, causing phantom matches on `\x1b[7m`.
+		hadPrior := m.searchQuery != ""
 		m.searchMode = true
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchMatchIdx = 0
 		m.searchReverse = false
+		if hadPrior {
+			m.rebuildInspectorContents()
+		}
 		return m, nil
 
 	// Story 36-6: Reverse search `?`
 	case "?":
 		m = m.stopFollowLiveWithStatus()
+		hadPrior := m.searchQuery != ""
 		m.searchMode = true
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchMatchIdx = 0
 		m.searchReverse = true
+		if hadPrior {
+			m.rebuildInspectorContents()
+		}
 		return m, nil
 
 	// Story 36-6: Ctrl-/ cross-lens search placeholder (Story 36-7)
@@ -372,6 +385,11 @@ func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd
 		return m, nil
 	case "enter":
 		m.searchMode = false
+		// Story 36-5 P-3: empty-query short-circuit (parity with Timeline). Without
+		// this guard, FindMatches("") returns nil and we'd spam "No matches for """.
+		if m.searchQuery == "" {
+			return m, nil
+		}
 		m.refreshInspectorSearchMatches()
 		if len(m.searchMatches) == 0 {
 			m.statusMsg = fmt.Sprintf("No matches for %q", m.searchQuery)
@@ -409,6 +427,18 @@ func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd
 func (m *dashboardModel) refreshInspectorSearchMatches() {
 	content := m.inspectorContents[m.inspectorLens]
 	m.searchMatches = ui.FindMatches(content, m.searchQuery)
+}
+
+// clearSearchState resets dashboard search-related fields. Used when leaving
+// search context due to pane / mode change. Story 36-5 P-1.
+func (m dashboardModel) clearSearchState() dashboardModel {
+	m.searchMode = false
+	m.searchQuery = ""
+	m.searchMatches = nil
+	m.searchMatchIdx = 0
+	m.searchReverse = false
+	m.searchCrossLens = false
+	return m
 }
 
 func (m dashboardModel) inspectorJumpSearchMatch(dir int) dashboardModel {

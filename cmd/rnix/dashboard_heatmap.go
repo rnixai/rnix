@@ -243,7 +243,17 @@ func (m dashboardModel) handleHeatmapKey(key string) dashboardModel {
 	if ui.HandleListKey(key, nil, &m.heatmapCursor, len(m.heatmapSegments), ui.ListNavOpts{PageSize: 8}) {
 		return m
 	}
+	// Story 36-5 P-8: 当前面板（Heatmap）不支持搜索；按 / 提示用户
+	if key == "/" {
+		m.statusMsg = "Search not available in this pane"
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return m
+	}
 	if key == "enter" {
+		// Story 36-5 P-5: 空列表时不切换 expanded 状态，避免无意义的状态翻转
+		if len(m.heatmapSegments) == 0 {
+			return m
+		}
 		m.heatmapExpanded = !m.heatmapExpanded
 	}
 	return m

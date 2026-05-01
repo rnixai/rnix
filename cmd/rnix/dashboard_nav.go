@@ -145,6 +145,17 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "esc":
 		if m.viewMode == viewExpanded {
+			// Story 36-5 P-1: in viewExpanded with active Timeline/Inspector search
+			// input, Esc must first exit the search overlay rather than collapse the
+			// pane. Without this, the search input mode persists invisibly after
+			// pane collapse and swallows subsequent keys ("ghost input mode").
+			if m.searchMode {
+				m.searchMode = false
+				m.searchQuery = ""
+				m.searchMatches = nil
+				m.searchMatchIdx = 0
+				return m, nil
+			}
 			// 让面板先处理内部 Esc（如 Trace 的 tree→list）
 			if m.activePane == paneTrace && m.traceViewMode != 0 {
 				return m.handleTraceKey(key)
@@ -165,6 +176,8 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "tab":
 		// Tab：在 Tree 和右侧面板之间切换焦点
+		// Story 36-5 P-1: tab also leaves search context.
+		m = m.clearSearchState()
 		if m.viewMode == viewDefault {
 			if m.activePane == paneTree {
 				m.activePane = m.rightPane
@@ -175,6 +188,7 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "shift+tab":
 		// Shift+Tab：同 Tab，双向切换
+		m = m.clearSearchState()
 		if m.viewMode == viewDefault {
 			if m.activePane == paneTree {
 				m.activePane = m.rightPane
@@ -185,6 +199,9 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "1":
 		// 1：聚焦 Tree 侧边栏
+		// Story 36-5 P-1: leaving Timeline/Inspector context — clear search input
+		// state to avoid "ghost input mode" leaking into the next pane.
+		m = m.clearSearchState()
 		m.activePane = paneTree
 		if m.viewMode == viewExpanded {
 			m.viewMode = viewDefault // Tree 不可见时，切回 default 显示 Tree
@@ -192,6 +209,8 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "2", "3", "4", "5", "6", "7", "8":
 		// 2-8：切换右侧面板内容
+		// Story 36-5 P-1: same rationale as case "1".
+		m = m.clearSearchState()
 		n, _ := strconv.Atoi(key)
 		p := paneType(n - 1)
 		m.rightPane = p
@@ -544,6 +563,12 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 
 	// Intent 面板
 	if m.activePane == paneIntent {
+		// Story 36-5 P-8: Search 不在此面板可用 — 提示用户而不是默默被吞
+		if key == "/" {
+			m.statusMsg = "Search not available in this pane"
+			m.statusMsgTTL = statusMsgDefaultTTL
+			return m, nil
+		}
 		// Story 36-5: 统一导航键集合
 		navOpts := ui.ListNavOpts{
 			PageSize: max(m.dashboardVisibleLines()-1, 1),
