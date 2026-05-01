@@ -56,8 +56,14 @@ func runApply(cmd *cobra.Command, args []string) error {
 		intent = "[AUTO_CONFIRM] " + intent
 	}
 
-	cwd, _ := os.Getwd()
-	projectDir, _ := config.ProjectDir(cwd)
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("apply: cannot determine working directory: %w", err)
+	}
+	projectDir, err := config.ProjectDir(cwd)
+	if err != nil {
+		return fmt.Errorf("apply: cannot resolve project directory: %w", err)
+	}
 
 	req := ipc.SpawnRequest{
 		Intent:     intent,
@@ -120,22 +126,24 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 	elapsed := time.Since(start)
 
-	if final != nil && final.ExitCode == 0 {
+	if final == nil {
+		outputError(renderer, mode, "apply", "connection to daemon lost", "orchestrator process may still be running", "check rnix ps for process status")
+		exitCode = 1
+		return nil
+	}
+
+	if final.ExitCode == 0 {
 		outputSuccess(renderer, mode, pid, final.Result, final.TokensUsed, elapsed, spawnProvider, spawnModel)
 	} else {
-		reason := "unknown error"
-		if final != nil {
-			reason = final.ExitReason
-			if final.ErrorMessage != "" {
-				reason = final.ErrorMessage
-			}
+		reason := final.ExitReason
+		if final.ErrorMessage != "" {
+			reason = final.ErrorMessage
+		}
+		if reason == "" {
+			reason = "unknown error"
 		}
 		outputError(renderer, mode, "apply", reason, "intent execution failed", "check intent description or retry")
-		tokensUsed := 0
-		if final != nil {
-			tokensUsed = final.TokensUsed
-		}
-		ui.RenderSummary(renderer, pid, 1, tokensUsed, elapsed, spawnProvider, spawnModel)
+		ui.RenderSummary(renderer, pid, 1, final.TokensUsed, elapsed, spawnProvider, spawnModel)
 		exitCode = 1
 	}
 
