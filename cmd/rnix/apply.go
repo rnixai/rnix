@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/spf13/cobra"
@@ -33,7 +35,7 @@ func init() {
 func runApply(cmd *cobra.Command, args []string) error {
 	intentStr := args[0]
 	mode := resolveOutputMode()
-	r := ui.NewRenderer(os.Stdout, mode)
+	renderer := ui.NewRenderer(os.Stdout, mode)
 
 	client, err := ipc.EnsureDaemon()
 	if err != nil {
@@ -41,32 +43,100 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	// Handle incremental update
 	if flagUpdateIntent != "" {
-		return runApplyIncremental(client, r, intentStr, mode)
+		return runApplyIncremental(client, renderer, intentStr, mode)
 	}
 
-	req := ipc.ApplyIntentRequest{
-		Intent:    intentStr,
-		Model:     flagModel,
-		Provider:  flagProvider,
-		AutoStart: flagAutoStart,
+	ui.InitStyles(renderer.Profile)
+	progress := ui.NewProgressReporter(renderer)
+	start := time.Now()
+
+	intent := intentStr
+	if flagAutoStart {
+		intent = "[AUTO_CONFIRM] " + intent
 	}
 
-	var intentID string
+	cwd, _ := os.Getwd()
+	projectDir, _ := config.ProjectDir(cwd)
 
-	applyResp, err := client.ApplyIntentAndWatch(req, func(ev ipc.StreamEvent) {
-		onEvent(r, ev, client, &intentID, mode)
+	req := ipc.SpawnRequest{
+		Intent:     intent,
+		Agent:      "orchestrator",
+		Model:      flagModel,
+		Provider:   flagProvider,
+		ProjectDir: projectDir,
+		RnixEnv:    os.Getenv("RNIX_ENV"),
+	}
+
+	var spawnProvider, spawnModel string
+
+	pid, final, spawnErr := client.SpawnAndWatch(req, func(ev ipc.StreamEvent) {
+		switch ev.Type {
+		case ipc.StreamAskUser:
+			handleAskUserEvent(ev.Payload, ipc.SocketPath())
+			return
+		case ipc.StreamProgress:
+			// fall through
+		default:
+			return
+		}
+
+		var pp ipc.ProgressPayload
+		if err := json.Unmarshal(ev.Payload, &pp); err != nil {
+			return
+		}
+		switch pp.Event {
+		case "spawn":
+			spawnProvider = pp.Provider
+			spawnModel = pp.Model
+			uuidShort := pp.UUID
+			if len(uuidShort) > 12 {
+				uuidShort = uuidShort[:12] + "..."
+			}
+			if pp.Provider != "" && pp.Model != "" {
+				progress.KernelMessage("spawning orchestrator PID %d (uuid: %s, %s/%s)...", pp.PID, uuidShort, pp.Provider, pp.Model)
+			} else if pp.Provider != "" {
+				progress.KernelMessage("spawning orchestrator PID %d (uuid: %s, %s)...", pp.PID, uuidShort, pp.Provider)
+			} else {
+				progress.KernelMessage("spawning orchestrator PID %d (uuid: %s)...", pp.PID, uuidShort)
+			}
+		case "step":
+			progress.AgentStep(pp.PID, pp.Step, pp.Total)
+		case "step_complete":
+			if mode == ui.ModeJSON {
+				jsonLine, _ := json.Marshal(pp)
+				fmt.Fprintf(os.Stdout, "%s\n", jsonLine)
+			} else {
+				progress.AgentStepComplete(pp.PID, pp.Step, pp.Action, pp.Summary)
+			}
+		}
 	})
 
-	if err != nil {
-		return fmt.Errorf("apply: %w", err)
+	if spawnErr != nil {
+		outputError(renderer, mode, "apply", spawnErr.Error(), "orchestrator agent failed to start", "check that LLM CLI is installed")
+		exitCode = 1
+		return nil
 	}
 
-	intentID = applyResp.IntentID
+	elapsed := time.Since(start)
 
-	if mode != ui.ModeJSON {
-		fmt.Fprintf(os.Stdout, "\n[apply] intent %s created\n", applyResp.IntentID)
+	if final != nil && final.ExitCode == 0 {
+		outputSuccess(renderer, mode, pid, final.Result, final.TokensUsed, elapsed, spawnProvider, spawnModel)
+	} else {
+		reason := "unknown error"
+		if final != nil {
+			reason = final.ExitReason
+			if final.ErrorMessage != "" {
+				reason = final.ErrorMessage
+			}
+		}
+		outputError(renderer, mode, "apply", reason, "intent execution failed", "check intent description or retry")
+		tokensUsed := 0
+		if final != nil {
+			tokensUsed = final.TokensUsed
+		}
+		ui.RenderSummary(renderer, pid, 1, tokensUsed, elapsed, spawnProvider, spawnModel)
+		exitCode = 1
 	}
 
 	return nil
@@ -92,95 +162,4 @@ func runApplyIncremental(client *ipc.Client, r *ui.Renderer, intentStr string, m
 	}
 
 	return nil
-}
-
-func onEvent(r *ui.Renderer, ev ipc.StreamEvent, client *ipc.Client, intentID *string, mode ui.OutputMode) {
-	switch ev.Type {
-	case ipc.StreamIntentDecomposed:
-		var tree ipc.IntentTreeWire
-		if err := json.Unmarshal(ev.Payload, &tree); err == nil {
-			*intentID = tree.ID
-			ui.RenderIntentTree(r, &tree, mode)
-		}
-
-	case ipc.StreamIntentConfirmReq:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			confirmID := payload.NodeID
-			if confirmID == "" {
-				confirmID = *intentID
-			}
-			if !flagAutoStart && confirmID != "" {
-				fmt.Fprint(os.Stderr, "\nConfirm execution of this plan? [y/N] ")
-				var answer string
-				_, _ = fmt.Scanln(&answer)
-				confirm := answer == "y" || answer == "Y" || answer == "yes"
-				_ = client.ConfirmIntent(confirmID, confirm)
-			}
-		}
-
-	case ipc.StreamIntentNodeStart:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			ui.RenderIntentNodeEvent(r, "start", payload.NodeID, payload.Intent, payload.PID, mode)
-		}
-
-	case ipc.StreamIntentNodeDone:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			ui.RenderIntentNodeEvent(r, "done", payload.NodeID, payload.Result, 0, mode)
-		}
-
-	case ipc.StreamIntentNodeFailed:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			ui.RenderIntentNodeEvent(r, "failed", payload.NodeID, payload.Error, 0, mode)
-		}
-
-	case ipc.StreamIntentProgress:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			ui.RenderIntentProgress(r, payload.Completed, payload.Total, mode)
-		}
-
-	case ipc.StreamIntentNodeRetry:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			ui.RenderIntentNodeRetry(r, payload.NodeID, payload.RetryAttempt, payload.MaxRetries, mode)
-		}
-
-	case ipc.StreamIntentNodeTimeout:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			ui.RenderIntentNodeTimeout(r, payload.NodeID, mode)
-		}
-
-	case ipc.StreamIntentDriftDetected:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			ui.RenderIntentNodeEvent(r, "drift", payload.NodeID, payload.DriftType+": "+payload.Error, 0, mode)
-		}
-
-	case ipc.StreamIntentDriftResolved:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			ui.RenderIntentNodeEvent(r, "drift_resolved", payload.NodeID, "drift resolved", 0, mode)
-		}
-
-	case ipc.StreamIntentIncrementalMerged:
-		var resp ipc.ApplyIncrementalIntentResponse
-		if err := json.Unmarshal(ev.Payload, &resp); err == nil {
-			ui.RenderIntentMergeResult(r, resp.AddedNodes, resp.ModifiedNodes, mode)
-		}
-
-	case ipc.StreamIntentComplete:
-		var payload ipc.IntentNodeEventPayload
-		if err := json.Unmarshal(ev.Payload, &payload); err == nil {
-			if payload.Error != "" {
-				ui.RenderIntentNodeEvent(r, "error", "", payload.Error, 0, mode)
-			} else {
-				ui.RenderIntentNodeEvent(r, "complete", "", "all tasks finished", 0, mode)
-			}
-		}
-	}
 }

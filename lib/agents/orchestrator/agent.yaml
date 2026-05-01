@@ -1,0 +1,8 @@
+name: orchestrator
+description: "意图分解与编排执行的系统 Agent，接收高层意图并通过 /dev/intent 设备完成分解、确认和执行"
+models:
+  preferred: sonnet
+  fallback: haiku
+context_budget: 8192
+skills:
+  - decompose

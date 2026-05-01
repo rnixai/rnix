@@ -530,6 +530,46 @@ func TestAgentLoader_ShadowResolve_NotFound(t *testing.T) {
 	}
 }
 
+func TestAgentLoader_Load_RealOrchestrator(t *testing.T) {
+	sl := skills.NewSkillLoader([]string{"../lib/skills"})
+	al := NewAgentLoader([]string{"../lib/agents"}, sl, nil)
+
+	info, err := al.Load("orchestrator")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if info.Manifest.Name != "orchestrator" {
+		t.Errorf("Name = %q, want %q", info.Manifest.Name, "orchestrator")
+	}
+	if info.Manifest.Models.Provider != "" {
+		t.Errorf("Models.Provider = %q, want empty (follows CLI --provider)", info.Manifest.Models.Provider)
+	}
+	if info.Manifest.Models.Preferred != "sonnet" {
+		t.Errorf("Models.Preferred = %q, want %q", info.Manifest.Models.Preferred, "sonnet")
+	}
+
+	if len(info.Skills) != 1 {
+		t.Fatalf("Skills count = %d, want 1", len(info.Skills))
+	}
+	if info.Skills[0].Manifest.Name != "decompose" {
+		t.Errorf("Skill[0].Name = %q, want %q", info.Skills[0].Manifest.Name, "decompose")
+	}
+
+	tools := info.AllowedTools()
+	if len(tools) == 0 {
+		t.Fatal("AllowedTools is empty, expected /dev/intent/* tools")
+	}
+
+	prompt := info.SystemPrompt()
+	if !strings.Contains(prompt, "Orchestrator") {
+		t.Error("SystemPrompt missing 'Orchestrator' from agent instructions")
+	}
+	if !strings.Contains(prompt, "/dev/intent/decompose") {
+		t.Error("SystemPrompt missing '/dev/intent/decompose' from skill body")
+	}
+}
+
 // writeAgentData creates a minimal agent directory with agent.yaml and instructions.md
 // under baseDir/agentName/.
 func writeAgentData(t *testing.T, baseDir, agentName, description, instructions string) {

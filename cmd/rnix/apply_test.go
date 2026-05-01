@@ -35,6 +35,16 @@ func TestApplyCmd_YesFlag(t *testing.T) {
 	}
 }
 
+func TestApplyCmd_UpdateFlag(t *testing.T) {
+	f := applyCmd.Flags().Lookup("update")
+	if f == nil {
+		t.Fatal("expected --update flag to be defined")
+	}
+	if f.Shorthand != "u" {
+		t.Fatalf("expected shorthand 'u', got %q", f.Shorthand)
+	}
+}
+
 func TestApplyCmd_UsageAndDescription(t *testing.T) {
 	if applyCmd.Use != "apply <intent>" {
 		t.Fatalf("expected Use=%q, got %q", "apply <intent>", applyCmd.Use)
