@@ -242,3 +242,63 @@ func TestManager_ApplyIncremental_TerminalState(t *testing.T) {
 		t.Fatal("expected error for terminal-state intent, got nil")
 	}
 }
+
+// --- Story 37.1: Manager.ApplyTree ---
+
+func TestManager_ApplyTree(t *testing.T) {
+	caller := &mockLLMCaller{response: `[{"id":"a","intent":"task","depends_on":[]}]`}
+	decomposer := NewDecomposer(caller)
+	spawner := newMockIntentSpawner()
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
+
+	tree := &IntentTree{
+		RootIntent: "test intent",
+		Nodes: map[string]*IntentNode{
+			"a": {ID: "a", Intent: "task a", DependsOn: []string{}},
+			"b": {ID: "b", Intent: "task b", DependsOn: []string{"a"}},
+		},
+	}
+
+	id, err := mgr.ApplyTree(context.Background(), tree)
+	if err != nil {
+		t.Fatalf("ApplyTree failed: %v", err)
+	}
+	if id == "" {
+		t.Fatal("expected non-empty IntentID")
+	}
+	if tree.State != IntentAwaitConfirm {
+		t.Errorf("expected state %q, got %q", IntentAwaitConfirm, tree.State)
+	}
+	if len(tree.DesiredNodes) != 2 {
+		t.Errorf("expected 2 desired nodes, got %d", len(tree.DesiredNodes))
+	}
+
+	// Verify it's stored and retrievable
+	status, err := mgr.Status(id)
+	if err != nil {
+		t.Fatalf("Status after ApplyTree failed: %v", err)
+	}
+	if status.RootIntent != "test intent" {
+		t.Errorf("expected root intent %q, got %q", "test intent", status.RootIntent)
+	}
+}
+
+func TestManager_ApplyTree_CycleDetection(t *testing.T) {
+	caller := &mockLLMCaller{response: `[{"id":"a","intent":"task","depends_on":[]}]`}
+	decomposer := NewDecomposer(caller)
+	spawner := newMockIntentSpawner()
+	mgr := NewManager(decomposer, spawner, DefaultReconcilerConfig())
+
+	tree := &IntentTree{
+		RootIntent: "cyclic",
+		Nodes: map[string]*IntentNode{
+			"a": {ID: "a", Intent: "task a", DependsOn: []string{"b"}},
+			"b": {ID: "b", Intent: "task b", DependsOn: []string{"a"}},
+		},
+	}
+
+	_, err := mgr.ApplyTree(context.Background(), tree)
+	if err == nil {
+		t.Fatal("expected error for cyclic dependencies")
+	}
+}

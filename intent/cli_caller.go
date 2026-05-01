@@ -8,7 +8,7 @@ import (
 	"os/exec"
 )
 
-// CLICaller implements LLMCaller by invoking the Claude Code CLI.
+// Deprecated: CLICaller is superseded by intentdriver.VFSCaller which routes through VFS /dev/llm/* devices.
 type CLICaller struct{}
 
 type claudeJSONResponse struct {

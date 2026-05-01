@@ -24,6 +24,7 @@ func NewDecomposer(caller LLMCaller) *Decomposer {
 	return &Decomposer{llmDriver: caller}
 }
 
+// Deprecated: migrated to lib/skills/decompose/SKILL.md
 const decomposePromptTemplate = `你是一个任务规划系统。请将以下高层意图分解为具体子任务。
 
 意图: %s
@@ -97,6 +98,7 @@ func (d *Decomposer) Decompose(ctx context.Context, intent string, model string)
 	return tree, nil
 }
 
+// Deprecated: migrated to lib/skills/decompose/SKILL.md
 const incrementalDecomposePromptTemplate = `你是一个任务规划系统。现有一个意图树正在执行中，用户希望增量更新。
 
 原始意图: %s

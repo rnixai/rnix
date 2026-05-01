@@ -31,6 +31,7 @@ import (
 	driversmemory "github.com/rnixai/rnix/drivers/memory"
 	driverskills "github.com/rnixai/rnix/drivers/skills"
 	"github.com/rnixai/rnix/drivers/web"
+	intentdriver "github.com/rnixai/rnix/drivers/intent"
 	"github.com/rnixai/rnix/intent"
 	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
@@ -1600,8 +1601,9 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		return wires
 	})
 
-	// Intent manager initialization (Story 19.1)
-	intentDecomposer := intent.NewDecomposer(&intent.CLICaller{})
+	// Intent manager initialization (Story 19.1, normalized in Story 37.1)
+	vfsCaller := intentdriver.NewVFSCaller(devReg, providersCfg.ResolveDefaultProvider())
+	intentDecomposer := intent.NewDecomposer(vfsCaller)
 	intentSpawner := &ipc.IntentKernelSpawner{
 		SpawnFunc: func(ctx context.Context, node *intent.IntentNode) (types.PID, error) {
 			agentInfo, _ := agentLoader.Load(node.Agent)
@@ -1619,6 +1621,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 	intentMgr := intent.NewManager(intentDecomposer, intentSpawner, intent.DefaultReconcilerConfig())
 	srv.SetIntentManager(ipc.NewIntentManagerAdapter(intentMgr))
+
+	// /dev/intent VFS device (Story 37.1)
+	intentDrv := intentdriver.NewDriver(intentMgr)
+	_ = devReg.RegisterWithDriver("/dev/intent", intentdriver.FileFactory(intentDrv), intentDrv)
 
 	// /dev/tty (Story 33-2) — user interaction via ask_user callback through IPC
 	ttyDriver := tty.NewDriver(func(ctx context.Context, questions []tty.Question) ([]tty.Answer, error) {

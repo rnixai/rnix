@@ -1,0 +1,6 @@
+Execute a confirmed intent tree using the Reconciler.
+
+Write a JSON object with:
+- intent_id (string, required): The intent identifier to execute
+
+Spawns agent processes for each sub-task, respecting dependency order. Returns execution result as JSON.

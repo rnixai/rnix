@@ -1,0 +1,14 @@
+Decompose a high-level intent into a structured sub-task DAG.
+
+Write a JSON object with the following fields:
+- intent (string, required): The high-level goal to decompose
+- model (string, optional): LLM model name to use for decomposition
+- provider (string, optional): LLM provider name (overrides default)
+
+Returns the decomposed IntentTree as JSON, containing:
+- id: Unique intent identifier (e.g. "intent-1")
+- root_intent: The original intent text
+- state: Current tree state ("await_confirm")
+- nodes: Map of sub-task nodes with dependencies
+
+The returned tree is in "await_confirm" state. Use intent_confirm to approve it before execution.

@@ -1,0 +1,6 @@
+Confirm a decomposed intent tree for execution.
+
+Write a JSON object with:
+- intent_id (string, required): The intent identifier to confirm
+
+Transitions the intent from "await_confirm" to "executing" state. Returns {"ok": true} on success.

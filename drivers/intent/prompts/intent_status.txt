@@ -1,0 +1,6 @@
+Query the current status of an intent tree.
+
+Write a JSON object with:
+- intent_id (string, required): The intent identifier (e.g. "intent-1")
+
+Returns the full IntentTree JSON including node states, dependencies, and drift information.

@@ -185,3 +185,23 @@ func (m *Manager) ApplyIncremental(ctx context.Context, intentID IntentID, newIn
 
 	return tree, mergeResult, nil
 }
+
+// ApplyTree stores a pre-built IntentTree, skipping the decompose step.
+// Used by external callers (e.g., Orchestrator Agent) that build the tree themselves.
+func (m *Manager) ApplyTree(ctx context.Context, tree *IntentTree) (IntentID, error) {
+	if _, err := BuildIntentDAG(tree); err != nil {
+		return "", fmt.Errorf("apply tree: %w", err)
+	}
+
+	tree.InitDesired()
+
+	id := IntentID(fmt.Sprintf("intent-%d", m.nextID.Add(1)))
+	tree.ID = id
+	tree.State = IntentAwaitConfirm
+
+	m.mu.Lock()
+	m.intents[id] = tree
+	m.mu.Unlock()
+
+	return id, nil
+}
