@@ -32,6 +32,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 			ShouldDefer:       true,
 			SearchHint:        "intent decompose plan task goal",
 			MaxResultTokens:   8192,
+			Subpath:           "/decompose",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -47,6 +48,10 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 						"type":        "string",
 						"description": "LLM provider 名称（可选，覆盖默认）",
 					},
+					"auto_start": map[string]any{
+						"type":        "boolean",
+						"description": "若为 true，分解成功后自动 confirm + execute，同步等待整个意图树执行完成；适用于 [AUTO_CONFIRM] 流程，可避免后续手动调用 intent_confirm/intent_execute",
+					},
 				},
 				"required": []string{"intent"},
 			},
@@ -60,6 +65,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 			ShouldDefer:       false,
 			SearchHint:        "intent status query",
 			MaxResultTokens:   4096,
+			Subpath:           "/status",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -80,6 +86,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 			ShouldDefer:       false,
 			SearchHint:        "intent confirm approve",
 			MaxResultTokens:   256,
+			Subpath:           "/confirm",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -100,6 +107,7 @@ func (d *IntentDriver) ToolDefs() []vfs.ToolDef {
 			ShouldDefer:       true,
 			SearchHint:        "intent execute run reconcile",
 			MaxResultTokens:   4096,
+			Subpath:           "/execute",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -160,9 +168,10 @@ func (f *IntentFile) Write(ctx context.Context, data []byte) error {
 
 func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.IntentTree, error) {
 	var req struct {
-		Intent   string `json:"intent"`
-		Model    string `json:"model"`
-		Provider string `json:"provider"`
+		Intent    string `json:"intent"`
+		Model     string `json:"model"`
+		Provider  string `json:"provider"`
+		AutoStart bool   `json:"auto_start"`
 	}
 	if err := json.Unmarshal(data, &req); err != nil {
 		return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("invalid decompose request: %w", err), Code: types.ErrInvalid}
@@ -179,6 +188,29 @@ func (f *IntentFile) handleDecompose(ctx context.Context, data []byte) (*intent.
 	if err != nil {
 		return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: err, Code: types.ErrDriver}
 	}
+
+	// Auto-start chain: when [AUTO_CONFIRM] flow sets auto_start=true, confirm
+	// and execute synchronously inside this single tool call. This collapses
+	// the LLM's three-step protocol (decompose → confirm → execute) into one
+	// reliable call — LLMs (especially DeepSeek/weak models) frequently drop
+	// the intent_id parameter on follow-up calls, leaving the reconciler
+	// idle. The synchronous Execute waits for all child processes to finish,
+	// so the returned tree reflects terminal state (completed or failed).
+	if req.AutoStart {
+		if err := f.driver.manager.Confirm(tree.ID); err != nil {
+			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("auto_start confirm: %w", err), Code: types.ErrDriver}
+		}
+		if execErr := f.driver.manager.Execute(ctx, tree.ID, intent.ReconcilerCallbacks{}); execErr != nil {
+			// Return error but keep the tree state; caller can inspect.
+			return nil, &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("auto_start execute: %w", execErr), Code: types.ErrDriver}
+		}
+		// Re-fetch the tree to capture post-execution state.
+		latest, statusErr := f.driver.manager.Status(tree.ID)
+		if statusErr == nil {
+			tree = latest
+		}
+	}
+
 	return tree, nil
 }
 

@@ -81,6 +81,28 @@ func (d *CronDriver) ToolDefs() []vfs.ToolDef {
 			IsDestructive:     false,
 			ShouldDefer:       true,
 			SearchHint:        "cron schedule timer periodic recurring",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"schedule": map[string]any{
+						"type":        "string",
+						"description": "5-field cron expression (e.g. \"*/5 * * * *\")",
+					},
+					"prompt": map[string]any{
+						"type":        "string",
+						"description": "Prompt to enqueue at each fire time",
+					},
+					"agent": map[string]any{
+						"type":        "string",
+						"description": "Optional agent name (default: stem)",
+					},
+					"durable": map[string]any{
+						"type":        "boolean",
+						"description": "If true, persist across restarts",
+					},
+				},
+				"required": []string{"schedule", "prompt"},
+			},
 		},
 		{
 			Name:              "cron_list",
@@ -90,6 +112,10 @@ func (d *CronDriver) ToolDefs() []vfs.ToolDef {
 			IsDestructive:     false,
 			ShouldDefer:       true,
 			SearchHint:        "cron list scheduled jobs",
+			Parameters: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
 		},
 		{
 			Name:              "cron_delete",
@@ -99,6 +125,16 @@ func (d *CronDriver) ToolDefs() []vfs.ToolDef {
 			IsDestructive:     false,
 			ShouldDefer:       true,
 			SearchHint:        "cron delete remove job",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id": map[string]any{
+						"type":        "string",
+						"description": "Cron job ID to delete",
+					},
+				},
+				"required": []string{"id"},
+			},
 		},
 	}
 }

@@ -122,6 +122,52 @@ func TestBuildToolDefs_UnknownPath_SkipsSilently(t *testing.T) {
 	}
 }
 
+// TestBuildToolDefs_SubpathRouting verifies that drivers multiplexing multiple
+// tools onto distinct subpaths (e.g. /dev/intent dispatching /decompose,
+// /confirm, /status, /execute) get their tool name → full-path mapping
+// preserved in toolMap. Without subpath routing, all four intent tools were
+// mapped to /dev/intent root and dispatched into handleDecompose, breaking
+// confirm/execute/status calls with "intent is required".
+func TestBuildToolDefs_SubpathRouting(t *testing.T) {
+	reg := vfs.NewDeviceRegistry()
+	factory := func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
+		return nil, nil
+	}
+
+	intentDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
+		{Name: "intent_decompose", Subpath: "/decompose"},
+		{Name: "intent_status", Subpath: "/status"},
+		{Name: "intent_confirm", Subpath: "/confirm"},
+		{Name: "intent_execute", Subpath: "/execute"},
+	}}
+	shellDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
+		{Name: "shell"}, // empty Subpath → opens device root
+	}}
+
+	_ = reg.RegisterWithDriver("/dev/intent", factory, intentDriver)
+	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)
+
+	_, toolMap := buildToolDefs(reg, nil, true)
+
+	wantPaths := map[string]string{
+		"intent_decompose": "/dev/intent/decompose",
+		"intent_status":    "/dev/intent/status",
+		"intent_confirm":   "/dev/intent/confirm",
+		"intent_execute":   "/dev/intent/execute",
+		"shell":            "/dev/shell",
+	}
+	for name, want := range wantPaths {
+		got, ok := toolMap[name]
+		if !ok {
+			t.Errorf("toolMap missing %q", name)
+			continue
+		}
+		if got.VFSPath != want {
+			t.Errorf("toolMap[%q].VFSPath = %q, want %q", name, got.VFSPath, want)
+		}
+	}
+}
+
 func TestMetaToolDefs(t *testing.T) {
 	defs, metaMap := metaToolDefs(true, nil)
 

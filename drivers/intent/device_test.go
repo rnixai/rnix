@@ -58,11 +58,12 @@ func TestIntentDriver_ToolDefs_Metadata(t *testing.T) {
 	expected := map[string]struct {
 		readOnly bool
 		deferred bool
+		subpath  string
 	}{
-		"intent_decompose": {readOnly: false, deferred: true},
-		"intent_status":    {readOnly: true, deferred: false},
-		"intent_confirm":   {readOnly: false, deferred: false},
-		"intent_execute":   {readOnly: false, deferred: true},
+		"intent_decompose": {readOnly: false, deferred: true, subpath: "/decompose"},
+		"intent_status":    {readOnly: true, deferred: false, subpath: "/status"},
+		"intent_confirm":   {readOnly: false, deferred: false, subpath: "/confirm"},
+		"intent_execute":   {readOnly: false, deferred: true, subpath: "/execute"},
 	}
 
 	for _, def := range defs {
@@ -82,6 +83,9 @@ func TestIntentDriver_ToolDefs_Metadata(t *testing.T) {
 		}
 		if def.Parameters == nil {
 			t.Errorf("%s: Parameters should not be nil", def.Name)
+		}
+		if def.Subpath != exp.subpath {
+			t.Errorf("%s: Subpath=%q, want %q", def.Name, def.Subpath, exp.subpath)
 		}
 	}
 }
@@ -142,6 +146,40 @@ func TestIntentFile_Decompose_MissingIntent(t *testing.T) {
 	}
 	if driverErr.Code != types.ErrInvalid {
 		t.Errorf("expected code %q, got %q", types.ErrInvalid, driverErr.Code)
+	}
+}
+
+// TestIntentFile_Decompose_AutoStart verifies that auto_start=true causes
+// decompose to chain confirm + execute and return a tree in terminal state
+// (so the LLM can skip the follow-up intent_confirm/intent_execute calls
+// that are unreliable on weak models).
+func TestIntentFile_Decompose_AutoStart(t *testing.T) {
+	nodesJSON := `[{"id":"a","intent":"task a","depends_on":[]}]`
+	mgr := newTestManager(&mockDecomposeCaller{response: nodesJSON})
+	driver := NewDriver(mgr)
+
+	factory := FileFactory(driver)
+	file, _ := factory("/decompose", vfs.O_RDWR, "")
+
+	input := `{"intent":"hello world","auto_start":true}`
+	if err := file.Write(context.Background(), []byte(input)); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	data, err := file.Read(1 << 20)
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+
+	var tree intent.IntentTree
+	if err := json.Unmarshal(data, &tree); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// After auto_start, the tree should not be in await_confirm —
+	// confirm + execute have run synchronously.
+	if tree.State == intent.IntentAwaitConfirm {
+		t.Errorf("expected post-execute state, got await_confirm — auto_start did not chain")
 	}
 }
 

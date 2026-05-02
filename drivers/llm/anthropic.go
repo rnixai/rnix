@@ -209,6 +209,12 @@ func convertToolSchemaToAnthropic(params map[string]any) anthropic.ToolInputSche
 	schema := anthropic.ToolInputSchemaParam{}
 	if props, ok := params["properties"]; ok {
 		schema.Properties = props
+	} else {
+		// Defense: deepseek's anthropic-compatible endpoint rejects
+		// `parameters: null` with 400 "null is not of types boolean, object".
+		// Drivers that omit Parameters entirely (legitimate "no-arg tool")
+		// must still produce an empty object schema, not null.
+		schema.Properties = map[string]any{}
 	}
 	if req, ok := params["required"]; ok {
 		if arr, ok := req.([]any); ok {
@@ -217,6 +223,8 @@ func convertToolSchemaToAnthropic(params map[string]any) anthropic.ToolInputSche
 					schema.Required = append(schema.Required, s)
 				}
 			}
+		} else if arr, ok := req.([]string); ok {
+			schema.Required = append(schema.Required, arr...)
 		}
 	}
 	return schema

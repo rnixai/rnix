@@ -47,6 +47,13 @@ type StreamObserver interface {
 // ToolDef describes a tool that a VFS device provides.
 // Fields and JSON tags are intentionally identical to llm.ToolDef for
 // serialization compatibility across package boundaries.
+//
+// Subpath is an internal-only routing hint (json:"-"): when a single device
+// driver multiplexes multiple tools onto distinct subpaths (e.g. /dev/intent
+// dispatches /decompose, /confirm, /status, /execute via VFSFile.subpath),
+// the driver sets Subpath here so the kernel's toolMap maps the tool name
+// to the full device+subpath path. Empty Subpath means the tool opens the
+// device root (the existing behavior for /dev/shell, /dev/fs, etc.).
 type ToolDef struct {
 	Name              string         `json:"name"`
 	Description       string         `json:"description,omitempty"`
@@ -57,6 +64,7 @@ type ToolDef struct {
 	IsDestructive     bool           `json:"is_destructive,omitempty"`
 	ShouldDefer       bool           `json:"should_defer,omitempty"`
 	SearchHint        string         `json:"search_hint,omitempty"`
+	Subpath           string         `json:"-"` // routing hint, never serialized to LLM
 }
 
 // ToolDescriptor is an optional interface for VFS device drivers that can

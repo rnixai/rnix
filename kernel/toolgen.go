@@ -34,7 +34,13 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 		}
 		for _, def := range td.ToolDefs() {
 			defs = append(defs, def)
-			m := toolMapping{Type: "vfs", VFSPath: devPath}
+			// Drivers that multiplex multiple tools onto distinct subpaths
+			// (e.g. /dev/intent → /decompose, /confirm, /status, /execute)
+			// set def.Subpath so the kernel routes Open to the correct
+			// VFSFile.subpath. Empty Subpath = open device root (existing
+			// behavior for /dev/shell, /dev/fs, etc.).
+			vfsPath := devPath + def.Subpath
+			m := toolMapping{Type: "vfs", VFSPath: vfsPath}
 			// Tag FS operations for special handling in executeVFSTool
 			switch def.Name {
 			case "read_file", "write_file", "list_dir", "edit_file", "glob", "grep":

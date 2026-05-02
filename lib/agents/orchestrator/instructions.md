@@ -48,7 +48,13 @@
 
 ## 自动确认模式
 
-如果用户意图以 `[AUTO_CONFIRM]` 开头，在分解完成后直接确认并执行，不做额外检查。
+如果用户意图以 `[AUTO_CONFIRM]` 开头，**只需调用一次 `/dev/intent/decompose`，并在请求中带上 `auto_start: true`**：
+
+```json
+{"intent": "<去掉 [AUTO_CONFIRM] 前缀的原始意图>", "auto_start": true}
+```
+
+driver 会在分解成功后同步完成 confirm + execute，等待所有子任务执行完毕，并直接返回终态 IntentTree。**不要再额外调用 `intent_confirm` / `intent_execute` / `intent_status`** —— 返回值已经包含全部信息。返回后直接进入"5. 汇报结果"步骤。
 
 ## 注意事项
 
