@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/types"
@@ -3184,5 +3185,441 @@ func TestBuildAlertEvents_OnlySevWarnOrHigher(t *testing.T) {
 	}
 	if len(alerts) != 3 {
 		t.Fatalf("expected 3 alerts, got %d", len(alerts))
+	}
+}
+
+// =============================================================================
+// Story 38.2 — Phase 1 视觉框架（Title 颜色梯度 / Status Mode 标签 / Alert Badge+TTL）
+// =============================================================================
+
+// --- 38.2-UNIT-001: pctColorStyle 阈值正确（AC#1） ---
+
+// TestPctColorStyle_Thresholds asserts pctColorStyle returns the exact same
+// style we'd construct manually for the three buckets defined in AC#1:
+//
+//	< 60%  → Foreground(ColorMuted)
+//	60-79% → Foreground(ColorWarning)
+//	≥ 80%  → Foreground(ColorError) + Bold
+//
+// We compare via Render("x") byte-equality so the test stays independent of
+// the lipgloss colour profile (CI may run with TERM=dumb / NoColor).
+func TestPctColorStyle_Thresholds(t *testing.T) {
+	cases := []struct {
+		name string
+		pct  int
+		want lipgloss.Style
+	}{
+		{"0%_muted", 0, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))},
+		{"59%_muted", 59, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))},
+		{"60%_warning", 60, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))},
+		{"79%_warning", 79, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))},
+		{"80%_error_bold", 80, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)},
+		{"100%_error_bold", 100, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pctColorStyle(tc.pct).Render("x")
+			want := tc.want.Render("x")
+			if got != want {
+				t.Errorf("pctColorStyle(%d).Render(\"x\") = %q, want %q",
+					tc.pct, got, want)
+			}
+		})
+	}
+}
+
+// --- 38.2-UNIT-002: Title Bar 渲染时 ctxSeg/budgetSeg 包裹了 pctColorStyle（AC#1） ---
+
+// TestRenderDashboardTitle_CtxBudgetColorGradient verifies the full integration
+// — the Title Bar actually invokes pctColorStyle when constructing ctx/budget
+// segments. We assert by comparing the rendered title to a string built with
+// the expected style, so the test is robust against lipgloss profile changes.
+func TestRenderDashboardTitle_CtxBudgetColorGradient(t *testing.T) {
+	cases := []struct {
+		name   string
+		ctxPct int
+	}{
+		{"0%_muted", 0},
+		{"60%_warning", 60},
+		{"80%_error", 80},
+		{"100%_error", 100},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			procs := []vfs.ProcInfo{{
+				PID:           1,
+				UUID:          "uuid-pct",
+				State:         types.StateRunning,
+				TokensUsed:    tc.ctxPct,
+				ContextBudget: 100,
+				MaxCost:       1.0,
+				UsedCost:      float64(tc.ctxPct) / 100.0,
+				CreatedAt:     time.Now(),
+			}}
+			m := newTestDashboardModel(procs)
+			m.selectedPID = 1
+			m.width = 160 // wide enough for Level 5 (ctx + budget + elapsed)
+
+			title := m.renderDashboardTitle()
+
+			// The exact styled segment that pctColorStyle produces.
+			wantCtx := pctColorStyle(tc.ctxPct).Render(fmt.Sprintf("ctx %d%%", tc.ctxPct))
+			wantBudget := pctColorStyle(tc.ctxPct).Render(fmt.Sprintf("budget %d%%", tc.ctxPct))
+
+			if !strings.Contains(title, wantCtx) {
+				t.Errorf("title missing styled ctx segment %q; got: %q", wantCtx, title)
+			}
+			if !strings.Contains(title, wantBudget) {
+				t.Errorf("title missing styled budget segment %q; got: %q", wantBudget, title)
+			}
+		})
+	}
+}
+
+// --- 38.2-UNIT-003: 颜色梯度在窄终端裁剪后不渲染（AC#1 末段 + AC#5） ---
+
+// TestRenderDashboardTitle_CtxBudgetColorGradient_TrimmedAway verifies that
+// at terminal widths too narrow for Level ≥ 3 (ctx) or Level ≥ 4 (budget),
+// no colour-gradient logic runs (segment simply absent from the output).
+func TestRenderDashboardTitle_CtxBudgetColorGradient_TrimmedAway(t *testing.T) {
+	procs := []vfs.ProcInfo{{
+		PID:           1,
+		UUID:          "uuid-pct",
+		State:         types.StateRunning,
+		TokensUsed:    90, // ≥80% so red gradient would normally fire
+		ContextBudget: 100,
+		CreatedAt:     time.Now(),
+	}}
+	m := newTestDashboardModel(procs)
+	m.selectedPID = 1
+
+	// Width 25 → only base + counts fit (Level 1).
+	m.width = 25
+	title := m.renderDashboardTitle()
+	if strings.Contains(title, "ctx 90%") {
+		t.Errorf("at width=25 the ctx segment should be trimmed away, got: %q", title)
+	}
+	if strings.Contains(title, "budget 90%") {
+		t.Errorf("at width=25 the budget segment should be trimmed away, got: %q", title)
+	}
+}
+
+// --- 38.2-UNIT-004: Title 颜色梯度 ASCII 模式下颜色保留（AC#1 倒数第二段） ---
+
+// TestRenderDashboardTitle_CtxBudgetColorGradient_ASCII verifies that even
+// in ASCII mode (RNIX_ASCII=1), the colour gradient on ctx/budget segments
+// is preserved — only Unicode glyphs (●→*, ──→--) are swapped.
+func TestRenderDashboardTitle_CtxBudgetColorGradient_ASCII(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+
+	procs := []vfs.ProcInfo{{
+		PID:           1,
+		UUID:          "uuid-pct",
+		State:         types.StateRunning,
+		TokensUsed:    85, // ≥80% → red+bold
+		ContextBudget: 100,
+		CreatedAt:     time.Now(),
+	}}
+	m := newTestDashboardModel(procs)
+	m.selectedPID = 1
+	m.width = 160
+
+	title := m.renderDashboardTitle()
+
+	// ASCII separators
+	if !strings.Contains(title, "--") {
+		t.Errorf("ASCII mode should use '--' separator, got: %q", title)
+	}
+	// Colour-styled segment should still be present (AC#1: ASCII preserves ANSI).
+	wantCtx := pctColorStyle(85).Render("ctx 85%")
+	if !strings.Contains(title, wantCtx) {
+		t.Errorf("ASCII mode should preserve colour gradient on ctx, got: %q", title)
+	}
+}
+
+// --- 38.2-UNIT-005: Status Bar Mode 标签（AC#2） ---
+
+// TestRenderDashboardStatus_ModeLabel verifies the status bar emits the
+// correct [MONITOR] / [EXPANDED] / [INSPECTOR] / [DEBUG] / [REPLAY] literal
+// for each viewMode + replayMode combination.
+func TestRenderDashboardStatus_ModeLabel(t *testing.T) {
+	cases := []struct {
+		name      string
+		setup     func(*dashboardModel)
+		wantLabel string
+	}{
+		{
+			name:      "viewDefault",
+			setup:     func(m *dashboardModel) { m.viewMode = viewDefault },
+			wantLabel: "[MONITOR]",
+		},
+		{
+			name: "viewExpanded",
+			setup: func(m *dashboardModel) {
+				m.viewMode = viewExpanded
+				m.expandedPane = paneTimeline
+			},
+			wantLabel: "[EXPANDED]",
+		},
+		{
+			name:      "viewStepInspector",
+			setup:     func(m *dashboardModel) { m.viewMode = viewStepInspector },
+			wantLabel: "[INSPECTOR]",
+		},
+		{
+			name:      "viewDebug",
+			setup:     func(m *dashboardModel) { m.viewMode = viewDebug },
+			wantLabel: "[DEBUG]",
+		},
+		{
+			name:      "replayMode_overrides_viewMode",
+			setup:     func(m *dashboardModel) { m.replayMode = true; m.viewMode = viewDebug },
+			wantLabel: "[REPLAY]",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestDashboardModel(mockDashboardProcs())
+			tc.setup(&m)
+			status := m.renderDashboardStatus()
+			if !strings.Contains(status, tc.wantLabel) {
+				t.Errorf("status bar should contain %q, got: %q", tc.wantLabel, status)
+			}
+		})
+	}
+}
+
+// --- 38.2-UNIT-006: confirmKill 时不显示 Mode 标签（AC#2 行为契约） ---
+
+// TestRenderDashboardStatus_ConfirmKillNoModeLabel verifies the y/N
+// confirmation dialog stays visually quiet — no mode label injected.
+func TestRenderDashboardStatus_ConfirmKillNoModeLabel(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.confirmKill = true
+	m.confirmPID = 42
+	m.viewMode = viewDefault
+
+	status := m.renderDashboardStatus()
+	if !strings.Contains(status, "Kill PID 42?") {
+		t.Errorf("confirmKill should show kill prompt, got: %q", status)
+	}
+	for _, lbl := range []string{"[MONITOR]", "[EXPANDED]", "[INSPECTOR]", "[DEBUG]", "[REPLAY]"} {
+		if strings.Contains(status, lbl) {
+			t.Errorf("confirmKill must NOT contain mode label %q, got: %q", lbl, status)
+		}
+	}
+}
+
+// --- 38.2-UNIT-007: statusMsg 上下文也注入 Mode 标签（AC#2 第 5 行） ---
+
+// TestRenderDashboardStatus_StatusMsgKeepsModeLabel verifies that flash status
+// messages don't suppress the mode label (the user must still know the mode).
+func TestRenderDashboardStatus_StatusMsgKeepsModeLabel(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.viewMode = viewDefault
+	m.statusMsg = "Process killed"
+
+	status := m.renderDashboardStatus()
+	if !strings.Contains(status, "[MONITOR]") {
+		t.Errorf("statusMsg context should still show mode label, got: %q", status)
+	}
+	if !strings.Contains(status, "Process killed") {
+		t.Errorf("statusMsg context should still show msg, got: %q", status)
+	}
+}
+
+// --- 38.2-UNIT-008: ASCII 模式 Mode 标签（AC#2 末段） ---
+
+// TestRenderDashboardStatus_ModeLabel_ASCII verifies that mode label text
+// is unchanged in ASCII mode, but the UTF-8 separator '│' becomes '|'.
+func TestRenderDashboardStatus_ModeLabel_ASCII(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.viewMode = viewDefault
+	status := m.renderDashboardStatus()
+
+	if !strings.Contains(status, "[MONITOR]") {
+		t.Errorf("ASCII mode label text unchanged, got: %q", status)
+	}
+	if strings.Contains(status, "│") {
+		t.Errorf("ASCII mode should NOT contain UTF-8 '│', got: %q", status)
+	}
+	if !strings.Contains(status, "|") {
+		t.Errorf("ASCII mode should contain '|' separator, got: %q", status)
+	}
+}
+
+// --- 38.2-UNIT-009: replayMode + renderReplayStatus 也注入 [REPLAY]（AC#2 优先级） ---
+
+// TestRenderReplayStatus_HasReplayLabel verifies that the replay-mode
+// renderReplayStatus function (in dashboard.go) injects [REPLAY] at the left.
+func TestRenderReplayStatus_HasReplayLabel(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.replayMode = true
+	m.replayPlaying = false
+	// renderReplayStatus reads m.replayReader; nil-safe fields are fine here.
+
+	status := m.renderReplayStatus()
+	if !strings.Contains(status, "[REPLAY]") {
+		t.Errorf("renderReplayStatus should contain [REPLAY] mode label, got: %q", status)
+	}
+}
+
+// --- 38.2-UNIT-010: Alert Strip 计数 Badge（AC#3） ---
+
+// TestRenderAlertStrip_CountBadge verifies the right-aligned ✗N ⚠M badge
+// renders correctly across {0, 1, 5, 20} alert counts and respects the
+// SevError/SevWarn split.
+func TestRenderAlertStrip_CountBadge(t *testing.T) {
+	now := time.Now()
+
+	t.Run("0_alerts_no_badge", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.alertEvents = nil
+		got := renderAlertStrip(&m, 80, 2)
+		if got != "" {
+			t.Errorf("0 alerts must yield empty strip, got: %q", got)
+		}
+	})
+
+	t.Run("1_error_only", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.alertEvents = []UnifiedEvent{
+			{Type: EventExit, Summary: "boom", Severity: SevError, Timestamp: now},
+		}
+		got := renderAlertStrip(&m, 80, 2)
+		if !strings.Contains(got, "✗1") {
+			t.Errorf("expected ✗1 badge, got: %q", got)
+		}
+		if strings.Contains(got, "⚠1") || strings.Contains(got, "⚠ ") {
+			t.Errorf("warn count should be hidden when 0, got: %q", got)
+		}
+	})
+
+	t.Run("5_mixed_2err_3warn", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.alertEvents = []UnifiedEvent{
+			{Type: EventExit, Summary: "e1", Severity: SevError, Timestamp: now},
+			{Type: EventExit, Summary: "e2", Severity: SevError, Timestamp: now},
+			{Type: EventBudget, Summary: "w1", Severity: SevWarn, Timestamp: now},
+			{Type: EventBudget, Summary: "w2", Severity: SevWarn, Timestamp: now},
+			{Type: EventBudget, Summary: "w3", Severity: SevWarn, Timestamp: now},
+		}
+		got := renderAlertStrip(&m, 100, 2)
+		if !strings.Contains(got, "✗2") {
+			t.Errorf("expected ✗2, got: %q", got)
+		}
+		if !strings.Contains(got, "⚠3") {
+			t.Errorf("expected ⚠3, got: %q", got)
+		}
+	})
+
+	t.Run("20_total_split", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.alertEvents = make([]UnifiedEvent, 0, 20)
+		for range 7 {
+			m.alertEvents = append(m.alertEvents, UnifiedEvent{
+				Type: EventExit, Summary: "err", Severity: SevError, Timestamp: now,
+			})
+		}
+		for range 13 {
+			m.alertEvents = append(m.alertEvents, UnifiedEvent{
+				Type: EventBudget, Summary: "warn", Severity: SevWarn, Timestamp: now,
+			})
+		}
+		got := renderAlertStrip(&m, 120, 2)
+		if !strings.Contains(got, "✗7") {
+			t.Errorf("expected ✗7 in 20-alert strip, got: %q", got)
+		}
+		if !strings.Contains(got, "⚠13") {
+			t.Errorf("expected ⚠13 in 20-alert strip, got: %q", got)
+		}
+	})
+}
+
+// --- 38.2-UNIT-011: Badge 在展开态不渲染（AC#3 末段） ---
+
+// TestRenderAlertStrip_BadgeNotInExpanded verifies that when alertExpanded=true
+// the count badge is suppressed (cursor highlight UX takes over).
+func TestRenderAlertStrip_BadgeNotInExpanded(t *testing.T) {
+	now := time.Now()
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.alertExpanded = true
+	m.alertEvents = []UnifiedEvent{
+		{Type: EventExit, Summary: "e1", Severity: SevError, Timestamp: now},
+		{Type: EventBudget, Summary: "w1", Severity: SevWarn, Timestamp: now},
+	}
+	got := renderAlertStrip(&m, 80, 8)
+	// Strip text already contains ✗ icon? No — ui.AlertSeverityIcon emits 🔴/⚠
+	// for non-ASCII, so any ✗ glyph is from a (forbidden) badge.
+	if strings.Contains(got, "✗") {
+		t.Errorf("expanded strip must NOT render ✗ count badge, got: %q", got)
+	}
+}
+
+// --- 38.2-UNIT-012: Badge ASCII 模式（AC#3 末段） ---
+
+// TestAlertCountBadge_ASCII verifies the badge swaps ✗→X and ⚠→! in ASCII
+// mode but preserves the integer counts.
+func TestAlertCountBadge_ASCII(t *testing.T) {
+	now := time.Now()
+	alerts := []UnifiedEvent{
+		{Severity: SevError, Timestamp: now},
+		{Severity: SevError, Timestamp: now},
+		{Severity: SevWarn, Timestamp: now},
+	}
+	got := alertCountBadge(alerts, true)
+	if !strings.Contains(got, "X2") {
+		t.Errorf("ASCII badge should contain X2, got: %q", got)
+	}
+	if !strings.Contains(got, "!1") {
+		t.Errorf("ASCII badge should contain !1, got: %q", got)
+	}
+	if strings.ContainsAny(got, "✗⚠") {
+		t.Errorf("ASCII badge must NOT contain unicode glyphs, got: %q", got)
+	}
+}
+
+// --- 38.2-UNIT-013: Alert TTL 30s 自动清理（AC#4） ---
+
+// TestBuildAlertEvents_TTLFilter verifies that buildAlertEvents drops
+// entries older than 30s and keeps everything within window.
+func TestBuildAlertEvents_TTLFilter(t *testing.T) {
+	now := time.Now()
+	events := []UnifiedEvent{
+		{Severity: SevError, Summary: "fresh-10s", Timestamp: now.Add(-10 * time.Second)},
+		{Severity: SevWarn, Summary: "fresh-29s", Timestamp: now.Add(-29 * time.Second)},
+		{Severity: SevError, Summary: "stale-31s", Timestamp: now.Add(-31 * time.Second)},
+		{Severity: SevWarn, Summary: "stale-60s", Timestamp: now.Add(-60 * time.Second)},
+	}
+	alerts := buildAlertEvents(events)
+	if len(alerts) != 2 {
+		t.Fatalf("expected 2 in-window alerts, got %d: %+v", len(alerts), alerts)
+	}
+	for _, a := range alerts {
+		if strings.Contains(a.Summary, "stale") {
+			t.Errorf("stale alert leaked through TTL filter: %q", a.Summary)
+		}
+	}
+}
+
+// --- 38.2-UNIT-014: 零值 Timestamp 不被 TTL 过滤（AC#4 IsZero 守卫） ---
+
+// TestBuildAlertEvents_ZeroTimestampNotFiltered verifies that synthetic
+// events left with Timestamp = time.Time{} are preserved.
+func TestBuildAlertEvents_ZeroTimestampNotFiltered(t *testing.T) {
+	events := []UnifiedEvent{
+		{Severity: SevError, Summary: "no-ts"}, // Timestamp == zero value
+	}
+	alerts := buildAlertEvents(events)
+	if len(alerts) != 1 {
+		t.Fatalf("expected zero-Timestamp alert preserved, got %d", len(alerts))
+	}
+	if alerts[0].Summary != "no-ts" {
+		t.Errorf("got unexpected alert: %+v", alerts[0])
 	}
 }

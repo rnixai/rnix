@@ -37,6 +37,53 @@ func hintGroup(hints ...string) string {
 	return strings.Join(hints, "  ")
 }
 
+// renderModeLabel returns the styled "[MONITOR] │ " mode-label prefix to be
+// injected at the left of the status bar (Story 38.2 AC#2).
+//
+// Priority order (highest first): replayMode → viewStepInspector → viewDebug →
+// viewExpanded → viewDefault. The trailing UTF-8 separator '│' (ASCII '|')
+// plus a single space is included; the caller appends hints with the standard
+// double-space delimiter.
+//
+// Returns empty string only if all known view modes fail to match (defensive;
+// the iota-based enum guarantees a default fallback to viewDefault).
+func (m dashboardModel) renderModeLabel() string {
+	ascii := ui.IsASCIIMode()
+	sep := "│"
+	if ascii {
+		sep = "|"
+	}
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+
+	var label string
+	var color string
+	var bold bool
+	switch {
+	case m.replayMode:
+		label = "[REPLAY]"
+		color = "#D08770" // align with spec c-sys orange
+	case m.viewMode == viewStepInspector:
+		label = "[INSPECTOR]"
+		color = colorIPC // #9B59B6 purple
+	case m.viewMode == viewDebug:
+		label = "[DEBUG]"
+		color = ui.ColorWarning
+		bold = true
+	case m.viewMode == viewExpanded:
+		label = "[EXPANDED]"
+		color = ui.ColorAgent
+	default: // viewDefault (and the now-unused viewHistory iota slot)
+		label = "[MONITOR]"
+		color = ui.ColorMuted
+	}
+
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+	if bold {
+		style = style.Bold(true)
+	}
+	return style.Render(label) + "  " + dim.Render(sep) + "  "
+}
+
 func (m dashboardModel) renderDashboardStatus() string {
 	initHintStyles()
 
@@ -45,6 +92,8 @@ func (m dashboardModel) renderDashboardStatus() string {
 	}
 
 	if m.confirmKill {
+		// Intentionally NO mode label here: the y/N confirmation flow must
+		// stay visually quiet (AC#2: confirmKill suppresses mode label).
 		return fmt.Sprintf("  Kill PID %d? [y/N]", m.confirmPID)
 	}
 
@@ -53,8 +102,12 @@ func (m dashboardModel) renderDashboardStatus() string {
 		rec = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("●REC") + "  "
 	}
 
+	modeLabel := m.renderModeLabel()
+
 	if m.statusMsg != "" {
-		return "  " + rec + m.statusMsg + "    " + hint("q", "quit")
+		// AC#2: statusMsg context still gets the mode label so the user knows
+		// which mode they're in while the flash message is showing.
+		return "  " + rec + modeLabel + m.statusMsg + "    " + hint("q", "quit")
 	}
 
 	var core []string
@@ -80,7 +133,7 @@ func (m dashboardModel) renderDashboardStatus() string {
 		hints += hintDescStyle.Render(fmt.Sprintf("  (PID %d)", m.selectedPID))
 	}
 
-	return "  " + rec + hints
+	return "  " + rec + modeLabel + hints
 }
 
 // paneHints returns core hints and exit hint for the current expanded pane.

@@ -82,11 +82,13 @@ func (m dashboardModel) renderDashboardTitle() string {
 
 	// ctx% segment
 	ctxPct := computeCtxPercent(m.selectedPID, m.processes)
-	ctxSeg := fmt.Sprintf("ctx %d%%", ctxPct)
+	ctxSeg := pctColorStyle(ctxPct).Render(fmt.Sprintf("ctx %d%%", ctxPct))
+	ctxPlain := fmt.Sprintf("ctx %d%%", ctxPct)
 
 	// budget% segment
 	budgetPct := computeBudgetPercent(m.selectedPID, m.processes)
-	budgetSeg := fmt.Sprintf("budget %d%%", budgetPct)
+	budgetSeg := pctColorStyle(budgetPct).Render(fmt.Sprintf("budget %d%%", budgetPct))
+	budgetPlain := fmt.Sprintf("budget %d%%", budgetPct)
 
 	// elapsed segment
 	elapsedSeg := ""
@@ -129,18 +131,18 @@ func (m dashboardModel) renderDashboardTitle() string {
 	if elapsedSeg != "" {
 		candidates = append(candidates, candidate{
 			leftPart + sep + countSeg + sep + ctxSeg + sep + budgetSeg + sep + elapsedSeg,
-			leftPlain + sep + countPlain + sep + ctxSeg + sep + budgetSeg + sep + elapsedSeg,
+			leftPlain + sep + countPlain + sep + ctxPlain + sep + budgetPlain + sep + elapsedSeg,
 		})
 	}
 	// Level 4: left + counts + ctx + budget
 	candidates = append(candidates, candidate{
 		leftPart + sep + countSeg + sep + ctxSeg + sep + budgetSeg,
-		leftPlain + sep + countPlain + sep + ctxSeg + sep + budgetSeg,
+		leftPlain + sep + countPlain + sep + ctxPlain + sep + budgetPlain,
 	})
 	// Level 3: left + counts + ctx
 	candidates = append(candidates, candidate{
 		leftPart + sep + countSeg + sep + ctxSeg,
-		leftPlain + sep + countPlain + sep + ctxSeg,
+		leftPlain + sep + countPlain + sep + ctxPlain,
 	})
 	// Level 2: left + counts
 	candidates = append(candidates, candidate{
@@ -390,4 +392,24 @@ func formatElapsedHHMMSS(d time.Duration) string {
 	m := int(d.Minutes()) % 60
 	s := int(d.Seconds()) % 60
 	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+}
+
+// pctColorStyle returns a lipgloss style coloured by usage percentage thresholds
+// for the Title Bar ctx/budget segments (Story 38.2 AC#1):
+//
+//	< 60%  → ColorMuted (dim grey)
+//	60-79% → ColorWarning (yellow)
+//	≥ 80%  → ColorError (red, bold)
+//
+// The thresholds intentionally mirror styleProviderName's three-tier health logic
+// so users see one consistent colour language for "approaching limit" vs "over limit".
+func pctColorStyle(pct int) lipgloss.Style {
+	switch {
+	case pct >= 80:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)
+	case pct >= 60:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	}
 }

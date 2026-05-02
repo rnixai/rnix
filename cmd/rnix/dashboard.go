@@ -1470,11 +1470,16 @@ func (m dashboardModel) renderReplayStatus() string {
 	}
 	progress := fmt.Sprintf("[%d/%d] %.1f×", m.replayCursor, total, m.replaySpeed)
 
+	// Story 38.2 AC#2: prefix the [REPLAY] mode label (orange #D08770) so the
+	// "what mode am I in" question stays answerable at a glance across views.
+	// The legacy "REPLAY:" text below remains for the record-ID context.
+	modeLabel := m.renderModeLabel()
+
 	if m.statusMsg != "" {
-		return fmt.Sprintf("  %s REPLAY: %s  %s  |  %s", indicator, recordID, progress, m.statusMsg)
+		return fmt.Sprintf("  %s%s REPLAY: %s  %s  |  %s", modeLabel, indicator, recordID, progress, m.statusMsg)
 	}
-	return fmt.Sprintf("  %s REPLAY: %s  %s  |  Space:Play/Pause  [/]:Speed  ,/.:Step  0:Start  $:End  q:Quit",
-		indicator, recordID, progress)
+	return fmt.Sprintf("  %s%s REPLAY: %s  %s  |  Space:Play/Pause  [/]:Speed  ,/.:Step  0:Start  $:End  q:Quit",
+		modeLabel, indicator, recordID, progress)
 }
 
 // --- Command runner ---
