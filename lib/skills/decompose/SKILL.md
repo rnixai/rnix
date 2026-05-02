@@ -3,7 +3,7 @@ name: decompose
 description: >
   将高层意图分解为子任务 DAG，通过 /dev/intent 设备进行意图分解、
   确认和执行。适用于用户需要将复杂目标拆解为可执行步骤的场景。
-allowed-tools: /dev/intent/decompose /dev/intent/status /dev/intent/confirm /dev/intent/execute
+allowed-tools: /dev/intent
 system: true
 metadata:
   author: rnix
