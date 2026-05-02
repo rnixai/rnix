@@ -136,6 +136,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 	var costUSD float64
 	var stopReason string
 	var toolCalls []ToolCall
+	var reasoningBlocks []ReasoningBlock
 	var receivedDone bool
 
 	for evt := range ch {
@@ -173,6 +174,12 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 			if len(evt.ToolCalls) > 0 {
 				toolCalls = evt.ToolCalls
 			}
+			// Collect ReasoningBlocks from done event so thinking-mode
+			// signatures survive the stream → LLMResponse → context
+			// round-trip (review finding H1).
+			if len(evt.ReasoningBlocks) > 0 {
+				reasoningBlocks = evt.ReasoningBlocks
+			}
 		case "error":
 			if evt.Err != nil {
 				return evt.Err
@@ -194,6 +201,7 @@ func (f *LLMFile) writeStream(ctx context.Context, req LLMRequest) error {
 	resp := &LLMResponse{
 		Content:           finalContent,
 		Reasoning:         reasoning.String(),
+		ReasoningBlocks:   reasoningBlocks,
 		TokensUsed:        tokens,
 		InputTokens:       inputTokens,
 		OutputTokens:      outputTokens,

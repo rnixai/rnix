@@ -26,11 +26,12 @@ func (m *mockDriver) Stream(_ context.Context, _ LLMRequest) (<-chan StreamEvent
 		ch <- StreamEvent{Type: "error", Err: m.callErr}
 	} else if m.callResp != nil {
 		ch <- StreamEvent{
-			Type:         "done",
-			Content:      m.callResp.Content,
-			TokensUsed:   m.callResp.TokensUsed,
-			InputTokens:  m.callResp.InputTokens,
-			OutputTokens: m.callResp.OutputTokens,
+			Type:            "done",
+			Content:         m.callResp.Content,
+			TokensUsed:      m.callResp.TokensUsed,
+			InputTokens:     m.callResp.InputTokens,
+			OutputTokens:    m.callResp.OutputTokens,
+			ReasoningBlocks: m.callResp.ReasoningBlocks,
 		}
 	}
 	close(ch)
@@ -66,6 +67,49 @@ func TestLLMFile_WriteRead(t *testing.T) {
 	}
 	if resp.TokensUsed != 5 {
 		t.Errorf("expected tokens_used 5, got %d", resp.TokensUsed)
+	}
+}
+
+// TestLLMFile_WriteStream_PreservesReasoningBlocks pins the H1 fix:
+// the stream → LLMResponse bridge in writeStream must carry
+// ReasoningBlocks from the done event into the buffered response,
+// otherwise thinking signatures are silently dropped before they reach
+// the kernel — and the next-turn Anthropic request fails with
+// `'content[].thinking' must be passed back`.
+func TestLLMFile_WriteStream_PreservesReasoningBlocks(t *testing.T) {
+	driver := &mockDriver{
+		callResp: &LLMResponse{
+			Content:    "the answer is 42",
+			TokensUsed: 30,
+			ReasoningBlocks: []ReasoningBlock{
+				{Type: "thinking", Thinking: "weighing options", Signature: "sig_streamed"},
+				{Type: "redacted_thinking", Data: "encrypted-blob"},
+			},
+		},
+	}
+	f := &LLMFile{driver: driver, devicePath: "/dev/llm/claude"} // mode default = stream
+
+	reqJSON, _ := json.Marshal(LLMRequest{Intent: "test"})
+	if err := f.Write(context.Background(), reqJSON); err != nil {
+		t.Fatalf("Write failed: %v", err)
+	}
+	data, err := f.Read(0)
+	if err != nil {
+		t.Fatalf("Read failed: %v", err)
+	}
+	var resp LLMResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if len(resp.ReasoningBlocks) != 2 {
+		t.Fatalf("len(ReasoningBlocks) = %d, want 2 (stream done event must carry them)", len(resp.ReasoningBlocks))
+	}
+	if resp.ReasoningBlocks[0].Signature != "sig_streamed" {
+		t.Errorf("stream path lost thinking signature: %+v", resp.ReasoningBlocks[0])
+	}
+	if resp.ReasoningBlocks[1].Type != "redacted_thinking" || resp.ReasoningBlocks[1].Data != "encrypted-blob" {
+		t.Errorf("stream path lost redacted_thinking: %+v", resp.ReasoningBlocks[1])
 	}
 }
 

@@ -62,9 +62,11 @@ type SpawnOpts struct {
 	MaxCost       float64       // per-process cost budget (USD); 0 = unlimited; >0 = suspend when exhausted
 	TraceID       types.TraceID // inherited trace ID; empty = no tracing
 	ParentSpanID  types.SpanID  // parent process span ID
-	Provider      string        // LLM provider override (from CLI --provider); "" = use agent manifest or default "claude"
-	StepTimeout   time.Duration // per-step heartbeat timeout; 0 = use agent manifest or default 5m
-	StartStep     int           // Resume: start reasoning loop from this step (0 = normal start from 1)
+	Provider         string        // LLM provider override (from CLI --provider); "" = use agent manifest or default "claude"
+	FallbackModel    string        // CLI --fallback-model override; "" = use agent manifest fallback (or auto-disable on cross-provider)
+	FallbackProvider string        // CLI --fallback-provider override; "" = same-provider fallback
+	StepTimeout      time.Duration // per-step heartbeat timeout; 0 = use agent manifest or default 5m
+	StartStep        int           // Resume: start reasoning loop from this step (0 = normal start from 1)
 
 	PreallocatedCtxID types.CtxID           // non-zero = skip CtxAlloc, use this pre-setup context
 	SkipReasonLoop    bool                  // true = don't open LLM device or start reasonStep goroutine

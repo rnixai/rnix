@@ -212,3 +212,20 @@ func convertToolCalls(calls []llmToolCall) []rnixctx.ToolCall {
 	}
 	return result
 }
+
+// convertReasoningBlocks converts kernel reasoningBlock slice to context.ReasoningBlock slice.
+func convertReasoningBlocks(blocks []reasoningBlock) []rnixctx.ReasoningBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	result := make([]rnixctx.ReasoningBlock, len(blocks))
+	for i, b := range blocks {
+		result[i] = rnixctx.ReasoningBlock{
+			Type:      b.Type,
+			Thinking:  b.Thinking,
+			Signature: b.Signature,
+			Data:      b.Data,
+		}
+	}
+	return result
+}

@@ -438,3 +438,186 @@ func makeAnthropicAPIErrorWithMsg(statusCode int, msg string) *anthropic.Error {
 	_ = e.UnmarshalJSON([]byte(body))
 	return e
 }
+
+// TestAnthropicDriver_ConvertMessage_Thinking verifies that thinking content
+// blocks (with signature) round-trip through the response decoder into
+// LLMResponse.ReasoningBlocks. Provider parity: deepseek's anthropic-compat
+// endpoint requires the signature to be echoed back on subsequent turns.
+func TestAnthropicDriver_ConvertMessage_Thinking(t *testing.T) {
+	d := NewAnthropicDriver("test")
+
+	msgJSON := `{
+		"id": "msg_thinking",
+		"type": "message",
+		"role": "assistant",
+		"content": [
+			{"type": "thinking", "thinking": "let me reason about this", "signature": "sig_abc123"},
+			{"type": "text", "text": "the answer is 42"}
+		],
+		"model": "claude-sonnet-4-20250514",
+		"stop_reason": "end_turn",
+		"stop_sequence": null,
+		"usage": {"input_tokens": 10, "output_tokens": 20}
+	}`
+	var msg anthropic.Message
+	if err := json.Unmarshal([]byte(msgJSON), &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	resp := d.convertMessage(&msg)
+	if resp.Content != "the answer is 42" {
+		t.Errorf("Content = %q, want %q", resp.Content, "the answer is 42")
+	}
+	if resp.Reasoning != "let me reason about this" {
+		t.Errorf("Reasoning = %q, want backwards-compat thinking text", resp.Reasoning)
+	}
+	if len(resp.ReasoningBlocks) != 1 {
+		t.Fatalf("len(ReasoningBlocks) = %d, want 1", len(resp.ReasoningBlocks))
+	}
+	rb := resp.ReasoningBlocks[0]
+	if rb.Type != "thinking" {
+		t.Errorf("ReasoningBlock.Type = %q, want thinking", rb.Type)
+	}
+	if rb.Thinking != "let me reason about this" {
+		t.Errorf("ReasoningBlock.Thinking = %q", rb.Thinking)
+	}
+	if rb.Signature != "sig_abc123" {
+		t.Errorf("ReasoningBlock.Signature = %q, want sig_abc123 (signature must survive)", rb.Signature)
+	}
+}
+
+// TestAnthropicDriver_ConvertMessage_RedactedThinking verifies redacted
+// thinking blocks preserve the opaque Data payload.
+func TestAnthropicDriver_ConvertMessage_RedactedThinking(t *testing.T) {
+	d := NewAnthropicDriver("test")
+
+	msgJSON := `{
+		"id": "msg_redacted",
+		"type": "message",
+		"role": "assistant",
+		"content": [
+			{"type": "redacted_thinking", "data": "opaque-payload-xyz"},
+			{"type": "text", "text": "done"}
+		],
+		"model": "claude-sonnet-4-20250514",
+		"stop_reason": "end_turn",
+		"stop_sequence": null,
+		"usage": {"input_tokens": 5, "output_tokens": 5}
+	}`
+	var msg anthropic.Message
+	if err := json.Unmarshal([]byte(msgJSON), &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	resp := d.convertMessage(&msg)
+	if len(resp.ReasoningBlocks) != 1 {
+		t.Fatalf("len(ReasoningBlocks) = %d, want 1", len(resp.ReasoningBlocks))
+	}
+	rb := resp.ReasoningBlocks[0]
+	if rb.Type != "redacted_thinking" {
+		t.Errorf("Type = %q, want redacted_thinking", rb.Type)
+	}
+	if rb.Data != "opaque-payload-xyz" {
+		t.Errorf("Data = %q, want opaque-payload-xyz", rb.Data)
+	}
+}
+
+// TestAnthropicDriver_ThinkingBlockRoundTrip verifies that an assistant
+// message persisted with ReasoningBlocks emits ThinkingBlockParam(s) ahead
+// of any text and tool_use blocks when sent back to the API. Block order
+// is mandated by the Anthropic API.
+func TestAnthropicDriver_ThinkingBlockRoundTrip(t *testing.T) {
+	msgs := []Message{
+		{
+			Role: "assistant",
+			ReasoningBlocks: []ReasoningBlock{
+				{Type: "thinking", Thinking: "weighing options", Signature: "sig_xyz"},
+			},
+			Content: "Let me search",
+			ToolCalls: []ToolCall{
+				{ID: "tu-1", Name: "search", Input: map[string]any{"q": "test"}},
+			},
+		},
+	}
+	result := convertMessagesToAnthropic(msgs)
+	if len(result) != 1 {
+		t.Fatalf("len(result) = %d, want 1", len(result))
+	}
+	blocks := result[0].Content
+	if len(blocks) != 3 {
+		t.Fatalf("len(blocks) = %d, want 3 (thinking + text + tool_use)", len(blocks))
+	}
+
+	// Block 0 must be a thinking block carrying the original signature.
+	if blocks[0].OfThinking == nil {
+		t.Fatalf("blocks[0] is not a thinking block; got %+v", blocks[0])
+	}
+	if blocks[0].OfThinking.Thinking != "weighing options" {
+		t.Errorf("thinking text = %q", blocks[0].OfThinking.Thinking)
+	}
+	if blocks[0].OfThinking.Signature != "sig_xyz" {
+		t.Errorf("signature = %q, want sig_xyz", blocks[0].OfThinking.Signature)
+	}
+
+	// Block 1 must be the text block (NOT first — thinking comes first).
+	if blocks[1].OfText == nil {
+		t.Fatalf("blocks[1] is not a text block; got %+v", blocks[1])
+	}
+	if blocks[1].OfText.Text != "Let me search" {
+		t.Errorf("text = %q", blocks[1].OfText.Text)
+	}
+
+	// Block 2 must be the tool_use block (last per API ordering rules).
+	if blocks[2].OfToolUse == nil {
+		t.Fatalf("blocks[2] is not a tool_use block; got %+v", blocks[2])
+	}
+	if blocks[2].OfToolUse.Name != "search" {
+		t.Errorf("tool name = %q", blocks[2].OfToolUse.Name)
+	}
+}
+
+// TestAnthropicDriver_RedactedThinkingPersisted verifies the round-trip
+// path for redacted_thinking — the opaque data field must survive into
+// the SDK params block.
+func TestAnthropicDriver_RedactedThinkingPersisted(t *testing.T) {
+	msgs := []Message{
+		{
+			Role: "assistant",
+			ReasoningBlocks: []ReasoningBlock{
+				{Type: "redacted_thinking", Data: "encrypted-blob"},
+			},
+			Content: "ok",
+		},
+	}
+	result := convertMessagesToAnthropic(msgs)
+	if len(result) != 1 {
+		t.Fatalf("len(result) = %d, want 1", len(result))
+	}
+	blocks := result[0].Content
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2 (redacted_thinking + text)", len(blocks))
+	}
+	if blocks[0].OfRedactedThinking == nil {
+		t.Fatalf("blocks[0] is not a redacted_thinking block; got %+v", blocks[0])
+	}
+	if blocks[0].OfRedactedThinking.Data != "encrypted-blob" {
+		t.Errorf("data = %q, want encrypted-blob", blocks[0].OfRedactedThinking.Data)
+	}
+}
+
+// TestAnthropicDriver_AssistantNoThinking_NoRegression locks the
+// historical behaviour: assistant messages without ReasoningBlocks must
+// still produce a single text block (and tool_use blocks if present),
+// matching the pre-thinking layout.
+func TestAnthropicDriver_AssistantNoThinking_NoRegression(t *testing.T) {
+	msgs := []Message{
+		{Role: "assistant", Content: "hi there"},
+	}
+	result := convertMessagesToAnthropic(msgs)
+	if len(result) != 1 || len(result[0].Content) != 1 {
+		t.Fatalf("expected 1 message with 1 text block; got %d msgs / blocks=%v", len(result), result)
+	}
+	if result[0].Content[0].OfText == nil || result[0].Content[0].OfText.Text != "hi there" {
+		t.Errorf("expected text block 'hi there'; got %+v", result[0].Content[0])
+	}
+}

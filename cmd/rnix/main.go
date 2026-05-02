@@ -60,15 +60,17 @@ func versionString() string {
 
 // Global flags
 var (
-	flagJSON     bool
-	flagVerbose  bool
-	flagQuiet    bool
-	flagUUID     bool
-	flagModel    string
-	flagMaxSteps int
-	flagAgent    string
-	flagProvider string
-	flagIntent   string
+	flagJSON             bool
+	flagVerbose          bool
+	flagQuiet            bool
+	flagUUID             bool
+	flagModel            string
+	flagMaxSteps         int
+	flagAgent            string
+	flagProvider         string
+	flagFallbackModel    string
+	flagFallbackProvider string
+	flagIntent           string
 )
 
 // exitCode is set by runRoot and read by main() to determine the process exit code.
@@ -240,6 +242,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&flagQuiet, "quiet", "q", false, "Quiet output")
 	rootCmd.PersistentFlags().StringVarP(&flagModel, "model", "m", "", "LLM model to use (e.g. sonnet, opus, haiku)")
 	rootCmd.PersistentFlags().StringVar(&flagProvider, "provider", "", "LLM provider override (see rnix-providers.yaml)")
+	rootCmd.PersistentFlags().StringVar(&flagFallbackModel, "fallback-model", "", "Override agent fallback model (empty = use agent manifest, auto-disabled when --provider crosses provider boundary)")
+	rootCmd.PersistentFlags().StringVar(&flagFallbackProvider, "fallback-provider", "", "Override agent fallback provider (empty = same as primary)")
 	rootCmd.Flags().IntVar(&flagMaxSteps, "max-steps", 0, "Max reasoning steps (0 = infinite, default 0)")
 	rootCmd.Flags().StringVar(&flagAgent, "agent", "", "Agent definition to use (e.g., code-analyst)")
 	rootCmd.Flags().StringVarP(&flagIntent, "intent", "i", "", "Intent string to spawn an agent")
@@ -463,13 +467,15 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	}
 
 	req := ipc.SpawnRequest{
-		Intent:     intent,
-		Agent:      flagAgent,
-		Model:      flagModel,
-		Provider:   flagProvider,
-		MaxSteps:   flagMaxSteps,
-		ProjectDir: projectDir,
-		RnixEnv:    os.Getenv("RNIX_ENV"),
+		Intent:           intent,
+		Agent:            flagAgent,
+		Model:            flagModel,
+		Provider:         flagProvider,
+		FallbackModel:    flagFallbackModel,
+		FallbackProvider: flagFallbackProvider,
+		MaxSteps:         flagMaxSteps,
+		ProjectDir:       projectDir,
+		RnixEnv:          os.Getenv("RNIX_ENV"),
 	}
 
 	dashboardFlag, _ := cmd.Flags().GetBool("dashboard")

@@ -229,10 +229,48 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			opts.ContextBudget = agent.Manifest.ContextBudget
 		}
 
-		// Fallback configuration (Story 23.5)
-		if agent.Manifest.Models.Fallback != "" {
-			proc.FallbackModel = agent.Manifest.Models.Fallback
-			fbProvider := agent.Manifest.Models.FallbackProvider
+		// Fallback configuration (Story 23.5; CLI override per spec
+		// `anthropic-thinking-and-cli-fallback`):
+		//
+		// Priority for the resolved fallback model/provider:
+		//   1. opts.FallbackModel / opts.FallbackProvider (CLI flags)
+		//   2. cross-provider auto-disable: when CLI overrides --provider
+		//      to something different from the agent manifest's primary
+		//      provider AND no CLI fallback flags are given, suppress the
+		//      manifest fallback entirely (its model almost certainly
+		//      doesn't exist on the new provider — see rnix-eval feedback).
+		//   3. agent manifest fallback
+		fbModel := agent.Manifest.Models.Fallback
+		fbProvider := agent.Manifest.Models.FallbackProvider
+
+		// CLI flags override agent manifest, independently for each.
+		if opts.FallbackModel != "" {
+			fbModel = opts.FallbackModel
+		}
+		if opts.FallbackProvider != "" {
+			fbProvider = opts.FallbackProvider
+		}
+
+		// Cross-provider auto-disable: when CLI overrides --provider AND
+		// the user gave NEITHER fallback flag AND the agent has a manifest
+		// fallback configured, suppress the manifest fallback entirely
+		// (its model almost certainly doesn't exist on the new provider —
+		// see rnix-eval feedback).
+		//
+		// We do NOT condition on agent.Manifest.Models.Provider being set:
+		// if the manifest has only `fallback:` (no explicit primary), the
+		// fallback model is still tied to its natural home provider, which
+		// is unlikely to match a CLI --provider override.
+		autoDisabled := opts.FallbackModel == "" && opts.FallbackProvider == "" &&
+			opts.Provider != "" && agent.Manifest.Models.Fallback != "" &&
+			opts.Provider != agent.Manifest.Models.Provider
+		if autoDisabled {
+			fbModel = ""
+			fbProvider = ""
+		}
+
+		if fbModel != "" {
+			proc.FallbackModel = fbModel
 			if fbProvider == "" {
 				// Same-provider fallback: resolve using main provider
 				p := opts.Provider
@@ -248,8 +286,23 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			fbDevice, _, fbErr := k.resolveLLMDevice(nil, fbProvider)
 			if fbErr == nil {
 				proc.FallbackDevice = fbDevice
+			} else {
+				// fallback resolution failure is non-blocking; means fallback
+				// unavailable. Log a warn so operators can see why fallback
+				// silently does nothing on the next reasonStep.
+				log.Printf("[kernel] spawn: fallback provider %q resolve failed: %v (fallback disabled for this process)", fbProvider, fbErr)
 			}
-			// fallback resolution failure is non-blocking; means fallback unavailable
+		}
+
+		if autoDisabled {
+			k.emitEvent(proc, "ReasonStep", map[string]any{
+				"step":             0,
+				"action":           "fallback_auto_disabled",
+				"cli_provider":     opts.Provider,
+				"agent_provider":   agent.Manifest.Models.Provider,
+				"agent_fallback":   agent.Manifest.Models.Fallback,
+				"agent_fallback_p": agent.Manifest.Models.FallbackProvider,
+			}, nil, nil, 0)
 		}
 	}
 

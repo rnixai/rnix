@@ -134,21 +134,23 @@ type ErrorPayload struct {
 
 // SpawnRequest is the payload for MethodSpawn.
 type SpawnRequest struct {
-	Intent        string `json:"intent"`
-	Agent         string `json:"agent,omitempty"`
-	Model         string `json:"model,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	MaxSteps      int    `json:"max_steps,omitempty"`
-	ContextBudget int    `json:"context_budget,omitempty"`
-	TimeoutMs     int64  `json:"timeout_ms,omitempty"`
-	TraceID       string `json:"trace_id,omitempty"`
-	ParentSpanID  string `json:"parent_span_id,omitempty"`
-	ProjectDir    string   `json:"project_dir,omitempty"`
-	RnixEnv       string   `json:"rnix_env,omitempty"`
-	ComposeNode   string   `json:"compose_node,omitempty"`
-	ComposeDeps   []string `json:"compose_deps,omitempty"`
-	PipelineIndex int      `json:"pipeline_index"`
-	PipelineTotal int      `json:"pipeline_total"`
+	Intent           string `json:"intent"`
+	Agent            string `json:"agent,omitempty"`
+	Model            string `json:"model,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	FallbackModel    string `json:"fallback_model,omitempty"`
+	FallbackProvider string `json:"fallback_provider,omitempty"`
+	MaxSteps         int    `json:"max_steps,omitempty"`
+	ContextBudget    int    `json:"context_budget,omitempty"`
+	TimeoutMs        int64  `json:"timeout_ms,omitempty"`
+	TraceID          string `json:"trace_id,omitempty"`
+	ParentSpanID     string `json:"parent_span_id,omitempty"`
+	ProjectDir       string   `json:"project_dir,omitempty"`
+	RnixEnv          string   `json:"rnix_env,omitempty"`
+	ComposeNode      string   `json:"compose_node,omitempty"`
+	ComposeDeps      []string `json:"compose_deps,omitempty"`
+	PipelineIndex    int      `json:"pipeline_index"`
+	PipelineTotal    int      `json:"pipeline_total"`
 }
 
 // SpawnResponse is the initial (non-streaming) response to a Spawn.

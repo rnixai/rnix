@@ -1008,7 +1008,7 @@ func TestAppendAssistantWithToolCalls(t *testing.T) {
 		{ID: "tc_2", Name: "read_file", Input: map[string]any{"path": "main.go"}},
 	}
 
-	if err := m.AppendAssistantWithToolCalls(cid, "Let me run some commands", toolCalls); err != nil {
+	if err := m.AppendAssistantWithToolCalls(cid, "Let me run some commands", nil, toolCalls); err != nil {
 		t.Fatalf("AppendAssistantWithToolCalls failed: %v", err)
 	}
 
@@ -1067,5 +1067,86 @@ func TestMessage_JSONCompat_ToolCalls(t *testing.T) {
 	}
 	if decoded.ToolCalls[0].Name != "shell" {
 		t.Fatalf("tool call name mismatch: %q", decoded.ToolCalls[0].Name)
+	}
+}
+
+// TestContext_Serialize_ReasoningBlocksRoundTrip locks the persistence
+// contract for thinking-mode signatures: Serialize → Deserialize must
+// preserve ReasoningBlocks bit-for-bit so daemon restarts (and reaped
+// process replay) don't lose the signature an Anthropic-style provider
+// requires on the next turn.
+func TestContext_Serialize_ReasoningBlocksRoundTrip(t *testing.T) {
+	src := NewManager()
+	cid, _ := src.CtxAlloc(8)
+	rb := []ReasoningBlock{
+		{Type: "thinking", Thinking: "let me reason", Signature: "sig_a"},
+		{Type: "redacted_thinking", Data: "encrypted-blob"},
+	}
+	if err := src.AppendAssistantWithToolCalls(cid, "answer", rb, nil); err != nil {
+		t.Fatalf("append failed: %v", err)
+	}
+
+	srcCtx, err := src.getContext("test", cid)
+	if err != nil {
+		t.Fatalf("getContext: %v", err)
+	}
+	data, err := srcCtx.Serialize()
+	if err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+
+	dst := NewManager()
+	dstCID, _ := dst.CtxAlloc(8)
+	dstCtx, _ := dst.getContext("test", dstCID)
+	if err := dstCtx.Deserialize(data); err != nil {
+		t.Fatalf("Deserialize: %v", err)
+	}
+
+	pr, err := dst.BuildPrompt(dstCID)
+	if err != nil {
+		t.Fatalf("BuildPrompt: %v", err)
+	}
+	if len(pr.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(pr.Messages))
+	}
+	got := pr.Messages[0].ReasoningBlocks
+	if len(got) != 2 {
+		t.Fatalf("expected 2 reasoning blocks after round-trip, got %d", len(got))
+	}
+	if got[0].Type != "thinking" || got[0].Signature != "sig_a" || got[0].Thinking != "let me reason" {
+		t.Errorf("thinking block lost data: %+v", got[0])
+	}
+	if got[1].Type != "redacted_thinking" || got[1].Data != "encrypted-blob" {
+		t.Errorf("redacted_thinking block lost data: %+v", got[1])
+	}
+}
+
+// TestContext_Deserialize_LegacyWithoutReasoningBlocks verifies AC6:
+// pre-existing on-disk snapshots that lack the `reasoning_blocks` key
+// must still deserialize cleanly (omitempty contract).
+func TestContext_Deserialize_LegacyWithoutReasoningBlocks(t *testing.T) {
+	legacy := []byte(`{
+		"system_prompt": "you are helpful",
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": "hi", "tool_calls": [{"id":"t1","name":"shell","input":{"cmd":"ls"}}]}
+		],
+		"max_size": 16
+	}`)
+
+	mgr := NewManager()
+	cid, _ := mgr.CtxAlloc(16)
+	ctx, _ := mgr.getContext("test", cid)
+	if err := ctx.Deserialize(legacy); err != nil {
+		t.Fatalf("Deserialize legacy: %v", err)
+	}
+	pr, _ := mgr.BuildPrompt(cid)
+	if len(pr.Messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(pr.Messages))
+	}
+	for i, m := range pr.Messages {
+		if len(m.ReasoningBlocks) != 0 {
+			t.Errorf("legacy message %d should have nil ReasoningBlocks, got %v", i, m.ReasoningBlocks)
+		}
 	}
 }

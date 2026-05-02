@@ -53,3 +53,18 @@ func TestApplyCmd_UsageAndDescription(t *testing.T) {
 		t.Fatal("expected non-empty Short description")
 	}
 }
+
+// TestRootCmd_FallbackFlags verifies the persistent CLI flags for fallback
+// model/provider override are registered on the root command and visible
+// to apply (and any other spawn-issuing subcommand).
+func TestRootCmd_FallbackFlags(t *testing.T) {
+	for _, name := range []string{"fallback-model", "fallback-provider"} {
+		f := rootCmd.PersistentFlags().Lookup(name)
+		if f == nil {
+			t.Fatalf("expected --%s persistent flag to be defined", name)
+		}
+		if f.Value.Type() != "string" {
+			t.Errorf("--%s expected string flag, got %s", name, f.Value.Type())
+		}
+	}
+}

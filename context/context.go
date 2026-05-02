@@ -31,12 +31,23 @@ type ToolCall struct {
 	Input map[string]any `json:"input,omitempty"`
 }
 
+// ReasoningBlock carries a single thinking-mode content block from
+// Anthropic-style providers across context persistence and round-trips.
+// Fields and JSON tags mirror llm.ReasoningBlock for wire compatibility.
+type ReasoningBlock struct {
+	Type      string `json:"type"`
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"`
+}
+
 // Message represents a single message in a conversation context.
 type Message struct {
-	Role       Role       `json:"role"`
-	Content    string     `json:"content"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Role            Role             `json:"role"`
+	Content         string           `json:"content"`
+	ToolCallID      string           `json:"tool_call_id,omitempty"`
+	ToolCalls       []ToolCall       `json:"tool_calls,omitempty"`
+	ReasoningBlocks []ReasoningBlock `json:"reasoning_blocks,omitempty"`
 }
 
 // Context represents an independent context space for accumulating conversation history.
@@ -86,12 +97,17 @@ func (c *Context) Serialize() ([]byte, error) {
 
 	msgs := make([]Message, len(c.Messages))
 	copy(msgs, c.Messages)
-	// Deep-copy ToolCalls slices to prevent aliasing
+	// Deep-copy ToolCalls and ReasoningBlocks slices to prevent aliasing
 	for i, m := range msgs {
 		if len(m.ToolCalls) > 0 {
 			tcs := make([]ToolCall, len(m.ToolCalls))
 			copy(tcs, m.ToolCalls)
 			msgs[i].ToolCalls = tcs
+		}
+		if len(m.ReasoningBlocks) > 0 {
+			rbs := make([]ReasoningBlock, len(m.ReasoningBlocks))
+			copy(rbs, m.ReasoningBlocks)
+			msgs[i].ReasoningBlocks = rbs
 		}
 	}
 
@@ -405,8 +421,12 @@ func (m *Manager) AppendToolResult(cid types.CtxID, toolCallID string, content s
 	return nil
 }
 
-// AppendAssistantWithToolCalls appends an assistant message that includes tool calls.
-func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, toolCalls []ToolCall) error {
+// AppendAssistantWithToolCalls appends an assistant message that includes
+// tool calls and (optionally) thinking-mode reasoning blocks. Reasoning
+// blocks must be persisted alongside the assistant turn so subsequent
+// requests can echo them back to providers (e.g. Anthropic) that require
+// signature round-tripping.
+func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, reasoningBlocks []ReasoningBlock, toolCalls []ToolCall) error {
 	ctx, err := m.getContext("AppendAssistantWithToolCalls", cid)
 	if err != nil {
 		return err
@@ -425,9 +445,10 @@ func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, 
 	}
 
 	ctx.Messages = append(ctx.Messages, Message{
-		Role:      RoleAssistant,
-		Content:   content,
-		ToolCalls: toolCalls,
+		Role:            RoleAssistant,
+		Content:         content,
+		ToolCalls:       toolCalls,
+		ReasoningBlocks: reasoningBlocks,
 	})
 	return nil
 }

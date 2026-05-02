@@ -20,7 +20,7 @@ import (
 // executeToolCalls processes native tool calls from the LLM response.
 func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int, promptResult *rnixctx.PromptResult, rawResponseStr string) bool {
 	appendStart := time.Now()
-	if err := k.ctxMgr.AppendAssistantWithToolCalls(proc.CtxID, resp.Content, convertToolCalls(resp.ToolCalls)); err != nil {
+	if err := k.ctxMgr.AppendAssistantWithToolCalls(proc.CtxID, resp.Content, convertReasoningBlocks(resp.ReasoningBlocks), convertToolCalls(resp.ToolCalls)); err != nil {
 		k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendAssistantWithToolCalls"}, nil, err, time.Since(appendStart))
 		k.finishProcess(proc, ExitStatus{Code: 1, Reason: "append assistant with tool calls failed", Err: err})
 		return false

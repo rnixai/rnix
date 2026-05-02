@@ -46,18 +46,20 @@ func (s *Server) handleSpawn(conn net.Conn, rawPayload json.RawMessage) {
 	eventCh := make(chan StreamEvent, 64)
 
 	pid, err := s.kern.Spawn(req.Intent, agentInfo, kernel.SpawnOpts{
-		Model:         req.Model,
-		Provider:      req.Provider,
-		MaxTurns:      req.MaxSteps,
-		ContextBudget: req.ContextBudget,
-		TimeoutMs:     req.TimeoutMs,
-		TraceID:       types.TraceID(req.TraceID),
-		ParentSpanID:  types.SpanID(req.ParentSpanID),
-		ProjectConfig: projectCfg,
-		ComposeNode:   req.ComposeNode,
-		ComposeDeps:   req.ComposeDeps,
-		PipelineIndex: req.PipelineIndex,
-		PipelineTotal: req.PipelineTotal,
+		Model:            req.Model,
+		Provider:         req.Provider,
+		FallbackModel:    req.FallbackModel,
+		FallbackProvider: req.FallbackProvider,
+		MaxTurns:         req.MaxSteps,
+		ContextBudget:    req.ContextBudget,
+		TimeoutMs:        req.TimeoutMs,
+		TraceID:          types.TraceID(req.TraceID),
+		ParentSpanID:     types.SpanID(req.ParentSpanID),
+		ProjectConfig:    projectCfg,
+		ComposeNode:      req.ComposeNode,
+		ComposeDeps:      req.ComposeDeps,
+		PipelineIndex:    req.PipelineIndex,
+		PipelineTotal:    req.PipelineTotal,
 	})
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: err.Error()}})

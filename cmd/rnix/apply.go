@@ -66,12 +66,14 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	req := ipc.SpawnRequest{
-		Intent:     intent,
-		Agent:      "orchestrator",
-		Model:      flagModel,
-		Provider:   flagProvider,
-		ProjectDir: projectDir,
-		RnixEnv:    os.Getenv("RNIX_ENV"),
+		Intent:           intent,
+		Agent:            "orchestrator",
+		Model:            flagModel,
+		Provider:         flagProvider,
+		FallbackModel:    flagFallbackModel,
+		FallbackProvider: flagFallbackProvider,
+		ProjectDir:       projectDir,
+		RnixEnv:          os.Getenv("RNIX_ENV"),
 	}
 
 	var spawnProvider, spawnModel string

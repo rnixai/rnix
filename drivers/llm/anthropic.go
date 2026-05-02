@@ -135,11 +135,7 @@ func convertMessagesToAnthropic(msgs []Message) []anthropic.MessageParam {
 		case "user":
 			result = append(result, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
 		case "assistant":
-			if len(m.ToolCalls) > 0 {
-				result = append(result, buildAnthropicAssistantToolCallMsg(m))
-			} else {
-				result = append(result, anthropic.NewAssistantMessage(anthropic.NewTextBlock(m.Content)))
-			}
+			result = append(result, buildAnthropicAssistantMsg(m))
 		case "tool":
 			result = append(result, anthropic.NewUserMessage(
 				anthropic.NewToolResultBlock(m.ToolCallID, m.Content, false),
@@ -151,8 +147,25 @@ func convertMessagesToAnthropic(msgs []Message) []anthropic.MessageParam {
 	return result
 }
 
-func buildAnthropicAssistantToolCallMsg(m Message) anthropic.MessageParam {
+// buildAnthropicAssistantMsg assembles an assistant turn for the SDK.
+// Block order is mandated by the Anthropic API: thinking blocks must come
+// first, then text, then tool_use. Without this ordering deepseek's
+// anthropic-compatible endpoint rejects the request with
+// "content[].thinking must be passed back to the API".
+func buildAnthropicAssistantMsg(m Message) anthropic.MessageParam {
 	var blocks []anthropic.ContentBlockParamUnion
+	// Anthropic-style endpoints reject the next turn unless every thinking
+	// block from the previous assistant turn is echoed verbatim. Pass them
+	// through unconditionally — empty Thinking/Data is still a valid block
+	// and trying to be clever here re-introduces the original 400 error.
+	for _, rb := range m.ReasoningBlocks {
+		switch rb.Type {
+		case "thinking":
+			blocks = append(blocks, anthropic.NewThinkingBlock(rb.Signature, rb.Thinking))
+		case "redacted_thinking":
+			blocks = append(blocks, anthropic.NewRedactedThinkingBlock(rb.Data))
+		}
+	}
 	if m.Content != "" {
 		blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 	}
@@ -165,6 +178,9 @@ func buildAnthropicAssistantToolCallMsg(m Message) anthropic.MessageParam {
 				Input: inputJSON,
 			},
 		})
+	}
+	if len(blocks) == 0 {
+		blocks = append(blocks, anthropic.NewTextBlock(""))
 	}
 	return anthropic.NewAssistantMessage(blocks...)
 }
@@ -288,6 +304,16 @@ func (d *AnthropicDriver) convertMessage(msg *anthropic.Message) *LLMResponse {
 			textParts = append(textParts, variant.Text)
 		case anthropic.ThinkingBlock:
 			thinkingParts = append(thinkingParts, variant.Thinking)
+			resp.ReasoningBlocks = append(resp.ReasoningBlocks, ReasoningBlock{
+				Type:      "thinking",
+				Thinking:  variant.Thinking,
+				Signature: variant.Signature,
+			})
+		case anthropic.RedactedThinkingBlock:
+			resp.ReasoningBlocks = append(resp.ReasoningBlocks, ReasoningBlock{
+				Type: "redacted_thinking",
+				Data: variant.Data,
+			})
 		case anthropic.ToolUseBlock:
 			tc := ToolCall{
 				ID:   variant.ID,
@@ -379,9 +405,20 @@ func (d *AnthropicDriver) streamInternal(ctx context.Context, req LLMRequest, to
 			TokensUsed:        int(acc.Usage.InputTokens + acc.Usage.OutputTokens),
 		}
 
-		// Extract tool calls from accumulated content
+		// Extract reasoning blocks and tool calls from accumulated content
 		for _, block := range acc.Content {
 			switch variant := block.AsAny().(type) {
+			case anthropic.ThinkingBlock:
+				evt.ReasoningBlocks = append(evt.ReasoningBlocks, ReasoningBlock{
+					Type:      "thinking",
+					Thinking:  variant.Thinking,
+					Signature: variant.Signature,
+				})
+			case anthropic.RedactedThinkingBlock:
+				evt.ReasoningBlocks = append(evt.ReasoningBlocks, ReasoningBlock{
+					Type: "redacted_thinking",
+					Data: variant.Data,
+				})
 			case anthropic.ToolUseBlock:
 				tc := ToolCall{
 					ID:   variant.ID,
