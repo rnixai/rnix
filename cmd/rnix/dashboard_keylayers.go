@@ -179,12 +179,16 @@ func registerLayer0(d *ui.Dispatcher) {
 	// When alert strip is collapsed, fall through to Layer 1/2 (Timeline/Tree enter handlers).
 	d.Layer0.Bindings["enter"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		if !m.alertExpanded || len(m.alertEvents) == 0 || m.alertCursor >= len(m.alertEvents) {
+		if !m.alertExpanded || len(m.alertEvents) == 0 || m.alertCursor < 0 || m.alertCursor >= len(m.alertEvents) {
 			return false, m, nil
 		}
 		alert := m.alertEvents[m.alertCursor]
+		// C5: alertExpanded 已激活时统一 consume；PID<=0 时仅给用户反馈，不 fall-through
+		// 避免触发 Tree drill-in / Timeline expand / Intent drill 等下层副作用。
 		if alert.PID <= 0 {
-			return false, m, nil
+			m.statusMsg = "Alert has no associated process"
+			m.statusMsgTTL = statusMsgDefaultTTL
+			return true, m, nil
 		}
 		// Switch to alert's process if different
 		if alert.PID != m.selectedPID {
@@ -215,7 +219,7 @@ func registerLayer0(d *ui.Dispatcher) {
 		}
 		return true, m, nil
 	}
-	// enter is documented at the Pane layer (where Timeline/Tree drive its primary semantics).
+	d.Layer0.Docs["enter"] = ui.KeyDoc{Key: "enter", Description: "Alert jump", ContextNote: "alert strip expanded"}
 
 	// esc — Layered escape (nav.go:146-176; help overlay 41-43; debug 57-59)
 	d.Layer0.Bindings["esc"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
@@ -298,6 +302,71 @@ func registerLayer0(d *ui.Dispatcher) {
 		m.confirmPID = 0
 		return true, m, nil
 	}
+
+	// 1 — Focus Tree pane（M1: 上提到 Layer 0 让所有 view 都生效，不仅 viewDefault）
+	// 在 viewExpanded 时按 1 退出 expanded（Tree 此时本被隐藏）。
+	d.Layer0.Bindings["1"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+		m := ctx.(dashboardModel)
+		m = m.clearSearchState()
+		m.activePane = paneTree
+		if m.viewMode == viewExpanded {
+			m.viewMode = viewDefault
+		}
+		return true, m, nil
+	}
+	d.Layer0.Docs["1"] = ui.KeyDoc{Key: "1", Description: "Focus Tree pane"}
+
+	// : — Command mode entry（spec AC3 缺失键之一）
+	// 占位实现：本 Story 仅注册键 + 显示 placeholder 反馈。
+	// 完整 vim-style command parser（:q :help :goto-pid 等）由后续 Story 补全。
+	d.Layer0.Bindings[":"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+		m := ctx.(dashboardModel)
+		m.statusMsg = "Command mode placeholder (use ? for help, q to quit)"
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return true, m, nil
+	}
+	d.Layer0.Docs[":"] = ui.KeyDoc{Key: ":", Description: "Command mode (placeholder)"}
+
+	// X — Dismiss expired alerts（spec AC3 "Alert TTL 触发键"）
+	// 注：spec 中 Alert TTL 主要是 30s 自动清理 timer（参见 Epic 38），
+	// 这里提供"手动触发清理"的对应键，满足 spec 列举的"Alert TTL 触发键"语义。
+	d.Layer0.Bindings["X"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+		m := ctx.(dashboardModel)
+		if len(m.alertEvents) == 0 {
+			m.statusMsg = "No alerts to dismiss"
+			m.statusMsgTTL = statusMsgDefaultTTL
+			return true, m, nil
+		}
+		dismissed := len(m.alertEvents)
+		m.alertEvents = nil
+		m.alertExpanded = false
+		m.alertCursor = 0
+		m.statusMsg = fmt.Sprintf("Dismissed %d alert(s)", dismissed)
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return true, m, nil
+	}
+	d.Layer0.Docs["X"] = ui.KeyDoc{Key: "X", Description: "Dismiss all alerts (manual TTL)"}
+
+	// 2-8 — switch right pane（M1: 上提到 Layer 0 让所有 view 都生效）
+	digitKeys2to8 := []string{"2", "3", "4", "5", "6", "7", "8"}
+	for _, dk := range digitKeys2to8 {
+		d.Layer0.Bindings[dk] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+			m := ctx.(dashboardModel)
+			m = m.clearSearchState()
+			n, err := strconv.Atoi(dk)
+			if err != nil || n < 2 || n > 8 {
+				return false, m, nil
+			}
+			p := paneType(n - 1)
+			m.rightPane = p
+			m.activePane = p
+			if m.viewMode == viewExpanded {
+				m.expandedPane = p
+			}
+			return true, m, nil
+		}
+	}
+	d.Layer0.Docs["2-8"] = ui.KeyDoc{Key: "2-8", Description: "Switch right pane (Time/Heat/Detail/Intent/Sec/Trace/Eval)"}
 }
 
 // ---------------------------------------------------------------------------
@@ -329,60 +398,24 @@ func registerLayer1Default(d *ui.Dispatcher) {
 	l.Bindings["shift+tab"] = cycleFocus
 	l.Docs["tab"] = ui.KeyDoc{Key: "Tab", Description: "Cycle pane focus"}
 
-	// 1 — Tree pane (nav.go:200-209)
-	l.Bindings["1"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
-		m := ctx.(dashboardModel)
-		m = m.clearSearchState()
-		m.activePane = paneTree
-		if m.viewMode == viewExpanded {
-			m.viewMode = viewDefault
-		}
-		return true, m, nil
-	}
-	l.Docs["1"] = ui.KeyDoc{Key: "1", Description: "Focus Tree pane"}
+	// 1-8 已上提到 Layer 0（M1）：在所有 view 下生效，包含 viewDebug。
 
-	// 2-8 — switch right pane (nav.go:210-221)
-	// Use explicit literal string keys (not strconv.Itoa) so static checks /
-	// ATDD tests can find the case strings via grep.
-	digitKeys := []string{"2", "3", "4", "5", "6", "7", "8"}
-	for _, dk := range digitKeys {
-		dkLocal := dk
-		l.Bindings[dkLocal] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
-			m := ctx.(dashboardModel)
-			m = m.clearSearchState()
-			n, _ := strconv.Atoi(dkLocal)
-			p := paneType(n - 1)
-			m.rightPane = p
-			m.activePane = p
-			if m.viewMode == viewExpanded {
-				m.expandedPane = p
-			}
-			return true, m, nil
-		}
-	}
-	l.Docs["2-8"] = ui.KeyDoc{Key: "2-8", Description: "Switch right pane (Time/Heat/Detail/Intent/Sec/Trace/Eval)"}
-
-	// z — toggle expanded view (nav.go:233-251)
+	// z — Enter expanded view (nav.go:233-251)
+	// 注：viewExpanded 下的 z 由 Layer 1 Expanded 的 z handler 处理，本 handler
+	// 仅注册于 Layer1[viewDefault]，dispatcher 路由保证 viewMode==viewDefault 时进入。
 	l.Bindings["z"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		switch m.viewMode {
-		case viewDefault:
-			m.viewMode = viewExpanded
-			m.expandedPane = m.activePane
-			if m.activePane == paneTree {
-				m.treeSearchQuery = ""
-				m.treeSearchMode = false
-				m.treeSearchCursor = 0
-				m.treeSearchOffset = 0
-			}
-		case viewExpanded:
+		m.viewMode = viewExpanded
+		m.expandedPane = m.activePane
+		if m.activePane == paneTree {
 			m.treeSearchQuery = ""
 			m.treeSearchMode = false
-			m.viewMode = viewDefault
+			m.treeSearchCursor = 0
+			m.treeSearchOffset = 0
 		}
 		return true, m, nil
 	}
-	l.Docs["z"] = ui.KeyDoc{Key: "z", Description: "Expand / restore current pane"}
+	l.Docs["z"] = ui.KeyDoc{Key: "z", Description: "Expand current pane"}
 
 	// !@# — Eval sub-view shortcuts when paneEval is active (nav.go:222-226)
 	evalSubView := func(msg tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
@@ -398,54 +431,16 @@ func registerLayer1Default(d *ui.Dispatcher) {
 	l.Bindings["#"] = evalSubView
 
 	// f — Timeline filter mode: enterable from Tree pane too (nav.go:227-232)
-	l.Bindings["f"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
-		m := ctx.(dashboardModel)
-		if m.rightPane == paneTimeline || m.activePane == paneTimeline {
-			m = m.handleTimelineKey("f")
-			return true, m, nil
-		}
-		return false, m, nil
-	}
+	l.Bindings["f"] = timelineFilterHandler
 	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Timeline filter (also from Tree pane)"}
 
 	// p — Pause/resume process tree (nav.go:125-145)
-	l.Bindings["p"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
-		m := ctx.(dashboardModel)
-		// Skip when timeline filter mode is active (Timeline owns 'p' there).
-		if m.stepFilterMode {
-			return false, m, nil
-		}
-		if m.selectedPID > 0 && m.connected {
-			proc := findSelectedProcess(&m)
-			if proc != nil && proc.State == types.StateRunning {
-				sig := types.SIGPAUSE
-				if proc.IsPaused {
-					sig = types.SIGRESUME
-				}
-				return true, m, pauseTreeCmd(m.selectedPID, sig)
-			}
-		}
-		if m.selectedPID == 0 {
-			m.statusMsg = "Select a process first"
-			m.statusMsgTTL = statusMsgDefaultTTL
-		}
-		return true, m, nil
-	}
+	l.Bindings["p"] = pauseToggleHandler
 	l.Docs["p"] = ui.KeyDoc{Key: "p", Description: "Pause / resume process tree"}
 
 	// R / shift+R — Resume suspended process (nav.go:116-124)
-	resumeSuspended := func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
-		m := ctx.(dashboardModel)
-		if m.selectedPID > 0 && m.selectedUUID != "" && m.connected {
-			proc := findSelectedProcess(&m)
-			if proc != nil && proc.State == types.StateSuspended {
-				return true, m, resumeProcessCmd(m.selectedUUID)
-			}
-		}
-		return true, m, nil
-	}
-	l.Bindings["R"] = resumeSuspended
-	l.Bindings["shift+R"] = resumeSuspended
+	l.Bindings["R"] = resumeSuspendedHandler
+	l.Bindings["shift+R"] = resumeSuspendedHandler
 	l.Docs["R"] = ui.KeyDoc{Key: "R", Description: "Resume suspended process"}
 
 	// k / l / r / shift+K 不在此 Layer 注册：原 nav.go 把这些"全局进程操作"
@@ -453,6 +448,53 @@ func registerLayer1Default(d *ui.Dispatcher) {
 	// k=up 被 kill 抢占。Layer 2 Fallback → dispatchPaneKey 兜底已覆盖。
 
 	d.Layer1[ui.ViewID(viewDefault)] = l
+}
+
+// pauseToggleHandler — Pause/resume process tree（C4：viewDefault + viewExpanded 共享）
+func pauseToggleHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+	m := ctx.(dashboardModel)
+	// Skip when timeline filter mode is active (Timeline owns 'p' there).
+	if m.stepFilterMode {
+		return false, m, nil
+	}
+	if m.selectedPID > 0 && m.connected {
+		proc := findSelectedProcess(&m)
+		if proc != nil && proc.State == types.StateRunning {
+			sig := types.SIGPAUSE
+			if proc.IsPaused {
+				sig = types.SIGRESUME
+			}
+			return true, m, pauseTreeCmd(m.selectedPID, sig)
+		}
+	}
+	if m.selectedPID == 0 {
+		m.statusMsg = "Select a process first"
+		m.statusMsgTTL = statusMsgDefaultTTL
+	}
+	return true, m, nil
+}
+
+// resumeSuspendedHandler — Resume suspended process（C4：viewDefault + viewExpanded 共享）
+func resumeSuspendedHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+	m := ctx.(dashboardModel)
+	if m.selectedPID > 0 && m.selectedUUID != "" && m.connected {
+		proc := findSelectedProcess(&m)
+		if proc != nil && proc.State == types.StateSuspended {
+			return true, m, resumeProcessCmd(m.selectedUUID)
+		}
+	}
+	return true, m, nil
+}
+
+// timelineFilterHandler — Timeline filter mode 入口（M2：viewDefault + viewExpanded 共享）
+// 原 nav.go:227-232 行为：rightPane / activePane 任一为 paneTimeline 即生效。
+func timelineFilterHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+	m := ctx.(dashboardModel)
+	if m.rightPane == paneTimeline || m.activePane == paneTimeline || m.expandedPane == paneTimeline {
+		m = m.handleTimelineKey("f")
+		return true, m, nil
+	}
+	return false, m, nil
 }
 
 // registerLayer1Expanded registers viewExpanded keys.
@@ -463,30 +505,7 @@ func registerLayer1Expanded(d *ui.Dispatcher) {
 		Docs:     map[string]ui.KeyDoc{},
 	}
 
-	// 1 / 2-8 — same as Default view (also switch active pane in expanded mode)
-	l.Bindings["1"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
-		m := ctx.(dashboardModel)
-		m = m.clearSearchState()
-		m.activePane = paneTree
-		// When in Expanded view, focusing Tree returns to default (Tree was hidden)
-		m.viewMode = viewDefault
-		return true, m, nil
-	}
-	digitKeys := []string{"2", "3", "4", "5", "6", "7", "8"}
-	for _, dk := range digitKeys {
-		dkLocal := dk
-		l.Bindings[dkLocal] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
-			m := ctx.(dashboardModel)
-			m = m.clearSearchState()
-			n, _ := strconv.Atoi(dkLocal)
-			p := paneType(n - 1)
-			m.rightPane = p
-			m.activePane = p
-			m.expandedPane = p
-			return true, m, nil
-		}
-	}
-	l.Docs["1-8"] = ui.KeyDoc{Key: "1-8", Description: "Switch expanded pane"}
+	// 1-8 已上提到 Layer 0（M1）：viewDefault / viewExpanded / viewDebug 共享。
 
 	// z — collapse to default view
 	l.Bindings["z"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
@@ -497,6 +516,18 @@ func registerLayer1Expanded(d *ui.Dispatcher) {
 		return true, m, nil
 	}
 	l.Docs["z"] = ui.KeyDoc{Key: "z", Description: "Collapse to default view"}
+
+	// C4: viewExpanded 下也支持 p / R / shift+R（process pause / resume）。
+	// 原 nav.go 旧 Layer 5 不依赖 viewMode，重构后必须显式注册才能保持等价行为。
+	l.Bindings["p"] = pauseToggleHandler
+	l.Bindings["R"] = resumeSuspendedHandler
+	l.Bindings["shift+R"] = resumeSuspendedHandler
+	l.Docs["p"] = ui.KeyDoc{Key: "p", Description: "Pause / resume process tree"}
+	l.Docs["R"] = ui.KeyDoc{Key: "R", Description: "Resume suspended process"}
+
+	// M2: viewExpanded + paneTree + f 仍能进入 Timeline filter mode（rightPane 命中）。
+	l.Bindings["f"] = timelineFilterHandler
+	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Timeline filter (when Timeline is the alternate pane)"}
 
 	d.Layer1[ui.ViewID(viewExpanded)] = l
 }
@@ -681,9 +712,19 @@ func registerLayer2Detail(d *ui.Dispatcher) {
 		Bindings: map[string]ui.KeyHandler{},
 		Fallback: paneFallback,
 		Docs:     map[string]ui.KeyDoc{},
+		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
+			m, ok := ctx.(dashboardModel)
+			if !ok {
+				return nil
+			}
+			if m.selectedPID > 0 {
+				return []ui.Mode{{Name: "pid", Value: fmt.Sprintf("%d", m.selectedPID)}}
+			}
+			return []ui.Mode{{Name: "view", Value: "no selection"}}
+		},
 	}
-	l.Docs["v"] = ui.KeyDoc{Key: "v", Description: "Toggle full / compact"}
-	l.Docs["y"] = ui.KeyDoc{Key: "y", Description: "Copy"}
+	// M4: detail pane 不接受 v/y 键（dispatchPaneKey 末尾 switch 没有 paneDetail case）。
+	// 原 doc 中的 v=Toggle full/compact 与 y=Copy 是占位，未实现。删除以避免误导用户。
 	d.Layer2[ui.PaneID(paneDetail)] = l
 }
 
@@ -693,6 +734,17 @@ func registerLayer2Intent(d *ui.Dispatcher) {
 		Bindings: map[string]ui.KeyHandler{},
 		Fallback: paneFallback,
 		Docs:     map[string]ui.KeyDoc{},
+		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
+			m, ok := ctx.(dashboardModel)
+			if !ok {
+				return nil
+			}
+			modes := []ui.Mode{{Name: "view", Value: "tree"}}
+			if total := len(m.intentFlatNodes); total > 0 {
+				modes = append(modes, ui.Mode{Name: "nodes", Value: fmt.Sprintf("%d", total)})
+			}
+			return modes
+		},
 	}
 	l.Docs["enter"] = ui.KeyDoc{Key: "enter", Description: "Drill in to process timeline"}
 	d.Layer2[ui.PaneID(paneIntent)] = l
@@ -704,6 +756,17 @@ func registerLayer2Security(d *ui.Dispatcher) {
 		Bindings: map[string]ui.KeyHandler{},
 		Fallback: paneFallback,
 		Docs:     map[string]ui.KeyDoc{},
+		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
+			m, ok := ctx.(dashboardModel)
+			if !ok {
+				return nil
+			}
+			modes := []ui.Mode{{Name: "view", Value: "list"}}
+			if alerts := len(m.securityAlerts); alerts > 0 {
+				modes = append(modes, ui.Mode{Name: "alerts", Value: fmt.Sprintf("%d", alerts)})
+			}
+			return modes
+		},
 	}
 	l.Docs["enter"] = ui.KeyDoc{Key: "enter", Description: "Drill in to process timeline"}
 	d.Layer2[ui.PaneID(paneSecurity)] = l
@@ -715,6 +778,17 @@ func registerLayer2Trace(d *ui.Dispatcher) {
 		Bindings: map[string]ui.KeyHandler{},
 		Fallback: paneFallback,
 		Docs:     map[string]ui.KeyDoc{},
+		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
+			m, ok := ctx.(dashboardModel)
+			if !ok {
+				return nil
+			}
+			view := "overview"
+			if m.traceViewMode == 1 {
+				view = "spans"
+			}
+			return []ui.Mode{{Name: "view", Value: view}}
+		},
 	}
 	l.Docs["enter"] = ui.KeyDoc{Key: "enter", Description: "Drill in to span tree"}
 	l.Docs["c"] = ui.KeyDoc{Key: "c", Description: "Collapse"}
@@ -728,6 +802,20 @@ func registerLayer2Eval(d *ui.Dispatcher) {
 		Bindings: map[string]ui.KeyHandler{},
 		Fallback: paneFallback,
 		Docs:     map[string]ui.KeyDoc{},
+		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
+			m, ok := ctx.(dashboardModel)
+			if !ok {
+				return nil
+			}
+			view := "reputation"
+			switch m.evalSubView {
+			case 1:
+				view = "topology"
+			case 2:
+				view = "synergy"
+			}
+			return []ui.Mode{{Name: "view", Value: view}}
+		},
 	}
 	l.Docs["1/2/3"] = ui.KeyDoc{Key: "1/2/3", Description: "Switch sub-view"}
 	l.Docs["o"] = ui.KeyDoc{Key: "o", Description: "Sort by score"}

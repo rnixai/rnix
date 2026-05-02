@@ -37,7 +37,11 @@ type KeyContext = any
 //   - consumed=true  : 调度链停止，后续层不再尝试
 //   - consumed=false : 视为"未匹配"，调度继续；返回的 newCtx 仍会向后传递
 //   - newCtx         : KeyHandler 修改后的模型；调用方应用此值（值语义）
-//   - cmd            : 要调度给 Bubble Tea 主循环的命令（仅当 consumed=true 才会被使用）
+//   - cmd            : 要调度给 Bubble Tea 主循环的命令
+//
+// 注意：consumed=false 时返回的 cmd 会被 Dispatcher 静默丢弃。如果你的 handler
+// 需要副作用 cmd（如刷新数据），必须返回 consumed=true。这是 Story 38.1 N7 警告：
+// 不要在 non-consuming handler 中返回非 nil cmd，调度链不会传递它。
 type KeyHandler func(msg tea.KeyPressMsg, ctx KeyContext) (consumed bool, newCtx KeyContext, cmd tea.Cmd)
 
 // KeyDoc 是一个键的文档元数据，用于自动生成 ? help overlay。

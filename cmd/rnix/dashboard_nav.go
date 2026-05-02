@@ -4,6 +4,8 @@
 // （Layer 0 Global / Layer 1 View / Layer 2 Pane）；Layer 2 Fallback 委托
 // 给 dispatchPaneKey（dashboard_pane_dispatcher.go）。
 // 见 dashboard_keylayers.go 各层 KeyLayer 注册。
+// modal 守卫（confirmKill / helpOverlay / viewDebug 优先）在
+// dashboard_modal_guards.go。
 package main
 
 import (
@@ -12,14 +14,18 @@ import (
 	"github.com/rnixai/rnix/internal/ui"
 )
 
-// dashboardKey 是键位主入口。Inspector / Replay 走自有内部 dispatcher；
-// 其余键交 3 层 Dispatcher，未消费则交 handleDebugKey 兜底（仅 viewDebug）。
+// dashboardKey 是键位主入口。守卫顺序：
+//
+//	inspector / replay → modal guards → 3 层 Dispatcher
 func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.viewMode == viewStepInspector {
 		return m.inspectorKey(msg)
 	}
 	if m.replayMode {
 		return m.handleReplayKey(msg.String())
+	}
+	if mm, cmd, handled := m.applyModalGuards(msg); handled {
+		return mm, cmd
 	}
 	if m.dispatcher != nil {
 		newCtx, cmd, consumed := m.dispatcher.Handle(msg, ui.ViewID(m.viewMode), ui.PaneID(m.activePane), m)
@@ -28,11 +34,6 @@ func (m dashboardModel) dashboardKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if consumed {
 			return m, cmd
-		}
-	}
-	if m.viewMode == viewDebug {
-		if m2, cmd, handled := m.handleDebugKey(msg.String()); handled {
-			return m2, cmd
 		}
 	}
 	return m, nil

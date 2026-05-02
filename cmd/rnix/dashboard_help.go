@@ -15,6 +15,11 @@ import (
 
 // renderHelpOverlay renders a full-screen keyboard shortcut reference card,
 // derived from the registered Dispatcher's KeyLayers.
+//
+// 布局策略（M3 修复后）：
+//   - 单列阈值：终端宽度 < 90 cols（窄屏一列防溢出）
+//   - 双列阈值：终端宽度 ≥ 90 cols（宽屏双列防垂直浪费）
+//   - footer 前留空行分隔（恢复 Story 38.1 重构前布局）
 func (m dashboardModel) renderHelpOverlay() string {
 	w := m.width
 	h := m.height
@@ -25,9 +30,15 @@ func (m dashboardModel) renderHelpOverlay() string {
 		h = 40
 	}
 
+	useTwoColumns := w >= 90
+	colWidth := max(w/2-6, 30)
+	if !useTwoColumns {
+		colWidth = max(w-8, 30)
+	}
+
 	groupTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Bold(true)
 	keyCol := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Bold(true).Width(10)
-	descCol := lipgloss.NewStyle().Width(40)
+	descCol := lipgloss.NewStyle().Width(max(colWidth-10, 20))
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 
 	entry := func(key, desc, ctxNote string) string {
@@ -43,25 +54,36 @@ func (m dashboardModel) renderHelpOverlay() string {
 		groups = m.dispatcher.HelpGroupedFor(ui.ViewID(m.viewMode), ui.PaneID(m.activePane))
 	}
 
-	var b strings.Builder
+	// 把所有行拍平成 string slice，便于双列拆分
+	var lines []string
 	for i, g := range groups {
 		header := g.Layer
 		if g.Name != "" && g.Name != g.Layer {
 			header = g.Layer + " — " + g.Name
 		}
-		b.WriteString(groupTitle.Render(header))
-		b.WriteString("\n")
+		lines = append(lines, groupTitle.Render(header))
 		for _, doc := range g.Docs {
-			b.WriteString(entry(doc.Key, doc.Description, doc.ContextNote))
-			b.WriteString("\n")
+			lines = append(lines, entry(doc.Key, doc.Description, doc.ContextNote))
 		}
 		if i < len(groups)-1 {
-			b.WriteString("\n")
+			lines = append(lines, "")
 		}
 	}
 
-	if len(groups) == 0 {
-		b.WriteString(dimStyle.Render("(no key bindings registered for this view/pane)\n"))
+	if len(lines) == 0 {
+		lines = append(lines, dimStyle.Render("(no key bindings registered for this view/pane)"))
+	}
+
+	var body string
+	if useTwoColumns && len(lines) > 12 {
+		mid := (len(lines) + 1) / 2
+		left := strings.Join(lines[:mid], "\n")
+		right := strings.Join(lines[mid:], "\n")
+		leftStyled := lipgloss.NewStyle().Width(colWidth).Render(left)
+		rightStyled := lipgloss.NewStyle().Width(colWidth).Render(right)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, leftStyled, "  ", rightStyled)
+	} else {
+		body = strings.Join(lines, "\n")
 	}
 
 	footer := dimStyle.Render("Press ? or Esc to close")
@@ -70,7 +92,8 @@ func (m dashboardModel) renderHelpOverlay() string {
 	innerW := max(w-4, 20)
 	innerH := max(h-4, 10)
 
-	content := lipgloss.JoinVertical(lipgloss.Left, b.String(), footerCentered)
+	// M3: 在 body 与 footer 之间留空行，恢复重构前的呼吸感
+	content := lipgloss.JoinVertical(lipgloss.Left, body, "", footerCentered)
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
