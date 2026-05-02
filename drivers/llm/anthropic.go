@@ -301,7 +301,15 @@ func (d *AnthropicDriver) convertMessage(msg *anthropic.Message) *LLMResponse {
 	for _, block := range msg.Content {
 		switch variant := block.AsAny().(type) {
 		case anthropic.TextBlock:
-			textParts = append(textParts, variant.Text)
+			clean, reasoning, hadSep := extractDeepSeekThinking(variant.Text)
+			textParts = append(textParts, clean)
+			if hadSep && reasoning != "" {
+				thinkingParts = append(thinkingParts, reasoning)
+				resp.ReasoningBlocks = append(resp.ReasoningBlocks, ReasoningBlock{
+					Type:     "thinking",
+					Thinking: reasoning,
+				})
+			}
 		case anthropic.ThinkingBlock:
 			thinkingParts = append(thinkingParts, variant.Thinking)
 			resp.ReasoningBlocks = append(resp.ReasoningBlocks, ReasoningBlock{
@@ -405,36 +413,13 @@ func (d *AnthropicDriver) streamInternal(ctx context.Context, req LLMRequest, to
 			TokensUsed:        int(acc.Usage.InputTokens + acc.Usage.OutputTokens),
 		}
 
-		// Extract reasoning blocks and tool calls from accumulated content
-		for _, block := range acc.Content {
-			switch variant := block.AsAny().(type) {
-			case anthropic.ThinkingBlock:
-				evt.ReasoningBlocks = append(evt.ReasoningBlocks, ReasoningBlock{
-					Type:      "thinking",
-					Thinking:  variant.Thinking,
-					Signature: variant.Signature,
-				})
-			case anthropic.RedactedThinkingBlock:
-				evt.ReasoningBlocks = append(evt.ReasoningBlocks, ReasoningBlock{
-					Type: "redacted_thinking",
-					Data: variant.Data,
-				})
-			case anthropic.ToolUseBlock:
-				tc := ToolCall{
-					ID:   variant.ID,
-					Name: variant.Name,
-				}
-				if len(variant.Input) > 0 {
-					var input map[string]any
-					if err := json.Unmarshal(variant.Input, &input); err != nil {
-						tc.ParseError = fmt.Sprintf("invalid input JSON: %v", err)
-					} else {
-						tc.Input = input
-					}
-				}
-				evt.ToolCalls = append(evt.ToolCalls, tc)
-			}
-		}
+		// Extract reasoning blocks and tool calls from accumulated content.
+		// populateDoneEventFromAcc also re-processes TextBlocks through
+		// extractDeepSeekThinking so any DeepSeek-style textual thinking
+		// separators in acc.Content are scrubbed from the final evt.Content
+		// (vfsfile.go's done branch resets the streamed accumulator with
+		// the cleaned version when evt.Content != "").
+		populateDoneEventFromAcc(&acc, &evt)
 
 		select {
 		case ch <- evt:
@@ -479,4 +464,104 @@ func (d *AnthropicDriver) classifyError(err error) error {
 	}
 	log.Printf("[llm] anthropic [%s]: unclassified error type %T: %v", d.name, err, err)
 	return fmt.Errorf("anthropic [%s]: %w", d.name, err)
+}
+
+// --- DeepSeek thinking-block textual leak handling ---
+
+// DeepSeek's anthropic-compat endpoint occasionally embeds thinking content
+// inside TextBlock.Text using these literal separators instead of using the
+// SDK's structured ThinkingBlock. They contain U+FF5C (FULLWIDTH VERTICAL
+// LINE) and U+2581 (LOWER ONE EIGHTH BLOCK), so byte-level matching on the
+// UTF-8 form is sufficient.
+const (
+	deepSeekThinkBegin = "<｜begin▁of▁thinking｜>"
+	deepSeekThinkEnd   = "<｜end▁of▁thinking｜>"
+)
+
+// populateDoneEventFromAcc fills the reasoning/tool/leak-related fields of
+// a "done" StreamEvent from the SDK's accumulated message content. It is
+// extracted from streamInternal so leak handling can be unit-tested
+// without a real SSE round-trip.
+func populateDoneEventFromAcc(acc *anthropic.Message, evt *StreamEvent) {
+	var cleanedTextParts []string
+	var anyTextLeaked bool
+	for _, block := range acc.Content {
+		switch variant := block.AsAny().(type) {
+		case anthropic.TextBlock:
+			clean, reasoning, hadSep := extractDeepSeekThinking(variant.Text)
+			cleanedTextParts = append(cleanedTextParts, clean)
+			if hadSep {
+				anyTextLeaked = true
+				if reasoning != "" {
+					evt.ReasoningBlocks = append(evt.ReasoningBlocks, ReasoningBlock{
+						Type:     "thinking",
+						Thinking: reasoning,
+					})
+				}
+			}
+		case anthropic.ThinkingBlock:
+			evt.ReasoningBlocks = append(evt.ReasoningBlocks, ReasoningBlock{
+				Type:      "thinking",
+				Thinking:  variant.Thinking,
+				Signature: variant.Signature,
+			})
+		case anthropic.RedactedThinkingBlock:
+			evt.ReasoningBlocks = append(evt.ReasoningBlocks, ReasoningBlock{
+				Type: "redacted_thinking",
+				Data: variant.Data,
+			})
+		case anthropic.ToolUseBlock:
+			tc := ToolCall{
+				ID:   variant.ID,
+				Name: variant.Name,
+			}
+			if len(variant.Input) > 0 {
+				var input map[string]any
+				if err := json.Unmarshal(variant.Input, &input); err != nil {
+					tc.ParseError = fmt.Sprintf("invalid input JSON: %v", err)
+				} else {
+					tc.Input = input
+				}
+			}
+			evt.ToolCalls = append(evt.ToolCalls, tc)
+		}
+	}
+	if anyTextLeaked {
+		evt.Content = strings.Join(cleanedTextParts, "")
+	}
+}
+
+// extractDeepSeekThinking splits a TextBlock body into clean content and
+// thinking text whenever DeepSeek-style separators are present. When no
+// separator appears, it returns the original text on a zero-allocation
+// fast path. See spec-anthropic-deepseek-thinking-leak-fix for the full
+// boundary rules.
+func extractDeepSeekThinking(text string) (clean, reasoning string, hadSeparator bool) {
+	if !strings.Contains(text, deepSeekThinkBegin) && !strings.Contains(text, deepSeekThinkEnd) {
+		return text, "", false
+	}
+
+	var cleanB, reasoningB strings.Builder
+	remaining := text
+	for {
+		begin := strings.Index(remaining, deepSeekThinkBegin)
+		end := strings.Index(remaining, deepSeekThinkEnd)
+		switch {
+		case begin >= 0 && (end < 0 || begin < end):
+			cleanB.WriteString(remaining[:begin])
+			rest := remaining[begin+len(deepSeekThinkBegin):]
+			inner, after, ok := strings.Cut(rest, deepSeekThinkEnd)
+			reasoningB.WriteString(inner)
+			if !ok {
+				return cleanB.String(), reasoningB.String(), true
+			}
+			remaining = after
+		case end >= 0:
+			reasoningB.WriteString(remaining[:end])
+			remaining = remaining[end+len(deepSeekThinkEnd):]
+		default:
+			cleanB.WriteString(remaining)
+			return cleanB.String(), reasoningB.String(), true
+		}
+	}
 }

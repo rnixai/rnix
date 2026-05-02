@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -619,5 +620,273 @@ func TestAnthropicDriver_AssistantNoThinking_NoRegression(t *testing.T) {
 	}
 	if result[0].Content[0].OfText == nil || result[0].Content[0].OfText.Text != "hi there" {
 		t.Errorf("expected text block 'hi there'; got %+v", result[0].Content[0])
+	}
+}
+
+// TestExtractDeepSeekThinking_NoSeparator verifies the zero-alloc
+// fast path: text without DeepSeek separators must round-trip unchanged
+// and report hadSeparator=false.
+func TestExtractDeepSeekThinking_NoSeparator(t *testing.T) {
+	clean, reasoning, had := extractDeepSeekThinking("hello world")
+	if clean != "hello world" || reasoning != "" || had {
+		t.Errorf("extractDeepSeekThinking(no-sep) = (%q, %q, %v), want (%q, %q, false)",
+			clean, reasoning, had, "hello world", "")
+	}
+}
+
+// TestExtractDeepSeekThinking_BeginEndPair verifies the canonical
+// begin+end pair: thinking text between separators routes to reasoning,
+// content outside routes to clean.
+func TestExtractDeepSeekThinking_BeginEndPair(t *testing.T) {
+	in := "<｜begin▁of▁thinking｜>plan A<｜end▁of▁thinking｜>final"
+	clean, reasoning, had := extractDeepSeekThinking(in)
+	if clean != "final" || reasoning != "plan A" || !had {
+		t.Errorf("extractDeepSeekThinking(pair) = (%q, %q, %v), want (%q, %q, true)",
+			clean, reasoning, had, "final", "plan A")
+	}
+}
+
+// TestExtractDeepSeekThinking_EndOnly verifies the trailing-only-end
+// case: when there's no begin separator but an end exists, the prefix
+// is treated as thinking and the suffix as content.
+func TestExtractDeepSeekThinking_EndOnly(t *testing.T) {
+	in := "plan A<｜end▁of▁thinking｜>final"
+	clean, reasoning, had := extractDeepSeekThinking(in)
+	if clean != "final" || reasoning != "plan A" || !had {
+		t.Errorf("extractDeepSeekThinking(end-only) = (%q, %q, %v), want (%q, %q, true)",
+			clean, reasoning, had, "final", "plan A")
+	}
+}
+
+// TestExtractDeepSeekThinking_MultiplePairs verifies multiple begin/end
+// pairs in a single TextBlock: thinking parts are concatenated in
+// encounter order, content parts likewise.
+func TestExtractDeepSeekThinking_MultiplePairs(t *testing.T) {
+	in := "<｜begin▁of▁thinking｜>a<｜end▁of▁thinking｜>x<｜begin▁of▁thinking｜>b<｜end▁of▁thinking｜>y"
+	clean, reasoning, had := extractDeepSeekThinking(in)
+	if clean != "xy" || reasoning != "ab" || !had {
+		t.Errorf("extractDeepSeekThinking(multi) = (%q, %q, %v), want (%q, %q, true)",
+			clean, reasoning, had, "xy", "ab")
+	}
+}
+
+// TestExtractDeepSeekThinking_BeginOnlyPartial verifies the case where
+// a begin separator is present but the matching end is missing: the
+// remainder after begin is treated as thinking, content is empty.
+func TestExtractDeepSeekThinking_BeginOnlyPartial(t *testing.T) {
+	in := "<｜begin▁of▁thinking｜>partial"
+	clean, reasoning, had := extractDeepSeekThinking(in)
+	if clean != "" || reasoning != "partial" || !had {
+		t.Errorf("extractDeepSeekThinking(begin-only) = (%q, %q, %v), want (%q, %q, true)",
+			clean, reasoning, had, "", "partial")
+	}
+}
+
+// TestAnthropicDriver_ConvertMessage_DeepSeekTextLeak_Pair verifies
+// convertMessage routes a TextBlock with begin+end separators into
+// LLMResponse.Content (clean) and ReasoningBlocks (thinking with
+// signature="").
+func TestAnthropicDriver_ConvertMessage_DeepSeekTextLeak_Pair(t *testing.T) {
+	d := NewAnthropicDriver("test")
+	msgJSON := `{
+		"id": "msg_leak",
+		"type": "message",
+		"role": "assistant",
+		"content": [
+			{"type": "text", "text": "<｜begin▁of▁thinking｜>weighing options<｜end▁of▁thinking｜>final answer"}
+		],
+		"model": "deepseek-v4-pro",
+		"stop_reason": "end_turn",
+		"stop_sequence": null,
+		"usage": {"input_tokens": 5, "output_tokens": 8}
+	}`
+	var msg anthropic.Message
+	if err := json.Unmarshal([]byte(msgJSON), &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	resp := d.convertMessage(&msg)
+	if resp.Content != "final answer" {
+		t.Errorf("Content = %q, want %q", resp.Content, "final answer")
+	}
+	if resp.Reasoning != "weighing options" {
+		t.Errorf("Reasoning = %q, want %q", resp.Reasoning, "weighing options")
+	}
+	if len(resp.ReasoningBlocks) != 1 {
+		t.Fatalf("len(ReasoningBlocks) = %d, want 1", len(resp.ReasoningBlocks))
+	}
+	rb := resp.ReasoningBlocks[0]
+	if rb.Type != "thinking" || rb.Thinking != "weighing options" || rb.Signature != "" {
+		t.Errorf("ReasoningBlock = %+v, want {thinking, weighing options, ''}", rb)
+	}
+}
+
+// TestAnthropicDriver_ConvertMessage_DeepSeekTextLeak_EndOnly verifies
+// the trailing-only-end case at the convertMessage integration level.
+func TestAnthropicDriver_ConvertMessage_DeepSeekTextLeak_EndOnly(t *testing.T) {
+	d := NewAnthropicDriver("test")
+	msgJSON := `{
+		"id": "msg_leak_end",
+		"type": "message",
+		"role": "assistant",
+		"content": [
+			{"type": "text", "text": "internal reasoning<｜end▁of▁thinking｜>visible reply"}
+		],
+		"model": "deepseek-v4-pro",
+		"stop_reason": "end_turn",
+		"stop_sequence": null,
+		"usage": {"input_tokens": 3, "output_tokens": 6}
+	}`
+	var msg anthropic.Message
+	if err := json.Unmarshal([]byte(msgJSON), &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	resp := d.convertMessage(&msg)
+	if resp.Content != "visible reply" {
+		t.Errorf("Content = %q, want %q", resp.Content, "visible reply")
+	}
+	if resp.Reasoning != "internal reasoning" {
+		t.Errorf("Reasoning = %q, want %q", resp.Reasoning, "internal reasoning")
+	}
+}
+
+// TestAnthropicDriver_ConvertMessage_DeepSeekTextLeak_CoexistsWithSDKBlock
+// verifies that an SDK ThinkingBlock (with signature) and a TextBlock
+// containing a DeepSeek-style leak coexist correctly: both contribute
+// ReasoningBlocks in encounter order, and only the leaked one has an
+// empty signature.
+func TestAnthropicDriver_ConvertMessage_DeepSeekTextLeak_CoexistsWithSDKBlock(t *testing.T) {
+	d := NewAnthropicDriver("test")
+	msgJSON := `{
+		"id": "msg_mixed",
+		"type": "message",
+		"role": "assistant",
+		"content": [
+			{"type": "thinking", "thinking": "sdk-thought", "signature": "sig_xyz"},
+			{"type": "text", "text": "<｜begin▁of▁thinking｜>leak-thought<｜end▁of▁thinking｜>real reply"}
+		],
+		"model": "deepseek-v4-pro",
+		"stop_reason": "end_turn",
+		"stop_sequence": null,
+		"usage": {"input_tokens": 7, "output_tokens": 12}
+	}`
+	var msg anthropic.Message
+	if err := json.Unmarshal([]byte(msgJSON), &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	resp := d.convertMessage(&msg)
+	if resp.Content != "real reply" {
+		t.Errorf("Content = %q, want %q", resp.Content, "real reply")
+	}
+	if len(resp.ReasoningBlocks) != 2 {
+		t.Fatalf("len(ReasoningBlocks) = %d, want 2 (SDK + leak)", len(resp.ReasoningBlocks))
+	}
+	sdk := resp.ReasoningBlocks[0]
+	if sdk.Thinking != "sdk-thought" || sdk.Signature != "sig_xyz" {
+		t.Errorf("SDK block = %+v, want sdk-thought/sig_xyz", sdk)
+	}
+	leak := resp.ReasoningBlocks[1]
+	if leak.Thinking != "leak-thought" || leak.Signature != "" {
+		t.Errorf("leak block = %+v, want leak-thought/empty-sig", leak)
+	}
+	if !strings.Contains(resp.Reasoning, "sdk-thought") || !strings.Contains(resp.Reasoning, "leak-thought") {
+		t.Errorf("Reasoning = %q, want both sdk-thought and leak-thought", resp.Reasoning)
+	}
+}
+
+// TestAnthropicDriver_StreamDone_DeepSeekTextLeak validates the stream
+// done-event extraction logic by directly invoking populateDoneEventFromAcc
+// with an accumulated message that mixes a clean TextBlock and a
+// DeepSeek-leaked TextBlock. Avoids a real SSE round-trip.
+func TestAnthropicDriver_StreamDone_DeepSeekTextLeak(t *testing.T) {
+	accJSON := `{
+		"id": "msg_stream",
+		"type": "message",
+		"role": "assistant",
+		"content": [
+			{"type": "text", "text": "hello "},
+			{"type": "text", "text": "<｜begin▁of▁thinking｜>internal<｜end▁of▁thinking｜>world"}
+		],
+		"model": "deepseek-v4-pro",
+		"stop_reason": "end_turn",
+		"stop_sequence": null,
+		"usage": {"input_tokens": 2, "output_tokens": 4}
+	}`
+	var acc anthropic.Message
+	if err := json.Unmarshal([]byte(accJSON), &acc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	evt := StreamEvent{Type: "done"}
+	populateDoneEventFromAcc(&acc, &evt)
+
+	if evt.Content != "hello world" {
+		t.Errorf("evt.Content = %q, want %q (cleaned + concatenated)", evt.Content, "hello world")
+	}
+	if len(evt.ReasoningBlocks) != 1 {
+		t.Fatalf("len(ReasoningBlocks) = %d, want 1", len(evt.ReasoningBlocks))
+	}
+	rb := evt.ReasoningBlocks[0]
+	if rb.Type != "thinking" || rb.Thinking != "internal" || rb.Signature != "" {
+		t.Errorf("ReasoningBlock = %+v, want {thinking, internal, ''}", rb)
+	}
+
+	// Pure TextBlocks (no leak) must NOT set evt.Content (vfsfile.go
+	// reset is destructive — resetting with empty content for a clean
+	// stream would erase already-streamed TextDeltas).
+	cleanJSON := `{
+		"id": "msg_stream_clean",
+		"type": "message",
+		"role": "assistant",
+		"content": [{"type": "text", "text": "no leak here"}],
+		"model": "claude-sonnet-4",
+		"stop_reason": "end_turn",
+		"stop_sequence": null,
+		"usage": {"input_tokens": 1, "output_tokens": 1}
+	}`
+	var accClean anthropic.Message
+	if err := json.Unmarshal([]byte(cleanJSON), &accClean); err != nil {
+		t.Fatalf("unmarshal clean: %v", err)
+	}
+	evtClean := StreamEvent{Type: "done"}
+	populateDoneEventFromAcc(&accClean, &evtClean)
+	if evtClean.Content != "" {
+		t.Errorf("evtClean.Content = %q, want empty (no-leak path must NOT set Content)", evtClean.Content)
+	}
+}
+
+// TestAnthropicDriver_LeakReasoningBlock_RoundTrip closes AC3: a
+// ReasoningBlock with Signature="" extracted from a DeepSeek text leak
+// must still be emitted as a ThinkingBlockParam on the next request
+// turn (DeepSeek's anthropic-compat endpoint requires every prior
+// thinking block to be echoed back, even with an empty signature).
+func TestAnthropicDriver_LeakReasoningBlock_RoundTrip(t *testing.T) {
+	msgs := []Message{
+		{
+			Role: "assistant",
+			ReasoningBlocks: []ReasoningBlock{
+				{Type: "thinking", Thinking: "leaked-thought", Signature: ""},
+			},
+			Content: "visible reply",
+		},
+	}
+	result := convertMessagesToAnthropic(msgs)
+	if len(result) != 1 {
+		t.Fatalf("len(result) = %d, want 1", len(result))
+	}
+	blocks := result[0].Content
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2 (thinking + text)", len(blocks))
+	}
+	if blocks[0].OfThinking == nil {
+		t.Fatalf("blocks[0] is not a thinking block; got %+v", blocks[0])
+	}
+	if blocks[0].OfThinking.Thinking != "leaked-thought" {
+		t.Errorf("thinking text = %q, want leaked-thought", blocks[0].OfThinking.Thinking)
+	}
+	if blocks[0].OfThinking.Signature != "" {
+		t.Errorf("signature = %q, want empty (leak path)", blocks[0].OfThinking.Signature)
+	}
+	if blocks[1].OfText == nil || blocks[1].OfText.Text != "visible reply" {
+		t.Errorf("blocks[1] = %+v, want text 'visible reply'", blocks[1])
 	}
 }
