@@ -243,19 +243,26 @@ func TestFocusCardRemoved(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNumberKeyCompatibility(t *testing.T) {
-	// Verify number key bindings still exist and reference pane switching
+	// Story 38.1: number key bindings moved from dashboard_nav.go to
+	// dashboard_keylayers.go (Layer 1 Default + Expanded). Both files searched.
 	navPath := filepath.Join(cmdRnixDir(), "dashboard_nav.go")
-	content, err := os.ReadFile(navPath)
+	keylayersPath := filepath.Join(cmdRnixDir(), "dashboard_keylayers.go")
+
+	navContent, err := os.ReadFile(navPath)
 	if err != nil {
 		t.Fatalf("failed to read dashboard_nav.go: %v", err)
 	}
+	keylayersContent, err := os.ReadFile(keylayersPath)
+	if err != nil {
+		t.Fatalf("failed to read dashboard_keylayers.go: %v", err)
+	}
 
-	contentStr := string(content)
+	contentStr := string(navContent) + "\n" + string(keylayersContent)
 
-	// Number keys 2-8 should still switch right pane
+	// Number keys 2-8 should still switch right pane (somewhere in nav/keylayers)
 	for _, key := range []string{"\"2\"", "\"3\"", "\"4\"", "\"5\"", "\"6\"", "\"7\"", "\"8\""} {
 		if !strings.Contains(contentStr, key) {
-			t.Errorf("dashboard_nav.go should contain case for key %s", key)
+			t.Errorf("dashboard_nav.go or dashboard_keylayers.go should contain case for key %s", key)
 		}
 	}
 

@@ -177,9 +177,44 @@ func (m dashboardModel) renderDashboardTitle() string {
 	// Panel tabs on second line (AC5: move pane labels to second row)
 	if maxW >= 60 {
 		tabLine := m.renderPanelTabsLine()
+		// Story 38.1 AC#6: Mode Strip third line (only when modes are non-empty).
+		modeStrip := m.renderModeStrip()
+		if modeStrip != "" {
+			return titleLine + "\n" + tabLine + "\n" + modeStrip
+		}
 		return titleLine + "\n" + tabLine
 	}
 	return titleLine
+}
+
+// renderModeStrip renders the active modes for the current pane, sourced from
+// Layer 2 KeyLayer.ActiveModesFn (Story 38.1 AC#6).
+//
+// Format: "  ⌥ filter:tool · sort:time · follow:on" (UTF-8) or
+//         "  [M] filter:tool | sort:time | follow:on" (ASCII).
+//
+// Returns empty string when no modes are active (caller should skip the line).
+func (m dashboardModel) renderModeStrip() string {
+	if m.dispatcher == nil {
+		return ""
+	}
+	modes := m.dispatcher.ActiveModesFor(ui.PaneID(m.activePane), m)
+	if len(modes) == 0 {
+		return ""
+	}
+	ascii := ui.IsASCIIMode()
+	prefix := "⌥"
+	sep := " · "
+	if ascii {
+		prefix = "[M]"
+		sep = " | "
+	}
+	parts := make([]string, 0, len(modes))
+	for _, md := range modes {
+		parts = append(parts, md.Name+":"+md.Value)
+	}
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	return "  " + dim.Render(prefix+" "+strings.Join(parts, sep))
 }
 
 // renderPanelTabsLine renders the [1]Tree [2]Time ... pane navigation labels.

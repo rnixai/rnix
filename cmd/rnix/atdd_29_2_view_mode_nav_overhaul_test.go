@@ -125,13 +125,20 @@ func TestViewModeSystem_NavFileExists(t *testing.T) {
 		t.Fatal("expected dashboard_nav.go to exist in cmd/rnix/")
 	}
 
-	funcs, err := topLevelFuncNames(path)
+	// Story 38.1 重构后：dispatchPaneKey 移到 dashboard_pane_dispatcher.go；
+	// dashboardKey 仍在 dashboard_nav.go。两个文件合并视为 nav 体系。
+	navFuncs, err := topLevelFuncNames(path)
 	if err != nil {
 		t.Fatalf("failed to parse dashboard_nav.go: %v", err)
 	}
+	paneDispPath := filepath.Join(cmdRnixDir(), "dashboard_pane_dispatcher.go")
+	paneFuncs, _ := topLevelFuncNames(paneDispPath) // optional, allowed to be empty
 
 	funcSet := make(map[string]bool)
-	for _, fn := range funcs {
+	for _, fn := range navFuncs {
+		funcSet[fn] = true
+	}
+	for _, fn := range paneFuncs {
 		funcSet[fn] = true
 	}
 
@@ -141,7 +148,7 @@ func TestViewModeSystem_NavFileExists(t *testing.T) {
 	}
 	for _, fn := range expectedFuncs {
 		if !funcSet[fn] {
-			t.Errorf("expected function %s in dashboard_nav.go, not found", fn)
+			t.Errorf("expected function %s in dashboard_nav.go or dashboard_pane_dispatcher.go, not found", fn)
 		}
 	}
 }
@@ -492,16 +499,23 @@ func TestViewModeSystem_StatusBarRetainsOps(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestViewModeSystem_StubKeysExist(t *testing.T) {
-	path := filepath.Join(cmdRnixDir(), "dashboard_nav.go")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
+	// Story 38.1: L key handling moved to dashboard_keylayers.go (Layer 0).
+	parts := []string{}
+	for _, name := range []string{"dashboard_nav.go", "dashboard_keylayers.go"} {
+		data, err := os.ReadFile(filepath.Join(cmdRnixDir(), name))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			t.Fatalf("failed to read %s: %v", name, err)
+		}
+		parts = append(parts, string(data))
 	}
-	content := string(data)
+	content := strings.Join(parts, "\n")
 
-	// L 键应在导航文件中有处理（即使只是 stub）
+	// L 键应在 nav/keylayers 文件中有处理
 	if !strings.Contains(content, `"L"`) && !strings.Contains(content, `case "L"`) {
-		t.Error("expected dashboard_nav.go to handle 'L' key (LLM viewer stub)")
+		t.Error("expected nav/keylayers files to handle 'L' key (LLM viewer / Step Inspector)")
 	}
 	// H key has been removed — z expand replaces it
 }

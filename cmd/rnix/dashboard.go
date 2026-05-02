@@ -37,6 +37,10 @@ type dashboardModel struct {
 	rightPane    paneType // 右侧显示的面板（默认 Timeline）
 	viewMode     viewMode // 当前视图模式（默认 viewDefault，零值即默认）
 	expandedPane paneType // viewExpanded 模式下展开的面板
+
+	// Story 38.1: 3-layer key dispatcher (Layer 0 Global / Layer 1 View / Layer 2 Pane)
+	dispatcher *ui.Dispatcher
+
 	selectedPID  types.PID
 	selectedUUID string
 	processes    []vfs.ProcInfo
@@ -254,6 +258,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 	}
 	return dashboardModel{
 		client:             client,
+		dispatcher:         newDispatcher(),
 		startTime:          time.Now(),
 		connected:          client != nil,
 		rightPane:          paneTimeline,

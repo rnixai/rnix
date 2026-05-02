@@ -13,6 +13,26 @@ import (
 	"testing"
 )
 
+// readNavFiles concatenates dashboard_nav.go and dashboard_pane_dispatcher.go.
+// Story 38.1 split the original 812-line nav.go into a 50-line entry plus the
+// pane_dispatcher.go helper file; tests that grep for code patterns now look
+// at both files together so the legacy assertions still hold.
+func readNavFiles(t *testing.T) string {
+	t.Helper()
+	parts := []string{}
+	for _, name := range []string{"dashboard_nav.go", "dashboard_pane_dispatcher.go", "dashboard_keylayers.go"} {
+		data, err := os.ReadFile(filepath.Join(cmdRnixDir(), name))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			t.Fatalf("failed to read %s: %v", name, err)
+		}
+		parts = append(parts, string(data))
+	}
+	return strings.Join(parts, "\n")
+}
+
 // ---------------------------------------------------------------------------
 // 29.5-UNIT-001: dashboard_history.go 存在（保留 agentLabel + renderHistoryStats）
 // ---------------------------------------------------------------------------
@@ -43,16 +63,23 @@ func TestHistoryView_ExpectedFunctionsExist(t *testing.T) {
 		}
 	}
 
+	// Story 38.1: handleExpandedTreeKey moved from dashboard_nav.go to
+	// dashboard_pane_dispatcher.go as part of the 3-layer dispatcher refactor.
 	navFuncs, err := topLevelFuncNames(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
 	if err != nil {
 		t.Fatalf("failed to parse dashboard_nav.go: %v", err)
 	}
+	paneFuncs, _ := topLevelFuncNames(filepath.Join(cmdRnixDir(), "dashboard_pane_dispatcher.go"))
+
 	navSet := make(map[string]bool)
 	for _, fn := range navFuncs {
 		navSet[fn] = true
 	}
+	for _, fn := range paneFuncs {
+		navSet[fn] = true
+	}
 	if !navSet["handleExpandedTreeKey"] {
-		t.Error("expected handleExpandedTreeKey in dashboard_nav.go")
+		t.Error("expected handleExpandedTreeKey in dashboard_nav.go or dashboard_pane_dispatcher.go")
 	}
 
 	treeFuncs, err := topLevelFuncNames(filepath.Join(cmdRnixDir(), "dashboard_tree.go"))
@@ -130,20 +157,16 @@ func TestHistoryView_DashboardModelHistoryFields(t *testing.T) {
 
 // 29.5-UNIT-005: H key no longer exists in dashboard_nav.go (z expand is used instead)
 func TestHistoryView_EnterHistoryViewSetsViewMode(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	content := string(data)
+	content := readNavFiles(t)
 	if strings.Contains(content, "case \"H\":") {
-		t.Error("H key case should have been removed from dashboard_nav.go (z expand replaces it)")
+		t.Error("H key case should have been removed from nav files (z expand replaces it)")
 	}
 	// z key expands the tree pane
 	if !strings.Contains(content, "viewExpanded") {
-		t.Error("viewExpanded should still exist in dashboard_nav.go for z key")
+		t.Error("viewExpanded should still exist in nav files for z key")
 	}
 	if !strings.Contains(content, "paneTree") {
-		t.Error("paneTree should still exist in dashboard_nav.go for z key")
+		t.Error("paneTree should still exist in nav files for z key")
 	}
 }
 
@@ -185,12 +208,9 @@ func TestHistoryView_HKeyCallsEnterHistoryView(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_OverlayLayerInNav(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	if !strings.Contains(string(data), "handleExpandedTreeKey") {
-		t.Error("dashboard_nav.go should call handleExpandedTreeKey in expanded tree mode")
+	content := readNavFiles(t)
+	if !strings.Contains(content, "handleExpandedTreeKey") {
+		t.Error("nav files should call handleExpandedTreeKey in expanded tree mode")
 	}
 }
 
@@ -279,14 +299,10 @@ func TestHistoryView_RenderContainsBottomStats(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_HistoryKeyHandlesJKNavigation(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	content := string(data)
+	content := readNavFiles(t)
 	funcBody := extractFuncBody(content, "handleExpandedTreeKey")
 	if funcBody == "" {
-		t.Fatal("handleExpandedTreeKey not found in dashboard_nav.go")
+		t.Fatal("handleExpandedTreeKey not found in nav files")
 	}
 	hasJK := strings.Contains(funcBody, `"j"`) || strings.Contains(funcBody, `"k"`)
 	hasUD := strings.Contains(funcBody, `"up"`) || strings.Contains(funcBody, `"down"`)
@@ -303,13 +319,10 @@ func TestHistoryView_HistoryKeyHandlesJKNavigation(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_HistoryKeyHandlesEnterFocus(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	funcBody := extractFuncBody(string(data), "handleExpandedTreeKey")
+	content := readNavFiles(t)
+	funcBody := extractFuncBody(content, "handleExpandedTreeKey")
 	if funcBody == "" {
-		t.Fatal("handleExpandedTreeKey not found in dashboard_nav.go")
+		t.Fatal("handleExpandedTreeKey not found in nav files")
 	}
 	if !strings.Contains(funcBody, "handlePIDChange") {
 		t.Error("handleExpandedTreeKey should call handlePIDChange after Enter")
@@ -321,12 +334,9 @@ func TestHistoryView_HistoryKeyHandlesEnterFocus(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_HistoryKeyHandlesLKey(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	if !strings.Contains(string(data), "enterStepInspector") {
-		t.Error("dashboard_nav.go should call enterStepInspector for L key (global handler)")
+	content := readNavFiles(t)
+	if !strings.Contains(content, "enterStepInspector") {
+		t.Error("nav files should call enterStepInspector for L key (global handler)")
 	}
 }
 
@@ -335,14 +345,10 @@ func TestHistoryView_HistoryKeyHandlesLKey(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_HistoryKeyHandlesSearchMode(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	content := string(data)
+	content := readNavFiles(t)
 	funcBody := extractFuncBody(content, "handleExpandedTreeKey")
 	if funcBody == "" {
-		t.Fatal("handleExpandedTreeKey not found in dashboard_nav.go")
+		t.Fatal("handleExpandedTreeKey not found in nav files")
 	}
 	if !strings.Contains(funcBody, `"/"`) {
 		t.Error("handleExpandedTreeKey should handle / key to enter search mode")
@@ -418,14 +424,10 @@ func TestHistoryView_SortUsesSlicesSortFunc(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_HistoryKeyHandlesEscExit(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	content := string(data)
+	content := readNavFiles(t)
 	funcBody := extractFuncBody(content, "handleExpandedTreeKey")
 	if funcBody == "" {
-		t.Fatal("handleExpandedTreeKey not found in dashboard_nav.go")
+		t.Fatal("handleExpandedTreeKey not found in nav files")
 	}
 	if !strings.Contains(funcBody, `"esc"`) {
 		t.Error("handleExpandedTreeKey should handle esc key")
@@ -560,11 +562,8 @@ func TestHistoryView_RenderFuncSignature(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_HistoryKeyFuncSignature(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	if !strings.Contains(string(data), "func (m dashboardModel) handleExpandedTreeKey(") {
+	content := readNavFiles(t)
+	if !strings.Contains(content, "func (m dashboardModel) handleExpandedTreeKey(") {
 		t.Error("handleExpandedTreeKey should be a method on dashboardModel")
 	}
 }
@@ -575,13 +574,9 @@ func TestHistoryView_HistoryKeyFuncSignature(t *testing.T) {
 
 // 29.5-UNIT-029: H key has been removed; z expand pane replaces it
 func TestHistoryView_EnterHistoryViewSignature(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	content := string(data)
+	content := readNavFiles(t)
 	if strings.Contains(content, "case \"H\":") {
-		t.Error("H key case should have been removed from dashboard_nav.go")
+		t.Error("H key case should have been removed from nav files")
 	}
 	// z key expands tree and should clear search state
 	if !strings.Contains(content, "treeSearchQuery") {
@@ -610,14 +605,10 @@ func TestHistoryView_PackageMain(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_SearchBackspaceRuneSafe(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	content := string(data)
+	content := readNavFiles(t)
 	funcBody := extractFuncBody(content, "handleExpandedTreeKey")
 	if funcBody == "" {
-		t.Fatal("handleExpandedTreeKey not found in dashboard_nav.go")
+		t.Fatal("handleExpandedTreeKey not found in nav files")
 	}
 	hasRuneSafe := strings.Contains(funcBody, "DecodeLastRune") ||
 		strings.Contains(funcBody, "[]rune") ||
@@ -715,14 +706,10 @@ func TestHistoryView_ThreeSortModesImplemented(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestHistoryView_EnterFocusCallsHandlePIDChange(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join(cmdRnixDir(), "dashboard_nav.go"))
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
-	}
-	content := string(data)
+	content := readNavFiles(t)
 	funcBody := extractFuncBody(content, "handleExpandedTreeKey")
 	if funcBody == "" {
-		t.Fatal("handleExpandedTreeKey not found in dashboard_nav.go")
+		t.Fatal("handleExpandedTreeKey not found in nav files")
 	}
 	if !strings.Contains(funcBody, "handlePIDChange") {
 		t.Error("handleExpandedTreeKey should call handlePIDChange after Enter focus")
