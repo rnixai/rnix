@@ -17,6 +17,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -688,31 +689,14 @@ func registerLayer2Timeline(d *ui.Dispatcher) {
 	d.Layer2[ui.PaneID(paneTimeline)] = l
 }
 
+// registerLayer2Heatmap — Heatmap pane: =/%/t/f (delegates to dispatchPaneKey via paneFallback).
+// Story 38-5 PR3 Step 2: 注册体迁出至 internal/dashboard/heatmap.KeyLayer 以解耦 cmd/rnix
+// 与 heatmap pane 元数据；本函数仅做 dispatcher 注册（行为零变化）。
+//
+// 包边界约束：dashboardModel 必须实现 heatmap.StateProvider interface（已在 dashboard.go
+// 通过 HeatmapState() 方法满足 · PR3 Step 1 落地）。
 func registerLayer2Heatmap(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Heatmap Pane",
-		Bindings: map[string]ui.KeyHandler{},
-		Fallback: paneFallback,
-		Docs:     map[string]ui.KeyDoc{},
-		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
-			m, ok := ctx.(dashboardModel)
-			if !ok {
-				return nil
-			}
-			modes := []ui.Mode{}
-			if m.heatmap.Expanded {
-				modes = append(modes, ui.Mode{Name: "view", Value: "expanded"})
-			} else {
-				modes = append(modes, ui.Mode{Name: "view", Value: "summary"})
-			}
-			return modes
-		},
-	}
-	l.Docs["="] = ui.KeyDoc{Key: "=", Description: "Absolute scale"}
-	l.Docs["%"] = ui.KeyDoc{Key: "%", Description: "Relative scale"}
-	l.Docs["t"] = ui.KeyDoc{Key: "t", Description: "Toggle totals"}
-	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Filter by segment kind"}
-	d.Layer2[ui.PaneID(paneHeatmap)] = l
+	d.Layer2[ui.PaneID(paneHeatmap)] = heatmap.KeyLayer(paneFallback)
 }
 
 func registerLayer2Detail(d *ui.Dispatcher) {
