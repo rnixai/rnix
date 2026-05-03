@@ -97,6 +97,12 @@ t.Error("System lens should show character count")
 
 func TestInspector_SystemLensUnchangedHint(t *testing.T) {
 m := newTestInspectorModelWithDetail()
+// Story 38-3 review P18: inspectorPrevStep must be ≥ 1 for the unchanged
+// path to fire — `prevStep == 0` short-circuits to the first-step branch
+// (no annotation), matching the real handleInspectorDetailMsg flow where
+// prevStep advances 0 → 1 → 2 … only after the second step loads.
+m.inspectorPrevStep = 1
+m.inspectorStep = 2
 prevDetail := &ipc.GetStepDetailResponse{SystemPrompt: "You are an agent."}
 content := m.buildLensContent(lensSystem, m.inspectorDetail, prevDetail)
 
@@ -420,8 +426,10 @@ func TestInspector_ToolIOLensShowsDuration(t *testing.T) {
 m := newTestInspectorModelWithDetail()
 content := m.buildLensContent(lensToolIO, m.inspectorDetail, nil)
 
-if !strings.Contains(content, "12ms") || !strings.Contains(content, "Duration") {
-t.Error("Tool I/O lens should show tool duration")
+// Story 38-3 review D2=b: spec L48 dropped the "Duration:" label; only
+// the numeric `<ms>ms` (and the ⧖ glyph in unicode mode) are required.
+if !strings.Contains(content, "12ms") {
+t.Errorf("Tool I/O lens should show tool duration as `<ms>ms`; got:\n%s", content)
 }
 }
 

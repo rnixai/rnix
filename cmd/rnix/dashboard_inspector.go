@@ -22,13 +22,10 @@ import (
 // Story 38-3 AC#5: package-level compiled regexes for Raw JSON lens syntax
 // highlighting. RE2-safe (linear time, no backreferences). Order matters:
 // keys are tagged first, then string values, then numbers, then booleans —
-// see Dev Notes 6 for why this prevents nested-coloring corruption.
-var (
-	jsonRegexKey    = regexp.MustCompile(`"[\w_-]+"\s*:`)
-	jsonRegexString = regexp.MustCompile(`:\s*("[^"\\]*(?:\\.[^"\\]*)*")`)
-	jsonRegexNumber = regexp.MustCompile(`:\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)`)
-	jsonRegexBool   = regexp.MustCompile(`\b(true|false|null)\b`)
-)
+// see Dev Notes 6 for why a single-pass tokenizer (replacing the prior 4
+// regex passes) prevents nested-coloring corruption — bool/null literals
+// and key-shaped substrings inside string values would otherwise be
+// re-coloured by later passes (Story 38-3 code review P1+P6).
 
 // searchMatchPos identifies the byte-range location of a single search hit
 // inside the Inspector's currently active lens content. Story 38-3 AC#8:
@@ -473,37 +470,35 @@ func (m *dashboardModel) refreshInspectorSearchMatches() {
 // to `ui.FindMatches` (which returns only line numbers). Lives inside the
 // inspector package so the listnav search contract stays unchanged.
 //
-// Empty query returns nil. Search runs over the raw line text (case-folded);
-// ANSI escape sequences from prior highlight passes are not stripped, so the
-// query won't be located inside coloured spans that the user can't type.
+// Empty query returns nil. Search uses Go's regexp engine with the (?i)
+// case-insensitive flag, which performs Unicode-aware case folding while
+// reporting byte offsets in the original content. This avoids the per-line
+// `strings.ToLower` round-trip that previously corrupted byte offsets when a
+// rune's lowercase form had a different byte length (e.g. `İ` U+0130 → `i`,
+// 2 bytes → 1 byte) — Story 38-3 code review P5.
+//
 // Byte offsets are reported in the original `content` so subsequent highlight
 // rendering can reuse them directly.
 func findInspectorMatchesByPos(content, query string) []searchMatchPos {
 	if query == "" {
 		return nil
 	}
-	lcQuery := strings.ToLower(query)
+	re, err := regexp.Compile("(?i)" + regexp.QuoteMeta(query))
+	if err != nil {
+		return nil
+	}
 	var out []searchMatchPos
 	lineStart := 0
 	lineIdx := 0
 	for i := 0; i <= len(content); i++ {
 		if i == len(content) || (i < len(content) && content[i] == '\n') {
 			line := content[lineStart:i]
-			lcLine := strings.ToLower(line)
-			start := 0
-			for start < len(lcLine) {
-				idx := strings.Index(lcLine[start:], lcQuery)
-				if idx < 0 {
-					break
-				}
-				absStart := start + idx
-				absEnd := absStart + len(lcQuery)
+			for _, m := range re.FindAllStringIndex(line, -1) {
 				out = append(out, searchMatchPos{
 					lineIdx:   lineIdx,
-					byteStart: lineStart + absStart,
-					byteEnd:   lineStart + absEnd,
+					byteStart: lineStart + m[0],
+					byteEnd:   lineStart + m[1],
 				})
-				start = absEnd
 			}
 			lineStart = i + 1
 			lineIdx++
@@ -774,32 +769,105 @@ func (m dashboardModel) renderStepRail(w int) string {
 		b.WriteString(follow.Render(label))
 	}
 
-	// Truncate to width
+	// Truncate to width.
+	//
+	// Story 38-3 review P19: prior implementation cast the full string
+	// (including ANSI SGR sequences) to a rune slice and sliced at `w`
+	// runes. When the cut landed inside an escape sequence the trailing
+	// `m` byte was lost and colour leaked through to subsequent rail
+	// content / thumbnail / tabs. truncateANSIRunes below tracks ANSI
+	// state so cuts always land between visible runes, and emits an
+	// `\x1b[0m` reset when an SGR was open at the cut.
 	result := b.String()
-	if w > 0 && utf8.RuneCountInString(stripANSIApprox(result)) > w {
-		runes := []rune(result)
-		result = string(runes[:w])
+	if w > 0 {
+		result = truncateANSIRunes(result, w)
 	}
-
 	return result
+}
+
+// truncateANSIRunes returns the prefix of `s` whose visible width (ANSI
+// escape sequences ignored) does not exceed `maxCols` runes. Open SGR
+// sequences are closed with `\x1b[0m` to prevent colour leak. Used by
+// `renderStepRail` (Story 38-3 review P19) but generally applicable to any
+// single-line ANSI-styled string that needs hard truncation.
+func truncateANSIRunes(s string, maxCols int) string {
+	if maxCols <= 0 {
+		return ""
+	}
+	visible := 0
+	inEsc := false
+	hasOpenSGR := false
+	var b strings.Builder
+	for _, r := range s {
+		if r == 0x1b {
+			inEsc = true
+			b.WriteRune(r)
+			continue
+		}
+		if inEsc {
+			b.WriteRune(r)
+			if r == 'm' {
+				inEsc = false
+				snapshot := b.String()
+				if idx := strings.LastIndex(snapshot, "\x1b["); idx >= 0 {
+					seq := snapshot[idx:]
+					if seq == "\x1b[0m" || seq == "\x1b[m" {
+						hasOpenSGR = false
+					} else {
+						hasOpenSGR = true
+					}
+				}
+			}
+			continue
+		}
+		if visible >= maxCols {
+			if hasOpenSGR {
+				b.WriteString("\x1b[0m")
+			}
+			return b.String()
+		}
+		b.WriteRune(r)
+		visible++
+	}
+	if hasOpenSGR {
+		b.WriteString("\x1b[0m")
+	}
+	return b.String()
 }
 
 // renderStepThumbnailBar emits the two-line thumbnail strip below the Step
 // Rail. Story 38-3 AC#6:
 //
-//	Line 1 — glyphs: ◆ for loaded steps, ◇ for un-loaded steps, ◈ for the
-//	         current diff base. The currently focused step uses ColorReplay
-//	         orange + Bold; the others tint by step kind (error → red,
-//	         tool → green, reasoning → blue, unknown → dim).
-//	Line 2 — right-aligned 1-2 digit step numbers with the current step
-//	         highlighted in ColorReplay + Bold.
+//	Line 1 — glyphs: ◆ for loaded steps, ◈ for the current diff base.
+//	         The currently focused step uses ColorReplay orange + Bold;
+//	         the others tint by step kind (error → red, tool → green,
+//	         reasoning → blue, unknown → dim).
+//	Line 2 — right-aligned 2-column step numbers (e.g. " 1", "10") with the
+//	         current step highlighted in ColorReplay + Bold.
+//
+// Each thumbnail occupies a fixed 2-column slot so that the glyph row and
+// number row stay column-aligned even when step numbers cross 1↔2 digits.
+// Thumbnails are separated by a single space, giving 3 columns per slot
+// (slot + separator). When the bar would exceed `w` columns, the trailing
+// thumbnails are dropped so the row never wraps.
 //
 // When the loaded list exceeds 50 steps the bar collapses to a window of
-// ~20-step head/tail with a centered current step. The bar returns "" when
-// the terminal is too short (handled by the caller via inspectorContentHeight
-// branching on m.height ≥ 20).
+// ~20-step head/tail with a centered current step (compressThumbnailWindow).
+// The bar returns "" when the terminal is too short (handled by the caller
+// via inspectorContentHeight branching on m.height ≥ 20) or when there are
+// no steps loaded.
 //
 // ASCII mode: ◆/◇/◈ degrade to */./+.
+//
+// Story 38-3 code review fixes:
+//   - P3: removed the misleading `case s.Step == 0 → unloaded` branch;
+//     Step==0 is a valid first-step number, not a sentinel for not-loaded
+//     (the sentinel is Step==-1, set by compressThumbnailWindow).
+//   - P4: glyph row and number row are now padded to a uniform 2-column
+//     slot so multi-digit steps don't shear the visual alignment.
+//   - P10: the previously-discarded `w` parameter now caps how many
+//     thumbnails are emitted, preventing the bar from overflowing narrow
+//     terminals after compression (~41 visible thumbnails @ 50+ steps).
 func (m dashboardModel) renderStepThumbnailBar(w int) string {
 	if len(m.inspectorSteps) == 0 {
 		return ""
@@ -808,9 +876,17 @@ func (m dashboardModel) renderStepThumbnailBar(w int) string {
 	cur := m.inspectorStep
 	steps := m.inspectorSteps
 
-	// Compress window for >50 steps (AC#6)
+	// Compress window for >50 steps (AC#6).
 	if len(steps) > 50 {
 		steps = compressThumbnailWindow(m.inspectorSteps, cur, 20)
+	}
+
+	// Cap visible thumbnails to fit width: leading space + N slots of 2 cols
+	// each + (N-1) single-space separators ≤ w. Solve: 1 + 3N - 1 ≤ w ⇒
+	// N ≤ w / 3. We keep N≥1 so the current step is always visible.
+	if w > 3 && len(steps)*3 > w {
+		maxSlots := max(w/3, 1)
+		steps = trimThumbnailToWidth(steps, cur, maxSlots)
 	}
 
 	current := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorReplay)).Bold(true)
@@ -821,11 +897,9 @@ func (m dashboardModel) renderStepThumbnailBar(w int) string {
 	warn := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
 
 	loaded := "◆"
-	unloaded := "◇"
 	diff := "◈"
 	if ascii {
 		loaded = "*"
-		unloaded = "."
 		diff = "+"
 	}
 
@@ -839,17 +913,19 @@ func (m dashboardModel) renderStepThumbnailBar(w int) string {
 			glyphRow.WriteString(" ")
 			numRow.WriteString(" ")
 		}
-		// "..." compression sentinel: we tag with Step=-1 inside compressThumbnailWindow
+		// Compression sentinel (Step==-1) inserted by compressThumbnailWindow.
 		if s.Step == -1 {
-			glyphRow.WriteString(muted.Render("…"))
-			numRow.WriteString(muted.Render(" "))
+			glyphRow.WriteString(muted.Render("… "))
+			numRow.WriteString("  ")
 			continue
 		}
 
 		isCurrent := s.Step == cur
 		isDiffBase := m.inspectorDiffMode && s.Step == m.inspectorDiffBase
 
-		// Glyph color (current > diff > kind)
+		// Glyph color (current > diff > kind). Each glyph is followed by a
+		// trailing space so the slot occupies exactly 2 columns (matching
+		// the 2-column right-aligned step number below).
 		var glyph string
 		switch {
 		case isCurrent:
@@ -860,15 +936,13 @@ func (m dashboardModel) renderStepThumbnailBar(w int) string {
 			glyph = red.Render(loaded)
 		case s.ToolPath != "":
 			glyph = green.Render(loaded)
-		case s.Step == 0:
-			glyph = muted.Render(unloaded)
 		default:
 			glyph = blue.Render(loaded)
 		}
-		glyphRow.WriteString(glyph)
+		glyphRow.WriteString(glyph + " ")
 
-		// Number row: 1-2 digit, current highlighted
-		numStr := fmt.Sprintf("%d", s.Step)
+		// Number row: 2-column right-aligned, current highlighted.
+		numStr := fmt.Sprintf("%2d", s.Step)
 		if isCurrent {
 			numRow.WriteString(current.Render(numStr))
 		} else {
@@ -876,14 +950,54 @@ func (m dashboardModel) renderStepThumbnailBar(w int) string {
 		}
 	}
 
-	combined := glyphRow.String() + "\n" + numRow.String()
-	_ = w
-	return combined
+	return glyphRow.String() + "\n" + numRow.String()
+}
+
+// trimThumbnailToWidth narrows a step slice down to `maxSlots` entries,
+// preserving the current step in the visible window. When the window has to
+// drop entries on either side it inserts a `…` sentinel (Step==-1) to make
+// the truncation visible. Story 38-3 review P10.
+func trimThumbnailToWidth(steps []ipc.StepSummaryWire, cur, maxSlots int) []ipc.StepSummaryWire {
+	if len(steps) <= maxSlots {
+		return steps
+	}
+	// Locate the current step inside the slice — fall back to centring if
+	// it isn't present (e.g. async load race).
+	curIdx := -1
+	for i, s := range steps {
+		if s.Step == cur {
+			curIdx = i
+			break
+		}
+	}
+	if curIdx < 0 {
+		curIdx = len(steps) / 2
+	}
+	side := max(maxSlots/2, 1)
+	start := max(curIdx-side, 0)
+	end := min(start+maxSlots, len(steps))
+	start = max(end-maxSlots, 0)
+
+	out := make([]ipc.StepSummaryWire, 0, maxSlots+2)
+	if start > 0 {
+		out = append(out, ipc.StepSummaryWire{Step: -1})
+	}
+	out = append(out, steps[start:end]...)
+	if end < len(steps) {
+		out = append(out, ipc.StepSummaryWire{Step: -1})
+	}
+	return out
 }
 
 // compressThumbnailWindow returns a sub-slice of steps centered around the
 // current step when total count exceeds the threshold. Story 38-3 AC#6:
-// ≤20 head + current + ≤20 tail with `…` markers (Step==-1 sentinel).
+// `side` head + current + `side` tail with `…` markers (Step==-1 sentinel).
+//
+// When the current step is not present in `all` (e.g. an async load race
+// during step navigation), the function returns the *tail* of the list with
+// a leading `…` sentinel rather than silently dropping the latest steps —
+// the user almost always wants the most recent context, not the first 50
+// historical entries (Story 38-3 review P14).
 func compressThumbnailWindow(all []ipc.StepSummaryWire, cur, side int) []ipc.StepSummaryWire {
 	curIdx := -1
 	for i, s := range all {
@@ -893,11 +1007,16 @@ func compressThumbnailWindow(all []ipc.StepSummaryWire, cur, side int) []ipc.Ste
 		}
 	}
 	if curIdx < 0 {
-		// Current step not present (shouldn't happen). Return head 50 as fallback.
-		if len(all) > 50 {
-			return all[:50]
+		// Current step not present — surface the most recent tail with a
+		// leading sentinel so the user can see truncation happened.
+		windowLen := 2*side + 1
+		if len(all) <= windowLen {
+			return all
 		}
-		return all
+		out := make([]ipc.StepSummaryWire, 0, windowLen+1)
+		out = append(out, ipc.StepSummaryWire{Step: -1}) // sentinel
+		out = append(out, all[len(all)-windowLen:]...)
+		return out
 	}
 
 	start := max(curIdx-side, 0)
@@ -1025,8 +1144,14 @@ func (m *dashboardModel) refreshInspectorDiffLensMarks() {
 		return
 	}
 	for i := range inspectorLensCount {
+		// Story 38-3 review P2: build both sides with prevDetail=nil so neither
+		// side renders a "⚠ changed from step N" header (which depends on the
+		// prior step, not on the diff base). Without this, the System lens
+		// would erroneously mark `*` whenever current ≠ prev *even when*
+		// base.SystemPrompt == current.SystemPrompt — the header itself
+		// differed between sides.
 		baseContent := m.buildLensContent(inspectorLens(i), baseDetail, nil)
-		curContent := m.buildLensContent(inspectorLens(i), m.inspectorDetail, m.inspectorPrevDetail)
+		curContent := m.buildLensContent(inspectorLens(i), m.inspectorDetail, nil)
 		if len(baseContent) > 100*1024 || len(curContent) > 100*1024 {
 			continue
 		}
@@ -1246,8 +1371,12 @@ func (m dashboardModel) buildConversationLensFull(detail *ipc.GetStepDetailRespo
 func (m dashboardModel) buildSystemLens(detail, prevDetail *ipc.GetStepDetailResponse) string {
 	var b strings.Builder
 
-	// First step (or no prior detail) — no diff annotation, just show the prompt.
-	if prevDetail == nil || m.inspectorStep == 0 {
+	// First step (or no prior detail) — no diff annotation, just show the
+	// prompt. Story 38-3 review P18: use inspectorPrevStep to align with the
+	// spec L61 condition `inspectorPrevStep == 0`. inspectorStep tracks the
+	// *current* step, not the prior; using it here would mis-classify async
+	// load races where current step ≥ 1 but prevDetail hasn't yet arrived.
+	if prevDetail == nil || m.inspectorPrevStep == 0 {
 		return renderSystemPromptBody(detail.SystemPrompt)
 	}
 
@@ -1332,7 +1461,9 @@ func (m dashboardModel) buildToolIOLens(detail *ipc.GetStepDetailResponse) strin
 
 	var b strings.Builder
 
-	// Header: "<ToolName> — <summary>" + ⧖<duration>ms (separate line, AC#2)
+	// Header: "<ToolName> — <summary>" + ⧖<duration>ms (separate line, AC#2).
+	// Story 38-3 review D2=b: drop the previous "Duration:" label so the
+	// header strictly matches spec L48 `<ToolName> — <summary> + ⧖<ms>ms`.
 	if detail.Action != "" {
 		b.WriteString(nameStyle.Render(detail.Action))
 		if detail.Summary != "" {
@@ -1342,9 +1473,9 @@ func (m dashboardModel) buildToolIOLens(detail *ipc.GetStepDetailResponse) strin
 	}
 	if detail.ToolDurationMs > 0 {
 		if ascii {
-			fmt.Fprintf(&b, "Duration: %.0fms\n", detail.ToolDurationMs)
+			fmt.Fprintf(&b, "%.0fms\n", detail.ToolDurationMs)
 		} else {
-			fmt.Fprintf(&b, "%s ⧖%.0fms\n", dimStyle.Render("Duration:"), detail.ToolDurationMs)
+			fmt.Fprintf(&b, "⧖%.0fms\n", detail.ToolDurationMs)
 		}
 	}
 	if detail.ToolPath != "" {
@@ -1373,6 +1504,10 @@ func (m dashboardModel) buildToolIOLens(detail *ipc.GetStepDetailResponse) strin
 // inspectorBoxWidth returns the effective box width for Tool I/O sections,
 // shrinking automatically on narrow terminals. Story 38-3 AC#2 / AC#9: cap at
 // 70 cols; `mWidth - 4` accounts for left/right padding (2 cols each).
+//
+// Story 38-3 review P12: when `mWidth` is very small (≤24) the lower bound
+// caps at the actual terminal width rather than the previous fixed 20-col
+// floor — a 20-col box still overflows a 10-col TTY.
 func inspectorBoxWidth(mWidth int) int {
 	if mWidth <= 0 {
 		return 70
@@ -1380,7 +1515,7 @@ func inspectorBoxWidth(mWidth int) int {
 	if mWidth-4 < 70 {
 		w := mWidth - 4
 		if w < 20 {
-			return 20
+			return min(20, mWidth)
 		}
 		return w
 	}
@@ -1471,10 +1606,19 @@ func renderBoxedSection(title, content, color string, colorBody bool, width int)
 	h := boxChar("h")
 	v := boxChar("v")
 
-	// Top edge: `┌─ <title> ──...─┐`
+	// Top edge: `┌─ <title> ──...─┐`. Story 38-3 review P15: when the title
+	// itself is wider than the inner area, truncate it so the top edge stays
+	// within `innerWidth+2` columns (matching the body line width). Without
+	// this, the top edge would push past the right border, producing a
+	// non-rectangular box.
+	maxTitleRunes := max(innerWidth-2, 1) // reserve 2 cols for "h + space" prefix and trailing space
+	titleRunes := []rune(title)
+	if len(titleRunes) > maxTitleRunes {
+		title = string(titleRunes[:maxTitleRunes])
+	}
 	titleSegment := h + " " + title + " "
-	titleRunes := utf8.RuneCountInString(titleSegment)
-	fillCount := max(innerWidth+2-titleRunes, 1)
+	titleSegRunes := utf8.RuneCountInString(titleSegment)
+	fillCount := max(innerWidth+2-titleSegRunes, 1)
 	top := tl + titleSegment + strings.Repeat(h, fillCount) + tr
 
 	var out strings.Builder
@@ -1514,20 +1658,31 @@ func renderBoxedSection(title, content, color string, colorBody bool, width int)
 	return out.String()
 }
 
-// chunkRunes splits `s` into rune-count-bounded chunks, ignoring ANSI escape
-// codes when measuring width. Used by `renderBoxedSection` so that wide JSON
-// blobs or stack traces wrap inside the box rather than overflow.
-func chunkRunes(s string, max int) []string {
-	if max <= 0 {
+// chunkRunes splits `s` into display-width-bounded chunks, ignoring ANSI
+// escape codes when measuring width. Used by `renderBoxedSection` so that
+// wide JSON blobs or stack traces wrap inside the box rather than overflow.
+//
+// Story 38-3 review fixes:
+//   - P16: when an ANSI SGR sequence (e.g. `\x1b[33m`) is open at a chunk
+//     boundary, emit `\x1b[0m` to close the chunk and re-open the same SGR
+//     at the start of the next chunk so colour does not bleed across box
+//     body lines.
+//   - P17: rune width is measured via `lipgloss.Width` so CJK / emoji /
+//     other wide characters consume the 2 display columns they actually
+//     occupy on the terminal — previously a wide rune was counted as 1
+//     column, which mis-aligned the right border.
+func chunkRunes(s string, maxCols int) []string {
+	if maxCols <= 0 {
 		return []string{s}
 	}
-	if utf8.RuneCountInString(stripANSIApprox(s)) <= max {
+	if lipgloss.Width(s) <= maxCols {
 		return []string{s}
 	}
 	var out []string
 	var cur strings.Builder
-	count := 0
+	cols := 0
 	inEsc := false
+	openSGR := "" // last open SGR sequence, to re-open on next chunk
 	for _, r := range s {
 		if r == 0x1b {
 			inEsc = true
@@ -1538,18 +1693,40 @@ func chunkRunes(s string, max int) []string {
 			cur.WriteRune(r)
 			if r == 'm' {
 				inEsc = false
+				// Track the last SGR so we can re-open it after a chunk
+				// boundary; treat `\x1b[0m` as a reset that clears the carry.
+				snapshot := cur.String()
+				if idx := strings.LastIndex(snapshot, "\x1b["); idx >= 0 {
+					seq := snapshot[idx:]
+					if seq == "\x1b[0m" || seq == "\x1b[m" {
+						openSGR = ""
+					} else {
+						openSGR = seq
+					}
+				}
 			}
 			continue
 		}
 		cur.WriteRune(r)
-		count++
-		if count >= max {
+		cols += lipgloss.Width(string(r))
+		if cols >= maxCols {
+			if openSGR != "" {
+				cur.WriteString("\x1b[0m")
+			}
 			out = append(out, cur.String())
 			cur.Reset()
-			count = 0
+			if openSGR != "" {
+				cur.WriteString(openSGR)
+			}
+			cols = 0
 		}
 	}
 	if cur.Len() > 0 {
+		// Tail chunk: also reset any still-open SGR so the next box border
+		// renders without inherited colour.
+		if openSGR != "" {
+			cur.WriteString("\x1b[0m")
+		}
 		out = append(out, cur.String())
 	}
 	return out
@@ -1609,7 +1786,8 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 
 	// ── Tokens ──
-	b.WriteString(renderMetaSectionHeader("Tokens", 70))
+	headerWidth := metaSectionHeaderWidth(m.width)
+	b.WriteString(renderMetaSectionHeader("Tokens", headerWidth))
 	b.WriteString("\n")
 	if detail.RequestTokens == 0 && detail.ResponseTokens == 0 && detail.TokenCount == 0 {
 		b.WriteString("Tokens: (no data)\n")
@@ -1625,7 +1803,7 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 
 	// ── Action ──
 	if detail.Action != "" || detail.Summary != "" || detail.ToolPath != "" || detail.ToolDurationMs > 0 {
-		b.WriteString(renderMetaSectionHeader("Action", 70))
+		b.WriteString(renderMetaSectionHeader("Action", headerWidth))
 		b.WriteString("\n")
 		actionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
 		if detail.Action != "" {
@@ -1644,7 +1822,7 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 	}
 
 	// ── Counts ──
-	b.WriteString(renderMetaSectionHeader("Counts", 70))
+	b.WriteString(renderMetaSectionHeader("Counts", headerWidth))
 	b.WriteString("\n")
 	fmt.Fprintf(&b, "%s %d\n", dimStyle.Render("Messages:"), detail.MessageCount)
 	if m.inspectorStepMax > 0 {
@@ -1670,28 +1848,49 @@ func renderMetaSectionHeader(title string, width int) string {
 	return dim.Render(prefix + strings.Repeat("─", fillCount))
 }
 
+// metaSectionHeaderWidth returns the dynamic width for the Meta lens section
+// dividers. Story 38-3 review P11: previously the three callsites passed a
+// fixed `70` literal which overflowed sub-70-col terminals. Cap at 70 cols
+// for readability and shrink to `m.width-2` (allowing for the inspector's
+// 1-col left padding) on narrower terminals.
+func metaSectionHeaderWidth(mWidth int) int {
+	if mWidth <= 0 {
+		return 70
+	}
+	return min(70, max(mWidth-2, 16))
+}
+
 // renderTokenLine emits a single Tokens-section row:
 //
-//	Request:   1234   ████████░░░░░░░░░░░░  6.2%
+//	   Request: 1234   ████████░░░░░░░░░░░░  6.2%
 //
 // totalLine=true switches to the no-bar Total form:
 //
-//	Total:     2300   2300 of 200000 context
+//	     Total: 2300 of 200,000 context
 //
 // ASCII fallback: `█` → `#`, `░` → `.`. The label is right-aligned to 10
-// chars so all three rows align; the bar width is fixed at 20 chars. Story
-// 38-3 AC#4. We render the raw integer (instead of formatTokenCount) so the
-// 27-4 regression tests asserting on literal counts (e.g. `1500`, `800`,
-// `2300`) continue to match — the bar already provides the visual
-// scale at a glance.
+// chars so all three rows align; the bar width is fixed at 20 chars.
+//
+// Story 38-3 AC#4 + code review fixes:
+//   - P7: label uses `%10s` (right-aligned) instead of the previous
+//     `%-10s` (left-aligned) so the colons of `Request:` / `Response:` /
+//     `Total:` align vertically.
+//   - P8: total form prints the context cap with a thousands separator
+//     (`200,000`) per spec L76 example.
+//   - P13: total form drops the redundant leading `<count>` repetition —
+//     the count appears exactly once in `<count> of <total> context`.
+//
+// We render the raw integer count (instead of formatTokenCount) so the
+// existing 27-4 regression tests asserting on literal counts (e.g. `1500`,
+// `800`, `2300`) continue to match — the bar already conveys the visual
+// scale.
 func renderTokenLine(label string, count, total int, totalLine bool) string {
 	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	labelPadded := fmt.Sprintf("%-10s", label)
+	labelPadded := fmt.Sprintf("%10s", label)
 	if totalLine {
-		return fmt.Sprintf("%s %d  %s",
+		return fmt.Sprintf("%s %s",
 			dim.Render(labelPadded),
-			count,
-			dim.Render(fmt.Sprintf("%d of %d context", count, total)))
+			dim.Render(fmt.Sprintf("%d of %s context", count, formatThousands(total))))
 	}
 	pct := 0.0
 	if total > 0 {
@@ -1704,16 +1903,56 @@ func renderTokenLine(label string, count, total int, totalLine bool) string {
 		pct)
 }
 
+// formatThousands inserts thousands separators (US locale: `,`) into a
+// non-negative integer. Story 38-3 review P8: used by the Meta lens Total
+// row to render `200,000` instead of `200000`.
+func formatThousands(n int) string {
+	if n < 0 {
+		return "-" + formatThousands(-n)
+	}
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	pre := len(s) % 3
+	if pre > 0 {
+		b.WriteString(s[:pre])
+		if len(s) > pre {
+			b.WriteByte(',')
+		}
+	}
+	for i := pre; i < len(s); i += 3 {
+		b.WriteString(s[i : i+3])
+		if i+3 < len(s) {
+			b.WriteByte(',')
+		}
+	}
+	return b.String()
+}
+
 // renderTokenBar returns a fixed-width unicode block-char bar showing the
 // fill ratio of `count / total`. Width is in display columns. ASCII fallback
 // uses `#` (filled) and `.` (empty). Story 38-3 AC#4.
+//
+// Story 38-3 review P20: ratio is computed in floating point and clamped to
+// [0, 1] before scaling to width — this avoids 32-bit overflow when count is
+// very large (`count*width` would otherwise exceed int range) and prevents
+// the bar from drawing more cells than `width` when `count > total`
+// (e.g. tokens exceeding the 200K default context window).
 func renderTokenBar(count, total, width int) string {
 	if width < 1 {
 		width = 1
 	}
 	filled := 0
 	if total > 0 {
-		filled = (count * width) / total
+		ratio := float64(count) / float64(total)
+		if ratio < 0 {
+			ratio = 0
+		} else if ratio > 1 {
+			ratio = 1
+		}
+		filled = int(ratio * float64(width))
 		filled = min(filled, width)
 		filled = max(filled, 0)
 	}
@@ -1756,50 +1995,124 @@ func (m dashboardModel) buildRawJSONLens(detail *ipc.GetStepDetailResponse) stri
 	return highlightJSON(raw)
 }
 
-// highlightJSON applies the 4-pass JSON syntax highlighter. Exported as a
-// package-private helper so tests can exercise it directly without a full
-// dashboardModel.
+// highlightJSON applies the single-pass JSON syntax highlighter. Story 38-3
+// AC#5 covers all 5 token classes:
+//
+//	keys                ColorAgent   blue
+//	string values       ColorSuccess green
+//	numbers             ColorWarning yellow
+//	booleans / null     ColorReplay  orange
+//	punctuation { } [ ] , :  ColorMuted dim
+//
+// Implementation walks `raw` as a byte stream, classifying tokens by their
+// leading character. This avoids the prior 4-regex pipeline's nested-coloring
+// bug (Story 38-3 review P1): a `\b(true|false|null)\b` Pass 4 would match
+// inside already-coloured string values like `"the truth is true"`, injecting
+// a stray `\x1b[0m` that prematurely terminated the green span and
+// miscoloured a substring. The forward scan keeps per-token colouring
+// strictly local to each lexical token, so ANSI sequences from one token
+// never affect classification of the next.
+//
+// Exported as a package-private helper so tests can exercise it directly
+// without a full dashboardModel.
 func highlightJSON(raw string) string {
 	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent))
 	stringStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
 	numberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
 	boolStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorReplay))
+	punctStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 
-	// Pass 1: keys (`"xxx":` → blue)
-	out := jsonRegexKey.ReplaceAllStringFunc(raw, func(match string) string {
-		// Match looks like `"step":` — split off the trailing colon so it stays
-		// uncolored (punctuation default).
-		idx := strings.LastIndex(match, "\"")
-		key := match[:idx+1]
-		rest := match[idx+1:]
-		return keyStyle.Render(key) + rest
-	})
-	// Pass 2: string values (`: "xxx"` → green) — capture group 1.
-	out = jsonRegexString.ReplaceAllStringFunc(out, func(match string) string {
-		// Find the captured string: from the first `"` after `:`.
-		quoteStart := strings.IndexByte(match, '"')
-		if quoteStart < 0 {
-			return match
+	var b strings.Builder
+	b.Grow(len(raw))
+
+	i := 0
+	for i < len(raw) {
+		c := raw[i]
+		switch {
+		case c == '"':
+			// String literal — find the unescaped closing quote.
+			end := i + 1
+			for end < len(raw) {
+				if raw[end] == '\\' && end+1 < len(raw) {
+					end += 2
+					continue
+				}
+				if raw[end] == '"' {
+					end++
+					break
+				}
+				end++
+			}
+			// A string is treated as a key when followed (after optional
+			// whitespace) by a colon — this is what JSON.MarshalIndent always
+			// emits for object keys. Any other string is a value.
+			j := end
+			for j < len(raw) && (raw[j] == ' ' || raw[j] == '\t') {
+				j++
+			}
+			text := raw[i:end]
+			if j < len(raw) && raw[j] == ':' {
+				b.WriteString(keyStyle.Render(text))
+			} else {
+				b.WriteString(stringStyle.Render(text))
+			}
+			i = end
+
+		case c == '-' || (c >= '0' && c <= '9'):
+			// Numeric literal: optional sign, integer, optional fractional /
+			// exponent.
+			end := i
+			if c == '-' {
+				end++
+			}
+			for end < len(raw) && raw[end] >= '0' && raw[end] <= '9' {
+				end++
+			}
+			if end < len(raw) && raw[end] == '.' {
+				end++
+				for end < len(raw) && raw[end] >= '0' && raw[end] <= '9' {
+					end++
+				}
+			}
+			if end < len(raw) && (raw[end] == 'e' || raw[end] == 'E') {
+				end++
+				if end < len(raw) && (raw[end] == '+' || raw[end] == '-') {
+					end++
+				}
+				for end < len(raw) && raw[end] >= '0' && raw[end] <= '9' {
+					end++
+				}
+			}
+			b.WriteString(numberStyle.Render(raw[i:end]))
+			i = end
+
+		case c == 't' || c == 'f' || c == 'n':
+			// bool/null. Read a contiguous lowercase identifier and check for
+			// the three reserved literals. Anything else is emitted verbatim.
+			end := i
+			for end < len(raw) && raw[end] >= 'a' && raw[end] <= 'z' {
+				end++
+			}
+			word := raw[i:end]
+			if word == "true" || word == "false" || word == "null" {
+				b.WriteString(boolStyle.Render(word))
+			} else {
+				b.WriteString(word)
+			}
+			i = end
+
+		case c == '{' || c == '}' || c == '[' || c == ']' || c == ',' || c == ':':
+			b.WriteString(punctStyle.Render(string(c)))
+			i++
+
+		default:
+			// Whitespace, newlines, or any other byte the JSON encoder might
+			// emit — preserve verbatim.
+			b.WriteByte(c)
+			i++
 		}
-		prefix := match[:quoteStart]
-		val := match[quoteStart:]
-		return prefix + stringStyle.Render(val)
-	})
-	// Pass 3: numeric values (`: <num>` → yellow).
-	out = jsonRegexNumber.ReplaceAllStringFunc(out, func(match string) string {
-		idx := strings.IndexAny(match, "-0123456789")
-		if idx < 0 {
-			return match
-		}
-		prefix := match[:idx]
-		num := match[idx:]
-		return prefix + numberStyle.Render(num)
-	})
-	// Pass 4: literal true / false / null → orange.
-	out = jsonRegexBool.ReplaceAllStringFunc(out, func(match string) string {
-		return boolStyle.Render(match)
-	})
-	return out
+	}
+	return b.String()
 }
 
 // renderTruncationNotice renders an explicit truncation notice.

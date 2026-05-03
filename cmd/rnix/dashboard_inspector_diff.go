@@ -558,8 +558,20 @@ func (m dashboardModel) handleInspectorDetailMsg(msg inspectorDetailMsg) (dashbo
 		m.inspectorCurDetailStep = msg.step
 		m.inspectorStep = msg.step
 		m.inspectorSystemExpanded = false
+		// Story 38-3 review P9: when the focused step changes, the diff
+		// markers (base vs current) must be recomputed before lens content
+		// is rebuilt — otherwise the cached marks reflect the previous
+		// current step and stay visually stale.
+		if m.inspectorDiffMode {
+			m.refreshInspectorDiffLensMarks()
+		}
 		m.rebuildInspectorContents()
 	} else if m.inspectorDiffMode && msg.step == m.inspectorDiffBase {
+		// Story 38-3 review P9: when the async base detail finally arrives,
+		// recompute marks now that lookupDiffBaseDetail() returns non-nil.
+		// Without this, the initial enterInspectorDiff call zeroed marks and
+		// nothing recomputed them once the fetch resolved.
+		m.refreshInspectorDiffLensMarks()
 		m.rebuildInspectorContents()
 	}
 	return m, nil

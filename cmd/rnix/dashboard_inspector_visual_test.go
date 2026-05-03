@@ -89,10 +89,19 @@ func TestBuildToolIOLens_BoxDrawing(t *testing.T) {
 		if !strings.Contains(content, "Error") {
 			t.Errorf("Error box should render Error title; got:\n%s", content)
 		}
+		// Story 38-3 review P22: probe the lipgloss profile first; only
+		// assert the red colour ANSI code when the runner has a colour
+		// profile, otherwise the assertion would never fail in CI's
+		// no-colour environment (previously logged via t.Logf, which never
+		// flagged a real regression).
+		probe := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Render("x")
+		if probe == "x" {
+			t.Skip("color profile is no-op on this runner; skipping ANSI assertion")
+		}
 		// ColorError #FF6B6B → 24-bit RGB 255;107;107 (lipgloss truecolor profile).
 		// Tolerate other profiles by also accepting the literal color hex.
 		if !strings.Contains(content, ";107;107") && !strings.Contains(content, "FF6B6B") {
-			t.Logf("note: error border color depends on lipgloss profile; got snippet = %q", content)
+			t.Errorf("Error box should render with red border (#FF6B6B); got snippet = %q", content)
 		}
 	})
 
@@ -261,6 +270,47 @@ func TestRenderStepThumbnailBar_CompressionWindow(t *testing.T) {
 	})
 }
 
+// TestRenderStepThumbnailBar_HiddenWhenHeightLow verifies Story 38-3 AC#6
+// + review P21: when m.height < 20 the inspector chrome must collapse back
+// to the legacy 4-line form (no thumbnail bar). Asserted by checking that
+// renderStepInspector does not emit any thumbnail glyph rune in that
+// height regime, since the thumbnail bar is the unique source of those
+// glyphs (◆/◇/◈ in unicode mode, *.+ in ASCII mode).
+func TestRenderStepThumbnailBar_HiddenWhenHeightLow(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	m.inspectorSteps = []ipc.StepSummaryWire{{Step: 1}, {Step: 2}, {Step: 3}}
+	m.inspectorStep = 2
+	m.width = 80
+
+	t.Run("h_below_20_skips_thumbnail", func(t *testing.T) {
+		m.height = 18
+		view := m.renderStepInspector(m.width, m.height)
+		stripped := stripANSIApprox(view)
+		if strings.Contains(stripped, "◆") || strings.Contains(stripped, "◇") {
+			t.Errorf("thumbnail glyphs should not appear when height < 20; got:\n%s", stripped)
+		}
+	})
+
+	t.Run("h_at_or_above_20_shows_thumbnail", func(t *testing.T) {
+		m.height = 24
+		view := m.renderStepInspector(m.width, m.height)
+		stripped := stripANSIApprox(view)
+		if !strings.Contains(stripped, "◆") {
+			t.Errorf("thumbnail glyph ◆ should appear when height ≥ 20; got:\n%s", stripped)
+		}
+	})
+
+	t.Run("direct_call_returns_glyphs_regardless", func(t *testing.T) {
+		// renderStepThumbnailBar itself does not check m.height — the
+		// gating happens in renderStepInspector. This sub-test pins that
+		// contract: the helper always renders when called directly.
+		bar := m.renderStepThumbnailBar(m.width)
+		if bar == "" {
+			t.Errorf("renderStepThumbnailBar should produce output when steps are loaded; got empty")
+		}
+	})
+}
+
 // TestRenderLensTabs_TwoSpaceSeparator verifies Story 38-3 AC#7: tab separator
 // is now 2 spaces (was 1).
 func TestRenderLensTabs_TwoSpaceSeparator(t *testing.T) {
@@ -301,17 +351,23 @@ func TestRenderLensTabs_NoDiffMarkWhenInactive(t *testing.T) {
 
 // TestBuildSystemLens_ChangedDelta verifies Story 38-3 AC#3: changed system
 // prompt shows "⚠ changed from step N (+/-X chars)" header.
+//
+// Story 38-3 review P18: aligned with spec L61 — the first-step branch now
+// fires when `inspectorPrevStep == 0` (no prior step recorded yet), not when
+// the *current* step is 0. So tests that exercise the changed/unchanged
+// paths must set `inspectorPrevStep ≥ 1` (matching the real handleInspector
+// DetailMsg flow where prevStep advances from 0 → 1 → 2 …).
 func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspectorPrevStep = 0
-	m.inspectorStep = 1
+	m.inspectorPrevStep = 1
+	m.inspectorStep = 2
 	prev := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
 	cur := &ipc.GetStepDetailResponse{SystemPrompt: "abc + 272 more chars" + strings.Repeat("x", 250)}
 
 	t.Run("positive_delta", func(t *testing.T) {
 		content := m.buildLensContent(lensSystem, cur, prev)
 		stripped := stripANSIApprox(content)
-		if !strings.Contains(stripped, "changed from step 0") {
+		if !strings.Contains(stripped, "changed from step 1") {
 			t.Errorf("changed path should mention 'changed from step N'; got %q", stripped)
 		}
 		if !strings.Contains(stripped, "+") {
@@ -330,7 +386,8 @@ func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 
 	t.Run("first_step_no_annotation", func(t *testing.T) {
 		m2 := newTestInspectorModelWithDetail()
-		m2.inspectorStep = 0
+		m2.inspectorPrevStep = 0
+		m2.inspectorStep = 1
 		content := m2.buildLensContent(lensSystem, cur, nil)
 		stripped := stripANSIApprox(content)
 		if strings.Contains(stripped, "changed from step") {
@@ -340,13 +397,13 @@ func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 
 	t.Run("unchanged_preserves_legacy_text", func(t *testing.T) {
 		m2 := newTestInspectorModelWithDetail()
-		m2.inspectorPrevStep = 0
-		m2.inspectorStep = 1
+		m2.inspectorPrevStep = 1
+		m2.inspectorStep = 2
 		same := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
 		samePrev := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
 		content := m2.buildLensContent(lensSystem, same, samePrev)
 		stripped := stripANSIApprox(content)
-		if !strings.Contains(stripped, "unchanged from step 0") {
+		if !strings.Contains(stripped, "unchanged from step 1") {
 			t.Errorf("unchanged path must preserve legacy 'unchanged from step N' text; got %q", stripped)
 		}
 	})
