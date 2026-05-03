@@ -700,7 +700,7 @@ func registerLayer2Heatmap(d *ui.Dispatcher) {
 				return nil
 			}
 			modes := []ui.Mode{}
-			if m.heatmapExpanded {
+			if m.heatmap.Expanded {
 				modes = append(modes, ui.Mode{Name: "view", Value: "expanded"})
 			} else {
 				modes = append(modes, ui.Mode{Name: "view", Value: "summary"})

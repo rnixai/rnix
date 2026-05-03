@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/kernel"
@@ -269,35 +270,38 @@ type inspectorStepListMsg struct {
 // --- Timeline types ---
 
 // --- Heatmap types (Story 17-3) ---
+//
+// Story 38-5 PR3 Step 1: 类型定义迁出至 internal/dashboard/heatmap，cmd/rnix 端通过 alias 保留
+// 旧名字让现有代码（包括测试 grep 字符串）零变化。这与 PR2 处理 flatRow / treeNode 的方式一致：
+// spec § Project Structure Notes 字面要求"保留 cmd/rnix"，但实际只有 Heatmap pane 使用，按"必要扩边界"
+// 原则迁入子包 + alias 兼容，避免 internal → cmd/rnix 反向 import。
 
-type segmentKind int
-
-const (
-	segSystem segmentKind = iota
-	segSkill
-	segTool
-	segUser
-	segAssistant
-	segLeaked
-)
-
-type activityLevel int
+type segmentKind = heatmap.SegmentKind
 
 const (
-	actActive activityLevel = iota
-	actWarm
-	actCold
-	actLeaked
+	segSystem    = heatmap.SegSystem
+	segSkill     = heatmap.SegSkill
+	segTool      = heatmap.SegTool
+	segUser      = heatmap.SegUser
+	segAssistant = heatmap.SegAssistant
+	segLeaked    = heatmap.SegLeaked
 )
 
-type heatmapSegment struct {
-	label    string
-	tokens   int
-	pct      float64
-	kind     segmentKind
-	activity activityLevel
-	summary  string
-}
+type activityLevel = heatmap.ActivityLevel
+
+const (
+	actActive = heatmap.ActActive
+	actWarm   = heatmap.ActWarm
+	actCold   = heatmap.ActCold
+	actLeaked = heatmap.ActLeaked
+)
+
+// heatmapSegment 是 internal/dashboard/heatmap.Segment 的 type alias，让 HeatmapState.Segments 字段
+// 类型在 cmd/rnix 端可直接以 []heatmapSegment 赋值（避免类型转换 wrapper）。
+//
+// 注意：alias 形式 `type heatmapSegment = heatmap.Segment` 不包含 "struct" 关键字，atdd_29_1
+// 的字面契约需放宽（详见 atdd_29_1_dashboard_file_splitting_test.go 行 335 注释）。
+type heatmapSegment = heatmap.Segment
 
 type heatmapProfileMsg struct {
 	profile *debug.CtxProfileResult

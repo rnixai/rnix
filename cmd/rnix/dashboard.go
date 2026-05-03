@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -60,14 +61,8 @@ type dashboardModel struct {
 	timelineAttachedPID  types.PID
 	timelineAttachedUUID string
 
-	// Heatmap fields (Story 17-3)
-	heatmapProfile   *debug.CtxProfileResult
-	heatmapPID       types.PID
-	heatmapSegments  []heatmapSegment
-	heatmapCursor    int
-	heatmapExpanded  bool
-	heatmapTickCount int
-	heatmapErr       error
+	// Heatmap fields (Story 17-3) — Story 38-5 PR3 Step 1: 抽离至 internal/dashboard/heatmap.HeatmapState
+	heatmap heatmap.HeatmapState
 
 	// Pane linkage & process operations (Story 17-4)
 	recording    map[string]string
@@ -301,6 +296,10 @@ func selectProcess(m dashboardModel, row flatRow) dashboardModel {
 // to read the tree state without referencing internal/dashboard/tree types.
 func (m dashboardModel) TreeState() tree.TreeState { return m.tree }
 
+// HeatmapState returns the embedded heatmap.HeatmapState (Story 38-5 PR3 Step 1
+// transitional getter; Deprecated: removed in 38-5 PR11).
+func (m dashboardModel) HeatmapState() heatmap.HeatmapState { return m.heatmap }
+
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
 }
@@ -324,13 +323,13 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case heatmapProfileMsg:
 		if msg.err != nil {
-			m.heatmapErr = msg.err
+			m.heatmap.Err = msg.err
 			return m, nil
 		}
-		m.heatmapErr = nil
+		m.heatmap.Err = nil
 		if msg.profile != nil {
-			m.heatmapProfile = msg.profile
-			m.heatmapSegments = buildHeatmapSegments(msg.profile)
+			m.heatmap.Profile = msg.profile
+			m.heatmap.Segments = buildHeatmapSegments(msg.profile)
 		}
 		return m, nil
 	case execResultMsg:
@@ -591,7 +590,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
-	m.heatmapTickCount++
+	m.heatmap.TickCount++
 
 	// Story 36-4: 首次升级到升序时展示一次提示（写入在 statusMsgTTL 衰减之前）
 	m = m.maybeShowTimelineMigrationNotice()
@@ -853,14 +852,14 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	cmds := []tea.Cmd{tickCmd()}
 
-	pidChanged := m.selectedUUID != m.timelineAttachedUUID || m.selectedPID != m.heatmapPID
+	pidChanged := m.selectedUUID != m.timelineAttachedUUID || m.selectedPID != m.heatmap.PID
 	if pidChanged {
 		m2, pidCmd := m.handlePIDChange()
 		m = m2
 		if pidCmd != nil {
 			cmds = append(cmds, pidCmd)
 		}
-	} else if m.selectedPID > 0 && m.connected && m.heatmapTickCount%5 == 0 && !m.isSelectedProcessDead() {
+	} else if m.selectedPID > 0 && m.connected && m.heatmap.TickCount%5 == 0 && !m.isSelectedProcessDead() {
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 	}
 
@@ -891,28 +890,28 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Fetch intent trees only when Intent pane is active (no longer needed every tick)
 	if m.activePane == paneIntent && m.connected {
-		if m.intentTrees == nil || m.heatmapTickCount%5 == 0 {
+		if m.intentTrees == nil || m.heatmap.TickCount%5 == 0 {
 			cmds = append(cmds, fetchIntentTreesCmd())
 		}
 	}
 
 	// Fetch immune status only when Security pane is active
 	if m.activePane == paneSecurity && m.connected {
-		if m.immuneStatus == nil || m.heatmapTickCount%5 == 0 {
+		if m.immuneStatus == nil || m.heatmap.TickCount%5 == 0 {
 			cmds = append(cmds, fetchImmuneStatusCmd())
 		}
 	}
 
 	// Fetch heartbeat status when Security pane is active or in default view (reduced frequency)
 	// Stall detection and health counts depend on heartbeat data regardless of active pane.
-	if m.connected && m.heatmapTickCount%5 == 0 {
+	if m.connected && m.heatmap.TickCount%5 == 0 {
 		if m.activePane == paneSecurity || m.viewMode == viewDefault {
 			cmds = append(cmds, fetchHeartbeatStatusCmd())
 		}
 	}
 
 	// Fetch compact events for selected process (Story 34.1)
-	if m.selectedPID > 0 && m.connected && !m.fetchingCompact && m.heatmapTickCount%3 == 0 {
+	if m.selectedPID > 0 && m.connected && !m.fetchingCompact && m.heatmap.TickCount%3 == 0 {
 		m.fetchingCompact = true
 		cmds = append(cmds, fetchCompactEventsCmd(m.selectedPID, m.selectedUUID))
 	}
@@ -920,7 +919,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Fetch trace list when Trace pane is active or in default view (detail card needs it)
 	if m.connected {
 		if m.activePane == paneTrace || m.viewMode == viewDefault {
-			if m.traceSummaries == nil || m.heatmapTickCount%5 == 0 {
+			if m.traceSummaries == nil || m.heatmap.TickCount%5 == 0 {
 				cmds = append(cmds, fetchTraceListCmd())
 			}
 		}
@@ -928,13 +927,13 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Fetch eval data when Eval pane is active (Story 27-10)
 	if m.activePane == paneEval && m.connected {
-		if m.evalReputations == nil || m.heatmapTickCount%5 == 0 {
+		if m.evalReputations == nil || m.heatmap.TickCount%5 == 0 {
 			cmds = append(cmds, fetchReputationCmd())
 		}
-		if m.evalSubView == 1 && (m.evalTopology == nil || m.heatmapTickCount%5 == 0) {
+		if m.evalSubView == 1 && (m.evalTopology == nil || m.heatmap.TickCount%5 == 0) {
 			cmds = append(cmds, fetchTopologyCmd())
 		}
-		if m.evalSubView == 2 && (m.evalSynergies == nil || m.heatmapTickCount%5 == 0) {
+		if m.evalSubView == 2 && (m.evalSynergies == nil || m.heatmap.TickCount%5 == 0) {
 			cmds = append(cmds, fetchSynergyCmd())
 		}
 	}
@@ -955,7 +954,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Story 34.6: Debug mode tick processing
 	cmds = append(cmds, m.debugTickCmds()...)
-	if m.debugMode && m.connected && m.heatmapTickCount%5 == 0 && m.selectedPID > 0 {
+	if m.debugMode && m.connected && m.heatmap.TickCount%5 == 0 && m.selectedPID > 0 {
 		cmds = append(cmds, m.fetchDebugCtxProfileCmd())
 	}
 
@@ -1143,13 +1142,13 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 		m = m.handleTimelinePIDChange()
 		m = m.handleHeatmapPIDChange()
 		m.timelineAttachedPID = 0
-		m.heatmapPID = 0
+		m.heatmap.PID = 0
 		return m, nil
 	}
 	m = m.handleTimelinePIDChange()
 	m = m.handleHeatmapPIDChange()
 	m.timelineAttachedPID = m.selectedPID
-	m.heatmapPID = m.selectedPID
+	m.heatmap.PID = m.selectedPID
 
 	// Reset compact event tracking for new process (Story 34.1)
 	m.compactEvents = nil
@@ -1339,7 +1338,7 @@ func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
 	if m.replayPlaying && m.replayReader != nil && m.replayCursor < m.replayReader.EventCount()-1 {
 		advance := int(m.replaySpeed)
 		if m.replaySpeed < 1.0 {
-			if m.heatmapTickCount%int(1.0/m.replaySpeed) == 0 {
+			if m.heatmap.TickCount%int(1.0/m.replaySpeed) == 0 {
 				advance = 1
 			} else {
 				advance = 0
@@ -1358,11 +1357,11 @@ func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
 		if len(m.tree.Rows) > 0 {
 			m = selectProcess(m, m.tree.Rows[0])
 		}
-		m.heatmapProfile = buildReplayHeatmap(m.replayReader, m.replayCursor)
-		if m.heatmapProfile != nil {
-			m.heatmapSegments = buildHeatmapSegments(m.heatmapProfile)
+		m.heatmap.Profile = buildReplayHeatmap(m.replayReader, m.replayCursor)
+		if m.heatmap.Profile != nil {
+			m.heatmap.Segments = buildHeatmapSegments(m.heatmap.Profile)
 		} else {
-			m.heatmapSegments = nil
+			m.heatmap.Segments = nil
 		}
 		m.prevReplayCursor = m.replayCursor
 	}

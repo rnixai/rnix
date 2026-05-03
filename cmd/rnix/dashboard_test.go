@@ -624,14 +624,14 @@ func newTestHeatmapDashboardModel() dashboardModel {
 	m.viewMode = viewExpanded
 	m.expandedPane = paneHeatmap
 	m.rightPane = paneHeatmap
-	m.heatmapProfile = mockHeatmapProfile()
-	m.heatmapPID = 2
-	m.heatmapSegments = []heatmapSegment{
-		{label: "System Prompt", tokens: 360, pct: 30.0, kind: segSystem, activity: actActive},
-		{label: "Tool Results", tokens: 300, pct: 25.0, kind: segTool, activity: actWarm},
-		{label: "User Messages", tokens: 240, pct: 20.0, kind: segUser, activity: actActive},
-		{label: "Assistant", tokens: 180, pct: 15.0, kind: segAssistant, activity: actCold},
-		{label: "Leaked", tokens: 60, pct: 5.0, kind: segLeaked, activity: actLeaked},
+	m.heatmap.Profile = mockHeatmapProfile()
+	m.heatmap.PID = 2
+	m.heatmap.Segments = []heatmapSegment{
+		{Label: "System Prompt", Tokens: 360, Pct: 30.0, Kind: segSystem, Activity: actActive},
+		{Label: "Tool Results", Tokens: 300, Pct: 25.0, Kind: segTool, Activity: actWarm},
+		{Label: "User Messages", Tokens: 240, Pct: 20.0, Kind: segUser, Activity: actActive},
+		{Label: "Assistant", Tokens: 180, Pct: 15.0, Kind: segAssistant, Activity: actCold},
+		{Label: "Leaked", Tokens: 60, Pct: 5.0, Kind: segLeaked, Activity: actLeaked},
 	}
 	return m
 }
@@ -661,9 +661,9 @@ func TestBuildHeatmapSegments_SortedByTokenDesc(t *testing.T) {
 		t.Fatal("expected non-empty segments for profile with TopConsumers")
 	}
 	for i := 1; i < len(segments); i++ {
-		if segments[i].tokens > segments[i-1].tokens {
+		if segments[i].Tokens > segments[i-1].Tokens {
 			t.Errorf("segments not sorted by token desc: [%d].tokens=%d > [%d].tokens=%d",
-				i, segments[i].tokens, i-1, segments[i-1].tokens)
+				i, segments[i].Tokens, i-1, segments[i-1].Tokens)
 		}
 	}
 }
@@ -689,12 +689,12 @@ func TestBuildHeatmapSegments_MergeSmall(t *testing.T) {
 
 	hasOther := false
 	for _, seg := range segments {
-		if seg.label == "Other" {
+		if seg.Label == "Other" {
 			hasOther = true
 		}
-		if seg.pct < 3.0 && seg.label != "Other" {
+		if seg.Pct < 3.0 && seg.Label != "Other" {
 			t.Errorf("segment %q has pct %.1f%% which is <3%% and should be merged into Other",
-				seg.label, seg.pct)
+				seg.Label, seg.Pct)
 		}
 	}
 	if !hasOther {
@@ -741,10 +741,10 @@ func TestDashboardModel_HeatmapProfileMsg(t *testing.T) {
 	updated, _ := m.Update(heatmapProfileMsg{profile: profile})
 	um := updated.(dashboardModel)
 
-	if um.heatmapProfile == nil {
+	if um.heatmap.Profile == nil {
 		t.Error("heatmapProfileMsg should store profile in model")
 	}
-	if len(um.heatmapSegments) == 0 {
+	if len(um.heatmap.Segments) == 0 {
 		t.Error("heatmapProfileMsg should trigger buildHeatmapSegments and produce segments")
 	}
 }
@@ -787,25 +787,25 @@ func TestDashboardModel_HeatmapRenderWithSegments(t *testing.T) {
 
 func TestDashboardModel_HeatmapCursorJK(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapCursor = 0
+	m.heatmap.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	um := updated.(dashboardModel)
-	if um.heatmapCursor != 1 {
-		t.Errorf("j should move heatmapCursor down: expected 1, got %d", um.heatmapCursor)
+	if um.heatmap.Cursor != 1 {
+		t.Errorf("j should move heatmapCursor down: expected 1, got %d", um.heatmap.Cursor)
 	}
 
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
-	if um.heatmapCursor != 0 {
-		t.Errorf("k should move heatmapCursor up: expected 0, got %d", um.heatmapCursor)
+	if um.heatmap.Cursor != 0 {
+		t.Errorf("k should move heatmapCursor up: expected 0, got %d", um.heatmap.Cursor)
 	}
 
-	um.heatmapCursor = 0
+	um.heatmap.Cursor = 0
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
-	if um.heatmapCursor != 0 {
-		t.Errorf("k at top should stay at 0, got %d", um.heatmapCursor)
+	if um.heatmap.Cursor != 0 {
+		t.Errorf("k at top should stay at 0, got %d", um.heatmap.Cursor)
 	}
 }
 
@@ -813,7 +813,7 @@ func TestDashboardModel_HeatmapCursorJK(t *testing.T) {
 
 func TestDashboardModel_HeatmapSelectedDetails(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapCursor = 0
+	m.heatmap.Cursor = 0
 	m.activePane = paneHeatmap
 
 	v := m.View()
@@ -831,21 +831,21 @@ func TestDashboardModel_HeatmapSelectedDetails(t *testing.T) {
 
 func TestDashboardModel_HeatmapPIDChange(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	if m.heatmapProfile == nil {
+	if m.heatmap.Profile == nil {
 		t.Fatal("precondition: model should have heatmap profile")
 	}
 
 	m.selectedPID = 999
 	m = m.handleHeatmapPIDChange()
 
-	if m.heatmapProfile != nil {
+	if m.heatmap.Profile != nil {
 		t.Error("PID change should clear heatmapProfile")
 	}
-	if len(m.heatmapSegments) != 0 {
-		t.Errorf("PID change should clear heatmapSegments, got %d", len(m.heatmapSegments))
+	if len(m.heatmap.Segments) != 0 {
+		t.Errorf("PID change should clear heatmapSegments, got %d", len(m.heatmap.Segments))
 	}
-	if m.heatmapCursor != 0 {
-		t.Errorf("PID change should reset heatmapCursor to 0, got %d", m.heatmapCursor)
+	if m.heatmap.Cursor != 0 {
+		t.Errorf("PID change should reset heatmapCursor to 0, got %d", m.heatmap.Cursor)
 	}
 }
 
@@ -893,15 +893,15 @@ func TestMapConsumerKindToSegmentKind(t *testing.T) {
 
 func TestDashboardModel_HeatmapEnterToggle(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapCursor = 0
+	m.heatmap.Cursor = 0
 
-	if m.heatmapExpanded {
+	if m.heatmap.Expanded {
 		t.Fatal("heatmapExpanded should default to false")
 	}
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	um := updated.(dashboardModel)
-	if !um.heatmapExpanded {
+	if !um.heatmap.Expanded {
 		t.Error("enter should toggle heatmapExpanded to true")
 	}
 
@@ -912,7 +912,7 @@ func TestDashboardModel_HeatmapEnterToggle(t *testing.T) {
 
 	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	um = updated.(dashboardModel)
-	if um.heatmapExpanded {
+	if um.heatmap.Expanded {
 		t.Error("enter again should toggle heatmapExpanded back to false")
 	}
 }
@@ -939,9 +939,9 @@ func TestBuildHeatmapSegments_MergeToolKinds(t *testing.T) {
 	toolCount := 0
 	totalToolTokens := 0
 	for _, seg := range segments {
-		if seg.kind == segTool {
+		if seg.Kind == segTool {
 			toolCount++
-			totalToolTokens = seg.tokens
+			totalToolTokens = seg.Tokens
 		}
 	}
 	if toolCount != 1 {
@@ -965,7 +965,7 @@ func TestDashboardModel_HeatmapProfileError(t *testing.T) {
 	updated, _ := m.Update(heatmapProfileMsg{err: fmt.Errorf("connection refused")})
 	um := updated.(dashboardModel)
 
-	if um.heatmapErr == nil {
+	if um.heatmap.Err == nil {
 		t.Error("heatmapProfileMsg with error should store heatmapErr")
 	}
 
@@ -990,16 +990,16 @@ func TestMapConsumerKind_Skill(t *testing.T) {
 
 func TestDashboardModel_HeatmapPIDChangeResetsState(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapExpanded = true
-	m.heatmapErr = fmt.Errorf("old error")
+	m.heatmap.Expanded = true
+	m.heatmap.Err = fmt.Errorf("old error")
 
 	m.selectedPID = 999
 	m = m.handleHeatmapPIDChange()
 
-	if m.heatmapExpanded {
+	if m.heatmap.Expanded {
 		t.Error("PID change should reset heatmapExpanded to false")
 	}
-	if m.heatmapErr != nil {
+	if m.heatmap.Err != nil {
 		t.Error("PID change should clear heatmapErr")
 	}
 }
@@ -1042,8 +1042,8 @@ func TestDashboardModel_HandlePIDChangeNoPID(t *testing.T) {
 	if m2.timelineAttachedPID != 0 {
 		t.Errorf("timelineAttachedPID should be 0 when selectedPID=0, got %d", m2.timelineAttachedPID)
 	}
-	if m2.heatmapPID != 0 {
-		t.Errorf("heatmapPID should be 0 when selectedPID=0, got %d", m2.heatmapPID)
+	if m2.heatmap.PID != 0 {
+		t.Errorf("heatmapPID should be 0 when selectedPID=0, got %d", m2.heatmap.PID)
 	}
 }
 
@@ -1051,9 +1051,9 @@ func TestDashboardModel_HandlePIDChangeNoPID(t *testing.T) {
 
 func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	m.heatmapProfile = mockHeatmapProfile()
-	m.heatmapSegments = []heatmapSegment{{label: "test", tokens: 100}}
-	m.heatmapPID = 2
+	m.heatmap.Profile = mockHeatmapProfile()
+	m.heatmap.Segments = []heatmapSegment{{Label: "test", Tokens: 100}}
+	m.heatmap.PID = 2
 
 	m.selectedPID = 999
 	m.selectedUUID = "uuid-999"
@@ -1062,17 +1062,17 @@ func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
 	if len(m2.stepEntries) != 0 {
 		t.Errorf("handlePIDChange should clear stepEntries, got %d", len(m2.stepEntries))
 	}
-	if m2.heatmapProfile != nil {
+	if m2.heatmap.Profile != nil {
 		t.Error("handlePIDChange should clear heatmapProfile")
 	}
-	if len(m2.heatmapSegments) != 0 {
-		t.Errorf("handlePIDChange should clear heatmapSegments, got %d", len(m2.heatmapSegments))
+	if len(m2.heatmap.Segments) != 0 {
+		t.Errorf("handlePIDChange should clear heatmapSegments, got %d", len(m2.heatmap.Segments))
 	}
 	if m2.timelineAttachedUUID != "uuid-999" {
 		t.Errorf("timelineAttachedUUID should be uuid-999, got %q", m2.timelineAttachedUUID)
 	}
-	if m2.heatmapPID != 999 {
-		t.Errorf("heatmapPID should be 999, got %d", m2.heatmapPID)
+	if m2.heatmap.PID != 999 {
+		t.Errorf("heatmapPID should be 999, got %d", m2.heatmap.PID)
 	}
 }
 
@@ -1116,7 +1116,7 @@ func TestDashboardModel_TimelineKNavigatesNotKill(t *testing.T) {
 
 func TestDashboardModel_HeatmapKNavigatesNotKill(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapCursor = 2
+	m.heatmap.Cursor = 2
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
@@ -1124,8 +1124,8 @@ func TestDashboardModel_HeatmapKNavigatesNotKill(t *testing.T) {
 	if um.confirmKill {
 		t.Error("k in heatmap pane should navigate, not trigger kill")
 	}
-	if um.heatmapCursor != 1 {
-		t.Errorf("k in heatmap should move cursor up: expected 1, got %d", um.heatmapCursor)
+	if um.heatmap.Cursor != 1 {
+		t.Errorf("k in heatmap should move cursor up: expected 1, got %d", um.heatmap.Cursor)
 	}
 }
 
@@ -1790,15 +1790,15 @@ func TestDashboardModel_HeatmapRefreshTick(t *testing.T) {
 
 	m := newDashboardModel(nil)
 	m.connected = false
-	m.heatmapTickCount = 0
+	m.heatmap.TickCount = 0
 
 	for range 5 {
 		updated, _ := m.Update(tickMsg(time.Now()))
 		m = updated.(dashboardModel)
 	}
 
-	if m.heatmapTickCount != 5 {
-		t.Errorf("after 5 ticks, heatmapTickCount should be 5, got %d", m.heatmapTickCount)
+	if m.heatmap.TickCount != 5 {
+		t.Errorf("after 5 ticks, heatmapTickCount should be 5, got %d", m.heatmap.TickCount)
 	}
 }
 

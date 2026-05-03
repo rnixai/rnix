@@ -332,7 +332,11 @@ func TestDashboardFileSplitting_TypesFileContainsTypes(t *testing.T) {
 		"type segmentKind",
 		"type activityLevel",
 		"type stepEntry struct",
-		"type heatmapSegment struct",
+		// Story 38-5 PR3 Step 1: heatmapSegment 由 struct 改为 alias 至 internal/dashboard/heatmap.Segment，
+		// 让 HeatmapState.Segments 字段类型在 cmd/rnix 端无需转换 wrapper（spec § Risk 4 测试迁移）。
+		// 字面契约从 "type heatmapSegment struct" 放宽为 "type heatmapSegment"，alias 形式 + struct 形式
+		// 都通过；保留 grep 验证 dashboard_types.go 仍是声明该类型的入口（不允许迁出文件）。
+		"type heatmapSegment",
 		"type intentFlatNode struct",
 		"type spanFlatNode struct",
 	}

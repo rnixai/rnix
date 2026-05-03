@@ -113,7 +113,7 @@ func TestATDD_28_4_AC2_PIDReuseDetection(t *testing.T) {
 	m.selectedUUID = "uuid-bbb-333"
 	// Pretend timeline was attached to this PID
 	m.timelineAttachedPID = 3
-	m.heatmapPID = 3
+	m.heatmap.PID = 3
 
 	// Simulate PID reuse: PID=3 now belongs to a different process with UUID=uuid-new-999
 	m.processes = []vfs.ProcInfo{
@@ -168,7 +168,7 @@ func TestATDD_28_4_AC3_ProcessReapClearsSelection(t *testing.T) {
 	m.selectedPID = 3
 	m.selectedUUID = "uuid-bbb-333"
 	m.timelineAttachedPID = 3
-	m.heatmapPID = 3
+	m.heatmap.PID = 3
 
 	// Simulate reaper cleanup: PID=3 is gone from process list
 	m.processes = []vfs.ProcInfo{
@@ -190,8 +190,8 @@ func TestATDD_28_4_AC3_ProcessReapClearsSelection(t *testing.T) {
 	if m2.timelineAttachedPID != 0 {
 		t.Errorf("AC-3: after reap+handlePIDChange, timelineAttachedPID = %d, want 0", m2.timelineAttachedPID)
 	}
-	if m2.heatmapPID != 0 {
-		t.Errorf("AC-3: after reap+handlePIDChange, heatmapPID = %d, want 0", m2.heatmapPID)
+	if m2.heatmap.PID != 0 {
+		t.Errorf("AC-3: after reap+handlePIDChange, heatmapPID = %d, want 0", m2.heatmap.PID)
 	}
 }
 

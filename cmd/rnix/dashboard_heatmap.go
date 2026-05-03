@@ -2,13 +2,13 @@ package main
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -17,201 +17,47 @@ import (
 )
 
 // --- Heatmap logic (Story 17-3) ---
+//
+// Story 38-5 PR3 Step 1: 全部 helper 迁出至 internal/dashboard/heatmap，cmd/rnix 端保留 thin wrapper
+// 让旧 caller / 测试 grep 字符串零变化。详见 internal/dashboard/heatmap/builder.go。
 
+// segmentKindLabel — thin wrapper · 见 internal/dashboard/heatmap.SegmentKindLabel
+//
+//nolint:unused // 保留供潜在外部 caller / 测试 grep 使用
 func segmentKindLabel(kind segmentKind) string {
-	switch kind {
-	case segSystem:
-		return "System Prompt"
-	case segSkill:
-		return "Skill"
-	case segTool:
-		return "Tool Results"
-	case segUser:
-		return "User Messages"
-	case segAssistant:
-		return "Assistant"
-	case segLeaked:
-		return "Leaked"
-	default:
-		return "Unknown"
-	}
+	return heatmap.SegmentKindLabel(kind)
 }
 
+// activityLabel — thin wrapper · 见 internal/dashboard/heatmap.ActivityLabel
 func activityLabel(a activityLevel) string {
-	switch a {
-	case actActive:
-		return "Active"
-	case actWarm:
-		return "Warm"
-	case actCold:
-		return "Cold"
-	case actLeaked:
-		return "Leaked"
-	default:
-		return "Unknown"
-	}
+	return heatmap.ActivityLabel(a)
 }
 
-func mapConsumerKind(kind string) segmentKind {
-	switch {
-	case kind == "system_prompt":
-		return segSystem
-	case kind == "user":
-		return segUser
-	case kind == "assistant":
-		return segAssistant
-	case strings.HasPrefix(kind, "tool:"):
-		return segTool
-	case kind == "skill" || strings.HasPrefix(kind, "skill:"):
-		return segSkill
-	default:
-		return segAssistant
-	}
-}
-
+// dim — thin wrapper · 见 internal/dashboard/heatmap.Dim
+//
+//nolint:unused // 保留供潜在外部 caller 使用
 func dim(hexColor string) string {
-	switch hexColor {
-	case "#5B9BD5":
-		return "#3A6B94"
-	case "#9B59B6":
-		return "#6A3D7E"
-	case "#6BCB77":
-		return "#4A8C52"
-	case "#FFD93D":
-		return "#B3982B"
-	case "#888888":
-		return "#5E5E5E"
-	default:
-		return "#666666"
-	}
+	return heatmap.Dim(hexColor)
 }
 
+// segmentColor — thin wrapper · 见 internal/dashboard/heatmap.SegmentColor
 func segmentColor(kind segmentKind, activity activityLevel) string {
-	if activity == actLeaked || kind == segLeaked {
-		return "#FF6B6B"
-	}
-	var base string
-	switch kind {
-	case segSystem:
-		base = "#5B9BD5"
-	case segSkill:
-		base = colorIPC
-	case segTool:
-		base = "#6BCB77"
-	case segUser:
-		base = "#FFD93D"
-	case segAssistant:
-		base = "#888888"
-	default:
-		base = "#888888"
-	}
-	if activity == actCold {
-		return dim(base)
-	}
-	return base
+	return heatmap.SegmentColor(kind, activity)
 }
 
-func estimateActivity(profile *debug.CtxProfileResult, kind segmentKind, rank int) activityLevel {
-	if kind == segSystem {
-		return actActive
-	}
-	if kind == segLeaked {
-		return actLeaked
-	}
-	cl := profile.Classification
-	if cl.Active.Pct > cl.Cold.Pct {
-		if rank <= 2 {
-			return actActive
-		}
-		return actWarm
-	}
-	if cl.Cold.Pct > cl.Active.Pct {
-		return actCold
-	}
-	return actWarm
+// mapConsumerKind — thin wrapper · 见 internal/dashboard/heatmap.MapConsumerKind
+//
+// 保留供 dashboard_test.go::17.3-UNIT-012 / CR-FIX-004 测试调用。
+func mapConsumerKind(kind string) segmentKind {
+	return heatmap.MapConsumerKind(kind)
 }
 
+// buildHeatmapSegments — thin wrapper · 见 internal/dashboard/heatmap.BuildSegments
+//
+// heatmapSegment 是 heatmap.Segment 的 type alias（见 dashboard_types.go），可直接返回 BuildSegments
+// 的结果而无需类型转换。
 func buildHeatmapSegments(profile *debug.CtxProfileResult) []heatmapSegment {
-	if profile == nil || len(profile.TopConsumers) == 0 {
-		return nil
-	}
-
-	type kindBucket struct {
-		tokens   int
-		pct      float64
-		kind     segmentKind
-		activity activityLevel
-		bestRank int
-	}
-	merged := make(map[segmentKind]*kindBucket)
-
-	for _, c := range profile.TopConsumers {
-		kind := mapConsumerKind(c.Kind)
-		activity := estimateActivity(profile, kind, c.Rank)
-		if b, ok := merged[kind]; ok {
-			b.tokens += c.Tokens
-			b.pct += c.Pct
-			if c.Rank < b.bestRank {
-				b.bestRank = c.Rank
-				b.activity = activity
-			}
-		} else {
-			merged[kind] = &kindBucket{
-				tokens: c.Tokens, pct: c.Pct,
-				kind: kind, activity: activity, bestRank: c.Rank,
-			}
-		}
-	}
-
-	var segments []heatmapSegment
-	var otherTokens int
-	var otherPct float64
-
-	for _, b := range merged {
-		if b.pct < 3.0 {
-			otherTokens += b.tokens
-			otherPct += b.pct
-			continue
-		}
-		segments = append(segments, heatmapSegment{
-			label:    segmentKindLabel(b.kind),
-			tokens:   b.tokens,
-			pct:      b.pct,
-			kind:     b.kind,
-			activity: b.activity,
-		})
-	}
-
-	if profile.Classification.Leaked.Tokens > 0 {
-		if profile.Classification.Leaked.Pct < 3.0 {
-			otherTokens += profile.Classification.Leaked.Tokens
-			otherPct += profile.Classification.Leaked.Pct
-		} else {
-			segments = append(segments, heatmapSegment{
-				label:    "Leaked",
-				tokens:   profile.Classification.Leaked.Tokens,
-				pct:      profile.Classification.Leaked.Pct,
-				kind:     segLeaked,
-				activity: actLeaked,
-			})
-		}
-	}
-
-	if otherTokens > 0 {
-		segments = append(segments, heatmapSegment{
-			label:    "Other",
-			tokens:   otherTokens,
-			pct:      otherPct,
-			kind:     segAssistant,
-			activity: actCold,
-		})
-	}
-
-	sort.Slice(segments, func(i, j int) bool {
-		return segments[i].tokens > segments[j].tokens
-	})
-
-	return segments
+	return heatmap.BuildSegments(profile)
 }
 
 func fetchHeatmapCmd(pid types.PID) tea.Cmd {
@@ -227,20 +73,20 @@ func fetchHeatmapCmd(pid types.PID) tea.Cmd {
 }
 
 func (m dashboardModel) handleHeatmapPIDChange() dashboardModel {
-	if m.selectedPID == m.heatmapPID {
+	if m.selectedPID == m.heatmap.PID {
 		return m
 	}
-	m.heatmapProfile = nil
-	m.heatmapSegments = nil
-	m.heatmapCursor = 0
-	m.heatmapExpanded = false
-	m.heatmapErr = nil
+	m.heatmap.Profile = nil
+	m.heatmap.Segments = nil
+	m.heatmap.Cursor = 0
+	m.heatmap.Expanded = false
+	m.heatmap.Err = nil
 	return m
 }
 
 func (m dashboardModel) handleHeatmapKey(key string) dashboardModel {
 	// Story 36-5: 统一导航键集合（补齐 pgdn/pgup/ctrl+d/u/g/G/home/end）
-	if ui.HandleListKey(key, nil, &m.heatmapCursor, len(m.heatmapSegments), ui.ListNavOpts{PageSize: 8}) {
+	if ui.HandleListKey(key, nil, &m.heatmap.Cursor, len(m.heatmap.Segments), ui.ListNavOpts{PageSize: 8}) {
 		return m
 	}
 	// Story 36-5 P-8: 当前面板（Heatmap）不支持搜索；按 / 提示用户
@@ -251,10 +97,10 @@ func (m dashboardModel) handleHeatmapKey(key string) dashboardModel {
 	}
 	if key == "enter" {
 		// Story 36-5 P-5: 空列表时不切换 expanded 状态，避免无意义的状态翻转
-		if len(m.heatmapSegments) == 0 {
+		if len(m.heatmap.Segments) == 0 {
 			return m
 		}
-		m.heatmapExpanded = !m.heatmapExpanded
+		m.heatmap.Expanded = !m.heatmap.Expanded
 	}
 	return m
 }
@@ -272,14 +118,14 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 	var b strings.Builder
 
 	b.WriteString(" Heatmap")
-	if m.selectedPID > 0 && m.heatmapProfile != nil {
+	if m.selectedPID > 0 && m.heatmap.Profile != nil {
 		fmt.Fprintf(&b, " | PID %d", m.selectedPID)
 		pct := 0
-		if m.heatmapProfile.ContextBudget > 0 {
-			pct = m.heatmapProfile.TotalTokens * 100 / m.heatmapProfile.ContextBudget
+		if m.heatmap.Profile.ContextBudget > 0 {
+			pct = m.heatmap.Profile.TotalTokens * 100 / m.heatmap.Profile.ContextBudget
 		}
 		fmt.Fprintf(&b, " | ~%d tok / %d budget (%d%%)",
-			m.heatmapProfile.TotalTokens, m.heatmapProfile.ContextBudget, pct)
+			m.heatmap.Profile.TotalTokens, m.heatmap.Profile.ContextBudget, pct)
 	}
 	b.WriteString("\n")
 
@@ -287,50 +133,50 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 		b.WriteString("\n    Select an agent to view heatmap")
 		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
-	if m.heatmapErr != nil {
-		fmt.Fprintf(&b, "\n    ✗ %v", m.heatmapErr)
+	if m.heatmap.Err != nil {
+		fmt.Fprintf(&b, "\n    ✗ %v", m.heatmap.Err)
 		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
-	if len(m.heatmapSegments) == 0 {
+	if len(m.heatmap.Segments) == 0 {
 		b.WriteString("\n    Loading context profile...")
 		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
 	barWidth := max(innerW-2, 10)
-	for _, seg := range m.heatmapSegments {
-		segW := max(int(seg.pct/100.0*float64(barWidth)), 1)
-		color := segmentColor(seg.kind, seg.activity)
+	for _, seg := range m.heatmap.Segments {
+		segW := max(int(seg.Pct/100.0*float64(barWidth)), 1)
+		color := segmentColor(seg.Kind, seg.Activity)
 		catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
 		b.WriteString(catStyle.Render(strings.Repeat("█", segW)))
 	}
 	b.WriteString("\n")
 
-	for _, seg := range m.heatmapSegments {
-		fmt.Fprintf(&b, "%s(%.0f%%) ", seg.label, seg.pct)
+	for _, seg := range m.heatmap.Segments {
+		fmt.Fprintf(&b, "%s(%.0f%%) ", seg.Label, seg.Pct)
 	}
 	b.WriteString("\n")
 
-	for i, seg := range m.heatmapSegments {
+	for i, seg := range m.heatmap.Segments {
 		cursor := "  "
-		if i == m.heatmapCursor {
+		if i == m.heatmap.Cursor {
 			cursor = "▸ "
 		}
-		actStr := activityLabel(seg.activity)
+		actStr := activityLabel(seg.Activity)
 		fmt.Fprintf(&b, "%s%-15s %4d tok  %5.1f%%  %s\n",
-			cursor, seg.label, seg.tokens, seg.pct, actStr)
+			cursor, seg.Label, seg.Tokens, seg.Pct, actStr)
 	}
 
-	if m.heatmapExpanded && m.heatmapCursor < len(m.heatmapSegments) {
-		seg := m.heatmapSegments[m.heatmapCursor]
-		actStr := activityLabel(seg.activity)
-		fmt.Fprintf(&b, "\n── Selected: %s ──\n", seg.label)
-		fmt.Fprintf(&b, "%d tokens | %.1f%% | %s\n", seg.tokens, seg.pct, actStr)
-		if seg.summary != "" {
-			if utf8.RuneCountInString(seg.summary) > 60 {
-				runes := []rune(seg.summary)
+	if m.heatmap.Expanded && m.heatmap.Cursor < len(m.heatmap.Segments) {
+		seg := m.heatmap.Segments[m.heatmap.Cursor]
+		actStr := activityLabel(seg.Activity)
+		fmt.Fprintf(&b, "\n── Selected: %s ──\n", seg.Label)
+		fmt.Fprintf(&b, "%d tokens | %.1f%% | %s\n", seg.Tokens, seg.Pct, actStr)
+		if seg.Summary != "" {
+			if utf8.RuneCountInString(seg.Summary) > 60 {
+				runes := []rune(seg.Summary)
 				b.WriteString("\"" + string(runes[:57]) + "...\"\n")
 			} else {
-				b.WriteString("\"" + seg.summary + "\"\n")
+				b.WriteString("\"" + seg.Summary + "\"\n")
 			}
 		}
 	}

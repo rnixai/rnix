@@ -148,27 +148,27 @@ func TestATDD_36_5_AC5_TimelineNavigation(t *testing.T) {
 
 func TestATDD_36_5_AC6_HeatmapNavigation(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.heatmapSegments = []heatmapSegment{
-		{label: "System", pct: 40},
-		{label: "Skill", pct: 30},
-		{label: "Tool", pct: 20},
-		{label: "Assistant", pct: 10},
+	m.heatmap.Segments = []heatmapSegment{
+		{Label: "System", Pct: 40},
+		{Label: "Skill", Pct: 30},
+		{Label: "Tool", Pct: 20},
+		{Label: "Assistant", Pct: 10},
 	}
-	m.heatmapCursor = 0
+	m.heatmap.Cursor = 0
 
 	// G → last
 	m2 := m.handleHeatmapKey("G")
-	if m2.heatmapCursor != 3 {
-		t.Errorf("G should move to last segment (3); got %d", m2.heatmapCursor)
+	if m2.heatmap.Cursor != 3 {
+		t.Errorf("G should move to last segment (3); got %d", m2.heatmap.Cursor)
 	}
 	// g → first
 	m3 := m2.handleHeatmapKey("g")
-	if m3.heatmapCursor != 0 {
-		t.Errorf("g should move to first segment; got %d", m3.heatmapCursor)
+	if m3.heatmap.Cursor != 0 {
+		t.Errorf("g should move to first segment; got %d", m3.heatmap.Cursor)
 	}
 	// enter still toggles expansion
 	m4 := m3.handleHeatmapKey("enter")
-	if !m4.heatmapExpanded {
+	if !m4.heatmap.Expanded {
 		t.Error("enter should toggle heatmapExpanded on")
 	}
 }
@@ -307,9 +307,9 @@ func TestATDD_36_5_AC15_Regression(t *testing.T) {
 	}
 	// Heatmap 'enter' still toggles expand
 	mh := newTestDashboardModel(mockDashboardProcs())
-	mh.heatmapSegments = []heatmapSegment{{label: "A"}, {label: "B"}}
+	mh.heatmap.Segments = []heatmapSegment{{Label: "A"}, {Label: "B"}}
 	mh2 := mh.handleHeatmapKey("enter")
-	if !mh2.heatmapExpanded {
+	if !mh2.heatmap.Expanded {
 		t.Error("heatmap enter should toggle expand")
 	}
 	// Inspector '1'-'5' lens switching
