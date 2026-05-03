@@ -15,6 +15,7 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -57,9 +58,12 @@ type dashboardModel struct {
 	confirmKill  bool
 	confirmPID   types.PID
 
-	// Timeline tracking
-	timelineAttachedPID  types.PID
-	timelineAttachedUUID string
+	// Story 38-5 PR4 Step 1: TimelineState 抽离（16 字段）— spec § AC4
+	// 抽出字段：AttachedPID/AttachedUUID + StepEntries/StepCursor/StepScrollTop/
+	// StepDetailCache/LastFetchedStep/FetchingDetail/StepFilters/StepFilterMode/
+	// StepExpandedIdx + SortAsc/ExpandMode/UIState/MigrationChecked + ExpandedAggGroups。
+	// 现有 cmd/rnix 端通过 deprecated getter `TimelineState()` 间接读取，PR11 删除。
+	timeline timeline.TimelineState
 
 	// Heatmap fields (Story 17-3) — Story 38-5 PR3 Step 1: 抽离至 internal/dashboard/heatmap.HeatmapState
 	heatmap heatmap.HeatmapState
@@ -67,17 +71,6 @@ type dashboardModel struct {
 	// Pane linkage & process operations (Story 17-4)
 	recording    map[string]string
 	statusMsgTTL int
-
-	// Step timeline fields (unified)
-	stepEntries     []stepEntry
-	stepCursor      int
-	stepScrollTop   int // index in filtered view of first visible item
-	stepDetailCache map[int]*ipc.GetStepDetailResponse
-	lastFetchedStep int
-	fetchingDetail  bool
-	stepFilters     map[string]bool
-	stepFilterMode  bool
-	stepExpandedIdx int
 
 	// Step Inspector fields (Story 36-1, replaces LLM Viewer + Prompt Pager)
 	inspectorPID            types.PID
@@ -125,12 +118,6 @@ type dashboardModel struct {
 	// — kept alongside searchMatches []int (Timeline still uses line indices).
 	inspectorDiffLensMarks [inspectorLensCount]bool
 	inspectorSearchPos     []searchMatchPos
-
-	// Story 36-4: Timeline 排序方向 & expandMode 粘性
-	timelineSortAsc          bool               // true=旧→新（底部最新），session 内持久
-	expandMode               timelineExpandMode // 按进程作用域，切 PID 时重置为 collapsed
-	uiState                  *ui.UIState        // 首次升级提示的持久化状态
-	timelineMigrationChecked bool               // session 内是否已检查过首次升级提示
 
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
@@ -193,8 +180,7 @@ type dashboardModel struct {
 	// HeartbeatStatus fields (Story 30.8)
 	heartbeatStatus *ipc.HeartbeatStatusResponse
 
-	// Timeline aggregation (Story 30.8 AC#5)
-	expandedAggGroups map[int]bool
+	// Story 30.8 AC#5: Timeline aggregation — Story 38-5 PR4 Step 1: 抽离到 timeline.TimelineState.ExpandedAggGroups
 
 	// Help overlay
 	helpOverlay bool
@@ -259,11 +245,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		connected:          client != nil,
 		rightPane:          paneTimeline,
 		recording:          make(map[string]string),
-		stepDetailCache:    make(map[int]*ipc.GetStepDetailResponse),
 		procDetailCache:    make(map[string]*ipc.GetProcDetailResponse),
-		stepExpandedIdx:    -1,
-		stepFilters:        defaultStepFilters(),
-		expandedAggGroups:  make(map[int]bool),
 		prevProcessPIDs:    make(map[types.PID]vfs.ProcInfo),
 		budgetAlertSeen:    make(map[types.PID]int),
 		stallSeen:          make(map[types.PID]struct{}),
@@ -274,12 +256,19 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 			CollapsedDeadTrees: make(map[string]bool),
 			ProcessFirstSeenAt: make(map[types.PID]time.Time),
 		},
+		// Story 38-5 PR4 Step 1: TimelineState 抽离（16 字段）
+		timeline: timeline.TimelineState{
+			StepDetailCache:   make(map[int]*ipc.GetStepDetailResponse),
+			StepExpandedIdx:   -1,
+			StepFilters:       defaultStepFilters(),
+			ExpandedAggGroups: make(map[int]bool),
+			SortAsc:           true,                       // Story 36-4: 默认升序（最新在底）
+			ExpandMode:        timeline.ExpandModeCollapsed, // Story 36-4
+			UIState:           uiState,                    // Story 36-4: 首次升级提示持久化状态
+		},
 		intentTreeCollapsed: make(map[string]bool), // Story 38-4 AC#3 / P1: keyed by RootIntent
 		debugShowStrace:    true, // Story 34.6: show strace events by default
 		debugDeviceLatency: make(map[string]*deviceLatencyStats),
-		timelineSortAsc:    true,                // Story 36-4: 默认升序（最新在底）
-		expandMode:         expandModeCollapsed, // Story 36-4
-		uiState:            uiState,             // Story 36-4: 首次升级提示持久化状态
 	}
 }
 
@@ -299,6 +288,13 @@ func (m dashboardModel) TreeState() tree.TreeState { return m.tree }
 // HeatmapState returns the embedded heatmap.HeatmapState (Story 38-5 PR3 Step 1
 // transitional getter; Deprecated: removed in 38-5 PR11).
 func (m dashboardModel) HeatmapState() heatmap.HeatmapState { return m.heatmap }
+
+// TimelineState returns the embedded timeline.TimelineState (Story 38-5 PR4 Step 1
+// transitional getter; Deprecated: removed in 38-5 PR11).
+//
+// Allows legacy tests to read the timeline state without importing internal/dashboard/timeline
+// directly. New code should access `m.timeline` directly.
+func (m dashboardModel) TimelineState() timeline.TimelineState { return m.timeline }
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -363,24 +359,24 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.err == nil && len(msg.steps) > 0 {
 			m = m.applyNewSteps(msg.steps)
-			if last := msg.steps[len(msg.steps)-1]; last.Step > m.lastFetchedStep {
-				m.lastFetchedStep = last.Step
+			if last := msg.steps[len(msg.steps)-1]; last.Step > m.timeline.LastFetchedStep {
+				m.timeline.LastFetchedStep = last.Step
 			}
 		}
 		// Auto-fetch detail for expanded steps (e.g., auto-expanded on error/slow)
 		if cmd := m.fetchNextExpandedDetail(); cmd != nil {
-			m.fetchingDetail = true
+			m.timeline.FetchingDetail = true
 			return m, cmd
 		}
 		return m, nil
 	case stepDetailResultMsg:
-		m.fetchingDetail = false
+		m.timeline.FetchingDetail = false
 		if msg.err == nil && msg.detail != nil {
-			m.stepDetailCache[msg.step] = msg.detail
+			m.timeline.StepDetailCache[msg.step] = msg.detail
 		}
 		// Chain-fetch next expanded step without cached detail
 		if cmd := m.fetchNextExpandedDetail(); cmd != nil {
-			m.fetchingDetail = true
+			m.timeline.FetchingDetail = true
 			return m, cmd
 		}
 		return m, nil
@@ -554,7 +550,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case promptPagerMsg:
-		m.fetchingDetail = false
+		m.timeline.FetchingDetail = false
 		if msg.pid != m.selectedPID {
 			return m, nil
 		}
@@ -564,7 +560,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.detail != nil {
-			m.stepDetailCache[msg.step] = msg.detail
+			m.timeline.StepDetailCache[msg.step] = msg.detail
 			// Story 36-1: redirect to Inspector (guard: skip if already in Inspector)
 			if m.viewMode != viewStepInspector {
 				m2, cmd := m.enterStepInspector()
@@ -768,7 +764,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// Merge step entries + system events into unified event list
-	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID, m.selectedUUID, m.processes, m.timelineSortAsc)
+	m.unifiedEvents = mergeUnifiedEvents(m.timeline.StepEntries, m.sysEvents, m.selectedPID, m.selectedUUID, m.processes, m.timeline.SortAsc)
 	m = m.applyUnreadMarks() // Story 38-4 AC#1
 
 	// Build alert events for alert strip (Story 34.4)
@@ -852,7 +848,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	cmds := []tea.Cmd{tickCmd()}
 
-	pidChanged := m.selectedUUID != m.timelineAttachedUUID || m.selectedPID != m.heatmap.PID
+	pidChanged := m.selectedUUID != m.timeline.AttachedUUID || m.selectedPID != m.heatmap.PID
 	if pidChanged {
 		m2, pidCmd := m.handlePIDChange()
 		m = m2
@@ -864,7 +860,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	if m.selectedPID > 0 && m.connected && !pidChanged {
-		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, m.lastFetchedStep))
+		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, m.timeline.LastFetchedStep))
 	}
 
 	// Fetch proc detail when Detail pane is active or in default view (detail card needs it)
@@ -1141,13 +1137,13 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 		m.selectedUUID = ""
 		m = m.handleTimelinePIDChange()
 		m = m.handleHeatmapPIDChange()
-		m.timelineAttachedPID = 0
+		m.timeline.AttachedPID = 0
 		m.heatmap.PID = 0
 		return m, nil
 	}
 	m = m.handleTimelinePIDChange()
 	m = m.handleHeatmapPIDChange()
-	m.timelineAttachedPID = m.selectedPID
+	m.timeline.AttachedPID = m.selectedPID
 	m.heatmap.PID = m.selectedPID
 
 	// Reset compact event tracking for new process (Story 34.1)
@@ -1194,9 +1190,12 @@ func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
 		startTime:         time.Now(),
 		connected:         false,
 		recording:         make(map[string]string),
-		stepExpandedIdx:   -1,
-		stepFilters:       defaultStepFilters(),
-		expandedAggGroups: make(map[int]bool),
+		// Story 38-5 PR4 Step 1: TimelineState 抽离（16 字段）
+		timeline: timeline.TimelineState{
+			StepExpandedIdx:   -1,
+			StepFilters:       defaultStepFilters(),
+			ExpandedAggGroups: make(map[int]bool),
+		},
 		prevProcessPIDs:   make(map[types.PID]vfs.ProcInfo),
 		budgetAlertSeen:   make(map[types.PID]int),
 		stallSeen:         make(map[types.PID]struct{}),

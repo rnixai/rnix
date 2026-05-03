@@ -20,16 +20,16 @@ const maxSysEvents = 200
 // baseTime is the reference time; step index offsets ensure stable ordering.
 func stepToUnifiedEvent(e *stepEntry, baseTime time.Time, index int) UnifiedEvent {
 	sev := SevInfo
-	if e.summary.HasError {
+	if e.Summary.HasError {
 		sev = SevError
 	}
 	// Use real timestamp from step record if available; fall back to synthetic ordering
 	ts := baseTime.Add(time.Duration(index) * time.Millisecond)
-	if e.summary.TimestampMs > 0 {
-		ts = baseTime.Add(time.Duration(e.summary.TimestampMs) * time.Millisecond)
+	if e.Summary.TimestampMs > 0 {
+		ts = baseTime.Add(time.Duration(e.Summary.TimestampMs) * time.Millisecond)
 	}
 	summary := fmt.Sprintf("[%d] %s — %s (%.0fms)",
-		e.summary.Step, e.summary.Action, e.summary.Summary, e.summary.DurationMs)
+		e.Summary.Step, e.Summary.Action, e.Summary.Summary, e.Summary.DurationMs)
 	return UnifiedEvent{
 		Type:      EventStep,
 		Severity:  sev,
@@ -581,7 +581,7 @@ func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
 	filtered := m.filteredUnifiedEvents()
 	for i, ev := range filtered {
 		if ev.Type == target.Type && ev.Timestamp.Equal(target.Timestamp) && ev.PID == target.PID {
-			m.stepCursor = i
+			m.timeline.StepCursor = i
 			break
 		}
 	}

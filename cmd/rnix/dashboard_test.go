@@ -499,14 +499,14 @@ func newTestTimelineDashboardModel() dashboardModel {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.activePane = paneTimeline
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "Open /dev/llm/claude"}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "Planning build step"}},
-		{summary: ipc.StepSummaryWire{Step: 3, Action: "spawn", Summary: "Spawn builder"}},
-		{summary: ipc.StepSummaryWire{Step: 4, Action: "tool_call", Summary: "Read file"}},
-		{summary: ipc.StepSummaryWire{Step: 5, Action: "complete", Summary: "Done"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "Open /dev/llm/claude"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "Planning build step"}},
+		{Summary: ipc.StepSummaryWire{Step: 3, Action: "spawn", Summary: "Spawn builder"}},
+		{Summary: ipc.StepSummaryWire{Step: 4, Action: "tool_call", Summary: "Read file"}},
+		{Summary: ipc.StepSummaryWire{Step: 5, Action: "complete", Summary: "Done"}},
 	}
-	m.stepFilters = defaultStepFilters()
+	m.timeline.StepFilters = defaultStepFilters()
 	return m
 }
 
@@ -540,14 +540,14 @@ func TestDashboardModel_TimelineFilter(t *testing.T) {
 	// Press f to enter filter mode
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'f'})
 	um := updated.(dashboardModel)
-	if !um.stepFilterMode {
+	if !um.timeline.StepFilterMode {
 		t.Error("pressing 'f' should enter step filter mode")
 	}
 
 	// Press f to exit filter mode
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'f'})
 	um = updated.(dashboardModel)
-	if um.stepFilterMode {
+	if um.timeline.StepFilterMode {
 		t.Error("pressing 'f' again should exit step filter mode")
 	}
 }
@@ -556,21 +556,21 @@ func TestDashboardModel_TimelineFilter(t *testing.T) {
 
 func TestDashboardModel_TimelinePIDChange(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	if len(m.stepEntries) == 0 {
+	if len(m.timeline.StepEntries) == 0 {
 		t.Fatal("pre-condition: model should have step entries")
 	}
 
-	m.timelineAttachedUUID = m.selectedUUID
+	m.timeline.AttachedUUID = m.selectedUUID
 	m.selectedPID = 999
 	m.selectedUUID = "uuid-999"
 
 	m = m.handleTimelinePIDChange()
 
-	if len(m.stepEntries) != 0 {
-		t.Errorf("UUID change should clear stepEntries, got %d", len(m.stepEntries))
+	if len(m.timeline.StepEntries) != 0 {
+		t.Errorf("UUID change should clear stepEntries, got %d", len(m.timeline.StepEntries))
 	}
-	if m.timelineAttachedUUID != "uuid-999" {
-		t.Errorf("timelineAttachedUUID should update to new UUID, got %q", m.timelineAttachedUUID)
+	if m.timeline.AttachedUUID != "uuid-999" {
+		t.Errorf("timelineAttachedUUID should update to new UUID, got %q", m.timeline.AttachedUUID)
 	}
 }
 
@@ -1039,8 +1039,8 @@ func TestDashboardModel_HandlePIDChangeNoPID(t *testing.T) {
 	if cmd != nil {
 		t.Error("handlePIDChange with selectedPID=0 should return nil cmd (no IPC)")
 	}
-	if m2.timelineAttachedPID != 0 {
-		t.Errorf("timelineAttachedPID should be 0 when selectedPID=0, got %d", m2.timelineAttachedPID)
+	if m2.timeline.AttachedPID != 0 {
+		t.Errorf("timelineAttachedPID should be 0 when selectedPID=0, got %d", m2.timeline.AttachedPID)
 	}
 	if m2.heatmap.PID != 0 {
 		t.Errorf("heatmapPID should be 0 when selectedPID=0, got %d", m2.heatmap.PID)
@@ -1059,8 +1059,8 @@ func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
 	m.selectedUUID = "uuid-999"
 	m2, _ := m.handlePIDChange()
 
-	if len(m2.stepEntries) != 0 {
-		t.Errorf("handlePIDChange should clear stepEntries, got %d", len(m2.stepEntries))
+	if len(m2.timeline.StepEntries) != 0 {
+		t.Errorf("handlePIDChange should clear stepEntries, got %d", len(m2.timeline.StepEntries))
 	}
 	if m2.heatmap.Profile != nil {
 		t.Error("handlePIDChange should clear heatmapProfile")
@@ -1068,8 +1068,8 @@ func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
 	if len(m2.heatmap.Segments) != 0 {
 		t.Errorf("handlePIDChange should clear heatmapSegments, got %d", len(m2.heatmap.Segments))
 	}
-	if m2.timelineAttachedUUID != "uuid-999" {
-		t.Errorf("timelineAttachedUUID should be uuid-999, got %q", m2.timelineAttachedUUID)
+	if m2.timeline.AttachedUUID != "uuid-999" {
+		t.Errorf("timelineAttachedUUID should be uuid-999, got %q", m2.timeline.AttachedUUID)
 	}
 	if m2.heatmap.PID != 999 {
 		t.Errorf("heatmapPID should be 999, got %d", m2.heatmap.PID)
@@ -1099,7 +1099,7 @@ func TestDashboardModel_GlobalKillConfirmTimeline(t *testing.T) {
 
 func TestDashboardModel_TimelineKNavigatesNotKill(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	m.stepCursor = 2
+	m.timeline.StepCursor = 2
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
@@ -1107,8 +1107,8 @@ func TestDashboardModel_TimelineKNavigatesNotKill(t *testing.T) {
 	if um.confirmKill {
 		t.Error("k in timeline pane should navigate, not trigger kill")
 	}
-	if um.stepCursor != 1 {
-		t.Errorf("k in timeline should move cursor up: expected 1, got %d", um.stepCursor)
+	if um.timeline.StepCursor != 1 {
+		t.Errorf("k in timeline should move cursor up: expected 1, got %d", um.timeline.StepCursor)
 	}
 }
 
@@ -2143,21 +2143,21 @@ func TestStepFilterFromDefaultView(t *testing.T) {
 	// f 键应触发过滤模式
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'f'})
 	um := updated.(dashboardModel)
-	if !um.stepFilterMode {
+	if !um.timeline.StepFilterMode {
 		t.Error("f key in default view should enter step filter mode even from tree pane")
 	}
 
 	// 在过滤模式按 t 应能切换 tool_call
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 't'})
 	um = updated.(dashboardModel)
-	if um.stepFilters["tool_call"] {
+	if um.timeline.StepFilters["tool_call"] {
 		t.Error("t in filter mode should toggle tool_call filter to false")
 	}
 
 	// Esc 退出过滤模式
 	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	um = updated.(dashboardModel)
-	if um.stepFilterMode {
+	if um.timeline.StepFilterMode {
 		t.Error("Esc should exit filter mode")
 	}
 }
@@ -2820,11 +2820,11 @@ func makeTestUnifiedEvents() []UnifiedEvent {
 	now := time.Now()
 	return []UnifiedEvent{
 		{Type: EventStep, Summary: "read file", Severity: SevInfo, Timestamp: now.Add(-5 * time.Second), PID: 1,
-			StepEntry: &stepEntry{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}}},
+			StepEntry: &stepEntry{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}}},
 		{Type: EventCompact, Summary: "compact PID 1: 500→250 tok", Severity: SevInfo, Timestamp: now.Add(-4 * time.Second), PID: 1},
 		{Type: EventBudget, Summary: "PID 2 budget 80% used", Severity: SevWarn, Timestamp: now.Add(-3 * time.Second), PID: 2},
 		{Type: EventStep, Summary: "write code", Severity: SevInfo, Timestamp: now.Add(-2 * time.Second), PID: 1,
-			StepEntry: &stepEntry{summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "write code"}}},
+			StepEntry: &stepEntry{Summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "write code"}}},
 		{Type: EventExit, Summary: "PID 3 exited code=1", Severity: SevError, Timestamp: now.Add(-1 * time.Second), PID: 3},
 		{Type: EventStall, Summary: "PID 1 stalled >30s", Severity: SevWarn, Timestamp: now, PID: 1},
 	}
@@ -2921,13 +2921,13 @@ func TestRenderUnifiedTimeline_StepEvents(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
 	m.selectedUUID = "uuid-mock-001"
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan next steps"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan next steps"}},
 	}
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read file", Timestamp: time.Now().Add(-2 * time.Second), PID: 1},
-		{Type: EventStep, StepEntry: &m.stepEntries[1], Summary: "plan next steps", Timestamp: time.Now(), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read file", Timestamp: time.Now().Add(-2 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[1], Summary: "plan next steps", Timestamp: time.Now(), PID: 1},
 	}
 	result := m.renderStepTimeline(80, 20)
 	if !strings.Contains(result, "read file") {
@@ -2944,12 +2944,12 @@ func TestRenderUnifiedTimeline_SystemEvents(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
 	m.selectedUUID = "uuid-mock-001"
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
 	}
 	now := time.Now()
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
 		{Type: EventCompact, Summary: "compact PID 1", Severity: SevInfo, Timestamp: now.Add(-2 * time.Second), PID: 1},
 		{Type: EventSpawn, Summary: "spawned PID 5", Severity: SevInfo, Timestamp: now.Add(-1 * time.Second), PID: 1},
 		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: now, PID: 3},
@@ -2972,12 +2972,12 @@ func TestRenderUnifiedTimeline_MixedEvents(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
 	m.selectedUUID = "uuid-mock-001"
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
 	}
 	now := time.Now()
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read file", Timestamp: now.Add(-2 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read file", Timestamp: now.Add(-2 * time.Second), PID: 1},
 		{Type: EventBudget, Summary: "budget warning", Severity: SevWarn, Timestamp: now, PID: 1},
 	}
 	result := m.renderStepTimeline(80, 20)
@@ -3039,20 +3039,20 @@ func TestEventTypeIcon_ASCII(t *testing.T) {
 func TestEventFilter_SystemEvents(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
 	}
 	now := time.Now()
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read", Timestamp: now.Add(-1 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read", Timestamp: now.Add(-1 * time.Second), PID: 1},
 		{Type: EventCompact, Summary: "compact", Severity: SevInfo, Timestamp: now, PID: 1},
 	}
-	m.stepFilters = defaultStepFilters()
+	m.timeline.StepFilters = defaultStepFilters()
 	filtered := m.filteredUnifiedEvents()
 	if len(filtered) != 2 {
 		t.Fatalf("all filters on: expected 2 events, got %d", len(filtered))
 	}
-	m.stepFilters[EventCompact] = false
+	m.timeline.StepFilters[EventCompact] = false
 	filtered = m.filteredUnifiedEvents()
 	if len(filtered) != 1 {
 		t.Fatalf("compact off: expected 1 event, got %d", len(filtered))
@@ -3068,20 +3068,20 @@ func TestEventFilter_MixedFilter(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
 	entries := []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan"}},
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan"}},
 	}
-	m.stepEntries = entries
+	m.timeline.StepEntries = entries
 	now := time.Now()
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
 		{Type: EventCompact, Summary: "compact", Severity: SevInfo, Timestamp: now.Add(-2 * time.Second), PID: 1},
-		{Type: EventStep, StepEntry: &m.stepEntries[1], Summary: "plan", Timestamp: now.Add(-1 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[1], Summary: "plan", Timestamp: now.Add(-1 * time.Second), PID: 1},
 		{Type: EventBudget, Summary: "budget", Severity: SevWarn, Timestamp: now, PID: 1},
 	}
-	m.stepFilters = defaultStepFilters()
-	m.stepFilters["tool_call"] = false
-	m.stepFilters[EventBudget] = false
+	m.timeline.StepFilters = defaultStepFilters()
+	m.timeline.StepFilters["tool_call"] = false
+	m.timeline.StepFilters[EventBudget] = false
 	filtered := m.filteredUnifiedEvents()
 	if len(filtered) != 2 {
 		t.Fatalf("expected 2 filtered events, got %d", len(filtered))

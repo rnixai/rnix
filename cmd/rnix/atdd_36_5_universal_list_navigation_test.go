@@ -113,34 +113,34 @@ func TestATDD_36_5_AC5_TimelineNavigation(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
-	m.stepEntries = nil
+	m.timeline.StepEntries = nil
 	// 20 step entries → 20 unified events
 	for i := range 20 {
-		m.stepEntries = append(m.stepEntries, stepEntry{
-			summary: ipc.StepSummaryWire{Step: i + 1, Action: "tool_call", TimestampMs: int64(100 * (i + 1))},
+		m.timeline.StepEntries = append(m.timeline.StepEntries, stepEntry{
+			Summary: ipc.StepSummaryWire{Step: i + 1, Action: "tool_call", TimestampMs: int64(100 * (i + 1))},
 		})
 	}
-	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, nil, m.selectedPID, m.selectedUUID, m.processes, true)
-	m.stepCursor = 0
-	m.stepFilterMode = false
+	m.unifiedEvents = mergeUnifiedEvents(m.timeline.StepEntries, nil, m.selectedPID, m.selectedUUID, m.processes, true)
+	m.timeline.StepCursor = 0
+	m.timeline.StepFilterMode = false
 
 	// Ctrl-d should advance cursor
 	m2 := m.handleTimelineKey("ctrl+d")
-	if m2.stepCursor == 0 {
+	if m2.timeline.StepCursor == 0 {
 		t.Error("stepCursor should advance on ctrl+d")
 	}
 
 	// Clamp at end: G
 	m3 := m2.handleTimelineKey("G")
 	filtered := m3.filteredUnifiedEvents()
-	if m3.stepCursor != len(filtered)-1 {
-		t.Errorf("G should clamp to %d; got %d", len(filtered)-1, m3.stepCursor)
+	if m3.timeline.StepCursor != len(filtered)-1 {
+		t.Errorf("G should clamp to %d; got %d", len(filtered)-1, m3.timeline.StepCursor)
 	}
 
 	// j at end should stay
 	m4 := m3.handleTimelineKey("j")
-	if m4.stepCursor != len(filtered)-1 {
-		t.Errorf("j past end should stay at %d; got %d", len(filtered)-1, m4.stepCursor)
+	if m4.timeline.StepCursor != len(filtered)-1 {
+		t.Errorf("j past end should stay at %d; got %d", len(filtered)-1, m4.timeline.StepCursor)
 	}
 }
 
@@ -300,9 +300,9 @@ func TestATDD_36_5_AC15_Regression(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
-	before := m.timelineSortAsc
+	before := m.timeline.SortAsc
 	m2 := m.handleTimelineKey("o")
-	if m2.timelineSortAsc == before {
+	if m2.timeline.SortAsc == before {
 		t.Error("timeline 'o' should toggle sort direction")
 	}
 	// Heatmap 'enter' still toggles expand

@@ -143,7 +143,7 @@ func TestFilteredDebugEvents_StraceToggle(t *testing.T) {
 	m.debugEvents = []UnifiedEvent{
 		{Type: EventSyscall, Timestamp: now, PID: 1, Summary: "syscall"},
 		{Type: EventStep, Timestamp: now.Add(-time.Second), PID: 1, Summary: "step",
-			StepEntry: &stepEntry{summary: ipc.StepSummaryWire{Action: "tool_call"}}},
+			StepEntry: &stepEntry{Summary: ipc.StepSummaryWire{Action: "tool_call"}}},
 	}
 
 	// With strace enabled

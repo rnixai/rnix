@@ -427,8 +427,8 @@ func (m *dashboardModel) lookupDiffBaseDetail() *ipc.GetStepDetailResponse {
 	if m.inspectorDiffBase == 0 {
 		return nil
 	}
-	if m.stepDetailCache != nil {
-		if d, ok := m.stepDetailCache[m.inspectorDiffBase]; ok && d != nil {
+	if m.timeline.StepDetailCache != nil {
+		if d, ok := m.timeline.StepDetailCache[m.inspectorDiffBase]; ok && d != nil {
 			return d
 		}
 	}
@@ -547,8 +547,8 @@ func (m dashboardModel) handleInspectorDetailMsg(msg inspectorDetailMsg) (dashbo
 	if msg.detail == nil || msg.pid != m.inspectorPID || msg.uuid != m.inspectorUUID {
 		return m, nil
 	}
-	if m.stepDetailCache != nil {
-		m.stepDetailCache[msg.step] = msg.detail
+	if m.timeline.StepDetailCache != nil {
+		m.timeline.StepDetailCache[msg.step] = msg.detail
 	}
 	if msg.step == m.inspectorStep {
 		m.inspectorFetching = false

@@ -705,23 +705,23 @@ func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
 	m3.expandedPane = paneTimeline
 	m3.activePane = paneTimeline
 	m3.rightPane = paneTimeline
-	m3.stepFilters = defaultStepFilters()
+	m3.timeline.StepFilters = defaultStepFilters()
 
-	if !m3.stepFilters["tool_call"] {
+	if !m3.timeline.StepFilters["tool_call"] {
 		t.Fatal("tool_call filter should be true by default")
 	}
 
 	// f 进入过滤模式
 	m4, _ := m3.Update(tea.KeyPressMsg{Code: 'f'})
 	model2 := m4.(dashboardModel)
-	if !model2.stepFilterMode {
+	if !model2.timeline.StepFilterMode {
 		t.Error("pressing 'f' should enter filter mode")
 	}
 
 	// t 切换 tool_call
 	m5, _ := model2.Update(tea.KeyPressMsg{Code: 't'})
 	model3 := m5.(dashboardModel)
-	if model3.stepFilters["tool_call"] {
+	if model3.timeline.StepFilters["tool_call"] {
 		t.Error("pressing 't' in filter mode should toggle tool_call filter to false")
 	}
 	if model3.rightPane != paneTimeline {

@@ -172,7 +172,7 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 // renderDeadDetailCardRight renders right detail card for dead/zombie processes.
 func renderDeadDetailCardRight(m *dashboardModel, proc *selectedProcRef, width, height int, sep string) string {
 	d := m.procDetail
-	stepCount := len(m.stepEntries)
+	stepCount := len(m.timeline.StepEntries)
 	line1 := fmt.Sprintf("  Steps: %d │ Tokens: %s", stepCount, ui.FormatTokens(d.ContextStats.TokensUsed))
 	line1 = fitLine(line1, width)
 
@@ -232,7 +232,7 @@ func compactStats(events []UnifiedEvent, pid types.PID) (count int, avgPct int) 
 // formatTraceBudgetSteps formats the detail card right line 2 per AC2 spec:
 // "Trace: span-{id} {dur}s │ Budget: {pct}% │ Steps: {N}"
 func formatTraceBudgetSteps(m *dashboardModel, d *ipc.GetProcDetailResponse) string {
-	stepCount := len(m.stepEntries)
+	stepCount := len(m.timeline.StepEntries)
 	budgetPct := 0
 	if d.ContextStats.ContextBudget > 0 {
 		budgetPct = int(int64(d.ContextStats.TokensUsed) * 100 / int64(d.ContextStats.ContextBudget))

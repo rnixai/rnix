@@ -366,7 +366,7 @@ func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
 		if ev.Type == EventSyscall && !m.debugShowStrace {
 			continue
 		}
-		if !isEventVisible(ev, m.stepFilters) {
+		if !isEventVisible(ev, m.timeline.StepFilters) {
 			continue
 		}
 		result = append(result, ev)
@@ -587,7 +587,7 @@ func (m dashboardModel) renderDebugStepLine(ev UnifiedEvent, cursorMark string, 
 	if ev.StepEntry == nil {
 		return cursorMark + ev.Summary
 	}
-	s := ev.StepEntry.summary
+	s := ev.StepEntry.Summary
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	stepLabel := dimStyle.Render(fmt.Sprintf("#%d", s.Step))
 
@@ -746,7 +746,7 @@ func (m dashboardModel) renderDebugDetailRight(width, height int) string {
 
 func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, bool) {
 	// F8: When in filter sub-mode, delegate to handleStepFilterKey.
-	if m.stepFilterMode {
+	if m.timeline.StepFilterMode {
 		m = m.handleStepFilterKey(key)
 		m.clampDebugCursor()
 		return m, nil, true
@@ -769,7 +769,7 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 		}
 		return m, nil, true
 	case "f":
-		m.stepFilterMode = !m.stepFilterMode
+		m.timeline.StepFilterMode = !m.timeline.StepFilterMode
 		// F4: Clamp cursor after filter change.
 		m.clampDebugCursor()
 		return m, nil, true
@@ -824,14 +824,14 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 			ev := filtered[m.debugCursor]
 			if ev.StepEntry != nil {
 				entry := ev.StepEntry
-				if entry.level == levelSummary {
-					entry.level = levelExpanded
-					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
-						m.fetchingDetail = true
-						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step), true
+				if entry.Level == levelSummary {
+					entry.Level = levelExpanded
+					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.selectedPID > 0 {
+						m.timeline.FetchingDetail = true
+						return m, fetchStepDetailCmd(m.selectedPID, entry.Summary.Step), true
 					}
 				} else {
-					entry.level = levelSummary
+					entry.Level = levelSummary
 				}
 			}
 		}

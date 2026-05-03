@@ -28,13 +28,13 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	key := msg.String()
 
 	// 过滤模式：无论哪个面板活跃，都路由到 timeline 处理
-	if m.stepFilterMode {
+	if m.timeline.StepFilterMode {
 		m = m.handleTimelineKey(key)
 		return m, nil
 	}
 
 	// Step Timeline 按键（enter/v/V/p）— V must be checked before v
-	if m.activePane == paneTimeline && (len(m.stepEntries) > 0 || len(m.unifiedEvents) > 0) {
+	if m.activePane == paneTimeline && (len(m.timeline.StepEntries) > 0 || len(m.unifiedEvents) > 0) {
 		// Aggregation group toggle (Story 30.8 AC#5)
 		// F3: Use step-only count from filtered unified events, not filteredStepEntries
 		filteredStep := m.filteredStepEntries()
@@ -43,17 +43,17 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			// F3: Convert unified cursor to step-only index for group calculation
 			stepIdx := 0
 			filtered := m.filteredUnifiedEvents()
-			cursorPos := min(m.stepCursor, len(filtered)-1)
+			cursorPos := min(m.timeline.StepCursor, len(filtered)-1)
 			for i := 0; i < cursorPos && i < len(filtered); i++ {
 				if filtered[i].StepEntry != nil {
 					stepIdx++
 				}
 			}
 			groupIdx := stepIdx / aggGroupSize
-			if m.expandedAggGroups == nil {
-				m.expandedAggGroups = make(map[int]bool)
+			if m.timeline.ExpandedAggGroups == nil {
+				m.timeline.ExpandedAggGroups = make(map[int]bool)
 			}
-			m.expandedAggGroups[groupIdx] = !m.expandedAggGroups[groupIdx]
+			m.timeline.ExpandedAggGroups[groupIdx] = !m.timeline.ExpandedAggGroups[groupIdx]
 			return m, nil
 		}
 
@@ -62,13 +62,13 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			filtered := m.filteredUnifiedEvents()
 			if len(filtered) > 0 {
 				aggGroups := buildToolAggGroups(filtered)
-				cursorPos := min(m.stepCursor, len(filtered)-1)
+				cursorPos := min(m.timeline.StepCursor, len(filtered)-1)
 				for _, g := range aggGroups {
 					if cursorPos >= g.startIdx && cursorPos < g.endIdx {
-						if m.expandedAggGroups == nil {
-							m.expandedAggGroups = make(map[int]bool)
+						if m.timeline.ExpandedAggGroups == nil {
+							m.timeline.ExpandedAggGroups = make(map[int]bool)
 						}
-						m.expandedAggGroups[g.stepNums[0]] = !m.expandedAggGroups[g.stepNums[0]]
+						m.timeline.ExpandedAggGroups[g.stepNums[0]] = !m.timeline.ExpandedAggGroups[g.stepNums[0]]
 						return m, nil
 					}
 				}
@@ -76,42 +76,42 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		}
 
 		idx := m.resolveStepIndex()
-		if idx >= 0 && idx < len(m.stepEntries) {
+		if idx >= 0 && idx < len(m.timeline.StepEntries) {
 			// V (Shift+V) → Level 3 debug toggle — MUST be before v check
 			if key == "V" || key == "shift+V" || msg.ShiftedCode == 'V' {
-				entry := &m.stepEntries[idx]
-				switch entry.level {
+				entry := &m.timeline.StepEntries[idx]
+				switch entry.Level {
 				case levelSummary, levelExpanded:
-					entry.level = levelDebug
-					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
-						m.fetchingDetail = true
+					entry.Level = levelDebug
+					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.selectedPID > 0 {
+						m.timeline.FetchingDetail = true
 						m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
-						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+						return m, fetchStepDetailCmd(m.selectedPID, entry.Summary.Step)
 					}
 				case levelDebug:
-					entry.level = levelExpanded
+					entry.Level = levelExpanded
 				}
 				m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 				return m, nil
 			}
 			// v or enter → Level 2 expand toggle
 			if key == "v" || key == "enter" {
-				entry := &m.stepEntries[idx]
-				if entry.level == levelSummary {
+				entry := &m.timeline.StepEntries[idx]
+				if entry.Level == levelSummary {
 					// Check if detail is loaded and has no expandable content
-					if cached, ok := m.stepDetailCache[entry.summary.Step]; ok && !hasExpandableContent(cached, entry.summary) {
+					if cached, ok := m.timeline.StepDetailCache[entry.Summary.Step]; ok && !hasExpandableContent(cached, entry.Summary) {
 						m.statusMsg = "(no additional detail)"
 						m.statusMsgTTL = statusMsgDefaultTTL
 						return m, nil
 					}
-					entry.level = levelExpanded
-					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
-						m.fetchingDetail = true
+					entry.Level = levelExpanded
+					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.selectedPID > 0 {
+						m.timeline.FetchingDetail = true
 						m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
-						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
+						return m, fetchStepDetailCmd(m.selectedPID, entry.Summary.Step)
 					}
 				} else {
-					entry.level = levelSummary
+					entry.Level = levelSummary
 				}
 				m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 				return m, nil
@@ -126,7 +126,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		}
 
 		// P key fallback: process has 0 completed steps → enter Inspector anyway
-		if (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.stepEntries) == 0 {
+		if (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.timeline.StepEntries) == 0 {
 			m2, cmd := m.enterStepInspector()
 			m3 := m2.(dashboardModel)
 			m3.inspectorLens = lensSystem
@@ -135,7 +135,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	}
 
 	// P key on timeline when no events at all
-	if m.activePane == paneTimeline && (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.stepEntries) == 0 {
+	if m.activePane == paneTimeline && (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.timeline.StepEntries) == 0 {
 		m2, cmd := m.enterStepInspector()
 		m3 := m2.(dashboardModel)
 		m3.inspectorLens = lensSystem

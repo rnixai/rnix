@@ -131,7 +131,7 @@ func registerLayer0(d *ui.Dispatcher) {
 		if m.helpOverlay {
 			return false, m, nil
 		}
-		if !m.stepFilterMode && len(m.alertEvents) > 0 {
+		if !m.timeline.StepFilterMode && len(m.alertEvents) > 0 {
 			m.alertExpanded = !m.alertExpanded
 			if !m.alertExpanded {
 				visible := alertStripHeight(len(m.alertEvents), false)
@@ -246,7 +246,7 @@ func registerLayer0(d *ui.Dispatcher) {
 			filtered := m.filteredUnifiedEvents()
 			for i, ev := range filtered {
 				if ev.Type == alert.Type && ev.Timestamp.Equal(alert.Timestamp) && ev.PID == alert.PID {
-					m.stepCursor = i
+					m.timeline.StepCursor = i
 					break
 				}
 			}
@@ -494,7 +494,7 @@ func registerLayer1Default(d *ui.Dispatcher) {
 func pauseToggleHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 	m := ctx.(dashboardModel)
 	// Skip when timeline filter mode is active (Timeline owns 'p' there).
-	if m.stepFilterMode {
+	if m.timeline.StepFilterMode {
 		return false, m, nil
 	}
 	if m.selectedPID > 0 && m.connected {
@@ -662,11 +662,11 @@ func registerLayer2Timeline(d *ui.Dispatcher) {
 				return nil
 			}
 			modes := []ui.Mode{}
-			if m.stepFilterMode {
+			if m.timeline.StepFilterMode {
 				modes = append(modes, ui.Mode{Name: "filter", Value: "on"})
 			}
 			expandLabel := "collapsed"
-			switch m.expandMode {
+			switch m.timeline.ExpandMode {
 			case expandModeExpanded:
 				expandLabel = "all"
 			case expandModeErrorsOnly:

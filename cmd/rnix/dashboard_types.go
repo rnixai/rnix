@@ -7,6 +7,7 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/kernel"
@@ -107,28 +108,40 @@ const statusMsgDefaultTTL = 4
 const slowStepThresholdMs = 1000.0
 
 // --- Step detail types ---
+//
+// Story 38-5 PR4 Step 1: stepDetailLevel / stepEntry / timelineExpandMode 类型迁出至
+// internal/dashboard/timeline，cmd/rnix 端通过 alias 保留旧名（与 PR2 flatRow / PR3 heatmapSegment
+// 同模式 · 让现有代码 + 测试 grep 字符串零变化）。
 
-type stepDetailLevel int
+// stepDetailLevel 是 timeline.StepDetailLevel 的 alias（用于 atdd_29_1 grep 契约 +
+// cmd/rnix 端简化访问 levelSummary/Expanded/Debug 常量；通过 levelXxx 常量隐式使用）。
+//
+//nolint:unused // 通过 levelXxx 常量隐式引用
+type stepDetailLevel = timeline.StepDetailLevel
 
 const (
-	levelSummary  stepDetailLevel = 0
-	levelExpanded stepDetailLevel = 1
-	levelDebug    stepDetailLevel = 2
+	levelSummary  = timeline.LevelSummary
+	levelExpanded = timeline.LevelExpanded
+	levelDebug    = timeline.LevelDebug
 )
 
-type stepEntry struct {
-	summary    ipc.StepSummaryWire
-	level      stepDetailLevel
-	autoExpand bool
-}
+// stepEntry 是 timeline.StepEntry 的 alias，让 TimelineState.StepEntries 字段
+// 类型在 cmd/rnix 端可直接以 []stepEntry 赋值（避免类型转换 wrapper）。
+//
+// 注意：alias 形式 `type stepEntry = timeline.StepEntry` 不包含 "struct" 关键字，atdd_29_1
+// 的字面契约需放宽（详见 atdd_29_1_dashboard_file_splitting_test.go 行 334 注释）。
+type stepEntry = timeline.StepEntry
 
-// Story 36-4: Timeline expand mode 三态
-type timelineExpandMode int
+// timelineExpandMode 是 timeline.TimelineExpandMode 的 alias（Story 36-4 三态 · 通过
+// expandModeXxx 常量隐式使用）。
+//
+//nolint:unused // 通过 expandModeXxx 常量隐式引用
+type timelineExpandMode = timeline.TimelineExpandMode
 
 const (
-	expandModeCollapsed   timelineExpandMode = 0
-	expandModeExpanded    timelineExpandMode = 1
-	expandModeErrorsOnly  timelineExpandMode = 2
+	expandModeCollapsed  = timeline.ExpandModeCollapsed
+	expandModeExpanded   = timeline.ExpandModeExpanded
+	expandModeErrorsOnly = timeline.ExpandModeErrorsOnly
 )
 
 // --- Message types ---

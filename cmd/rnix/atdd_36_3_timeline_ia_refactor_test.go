@@ -35,24 +35,24 @@ func newTimeline36_3Model() dashboardModel {
 	m.selectedPID = 1
 	m.activePane = paneTimeline
 
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read config", ToolPath: "/dev/fs", DurationMs: 50, TokenCount: 100}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "run build", ToolPath: "/dev/shell", DurationMs: 120, TokenCount: 200}},
-		{summary: ipc.StepSummaryWire{Step: 3, Action: "plan", Summary: "planning next step", DurationMs: 30, TokenCount: 80}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read config", ToolPath: "/dev/fs", DurationMs: 50, TokenCount: 100}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "run build", ToolPath: "/dev/shell", DurationMs: 120, TokenCount: 200}},
+		{Summary: ipc.StepSummaryWire{Step: 3, Action: "plan", Summary: "planning next step", DurationMs: 30, TokenCount: 80}},
 	}
 
 	now := time.Now()
-	for i := range m.stepEntries {
+	for i := range m.timeline.StepEntries {
 		m.unifiedEvents = append(m.unifiedEvents, UnifiedEvent{
 			Type:      EventStep,
 			Timestamp: now.Add(time.Duration(i) * time.Second),
 			PID:       1,
-			Summary:   m.stepEntries[i].summary.Summary,
-			StepEntry: &m.stepEntries[i],
+			Summary:   m.timeline.StepEntries[i].Summary.Summary,
+			StepEntry: &m.timeline.StepEntries[i],
 		})
 	}
-	m.stepCursor = 0
-	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
+	m.timeline.StepCursor = 0
+	m.timeline.StepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
 	return m
 }
 
@@ -68,30 +68,30 @@ func newTimeline36_3AggModel() dashboardModel {
 	// 5 consecutive shell.exec steps (should aggregate)
 	// then 1 plan step (breaks the run)
 	// then 2 fs.read steps (below threshold, should NOT aggregate)
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "ls ~/project", ToolPath: "/dev/shell", DurationMs: 100, TokenCount: 50}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "cat /etc/hosts", ToolPath: "/dev/shell", DurationMs: 200, TokenCount: 60}},
-		{summary: ipc.StepSummaryWire{Step: 3, Action: "tool_call", Summary: "git status", ToolPath: "/dev/shell", DurationMs: 150, TokenCount: 70}},
-		{summary: ipc.StepSummaryWire{Step: 4, Action: "tool_call", Summary: "pwd", ToolPath: "/dev/shell", DurationMs: 80, TokenCount: 40}},
-		{summary: ipc.StepSummaryWire{Step: 5, Action: "tool_call", Summary: "echo hello", ToolPath: "/dev/shell", DurationMs: 90, TokenCount: 30}},
-		{summary: ipc.StepSummaryWire{Step: 6, Action: "plan", Summary: "planning next", DurationMs: 20, TokenCount: 100}},
-		{summary: ipc.StepSummaryWire{Step: 7, Action: "tool_call", Summary: "read main.go", ToolPath: "/dev/fs", DurationMs: 50, TokenCount: 50}},
-		{summary: ipc.StepSummaryWire{Step: 8, Action: "tool_call", Summary: "read go.mod", ToolPath: "/dev/fs", DurationMs: 40, TokenCount: 40}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "ls ~/project", ToolPath: "/dev/shell", DurationMs: 100, TokenCount: 50}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "cat /etc/hosts", ToolPath: "/dev/shell", DurationMs: 200, TokenCount: 60}},
+		{Summary: ipc.StepSummaryWire{Step: 3, Action: "tool_call", Summary: "git status", ToolPath: "/dev/shell", DurationMs: 150, TokenCount: 70}},
+		{Summary: ipc.StepSummaryWire{Step: 4, Action: "tool_call", Summary: "pwd", ToolPath: "/dev/shell", DurationMs: 80, TokenCount: 40}},
+		{Summary: ipc.StepSummaryWire{Step: 5, Action: "tool_call", Summary: "echo hello", ToolPath: "/dev/shell", DurationMs: 90, TokenCount: 30}},
+		{Summary: ipc.StepSummaryWire{Step: 6, Action: "plan", Summary: "planning next", DurationMs: 20, TokenCount: 100}},
+		{Summary: ipc.StepSummaryWire{Step: 7, Action: "tool_call", Summary: "read main.go", ToolPath: "/dev/fs", DurationMs: 50, TokenCount: 50}},
+		{Summary: ipc.StepSummaryWire{Step: 8, Action: "tool_call", Summary: "read go.mod", ToolPath: "/dev/fs", DurationMs: 40, TokenCount: 40}},
 	}
 
 	now := time.Now()
-	for i := range m.stepEntries {
+	for i := range m.timeline.StepEntries {
 		m.unifiedEvents = append(m.unifiedEvents, UnifiedEvent{
 			Type:      EventStep,
 			Timestamp: now.Add(time.Duration(i) * time.Second),
 			PID:       1,
-			Summary:   m.stepEntries[i].summary.Summary,
-			StepEntry: &m.stepEntries[i],
+			Summary:   m.timeline.StepEntries[i].Summary.Summary,
+			StepEntry: &m.timeline.StepEntries[i],
 		})
 	}
-	m.stepCursor = 0
-	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
-	m.expandedAggGroups = make(map[int]bool)
+	m.timeline.StepCursor = 0
+	m.timeline.StepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
+	m.timeline.ExpandedAggGroups = make(map[int]bool)
 	return m
 }
 
@@ -102,7 +102,7 @@ func newTimeline36_3AggModel() dashboardModel {
 func TestATDD_36_3_AC1_DefaultLine_WithDetail(t *testing.T) {
 	m := newTimeline36_3Model()
 	// Populate detail cache for step 1
-	m.stepDetailCache[1] = &ipc.GetStepDetailResponse{
+	m.timeline.StepDetailCache[1] = &ipc.GetStepDetailResponse{
 		Step:     1,
 		Action:   "tool_call",
 		ToolPath: "/dev/fs",
@@ -125,7 +125,7 @@ func TestATDD_36_3_AC1_DefaultLine_WithDetail(t *testing.T) {
 
 func TestATDD_36_3_AC1_DefaultLine_ActionSummaryLayout(t *testing.T) {
 	m := newTimeline36_3Model()
-	m.stepDetailCache[2] = &ipc.GetStepDetailResponse{
+	m.timeline.StepDetailCache[2] = &ipc.GetStepDetailResponse{
 		Step:     2,
 		Action:   "tool_call",
 		ToolPath: "/dev/shell",
@@ -199,10 +199,10 @@ func TestATDD_36_3_AC2_DegradedDisplay_FallbackAction(t *testing.T) {
 func TestATDD_36_3_AC3_BuildToolAggGroups_ThreeConsecutive(t *testing.T) {
 	entries := make([]UnifiedEvent, 4)
 	steps := []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 2, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 3, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 4, ToolPath: "/dev/fs"}},
+		{Summary: ipc.StepSummaryWire{Step: 1, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 3, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 4, ToolPath: "/dev/fs"}},
 	}
 	for i := range steps {
 		entries[i] = UnifiedEvent{Type: EventStep, StepEntry: &steps[i]}
@@ -225,9 +225,9 @@ func TestATDD_36_3_AC3_BuildToolAggGroups_ThreeConsecutive(t *testing.T) {
 func TestATDD_36_3_AC3_BuildToolAggGroups_BelowThreshold(t *testing.T) {
 	entries := make([]UnifiedEvent, 3)
 	steps := []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 2, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 3, ToolPath: "/dev/fs"}},
+		{Summary: ipc.StepSummaryWire{Step: 1, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 3, ToolPath: "/dev/fs"}},
 	}
 	for i := range steps {
 		entries[i] = UnifiedEvent{Type: EventStep, StepEntry: &steps[i]}
@@ -242,13 +242,13 @@ func TestATDD_36_3_AC3_BuildToolAggGroups_BelowThreshold(t *testing.T) {
 
 func TestATDD_36_3_AC3_BuildToolAggGroups_InterruptedRun(t *testing.T) {
 	steps := []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 2, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 3, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 4, ToolPath: "/dev/fs"}},
-		{summary: ipc.StepSummaryWire{Step: 5, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 6, ToolPath: "/dev/shell"}},
-		{summary: ipc.StepSummaryWire{Step: 7, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 1, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 3, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 4, ToolPath: "/dev/fs"}},
+		{Summary: ipc.StepSummaryWire{Step: 5, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 6, ToolPath: "/dev/shell"}},
+		{Summary: ipc.StepSummaryWire{Step: 7, ToolPath: "/dev/shell"}},
 	}
 	entries := make([]UnifiedEvent, len(steps))
 	for i := range steps {
@@ -301,7 +301,7 @@ func TestATDD_36_3_AC3_AggregatedDisplay_StepRange(t *testing.T) {
 func TestATDD_36_3_AC4_ExpandedGroup_ShowsSubSteps(t *testing.T) {
 	m := newTimeline36_3AggModel()
 	// Expand the group (key = first step number = 1)
-	m.expandedAggGroups[1] = true
+	m.timeline.ExpandedAggGroups[1] = true
 
 	output := m.renderTimelinePane(120, 30)
 
@@ -351,26 +351,26 @@ func TestATDD_36_3_AC5_BulkAggregation_NotAffected(t *testing.T) {
 	now := time.Now()
 	for i := range 110 {
 		entry := stepEntry{
-			summary: ipc.StepSummaryWire{
+			Summary: ipc.StepSummaryWire{
 				Step:     i + 1,
 				Action:   "tool_call",
 				Summary:  "step operation",
 				ToolPath: "/dev/shell",
 			},
 		}
-		m.stepEntries = append(m.stepEntries, entry)
+		m.timeline.StepEntries = append(m.timeline.StepEntries, entry)
 	}
-	for i := range m.stepEntries {
+	for i := range m.timeline.StepEntries {
 		m.unifiedEvents = append(m.unifiedEvents, UnifiedEvent{
 			Type:      EventStep,
 			Timestamp: now.Add(time.Duration(i) * time.Second),
 			PID:       1,
-			Summary:   m.stepEntries[i].summary.Summary,
-			StepEntry: &m.stepEntries[i],
+			Summary:   m.timeline.StepEntries[i].Summary.Summary,
+			StepEntry: &m.timeline.StepEntries[i],
 		})
 	}
-	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
-	m.expandedAggGroups = make(map[int]bool)
+	m.timeline.StepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
+	m.timeline.ExpandedAggGroups = make(map[int]bool)
 
 	output := m.renderTimelinePane(120, 30)
 

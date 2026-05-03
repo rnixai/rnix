@@ -296,7 +296,7 @@ func TestPaneSpecificFKey_Contract(t *testing.T) {
 				m.activePane = paneTimeline
 				m.rightPane = paneTimeline
 			},
-			expected: func(g dashboardModel) bool { return g.stepFilterMode },
+			expected: func(g dashboardModel) bool { return g.timeline.StepFilterMode },
 			desc:     "Timeline 'f' should toggle stepFilterMode",
 		},
 		{

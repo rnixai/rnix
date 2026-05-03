@@ -38,7 +38,7 @@ func TestUnifiedEvent_SortByTimestamp(t *testing.T) {
 func TestStepToUnifiedEvent(t *testing.T) {
 	t.Run("normal step", func(t *testing.T) {
 		e := &stepEntry{
-			summary: ipc.StepSummaryWire{
+			Summary: ipc.StepSummaryWire{
 				Step:       1,
 				Action:     "tool_call",
 				Summary:    "read file",
@@ -64,7 +64,7 @@ func TestStepToUnifiedEvent(t *testing.T) {
 
 	t.Run("error step", func(t *testing.T) {
 		e := &stepEntry{
-			summary: ipc.StepSummaryWire{
+			Summary: ipc.StepSummaryWire{
 				Step:     2,
 				Action:   "tool_call",
 				Summary:  "failed write",
@@ -79,8 +79,8 @@ func TestStepToUnifiedEvent(t *testing.T) {
 	})
 
 	t.Run("index offsets produce monotonic timestamps", func(t *testing.T) {
-		e1 := &stepEntry{summary: ipc.StepSummaryWire{Step: 1, Action: "a", Summary: "s1"}}
-		e2 := &stepEntry{summary: ipc.StepSummaryWire{Step: 2, Action: "b", Summary: "s2"}}
+		e1 := &stepEntry{Summary: ipc.StepSummaryWire{Step: 1, Action: "a", Summary: "s1"}}
+		e2 := &stepEntry{Summary: ipc.StepSummaryWire{Step: 2, Action: "b", Summary: "s2"}}
 		baseTime := time.Now()
 		ue1 := stepToUnifiedEvent(e1, baseTime, 0)
 		ue2 := stepToUnifiedEvent(e2, baseTime, 1)
@@ -454,8 +454,8 @@ func TestMergeUnifiedEvents_FIFOEviction(t *testing.T) {
 func TestMergeUnifiedEvents_MergesAndSorts(t *testing.T) {
 	now := time.Now()
 	steps := []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "complete", Summary: "done"}},
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "complete", Summary: "done"}},
 	}
 	sysEvts := []UnifiedEvent{
 		{Type: EventSpawn, PID: 1, UUID: "uuid-1", Timestamp: now.Add(-10 * time.Second), Summary: "spawn"},
@@ -476,7 +476,7 @@ func TestMergeUnifiedEvents_MergesAndSorts(t *testing.T) {
 func TestMergeUnifiedEvents_FiltersBySelectedPID(t *testing.T) {
 	now := time.Now()
 	steps := []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
 	}
 	sysEvts := []UnifiedEvent{
 		{Type: EventSpawn, PID: 1, UUID: "uuid-1", Timestamp: now.Add(-10 * time.Second), Summary: "spawn pid 1"},
@@ -562,7 +562,7 @@ func TestUnifiedEvents_BackwardCompat(t *testing.T) {
 		t.Error("sysEventSeen should be initialized")
 	}
 	// Step entries and timeline should be unaffected
-	if m.stepEntries != nil {
+	if m.timeline.StepEntries != nil {
 		t.Error("stepEntries should be nil initially")
 	}
 }

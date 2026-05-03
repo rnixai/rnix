@@ -76,7 +76,7 @@ func TestATDD_36_6_AC1_EnterDiff(t *testing.T) {
 	m.inspectorDetail = makeDetail(3, "alpha\nbeta\ngamma")
 	m.inspectorPrevDetail = makeDetail(2, "alpha\nbeta\ngammA")
 	m.inspectorPrevStep = 2
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{
 		2: m.inspectorPrevDetail,
 		3: m.inspectorDetail,
 	}
@@ -159,7 +159,7 @@ func TestATDD_36_6_AC3_DdPickBase(t *testing.T) {
 	m.inspectorDetail = makeDetail(4, "x")
 	m.inspectorPrevDetail = makeDetail(3, "y")
 	m.inspectorPrevStep = 3
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{
 		3: m.inspectorPrevDetail,
 		4: m.inspectorDetail,
 	}
@@ -202,7 +202,7 @@ func TestATDD_36_6_AC4_ExitDiff(t *testing.T) {
 	m.inspectorDetail = makeDetail(2, "a")
 	m.inspectorPrevDetail = makeDetail(1, "b")
 	m.inspectorPrevStep = 1
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{1: m.inspectorPrevDetail, 2: m.inspectorDetail}
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{1: m.inspectorPrevDetail, 2: m.inspectorDetail}
 
 	// Enter diff via d.
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
@@ -240,7 +240,7 @@ func TestATDD_36_6_AC5_DiffCrossLens(t *testing.T) {
 	m.inspectorDetail = makeDetail(2, "a")
 	m.inspectorPrevDetail = makeDetail(1, "b")
 	m.inspectorPrevStep = 1
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{1: m.inspectorPrevDetail, 2: m.inspectorDetail}
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{1: m.inspectorPrevDetail, 2: m.inspectorDetail}
 
 	// Enter diff.
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
@@ -458,7 +458,7 @@ func TestATDD_36_6_AC15_FollowDiffMutex(t *testing.T) {
 	m.inspectorDetail = makeDetail(3, "a")
 	m.inspectorPrevDetail = makeDetail(2, "b")
 	m.inspectorPrevStep = 2
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{2: m.inspectorPrevDetail, 3: m.inspectorDetail}
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{2: m.inspectorPrevDetail, 3: m.inspectorDetail}
 	m.inspectorFollowLive = true
 
 	// `d` while Follow is on: disables Follow then enters Diff.
