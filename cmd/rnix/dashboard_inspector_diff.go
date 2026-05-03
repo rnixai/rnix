@@ -266,6 +266,9 @@ func (m dashboardModel) handleInspectorDiffKey() (tea.Model, tea.Cmd) {
 	m.inspectorDiffUnfolded = make(map[int]bool)
 	m.inspectorDiffDdDeadline = now.Add(ddWindow)
 
+	// Story 38-3 AC#7: prime diff-mark cache for tab indicators.
+	m.refreshInspectorDiffLensMarks()
+
 	// If base detail is already cached, re-render diff now; otherwise request it.
 	cmd := m.ensureDiffBaseDetailCmd()
 	m.rebuildInspectorContents()
@@ -317,6 +320,8 @@ func (m dashboardModel) slideDiffBase(newCurrent int) dashboardModel {
 	m.inspectorDiffBase = target
 	// Fold state is index-based over newly computed diff output; reset.
 	m.inspectorDiffUnfolded = make(map[int]bool)
+	// Story 38-3 AC#7: refresh diff-mark cache for tab indicators.
+	m.refreshInspectorDiffLensMarks()
 	return m
 }
 
@@ -344,6 +349,8 @@ func (m dashboardModel) handleDiffPickerKey(key string) (tea.Model, tea.Cmd) {
 			// Capture new delta so subsequent step moves slide correctly.
 			m.inspectorDiffDelta = m.inspectorStep - m.inspectorDiffBase
 			m.inspectorDiffUnfolded = make(map[int]bool)
+			// Story 38-3 AC#7: refresh diff-mark cache for tab indicators.
+			m.refreshInspectorDiffLensMarks()
 		}
 		m.inspectorDiffPicker = false
 		cmd := m.ensureDiffBaseDetailCmd()

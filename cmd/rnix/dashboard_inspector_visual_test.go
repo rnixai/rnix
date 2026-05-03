@@ -143,3 +143,273 @@ func rcLen(s string) int {
 	}
 	return n
 }
+
+// =============================================================================
+// PR2 tests — Step Rail / Thumbnail Bar / Lens Tabs / System changed / Meta
+// =============================================================================
+
+// TestRenderStepRail_FieldGrouping verifies Story 38-3 AC#6: the rail uses
+// pipe-separated field groups with role-specific colors.
+func TestRenderStepRail_FieldGrouping(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	m.width = 200
+	rail := m.renderStepRail(m.width)
+	stripped := stripANSIApprox(rail)
+
+	if !strings.Contains(stripped, "Step Inspector") {
+		t.Errorf("rail should contain 'Step Inspector' title; got %q", stripped)
+	}
+	if !strings.Contains(stripped, "│") {
+		t.Errorf("rail should use │ as field separator; got %q", stripped)
+	}
+	if !strings.Contains(stripped, "PID 2") {
+		t.Errorf("rail should contain PID; got %q", stripped)
+	}
+	if !strings.Contains(stripped, "Step 1/3") {
+		t.Errorf("rail should contain Step 1/3 form; got %q", stripped)
+	}
+	if !strings.Contains(stripped, "tool_call") {
+		t.Errorf("rail should contain action name; got %q", stripped)
+	}
+}
+
+func TestRenderStepRail_AsciiMode(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+	m := newTestInspectorModelWithDetail()
+	m.width = 200
+	rail := m.renderStepRail(m.width)
+	stripped := stripANSIApprox(rail)
+
+	if strings.Contains(stripped, "│") {
+		t.Errorf("ASCII rail should not contain │; got %q", stripped)
+	}
+	if !strings.Contains(stripped, "|") {
+		t.Errorf("ASCII rail should use | separator; got %q", stripped)
+	}
+}
+
+// TestRenderStepThumbnailBar_BasicGlyphs verifies Story 38-3 AC#6: glyph row
+// + number row, with correct color assignment for current/error/tool/reasoning.
+func TestRenderStepThumbnailBar_BasicGlyphs(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	m.inspectorSteps = []ipc.StepSummaryWire{
+		{Step: 1, ToolPath: "/dev/fs"},
+		{Step: 2, HasError: true},
+		{Step: 3},
+	}
+	m.inspectorStep = 2
+	m.width = 80
+	bar := m.renderStepThumbnailBar(m.width)
+	stripped := stripANSIApprox(bar)
+
+	if !strings.Contains(stripped, "◆") {
+		t.Errorf("thumbnail should contain ◆ glyph; got %q", stripped)
+	}
+	if !strings.Contains(stripped, "1") || !strings.Contains(stripped, "2") || !strings.Contains(stripped, "3") {
+		t.Errorf("thumbnail should contain step numbers 1/2/3; got %q", stripped)
+	}
+}
+
+// TestRenderStepThumbnailBar_AsciiMode degrades glyphs to */./+ in ASCII mode.
+func TestRenderStepThumbnailBar_AsciiMode(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+	m := newTestInspectorModelWithDetail()
+	m.inspectorSteps = []ipc.StepSummaryWire{{Step: 1}, {Step: 2}}
+	m.inspectorStep = 1
+	bar := m.renderStepThumbnailBar(80)
+	stripped := stripANSIApprox(bar)
+
+	if strings.Contains(stripped, "◆") || strings.Contains(stripped, "◇") {
+		t.Errorf("ASCII thumbnail should not contain unicode glyphs; got %q", stripped)
+	}
+	if !strings.Contains(stripped, "*") {
+		t.Errorf("ASCII thumbnail should use *; got %q", stripped)
+	}
+}
+
+// TestRenderStepThumbnailBar_CompressionWindow verifies Story 38-3 AC#6:
+// step counts > 50 are compressed into head/tail windows around current step.
+func TestRenderStepThumbnailBar_CompressionWindow(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	steps := make([]ipc.StepSummaryWire, 100)
+	for i := range steps {
+		steps[i] = ipc.StepSummaryWire{Step: i + 1}
+	}
+	m.inspectorSteps = steps
+
+	t.Run("current_in_middle", func(t *testing.T) {
+		m.inspectorStep = 50
+		bar := m.renderStepThumbnailBar(200)
+		stripped := stripANSIApprox(bar)
+		if !strings.Contains(stripped, "…") {
+			t.Errorf("compressed bar should contain ellipsis on both sides; got %q", stripped)
+		}
+		if !strings.Contains(stripped, "50") {
+			t.Errorf("compressed bar should center current step 50; got %q", stripped)
+		}
+	})
+
+	t.Run("current_at_start", func(t *testing.T) {
+		m.inspectorStep = 2
+		bar := m.renderStepThumbnailBar(200)
+		stripped := stripANSIApprox(bar)
+		if !strings.Contains(stripped, "…") {
+			t.Errorf("compressed bar should contain trailing ellipsis; got %q", stripped)
+		}
+	})
+}
+
+// TestRenderLensTabs_TwoSpaceSeparator verifies Story 38-3 AC#7: tab separator
+// is now 2 spaces (was 1).
+func TestRenderLensTabs_TwoSpaceSeparator(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	tabs := m.renderLensTabs(200)
+	stripped := stripANSIApprox(tabs)
+	// Expect at least one occurrence of "  " (double space) between tabs.
+	if !strings.Contains(stripped, "  ") {
+		t.Errorf("lens tabs should use 2-space separator; got %q", stripped)
+	}
+}
+
+// TestRenderLensTabs_DiffMark verifies Story 38-3 AC#7: tabs whose lens
+// content differs in diff mode get a `*` suffix.
+func TestRenderLensTabs_DiffMark(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	m.inspectorDiffMode = true
+	// Manually populate the diff mark cache: pretend lens 0 and 2 differ.
+	m.inspectorDiffLensMarks[0] = true
+	m.inspectorDiffLensMarks[2] = true
+	tabs := m.renderLensTabs(200)
+	stripped := stripANSIApprox(tabs)
+	if !strings.Contains(stripped, "*") {
+		t.Errorf("diff-mode tabs should contain `*` marker; got %q", stripped)
+	}
+}
+
+func TestRenderLensTabs_NoDiffMarkWhenInactive(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	m.inspectorDiffMode = false
+	m.inspectorDiffLensMarks[0] = true // should be ignored when not in diff mode
+	tabs := m.renderLensTabs(200)
+	stripped := stripANSIApprox(tabs)
+	if strings.Contains(stripped, "*") {
+		t.Errorf("non-diff-mode tabs should not contain `*` marker; got %q", stripped)
+	}
+}
+
+// TestBuildSystemLens_ChangedDelta verifies Story 38-3 AC#3: changed system
+// prompt shows "⚠ changed from step N (+/-X chars)" header.
+func TestBuildSystemLens_ChangedDelta(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	m.inspectorPrevStep = 0
+	m.inspectorStep = 1
+	prev := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
+	cur := &ipc.GetStepDetailResponse{SystemPrompt: "abc + 272 more chars" + strings.Repeat("x", 250)}
+
+	t.Run("positive_delta", func(t *testing.T) {
+		content := m.buildLensContent(lensSystem, cur, prev)
+		stripped := stripANSIApprox(content)
+		if !strings.Contains(stripped, "changed from step 0") {
+			t.Errorf("changed path should mention 'changed from step N'; got %q", stripped)
+		}
+		if !strings.Contains(stripped, "+") {
+			t.Errorf("positive delta should show + sign; got %q", stripped)
+		}
+	})
+
+	t.Run("negative_delta", func(t *testing.T) {
+		shorter := &ipc.GetStepDetailResponse{SystemPrompt: "ab"}
+		content := m.buildLensContent(lensSystem, shorter, prev)
+		stripped := stripANSIApprox(content)
+		if !strings.Contains(stripped, "-") {
+			t.Errorf("negative delta should show - sign; got %q", stripped)
+		}
+	})
+
+	t.Run("first_step_no_annotation", func(t *testing.T) {
+		m2 := newTestInspectorModelWithDetail()
+		m2.inspectorStep = 0
+		content := m2.buildLensContent(lensSystem, cur, nil)
+		stripped := stripANSIApprox(content)
+		if strings.Contains(stripped, "changed from step") {
+			t.Errorf("first step should not include changed annotation; got %q", stripped)
+		}
+	})
+
+	t.Run("unchanged_preserves_legacy_text", func(t *testing.T) {
+		m2 := newTestInspectorModelWithDetail()
+		m2.inspectorPrevStep = 0
+		m2.inspectorStep = 1
+		same := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
+		samePrev := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
+		content := m2.buildLensContent(lensSystem, same, samePrev)
+		stripped := stripANSIApprox(content)
+		if !strings.Contains(stripped, "unchanged from step 0") {
+			t.Errorf("unchanged path must preserve legacy 'unchanged from step N' text; got %q", stripped)
+		}
+	})
+}
+
+// TestBuildMetaLens_ThreeSections verifies Story 38-3 AC#4: meta lens has
+// three labeled sections separated by horizontal rules.
+func TestBuildMetaLens_ThreeSections(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+	stripped := stripANSIApprox(content)
+	for _, title := range []string{"Tokens", "Action", "Counts"} {
+		if !strings.Contains(stripped, title) {
+			t.Errorf("meta lens should contain section %q; got %q", title, stripped)
+		}
+	}
+}
+
+// TestBuildMetaLens_TokenBarChart verifies Story 38-3 AC#4: token bar uses
+// █░ block chars (or # / . in ASCII).
+func TestBuildMetaLens_TokenBarChart(t *testing.T) {
+	t.Run("unicode", func(t *testing.T) {
+		m := newTestInspectorModelWithDetail()
+		// Bump tokens above the ~10K threshold so the bar shows at least 1
+		// filled cell (1500/200000 = <1 cell).
+		m.inspectorDetail.RequestTokens = 50000
+		content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+		stripped := stripANSIApprox(content)
+		if !strings.Contains(stripped, "█") || !strings.Contains(stripped, "░") {
+			t.Errorf("unicode meta lens should contain █ and ░ bar chars; got %q", stripped)
+		}
+	})
+
+	t.Run("ascii", func(t *testing.T) {
+		t.Setenv("RNIX_ASCII", "1")
+		m := newTestInspectorModelWithDetail()
+		m.inspectorDetail.RequestTokens = 50000
+		content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+		stripped := stripANSIApprox(content)
+		if strings.Contains(stripped, "█") {
+			t.Errorf("ASCII meta lens should not contain █; got %q", stripped)
+		}
+		if !strings.Contains(stripped, "#") || !strings.Contains(stripped, ".") {
+			t.Errorf("ASCII meta lens should contain # and . bar chars; got %q", stripped)
+		}
+	})
+}
+
+// TestBuildMetaLens_ZeroTokens verifies Story 38-3 AC#4: when all token
+// counts are zero, Tokens section collapses to '(no data)' instead of 0-bars.
+func TestBuildMetaLens_ZeroTokens(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	detail := &ipc.GetStepDetailResponse{
+		Step:           1,
+		Action:         "noop",
+		RequestTokens:  0,
+		ResponseTokens: 0,
+		TokenCount:     0,
+	}
+	content := m.buildLensContent(lensMeta, detail, nil)
+	stripped := stripANSIApprox(content)
+	if !strings.Contains(stripped, "no data") {
+		t.Errorf("zero-token meta lens should show '(no data)'; got %q", stripped)
+	}
+	if strings.Contains(stripped, "0.0%") {
+		t.Errorf("zero-token meta lens should not render 0%% bar; got %q", stripped)
+	}
+}

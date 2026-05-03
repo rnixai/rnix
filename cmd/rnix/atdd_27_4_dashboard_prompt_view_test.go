@@ -443,10 +443,25 @@ m := newTestInspectorModelWithDetail()
 m.height = 40
 
 h := m.inspectorContentHeight()
-// stepRail(2) + lensTabs(1) + footer(1) = 4 overhead
-expected := 36
+// Story 38-3 AC#6: when h>=20 the Inspector reserves an extra 2-line
+// thumbnail bar block + 1 spacing line. Total overhead = stepRail(1) +
+// thumbnailBar(2) + lensTabs(1) + footer(1) + spacing(1) = 6.
+expected := 34
 if h != expected {
 t.Errorf("inspectorContentHeight() with height=40 should be %d, got %d", expected, h)
+}
+}
+
+// --- 38.3-AC6: Short terminal hides thumbnail bar ---
+
+func TestInspector_ContentHeightCalculation_ShortTerminal(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+m.height = 18 // < 20 → thumbnail bar hidden, legacy 4-line chrome restored
+
+h := m.inspectorContentHeight()
+expected := 14 // 18 - 4
+if h != expected {
+t.Errorf("inspectorContentHeight() with height=18 should be %d, got %d", expected, h)
 }
 }
 

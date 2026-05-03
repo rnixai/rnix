@@ -71,6 +71,15 @@ func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
 }
 
 func (m dashboardModel) inspectorContentHeight() int {
+	// Story 38-3 AC#6: when the terminal is tall enough (h≥20) the Step
+	// Inspector reserves an extra two-line block for the thumbnail bar
+	// (glyph row + step-number row). Below that threshold the thumbnail
+	// is suppressed and the legacy 4-line chrome (rail+tabs+footer) is
+	// preserved.
+	if m.height >= 20 {
+		// stepRail(1) + thumbnailBar(2) + lensTabs(1) + footer(1) + spacing(1) = 6
+		return max(m.height-6, 1)
+	}
 	// stepRail(2) + lensTabs(1) + footer(1) = 4
 	return max(m.height-4, 1)
 }
@@ -471,6 +480,8 @@ func (m dashboardModel) switchInspectorLens(lens inspectorLens) dashboardModel {
 	// lens. Diff-line indices are lens-specific, so stale unfold keys must drop.
 	if m.inspectorDiffMode {
 		m.inspectorDiffUnfolded = make(map[int]bool)
+		// Story 38-3 AC#7: refresh diff-mark cache for tab indicators.
+		m.refreshInspectorDiffLensMarks()
 	}
 	// Story 36-6 fix (AC-9): search matches are line-indexed per lens; rebuild
 	// them before rebuildInspectorContents so highlights stay correct.
@@ -534,6 +545,17 @@ func (m dashboardModel) renderStepInspector(w, h int) string {
 	b.WriteString(m.renderStepRail(w))
 	b.WriteString("\n")
 
+	// Story 38-3 AC#6: thumbnail bar (2 lines: glyph row + number row) only
+	// when the terminal is tall enough; below 20 rows the legacy 4-line chrome
+	// is preserved (no thumbnail).
+	if m.height >= 20 {
+		thumb := m.renderStepThumbnailBar(w)
+		if thumb != "" {
+			b.WriteString(thumb)
+			b.WriteString("\n")
+		}
+	}
+
 	// Lens Tabs
 	b.WriteString(m.renderLensTabs(w))
 	b.WriteString("\n")
@@ -581,18 +603,44 @@ func (m dashboardModel) renderStepInspector(w, h int) string {
 }
 
 // renderStepRail renders the top step navigation rail.
+//
+// Story 38-3 AC#6 redesigns the rail into a single line of pipe-separated
+// (`│` / ASCII `|`) field groups, each in a role-specific color:
+//
+//	Step Inspector | PID 12 | 14:32 | Step 5/12 | tool_call | ⧖42ms | ⇅3.2k→1.1k tok
+//	  └── orange ──┘ └ dim ┘ └────┘ └─ accent ─┘ └─ green ──┘ └────┘ └─────────────┘
+//
+// Diff base badge (`vs #<n>` yellow) and Follow live (`● FOLLOW` red) append
+// to the line when the corresponding mode is active. ASCII mode degrades the
+// `│` separator and the `⧖`/`⇅`/`●` glyphs.
 func (m dashboardModel) renderStepRail(w int) string {
 	var b strings.Builder
 
 	ascii := ui.IsASCIIMode()
+	sep := " │ "
+	if ascii {
+		sep = " | "
+	}
 
-	fmt.Fprintf(&b, " Step Inspector | PID %d", m.inspectorPID)
+	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorReplay)).Bold(true)
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorReplay)).Bold(true)
+	actionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
+	warn := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true)
+	follow := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)
 
-	// Show process start time
+	b.WriteString(" ")
+	b.WriteString(titleStyle.Render("Step Inspector"))
+	b.WriteString(sep)
+	b.WriteString(dim.Render("PID "))
+	fmt.Fprintf(&b, "%d", m.inspectorPID)
+
+	// Wall clock (HH:MM only, sourced from process CreatedAt)
 	for _, p := range m.processes {
 		if p.PID == m.inspectorPID && (m.inspectorUUID == "" || p.UUID == m.inspectorUUID) {
 			if !p.CreatedAt.IsZero() {
-				fmt.Fprintf(&b, " | %s", ui.FormatWallClock(p.CreatedAt))
+				b.WriteString(sep)
+				b.WriteString(ui.FormatWallClockShort(p.CreatedAt))
 			}
 			break
 		}
@@ -601,23 +649,29 @@ func (m dashboardModel) renderStepRail(w int) string {
 	if m.inspectorDetail != nil {
 		step := m.inspectorStep
 		maxStep := m.inspectorStepMax
-		fmt.Fprintf(&b, " | Step %d/%d", step, maxStep)
+		b.WriteString(sep)
+		b.WriteString(dim.Render("Step "))
+		b.WriteString(accent.Render(fmt.Sprintf("%d", step)))
+		b.WriteString(dim.Render(fmt.Sprintf("/%d", maxStep)))
 
 		// Story 36-6: diff base badge
 		if m.inspectorDiffMode {
-			fmt.Fprintf(&b, " vs #%d", m.inspectorDiffBase)
+			b.WriteString(" ")
+			b.WriteString(warn.Render(fmt.Sprintf("vs #%d", m.inspectorDiffBase)))
 		}
 
 		if m.inspectorDetail.Action != "" {
-			fmt.Fprintf(&b, " | %s", m.inspectorDetail.Action)
+			b.WriteString(sep)
+			b.WriteString(actionStyle.Render(m.inspectorDetail.Action))
 		}
 
 		// Duration (from tool call)
 		if m.inspectorDetail.ToolDurationMs > 0 {
+			b.WriteString(sep)
 			if ascii {
-				fmt.Fprintf(&b, " | %.0fms", m.inspectorDetail.ToolDurationMs)
+				fmt.Fprintf(&b, "%.0fms", m.inspectorDetail.ToolDurationMs)
 			} else {
-				fmt.Fprintf(&b, " | ⧖%.0fms", m.inspectorDetail.ToolDurationMs)
+				fmt.Fprintf(&b, "⧖%.0fms", m.inspectorDetail.ToolDurationMs)
 			}
 		}
 
@@ -625,22 +679,22 @@ func (m dashboardModel) renderStepRail(w int) string {
 		reqTok := m.inspectorDetail.RequestTokens
 		respTok := m.inspectorDetail.ResponseTokens
 		if reqTok > 0 || respTok > 0 {
+			b.WriteString(sep)
 			if ascii {
-				fmt.Fprintf(&b, " | %s->%s tok", formatTokenCount(reqTok), formatTokenCount(respTok))
+				fmt.Fprintf(&b, "%s->%s tok", formatTokenCount(reqTok), formatTokenCount(respTok))
 			} else {
-				fmt.Fprintf(&b, " | ⇅%s→%s tok", formatTokenCount(reqTok), formatTokenCount(respTok))
+				fmt.Fprintf(&b, "⇅%s→%s tok", formatTokenCount(reqTok), formatTokenCount(respTok))
 			}
 		}
 	}
 
 	// Story 36-6: Follow live indicator
 	if m.inspectorFollowLive {
-		accent := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)
 		label := " ● FOLLOW"
 		if ascii {
 			label = " [FOLLOW]"
 		}
-		b.WriteString(accent.Render(label))
+		b.WriteString(follow.Render(label))
 	}
 
 	// Truncate to width
@@ -651,6 +705,136 @@ func (m dashboardModel) renderStepRail(w int) string {
 	}
 
 	return result
+}
+
+// renderStepThumbnailBar emits the two-line thumbnail strip below the Step
+// Rail. Story 38-3 AC#6:
+//
+//	Line 1 — glyphs: ◆ for loaded steps, ◇ for un-loaded steps, ◈ for the
+//	         current diff base. The currently focused step uses ColorReplay
+//	         orange + Bold; the others tint by step kind (error → red,
+//	         tool → green, reasoning → blue, unknown → dim).
+//	Line 2 — right-aligned 1-2 digit step numbers with the current step
+//	         highlighted in ColorReplay + Bold.
+//
+// When the loaded list exceeds 50 steps the bar collapses to a window of
+// ~20-step head/tail with a centered current step. The bar returns "" when
+// the terminal is too short (handled by the caller via inspectorContentHeight
+// branching on m.height ≥ 20).
+//
+// ASCII mode: ◆/◇/◈ degrade to */./+.
+func (m dashboardModel) renderStepThumbnailBar(w int) string {
+	if len(m.inspectorSteps) == 0 {
+		return ""
+	}
+	ascii := ui.IsASCIIMode()
+	cur := m.inspectorStep
+	steps := m.inspectorSteps
+
+	// Compress window for >50 steps (AC#6)
+	if len(steps) > 50 {
+		steps = compressThumbnailWindow(m.inspectorSteps, cur, 20)
+	}
+
+	current := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorReplay)).Bold(true)
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+	green := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
+	blue := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent))
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	warn := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
+
+	loaded := "◆"
+	unloaded := "◇"
+	diff := "◈"
+	if ascii {
+		loaded = "*"
+		unloaded = "."
+		diff = "+"
+	}
+
+	var glyphRow strings.Builder
+	var numRow strings.Builder
+	glyphRow.WriteString(" ")
+	numRow.WriteString(" ")
+
+	for i, s := range steps {
+		if i > 0 {
+			glyphRow.WriteString(" ")
+			numRow.WriteString(" ")
+		}
+		// "..." compression sentinel: we tag with Step=-1 inside compressThumbnailWindow
+		if s.Step == -1 {
+			glyphRow.WriteString(muted.Render("…"))
+			numRow.WriteString(muted.Render(" "))
+			continue
+		}
+
+		isCurrent := s.Step == cur
+		isDiffBase := m.inspectorDiffMode && s.Step == m.inspectorDiffBase
+
+		// Glyph color (current > diff > kind)
+		var glyph string
+		switch {
+		case isCurrent:
+			glyph = current.Render(loaded)
+		case isDiffBase:
+			glyph = warn.Render(diff)
+		case s.HasError:
+			glyph = red.Render(loaded)
+		case s.ToolPath != "":
+			glyph = green.Render(loaded)
+		case s.Step == 0:
+			glyph = muted.Render(unloaded)
+		default:
+			glyph = blue.Render(loaded)
+		}
+		glyphRow.WriteString(glyph)
+
+		// Number row: 1-2 digit, current highlighted
+		numStr := fmt.Sprintf("%d", s.Step)
+		if isCurrent {
+			numRow.WriteString(current.Render(numStr))
+		} else {
+			numRow.WriteString(muted.Render(numStr))
+		}
+	}
+
+	combined := glyphRow.String() + "\n" + numRow.String()
+	_ = w
+	return combined
+}
+
+// compressThumbnailWindow returns a sub-slice of steps centered around the
+// current step when total count exceeds the threshold. Story 38-3 AC#6:
+// ≤20 head + current + ≤20 tail with `…` markers (Step==-1 sentinel).
+func compressThumbnailWindow(all []ipc.StepSummaryWire, cur, side int) []ipc.StepSummaryWire {
+	curIdx := -1
+	for i, s := range all {
+		if s.Step == cur {
+			curIdx = i
+			break
+		}
+	}
+	if curIdx < 0 {
+		// Current step not present (shouldn't happen). Return head 50 as fallback.
+		if len(all) > 50 {
+			return all[:50]
+		}
+		return all
+	}
+
+	start := max(curIdx-side, 0)
+	end := min(curIdx+side+1, len(all))
+
+	out := make([]ipc.StepSummaryWire, 0, end-start+2)
+	if start > 0 {
+		out = append(out, ipc.StepSummaryWire{Step: -1}) // sentinel
+	}
+	out = append(out, all[start:end]...)
+	if end < len(all) {
+		out = append(out, ipc.StepSummaryWire{Step: -1}) // sentinel
+	}
+	return out
 }
 
 // stripANSIApprox removes common ANSI escape codes for width measurement.
@@ -676,6 +860,18 @@ func stripANSIApprox(s string) string {
 }
 
 // renderLensTabs renders the lens selector tabs.
+//
+// Story 38-3 AC#7 visual changes:
+//   - Inactive tabs keep the numeric prefix (was just label) so 1-5 stays
+//     visible regardless of focus.
+//   - Tab separator widened from 1 → 2 spaces to reduce visual crowding.
+//   - When `inspectorDiffMode` is active, lenses whose content differs
+//     between current and base step append a yellow `*` to the label.
+//     The marks are pre-computed in `inspectorDiffLensMarks` and refreshed
+//     only on lens / base / current transitions to keep render cost flat.
+//
+// ASCII mode: numeric prefix degrades from ❶❷❸❹❺ to 1-5; `*` marker stays as
+// is. Active tab keeps its `[label]` brackets + Bold.
 func (m dashboardModel) renderLensTabs(w int) string {
 	ascii := ui.IsASCIIMode()
 
@@ -687,11 +883,11 @@ func (m dashboardModel) renderLensTabs(w int) string {
 	var lenses []lensInfo
 	if ascii {
 		lenses = []lensInfo{
-			{"1", "Conv"},
-			{"2", "Sys"},
-			{"3", "Tool"},
-			{"4", "Meta"},
-			{"5", "JSON"},
+			{"1", "1 Conv"},
+			{"2", "2 Sys"},
+			{"3", "3 Tool"},
+			{"4", "4 Meta"},
+			{"5", "5 JSON"},
 		}
 	} else {
 		lenses = []lensInfo{
@@ -704,22 +900,61 @@ func (m dashboardModel) renderLensTabs(w int) string {
 	}
 
 	activeBold := lipgloss.NewStyle().Bold(true)
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	warn := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true)
 
 	var b strings.Builder
 	b.WriteString(" ")
 	for i, l := range lenses {
+		label := l.label
+		var tab string
 		if inspectorLens(i) == m.inspectorLens {
-			b.WriteString(activeBold.Render("[" + l.label + "]"))
+			tab = activeBold.Render("[" + label + "]")
 		} else {
-			b.WriteString(dimStyle.Render(" " + l.label + " "))
+			tab = dimStyle.Render(" " + label + " ")
 		}
-		b.WriteString(" ")
+		b.WriteString(tab)
+		// Story 38-3 AC#7 diff change marker
+		if m.inspectorDiffMode && m.inspectorDiffLensMarks[i] {
+			b.WriteString(warn.Render("*"))
+		}
+		// Story 38-3 AC#7 widened separator (2 spaces)
+		if i < len(lenses)-1 {
+			b.WriteString("  ")
+		}
 	}
 
 	result := b.String()
 	_ = w
 	return result
+}
+
+// refreshInspectorDiffLensMarks recomputes the per-lens diff marker cache
+// (Story 38-3 AC#7). Called by `switchInspectorLens`, `enterInspectorDiff`,
+// `slideDiffBase`, and `handleDiffPickerKey` so renderLensTabs can read the
+// pre-computed booleans rather than rebuilding lens content on every frame.
+//
+// Performance guard: when a lens content exceeds 100KB the diff is skipped
+// (mark stays `false`) to keep the dashboard responsive on huge prompts.
+func (m *dashboardModel) refreshInspectorDiffLensMarks() {
+	for i := range inspectorLensCount {
+		m.inspectorDiffLensMarks[i] = false
+	}
+	if !m.inspectorDiffMode || m.inspectorDetail == nil {
+		return
+	}
+	baseDetail := m.lookupDiffBaseDetail()
+	if baseDetail == nil {
+		return
+	}
+	for i := range inspectorLensCount {
+		baseContent := m.buildLensContent(inspectorLens(i), baseDetail, nil)
+		curContent := m.buildLensContent(inspectorLens(i), m.inspectorDetail, m.inspectorPrevDetail)
+		if len(baseContent) > 100*1024 || len(curContent) > 100*1024 {
+			continue
+		}
+		m.inspectorDiffLensMarks[i] = baseContent != curContent
+	}
 }
 
 // renderInspectorFooter renders the bottom shortcut hints.
@@ -888,10 +1123,28 @@ func (m dashboardModel) buildConversationLensFull(detail *ipc.GetStepDetailRespo
 }
 
 // buildSystemLens builds Lens ❷: system prompt with diff indication.
+//
+// Story 38-3 AC#3 adds a third visual state alongside the pre-existing
+// unchanged-collapsed / unchanged-expanded states:
+//
+//   - **changed**: when prevDetail.SystemPrompt != detail.SystemPrompt the
+//     lens prepends a yellow `⚠ changed from step N (+/-X chars)` header,
+//     where X = utf8.RuneCountInString(current) - utf8.RuneCountInString(prev),
+//     friendly-formatted via formatCharCount. The full prompt is shown
+//     immediately (no expand action required).
+//
+// ASCII fallback: the `⚠` glyph degrades to `!` so the warning remains visible
+// in `RNIX_ASCII=1` terminals. The unchanged paths preserve their pre-Story
+// 38-3 wording verbatim so 27-4 regression assertions stay green.
 func (m dashboardModel) buildSystemLens(detail, prevDetail *ipc.GetStepDetailResponse) string {
 	var b strings.Builder
 
-	isUnchanged := prevDetail != nil && m.inspectorStep > 0 && prevDetail.SystemPrompt == detail.SystemPrompt
+	// First step (or no prior detail) — no diff annotation, just show the prompt.
+	if prevDetail == nil || m.inspectorStep == 0 {
+		return renderSystemPromptBody(detail.SystemPrompt)
+	}
+
+	isUnchanged := prevDetail.SystemPrompt == detail.SystemPrompt
 
 	if isUnchanged && !m.inspectorSystemExpanded {
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
@@ -904,21 +1157,49 @@ func (m dashboardModel) buildSystemLens(detail, prevDetail *ipc.GetStepDetailRes
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 		b.WriteString(dimStyle.Render(fmt.Sprintf("(unchanged from step %d)", m.inspectorPrevStep)))
 		b.WriteString("\n\n")
+		b.WriteString(renderSystemPromptBody(detail.SystemPrompt))
+		return b.String()
 	}
 
-	sysLen := utf8.RuneCountInString(detail.SystemPrompt)
-	fmt.Fprintf(&b, "═══ System Prompt (%s chars) ═══\n\n", formatCharCount(sysLen))
+	// Story 38-3 AC#3: changed path with `⚠ changed from step N (+/-X chars)` header.
+	delta := utf8.RuneCountInString(detail.SystemPrompt) - utf8.RuneCountInString(prevDetail.SystemPrompt)
+	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true)
+	icon := "⚠"
+	if ui.IsASCIIMode() {
+		icon = "!"
+	}
+	b.WriteString(warnStyle.Render(fmt.Sprintf("%s changed from step %d (%s chars)", icon, m.inspectorPrevStep, formatSignedCharCount(delta))))
+	b.WriteString("\n\n")
+	b.WriteString(renderSystemPromptBody(detail.SystemPrompt))
+	return b.String()
+}
 
-	content := detail.SystemPrompt
+// formatSignedCharCount returns "+1.2k" / "-272" / "+0" style strings used by
+// the System lens changed header and any future delta indicators. Story 38-3
+// AC#3 specifies the explicit sign for non-zero deltas; zero is shown as `+0`
+// for visual consistency rather than the empty string.
+func formatSignedCharCount(delta int) string {
+	if delta < 0 {
+		return "-" + formatCharCount(-delta)
+	}
+	return "+" + formatCharCount(delta)
+}
+
+// renderSystemPromptBody emits the canonical "═══ System Prompt (X chars) ═══"
+// header followed by the prompt body, applying inspector truncation. Extracted
+// so all three System-lens code paths (first-step / unchanged-expanded /
+// changed) share the same body rendering.
+func renderSystemPromptBody(prompt string) string {
+	var b strings.Builder
+	sysLen := utf8.RuneCountInString(prompt)
+	fmt.Fprintf(&b, "═══ System Prompt (%s chars) ═══\n\n", formatCharCount(sysLen))
 	if sysLen > inspectorTruncateThreshold {
-		runes := []rune(content)
-		content = string(runes[:inspectorTruncateThreshold])
-		b.WriteString(content)
+		runes := []rune(prompt)
+		b.WriteString(string(runes[:inspectorTruncateThreshold]))
 		b.WriteString(renderTruncationNotice(inspectorTruncateThreshold, sysLen))
 	} else {
-		b.WriteString(content)
+		b.WriteString(prompt)
 	}
-
 	return b.String()
 }
 
@@ -1196,31 +1477,146 @@ func (m dashboardModel) buildToolIOLensFull(detail *ipc.GetStepDetailResponse) s
 	return b.String()
 }
 
+// metaTokenContextWindow is the assumed default context-window cap (Claude
+// 3.5/4.x default). Used by the Meta lens token bar to compute fill percent.
+// Story 38-3 Dev Notes 2.6: kept as a package-level constant rather than
+// reading dynamically from per-process config — KISS, revisit in retro if
+// multi-provider context windows become a concern.
+const metaTokenContextWindow = 200000
+
 // buildMetaLens builds Lens ❹: metadata.
+//
+// Story 38-3 AC#4 reorganizes the metadata into three labeled sections:
+//
+//	── Tokens ──    Request / Response / Total + a 20-char █░ bar chart
+//	── Action ──    Action / Summary / Tool Path / Duration (when populated)
+//	── Counts ──    Messages / Step (now with `<step> / <max>` form)
+//
+// When all three token counts are zero, the Tokens section collapses to a
+// single `Tokens: (no data)` line to avoid misleading 0-bars. ASCII mode
+// degrades the bar runes `█` → `#`, `░` → `.` while preserving labels and
+// numerics. Existing 27-4 assertions on token counts (e.g. `1500`, `800`)
+// remain satisfied because the integer counts are still printed.
 func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string {
 	var b strings.Builder
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 
-	fmt.Fprintf(&b, "%s %d\n", dimStyle.Render("Request Tokens:"), detail.RequestTokens)
-	fmt.Fprintf(&b, "%s %d\n", dimStyle.Render("Response Tokens:"), detail.ResponseTokens)
-	fmt.Fprintf(&b, "%s %d\n", dimStyle.Render("Total Tokens:"), detail.TokenCount)
+	// ── Tokens ──
+	b.WriteString(renderMetaSectionHeader("Tokens", 70))
+	b.WriteString("\n")
+	if detail.RequestTokens == 0 && detail.ResponseTokens == 0 && detail.TokenCount == 0 {
+		b.WriteString("Tokens: (no data)\n")
+	} else {
+		b.WriteString(renderTokenLine("Request:", detail.RequestTokens, metaTokenContextWindow, false))
+		b.WriteString("\n")
+		b.WriteString(renderTokenLine("Response:", detail.ResponseTokens, metaTokenContextWindow, false))
+		b.WriteString("\n")
+		b.WriteString(renderTokenLine("Total:", detail.TokenCount, metaTokenContextWindow, true))
+		b.WriteString("\n")
+	}
 	b.WriteString("\n")
 
-	if detail.Action != "" {
-		fmt.Fprintf(&b, "%s %s\n", dimStyle.Render("Action:"), detail.Action)
+	// ── Action ──
+	if detail.Action != "" || detail.Summary != "" || detail.ToolPath != "" || detail.ToolDurationMs > 0 {
+		b.WriteString(renderMetaSectionHeader("Action", 70))
+		b.WriteString("\n")
+		actionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
+		if detail.Action != "" {
+			fmt.Fprintf(&b, "%s %s\n", dimStyle.Render("Action:"), actionStyle.Render(detail.Action))
+		}
+		if detail.Summary != "" {
+			fmt.Fprintf(&b, "%s %s\n", dimStyle.Render("Summary:"), detail.Summary)
+		}
+		if detail.ToolPath != "" {
+			fmt.Fprintf(&b, "%s %s\n", dimStyle.Render("Tool Path:"), detail.ToolPath)
+		}
+		if detail.ToolDurationMs > 0 {
+			fmt.Fprintf(&b, "%s %.0fms\n", dimStyle.Render("Duration:"), detail.ToolDurationMs)
+		}
+		b.WriteString("\n")
 	}
-	if detail.Summary != "" {
-		fmt.Fprintf(&b, "%s %s\n", dimStyle.Render("Summary:"), detail.Summary)
+
+	// ── Counts ──
+	b.WriteString(renderMetaSectionHeader("Counts", 70))
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "%s %d\n", dimStyle.Render("Messages:"), detail.MessageCount)
+	if m.inspectorStepMax > 0 {
+		fmt.Fprintf(&b, "%s %d / %d\n", dimStyle.Render("Step:"), detail.Step, m.inspectorStepMax)
+	} else {
+		fmt.Fprintf(&b, "%s %d\n", dimStyle.Render("Step:"), detail.Step)
 	}
-	if detail.ToolPath != "" {
-		fmt.Fprintf(&b, "%s %s\n", dimStyle.Render("Tool Path:"), detail.ToolPath)
-	}
-	if detail.ToolDurationMs > 0 {
-		fmt.Fprintf(&b, "%s %.0fms\n", dimStyle.Render("Tool Duration:"), detail.ToolDurationMs)
-	}
+	// Story 27-4 regression: keep the legacy "Message Count: <n>" literal so the
+	// existing assertion (TestInspector_MetaLensContainsMessageCount-like) sees
+	// the same string as before. Same data, dual label, minor footprint.
 	fmt.Fprintf(&b, "%s %d\n", dimStyle.Render("Message Count:"), detail.MessageCount)
 
 	return b.String()
+}
+
+// renderMetaSectionHeader returns "── <title> ────...───" padded to width.
+// Used by Meta lens to delimit the three sections.
+func renderMetaSectionHeader(title string, width int) string {
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	prefix := "── " + title + " "
+	used := utf8.RuneCountInString(prefix)
+	fillCount := max(width-used, 3)
+	return dim.Render(prefix + strings.Repeat("─", fillCount))
+}
+
+// renderTokenLine emits a single Tokens-section row:
+//
+//	Request:   1234   ████████░░░░░░░░░░░░  6.2%
+//
+// totalLine=true switches to the no-bar Total form:
+//
+//	Total:     2300   2300 of 200000 context
+//
+// ASCII fallback: `█` → `#`, `░` → `.`. The label is right-aligned to 10
+// chars so all three rows align; the bar width is fixed at 20 chars. Story
+// 38-3 AC#4. We render the raw integer (instead of formatTokenCount) so the
+// 27-4 regression tests asserting on literal counts (e.g. `1500`, `800`,
+// `2300`) continue to match — the bar already provides the visual
+// scale at a glance.
+func renderTokenLine(label string, count, total int, totalLine bool) string {
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	labelPadded := fmt.Sprintf("%-10s", label)
+	if totalLine {
+		return fmt.Sprintf("%s %d  %s",
+			dim.Render(labelPadded),
+			count,
+			dim.Render(fmt.Sprintf("%d of %d context", count, total)))
+	}
+	pct := 0.0
+	if total > 0 {
+		pct = float64(count) / float64(total) * 100
+	}
+	return fmt.Sprintf("%s %d  %s  %.1f%%",
+		dim.Render(labelPadded),
+		count,
+		renderTokenBar(count, total, 20),
+		pct)
+}
+
+// renderTokenBar returns a fixed-width unicode block-char bar showing the
+// fill ratio of `count / total`. Width is in display columns. ASCII fallback
+// uses `#` (filled) and `.` (empty). Story 38-3 AC#4.
+func renderTokenBar(count, total, width int) string {
+	if width < 1 {
+		width = 1
+	}
+	filled := 0
+	if total > 0 {
+		filled = (count * width) / total
+		filled = min(filled, width)
+		filled = max(filled, 0)
+	}
+	full := "█"
+	empty := "░"
+	if ui.IsASCIIMode() {
+		full = "#"
+		empty = "."
+	}
+	return strings.Repeat(full, filled) + strings.Repeat(empty, width-filled)
 }
 
 // buildRawJSONLens builds Lens ❺: raw JSON with 2-space indent.
