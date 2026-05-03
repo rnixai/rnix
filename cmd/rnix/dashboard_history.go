@@ -6,27 +6,21 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/vfs"
 )
 
 // agentLabel returns a display label for a ProcInfo (model > provider > intent).
+//
+// Story 38-5 PR2 Step 3a: 实现迁出至 internal/dashboard/tree.AgentLabel；
+// 此处保留兼容 wrapper 以满足 ATDD 29.5-UNIT-001/002 契约（dashboard_history.go
+// 必须存在 + 必须包含 agentLabel + renderHistoryStats top-level 函数）。
+//
+//nolint:unused // ATDD 契约要求保留
 func agentLabel(p vfs.ProcInfo) string {
-	if p.Model != "" {
-		return p.Model
-	}
-	if p.Provider != "" {
-		return p.Provider
-	}
-	if p.Intent != "" {
-		runes := []rune(p.Intent)
-		if len(runes) > 20 {
-			return string(runes[:17]) + "..."
-		}
-		return p.Intent
-	}
-	return "—"
+	return tree.AgentLabel(p)
 }
 
 // renderHistoryStats renders the summary statistics line.
