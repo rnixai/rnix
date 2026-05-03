@@ -42,11 +42,11 @@ func hintGroup(hints ...string) string {
 //
 // Priority order (highest first): replayMode → viewStepInspector → viewDebug →
 // viewExpanded → viewDefault. The trailing UTF-8 separator '│' (ASCII '|')
-// plus a single space is included; the caller appends hints with the standard
-// double-space delimiter.
+// is surrounded by two spaces on each side; the caller appends hints with the
+// standard double-space delimiter.
 //
-// Returns empty string only if all known view modes fail to match (defensive;
-// the iota-based enum guarantees a default fallback to viewDefault).
+// The viewMode switch handles every viewMode iota value explicitly so the
+// "now-unused viewHistory" slot stays visible to future maintainers.
 func (m dashboardModel) renderModeLabel() string {
 	ascii := ui.IsASCIIMode()
 	sep := "│"
@@ -61,7 +61,7 @@ func (m dashboardModel) renderModeLabel() string {
 	switch {
 	case m.replayMode:
 		label = "[REPLAY]"
-		color = "#D08770" // align with spec c-sys orange
+		color = ui.ColorReplay
 	case m.viewMode == viewStepInspector:
 		label = "[INSPECTOR]"
 		color = colorIPC // #9B59B6 purple
@@ -72,7 +72,14 @@ func (m dashboardModel) renderModeLabel() string {
 	case m.viewMode == viewExpanded:
 		label = "[EXPANDED]"
 		color = ui.ColorAgent
-	default: // viewDefault (and the now-unused viewHistory iota slot)
+	case m.viewMode == viewDefault, m.viewMode == viewHistory:
+		// viewHistory iota slot is no longer used for the H key (Story 29.x);
+		// it falls through to [MONITOR] alongside viewDefault. Keep explicit so
+		// any future viewMode addition surfaces here as a compile error.
+		label = "[MONITOR]"
+		color = ui.ColorMuted
+	default:
+		// Unrecognized viewMode — defensive fallback.
 		label = "[MONITOR]"
 		color = ui.ColorMuted
 	}

@@ -3201,29 +3201,40 @@ func TestBuildAlertEvents_OnlySevWarnOrHigher(t *testing.T) {
 //	60-79% → Foreground(ColorWarning)
 //	≥ 80%  → Foreground(ColorError) + Bold
 //
-// We compare via Render("x") byte-equality so the test stays independent of
-// the lipgloss colour profile (CI may run with TERM=dumb / NoColor).
+// Code-review patch (P6, 2026-05-03): assert via lipgloss style getters
+// (GetForeground / GetBold) instead of Render byte-equality. Render-based
+// comparison collapses to plain "x" under NoColor / TERM=dumb profiles, so a
+// buggy implementation that returned the same colour for every threshold
+// would have passed the old test. Getter-based assertion is profile-agnostic
+// and pins the actual style fields.
 func TestPctColorStyle_Thresholds(t *testing.T) {
 	cases := []struct {
-		name string
-		pct  int
-		want lipgloss.Style
+		name     string
+		pct      int
+		wantFg   string // hex color string we expect via GetForeground
+		wantBold bool
 	}{
-		{"0%_muted", 0, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))},
-		{"59%_muted", 59, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))},
-		{"60%_warning", 60, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))},
-		{"79%_warning", 79, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))},
-		{"80%_error_bold", 80, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)},
-		{"100%_error_bold", 100, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)},
+		{"0%_muted", 0, ui.ColorMuted, false},
+		{"59%_muted", 59, ui.ColorMuted, false},
+		{"60%_warning", 60, ui.ColorWarning, false},
+		{"79%_warning", 79, ui.ColorWarning, false},
+		{"80%_error_bold", 80, ui.ColorError, true},
+		{"100%_error_bold", 100, ui.ColorError, true},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := pctColorStyle(tc.pct).Render("x")
-			want := tc.want.Render("x")
-			if got != want {
-				t.Errorf("pctColorStyle(%d).Render(\"x\") = %q, want %q",
-					tc.pct, got, want)
+			got := pctColorStyle(tc.pct)
+			gotFg := got.GetForeground()
+			gotBold := got.GetBold()
+			wantFg := lipgloss.Color(tc.wantFg)
+			if gotFg != wantFg {
+				t.Errorf("pctColorStyle(%d).GetForeground() = %v, want %v",
+					tc.pct, gotFg, wantFg)
+			}
+			if gotBold != tc.wantBold {
+				t.Errorf("pctColorStyle(%d).GetBold() = %v, want %v",
+					tc.pct, gotBold, tc.wantBold)
 			}
 		})
 	}
@@ -3545,19 +3556,35 @@ func TestRenderAlertStrip_CountBadge(t *testing.T) {
 
 // TestRenderAlertStrip_BadgeNotInExpanded verifies that when alertExpanded=true
 // the count badge is suppressed (cursor highlight UX takes over).
+//
+// Code-review patch (P11, 2026-05-03): added positive assertions so the test
+// pins more than just "no ✗ glyph" — we also check the alert summaries are
+// rendered and the row count matches the expanded layout.
 func TestRenderAlertStrip_BadgeNotInExpanded(t *testing.T) {
 	now := time.Now()
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.alertExpanded = true
 	m.alertEvents = []UnifiedEvent{
-		{Type: EventExit, Summary: "e1", Severity: SevError, Timestamp: now},
-		{Type: EventBudget, Summary: "w1", Severity: SevWarn, Timestamp: now},
+		{Type: EventExit, Summary: "e1-summary-error", Severity: SevError, Timestamp: now},
+		{Type: EventBudget, Summary: "w1-summary-warn", Severity: SevWarn, Timestamp: now},
 	}
 	got := renderAlertStrip(&m, 80, 8)
-	// Strip text already contains ✗ icon? No — ui.AlertSeverityIcon emits 🔴/⚠
-	// for non-ASCII, so any ✗ glyph is from a (forbidden) badge.
+	// Negative: Strip text already contains ✗ icon? No — ui.AlertSeverityIcon
+	// emits 🔴/⚠ for non-ASCII, so any ✗ glyph is from a (forbidden) badge.
 	if strings.Contains(got, "✗") {
 		t.Errorf("expanded strip must NOT render ✗ count badge, got: %q", got)
+	}
+	// P11 positive #1: each alert summary must appear in the rendered strip
+	// (proves the cursor-highlight UX still paints the actual rows).
+	for _, want := range []string{"e1-summary-error", "w1-summary-warn"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expanded strip missing summary %q, got: %q", want, got)
+		}
+	}
+	// P11 positive #2: rendered output should span exactly len(alerts) rows
+	// for collapsed-into-expanded layout (top border + 2 alert rows).
+	if rows := strings.Count(got, "\n"); rows < 2 {
+		t.Errorf("expanded strip should produce ≥2 newlines (top border + rows), got %d in %q", rows, got)
 	}
 }
 
@@ -3588,13 +3615,20 @@ func TestAlertCountBadge_ASCII(t *testing.T) {
 
 // TestBuildAlertEvents_TTLFilter verifies that buildAlertEvents drops
 // entries older than 30s and keeps everything within window.
+//
+// Code-review patch (P5, 2026-05-03): the previous "fresh-29s" boundary case
+// was clock-fragile — the test computes `now := time.Now()` once but
+// buildAlertEvents calls `time.Now()` again inside, so on slow CI any delta
+// > 1s could push the 29s-old event past the 30s TTL and turn the test red.
+// We pull the in-window boundary back to 15s (well inside the 30s budget)
+// and the out-of-window boundary forward to 45s for symmetric headroom.
 func TestBuildAlertEvents_TTLFilter(t *testing.T) {
 	now := time.Now()
 	events := []UnifiedEvent{
-		{Severity: SevError, Summary: "fresh-10s", Timestamp: now.Add(-10 * time.Second)},
-		{Severity: SevWarn, Summary: "fresh-29s", Timestamp: now.Add(-29 * time.Second)},
-		{Severity: SevError, Summary: "stale-31s", Timestamp: now.Add(-31 * time.Second)},
-		{Severity: SevWarn, Summary: "stale-60s", Timestamp: now.Add(-60 * time.Second)},
+		{Severity: SevError, Summary: "fresh-5s", Timestamp: now.Add(-5 * time.Second)},
+		{Severity: SevWarn, Summary: "fresh-15s", Timestamp: now.Add(-15 * time.Second)},
+		{Severity: SevError, Summary: "stale-45s", Timestamp: now.Add(-45 * time.Second)},
+		{Severity: SevWarn, Summary: "stale-120s", Timestamp: now.Add(-120 * time.Second)},
 	}
 	alerts := buildAlertEvents(events)
 	if len(alerts) != 2 {

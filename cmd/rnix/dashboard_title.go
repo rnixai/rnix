@@ -82,13 +82,13 @@ func (m dashboardModel) renderDashboardTitle() string {
 
 	// ctx% segment
 	ctxPct := computeCtxPercent(m.selectedPID, m.processes)
-	ctxSeg := pctColorStyle(ctxPct).Render(fmt.Sprintf("ctx %d%%", ctxPct))
 	ctxPlain := fmt.Sprintf("ctx %d%%", ctxPct)
+	ctxSeg := pctColorStyle(ctxPct).Render(ctxPlain)
 
 	// budget% segment
 	budgetPct := computeBudgetPercent(m.selectedPID, m.processes)
-	budgetSeg := pctColorStyle(budgetPct).Render(fmt.Sprintf("budget %d%%", budgetPct))
 	budgetPlain := fmt.Sprintf("budget %d%%", budgetPct)
+	budgetSeg := pctColorStyle(budgetPct).Render(budgetPlain)
 
 	// elapsed segment
 	elapsedSeg := ""

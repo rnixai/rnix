@@ -1470,15 +1470,16 @@ func (m dashboardModel) renderReplayStatus() string {
 	}
 	progress := fmt.Sprintf("[%d/%d] %.1f×", m.replayCursor, total, m.replaySpeed)
 
-	// Story 38.2 AC#2: prefix the [REPLAY] mode label (orange #D08770) so the
+	// Story 38.2 AC#2: prefix the [REPLAY] mode label (orange ColorReplay) so the
 	// "what mode am I in" question stays answerable at a glance across views.
-	// The legacy "REPLAY:" text below remains for the record-ID context.
+	// Code-review patch (Decision 1, 2026-05-03): renamed legacy "REPLAY: %s" to
+	// "rec: %s" so the literal "REPLAY" no longer appears twice within ~12 cols.
 	modeLabel := m.renderModeLabel()
 
 	if m.statusMsg != "" {
-		return fmt.Sprintf("  %s%s REPLAY: %s  %s  |  %s", modeLabel, indicator, recordID, progress, m.statusMsg)
+		return fmt.Sprintf("  %s%s rec: %s  %s  |  %s", modeLabel, indicator, recordID, progress, m.statusMsg)
 	}
-	return fmt.Sprintf("  %s%s REPLAY: %s  %s  |  Space:Play/Pause  [/]:Speed  ,/.:Step  0:Start  $:End  q:Quit",
+	return fmt.Sprintf("  %s%s rec: %s  %s  |  Space:Play/Pause  [/]:Speed  ,/.:Step  0:Start  $:End  q:Quit",
 		modeLabel, indicator, recordID, progress)
 }
 

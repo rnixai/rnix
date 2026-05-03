@@ -69,6 +69,11 @@ func alertStripHeight(alertCount int, expanded bool) int {
 //   - both 0          → empty string (caller's len(alerts)==0 path already
 //     skips the strip entirely; this is a safety net)
 //
+// Severity bucketing:
+//   - Severity ≥ SevError (e.g. SevError, SevCritical) → errCount
+//   - Any other severity that survived buildAlertEvents (≥ SevWarn but
+//     < SevError) → warnCount
+//
 // The icon characters are NOT taken from ui.AlertSeverityIcon — that helper
 // renders 🔴/⚠ (full-width emoji) for the alert lines, which would inflate
 // badge width. The badge spec uses the slimmer ✗/⚠ glyphs to keep the right
@@ -76,12 +81,16 @@ func alertStripHeight(alertCount int, expanded bool) int {
 func alertCountBadge(alerts []UnifiedEvent, ascii bool) string {
 	var errCount, warnCount int
 	for _, a := range alerts {
-		switch {
-		case a.Severity >= SevError:
+		if a.Severity >= SevError {
 			errCount++
-		case a.Severity == SevWarn:
-			warnCount++
+			continue
 		}
+		// Any severity that passed buildAlertEvents (i.e. ≥ SevWarn) but is
+		// not ≥ SevError lands in the warn bucket. Using `default` here
+		// (rather than `case == SevWarn`) ensures future enum additions in
+		// the SevWarn..SevError range do not silently disappear from the
+		// badge total.
+		warnCount++
 	}
 	if errCount == 0 && warnCount == 0 {
 		return ""
@@ -126,19 +135,50 @@ func renderAlertStrip(m *dashboardModel, width, maxLines int) string {
 		badge = alertCountBadge(alerts, ascii)
 	}
 	badgeWidth := lipgloss.Width(badge)
+	// Code-review patch (P3, 2026-05-03): when there is not enough room for
+	// `<icon><space><summary><space><badge>` (≈ icon-width + 1 + 1 summary +
+	// 1 separator + badge) — concretely if width < badgeWidth+5 — drop the
+	// badge entirely so the truncation arithmetic below stays sane and the
+	// East Asian Width = 2 alert icon (🔴/⚠) is never amputated.
+	if badgeWidth > 0 && width < badgeWidth+5 {
+		badge = ""
+		badgeWidth = 0
+	}
+
+	// appendBadge attaches the right-aligned count badge to a single line,
+	// truncating the summary first so the badge always survives. Code-review
+	// patch (P4, 2026-05-03): factored out so the overflow row (when
+	// `maxLines == 1 && hasOverflow`) can also carry the badge.
+	appendBadge := func(line string) string {
+		if badgeWidth == 0 {
+			return truncateAnsi(line, width-1)
+		}
+		summaryBudget := max(width-1-badgeWidth-1, 1)
+		line = truncateAnsi(line, summaryBudget)
+		pad := max(width-1-lipgloss.Width(line)-badgeWidth, 1)
+		return line + strings.Repeat(" ", pad) + badge
+	}
 
 	var lines []string
 	for i := range visible {
 		if hasOverflow && i == visible-1 {
 			remaining := len(alerts) - visible + 1
 			overflow := fmt.Sprintf("+%d more", remaining)
+			var ovLine string
 			if ascii {
-				lines = append(lines, overflow)
+				ovLine = overflow
 			} else {
-				lines = append(lines, lipgloss.NewStyle().
+				ovLine = lipgloss.NewStyle().
 					Foreground(lipgloss.Color(ui.ColorMuted)).
-					Render(overflow))
+					Render(overflow)
 			}
+			// P4: when maxLines==1 the overflow line IS the only visible line,
+			// so attach the badge here too. When maxLines>1 the badge is
+			// already on lines[0] and we leave overflow plain.
+			if i == 0 && badgeWidth > 0 {
+				ovLine = appendBadge(ovLine)
+			}
+			lines = append(lines, ovLine)
 			break
 		}
 
@@ -150,14 +190,11 @@ func renderAlertStrip(m *dashboardModel, width, maxLines int) string {
 		}
 		line := fmt.Sprintf("%s %s%s", icon, ts, alert.Summary)
 
-		// Story 38.2 AC#3: append badge to the FIRST line, right-aligned. We
-		// truncate the summary first so the badge always survives in narrow
-		// terminals; the leading "-1" is the existing right-margin reserve.
+		// Story 38.2 AC#3: append badge to the FIRST line, right-aligned.
+		// Code-review patch (P3/P4): use the appendBadge helper so the badge
+		// arithmetic stays consistent with the overflow path above.
 		if i == 0 && badgeWidth > 0 {
-			summaryBudget := max(width-1-badgeWidth-1, 1)
-			line = truncateAnsi(line, summaryBudget)
-			pad := max(width-1-lipgloss.Width(line)-badgeWidth, 1)
-			line = line + strings.Repeat(" ", pad) + badge
+			line = appendBadge(line)
 		} else {
 			line = truncateAnsi(line, width-1)
 		}
