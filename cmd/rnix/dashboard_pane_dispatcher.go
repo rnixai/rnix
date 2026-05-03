@@ -281,6 +281,20 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		case "enter":
 			if m.intentCursor < len(m.intentFlatNodes) {
 				n := m.intentFlatNodes[m.intentCursor]
+				// Story 38-4 AC#3: cursor on a non-terminal tree header
+				// toggles the user-collapse flag and re-flattens. Terminal
+				// trees stay collapsed regardless of toggle.
+				if n.isTreeHeader && n.treeWire != nil && !isIntentTreeTerminal(n.treeWire.State) {
+					if m.intentTreeCollapsed == nil {
+						m.intentTreeCollapsed = make(map[int]bool)
+					}
+					m.intentTreeCollapsed[n.treeIndex] = !m.intentTreeCollapsed[n.treeIndex]
+					m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
+					if m.intentCursor >= len(m.intentFlatNodes) {
+						m.intentCursor = max(0, len(m.intentFlatNodes)-1)
+					}
+					return m, nil
+				}
 				if n.node != nil && n.node.PID > 0 {
 					targetPID := types.PID(n.node.PID)
 					pidFound := false
@@ -300,6 +314,8 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 					m.selectedPID = targetPID
 					m.selectedUUID = targetUUID
 					m.activePane = paneTimeline
+					// Story 38-4 AC#3: clear Timeline unread when drilling in.
+					m = m.clearPaneUnread(paneTimeline)
 					m2, cmd := m.handlePIDChange()
 					return m2, cmd
 				} else if n.node != nil {

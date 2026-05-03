@@ -84,7 +84,25 @@ func isIntentTreeTerminal(state string) bool {
 	return state == "completed" || state == "failed"
 }
 
+// flattenIntentTrees flattens the IntentTreeWire list into a single visible
+// node sequence, applying the legacy "terminal trees collapsed" rule.
+//
+// Story 38-4 AC#3 introduces a per-tree user-toggled collapse state via
+// flattenIntentTreesWithCollapse(trees, userCollapsed); this thin wrapper
+// preserves the original signature so existing tests continue to compile.
 func flattenIntentTrees(trees []*ipc.IntentTreeWire) []intentFlatNode {
+	return flattenIntentTreesWithCollapse(trees, nil)
+}
+
+// flattenIntentTreesWithCollapse flattens trees, additionally letting the
+// caller force-collapse non-terminal trees through a treeIndex → bool map.
+// userCollapsed may be nil — in which case behaviour is identical to the
+// legacy single-arg flattenIntentTrees.
+//
+// Terminal trees (completed / failed) remain collapsed by default
+// regardless of userCollapsed (Dev Notes 5: don't let a stale toggle
+// re-expand a finished tree on next tick).
+func flattenIntentTreesWithCollapse(trees []*ipc.IntentTreeWire, userCollapsed map[int]bool) []intentFlatNode {
 	var result []intentFlatNode
 
 	// AC-2: Sort trees — active first, completed/failed at bottom
@@ -100,7 +118,12 @@ func flattenIntentTrees(trees []*ipc.IntentTreeWire) []intentFlatNode {
 	})
 
 	for treeIdx, tree := range sorted {
+		// Terminal trees collapse unconditionally; non-terminal trees honour
+		// the user's per-tree toggle (Story 38-4 AC#3).
 		collapsed := isIntentTreeTerminal(tree.State)
+		if !collapsed && userCollapsed != nil && userCollapsed[treeIdx] {
+			collapsed = true
+		}
 		result = append(result, intentFlatNode{
 			treeIndex:    treeIdx,
 			isTreeHeader: true,

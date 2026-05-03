@@ -177,6 +177,12 @@ func registerLayer0(d *ui.Dispatcher) {
 
 	// enter — Alert jump (nav.go:286-321) — handled at Layer 0 only when alert is expanded.
 	// When alert strip is collapsed, fall through to Layer 1/2 (Timeline/Tree enter handlers).
+	//
+	// Story 38-4 AC#2: when the focused alert is an EventImmune (Security
+	// daemon) item, route the jump to paneSecurity instead of paneTimeline
+	// — Security pane carries the deviation breakdown, while Timeline does
+	// not display synthetic immune entries (Dev Notes 2). All branches now
+	// also clear the unread mark for the destination pane (AC#1 cleanup).
 	d.Layer0.Bindings["enter"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
 		if !m.alertExpanded || len(m.alertEvents) == 0 || m.alertCursor < 0 || m.alertCursor >= len(m.alertEvents) {
@@ -190,6 +196,11 @@ func registerLayer0(d *ui.Dispatcher) {
 			m.statusMsgTTL = statusMsgDefaultTTL
 			return true, m, nil
 		}
+		// AC#2: route Immune alerts to Security pane; everything else to Timeline.
+		targetPane := paneTimeline
+		if alert.Type == EventImmune {
+			targetPane = paneSecurity
+		}
 		// Switch to alert's process if different
 		if alert.PID != m.selectedPID {
 			var targetUUID string
@@ -201,20 +212,34 @@ func registerLayer0(d *ui.Dispatcher) {
 			}
 			m.selectedPID = alert.PID
 			m.selectedUUID = targetUUID
-			m.activePane = paneTimeline
+			m.activePane = targetPane
 			m.alertExpanded = false
 			m2, cmd := m.handlePIDChange()
+			m2.activePane = targetPane // handlePIDChange may reset; keep our intent
+			m2 = m2.clearPaneUnread(targetPane)
 			m2.alertJumpTarget = &alert
 			return true, m2, cmd
 		}
-		// Same PID: scroll to matching event in unified timeline.
-		m.activePane = paneTimeline
+		// Same PID: scroll to matching item.
+		m.activePane = targetPane
 		m.alertExpanded = false
-		filtered := m.filteredUnifiedEvents()
-		for i, ev := range filtered {
-			if ev.Type == alert.Type && ev.Timestamp.Equal(alert.Timestamp) && ev.PID == alert.PID {
-				m.stepCursor = i
-				break
+		m = m.clearPaneUnread(targetPane)
+		if targetPane == paneSecurity {
+			// AC#2: locate cursor inside securityAlerts by matching PID.
+			for i, sa := range m.securityAlerts {
+				if types.PID(sa.PID) == alert.PID {
+					m.securityCursor = i
+					securityAdjustScroll(&m)
+					break
+				}
+			}
+		} else {
+			filtered := m.filteredUnifiedEvents()
+			for i, ev := range filtered {
+				if ev.Type == alert.Type && ev.Timestamp.Equal(alert.Timestamp) && ev.PID == alert.PID {
+					m.stepCursor = i
+					break
+				}
 			}
 		}
 		return true, m, nil
@@ -305,10 +330,12 @@ func registerLayer0(d *ui.Dispatcher) {
 
 	// 1 — Focus Tree pane（M1: 上提到 Layer 0 让所有 view 都生效，不仅 viewDefault）
 	// 在 viewExpanded 时按 1 退出 expanded（Tree 此时本被隐藏）。
+	// Story 38-4 AC#1: clear unread mark on the pane the user just focused.
 	d.Layer0.Bindings["1"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
 		m = m.clearSearchState()
 		m.activePane = paneTree
+		m = m.clearPaneUnread(paneTree)
 		if m.viewMode == viewExpanded {
 			m.viewMode = viewDefault
 		}
@@ -348,6 +375,7 @@ func registerLayer0(d *ui.Dispatcher) {
 	d.Layer0.Docs["X"] = ui.KeyDoc{Key: "X", Description: "Dismiss all alerts (manual TTL)"}
 
 	// 2-8 — switch right pane（M1: 上提到 Layer 0 让所有 view 都生效）
+	// Story 38-4 AC#1: clear unread mark on the pane the user focuses.
 	digitKeys2to8 := []string{"2", "3", "4", "5", "6", "7", "8"}
 	for _, dk := range digitKeys2to8 {
 		d.Layer0.Bindings[dk] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
@@ -360,6 +388,7 @@ func registerLayer0(d *ui.Dispatcher) {
 			p := paneType(n - 1)
 			m.rightPane = p
 			m.activePane = p
+			m = m.clearPaneUnread(p)
 			if m.viewMode == viewExpanded {
 				m.expandedPane = p
 			}
@@ -382,6 +411,7 @@ func registerLayer1Default(d *ui.Dispatcher) {
 	}
 
 	// tab / shift+tab — cycle pane focus (nav.go:177-199)
+	// Story 38-4 AC#1: clear unread mark on the pane that becomes active.
 	cycleFocus := func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
 		m = m.clearSearchState()
@@ -391,6 +421,7 @@ func registerLayer1Default(d *ui.Dispatcher) {
 			} else {
 				m.activePane = paneTree
 			}
+			m = m.clearPaneUnread(m.activePane)
 		}
 		return true, m, nil
 	}

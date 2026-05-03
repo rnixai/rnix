@@ -17,6 +17,37 @@ import (
 // Eval Pane (Story 27-10)
 // =============================================================================
 
+// evalScoreColorStyle maps a 0-1 score to a foreground colour following the
+// Story 38-4 AC#6 / spec § 04 改进点 13 thresholds:
+//   - score ≥ 0.9 → ColorSuccess (green)
+//   - 0.7 ≤ score < 0.9 → ColorWarning (yellow)
+//   - score < 0.7 → ColorError (red)
+//
+// Why a separate helper from 38-2's pctColorStyle:
+//   - pctColorStyle takes 0-100 ints and uses 60/80 thresholds (alert /
+//     budget UX);
+//   - evalScoreColorStyle takes 0-1 floats and uses 70/90 thresholds
+//     (Synergy SUCCESS rate / Reputation SCORE);
+//   - merging the two would require either a dispatch on type or a third
+//     "kind" parameter that obscures intent at every callsite.
+//
+// Performance: O(1), pure function — safe to call per row inside render
+// hot paths.
+//
+// Inputs are clamped at the threshold boundaries; out-of-range values
+// (NaN / negative / >1.0) are treated as below-threshold (red) which is
+// the conservative signal for unexpected data.
+func evalScoreColorStyle(score float64) lipgloss.Style {
+	switch {
+	case score >= 0.9:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
+	case score >= 0.7:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
+	default:
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+	}
+}
+
 func fetchReputationCmd() tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
@@ -254,8 +285,10 @@ func (m dashboardModel) renderEvalReputationView(width, height int) string {
 
 		durStr := formatTimelineDuration(float64(r.AvgDurationMs))
 
-		fmt.Fprintf(&b, "%s%-16s %5.2f  %5.1f%%  %7d  %7s  %3d  %s\n",
-			cursor, r.AgentName, r.Score, r.SuccessRate*100, r.AvgTokens, durStr, r.TotalRecords, trendStr)
+		// Story 38-4 AC#6: SCORE column uses gradient (Success/Warning/Error).
+		scoreStr := evalScoreColorStyle(r.Score).Render(fmt.Sprintf("%5.2f", r.Score))
+		fmt.Fprintf(&b, "%s%-16s %s  %5.1f%%  %7d  %7s  %3d  %s\n",
+			cursor, r.AgentName, scoreStr, r.SuccessRate*100, r.AvgTokens, durStr, r.TotalRecords, trendStr)
 	}
 
 	return b.String()
@@ -384,10 +417,36 @@ func (m dashboardModel) renderEvalSynergyView(width, height int) string {
 			}
 		}
 
-		improvement := fmt.Sprintf("%+.1f%%", combo.TokenImprovement*100)
+		// Story 38-4 AC#6:
+		//   - SUCCESS column gets gradient via evalScoreColorStyle (0-1 float).
+		//   - VS SOLO column: improvement < 0 saves tokens → green; > 0
+		//     spends more → red; == 0 → default.
+		//   - Recommended rows render Bold across the entire line so the
+		//     visual weight matches the "★ pick this combo" intent;
+		//     ASCII fallback prefixes a `★` mark in addition to the Bold
+		//     so legacy terminals without ANSI bold still notice.
+		successStr := evalScoreColorStyle(combo.SuccessRate).Render(fmt.Sprintf("%5.1f%%", combo.SuccessRate*100))
+		improvementRaw := fmt.Sprintf("%+.1f%%", combo.TokenImprovement*100)
+		var improvementStr string
+		switch {
+		case combo.TokenImprovement < 0:
+			improvementStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(improvementRaw)
+		case combo.TokenImprovement > 0:
+			improvementStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(improvementRaw)
+		default:
+			improvementStr = improvementRaw
+		}
 
-		fmt.Fprintf(&b, "%s%-20s  %5.1f%%  %7d  %4d  %8s  %s\n",
-			cursor, skills, combo.SuccessRate*100, combo.AvgTokens, combo.TotalExecutions, improvement, recStr)
+		line := fmt.Sprintf("%s%-20s  %s  %7d  %4d  %s  %s",
+			cursor, skills, successStr, combo.AvgTokens, combo.TotalExecutions, improvementStr, recStr)
+		if combo.Recommended {
+			if ascii {
+				line = "★ " + line
+			}
+			line = lipgloss.NewStyle().Bold(true).Render(line)
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 
 	return b.String()

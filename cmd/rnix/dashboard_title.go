@@ -220,9 +220,28 @@ func (m dashboardModel) renderModeStrip() string {
 }
 
 // renderPanelTabsLine renders the [1]Tree [2]Time ... pane navigation labels.
+//
+// Story 38-4 AC#1: when m.paneHasUnread[pane] is true, append a red dot
+// (`●` in unicode mode, `*` in ASCII mode) immediately after the tab label
+// — e.g. `[2]Time●` indicates the Timeline pane has unread events. The dot
+// inherits the active-bold style when on the active pane (which only
+// happens transiently before clearPaneUnread fires) and uses ColorError red
+// otherwise. Active vs inactive ANSI colour for the rest of the label is
+// unchanged from previous Stories.
+//
+// Width contract: this entire line is hidden by the caller when terminal
+// width < 60 cols (see renderDashboardTitle), so the extra rune does not
+// affect narrow-terminal layouts. Each dot adds 1 rune (no East Asian
+// Width inflation; ASCII fallback is also 1 byte).
 func (m dashboardModel) renderPanelTabsLine() string {
 	selectedStyle := lipgloss.NewStyle().Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	dotStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+	ascii := ui.IsASCIIMode()
+	dotChar := "●"
+	if ascii {
+		dotChar = "*"
+	}
 
 	panes := []struct {
 		key  string
@@ -243,6 +262,10 @@ func (m dashboardModel) renderPanelTabsLine() string {
 	b.WriteString("  ")
 	for i, p := range panes {
 		label := fmt.Sprintf("[%s]%s", p.key, p.name)
+		// Append unread dot before the trailing separator so spacing stays consistent.
+		if int(p.pane) >= 0 && int(p.pane) < len(m.paneHasUnread) && m.paneHasUnread[p.pane] {
+			label += dotStyle.Render(dotChar)
+		}
 		if i < len(panes)-1 {
 			label += " "
 		}

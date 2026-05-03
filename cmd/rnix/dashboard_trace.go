@@ -196,6 +196,60 @@ func spanStatusColor(status string) lipgloss.Color {
 	}
 }
 
+// waterfallBarWidth is the fixed total width (in cells) of the mini
+// waterfall bar appended to each row in renderTraceTreeView.
+const waterfallBarWidth = 20
+
+// renderWaterfallBar returns a fixed-width (waterfallBarWidth) string
+// approximating the relative duration of one span vs the trace total.
+//
+// Story 38-4 AC#5 — degraded plan A:
+//   - Bar is left-aligned: position 0..barLen-1 carries the span (`█`),
+//     positions barLen..waterfallBarWidth-1 carry the dim filler (`·`).
+//   - We do NOT model startMs because SpanNodeWire currently has no
+//     StartMs field (Dev Notes 3); users see "how long" but not "when
+//     started" or "what overlaps". Upgrading to plan C (real start
+//     offsets) requires an IPC change and is out of scope.
+//
+// Inputs:
+//   - traceTotalMs: total span duration of the trace; ≤ 0 means we
+//     have no scale info → render an entirely dim bar.
+//   - spanDurMs: this span's duration; clamped to [1, waterfallBarWidth]
+//     after proportional scaling so width never overflows.
+//   - status: routes through spanStatusColor (ok/error/timeout/other).
+//   - ascii: ASCII fallback (`█`→`#`, `·`→`.`).
+//
+// Output width is exactly waterfallBarWidth runes regardless of inputs;
+// callers do NOT need to truncate or pad before / after this string.
+func renderWaterfallBar(traceTotalMs, spanDurMs int64, status string, ascii bool) string {
+	fillChar := "█"
+	dimChar := "·"
+	if ascii {
+		fillChar = "#"
+		dimChar = "."
+	}
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	if traceTotalMs <= 0 {
+		return dimStyle.Render(strings.Repeat(dimChar, waterfallBarWidth))
+	}
+	barLen := int(int64(waterfallBarWidth) * spanDurMs / traceTotalMs)
+	if spanDurMs > 0 && barLen < 1 {
+		barLen = 1 // every non-zero span gets at least 1 cell of presence
+	}
+	if barLen < 0 {
+		barLen = 0
+	}
+	if barLen > waterfallBarWidth {
+		barLen = waterfallBarWidth
+	}
+	rightPad := waterfallBarWidth - barLen
+	colored := lipgloss.NewStyle().Foreground(spanStatusColor(status)).Render(strings.Repeat(fillChar, barLen))
+	if rightPad > 0 {
+		colored += dimStyle.Render(strings.Repeat(dimChar, rightPad))
+	}
+	return colored
+}
+
 func (m dashboardModel) renderTracePane(width, height int) string {
 	isActive := m.activePane == paneTrace
 
@@ -275,11 +329,18 @@ func (m dashboardModel) renderTraceTreeView(width, height int) string {
 	startIdx := m.spanScrollOffset
 	endIdx := min(startIdx+visibleLines, len(m.spanFlatNodes))
 
+	// Story 38-4 AC#5: append a 20-char waterfall bar to each row when the
+	// terminal can spare the columns. Hoisted out of the loop so we deref
+	// metadata only once.
+	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
+	showBar := width >= 80
+	traceTotalMs := meta.TotalDurationMs
+
 	for i := startIdx; i < endIdx; i++ {
 		node := m.spanFlatNodes[i]
 		cursor := "  "
 		if i == m.spanCursor {
-			if os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true" {
+			if ascii {
 				cursor = "> "
 			} else {
 				cursor = "▸ "
@@ -292,6 +353,9 @@ func (m dashboardModel) renderTraceTreeView(width, height int) string {
 
 		line := fmt.Sprintf("%s%s%s (PID %d)  %s  %s  %s",
 			cursor, node.prefix, node.name, node.pid, dur, tokStr, statusStyle.Render(node.status))
+		if showBar {
+			line += "  " + renderWaterfallBar(traceTotalMs, node.durMs, node.status, ascii)
+		}
 		b.WriteString(line)
 		b.WriteString("\n")
 	}

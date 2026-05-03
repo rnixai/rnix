@@ -240,6 +240,11 @@ type dashboardModel struct {
 	alertEvents    []UnifiedEvent   // cached alerts (Severity >= SevWarn, sorted)
 	alertJumpTarget *UnifiedEvent   // pending alert jump after PID change
 
+	// Story 38-4: cross-pane linkage (see dashboard_events.go for contract)
+	paneHasUnread         [8]bool
+	prevUnifiedEventCount int
+	intentTreeCollapsed   map[int]bool
+
 	// Story 34.6: Debug mode — strace fusion
 	debugMode           bool                        // Debug mode active
 	debugEvents         []UnifiedEvent              // merged debug timeline (steps + strace)
@@ -281,6 +286,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		lastEventByPID:     make(map[types.PID]time.Time),
 		collapsedDeadTrees: make(map[string]bool),
 		processFirstSeenAt: make(map[types.PID]time.Time),
+		intentTreeCollapsed: make(map[int]bool), // Story 38-4 AC#3: user toggle for non-terminal trees
 		debugShowStrace:    true, // Story 34.6: show strace events by default
 		debugDeviceLatency: make(map[string]*deviceLatencyStats),
 		timelineSortAsc:    true,                // Story 36-4: 默认升序（最新在底）
@@ -400,7 +406,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.intentTrees = msg.trees.Intents
-		m.intentFlatNodes = flattenIntentTrees(m.intentTrees)
+		m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
 		if m.intentCursor >= len(m.intentFlatNodes) {
 			m.intentCursor = max(0, len(m.intentFlatNodes)-1)
 		}
@@ -764,9 +770,12 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Merge step entries + system events into unified event list
 	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID, m.selectedUUID, m.processes, m.timelineSortAsc)
+	m = m.applyUnreadMarks() // Story 38-4 AC#1
 
 	// Build alert events for alert strip (Story 34.4)
-	m.alertEvents = buildAlertEvents(m.unifiedEvents)
+	// Story 38-4 AC#4: include synthesised security alerts so the strip's
+	// count badge and time-ordered list reflect immune-daemon findings.
+	m.alertEvents = buildAlertEventsWith(m.unifiedEvents, m.securityAlerts)
 	// F5: Always clamp alertCursor to valid range (even when expanded)
 	if len(m.alertEvents) == 0 {
 		m.alertCursor = 0
@@ -777,18 +786,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// F1: Resolve pending alert jump target after PID change
-	if m.alertJumpTarget != nil {
-		target := m.alertJumpTarget
-		m.alertJumpTarget = nil
-		filtered := m.filteredUnifiedEvents()
-		for i, ev := range filtered {
-			if ev.Type == target.Type && ev.Timestamp.Equal(target.Timestamp) && ev.PID == target.PID {
-				m.stepCursor = i
-				break
-			}
-		}
-	}
+	// F1: Resolve pending alert jump target after PID change (Story 38-4 AC#2
+	// extends this to route Immune targets to the Security pane cursor).
+	m = m.resolveAlertJumpTarget()
 
 	// Compute health counters for title bar (Story 34.2)
 	m.errorCount, m.warnCount = computeHealthCounts(m.processes, m.unifiedEvents, m.heartbeatStatus)

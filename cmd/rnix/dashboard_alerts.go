@@ -8,7 +8,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
 )
 
 // alertTTL caps how long an alert stays in the strip after its event Timestamp.
@@ -47,6 +49,78 @@ func buildAlertEvents(events []UnifiedEvent) []UnifiedEvent {
 		return alerts[i].Timestamp.After(alerts[j].Timestamp)
 	})
 	return alerts
+}
+
+// synthSecurityAlerts converts the IPC AlertWire list (from Immune daemon)
+// into transient UnifiedEvent rows for the alert strip (Story 38-4 AC#4).
+//
+// Mapping rules:
+//   - Type   = EventImmune (existing constant; reused so downstream logic
+//     such as the AC#2 alert-enter routing can branch on the same type).
+//   - Severity = SevError when type == "device_access" or deviation ≥ 3.0;
+//     otherwise SevWarn. Rationale: device_access is the tightest signal
+//     in the immune daemon; high-deviation syscall_freq / token_rate pile
+//     up to error severity per the spec.
+//   - Timestamp = time.UnixMilli(TimestampMs); falls back to time.Now()
+//     when TimestampMs == 0 so buildAlertEvents' IsZero guard does not
+//     accidentally retain or drop synthetic events.
+//   - PID / Detail / Summary follow the spec template.
+//
+// Performance: O(N) over alerts; in practice N ≤ ~20 (immune daemon caps
+// the alert ring).
+//
+// IMPORTANT (Dev Notes 2): the result is NEVER persisted into m.sysEvents.
+// Callers should pass the slice straight to buildAlertEventsWith so that
+// Timeline pane is not polluted with synthetic immune entries (existing
+// EventImmune coverage already flows through debugStraceCh / sysEvents
+// independently).
+func synthSecurityAlerts(alerts []ipc.AlertWire) []UnifiedEvent {
+	if len(alerts) == 0 {
+		return nil
+	}
+	out := make([]UnifiedEvent, 0, len(alerts))
+	for _, a := range alerts {
+		sev := SevWarn
+		if a.Type == "device_access" || a.Deviation >= 3.0 {
+			sev = SevError
+		}
+		var ts time.Time
+		if a.TimestampMs > 0 {
+			ts = time.UnixMilli(a.TimestampMs)
+		} else {
+			ts = time.Now()
+		}
+		out = append(out, UnifiedEvent{
+			Type:      EventImmune,
+			Severity:  sev,
+			Timestamp: ts,
+			PID:       types.PID(a.PID),
+			Summary:   fmt.Sprintf("[security] %s %s (%.1fx)", a.AgentTemplate, a.Type, a.Deviation),
+			Detail:    a.Detail,
+		})
+	}
+	return out
+}
+
+// buildAlertEventsWith is the AC#4 extension entry point: merges a slice
+// of UnifiedEvents with synthesised security alerts and runs them through
+// the same TTL filter + severity sort as buildAlertEvents.
+//
+// The legacy buildAlertEvents signature is preserved unchanged; callers
+// who don't care about security events can still use it directly. This
+// keeps Story 38-2 tests free of the new dependency.
+//
+// When securityAlerts is empty, this is identical to buildAlertEvents
+// over the same `events` input (regression-safe).
+func buildAlertEventsWith(events []UnifiedEvent, securityAlerts []ipc.AlertWire) []UnifiedEvent {
+	synth := synthSecurityAlerts(securityAlerts)
+	if len(synth) == 0 {
+		return buildAlertEvents(events)
+	}
+	combined := make([]UnifiedEvent, 0, len(events)+len(synth))
+	combined = append(combined, events...)
+	combined = append(combined, synth...)
+	return buildAlertEvents(combined)
 }
 
 // alertStripHeight returns the number of lines the alert strip should occupy.

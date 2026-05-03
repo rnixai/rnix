@@ -431,3 +431,157 @@ func fetchCompactEventsCmd(pid types.PID, uuid string) tea.Cmd {
 		return compactEventsMsg{pid: pid, uuid: uuid, events: events, err: err}
 	}
 }
+
+// markPaneUnread sets the unread flag for the given pane (Story 38-4 AC#1).
+//
+// Returns the updated dashboardModel; callers MUST reassign with the
+// returned value (`m = m.markPaneUnread(paneTimeline)`) to persist the
+// change under Bubble Tea's value-passing semantics. This mirrors the
+// existing `selectProcess` / `clearSearchState` pattern.
+//
+// Behaviour:
+//   - paneType is a fixed iota (paneTree..paneEval); guard with bounds
+//     check so a future enum addition cannot corrupt memory.
+//   - No-op if the flag is already set (avoids redundant writes that could
+//     otherwise be picked up as state changes by an observer).
+//
+// Performance: O(1), one bounds compare + one bool write.
+//
+// ASCII fallback: this is a state mutator only; ASCII rendering happens
+// later in renderPanelTabsLine (`*` instead of `●`).
+func (m dashboardModel) markPaneUnread(p paneType) dashboardModel {
+	if int(p) < 0 || int(p) >= len(m.paneHasUnread) {
+		return m
+	}
+	if !m.paneHasUnread[p] {
+		m.paneHasUnread[p] = true
+	}
+	return m
+}
+
+// clearPaneUnread removes the unread flag for the given pane (Story 38-4 AC#1).
+//
+// Called from every pane-switch path: Layer 0 keys 1 / 2-8, Layer 1
+// Default tab / shift+tab, plus the AC2/AC3/AC4 cross-pane drill-in
+// paths. Idempotent and bounds-checked.
+//
+// Performance: O(1).
+func (m dashboardModel) clearPaneUnread(p paneType) dashboardModel {
+	if int(p) < 0 || int(p) >= len(m.paneHasUnread) {
+		return m
+	}
+	m.paneHasUnread[p] = false
+	return m
+}
+
+// eventTargetPane maps an event Type to the pane that owns it for the
+// purposes of cross-pane unread marking (Story 38-4 AC#1 mapping table).
+//
+// Returns (pane, ok). When ok==false the event has no pane mapping and
+// SHOULD NOT trigger a mark — most notably EventImmune which is handled
+// via the dedicated AC#4 synthSecurityAlerts path so that synth events
+// never appear twice. Step / Compact / Budget / Stall / Error / Syscall
+// / Spawn / Exit all flow into Timeline.
+func eventTargetPane(eventType string) (paneType, bool) {
+	switch eventType {
+	case EventStep, EventCompact, EventBudget, EventStall, EventError, EventSyscall, EventSpawn, EventExit:
+		return paneTimeline, true
+	case EventImmune:
+		return paneSecurity, true
+	default:
+		return paneTimeline, false
+	}
+}
+
+// applyUnreadMarks scans the latest unifiedEvents tail and marks any
+// non-active target panes as unread (Story 38-4 AC#1). Wraps the
+// diff/mark cycle so dashboardTick stays compact.
+func (m dashboardModel) applyUnreadMarks() dashboardModel {
+	if len(m.unifiedEvents) > m.prevUnifiedEventCount {
+		toMark := diffNewEventsToUnread(m.prevUnifiedEventCount, m.unifiedEvents, m.activePane)
+		for p := range toMark {
+			m = m.markPaneUnread(p)
+		}
+	}
+	m.prevUnifiedEventCount = len(m.unifiedEvents)
+	return m
+}
+
+// resolveAlertJumpTarget consumes a pending alertJumpTarget (set by the
+// alert+enter path on PID change) and locates the matching cursor on the
+// destination pane. Story 38-4 AC#2 extends this to handle EventImmune
+// targets by scanning m.securityAlerts.
+func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
+	if m.alertJumpTarget == nil {
+		return m
+	}
+	target := m.alertJumpTarget
+	m.alertJumpTarget = nil
+	if target.Type == EventImmune {
+		for i, sa := range m.securityAlerts {
+			if types.PID(sa.PID) == target.PID {
+				m.securityCursor = i
+				securityAdjustScroll(&m)
+				break
+			}
+		}
+		return m
+	}
+	filtered := m.filteredUnifiedEvents()
+	for i, ev := range filtered {
+		if ev.Type == target.Type && ev.Timestamp.Equal(target.Timestamp) && ev.PID == target.PID {
+			m.stepCursor = i
+			break
+		}
+	}
+	return m
+}
+
+// diffNewEventsToUnread computes the set of panes that should be marked
+// unread based on the events appended this tick (Story 38-4 AC#1).
+//
+// Inputs:
+//   - prevCount: len(m.unifiedEvents) at end of previous tick.
+//   - curr: m.unifiedEvents after this tick's mergeUnifiedEvents.
+//   - activePane: the currently focused pane — never marked, since the
+//     user is already looking at it.
+//
+// Returns a small map with exactly the panes that picked up new events.
+// The set is intentionally not deduped further: a single tick can carry
+// at most ~50 new events (mergeUnifiedEvents trim) and we only emit a
+// handful of pane keys.
+//
+// Performance: O(N) where N is the number of new events, capped by the
+// merge layer (currently ≤ 200 sysEvents + step entries; in practice
+// new-tick deltas are small single-digit counts).
+//
+// Edge cases:
+//   - prevCount > len(curr) → events were trimmed/replaced; treat all
+//     of curr as "new" but cap the scan at maxScan to avoid pathological
+//     loops on full reload.
+//   - prevCount < 0 → ignored (treated as 0).
+func diffNewEventsToUnread(prevCount int, curr []UnifiedEvent, activePane paneType) map[paneType]bool {
+	result := make(map[paneType]bool)
+	if len(curr) == 0 {
+		return result
+	}
+	const maxScan = 50
+	start := max(prevCount, 0)
+	start = min(start, len(curr)) // events trimmed; nothing new past len
+	// Cap window so a one-shot reload (prev=0, len=200) does not stall.
+	if len(curr)-start > maxScan {
+		start = len(curr) - maxScan
+	}
+	for i := start; i < len(curr); i++ {
+		ev := curr[i]
+		target, ok := eventTargetPane(ev.Type)
+		if !ok {
+			continue
+		}
+		if target == activePane {
+			continue
+		}
+		result[target] = true
+	}
+	return result
+}
