@@ -131,10 +131,11 @@ type dashboardModel struct {
 	inspectorFollowLive bool // Auto-jump to latest step as new steps arrive
 	inspectorFollowGen  int  // Generation counter — stale ticks (prior generation) are ignored
 
-	// Story 38-3: cached diff-mark per lens used by renderLensTabs to append a `*`
-	// to lens labels whose content differs between current and base step. Only
-	// recomputed at lens / base / current transitions (see refreshInspectorDiffLensMarks).
+	// Story 38-3 AC#7: per-lens diff-mark cache (refreshed on lens / base /
+	// current change). AC#8: byte-position search hits for word-level highlight
+	// — kept alongside searchMatches []int (Timeline still uses line indices).
 	inspectorDiffLensMarks [inspectorLensCount]bool
+	inspectorSearchPos     []searchMatchPos
 
 	// Story 36-4: Timeline 排序方向 & expandMode 粘性
 	timelineSortAsc          bool               // true=旧→新（底部最新），session 内持久

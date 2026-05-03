@@ -5,18 +5,40 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 )
+
+// Story 38-3 AC#5: package-level compiled regexes for Raw JSON lens syntax
+// highlighting. RE2-safe (linear time, no backreferences). Order matters:
+// keys are tagged first, then string values, then numbers, then booleans —
+// see Dev Notes 6 for why this prevents nested-coloring corruption.
+var (
+	jsonRegexKey    = regexp.MustCompile(`"[\w_-]+"\s*:`)
+	jsonRegexString = regexp.MustCompile(`:\s*("[^"\\]*(?:\\.[^"\\]*)*")`)
+	jsonRegexNumber = regexp.MustCompile(`:\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)`)
+	jsonRegexBool   = regexp.MustCompile(`\b(true|false|null)\b`)
+)
+
+// searchMatchPos identifies the byte-range location of a single search hit
+// inside the Inspector's currently active lens content. Story 38-3 AC#8:
+// stored alongside the legacy `searchMatches []int` (line numbers) so the
+// Timeline path is unaffected — this struct is Inspector-only.
+type searchMatchPos struct {
+	lineIdx   int
+	byteStart int
+	byteEnd   int
+}
 
 // --- Step Inspector (Story 36.1) ---
 
@@ -46,6 +68,7 @@ func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
 	m.searchMode = false
 	m.searchQuery = ""
 	m.searchMatches = nil
+	m.inspectorSearchPos = nil
 	m.searchMatchIdx = 0
 	m.searchReverse = false
 	m.searchCrossLens = false
@@ -149,6 +172,7 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.searchQuery != "" {
 			m.searchQuery = ""
 			m.searchMatches = nil
+			m.inspectorSearchPos = nil
 			m.searchMatchIdx = 0
 			m.searchReverse = false
 			m.rebuildInspectorContents()
@@ -304,6 +328,7 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.searchMode = true
 		m.searchQuery = ""
 		m.searchMatches = nil
+		m.inspectorSearchPos = nil
 		m.searchMatchIdx = 0
 		m.searchReverse = false
 		if hadPrior {
@@ -318,6 +343,7 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.searchMode = true
 		m.searchQuery = ""
 		m.searchMatches = nil
+		m.inspectorSearchPos = nil
 		m.searchMatchIdx = 0
 		m.searchReverse = true
 		if hadPrior {
@@ -388,6 +414,7 @@ func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd
 		m.searchMode = false
 		m.searchQuery = ""
 		m.searchMatches = nil
+		m.inspectorSearchPos = nil
 		m.searchMatchIdx = 0
 		m.searchReverse = false
 		m.rebuildInspectorContents()
@@ -436,6 +463,53 @@ func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd
 func (m *dashboardModel) refreshInspectorSearchMatches() {
 	content := m.inspectorContents[m.inspectorLens]
 	m.searchMatches = ui.FindMatches(content, m.searchQuery)
+	// Story 38-3 AC#8: also collect byte positions for word-level highlighting.
+	m.inspectorSearchPos = findInspectorMatchesByPos(content, m.searchQuery)
+}
+
+// findInspectorMatchesByPos locates every case-insensitive substring match of
+// `query` inside `content` and returns the per-occurrence byte ranges along
+// with the line index. Story 38-3 AC#8: this is the byte-position counterpart
+// to `ui.FindMatches` (which returns only line numbers). Lives inside the
+// inspector package so the listnav search contract stays unchanged.
+//
+// Empty query returns nil. Search runs over the raw line text (case-folded);
+// ANSI escape sequences from prior highlight passes are not stripped, so the
+// query won't be located inside coloured spans that the user can't type.
+// Byte offsets are reported in the original `content` so subsequent highlight
+// rendering can reuse them directly.
+func findInspectorMatchesByPos(content, query string) []searchMatchPos {
+	if query == "" {
+		return nil
+	}
+	lcQuery := strings.ToLower(query)
+	var out []searchMatchPos
+	lineStart := 0
+	lineIdx := 0
+	for i := 0; i <= len(content); i++ {
+		if i == len(content) || (i < len(content) && content[i] == '\n') {
+			line := content[lineStart:i]
+			lcLine := strings.ToLower(line)
+			start := 0
+			for start < len(lcLine) {
+				idx := strings.Index(lcLine[start:], lcQuery)
+				if idx < 0 {
+					break
+				}
+				absStart := start + idx
+				absEnd := absStart + len(lcQuery)
+				out = append(out, searchMatchPos{
+					lineIdx:   lineIdx,
+					byteStart: lineStart + absStart,
+					byteEnd:   lineStart + absEnd,
+				})
+				start = absEnd
+			}
+			lineStart = i + 1
+			lineIdx++
+		}
+	}
+	return out
 }
 
 // clearSearchState resets dashboard search-related fields. Used when leaving
@@ -444,6 +518,7 @@ func (m dashboardModel) clearSearchState() dashboardModel {
 	m.searchMode = false
 	m.searchQuery = ""
 	m.searchMatches = nil
+	m.inspectorSearchPos = nil
 	m.searchMatchIdx = 0
 	m.searchReverse = false
 	m.searchCrossLens = false
@@ -491,6 +566,8 @@ func (m dashboardModel) switchInspectorLens(lens inspectorLens) dashboardModel {
 		content := m.buildLensContent(lens, m.inspectorDetail, m.inspectorPrevDetail)
 		m.inspectorContents[lens] = content
 		m.searchMatches = ui.FindMatches(content, m.searchQuery)
+		// Story 38-3 AC#8: keep word-level positions in sync with line matches.
+		m.inspectorSearchPos = findInspectorMatchesByPos(content, m.searchQuery)
 		if len(m.searchMatches) == 0 {
 			m.searchMatchIdx = 0
 		} else if m.searchMatchIdx >= len(m.searchMatches) {
@@ -985,8 +1062,17 @@ func (m dashboardModel) renderInspectorFooter() string {
 }
 
 // rebuildInspectorContents rebuilds all lens content from the current detail.
+//
+// Story 38-3 AC#8 changes the search highlight from line-level reverse video
+// to word-level: only the matched substring(s) are reverse-rendered. The
+// current match (the one `searchMatchIdx` points to) uses ColorWarning yellow,
+// other matches use ColorMuted grey, both with reverse video. The current
+// match is identified by mapping `searchMatchIdx` (a line-number index into
+// `searchMatches`) to the corresponding line, then highlighting any
+// `inspectorSearchPos` entry on that line with the current style.
 func (m *dashboardModel) rebuildInspectorContents() {
-	reverse := lipgloss.NewStyle().Reverse(true)
+	curStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Reverse(true)
+	otherStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Reverse(true)
 	// Story 36-6: when diff mode is active, render diff for the current lens
 	// against the captured base step; other lenses still render their normal
 	// contents (user sees diff for the lens they've focused, switching lenses
@@ -1003,19 +1089,9 @@ func (m *dashboardModel) rebuildInspectorContents() {
 		} else {
 			content = m.buildLensContent(inspectorLens(i), m.inspectorDetail, m.inspectorPrevDetail)
 		}
-		// Story 36-5: Apply reverse-video highlight to matched lines for the active lens.
-		if inspectorLens(i) == m.inspectorLens && m.searchQuery != "" {
-			lines := strings.Split(content, "\n")
-			matchSet := make(map[int]struct{}, len(m.searchMatches))
-			for _, ln := range m.searchMatches {
-				matchSet[ln] = struct{}{}
-			}
-			for idx, line := range lines {
-				if _, ok := matchSet[idx]; ok {
-					lines[idx] = reverse.Render(line)
-				}
-			}
-			content = strings.Join(lines, "\n")
+		// Story 38-3 AC#8: word-level reverse-video highlight on the active lens.
+		if inspectorLens(i) == m.inspectorLens && m.searchQuery != "" && len(m.inspectorSearchPos) > 0 {
+			content = applyWordLevelHighlight(content, m.inspectorSearchPos, m.searchMatches, m.searchMatchIdx, curStyle, otherStyle)
 		}
 		m.inspectorContents[i] = content
 		m.inspectorViewports[i].SetContent(content)
@@ -1025,6 +1101,37 @@ func (m *dashboardModel) rebuildInspectorContents() {
 			m.inspectorViewports[i].GotoTop()
 		}
 	}
+}
+
+// applyWordLevelHighlight wraps each entry in `positions` with the
+// appropriate reverse-video style. Positions whose `lineIdx` matches the
+// current line (resolved from `searchMatches[matchIdx]`) get `curStyle`;
+// every other match gets `otherStyle`. The function processes positions in
+// reverse byte order so earlier insertions don't shift later byte offsets.
+// Story 38-3 AC#8.
+func applyWordLevelHighlight(content string, positions []searchMatchPos, searchMatches []int, matchIdx int, curStyle, otherStyle lipgloss.Style) string {
+	currentLine := -1
+	if matchIdx >= 0 && matchIdx < len(searchMatches) {
+		currentLine = searchMatches[matchIdx]
+	}
+	// Sort-stable positions by descending byteStart by walking the slice in
+	// reverse — they are already produced in ascending order by line.
+	out := []byte(content)
+	for i := len(positions) - 1; i >= 0; i-- {
+		p := positions[i]
+		if p.byteStart < 0 || p.byteEnd > len(out) || p.byteStart >= p.byteEnd {
+			continue
+		}
+		matched := string(out[p.byteStart:p.byteEnd])
+		var styled string
+		if p.lineIdx == currentLine {
+			styled = curStyle.Render(matched)
+		} else {
+			styled = otherStyle.Render(matched)
+		}
+		out = append(out[:p.byteStart], append([]byte(styled), out[p.byteEnd:]...)...)
+	}
+	return string(out)
 }
 
 // buildLensContent builds display content for a specific lens.
@@ -1340,7 +1447,7 @@ func boxChar(name string) string {
 //   - title:       short header rendered into the top edge
 //   - content:     pre-truncated multiline body (caller handles truncation)
 //   - color:       hex color for the border; when colorBody is true, body
-//                  lines also adopt this color (used by the Error box)
+//     lines also adopt this color (used by the Error box)
 //   - colorBody:   whether to apply `color` to body content
 //   - width:       total box width (outer); inner usable width is width-4
 //
@@ -1620,12 +1727,79 @@ func renderTokenBar(count, total, width int) string {
 }
 
 // buildRawJSONLens builds Lens ❺: raw JSON with 2-space indent.
+//
+// Story 38-3 AC#5 adds 5-token syntax highlighting:
+//
+//	keys                ColorAgent  blue
+//	string values       ColorSuccess green
+//	numbers             ColorWarning yellow
+//	booleans / null     ColorReplay  orange
+//	punctuation { } [ ] , :  default ColorMuted via lipgloss reset
+//
+// Implementation uses 4 RE2-safe regexes applied in a fixed order to the
+// json.MarshalIndent output. ANSI escape codes from earlier passes are skipped
+// by later passes because the regex anchors (`"\w_-"`, `\b`) won't match
+// across the inserted `\x1b[...m` sequences.
+//
+// Performance guard: when the marshaled JSON exceeds 100KB the highlighter is
+// bypassed entirely and the raw indented JSON is returned (Story 38-3 AC#5).
+// This keeps very large step details responsive at the cost of plain text.
 func (m dashboardModel) buildRawJSONLens(detail *ipc.GetStepDetailResponse) string {
 	data, err := json.MarshalIndent(detail, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("JSON marshal error: %v", err)
 	}
-	return string(data)
+	raw := string(data)
+	if len(raw) > 100*1024 {
+		return raw
+	}
+	return highlightJSON(raw)
+}
+
+// highlightJSON applies the 4-pass JSON syntax highlighter. Exported as a
+// package-private helper so tests can exercise it directly without a full
+// dashboardModel.
+func highlightJSON(raw string) string {
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent))
+	stringStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
+	numberStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
+	boolStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorReplay))
+
+	// Pass 1: keys (`"xxx":` → blue)
+	out := jsonRegexKey.ReplaceAllStringFunc(raw, func(match string) string {
+		// Match looks like `"step":` — split off the trailing colon so it stays
+		// uncolored (punctuation default).
+		idx := strings.LastIndex(match, "\"")
+		key := match[:idx+1]
+		rest := match[idx+1:]
+		return keyStyle.Render(key) + rest
+	})
+	// Pass 2: string values (`: "xxx"` → green) — capture group 1.
+	out = jsonRegexString.ReplaceAllStringFunc(out, func(match string) string {
+		// Find the captured string: from the first `"` after `:`.
+		quoteStart := strings.IndexByte(match, '"')
+		if quoteStart < 0 {
+			return match
+		}
+		prefix := match[:quoteStart]
+		val := match[quoteStart:]
+		return prefix + stringStyle.Render(val)
+	})
+	// Pass 3: numeric values (`: <num>` → yellow).
+	out = jsonRegexNumber.ReplaceAllStringFunc(out, func(match string) string {
+		idx := strings.IndexAny(match, "-0123456789")
+		if idx < 0 {
+			return match
+		}
+		prefix := match[:idx]
+		num := match[idx:]
+		return prefix + numberStyle.Render(num)
+	})
+	// Pass 4: literal true / false / null → orange.
+	out = jsonRegexBool.ReplaceAllStringFunc(out, func(match string) string {
+		return boolStyle.Render(match)
+	})
+	return out
 }
 
 // renderTruncationNotice renders an explicit truncation notice.

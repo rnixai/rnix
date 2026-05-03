@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 )
@@ -411,5 +413,132 @@ func TestBuildMetaLens_ZeroTokens(t *testing.T) {
 	}
 	if strings.Contains(stripped, "0.0%") {
 		t.Errorf("zero-token meta lens should not render 0%% bar; got %q", stripped)
+	}
+}
+
+// =============================================================================
+// PR3 tests — Raw JSON syntax highlighting + word-level search
+// =============================================================================
+
+// TestBuildRawJSONLens_SyntaxHighlight verifies Story 38-3 AC#5: keys, strings,
+// numbers, and booleans are colored.
+func TestBuildRawJSONLens_SyntaxHighlight(t *testing.T) {
+	raw := `{
+  "step": 5,
+  "name": "alpha",
+  "active": true,
+  "ratio": 0.42
+}`
+	highlighted := highlightJSON(raw)
+
+	t.Run("contains_ansi_codes_when_color_active", func(t *testing.T) {
+		// Profile-tolerant: when the test runner has no color profile (CI / no
+		// TTY) lipgloss returns plain text. We probe with a known style first to
+		// detect that mode and only assert ANSI presence in color terminals.
+		probe := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Render("x")
+		if probe == "x" {
+			t.Skip("color profile is no-op on this runner; skipping ANSI assertion")
+		}
+		if !strings.Contains(highlighted, "\x1b[") {
+			t.Errorf("highlighted JSON should contain ANSI escape sequences; got %q", highlighted)
+		}
+	})
+
+	t.Run("preserves_literals", func(t *testing.T) {
+		stripped := stripANSIApprox(highlighted)
+		for _, want := range []string{`"step"`, `"name"`, `"alpha"`, "true", "5", "0.42"} {
+			if !strings.Contains(stripped, want) {
+				t.Errorf("stripped output should preserve %q; got %q", want, stripped)
+			}
+		}
+	})
+}
+
+// TestBuildRawJSONLens_LargeBypassesHighlight verifies Story 38-3 AC#5
+// performance fallback: JSON > 100KB skips the regex highlight.
+func TestBuildRawJSONLens_LargeBypassesHighlight(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	m.inspectorDetail.SystemPrompt = strings.Repeat("x", 110*1024)
+	content := m.buildLensContent(lensRawJSON, m.inspectorDetail, nil)
+	if strings.Contains(content, "\x1b[") {
+		t.Errorf(">100KB JSON should bypass syntax highlighting (no ANSI); got len=%d", len(content))
+	}
+}
+
+// TestFindInspectorMatchesByPos_SubstringPositions verifies the byte-position
+// match collector. Story 38-3 AC#8 underlies word-level highlighting.
+func TestFindInspectorMatchesByPos_SubstringPositions(t *testing.T) {
+	content := "authentication is auth-related\nanother line\nauth"
+	positions := findInspectorMatchesByPos(content, "auth")
+
+	if len(positions) != 3 {
+		t.Errorf("expected 3 matches of 'auth'; got %d (%v)", len(positions), positions)
+	}
+	if positions[0].lineIdx != 0 || positions[0].byteStart != 0 {
+		t.Errorf("first match should be line 0 byte 0; got %+v", positions[0])
+	}
+	if positions[len(positions)-1].lineIdx != 2 {
+		t.Errorf("last match should be on line 2; got %+v", positions[len(positions)-1])
+	}
+}
+
+func TestFindInspectorMatchesByPos_EmptyQuery(t *testing.T) {
+	positions := findInspectorMatchesByPos("anything", "")
+	if positions != nil {
+		t.Errorf("empty query should return nil positions; got %v", positions)
+	}
+}
+
+func TestFindInspectorMatchesByPos_CaseInsensitive(t *testing.T) {
+	content := "Authentication failed: AUTH error"
+	positions := findInspectorMatchesByPos(content, "auth")
+	if len(positions) != 2 {
+		t.Errorf("case-insensitive search should find 2 matches; got %d", len(positions))
+	}
+}
+
+// TestRebuildInspectorContents_WordLevelSearch verifies Story 38-3 AC#8:
+// only the matched substring is reverse-highlighted.
+func TestRebuildInspectorContents_WordLevelSearch(t *testing.T) {
+	m := newTestInspectorModelWithDetail()
+	m.searchQuery = "auth"
+	m.inspectorContents[m.inspectorLens] = "authentication failed\nrandom line"
+	m.refreshInspectorSearchMatches()
+
+	if len(m.inspectorSearchPos) == 0 {
+		t.Fatalf("refreshInspectorSearchMatches should populate inspectorSearchPos")
+	}
+	if len(m.inspectorSearchPos) != 1 {
+		t.Errorf("expected 1 match for 'auth'; got %d", len(m.inspectorSearchPos))
+	}
+	if m.inspectorSearchPos[0].byteEnd-m.inspectorSearchPos[0].byteStart != 4 {
+		t.Errorf("match span should be 4 bytes; got %d", m.inspectorSearchPos[0].byteEnd-m.inspectorSearchPos[0].byteStart)
+	}
+}
+
+func TestApplyWordLevelHighlight_DistinctCurrentVsOther(t *testing.T) {
+	// Profile-tolerant: in a no-color terminal lipgloss returns plain text.
+	probe := lipgloss.NewStyle().Reverse(true).Render("x")
+	if probe == "x" {
+		t.Skip("color profile is no-op on this runner; reverse-video assertion would always fail")
+	}
+
+	content := "auth1 here\nauth2 there"
+	positions := []searchMatchPos{
+		{lineIdx: 0, byteStart: 0, byteEnd: 4},
+		{lineIdx: 1, byteStart: 11, byteEnd: 15},
+	}
+	searchMatches := []int{0, 1}
+	matchIdx := 1
+
+	cur := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Reverse(true)
+	other := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Reverse(true)
+	out := applyWordLevelHighlight(content, positions, searchMatches, matchIdx, cur, other)
+
+	if out == content {
+		t.Errorf("highlight should modify content")
+	}
+	if !strings.Contains(out, "\x1b[7m") {
+		t.Errorf("highlight should produce reverse-video ANSI; got %q", out)
 	}
 }
