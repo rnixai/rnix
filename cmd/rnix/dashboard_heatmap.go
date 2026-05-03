@@ -1,10 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"strings"
-	"unicode/utf8"
-
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
@@ -29,6 +25,8 @@ func segmentKindLabel(kind segmentKind) string {
 }
 
 // activityLabel — thin wrapper · 见 internal/dashboard/heatmap.ActivityLabel
+//
+//nolint:unused // 保留供潜在外部 caller / 测试 grep 使用
 func activityLabel(a activityLevel) string {
 	return heatmap.ActivityLabel(a)
 }
@@ -72,39 +70,43 @@ func fetchHeatmapCmd(pid types.PID) tea.Cmd {
 	}
 }
 
+// handleHeatmapPIDChange — thin wrapper · Story 38-5 PR3 Step 3
+//
+// 委托至 internal/dashboard/heatmap.HandlePIDChange 处理 PID 切换的状态清理。
+// 行为零变化（与 PR3 Step 1 落地一致）。
 func (m dashboardModel) handleHeatmapPIDChange() dashboardModel {
 	if m.selectedPID == m.heatmap.PID {
 		return m
 	}
-	m.heatmap.Profile = nil
-	m.heatmap.Segments = nil
-	m.heatmap.Cursor = 0
-	m.heatmap.Expanded = false
-	m.heatmap.Err = nil
+	m.heatmap = heatmap.HandlePIDChange(m.heatmap)
 	return m
 }
 
+// handleHeatmapKey — thin wrapper · Story 38-5 PR3 Step 3
+//
+// 委托至 internal/dashboard/heatmap.HandleKey 处理 pane-specific 键位（j/k 导航 / enter
+// 切 expanded / "/" 提示不支持搜索）。statusMsg 设置 + TTL 由 cmd/rnix 端补齐
+// （HandleKey 仅返回 statusMsg 文本，状态消息生命周期管理仍属 cmd/rnix 端职责）。
 func (m dashboardModel) handleHeatmapKey(key string) dashboardModel {
-	// Story 36-5: 统一导航键集合（补齐 pgdn/pgup/ctrl+d/u/g/G/home/end）
-	if ui.HandleListKey(key, nil, &m.heatmap.Cursor, len(m.heatmap.Segments), ui.ListNavOpts{PageSize: 8}) {
-		return m
-	}
-	// Story 36-5 P-8: 当前面板（Heatmap）不支持搜索；按 / 提示用户
-	if key == "/" {
-		m.statusMsg = "Search not available in this pane"
+	newState, statusMsg, _ := heatmap.HandleKey(m.heatmap, key)
+	m.heatmap = newState
+	if statusMsg != "" {
+		m.statusMsg = statusMsg
 		m.statusMsgTTL = statusMsgDefaultTTL
-		return m
-	}
-	if key == "enter" {
-		// Story 36-5 P-5: 空列表时不切换 expanded 状态，避免无意义的状态翻转
-		if len(m.heatmap.Segments) == 0 {
-			return m
-		}
-		m.heatmap.Expanded = !m.heatmap.Expanded
 	}
 	return m
 }
 
+// renderHeatmapPane — thin wrapper · Story 38-5 PR3 Step 3
+//
+// 渲染主体迁出至 internal/dashboard/heatmap.Render（371 行实现）。
+// cmd/rnix 端 wrapper 负责：
+//  1. 计算 isActive + borderColor（依赖 m.activePane / paneHeatmap，属 cmd/rnix 内部状态）
+//  2. 调用 heatmap.Render(state, ctx, innerW, innerH) 取得 inner content
+//  3. 用 renderFixedPanel(content, width, height, borderColor) 包裹外层 border
+//
+// 包边界考量：renderFixedPanel + paneHeatmap 常量是 cmd/rnix 端 helper，迁入 internal 包
+// 会引入额外类型。本阶段 wrapper 模式与 PR2 Step 3b TreeModel 一致。
 func (m dashboardModel) renderHeatmapPane(width, height int) string {
 	isActive := m.activePane == paneHeatmap
 
@@ -115,71 +117,10 @@ func (m dashboardModel) renderHeatmapPane(width, height int) string {
 
 	innerW := max(width-2, 1)
 
-	var b strings.Builder
+	content := heatmap.Render(m.heatmap, heatmap.RenderContext{
+		IsActive:    isActive,
+		SelectedPID: m.selectedPID,
+	}, innerW, height)
 
-	b.WriteString(" Heatmap")
-	if m.selectedPID > 0 && m.heatmap.Profile != nil {
-		fmt.Fprintf(&b, " | PID %d", m.selectedPID)
-		pct := 0
-		if m.heatmap.Profile.ContextBudget > 0 {
-			pct = m.heatmap.Profile.TotalTokens * 100 / m.heatmap.Profile.ContextBudget
-		}
-		fmt.Fprintf(&b, " | ~%d tok / %d budget (%d%%)",
-			m.heatmap.Profile.TotalTokens, m.heatmap.Profile.ContextBudget, pct)
-	}
-	b.WriteString("\n")
-
-	if m.selectedPID == 0 {
-		b.WriteString("\n    Select an agent to view heatmap")
-		return renderFixedPanel(b.String(), width, height, borderColor)
-	}
-	if m.heatmap.Err != nil {
-		fmt.Fprintf(&b, "\n    ✗ %v", m.heatmap.Err)
-		return renderFixedPanel(b.String(), width, height, borderColor)
-	}
-	if len(m.heatmap.Segments) == 0 {
-		b.WriteString("\n    Loading context profile...")
-		return renderFixedPanel(b.String(), width, height, borderColor)
-	}
-
-	barWidth := max(innerW-2, 10)
-	for _, seg := range m.heatmap.Segments {
-		segW := max(int(seg.Pct/100.0*float64(barWidth)), 1)
-		color := segmentColor(seg.Kind, seg.Activity)
-		catStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-		b.WriteString(catStyle.Render(strings.Repeat("█", segW)))
-	}
-	b.WriteString("\n")
-
-	for _, seg := range m.heatmap.Segments {
-		fmt.Fprintf(&b, "%s(%.0f%%) ", seg.Label, seg.Pct)
-	}
-	b.WriteString("\n")
-
-	for i, seg := range m.heatmap.Segments {
-		cursor := "  "
-		if i == m.heatmap.Cursor {
-			cursor = "▸ "
-		}
-		actStr := activityLabel(seg.Activity)
-		fmt.Fprintf(&b, "%s%-15s %4d tok  %5.1f%%  %s\n",
-			cursor, seg.Label, seg.Tokens, seg.Pct, actStr)
-	}
-
-	if m.heatmap.Expanded && m.heatmap.Cursor < len(m.heatmap.Segments) {
-		seg := m.heatmap.Segments[m.heatmap.Cursor]
-		actStr := activityLabel(seg.Activity)
-		fmt.Fprintf(&b, "\n── Selected: %s ──\n", seg.Label)
-		fmt.Fprintf(&b, "%d tokens | %.1f%% | %s\n", seg.Tokens, seg.Pct, actStr)
-		if seg.Summary != "" {
-			if utf8.RuneCountInString(seg.Summary) > 60 {
-				runes := []rune(seg.Summary)
-				b.WriteString("\"" + string(runes[:57]) + "...\"\n")
-			} else {
-				b.WriteString("\"" + seg.Summary + "\"\n")
-			}
-		}
-	}
-
-	return renderFixedPanel(b.String(), width, height, borderColor)
+	return renderFixedPanel(content, width, height, borderColor)
 }
