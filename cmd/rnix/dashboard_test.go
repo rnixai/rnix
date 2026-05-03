@@ -41,9 +41,9 @@ func mockDashboardProcs() []vfs.ProcInfo {
 func newTestDashboardModel(procs []vfs.ProcInfo) dashboardModel {
 	m := newDashboardModel(nil)
 	m.processes = procs
-	m.treeRows = make([]flatRow, len(procs))
+	m.tree.Rows = make([]flatRow, len(procs))
 	for i, p := range procs {
-		m.treeRows[i] = flatRow{proc: p, depth: 0}
+		m.tree.Rows[i] = flatRow{Proc: p, Depth: 0}
 	}
 	m.width = 120
 	m.height = 40
@@ -188,14 +188,14 @@ func TestDashboardBuildProcessTree_ParentChild(t *testing.T) {
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(roots))
 	}
-	if len(roots[0].children) != 2 {
-		t.Fatalf("expected 2 children of root, got %d", len(roots[0].children))
+	if len(roots[0].Children) != 2 {
+		t.Fatalf("expected 2 children of root, got %d", len(roots[0].Children))
 	}
-	if roots[0].children[0].proc.PID != 2 {
-		t.Errorf("first child PID should be 2, got %d", roots[0].children[0].proc.PID)
+	if roots[0].Children[0].Proc.PID != 2 {
+		t.Errorf("first child PID should be 2, got %d", roots[0].Children[0].Proc.PID)
 	}
-	if roots[0].children[1].proc.PID != 3 {
-		t.Errorf("second child PID should be 3, got %d", roots[0].children[1].proc.PID)
+	if roots[0].Children[1].Proc.PID != 3 {
+		t.Errorf("second child PID should be 3, got %d", roots[0].Children[1].Proc.PID)
 	}
 }
 
@@ -214,13 +214,13 @@ func TestDashboardBuildProcessTree_DeepNesting(t *testing.T) {
 	}
 	node := roots[0]
 	for depth := 1; depth <= 3; depth++ {
-		if len(node.children) != 1 {
-			t.Fatalf("depth %d: expected 1 child, got %d", depth, len(node.children))
+		if len(node.Children) != 1 {
+			t.Fatalf("depth %d: expected 1 child, got %d", depth, len(node.Children))
 		}
-		node = node.children[0]
+		node = node.Children[0]
 	}
-	if node.proc.PID != 4 {
-		t.Errorf("deepest node should be PID 4, got %d", node.proc.PID)
+	if node.Proc.PID != 4 {
+		t.Errorf("deepest node should be PID 4, got %d", node.Proc.PID)
 	}
 }
 
@@ -238,14 +238,14 @@ func TestDashboardFlattenTree_Indentation(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
 	}
-	if rows[0].prefix != "" {
-		t.Errorf("root should have no prefix, got %q", rows[0].prefix)
+	if rows[0].Prefix != "" {
+		t.Errorf("root should have no prefix, got %q", rows[0].Prefix)
 	}
-	if !strings.Contains(rows[1].prefix, "├") {
-		t.Errorf("non-last child should use ├── prefix, got %q", rows[1].prefix)
+	if !strings.Contains(rows[1].Prefix, "├") {
+		t.Errorf("non-last child should use ├── prefix, got %q", rows[1].Prefix)
 	}
-	if !strings.Contains(rows[2].prefix, "└") {
-		t.Errorf("last child should use └── prefix, got %q", rows[2].prefix)
+	if !strings.Contains(rows[2].Prefix, "└") {
+		t.Errorf("last child should use └── prefix, got %q", rows[2].Prefix)
 	}
 }
 
@@ -272,31 +272,31 @@ func TestDashboardModel_TickUpdatesTree(t *testing.T) {
 
 func TestDashboardModel_NavigateJK(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	um := updated.(dashboardModel)
-	if um.treeCursor != 1 {
-		t.Errorf("j should move cursor down: expected 1, got %d", um.treeCursor)
+	if um.tree.Cursor != 1 {
+		t.Errorf("j should move cursor down: expected 1, got %d", um.tree.Cursor)
 	}
 
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'j'})
 	um = updated.(dashboardModel)
-	if um.treeCursor != 2 {
-		t.Errorf("j again: expected 2, got %d", um.treeCursor)
+	if um.tree.Cursor != 2 {
+		t.Errorf("j again: expected 2, got %d", um.tree.Cursor)
 	}
 
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
-	if um.treeCursor != 1 {
-		t.Errorf("k should move cursor up: expected 1, got %d", um.treeCursor)
+	if um.tree.Cursor != 1 {
+		t.Errorf("k should move cursor up: expected 1, got %d", um.tree.Cursor)
 	}
 
-	um.treeCursor = 0
+	um.tree.Cursor = 0
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
-	if um.treeCursor != 0 {
-		t.Errorf("k at top should stay at 0, got %d", um.treeCursor)
+	if um.tree.Cursor != 0 {
+		t.Errorf("k at top should stay at 0, got %d", um.tree.Cursor)
 	}
 }
 
@@ -335,7 +335,7 @@ func TestDashboardModel_TabSwitchPane(t *testing.T) {
 
 func TestDashboardModel_KillConfirmY(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 1
+	m.tree.Cursor = 1
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'K', ShiftedCode: 'K', Mod: tea.ModShift})
 	um := updated.(dashboardModel)
@@ -357,7 +357,7 @@ func TestDashboardModel_KillConfirmY(t *testing.T) {
 
 func TestDashboardModel_KillConfirmN(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'K', ShiftedCode: 'K', Mod: tea.ModShift})
 	um := updated.(dashboardModel)
@@ -421,16 +421,16 @@ func TestDashboardModel_50Processes(t *testing.T) {
 
 func TestDashboardModel_SelectedPIDSync(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	um := updated.(dashboardModel)
 	if um.selectedPID == 0 {
 		t.Error("selectedPID should be updated when cursor moves")
 	}
-	if len(um.treeRows) > 1 && um.selectedPID != um.treeRows[um.treeCursor].proc.PID {
+	if len(um.tree.Rows) > 1 && um.selectedPID != um.tree.Rows[um.tree.Cursor].Proc.PID {
 		t.Errorf("selectedPID should match cursor row PID, got %d vs %d",
-			um.selectedPID, um.treeRows[um.treeCursor].proc.PID)
+			um.selectedPID, um.tree.Rows[um.tree.Cursor].Proc.PID)
 	}
 }
 
@@ -455,7 +455,7 @@ func TestDashboardModel_ScrollViewport(t *testing.T) {
 		m = updated.(dashboardModel)
 	}
 
-	if m.treeOffset == 0 {
+	if m.tree.Offset == 0 {
 		t.Error("treeOffset should have scrolled to keep cursor visible")
 	}
 }
@@ -1014,7 +1014,7 @@ func TestDashboardModel_HeatmapPIDChangeResetsState(t *testing.T) {
 
 func TestDashboardModel_PIDChangeImmediateLinkage(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 	m.activePane = paneTree
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'j'})
@@ -1165,14 +1165,14 @@ func TestDashboardModel_GlobalKillNoSelectedPID(t *testing.T) {
 func TestDashboardModel_TreeKNavigatesUpNotKill(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.activePane = paneTree
-	m.treeCursor = 2
+	m.tree.Cursor = 2
 	m.selectedPID = 3
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
 
-	if um.treeCursor != 1 {
-		t.Errorf("k in tree pane should navigate up: expected cursor 1, got %d", um.treeCursor)
+	if um.tree.Cursor != 1 {
+		t.Errorf("k in tree pane should navigate up: expected cursor 1, got %d", um.tree.Cursor)
 	}
 	if um.confirmKill {
 		t.Error("k in tree pane should NOT trigger kill confirmation")
@@ -1727,9 +1727,9 @@ func TestReplayDashboard_LiveKeysBlocked(t *testing.T) {
 	// trigger tick to populate treeRows so k can navigate
 	m2.processes = buildReplayProcessTree(m2.replayReader, 0)
 	roots := buildProcessTree(m2.processes, treeSortPID, false)
-	m2.treeRows = flattenTree(roots)
-	m2.treeCursor = 0
-	m2.selectedPID = m2.treeRows[0].proc.PID
+	m2.tree.Rows = flattenTree(roots)
+	m2.tree.Cursor = 0
+	m2.selectedPID = m2.tree.Rows[0].Proc.PID
 
 	updated, _ = m2.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
@@ -1830,7 +1830,7 @@ func newTestStepInspectorModel() dashboardModel {
 
 func TestStepInspector_LKeyEntersViewer(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 1
+	m.tree.Cursor = 1
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
 
@@ -1846,7 +1846,7 @@ func TestStepInspector_LKeyEntersViewer(t *testing.T) {
 
 func TestStepInspector_LKeyReturnsCmd(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 1
+	m.tree.Cursor = 1
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
 
@@ -1984,13 +1984,13 @@ func TestStepInspector_FetchingGuardBlocksConcurrent(t *testing.T) {
 
 func TestStepInspector_JKeyScrollsNotTree(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	um := updated.(dashboardModel)
 
-	if um.treeCursor != 0 {
-		t.Errorf("j in viewStepInspector should scroll viewport, not move treeCursor: expected 0, got %d", um.treeCursor)
+	if um.tree.Cursor != 0 {
+		t.Errorf("j in viewStepInspector should scroll viewport, not move treeCursor: expected 0, got %d", um.tree.Cursor)
 	}
 }
 
@@ -2074,13 +2074,13 @@ func TestStepInspector_ViewFullScreenOverlay(t *testing.T) {
 
 func TestStepInspector_KKeyScrollsNotTree(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.treeCursor = 2
+	m.tree.Cursor = 2
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
 
-	if um.treeCursor != 2 {
-		t.Errorf("k in viewStepInspector should scroll viewport, not move treeCursor: expected 2, got %d", um.treeCursor)
+	if um.tree.Cursor != 2 {
+		t.Errorf("k in viewStepInspector should scroll viewport, not move treeCursor: expected 2, got %d", um.tree.Cursor)
 	}
 }
 
@@ -2598,22 +2598,22 @@ func TestBuildProcessTree_DeadHierarchy(t *testing.T) {
 	}
 	// PID 2 should be child of PID 1
 	root := roots[0]
-	if root.proc.PID != 1 {
-		t.Fatalf("root should be PID 1, got %d", root.proc.PID)
+	if root.Proc.PID != 1 {
+		t.Fatalf("root should be PID 1, got %d", root.Proc.PID)
 	}
-	if len(root.children) != 1 {
-		t.Fatalf("PID 1 should have 1 child (PID 2), got %d", len(root.children))
+	if len(root.Children) != 1 {
+		t.Fatalf("PID 1 should have 1 child (PID 2), got %d", len(root.Children))
 	}
-	child := root.children[0]
-	if child.proc.PID != 2 {
-		t.Fatalf("child of PID 1 should be PID 2, got %d", child.proc.PID)
+	child := root.Children[0]
+	if child.Proc.PID != 2 {
+		t.Fatalf("child of PID 1 should be PID 2, got %d", child.Proc.PID)
 	}
 	// PID 3 should be child of PID 2 (dead→dead hierarchy)
-	if len(child.children) != 1 {
-		t.Fatalf("PID 2 should have 1 child (PID 3), got %d children", len(child.children))
+	if len(child.Children) != 1 {
+		t.Fatalf("PID 2 should have 1 child (PID 3), got %d children", len(child.Children))
 	}
-	if child.children[0].proc.PID != 3 {
-		t.Errorf("child of PID 2 should be PID 3, got %d", child.children[0].proc.PID)
+	if child.Children[0].Proc.PID != 3 {
+		t.Errorf("child of PID 2 should be PID 3, got %d", child.Children[0].Proc.PID)
 	}
 }
 
@@ -2631,7 +2631,7 @@ func TestBuildProcessTree_DeadOrphan(t *testing.T) {
 	}
 	pids := map[types.PID]bool{}
 	for _, r := range roots {
-		pids[r.proc.PID] = true
+		pids[r.Proc.PID] = true
 	}
 	if !pids[5] {
 		t.Error("dead process with missing PPID 99 should become root")
@@ -2652,14 +2652,14 @@ func TestBuildProcessTree_ReparentedOrphanPreservesTree(t *testing.T) {
 		t.Fatalf("expected 1 root (PID 1), got %d roots", len(roots))
 	}
 	root := roots[0]
-	if root.proc.PID != 1 {
-		t.Fatalf("root should be PID 1, got %d", root.proc.PID)
+	if root.Proc.PID != 1 {
+		t.Fatalf("root should be PID 1, got %d", root.Proc.PID)
 	}
-	if len(root.children) != 1 {
-		t.Fatalf("PID 1 should have 1 child (PID 13 reparented but ParentUUID preserved), got %d", len(root.children))
+	if len(root.Children) != 1 {
+		t.Fatalf("PID 1 should have 1 child (PID 13 reparented but ParentUUID preserved), got %d", len(root.Children))
 	}
-	if root.children[0].proc.PID != 13 {
-		t.Errorf("child of PID 1 should be PID 13, got %d", root.children[0].proc.PID)
+	if root.Children[0].Proc.PID != 13 {
+		t.Errorf("child of PID 1 should be PID 13, got %d", root.Children[0].Proc.PID)
 	}
 }
 
@@ -2676,8 +2676,8 @@ func TestBuildProcessTree_ReparentedOrphanSyntheticParent(t *testing.T) {
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 synthetic root for missing parent, got %d roots", len(roots))
 	}
-	if len(roots[0].children) != 2 {
-		t.Errorf("synthetic parent should have 2 children, got %d", len(roots[0].children))
+	if len(roots[0].Children) != 2 {
+		t.Errorf("synthetic parent should have 2 children, got %d", len(roots[0].Children))
 	}
 }
 
@@ -2750,9 +2750,9 @@ func TestMostActiveHighlight(t *testing.T) {
 	})
 
 	// PID 1 had event 1 second ago → should be "most active"
-	m.lastEventByPID[1] = now.Add(-1 * time.Second)
+	m.tree.LastEventByPID[1] = now.Add(-1 * time.Second)
 	// PID 2 had event 5 seconds ago → not active
-	m.lastEventByPID[2] = now.Add(-5 * time.Second)
+	m.tree.LastEventByPID[2] = now.Add(-5 * time.Second)
 
 	v := m.View()
 	content := v.Content
@@ -2791,9 +2791,9 @@ func TestDeadTreeCollapse(t *testing.T) {
 	// The collapsed row should have collapsed=true
 	found := false
 	for _, r := range rows {
-		if r.proc.UUID == "dead-parent-u" {
+		if r.Proc.UUID == "dead-parent-u" {
 			found = true
-			if !r.collapsed {
+			if !r.Collapsed {
 				t.Error("dead-parent-u row should have collapsed=true")
 			}
 		}

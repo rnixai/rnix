@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -44,17 +45,10 @@ type dashboardModel struct {
 	selectedPID  types.PID
 	selectedUUID string
 	processes    []vfs.ProcInfo
-	treeRows     []flatRow
-	treeCursor   int
-	treeOffset   int
-	treeSortMode int  // 0=Time, 1=PID, 2=State
-	treeSortAsc  bool // false=descending (default), true=ascending
 
-	// Expanded-tree search (only active in viewExpanded + paneTree)
-	treeSearchQuery  string
-	treeSearchMode   bool
-	treeSearchCursor int
-	treeSearchOffset int
+	// Story 38-5 PR2 Step 1: TreeState 抽离（13 字段聚合到 internal/dashboard/tree.TreeState）
+	tree tree.TreeState
+
 	connected    bool
 	err          error
 	statusMsg    string
@@ -226,13 +220,9 @@ type dashboardModel struct {
 	errorCount int
 	warnCount  int
 
-	// Story 34.3: Process tree visual enhancement
-	lastEventByPID     map[types.PID]time.Time // AC5: most active tracking
-	userManualSelect   bool                     // AC5: user manual select flag
-	collapsedDeadTrees map[string]bool          // AC3: dead subtree collapse state (key=UUID)
+	// Story 34.3: Process tree visual enhancement (now in tree.TreeState)
 
-	// Story 36-2: New process highlight
-	processFirstSeenAt map[types.PID]time.Time // tracks when each PID was first seen
+	// Story 36-2: New process highlight (now in tree.TreeState)
 
 	// Story 34.4: Alert strip + unified timeline
 	alertExpanded  bool             // alert strip expanded state
@@ -283,9 +273,12 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		budgetAlertSeen:    make(map[types.PID]int),
 		stallSeen:          make(map[types.PID]struct{}),
 		sysEventSeen:       make(map[string]struct{}),
-		lastEventByPID:     make(map[types.PID]time.Time),
-		collapsedDeadTrees: make(map[string]bool),
-		processFirstSeenAt: make(map[types.PID]time.Time),
+		// Story 38-5 PR2 Step 1: TreeState 抽离（13 字段）
+		tree: tree.TreeState{
+			LastEventByPID:     make(map[types.PID]time.Time),
+			CollapsedDeadTrees: make(map[string]bool),
+			ProcessFirstSeenAt: make(map[types.PID]time.Time),
+		},
 		intentTreeCollapsed: make(map[string]bool), // Story 38-4 AC#3 / P1: keyed by RootIntent
 		debugShowStrace:    true, // Story 34.6: show strace events by default
 		debugDeviceLatency: make(map[string]*deviceLatencyStats),
@@ -296,10 +289,17 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 }
 
 func selectProcess(m dashboardModel, row flatRow) dashboardModel {
-	m.selectedPID = row.proc.PID
-	m.selectedUUID = row.proc.UUID
+	m.selectedPID = row.Proc.PID
+	m.selectedUUID = row.Proc.UUID
 	return m
 }
+
+// TreeState returns the embedded tree state for backward compatibility with old tests.
+//
+// Deprecated: removed in 38-5 PR11. New tests should access fields directly via
+// `m.tree.Rows`, `m.tree.Cursor`, ...; legacy tests may temporarily use this getter
+// to read the tree state without referencing internal/dashboard/tree types.
+func (m dashboardModel) TreeState() tree.TreeState { return m.tree }
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -644,24 +644,24 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	nowHL := time.Now()
 	for _, p := range procs {
 		seenNow[p.PID] = true
-		if _, exists := m.processFirstSeenAt[p.PID]; !exists {
-			m.processFirstSeenAt[p.PID] = nowHL
+		if _, exists := m.tree.ProcessFirstSeenAt[p.PID]; !exists {
+			m.tree.ProcessFirstSeenAt[p.PID] = nowHL
 		}
 	}
 	// Clean up entries for PIDs no longer in procs. No time-based cleanup —
 	// the map is bounded by the number of active+visible processes and entries
 	// for exited PIDs are removed immediately when they leave the procs list.
-	for pid := range m.processFirstSeenAt {
+	for pid := range m.tree.ProcessFirstSeenAt {
 		if !seenNow[pid] {
-			delete(m.processFirstSeenAt, pid)
+			delete(m.tree.ProcessFirstSeenAt, pid)
 		}
 	}
 
-	roots := buildProcessTree(procs, m.treeSortMode, m.treeSortAsc)
-	m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
+	roots := buildProcessTree(procs, m.tree.SortMode, m.tree.SortAsc)
+	m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
 
-	if m.treeCursor >= len(m.treeRows) {
-		m.treeCursor = max(0, len(m.treeRows)-1)
+	if m.tree.Cursor >= len(m.tree.Rows) {
+		m.tree.Cursor = max(0, len(m.tree.Rows)-1)
 	}
 
 	m.applyInitialPIDFocus()
@@ -705,11 +705,11 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	if m.debugMode && anchorPID == 0 && m.debugAttachedPID > 0 {
 		anchorPID = m.debugAttachedPID
 	}
-	if anchorPID > 0 && m.treeCursor < len(m.treeRows) {
-		if m.treeRows[m.treeCursor].proc.PID != anchorPID {
-			for i, row := range m.treeRows {
-				if row.proc.PID == anchorPID {
-					m.treeCursor = i
+	if anchorPID > 0 && m.tree.Cursor < len(m.tree.Rows) {
+		if m.tree.Rows[m.tree.Cursor].Proc.PID != anchorPID {
+			for i, row := range m.tree.Rows {
+				if row.Proc.PID == anchorPID {
+					m.tree.Cursor = i
 					break
 				}
 			}
@@ -717,18 +717,18 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// Update selection from current cursor position (after stabilization)
-	if m.treeCursor < len(m.treeRows) {
-		m = selectProcess(m, m.treeRows[m.treeCursor])
+	if m.tree.Cursor < len(m.tree.Rows) {
+		m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 	}
 
 	// --- Unified event stream detection (Story 34.1) ---
 	// On first successful tick, seed EXIT/SPAWN events for already-dead historical processes.
 	// Scope to treeRows only so we don't generate events for processes from unrelated old sessions.
-	if !m.historicalSeedDone && len(m.treeRows) > 0 {
+	if !m.historicalSeedDone && len(m.tree.Rows) > 0 {
 		m.historicalSeedDone = true
-		visibleProcs := make([]vfs.ProcInfo, 0, len(m.treeRows))
-		for _, row := range m.treeRows {
-			visibleProcs = append(visibleProcs, row.proc)
+		visibleProcs := make([]vfs.ProcInfo, 0, len(m.tree.Rows))
+		for _, row := range m.tree.Rows {
+			visibleProcs = append(visibleProcs, row.Proc)
 		}
 		if seedEvents := seedHistoricalSysEvents(visibleProcs); len(seedEvents) > 0 {
 			m.sysEvents = append(m.sysEvents, sysEventDedup(seedEvents, m.sysEventSeen)...)
@@ -797,8 +797,8 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	now := time.Now()
 	for _, ev := range m.unifiedEvents {
 		if ev.PID > 0 {
-			if existing, ok := m.lastEventByPID[ev.PID]; !ok || ev.Timestamp.After(existing) {
-				m.lastEventByPID[ev.PID] = ev.Timestamp
+			if existing, ok := m.tree.LastEventByPID[ev.PID]; !ok || ev.Timestamp.After(existing) {
+				m.tree.LastEventByPID[ev.PID] = ev.Timestamp
 			}
 		}
 	}
@@ -806,16 +806,16 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	for _, p := range m.processes {
 		activePIDs[p.PID] = struct{}{}
 	}
-	for pid := range m.lastEventByPID {
+	for pid := range m.tree.LastEventByPID {
 		if _, ok := activePIDs[pid]; !ok {
-			delete(m.lastEventByPID, pid)
+			delete(m.tree.LastEventByPID, pid)
 		}
 	}
 	// Auto-track: if user hasn't manually selected, follow most active process
-	if !m.userManualSelect {
+	if !m.tree.UserManualSelect {
 		var mostActivePID types.PID
 		var mostActiveTime time.Time
-		for pid, t := range m.lastEventByPID {
+		for pid, t := range m.tree.LastEventByPID {
 			if now.Sub(t) < 2*time.Second && t.After(mostActiveTime) {
 				// Only track running processes
 				for _, p := range m.processes {
@@ -828,9 +828,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 			}
 		}
 		if mostActivePID > 0 && mostActivePID != m.selectedPID {
-			for i, row := range m.treeRows {
-				if row.proc.PID == mostActivePID {
-					m.treeCursor = i
+			for i, row := range m.tree.Rows {
+				if row.Proc.PID == mostActivePID {
+					m.tree.Cursor = i
 					m = selectProcess(m, row)
 					break
 				}
@@ -838,16 +838,16 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 	// Reset userManualSelect after 5s of all processes being silent
-	if m.userManualSelect && len(m.lastEventByPID) > 0 {
+	if m.tree.UserManualSelect && len(m.tree.LastEventByPID) > 0 {
 		allSilent := true
-		for _, t := range m.lastEventByPID {
+		for _, t := range m.tree.LastEventByPID {
 			if now.Sub(t) < 5*time.Second {
 				allSilent = false
 				break
 			}
 		}
 		if allSilent {
-			m.userManualSelect = false
+			m.tree.UserManualSelect = false
 		}
 	}
 
@@ -963,16 +963,16 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 }
 
 func (m *dashboardModel) applyInitialPIDFocus() {
-	if m.initialPIDFocus <= 0 || len(m.treeRows) == 0 {
+	if m.initialPIDFocus <= 0 || len(m.tree.Rows) == 0 {
 		return
 	}
 	found := false
-	for i, row := range m.treeRows {
-		if row.proc.PID == m.initialPIDFocus {
-			m.treeCursor = i
+	for i, row := range m.tree.Rows {
+		if row.Proc.PID == m.initialPIDFocus {
+			m.tree.Cursor = i
 			visibleLines := m.dashboardVisibleLines()
-			if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
-				m.treeOffset = m.treeCursor - visibleLines/2
+			if visibleLines > 0 && m.tree.Cursor >= m.tree.Offset+visibleLines {
+				m.tree.Offset = m.tree.Cursor - visibleLines/2
 			}
 			found = true
 			break
@@ -1354,9 +1354,9 @@ func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
 	if m.replayCursor != m.prevReplayCursor && m.replayReader != nil {
 		m.processes = buildReplayProcessTree(m.replayReader, m.replayCursor)
 		roots := buildProcessTree(m.processes, treeSortPID, false)
-		m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
-		if len(m.treeRows) > 0 {
-			m = selectProcess(m, m.treeRows[0])
+		m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
+		if len(m.tree.Rows) > 0 {
+			m = selectProcess(m, m.tree.Rows[0])
 		}
 		m.heatmapProfile = buildReplayHeatmap(m.replayReader, m.replayCursor)
 		if m.heatmapProfile != nil {
@@ -1403,13 +1403,13 @@ func (m dashboardModel) handleReplayKey(key string) (dashboardModel, tea.Cmd) {
 	case "k":
 		switch m.activePane {
 		case paneTree:
-			if m.treeCursor > 0 {
-				m.treeCursor--
-				if m.treeCursor < len(m.treeRows) {
-					m = selectProcess(m, m.treeRows[m.treeCursor])
+			if m.tree.Cursor > 0 {
+				m.tree.Cursor--
+				if m.tree.Cursor < len(m.tree.Rows) {
+					m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 				}
-				if m.treeCursor < m.treeOffset {
-					m.treeOffset = m.treeCursor
+				if m.tree.Cursor < m.tree.Offset {
+					m.tree.Offset = m.tree.Cursor
 				}
 			}
 		case paneTimeline:
@@ -1437,23 +1437,23 @@ func (m dashboardModel) handleReplayKey(key string) (dashboardModel, tea.Cmd) {
 			visibleLines := m.dashboardVisibleLines()
 			switch key {
 			case "up":
-				if m.treeCursor > 0 {
-					m.treeCursor--
-					if m.treeCursor < len(m.treeRows) {
-						m = selectProcess(m, m.treeRows[m.treeCursor])
+				if m.tree.Cursor > 0 {
+					m.tree.Cursor--
+					if m.tree.Cursor < len(m.tree.Rows) {
+						m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 					}
-					if m.treeCursor < m.treeOffset {
-						m.treeOffset = m.treeCursor
+					if m.tree.Cursor < m.tree.Offset {
+						m.tree.Offset = m.tree.Cursor
 					}
 				}
 			case "down", "j":
-				if m.treeCursor < len(m.treeRows)-1 {
-					m.treeCursor++
-					if m.treeCursor < len(m.treeRows) {
-						m = selectProcess(m, m.treeRows[m.treeCursor])
+				if m.tree.Cursor < len(m.tree.Rows)-1 {
+					m.tree.Cursor++
+					if m.tree.Cursor < len(m.tree.Rows) {
+						m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 					}
-					if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
-						m.treeOffset = m.treeCursor - visibleLines + 1
+					if visibleLines > 0 && m.tree.Cursor >= m.tree.Offset+visibleLines {
+						m.tree.Offset = m.tree.Cursor - visibleLines + 1
 					}
 				}
 			}

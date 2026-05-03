@@ -41,17 +41,17 @@ func newDetailPanelModel() dashboardModel {
 	m.viewMode = viewExpanded
 	m.expandedPane = paneDetail
 	m.rightPane = paneDetail
-	m.treeRows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, Intent: "analyze code", CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, Intent: "build feature", CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 99, State: types.StateDead, Intent: "completed task", CreatedAt: time.Now()}},
+	m.tree.Rows = []flatRow{
+		{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, Intent: "analyze code", CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, Intent: "build feature", CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 99, State: types.StateDead, Intent: "completed task", CreatedAt: time.Now()}},
 	}
 	m.processes = []vfs.ProcInfo{
-		m.treeRows[0].proc,
-		m.treeRows[1].proc,
-		m.treeRows[2].proc,
+		m.tree.Rows[0].Proc,
+		m.tree.Rows[1].Proc,
+		m.tree.Rows[2].Proc,
 	}
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 	m.selectedPID = 1
 	return m
 }

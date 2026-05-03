@@ -397,8 +397,8 @@ func TestUUIDValidation_DebugMode_PreservesSelectionForDeadProcess(t *testing.T)
 	m.processes = []vfs.ProcInfo{
 		{PID: 1, UUID: "root-uuid", State: types.StateRunning},
 	}
-	m.treeRows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1, UUID: "root-uuid"}},
+	m.tree.Rows = []flatRow{
+		{Proc: vfs.ProcInfo{PID: 1, UUID: "root-uuid"}},
 	}
 
 	// Run the UUID validation logic inline (mirrors dashboard.go:600-621)

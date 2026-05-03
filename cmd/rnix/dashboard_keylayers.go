@@ -286,15 +286,15 @@ func registerLayer0(d *ui.Dispatcher) {
 				newM, cmd := m.handleTraceKey("esc")
 				return true, newM, cmd
 			}
-			if m.expandedPane == paneTree && (m.treeSearchMode || m.treeSearchQuery != "") {
-				m.treeSearchMode = false
-				m.treeSearchQuery = ""
-				m.treeSearchCursor = 0
-				m.treeSearchOffset = 0
+			if m.expandedPane == paneTree && (m.tree.SearchMode || m.tree.SearchQuery != "") {
+				m.tree.SearchMode = false
+				m.tree.SearchQuery = ""
+				m.tree.SearchCursor = 0
+				m.tree.SearchOffset = 0
 				return true, m, nil
 			}
-			m.treeSearchQuery = ""
-			m.treeSearchMode = false
+			m.tree.SearchQuery = ""
+			m.tree.SearchMode = false
 			m.viewMode = viewDefault
 			return true, m, nil
 		}
@@ -447,10 +447,10 @@ func registerLayer1Default(d *ui.Dispatcher) {
 		m.viewMode = viewExpanded
 		m.expandedPane = m.activePane
 		if m.activePane == paneTree {
-			m.treeSearchQuery = ""
-			m.treeSearchMode = false
-			m.treeSearchCursor = 0
-			m.treeSearchOffset = 0
+			m.tree.SearchQuery = ""
+			m.tree.SearchMode = false
+			m.tree.SearchCursor = 0
+			m.tree.SearchOffset = 0
 		}
 		return true, m, nil
 	}
@@ -549,8 +549,8 @@ func registerLayer1Expanded(d *ui.Dispatcher) {
 	// z — collapse to default view
 	l.Bindings["z"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		m.treeSearchQuery = ""
-		m.treeSearchMode = false
+		m.tree.SearchQuery = ""
+		m.tree.SearchMode = false
 		m.viewMode = viewDefault
 		return true, m, nil
 	}
@@ -656,16 +656,16 @@ func registerLayer2Tree(d *ui.Dispatcher) {
 			}
 			modes := []ui.Mode{}
 			label := "time"
-			if m.treeSortMode < len(treeSortLabels) {
-				label = strings.ToLower(treeSortLabels[m.treeSortMode])
+			if m.tree.SortMode < len(treeSortLabels) {
+				label = strings.ToLower(treeSortLabels[m.tree.SortMode])
 			}
 			modes = append(modes, ui.Mode{Name: "sort", Value: label})
 			dir := "desc"
-			if m.treeSortAsc {
+			if m.tree.SortAsc {
 				dir = "asc"
 			}
 			modes = append(modes, ui.Mode{Name: "dir", Value: dir})
-			if m.treeSearchMode || m.treeSearchQuery != "" {
+			if m.tree.SearchMode || m.tree.SearchQuery != "" {
 				modes = append(modes, ui.Mode{Name: "search", Value: "on"})
 			}
 			return modes

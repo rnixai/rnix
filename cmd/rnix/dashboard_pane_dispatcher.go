@@ -156,20 +156,20 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		navOpts := ui.ListNavOpts{
 			PageSize: max(visibleLines-1, 1),
 			OnCursorChange: func(newCursor int) {
-				m.userManualSelect = true // AC5
-				if newCursor < len(m.treeRows) {
-					m = selectProcess(m, m.treeRows[newCursor])
+				m.tree.UserManualSelect = true // AC5
+				if newCursor < len(m.tree.Rows) {
+					m = selectProcess(m, m.tree.Rows[newCursor])
 				}
-				if newCursor < m.treeOffset {
-					m.treeOffset = newCursor
+				if newCursor < m.tree.Offset {
+					m.tree.Offset = newCursor
 				}
-				if visibleLines > 0 && newCursor >= m.treeOffset+visibleLines {
-					m.treeOffset = newCursor - visibleLines + 1
+				if visibleLines > 0 && newCursor >= m.tree.Offset+visibleLines {
+					m.tree.Offset = newCursor - visibleLines + 1
 				}
 			},
 		}
-		if ui.HandleListKey(key, nil, &m.treeCursor, len(m.treeRows), navOpts) {
-			m.userManualSelect = true // AC5
+		if ui.HandleListKey(key, nil, &m.tree.Cursor, len(m.tree.Rows), navOpts) {
+			m.tree.UserManualSelect = true // AC5
 			if m.selectedPID != prevPID {
 				m2, cmd := m.handlePIDChange()
 				return m2, cmd
@@ -178,77 +178,77 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		}
 		switch key {
 		case "enter", " ":
-			m.userManualSelect = true // AC5
+			m.tree.UserManualSelect = true // AC5
 			// AC3: Toggle dead subtree collapse on Enter/Space
-			if m.treeCursor < len(m.treeRows) {
-				row := m.treeRows[m.treeCursor]
-				if (row.proc.State == types.StateDead || row.proc.State == types.StateZombie) && row.proc.UUID != "" {
+			if m.tree.Cursor < len(m.tree.Rows) {
+				row := m.tree.Rows[m.tree.Cursor]
+				if (row.Proc.State == types.StateDead || row.Proc.State == types.StateZombie) && row.Proc.UUID != "" {
 					// Check if this dead node has children in the tree
 					hasChildren := false
-					roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
+					roots := buildProcessTree(m.processes, m.tree.SortMode, m.tree.SortAsc)
 					var findNode func(nodes []*treeNode) *treeNode
 					findNode = func(nodes []*treeNode) *treeNode {
 						for _, n := range nodes {
-							if n.proc.UUID == row.proc.UUID {
+							if n.Proc.UUID == row.Proc.UUID {
 								return n
 							}
-							if found := findNode(n.children); found != nil {
+							if found := findNode(n.Children); found != nil {
 								return found
 							}
 						}
 						return nil
 					}
-					if node := findNode(roots); node != nil && len(node.children) > 0 {
+					if node := findNode(roots); node != nil && len(node.Children) > 0 {
 						hasChildren = true
 					}
 					if hasChildren {
-						m.collapsedDeadTrees[row.proc.UUID] = !m.collapsedDeadTrees[row.proc.UUID]
-						m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
-						if m.treeCursor >= len(m.treeRows) {
-							m.treeCursor = max(0, len(m.treeRows)-1)
+						m.tree.CollapsedDeadTrees[row.Proc.UUID] = !m.tree.CollapsedDeadTrees[row.Proc.UUID]
+						m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
+						if m.tree.Cursor >= len(m.tree.Rows) {
+							m.tree.Cursor = max(0, len(m.tree.Rows)-1)
 						}
 						return m, nil
 					}
 				}
-				m = selectProcess(m, m.treeRows[m.treeCursor])
+				m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 			}
 		case "s":
 			// Cycle tree sort mode: Time → PID → State → Time
-			m.treeSortMode = (m.treeSortMode + 1) % 3
-			roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
-			m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
-			m.treeCursor = 0
-			m.treeOffset = 0
-			if len(m.treeRows) > 0 {
-				m = selectProcess(m, m.treeRows[0])
+			m.tree.SortMode = (m.tree.SortMode + 1) % 3
+			roots := buildProcessTree(m.processes, m.tree.SortMode, m.tree.SortAsc)
+			m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
+			m.tree.Cursor = 0
+			m.tree.Offset = 0
+			if len(m.tree.Rows) > 0 {
+				m = selectProcess(m, m.tree.Rows[0])
 			}
 			label := "Time"
-			if m.treeSortMode < len(treeSortLabels) {
-				label = treeSortLabels[m.treeSortMode]
+			if m.tree.SortMode < len(treeSortLabels) {
+				label = treeSortLabels[m.tree.SortMode]
 			}
 			m.statusMsg = fmt.Sprintf("Tree sort: %s", label)
 			m.statusMsgTTL = statusMsgDefaultTTL
 		case "o", "S", "shift+S":
 			// Toggle sort direction: asc ↔ desc
-			m.treeSortAsc = !m.treeSortAsc
-			roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
-			m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
-			m.treeCursor = 0
-			m.treeOffset = 0
-			if len(m.treeRows) > 0 {
-				m = selectProcess(m, m.treeRows[0])
+			m.tree.SortAsc = !m.tree.SortAsc
+			roots := buildProcessTree(m.processes, m.tree.SortMode, m.tree.SortAsc)
+			m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
+			m.tree.Cursor = 0
+			m.tree.Offset = 0
+			if len(m.tree.Rows) > 0 {
+				m = selectProcess(m, m.tree.Rows[0])
 			}
 			dir := "desc"
-			if m.treeSortAsc {
+			if m.tree.SortAsc {
 				dir = "asc"
 			}
-			m.statusMsg = fmt.Sprintf("Tree sort: %s %s", treeSortLabels[m.treeSortMode], dir)
+			m.statusMsg = fmt.Sprintf("Tree sort: %s %s", treeSortLabels[m.tree.SortMode], dir)
 			m.statusMsgTTL = statusMsgDefaultTTL
 		default:
 			if (msg.Code == 'K' || msg.ShiftedCode == 'K') && msg.Mod&tea.ModShift != 0 {
-				if len(m.treeRows) > 0 && m.treeCursor < len(m.treeRows) {
+				if len(m.tree.Rows) > 0 && m.tree.Cursor < len(m.tree.Rows) {
 					m.confirmKill = true
-					m.confirmPID = m.treeRows[m.treeCursor].proc.PID
+					m.confirmPID = m.tree.Rows[m.tree.Cursor].Proc.PID
 				}
 			}
 		}
@@ -429,30 +429,30 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 // 注：此函数从 dashboard_nav.go 移出（原 nav.go:706-812），逻辑零改动。
 func (m dashboardModel) handleExpandedTreeKey(key string) (dashboardModel, tea.Cmd, bool) {
 	// --- Search input mode ---
-	if m.treeSearchMode {
+	if m.tree.SearchMode {
 		switch key {
 		case "esc":
-			m.treeSearchMode = false
-			m.treeSearchQuery = ""
-			m.treeSearchCursor = 0
-			m.treeSearchOffset = 0
+			m.tree.SearchMode = false
+			m.tree.SearchQuery = ""
+			m.tree.SearchCursor = 0
+			m.tree.SearchOffset = 0
 			return m, nil, true
 		case "enter":
-			m.treeSearchMode = false
+			m.tree.SearchMode = false
 			return m, nil, true
 		case "backspace":
-			runes := []rune(m.treeSearchQuery)
+			runes := []rune(m.tree.SearchQuery)
 			if len(runes) > 0 {
-				m.treeSearchQuery = string(runes[:len(runes)-1])
-				m.treeSearchCursor = 0
-				m.treeSearchOffset = 0
+				m.tree.SearchQuery = string(runes[:len(runes)-1])
+				m.tree.SearchCursor = 0
+				m.tree.SearchOffset = 0
 			}
 			return m, nil, true
 		default:
 			if len([]rune(key)) == 1 {
-				m.treeSearchQuery += key
-				m.treeSearchCursor = 0
-				m.treeSearchOffset = 0
+				m.tree.SearchQuery += key
+				m.tree.SearchCursor = 0
+				m.tree.SearchOffset = 0
 			}
 			return m, nil, true
 		}
@@ -460,14 +460,14 @@ func (m dashboardModel) handleExpandedTreeKey(key string) (dashboardModel, tea.C
 
 	// '/' enters search input mode
 	if key == "/" {
-		m.treeSearchMode = true
-		m.treeSearchCursor = 0
-		m.treeSearchOffset = 0
+		m.tree.SearchMode = true
+		m.tree.SearchCursor = 0
+		m.tree.SearchOffset = 0
 		return m, nil, true
 	}
 
 	// Without an active query, fall through to the normal tree handler
-	if m.treeSearchQuery == "" {
+	if m.tree.SearchQuery == "" {
 		return m, nil, false
 	}
 
@@ -480,42 +480,42 @@ func (m dashboardModel) handleExpandedTreeKey(key string) (dashboardModel, tea.C
 		if len(filtered) == 0 {
 			return
 		}
-		m.treeSearchCursor = max(0, min(newCursor, len(filtered)-1))
+		m.tree.SearchCursor = max(0, min(newCursor, len(filtered)-1))
 		// Scroll to keep cursor visible
-		if m.treeSearchCursor < m.treeSearchOffset {
-			m.treeSearchOffset = m.treeSearchCursor
+		if m.tree.SearchCursor < m.tree.SearchOffset {
+			m.tree.SearchOffset = m.tree.SearchCursor
 		}
-		if visibleLines > 0 && m.treeSearchCursor >= m.treeSearchOffset+visibleLines {
-			m.treeSearchOffset = m.treeSearchCursor - visibleLines + 1
+		if visibleLines > 0 && m.tree.SearchCursor >= m.tree.SearchOffset+visibleLines {
+			m.tree.SearchOffset = m.tree.SearchCursor - visibleLines + 1
 		}
 		// Sync treeCursor to the same process in treeRows
-		row := filtered[m.treeSearchCursor]
-		for i, r := range m.treeRows {
-			if (row.proc.UUID != "" && r.proc.UUID == row.proc.UUID) ||
-				(row.proc.UUID == "" && r.proc.PID == row.proc.PID) {
-				m.treeCursor = i
+		row := filtered[m.tree.SearchCursor]
+		for i, r := range m.tree.Rows {
+			if (row.Proc.UUID != "" && r.Proc.UUID == row.Proc.UUID) ||
+				(row.Proc.UUID == "" && r.Proc.PID == row.Proc.PID) {
+				m.tree.Cursor = i
 				break
 			}
 		}
 		m = selectProcess(m, row)
-		m.userManualSelect = true
+		m.tree.UserManualSelect = true
 	}
 
 	switch key {
 	case "up", "k":
-		navigate(m.treeSearchCursor - 1)
+		navigate(m.tree.SearchCursor - 1)
 	case "down", "j":
-		navigate(m.treeSearchCursor + 1)
+		navigate(m.tree.SearchCursor + 1)
 	case "pgdown":
-		navigate(m.treeSearchCursor + max(visibleLines-1, 1))
+		navigate(m.tree.SearchCursor + max(visibleLines-1, 1))
 	case "pgup":
-		navigate(m.treeSearchCursor - max(visibleLines-1, 1))
+		navigate(m.tree.SearchCursor - max(visibleLines-1, 1))
 	case "home", "g":
 		navigate(0)
 	case "end", "G", "shift+G":
 		navigate(len(filtered) - 1)
 	case "enter", " ":
-		navigate(m.treeSearchCursor)
+		navigate(m.tree.SearchCursor)
 		if m.selectedPID != prevPID {
 			m2, cmd := m.handlePIDChange()
 			return m2, cmd, true

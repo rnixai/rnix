@@ -242,8 +242,8 @@ func TestKeybindContract_Layer1Expanded_Z_RestoresDefault(t *testing.T) {
 func TestModeStripDataSource_TreePane(t *testing.T) {
 	m := newContractModel()
 	m.activePane = paneTree
-	m.treeSortMode = 1 // PID
-	m.treeSortAsc = true
+	m.tree.SortMode = 1 // PID
+	m.tree.SortAsc = true
 	modes := m.dispatcher.ActiveModesFor(ui.PaneID(paneTree), m)
 	if len(modes) < 2 {
 		t.Fatalf("expected at least 2 modes (sort + dir), got %d", len(modes))

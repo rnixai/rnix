@@ -74,36 +74,36 @@ func TestATDD_36_5_AC2_KeySet(t *testing.T) {
 func TestATDD_36_5_AC4_TreeNavigation(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.activePane = paneTree
-	m.treeCursor = 0
-	m.selectedPID = m.treeRows[0].proc.PID
-	m.userManualSelect = false
+	m.tree.Cursor = 0
+	m.selectedPID = m.tree.Rows[0].Proc.PID
+	m.tree.UserManualSelect = false
 
 	// Ctrl-d half page
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	mm := m2.(dashboardModel)
-	if !mm.userManualSelect {
+	if !mm.tree.UserManualSelect {
 		t.Error("userManualSelect should be true after Ctrl-d")
 	}
-	if mm.treeCursor == 0 {
+	if mm.tree.Cursor == 0 {
 		t.Error("treeCursor should have moved on Ctrl-d")
 	}
-	if mm.selectedPID != mm.treeRows[mm.treeCursor].proc.PID {
+	if mm.selectedPID != mm.tree.Rows[mm.tree.Cursor].Proc.PID {
 		t.Errorf("selectedPID should follow cursor; got %d, cursor row pid %d",
-			mm.selectedPID, mm.treeRows[mm.treeCursor].proc.PID)
+			mm.selectedPID, mm.tree.Rows[mm.tree.Cursor].Proc.PID)
 	}
 
 	// G → last row
 	m3, _ := mm.Update(tea.KeyPressMsg{Code: 'G', ShiftedCode: 'G', Mod: tea.ModShift})
 	mm2 := m3.(dashboardModel)
-	if mm2.treeCursor != len(mm2.treeRows)-1 {
-		t.Errorf("G should move to last row; got %d want %d", mm2.treeCursor, len(mm2.treeRows)-1)
+	if mm2.tree.Cursor != len(mm2.tree.Rows)-1 {
+		t.Errorf("G should move to last row; got %d want %d", mm2.tree.Cursor, len(mm2.tree.Rows)-1)
 	}
 
 	// g → first row
 	m4, _ := mm2.Update(tea.KeyPressMsg{Code: 'g'})
 	mm3 := m4.(dashboardModel)
-	if mm3.treeCursor != 0 {
-		t.Errorf("g should move to first row; got %d", mm3.treeCursor)
+	if mm3.tree.Cursor != 0 {
+		t.Errorf("g should move to first row; got %d", mm3.tree.Cursor)
 	}
 }
 

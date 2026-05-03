@@ -44,11 +44,11 @@ func TestBuildTree_SingleRoot(t *testing.T) {
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(roots))
 	}
-	if roots[0].proc.PID != 1 {
-		t.Errorf("expected root PID 1, got %d", roots[0].proc.PID)
+	if roots[0].Proc.PID != 1 {
+		t.Errorf("expected root PID 1, got %d", roots[0].Proc.PID)
 	}
-	if len(roots[0].children) != 0 {
-		t.Errorf("expected 0 children, got %d", len(roots[0].children))
+	if len(roots[0].Children) != 0 {
+		t.Errorf("expected 0 children, got %d", len(roots[0].Children))
 	}
 }
 
@@ -64,14 +64,14 @@ func TestBuildTree_ParentChild(t *testing.T) {
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(roots))
 	}
-	if len(roots[0].children) != 2 {
-		t.Fatalf("expected 2 children of root, got %d", len(roots[0].children))
+	if len(roots[0].Children) != 2 {
+		t.Fatalf("expected 2 children of root, got %d", len(roots[0].Children))
 	}
-	if roots[0].children[0].proc.PID != 2 {
-		t.Errorf("first child PID should be 2, got %d", roots[0].children[0].proc.PID)
+	if roots[0].Children[0].Proc.PID != 2 {
+		t.Errorf("first child PID should be 2, got %d", roots[0].Children[0].Proc.PID)
 	}
-	if roots[0].children[1].proc.PID != 3 {
-		t.Errorf("second child PID should be 3, got %d", roots[0].children[1].proc.PID)
+	if roots[0].Children[1].Proc.PID != 3 {
+		t.Errorf("second child PID should be 3, got %d", roots[0].Children[1].Proc.PID)
 	}
 }
 
@@ -85,8 +85,8 @@ func TestBuildTree_OrphanBecomesRoot(t *testing.T) {
 	if len(roots) != 1 {
 		t.Fatalf("expected orphan as root, got %d roots", len(roots))
 	}
-	if roots[0].proc.PID != 5 {
-		t.Errorf("expected PID 5, got %d", roots[0].proc.PID)
+	if roots[0].Proc.PID != 5 {
+		t.Errorf("expected PID 5, got %d", roots[0].Proc.PID)
 	}
 }
 
@@ -103,13 +103,13 @@ func TestBuildTree_ChildrenSortedByPID(t *testing.T) {
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(roots))
 	}
-	children := roots[0].children
+	children := roots[0].Children
 	if len(children) != 3 {
 		t.Fatalf("expected 3 children, got %d", len(children))
 	}
 	for i := 1; i < len(children); i++ {
-		if children[i].proc.PID < children[i-1].proc.PID {
-			t.Errorf("children not sorted by PID: %d before %d", children[i-1].proc.PID, children[i].proc.PID)
+		if children[i].Proc.PID < children[i-1].Proc.PID {
+			t.Errorf("children not sorted by PID: %d before %d", children[i-1].Proc.PID, children[i].Proc.PID)
 		}
 	}
 }
@@ -128,14 +128,14 @@ func TestFlattenTree_Indentation(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
 	}
-	if rows[0].prefix != "" {
-		t.Errorf("root should have no prefix, got %q", rows[0].prefix)
+	if rows[0].Prefix != "" {
+		t.Errorf("root should have no prefix, got %q", rows[0].Prefix)
 	}
-	if !strings.Contains(rows[1].prefix, "├") {
-		t.Errorf("non-last child should use ├── prefix, got %q", rows[1].prefix)
+	if !strings.Contains(rows[1].Prefix, "├") {
+		t.Errorf("non-last child should use ├── prefix, got %q", rows[1].Prefix)
 	}
-	if !strings.Contains(rows[2].prefix, "└") {
-		t.Errorf("last child should use └── prefix, got %q", rows[2].prefix)
+	if !strings.Contains(rows[2].Prefix, "└") {
+		t.Errorf("last child should use └── prefix, got %q", rows[2].Prefix)
 	}
 }
 
@@ -158,14 +158,14 @@ func TestFlattenTree_DeepNesting(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
 	}
-	if rows[0].depth != 0 {
-		t.Errorf("root depth should be 0, got %d", rows[0].depth)
+	if rows[0].Depth != 0 {
+		t.Errorf("root depth should be 0, got %d", rows[0].Depth)
 	}
-	if rows[1].depth != 1 {
-		t.Errorf("child depth should be 1, got %d", rows[1].depth)
+	if rows[1].Depth != 1 {
+		t.Errorf("child depth should be 1, got %d", rows[1].Depth)
 	}
-	if rows[2].depth != 2 {
-		t.Errorf("grandchild depth should be 2, got %d", rows[2].depth)
+	if rows[2].Depth != 2 {
+		t.Errorf("grandchild depth should be 2, got %d", rows[2].Depth)
 	}
 }
 
@@ -227,14 +227,14 @@ func TestFlattenTree_PreservesProcessData(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
-	if rows[0].proc.PID != 1 {
-		t.Errorf("expected PID 1, got %d", rows[0].proc.PID)
+	if rows[0].Proc.PID != 1 {
+		t.Errorf("expected PID 1, got %d", rows[0].Proc.PID)
 	}
-	if rows[0].proc.Intent != "分析代码" {
-		t.Errorf("expected intent preserved, got %q", rows[0].proc.Intent)
+	if rows[0].Proc.Intent != "分析代码" {
+		t.Errorf("expected intent preserved, got %q", rows[0].Proc.Intent)
 	}
-	if rows[0].proc.TokensUsed != 1847 {
-		t.Errorf("expected tokens 1847, got %d", rows[0].proc.TokensUsed)
+	if rows[0].Proc.TokensUsed != 1847 {
+		t.Errorf("expected tokens 1847, got %d", rows[0].Proc.TokensUsed)
 	}
 }
 
@@ -343,8 +343,8 @@ func TestTopModel_TickNoClient(t *testing.T) {
 func TestTopModel_KillKey(t *testing.T) {
 	m := newTopModel(nil)
 	m.rows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning}},
-		{proc: vfs.ProcInfo{PID: 2, State: types.StateRunning}},
+		{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning}},
+		{Proc: vfs.ProcInfo{PID: 2, State: types.StateRunning}},
 	}
 	m.cursor = 1
 
@@ -360,9 +360,9 @@ func TestTopModel_KillKey(t *testing.T) {
 func TestTopModel_CursorNavigation(t *testing.T) {
 	m := newTopModel(nil)
 	m.rows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1}},
-		{proc: vfs.ProcInfo{PID: 2}},
-		{proc: vfs.ProcInfo{PID: 3}},
+		{Proc: vfs.ProcInfo{PID: 1}},
+		{Proc: vfs.ProcInfo{PID: 2}},
+		{Proc: vfs.ProcInfo{PID: 3}},
 	}
 	m.cursor = 0
 
@@ -427,7 +427,7 @@ func TestTopModel_KillEmptyList(t *testing.T) {
 func TestTopModel_EscFromDetail(t *testing.T) {
 	m := newTopModel(nil)
 	m.rows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1}},
+		{Proc: vfs.ProcInfo{PID: 1}},
 	}
 	m.detailPID = 1
 
@@ -453,8 +453,8 @@ func TestTopModel_QuitQ(t *testing.T) {
 func TestTopModel_EnterLaunchesDashboard(t *testing.T) {
 	m := newTopModel(nil)
 	m.rows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 5}},
-		{proc: vfs.ProcInfo{PID: 10}},
+		{Proc: vfs.ProcInfo{PID: 5}},
+		{Proc: vfs.ProcInfo{PID: 10}},
 	}
 	m.cursor = 1
 
@@ -486,7 +486,7 @@ func TestTopModel_ViewAltScreen(t *testing.T) {
 func TestTopModel_ViewDetailMode(t *testing.T) {
 	m := newTopModel(nil)
 	proc := vfs.ProcInfo{PID: 1, State: types.StateRunning, Intent: "test-intent", Skills: []string{"analyzer"}}
-	m.rows = []flatRow{{proc: proc}}
+	m.rows = []flatRow{{Proc: proc}}
 	m.processes = []vfs.ProcInfo{proc}
 	m.detailPID = 1
 
@@ -603,7 +603,7 @@ func TestTopView_WarningStyleHighUsage(t *testing.T) {
 		TokensUsed:    4500,
 		ContextBudget: 5000,
 	}
-	m.rows = []flatRow{{proc: proc}}
+	m.rows = []flatRow{{Proc: proc}}
 	m.processes = []vfs.ProcInfo{proc}
 
 	v := m.View()
@@ -629,7 +629,7 @@ func TestTopView_PlainTokensNoBudget(t *testing.T) {
 		TokensUsed:    3000,
 		ContextBudget: 0,
 	}
-	m.rows = []flatRow{{proc: proc}}
+	m.rows = []flatRow{{Proc: proc}}
 	m.processes = []vfs.ProcInfo{proc}
 
 	v := m.View()
@@ -649,11 +649,11 @@ func TestBuildTree_MultipleRoots(t *testing.T) {
 	if len(roots) != 2 {
 		t.Fatalf("expected 2 roots, got %d", len(roots))
 	}
-	if roots[0].proc.PID != 1 {
-		t.Errorf("first root PID should be 1, got %d", roots[0].proc.PID)
+	if roots[0].Proc.PID != 1 {
+		t.Errorf("first root PID should be 1, got %d", roots[0].Proc.PID)
 	}
-	if roots[1].proc.PID != 4 {
-		t.Errorf("second root PID should be 4, got %d", roots[1].proc.PID)
+	if roots[1].Proc.PID != 4 {
+		t.Errorf("second root PID should be 4, got %d", roots[1].Proc.PID)
 	}
 }
 
@@ -670,8 +670,8 @@ func TestBuildTree_RootsSortedByPID(t *testing.T) {
 		t.Fatalf("expected 3 roots, got %d", len(roots))
 	}
 	for i := 1; i < len(roots); i++ {
-		if roots[i].proc.PID < roots[i-1].proc.PID {
-			t.Errorf("roots not sorted by PID: %d before %d", roots[i-1].proc.PID, roots[i].proc.PID)
+		if roots[i].Proc.PID < roots[i-1].Proc.PID {
+			t.Errorf("roots not sorted by PID: %d before %d", roots[i-1].Proc.PID, roots[i].Proc.PID)
 		}
 	}
 }

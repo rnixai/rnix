@@ -27,28 +27,28 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	innerH := max(height-2, 1)
 
 	// Determine which rows and cursor position to use
-	displayRows := m.treeRows
-	displayCursor := m.treeCursor
-	displayOffset := m.treeOffset
-	if isExpanded && m.treeSearchQuery != "" {
+	displayRows := m.tree.Rows
+	displayCursor := m.tree.Cursor
+	displayOffset := m.tree.Offset
+	if isExpanded && m.tree.SearchQuery != "" {
 		displayRows = m.filteredExpandedRows()
-		displayCursor = m.treeSearchCursor
-		displayOffset = m.treeSearchOffset
+		displayCursor = m.tree.SearchCursor
+		displayOffset = m.tree.SearchOffset
 	}
 
 	var b strings.Builder
-	sortLabel := treeSortLabels[m.treeSortMode]
+	sortLabel := treeSortLabels[m.tree.SortMode]
 	dirArrow := "↓"
-	if m.treeSortAsc {
+	if m.tree.SortAsc {
 		dirArrow = "↑"
 	}
 	ascIdx := 0
-	if m.treeSortAsc {
+	if m.tree.SortAsc {
 		ascIdx = 1
 	}
-	dirLabel := treeSortDirLabels[m.treeSortMode][ascIdx]
+	dirLabel := treeSortDirLabels[m.tree.SortMode][ascIdx]
 	if ui.IsASCIIMode() {
-		dirLabel = treeSortDirLabelsASCII[m.treeSortMode][ascIdx]
+		dirLabel = treeSortDirLabelsASCII[m.tree.SortMode][ascIdx]
 	}
 
 	// Title line — show search state when in expanded mode
@@ -58,24 +58,24 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		if total == 0 {
 			pos = 0
 		}
-		if m.treeSearchMode {
+		if m.tree.SearchMode {
 			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d | Search: %s_\n",
-				sortLabel, dirArrow, dirLabel, pos, total, m.treeSearchQuery)
-		} else if m.treeSearchQuery != "" {
+				sortLabel, dirArrow, dirLabel, pos, total, m.tree.SearchQuery)
+		} else if m.tree.SearchQuery != "" {
 			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d | Filter: %q  (Esc to clear)\n",
-				sortLabel, dirArrow, dirLabel, pos, total, m.treeSearchQuery)
+				sortLabel, dirArrow, dirLabel, pos, total, m.tree.SearchQuery)
 		} else {
-			if len(m.treeRows) > 0 {
+			if len(m.tree.Rows) > 0 {
 				fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d | / to search\n",
-					sortLabel, dirArrow, dirLabel, min(m.treeCursor+1, len(m.treeRows)), len(m.treeRows))
+					sortLabel, dirArrow, dirLabel, min(m.tree.Cursor+1, len(m.tree.Rows)), len(m.tree.Rows))
 			} else {
 				fmt.Fprintf(&b, " Agent Tree [%s %s %s] | / to search\n", sortLabel, dirArrow, dirLabel)
 			}
 		}
 	} else {
-		if len(m.treeRows) > 0 {
-			pos := min(m.treeCursor+1, len(m.treeRows))
-			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d\n", sortLabel, dirArrow, dirLabel, pos, len(m.treeRows))
+		if len(m.tree.Rows) > 0 {
+			pos := min(m.tree.Cursor+1, len(m.tree.Rows))
+			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d\n", sortLabel, dirArrow, dirLabel, pos, len(m.tree.Rows))
 		} else {
 			fmt.Fprintf(&b, " Agent Tree [%s %s %s]\n", sortLabel, dirArrow, dirLabel)
 		}
@@ -103,10 +103,10 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		}
 
 		// State badge (AC1)
-		stateMark := ui.StateBadge(row.proc.State, row.proc.Result)
+		stateMark := ui.StateBadge(row.Proc.State, row.Proc.Result)
 
 		// Paused indicator: override state badge when process is paused
-		if row.proc.IsPaused && (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) {
+		if row.Proc.IsPaused && (row.Proc.State == types.StateRunning || row.Proc.State == types.StateCreated) {
 			if ui.IsASCIIMode() {
 				stateMark = "[P]"
 			} else {
@@ -115,19 +115,19 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		}
 
 		// Stale detection (Story 30.5) — skip paused processes (they intentionally stop heartbeats)
-		isStale := !row.proc.IsPaused &&
-			(row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) &&
-			ui.IsStale(row.proc.LastHeartbeat, row.proc.StepTimeout)
+		isStale := !row.Proc.IsPaused &&
+			(row.Proc.State == types.StateRunning || row.Proc.State == types.StateCreated) &&
+			ui.IsStale(row.Proc.LastHeartbeat, row.Proc.StepTimeout)
 
 		// Suspended reason abbreviation (Story 30.8 AC#6)
-		isSuspended := row.proc.State == types.StateSuspended
+		isSuspended := row.Proc.State == types.StateSuspended
 		if isSuspended {
-			stateMark += " " + suspendReasonAbbrev(row.proc.SuspendReason)
+			stateMark += " " + suspendReasonAbbrev(row.Proc.SuspendReason)
 		}
 
 		// Collapsed dead subtree prefix (AC3)
 		collapsePrefix := ""
-		if row.collapsed {
+		if row.Collapsed {
 			if ui.IsASCIIMode() {
 				collapsePrefix = "> "
 			} else {
@@ -136,20 +136,20 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		}
 
 		// Intent: use collapsed prefix if available (AC4)
-		intent := strings.ReplaceAll(row.proc.Intent, "\n", " ")
+		intent := strings.ReplaceAll(row.Proc.Intent, "\n", " ")
 		if intent == "" {
 			intent = "—"
 		}
-		if collapsed, ok := collapsedIntents[row.proc.UUID]; ok {
+		if collapsed, ok := collapsedIntents[row.Proc.UUID]; ok {
 			intent = collapsed
 		}
 
 		// Compact metadata suffix
-		pidPart := fmt.Sprintf("%d", row.proc.PID)
+		pidPart := fmt.Sprintf("%d", row.Proc.PID)
 
-		isDead := row.proc.State == types.StateDead || row.proc.State == types.StateZombie
-		isDeadOk := isDead && !ui.IsFailedResult(row.proc.Result)
-		isDeadFail := isDead && ui.IsFailedResult(row.proc.Result)
+		isDead := row.Proc.State == types.StateDead || row.Proc.State == types.StateZombie
+		isDeadOk := isDead && !ui.IsFailedResult(row.Proc.Result)
+		isDeadFail := isDead && ui.IsFailedResult(row.Proc.Result)
 		var tokens string
 		var elapsed string
 
@@ -163,7 +163,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 						return ' '
 					}
 					return r
-				}, row.proc.Result)
+				}, row.Proc.Result)
 				resultText = strings.TrimSpace(resultText)
 				if resultText == "" {
 					resultText = "—"
@@ -172,14 +172,14 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 				if len(runes) > 22 {
 					resultText = string(runes[:21]) + "…"
 				}
-				if ui.IsFailedResult(row.proc.Result) {
+				if ui.IsFailedResult(row.Proc.Result) {
 					tokens = ui.ErrorStyle.Render("✗ " + resultText)
 				} else {
 					tokens = "✓ " + resultText
 				}
 			} else {
 				// Compact exit marker (result detail in Detail Card)
-				if ui.IsFailedResult(row.proc.Result) {
+				if ui.IsFailedResult(row.Proc.Result) {
 					if ui.IsASCIIMode() {
 						tokens = ui.ErrorStyle.Render("x")
 					} else {
@@ -193,63 +193,63 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 					}
 				}
 			}
-			if !row.proc.DeadAt.IsZero() {
-				elapsed = ui.FormatDuration(row.proc.DeadAt.Sub(row.proc.CreatedAt))
-			} else if row.proc.IsPaused && !row.proc.PausedAt.IsZero() {
-				elapsed = ui.FormatDuration(row.proc.PausedAt.Sub(row.proc.CreatedAt))
+			if !row.Proc.DeadAt.IsZero() {
+				elapsed = ui.FormatDuration(row.Proc.DeadAt.Sub(row.Proc.CreatedAt))
+			} else if row.Proc.IsPaused && !row.Proc.PausedAt.IsZero() {
+				elapsed = ui.FormatDuration(row.Proc.PausedAt.Sub(row.Proc.CreatedAt))
 			} else {
-				elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
+				elapsed = ui.FormatDuration(now.Sub(row.Proc.CreatedAt))
 			}
 		} else {
-			if row.proc.ContextBudget > 0 {
-				pct := max(0, min(int(int64(row.proc.TokensUsed)*100/int64(row.proc.ContextBudget)), 100))
+			if row.Proc.ContextBudget > 0 {
+				pct := max(0, min(int(int64(row.Proc.TokensUsed)*100/int64(row.Proc.ContextBudget)), 100))
 				tokens = fmt.Sprintf("%s/%s(%d%%)",
-					ui.FormatTokens(row.proc.TokensUsed),
-					ui.FormatTokens(row.proc.ContextBudget), pct)
+					ui.FormatTokens(row.Proc.TokensUsed),
+					ui.FormatTokens(row.Proc.ContextBudget), pct)
 				if pct >= 80 {
 					tokens = ui.WarningStyle.Render(tokens)
 				}
 			} else {
-				tokens = ui.FormatTokens(row.proc.TokensUsed)
+				tokens = ui.FormatTokens(row.Proc.TokensUsed)
 			}
-			if row.proc.IsPaused && !row.proc.PausedAt.IsZero() {
-				elapsed = ui.FormatDuration(row.proc.PausedAt.Sub(row.proc.CreatedAt))
+			if row.Proc.IsPaused && !row.Proc.PausedAt.IsZero() {
+				elapsed = ui.FormatDuration(row.Proc.PausedAt.Sub(row.Proc.CreatedAt))
 			} else {
-				elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
+				elapsed = ui.FormatDuration(now.Sub(row.Proc.CreatedAt))
 			}
 		}
 
 		// PID reuse indicator
-		if _, isReused := reused[row.proc.PID]; isReused {
-			uuidShort := row.proc.UUID
+		if _, isReused := reused[row.Proc.PID]; isReused {
+			uuidShort := row.Proc.UUID
 			if len(uuidShort) > 6 {
 				uuidShort = uuidShort[:6]
 			}
-			pidPart = fmt.Sprintf("%d(%s)", row.proc.PID, uuidShort)
+			pidPart = fmt.Sprintf("%d(%s)", row.Proc.PID, uuidShort)
 		}
 
 		// Recording indicator
 		rec := ""
-		if m.recording[row.proc.UUID] != "" {
+		if m.recording[row.Proc.UUID] != "" {
 			rec = " ●"
 		}
 
 		// Orchestration annotation (Story 34.7)
-		orchAnnotation := orchestrationAnnotation(row.proc)
+		orchAnnotation := orchestrationAnnotation(row.Proc)
 
 		// Wall-clock start time (compact: HH:MM when width allows, expanded: HH:MM:SS)
 		var wallClock string
-		if !row.proc.CreatedAt.IsZero() {
+		if !row.Proc.CreatedAt.IsZero() {
 			if isExpanded {
-				wallClock = ui.FormatWallClock(row.proc.CreatedAt)
+				wallClock = ui.FormatWallClock(row.Proc.CreatedAt)
 			} else if innerW >= 50 {
-				wallClock = ui.FormatWallClockShort(row.proc.CreatedAt)
+				wallClock = ui.FormatWallClockShort(row.Proc.CreatedAt)
 			}
 		}
 
 		// New process highlight (Story 36-2 AC-4): sparkle icon + highlight bg
 		isNewProcess := false
-		if firstSeen, ok := m.processFirstSeenAt[row.proc.PID]; ok && now.Sub(firstSeen) < highlightDisplayWindow {
+		if firstSeen, ok := m.tree.ProcessFirstSeenAt[row.Proc.PID]; ok && now.Sub(firstSeen) < highlightDisplayWindow {
 			isNewProcess = true
 		}
 
@@ -265,7 +265,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		// Calculate available width for intent (elastic).
 		// Filter empty parts so an absent state badge (dead+success) doesn't produce double-space.
-		prefixW := lipgloss.Width(highlightPrefix+cursor+collapsePrefix+row.prefix)
+		prefixW := lipgloss.Width(highlightPrefix+cursor+collapsePrefix+row.Prefix)
 		suffixParts := []string{pidPart, stateMark, wallClock, tokens, elapsed}
 		if orchAnnotation != "" {
 			suffixParts = append(suffixParts, orchAnnotation)
@@ -283,8 +283,8 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 		// Most active process highlight (AC5): bold if event within 2s
 		isMostActive := false
-		if row.proc.State == types.StateRunning || row.proc.State == types.StateCreated {
-			if lastEvt, ok := m.lastEventByPID[row.proc.PID]; ok {
+		if row.Proc.State == types.StateRunning || row.Proc.State == types.StateCreated {
+			if lastEvt, ok := m.tree.LastEventByPID[row.Proc.PID]; ok {
 				if now.Sub(lastEvt) < 2*time.Second {
 					isMostActive = true
 				}
@@ -295,7 +295,7 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		intentPad := max(intentW-runewidth.StringWidth(intentTrunc), 0)
 
 		line := fmt.Sprintf("%s%s%s%s%s%s %s",
-			highlightPrefix, cursor, collapsePrefix, row.prefix, intentTrunc, strings.Repeat(" ", intentPad), suffixStr)
+			highlightPrefix, cursor, collapsePrefix, row.Prefix, intentTrunc, strings.Repeat(" ", intentPad), suffixStr)
 		if isNewProcess {
 			if ui.IsASCIIMode() {
 				line = lipgloss.NewStyle().Reverse(true).Render(line)
@@ -324,10 +324,10 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 		linesRendered++
 
 		// Context bar for running/created processes only (AC2)
-		if showCtxBar && (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) && linesRendered < visibleLines {
-			if row.proc.ContextBudget > 0 {
-				barPrefix := strings.Repeat(" ", lipgloss.Width(cursor+collapsePrefix+row.prefix))
-				ctxBar := renderCtxBar(row.proc.TokensUsed, row.proc.ContextBudget, 10)
+		if showCtxBar && (row.Proc.State == types.StateRunning || row.Proc.State == types.StateCreated) && linesRendered < visibleLines {
+			if row.Proc.ContextBudget > 0 {
+				barPrefix := strings.Repeat(" ", lipgloss.Width(cursor+collapsePrefix+row.Prefix))
+				ctxBar := renderCtxBar(row.Proc.TokensUsed, row.Proc.ContextBudget, 10)
 				b.WriteString(barPrefix + ctxBar + "\n")
 				linesRendered++
 			}
@@ -336,9 +336,9 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 
 	// Stats bar — only in expanded mode
 	if isExpanded {
-		allProcs := make([]vfs.ProcInfo, len(m.treeRows))
-		for i, r := range m.treeRows {
-			allProcs[i] = r.proc
+		allProcs := make([]vfs.ProcInfo, len(m.tree.Rows))
+		for i, r := range m.tree.Rows {
+			allProcs[i] = r.Proc
 		}
 		b.WriteString(m.renderHistoryStats(allProcs))
 		b.WriteString("\n")
@@ -350,14 +350,14 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 // filteredExpandedRows returns tree rows whose agent label or intent text
 // contains the current treeSearchQuery (case-insensitive).
 func (m dashboardModel) filteredExpandedRows() []flatRow {
-	if m.treeSearchQuery == "" {
-		return m.treeRows
+	if m.tree.SearchQuery == "" {
+		return m.tree.Rows
 	}
-	q := strings.ToLower(m.treeSearchQuery)
-	result := make([]flatRow, 0, len(m.treeRows))
-	for _, row := range m.treeRows {
-		label := strings.ToLower(agentLabel(row.proc))
-		intent := strings.ToLower(row.proc.Intent)
+	q := strings.ToLower(m.tree.SearchQuery)
+	result := make([]flatRow, 0, len(m.tree.Rows))
+	for _, row := range m.tree.Rows {
+		label := strings.ToLower(agentLabel(row.Proc))
+		intent := strings.ToLower(row.Proc.Intent)
 		if strings.Contains(label, q) || strings.Contains(intent, q) {
 			result = append(result, row)
 		}
@@ -456,14 +456,14 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 	for i := range procs {
 		p := procs[i]
 		key := nodeKey(p)
-		nodes[key] = &treeNode{proc: p}
+		nodes[key] = &treeNode{Proc: p}
 		if p.State != types.StateDead {
 			pidToKey[p.PID] = key
 		}
 		// For allPidToKey, prefer the earliest CreatedAt (most likely true parent)
 		if existing, ok := allPidToKey[p.PID]; ok {
 			if existingNode, ok2 := nodes[existing]; ok2 {
-				if p.CreatedAt.Before(existingNode.proc.CreatedAt) {
+				if p.CreatedAt.Before(existingNode.Proc.CreatedAt) {
 					allPidToKey[p.PID] = key
 				}
 			}
@@ -478,7 +478,7 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 	// synthetic placeholder node so the tree structure is preserved.
 	orphansByParent := make(map[string][]*treeNode)
 	for _, n := range nodes {
-		p := n.proc
+		p := n.Proc
 		myKey := nodeKey(p)
 		// Self-parent → root
 		if p.PID == p.PPID {
@@ -490,7 +490,7 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 		// structure by resolving via ParentUUID before falling through to root.
 		if p.PPID == 0 && p.ParentUUID != "" {
 			if parent, ok := nodes[p.ParentUUID]; ok {
-				parent.children = append(parent.children, n)
+				parent.Children = append(parent.Children, n)
 				continue
 			}
 			// Parent not in current view — collect for synthetic grouping
@@ -507,7 +507,7 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 		// Primary: use ParentUUID for exact parent matching (avoids PID reuse confusion)
 		if p.ParentUUID != "" {
 			if parent, ok := nodes[p.ParentUUID]; ok {
-				parent.children = append(parent.children, n)
+				parent.Children = append(parent.Children, n)
 				continue
 			}
 			// ParentUUID set but parent not in current view → collect for synthetic grouping
@@ -519,7 +519,7 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 		if parentKey, ok := pidToKey[p.PPID]; ok {
 			if parentKey != myKey {
 				if parent, ok := nodes[parentKey]; ok {
-					parent.children = append(parent.children, n)
+					parent.Children = append(parent.Children, n)
 					continue
 				}
 			}
@@ -529,7 +529,7 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 			if parentKey, ok := allPidToKey[p.PPID]; ok {
 				if parentKey != myKey {
 					if parent, ok := nodes[parentKey]; ok {
-						parent.children = append(parent.children, n)
+						parent.Children = append(parent.Children, n)
 						continue
 					}
 				}
@@ -552,21 +552,21 @@ func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode 
 			uuidShort = uuidShort[:8]
 		}
 		synthetic := &treeNode{
-			proc: vfs.ProcInfo{
-				PID:    children[0].proc.PPID,
+			Proc: vfs.ProcInfo{
+				PID:    children[0].Proc.PPID,
 				UUID:   parentUUID,
 				State:  types.StateDead,
 				Intent: fmt.Sprintf("[missing parent %s…]", uuidShort),
 			},
-			children: children,
+			Children: children,
 		}
 		roots = append(roots, synthetic)
 	}
 
 	sortTreeNodes(roots, sortMode, asc)
 	for _, n := range nodes {
-		if len(n.children) > 1 {
-			sortTreeNodes(n.children, sortMode, asc)
+		if len(n.Children) > 1 {
+			sortTreeNodes(n.Children, sortMode, asc)
 		}
 	}
 
@@ -611,7 +611,7 @@ func sortTreeNodes(ns []*treeNode, sortMode int, asc bool) {
 	switch sortMode {
 	case treeSortTime:
 		sort.SliceStable(ns, func(i, j int) bool {
-			ai, aj := ns[i].proc, ns[j].proc
+			ai, aj := ns[i].Proc, ns[j].Proc
 			if !ai.CreatedAt.Equal(aj.CreatedAt) {
 				return cmpTime(ai.CreatedAt, aj.CreatedAt) // primary: time
 			}
@@ -623,7 +623,7 @@ func sortTreeNodes(ns []*treeNode, sortMode int, asc bool) {
 		})
 	case treeSortState:
 		sort.SliceStable(ns, func(i, j int) bool {
-			ai, aj := ns[i].proc, ns[j].proc
+			ai, aj := ns[i].Proc, ns[j].Proc
 			ri, rj := stateRank(ai.State), stateRank(aj.State)
 			if ri != rj {
 				return cmp(ri, rj)
@@ -633,11 +633,11 @@ func sortTreeNodes(ns []*treeNode, sortMode int, asc bool) {
 	default:
 		// PID sort
 		sort.SliceStable(ns, func(i, j int) bool {
-			pi, pj := ns[i].proc.PID, ns[j].proc.PID
+			pi, pj := ns[i].Proc.PID, ns[j].Proc.PID
 			if pi != pj {
 				return cmp(int(pi), int(pj))
 			}
-			return ns[i].proc.CreatedAt.Before(ns[j].proc.CreatedAt) // secondary: time ascending
+			return ns[i].Proc.CreatedAt.Before(ns[j].Proc.CreatedAt) // secondary: time ascending
 		})
 	}
 }
@@ -713,13 +713,13 @@ func flattenTreeWithCollapse(roots []*treeNode, collapsedSet map[string]bool) []
 			prefix = parentPrefix + "├─ "
 		}
 
-		isCollapsed := node.proc.UUID != "" && collapsedSet[node.proc.UUID] && len(node.children) > 0
+		isCollapsed := node.Proc.UUID != "" && collapsedSet[node.Proc.UUID] && len(node.Children) > 0
 
 		rows = append(rows, flatRow{
-			proc:      node.proc,
-			prefix:    prefix,
-			depth:     depth,
-			collapsed: isCollapsed,
+			Proc:      node.Proc,
+			Prefix:    prefix,
+			Depth:     depth,
+			Collapsed: isCollapsed,
 		})
 
 		if isCollapsed {
@@ -735,8 +735,8 @@ func flattenTreeWithCollapse(roots []*treeNode, collapsedSet map[string]bool) []
 			childPrefix = parentPrefix + "│  "
 		}
 
-		for i, child := range node.children {
-			walk(child, depth+1, childPrefix, i == len(node.children)-1, false)
+		for i, child := range node.Children {
+			walk(child, depth+1, childPrefix, i == len(node.Children)-1, false)
 		}
 	}
 
@@ -825,23 +825,23 @@ func truncateToWordBoundary(s string) string {
 // common prefix collapsing (AC4). Returns a map of UUID → collapsed intent string.
 func (m dashboardModel) buildCollapsedIntents() map[string]string {
 	result := make(map[string]string)
-	if len(m.treeRows) == 0 {
+	if len(m.tree.Rows) == 0 {
 		return result
 	}
 
 	// Build parent UUID → child rows mapping from the tree structure
 	parentChildren := make(map[string][]int) // parentUUID → indices in treeRows
-	for i, row := range m.treeRows {
-		puuid := row.proc.ParentUUID
+	for i, row := range m.tree.Rows {
+		puuid := row.Proc.ParentUUID
 		if puuid != "" {
 			parentChildren[puuid] = append(parentChildren[puuid], i)
 			continue
 		}
 		// Fallback: PPID → UUID lookup for old processes without ParentUUID
-		if row.proc.PPID > 0 && row.proc.PPID != row.proc.PID {
-			for _, other := range m.treeRows {
-				if other.proc.PID == row.proc.PPID && other.proc.UUID != "" {
-					parentChildren[other.proc.UUID] = append(parentChildren[other.proc.UUID], i)
+		if row.Proc.PPID > 0 && row.Proc.PPID != row.Proc.PID {
+			for _, other := range m.tree.Rows {
+				if other.Proc.PID == row.Proc.PPID && other.Proc.UUID != "" {
+					parentChildren[other.Proc.UUID] = append(parentChildren[other.Proc.UUID], i)
 					break
 				}
 			}
@@ -855,13 +855,13 @@ func (m dashboardModel) buildCollapsedIntents() map[string]string {
 		}
 		intents := make([]string, len(indices))
 		for j, idx := range indices {
-			intents[j] = m.treeRows[idx].proc.Intent
+			intents[j] = m.tree.Rows[idx].Proc.Intent
 		}
 		collapsed := collapseCommonPrefix(intents)
 		// If collapse changed anything, store the results
 		for j, idx := range indices {
 			if collapsed[j] != intents[j] {
-				result[m.treeRows[idx].proc.UUID] = collapsed[j]
+				result[m.tree.Rows[idx].Proc.UUID] = collapsed[j]
 			}
 		}
 	}

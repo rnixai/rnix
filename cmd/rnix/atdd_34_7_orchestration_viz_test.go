@@ -120,7 +120,7 @@ func TestTreeRow_ComposeAnnotationInSuffix(t *testing.T) {
 
 	m := newTestDashboardModel(procs)
 	roots := buildProcessTree(procs, 0, false)
-	m.treeRows = flattenTreeWithCollapse(roots, nil)
+	m.tree.Rows = flattenTreeWithCollapse(roots, nil)
 	output := m.renderDashboardTreePane(100, 20)
 	if !strings.Contains(output, "researcher") {
 		t.Error("tree output should contain compose dep 'researcher'")
@@ -138,7 +138,7 @@ func TestTreeRow_PipelineAnnotationInSuffix(t *testing.T) {
 
 	m := newTestDashboardModel(procs)
 	roots := buildProcessTree(procs, 0, false)
-	m.treeRows = flattenTreeWithCollapse(roots, nil)
+	m.tree.Rows = flattenTreeWithCollapse(roots, nil)
 	output := m.renderDashboardTreePane(100, 20)
 	if !strings.Contains(output, "1/3") {
 		t.Error("tree output should contain pipeline marker '1/3'")

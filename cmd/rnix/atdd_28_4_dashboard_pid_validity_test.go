@@ -32,18 +32,18 @@ func newPIDValidityModel() dashboardModel {
 	m.width = 120
 	m.height = 40
 	m.connected = true
-	m.treeRows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1, UUID: "uuid-aaa-111", State: types.StateRunning, Intent: "task A", CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 3, UUID: "uuid-bbb-333", State: types.StateRunning, Intent: "task B", CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 5, UUID: "uuid-ccc-555", State: types.StateRunning, Intent: "task C", CreatedAt: time.Now()}},
+	m.tree.Rows = []flatRow{
+		{Proc: vfs.ProcInfo{PID: 1, UUID: "uuid-aaa-111", State: types.StateRunning, Intent: "task A", CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 3, UUID: "uuid-bbb-333", State: types.StateRunning, Intent: "task B", CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 5, UUID: "uuid-ccc-555", State: types.StateRunning, Intent: "task C", CreatedAt: time.Now()}},
 	}
 	m.processes = []vfs.ProcInfo{
-		m.treeRows[0].proc,
-		m.treeRows[1].proc,
-		m.treeRows[2].proc,
+		m.tree.Rows[0].Proc,
+		m.tree.Rows[1].Proc,
+		m.tree.Rows[2].Proc,
 	}
-	m.treeCursor = 0
-	m = selectProcess(m, m.treeRows[0])
+	m.tree.Cursor = 0
+	m = selectProcess(m, m.tree.Rows[0])
 	return m
 }
 
@@ -76,8 +76,8 @@ func TestATDD_28_4_AC1_SelectProcessSetsUUID(t *testing.T) {
 	m := newPIDValidityModel()
 
 	// Select process at cursor 1 (PID=3, UUID=uuid-bbb-333)
-	m.treeCursor = 1
-	m = selectProcess(m, m.treeRows[m.treeCursor])
+	m.tree.Cursor = 1
+	m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 
 	if m.selectedPID != 3 {
 		t.Errorf("AC-1: selectedPID = %d, want 3", m.selectedPID)
@@ -322,12 +322,12 @@ func TestATDD_28_4_EmptyUUID_PIDExistenceCheck(t *testing.T) {
 	m := newPIDValidityModel()
 
 	// Process with empty UUID (backward compat edge case)
-	m.treeRows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 7, UUID: "", State: types.StateRunning, Intent: "legacy", CreatedAt: time.Now()}},
+	m.tree.Rows = []flatRow{
+		{Proc: vfs.ProcInfo{PID: 7, UUID: "", State: types.StateRunning, Intent: "legacy", CreatedAt: time.Now()}},
 	}
-	m.processes = []vfs.ProcInfo{m.treeRows[0].proc}
-	m.treeCursor = 0
-	m = selectProcess(m, m.treeRows[0])
+	m.processes = []vfs.ProcInfo{m.tree.Rows[0].Proc}
+	m.tree.Cursor = 0
+	m = selectProcess(m, m.tree.Rows[0])
 
 	if m.selectedPID != 7 {
 		t.Errorf("empty UUID: selectedPID = %d, want 7", m.selectedPID)

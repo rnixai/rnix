@@ -37,14 +37,14 @@ func newTopNavModel() topModel {
 	m.width = 120
 	m.height = 40
 	m.rows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 99, State: types.StateDead, CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 99, State: types.StateDead, CreatedAt: time.Now()}},
 	}
 	m.processes = []vfs.ProcInfo{
-		m.rows[0].proc,
-		m.rows[1].proc,
-		m.rows[2].proc,
+		m.rows[0].Proc,
+		m.rows[1].Proc,
+		m.rows[2].Proc,
 	}
 	m.cursor = 0
 	return m
@@ -55,17 +55,17 @@ func newDashboardNavModel() dashboardModel {
 	m.width = 120
 	m.height = 40
 	m.connected = true
-	m.treeRows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 99, State: types.StateRunning, CreatedAt: time.Now()}},
+	m.tree.Rows = []flatRow{
+		{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 99, State: types.StateRunning, CreatedAt: time.Now()}},
 	}
 	m.processes = []vfs.ProcInfo{
-		m.treeRows[0].proc,
-		m.treeRows[1].proc,
-		m.treeRows[2].proc,
+		m.tree.Rows[0].Proc,
+		m.tree.Rows[1].Proc,
+		m.tree.Rows[2].Proc,
 	}
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 	m.selectedPID = 1
 	return m
 }
@@ -119,8 +119,8 @@ func TestATDD_27_5_AC2_InitialPIDFocus_PositionsCursor(t *testing.T) {
 
 	m.applyInitialPIDFocus()
 
-	if m.treeCursor != 1 {
-		t.Errorf("AC-2: treeCursor = %d, want 1 (PID 42 row)", m.treeCursor)
+	if m.tree.Cursor != 1 {
+		t.Errorf("AC-2: treeCursor = %d, want 1 (PID 42 row)", m.tree.Cursor)
 	}
 }
 
@@ -129,8 +129,8 @@ func TestATDD_27_5_AC2_InitialPIDFocus_SetsSelectedPID(t *testing.T) {
 	m.initialPIDFocus = 42
 
 	m.applyInitialPIDFocus()
-	if m.treeCursor < len(m.treeRows) {
-		m.selectedPID = m.treeRows[m.treeCursor].proc.PID
+	if m.tree.Cursor < len(m.tree.Rows) {
+		m.selectedPID = m.tree.Rows[m.tree.Cursor].Proc.PID
 	}
 
 	if m.selectedPID != 42 {
@@ -173,8 +173,8 @@ func TestATDD_27_5_AC3_InitialPIDFocus_NotFound_CursorDefault(t *testing.T) {
 
 	m.applyInitialPIDFocus()
 
-	if m.treeCursor != 0 {
-		t.Errorf("AC-3: treeCursor should stay at 0, got %d", m.treeCursor)
+	if m.tree.Cursor != 0 {
+		t.Errorf("AC-3: treeCursor should stay at 0, got %d", m.tree.Cursor)
 	}
 }
 
