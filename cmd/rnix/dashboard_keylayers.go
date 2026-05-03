@@ -14,10 +14,10 @@ package main
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 )
@@ -640,43 +640,13 @@ func paneFallback(msg tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, 
 }
 
 // registerLayer2Tree — Tree pane: K/P/s/o/R/enter (delegates to dispatchPaneKey
-// via Layer 6 fallback). For PR3, we document the keys here and route any
-// pane-local handlers via the existing dispatchPaneKey path (which Layer 2
-// fallback into via dashboardKey).
+// via paneFallback). Story 38-5 PR2 Step 2: 注册体迁出至 internal/dashboard/tree.KeyLayer
+// 以解耦 cmd/rnix 与 tree pane 元数据；本函数仅做 dispatcher 注册（行为零变化）。
+//
+// 包边界约束：dashboardModel 必须实现 tree.StateProvider interface（已在 dashboard.go:302
+// 通过 TreeState() 方法满足），ActiveModesFn 通过该接口读取最新 TreeState。
 func registerLayer2Tree(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Tree Pane",
-		Bindings: map[string]ui.KeyHandler{},
-		Fallback: paneFallback,
-		Docs:     map[string]ui.KeyDoc{},
-		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
-			m, ok := ctx.(dashboardModel)
-			if !ok {
-				return nil
-			}
-			modes := []ui.Mode{}
-			label := "time"
-			if m.tree.SortMode < len(treeSortLabels) {
-				label = strings.ToLower(treeSortLabels[m.tree.SortMode])
-			}
-			modes = append(modes, ui.Mode{Name: "sort", Value: label})
-			dir := "desc"
-			if m.tree.SortAsc {
-				dir = "asc"
-			}
-			modes = append(modes, ui.Mode{Name: "dir", Value: dir})
-			if m.tree.SearchMode || m.tree.SearchQuery != "" {
-				modes = append(modes, ui.Mode{Name: "search", Value: "on"})
-			}
-			return modes
-		},
-	}
-	l.Docs["K"] = ui.KeyDoc{Key: "K", Description: "Kill process"}
-	l.Docs["s"] = ui.KeyDoc{Key: "s", Description: "Cycle sort mode (Time/PID/State)"}
-	l.Docs["o"] = ui.KeyDoc{Key: "o", Description: "Toggle sort direction"}
-	l.Docs["enter"] = ui.KeyDoc{Key: "enter", Description: "Select / collapse dead subtree"}
-	l.Docs["/"] = ui.KeyDoc{Key: "/", Description: "Search tree (in expanded view)"}
-	d.Layer2[ui.PaneID(paneTree)] = l
+	d.Layer2[ui.PaneID(paneTree)] = tree.KeyLayer(paneFallback)
 }
 
 func registerLayer2Timeline(d *ui.Dispatcher) {
