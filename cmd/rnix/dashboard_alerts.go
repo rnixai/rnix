@@ -30,6 +30,13 @@ const alertTTL = 30 * time.Second
 // Zero-value Timestamps (time.Time{}) are NEVER filtered: tests and synthetic
 // events frequently leave Timestamp unset, and silently dropping them would
 // mask real bugs (Story 38.2 AC#4 IsZero guard).
+//
+// Code-review patch P0 (Story 38-4, 2026-05-03): rows with IsSynthetic == true
+// (currently only synthSecurityAlerts) bypass the TTL filter entirely. Their
+// lifecycle is driven by the upstream IPC list (m.securityAlerts) rather than
+// wall-clock TTL — this fixes both (a) `TimestampMs == 0` synth rows
+// previously latching forever via a `time.Now()` fallback and (b) real Immune
+// alerts older than 30 s being silently stripped.
 func buildAlertEvents(events []UnifiedEvent) []UnifiedEvent {
 	var alerts []UnifiedEvent
 	now := time.Now()
@@ -37,8 +44,8 @@ func buildAlertEvents(events []UnifiedEvent) []UnifiedEvent {
 		if ev.Severity < SevWarn {
 			continue
 		}
-		if !ev.Timestamp.IsZero() && now.Sub(ev.Timestamp) > alertTTL {
-			continue // expired
+		if !ev.IsSynthetic && !ev.Timestamp.IsZero() && now.Sub(ev.Timestamp) > alertTTL {
+			continue // expired (synthetic rows are immune to TTL — see godoc)
 		}
 		alerts = append(alerts, ev)
 	}
@@ -61,9 +68,13 @@ func buildAlertEvents(events []UnifiedEvent) []UnifiedEvent {
 //     otherwise SevWarn. Rationale: device_access is the tightest signal
 //     in the immune daemon; high-deviation syscall_freq / token_rate pile
 //     up to error severity per the spec.
-//   - Timestamp = time.UnixMilli(TimestampMs); falls back to time.Now()
-//     when TimestampMs == 0 so buildAlertEvents' IsZero guard does not
-//     accidentally retain or drop synthetic events.
+//   - Timestamp = time.UnixMilli(TimestampMs); when TimestampMs == 0 the
+//     UnifiedEvent.Timestamp is left as the zero value (time.Time{}).
+//   - IsSynthetic = true so buildAlertEvents bypasses the TTL filter
+//     (code-review patch P0, 2026-05-03). Synth row lifecycle is driven
+//     by m.securityAlerts presence rather than wall-clock TTL — this
+//     simultaneously fixes "TimestampMs==0 latches forever via time.Now()
+//     fallback" and "real Immune alerts older than 30s silently dropped".
 //   - PID / Detail / Summary follow the spec template.
 //
 // Performance: O(N) over alerts; in practice N ≤ ~20 (immune daemon caps
@@ -87,16 +98,15 @@ func synthSecurityAlerts(alerts []ipc.AlertWire) []UnifiedEvent {
 		var ts time.Time
 		if a.TimestampMs > 0 {
 			ts = time.UnixMilli(a.TimestampMs)
-		} else {
-			ts = time.Now()
 		}
 		out = append(out, UnifiedEvent{
-			Type:      EventImmune,
-			Severity:  sev,
-			Timestamp: ts,
-			PID:       types.PID(a.PID),
-			Summary:   fmt.Sprintf("[security] %s %s (%.1fx)", a.AgentTemplate, a.Type, a.Deviation),
-			Detail:    a.Detail,
+			Type:        EventImmune,
+			Severity:    sev,
+			Timestamp:   ts,
+			PID:         types.PID(a.PID),
+			Summary:     fmt.Sprintf("[security] %s %s (%.1fx)", a.AgentTemplate, a.Type, a.Deviation),
+			Detail:      a.Detail,
+			IsSynthetic: true,
 		})
 	}
 	return out

@@ -241,9 +241,9 @@ type dashboardModel struct {
 	alertJumpTarget *UnifiedEvent   // pending alert jump after PID change
 
 	// Story 38-4: cross-pane linkage (see dashboard_events.go for contract)
-	paneHasUnread         [8]bool
-	prevUnifiedEventCount int
-	intentTreeCollapsed   map[int]bool
+	paneHasUnread       [paneCount]bool
+	lastUnreadEventKeys map[string]struct{} // Story 38-4 P3: identity-based diff (replaces prevUnifiedEventCount); nil means "next tick syncs without marking" (PID switch / startup)
+	intentTreeCollapsed map[string]bool     // Story 38-4 P1: keyed by tree.RootIntent (stable across reordering); nil-safe
 
 	// Story 34.6: Debug mode — strace fusion
 	debugMode           bool                        // Debug mode active
@@ -286,7 +286,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		lastEventByPID:     make(map[types.PID]time.Time),
 		collapsedDeadTrees: make(map[string]bool),
 		processFirstSeenAt: make(map[types.PID]time.Time),
-		intentTreeCollapsed: make(map[int]bool), // Story 38-4 AC#3: user toggle for non-terminal trees
+		intentTreeCollapsed: make(map[string]bool), // Story 38-4 AC#3 / P1: keyed by RootIntent
 		debugShowStrace:    true, // Story 34.6: show strace events by default
 		debugDeviceLatency: make(map[string]*deviceLatencyStats),
 		timelineSortAsc:    true,                // Story 36-4: 默认升序（最新在底）
@@ -1137,6 +1137,7 @@ func toggleRecordCmd(pid types.PID, uuid string, currentRecordID string) tea.Cmd
 }
 
 func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
+	m.lastUnreadEventKeys = nil // patch P2: first post-switch tick syncs without flooding red dots
 	if m.selectedPID == 0 {
 		m.selectedUUID = ""
 		m = m.handleTimelinePIDChange()

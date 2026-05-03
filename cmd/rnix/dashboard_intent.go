@@ -87,22 +87,36 @@ func isIntentTreeTerminal(state string) bool {
 // flattenIntentTrees flattens the IntentTreeWire list into a single visible
 // node sequence, applying the legacy "terminal trees collapsed" rule.
 //
-// Story 38-4 AC#3 introduces a per-tree user-toggled collapse state via
-// flattenIntentTreesWithCollapse(trees, userCollapsed); this thin wrapper
+// Story 38-4 AC#3 / code-review patch P1 introduces a per-tree user-toggled
+// collapse state via flattenIntentTreesWithCollapse(trees, userCollapsed)
+// keyed by tree.RootIntent (stable across reordering). This thin wrapper
 // preserves the original signature so existing tests continue to compile.
 func flattenIntentTrees(trees []*ipc.IntentTreeWire) []intentFlatNode {
 	return flattenIntentTreesWithCollapse(trees, nil)
 }
 
 // flattenIntentTreesWithCollapse flattens trees, additionally letting the
-// caller force-collapse non-terminal trees through a treeIndex → bool map.
-// userCollapsed may be nil — in which case behaviour is identical to the
-// legacy single-arg flattenIntentTrees.
+// caller force-collapse non-terminal trees through a stable RootIntent →
+// bool map. userCollapsed may be nil — in which case behaviour is identical
+// to the legacy single-arg flattenIntentTrees.
+//
+// Code-review patch P1 (2026-05-03): the collapse map is keyed by
+// tree.RootIntent (a stable IPC field) rather than the post-sort positional
+// treeIndex. Trees changing state (active→completed) reorder via the sort
+// below; a positional key would silently re-apply an old toggle to a
+// different tree.
+//
+// Code-review patch P4 (2026-05-03): callers may safely retain the same
+// map across many ticks — stale entries pointing at trees no longer in the
+// list are simply ignored at lookup time. (Set-difference pruning is left
+// to the caller; for the dashboard the toggle handler in
+// dashboard_pane_dispatcher.go re-runs flatten after every mutation, and
+// the map is bounded by user-toggle frequency.)
 //
 // Terminal trees (completed / failed) remain collapsed by default
 // regardless of userCollapsed (Dev Notes 5: don't let a stale toggle
 // re-expand a finished tree on next tick).
-func flattenIntentTreesWithCollapse(trees []*ipc.IntentTreeWire, userCollapsed map[int]bool) []intentFlatNode {
+func flattenIntentTreesWithCollapse(trees []*ipc.IntentTreeWire, userCollapsed map[string]bool) []intentFlatNode {
 	var result []intentFlatNode
 
 	// AC-2: Sort trees — active first, completed/failed at bottom
@@ -119,9 +133,10 @@ func flattenIntentTreesWithCollapse(trees []*ipc.IntentTreeWire, userCollapsed m
 
 	for treeIdx, tree := range sorted {
 		// Terminal trees collapse unconditionally; non-terminal trees honour
-		// the user's per-tree toggle (Story 38-4 AC#3).
+		// the user's per-tree toggle keyed by stable RootIntent (Story
+		// 38-4 AC#3 / patch P1).
 		collapsed := isIntentTreeTerminal(tree.State)
-		if !collapsed && userCollapsed != nil && userCollapsed[treeIdx] {
+		if !collapsed && userCollapsed != nil && userCollapsed[tree.RootIntent] {
 			collapsed = true
 		}
 		result = append(result, intentFlatNode{
@@ -221,6 +236,26 @@ func flattenIntentTreesWithCollapse(trees []*ipc.IntentTreeWire, userCollapsed m
 	}
 
 	return result
+}
+
+// pruneIntentCollapse drops collapse-map entries pointing at trees that
+// are no longer in the IPC list (Story 38-4 patch P4). Called from the
+// dispatcher after each toggle so the map cannot grow unbounded across
+// long sessions where intents come and go.
+func pruneIntentCollapse(userCollapsed map[string]bool, trees []*ipc.IntentTreeWire) map[string]bool {
+	if len(userCollapsed) == 0 {
+		return userCollapsed
+	}
+	live := make(map[string]struct{}, len(trees))
+	for _, t := range trees {
+		live[t.RootIntent] = struct{}{}
+	}
+	for k := range userCollapsed {
+		if _, ok := live[k]; !ok {
+			delete(userCollapsed, k)
+		}
+	}
+	return userCollapsed
 }
 
 func fetchIntentTreesCmd() tea.Cmd {

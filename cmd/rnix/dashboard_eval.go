@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
 
@@ -34,10 +35,16 @@ import (
 // Performance: O(1), pure function — safe to call per row inside render
 // hot paths.
 //
-// Inputs are clamped at the threshold boundaries; out-of-range values
-// (NaN / negative / >1.0) are treated as below-threshold (red) which is
-// the conservative signal for unexpected data.
+// Out-of-range guard: NaN, +Inf, -Inf, and any score outside [0, 1] are
+// treated as below-threshold (red). Code-review patch P12 (2026-05-03):
+// the previous implementation relied on `score >= 0.9` evaluating to false
+// for NaN (correct) but TRUE for +Inf, leaking +Inf into the green bucket
+// and contradicting the godoc. The explicit IsNaN / IsInf guard restores
+// the documented contract.
 func evalScoreColorStyle(score float64) lipgloss.Style {
+	if math.IsNaN(score) || math.IsInf(score, 0) || score < 0 || score > 1 {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+	}
 	switch {
 	case score >= 0.9:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
@@ -408,42 +415,60 @@ func (m dashboardModel) renderEvalSynergyView(width, height int) string {
 			skills = skills[:17] + "..."
 		}
 
+		// Story 38-4 AC#6:
+		//   - SUCCESS column gets gradient via evalScoreColorStyle (0-1 float).
+		//   - VS SOLO column: improvement < 0 saves tokens → green; > 0
+		//     spends more → red; == 0 → default.
+		//   - Recommended rows render Bold across the entire line.
+		//
+		// Code-review patch P8 (2026-05-03): the old implementation wrapped
+		// the already-styled `line` in `Bold(true).Render()`. Each pre-styled
+		// segment ends with `\x1b[0m` which terminates the outer Bold
+		// before the next column — visually only the leading segment was
+		// bold, contradicting AC#6 ("整行 Bold"). The fix is to inject
+		// Bold(true) into every per-segment Style so each SGR sequence
+		// already carries `\x1b[1m`, and to render plain text segments
+		// (cursor / skills / tokens / exec count) through the same plainStyle.
+		boldOnRecommended := func(style lipgloss.Style) lipgloss.Style {
+			if combo.Recommended {
+				return style.Bold(true)
+			}
+			return style
+		}
+
+		successStyle := boldOnRecommended(evalScoreColorStyle(combo.SuccessRate))
+		successStr := successStyle.Render(fmt.Sprintf("%5.1f%%", combo.SuccessRate*100))
+
+		improvementRaw := fmt.Sprintf("%+.1f%%", combo.TokenImprovement*100)
+		var improvementBase lipgloss.Style
+		switch {
+		case combo.TokenImprovement < 0:
+			improvementBase = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
+		case combo.TokenImprovement > 0:
+			improvementBase = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+		default:
+			improvementBase = lipgloss.NewStyle()
+		}
+		improvementStr := boldOnRecommended(improvementBase).Render(improvementRaw)
+
 		var recStr string
 		if combo.Recommended {
 			if ascii {
 				recStr = "Y"
 			} else {
-				recStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("✓")
+				recStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Bold(true).Render("✓")
 			}
 		}
 
-		// Story 38-4 AC#6:
-		//   - SUCCESS column gets gradient via evalScoreColorStyle (0-1 float).
-		//   - VS SOLO column: improvement < 0 saves tokens → green; > 0
-		//     spends more → red; == 0 → default.
-		//   - Recommended rows render Bold across the entire line so the
-		//     visual weight matches the "★ pick this combo" intent;
-		//     ASCII fallback prefixes a `★` mark in addition to the Bold
-		//     so legacy terminals without ANSI bold still notice.
-		successStr := evalScoreColorStyle(combo.SuccessRate).Render(fmt.Sprintf("%5.1f%%", combo.SuccessRate*100))
-		improvementRaw := fmt.Sprintf("%+.1f%%", combo.TokenImprovement*100)
-		var improvementStr string
-		switch {
-		case combo.TokenImprovement < 0:
-			improvementStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(improvementRaw)
-		case combo.TokenImprovement > 0:
-			improvementStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(improvementRaw)
-		default:
-			improvementStr = improvementRaw
-		}
+		plainStyle := boldOnRecommended(lipgloss.NewStyle())
+		cursorStr := plainStyle.Render(cursor)
+		skillsStr := plainStyle.Render(fmt.Sprintf("%-20s", skills))
+		tokStr := plainStyle.Render(fmt.Sprintf("%7d", combo.AvgTokens))
+		execStr := plainStyle.Render(fmt.Sprintf("%4d", combo.TotalExecutions))
 
-		line := fmt.Sprintf("%s%-20s  %s  %7d  %4d  %s  %s",
-			cursor, skills, successStr, combo.AvgTokens, combo.TotalExecutions, improvementStr, recStr)
-		if combo.Recommended {
-			if ascii {
-				line = "★ " + line
-			}
-			line = lipgloss.NewStyle().Bold(true).Render(line)
+		line := cursorStr + skillsStr + "  " + successStr + "  " + tokStr + "  " + execStr + "  " + improvementStr + "  " + recStr
+		if combo.Recommended && ascii {
+			line = "★ " + line
 		}
 		b.WriteString(line)
 		b.WriteString("\n")

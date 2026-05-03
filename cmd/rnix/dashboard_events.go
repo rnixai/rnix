@@ -493,17 +493,59 @@ func eventTargetPane(eventType string) (paneType, bool) {
 	}
 }
 
-// applyUnreadMarks scans the latest unifiedEvents tail and marks any
-// non-active target panes as unread (Story 38-4 AC#1). Wraps the
-// diff/mark cycle so dashboardTick stays compact.
+// unreadEventKey returns a stable identity key for an UnifiedEvent used by
+// applyUnreadMarks to detect which rows are NEW relative to the previous
+// tick (Story 38-4 patch P3 — replaces the brittle length-only gate).
+//
+// Composition: Type + PID + UUID + Timestamp.UnixNano(). Two events with
+// identical fingerprints are considered the same row across ticks; this
+// matches the existing sysEventDedup key shape.
+func unreadEventKey(ev *UnifiedEvent) string {
+	return fmt.Sprintf("%s:%d:%s:%d", ev.Type, ev.PID, ev.UUID, ev.Timestamp.UnixNano())
+}
+
+// applyUnreadMarks scans the latest unifiedEvents and marks any non-active
+// target panes as unread (Story 38-4 AC#1).
+//
+// Patch P3 (2026-05-03): the previous implementation used a single
+// `prevUnifiedEventCount int` length gate which silently failed in two
+// regression scenarios:
+//  1. PID switch — `mergeUnifiedEvents` rebuilds the slice from a different
+//     filter set; the new len is often smaller, `len(curr) > prev` is false,
+//     so the first batch on the new PID never raises a red dot.
+//  2. Ring-buffer trim — `mergeUnifiedEvents` may swap rows in place when
+//     sysEvents reaches `maxSysEvents`; length stays constant while
+//     contents change, so the new event is invisible to the gate.
+//
+// The fix uses an identity set: every tick we compute the fingerprint of
+// the current unifiedEvents and mark a pane unread only for events whose
+// fingerprint is NOT in the previous tick's set. PID switches reset the
+// set to nil via `handlePIDChange`, which triggers a one-shot "sync without
+// marking" path here so the first post-switch tick does not flood the user
+// with red dots for events they just selected to look at.
+//
+// Performance: O(N) over unifiedEvents per tick; N is capped by
+// mergeUnifiedEvents to ~maxSysEvents+stepEntries (a few hundred at most).
 func (m dashboardModel) applyUnreadMarks() dashboardModel {
-	if len(m.unifiedEvents) > m.prevUnifiedEventCount {
-		toMark := diffNewEventsToUnread(m.prevUnifiedEventCount, m.unifiedEvents, m.activePane)
-		for p := range toMark {
-			m = m.markPaneUnread(p)
+	currKeys := make(map[string]struct{}, len(m.unifiedEvents))
+	firstSync := m.lastUnreadEventKeys == nil
+	for i := range m.unifiedEvents {
+		ev := &m.unifiedEvents[i]
+		k := unreadEventKey(ev)
+		currKeys[k] = struct{}{}
+		if firstSync {
+			continue
 		}
+		if _, seen := m.lastUnreadEventKeys[k]; seen {
+			continue
+		}
+		target, ok := eventTargetPane(ev.Type)
+		if !ok || target == m.activePane {
+			continue
+		}
+		m = m.markPaneUnread(target)
 	}
-	m.prevUnifiedEventCount = len(m.unifiedEvents)
+	m.lastUnreadEventKeys = currKeys
 	return m
 }
 
@@ -511,6 +553,14 @@ func (m dashboardModel) applyUnreadMarks() dashboardModel {
 // alert+enter path on PID change) and locates the matching cursor on the
 // destination pane. Story 38-4 AC#2 extends this to handle EventImmune
 // targets by scanning m.securityAlerts.
+//
+// Code-review patch P5 (2026-05-03): the EventImmune match now requires
+// PID + Timestamp.UnixMilli to align — same rationale as the same-PID
+// branch in dashboard_keylayers.go: a single agent may have multiple
+// deviations sharing the same PID and a PID-only match would silently
+// snap to the first one, contradicting which row the user pressed enter
+// on. When the precise pair is missing (synth row pruned between tick
+// and keypress) we leave the cursor untouched rather than guessing.
 func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
 	if m.alertJumpTarget == nil {
 		return m
@@ -518,8 +568,9 @@ func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
 	target := m.alertJumpTarget
 	m.alertJumpTarget = nil
 	if target.Type == EventImmune {
+		targetMs := target.Timestamp.UnixMilli()
 		for i, sa := range m.securityAlerts {
-			if types.PID(sa.PID) == target.PID {
+			if types.PID(sa.PID) == target.PID && sa.TimestampMs == targetMs {
 				m.securityCursor = i
 				securityAdjustScroll(&m)
 				break
@@ -537,51 +588,7 @@ func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
 	return m
 }
 
-// diffNewEventsToUnread computes the set of panes that should be marked
-// unread based on the events appended this tick (Story 38-4 AC#1).
-//
-// Inputs:
-//   - prevCount: len(m.unifiedEvents) at end of previous tick.
-//   - curr: m.unifiedEvents after this tick's mergeUnifiedEvents.
-//   - activePane: the currently focused pane — never marked, since the
-//     user is already looking at it.
-//
-// Returns a small map with exactly the panes that picked up new events.
-// The set is intentionally not deduped further: a single tick can carry
-// at most ~50 new events (mergeUnifiedEvents trim) and we only emit a
-// handful of pane keys.
-//
-// Performance: O(N) where N is the number of new events, capped by the
-// merge layer (currently ≤ 200 sysEvents + step entries; in practice
-// new-tick deltas are small single-digit counts).
-//
-// Edge cases:
-//   - prevCount > len(curr) → events were trimmed/replaced; treat all
-//     of curr as "new" but cap the scan at maxScan to avoid pathological
-//     loops on full reload.
-//   - prevCount < 0 → ignored (treated as 0).
-func diffNewEventsToUnread(prevCount int, curr []UnifiedEvent, activePane paneType) map[paneType]bool {
-	result := make(map[paneType]bool)
-	if len(curr) == 0 {
-		return result
-	}
-	const maxScan = 50
-	start := max(prevCount, 0)
-	start = min(start, len(curr)) // events trimmed; nothing new past len
-	// Cap window so a one-shot reload (prev=0, len=200) does not stall.
-	if len(curr)-start > maxScan {
-		start = len(curr) - maxScan
-	}
-	for i := start; i < len(curr); i++ {
-		ev := curr[i]
-		target, ok := eventTargetPane(ev.Type)
-		if !ok {
-			continue
-		}
-		if target == activePane {
-			continue
-		}
-		result[target] = true
-	}
-	return result
-}
+// (diffNewEventsToUnread was removed in Story 38-4 patch P3 — the
+// length-based gate it served was replaced by applyUnreadMarks's
+// identity-set comparison, which handles PID-switch and ring-buffer
+// trim cases the length gate silently skipped.)

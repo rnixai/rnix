@@ -46,6 +46,11 @@ type UnifiedEvent struct {
 	Detail    string
 	StepEntry *stepEntry
 	RawEvent  *ipc.SyscallEventWire
+	// IsSynthetic flags rows that were synthesised on the dashboard side
+	// (currently only synthSecurityAlerts for AC#4) — buildAlertEvents
+	// skips the TTL filter for these so the alert strip lifecycle is
+	// driven by the upstream IPC list rather than wall-clock TTL.
+	IsSynthetic bool
 }
 
 // UnifiedEventSlice implements sort.Interface, sorting by Timestamp descending (newest first).
@@ -77,6 +82,11 @@ const (
 	paneSecurity
 	paneTrace
 	paneEval
+	// paneCount sentinel; MUST stay last. Used to size paneHasUnread
+	// so adding a new pane up top forces a compile-time review of
+	// every pane-indexed table rather than a silent OOB no-op
+	// (Story 38-4 code-review patch P6).
+	paneCount
 )
 
 type viewMode int

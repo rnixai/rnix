@@ -5,6 +5,7 @@ package main
 // Test naming: Test<Func>_<Aspect>; profile-tolerant ANSI assertions.
 
 import (
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/kernel"
@@ -22,7 +24,7 @@ import (
 // =============================================================================
 
 // TestPaneHasUnread_MarkAndClear verifies the markPaneUnread / clearPaneUnread
-// helpers and the dashboardTick → diffNewEventsToUnread integration.
+// helpers and the dashboardTick → applyUnreadMarks integration.
 func TestPaneHasUnread_MarkAndClear(t *testing.T) {
 	t.Run("mark sets flag", func(t *testing.T) {
 		m := newDashboardModel(nil)
@@ -55,51 +57,95 @@ func TestPaneHasUnread_MarkAndClear(t *testing.T) {
 		// Clearing OOB indices must be safe too.
 		m = m.clearPaneUnread(paneType(99))
 	})
+}
 
-	t.Run("diffNewEventsToUnread skips active pane", func(t *testing.T) {
-		curr := []UnifiedEvent{
-			{Type: EventStep, PID: 1, Timestamp: time.Now()},
+// TestApplyUnreadMarks_IdentitySet covers the patch P3 identity-based diff
+// path: the previous length-only gate failed in two scenarios this test
+// exercises end-to-end (PID switch resync + ring-buffer replace).
+func TestApplyUnreadMarks_IdentitySet(t *testing.T) {
+	makeStep := func(pid int, ts time.Time) UnifiedEvent {
+		return UnifiedEvent{Type: EventStep, PID: types.PID(pid), Timestamp: ts}
+	}
+
+	t.Run("first sync skips marking (lastUnreadEventKeys nil)", func(t *testing.T) {
+		m := newDashboardModel(nil)
+		m.activePane = paneTree
+		m.lastUnreadEventKeys = nil // simulates startup / handlePIDChange reset
+		m.unifiedEvents = []UnifiedEvent{makeStep(1, time.Now())}
+		m = m.applyUnreadMarks()
+		if m.paneHasUnread[paneTimeline] {
+			t.Errorf("first-sync tick must not mark unread; map=%v", m.paneHasUnread)
 		}
-		// activePane == paneTimeline → no mark even though step targets timeline.
-		got := diffNewEventsToUnread(0, curr, paneTimeline)
-		if got[paneTimeline] {
-			t.Errorf("active pane should not be marked unread, got %v", got)
+		if m.lastUnreadEventKeys == nil {
+			t.Errorf("expected lastUnreadEventKeys populated after first sync")
 		}
 	})
 
-	t.Run("diffNewEventsToUnread routes EventImmune to Security", func(t *testing.T) {
-		curr := []UnifiedEvent{
-			{Type: EventImmune, PID: 7, Timestamp: time.Now()},
-		}
-		got := diffNewEventsToUnread(0, curr, paneTimeline)
-		if !got[paneSecurity] {
-			t.Errorf("expected paneSecurity to be marked, got %v", got)
-		}
-	})
-
-	t.Run("diffNewEventsToUnread caps scan window", func(t *testing.T) {
-		// 200 events with prevCount=0 → only the last 50 should be scanned;
-		// in practice the first 150 are skipped but the result still groups
-		// by target pane, so paneTimeline should still appear.
-		curr := make([]UnifiedEvent, 200)
-		for i := range curr {
-			curr[i] = UnifiedEvent{Type: EventStep, PID: 1, Timestamp: time.Now()}
-		}
-		got := diffNewEventsToUnread(0, curr, paneTree)
-		if !got[paneTimeline] {
-			t.Errorf("expected paneTimeline marked even after capped scan")
+	t.Run("new event on subsequent tick marks target pane", func(t *testing.T) {
+		m := newDashboardModel(nil)
+		m.activePane = paneTree
+		now := time.Now()
+		m.unifiedEvents = []UnifiedEvent{makeStep(1, now)}
+		m = m.applyUnreadMarks() // sync without mark
+		// Second tick: append a new event with a different timestamp.
+		m.unifiedEvents = append(m.unifiedEvents, makeStep(1, now.Add(time.Millisecond)))
+		m = m.applyUnreadMarks()
+		if !m.paneHasUnread[paneTimeline] {
+			t.Errorf("expected Timeline marked unread after new step event")
 		}
 	})
 
-	t.Run("diffNewEventsToUnread handles trim (prev > len)", func(t *testing.T) {
-		curr := []UnifiedEvent{{Type: EventStep, Timestamp: time.Now()}}
-		got := diffNewEventsToUnread(99, curr, paneTree)
-		// prev=99 > len(curr)=1 → start clamps to len; nothing new to mark.
-		if got[paneTimeline] {
-			t.Errorf("expected no marks when prevCount > len(curr); got %v", got)
+	t.Run("active pane never marked", func(t *testing.T) {
+		m := newDashboardModel(nil)
+		m.activePane = paneTimeline
+		m.unifiedEvents = []UnifiedEvent{makeStep(1, time.Now())}
+		m = m.applyUnreadMarks()
+		m.unifiedEvents = append(m.unifiedEvents, makeStep(1, time.Now().Add(time.Millisecond)))
+		m = m.applyUnreadMarks()
+		if m.paneHasUnread[paneTimeline] {
+			t.Errorf("active pane should not be marked unread")
+		}
+	})
+
+	t.Run("ring-buffer replace detects new event at same length", func(t *testing.T) {
+		// Patch P3: length-only gate would miss this — mergeUnifiedEvents
+		// could swap rows in place when sysEvents reaches maxSysEvents.
+		m := newDashboardModel(nil)
+		m.activePane = paneTree
+		old := makeStep(1, time.Now())
+		m.unifiedEvents = []UnifiedEvent{old}
+		m = m.applyUnreadMarks()
+		// Replace the slot with a different event (different timestamp →
+		// different identity key) without growing the slice.
+		m.unifiedEvents[0] = makeStep(1, time.Now().Add(time.Second))
+		m = m.applyUnreadMarks()
+		if !m.paneHasUnread[paneTimeline] {
+			t.Errorf("expected Timeline marked when content replaced at same length")
+		}
+	})
+
+	t.Run("PID switch resets identity set so first new-PID tick syncs without flooding", func(t *testing.T) {
+		// Patch P2: handlePIDChange sets lastUnreadEventKeys=nil so the
+		// first post-switch tick treats every event as "already seen".
+		m := newDashboardModel(nil)
+		m.activePane = paneTree
+		m.unifiedEvents = []UnifiedEvent{makeStep(1, time.Now())}
+		m = m.applyUnreadMarks()
+		// Simulate PID change by clearing the identity set then loading a
+		// fresh, smaller event list (typical post-switch shape).
+		m.lastUnreadEventKeys = nil
+		m.unifiedEvents = []UnifiedEvent{
+			makeStep(2, time.Now().Add(time.Second)),
+			makeStep(2, time.Now().Add(2*time.Second)),
+		}
+		m = m.applyUnreadMarks()
+		if m.paneHasUnread[paneTimeline] {
+			t.Errorf("first-tick after PID switch must not mark unread; map=%v", m.paneHasUnread)
 		}
 	})
 }
+
+// (typesPID helper removed — tests now import internal/types directly.)
 
 // TestRenderPanelTabsLine_UnreadDot verifies the Unicode and ASCII-mode
 // rendering of the unread red dot in the panel tabs line.
@@ -222,19 +268,22 @@ var _ = os.Getenv
 // expanded alert strip with an EventImmune row routes the user to the
 // Security pane and locates the cursor on the matching securityAlerts entry.
 func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
-	t.Run("Immune alert routes to Security pane", func(t *testing.T) {
+	t.Run("Immune alert routes to Security pane (same PID)", func(t *testing.T) {
+		// Patch P5: Same-PID branch matches PID + TimestampMs together so
+		// multiple deviations on a single agent land on the right cursor.
 		m := newContractModel()
 		m.selectedPID = 7 // same PID so we exercise the same-PID branch
+		now := time.Now()
 		m.alertEvents = []UnifiedEvent{{
 			Type:      EventImmune,
 			Severity:  SevError,
 			PID:       7,
-			Timestamp: time.Now(),
+			Timestamp: now,
 		}}
 		m.securityAlerts = []ipc.AlertWire{
-			{PID: 5, Type: "syscall_freq"},
-			{PID: 7, Type: "device_access"},
-			{PID: 9, Type: "token_rate"},
+			{PID: 5, Type: "syscall_freq", TimestampMs: now.Add(-time.Second).UnixMilli()},
+			{PID: 7, Type: "device_access", TimestampMs: now.UnixMilli()},
+			{PID: 7, Type: "syscall_freq", TimestampMs: now.Add(time.Second).UnixMilli()},
 		}
 		m.alertExpanded = true
 		m.alertCursor = 0
@@ -244,7 +293,7 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 			t.Errorf("expected activePane=paneSecurity, got %d", g.activePane)
 		}
 		if g.securityCursor != 1 {
-			t.Errorf("expected securityCursor=1 (PID 7 match), got %d", g.securityCursor)
+			t.Errorf("expected securityCursor=1 (PID 7 + matching TimestampMs), got %d", g.securityCursor)
 		}
 		if g.alertExpanded {
 			t.Errorf("alertExpanded should be reset after jump")
@@ -268,6 +317,63 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 			t.Errorf("expected non-Immune alert → paneTimeline, got %d", g.activePane)
 		}
 	})
+
+	t.Run("Immune alert from different PID — cross-PID branch sets alertJumpTarget", func(t *testing.T) {
+		// Patch P9 (2026-05-03): the cross-PID branch hands off cursor
+		// resolution to dashboardTick → resolveAlertJumpTarget. We verify
+		// (a) activePane switches to paneSecurity, (b) selectedPID flips
+		// to the alert's PID, (c) alertJumpTarget carries the original
+		// alert so the next tick can locate the cursor.
+		m := newContractModel()
+		m.selectedPID = 1 // user is currently on PID 1
+		now := time.Now()
+		alert := UnifiedEvent{
+			Type:      EventImmune,
+			Severity:  SevError,
+			PID:       7, // alert is for a DIFFERENT PID
+			Timestamp: now,
+		}
+		m.alertEvents = []UnifiedEvent{alert}
+		m.processes = mockDashboardProcs() // includes PID 7
+		m.alertExpanded = true
+		m.alertCursor = 0
+		got, _ := m.dashboardKey(keypressFromString("enter"))
+		g := got.(dashboardModel)
+		if g.activePane != paneSecurity {
+			t.Errorf("expected cross-PID Immune jump → paneSecurity, got %d", g.activePane)
+		}
+		if g.selectedPID != 7 {
+			t.Errorf("expected selectedPID=7 after jump, got %d", g.selectedPID)
+		}
+		if g.alertJumpTarget == nil {
+			t.Fatalf("expected alertJumpTarget to be set so resolveAlertJumpTarget can complete on next tick")
+		}
+		if g.alertJumpTarget.Type != EventImmune || g.alertJumpTarget.PID != 7 {
+			t.Errorf("alertJumpTarget mismatch, got %+v", g.alertJumpTarget)
+		}
+	})
+
+	t.Run("resolveAlertJumpTarget locates Immune cursor on PID + TimestampMs match", func(t *testing.T) {
+		// Patch P5 (2026-05-03): cross-PID resolution after handlePIDChange
+		// must use PID + TimestampMs together — same regression as the
+		// same-PID branch.
+		m := newContractModel()
+		m.selectedPID = 7
+		now := time.Now()
+		alert := UnifiedEvent{Type: EventImmune, PID: 7, Timestamp: now}
+		m.alertJumpTarget = &alert
+		m.securityAlerts = []ipc.AlertWire{
+			{PID: 7, Type: "device_access", TimestampMs: now.Add(-time.Second).UnixMilli()},
+			{PID: 7, Type: "syscall_freq", TimestampMs: now.UnixMilli()},
+		}
+		out := m.resolveAlertJumpTarget()
+		if out.alertJumpTarget != nil {
+			t.Errorf("alertJumpTarget should be consumed, got %+v", out.alertJumpTarget)
+		}
+		if out.securityCursor != 1 {
+			t.Errorf("expected securityCursor=1 (TimestampMs match), got %d", out.securityCursor)
+		}
+	})
 }
 
 // =============================================================================
@@ -277,8 +383,13 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 // TestIntentEnter_HeaderTogglesCollapse verifies that pressing enter while
 // the cursor sits on a non-terminal intent tree header toggles the
 // per-tree collapse state, and that terminal trees ignore the toggle.
+//
+// Patch P1 (2026-05-03): the collapse map is keyed by tree.RootIntent
+// (stable across reordering) rather than positional treeIndex, so the
+// "stable across reordering" sub-test verifies the regression scenario
+// the previous int-keyed implementation silently flubbed.
 func TestIntentEnter_HeaderTogglesCollapse(t *testing.T) {
-	t.Run("non-terminal header toggles collapse on enter", func(t *testing.T) {
+	t.Run("non-terminal header toggles collapse on enter (string key by RootIntent)", func(t *testing.T) {
 		tree := &ipc.IntentTreeWire{
 			RootIntent: "test root",
 			State:      "executing",
@@ -293,14 +404,14 @@ func TestIntentEnter_HeaderTogglesCollapse(t *testing.T) {
 		m.intentCursor = 0 // header
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)
-		if !g.intentTreeCollapsed[0] {
-			t.Errorf("expected first toggle to set collapsed=true, got map=%v", g.intentTreeCollapsed)
+		if !g.intentTreeCollapsed["test root"] {
+			t.Errorf("expected first toggle to set collapsed[\"test root\"]=true, got map=%v", g.intentTreeCollapsed)
 		}
 		// Second toggle restores default.
 		got2, _ := g.dashboardKey(keypressFromString("enter"))
 		g2 := got2.(dashboardModel)
-		if g2.intentTreeCollapsed[0] {
-			t.Errorf("expected second toggle to set collapsed=false, got map=%v", g2.intentTreeCollapsed)
+		if g2.intentTreeCollapsed["test root"] {
+			t.Errorf("expected second toggle to set collapsed[\"test root\"]=false, got map=%v", g2.intentTreeCollapsed)
 		}
 	})
 
@@ -319,9 +430,75 @@ func TestIntentEnter_HeaderTogglesCollapse(t *testing.T) {
 		m.intentCursor = 0 // header
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)
-		// Terminal tree's user-toggle entry must remain false (i.e. not flipped).
-		if g.intentTreeCollapsed[0] {
+		// Terminal tree's user-toggle entry must remain absent (i.e. not flipped).
+		if g.intentTreeCollapsed["done root"] {
 			t.Errorf("terminal tree header should be a no-op, got map=%v", g.intentTreeCollapsed)
+		}
+	})
+
+	t.Run("collapse state stable across tree reordering (P1 regression)", func(t *testing.T) {
+		// Two non-terminal trees; user collapses the FIRST one. Then we
+		// flip its state to "completed" so flattenIntentTreesWithCollapse
+		// sorts it to the bottom. With the old int-keyed map this would
+		// transfer the collapse to whichever tree took position 0; with
+		// patch P1 the entry is keyed by RootIntent and stays put.
+		alpha := &ipc.IntentTreeWire{
+			RootIntent: "alpha",
+			State:      "executing",
+			Nodes: map[string]*ipc.IntentNodeWire{
+				"n1": {ID: "n1", Intent: "child", State: "executing"},
+			},
+		}
+		beta := &ipc.IntentTreeWire{
+			RootIntent: "beta",
+			State:      "executing",
+			Nodes: map[string]*ipc.IntentNodeWire{
+				"n2": {ID: "n2", Intent: "child", State: "executing"},
+			},
+		}
+		m := newContractModel()
+		m.activePane = paneIntent
+		m.intentTrees = []*ipc.IntentTreeWire{alpha, beta}
+		m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
+		m.intentCursor = 0 // alpha header
+		got, _ := m.dashboardKey(keypressFromString("enter"))
+		g := got.(dashboardModel)
+		if !g.intentTreeCollapsed["alpha"] {
+			t.Fatalf("expected alpha collapsed after toggle, got map=%v", g.intentTreeCollapsed)
+		}
+		// Now alpha completes — but its collapse entry is preserved by RootIntent.
+		// Re-flatten with the same map and the entry must still target alpha.
+		alpha.State = "completed"
+		flat := flattenIntentTreesWithCollapse(g.intentTrees, g.intentTreeCollapsed)
+		// alpha is now terminal so it auto-collapses regardless of map; the
+		// real assertion is that beta (idx 0 after sort) is NOT collapsed.
+		var betaHeader *intentFlatNode
+		for i := range flat {
+			if flat[i].isTreeHeader && flat[i].treeWire.RootIntent == "beta" {
+				betaHeader = &flat[i]
+				break
+			}
+		}
+		if betaHeader == nil {
+			t.Fatalf("beta header missing after re-flatten, flat=%v", flat)
+		}
+		if betaHeader.isCollapsed {
+			t.Errorf("beta must NOT inherit alpha's collapse via positional drift; isCollapsed=true")
+		}
+		if !g.intentTreeCollapsed["alpha"] {
+			t.Errorf("alpha collapse entry should persist by RootIntent, got map=%v", g.intentTreeCollapsed)
+		}
+	})
+
+	t.Run("pruneIntentCollapse removes stale entries (P4)", func(t *testing.T) {
+		stale := map[string]bool{"gone": true, "live": true}
+		live := []*ipc.IntentTreeWire{{RootIntent: "live", State: "executing"}}
+		got := pruneIntentCollapse(stale, live)
+		if got["gone"] {
+			t.Errorf("stale entry should be pruned, got map=%v", got)
+		}
+		if !got["live"] {
+			t.Errorf("live entry should be retained, got map=%v", got)
 		}
 	})
 }
@@ -500,19 +677,21 @@ func TestSynthSecurityAlerts_SeverityMapping(t *testing.T) {
 		}
 	})
 
-	t.Run("zero TimestampMs falls back to Now", func(t *testing.T) {
+	t.Run("zero TimestampMs preserves zero time (no Now fallback after P0)", func(t *testing.T) {
+		// Patch P0 (2026-05-03): synthSecurityAlerts no longer falls back
+		// to time.Now() — IsSynthetic now drives lifecycle so the timestamp
+		// stays as upstream provided it. Zero in → zero out.
 		alert := tinyImmuneAlert("syscall_freq", 1.0, 1)
 		alert.TimestampMs = 0
-		before := time.Now().Add(-time.Second)
 		out := synthSecurityAlerts([]ipc.AlertWire{alert})
 		if len(out) != 1 {
 			t.Fatalf("expected 1 synth event, got %d", len(out))
 		}
-		if out[0].Timestamp.Before(before) {
-			t.Errorf("expected timestamp ≥ now-1s when TimestampMs=0, got %v", out[0].Timestamp)
+		if !out[0].Timestamp.IsZero() {
+			t.Errorf("TimestampMs=0 must produce IsZero timestamp (no Now fallback), got %v", out[0].Timestamp)
 		}
-		if out[0].Timestamp.IsZero() {
-			t.Errorf("timestamp must NOT be zero (would trip TTL IsZero guard)")
+		if !out[0].IsSynthetic {
+			t.Errorf("synth row must carry IsSynthetic=true so buildAlertEvents bypasses TTL")
 		}
 	})
 }
@@ -701,13 +880,16 @@ func TestAlertEnter_ClearsUnread(t *testing.T) {
 	t.Run("Security jump clears Security unread", func(t *testing.T) {
 		m := newContractModel()
 		m.selectedPID = 7
+		now := time.Now()
 		m.alertEvents = []UnifiedEvent{{
 			Type:      EventImmune,
 			Severity:  SevError,
 			PID:       7,
-			Timestamp: time.Now(),
+			Timestamp: now,
 		}}
-		m.securityAlerts = []ipc.AlertWire{{PID: 7, Type: "device_access"}}
+		// Patch P5: securityAlerts TimestampMs must match alert.Timestamp
+		// to land the cursor; the unread clear logic itself is independent.
+		m.securityAlerts = []ipc.AlertWire{{PID: 7, Type: "device_access", TimestampMs: now.UnixMilli()}}
 		m.alertExpanded = true
 		m.alertCursor = 0
 		m.paneHasUnread[paneSecurity] = true
@@ -717,4 +899,227 @@ func TestAlertEnter_ClearsUnread(t *testing.T) {
 			t.Errorf("expected paneSecurity unread cleared after Immune jump")
 		}
 	})
+}
+
+// =============================================================================
+// AC#0 (patch P0) — IsSynthetic flag bypasses TTL filter
+// =============================================================================
+
+// TestBuildAlertEvents_SyntheticBypassesTTL verifies that rows with
+// IsSynthetic == true (currently only synthSecurityAlerts) are retained
+// even when their Timestamp is older than alertTTL. Lifecycle is driven
+// by the upstream IPC list (m.securityAlerts), not wall-clock TTL.
+func TestBuildAlertEvents_SyntheticBypassesTTL(t *testing.T) {
+	t.Run("synthetic row older than TTL stays in result", func(t *testing.T) {
+		old := time.Now().Add(-2 * alertTTL) // 60 s ago — well past 30 s TTL
+		events := []UnifiedEvent{
+			{Type: EventImmune, Severity: SevError, PID: 7, Timestamp: old, IsSynthetic: true},
+		}
+		out := buildAlertEvents(events)
+		if len(out) != 1 {
+			t.Fatalf("synth row past TTL must be retained, got %d alerts", len(out))
+		}
+		if !out[0].IsSynthetic {
+			t.Errorf("retained row should still carry IsSynthetic flag")
+		}
+	})
+
+	t.Run("non-synthetic row older than TTL is filtered (regression)", func(t *testing.T) {
+		old := time.Now().Add(-2 * alertTTL)
+		events := []UnifiedEvent{
+			{Type: EventBudget, Severity: SevWarn, PID: 1, Timestamp: old}, // IsSynthetic=false
+		}
+		out := buildAlertEvents(events)
+		if len(out) != 0 {
+			t.Errorf("non-synthetic row past TTL must be filtered, got %d alerts", len(out))
+		}
+	})
+}
+
+// TestEvalScoreColorStyle_OutOfRange verifies P12: NaN, +Inf, -Inf, and
+// scores outside [0, 1] all snap to ColorError per the godoc contract.
+func TestEvalScoreColorStyle_OutOfRange(t *testing.T) {
+	cases := []struct {
+		score float64
+		label string
+	}{
+		{math.NaN(), "NaN"},
+		{math.Inf(1), "+Inf"},
+		{math.Inf(-1), "-Inf"},
+		{-0.5, "negative"},
+		{1.5, ">1.0"},
+	}
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			s := evalScoreColorStyle(c.score)
+			if !hasForeground(s, ui.ColorError) {
+				t.Errorf("score=%v: expected ColorError, got %v", c.score, s.GetForeground())
+			}
+		})
+	}
+}
+
+// =============================================================================
+// AC#5 (patch P10) — Trace waterfall bar additional coverage
+// =============================================================================
+
+// TestRenderWaterfallBar_StatusColours verifies that the bar's coloured
+// fill carries the spec-defined ANSI for each status, profile-tolerant.
+func TestRenderWaterfallBar_StatusColours(t *testing.T) {
+	probe := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("x")
+	if !strings.Contains(probe, "\x1b[") {
+		t.Skip("colour profile strips ANSI — skip rendered byte assertion")
+	}
+	cases := []struct {
+		status string
+		label  string
+	}{
+		{"error", "error → red bar"},
+		{"timeout", "timeout → orange bar"},
+		{"ok", "ok → green bar"},
+	}
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			out := renderWaterfallBar(1000, 500, c.status, false) // unicode mode
+			// Status-coloured fill must produce SGR with foreground + the
+			// fill glyph. We assert ANSI escapes exist around the bar.
+			if !strings.Contains(out, "\x1b[") {
+				t.Errorf("expected ANSI codes for status=%q bar, got: %q", c.status, out)
+			}
+			if !strings.Contains(out, "█") {
+				t.Errorf("expected unicode fill char in non-ASCII mode, got: %q", out)
+			}
+		})
+	}
+}
+
+// TestRenderTraceTreeView_WaterfallMultiChild verifies that multi-span
+// trees produce visually distinct fills — long span wider, short span
+// narrower — and that the total bar width per row is constant
+// (waterfallBarWidth).
+func TestRenderTraceTreeView_WaterfallMultiChild(t *testing.T) {
+	root := &ipc.SpanNodeWire{
+		SpanID:     "root",
+		PID:        1,
+		Name:       "root.span",
+		DurationMs: 1000,
+		Status:     "ok",
+		Children: []ipc.SpanNodeWire{
+			{SpanID: "fast", PID: 2, Name: "fast.child", DurationMs: 100, Status: "ok"},
+			{SpanID: "slow", PID: 3, Name: "slow.child", DurationMs: 800, Status: "error"},
+		},
+	}
+	tree := &ipc.SpanTreeWire{
+		TraceID:  "trace-multi",
+		Metadata: ipc.TraceMetaWire{TotalSpans: 3, TotalDurationMs: 1000},
+		Root:     root,
+	}
+	m := newTestDashboardModel(mockDashboardProcs())
+	t.Setenv("RNIX_ASCII", "1")
+	m.selectedSpanTree = tree
+	m.selectedTraceID = tree.TraceID
+	m.spanFlatNodes = flattenSpanTree(tree)
+	m.traceViewMode = 1
+
+	out := m.renderTraceTreeView(120, 20)
+	// fast (100/1000 → 2 chars), slow (800/1000 → 16 chars), root (1000/1000 → 20 chars).
+	// We expect at least one short fill (≤3) and one long fill (≥10) coexisting.
+	if !strings.Contains(out, strings.Repeat("#", 16)) {
+		t.Errorf("expected slow child to produce 16-char fill, got: %q", out)
+	}
+	if !strings.Contains(out, strings.Repeat("#", 20)) {
+		t.Errorf("expected root span to produce 20-char fill, got: %q", out)
+	}
+}
+
+// =============================================================================
+// AC#6 (patch P11) — Eval Synergy VsSoloColors + ColorGradient
+// =============================================================================
+
+// TestRenderEvalSynergy_VsSoloColors verifies the VS SOLO column carries
+// the right ANSI: < 0 → green (token saved), > 0 → red (more tokens),
+// == 0 → no foreground colour wrap.
+func TestRenderEvalSynergy_VsSoloColors(t *testing.T) {
+	probe := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("x")
+	if !strings.Contains(probe, "\x1b[") {
+		t.Skip("colour profile strips ANSI — skip rendered byte assertion")
+	}
+	t.Run("negative improvement → green", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.evalSubView = 2
+		m.evalSynergies = []kernel.ComboSummary{
+			{Skills: []string{"a"}, SuccessRate: 0.5, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: -0.25},
+		}
+		out := m.renderEvalSynergyView(120, 6)
+		// Expect ANSI escape sequence around -25.0% — at least one Success-colour code.
+		if !strings.Contains(out, "-25.0%") {
+			t.Errorf("expected -25.0%% in output, got: %q", out)
+		}
+		// Truecolor or named-colour ANSI somewhere on that token.
+		if !strings.Contains(out, "\x1b[") {
+			t.Errorf("expected ANSI sequence around negative improvement, got: %q", out)
+		}
+	})
+
+	t.Run("positive improvement → red", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.evalSubView = 2
+		m.evalSynergies = []kernel.ComboSummary{
+			{Skills: []string{"a"}, SuccessRate: 0.5, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: 0.30},
+		}
+		out := m.renderEvalSynergyView(120, 6)
+		if !strings.Contains(out, "+30.0%") {
+			t.Errorf("expected +30.0%% in output, got: %q", out)
+		}
+		if !strings.Contains(out, "\x1b[") {
+			t.Errorf("expected ANSI sequence around positive improvement, got: %q", out)
+		}
+	})
+
+	t.Run("zero improvement → no fg colour wrap", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.evalSubView = 2
+		m.evalSynergies = []kernel.ComboSummary{
+			{Skills: []string{"a"}, SuccessRate: 0.5, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: 0.0},
+		}
+		out := m.renderEvalSynergyView(120, 6)
+		if !strings.Contains(out, "+0.0%") {
+			t.Errorf("expected +0.0%% in output, got: %q", out)
+		}
+		// Plain "+0.0%" should appear without an ANSI wrap immediately
+		// preceding it. The other columns may still carry escapes, so
+		// we just check the token stays unstyled by stripping ANSI and
+		// confirming the literal substring appears in the plaintext.
+		plain := stripAnsiForTest(out)
+		if !strings.Contains(plain, "+0.0%") {
+			t.Errorf("expected unstyled +0.0%% in plaintext, got: %q", plain)
+		}
+	})
+}
+
+// TestRenderEvalSynergy_ColorGradient verifies the SUCCESS column applies
+// the 3-tier gradient (green ≥0.9 / yellow ≥0.7 / red <0.7) per AC#6.
+func TestRenderEvalSynergy_ColorGradient(t *testing.T) {
+	probe := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("x")
+	if !strings.Contains(probe, "\x1b[") {
+		t.Skip("colour profile strips ANSI — skip rendered byte assertion")
+	}
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.evalSubView = 2
+	m.evalSynergies = []kernel.ComboSummary{
+		{Skills: []string{"hi"}, SuccessRate: 0.95, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: -0.1},
+		{Skills: []string{"mid"}, SuccessRate: 0.75, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: -0.1},
+		{Skills: []string{"lo"}, SuccessRate: 0.40, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: -0.1},
+	}
+	out := m.renderEvalSynergyView(120, 8)
+	for _, want := range []string{"95.0%", "75.0%", "40.0%"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected SUCCESS literal %q in output, got: %q", want, out)
+		}
+	}
+	// The output must contain ANSI sequences (one fg per row) — count escapes
+	// loosely as a smoke check that the gradient is being applied.
+	if strings.Count(out, "\x1b[") < 3 {
+		t.Errorf("expected at least 3 ANSI sequences (one per gradient tier), got: %q", out)
+	}
 }

@@ -225,9 +225,17 @@ func registerLayer0(d *ui.Dispatcher) {
 		m.alertExpanded = false
 		m = m.clearPaneUnread(targetPane)
 		if targetPane == paneSecurity {
-			// AC#2: locate cursor inside securityAlerts by matching PID.
+			// AC#2 / patch P5 (2026-05-03): locate cursor inside
+			// securityAlerts by matching PID + TimestampMs together.
+			// Falling back to PID-only would put the cursor on the first
+			// matching alert when an agent has multiple deviations
+			// (device_access + syscall_freq) — visually disconnected from
+			// the row the user clicked. If the precise pair is not found
+			// (e.g. securityAlerts pruned between tick and keypress) we
+			// keep the current cursor untouched rather than guessing.
+			alertMs := alert.Timestamp.UnixMilli()
 			for i, sa := range m.securityAlerts {
-				if types.PID(sa.PID) == alert.PID {
+				if types.PID(sa.PID) == alert.PID && sa.TimestampMs == alertMs {
 					m.securityCursor = i
 					securityAdjustScroll(&m)
 					break

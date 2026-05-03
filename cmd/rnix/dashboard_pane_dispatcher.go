@@ -281,14 +281,20 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		case "enter":
 			if m.intentCursor < len(m.intentFlatNodes) {
 				n := m.intentFlatNodes[m.intentCursor]
-				// Story 38-4 AC#3: cursor on a non-terminal tree header
-				// toggles the user-collapse flag and re-flattens. Terminal
-				// trees stay collapsed regardless of toggle.
+				// Story 38-4 AC#3 / patch P1: cursor on a non-terminal
+				// tree header toggles the user-collapse flag and
+				// re-flattens. Keyed by stable RootIntent (not positional
+				// treeIndex) so a tree state change does not silently
+				// move the toggle to a different tree.
 				if n.isTreeHeader && n.treeWire != nil && !isIntentTreeTerminal(n.treeWire.State) {
 					if m.intentTreeCollapsed == nil {
-						m.intentTreeCollapsed = make(map[int]bool)
+						m.intentTreeCollapsed = make(map[string]bool)
 					}
-					m.intentTreeCollapsed[n.treeIndex] = !m.intentTreeCollapsed[n.treeIndex]
+					key := n.treeWire.RootIntent
+					m.intentTreeCollapsed[key] = !m.intentTreeCollapsed[key]
+					// Patch P4: prune stale entries pointing at trees no
+					// longer in the IPC list.
+					m.intentTreeCollapsed = pruneIntentCollapse(m.intentTreeCollapsed, m.intentTrees)
 					m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
 					if m.intentCursor >= len(m.intentFlatNodes) {
 						m.intentCursor = max(0, len(m.intentFlatNodes)-1)

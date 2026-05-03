@@ -332,7 +332,13 @@ func (m dashboardModel) renderTraceTreeView(width, height int) string {
 	// Story 38-4 AC#5: append a 20-char waterfall bar to each row when the
 	// terminal can spare the columns. Hoisted out of the loop so we deref
 	// metadata only once.
-	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
+	//
+	// Code-review patch P7 (2026-05-03): use ui.IsASCIIMode() for ASCII
+	// detection, matching dashboard_title.go's renderPanelTabsLine — both
+	// paths were added in the same Story 38-4 PR but went out with mixed
+	// helpers. Future NO_COLOR / TTY-detection extensions to IsASCIIMode
+	// must propagate consistently rather than only to one pane.
+	ascii := ui.IsASCIIMode()
 	showBar := width >= 80
 	traceTotalMs := meta.TotalDurationMs
 
