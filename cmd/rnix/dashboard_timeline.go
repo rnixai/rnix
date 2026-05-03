@@ -1985,22 +1985,44 @@ func fetchStepDetailCmd(pid types.PID, step int) tea.Cmd {
 
 // --- Helper functions (retained from Story 27-4, used by Step Inspector) ---
 
+// formatRoleTag renders the bracketed role label for a conversation message,
+// with role-specific colors and Bold. Story 38-3 AC#1 splits the legacy "tool"
+// branch into two visually distinct tags:
+//   - tool_use   (msg.Role=="tool" && msg.ToolCallID=="")  → ColorSuccess green + Bold
+//     (rare boundary case: tool invocation recorded as a standalone message
+//     without a ToolCallID; shown plain `[tool_use]`)
+//   - tool_result (msg.Role=="tool" && msg.ToolCallID!="") → ColorReplay orange + Bold
+//     (the common case; suffixed with the tool name when a name is mapped via
+//     toolCallNames, falling back to the raw ToolCallID)
+//
+// The existing user/assistant/system branches preserve their pre-Story 38-3
+// styles (greens/blues/grey) — see Dev Notes 1 of Story 38-3 for the decision
+// to keep the existing color language and only enrich the tool branch.
+//
+// ASCII fallback: lipgloss auto-degrades colors when the terminal profile
+// lacks color support; the bracketed text always remains readable.
 func formatRoleTag(msg ipc.MessageWire, toolCallNames map[string]string) string {
 	switch msg.Role {
 	case "system":
 		return promptRoleSystem.Render("[system]")
 	case "user":
-		return promptRoleUser.Render("[user]")
+		return promptRoleUser.Bold(true).Render("[user]")
 	case "assistant":
-		return promptRoleAssistant.Render("[assistant]")
+		return promptRoleAssistant.Bold(true).Render("[assistant]")
 	case "tool":
+		// Story 38-3 AC#1: tool_use vs tool_result distinction by ToolCallID.
+		if msg.ToolCallID == "" {
+			toolUseStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Bold(true)
+			return toolUseStyle.Render("[tool_use]")
+		}
 		label := ""
 		if name, ok := toolCallNames[msg.ToolCallID]; ok && name != "" {
 			label = ":" + name
-		} else if msg.ToolCallID != "" {
+		} else {
 			label = ":" + msg.ToolCallID
 		}
-		return promptRoleTool.Render("[tool" + label + "]")
+		toolResultStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorReplay)).Bold(true)
+		return toolResultStyle.Render("[tool_result" + label + "]")
 	default:
 		return "[" + msg.Role + "]"
 	}

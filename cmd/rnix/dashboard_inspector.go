@@ -923,61 +923,248 @@ func (m dashboardModel) buildSystemLens(detail, prevDetail *ipc.GetStepDetailRes
 }
 
 // buildToolIOLens builds Lens ❸: tool call details.
+//
+// Story 38-3 AC#2: Input / Result / Error are framed by box-drawing borders
+// (`┌─ Input ──┐ … └─┘`) using `renderBoxedSection`. The Error box uses
+// ColorError red for both border and content. Box width auto-shrinks for
+// narrow terminals via `min(70, m.width-4)`. ASCII mode degrades to
+// `+`/`|`/`-`. The pre-Story-38-3 contract for the no-tool case is preserved:
+// when `Action=="" && ToolPath==""`, the lens still shows
+// `No tool information for this step.`
 func (m dashboardModel) buildToolIOLens(detail *ipc.GetStepDetailResponse) string {
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6BCB77")).Bold(true)
+	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Bold(true)
+	ascii := ui.IsASCIIMode()
 
 	if detail.Action == "" && detail.ToolPath == "" {
 		return dimStyle.Render("No tool information for this step.")
 	}
 
+	boxWidth := inspectorBoxWidth(m.width)
+
 	var b strings.Builder
 
+	// Header: "<ToolName> — <summary>" + ⧖<duration>ms (separate line, AC#2)
 	if detail.Action != "" {
 		b.WriteString(nameStyle.Render(detail.Action))
 		if detail.Summary != "" {
-			b.WriteString(" — " + detail.Summary)
+			b.WriteString(" — " + dimStyle.Render(detail.Summary))
 		}
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
-
+	if detail.ToolDurationMs > 0 {
+		if ascii {
+			fmt.Fprintf(&b, "Duration: %.0fms\n", detail.ToolDurationMs)
+		} else {
+			fmt.Fprintf(&b, "%s ⧖%.0fms\n", dimStyle.Render("Duration:"), detail.ToolDurationMs)
+		}
+	}
 	if detail.ToolPath != "" {
-		b.WriteString(dimStyle.Render("Path: ") + detail.ToolPath + "\n\n")
+		b.WriteString(dimStyle.Render("Path: ") + detail.ToolPath + "\n")
 	}
+	b.WriteString("\n")
 
 	if detail.ToolInput != "" {
-		b.WriteString(dimStyle.Render("Input:") + "\n")
-		m.writeWithTruncation(&b, detail.ToolInput)
+		b.WriteString(renderBoxedSection("Input", truncateBoxContent(detail.ToolInput), ui.ColorMuted, false, boxWidth))
 		b.WriteString("\n")
 	}
 
 	if detail.ToolResult != "" {
-		b.WriteString(dimStyle.Render("Result:") + "\n")
-		m.writeWithTruncation(&b, detail.ToolResult)
+		b.WriteString(renderBoxedSection("Result", truncateBoxContent(detail.ToolResult), ui.ColorMuted, false, boxWidth))
 		b.WriteString("\n")
 	}
 
 	if detail.ToolError != "" {
-		errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-		b.WriteString(dimStyle.Render("Error:") + "\n")
-		toolErr := detail.ToolError
-		totalLen := utf8.RuneCountInString(toolErr)
-		if totalLen > inspectorTruncateThreshold {
-			runes := []rune(toolErr)
-			toolErr = string(runes[:inspectorTruncateThreshold])
-			b.WriteString(errStyle.Render(toolErr))
-			b.WriteString(renderTruncationNotice(inspectorTruncateThreshold, totalLen))
-		} else {
-			b.WriteString(errStyle.Render(toolErr))
-		}
-		b.WriteString("\n\n")
-	}
-
-	if detail.ToolDurationMs > 0 {
-		b.WriteString(dimStyle.Render(fmt.Sprintf("Duration: %.0fms", detail.ToolDurationMs)) + "\n")
+		b.WriteString(renderBoxedSection("Error", truncateBoxContent(detail.ToolError), ui.ColorError, true, boxWidth))
+		b.WriteString("\n")
 	}
 
 	return b.String()
+}
+
+// inspectorBoxWidth returns the effective box width for Tool I/O sections,
+// shrinking automatically on narrow terminals. Story 38-3 AC#2 / AC#9: cap at
+// 70 cols; `mWidth - 4` accounts for left/right padding (2 cols each).
+func inspectorBoxWidth(mWidth int) int {
+	if mWidth <= 0 {
+		return 70
+	}
+	if mWidth-4 < 70 {
+		w := mWidth - 4
+		if w < 20 {
+			return 20
+		}
+		return w
+	}
+	return 70
+}
+
+// truncateBoxContent applies the inspector's standard rune-count truncation
+// with the Story 27-4 truncation notice. Used by `renderBoxedSection` callers
+// so the truncation marker lands inside the framed area.
+func truncateBoxContent(content string) string {
+	totalLen := utf8.RuneCountInString(content)
+	if totalLen <= inspectorTruncateThreshold {
+		return content
+	}
+	runes := []rune(content)
+	return string(runes[:inspectorTruncateThreshold]) + renderTruncationNotice(inspectorTruncateThreshold, totalLen)
+}
+
+// boxChar maps a logical box-drawing component name to its rune (or ASCII
+// fallback when `RNIX_ASCII=1`). Story 38-3 Dev Notes 4: this helper is kept
+// local to the inspector and intentionally does NOT reuse
+// `ui.AlertSeverityIcon` (which returns severity glyphs, not box runes).
+//
+// Names: tl/tr/bl/br = corners; h/v = horizontal/vertical edge.
+func boxChar(name string) string {
+	if ui.IsASCIIMode() {
+		switch name {
+		case "tl", "tr", "bl", "br":
+			return "+"
+		case "h":
+			return "-"
+		case "v":
+			return "|"
+		}
+		return "?"
+	}
+	switch name {
+	case "tl":
+		return "┌"
+	case "tr":
+		return "┐"
+	case "bl":
+		return "└"
+	case "br":
+		return "┘"
+	case "h":
+		return "─"
+	case "v":
+		return "│"
+	}
+	return "?"
+}
+
+// renderBoxedSection draws a titled box around `content`. Story 38-3 AC#2.
+//
+// Layout (Unicode mode):
+//
+//	┌─ <title> ──...──┐
+//	│ <content line>  │
+//	│ <content line>  │
+//	└─────────────────┘
+//
+// Parameters:
+//   - title:       short header rendered into the top edge
+//   - content:     pre-truncated multiline body (caller handles truncation)
+//   - color:       hex color for the border; when colorBody is true, body
+//                  lines also adopt this color (used by the Error box)
+//   - colorBody:   whether to apply `color` to body content
+//   - width:       total box width (outer); inner usable width is width-4
+//
+// ASCII mode: borders degrade to `+ - |`.
+func renderBoxedSection(title, content, color string, colorBody bool, width int) string {
+	if width < 8 {
+		width = 8
+	}
+	innerWidth := width - 4 // 1 left edge + 1 space + content + 1 space + 1 right edge
+
+	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+	bodyStyle := lipgloss.NewStyle()
+	if colorBody {
+		bodyStyle = bodyStyle.Foreground(lipgloss.Color(color))
+	}
+
+	tl := boxChar("tl")
+	tr := boxChar("tr")
+	bl := boxChar("bl")
+	br := boxChar("br")
+	h := boxChar("h")
+	v := boxChar("v")
+
+	// Top edge: `┌─ <title> ──...─┐`
+	titleSegment := h + " " + title + " "
+	titleRunes := utf8.RuneCountInString(titleSegment)
+	fillCount := max(innerWidth+2-titleRunes, 1)
+	top := tl + titleSegment + strings.Repeat(h, fillCount) + tr
+
+	var out strings.Builder
+	out.WriteString(borderStyle.Render(top))
+	out.WriteString("\n")
+
+	// Body lines (each split / wrapped to innerWidth as best-effort)
+	for line := range strings.SplitSeq(content, "\n") {
+		// Word-agnostic truncation: split overlong lines into chunks of innerWidth runes.
+		if utf8.RuneCountInString(line) == 0 {
+			out.WriteString(borderStyle.Render(v))
+			out.WriteString(strings.Repeat(" ", innerWidth+2))
+			out.WriteString(borderStyle.Render(v))
+			out.WriteString("\n")
+			continue
+		}
+		chunks := chunkRunes(line, innerWidth)
+		for _, chunk := range chunks {
+			padCount := max(innerWidth-utf8.RuneCountInString(stripANSIApprox(chunk)), 0)
+			out.WriteString(borderStyle.Render(v))
+			out.WriteString(" ")
+			if colorBody {
+				out.WriteString(bodyStyle.Render(chunk))
+			} else {
+				out.WriteString(chunk)
+			}
+			out.WriteString(strings.Repeat(" ", padCount))
+			out.WriteString(" ")
+			out.WriteString(borderStyle.Render(v))
+			out.WriteString("\n")
+		}
+	}
+
+	// Bottom edge
+	bottom := bl + strings.Repeat(h, innerWidth+2) + br
+	out.WriteString(borderStyle.Render(bottom))
+	return out.String()
+}
+
+// chunkRunes splits `s` into rune-count-bounded chunks, ignoring ANSI escape
+// codes when measuring width. Used by `renderBoxedSection` so that wide JSON
+// blobs or stack traces wrap inside the box rather than overflow.
+func chunkRunes(s string, max int) []string {
+	if max <= 0 {
+		return []string{s}
+	}
+	if utf8.RuneCountInString(stripANSIApprox(s)) <= max {
+		return []string{s}
+	}
+	var out []string
+	var cur strings.Builder
+	count := 0
+	inEsc := false
+	for _, r := range s {
+		if r == 0x1b {
+			inEsc = true
+			cur.WriteRune(r)
+			continue
+		}
+		if inEsc {
+			cur.WriteRune(r)
+			if r == 'm' {
+				inEsc = false
+			}
+			continue
+		}
+		cur.WriteRune(r)
+		count++
+		if count >= max {
+			out = append(out, cur.String())
+			cur.Reset()
+			count = 0
+		}
+	}
+	if cur.Len() > 0 {
+		out = append(out, cur.String())
+	}
+	return out
 }
 
 // buildToolIOLensFull builds full (non-truncated) tool I/O for pager.
@@ -1043,19 +1230,6 @@ func (m dashboardModel) buildRawJSONLens(detail *ipc.GetStepDetailResponse) stri
 		return fmt.Sprintf("JSON marshal error: %v", err)
 	}
 	return string(data)
-}
-
-// writeWithTruncation writes content with truncation notice if it exceeds threshold.
-func (m dashboardModel) writeWithTruncation(b *strings.Builder, content string) {
-	totalLen := utf8.RuneCountInString(content)
-	if totalLen > inspectorTruncateThreshold {
-		runes := []rune(content)
-		b.WriteString(string(runes[:inspectorTruncateThreshold]))
-		b.WriteString(renderTruncationNotice(inspectorTruncateThreshold, totalLen))
-	} else {
-		b.WriteString(content)
-	}
-	b.WriteString("\n")
 }
 
 // renderTruncationNotice renders an explicit truncation notice.
