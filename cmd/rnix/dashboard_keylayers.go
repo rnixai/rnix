@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -650,43 +651,14 @@ func registerLayer2Tree(d *ui.Dispatcher) {
 	d.Layer2[ui.PaneID(paneTree)] = tree.KeyLayer(paneFallback)
 }
 
+// registerLayer2Timeline — Timeline pane: f/F/v/V/e/E/C/o/P/enter (delegates to dispatchPaneKey via paneFallback).
+// Story 38-5 PR4 Step 2: 注册体迁出至 internal/dashboard/timeline.KeyLayer 以解耦 cmd/rnix
+// 与 timeline pane 元数据；本函数仅做 dispatcher 注册（行为零变化）。
+//
+// 包边界约束：dashboardModel 必须实现 timeline.StateProvider interface（已在 dashboard.go
+// 通过 TimelineState() 方法满足 · PR4 Step 1 落地）。
 func registerLayer2Timeline(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Timeline Pane",
-		Bindings: map[string]ui.KeyHandler{},
-		Fallback: paneFallback,
-		Docs:     map[string]ui.KeyDoc{},
-		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
-			m, ok := ctx.(dashboardModel)
-			if !ok {
-				return nil
-			}
-			modes := []ui.Mode{}
-			if m.timeline.StepFilterMode {
-				modes = append(modes, ui.Mode{Name: "filter", Value: "on"})
-			}
-			expandLabel := "collapsed"
-			switch m.timeline.ExpandMode {
-			case expandModeExpanded:
-				expandLabel = "all"
-			case expandModeErrorsOnly:
-				expandLabel = "errors"
-			}
-			modes = append(modes, ui.Mode{Name: "expand", Value: expandLabel})
-			return modes
-		},
-	}
-	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Filter mode (event types)"}
-	l.Docs["F"] = ui.KeyDoc{Key: "F", Description: "Toggle follow live"}
-	l.Docs["v"] = ui.KeyDoc{Key: "v", Description: "Expand step detail (L2)"}
-	l.Docs["V"] = ui.KeyDoc{Key: "V", Description: "Debug detail (L3)"}
-	l.Docs["e"] = ui.KeyDoc{Key: "e", Description: "Expand mode: all"}
-	l.Docs["E"] = ui.KeyDoc{Key: "E", Description: "Expand mode: errors only"}
-	l.Docs["C"] = ui.KeyDoc{Key: "C", Description: "Expand mode: collapsed"}
-	l.Docs["o"] = ui.KeyDoc{Key: "o", Description: "Toggle sort direction"}
-	l.Docs["P"] = ui.KeyDoc{Key: "P", Description: "Step Inspector (System lens)"}
-	l.Docs["enter"] = ui.KeyDoc{Key: "enter", Description: "Expand / collapse"}
-	d.Layer2[ui.PaneID(paneTimeline)] = l
+	d.Layer2[ui.PaneID(paneTimeline)] = timeline.KeyLayer(paneFallback)
 }
 
 // registerLayer2Heatmap — Heatmap pane: =/%/t/f (delegates to dispatchPaneKey via paneFallback).
