@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rnixai/rnix/internal/dashboard/detail"
+	"github.com/rnixai/rnix/internal/dashboard/eval"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/security"
@@ -704,27 +705,8 @@ func registerLayer2Trace(d *ui.Dispatcher) {
 }
 
 func registerLayer2Eval(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Eval Pane",
-		Bindings: map[string]ui.KeyHandler{},
-		Fallback: paneFallback,
-		Docs:     map[string]ui.KeyDoc{},
-		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
-			m, ok := ctx.(dashboardModel)
-			if !ok {
-				return nil
-			}
-			view := "reputation"
-			switch m.eval.SubView {
-			case 1:
-				view = "topology"
-			case 2:
-				view = "synergy"
-			}
-			return []ui.Mode{{Name: "view", Value: view}}
-		},
-	}
-	l.Docs["1/2/3"] = ui.KeyDoc{Key: "1/2/3", Description: "Switch sub-view"}
-	l.Docs["o"] = ui.KeyDoc{Key: "o", Description: "Sort by score"}
-	d.Layer2[ui.PaneID(paneEval)] = l
+	// Story 38-5 PR9 Step 2: KeyLayer 注册体迁出至 internal/dashboard/eval.KeyLayer。
+	// dashboardModel 通过 `EvalState() eval.EvalState` getter 满足 StateProvider。
+	// 行为零变化：2 个 Docs 键 (1/2/3, o) + ActiveModesFn{view: reputation|topology|synergy}。
+	d.Layer2[ui.PaneID(paneEval)] = eval.KeyLayer(paneFallback)
 }
