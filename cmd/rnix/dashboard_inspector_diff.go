@@ -8,219 +8,76 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 )
 
-// diffKind tags each line in a line-level diff.
-type diffKind int
-
-const (
-	diffEqual diffKind = iota
-	diffAdd
-	diffDel
-)
-
-// diffLine is a single unified-diff line.
-type diffLine struct {
-	kind diffKind
-	text string
-}
-
-const (
-	diffFoldThreshold = 3    // consecutive equal lines >= this are folded
-	diffMaxLines      = 5000 // refuse to diff beyond this; show "too large" notice
-)
-
-// computeLineDiff returns a unified line diff of base→current using the
-// standard LCS dynamic-programming algorithm. Output is ordered from the top
-// of the two inputs to the bottom, with deletes attached to their base
-// position and adds attached to their current position.
+// diffLine / followLiveTickMsg are type aliases for the migrated
+// inspector package types (Story 38-5 PR11 Step 4(a-2) inspector_diff
+// helpers extracted to internal/dashboard/inspector/diff.go). Aliases let
+// existing struct literals, type switches and field accesses continue to
+// work zero-modification — the field names are now exported (`Kind`/`Text`
+// / `PID`/`UUID`/`Gen`) and callsites have been updated accordingly.
 //
-// Complexity: O(len(base) * len(current)) time and space. Acceptable for
-// Lens contents up to a few thousand lines; callers above diffMaxLines
-// should render a "content too large" placeholder instead.
+// Note: the underlying `inspector.DiffKind` type alias is intentionally
+// not re-exported here because cmd/rnix only needs the const aliases
+// (`diffEqual` / `diffAdd` / `diffDel`); the type name itself is unused
+// in this package.
+type (
+	diffLine          = inspector.DiffLine
+	followLiveTickMsg = inspector.FollowLiveTickMsg
+)
+
+// diffEqual / diffAdd / diffDel — DiffKind constants re-exported as
+// internal aliases so existing handler code reads naturally.
+const (
+	diffEqual = inspector.DiffEqual
+	diffAdd   = inspector.DiffAdd
+	diffDel   = inspector.DiffDel
+)
+
+// diffFoldThreshold / diffMaxLines / ddWindow are re-exported timing /
+// threshold constants used by handler methods in this file and elsewhere
+// in cmd/rnix. (followLiveTickInterval is intentionally not re-aliased
+// here — followLiveTickCmd delegates directly to the inspector package
+// implementation, which uses the canonical constant.)
+const (
+	diffFoldThreshold = inspector.DiffFoldThreshold
+	diffMaxLines      = inspector.DiffMaxLines
+	ddWindow          = inspector.DDWindow
+)
+
+// computeLineDiff is a thin wrapper delegating to inspector.ComputeLineDiff.
+// See package internal/dashboard/inspector for the canonical implementation
+// + behaviour contract. Story 38-5 PR11 Step 4(a-2) helper migration.
 func computeLineDiff(base, current []string) []diffLine {
-	n, m := len(base), len(current)
-	if n == 0 && m == 0 {
-		return nil
-	}
-	if n == 0 {
-		out := make([]diffLine, 0, m)
-		for _, line := range current {
-			out = append(out, diffLine{kind: diffAdd, text: line})
-		}
-		return out
-	}
-	if m == 0 {
-		out := make([]diffLine, 0, n)
-		for _, line := range base {
-			out = append(out, diffLine{kind: diffDel, text: line})
-		}
-		return out
-	}
-
-	// LCS DP table
-	dp := make([][]int, n+1)
-	for i := range dp {
-		dp[i] = make([]int, m+1)
-	}
-	for i := 1; i <= n; i++ {
-		for j := 1; j <= m; j++ {
-			if base[i-1] == current[j-1] {
-				dp[i][j] = dp[i-1][j-1] + 1
-			} else if dp[i-1][j] >= dp[i][j-1] {
-				dp[i][j] = dp[i-1][j]
-			} else {
-				dp[i][j] = dp[i][j-1]
-			}
-		}
-	}
-
-	// Backtrack from (n, m) to (0, 0). Produces reversed output; flip at the end.
-	out := make([]diffLine, 0, n+m)
-	i, j := n, m
-	for i > 0 || j > 0 {
-		switch {
-		case i > 0 && j > 0 && base[i-1] == current[j-1]:
-			out = append(out, diffLine{kind: diffEqual, text: base[i-1]})
-			i--
-			j--
-		case j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]):
-			out = append(out, diffLine{kind: diffAdd, text: current[j-1]})
-			j--
-		default:
-			out = append(out, diffLine{kind: diffDel, text: base[i-1]})
-			i--
-		}
-	}
-	for a, b := 0, len(out)-1; a < b; a, b = a+1, b-1 {
-		out[a], out[b] = out[b], out[a]
-	}
-	return out
+	return inspector.ComputeLineDiff(base, current)
 }
 
-// renderDiff formats a sequence of diff lines into a display string. Consecutive
-// equal runs of length >= diffFoldThreshold are replaced by a single fold
-// placeholder unless the caller has marked that region expanded in `unfolded`
-// (keyed by the start-index of the run within `lines`). asciiMode drops
-// lipgloss colour styling, keeping the `+ / - / ` prefixes intact.
+// renderDiff is a thin wrapper delegating to inspector.RenderDiff.
 func renderDiff(lines []diffLine, unfolded map[int]bool, asciiMode bool) string {
-	if len(lines) == 0 {
-		return ""
-	}
-
-	addStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
-	delStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-	eqStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	foldStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	if asciiMode {
-		addStyle = lipgloss.NewStyle()
-		delStyle = lipgloss.NewStyle()
-		eqStyle = lipgloss.NewStyle()
-		foldStyle = lipgloss.NewStyle()
-	}
-
-	var b strings.Builder
-	i := 0
-	for i < len(lines) {
-		if lines[i].kind == diffEqual {
-			j := i
-			for j < len(lines) && lines[j].kind == diffEqual {
-				j++
-			}
-			run := j - i
-			if run >= diffFoldThreshold && (unfolded == nil || !unfolded[i]) {
-				b.WriteString(foldStyle.Render(fmt.Sprintf("  ... %d unchanged lines (Enter 展开) ...", run)))
-				b.WriteString("\n")
-			} else {
-				for k := i; k < j; k++ {
-					b.WriteString(eqStyle.Render(" " + lines[k].text))
-					b.WriteString("\n")
-				}
-			}
-			i = j
-			continue
-		}
-		if lines[i].kind == diffAdd {
-			b.WriteString(addStyle.Render("+" + lines[i].text))
-		} else {
-			b.WriteString(delStyle.Render("-" + lines[i].text))
-		}
-		b.WriteString("\n")
-		i++
-	}
-	return b.String()
+	return inspector.RenderDiff(lines, unfolded, asciiMode)
 }
 
-// renderDiffBasePicker draws a horizontal base-picker overlay listing the
-// available step numbers with the current cursor position highlighted.
-// width is the available display width; output is a single line.
+// renderDiffBasePicker is a thin wrapper delegating to
+// inspector.RenderDiffBasePicker.
 func renderDiffBasePicker(steps []ipc.StepSummaryWire, cursor int, width int) string {
-	if len(steps) == 0 {
-		return ""
-	}
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor >= len(steps) {
-		cursor = len(steps) - 1
-	}
-
-	ascii := ui.IsASCIIMode()
-	arrowL, arrowR := "←", "→"
-	if ascii {
-		arrowL, arrowR = "<", ">"
-	}
-
-	activeStyle := lipgloss.NewStyle().Bold(true).Reverse(true)
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-
-	var b strings.Builder
-	b.WriteString(dimStyle.Render(" Pick base: "))
-	b.WriteString(dimStyle.Render(arrowL + " "))
-	for i, s := range steps {
-		label := fmt.Sprintf("#%d", s.Step)
-		if i == cursor {
-			b.WriteString(activeStyle.Render("[" + label + "]"))
-		} else {
-			b.WriteString(dimStyle.Render(" " + label + " "))
-		}
-	}
-	b.WriteString(dimStyle.Render(" " + arrowR))
-	b.WriteString(dimStyle.Render("  Enter=select  Esc=cancel"))
-
-	_ = width
-	return b.String()
+	return inspector.RenderDiffBasePicker(steps, cursor, width)
 }
 
-// ddWindow is the inter-tap window within which two `d` presses are treated
-// as the `dd` sequence that opens the diff base picker.
-const ddWindow = 200 * time.Millisecond
-
-// followLiveTickInterval is the polling cadence for auto-following new steps
-// while Follow live is active. Chosen to feel responsive without spamming IPC.
-const followLiveTickInterval = 800 * time.Millisecond
-
-// followLiveTickMsg wakes the Update loop so we can refresh the step list and
-// schedule the next tick. Follow auto-cancels itself by returning a nil cmd
-// when inspectorFollowLive is false at tick time. The `gen` field identifies
-// the Follow activation generation — stale ticks scheduled during a previous
-// on-period are discarded to avoid tick multiplication under rapid F toggles.
-type followLiveTickMsg struct {
-	pid  types.PID
-	uuid string
-	gen  int
-}
-
-// followLiveTickCmd schedules a single follow-live tick. Callers should issue
-// this only while inspectorFollowLive is true; the handler re-arms the timer.
+// followLiveTickCmd is a thin wrapper delegating to
+// inspector.FollowLiveTickCmd. tea.Cmd return type and time.Tick semantics
+// preserved.
 func followLiveTickCmd(pid types.PID, uuid string, gen int) tea.Cmd {
-	return tea.Tick(followLiveTickInterval, func(time.Time) tea.Msg {
-		return followLiveTickMsg{pid: pid, uuid: uuid, gen: gen}
-	})
+	return inspector.FollowLiveTickCmd(pid, uuid, gen)
 }
+
+// _ time.Duration use-anchor — keep ddWindow accounted as a real
+// time.Duration value (compile-time check; lint will not warn since the
+// const alias is consumed by handlers below).
+var _ time.Duration = ddWindow
 
 // handleInspectorDiffKey implements the `d` / `dd` behaviour per Story 36-6
 // AC-1, AC-3 and AC-4. Outside of diff mode, the first `d` enters diff mode
@@ -385,12 +242,12 @@ func (m dashboardModel) toggleAllDiffFolds() dashboardModel {
 	anyFolded := false
 	i := 0
 	for i < len(lines) {
-		if lines[i].kind != diffEqual {
+		if lines[i].Kind != diffEqual {
 			i++
 			continue
 		}
 		j := i
-		for j < len(lines) && lines[j].kind == diffEqual {
+		for j < len(lines) && lines[j].Kind == diffEqual {
 			j++
 		}
 		if j-i >= diffFoldThreshold {
@@ -403,12 +260,12 @@ func (m dashboardModel) toggleAllDiffFolds() dashboardModel {
 	// Toggle: if at least one is still folded, expand all; else collapse all.
 	i = 0
 	for i < len(lines) {
-		if lines[i].kind != diffEqual {
+		if lines[i].Kind != diffEqual {
 			i++
 			continue
 		}
 		j := i
-		for j < len(lines) && lines[j].kind == diffEqual {
+		for j < len(lines) && lines[j].Kind == diffEqual {
 			j++
 		}
 		if j-i >= diffFoldThreshold {
@@ -634,10 +491,10 @@ func (m dashboardModel) handleFollowLiveTickMsg(msg followLiveTickMsg) (dashboar
 	if !m.inspector.FollowLive || m.viewMode != viewStepInspector {
 		return m, nil
 	}
-	if msg.pid != m.inspector.PID || msg.uuid != m.inspector.UUID {
+	if msg.PID != m.inspector.PID || msg.UUID != m.inspector.UUID {
 		return m, nil
 	}
-	if msg.gen != m.inspector.FollowGen {
+	if msg.Gen != m.inspector.FollowGen {
 		return m, nil
 	}
 	return m, tea.Batch(

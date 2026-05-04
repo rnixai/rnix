@@ -113,7 +113,7 @@ func TestATDD_36_6_AC2_DiffRender(t *testing.T) {
 
 	var adds, dels, eqs int
 	for _, l := range lines {
-		switch l.kind {
+		switch l.Kind {
 		case diffAdd:
 			adds++
 		case diffDel:
