@@ -30,6 +30,9 @@
 //   - FilteredStepEntries — 按 TimelineState.StepFilters 过滤 StepEntries（pure ·
 //     仅依赖 TimelineState · 为后续 timeline render 主体 + dashboard_pane_dispatcher
 //     的 F3 step count 计算解耦做铺垫）
+//   - UnifiedItemHeight — 估算 unified event 占用行数（pure · 解开 ev.StepEntry
+//     避免反向 import event 包 · 接受 *StepEntry + StepDetailCache · 用于 timeline
+//     scroll 计算）
 //
 // **零 cmd/rnix 反向依赖**：本包只 import internal/types + ipc + lipgloss + runewidth
 // + stdlib · 与 PR2/PR3/PR4/PR11 Step 4(c) render 迁出包边界一致。
@@ -315,6 +318,41 @@ func EstimateDebugLines(detail *ipc.GetStepDetailResponse) int {
 	msgCount := len(detail.Messages)
 	n += min(msgCount, 6) // message preview lines
 	n++                   // hint line
+	return n
+}
+
+// UnifiedItemHeight 估算 unified event 占用行数（与 cmd/rnix.unifiedItemHeight 等价）。
+//
+// 用于 timeline scroll 计算（renderStepTimeline + ensureStepCursorVisible）：
+//   - entry == nil（system event · 例如 budget alert / heartbeat / strace） → 返回 1
+//   - entry.Level == LevelSummary（默认 collapsed） → 返回 1
+//   - entry.Level >= LevelExpanded → 加上 EstimateExpandedLines（detail nil → +1）
+//   - entry.Level >= LevelDebug → 再加上 EstimateDebugLines（detail nil 时跳过）
+//
+// **签名设计**：解开 event.UnifiedEvent.StepEntry 直接接受 *StepEntry · 避免
+// timeline 包反向 import event 包（event 包已 import timeline.StepEntry · 循环依赖
+// 防御 · 与 commit 7d1964c event helpers 同模式但反向解耦）。
+//
+// **不读 dashboardModel 字段**：纯函数，仅依赖 entry 与 cache 参数。
+func UnifiedItemHeight(entry *StepEntry, cache map[int]*ipc.GetStepDetailResponse) int {
+	if entry == nil {
+		return 1 // system events are always single-line
+	}
+	n := 1
+	if entry.Level >= LevelExpanded {
+		detail := cache[entry.Summary.Step]
+		if detail == nil {
+			n++
+		} else {
+			n += EstimateExpandedLines(detail, entry.Summary)
+		}
+	}
+	if entry.Level >= LevelDebug {
+		detail := cache[entry.Summary.Step]
+		if detail != nil {
+			n += EstimateDebugLines(detail)
+		}
+	}
 	return n
 }
 

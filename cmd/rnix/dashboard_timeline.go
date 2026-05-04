@@ -407,28 +407,14 @@ func (m dashboardModel) filteredUnifiedEvents() []UnifiedEvent {
 	return result
 }
 
-// unifiedItemHeight returns the number of lines a unified event occupies.
+// unifiedItemHeight — thin wrapper 委托 timeline.UnifiedItemHeight
+// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出)
+//
+// 解开 ev.StepEntry 避免 timeline 包反向 import event 包（event 包已 import
+// timeline.StepEntry · 循环依赖防御 · 与 commit 7d1964c event helpers 同模式但
+// 反向解耦）· 保留 (m dashboardModel) receiver 让 6 个 callsite 零修改通过。
 func (m dashboardModel) unifiedItemHeight(ev UnifiedEvent) int {
-	if ev.StepEntry == nil {
-		return 1 // system events are always single-line
-	}
-	entry := ev.StepEntry
-	n := 1
-	if entry.Level >= levelExpanded {
-		detail := m.timeline.StepDetailCache[entry.Summary.Step]
-		if detail == nil {
-			n++
-		} else {
-			n += m.estimateExpandedLines(detail, entry.Summary)
-		}
-	}
-	if entry.Level >= levelDebug {
-		detail := m.timeline.StepDetailCache[entry.Summary.Step]
-		if detail != nil {
-			n += m.estimateDebugLines(detail)
-		}
-	}
-	return n
+	return timeline.UnifiedItemHeight(ev.StepEntry, m.timeline.StepDetailCache)
 }
 
 // resolveStepIndex converts cursor position in filtered unified view to actual stepEntries index.
@@ -1555,26 +1541,11 @@ func hasExpandableContent(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWi
 }
 
 // --- Step item height estimation (for scroll) ---
-
-// estimateExpandedLines — thin wrapper 委托 timeline.EstimateExpandedLines
-// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出)
 //
-// 保留 (m dashboardModel) receiver 让现有 caller `m.estimateExpandedLines(...)`
-// 写法零修改（dashboard_timeline.go::unifiedItemHeight 行 444）· 函数体不读 m 字段，
-// 与 timeline.EstimateExpandedLines 行为完全等价。
-func (m dashboardModel) estimateExpandedLines(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) int {
-	return timeline.EstimateExpandedLines(detail, s)
-}
-
-// estimateDebugLines — thin wrapper 委托 timeline.EstimateDebugLines
-// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出)
-//
-// 保留 (m dashboardModel) receiver 让现有 caller `m.estimateDebugLines(...)`
-// 写法零修改（dashboard_timeline.go::unifiedItemHeight 行 450）· 函数体不读 m 字段，
-// 与 timeline.EstimateDebugLines 行为完全等价。
-func (m dashboardModel) estimateDebugLines(detail *ipc.GetStepDetailResponse) int {
-	return timeline.EstimateDebugLines(detail)
-}
+// estimateExpandedLines / estimateDebugLines wrapper 已删除（Story 38-5 PR11 Step
+// 4(a-2) timeline.UnifiedItemHeight 迁出后 · 这两个 wrapper 失去唯一 caller 变 unused
+// · 直接调 timeline.EstimateExpandedLines / timeline.EstimateDebugLines 即可 · 这是
+// 重构推进中 wrapper 自然消解 · 与 PR2/PR3 「保留 wrapper 直到无 caller」模式一致）。
 
 // ensureStepCursorVisible adjusts stepScrollTop so the cursor item is within the viewport.
 func (m *dashboardModel) ensureStepCursorVisible(viewportLines int) {

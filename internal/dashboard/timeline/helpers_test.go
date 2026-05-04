@@ -17,6 +17,8 @@
 //   - EstimateDebugLines 4 项（空 messages / 满 messages / over-cap clamp / 边界 6）
 //   - FilteredStepEntries 6 项（nil filters / 空 filters / all-on shortcut /
 //     filter 单一 action / filter 多 action / 全空 entries）
+//   - UnifiedItemHeight 5 项（nil entry / Summary level / Expanded with cached /
+//     Expanded without cached / Debug full）
 package timeline
 
 import (
@@ -569,5 +571,55 @@ func TestFilteredStepEntries_EmptyEntries(t *testing.T) {
 	got := FilteredStepEntries(state)
 	if len(got) != 0 {
 		t.Errorf("FilteredStepEntries(empty entries) = %v, want empty slice", got)
+	}
+}
+
+// =============================================================================
+// UnifiedItemHeight (5 项)
+// =============================================================================
+
+func TestUnifiedItemHeight_NilEntry(t *testing.T) {
+	// nil entry → system event → 1 行
+	if got := UnifiedItemHeight(nil, nil); got != 1 {
+		t.Errorf("UnifiedItemHeight(nil entry) = %d, want 1", got)
+	}
+}
+
+func TestUnifiedItemHeight_SummaryLevel(t *testing.T) {
+	entry := &StepEntry{Level: LevelSummary, Summary: ipc.StepSummaryWire{Step: 1}}
+	if got := UnifiedItemHeight(entry, nil); got != 1 {
+		t.Errorf("UnifiedItemHeight(Summary level) = %d, want 1", got)
+	}
+}
+
+func TestUnifiedItemHeight_ExpandedWithCachedDetail(t *testing.T) {
+	// LevelExpanded + cache 命中 → 1 + EstimateExpandedLines (with ToolPath line)
+	entry := &StepEntry{Level: LevelExpanded, Summary: ipc.StepSummaryWire{Step: 5}}
+	cache := map[int]*ipc.GetStepDetailResponse{
+		5: {ToolPath: "fs.read", ToolInput: `{"path":"/x"}`},
+	}
+	// EstimateExpandedLines: ToolPath !=  Summary("") → +1, ToolInput → +1, total = 2
+	// UnifiedItemHeight = 1 + 2 = 3
+	if got := UnifiedItemHeight(entry, cache); got != 3 {
+		t.Errorf("UnifiedItemHeight(Expanded+cached) = %d, want 3", got)
+	}
+}
+
+func TestUnifiedItemHeight_ExpandedWithoutCachedDetail(t *testing.T) {
+	// LevelExpanded + cache miss → 1 + 1 (loading placeholder)
+	entry := &StepEntry{Level: LevelExpanded, Summary: ipc.StepSummaryWire{Step: 7}}
+	cache := map[int]*ipc.GetStepDetailResponse{} // miss
+	if got := UnifiedItemHeight(entry, cache); got != 2 {
+		t.Errorf("UnifiedItemHeight(Expanded+miss) = %d, want 2", got)
+	}
+}
+
+func TestUnifiedItemHeight_DebugFull(t *testing.T) {
+	// LevelDebug + cache hit → 1 (base) + EstimateExpandedLines (1 fallback) +
+	//                          EstimateDebugLines (3 = 2 sep+header + 0 msgs + 1 hint) = 5
+	entry := &StepEntry{Level: LevelDebug, Summary: ipc.StepSummaryWire{Step: 9}}
+	cache := map[int]*ipc.GetStepDetailResponse{9: {}} // empty detail
+	if got := UnifiedItemHeight(entry, cache); got != 5 {
+		t.Errorf("UnifiedItemHeight(Debug+empty cached) = %d, want 5 (1 base + 1 fallback + 3 debug)", got)
 	}
 }
