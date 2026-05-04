@@ -187,3 +187,90 @@ func TestRenderStepLine_ToolPathNotReplacingLongSummary(t *testing.T) {
 		t.Errorf("long summary should NOT be replaced by ToolPath, got: %q", got)
 	}
 }
+
+// ----- ClampCursor 行为测试（Story 38-5 PR11 Step 4(c) debug pane 视图状态 helper） -----
+//
+// 覆盖矩阵：
+//   - filteredLen == 0 + Cursor > 0 → Cursor = 0 + ScrollTop = 0
+//   - Cursor >= filteredLen → Cursor = filteredLen - 1
+//   - ScrollTop > Cursor → ScrollTop = Cursor
+//   - Cursor 已在范围内 + ScrollTop ≤ Cursor → no-op（保留状态）
+//   - Cursor < 0 (理论越界) + filteredLen > 0 → Cursor 不变（仅向下 clamp · 与原算法等价）
+//   - 其他字段保留（Mode/ShowStrace/AttachedPID 等）
+
+func TestClampCursor_EmptyFiltered(t *testing.T) {
+	state := DebugState{Cursor: 5, ScrollTop: 3}
+	got := ClampCursor(state, 0)
+	if got.Cursor != 0 {
+		t.Errorf("empty filtered: Cursor = %d, want 0", got.Cursor)
+	}
+	if got.ScrollTop != 0 {
+		t.Errorf("empty filtered: ScrollTop = %d, want 0", got.ScrollTop)
+	}
+}
+
+func TestClampCursor_CursorBeyondRange(t *testing.T) {
+	state := DebugState{Cursor: 20, ScrollTop: 5}
+	got := ClampCursor(state, 10)
+	if got.Cursor != 9 {
+		t.Errorf("cursor beyond range: Cursor = %d, want 9 (filteredLen-1)", got.Cursor)
+	}
+	// ScrollTop=5 ≤ Cursor=9 → ScrollTop 保留
+	if got.ScrollTop != 5 {
+		t.Errorf("cursor beyond range: ScrollTop = %d, want 5 (preserved)", got.ScrollTop)
+	}
+}
+
+func TestClampCursor_ScrollTopExceedsCursor(t *testing.T) {
+	state := DebugState{Cursor: 3, ScrollTop: 7}
+	got := ClampCursor(state, 10)
+	// Cursor=3 < filteredLen=10 → 保留
+	if got.Cursor != 3 {
+		t.Errorf("Cursor in range: Cursor = %d, want 3", got.Cursor)
+	}
+	// ScrollTop=7 > Cursor=3 → ScrollTop=3
+	if got.ScrollTop != 3 {
+		t.Errorf("scroll top exceeds cursor: ScrollTop = %d, want 3 (snap to Cursor)", got.ScrollTop)
+	}
+}
+
+func TestClampCursor_NoOp(t *testing.T) {
+	state := DebugState{Cursor: 5, ScrollTop: 2}
+	got := ClampCursor(state, 10)
+	if got.Cursor != 5 || got.ScrollTop != 2 {
+		t.Errorf("no-op: got Cursor=%d ScrollTop=%d, want Cursor=5 ScrollTop=2", got.Cursor, got.ScrollTop)
+	}
+}
+
+func TestClampCursor_NegativeCursor(t *testing.T) {
+	// Cursor=-1 不在 Cursor>=filteredLen 分支 · 不变（仅向下 clamp · 与 cmd/rnix 算法等价）
+	state := DebugState{Cursor: -1, ScrollTop: 0}
+	got := ClampCursor(state, 5)
+	if got.Cursor != -1 {
+		t.Errorf("negative cursor: Cursor = %d, want -1 (not clamped upward · only downward clamp)", got.Cursor)
+	}
+}
+
+func TestClampCursor_PreservesOtherFields(t *testing.T) {
+	state := DebugState{
+		Cursor:      20,
+		ScrollTop:   5,
+		Mode:        true,
+		ShowStrace:  true,
+		AttachedPID: 42,
+		AutoScroll:  false,
+	}
+	got := ClampCursor(state, 10)
+	if !got.Mode {
+		t.Errorf("Mode mutated: got false, want true")
+	}
+	if !got.ShowStrace {
+		t.Errorf("ShowStrace mutated: got false, want true")
+	}
+	if got.AttachedPID != 42 {
+		t.Errorf("AttachedPID mutated: got %d, want 42", got.AttachedPID)
+	}
+	if got.AutoScroll {
+		t.Errorf("AutoScroll mutated: got true, want false")
+	}
+}

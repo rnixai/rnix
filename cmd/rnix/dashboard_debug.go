@@ -358,14 +358,13 @@ func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
 }
 
 // clampDebugCursor ensures the cursor stays within the filtered event range.
+//
+// Story 38-5 PR11 Step 4(c)：核心 clamp 逻辑迁至 internal/dashboard/debug.ClampCursor
+// （0 cmd/rnix 反向依赖）· cmd/rnix wrapper 仅保留 filtered 计算 + state 赋值 ·
+// 保留 (m *dashboardModel) receiver 让 ~3 处 callsite（dashboard_debug.go × 3）零修改.
 func (m *dashboardModel) clampDebugCursor() {
 	filtered := m.filteredDebugEvents()
-	if m.debugState.Cursor >= len(filtered) {
-		m.debugState.Cursor = max(len(filtered)-1, 0)
-	}
-	if m.debugState.ScrollTop > m.debugState.Cursor {
-		m.debugState.ScrollTop = m.debugState.Cursor
-	}
+	m.debugState = dashboarddebug.ClampCursor(m.debugState, len(filtered))
 }
 
 // --- Debug tick processing ---

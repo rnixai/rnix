@@ -110,3 +110,31 @@ func RenderStepLine(ev event.UnifiedEvent, cursorMark string, _ int) string {
 
 	return fmt.Sprintf("%s%s %s %s%s", cursorMark, stepLabel, action, summary, errMark)
 }
+
+// ClampCursor 调整 state.Cursor / state.ScrollTop 让 cursor 在 [0, filteredLen)
+// 范围内（与 cmd/rnix.clampDebugCursor 1:1 行为等价 · Story 38-5 PR11 Step 4(c)
+// debug pane 视图状态 helper）。
+//
+// **行为契约（不变性 · 与 cmd/rnix 端 1:1 等价）**：
+//   - state.Cursor >= filteredLen → Cursor = max(filteredLen-1, 0)（clamp 到末尾或 0）
+//   - state.ScrollTop > state.Cursor → ScrollTop = Cursor（防止滚动位置超过 cursor）
+//   - filteredLen == 0 + Cursor != 0 → Cursor = 0 + ScrollTop = 0（空列表防御）
+//   - filteredLen >= Cursor → Cursor 不变（Cursor 在范围内）
+//
+// **签名设计**：
+//   - 接受 DebugState（值类型 · 仅修改 Cursor / ScrollTop · 返回新状态）
+//   - filteredLen 通过参数传入 · 让 debug 包零 cmd/rnix 反向依赖
+//   - cmd/rnix wrapper 计算 filtered 后调用 · 与 timeline.EnsureStepCursorVisible 同模式
+//
+// **使用场景**：
+//   - cmd/rnix.clampDebugCursor wrapper（dashboard_debug.go × 3 callsite）
+//   - PR11 Step 4(c) 后续 debug render 主体迁出共用此 helper
+func ClampCursor(state DebugState, filteredLen int) DebugState {
+	if state.Cursor >= filteredLen {
+		state.Cursor = max(filteredLen-1, 0)
+	}
+	if state.ScrollTop > state.Cursor {
+		state.ScrollTop = state.Cursor
+	}
+	return state
+}
