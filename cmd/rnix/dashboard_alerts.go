@@ -215,7 +215,7 @@ func renderAlertStrip(m *dashboardModel, width, maxLines int) string {
 	// Story 38.2 AC#3: collapsed strip carries a right-aligned count badge.
 	// Expanded mode keeps the cursor-highlight UX and skips the badge.
 	var badge string
-	if !m.alertExpanded {
+	if !m.alertStrip.Expanded {
 		badge = alertCountBadge(alerts, ascii)
 	}
 	badgeWidth := lipgloss.Width(badge)
@@ -284,7 +284,7 @@ func renderAlertStrip(m *dashboardModel, width, maxLines int) string {
 		}
 
 		// Highlight cursor line
-		if m.alertExpanded && i == m.alertCursor {
+		if m.alertStrip.Expanded && i == m.alertStrip.Cursor {
 			if ascii {
 				line = "> " + line
 			} else {

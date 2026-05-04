@@ -510,8 +510,8 @@ func TestDashboardKey_ViewDebug_DigitKeysSwitchPane(t *testing.T) {
 func TestDashboardKey_AlertEnter_PIDInvalid_DoesNotFallThrough(t *testing.T) {
 	m := newContractModel()
 	m.alertEvents = []UnifiedEvent{{PID: 0}}
-	m.alertExpanded = true
-	m.alertCursor = 0
+	m.alertStrip.Expanded = true
+	m.alertStrip.Cursor = 0
 	origActivePane := m.activePane
 	got, _ := m.dashboardKey(keypressFromString("enter"))
 	g := got.(dashboardModel)

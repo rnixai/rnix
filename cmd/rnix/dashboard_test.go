@@ -1279,7 +1279,7 @@ func TestDashboardModel_GlobalAlertToggleKey(t *testing.T) {
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'a'})
 	model := m2.(dashboardModel)
 
-	if !model.alertExpanded {
+	if !model.alertStrip.Expanded {
 		t.Error("a key with alertEvents should toggle alertExpanded to true")
 	}
 }
@@ -3100,14 +3100,14 @@ func TestAlertJump_ToProcess(t *testing.T) {
 		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: time.Now(), PID: 3},
 		{Type: EventBudget, Summary: "PID 2 budget", Severity: SevWarn, Timestamp: time.Now(), PID: 2},
 	}
-	m.alertExpanded = true
-	m.alertCursor = 0
-	alert := m.alertEvents[m.alertCursor]
+	m.alertStrip.Expanded = true
+	m.alertStrip.Cursor = 0
+	alert := m.alertEvents[m.alertStrip.Cursor]
 	if alert.PID != 3 {
 		t.Errorf("expected alert PID 3, got %d", alert.PID)
 	}
-	m.alertCursor = 1
-	alert = m.alertEvents[m.alertCursor]
+	m.alertStrip.Cursor = 1
+	alert = m.alertEvents[m.alertStrip.Cursor]
 	if alert.PID != 2 {
 		t.Errorf("expected alert PID 2, got %d", alert.PID)
 	}
@@ -3135,19 +3135,19 @@ func TestAlertStrip_ExpandCollapse(t *testing.T) {
 		t.Errorf("expanded height: expected 5, got %d", h)
 	}
 
-	m.alertExpanded = false
-	m.alertCursor = 3
-	m.alertExpanded = true
-	if m.alertCursor != 3 {
-		t.Errorf("cursor should stay at 3 when expanding, got %d", m.alertCursor)
+	m.alertStrip.Expanded = false
+	m.alertStrip.Cursor = 3
+	m.alertStrip.Expanded = true
+	if m.alertStrip.Cursor != 3 {
+		t.Errorf("cursor should stay at 3 when expanding, got %d", m.alertStrip.Cursor)
 	}
-	m.alertExpanded = false
+	m.alertStrip.Expanded = false
 	visible := alertStripHeight(len(m.alertEvents), false)
-	if m.alertCursor >= visible {
-		m.alertCursor = 0
+	if m.alertStrip.Cursor >= visible {
+		m.alertStrip.Cursor = 0
 	}
-	if m.alertCursor != 0 {
-		t.Errorf("cursor should reset to 0 when collapsing, got %d", m.alertCursor)
+	if m.alertStrip.Cursor != 0 {
+		t.Errorf("cursor should reset to 0 when collapsing, got %d", m.alertStrip.Cursor)
 	}
 }
 
@@ -3563,7 +3563,7 @@ func TestRenderAlertStrip_CountBadge(t *testing.T) {
 func TestRenderAlertStrip_BadgeNotInExpanded(t *testing.T) {
 	now := time.Now()
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertExpanded = true
+	m.alertStrip.Expanded = true
 	m.alertEvents = []UnifiedEvent{
 		{Type: EventExit, Summary: "e1-summary-error", Severity: SevError, Timestamp: now},
 		{Type: EventBudget, Summary: "w1-summary-warn", Severity: SevWarn, Timestamp: now},

@@ -285,8 +285,8 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 			{PID: 7, Type: "device_access", TimestampMs: now.UnixMilli()},
 			{PID: 7, Type: "syscall_freq", TimestampMs: now.Add(time.Second).UnixMilli()},
 		}
-		m.alertExpanded = true
-		m.alertCursor = 0
+		m.alertStrip.Expanded = true
+		m.alertStrip.Cursor = 0
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)
 		if g.activePane != paneSecurity {
@@ -295,7 +295,7 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 		if g.security.Cursor != 1 {
 			t.Errorf("expected securityCursor=1 (PID 7 + matching TimestampMs), got %d", g.security.Cursor)
 		}
-		if g.alertExpanded {
+		if g.alertStrip.Expanded {
 			t.Errorf("alertExpanded should be reset after jump")
 		}
 	})
@@ -309,8 +309,8 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 			PID:       1,
 			Timestamp: time.Now(),
 		}}
-		m.alertExpanded = true
-		m.alertCursor = 0
+		m.alertStrip.Expanded = true
+		m.alertStrip.Cursor = 0
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)
 		if g.activePane != paneTimeline {
@@ -335,8 +335,8 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 		}
 		m.alertEvents = []UnifiedEvent{alert}
 		m.processes = mockDashboardProcs() // includes PID 7
-		m.alertExpanded = true
-		m.alertCursor = 0
+		m.alertStrip.Expanded = true
+		m.alertStrip.Cursor = 0
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)
 		if g.activePane != paneSecurity {
@@ -867,8 +867,8 @@ func TestAlertEnter_ClearsUnread(t *testing.T) {
 			PID:       1,
 			Timestamp: time.Now(),
 		}}
-		m.alertExpanded = true
-		m.alertCursor = 0
+		m.alertStrip.Expanded = true
+		m.alertStrip.Cursor = 0
 		m.paneHasUnread[paneTimeline] = true
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)
@@ -890,8 +890,8 @@ func TestAlertEnter_ClearsUnread(t *testing.T) {
 		// Patch P5: securityAlerts TimestampMs must match alert.Timestamp
 		// to land the cursor; the unread clear logic itself is independent.
 		m.security.Alerts = []ipc.AlertWire{{PID: 7, Type: "device_access", TimestampMs: now.UnixMilli()}}
-		m.alertExpanded = true
-		m.alertCursor = 0
+		m.alertStrip.Expanded = true
+		m.alertStrip.Cursor = 0
 		m.paneHasUnread[paneSecurity] = true
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)

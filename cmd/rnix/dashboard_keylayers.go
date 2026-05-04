@@ -140,11 +140,11 @@ func registerLayer0(d *ui.Dispatcher) {
 			return false, m, nil
 		}
 		if !m.timeline.StepFilterMode && len(m.alertEvents) > 0 {
-			m.alertExpanded = !m.alertExpanded
-			if !m.alertExpanded {
+			m.alertStrip.Expanded = !m.alertStrip.Expanded
+			if !m.alertStrip.Expanded {
 				visible := alertStripHeight(len(m.alertEvents), false)
-				if m.alertCursor >= visible {
-					m.alertCursor = 0
+				if m.alertStrip.Cursor >= visible {
+					m.alertStrip.Cursor = 0
 				}
 			}
 			return true, m, nil
@@ -156,9 +156,9 @@ func registerLayer0(d *ui.Dispatcher) {
 	// [ — Alert cursor up (nav.go:264-271)
 	d.Layer0.Bindings["["] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		if m.alertExpanded && len(m.alertEvents) > 0 {
-			if m.alertCursor > 0 {
-				m.alertCursor--
+		if m.alertStrip.Expanded && len(m.alertEvents) > 0 {
+			if m.alertStrip.Cursor > 0 {
+				m.alertStrip.Cursor--
 			}
 			return true, m, nil
 		}
@@ -169,14 +169,14 @@ func registerLayer0(d *ui.Dispatcher) {
 	// ] — Alert cursor down (nav.go:272-285)
 	d.Layer0.Bindings["]"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		if m.alertExpanded && len(m.alertEvents) > 0 {
+		if m.alertStrip.Expanded && len(m.alertEvents) > 0 {
 			maxLines := alertStripHeight(len(m.alertEvents), true)
 			maxCursor := maxLines - 1
 			if len(m.alertEvents) > maxLines {
 				maxCursor = maxLines - 2
 			}
-			if m.alertCursor < maxCursor {
-				m.alertCursor++
+			if m.alertStrip.Cursor < maxCursor {
+				m.alertStrip.Cursor++
 			}
 			return true, m, nil
 		}
@@ -194,10 +194,10 @@ func registerLayer0(d *ui.Dispatcher) {
 	// also clear the unread mark for the destination pane (AC#1 cleanup).
 	d.Layer0.Bindings["enter"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		if !m.alertExpanded || len(m.alertEvents) == 0 || m.alertCursor < 0 || m.alertCursor >= len(m.alertEvents) {
+		if !m.alertStrip.Expanded || len(m.alertEvents) == 0 || m.alertStrip.Cursor < 0 || m.alertStrip.Cursor >= len(m.alertEvents) {
 			return false, m, nil
 		}
-		alert := m.alertEvents[m.alertCursor]
+		alert := m.alertEvents[m.alertStrip.Cursor]
 		// C5: alertExpanded 已激活时统一 consume；PID<=0 时仅给用户反馈，不 fall-through
 		// 避免触发 Tree drill-in / Timeline expand / Intent drill 等下层副作用。
 		if alert.PID <= 0 {
@@ -222,7 +222,7 @@ func registerLayer0(d *ui.Dispatcher) {
 			m.selectedPID = alert.PID
 			m.selectedUUID = targetUUID
 			m.activePane = targetPane
-			m.alertExpanded = false
+			m.alertStrip.Expanded = false
 			m2, cmd := m.handlePIDChange()
 			m2.activePane = targetPane // handlePIDChange may reset; keep our intent
 			m2 = m2.clearPaneUnread(targetPane)
@@ -231,7 +231,7 @@ func registerLayer0(d *ui.Dispatcher) {
 		}
 		// Same PID: scroll to matching item.
 		m.activePane = targetPane
-		m.alertExpanded = false
+		m.alertStrip.Expanded = false
 		m = m.clearPaneUnread(targetPane)
 		if targetPane == paneSecurity {
 			// AC#2 / patch P5 (2026-05-03): locate cursor inside
@@ -383,8 +383,8 @@ func registerLayer0(d *ui.Dispatcher) {
 		}
 		dismissed := len(m.alertEvents)
 		m.alertEvents = nil
-		m.alertExpanded = false
-		m.alertCursor = 0
+		m.alertStrip.Expanded = false
+		m.alertStrip.Cursor = 0
 		m.statusMsg = fmt.Sprintf("Dismissed %d alert(s)", dismissed)
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return true, m, nil
