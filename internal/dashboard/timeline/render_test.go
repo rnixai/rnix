@@ -588,3 +588,314 @@ func TestRenderUnifiedStepHeader_WallClockFromProcesses(t *testing.T) {
 		t.Fatalf("expected wall-clock with ':': %q", got)
 	}
 }
+
+// ----- RenderAggregatedTimeline 行为测试 -----
+//
+// 覆盖矩阵（Story 38-5 PR11 Step 4(c) 第 5 个 timeline render block 迁出）：
+//   - SlowStepThresholdMs const 值 + 类型契约
+//   - AggGroupSize const 值 + 类型契约
+//   - 折叠态 group：cursor 群内 / 群外 + 无 error / 有 error / 多 errors
+//   - 展开态 group：header + 个别 step + token / duration / error mark
+//   - cursor highlight + slow duration 警告色
+//   - listLines 上限截断（行数超出 group 总高时停在 listLines）
+//   - 滚动起点：cursor group 在视野内（后段 group 优先 · 起点向前移）
+//   - 空 filtered passthrough：返回 0 行不写入
+//
+// 行为对齐：1:1 等价 cmd/rnix.renderAggregatedTimeline · 38-3 教训 profile-tolerant。
+
+// makeAggEntry 测试辅助：构造单个 StepEntry，仅设置渲染相关字段。
+func makeAggEntry(step int, action string, tokenCount int, durMs float64, hasErr bool, summary string) StepEntry {
+	return StepEntry{
+		Summary: ipc.StepSummaryWire{
+			Step:       step,
+			Action:     action,
+			TokenCount: tokenCount,
+			DurationMs: durMs,
+			HasError:   hasErr,
+			Summary:    summary,
+		},
+	}
+}
+
+func TestSlowStepThresholdMs_Value(t *testing.T) {
+	if SlowStepThresholdMs != 1000.0 {
+		t.Fatalf("SlowStepThresholdMs = %v, want 1000.0 (1s · 与 cmd/rnix 等价)", SlowStepThresholdMs)
+	}
+}
+
+func TestAggGroupSize_Value(t *testing.T) {
+	if AggGroupSize != 50 {
+		t.Fatalf("AggGroupSize = %v, want 50 (与 cmd/rnix.aggGroupSize 等价)", AggGroupSize)
+	}
+}
+
+func TestRenderAggregatedTimeline_EmptyFiltered(t *testing.T) {
+	state := TimelineState{}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, nil, 80, 10, false, false)
+	if used != 0 {
+		t.Fatalf("empty filtered: linesUsed = %d, want 0", used)
+	}
+	if b.Len() != 0 {
+		t.Fatalf("empty filtered: builder not empty: %q", b.String())
+	}
+}
+
+func TestRenderAggregatedTimeline_CollapsedSingleGroup(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 100, 50, false, "first"),
+			makeAggEntry(2, "tool_call", 200, 100, false, "second"),
+			makeAggEntry(3, "plan", 50, 30, false, "third"),
+		},
+		StepCursor:        0,
+		ExpandedAggGroups: nil,
+	}
+	filtered := []int{0, 1, 2}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5, false, false)
+	if used != 1 {
+		t.Fatalf("collapsed single group: linesUsed = %d, want 1", used)
+	}
+	out := b.String()
+	if !strings.Contains(out, "Steps 1-3") {
+		t.Fatalf("expected 'Steps 1-3' in output: %q", out)
+	}
+	// 折叠态 cursor 群内 → 应有 "▸ " cursor mark（marker ▸ 退避为空格）
+	if !strings.Contains(out, "▸ ") {
+		t.Fatalf("expected cursor mark '▸ ' for cursor in group: %q", out)
+	}
+}
+
+func TestRenderAggregatedTimeline_CollapsedWithErrors(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 100, 50, true, "err1"),
+			makeAggEntry(2, "tool_call", 200, 100, true, "err2"),
+			makeAggEntry(3, "plan", 50, 30, false, "ok"),
+		},
+		StepCursor: -1, // cursor 在 -1 → cursorFilterIdx = -1 → cursorGroupIdx = 0 (-1 < 0 分支)
+	}
+	filtered := []int{0, 1, 2}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5, false, false)
+	if used != 1 {
+		t.Fatalf("linesUsed = %d, want 1", used)
+	}
+	out := b.String()
+	if !strings.Contains(out, "2 errors") {
+		t.Fatalf("expected '2 errors' (plural) in output: %q", out)
+	}
+}
+
+func TestRenderAggregatedTimeline_CollapsedWithSingleError(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 100, 50, true, "err1"),
+			makeAggEntry(2, "plan", 50, 30, false, "ok"),
+		},
+		StepCursor: -1,
+	}
+	filtered := []int{0, 1}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5, false, false)
+	if used != 1 {
+		t.Fatalf("linesUsed = %d, want 1", used)
+	}
+	out := b.String()
+	if !strings.Contains(out, "1 error") {
+		t.Fatalf("expected '1 error' (singular) in output: %q", out)
+	}
+	// 不应出现 plural "errors"
+	if strings.Contains(out, "1 errors") {
+		t.Fatalf("expected singular 'error' not 'errors': %q", out)
+	}
+}
+
+func TestRenderAggregatedTimeline_CollapsedWithToken(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 1500, 50, false, "first"),
+			makeAggEntry(2, "tool_call", 2500, 100, false, "second"),
+		},
+		StepCursor: -1,
+	}
+	filtered := []int{0, 1}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5, true /*showToken*/, false)
+	if used != 1 {
+		t.Fatalf("linesUsed = %d, want 1", used)
+	}
+	out := b.String()
+	// total 4000 → "4.0k"（依赖 FormatTokenCount · 已迁 timeline 包 · 小写 k 对齐输出）
+	if !strings.Contains(out, "4.0k") {
+		t.Fatalf("expected '4.0k' total tokens in output: %q", out)
+	}
+}
+
+func TestRenderAggregatedTimeline_ExpandedGroup(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 100, 50, false, "first"),
+			makeAggEntry(2, "plan", 200, 100, false, "second"),
+		},
+		StepCursor: 0,
+		ExpandedAggGroups: map[int]bool{
+			0: true,
+		},
+	}
+	filtered := []int{0, 1}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 10, false, false)
+	// header (1) + 2 entries = 3 lines
+	if used != 3 {
+		t.Fatalf("expanded group: linesUsed = %d, want 3", used)
+	}
+	out := b.String()
+	if !strings.Contains(out, "▾ Steps 1-2") {
+		t.Fatalf("expected '▾ Steps 1-2' header in expanded group: %q", out)
+	}
+	// 个别 step 显示
+	if !strings.Contains(out, "first") || !strings.Contains(out, "second") {
+		t.Fatalf("expected individual steps 'first'/'second' in expanded group: %q", out)
+	}
+}
+
+func TestRenderAggregatedTimeline_ExpandedSlowDurationWarning(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 100, SlowStepThresholdMs+1, false, "slow"),
+		},
+		StepCursor:        0,
+		ExpandedAggGroups: map[int]bool{0: true},
+	}
+	filtered := []int{0}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 10, false, true /*showDuration*/)
+	if used != 2 { // header + 1 entry
+		t.Fatalf("linesUsed = %d, want 2", used)
+	}
+	out := b.String()
+	// summary 文本应可见
+	if !strings.Contains(out, "slow") {
+		t.Fatalf("expected summary 'slow' visible: %q", out)
+	}
+	// duration "1.00s" 应该出现（FormatDurationMs 1001ms → "1.00s" · %.2f 格式）
+	if !strings.Contains(out, "1.00s") {
+		t.Fatalf("expected duration '1.00s' visible: %q", out)
+	}
+}
+
+func TestRenderAggregatedTimeline_MultipleGroups(t *testing.T) {
+	// 60 entries → 2 groups（50 + 10）
+	entries := make([]StepEntry, 60)
+	for i := range entries {
+		entries[i] = makeAggEntry(i+1, "tool_call", 0, 0, false, "")
+	}
+	filtered := make([]int, 60)
+	for i := range filtered {
+		filtered[i] = i
+	}
+	state := TimelineState{
+		StepEntries: entries,
+		StepCursor:  55, // cursor 在第 2 个 group
+	}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 10, false, false)
+	if used == 0 {
+		t.Fatal("expected at least one line written")
+	}
+	out := b.String()
+	// 第一个 group "Steps 1-50"
+	// 第二个 group "Steps 51-60"
+	if !strings.Contains(out, "Steps 1-50") {
+		t.Fatalf("expected 'Steps 1-50' (group 1): %q", out)
+	}
+	if !strings.Contains(out, "Steps 51-60") {
+		t.Fatalf("expected 'Steps 51-60' (group 2): %q", out)
+	}
+	// cursor 在 filtered[55] · cursorGroupIdx = 55/50 = 1（第二个 group）→ "▸ " cursor mark
+	if !strings.Contains(out, "▸ ") {
+		t.Fatalf("expected cursor mark '▸ ' in group 2: %q", out)
+	}
+}
+
+func TestRenderAggregatedTimeline_ListLinesCap(t *testing.T) {
+	// 3 个展开的 group → header * 3 + 50 entries * 3 = 153 lines
+	// listLines = 5 → 应停在 5 行
+	entries := make([]StepEntry, 150)
+	for i := range entries {
+		entries[i] = makeAggEntry(i+1, "tool_call", 0, 0, false, "")
+	}
+	filtered := make([]int, 150)
+	for i := range filtered {
+		filtered[i] = i
+	}
+	state := TimelineState{
+		StepEntries: entries,
+		StepCursor:  0,
+		ExpandedAggGroups: map[int]bool{
+			0: true,
+			1: true,
+			2: true,
+		},
+	}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 5 /*listLines*/, false, false)
+	if used > 5 {
+		t.Fatalf("listLines cap not enforced: linesUsed = %d, want ≤ 5", used)
+	}
+}
+
+func TestRenderAggregatedTimeline_ExpandedWithErrorBackground(t *testing.T) {
+	// 验证展开态 entry HasError → "✗" mark 可见
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 0, 0, true /*HasError*/, "err"),
+		},
+		StepCursor:        -1, // cursor 不在任何 entry
+		ExpandedAggGroups: map[int]bool{0: true},
+	}
+	filtered := []int{0}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 10, false, false)
+	if used != 2 { // header + 1 entry
+		t.Fatalf("linesUsed = %d, want 2", used)
+	}
+	out := b.String()
+	if !strings.Contains(out, "✗") {
+		t.Fatalf("expected error mark '✗' for HasError entry: %q", out)
+	}
+}
+
+func TestRenderAggregatedTimeline_ScrollStartGroupAdvances(t *testing.T) {
+	// 4 个折叠 group + listLines=2 → cursor 在 group 3（idx 150-199）
+	// 起点 startGi 应递增直到 [startGi..3] 总高度 ≤ 2 → startGi = 2
+	entries := make([]StepEntry, 200)
+	for i := range entries {
+		entries[i] = makeAggEntry(i+1, "tool_call", 0, 0, false, "")
+	}
+	filtered := make([]int, 200)
+	for i := range filtered {
+		filtered[i] = i
+	}
+	state := TimelineState{
+		StepEntries: entries,
+		StepCursor:  175, // cursorGroupIdx = 175/50 = 3
+	}
+	var b strings.Builder
+	used := RenderAggregatedTimeline(&b, state, filtered, 200, 2, false, false)
+	if used == 0 {
+		t.Fatal("expected output")
+	}
+	out := b.String()
+	// 应渲染 group 2 + group 3（起点向前移让 cursor group 进入视野）
+	// group 1 (Steps 1-50) 应不出现
+	if strings.Contains(out, "Steps 1-50") {
+		t.Fatalf("group 1 should be scrolled past · expected first 2 groups not in view: %q", out)
+	}
+	// cursor group "Steps 151-200" 应可见
+	if !strings.Contains(out, "Steps 151-200") {
+		t.Fatalf("expected cursor group 'Steps 151-200' in view: %q", out)
+	}
+}

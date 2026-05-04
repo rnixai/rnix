@@ -55,6 +55,20 @@ const (
 	stepEventImmune  = "immune"
 )
 
+// SlowStepThresholdMs 定义"慢 step"的判定阈值（毫秒 · 与 cmd/rnix
+// .slowStepThresholdMs 等价 · Story 38-5 PR11 Step 4(c) RenderAggregatedTimeline
+// 迁出时一并公开化）。
+//
+// 用途：duration 超过该阈值的 step 在 timeline 渲染中以警告色（#E5C07B 黄色 ·
+// duration 列前景色覆盖）显示，提示用户关注潜在性能瓶颈。
+//
+// 行为契约（不变性 · 与 cmd/rnix 端 const 完全等价）：
+//   - 单位：毫秒（float64 · 与 ipc.StepSummaryWire.DurationMs 类型一致）
+//   - 阈值：1000.0（即 1s · 经验值 · 落地 Story 27-3 / 36-3）
+//   - 比较语义：strict greater than（s.DurationMs > SlowStepThresholdMs）
+//   - 等于阈值时不上色（边界 case · 与 cmd/rnix 等价）
+const SlowStepThresholdMs = 1000.0
+
 // RenderStepFilterBar 渲染 timeline filter editing mode 的双行 header（与 cmd/rnix
 // .renderStepFilterBar 等价 · Story 38-5 PR11 Step 4(c) 第一个 timeline render
 // block 迁出 · 行为契约固化在 38-3 落地）。
@@ -517,4 +531,269 @@ func RenderExpandedDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse,
 	}
 
 	return lines
+}
+
+// AggGroupSize 定义 aggregation mode 的 step 分组大小（每 50 个连续 step 聚合为
+// 一个 group · 与 cmd/rnix.renderAggregatedTimeline 等价 · Story 27-3 落地）。
+//
+// 行为契约：固定值 50（不可调整 · 经验值 · 平衡渲染密度与上下文跳跃成本）。
+const AggGroupSize = 50
+
+// RenderAggregatedTimeline 渲染 timeline 的 aggregation mode（每 50 个 step
+// 聚合为 group · 折叠态显示 group 概要 · 展开态显示 group header + 个别 step 行）。
+//
+// **行为契约（不变性 · ATDD 27-3 + 36-3 + 36-4 测试覆盖）**：
+//   - Group 划分：按 filtered 数组顺序每 AggGroupSize=50 个连续 entry 切一个 group
+//     - g.firstStep / g.lastStep 取自 group 内第一个 / 最后一个 entry 的 step number
+//     - g.actionCounts 累计 group 内每种 action 出现次数
+//     - g.errCount / g.totalTokens 累计 HasError / TokenCount
+//   - Cursor group 计算：cursorFilterIdx = min(state.StepCursor, len(filtered)-1)
+//     · cursorGroupIdx = cursorFilterIdx / AggGroupSize · 越界 clamp 到 len(groups)-1
+//   - 滚动起点 startGi：从 0 开始递增 · 直到 [startGi..cursorGroupIdx] 总高度 ≤ listLines
+//     · 保证 cursor group 始终在视野内（与 cmd/rnix 等价）
+//   - 折叠态行（!ExpandedAggGroups[gi]）：1 行
+//     · cursorMark "▸ " 或 "  " · marker "▸"（cursor 在该 group 时退避为空格避免双 ▸）
+//     · "Steps {first}-{last}: <action-summary>[, {N} error(s)]<token>"
+//     · action-summary 按固定顺序 [tool_call/plan/text/spawn/specialize/replan/complete]
+//       渲染（每个 type 用 ActionColor 上色 · 跳过 count==0）
+//     · cursor 在 group 内 → 整行 #2D2D3D 背景 + #FFFFFF 前景高亮
+//   - 展开态（ExpandedAggGroups[gi]==true）：1 行 header + N 行 entries
+//     · header "  ▾ Steps {first}-{last}"（Muted 灰色）
+//     · entry 行同 RenderStepTimeline 的 collapsed entry 格式（步号 + abbrev +
+//       optional token + optional duration + optional ✗ + summary）
+//     · summary 优先 ToolPath（当 Summary 长度 < 8 时）
+//     · duration 列：超过 SlowStepThresholdMs 用 #E5C07B 黄色提示
+//     · HasError → 整行 #3D1F1F 背景 · cursor → #2D2D3D 背景 + #FFFFFF 前景
+//   - linesUsed 上限 listLines · 每写一行后先检查再继续
+//
+// **依赖（全部已迁出至 timeline 包）**：ActionColor / ActionAbbrev /
+// FormatTokenCount / FormatDurationMs / TruncateAnsi / TruncateRuneWidth /
+// SlowStepThresholdMs · 跨包仅依赖 internal/ui (ColorError / ColorMuted) +
+// lipgloss · 零 cmd/rnix 反向依赖。
+//
+// **签名设计**：
+//   - 接受 TimelineState（值类型 · 仅读 StepEntries / StepCursor /
+//     ExpandedAggGroups 三个字段 · 不修改）
+//   - 返回 linesUsed（实际写入行数 · 调用方用于后续布局计算）
+//   - 写入 *strings.Builder（与 cmd/rnix.renderAggregatedTimeline 同模式 ·
+//     避免大字符串拷贝 · 调用方负责 b 的生命周期）
+func RenderAggregatedTimeline(b *strings.Builder, state TimelineState, filtered []int, truncW, listLines int, showToken, showDuration bool) int {
+	// dimStyle 使用 #888888 而非 ui.ColorMuted (#666666) · 与 cmd/rnix
+	// .renderAggregatedTimeline 1:1 行为等价（aggregation mode 用稍亮的灰色 ·
+	// 与 step entry 行 dim style 区分 · ATDD 27-3 视觉契约）。
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+
+	type aggGroup struct {
+		startIdx     int // index in filtered array
+		endIdx       int // exclusive
+		firstStep    int // step number of first entry
+		lastStep     int // step number of last entry
+		actionCounts map[string]int
+		errCount     int
+		totalTokens  int
+	}
+
+	// Build groups
+	var groups []aggGroup
+	for i := 0; i < len(filtered); i += AggGroupSize {
+		end := min(i+AggGroupSize, len(filtered))
+		g := aggGroup{
+			startIdx:     i,
+			endIdx:       end,
+			actionCounts: make(map[string]int),
+		}
+		for fi := i; fi < end; fi++ {
+			entry := state.StepEntries[filtered[fi]]
+			s := entry.Summary
+			if fi == i {
+				g.firstStep = s.Step
+			}
+			g.lastStep = s.Step
+			g.actionCounts[s.Action]++
+			if s.HasError {
+				g.errCount++
+			}
+			g.totalTokens += s.TokenCount
+		}
+		groups = append(groups, g)
+	}
+
+	linesUsed := 0
+	cursorFilterIdx := min(state.StepCursor, len(filtered)-1)
+
+	// F3: Calculate group heights and find start group for viewport scrolling
+	cursorGroupIdx := 0
+	if cursorFilterIdx >= 0 && AggGroupSize > 0 {
+		cursorGroupIdx = cursorFilterIdx / AggGroupSize
+	}
+	if cursorGroupIdx >= len(groups) {
+		cursorGroupIdx = max(len(groups)-1, 0)
+	}
+
+	groupHeights := make([]int, len(groups))
+	for gi, g := range groups {
+		if state.ExpandedAggGroups[gi] {
+			groupHeights[gi] = 1 + (g.endIdx - g.startIdx) // header + entries
+		} else {
+			groupHeights[gi] = 1
+		}
+	}
+
+	// Find start group: scroll forward until cursor group fits in view
+	startGi := 0
+	for startGi < cursorGroupIdx {
+		linesFromStart := 0
+		for gi := startGi; gi <= cursorGroupIdx; gi++ {
+			linesFromStart += groupHeights[gi]
+		}
+		if linesFromStart <= listLines {
+			break
+		}
+		startGi++
+	}
+
+	for gi := startGi; gi < len(groups) && linesUsed < listLines; gi++ {
+		g := groups[gi]
+		if linesUsed >= listLines {
+			break
+		}
+
+		isExpanded := state.ExpandedAggGroups[gi]
+		// Check if cursor is in this group
+		cursorInGroup := cursorFilterIdx >= g.startIdx && cursorFilterIdx < g.endIdx
+
+		if !isExpanded {
+			// Render aggregation summary line
+			marker := "▸"
+			cursorMark := "  "
+			if cursorInGroup {
+				cursorMark = "▸ "
+				marker = " " // cursor mark replaces fold marker to avoid double ▸
+			}
+
+			// Build action summary
+			var actionParts []string
+			for _, action := range []string{"tool_call", "plan", "text", "spawn", "specialize", "replan", "complete"} {
+				if c, ok := g.actionCounts[action]; ok && c > 0 {
+					color := ActionColor(action)
+					label := ActionAbbrev(action)
+					actionParts = append(actionParts, lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%d %s", c, label)))
+				}
+			}
+			actionSummary := strings.Join(actionParts, ", ")
+
+			errPart := ""
+			if g.errCount > 0 {
+				noun := "error"
+				if g.errCount > 1 {
+					noun = "errors"
+				}
+				errPart = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf(", %d %s", g.errCount, noun))
+			}
+
+			line := fmt.Sprintf("%s%s Steps %d-%d: %s%s",
+				cursorMark, marker, g.firstStep, g.lastStep, actionSummary, errPart)
+
+			if showToken && g.totalTokens > 0 {
+				line += dimStyle.Render(fmt.Sprintf("  %s", FormatTokenCount(g.totalTokens)))
+			}
+
+			if cursorInGroup {
+				line = lipgloss.NewStyle().
+					Background(lipgloss.Color("#2D2D3D")).
+					Foreground(lipgloss.Color("#FFFFFF")).
+					Render(line)
+			}
+
+			b.WriteString(TruncateAnsi(line, truncW))
+			b.WriteString("\n")
+			linesUsed++
+		} else {
+			// Render expanded: group header + individual steps
+			header := fmt.Sprintf("  ▾ Steps %d-%d", g.firstStep, g.lastStep)
+			b.WriteString(dimStyle.Render(header))
+			b.WriteString("\n")
+			linesUsed++
+
+			for fi := g.startIdx; fi < g.endIdx && linesUsed < listLines; fi++ {
+				idx := filtered[fi]
+				entry := state.StepEntries[idx]
+				s := entry.Summary
+
+				cursorMark := "  "
+				if fi == state.StepCursor {
+					cursorMark = "▸ "
+				}
+
+				stepAction := dimStyle.Render(fmt.Sprintf("%d %s", s.Step, ActionAbbrev(s.Action)))
+
+				var tokenLabel string
+				if showToken {
+					if s.TokenCount == 0 {
+						tokenLabel = dimStyle.Render("    —")
+					} else {
+						tokenLabel = dimStyle.Render(fmt.Sprintf("%5s", FormatTokenCount(s.TokenCount)))
+					}
+				}
+
+				var durLabel string
+				if showDuration {
+					dur := FormatDurationMs(s.DurationMs)
+					durStyle := dimStyle
+					if s.DurationMs > SlowStepThresholdMs {
+						durStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5C07B"))
+					}
+					durLabel = durStyle.Render(fmt.Sprintf("%6s", dur))
+				}
+
+				errMark := ""
+				if s.HasError {
+					errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
+				}
+
+				displaySummary := s.Summary
+				if s.ToolPath != "" && len(s.Summary) < 8 {
+					displaySummary = s.ToolPath
+				}
+				fixedWidth := 2 + 1 + 1 + 5
+				if showToken {
+					fixedWidth += 6
+				}
+				if showDuration {
+					fixedWidth += 7
+				}
+				if s.HasError {
+					fixedWidth += 2
+				}
+				summaryW := max(truncW-fixedWidth, 10)
+				summaryText := TruncateRuneWidth(displaySummary, summaryW)
+
+				var parts []string
+				parts = append(parts, cursorMark, " ", summaryText)
+				if showDuration {
+					parts = append(parts, tokenLabel, durLabel, stepAction, errMark)
+				} else if showToken {
+					parts = append(parts, tokenLabel, stepAction, errMark)
+				} else {
+					parts = append(parts, stepAction, errMark)
+				}
+				line := strings.Join(parts, " ")
+
+				if s.HasError {
+					line = lipgloss.NewStyle().Background(lipgloss.Color("#3D1F1F")).Render(line)
+				} else if fi == state.StepCursor {
+					line = lipgloss.NewStyle().
+						Background(lipgloss.Color("#2D2D3D")).
+						Foreground(lipgloss.Color("#FFFFFF")).
+						Render(line)
+				}
+
+				b.WriteString(TruncateAnsi(line, truncW))
+				b.WriteString("\n")
+				linesUsed++
+			}
+		}
+	}
+
+	return linesUsed
 }
