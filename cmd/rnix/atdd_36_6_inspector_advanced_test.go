@@ -276,10 +276,10 @@ func TestATDD_36_6_AC6_ReverseSearch(t *testing.T) {
 
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: '?', Text: "?"})
 	mm := m2.(dashboardModel)
-	if !mm.searchMode {
+	if !mm.search.Mode {
 		t.Fatal("searchMode should be true after `?`")
 	}
-	if !mm.searchReverse {
+	if !mm.search.Reverse {
 		t.Error("searchReverse should be true after `?`")
 	}
 	for _, c := range "foo" {
@@ -288,21 +288,21 @@ func TestATDD_36_6_AC6_ReverseSearch(t *testing.T) {
 	}
 	m4, _ := mm.inspectorKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	mm = m4.(dashboardModel)
-	if mm.searchMode {
+	if mm.search.Mode {
 		t.Fatal("searchMode should clear after Enter")
 	}
-	if len(mm.searchMatches) != 2 {
-		t.Fatalf("expected 2 matches; got %d", len(mm.searchMatches))
+	if len(mm.search.Matches) != 2 {
+		t.Fatalf("expected 2 matches; got %d", len(mm.search.Matches))
 	}
 	// Reverse search starts at the last match.
-	if mm.searchMatchIdx != 1 {
-		t.Errorf("expected matchIdx=1 (last match) on reverse, got %d", mm.searchMatchIdx)
+	if mm.search.MatchIdx != 1 {
+		t.Errorf("expected matchIdx=1 (last match) on reverse, got %d", mm.search.MatchIdx)
 	}
 	// `n` in reverse mode jumps to the previous match (idx 0).
 	m5, _ := mm.inspectorKey(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	mm = m5.(dashboardModel)
-	if mm.searchMatchIdx != 0 {
-		t.Errorf("reverse `n` should decrement matchIdx; got %d", mm.searchMatchIdx)
+	if mm.search.MatchIdx != 0 {
+		t.Errorf("reverse `n` should decrement matchIdx; got %d", mm.search.MatchIdx)
 	}
 }
 

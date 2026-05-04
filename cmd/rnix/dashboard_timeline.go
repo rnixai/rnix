@@ -228,10 +228,10 @@ func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
 	m.timeline.ExpandMode = expandModeCollapsed
 	// Story 36-5 P-1: search state is per-process; reset to avoid carrying a
 	// stale "ghost input mode" or stale matches across PID switches.
-	m.searchMode = false
-	m.searchQuery = ""
-	m.searchMatches = nil
-	m.searchMatchIdx = 0
+	m.search.Mode = false
+	m.search.Query = ""
+	m.search.Matches = nil
+	m.search.MatchIdx = 0
 	return m
 }
 
@@ -241,7 +241,7 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		return m.handleStepFilterKey(key)
 	}
 	// Story 36-5: search input mode for Timeline
-	if m.searchMode {
+	if m.search.Mode {
 		return m.handleTimelineSearchKey(key)
 	}
 	filtered := m.filteredUnifiedEvents()
@@ -273,8 +273,8 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	switch key {
 	case "/":
 		// Story 36-5: enter search input mode (Timeline).
-		m.searchMode = true
-		m.searchQuery = ""
+		m.search.Mode = true
+		m.search.Query = ""
 		return m
 	case "f":
 		m.timeline.StepFilterMode = true
@@ -333,10 +333,10 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	case "n":
 		// Story 36-5 P-7: when a search is active, n cycles to the next match.
 		// Otherwise, fall back to the legacy "next error" semantics (AC-5).
-		if len(m.searchMatches) > 0 {
-			n := len(m.searchMatches)
-			m.searchMatchIdx = (m.searchMatchIdx + 1) % n
-			m.timeline.StepCursor = m.searchMatches[m.searchMatchIdx]
+		if len(m.search.Matches) > 0 {
+			n := len(m.search.Matches)
+			m.search.MatchIdx = (m.search.MatchIdx + 1) % n
+			m.timeline.StepCursor = m.search.Matches[m.search.MatchIdx]
 			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 			break
 		}
@@ -361,10 +361,10 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		}
 	case "N", "shift+N":
 		// Story 36-5 P-7: same modal split for N (previous match vs previous error).
-		if len(m.searchMatches) > 0 {
-			n := len(m.searchMatches)
-			m.searchMatchIdx = ((m.searchMatchIdx-1)%n + n) % n
-			m.timeline.StepCursor = m.searchMatches[m.searchMatchIdx]
+		if len(m.search.Matches) > 0 {
+			n := len(m.search.Matches)
+			m.search.MatchIdx = ((m.search.MatchIdx-1)%n + n) % n
+			m.timeline.StepCursor = m.search.Matches[m.search.MatchIdx]
 			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 			break
 		}
@@ -396,16 +396,16 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
 	switch key {
 	case "esc":
-		m.searchMode = false
-		m.searchQuery = ""
+		m.search.Mode = false
+		m.search.Query = ""
 	case "enter":
-		m.searchMode = false
-		if m.searchQuery == "" {
+		m.search.Mode = false
+		if m.search.Query == "" {
 			return m
 		}
 		// Story 36-5 P-7: collect ALL match indices (not just the first), so n/N
 		// can cycle through them per the modal n/N semantics.
-		q := strings.ToLower(m.searchQuery)
+		q := strings.ToLower(m.search.Query)
 		filtered := m.filteredUnifiedEvents()
 		var matches []int
 		for i, ev := range filtered {
@@ -418,24 +418,24 @@ func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
 			}
 		}
 		if len(matches) == 0 {
-			m.statusMsg = fmt.Sprintf("No matches for %q", m.searchQuery)
+			m.statusMsg = fmt.Sprintf("No matches for %q", m.search.Query)
 			m.statusMsgTTL = statusMsgDefaultTTL
 			return m
 		}
-		m.searchMatches = matches
-		m.searchMatchIdx = 0
+		m.search.Matches = matches
+		m.search.MatchIdx = 0
 		m.timeline.StepCursor = matches[0]
 		m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 	case "backspace":
-		runes := []rune(m.searchQuery)
+		runes := []rune(m.search.Query)
 		if len(runes) > 0 {
-			m.searchQuery = string(runes[:len(runes)-1])
+			m.search.Query = string(runes[:len(runes)-1])
 		}
 	case " ", "space":
-		m.searchQuery += " "
+		m.search.Query += " "
 	default:
 		if len([]rune(key)) == 1 {
-			m.searchQuery += key
+			m.search.Query += key
 		}
 	}
 	return m

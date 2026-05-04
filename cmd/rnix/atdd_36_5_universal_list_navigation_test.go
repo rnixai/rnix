@@ -258,7 +258,7 @@ func TestATDD_36_5_AC12_SearchBasic(t *testing.T) {
 	// "/" enters search mode
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '/'})
 	mm := m2.(dashboardModel)
-	if !mm.searchMode {
+	if !mm.search.Mode {
 		t.Fatal("searchMode should be true after /")
 	}
 	// Type "foo"
@@ -266,29 +266,29 @@ func TestATDD_36_5_AC12_SearchBasic(t *testing.T) {
 		m3, _ := mm.Update(tea.KeyPressMsg{Code: c, Text: string(c)})
 		mm = m3.(dashboardModel)
 	}
-	if mm.searchQuery != "foo" {
-		t.Fatalf("searchQuery=%q want foo", mm.searchQuery)
+	if mm.search.Query != "foo" {
+		t.Fatalf("searchQuery=%q want foo", mm.search.Query)
 	}
 	// Enter confirms
 	m4, _ := mm.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	mm = m4.(dashboardModel)
-	if mm.searchMode {
+	if mm.search.Mode {
 		t.Fatal("searchMode should be false after Enter")
 	}
-	if len(mm.searchMatches) != 2 {
-		t.Fatalf("expected 2 matches; got %d", len(mm.searchMatches))
+	if len(mm.search.Matches) != 2 {
+		t.Fatalf("expected 2 matches; got %d", len(mm.search.Matches))
 	}
 	// n → next match
-	prevIdx := mm.searchMatchIdx
+	prevIdx := mm.search.MatchIdx
 	m5, _ := mm.Update(tea.KeyPressMsg{Code: 'n'})
 	mm = m5.(dashboardModel)
-	if mm.searchMatchIdx == prevIdx {
+	if mm.search.MatchIdx == prevIdx {
 		t.Error("n should advance searchMatchIdx")
 	}
 	// Esc clears search
 	m6, _ := mm.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	mm = m6.(dashboardModel)
-	if mm.searchQuery != "" || len(mm.searchMatches) != 0 {
+	if mm.search.Query != "" || len(mm.search.Matches) != 0 {
 		t.Error("Esc should clear search")
 	}
 }

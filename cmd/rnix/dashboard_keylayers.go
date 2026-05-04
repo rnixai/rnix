@@ -283,11 +283,11 @@ func registerLayer0(d *ui.Dispatcher) {
 		}
 		// viewExpanded: layered escape (search → trace tree → tree search → restore)
 		if m.viewMode == viewExpanded {
-			if m.searchMode {
-				m.searchMode = false
-				m.searchQuery = ""
-				m.searchMatches = nil
-				m.searchMatchIdx = 0
+			if m.search.Mode {
+				m.search.Mode = false
+				m.search.Query = ""
+				m.search.Matches = nil
+				m.search.MatchIdx = 0
 				return true, m, nil
 			}
 			if m.activePane == paneTrace && m.trace.ViewMode != 0 {

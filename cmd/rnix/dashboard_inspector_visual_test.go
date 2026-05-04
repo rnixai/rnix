@@ -558,7 +558,7 @@ func TestFindInspectorMatchesByPos_CaseInsensitive(t *testing.T) {
 // only the matched substring is reverse-highlighted.
 func TestRebuildInspectorContents_WordLevelSearch(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.searchQuery = "auth"
+	m.search.Query = "auth"
 	m.inspector.Contents[m.inspector.Lens] = "authentication failed\nrandom line"
 	m.refreshInspectorSearchMatches()
 

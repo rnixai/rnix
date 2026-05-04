@@ -65,13 +65,13 @@ func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
 	m.inspector.SystemExpanded = false
 	// Story 36-5 fix: reset cross-pane search state when entering Inspector to
 	// avoid stale searchQuery carried over from Timeline.
-	m.searchMode = false
-	m.searchQuery = ""
-	m.searchMatches = nil
+	m.search.Mode = false
+	m.search.Query = ""
+	m.search.Matches = nil
 	m.inspector.SearchPos = nil
-	m.searchMatchIdx = 0
-	m.searchReverse = false
-	m.searchCrossLens = false
+	m.search.MatchIdx = 0
+	m.search.Reverse = false
+	m.search.CrossLens = false
 	// Story 36-6: reset diff/follow state on entry.
 	m.inspector.DiffMode = false
 	m.inspector.DiffBase = 0
@@ -160,7 +160,7 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Story 36-5: search mode input handling takes priority.
-	if m.searchMode {
+	if m.search.Mode {
 		return m.handleInspectorSearchKey(key)
 	}
 
@@ -169,12 +169,12 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc":
 		// Clear active search highlights before closing
-		if m.searchQuery != "" {
-			m.searchQuery = ""
-			m.searchMatches = nil
+		if m.search.Query != "" {
+			m.search.Query = ""
+			m.search.Matches = nil
 			m.inspector.SearchPos = nil
-			m.searchMatchIdx = 0
-			m.searchReverse = false
+			m.search.MatchIdx = 0
+			m.search.Reverse = false
 			m.rebuildInspectorContents()
 			return m, nil
 		}
@@ -324,13 +324,13 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// path and renders raw content. Without this, the next FindMatches runs
 		// over content that already contains reverse-render ANSI escapes from
 		// the prior search, causing phantom matches on `\x1b[7m`.
-		hadPrior := m.searchQuery != ""
-		m.searchMode = true
-		m.searchQuery = ""
-		m.searchMatches = nil
+		hadPrior := m.search.Query != ""
+		m.search.Mode = true
+		m.search.Query = ""
+		m.search.Matches = nil
 		m.inspector.SearchPos = nil
-		m.searchMatchIdx = 0
-		m.searchReverse = false
+		m.search.MatchIdx = 0
+		m.search.Reverse = false
 		if hadPrior {
 			m.rebuildInspectorContents()
 		}
@@ -339,13 +339,13 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Story 36-6: Reverse search `?`
 	case "?":
 		m = m.stopFollowLiveWithStatus()
-		hadPrior := m.searchQuery != ""
-		m.searchMode = true
-		m.searchQuery = ""
-		m.searchMatches = nil
+		hadPrior := m.search.Query != ""
+		m.search.Mode = true
+		m.search.Query = ""
+		m.search.Matches = nil
 		m.inspector.SearchPos = nil
-		m.searchMatchIdx = 0
-		m.searchReverse = true
+		m.search.MatchIdx = 0
+		m.search.Reverse = true
 		if hadPrior {
 			m.rebuildInspectorContents()
 		}
@@ -353,7 +353,7 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Story 36-6: Ctrl-/ cross-lens search placeholder (Story 36-7)
 	case "ctrl+_", "ctrl+/":
-		m.searchCrossLens = true
+		m.search.CrossLens = true
 		m.statusMsg = "Cross-lens search: TODO (Story 36-7)"
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
@@ -411,50 +411,50 @@ func (m dashboardModel) stopFollowLiveWithStatus() dashboardModel {
 func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
-		m.searchMode = false
-		m.searchQuery = ""
-		m.searchMatches = nil
+		m.search.Mode = false
+		m.search.Query = ""
+		m.search.Matches = nil
 		m.inspector.SearchPos = nil
-		m.searchMatchIdx = 0
-		m.searchReverse = false
+		m.search.MatchIdx = 0
+		m.search.Reverse = false
 		m.rebuildInspectorContents()
 		return m, nil
 	case "enter":
-		m.searchMode = false
+		m.search.Mode = false
 		// Story 36-5 P-3: empty-query short-circuit (parity with Timeline). Without
 		// this guard, FindMatches("") returns nil and we'd spam "No matches for """.
-		if m.searchQuery == "" {
+		if m.search.Query == "" {
 			return m, nil
 		}
 		m.refreshInspectorSearchMatches()
-		if len(m.searchMatches) == 0 {
-			m.statusMsg = fmt.Sprintf("No matches for %q", m.searchQuery)
+		if len(m.search.Matches) == 0 {
+			m.statusMsg = fmt.Sprintf("No matches for %q", m.search.Query)
 			m.statusMsgTTL = statusMsgDefaultTTL
 			// Story 36-6: TTL for "No matches" notice
-			m.searchNoMatchExpireAt = time.Now().Add(3 * time.Second)
+			m.search.NoMatchExpireAt = time.Now().Add(3 * time.Second)
 			return m, nil
 		}
 		// Story 36-6 AC-6: reverse search jumps to the last match first.
-		if m.searchReverse {
-			m.searchMatchIdx = len(m.searchMatches) - 1
+		if m.search.Reverse {
+			m.search.MatchIdx = len(m.search.Matches) - 1
 		} else {
-			m.searchMatchIdx = 0
+			m.search.MatchIdx = 0
 		}
 		m.rebuildInspectorContents()
 		m.scrollInspectorToCurrentMatch()
 		return m, nil
 	case "backspace":
-		runes := []rune(m.searchQuery)
+		runes := []rune(m.search.Query)
 		if len(runes) > 0 {
-			m.searchQuery = string(runes[:len(runes)-1])
+			m.search.Query = string(runes[:len(runes)-1])
 		}
 		return m, nil
 	case " ", "space":
-		m.searchQuery += " "
+		m.search.Query += " "
 		return m, nil
 	default:
 		if len([]rune(key)) == 1 {
-			m.searchQuery += key
+			m.search.Query += key
 		}
 		return m, nil
 	}
@@ -462,9 +462,9 @@ func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd
 
 func (m *dashboardModel) refreshInspectorSearchMatches() {
 	content := m.inspector.Contents[m.inspector.Lens]
-	m.searchMatches = ui.FindMatches(content, m.searchQuery)
+	m.search.Matches = ui.FindMatches(content, m.search.Query)
 	// Story 38-3 AC#8: also collect byte positions for word-level highlighting.
-	m.inspector.SearchPos = findInspectorMatchesByPos(content, m.searchQuery)
+	m.inspector.SearchPos = findInspectorMatchesByPos(content, m.search.Query)
 }
 
 // findInspectorMatchesByPos locates every case-insensitive substring match of
@@ -513,35 +513,35 @@ func findInspectorMatchesByPos(content, query string) []searchMatchPos {
 // clearSearchState resets dashboard search-related fields. Used when leaving
 // search context due to pane / mode change. Story 36-5 P-1.
 func (m dashboardModel) clearSearchState() dashboardModel {
-	m.searchMode = false
-	m.searchQuery = ""
-	m.searchMatches = nil
+	m.search.Mode = false
+	m.search.Query = ""
+	m.search.Matches = nil
 	m.inspector.SearchPos = nil
-	m.searchMatchIdx = 0
-	m.searchReverse = false
-	m.searchCrossLens = false
+	m.search.MatchIdx = 0
+	m.search.Reverse = false
+	m.search.CrossLens = false
 	return m
 }
 
 func (m dashboardModel) inspectorJumpSearchMatch(dir int) dashboardModel {
-	if len(m.searchMatches) == 0 {
+	if len(m.search.Matches) == 0 {
 		return m
 	}
 	// Story 36-6 AC-6: reverse search flips n/N semantics.
-	if m.searchReverse {
+	if m.search.Reverse {
 		dir = -dir
 	}
-	n := len(m.searchMatches)
-	m.searchMatchIdx = ((m.searchMatchIdx+dir)%n + n) % n
+	n := len(m.search.Matches)
+	m.search.MatchIdx = ((m.search.MatchIdx+dir)%n + n) % n
 	m.scrollInspectorToCurrentMatch()
 	return m
 }
 
 func (m *dashboardModel) scrollInspectorToCurrentMatch() {
-	if len(m.searchMatches) == 0 {
+	if len(m.search.Matches) == 0 {
 		return
 	}
-	line := m.searchMatches[m.searchMatchIdx]
+	line := m.search.Matches[m.search.MatchIdx]
 	vp := m.inspector.Viewports[m.inspector.Lens]
 	vp.SetYOffset(line)
 	m.inspector.Viewports[m.inspector.Lens] = vp
@@ -558,18 +558,18 @@ func (m dashboardModel) switchInspectorLens(lens inspectorLens) dashboardModel {
 	}
 	// Story 36-6 fix (AC-9): search matches are line-indexed per lens; rebuild
 	// them before rebuildInspectorContents so highlights stay correct.
-	if m.searchQuery != "" {
+	if m.search.Query != "" {
 		// Rebuild without highlights first so FindMatches sees raw content; the
 		// subsequent rebuildInspectorContents re-applies highlights.
 		content := m.buildLensContent(lens, m.inspector.Detail, m.inspector.PrevDetail)
 		m.inspector.Contents[lens] = content
-		m.searchMatches = ui.FindMatches(content, m.searchQuery)
+		m.search.Matches = ui.FindMatches(content, m.search.Query)
 		// Story 38-3 AC#8: keep word-level positions in sync with line matches.
-		m.inspector.SearchPos = findInspectorMatchesByPos(content, m.searchQuery)
-		if len(m.searchMatches) == 0 {
-			m.searchMatchIdx = 0
-		} else if m.searchMatchIdx >= len(m.searchMatches) {
-			m.searchMatchIdx = len(m.searchMatches) - 1
+		m.inspector.SearchPos = findInspectorMatchesByPos(content, m.search.Query)
+		if len(m.search.Matches) == 0 {
+			m.search.MatchIdx = 0
+		} else if m.search.MatchIdx >= len(m.search.Matches) {
+			m.search.MatchIdx = len(m.search.Matches) - 1
 		}
 	}
 	m.rebuildInspectorContents()
@@ -1166,25 +1166,25 @@ func (m *dashboardModel) refreshInspectorDiffLensMarks() {
 func (m dashboardModel) renderInspectorFooter() string {
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	// Story 36-5: search overlay takes over the footer while active.
-	if m.searchMode {
+	if m.search.Mode {
 		prefix := "/"
-		if m.searchReverse {
+		if m.search.Reverse {
 			prefix = "?"
 		}
-		return fmt.Sprintf(" Search: %s%s_", prefix, m.searchQuery)
+		return fmt.Sprintf(" Search: %s%s_", prefix, m.search.Query)
 	}
 	// Story 36-6: diff-mode status line
 	if m.inspector.DiffMode {
 		return dimStyle.Render(fmt.Sprintf(" Diff: step %d vs %d (dd to pick base, Esc/d to exit)", m.inspector.Step, m.inspector.DiffBase))
 	}
 	// Story 36-6: show Match X/Y counter when a search is active
-	if m.searchQuery != "" && len(m.searchMatches) > 0 {
+	if m.search.Query != "" && len(m.search.Matches) > 0 {
 		return dimStyle.Render(fmt.Sprintf(" /%s  Match %d/%d  n/N next/prev · Esc clear",
-			m.searchQuery, m.searchMatchIdx+1, len(m.searchMatches)))
+			m.search.Query, m.search.MatchIdx+1, len(m.search.Matches)))
 	}
 	// Story 36-6: show "No matches" TTL notice
-	if !m.searchNoMatchExpireAt.IsZero() && time.Now().Before(m.searchNoMatchExpireAt) && m.searchQuery != "" {
-		return dimStyle.Render(fmt.Sprintf(" /%s  No matches · Esc clear", m.searchQuery))
+	if !m.search.NoMatchExpireAt.IsZero() && time.Now().Before(m.search.NoMatchExpireAt) && m.search.Query != "" {
+		return dimStyle.Render(fmt.Sprintf(" /%s  No matches · Esc clear", m.search.Query))
 	}
 	return dimStyle.Render(" h/l step · 1-5 lens · j/k scroll · / ? search · d diff · F follow · y copy · o open · Esc back")
 }
@@ -1218,8 +1218,8 @@ func (m *dashboardModel) rebuildInspectorContents() {
 			content = m.buildLensContent(inspectorLens(i), m.inspector.Detail, m.inspector.PrevDetail)
 		}
 		// Story 38-3 AC#8: word-level reverse-video highlight on the active lens.
-		if inspectorLens(i) == m.inspector.Lens && m.searchQuery != "" && len(m.inspector.SearchPos) > 0 {
-			content = applyWordLevelHighlight(content, m.inspector.SearchPos, m.searchMatches, m.searchMatchIdx, curStyle, otherStyle)
+		if inspectorLens(i) == m.inspector.Lens && m.search.Query != "" && len(m.inspector.SearchPos) > 0 {
+			content = applyWordLevelHighlight(content, m.inspector.SearchPos, m.search.Matches, m.search.MatchIdx, curStyle, otherStyle)
 		}
 		m.inspector.Contents[i] = content
 		m.inspector.Viewports[i].SetContent(content)

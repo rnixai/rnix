@@ -28,14 +28,16 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
+	"github.com/rnixai/rnix/internal/dashboard/plugin"
 )
 
-// 编译期断言：InspectorModel 满足 OverlayModel + StateProvider 接口契约。
+// 编译期断言：InspectorModel 满足 OverlayModel + StateProvider + plugin.Searchable 接口契约。
 //
 // 任何接口变更（例如新增方法）会让此处编译失败 · 防止悄悄破坏契约（Story 38-5 PR2-PR9 同模式）。
 var (
 	_ dashboardmodel.OverlayModel = (*InspectorModel)(nil)
 	_ StateProvider               = (*InspectorModel)(nil)
+	_ plugin.Searchable           = (*InspectorModel)(nil)
 )
 
 // InspectorModel 实现 OverlayModel interface（PR10 Step 3 阶段最小实现 · render 主体留 PR11）。

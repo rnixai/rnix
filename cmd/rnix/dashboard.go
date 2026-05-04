@@ -18,6 +18,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/eval"
 	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
+	"github.com/rnixai/rnix/internal/dashboard/plugin"
 	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/trace"
@@ -82,16 +83,12 @@ type dashboardModel struct {
 	// 字段 + 38-3 AC#7/#8 lens marks + byte search 2 字段 = 25 字段（spec § AC6 line 165 列举）。
 	inspector inspector.InspectorState
 
-	// Story 36-5: Universal search state (Inspector + Timeline)
-	searchMode     bool
-	searchQuery    string
-	searchMatches  []int
-	searchMatchIdx int
-
-	// Story 36-6: Search enhancements
-	searchReverse         bool      // true for reverse `?` search (n/N reversed)
-	searchCrossLens       bool      // placeholder — Ctrl-/ cross-lens (TODO, Story 36-7)
-	searchNoMatchExpireAt time.Time // TTL for the status-bar "No matches" notice
+	// Story 38-5 PR10 Step 4: SearchPlugin 抽离（7 字段 · spec § AC6 + § 04 风险 3）
+	// 抽出 dashboardModel.search{Mode/Query/Matches/MatchIdx/Reverse/CrossLens/NoMatchExpireAt}
+	// 7 字段到 internal/dashboard/plugin.SearchPlugin。SearchPlugin 通过 plugin.Searchable
+	// interface 与 InspectorModel + TimelineModel 解耦（避免直接读子 Model 私有字段）。
+	// Story 36-5 / 36-6 跨 pane 搜索行为完全保留。
+	search plugin.SearchPlugin
 
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
