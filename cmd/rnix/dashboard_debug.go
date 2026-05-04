@@ -305,11 +305,13 @@ func straceToUnifiedEvent(sew ipc.SyscallEventWire) UnifiedEvent {
 
 // --- Ring buffer ---
 
+// appendStraceEvent — thin wrapper · 见 internal/dashboard/debug.AppendStraceEvent.
+//
+// Story 38-5 PR11 Step 4(c)：核心环形缓冲逻辑迁至 internal/dashboard/debug.AppendStraceEvent
+// （0 cmd/rnix 反向依赖 · 与 ClampCursor 同模式）· cmd/rnix wrapper 仅保留
+// receiver `(m *dashboardModel)` 让 ~2 处 callsite（dashboard_debug.go × 2）零修改通过。
 func (m *dashboardModel) appendStraceEvent(ev UnifiedEvent) {
-	m.debugState.StraceEvents = append(m.debugState.StraceEvents, ev)
-	if len(m.debugState.StraceEvents) > maxDebugStraceEvents {
-		m.debugState.StraceEvents = m.debugState.StraceEvents[len(m.debugState.StraceEvents)-maxDebugStraceEvents:]
-	}
+	m.debugState = dashboarddebug.AppendStraceEvent(m.debugState, ev)
 }
 
 // --- Device latency ---

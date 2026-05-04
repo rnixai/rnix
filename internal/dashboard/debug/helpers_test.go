@@ -188,6 +188,118 @@ func TestRenderStepLine_ToolPathNotReplacingLongSummary(t *testing.T) {
 	}
 }
 
+// ----- AppendStraceEvent 行为测试（Story 38-5 PR11 Step 4(c) debug pane strace pipeline helper） -----
+//
+// 覆盖矩阵：
+//   - StraceEvents nil → append 自动初始化（Go append 语义 · nil safe）
+//   - len < MaxStraceEvents → 直接 append（无截断）
+//   - len == MaxStraceEvents → append 后保留末尾 MaxStraceEvents 条 / 丢弃最早（FIFO）
+//   - 远超 MaxStraceEvents（连续 append N+50） → 始终保留末尾 MaxStraceEvents 条
+//   - 截断后保留的元素与最近 MaxStraceEvents 个 append 一致（顺序契约）
+//   - 其他 DebugState 字段（Mode/Cursor/AttachedPID 等）一律保留
+
+func TestAppendStraceEvent_NilStraceEventsInit(t *testing.T) {
+	state := DebugState{StraceEvents: nil}
+	ev := event.UnifiedEvent{Type: event.EventSyscall, Summary: "first"}
+	got := AppendStraceEvent(state, ev)
+	if len(got.StraceEvents) != 1 {
+		t.Fatalf("nil init: len = %d, want 1", len(got.StraceEvents))
+	}
+	if got.StraceEvents[0].Summary != "first" {
+		t.Errorf("nil init: Summary = %q, want 'first'", got.StraceEvents[0].Summary)
+	}
+}
+
+func TestAppendStraceEvent_AppendsBelowCap(t *testing.T) {
+	state := DebugState{}
+	for i := range 5 {
+		state = AppendStraceEvent(state, event.UnifiedEvent{Summary: "ev"})
+		_ = i
+	}
+	if len(state.StraceEvents) != 5 {
+		t.Errorf("below cap: len = %d, want 5", len(state.StraceEvents))
+	}
+}
+
+func TestAppendStraceEvent_TrimsAtCap(t *testing.T) {
+	// 灌满到 MaxStraceEvents 后再 append 一条 → 长度仍是 MaxStraceEvents · 头被丢弃
+	state := DebugState{}
+	for i := range MaxStraceEvents {
+		state = AppendStraceEvent(state, event.UnifiedEvent{Summary: "old"})
+		_ = i
+	}
+	if len(state.StraceEvents) != MaxStraceEvents {
+		t.Fatalf("fill: len = %d, want %d", len(state.StraceEvents), MaxStraceEvents)
+	}
+	state = AppendStraceEvent(state, event.UnifiedEvent{Summary: "new"})
+	if len(state.StraceEvents) != MaxStraceEvents {
+		t.Errorf("trim at cap: len = %d, want %d (FIFO)", len(state.StraceEvents), MaxStraceEvents)
+	}
+	// 末尾应是新 append 的 "new"
+	if state.StraceEvents[MaxStraceEvents-1].Summary != "new" {
+		t.Errorf("trim at cap: last summary = %q, want 'new'", state.StraceEvents[MaxStraceEvents-1].Summary)
+	}
+}
+
+func TestAppendStraceEvent_RingBufferOverflow(t *testing.T) {
+	// 灌入 MaxStraceEvents+50 → 长度始终 = MaxStraceEvents · 与 cmd/rnix 测试同模式
+	// （dashboard_debug_test.go::TestAppendStraceEvent line 267）
+	state := DebugState{}
+	for i := range MaxStraceEvents + 50 {
+		state = AppendStraceEvent(state, event.UnifiedEvent{Summary: "ev"})
+		_ = i
+	}
+	if len(state.StraceEvents) != MaxStraceEvents {
+		t.Errorf("overflow: len = %d, want %d", len(state.StraceEvents), MaxStraceEvents)
+	}
+}
+
+func TestAppendStraceEvent_PreservesFIFOOrder(t *testing.T) {
+	// 给每个 ev 一个唯一 Summary · 灌入 MaxStraceEvents+10 后 · 头部应是 #10 (前 10 个被丢弃)
+	state := DebugState{}
+	for i := range MaxStraceEvents + 10 {
+		state = AppendStraceEvent(state, event.UnifiedEvent{Summary: fmtSummary(i)})
+	}
+	// 第一个保留的应是 #10（前 10 个 [#0..#9] 被丢弃）
+	if state.StraceEvents[0].Summary != fmtSummary(10) {
+		t.Errorf("FIFO order: head = %q, want %q (前 10 被丢弃)", state.StraceEvents[0].Summary, fmtSummary(10))
+	}
+	// 末尾应是 #(MaxStraceEvents+10-1) = #(MaxStraceEvents+9)
+	if state.StraceEvents[MaxStraceEvents-1].Summary != fmtSummary(MaxStraceEvents+9) {
+		t.Errorf("FIFO order: tail = %q, want %q", state.StraceEvents[MaxStraceEvents-1].Summary, fmtSummary(MaxStraceEvents+9))
+	}
+}
+
+func TestAppendStraceEvent_PreservesOtherFields(t *testing.T) {
+	state := DebugState{
+		Mode:        true,
+		ShowStrace:  true,
+		AttachedPID: 42,
+		Cursor:      7,
+		ScrollTop:   3,
+		AutoScroll:  false,
+	}
+	got := AppendStraceEvent(state, event.UnifiedEvent{Summary: "x"})
+	if !got.Mode || !got.ShowStrace || got.AttachedPID != 42 ||
+		got.Cursor != 7 || got.ScrollTop != 3 || got.AutoScroll {
+		t.Errorf("other fields mutated: got %+v", got)
+	}
+}
+
+// fmtSummary 辅助生成可区分的事件 Summary 用于 FIFO 顺序断言。
+func fmtSummary(i int) string {
+	// 不依赖 fmt.Sprintf · 让测试更轻量
+	digits := []byte{}
+	if i == 0 {
+		digits = append(digits, '0')
+	} else {
+		for n := i; n > 0; n /= 10 {
+			digits = append([]byte{byte('0' + n%10)}, digits...)
+		}
+	}
+	return "ev#" + string(digits)
+}
+
 // ----- ClampCursor 行为测试（Story 38-5 PR11 Step 4(c) debug pane 视图状态 helper） -----
 //
 // 覆盖矩阵：

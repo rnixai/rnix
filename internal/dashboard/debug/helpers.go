@@ -111,6 +111,35 @@ func RenderStepLine(ev event.UnifiedEvent, cursorMark string, _ int) string {
 	return fmt.Sprintf("%s%s %s %s%s", cursorMark, stepLabel, action, summary, errMark)
 }
 
+// AppendStraceEvent 把 strace UnifiedEvent 追加到 state.StraceEvents 环形缓冲，
+// 并在长度超过 MaxStraceEvents 时按 FIFO 截断（与 cmd/rnix.appendStraceEvent
+// 1:1 行为等价 · Story 38-5 PR11 Step 4(c) debug pane strace pipeline helper）。
+//
+// **行为契约（不变性 · 与 cmd/rnix 端 1:1 等价）**：
+//   - len(StraceEvents) < MaxStraceEvents → 直接 append（无截断）；
+//   - len(StraceEvents) == MaxStraceEvents → append 后保留末尾 MaxStraceEvents 条
+//     （丢弃最早一条 · 与 cmd/rnix 端 `events[len-Max:]` 完全等价）；
+//   - StraceEvents == nil → append 自动初始化（Go append 语义 · nil safe）；
+//   - 其他 DebugState 字段（Mode/Cursor/ScrollTop/AttachedPID 等）一律保留。
+//
+// **签名设计**：
+//   - 接受 DebugState（值类型 · 仅修改 StraceEvents · 返回新状态）；
+//   - 与 ClampCursor 同模式（functional state mutator）；
+//   - cmd/rnix wrapper 一行 `m.debugState = AppendStraceEvent(m.debugState, ev)`。
+//
+// **使用场景**：
+//   - cmd/rnix.appendStraceEvent wrapper（dashboard_debug.go × 2 callsite ·
+//     debugStraceMsg + debugStraceStreamErrMsg 两条 strace 事件路径）；
+//   - PR11 Step 4(c) 后续 debug render 主体迁出共用此 helper（avoid ring buffer
+//     代码在 cmd/rnix 与 debug 包重复实现）。
+func AppendStraceEvent(state DebugState, ev event.UnifiedEvent) DebugState {
+	state.StraceEvents = append(state.StraceEvents, ev)
+	if len(state.StraceEvents) > MaxStraceEvents {
+		state.StraceEvents = state.StraceEvents[len(state.StraceEvents)-MaxStraceEvents:]
+	}
+	return state
+}
+
 // ClampCursor 调整 state.Cursor / state.ScrollTop 让 cursor 在 [0, filteredLen)
 // 范围内（与 cmd/rnix.clampDebugCursor 1:1 行为等价 · Story 38-5 PR11 Step 4(c)
 // debug pane 视图状态 helper）。
