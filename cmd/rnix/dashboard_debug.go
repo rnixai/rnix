@@ -18,7 +18,8 @@ import (
 
 // --- Constants ---
 
-const maxDebugStraceEvents = 500
+// maxDebugStraceEvents — alias of dashboarddebug.MaxStraceEvents (thin wrapper · Story 38-5 PR11 Step 4(a-2)).
+const maxDebugStraceEvents = dashboarddebug.MaxStraceEvents
 
 // --- Types ---
 
@@ -330,21 +331,9 @@ func (m *dashboardModel) updateDeviceLatency(sew ipc.SyscallEventWire) {
 	}
 }
 
-// extractDeviceName derives a short device name from syscall args.
+// extractDeviceName — thin wrapper · 见 internal/dashboard/debug.ExtractDeviceName
 func extractDeviceName(sew ipc.SyscallEventWire) string {
-	path := ""
-	if p, ok := sew.Args["path"]; ok {
-		path = fmt.Sprintf("%v", p)
-	}
-	if path == "" {
-		return ""
-	}
-	// Extract device from paths like /dev/llm/claude, /dev/fs, /dev/shell, /dev/mcp/xxx
-	if strings.HasPrefix(path, "/dev/") {
-		parts := strings.SplitN(path[5:], "/", 2)
-		return parts[0]
-	}
-	return path
+	return dashboarddebug.ExtractDeviceName(sew)
 }
 
 // --- Filtered debug events ---
@@ -566,37 +555,14 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 	return b.String()
 }
 
-// renderSyscallLine renders a single strace event line using the full strace format.
+// renderSyscallLine — thin wrapper · 见 internal/dashboard/debug.RenderSyscallLine
 func (m dashboardModel) renderSyscallLine(ev UnifiedEvent, cursorMark string, maxWidth int) string {
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	if ev.Severity >= SevError {
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-	}
-
-	return fmt.Sprintf("%s%s", cursorMark, style.Render(ev.Summary))
+	return dashboarddebug.RenderSyscallLine(ev, cursorMark, maxWidth)
 }
 
-// renderDebugStepLine renders a step event in the debug timeline.
+// renderDebugStepLine — thin wrapper · 见 internal/dashboard/debug.RenderStepLine
 func (m dashboardModel) renderDebugStepLine(ev UnifiedEvent, cursorMark string, maxWidth int) string {
-	if ev.StepEntry == nil {
-		return cursorMark + ev.Summary
-	}
-	s := ev.StepEntry.Summary
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	stepLabel := dimStyle.Render(fmt.Sprintf("#%d", s.Step))
-
-	action := s.Action
-	summary := s.Summary
-	if s.ToolPath != "" && len(s.Summary) < 8 {
-		summary = s.ToolPath
-	}
-
-	errMark := ""
-	if s.HasError {
-		errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
-	}
-
-	return fmt.Sprintf("%s%s %s %s%s", cursorMark, stepLabel, action, summary, errMark)
+	return dashboarddebug.RenderStepLine(ev, cursorMark, maxWidth)
 }
 
 // --- Bottom detail cards ---
