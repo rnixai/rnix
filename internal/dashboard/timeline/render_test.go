@@ -16,6 +16,8 @@ package timeline
 import (
 	"strings"
 	"testing"
+
+	"github.com/rnixai/rnix/ipc"
 )
 
 // TestRenderStepFilterBar_AllOn — filters == nil 时所有 type 显示为 ✓ on（默认全开）。
@@ -152,5 +154,105 @@ func TestRenderStepFilterBar_FilterByLiteralKey(t *testing.T) {
 	// budget 应有 ✓ · compact 应有 ·
 	if !strings.Contains(got, "✓") || !strings.Contains(got, "·") {
 		t.Fatalf("expected mixed ✓ and · marks: %q", got)
+	}
+}
+
+// fakeRoleStyle — 测试用 roleStyle 实现 · 仅返回 "[<role>]" 不加颜色。
+func fakeRoleStyle(role string) string {
+	return "[" + role + "]"
+}
+
+// TestRenderDebugDetail_NoMessages — CLI driver 无 message history 路径（27-4 落地）。
+func TestRenderDebugDetail_NoMessages(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		Messages:     nil,
+		MessageCount: 0,
+		TokenCount:   0,
+	}
+	lines := RenderDebugDetail(&b, detail, 80, 10, fakeRoleStyle)
+
+	if lines == 0 {
+		t.Fatalf("expected non-zero lines for CLI driver path")
+	}
+	got := b.String()
+	if !strings.Contains(got, "CLI driver") {
+		t.Fatalf("expected 'CLI driver' message: %q", got)
+	}
+	if !strings.Contains(got, "查看 system prompt") {
+		t.Fatalf("expected 'system prompt' hint (27-4 落地): %q", got)
+	}
+}
+
+// TestRenderDebugDetail_WithMessages — 有 message history · 渲染 header + preview + hint。
+func TestRenderDebugDetail_WithMessages(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		Messages: []ipc.MessageWire{
+			{Role: "system", Content: "you are an agent"},
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "hi"},
+		},
+		MessageCount: 3,
+		TokenCount:   1500,
+	}
+	lines := RenderDebugDetail(&b, detail, 100, 20, fakeRoleStyle)
+
+	if lines < 4 {
+		t.Fatalf("expected at least 4 lines (separator + header + 3 messages + hint), got %d", lines)
+	}
+	got := b.String()
+	if !strings.Contains(got, "Messages (3)") {
+		t.Fatalf("expected 'Messages (3)' header: %q", got)
+	}
+	if !strings.Contains(got, "1.5k tok") {
+		t.Fatalf("expected '1.5k tok' formatted token count: %q", got)
+	}
+	if !strings.Contains(got, "[system]") || !strings.Contains(got, "[user]") || !strings.Contains(got, "[assistant]") {
+		t.Fatalf("expected role tags via fakeRoleStyle: %q", got)
+	}
+	if !strings.Contains(got, "查看完整 prompt") {
+		t.Fatalf("expected 'complete prompt' hint: %q", got)
+	}
+}
+
+// TestRenderDebugDetail_MaxLinesGuard — maxLines 严格限制写入行数（防溢出）。
+func TestRenderDebugDetail_MaxLinesGuard(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		Messages: []ipc.MessageWire{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "hello"},
+		},
+		MessageCount: 2,
+		TokenCount:   100,
+	}
+	// maxLines = 2 应只允许写入 2 行（separator + header）· message preview 与 hint 应被拒绝
+	lines := RenderDebugDetail(&b, detail, 80, 2, fakeRoleStyle)
+	if lines > 2 {
+		t.Fatalf("expected lines <= 2 with maxLines=2, got %d", lines)
+	}
+}
+
+// TestRenderDebugDetail_LongContentTruncation — 长 content 被 runewidth 截断到 57 列+…
+// （与 cmd/rnix.renderDebugDetail 等价 · 防止单行过宽）。
+func TestRenderDebugDetail_LongContentTruncation(t *testing.T) {
+	var b strings.Builder
+	longContent := strings.Repeat("a", 100)
+	detail := &ipc.GetStepDetailResponse{
+		Messages: []ipc.MessageWire{
+			{Role: "user", Content: longContent},
+		},
+		MessageCount: 1,
+		TokenCount:   10,
+	}
+	RenderDebugDetail(&b, detail, 100, 10, fakeRoleStyle)
+	got := b.String()
+	if !strings.Contains(got, "…") {
+		t.Fatalf("expected '…' truncation marker for long content: %q", got)
+	}
+	// 截断后不应包含完整 100 个 'a'
+	if strings.Contains(got, longContent) {
+		t.Fatalf("expected truncation to drop full content: %q", got)
 	}
 }

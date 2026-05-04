@@ -1038,66 +1038,13 @@ func (m dashboardModel) renderExpandedDetail(b *strings.Builder, detail *ipc.Get
 }
 
 // renderDebugDetail renders Level 3 debug lines (messages preview).
+// renderDebugDetail — thin wrapper · 见 internal/dashboard/timeline.RenderDebugDetail
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/render.go.
+// 保留 (m dashboardModel) receiver 让 ATDD 27-3 / 27-4 grep 字符串通过.
+// promptRoleForRole 通过依赖注入传入 · 避免 timeline 包持有 promptRole* style 拷贝.
 func (m dashboardModel) renderDebugDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, maxW, maxLines int) int {
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	lines := 0
-
-	// Separator
-	if lines < maxLines {
-		sep := strings.Repeat("─", min(maxW-6, 60))
-		fmt.Fprintf(b, "   %s\n", dimStyle.Render("┊"+sep))
-		lines++
-	}
-
-	msgCount := len(detail.Messages)
-
-	if msgCount == 0 {
-		// CLI driver process: no message history available
-		if lines < maxLines {
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("CLI driver — no message history"))
-			lines++
-		}
-		if lines < maxLines {
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看 system prompt"))
-			lines++
-		}
-		return lines
-	}
-
-	// Messages header
-	if lines < maxLines {
-		totalTok := formatTokenCount(detail.TokenCount)
-		fmt.Fprintf(b, "   %s Messages (%d)%s%s\n",
-			dimStyle.Render("┊"),
-			detail.MessageCount,
-			strings.Repeat(" ", max(maxW-30-len(totalTok), 2)),
-			dimStyle.Render("累计 "+totalTok+" tok"))
-		lines++
-	}
-
-	// Message preview
-	showCount := min(msgCount, min(maxLines-lines, 6))
-	showCount = max(showCount, min(msgCount, 2))
-	// Show the last N messages
-	startMsg := max(msgCount-showCount, 0)
-	for i := startMsg; i < msgCount && lines < maxLines; i++ {
-		msg := detail.Messages[i]
-		roleStyle := promptRoleForRole(msg.Role)
-		content := msg.Content
-		if runewidth.StringWidth(content) > 60 {
-			content = runewidth.Truncate(content, 57, "…")
-		}
-		fmt.Fprintf(b, "   %s  %s %s\n", dimStyle.Render("┊"), roleStyle, content)
-		lines++
-	}
-
-	// Hint
-	if lines < maxLines {
-		fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看完整 prompt"))
-		lines++
-	}
-
-	return lines
+	return timeline.RenderDebugDetail(b, detail, maxW, maxLines, promptRoleForRole)
 }
 
 func promptRoleForRole(role string) string {

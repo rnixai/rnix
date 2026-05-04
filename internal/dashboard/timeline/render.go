@@ -29,8 +29,10 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
 )
 
 // System event type 常量字符串字面量（与 internal/dashboard/event.Event* 等价 ·
@@ -132,4 +134,90 @@ func RenderStepFilterBar(filters map[string]bool, maxW int) string {
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 	b.WriteString("  [*]all  " + dimStyle.Render("f/Esc:done"))
 	return TruncateAnsi(b.String(), maxW)
+}
+
+// RenderDebugDetail 渲染 timeline expand mode 下 step 对应的 debug detail block（与
+// cmd/rnix.renderDebugDetail 等价 · Story 38-5 PR11 Step 4(c) 第二个 timeline render
+// block 迁出 · Story 27-3/27-4 落地 · CLI driver no-history fallback 27-4 落地）。
+//
+// **行为契约（不变性 · ATDD 27-3 + 27-4 + 36-3 测试覆盖）**：
+//   - 顶部分隔线 "┊─────"（最多 60 个 ─）
+//   - 无 Messages 时：CLI driver 提示 "CLI driver — no message history" + 操作提示
+//     "↳ 按 p 查看 system prompt"（对齐尾部 38 列 · 27-4 落地）
+//   - 有 Messages 时：
+//     - "Messages (N)"  header + 右对齐的 "累计 X tok"（formatTokenCount k 后缀）
+//     - 末尾 N 条 message preview（rune-width 60 列截断 · 用 roleStyle 渲染 role tag）
+//     - 末尾操作提示 "↳ 按 p 查看完整 prompt"
+//   - 全部受 maxLines 约束（每行写入前先检查 lines < maxLines · 防溢出）
+//   - 所有 ┊ 边线 / 提示 / role tag 用 dimStyle 灰色渲染
+//
+// **依赖注入**：roleStyle func(role string) string 由调用方提供（cmd/rnix 端
+// promptRoleForRole · 避免 timeline 包持有 4 个 promptRole* lipgloss.Style 拷贝
+// 跨 inspector / debug 共享 · 与 PR11 Step 4(c) 其他 RenderXxx 同模式）。
+//
+// **副作用**：对传入的 b *strings.Builder 进行 append（caller 复用 buffer）·
+// 返回值为本块写入的行数（caller 用于 lines 计数 · 与 RenderExpandedDetail 同模式）。
+//
+// detail == nil 行为：caller 必须保证 detail 非 nil（cmd/rnix renderStepTimeline 在
+// 调用前已守卫 · 与原函数行为一致 · 不引入 nil-safety 改变契约）。
+func RenderDebugDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, maxW, maxLines int, roleStyle func(role string) string) int {
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	lines := 0
+
+	// Separator
+	if lines < maxLines {
+		sep := strings.Repeat("─", min(maxW-6, 60))
+		fmt.Fprintf(b, "   %s\n", dimStyle.Render("┊"+sep))
+		lines++
+	}
+
+	msgCount := len(detail.Messages)
+
+	if msgCount == 0 {
+		// CLI driver process: no message history available
+		if lines < maxLines {
+			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("CLI driver — no message history"))
+			lines++
+		}
+		if lines < maxLines {
+			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看 system prompt"))
+			lines++
+		}
+		return lines
+	}
+
+	// Messages header
+	if lines < maxLines {
+		totalTok := FormatTokenCount(detail.TokenCount)
+		fmt.Fprintf(b, "   %s Messages (%d)%s%s\n",
+			dimStyle.Render("┊"),
+			detail.MessageCount,
+			strings.Repeat(" ", max(maxW-30-len(totalTok), 2)),
+			dimStyle.Render("累计 "+totalTok+" tok"))
+		lines++
+	}
+
+	// Message preview
+	showCount := min(msgCount, min(maxLines-lines, 6))
+	showCount = max(showCount, min(msgCount, 2))
+	// Show the last N messages
+	startMsg := max(msgCount-showCount, 0)
+	for i := startMsg; i < msgCount && lines < maxLines; i++ {
+		msg := detail.Messages[i]
+		rs := roleStyle(msg.Role)
+		content := msg.Content
+		if runewidth.StringWidth(content) > 60 {
+			content = runewidth.Truncate(content, 57, "…")
+		}
+		fmt.Fprintf(b, "   %s  %s %s\n", dimStyle.Render("┊"), rs, content)
+		lines++
+	}
+
+	// Hint
+	if lines < maxLines {
+		fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看完整 prompt"))
+		lines++
+	}
+
+	return lines
 }
