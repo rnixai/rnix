@@ -22,6 +22,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
+	"github.com/rnixai/rnix/internal/dashboard/trace"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -696,27 +697,10 @@ func registerLayer2Security(d *ui.Dispatcher) {
 }
 
 func registerLayer2Trace(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Trace Pane",
-		Bindings: map[string]ui.KeyHandler{},
-		Fallback: paneFallback,
-		Docs:     map[string]ui.KeyDoc{},
-		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
-			m, ok := ctx.(dashboardModel)
-			if !ok {
-				return nil
-			}
-			view := "overview"
-			if m.trace.ViewMode == 1 {
-				view = "spans"
-			}
-			return []ui.Mode{{Name: "view", Value: view}}
-		},
-	}
-	l.Docs["enter"] = ui.KeyDoc{Key: "enter", Description: "Drill in to span tree"}
-	l.Docs["c"] = ui.KeyDoc{Key: "c", Description: "Collapse"}
-	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Filter by status"}
-	d.Layer2[ui.PaneID(paneTrace)] = l
+	// Story 38-5 PR8 Step 2: KeyLayer 注册体迁出至 internal/dashboard/trace.KeyLayer。
+	// dashboardModel 通过 `TraceState() trace.TraceState` getter 满足 StateProvider。
+	// 行为零变化：3 个 Docs 键 (enter/c/f) + ActiveModesFn{view: overview|spans}。
+	d.Layer2[ui.PaneID(paneTrace)] = trace.KeyLayer(paneFallback)
 }
 
 func registerLayer2Eval(d *ui.Dispatcher) {
