@@ -214,11 +214,11 @@ func TestATDD_36_3_AC3_BuildToolAggGroups_ThreeConsecutive(t *testing.T) {
 		t.Fatalf("AC-3: expected 1 aggregation group, got %d", len(groups))
 	}
 	g := groups[0]
-	if g.toolPath != "/dev/shell" {
-		t.Errorf("AC-3: group toolPath = %q, want '/dev/shell'", g.toolPath)
+	if g.ToolPath != "/dev/shell" {
+		t.Errorf("AC-3: group toolPath = %q, want '/dev/shell'", g.ToolPath)
 	}
-	if len(g.stepNums) != 3 {
-		t.Errorf("AC-3: group should contain 3 steps, got %d", len(g.stepNums))
+	if len(g.StepNums) != 3 {
+		t.Errorf("AC-3: group should contain 3 steps, got %d", len(g.StepNums))
 	}
 }
 
@@ -260,11 +260,11 @@ func TestATDD_36_3_AC3_BuildToolAggGroups_InterruptedRun(t *testing.T) {
 	if len(groups) != 2 {
 		t.Fatalf("AC-3: interrupted run should form 2 groups, got %d", len(groups))
 	}
-	if groups[0].stepNums[0] != 1 || groups[0].stepNums[2] != 3 {
-		t.Errorf("AC-3: first group should be steps 1-3, got %v", groups[0].stepNums)
+	if groups[0].StepNums[0] != 1 || groups[0].StepNums[2] != 3 {
+		t.Errorf("AC-3: first group should be steps 1-3, got %v", groups[0].StepNums)
 	}
-	if groups[1].stepNums[0] != 5 || groups[1].stepNums[2] != 7 {
-		t.Errorf("AC-3: second group should be steps 5-7, got %v", groups[1].stepNums)
+	if groups[1].StepNums[0] != 5 || groups[1].StepNums[2] != 7 {
+		t.Errorf("AC-3: second group should be steps 5-7, got %v", groups[1].StepNums)
 	}
 }
 

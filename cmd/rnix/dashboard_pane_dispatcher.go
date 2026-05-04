@@ -64,11 +64,11 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				aggGroups := buildToolAggGroups(filtered)
 				cursorPos := min(m.timeline.StepCursor, len(filtered)-1)
 				for _, g := range aggGroups {
-					if cursorPos >= g.startIdx && cursorPos < g.endIdx {
+					if cursorPos >= g.StartIdx && cursorPos < g.EndIdx {
 						if m.timeline.ExpandedAggGroups == nil {
 							m.timeline.ExpandedAggGroups = make(map[int]bool)
 						}
-						m.timeline.ExpandedAggGroups[g.stepNums[0]] = !m.timeline.ExpandedAggGroups[g.stepNums[0]]
+						m.timeline.ExpandedAggGroups[g.StepNums[0]] = !m.timeline.ExpandedAggGroups[g.StepNums[0]]
 						return m, nil
 					}
 				}

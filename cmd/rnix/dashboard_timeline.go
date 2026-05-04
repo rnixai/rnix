@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
+	dashboardevent "github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -31,54 +32,17 @@ func actionAbbrev(action string) string {
 	return timeline.ActionAbbrev(action)
 }
 
-// timelineAggThreshold is the minimum consecutive steps with the same ToolPath
-// required to trigger semantic aggregation (non-bulk mode, <100 steps).
-const timelineAggThreshold = 3
+// timelineAggThreshold — alias of dashboardevent.AggThreshold (thin wrapper · Story 38-5 PR11 Step 4(a-2))
+//
+//nolint:unused // ATDD 36-3 grep 契约保留 (timeline IA refactor 测试 + 历史调用)
+const timelineAggThreshold = dashboardevent.AggThreshold
 
-// toolAggGroup represents a consecutive run of steps sharing the same ToolPath.
-type toolAggGroup struct {
-	startIdx int    // index in filtered unified events
-	endIdx   int    // exclusive
-	toolPath string // shared ToolPath for the group
-	stepNums []int  // step numbers for display
-}
+// toolAggGroup — alias of dashboardevent.ToolAggGroup (thin wrapper)
+type toolAggGroup = dashboardevent.ToolAggGroup
 
-// buildToolAggGroups scans unified events and identifies consecutive runs of
-// step events with the same ToolPath that meet the aggregation threshold.
+// buildToolAggGroups — thin wrapper · 见 internal/dashboard/event.BuildToolAggGroups
 func buildToolAggGroups(events []UnifiedEvent) []toolAggGroup {
-	var groups []toolAggGroup
-	n := len(events)
-	i := 0
-	for i < n {
-		ev := events[i]
-		if ev.StepEntry == nil || ev.StepEntry.Summary.ToolPath == "" {
-			i++
-			continue
-		}
-		tp := ev.StepEntry.Summary.ToolPath
-		runStart := i
-		var stepNums []int
-		stepNums = append(stepNums, ev.StepEntry.Summary.Step)
-		j := i + 1
-		for j < n {
-			ej := events[j]
-			if ej.StepEntry == nil || ej.StepEntry.Summary.ToolPath != tp {
-				break
-			}
-			stepNums = append(stepNums, ej.StepEntry.Summary.Step)
-			j++
-		}
-		if len(stepNums) >= timelineAggThreshold {
-			groups = append(groups, toolAggGroup{
-				startIdx: runStart,
-				endIdx:   j,
-				toolPath: tp,
-				stepNums: stepNums,
-			})
-		}
-		i = j
-	}
-	return groups
+	return dashboardevent.BuildToolAggGroups(events)
 }
 
 // shortenArgs — thin wrapper · 见 internal/dashboard/timeline.ShortenArgs
@@ -91,47 +55,14 @@ func formatDefaultLine(s ipc.StepSummaryWire, detail *ipc.GetStepDetailResponse)
 	return timeline.FormatDefaultLine(s, detail)
 }
 
-// sysEventStyle returns a lipgloss style for a system event type.
+// sysEventStyle — thin wrapper · 见 internal/dashboard/event.SysEventStyle
 func sysEventStyle(ev UnifiedEvent) lipgloss.Style {
-	switch ev.Type {
-	case EventCompact:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#00CED1")).Bold(true)
-	case EventBudget:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
-	case EventSpawn:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
-	case EventExit:
-		if ev.Severity >= SevError {
-			return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-		}
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	case EventStall:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true)
-	case EventImmune:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#9B59B6"))
-	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	}
+	return dashboardevent.SysEventStyle(ev)
 }
 
-// defaultStepFilters returns a map with all action types and system event types enabled.
+// defaultStepFilters — thin wrapper · 见 internal/dashboard/event.DefaultStepFilters
 func defaultStepFilters() map[string]bool {
-	return map[string]bool{
-		"tool_call":    true,
-		"plan":         true,
-		"text":         true,
-		"complete":     true,
-		"spawn":        true,
-		"replan":       true,
-		"specialize":   true,
-		EventCompact:   true,
-		EventBudget:    true,
-		"sys_spawn":    true, // F7: distinct from step-action "spawn" filter key
-		EventExit:      true,
-		EventStall:     true,
-		EventImmune:    true,
-		EventSyscall:   true, // Story 34.6: strace events in debug mode
-	}
+	return dashboardevent.DefaultStepFilters()
 }
 
 // maybeShowTimelineMigrationNotice shows a one-time status bar notice when the
@@ -469,22 +400,9 @@ func (m dashboardModel) filteredStepEntries() []int {
 	return result
 }
 
-// isEventVisible checks if a unified event passes the current filters.
+// isEventVisible — thin wrapper · 见 internal/dashboard/event.IsEventVisible
 func isEventVisible(ev UnifiedEvent, filters map[string]bool) bool {
-	if len(filters) == 0 {
-		return true
-	}
-	if ev.Type == EventStep {
-		if ev.StepEntry != nil {
-			return filters[ev.StepEntry.Summary.Action]
-		}
-		return true
-	}
-	// F7: system spawn uses distinct filter key "sys_spawn" to avoid collision with step-action "spawn"
-	if ev.Type == EventSpawn {
-		return filters["sys_spawn"]
-	}
-	return filters[ev.Type]
+	return dashboardevent.IsEventVisible(ev, filters)
 }
 
 // filteredUnifiedEvents returns unified events matching current filters.
@@ -723,14 +641,14 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	aggExpandedSet := make(map[int]bool)
 	for i := range aggGroups {
 		g := &aggGroups[i]
-		aggGroupByStart[g.startIdx] = g
-		expanded := m.timeline.ExpandedAggGroups[g.stepNums[0]]
+		aggGroupByStart[g.StartIdx] = g
+		expanded := m.timeline.ExpandedAggGroups[g.StepNums[0]]
 		if !expanded {
-			for fi := g.startIdx + 1; fi < g.endIdx; fi++ {
+			for fi := g.StartIdx + 1; fi < g.EndIdx; fi++ {
 				aggSkipSet[fi] = true
 			}
 		} else {
-			for fi := g.startIdx + 1; fi < g.endIdx; fi++ {
+			for fi := g.StartIdx + 1; fi < g.EndIdx; fi++ {
 				aggExpandedSet[fi] = true
 			}
 		}
@@ -781,8 +699,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 		// Semantic tool aggregation: render group header at startIdx
 		if g, ok := aggGroupByStart[fi]; ok {
-			expanded := m.timeline.ExpandedAggGroups[g.stepNums[0]]
-			cursorInGroup := m.timeline.StepCursor >= g.startIdx && m.timeline.StepCursor < g.endIdx
+			expanded := m.timeline.ExpandedAggGroups[g.StepNums[0]]
+			cursorInGroup := m.timeline.StepCursor >= g.StartIdx && m.timeline.StepCursor < g.EndIdx
 
 			if !expanded {
 				// Collapsed group header line
@@ -798,12 +716,12 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 				// Calculate avg duration
 				var totalDur float64
-				for idx := g.startIdx; idx < g.endIdx; idx++ {
+				for idx := g.StartIdx; idx < g.EndIdx; idx++ {
 					if filtered[idx].StepEntry != nil {
 						totalDur += filtered[idx].StepEntry.Summary.DurationMs
 					}
 				}
-				avgDur := totalDur / float64(len(g.stepNums))
+				avgDur := totalDur / float64(len(g.StepNums))
 				avgLabel := formatTimelineDuration(avgDur)
 
 				aggSep := "▸"
@@ -812,8 +730,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				}
 				headerLine := fmt.Sprintf("%s%s %d–%d %s %s × %d  avg %s",
 					cursorMark, marker,
-					g.stepNums[0], g.stepNums[len(g.stepNums)-1],
-					aggSep, g.toolPath, len(g.stepNums), avgLabel)
+					g.StepNums[0], g.StepNums[len(g.StepNums)-1],
+					aggSep, g.ToolPath, len(g.StepNums), avgLabel)
 
 				// Add offset range if available
 				if showStepOffset {
@@ -821,8 +739,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 					for _, p := range m.processes {
 						if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
 							if !p.CreatedAt.IsZero() {
-								startEv := filtered[g.startIdx]
-								endEv := filtered[g.endIdx-1]
+								startEv := filtered[g.StartIdx]
+								endEv := filtered[g.EndIdx-1]
 								if !startEv.Timestamp.IsZero() {
 									startOff = ui.FormatOffsetFromStart(startEv.Timestamp.Sub(p.CreatedAt))
 								}
@@ -862,8 +780,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				aggSep = ">"
 			}
 			expandHeader := fmt.Sprintf("  %s %d–%d %s %s × %d",
-				marker, g.stepNums[0], g.stepNums[len(g.stepNums)-1],
-				aggSep, g.toolPath, len(g.stepNums))
+				marker, g.StepNums[0], g.StepNums[len(g.StepNums)-1],
+				aggSep, g.ToolPath, len(g.StepNums))
 			b.WriteString(dimStyle.Render(expandHeader))
 			b.WriteString("\n")
 			linesUsed++
