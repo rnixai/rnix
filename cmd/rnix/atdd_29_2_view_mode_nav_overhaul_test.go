@@ -649,7 +649,7 @@ func TestViewModeSystem_DigitKeyEvalConflict(t *testing.T) {
 	m.viewMode = viewExpanded
 	m.expandedPane = paneEval
 	m.activePane = paneEval
-	m.evalSubView = 0 // reputation
+	m.eval.SubView = 0 // reputation
 
 	// 按 "2" → 应跳转到 paneTimeline（数字键始终用于面板跳转）
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'})
@@ -667,13 +667,13 @@ func TestViewModeSystem_DigitKeyEvalConflict(t *testing.T) {
 	m3.viewMode = viewExpanded
 	m3.expandedPane = paneEval
 	m3.activePane = paneEval
-	m3.evalSubView = 0
+	m3.eval.SubView = 0
 
 	m4, _ := m3.Update(tea.KeyPressMsg{Code: '@', Text: "@"})
 	model2 := m4.(dashboardModel)
 
-	if model2.evalSubView != 1 {
-		t.Errorf("expected evalSubView=1 (topology) after '@' in eval pane, got %d", model2.evalSubView)
+	if model2.eval.SubView != 1 {
+		t.Errorf("expected evalSubView=1 (topology) after '@' in eval pane, got %d", model2.eval.SubView)
 	}
 }
 

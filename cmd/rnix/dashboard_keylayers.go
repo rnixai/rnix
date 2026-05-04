@@ -715,7 +715,7 @@ func registerLayer2Eval(d *ui.Dispatcher) {
 				return nil
 			}
 			view := "reputation"
-			switch m.evalSubView {
+			switch m.eval.SubView {
 			case 1:
 				view = "topology"
 			case 2:

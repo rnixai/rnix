@@ -581,8 +581,8 @@ func TestRenderEvalSynergy_RecommendedBold(t *testing.T) {
 	t.Run("Recommended renders ★/Bold", func(t *testing.T) {
 		t.Setenv("RNIX_ASCII", "1")
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.evalSubView = 2
-		m.evalSynergies = []kernel.ComboSummary{
+		m.eval.SubView = 2
+		m.eval.Synergies = []kernel.ComboSummary{
 			{Skills: []string{"a", "b"}, SuccessRate: 0.95, AvgTokens: 1000, TotalExecutions: 5, TokenImprovement: -0.2, Recommended: true},
 		}
 		out := m.renderEvalSynergyView(80, 6)
@@ -594,8 +594,8 @@ func TestRenderEvalSynergy_RecommendedBold(t *testing.T) {
 	t.Run("non-Recommended row has no ★ marker", func(t *testing.T) {
 		t.Setenv("RNIX_ASCII", "1")
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.evalSubView = 2
-		m.evalSynergies = []kernel.ComboSummary{
+		m.eval.SubView = 2
+		m.eval.Synergies = []kernel.ComboSummary{
 			{Skills: []string{"x", "y"}, SuccessRate: 0.6, AvgTokens: 1500, TotalExecutions: 3, TokenImprovement: 0.1, Recommended: false},
 		}
 		out := m.renderEvalSynergyView(80, 6)
@@ -609,8 +609,8 @@ func TestRenderEvalSynergy_RecommendedBold(t *testing.T) {
 			t.Skip("lipgloss profile strips ANSI — skipping Bold byte check")
 		}
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.evalSubView = 2
-		m.evalSynergies = []kernel.ComboSummary{
+		m.eval.SubView = 2
+		m.eval.Synergies = []kernel.ComboSummary{
 			{Skills: []string{"a", "b"}, SuccessRate: 0.95, AvgTokens: 1000, TotalExecutions: 5, TokenImprovement: -0.2, Recommended: true},
 		}
 		out := m.renderEvalSynergyView(80, 6)
@@ -628,8 +628,8 @@ func TestRenderEvalReputation_ScoreColorGradient(t *testing.T) {
 		t.Skip("colour profile strips ANSI — skip rendered byte assertion")
 	}
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.evalSubView = 0
-	m.evalReputations = []kernel.ReputationSummary{
+	m.eval.SubView = 0
+	m.eval.Reputations = []kernel.ReputationSummary{
 		{AgentName: "high", Score: 0.95, SuccessRate: 0.9, AvgTokens: 100, AvgDurationMs: 100, TotalRecords: 10, RecentTrend: "improving"},
 		{AgentName: "mid", Score: 0.80, SuccessRate: 0.7, AvgTokens: 200, AvgDurationMs: 200, TotalRecords: 8, RecentTrend: "stable"},
 		{AgentName: "low", Score: 0.40, SuccessRate: 0.3, AvgTokens: 400, AvgDurationMs: 400, TotalRecords: 2, RecentTrend: "declining"},
@@ -1046,8 +1046,8 @@ func TestRenderEvalSynergy_VsSoloColors(t *testing.T) {
 	}
 	t.Run("negative improvement → green", func(t *testing.T) {
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.evalSubView = 2
-		m.evalSynergies = []kernel.ComboSummary{
+		m.eval.SubView = 2
+		m.eval.Synergies = []kernel.ComboSummary{
 			{Skills: []string{"a"}, SuccessRate: 0.5, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: -0.25},
 		}
 		out := m.renderEvalSynergyView(120, 6)
@@ -1063,8 +1063,8 @@ func TestRenderEvalSynergy_VsSoloColors(t *testing.T) {
 
 	t.Run("positive improvement → red", func(t *testing.T) {
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.evalSubView = 2
-		m.evalSynergies = []kernel.ComboSummary{
+		m.eval.SubView = 2
+		m.eval.Synergies = []kernel.ComboSummary{
 			{Skills: []string{"a"}, SuccessRate: 0.5, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: 0.30},
 		}
 		out := m.renderEvalSynergyView(120, 6)
@@ -1078,8 +1078,8 @@ func TestRenderEvalSynergy_VsSoloColors(t *testing.T) {
 
 	t.Run("zero improvement → no fg colour wrap", func(t *testing.T) {
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.evalSubView = 2
-		m.evalSynergies = []kernel.ComboSummary{
+		m.eval.SubView = 2
+		m.eval.Synergies = []kernel.ComboSummary{
 			{Skills: []string{"a"}, SuccessRate: 0.5, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: 0.0},
 		}
 		out := m.renderEvalSynergyView(120, 6)
@@ -1105,8 +1105,8 @@ func TestRenderEvalSynergy_ColorGradient(t *testing.T) {
 		t.Skip("colour profile strips ANSI — skip rendered byte assertion")
 	}
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.evalSubView = 2
-	m.evalSynergies = []kernel.ComboSummary{
+	m.eval.SubView = 2
+	m.eval.Synergies = []kernel.ComboSummary{
 		{Skills: []string{"hi"}, SuccessRate: 0.95, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: -0.1},
 		{Skills: []string{"mid"}, SuccessRate: 0.75, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: -0.1},
 		{Skills: []string{"lo"}, SuccessRate: 0.40, AvgTokens: 100, TotalExecutions: 1, TokenImprovement: -0.1},

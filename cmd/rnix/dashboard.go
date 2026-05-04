@@ -16,6 +16,7 @@ import (
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/detail"
+	"github.com/rnixai/rnix/internal/dashboard/eval"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
@@ -24,7 +25,6 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
-	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -138,20 +138,8 @@ type dashboardModel struct {
 	// Story 38-5 PR8 Step 1: TraceState 抽离（10 字段 · spec § AC5 · Story 27-9 + 38-4 waterfall bar 保留）
 	trace trace.TraceState
 
-	// Eval pane fields (Story 27-10)
-	evalSubView          int // 0=reputation, 1=topology, 2=synergy
-	evalReputations      []kernel.ReputationSummary
-	evalRepErr           error
-	evalRepCursor        int
-	evalRepScrollOffset  int
-	evalTopology         *ipc.TopologyQueryResponse
-	evalTopoErr          error
-	evalTopoCursor       int
-	evalTopoScrollOffset int
-	evalSynergies        []kernel.ComboSummary
-	evalSynErr           error
-	evalSynCursor        int
-	evalSynScrollOffset  int
+	// Story 38-5 PR9 Step 1: EvalState 抽离（13 字段 · spec § AC5 · Story 27-10 + 38-4 evalScoreColorStyle 颜色梯度保留）
+	eval eval.EvalState
 
 	// Offline replay fields (Story 17-5)
 	replayMode       bool
@@ -288,6 +276,7 @@ func (m dashboardModel) SelectedPID() types.PID          { return m.selectedPID 
 func (m dashboardModel) IntentState() intent.IntentState { return m.intent }      // Story 38-5 PR6 Step 1 · intent.StateProvider · Deprecated: removed in PR11
 func (m dashboardModel) SecurityState() security.SecurityState { return m.security } // Story 38-5 PR7 Step 1 · security.StateProvider · Deprecated: removed in PR11
 func (m dashboardModel) TraceState() trace.TraceState          { return m.trace }    // Story 38-5 PR8 Step 1 · trace.StateProvider · Deprecated: removed in PR11
+func (m dashboardModel) EvalState() eval.EvalState             { return m.eval }     // Story 38-5 PR9 Step 1 · eval.StateProvider · Deprecated: removed in PR11
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -504,42 +493,42 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case evalReputationMsg:
 		if msg.err != nil {
-			m.evalRepErr = msg.err
+			m.eval.RepErr = msg.err
 			return m, nil
 		}
-		m.evalRepErr = nil
-		m.evalReputations = msg.summaries
+		m.eval.RepErr = nil
+		m.eval.Reputations = msg.summaries
 		// Sort by score descending
-		sort.Slice(m.evalReputations, func(i, j int) bool {
-			return m.evalReputations[i].Score > m.evalReputations[j].Score
+		sort.Slice(m.eval.Reputations, func(i, j int) bool {
+			return m.eval.Reputations[i].Score > m.eval.Reputations[j].Score
 		})
-		if m.evalRepCursor >= len(m.evalReputations) {
-			m.evalRepCursor = max(0, len(m.evalReputations)-1)
+		if m.eval.RepCursor >= len(m.eval.Reputations) {
+			m.eval.RepCursor = max(0, len(m.eval.Reputations)-1)
 		}
 		return m, nil
 	case evalTopologyMsg:
 		if msg.err != nil {
-			m.evalTopoErr = msg.err
+			m.eval.TopoErr = msg.err
 			return m, nil
 		}
-		m.evalTopoErr = nil
-		m.evalTopology = msg.topology
+		m.eval.TopoErr = nil
+		m.eval.Topology = msg.topology
 		if msg.topology != nil {
 			totalItems := len(msg.topology.Nodes) + len(msg.topology.Edges)
-			if m.evalTopoCursor >= totalItems {
-				m.evalTopoCursor = max(0, totalItems-1)
+			if m.eval.TopoCursor >= totalItems {
+				m.eval.TopoCursor = max(0, totalItems-1)
 			}
 		}
 		return m, nil
 	case evalSynergyMsg:
 		if msg.err != nil {
-			m.evalSynErr = msg.err
+			m.eval.SynErr = msg.err
 			return m, nil
 		}
-		m.evalSynErr = nil
-		m.evalSynergies = msg.combos
-		if m.evalSynCursor >= len(m.evalSynergies) {
-			m.evalSynCursor = max(0, len(m.evalSynergies)-1)
+		m.eval.SynErr = nil
+		m.eval.Synergies = msg.combos
+		if m.eval.SynCursor >= len(m.eval.Synergies) {
+			m.eval.SynCursor = max(0, len(m.eval.Synergies)-1)
 		}
 		return m, nil
 	case promptPagerMsg:
@@ -916,13 +905,13 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Fetch eval data when Eval pane is active (Story 27-10)
 	if m.activePane == paneEval && m.connected {
-		if m.evalReputations == nil || m.heatmap.TickCount%5 == 0 {
+		if m.eval.Reputations == nil || m.heatmap.TickCount%5 == 0 {
 			cmds = append(cmds, fetchReputationCmd())
 		}
-		if m.evalSubView == 1 && (m.evalTopology == nil || m.heatmap.TickCount%5 == 0) {
+		if m.eval.SubView == 1 && (m.eval.Topology == nil || m.heatmap.TickCount%5 == 0) {
 			cmds = append(cmds, fetchTopologyCmd())
 		}
-		if m.evalSubView == 2 && (m.evalSynergies == nil || m.heatmap.TickCount%5 == 0) {
+		if m.eval.SubView == 2 && (m.eval.Synergies == nil || m.heatmap.TickCount%5 == 0) {
 			cmds = append(cmds, fetchSynergyCmd())
 		}
 	}

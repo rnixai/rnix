@@ -110,58 +110,58 @@ func (m dashboardModel) handleEvalKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "!", "h", "left":
 		if key == "!" {
-			m.evalSubView = 0
+			m.eval.SubView = 0
 		} else {
 			// h/left: 向左切换子视图
-			m.evalSubView = (m.evalSubView + 2) % 3
+			m.eval.SubView = (m.eval.SubView + 2) % 3
 		}
 		return m, m.evalEnsureSubViewData()
 	case "@":
-		m.evalSubView = 1
+		m.eval.SubView = 1
 		return m, m.evalEnsureSubViewData()
 	case "#", "l", "right":
 		if key == "#" {
-			m.evalSubView = 2
+			m.eval.SubView = 2
 		} else {
 			// l/right: 向右切换子视图
-			m.evalSubView = (m.evalSubView + 1) % 3
+			m.eval.SubView = (m.eval.SubView + 1) % 3
 		}
 		return m, m.evalEnsureSubViewData()
 	case "down", "j":
-		switch m.evalSubView {
+		switch m.eval.SubView {
 		case 0:
-			if len(m.evalReputations) > 0 && m.evalRepCursor < len(m.evalReputations)-1 {
-				m.evalRepCursor++
+			if len(m.eval.Reputations) > 0 && m.eval.RepCursor < len(m.eval.Reputations)-1 {
+				m.eval.RepCursor++
 				evalRepAdjustScroll(&m)
 			}
 		case 1:
 			totalItems := evalTopoItemCount(&m)
-			if totalItems > 0 && m.evalTopoCursor < totalItems-1 {
-				m.evalTopoCursor++
+			if totalItems > 0 && m.eval.TopoCursor < totalItems-1 {
+				m.eval.TopoCursor++
 				evalTopoAdjustScroll(&m)
 			}
 		case 2:
-			if len(m.evalSynergies) > 0 && m.evalSynCursor < len(m.evalSynergies)-1 {
-				m.evalSynCursor++
+			if len(m.eval.Synergies) > 0 && m.eval.SynCursor < len(m.eval.Synergies)-1 {
+				m.eval.SynCursor++
 				evalSynAdjustScroll(&m)
 			}
 		}
 		return m, nil
 	case "up", "k":
-		switch m.evalSubView {
+		switch m.eval.SubView {
 		case 0:
-			if m.evalRepCursor > 0 {
-				m.evalRepCursor--
+			if m.eval.RepCursor > 0 {
+				m.eval.RepCursor--
 				evalRepAdjustScroll(&m)
 			}
 		case 1:
-			if m.evalTopoCursor > 0 {
-				m.evalTopoCursor--
+			if m.eval.TopoCursor > 0 {
+				m.eval.TopoCursor--
 				evalTopoAdjustScroll(&m)
 			}
 		case 2:
-			if m.evalSynCursor > 0 {
-				m.evalSynCursor--
+			if m.eval.SynCursor > 0 {
+				m.eval.SynCursor--
 				evalSynAdjustScroll(&m)
 			}
 		}
@@ -172,13 +172,13 @@ func (m dashboardModel) handleEvalKey(key string) (tea.Model, tea.Cmd) {
 
 // evalEnsureSubViewData 确保当前子视图的数据已加载
 func (m dashboardModel) evalEnsureSubViewData() tea.Cmd {
-	switch m.evalSubView {
+	switch m.eval.SubView {
 	case 1:
-		if m.evalTopology == nil && m.connected {
+		if m.eval.Topology == nil && m.connected {
 			return fetchTopologyCmd()
 		}
 	case 2:
-		if m.evalSynergies == nil && m.connected {
+		if m.eval.Synergies == nil && m.connected {
 			return fetchSynergyCmd()
 		}
 	}
@@ -186,10 +186,10 @@ func (m dashboardModel) evalEnsureSubViewData() tea.Cmd {
 }
 
 func evalTopoItemCount(m *dashboardModel) int {
-	if m.evalTopology == nil {
+	if m.eval.Topology == nil {
 		return 0
 	}
-	return len(m.evalTopology.Nodes) + len(m.evalTopology.Edges)
+	return len(m.eval.Topology.Nodes) + len(m.eval.Topology.Edges)
 }
 
 func (m dashboardModel) renderEvalPane(width, height int) string {
@@ -209,7 +209,7 @@ func (m dashboardModel) renderEvalPane(width, height int) string {
 	tabs := []string{"Reputation", "Topology", "Synergy"}
 	var tabParts []string
 	for i, name := range tabs {
-		if i == m.evalSubView {
+		if i == m.eval.SubView {
 			tabParts = append(tabParts, lipgloss.NewStyle().Bold(true).Render("▸ "+name))
 		} else {
 			tabParts = append(tabParts, "  "+name)
@@ -217,7 +217,7 @@ func (m dashboardModel) renderEvalPane(width, height int) string {
 	}
 	fmt.Fprintf(&b, " Evaluation  %s\n", strings.Join(tabParts, "  "))
 
-	switch m.evalSubView {
+	switch m.eval.SubView {
 	case 0:
 		b.WriteString(m.renderEvalReputationView(innerW, innerH-1))
 	case 1:
@@ -232,12 +232,12 @@ func (m dashboardModel) renderEvalPane(width, height int) string {
 func (m dashboardModel) renderEvalReputationView(width, height int) string {
 	var b strings.Builder
 
-	if m.evalRepErr != nil {
-		fmt.Fprintf(&b, " Error: %v\n", m.evalRepErr)
+	if m.eval.RepErr != nil {
+		fmt.Fprintf(&b, " Error: %v\n", m.eval.RepErr)
 		return b.String()
 	}
 
-	if len(m.evalReputations) == 0 {
+	if len(m.eval.Reputations) == 0 {
 		b.WriteString("\n    需要更多执行数据以生成评价。使用 rnix spawn 或 rnix compose up 执行任务以积累数据。\n")
 		return b.String()
 	}
@@ -253,13 +253,13 @@ func (m dashboardModel) renderEvalReputationView(width, height int) string {
 		"AGENT", "SCORE", "SUCCESS", "AVG TOK", "AVG DUR", "N", "TREND")
 
 	visibleLines := max(height-2, 1)
-	startIdx := m.evalRepScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.evalReputations))
+	startIdx := m.eval.RepScrollOffset
+	endIdx := min(startIdx+visibleLines, len(m.eval.Reputations))
 
 	for i := startIdx; i < endIdx; i++ {
-		r := m.evalReputations[i]
+		r := m.eval.Reputations[i]
 		cursor := "  "
-		if i == m.evalRepCursor {
+		if i == m.eval.RepCursor {
 			cursor = cursorChar + " "
 		}
 
@@ -304,18 +304,18 @@ func (m dashboardModel) renderEvalReputationView(width, height int) string {
 func (m dashboardModel) renderEvalTopologyView(_, height int) string {
 	var b strings.Builder
 
-	if m.evalTopoErr != nil {
-		fmt.Fprintf(&b, " Error: %v\n", m.evalTopoErr)
+	if m.eval.TopoErr != nil {
+		fmt.Fprintf(&b, " Error: %v\n", m.eval.TopoErr)
 		return b.String()
 	}
 
-	if m.evalTopology == nil {
+	if m.eval.Topology == nil {
 		b.WriteString("\n    无协作拓扑数据。运行多智能体编排以生成协作关系。\n")
 		return b.String()
 	}
 
-	nodeCount := len(m.evalTopology.Nodes)
-	edgeCount := len(m.evalTopology.Edges)
+	nodeCount := len(m.eval.Topology.Nodes)
+	edgeCount := len(m.eval.Topology.Edges)
 
 	if nodeCount == 0 && edgeCount == 0 {
 		b.WriteString("\n    无协作拓扑数据。运行多智能体编排以生成协作关系。\n")
@@ -338,17 +338,17 @@ func (m dashboardModel) renderEvalTopologyView(_, height int) string {
 
 	totalItems := nodeCount + edgeCount
 	visibleLines := max(height-2, 1) // -2 for section header + column header
-	startIdx := m.evalTopoScrollOffset
+	startIdx := m.eval.TopoScrollOffset
 	endIdx := min(startIdx+visibleLines, totalItems)
 
 	edgesHeaderPrinted := false
 	for i := startIdx; i < endIdx; i++ {
 		cursor := "  "
-		if i == m.evalTopoCursor {
+		if i == m.eval.TopoCursor {
 			cursor = cursorChar + " "
 		}
 		if i < nodeCount {
-			node := m.evalTopology.Nodes[i]
+			node := m.eval.Topology.Nodes[i]
 			fmt.Fprintf(&b, "%s%-16s  %5.2f  %11d\n", cursor, node.Agent, node.ReputationScore, node.Connections)
 		} else {
 			if !edgesHeaderPrinted {
@@ -360,7 +360,7 @@ func (m dashboardModel) renderEvalTopologyView(_, height int) string {
 				fmt.Fprintf(&b, " %-26s  %5s  %3s  %5s  %s\n", "FROM "+headerArrow+" TO", "SPAWN", "MSG", "TOTAL", "REINFORCED")
 				edgesHeaderPrinted = true
 			}
-			edge := m.evalTopology.Edges[i-nodeCount]
+			edge := m.eval.Topology.Edges[i-nodeCount]
 			rMark := ""
 			if edge.Reinforced {
 				rMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(reinforcedMark)
@@ -380,12 +380,12 @@ func (m dashboardModel) renderEvalTopologyView(_, height int) string {
 func (m dashboardModel) renderEvalSynergyView(width, height int) string {
 	var b strings.Builder
 
-	if m.evalSynErr != nil {
-		fmt.Fprintf(&b, " Error: %v\n", m.evalSynErr)
+	if m.eval.SynErr != nil {
+		fmt.Fprintf(&b, " Error: %v\n", m.eval.SynErr)
 		return b.String()
 	}
 
-	if len(m.evalSynergies) == 0 {
+	if len(m.eval.Synergies) == 0 {
 		b.WriteString("\n    无技能组合数据。当 Agent 使用多个 Skill 执行任务时将自动记录。\n")
 		return b.String()
 	}
@@ -400,13 +400,13 @@ func (m dashboardModel) renderEvalSynergyView(width, height int) string {
 		"SKILLS", "SUCCESS", "AVG TOK", "EXEC", "VS SOLO", "REC")
 
 	visibleLines := max(height-2, 1)
-	startIdx := m.evalSynScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.evalSynergies))
+	startIdx := m.eval.SynScrollOffset
+	endIdx := min(startIdx+visibleLines, len(m.eval.Synergies))
 
 	for i := startIdx; i < endIdx; i++ {
-		combo := m.evalSynergies[i]
+		combo := m.eval.Synergies[i]
 		cursor := "  "
-		if i == m.evalSynCursor {
+		if i == m.eval.SynCursor {
 			cursor = cursorChar + " "
 		}
 
@@ -488,32 +488,32 @@ func evalBottomInnerH(termHeight int) int {
 // evalRepAdjustScroll ensures evalRepCursor is visible within the viewport.
 func evalRepAdjustScroll(m *dashboardModel) {
 	visibleLines := max(evalBottomInnerH(m.height)-3, 1) // match renderEvalReputationView
-	if m.evalRepCursor < m.evalRepScrollOffset {
-		m.evalRepScrollOffset = m.evalRepCursor
+	if m.eval.RepCursor < m.eval.RepScrollOffset {
+		m.eval.RepScrollOffset = m.eval.RepCursor
 	}
-	if m.evalRepCursor >= m.evalRepScrollOffset+visibleLines {
-		m.evalRepScrollOffset = m.evalRepCursor - visibleLines + 1
+	if m.eval.RepCursor >= m.eval.RepScrollOffset+visibleLines {
+		m.eval.RepScrollOffset = m.eval.RepCursor - visibleLines + 1
 	}
 }
 
 // evalTopoAdjustScroll ensures evalTopoCursor is visible within the viewport.
 func evalTopoAdjustScroll(m *dashboardModel) {
 	visibleLines := max(evalBottomInnerH(m.height)-3, 1) // match renderEvalTopologyView
-	if m.evalTopoCursor < m.evalTopoScrollOffset {
-		m.evalTopoScrollOffset = m.evalTopoCursor
+	if m.eval.TopoCursor < m.eval.TopoScrollOffset {
+		m.eval.TopoScrollOffset = m.eval.TopoCursor
 	}
-	if m.evalTopoCursor >= m.evalTopoScrollOffset+visibleLines {
-		m.evalTopoScrollOffset = m.evalTopoCursor - visibleLines + 1
+	if m.eval.TopoCursor >= m.eval.TopoScrollOffset+visibleLines {
+		m.eval.TopoScrollOffset = m.eval.TopoCursor - visibleLines + 1
 	}
 }
 
 // evalSynAdjustScroll ensures evalSynCursor is visible within the viewport.
 func evalSynAdjustScroll(m *dashboardModel) {
 	visibleLines := max(evalBottomInnerH(m.height)-3, 1) // match renderEvalSynergyView
-	if m.evalSynCursor < m.evalSynScrollOffset {
-		m.evalSynScrollOffset = m.evalSynCursor
+	if m.eval.SynCursor < m.eval.SynScrollOffset {
+		m.eval.SynScrollOffset = m.eval.SynCursor
 	}
-	if m.evalSynCursor >= m.evalSynScrollOffset+visibleLines {
-		m.evalSynScrollOffset = m.evalSynCursor - visibleLines + 1
+	if m.eval.SynCursor >= m.eval.SynScrollOffset+visibleLines {
+		m.eval.SynScrollOffset = m.eval.SynCursor - visibleLines + 1
 	}
 }
