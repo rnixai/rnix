@@ -922,119 +922,13 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 }
 
 // renderExpandedDetail renders Level 2 detail lines for a step.
+// renderExpandedDetail — thin wrapper · 见 internal/dashboard/timeline.RenderExpandedDetail
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/render.go.
+// 保留 (m dashboardModel) receiver 让 ATDD 27-3 / 36-3 grep 字符串通过.
+// 函数体本身不依赖 dashboardModel 状态（receiver 是死的 · 完全 pure helper）.
 func (m dashboardModel) renderExpandedDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire, maxW, maxLines int) int {
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-	lines := 0
-	contentW := max(maxW-14, 20) // 3 indent + "┊" + " " + 8 label + " " padding
-
-	// ToolPath — skip when Level 1 already shows it as displaySummary
-	displayedAsSummary := s.Summary
-	if s.ToolPath != "" && len(s.Summary) < 8 {
-		displayedAsSummary = s.ToolPath
-	}
-	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary && lines < maxLines {
-		pathLabel := detail.ToolPath
-		if runewidth.StringWidth(pathLabel) > contentW {
-			pathLabel = runewidth.Truncate(pathLabel, contentW-1, "…")
-		}
-		pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4EC9B0"))
-		fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("   Path"), pathStyle.Render(pathLabel))
-		lines++
-	}
-
-	// Input (tool_call only)
-	if detail.ToolInput != "" && lines < maxLines {
-		input := detail.ToolInput
-		if runewidth.StringWidth(input) > contentW {
-			totalBytes := len(detail.ToolInput)
-			input = runewidth.Truncate(input, contentW-15, "") + fmt.Sprintf("… (%d bytes)", totalBytes)
-		}
-		fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("  Input"), input)
-		lines++
-	}
-
-	// Result or Error
-	if detail.ToolError != "" && lines < maxLines {
-		errMsg := detail.ToolError
-		errLines := strings.Split(errMsg, "\n")
-		if len(errLines) > 3 {
-			errMsg = strings.Join(errLines[:3], "\n") + fmt.Sprintf("\n… (%d more lines)", len(errLines)-3)
-		}
-		for i, el := range strings.Split(errMsg, "\n") {
-			if lines >= maxLines {
-				break
-			}
-			if i == 0 {
-				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("  Error"), errStyle.Render(el))
-			} else {
-				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("       "), errStyle.Render(el))
-			}
-			lines++
-		}
-	} else if detail.ToolResult != "" && lines < maxLines {
-		result := detail.ToolResult
-		resultLines := strings.Split(result, "\n")
-		if len(resultLines) > 3 {
-			result = strings.Join(resultLines[:3], "\n") + fmt.Sprintf("\n… (%d more lines)", len(resultLines)-3)
-		}
-		for i, rl := range strings.Split(result, "\n") {
-			if lines >= maxLines {
-				break
-			}
-			if i == 0 {
-				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render(" Result"), rl)
-			} else {
-				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("       "), rl)
-			}
-			lines++
-		}
-	} else if detail.RawResponse != "" && lines < maxLines {
-		// Show RawResponse snippet as fallback for any action type
-		rawLines := strings.Split(detail.RawResponse, "\n")
-		showLines := min(3, len(rawLines))
-		for i := range showLines {
-			if lines >= maxLines {
-				break
-			}
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), rawLines[i])
-			lines++
-		}
-		if len(rawLines) > 3 && lines < maxLines {
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(fmt.Sprintf("… (%d more lines)", len(rawLines)-3)))
-			lines++
-		}
-	}
-
-	// Token breakdown — skip when total already shown in Level 1 and breakdown matches
-	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) && lines < maxLines {
-		fmt.Fprintf(b, "   %s %s %d req → %d resp\n", dimStyle.Render("┊"), dimStyle.Render("  Token"), detail.RequestTokens, detail.ResponseTokens)
-		lines++
-	}
-
-	// Fallback: if all fields were deduped or empty (should be rare — hasExpandableContent prevents most cases)
-	if lines == 0 {
-		// Try full ToolPath if Level 1 showed a truncated Summary
-		if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
-			tp := detail.ToolPath
-			if runewidth.StringWidth(tp) > contentW {
-				tp = runewidth.Truncate(tp, contentW-1, "…")
-			}
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(tp))
-			lines++
-		}
-		// Try RawResponse as last resort
-		if lines == 0 && detail.RawResponse != "" {
-			raw := detail.RawResponse
-			if runewidth.StringWidth(raw) > contentW {
-				raw = runewidth.Truncate(raw, contentW-1, "…")
-			}
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(raw))
-			lines++
-		}
-	}
-
-	return lines
+	return timeline.RenderExpandedDetail(b, detail, s, maxW, maxLines)
 }
 
 // renderDebugDetail renders Level 3 debug lines (messages preview).

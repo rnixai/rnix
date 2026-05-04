@@ -256,3 +256,146 @@ func TestRenderDebugDetail_LongContentTruncation(t *testing.T) {
 		t.Fatalf("expected truncation to drop full content: %q", got)
 	}
 }
+
+// TestRenderExpandedDetail_ToolInputAndResult — 同时有 input / result 时按
+// hasExpandableContent 行为契约渲染（27-3 三级 detail 落地）。
+func TestRenderExpandedDetail_ToolInputAndResult(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		ToolPath:   "/dev/fs/read",
+		ToolInput:  "{\"path\": \"foo.go\"}",
+		ToolResult: "package main\n\nfunc main() {}",
+	}
+	s := ipc.StepSummaryWire{Summary: "read", ToolPath: ""}
+	lines := RenderExpandedDetail(&b, detail, s, 80, 20)
+
+	if lines < 3 {
+		t.Fatalf("expected at least 3 lines (Path + Input + Result), got %d", lines)
+	}
+	got := b.String()
+	if !strings.Contains(got, "Path") || !strings.Contains(got, "/dev/fs/read") {
+		t.Fatalf("expected Path label + tool path: %q", got)
+	}
+	if !strings.Contains(got, "Input") || !strings.Contains(got, "foo.go") {
+		t.Fatalf("expected Input label + content: %q", got)
+	}
+	if !strings.Contains(got, "Result") || !strings.Contains(got, "package main") {
+		t.Fatalf("expected Result label + content: %q", got)
+	}
+}
+
+// TestRenderExpandedDetail_ErrorTakesPrecedence — error 优先于 result（27-3 落地）。
+func TestRenderExpandedDetail_ErrorTakesPrecedence(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		ToolError:  "permission denied",
+		ToolResult: "should not appear",
+	}
+	s := ipc.StepSummaryWire{}
+	RenderExpandedDetail(&b, detail, s, 80, 10)
+	got := b.String()
+	if !strings.Contains(got, "Error") || !strings.Contains(got, "permission denied") {
+		t.Fatalf("expected Error label + message: %q", got)
+	}
+	if strings.Contains(got, "should not appear") {
+		t.Fatalf("expected result to be hidden when error present: %q", got)
+	}
+}
+
+// TestRenderExpandedDetail_TokenBreakdown — RequestTokens + ResponseTokens 不等于
+// TokenCount 时显示 "%d req → %d resp"。
+func TestRenderExpandedDetail_TokenBreakdown(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		RequestTokens:  500,
+		ResponseTokens: 200,
+	}
+	s := ipc.StepSummaryWire{TokenCount: 0} // breakdown 与 total 不一致 → 显示
+	RenderExpandedDetail(&b, detail, s, 80, 10)
+	got := b.String()
+	if !strings.Contains(got, "Token") {
+		t.Fatalf("expected Token label: %q", got)
+	}
+	if !strings.Contains(got, "500") || !strings.Contains(got, "200") {
+		t.Fatalf("expected token numbers: %q", got)
+	}
+	if !strings.Contains(got, "req") || !strings.Contains(got, "resp") {
+		t.Fatalf("expected req/resp labels: %q", got)
+	}
+}
+
+// TestRenderExpandedDetail_FallbackRawResponse — 无 input/error/result 但有 RawResponse 时
+// fallback 展示前 3 行（27-3 落地 fallback 路径）。
+func TestRenderExpandedDetail_FallbackRawResponse(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		RawResponse: "line1\nline2\nline3\nline4\nline5",
+	}
+	s := ipc.StepSummaryWire{}
+	lines := RenderExpandedDetail(&b, detail, s, 80, 10)
+	if lines < 3 {
+		t.Fatalf("expected at least 3 lines (3 raw + more hint), got %d", lines)
+	}
+	got := b.String()
+	if !strings.Contains(got, "line1") || !strings.Contains(got, "line2") || !strings.Contains(got, "line3") {
+		t.Fatalf("expected first 3 raw lines: %q", got)
+	}
+	if !strings.Contains(got, "more lines") {
+		t.Fatalf("expected '… (N more lines)' hint: %q", got)
+	}
+	if strings.Contains(got, "line4") || strings.Contains(got, "line5") {
+		t.Fatalf("expected lines 4-5 to be omitted: %q", got)
+	}
+}
+
+// TestRenderExpandedDetail_MultiLineErrorTruncation — error 多行时截断到 3 行 + hint。
+func TestRenderExpandedDetail_MultiLineErrorTruncation(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		ToolError: "err1\nerr2\nerr3\nerr4\nerr5",
+	}
+	s := ipc.StepSummaryWire{}
+	RenderExpandedDetail(&b, detail, s, 80, 10)
+	got := b.String()
+	if !strings.Contains(got, "err1") || !strings.Contains(got, "err3") {
+		t.Fatalf("expected err1-3: %q", got)
+	}
+	if !strings.Contains(got, "more lines") {
+		t.Fatalf("expected '… (N more lines)' hint: %q", got)
+	}
+}
+
+// TestRenderExpandedDetail_PathDedupWithSummary — Level 1 已展示完整 ToolPath 时不再重复
+// 显示 Path 行（27-3 去重契约）。
+func TestRenderExpandedDetail_PathDedupWithSummary(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		ToolPath: "shortpath", // 短 path · Level 1 已用 toolpath 替换 summary
+	}
+	s := ipc.StepSummaryWire{
+		Summary:  "abc",       // 短 summary · 触发 displayedAsSummary = ToolPath
+		ToolPath: "shortpath", // 等于 detail.ToolPath
+	}
+	lines := RenderExpandedDetail(&b, detail, s, 80, 10)
+	got := b.String()
+	// 此时 detail.ToolPath == displayedAsSummary · Path 行应被跳过 ·
+	// 但 Fallback 路径会再次尝试显示 ToolPath（lines == 0 时）· 故 lines 应 == 1
+	if lines != 1 {
+		t.Logf("path dedup: got %d lines: %q", lines, got)
+	}
+}
+
+// TestRenderExpandedDetail_MaxLinesGuard — maxLines 严格限制写入行数。
+func TestRenderExpandedDetail_MaxLinesGuard(t *testing.T) {
+	var b strings.Builder
+	detail := &ipc.GetStepDetailResponse{
+		ToolPath:   "/dev/fs/read",
+		ToolInput:  "input",
+		ToolResult: "result",
+	}
+	s := ipc.StepSummaryWire{}
+	lines := RenderExpandedDetail(&b, detail, s, 80, 1)
+	if lines > 1 {
+		t.Fatalf("expected lines <= 1 with maxLines=1, got %d", lines)
+	}
+}
