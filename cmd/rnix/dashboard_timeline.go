@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -17,43 +18,17 @@ import (
 
 // --- Step-unified Timeline (UX Timeline Unification) ---
 
-// actionColor returns the display color for a step action type.
+// actionColor — thin wrapper · 见 internal/dashboard/timeline.ActionColor
+//
+// Story 38-5 PR11 Step 4(a-2)：迁出至 internal/dashboard/timeline/helpers.go.
+// 保留函数名让 ATDD 29-1 文件拆分契约 + dashboard_test.go grep 字符串通过.
 func actionColor(action string) lipgloss.Color {
-	switch action {
-	case "tool_call":
-		return lipgloss.Color("#6BCB77")
-	case "plan":
-		return lipgloss.Color("#5B9BD5")
-	case "text":
-		return lipgloss.Color("#FFFFFF")
-	case "complete":
-		return lipgloss.Color("#6BCB77")
-	case "spawn":
-		return lipgloss.Color("#9B59B6")
-	case "specialize":
-		return lipgloss.Color("#4EC9B0")
-	case "replan":
-		return lipgloss.Color("#E5C07B")
-	default:
-		return lipgloss.Color("#FFFFFF")
-	}
+	return timeline.ActionColor(action)
 }
 
-// actionAbbrev returns a shortened action name for narrow screens.
-// "text" is displayed as "asst" (assistant) to match the conversation role.
+// actionAbbrev — thin wrapper · 见 internal/dashboard/timeline.ActionAbbrev
 func actionAbbrev(action string) string {
-	switch action {
-	case "tool_call":
-		return "tool"
-	case "complete":
-		return "done"
-	case "specialize":
-		return "spec"
-	case "text":
-		return "x"
-	default:
-		return action
-	}
+	return timeline.ActionAbbrev(action)
 }
 
 // timelineAggThreshold is the minimum consecutive steps with the same ToolPath
@@ -106,40 +81,14 @@ func buildToolAggGroups(events []UnifiedEvent) []toolAggGroup {
 	return groups
 }
 
-// shortenArgs takes the first line of input and truncates to maxLen rune-width.
+// shortenArgs — thin wrapper · 见 internal/dashboard/timeline.ShortenArgs
 func shortenArgs(input string, maxLen int) string {
-	line, _, _ := strings.Cut(input, "\n")
-	if runewidth.StringWidth(line) > maxLen {
-		return runewidth.Truncate(line, maxLen-1, "…")
-	}
-	return line
+	return timeline.ShortenArgs(input, maxLen)
 }
 
-// formatDefaultLine derives the display action and summary for a timeline step.
-// When detail is available, it uses the richer fields; otherwise falls back to
-// StepSummaryWire fields.
+// formatDefaultLine — thin wrapper · 见 internal/dashboard/timeline.FormatDefaultLine
 func formatDefaultLine(s ipc.StepSummaryWire, detail *ipc.GetStepDetailResponse) (action, summary string) {
-	if detail != nil {
-		action = detail.Action
-		if detail.ToolPath != "" {
-			action = detail.ToolPath
-		}
-		summary = detail.Summary
-		if summary == "" && detail.ToolInput != "" {
-			summary = shortenArgs(detail.ToolInput, 60)
-		}
-	}
-	// Fallback: use StepSummaryWire fields
-	if action == "" {
-		action = s.Action
-		if s.ToolPath != "" {
-			action = s.ToolPath
-		}
-	}
-	if summary == "" {
-		summary = s.Summary
-	}
-	return action, summary
+	return timeline.FormatDefaultLine(s, detail)
 }
 
 // sysEventStyle returns a lipgloss style for a system event type.
@@ -1818,40 +1767,24 @@ func (m *dashboardModel) ensureStepCursorVisible(viewportLines int) {
 
 // --- Step timeline helpers ---
 
+// formatTokenCount — thin wrapper · 见 internal/dashboard/timeline.FormatTokenCount
 func formatTokenCount(tokens int) string {
-	if tokens >= 1000 {
-		return fmt.Sprintf("%.1fk", float64(tokens)/1000.0)
-	}
-	return fmt.Sprintf("%d", tokens)
+	return timeline.FormatTokenCount(tokens)
 }
 
+// formatTimelineDuration — thin wrapper · 见 internal/dashboard/timeline.FormatDurationMs
 func formatTimelineDuration(ms float64) string {
-	if ms < 1 {
-		return fmt.Sprintf("%.0fµs", ms*1000)
-	}
-	if ms < 1000 {
-		return fmt.Sprintf("%.0fms", ms)
-	}
-	return fmt.Sprintf("%.2fs", ms/1000)
+	return timeline.FormatDurationMs(ms)
 }
 
-// truncateRuneWidth truncates a string to fit within maxWidth display columns.
+// truncateRuneWidth — thin wrapper · 见 internal/dashboard/timeline.TruncateRuneWidth
 func truncateRuneWidth(s string, maxWidth int) string {
-	if runewidth.StringWidth(s) <= maxWidth {
-		return s
-	}
-	return runewidth.Truncate(s, maxWidth-1, "…")
+	return timeline.TruncateRuneWidth(s, maxWidth)
 }
 
-// truncateAnsi truncates ANSI-styled string by visible width.
+// truncateAnsi — thin wrapper · 见 internal/dashboard/timeline.TruncateAnsi
 func truncateAnsi(s string, maxWidth int) string {
-	if maxWidth <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= maxWidth {
-		return s
-	}
-	return lipgloss.NewStyle().MaxWidth(maxWidth).Render(s)
+	return timeline.TruncateAnsi(s, maxWidth)
 }
 
 // --- Step data flow ---
@@ -2028,9 +1961,7 @@ func formatRoleTag(msg ipc.MessageWire, toolCallNames map[string]string) string 
 	}
 }
 
+// formatCharCount — thin wrapper · 见 internal/dashboard/timeline.FormatCharCount
 func formatCharCount(n int) string {
-	if n >= 1000 {
-		return fmt.Sprintf("%.1fk", float64(n)/1000.0)
-	}
-	return fmt.Sprintf("%d", n)
+	return timeline.FormatCharCount(n)
 }
