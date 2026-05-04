@@ -19,6 +19,7 @@ import (
 
 	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
@@ -677,25 +678,11 @@ func registerLayer2Detail(d *ui.Dispatcher) {
 }
 
 func registerLayer2Intent(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Intent Pane",
-		Bindings: map[string]ui.KeyHandler{},
-		Fallback: paneFallback,
-		Docs:     map[string]ui.KeyDoc{},
-		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
-			m, ok := ctx.(dashboardModel)
-			if !ok {
-				return nil
-			}
-			modes := []ui.Mode{{Name: "view", Value: "tree"}}
-			if total := len(m.intent.FlatNodes); total > 0 {
-				modes = append(modes, ui.Mode{Name: "nodes", Value: fmt.Sprintf("%d", total)})
-			}
-			return modes
-		},
-	}
-	l.Docs["enter"] = ui.KeyDoc{Key: "enter", Description: "Drill in to process timeline"}
-	d.Layer2[ui.PaneID(paneIntent)] = l
+	// Story 38-5 PR6 Step 2: KeyLayer 注册体迁出至 internal/dashboard/intent.KeyLayer。
+	// dashboardModel 通过 `IntentState() intent.IntentState` getter 满足
+	// intent.StateProvider interface（PR6 Step 1 deprecated getter）。
+	// 行为零变化：1 个 Docs 键 enter + ActiveModesFn{view:tree, nodes:N}。
+	d.Layer2[ui.PaneID(paneIntent)] = intent.KeyLayer(paneFallback)
 }
 
 func registerLayer2Security(d *ui.Dispatcher) {
