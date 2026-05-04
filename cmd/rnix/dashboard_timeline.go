@@ -941,19 +941,12 @@ func (m dashboardModel) renderDebugDetail(b *strings.Builder, detail *ipc.GetSte
 	return timeline.RenderDebugDetail(b, detail, maxW, maxLines, promptRoleForRole)
 }
 
+// promptRoleForRole — thin wrapper · 见 internal/dashboard/timeline.PromptRoleForRole
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/role.go.
+// 保留函数名让 RenderDebugDetail roleStyle 依赖注入闭包通过.
 func promptRoleForRole(role string) string {
-	switch role {
-	case "system":
-		return promptRoleSystem.Render("[system]")
-	case "user":
-		return promptRoleUser.Render("[user]  ")
-	case "assistant":
-		return promptRoleAssistant.Render("[asst]  ")
-	case "tool":
-		return promptRoleTool.Render("[tool]  ")
-	default:
-		return "[" + role + "]"
-	}
+	return timeline.PromptRoleForRole(role)
 }
 
 // renderUnifiedStepHeader renders the timeline header with unified event counts.
@@ -1413,47 +1406,18 @@ func fetchStepDetailCmd(pid types.PID, step int) tea.Cmd {
 
 // --- Helper functions (retained from Story 27-4, used by Step Inspector) ---
 
-// formatRoleTag renders the bracketed role label for a conversation message,
-// with role-specific colors and Bold. Story 38-3 AC#1 splits the legacy "tool"
-// branch into two visually distinct tags:
-//   - tool_use   (msg.Role=="tool" && msg.ToolCallID=="")  → ColorSuccess green + Bold
-//     (rare boundary case: tool invocation recorded as a standalone message
-//     without a ToolCallID; shown plain `[tool_use]`)
-//   - tool_result (msg.Role=="tool" && msg.ToolCallID!="") → ColorReplay orange + Bold
-//     (the common case; suffixed with the tool name when a name is mapped via
-//     toolCallNames, falling back to the raw ToolCallID)
+// formatRoleTag — thin wrapper · 见 internal/dashboard/timeline.FormatRoleTag
 //
-// The existing user/assistant/system branches preserve their pre-Story 38-3
-// styles (greens/blues/grey) — see Dev Notes 1 of Story 38-3 for the decision
-// to keep the existing color language and only enrich the tool branch.
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/role.go（含
+// promptRoleSystem/User/Assistant/Tool 4 个 lipgloss.Style · 包内私有 ·
+// dashboard_types.go 端旧定义随之删除）.
 //
-// ASCII fallback: lipgloss auto-degrades colors when the terminal profile
-// lacks color support; the bracketed text always remains readable.
+// **Story 38-3 AC#1 行为契约保留**：tool_use / tool_result 拆分 + ColorSuccess /
+// ColorReplay + Bold + tool name fallback 逻辑全部迁出但等价 · ATDD 27-4 / 36.1 /
+// inspector visual TestFormatRoleTag_ToolUseVsToolResult 测试通过 thin wrapper
+// 间接覆盖（cmd/rnix 端 caller 行为零变化）.
 func formatRoleTag(msg ipc.MessageWire, toolCallNames map[string]string) string {
-	switch msg.Role {
-	case "system":
-		return promptRoleSystem.Render("[system]")
-	case "user":
-		return promptRoleUser.Bold(true).Render("[user]")
-	case "assistant":
-		return promptRoleAssistant.Bold(true).Render("[assistant]")
-	case "tool":
-		// Story 38-3 AC#1: tool_use vs tool_result distinction by ToolCallID.
-		if msg.ToolCallID == "" {
-			toolUseStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Bold(true)
-			return toolUseStyle.Render("[tool_use]")
-		}
-		label := ""
-		if name, ok := toolCallNames[msg.ToolCallID]; ok && name != "" {
-			label = ":" + name
-		} else {
-			label = ":" + msg.ToolCallID
-		}
-		toolResultStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorReplay)).Bold(true)
-		return toolResultStyle.Render("[tool_result" + label + "]")
-	default:
-		return "[" + msg.Role + "]"
-	}
+	return timeline.FormatRoleTag(msg, toolCallNames)
 }
 
 // formatCharCount — thin wrapper · 见 internal/dashboard/timeline.FormatCharCount

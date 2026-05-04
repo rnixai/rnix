@@ -1,8 +1,6 @@
 package main
 
 import (
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
@@ -344,13 +342,10 @@ type pauseToggleMsg struct {
 }
 
 // --- Prompt Pager styles (Story 27-4) ---
-
-var (
-	promptRoleSystem    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	promptRoleUser      = lipgloss.NewStyle().Foreground(lipgloss.Color("#6BCB77"))
-	promptRoleAssistant = lipgloss.NewStyle().Foreground(lipgloss.Color("#5B9BD5"))
-	promptRoleTool      = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD93D"))
-)
+//
+// Story 38-5 PR11 Step 4(c)：promptRoleSystem/User/Assistant/Tool 全部迁出至
+// internal/dashboard/timeline/role.go 包内私有 var · cmd/rnix 端不再持有 ·
+// 调用方通过 timeline.PromptRoleForRole / timeline.FormatRoleTag 访问.
 
 // Inspector truncation threshold: show first 10k chars, then truncation notice.
 //
