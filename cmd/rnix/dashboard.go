@@ -15,6 +15,7 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
@@ -122,11 +123,8 @@ type dashboardModel struct {
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
 
-	// Detail pane fields (Story 27-6)
-	procDetail      *ipc.GetProcDetailResponse
-	procDetailPID   types.PID
-	procDetailCache map[string]*ipc.GetProcDetailResponse
-	procDetailTick  int // tick counter for periodic cache refresh
+	// Story 38-5 PR5 Step 1: DetailState 抽离（4 字段 · spec § AC5）— Detail/PID/Cache/Tick · Story 27-6 落地。
+	detail detail.DetailState
 
 	// Intent tree pane fields (Story 27-7)
 	intentTrees        []*ipc.IntentTreeWire
@@ -245,7 +243,7 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		connected:          client != nil,
 		rightPane:          paneTimeline,
 		recording:          make(map[string]string),
-		procDetailCache:    make(map[string]*ipc.GetProcDetailResponse),
+		detail:             detail.DetailState{Cache: make(map[string]*ipc.GetProcDetailResponse)}, // Story 38-5 PR5 Step 1: DetailState init
 		prevProcessPIDs:    make(map[types.PID]vfs.ProcInfo),
 		budgetAlertSeen:    make(map[types.PID]int),
 		stallSeen:          make(map[types.PID]struct{}),
@@ -295,6 +293,9 @@ func (m dashboardModel) HeatmapState() heatmap.HeatmapState { return m.heatmap }
 // Allows legacy tests to read the timeline state without importing internal/dashboard/timeline
 // directly. New code should access `m.timeline` directly.
 func (m dashboardModel) TimelineState() timeline.TimelineState { return m.timeline }
+
+// DetailState transitional getter (Story 38-5 PR5 Step 1; Deprecated: removed in PR11).
+func (m dashboardModel) DetailState() detail.DetailState { return m.detail }
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -382,10 +383,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case procDetailResultMsg:
 		if msg.err == nil && msg.detail != nil {
-			m.procDetailCache[msg.uuid] = msg.detail
+			m.detail.Cache[msg.uuid] = msg.detail
 			if msg.pid == m.selectedPID && msg.uuid == m.selectedUUID {
-				m.procDetail = msg.detail
-				m.procDetailPID = msg.pid
+				m.detail.Detail = msg.detail
+				m.detail.PID = msg.pid
 			}
 		}
 		return m, nil
@@ -866,18 +867,18 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Fetch proc detail when Detail pane is active or in default view (detail card needs it)
 	detailCardNeedsData := m.viewMode == viewDefault && m.selectedPID > 0
 	if (m.activePane == paneDetail || detailCardNeedsData) && m.selectedPID > 0 && m.connected {
-		m.procDetailTick++
-		needsFetch := m.procDetail == nil || m.procDetailPID != m.selectedPID
+		m.detail.Tick++
+		needsFetch := m.detail.Detail == nil || m.detail.PID != m.selectedPID
 		// Refresh every 5 ticks (~5s) for live processes
-		if !needsFetch && m.procDetail != nil && m.procDetail.State != "dead" && m.procDetailTick%5 == 0 {
-			delete(m.procDetailCache, m.selectedUUID)
+		if !needsFetch && m.detail.Detail != nil && m.detail.Detail.State != "dead" && m.detail.Tick%5 == 0 {
+			delete(m.detail.Cache, m.selectedUUID)
 			needsFetch = true
 		}
 		if needsFetch {
 			// Check cache first (only for initial load, not periodic refresh)
-			if cached, ok := m.procDetailCache[m.selectedUUID]; ok {
-				m.procDetail = cached
-				m.procDetailPID = m.selectedPID
+			if cached, ok := m.detail.Cache[m.selectedUUID]; ok {
+				m.detail.Detail = cached
+				m.detail.PID = m.selectedPID
 			} else {
 				cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
 			}
@@ -1164,19 +1165,19 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.statusMsgTTL = statusMsgDefaultTTL
 
 	// Detail pane: check cache or reset
-	if cached, ok := m.procDetailCache[m.selectedUUID]; ok {
-		m.procDetail = cached
-		m.procDetailPID = m.selectedPID
+	if cached, ok := m.detail.Cache[m.selectedUUID]; ok {
+		m.detail.Detail = cached
+		m.detail.PID = m.selectedPID
 	} else {
-		m.procDetail = nil
-		m.procDetailPID = 0
+		m.detail.Detail = nil
+		m.detail.PID = 0
 	}
 
 	var cmds []tea.Cmd
 	if m.connected {
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, 0))
-		if m.activePane == paneDetail && m.procDetail == nil {
+		if m.activePane == paneDetail && m.detail.Detail == nil {
 			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
 		}
 	}

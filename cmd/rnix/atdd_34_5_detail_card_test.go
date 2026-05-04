@@ -34,7 +34,7 @@ func TestRenderDetailCardLeft_Running(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:            2,
 		UUID:           "uuid-mock-002",
 		Provider:       "claude",
@@ -65,7 +65,7 @@ func TestRenderDetailCardRight_Running(t *testing.T) {
 	m := newTestDashboardModel(procs)
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:          2,
 		UUID:         "uuid-mock-002",
 		Provider:     "claude",
@@ -100,7 +100,7 @@ func TestRenderDetailCardLeft_Dead(t *testing.T) {
 	m := newTestDashboardModel(procs)
 	m.selectedPID = 3
 	m.selectedUUID = "uuid-dead-003"
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:            3,
 		UUID:           "uuid-dead-003",
 		Provider:       "claude",

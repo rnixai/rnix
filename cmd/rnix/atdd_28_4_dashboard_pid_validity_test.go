@@ -210,10 +210,10 @@ func TestATDD_28_4_AC4_ProcDetailCacheByUUID(t *testing.T) {
 	// Store cache entry under UUID "uuid-bbb-333"
 	m.selectedPID = 3
 	m.selectedUUID = "uuid-bbb-333"
-	m.procDetailCache[m.selectedUUID] = cachedDetail
+	m.detail.Cache[m.selectedUUID] = cachedDetail
 
 	// Verify cache hit with same UUID
-	if cached, ok := m.procDetailCache["uuid-bbb-333"]; !ok || cached != cachedDetail {
+	if cached, ok := m.detail.Cache["uuid-bbb-333"]; !ok || cached != cachedDetail {
 		t.Errorf("AC-4: cache miss for correct UUID key")
 	}
 
@@ -221,7 +221,7 @@ func TestATDD_28_4_AC4_ProcDetailCacheByUUID(t *testing.T) {
 	m.selectedUUID = "uuid-new-999"
 
 	// Cache lookup by new UUID should NOT hit old entry
-	if _, ok := m.procDetailCache[m.selectedUUID]; ok {
+	if _, ok := m.detail.Cache[m.selectedUUID]; ok {
 		t.Errorf("AC-4: UUID-keyed cache should NOT hit stale entry on PID reuse")
 	}
 }
@@ -242,12 +242,12 @@ func TestATDD_28_4_AC4_ProcDetailResultMsg_UUIDMismatch(t *testing.T) {
 	um := updated.(dashboardModel)
 
 	// Cache should contain the stale detail under its own UUID key
-	if _, ok := um.procDetailCache["uuid-old-stale"]; !ok {
+	if _, ok := um.detail.Cache["uuid-old-stale"]; !ok {
 		t.Errorf("AC-4: stale detail should still be cached under its UUID")
 	}
 
-	// But m.procDetail should NOT be updated (UUID mismatch)
-	if um.procDetail == staleDetail {
+	// But m.detail.Detail should NOT be updated (UUID mismatch)
+	if um.detail.Detail == staleDetail {
 		t.Errorf("AC-4: procDetail should NOT be updated when UUID mismatches")
 	}
 }

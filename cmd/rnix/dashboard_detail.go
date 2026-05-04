@@ -51,7 +51,7 @@ func (m dashboardModel) renderDetailPane(width, height int) string {
 		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
-	d := m.procDetail
+	d := m.detail.Detail
 	if d == nil || d.PID != m.selectedPID || (m.selectedUUID != "" && d.UUID != m.selectedUUID) {
 		b.WriteString("\n    Loading...")
 		return renderFixedPanel(b.String(), width, height, borderColor)

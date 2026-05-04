@@ -24,7 +24,7 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 		Foreground(lipgloss.Color(ui.ColorMuted)).
 		Render(safeRepeat("─", width))
 
-	if m.selectedPID == 0 || m.procDetail == nil {
+	if m.selectedPID == 0 || m.detail.Detail == nil {
 		placeholder := lipgloss.NewStyle().
 			Width(width).Height(height).
 			Foreground(lipgloss.Color(ui.ColorMuted)).
@@ -39,7 +39,7 @@ func renderDetailCardLeft(m *dashboardModel, width, height int) string {
 		return renderDeadDetailCard(m, proc, width, height, sep)
 	}
 
-	d := m.procDetail
+	d := m.detail.Detail
 
 	// Line 1: Provider + Started + Device list
 	startedSeg := ""
@@ -84,7 +84,7 @@ func renderDetailCardRight(m *dashboardModel, width, height int) string {
 		Foreground(lipgloss.Color(ui.ColorMuted)).
 		Render(safeRepeat("─", width))
 
-	if m.selectedPID == 0 || m.procDetail == nil {
+	if m.selectedPID == 0 || m.detail.Detail == nil {
 		placeholder := lipgloss.NewStyle().
 			Width(width).Height(height).
 			Foreground(lipgloss.Color(ui.ColorMuted)).
@@ -99,7 +99,7 @@ func renderDetailCardRight(m *dashboardModel, width, height int) string {
 		return renderDeadDetailCardRight(m, proc, width, height, sep)
 	}
 
-	d := m.procDetail
+	d := m.detail.Detail
 
 	// Line 1: Intent + Compact stats with avg pct
 	intent := "—"
@@ -143,7 +143,7 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 		failmark = "[FAIL]"
 	}
 
-	d := m.procDetail
+	d := m.detail.Detail
 	// Time range: "HH:MM:SS→HH:MM:SS dur" or just "HH:MM:SS dur"
 	timeRange := formatDetailTimeRange(d)
 	var line1 string
@@ -171,7 +171,7 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 
 // renderDeadDetailCardRight renders right detail card for dead/zombie processes.
 func renderDeadDetailCardRight(m *dashboardModel, proc *selectedProcRef, width, height int, sep string) string {
-	d := m.procDetail
+	d := m.detail.Detail
 	stepCount := len(m.timeline.StepEntries)
 	line1 := fmt.Sprintf("  Steps: %d │ Tokens: %s", stepCount, ui.FormatTokens(d.ContextStats.TokensUsed))
 	line1 = fitLine(line1, width)
