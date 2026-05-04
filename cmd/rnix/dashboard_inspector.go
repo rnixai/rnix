@@ -914,84 +914,17 @@ func (m dashboardModel) renderStepThumbnailBar(w int) string {
 	return glyphRow.String() + "\n" + numRow.String()
 }
 
-// trimThumbnailToWidth narrows a step slice down to `maxSlots` entries,
-// preserving the current step in the visible window. When the window has to
-// drop entries on either side it inserts a `…` sentinel (Step==-1) to make
-// the truncation visible. Story 38-3 review P10.
+// trimThumbnailToWidth — thin wrapper · 见 internal/dashboard/inspector.TrimThumbnailToWidth
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。
 func trimThumbnailToWidth(steps []ipc.StepSummaryWire, cur, maxSlots int) []ipc.StepSummaryWire {
-	if len(steps) <= maxSlots {
-		return steps
-	}
-	// Locate the current step inside the slice — fall back to centring if
-	// it isn't present (e.g. async load race).
-	curIdx := -1
-	for i, s := range steps {
-		if s.Step == cur {
-			curIdx = i
-			break
-		}
-	}
-	if curIdx < 0 {
-		curIdx = len(steps) / 2
-	}
-	side := max(maxSlots/2, 1)
-	start := max(curIdx-side, 0)
-	end := min(start+maxSlots, len(steps))
-	start = max(end-maxSlots, 0)
-
-	out := make([]ipc.StepSummaryWire, 0, maxSlots+2)
-	if start > 0 {
-		out = append(out, ipc.StepSummaryWire{Step: -1})
-	}
-	out = append(out, steps[start:end]...)
-	if end < len(steps) {
-		out = append(out, ipc.StepSummaryWire{Step: -1})
-	}
-	return out
+	return inspector.TrimThumbnailToWidth(steps, cur, maxSlots)
 }
 
-// compressThumbnailWindow returns a sub-slice of steps centered around the
-// current step when total count exceeds the threshold. Story 38-3 AC#6:
-// `side` head + current + `side` tail with `…` markers (Step==-1 sentinel).
-//
-// When the current step is not present in `all` (e.g. an async load race
-// during step navigation), the function returns the *tail* of the list with
-// a leading `…` sentinel rather than silently dropping the latest steps —
-// the user almost always wants the most recent context, not the first 50
-// historical entries (Story 38-3 review P14).
+// compressThumbnailWindow — thin wrapper · 见 internal/dashboard/inspector.CompressThumbnailWindow
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。Story 38-3 review P14 的
+// "current 缺失返回最近 tail + 前置 sentinel" 边界行为完整保留。
 func compressThumbnailWindow(all []ipc.StepSummaryWire, cur, side int) []ipc.StepSummaryWire {
-	curIdx := -1
-	for i, s := range all {
-		if s.Step == cur {
-			curIdx = i
-			break
-		}
-	}
-	if curIdx < 0 {
-		// Current step not present — surface the most recent tail with a
-		// leading sentinel so the user can see truncation happened.
-		windowLen := 2*side + 1
-		if len(all) <= windowLen {
-			return all
-		}
-		out := make([]ipc.StepSummaryWire, 0, windowLen+1)
-		out = append(out, ipc.StepSummaryWire{Step: -1}) // sentinel
-		out = append(out, all[len(all)-windowLen:]...)
-		return out
-	}
-
-	start := max(curIdx-side, 0)
-	end := min(curIdx+side+1, len(all))
-
-	out := make([]ipc.StepSummaryWire, 0, end-start+2)
-	if start > 0 {
-		out = append(out, ipc.StepSummaryWire{Step: -1}) // sentinel
-	}
-	out = append(out, all[start:end]...)
-	if end < len(all) {
-		out = append(out, ipc.StepSummaryWire{Step: -1}) // sentinel
-	}
-	return out
+	return inspector.CompressThumbnailWindow(all, cur, side)
 }
 
 // stripANSIApprox — thin wrapper · 见 internal/dashboard/inspector.StripANSIApprox
