@@ -241,6 +241,7 @@ func (m dashboardModel) SecurityState() security.SecurityState { return m.securi
 func (m dashboardModel) TraceState() trace.TraceState          { return m.trace }    // Story 38-5 PR8 Step 1 · trace.StateProvider · Deprecated: removed in PR11
 func (m dashboardModel) EvalState() eval.EvalState             { return m.eval }     // Story 38-5 PR9 Step 1 · eval.StateProvider · Deprecated: removed in PR11
 func (m dashboardModel) InspectorState() inspector.InspectorState { return m.inspector } // Story 38-5 PR10 Step 1 · inspector.StateProvider · Deprecated: removed in PR11
+func (m dashboardModel) DebugState() dashboarddebug.DebugState  { return m.debugState } // Story 38-5 PR11 Step 1 · dashboarddebug.StateProvider · Deprecated: removed in PR11
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()

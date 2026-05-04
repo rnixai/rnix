@@ -18,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/rnixai/rnix/internal/dashboard/detail"
+	dashboarddebug "github.com/rnixai/rnix/internal/dashboard/debug"
 	"github.com/rnixai/rnix/internal/dashboard/eval"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/inspector"
@@ -595,19 +596,16 @@ func registerLayer1StepInspector(d *ui.Dispatcher) {
 }
 
 // registerLayer1Debug — viewDebug keys mostly handled by handleDebugKey.
+//
+// Story 38-5 PR11 Step 2: 注册体（Name + 5 Docs + new ActiveModesFn）迁出至
+// internal/dashboard/debug.KeyLayer 以解耦 cmd/rnix 与 debug 元数据；本函数仅做
+// dispatcher 注册（行为零变化 · 与 PR2-PR10 同模式）。
+//
+// 包边界约束：dashboardModel 必须实现 dashboarddebug.StateProvider interface
+// （在 PR11 Step 3 通过 DebugState() 方法落地），ActiveModesFn 通过该接口读取
+// 最新 DebugState（ShowStrace / AutoScroll 子模式）。
 func registerLayer1Debug(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Debug View",
-		Bindings: map[string]ui.KeyHandler{},
-		Docs:     map[string]ui.KeyDoc{},
-	}
-	// Documentation only; actual handlers remain in handleDebugKey for now.
-	l.Docs["s"] = ui.KeyDoc{Key: "s", Description: "Toggle strace"}
-	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Filter events"}
-	l.Docs["v"] = ui.KeyDoc{Key: "v", Description: "Expand detail"}
-	l.Docs["j/k"] = ui.KeyDoc{Key: "j/k", Description: "Navigate events"}
-	l.Docs["d"] = ui.KeyDoc{Key: "d", Description: "Exit debug mode"}
-	d.Layer1[ui.ViewID(viewDebug)] = l
+	d.Layer1[ui.ViewID(viewDebug)] = dashboarddebug.KeyLayer(nil)
 }
 
 // ---------------------------------------------------------------------------
