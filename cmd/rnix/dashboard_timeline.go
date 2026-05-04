@@ -957,124 +957,20 @@ func promptRoleForRole(role string) string {
 }
 
 // renderUnifiedStepHeader renders the timeline header with unified event counts.
+// renderUnifiedStepHeader — thin wrapper · 见 internal/dashboard/timeline.RenderUnifiedStepHeader
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/render.go.
+// 保留 (m dashboardModel) receiver 让 ATDD 27-3 / 36-3 / 36-4 grep 字符串通过.
+// HeaderContext 注入运行时数据（State + Processes + SelectedPID/UUID + TotalEvents）·
+// 与 RenderDebugDetail roleStyle / RenderTraceTreeView 共享数据注入同模式.
 func (m dashboardModel) renderUnifiedStepHeader(maxW, totalSteps, filteredCount, sysCount int) string {
-	var b strings.Builder
-	b.WriteString(" Timeline")
-	if m.selectedPID > 0 {
-		fmt.Fprintf(&b, " │ PID %d", m.selectedPID)
-	}
-	// Wall-clock start time for selected process
-	for _, p := range m.processes {
-		if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
-			if !p.CreatedAt.IsZero() {
-				fmt.Fprintf(&b, " │ %s", ui.FormatWallClock(p.CreatedAt))
-			}
-			break
-		}
-	}
-	fmt.Fprintf(&b, " │ %d steps", totalSteps)
-	if sysCount > 0 {
-		fmt.Fprintf(&b, " + %d events", sysCount)
-	}
-
-	// Story 36-4: 排序方向 & expandMode 指示（dim 颜色，放在 steps 数量之后）
-	{
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-		ascii := ui.IsASCIIMode()
-		var dirText string
-		if m.timeline.SortAsc {
-			if ascii {
-				dirText = "^ old->new"
-			} else {
-				dirText = "↑ 旧→新"
-			}
-		} else {
-			if ascii {
-				dirText = "v new->old"
-			} else {
-				dirText = "↓ 新→旧"
-			}
-		}
-		fmt.Fprintf(&b, " %s", dimStyle.Render("│ "+dirText))
-		switch m.timeline.ExpandMode {
-		case expandModeExpanded:
-			sep := "·"
-			if ascii {
-				sep = "-"
-			}
-			fmt.Fprintf(&b, " %s", dimStyle.Render(sep+" all"))
-		case expandModeErrorsOnly:
-			sep := "·"
-			if ascii {
-				sep = "-"
-			}
-			fmt.Fprintf(&b, " %s", dimStyle.Render(sep+" errors"))
-		}
-	}
-
-	// Total tokens from step summaries
-	totalTok := 0
-	for _, e := range m.timeline.StepEntries {
-		totalTok += e.Summary.TokenCount
-	}
-	if totalTok > 0 {
-		fmt.Fprintf(&b, " │ %s tok", formatTokenCount(totalTok))
-	}
-
-	// Stage statistics (wide screens only)
-	if maxW >= 100 && totalSteps > 0 {
-		counts := make(map[string]int)
-		errCount := 0
-		for _, e := range m.timeline.StepEntries {
-			counts[e.Summary.Action]++
-			if e.Summary.HasError {
-				errCount++
-			}
-		}
-		b.WriteString(" │")
-		for _, action := range []string{"plan", "tool_call", "spawn", "specialize", "replan", "text", "complete"} {
-			if c, ok := counts[action]; ok && c > 0 {
-				color := actionColor(action)
-				label := actionAbbrev(action)
-				fmt.Fprintf(&b, " %s", lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%s:%d", label, c)))
-			}
-		}
-		if errCount > 0 {
-			fmt.Fprintf(&b, " %s", lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf("err:%d", errCount)))
-		}
-	}
-
-	// Scroll position (medium+ screens)
-	if maxW >= 80 && filteredCount > 0 {
-		pos := min(m.timeline.StepCursor+1, filteredCount)
-		fmt.Fprintf(&b, " │ %d/%d", pos, filteredCount)
-	}
-
-	// Filter indicator
-	totalEvents := len(m.unifiedEvents)
-	if filteredCount < totalEvents {
-		// Build list of disabled type names for quick insight
-		allTypes := []struct{ key, label string }{
-			{"tool_call", "tool"}, {"plan", "plan"}, {"text", "txt"},
-			{"complete", "done"}, {"spawn", "spn"}, {"replan", "rpl"}, {"specialize", "spec"},
-			{EventCompact, "cmp"}, {EventBudget, "bgt"}, {"sys_spawn", "sspn"},
-			{EventExit, "exit"}, {EventStall, "stl"}, {EventImmune, "imm"},
-		}
-		var hidden []string
-		for _, t := range allTypes {
-			if !m.timeline.StepFilters[t.key] {
-				hidden = append(hidden, t.label)
-			}
-		}
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-		label := fmt.Sprintf("filter: %d/%d", filteredCount, totalEvents)
-		if len(hidden) > 0 {
-			label += " -" + strings.Join(hidden, ",")
-		}
-		fmt.Fprintf(&b, "  %s", dimStyle.Render(label))
-	}
-
-	return truncateAnsi(b.String(), maxW)
+	return timeline.RenderUnifiedStepHeader(timeline.HeaderContext{
+		State:        m.timeline,
+		Processes:    m.processes,
+		SelectedPID:  m.selectedPID,
+		SelectedUUID: m.selectedUUID,
+		TotalEvents:  len(m.unifiedEvents),
+	}, maxW, totalSteps, filteredCount, sysCount)
 }
 
 // renderStepFilterBar — thin wrapper · 见 internal/dashboard/timeline.RenderStepFilterBar

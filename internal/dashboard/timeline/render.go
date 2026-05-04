@@ -31,8 +31,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // System event type 常量字符串字面量（与 internal/dashboard/event.Event* 等价 ·
@@ -220,6 +222,161 @@ func RenderDebugDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, ma
 	}
 
 	return lines
+}
+
+// HeaderContext 聚合 RenderUnifiedStepHeader 渲染所需的运行时数据 · 避免参数列表过长。
+//
+// **共享 EventStream 字段**：Processes / SelectedPID / SelectedUUID / TotalEvents 是
+// dashboardModel App-level 共享状态（spec § Dev Notes 关键架构决策 6 保留在 App Model）·
+// 通过参数传入而不是把 timeline 包反向 import cmd/rnix · 与 RenderDebugDetail
+// roleStyle 依赖注入同模式。
+type HeaderContext struct {
+	State        TimelineState  // Timeline 自身状态（StepEntries/SortAsc/ExpandMode/StepCursor/StepFilters）
+	Processes    []vfs.ProcInfo // 用于查找 selectedPID 对应的 CreatedAt（wall-clock display）· 与 tree 包共享 vfs.ProcInfo
+	SelectedPID  types.PID      // 当前选中 PID（0 表示无选择）
+	SelectedUUID string         // 当前选中 UUID（空字符串表示按 PID 匹配 · 28-4 PID 复用契约）
+	TotalEvents  int            // len(m.unifiedEvents) 共享 EventStream 总事件数（用于 filter 指示）
+}
+
+// RenderUnifiedStepHeader 渲染 timeline pane 的统一 step header（与
+// cmd/rnix.renderUnifiedStepHeader 等价 · Story 38-5 PR11 Step 4(c) 第四个 timeline render
+// block 迁出 · Story 27-3 / 36-3 / 36-4 落地的复合 header）。
+//
+// **行为契约（不变性 · ATDD 27-3 + 36-3 + 36-4 测试覆盖）**：
+//   - 标题 " Timeline" + " │ PID N" 当 SelectedPID > 0
+//   - " │ HH:MM:SS" wall-clock（从 Processes 查 CreatedAt · 28-4 UUID-keyed 优先 · PID fallback）
+//   - " │ N steps" + " + N events" 当 sysCount > 0
+//   - **Story 36-4 排序方向 + expandMode 指示**（dim 颜色）：
+//     - SortAsc=true: "↑ 旧→新"（ASCII: "^ old->new"）
+//     - SortAsc=false: "↓ 新→旧"（ASCII: "v new->old"）
+//     - ExpandMode=Expanded: "· all"（ASCII: "- all"）
+//     - ExpandMode=ErrorsOnly: "· errors"（ASCII: "- errors"）
+//   - " │ X tok" 总 token（FormatTokenCount k 后缀 · 当 totalTok > 0）
+//   - **Stage statistics**（maxW >= 100 时）：按 plan/tool_call/spawn/specialize/replan/text/complete
+//     顺序显示 "abbrev:N"（ActionColor 上色）+ "err:N"（红色 · 当 errCount > 0）
+//   - " │ pos/total" 滚动位置（maxW >= 80 时）
+//   - **Filter 指示**（filteredCount < TotalEvents 时）："filter: N/M -hidden_types"
+//     hidden labels 列表：tool/plan/txt/done/spn/rpl/spec/cmp/bgt/sspn/exit/stl/imm
+//   - 整体 TruncateAnsi 截断到 maxW
+//
+// 参数：HeaderContext + maxW + totalSteps + filteredCount + sysCount。
+func RenderUnifiedStepHeader(ctx HeaderContext, maxW, totalSteps, filteredCount, sysCount int) string {
+	var b strings.Builder
+	b.WriteString(" Timeline")
+	if ctx.SelectedPID > 0 {
+		fmt.Fprintf(&b, " │ PID %d", ctx.SelectedPID)
+	}
+	// Wall-clock start time for selected process
+	for _, p := range ctx.Processes {
+		if p.PID == ctx.SelectedPID && (ctx.SelectedUUID == "" || p.UUID == ctx.SelectedUUID) {
+			if !p.CreatedAt.IsZero() {
+				fmt.Fprintf(&b, " │ %s", ui.FormatWallClock(p.CreatedAt))
+			}
+			break
+		}
+	}
+	fmt.Fprintf(&b, " │ %d steps", totalSteps)
+	if sysCount > 0 {
+		fmt.Fprintf(&b, " + %d events", sysCount)
+	}
+
+	// Story 36-4: 排序方向 & expandMode 指示（dim 颜色，放在 steps 数量之后）
+	{
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+		ascii := ui.IsASCIIMode()
+		var dirText string
+		if ctx.State.SortAsc {
+			if ascii {
+				dirText = "^ old->new"
+			} else {
+				dirText = "↑ 旧→新"
+			}
+		} else {
+			if ascii {
+				dirText = "v new->old"
+			} else {
+				dirText = "↓ 新→旧"
+			}
+		}
+		fmt.Fprintf(&b, " %s", dimStyle.Render("│ "+dirText))
+		switch ctx.State.ExpandMode {
+		case ExpandModeExpanded:
+			sep := "·"
+			if ascii {
+				sep = "-"
+			}
+			fmt.Fprintf(&b, " %s", dimStyle.Render(sep+" all"))
+		case ExpandModeErrorsOnly:
+			sep := "·"
+			if ascii {
+				sep = "-"
+			}
+			fmt.Fprintf(&b, " %s", dimStyle.Render(sep+" errors"))
+		}
+	}
+
+	// Total tokens from step summaries
+	totalTok := 0
+	for _, e := range ctx.State.StepEntries {
+		totalTok += e.Summary.TokenCount
+	}
+	if totalTok > 0 {
+		fmt.Fprintf(&b, " │ %s tok", FormatTokenCount(totalTok))
+	}
+
+	// Stage statistics (wide screens only)
+	if maxW >= 100 && totalSteps > 0 {
+		counts := make(map[string]int)
+		errCount := 0
+		for _, e := range ctx.State.StepEntries {
+			counts[e.Summary.Action]++
+			if e.Summary.HasError {
+				errCount++
+			}
+		}
+		b.WriteString(" │")
+		for _, action := range []string{"plan", "tool_call", "spawn", "specialize", "replan", "text", "complete"} {
+			if c, ok := counts[action]; ok && c > 0 {
+				color := ActionColor(action)
+				label := ActionAbbrev(action)
+				fmt.Fprintf(&b, " %s", lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%s:%d", label, c)))
+			}
+		}
+		if errCount > 0 {
+			fmt.Fprintf(&b, " %s", lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf("err:%d", errCount)))
+		}
+	}
+
+	// Scroll position (medium+ screens)
+	if maxW >= 80 && filteredCount > 0 {
+		pos := min(ctx.State.StepCursor+1, filteredCount)
+		fmt.Fprintf(&b, " │ %d/%d", pos, filteredCount)
+	}
+
+	// Filter indicator
+	if filteredCount < ctx.TotalEvents {
+		// Build list of disabled type names for quick insight
+		allTypes := []struct{ key, label string }{
+			{"tool_call", "tool"}, {"plan", "plan"}, {"text", "txt"},
+			{"complete", "done"}, {"spawn", "spn"}, {"replan", "rpl"}, {"specialize", "spec"},
+			{stepEventCompact, "cmp"}, {stepEventBudget, "bgt"}, {"sys_spawn", "sspn"},
+			{stepEventExit, "exit"}, {stepEventStall, "stl"}, {stepEventImmune, "imm"},
+		}
+		var hidden []string
+		for _, t := range allTypes {
+			if !ctx.State.StepFilters[t.key] {
+				hidden = append(hidden, t.label)
+			}
+		}
+		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+		label := fmt.Sprintf("filter: %d/%d", filteredCount, ctx.TotalEvents)
+		if len(hidden) > 0 {
+			label += " -" + strings.Join(hidden, ",")
+		}
+		fmt.Fprintf(&b, "  %s", dimStyle.Render(label))
+	}
+
+	return TruncateAnsi(b.String(), maxW)
 }
 
 // RenderExpandedDetail 渲染 timeline expand mode 下 step 对应的详细信息块（与

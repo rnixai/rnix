@@ -16,8 +16,11 @@ package timeline
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // TestRenderStepFilterBar_AllOn — filters == nil 时所有 type 显示为 ✓ on（默认全开）。
@@ -397,5 +400,191 @@ func TestRenderExpandedDetail_MaxLinesGuard(t *testing.T) {
 	lines := RenderExpandedDetail(&b, detail, s, 80, 1)
 	if lines > 1 {
 		t.Fatalf("expected lines <= 1 with maxLines=1, got %d", lines)
+	}
+}
+
+// TestRenderUnifiedStepHeader_BasicTitle — 基础标题输出 " Timeline" + " │ PID N" + 步数。
+func TestRenderUnifiedStepHeader_BasicTitle(t *testing.T) {
+	ctx := HeaderContext{
+		State: TimelineState{
+			SortAsc:    true,
+			ExpandMode: ExpandModeCollapsed,
+		},
+		SelectedPID: types.PID(42),
+		TotalEvents: 0,
+	}
+	got := RenderUnifiedStepHeader(ctx, 200, 5, 5, 0)
+	if !strings.Contains(got, "Timeline") {
+		t.Fatalf("expected 'Timeline' in header: %q", got)
+	}
+	if !strings.Contains(got, "PID 42") {
+		t.Fatalf("expected 'PID 42' in header: %q", got)
+	}
+	if !strings.Contains(got, "5 steps") {
+		t.Fatalf("expected '5 steps' in header: %q", got)
+	}
+}
+
+// TestRenderUnifiedStepHeader_NoSelection — SelectedPID == 0 时不显示 PID 段。
+func TestRenderUnifiedStepHeader_NoSelection(t *testing.T) {
+	ctx := HeaderContext{State: TimelineState{}}
+	got := RenderUnifiedStepHeader(ctx, 200, 0, 0, 0)
+	if strings.Contains(got, "PID") {
+		t.Fatalf("expected no PID segment with selectedPID=0: %q", got)
+	}
+	if !strings.Contains(got, "0 steps") {
+		t.Fatalf("expected '0 steps' in header: %q", got)
+	}
+}
+
+// TestRenderUnifiedStepHeader_SysEventCount — sysCount > 0 时显示 "+ N events"。
+func TestRenderUnifiedStepHeader_SysEventCount(t *testing.T) {
+	ctx := HeaderContext{State: TimelineState{}}
+	got := RenderUnifiedStepHeader(ctx, 200, 10, 12, 2)
+	if !strings.Contains(got, "+ 2 events") {
+		t.Fatalf("expected '+ 2 events' in header: %q", got)
+	}
+}
+
+// TestRenderUnifiedStepHeader_SortDirAndExpandMode — Story 36-4 排序方向与 expand 模式
+// 指示（dim 颜色）渲染契约。
+func TestRenderUnifiedStepHeader_SortDirAndExpandMode(t *testing.T) {
+	// SortAsc + ExpandModeExpanded → "↑ 旧→新" + "· all"
+	ctx := HeaderContext{
+		State: TimelineState{
+			SortAsc:    true,
+			ExpandMode: ExpandModeExpanded,
+		},
+	}
+	got := RenderUnifiedStepHeader(ctx, 200, 0, 0, 0)
+	// non-ASCII 模式（默认）应包含 "↑" 或 "old->new"（IsASCIIMode 取决于环境变量）
+	if !strings.Contains(got, "all") {
+		t.Fatalf("expected 'all' marker for ExpandModeExpanded: %q", got)
+	}
+
+	// SortAsc=false + ExpandModeErrorsOnly
+	ctx2 := HeaderContext{
+		State: TimelineState{
+			SortAsc:    false,
+			ExpandMode: ExpandModeErrorsOnly,
+		},
+	}
+	got2 := RenderUnifiedStepHeader(ctx2, 200, 0, 0, 0)
+	if !strings.Contains(got2, "errors") {
+		t.Fatalf("expected 'errors' marker for ExpandModeErrorsOnly: %q", got2)
+	}
+}
+
+// TestRenderUnifiedStepHeader_TokenCount — 总 token > 0 时显示 "X tok"（k 后缀）。
+func TestRenderUnifiedStepHeader_TokenCount(t *testing.T) {
+	ctx := HeaderContext{
+		State: TimelineState{
+			StepEntries: []StepEntry{
+				{Summary: ipc.StepSummaryWire{TokenCount: 800}},
+				{Summary: ipc.StepSummaryWire{TokenCount: 700}},
+			},
+		},
+	}
+	got := RenderUnifiedStepHeader(ctx, 200, 2, 2, 0)
+	if !strings.Contains(got, "1.5k tok") {
+		t.Fatalf("expected '1.5k tok' summed token: %q", got)
+	}
+}
+
+// TestRenderUnifiedStepHeader_StageStatistics — maxW >= 100 时显示 stage statistics。
+func TestRenderUnifiedStepHeader_StageStatistics(t *testing.T) {
+	ctx := HeaderContext{
+		State: TimelineState{
+			StepEntries: []StepEntry{
+				{Summary: ipc.StepSummaryWire{Action: "tool_call"}},
+				{Summary: ipc.StepSummaryWire{Action: "tool_call"}},
+				{Summary: ipc.StepSummaryWire{Action: "plan"}},
+				{Summary: ipc.StepSummaryWire{Action: "complete", HasError: true}},
+			},
+		},
+	}
+	got := RenderUnifiedStepHeader(ctx, 120, 4, 4, 0)
+	// 应包含 abbrev 标识（具体形式由 ActionAbbrev 决定 · 都是简短字符串）
+	if !strings.Contains(got, ":2") || !strings.Contains(got, ":1") {
+		t.Fatalf("expected 'abbrev:N' counts: %q", got)
+	}
+	// errCount = 1 → 包含 "err:1"
+	if !strings.Contains(got, "err:1") {
+		t.Fatalf("expected 'err:1' for HasError step: %q", got)
+	}
+}
+
+// TestRenderUnifiedStepHeader_StatsSuppressedNarrowScreen — maxW < 100 时不显示 stats。
+func TestRenderUnifiedStepHeader_StatsSuppressedNarrowScreen(t *testing.T) {
+	ctx := HeaderContext{
+		State: TimelineState{
+			StepEntries: []StepEntry{
+				{Summary: ipc.StepSummaryWire{Action: "plan", HasError: true}},
+			},
+		},
+	}
+	got := RenderUnifiedStepHeader(ctx, 80, 1, 1, 0)
+	// 80 < 100 · 不应包含 stats
+	if strings.Contains(got, "err:1") {
+		t.Fatalf("expected stats suppressed at maxW=80: %q", got)
+	}
+}
+
+// TestRenderUnifiedStepHeader_ScrollPosition — maxW >= 80 + filteredCount > 0 时显示 pos/total。
+func TestRenderUnifiedStepHeader_ScrollPosition(t *testing.T) {
+	ctx := HeaderContext{
+		State: TimelineState{
+			StepCursor: 4, // 0-indexed · 显示为 5
+		},
+	}
+	got := RenderUnifiedStepHeader(ctx, 80, 10, 10, 0)
+	if !strings.Contains(got, "5/10") {
+		t.Fatalf("expected '5/10' scroll position: %q", got)
+	}
+}
+
+// TestRenderUnifiedStepHeader_FilterIndicator — filteredCount < TotalEvents 时显示
+// "filter: N/M -hidden_types"。
+func TestRenderUnifiedStepHeader_FilterIndicator(t *testing.T) {
+	ctx := HeaderContext{
+		State: TimelineState{
+			StepFilters: map[string]bool{
+				"tool_call": false, // hidden → tool
+				"plan":      true,
+				"compact":   false, // hidden → cmp
+			},
+		},
+		TotalEvents: 10,
+	}
+	got := RenderUnifiedStepHeader(ctx, 200, 5, 5, 0)
+	if !strings.Contains(got, "filter: 5/10") {
+		t.Fatalf("expected 'filter: 5/10': %q", got)
+	}
+	// hidden 标签 tool / cmp（其他 filter 默认 false 也会出现 · 但 tool/cmp 必出现）
+	if !strings.Contains(got, "tool") || !strings.Contains(got, "cmp") {
+		t.Fatalf("expected 'tool' and 'cmp' hidden labels: %q", got)
+	}
+}
+
+// TestRenderUnifiedStepHeader_WallClockFromProcesses — 通过 SelectedUUID 匹配 process
+// 提取 CreatedAt（28-4 UUID-keyed 优先 · PID fallback）。
+func TestRenderUnifiedStepHeader_WallClockFromProcesses(t *testing.T) {
+	now := time.Now()
+	ctx := HeaderContext{
+		State: TimelineState{},
+		Processes: []vfs.ProcInfo{
+			{PID: types.PID(10), UUID: "uuid-a", CreatedAt: now},
+			{PID: types.PID(10), UUID: "uuid-b", CreatedAt: now.Add(-1 * time.Hour)},
+		},
+		SelectedPID:  types.PID(10),
+		SelectedUUID: "uuid-b", // 应匹配 UUID-keyed · 不匹配第一个
+	}
+	got := RenderUnifiedStepHeader(ctx, 200, 0, 0, 0)
+	if !strings.Contains(got, "│") {
+		t.Fatalf("expected wall-clock segment: %q", got)
+	}
+	// 应该有 HH:MM:SS 格式（精确值不验证 · 仅检查存在）
+	if !strings.Contains(got, ":") {
+		t.Fatalf("expected wall-clock with ':': %q", got)
 	}
 }
