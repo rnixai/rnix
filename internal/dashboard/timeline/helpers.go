@@ -27,6 +27,9 @@
 //   - HasExpandableContent / EstimateExpandedLines / EstimateDebugLines —
 //     pure step item height 估算（不读 dashboardModel 字段 · 仅依赖 detail/s 参数 ·
 //     为后续 Step 4(c) render 主体迁出 timeline.unifiedItemHeight 等做铺垫）
+//   - FilteredStepEntries — 按 TimelineState.StepFilters 过滤 StepEntries（pure ·
+//     仅依赖 TimelineState · 为后续 timeline render 主体 + dashboard_pane_dispatcher
+//     的 F3 step count 计算解耦做铺垫）
 //
 // **零 cmd/rnix 反向依赖**：本包只 import internal/types + ipc + lipgloss + runewidth
 // + stdlib · 与 PR2/PR3/PR4/PR11 Step 4(c) render 迁出包边界一致。
@@ -313,4 +316,49 @@ func EstimateDebugLines(detail *ipc.GetStepDetailResponse) int {
 	n += min(msgCount, 6) // message preview lines
 	n++                   // hint line
 	return n
+}
+
+// FilteredStepEntries 按 TimelineState.StepFilters 过滤 StepEntries 返回索引切片
+// （与 cmd/rnix.filteredStepEntries 等价）。
+//
+// 过滤逻辑（Story 27-3 + 36-3 IA refactor）：
+//   - StepFilters 为 nil 或空 map → 返回全部 indices（[]int{0, 1, ..., n-1}）
+//   - StepFilters 所有 value 都为 true → 同上（all-on shortcut · 等价无过滤）
+//   - 否则 → 仅返回 StepFilters[entry.Summary.Action] == true 的 indices
+//
+// 用于 cmd/rnix/dashboard_pane_dispatcher.go::F3 计算「step-only count from
+// filtered unified events, not filteredStepEntries」时的对照参考（详见 line 39
+// 注释）· 不应用于 unifiedEvents 过滤（FilteredUnifiedEvents 路径）。
+//
+// **不读 dashboardModel 字段**：纯函数，仅依赖 TimelineState 字段。
+func FilteredStepEntries(state TimelineState) []int {
+	if len(state.StepFilters) == 0 {
+		indices := make([]int, len(state.StepEntries))
+		for i := range state.StepEntries {
+			indices[i] = i
+		}
+		return indices
+	}
+	// Check if all filters are on
+	allOn := true
+	for _, v := range state.StepFilters {
+		if !v {
+			allOn = false
+			break
+		}
+	}
+	if allOn {
+		indices := make([]int, len(state.StepEntries))
+		for i := range state.StepEntries {
+			indices[i] = i
+		}
+		return indices
+	}
+	var result []int
+	for i, e := range state.StepEntries {
+		if state.StepFilters[e.Summary.Action] {
+			result = append(result, i)
+		}
+	}
+	return result
 }

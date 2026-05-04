@@ -15,6 +15,8 @@
 //   - HasExpandableContent 7 项（nil detail / 全空 / ToolPath/Input/Error/Result/RawResponse/Token 各 1）
 //   - EstimateExpandedLines 6 项（fallback 1 / Path / Input / Result clamp / Error 多行 clamp / Token）
 //   - EstimateDebugLines 4 项（空 messages / 满 messages / over-cap clamp / 边界 6）
+//   - FilteredStepEntries 6 项（nil filters / 空 filters / all-on shortcut /
+//     filter 单一 action / filter 多 action / 全空 entries）
 package timeline
 
 import (
@@ -482,5 +484,90 @@ func TestEstimateDebugLines_AtCap(t *testing.T) {
 	d := &ipc.GetStepDetailResponse{Messages: make([]ipc.MessageWire, 6)}
 	if got := EstimateDebugLines(d); got != 9 {
 		t.Errorf("EstimateDebugLines(6 msgs) = %d, want 9", got)
+	}
+}
+
+// =============================================================================
+// FilteredStepEntries (6 项)
+// =============================================================================
+
+func TestFilteredStepEntries_NilFilters(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}}, {Summary: ipc.StepSummaryWire{Step: 2, Action: "plan"}}},
+		StepFilters: nil,
+	}
+	got := FilteredStepEntries(state)
+	if len(got) != 2 || got[0] != 0 || got[1] != 1 {
+		t.Errorf("FilteredStepEntries(nil filters) = %v, want [0 1]", got)
+	}
+}
+
+func TestFilteredStepEntries_EmptyFilters(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}}},
+		StepFilters: map[string]bool{},
+	}
+	got := FilteredStepEntries(state)
+	if len(got) != 1 || got[0] != 0 {
+		t.Errorf("FilteredStepEntries(empty map) = %v, want [0]", got)
+	}
+}
+
+func TestFilteredStepEntries_AllOnShortcut(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}},
+			{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan"}},
+			{Summary: ipc.StepSummaryWire{Step: 3, Action: "text"}},
+		},
+		StepFilters: map[string]bool{"tool_call": true, "plan": true, "text": true},
+	}
+	got := FilteredStepEntries(state)
+	if len(got) != 3 {
+		t.Errorf("FilteredStepEntries(all-on) = %v, want full indices", got)
+	}
+}
+
+func TestFilteredStepEntries_SingleAction(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}},
+			{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan"}},
+			{Summary: ipc.StepSummaryWire{Step: 3, Action: "tool_call"}},
+		},
+		StepFilters: map[string]bool{"tool_call": true, "plan": false},
+	}
+	got := FilteredStepEntries(state)
+	if len(got) != 2 || got[0] != 0 || got[1] != 2 {
+		t.Errorf("FilteredStepEntries(only tool_call) = %v, want [0 2]", got)
+	}
+}
+
+func TestFilteredStepEntries_MultipleActions(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}},
+			{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan"}},
+			{Summary: ipc.StepSummaryWire{Step: 3, Action: "text"}},
+			{Summary: ipc.StepSummaryWire{Step: 4, Action: "spawn"}},
+		},
+		StepFilters: map[string]bool{"tool_call": true, "plan": true, "text": false, "spawn": false},
+	}
+	got := FilteredStepEntries(state)
+	if len(got) != 2 || got[0] != 0 || got[1] != 1 {
+		t.Errorf("FilteredStepEntries(tool_call+plan) = %v, want [0 1]", got)
+	}
+}
+
+func TestFilteredStepEntries_EmptyEntries(t *testing.T) {
+	// StepFilters="tool_call":true · 单一 filter 触发 allOn 分支（filters 全为 true）
+	// → make([]int, 0) 返回 []int{} 空切片（与 cmd/rnix 原版行为对齐）
+	state := TimelineState{
+		StepEntries: nil,
+		StepFilters: map[string]bool{"tool_call": true},
+	}
+	got := FilteredStepEntries(state)
+	if len(got) != 0 {
+		t.Errorf("FilteredStepEntries(empty entries) = %v, want empty slice", got)
 	}
 }

@@ -367,37 +367,15 @@ func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
 	return m
 }
 
-// filteredStepEntries returns step entries matching current filters.
+// filteredStepEntries — thin wrapper 委托 timeline.FilteredStepEntries
+// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出)
+//
+// 保留 (m dashboardModel) receiver 让 dashboard_pane_dispatcher.go::F3 计算
+// 「step-only count from filtered unified events, not filteredStepEntries」（行 39
+// 注释）的 callsite `m.filteredStepEntries()` 写法零修改 · 函数体不读 m 字段，
+// 仅传 m.timeline 给 timeline.FilteredStepEntries · 行为完全等价。
 func (m dashboardModel) filteredStepEntries() []int {
-	if len(m.timeline.StepFilters) == 0 {
-		indices := make([]int, len(m.timeline.StepEntries))
-		for i := range m.timeline.StepEntries {
-			indices[i] = i
-		}
-		return indices
-	}
-	// Check if all filters are on
-	allOn := true
-	for _, v := range m.timeline.StepFilters {
-		if !v {
-			allOn = false
-			break
-		}
-	}
-	if allOn {
-		indices := make([]int, len(m.timeline.StepEntries))
-		for i := range m.timeline.StepEntries {
-			indices[i] = i
-		}
-		return indices
-	}
-	var result []int
-	for i, e := range m.timeline.StepEntries {
-		if m.timeline.StepFilters[e.Summary.Action] {
-			result = append(result, i)
-		}
-	}
-	return result
+	return timeline.FilteredStepEntries(m.timeline)
 }
 
 // isEventVisible — thin wrapper · 见 internal/dashboard/event.IsEventVisible
