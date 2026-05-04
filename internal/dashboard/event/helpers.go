@@ -179,3 +179,38 @@ func IsEventVisible(ev UnifiedEvent, filters map[string]bool) bool {
 	}
 	return filters[ev.Type]
 }
+
+// FilterUnifiedEvents 按 filters 过滤 events 切片（与 cmd/rnix.filteredUnifiedEvents 等价）。
+//
+// 优化路径：
+//   - filters 为 nil 或空 map → 直接返回原 slice（零拷贝 · 等价无过滤）
+//   - 所有 filter value 都为 true → 同上 all-on shortcut（性能优化 · 避免逐项 check）
+//   - 否则 → 逐项调 IsEventVisible 过滤
+//
+// 用于 cmd/rnix renderStepTimeline + ensureStepCursorVisible + dashboard_keylayers
+// 的 cursor 计算 · 接受 events slice + filters map 作参数 · 不读 dashboardModel 字段。
+//
+// **包归属**：放在 event 包而非 timeline 包 · 避免 timeline → event 反向 import 循环
+// （event.UnifiedEvent.StepEntry 已 *timeline.StepEntry · 与 commit 7d1964c 同模式）。
+func FilterUnifiedEvents(events []UnifiedEvent, filters map[string]bool) []UnifiedEvent {
+	if len(filters) == 0 {
+		return events
+	}
+	allOn := true
+	for _, v := range filters {
+		if !v {
+			allOn = false
+			break
+		}
+	}
+	if allOn {
+		return events
+	}
+	var result []UnifiedEvent
+	for _, ev := range events {
+		if IsEventVisible(ev, filters) {
+			result = append(result, ev)
+		}
+	}
+	return result
+}

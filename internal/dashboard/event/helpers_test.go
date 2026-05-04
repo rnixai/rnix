@@ -313,3 +313,65 @@ func TestIsEventVisible_StallEvent(t *testing.T) {
 		t.Error("EventStall enabled: want visible=true")
 	}
 }
+
+// =============================================================================
+// FilterUnifiedEvents (5 项)
+// =============================================================================
+
+func TestFilterUnifiedEvents_NilFilters(t *testing.T) {
+	events := []UnifiedEvent{{Type: EventStep}, {Type: EventCompact}}
+	got := FilterUnifiedEvents(events, nil)
+	if len(got) != 2 {
+		t.Errorf("FilterUnifiedEvents(nil filters) len = %d, want 2 (passthrough)", len(got))
+	}
+}
+
+func TestFilterUnifiedEvents_EmptyMap(t *testing.T) {
+	events := []UnifiedEvent{{Type: EventStep}}
+	got := FilterUnifiedEvents(events, map[string]bool{})
+	if len(got) != 1 {
+		t.Errorf("FilterUnifiedEvents(empty map) len = %d, want 1 (passthrough)", len(got))
+	}
+}
+
+func TestFilterUnifiedEvents_AllOnShortcut(t *testing.T) {
+	events := []UnifiedEvent{{Type: EventStep}, {Type: EventCompact}}
+	got := FilterUnifiedEvents(events, map[string]bool{EventStep: true, EventCompact: true})
+	if len(got) != 2 {
+		t.Errorf("FilterUnifiedEvents(all-on) len = %d, want 2", len(got))
+	}
+}
+
+func TestFilterUnifiedEvents_PartialFilter(t *testing.T) {
+	events := []UnifiedEvent{
+		{Type: EventStep},
+		{Type: EventCompact},
+		{Type: EventBudget},
+	}
+	got := FilterUnifiedEvents(events, map[string]bool{
+		EventStep:        true,
+		EventCompact:     false,
+		EventBudget: true,
+	})
+	if len(got) != 2 {
+		t.Errorf("FilterUnifiedEvents(partial) len = %d, want 2 (Step + BudgetAlert)", len(got))
+	}
+}
+
+func TestFilterUnifiedEvents_AllOff(t *testing.T) {
+	// EventStep + StepEntry != nil + filters[Action] == false → 过滤
+	// EventCompact + filters[EventCompact] == false → 过滤
+	// 注意：EventStep with StepEntry == nil 会因 IsEventVisible nil fallback 视为 visible
+	events := []UnifiedEvent{
+		{Type: EventStep, StepEntry: &timeline.StepEntry{Summary: ipc.StepSummaryWire{Action: "tool_call"}}},
+		{Type: EventCompact},
+	}
+	got := FilterUnifiedEvents(events, map[string]bool{
+		EventStep:    false, // 不被使用（EventStep 路径用 entry.Action）
+		"tool_call":  false, // EventStep filter
+		EventCompact: false, // EventCompact filter
+	})
+	if got != nil {
+		t.Errorf("FilterUnifiedEvents(all-off with non-nil StepEntry) = %v, want nil (no visible events)", got)
+	}
+}

@@ -383,28 +383,20 @@ func isEventVisible(ev UnifiedEvent, filters map[string]bool) bool {
 	return dashboardevent.IsEventVisible(ev, filters)
 }
 
-// filteredUnifiedEvents returns unified events matching current filters.
+// filteredUnifiedEvents — thin wrapper 委托 dashboardevent.FilterUnifiedEvents
+// (Story 38-5 PR11 Step 4(a-2) timeline event helpers 迁出)
+//
+// 保留 (m dashboardModel) receiver 让 4 个 callsite 零修改通过：
+//   - dashboard_timeline.go × 4（line 127/289 + 1607/1741 等）
+//   - dashboard_events.go × 1（line 581）
+//   - dashboard_keylayers.go × 1（line 254）
+//
+// 函数体仅传 m.unifiedEvents（共享 EventStream · spec § Dev Notes 关键架构决策 6
+// 保留在 App Model）+ m.timeline.StepFilters · 行为完全等价。
+//
+// **包归属**：放在 event 包而非 timeline 包 · 避免 timeline → event 反向 import 循环。
 func (m dashboardModel) filteredUnifiedEvents() []UnifiedEvent {
-	if len(m.timeline.StepFilters) == 0 {
-		return m.unifiedEvents
-	}
-	allOn := true
-	for _, v := range m.timeline.StepFilters {
-		if !v {
-			allOn = false
-			break
-		}
-	}
-	if allOn {
-		return m.unifiedEvents
-	}
-	var result []UnifiedEvent
-	for _, ev := range m.unifiedEvents {
-		if isEventVisible(ev, m.timeline.StepFilters) {
-			result = append(result, ev)
-		}
-	}
-	return result
+	return dashboardevent.FilterUnifiedEvents(m.unifiedEvents, m.timeline.StepFilters)
 }
 
 // unifiedItemHeight — thin wrapper 委托 timeline.UnifiedItemHeight
