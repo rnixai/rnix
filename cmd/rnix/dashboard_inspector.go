@@ -788,54 +788,12 @@ func (m dashboardModel) renderStepRail(w int) string {
 	return result
 }
 
-// truncateANSIRunes returns the prefix of `s` whose visible width (ANSI
-// escape sequences ignored) does not exceed `maxCols` runes. Open SGR
-// sequences are closed with `\x1b[0m` to prevent colour leak. Used by
-// `renderStepRail` (Story 38-3 review P19) but generally applicable to any
-// single-line ANSI-styled string that needs hard truncation.
+// truncateANSIRunes — thin wrapper · 见 internal/dashboard/inspector.TruncateANSIRunes
+//
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。本端保留同名 wrapper
+// 让 cmd/rnix 内部 caller（renderStepRail line 786）调用契约不变。
 func truncateANSIRunes(s string, maxCols int) string {
-	if maxCols <= 0 {
-		return ""
-	}
-	visible := 0
-	inEsc := false
-	hasOpenSGR := false
-	var b strings.Builder
-	for _, r := range s {
-		if r == 0x1b {
-			inEsc = true
-			b.WriteRune(r)
-			continue
-		}
-		if inEsc {
-			b.WriteRune(r)
-			if r == 'm' {
-				inEsc = false
-				snapshot := b.String()
-				if idx := strings.LastIndex(snapshot, "\x1b["); idx >= 0 {
-					seq := snapshot[idx:]
-					if seq == "\x1b[0m" || seq == "\x1b[m" {
-						hasOpenSGR = false
-					} else {
-						hasOpenSGR = true
-					}
-				}
-			}
-			continue
-		}
-		if visible >= maxCols {
-			if hasOpenSGR {
-				b.WriteString("\x1b[0m")
-			}
-			return b.String()
-		}
-		b.WriteRune(r)
-		visible++
-	}
-	if hasOpenSGR {
-		b.WriteString("\x1b[0m")
-	}
-	return b.String()
+	return inspector.TruncateANSIRunes(s, maxCols)
 }
 
 // renderStepThumbnailBar emits the two-line thumbnail strip below the Step
@@ -1036,26 +994,13 @@ func compressThumbnailWindow(all []ipc.StepSummaryWire, cur, side int) []ipc.Ste
 	return out
 }
 
-// stripANSIApprox removes common ANSI escape codes for width measurement.
-// This is a minimal approximation (full ANSI parsing is in lipgloss); it is
-// adequate for the step rail where we only insert a single styled label.
+// stripANSIApprox — thin wrapper · 见 internal/dashboard/inspector.StripANSIApprox
+//
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。
+// 本 wrapper 必须保留：dashboard_inspector_visual_test.go 在 ~30 处调用此
+// 函数作为 ANSI byte 比较的 normalizer（38-3 视觉契约 profile-tolerant 测试）。
 func stripANSIApprox(s string) string {
-	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		if r == 0x1b {
-			inEsc = true
-			continue
-		}
-		if inEsc {
-			if r == 'm' {
-				inEsc = false
-			}
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
+	return inspector.StripANSIApprox(s)
 }
 
 // renderLensTabs renders the lens selector tabs.
@@ -1661,78 +1606,12 @@ func renderBoxedSection(title, content, color string, colorBody bool, width int)
 	return out.String()
 }
 
-// chunkRunes splits `s` into display-width-bounded chunks, ignoring ANSI
-// escape codes when measuring width. Used by `renderBoxedSection` so that
-// wide JSON blobs or stack traces wrap inside the box rather than overflow.
+// chunkRunes — thin wrapper · 见 internal/dashboard/inspector.ChunkRunes
 //
-// Story 38-3 review fixes:
-//   - P16: when an ANSI SGR sequence (e.g. `\x1b[33m`) is open at a chunk
-//     boundary, emit `\x1b[0m` to close the chunk and re-open the same SGR
-//     at the start of the next chunk so colour does not bleed across box
-//     body lines.
-//   - P17: rune width is measured via `lipgloss.Width` so CJK / emoji /
-//     other wide characters consume the 2 display columns they actually
-//     occupy on the terminal — previously a wide rune was counted as 1
-//     column, which mis-aligned the right border.
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。本端保留同名 wrapper
+// 让 cmd/rnix 内部 caller（renderBoxedSection line 1586）调用契约不变。
 func chunkRunes(s string, maxCols int) []string {
-	if maxCols <= 0 {
-		return []string{s}
-	}
-	if lipgloss.Width(s) <= maxCols {
-		return []string{s}
-	}
-	var out []string
-	var cur strings.Builder
-	cols := 0
-	inEsc := false
-	openSGR := "" // last open SGR sequence, to re-open on next chunk
-	for _, r := range s {
-		if r == 0x1b {
-			inEsc = true
-			cur.WriteRune(r)
-			continue
-		}
-		if inEsc {
-			cur.WriteRune(r)
-			if r == 'm' {
-				inEsc = false
-				// Track the last SGR so we can re-open it after a chunk
-				// boundary; treat `\x1b[0m` as a reset that clears the carry.
-				snapshot := cur.String()
-				if idx := strings.LastIndex(snapshot, "\x1b["); idx >= 0 {
-					seq := snapshot[idx:]
-					if seq == "\x1b[0m" || seq == "\x1b[m" {
-						openSGR = ""
-					} else {
-						openSGR = seq
-					}
-				}
-			}
-			continue
-		}
-		cur.WriteRune(r)
-		cols += lipgloss.Width(string(r))
-		if cols >= maxCols {
-			if openSGR != "" {
-				cur.WriteString("\x1b[0m")
-			}
-			out = append(out, cur.String())
-			cur.Reset()
-			if openSGR != "" {
-				cur.WriteString(openSGR)
-			}
-			cols = 0
-		}
-	}
-	if cur.Len() > 0 {
-		// Tail chunk: also reset any still-open SGR so the next box border
-		// renders without inherited colour.
-		if openSGR != "" {
-			cur.WriteString("\x1b[0m")
-		}
-		out = append(out, cur.String())
-	}
-	return out
+	return inspector.ChunkRunes(s, maxCols)
 }
 
 // buildToolIOLensFull builds full (non-truncated) tool I/O for pager.
