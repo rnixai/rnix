@@ -20,6 +20,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
+	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
@@ -686,25 +687,12 @@ func registerLayer2Intent(d *ui.Dispatcher) {
 }
 
 func registerLayer2Security(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Security Pane",
-		Bindings: map[string]ui.KeyHandler{},
-		Fallback: paneFallback,
-		Docs:     map[string]ui.KeyDoc{},
-		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
-			m, ok := ctx.(dashboardModel)
-			if !ok {
-				return nil
-			}
-			modes := []ui.Mode{{Name: "view", Value: "list"}}
-			if alerts := len(m.security.Alerts); alerts > 0 {
-				modes = append(modes, ui.Mode{Name: "alerts", Value: fmt.Sprintf("%d", alerts)})
-			}
-			return modes
-		},
-	}
-	l.Docs["enter"] = ui.KeyDoc{Key: "enter", Description: "Drill in to process timeline"}
-	d.Layer2[ui.PaneID(paneSecurity)] = l
+	// Story 38-5 PR7 Step 2: KeyLayer 注册体迁出至 internal/dashboard/security.KeyLayer。
+	// dashboardModel 通过 `SecurityState() security.SecurityState` getter 满足 StateProvider。
+	// 行为零变化：1 个 Docs 键 enter + ActiveModesFn{view:list, alerts:N}。
+	// 38-4 Alert Immune 路由（dashboard_keylayers.go Layer 0 enter handler 中的 EventImmune
+	// → paneSecurity 路由）保持在 cmd/rnix 端不变。
+	d.Layer2[ui.PaneID(paneSecurity)] = security.KeyLayer(paneFallback)
 }
 
 func registerLayer2Trace(d *ui.Dispatcher) {
