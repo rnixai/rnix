@@ -1236,68 +1236,12 @@ func (m dashboardModel) renderUnifiedStepHeader(maxW, totalSteps, filteredCount,
 	return truncateAnsi(b.String(), maxW)
 }
 
-// renderStepFilterBar renders the filter editing mode header with two rows.
+// renderStepFilterBar — thin wrapper · 见 internal/dashboard/timeline.RenderStepFilterBar
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/render.go.
+// 保留函数名让 ATDD 27-3 / 36-3 / 38-3 grep 字符串通过 · 行为完全等价.
 func (m dashboardModel) renderStepFilterBar(maxW int) string {
-	var b strings.Builder
-	b.WriteString(" Step:  ")
-
-	// Row 1: Step action types
-	stepTypes := []struct {
-		key    string
-		label  string
-		action string
-	}{
-		{"t", actionAbbrev("tool_call"), "tool_call"},
-		{"p", actionAbbrev("plan"), "plan"},
-		{"a", actionAbbrev("text"), "text"},
-		{"c", actionAbbrev("complete"), "complete"},
-		{"s", actionAbbrev("spawn"), "spawn"},
-		{"r", actionAbbrev("replan"), "replan"},
-		{"z", actionAbbrev("specialize"), "specialize"},
-	}
-
-	for _, t := range stepTypes {
-		on := m.timeline.StepFilters == nil || m.timeline.StepFilters[t.action]
-		mark := "✓"
-		color := actionColor(t.action)
-		if !on {
-			mark = "·"
-			color = lipgloss.Color(ui.ColorMuted)
-		}
-		catStyle := lipgloss.NewStyle().Foreground(color)
-		fmt.Fprintf(&b, " [%s]%s %s", t.key, catStyle.Render(t.label), mark)
-	}
-
-	// Row 2: System event types
-	b.WriteString("\n Events:")
-
-	sysTypes := []struct {
-		key       string
-		label     string
-		eventType string
-	}{
-		{"C", "compact", EventCompact},
-		{"b", "budget", EventBudget},
-		{"x", "spawn", "sys_spawn"},
-		{"X", "exit", EventExit},
-		{"T", "stall", EventStall},
-		{"i", "immune", EventImmune},
-	}
-
-	for _, t := range sysTypes {
-		on := m.timeline.StepFilters == nil || m.timeline.StepFilters[t.eventType]
-		mark := "✓"
-		color := lipgloss.Color("#00CED1") // default system event color
-		if !on {
-			mark = "·"
-			color = lipgloss.Color(ui.ColorMuted)
-		}
-		catStyle := lipgloss.NewStyle().Foreground(color)
-		fmt.Fprintf(&b, " [%s]%s %s", t.key, catStyle.Render(t.label), mark)
-	}
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	b.WriteString("  [*]all  " + dimStyle.Render("f/Esc:done"))
-	return truncateAnsi(b.String(), maxW)
+	return timeline.RenderStepFilterBar(m.timeline.StepFilters, maxW)
 }
 
 // renderAggregatedTimeline renders a timeline with aggregation groups for long tasks (>100 steps).
