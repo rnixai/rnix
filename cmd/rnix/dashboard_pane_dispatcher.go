@@ -337,20 +337,20 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	if m.activePane == paneSecurity {
 		switch key {
 		case "down", "j":
-			if len(m.securityAlerts) > 0 && m.securityCursor < len(m.securityAlerts)-1 {
-				m.securityCursor++
+			if len(m.security.Alerts) > 0 && m.security.Cursor < len(m.security.Alerts)-1 {
+				m.security.Cursor++
 				securityAdjustScroll(&m)
 			}
 			return m, nil
 		case "up", "k":
-			if m.securityCursor > 0 {
-				m.securityCursor--
+			if m.security.Cursor > 0 {
+				m.security.Cursor--
 				securityAdjustScroll(&m)
 			}
 			return m, nil
 		case "enter":
-			if len(m.securityAlerts) > 0 && m.securityCursor < len(m.securityAlerts) {
-				alert := m.securityAlerts[m.securityCursor]
+			if len(m.security.Alerts) > 0 && m.security.Cursor < len(m.security.Alerts) {
+				alert := m.security.Alerts[m.security.Cursor]
 				targetPID := types.PID(alert.PID)
 				pidFound := false
 				var targetUUID string

@@ -92,9 +92,9 @@ func (m dashboardModel) renderSecurityPane(width, height int) string {
 	b.WriteString(" Security \n")
 
 	// nil guard: data not yet fetched
-	if m.immuneStatus == nil {
-		if m.immuneErr != nil {
-			fmt.Fprintf(&b, " Error: %v\n", m.immuneErr)
+	if m.security.ImmuneStatus == nil {
+		if m.security.ImmuneErr != nil {
+			fmt.Fprintf(&b, " Error: %v\n", m.security.ImmuneErr)
 		} else {
 			b.WriteString(" Loading...\n")
 		}
@@ -102,28 +102,28 @@ func (m dashboardModel) renderSecurityPane(width, height int) string {
 	}
 
 	// AC-7: Immune Daemon not running
-	if !m.immuneStatus.Running {
+	if !m.security.ImmuneStatus.Running {
 		b.WriteString(" Immune Daemon not running.\n")
 		b.WriteString(" Security monitoring unavailable.\n")
 		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
 	// AC-5: Security status summary
-	statusStr := m.immuneStatus.SecurityStatus
+	statusStr := m.security.ImmuneStatus.SecurityStatus
 	statusStyle := lipgloss.NewStyle().Foreground(securityStatusColor(statusStr))
 
 	if statusStr == "ok" {
 		b.WriteString(statusStyle.Render(fmt.Sprintf(" Security: %s", strings.ToUpper(statusStr))))
 		b.WriteString("\n")
-		fmt.Fprintf(&b, " Immune Daemon: running (%s)\n", formatUptimeShort(m.immuneStatus.UptimeMs))
-		fmt.Fprintf(&b, " Threats in memory: %d\n", m.immuneStatus.ThreatCount)
+		fmt.Fprintf(&b, " Immune Daemon: running (%s)\n", formatUptimeShort(m.security.ImmuneStatus.UptimeMs))
+		fmt.Fprintf(&b, " Threats in memory: %d\n", m.security.ImmuneStatus.ThreatCount)
 		b.WriteString("\n")
 		b.WriteString(statusStyle.Render(" All processes behaving normally"))
 		b.WriteString("\n")
 	} else {
 		// warning status
-		alertCount := len(m.securityAlerts)
-		suspendedCount := len(m.immuneStatus.SuspendedPIDs)
+		alertCount := len(m.security.Alerts)
+		suspendedCount := len(m.security.ImmuneStatus.SuspendedPIDs)
 		warnIcon := "!"
 		ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
 		if !ascii {
@@ -132,7 +132,7 @@ func (m dashboardModel) renderSecurityPane(width, height int) string {
 		summary := fmt.Sprintf(" %s Security: %d alerts, %d suspended", warnIcon, alertCount, suspendedCount)
 		b.WriteString(statusStyle.Render(summary))
 		b.WriteString("\n")
-		fmt.Fprintf(&b, " Immune Daemon: running (%s)\n", formatUptimeShort(m.immuneStatus.UptimeMs))
+		fmt.Fprintf(&b, " Immune Daemon: running (%s)\n", formatUptimeShort(m.security.ImmuneStatus.UptimeMs))
 		b.WriteString("\n")
 
 		// AC-3: Alert list (with scroll offset)
@@ -140,15 +140,15 @@ func (m dashboardModel) renderSecurityPane(width, height int) string {
 			b.WriteString(" ALERTS\n")
 			// Calculate visible range based on scroll offset
 			visibleAlerts := max(innerH-6, 1) // reserve lines for header/summary/suspended
-			startIdx := m.securityScrollOffset
+			startIdx := m.security.ScrollOffset
 			endIdx := min(startIdx+visibleAlerts, alertCount)
 			if startIdx > 0 {
 				fmt.Fprintf(&b, " ... %d more above\n", startIdx)
 			}
 			for i := startIdx; i < endIdx; i++ {
-				alert := m.securityAlerts[i]
+				alert := m.security.Alerts[i]
 				cursor := "  "
-				if i == m.securityCursor {
+				if i == m.security.Cursor {
 					cursor = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Render("> ")
 				}
 				typeStyle := lipgloss.NewStyle().Foreground(alertTypeColor(alert.Type))
@@ -176,7 +176,7 @@ func (m dashboardModel) renderSecurityPane(width, height int) string {
 		// AC-6: Suspended processes
 		if suspendedCount > 0 {
 			b.WriteString("\n SUSPENDED\n")
-			for _, pid := range m.immuneStatus.SuspendedPIDs {
+			for _, pid := range m.security.ImmuneStatus.SuspendedPIDs {
 				fmt.Fprintf(&b, "   PID:%d → resume/kill\n", pid)
 			}
 		}
@@ -205,10 +205,10 @@ func formatTimeAgo(timestampMs int64) string {
 // securityAdjustScroll ensures securityCursor is visible within the viewport.
 func securityAdjustScroll(m *dashboardModel) {
 	visibleLines := max(m.height/2-3, 1)
-	if m.securityCursor < m.securityScrollOffset {
-		m.securityScrollOffset = m.securityCursor
+	if m.security.Cursor < m.security.ScrollOffset {
+		m.security.ScrollOffset = m.security.Cursor
 	}
-	if m.securityCursor >= m.securityScrollOffset+visibleLines {
-		m.securityScrollOffset = m.securityCursor - visibleLines + 1
+	if m.security.Cursor >= m.security.ScrollOffset+visibleLines {
+		m.security.ScrollOffset = m.security.Cursor - visibleLines + 1
 	}
 }

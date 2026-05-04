@@ -552,7 +552,7 @@ func (m dashboardModel) applyUnreadMarks() dashboardModel {
 // resolveAlertJumpTarget consumes a pending alertJumpTarget (set by the
 // alert+enter path on PID change) and locates the matching cursor on the
 // destination pane. Story 38-4 AC#2 extends this to handle EventImmune
-// targets by scanning m.securityAlerts.
+// targets by scanning m.security.Alerts.
 //
 // Code-review patch P5 (2026-05-03): the EventImmune match now requires
 // PID + Timestamp.UnixMilli to align — same rationale as the same-PID
@@ -569,9 +569,9 @@ func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
 	m.alertJumpTarget = nil
 	if target.Type == EventImmune {
 		targetMs := target.Timestamp.UnixMilli()
-		for i, sa := range m.securityAlerts {
+		for i, sa := range m.security.Alerts {
 			if types.PID(sa.PID) == target.PID && sa.TimestampMs == targetMs {
-				m.securityCursor = i
+				m.security.Cursor = i
 				securityAdjustScroll(&m)
 				break
 			}

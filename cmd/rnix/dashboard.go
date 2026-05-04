@@ -17,6 +17,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
+	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
@@ -130,12 +131,8 @@ type dashboardModel struct {
 	// Story 38-5 PR6 Step 1: IntentState 抽离（6 字段 · spec § AC5 · 27-7 + 38-4 落地 · 38-4 P1 stable RootIntent key）
 	intent intent.IntentState
 
-	// Security pane fields (Story 27-8)
-	immuneStatus         *ipc.ImmuneStatusResponse
-	immuneErr            error
-	securityAlerts       []ipc.AlertWire
-	securityCursor       int
-	securityScrollOffset int
+	// Story 38-5 PR7 Step 1: SecurityState 抽离（5 字段 · spec § AC5 · Story 27-8 + 38-4 Alert Immune 路由保留）
+	security security.SecurityState
 
 	// Trace pane fields (Story 27-9)
 	traceSummaries    []ipc.TraceSummaryWire
@@ -297,6 +294,7 @@ func (m dashboardModel) TimelineState() timeline.TimelineState { return m.timeli
 func (m dashboardModel) DetailState() detail.DetailState { return m.detail }
 func (m dashboardModel) SelectedPID() types.PID          { return m.selectedPID } // Story 38-5 PR5 Step 2 · detail.SelectedPIDProvider
 func (m dashboardModel) IntentState() intent.IntentState { return m.intent }      // Story 38-5 PR6 Step 1 · intent.StateProvider · Deprecated: removed in PR11
+func (m dashboardModel) SecurityState() security.SecurityState { return m.security } // Story 38-5 PR7 Step 1 · security.StateProvider · Deprecated: removed in PR11
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -410,15 +408,15 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case immuneStatusMsg:
 		if msg.err != nil {
-			m.immuneErr = msg.err
+			m.security.ImmuneErr = msg.err
 			return m, nil
 		}
-		m.immuneErr = nil
-		m.immuneStatus = msg.status
+		m.security.ImmuneErr = nil
+		m.security.ImmuneStatus = msg.status
 		if msg.status != nil {
-			m.securityAlerts = sortAlertsByDeviation(msg.status.Alerts)
-			if m.securityCursor >= len(m.securityAlerts) {
-				m.securityCursor = max(0, len(m.securityAlerts)-1)
+			m.security.Alerts = sortAlertsByDeviation(msg.status.Alerts)
+			if m.security.Cursor >= len(m.security.Alerts) {
+				m.security.Cursor = max(0, len(m.security.Alerts)-1)
 			}
 		}
 		return m, nil
@@ -772,7 +770,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Build alert events for alert strip (Story 34.4)
 	// Story 38-4 AC#4: include synthesised security alerts so the strip's
 	// count badge and time-ordered list reflect immune-daemon findings.
-	m.alertEvents = buildAlertEventsWith(m.unifiedEvents, m.securityAlerts)
+	m.alertEvents = buildAlertEventsWith(m.unifiedEvents, m.security.Alerts)
 	// F5: Always clamp alertCursor to valid range (even when expanded)
 	if len(m.alertEvents) == 0 {
 		m.alertCursor = 0
@@ -895,7 +893,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Fetch immune status only when Security pane is active
 	if m.activePane == paneSecurity && m.connected {
-		if m.immuneStatus == nil || m.heatmap.TickCount%5 == 0 {
+		if m.security.ImmuneStatus == nil || m.heatmap.TickCount%5 == 0 {
 			cmds = append(cmds, fetchImmuneStatusCmd())
 		}
 	}

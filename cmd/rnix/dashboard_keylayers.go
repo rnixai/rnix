@@ -238,9 +238,9 @@ func registerLayer0(d *ui.Dispatcher) {
 			// (e.g. securityAlerts pruned between tick and keypress) we
 			// keep the current cursor untouched rather than guessing.
 			alertMs := alert.Timestamp.UnixMilli()
-			for i, sa := range m.securityAlerts {
+			for i, sa := range m.security.Alerts {
 				if types.PID(sa.PID) == alert.PID && sa.TimestampMs == alertMs {
-					m.securityCursor = i
+					m.security.Cursor = i
 					securityAdjustScroll(&m)
 					break
 				}
@@ -697,7 +697,7 @@ func registerLayer2Security(d *ui.Dispatcher) {
 				return nil
 			}
 			modes := []ui.Mode{{Name: "view", Value: "list"}}
-			if alerts := len(m.securityAlerts); alerts > 0 {
+			if alerts := len(m.security.Alerts); alerts > 0 {
 				modes = append(modes, ui.Mode{Name: "alerts", Value: fmt.Sprintf("%d", alerts)})
 			}
 			return modes

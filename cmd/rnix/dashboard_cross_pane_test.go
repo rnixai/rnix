@@ -280,7 +280,7 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 			PID:       7,
 			Timestamp: now,
 		}}
-		m.securityAlerts = []ipc.AlertWire{
+		m.security.Alerts = []ipc.AlertWire{
 			{PID: 5, Type: "syscall_freq", TimestampMs: now.Add(-time.Second).UnixMilli()},
 			{PID: 7, Type: "device_access", TimestampMs: now.UnixMilli()},
 			{PID: 7, Type: "syscall_freq", TimestampMs: now.Add(time.Second).UnixMilli()},
@@ -292,8 +292,8 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 		if g.activePane != paneSecurity {
 			t.Errorf("expected activePane=paneSecurity, got %d", g.activePane)
 		}
-		if g.securityCursor != 1 {
-			t.Errorf("expected securityCursor=1 (PID 7 + matching TimestampMs), got %d", g.securityCursor)
+		if g.security.Cursor != 1 {
+			t.Errorf("expected securityCursor=1 (PID 7 + matching TimestampMs), got %d", g.security.Cursor)
 		}
 		if g.alertExpanded {
 			t.Errorf("alertExpanded should be reset after jump")
@@ -362,7 +362,7 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 		now := time.Now()
 		alert := UnifiedEvent{Type: EventImmune, PID: 7, Timestamp: now}
 		m.alertJumpTarget = &alert
-		m.securityAlerts = []ipc.AlertWire{
+		m.security.Alerts = []ipc.AlertWire{
 			{PID: 7, Type: "device_access", TimestampMs: now.Add(-time.Second).UnixMilli()},
 			{PID: 7, Type: "syscall_freq", TimestampMs: now.UnixMilli()},
 		}
@@ -370,8 +370,8 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 		if out.alertJumpTarget != nil {
 			t.Errorf("alertJumpTarget should be consumed, got %+v", out.alertJumpTarget)
 		}
-		if out.securityCursor != 1 {
-			t.Errorf("expected securityCursor=1 (TimestampMs match), got %d", out.securityCursor)
+		if out.security.Cursor != 1 {
+			t.Errorf("expected securityCursor=1 (TimestampMs match), got %d", out.security.Cursor)
 		}
 	})
 }
@@ -889,7 +889,7 @@ func TestAlertEnter_ClearsUnread(t *testing.T) {
 		}}
 		// Patch P5: securityAlerts TimestampMs must match alert.Timestamp
 		// to land the cursor; the unread clear logic itself is independent.
-		m.securityAlerts = []ipc.AlertWire{{PID: 7, Type: "device_access", TimestampMs: now.UnixMilli()}}
+		m.security.Alerts = []ipc.AlertWire{{PID: 7, Type: "device_access", TimestampMs: now.UnixMilli()}}
 		m.alertExpanded = true
 		m.alertCursor = 0
 		m.paneHasUnread[paneSecurity] = true
@@ -908,7 +908,7 @@ func TestAlertEnter_ClearsUnread(t *testing.T) {
 // TestBuildAlertEvents_SyntheticBypassesTTL verifies that rows with
 // IsSynthetic == true (currently only synthSecurityAlerts) are retained
 // even when their Timestamp is older than alertTTL. Lifecycle is driven
-// by the upstream IPC list (m.securityAlerts), not wall-clock TTL.
+// by the upstream IPC list (m.security.Alerts), not wall-clock TTL.
 func TestBuildAlertEvents_SyntheticBypassesTTL(t *testing.T) {
 	t.Run("synthetic row older than TTL stays in result", func(t *testing.T) {
 		old := time.Now().Add(-2 * alertTTL) // 60 s ago — well past 30 s TTL
