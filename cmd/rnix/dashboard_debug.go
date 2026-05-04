@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
+	dashboarddebug "github.com/rnixai/rnix/internal/dashboard/debug"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -21,18 +22,11 @@ const maxDebugStraceEvents = 500
 
 // --- Types ---
 
-type deviceLatencyStats struct {
-	Count      int
-	TotalMs    float64
-	ErrorCount int
-}
-
-func (s deviceLatencyStats) AvgMs() float64 {
-	if s.Count == 0 {
-		return 0
-	}
-	return s.TotalMs / float64(s.Count)
-}
+// deviceLatencyStats 类型迁出自 internal/dashboard/debug.DeviceLatencyStats（Story 38-5 PR11 Step 1）。
+// cmd/rnix 端通过 type alias 保留旧名零行为变化（与 PR2/PR3/PR4/PR6/PR8/PR10 同模式）。
+//
+//nolint:unused // 通过 alias 暴露给现有 caller。
+type deviceLatencyStats = dashboarddebug.DeviceLatencyStats
 
 // --- tea.Msg types for Debug mode ---
 
@@ -69,12 +63,12 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 	switch msg := msg.(type) {
 	case debugStraceStartedMsg:
 		// F2: If debug mode was exited before this msg arrived, clean up the leaked client.
-		if !m.debugMode {
+		if !m.debugState.Mode {
 			msg.client.Close()
 			return m, nil, true
 		}
-		m.debugClient = msg.client
-		m.debugStraceCh = msg.ch
+		m.debugState.Client = msg.client
+		m.debugState.StraceCh = msg.ch
 		// F6: Watch for AttachDebug completion to report errors.
 		var cmd tea.Cmd
 		if msg.errCh != nil {
@@ -86,7 +80,7 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 		}
 		return m, cmd, true
 	case debugStraceStreamEndMsg:
-		if msg.err != nil && m.debugMode {
+		if msg.err != nil && m.debugState.Mode {
 			m.statusMsg = fmt.Sprintf("✗ strace stream: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
@@ -101,7 +95,7 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 			m.statusMsg = fmt.Sprintf("✗ ctx profile: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
 		} else if msg.profile != nil {
-			m.debugCtxProfile = msg.profile
+			m.debugState.CtxProfile = msg.profile
 		}
 		return m, nil, true
 	case debugHistoricalStraceMsg:
@@ -111,7 +105,7 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 			return m, nil, true
 		}
 		// F1: Guard against async msg arriving after exitDebugMode nils the map.
-		if !m.debugMode {
+		if !m.debugState.Mode {
 			return m, nil, true
 		}
 		// F2: Guard against stale async responses from a previous PID selection.
@@ -138,7 +132,7 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 			}
 		}
 		m.debugStraceEvents = nil
-		m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
+		m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
 		for _, sew := range msg.events {
 			ev := straceToUnifiedEvent(sew)
 			m.appendStraceEvent(ev)
@@ -146,7 +140,7 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 		}
 		// Re-add preserved live stream events.
 		m.debugStraceEvents = append(m.debugStraceEvents, preserved...)
-		m.debugHistWatermark = newWatermark
+		m.debugState.HistWatermark = newWatermark
 		// Events panel shows only syscall events (steps are in the Steps panel).
 		if len(m.debugStraceEvents) > 0 || len(m.debugEvents) == 0 {
 			m.debugEvents = m.debugStraceEvents
@@ -163,11 +157,11 @@ func (m *dashboardModel) debugTickCmds() []tea.Cmd {
 	// When the live stream ends, auto-reload complete events from disk.
 	// This ensures all events are shown even if some were missed during streaming
 	// (e.g., events emitted before dashboard attached, or dropped due to buffer full).
-	if streamClosed && !m.debugAutoReloaded && m.selectedPID != 0 {
-		m.debugAutoReloaded = true
+	if streamClosed && !m.debugState.AutoReloaded && m.selectedPID != 0 {
+		m.debugState.AutoReloaded = true
 		cmds = append(cmds, m.loadHistoricalStraceCmd())
 	}
-	if m.debugMode && m.debugAttachedPID != m.selectedPID {
+	if m.debugState.Mode && m.debugState.AttachedPID != m.selectedPID {
 		m2, debugCmd := m.handleDebugPIDChange()
 		*m = m2
 		if debugCmd != nil {
@@ -183,19 +177,19 @@ func (m dashboardModel) enterDebugMode() (dashboardModel, tea.Cmd) {
 	// F2: Clean up any existing strace stream before starting a new one.
 	m.stopStraceStream()
 	m.viewMode = viewDebug
-	m.debugMode = true
-	m.debugShowStrace = true
+	m.debugState.Mode = true
+	m.debugState.ShowStrace = true
 	m.debugStraceEvents = nil
 	m.debugEvents = nil
-	m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
-	m.debugScrollTop = 0
-	m.debugCursor = 0
-	m.debugAutoScroll = true
-	m.debugCtxProfile = nil
-	m.debugAttachedPID = m.selectedPID
-	m.debugAutoReloaded = false
-	m.debugHistWatermark = 0
-	m.debugAutoScroll = true
+	m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
+	m.debugState.ScrollTop = 0
+	m.debugState.Cursor = 0
+	m.debugState.AutoScroll = true
+	m.debugState.CtxProfile = nil
+	m.debugState.AttachedPID = m.selectedPID
+	m.debugState.AutoReloaded = false
+	m.debugState.HistWatermark = 0
+	m.debugState.AutoScroll = true
 
 	if m.isSelectedProcessDead() {
 		return m, m.loadHistoricalStraceCmd()
@@ -209,26 +203,26 @@ func (m dashboardModel) enterDebugMode() (dashboardModel, tea.Cmd) {
 
 func (m dashboardModel) exitDebugMode() dashboardModel {
 	m.viewMode = viewDefault
-	m.debugMode = false
+	m.debugState.Mode = false
 	m.stopStraceStream()
 	m.debugEvents = nil
 	m.debugStraceEvents = nil
-	m.debugCtxProfile = nil
-	m.debugDeviceLatency = nil
-	m.debugAttachedPID = 0
-	m.debugScrollTop = 0
-	m.debugCursor = 0
+	m.debugState.CtxProfile = nil
+	m.debugState.DeviceLatency = nil
+	m.debugState.AttachedPID = 0
+	m.debugState.ScrollTop = 0
+	m.debugState.Cursor = 0
 	return m
 }
 
 // stopStraceStream closes the independent debug IPC client (which causes the
 // scanner to stop) and resets channel/client references.
 func (m *dashboardModel) stopStraceStream() {
-	if m.debugClient != nil {
-		m.debugClient.Close()
-		m.debugClient = nil
+	if m.debugState.Client != nil {
+		m.debugState.Client.Close()
+		m.debugState.Client = nil
 	}
-	m.debugStraceCh = nil
+	m.debugState.StraceCh = nil
 }
 
 // --- strace stream commands ---
@@ -324,10 +318,10 @@ func (m *dashboardModel) updateDeviceLatency(sew ipc.SyscallEventWire) {
 	if dev == "" {
 		return
 	}
-	stats := m.debugDeviceLatency[dev]
+	stats := m.debugState.DeviceLatency[dev]
 	if stats == nil {
 		stats = &deviceLatencyStats{}
-		m.debugDeviceLatency[dev] = stats
+		m.debugState.DeviceLatency[dev] = stats
 	}
 	stats.Count++
 	stats.TotalMs += sew.DurationMs
@@ -363,7 +357,7 @@ func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
 	}
 	var result []UnifiedEvent
 	for _, ev := range m.debugEvents {
-		if ev.Type == EventSyscall && !m.debugShowStrace {
+		if ev.Type == EventSyscall && !m.debugState.ShowStrace {
 			continue
 		}
 		if !isEventVisible(ev, m.timeline.StepFilters) {
@@ -377,11 +371,11 @@ func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
 // clampDebugCursor ensures the cursor stays within the filtered event range.
 func (m *dashboardModel) clampDebugCursor() {
 	filtered := m.filteredDebugEvents()
-	if m.debugCursor >= len(filtered) {
-		m.debugCursor = max(len(filtered)-1, 0)
+	if m.debugState.Cursor >= len(filtered) {
+		m.debugState.Cursor = max(len(filtered)-1, 0)
 	}
-	if m.debugScrollTop > m.debugCursor {
-		m.debugScrollTop = m.debugCursor
+	if m.debugState.ScrollTop > m.debugState.Cursor {
+		m.debugState.ScrollTop = m.debugState.Cursor
 	}
 }
 
@@ -390,23 +384,23 @@ func (m *dashboardModel) clampDebugCursor() {
 // debugTickProcess drains the strace channel and merges events.
 // Returns true if the stream channel was closed this tick (triggers auto-reload).
 func (m *dashboardModel) debugTickProcess() bool {
-	if !m.debugMode {
+	if !m.debugState.Mode {
 		return false
 	}
 	streamClosed := false
 	drainedAny := false
 	// Non-blocking read from strace channel
-	if m.debugStraceCh != nil {
+	if m.debugState.StraceCh != nil {
 		for {
 			select {
-			case sew, ok := <-m.debugStraceCh:
+			case sew, ok := <-m.debugState.StraceCh:
 				if !ok {
-					m.debugStraceCh = nil
+					m.debugState.StraceCh = nil
 					streamClosed = true
 					goto doneReading
 				}
 				// Skip events already covered by historical load to avoid duplicates.
-				if m.debugHistWatermark > 0 && sew.TimestampMs <= m.debugHistWatermark {
+				if m.debugState.HistWatermark > 0 && sew.TimestampMs <= m.debugState.HistWatermark {
 					continue
 				}
 				drainedAny = true
@@ -430,19 +424,19 @@ func (m *dashboardModel) debugTickProcess() bool {
 // --- Debug PID change handling ---
 
 func (m dashboardModel) handleDebugPIDChange() (dashboardModel, tea.Cmd) {
-	if !m.debugMode {
+	if !m.debugState.Mode {
 		return m, nil
 	}
 	m.stopStraceStream()
 	m.debugStraceEvents = nil
 	m.debugEvents = nil
-	m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
-	m.debugCtxProfile = nil
-	m.debugScrollTop = 0
-	m.debugCursor = 0
-	m.debugAttachedPID = m.selectedPID
-	m.debugAutoReloaded = false
-	m.debugHistWatermark = 0
+	m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
+	m.debugState.CtxProfile = nil
+	m.debugState.ScrollTop = 0
+	m.debugState.Cursor = 0
+	m.debugState.AttachedPID = m.selectedPID
+	m.debugState.AutoReloaded = false
+	m.debugState.HistWatermark = 0
 
 	if m.selectedPID == 0 {
 		return m, nil
@@ -519,13 +513,13 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 	listLines := max(height-2, 1)
 
 	// Auto-scroll: keep cursor at the end (latest events, ascending order)
-	if m.debugAutoScroll {
-		m.debugCursor = max(len(filtered)-1, 0)
+	if m.debugState.AutoScroll {
+		m.debugState.Cursor = max(len(filtered)-1, 0)
 	}
-	cursor := min(m.debugCursor, max(len(filtered)-1, 0))
+	cursor := min(m.debugState.Cursor, max(len(filtered)-1, 0))
 
 	// Scroll management — ensure cursor is visible
-	startIdx := m.debugScrollTop
+	startIdx := m.debugState.ScrollTop
 	if startIdx < 0 || startIdx >= len(filtered) {
 		startIdx = 0
 	}
@@ -616,11 +610,11 @@ func (m dashboardModel) renderDebugDetailLeft(width, height int) string {
 		Width(max(width-2, 1)).
 		Height(height)
 
-	if m.debugCtxProfile == nil {
+	if m.debugState.CtxProfile == nil {
 		return borderStyle.Render(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render("No ctx data"))
 	}
 
-	p := m.debugCtxProfile
+	p := m.debugState.CtxProfile
 
 	// Aggregate consumers by role category.
 	type roleAgg struct {
@@ -700,7 +694,7 @@ func (m dashboardModel) renderDebugDetailRight(width, height int) string {
 		Width(max(width-2, 1)).
 		Height(height)
 
-	if len(m.debugDeviceLatency) == 0 {
+	if len(m.debugState.DeviceLatency) == 0 {
 		return borderStyle.Render(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render("No latency data"))
 	}
 
@@ -710,7 +704,7 @@ func (m dashboardModel) renderDebugDetailRight(width, height int) string {
 		stats deviceLatencyStats
 	}
 	var entries []devEntry
-	for name, stats := range m.debugDeviceLatency {
+	for name, stats := range m.debugState.DeviceLatency {
 		entries = append(entries, devEntry{name, *stats})
 	}
 	sort.Slice(entries, func(i, j int) bool {
@@ -785,31 +779,31 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 	filtered := m.filteredDebugEvents()
 	switch key {
 	case "up", "k":
-		m.debugAutoScroll = false
-		if m.debugCursor > 0 {
-			m.debugCursor--
+		m.debugState.AutoScroll = false
+		if m.debugState.Cursor > 0 {
+			m.debugState.Cursor--
 		}
-		if m.debugCursor < m.debugScrollTop {
-			m.debugScrollTop = m.debugCursor
+		if m.debugState.Cursor < m.debugState.ScrollTop {
+			m.debugState.ScrollTop = m.debugState.Cursor
 		}
 		return m, nil, true
 	case "down", "j":
-		m.debugAutoScroll = false
-		if m.debugCursor < len(filtered)-1 {
-			m.debugCursor++
+		m.debugState.AutoScroll = false
+		if m.debugState.Cursor < len(filtered)-1 {
+			m.debugState.Cursor++
 		}
 		visibleLines := max(m.dashboardVisibleLines()-4, 1)
-		if m.debugCursor >= m.debugScrollTop+visibleLines {
-			m.debugScrollTop = m.debugCursor - visibleLines + 1
+		if m.debugState.Cursor >= m.debugState.ScrollTop+visibleLines {
+			m.debugState.ScrollTop = m.debugState.Cursor - visibleLines + 1
 		}
 		// Re-enable auto-scroll when user reaches the bottom
-		if m.debugCursor >= len(filtered)-1 {
-			m.debugAutoScroll = true
+		if m.debugState.Cursor >= len(filtered)-1 {
+			m.debugState.AutoScroll = true
 		}
 		return m, nil, true
 	case "s":
-		m.debugShowStrace = !m.debugShowStrace
-		if m.debugShowStrace {
+		m.debugState.ShowStrace = !m.debugState.ShowStrace
+		if m.debugState.ShowStrace {
 			m.statusMsg = "strace: on"
 		} else {
 			m.statusMsg = "strace: off"
@@ -820,8 +814,8 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 		return m, nil, true
 	case "v", "enter":
 		// Step expand (if cursor on a step event)
-		if m.debugCursor >= 0 && m.debugCursor < len(filtered) {
-			ev := filtered[m.debugCursor]
+		if m.debugState.Cursor >= 0 && m.debugState.Cursor < len(filtered) {
+			ev := filtered[m.debugState.Cursor]
 			if ev.StepEntry != nil {
 				entry := ev.StepEntry
 				if entry.Level == levelSummary {

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rnixai/rnix/debug"
+	dashboarddebug "github.com/rnixai/rnix/internal/dashboard/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/eval"
@@ -156,20 +157,12 @@ type dashboardModel struct {
 	// 注：intentTreeCollapsed 已迁入 intent.IntentState.TreeCollapsed（PR6 Step 1）· 38-4 P1 行为不变
 
 	// Story 34.6: Debug mode — strace fusion
-	debugMode           bool                        // Debug mode active
-	debugEvents         []UnifiedEvent              // merged debug timeline (steps + strace)
-	debugStraceEvents   []UnifiedEvent              // strace event ring buffer
-	debugClient         *ipc.Client                 // independent IPC connection for strace stream
-	debugStraceCh       <-chan ipc.SyscallEventWire  // strace event channel from goroutine
-	debugShowStrace     bool                        // toggle strace visibility (default true)
-	debugCtxProfile     *debug.CtxProfileResult     // Context Profile data
-	debugDeviceLatency  map[string]*deviceLatencyStats // device latency stats
-	debugAttachedPID    types.PID                   // currently attached PID for strace
-	debugAutoReloaded   bool                        // prevents repeated historical reload after stream end
-	debugHistWatermark  int64                       // max TimestampMs from historical load; stream events ≤ this are skipped
-	debugScrollTop      int                         // debug timeline scroll offset
-	debugCursor         int                         // debug timeline cursor
-	debugAutoScroll     bool                        // auto-scroll to latest event
+	// Story 38-5 PR11 Step 1: 12 个标量字段抽离至 internal/dashboard/debug.DebugState。
+	// debugEvents / debugStraceEvents 因 UnifiedEvent 类型 cascade 暂保留在 dashboardModel
+	// （详见 internal/dashboard/debug/state.go 包级注释）。
+	debugState        dashboarddebug.DebugState
+	debugEvents       []UnifiedEvent // merged debug timeline (steps + strace)
+	debugStraceEvents []UnifiedEvent // strace event ring buffer
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -208,8 +201,11 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 		intent: intent.IntentState{
 			TreeCollapsed: make(map[string]bool), // Story 38-4 AC#3 / P1: keyed by RootIntent
 		},
-		debugShowStrace:    true, // Story 34.6: show strace events by default
-		debugDeviceLatency: make(map[string]*deviceLatencyStats),
+		// Story 38-5 PR11 Step 1: DebugState 抽离（12 字段）— Story 34.6 落地
+		debugState: dashboarddebug.DebugState{
+			ShowStrace:    true, // Story 34.6: show strace events by default
+			DeviceLatency: make(map[string]*deviceLatencyStats),
+		},
 	}
 }
 
@@ -628,7 +624,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 			// The process list may briefly omit a reaped process during TTL cleanup
 			// transitions. Resetting selectedPID here cascades into handleDebugPIDChange
 			// which clears all events, causing the "Waiting for events…" flicker.
-			if m.debugMode && m.debugAttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+			if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
 				found = true
 			}
 		}
@@ -647,8 +643,8 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// the UUID validation above resets selectedPID to 0 (which happens when the
 	// daemon's process list briefly omits a recently reaped process).
 	anchorPID := m.selectedPID
-	if m.debugMode && anchorPID == 0 && m.debugAttachedPID > 0 {
-		anchorPID = m.debugAttachedPID
+	if m.debugState.Mode && anchorPID == 0 && m.debugState.AttachedPID > 0 {
+		anchorPID = m.debugState.AttachedPID
 	}
 	if anchorPID > 0 && m.tree.Cursor < len(m.tree.Rows) {
 		if m.tree.Rows[m.tree.Cursor].Proc.PID != anchorPID {
@@ -900,7 +896,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Story 34.6: Debug mode tick processing
 	cmds = append(cmds, m.debugTickCmds()...)
-	if m.debugMode && m.connected && m.heatmap.TickCount%5 == 0 && m.selectedPID > 0 {
+	if m.debugState.Mode && m.connected && m.heatmap.TickCount%5 == 0 && m.selectedPID > 0 {
 		cmds = append(cmds, m.fetchDebugCtxProfileCmd())
 	}
 
@@ -1487,8 +1483,8 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	}
 	if fm, ok := final.(dashboardModel); ok && fm.client != nil {
 		// F5: Close debug IPC client if active.
-		if fm.debugClient != nil {
-			fm.debugClient.Close()
+		if fm.debugState.Client != nil {
+			fm.debugState.Client.Close()
 		}
 		fm.client.Close()
 	} else {

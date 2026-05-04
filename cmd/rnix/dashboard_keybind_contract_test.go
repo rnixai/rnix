@@ -483,10 +483,10 @@ func TestDashboardKey_ViewDebug_HandleDebugKeyTakesPriority(t *testing.T) {
 	// 模拟 viewDebug 下按 's'（toggle strace）—— 应由 handleDebugKey 处理
 	// 而不是被 dispatcher 的 paneFallback (dispatchPaneKey) 吞噬。
 	// 我们通过观察 debugShowStrace 的 toggle 来断言 handleDebugKey 真正生效。
-	prevStrace := m.debugShowStrace
+	prevStrace := m.debugState.ShowStrace
 	got, _ := m.dashboardKey(keypressFromString("s"))
 	g := got.(dashboardModel)
-	if g.debugShowStrace == prevStrace {
+	if g.debugState.ShowStrace == prevStrace {
 		// handleDebugKey 应该 toggle 此字段；如果没变说明 handleDebugKey 未被调用
 		// 或 's' 不是 handleDebugKey 的处理键 — 后者属于 spec 覆盖范围之外，但
 		// 至少 viewDebug 模式必须保留 handleDebugKey 的优先调用。
