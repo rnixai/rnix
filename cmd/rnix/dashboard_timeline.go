@@ -1277,45 +1277,13 @@ func truncateAnsi(s string, maxWidth int) string {
 
 // --- Step data flow ---
 
+// applyNewSteps — thin wrapper · 见 internal/dashboard/timeline.ApplyNewSteps
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/apply.go.
+// 保留 (m dashboardModel) receiver 让 cmd/rnix 端调用方零修改通过.
+// Story 36-4 expandMode + safety net 行为契约保留（迁出包内已显式测试 7 项）.
 func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardModel {
-	// Build a set of already-known step numbers for dedup protection.
-	// Concurrent fetches (e.g. PID-change fetch + tick fetch) can return
-	// overlapping step ranges; appending duplicates causes the Timeline to
-	// show the same entry twice.
-	known := make(map[int]struct{}, len(m.timeline.StepEntries))
-	for _, e := range m.timeline.StepEntries {
-		known[e.Summary.Step] = struct{}{}
-	}
-
-	for _, s := range steps {
-		if _, dup := known[s.Step]; dup {
-			continue
-		}
-		known[s.Step] = struct{}{}
-		// Story 36-4: 按 expandMode 决定新 step 的初始 level。
-		level := levelSummary
-		autoExpand := false
-		switch m.timeline.ExpandMode {
-		case expandModeExpanded:
-			level = levelExpanded
-			autoExpand = true
-		case expandModeErrorsOnly:
-			if s.HasError {
-				level = levelExpanded
-				autoExpand = true
-			}
-		default: // expandModeCollapsed — safety net：错误始终展开
-			if s.HasError {
-				level = levelExpanded
-				autoExpand = true
-			}
-		}
-		m.timeline.StepEntries = append(m.timeline.StepEntries, stepEntry{
-			Summary:    s,
-			Level:      level,
-			AutoExpand: autoExpand,
-		})
-	}
+	m.timeline = timeline.ApplyNewSteps(m.timeline, steps)
 	return m
 }
 
