@@ -296,6 +296,7 @@ func (m dashboardModel) TimelineState() timeline.TimelineState { return m.timeli
 
 // DetailState transitional getter (Story 38-5 PR5 Step 1; Deprecated: removed in PR11).
 func (m dashboardModel) DetailState() detail.DetailState { return m.detail }
+func (m dashboardModel) SelectedPID() types.PID          { return m.selectedPID } // Story 38-5 PR5 Step 2 · detail.SelectedPIDProvider
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()

@@ -17,6 +17,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
@@ -672,25 +673,7 @@ func registerLayer2Heatmap(d *ui.Dispatcher) {
 }
 
 func registerLayer2Detail(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Detail Pane",
-		Bindings: map[string]ui.KeyHandler{},
-		Fallback: paneFallback,
-		Docs:     map[string]ui.KeyDoc{},
-		ActiveModesFn: func(ctx ui.KeyContext) []ui.Mode {
-			m, ok := ctx.(dashboardModel)
-			if !ok {
-				return nil
-			}
-			if m.selectedPID > 0 {
-				return []ui.Mode{{Name: "pid", Value: fmt.Sprintf("%d", m.selectedPID)}}
-			}
-			return []ui.Mode{{Name: "view", Value: "no selection"}}
-		},
-	}
-	// M4: detail pane 不接受 v/y 键（dispatchPaneKey 末尾 switch 没有 paneDetail case）。
-	// 原 doc 中的 v=Toggle full/compact 与 y=Copy 是占位，未实现。删除以避免误导用户。
-	d.Layer2[ui.PaneID(paneDetail)] = l
+	d.Layer2[ui.PaneID(paneDetail)] = detail.KeyLayer(paneFallback)
 }
 
 func registerLayer2Intent(d *ui.Dispatcher) {
