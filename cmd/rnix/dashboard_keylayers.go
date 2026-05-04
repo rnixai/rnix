@@ -20,6 +20,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/eval"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
@@ -581,25 +582,16 @@ func registerLayer1Expanded(d *ui.Dispatcher) {
 // registerLayer1StepInspector — viewStepInspector keys are entirely handled by
 // inspectorKey (cmd/rnix/dashboard_inspector.go). We register a single
 // catch-all that delegates so the chain is uniform.
+//
+// Story 38-5 PR10 Step 2: 注册体（Name + 11 Docs + ActiveModesFn）迁出至
+// internal/dashboard/inspector.KeyLayer 以解耦 cmd/rnix 与 inspector 元数据；
+// 本函数仅做 dispatcher 注册（行为零变化 · 与 PR2-PR9 同模式）。
+//
+// 包边界约束：dashboardModel 必须实现 inspector.StateProvider interface（已在
+// dashboard.go 通过 InspectorState() 方法满足），ActiveModesFn 通过该接口读取
+// 最新 InspectorState（DiffMode / FollowLive 子模式）。
 func registerLayer1StepInspector(d *ui.Dispatcher) {
-	l := &ui.KeyLayer{
-		Name:     "Step Inspector",
-		Bindings: map[string]ui.KeyHandler{},
-		Docs:     map[string]ui.KeyDoc{},
-	}
-	// Document the inspector key set for help overlay (handler logic stays in inspectorKey).
-	l.Docs["1-5"] = ui.KeyDoc{Key: "1-5", Description: "Switch lens"}
-	l.Docs["h/l"] = ui.KeyDoc{Key: "h/l", Description: "Prev / next step"}
-	l.Docs["H/L"] = ui.KeyDoc{Key: "H/L", Description: "First / last step"}
-	l.Docs["j/k"] = ui.KeyDoc{Key: "j/k", Description: "Scroll lens content"}
-	l.Docs["/"] = ui.KeyDoc{Key: "/", Description: "Search"}
-	l.Docs["n/N"] = ui.KeyDoc{Key: "n/N", Description: "Next / previous match"}
-	l.Docs["d"] = ui.KeyDoc{Key: "d", Description: "Diff mode (dd to pick base)"}
-	l.Docs["F"] = ui.KeyDoc{Key: "F", Description: "Follow live"}
-	l.Docs["y"] = ui.KeyDoc{Key: "y", Description: "Copy to clipboard"}
-	l.Docs["o"] = ui.KeyDoc{Key: "o", Description: "Open in pager"}
-	l.Docs["esc"] = ui.KeyDoc{Key: "esc", Description: "Close inspector"}
-	d.Layer1[ui.ViewID(viewStepInspector)] = l
+	d.Layer1[ui.ViewID(viewStepInspector)] = inspector.KeyLayer(nil)
 }
 
 // registerLayer1Debug — viewDebug keys mostly handled by handleDebugKey.
