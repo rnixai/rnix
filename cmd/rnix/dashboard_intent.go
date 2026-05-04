@@ -1,13 +1,27 @@
+// Package main — dashboard_intent.go
+//
+// Story 38-5 PR11 Step 4(c) (2026-05-04): renderIntentPane main body migrated
+// to internal/dashboard/intent/render.go (Render(state, ctx, innerH) string ·
+// 与 alertstrip / detail / security Step 4(c) 同模式)。本文件保留：
+//   - fetchIntentTreesCmd: IPC 调用（依赖 ipc.Dial · 属 cmd/rnix 端职责）；
+//   - renderIntentPane wrapper: 注入 RenderContext + renderFixedPanel border 包裹；
+//   - intentStateColor / intentStateIcon / isIntentTreeTerminal / flattenIntentTrees /
+//     flattenIntentTreesWithCollapse / pruneIntentCollapse / intentAdjustScroll
+//     全部改为 thin wrapper 委托 internal/dashboard/intent 公开 API（保留旧名让
+//     ATDD 27-7 / 36-5 / 29-1 / dashboard_cross_pane_test.go / dashboard.go /
+//     dashboard_pane_dispatcher.go callsite 零行为变化）。
+//
+// 行为契约保留（与 PR2-PR12 同模式 · 零行为变更）：
+//   - Story 27-7 IntentTree pane (AC1-AC6)
+//   - Story 38-4 P1 stable RootIntent collapse (TreeCollapsed map)
+//   - Story 38-4 P4 stale entry pruning (pruneIntentCollapse)
+//   - Story 36-5 universal list navigation (intentAdjustScroll)
 package main
 
 import (
-	"fmt"
-	"os"
-	"sort"
-	"strings"
-
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 
@@ -16,246 +30,48 @@ import (
 
 // --- Intent Tree Pane (Story 27-7) ---
 
+// intentStateColor is a thin wrapper around intent.StateColor (Story 38-5 PR11
+// Step 4(c)). Preserved for ATDD 27-7 AC-3.3 callsite + atdd_29_1 file
+// splitting grep contract.
 func intentStateColor(state string) lipgloss.Color {
-	switch state {
-	case "pending":
-		return lipgloss.Color("240")
-	case "decomposing":
-		return lipgloss.Color("220")
-	case "await_confirm":
-		return lipgloss.Color("220")
-	case "executing":
-		return lipgloss.Color("39")
-	case "completed":
-		return lipgloss.Color("42")
-	case "failed":
-		return lipgloss.Color("196")
-	case "retrying":
-		return lipgloss.Color("208")
-	default:
-		return lipgloss.Color("240")
-	}
+	return intent.StateColor(state)
 }
 
+// intentStateIcon is a thin wrapper around intent.StateIcon (Story 38-5 PR11
+// Step 4(c)). Preserved for atdd_29_1 file splitting grep contract.
+//
+//nolint:unused // 保留供 ATDD grep 契约 / 潜在外部 caller
 func intentStateIcon(state string) string {
-	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
-	switch state {
-	case "completed":
-		if ascii {
-			return "+"
-		}
-		return "✓"
-	case "executing":
-		if ascii {
-			return ">"
-		}
-		return "⟳"
-	case "pending":
-		if ascii {
-			return "o"
-		}
-		return "○"
-	case "failed":
-		if ascii {
-			return "x"
-		}
-		return "✗"
-	case "retrying":
-		if ascii {
-			return "r"
-		}
-		return "↻"
-	case "await_confirm":
-		return "?"
-	case "decomposing":
-		if ascii {
-			return "."
-		}
-		return "…"
-	default:
-		if ascii {
-			return "o"
-		}
-		return "○"
-	}
+	return intent.StateIcon(state)
 }
 
+// isIntentTreeTerminal is a thin wrapper around intent.IsTreeTerminal (Story
+// 38-5 PR11 Step 4(c)). Preserved for dashboard_pane_dispatcher.go callsite
+// (line 289 · header collapse toggle guard).
 func isIntentTreeTerminal(state string) bool {
-	return state == "completed" || state == "failed"
+	return intent.IsTreeTerminal(state)
 }
 
-// flattenIntentTrees flattens the IntentTreeWire list into a single visible
-// node sequence, applying the legacy "terminal trees collapsed" rule.
-//
-// Story 38-4 AC#3 / code-review patch P1 introduces a per-tree user-toggled
-// collapse state via flattenIntentTreesWithCollapse(trees, userCollapsed)
-// keyed by tree.RootIntent (stable across reordering). This thin wrapper
-// preserves the original signature so existing tests continue to compile.
+// flattenIntentTrees is a thin wrapper around intent.FlattenTrees (Story 38-5
+// PR11 Step 4(c)). Preserved for ATDD 27-7 AC-3.1/3.2/3.5/6.3 callsites +
+// atdd_29_1 file splitting grep contract.
 func flattenIntentTrees(trees []*ipc.IntentTreeWire) []intentFlatNode {
-	return flattenIntentTreesWithCollapse(trees, nil)
+	return intent.FlattenTrees(trees)
 }
 
-// flattenIntentTreesWithCollapse flattens trees, additionally letting the
-// caller force-collapse non-terminal trees through a stable RootIntent →
-// bool map. userCollapsed may be nil — in which case behaviour is identical
-// to the legacy single-arg flattenIntentTrees.
-//
-// Code-review patch P1 (2026-05-03): the collapse map is keyed by
-// tree.RootIntent (a stable IPC field) rather than the post-sort positional
-// treeIndex. Trees changing state (active→completed) reorder via the sort
-// below; a positional key would silently re-apply an old toggle to a
-// different tree.
-//
-// Code-review patch P4 (2026-05-03): callers may safely retain the same
-// map across many ticks — stale entries pointing at trees no longer in the
-// list are simply ignored at lookup time. (Set-difference pruning is left
-// to the caller; for the dashboard the toggle handler in
-// dashboard_pane_dispatcher.go re-runs flatten after every mutation, and
-// the map is bounded by user-toggle frequency.)
-//
-// Terminal trees (completed / failed) remain collapsed by default
-// regardless of userCollapsed (Dev Notes 5: don't let a stale toggle
-// re-expand a finished tree on next tick).
+// flattenIntentTreesWithCollapse is a thin wrapper around
+// intent.FlattenTreesWithCollapse (Story 38-5 PR11 Step 4(c)). Preserved for
+// dashboard.go (line 352) + dashboard_pane_dispatcher.go (line 298) +
+// dashboard_cross_pane_test.go (Story 38-4 P1/P4 testing) callsites.
 func flattenIntentTreesWithCollapse(trees []*ipc.IntentTreeWire, userCollapsed map[string]bool) []intentFlatNode {
-	var result []intentFlatNode
-
-	// AC-2: Sort trees — active first, completed/failed at bottom
-	sorted := make([]*ipc.IntentTreeWire, len(trees))
-	copy(sorted, trees)
-	sort.SliceStable(sorted, func(i, j int) bool {
-		ti := isIntentTreeTerminal(sorted[i].State)
-		tj := isIntentTreeTerminal(sorted[j].State)
-		if ti != tj {
-			return !ti // active before terminal
-		}
-		return false
-	})
-
-	for treeIdx, tree := range sorted {
-		// Terminal trees collapse unconditionally; non-terminal trees honour
-		// the user's per-tree toggle keyed by stable RootIntent (Story
-		// 38-4 AC#3 / patch P1).
-		collapsed := isIntentTreeTerminal(tree.State)
-		if !collapsed && userCollapsed != nil && userCollapsed[tree.RootIntent] {
-			collapsed = true
-		}
-		result = append(result, intentFlatNode{
-			TreeIndex:    treeIdx,
-			IsTreeHeader: true,
-			IsCollapsed:  collapsed,
-			TreeWire:     tree,
-		})
-
-		// AC-2: Terminal trees shown collapsed (header only)
-		if collapsed || len(tree.Nodes) == 0 {
-			continue
-		}
-
-		// Compute indent levels via longest path from roots
-		indent := make(map[string]int)
-
-		// Identify root nodes (no valid dependencies)
-		for _, node := range tree.Nodes {
-			validDeps := 0
-			for _, dep := range node.DependsOn {
-				if _, exists := tree.Nodes[dep]; exists {
-					validDeps++
-				}
-			}
-			if validDeps == 0 {
-				indent[node.ID] = 0
-			}
-		}
-
-		// Iteratively resolve indent levels
-		changed := true
-		for changed {
-			changed = false
-			for _, node := range tree.Nodes {
-				if _, done := indent[node.ID]; done {
-					continue
-				}
-				maxDepIndent := -1
-				allResolved := true
-				for _, dep := range node.DependsOn {
-					if _, exists := tree.Nodes[dep]; !exists {
-						continue
-					}
-					depIndent, resolved := indent[dep]
-					if !resolved {
-						allResolved = false
-						break
-					}
-					if depIndent > maxDepIndent {
-						maxDepIndent = depIndent
-					}
-				}
-				if allResolved && maxDepIndent >= 0 {
-					indent[node.ID] = maxDepIndent + 1
-					changed = true
-				} else if allResolved {
-					indent[node.ID] = 0
-					changed = true
-				}
-			}
-		}
-
-		// Handle any unresolved nodes (cycles)
-		for _, node := range tree.Nodes {
-			if _, ok := indent[node.ID]; !ok {
-				indent[node.ID] = 0
-			}
-		}
-
-		// Collect and sort by (indent, nodeID)
-		type nodeEntry struct {
-			id     string
-			indent int
-			node   *ipc.IntentNodeWire
-		}
-		var nodes []nodeEntry
-		for id, node := range tree.Nodes {
-			nodes = append(nodes, nodeEntry{id: id, indent: indent[id], node: node})
-		}
-		sort.Slice(nodes, func(i, j int) bool {
-			if nodes[i].indent != nodes[j].indent {
-				return nodes[i].indent < nodes[j].indent
-			}
-			return nodes[i].id < nodes[j].id
-		})
-
-		for _, n := range nodes {
-			result = append(result, intentFlatNode{
-				TreeIndex: treeIdx,
-				NodeID:    n.id,
-				Indent:    n.indent,
-				Node:      n.node,
-				TreeWire:  tree,
-			})
-		}
-	}
-
-	return result
+	return intent.FlattenTreesWithCollapse(trees, userCollapsed)
 }
 
-// pruneIntentCollapse drops collapse-map entries pointing at trees that
-// are no longer in the IPC list (Story 38-4 patch P4). Called from the
-// dispatcher after each toggle so the map cannot grow unbounded across
-// long sessions where intents come and go.
+// pruneIntentCollapse is a thin wrapper around intent.PruneCollapse (Story
+// 38-5 PR11 Step 4(c)). Preserved for dashboard_pane_dispatcher.go (line 297)
+// + dashboard_cross_pane_test.go (line 496) callsites.
 func pruneIntentCollapse(userCollapsed map[string]bool, trees []*ipc.IntentTreeWire) map[string]bool {
-	if len(userCollapsed) == 0 {
-		return userCollapsed
-	}
-	live := make(map[string]struct{}, len(trees))
-	for _, t := range trees {
-		live[t.RootIntent] = struct{}{}
-	}
-	for k := range userCollapsed {
-		if _, ok := live[k]; !ok {
-			delete(userCollapsed, k)
-		}
-	}
-	return userCollapsed
+	return intent.PruneCollapse(userCollapsed, trees)
 }
 
 func fetchIntentTreesCmd() tea.Cmd {
@@ -270,6 +86,14 @@ func fetchIntentTreesCmd() tea.Cmd {
 	}
 }
 
+// renderIntentPane is a thin wrapper around intent.Render (Story 38-5 PR11 Step 4(c)).
+//
+// cmd/rnix wrapper responsibilities:
+//  1. Compute isActive + borderColor (depends on m.activePane / paneIntent · cmd/rnix 端状态)
+//  2. Call intent.Render(state, ctx, innerH) for inner content
+//  3. Wrap with renderFixedPanel(content, width, height, borderColor) outer border
+//
+// 与 alertstrip / detail / security pattern 一致。
 func (m dashboardModel) renderIntentPane(width, height int) string {
 	isActive := m.activePane == paneIntent
 
@@ -280,90 +104,23 @@ func (m dashboardModel) renderIntentPane(width, height int) string {
 
 	innerH := max(height-2, 1)
 
-	var b strings.Builder
-	b.WriteString(" Intent Tree\n")
+	content := intent.Render(m.intent, intent.RenderContext{
+		IsActive: isActive,
+	}, innerH)
 
-	if len(m.intent.FlatNodes) == 0 {
-		b.WriteString("\n    当前无意图分解任务。使用 rnix apply 创建声明式意图。")
-		return renderFixedPanel(b.String(), width, height, borderColor)
-	}
-
-	// Determine the treeIndex of the currently selected cursor
-	cursorTreeIndex := -1
-	if m.intent.Cursor < len(m.intent.FlatNodes) {
-		cursorTreeIndex = m.intent.FlatNodes[m.intent.Cursor].TreeIndex
-	}
-
-	// Viewport: render only visible range (innerH - 1 for the header line)
-	visibleLines := max(innerH-1, 1)
-	startIdx := m.intent.ScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.intent.FlatNodes))
-
-	for i := startIdx; i < endIdx; i++ {
-		n := m.intent.FlatNodes[i]
-		cursor := "  "
-		if i == m.intent.Cursor {
-			cursor = "▸ "
-		}
-
-		if n.IsTreeHeader {
-			// AC-6: separator between trees (skip first tree)
-			if n.TreeIndex > 0 {
-				b.WriteString("  ───\n")
-			}
-			icon := intentStateIcon(n.TreeWire.State)
-			headerStyle := lipgloss.NewStyle().Foreground(intentStateColor(n.TreeWire.State))
-			// AC-6: highlight tree title if cursor is in this tree
-			if n.TreeIndex == cursorTreeIndex {
-				headerStyle = headerStyle.Bold(true)
-			}
-			// AC-2: collapsed indicator for terminal trees
-			arrow := "▶"
-			if n.IsCollapsed {
-				arrow = "▷"
-			}
-			line := fmt.Sprintf("%s%s %s [%s] %s", cursor, arrow, truncateStr(n.TreeWire.RootIntent, 40), n.TreeWire.State, icon)
-			b.WriteString(headerStyle.Render(line))
-			b.WriteString("\n")
-
-			// Fix #8: Empty Nodes map shows "(分解中...)"
-			if len(n.TreeWire.Nodes) == 0 {
-				b.WriteString("    (分解中...)\n")
-			}
-			continue
-		}
-
-		if n.Node == nil {
-			continue
-		}
-
-		indentStr := strings.Repeat("  ", n.Indent+1)
-		icon := intentStateIcon(n.Node.State)
-		intent := truncateStr(n.Node.Intent, 40)
-
-		var pidStr string
-		if n.Node.PID > 0 {
-			pidStr = fmt.Sprintf(" (PID:%d)", n.Node.PID)
-		}
-
-		stateColor := intentStateColor(n.Node.State)
-		nodeStyle := lipgloss.NewStyle().Foreground(stateColor)
-
-		line := fmt.Sprintf("%s%s%s: %s %s%s", cursor, indentStr, n.NodeID, intent, icon, pidStr)
-		b.WriteString(nodeStyle.Render(line))
-		b.WriteString("\n")
-	}
-
-	return renderFixedPanel(b.String(), width, height, borderColor)
+	return renderFixedPanel(content, width, height, borderColor)
 }
 
-// intentAdjustScroll ensures intentCursor is visible within the viewport.
+// intentAdjustScroll is a thin wrapper around intent.AdjustScroll (Story 38-5
+// PR11 Step 4(c)). Preserved for dashboard_pane_dispatcher.go (line 274) +
+// atdd_36_5 universal list nav comment grep contract.
+//
+// visibleLines computed identically to original (m.height/2-3 · approximate
+// bottom-right pane visible area · zero behavior change).
 func intentAdjustScroll(m *dashboardModel) {
-	visibleLines := max(m.height/2-3, 1) // approximate bottom-right pane visible area
-	if m.intent.Cursor < m.intent.ScrollOffset {
-		m.intent.ScrollOffset = m.intent.Cursor
+	if m == nil {
+		return
 	}
-	if m.intent.Cursor >= m.intent.ScrollOffset+visibleLines {
-		m.intent.ScrollOffset = m.intent.Cursor - visibleLines + 1
-	}
+	visibleLines := max(m.height/2-3, 1)
+	intent.AdjustScroll(&m.intent, visibleLines)
 }

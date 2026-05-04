@@ -74,8 +74,11 @@ func truncateUUID(s string) string {
 }
 
 // truncateStr is a thin wrapper around detail.TruncateStr (Story 38-5 PR11 Step 4(c))
-// kept here for caller compatibility. Existing dashboard_intent.go / dashboard_test.go
-// references continue to work unchanged.
+// kept here for caller compatibility. After intent render migration the only
+// in-package caller went away; helper preserved for ATDD grep contracts and
+// potential external callers.
+//
+//nolint:unused // 保留供潜在外部 caller / 测试 grep 使用
 func truncateStr(s string, maxLen int) string {
 	return detail.TruncateStr(s, maxLen)
 }
