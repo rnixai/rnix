@@ -352,5 +352,8 @@ var (
 	promptRoleTool      = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD93D"))
 )
 
-// Inspector truncation threshold: show first 10k chars, then truncation notice
-const inspectorTruncateThreshold = 10000
+// Inspector truncation threshold: show first 10k chars, then truncation notice.
+//
+// Story 38-5 PR11 Step 4(a-2): 主常量迁出至 internal/dashboard/inspector.TruncateThreshold。
+// 本端保留 alias 以兼容 cmd/rnix 内部 caller（dashboard_inspector.go System/Conv lens）。
+const inspectorTruncateThreshold = inspector.TruncateThreshold

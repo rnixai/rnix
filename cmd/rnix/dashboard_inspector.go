@@ -1449,169 +1449,23 @@ func (m dashboardModel) buildToolIOLens(detail *ipc.GetStepDetailResponse) strin
 	return b.String()
 }
 
-// inspectorBoxWidth returns the effective box width for Tool I/O sections,
-// shrinking automatically on narrow terminals. Story 38-3 AC#2 / AC#9: cap at
-// 70 cols; `mWidth - 4` accounts for left/right padding (2 cols each).
-//
-// Story 38-3 review P12: when `mWidth` is very small (≤24) the lower bound
-// caps at the actual terminal width rather than the previous fixed 20-col
-// floor — a 20-col box still overflows a 10-col TTY.
+// inspectorBoxWidth — thin wrapper · 见 internal/dashboard/inspector.BoxWidth
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。
 func inspectorBoxWidth(mWidth int) int {
-	if mWidth <= 0 {
-		return 70
-	}
-	if mWidth-4 < 70 {
-		w := mWidth - 4
-		if w < 20 {
-			return min(20, mWidth)
-		}
-		return w
-	}
-	return 70
+	return inspector.BoxWidth(mWidth)
 }
 
-// truncateBoxContent applies the inspector's standard rune-count truncation
-// with the Story 27-4 truncation notice. Used by `renderBoxedSection` callers
-// so the truncation marker lands inside the framed area.
+// truncateBoxContent — thin wrapper · 见 internal/dashboard/inspector.TruncateBoxContent
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。
 func truncateBoxContent(content string) string {
-	totalLen := utf8.RuneCountInString(content)
-	if totalLen <= inspectorTruncateThreshold {
-		return content
-	}
-	runes := []rune(content)
-	return string(runes[:inspectorTruncateThreshold]) + renderTruncationNotice(inspectorTruncateThreshold, totalLen)
+	return inspector.TruncateBoxContent(content)
 }
 
-// boxChar maps a logical box-drawing component name to its rune (or ASCII
-// fallback when `RNIX_ASCII=1`). Story 38-3 Dev Notes 4: this helper is kept
-// local to the inspector and intentionally does NOT reuse
-// `ui.AlertSeverityIcon` (which returns severity glyphs, not box runes).
-//
-// Names: tl/tr/bl/br = corners; h/v = horizontal/vertical edge.
-func boxChar(name string) string {
-	if ui.IsASCIIMode() {
-		switch name {
-		case "tl", "tr", "bl", "br":
-			return "+"
-		case "h":
-			return "-"
-		case "v":
-			return "|"
-		}
-		return "?"
-	}
-	switch name {
-	case "tl":
-		return "┌"
-	case "tr":
-		return "┐"
-	case "bl":
-		return "└"
-	case "br":
-		return "┘"
-	case "h":
-		return "─"
-	case "v":
-		return "│"
-	}
-	return "?"
-}
-
-// renderBoxedSection draws a titled box around `content`. Story 38-3 AC#2.
-//
-// Layout (Unicode mode):
-//
-//	┌─ <title> ──...──┐
-//	│ <content line>  │
-//	│ <content line>  │
-//	└─────────────────┘
-//
-// Parameters:
-//   - title:       short header rendered into the top edge
-//   - content:     pre-truncated multiline body (caller handles truncation)
-//   - color:       hex color for the border; when colorBody is true, body
-//     lines also adopt this color (used by the Error box)
-//   - colorBody:   whether to apply `color` to body content
-//   - width:       total box width (outer); inner usable width is width-4
-//
-// ASCII mode: borders degrade to `+ - |`.
+// renderBoxedSection — thin wrapper · 见 internal/dashboard/inspector.RenderBoxedSection
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包（含 BoxChar / ChunkRunes / StripANSIApprox
+// 内部使用）。boxChar 与 chunkRunes 在 cmd/rnix 端无外部 caller，已随主体迁移一并删除。
 func renderBoxedSection(title, content, color string, colorBody bool, width int) string {
-	if width < 8 {
-		width = 8
-	}
-	innerWidth := width - 4 // 1 left edge + 1 space + content + 1 space + 1 right edge
-
-	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-	bodyStyle := lipgloss.NewStyle()
-	if colorBody {
-		bodyStyle = bodyStyle.Foreground(lipgloss.Color(color))
-	}
-
-	tl := boxChar("tl")
-	tr := boxChar("tr")
-	bl := boxChar("bl")
-	br := boxChar("br")
-	h := boxChar("h")
-	v := boxChar("v")
-
-	// Top edge: `┌─ <title> ──...─┐`. Story 38-3 review P15: when the title
-	// itself is wider than the inner area, truncate it so the top edge stays
-	// within `innerWidth+2` columns (matching the body line width). Without
-	// this, the top edge would push past the right border, producing a
-	// non-rectangular box.
-	maxTitleRunes := max(innerWidth-2, 1) // reserve 2 cols for "h + space" prefix and trailing space
-	titleRunes := []rune(title)
-	if len(titleRunes) > maxTitleRunes {
-		title = string(titleRunes[:maxTitleRunes])
-	}
-	titleSegment := h + " " + title + " "
-	titleSegRunes := utf8.RuneCountInString(titleSegment)
-	fillCount := max(innerWidth+2-titleSegRunes, 1)
-	top := tl + titleSegment + strings.Repeat(h, fillCount) + tr
-
-	var out strings.Builder
-	out.WriteString(borderStyle.Render(top))
-	out.WriteString("\n")
-
-	// Body lines (each split / wrapped to innerWidth as best-effort)
-	for line := range strings.SplitSeq(content, "\n") {
-		// Word-agnostic truncation: split overlong lines into chunks of innerWidth runes.
-		if utf8.RuneCountInString(line) == 0 {
-			out.WriteString(borderStyle.Render(v))
-			out.WriteString(strings.Repeat(" ", innerWidth+2))
-			out.WriteString(borderStyle.Render(v))
-			out.WriteString("\n")
-			continue
-		}
-		chunks := chunkRunes(line, innerWidth)
-		for _, chunk := range chunks {
-			padCount := max(innerWidth-utf8.RuneCountInString(stripANSIApprox(chunk)), 0)
-			out.WriteString(borderStyle.Render(v))
-			out.WriteString(" ")
-			if colorBody {
-				out.WriteString(bodyStyle.Render(chunk))
-			} else {
-				out.WriteString(chunk)
-			}
-			out.WriteString(strings.Repeat(" ", padCount))
-			out.WriteString(" ")
-			out.WriteString(borderStyle.Render(v))
-			out.WriteString("\n")
-		}
-	}
-
-	// Bottom edge
-	bottom := bl + strings.Repeat(h, innerWidth+2) + br
-	out.WriteString(borderStyle.Render(bottom))
-	return out.String()
-}
-
-// chunkRunes — thin wrapper · 见 internal/dashboard/inspector.ChunkRunes
-//
-// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。本端保留同名 wrapper
-// 让 cmd/rnix 内部 caller（renderBoxedSection line 1586）调用契约不变。
-func chunkRunes(s string, maxCols int) []string {
-	return inspector.ChunkRunes(s, maxCols)
+	return inspector.RenderBoxedSection(title, content, color, colorBody, width)
 }
 
 // buildToolIOLensFull builds full (non-truncated) tool I/O for pager.
@@ -1997,14 +1851,12 @@ func highlightJSON(raw string) string {
 	return b.String()
 }
 
-// renderTruncationNotice renders an explicit truncation notice.
+// renderTruncationNotice — thin wrapper · 见 internal/dashboard/inspector.RenderTruncationNotice
+//
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。本端保留 wrapper 让
+// cmd/rnix 内部 caller（System/Conv lens 截断 notice）调用契约不变。
 func renderTruncationNotice(shown, total int) string {
-	sep := " · "
-	if ui.IsASCIIMode() {
-		sep = " - "
-	}
-	return fmt.Sprintf("\n(truncated %s / total %s%so open full)",
-		formatCharCount(shown), formatCharCount(total), sep)
+	return inspector.RenderTruncationNotice(shown, total)
 }
 
 // findStepIndex finds the index of a step number in inspectorSteps, or -1 if not found.
