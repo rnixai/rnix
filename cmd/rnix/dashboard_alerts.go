@@ -205,7 +205,7 @@ func alertCountBadge(alerts []UnifiedEvent, ascii bool) string {
 // renderAlertStrip renders the bottom alert strip.
 // Returns empty string when there are no alerts (0 height).
 func renderAlertStrip(m *dashboardModel, width, maxLines int) string {
-	alerts := m.alertEvents
+	alerts := m.alertStrip.Events
 	if len(alerts) == 0 {
 		return ""
 	}

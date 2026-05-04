@@ -154,7 +154,7 @@ func (m dashboardModel) paneHints() (core []string, exit string) {
 				hint("f/Esc", "done")
 		}
 		hints := []string{hint("j/k", "nav"), hint("v", "detail"), hint("e/E", "expand"), hint("n/N", "err"), hint("f", "filter")}
-		if len(m.alertEvents) > 0 {
+		if len(m.alertStrip.Events) > 0 {
 			hints = append(hints, hint("a", "alerts"))
 		}
 		hints = append(hints, hint("?", "help"))

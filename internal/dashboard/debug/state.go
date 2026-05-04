@@ -1,17 +1,17 @@
-// Package debug — state.go (Story 38-5 PR11 Step 1)
+// Package debug — state.go (Story 38-5 PR11 Step 1 + Step 4(a) cascade fix)
 //
 // DebugState 字段抽离自 cmd/rnix/dashboard.go::dashboardModel 的 debug 字段
 // （Story 34.6 落地的 strace fusion debug 模式）。
 //
-// **设计决策**：本 PR Step 1 抽出 12 个标量字段，**不**抽 Events / StraceEvents 两个
-// `[]UnifiedEvent` slice 字段。原因：
-//   - UnifiedEvent 类型定义在 cmd/rnix.dashboard_types.go（cmd/rnix 私有）；
-//   - 若把 Events 迁入 DebugState，需要先把 UnifiedEvent 类型迁到 internal/dashboard 共享
-//     位置（cascade 很大 · alerts/timeline/eventstream 都在用）；
-//   - cascade 改动超出本 PR Step 1 的合理边界。
+// **设计决策演进**:
 //
-// Events / StraceEvents 保留在 dashboardModel，PR11 后续 commits（App Model 瘦身）评估
-// 是否一并迁出 UnifiedEvent。
+//   - PR11 Step 1（2026-05-04）：仅抽出 12 个标量字段，**不**抽 Events / StraceEvents
+//     两个 `[]UnifiedEvent` slice 字段（UnifiedEvent 类型 cascade 阻塞）；
+//
+//   - **PR11 Step 4(a) cascade 解除**（2026-05-04 同会话延伸）：UnifiedEvent
+//     已迁至 internal/dashboard/event 包（commit a08ae3d）· 本包现可直接引用
+//     event.UnifiedEvent · Events / StraceEvents 完整迁出至 DebugState（与 spec
+//     § Tasks 11.3 line 187 「14 字段」最终对齐）。
 //
 // 设计原则与 PR2-PR10 同模式（值类型 · 字段公开 · nil 安全）。
 //
@@ -19,7 +19,8 @@
 //   - DebugState 持有独立 IPC 连接（Client）+ strace channel（StraceCh）；
 //   - OnExit 必须关闭 Client（避免 goroutine leak · Story 34.6 落地）；
 //   - 历史 watermark + auto-reload 防止重复加载（Story 34.6 落地）；
-//   - 设备延迟统计映射（DeviceLatency）配合 strace events 实时计算。
+//   - 设备延迟统计映射（DeviceLatency）配合 strace events 实时计算；
+//   - debugEvents (merged step + strace) / debugStraceEvents (strace ring) 行为不变。
 //
 // **DeviceLatency 类型决策**（与 inspector PrevMode / PR2-PR10 type alias 同模式）：
 //   - 原 cmd/rnix.deviceLatencyStats 类型迁出至 debug.DeviceLatencyStats（公开字段）；
@@ -29,6 +30,7 @@ package debug
 
 import (
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
 )
@@ -55,7 +57,7 @@ func (s DeviceLatencyStats) AvgMs() float64 {
 	return s.TotalMs / float64(s.Count)
 }
 
-// DebugState 持有 Debug 模式（Story 34.6 strace fusion）的标量字段（12 字段）。
+// DebugState 持有 Debug 模式（Story 34.6 strace fusion）的全部 14 字段。
 //
 // 字段语义（与原 dashboardModel 的 debug* 字段完全等价）：
 //
@@ -68,6 +70,8 @@ func (s DeviceLatencyStats) AvgMs() float64 {
 // 数据 + 统计：
 //   - CtxProfile：Context Profile 数据（debug.CtxProfileResult · 进程上下文热力图）；
 //   - DeviceLatency：设备延迟统计（按设备路径分组 · 实时计算）；
+//   - Events：merged debug timeline (steps + strace) · debug 模式下渲染数据源；
+//   - StraceEvents：strace event ring buffer · ShowStrace=true 时与 Events 合并。
 //
 // 进程跟踪：
 //   - AttachedPID：当前 attached 用于 strace 的 PID（与 selectedPID 解耦 · 防止 PID 切换中断）；
@@ -79,12 +83,9 @@ func (s DeviceLatencyStats) AvgMs() float64 {
 //   - Cursor：debug timeline cursor 位置；
 //   - AutoScroll：是否自动滚动到最新事件（默认 true）。
 //
-// **未抽出**字段（仍在 dashboardModel · 见包级注释）：
-//   - debugEvents []UnifiedEvent（cmd/rnix 私有类型 cascade）；
-//   - debugStraceEvents []UnifiedEvent（同上）。
-//
-// Nil 安全：所有指针 / channel / map 字段允许 nil；DeviceLatency 推荐用
-// make(map[string]*DeviceLatencyStats) 初始化（cmd/rnix 端 newDashboardModel 已正确初始化）。
+// Nil 安全：所有指针 / channel / map / slice 字段允许 nil；DeviceLatency 推荐用
+// make(map[string]*DeviceLatencyStats) 初始化（cmd/rnix 端 newDashboardModel 已正确初始化）；
+// Events / StraceEvents nil slice 安全（len(nil) == 0 / range 安全）。
 type DebugState struct {
 	Mode          bool
 	Client        *ipc.Client
@@ -92,6 +93,8 @@ type DebugState struct {
 	ShowStrace    bool
 	CtxProfile    *debug.CtxProfileResult
 	DeviceLatency map[string]*DeviceLatencyStats
+	Events        []event.UnifiedEvent // merged debug timeline (steps + strace) · PR11 Step 4(a) cascade fix
+	StraceEvents  []event.UnifiedEvent // strace event ring buffer · PR11 Step 4(a) cascade fix
 	AttachedPID   types.PID
 	AutoReloaded  bool
 	HistWatermark int64

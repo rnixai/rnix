@@ -140,7 +140,7 @@ func TestFilteredDebugEvents_StraceToggle(t *testing.T) {
 	m.debugState.Mode = true
 
 	now := time.Now()
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, Timestamp: now, PID: 1, Summary: "syscall"},
 		{Type: EventStep, Timestamp: now.Add(-time.Second), PID: 1, Summary: "step",
 			StepEntry: &stepEntry{Summary: ipc.StepSummaryWire{Action: "tool_call"}}},
@@ -272,11 +272,11 @@ func TestAppendStraceEvent_RingBuffer(t *testing.T) {
 		})
 	}
 
-	if len(m.debugStraceEvents) != maxDebugStraceEvents {
-		t.Errorf("expected %d events, got %d", maxDebugStraceEvents, len(m.debugStraceEvents))
+	if len(m.debugState.StraceEvents) != maxDebugStraceEvents {
+		t.Errorf("expected %d events, got %d", maxDebugStraceEvents, len(m.debugState.StraceEvents))
 	}
 	// Oldest should have been evicted
-	earliest := m.debugStraceEvents[0].Timestamp
+	earliest := m.debugState.StraceEvents[0].Timestamp
 	expected := now.Add(50 * time.Millisecond)
 	if earliest.Before(expected) {
 		t.Errorf("expected oldest event at ~+50ms, got %v", earliest.Sub(now))
@@ -370,10 +370,10 @@ func TestDebugTickProcess_ChannelCloseMerges(t *testing.T) {
 		t.Error("expected streamClosed=true when channel is closed")
 	}
 	// Events should be merged despite channel close
-	if len(m.debugStraceEvents) != 1 {
-		t.Errorf("expected 1 strace event, got %d", len(m.debugStraceEvents))
+	if len(m.debugState.StraceEvents) != 1 {
+		t.Errorf("expected 1 strace event, got %d", len(m.debugState.StraceEvents))
 	}
-	if len(m.debugEvents) == 0 {
+	if len(m.debugState.Events) == 0 {
 		t.Error("expected merged events to be non-empty after channel close")
 	}
 }
@@ -389,7 +389,7 @@ func TestUUIDValidation_DebugMode_PreservesSelectionForDeadProcess(t *testing.T)
 	m.selectedPID = 2
 	m.selectedUUID = "dead-uuid"
 	m.debugState.AttachedPID = 2
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, PID: 2, Summary: "loaded-event"},
 	}
 
@@ -412,7 +412,7 @@ func TestUUIDValidation_DebugMode_PreservesSelectionForDeadProcess(t *testing.T)
 		}
 	}
 	if !found {
-		if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+		if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugState.Events) > 0 {
 			found = true
 		}
 	}
@@ -437,7 +437,7 @@ func TestUUIDValidation_NoDebugMode_ResetsNormally(t *testing.T) {
 	m.selectedPID = 2
 	m.selectedUUID = "dead-uuid"
 	m.debugState.AttachedPID = 2
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, PID: 2, Summary: "loaded-event"},
 	}
 
@@ -456,7 +456,7 @@ func TestUUIDValidation_NoDebugMode_ResetsNormally(t *testing.T) {
 		}
 	}
 	if !found {
-		if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+		if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugState.Events) > 0 {
 			found = true
 		}
 	}
@@ -479,7 +479,7 @@ func TestHistoricalStraceMsg_DiscardsStalePID(t *testing.T) {
 	m.selectedPID = 3
 	m.selectedUUID = "uuid-3"
 	m.debugState.AttachedPID = 3
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, PID: 3, Summary: "current-event"},
 	}
 
@@ -497,8 +497,8 @@ func TestHistoricalStraceMsg_DiscardsStalePID(t *testing.T) {
 		t.Fatal("expected msg to be handled")
 	}
 	// Events should NOT be overwritten by stale response
-	if len(m2.debugEvents) != 1 || m2.debugEvents[0].Summary != "current-event" {
-		t.Errorf("expected current events preserved, got %d events", len(m2.debugEvents))
+	if len(m2.debugState.Events) != 1 || m2.debugState.Events[0].Summary != "current-event" {
+		t.Errorf("expected current events preserved, got %d events", len(m2.debugState.Events))
 	}
 }
 
@@ -523,7 +523,7 @@ func TestHistoricalStraceMsg_AcceptsMatchingPID(t *testing.T) {
 		t.Fatal("expected msg to be handled")
 	}
 	// Events should be processed (debugStraceEvents updated)
-	if len(m2.debugStraceEvents) == 0 {
+	if len(m2.debugState.StraceEvents) == 0 {
 		t.Error("expected strace events to be populated from matching response")
 	}
 }
@@ -536,7 +536,7 @@ func TestIsSelectedProcessDead_DebugFallback(t *testing.T) {
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-2"
 	m.debugState.AttachedPID = 2
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, PID: 2, Summary: "event"},
 	}
 	// Process list does NOT contain PID 2
@@ -556,7 +556,7 @@ func TestIsSelectedProcessDead_NoDebugEvents_ReturnsFalse(t *testing.T) {
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-2"
 	m.debugState.AttachedPID = 2
-	m.debugEvents = nil // No events loaded
+	m.debugState.Events = nil // No events loaded
 	m.processes = []vfs.ProcInfo{
 		{PID: 1, UUID: "uuid-1", State: types.StateRunning},
 	}

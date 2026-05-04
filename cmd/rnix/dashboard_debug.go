@@ -126,12 +126,12 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 		}
 		// Preserve live stream events newer than what's on disk.
 		var preserved []UnifiedEvent
-		for _, ev := range m.debugStraceEvents {
+		for _, ev := range m.debugState.StraceEvents {
 			if ev.RawEvent != nil && ev.RawEvent.TimestampMs > newWatermark {
 				preserved = append(preserved, ev)
 			}
 		}
-		m.debugStraceEvents = nil
+		m.debugState.StraceEvents = nil
 		m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
 		for _, sew := range msg.events {
 			ev := straceToUnifiedEvent(sew)
@@ -139,11 +139,11 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 			m.updateDeviceLatency(sew)
 		}
 		// Re-add preserved live stream events.
-		m.debugStraceEvents = append(m.debugStraceEvents, preserved...)
+		m.debugState.StraceEvents = append(m.debugState.StraceEvents, preserved...)
 		m.debugState.HistWatermark = newWatermark
 		// Events panel shows only syscall events (steps are in the Steps panel).
-		if len(m.debugStraceEvents) > 0 || len(m.debugEvents) == 0 {
-			m.debugEvents = m.debugStraceEvents
+		if len(m.debugState.StraceEvents) > 0 || len(m.debugState.Events) == 0 {
+			m.debugState.Events = m.debugState.StraceEvents
 		}
 		return m, nil, true
 	}
@@ -179,8 +179,8 @@ func (m dashboardModel) enterDebugMode() (dashboardModel, tea.Cmd) {
 	m.viewMode = viewDebug
 	m.debugState.Mode = true
 	m.debugState.ShowStrace = true
-	m.debugStraceEvents = nil
-	m.debugEvents = nil
+	m.debugState.StraceEvents = nil
+	m.debugState.Events = nil
 	m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
 	m.debugState.ScrollTop = 0
 	m.debugState.Cursor = 0
@@ -205,8 +205,8 @@ func (m dashboardModel) exitDebugMode() dashboardModel {
 	m.viewMode = viewDefault
 	m.debugState.Mode = false
 	m.stopStraceStream()
-	m.debugEvents = nil
-	m.debugStraceEvents = nil
+	m.debugState.Events = nil
+	m.debugState.StraceEvents = nil
 	m.debugState.CtxProfile = nil
 	m.debugState.DeviceLatency = nil
 	m.debugState.AttachedPID = 0
@@ -305,9 +305,9 @@ func straceToUnifiedEvent(sew ipc.SyscallEventWire) UnifiedEvent {
 // --- Ring buffer ---
 
 func (m *dashboardModel) appendStraceEvent(ev UnifiedEvent) {
-	m.debugStraceEvents = append(m.debugStraceEvents, ev)
-	if len(m.debugStraceEvents) > maxDebugStraceEvents {
-		m.debugStraceEvents = m.debugStraceEvents[len(m.debugStraceEvents)-maxDebugStraceEvents:]
+	m.debugState.StraceEvents = append(m.debugState.StraceEvents, ev)
+	if len(m.debugState.StraceEvents) > maxDebugStraceEvents {
+		m.debugState.StraceEvents = m.debugState.StraceEvents[len(m.debugState.StraceEvents)-maxDebugStraceEvents:]
 	}
 }
 
@@ -352,11 +352,11 @@ func extractDeviceName(sew ipc.SyscallEventWire) string {
 // F9: Reuse isEventVisible() for filter logic, adding debugShowStrace as the only extra check.
 // Returns consolidated events for user-friendly display (driver stream deltas merged into logical entries).
 func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
-	if len(m.debugEvents) == 0 {
+	if len(m.debugState.Events) == 0 {
 		return nil
 	}
 	var result []UnifiedEvent
-	for _, ev := range m.debugEvents {
+	for _, ev := range m.debugState.Events {
 		if ev.Type == EventSyscall && !m.debugState.ShowStrace {
 			continue
 		}
@@ -416,7 +416,7 @@ func (m *dashboardModel) debugTickProcess() bool {
 	// Re-assign only when new strace data arrived or stream closed;
 	// avoid overwriting debugEvents during PID transitions.
 	if streamClosed || drainedAny {
-		m.debugEvents = m.debugStraceEvents
+		m.debugState.Events = m.debugState.StraceEvents
 	}
 	return streamClosed
 }
@@ -428,8 +428,8 @@ func (m dashboardModel) handleDebugPIDChange() (dashboardModel, tea.Cmd) {
 		return m, nil
 	}
 	m.stopStraceStream()
-	m.debugStraceEvents = nil
-	m.debugEvents = nil
+	m.debugState.StraceEvents = nil
+	m.debugState.Events = nil
 	m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
 	m.debugState.CtxProfile = nil
 	m.debugState.ScrollTop = 0

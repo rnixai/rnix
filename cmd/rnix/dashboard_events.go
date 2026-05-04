@@ -562,11 +562,11 @@ func (m dashboardModel) applyUnreadMarks() dashboardModel {
 // on. When the precise pair is missing (synth row pruned between tick
 // and keypress) we leave the cursor untouched rather than guessing.
 func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
-	if m.alertJumpTarget == nil {
+	if m.alertStrip.JumpTarget == nil {
 		return m
 	}
-	target := m.alertJumpTarget
-	m.alertJumpTarget = nil
+	target := m.alertStrip.JumpTarget
+	m.alertStrip.JumpTarget = nil
 	if target.Type == EventImmune {
 		targetMs := target.Timestamp.UnixMilli()
 		for i, sa := range m.security.Alerts {

@@ -1272,7 +1272,7 @@ func TestRecordToggleMsg_Error(t *testing.T) {
 
 func TestDashboardModel_GlobalAlertToggleKey(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventStall, Severity: SevWarn, Summary: "stall"},
 	}
 
@@ -2834,7 +2834,7 @@ func makeTestUnifiedEvents() []UnifiedEvent {
 
 func TestRenderAlertStrip_NoAlerts(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = nil
+	m.alertStrip.Events = nil
 	result := renderAlertStrip(&m, 80, 2)
 	if result != "" {
 		t.Errorf("expected empty string for no alerts, got %q", result)
@@ -2845,7 +2845,7 @@ func TestRenderAlertStrip_NoAlerts(t *testing.T) {
 
 func TestRenderAlertStrip_SingleAlert(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventBudget, Summary: "PID 2 budget 80%", Severity: SevWarn, Timestamp: time.Now()},
 	}
 	result := renderAlertStrip(&m, 80, 2)
@@ -2861,7 +2861,7 @@ func TestRenderAlertStrip_SingleAlert(t *testing.T) {
 
 func TestRenderAlertStrip_Overflow(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventExit, Summary: "error 1", Severity: SevError, Timestamp: time.Now()},
 		{Type: EventExit, Summary: "error 2", Severity: SevError, Timestamp: time.Now()},
 		{Type: EventBudget, Summary: "warn 1", Severity: SevWarn, Timestamp: time.Now()},
@@ -2903,7 +2903,7 @@ func TestRenderAlertStrip_SeverityOrder(t *testing.T) {
 func TestRenderAlertStrip_ASCII(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "1")
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: time.Now()},
 	}
 	result := renderAlertStrip(&m, 80, 2)
@@ -3096,18 +3096,18 @@ func TestEventFilter_MixedFilter(t *testing.T) {
 
 func TestAlertJump_ToProcess(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: time.Now(), PID: 3},
 		{Type: EventBudget, Summary: "PID 2 budget", Severity: SevWarn, Timestamp: time.Now(), PID: 2},
 	}
 	m.alertStrip.Expanded = true
 	m.alertStrip.Cursor = 0
-	alert := m.alertEvents[m.alertStrip.Cursor]
+	alert := m.alertStrip.Events[m.alertStrip.Cursor]
 	if alert.PID != 3 {
 		t.Errorf("expected alert PID 3, got %d", alert.PID)
 	}
 	m.alertStrip.Cursor = 1
-	alert = m.alertEvents[m.alertStrip.Cursor]
+	alert = m.alertStrip.Events[m.alertStrip.Cursor]
 	if alert.PID != 2 {
 		t.Errorf("expected alert PID 2, got %d", alert.PID)
 	}
@@ -3117,7 +3117,7 @@ func TestAlertJump_ToProcess(t *testing.T) {
 
 func TestAlertStrip_ExpandCollapse(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventExit, Summary: "err1", Severity: SevError, Timestamp: time.Now()},
 		{Type: EventExit, Summary: "err2", Severity: SevError, Timestamp: time.Now()},
 		{Type: EventBudget, Summary: "warn1", Severity: SevWarn, Timestamp: time.Now()},
@@ -3125,12 +3125,12 @@ func TestAlertStrip_ExpandCollapse(t *testing.T) {
 		{Type: EventBudget, Summary: "warn3", Severity: SevWarn, Timestamp: time.Now()},
 	}
 
-	h := alertStripHeight(len(m.alertEvents), false)
+	h := alertStripHeight(len(m.alertStrip.Events), false)
 	if h != 2 {
 		t.Errorf("collapsed height: expected 2, got %d", h)
 	}
 
-	h = alertStripHeight(len(m.alertEvents), true)
+	h = alertStripHeight(len(m.alertStrip.Events), true)
 	if h != 5 {
 		t.Errorf("expanded height: expected 5, got %d", h)
 	}
@@ -3142,7 +3142,7 @@ func TestAlertStrip_ExpandCollapse(t *testing.T) {
 		t.Errorf("cursor should stay at 3 when expanding, got %d", m.alertStrip.Cursor)
 	}
 	m.alertStrip.Expanded = false
-	visible := alertStripHeight(len(m.alertEvents), false)
+	visible := alertStripHeight(len(m.alertStrip.Events), false)
 	if m.alertStrip.Cursor >= visible {
 		m.alertStrip.Cursor = 0
 	}
@@ -3490,7 +3490,7 @@ func TestRenderAlertStrip_CountBadge(t *testing.T) {
 
 	t.Run("0_alerts_no_badge", func(t *testing.T) {
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.alertEvents = nil
+		m.alertStrip.Events = nil
 		got := renderAlertStrip(&m, 80, 2)
 		if got != "" {
 			t.Errorf("0 alerts must yield empty strip, got: %q", got)
@@ -3499,7 +3499,7 @@ func TestRenderAlertStrip_CountBadge(t *testing.T) {
 
 	t.Run("1_error_only", func(t *testing.T) {
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.alertEvents = []UnifiedEvent{
+		m.alertStrip.Events = []UnifiedEvent{
 			{Type: EventExit, Summary: "boom", Severity: SevError, Timestamp: now},
 		}
 		got := renderAlertStrip(&m, 80, 2)
@@ -3513,7 +3513,7 @@ func TestRenderAlertStrip_CountBadge(t *testing.T) {
 
 	t.Run("5_mixed_2err_3warn", func(t *testing.T) {
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.alertEvents = []UnifiedEvent{
+		m.alertStrip.Events = []UnifiedEvent{
 			{Type: EventExit, Summary: "e1", Severity: SevError, Timestamp: now},
 			{Type: EventExit, Summary: "e2", Severity: SevError, Timestamp: now},
 			{Type: EventBudget, Summary: "w1", Severity: SevWarn, Timestamp: now},
@@ -3531,14 +3531,14 @@ func TestRenderAlertStrip_CountBadge(t *testing.T) {
 
 	t.Run("20_total_split", func(t *testing.T) {
 		m := newTestDashboardModel(mockDashboardProcs())
-		m.alertEvents = make([]UnifiedEvent, 0, 20)
+		m.alertStrip.Events = make([]UnifiedEvent, 0, 20)
 		for range 7 {
-			m.alertEvents = append(m.alertEvents, UnifiedEvent{
+			m.alertStrip.Events = append(m.alertStrip.Events, UnifiedEvent{
 				Type: EventExit, Summary: "err", Severity: SevError, Timestamp: now,
 			})
 		}
 		for range 13 {
-			m.alertEvents = append(m.alertEvents, UnifiedEvent{
+			m.alertStrip.Events = append(m.alertStrip.Events, UnifiedEvent{
 				Type: EventBudget, Summary: "warn", Severity: SevWarn, Timestamp: now,
 			})
 		}
@@ -3564,7 +3564,7 @@ func TestRenderAlertStrip_BadgeNotInExpanded(t *testing.T) {
 	now := time.Now()
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.alertStrip.Expanded = true
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventExit, Summary: "e1-summary-error", Severity: SevError, Timestamp: now},
 		{Type: EventBudget, Summary: "w1-summary-warn", Severity: SevWarn, Timestamp: now},
 	}

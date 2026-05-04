@@ -50,7 +50,9 @@ func TestSetState_RoundTrip(t *testing.T) {
 	want := AlertStripState{Expanded: true, Cursor: 5}
 	m.SetState(want)
 	got := m.State()
-	if got != want {
+	// Note: AlertStripState contains slice/pointer fields (Events/JumpTarget) so
+	// direct struct comparison is not possible. We compare scalar fields directly.
+	if got.Expanded != want.Expanded || got.Cursor != want.Cursor {
 		t.Errorf("SetState round-trip failed: got %+v, want %+v", got, want)
 	}
 }
@@ -86,7 +88,8 @@ func TestAlertStripState_StateProviderRoundTrip(t *testing.T) {
 	// AlertStripState() satisfies StateProvider interface; value should equal State().
 	via := m.AlertStripState()
 	direct := m.State()
-	if via != direct {
+	// Note: cannot use != on struct with slice fields; compare scalars.
+	if via.Expanded != direct.Expanded || via.Cursor != direct.Cursor {
 		t.Errorf("AlertStripState() != State(): %+v vs %+v", via, direct)
 	}
 }

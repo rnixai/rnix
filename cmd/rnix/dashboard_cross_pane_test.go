@@ -274,7 +274,7 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 		m := newContractModel()
 		m.selectedPID = 7 // same PID so we exercise the same-PID branch
 		now := time.Now()
-		m.alertEvents = []UnifiedEvent{{
+		m.alertStrip.Events = []UnifiedEvent{{
 			Type:      EventImmune,
 			Severity:  SevError,
 			PID:       7,
@@ -303,7 +303,7 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 	t.Run("Step alert still routes to Timeline (regression)", func(t *testing.T) {
 		m := newContractModel()
 		m.selectedPID = 1
-		m.alertEvents = []UnifiedEvent{{
+		m.alertStrip.Events = []UnifiedEvent{{
 			Type:      EventStep,
 			Severity:  SevWarn,
 			PID:       1,
@@ -333,7 +333,7 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 			PID:       7, // alert is for a DIFFERENT PID
 			Timestamp: now,
 		}
-		m.alertEvents = []UnifiedEvent{alert}
+		m.alertStrip.Events = []UnifiedEvent{alert}
 		m.processes = mockDashboardProcs() // includes PID 7
 		m.alertStrip.Expanded = true
 		m.alertStrip.Cursor = 0
@@ -345,11 +345,11 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 		if g.selectedPID != 7 {
 			t.Errorf("expected selectedPID=7 after jump, got %d", g.selectedPID)
 		}
-		if g.alertJumpTarget == nil {
+		if g.alertStrip.JumpTarget == nil {
 			t.Fatalf("expected alertJumpTarget to be set so resolveAlertJumpTarget can complete on next tick")
 		}
-		if g.alertJumpTarget.Type != EventImmune || g.alertJumpTarget.PID != 7 {
-			t.Errorf("alertJumpTarget mismatch, got %+v", g.alertJumpTarget)
+		if g.alertStrip.JumpTarget.Type != EventImmune || g.alertStrip.JumpTarget.PID != 7 {
+			t.Errorf("alertJumpTarget mismatch, got %+v", g.alertStrip.JumpTarget)
 		}
 	})
 
@@ -361,14 +361,14 @@ func TestAlertEnter_ImmuneRoutesToSecurity(t *testing.T) {
 		m.selectedPID = 7
 		now := time.Now()
 		alert := UnifiedEvent{Type: EventImmune, PID: 7, Timestamp: now}
-		m.alertJumpTarget = &alert
+		m.alertStrip.JumpTarget = &alert
 		m.security.Alerts = []ipc.AlertWire{
 			{PID: 7, Type: "device_access", TimestampMs: now.Add(-time.Second).UnixMilli()},
 			{PID: 7, Type: "syscall_freq", TimestampMs: now.UnixMilli()},
 		}
 		out := m.resolveAlertJumpTarget()
-		if out.alertJumpTarget != nil {
-			t.Errorf("alertJumpTarget should be consumed, got %+v", out.alertJumpTarget)
+		if out.alertStrip.JumpTarget != nil {
+			t.Errorf("alertJumpTarget should be consumed, got %+v", out.alertStrip.JumpTarget)
 		}
 		if out.security.Cursor != 1 {
 			t.Errorf("expected securityCursor=1 (TimestampMs match), got %d", out.security.Cursor)
@@ -861,7 +861,7 @@ func TestAlertEnter_ClearsUnread(t *testing.T) {
 	t.Run("Timeline jump clears Timeline unread", func(t *testing.T) {
 		m := newContractModel()
 		m.selectedPID = 1
-		m.alertEvents = []UnifiedEvent{{
+		m.alertStrip.Events = []UnifiedEvent{{
 			Type:      EventBudget,
 			Severity:  SevWarn,
 			PID:       1,
@@ -881,7 +881,7 @@ func TestAlertEnter_ClearsUnread(t *testing.T) {
 		m := newContractModel()
 		m.selectedPID = 7
 		now := time.Now()
-		m.alertEvents = []UnifiedEvent{{
+		m.alertStrip.Events = []UnifiedEvent{{
 			Type:      EventImmune,
 			Severity:  SevError,
 			PID:       7,

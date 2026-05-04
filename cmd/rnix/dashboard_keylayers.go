@@ -139,10 +139,10 @@ func registerLayer0(d *ui.Dispatcher) {
 		if m.helpOverlay {
 			return false, m, nil
 		}
-		if !m.timeline.StepFilterMode && len(m.alertEvents) > 0 {
+		if !m.timeline.StepFilterMode && len(m.alertStrip.Events) > 0 {
 			m.alertStrip.Expanded = !m.alertStrip.Expanded
 			if !m.alertStrip.Expanded {
-				visible := alertStripHeight(len(m.alertEvents), false)
+				visible := alertStripHeight(len(m.alertStrip.Events), false)
 				if m.alertStrip.Cursor >= visible {
 					m.alertStrip.Cursor = 0
 				}
@@ -156,7 +156,7 @@ func registerLayer0(d *ui.Dispatcher) {
 	// [ — Alert cursor up (nav.go:264-271)
 	d.Layer0.Bindings["["] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		if m.alertStrip.Expanded && len(m.alertEvents) > 0 {
+		if m.alertStrip.Expanded && len(m.alertStrip.Events) > 0 {
 			if m.alertStrip.Cursor > 0 {
 				m.alertStrip.Cursor--
 			}
@@ -169,10 +169,10 @@ func registerLayer0(d *ui.Dispatcher) {
 	// ] — Alert cursor down (nav.go:272-285)
 	d.Layer0.Bindings["]"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		if m.alertStrip.Expanded && len(m.alertEvents) > 0 {
-			maxLines := alertStripHeight(len(m.alertEvents), true)
+		if m.alertStrip.Expanded && len(m.alertStrip.Events) > 0 {
+			maxLines := alertStripHeight(len(m.alertStrip.Events), true)
 			maxCursor := maxLines - 1
-			if len(m.alertEvents) > maxLines {
+			if len(m.alertStrip.Events) > maxLines {
 				maxCursor = maxLines - 2
 			}
 			if m.alertStrip.Cursor < maxCursor {
@@ -194,10 +194,10 @@ func registerLayer0(d *ui.Dispatcher) {
 	// also clear the unread mark for the destination pane (AC#1 cleanup).
 	d.Layer0.Bindings["enter"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		if !m.alertStrip.Expanded || len(m.alertEvents) == 0 || m.alertStrip.Cursor < 0 || m.alertStrip.Cursor >= len(m.alertEvents) {
+		if !m.alertStrip.Expanded || len(m.alertStrip.Events) == 0 || m.alertStrip.Cursor < 0 || m.alertStrip.Cursor >= len(m.alertStrip.Events) {
 			return false, m, nil
 		}
-		alert := m.alertEvents[m.alertStrip.Cursor]
+		alert := m.alertStrip.Events[m.alertStrip.Cursor]
 		// C5: alertExpanded 已激活时统一 consume；PID<=0 时仅给用户反馈，不 fall-through
 		// 避免触发 Tree drill-in / Timeline expand / Intent drill 等下层副作用。
 		if alert.PID <= 0 {
@@ -226,7 +226,7 @@ func registerLayer0(d *ui.Dispatcher) {
 			m2, cmd := m.handlePIDChange()
 			m2.activePane = targetPane // handlePIDChange may reset; keep our intent
 			m2 = m2.clearPaneUnread(targetPane)
-			m2.alertJumpTarget = &alert
+			m2.alertStrip.JumpTarget = &alert
 			return true, m2, cmd
 		}
 		// Same PID: scroll to matching item.
@@ -376,13 +376,13 @@ func registerLayer0(d *ui.Dispatcher) {
 	// 这里提供"手动触发清理"的对应键，满足 spec 列举的"Alert TTL 触发键"语义。
 	d.Layer0.Bindings["X"] = func(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 		m := ctx.(dashboardModel)
-		if len(m.alertEvents) == 0 {
+		if len(m.alertStrip.Events) == 0 {
 			m.statusMsg = "No alerts to dismiss"
 			m.statusMsgTTL = statusMsgDefaultTTL
 			return true, m, nil
 		}
-		dismissed := len(m.alertEvents)
-		m.alertEvents = nil
+		dismissed := len(m.alertStrip.Events)
+		m.alertStrip.Events = nil
 		m.alertStrip.Expanded = false
 		m.alertStrip.Cursor = 0
 		m.statusMsg = fmt.Sprintf("Dismissed %d alert(s)", dismissed)

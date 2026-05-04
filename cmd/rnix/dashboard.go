@@ -147,14 +147,11 @@ type dashboardModel struct {
 	// Story 36-2: New process highlight (now in tree.TreeState)
 
 	// Story 34.4: Alert strip + unified timeline
-	// Story 38-5 PR12 Step 1: AlertStripState 抽出 2 标量字段（Expanded/Cursor）
-	// 至 internal/dashboard/alertstrip.AlertStripState。Events/JumpTarget 因
-	// cmd/rnix-private UnifiedEvent 类型 cascade 暂保留（与 PR11 DebugState
-	// Events/StraceEvents 决策同模式 · 详见 internal/dashboard/alertstrip/state.go
-	// 包级注释）。
-	alertStrip      alertstrip.AlertStripState
-	alertEvents     []UnifiedEvent  // cached alerts (Severity >= SevWarn, sorted)
-	alertJumpTarget *UnifiedEvent   // pending alert jump after PID change
+	// Story 38-5 PR12 Step 1 + PR11 Step 4(a) cascade fix: 4 字段全部抽出至
+	// internal/dashboard/alertstrip.AlertStripState（commit a08ae3d 解除
+	// UnifiedEvent 类型 cascade 阻塞 · spec § Tasks 11.3 line 187 「4 字段
+	// Expanded/Cursor/Events/JumpTarget」最终对齐）。
+	alertStrip alertstrip.AlertStripState
 
 	// Story 38-4: cross-pane linkage (see dashboard_events.go for contract)
 	paneHasUnread       [paneCount]bool
@@ -162,12 +159,10 @@ type dashboardModel struct {
 	// 注：intentTreeCollapsed 已迁入 intent.IntentState.TreeCollapsed（PR6 Step 1）· 38-4 P1 行为不变
 
 	// Story 34.6: Debug mode — strace fusion
-	// Story 38-5 PR11 Step 1: 12 个标量字段抽离至 internal/dashboard/debug.DebugState。
-	// debugEvents / debugStraceEvents 因 UnifiedEvent 类型 cascade 暂保留在 dashboardModel
-	// （详见 internal/dashboard/debug/state.go 包级注释）。
-	debugState        dashboarddebug.DebugState
-	debugEvents       []UnifiedEvent // merged debug timeline (steps + strace)
-	debugStraceEvents []UnifiedEvent // strace event ring buffer
+	// Story 38-5 PR11 Step 1 + Step 4(a) cascade fix: 14 字段全部抽出至
+	// internal/dashboard/debug.DebugState（commit a08ae3d 解除 UnifiedEvent
+	// 类型 cascade 阻塞 · Events/StraceEvents 完整迁出）。
+	debugState dashboarddebug.DebugState
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -631,7 +626,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 			// The process list may briefly omit a reaped process during TTL cleanup
 			// transitions. Resetting selectedPID here cascades into handleDebugPIDChange
 			// which clears all events, causing the "Waiting for events…" flicker.
-			if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+			if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugState.Events) > 0 {
 				found = true
 			}
 		}
@@ -723,12 +718,12 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Build alert events for alert strip (Story 34.4)
 	// Story 38-4 AC#4: include synthesised security alerts so the strip's
 	// count badge and time-ordered list reflect immune-daemon findings.
-	m.alertEvents = buildAlertEventsWith(m.unifiedEvents, m.security.Alerts)
+	m.alertStrip.Events = buildAlertEventsWith(m.unifiedEvents, m.security.Alerts)
 	// F5: Always clamp alertCursor to valid range (even when expanded)
-	if len(m.alertEvents) == 0 {
+	if len(m.alertStrip.Events) == 0 {
 		m.alertStrip.Cursor = 0
 	} else {
-		visible := alertStripHeight(len(m.alertEvents), m.alertStrip.Expanded)
+		visible := alertStripHeight(len(m.alertStrip.Events), m.alertStrip.Expanded)
 		if m.alertStrip.Cursor >= visible {
 			m.alertStrip.Cursor = max(visible-1, 0)
 		}
@@ -944,7 +939,7 @@ func (m dashboardModel) dashboardVisibleLines() int {
 		statsOffset = 2
 	}
 	// Alert strip height: alerts occupy extra lines at the bottom of the screen.
-	alertH := alertStripHeight(len(m.alertEvents), m.alertStrip.Expanded)
+	alertH := alertStripHeight(len(m.alertStrip.Events), m.alertStrip.Expanded)
 	alertOffset := 0
 	if alertH > 0 {
 		alertOffset = alertH + 1 // +1 for top border
@@ -983,7 +978,7 @@ func (m dashboardModel) renderDashboard() string {
 	titleLines := strings.Count(titleBar, "\n") + 1
 
 	// Reserve lines for alert strip (Story 34.4)
-	alertH := alertStripHeight(len(m.alertEvents), m.alertStrip.Expanded)
+	alertH := alertStripHeight(len(m.alertStrip.Events), m.alertStrip.Expanded)
 	// Alert strip with border takes 1 extra line for the top border
 	alertReserve := alertH
 	if alertH > 0 {

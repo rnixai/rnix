@@ -1911,7 +1911,7 @@ func (m dashboardModel) isSelectedProcessDead() bool {
 	// Process not in the live list — if debug mode has loaded events for this PID,
 	// it was a dead process whose events were fetched from disk. Treat as dead to
 	// prevent the periodic running-process refresh from triggering unnecessary reloads.
-	if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+	if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugState.Events) > 0 {
 		return true
 	}
 	return false

@@ -509,7 +509,7 @@ func TestDashboardKey_ViewDebug_DigitKeysSwitchPane(t *testing.T) {
 // C5 contract: alert.PID<=0 时 enter 应统一 consume + 状态消息
 func TestDashboardKey_AlertEnter_PIDInvalid_DoesNotFallThrough(t *testing.T) {
 	m := newContractModel()
-	m.alertEvents = []UnifiedEvent{{PID: 0}}
+	m.alertStrip.Events = []UnifiedEvent{{PID: 0}}
 	m.alertStrip.Expanded = true
 	m.alertStrip.Cursor = 0
 	origActivePane := m.activePane
