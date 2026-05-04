@@ -22,8 +22,11 @@
 //   - sysEventStyle（依赖 EventCompact 等常量 · 已在 internal/dashboard/event · 可迁但与
 //     render 主体一起更自然）
 //   - defaultStepFilters / isEventVisible（同上 · 与 render 协同）
-//   - hasExpandableContent / estimateExpandedLines / estimateDebugLines（依赖
-//     StepSummaryWire 字段比对 · 与 render 协同）
+//
+// 已追加（Step 4(a-2) 后续 commit · 2026-05-04）：
+//   - HasExpandableContent / EstimateExpandedLines / EstimateDebugLines —
+//     pure step item height 估算（不读 dashboardModel 字段 · 仅依赖 detail/s 参数 ·
+//     为后续 Step 4(c) render 主体迁出 timeline.unifiedItemHeight 等做铺垫）
 //
 // **零 cmd/rnix 反向依赖**：本包只 import internal/types + ipc + lipgloss + runewidth
 // + stdlib · 与 PR2/PR3/PR4/PR11 Step 4(c) render 迁出包边界一致。
@@ -206,4 +209,108 @@ func FormatCharCount(n int) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1000.0)
 	}
 	return fmt.Sprintf("%d", n)
+}
+
+// HasExpandableContent 判断展开 step 是否会显示新信息（与 cmd/rnix.hasExpandableContent 等价）。
+//
+// 用于 timeline aggregation 渲染决定 step 是否可展开（Story 27-3 三级 detail 控制）：
+//   - detail == nil → true（未加载 · 视为潜在可展开 · 避免误隐藏）
+//   - detail.ToolPath 与 Level 1 显示的 summary 不同 → true（path 是新信息）
+//   - detail.ToolInput / ToolError / ToolResult / RawResponse 任一非空 → true
+//   - detail.RequestTokens + ResponseTokens 与 s.TokenCount 不一致 → true（token breakdown 是新信息）
+//
+// 与 EstimateExpandedLines 配对使用：HasExpandableContent 是判断（bool） ·
+// EstimateExpandedLines 是计数（int 行数）· 二者必须保持判断逻辑等价。
+func HasExpandableContent(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) bool {
+	if detail == nil {
+		return true // not loaded yet — treat as potentially expandable
+	}
+	// ToolPath — new info if different from Level 1 display
+	displayedAsSummary := s.Summary
+	if s.ToolPath != "" && len(s.Summary) < 8 {
+		displayedAsSummary = s.ToolPath
+	}
+	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
+		return true
+	}
+	// ToolInput
+	if detail.ToolInput != "" {
+		return true
+	}
+	// ToolError or ToolResult
+	if detail.ToolError != "" || detail.ToolResult != "" {
+		return true
+	}
+	// RawResponse (fallback for any action type)
+	if detail.RawResponse != "" {
+		return true
+	}
+	// Token breakdown (only if it differs from Level 1 total)
+	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) {
+		return true
+	}
+	return false
+}
+
+// EstimateExpandedLines 估算展开 step 的行数占用（与 cmd/rnix.estimateExpandedLines 等价）。
+//
+// 用于 timeline scroll 计算（unifiedItemHeight 调用）· 必须与实际渲染行数对齐：
+//   - Path line（仅当 ToolPath 与 Level 1 summary 不同时计 1 行）
+//   - Input line（ToolInput 非空时计 1 行 · 单行截断）
+//   - Result/Error/RawResponse 行（按 \n 计数 · 上限 4 行 · 含 overflow 标记）
+//   - Token line（仅当 token breakdown 与 s.TokenCount 不一致时计 1 行）
+//   - Fallback：所有字段 deduped 时至少 1 行（与 HasExpandableContent==true 但内容空的边界对齐）
+//
+// **不读 dashboardModel 字段**：纯函数，仅依赖 detail/s 参数 · 与 HasExpandableContent
+// 的判断逻辑必须保持对齐（HasExpandableContent==false → EstimateExpandedLines 永不被调用 ·
+// HasExpandableContent==true → EstimateExpandedLines 至少返回 1）。
+func EstimateExpandedLines(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) int {
+	n := 0
+	// Path — skip when Level 1 already shows it as displaySummary
+	displayedAsSummary := s.Summary
+	if s.ToolPath != "" && len(s.Summary) < 8 {
+		displayedAsSummary = s.ToolPath
+	}
+	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
+		n++ // Path line
+	}
+	if detail.ToolInput != "" {
+		n++ // Input line
+	}
+	if detail.ToolError != "" {
+		errLines := strings.Count(detail.ToolError, "\n") + 1
+		n += min(errLines, 4) // Error: up to 3 lines + overflow
+	} else if detail.ToolResult != "" {
+		resLines := strings.Count(detail.ToolResult, "\n") + 1
+		n += min(resLines, 4) // Result: up to 3 lines + overflow
+	} else if detail.RawResponse != "" {
+		rawLines := strings.Count(detail.RawResponse, "\n") + 1
+		n += min(rawLines, 4) // RawResponse fallback: up to 3 lines + overflow
+	}
+	// Token breakdown — skip when total already shown in Level 1 and breakdown matches
+	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) {
+		n++ // Token line
+	}
+	// Fallback line when all content was deduped
+	if n == 0 {
+		n++ // always at least 1 line for fallback (ToolPath/RawResponse/no-detail)
+	}
+	return n
+}
+
+// EstimateDebugLines 估算 debug level（Level 3）展开行数占用（与
+// cmd/rnix.estimateDebugLines 等价）。
+//
+// 行数构成：
+//   - separator 行 + messages header 行（固定 2）
+//   - message preview 行（min(msgCount, 6)）
+//   - hint 行（固定 1）
+//
+// **不读 dashboardModel 字段**：纯函数，仅依赖 detail.Messages 长度。
+func EstimateDebugLines(detail *ipc.GetStepDetailResponse) int {
+	n := 2 // separator + messages header
+	msgCount := len(detail.Messages)
+	n += min(msgCount, 6) // message preview lines
+	n++                   // hint line
+	return n
 }

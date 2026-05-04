@@ -1566,81 +1566,36 @@ func (m dashboardModel) renderAggregatedTimeline(b *strings.Builder, filtered []
 	return linesUsed
 }
 
-// hasExpandableContent checks whether expanding this step would show any new information.
-// Returns true if detail is not yet loaded (unknown), or if at least one field survives dedup.
+// hasExpandableContent — thin wrapper 委托 timeline.HasExpandableContent
+// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出 · 同 hasExpandableContent
+// 函数体完全等价 · 仅依赖 detail/s 参数 · 无 dashboardModel 状态依赖)
+//
+// 保留全局函数旧名让 cmd/rnix 端 callsites（dashboard_timeline.go × 3 +
+// dashboard_pane_dispatcher.go × 1 = 4 处）零修改通过 ATDD 契约。
 func hasExpandableContent(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) bool {
-	if detail == nil {
-		return true // not loaded yet — treat as potentially expandable
-	}
-	// ToolPath — new info if different from Level 1 display
-	displayedAsSummary := s.Summary
-	if s.ToolPath != "" && len(s.Summary) < 8 {
-		displayedAsSummary = s.ToolPath
-	}
-	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
-		return true
-	}
-	// ToolInput
-	if detail.ToolInput != "" {
-		return true
-	}
-	// ToolError or ToolResult
-	if detail.ToolError != "" || detail.ToolResult != "" {
-		return true
-	}
-	// RawResponse (fallback for any action type)
-	if detail.RawResponse != "" {
-		return true
-	}
-	// Token breakdown (only if it differs from Level 1 total)
-	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) {
-		return true
-	}
-	return false
+	return timeline.HasExpandableContent(detail, s)
 }
 
 // --- Step item height estimation (for scroll) ---
 
+// estimateExpandedLines — thin wrapper 委托 timeline.EstimateExpandedLines
+// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出)
+//
+// 保留 (m dashboardModel) receiver 让现有 caller `m.estimateExpandedLines(...)`
+// 写法零修改（dashboard_timeline.go::unifiedItemHeight 行 444）· 函数体不读 m 字段，
+// 与 timeline.EstimateExpandedLines 行为完全等价。
 func (m dashboardModel) estimateExpandedLines(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) int {
-	n := 0
-	// Path — skip when Level 1 already shows it as displaySummary
-	displayedAsSummary := s.Summary
-	if s.ToolPath != "" && len(s.Summary) < 8 {
-		displayedAsSummary = s.ToolPath
-	}
-	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
-		n++ // Path line
-	}
-	if detail.ToolInput != "" {
-		n++ // Input line
-	}
-	if detail.ToolError != "" {
-		errLines := strings.Count(detail.ToolError, "\n") + 1
-		n += min(errLines, 4) // Error: up to 3 lines + overflow
-	} else if detail.ToolResult != "" {
-		resLines := strings.Count(detail.ToolResult, "\n") + 1
-		n += min(resLines, 4) // Result: up to 3 lines + overflow
-	} else if detail.RawResponse != "" {
-		rawLines := strings.Count(detail.RawResponse, "\n") + 1
-		n += min(rawLines, 4) // RawResponse fallback: up to 3 lines + overflow
-	}
-	// Token breakdown — skip when total already shown in Level 1 and breakdown matches
-	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) {
-		n++ // Token line
-	}
-	// Fallback line when all content was deduped
-	if n == 0 {
-		n++ // always at least 1 line for fallback (ToolPath/RawResponse/no-detail)
-	}
-	return n
+	return timeline.EstimateExpandedLines(detail, s)
 }
 
+// estimateDebugLines — thin wrapper 委托 timeline.EstimateDebugLines
+// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出)
+//
+// 保留 (m dashboardModel) receiver 让现有 caller `m.estimateDebugLines(...)`
+// 写法零修改（dashboard_timeline.go::unifiedItemHeight 行 450）· 函数体不读 m 字段，
+// 与 timeline.EstimateDebugLines 行为完全等价。
 func (m dashboardModel) estimateDebugLines(detail *ipc.GetStepDetailResponse) int {
-	n := 2 // separator + messages header
-	msgCount := len(detail.Messages)
-	n += min(msgCount, 6) // message preview lines
-	n++                   // hint line
-	return n
+	return timeline.EstimateDebugLines(detail)
 }
 
 // ensureStepCursorVisible adjusts stepScrollTop so the cursor item is within the viewport.

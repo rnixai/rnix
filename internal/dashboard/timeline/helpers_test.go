@@ -12,6 +12,9 @@
 //   - TruncateRuneWidth 4 项（短字符串 / 长字符串 / CJK 双宽 / 边界）
 //   - TruncateAnsi 4 项（短 / 长 / maxWidth=0 / maxWidth<0）
 //   - FormatCharCount 3 项（k / 个位 / 边界）
+//   - HasExpandableContent 7 项（nil detail / 全空 / ToolPath/Input/Error/Result/RawResponse/Token 各 1）
+//   - EstimateExpandedLines 6 项（fallback 1 / Path / Input / Result clamp / Error 多行 clamp / Token）
+//   - EstimateDebugLines 4 项（空 messages / 满 messages / over-cap clamp / 边界 6）
 package timeline
 
 import (
@@ -317,5 +320,167 @@ func TestFormatCharCount_Boundary(t *testing.T) {
 	}
 	if got := FormatCharCount(1000); got != "1.0k" {
 		t.Errorf("FormatCharCount(1000) = %q, want '1.0k'", got)
+	}
+}
+
+// =============================================================================
+// HasExpandableContent (7 项)
+// =============================================================================
+
+func TestHasExpandableContent_NilDetail(t *testing.T) {
+	if !HasExpandableContent(nil, ipc.StepSummaryWire{}) {
+		t.Error("nil detail should be treated as potentially expandable (true)")
+	}
+}
+
+func TestHasExpandableContent_AllEmpty(t *testing.T) {
+	if HasExpandableContent(&ipc.GetStepDetailResponse{}, ipc.StepSummaryWire{}) {
+		t.Error("all-empty detail should not be expandable (false)")
+	}
+}
+
+func TestHasExpandableContent_ToolPathDifferent(t *testing.T) {
+	d := &ipc.GetStepDetailResponse{ToolPath: "fs.read_file"}
+	s := ipc.StepSummaryWire{Summary: "loading", ToolPath: ""}
+	if !HasExpandableContent(d, s) {
+		t.Error("ToolPath != Level 1 displaySummary should be expandable")
+	}
+}
+
+func TestHasExpandableContent_ToolPathMatchesShortSummary(t *testing.T) {
+	// When s.ToolPath != "" and len(s.Summary) < 8, displayedAsSummary becomes s.ToolPath
+	// → if detail.ToolPath equals it, no new info
+	d := &ipc.GetStepDetailResponse{ToolPath: "fs.read"}
+	s := ipc.StepSummaryWire{Summary: "abc", ToolPath: "fs.read"}
+	if HasExpandableContent(d, s) {
+		t.Error("ToolPath matching Level 1 short-summary fallback should not be expandable")
+	}
+}
+
+func TestHasExpandableContent_ToolInputNonempty(t *testing.T) {
+	d := &ipc.GetStepDetailResponse{ToolInput: `{"path":"/tmp/x"}`}
+	if !HasExpandableContent(d, ipc.StepSummaryWire{}) {
+		t.Error("ToolInput non-empty should be expandable")
+	}
+}
+
+func TestHasExpandableContent_ErrorOrResult(t *testing.T) {
+	d1 := &ipc.GetStepDetailResponse{ToolError: "permission denied"}
+	if !HasExpandableContent(d1, ipc.StepSummaryWire{}) {
+		t.Error("ToolError non-empty should be expandable")
+	}
+	d2 := &ipc.GetStepDetailResponse{ToolResult: "OK"}
+	if !HasExpandableContent(d2, ipc.StepSummaryWire{}) {
+		t.Error("ToolResult non-empty should be expandable")
+	}
+	d3 := &ipc.GetStepDetailResponse{RawResponse: "raw payload"}
+	if !HasExpandableContent(d3, ipc.StepSummaryWire{}) {
+		t.Error("RawResponse non-empty should be expandable")
+	}
+}
+
+func TestHasExpandableContent_TokenBreakdownMismatch(t *testing.T) {
+	// breakdown 100+200 = 300 ≠ s.TokenCount 250 → expandable
+	d := &ipc.GetStepDetailResponse{RequestTokens: 100, ResponseTokens: 200}
+	s := ipc.StepSummaryWire{TokenCount: 250}
+	if !HasExpandableContent(d, s) {
+		t.Error("token breakdown != s.TokenCount should be expandable")
+	}
+	// matching breakdown → not expandable
+	s2 := ipc.StepSummaryWire{TokenCount: 300}
+	if HasExpandableContent(d, s2) {
+		t.Error("token breakdown matching s.TokenCount should not be expandable")
+	}
+}
+
+// =============================================================================
+// EstimateExpandedLines (6 项)
+// =============================================================================
+
+func TestEstimateExpandedLines_AllEmptyFallback(t *testing.T) {
+	// 全空 → 至少 1 行 fallback（与 HasExpandableContent==false 边界保护对齐）
+	if got := EstimateExpandedLines(&ipc.GetStepDetailResponse{}, ipc.StepSummaryWire{}); got != 1 {
+		t.Errorf("EstimateExpandedLines(all-empty) = %d, want 1 (fallback)", got)
+	}
+}
+
+func TestEstimateExpandedLines_PathLineCounted(t *testing.T) {
+	d := &ipc.GetStepDetailResponse{ToolPath: "fs.read_file"}
+	s := ipc.StepSummaryWire{Summary: "loading"}
+	if got := EstimateExpandedLines(d, s); got != 1 {
+		t.Errorf("EstimateExpandedLines(only path) = %d, want 1", got)
+	}
+}
+
+func TestEstimateExpandedLines_InputAndPath(t *testing.T) {
+	d := &ipc.GetStepDetailResponse{ToolPath: "fs.read", ToolInput: `{"path":"/x"}`}
+	s := ipc.StepSummaryWire{Summary: "abc"}
+	if got := EstimateExpandedLines(d, s); got != 2 {
+		t.Errorf("EstimateExpandedLines(path+input) = %d, want 2", got)
+	}
+}
+
+func TestEstimateExpandedLines_ResultClampedTo4(t *testing.T) {
+	// ToolResult 10 行 → clamp 到 4
+	result := strings.Repeat("line\n", 10)
+	d := &ipc.GetStepDetailResponse{ToolResult: result}
+	got := EstimateExpandedLines(d, ipc.StepSummaryWire{})
+	if got != 4 {
+		t.Errorf("EstimateExpandedLines(10-line result) = %d, want 4 (clamped)", got)
+	}
+}
+
+func TestEstimateExpandedLines_ErrorTakesPrecedenceOverResult(t *testing.T) {
+	// ToolError 非空 → Result/RawResponse 跳过（else if 链）
+	d := &ipc.GetStepDetailResponse{
+		ToolError:   "boom",
+		ToolResult:  strings.Repeat("ignored\n", 5),
+		RawResponse: "ignored",
+	}
+	if got := EstimateExpandedLines(d, ipc.StepSummaryWire{}); got != 1 {
+		t.Errorf("EstimateExpandedLines(error+result+raw) = %d, want 1 (only error 1 line)", got)
+	}
+}
+
+func TestEstimateExpandedLines_TokenLineCounted(t *testing.T) {
+	d := &ipc.GetStepDetailResponse{RequestTokens: 100, ResponseTokens: 200}
+	s := ipc.StepSummaryWire{TokenCount: 250} // mismatch → token line counted
+	if got := EstimateExpandedLines(d, s); got != 1 {
+		t.Errorf("EstimateExpandedLines(only token mismatch) = %d, want 1", got)
+	}
+}
+
+// =============================================================================
+// EstimateDebugLines (4 项)
+// =============================================================================
+
+func TestEstimateDebugLines_NoMessages(t *testing.T) {
+	// 0 messages → 2 (separator + header) + 0 + 1 (hint) = 3
+	if got := EstimateDebugLines(&ipc.GetStepDetailResponse{}); got != 3 {
+		t.Errorf("EstimateDebugLines(0 msgs) = %d, want 3", got)
+	}
+}
+
+func TestEstimateDebugLines_FewMessages(t *testing.T) {
+	// 3 messages → 2 + 3 + 1 = 6
+	d := &ipc.GetStepDetailResponse{Messages: make([]ipc.MessageWire, 3)}
+	if got := EstimateDebugLines(d); got != 6 {
+		t.Errorf("EstimateDebugLines(3 msgs) = %d, want 6", got)
+	}
+}
+
+func TestEstimateDebugLines_OverCapClamped(t *testing.T) {
+	// 100 messages → 2 + min(100, 6) + 1 = 9
+	d := &ipc.GetStepDetailResponse{Messages: make([]ipc.MessageWire, 100)}
+	if got := EstimateDebugLines(d); got != 9 {
+		t.Errorf("EstimateDebugLines(100 msgs) = %d, want 9 (clamped)", got)
+	}
+}
+
+func TestEstimateDebugLines_AtCap(t *testing.T) {
+	// 6 messages exactly → 2 + 6 + 1 = 9
+	d := &ipc.GetStepDetailResponse{Messages: make([]ipc.MessageWire, 6)}
+	if got := EstimateDebugLines(d); got != 9 {
+		t.Errorf("EstimateDebugLines(6 msgs) = %d, want 9", got)
 	}
 }
