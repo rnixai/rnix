@@ -1,12 +1,22 @@
+// Package main — dashboard_detail.go
+//
+// Story 38-5 PR11 Step 4(c) (2026-05-04): renderDetailPane main body migrated
+// to internal/dashboard/detail/render.go (Render(state, ctx, innerW) string ·
+// 与 alertstrip Step 4(a-2) 同模式)。本文件保留：
+//   - fetchProcDetailCmd: IPC 调用（依赖 ipc.Dial · 属 cmd/rnix 端职责）；
+//   - renderDetailPane wrapper: 注入 RenderContext + renderFixedPanel border 包裹；
+//   - truncateUUID / truncateStr 改为 thin wrapper 委托 detail.TruncateUUID/Str。
+//
+// 行为契约保留（与 PR2/PR3/alertstrip helper 公开化同模式 · 零行为变更）：
+//   - Story 27-6 detail pane rendering
+//   - Story 28-4 AC-4 stale-data guard (UUID-keyed cache validation)
+//   - Story 34-5 detail card behaviors
 package main
 
 import (
-	"fmt"
-	"strings"
-	"time"
-
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -28,6 +38,14 @@ func fetchProcDetailCmd(pid types.PID, uuid string) tea.Cmd {
 	}
 }
 
+// renderDetailPane is a thin wrapper around detail.Render (Story 38-5 PR11 Step 4(c)).
+//
+// cmd/rnix wrapper responsibilities:
+//  1. Compute isActive + borderColor (depends on m.activePane / paneDetail · cmd/rnix 端状态)
+//  2. Call detail.Render(state, ctx, innerW) for inner content
+//  3. Wrap with renderFixedPanel(content, width, height, borderColor) outer border
+//
+// 与 heatmap pattern 一致 · 与 alertstrip Step 4(a-2) 同模式。
 func (m dashboardModel) renderDetailPane(width, height int) string {
 	isActive := m.activePane == paneDetail
 
@@ -38,100 +56,26 @@ func (m dashboardModel) renderDetailPane(width, height int) string {
 
 	innerW := max(width-2, 1)
 
-	var b strings.Builder
+	content := detail.Render(m.detail, detail.RenderContext{
+		SelectedPID:  m.selectedPID,
+		SelectedUUID: m.selectedUUID,
+		IsActive:     isActive,
+	}, innerW)
 
-	b.WriteString(" Detail")
-	if m.selectedPID > 0 {
-		fmt.Fprintf(&b, " | PID %d", m.selectedPID)
-	}
-	b.WriteString("\n")
-
-	if m.selectedPID == 0 {
-		b.WriteString("\n    Select a process to view detail")
-		return renderFixedPanel(b.String(), width, height, borderColor)
-	}
-
-	d := m.detail.Detail
-	if d == nil || d.PID != m.selectedPID || (m.selectedUUID != "" && d.UUID != m.selectedUUID) {
-		b.WriteString("\n    Loading...")
-		return renderFixedPanel(b.String(), width, height, borderColor)
-	}
-
-	// Section 1: Basic info
-	var uptime time.Duration
-	if d.CreatedAtMs > 0 {
-		created := time.UnixMilli(d.CreatedAtMs)
-		if d.DeadAtMs > 0 {
-			uptime = time.UnixMilli(d.DeadAtMs).Sub(created)
-		} else {
-			uptime = time.Since(created)
-		}
-	}
-	fmt.Fprintf(&b, "  PID: %d  UUID: %s\n", d.PID, truncateUUID(d.UUID))
-	fmt.Fprintf(&b, "  State: %s  Intent: %s\n", d.State, truncateStr(d.Intent, 40))
-	fmt.Fprintf(&b, "  Provider: %s  Model: %s\n", d.Provider, d.Model)
-	fmt.Fprintf(&b, "  Uptime: %s\n", ui.FormatDuration(uptime))
-
-	// Section 1b: Allowed devices
-	if len(d.AllowedDevices) > 0 {
-		fmt.Fprintf(&b, "  Devices: %s\n", strings.Join(d.AllowedDevices, ", "))
-	}
-
-	// Section 2: Skills
-	b.WriteString("  ──── Skills ────\n")
-	if len(d.Skills) == 0 {
-		b.WriteString("    (none)\n")
-	}
-	for _, sk := range d.Skills {
-		tools := strings.Join(sk.AllowedTools, ", ")
-		if tools == "" {
-			tools = "—"
-		}
-		fmt.Fprintf(&b, "    %s → %s\n", sk.Name, tools)
-	}
-
-	// Section 3: FD table
-	b.WriteString("  ──── FD Table ────\n")
-	if len(d.FDTable) == 0 {
-		if d.State == "dead" {
-			b.WriteString("    (closed)\n")
-		} else {
-			b.WriteString("    (empty)\n")
-		}
-	}
-	for _, fd := range d.FDTable {
-		fmt.Fprintf(&b, "    %d: %s\n", fd.FD, fd.DevicePath)
-	}
-
-	// Section 4: Context stats
-	b.WriteString("  ──── Context ────\n")
-	fmt.Fprintf(&b, "    %d msgs | %s tok\n", d.ContextStats.MessageCount, ui.FormatTokens(d.ContextStats.TokensUsed))
-	if d.ContextStats.ContextBudget > 0 {
-		barWidth := max(innerW-10, 10)
-		filled := int(d.ContextStats.UsagePct / 100.0 * float64(barWidth))
-		filled = min(filled, barWidth)
-		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
-		pct := min(d.ContextStats.UsagePct, 100.0)
-		fmt.Fprintf(&b, "    [%s] %.0f%%\n", bar, pct)
-	}
-
-	return renderFixedPanel(b.String(), width, height, borderColor)
+	return renderFixedPanel(content, width, height, borderColor)
 }
 
+// truncateUUID is a thin wrapper around detail.TruncateUUID (Story 38-5 PR11 Step 4(c))
+// kept here for caller compatibility. Existing tests grep this name.
+//
+//nolint:unused // 保留供潜在外部 caller / 测试 grep 使用
 func truncateUUID(s string) string {
-	if len(s) > 8 {
-		return s[:8]
-	}
-	return s
+	return detail.TruncateUUID(s)
 }
 
+// truncateStr is a thin wrapper around detail.TruncateStr (Story 38-5 PR11 Step 4(c))
+// kept here for caller compatibility. Existing dashboard_intent.go / dashboard_test.go
+// references continue to work unchanged.
 func truncateStr(s string, maxLen int) string {
-	if maxLen < 4 {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) > maxLen {
-		return string(runes[:maxLen-3]) + "..."
-	}
-	return s
+	return detail.TruncateStr(s, maxLen)
 }
