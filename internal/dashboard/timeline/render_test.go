@@ -1023,3 +1023,83 @@ func TestEnsureStepCursorVisible_PreservesOtherFields(t *testing.T) {
 		t.Fatalf("AttachedUUID mutated: got %q, want 'uuid-test'", got.AttachedUUID)
 	}
 }
+
+// ----- FindStepEntryIndex 行为测试（Story 38-5 PR11 Step 4(c) 第 7 个 timeline render block） -----
+//
+// 覆盖矩阵：
+//   - target == nil → -1（防御 nil）
+//   - target 在 state.StepEntries 内 → 正确索引
+//   - target 不在 state.StepEntries 内（外部指针）→ -1
+//   - target 在 state 之外（其他 StepEntry slice）→ -1
+//   - 空 state.StepEntries + 任意 target → -1
+
+func TestFindStepEntryIndex_NilTarget(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{makeAggEntry(1, "tool_call", 0, 0, false, "")},
+	}
+	if got := FindStepEntryIndex(state, nil); got != -1 {
+		t.Fatalf("nil target: got %d, want -1", got)
+	}
+}
+
+func TestFindStepEntryIndex_EmptyState(t *testing.T) {
+	entry := makeAggEntry(1, "tool_call", 0, 0, false, "")
+	state := TimelineState{StepEntries: nil}
+	if got := FindStepEntryIndex(state, &entry); got != -1 {
+		t.Fatalf("empty state: got %d, want -1", got)
+	}
+}
+
+func TestFindStepEntryIndex_FirstEntry(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 0, 0, false, "first"),
+			makeAggEntry(2, "plan", 0, 0, false, "second"),
+		},
+	}
+	target := &state.StepEntries[0]
+	if got := FindStepEntryIndex(state, target); got != 0 {
+		t.Fatalf("first entry: got %d, want 0", got)
+	}
+}
+
+func TestFindStepEntryIndex_LastEntry(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 0, 0, false, ""),
+			makeAggEntry(2, "plan", 0, 0, false, ""),
+			makeAggEntry(3, "text", 0, 0, false, "last"),
+		},
+	}
+	target := &state.StepEntries[2]
+	if got := FindStepEntryIndex(state, target); got != 2 {
+		t.Fatalf("last entry: got %d, want 2", got)
+	}
+}
+
+func TestFindStepEntryIndex_ExternalPointer(t *testing.T) {
+	state := TimelineState{
+		StepEntries: []StepEntry{
+			makeAggEntry(1, "tool_call", 0, 0, false, "first"),
+		},
+	}
+	// 构造与 state 内容一致但地址不同的 entry（按地址比较应不匹配）
+	external := makeAggEntry(1, "tool_call", 0, 0, false, "first")
+	if got := FindStepEntryIndex(state, &external); got != -1 {
+		t.Fatalf("external pointer: got %d, want -1 (address comparison)", got)
+	}
+}
+
+func TestFindStepEntryIndex_PointerFromOtherState(t *testing.T) {
+	state1 := TimelineState{
+		StepEntries: []StepEntry{makeAggEntry(1, "tool_call", 0, 0, false, "")},
+	}
+	state2 := TimelineState{
+		StepEntries: []StepEntry{makeAggEntry(1, "tool_call", 0, 0, false, "")},
+	}
+	target := &state2.StepEntries[0]
+	// state1 中查找 state2 的指针 → 应不匹配
+	if got := FindStepEntryIndex(state1, target); got != -1 {
+		t.Fatalf("pointer from other state: got %d, want -1", got)
+	}
+}

@@ -549,6 +549,37 @@ const AggGroupSize = 50
 //   - 不应有副作用（仅用于布局计算 · 多次调用同一 idx 必须返回相同值）
 type ItemHeightFn func(idx int) int
 
+// FindStepEntryIndex 在 state.StepEntries 中按地址比较查找 target 指针对应的
+// 索引（与 cmd/rnix.resolveStepIndex 内部循环 1:1 等价 · Story 38-5 PR11 Step
+// 4(c) timeline 视图状态查询 helper · 第 7 个 timeline render block 迁出）。
+//
+// **行为契约（不变性）**：
+//   - target == nil → -1（防御 nil 指针）
+//   - state.StepEntries 中找到地址匹配项 → 返回 0-based 索引
+//   - 未找到 → -1（target 指针不属于 state · cursor 越界等场景）
+//
+// **设计要点**：
+//   - 按 *StepEntry 地址比较（不是字段值比较）· 与 cmd/rnix.resolveStepIndex
+//     原算法等价 · 依赖 UnifiedEvent.StepEntry 持有 *StepEntry 而非 StepEntry 值
+//   - 性能 O(n) · n = len(state.StepEntries) · 最坏遍历整个数组
+//   - 0 cmd/rnix / 0 event 反向依赖 · timeline 包内部纯函数
+//
+// **使用场景**：
+//   - cmd/rnix.resolveStepIndex（cursor → step entry index 解析）
+//   - cmd/rnix.renderStepTimeline aggregation 路径下的 stepIndices 提取
+//   - Story 36-6 Inspector follow live 模式下的 step entry 跟踪
+func FindStepEntryIndex(state TimelineState, target *StepEntry) int {
+	if target == nil {
+		return -1
+	}
+	for i := range state.StepEntries {
+		if &state.StepEntries[i] == target {
+			return i
+		}
+	}
+	return -1
+}
+
 // EnsureStepCursorVisible 调整 state.StepScrollTop 让 cursor 项进入视野（与
 // cmd/rnix.ensureStepCursorVisible 1:1 行为等价 · Story 38-5 PR11 Step 4(c)
 // timeline 视口算法迁出 · 第 6 个 timeline render block）。

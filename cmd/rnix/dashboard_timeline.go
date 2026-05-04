@@ -417,21 +417,17 @@ func (m dashboardModel) unifiedItemHeight(ev UnifiedEvent) int {
 
 // resolveStepIndex converts cursor position in filtered unified view to actual stepEntries index.
 // Returns -1 if cursor points to a system event or is out of range.
+//
+// Story 38-5 PR11 Step 4(c)：内部指针查找逻辑迁至
+// internal/dashboard/timeline.FindStepEntryIndex（按地址比较 · 0 cmd/rnix 反向依赖）·
+// cmd/rnix wrapper 仅保留 cursor 范围检查 + filtered 提取（依赖 UnifiedEvent · 无法迁出）.
+// 保留 (m dashboardModel) receiver 让 dashboard_pane_dispatcher.go::78 callsite 零修改.
 func (m dashboardModel) resolveStepIndex() int {
 	filtered := m.filteredUnifiedEvents()
 	if m.timeline.StepCursor < 0 || m.timeline.StepCursor >= len(filtered) {
 		return -1
 	}
-	ev := filtered[m.timeline.StepCursor]
-	if ev.StepEntry == nil {
-		return -1
-	}
-	for i := range m.timeline.StepEntries {
-		if &m.timeline.StepEntries[i] == ev.StepEntry {
-			return i
-		}
-	}
-	return -1
+	return timeline.FindStepEntryIndex(m.timeline, filtered[m.timeline.StepCursor].StepEntry)
 }
 
 // --- Rendering ---
