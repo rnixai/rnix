@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/alertstrip"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -134,14 +135,15 @@ func buildAlertEventsWith(events []UnifiedEvent, securityAlerts []ipc.AlertWire)
 }
 
 // alertStripHeight returns the number of lines the alert strip should occupy.
+//
+// Story 38-5 PR12 Step 2: thin wrapper delegating to
+// internal/dashboard/alertstrip.AlertStripHeight (UnifiedEvent-independent
+// helper migrated to the alertstrip package · 与 PR2/PR3 helper 公开化同模式).
+// Existing callers (dashboard.go / dashboard_keylayers.go) call alertStripHeight
+// by name unchanged; this wrapper preserves the contract while letting the
+// alertstrip package be the source of truth.
 func alertStripHeight(alertCount int, expanded bool) int {
-	if alertCount == 0 {
-		return 0
-	}
-	if expanded {
-		return min(alertCount, 8)
-	}
-	return min(alertCount, 2)
+	return alertstrip.AlertStripHeight(alertCount, expanded)
 }
 
 // alertCountBadge renders the right-aligned count badge "✗N ⚠M" (or
