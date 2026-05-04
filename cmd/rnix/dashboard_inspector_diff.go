@@ -229,12 +229,12 @@ func followLiveTickCmd(pid types.PID, uuid string, gen int) tea.Cmd {
 // after ddWindow exits diff mode entirely.
 func (m dashboardModel) handleInspectorDiffKey() (tea.Model, tea.Cmd) {
 	now := time.Now()
-	if m.inspectorDiffMode {
+	if m.inspector.DiffMode {
 		// Within the dd window? open picker. Otherwise, exit diff.
-		if !m.inspectorDiffDdDeadline.IsZero() && now.Before(m.inspectorDiffDdDeadline) {
-			m.inspectorDiffPicker = true
-			m.inspectorDiffPickerCursor = max(m.findStepIndex(m.inspectorDiffBase), 0)
-			m.inspectorDiffDdDeadline = time.Time{}
+		if !m.inspector.DiffDdDeadline.IsZero() && now.Before(m.inspector.DiffDdDeadline) {
+			m.inspector.DiffPicker = true
+			m.inspector.DiffPickerCursor = max(m.findStepIndex(m.inspector.DiffBase), 0)
+			m.inspector.DiffDdDeadline = time.Time{}
 			return m, nil
 		}
 		// Record a new dd deadline and also exit diff mode on timeout —
@@ -247,24 +247,24 @@ func (m dashboardModel) handleInspectorDiffKey() (tea.Model, tea.Cmd) {
 	m = m.stopFollowLiveWithStatus()
 
 	// Entering diff mode: base defaults to previous step, delta captured.
-	idx := m.findStepIndex(m.inspectorStep)
-	if idx < 0 || len(m.inspectorSteps) == 0 {
+	idx := m.findStepIndex(m.inspector.Step)
+	if idx < 0 || len(m.inspector.Steps) == 0 {
 		m.statusMsg = "No previous step to diff"
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	}
-	base := m.inspectorStep
+	base := m.inspector.Step
 	if idx > 0 {
-		base = m.inspectorSteps[idx-1].Step
+		base = m.inspector.Steps[idx-1].Step
 	} else {
 		m.statusMsg = "No previous step to diff"
 		m.statusMsgTTL = statusMsgDefaultTTL
 	}
-	m.inspectorDiffMode = true
-	m.inspectorDiffBase = base
-	m.inspectorDiffDelta = m.inspectorStep - base
-	m.inspectorDiffUnfolded = make(map[int]bool)
-	m.inspectorDiffDdDeadline = now.Add(ddWindow)
+	m.inspector.DiffMode = true
+	m.inspector.DiffBase = base
+	m.inspector.DiffDelta = m.inspector.Step - base
+	m.inspector.DiffUnfolded = make(map[int]bool)
+	m.inspector.DiffDdDeadline = now.Add(ddWindow)
 
 	// Story 38-3 AC#7: prime diff-mark cache for tab indicators.
 	m.refreshInspectorDiffLensMarks()
@@ -282,32 +282,32 @@ func (m dashboardModel) handleInspectorDiffKey() (tea.Model, tea.Cmd) {
 // Per AC-4, the active lens viewport's Y offset is preserved across the exit
 // (rebuildInspectorContents normally snaps the active lens to the top).
 func (m dashboardModel) exitInspectorDiff() dashboardModel {
-	savedYOffset := m.inspectorViewports[m.inspectorLens].YOffset()
-	m.inspectorDiffMode = false
-	m.inspectorDiffBase = 0
-	m.inspectorDiffDelta = 0
-	m.inspectorDiffUnfolded = nil
-	m.inspectorDiffPicker = false
-	m.inspectorDiffPickerCursor = 0
-	m.inspectorDiffDdDeadline = time.Time{}
+	savedYOffset := m.inspector.Viewports[m.inspector.Lens].YOffset()
+	m.inspector.DiffMode = false
+	m.inspector.DiffBase = 0
+	m.inspector.DiffDelta = 0
+	m.inspector.DiffUnfolded = nil
+	m.inspector.DiffPicker = false
+	m.inspector.DiffPickerCursor = 0
+	m.inspector.DiffDdDeadline = time.Time{}
 	m.rebuildInspectorContents()
-	vp := m.inspectorViewports[m.inspectorLens]
+	vp := m.inspector.Viewports[m.inspector.Lens]
 	vp.SetYOffset(savedYOffset)
-	m.inspectorViewports[m.inspectorLens] = vp
+	m.inspector.Viewports[m.inspector.Lens] = vp
 	return m
 }
 
 // slideDiffBase keeps the diff base at the captured delta distance from the
 // newly selected current step. If the computed base would fall outside the
 // recorded step range, it is clamped and a status-bar notice is shown (per
-// AC-5). Caller must have verified m.inspectorDiffMode == true.
+// AC-5). Caller must have verified m.inspector.DiffMode == true.
 func (m dashboardModel) slideDiffBase(newCurrent int) dashboardModel {
-	if len(m.inspectorSteps) == 0 {
+	if len(m.inspector.Steps) == 0 {
 		return m
 	}
-	target := newCurrent - m.inspectorDiffDelta
-	first := m.inspectorSteps[0].Step
-	last := m.inspectorSteps[len(m.inspectorSteps)-1].Step
+	target := newCurrent - m.inspector.DiffDelta
+	first := m.inspector.Steps[0].Step
+	last := m.inspector.Steps[len(m.inspector.Steps)-1].Step
 	if target < first {
 		target = first
 		m.statusMsg = "Diff base clamped"
@@ -317,9 +317,9 @@ func (m dashboardModel) slideDiffBase(newCurrent int) dashboardModel {
 		m.statusMsg = "Diff base clamped"
 		m.statusMsgTTL = statusMsgDefaultTTL
 	}
-	m.inspectorDiffBase = target
+	m.inspector.DiffBase = target
 	// Fold state is index-based over newly computed diff output; reset.
-	m.inspectorDiffUnfolded = make(map[int]bool)
+	m.inspector.DiffUnfolded = make(map[int]bool)
 	// Story 38-3 AC#7: refresh diff-mark cache for tab indicators.
 	m.refreshInspectorDiffLensMarks()
 	return m
@@ -331,28 +331,28 @@ func (m dashboardModel) slideDiffBase(newCurrent int) dashboardModel {
 func (m dashboardModel) handleDiffPickerKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
-		m.inspectorDiffPicker = false
+		m.inspector.DiffPicker = false
 		return m, nil
 	case "h", "left":
-		if m.inspectorDiffPickerCursor > 0 {
-			m.inspectorDiffPickerCursor--
+		if m.inspector.DiffPickerCursor > 0 {
+			m.inspector.DiffPickerCursor--
 		}
 		return m, nil
 	case "l", "right":
-		if m.inspectorDiffPickerCursor < len(m.inspectorSteps)-1 {
-			m.inspectorDiffPickerCursor++
+		if m.inspector.DiffPickerCursor < len(m.inspector.Steps)-1 {
+			m.inspector.DiffPickerCursor++
 		}
 		return m, nil
 	case "enter":
-		if m.inspectorDiffPickerCursor >= 0 && m.inspectorDiffPickerCursor < len(m.inspectorSteps) {
-			m.inspectorDiffBase = m.inspectorSteps[m.inspectorDiffPickerCursor].Step
+		if m.inspector.DiffPickerCursor >= 0 && m.inspector.DiffPickerCursor < len(m.inspector.Steps) {
+			m.inspector.DiffBase = m.inspector.Steps[m.inspector.DiffPickerCursor].Step
 			// Capture new delta so subsequent step moves slide correctly.
-			m.inspectorDiffDelta = m.inspectorStep - m.inspectorDiffBase
-			m.inspectorDiffUnfolded = make(map[int]bool)
+			m.inspector.DiffDelta = m.inspector.Step - m.inspector.DiffBase
+			m.inspector.DiffUnfolded = make(map[int]bool)
 			// Story 38-3 AC#7: refresh diff-mark cache for tab indicators.
 			m.refreshInspectorDiffLensMarks()
 		}
-		m.inspectorDiffPicker = false
+		m.inspector.DiffPicker = false
 		cmd := m.ensureDiffBaseDetailCmd()
 		m.rebuildInspectorContents()
 		return m, cmd
@@ -367,18 +367,18 @@ func (m dashboardModel) handleDiffPickerKey(key string) (tea.Model, tea.Cmd) {
 // unchanged blocks together, and tracking per-segment state across lens
 // switches is lens-specific. Callers: Enter key in diff mode.
 func (m dashboardModel) toggleAllDiffFolds() dashboardModel {
-	if m.inspectorDiffUnfolded == nil {
-		m.inspectorDiffUnfolded = make(map[int]bool)
+	if m.inspector.DiffUnfolded == nil {
+		m.inspector.DiffUnfolded = make(map[int]bool)
 	}
 	// Simplest and deterministic: toggle every existing fold region — users
 	// usually want to expand/collapse all unchanged blocks at once.
 	base := m.lookupDiffBaseDetail()
-	if base == nil || m.inspectorDetail == nil {
+	if base == nil || m.inspector.Detail == nil {
 		return m
 	}
 	lines := computeLineDiff(
-		strings.Split(m.buildFullLensContent(m.inspectorLens, base, nil), "\n"),
-		strings.Split(m.buildFullLensContent(m.inspectorLens, m.inspectorDetail, m.inspectorPrevDetail), "\n"),
+		strings.Split(m.buildFullLensContent(m.inspector.Lens, base, nil), "\n"),
+		strings.Split(m.buildFullLensContent(m.inspector.Lens, m.inspector.Detail, m.inspector.PrevDetail), "\n"),
 	)
 	// Walk lines finding fold starts (runs of >= diffFoldThreshold equal lines)
 	// and toggle each one.
@@ -394,7 +394,7 @@ func (m dashboardModel) toggleAllDiffFolds() dashboardModel {
 			j++
 		}
 		if j-i >= diffFoldThreshold {
-			if !m.inspectorDiffUnfolded[i] {
+			if !m.inspector.DiffUnfolded[i] {
 				anyFolded = true
 			}
 		}
@@ -412,7 +412,7 @@ func (m dashboardModel) toggleAllDiffFolds() dashboardModel {
 			j++
 		}
 		if j-i >= diffFoldThreshold {
-			m.inspectorDiffUnfolded[i] = anyFolded
+			m.inspector.DiffUnfolded[i] = anyFolded
 		}
 		i = j
 	}
@@ -424,17 +424,17 @@ func (m dashboardModel) toggleAllDiffFolds() dashboardModel {
 // step, or nil if we don't have it yet (in which case callers should issue
 // ensureDiffBaseDetailCmd and re-render once the fetch completes).
 func (m *dashboardModel) lookupDiffBaseDetail() *ipc.GetStepDetailResponse {
-	if m.inspectorDiffBase == 0 {
+	if m.inspector.DiffBase == 0 {
 		return nil
 	}
 	if m.timeline.StepDetailCache != nil {
-		if d, ok := m.timeline.StepDetailCache[m.inspectorDiffBase]; ok && d != nil {
+		if d, ok := m.timeline.StepDetailCache[m.inspector.DiffBase]; ok && d != nil {
 			return d
 		}
 	}
 	// prev-detail is often adjacent; use it if it matches the base step.
-	if m.inspectorPrevDetail != nil && m.inspectorPrevStep == m.inspectorDiffBase {
-		return m.inspectorPrevDetail
+	if m.inspector.PrevDetail != nil && m.inspector.PrevStep == m.inspector.DiffBase {
+		return m.inspector.PrevDetail
 	}
 	return nil
 }
@@ -442,13 +442,13 @@ func (m *dashboardModel) lookupDiffBaseDetail() *ipc.GetStepDetailResponse {
 // ensureDiffBaseDetailCmd issues a fetch for the diff base detail if we don't
 // already have it cached. Returns nil if the cache already satisfies us.
 func (m dashboardModel) ensureDiffBaseDetailCmd() tea.Cmd {
-	if m.inspectorDiffBase == 0 {
+	if m.inspector.DiffBase == 0 {
 		return nil
 	}
 	if m.lookupDiffBaseDetail() != nil {
 		return nil
 	}
-	return fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, m.inspectorDiffBase)
+	return fetchInspectorDetailCmd(m.inspector.PID, m.inspector.UUID, m.inspector.DiffBase)
 }
 
 // buildDiffLensContent produces the diff rendering of the current lens by
@@ -465,7 +465,7 @@ func (m dashboardModel) buildDiffLensContent(lens inspectorLens, base, current *
 			Render(fmt.Sprintf("  content too large to diff (>%d lines) — exit diff to view", diffMaxLines))
 	}
 	lines := computeLineDiff(baseLines, curLines)
-	return renderDiff(lines, m.inspectorDiffUnfolded, ui.IsASCIIMode())
+	return renderDiff(lines, m.inspector.DiffUnfolded, ui.IsASCIIMode())
 }
 
 // toggleFollowLive toggles the Follow live auto-jump behaviour. Follow is
@@ -473,8 +473,8 @@ func (m dashboardModel) buildDiffLensContent(lens inspectorLens, base, current *
 // change). Enabling Follow auto-jumps to the latest step, starts the polling
 // tick, and — per AC-15 — exits diff mode first if active.
 func (m dashboardModel) toggleFollowLive() (tea.Model, tea.Cmd) {
-	if m.inspectorFollowLive {
-		m.inspectorFollowLive = false
+	if m.inspector.FollowLive {
+		m.inspector.FollowLive = false
 		m.statusMsg = "Follow live: off (F 恢复)"
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
@@ -489,28 +489,28 @@ func (m dashboardModel) toggleFollowLive() (tea.Model, tea.Cmd) {
 	}
 
 	// AC-15: exit diff first if active.
-	if m.inspectorDiffMode {
+	if m.inspector.DiffMode {
 		m = m.exitInspectorDiff()
 	}
 
-	m.inspectorFollowLive = true
+	m.inspector.FollowLive = true
 	// Story 36-6 fix: bump generation so stale ticks (scheduled during a prior
 	// on-period) see a mismatch in handleFollowLiveTickMsg and self-terminate.
-	m.inspectorFollowGen++
+	m.inspector.FollowGen++
 	m.statusMsg = "Follow live: on (F 关闭)"
 	m.statusMsgTTL = statusMsgDefaultTTL
 
 	// Jump to latest step immediately if one exists.
 	var cmds []tea.Cmd
-	if len(m.inspectorSteps) > 0 {
-		latest := m.inspectorSteps[len(m.inspectorSteps)-1].Step
-		if latest != m.inspectorStep || m.inspectorDetail == nil {
-			m.inspectorStep = latest
-			m.inspectorFetching = true
-			cmds = append(cmds, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, latest))
+	if len(m.inspector.Steps) > 0 {
+		latest := m.inspector.Steps[len(m.inspector.Steps)-1].Step
+		if latest != m.inspector.Step || m.inspector.Detail == nil {
+			m.inspector.Step = latest
+			m.inspector.Fetching = true
+			cmds = append(cmds, fetchInspectorDetailCmd(m.inspector.PID, m.inspector.UUID, latest))
 		}
 	}
-	cmds = append(cmds, followLiveTickCmd(m.inspectorPID, m.inspectorUUID, m.inspectorFollowGen))
+	cmds = append(cmds, followLiveTickCmd(m.inspector.PID, m.inspector.UUID, m.inspector.FollowGen))
 	return m, tea.Batch(cmds...)
 }
 
@@ -519,13 +519,13 @@ func (m dashboardModel) toggleFollowLive() (tea.Model, tea.Cmd) {
 // live process table (e.g. already reaped).
 func (m dashboardModel) inspectorProcessState() (types.ProcessState, bool) {
 	for _, p := range m.processes {
-		if p.PID == m.inspectorPID && (m.inspectorUUID == "" || p.UUID == m.inspectorUUID) {
+		if p.PID == m.inspector.PID && (m.inspector.UUID == "" || p.UUID == m.inspector.UUID) {
 			return p.State, true
 		}
 	}
 	// If the process is not in the live table, treat it as Dead — the daemon
 	// has already reaped it, so Follow live has nothing to follow.
-	if m.inspectorPID != 0 {
+	if m.inspector.PID != 0 {
 		return types.StateDead, true
 	}
 	return types.StateCreated, false
@@ -539,34 +539,34 @@ func (m dashboardModel) inspectorProcessState() (types.ProcessState, bool) {
 // diff base, the current lens is re-rendered to show the now-available diff.
 func (m dashboardModel) handleInspectorDetailMsg(msg inspectorDetailMsg) (dashboardModel, tea.Cmd) {
 	if msg.err != nil {
-		m.inspectorFetching = false
+		m.inspector.Fetching = false
 		m.statusMsg = fmt.Sprintf("✗ Inspector: %v", msg.err)
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	}
-	if msg.detail == nil || msg.pid != m.inspectorPID || msg.uuid != m.inspectorUUID {
+	if msg.detail == nil || msg.pid != m.inspector.PID || msg.uuid != m.inspector.UUID {
 		return m, nil
 	}
 	if m.timeline.StepDetailCache != nil {
 		m.timeline.StepDetailCache[msg.step] = msg.detail
 	}
-	if msg.step == m.inspectorStep {
-		m.inspectorFetching = false
-		m.inspectorPrevStep = m.inspectorCurDetailStep
-		m.inspectorPrevDetail = m.inspectorDetail
-		m.inspectorDetail = msg.detail
-		m.inspectorCurDetailStep = msg.step
-		m.inspectorStep = msg.step
-		m.inspectorSystemExpanded = false
+	if msg.step == m.inspector.Step {
+		m.inspector.Fetching = false
+		m.inspector.PrevStep = m.inspector.CurDetailStep
+		m.inspector.PrevDetail = m.inspector.Detail
+		m.inspector.Detail = msg.detail
+		m.inspector.CurDetailStep = msg.step
+		m.inspector.Step = msg.step
+		m.inspector.SystemExpanded = false
 		// Story 38-3 review P9: when the focused step changes, the diff
 		// markers (base vs current) must be recomputed before lens content
 		// is rebuilt — otherwise the cached marks reflect the previous
 		// current step and stay visually stale.
-		if m.inspectorDiffMode {
+		if m.inspector.DiffMode {
 			m.refreshInspectorDiffLensMarks()
 		}
 		m.rebuildInspectorContents()
-	} else if m.inspectorDiffMode && msg.step == m.inspectorDiffBase {
+	} else if m.inspector.DiffMode && msg.step == m.inspector.DiffBase {
 		// Story 38-3 review P9: when the async base detail finally arrives,
 		// recompute marks now that lookupDiffBaseDetail() returns non-nil.
 		// Without this, the initial enterInspectorDiff call zeroed marks and
@@ -589,37 +589,37 @@ func (m dashboardModel) handleInspectorStepListMsg(msg inspectorStepListMsg) (da
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	}
-	if msg.pid != m.inspectorPID || msg.uuid != m.inspectorUUID {
+	if msg.pid != m.inspector.PID || msg.uuid != m.inspector.UUID {
 		return m, nil
 	}
 	if len(msg.steps) > 0 {
-		prevLen := len(m.inspectorSteps)
-		m.inspectorSteps = msg.steps
-		m.inspectorStepMax = msg.steps[len(msg.steps)-1].Step
-		if m.inspectorFollowLive && len(msg.steps) > prevLen && m.viewMode == viewStepInspector {
+		prevLen := len(m.inspector.Steps)
+		m.inspector.Steps = msg.steps
+		m.inspector.StepMax = msg.steps[len(msg.steps)-1].Step
+		if m.inspector.FollowLive && len(msg.steps) > prevLen && m.viewMode == viewStepInspector {
 			latest := msg.steps[len(msg.steps)-1].Step
-			if latest != m.inspectorStep {
-				m.inspectorStep = latest
-				m.inspectorFetching = true
-				vp := m.inspectorViewports[m.inspectorLens]
+			if latest != m.inspector.Step {
+				m.inspector.Step = latest
+				m.inspector.Fetching = true
+				vp := m.inspector.Viewports[m.inspector.Lens]
 				vp.GotoTop()
-				m.inspectorViewports[m.inspectorLens] = vp
-				return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, latest)
+				m.inspector.Viewports[m.inspector.Lens] = vp
+				return m, fetchInspectorDetailCmd(m.inspector.PID, m.inspector.UUID, latest)
 			}
 		}
-		if m.inspectorDetail == nil && m.viewMode == viewStepInspector && !m.inspectorFetching {
+		if m.inspector.Detail == nil && m.viewMode == viewStepInspector && !m.inspector.Fetching {
 			firstStep := msg.steps[0].Step
-			m.inspectorStep = firstStep
-			m.inspectorFetching = true
-			return m, fetchInspectorDetailCmd(m.inspectorPID, m.inspectorUUID, firstStep)
+			m.inspector.Step = firstStep
+			m.inspector.Fetching = true
+			return m, fetchInspectorDetailCmd(m.inspector.PID, m.inspector.UUID, firstStep)
 		}
 		return m, nil
 	}
 	if m.viewMode == viewStepInspector {
 		noData := "  No step data recorded for this process.\n  (Process may have failed before completing any reasoning step)\n"
-		for i := range m.inspectorContents {
-			m.inspectorContents[i] = noData
-			m.inspectorViewports[i].SetContent(noData)
+		for i := range m.inspector.Contents {
+			m.inspector.Contents[i] = noData
+			m.inspector.Viewports[i].SetContent(noData)
 		}
 	}
 	return m, nil
@@ -631,17 +631,17 @@ func (m dashboardModel) handleInspectorStepListMsg(msg inspectorStepListMsg) (da
 // to a different process (PID or UUID changed), or when the tick belongs to a
 // prior Follow activation generation (rapid F-toggle dedup).
 func (m dashboardModel) handleFollowLiveTickMsg(msg followLiveTickMsg) (dashboardModel, tea.Cmd) {
-	if !m.inspectorFollowLive || m.viewMode != viewStepInspector {
+	if !m.inspector.FollowLive || m.viewMode != viewStepInspector {
 		return m, nil
 	}
-	if msg.pid != m.inspectorPID || msg.uuid != m.inspectorUUID {
+	if msg.pid != m.inspector.PID || msg.uuid != m.inspector.UUID {
 		return m, nil
 	}
-	if msg.gen != m.inspectorFollowGen {
+	if msg.gen != m.inspector.FollowGen {
 		return m, nil
 	}
 	return m, tea.Batch(
-		fetchInspectorStepListCmd(m.inspectorPID, m.inspectorUUID),
-		followLiveTickCmd(m.inspectorPID, m.inspectorUUID, m.inspectorFollowGen),
+		fetchInspectorStepListCmd(m.inspector.PID, m.inspector.UUID),
+		followLiveTickCmd(m.inspector.PID, m.inspector.UUID, m.inspector.FollowGen),
 	)
 }

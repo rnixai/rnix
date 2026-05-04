@@ -1814,15 +1814,15 @@ func newTestStepInspectorModel() dashboardModel {
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
 	m.viewMode = viewStepInspector
-	m.inspectorPID = 2
-	m.inspectorUUID = "uuid-mock-002"
-	m.inspectorLens = lensConversation
+	m.inspector.PID = 2
+	m.inspector.UUID = "uuid-mock-002"
+	m.inspector.Lens = lensConversation
 	m.activePane = paneTree
 	// Provide default step list for navigation tests
-	m.inspectorSteps = []ipc.StepSummaryWire{
+	m.inspector.Steps = []ipc.StepSummaryWire{
 		{Step: 0}, {Step: 1}, {Step: 2}, {Step: 3}, {Step: 4}, {Step: 5},
 	}
-	m.inspectorStepMax = 5
+	m.inspector.StepMax = 5
 	return m
 }
 
@@ -1905,7 +1905,7 @@ func TestStepInspector_ViewContainsLensTabs(t *testing.T) {
 
 func TestStepInspector_HKeyPrevStep(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStep = 2
+	m.inspector.Step = 2
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'h'})
 
@@ -1916,7 +1916,7 @@ func TestStepInspector_HKeyPrevStep(t *testing.T) {
 
 func TestStepInspector_HKeyBoundaryNoFetch(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStep = 0
+	m.inspector.Step = 0
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'h'})
 
@@ -1929,7 +1929,7 @@ func TestStepInspector_HKeyBoundaryNoFetch(t *testing.T) {
 
 func TestStepInspector_LKeyNextStep(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStepMax = 5
+	m.inspector.StepMax = 5
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 
@@ -1941,8 +1941,8 @@ func TestStepInspector_LKeyNextStep(t *testing.T) {
 func TestStepInspector_LKeyNextStepBlockedBeforeLoad(t *testing.T) {
 	m := newTestStepInspectorModel()
 	// Clear step list to simulate "not loaded yet"
-	m.inspectorSteps = nil
-	m.inspectorStepMax = 0
+	m.inspector.Steps = nil
+	m.inspector.StepMax = 0
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 
@@ -1953,8 +1953,8 @@ func TestStepInspector_LKeyNextStepBlockedBeforeLoad(t *testing.T) {
 
 func TestStepInspector_LKeyBoundaryNoFetch(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStepMax = 5
-	m.inspectorStep = 5
+	m.inspector.StepMax = 5
+	m.inspector.Step = 5
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 
@@ -1965,9 +1965,9 @@ func TestStepInspector_LKeyBoundaryNoFetch(t *testing.T) {
 
 func TestStepInspector_FetchingGuardBlocksConcurrent(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStep = 2
-	m.inspectorStepMax = 5
-	m.inspectorFetching = true
+	m.inspector.Step = 2
+	m.inspector.StepMax = 5
+	m.inspector.Fetching = true
 
 	_, cmdH := m.Update(tea.KeyPressMsg{Code: 'h'})
 	_, cmdL := m.Update(tea.KeyPressMsg{Code: 'l'})
@@ -2050,8 +2050,8 @@ func TestStepInspector_ExpandedTreeLKey(t *testing.T) {
 	if um.viewMode != viewStepInspector {
 		t.Errorf("L in expanded tree view should enter viewStepInspector, got viewMode=%d", um.viewMode)
 	}
-	if um.inspectorPrevMode != viewExpanded {
-		t.Errorf("Inspector should save prev mode as viewExpanded, got %d", um.inspectorPrevMode)
+	if um.inspector.PrevMode != int(viewExpanded) {
+		t.Errorf("Inspector should save prev mode as viewExpanded, got %d", um.inspector.PrevMode)
 	}
 }
 
@@ -2088,7 +2088,7 @@ func TestStepInspector_KKeyScrollsNotTree(t *testing.T) {
 
 func TestStepInspector_EscReturnsToExpandedView(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorPrevMode = viewExpanded
+	m.inspector.PrevMode = int(viewExpanded)
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	um := updated.(dashboardModel)
@@ -2127,8 +2127,8 @@ func TestStepInspector_LensSwitching(t *testing.T) {
 		m := newTestStepInspectorModel()
 		updated, _ := m.Update(tea.KeyPressMsg{Code: tt.key})
 		um := updated.(dashboardModel)
-		if um.inspectorLens != tt.expected {
-			t.Errorf("key '%c' should switch to lens %d, got %d", tt.key, tt.expected, um.inspectorLens)
+		if um.inspector.Lens != tt.expected {
+			t.Errorf("key '%c' should switch to lens %d, got %d", tt.key, tt.expected, um.inspector.Lens)
 		}
 	}
 }

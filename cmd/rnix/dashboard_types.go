@@ -7,6 +7,7 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/trace"
@@ -245,18 +246,26 @@ type promptPagerMsg struct {
 }
 
 // --- Step Inspector types (Story 36-1, replaces LLM Viewer + Prompt Pager) ---
+//
+// Story 38-5 PR10 Step 1: 类型迁出至 internal/dashboard/inspector，cmd/rnix 端
+// 通过 type alias + const ref 保留旧名零行为变化（与 PR2 flatRow / PR3
+// heatmapSegment / PR4 stepEntry / PR6 intentFlatNode / PR8 spanFlatNode 同模式）。
 
-type inspectorLens int
+// inspectorLens alias 保留旧名 · ATDD 测试 grep 字符串 / 现有 caller 零行为变化。
+//
+//nolint:unused // 通过 lensConversation/lensSystem/... 常量隐式使用。
+type inspectorLens = inspector.Lens
 
+// 5-lens 常量保留旧名 · 38-3 落地视觉规则的 5 个 case 分支依赖此名称。
 const (
-	lensConversation inspectorLens = iota // ❶ Message flow
-	lensSystem                            // ❷ System prompt
-	lensToolIO                            // ❸ Tool call details
-	lensMeta                              // ❹ Metadata
-	lensRawJSON                           // ❺ Raw JSON
+	lensConversation = inspector.LensConversation // ❶ Message flow
+	lensSystem       = inspector.LensSystem       // ❷ System prompt
+	lensToolIO       = inspector.LensToolIO       // ❸ Tool call details
+	lensMeta         = inspector.LensMeta         // ❹ Metadata
+	lensRawJSON      = inspector.LensRawJSON      // ❺ Raw JSON
 )
 
-const inspectorLensCount = 5
+const inspectorLensCount = inspector.LensCount
 
 type inspectorDetailMsg struct {
 	pid    types.PID

@@ -120,7 +120,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				// Story 36-1: P key enters Inspector with System Lens
 				m2, cmd := m.enterStepInspector()
 				m3 := m2.(dashboardModel)
-				m3.inspectorLens = lensSystem
+				m3.inspector.Lens = lensSystem
 				return m3, cmd
 			}
 		}
@@ -129,7 +129,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		if (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.timeline.StepEntries) == 0 {
 			m2, cmd := m.enterStepInspector()
 			m3 := m2.(dashboardModel)
-			m3.inspectorLens = lensSystem
+			m3.inspector.Lens = lensSystem
 			return m3, cmd
 		}
 	}
@@ -138,7 +138,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	if m.activePane == paneTimeline && (key == "P" || key == "shift+P" || msg.ShiftedCode == 'P') && len(m.timeline.StepEntries) == 0 {
 		m2, cmd := m.enterStepInspector()
 		m3 := m2.(dashboardModel)
-		m3.inspectorLens = lensSystem
+		m3.inspector.Lens = lensSystem
 		return m3, cmd
 	}
 

@@ -73,7 +73,7 @@ func TestBuildToolIOLens_BoxDrawing(t *testing.T) {
 	t.Run("input_box_unicode", func(t *testing.T) {
 		m := newTestInspectorModelWithDetail()
 		m.width = 100
-		content := m.buildLensContent(lensToolIO, m.inspectorDetail, nil)
+		content := m.buildLensContent(lensToolIO, m.inspector.Detail, nil)
 		if !strings.Contains(content, "┌") || !strings.Contains(content, "Input") {
 			t.Errorf("unicode mode: Input box should contain ┌ and Input title; got:\n%s", content)
 		}
@@ -83,7 +83,7 @@ func TestBuildToolIOLens_BoxDrawing(t *testing.T) {
 		m := newTestInspectorModelWithDetail()
 		m.width = 100
 		// Inject error to trigger Error box
-		detail := *m.inspectorDetail
+		detail := *m.inspector.Detail
 		detail.ToolError = "permission denied"
 		content := m.buildLensContent(lensToolIO, &detail, nil)
 		if !strings.Contains(content, "Error") {
@@ -117,7 +117,7 @@ func TestBuildToolIOLens_BoxDrawing(t *testing.T) {
 	t.Run("narrow_terminal_60cols", func(t *testing.T) {
 		m := newTestInspectorModelWithDetail()
 		m.width = 60
-		content := m.buildLensContent(lensToolIO, m.inspectorDetail, nil)
+		content := m.buildLensContent(lensToolIO, m.inspector.Detail, nil)
 		// inspectorBoxWidth(60) → 56. Each line of the box must not exceed 56 chars
 		// (run-count, ANSI-stripped) — best-effort check.
 		for line := range strings.SplitSeq(content, "\n") {
@@ -135,7 +135,7 @@ func TestBuildToolIOLens_BoxDrawing(t *testing.T) {
 		_ = ui.IsASCIIMode()
 		m := newTestInspectorModelWithDetail()
 		m.width = 100
-		content := m.buildLensContent(lensToolIO, m.inspectorDetail, nil)
+		content := m.buildLensContent(lensToolIO, m.inspector.Detail, nil)
 		// In ASCII fallback, box uses + and -; should not contain Unicode box chars.
 		if strings.Contains(content, "┌") || strings.Contains(content, "│") {
 			t.Errorf("ASCII mode should not contain box-drawing runes; got snippet:\n%s", content)
@@ -203,12 +203,12 @@ func TestRenderStepRail_AsciiMode(t *testing.T) {
 // + number row, with correct color assignment for current/error/tool/reasoning.
 func TestRenderStepThumbnailBar_BasicGlyphs(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspectorSteps = []ipc.StepSummaryWire{
+	m.inspector.Steps = []ipc.StepSummaryWire{
 		{Step: 1, ToolPath: "/dev/fs"},
 		{Step: 2, HasError: true},
 		{Step: 3},
 	}
-	m.inspectorStep = 2
+	m.inspector.Step = 2
 	m.width = 80
 	bar := m.renderStepThumbnailBar(m.width)
 	stripped := stripANSIApprox(bar)
@@ -225,8 +225,8 @@ func TestRenderStepThumbnailBar_BasicGlyphs(t *testing.T) {
 func TestRenderStepThumbnailBar_AsciiMode(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "1")
 	m := newTestInspectorModelWithDetail()
-	m.inspectorSteps = []ipc.StepSummaryWire{{Step: 1}, {Step: 2}}
-	m.inspectorStep = 1
+	m.inspector.Steps = []ipc.StepSummaryWire{{Step: 1}, {Step: 2}}
+	m.inspector.Step = 1
 	bar := m.renderStepThumbnailBar(80)
 	stripped := stripANSIApprox(bar)
 
@@ -246,10 +246,10 @@ func TestRenderStepThumbnailBar_CompressionWindow(t *testing.T) {
 	for i := range steps {
 		steps[i] = ipc.StepSummaryWire{Step: i + 1}
 	}
-	m.inspectorSteps = steps
+	m.inspector.Steps = steps
 
 	t.Run("current_in_middle", func(t *testing.T) {
-		m.inspectorStep = 50
+		m.inspector.Step = 50
 		bar := m.renderStepThumbnailBar(200)
 		stripped := stripANSIApprox(bar)
 		if !strings.Contains(stripped, "…") {
@@ -261,7 +261,7 @@ func TestRenderStepThumbnailBar_CompressionWindow(t *testing.T) {
 	})
 
 	t.Run("current_at_start", func(t *testing.T) {
-		m.inspectorStep = 2
+		m.inspector.Step = 2
 		bar := m.renderStepThumbnailBar(200)
 		stripped := stripANSIApprox(bar)
 		if !strings.Contains(stripped, "…") {
@@ -278,8 +278,8 @@ func TestRenderStepThumbnailBar_CompressionWindow(t *testing.T) {
 // glyphs (◆/◇/◈ in unicode mode, *.+ in ASCII mode).
 func TestRenderStepThumbnailBar_HiddenWhenHeightLow(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspectorSteps = []ipc.StepSummaryWire{{Step: 1}, {Step: 2}, {Step: 3}}
-	m.inspectorStep = 2
+	m.inspector.Steps = []ipc.StepSummaryWire{{Step: 1}, {Step: 2}, {Step: 3}}
+	m.inspector.Step = 2
 	m.width = 80
 
 	t.Run("h_below_20_skips_thumbnail", func(t *testing.T) {
@@ -327,10 +327,10 @@ func TestRenderLensTabs_TwoSpaceSeparator(t *testing.T) {
 // content differs in diff mode get a `*` suffix.
 func TestRenderLensTabs_DiffMark(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspectorDiffMode = true
+	m.inspector.DiffMode = true
 	// Manually populate the diff mark cache: pretend lens 0 and 2 differ.
-	m.inspectorDiffLensMarks[0] = true
-	m.inspectorDiffLensMarks[2] = true
+	m.inspector.DiffLensMarks[0] = true
+	m.inspector.DiffLensMarks[2] = true
 	tabs := m.renderLensTabs(200)
 	stripped := stripANSIApprox(tabs)
 	if !strings.Contains(stripped, "*") {
@@ -340,8 +340,8 @@ func TestRenderLensTabs_DiffMark(t *testing.T) {
 
 func TestRenderLensTabs_NoDiffMarkWhenInactive(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspectorDiffMode = false
-	m.inspectorDiffLensMarks[0] = true // should be ignored when not in diff mode
+	m.inspector.DiffMode = false
+	m.inspector.DiffLensMarks[0] = true // should be ignored when not in diff mode
 	tabs := m.renderLensTabs(200)
 	stripped := stripANSIApprox(tabs)
 	if strings.Contains(stripped, "*") {
@@ -359,8 +359,8 @@ func TestRenderLensTabs_NoDiffMarkWhenInactive(t *testing.T) {
 // DetailMsg flow where prevStep advances from 0 → 1 → 2 …).
 func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspectorPrevStep = 1
-	m.inspectorStep = 2
+	m.inspector.PrevStep = 1
+	m.inspector.Step = 2
 	prev := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
 	cur := &ipc.GetStepDetailResponse{SystemPrompt: "abc + 272 more chars" + strings.Repeat("x", 250)}
 
@@ -386,8 +386,8 @@ func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 
 	t.Run("first_step_no_annotation", func(t *testing.T) {
 		m2 := newTestInspectorModelWithDetail()
-		m2.inspectorPrevStep = 0
-		m2.inspectorStep = 1
+		m2.inspector.PrevStep = 0
+		m2.inspector.Step = 1
 		content := m2.buildLensContent(lensSystem, cur, nil)
 		stripped := stripANSIApprox(content)
 		if strings.Contains(stripped, "changed from step") {
@@ -397,8 +397,8 @@ func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 
 	t.Run("unchanged_preserves_legacy_text", func(t *testing.T) {
 		m2 := newTestInspectorModelWithDetail()
-		m2.inspectorPrevStep = 1
-		m2.inspectorStep = 2
+		m2.inspector.PrevStep = 1
+		m2.inspector.Step = 2
 		same := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
 		samePrev := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
 		content := m2.buildLensContent(lensSystem, same, samePrev)
@@ -413,7 +413,7 @@ func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 // three labeled sections separated by horizontal rules.
 func TestBuildMetaLens_ThreeSections(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+	content := m.buildLensContent(lensMeta, m.inspector.Detail, nil)
 	stripped := stripANSIApprox(content)
 	for _, title := range []string{"Tokens", "Action", "Counts"} {
 		if !strings.Contains(stripped, title) {
@@ -429,8 +429,8 @@ func TestBuildMetaLens_TokenBarChart(t *testing.T) {
 		m := newTestInspectorModelWithDetail()
 		// Bump tokens above the ~10K threshold so the bar shows at least 1
 		// filled cell (1500/200000 = <1 cell).
-		m.inspectorDetail.RequestTokens = 50000
-		content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+		m.inspector.Detail.RequestTokens = 50000
+		content := m.buildLensContent(lensMeta, m.inspector.Detail, nil)
 		stripped := stripANSIApprox(content)
 		if !strings.Contains(stripped, "█") || !strings.Contains(stripped, "░") {
 			t.Errorf("unicode meta lens should contain █ and ░ bar chars; got %q", stripped)
@@ -440,8 +440,8 @@ func TestBuildMetaLens_TokenBarChart(t *testing.T) {
 	t.Run("ascii", func(t *testing.T) {
 		t.Setenv("RNIX_ASCII", "1")
 		m := newTestInspectorModelWithDetail()
-		m.inspectorDetail.RequestTokens = 50000
-		content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+		m.inspector.Detail.RequestTokens = 50000
+		content := m.buildLensContent(lensMeta, m.inspector.Detail, nil)
 		stripped := stripANSIApprox(content)
 		if strings.Contains(stripped, "█") {
 			t.Errorf("ASCII meta lens should not contain █; got %q", stripped)
@@ -515,8 +515,8 @@ func TestBuildRawJSONLens_SyntaxHighlight(t *testing.T) {
 // performance fallback: JSON > 100KB skips the regex highlight.
 func TestBuildRawJSONLens_LargeBypassesHighlight(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspectorDetail.SystemPrompt = strings.Repeat("x", 110*1024)
-	content := m.buildLensContent(lensRawJSON, m.inspectorDetail, nil)
+	m.inspector.Detail.SystemPrompt = strings.Repeat("x", 110*1024)
+	content := m.buildLensContent(lensRawJSON, m.inspector.Detail, nil)
 	if strings.Contains(content, "\x1b[") {
 		t.Errorf(">100KB JSON should bypass syntax highlighting (no ANSI); got len=%d", len(content))
 	}
@@ -531,10 +531,10 @@ func TestFindInspectorMatchesByPos_SubstringPositions(t *testing.T) {
 	if len(positions) != 3 {
 		t.Errorf("expected 3 matches of 'auth'; got %d (%v)", len(positions), positions)
 	}
-	if positions[0].lineIdx != 0 || positions[0].byteStart != 0 {
+	if positions[0].LineIdx != 0 || positions[0].ByteStart != 0 {
 		t.Errorf("first match should be line 0 byte 0; got %+v", positions[0])
 	}
-	if positions[len(positions)-1].lineIdx != 2 {
+	if positions[len(positions)-1].LineIdx != 2 {
 		t.Errorf("last match should be on line 2; got %+v", positions[len(positions)-1])
 	}
 }
@@ -559,17 +559,17 @@ func TestFindInspectorMatchesByPos_CaseInsensitive(t *testing.T) {
 func TestRebuildInspectorContents_WordLevelSearch(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
 	m.searchQuery = "auth"
-	m.inspectorContents[m.inspectorLens] = "authentication failed\nrandom line"
+	m.inspector.Contents[m.inspector.Lens] = "authentication failed\nrandom line"
 	m.refreshInspectorSearchMatches()
 
-	if len(m.inspectorSearchPos) == 0 {
+	if len(m.inspector.SearchPos) == 0 {
 		t.Fatalf("refreshInspectorSearchMatches should populate inspectorSearchPos")
 	}
-	if len(m.inspectorSearchPos) != 1 {
-		t.Errorf("expected 1 match for 'auth'; got %d", len(m.inspectorSearchPos))
+	if len(m.inspector.SearchPos) != 1 {
+		t.Errorf("expected 1 match for 'auth'; got %d", len(m.inspector.SearchPos))
 	}
-	if m.inspectorSearchPos[0].byteEnd-m.inspectorSearchPos[0].byteStart != 4 {
-		t.Errorf("match span should be 4 bytes; got %d", m.inspectorSearchPos[0].byteEnd-m.inspectorSearchPos[0].byteStart)
+	if m.inspector.SearchPos[0].ByteEnd-m.inspector.SearchPos[0].ByteStart != 4 {
+		t.Errorf("match span should be 4 bytes; got %d", m.inspector.SearchPos[0].ByteEnd-m.inspector.SearchPos[0].ByteStart)
 	}
 }
 
@@ -582,8 +582,8 @@ func TestApplyWordLevelHighlight_DistinctCurrentVsOther(t *testing.T) {
 
 	content := "auth1 here\nauth2 there"
 	positions := []searchMatchPos{
-		{lineIdx: 0, byteStart: 0, byteEnd: 4},
-		{lineIdx: 1, byteStart: 11, byteEnd: 15},
+		{LineIdx: 0, ByteStart: 0, ByteEnd: 4},
+		{LineIdx: 1, ByteStart: 11, ByteEnd: 15},
 	}
 	searchMatches := []int{0, 1}
 	matchIdx := 1

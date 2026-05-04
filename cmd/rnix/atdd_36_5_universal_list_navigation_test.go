@@ -201,45 +201,45 @@ func TestATDD_36_5_AC7_IntentNavigation(t *testing.T) {
 func TestATDD_36_5_AC9_InspectorLensScrollOnly(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.viewMode = viewStepInspector
-	m.inspectorPID = 2
-	m.inspectorUUID = "uuid-mock-002"
-	m.inspectorLens = lensConversation
-	m.inspectorSteps = []ipc.StepSummaryWire{
+	m.inspector.PID = 2
+	m.inspector.UUID = "uuid-mock-002"
+	m.inspector.Lens = lensConversation
+	m.inspector.Steps = []ipc.StepSummaryWire{
 		{Step: 1}, {Step: 3}, {Step: 5},
 	}
-	m.inspectorStep = 3
-	m.inspectorStepMax = 5
+	m.inspector.Step = 3
+	m.inspector.StepMax = 5
 	// Prepare viewport with content
 	vp := viewport.New(viewport.WithHeight(5), viewport.WithWidth(40))
 	vp.SetContent(strings.Repeat("line\n", 50))
-	m.inspectorViewports[lensConversation] = vp
+	m.inspector.Viewports[lensConversation] = vp
 
 	// j should scroll viewport (not navigate step)
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	mm := m2.(dashboardModel)
-	if mm.inspectorStep != 3 {
-		t.Errorf("j should NOT change inspectorStep; got %d", mm.inspectorStep)
+	if mm.inspector.Step != 3 {
+		t.Errorf("j should NOT change inspectorStep; got %d", mm.inspector.Step)
 	}
 
 	// h should navigate to prev step (step 1)
 	m3, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	mm3 := m3.(dashboardModel)
-	if mm3.inspectorStep != 1 {
-		t.Errorf("h should go to prev step=1; got %d", mm3.inspectorStep)
+	if mm3.inspector.Step != 1 {
+		t.Errorf("h should go to prev step=1; got %d", mm3.inspector.Step)
 	}
 
 	// H (home) → first step (still 1 since that's already first)
 	m4, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'H', Text: "H"})
 	mm4 := m4.(dashboardModel)
-	if mm4.inspectorStep != 1 {
-		t.Errorf("H should go to first step=1; got %d", mm4.inspectorStep)
+	if mm4.inspector.Step != 1 {
+		t.Errorf("H should go to first step=1; got %d", mm4.inspector.Step)
 	}
 
 	// L (end) → last step (5)
 	m5, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'L', Text: "L"})
 	mm5 := m5.(dashboardModel)
-	if mm5.inspectorStep != 5 {
-		t.Errorf("L should go to last step=5; got %d", mm5.inspectorStep)
+	if mm5.inspector.Step != 5 {
+		t.Errorf("L should go to last step=5; got %d", mm5.inspector.Step)
 	}
 }
 
@@ -248,12 +248,12 @@ func TestATDD_36_5_AC9_InspectorLensScrollOnly(t *testing.T) {
 func TestATDD_36_5_AC12_SearchBasic(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.viewMode = viewStepInspector
-	m.inspectorLens = lensConversation
+	m.inspector.Lens = lensConversation
 	content := "alpha\nfoo line\nbeta\nfoo again\ngamma"
-	m.inspectorContents[lensConversation] = content
+	m.inspector.Contents[lensConversation] = content
 	vp := viewport.New(viewport.WithHeight(10), viewport.WithWidth(40))
 	vp.SetContent(content)
-	m.inspectorViewports[lensConversation] = vp
+	m.inspector.Viewports[lensConversation] = vp
 
 	// "/" enters search mode
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '/'})
@@ -315,10 +315,10 @@ func TestATDD_36_5_AC15_Regression(t *testing.T) {
 	// Inspector '1'-'5' lens switching
 	mi := newTestDashboardModel(mockDashboardProcs())
 	mi.viewMode = viewStepInspector
-	mi.inspectorLens = lensConversation
+	mi.inspector.Lens = lensConversation
 	m2i, _ := mi.Update(tea.KeyPressMsg{Code: '3'})
 	mm := m2i.(dashboardModel)
-	if mm.inspectorLens != lensToolIO {
-		t.Errorf("'3' should switch to Tool I/O lens; got %v", mm.inspectorLens)
+	if mm.inspector.Lens != lensToolIO {
+		t.Errorf("'3' should switch to Tool I/O lens; got %v", mm.inspector.Lens)
 	}
 }

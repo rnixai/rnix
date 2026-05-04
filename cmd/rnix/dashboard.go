@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -17,6 +16,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/eval"
+	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
@@ -76,22 +76,11 @@ type dashboardModel struct {
 	recording    map[string]string
 	statusMsgTTL int
 
-	// Step Inspector fields (Story 36-1, replaces LLM Viewer + Prompt Pager)
-	inspectorPID            types.PID
-	inspectorUUID           string
-	inspectorStep           int
-	inspectorStepMax        int
-	inspectorSteps          []ipc.StepSummaryWire
-	inspectorDetail         *ipc.GetStepDetailResponse
-	inspectorPrevDetail     *ipc.GetStepDetailResponse
-	inspectorPrevStep       int
-	inspectorCurDetailStep  int
-	inspectorLens           inspectorLens
-	inspectorViewports      [inspectorLensCount]viewport.Model
-	inspectorContents       [inspectorLensCount]string
-	inspectorPrevMode       viewMode
-	inspectorFetching       bool
-	inspectorSystemExpanded bool
+	// Story 38-5 PR10 Step 1: InspectorState 抽离（25 字段 · spec § AC6）— Story 36-1 / 38-3
+	// / 36-6 / 38-3 AC#7-8 落地全部行为契约保留。详见 internal/dashboard/inspector/state.go
+	// 包级注释。包含：核心步进 9 字段 + 5-lens 视觉 6 字段 + Diff mode 7 字段 + Follow Live 2
+	// 字段 + 38-3 AC#7/#8 lens marks + byte search 2 字段 = 25 字段（spec § AC6 line 165 列举）。
+	inspector inspector.InspectorState
 
 	// Story 36-5: Universal search state (Inspector + Timeline)
 	searchMode     bool
@@ -103,25 +92,6 @@ type dashboardModel struct {
 	searchReverse         bool      // true for reverse `?` search (n/N reversed)
 	searchCrossLens       bool      // placeholder — Ctrl-/ cross-lens (TODO, Story 36-7)
 	searchNoMatchExpireAt time.Time // TTL for the status-bar "No matches" notice
-
-	// Story 36-6: Inspector diff mode
-	inspectorDiffMode         bool          // Diff mode active
-	inspectorDiffBase         int           // base step number for diff
-	inspectorDiffDelta        int           // captured relative offset (current - base)
-	inspectorDiffUnfolded     map[int]bool  // expanded fold regions keyed by diff-line index
-	inspectorDiffPicker       bool          // base picker overlay active
-	inspectorDiffPickerCursor int           // cursor index in picker (into inspectorSteps)
-	inspectorDiffDdDeadline   time.Time     // dd double-tap window deadline
-
-	// Story 36-6: Follow live
-	inspectorFollowLive bool // Auto-jump to latest step as new steps arrive
-	inspectorFollowGen  int  // Generation counter — stale ticks (prior generation) are ignored
-
-	// Story 38-3 AC#7: per-lens diff-mark cache (refreshed on lens / base /
-	// current change). AC#8: byte-position search hits for word-level highlight
-	// — kept alongside searchMatches []int (Timeline still uses line indices).
-	inspectorDiffLensMarks [inspectorLensCount]bool
-	inspectorSearchPos     []searchMatchPos
 
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
@@ -277,6 +247,7 @@ func (m dashboardModel) IntentState() intent.IntentState { return m.intent }    
 func (m dashboardModel) SecurityState() security.SecurityState { return m.security } // Story 38-5 PR7 Step 1 · security.StateProvider · Deprecated: removed in PR11
 func (m dashboardModel) TraceState() trace.TraceState          { return m.trace }    // Story 38-5 PR8 Step 1 · trace.StateProvider · Deprecated: removed in PR11
 func (m dashboardModel) EvalState() eval.EvalState             { return m.eval }     // Story 38-5 PR9 Step 1 · eval.StateProvider · Deprecated: removed in PR11
+func (m dashboardModel) InspectorState() inspector.InspectorState { return m.inspector } // Story 38-5 PR10 Step 1 · inspector.StateProvider · Deprecated: removed in PR11
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -293,9 +264,9 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		if m.viewMode == viewStepInspector {
 			contentH := m.inspectorContentHeight()
-			for i := range m.inspectorViewports {
-				m.inspectorViewports[i].SetWidth(msg.Width)
-				m.inspectorViewports[i].SetHeight(contentH)
+			for i := range m.inspector.Viewports {
+				m.inspector.Viewports[i].SetWidth(msg.Width)
+				m.inspector.Viewports[i].SetHeight(contentH)
 			}
 		}
 		return m, nil
@@ -547,7 +518,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.viewMode != viewStepInspector {
 				m2, cmd := m.enterStepInspector()
 				m3 := m2.(dashboardModel)
-				m3.inspectorLens = lensSystem
+				m3.inspector.Lens = lensSystem
 				return m3, cmd
 			}
 		}
