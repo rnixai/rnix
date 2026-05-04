@@ -539,6 +539,78 @@ func RenderExpandedDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse,
 // 行为契约：固定值 50（不可调整 · 经验值 · 平衡渲染密度与上下文跳跃成本）。
 const AggGroupSize = 50
 
+// ItemHeightFn 是 EnsureStepCursorVisible 用于查询 filtered 数组中第 idx 项行高
+// 的 callback 抽象。让 timeline 包的视口算法无需依赖 UnifiedEvent 类型（避免反向
+// import event 包形成循环依赖 · 与 commit 7d1964c 同模式）。
+//
+// 调用方约束：
+//   - idx 必须在 [0, filteredLen) 范围内（EnsureStepCursorVisible 内部已 clamp）
+//   - 返回值必须 >= 1（行高至少 1 行 · 与 cmd/rnix.unifiedItemHeight 等价）
+//   - 不应有副作用（仅用于布局计算 · 多次调用同一 idx 必须返回相同值）
+type ItemHeightFn func(idx int) int
+
+// EnsureStepCursorVisible 调整 state.StepScrollTop 让 cursor 项进入视野（与
+// cmd/rnix.ensureStepCursorVisible 1:1 行为等价 · Story 38-5 PR11 Step 4(c)
+// timeline 视口算法迁出 · 第 6 个 timeline render block）。
+//
+// **行为契约（不变性 · ATDD 27-3 + 36-4 + 36-5 测试覆盖）**：
+//   - filteredLen == 0 → StepScrollTop = 0 直接返回（空列表防御）
+//   - cursor = min(state.StepCursor, filteredLen-1)（越界 clamp）
+//   - cursor < StepScrollTop → snap StepScrollTop 到 cursor（向上滚动）
+//   - cursor 已在视野（[StepScrollTop..cursor] 累计高度 ≤ viewportLines）→ no-op
+//   - cursor 不在视野 → 从 cursor 倒推 StepScrollTop 让 cursor 在视野底部
+//     · 倒推过程中确保 [newTop..cursor] 累计高度 ≤ viewportLines
+//     · 一旦加入下一项会超出 viewportLines · 停止倒推
+//
+// **签名设计**：
+//   - 接受 TimelineState（值类型 · 仅修改 StepScrollTop · 返回新状态）
+//   - heightAt callback 抽象 unifiedItemHeight · timeline 包零 UnifiedEvent 依赖
+//   - 返回新的 TimelineState · 调用方负责赋回 m.timeline
+//
+// **设计决策**（callback 注入 vs 直接 import event 包）：
+//   - event 包已 import timeline.StepEntry · timeline 反向 import event 形成循环
+//   - 选择 callback 注入（与 dashboard_timeline.go::renderUnifiedStepHeader 的
+//     HeaderContext 注入模式 · commit 19f7f5c 同模式）
+//   - cmd/rnix wrapper 用 closure 捕获 m + filtered · 调用契约不变
+func EnsureStepCursorVisible(state TimelineState, filteredLen, viewportLines int, heightAt ItemHeightFn) TimelineState {
+	if filteredLen == 0 {
+		state.StepScrollTop = 0
+		return state
+	}
+	cursor := min(state.StepCursor, filteredLen-1)
+
+	// If cursor is above scroll top, snap to cursor
+	if cursor < state.StepScrollTop {
+		state.StepScrollTop = cursor
+		return state
+	}
+
+	// Walk from scrollTop counting lines; if cursor fits, done
+	linesUsed := 0
+	for fi := state.StepScrollTop; fi <= cursor && fi < filteredLen; fi++ {
+		h := heightAt(fi)
+		if fi == cursor && linesUsed+h <= viewportLines {
+			return state // cursor is visible
+		}
+		linesUsed += h
+	}
+
+	// Cursor not visible: scroll down until it fits
+	// Walk backward from cursor filling the viewport
+	linesUsed = heightAt(cursor)
+	newTop := cursor
+	for newTop > 0 {
+		h := heightAt(newTop - 1)
+		if linesUsed+h > viewportLines {
+			break
+		}
+		linesUsed += h
+		newTop--
+	}
+	state.StepScrollTop = newTop
+	return state
+}
+
 // RenderAggregatedTimeline 渲染 timeline 的 aggregation mode（每 50 个 step
 // 聚合为 group · 折叠态显示 group 概要 · 展开态显示 group header + 个别 step 行）。
 //

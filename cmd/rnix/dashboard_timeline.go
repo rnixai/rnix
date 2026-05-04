@@ -1009,44 +1009,18 @@ func hasExpandableContent(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWi
 // · 直接调 timeline.EstimateExpandedLines / timeline.EstimateDebugLines 即可 · 这是
 // 重构推进中 wrapper 自然消解 · 与 PR2/PR3 「保留 wrapper 直到无 caller」模式一致）。
 
-// ensureStepCursorVisible adjusts stepScrollTop so the cursor item is within the viewport.
+// ensureStepCursorVisible — thin wrapper 委托 timeline.EnsureStepCursorVisible
+// (Story 38-5 PR11 Step 4(c) 第 6 个 timeline render block 迁出 · 续 commit
+// fb28dfa renderAggregatedTimeline 节奏 · 仍严格遵循 spec § 04 风险 5 中断保险原则)
+//
+// 保留 (m *dashboardModel) receiver 让 cmd/rnix 端 ~10 处 callsite（dashboard_timeline.go
+// 6 处 + dashboard_pane_dispatcher.go 4 处）零修改通过。callback closure 捕获
+// filtered + m.unifiedItemHeight · 让 timeline 包零 UnifiedEvent 依赖（避免循环）。
 func (m *dashboardModel) ensureStepCursorVisible(viewportLines int) {
 	filtered := m.filteredUnifiedEvents()
-	if len(filtered) == 0 {
-		m.timeline.StepScrollTop = 0
-		return
-	}
-	cursor := min(m.timeline.StepCursor, len(filtered)-1)
-
-	// If cursor is above scroll top, snap to cursor
-	if cursor < m.timeline.StepScrollTop {
-		m.timeline.StepScrollTop = cursor
-		return
-	}
-
-	// Walk from scrollTop counting lines; if cursor fits, done
-	linesUsed := 0
-	for fi := m.timeline.StepScrollTop; fi <= cursor && fi < len(filtered); fi++ {
-		h := m.unifiedItemHeight(filtered[fi])
-		if fi == cursor && linesUsed+h <= viewportLines {
-			return // cursor is visible
-		}
-		linesUsed += h
-	}
-
-	// Cursor not visible: scroll down until it fits
-	// Walk backward from cursor filling the viewport
-	linesUsed = m.unifiedItemHeight(filtered[cursor])
-	newTop := cursor
-	for newTop > 0 {
-		h := m.unifiedItemHeight(filtered[newTop-1])
-		if linesUsed+h > viewportLines {
-			break
-		}
-		linesUsed += h
-		newTop--
-	}
-	m.timeline.StepScrollTop = newTop
+	m.timeline = timeline.EnsureStepCursorVisible(m.timeline, len(filtered), viewportLines, func(idx int) int {
+		return m.unifiedItemHeight(filtered[idx])
+	})
 }
 
 // --- Step timeline helpers ---

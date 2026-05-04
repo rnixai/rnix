@@ -899,3 +899,127 @@ func TestRenderAggregatedTimeline_ScrollStartGroupAdvances(t *testing.T) {
 		t.Fatalf("expected cursor group 'Steps 151-200' in view: %q", out)
 	}
 }
+
+// ----- EnsureStepCursorVisible 行为测试（Story 38-5 PR11 Step 4(c) 第 6 个 timeline render block） -----
+//
+// 覆盖矩阵：
+//   - filteredLen == 0 → StepScrollTop = 0
+//   - cursor 越界（StepCursor > filteredLen-1）→ clamp 后处理
+//   - cursor < StepScrollTop → snap StepScrollTop 到 cursor
+//   - cursor 已在视野（线性高度 ≤ viewportLines）→ no-op
+//   - cursor 不在视野（cursor > scrollTop · 累计高度超 viewportLines）→ 倒推 newTop
+//   - 倒推时 viewportLines 容不下任何上一项 → newTop 等于 cursor
+//   - 不同 ItemHeightFn 返回值（uniform 1 / variable height）
+
+// constHeight 测试辅助：返回固定 1 行高 ItemHeightFn。
+func constHeight(_ int) int { return 1 }
+
+// variableHeight 测试辅助：返回可变高度（idx % 3 == 0 → 3 行 / 其他 → 1 行）。
+func variableHeight(idx int) int {
+	if idx%3 == 0 {
+		return 3
+	}
+	return 1
+}
+
+func TestEnsureStepCursorVisible_EmptyFiltered(t *testing.T) {
+	state := TimelineState{StepScrollTop: 5, StepCursor: 7}
+	got := EnsureStepCursorVisible(state, 0, 10, constHeight)
+	if got.StepScrollTop != 0 {
+		t.Fatalf("empty filtered: StepScrollTop = %d, want 0", got.StepScrollTop)
+	}
+}
+
+func TestEnsureStepCursorVisible_CursorAboveScrollTop(t *testing.T) {
+	state := TimelineState{StepScrollTop: 5, StepCursor: 2}
+	got := EnsureStepCursorVisible(state, 10, 5, constHeight)
+	if got.StepScrollTop != 2 {
+		t.Fatalf("cursor above scroll top: StepScrollTop = %d, want 2 (snap to cursor)", got.StepScrollTop)
+	}
+}
+
+func TestEnsureStepCursorVisible_CursorVisibleNoOp(t *testing.T) {
+	// scrollTop=2 · cursor=4 · uniform height 1 · viewport=5 → [2..4] = 3 lines ≤ 5 visible
+	state := TimelineState{StepScrollTop: 2, StepCursor: 4}
+	got := EnsureStepCursorVisible(state, 10, 5, constHeight)
+	if got.StepScrollTop != 2 {
+		t.Fatalf("cursor visible: StepScrollTop = %d, want 2 (no-op)", got.StepScrollTop)
+	}
+}
+
+func TestEnsureStepCursorVisible_CursorBelowViewport(t *testing.T) {
+	// scrollTop=0 · cursor=10 · uniform height 1 · viewport=3 → cursor 不在视野
+	// 倒推：newTop=10 + linesUsed=1 → newTop=9 linesUsed=2 → newTop=8 linesUsed=3 → 停止
+	state := TimelineState{StepScrollTop: 0, StepCursor: 10}
+	got := EnsureStepCursorVisible(state, 20, 3, constHeight)
+	if got.StepScrollTop != 8 {
+		t.Fatalf("cursor below viewport: StepScrollTop = %d, want 8 (newTop=cursor-2)", got.StepScrollTop)
+	}
+}
+
+func TestEnsureStepCursorVisible_CursorOutOfRangeClamped(t *testing.T) {
+	// StepCursor=20 · filteredLen=10 → clamp to 9
+	// scrollTop=0 · uniform height 1 · viewport=5 → cursor 9 walk 0..9 = 10 lines > 5
+	// 倒推 newTop=9..5 (linesUsed accumulates 1 each iteration · stops when 5 reached)
+	state := TimelineState{StepScrollTop: 0, StepCursor: 20}
+	got := EnsureStepCursorVisible(state, 10, 5, constHeight)
+	if got.StepScrollTop != 5 {
+		t.Fatalf("cursor out-of-range clamped: StepScrollTop = %d, want 5", got.StepScrollTop)
+	}
+}
+
+func TestEnsureStepCursorVisible_CursorVisibleAtScrollTop(t *testing.T) {
+	// scrollTop=3 · cursor=3 · viewport=1 · single line cursor 立即可见
+	state := TimelineState{StepScrollTop: 3, StepCursor: 3}
+	got := EnsureStepCursorVisible(state, 10, 1, constHeight)
+	if got.StepScrollTop != 3 {
+		t.Fatalf("cursor at scroll top: StepScrollTop = %d, want 3 (no-op)", got.StepScrollTop)
+	}
+}
+
+func TestEnsureStepCursorVisible_VariableHeightFitsBackward(t *testing.T) {
+	// variableHeight: idx 0,3,6,9 → 3 lines · idx 1,2,4,5,7,8 → 1 line
+	// scrollTop=0 · cursor=9 · viewport=10
+	// 倒推从 9: cursor 9 height 3 (linesUsed=3) →
+	//   newTop=9-1=8, h=1, 3+1=4≤10, advance → linesUsed=4
+	//   newTop=7, h=1, 4+1=5≤10, advance → linesUsed=5
+	//   newTop=6, h=3, 5+3=8≤10, advance → linesUsed=8
+	//   newTop=5, h=1, 8+1=9≤10, advance → linesUsed=9
+	//   newTop=4, h=1, 9+1=10≤10, advance → linesUsed=10
+	//   newTop=3, h=3, 10+3=13>10, stop
+	// 期望 newTop = 4
+	state := TimelineState{StepScrollTop: 0, StepCursor: 9}
+	got := EnsureStepCursorVisible(state, 10, 10, variableHeight)
+	if got.StepScrollTop != 4 {
+		t.Fatalf("variable height backward fit: StepScrollTop = %d, want 4", got.StepScrollTop)
+	}
+}
+
+func TestEnsureStepCursorVisible_TinyViewportCannotFit(t *testing.T) {
+	// scrollTop=0 · cursor=5 · viewport=1 · cursor 高度 1 占满 viewport · 倒推不能加任何项
+	state := TimelineState{StepScrollTop: 0, StepCursor: 5}
+	got := EnsureStepCursorVisible(state, 10, 1, constHeight)
+	if got.StepScrollTop != 5 {
+		t.Fatalf("tiny viewport: StepScrollTop = %d, want 5 (newTop = cursor)", got.StepScrollTop)
+	}
+}
+
+func TestEnsureStepCursorVisible_PreservesOtherFields(t *testing.T) {
+	// 验证 EnsureStepCursorVisible 仅修改 StepScrollTop · 其他字段保留
+	state := TimelineState{
+		StepScrollTop: 0,
+		StepCursor:    5,
+		AttachedPID:   types.PID(42),
+		AttachedUUID:  "uuid-test",
+	}
+	got := EnsureStepCursorVisible(state, 10, 5, constHeight)
+	if got.StepCursor != 5 {
+		t.Fatalf("StepCursor mutated: got %d, want 5", got.StepCursor)
+	}
+	if got.AttachedPID != types.PID(42) {
+		t.Fatalf("AttachedPID mutated: got %v, want 42", got.AttachedPID)
+	}
+	if got.AttachedUUID != "uuid-test" {
+		t.Fatalf("AttachedUUID mutated: got %q, want 'uuid-test'", got.AttachedUUID)
+	}
+}
