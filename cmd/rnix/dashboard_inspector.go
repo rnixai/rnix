@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -382,15 +381,11 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// isBackScrollKey reports whether the given key scrolls the viewport in the
-// "back" direction (upwards / toward earlier content), triggering Follow live
-// auto-off per Story 36-6 AC-13.
+// isBackScrollKey — thin wrapper · 见 internal/dashboard/inspector.IsBackScrollKey
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。Story 36-6 AC-13 Follow Live
+// 自动关闭判定的键位列表完整保留。
 func isBackScrollKey(key string) bool {
-	switch key {
-	case "k", "up", "pgup", "pageup", "ctrl+u", "ctrl+b", "g":
-		return true
-	}
-	return false
+	return inspector.IsBackScrollKey(key)
 }
 
 // stopFollowLiveWithStatus disables inspectorFollowLive and emits the
@@ -482,32 +477,10 @@ func (m *dashboardModel) refreshInspectorSearchMatches() {
 //
 // Byte offsets are reported in the original `content` so subsequent highlight
 // rendering can reuse them directly.
+// findInspectorMatchesByPos — thin wrapper · 见 internal/dashboard/inspector.FindInspectorMatchesByPos
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。Story 38-3 AC#8 词级搜索行为完整保留。
 func findInspectorMatchesByPos(content, query string) []searchMatchPos {
-	if query == "" {
-		return nil
-	}
-	re, err := regexp.Compile("(?i)" + regexp.QuoteMeta(query))
-	if err != nil {
-		return nil
-	}
-	var out []searchMatchPos
-	lineStart := 0
-	lineIdx := 0
-	for i := 0; i <= len(content); i++ {
-		if i == len(content) || (i < len(content) && content[i] == '\n') {
-			line := content[lineStart:i]
-			for _, m := range re.FindAllStringIndex(line, -1) {
-				out = append(out, searchMatchPos{
-					LineIdx:   lineIdx,
-					ByteStart: lineStart + m[0],
-					ByteEnd:   lineStart + m[1],
-				})
-			}
-			lineStart = i + 1
-			lineIdx++
-		}
-	}
-	return out
+	return inspector.FindInspectorMatchesByPos(content, query)
 }
 
 // clearSearchState resets dashboard search-related fields. Used when leaving
@@ -1109,35 +1082,10 @@ func (m *dashboardModel) rebuildInspectorContents() {
 	}
 }
 
-// applyWordLevelHighlight wraps each entry in `positions` with the
-// appropriate reverse-video style. Positions whose `lineIdx` matches the
-// current line (resolved from `searchMatches[matchIdx]`) get `curStyle`;
-// every other match gets `otherStyle`. The function processes positions in
-// reverse byte order so earlier insertions don't shift later byte offsets.
-// Story 38-3 AC#8.
+// applyWordLevelHighlight — thin wrapper · 见 internal/dashboard/inspector.ApplyWordLevelHighlight
+// Story 38-5 PR11 Step 4(a-2): 主体迁出至 inspector 包。Story 38-3 AC#8 词级高亮行为完整保留。
 func applyWordLevelHighlight(content string, positions []searchMatchPos, searchMatches []int, matchIdx int, curStyle, otherStyle lipgloss.Style) string {
-	currentLine := -1
-	if matchIdx >= 0 && matchIdx < len(searchMatches) {
-		currentLine = searchMatches[matchIdx]
-	}
-	// Sort-stable positions by descending byteStart by walking the slice in
-	// reverse — they are already produced in ascending order by line.
-	out := []byte(content)
-	for i := len(positions) - 1; i >= 0; i-- {
-		p := positions[i]
-		if p.ByteStart < 0 || p.ByteEnd > len(out) || p.ByteStart >= p.ByteEnd {
-			continue
-		}
-		matched := string(out[p.ByteStart:p.ByteEnd])
-		var styled string
-		if p.LineIdx == currentLine {
-			styled = curStyle.Render(matched)
-		} else {
-			styled = otherStyle.Render(matched)
-		}
-		out = append(out[:p.ByteStart], append([]byte(styled), out[p.ByteEnd:]...)...)
-	}
-	return string(out)
+	return inspector.ApplyWordLevelHighlight(content, positions, searchMatches, matchIdx, curStyle, otherStyle)
 }
 
 // buildLensContent builds display content for a specific lens.
