@@ -1,11 +1,10 @@
 package main
 
 import (
-	"time"
-
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
@@ -17,53 +16,51 @@ import (
 )
 
 // --- Severity levels for UnifiedEvent (Story 34.1 AC#1) ---
+//
+// Story 38-5 PR11 Step 4(a) (2026-05-04): Migrated to internal/dashboard/event.
+// cmd/rnix retains const aliases via const SevXxx = event.SevXxx so all 155
+// callsites continue to work unchanged (zero behavior change · pure code motion).
 
 const (
-	SevInfo     = 0
-	SevWarn     = 1
-	SevError    = 2
-	SevCritical = 3
+	SevInfo     = event.SevInfo
+	SevWarn     = event.SevWarn
+	SevError    = event.SevError
+	SevCritical = event.SevCritical
 )
 
 // --- Event type constants for UnifiedEvent (Story 34.1 AC#1) ---
+//
+// Story 38-5 PR11 Step 4(a): Migrated to internal/dashboard/event with const
+// alias re-export pattern (same as Severity above).
 
 const (
-	EventStep    = "step"
-	EventCompact = "compact"
-	EventBudget  = "budget"
-	EventSpawn   = "spawn"
-	EventExit    = "exit"
-	EventStall   = "stall"
-	EventImmune  = "immune"
-	EventError   = "error"
-	EventSyscall = "syscall"
+	EventStep    = event.EventStep
+	EventCompact = event.EventCompact
+	EventBudget  = event.EventBudget
+	EventSpawn   = event.EventSpawn
+	EventExit    = event.EventExit
+	EventStall   = event.EventStall
+	EventImmune  = event.EventImmune
+	EventError   = event.EventError
+	EventSyscall = event.EventSyscall
 )
 
 // UnifiedEvent merges reasoning steps and system events into a single type
-// for the unified event stream (Story 34.1). This is a Dashboard-layer type only.
-type UnifiedEvent struct {
-	Type      string
-	Severity  int
-	Timestamp time.Time
-	PID       types.PID
-	UUID      string
-	Summary   string
-	Detail    string
-	StepEntry *stepEntry
-	RawEvent  *ipc.SyscallEventWire
-	// IsSynthetic flags rows that were synthesised on the dashboard side
-	// (currently only synthSecurityAlerts for AC#4) — buildAlertEvents
-	// skips the TTL filter for these so the alert strip lifecycle is
-	// driven by the upstream IPC list rather than wall-clock TTL.
-	IsSynthetic bool
-}
+// for the unified event stream (Story 34.1).
+//
+// Story 38-5 PR11 Step 4(a) (2026-05-04): Migrated to internal/dashboard/event.
+// cmd/rnix retains a type alias `type UnifiedEvent = event.UnifiedEvent` so all
+// 155 callsites continue to work unchanged (zero behavior change · pure code
+// motion). New code in cmd/rnix should still use UnifiedEvent for readability;
+// new code in internal/dashboard/* should use event.UnifiedEvent directly.
+type UnifiedEvent = event.UnifiedEvent
 
-// UnifiedEventSlice implements sort.Interface, sorting by Timestamp descending (newest first).
-type UnifiedEventSlice []UnifiedEvent
-
-func (s UnifiedEventSlice) Len() int           { return len(s) }
-func (s UnifiedEventSlice) Less(i, j int) bool { return s[i].Timestamp.After(s[j].Timestamp) }
-func (s UnifiedEventSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+// UnifiedEventSlice implements sort.Interface, sorting by Timestamp descending
+// (newest first).
+//
+// Story 38-5 PR11 Step 4(a): Type alias to event.UnifiedEventSlice; behavior
+// unchanged.
+type UnifiedEventSlice = event.UnifiedEventSlice
 
 // --- compactEventsMsg is the tea.Msg for async compact event fetching (Story 34.1) ---
 
