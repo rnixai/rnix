@@ -399,19 +399,19 @@ func TestIntentEnter_HeaderTogglesCollapse(t *testing.T) {
 		}
 		m := newContractModel()
 		m.activePane = paneIntent
-		m.intentTrees = []*ipc.IntentTreeWire{tree}
-		m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
-		m.intentCursor = 0 // header
+		m.intent.Trees = []*ipc.IntentTreeWire{tree}
+		m.intent.FlatNodes = flattenIntentTreesWithCollapse(m.intent.Trees, m.intent.TreeCollapsed)
+		m.intent.Cursor = 0 // header
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)
-		if !g.intentTreeCollapsed["test root"] {
-			t.Errorf("expected first toggle to set collapsed[\"test root\"]=true, got map=%v", g.intentTreeCollapsed)
+		if !g.intent.TreeCollapsed["test root"] {
+			t.Errorf("expected first toggle to set collapsed[\"test root\"]=true, got map=%v", g.intent.TreeCollapsed)
 		}
 		// Second toggle restores default.
 		got2, _ := g.dashboardKey(keypressFromString("enter"))
 		g2 := got2.(dashboardModel)
-		if g2.intentTreeCollapsed["test root"] {
-			t.Errorf("expected second toggle to set collapsed[\"test root\"]=false, got map=%v", g2.intentTreeCollapsed)
+		if g2.intent.TreeCollapsed["test root"] {
+			t.Errorf("expected second toggle to set collapsed[\"test root\"]=false, got map=%v", g2.intent.TreeCollapsed)
 		}
 	})
 
@@ -425,14 +425,14 @@ func TestIntentEnter_HeaderTogglesCollapse(t *testing.T) {
 		}
 		m := newContractModel()
 		m.activePane = paneIntent
-		m.intentTrees = []*ipc.IntentTreeWire{tree}
-		m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
-		m.intentCursor = 0 // header
+		m.intent.Trees = []*ipc.IntentTreeWire{tree}
+		m.intent.FlatNodes = flattenIntentTreesWithCollapse(m.intent.Trees, m.intent.TreeCollapsed)
+		m.intent.Cursor = 0 // header
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)
 		// Terminal tree's user-toggle entry must remain absent (i.e. not flipped).
-		if g.intentTreeCollapsed["done root"] {
-			t.Errorf("terminal tree header should be a no-op, got map=%v", g.intentTreeCollapsed)
+		if g.intent.TreeCollapsed["done root"] {
+			t.Errorf("terminal tree header should be a no-op, got map=%v", g.intent.TreeCollapsed)
 		}
 	})
 
@@ -458,23 +458,23 @@ func TestIntentEnter_HeaderTogglesCollapse(t *testing.T) {
 		}
 		m := newContractModel()
 		m.activePane = paneIntent
-		m.intentTrees = []*ipc.IntentTreeWire{alpha, beta}
-		m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
-		m.intentCursor = 0 // alpha header
+		m.intent.Trees = []*ipc.IntentTreeWire{alpha, beta}
+		m.intent.FlatNodes = flattenIntentTreesWithCollapse(m.intent.Trees, m.intent.TreeCollapsed)
+		m.intent.Cursor = 0 // alpha header
 		got, _ := m.dashboardKey(keypressFromString("enter"))
 		g := got.(dashboardModel)
-		if !g.intentTreeCollapsed["alpha"] {
-			t.Fatalf("expected alpha collapsed after toggle, got map=%v", g.intentTreeCollapsed)
+		if !g.intent.TreeCollapsed["alpha"] {
+			t.Fatalf("expected alpha collapsed after toggle, got map=%v", g.intent.TreeCollapsed)
 		}
 		// Now alpha completes — but its collapse entry is preserved by RootIntent.
 		// Re-flatten with the same map and the entry must still target alpha.
 		alpha.State = "completed"
-		flat := flattenIntentTreesWithCollapse(g.intentTrees, g.intentTreeCollapsed)
+		flat := flattenIntentTreesWithCollapse(g.intent.Trees, g.intent.TreeCollapsed)
 		// alpha is now terminal so it auto-collapses regardless of map; the
 		// real assertion is that beta (idx 0 after sort) is NOT collapsed.
 		var betaHeader *intentFlatNode
 		for i := range flat {
-			if flat[i].isTreeHeader && flat[i].treeWire.RootIntent == "beta" {
+			if flat[i].IsTreeHeader && flat[i].TreeWire.RootIntent == "beta" {
 				betaHeader = &flat[i]
 				break
 			}
@@ -482,11 +482,11 @@ func TestIntentEnter_HeaderTogglesCollapse(t *testing.T) {
 		if betaHeader == nil {
 			t.Fatalf("beta header missing after re-flatten, flat=%v", flat)
 		}
-		if betaHeader.isCollapsed {
+		if betaHeader.IsCollapsed {
 			t.Errorf("beta must NOT inherit alpha's collapse via positional drift; isCollapsed=true")
 		}
-		if !g.intentTreeCollapsed["alpha"] {
-			t.Errorf("alpha collapse entry should persist by RootIntent, got map=%v", g.intentTreeCollapsed)
+		if !g.intent.TreeCollapsed["alpha"] {
+			t.Errorf("alpha collapse entry should persist by RootIntent, got map=%v", g.intent.TreeCollapsed)
 		}
 	})
 
@@ -516,10 +516,10 @@ func TestIntentEnter_DrillsToTimeline_ClearsUnread(t *testing.T) {
 	m := newContractModel()
 	m.activePane = paneIntent
 	m.processes = mockDashboardProcs() // includes PID 5
-	m.intentTrees = []*ipc.IntentTreeWire{tree}
-	m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
+	m.intent.Trees = []*ipc.IntentTreeWire{tree}
+	m.intent.FlatNodes = flattenIntentTreesWithCollapse(m.intent.Trees, m.intent.TreeCollapsed)
 	// Move cursor to the node entry (header is index 0; first node is index 1).
-	m.intentCursor = 1
+	m.intent.Cursor = 1
 	m.paneHasUnread[paneTimeline] = true
 	got, _ := m.dashboardKey(keypressFromString("enter"))
 	g := got.(dashboardModel)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
@@ -169,15 +170,12 @@ type procDetailResultMsg struct {
 
 // --- Intent tree types (Story 27-7) ---
 
-type intentFlatNode struct {
-	treeIndex    int
-	nodeID       string
-	indent       int
-	node         *ipc.IntentNodeWire
-	isTreeHeader bool
-	isCollapsed  bool // terminal tree shown collapsed
-	treeWire     *ipc.IntentTreeWire
-}
+// Story 38-5 PR6 Step 1: intentFlatNode 类型迁出至 internal/dashboard/intent.IntentFlatNode。
+// 此处保留 alias 让旧代码（dashboard_intent.go / atdd_36_5 测试 / atdd_29_1 grep 契约）零行为变化。
+// 字段访问需用大写（TreeIndex/NodeID/Indent/Node/IsTreeHeader/IsCollapsed/TreeWire）。
+//
+//nolint:unused // alias 通过 ATDD 29.1 line 344 grep 契约 "type intentFlatNode" + 测试构造 []intentFlatNode{} 隐式使用
+type intentFlatNode = intent.IntentFlatNode
 
 type heartbeatStatusMsg struct {
 	status *ipc.HeartbeatStatusResponse

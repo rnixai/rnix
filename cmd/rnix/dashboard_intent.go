@@ -140,10 +140,10 @@ func flattenIntentTreesWithCollapse(trees []*ipc.IntentTreeWire, userCollapsed m
 			collapsed = true
 		}
 		result = append(result, intentFlatNode{
-			treeIndex:    treeIdx,
-			isTreeHeader: true,
-			isCollapsed:  collapsed,
-			treeWire:     tree,
+			TreeIndex:    treeIdx,
+			IsTreeHeader: true,
+			IsCollapsed:  collapsed,
+			TreeWire:     tree,
 		})
 
 		// AC-2: Terminal trees shown collapsed (header only)
@@ -226,11 +226,11 @@ func flattenIntentTreesWithCollapse(trees []*ipc.IntentTreeWire, userCollapsed m
 
 		for _, n := range nodes {
 			result = append(result, intentFlatNode{
-				treeIndex: treeIdx,
-				nodeID:    n.id,
-				indent:    n.indent,
-				node:      n.node,
-				treeWire:  tree,
+				TreeIndex: treeIdx,
+				NodeID:    n.id,
+				Indent:    n.indent,
+				Node:      n.node,
+				TreeWire:  tree,
 			})
 		}
 	}
@@ -283,73 +283,73 @@ func (m dashboardModel) renderIntentPane(width, height int) string {
 	var b strings.Builder
 	b.WriteString(" Intent Tree\n")
 
-	if len(m.intentFlatNodes) == 0 {
+	if len(m.intent.FlatNodes) == 0 {
 		b.WriteString("\n    当前无意图分解任务。使用 rnix apply 创建声明式意图。")
 		return renderFixedPanel(b.String(), width, height, borderColor)
 	}
 
 	// Determine the treeIndex of the currently selected cursor
 	cursorTreeIndex := -1
-	if m.intentCursor < len(m.intentFlatNodes) {
-		cursorTreeIndex = m.intentFlatNodes[m.intentCursor].treeIndex
+	if m.intent.Cursor < len(m.intent.FlatNodes) {
+		cursorTreeIndex = m.intent.FlatNodes[m.intent.Cursor].TreeIndex
 	}
 
 	// Viewport: render only visible range (innerH - 1 for the header line)
 	visibleLines := max(innerH-1, 1)
-	startIdx := m.intentScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.intentFlatNodes))
+	startIdx := m.intent.ScrollOffset
+	endIdx := min(startIdx+visibleLines, len(m.intent.FlatNodes))
 
 	for i := startIdx; i < endIdx; i++ {
-		n := m.intentFlatNodes[i]
+		n := m.intent.FlatNodes[i]
 		cursor := "  "
-		if i == m.intentCursor {
+		if i == m.intent.Cursor {
 			cursor = "▸ "
 		}
 
-		if n.isTreeHeader {
+		if n.IsTreeHeader {
 			// AC-6: separator between trees (skip first tree)
-			if n.treeIndex > 0 {
+			if n.TreeIndex > 0 {
 				b.WriteString("  ───\n")
 			}
-			icon := intentStateIcon(n.treeWire.State)
-			headerStyle := lipgloss.NewStyle().Foreground(intentStateColor(n.treeWire.State))
+			icon := intentStateIcon(n.TreeWire.State)
+			headerStyle := lipgloss.NewStyle().Foreground(intentStateColor(n.TreeWire.State))
 			// AC-6: highlight tree title if cursor is in this tree
-			if n.treeIndex == cursorTreeIndex {
+			if n.TreeIndex == cursorTreeIndex {
 				headerStyle = headerStyle.Bold(true)
 			}
 			// AC-2: collapsed indicator for terminal trees
 			arrow := "▶"
-			if n.isCollapsed {
+			if n.IsCollapsed {
 				arrow = "▷"
 			}
-			line := fmt.Sprintf("%s%s %s [%s] %s", cursor, arrow, truncateStr(n.treeWire.RootIntent, 40), n.treeWire.State, icon)
+			line := fmt.Sprintf("%s%s %s [%s] %s", cursor, arrow, truncateStr(n.TreeWire.RootIntent, 40), n.TreeWire.State, icon)
 			b.WriteString(headerStyle.Render(line))
 			b.WriteString("\n")
 
 			// Fix #8: Empty Nodes map shows "(分解中...)"
-			if len(n.treeWire.Nodes) == 0 {
+			if len(n.TreeWire.Nodes) == 0 {
 				b.WriteString("    (分解中...)\n")
 			}
 			continue
 		}
 
-		if n.node == nil {
+		if n.Node == nil {
 			continue
 		}
 
-		indentStr := strings.Repeat("  ", n.indent+1)
-		icon := intentStateIcon(n.node.State)
-		intent := truncateStr(n.node.Intent, 40)
+		indentStr := strings.Repeat("  ", n.Indent+1)
+		icon := intentStateIcon(n.Node.State)
+		intent := truncateStr(n.Node.Intent, 40)
 
 		var pidStr string
-		if n.node.PID > 0 {
-			pidStr = fmt.Sprintf(" (PID:%d)", n.node.PID)
+		if n.Node.PID > 0 {
+			pidStr = fmt.Sprintf(" (PID:%d)", n.Node.PID)
 		}
 
-		stateColor := intentStateColor(n.node.State)
+		stateColor := intentStateColor(n.Node.State)
 		nodeStyle := lipgloss.NewStyle().Foreground(stateColor)
 
-		line := fmt.Sprintf("%s%s%s: %s %s%s", cursor, indentStr, n.nodeID, intent, icon, pidStr)
+		line := fmt.Sprintf("%s%s%s: %s %s%s", cursor, indentStr, n.NodeID, intent, icon, pidStr)
 		b.WriteString(nodeStyle.Render(line))
 		b.WriteString("\n")
 	}
@@ -360,10 +360,10 @@ func (m dashboardModel) renderIntentPane(width, height int) string {
 // intentAdjustScroll ensures intentCursor is visible within the viewport.
 func intentAdjustScroll(m *dashboardModel) {
 	visibleLines := max(m.height/2-3, 1) // approximate bottom-right pane visible area
-	if m.intentCursor < m.intentScrollOffset {
-		m.intentScrollOffset = m.intentCursor
+	if m.intent.Cursor < m.intent.ScrollOffset {
+		m.intent.ScrollOffset = m.intent.Cursor
 	}
-	if m.intentCursor >= m.intentScrollOffset+visibleLines {
-		m.intentScrollOffset = m.intentCursor - visibleLines + 1
+	if m.intent.Cursor >= m.intent.ScrollOffset+visibleLines {
+		m.intent.ScrollOffset = m.intent.Cursor - visibleLines + 1
 	}
 }

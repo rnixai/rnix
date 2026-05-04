@@ -341,7 +341,10 @@ func TestDashboardFileSplitting_TypesFileContainsTypes(t *testing.T) {
 		// 字面契约从 "type heatmapSegment struct" 放宽为 "type heatmapSegment"，alias 形式 + struct 形式
 		// 都通过；保留 grep 验证 dashboard_types.go 仍是声明该类型的入口（不允许迁出文件）。
 		"type heatmapSegment",
-		"type intentFlatNode struct",
+		// Story 38-5 PR6 Step 1: intentFlatNode 同 heatmapSegment 模式由 struct 改为 alias 至
+		// internal/dashboard/intent.IntentFlatNode（避免循环依赖；让 IntentState.FlatNodes 字段类型直接公开）。
+		// 字面契约从 "type intentFlatNode struct" 放宽为 "type intentFlatNode"。
+		"type intentFlatNode",
 		"type spanFlatNode struct",
 	}
 

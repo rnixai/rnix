@@ -688,7 +688,7 @@ func registerLayer2Intent(d *ui.Dispatcher) {
 				return nil
 			}
 			modes := []ui.Mode{{Name: "view", Value: "tree"}}
-			if total := len(m.intentFlatNodes); total > 0 {
+			if total := len(m.intent.FlatNodes); total > 0 {
 				modes = append(modes, ui.Mode{Name: "nodes", Value: fmt.Sprintf("%d", total)})
 			}
 			return modes

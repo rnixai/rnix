@@ -16,6 +16,7 @@ import (
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/detail"
+	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
@@ -126,12 +127,8 @@ type dashboardModel struct {
 	// Story 38-5 PR5 Step 1: DetailState 抽离（4 字段 · spec § AC5）— Detail/PID/Cache/Tick · Story 27-6 落地。
 	detail detail.DetailState
 
-	// Intent tree pane fields (Story 27-7)
-	intentTrees        []*ipc.IntentTreeWire
-	intentTreeErr      error
-	intentFlatNodes    []intentFlatNode
-	intentCursor       int
-	intentScrollOffset int
+	// Story 38-5 PR6 Step 1: IntentState 抽离（6 字段 · spec § AC5 · 27-7 + 38-4 落地 · 38-4 P1 stable RootIntent key）
+	intent intent.IntentState
 
 	// Security pane fields (Story 27-8)
 	immuneStatus         *ipc.ImmuneStatusResponse
@@ -212,7 +209,7 @@ type dashboardModel struct {
 	// Story 38-4: cross-pane linkage (see dashboard_events.go for contract)
 	paneHasUnread       [paneCount]bool
 	lastUnreadEventKeys map[string]struct{} // Story 38-4 P3: identity-based diff (replaces prevUnifiedEventCount); nil means "next tick syncs without marking" (PID switch / startup)
-	intentTreeCollapsed map[string]bool     // Story 38-4 P1: keyed by tree.RootIntent (stable across reordering); nil-safe
+	// 注：intentTreeCollapsed 已迁入 intent.IntentState.TreeCollapsed（PR6 Step 1）· 38-4 P1 行为不变
 
 	// Story 34.6: Debug mode — strace fusion
 	debugMode           bool                        // Debug mode active
@@ -264,7 +261,9 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 			ExpandMode:        timeline.ExpandModeCollapsed, // Story 36-4
 			UIState:           uiState,                    // Story 36-4: 首次升级提示持久化状态
 		},
-		intentTreeCollapsed: make(map[string]bool), // Story 38-4 AC#3 / P1: keyed by RootIntent
+		intent: intent.IntentState{
+			TreeCollapsed: make(map[string]bool), // Story 38-4 AC#3 / P1: keyed by RootIntent
+		},
 		debugShowStrace:    true, // Story 34.6: show strace events by default
 		debugDeviceLatency: make(map[string]*deviceLatencyStats),
 	}
@@ -297,6 +296,7 @@ func (m dashboardModel) TimelineState() timeline.TimelineState { return m.timeli
 // DetailState transitional getter (Story 38-5 PR5 Step 1; Deprecated: removed in PR11).
 func (m dashboardModel) DetailState() detail.DetailState { return m.detail }
 func (m dashboardModel) SelectedPID() types.PID          { return m.selectedPID } // Story 38-5 PR5 Step 2 · detail.SelectedPIDProvider
+func (m dashboardModel) IntentState() intent.IntentState { return m.intent }      // Story 38-5 PR6 Step 1 · intent.StateProvider · Deprecated: removed in PR11
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -393,19 +393,19 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case intentTreesMsg:
 		if msg.err != nil {
-			m.intentTreeErr = msg.err
+			m.intent.TreeErr = msg.err
 			return m, nil
 		}
-		m.intentTreeErr = nil
+		m.intent.TreeErr = nil
 		if msg.trees == nil {
-			m.intentTrees = nil
-			m.intentFlatNodes = nil
+			m.intent.Trees = nil
+			m.intent.FlatNodes = nil
 			return m, nil
 		}
-		m.intentTrees = msg.trees.Intents
-		m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
-		if m.intentCursor >= len(m.intentFlatNodes) {
-			m.intentCursor = max(0, len(m.intentFlatNodes)-1)
+		m.intent.Trees = msg.trees.Intents
+		m.intent.FlatNodes = flattenIntentTreesWithCollapse(m.intent.Trees, m.intent.TreeCollapsed)
+		if m.intent.Cursor >= len(m.intent.FlatNodes) {
+			m.intent.Cursor = max(0, len(m.intent.FlatNodes)-1)
 		}
 		return m, nil
 	case immuneStatusMsg:
@@ -888,7 +888,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Fetch intent trees only when Intent pane is active (no longer needed every tick)
 	if m.activePane == paneIntent && m.connected {
-		if m.intentTrees == nil || m.heatmap.TickCount%5 == 0 {
+		if m.intent.Trees == nil || m.heatmap.TickCount%5 == 0 {
 			cmds = append(cmds, fetchIntentTreesCmd())
 		}
 	}

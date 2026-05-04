@@ -179,20 +179,20 @@ func TestATDD_36_5_AC7_IntentNavigation(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.activePane = paneIntent
 	// Populate synthetic intentFlatNodes (just need length)
-	m.intentFlatNodes = make([]intentFlatNode, 30)
-	m.intentCursor = 0
-	m.intentScrollOffset = 0
+	m.intent.FlatNodes = make([]intentFlatNode, 30)
+	m.intent.Cursor = 0
+	m.intent.ScrollOffset = 0
 
 	// Ctrl-d
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	mm := m2.(dashboardModel)
-	if mm.intentCursor == 0 {
+	if mm.intent.Cursor == 0 {
 		t.Error("intentCursor should advance on ctrl+d")
 	}
 	// intentAdjustScroll should have run (scrollOffset != 0 once cursor > visible)
 	// We cannot easily assert intentAdjustScroll called; verify scrollOffset bounded
-	if mm.intentScrollOffset < 0 {
-		t.Errorf("intentScrollOffset invalid: %d", mm.intentScrollOffset)
+	if mm.intent.ScrollOffset < 0 {
+		t.Errorf("intentScrollOffset invalid: %d", mm.intent.ScrollOffset)
 	}
 }
 

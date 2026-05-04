@@ -274,35 +274,35 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 				intentAdjustScroll(&m)
 			},
 		}
-		if ui.HandleListKey(key, nil, &m.intentCursor, len(m.intentFlatNodes), navOpts) {
+		if ui.HandleListKey(key, nil, &m.intent.Cursor, len(m.intent.FlatNodes), navOpts) {
 			return m, nil
 		}
 		switch key {
 		case "enter":
-			if m.intentCursor < len(m.intentFlatNodes) {
-				n := m.intentFlatNodes[m.intentCursor]
+			if m.intent.Cursor < len(m.intent.FlatNodes) {
+				n := m.intent.FlatNodes[m.intent.Cursor]
 				// Story 38-4 AC#3 / patch P1: cursor on a non-terminal
 				// tree header toggles the user-collapse flag and
 				// re-flattens. Keyed by stable RootIntent (not positional
 				// treeIndex) so a tree state change does not silently
 				// move the toggle to a different tree.
-				if n.isTreeHeader && n.treeWire != nil && !isIntentTreeTerminal(n.treeWire.State) {
-					if m.intentTreeCollapsed == nil {
-						m.intentTreeCollapsed = make(map[string]bool)
+				if n.IsTreeHeader && n.TreeWire != nil && !isIntentTreeTerminal(n.TreeWire.State) {
+					if m.intent.TreeCollapsed == nil {
+						m.intent.TreeCollapsed = make(map[string]bool)
 					}
-					key := n.treeWire.RootIntent
-					m.intentTreeCollapsed[key] = !m.intentTreeCollapsed[key]
+					key := n.TreeWire.RootIntent
+					m.intent.TreeCollapsed[key] = !m.intent.TreeCollapsed[key]
 					// Patch P4: prune stale entries pointing at trees no
 					// longer in the IPC list.
-					m.intentTreeCollapsed = pruneIntentCollapse(m.intentTreeCollapsed, m.intentTrees)
-					m.intentFlatNodes = flattenIntentTreesWithCollapse(m.intentTrees, m.intentTreeCollapsed)
-					if m.intentCursor >= len(m.intentFlatNodes) {
-						m.intentCursor = max(0, len(m.intentFlatNodes)-1)
+					m.intent.TreeCollapsed = pruneIntentCollapse(m.intent.TreeCollapsed, m.intent.Trees)
+					m.intent.FlatNodes = flattenIntentTreesWithCollapse(m.intent.Trees, m.intent.TreeCollapsed)
+					if m.intent.Cursor >= len(m.intent.FlatNodes) {
+						m.intent.Cursor = max(0, len(m.intent.FlatNodes)-1)
 					}
 					return m, nil
 				}
-				if n.node != nil && n.node.PID > 0 {
-					targetPID := types.PID(n.node.PID)
+				if n.Node != nil && n.Node.PID > 0 {
+					targetPID := types.PID(n.Node.PID)
 					pidFound := false
 					var targetUUID string
 					for _, p := range m.processes {
@@ -324,7 +324,7 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 					m = m.clearPaneUnread(paneTimeline)
 					m2, cmd := m.handlePIDChange()
 					return m2, cmd
-				} else if n.node != nil {
+				} else if n.Node != nil {
 					m.statusMsg = "该节点尚未分配进程"
 					m.statusMsgTTL = statusMsgDefaultTTL
 				}
