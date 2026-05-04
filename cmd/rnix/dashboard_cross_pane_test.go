@@ -812,10 +812,10 @@ func TestRenderTraceTreeView_WaterfallHiddenWhenNarrow(t *testing.T) {
 	}
 	m := newTestDashboardModel(mockDashboardProcs())
 	t.Setenv("RNIX_ASCII", "1") // make output deterministic for the assertion
-	m.selectedSpanTree = tree
-	m.selectedTraceID = tree.TraceID
-	m.spanFlatNodes = flattenSpanTree(tree)
-	m.traceViewMode = 1
+	m.trace.SelectedSpanTree = tree
+	m.trace.SelectedTraceID = tree.TraceID
+	m.trace.SpanFlatNodes = flattenSpanTree(tree)
+	m.trace.ViewMode = 1
 
 	t.Run("width 70 hides bar", func(t *testing.T) {
 		out := m.renderTraceTreeView(70, 20)
@@ -1016,10 +1016,10 @@ func TestRenderTraceTreeView_WaterfallMultiChild(t *testing.T) {
 	}
 	m := newTestDashboardModel(mockDashboardProcs())
 	t.Setenv("RNIX_ASCII", "1")
-	m.selectedSpanTree = tree
-	m.selectedTraceID = tree.TraceID
-	m.spanFlatNodes = flattenSpanTree(tree)
-	m.traceViewMode = 1
+	m.trace.SelectedSpanTree = tree
+	m.trace.SelectedTraceID = tree.TraceID
+	m.trace.SpanFlatNodes = flattenSpanTree(tree)
+	m.trace.ViewMode = 1
 
 	out := m.renderTraceTreeView(120, 20)
 	// fast (100/1000 → 2 chars), slow (800/1000 → 16 chars), root (1000/1000 → 20 chars).

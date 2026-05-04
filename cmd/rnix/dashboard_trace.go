@@ -43,25 +43,25 @@ func fetchTraceTreeCmd(traceID string) tea.Cmd {
 }
 
 func (m dashboardModel) handleTraceKey(key string) (tea.Model, tea.Cmd) {
-	if m.traceViewMode == 0 {
+	if m.trace.ViewMode == 0 {
 		// List mode
 		switch key {
 		case "down", "j":
-			if len(m.traceSummaries) > 0 && m.traceCursor < len(m.traceSummaries)-1 {
-				m.traceCursor++
+			if len(m.trace.Summaries) > 0 && m.trace.Cursor < len(m.trace.Summaries)-1 {
+				m.trace.Cursor++
 				traceAdjustScroll(&m)
 			}
 			return m, nil
 		case "up", "k":
-			if m.traceCursor > 0 {
-				m.traceCursor--
+			if m.trace.Cursor > 0 {
+				m.trace.Cursor--
 				traceAdjustScroll(&m)
 			}
 			return m, nil
 		case "enter":
-			if len(m.traceSummaries) > 0 && m.traceCursor < len(m.traceSummaries) {
-				traceID := m.traceSummaries[m.traceCursor].TraceID
-				m.selectedTraceID = traceID
+			if len(m.trace.Summaries) > 0 && m.trace.Cursor < len(m.trace.Summaries) {
+				traceID := m.trace.Summaries[m.trace.Cursor].TraceID
+				m.trace.SelectedTraceID = traceID
 				return m, fetchTraceTreeCmd(traceID)
 			}
 			return m, nil
@@ -70,22 +70,22 @@ func (m dashboardModel) handleTraceKey(key string) (tea.Model, tea.Cmd) {
 		// Tree mode
 		switch key {
 		case "down", "j":
-			if len(m.spanFlatNodes) > 0 && m.spanCursor < len(m.spanFlatNodes)-1 {
-				m.spanCursor++
+			if len(m.trace.SpanFlatNodes) > 0 && m.trace.SpanCursor < len(m.trace.SpanFlatNodes)-1 {
+				m.trace.SpanCursor++
 				spanAdjustScroll(&m)
 			}
 			return m, nil
 		case "up", "k":
-			if m.spanCursor > 0 {
-				m.spanCursor--
+			if m.trace.SpanCursor > 0 {
+				m.trace.SpanCursor--
 				spanAdjustScroll(&m)
 			}
 			return m, nil
 		case "enter":
-			if len(m.spanFlatNodes) > 0 && m.spanCursor < len(m.spanFlatNodes) {
-				node := m.spanFlatNodes[m.spanCursor]
-				if node.pid > 0 {
-					targetPID := node.pid
+			if len(m.trace.SpanFlatNodes) > 0 && m.trace.SpanCursor < len(m.trace.SpanFlatNodes) {
+				node := m.trace.SpanFlatNodes[m.trace.SpanCursor]
+				if node.PID > 0 {
+					targetPID := node.PID
 					pidFound := false
 					var targetUUID string
 					for _, p := range m.processes {
@@ -109,12 +109,12 @@ func (m dashboardModel) handleTraceKey(key string) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "esc", "escape":
-			m.traceViewMode = 0
+			m.trace.ViewMode = 0
 			// Reset scroll and clamp cursor to current list bounds
-			if m.traceCursor >= len(m.traceSummaries) {
-				m.traceCursor = max(0, len(m.traceSummaries)-1)
+			if m.trace.Cursor >= len(m.trace.Summaries) {
+				m.trace.Cursor = max(0, len(m.trace.Summaries)-1)
 			}
-			m.traceScrollOffset = 0
+			m.trace.ScrollOffset = 0
 			traceAdjustScroll(&m)
 			return m, nil
 		}
@@ -156,15 +156,15 @@ func flattenSpanNode(node *ipc.SpanNodeWire, depth int, isLast bool, parentPrefi
 		}
 	}
 	*out = append(*out, spanFlatNode{
-		spanID: node.SpanID,
-		pid:    types.PID(node.PID),
-		name:   node.Name,
-		durMs:  node.DurationMs,
-		tokens: node.TokensUsed,
-		status: node.Status,
-		depth:  depth,
-		prefix: prefix,
-		isRoot: depth == 0,
+		SpanID: node.SpanID,
+		PID:    types.PID(node.PID),
+		Name:   node.Name,
+		DurMs:  node.DurationMs,
+		Tokens: node.TokensUsed,
+		Status: node.Status,
+		Depth:  depth,
+		Prefix: prefix,
+		IsRoot: depth == 0,
 	})
 	childPrefix := parentPrefix
 	if depth > 0 {
@@ -261,7 +261,7 @@ func (m dashboardModel) renderTracePane(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
-	if m.traceViewMode == 1 {
+	if m.trace.ViewMode == 1 {
 		return renderFixedPanel(m.renderTraceTreeView(innerW, innerH), width, height, borderColor)
 	}
 	return renderFixedPanel(m.renderTraceListView(innerW, innerH), width, height, borderColor)
@@ -271,12 +271,12 @@ func (m dashboardModel) renderTraceListView(width, height int) string {
 	var b strings.Builder
 	b.WriteString(" Traces\n")
 
-	if m.traceErr != nil {
-		fmt.Fprintf(&b, "\n    Error: %v\n", m.traceErr)
+	if m.trace.Err != nil {
+		fmt.Fprintf(&b, "\n    Error: %v\n", m.trace.Err)
 		return b.String()
 	}
 
-	if len(m.traceSummaries) == 0 {
+	if len(m.trace.Summaries) == 0 {
 		b.WriteString("\n    无活跃的 Compose 追踪数据。使用 rnix compose up 启动编排以生成追踪。\n")
 		return b.String()
 	}
@@ -285,13 +285,13 @@ func (m dashboardModel) renderTraceListView(width, height int) string {
 	fmt.Fprintf(&b, " %-16s  %-12s  %5s  %8s\n", "TRACE ID", "ROOT", "SPANS", "DUR")
 
 	visibleLines := max(height-3, 1)
-	startIdx := m.traceScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.traceSummaries))
+	startIdx := m.trace.ScrollOffset
+	endIdx := min(startIdx+visibleLines, len(m.trace.Summaries))
 
 	for i := startIdx; i < endIdx; i++ {
-		ts := m.traceSummaries[i]
+		ts := m.trace.Summaries[i]
 		cursor := "  "
-		if i == m.traceCursor {
+		if i == m.trace.Cursor {
 			if os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true" {
 				cursor = "> "
 			} else {
@@ -312,13 +312,13 @@ func (m dashboardModel) renderTraceListView(width, height int) string {
 func (m dashboardModel) renderTraceTreeView(width, height int) string {
 	var b strings.Builder
 
-	if m.selectedSpanTree == nil || len(m.spanFlatNodes) == 0 {
+	if m.trace.SelectedSpanTree == nil || len(m.trace.SpanFlatNodes) == 0 {
 		b.WriteString(" Trace: (loading...)\n")
 		return b.String()
 	}
 
-	meta := m.selectedSpanTree.Metadata
-	tid := m.selectedTraceID
+	meta := m.trace.SelectedSpanTree.Metadata
+	tid := m.trace.SelectedTraceID
 	if len(tid) > 16 {
 		tid = tid[:16]
 	}
@@ -326,8 +326,8 @@ func (m dashboardModel) renderTraceTreeView(width, height int) string {
 	fmt.Fprintf(&b, " Trace: %s  %d spans  %s  %d tok\n", tid, meta.TotalSpans, dur, meta.TotalTokens)
 
 	visibleLines := max(height-2, 1)
-	startIdx := m.spanScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.spanFlatNodes))
+	startIdx := m.trace.SpanScrollOffset
+	endIdx := min(startIdx+visibleLines, len(m.trace.SpanFlatNodes))
 
 	// Story 38-4 AC#5: append a 20-char waterfall bar to each row when the
 	// terminal can spare the columns. Hoisted out of the loop so we deref
@@ -343,9 +343,9 @@ func (m dashboardModel) renderTraceTreeView(width, height int) string {
 	traceTotalMs := meta.TotalDurationMs
 
 	for i := startIdx; i < endIdx; i++ {
-		node := m.spanFlatNodes[i]
+		node := m.trace.SpanFlatNodes[i]
 		cursor := "  "
-		if i == m.spanCursor {
+		if i == m.trace.SpanCursor {
 			if ascii {
 				cursor = "> "
 			} else {
@@ -353,14 +353,14 @@ func (m dashboardModel) renderTraceTreeView(width, height int) string {
 			}
 		}
 
-		dur := formatTimelineDuration(float64(node.durMs))
-		tokStr := fmt.Sprintf("%dtok", node.tokens)
-		statusStyle := lipgloss.NewStyle().Foreground(spanStatusColor(node.status))
+		dur := formatTimelineDuration(float64(node.DurMs))
+		tokStr := fmt.Sprintf("%dtok", node.Tokens)
+		statusStyle := lipgloss.NewStyle().Foreground(spanStatusColor(node.Status))
 
 		line := fmt.Sprintf("%s%s%s (PID %d)  %s  %s  %s",
-			cursor, node.prefix, node.name, node.pid, dur, tokStr, statusStyle.Render(node.status))
+			cursor, node.Prefix, node.Name, node.PID, dur, tokStr, statusStyle.Render(node.Status))
 		if showBar {
-			line += "  " + renderWaterfallBar(traceTotalMs, node.durMs, node.status, ascii)
+			line += "  " + renderWaterfallBar(traceTotalMs, node.DurMs, node.Status, ascii)
 		}
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -379,21 +379,21 @@ func traceBottomInnerH(termHeight int) int {
 // traceAdjustScroll ensures traceCursor is visible within the viewport.
 func traceAdjustScroll(m *dashboardModel) {
 	visibleLines := max(traceBottomInnerH(m.height)-3, 1) // match renderTraceListView
-	if m.traceCursor < m.traceScrollOffset {
-		m.traceScrollOffset = m.traceCursor
+	if m.trace.Cursor < m.trace.ScrollOffset {
+		m.trace.ScrollOffset = m.trace.Cursor
 	}
-	if m.traceCursor >= m.traceScrollOffset+visibleLines {
-		m.traceScrollOffset = m.traceCursor - visibleLines + 1
+	if m.trace.Cursor >= m.trace.ScrollOffset+visibleLines {
+		m.trace.ScrollOffset = m.trace.Cursor - visibleLines + 1
 	}
 }
 
 // spanAdjustScroll ensures spanCursor is visible within the viewport.
 func spanAdjustScroll(m *dashboardModel) {
 	visibleLines := max(traceBottomInnerH(m.height)-2, 1) // match renderTraceTreeView
-	if m.spanCursor < m.spanScrollOffset {
-		m.spanScrollOffset = m.spanCursor
+	if m.trace.SpanCursor < m.trace.SpanScrollOffset {
+		m.trace.SpanScrollOffset = m.trace.SpanCursor
 	}
-	if m.spanCursor >= m.spanScrollOffset+visibleLines {
-		m.spanScrollOffset = m.spanCursor - visibleLines + 1
+	if m.trace.SpanCursor >= m.trace.SpanScrollOffset+visibleLines {
+		m.trace.SpanScrollOffset = m.trace.SpanCursor - visibleLines + 1
 	}
 }

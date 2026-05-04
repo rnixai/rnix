@@ -161,7 +161,7 @@ func TestATDD_27_9_AC1_TabCycles7Panes(t *testing.T) {
 // --- AC-1.3: [P0] Trace pane border highlights when active ---
 func TestATDD_27_9_AC1_TracePaneBorderHighlight(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = makeTraceSummaries()
+	m.trace.Summaries = makeTraceSummaries()
 
 	output := m.renderTracePane(60, 20)
 
@@ -174,7 +174,7 @@ func TestATDD_27_9_AC1_TracePaneBorderHighlight(t *testing.T) {
 func TestATDD_27_9_AC1_StatusBarTraceHelp_ListMode(t *testing.T) {
 	m := newTraceModel()
 	m.activePane = paneTrace
-	m.traceViewMode = 0 // list mode
+	m.trace.ViewMode = 0 // list mode
 	// Story 29.2: pane-specific hints shown in viewExpanded mode
 	m.viewMode = viewExpanded
 	m.expandedPane = paneTrace
@@ -190,7 +190,7 @@ func TestATDD_27_9_AC1_StatusBarTraceHelp_ListMode(t *testing.T) {
 func TestATDD_27_9_AC1_StatusBarTraceHelp_TreeMode(t *testing.T) {
 	m := newTraceModel()
 	m.activePane = paneTrace
-	m.traceViewMode = 1 // tree mode
+	m.trace.ViewMode = 1 // tree mode
 	// Story 29.2: pane-specific hints shown in viewExpanded mode
 	m.viewMode = viewExpanded
 	m.expandedPane = paneTrace
@@ -302,22 +302,22 @@ func TestATDD_27_9_AC3_ModelHasTraceFields(t *testing.T) {
 	m := newTraceModel()
 
 	// RED: these fields do not exist yet
-	if m.traceSummaries != nil {
+	if m.trace.Summaries != nil {
 		t.Error("AC-3: traceSummaries should be nil initially")
 	}
-	if m.traceErr != nil {
+	if m.trace.Err != nil {
 		t.Error("AC-3: traceErr should be nil initially")
 	}
-	if m.traceCursor != 0 {
+	if m.trace.Cursor != 0 {
 		t.Error("AC-3: traceCursor should be 0 initially")
 	}
-	if m.traceViewMode != 0 {
+	if m.trace.ViewMode != 0 {
 		t.Error("AC-3: traceViewMode should be 0 (list) initially")
 	}
-	if m.selectedTraceID != "" {
+	if m.trace.SelectedTraceID != "" {
 		t.Error("AC-3: selectedTraceID should be empty initially")
 	}
-	if m.selectedSpanTree != nil {
+	if m.trace.SelectedSpanTree != nil {
 		t.Error("AC-3: selectedSpanTree should be nil initially")
 	}
 }
@@ -334,11 +334,11 @@ func TestATDD_27_9_AC3_TraceListMsgUpdatesModel(t *testing.T) {
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if len(model.traceSummaries) != 3 {
-		t.Fatalf("AC-3: traceSummaries len = %d, want 3", len(model.traceSummaries))
+	if len(model.trace.Summaries) != 3 {
+		t.Fatalf("AC-3: traceSummaries len = %d, want 3", len(model.trace.Summaries))
 	}
-	if model.traceErr != nil {
-		t.Errorf("AC-3: traceErr should be nil on success, got %v", model.traceErr)
+	if model.trace.Err != nil {
+		t.Errorf("AC-3: traceErr should be nil on success, got %v", model.trace.Err)
 	}
 }
 
@@ -353,7 +353,7 @@ func TestATDD_27_9_AC3_TraceListMsgError(t *testing.T) {
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.traceErr == nil {
+	if model.trace.Err == nil {
 		t.Error("AC-3: traceErr should be set on error")
 	}
 }
@@ -367,31 +367,31 @@ func TestATDD_27_9_AC3_TraceListSortedByTimeDesc(t *testing.T) {
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if len(model.traceSummaries) < 2 {
+	if len(model.trace.Summaries) < 2 {
 		t.Fatal("AC-3: need at least 2 summaries for sort test")
 	}
 
 	// Verify descending order by StartTimeMs
-	for i := 1; i < len(model.traceSummaries); i++ {
-		if model.traceSummaries[i].StartTimeMs > model.traceSummaries[i-1].StartTimeMs {
+	for i := 1; i < len(model.trace.Summaries); i++ {
+		if model.trace.Summaries[i].StartTimeMs > model.trace.Summaries[i-1].StartTimeMs {
 			t.Errorf("AC-3: traces not sorted by StartTimeMs desc: [%d]=%d > [%d]=%d",
-				i, model.traceSummaries[i].StartTimeMs,
-				i-1, model.traceSummaries[i-1].StartTimeMs)
+				i, model.trace.Summaries[i].StartTimeMs,
+				i-1, model.trace.Summaries[i-1].StartTimeMs)
 		}
 	}
 
 	// The newest trace (StartTimeMs=1700000005000) should be first
-	if model.traceSummaries[0].StartTimeMs != 1700000005000 {
+	if model.trace.Summaries[0].StartTimeMs != 1700000005000 {
 		t.Errorf("AC-3: first trace StartTimeMs = %d, want 1700000005000",
-			model.traceSummaries[0].StartTimeMs)
+			model.trace.Summaries[0].StartTimeMs)
 	}
 }
 
 // --- AC-3.5: [P0] renderTracePane shows trace details ---
 func TestATDD_27_9_AC3_RenderTracePane_Details(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = makeTraceSummaries()
-	m.traceViewMode = 0 // list mode
+	m.trace.Summaries = makeTraceSummaries()
+	m.trace.ViewMode = 0 // list mode
 
 	output := m.renderTracePane(80, 30)
 
@@ -414,8 +414,8 @@ func TestATDD_27_9_AC3_RenderTracePane_Details(t *testing.T) {
 // --- AC-3.6: [P0] traceCursor clamped after list refresh ---
 func TestATDD_27_9_AC3_CursorClampedAfterRefresh(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = makeTraceSummaries()
-	m.traceCursor = 2 // at last position
+	m.trace.Summaries = makeTraceSummaries()
+	m.trace.Cursor = 2 // at last position
 
 	// Simulate refresh with fewer traces (only 1 trace now)
 	msg := traceListMsg{
@@ -428,9 +428,9 @@ func TestATDD_27_9_AC3_CursorClampedAfterRefresh(t *testing.T) {
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.traceCursor >= len(model.traceSummaries) {
+	if model.trace.Cursor >= len(model.trace.Summaries) {
 		t.Errorf("AC-3: traceCursor %d out of range (summaries len=%d)",
-			model.traceCursor, len(model.traceSummaries))
+			model.trace.Cursor, len(model.trace.Summaries))
 	}
 }
 
@@ -441,7 +441,7 @@ func TestATDD_27_9_AC3_CursorClampedAfterRefresh(t *testing.T) {
 // --- AC-4.1: [P0] traceTreeMsg updates model with span tree ---
 func TestATDD_27_9_AC4_TraceTreeMsgUpdatesModel(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = makeTraceSummaries()
+	m.trace.Summaries = makeTraceSummaries()
 	tree := makeSpanTree()
 
 	msg := traceTreeMsg{
@@ -452,16 +452,16 @@ func TestATDD_27_9_AC4_TraceTreeMsgUpdatesModel(t *testing.T) {
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.selectedSpanTree == nil {
+	if model.trace.SelectedSpanTree == nil {
 		t.Fatal("AC-4: selectedSpanTree should be set after traceTreeMsg")
 	}
-	if model.selectedTraceID != "a1b2c3d4e5f6g7h8i9j0k1l2" {
-		t.Errorf("AC-4: selectedTraceID = %q", model.selectedTraceID)
+	if model.trace.SelectedTraceID != "a1b2c3d4e5f6g7h8i9j0k1l2" {
+		t.Errorf("AC-4: selectedTraceID = %q", model.trace.SelectedTraceID)
 	}
-	if model.traceViewMode != 1 {
-		t.Errorf("AC-4: traceViewMode = %d, want 1 (tree)", model.traceViewMode)
+	if model.trace.ViewMode != 1 {
+		t.Errorf("AC-4: traceViewMode = %d, want 1 (tree)", model.trace.ViewMode)
 	}
-	if len(model.spanFlatNodes) == 0 {
+	if len(model.trace.SpanFlatNodes) == 0 {
 		t.Error("AC-4: spanFlatNodes should be populated after traceTreeMsg")
 	}
 }
@@ -478,12 +478,12 @@ func TestATDD_27_9_AC4_TraceTreeMsgError(t *testing.T) {
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.traceErr == nil {
+	if model.trace.Err == nil {
 		t.Error("AC-4: traceErr should be set on error")
 	}
 	// Should NOT switch to tree mode on error
-	if model.traceViewMode != 0 {
-		t.Errorf("AC-4: traceViewMode should stay 0 on error, got %d", model.traceViewMode)
+	if model.trace.ViewMode != 0 {
+		t.Errorf("AC-4: traceViewMode should stay 0 on error, got %d", model.trace.ViewMode)
 	}
 }
 
@@ -498,38 +498,38 @@ func TestATDD_27_9_AC4_FlattenSpanTree(t *testing.T) {
 	}
 
 	// First node should be root
-	if flat[0].name != "pipeline" {
-		t.Errorf("AC-4: first node name = %q, want %q", flat[0].name, "pipeline")
+	if flat[0].Name != "pipeline" {
+		t.Errorf("AC-4: first node name = %q, want %q", flat[0].Name, "pipeline")
 	}
-	if !flat[0].isRoot {
+	if !flat[0].IsRoot {
 		t.Error("AC-4: first node should be isRoot=true")
 	}
-	if flat[0].depth != 0 {
-		t.Errorf("AC-4: root depth = %d, want 0", flat[0].depth)
+	if flat[0].Depth != 0 {
+		t.Errorf("AC-4: root depth = %d, want 0", flat[0].Depth)
 	}
 
 	// Second node should be researcher (depth 1)
-	if flat[1].name != "researcher" {
-		t.Errorf("AC-4: second node name = %q, want %q", flat[1].name, "researcher")
+	if flat[1].Name != "researcher" {
+		t.Errorf("AC-4: second node name = %q, want %q", flat[1].Name, "researcher")
 	}
-	if flat[1].depth != 1 {
-		t.Errorf("AC-4: researcher depth = %d, want 1", flat[1].depth)
+	if flat[1].Depth != 1 {
+		t.Errorf("AC-4: researcher depth = %d, want 1", flat[1].Depth)
 	}
 
 	// Third node should be sub-task (depth 2)
-	if flat[2].name != "sub-task" {
-		t.Errorf("AC-4: third node name = %q, want %q", flat[2].name, "sub-task")
+	if flat[2].Name != "sub-task" {
+		t.Errorf("AC-4: third node name = %q, want %q", flat[2].Name, "sub-task")
 	}
-	if flat[2].depth != 2 {
-		t.Errorf("AC-4: sub-task depth = %d, want 2", flat[2].depth)
+	if flat[2].Depth != 2 {
+		t.Errorf("AC-4: sub-task depth = %d, want 2", flat[2].Depth)
 	}
 
 	// Fourth node should be writer (depth 1)
-	if flat[3].name != "writer" {
-		t.Errorf("AC-4: fourth node name = %q, want %q", flat[3].name, "writer")
+	if flat[3].Name != "writer" {
+		t.Errorf("AC-4: fourth node name = %q, want %q", flat[3].Name, "writer")
 	}
-	if flat[3].depth != 1 {
-		t.Errorf("AC-4: writer depth = %d, want 1", flat[3].depth)
+	if flat[3].Depth != 1 {
+		t.Errorf("AC-4: writer depth = %d, want 1", flat[3].Depth)
 	}
 }
 
@@ -543,17 +543,17 @@ func TestATDD_27_9_AC4_FlattenSpanTree_Fields(t *testing.T) {
 	}
 
 	// Root: PID=1, status=ok
-	if flat[0].pid != types.PID(1) {
-		t.Errorf("AC-4: root PID = %d, want 1", flat[0].pid)
+	if flat[0].PID != types.PID(1) {
+		t.Errorf("AC-4: root PID = %d, want 1", flat[0].PID)
 	}
-	if flat[0].status != "ok" {
-		t.Errorf("AC-4: root status = %q, want %q", flat[0].status, "ok")
+	if flat[0].Status != "ok" {
+		t.Errorf("AC-4: root status = %q, want %q", flat[0].Status, "ok")
 	}
 
 	// Writer: PID=3, status=error
 	var writerNode *spanFlatNode
 	for i := range flat {
-		if flat[i].name == "writer" {
+		if flat[i].Name == "writer" {
 			writerNode = &flat[i]
 			break
 		}
@@ -561,11 +561,11 @@ func TestATDD_27_9_AC4_FlattenSpanTree_Fields(t *testing.T) {
 	if writerNode == nil {
 		t.Fatal("AC-4: writer node not found")
 	}
-	if writerNode.pid != types.PID(3) {
-		t.Errorf("AC-4: writer PID = %d, want 3", writerNode.pid)
+	if writerNode.PID != types.PID(3) {
+		t.Errorf("AC-4: writer PID = %d, want 3", writerNode.PID)
 	}
-	if writerNode.status != "error" {
-		t.Errorf("AC-4: writer status = %q, want %q", writerNode.status, "error")
+	if writerNode.Status != "error" {
+		t.Errorf("AC-4: writer status = %q, want %q", writerNode.Status, "error")
 	}
 }
 
@@ -613,10 +613,10 @@ func TestATDD_27_9_AC4_SpanStatusColor(t *testing.T) {
 func TestATDD_27_9_AC4_RenderTracePane_TreeMode(t *testing.T) {
 	m := newTraceModel()
 	tree := makeSpanTree()
-	m.traceViewMode = 1 // tree mode
-	m.selectedTraceID = tree.TraceID
-	m.selectedSpanTree = tree
-	m.spanFlatNodes = flattenSpanTree(tree)
+	m.trace.ViewMode = 1 // tree mode
+	m.trace.SelectedTraceID = tree.TraceID
+	m.trace.SelectedSpanTree = tree
+	m.trace.SpanFlatNodes = flattenSpanTree(tree)
 
 	output := m.renderTracePane(80, 30)
 
@@ -640,17 +640,17 @@ func TestATDD_27_9_AC4_RenderTracePane_TreeMode(t *testing.T) {
 // --- AC-4.9: [P0] Enter in list mode triggers tree expansion ---
 func TestATDD_27_9_AC4_Enter_ListToTree(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = makeTraceSummaries()
-	m.traceViewMode = 0 // list mode
-	m.traceCursor = 0
+	m.trace.Summaries = makeTraceSummaries()
+	m.trace.ViewMode = 0 // list mode
+	m.trace.Cursor = 0
 
 	m2, cmd := m.Update(tea.KeyPressMsg{Code: '\r'}) // Enter
 	model := m2.(dashboardModel)
 
 	// Should set selectedTraceID from the selected trace
-	if model.selectedTraceID != m.traceSummaries[0].TraceID {
+	if model.trace.SelectedTraceID != m.trace.Summaries[0].TraceID {
 		t.Errorf("AC-4: selectedTraceID = %q, want %q",
-			model.selectedTraceID, m.traceSummaries[0].TraceID)
+			model.trace.SelectedTraceID, m.trace.Summaries[0].TraceID)
 	}
 
 	// Should produce a command (fetchTraceTreeCmd)
@@ -662,16 +662,16 @@ func TestATDD_27_9_AC4_Enter_ListToTree(t *testing.T) {
 // --- AC-4.10: [P0] Escape in tree mode returns to list ---
 func TestATDD_27_9_AC4_Escape_TreeToList(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = makeTraceSummaries()
-	m.traceViewMode = 1 // tree mode
-	m.selectedSpanTree = makeSpanTree()
-	m.spanFlatNodes = flattenSpanTree(m.selectedSpanTree)
+	m.trace.Summaries = makeTraceSummaries()
+	m.trace.ViewMode = 1 // tree mode
+	m.trace.SelectedSpanTree = makeSpanTree()
+	m.trace.SpanFlatNodes = flattenSpanTree(m.trace.SelectedSpanTree)
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 27}) // Escape
 	model := m2.(dashboardModel)
 
-	if model.traceViewMode != 0 {
-		t.Errorf("AC-4: after Escape, traceViewMode = %d, want 0 (list)", model.traceViewMode)
+	if model.trace.ViewMode != 0 {
+		t.Errorf("AC-4: after Escape, traceViewMode = %d, want 0 (list)", model.trace.ViewMode)
 	}
 }
 
@@ -683,13 +683,13 @@ func TestATDD_27_9_AC4_Escape_TreeToList(t *testing.T) {
 func TestATDD_27_9_AC5_Enter_LinksToProcess(t *testing.T) {
 	m := newTraceModel()
 	tree := makeSpanTree()
-	m.traceViewMode = 1 // tree mode
-	m.selectedSpanTree = tree
-	m.spanFlatNodes = flattenSpanTree(tree)
+	m.trace.ViewMode = 1 // tree mode
+	m.trace.SelectedSpanTree = tree
+	m.trace.SpanFlatNodes = flattenSpanTree(tree)
 	// Add processes so PID validation passes
 	m.processes = []vfs.ProcInfo{{PID: 1}, {PID: 2}, {PID: 3}, {PID: 4}}
 	// Select the researcher span (PID=2, index 1)
-	m.spanCursor = 1
+	m.trace.SpanCursor = 1
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '\r'}) // Enter
 	model := m2.(dashboardModel)
@@ -707,12 +707,12 @@ func TestATDD_27_9_AC5_Enter_LinksToProcess(t *testing.T) {
 func TestATDD_27_9_AC5_Enter_ProcessGone_ShowsMessage(t *testing.T) {
 	m := newTraceModel()
 	tree := makeSpanTree()
-	m.traceViewMode = 1 // tree mode
-	m.selectedSpanTree = tree
-	m.spanFlatNodes = flattenSpanTree(tree)
+	m.trace.ViewMode = 1 // tree mode
+	m.trace.SelectedSpanTree = tree
+	m.trace.SpanFlatNodes = flattenSpanTree(tree)
 	// Only PID 1 exists; PID 2 (researcher, index 1) is gone
 	m.processes = []vfs.ProcInfo{{PID: 1}}
-	m.spanCursor = 1 // researcher span (PID=2)
+	m.trace.SpanCursor = 1 // researcher span (PID=2)
 	prevPID := m.selectedPID
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '\r'}) // Enter
@@ -732,23 +732,23 @@ func TestATDD_27_9_AC5_Enter_ProcessGone_ShowsMessage(t *testing.T) {
 func TestATDD_27_9_AC5_JK_MovesSpanCursor(t *testing.T) {
 	m := newTraceModel()
 	tree := makeSpanTree()
-	m.traceViewMode = 1
-	m.selectedSpanTree = tree
-	m.spanFlatNodes = flattenSpanTree(tree)
-	m.spanCursor = 0
+	m.trace.ViewMode = 1
+	m.trace.SelectedSpanTree = tree
+	m.trace.SpanFlatNodes = flattenSpanTree(tree)
+	m.trace.SpanCursor = 0
 
 	// Press 'j' to move down
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	model := m2.(dashboardModel)
-	if model.spanCursor != 1 {
-		t.Errorf("AC-5: after j, spanCursor = %d, want 1", model.spanCursor)
+	if model.trace.SpanCursor != 1 {
+		t.Errorf("AC-5: after j, spanCursor = %d, want 1", model.trace.SpanCursor)
 	}
 
 	// Press 'k' to move back up
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'k'})
 	model2 := m3.(dashboardModel)
-	if model2.spanCursor != 0 {
-		t.Errorf("AC-5: after k, spanCursor = %d, want 0", model2.spanCursor)
+	if model2.trace.SpanCursor != 0 {
+		t.Errorf("AC-5: after k, spanCursor = %d, want 0", model2.trace.SpanCursor)
 	}
 }
 
@@ -756,49 +756,49 @@ func TestATDD_27_9_AC5_JK_MovesSpanCursor(t *testing.T) {
 func TestATDD_27_9_AC5_SpanCursorBounds(t *testing.T) {
 	m := newTraceModel()
 	tree := makeSpanTree()
-	m.traceViewMode = 1
-	m.selectedSpanTree = tree
-	m.spanFlatNodes = flattenSpanTree(tree)
-	m.spanCursor = 0
+	m.trace.ViewMode = 1
+	m.trace.SelectedSpanTree = tree
+	m.trace.SpanFlatNodes = flattenSpanTree(tree)
+	m.trace.SpanCursor = 0
 
 	// Press 'k' at cursor=0 → should stay at 0
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	model := m2.(dashboardModel)
-	if model.spanCursor != 0 {
-		t.Errorf("AC-5: k at cursor=0 should stay 0, got %d", model.spanCursor)
+	if model.trace.SpanCursor != 0 {
+		t.Errorf("AC-5: k at cursor=0 should stay 0, got %d", model.trace.SpanCursor)
 	}
 
 	// Move cursor to last node
-	lastIdx := len(m.spanFlatNodes) - 1
-	model.spanCursor = lastIdx
+	lastIdx := len(m.trace.SpanFlatNodes) - 1
+	model.trace.SpanCursor = lastIdx
 
 	// Press 'j' at last position → should stay
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'j'})
 	model2 := m3.(dashboardModel)
-	if model2.spanCursor != lastIdx {
-		t.Errorf("AC-5: j at last position should stay %d, got %d", lastIdx, model2.spanCursor)
+	if model2.trace.SpanCursor != lastIdx {
+		t.Errorf("AC-5: j at last position should stay %d, got %d", lastIdx, model2.trace.SpanCursor)
 	}
 }
 
 // --- AC-5.5: [P0] j/k in list mode moves traceCursor ---
 func TestATDD_27_9_AC5_JK_MovesTraceCursor(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = makeTraceSummaries()
-	m.traceViewMode = 0 // list mode
-	m.traceCursor = 0
+	m.trace.Summaries = makeTraceSummaries()
+	m.trace.ViewMode = 0 // list mode
+	m.trace.Cursor = 0
 
 	// Press 'j' to move down
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	model := m2.(dashboardModel)
-	if model.traceCursor != 1 {
-		t.Errorf("AC-5: after j (list), traceCursor = %d, want 1", model.traceCursor)
+	if model.trace.Cursor != 1 {
+		t.Errorf("AC-5: after j (list), traceCursor = %d, want 1", model.trace.Cursor)
 	}
 
 	// Press 'k' to move back up
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'k'})
 	model2 := m3.(dashboardModel)
-	if model2.traceCursor != 0 {
-		t.Errorf("AC-5: after k (list), traceCursor = %d, want 0", model2.traceCursor)
+	if model2.trace.Cursor != 0 {
+		t.Errorf("AC-5: after k (list), traceCursor = %d, want 0", model2.trace.Cursor)
 	}
 }
 
@@ -809,8 +809,8 @@ func TestATDD_27_9_AC5_JK_MovesTraceCursor(t *testing.T) {
 // --- AC-6.1: [P1] No traces shows hint message ---
 func TestATDD_27_9_AC6_EmptyState_ShowsHint(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = nil
-	m.traceViewMode = 0
+	m.trace.Summaries = nil
+	m.trace.ViewMode = 0
 
 	output := m.renderTracePane(80, 20)
 
@@ -822,9 +822,9 @@ func TestATDD_27_9_AC6_EmptyState_ShowsHint(t *testing.T) {
 // --- AC-6.2: [P1] TraceList IPC error shows error without crash ---
 func TestATDD_27_9_AC6_ErrorState_ShowsError(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = nil
-	m.traceErr = fmt.Errorf("daemon not reachable")
-	m.traceViewMode = 0
+	m.trace.Summaries = nil
+	m.trace.Err = fmt.Errorf("daemon not reachable")
+	m.trace.ViewMode = 0
 
 	output := m.renderTracePane(80, 20)
 
@@ -836,10 +836,10 @@ func TestATDD_27_9_AC6_ErrorState_ShowsError(t *testing.T) {
 // --- AC-6.3: [P1] Empty state navigation safe ---
 func TestATDD_27_9_AC6_EmptyState_NavigationSafe(t *testing.T) {
 	m := newTraceModel()
-	m.traceSummaries = nil
-	m.spanFlatNodes = nil
-	m.traceCursor = 0
-	m.spanCursor = 0
+	m.trace.Summaries = nil
+	m.trace.SpanFlatNodes = nil
+	m.trace.Cursor = 0
+	m.trace.SpanCursor = 0
 
 	// j/k/Enter/Escape on empty state should not panic
 	for _, key := range []rune{'j', 'k', '\r', 27} {
@@ -851,9 +851,9 @@ func TestATDD_27_9_AC6_EmptyState_NavigationSafe(t *testing.T) {
 // --- AC-6.4: [P1] Nil selectedSpanTree renders gracefully in tree mode ---
 func TestATDD_27_9_AC6_NilSpanTree_Renders(t *testing.T) {
 	m := newTraceModel()
-	m.traceViewMode = 1 // tree mode but no tree loaded
-	m.selectedSpanTree = nil
-	m.spanFlatNodes = nil
+	m.trace.ViewMode = 1 // tree mode but no tree loaded
+	m.trace.SelectedSpanTree = nil
+	m.trace.SpanFlatNodes = nil
 
 	output := m.renderTracePane(80, 20)
 
@@ -870,13 +870,13 @@ func TestATDD_27_9_AC6_NilSpanTree_Renders(t *testing.T) {
 func TestATDD_27_9_TraceAdjustScroll(t *testing.T) {
 	m := newTraceModel()
 	m.height = 20
-	m.traceScrollOffset = 0
-	m.traceCursor = 10
-	m.traceSummaries = make([]ipc.TraceSummaryWire, 20)
+	m.trace.ScrollOffset = 0
+	m.trace.Cursor = 10
+	m.trace.Summaries = make([]ipc.TraceSummaryWire, 20)
 
 	traceAdjustScroll(&m)
 
-	if m.traceScrollOffset == 0 {
+	if m.trace.ScrollOffset == 0 {
 		t.Error("scroll offset should have adjusted for cursor=10")
 	}
 }
@@ -885,13 +885,13 @@ func TestATDD_27_9_TraceAdjustScroll(t *testing.T) {
 func TestATDD_27_9_SpanAdjustScroll(t *testing.T) {
 	m := newTraceModel()
 	m.height = 20
-	m.spanScrollOffset = 0
-	m.spanCursor = 10
-	m.spanFlatNodes = make([]spanFlatNode, 20)
+	m.trace.SpanScrollOffset = 0
+	m.trace.SpanCursor = 10
+	m.trace.SpanFlatNodes = make([]spanFlatNode, 20)
 
 	spanAdjustScroll(&m)
 
-	if m.spanScrollOffset == 0 {
+	if m.trace.SpanScrollOffset == 0 {
 		t.Error("span scroll offset should have adjusted for cursor=10")
 	}
 }
@@ -903,9 +903,9 @@ func TestATDD_27_9_SpanAdjustScroll(t *testing.T) {
 // --- AC-4.12: [P1] Switching panes and back preserves trace view mode ---
 func TestATDD_27_9_TabPreservesViewMode(t *testing.T) {
 	m := newTraceModel()
-	m.traceViewMode = 1 // tree mode
-	m.selectedSpanTree = makeSpanTree()
-	m.spanFlatNodes = flattenSpanTree(m.selectedSpanTree)
+	m.trace.ViewMode = 1 // tree mode
+	m.trace.SelectedSpanTree = makeSpanTree()
+	m.trace.SpanFlatNodes = flattenSpanTree(m.trace.SelectedSpanTree)
 
 	// Switch to another pane via digit key
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'}) // Timeline
@@ -920,8 +920,8 @@ func TestATDD_27_9_TabPreservesViewMode(t *testing.T) {
 			model.activePane, paneTrace)
 	}
 	// View mode should be preserved (tree mode=1)
-	if model.traceViewMode != 1 {
-		t.Errorf("AC-4: traceViewMode should be preserved after pane switch, got %d", model.traceViewMode)
+	if model.trace.ViewMode != 1 {
+		t.Errorf("AC-4: traceViewMode should be preserved after pane switch, got %d", model.trace.ViewMode)
 	}
 }
 

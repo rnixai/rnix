@@ -239,8 +239,8 @@ func formatTraceBudgetSteps(m *dashboardModel, d *ipc.GetProcDetailResponse) str
 	}
 
 	traceInfo := "—"
-	if len(m.traceSummaries) > 0 {
-		ts := m.traceSummaries[0]
+	if len(m.trace.Summaries) > 0 {
+		ts := m.trace.Summaries[0]
 		durS := float64(ts.TotalDurationMs) / 1000.0
 		spanID := ts.TraceID
 		if len(spanID) > 8 {

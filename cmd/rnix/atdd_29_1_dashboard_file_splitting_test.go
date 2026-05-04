@@ -345,7 +345,10 @@ func TestDashboardFileSplitting_TypesFileContainsTypes(t *testing.T) {
 		// internal/dashboard/intent.IntentFlatNode（避免循环依赖；让 IntentState.FlatNodes 字段类型直接公开）。
 		// 字面契约从 "type intentFlatNode struct" 放宽为 "type intentFlatNode"。
 		"type intentFlatNode",
-		"type spanFlatNode struct",
+		// Story 38-5 PR8 Step 1: spanFlatNode 同前面诸 type 模式由 struct 改为 alias 至
+		// internal/dashboard/trace.SpanFlatNode（避免循环依赖）。字面契约放宽为
+		// "type spanFlatNode" · alias 形式 + struct 形式都通过。
+		"type spanFlatNode",
 	}
 
 	for _, typeDef := range expectedTypes {

@@ -19,6 +19,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
+	"github.com/rnixai/rnix/internal/dashboard/trace"
 	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -134,17 +135,8 @@ type dashboardModel struct {
 	// Story 38-5 PR7 Step 1: SecurityState 抽离（5 字段 · spec § AC5 · Story 27-8 + 38-4 Alert Immune 路由保留）
 	security security.SecurityState
 
-	// Trace pane fields (Story 27-9)
-	traceSummaries    []ipc.TraceSummaryWire
-	traceErr          error
-	traceCursor       int
-	traceScrollOffset int
-	traceViewMode     int // 0=list, 1=tree
-	selectedTraceID   string
-	selectedSpanTree  *ipc.SpanTreeWire
-	spanFlatNodes     []spanFlatNode
-	spanCursor        int
-	spanScrollOffset  int
+	// Story 38-5 PR8 Step 1: TraceState 抽离（10 字段 · spec § AC5 · Story 27-9 + 38-4 waterfall bar 保留）
+	trace trace.TraceState
 
 	// Eval pane fields (Story 27-10)
 	evalSubView          int // 0=reputation, 1=topology, 2=synergy
@@ -295,6 +287,7 @@ func (m dashboardModel) DetailState() detail.DetailState { return m.detail }
 func (m dashboardModel) SelectedPID() types.PID          { return m.selectedPID } // Story 38-5 PR5 Step 2 · detail.SelectedPIDProvider
 func (m dashboardModel) IntentState() intent.IntentState { return m.intent }      // Story 38-5 PR6 Step 1 · intent.StateProvider · Deprecated: removed in PR11
 func (m dashboardModel) SecurityState() security.SecurityState { return m.security } // Story 38-5 PR7 Step 1 · security.StateProvider · Deprecated: removed in PR11
+func (m dashboardModel) TraceState() trace.TraceState          { return m.trace }    // Story 38-5 PR8 Step 1 · trace.StateProvider · Deprecated: removed in PR11
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -477,36 +470,36 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case traceListMsg:
 		if msg.err != nil {
-			m.traceErr = msg.err
+			m.trace.Err = msg.err
 			return m, nil
 		}
-		m.traceErr = nil
-		m.traceSummaries = msg.summaries
+		m.trace.Err = nil
+		m.trace.Summaries = msg.summaries
 		// Sort by StartTimeMs descending (newest first)
-		sort.Slice(m.traceSummaries, func(i, j int) bool {
-			return m.traceSummaries[i].StartTimeMs > m.traceSummaries[j].StartTimeMs
+		sort.Slice(m.trace.Summaries, func(i, j int) bool {
+			return m.trace.Summaries[i].StartTimeMs > m.trace.Summaries[j].StartTimeMs
 		})
-		if m.traceCursor >= len(m.traceSummaries) {
-			m.traceCursor = max(0, len(m.traceSummaries)-1)
+		if m.trace.Cursor >= len(m.trace.Summaries) {
+			m.trace.Cursor = max(0, len(m.trace.Summaries)-1)
 		}
 		return m, nil
 	case traceTreeMsg:
 		if msg.err != nil {
-			m.traceErr = msg.err
+			m.trace.Err = msg.err
 			return m, nil
 		}
-		m.traceErr = nil
-		m.selectedTraceID = msg.traceID
-		m.selectedSpanTree = msg.tree
-		m.spanFlatNodes = flattenSpanTree(msg.tree)
-		m.spanCursor = 0
-		m.spanScrollOffset = 0
+		m.trace.Err = nil
+		m.trace.SelectedTraceID = msg.traceID
+		m.trace.SelectedSpanTree = msg.tree
+		m.trace.SpanFlatNodes = flattenSpanTree(msg.tree)
+		m.trace.SpanCursor = 0
+		m.trace.SpanScrollOffset = 0
 		if msg.tree == nil || msg.tree.Root == nil {
 			// Empty trace — stay in list mode, show status message
 			m.statusMsg = "此追踪无 span 数据"
 			m.statusMsgTTL = statusMsgDefaultTTL
 		} else {
-			m.traceViewMode = 1
+			m.trace.ViewMode = 1
 		}
 		return m, nil
 	case evalReputationMsg:
@@ -915,7 +908,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Fetch trace list when Trace pane is active or in default view (detail card needs it)
 	if m.connected {
 		if m.activePane == paneTrace || m.viewMode == viewDefault {
-			if m.traceSummaries == nil || m.heatmap.TickCount%5 == 0 {
+			if m.trace.Summaries == nil || m.heatmap.TickCount%5 == 0 {
 				cmds = append(cmds, fetchTraceListCmd())
 			}
 		}

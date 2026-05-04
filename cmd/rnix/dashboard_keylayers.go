@@ -287,7 +287,7 @@ func registerLayer0(d *ui.Dispatcher) {
 				m.searchMatchIdx = 0
 				return true, m, nil
 			}
-			if m.activePane == paneTrace && m.traceViewMode != 0 {
+			if m.activePane == paneTrace && m.trace.ViewMode != 0 {
 				newM, cmd := m.handleTraceKey("esc")
 				return true, newM, cmd
 			}
@@ -707,7 +707,7 @@ func registerLayer2Trace(d *ui.Dispatcher) {
 				return nil
 			}
 			view := "overview"
-			if m.traceViewMode == 1 {
+			if m.trace.ViewMode == 1 {
 				view = "spans"
 			}
 			return []ui.Mode{{Name: "view", Value: view}}

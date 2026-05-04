@@ -9,6 +9,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
+	"github.com/rnixai/rnix/internal/dashboard/trace"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/rnixai/rnix/kernel"
@@ -212,17 +213,12 @@ type traceTreeMsg struct {
 	err     error
 }
 
-type spanFlatNode struct {
-	spanID string
-	pid    types.PID
-	name   string
-	durMs  int64
-	tokens int
-	status string
-	depth  int
-	prefix string
-	isRoot bool
-}
+// Story 38-5 PR8 Step 1: spanFlatNode 类型迁出至 internal/dashboard/trace.SpanFlatNode。
+// alias 让旧代码（dashboard_trace.go / atdd_27_9 测试 / atdd_29_1 grep 契约）零行为变化。
+// 字段访问需用大写（SpanID/PID/Name/DurMs/Tokens/Status/Depth/Prefix/IsRoot）。
+//
+//nolint:unused // alias 通过 ATDD 29.1 grep 契约 + 测试构造 []spanFlatNode{} 隐式使用
+type spanFlatNode = trace.SpanFlatNode
 
 // --- Eval pane types (Story 27-10) ---
 
