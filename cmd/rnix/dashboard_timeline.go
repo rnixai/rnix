@@ -75,21 +75,17 @@ func defaultStepFilters() map[string]bool {
 // user enters升序 Timeline for the first time. Persists the shown flag to
 // ~/.config/rnix/ui-state.json so the notice never repeats across sessions.
 // Story 36-4 AC-3.
+//
+// Story 38-5 PR11 Step 4(c)：纯逻辑迁出至 internal/dashboard/timeline.MigrationCheck
+// （懒分配 UIState + saver 调用 + 不阻塞写入失败 · 与历史行为等价）。cmd/rnix
+// wrapper 仅保留 m.statusMsg / m.statusMsgTTL 副作用（dashboardModel-private）。
 func (m dashboardModel) maybeShowTimelineMigrationNotice() dashboardModel {
-	if m.timeline.MigrationChecked {
-		return m
+	var show bool
+	m.timeline, show = timeline.MigrationCheck(m.timeline, nil)
+	if show {
+		m.statusMsg = "Timeline 已改为升序（最新在底）。按 o 切换。"
+		m.statusMsgTTL = 5
 	}
-	m.timeline.MigrationChecked = true
-	if m.timeline.UIState == nil {
-		m.timeline.UIState = &ui.UIState{}
-	}
-	if m.timeline.UIState.TimelineSortMigrationShown || !m.timeline.SortAsc {
-		return m
-	}
-	m.statusMsg = "Timeline 已改为升序（最新在底）。按 o 切换。"
-	m.statusMsgTTL = 5
-	m.timeline.UIState.TimelineSortMigrationShown = true
-	_ = ui.SaveUIState(m.timeline.UIState) // 写入失败不阻塞 UI
 	return m
 }
 
