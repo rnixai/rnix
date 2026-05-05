@@ -1737,13 +1737,11 @@ func (m dashboardModel) findStepIndex(step int) int {
 	return -1
 }
 
-// buildToolCallNameMap maps tool call IDs to names.
+// buildToolCallNameMap — thin wrapper · 见 internal/dashboard/inspector.BuildToolCallNameMap.
+//
+// Story 38-5 PR11 Step 4(c)：纯 ID→Name 收集主体迁出至 inspector 包
+// （0 dashboardModel 依赖 · 仅 ipc.MessageWire 入参）· cmd/rnix wrapper 保留
+// 旧名让 ATDD 27-4 / 36.1-AC9 测试 grep 字符串通过.
 func buildToolCallNameMap(msgs []ipc.MessageWire) map[string]string {
-	names := make(map[string]string)
-	for _, msg := range msgs {
-		for _, tc := range msg.ToolCalls {
-			names[tc.ID] = tc.Name
-		}
-	}
-	return names
+	return inspector.BuildToolCallNameMap(msgs)
 }
