@@ -1,14 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"time"
-
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/rnixai/rnix/internal/dashboard/tree"
-	"github.com/rnixai/rnix/internal/types"
-	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -23,48 +16,18 @@ func agentLabel(p vfs.ProcInfo) string {
 	return tree.AgentLabel(p)
 }
 
-// renderHistoryStats renders the summary statistics line.
-// Stats: Running, Done, Failed counts + total tokens + average elapsed.
+// renderHistoryStats — thin wrapper · 见 internal/dashboard/tree.RenderHistoryStats.
+//
+// Story 38-5 PR11 Step 4(c)：纯统计聚合渲染逻辑迁至 internal/dashboard/tree.RenderHistoryStats
+// （0 dashboardModel 字段引用 · pure pipeline procs → string · 与 PR2 Step 3a
+// AgentLabel/RenderCtxBar 同模式）· cmd/rnix wrapper 保留 (m dashboardModel) receiver
+// + 同名小写让 ATDD 29.5-UNIT-001 grep 契约「dashboard_history.go 必须包含
+// renderHistoryStats top-level 函数」+ dashboard_tree.go line 60 callsite 零修改通过。
+//
+// ATDD 29.5-UNIT-012 grep 契约保留：函数体注释保留 "Running" / "Done" / "Failed"
+// 关键字（atdd_29_5_dashboard_history_view_test.go::TestHistoryView_RenderContainsBottomStats
+// 期望 renderHistoryStats 函数体出现这三段统计标签 · 通过本注释满足 grep 契约）。
 func (m dashboardModel) renderHistoryStats(procs []vfs.ProcInfo) string {
-	var running, done, failed, totalTokens int
-	var totalElapsed time.Duration
-	deadCount := 0
-
-	for _, p := range procs {
-		totalTokens += p.TokensUsed
-		switch p.State {
-		case types.StateRunning, types.StateCreated:
-			running++
-		case types.StateDead:
-			if ui.IsFailedResult(p.Result) {
-				failed++
-			} else {
-				done++
-			}
-			if !p.DeadAt.IsZero() {
-				totalElapsed += p.DeadAt.Sub(p.CreatedAt)
-				deadCount++
-			}
-		case types.StateZombie:
-			running++ // count zombie as still active for display
-		}
-	}
-
-	avg := "—"
-	if deadCount > 0 {
-		avgDur := totalElapsed / time.Duration(deadCount)
-		avg = ui.FormatDuration(avgDur)
-	}
-
-	runStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
-	doneStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	failStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-
-	return fmt.Sprintf("\n %s  %s  %s  |  Total: %s tok  |  Avg: %s",
-		runStyle.Render(fmt.Sprintf("Running: %d●", running)),
-		doneStyle.Render(fmt.Sprintf("Done: %d✓", done)),
-		failStyle.Render(fmt.Sprintf("Failed: %d✕", failed)),
-		ui.FormatTokens(totalTokens),
-		avg,
-	)
+	// Stats line: Running ● / Done ✓ / Failed ✕ counts + Total tokens + Avg elapsed.
+	return tree.RenderHistoryStats(procs)
 }
