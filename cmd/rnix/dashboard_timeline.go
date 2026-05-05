@@ -95,23 +95,17 @@ func (m dashboardModel) maybeShowTimelineMigrationNotice() dashboardModel {
 
 // handleTimelinePIDChange resets timeline state when selected process changes.
 // Uses UUID for reliable identification (PIDs can be reused).
+//
+// Story 38-5 PR11 Step 4(c)：timeline state 重置主体迁出至
+// internal/dashboard/timeline.HandlePIDUUIDChange（含 9 字段重置 +
+// ExpandMode=collapsed · 与历史行为 byte-for-byte 等价）。cmd/rnix wrapper 仅
+// 保留 m.search 跨 plugin 重置（Story 36-5 P-1 · search state per-process）。
 func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
-	if m.selectedUUID == m.timeline.AttachedUUID {
+	prevUUID := m.timeline.AttachedUUID
+	m.timeline = timeline.HandlePIDUUIDChange(m.timeline, m.selectedPID, m.selectedUUID)
+	if m.selectedUUID == prevUUID {
 		return m
 	}
-	m.timeline.AttachedPID = m.selectedPID
-	m.timeline.AttachedUUID = m.selectedUUID
-	m.timeline.StepEntries = nil
-	m.timeline.StepCursor = 0
-	m.timeline.StepScrollTop = 0
-	m.timeline.StepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
-	m.timeline.LastFetchedStep = 0
-	m.timeline.FetchingDetail = false
-	m.timeline.StepFilterMode = false
-	m.timeline.StepExpandedIdx = -1
-	m.timeline.ExpandedAggGroups = make(map[int]bool)
-	// Story 36-4: expandMode 按进程作用域，切 PID 重置为 collapsed（sortAsc 不重置）
-	m.timeline.ExpandMode = expandModeCollapsed
 	// Story 36-5 P-1: search state is per-process; reset to avoid carrying a
 	// stale "ghost input mode" or stale matches across PID switches.
 	m.search.Mode = false
