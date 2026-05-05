@@ -327,63 +327,30 @@ func computeHealthCounts(processes []vfs.ProcInfo, events []UnifiedEvent, heartb
 	return
 }
 
-// computeCtxPercent returns context usage percentage for the selected process,
-// or average across running processes if none is selected.
-func computeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
-	if selectedPID > 0 {
-		for _, p := range processes {
-			if p.PID == selectedPID {
-				if p.ContextBudget > 0 {
-					return clampPercent(int(int64(p.TokensUsed) * 100 / int64(p.ContextBudget)))
-				}
-				return 0
-			}
-		}
-		return 0 // selected PID not found (reaped between ticks)
-	}
-	var totalUsed, totalBudget int64
-	for _, p := range processes {
-		if (p.State == types.StateRunning || p.State == types.StateCreated) && p.ContextBudget > 0 {
-			totalUsed += int64(p.TokensUsed)
-			totalBudget += int64(p.ContextBudget)
-		}
-	}
-	if totalBudget > 0 {
-		return clampPercent(int(totalUsed * 100 / totalBudget))
-	}
-	return 0
-}
-
-// computeBudgetPercent returns budget usage percentage for the selected process.
-// Tries cost-based (UsedCost/MaxCost) first, falls back to token-based (TokensUsed/MaxTokens).
-func computeBudgetPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
-	if selectedPID <= 0 {
-		return 0
-	}
-	for _, p := range processes {
-		if p.PID == selectedPID {
-			if p.MaxCost > 0 {
-				return clampPercent(int(p.UsedCost * 100 / p.MaxCost))
-			}
-			if p.MaxTokens > 0 {
-				return clampPercent(int(int64(p.TokensUsed) * 100 / p.MaxTokens))
-			}
-			return 0
-		}
-	}
-	return 0
-}
-
-// clampPercent restricts a percentage value to the displayable range [0, 999].
-// clampPercent — thin wrapper · 见 internal/dashboard/title.ClampPercent.
+// computeCtxPercent — thin wrapper · 见 internal/dashboard/title.ComputeCtxPercent.
 //
-// Story 38-5 PR11 Step 4(c)：Title Bar percent clamp 纯 helper 迁至
-// internal/dashboard/title 包（与 FormatElapsedHHMMSS / PctColorStyle 同 commit
-// 内聚 · 0 dashboardModel 依赖 · 0 cmd/rnix 反向依赖）· cmd/rnix wrapper 仅
-// 保留旧名让 5 处 callsite（dashboard_title.go::computeCtxPercent /
-// computeBudgetPercent · 4 处计算）零修改通过。
-func clampPercent(v int) int {
-	return title.ClampPercent(v)
+// Story 38-5 PR11 Step 4(c) (2026-05-05 · 第 9 个会话第 9 个 commit):
+// Title Bar 的 ctx 使用率纯 helper 已迁至 internal/dashboard/title/health.go
+// (与 ComputeBudgetPercent 同 commit · 0 dashboardModel 依赖) · cmd/rnix
+// wrapper 仅保留旧名让 2 处主代码 callsite (dashboard_title.go::renderDashboardTitle
+// ctxPct 计算) + 测试 callsite (dashboard_test.go::TestComputeCtxPercent_*
+// ATDD 34.2-UNIT-009) + atdd_29_1 line 197 grep 字符串 ("computeCtxPercent")
+// 零修改通过.
+func computeCtxPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
+	return title.ComputeCtxPercent(selectedPID, processes)
+}
+
+// computeBudgetPercent — thin wrapper · 见 internal/dashboard/title.ComputeBudgetPercent.
+//
+// Story 38-5 PR11 Step 4(c) (2026-05-05 · 第 9 个会话第 9 个 commit):
+// Title Bar 的 cost/token budget 使用率纯 helper 已迁至 internal/dashboard/title/
+// health.go (与 ComputeCtxPercent 同 commit · 0 dashboardModel 依赖) · cmd/rnix
+// wrapper 仅保留旧名让 2 处主代码 callsite (dashboard_title.go::renderDashboardTitle
+// budgetPct 计算) + 测试 callsite (dashboard_test.go::TestComputeBudgetPercent_*
+// ATDD 34.2-UNIT-010) + atdd_29_1 line 197 grep 字符串 ("computeBudgetPercent")
+// 零修改通过.
+func computeBudgetPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
+	return title.ComputeBudgetPercent(selectedPID, processes)
 }
 
 // styleProviderName colors the provider name based on process health.
