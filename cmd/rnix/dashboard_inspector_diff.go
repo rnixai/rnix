@@ -155,24 +155,18 @@ func (m dashboardModel) exitInspectorDiff() dashboardModel {
 // recorded step range, it is clamped and a status-bar notice is shown (per
 // AC-5). Caller must have verified m.inspector.DiffMode == true.
 func (m dashboardModel) slideDiffBase(newCurrent int) dashboardModel {
+	// Story 38-5 PR11 Step 4(c)：clamp + DiffBase + DiffUnfolded reset 主体迁出
+	// 至 inspector.SlideDiffBase · wrapper 仅保留 statusMsg 副作用 +
+	// refreshInspectorDiffLensMarks 调用.
+	var clamped bool
+	m.inspector, clamped = inspector.SlideDiffBase(m.inspector, newCurrent)
 	if len(m.inspector.Steps) == 0 {
 		return m
 	}
-	target := newCurrent - m.inspector.DiffDelta
-	first := m.inspector.Steps[0].Step
-	last := m.inspector.Steps[len(m.inspector.Steps)-1].Step
-	if target < first {
-		target = first
-		m.statusMsg = "Diff base clamped"
-		m.statusMsgTTL = statusMsgDefaultTTL
-	} else if target > last {
-		target = last
-		m.statusMsg = "Diff base clamped"
+	if clamped {
+		m.statusMsg = inspector.DiffBaseClampedMsg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	}
-	m.inspector.DiffBase = target
-	// Fold state is index-based over newly computed diff output; reset.
-	m.inspector.DiffUnfolded = make(map[int]bool)
 	// Story 38-3 AC#7: refresh diff-mark cache for tab indicators.
 	m.refreshInspectorDiffLensMarks()
 	return m

@@ -2,8 +2,11 @@
 package inspector
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/rnixai/rnix/ipc"
 )
 
 func TestExitDiffMode_ClearsAllSevenFields(t *testing.T) {
@@ -90,5 +93,115 @@ func TestExitDiffMode_AlreadyExited_Idempotent(t *testing.T) {
 	}
 	if got.Lens != 1 {
 		t.Error("idempotent: 其他字段应保留")
+	}
+}
+
+// --- SlideDiffBase ---
+
+func mkSteps(stepNums ...int) []ipc.StepSummaryWire {
+	out := make([]ipc.StepSummaryWire, len(stepNums))
+	for i, n := range stepNums {
+		out[i] = ipc.StepSummaryWire{Step: n}
+	}
+	return out
+}
+
+func TestSlideDiffBase_EmptySteps_ReturnsFalse(t *testing.T) {
+	got, clamped := SlideDiffBase(InspectorState{}, 5)
+	if clamped {
+		t.Error("空 Steps: clamped 应为 false")
+	}
+	if got.DiffBase != 0 {
+		t.Errorf("DiffBase 应保持 0, got %d", got.DiffBase)
+	}
+}
+
+func TestSlideDiffBase_WithinRange_NoClampNeeded(t *testing.T) {
+	state := InspectorState{
+		Steps:     mkSteps(1, 2, 3, 4, 5),
+		DiffDelta: 2,
+	}
+	// newCurrent=5 → target = 5 - 2 = 3（在范围内）
+	got, clamped := SlideDiffBase(state, 5)
+	if clamped {
+		t.Error("不应触发 clamp")
+	}
+	if got.DiffBase != 3 {
+		t.Errorf("DiffBase = %d, want 3", got.DiffBase)
+	}
+}
+
+func TestSlideDiffBase_BelowFirst_ClampsAndSignals(t *testing.T) {
+	state := InspectorState{
+		Steps:     mkSteps(10, 20, 30),
+		DiffDelta: 100, // 让 target 远低于 first
+	}
+	got, clamped := SlideDiffBase(state, 50)
+	if !clamped {
+		t.Error("应触发 clamp")
+	}
+	if got.DiffBase != 10 {
+		t.Errorf("DiffBase = %d, want 10 (Steps[0].Step)", got.DiffBase)
+	}
+}
+
+func TestSlideDiffBase_AboveLast_ClampsAndSignals(t *testing.T) {
+	state := InspectorState{
+		Steps:     mkSteps(1, 2, 3),
+		DiffDelta: -100, // 让 target 远高于 last
+	}
+	got, clamped := SlideDiffBase(state, 50)
+	if !clamped {
+		t.Error("应触发 clamp")
+	}
+	if got.DiffBase != 3 {
+		t.Errorf("DiffBase = %d, want 3 (Steps[last].Step)", got.DiffBase)
+	}
+}
+
+func TestSlideDiffBase_ResetsDiffUnfolded(t *testing.T) {
+	state := InspectorState{
+		Steps:        mkSteps(1, 2, 3, 4, 5),
+		DiffDelta:    2,
+		DiffUnfolded: map[int]bool{0: true, 5: true},
+	}
+	got, _ := SlideDiffBase(state, 5)
+	if got.DiffUnfolded == nil {
+		t.Fatal("DiffUnfolded 应被重置为非 nil 空 map")
+	}
+	if len(got.DiffUnfolded) != 0 {
+		t.Errorf("DiffUnfolded len = %d, want 0", len(got.DiffUnfolded))
+	}
+}
+
+func TestSlideDiffBase_PreservesOtherDiffFields(t *testing.T) {
+	state := InspectorState{
+		Steps:            mkSteps(1, 2, 3),
+		DiffMode:         true,
+		DiffDelta:        1,
+		DiffPicker:       true,
+		DiffPickerCursor: 7,
+	}
+	got, _ := SlideDiffBase(state, 2)
+	if !got.DiffMode {
+		t.Error("DiffMode 应保留")
+	}
+	if got.DiffDelta != 1 {
+		t.Error("DiffDelta 应保留")
+	}
+	if !got.DiffPicker {
+		t.Error("DiffPicker 应保留")
+	}
+	if got.DiffPickerCursor != 7 {
+		t.Error("DiffPickerCursor 应保留")
+	}
+}
+
+func TestDiffBaseClampedMsg_Constant(t *testing.T) {
+	if DiffBaseClampedMsg == "" {
+		t.Error("DiffBaseClampedMsg 不应为空")
+	}
+	if !strings.Contains(DiffBaseClampedMsg, "clamped") {
+		t.Errorf("文案应含 clamped, got %q", DiffBaseClampedMsg)
 	}
 }
