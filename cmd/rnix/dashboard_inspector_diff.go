@@ -140,13 +140,9 @@ func (m dashboardModel) handleInspectorDiffKey() (tea.Model, tea.Cmd) {
 // (rebuildInspectorContents normally snaps the active lens to the top).
 func (m dashboardModel) exitInspectorDiff() dashboardModel {
 	savedYOffset := m.inspector.Viewports[m.inspector.Lens].YOffset()
-	m.inspector.DiffMode = false
-	m.inspector.DiffBase = 0
-	m.inspector.DiffDelta = 0
-	m.inspector.DiffUnfolded = nil
-	m.inspector.DiffPicker = false
-	m.inspector.DiffPickerCursor = 0
-	m.inspector.DiffDdDeadline = time.Time{}
+	// Story 38-5 PR11 Step 4(c)：7 字段重置主体迁出至 inspector.ExitDiffMode ·
+	// wrapper 仅保留 viewport YOffset 保存/恢复 + rebuildInspectorContents 副作用.
+	m.inspector = inspector.ExitDiffMode(m.inspector)
 	m.rebuildInspectorContents()
 	vp := m.inspector.Viewports[m.inspector.Lens]
 	vp.SetYOffset(savedYOffset)
