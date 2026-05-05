@@ -216,22 +216,12 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 			break
 		}
-		// Jump to next error: step event with HasError or system event with Severity >= SevError
-		found := false
-		for i := m.timeline.StepCursor + 1; i < len(filtered); i++ {
-			ev := filtered[i]
-			if ev.StepEntry != nil && ev.StepEntry.Summary.HasError {
-				m.timeline.StepCursor = i
-				found = true
-				break
-			}
-			if ev.StepEntry == nil && ev.Severity >= SevError {
-				m.timeline.StepCursor = i
-				found = true
-				break
-			}
-		}
-		if !found {
+		// Story 38-5 PR11 Step 4(c)：error 跳转 lookup 主体迁出至
+		// internal/dashboard/event.FindNextErrorIdx（HasError + Severity≥SevError
+		// 双判定 · 与历史等价）。
+		if idx, ok := dashboardevent.FindNextErrorIdx(filtered, m.timeline.StepCursor); ok {
+			m.timeline.StepCursor = idx
+		} else {
 			m.statusMsg = "No more errors"
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
@@ -244,22 +234,10 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 			break
 		}
-		// Jump to previous error
-		found := false
-		for i := m.timeline.StepCursor - 1; i >= 0; i-- {
-			ev := filtered[i]
-			if ev.StepEntry != nil && ev.StepEntry.Summary.HasError {
-				m.timeline.StepCursor = i
-				found = true
-				break
-			}
-			if ev.StepEntry == nil && ev.Severity >= SevError {
-				m.timeline.StepCursor = i
-				found = true
-				break
-			}
-		}
-		if !found {
+		// Story 38-5 PR11 Step 4(c)：见 FindNextErrorIdx 同模式。
+		if idx, ok := dashboardevent.FindPrevErrorIdx(filtered, m.timeline.StepCursor); ok {
+			m.timeline.StepCursor = idx
+		} else {
 			m.statusMsg = "No more errors"
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
