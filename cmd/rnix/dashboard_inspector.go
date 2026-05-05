@@ -479,27 +479,22 @@ func findInspectorMatchesByPos(content, query string) []searchMatchPos {
 
 // clearSearchState resets dashboard search-related fields. Used when leaving
 // search context due to pane / mode change. Story 36-5 P-1.
+//
+// Story 38-5 PR11 Step 4(c)：SearchPlugin 共享字段重置委托至 SearchPlugin.Reset
+// （含 Mode/Query/Matches/MatchIdx/Reverse/CrossLens/NoMatchExpireAt 7 字段）。
+// cmd/rnix wrapper 仅保留 inspector-private 字段清理（SearchPos）。
 func (m dashboardModel) clearSearchState() dashboardModel {
-	m.search.Mode = false
-	m.search.Query = ""
-	m.search.Matches = nil
+	m.search.Reset()
 	m.inspector.SearchPos = nil
-	m.search.MatchIdx = 0
-	m.search.Reverse = false
-	m.search.CrossLens = false
 	return m
 }
 
 func (m dashboardModel) inspectorJumpSearchMatch(dir int) dashboardModel {
-	if len(m.search.Matches) == 0 {
+	// Story 38-5 PR11 Step 4(c)：索引环绕 + Reverse 翻转主体迁出至
+	// SearchPlugin.JumpMatch · wrapper 保留 scrollInspectorToCurrentMatch 副作用.
+	if !m.search.JumpMatch(dir) {
 		return m
 	}
-	// Story 36-6 AC-6: reverse search flips n/N semantics.
-	if m.search.Reverse {
-		dir = -dir
-	}
-	n := len(m.search.Matches)
-	m.search.MatchIdx = ((m.search.MatchIdx+dir)%n + n) % n
 	m.scrollInspectorToCurrentMatch()
 	return m
 }

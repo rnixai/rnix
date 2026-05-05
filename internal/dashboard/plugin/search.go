@@ -92,6 +92,47 @@ func (p *SearchPlugin) EnterSearchMode(reverse bool) {
 	p.Reverse = reverse
 }
 
+// JumpMatch 在 Matches 列表中循环跳转 dir 步（dir=+1 下一个 / -1 上一个）。
+//
+// 行为契约（与 cmd/rnix.inspectorJumpSearchMatch / timeline n/N 共享语义）：
+//   - 若 Matches 为空 → 返回 false（caller 不应执行后续滚动副作用）;
+//   - Reverse=true → dir 翻转（Story 36-6 AC-6 backward 语义）;
+//   - MatchIdx 模 n 环绕（双向安全 · ((idx+dir)%n + n) % n）;
+//   - 返回 true 表示 MatchIdx 已更新.
+//
+// nil 安全：receiver 为 nil → 返回 false。
+func (p *SearchPlugin) JumpMatch(dir int) bool {
+	if p == nil || len(p.Matches) == 0 {
+		return false
+	}
+	if p.Reverse {
+		dir = -dir
+	}
+	n := len(p.Matches)
+	p.MatchIdx = ((p.MatchIdx+dir)%n + n) % n
+	return true
+}
+
+// Reset 清空 SearchPlugin 全部状态字段（Story 36-5 P-1 · 跨 pane / mode 切换
+// 时调用 · 与 cmd/rnix.clearSearchState 等价 · 不含 inspector-private 字段）。
+//
+// 字段重置：Mode=false / Query="" / Matches=nil / MatchIdx=0 / Reverse=false /
+// CrossLens=false / NoMatchExpireAt=time.Time{}（零值）。
+//
+// nil 安全：receiver 为 nil → noop。
+func (p *SearchPlugin) Reset() {
+	if p == nil {
+		return
+	}
+	p.Mode = false
+	p.Query = ""
+	p.Matches = nil
+	p.MatchIdx = 0
+	p.Reverse = false
+	p.CrossLens = false
+	p.NoMatchExpireAt = time.Time{}
+}
+
 // HandleInputKey 处理 search 输入态的非-enter 按键（Story 38-5 PR11 Step 4(c)
 // timeline / inspector 共享通用模式）。
 //

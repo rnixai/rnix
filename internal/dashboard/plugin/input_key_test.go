@@ -3,7 +3,10 @@
 // HandleInputKey 契约测试（SearchPlugin 的非-enter 输入态按键处理）。
 package plugin
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestHandleInputKey_Esc_ExitsAndClears(t *testing.T) {
 	p := &SearchPlugin{Mode: true, Query: "foo"}
@@ -156,4 +159,107 @@ func TestEnterSearchMode_NilReceiver_Safe(t *testing.T) {
 		}
 	}()
 	p.EnterSearchMode(false)
+}
+
+// --- JumpMatch ---
+
+func TestJumpMatch_EmptyMatches_ReturnsFalse(t *testing.T) {
+	p := &SearchPlugin{Matches: nil, MatchIdx: 0}
+	if p.JumpMatch(1) {
+		t.Error("空 Matches 应返回 false")
+	}
+}
+
+func TestJumpMatch_ForwardCycles(t *testing.T) {
+	p := &SearchPlugin{Matches: []int{1, 2, 3}, MatchIdx: 0}
+	if !p.JumpMatch(1) {
+		t.Error("应返回 true")
+	}
+	if p.MatchIdx != 1 {
+		t.Errorf("MatchIdx = %d, want 1", p.MatchIdx)
+	}
+	p.JumpMatch(1)
+	p.JumpMatch(1)
+	if p.MatchIdx != 0 {
+		t.Errorf("循环到首位: MatchIdx = %d, want 0", p.MatchIdx)
+	}
+}
+
+func TestJumpMatch_BackwardWraps(t *testing.T) {
+	p := &SearchPlugin{Matches: []int{1, 2, 3}, MatchIdx: 0}
+	p.JumpMatch(-1)
+	if p.MatchIdx != 2 {
+		t.Errorf("从 0 后退应环绕到末位: MatchIdx = %d, want 2", p.MatchIdx)
+	}
+}
+
+func TestJumpMatch_ReverseFlipsDirection(t *testing.T) {
+	// Reverse=true 时 dir=+1 实际效果是 -1（Story 36-6 AC-6）
+	p := &SearchPlugin{Matches: []int{1, 2, 3}, MatchIdx: 0, Reverse: true}
+	p.JumpMatch(1)
+	if p.MatchIdx != 2 {
+		t.Errorf("Reverse + dir=+1 应表现为 -1: MatchIdx = %d, want 2", p.MatchIdx)
+	}
+}
+
+func TestJumpMatch_ReverseDoubleFlip(t *testing.T) {
+	// Reverse=true + dir=-1 → 实际效果是 +1
+	p := &SearchPlugin{Matches: []int{1, 2, 3}, MatchIdx: 0, Reverse: true}
+	p.JumpMatch(-1)
+	if p.MatchIdx != 1 {
+		t.Errorf("Reverse + dir=-1 应表现为 +1: MatchIdx = %d, want 1", p.MatchIdx)
+	}
+}
+
+func TestJumpMatch_NilReceiver_ReturnsFalse(t *testing.T) {
+	var p *SearchPlugin
+	if p.JumpMatch(1) {
+		t.Error("nil receiver 应返回 false")
+	}
+}
+
+// --- Reset ---
+
+func TestReset_ClearsAllFields(t *testing.T) {
+	p := &SearchPlugin{
+		Mode:            true,
+		Query:           "foo",
+		Matches:         []int{1, 2},
+		MatchIdx:        1,
+		Reverse:         true,
+		CrossLens:       true,
+		NoMatchExpireAt: time.Now().Add(time.Hour),
+	}
+	p.Reset()
+	if p.Mode {
+		t.Error("Reset: Mode 应为 false")
+	}
+	if p.Query != "" {
+		t.Errorf("Reset: Query = %q, want \"\"", p.Query)
+	}
+	if p.Matches != nil {
+		t.Errorf("Reset: Matches = %v, want nil", p.Matches)
+	}
+	if p.MatchIdx != 0 {
+		t.Errorf("Reset: MatchIdx = %d, want 0", p.MatchIdx)
+	}
+	if p.Reverse {
+		t.Error("Reset: Reverse 应为 false")
+	}
+	if p.CrossLens {
+		t.Error("Reset: CrossLens 应为 false")
+	}
+	if !p.NoMatchExpireAt.IsZero() {
+		t.Errorf("Reset: NoMatchExpireAt 应为零值, got %v", p.NoMatchExpireAt)
+	}
+}
+
+func TestReset_NilReceiver_Safe(t *testing.T) {
+	var p *SearchPlugin
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("nil receiver panic: %v", r)
+		}
+	}()
+	p.Reset()
 }
