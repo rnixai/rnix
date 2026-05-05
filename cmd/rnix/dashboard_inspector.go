@@ -64,13 +64,11 @@ func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
 	m.inspector.SystemExpanded = false
 	// Story 36-5 fix: reset cross-pane search state when entering Inspector to
 	// avoid stale searchQuery carried over from Timeline.
-	m.search.Mode = false
-	m.search.Query = ""
-	m.search.Matches = nil
+	//
+	// Story 38-5 PR11 Step 4(c)：SearchPlugin 7 字段重置委托至 SearchPlugin.Reset
+	// （commit 69bbe7e 引入）· wrapper 仅保留 inspector-private SearchPos 清理.
+	m.search.Reset()
 	m.inspector.SearchPos = nil
-	m.search.MatchIdx = 0
-	m.search.Reverse = false
-	m.search.CrossLens = false
 	// Story 36-6: reset diff/follow state on entry.
 	m.inspector.DiffMode = false
 	m.inspector.DiffBase = 0

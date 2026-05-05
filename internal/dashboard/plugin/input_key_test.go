@@ -263,3 +263,59 @@ func TestReset_NilReceiver_Safe(t *testing.T) {
 	}()
 	p.Reset()
 }
+
+// --- ExitSearchMode ---
+
+func TestExitSearchMode_ClearsFourFields(t *testing.T) {
+	p := &SearchPlugin{
+		Mode:     true,
+		Query:    "foo",
+		Matches:  []int{1, 2},
+		MatchIdx: 1,
+	}
+	p.ExitSearchMode()
+	if p.Mode {
+		t.Error("ExitSearchMode: Mode 应为 false")
+	}
+	if p.Query != "" {
+		t.Errorf("ExitSearchMode: Query = %q, want \"\"", p.Query)
+	}
+	if p.Matches != nil {
+		t.Errorf("ExitSearchMode: Matches 应为 nil, got %v", p.Matches)
+	}
+	if p.MatchIdx != 0 {
+		t.Errorf("ExitSearchMode: MatchIdx = %d, want 0", p.MatchIdx)
+	}
+}
+
+func TestExitSearchMode_PreservesCrossPaneFields(t *testing.T) {
+	// 与 Reset 区别：保留 Reverse / CrossLens / NoMatchExpireAt（cross-pane 持久）
+	expireTime := time.Now().Add(time.Hour)
+	p := &SearchPlugin{
+		Mode:            true,
+		Query:           "stale",
+		Reverse:         true,
+		CrossLens:       true,
+		NoMatchExpireAt: expireTime,
+	}
+	p.ExitSearchMode()
+	if !p.Reverse {
+		t.Error("ExitSearchMode: Reverse 应保留")
+	}
+	if !p.CrossLens {
+		t.Error("ExitSearchMode: CrossLens 应保留")
+	}
+	if !p.NoMatchExpireAt.Equal(expireTime) {
+		t.Error("ExitSearchMode: NoMatchExpireAt 应保留")
+	}
+}
+
+func TestExitSearchMode_NilReceiver_Safe(t *testing.T) {
+	var p *SearchPlugin
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("nil receiver panic: %v", r)
+		}
+	}()
+	p.ExitSearchMode()
+}

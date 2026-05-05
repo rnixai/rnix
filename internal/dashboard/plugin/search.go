@@ -92,6 +92,26 @@ func (p *SearchPlugin) EnterSearchMode(reverse bool) {
 	p.Reverse = reverse
 }
 
+// ExitSearchMode 退出 search 输入态，清空 Mode/Query/Matches/MatchIdx 4 字段。
+//
+// 与 Reset() 的差异：
+//   - Reset 清 7 字段（含 Reverse/CrossLens/NoMatchExpireAt · 跨 pane / mode 重置）;
+//   - ExitSearchMode 仅清前 4 字段（保留 Reverse/CrossLens/NoMatchExpireAt · 用于
+//     viewExpanded layered escape 这类「退出当前 search 但保持 cross-pane
+//     persistent 状态」场景 · 与 cmd/rnix.dashboard_keylayers viewExpanded
+//     layered escape 历史等价）.
+//
+// nil 安全：receiver 为 nil 时 noop。
+func (p *SearchPlugin) ExitSearchMode() {
+	if p == nil {
+		return
+	}
+	p.Mode = false
+	p.Query = ""
+	p.Matches = nil
+	p.MatchIdx = 0
+}
+
 // JumpMatch 在 Matches 列表中循环跳转 dir 步（dir=+1 下一个 / -1 上一个）。
 //
 // 行为契约（与 cmd/rnix.inspectorJumpSearchMatch / timeline n/N 共享语义）：

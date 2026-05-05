@@ -285,10 +285,10 @@ func registerLayer0(d *ui.Dispatcher) {
 		// viewExpanded: layered escape (search → trace tree → tree search → restore)
 		if m.viewMode == viewExpanded {
 			if m.search.Mode {
-				m.search.Mode = false
-				m.search.Query = ""
-				m.search.Matches = nil
-				m.search.MatchIdx = 0
+				// Story 38-5 PR11 Step 4(c)：4 字段重置委托 SearchPlugin.ExitSearchMode
+				// （保留 Reverse/CrossLens/NoMatchExpireAt cross-pane 持久状态 · 与
+				// 完整 Reset() 区别参见 plugin/search.go godoc）.
+				m.search.ExitSearchMode()
 				return true, m, nil
 			}
 			if m.activePane == paneTrace && m.trace.ViewMode != 0 {
