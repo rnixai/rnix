@@ -388,13 +388,20 @@ func isBackScrollKey(key string) bool {
 // stopFollowLiveWithStatus disables inspectorFollowLive and emits the
 // user-facing status line described in Story 36-6 AC-13. No-op if follow is
 // already off.
+// stopFollowLiveWithStatus disables inspectorFollowLive and emits the
+// user-facing status line described in Story 36-6 AC-13. No-op if follow is
+// already off.
+//
+// Story 38-5 PR11 Step 4(c)：state mutation + idempotent 判定主体迁出至
+// internal/dashboard/inspector.StopFollowLive（含 FollowLiveStoppedMsg 公开
+// 常量）· wrapper 仅保留 m.statusMsg / statusMsgTTL 副作用.
 func (m dashboardModel) stopFollowLiveWithStatus() dashboardModel {
-	if !m.inspector.FollowLive {
-		return m
+	var stopped bool
+	m.inspector, stopped = inspector.StopFollowLive(m.inspector)
+	if stopped {
+		m.statusMsg = inspector.FollowLiveStoppedMsg
+		m.statusMsgTTL = statusMsgDefaultTTL
 	}
-	m.inspector.FollowLive = false
-	m.statusMsg = "Follow live: off (F 恢复)"
-	m.statusMsgTTL = statusMsgDefaultTTL
 	return m
 }
 

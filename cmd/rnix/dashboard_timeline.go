@@ -155,7 +155,7 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		return m
 	case "f":
 		m.timeline.StepFilterMode = true
-		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
+		m.statusMsg = dashboardevent.FilterHelpMsg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "e":
 		// Story 36-4: Sticky expand mode — 切换到 Expanded，幂等。
