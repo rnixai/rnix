@@ -7,7 +7,7 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 )
 
-// dashboard_broadcast.go — Story 38-5 PR11 Step 4(b) Phase 1
+// dashboard_broadcast.go — Story 38-5 PR11 Step 4(b)（Phase 1 + Phase 2）
 //
 // 跨 pane PID 同步广播实现（spec § AC11 硬约束）。
 //
@@ -19,31 +19,145 @@ import (
 //   - 3 OverlayModel 仅在 IsActive() == true 时接收（spec § 04 风险 2 缓解）；
 //   - 11 字段任一为 nil 时跳过该字段（防御性 · 让 mock 测试可注入部分字段）。
 //
+// Phase 1（commit 4ed715f）落地：消息通道（SelectPIDMsg）+ 11 个 *PaneModel 字段
+// 注入 + broadcastSelectPIDImpl 拆出让测试可注入 mock。所有 OnSelectPID 仍是
+// nil-safe stub · 通道建立但实际不影响 cmd/rnix 端 source-of-truth 字段。
+//
+// Phase 2（本 commit）落地：SetState/State 双向同步通道。
+//   - syncStatesToModels: cmd/rnix.<state> → m.<panel>M.SetState（broadcast 前 push）
+//   - syncStatesFromModels: m.<panel>M.State() → cmd/rnix.<state>（broadcast 后 pull）
+//   - 当前 OnSelectPID 全部幂等（pid == state.PID 时 noop）· dashboardTick 已通过
+//     handlePIDChange 修改 cmd/rnix.<state>.PID 为新值 · 因此 SetState 推到 *PaneModel
+//     时 PID 已是新值 · OnSelectPID noop · State 取回原状 → **零行为变化**。
+//   - 双向通道建立后，下一步逐 pane 删除 cmd/rnix 端 handleXxxPIDChange 散点 ·
+//     让 OnSelectPID 成为唯一 mutation 路径（Phase 3 dashboardTick 解构基础）。
+//
 // 测试策略：dashboardModel.<panel>M 字段是具体类型 *<pkg>.XxxModel · 无法直接
 // 替换为 mock interface。因此把核心逻辑拆出 broadcastSelectPIDImpl 自由函数
 // 接受 panes/overlays slice · 让测试可注入 mock interface 列表验证调用计数。
-// dashboardModel.broadcastSelectPID 仅是构建 11 字段 slice 的 thin wrapper。
-//
-// 现状（Phase 1）：所有子 Model.OnSelectPID 当前是 nil-safe stub · 此函数
-// 的 broadcast 实质上只是验证通道建立 + tea.Batch 路由正确。
-// Phase 2 后续会话逐 pane 把 cmd/rnix 端 handleXxxPIDChange 主体迁入对应
-// OnSelectPID · 此函数无需修改即可承载 cmd 收集。
+// dashboardModel.broadcastSelectPID 内含 SetState/State 同步 · 测试通过构造
+// dashboardModel + 调 broadcastSelectPID 验证 round-trip 行为。
 
-// broadcastSelectPID — spec § AC11 broadcast 入口（dashboardTick / Update 调用）。
+// broadcastSelectPID — spec § AC11 broadcast 入口（Update.SelectPIDMsg 路由）。
 //
 // 输入：pid types.PID — 新选中的进程 ID（来自 SelectPIDMsg.PID）。
-// 输出：tea.Cmd — tea.Batch 收集到的所有子 Model.OnSelectPID 返回的非 nil cmd。
+// 输出：(dashboardModel, tea.Cmd) — 双向同步后的 dashboardModel + tea.Batch 收集到的非 nil cmd。
+//
+// 流程：
+//  1. syncStatesToModels — cmd/rnix.<state> → m.<panel>M.SetState（push）
+//  2. broadcastSelectPIDImpl — 调用 11 个子 Model.OnSelectPID（spec § AC11）
+//  3. syncStatesFromModels — m.<panel>M.State() → cmd/rnix.<state>（pull）
 //
 // panes 顺序稳定（test 依赖）：tree, timeline, heatmap, detail, intent,
 // security, trace, eval（与 spec § 02 子 Model 表格一致）；
 // overlays：inspector, debug, alertStrip。
-func (m dashboardModel) broadcastSelectPID(pid types.PID) tea.Cmd {
+//
+// 返回值：sync 后的新 dashboardModel + cmd/rnix 端 caller 必须将其作为新 model（值
+// 拷贝语义 · 与现有 (m dashboardModel) handlePIDChange 同模式）。
+func (m dashboardModel) broadcastSelectPID(pid types.PID) (dashboardModel, tea.Cmd) {
+	m = m.syncStatesToModels()
 	panes := []dashboardmodel.PaneModel{
 		m.treeM, m.timelineM, m.heatmapM, m.detailM,
 		m.intentM, m.securityM, m.traceM, m.evalM,
 	}
 	overlays := []dashboardmodel.OverlayModel{m.inspectorM, m.debugM, m.alertStripM}
-	return broadcastSelectPIDImpl(pid, panes, overlays)
+	cmd := broadcastSelectPIDImpl(pid, panes, overlays)
+	m = m.syncStatesFromModels()
+	return m, cmd
+}
+
+// syncStatesToModels — Phase 2 双向同步 push 阶段。
+//
+// 把 cmd/rnix 端的 source-of-truth state（dashboardModel.<state>）通过 SetState
+// 推到对应 *PaneModel.state。让 broadcast 调用 OnSelectPID 时操作的是 cmd/rnix
+// 端最新状态而不是 *PaneModel 内部独立副本。
+//
+// nil 安全：每个 *PaneModel 字段为 nil 时跳过（不 panic）。SetState 实现已包含
+// receiver nil 检查。
+//
+// 性能：11 次结构体值拷贝 · 字段最大的 InspectorState 含 25 字段 · 总开销 < 1us。
+func (m dashboardModel) syncStatesToModels() dashboardModel {
+	if m.treeM != nil {
+		m.treeM.SetState(m.tree)
+	}
+	if m.timelineM != nil {
+		m.timelineM.SetState(m.timeline)
+	}
+	if m.heatmapM != nil {
+		m.heatmapM.SetState(m.heatmap)
+	}
+	if m.detailM != nil {
+		m.detailM.SetState(m.detail)
+	}
+	if m.intentM != nil {
+		m.intentM.SetState(m.intent)
+	}
+	if m.securityM != nil {
+		m.securityM.SetState(m.security)
+	}
+	if m.traceM != nil {
+		m.traceM.SetState(m.trace)
+	}
+	if m.evalM != nil {
+		m.evalM.SetState(m.eval)
+	}
+	if m.inspectorM != nil {
+		m.inspectorM.SetState(m.inspector)
+	}
+	if m.debugM != nil {
+		m.debugM.SetState(m.debugState)
+	}
+	if m.alertStripM != nil {
+		m.alertStripM.SetState(m.alertStrip)
+	}
+	return m
+}
+
+// syncStatesFromModels — Phase 2 双向同步 pull 阶段。
+//
+// 把 *PaneModel.state 通过 State() 取回到 cmd/rnix 端 source-of-truth state。
+// broadcast 调用 OnSelectPID 后任何状态变化都会通过本函数回写。
+//
+// nil 安全：每个 *PaneModel 字段为 nil 时跳过 · cmd/rnix 端字段保持原状。
+//
+// 与 syncStatesToModels 的对偶关系：toModels 是 push（cmd/rnix → *PaneModel）·
+// fromModels 是 pull（*PaneModel → cmd/rnix）· 两者搭配使用让 broadcast 真正
+// 参与状态修改链而不是只触达独立副本。
+func (m dashboardModel) syncStatesFromModels() dashboardModel {
+	if m.treeM != nil {
+		m.tree = m.treeM.State()
+	}
+	if m.timelineM != nil {
+		m.timeline = m.timelineM.State()
+	}
+	if m.heatmapM != nil {
+		m.heatmap = m.heatmapM.State()
+	}
+	if m.detailM != nil {
+		m.detail = m.detailM.State()
+	}
+	if m.intentM != nil {
+		m.intent = m.intentM.State()
+	}
+	if m.securityM != nil {
+		m.security = m.securityM.State()
+	}
+	if m.traceM != nil {
+		m.trace = m.traceM.State()
+	}
+	if m.evalM != nil {
+		m.eval = m.evalM.State()
+	}
+	if m.inspectorM != nil {
+		m.inspector = m.inspectorM.State()
+	}
+	if m.debugM != nil {
+		m.debugState = m.debugM.State()
+	}
+	if m.alertStripM != nil {
+		m.alertStrip = m.alertStripM.State()
+	}
+	return m
 }
 
 // broadcastSelectPIDImpl — 测试入口（注入 mock panes/overlays）。

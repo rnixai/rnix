@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -207,6 +208,9 @@ func TestBroadcastSelectPIDImpl_NilSafe(t *testing.T) {
 
 // TestBroadcastSelectPID_NilFieldsNoPanic — dashboardModel{} 默认所有 11 字段
 // 是 nil pointer · broadcastSelectPID 必须不 panic。
+//
+// Phase 2: broadcastSelectPID 现在返回 (dashboardModel, tea.Cmd) · 同步 pull/push
+// 阶段对 nil *PaneModel 字段必须跳过（不 SetState / 不 State）。
 func TestBroadcastSelectPID_NilFieldsNoPanic(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -214,9 +218,104 @@ func TestBroadcastSelectPID_NilFieldsNoPanic(t *testing.T) {
 		}
 	}()
 	m := dashboardModel{}
-	cmd := m.broadcastSelectPID(types.PID(1))
+	_, cmd := m.broadcastSelectPID(types.PID(1))
 	// nil 字段 broadcast 不调用任何 hook · cmd 可能是 nil 或 empty Batch 均接受
 	if cmd != nil {
 		_ = cmd() // 不应 panic
+	}
+}
+
+// --- Phase 2: SetState/State 双向同步测试 ---
+
+// TestBroadcastSelectPID_SyncRoundTrip_SamePID 验证 SetState/State 双向同步
+// 在 OnSelectPID noop 路径下零行为变化。
+//
+// 场景：cmd/rnix 端 m.heatmap.PID == 100 + Cursor == 5 + Expanded == true。
+// broadcast(100) 时 HeatmapModel.OnSelectPID(100) 检查 pid == m.state.PID → noop。
+// SetState 推到 *HeatmapModel.state；OnSelectPID 不动；State 取回 m.heatmap。
+// 期望：所有字段保持原值。
+//
+// 这个测试是 Phase 2 同步通道的「零回归」契约：当 OnSelectPID 幂等 noop 时，
+// 同步 round-trip 不能产生任何副作用。dashboardTick 已通过 handlePIDChange 把
+// cmd/rnix.<state>.PID 设为新值，broadcast 触发时 pid 与 state.PID 已相等，
+// OnSelectPID noop 是稳态。
+func TestBroadcastSelectPID_SyncRoundTrip_SamePID(t *testing.T) {
+	m := dashboardModel{
+		heatmap: heatmap.HeatmapState{
+			PID:      types.PID(100),
+			Cursor:   5,
+			Expanded: true,
+		},
+		heatmapM: heatmap.NewModel(),
+	}
+	m, _ = m.broadcastSelectPID(types.PID(100))
+	if m.heatmap.PID != types.PID(100) {
+		t.Errorf("heatmap.PID = %d, want 100 (OnSelectPID noop)", m.heatmap.PID)
+	}
+	if m.heatmap.Cursor != 5 {
+		t.Errorf("heatmap.Cursor = %d, want 5 (preserved)", m.heatmap.Cursor)
+	}
+	if !m.heatmap.Expanded {
+		t.Error("heatmap.Expanded = false, want true (preserved)")
+	}
+}
+
+// TestBroadcastSelectPID_SyncRoundTrip_DifferentPID 验证 OnSelectPID 修改路径下
+// SetState/State 同步把变化回写到 cmd/rnix 端。
+//
+// 场景：cmd/rnix 端 m.heatmap.PID == 100 + Cursor == 5 + Expanded == true。
+// broadcast(200) 时 HeatmapModel.OnSelectPID(200) 检查 pid != m.state.PID →
+// 调用 HandlePIDChange 清空 Profile/Segments/Cursor/Expanded/Err + 设 PID = 200。
+// SetState 推到 *HeatmapModel.state；OnSelectPID 修改；State 取回 m.heatmap。
+// 期望：m.heatmap.PID == 200, m.heatmap.Cursor == 0, m.heatmap.Expanded == false。
+//
+// 这个测试是 Phase 2 同步通道的「行为生效」契约：OnSelectPID 实际修改 *PaneModel
+// state 后，State 取回必须把变化反映到 cmd/rnix 端 source-of-truth。下一会话
+// 删除 cmd/rnix.handleHeatmapPIDChange 散点时，这条通道是行为等价性保证。
+func TestBroadcastSelectPID_SyncRoundTrip_DifferentPID(t *testing.T) {
+	m := dashboardModel{
+		heatmap: heatmap.HeatmapState{
+			PID:      types.PID(100),
+			Cursor:   5,
+			Expanded: true,
+		},
+		heatmapM: heatmap.NewModel(),
+	}
+	m, _ = m.broadcastSelectPID(types.PID(200))
+	if m.heatmap.PID != types.PID(200) {
+		t.Errorf("heatmap.PID = %d, want 200 (OnSelectPID synced)", m.heatmap.PID)
+	}
+	if m.heatmap.Cursor != 0 {
+		t.Errorf("heatmap.Cursor = %d, want 0 (cleared by HandlePIDChange)", m.heatmap.Cursor)
+	}
+	if m.heatmap.Expanded {
+		t.Error("heatmap.Expanded = true, want false (cleared by HandlePIDChange)")
+	}
+}
+
+// TestSyncStatesRoundTrip 直接验证 syncStatesToModels → syncStatesFromModels
+// pure round-trip 不改变 cmd/rnix 端 state（不调 OnSelectPID）。
+//
+// 这是同步通道本身的「零干扰」契约：当 broadcast 不存在时（或所有 OnSelectPID
+// 都返回 nil），sync round-trip 必须等价于 identity。
+func TestSyncStatesRoundTrip(t *testing.T) {
+	original := dashboardModel{
+		heatmap: heatmap.HeatmapState{
+			PID:      types.PID(42),
+			Cursor:   3,
+			Expanded: true,
+		},
+		heatmapM: heatmap.NewModel(),
+	}
+	m := original.syncStatesToModels()
+	m = m.syncStatesFromModels()
+	if m.heatmap.PID != types.PID(42) {
+		t.Errorf("heatmap.PID = %d, want 42 (round-trip preserved)", m.heatmap.PID)
+	}
+	if m.heatmap.Cursor != 3 {
+		t.Errorf("heatmap.Cursor = %d, want 3", m.heatmap.Cursor)
+	}
+	if !m.heatmap.Expanded {
+		t.Error("heatmap.Expanded = false, want true")
 	}
 }

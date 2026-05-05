@@ -282,9 +282,13 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		return m.dashboardTick()
 	case dashboardmodel.SelectPIDMsg:
-		// Story 38-5 PR11 Step 4(b) Phase 1: spec § AC11 broadcast 路由。
+		// Story 38-5 PR11 Step 4(b)（Phase 1 + Phase 2）: spec § AC11 broadcast 路由。
 		// dashboardTick pidChanged 分支 emit · 此处分发到 11 个子 Model.OnSelectPID。
-		return m, m.broadcastSelectPID(msg.PID)
+		// Phase 2 双向同步：broadcastSelectPID 内含 SetState/State sync · 返回更新
+		// 后的 dashboardModel + tea.Batch 收集的 cmd。
+		var pidCmd tea.Cmd
+		m, pidCmd = m.broadcastSelectPID(msg.PID)
+		return m, pidCmd
 	case tea.KeyPressMsg:
 		return m.dashboardKey(msg)
 	case tea.WindowSizeMsg:
