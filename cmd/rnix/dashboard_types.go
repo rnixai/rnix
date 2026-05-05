@@ -6,6 +6,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
+	"github.com/rnixai/rnix/internal/dashboard/status"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/trace"
 	"github.com/rnixai/rnix/internal/types"
@@ -92,14 +93,22 @@ const (
 type viewMode int
 
 const (
-	viewDefault  viewMode = iota // 默认：Tree + Timeline + 底部面板
-	viewExpanded                 // 数字键展开某面板
-	viewStepInspector            // L：全屏 Step Inspector（Story 36.1, replaces LLM Viewer + Prompt Pager）
-	viewHistory // kept for iota stability; no longer used for the H key
-	viewDebug                    // d：Debug 模式（Story 34.6 实现）
+	viewDefault       viewMode = iota // 默认：Tree + Timeline + 底部面板
+	viewExpanded                      // 数字键展开某面板
+	viewStepInspector                 // L：全屏 Step Inspector（Story 36.1, replaces LLM Viewer + Prompt Pager）
+	viewHistory                       // kept for iota stability; no longer used for the H key
+	viewDebug                         // d：Debug 模式（Story 34.6 实现）
 )
 
-const colorIPC = "#9B59B6"
+// colorIPC is the canonical [INSPECTOR] mode label color.
+//
+// Story 38-5 PR11 Step 4(c)：renderModeLabel 迁出后 cmd/rnix 端无直接 caller·
+// 唯一权威值由 internal/dashboard/status.ColorIPC 持有。这里保留 alias 同步
+// 让 cmd/rnix 历史 grep 检索（"colorIPC"）+ 任何潜在外部 caller 仍可工作；
+// status 子包内有 TestColorIPC_Constant 守住值漂移。
+//
+//nolint:unused // 单一权威迁至 internal/dashboard/status.ColorIPC · alias 保留契约
+const colorIPC = status.ColorIPC
 
 const statusMsgDefaultTTL = 4
 

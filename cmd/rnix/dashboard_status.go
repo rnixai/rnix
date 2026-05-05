@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/status"
 	"github.com/rnixai/rnix/internal/ui"
 )
 
@@ -40,55 +41,13 @@ func hintGroup(hints ...string) string {
 // renderModeLabel returns the styled "[MONITOR] │ " mode-label prefix to be
 // injected at the left of the status bar (Story 38.2 AC#2).
 //
-// Priority order (highest first): replayMode → viewStepInspector → viewDebug →
-// viewExpanded → viewDefault. The trailing UTF-8 separator '│' (ASCII '|')
-// is surrounded by two spaces on each side; the caller appends hints with the
-// standard double-space delimiter.
-//
-// The viewMode switch handles every viewMode iota value explicitly so the
-// "now-unused viewHistory" slot stays visible to future maintainers.
+// Story 38-5 PR11 Step 4(c)：渲染主体迁出至 internal/dashboard/status.RenderModeLabel
+// （pure pipeline · 0 cmd/rnix 反向依赖 · 与 title 包同模式）。本 wrapper 保留
+// 同名 receiver 让 38.2-UNIT-005..009 行为测试 + atdd_29_1 文件拆分 grep 字符串
+// 通过；行为零变化（迁出包内 11 项契约测试已显式覆盖 replayMode 优先级 / iota
+// 路由 / ASCII 分隔符 / Bold 等所有分支）。
 func (m dashboardModel) renderModeLabel() string {
-	ascii := ui.IsASCIIMode()
-	sep := "│"
-	if ascii {
-		sep = "|"
-	}
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-
-	var label string
-	var color string
-	var bold bool
-	switch {
-	case m.replayMode:
-		label = "[REPLAY]"
-		color = ui.ColorReplay
-	case m.viewMode == viewStepInspector:
-		label = "[INSPECTOR]"
-		color = colorIPC // #9B59B6 purple
-	case m.viewMode == viewDebug:
-		label = "[DEBUG]"
-		color = ui.ColorWarning
-		bold = true
-	case m.viewMode == viewExpanded:
-		label = "[EXPANDED]"
-		color = ui.ColorAgent
-	case m.viewMode == viewDefault, m.viewMode == viewHistory:
-		// viewHistory iota slot is no longer used for the H key (Story 29.x);
-		// it falls through to [MONITOR] alongside viewDefault. Keep explicit so
-		// any future viewMode addition surfaces here as a compile error.
-		label = "[MONITOR]"
-		color = ui.ColorMuted
-	default:
-		// Unrecognized viewMode — defensive fallback.
-		label = "[MONITOR]"
-		color = ui.ColorMuted
-	}
-
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
-	if bold {
-		style = style.Bold(true)
-	}
-	return style.Render(label) + "  " + dim.Render(sep) + "  "
+	return status.RenderModeLabel(m.replayMode, int(m.viewMode))
 }
 
 func (m dashboardModel) renderDashboardStatus() string {
