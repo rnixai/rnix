@@ -70,17 +70,15 @@ func fetchHeatmapCmd(pid types.PID) tea.Cmd {
 	}
 }
 
-// handleHeatmapPIDChange — thin wrapper · Story 38-5 PR3 Step 3
+// handleHeatmapPIDChange wrapper 已于 Story 38-5 PR11 Step 4(b) Phase 2 删除。
 //
-// 委托至 internal/dashboard/heatmap.HandlePIDChange 处理 PID 切换的状态清理。
-// 行为零变化（与 PR3 Step 1 落地一致）。
-func (m dashboardModel) handleHeatmapPIDChange() dashboardModel {
-	if m.selectedPID == m.heatmap.PID {
-		return m
-	}
-	m.heatmap = heatmap.HandlePIDChange(m.heatmap)
-	return m
-}
+// 历史：PR3 Step 3 落地的 thin wrapper，仅承担 selectedPID != heatmap.PID 守卫
+// + 委托至 internal/dashboard/heatmap.HandlePIDChange 清空 state。
+//
+// 删除理由：dashboard.go::handlePIDChange 的调用点已在 pidChanged 检测之后，
+// 守卫 redundant；HeatmapModel.OnSelectPID 也已实现等价逻辑（broadcast 通道
+// Phase 3 会让其真正生效）。当前 cmd/rnix 端保留 inline 调用 heatmap.HandlePIDChange
+// 行为零变化（spec § 04 风险 5 中断保险原则 · 不"试探性"启动深度迁移后中断）。
 
 // handleHeatmapKey — thin wrapper · Story 38-5 PR3 Step 3
 //

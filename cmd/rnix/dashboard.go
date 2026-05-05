@@ -1125,13 +1125,14 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	if m.selectedPID == 0 {
 		m.selectedUUID = ""
 		m = m.handleTimelinePIDChange()
-		m = m.handleHeatmapPIDChange()
+		// Story 38-5 PR11 Step 4(b) Phase 2: handleHeatmapPIDChange wrapper 删除·inline 调用·行为零变化
+		m.heatmap = heatmap.HandlePIDChange(m.heatmap)
 		m.timeline.AttachedPID = 0
 		m.heatmap.PID = 0
 		return m, nil
 	}
 	m = m.handleTimelinePIDChange()
-	m = m.handleHeatmapPIDChange()
+	m.heatmap = heatmap.HandlePIDChange(m.heatmap) // Story 38-5 PR11 Step 4(b) Phase 2: inline 化
 	m.timeline.AttachedPID = m.selectedPID
 	m.heatmap.PID = m.selectedPID
 

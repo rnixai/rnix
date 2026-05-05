@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -836,7 +837,8 @@ func TestDashboardModel_HeatmapPIDChange(t *testing.T) {
 	}
 
 	m.selectedPID = 999
-	m = m.handleHeatmapPIDChange()
+	// Story 38-5 PR11 Step 4(b) Phase 2: handleHeatmapPIDChange wrapper 删除 · 改用 inline 调用
+	m.heatmap = heatmap.HandlePIDChange(m.heatmap)
 
 	if m.heatmap.Profile != nil {
 		t.Error("PID change should clear heatmapProfile")
@@ -994,7 +996,8 @@ func TestDashboardModel_HeatmapPIDChangeResetsState(t *testing.T) {
 	m.heatmap.Err = fmt.Errorf("old error")
 
 	m.selectedPID = 999
-	m = m.handleHeatmapPIDChange()
+	// Story 38-5 PR11 Step 4(b) Phase 2: handleHeatmapPIDChange wrapper 删除 · 改用 inline 调用
+	m.heatmap = heatmap.HandlePIDChange(m.heatmap)
 
 	if m.heatmap.Expanded {
 		t.Error("PID change should reset heatmapExpanded to false")
