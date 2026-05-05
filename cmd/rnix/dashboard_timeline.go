@@ -987,32 +987,32 @@ func (m dashboardModel) isSelectedProcessDead() bool {
 
 // fetchNextExpandedDetail returns a Cmd to fetch the next expanded step that has no cached detail.
 // Returns nil if nothing to fetch or already fetching.
+//
+// Story 38-5 PR11 Step 4(c)：纯 lookup 算法主体迁出至
+// internal/dashboard/timeline.FindNextDetailToFetch（Priority 1 expanded
+// uncached + Priority 2 visible collapsed uncached + nil entry skip · 与历史
+// byte-for-byte 等价）。cmd/rnix wrapper 仅保留 IPC fetch 副作用 +
+// fetching/PID guards + filtered StepEntry 解包.
 func (m dashboardModel) fetchNextExpandedDetail() tea.Cmd {
 	if m.timeline.FetchingDetail || m.selectedPID == 0 {
 		return nil
 	}
-	// Priority 1: expanded steps without cached detail
-	for _, entry := range m.timeline.StepEntries {
-		if entry.Level >= levelExpanded && m.timeline.StepDetailCache[entry.Summary.Step] == nil {
-			return fetchStepDetailCmd(m.selectedPID, entry.Summary.Step)
-		}
-	}
-	// Priority 2: visible collapsed steps without cached detail (for ▸ indicator)
 	filteredEvs := m.filteredUnifiedEvents()
 	pageSize := max(m.dashboardVisibleLines()-4, 1)
 	visStart := m.timeline.StepScrollTop
 	visEnd := min(visStart+pageSize, len(filteredEvs))
-	for i := visStart; i < visEnd; i++ {
-		ev := filteredEvs[i]
-		if ev.StepEntry == nil {
-			continue
-		}
-		entry := ev.StepEntry
-		if entry.Level < levelExpanded && m.timeline.StepDetailCache[entry.Summary.Step] == nil {
-			return fetchStepDetailCmd(m.selectedPID, entry.Summary.Step)
-		}
+
+	// 解开 ev.StepEntry → []*timeline.StepEntry（避免 timeline 包反向 import event）
+	filteredEntries := make([]*timeline.StepEntry, len(filteredEvs))
+	for i, ev := range filteredEvs {
+		filteredEntries[i] = ev.StepEntry
 	}
-	return nil
+
+	step := timeline.FindNextDetailToFetch(m.timeline, filteredEntries, visStart, visEnd)
+	if step < 0 {
+		return nil
+	}
+	return fetchStepDetailCmd(m.selectedPID, step)
 }
 
 // --- Fetch commands ---
