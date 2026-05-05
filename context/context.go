@@ -48,6 +48,7 @@ type Message struct {
 	ToolCallID      string           `json:"tool_call_id,omitempty"`
 	ToolCalls       []ToolCall       `json:"tool_calls,omitempty"`
 	ReasoningBlocks []ReasoningBlock `json:"reasoning_blocks,omitempty"`
+	Reasoning       string           `json:"reasoning,omitempty"`
 }
 
 // Context represents an independent context space for accumulating conversation history.
@@ -422,11 +423,14 @@ func (m *Manager) AppendToolResult(cid types.CtxID, toolCallID string, content s
 }
 
 // AppendAssistantWithToolCalls appends an assistant message that includes
-// tool calls and (optionally) thinking-mode reasoning blocks. Reasoning
-// blocks must be persisted alongside the assistant turn so subsequent
-// requests can echo them back to providers (e.g. Anthropic) that require
-// signature round-tripping.
-func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, reasoningBlocks []ReasoningBlock, toolCalls []ToolCall) error {
+// tool calls and (optionally) thinking-mode reasoning. Both reasoning forms
+// must be persisted alongside the assistant turn so subsequent requests can
+// echo them back to providers that require round-tripping:
+//   - reasoningBlocks: Anthropic-style structured blocks with Signature
+//     (claude-sonnet/opus/haiku and anthropic-compat endpoints).
+//   - reasoning: OpenAI-compatible thinking text (DeepSeek's reasoning_content,
+//     OpenRouter/GLM's reasoning). DeepSeek returns HTTP 400 if not echoed.
+func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, reasoning string, reasoningBlocks []ReasoningBlock, toolCalls []ToolCall) error {
 	ctx, err := m.getContext("AppendAssistantWithToolCalls", cid)
 	if err != nil {
 		return err
@@ -449,6 +453,7 @@ func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, 
 		Content:         content,
 		ToolCalls:       toolCalls,
 		ReasoningBlocks: reasoningBlocks,
+		Reasoning:       reasoning,
 	})
 	return nil
 }

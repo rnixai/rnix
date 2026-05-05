@@ -944,3 +944,131 @@ func TestOpenAICompatDriver_StreamWithTools_FinishReason(t *testing.T) {
 		t.Errorf("done events = %d, want 1", doneCount)
 	}
 }
+
+// TestOpenAICompatDriver_BuildMessages_EchoesAssistantReasoning verifies that
+// when an assistant message carries thinking-mode reasoning text (DeepSeek's
+// reasoning_content / OpenRouter's reasoning), buildMessages echoes it under
+// BOTH protocol field names so a provider-agnostic driver satisfies whichever
+// the upstream API requires. DeepSeek returns HTTP 400 if reasoning_content is
+// dropped on a multi-turn assistant turn.
+func TestOpenAICompatDriver_BuildMessages_EchoesAssistantReasoning(t *testing.T) {
+	d := NewOpenAICompatDriver("test", "http://example/v1", WithCompatModel("m"))
+
+	req := LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "running ls", Reasoning: "step1: list files"},
+			{Role: "tool", ToolCallID: "tc_1", Content: "a.txt"},
+			{Role: "user", Content: "thanks", Reasoning: "should-be-ignored"},
+		},
+	}
+	msgs, err := d.buildMessages(req)
+	if err != nil {
+		t.Fatalf("buildMessages: %v", err)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("len(msgs) = %d, want 4", len(msgs))
+	}
+
+	// assistant slot (index 1) must carry both reasoning fields.
+	if msgs[1].Role != "assistant" {
+		t.Fatalf("msgs[1].Role = %q", msgs[1].Role)
+	}
+	if msgs[1].Reasoning != "step1: list files" {
+		t.Errorf("assistant.Reasoning = %q, want %q", msgs[1].Reasoning, "step1: list files")
+	}
+	if msgs[1].ReasoningContent != "step1: list files" {
+		t.Errorf("assistant.ReasoningContent = %q, want %q", msgs[1].ReasoningContent, "step1: list files")
+	}
+
+	// non-assistant roles must NOT leak reasoning even if it was set.
+	if msgs[3].Reasoning != "" || msgs[3].ReasoningContent != "" {
+		t.Errorf("user message leaked reasoning: %+v", msgs[3])
+	}
+
+	// JSON serialization must use snake_case keys recognized by DeepSeek/OpenRouter.
+	body, err := json.Marshal(msgs[1])
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	s := string(body)
+	if !strings.Contains(s, `"reasoning":"step1: list files"`) {
+		t.Errorf("missing reasoning in JSON: %s", s)
+	}
+	if !strings.Contains(s, `"reasoning_content":"step1: list files"`) {
+		t.Errorf("missing reasoning_content in JSON: %s", s)
+	}
+}
+
+// TestOpenAICompatDriver_BuildMessages_OmitsEmptyReasoning verifies the
+// omitempty contract: an assistant message without reasoning must not emit
+// either reasoning field, so providers that reject unknown empty fields are
+// safe and the wire format is unchanged for non-thinking models.
+func TestOpenAICompatDriver_BuildMessages_OmitsEmptyReasoning(t *testing.T) {
+	d := NewOpenAICompatDriver("test", "http://example/v1", WithCompatModel("m"))
+	msgs, err := d.buildMessages(LLMRequest{
+		Messages: []Message{{Role: "assistant", Content: "ok"}},
+	})
+	if err != nil {
+		t.Fatalf("buildMessages: %v", err)
+	}
+	body, _ := json.Marshal(msgs[0])
+	if strings.Contains(string(body), "reasoning") {
+		t.Errorf("empty reasoning leaked into JSON: %s", body)
+	}
+}
+
+// TestOpenAICompatDriver_RoundTrip_DeepSeekReasoningContent simulates the
+// PID-6 production failure: step1 returns reasoning_content + tool call,
+// step2 must echo the reasoning_content back or the API returns
+// "The reasoning_content in the thinking mode must be passed back to the API."
+// (HTTP 400). Verifies the driver's full inbound→outbound round-trip.
+func TestOpenAICompatDriver_RoundTrip_DeepSeekReasoningContent(t *testing.T) {
+	var step int
+	var step2Body []byte
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		step++
+		switch step {
+		case 1:
+			// DeepSeek thinking-mode response: reasoning_content + content
+			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"running","reasoning_content":"plan: call shell"}}],"usage":{"total_tokens":10}}`)
+		case 2:
+			step2Body = body
+			fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"done"}}],"usage":{"total_tokens":5}}`)
+		}
+	}))
+	defer ts.Close()
+
+	d := NewOpenAICompatDriver("deepseek", ts.URL,
+		WithCompatModel("deepseek-thinker"),
+		WithHTTPClient(ts.Client()),
+	)
+
+	// Step 1: call → parse reasoning_content into LLMResponse.Reasoning.
+	resp1, err := d.Call(context.Background(), LLMRequest{Intent: "list dir"})
+	if err != nil {
+		t.Fatalf("step1 Call: %v", err)
+	}
+	if resp1.Reasoning != "plan: call shell" {
+		t.Fatalf("step1 Reasoning = %q, want %q (driver dropped reasoning_content on inbound)",
+			resp1.Reasoning, "plan: call shell")
+	}
+
+	// Step 2: round-trip — caller must persist resp1.Reasoning into the
+	// next assistant message and the driver must echo it on outbound.
+	_, err = d.Call(context.Background(), LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "list dir"},
+			{Role: "assistant", Content: resp1.Content, Reasoning: resp1.Reasoning},
+			{Role: "user", Content: "next"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("step2 Call: %v", err)
+	}
+	if !strings.Contains(string(step2Body), `"reasoning_content":"plan: call shell"`) {
+		t.Fatalf("step2 request body missing reasoning_content (would 400 on real DeepSeek): %s", step2Body)
+	}
+}

@@ -57,6 +57,7 @@ type reasoningBlock struct {
 // Field names and json tags are compatible with drivers/llm.LLMResponse.
 type llmResponse struct {
 	Content         string           `json:"content"`
+	Reasoning       string           `json:"reasoning,omitempty"`
 	TokensUsed      int              `json:"tokens_used"`
 	ToolCalls       []llmToolCall    `json:"tool_calls,omitempty"`
 	ReasoningBlocks []reasoningBlock `json:"reasoning_blocks,omitempty"`

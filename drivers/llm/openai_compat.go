@@ -219,6 +219,14 @@ func (d *OpenAICompatDriver) buildMessages(req LLMRequest) ([]oaiMessage, error)
 				Content:    m.Content,
 				ToolCallID: m.ToolCallID,
 			}
+			if m.Role == "assistant" && m.Reasoning != "" {
+				// Echo thinking-mode text under both protocol field names so
+				// provider-agnostic round-tripping satisfies DeepSeek
+				// (reasoning_content) and OpenRouter/GLM (reasoning) alike.
+				// DeepSeek returns HTTP 400 if reasoning_content is dropped.
+				om.Reasoning = m.Reasoning
+				om.ReasoningContent = m.Reasoning
+			}
 			if len(m.ToolCalls) > 0 {
 				for _, tc := range m.ToolCalls {
 					args, err := json.Marshal(tc.Input)

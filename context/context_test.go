@@ -1008,7 +1008,7 @@ func TestAppendAssistantWithToolCalls(t *testing.T) {
 		{ID: "tc_2", Name: "read_file", Input: map[string]any{"path": "main.go"}},
 	}
 
-	if err := m.AppendAssistantWithToolCalls(cid, "Let me run some commands", nil, toolCalls); err != nil {
+	if err := m.AppendAssistantWithToolCalls(cid, "Let me run some commands", "", nil, toolCalls); err != nil {
 		t.Fatalf("AppendAssistantWithToolCalls failed: %v", err)
 	}
 
@@ -1082,7 +1082,7 @@ func TestContext_Serialize_ReasoningBlocksRoundTrip(t *testing.T) {
 		{Type: "thinking", Thinking: "let me reason", Signature: "sig_a"},
 		{Type: "redacted_thinking", Data: "encrypted-blob"},
 	}
-	if err := src.AppendAssistantWithToolCalls(cid, "answer", rb, nil); err != nil {
+	if err := src.AppendAssistantWithToolCalls(cid, "answer", "", rb, nil); err != nil {
 		t.Fatalf("append failed: %v", err)
 	}
 
@@ -1148,5 +1148,67 @@ func TestContext_Deserialize_LegacyWithoutReasoningBlocks(t *testing.T) {
 		if len(m.ReasoningBlocks) != 0 {
 			t.Errorf("legacy message %d should have nil ReasoningBlocks, got %v", i, m.ReasoningBlocks)
 		}
+	}
+}
+
+// TestAppendAssistantWithToolCalls_PersistsReasoning verifies that the
+// reasoning string parameter (DeepSeek's reasoning_content / OpenRouter's
+// reasoning) is stored on the persisted Message and survives round-trip
+// through Build/Serialize/Deserialize, alongside Anthropic-style
+// ReasoningBlocks. Both forms must coexist.
+func TestAppendAssistantWithToolCalls_PersistsReasoning(t *testing.T) {
+	m := NewManager()
+	cid, _ := m.CtxAlloc(8)
+
+	wantReason := "step1: list files first"
+	wantBlocks := []ReasoningBlock{{Type: "thinking", Thinking: "internal", Signature: "sig"}}
+	calls := []ToolCall{{ID: "tc_1", Name: "shell", Input: map[string]any{"cmd": "ls"}}}
+
+	if err := m.AppendAssistantWithToolCalls(cid, "running shell", wantReason, wantBlocks, calls); err != nil {
+		t.Fatalf("AppendAssistantWithToolCalls: %v", err)
+	}
+
+	pr, _ := m.BuildPrompt(cid)
+	if len(pr.Messages) != 1 {
+		t.Fatalf("len(messages) = %d", len(pr.Messages))
+	}
+	got := pr.Messages[0]
+	if got.Reasoning != wantReason {
+		t.Errorf("Reasoning = %q, want %q", got.Reasoning, wantReason)
+	}
+	if len(got.ReasoningBlocks) != 1 || got.ReasoningBlocks[0].Signature != "sig" {
+		t.Errorf("ReasoningBlocks not preserved: %+v", got.ReasoningBlocks)
+	}
+
+	// JSON round-trip: snake_case key, omitempty for nil but present when set.
+	data, _ := json.Marshal(got)
+	if !strings.Contains(string(data), `"reasoning":"step1: list files first"`) {
+		t.Errorf("JSON missing reasoning: %s", data)
+	}
+}
+
+// TestMessage_LegacyJSONWithoutReasoning_LoadsAsEmpty verifies backward
+// compatibility for context snapshots persisted before the reasoning field
+// existed. Daemon restart must not panic and Reasoning must default to "".
+func TestMessage_LegacyJSONWithoutReasoning_LoadsAsEmpty(t *testing.T) {
+	legacy := []byte(`{
+		"system_prompt": "sp",
+		"messages": [
+			{"role": "assistant", "content": "old", "tool_calls": [{"id":"t","name":"x","input":{}}]}
+		],
+		"max_size": 4
+	}`)
+	mgr := NewManager()
+	cid, _ := mgr.CtxAlloc(4)
+	ctx, _ := mgr.getContext("test", cid)
+	if err := ctx.Deserialize(legacy); err != nil {
+		t.Fatalf("Deserialize: %v", err)
+	}
+	pr, _ := mgr.BuildPrompt(cid)
+	if len(pr.Messages) != 1 {
+		t.Fatalf("len(messages) = %d", len(pr.Messages))
+	}
+	if pr.Messages[0].Reasoning != "" {
+		t.Errorf("legacy message should have empty Reasoning, got %q", pr.Messages[0].Reasoning)
 	}
 }

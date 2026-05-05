@@ -77,6 +77,7 @@ type Message struct {
 	ToolCallID      string           `json:"tool_call_id,omitempty"`
 	ToolCalls       []ToolCall       `json:"tool_calls,omitempty"`
 	ReasoningBlocks []ReasoningBlock `json:"reasoning_blocks,omitempty"`
+	Reasoning       string           `json:"reasoning,omitempty"`
 }
 
 // Skill carries an individual skill's content to the driver layer.
