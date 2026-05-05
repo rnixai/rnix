@@ -1367,10 +1367,11 @@ func (m dashboardModel) buildToolIOLensFull(detail *ipc.GetStepDetailResponse) s
 
 // metaTokenContextWindow is the assumed default context-window cap (Claude
 // 3.5/4.x default). Used by the Meta lens token bar to compute fill percent.
-// Story 38-3 Dev Notes 2.6: kept as a package-level constant rather than
-// reading dynamically from per-process config — KISS, revisit in retro if
-// multi-provider context windows become a concern.
-const metaTokenContextWindow = 200000
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/inspector.MetaTokenContextWindow
+// 单一权威；本 alias 仍由 buildMetaLens 引用，保持值漂移单源（包内
+// TestMetaTokenContextWindow_DriftGuard 守门）.
+const metaTokenContextWindow = inspector.MetaTokenContextWindow
 
 // buildMetaLens builds Lens ❹: metadata.
 //
@@ -1444,12 +1445,11 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 
 // renderMetaSectionHeader returns "── <title> ────...───" padded to width.
 // Used by Meta lens to delimit the three sections.
+//
+// Story 38-5 PR11 Step 4(c)：thin wrapper 委托 internal/dashboard/inspector.RenderMetaSectionHeader
+// （行为 1:1 等价 · 包内 4 项契约测试覆盖含 utf8 rune count + min fill 3 + CJK title）.
 func renderMetaSectionHeader(title string, width int) string {
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	prefix := "── " + title + " "
-	used := utf8.RuneCountInString(prefix)
-	fillCount := max(width-used, 3)
-	return dim.Render(prefix + strings.Repeat("─", fillCount))
+	return inspector.RenderMetaSectionHeader(title, width)
 }
 
 // metaSectionHeaderWidth returns the dynamic width for the Meta lens section
@@ -1457,117 +1457,27 @@ func renderMetaSectionHeader(title string, width int) string {
 // fixed `70` literal which overflowed sub-70-col terminals. Cap at 70 cols
 // for readability and shrink to `m.width-2` (allowing for the inspector's
 // 1-col left padding) on narrower terminals.
+//
+// Story 38-5 PR11 Step 4(c)：thin wrapper 委托 internal/dashboard/inspector.MetaSectionHeaderWidth
+// （行为 1:1 等价 · 包内 4 项契约测试覆盖 zero/cap/shrink/floor）.
 func metaSectionHeaderWidth(mWidth int) int {
-	if mWidth <= 0 {
-		return 70
-	}
-	return min(70, max(mWidth-2, 16))
+	return inspector.MetaSectionHeaderWidth(mWidth)
 }
 
-// renderTokenLine emits a single Tokens-section row:
+// renderTokenLine emits a single Tokens-section row. See
+// internal/dashboard/inspector.RenderTokenLine for the full behavior contract
+// （Story 38-3 AC#4 + review fixes P7/P8/P13/P20 全部保留）.
 //
-//	   Request: 1234   ████████░░░░░░░░░░░░  6.2%
-//
-// totalLine=true switches to the no-bar Total form:
-//
-//	     Total: 2300 of 200,000 context
-//
-// ASCII fallback: `█` → `#`, `░` → `.`. The label is right-aligned to 10
-// chars so all three rows align; the bar width is fixed at 20 chars.
-//
-// Story 38-3 AC#4 + code review fixes:
-//   - P7: label uses `%10s` (right-aligned) instead of the previous
-//     `%-10s` (left-aligned) so the colons of `Request:` / `Response:` /
-//     `Total:` align vertically.
-//   - P8: total form prints the context cap with a thousands separator
-//     (`200,000`) per spec L76 example.
-//   - P13: total form drops the redundant leading `<count>` repetition —
-//     the count appears exactly once in `<count> of <total> context`.
-//
-// We render the raw integer count (instead of formatTokenCount) so the
-// existing 27-4 regression tests asserting on literal counts (e.g. `1500`,
-// `800`, `2300`) continue to match — the bar already conveys the visual
-// scale.
+// Story 38-5 PR11 Step 4(c)：thin wrapper 委托 · 包内 4 项契约测试覆盖
+// Tokens / Total 双形态 + ZeroTotal + LabelRightAligned.
 func renderTokenLine(label string, count, total int, totalLine bool) string {
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	labelPadded := fmt.Sprintf("%10s", label)
-	if totalLine {
-		return fmt.Sprintf("%s %s",
-			dim.Render(labelPadded),
-			dim.Render(fmt.Sprintf("%d of %s context", count, formatThousands(total))))
-	}
-	pct := 0.0
-	if total > 0 {
-		pct = float64(count) / float64(total) * 100
-	}
-	return fmt.Sprintf("%s %d  %s  %.1f%%",
-		dim.Render(labelPadded),
-		count,
-		renderTokenBar(count, total, 20),
-		pct)
+	return inspector.RenderTokenLine(label, count, total, totalLine)
 }
 
-// formatThousands inserts thousands separators (US locale: `,`) into a
-// non-negative integer. Story 38-3 review P8: used by the Meta lens Total
-// row to render `200,000` instead of `200000`.
-func formatThousands(n int) string {
-	if n < 0 {
-		return "-" + formatThousands(-n)
-	}
-	s := fmt.Sprintf("%d", n)
-	if len(s) <= 3 {
-		return s
-	}
-	var b strings.Builder
-	pre := len(s) % 3
-	if pre > 0 {
-		b.WriteString(s[:pre])
-		if len(s) > pre {
-			b.WriteByte(',')
-		}
-	}
-	for i := pre; i < len(s); i += 3 {
-		b.WriteString(s[i : i+3])
-		if i+3 < len(s) {
-			b.WriteByte(',')
-		}
-	}
-	return b.String()
-}
-
-// renderTokenBar returns a fixed-width unicode block-char bar showing the
-// fill ratio of `count / total`. Width is in display columns. ASCII fallback
-// uses `#` (filled) and `.` (empty). Story 38-3 AC#4.
-//
-// Story 38-3 review P20: ratio is computed in floating point and clamped to
-// [0, 1] before scaling to width — this avoids 32-bit overflow when count is
-// very large (`count*width` would otherwise exceed int range) and prevents
-// the bar from drawing more cells than `width` when `count > total`
-// (e.g. tokens exceeding the 200K default context window).
-func renderTokenBar(count, total, width int) string {
-	if width < 1 {
-		width = 1
-	}
-	filled := 0
-	if total > 0 {
-		ratio := float64(count) / float64(total)
-		if ratio < 0 {
-			ratio = 0
-		} else if ratio > 1 {
-			ratio = 1
-		}
-		filled = int(ratio * float64(width))
-		filled = min(filled, width)
-		filled = max(filled, 0)
-	}
-	full := "█"
-	empty := "░"
-	if ui.IsASCIIMode() {
-		full = "#"
-		empty = "."
-	}
-	return strings.Repeat(full, filled) + strings.Repeat(empty, width-filled)
-}
+// formatThousands / renderTokenBar wrapper 已自然消解 — RenderTokenLine 内部
+// 直接调用 inspector.FormatThousands / RenderTokenBar，不再需要 cmd/rnix 端
+// thin wrapper（与 PR2 estimateExpandedLines / PR9 ComputeCtxPercent 把
+// ClampPercent 自然消解同模式）.
 
 // buildRawJSONLens builds Lens ❺: raw JSON with 2-space indent.
 //
