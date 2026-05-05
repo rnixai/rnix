@@ -316,21 +316,15 @@ func (m *dashboardModel) appendStraceEvent(ev UnifiedEvent) {
 
 // --- Device latency ---
 
+// updateDeviceLatency — thin wrapper · 见 internal/dashboard/debug.UpdateDeviceLatency.
+//
+// Story 38-5 PR11 Step 4(c)：核心 device 级延迟累加逻辑迁至
+// internal/dashboard/debug.UpdateDeviceLatency（0 cmd/rnix 反向依赖 · 与
+// AppendStraceEvent / ClampCursor 同 functional state mutator 模式）·
+// cmd/rnix wrapper 仅保留 receiver `(m *dashboardModel)` 让 ~2 处 callsite
+// （dashboard_debug.go × 2 · 与 appendStraceEvent 同 callsite）零修改通过。
 func (m *dashboardModel) updateDeviceLatency(sew ipc.SyscallEventWire) {
-	dev := extractDeviceName(sew)
-	if dev == "" {
-		return
-	}
-	stats := m.debugState.DeviceLatency[dev]
-	if stats == nil {
-		stats = &deviceLatencyStats{}
-		m.debugState.DeviceLatency[dev] = stats
-	}
-	stats.Count++
-	stats.TotalMs += sew.DurationMs
-	if sew.Error != "" {
-		stats.ErrorCount++
-	}
+	m.debugState = dashboarddebug.UpdateDeviceLatency(m.debugState, sew)
 }
 
 // extractDeviceName — thin wrapper · 见 internal/dashboard/debug.ExtractDeviceName

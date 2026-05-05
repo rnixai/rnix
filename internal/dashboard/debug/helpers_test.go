@@ -188,6 +188,166 @@ func TestRenderStepLine_ToolPathNotReplacingLongSummary(t *testing.T) {
 	}
 }
 
+// ----- UpdateDeviceLatency 行为测试（Story 38-5 PR11 Step 4(c) debug pane strace pipeline helper） -----
+//
+// 覆盖矩阵（与 cmd/rnix dashboard_debug_test.go::TestUpdateDeviceLatency_* 同覆盖）：
+//   - 空 path → 不变（无法归类）
+//   - 首次记录 dev → 创建 *DeviceLatencyStats 并挂入 map · Count=1
+//   - 已存在 dev → 累加 Count + TotalMs
+//   - sew.Error != "" → 累加 ErrorCount
+//   - DeviceLatency == nil → 自动初始化 map（nil safe）
+//   - 多 dev 独立累加（/dev/llm/claude vs /dev/fs 分别归类）
+//   - 其他 DebugState 字段保留
+
+func TestUpdateDeviceLatency_EmptyPathNoOp(t *testing.T) {
+	state := DebugState{DeviceLatency: make(map[string]*DeviceLatencyStats)}
+	got := UpdateDeviceLatency(state, ipc.SyscallEventWire{Args: map[string]any{"path": ""}})
+	if len(got.DeviceLatency) != 0 {
+		t.Errorf("empty path: DeviceLatency len = %d, want 0 (no-op)", len(got.DeviceLatency))
+	}
+}
+
+func TestUpdateDeviceLatency_FirstRecord(t *testing.T) {
+	state := DebugState{DeviceLatency: make(map[string]*DeviceLatencyStats)}
+	got := UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/llm/claude"},
+		DurationMs: 12.5,
+	})
+	stats := got.DeviceLatency["llm"]
+	if stats == nil {
+		t.Fatalf("first record: DeviceLatency['llm'] = nil, want *DeviceLatencyStats")
+	}
+	if stats.Count != 1 {
+		t.Errorf("first record: Count = %d, want 1", stats.Count)
+	}
+	if stats.TotalMs != 12.5 {
+		t.Errorf("first record: TotalMs = %v, want 12.5", stats.TotalMs)
+	}
+	if stats.ErrorCount != 0 {
+		t.Errorf("first record: ErrorCount = %d, want 0", stats.ErrorCount)
+	}
+}
+
+func TestUpdateDeviceLatency_AccumulatesExisting(t *testing.T) {
+	state := DebugState{DeviceLatency: make(map[string]*DeviceLatencyStats)}
+	state = UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/fs"},
+		DurationMs: 5.0,
+	})
+	state = UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/fs"},
+		DurationMs: 7.5,
+	})
+	stats := state.DeviceLatency["fs"]
+	if stats.Count != 2 {
+		t.Errorf("accumulates: Count = %d, want 2", stats.Count)
+	}
+	if stats.TotalMs != 12.5 {
+		t.Errorf("accumulates: TotalMs = %v, want 12.5", stats.TotalMs)
+	}
+}
+
+func TestUpdateDeviceLatency_CountsErrors(t *testing.T) {
+	state := DebugState{DeviceLatency: make(map[string]*DeviceLatencyStats)}
+	state = UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/shell"},
+		DurationMs: 3.0,
+	})
+	state = UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/shell"},
+		DurationMs: 2.0,
+		Error:      "timeout",
+	})
+	state = UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/shell"},
+		DurationMs: 1.0,
+		Error:      "broken pipe",
+	})
+	stats := state.DeviceLatency["shell"]
+	if stats.Count != 3 {
+		t.Errorf("error counting: Count = %d, want 3", stats.Count)
+	}
+	if stats.ErrorCount != 2 {
+		t.Errorf("error counting: ErrorCount = %d, want 2 (2 of 3 had Error)", stats.ErrorCount)
+	}
+}
+
+func TestUpdateDeviceLatency_NilDeviceLatencyAutoInit(t *testing.T) {
+	state := DebugState{DeviceLatency: nil}
+	got := UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/mcp/playwright"},
+		DurationMs: 100.0,
+	})
+	if got.DeviceLatency == nil {
+		t.Fatalf("nil DeviceLatency: should auto-init to non-nil map")
+	}
+	stats := got.DeviceLatency["mcp"]
+	if stats == nil || stats.Count != 1 {
+		t.Errorf("nil DeviceLatency auto-init: stats = %+v, want Count=1", stats)
+	}
+}
+
+func TestUpdateDeviceLatency_MultipleDevicesIndependent(t *testing.T) {
+	state := DebugState{DeviceLatency: make(map[string]*DeviceLatencyStats)}
+	state = UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/llm/claude"},
+		DurationMs: 10.0,
+	})
+	state = UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/fs"},
+		DurationMs: 2.0,
+	})
+	state = UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/llm/claude"},
+		DurationMs: 5.0,
+	})
+	if state.DeviceLatency["llm"].Count != 2 {
+		t.Errorf("llm Count = %d, want 2", state.DeviceLatency["llm"].Count)
+	}
+	if state.DeviceLatency["llm"].TotalMs != 15.0 {
+		t.Errorf("llm TotalMs = %v, want 15.0", state.DeviceLatency["llm"].TotalMs)
+	}
+	if state.DeviceLatency["fs"].Count != 1 {
+		t.Errorf("fs Count = %d, want 1", state.DeviceLatency["fs"].Count)
+	}
+	if state.DeviceLatency["fs"].TotalMs != 2.0 {
+		t.Errorf("fs TotalMs = %v, want 2.0", state.DeviceLatency["fs"].TotalMs)
+	}
+}
+
+func TestUpdateDeviceLatency_PreservesOtherFields(t *testing.T) {
+	state := DebugState{
+		Mode:          true,
+		ShowStrace:    true,
+		AttachedPID:   42,
+		Cursor:        7,
+		ScrollTop:     3,
+		AutoScroll:    false,
+		DeviceLatency: make(map[string]*DeviceLatencyStats),
+	}
+	got := UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/dev/fs"},
+		DurationMs: 1.0,
+	})
+	if !got.Mode || !got.ShowStrace || got.AttachedPID != 42 ||
+		got.Cursor != 7 || got.ScrollTop != 3 || got.AutoScroll {
+		t.Errorf("other fields mutated: got %+v", got)
+	}
+}
+
+func TestUpdateDeviceLatency_NonDevPathPassthrough(t *testing.T) {
+	// Non-/dev/ path → ExtractDeviceName 原样返回 → DeviceLatency 用 path 作 key
+	state := DebugState{DeviceLatency: make(map[string]*DeviceLatencyStats)}
+	got := UpdateDeviceLatency(state, ipc.SyscallEventWire{
+		Args:       map[string]any{"path": "/tmp/work"},
+		DurationMs: 4.0,
+	})
+	stats := got.DeviceLatency["/tmp/work"]
+	if stats == nil || stats.Count != 1 {
+		t.Errorf("non-/dev path: stats = %+v, want Count=1", stats)
+	}
+}
+
 // ----- AppendStraceEvent 行为测试（Story 38-5 PR11 Step 4(c) debug pane strace pipeline helper） -----
 //
 // 覆盖矩阵：

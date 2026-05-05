@@ -111,6 +111,55 @@ func RenderStepLine(ev event.UnifiedEvent, cursorMark string, _ int) string {
 	return fmt.Sprintf("%s%s %s %s%s", cursorMark, stepLabel, action, summary, errMark)
 }
 
+// UpdateDeviceLatency 累加单条 syscall 到 device 级延迟统计（与 cmd/rnix.updateDeviceLatency
+// 1:1 行为等价 · Story 38-5 PR11 Step 4(c) debug pane strace pipeline helper · 与
+// AppendStraceEvent / ClampCursor 同 functional state mutator 模式）。
+//
+// **行为契约（不变性 · 与 cmd/rnix 端 1:1 等价）**：
+//   - ExtractDeviceName(sew) == "" → 返回 state 不变（路径无 /dev/ 前缀且为空 · 无法归类）；
+//   - state.DeviceLatency == nil → 自动初始化为空 map（nil safe · cmd/rnix 端
+//     newDashboardModel 已 make · 此处保险）；
+//   - DeviceLatency[dev] == nil → 初始化新 *DeviceLatencyStats 后挂入 map；
+//   - stats.Count++ / stats.TotalMs += sew.DurationMs 累计；
+//   - sew.Error != "" → stats.ErrorCount++ 累计错误；
+//   - 其他 DebugState 字段（Mode/Cursor/StraceEvents 等）一律保留。
+//
+// **签名设计**：
+//   - 接受 DebugState（值类型 · 仅修改 DeviceLatency map · 返回新状态）；
+//   - 与 AppendStraceEvent / ClampCursor 同模式（functional state mutator）；
+//   - 内部调用 ExtractDeviceName（debug 包内 cohesion · 0 cmd/rnix 反向依赖）；
+//   - cmd/rnix wrapper 一行 `m.debugState = UpdateDeviceLatency(m.debugState, sew)`。
+//
+// **使用场景**：
+//   - cmd/rnix.updateDeviceLatency wrapper（dashboard_debug.go × 2 callsite ·
+//     debugStraceMsg + debugStraceStreamErrMsg 两条 strace 事件路径 · 与
+//     appendStraceEvent 同 callsite）；
+//   - PR11 Step 4(c) 后续 debug render 主体迁出共用此 helper。
+//
+// **指针语义说明**：DeviceLatencyStats 通过 `*DeviceLatencyStats` 存于 map · 因此
+// 累加 (`stats.Count++`) 透过指针修改即时生效 · 即使 state 是值类型 · 内部 map
+// 是 reference 类型 · 与 cmd/rnix 端语义完全等价。
+func UpdateDeviceLatency(state DebugState, sew ipc.SyscallEventWire) DebugState {
+	dev := ExtractDeviceName(sew)
+	if dev == "" {
+		return state
+	}
+	if state.DeviceLatency == nil {
+		state.DeviceLatency = make(map[string]*DeviceLatencyStats)
+	}
+	stats := state.DeviceLatency[dev]
+	if stats == nil {
+		stats = &DeviceLatencyStats{}
+		state.DeviceLatency[dev] = stats
+	}
+	stats.Count++
+	stats.TotalMs += sew.DurationMs
+	if sew.Error != "" {
+		stats.ErrorCount++
+	}
+	return state
+}
+
 // AppendStraceEvent 把 strace UnifiedEvent 追加到 state.StraceEvents 环形缓冲，
 // 并在长度超过 MaxStraceEvents 时按 FIFO 截断（与 cmd/rnix.appendStraceEvent
 // 1:1 行为等价 · Story 38-5 PR11 Step 4(c) debug pane strace pipeline helper）。
