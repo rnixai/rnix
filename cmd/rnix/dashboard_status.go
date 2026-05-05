@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -11,31 +10,21 @@ import (
 )
 
 // --- Hint 格式化 ---
-
-// hintKeyStyle 和 hintDescStyle 在 renderDashboardStatus 中延迟初始化。
-var (
-	hintKeyStyle  lipgloss.Style
-	hintDescStyle lipgloss.Style
-	hintInited    bool
-)
-
-func initHintStyles() {
-	if hintInited {
-		return
-	}
-	hintKeyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Bold(true)
-	hintDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	hintInited = true
-}
+//
+// Story 38-5 PR11 Step 4(c)：hint / hintGroup / initHintStyles 三个 helper
+// 整体迁出至 internal/dashboard/status 子包（与 RenderModeLabel 同包）。
+// 本文件保留同名 thin wrapper 让现有 8+ 处 hint(...) callsite 零修改通过；
+// hintDescStyle.Render(...) 调用改为 status.RenderDescStyle 单一入口（行为
+// 1:1 等价 · 包内 7 项契约测试已显式覆盖）。
 
 // hint 渲染单个 key+desc 对：高亮 key，暗淡 desc
 func hint(key, desc string) string {
-	return hintKeyStyle.Render(key) + hintDescStyle.Render(desc)
+	return status.Hint(key, desc)
 }
 
 // hintGroup 用双空格连接一组 hints
 func hintGroup(hints ...string) string {
-	return strings.Join(hints, "  ")
+	return status.HintGroup(hints...)
 }
 
 // renderModeLabel returns the styled "[MONITOR] │ " mode-label prefix to be
@@ -51,8 +40,6 @@ func (m dashboardModel) renderModeLabel() string {
 }
 
 func (m dashboardModel) renderDashboardStatus() string {
-	initHintStyles()
-
 	if m.replayMode {
 		return m.renderReplayStatus()
 	}
@@ -96,7 +83,7 @@ func (m dashboardModel) renderDashboardStatus() string {
 
 	// Dead process filter indicator
 	if m.isSelectedProcessDead() && m.selectedPID > 0 {
-		hints += hintDescStyle.Render(fmt.Sprintf("  (PID %d)", m.selectedPID))
+		hints += status.RenderDescStyle(fmt.Sprintf("  (PID %d)", m.selectedPID))
 	}
 
 	return "  " + rec + modeLabel + hints
