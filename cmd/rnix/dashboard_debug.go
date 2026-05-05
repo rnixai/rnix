@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
 	dashboarddebug "github.com/rnixai/rnix/internal/dashboard/debug"
+	"github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -280,27 +280,15 @@ func (m dashboardModel) fetchDebugCtxProfileCmd() tea.Cmd {
 
 // --- strace → UnifiedEvent conversion ---
 
+// straceToUnifiedEvent — thin wrapper · 见 internal/dashboard/event.StraceToUnifiedEvent.
+//
+// Story 38-5 PR11 Step 4(c)：纯转换逻辑迁至 internal/dashboard/event.StraceToUnifiedEvent
+// （0 cmd/rnix 反向依赖 · wireToSyscallEvent 字段映射已内联到 event 包，避免反向依赖
+// cmd/rnix/main.go · 与 ClampCursor / AppendStraceEvent / FilterDebugEvents 同
+// pure-helper 迁出模式）· cmd/rnix wrapper 仅保留旧名让 ~7 处 callsite
+// （dashboard_debug.go × 3 + dashboard_debug_test.go × 4）零修改通过。
 func straceToUnifiedEvent(sew ipc.SyscallEventWire) UnifiedEvent {
-	ts := time.UnixMilli(sew.TimestampMs)
-
-	// Convert wire format to SyscallEvent and format with debug.FormatEvent
-	// for full strace output (e.g. "[  0.000s] CtxAlloc(size=64) → 17    1µs").
-	se := wireToSyscallEvent(sew)
-	summary := debug.FormatEvent(se, debug.Options{ColorEnabled: false})
-
-	sev := SevInfo
-	if sew.Error != "" {
-		sev = SevError
-	}
-	rawCopy := sew
-	return UnifiedEvent{
-		Type:      EventSyscall,
-		Severity:  sev,
-		Timestamp: ts,
-		PID:       sew.PID,
-		Summary:   summary,
-		RawEvent:  &rawCopy,
-	}
+	return event.StraceToUnifiedEvent(sew)
 }
 
 // --- Ring buffer ---
