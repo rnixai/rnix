@@ -149,8 +149,9 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	switch key {
 	case "/":
 		// Story 36-5: enter search input mode (Timeline).
-		m.search.Mode = true
-		m.search.Query = ""
+		// Story 38-5 PR11 Step 4(c)：迁出至 SearchPlugin.EnterSearchMode（与
+		// inspector / 共享 · timeline 仅 forward 不支持 ? backward）。
+		m.search.EnterSearchMode(false)
 		return m
 	case "f":
 		m.timeline.StepFilterMode = true

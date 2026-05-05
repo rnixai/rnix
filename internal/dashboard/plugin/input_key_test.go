@@ -113,3 +113,47 @@ func TestHandleInputKey_NilReceiver_Safe(t *testing.T) {
 		t.Error("nil receiver 应返回 false")
 	}
 }
+
+func TestEnterSearchMode_Forward(t *testing.T) {
+	p := &SearchPlugin{Query: "stale", Reverse: true}
+	p.EnterSearchMode(false)
+	if !p.Mode {
+		t.Error("EnterSearchMode 应设 Mode=true")
+	}
+	if p.Query != "" {
+		t.Errorf("Query 应清空, got %q", p.Query)
+	}
+	if p.Reverse {
+		t.Error("forward 应清 Reverse=false")
+	}
+}
+
+func TestEnterSearchMode_Backward(t *testing.T) {
+	p := &SearchPlugin{}
+	p.EnterSearchMode(true)
+	if !p.Reverse {
+		t.Error("backward 应设 Reverse=true")
+	}
+	if !p.Mode {
+		t.Error("应设 Mode=true")
+	}
+}
+
+func TestEnterSearchMode_PreservesMatches(t *testing.T) {
+	// Matches/MatchIdx 不在 Enter 阶段清空（caller 在 enter 命令时显式重算）
+	p := &SearchPlugin{Matches: []int{1, 2, 3}, MatchIdx: 1}
+	p.EnterSearchMode(false)
+	if len(p.Matches) != 3 || p.MatchIdx != 1 {
+		t.Error("EnterSearchMode 不应清空 Matches/MatchIdx")
+	}
+}
+
+func TestEnterSearchMode_NilReceiver_Safe(t *testing.T) {
+	var p *SearchPlugin
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("nil receiver panic: %v", r)
+		}
+	}()
+	p.EnterSearchMode(false)
+}

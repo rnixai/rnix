@@ -75,6 +75,23 @@ func (p *SearchPlugin) Apply(target Searchable, query string) []int {
 	return matches
 }
 
+// EnterSearchMode 把 SearchPlugin 切入 search 输入态，清空 Query 与 Reverse
+// 标志（Story 36-5 / forward / Story 36-6 ? backward search 入口的共享逻辑）。
+//
+// 行为：
+//   - Mode=true / Query="" / Reverse=reverse;
+//   - 不清空 Matches / MatchIdx（caller 在 enter 时显式重算 · 与历史等价）.
+//
+// nil 安全：receiver 为 nil 时 noop。
+func (p *SearchPlugin) EnterSearchMode(reverse bool) {
+	if p == nil {
+		return
+	}
+	p.Mode = true
+	p.Query = ""
+	p.Reverse = reverse
+}
+
 // HandleInputKey 处理 search 输入态的非-enter 按键（Story 38-5 PR11 Step 4(c)
 // timeline / inspector 共享通用模式）。
 //

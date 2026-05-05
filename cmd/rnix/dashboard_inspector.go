@@ -324,12 +324,11 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// over content that already contains reverse-render ANSI escapes from
 		// the prior search, causing phantom matches on `\x1b[7m`.
 		hadPrior := m.search.Query != ""
-		m.search.Mode = true
-		m.search.Query = ""
+		// Story 38-5 PR11 Step 4(c)：Mode+Query+Reverse 委托 SearchPlugin.EnterSearchMode
+		m.search.EnterSearchMode(false)
 		m.search.Matches = nil
 		m.inspector.SearchPos = nil
 		m.search.MatchIdx = 0
-		m.search.Reverse = false
 		if hadPrior {
 			m.rebuildInspectorContents()
 		}
@@ -339,12 +338,10 @@ func (m dashboardModel) inspectorKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m = m.stopFollowLiveWithStatus()
 		hadPrior := m.search.Query != ""
-		m.search.Mode = true
-		m.search.Query = ""
+		m.search.EnterSearchMode(true)
 		m.search.Matches = nil
 		m.inspector.SearchPos = nil
 		m.search.MatchIdx = 0
-		m.search.Reverse = true
 		if hadPrior {
 			m.rebuildInspectorContents()
 		}
