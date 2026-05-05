@@ -31,14 +31,19 @@ type ToolCall struct {
 	Input map[string]any `json:"input,omitempty"`
 }
 
-// ReasoningBlock carries a single thinking-mode content block from
-// Anthropic-style providers across context persistence and round-trips.
+// ReasoningBlock carries a single thinking-mode content block across context
+// persistence and round-trips. Type selects the provider shape:
+//   - "thinking" / "redacted_thinking": Anthropic-style (Signature, Data)
+//   - "thought": Gemini-style (ThoughtSignature must be echoed on subsequent
+//     turns to preserve thought context for function-calling round-trips)
+//
 // Fields and JSON tags mirror llm.ReasoningBlock for wire compatibility.
 type ReasoningBlock struct {
-	Type      string `json:"type"`
-	Thinking  string `json:"thinking,omitempty"`
-	Signature string `json:"signature,omitempty"`
-	Data      string `json:"data,omitempty"`
+	Type             string `json:"type"`
+	Thinking         string `json:"thinking,omitempty"`
+	Signature        string `json:"signature,omitempty"`
+	Data             string `json:"data,omitempty"`
+	ThoughtSignature []byte `json:"thought_signature,omitempty"`
 }
 
 // Message represents a single message in a conversation context.

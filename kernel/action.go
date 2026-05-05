@@ -47,10 +47,11 @@ type llmToolCall struct {
 // reasoningBlock mirrors llm.ReasoningBlock for the JSON wire format
 // flowing through the LLM VFS device into the kernel's response decoder.
 type reasoningBlock struct {
-	Type      string `json:"type"`
-	Thinking  string `json:"thinking,omitempty"`
-	Signature string `json:"signature,omitempty"`
-	Data      string `json:"data,omitempty"`
+	Type             string `json:"type"`
+	Thinking         string `json:"thinking,omitempty"`
+	Signature        string `json:"signature,omitempty"`
+	Data             string `json:"data,omitempty"`
+	ThoughtSignature []byte `json:"thought_signature,omitempty"`
 }
 
 // llmResponse is the JSON payload read from the LLM VFS device.

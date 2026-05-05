@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -331,5 +333,144 @@ func TestConvertToolDefsToGenai_NilParameters(t *testing.T) {
 	// Tool with non-nil Parameters must set ParametersJsonSchema.
 	if decls[1].ParametersJsonSchema == nil {
 		t.Error("tool with Parameters: expected ParametersJsonSchema != nil")
+	}
+}
+
+// TestExtractResponse_PreservesThoughtSignature verifies that Gemini 2.5+
+// thinking responses round-trip the opaque ThoughtSignature: extractResponse
+// must collect every Thought part into LLMResponse.ReasoningBlocks with the
+// signature bytes intact, not just concatenate the text.
+func TestExtractResponse_PreservesThoughtSignature(t *testing.T) {
+	sig := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+	resp := &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{
+			Content: &genai.Content{
+				Role: "model",
+				Parts: []*genai.Part{
+					{Thought: true, Text: "plan: list files first", ThoughtSignature: sig},
+					{Text: "running ls"},
+					{FunctionCall: &genai.FunctionCall{ID: "tc_1", Name: "shell", Args: map[string]any{"cmd": "ls"}}},
+				},
+			},
+		}},
+	}
+
+	out := extractResponse(resp)
+
+	if out.Reasoning != "plan: list files first" {
+		t.Errorf("Reasoning = %q, want %q", out.Reasoning, "plan: list files first")
+	}
+	if len(out.ReasoningBlocks) != 1 {
+		t.Fatalf("len(ReasoningBlocks) = %d, want 1", len(out.ReasoningBlocks))
+	}
+	rb := out.ReasoningBlocks[0]
+	if rb.Type != "thought" {
+		t.Errorf("ReasoningBlocks[0].Type = %q, want thought", rb.Type)
+	}
+	if rb.Thinking != "plan: list files first" {
+		t.Errorf("ReasoningBlocks[0].Thinking = %q", rb.Thinking)
+	}
+	if !bytes.Equal(rb.ThoughtSignature, sig) {
+		t.Errorf("ThoughtSignature = %v, want %v (signature dropped on inbound)", rb.ThoughtSignature, sig)
+	}
+	if out.Content != "running ls" {
+		t.Errorf("Content = %q, want %q", out.Content, "running ls")
+	}
+	if len(out.ToolCalls) != 1 || out.ToolCalls[0].Name != "shell" {
+		t.Errorf("ToolCalls = %+v", out.ToolCalls)
+	}
+}
+
+// TestConvertMsgToGenai_RebuildsThoughtPartFromReasoningBlock verifies the
+// outbound path: an assistant Message carrying a ReasoningBlock{Type:"thought"}
+// must be rebuilt as a genai.Part with Thought=true and the ThoughtSignature
+// echoed verbatim. Gemini requires this on multi-turn function-calling round-trips.
+func TestConvertMsgToGenai_RebuildsThoughtPartFromReasoningBlock(t *testing.T) {
+	sig := []byte{0x01, 0x02, 0x03}
+	m := Message{
+		Role:    "assistant",
+		Content: "running",
+		ReasoningBlocks: []ReasoningBlock{
+			{Type: "thought", Thinking: "plan: list dir", ThoughtSignature: sig},
+			// Anthropic-style block must be ignored by Gemini.
+			{Type: "thinking", Thinking: "ignored", Signature: "anthropic-sig"},
+		},
+		ToolCalls: []ToolCall{
+			{ID: "tc-1", Name: "shell", Input: map[string]any{"cmd": "ls"}},
+		},
+	}
+
+	c := convertMsgToGenai(m, nil)
+	if c == nil || c.Role != "model" {
+		t.Fatalf("c = %+v, want non-nil model", c)
+	}
+	// Part order MUST be: thought → text → function_call.
+	if len(c.Parts) != 3 {
+		t.Fatalf("len(Parts) = %d, want 3 (thought, text, function_call)", len(c.Parts))
+	}
+	if !c.Parts[0].Thought {
+		t.Errorf("Parts[0].Thought = false, want true")
+	}
+	if c.Parts[0].Text != "plan: list dir" {
+		t.Errorf("Parts[0].Text = %q, want %q", c.Parts[0].Text, "plan: list dir")
+	}
+	if !bytes.Equal(c.Parts[0].ThoughtSignature, sig) {
+		t.Errorf("Parts[0].ThoughtSignature = %v, want %v", c.Parts[0].ThoughtSignature, sig)
+	}
+	if c.Parts[1].Text != "running" || c.Parts[1].Thought {
+		t.Errorf("Parts[1] = %+v, want text 'running' (non-thought)", c.Parts[1])
+	}
+	if c.Parts[2].FunctionCall == nil || c.Parts[2].FunctionCall.Name != "shell" {
+		t.Errorf("Parts[2] = %+v, want shell function_call", c.Parts[2])
+	}
+}
+
+// TestConvertMsgToGenai_OmitsAnthropicBlocks verifies cross-driver safety:
+// a Message persisted from an Anthropic turn must NOT leak its thinking
+// blocks into a Gemini request — only Type="thought" entries are consumed.
+func TestConvertMsgToGenai_OmitsAnthropicBlocks(t *testing.T) {
+	m := Message{
+		Role:    "assistant",
+		Content: "ok",
+		ReasoningBlocks: []ReasoningBlock{
+			{Type: "thinking", Thinking: "anthropic-only", Signature: "sig"},
+			{Type: "redacted_thinking", Data: "redacted"},
+		},
+	}
+	c := convertMsgToGenai(m, nil)
+	if c == nil {
+		t.Fatal("c = nil")
+	}
+	for i, p := range c.Parts {
+		if p.Thought {
+			t.Errorf("Parts[%d].Thought = true; Anthropic block leaked into Gemini outbound", i)
+		}
+	}
+}
+
+// TestReasoningBlock_ThoughtSignatureJSONRoundTrip locks in wire-format
+// stability for context persistence: ThoughtSignature ([]byte) must encode
+// to base64 in JSON and decode back to identical bytes, so a daemon restart
+// or VFS cross-process transport never corrupts the signature.
+func TestReasoningBlock_ThoughtSignatureJSONRoundTrip(t *testing.T) {
+	sig := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0xFF}
+	original := ReasoningBlock{
+		Type:             "thought",
+		Thinking:         "plan",
+		ThoughtSignature: sig,
+	}
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var got ReasoningBlock
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !bytes.Equal(got.ThoughtSignature, sig) {
+		t.Errorf("round-trip ThoughtSignature = %v, want %v", got.ThoughtSignature, sig)
+	}
+	if got.Type != "thought" || got.Thinking != "plan" {
+		t.Errorf("round-trip lost fields: %+v", got)
 	}
 }

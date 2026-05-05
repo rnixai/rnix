@@ -194,8 +194,25 @@ func convertMsgToGenai(m Message, nameByID map[string]string) *genai.Content {
 			Parts: []*genai.Part{{Text: m.Content}},
 		}
 	case "assistant":
+		var parts []*genai.Part
+		// Echo thought parts first so Gemini receives them in their
+		// original order (thought → text → function_call). Round-tripping
+		// the opaque ThoughtSignature is required for thinking + function
+		// calling to keep prior reasoning context across turns.
+		for _, rb := range m.ReasoningBlocks {
+			if rb.Type != "thought" {
+				continue // skip Anthropic-style blocks; not consumed by Gemini
+			}
+			if rb.Thinking == "" && len(rb.ThoughtSignature) == 0 {
+				continue
+			}
+			parts = append(parts, &genai.Part{
+				Text:             rb.Thinking,
+				Thought:          true,
+				ThoughtSignature: rb.ThoughtSignature,
+			})
+		}
 		if len(m.ToolCalls) > 0 {
-			var parts []*genai.Part
 			if m.Content != "" {
 				parts = append(parts, &genai.Part{Text: m.Content})
 			}
@@ -210,10 +227,13 @@ func convertMsgToGenai(m Message, nameByID map[string]string) *genai.Content {
 			}
 			return &genai.Content{Role: "model", Parts: parts}
 		}
-		return &genai.Content{
-			Role:  "model",
-			Parts: []*genai.Part{{Text: m.Content}},
+		if m.Content != "" {
+			parts = append(parts, &genai.Part{Text: m.Content})
 		}
+		if len(parts) == 0 {
+			parts = []*genai.Part{{Text: ""}}
+		}
+		return &genai.Content{Role: "model", Parts: parts}
 	case "tool":
 		name := nameByID[m.ToolCallID]
 		if name == "" {
@@ -261,6 +281,15 @@ func extractResponse(resp *genai.GenerateContentResponse) *LLMResponse {
 			})
 		case part.Thought:
 			thoughtParts = append(thoughtParts, part.Text)
+			// Persist the thought block verbatim including its opaque
+			// signature: Gemini 2.5+ requires echoing thoughtSignature on
+			// subsequent turns when function calling is involved or the
+			// model loses prior reasoning context.
+			out.ReasoningBlocks = append(out.ReasoningBlocks, ReasoningBlock{
+				Type:             "thought",
+				Thinking:         part.Text,
+				ThoughtSignature: part.ThoughtSignature,
+			})
 		case part.Text != "":
 			textParts = append(textParts, part.Text)
 		}
@@ -336,6 +365,7 @@ func (d *GeminiDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 			cachedInputTokens int
 			totalTokens       int
 			toolCalls         []ToolCall
+			reasoningBlocks   []ReasoningBlock
 		)
 
 		for resp, err := range client.Models.GenerateContentStream(
@@ -379,11 +409,28 @@ func (d *GeminiDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 						Input: part.FunctionCall.Args,
 					})
 				case part.Thought && part.Text != "":
+					// Buffer the thought block (text + opaque signature)
+					// so the done event can carry it for round-trip — the
+					// streaming "reasoning" event is best-effort UI text
+					// and cannot transport []byte signatures.
+					reasoningBlocks = append(reasoningBlocks, ReasoningBlock{
+						Type:             "thought",
+						Thinking:         part.Text,
+						ThoughtSignature: part.ThoughtSignature,
+					})
 					select {
 					case ch <- StreamEvent{Type: "reasoning", Content: part.Text}:
 					case <-ctx.Done():
 						return
 					}
+				case part.Thought && len(part.ThoughtSignature) > 0:
+					// Signature-only thought parts (no text) still need
+					// to round-trip — Gemini sometimes emits the signature
+					// on a separate part from the thought text.
+					reasoningBlocks = append(reasoningBlocks, ReasoningBlock{
+						Type:             "thought",
+						ThoughtSignature: part.ThoughtSignature,
+					})
 				case !part.Thought && part.Text != "":
 					select {
 					case ch <- StreamEvent{Type: "content", Content: part.Text}:
@@ -401,6 +448,7 @@ func (d *GeminiDriver) streamInternal(ctx context.Context, req LLMRequest, tools
 			OutputTokens:      outputTokens,
 			CachedInputTokens: cachedInputTokens,
 			ToolCalls:         toolCalls,
+			ReasoningBlocks:   reasoningBlocks,
 		}
 		select {
 		case ch <- evt:

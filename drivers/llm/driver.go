@@ -58,15 +58,23 @@ func configureCommandGrace(cmd *exec.Cmd, graceSec int) {
 	cmd.WaitDelay = grace
 }
 
-// ReasoningBlock represents a single thinking-mode content block from
-// Anthropic-style providers. The Type field selects between "thinking"
-// (with Signature + Thinking) and "redacted_thinking" (with Data).
-// JSON tags match the Anthropic SDK's ContentBlockUnion shape.
+// ReasoningBlock represents a single thinking-mode content block.
+// Type selects the provider shape:
+//   - "thinking" (Anthropic): Signature + Thinking text
+//   - "redacted_thinking" (Anthropic): Data (opaque)
+//   - "thought" (Gemini 2.5+): Thinking text + ThoughtSignature ([]byte);
+//     the signature MUST be echoed on subsequent turns when function calling
+//     is involved or the API can lose reasoning context.
+//
+// JSON tags for the Anthropic-style fields match the Anthropic SDK's
+// ContentBlockUnion shape; ThoughtSignature is base64-encoded by encoding/json
+// for []byte and round-trips cleanly through context persistence.
 type ReasoningBlock struct {
-	Type      string `json:"type"`                // "thinking" | "redacted_thinking"
-	Thinking  string `json:"thinking,omitempty"`  // raw thinking text (Type="thinking")
-	Signature string `json:"signature,omitempty"` // tamper-evident signature (Type="thinking")
-	Data      string `json:"data,omitempty"`      // opaque payload (Type="redacted_thinking")
+	Type             string `json:"type"`                         // "thinking" | "redacted_thinking" | "thought"
+	Thinking         string `json:"thinking,omitempty"`           // raw thinking text (Type="thinking" | "thought")
+	Signature        string `json:"signature,omitempty"`          // Anthropic tamper-evident signature (Type="thinking")
+	Data             string `json:"data,omitempty"`               // Anthropic opaque payload (Type="redacted_thinking")
+	ThoughtSignature []byte `json:"thought_signature,omitempty"`  // Gemini opaque thought signature (Type="thought")
 }
 
 // Message represents a single message in a conversation.

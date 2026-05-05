@@ -227,10 +227,11 @@ func convertReasoningBlocks(blocks []reasoningBlock) []rnixctx.ReasoningBlock {
 	result := make([]rnixctx.ReasoningBlock, len(blocks))
 	for i, b := range blocks {
 		result[i] = rnixctx.ReasoningBlock{
-			Type:      b.Type,
-			Thinking:  b.Thinking,
-			Signature: b.Signature,
-			Data:      b.Data,
+			Type:             b.Type,
+			Thinking:         b.Thinking,
+			Signature:        b.Signature,
+			Data:             b.Data,
+			ThoughtSignature: b.ThoughtSignature,
 		}
 	}
 	return result
