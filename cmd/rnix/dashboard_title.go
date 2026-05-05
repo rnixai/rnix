@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/title"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -374,14 +375,15 @@ func computeBudgetPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
 }
 
 // clampPercent restricts a percentage value to the displayable range [0, 999].
+// clampPercent — thin wrapper · 见 internal/dashboard/title.ClampPercent.
+//
+// Story 38-5 PR11 Step 4(c)：Title Bar percent clamp 纯 helper 迁至
+// internal/dashboard/title 包（与 FormatElapsedHHMMSS / PctColorStyle 同 commit
+// 内聚 · 0 dashboardModel 依赖 · 0 cmd/rnix 反向依赖）· cmd/rnix wrapper 仅
+// 保留旧名让 5 处 callsite（dashboard_title.go::computeCtxPercent /
+// computeBudgetPercent · 4 处计算）零修改通过。
 func clampPercent(v int) int {
-	if v < 0 {
-		return 0
-	}
-	if v > 999 {
-		return 999
-	}
-	return v
+	return title.ClampPercent(v)
 }
 
 // styleProviderName colors the provider name based on process health.
@@ -406,33 +408,24 @@ func styleProviderName(connected bool, proc *vfs.ProcInfo) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(proc.Provider)
 }
 
-// formatElapsedHHMMSS formats a duration as HH:MM:SS.
+// formatElapsedHHMMSS — thin wrapper · 见 internal/dashboard/title.FormatElapsedHHMMSS.
+//
+// Story 38-5 PR11 Step 4(c)：Title Bar elapsed-time 格式化纯 helper 迁至
+// internal/dashboard/title 包（与 ClampPercent / PctColorStyle 同 commit 内聚）·
+// cmd/rnix wrapper 仅保留旧名让 1 处 callsite（dashboard_title.go::renderDashboardTitle
+// elapsedSeg 计算）零修改通过。
 func formatElapsedHHMMSS(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	h := int(d.Hours())
-	m := int(d.Minutes()) % 60
-	s := int(d.Seconds()) % 60
-	return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
+	return title.FormatElapsedHHMMSS(d)
 }
 
-// pctColorStyle returns a lipgloss style coloured by usage percentage thresholds
-// for the Title Bar ctx/budget segments (Story 38.2 AC#1):
+// pctColorStyle — thin wrapper · 见 internal/dashboard/title.PctColorStyle.
 //
-//	< 60%  → ColorMuted (dim grey)
-//	60-79% → ColorWarning (yellow)
-//	≥ 80%  → ColorError (red, bold)
-//
-// The thresholds intentionally mirror styleProviderName's three-tier health logic
-// so users see one consistent colour language for "approaching limit" vs "over limit".
+// Story 38-5 PR11 Step 4(c)：Title Bar percent 阈值颜色 helper 迁至
+// internal/dashboard/title 包（与 ClampPercent / FormatElapsedHHMMSS 同 commit
+// 内聚 · Story 38.2 AC#1 行为契约保留 < 60 Muted / 60-79 Warning / ≥80 Error+Bold）·
+// cmd/rnix wrapper 仅保留旧名让 2 处主代码 callsite（dashboard_title.go::renderDashboardTitle
+// ctxSeg/budgetSeg 渲染）+ 测试 callsite (dashboard_test.go::TestPctColorStyle_Thresholds
+// 38.2-UNIT-001) 零修改通过。
 func pctColorStyle(pct int) lipgloss.Style {
-	switch {
-	case pct >= 80:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Bold(true)
-	case pct >= 60:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
-	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	}
+	return title.PctColorStyle(pct)
 }
