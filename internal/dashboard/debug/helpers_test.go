@@ -188,6 +188,107 @@ func TestRenderStepLine_ToolPathNotReplacingLongSummary(t *testing.T) {
 	}
 }
 
+// ----- FilterDebugEvents 行为测试（Story 38-5 PR11 Step 4(c) debug pane filter helper） -----
+//
+// 覆盖矩阵：
+//   - 空 Events → nil 短路
+//   - ShowStrace=false + EventSyscall → 隐藏
+//   - ShowStrace=true + EventSyscall → 加入（仍受 stepFilters 制约）
+//   - stepFilters 排除 → 跳过
+//   - 多事件混合（step + syscall + step）顺序保留
+//   - 不修改输入 state（pure function）
+
+func TestFilterDebugEvents_EmptyEventsShortCircuit(t *testing.T) {
+	state := DebugState{Events: nil, ShowStrace: true}
+	got := FilterDebugEvents(state, map[string]bool{"compact": true})
+	if got != nil {
+		t.Errorf("empty Events: want nil, got %v", got)
+	}
+}
+
+func TestFilterDebugEvents_HidesSyscallWhenShowStraceFalse(t *testing.T) {
+	state := DebugState{
+		Events: []event.UnifiedEvent{
+			{Type: event.EventStep, Summary: "step1"},
+			{Type: event.EventSyscall, Summary: "Read(fd=3)"},
+			{Type: event.EventStep, Summary: "step2"},
+		},
+		ShowStrace: false,
+	}
+	got := FilterDebugEvents(state, nil)
+	if len(got) != 2 {
+		t.Fatalf("ShowStrace=false: want 2 events (syscalls hidden), got %d", len(got))
+	}
+	if got[0].Type != event.EventStep || got[1].Type != event.EventStep {
+		t.Errorf("ShowStrace=false: should keep only EventStep, got %v / %v", got[0].Type, got[1].Type)
+	}
+}
+
+func TestFilterDebugEvents_KeepsSyscallWhenShowStraceTrue(t *testing.T) {
+	state := DebugState{
+		Events: []event.UnifiedEvent{
+			{Type: event.EventStep, Summary: "step1"},
+			{Type: event.EventSyscall, Summary: "Read(fd=3)"},
+		},
+		ShowStrace: true,
+	}
+	got := FilterDebugEvents(state, nil)
+	if len(got) != 2 {
+		t.Fatalf("ShowStrace=true: want 2 events (syscall kept), got %d", len(got))
+	}
+}
+
+func TestFilterDebugEvents_StepFiltersExcludeBudget(t *testing.T) {
+	state := DebugState{
+		Events: []event.UnifiedEvent{
+			{Type: event.EventStep, Summary: "step1"},
+			{Type: event.EventBudget, Summary: "budget warn"},
+			{Type: event.EventStep, Summary: "step2"},
+		},
+		ShowStrace: false,
+	}
+	// Filter that rejects budget events; IsEventVisible must skip them.
+	got := FilterDebugEvents(state, map[string]bool{"budget": false})
+	// budget event 被 filter 排除 · 仅剩 2 个 step
+	if len(got) != 2 {
+		t.Fatalf("budget filter: want 2 events (budget hidden), got %d", len(got))
+	}
+}
+
+func TestFilterDebugEvents_PreservesEventOrder(t *testing.T) {
+	state := DebugState{
+		Events: []event.UnifiedEvent{
+			{Type: event.EventStep, Summary: "first"},
+			{Type: event.EventSyscall, Summary: "second"},
+			{Type: event.EventStep, Summary: "third"},
+		},
+		ShowStrace: true,
+	}
+	got := FilterDebugEvents(state, nil)
+	if len(got) != 3 {
+		t.Fatalf("order preserved: want 3, got %d", len(got))
+	}
+	if got[0].Summary != "first" || got[1].Summary != "second" || got[2].Summary != "third" {
+		t.Errorf("order: %v / %v / %v", got[0].Summary, got[1].Summary, got[2].Summary)
+	}
+}
+
+func TestFilterDebugEvents_DoesNotMutateInput(t *testing.T) {
+	originalEvents := []event.UnifiedEvent{
+		{Type: event.EventStep, Summary: "a"},
+		{Type: event.EventSyscall, Summary: "b"},
+	}
+	state := DebugState{Events: originalEvents, ShowStrace: false}
+	_ = FilterDebugEvents(state, nil)
+	// 原 slice 应保持完整（filter 不修改输入）
+	if len(state.Events) != 2 {
+		t.Errorf("input mutated: state.Events len = %d, want 2", len(state.Events))
+	}
+	if state.Events[0].Summary != "a" || state.Events[1].Summary != "b" {
+		t.Errorf("input mutated: got %v / %v", state.Events[0].Summary, state.Events[1].Summary)
+	}
+}
+
 // ----- UpdateDeviceLatency 行为测试（Story 38-5 PR11 Step 4(c) debug pane strace pipeline helper） -----
 //
 // 覆盖矩阵（与 cmd/rnix dashboard_debug_test.go::TestUpdateDeviceLatency_* 同覆盖）：

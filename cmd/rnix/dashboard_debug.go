@@ -334,23 +334,17 @@ func extractDeviceName(sew ipc.SyscallEventWire) string {
 
 // --- Filtered debug events ---
 
-// F9: Reuse isEventVisible() for filter logic, adding debugShowStrace as the only extra check.
-// Returns consolidated events for user-friendly display (driver stream deltas merged into logical entries).
+// filteredDebugEvents — thin wrapper · 见 internal/dashboard/debug.FilterDebugEvents.
+//
+// Story 38-5 PR11 Step 4(c)：F9 filter logic（reuse isEventVisible + ShowStrace
+// 切换）迁至 internal/dashboard/debug.FilterDebugEvents（0 cmd/rnix 反向依赖 ·
+// 复用 event.IsEventVisible + 通过 stepFilters 参数注入解耦 timeline 包依赖）。
+//
+// cmd/rnix wrapper 仅传 m.debugState + m.timeline.StepFilters · 行为完全等价 ·
+// 保留 (m dashboardModel) receiver 让 ~3 处 callsite（dashboard_debug.go × 3）
+// + 测试 callsite（dashboard_debug_test.go × 2）零修改通过。
 func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
-	if len(m.debugState.Events) == 0 {
-		return nil
-	}
-	var result []UnifiedEvent
-	for _, ev := range m.debugState.Events {
-		if ev.Type == EventSyscall && !m.debugState.ShowStrace {
-			continue
-		}
-		if !isEventVisible(ev, m.timeline.StepFilters) {
-			continue
-		}
-		result = append(result, ev)
-	}
-	return result
+	return dashboarddebug.FilterDebugEvents(m.debugState, m.timeline.StepFilters)
 }
 
 // clampDebugCursor ensures the cursor stays within the filtered event range.

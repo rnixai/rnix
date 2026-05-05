@@ -111,6 +111,48 @@ func RenderStepLine(ev event.UnifiedEvent, cursorMark string, _ int) string {
 	return fmt.Sprintf("%s%s %s %s%s", cursorMark, stepLabel, action, summary, errMark)
 }
 
+// FilterDebugEvents 返回 debug pane 当前可见的事件子集（与 cmd/rnix.filteredDebugEvents
+// 1:1 行为等价 · Story 38-5 PR11 Step 4(c) debug pane filter helper · 同
+// AppendStraceEvent / UpdateDeviceLatency / ClampCursor functional 设计模式）。
+//
+// **行为契约（不变性 · 与 cmd/rnix 端 1:1 等价）**：
+//   - len(state.Events) == 0 → 返回 nil（短路 · 与 cmd/rnix 一致）
+//   - ev.Type == EventSyscall + state.ShowStrace == false → 跳过（隐藏 syscall）
+//   - !event.IsEventVisible(ev, stepFilters) → 跳过（按 timeline filter 过滤）
+//   - 其他 → 加入 result
+//
+// **签名设计**：
+//   - 接受 DebugState（仅读 Events / ShowStrace · 不修改 state）；
+//   - stepFilters 通过参数注入（避免 debug → timeline 反向 import · 与
+//     event.IsEventVisible / event.FilterUnifiedEvents 同 stepFilters 注入模式）；
+//   - 返回 `[]event.UnifiedEvent` 与 cmd/rnix wrapper 的 `[]UnifiedEvent` 兼容
+//     （UnifiedEvent 是 alias `event.UnifiedEvent`）。
+//
+// **依赖**：
+//   - event.IsEventVisible（已就位 · PR11 Step 4(a-2) helpers.go:166）；
+//   - event.UnifiedEvent + event.EventSyscall（已就位 · PR11 Step 4(a)）。
+//
+// **使用场景**：
+//   - cmd/rnix.filteredDebugEvents wrapper（dashboard_debug.go × 3 callsite ·
+//     clampDebugCursor / renderDebugTimelineContent / handleDebugKey）；
+//   - PR11 Step 4(c) 后续 debug render 主体迁出共用此 helper。
+func FilterDebugEvents(state DebugState, stepFilters map[string]bool) []event.UnifiedEvent {
+	if len(state.Events) == 0 {
+		return nil
+	}
+	var result []event.UnifiedEvent
+	for _, ev := range state.Events {
+		if ev.Type == event.EventSyscall && !state.ShowStrace {
+			continue
+		}
+		if !event.IsEventVisible(ev, stepFilters) {
+			continue
+		}
+		result = append(result, ev)
+	}
+	return result
+}
+
 // UpdateDeviceLatency 累加单条 syscall 到 device 级延迟统计（与 cmd/rnix.updateDeviceLatency
 // 1:1 行为等价 · Story 38-5 PR11 Step 4(c) debug pane strace pipeline helper · 与
 // AppendStraceEvent / ClampCursor 同 functional state mutator 模式）。

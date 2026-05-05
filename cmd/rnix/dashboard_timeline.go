@@ -384,7 +384,14 @@ func (m dashboardModel) filteredStepEntries() []int {
 	return timeline.FilteredStepEntries(m.timeline)
 }
 
-// isEventVisible — thin wrapper · 见 internal/dashboard/event.IsEventVisible
+// isEventVisible — thin wrapper · 见 internal/dashboard/event.IsEventVisible.
+//
+// Story 38-5 PR11 Step 4(c) FilterDebugEvents 迁出后 cmd/rnix 端 caller 减少（仅
+// 保留 ATDD 契约与潜在外部 caller）· nolint:unused 标注（spec § Risk 4 与
+// dashboard_tree.go::stateRank / dashboard_eval.go::renderEvalTopologyView 同
+// 模式 · 不删除 wrapper 避免破坏潜在 grep 契约）。
+//
+//nolint:unused // 保留供 ATDD 契约与潜在外部 caller。
 func isEventVisible(ev UnifiedEvent, filters map[string]bool) bool {
 	return dashboardevent.IsEventVisible(ev, filters)
 }
