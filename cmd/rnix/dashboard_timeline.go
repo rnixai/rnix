@@ -318,46 +318,17 @@ func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
 }
 
 // handleStepFilterKey handles keys in filter editing mode.
+//
+// Story 38-5 PR11 Step 4(c)：纯 filter map 切换主体迁出至
+// internal/dashboard/event.ApplyStepFilterKey（含 13 个 filter key + 重置
+// + 退出 filter 模式 + showHelp 信号 · 与 cmd/rnix 历史 byte-for-byte 等价）。
+// cmd/rnix wrapper 仅保留 m.statusMsg / m.statusMsgTTL 副作用。
 func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
-	if m.timeline.StepFilters == nil {
-		m.timeline.StepFilters = defaultStepFilters()
-	}
-	switch key {
-	// Row 1: Step action types (lowercase)
-	case "t":
-		m.timeline.StepFilters["tool_call"] = !m.timeline.StepFilters["tool_call"]
-	case "p":
-		m.timeline.StepFilters["plan"] = !m.timeline.StepFilters["plan"]
-	case "a":
-		m.timeline.StepFilters["text"] = !m.timeline.StepFilters["text"]
-	case "c":
-		m.timeline.StepFilters["complete"] = !m.timeline.StepFilters["complete"]
-	case "s":
-		m.timeline.StepFilters["spawn"] = !m.timeline.StepFilters["spawn"]
-	case "r":
-		m.timeline.StepFilters["replan"] = !m.timeline.StepFilters["replan"]
-	case "z":
-		m.timeline.StepFilters["specialize"] = !m.timeline.StepFilters["specialize"]
-	// Row 2: System event types (uppercase or distinct keys)
-	// F7: Use 'x' for system spawn and 'X' for exit per spec Task 5.4
-	case "C":
-		m.timeline.StepFilters[EventCompact] = !m.timeline.StepFilters[EventCompact]
-	case "b":
-		m.timeline.StepFilters[EventBudget] = !m.timeline.StepFilters[EventBudget]
-	case "x":
-		m.timeline.StepFilters["sys_spawn"] = !m.timeline.StepFilters["sys_spawn"]
-	case "X":
-		m.timeline.StepFilters[EventExit] = !m.timeline.StepFilters[EventExit]
-	case "T":
-		m.timeline.StepFilters[EventStall] = !m.timeline.StepFilters[EventStall]
-	case "i":
-		m.timeline.StepFilters[EventImmune] = !m.timeline.StepFilters[EventImmune]
-	case "*":
-		m.timeline.StepFilters = defaultStepFilters()
-	case "f", "esc":
-		m.timeline.StepFilterMode = false
-	default:
-		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
+	var help bool
+	m.timeline.StepFilters, m.timeline.StepFilterMode, help = dashboardevent.ApplyStepFilterKey(
+		m.timeline.StepFilters, m.timeline.StepFilterMode, key)
+	if help {
+		m.statusMsg = dashboardevent.FilterHelpMsg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	}
 	return m
