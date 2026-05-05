@@ -74,3 +74,45 @@ func (p *SearchPlugin) Apply(target Searchable, query string) []int {
 	}
 	return matches
 }
+
+// HandleInputKey 处理 search 输入态的非-enter 按键（Story 38-5 PR11 Step 4(c)
+// timeline / inspector 共享通用模式）。
+//
+// 处理的按键：
+//   - "esc"：退出 search 模式 + 清空 Query;
+//   - "backspace"：删除 Query 最后一个 rune;
+//   - " " / "space"：追加空格到 Query;
+//   - 单字符按键：追加该字符到 Query;
+//   - 其他多字符按键（如 "enter" / "up" / "f1" 等）：noop · 返回 handled=false
+//     让 cmd/rnix wrapper 决定后续处理（如 "enter" 触发 Apply）.
+//
+// 返回：
+//   - handled: 当前按键是否被本方法处理（false 时 caller 须自行处理 · 例如 "enter"）.
+//
+// nil 安全：receiver 为 nil 时返回 false。
+func (p *SearchPlugin) HandleInputKey(key string) (handled bool) {
+	if p == nil {
+		return false
+	}
+	switch key {
+	case "esc":
+		p.Mode = false
+		p.Query = ""
+		return true
+	case "backspace":
+		runes := []rune(p.Query)
+		if len(runes) > 0 {
+			p.Query = string(runes[:len(runes)-1])
+		}
+		return true
+	case " ", "space":
+		p.Query += " "
+		return true
+	default:
+		if len([]rune(key)) == 1 {
+			p.Query += key
+			return true
+		}
+		return false
+	}
+}

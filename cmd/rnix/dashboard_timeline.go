@@ -229,22 +229,20 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 }
 
 // handleTimelineSearchKey handles search input in Timeline. Story 36-5 AC-12.
+//
+// Story 38-5 PR11 Step 4(c)：esc/backspace/space/单字符 输入累积主体迁出至
+// internal/dashboard/plugin.SearchPlugin.HandleInputKey（含 nil safety + Unicode
+// rune 边界 + multi-char 键 fallback · 与 cmd/rnix 历史 byte-for-byte 等价）。
+// cmd/rnix wrapper 仅保留 enter 分支（FindMatches 已迁 · 但触发 + statusMsg +
+// StepCursor 跳转 + ensureStepCursorVisible 副作用必须留 cmd/rnix）。
 func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
-	switch key {
-	case "esc":
-		m.search.Mode = false
-		m.search.Query = ""
-	case "enter":
+	if key == "enter" {
 		m.search.Mode = false
 		if m.search.Query == "" {
 			return m
 		}
 		// Story 36-5 P-7: collect ALL match indices (not just the first), so n/N
 		// can cycle through them per the modal n/N semantics.
-		//
-		// Story 38-5 PR11 Step 4(c)：match collection 主体迁出至
-		// internal/dashboard/event.FindMatches（含 Summary/Detail + StepEntry
-		// triple-field haystack · 大小写不敏感 · 与历史 byte-for-byte 等价）。
 		matches := dashboardevent.FindMatches(m.filteredUnifiedEvents(), m.search.Query)
 		if len(matches) == 0 {
 			m.statusMsg = fmt.Sprintf("No matches for %q", m.search.Query)
@@ -255,18 +253,10 @@ func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
 		m.search.MatchIdx = 0
 		m.timeline.StepCursor = matches[0]
 		m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
-	case "backspace":
-		runes := []rune(m.search.Query)
-		if len(runes) > 0 {
-			m.search.Query = string(runes[:len(runes)-1])
-		}
-	case " ", "space":
-		m.search.Query += " "
-	default:
-		if len([]rune(key)) == 1 {
-			m.search.Query += key
-		}
+		return m
 	}
+	// 非 enter 按键由 SearchPlugin.HandleInputKey 处理（esc/backspace/space/单字符）
+	m.search.HandleInputKey(key)
 	return m
 }
 
