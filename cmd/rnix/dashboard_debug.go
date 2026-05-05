@@ -389,20 +389,24 @@ func (m *dashboardModel) debugTickProcess() bool {
 
 // --- Debug PID change handling ---
 
+// handleDebugPIDChange — Story 34.6 Debug pane 切换 PID 时的清理 + 重新加载入口。
+//
+// Story 38-5 PR11 Step 4(b) Phase 2：9 字段状态重置已迁出至 dashboarddebug.HandlePIDChange
+// （internal/dashboard/debug/transitions.go）· cmd/rnix 端 wrapper 仅保留 mode
+// 检查 + IPC 调度（stopStraceStream / loadHistoricalStraceCmd / startStraceStreamCmd）·
+// 与 spec § 04 风险 6「IPC 命令保留在 App Model」一致。
+//
+// 行为契约（与原 inline 实现 byte-for-byte 等价 · Story 34.6 strace fusion 保留）：
+//   - mode != true → no-op；
+//   - 其他情况：先 stopStraceStream（IPC 关闭旧连接） · 再 9 字段状态重置 · 然后
+//     按 selectedPID + 进程状态触发对应 IPC 命令。
 func (m dashboardModel) handleDebugPIDChange() (dashboardModel, tea.Cmd) {
 	if !m.debugState.Mode {
 		return m, nil
 	}
 	m.stopStraceStream()
-	m.debugState.StraceEvents = nil
-	m.debugState.Events = nil
-	m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
-	m.debugState.CtxProfile = nil
-	m.debugState.ScrollTop = 0
-	m.debugState.Cursor = 0
-	m.debugState.AttachedPID = m.selectedPID
-	m.debugState.AutoReloaded = false
-	m.debugState.HistWatermark = 0
+	// Story 38-5 PR11 Step 4(b) Phase 2: 9 字段状态重置一行委托·迁至 internal/dashboard/debug
+	m.debugState = dashboarddebug.HandlePIDChange(m.debugState, m.selectedPID)
 
 	if m.selectedPID == 0 {
 		return m, nil
