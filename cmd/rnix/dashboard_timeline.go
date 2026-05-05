@@ -158,53 +158,35 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "e":
 		// Story 36-4: Sticky expand mode — 切换到 Expanded，幂等。
-		m.timeline.ExpandMode = expandModeExpanded
-		expanded := 0
-		for i := range m.timeline.StepEntries {
-			entry := &m.timeline.StepEntries[i]
-			if entry.Level < levelExpanded {
-				detail := m.timeline.StepDetailCache[entry.Summary.Step]
-				if detail == nil || hasExpandableContent(detail, entry.Summary) {
-					entry.Level = levelExpanded
-					expanded++
-				}
-			}
-		}
-		m.statusMsg = "Expand mode: all"
+		//
+		// Story 38-5 PR11 Step 4(c)：expand mode mutation 主体迁出至
+		// internal/dashboard/timeline.ApplyExpandMode（含 detail==nil 短路径 +
+		// hasExpandable 双判断 + empty list NoSteps 提示 · 与历史等价）。
+		var msg string
+		m.timeline, msg = timeline.ApplyExpandMode(m.timeline, expandModeExpanded, hasExpandableContent)
+		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
-		if expanded == 0 && len(m.timeline.StepEntries) == 0 {
-			m.statusMsg = "Expand mode: all (no steps yet)"
-		}
 	case "E":
 		// Story 36-4: ErrorsOnly mode — 仅展开 HasError=true 的 step。
-		m.timeline.ExpandMode = expandModeErrorsOnly
-		for i := range m.timeline.StepEntries {
-			entry := &m.timeline.StepEntries[i]
-			if entry.Summary.HasError {
-				entry.Level = levelExpanded
-			} else {
-				entry.Level = levelSummary
-			}
-		}
-		m.statusMsg = "Expand mode: errors only"
+		var msg string
+		m.timeline, msg = timeline.ApplyExpandMode(m.timeline, expandModeErrorsOnly, hasExpandableContent)
+		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "C":
 		// Story 36-4: Collapsed mode — 全部折叠到 summary。
 		// 仅非 filter 模式生效（filter 模式下的 C 由 handleStepFilterKey 处理）。
-		m.timeline.ExpandMode = expandModeCollapsed
-		for i := range m.timeline.StepEntries {
-			m.timeline.StepEntries[i].Level = levelSummary
-		}
-		m.statusMsg = "Expand mode: collapsed"
+		var msg string
+		m.timeline, msg = timeline.ApplyExpandMode(m.timeline, expandModeCollapsed, hasExpandableContent)
+		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "o":
 		// Story 36-4: 切换 Timeline 排序方向（升 ↔ 降）
-		m.timeline.SortAsc = !m.timeline.SortAsc
-		if m.timeline.SortAsc {
-			m.statusMsg = "Timeline 已切换到升序（旧→新）"
-		} else {
-			m.statusMsg = "Timeline 已切换到降序（新→旧）"
-		}
+		//
+		// Story 38-5 PR11 Step 4(c)：sort direction toggle 主体迁出至
+		// internal/dashboard/timeline.ToggleSortDirection。
+		var msg string
+		m.timeline, msg = timeline.ToggleSortDirection(m.timeline)
+		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "n":
 		// Story 36-5 P-7: when a search is active, n cycles to the next match.
