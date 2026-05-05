@@ -1239,33 +1239,26 @@ func (m dashboardModel) buildSystemLens(detail, prevDetail *ipc.GetStepDetailRes
 	return b.String()
 }
 
-// formatSignedCharCount returns "+1.2k" / "-272" / "+0" style strings used by
-// the System lens changed header and any future delta indicators. Story 38-3
-// AC#3 specifies the explicit sign for non-zero deltas; zero is shown as `+0`
-// for visual consistency rather than the empty string.
+// formatSignedCharCount — thin wrapper · 见 internal/dashboard/inspector.FormatSignedCharCount.
+//
+// Story 38-5 PR11 Step 4(c)：System lens 共享纯 helper 迁至 inspector 包
+// （0 dashboardModel 依赖 · 与 box.go::formatCharCount/RenderTruncationNotice/
+// TruncateThreshold 同位 · 续 PR11 Step 4(a-2) inspector 系列 helpers 节奏）·
+// cmd/rnix wrapper 仅保留旧名让 1 处 callsite（buildSystemLens）零修改通过。
+//
+// Story 38-3 AC#3 sign 行为契约（非零 delta 显式 +/- · 0 → "+0"）保留。
 func formatSignedCharCount(delta int) string {
-	if delta < 0 {
-		return "-" + formatCharCount(-delta)
-	}
-	return "+" + formatCharCount(delta)
+	return inspector.FormatSignedCharCount(delta)
 }
 
-// renderSystemPromptBody emits the canonical "═══ System Prompt (X chars) ═══"
-// header followed by the prompt body, applying inspector truncation. Extracted
-// so all three System-lens code paths (first-step / unchanged-expanded /
-// changed) share the same body rendering.
+// renderSystemPromptBody — thin wrapper · 见 internal/dashboard/inspector.RenderSystemPromptBody.
+//
+// Story 38-5 PR11 Step 4(c)：与 formatSignedCharCount 同 commit 迁出（System
+// lens 共享 truncation + "═══ System Prompt (X chars) ═══" header 格式 ·
+// cohesion 一并迁入 inspector 包）· cmd/rnix wrapper 仅保留旧名让 3 处 callsite
+// （buildSystemLens 内 first-step / unchanged / changed 三分支）零修改通过。
 func renderSystemPromptBody(prompt string) string {
-	var b strings.Builder
-	sysLen := utf8.RuneCountInString(prompt)
-	fmt.Fprintf(&b, "═══ System Prompt (%s chars) ═══\n\n", formatCharCount(sysLen))
-	if sysLen > inspectorTruncateThreshold {
-		runes := []rune(prompt)
-		b.WriteString(string(runes[:inspectorTruncateThreshold]))
-		b.WriteString(renderTruncationNotice(inspectorTruncateThreshold, sysLen))
-	} else {
-		b.WriteString(prompt)
-	}
-	return b.String()
+	return inspector.RenderSystemPromptBody(prompt)
 }
 
 // buildToolIOLens builds Lens ❸: tool call details.
