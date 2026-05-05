@@ -92,18 +92,18 @@ func (m dashboardModel) enterStepInspector() (tea.Model, tea.Cmd) {
 	return m, fetchInspectorStepListCmd(m.selectedPID, m.selectedUUID)
 }
 
+// inspectorContentHeight — thin wrapper · 见 internal/dashboard/inspector.ContentHeight.
+//
+// Story 38-5 PR11 Step 4(c)：纯尺寸计算迁至 internal/dashboard/inspector.ContentHeight
+// （仅依赖 m.height 单字段 · pure pipeline termHeight → int · 0 dashboardModel
+// 状态依赖 · 与 box.go::BoxWidth / system_lens.go 同 cohesion 内聚）· cmd/rnix
+// wrapper 仅保留同名让 ATDD 27-4 callsite (`m.inspectorContentHeight()`) +
+// dashboard.go:261 + dashboard_inspector.go:83 callsite 零修改通过。
+//
+// Story 38-3 AC#6 行为契约（h≥20 → 6 行 chrome 含 thumbnail bar · 否则 4 行
+// chrome 不含 thumbnail）保留。
 func (m dashboardModel) inspectorContentHeight() int {
-	// Story 38-3 AC#6: when the terminal is tall enough (h≥20) the Step
-	// Inspector reserves an extra two-line block for the thumbnail bar
-	// (glyph row + step-number row). Below that threshold the thumbnail
-	// is suppressed and the legacy 4-line chrome (rail+tabs+footer) is
-	// preserved.
-	if m.height >= 20 {
-		// stepRail(1) + thumbnailBar(2) + lensTabs(1) + footer(1) + spacing(1) = 6
-		return max(m.height-6, 1)
-	}
-	// stepRail(2) + lensTabs(1) + footer(1) = 4
-	return max(m.height-4, 1)
+	return inspector.ContentHeight(m.height)
 }
 
 // fetchInspectorStepListCmd fetches the step summary list for the Inspector.
