@@ -77,21 +77,23 @@ func TestStyleProviderName_DeadFailedRed(t *testing.T) {
 }
 
 // TestStyleProviderName_DeadSuccessGreen covers Dead but successful result —
-// goes through default (green) since IsFailedResult returns false.
+// goes through default (green) since IsFailedResult returns false. Note: empty
+// Result string actually means failure (per ui.isFailedResult contract), so we
+// use a non-empty success-marker string to exercise the green branch.
 func TestStyleProviderName_DeadSuccessGreen(t *testing.T) {
 	proc := &vfs.ProcInfo{
 		Provider: "claude-sonnet",
 		State:    types.StateDead,
-		Result:   "", // empty Result == success
+		Result:   "ok", // non-empty success marker
 	}
 	s := StyleProviderName(true, proc)
 	if !strings.Contains(s, "claude-sonnet") {
 		t.Errorf("dead+success provider name expected, got %q", s)
 	}
-	// Sanity: ensure ui.IsFailedResult returns false for empty result so this
-	// case really does fall through to default (green). If IsFailedResult
-	// changes its behavior, this test will catch the divergence.
-	if ui.IsFailedResult("") {
+	// Sanity: ensure ui.IsFailedResult returns false for "ok" so this case
+	// really does fall through to default (green). If IsFailedResult changes
+	// its behavior, this test will catch the divergence.
+	if ui.IsFailedResult("ok") {
 		t.Skip("ui.IsFailedResult contract changed — test no longer reaches default branch")
 	}
 }

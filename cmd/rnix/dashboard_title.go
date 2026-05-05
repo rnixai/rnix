@@ -279,52 +279,18 @@ func (m dashboardModel) renderPanelTabsLine() string {
 	return b.String()
 }
 
-// computeHealthCounts counts errors and warnings from process state and events.
-// E: Dead+failed processes + error events (deduped by PID).
-// W: Processes with ctx>=80% + heartbeat-stalled processes.
+// computeHealthCounts — thin wrapper · 见 internal/dashboard/title.ComputeHealthCounts.
+//
+// Story 38-5 PR11 Step 4(c) (2026-05-05 · 第 9 个会话第 11 个 commit):
+// Title Bar 的 health indicator 计算 helper 已迁至 internal/dashboard/title/
+// health_counts.go (与 ComputeCtxPercent / ComputeBudgetPercent /
+// StyleProviderName 同会话连续 commit · 0 dashboardModel 依赖) · cmd/rnix
+// wrapper 仅保留旧名让 1 处主代码 callsite (dashboard.go::dashboardTick
+// errorCount/warnCount 计算) + 测试 callsite (dashboard_test.go::
+// TestComputeHealthCounts_* ATDD 34.2-UNIT-001 至 008) + atdd_29_1 line 196
+// grep 字符串 ("computeHealthCounts") 零修改通过.
 func computeHealthCounts(processes []vfs.ProcInfo, events []UnifiedEvent, heartbeat *ipc.HeartbeatStatusResponse) (errorCount, warnCount int) {
-	errorPIDs := make(map[types.PID]struct{})
-
-	for _, p := range processes {
-		if p.State == types.StateDead && ui.IsFailedResult(p.Result) {
-			errorPIDs[p.PID] = struct{}{}
-		}
-	}
-
-	for _, e := range events {
-		if e.Type == EventError || (e.Type == EventExit && e.Severity >= SevError) {
-			errorPIDs[e.PID] = struct{}{}
-		}
-	}
-
-	warnPIDs := make(map[types.PID]struct{})
-	for _, p := range processes {
-		if p.State == types.StateRunning || p.State == types.StateCreated {
-			// ctx usage >= 80%
-			if p.ContextBudget > 0 && int64(p.TokensUsed)*100/int64(p.ContextBudget) >= 80 {
-				warnPIDs[p.PID] = struct{}{}
-			}
-			// cost budget >= 80%
-			if p.MaxCost > 0 && p.UsedCost*100/p.MaxCost >= 80 {
-				warnPIDs[p.PID] = struct{}{}
-			}
-			// token budget >= 80%
-			if p.MaxTokens > 0 && int64(p.TokensUsed)*100/p.MaxTokens >= 80 {
-				warnPIDs[p.PID] = struct{}{}
-			}
-		}
-	}
-
-	if heartbeat != nil {
-		for _, s := range heartbeat.CurrentStalled {
-			warnPIDs[s.PID] = struct{}{}
-		}
-	}
-
-	warnCount = len(warnPIDs)
-
-	errorCount = len(errorPIDs)
-	return
+	return title.ComputeHealthCounts(processes, events, heartbeat)
 }
 
 // computeCtxPercent — thin wrapper · 见 internal/dashboard/title.ComputeCtxPercent.
