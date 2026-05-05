@@ -1153,14 +1153,9 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.statusMsg = fmt.Sprintf("Switched to PID %d, fetching steps...", m.selectedPID)
 	m.statusMsgTTL = statusMsgDefaultTTL
 
-	// Detail pane: check cache or reset
-	if cached, ok := m.detail.Cache[m.selectedUUID]; ok {
-		m.detail.Detail = cached
-		m.detail.PID = m.selectedPID
-	} else {
-		m.detail.Detail = nil
-		m.detail.PID = 0
-	}
+	// Detail pane: cache 命中复用 / 否则清空（Story 28-4 AC-4 PID 复用契约）
+	// Story 38-5 PR11 Step 4(b) Phase 2: 6 行 inline → detail.HandlePIDChangeWithCache 一行
+	m.detail = detail.HandlePIDChangeWithCache(m.detail, m.selectedPID, m.selectedUUID)
 
 	var cmds []tea.Cmd
 	if m.connected {
