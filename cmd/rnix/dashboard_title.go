@@ -353,26 +353,17 @@ func computeBudgetPercent(selectedPID types.PID, processes []vfs.ProcInfo) int {
 	return title.ComputeBudgetPercent(selectedPID, processes)
 }
 
-// styleProviderName colors the provider name based on process health.
-// Green=healthy, Yellow=warning (ctx>80%), Red=failed/disconnected.
+// styleProviderName — thin wrapper · 见 internal/dashboard/title.StyleProviderName.
+//
+// Story 38-5 PR11 Step 4(c) (2026-05-05 · 第 9 个会话第 10 个 commit):
+// Title Bar 的 provider 健康颜色 helper 已迁至 internal/dashboard/title/
+// provider.go (与 ComputeCtxPercent / ComputeBudgetPercent 同会话连续 commit ·
+// 0 dashboardModel 依赖) · cmd/rnix wrapper 仅保留旧名让 1 处主代码 callsite
+// (dashboard_title.go::renderDashboardTitle providerStyled 计算) + 测试
+// callsite (dashboard_test.go::TestStyleProviderName ATDD 34.2-UNIT-012) +
+// atdd_29_1 line 197 grep 字符串 ("styleProviderName") 零修改通过.
 func styleProviderName(connected bool, proc *vfs.ProcInfo) string {
-	if proc == nil || proc.Provider == "" {
-		return ""
-	}
-
-	var color string
-	switch {
-	case !connected:
-		color = ui.ColorError
-	case proc.State == types.StateDead && ui.IsFailedResult(proc.Result):
-		color = ui.ColorError
-	case proc.ContextBudget > 0 && int64(proc.TokensUsed)*100/int64(proc.ContextBudget) >= 80:
-		color = ui.ColorWarning
-	default:
-		color = ui.ColorSuccess
-	}
-
-	return lipgloss.NewStyle().Foreground(lipgloss.Color(color)).Render(proc.Provider)
+	return title.StyleProviderName(connected, proc)
 }
 
 // formatElapsedHHMMSS — thin wrapper · 见 internal/dashboard/title.FormatElapsedHHMMSS.
