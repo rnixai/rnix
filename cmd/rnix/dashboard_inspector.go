@@ -438,19 +438,16 @@ func (m dashboardModel) handleInspectorSearchKey(key string) (tea.Model, tea.Cmd
 		m.rebuildInspectorContents()
 		m.scrollInspectorToCurrentMatch()
 		return m, nil
-	case "backspace":
-		runes := []rune(m.search.Query)
-		if len(runes) > 0 {
-			m.search.Query = string(runes[:len(runes)-1])
-		}
-		return m, nil
-	case " ", "space":
-		m.search.Query += " "
+	case "backspace", " ", "space":
+		// Story 38-5 PR11 Step 4(c)：backspace / space 累积主体迁出至
+		// SearchPlugin.HandleInputKey · 复用 timeline 同模式（与 inspector
+		// esc 分支不同：esc 需清理 inspector-private 字段，无法整体迁出）。
+		m.search.HandleInputKey(key)
 		return m, nil
 	default:
-		if len([]rune(key)) == 1 {
-			m.search.Query += key
-		}
+		// Story 38-5 PR11 Step 4(c)：单字符累积委托 SearchPlugin.HandleInputKey ·
+		// multi-char 键 fallback 为 noop 与原 default 分支语义等价。
+		m.search.HandleInputKey(key)
 		return m, nil
 	}
 }
