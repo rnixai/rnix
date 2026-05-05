@@ -281,18 +281,11 @@ func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
 		}
 		// Story 36-5 P-7: collect ALL match indices (not just the first), so n/N
 		// can cycle through them per the modal n/N semantics.
-		q := strings.ToLower(m.search.Query)
-		filtered := m.filteredUnifiedEvents()
-		var matches []int
-		for i, ev := range filtered {
-			hay := strings.ToLower(ev.Summary + " " + ev.Detail)
-			if ev.StepEntry != nil {
-				hay += " " + strings.ToLower(ev.StepEntry.Summary.Action+" "+ev.StepEntry.Summary.Summary+" "+ev.StepEntry.Summary.ToolPath)
-			}
-			if strings.Contains(hay, q) {
-				matches = append(matches, i)
-			}
-		}
+		//
+		// Story 38-5 PR11 Step 4(c)：match collection 主体迁出至
+		// internal/dashboard/event.FindMatches（含 Summary/Detail + StepEntry
+		// triple-field haystack · 大小写不敏感 · 与历史 byte-for-byte 等价）。
+		matches := dashboardevent.FindMatches(m.filteredUnifiedEvents(), m.search.Query)
 		if len(matches) == 0 {
 			m.statusMsg = fmt.Sprintf("No matches for %q", m.search.Query)
 			m.statusMsgTTL = statusMsgDefaultTTL
