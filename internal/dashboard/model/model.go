@@ -53,11 +53,16 @@ type PaneModel interface {
 //
 // 生命周期顺序（model_test.go::TestOverlayModel_LifecycleOrder 契约）：
 //   OnEnter → IsActive==true → ...interact... → OnExit → IsActive==false
+//
+// Story 38-5 PR11 Step 4(b) Phase 1：OnSelectPID 加入 OverlayModel 接口让 3
+// Overlay 与 8 PaneModel 在 broadcastSelectPID 通道下统一处理（spec § AC11
+// 硬约束「11 个 hook」）。当前 3 Overlay 实现为 nil-safe stub · Phase 2 迁入主体。
 type OverlayModel interface {
 	tea.Model
 	IsActive() bool
 	OnEnter() tea.Cmd
 	OnExit() tea.Cmd
+	OnSelectPID(pid types.PID) tea.Cmd
 }
 
 // PaneState 是所有 PaneModel 共享的最小 base struct。

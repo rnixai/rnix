@@ -14,6 +14,7 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/alertstrip"
+	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	dashboarddebug "github.com/rnixai/rnix/internal/dashboard/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/detail"
@@ -163,6 +164,22 @@ type dashboardModel struct {
 	// internal/dashboard/debug.DebugState（commit a08ae3d 解除 UnifiedEvent
 	// 类型 cascade 阻塞 · Events/StraceEvents 完整迁出）。
 	debugState dashboarddebug.DebugState
+
+	// Story 38-5 PR11 Step 4(b) Phase 1: 11 个子 Model hook 入口（spec § AC11
+	// broadcast 通道 · 8 PaneModel + 3 OverlayModel）。当前 OnSelectPID 全部
+	// 是 nil-safe stub · Phase 2 后续会话逐 pane 把 handleXxxPIDChange 主体
+	// 迁入对应 OnSelectPID。State 双向同步留 Phase 2（当前 stub 不读 state）。
+	treeM       *tree.TreeModel
+	timelineM   *timeline.TimelineModel
+	heatmapM    *heatmap.HeatmapModel
+	detailM     *detail.DetailModel
+	intentM     *intent.IntentModel
+	securityM   *security.SecurityModel
+	traceM      *trace.TraceModel
+	evalM       *eval.EvalModel
+	inspectorM  *inspector.InspectorModel
+	debugM      *dashboarddebug.DebugModel
+	alertStripM *alertstrip.AlertStripModel
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -206,6 +223,18 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 			ShowStrace:    true, // Story 34.6: show strace events by default
 			DeviceLatency: make(map[string]*deviceLatencyStats),
 		},
+		// Story 38-5 PR11 Step 4(b) Phase 1: 11 个子 Model hook 入口（spec § AC11）
+		treeM:       tree.NewModel(),
+		timelineM:   timeline.NewModel(),
+		heatmapM:    heatmap.NewModel(),
+		detailM:     detail.NewModel(),
+		intentM:     intent.NewModel(),
+		securityM:   security.NewModel(),
+		traceM:      trace.NewModel(),
+		evalM:       eval.NewModel(),
+		inspectorM:  inspector.NewModel(),
+		debugM:      dashboarddebug.NewModel(),
+		alertStripM: alertstrip.NewModel(),
 	}
 }
 
@@ -252,6 +281,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
 		return m.dashboardTick()
+	case dashboardmodel.SelectPIDMsg:
+		// Story 38-5 PR11 Step 4(b) Phase 1: spec § AC11 broadcast 路由。
+		// dashboardTick pidChanged 分支 emit · 此处分发到 11 个子 Model.OnSelectPID。
+		return m, m.broadcastSelectPID(msg.PID)
 	case tea.KeyPressMsg:
 		return m.dashboardKey(msg)
 	case tea.WindowSizeMsg:
@@ -803,6 +836,10 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		if pidCmd != nil {
 			cmds = append(cmds, pidCmd)
 		}
+		// Story 38-5 PR11 Step 4(b) Phase 1: spec § AC11 broadcast 通道
+		// 与现有 handlePIDChange 散点处理叠加（Phase 2 后续会话逐 pane 把
+		// handleXxxPIDChange 主体迁入对应 OnSelectPID · 当前 stub 返回 nil）。
+		cmds = append(cmds, emitSelectPIDCmd(m.selectedPID))
 	} else if m.selectedPID > 0 && m.connected && m.heatmap.TickCount%5 == 0 && !m.isSelectedProcessDead() {
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 	}
@@ -1154,6 +1191,18 @@ func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
 		replayPlaying:     false,
 		replaySpeed:       1.0,
 		prevReplayCursor:  -2,
+		// Story 38-5 PR11 Step 4(b) Phase 1: 11 个子 Model hook 入口（spec § AC11）
+		treeM:       tree.NewModel(),
+		timelineM:   timeline.NewModel(),
+		heatmapM:    heatmap.NewModel(),
+		detailM:     detail.NewModel(),
+		intentM:     intent.NewModel(),
+		securityM:   security.NewModel(),
+		traceM:      trace.NewModel(),
+		evalM:       eval.NewModel(),
+		inspectorM:  inspector.NewModel(),
+		debugM:      dashboarddebug.NewModel(),
+		alertStripM: alertstrip.NewModel(),
 	}
 }
 

@@ -29,6 +29,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
+	"github.com/rnixai/rnix/internal/types"
 )
 
 // 编译期断言：AlertStripModel 满足 OverlayModel + StateProvider 接口契约。
@@ -182,6 +183,21 @@ func (m *AlertStripModel) OnExit() tea.Cmd {
 	if m == nil {
 		return nil
 	}
+	return nil
+}
+
+// OnSelectPID — Story 38-5 PR11 Step 4(b) Phase 1 · 当前 stub。
+//
+// IsActive() == true（即 alert strip Expanded）时由 App Model.broadcastSelectPID
+// 调用（spec § 04 风险 2 · 仅 active overlay 接收 hook）。Phase 2 后续会话迁入
+// 主体（含 cursor 重置 / JumpTarget 清空 · 让用户切 PID 后回到 alert list 顶部）。
+//
+// nil safety：receiver 为 nil 时返回 nil cmd。
+func (m *AlertStripModel) OnSelectPID(pid types.PID) tea.Cmd {
+	if m == nil {
+		return nil
+	}
+	_ = pid
 	return nil
 }
 

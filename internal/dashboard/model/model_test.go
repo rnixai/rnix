@@ -107,6 +107,13 @@ func (f *fakeOverlayModel) OnExit() tea.Cmd {
 	f.active = false
 	return nil
 }
+func (f *fakeOverlayModel) OnSelectPID(pid types.PID) tea.Cmd {
+	if f == nil {
+		return nil
+	}
+	_ = pid
+	return nil
+}
 
 // 编译期断言：fakePaneModel/fakeOverlayModel 实现 PaneModel/OverlayModel interface。
 var (
