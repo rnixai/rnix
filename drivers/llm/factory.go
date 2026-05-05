@@ -131,6 +131,17 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		}
 		if cfg.BaseURL != "" {
 			opts = append(opts, WithOpenAIBaseURL(cfg.BaseURL))
+			// The openai_official driver targets the openai-go SDK and does
+			// NOT round-trip reasoning_content. Endpoints that return it
+			// (DeepSeek thinking, GLM, Qwen reasoner, OpenRouter thinking)
+			// will reject multi-turn assistant turns with HTTP 400 once the
+			// reasoning_content is dropped. Use driver=openai_compat there.
+			if !isLikelyOpenAIOfficial(cfg.BaseURL) {
+				log.Printf("[llm] warning: provider %q: driver=openai with non-official BaseURL %q. "+
+					"If the upstream returns reasoning_content (DeepSeek/Qwen-thinker/GLM thinking), "+
+					"switch to driver=openai_compat to avoid HTTP 400 on multi-turn round-trip.",
+					cfg.Name, cfg.BaseURL)
+			}
 		}
 		if cfg.APIKeyEnv != "" {
 			if key := envLookup(cfg.APIKeyEnv); key != "" {
@@ -190,6 +201,16 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 	default:
 		return nil, fmt.Errorf("unsupported driver type: %q", cfg.Driver)
 	}
+}
+
+// isLikelyOpenAIOfficial returns true when baseURL points at an OpenAI
+// official endpoint (api.openai.com or its known regional variants). This is
+// a best-effort heuristic used only to silence the openai_compat suggestion
+// warning — false negatives are acceptable (the warning is informational, not
+// an error) and false positives only suppress the warning.
+func isLikelyOpenAIOfficial(baseURL string) bool {
+	u := strings.ToLower(baseURL)
+	return strings.Contains(u, "api.openai.com") || strings.Contains(u, "openai.azure.com")
 }
 
 // RegisterProviders creates driver instances from config and registers them
