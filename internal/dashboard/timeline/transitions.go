@@ -54,3 +54,43 @@ func HandlePIDUUIDChange(state TimelineState, pid types.PID, uuid string) Timeli
 	state.ExpandMode = ExpandModeCollapsed
 	return state
 }
+
+// SearchResetter 是 SearchPlugin 解耦接口（避免 timeline → plugin 包硬依赖）。
+//
+// 仅声明 ExitSearchMode 方法（4 字段重置 · 与 cmd/rnix.handleTimelinePIDChange
+// 中 m.search.Mode/Query/Matches/MatchIdx = 0 行为字面等价）。
+//
+// 实际实现由 plugin.SearchPlugin 满足（编译期断言已在 plugin 包内）。
+//
+// nil safety：HandlePIDUUIDChangeWithSearch 内部判断 nil。
+type SearchResetter interface {
+	ExitSearchMode()
+}
+
+// HandlePIDUUIDChangeWithSearch 在 PID 切换时重置 timeline state + search plugin
+// 状态（cmd/rnix.handleTimelinePIDChange wrapper 整体迁出 · Story 38-5 PR11
+// Step 4(b) Phase 2）。
+//
+// 行为契约（与 cmd/rnix.handleTimelinePIDChange 完全等价）：
+//  1. prevUUID := state.AttachedUUID
+//  2. state = HandlePIDUUIDChange(state, pid, uuid)（timeline state 重置）
+//  3. 若 uuid == prevUUID：noop（同 UUID 不重置 search）
+//  4. 否则 resetter.ExitSearchMode()（search 4 字段重置 · Story 36-5 P-1
+//     per-process 语义 · 与原 cmd/rnix wrapper 字面等价）.
+//
+// nil safety：resetter 为 nil 时仅做 timeline state 重置，不重置 search.
+//
+// 调用方：dashboard.go::handlePIDChange（取代原 m.handleTimelinePIDChange()）.
+//
+// 返回新 state（值类型 · 调用方负责赋回 · search 通过 pointer 修改）。
+func HandlePIDUUIDChangeWithSearch(state TimelineState, resetter SearchResetter, pid types.PID, uuid string) TimelineState {
+	prevUUID := state.AttachedUUID
+	state = HandlePIDUUIDChange(state, pid, uuid)
+	if uuid == prevUUID {
+		return state
+	}
+	if resetter != nil {
+		resetter.ExitSearchMode()
+	}
+	return state
+}

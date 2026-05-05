@@ -89,27 +89,14 @@ func (m dashboardModel) maybeShowTimelineMigrationNotice() dashboardModel {
 	return m
 }
 
-// handleTimelinePIDChange resets timeline state when selected process changes.
-// Uses UUID for reliable identification (PIDs can be reused).
+// handleTimelinePIDChange wrapper 已于 Story 38-5 PR11 Step 4(b) Phase 2 删除。
 //
-// Story 38-5 PR11 Step 4(c)：timeline state 重置主体迁出至
-// internal/dashboard/timeline.HandlePIDUUIDChange（含 9 字段重置 +
-// ExpandMode=collapsed · 与历史行为 byte-for-byte 等价）。cmd/rnix wrapper 仅
-// 保留 m.search 跨 plugin 重置（Story 36-5 P-1 · search state per-process）。
-func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
-	prevUUID := m.timeline.AttachedUUID
-	m.timeline = timeline.HandlePIDUUIDChange(m.timeline, m.selectedPID, m.selectedUUID)
-	if m.selectedUUID == prevUUID {
-		return m
-	}
-	// Story 36-5 P-1: search state is per-process; reset to avoid carrying a
-	// stale "ghost input mode" or stale matches across PID switches.
-	m.search.Mode = false
-	m.search.Query = ""
-	m.search.Matches = nil
-	m.search.MatchIdx = 0
-	return m
-}
+// 历史：cmd/rnix wrapper 调用 timeline.HandlePIDUUIDChange + 重置 m.search 4 字段（Story 36-5 P-1）。
+//
+// 删除理由：spec § 04 风险 5 中断保险原则 · 把 wrapper 整体迁至
+// internal/dashboard/timeline.HandlePIDUUIDChangeWithSearch（接受 SearchResetter
+// 接口避免硬依赖 plugin 包）· cmd/rnix 端调用站点零修改通过 ATDD 27-3 / 36-4 /
+// 36-5 / 36-6 + 38-1/2/3/4 全部测试。
 
 // handleTimelineKey dispatches keys for the unified Step timeline.
 func (m dashboardModel) handleTimelineKey(key string) dashboardModel {

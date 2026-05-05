@@ -23,6 +23,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/ipc"
 )
 
@@ -544,7 +545,7 @@ func TestTimeline_PIDSwitch_ClearsOldSteps(t *testing.T) {
 	// Switch to different process
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-2"
-	m = m.handleTimelinePIDChange()
+	m.timeline = timeline.HandlePIDUUIDChangeWithSearch(m.timeline, &m.search, m.selectedPID, m.selectedUUID)
 
 	if len(m.timeline.StepEntries) != 0 {
 		t.Errorf("after UUID change, stepEntries should be empty, got %d", len(m.timeline.StepEntries))
@@ -560,7 +561,7 @@ func TestTimeline_PIDSwitch_IgnoresStaleStepListMsg(t *testing.T) {
 	m.timeline.AttachedUUID = "uuid-1"
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-2"
-	m = m.handleTimelinePIDChange()
+	m.timeline = timeline.HandlePIDUUIDChangeWithSearch(m.timeline, &m.search, m.selectedPID, m.selectedUUID)
 
 	// Stale msg from uuid-1 should be discarded
 	staleMsg := stepListMsg{

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 )
@@ -85,7 +86,7 @@ func TestATDD_36_4_AC4_ExpandModeResetOnPIDChange(t *testing.T) {
 	// Switch to a different process
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-b"
-	m = m.handleTimelinePIDChange()
+	m.timeline = timeline.HandlePIDUUIDChangeWithSearch(m.timeline, &m.search, m.selectedPID, m.selectedUUID)
 
 	if m.timeline.ExpandMode != expandModeCollapsed {
 		t.Errorf("expected expandMode reset to collapsed after PID change, got %d", m.timeline.ExpandMode)

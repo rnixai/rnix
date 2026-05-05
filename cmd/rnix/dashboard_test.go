@@ -15,6 +15,7 @@ import (
 
 	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -565,7 +566,7 @@ func TestDashboardModel_TimelinePIDChange(t *testing.T) {
 	m.selectedPID = 999
 	m.selectedUUID = "uuid-999"
 
-	m = m.handleTimelinePIDChange()
+	m.timeline = timeline.HandlePIDUUIDChangeWithSearch(m.timeline, &m.search, m.selectedPID, m.selectedUUID)
 
 	if len(m.timeline.StepEntries) != 0 {
 		t.Errorf("UUID change should clear stepEntries, got %d", len(m.timeline.StepEntries))
