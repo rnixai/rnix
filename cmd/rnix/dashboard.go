@@ -303,14 +303,14 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case heatmapProfileMsg:
-		if msg.err != nil {
-			m.heatmap.Err = msg.err
+		if msg.Err != nil {
+			m.heatmap.Err = msg.Err
 			return m, nil
 		}
 		m.heatmap.Err = nil
-		if msg.profile != nil {
-			m.heatmap.Profile = msg.profile
-			m.heatmap.Segments = buildHeatmapSegments(msg.profile)
+		if msg.Profile != nil {
+			m.heatmap.Profile = msg.Profile
+			m.heatmap.Segments = buildHeatmapSegments(msg.Profile)
 		}
 		return m, nil
 	case execResultMsg:
@@ -844,8 +844,12 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		// 与现有 handlePIDChange 散点处理叠加（Phase 2 后续会话逐 pane 把
 		// handleXxxPIDChange 主体迁入对应 OnSelectPID · 当前 stub 返回 nil）。
 		cmds = append(cmds, emitSelectPIDCmd(m.selectedPID))
-	} else if m.selectedPID > 0 && m.connected && m.heatmap.TickCount%5 == 0 && !m.isSelectedProcessDead() {
-		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+	} else {
+		// Story 38-5 PR11 Step 4(b) Phase 3: HeatmapModel.OnTick 真实化路径
+		// 取代原 inline `fetchHeatmapCmd` 调用 · 行为字面等价（spec § AC8）.
+		if cmd := m.heatmapM.OnTick(m.makeTickCtx(paneHeatmap)); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	if m.selectedPID > 0 && m.connected && !pidChanged {

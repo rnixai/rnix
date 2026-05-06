@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/rnixai/rnix/debug"
 	"github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/inspector"
@@ -323,10 +322,15 @@ const (
 // 的字面契约需放宽（详见 atdd_29_1_dashboard_file_splitting_test.go 行 335 注释）。
 type heatmapSegment = heatmap.Segment
 
-type heatmapProfileMsg struct {
-	profile *debug.CtxProfileResult
-	err     error
-}
+// heatmapProfileMsg 是 heatmap.ProfileMsg 的 type alias（Story 38-5 PR11 Step 4(b) Phase 3）。
+//
+// PR3 落地的 cmd/rnix-private struct 字段（profile/err 小写）已迁出至 internal/dashboard/heatmap
+// 包内 ProfileMsg（公开字段 Profile/Err · 与 cmd/rnix.fetchHeatmapCmd 同模式）。本 alias
+// 让 dashboard.go::Update case heatmapProfileMsg 路由零修改通过。
+//
+// **重要**：alias 字段公开化迁移（profile→Profile, err→Err）已在 dashboard.go::Update
+// 内同步更新（msg.Profile, msg.Err）· 与 PR3 heatmapSegment 同模式。
+type heatmapProfileMsg = heatmap.ProfileMsg
 
 // --- Pane linkage & process operations types (Story 17-4) ---
 

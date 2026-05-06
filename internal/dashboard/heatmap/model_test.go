@@ -153,14 +153,101 @@ func TestOnSelectPID_SamePID(t *testing.T) {
 	}
 }
 
-func TestOnTick(t *testing.T) {
+// TestOnTick_NoIncrementsTickCount — Story 38-5 PR11 Step 4(b) Phase 3:
+// HeatmapModel.OnTick 不再自增 m.state.TickCount（节流计数器由 cmd/rnix 端
+// dashboardModel 维护并通过 ctx.TickCount 注入）。
+func TestOnTick_NoIncrementsTickCount(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	for range 5 {
 		_ = m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
 	}
-	if m.state.TickCount != 5 {
-		t.Errorf("OnTick called 5x, TickCount = %d, want 5", m.state.TickCount)
+	if m.state.TickCount != 0 {
+		t.Errorf("OnTick should not increment TickCount; got %d, want 0 (Phase 3 决策：节流计数器由 cmd/rnix 注入)", m.state.TickCount)
+	}
+}
+
+// TestOnTick_NoFetch_WhenDisconnected — Story 38-5 PR11 Step 4(b) Phase 3:
+// 未连接时不发 IPC fetch（与 cmd/rnix 端 dashboardTick 原行为字面等价）.
+func TestOnTick_NoFetch_WhenDisconnected(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Now:         time.Now(),
+		Connected:   false,
+		SocketPath:  "/tmp/rnix.sock",
+		SelectedPID: 100,
+		TickCount:   5,
+	})
+	if cmd != nil {
+		t.Errorf("OnTick(disconnected) should return nil cmd")
+	}
+}
+
+// TestOnTick_NoFetch_WhenSelectedProcessIsDead — Story 38-5 PR11 Step 4(b) Phase 3:
+// 选中进程已 dead 时不发 fetch（与 cmd/rnix.isSelectedProcessDead 守卫等价）.
+func TestOnTick_NoFetch_WhenSelectedProcessIsDead(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Now:                   time.Now(),
+		Connected:             true,
+		SocketPath:            "/tmp/rnix.sock",
+		SelectedPID:           100,
+		SelectedProcessIsDead: true,
+		TickCount:             5,
+	})
+	if cmd != nil {
+		t.Errorf("OnTick(dead process) should return nil cmd")
+	}
+}
+
+// TestOnTick_NoFetch_WhenTickCountNotMod5 — 5 秒一次节流（与 cmd/rnix 原行为等价）.
+func TestOnTick_NoFetch_WhenTickCountNotMod5(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	for tick := 1; tick <= 4; tick++ {
+		cmd := m.OnTick(dashboardmodel.OnTickContext{
+			Now:         time.Now(),
+			Connected:   true,
+			SocketPath:  "/tmp/rnix.sock",
+			SelectedPID: 100,
+			TickCount:   tick,
+		})
+		if cmd != nil {
+			t.Errorf("OnTick(TickCount=%d) should return nil (5 秒节流)", tick)
+		}
+	}
+}
+
+// TestOnTick_FetchTriggered_OnAllConditionsMet — 全条件满足时返回 fetch cmd.
+func TestOnTick_FetchTriggered_OnAllConditionsMet(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Now:                   time.Now(),
+		Connected:             true,
+		SocketPath:            "/tmp/rnix.sock",
+		SelectedPID:           100,
+		SelectedProcessIsDead: false,
+		TickCount:             5,
+	})
+	if cmd == nil {
+		t.Errorf("OnTick(all-conditions-met) should return non-nil cmd")
+	}
+}
+
+// TestOnTick_NilSafe — receiver nil 时不 panic.
+func TestOnTick_NilSafe(t *testing.T) {
+	t.Parallel()
+	var m *HeatmapModel
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("nil receiver OnTick panicked: %v", r)
+		}
+	}()
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{TickCount: 5}); cmd != nil {
+		t.Errorf("nil OnTick should return nil cmd, got %v", cmd)
 	}
 }
 

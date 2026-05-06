@@ -33,13 +33,15 @@ import (
 //     tickCount 节流计数 / selectedPID）。直接传 dashboardModel 会形成反向依赖，因此
 //     用 struct 封装最小必要上下文，避免子 Model 知晓 dashboardModel 的内部布局。
 //   - 字段语义：
-//       Now          — 时间戳（用于过期判断、动画 keyframe）
-//       Active       — PaneModel: 是否 == activePane；Overlay: IsActive() 返回值（App Model 已守卫）
-//       Connected    — IPC client 是否已连接（fetch 命令仅在 connected 时触发）
-//       SelectedPID  — 当前选中进程（PID 复用场景下需配合 SelectedUUID 使用）
-//       SelectedUUID — 当前选中进程 UUID（PID 复用场景下唯一标识 · 28-4 AC-2/3 契约）
-//       TickCount    — App Model 周期计数器（用于子 Model 节流：TickCount%5==0 → 5 秒一次）
-//       ViewMode     — 当前 viewMode（int 形式 · 子 Model 不知道 cmd/rnix.viewMode 类型 · 通过 int cast 解耦 · 与 InspectorState.PrevMode 同模式）
+//       Now                   — 时间戳（用于过期判断、动画 keyframe）
+//       Active                — PaneModel: 是否 == activePane；Overlay: IsActive() 返回值（App Model 已守卫）
+//       Connected             — IPC client 是否已连接（fetch 命令仅在 connected 时触发）
+//       SelectedPID           — 当前选中进程（PID 复用场景下需配合 SelectedUUID 使用）
+//       SelectedUUID          — 当前选中进程 UUID（PID 复用场景下唯一标识 · 28-4 AC-2/3 契约）
+//       SelectedProcessIsDead — 当前选中进程是否已 dead（避免对死进程发起 fetch · cmd/rnix 端预先 lookup）
+//       TickCount             — App Model 周期计数器（用于子 Model 节流：TickCount%5==0 → 5 秒一次）
+//       ViewMode              — 当前 viewMode（int 形式 · 子 Model 不知道 cmd/rnix.viewMode 类型 · 通过 int cast 解耦 · 与 InspectorState.PrevMode 同模式）
+//       SocketPath            — Unix domain socket 路径（PaneModel.OnTick 内部调 ipc.Dial(SocketPath) 创建临时 client · 与 cmd/rnix.fetchXxxCmd 「每次 fetch 新建 + 关闭 client」行为字面等价 · 避免 client 共享引用的 race condition · 空字符串时 PaneModel 应跳过 fetch）
 //
 // 不在 ctx 中的字段（按 spec § 04 风险 6 决策保留 App Model）：
 //   - processes []vfs.ProcInfo — EventStream 跨 pane 共享 · 各子 Model 通过 OnSelectPID hook 间接消费
@@ -47,15 +49,17 @@ import (
 //   - sysEvents/unifiedEvents — EventStream 字段保留 App Model（spec § Decision 6）
 //
 // nil 安全：OnTickContext 是值类型 · zero value (`OnTickContext{}`) 是合法的 ctx
-// （PaneModel.OnTick 在 ctx 全零值时应返回 nil cmd · 不 panic）。
+// （PaneModel.OnTick 在 ctx 全零值时应返回 nil cmd · 不 panic · SocketPath==""/Connected==false 时跳过 IPC fetch）。
 type OnTickContext struct {
-	Now          time.Time
-	Active       bool
-	Connected    bool
-	SelectedPID  types.PID
-	SelectedUUID string
-	TickCount    int
-	ViewMode     int
+	Now                   time.Time
+	Active                bool
+	Connected             bool
+	SelectedPID           types.PID
+	SelectedUUID          string
+	SelectedProcessIsDead bool
+	TickCount             int
+	ViewMode              int
+	SocketPath            string
 }
 
 // PaneModel 是 8 个 Pane 子 Model（Tree/Timeline/Heatmap/Detail/Intent/Security/Trace/Eval）的统一契约。

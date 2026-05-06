@@ -1,10 +1,13 @@
 package main
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/ipc"
 )
 
 // dashboard_broadcast.go — Story 38-5 PR11 Step 4(b)（Phase 1 + Phase 2）
@@ -200,4 +203,33 @@ func broadcastSelectPIDImpl(
 // → broadcastSelectPID。
 func emitSelectPIDCmd(pid types.PID) tea.Cmd {
 	return dashboardmodel.EmitSelectPID(pid)
+}
+
+// makeTickCtx 构造 dashboardmodel.OnTickContext 给 PaneModel.OnTick 用（Story 38-5
+// PR11 Step 4(b) Phase 3）。
+//
+// 调用方：dashboardTick 内调 m.heatmapM/m.intentM/etc.OnTick(m.makeTickCtx(paneXxx))
+// 触发 IPC fetch · ctx 字段全部从 cmd/rnix-side dashboardModel 顶层状态构造（spec
+// § 04 风险 6 + ADR-40 § 4.4 「IPC 编排数据保留 App Model · 通过 ctx 注入子 Model」）。
+//
+// 字段语义：
+//   - Active: pane 是否 == activePane（PaneModel 用于决定是否激活）
+//   - Connected: IPC client 已连接
+//   - SelectedPID/UUID: 当前选中进程
+//   - SelectedProcessIsDead: 死进程守卫（避免对 dead 进程发起 fetch）
+//   - TickCount: 全局节流计数器（多个 pane 共用 · m.heatmap.TickCount 维护）
+//   - ViewMode: int 形式（解耦 cmd/rnix.viewMode 类型）
+//   - SocketPath: IPC socket 路径（PaneModel.OnTick 内部 ipc.Dial 创建临时 client）
+func (m dashboardModel) makeTickCtx(activePane paneType) dashboardmodel.OnTickContext {
+	return dashboardmodel.OnTickContext{
+		Now:                   time.Now(),
+		Active:                m.activePane == activePane,
+		Connected:             m.connected,
+		SelectedPID:           m.selectedPID,
+		SelectedUUID:          m.selectedUUID,
+		SelectedProcessIsDead: m.isSelectedProcessDead(),
+		TickCount:             m.heatmap.TickCount,
+		ViewMode:              int(m.viewMode),
+		SocketPath:            ipc.SocketPath(),
+	}
 }

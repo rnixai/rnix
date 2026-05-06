@@ -142,14 +142,35 @@ func (m *HeatmapModel) OnSelectPID(pid types.PID) tea.Cmd {
 
 // OnTick 在 dashboardTick 周期内调用。
 //
-// 当前阶段：维护 TickCount + 触发 IPC profile 刷新（cmd/rnix 端继续触发 fetchHeatmapCmd
-// 节流逻辑 · spec § AC3 line 121 暗示 OnTick 应触发刷新，但完整迁移留 PR11）。
+// Story 38-5 PR11 Step 4(b) Phase 3 真实化：
+//   - **不**自增 m.state.TickCount（节流计数器由 cmd/rnix 端 dashboardModel 维护并通过
+//     ctx.TickCount 注入 · m.heatmap.TickCount 是 dashboard 全局节流计数器 · 多处使用）；
+//   - 在以下条件全部满足时返回 FetchProfileCmd:
+//     1) ctx.Connected == true（IPC 已连接）;
+//     2) ctx.SocketPath != ""（socket 路径可用）;
+//     3) ctx.SelectedPID > 0（存在选中进程）;
+//     4) !ctx.SelectedProcessIsDead（不对死进程发起 fetch）;
+//     5) ctx.TickCount%5 == 0（5 秒一次节流 · 与 cmd/rnix 端原 dashboardTick
+//        line 847-849 的 m.heatmap.TickCount%5 == 0 行为字面等价）.
+//   - 否则返回 nil cmd · 该 tick 不发 IPC.
 //
-// Story 38-5 PR11 Step 4(b) Phase 3：签名扩展为 OnTickContext。
-func (m *HeatmapModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
+// 行为契约 1:1 等价（与 cmd/rnix dashboardTick line 847-849 完全等价 · spec § AC8）：
+//
+//	} else if m.selectedPID > 0 && m.connected && m.heatmap.TickCount%5 == 0 && !m.isSelectedProcessDead() {
+//	    cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
+//	}
+//
+// nil 安全：receiver 为 nil 或 ctx.SocketPath 为空时返回 nil cmd（不 panic）。
+func (m *HeatmapModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	m.state.TickCount++
-	return nil
+	// 节流条件全部满足时触发 IPC fetch（与 cmd/rnix dashboardTick 原行为等价）
+	if !ctx.Connected || ctx.SocketPath == "" || ctx.SelectedPID <= 0 || ctx.SelectedProcessIsDead {
+		return nil
+	}
+	if ctx.TickCount%5 != 0 {
+		return nil
+	}
+	return FetchProfileCmd(ctx.SocketPath, ctx.SelectedPID)
 }

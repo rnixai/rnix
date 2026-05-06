@@ -58,16 +58,16 @@ func buildHeatmapSegments(profile *debug.CtxProfileResult) []heatmapSegment {
 	return heatmap.BuildSegments(profile)
 }
 
+// fetchHeatmapCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+// IPC fetch closure 已迁出至 internal/dashboard/heatmap.FetchProfileCmd。
+// 本 wrapper 保留供 cmd/rnix 端 handlePIDChange line 1163 直接调用（PID 切换
+// 时 fetch · 与 dashboardTick 的周期 fetch 不同路径）。
+//
+// heatmapProfileMsg 是 heatmap.ProfileMsg 的 type alias（dashboard_types.go 中定义）·
+// Update 路由零修改。
 func fetchHeatmapCmd(pid types.PID) tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return heatmapProfileMsg{err: err}
-		}
-		defer client.Close()
-		profile, err := client.CtxProfile(pid)
-		return heatmapProfileMsg{profile: profile, err: err}
-	}
+	return heatmap.FetchProfileCmd(ipc.SocketPath(), pid)
 }
 
 // handleHeatmapPIDChange wrapper 已于 Story 38-5 PR11 Step 4(b) Phase 2 删除。

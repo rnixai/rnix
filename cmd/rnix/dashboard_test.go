@@ -740,7 +740,7 @@ func TestDashboardModel_HeatmapProfileMsg(t *testing.T) {
 	m.selectedPID = 2
 
 	profile := mockHeatmapProfile()
-	updated, _ := m.Update(heatmapProfileMsg{profile: profile})
+	updated, _ := m.Update(heatmapProfileMsg{Profile: profile})
 	um := updated.(dashboardModel)
 
 	if um.heatmap.Profile == nil {
@@ -965,7 +965,7 @@ func TestDashboardModel_HeatmapProfileError(t *testing.T) {
 	m.expandedPane = paneHeatmap
 	m.rightPane = paneHeatmap
 
-	updated, _ := m.Update(heatmapProfileMsg{err: fmt.Errorf("connection refused")})
+	updated, _ := m.Update(heatmapProfileMsg{Err: fmt.Errorf("connection refused")})
 	um := updated.(dashboardModel)
 
 	if um.heatmap.Err == nil {
