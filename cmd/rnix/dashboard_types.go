@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/rnixai/rnix/internal/dashboard/eval"
 	"github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/inspector"
@@ -11,7 +12,6 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/trace"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
-	"github.com/rnixai/rnix/kernel"
 )
 
 // --- Severity levels for UnifiedEvent (Story 34.1 AC#1) ---
@@ -224,20 +224,11 @@ type spanFlatNode = trace.SpanFlatNode
 
 // --- Eval pane types (Story 27-10) ---
 
-type evalReputationMsg struct {
-	summaries []kernel.ReputationSummary
-	err       error
-}
-
-type evalTopologyMsg struct {
-	topology *ipc.TopologyQueryResponse
-	err      error
-}
-
-type evalSynergyMsg struct {
-	combos []kernel.ComboSummary
-	err    error
-}
+// evalReputationMsg / evalTopologyMsg / evalSynergyMsg are eval.XxxMsg type
+// aliases (Story 38-5 PR11 Step 4(b) Phase 3).
+type evalReputationMsg = eval.ReputationMsg
+type evalTopologyMsg = eval.TopologyMsg
+type evalSynergyMsg = eval.SynergyMsg
 
 type promptPagerMsg struct {
 	pid    types.PID

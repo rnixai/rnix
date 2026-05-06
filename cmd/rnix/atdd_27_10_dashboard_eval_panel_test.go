@@ -234,7 +234,7 @@ func TestATDD_27_10_AC2_ReputationMsgUpdatesModel(t *testing.T) {
 	summaries := makeReputationSummaries()
 
 	msg := evalReputationMsg{
-		summaries: summaries,
+		Summaries: summaries,
 	}
 
 	m2, _ := m.Update(msg)
@@ -253,7 +253,7 @@ func TestATDD_27_10_AC2_ReputationMsgError(t *testing.T) {
 	m := newEvalModel()
 
 	msg := evalReputationMsg{
-		err: fmt.Errorf("connection refused"),
+		Err: fmt.Errorf("connection refused"),
 	}
 
 	m2, _ := m.Update(msg)
@@ -269,7 +269,7 @@ func TestATDD_27_10_AC2_ReputationSortedByScoreDesc(t *testing.T) {
 	m := newEvalModel()
 	summaries := makeReputationSummaries()
 
-	msg := evalReputationMsg{summaries: summaries}
+	msg := evalReputationMsg{Summaries: summaries}
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
@@ -325,7 +325,7 @@ func TestATDD_27_10_AC2_CursorClampedAfterRefresh(t *testing.T) {
 
 	// Simulate refresh with fewer entries
 	msg := evalReputationMsg{
-		summaries: []kernel.ReputationSummary{
+		Summaries: []kernel.ReputationSummary{
 			{AgentName: "solo-agent", Score: 0.50, SuccessRate: 0.50,
 				AvgTokens: 1000, AvgDurationMs: 10000, TotalRecords: 1, RecentTrend: "stable"},
 		},
@@ -489,7 +489,7 @@ func TestATDD_27_10_AC4_TopologyMsgUpdatesModel(t *testing.T) {
 	topo := makeTopologyData()
 
 	msg := evalTopologyMsg{
-		topology: topo,
+		Topology: topo,
 	}
 
 	m2, _ := m.Update(msg)
@@ -511,7 +511,7 @@ func TestATDD_27_10_AC4_TopologyMsgError(t *testing.T) {
 	m := newEvalModel()
 
 	msg := evalTopologyMsg{
-		err: fmt.Errorf("topology service unavailable"),
+		Err: fmt.Errorf("topology service unavailable"),
 	}
 
 	m2, _ := m.Update(msg)
@@ -590,7 +590,7 @@ func TestATDD_27_10_AC5_SynergyMsgUpdatesModel(t *testing.T) {
 	combos := makeSynergyCombos()
 
 	msg := evalSynergyMsg{
-		combos: combos,
+		Combos: combos,
 	}
 
 	m2, _ := m.Update(msg)
@@ -609,7 +609,7 @@ func TestATDD_27_10_AC5_SynergyMsgError(t *testing.T) {
 	m := newEvalModel()
 
 	msg := evalSynergyMsg{
-		err: fmt.Errorf("synergy data unavailable"),
+		Err: fmt.Errorf("synergy data unavailable"),
 	}
 
 	m2, _ := m.Update(msg)

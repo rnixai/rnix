@@ -108,10 +108,59 @@ func (m *EvalModel) OnSelectPID(_ types.PID) tea.Cmd {
 	return nil
 }
 
-// OnTick 当前阶段 noop（IPC 由 cmd/rnix dashboardTick 触发）。
-func (m *EvalModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
+// OnTick 在 dashboardTick 周期内调用。
+//
+// Story 38-5 PR11 Step 4(b) Phase 3 真实化：
+//   - 仅在 ctx.Active（Eval pane 激活）+ ctx.Connected + ctx.SocketPath 非空时
+//     考虑 fetch；
+//   - 总是触发 reputation fetch（reputation == nil 或 TickCount%5 == 0）；
+//   - SubView == 1 时额外触发 topology fetch（同节流条件）；
+//   - SubView == 2 时额外触发 synergy fetch（同节流条件）；
+//   - 多 cmd 用 tea.Batch 收集（spec § 04 风险 1 缓解）.
+//
+// 行为契约 1:1 等价（与 cmd/rnix dashboardTick line 917-924 完全等价）：
+//
+//	if m.activePane == paneEval && m.connected {
+//	    if m.eval.Reputations == nil || m.heatmap.TickCount%5 == 0 {
+//	        cmds = append(cmds, fetchReputationCmd())
+//	    }
+//	    if m.eval.SubView == 1 && (m.eval.Topology == nil || m.heatmap.TickCount%5 == 0) {
+//	        cmds = append(cmds, fetchTopologyCmd())
+//	    }
+//	    if m.eval.SubView == 2 && (m.eval.Synergies == nil || m.heatmap.TickCount%5 == 0) {
+//	        cmds = append(cmds, fetchSynergyCmd())
+//	    }
+//	}
+//
+// nil 安全：receiver 为 nil 时返回 nil cmd。
+func (m *EvalModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	return nil
+	if !ctx.Active || !ctx.Connected || ctx.SocketPath == "" {
+		return nil
+	}
+	var cmds []tea.Cmd
+	// Reputation: 总是 fetch（first load 或 5s 节流）
+	if m.state.Reputations == nil || ctx.TickCount%5 == 0 {
+		if cmd := FetchReputationCmd(ctx.SocketPath); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	// Topology: SubView == 1
+	if m.state.SubView == 1 && (m.state.Topology == nil || ctx.TickCount%5 == 0) {
+		if cmd := FetchTopologyCmd(ctx.SocketPath); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	// Synergy: SubView == 2
+	if m.state.SubView == 2 && (m.state.Synergies == nil || ctx.TickCount%5 == 0) {
+		if cmd := FetchSynergyCmd(ctx.SocketPath); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
 }

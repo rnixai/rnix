@@ -495,12 +495,12 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case evalReputationMsg:
-		if msg.err != nil {
-			m.eval.RepErr = msg.err
+		if msg.Err != nil {
+			m.eval.RepErr = msg.Err
 			return m, nil
 		}
 		m.eval.RepErr = nil
-		m.eval.Reputations = msg.summaries
+		m.eval.Reputations = msg.Summaries
 		// Sort by score descending
 		sort.Slice(m.eval.Reputations, func(i, j int) bool {
 			return m.eval.Reputations[i].Score > m.eval.Reputations[j].Score
@@ -510,26 +510,26 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case evalTopologyMsg:
-		if msg.err != nil {
-			m.eval.TopoErr = msg.err
+		if msg.Err != nil {
+			m.eval.TopoErr = msg.Err
 			return m, nil
 		}
 		m.eval.TopoErr = nil
-		m.eval.Topology = msg.topology
-		if msg.topology != nil {
-			totalItems := len(msg.topology.Nodes) + len(msg.topology.Edges)
+		m.eval.Topology = msg.Topology
+		if msg.Topology != nil {
+			totalItems := len(msg.Topology.Nodes) + len(msg.Topology.Edges)
 			if m.eval.TopoCursor >= totalItems {
 				m.eval.TopoCursor = max(0, totalItems-1)
 			}
 		}
 		return m, nil
 	case evalSynergyMsg:
-		if msg.err != nil {
-			m.eval.SynErr = msg.err
+		if msg.Err != nil {
+			m.eval.SynErr = msg.Err
 			return m, nil
 		}
 		m.eval.SynErr = nil
-		m.eval.Synergies = msg.combos
+		m.eval.Synergies = msg.Combos
 		if m.eval.SynCursor >= len(m.eval.Synergies) {
 			m.eval.SynCursor = max(0, len(m.eval.Synergies)-1)
 		}
@@ -912,17 +912,10 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Fetch eval data when Eval pane is active (Story 27-10)
-	if m.activePane == paneEval && m.connected {
-		if m.eval.Reputations == nil || m.heatmap.TickCount%5 == 0 {
-			cmds = append(cmds, fetchReputationCmd())
-		}
-		if m.eval.SubView == 1 && (m.eval.Topology == nil || m.heatmap.TickCount%5 == 0) {
-			cmds = append(cmds, fetchTopologyCmd())
-		}
-		if m.eval.SubView == 2 && (m.eval.Synergies == nil || m.heatmap.TickCount%5 == 0) {
-			cmds = append(cmds, fetchSynergyCmd())
-		}
+	// Story 38-5 PR11 Step 4(b) Phase 3: EvalModel.OnTick 真实化路径
+	// 含 SubView 路由：reputation 总是 fetch · topology 仅 SubView==1 · synergy 仅 SubView==2.
+	if cmd := m.evalM.OnTick(m.makeTickCtx(paneEval)); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	if len(m.recording) > 0 {

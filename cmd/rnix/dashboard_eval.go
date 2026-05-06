@@ -48,55 +48,25 @@ func evalScoreColorStyle(score float64) lipgloss.Style {
 	return dashboardeval.EvalScoreColorStyle(score)
 }
 
+// fetchReputationCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep（current callers 已迁至 EvalModel.OnTick）
 func fetchReputationCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return evalReputationMsg{err: err}
-		}
-		defer client.Close()
-		resp, err := client.ReputationStatus("")
-		if err != nil {
-			return evalReputationMsg{err: err}
-		}
-		if resp != nil {
-			return evalReputationMsg{summaries: resp.Summaries}
-		}
-		return evalReputationMsg{}
-	}
+	return dashboardeval.FetchReputationCmd(ipc.SocketPath())
 }
 
+// fetchTopologyCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep
 func fetchTopologyCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return evalTopologyMsg{err: err}
-		}
-		defer client.Close()
-		resp, err := client.TopologyQuery()
-		if err != nil {
-			return evalTopologyMsg{err: err}
-		}
-		return evalTopologyMsg{topology: resp}
-	}
+	return dashboardeval.FetchTopologyCmd(ipc.SocketPath())
 }
 
+// fetchSynergyCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep
 func fetchSynergyCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return evalSynergyMsg{err: err}
-		}
-		defer client.Close()
-		resp, err := client.SynergyList()
-		if err != nil {
-			return evalSynergyMsg{err: err}
-		}
-		if resp != nil {
-			return evalSynergyMsg{combos: resp.Combos}
-		}
-		return evalSynergyMsg{}
-	}
+	return dashboardeval.FetchSynergyCmd(ipc.SocketPath())
 }
 
 func (m dashboardModel) handleEvalKey(key string) (tea.Model, tea.Cmd) {
