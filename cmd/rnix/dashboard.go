@@ -392,14 +392,14 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case immuneStatusMsg:
-		if msg.err != nil {
-			m.security.ImmuneErr = msg.err
+		if msg.Err != nil {
+			m.security.ImmuneErr = msg.Err
 			return m, nil
 		}
 		m.security.ImmuneErr = nil
-		m.security.ImmuneStatus = msg.status
-		if msg.status != nil {
-			m.security.Alerts = sortAlertsByDeviation(msg.status.Alerts)
+		m.security.ImmuneStatus = msg.Status
+		if msg.Status != nil {
+			m.security.Alerts = sortAlertsByDeviation(msg.Status.Alerts)
 			if m.security.Cursor >= len(m.security.Alerts) {
 				m.security.Cursor = max(0, len(m.security.Alerts)-1)
 			}
@@ -882,11 +882,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
-	// Fetch immune status only when Security pane is active
-	if m.activePane == paneSecurity && m.connected {
-		if m.security.ImmuneStatus == nil || m.heatmap.TickCount%5 == 0 {
-			cmds = append(cmds, fetchImmuneStatusCmd())
-		}
+	// Story 38-5 PR11 Step 4(b) Phase 3: SecurityModel.OnTick 真实化路径
+	if cmd := m.securityM.OnTick(m.makeTickCtx(paneSecurity)); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	// Fetch heartbeat status when Security pane is active or in default view (reduced frequency)

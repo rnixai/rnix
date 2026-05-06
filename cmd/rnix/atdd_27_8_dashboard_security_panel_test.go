@@ -203,7 +203,7 @@ func TestATDD_27_8_AC2_ImmuneStatusMsgUpdatesModel(t *testing.T) {
 	status := makeImmuneStatusWarning()
 
 	msg := immuneStatusMsg{
-		status: status,
+		Status: status,
 	}
 
 	m2, _ := m.Update(msg)
@@ -225,7 +225,7 @@ func TestATDD_27_8_AC2_ImmuneStatusMsgError(t *testing.T) {
 	m := newSecurityModel()
 
 	msg := immuneStatusMsg{
-		err: fmt.Errorf("connection refused"),
+		Err: fmt.Errorf("connection refused"),
 	}
 
 	m2, _ := m.Update(msg)
@@ -252,7 +252,7 @@ func TestATDD_27_8_AC2_CursorClampedAfterRefresh(t *testing.T) {
 			{PID: 1, Type: "syscall_freq", Deviation: 2.0},
 		},
 	}
-	msg := immuneStatusMsg{status: smallStatus}
+	msg := immuneStatusMsg{Status: smallStatus}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
@@ -272,7 +272,7 @@ func TestATDD_27_8_AC3_AlertsSortedByDeviation(t *testing.T) {
 	m := newSecurityModel()
 	status := makeImmuneStatusWarning()
 
-	msg := immuneStatusMsg{status: status}
+	msg := immuneStatusMsg{Status: status}
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 

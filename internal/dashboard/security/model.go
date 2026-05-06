@@ -155,11 +155,30 @@ func (m *SecurityModel) OnSelectPID(_ types.PID) tea.Cmd {
 
 // OnTick 在 dashboardTick 周期内调用。
 //
-// 当前阶段：noop（IPC 触发逻辑保留在 cmd/rnix 端 dashboardTick · fetchImmuneStatusCmd
-// 5 秒节流）。PR11 阶段会把 fetchImmuneStatusCmd + 节流计数迁回这里。
-func (m *SecurityModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
+// Story 38-5 PR11 Step 4(b) Phase 3 真实化：
+//   - 仅在 ctx.Active（Security pane 是当前激活）+ ctx.Connected + ctx.SocketPath
+//     非空时考虑 fetch；
+//   - 节流条件：m.state.ImmuneStatus == nil 或 ctx.TickCount%5 == 0；
+//   - 全部满足时返回 FetchImmuneStatusCmd · 否则返回 nil cmd.
+//
+// 行为契约 1:1 等价（与 cmd/rnix dashboardTick line 887-892 完全等价）：
+//
+//	if m.activePane == paneSecurity && m.connected {
+//	    if m.security.ImmuneStatus == nil || m.heatmap.TickCount%5 == 0 {
+//	        cmds = append(cmds, fetchImmuneStatusCmd())
+//	    }
+//	}
+//
+// nil 安全：receiver 为 nil 时返回 nil cmd。
+func (m *SecurityModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	return nil
+	if !ctx.Active || !ctx.Connected || ctx.SocketPath == "" {
+		return nil
+	}
+	if m.state.ImmuneStatus != nil && ctx.TickCount%5 != 0 {
+		return nil
+	}
+	return FetchImmuneStatusCmd(ctx.SocketPath)
 }

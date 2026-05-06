@@ -32,16 +32,15 @@ import (
 // Security Pane (Story 27-8)
 // =============================================================================
 
+// fetchImmuneStatusCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+// IPC fetch closure 已迁出至 internal/dashboard/security.FetchImmuneStatusCmd。
+// 本 wrapper 保留供 cmd/rnix 端潜在直接调用 · immuneStatusMsg 是 security.ImmuneStatusMsg
+// 的 type alias。
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep（current callers 已迁至 SecurityModel.OnTick）
 func fetchImmuneStatusCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return immuneStatusMsg{err: err}
-		}
-		defer client.Close()
-		resp, err := client.ImmuneStatus()
-		return immuneStatusMsg{status: resp, err: err}
-	}
+	return security.FetchImmuneStatusCmd(ipc.SocketPath())
 }
 
 // sortAlertsByDeviation — thin wrapper · 见 internal/dashboard/security.SortAlertsByDeviation

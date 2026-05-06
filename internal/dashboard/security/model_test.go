@@ -211,17 +211,66 @@ func TestOnSelectPID_NilSafe(t *testing.T) {
 	}
 }
 
-// TestOnTick_Noop 验证 OnTick 当前为 noop · IPC 由 cmd/rnix 端 dashboardTick 触发。
-func TestOnTick_Noop(t *testing.T) {
+// TestOnTick_NoFetch_WhenInactive — Story 38-5 PR11 Step 4(b) Phase 3:
+// 仅在 Active==true 时 fetch（与 cmd/rnix dashboardTick 原 m.activePane==paneSecurity
+// 守卫等价）。
+func TestOnTick_NoFetch_WhenInactive(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	m.SetState(SecurityState{Cursor: 7})
-	cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Now:        time.Now(),
+		Active:     false,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+	})
 	if cmd != nil {
-		t.Errorf("OnTick stub should return nil cmd, got %v", cmd)
+		t.Errorf("OnTick(inactive) should return nil cmd, got %v", cmd)
 	}
 	if m.State().Cursor != 7 {
-		t.Errorf("OnTick should not modify state (noop), got %d", m.State().Cursor)
+		t.Errorf("OnTick should not modify state, got %d", m.State().Cursor)
+	}
+}
+
+// TestOnTick_FetchOnFirstLoad — ImmuneStatus==nil triggers immediate fetch.
+func TestOnTick_FetchOnFirstLoad(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:     true,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  1, // not mod 5, but ImmuneStatus==nil triggers fetch
+	})
+	if cmd == nil {
+		t.Errorf("OnTick(ImmuneStatus==nil) should fetch on first load")
+	}
+}
+
+// TestOnTick_FetchEvery5Ticks — once populated, only fetch on TickCount%5==0.
+func TestOnTick_FetchEvery5Ticks(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	m.SetState(SecurityState{ImmuneStatus: &ipc.ImmuneStatusResponse{}})
+	for tick := 1; tick <= 4; tick++ {
+		cmd := m.OnTick(dashboardmodel.OnTickContext{
+			Active:     true,
+			Connected:  true,
+			SocketPath: "/tmp/rnix.sock",
+			TickCount:  tick,
+		})
+		if cmd != nil {
+			t.Errorf("OnTick(TickCount=%d) should not fetch", tick)
+		}
+	}
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:     true,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  5,
+	})
+	if cmd == nil {
+		t.Errorf("OnTick(TickCount=5) should fetch (5-second throttle)")
 	}
 }
 

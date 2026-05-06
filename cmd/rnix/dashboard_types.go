@@ -5,6 +5,7 @@ import (
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
 	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/intent"
+	"github.com/rnixai/rnix/internal/dashboard/security"
 	"github.com/rnixai/rnix/internal/dashboard/status"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/dashboard/trace"
@@ -200,10 +201,8 @@ type intentTreesMsg = intent.TreesMsg
 
 // --- Security pane types (Story 27-8) ---
 
-type immuneStatusMsg struct {
-	status *ipc.ImmuneStatusResponse
-	err    error
-}
+// immuneStatusMsg 是 security.ImmuneStatusMsg 的 type alias（Story 38-5 PR11 Step 4(b) Phase 3）。
+type immuneStatusMsg = security.ImmuneStatusMsg
 
 // --- Trace pane types (Story 27-9) ---
 
