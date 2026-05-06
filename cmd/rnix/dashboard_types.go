@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/eval"
 	"github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/dashboard/heatmap"
@@ -153,13 +154,17 @@ const (
 
 // --- Message types ---
 
-type stepListMsg struct {
-	uuid  string
-	pid   types.PID
-	steps []ipc.StepSummaryWire
-	total int
-	err   error
-}
+// stepListMsg is a type alias to timeline.StepListMsg (Story 38-5 Code Review G3-1 fix).
+//
+// Originally a private struct duplicated in cmd/rnix; aliased to the canonical
+// internal/dashboard/timeline.StepListMsg so messages produced by both
+// cmd/rnix.fetchStepsCmd and timeline.FetchStepsCmd (TimelineModel.OnTick path)
+// route to the same `case stepListMsg` in dashboard.go::Update — fixing a silent
+// drop where TimelineModel.OnTick → timeline.StepListMsg never matched the case.
+//
+// ATDD 29.1 grep contract `"type stepListMsg"` still passes (alias declaration
+// matches the substring). Field access uses Pascal case (UUID/PID/Steps/Total/Err).
+type stepListMsg = timeline.StepListMsg
 
 type stepDetailResultMsg struct {
 	step   int
@@ -167,12 +172,11 @@ type stepDetailResultMsg struct {
 	err    error
 }
 
-type procDetailResultMsg struct {
-	pid    types.PID
-	uuid   string
-	detail *ipc.GetProcDetailResponse
-	err    error
-}
+// procDetailResultMsg is a type alias to detail.DetailResultMsg (Story 38-5
+// Code Review G3-2 fix). See stepListMsg above for rationale.
+//
+// Field access: PID / UUID / Detail / Err (Pascal case).
+type procDetailResultMsg = detail.DetailResultMsg
 
 // --- Intent tree types (Story 27-7) ---
 

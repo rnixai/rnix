@@ -20,7 +20,12 @@ import (
 	"github.com/rnixai/rnix/ipc"
 )
 
-// DetailResultMsg 是 proc detail fetch 的返回 Msg（与 cmd/rnix.procDetailResultMsg 等价）。
+// DetailResultMsg 是 proc detail fetch 的返回 Msg。
+//
+// cmd/rnix 端通过 `type procDetailResultMsg = detail.DetailResultMsg` 别名接收（Story 38-5
+// Code Review G3-2 fix · 2026-05-07）· 让 DetailModel.OnTick 与 cmd/rnix.fetchProcDetailCmd
+// 产生的 msg 路由到同一个 `case procDetailResultMsg` 分支 · 修复 detail 卡片周期刷新
+// 静默丢失的 bug.
 type DetailResultMsg struct {
 	PID    types.PID
 	UUID   string

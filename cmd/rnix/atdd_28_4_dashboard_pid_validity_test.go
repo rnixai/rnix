@@ -235,9 +235,9 @@ func TestATDD_28_4_AC4_ProcDetailResultMsg_UUIDMismatch(t *testing.T) {
 	// Simulate an async response from a STALE request (same PID, different UUID)
 	staleDetail := &ipc.GetProcDetailResponse{PID: 3, State: "dead"}
 	updated, _ := m.Update(procDetailResultMsg{
-		pid:    3,
-		uuid:   "uuid-old-stale",
-		detail: staleDetail,
+		PID:    3,
+		UUID:   "uuid-old-stale",
+		Detail: staleDetail,
 	})
 	um := updated.(dashboardModel)
 

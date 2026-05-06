@@ -13,7 +13,12 @@ import (
 	"github.com/rnixai/rnix/ipc"
 )
 
-// StepListMsg 是 step list fetch 的返回 Msg（与 cmd/rnix.stepListMsg 等价）。
+// StepListMsg 是 step list fetch 的返回 Msg。
+//
+// cmd/rnix 端通过 `type stepListMsg = timeline.StepListMsg` 别名接收（Story 38-5
+// Code Review G3-1 fix · 2026-05-07）· 让 TimelineModel.OnTick 与 cmd/rnix.fetchStepsCmd
+// 产生的 msg 路由到同一个 `case stepListMsg` 分支 · 修复非 pidChanged 路径上
+// 增量 step 数据更新静默丢失的 bug.
 type StepListMsg struct {
 	UUID  string
 	PID   types.PID

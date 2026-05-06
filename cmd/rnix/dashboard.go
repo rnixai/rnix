@@ -349,13 +349,13 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case stepListMsg:
 		// Discard steps from a stale process (in-flight fetch from before process change).
-		// uuid == "" means old daemon without UUID tracking — skip check for backward compat.
-		if msg.uuid != "" && msg.uuid != m.selectedUUID {
+		// UUID == "" means old daemon without UUID tracking — skip check for backward compat.
+		if msg.UUID != "" && msg.UUID != m.selectedUUID {
 			return m, nil
 		}
-		if msg.err == nil && len(msg.steps) > 0 {
-			m = m.applyNewSteps(msg.steps)
-			if last := msg.steps[len(msg.steps)-1]; last.Step > m.timeline.LastFetchedStep {
+		if msg.Err == nil && len(msg.Steps) > 0 {
+			m = m.applyNewSteps(msg.Steps)
+			if last := msg.Steps[len(msg.Steps)-1]; last.Step > m.timeline.LastFetchedStep {
 				m.timeline.LastFetchedStep = last.Step
 			}
 		}
@@ -377,11 +377,11 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case procDetailResultMsg:
-		if msg.err == nil && msg.detail != nil {
-			m.detail.Cache[msg.uuid] = msg.detail
-			if msg.pid == m.selectedPID && msg.uuid == m.selectedUUID {
-				m.detail.Detail = msg.detail
-				m.detail.PID = msg.pid
+		if msg.Err == nil && msg.Detail != nil {
+			m.detail.Cache[msg.UUID] = msg.Detail
+			if msg.PID == m.selectedPID && msg.UUID == m.selectedUUID {
+				m.detail.Detail = msg.Detail
+				m.detail.PID = msg.PID
 			}
 		}
 		return m, nil

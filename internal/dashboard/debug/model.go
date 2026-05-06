@@ -146,7 +146,12 @@ func (m *DebugModel) OnEnter() tea.Cmd {
 //
 // 与 OnEnter 同设计原因（实际 exitDebugMode + stopStraceStream 仍在 cmd/rnix 端）。
 //
-// **关键约束**（PR11 Step 4 迁入主体时必须保留）：OnExit 必须确保 DebugState.Client
+// **现状（重要 · 防止注释陷阱）**：本方法当前是 nil-return stub · **不**关闭
+// DebugState.Client · **不**清空字段。实际 client 关闭由 cmd/rnix.exitDebugMode
+// （dashboard_debug.go::exitDebugMode 调 m.debugState.Client.Close）+ Quit 路径
+// （dashboard.go cleanup）承担 · **未来贡献者迁入主体前不得删除 cmd/rnix 端关闭逻辑**。
+//
+// **PR11 Step 4 迁入主体时必须保留的约束**：OnExit 必须确保 DebugState.Client
 // 关闭（防 goroutine leak）+ 清空 DeviceLatency / StraceEvents / CtxProfile（防止
 // 下次 enter 时显示陈旧数据）。
 //

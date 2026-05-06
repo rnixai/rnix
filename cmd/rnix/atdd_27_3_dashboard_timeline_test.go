@@ -565,9 +565,9 @@ func TestTimeline_PIDSwitch_IgnoresStaleStepListMsg(t *testing.T) {
 
 	// Stale msg from uuid-1 should be discarded
 	staleMsg := stepListMsg{
-		uuid: "uuid-1",
-		pid:  1,
-		steps: []ipc.StepSummaryWire{
+		UUID: "uuid-1",
+		PID:  1,
+		Steps: []ipc.StepSummaryWire{
 			{Step: 4, Action: "tool_call", Summary: "stale-step"},
 		},
 	}
@@ -580,9 +580,9 @@ func TestTimeline_PIDSwitch_IgnoresStaleStepListMsg(t *testing.T) {
 
 	// Valid msg from uuid-2 should be applied
 	validMsg := stepListMsg{
-		uuid: "uuid-2",
-		pid:  2,
-		steps: []ipc.StepSummaryWire{
+		UUID: "uuid-2",
+		PID:  2,
+		Steps: []ipc.StepSummaryWire{
 			{Step: 1, Action: "plan", Summary: "PID-2-step-1"},
 			{Step: 2, Action: "tool_call", Summary: "PID-2-step-2"},
 		},

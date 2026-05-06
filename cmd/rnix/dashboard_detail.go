@@ -30,11 +30,11 @@ func fetchProcDetailCmd(pid types.PID, uuid string) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return procDetailResultMsg{pid: pid, uuid: uuid, err: err}
+			return procDetailResultMsg{PID: pid, UUID: uuid, Err: err}
 		}
 		defer client.Close()
 		resp, err := client.GetProcDetail(pid, uuid)
-		return procDetailResultMsg{pid: pid, uuid: uuid, detail: resp, err: err}
+		return procDetailResultMsg{PID: pid, UUID: uuid, Detail: resp, Err: err}
 	}
 }
 

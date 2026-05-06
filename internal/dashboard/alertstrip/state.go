@@ -95,12 +95,16 @@ type AlertStripState struct {
 }
 
 // StateProvider is the interface that dashboardModel satisfies through its
-// `AlertStripState() AlertStripState` deprecated getter, allowing alertstrip
-// helpers / KeyLayer factories (if any · PR12 Step 2 评估) to read state via
+// `AlertStripState() AlertStripState` getter, allowing alertstrip helpers /
+// KeyLayer factories (if any · PR12 Step 2 评估) to read state via
 // `ctx.(StateProvider)` cast without importing cmd/rnix.
 //
-// Implemented by both *AlertStripModel (PR12 Step 3) and dashboardModel (via
-// the transitional getter; Deprecated: removed in 38-5 PR11 Step 4).
+// Implemented by both *AlertStripModel (PR12 Step 3) and dashboardModel.
+//
+// Story 38-5 Code Review G5-6 (2026-05-07): the dashboardModel-side getter was
+// originally tagged "Deprecated: removed in 38-5 PR11 Step 4" but is now
+// retained as a stable StateProvider implementation (Group 2 Patch G2-6).
+// Treat it as part of the long-lived contract, not a transitional helper.
 type StateProvider interface {
 	AlertStripState() AlertStripState
 }

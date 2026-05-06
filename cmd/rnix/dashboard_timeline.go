@@ -1009,7 +1009,7 @@ func fetchStepsCmd(uuid string, pid types.PID, afterStep int) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return stepListMsg{uuid: uuid, pid: pid, err: err}
+			return stepListMsg{UUID: uuid, PID: pid, Err: err}
 		}
 		defer client.Close()
 		var resp *ipc.ListStepsResponse
@@ -1019,9 +1019,9 @@ func fetchStepsCmd(uuid string, pid types.PID, afterStep int) tea.Cmd {
 			resp, err = client.ListSteps(pid, afterStep)
 		}
 		if err != nil {
-			return stepListMsg{uuid: uuid, pid: pid, err: err}
+			return stepListMsg{UUID: uuid, PID: pid, Err: err}
 		}
-		return stepListMsg{uuid: uuid, pid: pid, steps: resp.Steps, total: resp.Total}
+		return stepListMsg{UUID: uuid, PID: pid, Steps: resp.Steps, Total: resp.Total}
 	}
 }
 
