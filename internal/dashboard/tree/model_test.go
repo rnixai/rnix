@@ -14,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	"github.com/rnixai/rnix/internal/types"
 )
 
@@ -93,7 +94,7 @@ func TestTreeModel_NilReceiver_Safe(t *testing.T) {
 		t.Errorf("nil.OnSelectPID() should return nil cmd")
 	}
 	// OnTick 应返回 nil cmd
-	if cmd := m.OnTick(time.Now()); cmd != nil {
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()}); cmd != nil {
 		t.Errorf("nil.OnTick() should return nil cmd")
 	}
 }
@@ -182,7 +183,7 @@ func TestTreeModel_OnSelectPID_ReturnsNilStub(t *testing.T) {
 func TestTreeModel_OnTick_ReturnsNilStub(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
-	if cmd := m.OnTick(time.Now()); cmd != nil {
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()}); cmd != nil {
 		t.Errorf("OnTick() = %v, want nil (PR2 Step 3c stub · cmd/rnix 端 dashboardTick 继续处理)", cmd)
 	}
 }

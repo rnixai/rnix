@@ -203,7 +203,7 @@ func TestOnTick_Noop(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	m.SetState(TraceState{Cursor: 5})
-	cmd := m.OnTick(time.Now())
+	cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
 	if cmd != nil {
 		t.Errorf("nil cmd")
 	}
@@ -215,7 +215,7 @@ func TestOnTick_Noop(t *testing.T) {
 func TestOnTick_NilSafe(t *testing.T) {
 	t.Parallel()
 	var m *TraceModel
-	if cmd := m.OnTick(time.Now()); cmd != nil {
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()}); cmd != nil {
 		t.Errorf("expected nil")
 	}
 }

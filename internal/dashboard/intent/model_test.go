@@ -235,7 +235,7 @@ func TestOnTick_Noop(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	m.SetState(IntentState{Cursor: 7})
-	cmd := m.OnTick(time.Now())
+	cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
 	if cmd != nil {
 		t.Errorf("OnTick PR6 Step 3 stub should return nil cmd, got %v", cmd)
 	}
@@ -248,7 +248,7 @@ func TestOnTick_Noop(t *testing.T) {
 func TestOnTick_NilSafe(t *testing.T) {
 	t.Parallel()
 	var m *IntentModel
-	if cmd := m.OnTick(time.Now()); cmd != nil {
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()}); cmd != nil {
 		t.Errorf("expected nil cmd, got %v", cmd)
 	}
 }

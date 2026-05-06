@@ -19,8 +19,6 @@
 package security
 
 import (
-	"time"
-
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
@@ -159,7 +157,7 @@ func (m *SecurityModel) OnSelectPID(_ types.PID) tea.Cmd {
 //
 // 当前阶段：noop（IPC 触发逻辑保留在 cmd/rnix 端 dashboardTick · fetchImmuneStatusCmd
 // 5 秒节流）。PR11 阶段会把 fetchImmuneStatusCmd + 节流计数迁回这里。
-func (m *SecurityModel) OnTick(_ time.Time) tea.Cmd {
+func (m *SecurityModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}

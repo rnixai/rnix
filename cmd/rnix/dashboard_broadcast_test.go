@@ -2,7 +2,6 @@ package main
 
 import (
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -40,7 +39,7 @@ func (f *fakePane) Update(_ tea.Msg) (tea.Model, tea.Cmd) {
 func (f *fakePane) View() tea.View              { return tea.NewView("") }
 func (f *fakePane) Name() string                { return "fake" }
 func (f *fakePane) KeyLayer() *ui.KeyLayer      { return nil }
-func (f *fakePane) OnTick(_ time.Time) tea.Cmd  { return nil }
+func (f *fakePane) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd { return nil }
 func (f *fakePane) OnSelectPID(p types.PID) tea.Cmd {
 	if f == nil {
 		return nil

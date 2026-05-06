@@ -16,8 +16,6 @@
 package heatmap
 
 import (
-	"time"
-
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
@@ -146,7 +144,9 @@ func (m *HeatmapModel) OnSelectPID(pid types.PID) tea.Cmd {
 //
 // 当前阶段：维护 TickCount + 触发 IPC profile 刷新（cmd/rnix 端继续触发 fetchHeatmapCmd
 // 节流逻辑 · spec § AC3 line 121 暗示 OnTick 应触发刷新，但完整迁移留 PR11）。
-func (m *HeatmapModel) OnTick(_ time.Time) tea.Cmd {
+//
+// Story 38-5 PR11 Step 4(b) Phase 3：签名扩展为 OnTickContext。
+func (m *HeatmapModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}

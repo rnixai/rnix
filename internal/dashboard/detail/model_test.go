@@ -200,7 +200,7 @@ func TestOnTick_IncrementsTick(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	for i := 1; i <= 3; i++ {
-		_ = m.OnTick(time.Now())
+		_ = m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
 		if m.State().Tick != i {
 			t.Errorf("after %d ticks, Tick=%d, want %d", i, m.State().Tick, i)
 		}
@@ -210,7 +210,7 @@ func TestOnTick_IncrementsTick(t *testing.T) {
 func TestOnTick_NilSafe(t *testing.T) {
 	t.Parallel()
 	var m *DetailModel
-	if cmd := m.OnTick(time.Now()); cmd != nil {
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()}); cmd != nil {
 		t.Errorf("expected nil cmd, got %v", cmd)
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	"github.com/rnixai/rnix/internal/types"
 )
 
@@ -156,7 +157,7 @@ func TestOnTick(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	for range 5 {
-		_ = m.OnTick(time.Now())
+		_ = m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
 	}
 	if m.state.TickCount != 5 {
 		t.Errorf("OnTick called 5x, TickCount = %d, want 5", m.state.TickCount)

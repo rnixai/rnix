@@ -15,8 +15,6 @@
 package trace
 
 import (
-	"time"
-
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
@@ -111,7 +109,7 @@ func (m *TraceModel) OnSelectPID(_ types.PID) tea.Cmd {
 }
 
 // OnTick 当前阶段 noop（IPC 由 cmd/rnix dashboardTick fetchTraceListCmd 5 秒节流刷新）。
-func (m *TraceModel) OnTick(_ time.Time) tea.Cmd {
+func (m *TraceModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}

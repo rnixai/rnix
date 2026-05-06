@@ -21,8 +21,6 @@
 package intent
 
 import (
-	"time"
-
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
@@ -166,7 +164,7 @@ func (m *IntentModel) OnSelectPID(_ types.PID) tea.Cmd {
 //
 // 当前阶段：noop（IPC 触发逻辑保留在 cmd/rnix 端 dashboardTick · fetchIntentTreesCmd 5 秒节流）。
 // PR11 阶段会把 fetchIntentTreesCmd + 节流计数迁回这里，让 IntentModel 完整自洽。
-func (m *IntentModel) OnTick(_ time.Time) tea.Cmd {
+func (m *IntentModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}

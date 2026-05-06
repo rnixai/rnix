@@ -57,7 +57,7 @@ func (f *fakePaneModel) OnSelectPID(pid types.PID) tea.Cmd {
 	f.lastSelectedPID = pid
 	return nil
 }
-func (f *fakePaneModel) OnTick(_ time.Time) tea.Cmd {
+func (f *fakePaneModel) OnTick(_ OnTickContext) tea.Cmd {
 	if f == nil {
 		return nil
 	}
@@ -139,7 +139,7 @@ func TestPaneModel_NilSafety(t *testing.T) {
 	if got := f.OnSelectPID(types.PID(42)); got != nil {
 		t.Errorf("OnSelectPID() on nil = %v, want nil", got)
 	}
-	if got := f.OnTick(time.Now()); got != nil {
+	if got := f.OnTick(OnTickContext{Now: time.Now()}); got != nil {
 		t.Errorf("OnTick() on nil = %v, want nil", got)
 	}
 	if got := f.View(); got.Content != "" {

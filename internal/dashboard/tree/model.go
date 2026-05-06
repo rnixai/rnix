@@ -17,8 +17,6 @@
 package tree
 
 import (
-	"time"
-
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
@@ -175,6 +173,9 @@ func (m *TreeModel) OnSelectPID(_ types.PID) tea.Cmd {
 // PR11 阶段会迁移为：返回 tea.Batch(fetchProcessesCmd, refreshTreeStateCmd)。
 //
 // 返回 nil cmd（无 IPC 副作用）。
-func (m *TreeModel) OnTick(_ time.Time) tea.Cmd {
+//
+// Story 38-5 PR11 Step 4(b) Phase 3：签名扩展为 OnTickContext，让子 Model
+// 自治决定是否触发 IPC（详见 dashboardmodel.OnTickContext godoc）。
+func (m *TreeModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
 	return nil
 }

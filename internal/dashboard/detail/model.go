@@ -17,8 +17,6 @@
 package detail
 
 import (
-	"time"
-
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
@@ -156,7 +154,9 @@ func (m *DetailModel) OnSelectPID(pid types.PID) tea.Cmd {
 // 当前阶段：维护 Tick 计数（dashboard.go 中 mod-5 周期刷新 Cache 的节流计数已与此对齐）。
 // 完整 fetch 触发逻辑（needsFetch / Cache 命中判断）保留在 cmd/rnix 端 dashboardTick；
 // PR11 阶段把整段 detail-section tick 逻辑迁回这里。
-func (m *DetailModel) OnTick(_ time.Time) tea.Cmd {
+//
+// Story 38-5 PR11 Step 4(b) Phase 3：签名扩展为 OnTickContext。
+func (m *DetailModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}

@@ -24,8 +24,6 @@
 package timeline
 
 import (
-	"time"
-
 	tea "charm.land/bubbletea/v2"
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
@@ -178,7 +176,9 @@ func (m *TimelineModel) OnSelectPID(pid types.PID) tea.Cmd {
 // Timeline 不需要 tick 计数节流）。
 //
 // nil 安全：receiver 为 nil 时返回 nil cmd。
-func (m *TimelineModel) OnTick(now time.Time) tea.Cmd {
+//
+// Story 38-5 PR11 Step 4(b) Phase 3：签名扩展为 OnTickContext。
+func (m *TimelineModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}

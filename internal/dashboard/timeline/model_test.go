@@ -196,7 +196,7 @@ func TestTimelineModel_OnSelectPID_DifferentPID_ClearsState(t *testing.T) {
 func TestTimelineModel_OnTick(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
-	cmd := m.OnTick(time.Now())
+	cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
 	if cmd != nil {
 		t.Errorf("OnTick() returned non-nil cmd, want nil (IPC 由 cmd/rnix dashboardTick 触发)")
 	}
@@ -230,7 +230,7 @@ func TestTimelineModel_NilSafety(t *testing.T) {
 	if cmd := m.OnSelectPID(types.PID(1)); cmd != nil {
 		t.Errorf("nil OnSelectPID() returned non-nil")
 	}
-	if cmd := m.OnTick(time.Now()); cmd != nil {
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()}); cmd != nil {
 		t.Errorf("nil OnTick() returned non-nil")
 	}
 }
