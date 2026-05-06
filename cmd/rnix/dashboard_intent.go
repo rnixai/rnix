@@ -74,16 +74,14 @@ func pruneIntentCollapse(userCollapsed map[string]bool, trees []*ipc.IntentTreeW
 	return intent.PruneCollapse(userCollapsed, trees)
 }
 
+// fetchIntentTreesCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+// IPC fetch closure 已迁出至 internal/dashboard/intent.FetchTreesCmd。本 wrapper
+// 保留供 cmd/rnix 端潜在直接调用 · intentTreesMsg 是 intent.TreesMsg 的 type alias。
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep 使用（current callers 已迁至 IntentModel.OnTick）
 func fetchIntentTreesCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return intentTreesMsg{err: err}
-		}
-		defer client.Close()
-		resp, err := client.IntentList()
-		return intentTreesMsg{trees: resp, err: err}
-	}
+	return intent.FetchTreesCmd(ipc.SocketPath())
 }
 
 // renderIntentPane is a thin wrapper around intent.Render (Story 38-5 PR11 Step 4(c)).

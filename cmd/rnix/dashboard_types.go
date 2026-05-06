@@ -192,10 +192,11 @@ type resumeResultMsg struct {
 	err    error
 }
 
-type intentTreesMsg struct {
-	trees *ipc.IntentStatusResponse
-	err   error
-}
+// intentTreesMsg 是 intent.TreesMsg 的 type alias（Story 38-5 PR11 Step 4(b) Phase 3）。
+//
+// PR6 落地的 cmd/rnix-private struct 字段（trees/err 小写）已迁出至 internal/dashboard/intent
+// 包内 TreesMsg（公开字段 Trees/Err）· 与 heatmap.ProfileMsg 同模式。
+type intentTreesMsg = intent.TreesMsg
 
 // --- Security pane types (Story 27-8) ---
 

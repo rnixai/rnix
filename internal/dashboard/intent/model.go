@@ -162,11 +162,30 @@ func (m *IntentModel) OnSelectPID(_ types.PID) tea.Cmd {
 
 // OnTick 在 dashboardTick 周期内调用。
 //
-// 当前阶段：noop（IPC 触发逻辑保留在 cmd/rnix 端 dashboardTick · fetchIntentTreesCmd 5 秒节流）。
-// PR11 阶段会把 fetchIntentTreesCmd + 节流计数迁回这里，让 IntentModel 完整自洽。
-func (m *IntentModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
+// Story 38-5 PR11 Step 4(b) Phase 3 真实化：
+//   - 仅在 ctx.Active（Intent pane 是当前激活 pane） + ctx.Connected + ctx.SocketPath
+//     非空时考虑 fetch；
+//   - 节流条件：m.state.Trees == nil 或 ctx.TickCount%5 == 0（首次拉取或 5 秒一次）；
+//   - 全部满足时返回 FetchTreesCmd · 否则返回 nil cmd.
+//
+// 行为契约 1:1 等价（与 cmd/rnix dashboardTick line 880-885 完全等价）：
+//
+//	if m.activePane == paneIntent && m.connected {
+//	    if m.intent.Trees == nil || m.heatmap.TickCount%5 == 0 {
+//	        cmds = append(cmds, fetchIntentTreesCmd())
+//	    }
+//	}
+//
+// nil 安全：receiver 为 nil 或 ctx.SocketPath 为空时返回 nil cmd。
+func (m *IntentModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	return nil
+	if !ctx.Active || !ctx.Connected || ctx.SocketPath == "" {
+		return nil
+	}
+	if m.state.Trees != nil && ctx.TickCount%5 != 0 {
+		return nil
+	}
+	return FetchTreesCmd(ctx.SocketPath)
 }

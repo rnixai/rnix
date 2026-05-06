@@ -191,7 +191,7 @@ func TestATDD_27_7_AC2_IntentTreesMsgUpdatesModel(t *testing.T) {
 	tree := makeSingleTree()
 
 	msg := intentTreesMsg{
-		trees: &ipc.IntentStatusResponse{
+		Trees: &ipc.IntentStatusResponse{
 			Intents: []*ipc.IntentTreeWire{tree},
 		},
 	}
@@ -215,7 +215,7 @@ func TestATDD_27_7_AC2_IntentTreesMsgError(t *testing.T) {
 	m := newIntentTreeModel()
 
 	msg := intentTreesMsg{
-		err: fmt.Errorf("connection refused"),
+		Err: fmt.Errorf("connection refused"),
 	}
 
 	m2, _ := m.Update(msg)
@@ -638,7 +638,7 @@ func TestATDD_27_7_AC2_CursorClampedAfterRefresh(t *testing.T) {
 		},
 	}
 	msg := intentTreesMsg{
-		trees: &ipc.IntentStatusResponse{
+		Trees: &ipc.IntentStatusResponse{
 			Intents: []*ipc.IntentTreeWire{smallTree},
 		},
 	}

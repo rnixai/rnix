@@ -375,17 +375,17 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case intentTreesMsg:
-		if msg.err != nil {
-			m.intent.TreeErr = msg.err
+		if msg.Err != nil {
+			m.intent.TreeErr = msg.Err
 			return m, nil
 		}
 		m.intent.TreeErr = nil
-		if msg.trees == nil {
+		if msg.Trees == nil {
 			m.intent.Trees = nil
 			m.intent.FlatNodes = nil
 			return m, nil
 		}
-		m.intent.Trees = msg.trees.Intents
+		m.intent.Trees = msg.Trees.Intents
 		m.intent.FlatNodes = flattenIntentTreesWithCollapse(m.intent.Trees, m.intent.TreeCollapsed)
 		if m.intent.Cursor >= len(m.intent.FlatNodes) {
 			m.intent.Cursor = max(0, len(m.intent.FlatNodes)-1)
@@ -877,11 +877,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Fetch intent trees only when Intent pane is active (no longer needed every tick)
-	if m.activePane == paneIntent && m.connected {
-		if m.intent.Trees == nil || m.heatmap.TickCount%5 == 0 {
-			cmds = append(cmds, fetchIntentTreesCmd())
-		}
+	// Story 38-5 PR11 Step 4(b) Phase 3: IntentModel.OnTick 真实化路径
+	if cmd := m.intentM.OnTick(m.makeTickCtx(paneIntent)); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	// Fetch immune status only when Security pane is active

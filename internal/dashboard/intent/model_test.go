@@ -235,13 +235,94 @@ func TestOnTick_Noop(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	m.SetState(IntentState{Cursor: 7})
+	// Story 38-5 PR11 Step 4(b) Phase 3: OnTick 不再 noop · 在 ctx Active==false
+	// 时返回 nil（Intent pane 未激活）。
 	cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
 	if cmd != nil {
-		t.Errorf("OnTick PR6 Step 3 stub should return nil cmd, got %v", cmd)
+		t.Errorf("OnTick(inactive) should return nil cmd, got %v", cmd)
 	}
 	// state.Cursor 仍为 7（noop · 与 DetailModel.OnTick 不同 · DetailModel 会 Tick++）
 	if m.State().Cursor != 7 {
 		t.Errorf("OnTick should not modify state (noop), Cursor changed to %d", m.State().Cursor)
+	}
+}
+
+// TestOnTick_NoFetch_WhenDisconnected — Story 38-5 PR11 Step 4(b) Phase 3.
+func TestOnTick_NoFetch_WhenDisconnected(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Now:        time.Now(),
+		Active:     true,
+		Connected:  false,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  5,
+	})
+	if cmd != nil {
+		t.Errorf("OnTick(disconnected) should return nil cmd")
+	}
+}
+
+// TestOnTick_NoFetch_WhenInactive — only fetch when Intent pane is active.
+func TestOnTick_NoFetch_WhenInactive(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Now:        time.Now(),
+		Active:     false,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  5,
+	})
+	if cmd != nil {
+		t.Errorf("OnTick(inactive) should return nil cmd")
+	}
+}
+
+// TestOnTick_FetchOnFirstLoad — Trees==nil should fetch regardless of TickCount.
+func TestOnTick_FetchOnFirstLoad(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	// Trees == nil → fetch immediately (TickCount=1 not mod 5)
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Now:        time.Now(),
+		Active:     true,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  1,
+	})
+	if cmd == nil {
+		t.Errorf("OnTick(Trees==nil) should fetch on first load")
+	}
+}
+
+// TestOnTick_FetchEvery5Ticks — once Trees populated, only fetch on TickCount%5==0.
+func TestOnTick_FetchEvery5Ticks(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	// Populate Trees so first-load condition fails
+	m.SetState(IntentState{Trees: []*ipc.IntentTreeWire{}})
+	// TickCount 1-4: no fetch
+	for tick := 1; tick <= 4; tick++ {
+		cmd := m.OnTick(dashboardmodel.OnTickContext{
+			Active:     true,
+			Connected:  true,
+			SocketPath: "/tmp/rnix.sock",
+			TickCount:  tick,
+		})
+		if cmd != nil {
+			t.Errorf("OnTick(TickCount=%d) should not fetch", tick)
+		}
+	}
+	// TickCount 5: fetch
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:     true,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  5,
+	})
+	if cmd == nil {
+		t.Errorf("OnTick(TickCount=5) should fetch (5-second throttle)")
 	}
 }
 
