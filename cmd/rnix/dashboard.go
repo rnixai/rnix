@@ -856,25 +856,15 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, m.timeline.LastFetchedStep))
 	}
 
-	// Fetch proc detail when Detail pane is active or in default view (detail card needs it)
-	detailCardNeedsData := m.viewMode == viewDefault && m.selectedPID > 0
-	if (m.activePane == paneDetail || detailCardNeedsData) && m.selectedPID > 0 && m.connected {
-		m.detail.Tick++
-		needsFetch := m.detail.Detail == nil || m.detail.PID != m.selectedPID
-		// Refresh every 5 ticks (~5s) for live processes
-		if !needsFetch && m.detail.Detail != nil && m.detail.Detail.State != "dead" && m.detail.Tick%5 == 0 {
-			delete(m.detail.Cache, m.selectedUUID)
-			needsFetch = true
+	// Story 38-5 PR11 Step 4(b) Phase 3: DetailModel.OnTick 真实化路径
+	// detailCardNeedsData logic migrated to DetailModel.OnTick (ViewMode==ViewDefault guard).
+	// ctx.Active 由 makeTickCtx(paneDetail) 设置；ViewMode==viewDefault 由 OnTick 内部判断。
+	{
+		ctx := m.makeTickCtx(paneDetail)
+		if cmd := m.detailM.OnTick(ctx); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
-		if needsFetch {
-			// Check cache first (only for initial load, not periodic refresh)
-			if cached, ok := m.detail.Cache[m.selectedUUID]; ok {
-				m.detail.Detail = cached
-				m.detail.PID = m.selectedPID
-			} else {
-				cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
-			}
-		}
+		m.detail = m.detailM.State()
 	}
 
 	// Story 38-5 PR11 Step 4(b) Phase 3: IntentModel.OnTick 真实化路径

@@ -24,6 +24,10 @@ import (
 	"github.com/rnixai/rnix/internal/ui"
 )
 
+// ViewDefault mirrors cmd/rnix.viewDefault (iota 0) to avoid detail → status import.
+// Used by OnTick to determine if detail card needs data in default view.
+const ViewDefault = 0
+
 // 编译期断言：DetailModel 满足 model.PaneModel interface。
 var _ dashboardmodel.PaneModel = (*DetailModel)(nil)
 
@@ -151,15 +155,44 @@ func (m *DetailModel) OnSelectPID(pid types.PID) tea.Cmd {
 
 // OnTick 在 dashboardTick 周期内调用。
 //
-// 当前阶段：维护 Tick 计数（dashboard.go 中 mod-5 周期刷新 Cache 的节流计数已与此对齐）。
-// 完整 fetch 触发逻辑（needsFetch / Cache 命中判断）保留在 cmd/rnix 端 dashboardTick；
-// PR11 阶段把整段 detail-section tick 逻辑迁回这里。
+// Story 38-5 PR11 Step 4(b) Phase 3 真实化：
+//   - 仅在 Active（paneDetail 激活）或 ViewMode==ViewDefault（detail card 需要数据）
+//     且 Connected + SelectedPID > 0 时执行 fetch 逻辑；
+//   - 自增 Tick 计数（节流计数器）；
+//   - needsFetch 判定：Detail==nil 或 PID!=SelectedPID；
+//   - 每 5 ticks 对非 dead 进程刷新（删除 Cache 条目 + 设 needsFetch）；
+//   - Cache 命中时直接设 Detail+PID（不发 IPC）；
+//   - Cache 未命中时返回 FetchDetailCmd。
 //
-// Story 38-5 PR11 Step 4(b) Phase 3：签名扩展为 OnTickContext。
-func (m *DetailModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
+// 行为契约 1:1 等价（与 cmd/rnix dashboardTick detail section 完全等价 · spec § AC8）。
+func (m *DetailModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}
+	// Guard: only fetch when detail pane active or default view needs detail card data
+	if !ctx.Active && ctx.ViewMode != ViewDefault {
+		return nil
+	}
+	if ctx.SelectedPID <= 0 || !ctx.Connected {
+		return nil
+	}
+
 	m.state.Tick++
-	return nil
+
+	needsFetch := m.state.Detail == nil || m.state.PID != ctx.SelectedPID
+	// Refresh every 5 ticks (~5s) for live processes
+	if !needsFetch && m.state.Detail != nil && m.state.Detail.State != "dead" && m.state.Tick%5 == 0 {
+		delete(m.state.Cache, ctx.SelectedUUID)
+		needsFetch = true
+	}
+	if !needsFetch {
+		return nil
+	}
+	// Check cache first
+	if cached, ok := m.state.Cache[ctx.SelectedUUID]; ok {
+		m.state.Detail = cached
+		m.state.PID = ctx.SelectedPID
+		return nil
+	}
+	return FetchDetailCmd(ctx.SocketPath, ctx.SelectedPID, ctx.SelectedUUID)
 }

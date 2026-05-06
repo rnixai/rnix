@@ -19,6 +19,7 @@ import (
 
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/ipc"
 )
 
 func TestNewModel_Defaults(t *testing.T) {
@@ -200,7 +201,12 @@ func TestOnTick_IncrementsTick(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	for i := 1; i <= 3; i++ {
-		_ = m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
+		_ = m.OnTick(dashboardmodel.OnTickContext{
+			Now:         time.Now(),
+			Active:      true,
+			Connected:   true,
+			SelectedPID: 42,
+		})
 		if m.State().Tick != i {
 			t.Errorf("after %d ticks, Tick=%d, want %d", i, m.State().Tick, i)
 		}
@@ -212,6 +218,151 @@ func TestOnTick_NilSafe(t *testing.T) {
 	var m *DetailModel
 	if cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()}); cmd != nil {
 		t.Errorf("expected nil cmd, got %v", cmd)
+	}
+}
+
+func TestOnTick_NoFetch_WhenInactive(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:      false,
+		Connected:   true,
+		SelectedPID: 42,
+		ViewMode:    1, // not ViewDefault
+	})
+	if cmd != nil {
+		t.Error("expected nil cmd when inactive and not default view")
+	}
+	if m.State().Tick != 0 {
+		t.Errorf("Tick should not increment when guard fails, got %d", m.State().Tick)
+	}
+}
+
+func TestOnTick_NoFetch_WhenDisconnected(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:      true,
+		Connected:   false,
+		SelectedPID: 42,
+	})
+	if cmd != nil {
+		t.Error("expected nil cmd when disconnected")
+	}
+}
+
+func TestOnTick_FetchTriggered_WhenDetailNil(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	m.SetState(DetailState{
+		Cache: make(map[string]*ipc.GetProcDetailResponse),
+	})
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:       true,
+		Connected:    true,
+		SelectedPID:  42,
+		SelectedUUID: "uuid-1",
+		SocketPath:   "/tmp/test.sock",
+	})
+	if cmd == nil {
+		t.Error("expected non-nil cmd when Detail is nil (needs fetch)")
+	}
+}
+
+func TestOnTick_CacheHit_NoFetch(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cached := &ipc.GetProcDetailResponse{State: "running"}
+	m.SetState(DetailState{
+		Detail: nil,
+		PID:    0,
+		Cache:  map[string]*ipc.GetProcDetailResponse{"uuid-1": cached},
+	})
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:       true,
+		Connected:    true,
+		SelectedPID:  42,
+		SelectedUUID: "uuid-1",
+		SocketPath:   "/tmp/test.sock",
+	})
+	if cmd != nil {
+		t.Error("expected nil cmd when cache hit")
+	}
+	s := m.State()
+	if s.Detail != cached {
+		t.Error("expected Detail to be set from cache")
+	}
+	if s.PID != 42 {
+		t.Errorf("expected PID=42, got %d", s.PID)
+	}
+}
+
+func TestOnTick_RefreshEvery5Ticks(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	detail := &ipc.GetProcDetailResponse{State: "running"}
+	m.SetState(DetailState{
+		Detail: detail,
+		PID:    42,
+		Tick:   4, // next tick will be 5, mod 5 == 0
+		Cache:  map[string]*ipc.GetProcDetailResponse{"uuid-1": detail},
+	})
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:       true,
+		Connected:    true,
+		SelectedPID:  42,
+		SelectedUUID: "uuid-1",
+		SocketPath:   "/tmp/test.sock",
+	})
+	// Tick becomes 5, mod 5 == 0, process is "running" (not dead) → refresh
+	// Cache entry deleted → cache miss → FetchDetailCmd returned
+	if cmd == nil {
+		t.Error("expected non-nil cmd for 5-tick refresh of live process")
+	}
+	if _, ok := m.State().Cache["uuid-1"]; ok {
+		t.Error("expected cache entry to be deleted on refresh")
+	}
+}
+
+func TestOnTick_NoRefresh_DeadProcess(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	detail := &ipc.GetProcDetailResponse{State: "dead"}
+	m.SetState(DetailState{
+		Detail: detail,
+		PID:    42,
+		Tick:   4,
+		Cache:  map[string]*ipc.GetProcDetailResponse{"uuid-1": detail},
+	})
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:       true,
+		Connected:    true,
+		SelectedPID:  42,
+		SelectedUUID: "uuid-1",
+		SocketPath:   "/tmp/test.sock",
+	})
+	// Tick becomes 5, mod 5 == 0, but process is "dead" → no refresh
+	if cmd != nil {
+		t.Error("expected nil cmd for dead process (no periodic refresh)")
+	}
+}
+
+func TestOnTick_ViewDefault_TriggersWithoutActive(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	m.SetState(DetailState{
+		Cache: make(map[string]*ipc.GetProcDetailResponse),
+	})
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:       false,
+		ViewMode:     ViewDefault,
+		Connected:    true,
+		SelectedPID:  42,
+		SelectedUUID: "uuid-1",
+		SocketPath:   "/tmp/test.sock",
+	})
+	if cmd == nil {
+		t.Error("expected non-nil cmd when ViewMode==ViewDefault even if not active")
 	}
 }
 
