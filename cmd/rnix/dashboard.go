@@ -461,12 +461,12 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	case traceListMsg:
-		if msg.err != nil {
-			m.trace.Err = msg.err
+		if msg.Err != nil {
+			m.trace.Err = msg.Err
 			return m, nil
 		}
 		m.trace.Err = nil
-		m.trace.Summaries = msg.summaries
+		m.trace.Summaries = msg.Summaries
 		// Sort by StartTimeMs descending (newest first)
 		sort.Slice(m.trace.Summaries, func(i, j int) bool {
 			return m.trace.Summaries[i].StartTimeMs > m.trace.Summaries[j].StartTimeMs
@@ -901,12 +901,14 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		cmds = append(cmds, fetchCompactEventsCmd(m.selectedPID, m.selectedUUID))
 	}
 
-	// Fetch trace list when Trace pane is active or in default view (detail card needs it)
-	if m.connected {
-		if m.activePane == paneTrace || m.viewMode == viewDefault {
-			if m.trace.Summaries == nil || m.heatmap.TickCount%5 == 0 {
-				cmds = append(cmds, fetchTraceListCmd())
-			}
+	// Story 38-5 PR11 Step 4(b) Phase 3: TraceModel.OnTick 真实化路径
+	// Trace 在 viewDefault 下也需要 fetch（detail card 消费 trace 数据 ·
+	// 与 cmd/rnix dashboardTick 原 line 908-911 等价）。
+	{
+		ctx := m.makeTickCtx(paneTrace)
+		ctx.Active = ctx.Active || m.viewMode == viewDefault
+		if cmd := m.traceM.OnTick(ctx); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 

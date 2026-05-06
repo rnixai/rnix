@@ -34,16 +34,13 @@ import (
 // Trace Pane (Story 27-9)
 // =============================================================================
 
+// fetchTraceListCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+// IPC fetch closure 已迁出至 internal/dashboard/trace.FetchListCmd。
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep（current callers 已迁至 TraceModel.OnTick）
 func fetchTraceListCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return traceListMsg{err: err}
-		}
-		defer client.Close()
-		summaries, err := client.TraceList()
-		return traceListMsg{summaries: summaries, err: err}
-	}
+	return trace.FetchListCmd(ipc.SocketPath())
 }
 
 func fetchTraceTreeCmd(traceID string) tea.Cmd {

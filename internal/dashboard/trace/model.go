@@ -108,10 +108,28 @@ func (m *TraceModel) OnSelectPID(_ types.PID) tea.Cmd {
 	return nil
 }
 
-// OnTick 当前阶段 noop（IPC 由 cmd/rnix dashboardTick fetchTraceListCmd 5 秒节流刷新）。
-func (m *TraceModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
+// OnTick 在 dashboardTick 周期内调用。
+//
+// Story 38-5 PR11 Step 4(b) Phase 3 真实化：
+//   - 仅在 ctx.Active（Trace pane 激活 OR detail card 在 viewDefault 下需要 trace 数据）
+//     + ctx.Connected + ctx.SocketPath 非空时考虑 fetch；
+//   - 节流条件：m.state.Summaries == nil 或 ctx.TickCount%5 == 0；
+//   - 全部满足时返回 FetchListCmd · 否则返回 nil cmd.
+//
+// **注意**：TraceModel 在 viewDefault 下也需要拉取（detail card 消费 trace 数据）。
+// cmd/rnix 端调用 m.traceM.OnTick(ctx) 时应将 ctx.Active 设为 `m.activePane==paneTrace || m.viewMode==viewDefault`
+// 以保留行为契约（与 cmd/rnix dashboardTick 原 line 908-911 等价）。
+//
+// nil 安全：receiver 为 nil 时返回 nil cmd。
+func (m *TraceModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	return nil
+	if !ctx.Active || !ctx.Connected || ctx.SocketPath == "" {
+		return nil
+	}
+	if m.state.Summaries != nil && ctx.TickCount%5 != 0 {
+		return nil
+	}
+	return FetchListCmd(ctx.SocketPath)
 }

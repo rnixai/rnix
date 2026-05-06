@@ -199,16 +199,61 @@ func TestOnSelectPID_NilSafe(t *testing.T) {
 	}
 }
 
-func TestOnTick_Noop(t *testing.T) {
+// Story 38-5 PR11 Step 4(b) Phase 3: TraceModel.OnTick 不再 noop。
+func TestOnTick_NoFetch_WhenInactive(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
 	m.SetState(TraceState{Cursor: 5})
-	cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:     false,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+	})
 	if cmd != nil {
-		t.Errorf("nil cmd")
+		t.Errorf("OnTick(inactive) should return nil")
 	}
 	if m.State().Cursor != 5 {
-		t.Error("state mutated")
+		t.Error("OnTick should not modify state")
+	}
+}
+
+func TestOnTick_FetchOnFirstLoad(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:     true,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  1,
+	})
+	if cmd == nil {
+		t.Errorf("OnTick(Summaries==nil) should fetch on first load")
+	}
+}
+
+func TestOnTick_FetchEvery5Ticks(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	m.SetState(TraceState{Summaries: []ipc.TraceSummaryWire{}})
+	for tick := 1; tick <= 4; tick++ {
+		cmd := m.OnTick(dashboardmodel.OnTickContext{
+			Active:     true,
+			Connected:  true,
+			SocketPath: "/tmp/rnix.sock",
+			TickCount:  tick,
+		})
+		if cmd != nil {
+			t.Errorf("OnTick(TickCount=%d) should not fetch", tick)
+		}
+	}
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Active:     true,
+		Connected:  true,
+		SocketPath: "/tmp/rnix.sock",
+		TickCount:  5,
+	})
+	if cmd == nil {
+		t.Errorf("OnTick(TickCount=5) should fetch")
 	}
 }
 

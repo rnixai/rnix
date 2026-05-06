@@ -206,10 +206,8 @@ type immuneStatusMsg = security.ImmuneStatusMsg
 
 // --- Trace pane types (Story 27-9) ---
 
-type traceListMsg struct {
-	summaries []ipc.TraceSummaryWire
-	err       error
-}
+// traceListMsg 是 trace.ListMsg 的 type alias（Story 38-5 PR11 Step 4(b) Phase 3）。
+type traceListMsg = trace.ListMsg
 
 type traceTreeMsg struct {
 	traceID string

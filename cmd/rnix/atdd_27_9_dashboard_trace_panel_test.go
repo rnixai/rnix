@@ -328,7 +328,7 @@ func TestATDD_27_9_AC3_TraceListMsgUpdatesModel(t *testing.T) {
 	summaries := makeTraceSummaries()
 
 	msg := traceListMsg{
-		summaries: summaries,
+		Summaries: summaries,
 	}
 
 	m2, _ := m.Update(msg)
@@ -347,7 +347,7 @@ func TestATDD_27_9_AC3_TraceListMsgError(t *testing.T) {
 	m := newTraceModel()
 
 	msg := traceListMsg{
-		err: fmt.Errorf("connection refused"),
+		Err: fmt.Errorf("connection refused"),
 	}
 
 	m2, _ := m.Update(msg)
@@ -363,7 +363,7 @@ func TestATDD_27_9_AC3_TraceListSortedByTimeDesc(t *testing.T) {
 	m := newTraceModel()
 	summaries := makeTraceSummaries()
 
-	msg := traceListMsg{summaries: summaries}
+	msg := traceListMsg{Summaries: summaries}
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
@@ -419,7 +419,7 @@ func TestATDD_27_9_AC3_CursorClampedAfterRefresh(t *testing.T) {
 
 	// Simulate refresh with fewer traces (only 1 trace now)
 	msg := traceListMsg{
-		summaries: []ipc.TraceSummaryWire{
+		Summaries: []ipc.TraceSummaryWire{
 			{TraceID: "single-trace", SpanCount: 1, StartTimeMs: 1700000000000,
 				TotalDurationMs: 500, RootSpanName: "solo"},
 		},
