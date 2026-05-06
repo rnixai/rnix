@@ -852,8 +852,12 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if m.selectedPID > 0 && m.connected && !pidChanged {
-		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, m.timeline.LastFetchedStep))
+	// Story 38-5 PR11 Step 4(b) Phase 3: TimelineModel.OnTick 真实化路径
+	// 每 tick 在 !pidChanged + Connected + SelectedPID > 0 时增量 fetch steps。
+	if !pidChanged {
+		if cmd := m.timelineM.OnTick(m.makeTickCtx(paneTimeline)); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 
 	// Story 38-5 PR11 Step 4(b) Phase 3: DetailModel.OnTick 真实化路径

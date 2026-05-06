@@ -196,9 +196,57 @@ func TestTimelineModel_OnSelectPID_DifferentPID_ClearsState(t *testing.T) {
 func TestTimelineModel_OnTick(t *testing.T) {
 	t.Parallel()
 	m := NewModel()
+	// Without Connected + SelectedPID, OnTick returns nil
 	cmd := m.OnTick(dashboardmodel.OnTickContext{Now: time.Now()})
 	if cmd != nil {
-		t.Errorf("OnTick() returned non-nil cmd, want nil (IPC 由 cmd/rnix dashboardTick 触发)")
+		t.Errorf("OnTick() returned non-nil cmd without Connected/SelectedPID")
+	}
+}
+
+func TestTimelineModel_OnTick_FetchTriggered(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	m.SetState(TimelineState{LastFetchedStep: 5})
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Connected:   true,
+		SelectedPID: 42,
+		SocketPath:  "/tmp/test.sock",
+	})
+	if cmd == nil {
+		t.Error("expected non-nil cmd when Connected + SelectedPID > 0")
+	}
+}
+
+func TestTimelineModel_OnTick_NoFetch_Disconnected(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Connected:   false,
+		SelectedPID: 42,
+		SocketPath:  "/tmp/test.sock",
+	})
+	if cmd != nil {
+		t.Error("expected nil cmd when disconnected")
+	}
+}
+
+func TestTimelineModel_OnTick_NoFetch_NoPID(t *testing.T) {
+	t.Parallel()
+	m := NewModel()
+	cmd := m.OnTick(dashboardmodel.OnTickContext{
+		Connected:  true,
+		SocketPath: "/tmp/test.sock",
+	})
+	if cmd != nil {
+		t.Error("expected nil cmd when SelectedPID == 0")
+	}
+}
+
+func TestTimelineModel_OnTick_NilSafe(t *testing.T) {
+	t.Parallel()
+	var m *TimelineModel
+	if cmd := m.OnTick(dashboardmodel.OnTickContext{Connected: true, SelectedPID: 1}); cmd != nil {
+		t.Error("nil receiver should return nil cmd")
 	}
 }
 

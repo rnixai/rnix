@@ -170,17 +170,22 @@ func (m *TimelineModel) OnSelectPID(pid types.PID) tea.Cmd {
 	return nil
 }
 
-// OnTick 维护轻量 tick 计数（IPC 拉取仍由 cmd/rnix 端 dashboardTick）。
+// OnTick 在 dashboardTick 周期内调用。
 //
-// 当前阶段实现：noop（不维护额外计数 · 与 cmd/rnix 端 m.heatmap.TickCount 模式不同 ·
-// Timeline 不需要 tick 计数节流）。
+// Story 38-5 PR11 Step 4(b) Phase 3 真实化：
+//   - 每 tick 在 Connected + SelectedPID > 0 时触发 FetchStepsCmd；
+//   - afterStep = state.LastFetchedStep（增量拉取 · 仅获取新 step）；
+//   - 不节流（每 tick 都 fetch · 与 cmd/rnix dashboardTick line 855-856 行为等价）；
+//   - 调用方保证仅在 !pidChanged 时调用（pidChanged 时 handlePIDChange 已触发
+//     afterStep=0 的全量 fetch · 不重复）。
 //
 // nil 安全：receiver 为 nil 时返回 nil cmd。
-//
-// Story 38-5 PR11 Step 4(b) Phase 3：签名扩展为 OnTickContext。
-func (m *TimelineModel) OnTick(_ dashboardmodel.OnTickContext) tea.Cmd {
+func (m *TimelineModel) OnTick(ctx dashboardmodel.OnTickContext) tea.Cmd {
 	if m == nil {
 		return nil
 	}
-	return nil
+	if !ctx.Connected || ctx.SelectedPID <= 0 {
+		return nil
+	}
+	return FetchStepsCmd(ctx.SocketPath, ctx.SelectedUUID, ctx.SelectedPID, m.state.LastFetchedStep)
 }
