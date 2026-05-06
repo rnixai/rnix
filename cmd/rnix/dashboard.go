@@ -244,34 +244,45 @@ func selectProcess(m dashboardModel, row flatRow) dashboardModel {
 	return m
 }
 
-// TreeState returns the embedded tree state for backward compatibility with old tests.
+// TreeState returns the embedded tree state.
 //
-// Deprecated: removed in 38-5 PR11. New tests should access fields directly via
-// `m.tree.Rows`, `m.tree.Cursor`, ...; legacy tests may temporarily use this getter
-// to read the tree state without referencing internal/dashboard/tree types.
+// Story 38-5 PR11 Step 4(b) Code Review (G2-6): originally tagged "Deprecated:
+// removed in PR11" with the intent of inlining accessors after the migration.
+// That plan was reversed during PR11 because the KeyLayer ActiveModesFn
+// closures (registered via tree.KeyLayer / timeline.KeyLayer / etc.) read
+// state through the StateProvider interfaces defined in each subpackage —
+// and those interfaces are satisfied precisely by these methods. Removing
+// them would break key dispatching. Treat the getters as **stable
+// StateProvider implementations**, not deprecated transitional helpers.
+//
+// Test code may still use them to read state without importing
+// internal/dashboard/tree types.
 func (m dashboardModel) TreeState() tree.TreeState { return m.tree }
 
-// HeatmapState returns the embedded heatmap.HeatmapState (Story 38-5 PR3 Step 1
-// transitional getter; Deprecated: removed in 38-5 PR11).
+// HeatmapState implements heatmap.StateProvider for KeyLayer ActiveModesFn
+// (Story 38-5 PR3 Step 1; retained as part of the stable StateProvider
+// contract — see TreeState above for the reversal of the original
+// "Deprecated: removed in PR11" plan).
 func (m dashboardModel) HeatmapState() heatmap.HeatmapState { return m.heatmap }
 
-// TimelineState returns the embedded timeline.TimelineState (Story 38-5 PR4 Step 1
-// transitional getter; Deprecated: removed in 38-5 PR11).
+// TimelineState implements timeline.StateProvider for KeyLayer ActiveModesFn
+// (Story 38-5 PR4 Step 1; retained as a stable StateProvider — see TreeState).
 //
-// Allows legacy tests to read the timeline state without importing internal/dashboard/timeline
-// directly. New code should access `m.timeline` directly.
+// Allows tests to read the timeline state without importing
+// internal/dashboard/timeline directly.
 func (m dashboardModel) TimelineState() timeline.TimelineState { return m.timeline }
 
-// DetailState transitional getter (Story 38-5 PR5 Step 1; Deprecated: removed in PR11).
+// DetailState implements detail.StateProvider (Story 38-5 PR5 Step 1; retained
+// as a stable StateProvider — see TreeState).
 func (m dashboardModel) DetailState() detail.DetailState { return m.detail }
 func (m dashboardModel) SelectedPID() types.PID          { return m.selectedPID } // Story 38-5 PR5 Step 2 · detail.SelectedPIDProvider
-func (m dashboardModel) IntentState() intent.IntentState { return m.intent }      // Story 38-5 PR6 Step 1 · intent.StateProvider · Deprecated: removed in PR11
-func (m dashboardModel) SecurityState() security.SecurityState { return m.security } // Story 38-5 PR7 Step 1 · security.StateProvider · Deprecated: removed in PR11
-func (m dashboardModel) TraceState() trace.TraceState          { return m.trace }    // Story 38-5 PR8 Step 1 · trace.StateProvider · Deprecated: removed in PR11
-func (m dashboardModel) EvalState() eval.EvalState             { return m.eval }     // Story 38-5 PR9 Step 1 · eval.StateProvider · Deprecated: removed in PR11
-func (m dashboardModel) InspectorState() inspector.InspectorState { return m.inspector } // Story 38-5 PR10 Step 1 · inspector.StateProvider · Deprecated: removed in PR11
-func (m dashboardModel) DebugState() dashboarddebug.DebugState  { return m.debugState } // Story 38-5 PR11 Step 1 · dashboarddebug.StateProvider · Deprecated: removed in PR11
-func (m dashboardModel) AlertStripState() alertstrip.AlertStripState { return m.alertStrip } // Story 38-5 PR12 Step 1 · alertstrip.StateProvider · Deprecated: removed in PR11 Step 4
+func (m dashboardModel) IntentState() intent.IntentState { return m.intent }      // Story 38-5 PR6 Step 1 · intent.StateProvider (retained as stable contract)
+func (m dashboardModel) SecurityState() security.SecurityState { return m.security } // Story 38-5 PR7 Step 1 · security.StateProvider (retained)
+func (m dashboardModel) TraceState() trace.TraceState          { return m.trace }    // Story 38-5 PR8 Step 1 · trace.StateProvider (retained)
+func (m dashboardModel) EvalState() eval.EvalState             { return m.eval }     // Story 38-5 PR9 Step 1 · eval.StateProvider (retained)
+func (m dashboardModel) InspectorState() inspector.InspectorState { return m.inspector } // Story 38-5 PR10 Step 1 · inspector.StateProvider (retained)
+func (m dashboardModel) DebugState() dashboarddebug.DebugState  { return m.debugState } // Story 38-5 PR11 Step 1 · dashboarddebug.StateProvider (retained)
+func (m dashboardModel) AlertStripState() alertstrip.AlertStripState { return m.alertStrip } // Story 38-5 PR12 Step 1 · alertstrip.StateProvider (retained)
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()

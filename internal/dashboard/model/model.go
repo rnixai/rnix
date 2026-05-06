@@ -74,6 +74,10 @@ type OnTickContext struct {
 //   - OnTick(ctx) 在 dashboardTick 周期内被调用，子 Model 根据 ctx 触发 IPC 拉取 /
 //     缓存刷新。Story 38-5 PR11 Step 4(b) Phase 3：签名从 OnTick(now time.Time)
 //     扩展为 OnTick(ctx OnTickContext) 让子 Model 自治决定是否 fetch（spec § AC8）。
+//     **Code Review #3 落地契约**：OnTick 仅返回 tea.Cmd（fetch trigger），**不得**
+//     mutate 子 Model 内部 state；state mutation 须经 IPC msg 异步回流 → Update 路径。
+//     当前唯一例外是 DetailModel.OnTick（PR11 历史遗留），cmd/rnix 端通过显式
+//     m.detail = m.detailM.State() 回写覆盖该副作用。新 PaneModel 实现禁止复制此模式。
 //
 // nil 安全：所有方法在 receiver 为 nil 时返回零值（nil cmd / "" / nil layer），不得 panic。
 type PaneModel interface {
@@ -121,3 +125,33 @@ type PaneState struct {
 	Height int
 	Active bool
 }
+
+// State sync convention（Story 38-5 PR11 Step 4(b) Phase 2 契约 · Code Review #6 落地）.
+//
+// 所有具体 PaneModel/OverlayModel 实现 **必须** 提供等价于以下签名的两个方法：
+//
+//	func (m *XxxModel) State() XxxState   // pull internal state out
+//	func (m *XxxModel) SetState(s XxxState) // push external state in
+//
+// 这是 cmd/rnix 端 broadcastSelectPID Phase 2 双向同步 (syncStatesToModels /
+// syncStatesFromModels) 依赖的契约。由于 Go 不支持 interface method 泛型，本契约
+// 通过 godoc + 各子 Model 测试（TestXxxModel_StateRoundTrip）强制，**不**通过
+// PaneModel/OverlayModel interface 体现 — interface 体现的是行为契约（hook 调用），
+// State/SetState 是具体类型的同步辅助。
+//
+// 错误模式：
+//   - 实现 SetState 但未实现 State → cmd/rnix 端 syncStatesFromModels 编译失败；
+//   - 实现 State 返回 *XxxState 而非 XxxState → 共享指针，broadcast 后修改污染 cmd/rnix 端；
+//   - SetState 不做深拷贝（如 map / slice 共享）→ 同样污染。
+//
+// 当前实现（PR11 落地 + Code Review #6 验证）：
+//   - tree, timeline, heatmap, detail, intent, security, trace, eval, inspector, debug, alertstrip
+//     11 个具体类型均提供 State()/SetState() 方法（grep -E "^func .*State\(\)" 验证）。
+//
+// State sync 与 OnTick 路径的隐式契约（Code Review #3 落地）：
+//   - **OnTick 不得 mutate 子 Model 内部 state**；state mutation 须经 Update 路径
+//     （IPC msg 异步回流 → Update.case → SetState）。
+//   - 例外：DetailModel.OnTick 出于历史原因允许在 fetch 触发后立刻 mutate Tick
+//     字段，cmd/rnix 端通过显式 m.detail = m.detailM.State() 回写。
+//   - 其它 PaneModel.OnTick 仅返回 tea.Cmd（fetch trigger），不 mutate state，
+//     因此 cmd/rnix 端 dashboardTick 不需要 OnTick 后 pull state。
