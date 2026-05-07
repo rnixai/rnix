@@ -11,8 +11,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -40,9 +43,9 @@ func mockDashboardProcs() []vfs.ProcInfo {
 func newTestDashboardModel(procs []vfs.ProcInfo) dashboardModel {
 	m := newDashboardModel(nil)
 	m.processes = procs
-	m.treeRows = make([]flatRow, len(procs))
+	m.tree.Rows = make([]flatRow, len(procs))
 	for i, p := range procs {
-		m.treeRows[i] = flatRow{proc: p, depth: 0}
+		m.tree.Rows[i] = flatRow{Proc: p, Depth: 0}
 	}
 	m.width = 120
 	m.height = 40
@@ -187,14 +190,14 @@ func TestDashboardBuildProcessTree_ParentChild(t *testing.T) {
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(roots))
 	}
-	if len(roots[0].children) != 2 {
-		t.Fatalf("expected 2 children of root, got %d", len(roots[0].children))
+	if len(roots[0].Children) != 2 {
+		t.Fatalf("expected 2 children of root, got %d", len(roots[0].Children))
 	}
-	if roots[0].children[0].proc.PID != 2 {
-		t.Errorf("first child PID should be 2, got %d", roots[0].children[0].proc.PID)
+	if roots[0].Children[0].Proc.PID != 2 {
+		t.Errorf("first child PID should be 2, got %d", roots[0].Children[0].Proc.PID)
 	}
-	if roots[0].children[1].proc.PID != 3 {
-		t.Errorf("second child PID should be 3, got %d", roots[0].children[1].proc.PID)
+	if roots[0].Children[1].Proc.PID != 3 {
+		t.Errorf("second child PID should be 3, got %d", roots[0].Children[1].Proc.PID)
 	}
 }
 
@@ -213,13 +216,13 @@ func TestDashboardBuildProcessTree_DeepNesting(t *testing.T) {
 	}
 	node := roots[0]
 	for depth := 1; depth <= 3; depth++ {
-		if len(node.children) != 1 {
-			t.Fatalf("depth %d: expected 1 child, got %d", depth, len(node.children))
+		if len(node.Children) != 1 {
+			t.Fatalf("depth %d: expected 1 child, got %d", depth, len(node.Children))
 		}
-		node = node.children[0]
+		node = node.Children[0]
 	}
-	if node.proc.PID != 4 {
-		t.Errorf("deepest node should be PID 4, got %d", node.proc.PID)
+	if node.Proc.PID != 4 {
+		t.Errorf("deepest node should be PID 4, got %d", node.Proc.PID)
 	}
 }
 
@@ -237,14 +240,14 @@ func TestDashboardFlattenTree_Indentation(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("expected 3 rows, got %d", len(rows))
 	}
-	if rows[0].prefix != "" {
-		t.Errorf("root should have no prefix, got %q", rows[0].prefix)
+	if rows[0].Prefix != "" {
+		t.Errorf("root should have no prefix, got %q", rows[0].Prefix)
 	}
-	if !strings.Contains(rows[1].prefix, "├") {
-		t.Errorf("non-last child should use ├── prefix, got %q", rows[1].prefix)
+	if !strings.Contains(rows[1].Prefix, "├") {
+		t.Errorf("non-last child should use ├── prefix, got %q", rows[1].Prefix)
 	}
-	if !strings.Contains(rows[2].prefix, "└") {
-		t.Errorf("last child should use └── prefix, got %q", rows[2].prefix)
+	if !strings.Contains(rows[2].Prefix, "└") {
+		t.Errorf("last child should use └── prefix, got %q", rows[2].Prefix)
 	}
 }
 
@@ -271,31 +274,31 @@ func TestDashboardModel_TickUpdatesTree(t *testing.T) {
 
 func TestDashboardModel_NavigateJK(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	um := updated.(dashboardModel)
-	if um.treeCursor != 1 {
-		t.Errorf("j should move cursor down: expected 1, got %d", um.treeCursor)
+	if um.tree.Cursor != 1 {
+		t.Errorf("j should move cursor down: expected 1, got %d", um.tree.Cursor)
 	}
 
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'j'})
 	um = updated.(dashboardModel)
-	if um.treeCursor != 2 {
-		t.Errorf("j again: expected 2, got %d", um.treeCursor)
+	if um.tree.Cursor != 2 {
+		t.Errorf("j again: expected 2, got %d", um.tree.Cursor)
 	}
 
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
-	if um.treeCursor != 1 {
-		t.Errorf("k should move cursor up: expected 1, got %d", um.treeCursor)
+	if um.tree.Cursor != 1 {
+		t.Errorf("k should move cursor up: expected 1, got %d", um.tree.Cursor)
 	}
 
-	um.treeCursor = 0
+	um.tree.Cursor = 0
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
-	if um.treeCursor != 0 {
-		t.Errorf("k at top should stay at 0, got %d", um.treeCursor)
+	if um.tree.Cursor != 0 {
+		t.Errorf("k at top should stay at 0, got %d", um.tree.Cursor)
 	}
 }
 
@@ -334,7 +337,7 @@ func TestDashboardModel_TabSwitchPane(t *testing.T) {
 
 func TestDashboardModel_KillConfirmY(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 1
+	m.tree.Cursor = 1
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'K', ShiftedCode: 'K', Mod: tea.ModShift})
 	um := updated.(dashboardModel)
@@ -356,7 +359,7 @@ func TestDashboardModel_KillConfirmY(t *testing.T) {
 
 func TestDashboardModel_KillConfirmN(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'K', ShiftedCode: 'K', Mod: tea.ModShift})
 	um := updated.(dashboardModel)
@@ -420,16 +423,16 @@ func TestDashboardModel_50Processes(t *testing.T) {
 
 func TestDashboardModel_SelectedPIDSync(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	um := updated.(dashboardModel)
 	if um.selectedPID == 0 {
 		t.Error("selectedPID should be updated when cursor moves")
 	}
-	if len(um.treeRows) > 1 && um.selectedPID != um.treeRows[um.treeCursor].proc.PID {
+	if len(um.tree.Rows) > 1 && um.selectedPID != um.tree.Rows[um.tree.Cursor].Proc.PID {
 		t.Errorf("selectedPID should match cursor row PID, got %d vs %d",
-			um.selectedPID, um.treeRows[um.treeCursor].proc.PID)
+			um.selectedPID, um.tree.Rows[um.tree.Cursor].Proc.PID)
 	}
 }
 
@@ -454,7 +457,7 @@ func TestDashboardModel_ScrollViewport(t *testing.T) {
 		m = updated.(dashboardModel)
 	}
 
-	if m.treeOffset == 0 {
+	if m.tree.Offset == 0 {
 		t.Error("treeOffset should have scrolled to keep cursor visible")
 	}
 }
@@ -498,14 +501,14 @@ func newTestTimelineDashboardModel() dashboardModel {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.activePane = paneTimeline
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "Open /dev/llm/claude"}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "Planning build step"}},
-		{summary: ipc.StepSummaryWire{Step: 3, Action: "spawn", Summary: "Spawn builder"}},
-		{summary: ipc.StepSummaryWire{Step: 4, Action: "tool_call", Summary: "Read file"}},
-		{summary: ipc.StepSummaryWire{Step: 5, Action: "complete", Summary: "Done"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "Open /dev/llm/claude"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "Planning build step"}},
+		{Summary: ipc.StepSummaryWire{Step: 3, Action: "spawn", Summary: "Spawn builder"}},
+		{Summary: ipc.StepSummaryWire{Step: 4, Action: "tool_call", Summary: "Read file"}},
+		{Summary: ipc.StepSummaryWire{Step: 5, Action: "complete", Summary: "Done"}},
 	}
-	m.stepFilters = defaultStepFilters()
+	m.timeline.StepFilters = defaultStepFilters()
 	return m
 }
 
@@ -539,14 +542,14 @@ func TestDashboardModel_TimelineFilter(t *testing.T) {
 	// Press f to enter filter mode
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'f'})
 	um := updated.(dashboardModel)
-	if !um.stepFilterMode {
+	if !um.timeline.StepFilterMode {
 		t.Error("pressing 'f' should enter step filter mode")
 	}
 
 	// Press f to exit filter mode
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'f'})
 	um = updated.(dashboardModel)
-	if um.stepFilterMode {
+	if um.timeline.StepFilterMode {
 		t.Error("pressing 'f' again should exit step filter mode")
 	}
 }
@@ -555,21 +558,21 @@ func TestDashboardModel_TimelineFilter(t *testing.T) {
 
 func TestDashboardModel_TimelinePIDChange(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	if len(m.stepEntries) == 0 {
+	if len(m.timeline.StepEntries) == 0 {
 		t.Fatal("pre-condition: model should have step entries")
 	}
 
-	m.timelineAttachedUUID = m.selectedUUID
+	m.timeline.AttachedUUID = m.selectedUUID
 	m.selectedPID = 999
 	m.selectedUUID = "uuid-999"
 
-	m = m.handleTimelinePIDChange()
+	m.timeline = timeline.HandlePIDUUIDChangeWithSearch(m.timeline, &m.search, m.selectedPID, m.selectedUUID)
 
-	if len(m.stepEntries) != 0 {
-		t.Errorf("UUID change should clear stepEntries, got %d", len(m.stepEntries))
+	if len(m.timeline.StepEntries) != 0 {
+		t.Errorf("UUID change should clear stepEntries, got %d", len(m.timeline.StepEntries))
 	}
-	if m.timelineAttachedUUID != "uuid-999" {
-		t.Errorf("timelineAttachedUUID should update to new UUID, got %q", m.timelineAttachedUUID)
+	if m.timeline.AttachedUUID != "uuid-999" {
+		t.Errorf("timelineAttachedUUID should update to new UUID, got %q", m.timeline.AttachedUUID)
 	}
 }
 
@@ -623,14 +626,14 @@ func newTestHeatmapDashboardModel() dashboardModel {
 	m.viewMode = viewExpanded
 	m.expandedPane = paneHeatmap
 	m.rightPane = paneHeatmap
-	m.heatmapProfile = mockHeatmapProfile()
-	m.heatmapPID = 2
-	m.heatmapSegments = []heatmapSegment{
-		{label: "System Prompt", tokens: 360, pct: 30.0, kind: segSystem, activity: actActive},
-		{label: "Tool Results", tokens: 300, pct: 25.0, kind: segTool, activity: actWarm},
-		{label: "User Messages", tokens: 240, pct: 20.0, kind: segUser, activity: actActive},
-		{label: "Assistant", tokens: 180, pct: 15.0, kind: segAssistant, activity: actCold},
-		{label: "Leaked", tokens: 60, pct: 5.0, kind: segLeaked, activity: actLeaked},
+	m.heatmap.Profile = mockHeatmapProfile()
+	m.heatmap.PID = 2
+	m.heatmap.Segments = []heatmapSegment{
+		{Label: "System Prompt", Tokens: 360, Pct: 30.0, Kind: segSystem, Activity: actActive},
+		{Label: "Tool Results", Tokens: 300, Pct: 25.0, Kind: segTool, Activity: actWarm},
+		{Label: "User Messages", Tokens: 240, Pct: 20.0, Kind: segUser, Activity: actActive},
+		{Label: "Assistant", Tokens: 180, Pct: 15.0, Kind: segAssistant, Activity: actCold},
+		{Label: "Leaked", Tokens: 60, Pct: 5.0, Kind: segLeaked, Activity: actLeaked},
 	}
 	return m
 }
@@ -660,9 +663,9 @@ func TestBuildHeatmapSegments_SortedByTokenDesc(t *testing.T) {
 		t.Fatal("expected non-empty segments for profile with TopConsumers")
 	}
 	for i := 1; i < len(segments); i++ {
-		if segments[i].tokens > segments[i-1].tokens {
+		if segments[i].Tokens > segments[i-1].Tokens {
 			t.Errorf("segments not sorted by token desc: [%d].tokens=%d > [%d].tokens=%d",
-				i, segments[i].tokens, i-1, segments[i-1].tokens)
+				i, segments[i].Tokens, i-1, segments[i-1].Tokens)
 		}
 	}
 }
@@ -688,12 +691,12 @@ func TestBuildHeatmapSegments_MergeSmall(t *testing.T) {
 
 	hasOther := false
 	for _, seg := range segments {
-		if seg.label == "Other" {
+		if seg.Label == "Other" {
 			hasOther = true
 		}
-		if seg.pct < 3.0 && seg.label != "Other" {
+		if seg.Pct < 3.0 && seg.Label != "Other" {
 			t.Errorf("segment %q has pct %.1f%% which is <3%% and should be merged into Other",
-				seg.label, seg.pct)
+				seg.Label, seg.Pct)
 		}
 	}
 	if !hasOther {
@@ -737,13 +740,13 @@ func TestDashboardModel_HeatmapProfileMsg(t *testing.T) {
 	m.selectedPID = 2
 
 	profile := mockHeatmapProfile()
-	updated, _ := m.Update(heatmapProfileMsg{profile: profile})
+	updated, _ := m.Update(heatmapProfileMsg{Profile: profile})
 	um := updated.(dashboardModel)
 
-	if um.heatmapProfile == nil {
+	if um.heatmap.Profile == nil {
 		t.Error("heatmapProfileMsg should store profile in model")
 	}
-	if len(um.heatmapSegments) == 0 {
+	if len(um.heatmap.Segments) == 0 {
 		t.Error("heatmapProfileMsg should trigger buildHeatmapSegments and produce segments")
 	}
 }
@@ -786,25 +789,25 @@ func TestDashboardModel_HeatmapRenderWithSegments(t *testing.T) {
 
 func TestDashboardModel_HeatmapCursorJK(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapCursor = 0
+	m.heatmap.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	um := updated.(dashboardModel)
-	if um.heatmapCursor != 1 {
-		t.Errorf("j should move heatmapCursor down: expected 1, got %d", um.heatmapCursor)
+	if um.heatmap.Cursor != 1 {
+		t.Errorf("j should move heatmapCursor down: expected 1, got %d", um.heatmap.Cursor)
 	}
 
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
-	if um.heatmapCursor != 0 {
-		t.Errorf("k should move heatmapCursor up: expected 0, got %d", um.heatmapCursor)
+	if um.heatmap.Cursor != 0 {
+		t.Errorf("k should move heatmapCursor up: expected 0, got %d", um.heatmap.Cursor)
 	}
 
-	um.heatmapCursor = 0
+	um.heatmap.Cursor = 0
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
-	if um.heatmapCursor != 0 {
-		t.Errorf("k at top should stay at 0, got %d", um.heatmapCursor)
+	if um.heatmap.Cursor != 0 {
+		t.Errorf("k at top should stay at 0, got %d", um.heatmap.Cursor)
 	}
 }
 
@@ -812,7 +815,7 @@ func TestDashboardModel_HeatmapCursorJK(t *testing.T) {
 
 func TestDashboardModel_HeatmapSelectedDetails(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapCursor = 0
+	m.heatmap.Cursor = 0
 	m.activePane = paneHeatmap
 
 	v := m.View()
@@ -830,21 +833,22 @@ func TestDashboardModel_HeatmapSelectedDetails(t *testing.T) {
 
 func TestDashboardModel_HeatmapPIDChange(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	if m.heatmapProfile == nil {
+	if m.heatmap.Profile == nil {
 		t.Fatal("precondition: model should have heatmap profile")
 	}
 
 	m.selectedPID = 999
-	m = m.handleHeatmapPIDChange()
+	// Story 38-5 PR11 Step 4(b) Phase 2: handleHeatmapPIDChange wrapper 删除 · 改用 inline 调用
+	m.heatmap = heatmap.HandlePIDChange(m.heatmap)
 
-	if m.heatmapProfile != nil {
+	if m.heatmap.Profile != nil {
 		t.Error("PID change should clear heatmapProfile")
 	}
-	if len(m.heatmapSegments) != 0 {
-		t.Errorf("PID change should clear heatmapSegments, got %d", len(m.heatmapSegments))
+	if len(m.heatmap.Segments) != 0 {
+		t.Errorf("PID change should clear heatmapSegments, got %d", len(m.heatmap.Segments))
 	}
-	if m.heatmapCursor != 0 {
-		t.Errorf("PID change should reset heatmapCursor to 0, got %d", m.heatmapCursor)
+	if m.heatmap.Cursor != 0 {
+		t.Errorf("PID change should reset heatmapCursor to 0, got %d", m.heatmap.Cursor)
 	}
 }
 
@@ -892,15 +896,15 @@ func TestMapConsumerKindToSegmentKind(t *testing.T) {
 
 func TestDashboardModel_HeatmapEnterToggle(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapCursor = 0
+	m.heatmap.Cursor = 0
 
-	if m.heatmapExpanded {
+	if m.heatmap.Expanded {
 		t.Fatal("heatmapExpanded should default to false")
 	}
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	um := updated.(dashboardModel)
-	if !um.heatmapExpanded {
+	if !um.heatmap.Expanded {
 		t.Error("enter should toggle heatmapExpanded to true")
 	}
 
@@ -911,7 +915,7 @@ func TestDashboardModel_HeatmapEnterToggle(t *testing.T) {
 
 	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	um = updated.(dashboardModel)
-	if um.heatmapExpanded {
+	if um.heatmap.Expanded {
 		t.Error("enter again should toggle heatmapExpanded back to false")
 	}
 }
@@ -938,9 +942,9 @@ func TestBuildHeatmapSegments_MergeToolKinds(t *testing.T) {
 	toolCount := 0
 	totalToolTokens := 0
 	for _, seg := range segments {
-		if seg.kind == segTool {
+		if seg.Kind == segTool {
 			toolCount++
-			totalToolTokens = seg.tokens
+			totalToolTokens = seg.Tokens
 		}
 	}
 	if toolCount != 1 {
@@ -961,10 +965,10 @@ func TestDashboardModel_HeatmapProfileError(t *testing.T) {
 	m.expandedPane = paneHeatmap
 	m.rightPane = paneHeatmap
 
-	updated, _ := m.Update(heatmapProfileMsg{err: fmt.Errorf("connection refused")})
+	updated, _ := m.Update(heatmapProfileMsg{Err: fmt.Errorf("connection refused")})
 	um := updated.(dashboardModel)
 
-	if um.heatmapErr == nil {
+	if um.heatmap.Err == nil {
 		t.Error("heatmapProfileMsg with error should store heatmapErr")
 	}
 
@@ -989,16 +993,17 @@ func TestMapConsumerKind_Skill(t *testing.T) {
 
 func TestDashboardModel_HeatmapPIDChangeResetsState(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapExpanded = true
-	m.heatmapErr = fmt.Errorf("old error")
+	m.heatmap.Expanded = true
+	m.heatmap.Err = fmt.Errorf("old error")
 
 	m.selectedPID = 999
-	m = m.handleHeatmapPIDChange()
+	// Story 38-5 PR11 Step 4(b) Phase 2: handleHeatmapPIDChange wrapper 删除 · 改用 inline 调用
+	m.heatmap = heatmap.HandlePIDChange(m.heatmap)
 
-	if m.heatmapExpanded {
+	if m.heatmap.Expanded {
 		t.Error("PID change should reset heatmapExpanded to false")
 	}
-	if m.heatmapErr != nil {
+	if m.heatmap.Err != nil {
 		t.Error("PID change should clear heatmapErr")
 	}
 }
@@ -1013,7 +1018,7 @@ func TestDashboardModel_HeatmapPIDChangeResetsState(t *testing.T) {
 
 func TestDashboardModel_PIDChangeImmediateLinkage(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 	m.activePane = paneTree
 
 	updated, cmd := m.Update(tea.KeyPressMsg{Code: 'j'})
@@ -1038,11 +1043,11 @@ func TestDashboardModel_HandlePIDChangeNoPID(t *testing.T) {
 	if cmd != nil {
 		t.Error("handlePIDChange with selectedPID=0 should return nil cmd (no IPC)")
 	}
-	if m2.timelineAttachedPID != 0 {
-		t.Errorf("timelineAttachedPID should be 0 when selectedPID=0, got %d", m2.timelineAttachedPID)
+	if m2.timeline.AttachedPID != 0 {
+		t.Errorf("timelineAttachedPID should be 0 when selectedPID=0, got %d", m2.timeline.AttachedPID)
 	}
-	if m2.heatmapPID != 0 {
-		t.Errorf("heatmapPID should be 0 when selectedPID=0, got %d", m2.heatmapPID)
+	if m2.heatmap.PID != 0 {
+		t.Errorf("heatmapPID should be 0 when selectedPID=0, got %d", m2.heatmap.PID)
 	}
 }
 
@@ -1050,28 +1055,28 @@ func TestDashboardModel_HandlePIDChangeNoPID(t *testing.T) {
 
 func TestDashboardModel_HandlePIDChangeClearsData(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	m.heatmapProfile = mockHeatmapProfile()
-	m.heatmapSegments = []heatmapSegment{{label: "test", tokens: 100}}
-	m.heatmapPID = 2
+	m.heatmap.Profile = mockHeatmapProfile()
+	m.heatmap.Segments = []heatmapSegment{{Label: "test", Tokens: 100}}
+	m.heatmap.PID = 2
 
 	m.selectedPID = 999
 	m.selectedUUID = "uuid-999"
 	m2, _ := m.handlePIDChange()
 
-	if len(m2.stepEntries) != 0 {
-		t.Errorf("handlePIDChange should clear stepEntries, got %d", len(m2.stepEntries))
+	if len(m2.timeline.StepEntries) != 0 {
+		t.Errorf("handlePIDChange should clear stepEntries, got %d", len(m2.timeline.StepEntries))
 	}
-	if m2.heatmapProfile != nil {
+	if m2.heatmap.Profile != nil {
 		t.Error("handlePIDChange should clear heatmapProfile")
 	}
-	if len(m2.heatmapSegments) != 0 {
-		t.Errorf("handlePIDChange should clear heatmapSegments, got %d", len(m2.heatmapSegments))
+	if len(m2.heatmap.Segments) != 0 {
+		t.Errorf("handlePIDChange should clear heatmapSegments, got %d", len(m2.heatmap.Segments))
 	}
-	if m2.timelineAttachedUUID != "uuid-999" {
-		t.Errorf("timelineAttachedUUID should be uuid-999, got %q", m2.timelineAttachedUUID)
+	if m2.timeline.AttachedUUID != "uuid-999" {
+		t.Errorf("timelineAttachedUUID should be uuid-999, got %q", m2.timeline.AttachedUUID)
 	}
-	if m2.heatmapPID != 999 {
-		t.Errorf("heatmapPID should be 999, got %d", m2.heatmapPID)
+	if m2.heatmap.PID != 999 {
+		t.Errorf("heatmapPID should be 999, got %d", m2.heatmap.PID)
 	}
 }
 
@@ -1098,7 +1103,7 @@ func TestDashboardModel_GlobalKillConfirmTimeline(t *testing.T) {
 
 func TestDashboardModel_TimelineKNavigatesNotKill(t *testing.T) {
 	m := newTestTimelineDashboardModel()
-	m.stepCursor = 2
+	m.timeline.StepCursor = 2
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
@@ -1106,8 +1111,8 @@ func TestDashboardModel_TimelineKNavigatesNotKill(t *testing.T) {
 	if um.confirmKill {
 		t.Error("k in timeline pane should navigate, not trigger kill")
 	}
-	if um.stepCursor != 1 {
-		t.Errorf("k in timeline should move cursor up: expected 1, got %d", um.stepCursor)
+	if um.timeline.StepCursor != 1 {
+		t.Errorf("k in timeline should move cursor up: expected 1, got %d", um.timeline.StepCursor)
 	}
 }
 
@@ -1115,7 +1120,7 @@ func TestDashboardModel_TimelineKNavigatesNotKill(t *testing.T) {
 
 func TestDashboardModel_HeatmapKNavigatesNotKill(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.heatmapCursor = 2
+	m.heatmap.Cursor = 2
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
@@ -1123,8 +1128,8 @@ func TestDashboardModel_HeatmapKNavigatesNotKill(t *testing.T) {
 	if um.confirmKill {
 		t.Error("k in heatmap pane should navigate, not trigger kill")
 	}
-	if um.heatmapCursor != 1 {
-		t.Errorf("k in heatmap should move cursor up: expected 1, got %d", um.heatmapCursor)
+	if um.heatmap.Cursor != 1 {
+		t.Errorf("k in heatmap should move cursor up: expected 1, got %d", um.heatmap.Cursor)
 	}
 }
 
@@ -1164,14 +1169,14 @@ func TestDashboardModel_GlobalKillNoSelectedPID(t *testing.T) {
 func TestDashboardModel_TreeKNavigatesUpNotKill(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.activePane = paneTree
-	m.treeCursor = 2
+	m.tree.Cursor = 2
 	m.selectedPID = 3
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
 
-	if um.treeCursor != 1 {
-		t.Errorf("k in tree pane should navigate up: expected cursor 1, got %d", um.treeCursor)
+	if um.tree.Cursor != 1 {
+		t.Errorf("k in tree pane should navigate up: expected cursor 1, got %d", um.tree.Cursor)
 	}
 	if um.confirmKill {
 		t.Error("k in tree pane should NOT trigger kill confirmation")
@@ -1271,14 +1276,14 @@ func TestRecordToggleMsg_Error(t *testing.T) {
 
 func TestDashboardModel_GlobalAlertToggleKey(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventStall, Severity: SevWarn, Summary: "stall"},
 	}
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'a'})
 	model := m2.(dashboardModel)
 
-	if !model.alertExpanded {
+	if !model.alertStrip.Expanded {
 		t.Error("a key with alertEvents should toggle alertExpanded to true")
 	}
 }
@@ -1726,9 +1731,9 @@ func TestReplayDashboard_LiveKeysBlocked(t *testing.T) {
 	// trigger tick to populate treeRows so k can navigate
 	m2.processes = buildReplayProcessTree(m2.replayReader, 0)
 	roots := buildProcessTree(m2.processes, treeSortPID, false)
-	m2.treeRows = flattenTree(roots)
-	m2.treeCursor = 0
-	m2.selectedPID = m2.treeRows[0].proc.PID
+	m2.tree.Rows = flattenTree(roots)
+	m2.tree.Cursor = 0
+	m2.selectedPID = m2.tree.Rows[0].Proc.PID
 
 	updated, _ = m2.Update(tea.KeyPressMsg{Code: 'k'})
 	um = updated.(dashboardModel)
@@ -1789,15 +1794,15 @@ func TestDashboardModel_HeatmapRefreshTick(t *testing.T) {
 
 	m := newDashboardModel(nil)
 	m.connected = false
-	m.heatmapTickCount = 0
+	m.heatmap.TickCount = 0
 
 	for range 5 {
 		updated, _ := m.Update(tickMsg(time.Now()))
 		m = updated.(dashboardModel)
 	}
 
-	if m.heatmapTickCount != 5 {
-		t.Errorf("after 5 ticks, heatmapTickCount should be 5, got %d", m.heatmapTickCount)
+	if m.heatmap.TickCount != 5 {
+		t.Errorf("after 5 ticks, heatmapTickCount should be 5, got %d", m.heatmap.TickCount)
 	}
 }
 
@@ -1813,15 +1818,15 @@ func newTestStepInspectorModel() dashboardModel {
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
 	m.viewMode = viewStepInspector
-	m.inspectorPID = 2
-	m.inspectorUUID = "uuid-mock-002"
-	m.inspectorLens = lensConversation
+	m.inspector.PID = 2
+	m.inspector.UUID = "uuid-mock-002"
+	m.inspector.Lens = lensConversation
 	m.activePane = paneTree
 	// Provide default step list for navigation tests
-	m.inspectorSteps = []ipc.StepSummaryWire{
+	m.inspector.Steps = []ipc.StepSummaryWire{
 		{Step: 0}, {Step: 1}, {Step: 2}, {Step: 3}, {Step: 4}, {Step: 5},
 	}
-	m.inspectorStepMax = 5
+	m.inspector.StepMax = 5
 	return m
 }
 
@@ -1829,7 +1834,7 @@ func newTestStepInspectorModel() dashboardModel {
 
 func TestStepInspector_LKeyEntersViewer(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 1
+	m.tree.Cursor = 1
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
 
@@ -1845,7 +1850,7 @@ func TestStepInspector_LKeyEntersViewer(t *testing.T) {
 
 func TestStepInspector_LKeyReturnsCmd(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.treeCursor = 1
+	m.tree.Cursor = 1
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
 
@@ -1904,7 +1909,7 @@ func TestStepInspector_ViewContainsLensTabs(t *testing.T) {
 
 func TestStepInspector_HKeyPrevStep(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStep = 2
+	m.inspector.Step = 2
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'h'})
 
@@ -1915,7 +1920,7 @@ func TestStepInspector_HKeyPrevStep(t *testing.T) {
 
 func TestStepInspector_HKeyBoundaryNoFetch(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStep = 0
+	m.inspector.Step = 0
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'h'})
 
@@ -1928,7 +1933,7 @@ func TestStepInspector_HKeyBoundaryNoFetch(t *testing.T) {
 
 func TestStepInspector_LKeyNextStep(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStepMax = 5
+	m.inspector.StepMax = 5
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 
@@ -1940,8 +1945,8 @@ func TestStepInspector_LKeyNextStep(t *testing.T) {
 func TestStepInspector_LKeyNextStepBlockedBeforeLoad(t *testing.T) {
 	m := newTestStepInspectorModel()
 	// Clear step list to simulate "not loaded yet"
-	m.inspectorSteps = nil
-	m.inspectorStepMax = 0
+	m.inspector.Steps = nil
+	m.inspector.StepMax = 0
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 
@@ -1952,8 +1957,8 @@ func TestStepInspector_LKeyNextStepBlockedBeforeLoad(t *testing.T) {
 
 func TestStepInspector_LKeyBoundaryNoFetch(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStepMax = 5
-	m.inspectorStep = 5
+	m.inspector.StepMax = 5
+	m.inspector.Step = 5
 
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'l'})
 
@@ -1964,9 +1969,9 @@ func TestStepInspector_LKeyBoundaryNoFetch(t *testing.T) {
 
 func TestStepInspector_FetchingGuardBlocksConcurrent(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorStep = 2
-	m.inspectorStepMax = 5
-	m.inspectorFetching = true
+	m.inspector.Step = 2
+	m.inspector.StepMax = 5
+	m.inspector.Fetching = true
 
 	_, cmdH := m.Update(tea.KeyPressMsg{Code: 'h'})
 	_, cmdL := m.Update(tea.KeyPressMsg{Code: 'l'})
@@ -1983,13 +1988,13 @@ func TestStepInspector_FetchingGuardBlocksConcurrent(t *testing.T) {
 
 func TestStepInspector_JKeyScrollsNotTree(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	um := updated.(dashboardModel)
 
-	if um.treeCursor != 0 {
-		t.Errorf("j in viewStepInspector should scroll viewport, not move treeCursor: expected 0, got %d", um.treeCursor)
+	if um.tree.Cursor != 0 {
+		t.Errorf("j in viewStepInspector should scroll viewport, not move treeCursor: expected 0, got %d", um.tree.Cursor)
 	}
 }
 
@@ -2049,8 +2054,8 @@ func TestStepInspector_ExpandedTreeLKey(t *testing.T) {
 	if um.viewMode != viewStepInspector {
 		t.Errorf("L in expanded tree view should enter viewStepInspector, got viewMode=%d", um.viewMode)
 	}
-	if um.inspectorPrevMode != viewExpanded {
-		t.Errorf("Inspector should save prev mode as viewExpanded, got %d", um.inspectorPrevMode)
+	if um.inspector.PrevMode != int(viewExpanded) {
+		t.Errorf("Inspector should save prev mode as viewExpanded, got %d", um.inspector.PrevMode)
 	}
 }
 
@@ -2073,13 +2078,13 @@ func TestStepInspector_ViewFullScreenOverlay(t *testing.T) {
 
 func TestStepInspector_KKeyScrollsNotTree(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.treeCursor = 2
+	m.tree.Cursor = 2
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	um := updated.(dashboardModel)
 
-	if um.treeCursor != 2 {
-		t.Errorf("k in viewStepInspector should scroll viewport, not move treeCursor: expected 2, got %d", um.treeCursor)
+	if um.tree.Cursor != 2 {
+		t.Errorf("k in viewStepInspector should scroll viewport, not move treeCursor: expected 2, got %d", um.tree.Cursor)
 	}
 }
 
@@ -2087,7 +2092,7 @@ func TestStepInspector_KKeyScrollsNotTree(t *testing.T) {
 
 func TestStepInspector_EscReturnsToExpandedView(t *testing.T) {
 	m := newTestStepInspectorModel()
-	m.inspectorPrevMode = viewExpanded
+	m.inspector.PrevMode = int(viewExpanded)
 
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	um := updated.(dashboardModel)
@@ -2126,8 +2131,8 @@ func TestStepInspector_LensSwitching(t *testing.T) {
 		m := newTestStepInspectorModel()
 		updated, _ := m.Update(tea.KeyPressMsg{Code: tt.key})
 		um := updated.(dashboardModel)
-		if um.inspectorLens != tt.expected {
-			t.Errorf("key '%c' should switch to lens %d, got %d", tt.key, tt.expected, um.inspectorLens)
+		if um.inspector.Lens != tt.expected {
+			t.Errorf("key '%c' should switch to lens %d, got %d", tt.key, tt.expected, um.inspector.Lens)
 		}
 	}
 }
@@ -2142,21 +2147,21 @@ func TestStepFilterFromDefaultView(t *testing.T) {
 	// f 键应触发过滤模式
 	updated, _ := m.Update(tea.KeyPressMsg{Code: 'f'})
 	um := updated.(dashboardModel)
-	if !um.stepFilterMode {
+	if !um.timeline.StepFilterMode {
 		t.Error("f key in default view should enter step filter mode even from tree pane")
 	}
 
 	// 在过滤模式按 t 应能切换 tool_call
 	updated, _ = um.Update(tea.KeyPressMsg{Code: 't'})
 	um = updated.(dashboardModel)
-	if um.stepFilters["tool_call"] {
+	if um.timeline.StepFilters["tool_call"] {
 		t.Error("t in filter mode should toggle tool_call filter to false")
 	}
 
 	// Esc 退出过滤模式
 	updated, _ = um.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	um = updated.(dashboardModel)
-	if um.stepFilterMode {
+	if um.timeline.StepFilterMode {
 		t.Error("Esc should exit filter mode")
 	}
 }
@@ -2597,22 +2602,22 @@ func TestBuildProcessTree_DeadHierarchy(t *testing.T) {
 	}
 	// PID 2 should be child of PID 1
 	root := roots[0]
-	if root.proc.PID != 1 {
-		t.Fatalf("root should be PID 1, got %d", root.proc.PID)
+	if root.Proc.PID != 1 {
+		t.Fatalf("root should be PID 1, got %d", root.Proc.PID)
 	}
-	if len(root.children) != 1 {
-		t.Fatalf("PID 1 should have 1 child (PID 2), got %d", len(root.children))
+	if len(root.Children) != 1 {
+		t.Fatalf("PID 1 should have 1 child (PID 2), got %d", len(root.Children))
 	}
-	child := root.children[0]
-	if child.proc.PID != 2 {
-		t.Fatalf("child of PID 1 should be PID 2, got %d", child.proc.PID)
+	child := root.Children[0]
+	if child.Proc.PID != 2 {
+		t.Fatalf("child of PID 1 should be PID 2, got %d", child.Proc.PID)
 	}
 	// PID 3 should be child of PID 2 (dead→dead hierarchy)
-	if len(child.children) != 1 {
-		t.Fatalf("PID 2 should have 1 child (PID 3), got %d children", len(child.children))
+	if len(child.Children) != 1 {
+		t.Fatalf("PID 2 should have 1 child (PID 3), got %d children", len(child.Children))
 	}
-	if child.children[0].proc.PID != 3 {
-		t.Errorf("child of PID 2 should be PID 3, got %d", child.children[0].proc.PID)
+	if child.Children[0].Proc.PID != 3 {
+		t.Errorf("child of PID 2 should be PID 3, got %d", child.Children[0].Proc.PID)
 	}
 }
 
@@ -2630,7 +2635,7 @@ func TestBuildProcessTree_DeadOrphan(t *testing.T) {
 	}
 	pids := map[types.PID]bool{}
 	for _, r := range roots {
-		pids[r.proc.PID] = true
+		pids[r.Proc.PID] = true
 	}
 	if !pids[5] {
 		t.Error("dead process with missing PPID 99 should become root")
@@ -2651,14 +2656,14 @@ func TestBuildProcessTree_ReparentedOrphanPreservesTree(t *testing.T) {
 		t.Fatalf("expected 1 root (PID 1), got %d roots", len(roots))
 	}
 	root := roots[0]
-	if root.proc.PID != 1 {
-		t.Fatalf("root should be PID 1, got %d", root.proc.PID)
+	if root.Proc.PID != 1 {
+		t.Fatalf("root should be PID 1, got %d", root.Proc.PID)
 	}
-	if len(root.children) != 1 {
-		t.Fatalf("PID 1 should have 1 child (PID 13 reparented but ParentUUID preserved), got %d", len(root.children))
+	if len(root.Children) != 1 {
+		t.Fatalf("PID 1 should have 1 child (PID 13 reparented but ParentUUID preserved), got %d", len(root.Children))
 	}
-	if root.children[0].proc.PID != 13 {
-		t.Errorf("child of PID 1 should be PID 13, got %d", root.children[0].proc.PID)
+	if root.Children[0].Proc.PID != 13 {
+		t.Errorf("child of PID 1 should be PID 13, got %d", root.Children[0].Proc.PID)
 	}
 }
 
@@ -2675,8 +2680,8 @@ func TestBuildProcessTree_ReparentedOrphanSyntheticParent(t *testing.T) {
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 synthetic root for missing parent, got %d roots", len(roots))
 	}
-	if len(roots[0].children) != 2 {
-		t.Errorf("synthetic parent should have 2 children, got %d", len(roots[0].children))
+	if len(roots[0].Children) != 2 {
+		t.Errorf("synthetic parent should have 2 children, got %d", len(roots[0].Children))
 	}
 }
 
@@ -2749,9 +2754,9 @@ func TestMostActiveHighlight(t *testing.T) {
 	})
 
 	// PID 1 had event 1 second ago → should be "most active"
-	m.lastEventByPID[1] = now.Add(-1 * time.Second)
+	m.tree.LastEventByPID[1] = now.Add(-1 * time.Second)
 	// PID 2 had event 5 seconds ago → not active
-	m.lastEventByPID[2] = now.Add(-5 * time.Second)
+	m.tree.LastEventByPID[2] = now.Add(-5 * time.Second)
 
 	v := m.View()
 	content := v.Content
@@ -2790,9 +2795,9 @@ func TestDeadTreeCollapse(t *testing.T) {
 	// The collapsed row should have collapsed=true
 	found := false
 	for _, r := range rows {
-		if r.proc.UUID == "dead-parent-u" {
+		if r.Proc.UUID == "dead-parent-u" {
 			found = true
-			if !r.collapsed {
+			if !r.Collapsed {
 				t.Error("dead-parent-u row should have collapsed=true")
 			}
 		}
@@ -2819,11 +2824,11 @@ func makeTestUnifiedEvents() []UnifiedEvent {
 	now := time.Now()
 	return []UnifiedEvent{
 		{Type: EventStep, Summary: "read file", Severity: SevInfo, Timestamp: now.Add(-5 * time.Second), PID: 1,
-			StepEntry: &stepEntry{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}}},
+			StepEntry: &stepEntry{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}}},
 		{Type: EventCompact, Summary: "compact PID 1: 500→250 tok", Severity: SevInfo, Timestamp: now.Add(-4 * time.Second), PID: 1},
 		{Type: EventBudget, Summary: "PID 2 budget 80% used", Severity: SevWarn, Timestamp: now.Add(-3 * time.Second), PID: 2},
 		{Type: EventStep, Summary: "write code", Severity: SevInfo, Timestamp: now.Add(-2 * time.Second), PID: 1,
-			StepEntry: &stepEntry{summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "write code"}}},
+			StepEntry: &stepEntry{Summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", Summary: "write code"}}},
 		{Type: EventExit, Summary: "PID 3 exited code=1", Severity: SevError, Timestamp: now.Add(-1 * time.Second), PID: 3},
 		{Type: EventStall, Summary: "PID 1 stalled >30s", Severity: SevWarn, Timestamp: now, PID: 1},
 	}
@@ -2833,7 +2838,7 @@ func makeTestUnifiedEvents() []UnifiedEvent {
 
 func TestRenderAlertStrip_NoAlerts(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = nil
+	m.alertStrip.Events = nil
 	result := renderAlertStrip(&m, 80, 2)
 	if result != "" {
 		t.Errorf("expected empty string for no alerts, got %q", result)
@@ -2844,7 +2849,7 @@ func TestRenderAlertStrip_NoAlerts(t *testing.T) {
 
 func TestRenderAlertStrip_SingleAlert(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventBudget, Summary: "PID 2 budget 80%", Severity: SevWarn, Timestamp: time.Now()},
 	}
 	result := renderAlertStrip(&m, 80, 2)
@@ -2860,7 +2865,7 @@ func TestRenderAlertStrip_SingleAlert(t *testing.T) {
 
 func TestRenderAlertStrip_Overflow(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventExit, Summary: "error 1", Severity: SevError, Timestamp: time.Now()},
 		{Type: EventExit, Summary: "error 2", Severity: SevError, Timestamp: time.Now()},
 		{Type: EventBudget, Summary: "warn 1", Severity: SevWarn, Timestamp: time.Now()},
@@ -2902,7 +2907,7 @@ func TestRenderAlertStrip_SeverityOrder(t *testing.T) {
 func TestRenderAlertStrip_ASCII(t *testing.T) {
 	t.Setenv("RNIX_ASCII", "1")
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: time.Now()},
 	}
 	result := renderAlertStrip(&m, 80, 2)
@@ -2920,13 +2925,13 @@ func TestRenderUnifiedTimeline_StepEvents(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
 	m.selectedUUID = "uuid-mock-001"
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan next steps"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan next steps"}},
 	}
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read file", Timestamp: time.Now().Add(-2 * time.Second), PID: 1},
-		{Type: EventStep, StepEntry: &m.stepEntries[1], Summary: "plan next steps", Timestamp: time.Now(), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read file", Timestamp: time.Now().Add(-2 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[1], Summary: "plan next steps", Timestamp: time.Now(), PID: 1},
 	}
 	result := m.renderStepTimeline(80, 20)
 	if !strings.Contains(result, "read file") {
@@ -2943,12 +2948,12 @@ func TestRenderUnifiedTimeline_SystemEvents(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
 	m.selectedUUID = "uuid-mock-001"
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
 	}
 	now := time.Now()
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
 		{Type: EventCompact, Summary: "compact PID 1", Severity: SevInfo, Timestamp: now.Add(-2 * time.Second), PID: 1},
 		{Type: EventSpawn, Summary: "spawned PID 5", Severity: SevInfo, Timestamp: now.Add(-1 * time.Second), PID: 1},
 		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: now, PID: 3},
@@ -2971,12 +2976,12 @@ func TestRenderUnifiedTimeline_MixedEvents(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
 	m.selectedUUID = "uuid-mock-001"
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read file"}},
 	}
 	now := time.Now()
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read file", Timestamp: now.Add(-2 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read file", Timestamp: now.Add(-2 * time.Second), PID: 1},
 		{Type: EventBudget, Summary: "budget warning", Severity: SevWarn, Timestamp: now, PID: 1},
 	}
 	result := m.renderStepTimeline(80, 20)
@@ -3038,20 +3043,20 @@ func TestEventTypeIcon_ASCII(t *testing.T) {
 func TestEventFilter_SystemEvents(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
 	}
 	now := time.Now()
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read", Timestamp: now.Add(-1 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read", Timestamp: now.Add(-1 * time.Second), PID: 1},
 		{Type: EventCompact, Summary: "compact", Severity: SevInfo, Timestamp: now, PID: 1},
 	}
-	m.stepFilters = defaultStepFilters()
+	m.timeline.StepFilters = defaultStepFilters()
 	filtered := m.filteredUnifiedEvents()
 	if len(filtered) != 2 {
 		t.Fatalf("all filters on: expected 2 events, got %d", len(filtered))
 	}
-	m.stepFilters[EventCompact] = false
+	m.timeline.StepFilters[EventCompact] = false
 	filtered = m.filteredUnifiedEvents()
 	if len(filtered) != 1 {
 		t.Fatalf("compact off: expected 1 event, got %d", len(filtered))
@@ -3067,20 +3072,20 @@ func TestEventFilter_MixedFilter(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 1
 	entries := []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan"}},
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", Summary: "read"}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan", Summary: "plan"}},
 	}
-	m.stepEntries = entries
+	m.timeline.StepEntries = entries
 	now := time.Now()
 	m.unifiedEvents = []UnifiedEvent{
-		{Type: EventStep, StepEntry: &m.stepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[0], Summary: "read", Timestamp: now.Add(-3 * time.Second), PID: 1},
 		{Type: EventCompact, Summary: "compact", Severity: SevInfo, Timestamp: now.Add(-2 * time.Second), PID: 1},
-		{Type: EventStep, StepEntry: &m.stepEntries[1], Summary: "plan", Timestamp: now.Add(-1 * time.Second), PID: 1},
+		{Type: EventStep, StepEntry: &m.timeline.StepEntries[1], Summary: "plan", Timestamp: now.Add(-1 * time.Second), PID: 1},
 		{Type: EventBudget, Summary: "budget", Severity: SevWarn, Timestamp: now, PID: 1},
 	}
-	m.stepFilters = defaultStepFilters()
-	m.stepFilters["tool_call"] = false
-	m.stepFilters[EventBudget] = false
+	m.timeline.StepFilters = defaultStepFilters()
+	m.timeline.StepFilters["tool_call"] = false
+	m.timeline.StepFilters[EventBudget] = false
 	filtered := m.filteredUnifiedEvents()
 	if len(filtered) != 2 {
 		t.Fatalf("expected 2 filtered events, got %d", len(filtered))
@@ -3095,18 +3100,18 @@ func TestEventFilter_MixedFilter(t *testing.T) {
 
 func TestAlertJump_ToProcess(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventExit, Summary: "PID 3 exited", Severity: SevError, Timestamp: time.Now(), PID: 3},
 		{Type: EventBudget, Summary: "PID 2 budget", Severity: SevWarn, Timestamp: time.Now(), PID: 2},
 	}
-	m.alertExpanded = true
-	m.alertCursor = 0
-	alert := m.alertEvents[m.alertCursor]
+	m.alertStrip.Expanded = true
+	m.alertStrip.Cursor = 0
+	alert := m.alertStrip.Events[m.alertStrip.Cursor]
 	if alert.PID != 3 {
 		t.Errorf("expected alert PID 3, got %d", alert.PID)
 	}
-	m.alertCursor = 1
-	alert = m.alertEvents[m.alertCursor]
+	m.alertStrip.Cursor = 1
+	alert = m.alertStrip.Events[m.alertStrip.Cursor]
 	if alert.PID != 2 {
 		t.Errorf("expected alert PID 2, got %d", alert.PID)
 	}
@@ -3116,7 +3121,7 @@ func TestAlertJump_ToProcess(t *testing.T) {
 
 func TestAlertStrip_ExpandCollapse(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.alertEvents = []UnifiedEvent{
+	m.alertStrip.Events = []UnifiedEvent{
 		{Type: EventExit, Summary: "err1", Severity: SevError, Timestamp: time.Now()},
 		{Type: EventExit, Summary: "err2", Severity: SevError, Timestamp: time.Now()},
 		{Type: EventBudget, Summary: "warn1", Severity: SevWarn, Timestamp: time.Now()},
@@ -3124,29 +3129,29 @@ func TestAlertStrip_ExpandCollapse(t *testing.T) {
 		{Type: EventBudget, Summary: "warn3", Severity: SevWarn, Timestamp: time.Now()},
 	}
 
-	h := alertStripHeight(len(m.alertEvents), false)
+	h := alertStripHeight(len(m.alertStrip.Events), false)
 	if h != 2 {
 		t.Errorf("collapsed height: expected 2, got %d", h)
 	}
 
-	h = alertStripHeight(len(m.alertEvents), true)
+	h = alertStripHeight(len(m.alertStrip.Events), true)
 	if h != 5 {
 		t.Errorf("expanded height: expected 5, got %d", h)
 	}
 
-	m.alertExpanded = false
-	m.alertCursor = 3
-	m.alertExpanded = true
-	if m.alertCursor != 3 {
-		t.Errorf("cursor should stay at 3 when expanding, got %d", m.alertCursor)
+	m.alertStrip.Expanded = false
+	m.alertStrip.Cursor = 3
+	m.alertStrip.Expanded = true
+	if m.alertStrip.Cursor != 3 {
+		t.Errorf("cursor should stay at 3 when expanding, got %d", m.alertStrip.Cursor)
 	}
-	m.alertExpanded = false
-	visible := alertStripHeight(len(m.alertEvents), false)
-	if m.alertCursor >= visible {
-		m.alertCursor = 0
+	m.alertStrip.Expanded = false
+	visible := alertStripHeight(len(m.alertStrip.Events), false)
+	if m.alertStrip.Cursor >= visible {
+		m.alertStrip.Cursor = 0
 	}
-	if m.alertCursor != 0 {
-		t.Errorf("cursor should reset to 0 when collapsing, got %d", m.alertCursor)
+	if m.alertStrip.Cursor != 0 {
+		t.Errorf("cursor should reset to 0 when collapsing, got %d", m.alertStrip.Cursor)
 	}
 }
 
@@ -3184,5 +3189,475 @@ func TestBuildAlertEvents_OnlySevWarnOrHigher(t *testing.T) {
 	}
 	if len(alerts) != 3 {
 		t.Fatalf("expected 3 alerts, got %d", len(alerts))
+	}
+}
+
+// =============================================================================
+// Story 38.2 — Phase 1 视觉框架（Title 颜色梯度 / Status Mode 标签 / Alert Badge+TTL）
+// =============================================================================
+
+// --- 38.2-UNIT-001: pctColorStyle 阈值正确（AC#1） ---
+
+// TestPctColorStyle_Thresholds asserts pctColorStyle returns the exact same
+// style we'd construct manually for the three buckets defined in AC#1:
+//
+//	< 60%  → Foreground(ColorMuted)
+//	60-79% → Foreground(ColorWarning)
+//	≥ 80%  → Foreground(ColorError) + Bold
+//
+// Code-review patch (P6, 2026-05-03): assert via lipgloss style getters
+// (GetForeground / GetBold) instead of Render byte-equality. Render-based
+// comparison collapses to plain "x" under NoColor / TERM=dumb profiles, so a
+// buggy implementation that returned the same colour for every threshold
+// would have passed the old test. Getter-based assertion is profile-agnostic
+// and pins the actual style fields.
+func TestPctColorStyle_Thresholds(t *testing.T) {
+	cases := []struct {
+		name     string
+		pct      int
+		wantFg   string // hex color string we expect via GetForeground
+		wantBold bool
+	}{
+		{"0%_muted", 0, ui.ColorMuted, false},
+		{"59%_muted", 59, ui.ColorMuted, false},
+		{"60%_warning", 60, ui.ColorWarning, false},
+		{"79%_warning", 79, ui.ColorWarning, false},
+		{"80%_error_bold", 80, ui.ColorError, true},
+		{"100%_error_bold", 100, ui.ColorError, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pctColorStyle(tc.pct)
+			gotFg := got.GetForeground()
+			gotBold := got.GetBold()
+			wantFg := lipgloss.Color(tc.wantFg)
+			if gotFg != wantFg {
+				t.Errorf("pctColorStyle(%d).GetForeground() = %v, want %v",
+					tc.pct, gotFg, wantFg)
+			}
+			if gotBold != tc.wantBold {
+				t.Errorf("pctColorStyle(%d).GetBold() = %v, want %v",
+					tc.pct, gotBold, tc.wantBold)
+			}
+		})
+	}
+}
+
+// --- 38.2-UNIT-002: Title Bar 渲染时 ctxSeg/budgetSeg 包裹了 pctColorStyle（AC#1） ---
+
+// TestRenderDashboardTitle_CtxBudgetColorGradient verifies the full integration
+// — the Title Bar actually invokes pctColorStyle when constructing ctx/budget
+// segments. We assert by comparing the rendered title to a string built with
+// the expected style, so the test is robust against lipgloss profile changes.
+func TestRenderDashboardTitle_CtxBudgetColorGradient(t *testing.T) {
+	cases := []struct {
+		name   string
+		ctxPct int
+	}{
+		{"0%_muted", 0},
+		{"60%_warning", 60},
+		{"80%_error", 80},
+		{"100%_error", 100},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			procs := []vfs.ProcInfo{{
+				PID:           1,
+				UUID:          "uuid-pct",
+				State:         types.StateRunning,
+				TokensUsed:    tc.ctxPct,
+				ContextBudget: 100,
+				MaxCost:       1.0,
+				UsedCost:      float64(tc.ctxPct) / 100.0,
+				CreatedAt:     time.Now(),
+			}}
+			m := newTestDashboardModel(procs)
+			m.selectedPID = 1
+			m.width = 160 // wide enough for Level 5 (ctx + budget + elapsed)
+
+			title := m.renderDashboardTitle()
+
+			// The exact styled segment that pctColorStyle produces.
+			wantCtx := pctColorStyle(tc.ctxPct).Render(fmt.Sprintf("ctx %d%%", tc.ctxPct))
+			wantBudget := pctColorStyle(tc.ctxPct).Render(fmt.Sprintf("budget %d%%", tc.ctxPct))
+
+			if !strings.Contains(title, wantCtx) {
+				t.Errorf("title missing styled ctx segment %q; got: %q", wantCtx, title)
+			}
+			if !strings.Contains(title, wantBudget) {
+				t.Errorf("title missing styled budget segment %q; got: %q", wantBudget, title)
+			}
+		})
+	}
+}
+
+// --- 38.2-UNIT-003: 颜色梯度在窄终端裁剪后不渲染（AC#1 末段 + AC#5） ---
+
+// TestRenderDashboardTitle_CtxBudgetColorGradient_TrimmedAway verifies that
+// at terminal widths too narrow for Level ≥ 3 (ctx) or Level ≥ 4 (budget),
+// no colour-gradient logic runs (segment simply absent from the output).
+func TestRenderDashboardTitle_CtxBudgetColorGradient_TrimmedAway(t *testing.T) {
+	procs := []vfs.ProcInfo{{
+		PID:           1,
+		UUID:          "uuid-pct",
+		State:         types.StateRunning,
+		TokensUsed:    90, // ≥80% so red gradient would normally fire
+		ContextBudget: 100,
+		CreatedAt:     time.Now(),
+	}}
+	m := newTestDashboardModel(procs)
+	m.selectedPID = 1
+
+	// Width 25 → only base + counts fit (Level 1).
+	m.width = 25
+	title := m.renderDashboardTitle()
+	if strings.Contains(title, "ctx 90%") {
+		t.Errorf("at width=25 the ctx segment should be trimmed away, got: %q", title)
+	}
+	if strings.Contains(title, "budget 90%") {
+		t.Errorf("at width=25 the budget segment should be trimmed away, got: %q", title)
+	}
+}
+
+// --- 38.2-UNIT-004: Title 颜色梯度 ASCII 模式下颜色保留（AC#1 倒数第二段） ---
+
+// TestRenderDashboardTitle_CtxBudgetColorGradient_ASCII verifies that even
+// in ASCII mode (RNIX_ASCII=1), the colour gradient on ctx/budget segments
+// is preserved — only Unicode glyphs (●→*, ──→--) are swapped.
+func TestRenderDashboardTitle_CtxBudgetColorGradient_ASCII(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+
+	procs := []vfs.ProcInfo{{
+		PID:           1,
+		UUID:          "uuid-pct",
+		State:         types.StateRunning,
+		TokensUsed:    85, // ≥80% → red+bold
+		ContextBudget: 100,
+		CreatedAt:     time.Now(),
+	}}
+	m := newTestDashboardModel(procs)
+	m.selectedPID = 1
+	m.width = 160
+
+	title := m.renderDashboardTitle()
+
+	// ASCII separators
+	if !strings.Contains(title, "--") {
+		t.Errorf("ASCII mode should use '--' separator, got: %q", title)
+	}
+	// Colour-styled segment should still be present (AC#1: ASCII preserves ANSI).
+	wantCtx := pctColorStyle(85).Render("ctx 85%")
+	if !strings.Contains(title, wantCtx) {
+		t.Errorf("ASCII mode should preserve colour gradient on ctx, got: %q", title)
+	}
+}
+
+// --- 38.2-UNIT-005: Status Bar Mode 标签（AC#2） ---
+
+// TestRenderDashboardStatus_ModeLabel verifies the status bar emits the
+// correct [MONITOR] / [EXPANDED] / [INSPECTOR] / [DEBUG] / [REPLAY] literal
+// for each viewMode + replayMode combination.
+func TestRenderDashboardStatus_ModeLabel(t *testing.T) {
+	cases := []struct {
+		name      string
+		setup     func(*dashboardModel)
+		wantLabel string
+	}{
+		{
+			name:      "viewDefault",
+			setup:     func(m *dashboardModel) { m.viewMode = viewDefault },
+			wantLabel: "[MONITOR]",
+		},
+		{
+			name: "viewExpanded",
+			setup: func(m *dashboardModel) {
+				m.viewMode = viewExpanded
+				m.expandedPane = paneTimeline
+			},
+			wantLabel: "[EXPANDED]",
+		},
+		{
+			name:      "viewStepInspector",
+			setup:     func(m *dashboardModel) { m.viewMode = viewStepInspector },
+			wantLabel: "[INSPECTOR]",
+		},
+		{
+			name:      "viewDebug",
+			setup:     func(m *dashboardModel) { m.viewMode = viewDebug },
+			wantLabel: "[DEBUG]",
+		},
+		{
+			name:      "replayMode_overrides_viewMode",
+			setup:     func(m *dashboardModel) { m.replayMode = true; m.viewMode = viewDebug },
+			wantLabel: "[REPLAY]",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestDashboardModel(mockDashboardProcs())
+			tc.setup(&m)
+			status := m.renderDashboardStatus()
+			if !strings.Contains(status, tc.wantLabel) {
+				t.Errorf("status bar should contain %q, got: %q", tc.wantLabel, status)
+			}
+		})
+	}
+}
+
+// --- 38.2-UNIT-006: confirmKill 时不显示 Mode 标签（AC#2 行为契约） ---
+
+// TestRenderDashboardStatus_ConfirmKillNoModeLabel verifies the y/N
+// confirmation dialog stays visually quiet — no mode label injected.
+func TestRenderDashboardStatus_ConfirmKillNoModeLabel(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.confirmKill = true
+	m.confirmPID = 42
+	m.viewMode = viewDefault
+
+	status := m.renderDashboardStatus()
+	if !strings.Contains(status, "Kill PID 42?") {
+		t.Errorf("confirmKill should show kill prompt, got: %q", status)
+	}
+	for _, lbl := range []string{"[MONITOR]", "[EXPANDED]", "[INSPECTOR]", "[DEBUG]", "[REPLAY]"} {
+		if strings.Contains(status, lbl) {
+			t.Errorf("confirmKill must NOT contain mode label %q, got: %q", lbl, status)
+		}
+	}
+}
+
+// --- 38.2-UNIT-007: statusMsg 上下文也注入 Mode 标签（AC#2 第 5 行） ---
+
+// TestRenderDashboardStatus_StatusMsgKeepsModeLabel verifies that flash status
+// messages don't suppress the mode label (the user must still know the mode).
+func TestRenderDashboardStatus_StatusMsgKeepsModeLabel(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.viewMode = viewDefault
+	m.statusMsg = "Process killed"
+
+	status := m.renderDashboardStatus()
+	if !strings.Contains(status, "[MONITOR]") {
+		t.Errorf("statusMsg context should still show mode label, got: %q", status)
+	}
+	if !strings.Contains(status, "Process killed") {
+		t.Errorf("statusMsg context should still show msg, got: %q", status)
+	}
+}
+
+// --- 38.2-UNIT-008: ASCII 模式 Mode 标签（AC#2 末段） ---
+
+// TestRenderDashboardStatus_ModeLabel_ASCII verifies that mode label text
+// is unchanged in ASCII mode, but the UTF-8 separator '│' becomes '|'.
+func TestRenderDashboardStatus_ModeLabel_ASCII(t *testing.T) {
+	t.Setenv("RNIX_ASCII", "1")
+
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.viewMode = viewDefault
+	status := m.renderDashboardStatus()
+
+	if !strings.Contains(status, "[MONITOR]") {
+		t.Errorf("ASCII mode label text unchanged, got: %q", status)
+	}
+	if strings.Contains(status, "│") {
+		t.Errorf("ASCII mode should NOT contain UTF-8 '│', got: %q", status)
+	}
+	if !strings.Contains(status, "|") {
+		t.Errorf("ASCII mode should contain '|' separator, got: %q", status)
+	}
+}
+
+// --- 38.2-UNIT-009: replayMode + renderReplayStatus 也注入 [REPLAY]（AC#2 优先级） ---
+
+// TestRenderReplayStatus_HasReplayLabel verifies that the replay-mode
+// renderReplayStatus function (in dashboard.go) injects [REPLAY] at the left.
+func TestRenderReplayStatus_HasReplayLabel(t *testing.T) {
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.replayMode = true
+	m.replayPlaying = false
+	// renderReplayStatus reads m.replayReader; nil-safe fields are fine here.
+
+	status := m.renderReplayStatus()
+	if !strings.Contains(status, "[REPLAY]") {
+		t.Errorf("renderReplayStatus should contain [REPLAY] mode label, got: %q", status)
+	}
+}
+
+// --- 38.2-UNIT-010: Alert Strip 计数 Badge（AC#3） ---
+
+// TestRenderAlertStrip_CountBadge verifies the right-aligned ✗N ⚠M badge
+// renders correctly across {0, 1, 5, 20} alert counts and respects the
+// SevError/SevWarn split.
+func TestRenderAlertStrip_CountBadge(t *testing.T) {
+	now := time.Now()
+
+	t.Run("0_alerts_no_badge", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.alertStrip.Events = nil
+		got := renderAlertStrip(&m, 80, 2)
+		if got != "" {
+			t.Errorf("0 alerts must yield empty strip, got: %q", got)
+		}
+	})
+
+	t.Run("1_error_only", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.alertStrip.Events = []UnifiedEvent{
+			{Type: EventExit, Summary: "boom", Severity: SevError, Timestamp: now},
+		}
+		got := renderAlertStrip(&m, 80, 2)
+		if !strings.Contains(got, "✗1") {
+			t.Errorf("expected ✗1 badge, got: %q", got)
+		}
+		if strings.Contains(got, "⚠1") || strings.Contains(got, "⚠ ") {
+			t.Errorf("warn count should be hidden when 0, got: %q", got)
+		}
+	})
+
+	t.Run("5_mixed_2err_3warn", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.alertStrip.Events = []UnifiedEvent{
+			{Type: EventExit, Summary: "e1", Severity: SevError, Timestamp: now},
+			{Type: EventExit, Summary: "e2", Severity: SevError, Timestamp: now},
+			{Type: EventBudget, Summary: "w1", Severity: SevWarn, Timestamp: now},
+			{Type: EventBudget, Summary: "w2", Severity: SevWarn, Timestamp: now},
+			{Type: EventBudget, Summary: "w3", Severity: SevWarn, Timestamp: now},
+		}
+		got := renderAlertStrip(&m, 100, 2)
+		if !strings.Contains(got, "✗2") {
+			t.Errorf("expected ✗2, got: %q", got)
+		}
+		if !strings.Contains(got, "⚠3") {
+			t.Errorf("expected ⚠3, got: %q", got)
+		}
+	})
+
+	t.Run("20_total_split", func(t *testing.T) {
+		m := newTestDashboardModel(mockDashboardProcs())
+		m.alertStrip.Events = make([]UnifiedEvent, 0, 20)
+		for range 7 {
+			m.alertStrip.Events = append(m.alertStrip.Events, UnifiedEvent{
+				Type: EventExit, Summary: "err", Severity: SevError, Timestamp: now,
+			})
+		}
+		for range 13 {
+			m.alertStrip.Events = append(m.alertStrip.Events, UnifiedEvent{
+				Type: EventBudget, Summary: "warn", Severity: SevWarn, Timestamp: now,
+			})
+		}
+		got := renderAlertStrip(&m, 120, 2)
+		if !strings.Contains(got, "✗7") {
+			t.Errorf("expected ✗7 in 20-alert strip, got: %q", got)
+		}
+		if !strings.Contains(got, "⚠13") {
+			t.Errorf("expected ⚠13 in 20-alert strip, got: %q", got)
+		}
+	})
+}
+
+// --- 38.2-UNIT-011: Badge 在展开态不渲染（AC#3 末段） ---
+
+// TestRenderAlertStrip_BadgeNotInExpanded verifies that when alertExpanded=true
+// the count badge is suppressed (cursor highlight UX takes over).
+//
+// Code-review patch (P11, 2026-05-03): added positive assertions so the test
+// pins more than just "no ✗ glyph" — we also check the alert summaries are
+// rendered and the row count matches the expanded layout.
+func TestRenderAlertStrip_BadgeNotInExpanded(t *testing.T) {
+	now := time.Now()
+	m := newTestDashboardModel(mockDashboardProcs())
+	m.alertStrip.Expanded = true
+	m.alertStrip.Events = []UnifiedEvent{
+		{Type: EventExit, Summary: "e1-summary-error", Severity: SevError, Timestamp: now},
+		{Type: EventBudget, Summary: "w1-summary-warn", Severity: SevWarn, Timestamp: now},
+	}
+	got := renderAlertStrip(&m, 80, 8)
+	// Negative: Strip text already contains ✗ icon? No — ui.AlertSeverityIcon
+	// emits 🔴/⚠ for non-ASCII, so any ✗ glyph is from a (forbidden) badge.
+	if strings.Contains(got, "✗") {
+		t.Errorf("expanded strip must NOT render ✗ count badge, got: %q", got)
+	}
+	// P11 positive #1: each alert summary must appear in the rendered strip
+	// (proves the cursor-highlight UX still paints the actual rows).
+	for _, want := range []string{"e1-summary-error", "w1-summary-warn"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expanded strip missing summary %q, got: %q", want, got)
+		}
+	}
+	// P11 positive #2: rendered output should span exactly len(alerts) rows
+	// for collapsed-into-expanded layout (top border + 2 alert rows).
+	if rows := strings.Count(got, "\n"); rows < 2 {
+		t.Errorf("expanded strip should produce ≥2 newlines (top border + rows), got %d in %q", rows, got)
+	}
+}
+
+// --- 38.2-UNIT-012: Badge ASCII 模式（AC#3 末段） ---
+
+// TestAlertCountBadge_ASCII verifies the badge swaps ✗→X and ⚠→! in ASCII
+// mode but preserves the integer counts.
+func TestAlertCountBadge_ASCII(t *testing.T) {
+	now := time.Now()
+	alerts := []UnifiedEvent{
+		{Severity: SevError, Timestamp: now},
+		{Severity: SevError, Timestamp: now},
+		{Severity: SevWarn, Timestamp: now},
+	}
+	got := alertCountBadge(alerts, true)
+	if !strings.Contains(got, "X2") {
+		t.Errorf("ASCII badge should contain X2, got: %q", got)
+	}
+	if !strings.Contains(got, "!1") {
+		t.Errorf("ASCII badge should contain !1, got: %q", got)
+	}
+	if strings.ContainsAny(got, "✗⚠") {
+		t.Errorf("ASCII badge must NOT contain unicode glyphs, got: %q", got)
+	}
+}
+
+// --- 38.2-UNIT-013: Alert TTL 30s 自动清理（AC#4） ---
+
+// TestBuildAlertEvents_TTLFilter verifies that buildAlertEvents drops
+// entries older than 30s and keeps everything within window.
+//
+// Code-review patch (P5, 2026-05-03): the previous "fresh-29s" boundary case
+// was clock-fragile — the test computes `now := time.Now()` once but
+// buildAlertEvents calls `time.Now()` again inside, so on slow CI any delta
+// > 1s could push the 29s-old event past the 30s TTL and turn the test red.
+// We pull the in-window boundary back to 15s (well inside the 30s budget)
+// and the out-of-window boundary forward to 45s for symmetric headroom.
+func TestBuildAlertEvents_TTLFilter(t *testing.T) {
+	now := time.Now()
+	events := []UnifiedEvent{
+		{Severity: SevError, Summary: "fresh-5s", Timestamp: now.Add(-5 * time.Second)},
+		{Severity: SevWarn, Summary: "fresh-15s", Timestamp: now.Add(-15 * time.Second)},
+		{Severity: SevError, Summary: "stale-45s", Timestamp: now.Add(-45 * time.Second)},
+		{Severity: SevWarn, Summary: "stale-120s", Timestamp: now.Add(-120 * time.Second)},
+	}
+	alerts := buildAlertEvents(events)
+	if len(alerts) != 2 {
+		t.Fatalf("expected 2 in-window alerts, got %d: %+v", len(alerts), alerts)
+	}
+	for _, a := range alerts {
+		if strings.Contains(a.Summary, "stale") {
+			t.Errorf("stale alert leaked through TTL filter: %q", a.Summary)
+		}
+	}
+}
+
+// --- 38.2-UNIT-014: 零值 Timestamp 不被 TTL 过滤（AC#4 IsZero 守卫） ---
+
+// TestBuildAlertEvents_ZeroTimestampNotFiltered verifies that synthetic
+// events left with Timestamp = time.Time{} are preserved.
+func TestBuildAlertEvents_ZeroTimestampNotFiltered(t *testing.T) {
+	events := []UnifiedEvent{
+		{Severity: SevError, Summary: "no-ts"}, // Timestamp == zero value
+	}
+	alerts := buildAlertEvents(events)
+	if len(alerts) != 1 {
+		t.Fatalf("expected zero-Timestamp alert preserved, got %d", len(alerts))
+	}
+	if alerts[0].Summary != "no-ts" {
+		t.Errorf("got unexpected alert: %+v", alerts[0])
 	}
 }

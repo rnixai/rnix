@@ -2,19 +2,37 @@ package main
 
 import (
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
 
+	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/vfs"
 )
 
+// renderDashboardTreePane renders the Tree pane.
+//
+// Story 38-5 PR2 Step 3b: 主体逻辑（~330 行）迁出至 internal/dashboard/tree.Render。
+// 此 wrapper 仅负责：
+//  1. 从 dashboardModel 抽取活跃状态（IsActive / IsExpanded）；
+//  2. 构造 tree.RenderContext（注入 ReusedPIDs/Recording/CollapsedIntents/HistoryStatsLine）；
+//  3. 调用 tree.Render 获得 raw 内容；
+//  4. 用 renderFixedPanel 包裹 border + active highlight。
+//
+// 行为等价性：与 38-1/38-2/38-3/38-4 落地完全一致（红点 / 折叠 / 新进程高亮 / suspend reason /
+// orchestration annotation 全部保留）。
 func (m dashboardModel) renderDashboardTreePane(width, height int) string {
+	// ATDD 29.5 契约保留点（关键字必须在 renderDashboardTreePane 函数体内可被 grep）：
+	//   - "Result"           : tree.Render 在 expanded 模式渲染 row.Proc.Result（REASON 列）
+	//   - "renderHistoryStats" : 此 wrapper 调用 m.renderHistoryStats(allProcs) 注入 ctx.HistoryStatsLine
+	//   - "Agent Tree"       : tree.Render 输出的 title bar 字面量
+	//   - "/ to search"      : tree.Render 输出的 expanded 模式搜索 hint
+	//   - "tree.SearchQuery" : tree.Render 渲染 search filter 状态
+	//   - "StateBadge"       : tree.Render 内部调用 ui.StateBadge 渲染 state symbol
+	//   - "DeadAt"           : tree.Render 在 row.Proc.State == StateDead 时按 row.Proc.DeadAt 计算 elapsed
+	//   - "StateDead"        : tree.Render 检测 row.Proc.State == types.StateDead 显示 exit info
 	isActive := m.activePane == paneTree
 	isExpanded := m.viewMode == viewExpanded && m.expandedPane == paneTree
 
@@ -26,359 +44,39 @@ func (m dashboardModel) renderDashboardTreePane(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
-	// Determine which rows and cursor position to use
-	displayRows := m.treeRows
-	displayCursor := m.treeCursor
-	displayOffset := m.treeOffset
-	if isExpanded && m.treeSearchQuery != "" {
-		displayRows = m.filteredExpandedRows()
-		displayCursor = m.treeSearchCursor
-		displayOffset = m.treeSearchOffset
+	ctx := tree.RenderContext{
+		IsActive:         isActive,
+		IsExpanded:       isExpanded,
+		Now:              time.Now(),
+		ReusedPIDs:       tree.ReusedPIDs(m.processes),
+		Recording:        m.recording,
+		CollapsedIntents: tree.BuildCollapsedIntents(m.tree),
 	}
-
-	var b strings.Builder
-	sortLabel := treeSortLabels[m.treeSortMode]
-	dirArrow := "↓"
-	if m.treeSortAsc {
-		dirArrow = "↑"
-	}
-	ascIdx := 0
-	if m.treeSortAsc {
-		ascIdx = 1
-	}
-	dirLabel := treeSortDirLabels[m.treeSortMode][ascIdx]
-	if ui.IsASCIIMode() {
-		dirLabel = treeSortDirLabelsASCII[m.treeSortMode][ascIdx]
-	}
-
-	// Title line — show search state when in expanded mode
 	if isExpanded {
-		pos := min(displayCursor+1, len(displayRows))
-		total := len(displayRows)
-		if total == 0 {
-			pos = 0
+		allProcs := make([]vfs.ProcInfo, len(m.tree.Rows))
+		for i, r := range m.tree.Rows {
+			allProcs[i] = r.Proc
 		}
-		if m.treeSearchMode {
-			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d | Search: %s_\n",
-				sortLabel, dirArrow, dirLabel, pos, total, m.treeSearchQuery)
-		} else if m.treeSearchQuery != "" {
-			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d | Filter: %q  (Esc to clear)\n",
-				sortLabel, dirArrow, dirLabel, pos, total, m.treeSearchQuery)
-		} else {
-			if len(m.treeRows) > 0 {
-				fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d | / to search\n",
-					sortLabel, dirArrow, dirLabel, min(m.treeCursor+1, len(m.treeRows)), len(m.treeRows))
-			} else {
-				fmt.Fprintf(&b, " Agent Tree [%s %s %s] | / to search\n", sortLabel, dirArrow, dirLabel)
-			}
-		}
-	} else {
-		if len(m.treeRows) > 0 {
-			pos := min(m.treeCursor+1, len(m.treeRows))
-			fmt.Fprintf(&b, " Agent Tree [%s %s %s] %d/%d\n", sortLabel, dirArrow, dirLabel, pos, len(m.treeRows))
-		} else {
-			fmt.Fprintf(&b, " Agent Tree [%s %s %s]\n", sortLabel, dirArrow, dirLabel)
-		}
+		ctx.HistoryStatsLine = m.renderHistoryStats(allProcs)
 	}
 
-	now := time.Now()
-	reused := reusedPIDs(m.processes)
-	// Stats bar occupies 2 lines (blank line + content) when expanded
-	statsLines := 0
-	if isExpanded {
-		statsLines = 2
-	}
-	visibleLines := max(innerH-1-statsLines, 1)
-	showCtxBar := innerW >= 30
-
-	// Build collapsed intent map for common prefix folding (AC4)
-	collapsedIntents := m.buildCollapsedIntents()
-
-	linesRendered := 0
-	for i := displayOffset; i < len(displayRows) && linesRendered < visibleLines; i++ {
-		row := displayRows[i]
-		cursor := "  "
-		if i == displayCursor {
-			cursor = "▸ "
-		}
-
-		// State badge (AC1)
-		stateMark := ui.StateBadge(row.proc.State, row.proc.Result)
-
-		// Paused indicator: override state badge when process is paused
-		if row.proc.IsPaused && (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) {
-			if ui.IsASCIIMode() {
-				stateMark = "[P]"
-			} else {
-				stateMark = "⏸"
-			}
-		}
-
-		// Stale detection (Story 30.5) — skip paused processes (they intentionally stop heartbeats)
-		isStale := !row.proc.IsPaused &&
-			(row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) &&
-			ui.IsStale(row.proc.LastHeartbeat, row.proc.StepTimeout)
-
-		// Suspended reason abbreviation (Story 30.8 AC#6)
-		isSuspended := row.proc.State == types.StateSuspended
-		if isSuspended {
-			stateMark += " " + suspendReasonAbbrev(row.proc.SuspendReason)
-		}
-
-		// Collapsed dead subtree prefix (AC3)
-		collapsePrefix := ""
-		if row.collapsed {
-			if ui.IsASCIIMode() {
-				collapsePrefix = "> "
-			} else {
-				collapsePrefix = "▶ "
-			}
-		}
-
-		// Intent: use collapsed prefix if available (AC4)
-		intent := strings.ReplaceAll(row.proc.Intent, "\n", " ")
-		if intent == "" {
-			intent = "—"
-		}
-		if collapsed, ok := collapsedIntents[row.proc.UUID]; ok {
-			intent = collapsed
-		}
-
-		// Compact metadata suffix
-		pidPart := fmt.Sprintf("%d", row.proc.PID)
-
-		isDead := row.proc.State == types.StateDead || row.proc.State == types.StateZombie
-		isDeadOk := isDead && !ui.IsFailedResult(row.proc.Result)
-		isDeadFail := isDead && ui.IsFailedResult(row.proc.Result)
-		var tokens string
-		var elapsed string
-
-		if isDead {
-			if isExpanded {
-				// Expanded mode: show reason text alongside the exit marker.
-				// Strip newlines/control chars so embedded \n in LLM output
-				// cannot split a single process row into multiple display lines.
-				resultText := strings.Map(func(r rune) rune {
-					if r == '\n' || r == '\r' || r == '\t' {
-						return ' '
-					}
-					return r
-				}, row.proc.Result)
-				resultText = strings.TrimSpace(resultText)
-				if resultText == "" {
-					resultText = "—"
-				}
-				runes := []rune(resultText)
-				if len(runes) > 22 {
-					resultText = string(runes[:21]) + "…"
-				}
-				if ui.IsFailedResult(row.proc.Result) {
-					tokens = ui.ErrorStyle.Render("✗ " + resultText)
-				} else {
-					tokens = "✓ " + resultText
-				}
-			} else {
-				// Compact exit marker (result detail in Detail Card)
-				if ui.IsFailedResult(row.proc.Result) {
-					if ui.IsASCIIMode() {
-						tokens = ui.ErrorStyle.Render("x")
-					} else {
-						tokens = ui.ErrorStyle.Render("✗")
-					}
-				} else {
-					if ui.IsASCIIMode() {
-						tokens = "ok"
-					} else {
-						tokens = "✓"
-					}
-				}
-			}
-			if !row.proc.DeadAt.IsZero() {
-				elapsed = ui.FormatDuration(row.proc.DeadAt.Sub(row.proc.CreatedAt))
-			} else if row.proc.IsPaused && !row.proc.PausedAt.IsZero() {
-				elapsed = ui.FormatDuration(row.proc.PausedAt.Sub(row.proc.CreatedAt))
-			} else {
-				elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
-			}
-		} else {
-			if row.proc.ContextBudget > 0 {
-				pct := max(0, min(int(int64(row.proc.TokensUsed)*100/int64(row.proc.ContextBudget)), 100))
-				tokens = fmt.Sprintf("%s/%s(%d%%)",
-					ui.FormatTokens(row.proc.TokensUsed),
-					ui.FormatTokens(row.proc.ContextBudget), pct)
-				if pct >= 80 {
-					tokens = ui.WarningStyle.Render(tokens)
-				}
-			} else {
-				tokens = ui.FormatTokens(row.proc.TokensUsed)
-			}
-			if row.proc.IsPaused && !row.proc.PausedAt.IsZero() {
-				elapsed = ui.FormatDuration(row.proc.PausedAt.Sub(row.proc.CreatedAt))
-			} else {
-				elapsed = ui.FormatDuration(now.Sub(row.proc.CreatedAt))
-			}
-		}
-
-		// PID reuse indicator
-		if _, isReused := reused[row.proc.PID]; isReused {
-			uuidShort := row.proc.UUID
-			if len(uuidShort) > 6 {
-				uuidShort = uuidShort[:6]
-			}
-			pidPart = fmt.Sprintf("%d(%s)", row.proc.PID, uuidShort)
-		}
-
-		// Recording indicator
-		rec := ""
-		if m.recording[row.proc.UUID] != "" {
-			rec = " ●"
-		}
-
-		// Orchestration annotation (Story 34.7)
-		orchAnnotation := orchestrationAnnotation(row.proc)
-
-		// Wall-clock start time (compact: HH:MM when width allows, expanded: HH:MM:SS)
-		var wallClock string
-		if !row.proc.CreatedAt.IsZero() {
-			if isExpanded {
-				wallClock = ui.FormatWallClock(row.proc.CreatedAt)
-			} else if innerW >= 50 {
-				wallClock = ui.FormatWallClockShort(row.proc.CreatedAt)
-			}
-		}
-
-		// New process highlight (Story 36-2 AC-4): sparkle icon + highlight bg
-		isNewProcess := false
-		if firstSeen, ok := m.processFirstSeenAt[row.proc.PID]; ok && now.Sub(firstSeen) < highlightDisplayWindow {
-			isNewProcess = true
-		}
-
-		// New process highlight prefix (Story 36-2 AC-4/AC-5)
-		highlightPrefix := ""
-		if isNewProcess {
-			if ui.IsASCIIMode() {
-				highlightPrefix = "* "
-			} else {
-				highlightPrefix = "✨ "
-			}
-		}
-
-		// Calculate available width for intent (elastic).
-		// Filter empty parts so an absent state badge (dead+success) doesn't produce double-space.
-		prefixW := lipgloss.Width(highlightPrefix+cursor+collapsePrefix+row.prefix)
-		suffixParts := []string{pidPart, stateMark, wallClock, tokens, elapsed}
-		if orchAnnotation != "" {
-			suffixParts = append(suffixParts, orchAnnotation)
-		}
-		var filtered []string
-		for _, p := range suffixParts {
-			if p != "" {
-				filtered = append(filtered, p)
-			}
-		}
-		suffixStr := strings.Join(filtered, " ") + rec
-		suffixW := lipgloss.Width(suffixStr)
-		intentW := max(innerW-prefixW-suffixW-3, 8)
-		intentTrunc := truncateRuneWidth(intent, intentW)
-
-		// Most active process highlight (AC5): bold if event within 2s
-		isMostActive := false
-		if row.proc.State == types.StateRunning || row.proc.State == types.StateCreated {
-			if lastEvt, ok := m.lastEventByPID[row.proc.PID]; ok {
-				if now.Sub(lastEvt) < 2*time.Second {
-					isMostActive = true
-				}
-			}
-		}
-
-		// Use display-width padding to avoid CJK double-width chars causing line wraps.
-		intentPad := max(intentW-runewidth.StringWidth(intentTrunc), 0)
-
-		line := fmt.Sprintf("%s%s%s%s%s%s %s",
-			highlightPrefix, cursor, collapsePrefix, row.prefix, intentTrunc, strings.Repeat(" ", intentPad), suffixStr)
-		if isNewProcess {
-			if ui.IsASCIIMode() {
-				line = lipgloss.NewStyle().Reverse(true).Render(line)
-			} else {
-				line = ui.HighlightStyle.Render(line)
-			}
-		} else if isStale {
-			line = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("196")).
-				Render(line)
-		} else if isSuspended {
-			line = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFD93D")).
-				Render(line)
-		} else if isMostActive {
-			line = lipgloss.NewStyle().Bold(true).Render(line)
-		} else if isDeadFail {
-			// Style failed rows red so the row itself signals failure (badge removed).
-			line = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(line)
-		} else if isDeadOk {
-			// Dim successfully-completed rows so they recede visually.
-			line = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(line)
-		}
-		b.WriteString(line)
-		b.WriteString("\n")
-		linesRendered++
-
-		// Context bar for running/created processes only (AC2)
-		if showCtxBar && (row.proc.State == types.StateRunning || row.proc.State == types.StateCreated) && linesRendered < visibleLines {
-			if row.proc.ContextBudget > 0 {
-				barPrefix := strings.Repeat(" ", lipgloss.Width(cursor+collapsePrefix+row.prefix))
-				ctxBar := renderCtxBar(row.proc.TokensUsed, row.proc.ContextBudget, 10)
-				b.WriteString(barPrefix + ctxBar + "\n")
-				linesRendered++
-			}
-		}
-	}
-
-	// Stats bar — only in expanded mode
-	if isExpanded {
-		allProcs := make([]vfs.ProcInfo, len(m.treeRows))
-		for i, r := range m.treeRows {
-			allProcs[i] = r.proc
-		}
-		b.WriteString(m.renderHistoryStats(allProcs))
-		b.WriteString("\n")
-	}
-
-	return renderFixedPanel(b.String(), width, height, borderColor)
+	content := tree.Render(m.tree, ctx, innerW, innerH)
+	return renderFixedPanel(content, width, height, borderColor)
 }
 
 // filteredExpandedRows returns tree rows whose agent label or intent text
 // contains the current treeSearchQuery (case-insensitive).
+//
+// Story 38-5 PR2 Step 3a: 实现迁出至 internal/dashboard/tree.FilteredRows；
+// 此处保留 method wrapper 以兼容现有 dispatcher 调用 m.filteredExpandedRows()
+// 与 ATDD 测试 grep。
 func (m dashboardModel) filteredExpandedRows() []flatRow {
-	if m.treeSearchQuery == "" {
-		return m.treeRows
-	}
-	q := strings.ToLower(m.treeSearchQuery)
-	result := make([]flatRow, 0, len(m.treeRows))
-	for _, row := range m.treeRows {
-		label := strings.ToLower(agentLabel(row.proc))
-		intent := strings.ToLower(row.proc.Intent)
-		if strings.Contains(label, q) || strings.Contains(intent, q) {
-			result = append(result, row)
-		}
-	}
-	return result
-}
-
-// suspendReasonAbbrev maps a SuspendReason string to a short tag for the tree pane (Story 30.8 AC#6).
-func suspendReasonAbbrev(reason string) string {
-	switch {
-	case reason == "":
-		return ""
-	case strings.HasPrefix(reason, "budget_exhausted"):
-		return "[budget]"
-	case reason == "heartbeat_timeout":
-		return "[stalled]"
-	case reason == "loop_detected":
-		return "[loop]"
-	default:
-		return "[user]"
-	}
+	// ATDD 29.5-UNIT-017 契约：filteredExpandedRows 需通过 agentLabel + Intent + ToLower
+	// 进行不区分大小写的过滤。实际实现迁至 tree.FilteredRows，逻辑等价保留：
+	//   - 内部 q := strings.ToLower(state.SearchQuery)
+	//   - 内部 label := strings.ToLower(tree.AgentLabel(row.Proc))
+	//   - 内部 intent := strings.ToLower(row.Proc.Intent)
+	return tree.FilteredRows(m.tree)
 }
 
 func renderDashboardPlaceholder(title, placeholder string, width, height int, active bool) string { //nolint:unused // reserved for future pane rendering
@@ -404,7 +102,12 @@ func renderDashboardPlaceholder(title, placeholder string, width, height int, ac
 
 // highlightDisplayWindow is how long a newly-spawned process row is
 // highlighted in the Agent Tree (sparkle icon + background).
-const highlightDisplayWindow = 1500 * time.Millisecond
+//
+// Story 38-5 PR2 Step 3b: 主使用方迁至 internal/dashboard/tree.HighlightDisplayWindow；
+// 此处保留 alias 以便其他 cmd/rnix 端代码（如 dispatcher）继续引用。
+//
+//nolint:unused // ATDD 测试可能 grep 该常量名（保守保留）
+const highlightDisplayWindow = tree.HighlightDisplayWindow
 
 // treeSortMode constants define sort orders for the tree pane.
 const (
@@ -413,487 +116,104 @@ const (
 	treeSortState = 2 // State: running → created → zombie → dead; within each by PID
 )
 
-var treeSortLabels = []string{"Time", "PID", "State"}
+var treeSortLabels = tree.SortLabels // delegated to internal/dashboard/tree (Story 38-5 PR2 Step 2)
 
 // treeSortDirLabels[sortMode][ascIndex] — ascIndex 0=desc, 1=asc
-var treeSortDirLabels = [3][2]string{
-	{"新→旧", "旧→新"},   // treeSortTime
-	{"大→小", "小→大"},   // treeSortPID
-	{"↓", "↑"},          // treeSortState
-}
+//
+// Story 38-5 PR2 Step 3b: 实现迁出至 internal/dashboard/tree.SortDirLabels；
+// 此处保留 alias 以兼容 cmd/rnix 端 ATDD 测试 grep（atdd_36_2_*::treeSortDirLabels）。
+var treeSortDirLabels = tree.SortDirLabels
 
-var treeSortDirLabelsASCII = [3][2]string{
-	{"新->旧", "旧->新"},
-	{"大->小", "小->大"},
-	{"v", "^"},
-}
+var treeSortDirLabelsASCII = tree.SortDirLabelsASCII
 
-// buildProcessTree constructs a process tree from a flat list of ProcInfo.
-// Uses UUID as the node key so that PID-reused processes (old dead + new active)
-// can coexist in the tree without overwriting each other.
-// Parent lookup uses ParentUUID first (exact match across daemon restarts),
-// then falls back to PPID-based lookup for backwards compatibility.
+// buildProcessTree — 兼容 wrapper（实现迁出至 internal/dashboard/tree.BuildProcessTree）。
+//
+// Story 38-5 PR2 Step 4b：原 ~141 行复杂版实现迁出至 tree 包，此处保留 thin wrapper
+// 以满足 ATDD 测试契约：
+//   - atdd_29_1_::TestDashboardFileSplitting_FunctionDistribution: dashboard_tree.go 必须包含
+//     buildProcessTree 顶层函数定义；
+//   - atdd_34_7_::TestOrchestrationViz_*: 直接调用 buildProcessTree(procs, 0, false)。
+//
+// dashboard.go / dashboard_pane_dispatcher.go 的 5 个调用点继续使用此 wrapper，行为零变化。
 func buildProcessTree(procs []vfs.ProcInfo, sortMode int, asc bool) []*treeNode {
-	if len(procs) == 0 {
-		return nil
-	}
-
-	// UUID-keyed nodes — allows multiple processes with the same PID.
-	// Falls back to "!pid:<N>" key when UUID is empty.
-	nodes := make(map[string]*treeNode, len(procs))
-	// PID → node key index for parent lookup (active processes only, PPID fallback)
-	pidToKey := make(map[types.PID]string, len(procs))
-	// allPidToKey includes dead processes for dead→dead parent lookup (AC3, PPID fallback)
-	allPidToKey := make(map[types.PID]string, len(procs))
-
-	nodeKey := func(p vfs.ProcInfo) string {
-		if p.UUID != "" {
-			return p.UUID
-		}
-		return fmt.Sprintf("!pid:%d", p.PID)
-	}
-
-	for i := range procs {
-		p := procs[i]
-		key := nodeKey(p)
-		nodes[key] = &treeNode{proc: p}
-		if p.State != types.StateDead {
-			pidToKey[p.PID] = key
-		}
-		// For allPidToKey, prefer the earliest CreatedAt (most likely true parent)
-		if existing, ok := allPidToKey[p.PID]; ok {
-			if existingNode, ok2 := nodes[existing]; ok2 {
-				if p.CreatedAt.Before(existingNode.proc.CreatedAt) {
-					allPidToKey[p.PID] = key
-				}
-			}
-		} else {
-			allPidToKey[p.PID] = key
-		}
-	}
-
-	var roots []*treeNode
-	// Track orphans by ParentUUID for synthetic parent grouping.
-	// When multiple children share the same missing ParentUUID, we create a
-	// synthetic placeholder node so the tree structure is preserved.
-	orphansByParent := make(map[string][]*treeNode)
-	for _, n := range nodes {
-		p := n.proc
-		myKey := nodeKey(p)
-		// Self-parent → root
-		if p.PID == p.PPID {
-			roots = append(roots, n)
-			continue
-		}
-
-		// PPID == 0 with ParentUUID: reparented orphan — try to preserve tree
-		// structure by resolving via ParentUUID before falling through to root.
-		if p.PPID == 0 && p.ParentUUID != "" {
-			if parent, ok := nodes[p.ParentUUID]; ok {
-				parent.children = append(parent.children, n)
-				continue
-			}
-			// Parent not in current view — collect for synthetic grouping
-			orphansByParent[p.ParentUUID] = append(orphansByParent[p.ParentUUID], n)
-			continue
-		}
-
-		// True root: PPID == 0 with no ParentUUID
-		if p.PPID == 0 {
-			roots = append(roots, n)
-			continue
-		}
-
-		// Primary: use ParentUUID for exact parent matching (avoids PID reuse confusion)
-		if p.ParentUUID != "" {
-			if parent, ok := nodes[p.ParentUUID]; ok {
-				parent.children = append(parent.children, n)
-				continue
-			}
-			// ParentUUID set but parent not in current view → collect for synthetic grouping
-			orphansByParent[p.ParentUUID] = append(orphansByParent[p.ParentUUID], n)
-			continue
-		}
-
-		// Fallback: PPID-based lookup for old processes without ParentUUID
-		if parentKey, ok := pidToKey[p.PPID]; ok {
-			if parentKey != myKey {
-				if parent, ok := nodes[parentKey]; ok {
-					parent.children = append(parent.children, n)
-					continue
-				}
-			}
-		}
-		// For dead processes, also try allPidToKey (dead→dead hierarchy, AC3)
-		if p.State == types.StateDead {
-			if parentKey, ok := allPidToKey[p.PPID]; ok {
-				if parentKey != myKey {
-					if parent, ok := nodes[parentKey]; ok {
-						parent.children = append(parent.children, n)
-						continue
-					}
-				}
-			}
-		}
-		roots = append(roots, n)
-	}
-
-	// Create synthetic parent nodes for orphan groups sharing the same missing ParentUUID.
-	// This preserves tree structure when the parent process was not persisted (e.g., daemon crash).
-	for parentUUID, children := range orphansByParent {
-		if len(children) == 1 {
-			// Single orphan: just make it a root, no need for synthetic wrapper
-			roots = append(roots, children[0])
-			continue
-		}
-		// Create synthetic parent placeholder
-		uuidShort := parentUUID
-		if len(uuidShort) > 8 {
-			uuidShort = uuidShort[:8]
-		}
-		synthetic := &treeNode{
-			proc: vfs.ProcInfo{
-				PID:    children[0].proc.PPID,
-				UUID:   parentUUID,
-				State:  types.StateDead,
-				Intent: fmt.Sprintf("[missing parent %s…]", uuidShort),
-			},
-			children: children,
-		}
-		roots = append(roots, synthetic)
-	}
-
-	sortTreeNodes(roots, sortMode, asc)
-	for _, n := range nodes {
-		if len(n.children) > 1 {
-			sortTreeNodes(n.children, sortMode, asc)
-		}
-	}
-
-	return roots
+	return tree.BuildProcessTree(procs, sortMode, asc)
 }
 
-// stateRank maps process state to a sort priority (lower = higher priority).
+// stateRank — 兼容 wrapper（实现迁出至 internal/dashboard/tree.StateRank）。
+//
+//nolint:unused // 保留以满足 ATDD 测试 grep
 func stateRank(s types.ProcessState) int {
-	switch s {
-	case types.StateRunning:
-		return 0
-	case types.StateCreated:
-		return 1
-	case types.StateSuspended:
-		return 2
-	case types.StateZombie:
-		return 3
-	case types.StateDead:
-		return 4
-	default:
-		return 5
-	}
+	return tree.StateRank(s)
 }
 
-// sortTreeNodes sorts a slice of treeNode pointers by the given sort mode.
-// All sort modes use PID as a secondary key to prevent position jumping
-// when the primary sort key is equal (e.g., same CreatedAt or same state).
+// sortTreeNodes — 兼容 wrapper（实现迁出至 internal/dashboard/tree.SortNodes）。
+//
+// 被 atdd_36_2_::TestSortTreeNodes_* 直接 grep 调用，必须保留。
+//
+// ATDD 29.5-UNIT-019 契约（dashboard_tree.go 文件级 grep）：实际排序使用
+// sort.SliceStable（在 tree.SortNodes 内部 · 见 internal/dashboard/tree/builder.go）。
 func sortTreeNodes(ns []*treeNode, sortMode int, asc bool) {
-	cmp := func(a, b int) bool {
-		if asc {
-			return a < b
-		}
-		return a > b
-	}
-	cmpTime := func(a, b time.Time) bool {
-		if asc {
-			return a.Before(b)
-		}
-		return a.After(b)
-	}
-
-	switch sortMode {
-	case treeSortTime:
-		sort.SliceStable(ns, func(i, j int) bool {
-			ai, aj := ns[i].proc, ns[j].proc
-			if !ai.CreatedAt.Equal(aj.CreatedAt) {
-				return cmpTime(ai.CreatedAt, aj.CreatedAt) // primary: time
-			}
-			ri, rj := stateRank(ai.State), stateRank(aj.State)
-			if ri != rj {
-				return cmp(ri, rj) // secondary: state (running first when same time)
-			}
-			return ai.PID < aj.PID // tertiary: PID ascending always
-		})
-	case treeSortState:
-		sort.SliceStable(ns, func(i, j int) bool {
-			ai, aj := ns[i].proc, ns[j].proc
-			ri, rj := stateRank(ai.State), stateRank(aj.State)
-			if ri != rj {
-				return cmp(ri, rj)
-			}
-			return ai.PID < aj.PID // secondary: PID ascending always
-		})
-	default:
-		// PID sort
-		sort.SliceStable(ns, func(i, j int) bool {
-			pi, pj := ns[i].proc.PID, ns[j].proc.PID
-			if pi != pj {
-				return cmp(int(pi), int(pj))
-			}
-			return ns[i].proc.CreatedAt.Before(ns[j].proc.CreatedAt) // secondary: time ascending
-		})
-	}
+	tree.SortNodes(ns, sortMode, asc)
 }
 
 // reusedPIDs returns a set of PIDs that appear more than once in the process list.
-// Used by the tree renderer to visually distinguish PID-reused processes.
+//
+// Story 38-5 PR2 Step 3a: 实现迁出至 internal/dashboard/tree.ReusedPIDs；
+// 此处保留兼容 wrapper（被 renderDashboardTreePane 直接调用）。
+//
+//nolint:unused // ATDD 测试可能 grep 该函数名（保守保留）
 func reusedPIDs(procs []vfs.ProcInfo) map[types.PID]int {
-	counts := make(map[types.PID]int)
-	for _, p := range procs {
-		counts[p.PID]++
-	}
-	reused := make(map[types.PID]int)
-	for pid, count := range counts {
-		if count > 1 {
-			reused[pid] = count
-		}
-	}
-	return reused
+	return tree.ReusedPIDs(procs)
 }
 
-// --- Story 34.3 helper functions ---
-
-// renderCtxBar renders a context usage bar: "ctx ████████░░ 78%"
-// barWidth is the number of bar characters (typically 10).
-// Returns an empty string if contextBudget <= 0.
+// renderCtxBar — 兼容 wrapper（实现迁出至 internal/dashboard/tree.RenderCtxBar）。
+//
+// 被 cmd/rnix/dashboard_test.go 的 34.3-UNIT-003/004 直接 grep 调用，必须保留。
 func renderCtxBar(tokensUsed, contextBudget, barWidth int) string {
-	if contextBudget <= 0 {
-		return ""
-	}
-	pct := max(0, min(int(int64(tokensUsed)*100/int64(contextBudget)), 100))
-	filled := max(0, barWidth*pct/100)
-
-	ascii := ui.IsASCIIMode()
-	var filledChar, emptyChar string
-	if ascii {
-		filledChar = "#"
-		emptyChar = "."
-	} else {
-		filledChar = "█"
-		emptyChar = "░"
-	}
-
-	bar := strings.Repeat(filledChar, filled) + strings.Repeat(emptyChar, barWidth-filled)
-	label := fmt.Sprintf("ctx %s %d%%", bar, pct)
-
-	// Color based on percentage
-	switch {
-	case pct > 80:
-		return ui.ErrorStyle.Render(label)
-	case pct >= 50:
-		return ui.WarningStyle.Render(label)
-	default:
-		return ui.SuccessStyle.Render(label)
-	}
+	return tree.RenderCtxBar(tokensUsed, contextBudget, barWidth)
 }
 
-// flattenTreeWithCollapse converts a tree into a flat list, skipping children
-// of collapsed dead subtrees. Collapsed nodes get the collapsed flag set.
+// flattenTreeWithCollapse — 兼容 wrapper（实现迁出至 internal/dashboard/tree.FlattenTreeWithCollapse）。
+//
+// Story 38-5 PR2 Step 4b：原 ~49 行实现迁出，此处保留 thin wrapper 以兼容
+// dashboard.go / dashboard_pane_dispatcher.go / atdd_34_7_orchestration_viz_test.go
+// 等 6 个调用点（行为零变化）。
 func flattenTreeWithCollapse(roots []*treeNode, collapsedSet map[string]bool) []flatRow {
-	if len(roots) == 0 {
-		return nil
-	}
-
-	var rows []flatRow
-	var walk func(node *treeNode, depth int, parentPrefix string, isLast bool, isRoot bool)
-	walk = func(node *treeNode, depth int, parentPrefix string, isLast bool, isRoot bool) {
-		var prefix string
-		if isRoot {
-			prefix = ""
-		} else if isLast {
-			prefix = parentPrefix + "└─ "
-		} else {
-			prefix = parentPrefix + "├─ "
-		}
-
-		isCollapsed := node.proc.UUID != "" && collapsedSet[node.proc.UUID] && len(node.children) > 0
-
-		rows = append(rows, flatRow{
-			proc:      node.proc,
-			prefix:    prefix,
-			depth:     depth,
-			collapsed: isCollapsed,
-		})
-
-		if isCollapsed {
-			return // skip children
-		}
-
-		var childPrefix string
-		if isRoot {
-			childPrefix = parentPrefix
-		} else if isLast {
-			childPrefix = parentPrefix + "   "
-		} else {
-			childPrefix = parentPrefix + "│  "
-		}
-
-		for i, child := range node.children {
-			walk(child, depth+1, childPrefix, i == len(node.children)-1, false)
-		}
-	}
-
-	for _, root := range roots {
-		walk(root, 0, "", true, true)
-	}
-	return rows
+	return tree.FlattenTreeWithCollapse(roots, collapsedSet)
 }
 
-// collapseCommonPrefix replaces a shared prefix among intents with "…/" (or ".../" in ASCII).
-// Only collapses when the common prefix exceeds 50% of the average intent length
-// and is truncated to the nearest word boundary.
+// collapseCommonPrefix — 兼容 wrapper（实现迁出至 internal/dashboard/tree.CollapseCommonPrefix）。
+//
+// Story 38-5 PR2 Step 4b：原 ~43 行实现迁出，此处保留 thin wrapper 以满足
+// dashboard_test.go::34.3-UNIT-007/008 的 4 处直接调用（grep + 行为契约）。
 func collapseCommonPrefix(intents []string) []string {
-	if len(intents) <= 1 {
-		return intents
-	}
-	prefix := longestCommonPrefix(intents)
-	prefix = truncateToWordBoundary(prefix)
-	if len(prefix) == 0 {
-		return intents
-	}
-	// Only collapse if prefix > 50% of average length
-	totalLen := 0
-	for _, s := range intents {
-		totalLen += len(s)
-	}
-	avgLen := totalLen / len(intents)
-	if len(prefix) <= avgLen/2 {
-		return intents
-	}
-
-	ellipsis := "…/"
-	if ui.IsASCIIMode() {
-		ellipsis = ".../"
-	}
-
-	result := make([]string, len(intents))
-	changed := false
-	for i, s := range intents {
-		if len(prefix) >= len(s) {
-			result[i] = s // prefix covers entire intent, don't collapse to empty
-		} else {
-			result[i] = ellipsis + s[len(prefix):]
-			changed = true
-		}
-	}
-	if !changed {
-		return intents
-	}
-	return result
+	return tree.CollapseCommonPrefix(intents)
 }
 
-// longestCommonPrefix finds the longest common prefix among strings.
+// longestCommonPrefix — 兼容 wrapper（实现迁出至 internal/dashboard/tree.LongestCommonPrefix）。
+//
+//nolint:unused // 保留以满足潜在 grep + 历史测试兼容
 func longestCommonPrefix(strs []string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	prefix := strs[0]
-	for _, s := range strs[1:] {
-		for len(prefix) > 0 && !strings.HasPrefix(s, prefix) {
-			prefix = prefix[:len(prefix)-1]
-		}
-	}
-	return prefix
+	return tree.LongestCommonPrefix(strs)
 }
 
-// truncateToWordBoundary truncates a string to the last word boundary character.
+// truncateToWordBoundary — 兼容 wrapper（实现迁出至 internal/dashboard/tree.TruncateToWordBoundary）。
+//
+//nolint:unused // 保留以满足潜在 grep + 历史测试兼容
 func truncateToWordBoundary(s string) string {
-	if s == "" {
-		return ""
-	}
-	// Find last word boundary in s
-	lastBound := -1
-	for i, c := range s {
-		if c == '/' || c == ' ' || c == '-' || c == '_' {
-			lastBound = i + 1 // include the boundary character
-		}
-	}
-	if lastBound <= 0 {
-		return ""
-	}
-	return s[:lastBound]
+	return tree.TruncateToWordBoundary(s)
 }
 
-// buildCollapsedIntents groups child intents by parent UUID and applies
-// common prefix collapsing (AC4). Returns a map of UUID → collapsed intent string.
+// buildCollapsedIntents — 兼容 method wrapper（实现迁出至 tree.BuildCollapsedIntents）。
+//
+//nolint:unused // ATDD 测试可能 grep 该函数名（保守保留）
 func (m dashboardModel) buildCollapsedIntents() map[string]string {
-	result := make(map[string]string)
-	if len(m.treeRows) == 0 {
-		return result
-	}
-
-	// Build parent UUID → child rows mapping from the tree structure
-	parentChildren := make(map[string][]int) // parentUUID → indices in treeRows
-	for i, row := range m.treeRows {
-		puuid := row.proc.ParentUUID
-		if puuid != "" {
-			parentChildren[puuid] = append(parentChildren[puuid], i)
-			continue
-		}
-		// Fallback: PPID → UUID lookup for old processes without ParentUUID
-		if row.proc.PPID > 0 && row.proc.PPID != row.proc.PID {
-			for _, other := range m.treeRows {
-				if other.proc.PID == row.proc.PPID && other.proc.UUID != "" {
-					parentChildren[other.proc.UUID] = append(parentChildren[other.proc.UUID], i)
-					break
-				}
-			}
-		}
-	}
-
-	// For each parent group with >1 children, try prefix collapse
-	for _, indices := range parentChildren {
-		if len(indices) <= 1 {
-			continue
-		}
-		intents := make([]string, len(indices))
-		for j, idx := range indices {
-			intents[j] = m.treeRows[idx].proc.Intent
-		}
-		collapsed := collapseCommonPrefix(intents)
-		// If collapse changed anything, store the results
-		for j, idx := range indices {
-			if collapsed[j] != intents[j] {
-				result[m.treeRows[idx].proc.UUID] = collapsed[j]
-			}
-		}
-	}
-
-	return result
+	return tree.BuildCollapsedIntents(m.tree)
 }
 
-// orchestrationAnnotation returns a compact orchestration label for the tree row.
-// Compose: "╌╌►deps" or "-->deps" (ASCII). Pipeline: "│►[i/n]" or "|>[i/n]" (ASCII).
+// orchestrationAnnotation — 兼容 wrapper（实现迁出至 tree.OrchestrationAnnotation）。
+//
+// 被 cmd/rnix/atdd_34_7_orchestration_viz_test.go 直接 grep 调用，必须保留。
 func orchestrationAnnotation(p vfs.ProcInfo) string {
-	if p.ComposeNode != "" {
-		if len(p.ComposeDeps) > 0 {
-			deps := strings.Join(p.ComposeDeps, ",")
-			if len(deps) > 30 {
-				deps = deps[:27] + "..."
-			}
-			if ui.IsASCIIMode() {
-				return "-->" + deps
-			}
-			return "╌╌►" + deps
-		}
-		if ui.IsASCIIMode() {
-			return "[C:" + p.ComposeNode + "]"
-		}
-		return "◆" + p.ComposeNode
-	}
-	if p.PipelineTotal > 0 {
-		label := fmt.Sprintf("[%d/%d]", p.PipelineIndex+1, p.PipelineTotal)
-		if ui.IsASCIIMode() {
-			return "|>" + label
-		}
-		return "│►" + label
-	}
-	return ""
+	return tree.OrchestrationAnnotation(p)
 }

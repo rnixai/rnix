@@ -41,17 +41,17 @@ func newDetailPanelModel() dashboardModel {
 	m.viewMode = viewExpanded
 	m.expandedPane = paneDetail
 	m.rightPane = paneDetail
-	m.treeRows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, Intent: "analyze code", CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, Intent: "build feature", CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 99, State: types.StateDead, Intent: "completed task", CreatedAt: time.Now()}},
+	m.tree.Rows = []flatRow{
+		{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, Intent: "analyze code", CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 42, State: types.StateRunning, Intent: "build feature", CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 99, State: types.StateDead, Intent: "completed task", CreatedAt: time.Now()}},
 	}
 	m.processes = []vfs.ProcInfo{
-		m.treeRows[0].proc,
-		m.treeRows[1].proc,
-		m.treeRows[2].proc,
+		m.tree.Rows[0].Proc,
+		m.tree.Rows[1].Proc,
+		m.tree.Rows[2].Proc,
 	}
-	m.treeCursor = 0
+	m.tree.Cursor = 0
 	m.selectedPID = 1
 	return m
 }
@@ -129,7 +129,7 @@ func TestATDD_27_6_AC2_DetailPane_HighlightWhenActive(t *testing.T) {
 func TestATDD_27_6_AC3_DetailPane_ShowsBasicInfo(t *testing.T) {
 	m := newDetailPanelModel()
 	m.activePane = paneDetail
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:         1,
 		UUID:        "01960abc-def0-7000-8000-000000000001",
 		State:       "running",
@@ -138,7 +138,7 @@ func TestATDD_27_6_AC3_DetailPane_ShowsBasicInfo(t *testing.T) {
 		Model:       "opus-4",
 		CreatedAtMs: time.Now().UnixMilli(),
 	}
-	m.procDetailPID = 1
+	m.detail.PID = 1
 
 	v := m.View()
 	content := v.Content
@@ -160,7 +160,7 @@ func TestATDD_27_6_AC3_DetailPane_ShowsBasicInfo(t *testing.T) {
 func TestATDD_27_6_AC3_DetailPane_ShowsSkills(t *testing.T) {
 	m := newDetailPanelModel()
 	m.activePane = paneDetail
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:   1,
 		State: "running",
 		Skills: []ipc.SkillInfoWire{
@@ -168,7 +168,7 @@ func TestATDD_27_6_AC3_DetailPane_ShowsSkills(t *testing.T) {
 			{Name: "shell-ops", AllowedTools: []string{"/dev/shell"}},
 		},
 	}
-	m.procDetailPID = 1
+	m.detail.PID = 1
 
 	v := m.View()
 	content := v.Content
@@ -184,7 +184,7 @@ func TestATDD_27_6_AC3_DetailPane_ShowsSkills(t *testing.T) {
 func TestATDD_27_6_AC3_DetailPane_ShowsFDTable(t *testing.T) {
 	m := newDetailPanelModel()
 	m.activePane = paneDetail
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:   1,
 		State: "running",
 		FDTable: []ipc.FDEntryWire{
@@ -192,7 +192,7 @@ func TestATDD_27_6_AC3_DetailPane_ShowsFDTable(t *testing.T) {
 			{FD: types.FD(1), DevicePath: "/dev/fs"},
 		},
 	}
-	m.procDetailPID = 1
+	m.detail.PID = 1
 
 	v := m.View()
 	content := v.Content
@@ -208,7 +208,7 @@ func TestATDD_27_6_AC3_DetailPane_ShowsFDTable(t *testing.T) {
 func TestATDD_27_6_AC3_DetailPane_ShowsContextStats(t *testing.T) {
 	m := newDetailPanelModel()
 	m.activePane = paneDetail
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:   1,
 		State: "running",
 		ContextStats: ipc.ContextStatsWire{
@@ -218,7 +218,7 @@ func TestATDD_27_6_AC3_DetailPane_ShowsContextStats(t *testing.T) {
 			UsagePct:      62.5,
 		},
 	}
-	m.procDetailPID = 1
+	m.detail.PID = 1
 
 	v := m.View()
 	content := v.Content
@@ -239,8 +239,8 @@ func TestATDD_27_6_AC3_DetailPane_ShowsContextStats(t *testing.T) {
 func TestATDD_27_6_AC5_PIDChange_TriggersRefresh(t *testing.T) {
 	m := newDetailPanelModel()
 	m.activePane = paneDetail
-	m.procDetailPID = 1
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.PID = 1
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:    1,
 		State:  "running",
 		Intent: "old intent",
@@ -251,7 +251,7 @@ func TestATDD_27_6_AC5_PIDChange_TriggersRefresh(t *testing.T) {
 
 	// The model should detect the PID change and clear/refresh
 	// This would happen during Update when tick fires
-	if m.procDetailPID == 42 && m.procDetail != nil && m.procDetail.PID == 1 {
+	if m.detail.PID == 42 && m.detail.Detail != nil && m.detail.Detail.PID == 1 {
 		t.Error("AC-5: procDetail should be invalidated when selectedPID changes")
 	}
 }
@@ -261,8 +261,8 @@ func TestATDD_27_6_AC5_Cache_PreviousDetail(t *testing.T) {
 	m.activePane = paneDetail
 
 	// Simulate having cached detail for PID 1
-	m.procDetailPID = 1
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.PID = 1
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:    1,
 		State:  "running",
 		Intent: "cached intent",
@@ -270,7 +270,7 @@ func TestATDD_27_6_AC5_Cache_PreviousDetail(t *testing.T) {
 
 	// When switching back to PID 1, cache should be used
 	// (no new IPC call needed)
-	if m.procDetail == nil || m.procDetail.Intent != "cached intent" {
+	if m.detail.Detail == nil || m.detail.Detail.Intent != "cached intent" {
 		t.Error("AC-5: should cache previous process detail data")
 	}
 }
@@ -283,8 +283,8 @@ func TestATDD_27_6_AC6_DeadProcess_ShowsEmptyFDTable(t *testing.T) {
 	m := newDetailPanelModel()
 	m.activePane = paneDetail
 	m.selectedPID = 99 // Dead process
-	m.procDetailPID = 99
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.PID = 99
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:     99,
 		State:   "dead",
 		Intent:  "completed task",
@@ -310,8 +310,8 @@ func TestATDD_27_6_AC6_DeadProcess_ShowsHistoricalInfo(t *testing.T) {
 	m := newDetailPanelModel()
 	m.activePane = paneDetail
 	m.selectedPID = 99
-	m.procDetailPID = 99
-	m.procDetail = &ipc.GetProcDetailResponse{
+	m.detail.PID = 99
+	m.detail.Detail = &ipc.GetProcDetailResponse{
 		PID:      99,
 		State:    "dead",
 		Intent:   "completed task",

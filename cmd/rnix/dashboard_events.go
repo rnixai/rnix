@@ -20,16 +20,16 @@ const maxSysEvents = 200
 // baseTime is the reference time; step index offsets ensure stable ordering.
 func stepToUnifiedEvent(e *stepEntry, baseTime time.Time, index int) UnifiedEvent {
 	sev := SevInfo
-	if e.summary.HasError {
+	if e.Summary.HasError {
 		sev = SevError
 	}
 	// Use real timestamp from step record if available; fall back to synthetic ordering
 	ts := baseTime.Add(time.Duration(index) * time.Millisecond)
-	if e.summary.TimestampMs > 0 {
-		ts = baseTime.Add(time.Duration(e.summary.TimestampMs) * time.Millisecond)
+	if e.Summary.TimestampMs > 0 {
+		ts = baseTime.Add(time.Duration(e.Summary.TimestampMs) * time.Millisecond)
 	}
 	summary := fmt.Sprintf("[%d] %s — %s (%.0fms)",
-		e.summary.Step, e.summary.Action, e.summary.Summary, e.summary.DurationMs)
+		e.Summary.Step, e.Summary.Action, e.Summary.Summary, e.Summary.DurationMs)
 	return UnifiedEvent{
 		Type:      EventStep,
 		Severity:  sev,
@@ -431,3 +431,164 @@ func fetchCompactEventsCmd(pid types.PID, uuid string) tea.Cmd {
 		return compactEventsMsg{pid: pid, uuid: uuid, events: events, err: err}
 	}
 }
+
+// markPaneUnread sets the unread flag for the given pane (Story 38-4 AC#1).
+//
+// Returns the updated dashboardModel; callers MUST reassign with the
+// returned value (`m = m.markPaneUnread(paneTimeline)`) to persist the
+// change under Bubble Tea's value-passing semantics. This mirrors the
+// existing `selectProcess` / `clearSearchState` pattern.
+//
+// Behaviour:
+//   - paneType is a fixed iota (paneTree..paneEval); guard with bounds
+//     check so a future enum addition cannot corrupt memory.
+//   - No-op if the flag is already set (avoids redundant writes that could
+//     otherwise be picked up as state changes by an observer).
+//
+// Performance: O(1), one bounds compare + one bool write.
+//
+// ASCII fallback: this is a state mutator only; ASCII rendering happens
+// later in renderPanelTabsLine (`*` instead of `●`).
+func (m dashboardModel) markPaneUnread(p paneType) dashboardModel {
+	if int(p) < 0 || int(p) >= len(m.paneHasUnread) {
+		return m
+	}
+	if !m.paneHasUnread[p] {
+		m.paneHasUnread[p] = true
+	}
+	return m
+}
+
+// clearPaneUnread removes the unread flag for the given pane (Story 38-4 AC#1).
+//
+// Called from every pane-switch path: Layer 0 keys 1 / 2-8, Layer 1
+// Default tab / shift+tab, plus the AC2/AC3/AC4 cross-pane drill-in
+// paths. Idempotent and bounds-checked.
+//
+// Performance: O(1).
+func (m dashboardModel) clearPaneUnread(p paneType) dashboardModel {
+	if int(p) < 0 || int(p) >= len(m.paneHasUnread) {
+		return m
+	}
+	m.paneHasUnread[p] = false
+	return m
+}
+
+// eventTargetPane maps an event Type to the pane that owns it for the
+// purposes of cross-pane unread marking (Story 38-4 AC#1 mapping table).
+//
+// Returns (pane, ok). When ok==false the event has no pane mapping and
+// SHOULD NOT trigger a mark — most notably EventImmune which is handled
+// via the dedicated AC#4 synthSecurityAlerts path so that synth events
+// never appear twice. Step / Compact / Budget / Stall / Error / Syscall
+// / Spawn / Exit all flow into Timeline.
+func eventTargetPane(eventType string) (paneType, bool) {
+	switch eventType {
+	case EventStep, EventCompact, EventBudget, EventStall, EventError, EventSyscall, EventSpawn, EventExit:
+		return paneTimeline, true
+	case EventImmune:
+		return paneSecurity, true
+	default:
+		return paneTimeline, false
+	}
+}
+
+// unreadEventKey returns a stable identity key for an UnifiedEvent used by
+// applyUnreadMarks to detect which rows are NEW relative to the previous
+// tick (Story 38-4 patch P3 — replaces the brittle length-only gate).
+//
+// Composition: Type + PID + UUID + Timestamp.UnixNano(). Two events with
+// identical fingerprints are considered the same row across ticks; this
+// matches the existing sysEventDedup key shape.
+func unreadEventKey(ev *UnifiedEvent) string {
+	return fmt.Sprintf("%s:%d:%s:%d", ev.Type, ev.PID, ev.UUID, ev.Timestamp.UnixNano())
+}
+
+// applyUnreadMarks scans the latest unifiedEvents and marks any non-active
+// target panes as unread (Story 38-4 AC#1).
+//
+// Patch P3 (2026-05-03): the previous implementation used a single
+// `prevUnifiedEventCount int` length gate which silently failed in two
+// regression scenarios:
+//  1. PID switch — `mergeUnifiedEvents` rebuilds the slice from a different
+//     filter set; the new len is often smaller, `len(curr) > prev` is false,
+//     so the first batch on the new PID never raises a red dot.
+//  2. Ring-buffer trim — `mergeUnifiedEvents` may swap rows in place when
+//     sysEvents reaches `maxSysEvents`; length stays constant while
+//     contents change, so the new event is invisible to the gate.
+//
+// The fix uses an identity set: every tick we compute the fingerprint of
+// the current unifiedEvents and mark a pane unread only for events whose
+// fingerprint is NOT in the previous tick's set. PID switches reset the
+// set to nil via `handlePIDChange`, which triggers a one-shot "sync without
+// marking" path here so the first post-switch tick does not flood the user
+// with red dots for events they just selected to look at.
+//
+// Performance: O(N) over unifiedEvents per tick; N is capped by
+// mergeUnifiedEvents to ~maxSysEvents+stepEntries (a few hundred at most).
+func (m dashboardModel) applyUnreadMarks() dashboardModel {
+	currKeys := make(map[string]struct{}, len(m.unifiedEvents))
+	firstSync := m.lastUnreadEventKeys == nil
+	for i := range m.unifiedEvents {
+		ev := &m.unifiedEvents[i]
+		k := unreadEventKey(ev)
+		currKeys[k] = struct{}{}
+		if firstSync {
+			continue
+		}
+		if _, seen := m.lastUnreadEventKeys[k]; seen {
+			continue
+		}
+		target, ok := eventTargetPane(ev.Type)
+		if !ok || target == m.activePane {
+			continue
+		}
+		m = m.markPaneUnread(target)
+	}
+	m.lastUnreadEventKeys = currKeys
+	return m
+}
+
+// resolveAlertJumpTarget consumes a pending alertJumpTarget (set by the
+// alert+enter path on PID change) and locates the matching cursor on the
+// destination pane. Story 38-4 AC#2 extends this to handle EventImmune
+// targets by scanning m.security.Alerts.
+//
+// Code-review patch P5 (2026-05-03): the EventImmune match now requires
+// PID + Timestamp.UnixMilli to align — same rationale as the same-PID
+// branch in dashboard_keylayers.go: a single agent may have multiple
+// deviations sharing the same PID and a PID-only match would silently
+// snap to the first one, contradicting which row the user pressed enter
+// on. When the precise pair is missing (synth row pruned between tick
+// and keypress) we leave the cursor untouched rather than guessing.
+func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
+	if m.alertStrip.JumpTarget == nil {
+		return m
+	}
+	target := m.alertStrip.JumpTarget
+	m.alertStrip.JumpTarget = nil
+	if target.Type == EventImmune {
+		targetMs := target.Timestamp.UnixMilli()
+		for i, sa := range m.security.Alerts {
+			if types.PID(sa.PID) == target.PID && sa.TimestampMs == targetMs {
+				m.security.Cursor = i
+				securityAdjustScroll(&m)
+				break
+			}
+		}
+		return m
+	}
+	filtered := m.filteredUnifiedEvents()
+	for i, ev := range filtered {
+		if ev.Type == target.Type && ev.Timestamp.Equal(target.Timestamp) && ev.PID == target.PID {
+			m.timeline.StepCursor = i
+			break
+		}
+	}
+	return m
+}
+
+// (diffNewEventsToUnread was removed in Story 38-4 patch P3 — the
+// length-based gate it served was replaced by applyUnreadMarks's
+// identity-set comparison, which handles PID-switch and ring-buffer
+// trim cases the length gate silently skipped.)

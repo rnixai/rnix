@@ -125,13 +125,20 @@ func TestViewModeSystem_NavFileExists(t *testing.T) {
 		t.Fatal("expected dashboard_nav.go to exist in cmd/rnix/")
 	}
 
-	funcs, err := topLevelFuncNames(path)
+	// Story 38.1 重构后：dispatchPaneKey 移到 dashboard_pane_dispatcher.go；
+	// dashboardKey 仍在 dashboard_nav.go。两个文件合并视为 nav 体系。
+	navFuncs, err := topLevelFuncNames(path)
 	if err != nil {
 		t.Fatalf("failed to parse dashboard_nav.go: %v", err)
 	}
+	paneDispPath := filepath.Join(cmdRnixDir(), "dashboard_pane_dispatcher.go")
+	paneFuncs, _ := topLevelFuncNames(paneDispPath) // optional, allowed to be empty
 
 	funcSet := make(map[string]bool)
-	for _, fn := range funcs {
+	for _, fn := range navFuncs {
+		funcSet[fn] = true
+	}
+	for _, fn := range paneFuncs {
 		funcSet[fn] = true
 	}
 
@@ -141,7 +148,7 @@ func TestViewModeSystem_NavFileExists(t *testing.T) {
 	}
 	for _, fn := range expectedFuncs {
 		if !funcSet[fn] {
-			t.Errorf("expected function %s in dashboard_nav.go, not found", fn)
+			t.Errorf("expected function %s in dashboard_nav.go or dashboard_pane_dispatcher.go, not found", fn)
 		}
 	}
 }
@@ -492,16 +499,23 @@ func TestViewModeSystem_StatusBarRetainsOps(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestViewModeSystem_StubKeysExist(t *testing.T) {
-	path := filepath.Join(cmdRnixDir(), "dashboard_nav.go")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("failed to read dashboard_nav.go: %v", err)
+	// Story 38.1: L key handling moved to dashboard_keylayers.go (Layer 0).
+	parts := []string{}
+	for _, name := range []string{"dashboard_nav.go", "dashboard_keylayers.go"} {
+		data, err := os.ReadFile(filepath.Join(cmdRnixDir(), name))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			t.Fatalf("failed to read %s: %v", name, err)
+		}
+		parts = append(parts, string(data))
 	}
-	content := string(data)
+	content := strings.Join(parts, "\n")
 
-	// L 键应在导航文件中有处理（即使只是 stub）
+	// L 键应在 nav/keylayers 文件中有处理
 	if !strings.Contains(content, `"L"`) && !strings.Contains(content, `case "L"`) {
-		t.Error("expected dashboard_nav.go to handle 'L' key (LLM viewer stub)")
+		t.Error("expected nav/keylayers files to handle 'L' key (LLM viewer / Step Inspector)")
 	}
 	// H key has been removed — z expand replaces it
 }
@@ -635,7 +649,7 @@ func TestViewModeSystem_DigitKeyEvalConflict(t *testing.T) {
 	m.viewMode = viewExpanded
 	m.expandedPane = paneEval
 	m.activePane = paneEval
-	m.evalSubView = 0 // reputation
+	m.eval.SubView = 0 // reputation
 
 	// 按 "2" → 应跳转到 paneTimeline（数字键始终用于面板跳转）
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'})
@@ -653,13 +667,13 @@ func TestViewModeSystem_DigitKeyEvalConflict(t *testing.T) {
 	m3.viewMode = viewExpanded
 	m3.expandedPane = paneEval
 	m3.activePane = paneEval
-	m3.evalSubView = 0
+	m3.eval.SubView = 0
 
 	m4, _ := m3.Update(tea.KeyPressMsg{Code: '@', Text: "@"})
 	model2 := m4.(dashboardModel)
 
-	if model2.evalSubView != 1 {
-		t.Errorf("expected evalSubView=1 (topology) after '@' in eval pane, got %d", model2.evalSubView)
+	if model2.eval.SubView != 1 {
+		t.Errorf("expected evalSubView=1 (topology) after '@' in eval pane, got %d", model2.eval.SubView)
 	}
 }
 
@@ -691,23 +705,23 @@ func TestViewModeSystem_DigitKeyTimelineConflict(t *testing.T) {
 	m3.expandedPane = paneTimeline
 	m3.activePane = paneTimeline
 	m3.rightPane = paneTimeline
-	m3.stepFilters = defaultStepFilters()
+	m3.timeline.StepFilters = defaultStepFilters()
 
-	if !m3.stepFilters["tool_call"] {
+	if !m3.timeline.StepFilters["tool_call"] {
 		t.Fatal("tool_call filter should be true by default")
 	}
 
 	// f 进入过滤模式
 	m4, _ := m3.Update(tea.KeyPressMsg{Code: 'f'})
 	model2 := m4.(dashboardModel)
-	if !model2.stepFilterMode {
+	if !model2.timeline.StepFilterMode {
 		t.Error("pressing 'f' should enter filter mode")
 	}
 
 	// t 切换 tool_call
 	m5, _ := model2.Update(tea.KeyPressMsg{Code: 't'})
 	model3 := m5.(dashboardModel)
-	if model3.stepFilters["tool_call"] {
+	if model3.timeline.StepFilters["tool_call"] {
 		t.Error("pressing 't' in filter mode should toggle tool_call filter to false")
 	}
 	if model3.rightPane != paneTimeline {

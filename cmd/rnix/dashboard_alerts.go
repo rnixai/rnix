@@ -1,114 +1,64 @@
+// Package main — dashboard_alerts.go
+//
+// Story 38-5 PR11 Step 4(a-2) (2026-05-04): All helper bodies migrated to
+// internal/dashboard/alertstrip (builder.go + render.go); this file now contains
+// only thin wrappers that delegate to the alertstrip package and preserve the
+// legacy function names for existing callers.
+//
+// 行为契约保留（与 PR2/PR3 helper 公开化同模式 · 零行为变更 · pure code motion）：
+//   - alertTTL → 现在通过 alertstrip.AlertTTL 公开常量访问（cmd/rnix 端 const alias）
+//   - buildAlertEvents → alertstrip.BuildAlertEvents
+//   - synthSecurityAlerts → alertstrip.SynthSecurityAlerts
+//   - buildAlertEventsWith → alertstrip.BuildAlertEventsWith
+//   - alertStripHeight → alertstrip.AlertStripHeight (PR12 Step 2 已迁出)
+//   - alertCountBadge → alertstrip.AlertCountBadge
+//   - renderAlertStrip → alertstrip.Render(state, width, maxLines) — 解耦
+//     dashboardModel 引用 · 仅依赖 AlertStripState
+//
+// 现有 caller（dashboard.go / dashboard_keylayers.go / dashboard_test.go /
+// dashboard_cross_pane_test.go）调用旧函数名不变 · wrapper 保留 cmd/rnix-internal
+// 测试 grep 契约。
 package main
 
 import (
-	"fmt"
-	"sort"
-	"strings"
-
-	"github.com/charmbracelet/lipgloss"
-
-	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/internal/dashboard/alertstrip"
+	"github.com/rnixai/rnix/ipc"
 )
 
-// buildAlertEvents filters unified events with Severity >= SevWarn,
-// sorts by Severity descending then Timestamp descending.
-// Called after mergeUnifiedEvents to cache alerts for the strip.
+// alertTTL re-exports alertstrip.AlertTTL for backwards compatibility with
+// existing tests that grep the constant name (Story 38.2 AC#4 contract).
+const alertTTL = alertstrip.AlertTTL
+
+// buildAlertEvents is a thin wrapper around alertstrip.BuildAlertEvents.
 func buildAlertEvents(events []UnifiedEvent) []UnifiedEvent {
-	var alerts []UnifiedEvent
-	for _, ev := range events {
-		if ev.Severity >= SevWarn {
-			alerts = append(alerts, ev)
-		}
-	}
-	sort.SliceStable(alerts, func(i, j int) bool {
-		if alerts[i].Severity != alerts[j].Severity {
-			return alerts[i].Severity > alerts[j].Severity
-		}
-		return alerts[i].Timestamp.After(alerts[j].Timestamp)
-	})
-	return alerts
+	return alertstrip.BuildAlertEvents(events)
 }
 
-// alertStripHeight returns the number of lines the alert strip should occupy.
+// synthSecurityAlerts is a thin wrapper around alertstrip.SynthSecurityAlerts.
+func synthSecurityAlerts(alerts []ipc.AlertWire) []UnifiedEvent {
+	return alertstrip.SynthSecurityAlerts(alerts)
+}
+
+// buildAlertEventsWith is a thin wrapper around alertstrip.BuildAlertEventsWith.
+func buildAlertEventsWith(events []UnifiedEvent, securityAlerts []ipc.AlertWire) []UnifiedEvent {
+	return alertstrip.BuildAlertEventsWith(events, securityAlerts)
+}
+
+// alertStripHeight is a thin wrapper around alertstrip.AlertStripHeight
+// (Story 38-5 PR12 Step 2: helper migration; preserved for caller contract).
 func alertStripHeight(alertCount int, expanded bool) int {
-	if alertCount == 0 {
-		return 0
-	}
-	if expanded {
-		return min(alertCount, 8)
-	}
-	return min(alertCount, 2)
+	return alertstrip.AlertStripHeight(alertCount, expanded)
 }
 
-// renderAlertStrip renders the bottom alert strip.
-// Returns empty string when there are no alerts (0 height).
+// alertCountBadge is a thin wrapper around alertstrip.AlertCountBadge.
+func alertCountBadge(alerts []UnifiedEvent, ascii bool) string {
+	return alertstrip.AlertCountBadge(alerts, ascii)
+}
+
+// renderAlertStrip is a thin wrapper around alertstrip.Render. The dashboardModel
+// pointer parameter is preserved for backwards compatibility with the existing
+// View() call site in dashboard.go; internally we extract the AlertStripState
+// and delegate.
 func renderAlertStrip(m *dashboardModel, width, maxLines int) string {
-	alerts := m.alertEvents
-	if len(alerts) == 0 {
-		return ""
-	}
-
-	ascii := ui.IsASCIIMode()
-	visible := min(len(alerts), maxLines)
-	hasOverflow := len(alerts) > maxLines
-
-	var lines []string
-	for i := range visible {
-		if hasOverflow && i == visible-1 {
-			remaining := len(alerts) - visible + 1
-			overflow := fmt.Sprintf("+%d more", remaining)
-			if ascii {
-				lines = append(lines, overflow)
-			} else {
-				lines = append(lines, lipgloss.NewStyle().
-					Foreground(lipgloss.Color(ui.ColorMuted)).
-					Render(overflow))
-			}
-			break
-		}
-
-		alert := alerts[i]
-		icon := ui.AlertSeverityIcon(alert.Severity)
-		ts := ""
-		if !alert.Timestamp.IsZero() {
-			ts = ui.FormatWallClockShort(alert.Timestamp) + " "
-		}
-		line := fmt.Sprintf("%s %s%s", icon, ts, alert.Summary)
-		line = truncateAnsi(line, width-1)
-
-		// Highlight cursor line
-		if m.alertExpanded && i == m.alertCursor {
-			if ascii {
-				line = "> " + line
-			} else {
-				line = lipgloss.NewStyle().
-					Background(lipgloss.Color("#3D2F2F")).
-					Render(line)
-			}
-		}
-
-		lines = append(lines, line)
-	}
-
-	content := strings.Join(lines, "\n")
-
-	if ascii {
-		w := max(width, 1)
-		lpad := min(w, 20)
-		rpad := max(w-lpad-len(" Alerts "), 0)
-		separator := strings.Repeat("-", lpad) + " Alerts " + strings.Repeat("-", rpad)
-		return separator + "\n" + content
-	}
-
-	style := lipgloss.NewStyle().
-		Width(width).
-		Background(lipgloss.Color("#2D1F1F")).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color(ui.ColorError)).
-		BorderTop(true).
-		BorderBottom(false).
-		BorderLeft(false).
-		BorderRight(false)
-
-	return style.Render(content)
+	return alertstrip.Render(m.alertStrip, width, maxLines)
 }

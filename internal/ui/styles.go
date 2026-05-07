@@ -13,6 +13,7 @@ const (
 	ColorError     = "#FF6B6B"
 	ColorMuted     = "#666666"
 	ColorHighlight = "#FFFACD" // LemonChiffon — new process highlight background
+	ColorReplay    = "#D08770" // c-sys orange — replay-mode indicator (Story 38.2 AC#2)
 )
 
 // Style set for styled terminal output.

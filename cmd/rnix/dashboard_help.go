@@ -1,13 +1,25 @@
+// Package main — dashboard_help.go (Story 38.1)
+//
+// 帮助叠加层：从 internal/ui/keylayer.go Dispatcher 自动派生。
+// 重构前为 136 行手工硬编码列表；现在为 ~80 行渲染逻辑，键位文档由
+// 各 KeyLayer 注册时通过 KeyDoc 元数据声明，避免文档与代码漂移。
 package main
 
 import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/rnixai/rnix/internal/ui"
 )
 
-// renderHelpOverlay renders a full-screen keyboard shortcut reference card.
+// renderHelpOverlay renders a full-screen keyboard shortcut reference card,
+// derived from the registered Dispatcher's KeyLayers.
+//
+// 布局策略（M3 修复后）：
+//   - 单列阈值：终端宽度 < 90 cols（窄屏一列防溢出）
+//   - 双列阈值：终端宽度 ≥ 90 cols（宽屏双列防垂直浪费）
+//   - footer 前留空行分隔（恢复 Story 38.1 重构前布局）
 func (m dashboardModel) renderHelpOverlay() string {
 	w := m.width
 	h := m.height
@@ -18,103 +30,61 @@ func (m dashboardModel) renderHelpOverlay() string {
 		h = 40
 	}
 
-	groupTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Bold(true)
-	keyCol := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Bold(true).Width(8)
-	descCol := lipgloss.NewStyle().Width(26)
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-
-	entry := func(key, desc string) string {
-		return keyCol.Render(key) + descCol.Render(desc)
+	useTwoColumns := w >= 90
+	colWidth := max(w/2-6, 30)
+	if !useTwoColumns {
+		colWidth = max(w-8, 30)
 	}
 
-	// Build two-column layout
-	var left, right strings.Builder
+	groupTitle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Bold(true)
+	keyCol := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAgent)).Bold(true).Width(10)
+	descCol := lipgloss.NewStyle().Width(max(colWidth-10, 20))
+	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 
-	// Left column
-	left.WriteString(groupTitle.Render("Navigation") + dimStyle.Render(" (applies to all scrollable panes)") + "\n")
-	left.WriteString(entry("j/k", "Move up / down") + "\n")
-	left.WriteString(entry("PgDn/Up", "Page down / up") + "\n")
-	left.WriteString(entry("Ctrl-d/u", "Half page down / up") + "\n")
-	left.WriteString(entry("g/G", "Jump to top / bottom") + "\n")
-	left.WriteString(entry("Home/End", "Same as g/G") + "\n")
-	left.WriteString(entry("/", "Search (Timeline, Inspector lens)") + "\n")
-	left.WriteString(entry("n/N", "Next / previous match") + "\n")
-	left.WriteString(entry("Tab", "Cycle panes") + "\n")
-	left.WriteString(entry("Enter", "Expand / select") + "\n")
-	left.WriteString("\n")
-	left.WriteString(groupTitle.Render("Timeline") + "\n")
-	left.WriteString(entry("f", "Filter mode") + "\n")
-	left.WriteString(entry("v/Enter", "Expand step detail") + "\n")
-	left.WriteString(entry("V", "Debug detail (L3)") + "\n")
-	left.WriteString(entry("e", "Expand mode: all (sticky)") + "\n")
-	left.WriteString(entry("E", "Expand mode: errors only") + "\n")
-	left.WriteString(entry("C", "Expand mode: collapsed") + "\n")
-	left.WriteString(entry("o", "Toggle sort direction") + "\n")
-	left.WriteString(entry("n", "Next error") + "\n")
-	left.WriteString(entry("N", "Previous error") + "\n")
-	left.WriteString(entry("P", "Step Inspector (sys)") + "\n")
-	left.WriteString("\n")
-	left.WriteString(groupTitle.Render("Filter Mode") + dimStyle.Render(" (press f)") + "\n")
-	left.WriteString(entry("T", "Toggle tool") + "\n")
-	left.WriteString(entry("P", "Toggle plan") + "\n")
-	left.WriteString(entry("A", "Toggle text") + "\n")
-	left.WriteString(entry("C", "Toggle done") + "\n")
-	left.WriteString(entry("S", "Toggle spawn") + "\n")
-	left.WriteString(entry("R", "Toggle replan") + "\n")
-	left.WriteString(entry("Z", "Toggle specialize") + "\n")
-	left.WriteString(entry("*", "Enable all") + "\n")
-	left.WriteString(entry("Esc", "Exit filter") + "\n")
+	entry := func(key, desc, ctxNote string) string {
+		line := keyCol.Render(key) + descCol.Render(desc)
+		if ctxNote != "" {
+			line += dimStyle.Render(" — " + ctxNote)
+		}
+		return line
+	}
 
-	// Right column
-	right.WriteString(groupTitle.Render("View") + "\n")
-	right.WriteString(entry("z", "Expand / restore pane") + "\n")
-	right.WriteString(entry("1-8", "Jump to pane") + "\n")
-	right.WriteString(entry("Esc", "Back / close") + "\n")
-	right.WriteString("\n")
-	right.WriteString(groupTitle.Render("Process") + "\n")
-	right.WriteString(entry("K", "Kill process") + "\n")
-	right.WriteString(entry("p", "Pause/resume tree") + "\n")
-	right.WriteString(entry("R", "Resume suspended") + "\n")
-	right.WriteString(entry("a", "Toggle alerts") + "\n")
-	right.WriteString(entry("l", "View log") + "\n")
-	right.WriteString(entry("r", "Toggle recording") + "\n")
-	right.WriteString("\n")
-	right.WriteString(groupTitle.Render("Tree") + "\n")
-	right.WriteString(entry("s", "Cycle sort mode") + "\n")
-	right.WriteString(entry("o", "Toggle sort dir") + "\n")
-	right.WriteString(entry("/", "Search tree") + "\n")
-	right.WriteString(entry("Enter", "Collapse/expand") + "\n")
-	right.WriteString("\n")
-	right.WriteString(groupTitle.Render("Global") + "\n")
-	right.WriteString(entry("d", "Debug mode") + "\n")
-	right.WriteString(entry("L", "Step Inspector") + "\n")
-	right.WriteString(entry("?", "This help") + "\n")
-	right.WriteString(entry("q", "Quit") + "\n")
-	right.WriteString("\n")
-	right.WriteString(groupTitle.Render("Debug Mode") + dimStyle.Render(" (press d)") + "\n")
-	right.WriteString(entry("j/k", "Navigate events") + "\n")
-	right.WriteString(entry("s", "Toggle strace") + "\n")
-	right.WriteString(entry("f", "Filter events") + "\n")
-	right.WriteString(entry("v", "Expand detail") + "\n")
-	right.WriteString(entry("Tab", "Switch pane") + "\n")
-	right.WriteString(entry("d/Esc", "Exit debug") + "\n")
-	right.WriteString("\n")
-	right.WriteString(groupTitle.Render("Step Inspector") + dimStyle.Render(" (L)") + "\n")
-	right.WriteString(entry("1-5", "Switch lens") + "\n")
-	right.WriteString(entry("h/l", "Prev / next step") + "\n")
-	right.WriteString(entry("H/L", "First / last step") + "\n")
-	right.WriteString(entry("j/k", "Scroll content") + "\n")
-	right.WriteString(entry("/", "Search") + "\n")
-	right.WriteString(entry("?", "Reverse search") + "\n")
-	right.WriteString(entry("d", "Diff mode (dd to pick base, Esc to exit)") + "\n")
-	right.WriteString(entry("F", "Follow live (auto-off on manual scroll back)") + "\n")
-	right.WriteString(entry("y", "Copy to clipboard") + "\n")
-	right.WriteString(entry("o", "Open in pager") + "\n")
-	right.WriteString(entry("Esc", "Close inspector") + "\n")
+	var groups []ui.HelpGroup
+	if m.dispatcher != nil {
+		groups = m.dispatcher.HelpGroupedFor(ui.ViewID(m.viewMode), ui.PaneID(m.activePane))
+	}
 
-	leftBlock := lipgloss.NewStyle().Width(max(w/2-4, 20)).Render(left.String())
-	rightBlock := lipgloss.NewStyle().Width(max(w/2-4, 20)).Render(right.String())
-	body := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightBlock)
+	// 把所有行拍平成 string slice，便于双列拆分
+	var lines []string
+	for i, g := range groups {
+		header := g.Layer
+		if g.Name != "" && g.Name != g.Layer {
+			header = g.Layer + " — " + g.Name
+		}
+		lines = append(lines, groupTitle.Render(header))
+		for _, doc := range g.Docs {
+			lines = append(lines, entry(doc.Key, doc.Description, doc.ContextNote))
+		}
+		if i < len(groups)-1 {
+			lines = append(lines, "")
+		}
+	}
+
+	if len(lines) == 0 {
+		lines = append(lines, dimStyle.Render("(no key bindings registered for this view/pane)"))
+	}
+
+	var body string
+	if useTwoColumns && len(lines) > 12 {
+		mid := (len(lines) + 1) / 2
+		left := strings.Join(lines[:mid], "\n")
+		right := strings.Join(lines[mid:], "\n")
+		leftStyled := lipgloss.NewStyle().Width(colWidth).Render(left)
+		rightStyled := lipgloss.NewStyle().Width(colWidth).Render(right)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, leftStyled, "  ", rightStyled)
+	} else {
+		body = strings.Join(lines, "\n")
+	}
 
 	footer := dimStyle.Render("Press ? or Esc to close")
 	footerCentered := lipgloss.NewStyle().Width(max(w-4, 20)).Align(lipgloss.Center).Render(footer)
@@ -122,6 +92,7 @@ func (m dashboardModel) renderHelpOverlay() string {
 	innerW := max(w-4, 20)
 	innerH := max(h-4, 10)
 
+	// M3: 在 body 与 footer 之间留空行，恢复重构前的呼吸感
 	content := lipgloss.JoinVertical(lipgloss.Left, body, "", footerCentered)
 
 	box := lipgloss.NewStyle().

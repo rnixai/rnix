@@ -331,10 +331,24 @@ func TestDashboardFileSplitting_TypesFileContainsTypes(t *testing.T) {
 		"type stepDetailLevel",
 		"type segmentKind",
 		"type activityLevel",
-		"type stepEntry struct",
-		"type heatmapSegment struct",
-		"type intentFlatNode struct",
-		"type spanFlatNode struct",
+		// Story 38-5 PR4 Step 1: stepEntry 由 struct 改为 alias 至 internal/dashboard/timeline.StepEntry，
+		// 让 TimelineState.StepEntries 字段类型在 cmd/rnix 端无需转换 wrapper（spec § Risk 4 测试迁移 ·
+		// 与 PR3 处理 heatmapSegment 同模式）。字面契约从 "type stepEntry struct" 放宽为 "type stepEntry"，
+		// alias 形式 + struct 形式都通过；保留 grep 验证 dashboard_types.go 仍是声明该类型的入口（不允许迁出文件）。
+		"type stepEntry",
+		// Story 38-5 PR3 Step 1: heatmapSegment 由 struct 改为 alias 至 internal/dashboard/heatmap.Segment，
+		// 让 HeatmapState.Segments 字段类型在 cmd/rnix 端无需转换 wrapper（spec § Risk 4 测试迁移）。
+		// 字面契约从 "type heatmapSegment struct" 放宽为 "type heatmapSegment"，alias 形式 + struct 形式
+		// 都通过；保留 grep 验证 dashboard_types.go 仍是声明该类型的入口（不允许迁出文件）。
+		"type heatmapSegment",
+		// Story 38-5 PR6 Step 1: intentFlatNode 同 heatmapSegment 模式由 struct 改为 alias 至
+		// internal/dashboard/intent.IntentFlatNode（避免循环依赖；让 IntentState.FlatNodes 字段类型直接公开）。
+		// 字面契约从 "type intentFlatNode struct" 放宽为 "type intentFlatNode"。
+		"type intentFlatNode",
+		// Story 38-5 PR8 Step 1: spanFlatNode 同前面诸 type 模式由 struct 改为 alias 至
+		// internal/dashboard/trace.SpanFlatNode（避免循环依赖）。字面契约放宽为
+		// "type spanFlatNode" · alias 形式 + struct 形式都通过。
+		"type spanFlatNode",
 	}
 
 	for _, typeDef := range expectedTypes {

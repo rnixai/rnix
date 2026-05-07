@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/debug"
+	dashboarddebug "github.com/rnixai/rnix/internal/dashboard/debug"
+	"github.com/rnixai/rnix/internal/dashboard/event"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -17,22 +18,16 @@ import (
 
 // --- Constants ---
 
-const maxDebugStraceEvents = 500
+// maxDebugStraceEvents — alias of dashboarddebug.MaxStraceEvents (thin wrapper · Story 38-5 PR11 Step 4(a-2)).
+const maxDebugStraceEvents = dashboarddebug.MaxStraceEvents
 
 // --- Types ---
 
-type deviceLatencyStats struct {
-	Count      int
-	TotalMs    float64
-	ErrorCount int
-}
-
-func (s deviceLatencyStats) AvgMs() float64 {
-	if s.Count == 0 {
-		return 0
-	}
-	return s.TotalMs / float64(s.Count)
-}
+// deviceLatencyStats 类型迁出自 internal/dashboard/debug.DeviceLatencyStats（Story 38-5 PR11 Step 1）。
+// cmd/rnix 端通过 type alias 保留旧名零行为变化（与 PR2/PR3/PR4/PR6/PR8/PR10 同模式）。
+//
+//nolint:unused // 通过 alias 暴露给现有 caller。
+type deviceLatencyStats = dashboarddebug.DeviceLatencyStats
 
 // --- tea.Msg types for Debug mode ---
 
@@ -69,12 +64,12 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 	switch msg := msg.(type) {
 	case debugStraceStartedMsg:
 		// F2: If debug mode was exited before this msg arrived, clean up the leaked client.
-		if !m.debugMode {
+		if !m.debugState.Mode {
 			msg.client.Close()
 			return m, nil, true
 		}
-		m.debugClient = msg.client
-		m.debugStraceCh = msg.ch
+		m.debugState.Client = msg.client
+		m.debugState.StraceCh = msg.ch
 		// F6: Watch for AttachDebug completion to report errors.
 		var cmd tea.Cmd
 		if msg.errCh != nil {
@@ -86,7 +81,7 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 		}
 		return m, cmd, true
 	case debugStraceStreamEndMsg:
-		if msg.err != nil && m.debugMode {
+		if msg.err != nil && m.debugState.Mode {
 			m.statusMsg = fmt.Sprintf("✗ strace stream: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
@@ -101,7 +96,7 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 			m.statusMsg = fmt.Sprintf("✗ ctx profile: %v", msg.err)
 			m.statusMsgTTL = statusMsgDefaultTTL
 		} else if msg.profile != nil {
-			m.debugCtxProfile = msg.profile
+			m.debugState.CtxProfile = msg.profile
 		}
 		return m, nil, true
 	case debugHistoricalStraceMsg:
@@ -111,7 +106,7 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 			return m, nil, true
 		}
 		// F1: Guard against async msg arriving after exitDebugMode nils the map.
-		if !m.debugMode {
+		if !m.debugState.Mode {
 			return m, nil, true
 		}
 		// F2: Guard against stale async responses from a previous PID selection.
@@ -132,24 +127,24 @@ func (m dashboardModel) handleDebugMsg(msg tea.Msg) (dashboardModel, tea.Cmd, bo
 		}
 		// Preserve live stream events newer than what's on disk.
 		var preserved []UnifiedEvent
-		for _, ev := range m.debugStraceEvents {
+		for _, ev := range m.debugState.StraceEvents {
 			if ev.RawEvent != nil && ev.RawEvent.TimestampMs > newWatermark {
 				preserved = append(preserved, ev)
 			}
 		}
-		m.debugStraceEvents = nil
-		m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
+		m.debugState.StraceEvents = nil
+		m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
 		for _, sew := range msg.events {
 			ev := straceToUnifiedEvent(sew)
 			m.appendStraceEvent(ev)
 			m.updateDeviceLatency(sew)
 		}
 		// Re-add preserved live stream events.
-		m.debugStraceEvents = append(m.debugStraceEvents, preserved...)
-		m.debugHistWatermark = newWatermark
+		m.debugState.StraceEvents = append(m.debugState.StraceEvents, preserved...)
+		m.debugState.HistWatermark = newWatermark
 		// Events panel shows only syscall events (steps are in the Steps panel).
-		if len(m.debugStraceEvents) > 0 || len(m.debugEvents) == 0 {
-			m.debugEvents = m.debugStraceEvents
+		if len(m.debugState.StraceEvents) > 0 || len(m.debugState.Events) == 0 {
+			m.debugState.Events = m.debugState.StraceEvents
 		}
 		return m, nil, true
 	}
@@ -163,11 +158,11 @@ func (m *dashboardModel) debugTickCmds() []tea.Cmd {
 	// When the live stream ends, auto-reload complete events from disk.
 	// This ensures all events are shown even if some were missed during streaming
 	// (e.g., events emitted before dashboard attached, or dropped due to buffer full).
-	if streamClosed && !m.debugAutoReloaded && m.selectedPID != 0 {
-		m.debugAutoReloaded = true
+	if streamClosed && !m.debugState.AutoReloaded && m.selectedPID != 0 {
+		m.debugState.AutoReloaded = true
 		cmds = append(cmds, m.loadHistoricalStraceCmd())
 	}
-	if m.debugMode && m.debugAttachedPID != m.selectedPID {
+	if m.debugState.Mode && m.debugState.AttachedPID != m.selectedPID {
 		m2, debugCmd := m.handleDebugPIDChange()
 		*m = m2
 		if debugCmd != nil {
@@ -183,19 +178,19 @@ func (m dashboardModel) enterDebugMode() (dashboardModel, tea.Cmd) {
 	// F2: Clean up any existing strace stream before starting a new one.
 	m.stopStraceStream()
 	m.viewMode = viewDebug
-	m.debugMode = true
-	m.debugShowStrace = true
-	m.debugStraceEvents = nil
-	m.debugEvents = nil
-	m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
-	m.debugScrollTop = 0
-	m.debugCursor = 0
-	m.debugAutoScroll = true
-	m.debugCtxProfile = nil
-	m.debugAttachedPID = m.selectedPID
-	m.debugAutoReloaded = false
-	m.debugHistWatermark = 0
-	m.debugAutoScroll = true
+	m.debugState.Mode = true
+	m.debugState.ShowStrace = true
+	m.debugState.StraceEvents = nil
+	m.debugState.Events = nil
+	m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
+	m.debugState.ScrollTop = 0
+	m.debugState.Cursor = 0
+	m.debugState.AutoScroll = true
+	m.debugState.CtxProfile = nil
+	m.debugState.AttachedPID = m.selectedPID
+	m.debugState.AutoReloaded = false
+	m.debugState.HistWatermark = 0
+	m.debugState.AutoScroll = true
 
 	if m.isSelectedProcessDead() {
 		return m, m.loadHistoricalStraceCmd()
@@ -209,26 +204,26 @@ func (m dashboardModel) enterDebugMode() (dashboardModel, tea.Cmd) {
 
 func (m dashboardModel) exitDebugMode() dashboardModel {
 	m.viewMode = viewDefault
-	m.debugMode = false
+	m.debugState.Mode = false
 	m.stopStraceStream()
-	m.debugEvents = nil
-	m.debugStraceEvents = nil
-	m.debugCtxProfile = nil
-	m.debugDeviceLatency = nil
-	m.debugAttachedPID = 0
-	m.debugScrollTop = 0
-	m.debugCursor = 0
+	m.debugState.Events = nil
+	m.debugState.StraceEvents = nil
+	m.debugState.CtxProfile = nil
+	m.debugState.DeviceLatency = nil
+	m.debugState.AttachedPID = 0
+	m.debugState.ScrollTop = 0
+	m.debugState.Cursor = 0
 	return m
 }
 
 // stopStraceStream closes the independent debug IPC client (which causes the
 // scanner to stop) and resets channel/client references.
 func (m *dashboardModel) stopStraceStream() {
-	if m.debugClient != nil {
-		m.debugClient.Close()
-		m.debugClient = nil
+	if m.debugState.Client != nil {
+		m.debugState.Client.Close()
+		m.debugState.Client = nil
 	}
-	m.debugStraceCh = nil
+	m.debugState.StraceCh = nil
 }
 
 // --- strace stream commands ---
@@ -285,104 +280,69 @@ func (m dashboardModel) fetchDebugCtxProfileCmd() tea.Cmd {
 
 // --- strace → UnifiedEvent conversion ---
 
+// straceToUnifiedEvent — thin wrapper · 见 internal/dashboard/event.StraceToUnifiedEvent.
+//
+// Story 38-5 PR11 Step 4(c)：纯转换逻辑迁至 internal/dashboard/event.StraceToUnifiedEvent
+// （0 cmd/rnix 反向依赖 · wireToSyscallEvent 字段映射已内联到 event 包，避免反向依赖
+// cmd/rnix/main.go · 与 ClampCursor / AppendStraceEvent / FilterDebugEvents 同
+// pure-helper 迁出模式）· cmd/rnix wrapper 仅保留旧名让 ~7 处 callsite
+// （dashboard_debug.go × 3 + dashboard_debug_test.go × 4）零修改通过。
 func straceToUnifiedEvent(sew ipc.SyscallEventWire) UnifiedEvent {
-	ts := time.UnixMilli(sew.TimestampMs)
-
-	// Convert wire format to SyscallEvent and format with debug.FormatEvent
-	// for full strace output (e.g. "[  0.000s] CtxAlloc(size=64) → 17    1µs").
-	se := wireToSyscallEvent(sew)
-	summary := debug.FormatEvent(se, debug.Options{ColorEnabled: false})
-
-	sev := SevInfo
-	if sew.Error != "" {
-		sev = SevError
-	}
-	rawCopy := sew
-	return UnifiedEvent{
-		Type:      EventSyscall,
-		Severity:  sev,
-		Timestamp: ts,
-		PID:       sew.PID,
-		Summary:   summary,
-		RawEvent:  &rawCopy,
-	}
+	return event.StraceToUnifiedEvent(sew)
 }
 
 // --- Ring buffer ---
 
+// appendStraceEvent — thin wrapper · 见 internal/dashboard/debug.AppendStraceEvent.
+//
+// Story 38-5 PR11 Step 4(c)：核心环形缓冲逻辑迁至 internal/dashboard/debug.AppendStraceEvent
+// （0 cmd/rnix 反向依赖 · 与 ClampCursor 同模式）· cmd/rnix wrapper 仅保留
+// receiver `(m *dashboardModel)` 让 ~2 处 callsite（dashboard_debug.go × 2）零修改通过。
 func (m *dashboardModel) appendStraceEvent(ev UnifiedEvent) {
-	m.debugStraceEvents = append(m.debugStraceEvents, ev)
-	if len(m.debugStraceEvents) > maxDebugStraceEvents {
-		m.debugStraceEvents = m.debugStraceEvents[len(m.debugStraceEvents)-maxDebugStraceEvents:]
-	}
+	m.debugState = dashboarddebug.AppendStraceEvent(m.debugState, ev)
 }
 
 // --- Device latency ---
 
+// updateDeviceLatency — thin wrapper · 见 internal/dashboard/debug.UpdateDeviceLatency.
+//
+// Story 38-5 PR11 Step 4(c)：核心 device 级延迟累加逻辑迁至
+// internal/dashboard/debug.UpdateDeviceLatency（0 cmd/rnix 反向依赖 · 与
+// AppendStraceEvent / ClampCursor 同 functional state mutator 模式）·
+// cmd/rnix wrapper 仅保留 receiver `(m *dashboardModel)` 让 ~2 处 callsite
+// （dashboard_debug.go × 2 · 与 appendStraceEvent 同 callsite）零修改通过。
 func (m *dashboardModel) updateDeviceLatency(sew ipc.SyscallEventWire) {
-	dev := extractDeviceName(sew)
-	if dev == "" {
-		return
-	}
-	stats := m.debugDeviceLatency[dev]
-	if stats == nil {
-		stats = &deviceLatencyStats{}
-		m.debugDeviceLatency[dev] = stats
-	}
-	stats.Count++
-	stats.TotalMs += sew.DurationMs
-	if sew.Error != "" {
-		stats.ErrorCount++
-	}
+	m.debugState = dashboarddebug.UpdateDeviceLatency(m.debugState, sew)
 }
 
-// extractDeviceName derives a short device name from syscall args.
+// extractDeviceName — thin wrapper · 见 internal/dashboard/debug.ExtractDeviceName
 func extractDeviceName(sew ipc.SyscallEventWire) string {
-	path := ""
-	if p, ok := sew.Args["path"]; ok {
-		path = fmt.Sprintf("%v", p)
-	}
-	if path == "" {
-		return ""
-	}
-	// Extract device from paths like /dev/llm/claude, /dev/fs, /dev/shell, /dev/mcp/xxx
-	if strings.HasPrefix(path, "/dev/") {
-		parts := strings.SplitN(path[5:], "/", 2)
-		return parts[0]
-	}
-	return path
+	return dashboarddebug.ExtractDeviceName(sew)
 }
 
 // --- Filtered debug events ---
 
-// F9: Reuse isEventVisible() for filter logic, adding debugShowStrace as the only extra check.
-// Returns consolidated events for user-friendly display (driver stream deltas merged into logical entries).
+// filteredDebugEvents — thin wrapper · 见 internal/dashboard/debug.FilterDebugEvents.
+//
+// Story 38-5 PR11 Step 4(c)：F9 filter logic（reuse isEventVisible + ShowStrace
+// 切换）迁至 internal/dashboard/debug.FilterDebugEvents（0 cmd/rnix 反向依赖 ·
+// 复用 event.IsEventVisible + 通过 stepFilters 参数注入解耦 timeline 包依赖）。
+//
+// cmd/rnix wrapper 仅传 m.debugState + m.timeline.StepFilters · 行为完全等价 ·
+// 保留 (m dashboardModel) receiver 让 ~3 处 callsite（dashboard_debug.go × 3）
+// + 测试 callsite（dashboard_debug_test.go × 2）零修改通过。
 func (m dashboardModel) filteredDebugEvents() []UnifiedEvent {
-	if len(m.debugEvents) == 0 {
-		return nil
-	}
-	var result []UnifiedEvent
-	for _, ev := range m.debugEvents {
-		if ev.Type == EventSyscall && !m.debugShowStrace {
-			continue
-		}
-		if !isEventVisible(ev, m.stepFilters) {
-			continue
-		}
-		result = append(result, ev)
-	}
-	return result
+	return dashboarddebug.FilterDebugEvents(m.debugState, m.timeline.StepFilters)
 }
 
 // clampDebugCursor ensures the cursor stays within the filtered event range.
+//
+// Story 38-5 PR11 Step 4(c)：核心 clamp 逻辑迁至 internal/dashboard/debug.ClampCursor
+// （0 cmd/rnix 反向依赖）· cmd/rnix wrapper 仅保留 filtered 计算 + state 赋值 ·
+// 保留 (m *dashboardModel) receiver 让 ~3 处 callsite（dashboard_debug.go × 3）零修改.
 func (m *dashboardModel) clampDebugCursor() {
 	filtered := m.filteredDebugEvents()
-	if m.debugCursor >= len(filtered) {
-		m.debugCursor = max(len(filtered)-1, 0)
-	}
-	if m.debugScrollTop > m.debugCursor {
-		m.debugScrollTop = m.debugCursor
-	}
+	m.debugState = dashboarddebug.ClampCursor(m.debugState, len(filtered))
 }
 
 // --- Debug tick processing ---
@@ -390,23 +350,23 @@ func (m *dashboardModel) clampDebugCursor() {
 // debugTickProcess drains the strace channel and merges events.
 // Returns true if the stream channel was closed this tick (triggers auto-reload).
 func (m *dashboardModel) debugTickProcess() bool {
-	if !m.debugMode {
+	if !m.debugState.Mode {
 		return false
 	}
 	streamClosed := false
 	drainedAny := false
 	// Non-blocking read from strace channel
-	if m.debugStraceCh != nil {
+	if m.debugState.StraceCh != nil {
 		for {
 			select {
-			case sew, ok := <-m.debugStraceCh:
+			case sew, ok := <-m.debugState.StraceCh:
 				if !ok {
-					m.debugStraceCh = nil
+					m.debugState.StraceCh = nil
 					streamClosed = true
 					goto doneReading
 				}
 				// Skip events already covered by historical load to avoid duplicates.
-				if m.debugHistWatermark > 0 && sew.TimestampMs <= m.debugHistWatermark {
+				if m.debugState.HistWatermark > 0 && sew.TimestampMs <= m.debugState.HistWatermark {
 					continue
 				}
 				drainedAny = true
@@ -422,27 +382,31 @@ func (m *dashboardModel) debugTickProcess() bool {
 	// Re-assign only when new strace data arrived or stream closed;
 	// avoid overwriting debugEvents during PID transitions.
 	if streamClosed || drainedAny {
-		m.debugEvents = m.debugStraceEvents
+		m.debugState.Events = m.debugState.StraceEvents
 	}
 	return streamClosed
 }
 
 // --- Debug PID change handling ---
 
+// handleDebugPIDChange — Story 34.6 Debug pane 切换 PID 时的清理 + 重新加载入口。
+//
+// Story 38-5 PR11 Step 4(b) Phase 2：9 字段状态重置已迁出至 dashboarddebug.HandlePIDChange
+// （internal/dashboard/debug/transitions.go）· cmd/rnix 端 wrapper 仅保留 mode
+// 检查 + IPC 调度（stopStraceStream / loadHistoricalStraceCmd / startStraceStreamCmd）·
+// 与 spec § 04 风险 6「IPC 命令保留在 App Model」一致。
+//
+// 行为契约（与原 inline 实现 byte-for-byte 等价 · Story 34.6 strace fusion 保留）：
+//   - mode != true → no-op；
+//   - 其他情况：先 stopStraceStream（IPC 关闭旧连接） · 再 9 字段状态重置 · 然后
+//     按 selectedPID + 进程状态触发对应 IPC 命令。
 func (m dashboardModel) handleDebugPIDChange() (dashboardModel, tea.Cmd) {
-	if !m.debugMode {
+	if !m.debugState.Mode {
 		return m, nil
 	}
 	m.stopStraceStream()
-	m.debugStraceEvents = nil
-	m.debugEvents = nil
-	m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
-	m.debugCtxProfile = nil
-	m.debugScrollTop = 0
-	m.debugCursor = 0
-	m.debugAttachedPID = m.selectedPID
-	m.debugAutoReloaded = false
-	m.debugHistWatermark = 0
+	// Story 38-5 PR11 Step 4(b) Phase 2: 9 字段状态重置一行委托·迁至 internal/dashboard/debug
+	m.debugState = dashboarddebug.HandlePIDChange(m.debugState, m.selectedPID)
 
 	if m.selectedPID == 0 {
 		return m, nil
@@ -519,13 +483,13 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 	listLines := max(height-2, 1)
 
 	// Auto-scroll: keep cursor at the end (latest events, ascending order)
-	if m.debugAutoScroll {
-		m.debugCursor = max(len(filtered)-1, 0)
+	if m.debugState.AutoScroll {
+		m.debugState.Cursor = max(len(filtered)-1, 0)
 	}
-	cursor := min(m.debugCursor, max(len(filtered)-1, 0))
+	cursor := min(m.debugState.Cursor, max(len(filtered)-1, 0))
 
 	// Scroll management — ensure cursor is visible
-	startIdx := m.debugScrollTop
+	startIdx := m.debugState.ScrollTop
 	if startIdx < 0 || startIdx >= len(filtered) {
 		startIdx = 0
 	}
@@ -572,37 +536,14 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 	return b.String()
 }
 
-// renderSyscallLine renders a single strace event line using the full strace format.
+// renderSyscallLine — thin wrapper · 见 internal/dashboard/debug.RenderSyscallLine
 func (m dashboardModel) renderSyscallLine(ev UnifiedEvent, cursorMark string, maxWidth int) string {
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	if ev.Severity >= SevError {
-		style = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-	}
-
-	return fmt.Sprintf("%s%s", cursorMark, style.Render(ev.Summary))
+	return dashboarddebug.RenderSyscallLine(ev, cursorMark, maxWidth)
 }
 
-// renderDebugStepLine renders a step event in the debug timeline.
+// renderDebugStepLine — thin wrapper · 见 internal/dashboard/debug.RenderStepLine
 func (m dashboardModel) renderDebugStepLine(ev UnifiedEvent, cursorMark string, maxWidth int) string {
-	if ev.StepEntry == nil {
-		return cursorMark + ev.Summary
-	}
-	s := ev.StepEntry.summary
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	stepLabel := dimStyle.Render(fmt.Sprintf("#%d", s.Step))
-
-	action := s.Action
-	summary := s.Summary
-	if s.ToolPath != "" && len(s.Summary) < 8 {
-		summary = s.ToolPath
-	}
-
-	errMark := ""
-	if s.HasError {
-		errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
-	}
-
-	return fmt.Sprintf("%s%s %s %s%s", cursorMark, stepLabel, action, summary, errMark)
+	return dashboarddebug.RenderStepLine(ev, cursorMark, maxWidth)
 }
 
 // --- Bottom detail cards ---
@@ -616,11 +557,11 @@ func (m dashboardModel) renderDebugDetailLeft(width, height int) string {
 		Width(max(width-2, 1)).
 		Height(height)
 
-	if m.debugCtxProfile == nil {
+	if m.debugState.CtxProfile == nil {
 		return borderStyle.Render(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render("No ctx data"))
 	}
 
-	p := m.debugCtxProfile
+	p := m.debugState.CtxProfile
 
 	// Aggregate consumers by role category.
 	type roleAgg struct {
@@ -700,7 +641,7 @@ func (m dashboardModel) renderDebugDetailRight(width, height int) string {
 		Width(max(width-2, 1)).
 		Height(height)
 
-	if len(m.debugDeviceLatency) == 0 {
+	if len(m.debugState.DeviceLatency) == 0 {
 		return borderStyle.Render(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render("No latency data"))
 	}
 
@@ -710,7 +651,7 @@ func (m dashboardModel) renderDebugDetailRight(width, height int) string {
 		stats deviceLatencyStats
 	}
 	var entries []devEntry
-	for name, stats := range m.debugDeviceLatency {
+	for name, stats := range m.debugState.DeviceLatency {
 		entries = append(entries, devEntry{name, *stats})
 	}
 	sort.Slice(entries, func(i, j int) bool {
@@ -746,7 +687,7 @@ func (m dashboardModel) renderDebugDetailRight(width, height int) string {
 
 func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, bool) {
 	// F8: When in filter sub-mode, delegate to handleStepFilterKey.
-	if m.stepFilterMode {
+	if m.timeline.StepFilterMode {
 		m = m.handleStepFilterKey(key)
 		m.clampDebugCursor()
 		return m, nil, true
@@ -769,7 +710,7 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 		}
 		return m, nil, true
 	case "f":
-		m.stepFilterMode = !m.stepFilterMode
+		m.timeline.StepFilterMode = !m.timeline.StepFilterMode
 		// F4: Clamp cursor after filter change.
 		m.clampDebugCursor()
 		return m, nil, true
@@ -785,31 +726,31 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 	filtered := m.filteredDebugEvents()
 	switch key {
 	case "up", "k":
-		m.debugAutoScroll = false
-		if m.debugCursor > 0 {
-			m.debugCursor--
+		m.debugState.AutoScroll = false
+		if m.debugState.Cursor > 0 {
+			m.debugState.Cursor--
 		}
-		if m.debugCursor < m.debugScrollTop {
-			m.debugScrollTop = m.debugCursor
+		if m.debugState.Cursor < m.debugState.ScrollTop {
+			m.debugState.ScrollTop = m.debugState.Cursor
 		}
 		return m, nil, true
 	case "down", "j":
-		m.debugAutoScroll = false
-		if m.debugCursor < len(filtered)-1 {
-			m.debugCursor++
+		m.debugState.AutoScroll = false
+		if m.debugState.Cursor < len(filtered)-1 {
+			m.debugState.Cursor++
 		}
 		visibleLines := max(m.dashboardVisibleLines()-4, 1)
-		if m.debugCursor >= m.debugScrollTop+visibleLines {
-			m.debugScrollTop = m.debugCursor - visibleLines + 1
+		if m.debugState.Cursor >= m.debugState.ScrollTop+visibleLines {
+			m.debugState.ScrollTop = m.debugState.Cursor - visibleLines + 1
 		}
 		// Re-enable auto-scroll when user reaches the bottom
-		if m.debugCursor >= len(filtered)-1 {
-			m.debugAutoScroll = true
+		if m.debugState.Cursor >= len(filtered)-1 {
+			m.debugState.AutoScroll = true
 		}
 		return m, nil, true
 	case "s":
-		m.debugShowStrace = !m.debugShowStrace
-		if m.debugShowStrace {
+		m.debugState.ShowStrace = !m.debugState.ShowStrace
+		if m.debugState.ShowStrace {
 			m.statusMsg = "strace: on"
 		} else {
 			m.statusMsg = "strace: off"
@@ -820,18 +761,18 @@ func (m dashboardModel) handleDebugKey(key string) (dashboardModel, tea.Cmd, boo
 		return m, nil, true
 	case "v", "enter":
 		// Step expand (if cursor on a step event)
-		if m.debugCursor >= 0 && m.debugCursor < len(filtered) {
-			ev := filtered[m.debugCursor]
+		if m.debugState.Cursor >= 0 && m.debugState.Cursor < len(filtered) {
+			ev := filtered[m.debugState.Cursor]
 			if ev.StepEntry != nil {
 				entry := ev.StepEntry
-				if entry.level == levelSummary {
-					entry.level = levelExpanded
-					if m.stepDetailCache[entry.summary.Step] == nil && !m.fetchingDetail && m.selectedPID > 0 {
-						m.fetchingDetail = true
-						return m, fetchStepDetailCmd(m.selectedPID, entry.summary.Step), true
+				if entry.Level == levelSummary {
+					entry.Level = levelExpanded
+					if m.timeline.StepDetailCache[entry.Summary.Step] == nil && !m.timeline.FetchingDetail && m.selectedPID > 0 {
+						m.timeline.FetchingDetail = true
+						return m, fetchStepDetailCmd(m.selectedPID, entry.Summary.Step), true
 					}
 				} else {
-					entry.level = levelSummary
+					entry.Level = levelSummary
 				}
 			}
 		}

@@ -19,24 +19,24 @@ import (
 func TestSortTreeNodes_TimeSortDesc_CreatedAtIsPrimary(t *testing.T) {
 	// Two siblings with different CreatedAt but same State — descending should
 	// place the newer one first regardless of state ranking.
-	older := &treeNode{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now().Add(-10 * time.Second)}}
-	newer := &treeNode{proc: vfs.ProcInfo{PID: 2, State: types.StateRunning, CreatedAt: time.Now()}}
+	older := &treeNode{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now().Add(-10 * time.Second)}}
+	newer := &treeNode{Proc: vfs.ProcInfo{PID: 2, State: types.StateRunning, CreatedAt: time.Now()}}
 	nodes := []*treeNode{older, newer}
 
 	sortTreeNodes(nodes, treeSortTime, false) // desc
-	if nodes[0].proc.PID != 2 {
-		t.Errorf("expected newest PID=2 first in desc time sort, got PID=%d", nodes[0].proc.PID)
+	if nodes[0].Proc.PID != 2 {
+		t.Errorf("expected newest PID=2 first in desc time sort, got PID=%d", nodes[0].Proc.PID)
 	}
 }
 
 func TestSortTreeNodes_TimeSortAsc_OldestFirst(t *testing.T) {
-	older := &treeNode{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now().Add(-10 * time.Second)}}
-	newer := &treeNode{proc: vfs.ProcInfo{PID: 2, State: types.StateRunning, CreatedAt: time.Now()}}
+	older := &treeNode{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now().Add(-10 * time.Second)}}
+	newer := &treeNode{Proc: vfs.ProcInfo{PID: 2, State: types.StateRunning, CreatedAt: time.Now()}}
 	nodes := []*treeNode{newer, older}
 
 	sortTreeNodes(nodes, treeSortTime, true) // asc
-	if nodes[0].proc.PID != 1 {
-		t.Errorf("expected oldest PID=1 first in asc time sort, got PID=%d", nodes[0].proc.PID)
+	if nodes[0].Proc.PID != 1 {
+		t.Errorf("expected oldest PID=1 first in asc time sort, got PID=%d", nodes[0].Proc.PID)
 	}
 }
 
@@ -45,30 +45,30 @@ func TestSortTreeNodes_TimeSortDesc_DifferentStateSameTime(t *testing.T) {
 	// In desc mode, cmp is a>b, so higher stateRank sorts first.
 	// stateRank: Running=0, Created=1 → desc cmp(0,1)=false → Created before Running.
 	ts := time.Now()
-	created := &treeNode{proc: vfs.ProcInfo{PID: 1, State: types.StateCreated, CreatedAt: ts}}
-	running := &treeNode{proc: vfs.ProcInfo{PID: 2, State: types.StateRunning, CreatedAt: ts}}
+	created := &treeNode{Proc: vfs.ProcInfo{PID: 1, State: types.StateCreated, CreatedAt: ts}}
+	running := &treeNode{Proc: vfs.ProcInfo{PID: 2, State: types.StateRunning, CreatedAt: ts}}
 	nodes := []*treeNode{created, running}
 
 	sortTreeNodes(nodes, treeSortTime, false) // desc
-	if nodes[0].proc.PID == nodes[1].proc.PID {
+	if nodes[0].Proc.PID == nodes[1].Proc.PID {
 		t.Fatal("nodes should have different PIDs after sort")
 	}
-	if nodes[0].proc.State != types.StateCreated {
+	if nodes[0].Proc.State != types.StateCreated {
 		t.Errorf("desc sort same-time: expected Created first, got first=%v second=%v",
-			nodes[0].proc.State, nodes[1].proc.State)
+			nodes[0].Proc.State, nodes[1].Proc.State)
 	}
 }
 
 func TestSortTreeNodes_TimeSortDesc_CreatedAtOverridesState(t *testing.T) {
 	// Core bug fix test: a newer Created process should sort before an older Running
 	// process in time-descending mode, even though Running has a better stateRank.
-	olderRunning := &treeNode{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now().Add(-10 * time.Second)}}
-	newerCreated := &treeNode{proc: vfs.ProcInfo{PID: 2, State: types.StateCreated, CreatedAt: time.Now()}}
+	olderRunning := &treeNode{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now().Add(-10 * time.Second)}}
+	newerCreated := &treeNode{Proc: vfs.ProcInfo{PID: 2, State: types.StateCreated, CreatedAt: time.Now()}}
 	nodes := []*treeNode{olderRunning, newerCreated}
 
 	sortTreeNodes(nodes, treeSortTime, false) // desc
-	if nodes[0].proc.PID != 2 {
-		t.Errorf("time desc sort should put newer PID=2 first regardless of state, got PID=%d", nodes[0].proc.PID)
+	if nodes[0].Proc.PID != 2 {
+		t.Errorf("time desc sort should put newer PID=2 first regardless of state, got PID=%d", nodes[0].Proc.PID)
 	}
 }
 
@@ -79,21 +79,21 @@ func TestTreeSortDirectionToggle_OKey(t *testing.T) {
 	m.processes = []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, CreatedAt: time.Now()},
 	}
-	m.treeRows = []flatRow{{proc: m.processes[0]}}
+	m.tree.Rows = []flatRow{{Proc: m.processes[0]}}
 
 	// Default is desc (treeSortAsc = false)
-	if m.treeSortAsc {
+	if m.tree.SortAsc {
 		t.Fatal("default treeSortAsc should be false")
 	}
 
 	// Simulate pressing "o" — which now triggers the same code as "S"/"shift+S"
-	m.treeSortAsc = !m.treeSortAsc
-	if !m.treeSortAsc {
+	m.tree.SortAsc = !m.tree.SortAsc
+	if !m.tree.SortAsc {
 		t.Error("after toggle, treeSortAsc should be true")
 	}
 
-	m.treeSortAsc = !m.treeSortAsc
-	if m.treeSortAsc {
+	m.tree.SortAsc = !m.tree.SortAsc
+	if m.tree.SortAsc {
 		t.Error("after second toggle, treeSortAsc should be false again")
 	}
 }
@@ -130,13 +130,13 @@ func TestTreeSortDirLabels_PIDDesc(t *testing.T) {
 
 func TestHeaderRendering_IncludesDirLabel(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.treeSortMode = treeSortTime
-	m.treeSortAsc = false
+	m.tree.SortMode = treeSortTime
+	m.tree.SortAsc = false
 	m.processes = []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, CreatedAt: time.Now()},
 	}
-	roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
-	m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
+	roots := buildProcessTree(m.processes, m.tree.SortMode, m.tree.SortAsc)
+	m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
 
 	rendered := m.renderDashboardTreePane(80, 20)
 	if !strings.Contains(rendered, "新→旧") && !strings.Contains(rendered, "新->旧") {
@@ -146,13 +146,13 @@ func TestHeaderRendering_IncludesDirLabel(t *testing.T) {
 
 func TestHeaderRendering_AscIncludesDirLabel(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.treeSortMode = treeSortTime
-	m.treeSortAsc = true
+	m.tree.SortMode = treeSortTime
+	m.tree.SortAsc = true
 	m.processes = []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, CreatedAt: time.Now()},
 	}
-	roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
-	m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
+	roots := buildProcessTree(m.processes, m.tree.SortMode, m.tree.SortAsc)
+	m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
 
 	rendered := m.renderDashboardTreePane(80, 20)
 	if !strings.Contains(rendered, "旧→新") && !strings.Contains(rendered, "旧->新") {
@@ -164,14 +164,14 @@ func TestHeaderRendering_AscIncludesDirLabel(t *testing.T) {
 
 func TestNewProcessHighlight_WithinWindow(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.processFirstSeenAt = map[types.PID]time.Time{
+	m.tree.ProcessFirstSeenAt = map[types.PID]time.Time{
 		1: time.Now(), // just appeared
 	}
 	m.processes = []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, CreatedAt: time.Now(), Intent: "test intent"},
 	}
-	roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
-	m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
+	roots := buildProcessTree(m.processes, m.tree.SortMode, m.tree.SortAsc)
+	m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
 
 	rendered := m.renderDashboardTreePane(80, 20)
 	// Should contain sparkle emoji or * (ASCII) depending on mode
@@ -182,14 +182,14 @@ func TestNewProcessHighlight_WithinWindow(t *testing.T) {
 
 func TestNewProcessHighlight_ExpiredWindow(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.processFirstSeenAt = map[types.PID]time.Time{
+	m.tree.ProcessFirstSeenAt = map[types.PID]time.Time{
 		1: time.Now().Add(-2 * time.Second), // 2s ago — past the 1.5s window
 	}
 	m.processes = []vfs.ProcInfo{
 		{PID: 1, State: types.StateRunning, CreatedAt: time.Now().Add(-2 * time.Second), Intent: "test intent"},
 	}
-	roots := buildProcessTree(m.processes, m.treeSortMode, m.treeSortAsc)
-	m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
+	roots := buildProcessTree(m.processes, m.tree.SortMode, m.tree.SortAsc)
+	m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
 
 	rendered := m.renderDashboardTreePane(80, 20)
 	if strings.Contains(rendered, "✨") {
@@ -218,25 +218,25 @@ func TestHelpPanel_ContainsTreeSection(t *testing.T) {
 // --- AC-7: Regression tests for other sort modes ---
 
 func TestSortTreeNodes_StateSortUnchanged(t *testing.T) {
-	running := &treeNode{proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now()}}
-	dead := &treeNode{proc: vfs.ProcInfo{PID: 2, State: types.StateDead, CreatedAt: time.Now()}}
+	running := &treeNode{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now()}}
+	dead := &treeNode{Proc: vfs.ProcInfo{PID: 2, State: types.StateDead, CreatedAt: time.Now()}}
 	nodes := []*treeNode{dead, running}
 
 	sortTreeNodes(nodes, treeSortState, false) // desc
 	// stateRank: Running=0, Dead=4. Desc: higher value first → Dead first.
-	if nodes[0].proc.State != types.StateDead {
-		t.Errorf("state desc sort should put dead first (higher rank value), got %v", nodes[0].proc.State)
+	if nodes[0].Proc.State != types.StateDead {
+		t.Errorf("state desc sort should put dead first (higher rank value), got %v", nodes[0].Proc.State)
 	}
 }
 
 func TestSortTreeNodes_PIDSortUnchanged(t *testing.T) {
-	p1 := &treeNode{proc: vfs.ProcInfo{PID: 1, CreatedAt: time.Now()}}
-	p2 := &treeNode{proc: vfs.ProcInfo{PID: 2, CreatedAt: time.Now()}}
+	p1 := &treeNode{Proc: vfs.ProcInfo{PID: 1, CreatedAt: time.Now()}}
+	p2 := &treeNode{Proc: vfs.ProcInfo{PID: 2, CreatedAt: time.Now()}}
 	nodes := []*treeNode{p2, p1}
 
 	sortTreeNodes(nodes, treeSortPID, true) // asc
-	if nodes[0].proc.PID != 1 {
-		t.Errorf("PID asc sort should put PID=1 first, got PID=%d", nodes[0].proc.PID)
+	if nodes[0].Proc.PID != 1 {
+		t.Errorf("PID asc sort should put PID=1 first, got PID=%d", nodes[0].Proc.PID)
 	}
 }
 

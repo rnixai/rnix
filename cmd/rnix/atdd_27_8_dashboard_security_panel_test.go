@@ -150,7 +150,7 @@ func TestATDD_27_8_AC1_TabCycles6Panes(t *testing.T) {
 // --- AC-1.3: [P0] Security pane border highlights when active ---
 func TestATDD_27_8_AC1_SecurityPaneBorderHighlight(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusOK()
+	m.security.ImmuneStatus = makeImmuneStatusOK()
 
 	output := m.renderSecurityPane(60, 20)
 
@@ -183,16 +183,16 @@ func TestATDD_27_8_AC2_ModelHasSecurityFields(t *testing.T) {
 	m := newSecurityModel()
 
 	// RED: these fields do not exist yet
-	if m.immuneStatus != nil {
+	if m.security.ImmuneStatus != nil {
 		t.Error("AC-2: immuneStatus should be nil initially")
 	}
-	if m.immuneErr != nil {
+	if m.security.ImmuneErr != nil {
 		t.Error("AC-2: immuneErr should be nil initially")
 	}
-	if m.securityAlerts != nil {
+	if m.security.Alerts != nil {
 		t.Error("AC-2: securityAlerts should be nil initially")
 	}
-	if m.securityCursor != 0 {
+	if m.security.Cursor != 0 {
 		t.Error("AC-2: securityCursor should be 0 initially")
 	}
 }
@@ -203,20 +203,20 @@ func TestATDD_27_8_AC2_ImmuneStatusMsgUpdatesModel(t *testing.T) {
 	status := makeImmuneStatusWarning()
 
 	msg := immuneStatusMsg{
-		status: status,
+		Status: status,
 	}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.immuneStatus == nil {
+	if model.security.ImmuneStatus == nil {
 		t.Fatal("AC-2: immuneStatus should be set after immuneStatusMsg")
 	}
-	if model.immuneStatus.SecurityStatus != "warning" {
-		t.Errorf("AC-2: SecurityStatus = %q, want %q", model.immuneStatus.SecurityStatus, "warning")
+	if model.security.ImmuneStatus.SecurityStatus != "warning" {
+		t.Errorf("AC-2: SecurityStatus = %q, want %q", model.security.ImmuneStatus.SecurityStatus, "warning")
 	}
-	if len(model.securityAlerts) != 3 {
-		t.Errorf("AC-2: securityAlerts len = %d, want 3", len(model.securityAlerts))
+	if len(model.security.Alerts) != 3 {
+		t.Errorf("AC-2: securityAlerts len = %d, want 3", len(model.security.Alerts))
 	}
 }
 
@@ -225,13 +225,13 @@ func TestATDD_27_8_AC2_ImmuneStatusMsgError(t *testing.T) {
 	m := newSecurityModel()
 
 	msg := immuneStatusMsg{
-		err: fmt.Errorf("connection refused"),
+		Err: fmt.Errorf("connection refused"),
 	}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.immuneErr == nil {
+	if model.security.ImmuneErr == nil {
 		t.Error("AC-2: immuneErr should be set on error")
 	}
 }
@@ -240,9 +240,9 @@ func TestATDD_27_8_AC2_ImmuneStatusMsgError(t *testing.T) {
 func TestATDD_27_8_AC2_CursorClampedAfterRefresh(t *testing.T) {
 	m := newSecurityModel()
 	// Set up 3 alerts and cursor at last position
-	m.immuneStatus = makeImmuneStatusWarning()
-	m.securityAlerts = makeAlerts()
-	m.securityCursor = 2 // at last alert
+	m.security.ImmuneStatus = makeImmuneStatusWarning()
+	m.security.Alerts = makeAlerts()
+	m.security.Cursor = 2 // at last alert
 
 	// Simulate refresh with fewer alerts (only 1 alert now)
 	smallStatus := &ipc.ImmuneStatusResponse{
@@ -252,14 +252,14 @@ func TestATDD_27_8_AC2_CursorClampedAfterRefresh(t *testing.T) {
 			{PID: 1, Type: "syscall_freq", Deviation: 2.0},
 		},
 	}
-	msg := immuneStatusMsg{status: smallStatus}
+	msg := immuneStatusMsg{Status: smallStatus}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.securityCursor >= len(model.securityAlerts) {
+	if model.security.Cursor >= len(model.security.Alerts) {
 		t.Errorf("AC-2: securityCursor %d out of range (alerts len=%d)",
-			model.securityCursor, len(model.securityAlerts))
+			model.security.Cursor, len(model.security.Alerts))
 	}
 }
 
@@ -272,26 +272,26 @@ func TestATDD_27_8_AC3_AlertsSortedByDeviation(t *testing.T) {
 	m := newSecurityModel()
 	status := makeImmuneStatusWarning()
 
-	msg := immuneStatusMsg{status: status}
+	msg := immuneStatusMsg{Status: status}
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if len(model.securityAlerts) < 2 {
+	if len(model.security.Alerts) < 2 {
 		t.Fatal("AC-3: need at least 2 alerts for sort test")
 	}
 
 	// Verify descending order by Deviation
-	for i := 1; i < len(model.securityAlerts); i++ {
-		if model.securityAlerts[i].Deviation > model.securityAlerts[i-1].Deviation {
+	for i := 1; i < len(model.security.Alerts); i++ {
+		if model.security.Alerts[i].Deviation > model.security.Alerts[i-1].Deviation {
 			t.Errorf("AC-3: alerts not sorted by Deviation desc: [%d]=%f > [%d]=%f",
-				i, model.securityAlerts[i].Deviation,
-				i-1, model.securityAlerts[i-1].Deviation)
+				i, model.security.Alerts[i].Deviation,
+				i-1, model.security.Alerts[i-1].Deviation)
 		}
 	}
 
 	// The highest deviation (8.5, device_access) should be first
-	if model.securityAlerts[0].Deviation != 8.5 {
-		t.Errorf("AC-3: first alert Deviation = %f, want 8.5", model.securityAlerts[0].Deviation)
+	if model.security.Alerts[0].Deviation != 8.5 {
+		t.Errorf("AC-3: first alert Deviation = %f, want 8.5", model.security.Alerts[0].Deviation)
 	}
 }
 
@@ -318,8 +318,8 @@ func TestATDD_27_8_AC3_AlertTypeColor(t *testing.T) {
 // --- AC-3.3: [P0] renderSecurityPane shows alert details ---
 func TestATDD_27_8_AC3_RenderSecurityPane_AlertDetails(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusWarning()
-	m.securityAlerts = sortAlertsByDeviation(makeAlerts())
+	m.security.ImmuneStatus = makeImmuneStatusWarning()
+	m.security.Alerts = sortAlertsByDeviation(makeAlerts())
 
 	output := m.renderSecurityPane(80, 30)
 
@@ -347,8 +347,8 @@ func TestATDD_27_8_AC3_RenderSecurityPane_AlertDetails(t *testing.T) {
 // --- AC-3.4: [P0] renderSecurityPane with empty alerts ---
 func TestATDD_27_8_AC3_RenderSecurityPane_EmptyAlerts(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusOK()
-	m.securityAlerts = nil
+	m.security.ImmuneStatus = makeImmuneStatusOK()
+	m.security.Alerts = nil
 
 	output := m.renderSecurityPane(80, 20)
 
@@ -364,33 +364,33 @@ func TestATDD_27_8_AC3_RenderSecurityPane_EmptyAlerts(t *testing.T) {
 // --- AC-4.1: [P0] j/k moves securityCursor ---
 func TestATDD_27_8_AC4_JK_MovesSecurityCursor(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusWarning()
-	m.securityAlerts = sortAlertsByDeviation(makeAlerts())
-	m.securityCursor = 0
+	m.security.ImmuneStatus = makeImmuneStatusWarning()
+	m.security.Alerts = sortAlertsByDeviation(makeAlerts())
+	m.security.Cursor = 0
 
 	// Press 'j' to move down
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	model := m2.(dashboardModel)
-	if model.securityCursor != 1 {
-		t.Errorf("AC-4: after j, securityCursor = %d, want 1", model.securityCursor)
+	if model.security.Cursor != 1 {
+		t.Errorf("AC-4: after j, securityCursor = %d, want 1", model.security.Cursor)
 	}
 
 	// Press 'k' to move back up
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'k'})
 	model2 := m3.(dashboardModel)
-	if model2.securityCursor != 0 {
-		t.Errorf("AC-4: after k, securityCursor = %d, want 0", model2.securityCursor)
+	if model2.security.Cursor != 0 {
+		t.Errorf("AC-4: after k, securityCursor = %d, want 0", model2.security.Cursor)
 	}
 }
 
 // --- AC-4.2: [P0] Enter on alert links to process ---
 func TestATDD_27_8_AC4_Enter_LinksToProcess(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusWarning()
-	m.securityAlerts = sortAlertsByDeviation(makeAlerts())
+	m.security.ImmuneStatus = makeImmuneStatusWarning()
+	m.security.Alerts = sortAlertsByDeviation(makeAlerts())
 	// Add process with PID=8 (the device_access alert, sorted first by deviation)
 	m.processes = []vfs.ProcInfo{{PID: 8}, {PID: 5}, {PID: 3}}
-	m.securityCursor = 0 // first alert = device_access (PID=8, deviation 8.5)
+	m.security.Cursor = 0 // first alert = device_access (PID=8, deviation 8.5)
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '\r'}) // Enter
 	model := m2.(dashboardModel)
@@ -406,11 +406,11 @@ func TestATDD_27_8_AC4_Enter_LinksToProcess(t *testing.T) {
 // --- AC-4.3: [P0] Enter on alert where process is gone shows status message ---
 func TestATDD_27_8_AC4_Enter_ProcessGone_ShowsMessage(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusWarning()
-	m.securityAlerts = sortAlertsByDeviation(makeAlerts())
+	m.security.ImmuneStatus = makeImmuneStatusWarning()
+	m.security.Alerts = sortAlertsByDeviation(makeAlerts())
 	// Only PID 3 exists; PID 8 (first alert by deviation) is gone
 	m.processes = []vfs.ProcInfo{{PID: 3}}
-	m.securityCursor = 0 // first alert = device_access (PID=8)
+	m.security.Cursor = 0 // first alert = device_access (PID=8)
 	prevPID := m.selectedPID
 
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '\r'}) // Enter
@@ -429,26 +429,26 @@ func TestATDD_27_8_AC4_Enter_ProcessGone_ShowsMessage(t *testing.T) {
 // --- AC-4.4: [P0] j/k does not go out of bounds ---
 func TestATDD_27_8_AC4_CursorBounds(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusWarning()
-	m.securityAlerts = sortAlertsByDeviation(makeAlerts())
-	m.securityCursor = 0
+	m.security.ImmuneStatus = makeImmuneStatusWarning()
+	m.security.Alerts = sortAlertsByDeviation(makeAlerts())
+	m.security.Cursor = 0
 
 	// Press 'k' at cursor=0 → should stay at 0
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	model := m2.(dashboardModel)
-	if model.securityCursor != 0 {
-		t.Errorf("AC-4: k at cursor=0 should stay 0, got %d", model.securityCursor)
+	if model.security.Cursor != 0 {
+		t.Errorf("AC-4: k at cursor=0 should stay 0, got %d", model.security.Cursor)
 	}
 
 	// Move cursor to last alert
-	lastIdx := len(m.securityAlerts) - 1
-	model.securityCursor = lastIdx
+	lastIdx := len(m.security.Alerts) - 1
+	model.security.Cursor = lastIdx
 
 	// Press 'j' at last position → should stay
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'j'})
 	model2 := m3.(dashboardModel)
-	if model2.securityCursor != lastIdx {
-		t.Errorf("AC-4: j at last position should stay %d, got %d", lastIdx, model2.securityCursor)
+	if model2.security.Cursor != lastIdx {
+		t.Errorf("AC-4: j at last position should stay %d, got %d", lastIdx, model2.security.Cursor)
 	}
 }
 
@@ -459,8 +459,8 @@ func TestATDD_27_8_AC4_CursorBounds(t *testing.T) {
 // --- AC-5.1: [P1] OK status shows green message ---
 func TestATDD_27_8_AC5_OKStatus_GreenMessage(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusOK()
-	m.securityAlerts = nil
+	m.security.ImmuneStatus = makeImmuneStatusOK()
+	m.security.Alerts = nil
 
 	output := m.renderSecurityPane(80, 20)
 
@@ -492,8 +492,8 @@ func TestATDD_27_8_AC5_SecurityStatusColor(t *testing.T) {
 // --- AC-5.3: [P1] Warning status shows alert count ---
 func TestATDD_27_8_AC5_WarningStatus_ShowsAlertCount(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusWarning()
-	m.securityAlerts = sortAlertsByDeviation(makeAlerts())
+	m.security.ImmuneStatus = makeImmuneStatusWarning()
+	m.security.Alerts = sortAlertsByDeviation(makeAlerts())
 
 	output := m.renderSecurityPane(80, 20)
 
@@ -506,8 +506,8 @@ func TestATDD_27_8_AC5_WarningStatus_ShowsAlertCount(t *testing.T) {
 // --- AC-5.4: [P1] OK status shows uptime and threat count ---
 func TestATDD_27_8_AC5_OKStatus_UptimeAndThreats(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusOK()
-	m.securityAlerts = nil
+	m.security.ImmuneStatus = makeImmuneStatusOK()
+	m.security.Alerts = nil
 
 	output := m.renderSecurityPane(80, 20)
 
@@ -528,8 +528,8 @@ func TestATDD_27_8_AC5_OKStatus_UptimeAndThreats(t *testing.T) {
 // --- AC-6.1: [P1] Suspended PIDs shown in security pane ---
 func TestATDD_27_8_AC6_SuspendedPIDs_Shown(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusWarning() // has SuspendedPIDs: [5]
-	m.securityAlerts = sortAlertsByDeviation(makeAlerts())
+	m.security.ImmuneStatus = makeImmuneStatusWarning() // has SuspendedPIDs: [5]
+	m.security.Alerts = sortAlertsByDeviation(makeAlerts())
 
 	output := m.renderSecurityPane(80, 30)
 
@@ -546,8 +546,8 @@ func TestATDD_27_8_AC6_SuspendedPIDs_Shown(t *testing.T) {
 // --- AC-6.2: [P1] No suspended section when SuspendedPIDs empty ---
 func TestATDD_27_8_AC6_NoSuspendedSection_WhenEmpty(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusOK() // SuspendedPIDs is nil
-	m.securityAlerts = nil
+	m.security.ImmuneStatus = makeImmuneStatusOK() // SuspendedPIDs is nil
+	m.security.Alerts = nil
 
 	output := m.renderSecurityPane(80, 20)
 
@@ -563,8 +563,8 @@ func TestATDD_27_8_AC6_NoSuspendedSection_WhenEmpty(t *testing.T) {
 // --- AC-7.1: [P1] Daemon not running shows fallback message ---
 func TestATDD_27_8_AC7_DaemonNotRunning_ShowsFallback(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusNotRunning()
-	m.securityAlerts = nil
+	m.security.ImmuneStatus = makeImmuneStatusNotRunning()
+	m.security.Alerts = nil
 
 	output := m.renderSecurityPane(80, 20)
 
@@ -577,9 +577,9 @@ func TestATDD_27_8_AC7_DaemonNotRunning_ShowsFallback(t *testing.T) {
 // --- AC-7.2: [P1] Daemon not running + j/k does not panic ---
 func TestATDD_27_8_AC7_DaemonNotRunning_NavigationSafe(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = makeImmuneStatusNotRunning()
-	m.securityAlerts = nil
-	m.securityCursor = 0
+	m.security.ImmuneStatus = makeImmuneStatusNotRunning()
+	m.security.Alerts = nil
+	m.security.Cursor = 0
 
 	// j/k/Enter on empty security state should not panic
 	for _, key := range []rune{'j', 'k', '\r'} {
@@ -591,8 +591,8 @@ func TestATDD_27_8_AC7_DaemonNotRunning_NavigationSafe(t *testing.T) {
 // --- AC-7.3: [P1] immuneStatus nil renders gracefully ---
 func TestATDD_27_8_AC7_NilImmuneStatus_Renders(t *testing.T) {
 	m := newSecurityModel()
-	m.immuneStatus = nil // not fetched yet
-	m.securityAlerts = nil
+	m.security.ImmuneStatus = nil // not fetched yet
+	m.security.Alerts = nil
 
 	output := m.renderSecurityPane(80, 20)
 
@@ -689,19 +689,19 @@ func TestATDD_27_8_AC3_FormatTimeAgo(t *testing.T) {
 func TestATDD_27_8_SecurityAdjustScroll(t *testing.T) {
 	m := newSecurityModel()
 	m.height = 20 // visibleLines = max(20/2-3, 1) = 7
-	m.securityScrollOffset = 0
-	m.securityCursor = 10
+	m.security.ScrollOffset = 0
+	m.security.Cursor = 10
 
 	securityAdjustScroll(&m)
 
-	if m.securityScrollOffset == 0 {
+	if m.security.ScrollOffset == 0 {
 		t.Error("scroll offset should have adjusted for cursor=10")
 	}
 	// cursor should be within visible range
 	visibleLines := max(m.height/2-3, 1)
-	if m.securityCursor < m.securityScrollOffset || m.securityCursor >= m.securityScrollOffset+visibleLines {
+	if m.security.Cursor < m.security.ScrollOffset || m.security.Cursor >= m.security.ScrollOffset+visibleLines {
 		t.Errorf("cursor %d not in visible range [%d, %d)",
-			m.securityCursor, m.securityScrollOffset, m.securityScrollOffset+visibleLines)
+			m.security.Cursor, m.security.ScrollOffset, m.security.ScrollOffset+visibleLines)
 	}
 }
 
@@ -709,13 +709,13 @@ func TestATDD_27_8_SecurityAdjustScroll(t *testing.T) {
 func TestATDD_27_8_SecurityAdjustScroll_Up(t *testing.T) {
 	m := newSecurityModel()
 	m.height = 20
-	m.securityScrollOffset = 5
-	m.securityCursor = 2
+	m.security.ScrollOffset = 5
+	m.security.Cursor = 2
 
 	securityAdjustScroll(&m)
 
-	if m.securityScrollOffset != 2 {
-		t.Errorf("scroll offset = %d, want 2 (should scroll up to cursor)", m.securityScrollOffset)
+	if m.security.ScrollOffset != 2 {
+		t.Errorf("scroll offset = %d, want 2 (should scroll up to cursor)", m.security.ScrollOffset)
 	}
 }
 

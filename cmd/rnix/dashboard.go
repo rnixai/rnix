@@ -8,16 +8,27 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 
 	"github.com/rnixai/rnix/debug"
+	"github.com/rnixai/rnix/internal/dashboard/alertstrip"
+	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
+	dashboarddebug "github.com/rnixai/rnix/internal/dashboard/debug"
+	"github.com/rnixai/rnix/internal/dashboard/heatmap"
+	"github.com/rnixai/rnix/internal/dashboard/detail"
+	"github.com/rnixai/rnix/internal/dashboard/eval"
+	"github.com/rnixai/rnix/internal/dashboard/inspector"
+	"github.com/rnixai/rnix/internal/dashboard/intent"
+	"github.com/rnixai/rnix/internal/dashboard/plugin"
+	"github.com/rnixai/rnix/internal/dashboard/security"
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
+	"github.com/rnixai/rnix/internal/dashboard/trace"
+	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
-	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -37,20 +48,17 @@ type dashboardModel struct {
 	rightPane    paneType // 右侧显示的面板（默认 Timeline）
 	viewMode     viewMode // 当前视图模式（默认 viewDefault，零值即默认）
 	expandedPane paneType // viewExpanded 模式下展开的面板
+
+	// Story 38.1: 3-layer key dispatcher (Layer 0 Global / Layer 1 View / Layer 2 Pane)
+	dispatcher *ui.Dispatcher
+
 	selectedPID  types.PID
 	selectedUUID string
 	processes    []vfs.ProcInfo
-	treeRows     []flatRow
-	treeCursor   int
-	treeOffset   int
-	treeSortMode int  // 0=Time, 1=PID, 2=State
-	treeSortAsc  bool // false=descending (default), true=ascending
 
-	// Expanded-tree search (only active in viewExpanded + paneTree)
-	treeSearchQuery  string
-	treeSearchMode   bool
-	treeSearchCursor int
-	treeSearchOffset int
+	// Story 38-5 PR2 Step 1: TreeState 抽离（13 字段聚合到 internal/dashboard/tree.TreeState）
+	tree tree.TreeState
+
 	connected    bool
 	err          error
 	statusMsg    string
@@ -58,130 +66,50 @@ type dashboardModel struct {
 	confirmKill  bool
 	confirmPID   types.PID
 
-	// Timeline tracking
-	timelineAttachedPID  types.PID
-	timelineAttachedUUID string
+	// Story 38-5 PR4 Step 1: TimelineState 抽离（16 字段）— spec § AC4
+	// 抽出字段：AttachedPID/AttachedUUID + StepEntries/StepCursor/StepScrollTop/
+	// StepDetailCache/LastFetchedStep/FetchingDetail/StepFilters/StepFilterMode/
+	// StepExpandedIdx + SortAsc/ExpandMode/UIState/MigrationChecked + ExpandedAggGroups。
+	// 现有 cmd/rnix 端通过 deprecated getter `TimelineState()` 间接读取，PR11 删除。
+	timeline timeline.TimelineState
 
-	// Heatmap fields (Story 17-3)
-	heatmapProfile   *debug.CtxProfileResult
-	heatmapPID       types.PID
-	heatmapSegments  []heatmapSegment
-	heatmapCursor    int
-	heatmapExpanded  bool
-	heatmapTickCount int
-	heatmapErr       error
+	// Heatmap fields (Story 17-3) — Story 38-5 PR3 Step 1: 抽离至 internal/dashboard/heatmap.HeatmapState
+	heatmap heatmap.HeatmapState
 
 	// Pane linkage & process operations (Story 17-4)
 	recording    map[string]string
 	statusMsgTTL int
 
-	// Step timeline fields (unified)
-	stepEntries     []stepEntry
-	stepCursor      int
-	stepScrollTop   int // index in filtered view of first visible item
-	stepDetailCache map[int]*ipc.GetStepDetailResponse
-	lastFetchedStep int
-	fetchingDetail  bool
-	stepFilters     map[string]bool
-	stepFilterMode  bool
-	stepExpandedIdx int
+	// Story 38-5 PR10 Step 1: InspectorState 抽离（25 字段 · spec § AC6）— Story 36-1 / 38-3
+	// / 36-6 / 38-3 AC#7-8 落地全部行为契约保留。详见 internal/dashboard/inspector/state.go
+	// 包级注释。包含：核心步进 9 字段 + 5-lens 视觉 6 字段 + Diff mode 7 字段 + Follow Live 2
+	// 字段 + 38-3 AC#7/#8 lens marks + byte search 2 字段 = 25 字段（spec § AC6 line 165 列举）。
+	inspector inspector.InspectorState
 
-	// Step Inspector fields (Story 36-1, replaces LLM Viewer + Prompt Pager)
-	inspectorPID            types.PID
-	inspectorUUID           string
-	inspectorStep           int
-	inspectorStepMax        int
-	inspectorSteps          []ipc.StepSummaryWire
-	inspectorDetail         *ipc.GetStepDetailResponse
-	inspectorPrevDetail     *ipc.GetStepDetailResponse
-	inspectorPrevStep       int
-	inspectorCurDetailStep  int
-	inspectorLens           inspectorLens
-	inspectorViewports      [inspectorLensCount]viewport.Model
-	inspectorContents       [inspectorLensCount]string
-	inspectorPrevMode       viewMode
-	inspectorFetching       bool
-	inspectorSystemExpanded bool
-
-	// Story 36-5: Universal search state (Inspector + Timeline)
-	searchMode     bool
-	searchQuery    string
-	searchMatches  []int
-	searchMatchIdx int
-
-	// Story 36-6: Search enhancements
-	searchReverse         bool      // true for reverse `?` search (n/N reversed)
-	searchCrossLens       bool      // placeholder — Ctrl-/ cross-lens (TODO, Story 36-7)
-	searchNoMatchExpireAt time.Time // TTL for the status-bar "No matches" notice
-
-	// Story 36-6: Inspector diff mode
-	inspectorDiffMode         bool          // Diff mode active
-	inspectorDiffBase         int           // base step number for diff
-	inspectorDiffDelta        int           // captured relative offset (current - base)
-	inspectorDiffUnfolded     map[int]bool  // expanded fold regions keyed by diff-line index
-	inspectorDiffPicker       bool          // base picker overlay active
-	inspectorDiffPickerCursor int           // cursor index in picker (into inspectorSteps)
-	inspectorDiffDdDeadline   time.Time     // dd double-tap window deadline
-
-	// Story 36-6: Follow live
-	inspectorFollowLive bool // Auto-jump to latest step as new steps arrive
-	inspectorFollowGen  int  // Generation counter — stale ticks (prior generation) are ignored
-
-	// Story 36-4: Timeline 排序方向 & expandMode 粘性
-	timelineSortAsc          bool               // true=旧→新（底部最新），session 内持久
-	expandMode               timelineExpandMode // 按进程作用域，切 PID 时重置为 collapsed
-	uiState                  *ui.UIState        // 首次升级提示的持久化状态
-	timelineMigrationChecked bool               // session 内是否已检查过首次升级提示
+	// Story 38-5 PR10 Step 4: SearchPlugin 抽离（7 字段 · spec § AC6 + § 04 风险 3）
+	// 抽出 dashboardModel.search{Mode/Query/Matches/MatchIdx/Reverse/CrossLens/NoMatchExpireAt}
+	// 7 字段到 internal/dashboard/plugin.SearchPlugin。SearchPlugin 通过 plugin.Searchable
+	// interface 与 InspectorModel + TimelineModel 解耦（避免直接读子 Model 私有字段）。
+	// Story 36-5 / 36-6 跨 pane 搜索行为完全保留。
+	search plugin.SearchPlugin
 
 	// Story 27-5: initial PID focus from --pid flag
 	initialPIDFocus types.PID
 
-	// Detail pane fields (Story 27-6)
-	procDetail      *ipc.GetProcDetailResponse
-	procDetailPID   types.PID
-	procDetailCache map[string]*ipc.GetProcDetailResponse
-	procDetailTick  int // tick counter for periodic cache refresh
+	// Story 38-5 PR5 Step 1: DetailState 抽离（4 字段 · spec § AC5）— Detail/PID/Cache/Tick · Story 27-6 落地。
+	detail detail.DetailState
 
-	// Intent tree pane fields (Story 27-7)
-	intentTrees        []*ipc.IntentTreeWire
-	intentTreeErr      error
-	intentFlatNodes    []intentFlatNode
-	intentCursor       int
-	intentScrollOffset int
+	// Story 38-5 PR6 Step 1: IntentState 抽离（6 字段 · spec § AC5 · 27-7 + 38-4 落地 · 38-4 P1 stable RootIntent key）
+	intent intent.IntentState
 
-	// Security pane fields (Story 27-8)
-	immuneStatus         *ipc.ImmuneStatusResponse
-	immuneErr            error
-	securityAlerts       []ipc.AlertWire
-	securityCursor       int
-	securityScrollOffset int
+	// Story 38-5 PR7 Step 1: SecurityState 抽离（5 字段 · spec § AC5 · Story 27-8 + 38-4 Alert Immune 路由保留）
+	security security.SecurityState
 
-	// Trace pane fields (Story 27-9)
-	traceSummaries    []ipc.TraceSummaryWire
-	traceErr          error
-	traceCursor       int
-	traceScrollOffset int
-	traceViewMode     int // 0=list, 1=tree
-	selectedTraceID   string
-	selectedSpanTree  *ipc.SpanTreeWire
-	spanFlatNodes     []spanFlatNode
-	spanCursor        int
-	spanScrollOffset  int
+	// Story 38-5 PR8 Step 1: TraceState 抽离（10 字段 · spec § AC5 · Story 27-9 + 38-4 waterfall bar 保留）
+	trace trace.TraceState
 
-	// Eval pane fields (Story 27-10)
-	evalSubView          int // 0=reputation, 1=topology, 2=synergy
-	evalReputations      []kernel.ReputationSummary
-	evalRepErr           error
-	evalRepCursor        int
-	evalRepScrollOffset  int
-	evalTopology         *ipc.TopologyQueryResponse
-	evalTopoErr          error
-	evalTopoCursor       int
-	evalTopoScrollOffset int
-	evalSynergies        []kernel.ComboSummary
-	evalSynErr           error
-	evalSynCursor        int
-	evalSynScrollOffset  int
+	// Story 38-5 PR9 Step 1: EvalState 抽离（13 字段 · spec § AC5 · Story 27-10 + 38-4 evalScoreColorStyle 颜色梯度保留）
+	eval eval.EvalState
 
 	// Offline replay fields (Story 17-5)
 	replayMode       bool
@@ -194,8 +122,7 @@ type dashboardModel struct {
 	// HeartbeatStatus fields (Story 30.8)
 	heartbeatStatus *ipc.HeartbeatStatusResponse
 
-	// Timeline aggregation (Story 30.8 AC#5)
-	expandedAggGroups map[int]bool
+	// Story 30.8 AC#5: Timeline aggregation — Story 38-5 PR4 Step 1: 抽离到 timeline.TimelineState.ExpandedAggGroups
 
 	// Help overlay
 	helpOverlay bool
@@ -216,35 +143,43 @@ type dashboardModel struct {
 	errorCount int
 	warnCount  int
 
-	// Story 34.3: Process tree visual enhancement
-	lastEventByPID     map[types.PID]time.Time // AC5: most active tracking
-	userManualSelect   bool                     // AC5: user manual select flag
-	collapsedDeadTrees map[string]bool          // AC3: dead subtree collapse state (key=UUID)
+	// Story 34.3: Process tree visual enhancement (now in tree.TreeState)
 
-	// Story 36-2: New process highlight
-	processFirstSeenAt map[types.PID]time.Time // tracks when each PID was first seen
+	// Story 36-2: New process highlight (now in tree.TreeState)
 
 	// Story 34.4: Alert strip + unified timeline
-	alertExpanded  bool             // alert strip expanded state
-	alertCursor    int              // cursor position within alert strip
-	alertEvents    []UnifiedEvent   // cached alerts (Severity >= SevWarn, sorted)
-	alertJumpTarget *UnifiedEvent   // pending alert jump after PID change
+	// Story 38-5 PR12 Step 1 + PR11 Step 4(a) cascade fix: 4 字段全部抽出至
+	// internal/dashboard/alertstrip.AlertStripState（commit a08ae3d 解除
+	// UnifiedEvent 类型 cascade 阻塞 · spec § Tasks 11.3 line 187 「4 字段
+	// Expanded/Cursor/Events/JumpTarget」最终对齐）。
+	alertStrip alertstrip.AlertStripState
+
+	// Story 38-4: cross-pane linkage (see dashboard_events.go for contract)
+	paneHasUnread       [paneCount]bool
+	lastUnreadEventKeys map[string]struct{} // Story 38-4 P3: identity-based diff (replaces prevUnifiedEventCount); nil means "next tick syncs without marking" (PID switch / startup)
+	// 注：intentTreeCollapsed 已迁入 intent.IntentState.TreeCollapsed（PR6 Step 1）· 38-4 P1 行为不变
 
 	// Story 34.6: Debug mode — strace fusion
-	debugMode           bool                        // Debug mode active
-	debugEvents         []UnifiedEvent              // merged debug timeline (steps + strace)
-	debugStraceEvents   []UnifiedEvent              // strace event ring buffer
-	debugClient         *ipc.Client                 // independent IPC connection for strace stream
-	debugStraceCh       <-chan ipc.SyscallEventWire  // strace event channel from goroutine
-	debugShowStrace     bool                        // toggle strace visibility (default true)
-	debugCtxProfile     *debug.CtxProfileResult     // Context Profile data
-	debugDeviceLatency  map[string]*deviceLatencyStats // device latency stats
-	debugAttachedPID    types.PID                   // currently attached PID for strace
-	debugAutoReloaded   bool                        // prevents repeated historical reload after stream end
-	debugHistWatermark  int64                       // max TimestampMs from historical load; stream events ≤ this are skipped
-	debugScrollTop      int                         // debug timeline scroll offset
-	debugCursor         int                         // debug timeline cursor
-	debugAutoScroll     bool                        // auto-scroll to latest event
+	// Story 38-5 PR11 Step 1 + Step 4(a) cascade fix: 14 字段全部抽出至
+	// internal/dashboard/debug.DebugState（commit a08ae3d 解除 UnifiedEvent
+	// 类型 cascade 阻塞 · Events/StraceEvents 完整迁出）。
+	debugState dashboarddebug.DebugState
+
+	// Story 38-5 PR11 Step 4(b) Phase 1: 11 个子 Model hook 入口（spec § AC11
+	// broadcast 通道 · 8 PaneModel + 3 OverlayModel）。当前 OnSelectPID 全部
+	// 是 nil-safe stub · Phase 2 后续会话逐 pane 把 handleXxxPIDChange 主体
+	// 迁入对应 OnSelectPID。State 双向同步留 Phase 2（当前 stub 不读 state）。
+	treeM       *tree.TreeModel
+	timelineM   *timeline.TimelineModel
+	heatmapM    *heatmap.HeatmapModel
+	detailM     *detail.DetailModel
+	intentM     *intent.IntentModel
+	securityM   *security.SecurityModel
+	traceM      *trace.TraceModel
+	evalM       *eval.EvalModel
+	inspectorM  *inspector.InspectorModel
+	debugM      *dashboarddebug.DebugModel
+	alertStripM *alertstrip.AlertStripModel
 }
 
 func newDashboardModel(client *ipc.Client) dashboardModel {
@@ -254,35 +189,100 @@ func newDashboardModel(client *ipc.Client) dashboardModel {
 	}
 	return dashboardModel{
 		client:             client,
+		dispatcher:         newDispatcher(),
 		startTime:          time.Now(),
 		connected:          client != nil,
 		rightPane:          paneTimeline,
 		recording:          make(map[string]string),
-		stepDetailCache:    make(map[int]*ipc.GetStepDetailResponse),
-		procDetailCache:    make(map[string]*ipc.GetProcDetailResponse),
-		stepExpandedIdx:    -1,
-		stepFilters:        defaultStepFilters(),
-		expandedAggGroups:  make(map[int]bool),
+		detail:             detail.DetailState{Cache: make(map[string]*ipc.GetProcDetailResponse)}, // Story 38-5 PR5 Step 1: DetailState init
 		prevProcessPIDs:    make(map[types.PID]vfs.ProcInfo),
 		budgetAlertSeen:    make(map[types.PID]int),
 		stallSeen:          make(map[types.PID]struct{}),
 		sysEventSeen:       make(map[string]struct{}),
-		lastEventByPID:     make(map[types.PID]time.Time),
-		collapsedDeadTrees: make(map[string]bool),
-		processFirstSeenAt: make(map[types.PID]time.Time),
-		debugShowStrace:    true, // Story 34.6: show strace events by default
-		debugDeviceLatency: make(map[string]*deviceLatencyStats),
-		timelineSortAsc:    true,                // Story 36-4: 默认升序（最新在底）
-		expandMode:         expandModeCollapsed, // Story 36-4
-		uiState:            uiState,             // Story 36-4: 首次升级提示持久化状态
+		// Story 38-5 PR2 Step 1: TreeState 抽离（13 字段）
+		tree: tree.TreeState{
+			LastEventByPID:     make(map[types.PID]time.Time),
+			CollapsedDeadTrees: make(map[string]bool),
+			ProcessFirstSeenAt: make(map[types.PID]time.Time),
+		},
+		// Story 38-5 PR4 Step 1: TimelineState 抽离（16 字段）
+		timeline: timeline.TimelineState{
+			StepDetailCache:   make(map[int]*ipc.GetStepDetailResponse),
+			StepExpandedIdx:   -1,
+			StepFilters:       defaultStepFilters(),
+			ExpandedAggGroups: make(map[int]bool),
+			SortAsc:           true,                       // Story 36-4: 默认升序（最新在底）
+			ExpandMode:        timeline.ExpandModeCollapsed, // Story 36-4
+			UIState:           uiState,                    // Story 36-4: 首次升级提示持久化状态
+		},
+		intent: intent.IntentState{
+			TreeCollapsed: make(map[string]bool), // Story 38-4 AC#3 / P1: keyed by RootIntent
+		},
+		// Story 38-5 PR11 Step 1: DebugState 抽离（12 字段）— Story 34.6 落地
+		debugState: dashboarddebug.DebugState{
+			ShowStrace:    true, // Story 34.6: show strace events by default
+			DeviceLatency: make(map[string]*deviceLatencyStats),
+		},
+		// Story 38-5 PR11 Step 4(b) Phase 1: 11 个子 Model hook 入口（spec § AC11）
+		treeM:       tree.NewModel(),
+		timelineM:   timeline.NewModel(),
+		heatmapM:    heatmap.NewModel(),
+		detailM:     detail.NewModel(),
+		intentM:     intent.NewModel(),
+		securityM:   security.NewModel(),
+		traceM:      trace.NewModel(),
+		evalM:       eval.NewModel(),
+		inspectorM:  inspector.NewModel(),
+		debugM:      dashboarddebug.NewModel(),
+		alertStripM: alertstrip.NewModel(),
 	}
 }
 
 func selectProcess(m dashboardModel, row flatRow) dashboardModel {
-	m.selectedPID = row.proc.PID
-	m.selectedUUID = row.proc.UUID
+	m.selectedPID = row.Proc.PID
+	m.selectedUUID = row.Proc.UUID
 	return m
 }
+
+// TreeState returns the embedded tree state.
+//
+// Story 38-5 PR11 Step 4(b) Code Review (G2-6): originally tagged "Deprecated:
+// removed in PR11" with the intent of inlining accessors after the migration.
+// That plan was reversed during PR11 because the KeyLayer ActiveModesFn
+// closures (registered via tree.KeyLayer / timeline.KeyLayer / etc.) read
+// state through the StateProvider interfaces defined in each subpackage —
+// and those interfaces are satisfied precisely by these methods. Removing
+// them would break key dispatching. Treat the getters as **stable
+// StateProvider implementations**, not deprecated transitional helpers.
+//
+// Test code may still use them to read state without importing
+// internal/dashboard/tree types.
+func (m dashboardModel) TreeState() tree.TreeState { return m.tree }
+
+// HeatmapState implements heatmap.StateProvider for KeyLayer ActiveModesFn
+// (Story 38-5 PR3 Step 1; retained as part of the stable StateProvider
+// contract — see TreeState above for the reversal of the original
+// "Deprecated: removed in PR11" plan).
+func (m dashboardModel) HeatmapState() heatmap.HeatmapState { return m.heatmap }
+
+// TimelineState implements timeline.StateProvider for KeyLayer ActiveModesFn
+// (Story 38-5 PR4 Step 1; retained as a stable StateProvider — see TreeState).
+//
+// Allows tests to read the timeline state without importing
+// internal/dashboard/timeline directly.
+func (m dashboardModel) TimelineState() timeline.TimelineState { return m.timeline }
+
+// DetailState implements detail.StateProvider (Story 38-5 PR5 Step 1; retained
+// as a stable StateProvider — see TreeState).
+func (m dashboardModel) DetailState() detail.DetailState { return m.detail }
+func (m dashboardModel) SelectedPID() types.PID          { return m.selectedPID } // Story 38-5 PR5 Step 2 · detail.SelectedPIDProvider
+func (m dashboardModel) IntentState() intent.IntentState { return m.intent }      // Story 38-5 PR6 Step 1 · intent.StateProvider (retained as stable contract)
+func (m dashboardModel) SecurityState() security.SecurityState { return m.security } // Story 38-5 PR7 Step 1 · security.StateProvider (retained)
+func (m dashboardModel) TraceState() trace.TraceState          { return m.trace }    // Story 38-5 PR8 Step 1 · trace.StateProvider (retained)
+func (m dashboardModel) EvalState() eval.EvalState             { return m.eval }     // Story 38-5 PR9 Step 1 · eval.StateProvider (retained)
+func (m dashboardModel) InspectorState() inspector.InspectorState { return m.inspector } // Story 38-5 PR10 Step 1 · inspector.StateProvider (retained)
+func (m dashboardModel) DebugState() dashboarddebug.DebugState  { return m.debugState } // Story 38-5 PR11 Step 1 · dashboarddebug.StateProvider (retained)
+func (m dashboardModel) AlertStripState() alertstrip.AlertStripState { return m.alertStrip } // Story 38-5 PR12 Step 1 · alertstrip.StateProvider (retained)
 
 func (m dashboardModel) Init() tea.Cmd {
 	return tickCmd()
@@ -292,6 +292,14 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
 		return m.dashboardTick()
+	case dashboardmodel.SelectPIDMsg:
+		// Story 38-5 PR11 Step 4(b)（Phase 1 + Phase 2）: spec § AC11 broadcast 路由。
+		// dashboardTick pidChanged 分支 emit · 此处分发到 11 个子 Model.OnSelectPID。
+		// Phase 2 双向同步：broadcastSelectPID 内含 SetState/State sync · 返回更新
+		// 后的 dashboardModel + tea.Batch 收集的 cmd。
+		var pidCmd tea.Cmd
+		m, pidCmd = m.broadcastSelectPID(msg.PID)
+		return m, pidCmd
 	case tea.KeyPressMsg:
 		return m.dashboardKey(msg)
 	case tea.WindowSizeMsg:
@@ -299,21 +307,21 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		if m.viewMode == viewStepInspector {
 			contentH := m.inspectorContentHeight()
-			for i := range m.inspectorViewports {
-				m.inspectorViewports[i].SetWidth(msg.Width)
-				m.inspectorViewports[i].SetHeight(contentH)
+			for i := range m.inspector.Viewports {
+				m.inspector.Viewports[i].SetWidth(msg.Width)
+				m.inspector.Viewports[i].SetHeight(contentH)
 			}
 		}
 		return m, nil
 	case heatmapProfileMsg:
-		if msg.err != nil {
-			m.heatmapErr = msg.err
+		if msg.Err != nil {
+			m.heatmap.Err = msg.Err
 			return m, nil
 		}
-		m.heatmapErr = nil
-		if msg.profile != nil {
-			m.heatmapProfile = msg.profile
-			m.heatmapSegments = buildHeatmapSegments(msg.profile)
+		m.heatmap.Err = nil
+		if msg.Profile != nil {
+			m.heatmap.Profile = msg.Profile
+			m.heatmap.Segments = buildHeatmapSegments(msg.Profile)
 		}
 		return m, nil
 	case execResultMsg:
@@ -341,70 +349,70 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case stepListMsg:
 		// Discard steps from a stale process (in-flight fetch from before process change).
-		// uuid == "" means old daemon without UUID tracking — skip check for backward compat.
-		if msg.uuid != "" && msg.uuid != m.selectedUUID {
+		// UUID == "" means old daemon without UUID tracking — skip check for backward compat.
+		if msg.UUID != "" && msg.UUID != m.selectedUUID {
 			return m, nil
 		}
-		if msg.err == nil && len(msg.steps) > 0 {
-			m = m.applyNewSteps(msg.steps)
-			if last := msg.steps[len(msg.steps)-1]; last.Step > m.lastFetchedStep {
-				m.lastFetchedStep = last.Step
+		if msg.Err == nil && len(msg.Steps) > 0 {
+			m = m.applyNewSteps(msg.Steps)
+			if last := msg.Steps[len(msg.Steps)-1]; last.Step > m.timeline.LastFetchedStep {
+				m.timeline.LastFetchedStep = last.Step
 			}
 		}
 		// Auto-fetch detail for expanded steps (e.g., auto-expanded on error/slow)
 		if cmd := m.fetchNextExpandedDetail(); cmd != nil {
-			m.fetchingDetail = true
+			m.timeline.FetchingDetail = true
 			return m, cmd
 		}
 		return m, nil
 	case stepDetailResultMsg:
-		m.fetchingDetail = false
+		m.timeline.FetchingDetail = false
 		if msg.err == nil && msg.detail != nil {
-			m.stepDetailCache[msg.step] = msg.detail
+			m.timeline.StepDetailCache[msg.step] = msg.detail
 		}
 		// Chain-fetch next expanded step without cached detail
 		if cmd := m.fetchNextExpandedDetail(); cmd != nil {
-			m.fetchingDetail = true
+			m.timeline.FetchingDetail = true
 			return m, cmd
 		}
 		return m, nil
 	case procDetailResultMsg:
-		if msg.err == nil && msg.detail != nil {
-			m.procDetailCache[msg.uuid] = msg.detail
-			if msg.pid == m.selectedPID && msg.uuid == m.selectedUUID {
-				m.procDetail = msg.detail
-				m.procDetailPID = msg.pid
+		if msg.Err == nil && msg.Detail != nil {
+			m.detail.Cache[msg.UUID] = msg.Detail
+			if msg.PID == m.selectedPID && msg.UUID == m.selectedUUID {
+				m.detail.Detail = msg.Detail
+				m.detail.PID = msg.PID
 			}
 		}
 		return m, nil
 	case intentTreesMsg:
-		if msg.err != nil {
-			m.intentTreeErr = msg.err
+		if msg.Err != nil {
+			m.intent.TreeErr = msg.Err
 			return m, nil
 		}
-		m.intentTreeErr = nil
-		if msg.trees == nil {
-			m.intentTrees = nil
-			m.intentFlatNodes = nil
+		m.intent.TreeErr = nil
+		if msg.Trees == nil {
+			m.intent.Trees = nil
+			m.intent.FlatNodes = nil
 			return m, nil
 		}
-		m.intentTrees = msg.trees.Intents
-		m.intentFlatNodes = flattenIntentTrees(m.intentTrees)
-		if m.intentCursor >= len(m.intentFlatNodes) {
-			m.intentCursor = max(0, len(m.intentFlatNodes)-1)
+		m.intent.Trees = msg.Trees.Intents
+		m.intent.FlatNodes = flattenIntentTreesWithCollapse(m.intent.Trees, m.intent.TreeCollapsed)
+		if m.intent.Cursor >= len(m.intent.FlatNodes) {
+			m.intent.Cursor = max(0, len(m.intent.FlatNodes)-1)
 		}
 		return m, nil
 	case immuneStatusMsg:
-		if msg.err != nil {
-			m.immuneErr = msg.err
+		if msg.Err != nil {
+			m.security.ImmuneErr = msg.Err
 			return m, nil
 		}
-		m.immuneErr = nil
-		m.immuneStatus = msg.status
-		if msg.status != nil {
-			m.securityAlerts = sortAlertsByDeviation(msg.status.Alerts)
-			if m.securityCursor >= len(m.securityAlerts) {
-				m.securityCursor = max(0, len(m.securityAlerts)-1)
+		m.security.ImmuneErr = nil
+		m.security.ImmuneStatus = msg.Status
+		if msg.Status != nil {
+			m.security.Alerts = sortAlertsByDeviation(msg.Status.Alerts)
+			if m.security.Cursor >= len(m.security.Alerts) {
+				m.security.Cursor = max(0, len(m.security.Alerts)-1)
 			}
 		}
 		return m, nil
@@ -464,81 +472,81 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	case traceListMsg:
-		if msg.err != nil {
-			m.traceErr = msg.err
+		if msg.Err != nil {
+			m.trace.Err = msg.Err
 			return m, nil
 		}
-		m.traceErr = nil
-		m.traceSummaries = msg.summaries
+		m.trace.Err = nil
+		m.trace.Summaries = msg.Summaries
 		// Sort by StartTimeMs descending (newest first)
-		sort.Slice(m.traceSummaries, func(i, j int) bool {
-			return m.traceSummaries[i].StartTimeMs > m.traceSummaries[j].StartTimeMs
+		sort.Slice(m.trace.Summaries, func(i, j int) bool {
+			return m.trace.Summaries[i].StartTimeMs > m.trace.Summaries[j].StartTimeMs
 		})
-		if m.traceCursor >= len(m.traceSummaries) {
-			m.traceCursor = max(0, len(m.traceSummaries)-1)
+		if m.trace.Cursor >= len(m.trace.Summaries) {
+			m.trace.Cursor = max(0, len(m.trace.Summaries)-1)
 		}
 		return m, nil
 	case traceTreeMsg:
 		if msg.err != nil {
-			m.traceErr = msg.err
+			m.trace.Err = msg.err
 			return m, nil
 		}
-		m.traceErr = nil
-		m.selectedTraceID = msg.traceID
-		m.selectedSpanTree = msg.tree
-		m.spanFlatNodes = flattenSpanTree(msg.tree)
-		m.spanCursor = 0
-		m.spanScrollOffset = 0
+		m.trace.Err = nil
+		m.trace.SelectedTraceID = msg.traceID
+		m.trace.SelectedSpanTree = msg.tree
+		m.trace.SpanFlatNodes = flattenSpanTree(msg.tree)
+		m.trace.SpanCursor = 0
+		m.trace.SpanScrollOffset = 0
 		if msg.tree == nil || msg.tree.Root == nil {
 			// Empty trace — stay in list mode, show status message
 			m.statusMsg = "此追踪无 span 数据"
 			m.statusMsgTTL = statusMsgDefaultTTL
 		} else {
-			m.traceViewMode = 1
+			m.trace.ViewMode = 1
 		}
 		return m, nil
 	case evalReputationMsg:
-		if msg.err != nil {
-			m.evalRepErr = msg.err
+		if msg.Err != nil {
+			m.eval.RepErr = msg.Err
 			return m, nil
 		}
-		m.evalRepErr = nil
-		m.evalReputations = msg.summaries
+		m.eval.RepErr = nil
+		m.eval.Reputations = msg.Summaries
 		// Sort by score descending
-		sort.Slice(m.evalReputations, func(i, j int) bool {
-			return m.evalReputations[i].Score > m.evalReputations[j].Score
+		sort.Slice(m.eval.Reputations, func(i, j int) bool {
+			return m.eval.Reputations[i].Score > m.eval.Reputations[j].Score
 		})
-		if m.evalRepCursor >= len(m.evalReputations) {
-			m.evalRepCursor = max(0, len(m.evalReputations)-1)
+		if m.eval.RepCursor >= len(m.eval.Reputations) {
+			m.eval.RepCursor = max(0, len(m.eval.Reputations)-1)
 		}
 		return m, nil
 	case evalTopologyMsg:
-		if msg.err != nil {
-			m.evalTopoErr = msg.err
+		if msg.Err != nil {
+			m.eval.TopoErr = msg.Err
 			return m, nil
 		}
-		m.evalTopoErr = nil
-		m.evalTopology = msg.topology
-		if msg.topology != nil {
-			totalItems := len(msg.topology.Nodes) + len(msg.topology.Edges)
-			if m.evalTopoCursor >= totalItems {
-				m.evalTopoCursor = max(0, totalItems-1)
+		m.eval.TopoErr = nil
+		m.eval.Topology = msg.Topology
+		if msg.Topology != nil {
+			totalItems := len(msg.Topology.Nodes) + len(msg.Topology.Edges)
+			if m.eval.TopoCursor >= totalItems {
+				m.eval.TopoCursor = max(0, totalItems-1)
 			}
 		}
 		return m, nil
 	case evalSynergyMsg:
-		if msg.err != nil {
-			m.evalSynErr = msg.err
+		if msg.Err != nil {
+			m.eval.SynErr = msg.Err
 			return m, nil
 		}
-		m.evalSynErr = nil
-		m.evalSynergies = msg.combos
-		if m.evalSynCursor >= len(m.evalSynergies) {
-			m.evalSynCursor = max(0, len(m.evalSynergies)-1)
+		m.eval.SynErr = nil
+		m.eval.Synergies = msg.Combos
+		if m.eval.SynCursor >= len(m.eval.Synergies) {
+			m.eval.SynCursor = max(0, len(m.eval.Synergies)-1)
 		}
 		return m, nil
 	case promptPagerMsg:
-		m.fetchingDetail = false
+		m.timeline.FetchingDetail = false
 		if msg.pid != m.selectedPID {
 			return m, nil
 		}
@@ -548,12 +556,12 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.detail != nil {
-			m.stepDetailCache[msg.step] = msg.detail
+			m.timeline.StepDetailCache[msg.step] = msg.detail
 			// Story 36-1: redirect to Inspector (guard: skip if already in Inspector)
 			if m.viewMode != viewStepInspector {
 				m2, cmd := m.enterStepInspector()
 				m3 := m2.(dashboardModel)
-				m3.inspectorLens = lensSystem
+				m3.inspector.Lens = lensSystem
 				return m3, cmd
 			}
 		}
@@ -574,7 +582,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
-	m.heatmapTickCount++
+	m.heatmap.TickCount++
 
 	// Story 36-4: 首次升级到升序时展示一次提示（写入在 statusMsgTTL 衰减之前）
 	m = m.maybeShowTimelineMigrationNotice()
@@ -627,24 +635,24 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	nowHL := time.Now()
 	for _, p := range procs {
 		seenNow[p.PID] = true
-		if _, exists := m.processFirstSeenAt[p.PID]; !exists {
-			m.processFirstSeenAt[p.PID] = nowHL
+		if _, exists := m.tree.ProcessFirstSeenAt[p.PID]; !exists {
+			m.tree.ProcessFirstSeenAt[p.PID] = nowHL
 		}
 	}
 	// Clean up entries for PIDs no longer in procs. No time-based cleanup —
 	// the map is bounded by the number of active+visible processes and entries
 	// for exited PIDs are removed immediately when they leave the procs list.
-	for pid := range m.processFirstSeenAt {
+	for pid := range m.tree.ProcessFirstSeenAt {
 		if !seenNow[pid] {
-			delete(m.processFirstSeenAt, pid)
+			delete(m.tree.ProcessFirstSeenAt, pid)
 		}
 	}
 
-	roots := buildProcessTree(procs, m.treeSortMode, m.treeSortAsc)
-	m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
+	roots := buildProcessTree(procs, m.tree.SortMode, m.tree.SortAsc)
+	m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
 
-	if m.treeCursor >= len(m.treeRows) {
-		m.treeCursor = max(0, len(m.treeRows)-1)
+	if m.tree.Cursor >= len(m.tree.Rows) {
+		m.tree.Cursor = max(0, len(m.tree.Rows)-1)
 	}
 
 	m.applyInitialPIDFocus()
@@ -666,7 +674,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 			// The process list may briefly omit a reaped process during TTL cleanup
 			// transitions. Resetting selectedPID here cascades into handleDebugPIDChange
 			// which clears all events, causing the "Waiting for events…" flicker.
-			if m.debugMode && m.debugAttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+			if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugState.Events) > 0 {
 				found = true
 			}
 		}
@@ -685,14 +693,14 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// the UUID validation above resets selectedPID to 0 (which happens when the
 	// daemon's process list briefly omits a recently reaped process).
 	anchorPID := m.selectedPID
-	if m.debugMode && anchorPID == 0 && m.debugAttachedPID > 0 {
-		anchorPID = m.debugAttachedPID
+	if m.debugState.Mode && anchorPID == 0 && m.debugState.AttachedPID > 0 {
+		anchorPID = m.debugState.AttachedPID
 	}
-	if anchorPID > 0 && m.treeCursor < len(m.treeRows) {
-		if m.treeRows[m.treeCursor].proc.PID != anchorPID {
-			for i, row := range m.treeRows {
-				if row.proc.PID == anchorPID {
-					m.treeCursor = i
+	if anchorPID > 0 && m.tree.Cursor < len(m.tree.Rows) {
+		if m.tree.Rows[m.tree.Cursor].Proc.PID != anchorPID {
+			for i, row := range m.tree.Rows {
+				if row.Proc.PID == anchorPID {
+					m.tree.Cursor = i
 					break
 				}
 			}
@@ -700,18 +708,18 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// Update selection from current cursor position (after stabilization)
-	if m.treeCursor < len(m.treeRows) {
-		m = selectProcess(m, m.treeRows[m.treeCursor])
+	if m.tree.Cursor < len(m.tree.Rows) {
+		m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 	}
 
 	// --- Unified event stream detection (Story 34.1) ---
 	// On first successful tick, seed EXIT/SPAWN events for already-dead historical processes.
 	// Scope to treeRows only so we don't generate events for processes from unrelated old sessions.
-	if !m.historicalSeedDone && len(m.treeRows) > 0 {
+	if !m.historicalSeedDone && len(m.tree.Rows) > 0 {
 		m.historicalSeedDone = true
-		visibleProcs := make([]vfs.ProcInfo, 0, len(m.treeRows))
-		for _, row := range m.treeRows {
-			visibleProcs = append(visibleProcs, row.proc)
+		visibleProcs := make([]vfs.ProcInfo, 0, len(m.tree.Rows))
+		for _, row := range m.tree.Rows {
+			visibleProcs = append(visibleProcs, row.Proc)
 		}
 		if seedEvents := seedHistoricalSysEvents(visibleProcs); len(seedEvents) > 0 {
 			m.sysEvents = append(m.sysEvents, sysEventDedup(seedEvents, m.sysEventSeen)...)
@@ -752,32 +760,26 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	}
 
 	// Merge step entries + system events into unified event list
-	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, m.sysEvents, m.selectedPID, m.selectedUUID, m.processes, m.timelineSortAsc)
+	m.unifiedEvents = mergeUnifiedEvents(m.timeline.StepEntries, m.sysEvents, m.selectedPID, m.selectedUUID, m.processes, m.timeline.SortAsc)
+	m = m.applyUnreadMarks() // Story 38-4 AC#1
 
 	// Build alert events for alert strip (Story 34.4)
-	m.alertEvents = buildAlertEvents(m.unifiedEvents)
+	// Story 38-4 AC#4: include synthesised security alerts so the strip's
+	// count badge and time-ordered list reflect immune-daemon findings.
+	m.alertStrip.Events = buildAlertEventsWith(m.unifiedEvents, m.security.Alerts)
 	// F5: Always clamp alertCursor to valid range (even when expanded)
-	if len(m.alertEvents) == 0 {
-		m.alertCursor = 0
+	if len(m.alertStrip.Events) == 0 {
+		m.alertStrip.Cursor = 0
 	} else {
-		visible := alertStripHeight(len(m.alertEvents), m.alertExpanded)
-		if m.alertCursor >= visible {
-			m.alertCursor = max(visible-1, 0)
+		visible := alertStripHeight(len(m.alertStrip.Events), m.alertStrip.Expanded)
+		if m.alertStrip.Cursor >= visible {
+			m.alertStrip.Cursor = max(visible-1, 0)
 		}
 	}
 
-	// F1: Resolve pending alert jump target after PID change
-	if m.alertJumpTarget != nil {
-		target := m.alertJumpTarget
-		m.alertJumpTarget = nil
-		filtered := m.filteredUnifiedEvents()
-		for i, ev := range filtered {
-			if ev.Type == target.Type && ev.Timestamp.Equal(target.Timestamp) && ev.PID == target.PID {
-				m.stepCursor = i
-				break
-			}
-		}
-	}
+	// F1: Resolve pending alert jump target after PID change (Story 38-4 AC#2
+	// extends this to route Immune targets to the Security pane cursor).
+	m = m.resolveAlertJumpTarget()
 
 	// Compute health counters for title bar (Story 34.2)
 	m.errorCount, m.warnCount = computeHealthCounts(m.processes, m.unifiedEvents, m.heartbeatStatus)
@@ -786,8 +788,8 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	now := time.Now()
 	for _, ev := range m.unifiedEvents {
 		if ev.PID > 0 {
-			if existing, ok := m.lastEventByPID[ev.PID]; !ok || ev.Timestamp.After(existing) {
-				m.lastEventByPID[ev.PID] = ev.Timestamp
+			if existing, ok := m.tree.LastEventByPID[ev.PID]; !ok || ev.Timestamp.After(existing) {
+				m.tree.LastEventByPID[ev.PID] = ev.Timestamp
 			}
 		}
 	}
@@ -795,16 +797,16 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	for _, p := range m.processes {
 		activePIDs[p.PID] = struct{}{}
 	}
-	for pid := range m.lastEventByPID {
+	for pid := range m.tree.LastEventByPID {
 		if _, ok := activePIDs[pid]; !ok {
-			delete(m.lastEventByPID, pid)
+			delete(m.tree.LastEventByPID, pid)
 		}
 	}
 	// Auto-track: if user hasn't manually selected, follow most active process
-	if !m.userManualSelect {
+	if !m.tree.UserManualSelect {
 		var mostActivePID types.PID
 		var mostActiveTime time.Time
-		for pid, t := range m.lastEventByPID {
+		for pid, t := range m.tree.LastEventByPID {
 			if now.Sub(t) < 2*time.Second && t.After(mostActiveTime) {
 				// Only track running processes
 				for _, p := range m.processes {
@@ -817,9 +819,9 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 			}
 		}
 		if mostActivePID > 0 && mostActivePID != m.selectedPID {
-			for i, row := range m.treeRows {
-				if row.proc.PID == mostActivePID {
-					m.treeCursor = i
+			for i, row := range m.tree.Rows {
+				if row.Proc.PID == mostActivePID {
+					m.tree.Cursor = i
 					m = selectProcess(m, row)
 					break
 				}
@@ -827,105 +829,98 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 		}
 	}
 	// Reset userManualSelect after 5s of all processes being silent
-	if m.userManualSelect && len(m.lastEventByPID) > 0 {
+	if m.tree.UserManualSelect && len(m.tree.LastEventByPID) > 0 {
 		allSilent := true
-		for _, t := range m.lastEventByPID {
+		for _, t := range m.tree.LastEventByPID {
 			if now.Sub(t) < 5*time.Second {
 				allSilent = false
 				break
 			}
 		}
 		if allSilent {
-			m.userManualSelect = false
+			m.tree.UserManualSelect = false
 		}
 	}
 
 	cmds := []tea.Cmd{tickCmd()}
 
-	pidChanged := m.selectedUUID != m.timelineAttachedUUID || m.selectedPID != m.heatmapPID
+	pidChanged := m.selectedUUID != m.timeline.AttachedUUID || m.selectedPID != m.heatmap.PID
 	if pidChanged {
 		m2, pidCmd := m.handlePIDChange()
 		m = m2
 		if pidCmd != nil {
 			cmds = append(cmds, pidCmd)
 		}
-	} else if m.selectedPID > 0 && m.connected && m.heatmapTickCount%5 == 0 && !m.isSelectedProcessDead() {
-		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
-	}
-
-	if m.selectedPID > 0 && m.connected && !pidChanged {
-		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, m.lastFetchedStep))
-	}
-
-	// Fetch proc detail when Detail pane is active or in default view (detail card needs it)
-	detailCardNeedsData := m.viewMode == viewDefault && m.selectedPID > 0
-	if (m.activePane == paneDetail || detailCardNeedsData) && m.selectedPID > 0 && m.connected {
-		m.procDetailTick++
-		needsFetch := m.procDetail == nil || m.procDetailPID != m.selectedPID
-		// Refresh every 5 ticks (~5s) for live processes
-		if !needsFetch && m.procDetail != nil && m.procDetail.State != "dead" && m.procDetailTick%5 == 0 {
-			delete(m.procDetailCache, m.selectedUUID)
-			needsFetch = true
-		}
-		if needsFetch {
-			// Check cache first (only for initial load, not periodic refresh)
-			if cached, ok := m.procDetailCache[m.selectedUUID]; ok {
-				m.procDetail = cached
-				m.procDetailPID = m.selectedPID
-			} else {
-				cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
-			}
+		// Story 38-5 PR11 Step 4(b) Phase 1: spec § AC11 broadcast 通道
+		// 与现有 handlePIDChange 散点处理叠加（Phase 2 后续会话逐 pane 把
+		// handleXxxPIDChange 主体迁入对应 OnSelectPID · 当前 stub 返回 nil）。
+		cmds = append(cmds, emitSelectPIDCmd(m.selectedPID))
+	} else {
+		// Story 38-5 PR11 Step 4(b) Phase 3: HeatmapModel.OnTick 真实化路径
+		// 取代原 inline `fetchHeatmapCmd` 调用 · 行为字面等价（spec § AC8）.
+		if cmd := m.heatmapM.OnTick(m.makeTickCtx(paneHeatmap)); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 
-	// Fetch intent trees only when Intent pane is active (no longer needed every tick)
-	if m.activePane == paneIntent && m.connected {
-		if m.intentTrees == nil || m.heatmapTickCount%5 == 0 {
-			cmds = append(cmds, fetchIntentTreesCmd())
+	// Story 38-5 PR11 Step 4(b) Phase 3: TimelineModel.OnTick 真实化路径
+	// 每 tick 在 !pidChanged + Connected + SelectedPID > 0 时增量 fetch steps。
+	if !pidChanged {
+		if cmd := m.timelineM.OnTick(m.makeTickCtx(paneTimeline)); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 
-	// Fetch immune status only when Security pane is active
-	if m.activePane == paneSecurity && m.connected {
-		if m.immuneStatus == nil || m.heatmapTickCount%5 == 0 {
-			cmds = append(cmds, fetchImmuneStatusCmd())
+	// Story 38-5 PR11 Step 4(b) Phase 3: DetailModel.OnTick 真实化路径
+	// detailCardNeedsData logic migrated to DetailModel.OnTick (ViewMode==ViewDefault guard).
+	// ctx.Active 由 makeTickCtx(paneDetail) 设置；ViewMode==viewDefault 由 OnTick 内部判断。
+	{
+		ctx := m.makeTickCtx(paneDetail)
+		if cmd := m.detailM.OnTick(ctx); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
+		m.detail = m.detailM.State()
+	}
+
+	// Story 38-5 PR11 Step 4(b) Phase 3: IntentModel.OnTick 真实化路径
+	if cmd := m.intentM.OnTick(m.makeTickCtx(paneIntent)); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+
+	// Story 38-5 PR11 Step 4(b) Phase 3: SecurityModel.OnTick 真实化路径
+	if cmd := m.securityM.OnTick(m.makeTickCtx(paneSecurity)); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	// Fetch heartbeat status when Security pane is active or in default view (reduced frequency)
 	// Stall detection and health counts depend on heartbeat data regardless of active pane.
-	if m.connected && m.heatmapTickCount%5 == 0 {
+	if m.connected && m.heatmap.TickCount%5 == 0 {
 		if m.activePane == paneSecurity || m.viewMode == viewDefault {
 			cmds = append(cmds, fetchHeartbeatStatusCmd())
 		}
 	}
 
 	// Fetch compact events for selected process (Story 34.1)
-	if m.selectedPID > 0 && m.connected && !m.fetchingCompact && m.heatmapTickCount%3 == 0 {
+	if m.selectedPID > 0 && m.connected && !m.fetchingCompact && m.heatmap.TickCount%3 == 0 {
 		m.fetchingCompact = true
 		cmds = append(cmds, fetchCompactEventsCmd(m.selectedPID, m.selectedUUID))
 	}
 
-	// Fetch trace list when Trace pane is active or in default view (detail card needs it)
-	if m.connected {
-		if m.activePane == paneTrace || m.viewMode == viewDefault {
-			if m.traceSummaries == nil || m.heatmapTickCount%5 == 0 {
-				cmds = append(cmds, fetchTraceListCmd())
-			}
+	// Story 38-5 PR11 Step 4(b) Phase 3: TraceModel.OnTick 真实化路径
+	// Trace 在 viewDefault 下也需要 fetch（detail card 消费 trace 数据 ·
+	// 与 cmd/rnix dashboardTick 原 line 908-911 等价）。
+	{
+		ctx := m.makeTickCtx(paneTrace)
+		ctx.Active = ctx.Active || m.viewMode == viewDefault
+		if cmd := m.traceM.OnTick(ctx); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 
-	// Fetch eval data when Eval pane is active (Story 27-10)
-	if m.activePane == paneEval && m.connected {
-		if m.evalReputations == nil || m.heatmapTickCount%5 == 0 {
-			cmds = append(cmds, fetchReputationCmd())
-		}
-		if m.evalSubView == 1 && (m.evalTopology == nil || m.heatmapTickCount%5 == 0) {
-			cmds = append(cmds, fetchTopologyCmd())
-		}
-		if m.evalSubView == 2 && (m.evalSynergies == nil || m.heatmapTickCount%5 == 0) {
-			cmds = append(cmds, fetchSynergyCmd())
-		}
+	// Story 38-5 PR11 Step 4(b) Phase 3: EvalModel.OnTick 真实化路径
+	// 含 SubView 路由：reputation 总是 fetch · topology 仅 SubView==1 · synergy 仅 SubView==2.
+	if cmd := m.evalM.OnTick(m.makeTickCtx(paneEval)); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	if len(m.recording) > 0 {
@@ -944,7 +939,7 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 
 	// Story 34.6: Debug mode tick processing
 	cmds = append(cmds, m.debugTickCmds()...)
-	if m.debugMode && m.connected && m.heatmapTickCount%5 == 0 && m.selectedPID > 0 {
+	if m.debugState.Mode && m.connected && m.heatmap.TickCount%5 == 0 && m.selectedPID > 0 {
 		cmds = append(cmds, m.fetchDebugCtxProfileCmd())
 	}
 
@@ -952,16 +947,16 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 }
 
 func (m *dashboardModel) applyInitialPIDFocus() {
-	if m.initialPIDFocus <= 0 || len(m.treeRows) == 0 {
+	if m.initialPIDFocus <= 0 || len(m.tree.Rows) == 0 {
 		return
 	}
 	found := false
-	for i, row := range m.treeRows {
-		if row.proc.PID == m.initialPIDFocus {
-			m.treeCursor = i
+	for i, row := range m.tree.Rows {
+		if row.Proc.PID == m.initialPIDFocus {
+			m.tree.Cursor = i
 			visibleLines := m.dashboardVisibleLines()
-			if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
-				m.treeOffset = m.treeCursor - visibleLines/2
+			if visibleLines > 0 && m.tree.Cursor >= m.tree.Offset+visibleLines {
+				m.tree.Offset = m.tree.Cursor - visibleLines/2
 			}
 			found = true
 			break
@@ -985,7 +980,7 @@ func (m dashboardModel) dashboardVisibleLines() int {
 		statsOffset = 2
 	}
 	// Alert strip height: alerts occupy extra lines at the bottom of the screen.
-	alertH := alertStripHeight(len(m.alertEvents), m.alertExpanded)
+	alertH := alertStripHeight(len(m.alertStrip.Events), m.alertStrip.Expanded)
 	alertOffset := 0
 	if alertH > 0 {
 		alertOffset = alertH + 1 // +1 for top border
@@ -1024,7 +1019,7 @@ func (m dashboardModel) renderDashboard() string {
 	titleLines := strings.Count(titleBar, "\n") + 1
 
 	// Reserve lines for alert strip (Story 34.4)
-	alertH := alertStripHeight(len(m.alertEvents), m.alertExpanded)
+	alertH := alertStripHeight(len(m.alertStrip.Events), m.alertStrip.Expanded)
 	// Alert strip with border takes 1 extra line for the top border
 	alertReserve := alertH
 	if alertH > 0 {
@@ -1126,18 +1121,21 @@ func toggleRecordCmd(pid types.PID, uuid string, currentRecordID string) tea.Cmd
 }
 
 func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
+	m.lastUnreadEventKeys = nil // patch P2: first post-switch tick syncs without flooding red dots
 	if m.selectedPID == 0 {
 		m.selectedUUID = ""
-		m = m.handleTimelinePIDChange()
-		m = m.handleHeatmapPIDChange()
-		m.timelineAttachedPID = 0
-		m.heatmapPID = 0
+		// Story 38-5 PR11 Step 4(b) Phase 2: handleTimelinePIDChange wrapper 删除·迁至 timeline 包
+		m.timeline = timeline.HandlePIDUUIDChangeWithSearch(m.timeline, &m.search, m.selectedPID, m.selectedUUID)
+		// Story 38-5 PR11 Step 4(b) Phase 2: handleHeatmapPIDChange wrapper 删除·inline 调用·行为零变化
+		m.heatmap = heatmap.HandlePIDChange(m.heatmap)
+		m.timeline.AttachedPID = 0
+		m.heatmap.PID = 0
 		return m, nil
 	}
-	m = m.handleTimelinePIDChange()
-	m = m.handleHeatmapPIDChange()
-	m.timelineAttachedPID = m.selectedPID
-	m.heatmapPID = m.selectedPID
+	m.timeline = timeline.HandlePIDUUIDChangeWithSearch(m.timeline, &m.search, m.selectedPID, m.selectedUUID)
+	m.heatmap = heatmap.HandlePIDChange(m.heatmap) // Story 38-5 PR11 Step 4(b) Phase 2: inline 化
+	m.timeline.AttachedPID = m.selectedPID
+	m.heatmap.PID = m.selectedPID
 
 	// Reset compact event tracking for new process (Story 34.1)
 	m.compactEvents = nil
@@ -1156,20 +1154,15 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.statusMsg = fmt.Sprintf("Switched to PID %d, fetching steps...", m.selectedPID)
 	m.statusMsgTTL = statusMsgDefaultTTL
 
-	// Detail pane: check cache or reset
-	if cached, ok := m.procDetailCache[m.selectedUUID]; ok {
-		m.procDetail = cached
-		m.procDetailPID = m.selectedPID
-	} else {
-		m.procDetail = nil
-		m.procDetailPID = 0
-	}
+	// Detail pane: cache 命中复用 / 否则清空（Story 28-4 AC-4 PID 复用契约）
+	// Story 38-5 PR11 Step 4(b) Phase 2: 6 行 inline → detail.HandlePIDChangeWithCache 一行
+	m.detail = detail.HandlePIDChangeWithCache(m.detail, m.selectedPID, m.selectedUUID)
 
 	var cmds []tea.Cmd
 	if m.connected {
 		cmds = append(cmds, fetchHeatmapCmd(m.selectedPID))
 		cmds = append(cmds, fetchStepsCmd(m.selectedUUID, m.selectedPID, 0))
-		if m.activePane == paneDetail && m.procDetail == nil {
+		if m.activePane == paneDetail && m.detail.Detail == nil {
 			cmds = append(cmds, fetchProcDetailCmd(m.selectedPID, m.selectedUUID))
 		}
 	}
@@ -1183,9 +1176,12 @@ func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
 		startTime:         time.Now(),
 		connected:         false,
 		recording:         make(map[string]string),
-		stepExpandedIdx:   -1,
-		stepFilters:       defaultStepFilters(),
-		expandedAggGroups: make(map[int]bool),
+		// Story 38-5 PR4 Step 1: TimelineState 抽离（16 字段）
+		timeline: timeline.TimelineState{
+			StepExpandedIdx:   -1,
+			StepFilters:       defaultStepFilters(),
+			ExpandedAggGroups: make(map[int]bool),
+		},
 		prevProcessPIDs:   make(map[types.PID]vfs.ProcInfo),
 		budgetAlertSeen:   make(map[types.PID]int),
 		stallSeen:         make(map[types.PID]struct{}),
@@ -1196,6 +1192,18 @@ func newReplayDashboardModel(reader *debug.RecordReader) dashboardModel {
 		replayPlaying:     false,
 		replaySpeed:       1.0,
 		prevReplayCursor:  -2,
+		// Story 38-5 PR11 Step 4(b) Phase 1: 11 个子 Model hook 入口（spec § AC11）
+		treeM:       tree.NewModel(),
+		timelineM:   timeline.NewModel(),
+		heatmapM:    heatmap.NewModel(),
+		detailM:     detail.NewModel(),
+		intentM:     intent.NewModel(),
+		securityM:   security.NewModel(),
+		traceM:      trace.NewModel(),
+		evalM:       eval.NewModel(),
+		inspectorM:  inspector.NewModel(),
+		debugM:      dashboarddebug.NewModel(),
+		alertStripM: alertstrip.NewModel(),
 	}
 }
 
@@ -1327,7 +1335,7 @@ func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
 	if m.replayPlaying && m.replayReader != nil && m.replayCursor < m.replayReader.EventCount()-1 {
 		advance := int(m.replaySpeed)
 		if m.replaySpeed < 1.0 {
-			if m.heatmapTickCount%int(1.0/m.replaySpeed) == 0 {
+			if m.heatmap.TickCount%int(1.0/m.replaySpeed) == 0 {
 				advance = 1
 			} else {
 				advance = 0
@@ -1342,15 +1350,15 @@ func (m dashboardModel) replayTick() (tea.Model, tea.Cmd) {
 	if m.replayCursor != m.prevReplayCursor && m.replayReader != nil {
 		m.processes = buildReplayProcessTree(m.replayReader, m.replayCursor)
 		roots := buildProcessTree(m.processes, treeSortPID, false)
-		m.treeRows = flattenTreeWithCollapse(roots, m.collapsedDeadTrees)
-		if len(m.treeRows) > 0 {
-			m = selectProcess(m, m.treeRows[0])
+		m.tree.Rows = flattenTreeWithCollapse(roots, m.tree.CollapsedDeadTrees)
+		if len(m.tree.Rows) > 0 {
+			m = selectProcess(m, m.tree.Rows[0])
 		}
-		m.heatmapProfile = buildReplayHeatmap(m.replayReader, m.replayCursor)
-		if m.heatmapProfile != nil {
-			m.heatmapSegments = buildHeatmapSegments(m.heatmapProfile)
+		m.heatmap.Profile = buildReplayHeatmap(m.replayReader, m.replayCursor)
+		if m.heatmap.Profile != nil {
+			m.heatmap.Segments = buildHeatmapSegments(m.heatmap.Profile)
 		} else {
-			m.heatmapSegments = nil
+			m.heatmap.Segments = nil
 		}
 		m.prevReplayCursor = m.replayCursor
 	}
@@ -1391,13 +1399,13 @@ func (m dashboardModel) handleReplayKey(key string) (dashboardModel, tea.Cmd) {
 	case "k":
 		switch m.activePane {
 		case paneTree:
-			if m.treeCursor > 0 {
-				m.treeCursor--
-				if m.treeCursor < len(m.treeRows) {
-					m = selectProcess(m, m.treeRows[m.treeCursor])
+			if m.tree.Cursor > 0 {
+				m.tree.Cursor--
+				if m.tree.Cursor < len(m.tree.Rows) {
+					m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 				}
-				if m.treeCursor < m.treeOffset {
-					m.treeOffset = m.treeCursor
+				if m.tree.Cursor < m.tree.Offset {
+					m.tree.Offset = m.tree.Cursor
 				}
 			}
 		case paneTimeline:
@@ -1425,23 +1433,23 @@ func (m dashboardModel) handleReplayKey(key string) (dashboardModel, tea.Cmd) {
 			visibleLines := m.dashboardVisibleLines()
 			switch key {
 			case "up":
-				if m.treeCursor > 0 {
-					m.treeCursor--
-					if m.treeCursor < len(m.treeRows) {
-						m = selectProcess(m, m.treeRows[m.treeCursor])
+				if m.tree.Cursor > 0 {
+					m.tree.Cursor--
+					if m.tree.Cursor < len(m.tree.Rows) {
+						m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 					}
-					if m.treeCursor < m.treeOffset {
-						m.treeOffset = m.treeCursor
+					if m.tree.Cursor < m.tree.Offset {
+						m.tree.Offset = m.tree.Cursor
 					}
 				}
 			case "down", "j":
-				if m.treeCursor < len(m.treeRows)-1 {
-					m.treeCursor++
-					if m.treeCursor < len(m.treeRows) {
-						m = selectProcess(m, m.treeRows[m.treeCursor])
+				if m.tree.Cursor < len(m.tree.Rows)-1 {
+					m.tree.Cursor++
+					if m.tree.Cursor < len(m.tree.Rows) {
+						m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 					}
-					if visibleLines > 0 && m.treeCursor >= m.treeOffset+visibleLines {
-						m.treeOffset = m.treeCursor - visibleLines + 1
+					if visibleLines > 0 && m.tree.Cursor >= m.tree.Offset+visibleLines {
+						m.tree.Offset = m.tree.Cursor - visibleLines + 1
 					}
 				}
 			}
@@ -1465,11 +1473,17 @@ func (m dashboardModel) renderReplayStatus() string {
 	}
 	progress := fmt.Sprintf("[%d/%d] %.1f×", m.replayCursor, total, m.replaySpeed)
 
+	// Story 38.2 AC#2: prefix the [REPLAY] mode label (orange ColorReplay) so the
+	// "what mode am I in" question stays answerable at a glance across views.
+	// Code-review patch (Decision 1, 2026-05-03): renamed legacy "REPLAY: %s" to
+	// "rec: %s" so the literal "REPLAY" no longer appears twice within ~12 cols.
+	modeLabel := m.renderModeLabel()
+
 	if m.statusMsg != "" {
-		return fmt.Sprintf("  %s REPLAY: %s  %s  |  %s", indicator, recordID, progress, m.statusMsg)
+		return fmt.Sprintf("  %s%s rec: %s  %s  |  %s", modeLabel, indicator, recordID, progress, m.statusMsg)
 	}
-	return fmt.Sprintf("  %s REPLAY: %s  %s  |  Space:Play/Pause  [/]:Speed  ,/.:Step  0:Start  $:End  q:Quit",
-		indicator, recordID, progress)
+	return fmt.Sprintf("  %s%s rec: %s  %s  |  Space:Play/Pause  [/]:Speed  ,/.:Step  0:Start  $:End  q:Quit",
+		modeLabel, indicator, recordID, progress)
 }
 
 // --- Command runner ---
@@ -1521,8 +1535,8 @@ func runDashboard(cmd *cobra.Command, _ []string) error {
 	}
 	if fm, ok := final.(dashboardModel); ok && fm.client != nil {
 		// F5: Close debug IPC client if active.
-		if fm.debugClient != nil {
-			fm.debugClient.Close()
+		if fm.debugState.Client != nil {
+			fm.debugState.Client.Close()
 		}
 		fm.client.Close()
 	} else {

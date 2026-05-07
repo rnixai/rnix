@@ -27,30 +27,30 @@ func newInspectorModelWithSteps(t *testing.T, steps []ipc.StepSummaryWire, cur i
 	t.Helper()
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.viewMode = viewStepInspector
-	m.inspectorPID = 2
-	m.inspectorUUID = "uuid-mock-002"
-	m.inspectorLens = lensConversation
-	m.inspectorSteps = steps
+	m.inspector.PID = 2
+	m.inspector.UUID = "uuid-mock-002"
+	m.inspector.Lens = lensConversation
+	m.inspector.Steps = steps
 	if len(steps) > 0 {
-		m.inspectorStepMax = steps[len(steps)-1].Step
+		m.inspector.StepMax = steps[len(steps)-1].Step
 	}
-	m.inspectorStep = cur
+	m.inspector.Step = cur
 	// Give the active lens a viewport so scroll keys don't crash.
 	vp := viewport.New(viewport.WithHeight(10), viewport.WithWidth(40))
 	vp.SetContent("line 1\nline 2\nline 3\n")
-	m.inspectorViewports[lensConversation] = vp
+	m.inspector.Viewports[lensConversation] = vp
 	// Place the target PID into the process table with the requested state so
 	// Follow live state checks behave.
 	found := false
 	for i := range m.processes {
-		if m.processes[i].PID == m.inspectorPID {
+		if m.processes[i].PID == m.inspector.PID {
 			m.processes[i].State = state
-			m.processes[i].UUID = m.inspectorUUID
+			m.processes[i].UUID = m.inspector.UUID
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("mockDashboardProcs missing PID %d", m.inspectorPID)
+		t.Fatalf("mockDashboardProcs missing PID %d", m.inspector.PID)
 	}
 	return m
 }
@@ -73,25 +73,25 @@ func makeDetail(step int, body string) *ipc.GetStepDetailResponse {
 func TestATDD_36_6_AC1_EnterDiff(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}, {Step: 3}}
 	m := newInspectorModelWithSteps(t, steps, 3, types.StateRunning)
-	m.inspectorDetail = makeDetail(3, "alpha\nbeta\ngamma")
-	m.inspectorPrevDetail = makeDetail(2, "alpha\nbeta\ngammA")
-	m.inspectorPrevStep = 2
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{
-		2: m.inspectorPrevDetail,
-		3: m.inspectorDetail,
+	m.inspector.Detail = makeDetail(3, "alpha\nbeta\ngamma")
+	m.inspector.PrevDetail = makeDetail(2, "alpha\nbeta\ngammA")
+	m.inspector.PrevStep = 2
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{
+		2: m.inspector.PrevDetail,
+		3: m.inspector.Detail,
 	}
 
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	mm := m2.(dashboardModel)
 
-	if !mm.inspectorDiffMode {
+	if !mm.inspector.DiffMode {
 		t.Fatal("inspectorDiffMode should be true after `d`")
 	}
-	if mm.inspectorDiffBase != 2 {
-		t.Errorf("default base should be prev step = 2, got %d", mm.inspectorDiffBase)
+	if mm.inspector.DiffBase != 2 {
+		t.Errorf("default base should be prev step = 2, got %d", mm.inspector.DiffBase)
 	}
-	if mm.inspectorDiffDelta != 1 {
-		t.Errorf("captured delta should be 1 (cur-base), got %d", mm.inspectorDiffDelta)
+	if mm.inspector.DiffDelta != 1 {
+		t.Errorf("captured delta should be 1 (cur-base), got %d", mm.inspector.DiffDelta)
 	}
 	footer := mm.renderInspectorFooter()
 	if !strings.Contains(footer, "Diff: step 3 vs 2") {
@@ -113,7 +113,7 @@ func TestATDD_36_6_AC2_DiffRender(t *testing.T) {
 
 	var adds, dels, eqs int
 	for _, l := range lines {
-		switch l.kind {
+		switch l.Kind {
 		case diffAdd:
 			adds++
 		case diffDel:
@@ -156,41 +156,41 @@ func TestATDD_36_6_AC2_DiffRender(t *testing.T) {
 func TestATDD_36_6_AC3_DdPickBase(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}, {Step: 3}, {Step: 4}}
 	m := newInspectorModelWithSteps(t, steps, 4, types.StateRunning)
-	m.inspectorDetail = makeDetail(4, "x")
-	m.inspectorPrevDetail = makeDetail(3, "y")
-	m.inspectorPrevStep = 3
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{
-		3: m.inspectorPrevDetail,
-		4: m.inspectorDetail,
+	m.inspector.Detail = makeDetail(4, "x")
+	m.inspector.PrevDetail = makeDetail(3, "y")
+	m.inspector.PrevStep = 3
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{
+		3: m.inspector.PrevDetail,
+		4: m.inspector.Detail,
 	}
 
 	// First `d` enters diff mode; second `d` within 200ms opens picker.
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	mm := m2.(dashboardModel)
-	if !mm.inspectorDiffMode {
+	if !mm.inspector.DiffMode {
 		t.Fatal("diff mode should be on after first d")
 	}
 	m3, _ := mm.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	mm = m3.(dashboardModel)
-	if !mm.inspectorDiffPicker {
+	if !mm.inspector.DiffPicker {
 		t.Fatal("picker should be open after dd")
 	}
 
 	// Move left twice → cursor should be at index 1 (cursor starts at base=3 → idx 2).
 	m4, _ := mm.inspectorKey(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	mm = m4.(dashboardModel)
-	if mm.inspectorDiffPickerCursor != 1 {
-		t.Errorf("cursor after h should be 1; got %d", mm.inspectorDiffPickerCursor)
+	if mm.inspector.DiffPickerCursor != 1 {
+		t.Errorf("cursor after h should be 1; got %d", mm.inspector.DiffPickerCursor)
 	}
 
 	// Enter → base becomes step 2.
 	m5, _ := mm.inspectorKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	mm = m5.(dashboardModel)
-	if mm.inspectorDiffPicker {
+	if mm.inspector.DiffPicker {
 		t.Error("picker should close on Enter")
 	}
-	if mm.inspectorDiffBase != 2 {
-		t.Errorf("base after pick should be 2; got %d", mm.inspectorDiffBase)
+	if mm.inspector.DiffBase != 2 {
+		t.Errorf("base after pick should be 2; got %d", mm.inspector.DiffBase)
 	}
 }
 
@@ -199,35 +199,35 @@ func TestATDD_36_6_AC3_DdPickBase(t *testing.T) {
 func TestATDD_36_6_AC4_ExitDiff(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}}
 	m := newInspectorModelWithSteps(t, steps, 2, types.StateRunning)
-	m.inspectorDetail = makeDetail(2, "a")
-	m.inspectorPrevDetail = makeDetail(1, "b")
-	m.inspectorPrevStep = 1
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{1: m.inspectorPrevDetail, 2: m.inspectorDetail}
+	m.inspector.Detail = makeDetail(2, "a")
+	m.inspector.PrevDetail = makeDetail(1, "b")
+	m.inspector.PrevStep = 1
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{1: m.inspector.PrevDetail, 2: m.inspector.Detail}
 
 	// Enter diff via d.
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	mm := m2.(dashboardModel)
-	if !mm.inspectorDiffMode {
+	if !mm.inspector.DiffMode {
 		t.Fatal("expected diff mode on")
 	}
 
 	// Esc (no picker, no search) → exits diff.
 	m3, _ := mm.inspectorKey(tea.KeyPressMsg{Code: tea.KeyEscape})
 	mm = m3.(dashboardModel)
-	if mm.inspectorDiffMode {
+	if mm.inspector.DiffMode {
 		t.Error("Esc should exit diff mode")
 	}
-	if mm.inspectorDiffBase != 0 || mm.inspectorDiffDelta != 0 {
-		t.Errorf("diff fields should reset; base=%d delta=%d", mm.inspectorDiffBase, mm.inspectorDiffDelta)
+	if mm.inspector.DiffBase != 0 || mm.inspector.DiffDelta != 0 {
+		t.Errorf("diff fields should reset; base=%d delta=%d", mm.inspector.DiffBase, mm.inspector.DiffDelta)
 	}
 
 	// Re-enter diff, then simulate a lone `d` after the dd window expired.
 	m4, _ := mm.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	mm = m4.(dashboardModel)
-	mm.inspectorDiffDdDeadline = time.Now().Add(-1 * time.Second) // force window to be closed
+	mm.inspector.DiffDdDeadline = time.Now().Add(-1 * time.Second) // force window to be closed
 	m5, _ := mm.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	mm = m5.(dashboardModel)
-	if mm.inspectorDiffMode {
+	if mm.inspector.DiffMode {
 		t.Error("lone `d` after dd window should exit diff mode")
 	}
 }
@@ -237,10 +237,10 @@ func TestATDD_36_6_AC4_ExitDiff(t *testing.T) {
 func TestATDD_36_6_AC5_DiffCrossLens(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}}
 	m := newInspectorModelWithSteps(t, steps, 2, types.StateRunning)
-	m.inspectorDetail = makeDetail(2, "a")
-	m.inspectorPrevDetail = makeDetail(1, "b")
-	m.inspectorPrevStep = 1
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{1: m.inspectorPrevDetail, 2: m.inspectorDetail}
+	m.inspector.Detail = makeDetail(2, "a")
+	m.inspector.PrevDetail = makeDetail(1, "b")
+	m.inspector.PrevStep = 1
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{1: m.inspector.PrevDetail, 2: m.inspector.Detail}
 
 	// Enter diff.
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
@@ -249,14 +249,14 @@ func TestATDD_36_6_AC5_DiffCrossLens(t *testing.T) {
 	// Switch to Lens 2 (System).
 	m3, _ := mm.inspectorKey(tea.KeyPressMsg{Code: '2', Text: "2"})
 	mm = m3.(dashboardModel)
-	if mm.inspectorLens != lensSystem {
-		t.Fatalf("lens should be System after `2`, got %v", mm.inspectorLens)
+	if mm.inspector.Lens != lensSystem {
+		t.Fatalf("lens should be System after `2`, got %v", mm.inspector.Lens)
 	}
-	if !mm.inspectorDiffMode {
+	if !mm.inspector.DiffMode {
 		t.Error("diff should persist across lens switch")
 	}
-	if mm.inspectorDiffBase != 1 {
-		t.Errorf("diff base should be unchanged (1), got %d", mm.inspectorDiffBase)
+	if mm.inspector.DiffBase != 1 {
+		t.Errorf("diff base should be unchanged (1), got %d", mm.inspector.DiffBase)
 	}
 }
 
@@ -265,21 +265,21 @@ func TestATDD_36_6_AC5_DiffCrossLens(t *testing.T) {
 func TestATDD_36_6_AC6_ReverseSearch(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.viewMode = viewStepInspector
-	m.inspectorPID = 2
-	m.inspectorUUID = "uuid-mock-002"
-	m.inspectorLens = lensConversation
+	m.inspector.PID = 2
+	m.inspector.UUID = "uuid-mock-002"
+	m.inspector.Lens = lensConversation
 	content := "alpha\nfoo line\nbeta\nfoo again\ngamma"
-	m.inspectorContents[lensConversation] = content
+	m.inspector.Contents[lensConversation] = content
 	vp := viewport.New(viewport.WithHeight(10), viewport.WithWidth(40))
 	vp.SetContent(content)
-	m.inspectorViewports[lensConversation] = vp
+	m.inspector.Viewports[lensConversation] = vp
 
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: '?', Text: "?"})
 	mm := m2.(dashboardModel)
-	if !mm.searchMode {
+	if !mm.search.Mode {
 		t.Fatal("searchMode should be true after `?`")
 	}
-	if !mm.searchReverse {
+	if !mm.search.Reverse {
 		t.Error("searchReverse should be true after `?`")
 	}
 	for _, c := range "foo" {
@@ -288,21 +288,21 @@ func TestATDD_36_6_AC6_ReverseSearch(t *testing.T) {
 	}
 	m4, _ := mm.inspectorKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	mm = m4.(dashboardModel)
-	if mm.searchMode {
+	if mm.search.Mode {
 		t.Fatal("searchMode should clear after Enter")
 	}
-	if len(mm.searchMatches) != 2 {
-		t.Fatalf("expected 2 matches; got %d", len(mm.searchMatches))
+	if len(mm.search.Matches) != 2 {
+		t.Fatalf("expected 2 matches; got %d", len(mm.search.Matches))
 	}
 	// Reverse search starts at the last match.
-	if mm.searchMatchIdx != 1 {
-		t.Errorf("expected matchIdx=1 (last match) on reverse, got %d", mm.searchMatchIdx)
+	if mm.search.MatchIdx != 1 {
+		t.Errorf("expected matchIdx=1 (last match) on reverse, got %d", mm.search.MatchIdx)
 	}
 	// `n` in reverse mode jumps to the previous match (idx 0).
 	m5, _ := mm.inspectorKey(tea.KeyPressMsg{Code: 'n', Text: "n"})
 	mm = m5.(dashboardModel)
-	if mm.searchMatchIdx != 0 {
-		t.Errorf("reverse `n` should decrement matchIdx; got %d", mm.searchMatchIdx)
+	if mm.search.MatchIdx != 0 {
+		t.Errorf("reverse `n` should decrement matchIdx; got %d", mm.search.MatchIdx)
 	}
 }
 
@@ -311,12 +311,12 @@ func TestATDD_36_6_AC6_ReverseSearch(t *testing.T) {
 func TestATDD_36_6_AC7_MatchCounter(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.viewMode = viewStepInspector
-	m.inspectorPID = 2
-	m.inspectorLens = lensConversation
-	m.inspectorContents[lensConversation] = "foo\nbar\nfoo"
+	m.inspector.PID = 2
+	m.inspector.Lens = lensConversation
+	m.inspector.Contents[lensConversation] = "foo\nbar\nfoo"
 	vp := viewport.New(viewport.WithHeight(10), viewport.WithWidth(40))
-	vp.SetContent(m.inspectorContents[lensConversation])
-	m.inspectorViewports[lensConversation] = vp
+	vp.SetContent(m.inspector.Contents[lensConversation])
+	m.inspector.Viewports[lensConversation] = vp
 
 	// Forward search for "foo".
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: '/'})
@@ -352,15 +352,15 @@ func TestATDD_36_6_AC7_MatchCounter(t *testing.T) {
 func TestATDD_36_6_AC10_FollowOn(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}}
 	m := newInspectorModelWithSteps(t, steps, 1, types.StateRunning)
-	m.inspectorDetail = makeDetail(1, "a")
+	m.inspector.Detail = makeDetail(1, "a")
 
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'F', Text: "F"})
 	mm := m2.(dashboardModel)
-	if !mm.inspectorFollowLive {
+	if !mm.inspector.FollowLive {
 		t.Fatal("Follow live should be ON after `F` on active process")
 	}
-	if mm.inspectorStep != 2 {
-		t.Errorf("expected cursor jump to latest step=2; got %d", mm.inspectorStep)
+	if mm.inspector.Step != 2 {
+		t.Errorf("expected cursor jump to latest step=2; got %d", mm.inspector.Step)
 	}
 	rail := mm.renderStepRail(200)
 	if !ui.IsASCIIMode() {
@@ -379,11 +379,11 @@ func TestATDD_36_6_AC10_FollowOn(t *testing.T) {
 func TestATDD_36_6_AC11_FollowDeadReject(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}}
 	m := newInspectorModelWithSteps(t, steps, 2, types.StateDead)
-	m.inspectorDetail = makeDetail(2, "a")
+	m.inspector.Detail = makeDetail(2, "a")
 
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'F', Text: "F"})
 	mm := m2.(dashboardModel)
-	if mm.inspectorFollowLive {
+	if mm.inspector.FollowLive {
 		t.Error("Follow live must not activate on dead process")
 	}
 	if !strings.Contains(mm.statusMsg, "Process ended") {
@@ -396,15 +396,15 @@ func TestATDD_36_6_AC11_FollowDeadReject(t *testing.T) {
 func TestATDD_36_6_AC12_FollowAppend(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}}
 	m := newInspectorModelWithSteps(t, steps, 2, types.StateRunning)
-	m.inspectorDetail = makeDetail(2, "a")
-	m.inspectorFollowLive = true
+	m.inspector.Detail = makeDetail(2, "a")
+	m.inspector.FollowLive = true
 
 	// Simulate a new step arriving.
 	newSteps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}, {Step: 3}}
-	m2, _ := m.Update(inspectorStepListMsg{pid: m.inspectorPID, uuid: m.inspectorUUID, steps: newSteps})
+	m2, _ := m.Update(inspectorStepListMsg{pid: m.inspector.PID, uuid: m.inspector.UUID, steps: newSteps})
 	mm := m2.(dashboardModel)
-	if mm.inspectorStep != 3 {
-		t.Errorf("follow should auto-jump to new latest=3; got %d", mm.inspectorStep)
+	if mm.inspector.Step != 3 {
+		t.Errorf("follow should auto-jump to new latest=3; got %d", mm.inspector.Step)
 	}
 }
 
@@ -413,21 +413,21 @@ func TestATDD_36_6_AC12_FollowAppend(t *testing.T) {
 func TestATDD_36_6_AC13_FollowAutoOff_BackScroll(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}, {Step: 3}}
 	m := newInspectorModelWithSteps(t, steps, 3, types.StateRunning)
-	m.inspectorDetail = makeDetail(3, "a")
-	m.inspectorFollowLive = true
+	m.inspector.Detail = makeDetail(3, "a")
+	m.inspector.FollowLive = true
 
 	// `k` (back-scroll) → Follow off.
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'k', Text: "k"})
 	mm := m2.(dashboardModel)
-	if mm.inspectorFollowLive {
+	if mm.inspector.FollowLive {
 		t.Error("`k` back-scroll must disable Follow live")
 	}
 
 	// Reset and verify `h` also disables.
-	m.inspectorFollowLive = true
+	m.inspector.FollowLive = true
 	m3, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	mm = m3.(dashboardModel)
-	if mm.inspectorFollowLive {
+	if mm.inspector.FollowLive {
 		t.Error("`h` step-back must disable Follow live")
 	}
 }
@@ -437,16 +437,16 @@ func TestATDD_36_6_AC13_FollowAutoOff_BackScroll(t *testing.T) {
 func TestATDD_36_6_AC13_FollowKeepOnLensSwitch(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}}
 	m := newInspectorModelWithSteps(t, steps, 2, types.StateRunning)
-	m.inspectorDetail = makeDetail(2, "a")
-	m.inspectorFollowLive = true
+	m.inspector.Detail = makeDetail(2, "a")
+	m.inspector.FollowLive = true
 
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: '2', Text: "2"})
 	mm := m2.(dashboardModel)
-	if !mm.inspectorFollowLive {
+	if !mm.inspector.FollowLive {
 		t.Error("switching lens should NOT disable Follow live")
 	}
-	if mm.inspectorLens != lensSystem {
-		t.Errorf("lens should be System; got %v", mm.inspectorLens)
+	if mm.inspector.Lens != lensSystem {
+		t.Errorf("lens should be System; got %v", mm.inspector.Lens)
 	}
 }
 
@@ -455,29 +455,29 @@ func TestATDD_36_6_AC13_FollowKeepOnLensSwitch(t *testing.T) {
 func TestATDD_36_6_AC15_FollowDiffMutex(t *testing.T) {
 	steps := []ipc.StepSummaryWire{{Step: 1}, {Step: 2}, {Step: 3}}
 	m := newInspectorModelWithSteps(t, steps, 3, types.StateRunning)
-	m.inspectorDetail = makeDetail(3, "a")
-	m.inspectorPrevDetail = makeDetail(2, "b")
-	m.inspectorPrevStep = 2
-	m.stepDetailCache = map[int]*ipc.GetStepDetailResponse{2: m.inspectorPrevDetail, 3: m.inspectorDetail}
-	m.inspectorFollowLive = true
+	m.inspector.Detail = makeDetail(3, "a")
+	m.inspector.PrevDetail = makeDetail(2, "b")
+	m.inspector.PrevStep = 2
+	m.timeline.StepDetailCache = map[int]*ipc.GetStepDetailResponse{2: m.inspector.PrevDetail, 3: m.inspector.Detail}
+	m.inspector.FollowLive = true
 
 	// `d` while Follow is on: disables Follow then enters Diff.
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'd', Text: "d"})
 	mm := m2.(dashboardModel)
-	if mm.inspectorFollowLive {
+	if mm.inspector.FollowLive {
 		t.Error("entering diff must disable Follow")
 	}
-	if !mm.inspectorDiffMode {
+	if !mm.inspector.DiffMode {
 		t.Error("diff should be on after d")
 	}
 
 	// `F` while Diff is on: exits Diff, then enables Follow.
 	m3, _ := mm.inspectorKey(tea.KeyPressMsg{Code: 'F', Text: "F"})
 	mm = m3.(dashboardModel)
-	if mm.inspectorDiffMode {
+	if mm.inspector.DiffMode {
 		t.Error("entering Follow must exit Diff")
 	}
-	if !mm.inspectorFollowLive {
+	if !mm.inspector.FollowLive {
 		t.Error("Follow should be on after F")
 	}
 }
@@ -492,33 +492,33 @@ func TestATDD_36_6_AC17_Regression(t *testing.T) {
 	for i, keyCh := range []rune{'1', '2', '3', '4', '5'} {
 		m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: keyCh, Text: string(keyCh)})
 		mm := m2.(dashboardModel)
-		if int(mm.inspectorLens) != i {
-			t.Errorf("key `%c` should switch to lens %d; got %d", keyCh, i, mm.inspectorLens)
+		if int(mm.inspector.Lens) != i {
+			t.Errorf("key `%c` should switch to lens %d; got %d", keyCh, i, mm.inspector.Lens)
 		}
 	}
 
 	// h/l navigate steps (index-based over sparse list).
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	mm := m2.(dashboardModel)
-	if mm.inspectorStep != 1 {
-		t.Errorf("h should go to step 1; got %d", mm.inspectorStep)
+	if mm.inspector.Step != 1 {
+		t.Errorf("h should go to step 1; got %d", mm.inspector.Step)
 	}
 	m3, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'l', Text: "l"})
 	mm = m3.(dashboardModel)
-	if mm.inspectorStep != 5 {
-		t.Errorf("l from step 3 should go to 5; got %d", mm.inspectorStep)
+	if mm.inspector.Step != 5 {
+		t.Errorf("l from step 3 should go to 5; got %d", mm.inspector.Step)
 	}
 
 	// L/H end/home.
 	m4, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'L', Text: "L"})
 	mm = m4.(dashboardModel)
-	if mm.inspectorStep != 5 {
-		t.Errorf("L should jump to last=5; got %d", mm.inspectorStep)
+	if mm.inspector.Step != 5 {
+		t.Errorf("L should jump to last=5; got %d", mm.inspector.Step)
 	}
 	m5, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'H', Text: "H"})
 	mm = m5.(dashboardModel)
-	if mm.inspectorStep != 1 {
-		t.Errorf("H should jump to first=1; got %d", mm.inspectorStep)
+	if mm.inspector.Step != 1 {
+		t.Errorf("H should jump to first=1; got %d", mm.inspector.Step)
 	}
 
 	// Esc closes inspector when no overlays active.

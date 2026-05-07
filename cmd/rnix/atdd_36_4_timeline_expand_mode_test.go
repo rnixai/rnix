@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 )
@@ -20,9 +21,9 @@ import (
 func TestATDD_36_4_AC1_DefaultAscending(t *testing.T) {
 	// 3 step entries constructed in insertion order (step 1..3)
 	steps := []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", TimestampMs: 100}},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", TimestampMs: 200}},
-		{summary: ipc.StepSummaryWire{Step: 3, Action: "tool_call", TimestampMs: 300}},
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call", TimestampMs: 100}},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", TimestampMs: 200}},
+		{Summary: ipc.StepSummaryWire{Step: 3, Action: "tool_call", TimestampMs: 300}},
 	}
 	merged := mergeUnifiedEvents(steps, nil, 1, "uuid-1", nil, true) // ascending
 	if len(merged) != 3 {
@@ -35,11 +36,11 @@ func TestATDD_36_4_AC1_DefaultAscending(t *testing.T) {
 		}
 	}
 	// First = oldest (Step 1 via offset 0), last = newest (Step 3 via offset 2)
-	if merged[0].StepEntry.summary.Step != 1 {
-		t.Errorf("expected first=Step 1 in ascending, got Step %d", merged[0].StepEntry.summary.Step)
+	if merged[0].StepEntry.Summary.Step != 1 {
+		t.Errorf("expected first=Step 1 in ascending, got Step %d", merged[0].StepEntry.Summary.Step)
 	}
-	if merged[len(merged)-1].StepEntry.summary.Step != 3 {
-		t.Errorf("expected last=Step 3 in ascending, got Step %d", merged[len(merged)-1].StepEntry.summary.Step)
+	if merged[len(merged)-1].StepEntry.Summary.Step != 3 {
+		t.Errorf("expected last=Step 3 in ascending, got Step %d", merged[len(merged)-1].StepEntry.Summary.Step)
 	}
 }
 
@@ -47,15 +48,15 @@ func TestATDD_36_4_AC1_DefaultAscending(t *testing.T) {
 
 func TestATDD_36_4_AC2_OToggleDirection(t *testing.T) {
 	m := newDashboardModel(nil)
-	if !m.timelineSortAsc {
+	if !m.timeline.SortAsc {
 		t.Fatalf("expected default timelineSortAsc=true")
 	}
 	m = m.handleTimelineKey("o")
-	if m.timelineSortAsc {
+	if m.timeline.SortAsc {
 		t.Errorf("expected timelineSortAsc=false after first o")
 	}
 	m = m.handleTimelineKey("o")
-	if !m.timelineSortAsc {
+	if !m.timeline.SortAsc {
 		t.Errorf("expected timelineSortAsc=true after second o")
 	}
 	// Header indicator: ascending → 旧→新
@@ -75,23 +76,23 @@ func TestATDD_36_4_AC2_OToggleDirection(t *testing.T) {
 
 func TestATDD_36_4_AC4_ExpandModeResetOnPIDChange(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.timelineSortAsc = false // simulate user preference
-	m.expandMode = expandModeExpanded
+	m.timeline.SortAsc = false // simulate user preference
+	m.timeline.ExpandMode = expandModeExpanded
 	m.selectedPID = 1
 	m.selectedUUID = "uuid-a"
-	m.timelineAttachedPID = 1
-	m.timelineAttachedUUID = "uuid-a"
+	m.timeline.AttachedPID = 1
+	m.timeline.AttachedUUID = "uuid-a"
 
 	// Switch to a different process
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-b"
-	m = m.handleTimelinePIDChange()
+	m.timeline = timeline.HandlePIDUUIDChangeWithSearch(m.timeline, &m.search, m.selectedPID, m.selectedUUID)
 
-	if m.expandMode != expandModeCollapsed {
-		t.Errorf("expected expandMode reset to collapsed after PID change, got %d", m.expandMode)
+	if m.timeline.ExpandMode != expandModeCollapsed {
+		t.Errorf("expected expandMode reset to collapsed after PID change, got %d", m.timeline.ExpandMode)
 	}
-	if m.timelineSortAsc != false {
-		t.Errorf("expected timelineSortAsc preserved across PID change, got %v", m.timelineSortAsc)
+	if m.timeline.SortAsc != false {
+		t.Errorf("expected timelineSortAsc preserved across PID change, got %v", m.timeline.SortAsc)
 	}
 }
 
@@ -99,26 +100,26 @@ func TestATDD_36_4_AC4_ExpandModeResetOnPIDChange(t *testing.T) {
 
 func TestATDD_36_4_AC5_EExpandsAll(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}, level: levelSummary},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call"}, level: levelSummary},
-		{summary: ipc.StepSummaryWire{Step: 3, Action: "plan"}, level: levelSummary},
-		{summary: ipc.StepSummaryWire{Step: 4, Action: "complete"}, level: levelSummary},
-		{summary: ipc.StepSummaryWire{Step: 5, Action: "text"}, level: levelSummary},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}, Level: levelSummary},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call"}, Level: levelSummary},
+		{Summary: ipc.StepSummaryWire{Step: 3, Action: "plan"}, Level: levelSummary},
+		{Summary: ipc.StepSummaryWire{Step: 4, Action: "complete"}, Level: levelSummary},
+		{Summary: ipc.StepSummaryWire{Step: 5, Action: "text"}, Level: levelSummary},
 	}
 	m = m.handleTimelineKey("e")
-	if m.expandMode != expandModeExpanded {
-		t.Errorf("expected expandMode=Expanded after e, got %d", m.expandMode)
+	if m.timeline.ExpandMode != expandModeExpanded {
+		t.Errorf("expected expandMode=Expanded after e, got %d", m.timeline.ExpandMode)
 	}
-	for i, e := range m.stepEntries {
-		if e.level != levelExpanded {
-			t.Errorf("entry %d: expected levelExpanded, got %d", i, e.level)
+	for i, e := range m.timeline.StepEntries {
+		if e.Level != levelExpanded {
+			t.Errorf("entry %d: expected levelExpanded, got %d", i, e.Level)
 		}
 	}
 	// Idempotent: second e keeps Expanded
 	m = m.handleTimelineKey("e")
-	if m.expandMode != expandModeExpanded {
-		t.Errorf("expected expandMode stays Expanded after second e, got %d", m.expandMode)
+	if m.timeline.ExpandMode != expandModeExpanded {
+		t.Errorf("expected expandMode stays Expanded after second e, got %d", m.timeline.ExpandMode)
 	}
 }
 
@@ -126,23 +127,23 @@ func TestATDD_36_4_AC5_EExpandsAll(t *testing.T) {
 
 func TestATDD_36_4_AC6_EErrorsOnly(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}, level: levelExpanded},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", HasError: true}, level: levelSummary},
-		{summary: ipc.StepSummaryWire{Step: 3, Action: "plan"}, level: levelExpanded},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}, Level: levelExpanded},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "tool_call", HasError: true}, Level: levelSummary},
+		{Summary: ipc.StepSummaryWire{Step: 3, Action: "plan"}, Level: levelExpanded},
 	}
 	m = m.handleTimelineKey("E")
-	if m.expandMode != expandModeErrorsOnly {
-		t.Errorf("expected expandMode=ErrorsOnly after E, got %d", m.expandMode)
+	if m.timeline.ExpandMode != expandModeErrorsOnly {
+		t.Errorf("expected expandMode=ErrorsOnly after E, got %d", m.timeline.ExpandMode)
 	}
-	if m.stepEntries[0].level != levelSummary {
-		t.Errorf("entry 0 (no error): expected levelSummary, got %d", m.stepEntries[0].level)
+	if m.timeline.StepEntries[0].Level != levelSummary {
+		t.Errorf("entry 0 (no error): expected levelSummary, got %d", m.timeline.StepEntries[0].Level)
 	}
-	if m.stepEntries[1].level != levelExpanded {
-		t.Errorf("entry 1 (error): expected levelExpanded, got %d", m.stepEntries[1].level)
+	if m.timeline.StepEntries[1].Level != levelExpanded {
+		t.Errorf("entry 1 (error): expected levelExpanded, got %d", m.timeline.StepEntries[1].Level)
 	}
-	if m.stepEntries[2].level != levelSummary {
-		t.Errorf("entry 2 (no error): expected levelSummary, got %d", m.stepEntries[2].level)
+	if m.timeline.StepEntries[2].Level != levelSummary {
+		t.Errorf("entry 2 (no error): expected levelSummary, got %d", m.timeline.StepEntries[2].Level)
 	}
 }
 
@@ -150,21 +151,21 @@ func TestATDD_36_4_AC6_EErrorsOnly(t *testing.T) {
 
 func TestATDD_36_4_AC7_CCollapses(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.stepEntries = []stepEntry{
-		{summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}, level: levelSummary},
-		{summary: ipc.StepSummaryWire{Step: 2, Action: "plan"}, level: levelSummary},
+	m.timeline.StepEntries = []stepEntry{
+		{Summary: ipc.StepSummaryWire{Step: 1, Action: "tool_call"}, Level: levelSummary},
+		{Summary: ipc.StepSummaryWire{Step: 2, Action: "plan"}, Level: levelSummary},
 	}
 	m = m.handleTimelineKey("e")
-	if m.expandMode != expandModeExpanded {
-		t.Fatalf("precondition: expected Expanded, got %d", m.expandMode)
+	if m.timeline.ExpandMode != expandModeExpanded {
+		t.Fatalf("precondition: expected Expanded, got %d", m.timeline.ExpandMode)
 	}
 	m = m.handleTimelineKey("C")
-	if m.expandMode != expandModeCollapsed {
-		t.Errorf("expected expandMode=Collapsed after C, got %d", m.expandMode)
+	if m.timeline.ExpandMode != expandModeCollapsed {
+		t.Errorf("expected expandMode=Collapsed after C, got %d", m.timeline.ExpandMode)
 	}
-	for i, e := range m.stepEntries {
-		if e.level != levelSummary {
-			t.Errorf("entry %d: expected levelSummary after C, got %d", i, e.level)
+	for i, e := range m.timeline.StepEntries {
+		if e.Level != levelSummary {
+			t.Errorf("entry %d: expected levelSummary after C, got %d", i, e.Level)
 		}
 	}
 }
@@ -173,34 +174,34 @@ func TestATDD_36_4_AC7_CCollapses(t *testing.T) {
 
 func TestATDD_36_4_AC8_NewStepStickyExpanded(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.expandMode = expandModeExpanded
+	m.timeline.ExpandMode = expandModeExpanded
 	m = m.applyNewSteps([]ipc.StepSummaryWire{
 		{Step: 1, Action: "tool_call"},
 	})
-	if len(m.stepEntries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(m.stepEntries))
+	if len(m.timeline.StepEntries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(m.timeline.StepEntries))
 	}
-	e := m.stepEntries[0]
-	if e.level != levelExpanded {
-		t.Errorf("Expanded sticky: expected level=Expanded, got %d", e.level)
+	e := m.timeline.StepEntries[0]
+	if e.Level != levelExpanded {
+		t.Errorf("Expanded sticky: expected level=Expanded, got %d", e.Level)
 	}
-	if !e.autoExpand {
+	if !e.AutoExpand {
 		t.Errorf("Expanded sticky: expected autoExpand=true")
 	}
 }
 
 func TestATDD_36_4_AC8_NewStepStickyErrorsOnly(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.expandMode = expandModeErrorsOnly
+	m.timeline.ExpandMode = expandModeErrorsOnly
 	m = m.applyNewSteps([]ipc.StepSummaryWire{
 		{Step: 1, Action: "tool_call", HasError: false},
 		{Step: 2, Action: "tool_call", HasError: true},
 	})
-	if m.stepEntries[0].level != levelSummary {
-		t.Errorf("ErrorsOnly non-error: expected Summary, got %d", m.stepEntries[0].level)
+	if m.timeline.StepEntries[0].Level != levelSummary {
+		t.Errorf("ErrorsOnly non-error: expected Summary, got %d", m.timeline.StepEntries[0].Level)
 	}
-	if m.stepEntries[1].level != levelExpanded {
-		t.Errorf("ErrorsOnly error: expected Expanded, got %d", m.stepEntries[1].level)
+	if m.timeline.StepEntries[1].Level != levelExpanded {
+		t.Errorf("ErrorsOnly error: expected Expanded, got %d", m.timeline.StepEntries[1].Level)
 	}
 }
 
@@ -211,11 +212,11 @@ func TestATDD_36_4_AC8_SafetyNetCollapsed(t *testing.T) {
 		{Step: 1, Action: "tool_call", HasError: true},
 		{Step: 2, Action: "tool_call", HasError: false},
 	})
-	if m.stepEntries[0].level != levelExpanded {
-		t.Errorf("collapsed+error safety net: expected Expanded, got %d", m.stepEntries[0].level)
+	if m.timeline.StepEntries[0].Level != levelExpanded {
+		t.Errorf("collapsed+error safety net: expected Expanded, got %d", m.timeline.StepEntries[0].Level)
 	}
-	if m.stepEntries[1].level != levelSummary {
-		t.Errorf("collapsed+no error: expected Summary, got %d", m.stepEntries[1].level)
+	if m.timeline.StepEntries[1].Level != levelSummary {
+		t.Errorf("collapsed+no error: expected Summary, got %d", m.timeline.StepEntries[1].Level)
 	}
 }
 
@@ -239,17 +240,17 @@ func TestATDD_36_4_AC3_MigrationNoticeOnce(t *testing.T) {
 
 	// First session: fresh state, ascending default → notice fires
 	m := newDashboardModel(nil)
-	if m.uiState == nil {
+	if m.timeline.UIState == nil {
 		t.Fatalf("uiState should be non-nil after init")
 	}
-	if m.uiState.TimelineSortMigrationShown {
+	if m.timeline.UIState.TimelineSortMigrationShown {
 		t.Fatalf("precondition: fresh uiState should have TimelineSortMigrationShown=false")
 	}
 	m = m.maybeShowTimelineMigrationNotice()
 	if !strings.Contains(m.statusMsg, "升序") {
 		t.Errorf("expected migration notice to set statusMsg containing '升序'; got: %q", m.statusMsg)
 	}
-	if !m.uiState.TimelineSortMigrationShown {
+	if !m.timeline.UIState.TimelineSortMigrationShown {
 		t.Errorf("expected TimelineSortMigrationShown=true after notice")
 	}
 	// File must be persisted
@@ -267,8 +268,8 @@ func TestATDD_36_4_AC3_MigrationNoticeOnce(t *testing.T) {
 
 	// Second session: notice should NOT fire again
 	m2 := newDashboardModel(nil)
-	if m2.uiState == nil || !m2.uiState.TimelineSortMigrationShown {
-		t.Fatalf("second session: expected TimelineSortMigrationShown=true loaded from disk; got %+v", m2.uiState)
+	if m2.timeline.UIState == nil || !m2.timeline.UIState.TimelineSortMigrationShown {
+		t.Fatalf("second session: expected TimelineSortMigrationShown=true loaded from disk; got %+v", m2.timeline.UIState)
 	}
 	m2 = m2.maybeShowTimelineMigrationNotice()
 	if strings.Contains(m2.statusMsg, "升序") {
@@ -281,8 +282,8 @@ func TestATDD_36_4_AC3_MigrationNoticeOnce(t *testing.T) {
 func TestATDD_36_4_AC9_HeaderIndicator(t *testing.T) {
 	m := newDashboardModel(nil)
 	// Case 1: ascending + Expanded
-	m.timelineSortAsc = true
-	m.expandMode = expandModeExpanded
+	m.timeline.SortAsc = true
+	m.timeline.ExpandMode = expandModeExpanded
 	header := m.renderUnifiedStepHeader(200, 0, 0, 0)
 	if !strings.Contains(header, "旧→新") {
 		t.Errorf("ascending header missing '旧→新'; got: %s", header)
@@ -291,8 +292,8 @@ func TestATDD_36_4_AC9_HeaderIndicator(t *testing.T) {
 		t.Errorf("Expanded mode header missing 'all'; got: %s", header)
 	}
 	// Case 2: descending + ErrorsOnly
-	m.timelineSortAsc = false
-	m.expandMode = expandModeErrorsOnly
+	m.timeline.SortAsc = false
+	m.timeline.ExpandMode = expandModeErrorsOnly
 	header = m.renderUnifiedStepHeader(200, 0, 0, 0)
 	if !strings.Contains(header, "新→旧") {
 		t.Errorf("descending header missing '新→旧'; got: %s", header)
@@ -301,7 +302,7 @@ func TestATDD_36_4_AC9_HeaderIndicator(t *testing.T) {
 		t.Errorf("ErrorsOnly mode header missing 'errors'; got: %s", header)
 	}
 	// Case 3: Collapsed omits expandMode indicator
-	m.expandMode = expandModeCollapsed
+	m.timeline.ExpandMode = expandModeCollapsed
 	header = m.renderUnifiedStepHeader(200, 0, 0, 0)
 	if strings.Contains(header, "· all") || strings.Contains(header, "· errors") {
 		t.Errorf("Collapsed mode header should omit mode indicator; got: %s", header)
@@ -313,13 +314,13 @@ func TestATDD_36_4_AC9_HeaderIndicator(t *testing.T) {
 	if !ui.IsASCIIMode() {
 		t.Skip("RNIX_ASCII env not honored in this test context; skipping ASCII assertion")
 	}
-	m.timelineSortAsc = true
-	m.expandMode = expandModeExpanded
+	m.timeline.SortAsc = true
+	m.timeline.ExpandMode = expandModeExpanded
 	header = m.renderUnifiedStepHeader(200, 0, 0, 0)
 	if !strings.Contains(header, "^ old->new") {
 		t.Errorf("ASCII ascending header missing '^ old->new'; got: %s", header)
 	}
-	m.timelineSortAsc = false
+	m.timeline.SortAsc = false
 	header = m.renderUnifiedStepHeader(200, 0, 0, 0)
 	if !strings.Contains(header, "v new->old") {
 		t.Errorf("ASCII descending header missing 'v new->old'; got: %s", header)

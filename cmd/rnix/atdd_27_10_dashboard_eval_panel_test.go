@@ -178,7 +178,7 @@ func TestATDD_27_10_AC1_TabCycles8Panes(t *testing.T) {
 // --- AC-1.3: [P0] Eval pane renders when active ---
 func TestATDD_27_10_AC1_EvalPaneRenders(t *testing.T) {
 	m := newEvalModel()
-	m.evalReputations = makeReputationSummaries()
+	m.eval.Reputations = makeReputationSummaries()
 
 	output := m.renderEvalPane(60, 20)
 
@@ -211,19 +211,19 @@ func TestATDD_27_10_AC2_ModelHasEvalFields(t *testing.T) {
 	m := newEvalModel()
 
 	// RED: these fields do not exist yet
-	if m.evalSubView != 0 {
+	if m.eval.SubView != 0 {
 		t.Error("AC-2: evalSubView should be 0 (reputation) initially")
 	}
-	if m.evalReputations != nil {
+	if m.eval.Reputations != nil {
 		t.Error("AC-2: evalReputations should be nil initially")
 	}
-	if m.evalRepErr != nil {
+	if m.eval.RepErr != nil {
 		t.Error("AC-2: evalRepErr should be nil initially")
 	}
-	if m.evalRepCursor != 0 {
+	if m.eval.RepCursor != 0 {
 		t.Error("AC-2: evalRepCursor should be 0 initially")
 	}
-	if m.evalRepScrollOffset != 0 {
+	if m.eval.RepScrollOffset != 0 {
 		t.Error("AC-2: evalRepScrollOffset should be 0 initially")
 	}
 }
@@ -234,17 +234,17 @@ func TestATDD_27_10_AC2_ReputationMsgUpdatesModel(t *testing.T) {
 	summaries := makeReputationSummaries()
 
 	msg := evalReputationMsg{
-		summaries: summaries,
+		Summaries: summaries,
 	}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if len(model.evalReputations) != 4 {
-		t.Fatalf("AC-2: evalReputations len = %d, want 4", len(model.evalReputations))
+	if len(model.eval.Reputations) != 4 {
+		t.Fatalf("AC-2: evalReputations len = %d, want 4", len(model.eval.Reputations))
 	}
-	if model.evalRepErr != nil {
-		t.Errorf("AC-2: evalRepErr should be nil on success, got %v", model.evalRepErr)
+	if model.eval.RepErr != nil {
+		t.Errorf("AC-2: evalRepErr should be nil on success, got %v", model.eval.RepErr)
 	}
 }
 
@@ -253,13 +253,13 @@ func TestATDD_27_10_AC2_ReputationMsgError(t *testing.T) {
 	m := newEvalModel()
 
 	msg := evalReputationMsg{
-		err: fmt.Errorf("connection refused"),
+		Err: fmt.Errorf("connection refused"),
 	}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.evalRepErr == nil {
+	if model.eval.RepErr == nil {
 		t.Error("AC-2: evalRepErr should be set on error")
 	}
 }
@@ -269,35 +269,35 @@ func TestATDD_27_10_AC2_ReputationSortedByScoreDesc(t *testing.T) {
 	m := newEvalModel()
 	summaries := makeReputationSummaries()
 
-	msg := evalReputationMsg{summaries: summaries}
+	msg := evalReputationMsg{Summaries: summaries}
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if len(model.evalReputations) < 2 {
+	if len(model.eval.Reputations) < 2 {
 		t.Fatal("AC-2: need at least 2 summaries for sort test")
 	}
 
 	// Verify descending order by Score
-	for i := 1; i < len(model.evalReputations); i++ {
-		if model.evalReputations[i].Score > model.evalReputations[i-1].Score {
+	for i := 1; i < len(model.eval.Reputations); i++ {
+		if model.eval.Reputations[i].Score > model.eval.Reputations[i-1].Score {
 			t.Errorf("AC-2: reputations not sorted by Score desc: [%d]=%.2f > [%d]=%.2f",
-				i, model.evalReputations[i].Score,
-				i-1, model.evalReputations[i-1].Score)
+				i, model.eval.Reputations[i].Score,
+				i-1, model.eval.Reputations[i-1].Score)
 		}
 	}
 
 	// Highest score agent should be first
-	if model.evalReputations[0].AgentName != "code-reviewer" {
+	if model.eval.Reputations[0].AgentName != "code-reviewer" {
 		t.Errorf("AC-2: first reputation agent = %q, want %q",
-			model.evalReputations[0].AgentName, "code-reviewer")
+			model.eval.Reputations[0].AgentName, "code-reviewer")
 	}
 }
 
 // --- AC-2.5: [P0] renderEvalPane shows reputation details ---
 func TestATDD_27_10_AC2_RenderEvalPane_ReputationDetails(t *testing.T) {
 	m := newEvalModel()
-	m.evalReputations = makeReputationSummaries()
-	m.evalSubView = 0 // reputation view
+	m.eval.Reputations = makeReputationSummaries()
+	m.eval.SubView = 0 // reputation view
 
 	output := m.renderEvalPane(80, 30)
 
@@ -320,12 +320,12 @@ func TestATDD_27_10_AC2_RenderEvalPane_ReputationDetails(t *testing.T) {
 // --- AC-2.6: [P0] evalRepCursor clamped after refresh ---
 func TestATDD_27_10_AC2_CursorClampedAfterRefresh(t *testing.T) {
 	m := newEvalModel()
-	m.evalReputations = makeReputationSummaries()
-	m.evalRepCursor = 3 // at last position
+	m.eval.Reputations = makeReputationSummaries()
+	m.eval.RepCursor = 3 // at last position
 
 	// Simulate refresh with fewer entries
 	msg := evalReputationMsg{
-		summaries: []kernel.ReputationSummary{
+		Summaries: []kernel.ReputationSummary{
 			{AgentName: "solo-agent", Score: 0.50, SuccessRate: 0.50,
 				AvgTokens: 1000, AvgDurationMs: 10000, TotalRecords: 1, RecentTrend: "stable"},
 		},
@@ -334,57 +334,57 @@ func TestATDD_27_10_AC2_CursorClampedAfterRefresh(t *testing.T) {
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.evalRepCursor >= len(model.evalReputations) {
+	if model.eval.RepCursor >= len(model.eval.Reputations) {
 		t.Errorf("AC-2: evalRepCursor %d out of range (evalReputations len=%d)",
-			model.evalRepCursor, len(model.evalReputations))
+			model.eval.RepCursor, len(model.eval.Reputations))
 	}
 }
 
 // --- AC-2.7: [P0] j/k navigates evalRepCursor ---
 func TestATDD_27_10_AC2_JK_MovesRepCursor(t *testing.T) {
 	m := newEvalModel()
-	m.evalReputations = makeReputationSummaries()
-	m.evalSubView = 0
-	m.evalRepCursor = 0
+	m.eval.Reputations = makeReputationSummaries()
+	m.eval.SubView = 0
+	m.eval.RepCursor = 0
 
 	// Press 'j' to move down
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	model := m2.(dashboardModel)
-	if model.evalRepCursor != 1 {
-		t.Errorf("AC-2: after j, evalRepCursor = %d, want 1", model.evalRepCursor)
+	if model.eval.RepCursor != 1 {
+		t.Errorf("AC-2: after j, evalRepCursor = %d, want 1", model.eval.RepCursor)
 	}
 
 	// Press 'k' to move back up
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'k'})
 	model2 := m3.(dashboardModel)
-	if model2.evalRepCursor != 0 {
-		t.Errorf("AC-2: after k, evalRepCursor = %d, want 0", model2.evalRepCursor)
+	if model2.eval.RepCursor != 0 {
+		t.Errorf("AC-2: after k, evalRepCursor = %d, want 0", model2.eval.RepCursor)
 	}
 }
 
 // --- AC-2.8: [P0] j/k bounds checking in reputation view ---
 func TestATDD_27_10_AC2_RepCursorBounds(t *testing.T) {
 	m := newEvalModel()
-	m.evalReputations = makeReputationSummaries()
-	m.evalSubView = 0
-	m.evalRepCursor = 0
+	m.eval.Reputations = makeReputationSummaries()
+	m.eval.SubView = 0
+	m.eval.RepCursor = 0
 
 	// Press 'k' at cursor=0 → should stay at 0
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	model := m2.(dashboardModel)
-	if model.evalRepCursor != 0 {
-		t.Errorf("AC-2: k at cursor=0 should stay 0, got %d", model.evalRepCursor)
+	if model.eval.RepCursor != 0 {
+		t.Errorf("AC-2: k at cursor=0 should stay 0, got %d", model.eval.RepCursor)
 	}
 
 	// Move cursor to last position
-	lastIdx := len(m.evalReputations) - 1
-	model.evalRepCursor = lastIdx
+	lastIdx := len(m.eval.Reputations) - 1
+	model.eval.RepCursor = lastIdx
 
 	// Press 'j' at last position → should stay
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'j'})
 	model2 := m3.(dashboardModel)
-	if model2.evalRepCursor != lastIdx {
-		t.Errorf("AC-2: j at last position should stay %d, got %d", lastIdx, model2.evalRepCursor)
+	if model2.eval.RepCursor != lastIdx {
+		t.Errorf("AC-2: j at last position should stay %d, got %d", lastIdx, model2.eval.RepCursor)
 	}
 }
 
@@ -395,7 +395,7 @@ func TestATDD_27_10_AC2_RepCursorBounds(t *testing.T) {
 // --- AC-3.1: [P0] Key '!' (Shift+1) selects reputation sub-view ---
 func TestATDD_27_10_AC3_Key1_SelectsReputation(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 1 // currently on topology
+	m.eval.SubView = 1 // currently on topology
 	// Story 29.2: shifted digit keys !/@ /# pass to eval only in viewExpanded + paneEval
 	m.viewMode = viewExpanded
 	m.expandedPane = paneEval
@@ -403,15 +403,15 @@ func TestATDD_27_10_AC3_Key1_SelectsReputation(t *testing.T) {
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
 	model := m2.(dashboardModel)
 
-	if model.evalSubView != 0 {
-		t.Errorf("AC-3: after pressing '!', evalSubView = %d, want 0 (reputation)", model.evalSubView)
+	if model.eval.SubView != 0 {
+		t.Errorf("AC-3: after pressing '!', evalSubView = %d, want 0 (reputation)", model.eval.SubView)
 	}
 }
 
 // --- AC-3.2: [P0] Key '@' (Shift+2) selects topology sub-view ---
 func TestATDD_27_10_AC3_Key2_SelectsTopology(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 0 // currently on reputation
+	m.eval.SubView = 0 // currently on reputation
 	// Story 29.2: shifted digit keys !/@ /# pass to eval only in viewExpanded + paneEval
 	m.viewMode = viewExpanded
 	m.expandedPane = paneEval
@@ -419,15 +419,15 @@ func TestATDD_27_10_AC3_Key2_SelectsTopology(t *testing.T) {
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '@', Text: "@"})
 	model := m2.(dashboardModel)
 
-	if model.evalSubView != 1 {
-		t.Errorf("AC-3: after pressing '@', evalSubView = %d, want 1 (topology)", model.evalSubView)
+	if model.eval.SubView != 1 {
+		t.Errorf("AC-3: after pressing '@', evalSubView = %d, want 1 (topology)", model.eval.SubView)
 	}
 }
 
 // --- AC-3.3: [P0] Key '#' (Shift+3) selects synergy sub-view ---
 func TestATDD_27_10_AC3_Key3_SelectsSynergy(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 0 // currently on reputation
+	m.eval.SubView = 0 // currently on reputation
 	// Story 29.2: shifted digit keys !/@ /# pass to eval only in viewExpanded + paneEval
 	m.viewMode = viewExpanded
 	m.expandedPane = paneEval
@@ -435,8 +435,8 @@ func TestATDD_27_10_AC3_Key3_SelectsSynergy(t *testing.T) {
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '#', Text: "#"})
 	model := m2.(dashboardModel)
 
-	if model.evalSubView != 2 {
-		t.Errorf("AC-3: after pressing '#', evalSubView = %d, want 2 (synergy)", model.evalSubView)
+	if model.eval.SubView != 2 {
+		t.Errorf("AC-3: after pressing '#', evalSubView = %d, want 2 (synergy)", model.eval.SubView)
 	}
 }
 
@@ -451,15 +451,15 @@ func TestATDD_27_10_AC3_SubViewKeysOnlyInEvalPane(t *testing.T) {
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'})
 	model := m2.(dashboardModel)
 
-	if model.evalSubView != 0 {
-		t.Errorf("AC-3: pressing '2' in paneTree should not change evalSubView, got %d", model.evalSubView)
+	if model.eval.SubView != 0 {
+		t.Errorf("AC-3: pressing '2' in paneTree should not change evalSubView, got %d", model.eval.SubView)
 	}
 }
 
 // --- AC-3.5: [P0] Sub-view state preserved after Tab cycle ---
 func TestATDD_27_10_AC3_SubViewPreservedAfterTabCycle(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 2 // synergy sub-view
+	m.eval.SubView = 2 // synergy sub-view
 
 	// Switch to another pane via digit key
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '2'}) // Timeline
@@ -474,8 +474,8 @@ func TestATDD_27_10_AC3_SubViewPreservedAfterTabCycle(t *testing.T) {
 			model.activePane, paneEval)
 	}
 	// Sub-view should be preserved
-	if model.evalSubView != 2 {
-		t.Errorf("AC-3: evalSubView should be preserved after pane switch, got %d", model.evalSubView)
+	if model.eval.SubView != 2 {
+		t.Errorf("AC-3: evalSubView should be preserved after pane switch, got %d", model.eval.SubView)
 	}
 }
 
@@ -489,20 +489,20 @@ func TestATDD_27_10_AC4_TopologyMsgUpdatesModel(t *testing.T) {
 	topo := makeTopologyData()
 
 	msg := evalTopologyMsg{
-		topology: topo,
+		Topology: topo,
 	}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.evalTopology == nil {
+	if model.eval.Topology == nil {
 		t.Fatal("AC-4: evalTopology should be set after evalTopologyMsg")
 	}
-	if len(model.evalTopology.Nodes) != 3 {
-		t.Errorf("AC-4: evalTopology.Nodes len = %d, want 3", len(model.evalTopology.Nodes))
+	if len(model.eval.Topology.Nodes) != 3 {
+		t.Errorf("AC-4: evalTopology.Nodes len = %d, want 3", len(model.eval.Topology.Nodes))
 	}
-	if len(model.evalTopology.Edges) != 3 {
-		t.Errorf("AC-4: evalTopology.Edges len = %d, want 3", len(model.evalTopology.Edges))
+	if len(model.eval.Topology.Edges) != 3 {
+		t.Errorf("AC-4: evalTopology.Edges len = %d, want 3", len(model.eval.Topology.Edges))
 	}
 }
 
@@ -511,13 +511,13 @@ func TestATDD_27_10_AC4_TopologyMsgError(t *testing.T) {
 	m := newEvalModel()
 
 	msg := evalTopologyMsg{
-		err: fmt.Errorf("topology service unavailable"),
+		Err: fmt.Errorf("topology service unavailable"),
 	}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.evalTopoErr == nil {
+	if model.eval.TopoErr == nil {
 		t.Error("AC-4: evalTopoErr should be set on error")
 	}
 }
@@ -525,8 +525,8 @@ func TestATDD_27_10_AC4_TopologyMsgError(t *testing.T) {
 // --- AC-4.3: [P0] Topology view renders nodes ---
 func TestATDD_27_10_AC4_RenderTopology_Nodes(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 1 // topology
-	m.evalTopology = makeTopologyData()
+	m.eval.SubView = 1 // topology
+	m.eval.Topology = makeTopologyData()
 
 	output := m.renderEvalPane(80, 30)
 
@@ -542,8 +542,8 @@ func TestATDD_27_10_AC4_RenderTopology_Nodes(t *testing.T) {
 // --- AC-4.4: [P0] Topology view renders edges ---
 func TestATDD_27_10_AC4_RenderTopology_Edges(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 1
-	m.evalTopology = makeTopologyData()
+	m.eval.SubView = 1
+	m.eval.Topology = makeTopologyData()
 
 	output := m.renderEvalPane(80, 30)
 
@@ -561,22 +561,22 @@ func TestATDD_27_10_AC4_RenderTopology_Edges(t *testing.T) {
 // --- AC-4.5: [P0] j/k navigates topology cursor ---
 func TestATDD_27_10_AC4_JK_MovesTopoCursor(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 1
-	m.evalTopology = makeTopologyData()
-	m.evalTopoCursor = 0
+	m.eval.SubView = 1
+	m.eval.Topology = makeTopologyData()
+	m.eval.TopoCursor = 0
 
 	// Press 'j' to move down
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	model := m2.(dashboardModel)
-	if model.evalTopoCursor != 1 {
-		t.Errorf("AC-4: after j, evalTopoCursor = %d, want 1", model.evalTopoCursor)
+	if model.eval.TopoCursor != 1 {
+		t.Errorf("AC-4: after j, evalTopoCursor = %d, want 1", model.eval.TopoCursor)
 	}
 
 	// Press 'k' to move back up
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'k'})
 	model2 := m3.(dashboardModel)
-	if model2.evalTopoCursor != 0 {
-		t.Errorf("AC-4: after k, evalTopoCursor = %d, want 0", model2.evalTopoCursor)
+	if model2.eval.TopoCursor != 0 {
+		t.Errorf("AC-4: after k, evalTopoCursor = %d, want 0", model2.eval.TopoCursor)
 	}
 }
 
@@ -590,17 +590,17 @@ func TestATDD_27_10_AC5_SynergyMsgUpdatesModel(t *testing.T) {
 	combos := makeSynergyCombos()
 
 	msg := evalSynergyMsg{
-		combos: combos,
+		Combos: combos,
 	}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if len(model.evalSynergies) != 3 {
-		t.Fatalf("AC-5: evalSynergies len = %d, want 3", len(model.evalSynergies))
+	if len(model.eval.Synergies) != 3 {
+		t.Fatalf("AC-5: evalSynergies len = %d, want 3", len(model.eval.Synergies))
 	}
-	if model.evalSynErr != nil {
-		t.Errorf("AC-5: evalSynErr should be nil on success, got %v", model.evalSynErr)
+	if model.eval.SynErr != nil {
+		t.Errorf("AC-5: evalSynErr should be nil on success, got %v", model.eval.SynErr)
 	}
 }
 
@@ -609,13 +609,13 @@ func TestATDD_27_10_AC5_SynergyMsgError(t *testing.T) {
 	m := newEvalModel()
 
 	msg := evalSynergyMsg{
-		err: fmt.Errorf("synergy data unavailable"),
+		Err: fmt.Errorf("synergy data unavailable"),
 	}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.evalSynErr == nil {
+	if model.eval.SynErr == nil {
 		t.Error("AC-5: evalSynErr should be set on error")
 	}
 }
@@ -623,8 +623,8 @@ func TestATDD_27_10_AC5_SynergyMsgError(t *testing.T) {
 // --- AC-5.3: [P0] Synergy matrix renders combo summaries ---
 func TestATDD_27_10_AC5_RenderSynergy_Combos(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 2 // synergy
-	m.evalSynergies = makeSynergyCombos()
+	m.eval.SubView = 2 // synergy
+	m.eval.Synergies = makeSynergyCombos()
 
 	output := m.renderEvalPane(80, 30)
 
@@ -647,48 +647,48 @@ func TestATDD_27_10_AC5_RenderSynergy_Combos(t *testing.T) {
 // --- AC-5.4: [P0] j/k navigates synergy cursor ---
 func TestATDD_27_10_AC5_JK_MovesSynCursor(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 2
-	m.evalSynergies = makeSynergyCombos()
-	m.evalSynCursor = 0
+	m.eval.SubView = 2
+	m.eval.Synergies = makeSynergyCombos()
+	m.eval.SynCursor = 0
 
 	// Press 'j' to move down
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	model := m2.(dashboardModel)
-	if model.evalSynCursor != 1 {
-		t.Errorf("AC-5: after j, evalSynCursor = %d, want 1", model.evalSynCursor)
+	if model.eval.SynCursor != 1 {
+		t.Errorf("AC-5: after j, evalSynCursor = %d, want 1", model.eval.SynCursor)
 	}
 
 	// Press 'k' to move back up
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'k'})
 	model2 := m3.(dashboardModel)
-	if model2.evalSynCursor != 0 {
-		t.Errorf("AC-5: after k, evalSynCursor = %d, want 0", model2.evalSynCursor)
+	if model2.eval.SynCursor != 0 {
+		t.Errorf("AC-5: after k, evalSynCursor = %d, want 0", model2.eval.SynCursor)
 	}
 }
 
 // --- AC-5.5: [P0] synergy cursor bounds checking ---
 func TestATDD_27_10_AC5_SynCursorBounds(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 2
-	m.evalSynergies = makeSynergyCombos()
-	m.evalSynCursor = 0
+	m.eval.SubView = 2
+	m.eval.Synergies = makeSynergyCombos()
+	m.eval.SynCursor = 0
 
 	// Press 'k' at cursor=0 → should stay at 0
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	model := m2.(dashboardModel)
-	if model.evalSynCursor != 0 {
-		t.Errorf("AC-5: k at cursor=0 should stay 0, got %d", model.evalSynCursor)
+	if model.eval.SynCursor != 0 {
+		t.Errorf("AC-5: k at cursor=0 should stay 0, got %d", model.eval.SynCursor)
 	}
 
 	// Move cursor to last position
-	lastIdx := len(m.evalSynergies) - 1
-	model.evalSynCursor = lastIdx
+	lastIdx := len(m.eval.Synergies) - 1
+	model.eval.SynCursor = lastIdx
 
 	// Press 'j' at last position → should stay
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'j'})
 	model2 := m3.(dashboardModel)
-	if model2.evalSynCursor != lastIdx {
-		t.Errorf("AC-5: j at last position should stay %d, got %d", lastIdx, model2.evalSynCursor)
+	if model2.eval.SynCursor != lastIdx {
+		t.Errorf("AC-5: j at last position should stay %d, got %d", lastIdx, model2.eval.SynCursor)
 	}
 }
 
@@ -699,8 +699,8 @@ func TestATDD_27_10_AC5_SynCursorBounds(t *testing.T) {
 // --- AC-6.1: [P1] No reputation data shows hint ---
 func TestATDD_27_10_AC6_EmptyReputation_ShowsHint(t *testing.T) {
 	m := newEvalModel()
-	m.evalReputations = nil
-	m.evalSubView = 0
+	m.eval.Reputations = nil
+	m.eval.SubView = 0
 
 	output := m.renderEvalPane(80, 20)
 
@@ -712,8 +712,8 @@ func TestATDD_27_10_AC6_EmptyReputation_ShowsHint(t *testing.T) {
 // --- AC-6.2: [P1] Empty reputation with loaded but zero entries ---
 func TestATDD_27_10_AC6_EmptyReputationLoaded_ShowsHint(t *testing.T) {
 	m := newEvalModel()
-	m.evalReputations = []kernel.ReputationSummary{} // loaded but empty
-	m.evalSubView = 0
+	m.eval.Reputations = []kernel.ReputationSummary{} // loaded but empty
+	m.eval.SubView = 0
 
 	output := m.renderEvalPane(80, 20)
 
@@ -725,8 +725,8 @@ func TestATDD_27_10_AC6_EmptyReputationLoaded_ShowsHint(t *testing.T) {
 // --- AC-6.3: [P1] No topology data shows hint ---
 func TestATDD_27_10_AC6_EmptyTopology_ShowsHint(t *testing.T) {
 	m := newEvalModel()
-	m.evalTopology = nil
-	m.evalSubView = 1
+	m.eval.Topology = nil
+	m.eval.SubView = 1
 
 	output := m.renderEvalPane(80, 20)
 
@@ -738,8 +738,8 @@ func TestATDD_27_10_AC6_EmptyTopology_ShowsHint(t *testing.T) {
 // --- AC-6.4: [P1] No synergy data shows hint ---
 func TestATDD_27_10_AC6_EmptySynergy_ShowsHint(t *testing.T) {
 	m := newEvalModel()
-	m.evalSynergies = nil
-	m.evalSubView = 2
+	m.eval.Synergies = nil
+	m.eval.SubView = 2
 
 	output := m.renderEvalPane(80, 20)
 
@@ -751,8 +751,8 @@ func TestATDD_27_10_AC6_EmptySynergy_ShowsHint(t *testing.T) {
 // --- AC-6.5: [P1] IPC error shows error without crash ---
 func TestATDD_27_10_AC6_IPCError_ShowsError(t *testing.T) {
 	m := newEvalModel()
-	m.evalRepErr = fmt.Errorf("daemon not reachable")
-	m.evalSubView = 0
+	m.eval.RepErr = fmt.Errorf("daemon not reachable")
+	m.eval.SubView = 0
 
 	output := m.renderEvalPane(80, 20)
 
@@ -764,12 +764,12 @@ func TestATDD_27_10_AC6_IPCError_ShowsError(t *testing.T) {
 // --- AC-6.6: [P1] Empty state navigation safe ---
 func TestATDD_27_10_AC6_EmptyState_NavigationSafe(t *testing.T) {
 	m := newEvalModel()
-	m.evalReputations = nil
-	m.evalTopology = nil
-	m.evalSynergies = nil
-	m.evalRepCursor = 0
-	m.evalTopoCursor = 0
-	m.evalSynCursor = 0
+	m.eval.Reputations = nil
+	m.eval.Topology = nil
+	m.eval.Synergies = nil
+	m.eval.RepCursor = 0
+	m.eval.TopoCursor = 0
+	m.eval.SynCursor = 0
 
 	// j/k/1/2/3 on empty state should not panic
 	for _, key := range []rune{'j', 'k', '1', '2', '3'} {
@@ -781,9 +781,9 @@ func TestATDD_27_10_AC6_EmptyState_NavigationSafe(t *testing.T) {
 // --- AC-6.7: [P1] Topology error state renders gracefully ---
 func TestATDD_27_10_AC6_TopologyError_Renders(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 1
-	m.evalTopology = nil
-	m.evalTopoErr = fmt.Errorf("topology unavailable")
+	m.eval.SubView = 1
+	m.eval.Topology = nil
+	m.eval.TopoErr = fmt.Errorf("topology unavailable")
 
 	output := m.renderEvalPane(80, 20)
 
@@ -795,9 +795,9 @@ func TestATDD_27_10_AC6_TopologyError_Renders(t *testing.T) {
 // --- AC-6.8: [P1] Synergy error state renders gracefully ---
 func TestATDD_27_10_AC6_SynergyError_Renders(t *testing.T) {
 	m := newEvalModel()
-	m.evalSubView = 2
-	m.evalSynergies = nil
-	m.evalSynErr = fmt.Errorf("synergy unavailable")
+	m.eval.SubView = 2
+	m.eval.Synergies = nil
+	m.eval.SynErr = fmt.Errorf("synergy unavailable")
 
 	output := m.renderEvalPane(80, 20)
 
@@ -814,13 +814,13 @@ func TestATDD_27_10_AC6_SynergyError_Renders(t *testing.T) {
 func TestATDD_27_10_RepAdjustScroll(t *testing.T) {
 	m := newEvalModel()
 	m.height = 20
-	m.evalRepScrollOffset = 0
-	m.evalRepCursor = 10
-	m.evalReputations = make([]kernel.ReputationSummary, 20)
+	m.eval.RepScrollOffset = 0
+	m.eval.RepCursor = 10
+	m.eval.Reputations = make([]kernel.ReputationSummary, 20)
 
 	evalRepAdjustScroll(&m)
 
-	if m.evalRepScrollOffset == 0 {
+	if m.eval.RepScrollOffset == 0 {
 		t.Error("scroll offset should have adjusted for cursor=10")
 	}
 }
@@ -829,16 +829,16 @@ func TestATDD_27_10_RepAdjustScroll(t *testing.T) {
 func TestATDD_27_10_TopoAdjustScroll(t *testing.T) {
 	m := newEvalModel()
 	m.height = 20
-	m.evalTopoScrollOffset = 0
-	m.evalTopoCursor = 10
-	m.evalTopology = &ipc.TopologyQueryResponse{
+	m.eval.TopoScrollOffset = 0
+	m.eval.TopoCursor = 10
+	m.eval.Topology = &ipc.TopologyQueryResponse{
 		Nodes: make([]kernel.TopologyNode, 5),
 		Edges: make([]kernel.CooperationEdge, 15),
 	}
 
 	evalTopoAdjustScroll(&m)
 
-	if m.evalTopoScrollOffset == 0 {
+	if m.eval.TopoScrollOffset == 0 {
 		t.Error("topo scroll offset should have adjusted for cursor=10")
 	}
 }
@@ -847,13 +847,13 @@ func TestATDD_27_10_TopoAdjustScroll(t *testing.T) {
 func TestATDD_27_10_SynAdjustScroll(t *testing.T) {
 	m := newEvalModel()
 	m.height = 20
-	m.evalSynScrollOffset = 0
-	m.evalSynCursor = 10
-	m.evalSynergies = make([]kernel.ComboSummary, 20)
+	m.eval.SynScrollOffset = 0
+	m.eval.SynCursor = 10
+	m.eval.Synergies = make([]kernel.ComboSummary, 20)
 
 	evalSynAdjustScroll(&m)
 
-	if m.evalSynScrollOffset == 0 {
+	if m.eval.SynScrollOffset == 0 {
 		t.Error("synergy scroll offset should have adjusted for cursor=10")
 	}
 }
@@ -865,7 +865,7 @@ func TestATDD_27_10_SynAdjustScroll(t *testing.T) {
 // --- AC-3.6: [P0] v/V/p keys should NOT trigger in Eval pane ---
 func TestATDD_27_10_VKeyGuard(t *testing.T) {
 	m := newEvalModel()
-	m.evalReputations = makeReputationSummaries()
+	m.eval.Reputations = makeReputationSummaries()
 
 	// 'v' key should not trigger step-detail expansion in eval pane
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'v'})

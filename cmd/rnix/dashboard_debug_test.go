@@ -33,14 +33,14 @@ func TestEnterDebugMode_SwitchesViewMode(t *testing.T) {
 	if m2.viewMode != viewDebug {
 		t.Errorf("expected viewDebug, got %v", m2.viewMode)
 	}
-	if !m2.debugMode {
+	if !m2.debugState.Mode {
 		t.Error("expected debugMode to be true")
 	}
-	if !m2.debugShowStrace {
+	if !m2.debugState.ShowStrace {
 		t.Error("expected debugShowStrace to be true")
 	}
-	if m2.debugAttachedPID != types.PID(1) {
-		t.Errorf("expected debugAttachedPID=1, got %v", m2.debugAttachedPID)
+	if m2.debugState.AttachedPID != types.PID(1) {
+		t.Errorf("expected debugAttachedPID=1, got %v", m2.debugState.AttachedPID)
 	}
 }
 
@@ -55,7 +55,7 @@ func TestExitDebugMode_RestoresDefault(t *testing.T) {
 	if m3.viewMode != viewDefault {
 		t.Errorf("expected viewDefault, got %v", m3.viewMode)
 	}
-	if m3.debugMode {
+	if m3.debugState.Mode {
 		t.Error("expected debugMode to be false")
 	}
 }
@@ -137,24 +137,24 @@ func TestRenderSyscallLine_ASCII(t *testing.T) {
 
 func TestFilteredDebugEvents_StraceToggle(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.debugMode = true
+	m.debugState.Mode = true
 
 	now := time.Now()
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, Timestamp: now, PID: 1, Summary: "syscall"},
 		{Type: EventStep, Timestamp: now.Add(-time.Second), PID: 1, Summary: "step",
-			StepEntry: &stepEntry{summary: ipc.StepSummaryWire{Action: "tool_call"}}},
+			StepEntry: &stepEntry{Summary: ipc.StepSummaryWire{Action: "tool_call"}}},
 	}
 
 	// With strace enabled
-	m.debugShowStrace = true
+	m.debugState.ShowStrace = true
 	visible := m.filteredDebugEvents()
 	if len(visible) != 2 {
 		t.Errorf("expected 2 events with strace on, got %d", len(visible))
 	}
 
 	// With strace disabled
-	m.debugShowStrace = false
+	m.debugState.ShowStrace = false
 	visible = m.filteredDebugEvents()
 	if len(visible) != 1 {
 		t.Errorf("expected 1 event with strace off, got %d", len(visible))
@@ -169,7 +169,7 @@ func TestDebugLayout_Structure(t *testing.T) {
 	m.width = 120
 	m.height = 40
 	m.selectedPID = 1
-	m.debugMode = true
+	m.debugState.Mode = true
 	m.viewMode = viewDebug
 
 	output := m.renderDebugLayout(120, 40)
@@ -198,10 +198,10 @@ func TestDeviceLatencyAggregation(t *testing.T) {
 		DurationMs: 10,
 	})
 
-	if len(m.debugDeviceLatency) != 2 {
-		t.Errorf("expected 2 devices, got %d", len(m.debugDeviceLatency))
+	if len(m.debugState.DeviceLatency) != 2 {
+		t.Errorf("expected 2 devices, got %d", len(m.debugState.DeviceLatency))
 	}
-	llmStats := m.debugDeviceLatency["llm"]
+	llmStats := m.debugState.DeviceLatency["llm"]
 	if llmStats == nil {
 		t.Fatal("expected llm stats")
 	}
@@ -214,7 +214,7 @@ func TestDeviceLatencyAggregation(t *testing.T) {
 	if llmStats.AvgMs() != 150 {
 		t.Errorf("expected avg 150ms, got %.1f", llmStats.AvgMs())
 	}
-	fsStats := m.debugDeviceLatency["fs"]
+	fsStats := m.debugState.DeviceLatency["fs"]
 	if fsStats == nil {
 		t.Fatal("expected fs stats")
 	}
@@ -272,11 +272,11 @@ func TestAppendStraceEvent_RingBuffer(t *testing.T) {
 		})
 	}
 
-	if len(m.debugStraceEvents) != maxDebugStraceEvents {
-		t.Errorf("expected %d events, got %d", maxDebugStraceEvents, len(m.debugStraceEvents))
+	if len(m.debugState.StraceEvents) != maxDebugStraceEvents {
+		t.Errorf("expected %d events, got %d", maxDebugStraceEvents, len(m.debugState.StraceEvents))
 	}
 	// Oldest should have been evicted
-	earliest := m.debugStraceEvents[0].Timestamp
+	earliest := m.debugState.StraceEvents[0].Timestamp
 	expected := now.Add(50 * time.Millisecond)
 	if earliest.Before(expected) {
 		t.Errorf("expected oldest event at ~+50ms, got %v", earliest.Sub(now))
@@ -287,8 +287,8 @@ func TestContextProfileRendering(t *testing.T) {
 	m := newDashboardModel(nil)
 	m.width = 120
 	m.height = 40
-	m.debugMode = true
-	m.debugCtxProfile = &debug.CtxProfileResult{
+	m.debugState.Mode = true
+	m.debugState.CtxProfile = &debug.CtxProfileResult{
 		PID:           1,
 		TokensUsed:    5000,
 		ContextBudget: 10000,
@@ -348,8 +348,8 @@ func TestWireToSyscallEvent_Dashboard(t *testing.T) {
 
 func TestDebugTickProcess_ChannelCloseMerges(t *testing.T) {
 	m := newDashboardModel(nil)
-	m.debugMode = true
-	m.debugDeviceLatency = make(map[string]*deviceLatencyStats)
+	m.debugState.Mode = true
+	m.debugState.DeviceLatency = make(map[string]*deviceLatencyStats)
 	m.selectedPID = 1
 
 	// Create a channel with one event, then close it
@@ -363,17 +363,17 @@ func TestDebugTickProcess_ChannelCloseMerges(t *testing.T) {
 	}
 	close(ch)
 
-	m.debugStraceCh = ch
+	m.debugState.StraceCh = ch
 	streamClosed := m.debugTickProcess()
 
 	if !streamClosed {
 		t.Error("expected streamClosed=true when channel is closed")
 	}
 	// Events should be merged despite channel close
-	if len(m.debugStraceEvents) != 1 {
-		t.Errorf("expected 1 strace event, got %d", len(m.debugStraceEvents))
+	if len(m.debugState.StraceEvents) != 1 {
+		t.Errorf("expected 1 strace event, got %d", len(m.debugState.StraceEvents))
 	}
-	if len(m.debugEvents) == 0 {
+	if len(m.debugState.Events) == 0 {
 		t.Error("expected merged events to be non-empty after channel close")
 	}
 }
@@ -385,11 +385,11 @@ func TestUUIDValidation_DebugMode_PreservesSelectionForDeadProcess(t *testing.T)
 	// the UUID validation should NOT reset selectedPID if debug mode is active
 	// and events have already been loaded (prevents "Waiting for events…" flicker).
 	m := newDashboardModel(nil)
-	m.debugMode = true
+	m.debugState.Mode = true
 	m.selectedPID = 2
 	m.selectedUUID = "dead-uuid"
-	m.debugAttachedPID = 2
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.AttachedPID = 2
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, PID: 2, Summary: "loaded-event"},
 	}
 
@@ -397,8 +397,8 @@ func TestUUIDValidation_DebugMode_PreservesSelectionForDeadProcess(t *testing.T)
 	m.processes = []vfs.ProcInfo{
 		{PID: 1, UUID: "root-uuid", State: types.StateRunning},
 	}
-	m.treeRows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1, UUID: "root-uuid"}},
+	m.tree.Rows = []flatRow{
+		{Proc: vfs.ProcInfo{PID: 1, UUID: "root-uuid"}},
 	}
 
 	// Run the UUID validation logic inline (mirrors dashboard.go:600-621)
@@ -412,7 +412,7 @@ func TestUUIDValidation_DebugMode_PreservesSelectionForDeadProcess(t *testing.T)
 		}
 	}
 	if !found {
-		if m.debugMode && m.debugAttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+		if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugState.Events) > 0 {
 			found = true
 		}
 	}
@@ -433,11 +433,11 @@ func TestUUIDValidation_DebugMode_PreservesSelectionForDeadProcess(t *testing.T)
 func TestUUIDValidation_NoDebugMode_ResetsNormally(t *testing.T) {
 	// Without debug mode, the validation should still reset selectedPID normally.
 	m := newDashboardModel(nil)
-	m.debugMode = false
+	m.debugState.Mode = false
 	m.selectedPID = 2
 	m.selectedUUID = "dead-uuid"
-	m.debugAttachedPID = 2
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.AttachedPID = 2
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, PID: 2, Summary: "loaded-event"},
 	}
 
@@ -456,7 +456,7 @@ func TestUUIDValidation_NoDebugMode_ResetsNormally(t *testing.T) {
 		}
 	}
 	if !found {
-		if m.debugMode && m.debugAttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+		if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugState.Events) > 0 {
 			found = true
 		}
 	}
@@ -475,11 +475,11 @@ func TestHistoricalStraceMsg_DiscardsStalePID(t *testing.T) {
 	// When an async historical strace response arrives for a PID that is no longer
 	// selected, the handler should discard it to prevent overwriting current events.
 	m := newDashboardModel(nil)
-	m.debugMode = true
+	m.debugState.Mode = true
 	m.selectedPID = 3
 	m.selectedUUID = "uuid-3"
-	m.debugAttachedPID = 3
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.AttachedPID = 3
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, PID: 3, Summary: "current-event"},
 	}
 
@@ -497,18 +497,18 @@ func TestHistoricalStraceMsg_DiscardsStalePID(t *testing.T) {
 		t.Fatal("expected msg to be handled")
 	}
 	// Events should NOT be overwritten by stale response
-	if len(m2.debugEvents) != 1 || m2.debugEvents[0].Summary != "current-event" {
-		t.Errorf("expected current events preserved, got %d events", len(m2.debugEvents))
+	if len(m2.debugState.Events) != 1 || m2.debugState.Events[0].Summary != "current-event" {
+		t.Errorf("expected current events preserved, got %d events", len(m2.debugState.Events))
 	}
 }
 
 func TestHistoricalStraceMsg_AcceptsMatchingPID(t *testing.T) {
 	// When the response PID matches the current selection, events should be processed.
 	m := newDashboardModel(nil)
-	m.debugMode = true
+	m.debugState.Mode = true
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-2"
-	m.debugAttachedPID = 2
+	m.debugState.AttachedPID = 2
 
 	msg := debugHistoricalStraceMsg{
 		events: []ipc.SyscallEventWire{
@@ -523,7 +523,7 @@ func TestHistoricalStraceMsg_AcceptsMatchingPID(t *testing.T) {
 		t.Fatal("expected msg to be handled")
 	}
 	// Events should be processed (debugStraceEvents updated)
-	if len(m2.debugStraceEvents) == 0 {
+	if len(m2.debugState.StraceEvents) == 0 {
 		t.Error("expected strace events to be populated from matching response")
 	}
 }
@@ -532,11 +532,11 @@ func TestIsSelectedProcessDead_DebugFallback(t *testing.T) {
 	// When the selected process is not in m.processes but debug mode has loaded
 	// events for it, isSelectedProcessDead should return true.
 	m := newDashboardModel(nil)
-	m.debugMode = true
+	m.debugState.Mode = true
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-2"
-	m.debugAttachedPID = 2
-	m.debugEvents = []UnifiedEvent{
+	m.debugState.AttachedPID = 2
+	m.debugState.Events = []UnifiedEvent{
 		{Type: EventSyscall, PID: 2, Summary: "event"},
 	}
 	// Process list does NOT contain PID 2
@@ -552,11 +552,11 @@ func TestIsSelectedProcessDead_DebugFallback(t *testing.T) {
 func TestIsSelectedProcessDead_NoDebugEvents_ReturnsFalse(t *testing.T) {
 	// Without loaded events, missing process should not be treated as dead.
 	m := newDashboardModel(nil)
-	m.debugMode = true
+	m.debugState.Mode = true
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-2"
-	m.debugAttachedPID = 2
-	m.debugEvents = nil // No events loaded
+	m.debugState.AttachedPID = 2
+	m.debugState.Events = nil // No events loaded
 	m.processes = []vfs.ProcInfo{
 		{PID: 1, UUID: "uuid-1", State: types.StateRunning},
 	}

@@ -1,0 +1,283 @@
+// Package tree — builder_test.go (Story 38-5 PR2 Step 4c)
+//
+// BuildProcessTree / SortNodes / StateRank 行为契约测试。覆盖：
+//   - StateRank 6 个状态映射 + 默认 fallback
+//   - SortNodes 三种 sortMode（Time/PID/State） + asc/desc 双向 + 同 key 二级排序
+//   - BuildProcessTree 关键路径：空输入 / 单根 / UUID + ParentUUID / PPID fallback /
+//     dead→dead 父子 / missing parent synthetic / PID 复用 / self-parent root
+package tree
+
+import (
+	"testing"
+	"time"
+
+	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
+)
+
+// --- StateRank ---
+
+func TestStateRank_Mapping(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		state types.ProcessState
+		want  int
+	}{
+		{types.StateRunning, 0},
+		{types.StateCreated, 1},
+		{types.StateSuspended, 2},
+		{types.StateZombie, 3},
+		{types.StateDead, 4},
+		{types.ProcessState(99), 5}, // unknown → 5
+	}
+	for _, tc := range tests {
+		t.Run("", func(t *testing.T) {
+			if got := StateRank(tc.state); got != tc.want {
+				t.Errorf("StateRank(%v) = %d, want %d", tc.state, got, tc.want)
+			}
+		})
+	}
+}
+
+// --- SortNodes ---
+
+func TestSortNodes_TimeSortDesc(t *testing.T) {
+	t.Parallel()
+	older := &TreeNode{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now().Add(-10 * time.Second)}}
+	newer := &TreeNode{Proc: vfs.ProcInfo{PID: 2, State: types.StateRunning, CreatedAt: time.Now()}}
+	nodes := []*TreeNode{older, newer}
+	SortNodes(nodes, 0, false) // Time, desc
+	if nodes[0].Proc.PID != 2 {
+		t.Errorf("desc time sort: expected newest PID=2 first, got PID=%d", nodes[0].Proc.PID)
+	}
+}
+
+func TestSortNodes_TimeSortAsc(t *testing.T) {
+	t.Parallel()
+	older := &TreeNode{Proc: vfs.ProcInfo{PID: 1, State: types.StateRunning, CreatedAt: time.Now().Add(-10 * time.Second)}}
+	newer := &TreeNode{Proc: vfs.ProcInfo{PID: 2, State: types.StateRunning, CreatedAt: time.Now()}}
+	nodes := []*TreeNode{newer, older}
+	SortNodes(nodes, 0, true) // Time, asc
+	if nodes[0].Proc.PID != 1 {
+		t.Errorf("asc time sort: expected oldest PID=1 first, got PID=%d", nodes[0].Proc.PID)
+	}
+}
+
+func TestSortNodes_TimeSort_StateAsSecondary(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	running := &TreeNode{Proc: vfs.ProcInfo{PID: 5, State: types.StateRunning, CreatedAt: now}}
+	created := &TreeNode{Proc: vfs.ProcInfo{PID: 3, State: types.StateCreated, CreatedAt: now}}
+	nodes := []*TreeNode{created, running}
+	// Same CreatedAt, different State — stateRank is secondary key.
+	// In desc mode, cmp(0,1)=false → Created before Running.
+	SortNodes(nodes, 0, false)
+	if nodes[0].Proc.State != types.StateCreated {
+		t.Errorf("desc time + same time: expected Created first (rank 1, larger), got %v", nodes[0].Proc.State)
+	}
+}
+
+func TestSortNodes_StateSort(t *testing.T) {
+	t.Parallel()
+	dead := &TreeNode{Proc: vfs.ProcInfo{PID: 1, State: types.StateDead}}
+	running := &TreeNode{Proc: vfs.ProcInfo{PID: 2, State: types.StateRunning}}
+	nodes := []*TreeNode{dead, running}
+	SortNodes(nodes, 2, true) // State, asc → lower rank first
+	if nodes[0].Proc.State != types.StateRunning {
+		t.Errorf("asc state sort: expected Running first (rank 0), got %v", nodes[0].Proc.State)
+	}
+}
+
+func TestSortNodes_PIDSort(t *testing.T) {
+	t.Parallel()
+	a := &TreeNode{Proc: vfs.ProcInfo{PID: 5}}
+	b := &TreeNode{Proc: vfs.ProcInfo{PID: 1}}
+	c := &TreeNode{Proc: vfs.ProcInfo{PID: 3}}
+	nodes := []*TreeNode{a, b, c}
+	SortNodes(nodes, 1, true) // PID, asc
+	if nodes[0].Proc.PID != 1 || nodes[1].Proc.PID != 3 || nodes[2].Proc.PID != 5 {
+		t.Errorf("asc PID sort failed: got %d, %d, %d", nodes[0].Proc.PID, nodes[1].Proc.PID, nodes[2].Proc.PID)
+	}
+}
+
+func TestSortNodes_PIDSort_Desc(t *testing.T) {
+	t.Parallel()
+	a := &TreeNode{Proc: vfs.ProcInfo{PID: 5}}
+	b := &TreeNode{Proc: vfs.ProcInfo{PID: 1}}
+	c := &TreeNode{Proc: vfs.ProcInfo{PID: 3}}
+	nodes := []*TreeNode{a, b, c}
+	SortNodes(nodes, 1, false) // PID, desc
+	if nodes[0].Proc.PID != 5 || nodes[1].Proc.PID != 3 || nodes[2].Proc.PID != 1 {
+		t.Errorf("desc PID sort failed: got %d, %d, %d", nodes[0].Proc.PID, nodes[1].Proc.PID, nodes[2].Proc.PID)
+	}
+}
+
+func TestSortNodes_UnknownMode_FallbackToPID(t *testing.T) {
+	t.Parallel()
+	a := &TreeNode{Proc: vfs.ProcInfo{PID: 5}}
+	b := &TreeNode{Proc: vfs.ProcInfo{PID: 1}}
+	nodes := []*TreeNode{a, b}
+	SortNodes(nodes, 99, true) // unknown mode → PID asc
+	if nodes[0].Proc.PID != 1 {
+		t.Errorf("unknown sortMode should fallback to PID asc, got PID=%d", nodes[0].Proc.PID)
+	}
+}
+
+// --- BuildProcessTree ---
+
+func TestBuildProcessTree_Empty(t *testing.T) {
+	t.Parallel()
+	got := BuildProcessTree(nil, 0, false)
+	if got != nil {
+		t.Errorf("BuildProcessTree(nil) = %v, want nil", got)
+	}
+}
+
+func TestBuildProcessTree_SingleRoot(t *testing.T) {
+	t.Parallel()
+	procs := []vfs.ProcInfo{{PID: 1, PPID: 0, UUID: "u1"}}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 || roots[0].Proc.PID != 1 {
+		t.Errorf("single root: expected 1 root with PID=1, got %v", roots)
+	}
+}
+
+func TestBuildProcessTree_ParentUUIDLookup(t *testing.T) {
+	t.Parallel()
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "u1"},
+		{PID: 2, PPID: 1, UUID: "u2", ParentUUID: "u1"},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 {
+		t.Fatalf("expected 1 root (parent u1), got %d", len(roots))
+	}
+	if len(roots[0].Children) != 1 {
+		t.Fatalf("expected 1 child of u1, got %d", len(roots[0].Children))
+	}
+	if roots[0].Children[0].Proc.PID != 2 {
+		t.Errorf("expected child PID=2, got %d", roots[0].Children[0].Proc.PID)
+	}
+}
+
+func TestBuildProcessTree_PPIDFallback_NoParentUUID(t *testing.T) {
+	t.Parallel()
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "u1"},
+		{PID: 2, PPID: 1, UUID: "u2"}, // no ParentUUID, fallback to PPID
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 || len(roots[0].Children) != 1 {
+		t.Errorf("PPID fallback failed: got %d roots, %d children", len(roots), len(roots[0].Children))
+	}
+}
+
+func TestBuildProcessTree_SelfParent_Root(t *testing.T) {
+	t.Parallel()
+	// PID == PPID: pseudo-root (rare but valid)
+	procs := []vfs.ProcInfo{{PID: 1, PPID: 1}}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 {
+		t.Errorf("self-parent should be root, got %d roots", len(roots))
+	}
+}
+
+func TestBuildProcessTree_MissingParent_SyntheticPlaceholder(t *testing.T) {
+	t.Parallel()
+	// 2+ orphans share missing ParentUUID → synthetic placeholder
+	procs := []vfs.ProcInfo{
+		{PID: 2, PPID: 99, UUID: "u2", ParentUUID: "missing"},
+		{PID: 3, PPID: 99, UUID: "u3", ParentUUID: "missing"},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 {
+		t.Fatalf("expected 1 synthetic root, got %d", len(roots))
+	}
+	if !contains(roots[0].Proc.Intent, "missing parent") {
+		t.Errorf("synthetic root intent should mention 'missing parent', got %q", roots[0].Proc.Intent)
+	}
+	if len(roots[0].Children) != 2 {
+		t.Errorf("synthetic root should have 2 children, got %d", len(roots[0].Children))
+	}
+}
+
+func TestBuildProcessTree_MissingParent_SingleOrphan_NoSynthetic(t *testing.T) {
+	t.Parallel()
+	// Single orphan: just becomes root, no synthetic wrapper
+	procs := []vfs.ProcInfo{
+		{PID: 2, PPID: 99, UUID: "u2", ParentUUID: "missing"},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 {
+		t.Fatalf("expected 1 root (single orphan promoted), got %d", len(roots))
+	}
+	if contains(roots[0].Proc.Intent, "missing parent") {
+		t.Errorf("single orphan should NOT trigger synthetic, got intent %q", roots[0].Proc.Intent)
+	}
+}
+
+func TestBuildProcessTree_DeadDeadParenting(t *testing.T) {
+	t.Parallel()
+	// Both dead, no ParentUUID → fallback to allPidToKey for dead→dead lookup
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "u1", State: types.StateDead},
+		{PID: 2, PPID: 1, UUID: "u2", State: types.StateDead},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 || len(roots[0].Children) != 1 {
+		t.Errorf("dead→dead parenting failed: %d roots, %d children", len(roots), len(roots[0].Children))
+	}
+}
+
+func TestBuildProcessTree_PIDReuse_UUIDKeyed(t *testing.T) {
+	t.Parallel()
+	// Two processes with same PID but different UUIDs (one dead old + one live new)
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{PID: 5, PPID: 0, UUID: "old", State: types.StateDead, CreatedAt: now.Add(-1 * time.Hour)},
+		{PID: 5, PPID: 0, UUID: "new", State: types.StateRunning, CreatedAt: now},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 2 {
+		t.Errorf("PID reuse should keep both as separate UUID-keyed nodes, got %d roots", len(roots))
+	}
+}
+
+func TestBuildProcessTree_NodeKey_FallbackToPID(t *testing.T) {
+	t.Parallel()
+	// Empty UUID → fallback to "!pid:N" key
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: ""},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 {
+		t.Errorf("empty UUID should still build root, got %d roots", len(roots))
+	}
+}
+
+func TestBuildProcessTree_ChildrenSorted(t *testing.T) {
+	t.Parallel()
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "p", CreatedAt: time.Now()},
+		{PID: 2, PPID: 1, UUID: "c2", ParentUUID: "p", CreatedAt: time.Now().Add(-10 * time.Second)},
+		{PID: 3, PPID: 1, UUID: "c3", ParentUUID: "p", CreatedAt: time.Now()},
+	}
+	roots := BuildProcessTree(procs, 0, false) // Time desc
+	if len(roots) != 1 || len(roots[0].Children) != 2 {
+		t.Fatalf("expected 1 root with 2 children, got %d roots / %d children", len(roots), len(roots[0].Children))
+	}
+	// Time desc: newer (PID=3) first
+	if roots[0].Children[0].Proc.PID != 3 {
+		t.Errorf("expected child PID=3 first (desc time), got PID=%d", roots[0].Children[0].Proc.PID)
+	}
+}
+
+// contains is a tiny strings.Contains alias to avoid import in test (style choice).
+func contains(haystack, needle string) bool {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}

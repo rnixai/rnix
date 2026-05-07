@@ -32,18 +32,18 @@ func newPIDValidityModel() dashboardModel {
 	m.width = 120
 	m.height = 40
 	m.connected = true
-	m.treeRows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 1, UUID: "uuid-aaa-111", State: types.StateRunning, Intent: "task A", CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 3, UUID: "uuid-bbb-333", State: types.StateRunning, Intent: "task B", CreatedAt: time.Now()}},
-		{proc: vfs.ProcInfo{PID: 5, UUID: "uuid-ccc-555", State: types.StateRunning, Intent: "task C", CreatedAt: time.Now()}},
+	m.tree.Rows = []flatRow{
+		{Proc: vfs.ProcInfo{PID: 1, UUID: "uuid-aaa-111", State: types.StateRunning, Intent: "task A", CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 3, UUID: "uuid-bbb-333", State: types.StateRunning, Intent: "task B", CreatedAt: time.Now()}},
+		{Proc: vfs.ProcInfo{PID: 5, UUID: "uuid-ccc-555", State: types.StateRunning, Intent: "task C", CreatedAt: time.Now()}},
 	}
 	m.processes = []vfs.ProcInfo{
-		m.treeRows[0].proc,
-		m.treeRows[1].proc,
-		m.treeRows[2].proc,
+		m.tree.Rows[0].Proc,
+		m.tree.Rows[1].Proc,
+		m.tree.Rows[2].Proc,
 	}
-	m.treeCursor = 0
-	m = selectProcess(m, m.treeRows[0])
+	m.tree.Cursor = 0
+	m = selectProcess(m, m.tree.Rows[0])
 	return m
 }
 
@@ -76,8 +76,8 @@ func TestATDD_28_4_AC1_SelectProcessSetsUUID(t *testing.T) {
 	m := newPIDValidityModel()
 
 	// Select process at cursor 1 (PID=3, UUID=uuid-bbb-333)
-	m.treeCursor = 1
-	m = selectProcess(m, m.treeRows[m.treeCursor])
+	m.tree.Cursor = 1
+	m = selectProcess(m, m.tree.Rows[m.tree.Cursor])
 
 	if m.selectedPID != 3 {
 		t.Errorf("AC-1: selectedPID = %d, want 3", m.selectedPID)
@@ -112,8 +112,8 @@ func TestATDD_28_4_AC2_PIDReuseDetection(t *testing.T) {
 	m.selectedPID = 3
 	m.selectedUUID = "uuid-bbb-333"
 	// Pretend timeline was attached to this PID
-	m.timelineAttachedPID = 3
-	m.heatmapPID = 3
+	m.timeline.AttachedPID = 3
+	m.heatmap.PID = 3
 
 	// Simulate PID reuse: PID=3 now belongs to a different process with UUID=uuid-new-999
 	m.processes = []vfs.ProcInfo{
@@ -167,8 +167,8 @@ func TestATDD_28_4_AC3_ProcessReapClearsSelection(t *testing.T) {
 	// Select process PID=3, UUID=uuid-bbb-333
 	m.selectedPID = 3
 	m.selectedUUID = "uuid-bbb-333"
-	m.timelineAttachedPID = 3
-	m.heatmapPID = 3
+	m.timeline.AttachedPID = 3
+	m.heatmap.PID = 3
 
 	// Simulate reaper cleanup: PID=3 is gone from process list
 	m.processes = []vfs.ProcInfo{
@@ -187,11 +187,11 @@ func TestATDD_28_4_AC3_ProcessReapClearsSelection(t *testing.T) {
 
 	// Verify cascade cleanup via handlePIDChange (AC-3: timeline switches to empty)
 	m2, _ := m.handlePIDChange()
-	if m2.timelineAttachedPID != 0 {
-		t.Errorf("AC-3: after reap+handlePIDChange, timelineAttachedPID = %d, want 0", m2.timelineAttachedPID)
+	if m2.timeline.AttachedPID != 0 {
+		t.Errorf("AC-3: after reap+handlePIDChange, timelineAttachedPID = %d, want 0", m2.timeline.AttachedPID)
 	}
-	if m2.heatmapPID != 0 {
-		t.Errorf("AC-3: after reap+handlePIDChange, heatmapPID = %d, want 0", m2.heatmapPID)
+	if m2.heatmap.PID != 0 {
+		t.Errorf("AC-3: after reap+handlePIDChange, heatmapPID = %d, want 0", m2.heatmap.PID)
 	}
 }
 
@@ -210,10 +210,10 @@ func TestATDD_28_4_AC4_ProcDetailCacheByUUID(t *testing.T) {
 	// Store cache entry under UUID "uuid-bbb-333"
 	m.selectedPID = 3
 	m.selectedUUID = "uuid-bbb-333"
-	m.procDetailCache[m.selectedUUID] = cachedDetail
+	m.detail.Cache[m.selectedUUID] = cachedDetail
 
 	// Verify cache hit with same UUID
-	if cached, ok := m.procDetailCache["uuid-bbb-333"]; !ok || cached != cachedDetail {
+	if cached, ok := m.detail.Cache["uuid-bbb-333"]; !ok || cached != cachedDetail {
 		t.Errorf("AC-4: cache miss for correct UUID key")
 	}
 
@@ -221,7 +221,7 @@ func TestATDD_28_4_AC4_ProcDetailCacheByUUID(t *testing.T) {
 	m.selectedUUID = "uuid-new-999"
 
 	// Cache lookup by new UUID should NOT hit old entry
-	if _, ok := m.procDetailCache[m.selectedUUID]; ok {
+	if _, ok := m.detail.Cache[m.selectedUUID]; ok {
 		t.Errorf("AC-4: UUID-keyed cache should NOT hit stale entry on PID reuse")
 	}
 }
@@ -235,19 +235,19 @@ func TestATDD_28_4_AC4_ProcDetailResultMsg_UUIDMismatch(t *testing.T) {
 	// Simulate an async response from a STALE request (same PID, different UUID)
 	staleDetail := &ipc.GetProcDetailResponse{PID: 3, State: "dead"}
 	updated, _ := m.Update(procDetailResultMsg{
-		pid:    3,
-		uuid:   "uuid-old-stale",
-		detail: staleDetail,
+		PID:    3,
+		UUID:   "uuid-old-stale",
+		Detail: staleDetail,
 	})
 	um := updated.(dashboardModel)
 
 	// Cache should contain the stale detail under its own UUID key
-	if _, ok := um.procDetailCache["uuid-old-stale"]; !ok {
+	if _, ok := um.detail.Cache["uuid-old-stale"]; !ok {
 		t.Errorf("AC-4: stale detail should still be cached under its UUID")
 	}
 
-	// But m.procDetail should NOT be updated (UUID mismatch)
-	if um.procDetail == staleDetail {
+	// But m.detail.Detail should NOT be updated (UUID mismatch)
+	if um.detail.Detail == staleDetail {
 		t.Errorf("AC-4: procDetail should NOT be updated when UUID mismatches")
 	}
 }
@@ -322,12 +322,12 @@ func TestATDD_28_4_EmptyUUID_PIDExistenceCheck(t *testing.T) {
 	m := newPIDValidityModel()
 
 	// Process with empty UUID (backward compat edge case)
-	m.treeRows = []flatRow{
-		{proc: vfs.ProcInfo{PID: 7, UUID: "", State: types.StateRunning, Intent: "legacy", CreatedAt: time.Now()}},
+	m.tree.Rows = []flatRow{
+		{Proc: vfs.ProcInfo{PID: 7, UUID: "", State: types.StateRunning, Intent: "legacy", CreatedAt: time.Now()}},
 	}
-	m.processes = []vfs.ProcInfo{m.treeRows[0].proc}
-	m.treeCursor = 0
-	m = selectProcess(m, m.treeRows[0])
+	m.processes = []vfs.ProcInfo{m.tree.Rows[0].Proc}
+	m.tree.Cursor = 0
+	m = selectProcess(m, m.tree.Rows[0])
 
 	if m.selectedPID != 7 {
 		t.Errorf("empty UUID: selectedPID = %d, want 7", m.selectedPID)

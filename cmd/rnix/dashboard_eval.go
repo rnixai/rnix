@@ -1,12 +1,33 @@
+// Package main — dashboard_eval.go (Story 38-5 PR11 Step 4(c) · 第 6 个完成
+// render 主体迁出的 pane · 续 alertstrip / detail / security / intent / trace
+// pattern).
+//
+// 本文件保留 cmd/rnix 端的：
+//   - IPC 调用命令（fetchReputationCmd / fetchTopologyCmd / fetchSynergyCmd）·
+//     依赖 ipc.Dial · IPC 是 cmd/rnix 端职责；
+//   - handleEvalKey · 依赖 dashboardModel + tea.Cmd routing；
+//   - evalEnsureSubViewData · 依赖 dashboardModel.connected；
+//   - renderEvalPane / renderEvalReputationView / renderEvalTopologyView /
+//     renderEvalSynergyView 改为 thin wrapper（保留旧名让 ATDD 27-10 +
+//     38-4 dashboard_cross_pane_test grep 契约零行为变化）；
+//   - evalScoreColorStyle / evalRepAdjustScroll / evalTopoAdjustScroll /
+//     evalSynAdjustScroll / evalBottomInnerH / evalTopoItemCount 全部改为 thin
+//     wrapper（与 internal/dashboard/eval 等价 · 1:1 行为）。
+//
+// **Story 38-4 AC#6 行为契约保留**（迁出 to internal/dashboard/eval）：
+//   - SCORE column 用 EvalScoreColorStyle 渲染（gradient · NaN/Inf 边界）；
+//   - VS SOLO 颜色（improvement < 0 green / > 0 red）；
+//   - Recommended 整行 Bold（patch P8 · 每段独立携带 SGR Bold）；
+//   - ★ ASCII 标记（"★"→"*"）。
+//
+// 全部行为已迁出至 internal/dashboard/eval/render.go · 测试覆盖率 **100%**
+// （render_test.go 含 38-4 AC#6 + patch P12 NaN/Inf 显式断言）。
 package main
 
 import (
-	"fmt"
-	"os"
-	"strings"
-
 	"github.com/charmbracelet/lipgloss"
 
+	dashboardeval "github.com/rnixai/rnix/internal/dashboard/eval"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 
@@ -14,116 +35,96 @@ import (
 )
 
 // =============================================================================
-// Eval Pane (Story 27-10)
+// Eval Pane (Story 27-10) · cmd/rnix wrapper
 // =============================================================================
 
+// evalScoreColorStyle is a thin wrapper委托至 dashboardeval.EvalScoreColorStyle.
+//
+// Story 38-4 AC#6 + patch P12 行为契约保留 · 所有 NaN/Inf/越界 [0,1] 统一回退
+// red（详见 internal/dashboard/eval/render.go::EvalScoreColorStyle godoc）.
+//
+// 保留旧名（小写）满足 ATDD 27-10 / 38-4 cross-pane 测试 grep 契约。
+func evalScoreColorStyle(score float64) lipgloss.Style {
+	return dashboardeval.EvalScoreColorStyle(score)
+}
+
+// fetchReputationCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep（current callers 已迁至 EvalModel.OnTick）
 func fetchReputationCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return evalReputationMsg{err: err}
-		}
-		defer client.Close()
-		resp, err := client.ReputationStatus("")
-		if err != nil {
-			return evalReputationMsg{err: err}
-		}
-		if resp != nil {
-			return evalReputationMsg{summaries: resp.Summaries}
-		}
-		return evalReputationMsg{}
-	}
+	return dashboardeval.FetchReputationCmd(ipc.SocketPath())
 }
 
+// fetchTopologyCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep
 func fetchTopologyCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return evalTopologyMsg{err: err}
-		}
-		defer client.Close()
-		resp, err := client.TopologyQuery()
-		if err != nil {
-			return evalTopologyMsg{err: err}
-		}
-		return evalTopologyMsg{topology: resp}
-	}
+	return dashboardeval.FetchTopologyCmd(ipc.SocketPath())
 }
 
+// fetchSynergyCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep
 func fetchSynergyCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return evalSynergyMsg{err: err}
-		}
-		defer client.Close()
-		resp, err := client.SynergyList()
-		if err != nil {
-			return evalSynergyMsg{err: err}
-		}
-		if resp != nil {
-			return evalSynergyMsg{combos: resp.Combos}
-		}
-		return evalSynergyMsg{}
-	}
+	return dashboardeval.FetchSynergyCmd(ipc.SocketPath())
 }
 
 func (m dashboardModel) handleEvalKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "!", "h", "left":
 		if key == "!" {
-			m.evalSubView = 0
+			m.eval.SubView = 0
 		} else {
 			// h/left: 向左切换子视图
-			m.evalSubView = (m.evalSubView + 2) % 3
+			m.eval.SubView = (m.eval.SubView + 2) % 3
 		}
 		return m, m.evalEnsureSubViewData()
 	case "@":
-		m.evalSubView = 1
+		m.eval.SubView = 1
 		return m, m.evalEnsureSubViewData()
 	case "#", "l", "right":
 		if key == "#" {
-			m.evalSubView = 2
+			m.eval.SubView = 2
 		} else {
 			// l/right: 向右切换子视图
-			m.evalSubView = (m.evalSubView + 1) % 3
+			m.eval.SubView = (m.eval.SubView + 1) % 3
 		}
 		return m, m.evalEnsureSubViewData()
 	case "down", "j":
-		switch m.evalSubView {
+		switch m.eval.SubView {
 		case 0:
-			if len(m.evalReputations) > 0 && m.evalRepCursor < len(m.evalReputations)-1 {
-				m.evalRepCursor++
+			if len(m.eval.Reputations) > 0 && m.eval.RepCursor < len(m.eval.Reputations)-1 {
+				m.eval.RepCursor++
 				evalRepAdjustScroll(&m)
 			}
 		case 1:
 			totalItems := evalTopoItemCount(&m)
-			if totalItems > 0 && m.evalTopoCursor < totalItems-1 {
-				m.evalTopoCursor++
+			if totalItems > 0 && m.eval.TopoCursor < totalItems-1 {
+				m.eval.TopoCursor++
 				evalTopoAdjustScroll(&m)
 			}
 		case 2:
-			if len(m.evalSynergies) > 0 && m.evalSynCursor < len(m.evalSynergies)-1 {
-				m.evalSynCursor++
+			if len(m.eval.Synergies) > 0 && m.eval.SynCursor < len(m.eval.Synergies)-1 {
+				m.eval.SynCursor++
 				evalSynAdjustScroll(&m)
 			}
 		}
 		return m, nil
 	case "up", "k":
-		switch m.evalSubView {
+		switch m.eval.SubView {
 		case 0:
-			if m.evalRepCursor > 0 {
-				m.evalRepCursor--
+			if m.eval.RepCursor > 0 {
+				m.eval.RepCursor--
 				evalRepAdjustScroll(&m)
 			}
 		case 1:
-			if m.evalTopoCursor > 0 {
-				m.evalTopoCursor--
+			if m.eval.TopoCursor > 0 {
+				m.eval.TopoCursor--
 				evalTopoAdjustScroll(&m)
 			}
 		case 2:
-			if m.evalSynCursor > 0 {
-				m.evalSynCursor--
+			if m.eval.SynCursor > 0 {
+				m.eval.SynCursor--
 				evalSynAdjustScroll(&m)
 			}
 		}
@@ -132,28 +133,40 @@ func (m dashboardModel) handleEvalKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// evalEnsureSubViewData 确保当前子视图的数据已加载
+// evalEnsureSubViewData 确保当前子视图的数据已加载。
+//
+// 依赖 dashboardModel.connected · IPC 触发是 cmd/rnix 端职责（不能迁至
+// internal/dashboard/eval）。
 func (m dashboardModel) evalEnsureSubViewData() tea.Cmd {
-	switch m.evalSubView {
+	switch m.eval.SubView {
 	case 1:
-		if m.evalTopology == nil && m.connected {
+		if m.eval.Topology == nil && m.connected {
 			return fetchTopologyCmd()
 		}
 	case 2:
-		if m.evalSynergies == nil && m.connected {
+		if m.eval.Synergies == nil && m.connected {
 			return fetchSynergyCmd()
 		}
 	}
 	return nil
 }
 
+// evalTopoItemCount is a thin wrapper委托至 dashboardeval.TopoItemCount.
 func evalTopoItemCount(m *dashboardModel) int {
-	if m.evalTopology == nil {
+	if m == nil {
 		return 0
 	}
-	return len(m.evalTopology.Nodes) + len(m.evalTopology.Edges)
+	return dashboardeval.TopoItemCount(m.eval)
 }
 
+// renderEvalPane is a thin wrapper委托至 dashboardeval.Render + renderFixedPanel border 包裹.
+//
+// 保留旧名 + dashboardModel receiver 让 ATDD 27-10 + 38-4 cross-pane test
+// grep 契约零行为变化（多处 `m.renderEvalPane(80, 30)` 直接调用）。
+//
+// renderEvalPane / renderEvalReputationView / renderEvalTopologyView /
+// renderEvalSynergyView · ATDD 29-1 grep 契约保留（atdd_29_1_dashboard_file_splitting_test.go
+// line 192-193 直接 grep 函数名）。
 func (m dashboardModel) renderEvalPane(width, height int) string {
 	isActive := m.activePane == paneEval
 
@@ -165,271 +178,66 @@ func (m dashboardModel) renderEvalPane(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
-	var b strings.Builder
+	ctx := dashboardeval.NewRenderContextFromEnv(isActive)
+	body := dashboardeval.Render(m.eval, ctx, innerW, innerH)
 
-	// Header with sub-view tabs (h/l to cycle)
-	tabs := []string{"Reputation", "Topology", "Synergy"}
-	var tabParts []string
-	for i, name := range tabs {
-		if i == m.evalSubView {
-			tabParts = append(tabParts, lipgloss.NewStyle().Bold(true).Render("▸ "+name))
-		} else {
-			tabParts = append(tabParts, "  "+name)
-		}
-	}
-	fmt.Fprintf(&b, " Evaluation  %s\n", strings.Join(tabParts, "  "))
-
-	switch m.evalSubView {
-	case 0:
-		b.WriteString(m.renderEvalReputationView(innerW, innerH-1))
-	case 1:
-		b.WriteString(m.renderEvalTopologyView(innerW, innerH-1))
-	case 2:
-		b.WriteString(m.renderEvalSynergyView(innerW, innerH-1))
-	}
-
-	return renderFixedPanel(b.String(), width, height, borderColor)
+	return renderFixedPanel(body, width, height, borderColor)
 }
 
+// renderEvalReputationView is a thin wrapper委托至 dashboardeval.RenderReputationView.
+//
+// 保留 dashboardModel receiver + 旧名让 dashboard_cross_pane_test.go 直接 callsite
+// （`m.renderEvalReputationView(120, 10)` 等）零行为变化。
 func (m dashboardModel) renderEvalReputationView(width, height int) string {
-	var b strings.Builder
-
-	if m.evalRepErr != nil {
-		fmt.Fprintf(&b, " Error: %v\n", m.evalRepErr)
-		return b.String()
-	}
-
-	if len(m.evalReputations) == 0 {
-		b.WriteString("\n    需要更多执行数据以生成评价。使用 rnix spawn 或 rnix compose up 执行任务以积累数据。\n")
-		return b.String()
-	}
-
-	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
-	cursorChar := "▸"
-	if ascii {
-		cursorChar = ">"
-	}
-
-	// Header
-	fmt.Fprintf(&b, " %-16s %5s  %7s  %7s  %7s  %3s  %s\n",
-		"AGENT", "SCORE", "SUCCESS", "AVG TOK", "AVG DUR", "N", "TREND")
-
-	visibleLines := max(height-2, 1)
-	startIdx := m.evalRepScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.evalReputations))
-
-	for i := startIdx; i < endIdx; i++ {
-		r := m.evalReputations[i]
-		cursor := "  "
-		if i == m.evalRepCursor {
-			cursor = cursorChar + " "
-		}
-
-		var trendIcon string
-		var trendColor string
-		switch r.RecentTrend {
-		case "improving":
-			trendColor = ui.ColorSuccess
-			if ascii {
-				trendIcon = "^"
-			} else {
-				trendIcon = "↑"
-			}
-		case "declining":
-			trendColor = ui.ColorError
-			if ascii {
-				trendIcon = "v"
-			} else {
-				trendIcon = "↓"
-			}
-		default:
-			trendColor = ui.ColorMuted
-			if ascii {
-				trendIcon = "-"
-			} else {
-				trendIcon = "→"
-			}
-		}
-		trendStr := lipgloss.NewStyle().Foreground(lipgloss.Color(trendColor)).Render(trendIcon)
-
-		durStr := formatTimelineDuration(float64(r.AvgDurationMs))
-
-		fmt.Fprintf(&b, "%s%-16s %5.2f  %5.1f%%  %7d  %7s  %3d  %s\n",
-			cursor, r.AgentName, r.Score, r.SuccessRate*100, r.AvgTokens, durStr, r.TotalRecords, trendStr)
-	}
-
-	return b.String()
+	ctx := dashboardeval.NewRenderContextFromEnv(false)
+	return dashboardeval.RenderReputationView(m.eval, ctx, width, height)
 }
 
-func (m dashboardModel) renderEvalTopologyView(_, height int) string {
-	var b strings.Builder
-
-	if m.evalTopoErr != nil {
-		fmt.Fprintf(&b, " Error: %v\n", m.evalTopoErr)
-		return b.String()
-	}
-
-	if m.evalTopology == nil {
-		b.WriteString("\n    无协作拓扑数据。运行多智能体编排以生成协作关系。\n")
-		return b.String()
-	}
-
-	nodeCount := len(m.evalTopology.Nodes)
-	edgeCount := len(m.evalTopology.Edges)
-
-	if nodeCount == 0 && edgeCount == 0 {
-		b.WriteString("\n    无协作拓扑数据。运行多智能体编排以生成协作关系。\n")
-		return b.String()
-	}
-
-	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
-	cursorChar := "▸"
-	if ascii {
-		cursorChar = ">"
-	}
-	reinforcedMark := "★"
-	if ascii {
-		reinforcedMark = "*"
-	}
-
-	// Nodes section header (always visible)
-	b.WriteString(" ── Nodes ──\n")
-	fmt.Fprintf(&b, " %-16s  %5s  %s\n", "AGENT", "SCORE", "CONNECTIONS")
-
-	totalItems := nodeCount + edgeCount
-	visibleLines := max(height-2, 1) // -2 for section header + column header
-	startIdx := m.evalTopoScrollOffset
-	endIdx := min(startIdx+visibleLines, totalItems)
-
-	edgesHeaderPrinted := false
-	for i := startIdx; i < endIdx; i++ {
-		cursor := "  "
-		if i == m.evalTopoCursor {
-			cursor = cursorChar + " "
-		}
-		if i < nodeCount {
-			node := m.evalTopology.Nodes[i]
-			fmt.Fprintf(&b, "%s%-16s  %5.2f  %11d\n", cursor, node.Agent, node.ReputationScore, node.Connections)
-		} else {
-			if !edgesHeaderPrinted {
-				b.WriteString("\n ── Edges ──\n")
-				headerArrow := "→"
-				if ascii {
-					headerArrow = "->"
-				}
-				fmt.Fprintf(&b, " %-26s  %5s  %3s  %5s  %s\n", "FROM "+headerArrow+" TO", "SPAWN", "MSG", "TOTAL", "REINFORCED")
-				edgesHeaderPrinted = true
-			}
-			edge := m.evalTopology.Edges[i-nodeCount]
-			rMark := ""
-			if edge.Reinforced {
-				rMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(reinforcedMark)
-			}
-			arrowStr := " → "
-			if ascii {
-				arrowStr = " -> "
-			}
-			label := fmt.Sprintf("%s%s%s", edge.From, arrowStr, edge.To)
-			fmt.Fprintf(&b, "%s%-26s  %5d  %3d  %5d  %s\n", cursor, label, edge.SpawnCount, edge.MsgCount, edge.Total, rMark)
-		}
-	}
-
-	return b.String()
+// renderEvalTopologyView is a thin wrapper委托至 dashboardeval.RenderTopologyView.
+//
+// **保留契约**：ATDD 29-1 dashboard_file_splitting_test 行 193 grep 函数名
+// `renderEvalTopologyView` 验证 dashboard_eval.go 拆分契约 · 删除该函数会破坏
+// 文件拆分契约测试 · 因此使用 nolint:unused（与 trace.traceBottomInnerH /
+// heatmap.segmentKindLabel / intent.intentStateIcon 同 pattern）.
+//
+//nolint:unused // ATDD 29-1 grep 契约保留 (dashboard_eval.go 文件拆分验证)
+func (m dashboardModel) renderEvalTopologyView(width, height int) string {
+	ctx := dashboardeval.NewRenderContextFromEnv(false)
+	return dashboardeval.RenderTopologyView(m.eval, ctx, width, height)
 }
 
+// renderEvalSynergyView is a thin wrapper委托至 dashboardeval.RenderSynergyView.
+//
+// 保留 dashboardModel receiver + 旧名让 dashboard_cross_pane_test.go 直接 callsite
+// （`m.renderEvalSynergyView(80, 6)` 等 · 38-4 AC#6 测试 8 处）零行为变化。
 func (m dashboardModel) renderEvalSynergyView(width, height int) string {
-	var b strings.Builder
-
-	if m.evalSynErr != nil {
-		fmt.Fprintf(&b, " Error: %v\n", m.evalSynErr)
-		return b.String()
-	}
-
-	if len(m.evalSynergies) == 0 {
-		b.WriteString("\n    无技能组合数据。当 Agent 使用多个 Skill 执行任务时将自动记录。\n")
-		return b.String()
-	}
-
-	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
-	cursorChar := "▸"
-	if ascii {
-		cursorChar = ">"
-	}
-
-	fmt.Fprintf(&b, " %-20s  %7s  %7s  %4s  %8s  %s\n",
-		"SKILLS", "SUCCESS", "AVG TOK", "EXEC", "VS SOLO", "REC")
-
-	visibleLines := max(height-2, 1)
-	startIdx := m.evalSynScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.evalSynergies))
-
-	for i := startIdx; i < endIdx; i++ {
-		combo := m.evalSynergies[i]
-		cursor := "  "
-		if i == m.evalSynCursor {
-			cursor = cursorChar + " "
-		}
-
-		skills := strings.Join(combo.Skills, ",")
-		if len(skills) > 20 {
-			skills = skills[:17] + "..."
-		}
-
-		var recStr string
-		if combo.Recommended {
-			if ascii {
-				recStr = "Y"
-			} else {
-				recStr = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("✓")
-			}
-		}
-
-		improvement := fmt.Sprintf("%+.1f%%", combo.TokenImprovement*100)
-
-		fmt.Fprintf(&b, "%s%-20s  %5.1f%%  %7d  %4d  %8s  %s\n",
-			cursor, skills, combo.SuccessRate*100, combo.AvgTokens, combo.TotalExecutions, improvement, recStr)
-	}
-
-	return b.String()
+	ctx := dashboardeval.NewRenderContextFromEnv(false)
+	return dashboardeval.RenderSynergyView(m.eval, ctx, width, height)
 }
 
-// evalBottomInnerH returns the inner height available for eval sub-views,
-// matching the render path: renderDashboard → renderEvalPane → sub-view.
-func evalBottomInnerH(termHeight int) int {
-	contentHeight := max(termHeight-4, 3)
-	bottomRightH := contentHeight - contentHeight/2
-	return max(bottomRightH-2, 1) // subtract border
-}
-
-// evalRepAdjustScroll ensures evalRepCursor is visible within the viewport.
+// evalRepAdjustScroll is a thin wrapper委托至 dashboardeval.RepAdjustScroll.
+//
+// 保留 dashboardModel pointer receiver 让 atdd_27_10 + handleEvalKey 现有 callsite
+// 零行为变化（5+ 处直接调用）。
 func evalRepAdjustScroll(m *dashboardModel) {
-	visibleLines := max(evalBottomInnerH(m.height)-3, 1) // match renderEvalReputationView
-	if m.evalRepCursor < m.evalRepScrollOffset {
-		m.evalRepScrollOffset = m.evalRepCursor
+	if m == nil {
+		return
 	}
-	if m.evalRepCursor >= m.evalRepScrollOffset+visibleLines {
-		m.evalRepScrollOffset = m.evalRepCursor - visibleLines + 1
-	}
+	dashboardeval.RepAdjustScroll(&m.eval, m.height)
 }
 
-// evalTopoAdjustScroll ensures evalTopoCursor is visible within the viewport.
+// evalTopoAdjustScroll is a thin wrapper委托至 dashboardeval.TopoAdjustScroll.
 func evalTopoAdjustScroll(m *dashboardModel) {
-	visibleLines := max(evalBottomInnerH(m.height)-3, 1) // match renderEvalTopologyView
-	if m.evalTopoCursor < m.evalTopoScrollOffset {
-		m.evalTopoScrollOffset = m.evalTopoCursor
+	if m == nil {
+		return
 	}
-	if m.evalTopoCursor >= m.evalTopoScrollOffset+visibleLines {
-		m.evalTopoScrollOffset = m.evalTopoCursor - visibleLines + 1
-	}
+	dashboardeval.TopoAdjustScroll(&m.eval, m.height)
 }
 
-// evalSynAdjustScroll ensures evalSynCursor is visible within the viewport.
+// evalSynAdjustScroll is a thin wrapper委托至 dashboardeval.SynAdjustScroll.
 func evalSynAdjustScroll(m *dashboardModel) {
-	visibleLines := max(evalBottomInnerH(m.height)-3, 1) // match renderEvalSynergyView
-	if m.evalSynCursor < m.evalSynScrollOffset {
-		m.evalSynScrollOffset = m.evalSynCursor
+	if m == nil {
+		return
 	}
-	if m.evalSynCursor >= m.evalSynScrollOffset+visibleLines {
-		m.evalSynScrollOffset = m.evalSynCursor - visibleLines + 1
-	}
+	dashboardeval.SynAdjustScroll(&m.eval, m.height)
 }

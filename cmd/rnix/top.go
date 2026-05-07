@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -11,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/spf13/cobra"
+	"github.com/rnixai/rnix/internal/dashboard/tree"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -25,100 +25,19 @@ var topCmd = &cobra.Command{
 	RunE:  runTop,
 }
 
-// treeNode represents a process in the tree hierarchy for rnix top display.
-type treeNode struct {
-	proc     vfs.ProcInfo
-	children []*treeNode
-}
+// treeNode / flatRow are type aliases to internal/dashboard/tree (Story 38-5 PR2 Step 1).
+// 字段公开（Proc/Children/Prefix/Depth/Collapsed），既支持 rnix top 也供 dashboard 共享。
+type treeNode = tree.TreeNode
 
-// flatRow is a pre-rendered row from the tree, ready for display.
-type flatRow struct {
-	proc      vfs.ProcInfo
-	prefix    string
-	depth     int
-	collapsed bool // 34.3: dead subtree is collapsed
-}
+type flatRow = tree.FlatRow
 
-// buildTree constructs a process tree from a flat list of ProcInfo.
-// Processes whose PPID is not in the list become root nodes.
-// Children within each node are sorted by PID.
+// buildTree / flattenTree thin wrappers — 主体迁出至 internal/dashboard/tree (Story 38-5 PR2 Step 1)。
 func buildTree(procs []vfs.ProcInfo) []*treeNode {
-	if len(procs) == 0 {
-		return nil
-	}
-
-	nodes := make(map[types.PID]*treeNode, len(procs))
-	for i := range procs {
-		nodes[procs[i].PID] = &treeNode{proc: procs[i]}
-	}
-
-	var roots []*treeNode
-	for _, n := range nodes {
-		if parent, ok := nodes[n.proc.PPID]; ok {
-			parent.children = append(parent.children, n)
-		} else {
-			roots = append(roots, n)
-		}
-	}
-
-	sortNodes := func(ns []*treeNode) {
-		sort.Slice(ns, func(i, j int) bool {
-			return ns[i].proc.PID < ns[j].proc.PID
-		})
-	}
-	sortNodes(roots)
-	for _, n := range nodes {
-		if len(n.children) > 1 {
-			sortNodes(n.children)
-		}
-	}
-
-	return roots
+	return tree.BuildTree(procs)
 }
 
-// flattenTree converts a tree into a flat list with indentation prefixes
-// suitable for terminal display (├── for non-last children, └── for last child).
 func flattenTree(roots []*treeNode) []flatRow {
-	if len(roots) == 0 {
-		return nil
-	}
-
-	var rows []flatRow
-	var walk func(node *treeNode, depth int, parentPrefix string, isLast bool, isRoot bool)
-	walk = func(node *treeNode, depth int, parentPrefix string, isLast bool, isRoot bool) {
-		var prefix string
-		if isRoot {
-			prefix = ""
-		} else if isLast {
-			prefix = parentPrefix + "└─ "
-		} else {
-			prefix = parentPrefix + "├─ "
-		}
-
-		rows = append(rows, flatRow{
-			proc:   node.proc,
-			prefix: prefix,
-			depth:  depth,
-		})
-
-		var childPrefix string
-		if isRoot {
-			childPrefix = parentPrefix
-		} else if isLast {
-			childPrefix = parentPrefix + "   "
-		} else {
-			childPrefix = parentPrefix + "│  "
-		}
-
-		for i, child := range node.children {
-			walk(child, depth+1, childPrefix, i == len(node.children)-1, false)
-		}
-	}
-
-	for _, root := range roots {
-		walk(root, 0, "", true, true)
-	}
-	return rows
+	return tree.FlattenTree(roots)
 }
 
 // topSummaryLine renders the top summary bar showing active count, total tokens, and uptime.
@@ -304,12 +223,12 @@ func (m topModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if m.cursor < len(m.rows) {
-			m.launchDashboardPID = m.rows[m.cursor].proc.PID
+			m.launchDashboardPID = m.rows[m.cursor].Proc.PID
 			return m, tea.Quit
 		}
 	case "K":
 		if m.cursor < len(m.rows) {
-			m.killSelected(m.rows[m.cursor].proc.PID)
+			m.killSelected(m.rows[m.cursor].Proc.PID)
 		}
 	}
 
@@ -340,9 +259,9 @@ func (m topModel) View() tea.View {
 
 	if m.detailPID != 0 {
 		for _, r := range m.rows {
-			if r.proc.PID == m.detailPID {
+			if r.Proc.PID == m.detailPID {
 				b.WriteString("\n")
-				b.WriteString(topDetailView(r.proc, m.processes))
+				b.WriteString(topDetailView(r.Proc, m.processes))
 				b.WriteString("\n")
 				v := tea.NewView(b.String())
 				v.AltScreen = true
@@ -366,33 +285,33 @@ func (m topModel) View() tea.View {
 		}
 
 		agent := "—"
-		if len(row.proc.Skills) > 0 {
-			agent = ui.FormatSkills(row.proc.Skills, 15, "—")
+		if len(row.Proc.Skills) > 0 {
+			agent = ui.FormatSkills(row.Proc.Skills, 15, "—")
 		}
 
-		elapsed := ui.FormatDuration(now.Sub(row.proc.CreatedAt))
+		elapsed := ui.FormatDuration(now.Sub(row.Proc.CreatedAt))
 		var tokens string
-		if row.proc.ContextBudget > 0 {
+		if row.Proc.ContextBudget > 0 {
 			tokens = fmt.Sprintf("%s/%s",
-				ui.FormatTokens(row.proc.TokensUsed),
-				ui.FormatTokens(row.proc.ContextBudget))
-			if row.proc.TokensUsed >= row.proc.ContextBudget*80/100 {
+				ui.FormatTokens(row.Proc.TokensUsed),
+				ui.FormatTokens(row.Proc.ContextBudget))
+			if row.Proc.TokensUsed >= row.Proc.ContextBudget*80/100 {
 				tokens = ui.WarningStyle.Render(tokens)
 			}
 		} else {
-			tokens = ui.FormatTokens(row.proc.TokensUsed)
+			tokens = ui.FormatTokens(row.Proc.TokensUsed)
 		}
-		state := strings.ToLower(row.proc.State.String())
+		state := strings.ToLower(row.Proc.State.String())
 
 		var line string
-		if row.prefix != "" {
+		if row.Prefix != "" {
 			line = fmt.Sprintf("%s%s%-4d %-5d %-9s %-15s %12s %8s",
-				cursor, row.prefix,
-				row.proc.PID, row.proc.PPID, state, agent, tokens, elapsed)
+				cursor, row.Prefix,
+				row.Proc.PID, row.Proc.PPID, state, agent, tokens, elapsed)
 		} else {
 			line = fmt.Sprintf("%s%-5d %-5d %-9s %-15s %12s %8s",
 				cursor,
-				row.proc.PID, row.proc.PPID, state, agent, tokens, elapsed)
+				row.Proc.PID, row.Proc.PPID, state, agent, tokens, elapsed)
 		}
 		b.WriteString(line)
 		b.WriteString("\n")

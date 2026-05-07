@@ -74,36 +74,36 @@ func TestATDD_36_5_AC2_KeySet(t *testing.T) {
 func TestATDD_36_5_AC4_TreeNavigation(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.activePane = paneTree
-	m.treeCursor = 0
-	m.selectedPID = m.treeRows[0].proc.PID
-	m.userManualSelect = false
+	m.tree.Cursor = 0
+	m.selectedPID = m.tree.Rows[0].Proc.PID
+	m.tree.UserManualSelect = false
 
 	// Ctrl-d half page
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	mm := m2.(dashboardModel)
-	if !mm.userManualSelect {
+	if !mm.tree.UserManualSelect {
 		t.Error("userManualSelect should be true after Ctrl-d")
 	}
-	if mm.treeCursor == 0 {
+	if mm.tree.Cursor == 0 {
 		t.Error("treeCursor should have moved on Ctrl-d")
 	}
-	if mm.selectedPID != mm.treeRows[mm.treeCursor].proc.PID {
+	if mm.selectedPID != mm.tree.Rows[mm.tree.Cursor].Proc.PID {
 		t.Errorf("selectedPID should follow cursor; got %d, cursor row pid %d",
-			mm.selectedPID, mm.treeRows[mm.treeCursor].proc.PID)
+			mm.selectedPID, mm.tree.Rows[mm.tree.Cursor].Proc.PID)
 	}
 
 	// G → last row
 	m3, _ := mm.Update(tea.KeyPressMsg{Code: 'G', ShiftedCode: 'G', Mod: tea.ModShift})
 	mm2 := m3.(dashboardModel)
-	if mm2.treeCursor != len(mm2.treeRows)-1 {
-		t.Errorf("G should move to last row; got %d want %d", mm2.treeCursor, len(mm2.treeRows)-1)
+	if mm2.tree.Cursor != len(mm2.tree.Rows)-1 {
+		t.Errorf("G should move to last row; got %d want %d", mm2.tree.Cursor, len(mm2.tree.Rows)-1)
 	}
 
 	// g → first row
 	m4, _ := mm2.Update(tea.KeyPressMsg{Code: 'g'})
 	mm3 := m4.(dashboardModel)
-	if mm3.treeCursor != 0 {
-		t.Errorf("g should move to first row; got %d", mm3.treeCursor)
+	if mm3.tree.Cursor != 0 {
+		t.Errorf("g should move to first row; got %d", mm3.tree.Cursor)
 	}
 }
 
@@ -113,34 +113,34 @@ func TestATDD_36_5_AC5_TimelineNavigation(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
-	m.stepEntries = nil
+	m.timeline.StepEntries = nil
 	// 20 step entries → 20 unified events
 	for i := range 20 {
-		m.stepEntries = append(m.stepEntries, stepEntry{
-			summary: ipc.StepSummaryWire{Step: i + 1, Action: "tool_call", TimestampMs: int64(100 * (i + 1))},
+		m.timeline.StepEntries = append(m.timeline.StepEntries, stepEntry{
+			Summary: ipc.StepSummaryWire{Step: i + 1, Action: "tool_call", TimestampMs: int64(100 * (i + 1))},
 		})
 	}
-	m.unifiedEvents = mergeUnifiedEvents(m.stepEntries, nil, m.selectedPID, m.selectedUUID, m.processes, true)
-	m.stepCursor = 0
-	m.stepFilterMode = false
+	m.unifiedEvents = mergeUnifiedEvents(m.timeline.StepEntries, nil, m.selectedPID, m.selectedUUID, m.processes, true)
+	m.timeline.StepCursor = 0
+	m.timeline.StepFilterMode = false
 
 	// Ctrl-d should advance cursor
 	m2 := m.handleTimelineKey("ctrl+d")
-	if m2.stepCursor == 0 {
+	if m2.timeline.StepCursor == 0 {
 		t.Error("stepCursor should advance on ctrl+d")
 	}
 
 	// Clamp at end: G
 	m3 := m2.handleTimelineKey("G")
 	filtered := m3.filteredUnifiedEvents()
-	if m3.stepCursor != len(filtered)-1 {
-		t.Errorf("G should clamp to %d; got %d", len(filtered)-1, m3.stepCursor)
+	if m3.timeline.StepCursor != len(filtered)-1 {
+		t.Errorf("G should clamp to %d; got %d", len(filtered)-1, m3.timeline.StepCursor)
 	}
 
 	// j at end should stay
 	m4 := m3.handleTimelineKey("j")
-	if m4.stepCursor != len(filtered)-1 {
-		t.Errorf("j past end should stay at %d; got %d", len(filtered)-1, m4.stepCursor)
+	if m4.timeline.StepCursor != len(filtered)-1 {
+		t.Errorf("j past end should stay at %d; got %d", len(filtered)-1, m4.timeline.StepCursor)
 	}
 }
 
@@ -148,27 +148,27 @@ func TestATDD_36_5_AC5_TimelineNavigation(t *testing.T) {
 
 func TestATDD_36_5_AC6_HeatmapNavigation(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
-	m.heatmapSegments = []heatmapSegment{
-		{label: "System", pct: 40},
-		{label: "Skill", pct: 30},
-		{label: "Tool", pct: 20},
-		{label: "Assistant", pct: 10},
+	m.heatmap.Segments = []heatmapSegment{
+		{Label: "System", Pct: 40},
+		{Label: "Skill", Pct: 30},
+		{Label: "Tool", Pct: 20},
+		{Label: "Assistant", Pct: 10},
 	}
-	m.heatmapCursor = 0
+	m.heatmap.Cursor = 0
 
 	// G → last
 	m2 := m.handleHeatmapKey("G")
-	if m2.heatmapCursor != 3 {
-		t.Errorf("G should move to last segment (3); got %d", m2.heatmapCursor)
+	if m2.heatmap.Cursor != 3 {
+		t.Errorf("G should move to last segment (3); got %d", m2.heatmap.Cursor)
 	}
 	// g → first
 	m3 := m2.handleHeatmapKey("g")
-	if m3.heatmapCursor != 0 {
-		t.Errorf("g should move to first segment; got %d", m3.heatmapCursor)
+	if m3.heatmap.Cursor != 0 {
+		t.Errorf("g should move to first segment; got %d", m3.heatmap.Cursor)
 	}
 	// enter still toggles expansion
 	m4 := m3.handleHeatmapKey("enter")
-	if !m4.heatmapExpanded {
+	if !m4.heatmap.Expanded {
 		t.Error("enter should toggle heatmapExpanded on")
 	}
 }
@@ -179,20 +179,20 @@ func TestATDD_36_5_AC7_IntentNavigation(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.activePane = paneIntent
 	// Populate synthetic intentFlatNodes (just need length)
-	m.intentFlatNodes = make([]intentFlatNode, 30)
-	m.intentCursor = 0
-	m.intentScrollOffset = 0
+	m.intent.FlatNodes = make([]intentFlatNode, 30)
+	m.intent.Cursor = 0
+	m.intent.ScrollOffset = 0
 
 	// Ctrl-d
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
 	mm := m2.(dashboardModel)
-	if mm.intentCursor == 0 {
+	if mm.intent.Cursor == 0 {
 		t.Error("intentCursor should advance on ctrl+d")
 	}
 	// intentAdjustScroll should have run (scrollOffset != 0 once cursor > visible)
 	// We cannot easily assert intentAdjustScroll called; verify scrollOffset bounded
-	if mm.intentScrollOffset < 0 {
-		t.Errorf("intentScrollOffset invalid: %d", mm.intentScrollOffset)
+	if mm.intent.ScrollOffset < 0 {
+		t.Errorf("intentScrollOffset invalid: %d", mm.intent.ScrollOffset)
 	}
 }
 
@@ -201,45 +201,45 @@ func TestATDD_36_5_AC7_IntentNavigation(t *testing.T) {
 func TestATDD_36_5_AC9_InspectorLensScrollOnly(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.viewMode = viewStepInspector
-	m.inspectorPID = 2
-	m.inspectorUUID = "uuid-mock-002"
-	m.inspectorLens = lensConversation
-	m.inspectorSteps = []ipc.StepSummaryWire{
+	m.inspector.PID = 2
+	m.inspector.UUID = "uuid-mock-002"
+	m.inspector.Lens = lensConversation
+	m.inspector.Steps = []ipc.StepSummaryWire{
 		{Step: 1}, {Step: 3}, {Step: 5},
 	}
-	m.inspectorStep = 3
-	m.inspectorStepMax = 5
+	m.inspector.Step = 3
+	m.inspector.StepMax = 5
 	// Prepare viewport with content
 	vp := viewport.New(viewport.WithHeight(5), viewport.WithWidth(40))
 	vp.SetContent(strings.Repeat("line\n", 50))
-	m.inspectorViewports[lensConversation] = vp
+	m.inspector.Viewports[lensConversation] = vp
 
 	// j should scroll viewport (not navigate step)
 	m2, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'j', Text: "j"})
 	mm := m2.(dashboardModel)
-	if mm.inspectorStep != 3 {
-		t.Errorf("j should NOT change inspectorStep; got %d", mm.inspectorStep)
+	if mm.inspector.Step != 3 {
+		t.Errorf("j should NOT change inspectorStep; got %d", mm.inspector.Step)
 	}
 
 	// h should navigate to prev step (step 1)
 	m3, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'h', Text: "h"})
 	mm3 := m3.(dashboardModel)
-	if mm3.inspectorStep != 1 {
-		t.Errorf("h should go to prev step=1; got %d", mm3.inspectorStep)
+	if mm3.inspector.Step != 1 {
+		t.Errorf("h should go to prev step=1; got %d", mm3.inspector.Step)
 	}
 
 	// H (home) → first step (still 1 since that's already first)
 	m4, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'H', Text: "H"})
 	mm4 := m4.(dashboardModel)
-	if mm4.inspectorStep != 1 {
-		t.Errorf("H should go to first step=1; got %d", mm4.inspectorStep)
+	if mm4.inspector.Step != 1 {
+		t.Errorf("H should go to first step=1; got %d", mm4.inspector.Step)
 	}
 
 	// L (end) → last step (5)
 	m5, _ := m.inspectorKey(tea.KeyPressMsg{Code: 'L', Text: "L"})
 	mm5 := m5.(dashboardModel)
-	if mm5.inspectorStep != 5 {
-		t.Errorf("L should go to last step=5; got %d", mm5.inspectorStep)
+	if mm5.inspector.Step != 5 {
+		t.Errorf("L should go to last step=5; got %d", mm5.inspector.Step)
 	}
 }
 
@@ -248,17 +248,17 @@ func TestATDD_36_5_AC9_InspectorLensScrollOnly(t *testing.T) {
 func TestATDD_36_5_AC12_SearchBasic(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.viewMode = viewStepInspector
-	m.inspectorLens = lensConversation
+	m.inspector.Lens = lensConversation
 	content := "alpha\nfoo line\nbeta\nfoo again\ngamma"
-	m.inspectorContents[lensConversation] = content
+	m.inspector.Contents[lensConversation] = content
 	vp := viewport.New(viewport.WithHeight(10), viewport.WithWidth(40))
 	vp.SetContent(content)
-	m.inspectorViewports[lensConversation] = vp
+	m.inspector.Viewports[lensConversation] = vp
 
 	// "/" enters search mode
 	m2, _ := m.Update(tea.KeyPressMsg{Code: '/'})
 	mm := m2.(dashboardModel)
-	if !mm.searchMode {
+	if !mm.search.Mode {
 		t.Fatal("searchMode should be true after /")
 	}
 	// Type "foo"
@@ -266,29 +266,29 @@ func TestATDD_36_5_AC12_SearchBasic(t *testing.T) {
 		m3, _ := mm.Update(tea.KeyPressMsg{Code: c, Text: string(c)})
 		mm = m3.(dashboardModel)
 	}
-	if mm.searchQuery != "foo" {
-		t.Fatalf("searchQuery=%q want foo", mm.searchQuery)
+	if mm.search.Query != "foo" {
+		t.Fatalf("searchQuery=%q want foo", mm.search.Query)
 	}
 	// Enter confirms
 	m4, _ := mm.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	mm = m4.(dashboardModel)
-	if mm.searchMode {
+	if mm.search.Mode {
 		t.Fatal("searchMode should be false after Enter")
 	}
-	if len(mm.searchMatches) != 2 {
-		t.Fatalf("expected 2 matches; got %d", len(mm.searchMatches))
+	if len(mm.search.Matches) != 2 {
+		t.Fatalf("expected 2 matches; got %d", len(mm.search.Matches))
 	}
 	// n → next match
-	prevIdx := mm.searchMatchIdx
+	prevIdx := mm.search.MatchIdx
 	m5, _ := mm.Update(tea.KeyPressMsg{Code: 'n'})
 	mm = m5.(dashboardModel)
-	if mm.searchMatchIdx == prevIdx {
+	if mm.search.MatchIdx == prevIdx {
 		t.Error("n should advance searchMatchIdx")
 	}
 	// Esc clears search
 	m6, _ := mm.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	mm = m6.(dashboardModel)
-	if mm.searchQuery != "" || len(mm.searchMatches) != 0 {
+	if mm.search.Query != "" || len(mm.search.Matches) != 0 {
 		t.Error("Esc should clear search")
 	}
 }
@@ -300,25 +300,25 @@ func TestATDD_36_5_AC15_Regression(t *testing.T) {
 	m := newTestDashboardModel(mockDashboardProcs())
 	m.selectedPID = 2
 	m.selectedUUID = "uuid-mock-002"
-	before := m.timelineSortAsc
+	before := m.timeline.SortAsc
 	m2 := m.handleTimelineKey("o")
-	if m2.timelineSortAsc == before {
+	if m2.timeline.SortAsc == before {
 		t.Error("timeline 'o' should toggle sort direction")
 	}
 	// Heatmap 'enter' still toggles expand
 	mh := newTestDashboardModel(mockDashboardProcs())
-	mh.heatmapSegments = []heatmapSegment{{label: "A"}, {label: "B"}}
+	mh.heatmap.Segments = []heatmapSegment{{Label: "A"}, {Label: "B"}}
 	mh2 := mh.handleHeatmapKey("enter")
-	if !mh2.heatmapExpanded {
+	if !mh2.heatmap.Expanded {
 		t.Error("heatmap enter should toggle expand")
 	}
 	// Inspector '1'-'5' lens switching
 	mi := newTestDashboardModel(mockDashboardProcs())
 	mi.viewMode = viewStepInspector
-	mi.inspectorLens = lensConversation
+	mi.inspector.Lens = lensConversation
 	m2i, _ := mi.Update(tea.KeyPressMsg{Code: '3'})
 	mm := m2i.(dashboardModel)
-	if mm.inspectorLens != lensToolIO {
-		t.Errorf("'3' should switch to Tool I/O lens; got %v", mm.inspectorLens)
+	if mm.inspector.Lens != lensToolIO {
+		t.Errorf("'3' should switch to Tool I/O lens; got %v", mm.inspector.Lens)
 	}
 }

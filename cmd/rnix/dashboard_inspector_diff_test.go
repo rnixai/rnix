@@ -40,7 +40,7 @@ func TestComputeLineDiff(t *testing.T) {
 			lines := computeLineDiff(tc.base, tc.cur)
 			var adds, dels, eqs int
 			for _, l := range lines {
-				switch l.kind {
+				switch l.Kind {
 				case diffAdd:
 					adds++
 				case diffDel:
@@ -62,9 +62,9 @@ func TestComputeLineDiff(t *testing.T) {
 func TestRenderDiff_FoldThreshold(t *testing.T) {
 	// 2 equal lines (below threshold) → not folded.
 	lines := []diffLine{
-		{diffEqual, "a"},
-		{diffEqual, "b"},
-		{diffAdd, "c"},
+		{Kind: diffEqual, Text: "a"},
+		{Kind: diffEqual, Text: "b"},
+		{Kind: diffAdd, Text: "c"},
 	}
 	out := renderDiff(lines, nil, true)
 	if strings.Contains(out, "unchanged lines") {
@@ -73,10 +73,10 @@ func TestRenderDiff_FoldThreshold(t *testing.T) {
 
 	// 3 equal lines (at threshold) → folded.
 	lines = []diffLine{
-		{diffEqual, "a"},
-		{diffEqual, "b"},
-		{diffEqual, "c"},
-		{diffAdd, "d"},
+		{Kind: diffEqual, Text: "a"},
+		{Kind: diffEqual, Text: "b"},
+		{Kind: diffEqual, Text: "c"},
+		{Kind: diffAdd, Text: "d"},
 	}
 	out = renderDiff(lines, nil, true)
 	if !strings.Contains(out, "... 3 unchanged lines") {
@@ -86,9 +86,9 @@ func TestRenderDiff_FoldThreshold(t *testing.T) {
 
 func TestRenderDiff_UnfoldedMapExpands(t *testing.T) {
 	lines := []diffLine{
-		{diffEqual, "a"},
-		{diffEqual, "b"},
-		{diffEqual, "c"},
+		{Kind: diffEqual, Text: "a"},
+		{Kind: diffEqual, Text: "b"},
+		{Kind: diffEqual, Text: "c"},
 	}
 	// Folded form has placeholder; unfolded should show raw lines.
 	folded := renderDiff(lines, nil, true)

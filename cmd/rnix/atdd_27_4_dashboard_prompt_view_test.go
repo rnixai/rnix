@@ -21,12 +21,12 @@ m := newTestDashboardModel(mockDashboardProcs())
 m.selectedPID = 2
 m.selectedUUID = "uuid-mock-002"
 m.viewMode = viewStepInspector
-m.inspectorPID = 2
-m.inspectorUUID = "uuid-mock-002"
-m.inspectorStep = 1
-m.inspectorStepMax = 3
-m.inspectorLens = lensConversation
-	m.inspectorDetail = &ipc.GetStepDetailResponse{
+m.inspector.PID = 2
+m.inspector.UUID = "uuid-mock-002"
+m.inspector.Step = 1
+m.inspector.StepMax = 3
+m.inspector.Lens = lensConversation
+	m.inspector.Detail = &ipc.GetStepDetailResponse{
 		Step:           1,
 		Action:         "tool_call",
 		Summary:        "Read file",
@@ -55,7 +55,7 @@ return m
 
 func TestInspector_ConversationLensContainsMessages(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-content := m.buildLensContent(lensConversation, m.inspectorDetail, nil)
+content := m.buildLensContent(lensConversation, m.inspector.Detail, nil)
 
 for _, expected := range []string{"system", "user", "assistant", "tool"} {
 if !strings.Contains(content, expected) {
@@ -76,7 +76,7 @@ t.Error("Conversation lens with no messages should show fallback text")
 
 func TestInspector_SystemLensContainsPrompt(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-content := m.buildLensContent(lensSystem, m.inspectorDetail, nil)
+content := m.buildLensContent(lensSystem, m.inspector.Detail, nil)
 
 if !strings.Contains(content, "System Prompt") {
 t.Error("System lens should contain 'System Prompt' header")
@@ -88,7 +88,7 @@ t.Error("System lens should contain the system prompt text")
 
 func TestInspector_SystemLensShowsCharCount(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-content := m.buildLensContent(lensSystem, m.inspectorDetail, nil)
+content := m.buildLensContent(lensSystem, m.inspector.Detail, nil)
 
 if !strings.Contains(content, "chars") {
 t.Error("System lens should show character count")
@@ -97,8 +97,14 @@ t.Error("System lens should show character count")
 
 func TestInspector_SystemLensUnchangedHint(t *testing.T) {
 m := newTestInspectorModelWithDetail()
+// Story 38-3 review P18: inspectorPrevStep must be ≥ 1 for the unchanged
+// path to fire — `prevStep == 0` short-circuits to the first-step branch
+// (no annotation), matching the real handleInspectorDetailMsg flow where
+// prevStep advances 0 → 1 → 2 … only after the second step loads.
+m.inspector.PrevStep = 1
+m.inspector.Step = 2
 prevDetail := &ipc.GetStepDetailResponse{SystemPrompt: "You are an agent."}
-content := m.buildLensContent(lensSystem, m.inspectorDetail, prevDetail)
+content := m.buildLensContent(lensSystem, m.inspector.Detail, prevDetail)
 
 if !strings.Contains(content, "unchanged") {
 t.Error("System lens should show 'unchanged' hint when system prompt matches previous step")
@@ -107,7 +113,7 @@ t.Error("System lens should show 'unchanged' hint when system prompt matches pre
 
 func TestInspector_ToolIOLensContainsAction(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-content := m.buildLensContent(lensToolIO, m.inspectorDetail, nil)
+content := m.buildLensContent(lensToolIO, m.inspector.Detail, nil)
 
 if !strings.Contains(content, "tool_call") {
 t.Error("Tool I/O lens should contain the action name")
@@ -129,7 +135,7 @@ t.Error("Tool I/O lens with no tool should show fallback text")
 
 func TestInspector_MetaLensContainsTokens(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+content := m.buildLensContent(lensMeta, m.inspector.Detail, nil)
 
 if !strings.Contains(content, "1500") {
 t.Error("Meta lens should contain request token count")
@@ -141,7 +147,7 @@ t.Error("Meta lens should contain response token count")
 
 func TestInspector_MetaLensContainsToolPath(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	content := m.buildLensContent(lensMeta, m.inspectorDetail, nil)
+	content := m.buildLensContent(lensMeta, m.inspector.Detail, nil)
 
 	if !strings.Contains(content, "/dev/fs") {
 		t.Error("Meta lens should contain tool path")
@@ -150,7 +156,7 @@ func TestInspector_MetaLensContainsToolPath(t *testing.T) {
 
 func TestInspector_RawJSONLensValidJSON(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-content := m.buildLensContent(lensRawJSON, m.inspectorDetail, nil)
+content := m.buildLensContent(lensRawJSON, m.inspector.Detail, nil)
 
 var js json.RawMessage
 if err := json.Unmarshal([]byte(content), &js); err != nil {
@@ -241,15 +247,15 @@ func TestInspector_LensSwitchPreservesOtherViewport(t *testing.T) {
 m := newTestInspectorModelWithDetail()
 
 // Start on conversation lens (index 0)
-m.inspectorLens = lensConversation
+m.inspector.Lens = lensConversation
 
 // Switch to system lens — conversation viewport should be independent
 m2 := m.switchInspectorLens(lensSystem)
-if m2.inspectorLens != lensSystem {
+if m2.inspector.Lens != lensSystem {
 t.Error("switchInspectorLens should change current lens")
 }
 // Both viewports exist independently
-if &m2.inspectorViewports[lensConversation] == &m2.inspectorViewports[lensSystem] {
+if &m2.inspector.Viewports[lensConversation] == &m2.inspector.Viewports[lensSystem] {
 t.Error("each lens should have its own viewport")
 }
 }
@@ -260,8 +266,8 @@ func TestInspector_PKeyFromTimelineEntersSystemLens(t *testing.T) {
 // P key redirection is handled in dashboard.go Update() via promptPagerMsg
 // Verify the inspectorLens field is set to lensSystem when P triggers
 m := newTestInspectorModelWithDetail()
-m.inspectorLens = lensSystem
-if m.inspectorLens != lensSystem {
+m.inspector.Lens = lensSystem
+if m.inspector.Lens != lensSystem {
 t.Error("P key path should set lens to lensSystem")
 }
 }
@@ -336,7 +342,7 @@ m := newTestInspectorModelWithDetail()
 m.rebuildInspectorContents()
 
 for i := range inspectorLensCount {
-if m.inspectorContents[i] == "" {
+if m.inspector.Contents[i] == "" {
 t.Errorf("rebuildInspectorContents should populate lens %d content", i)
 }
 }
@@ -359,7 +365,7 @@ t.Errorf("Inspector footer should contain hint %q", hint)
 
 func TestInspector_BuildFullLensContent_Conversation(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-full := m.buildFullLensContent(lensConversation, m.inspectorDetail, nil)
+full := m.buildFullLensContent(lensConversation, m.inspector.Detail, nil)
 
 if !strings.Contains(full, "user") {
 t.Error("Full conversation lens should contain role tags")
@@ -371,7 +377,7 @@ t.Error("Full conversation lens should contain message content")
 
 func TestInspector_BuildFullLensContent_System(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-full := m.buildFullLensContent(lensSystem, m.inspectorDetail, nil)
+full := m.buildFullLensContent(lensSystem, m.inspector.Detail, nil)
 
 if full != "You are an agent." {
 t.Errorf("Full system lens should be raw system prompt, got %q", full)
@@ -380,7 +386,7 @@ t.Errorf("Full system lens should be raw system prompt, got %q", full)
 
 func TestInspector_BuildFullLensContent_ToolIO(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-full := m.buildFullLensContent(lensToolIO, m.inspectorDetail, nil)
+full := m.buildFullLensContent(lensToolIO, m.inspector.Detail, nil)
 
 if !strings.Contains(full, "tool_call") {
 t.Error("Full tool I/O lens should contain the action")
@@ -389,7 +395,7 @@ t.Error("Full tool I/O lens should contain the action")
 
 func TestInspector_BuildFullLensContent_Meta(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-full := m.buildFullLensContent(lensMeta, m.inspectorDetail, nil)
+full := m.buildFullLensContent(lensMeta, m.inspector.Detail, nil)
 
 if !strings.Contains(full, "1500") {
 t.Error("Full meta lens should contain token count")
@@ -398,7 +404,7 @@ t.Error("Full meta lens should contain token count")
 
 func TestInspector_BuildFullLensContent_RawJSON(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-full := m.buildFullLensContent(lensRawJSON, m.inspectorDetail, nil)
+full := m.buildFullLensContent(lensRawJSON, m.inspector.Detail, nil)
 
 var js json.RawMessage
 if err := json.Unmarshal([]byte(full), &js); err != nil {
@@ -418,10 +424,12 @@ t.Errorf("inspectorTruncateThreshold should be 10000, got %d", inspectorTruncate
 
 func TestInspector_ToolIOLensShowsDuration(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-content := m.buildLensContent(lensToolIO, m.inspectorDetail, nil)
+content := m.buildLensContent(lensToolIO, m.inspector.Detail, nil)
 
-if !strings.Contains(content, "12ms") || !strings.Contains(content, "Duration") {
-t.Error("Tool I/O lens should show tool duration")
+// Story 38-3 review D2=b: spec L48 dropped the "Duration:" label; only
+// the numeric `<ms>ms` (and the ⧖ glyph in unicode mode) are required.
+if !strings.Contains(content, "12ms") {
+t.Errorf("Tool I/O lens should show tool duration as `<ms>ms`; got:\n%s", content)
 }
 }
 
@@ -429,7 +437,7 @@ t.Error("Tool I/O lens should show tool duration")
 
 func TestInspector_ConversationLensShowsToolCallName(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-content := m.buildLensContent(lensConversation, m.inspectorDetail, nil)
+content := m.buildLensContent(lensConversation, m.inspector.Detail, nil)
 
 if !strings.Contains(content, "read_file") {
 t.Error("Conversation lens should resolve tool call names in role tags")
@@ -443,10 +451,25 @@ m := newTestInspectorModelWithDetail()
 m.height = 40
 
 h := m.inspectorContentHeight()
-// stepRail(2) + lensTabs(1) + footer(1) = 4 overhead
-expected := 36
+// Story 38-3 AC#6: when h>=20 the Inspector reserves an extra 2-line
+// thumbnail bar block + 1 spacing line. Total overhead = stepRail(1) +
+// thumbnailBar(2) + lensTabs(1) + footer(1) + spacing(1) = 6.
+expected := 34
 if h != expected {
 t.Errorf("inspectorContentHeight() with height=40 should be %d, got %d", expected, h)
+}
+}
+
+// --- 38.3-AC6: Short terminal hides thumbnail bar ---
+
+func TestInspector_ContentHeightCalculation_ShortTerminal(t *testing.T) {
+m := newTestInspectorModelWithDetail()
+m.height = 18 // < 20 → thumbnail bar hidden, legacy 4-line chrome restored
+
+h := m.inspectorContentHeight()
+expected := 14 // 18 - 4
+if h != expected {
+t.Errorf("inspectorContentHeight() with height=18 should be %d, got %d", expected, h)
 }
 }
 

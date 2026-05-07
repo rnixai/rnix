@@ -1,13 +1,29 @@
+// Package main — dashboard_trace.go
+//
+// Story 38-5 PR11 Step 4(c) (2026-05-04): renderTracePane main body migrated
+// to internal/dashboard/trace/render.go (Render(state, ctx, innerW, innerH)
+// string · 与 alertstrip / detail / security / intent 同模式)。本文件保留：
+//   - fetchTraceListCmd / fetchTraceTreeCmd: IPC 调用（依赖 ipc.Dial · 属 cmd/rnix
+//     端职责）；
+//   - handleTraceKey: 依赖 dashboardModel.processes / handlePIDChange / statusMsg
+//     等 cmd/rnix 端状态 · 暂不迁出（Step 4(b) PaneModel 接口扩展持 client 时再考虑）；
+//   - renderTracePane wrapper: 注入 RenderContext + renderFixedPanel border 包裹；
+//   - traceAdjustScroll / spanAdjustScroll / traceBottomInnerH 改为 thin wrapper
+//     委托 trace.AdjustListScroll/AdjustSpanScroll/BottomInnerH；
+//   - flattenSpanTree / spanStatusColor / renderWaterfallBar / waterfallBarWidth
+//     改为 thin wrapper / alias 委托 trace.FlattenSpanTree / SpanStatusColor /
+//     RenderWaterfallBar / WaterfallBarWidth（保留旧名让 ATDD 27-9 + 38-4
+//     dashboard_cross_pane_test grep 契约零行为变化）。
+//
+// 行为契约保留（与 PR2-PR12 同模式 · 零行为变更）：
+//   - Story 27-9 Trace pane (AC1-AC6)
+//   - Story 38-4 AC#5 waterfall bar (20-char · degraded plan A · status colors · ASCII fallback)
 package main
 
 import (
-	"fmt"
-	"os"
-	"strings"
-
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/dashboard/trace"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 
@@ -18,16 +34,13 @@ import (
 // Trace Pane (Story 27-9)
 // =============================================================================
 
+// fetchTraceListCmd — thin wrapper · Story 38-5 PR11 Step 4(b) Phase 3
+//
+// IPC fetch closure 已迁出至 internal/dashboard/trace.FetchListCmd。
+//
+//nolint:unused // 保留供潜在 caller / 测试 grep（current callers 已迁至 TraceModel.OnTick）
 func fetchTraceListCmd() tea.Cmd {
-	return func() tea.Msg {
-		client, err := ipc.Dial(ipc.SocketPath())
-		if err != nil {
-			return traceListMsg{err: err}
-		}
-		defer client.Close()
-		summaries, err := client.TraceList()
-		return traceListMsg{summaries: summaries, err: err}
-	}
+	return trace.FetchListCmd(ipc.SocketPath())
 }
 
 func fetchTraceTreeCmd(traceID string) tea.Cmd {
@@ -43,25 +56,25 @@ func fetchTraceTreeCmd(traceID string) tea.Cmd {
 }
 
 func (m dashboardModel) handleTraceKey(key string) (tea.Model, tea.Cmd) {
-	if m.traceViewMode == 0 {
+	if m.trace.ViewMode == 0 {
 		// List mode
 		switch key {
 		case "down", "j":
-			if len(m.traceSummaries) > 0 && m.traceCursor < len(m.traceSummaries)-1 {
-				m.traceCursor++
+			if len(m.trace.Summaries) > 0 && m.trace.Cursor < len(m.trace.Summaries)-1 {
+				m.trace.Cursor++
 				traceAdjustScroll(&m)
 			}
 			return m, nil
 		case "up", "k":
-			if m.traceCursor > 0 {
-				m.traceCursor--
+			if m.trace.Cursor > 0 {
+				m.trace.Cursor--
 				traceAdjustScroll(&m)
 			}
 			return m, nil
 		case "enter":
-			if len(m.traceSummaries) > 0 && m.traceCursor < len(m.traceSummaries) {
-				traceID := m.traceSummaries[m.traceCursor].TraceID
-				m.selectedTraceID = traceID
+			if len(m.trace.Summaries) > 0 && m.trace.Cursor < len(m.trace.Summaries) {
+				traceID := m.trace.Summaries[m.trace.Cursor].TraceID
+				m.trace.SelectedTraceID = traceID
 				return m, fetchTraceTreeCmd(traceID)
 			}
 			return m, nil
@@ -70,22 +83,22 @@ func (m dashboardModel) handleTraceKey(key string) (tea.Model, tea.Cmd) {
 		// Tree mode
 		switch key {
 		case "down", "j":
-			if len(m.spanFlatNodes) > 0 && m.spanCursor < len(m.spanFlatNodes)-1 {
-				m.spanCursor++
+			if len(m.trace.SpanFlatNodes) > 0 && m.trace.SpanCursor < len(m.trace.SpanFlatNodes)-1 {
+				m.trace.SpanCursor++
 				spanAdjustScroll(&m)
 			}
 			return m, nil
 		case "up", "k":
-			if m.spanCursor > 0 {
-				m.spanCursor--
+			if m.trace.SpanCursor > 0 {
+				m.trace.SpanCursor--
 				spanAdjustScroll(&m)
 			}
 			return m, nil
 		case "enter":
-			if len(m.spanFlatNodes) > 0 && m.spanCursor < len(m.spanFlatNodes) {
-				node := m.spanFlatNodes[m.spanCursor]
-				if node.pid > 0 {
-					targetPID := node.pid
+			if len(m.trace.SpanFlatNodes) > 0 && m.trace.SpanCursor < len(m.trace.SpanFlatNodes) {
+				node := m.trace.SpanFlatNodes[m.trace.SpanCursor]
+				if node.PID > 0 {
+					targetPID := node.PID
 					pidFound := false
 					var targetUUID string
 					for _, p := range m.processes {
@@ -109,12 +122,12 @@ func (m dashboardModel) handleTraceKey(key string) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "esc", "escape":
-			m.traceViewMode = 0
+			m.trace.ViewMode = 0
 			// Reset scroll and clamp cursor to current list bounds
-			if m.traceCursor >= len(m.traceSummaries) {
-				m.traceCursor = max(0, len(m.traceSummaries)-1)
+			if m.trace.Cursor >= len(m.trace.Summaries) {
+				m.trace.Cursor = max(0, len(m.trace.Summaries)-1)
 			}
-			m.traceScrollOffset = 0
+			m.trace.ScrollOffset = 0
 			traceAdjustScroll(&m)
 			return m, nil
 		}
@@ -122,80 +135,59 @@ func (m dashboardModel) handleTraceKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// flattenSpanTree is a thin wrapper around trace.FlattenSpanTree (Story 38-5
+// PR11 Step 4(c)). Preserved for ATDD 27-9 AC-4.3/4.4/4.5/4.6 callsites +
+// atdd_29_1 file splitting grep contract.
 func flattenSpanTree(tree *ipc.SpanTreeWire) []spanFlatNode {
-	if tree == nil || tree.Root == nil {
-		return nil
-	}
-	ascii := os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true"
-	var nodes []spanFlatNode
-	flattenSpanNode(tree.Root, 0, true, "", ascii, &nodes)
-	return nodes
+	return trace.FlattenSpanTree(tree)
 }
 
-func flattenSpanNode(node *ipc.SpanNodeWire, depth int, isLast bool, parentPrefix string, ascii bool, out *[]spanFlatNode) {
-	var prefix string
-	if depth == 0 {
-		if ascii {
-			prefix = "+-- "
-		} else {
-			prefix = "┌─ "
-		}
-	} else {
-		if isLast {
-			if ascii {
-				prefix = parentPrefix + "`-- "
-			} else {
-				prefix = parentPrefix + "└─ "
-			}
-		} else {
-			if ascii {
-				prefix = parentPrefix + "|-- "
-			} else {
-				prefix = parentPrefix + "├─ "
-			}
-		}
-	}
-	*out = append(*out, spanFlatNode{
-		spanID: node.SpanID,
-		pid:    types.PID(node.PID),
-		name:   node.Name,
-		durMs:  node.DurationMs,
-		tokens: node.TokensUsed,
-		status: node.Status,
-		depth:  depth,
-		prefix: prefix,
-		isRoot: depth == 0,
-	})
-	childPrefix := parentPrefix
-	if depth > 0 {
-		if isLast {
-			childPrefix += "   "
-		} else {
-			if ascii {
-				childPrefix += "|  "
-			} else {
-				childPrefix += "│  "
-			}
-		}
-	}
-	for i, child := range node.Children {
-		flattenSpanNode(&child, depth+1, i == len(node.Children)-1, childPrefix, ascii, out)
-	}
-}
-
+// spanStatusColor is a thin wrapper around trace.SpanStatusColor (Story 38-5
+// PR11 Step 4(c)). Preserved for ATDD 27-9 AC-4.7 callsite + dashboard_eval.go
+// (which depends on this color routing for test results).
+//
+//nolint:unused // 保留供 ATDD grep 契约 / 潜在外部 caller
 func spanStatusColor(status string) lipgloss.Color {
-	switch status {
-	case "ok":
-		return lipgloss.Color("42")
-	case "error":
-		return lipgloss.Color("196")
-	case "timeout":
-		return lipgloss.Color("208")
-	default:
-		return lipgloss.Color("240")
-	}
+	return trace.SpanStatusColor(status)
 }
 
+// waterfallBarWidth is preserved as a const alias for the public
+// trace.WaterfallBarWidth (Story 38-5 PR11 Step 4(c)). Preserved for
+// dashboard_cross_pane_test.go (Story 38-4 AC#5 testing) callsites.
+const waterfallBarWidth = trace.WaterfallBarWidth
+
+// renderWaterfallBar is a thin wrapper around trace.RenderWaterfallBar
+// (Story 38-5 PR11 Step 4(c)). Preserved for dashboard_cross_pane_test.go
+// (Story 38-4 AC#5 testing) callsites.
+func renderWaterfallBar(traceTotalMs, spanDurMs int64, status string, ascii bool) string {
+	return trace.RenderWaterfallBar(traceTotalMs, spanDurMs, status, ascii)
+}
+
+// renderTraceTreeView is a thin wrapper kept for ATDD 38-4 cross-pane tests
+// that exercise tree-mode rendering directly (Story 38-5 PR11 Step 4(c) ·
+// preserved for dashboard_cross_pane_test.go callsites at lines 821/830/1024).
+//
+// width/height are the inner area (caller already accounts for border).
+func (m dashboardModel) renderTraceTreeView(width, height int) string {
+	// Force ViewMode==1 by mutating a local state copy so the test does not
+	// have to set ViewMode manually before calling tree-view rendering.
+	st := m.trace
+	st.ViewMode = 1
+	return trace.Render(st, trace.RenderContext{
+		IsActive: m.activePane == paneTrace,
+		ASCII:    ui.IsASCIIMode(),
+	}, width, height)
+}
+
+// renderTracePane is a thin wrapper around trace.Render (Story 38-5 PR11 Step 4(c)).
+//
+// cmd/rnix wrapper responsibilities:
+//  1. Compute isActive + borderColor (depends on m.activePane / paneTrace · cmd/rnix 端状态)
+//  2. Compute innerW/innerH (subtract border)
+//  3. Call trace.Render(state, ctx, innerW, innerH) for inner content
+//  4. Wrap with renderFixedPanel(content, width, height, borderColor) outer border
+//
+// 与 alertstrip / detail / security / intent pattern 一致。
 func (m dashboardModel) renderTracePane(width, height int) string {
 	isActive := m.activePane == paneTrace
 
@@ -207,123 +199,40 @@ func (m dashboardModel) renderTracePane(width, height int) string {
 	innerW := max(width-2, 1)
 	innerH := max(height-2, 1)
 
-	if m.traceViewMode == 1 {
-		return renderFixedPanel(m.renderTraceTreeView(innerW, innerH), width, height, borderColor)
-	}
-	return renderFixedPanel(m.renderTraceListView(innerW, innerH), width, height, borderColor)
+	content := trace.Render(m.trace, trace.RenderContext{
+		IsActive: isActive,
+		ASCII:    ui.IsASCIIMode(),
+	}, innerW, innerH)
+
+	return renderFixedPanel(content, width, height, borderColor)
 }
 
-func (m dashboardModel) renderTraceListView(width, height int) string {
-	var b strings.Builder
-	b.WriteString(" Traces\n")
-
-	if m.traceErr != nil {
-		fmt.Fprintf(&b, "\n    Error: %v\n", m.traceErr)
-		return b.String()
-	}
-
-	if len(m.traceSummaries) == 0 {
-		b.WriteString("\n    无活跃的 Compose 追踪数据。使用 rnix compose up 启动编排以生成追踪。\n")
-		return b.String()
-	}
-
-	// Header
-	fmt.Fprintf(&b, " %-16s  %-12s  %5s  %8s\n", "TRACE ID", "ROOT", "SPANS", "DUR")
-
-	visibleLines := max(height-3, 1)
-	startIdx := m.traceScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.traceSummaries))
-
-	for i := startIdx; i < endIdx; i++ {
-		ts := m.traceSummaries[i]
-		cursor := "  "
-		if i == m.traceCursor {
-			if os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true" {
-				cursor = "> "
-			} else {
-				cursor = "▸ "
-			}
-		}
-		tid := ts.TraceID
-		if len(tid) > 16 {
-			tid = tid[:16]
-		}
-		dur := formatTimelineDuration(float64(ts.TotalDurationMs))
-		fmt.Fprintf(&b, "%s%-16s  %-12s  %5d  %8s\n", cursor, tid, ts.RootSpanName, ts.SpanCount, dur)
-	}
-
-	return b.String()
-}
-
-func (m dashboardModel) renderTraceTreeView(width, height int) string {
-	var b strings.Builder
-
-	if m.selectedSpanTree == nil || len(m.spanFlatNodes) == 0 {
-		b.WriteString(" Trace: (loading...)\n")
-		return b.String()
-	}
-
-	meta := m.selectedSpanTree.Metadata
-	tid := m.selectedTraceID
-	if len(tid) > 16 {
-		tid = tid[:16]
-	}
-	dur := formatTimelineDuration(float64(meta.TotalDurationMs))
-	fmt.Fprintf(&b, " Trace: %s  %d spans  %s  %d tok\n", tid, meta.TotalSpans, dur, meta.TotalTokens)
-
-	visibleLines := max(height-2, 1)
-	startIdx := m.spanScrollOffset
-	endIdx := min(startIdx+visibleLines, len(m.spanFlatNodes))
-
-	for i := startIdx; i < endIdx; i++ {
-		node := m.spanFlatNodes[i]
-		cursor := "  "
-		if i == m.spanCursor {
-			if os.Getenv("RNIX_ASCII") == "1" || os.Getenv("RNIX_ASCII") == "true" {
-				cursor = "> "
-			} else {
-				cursor = "▸ "
-			}
-		}
-
-		dur := formatTimelineDuration(float64(node.durMs))
-		tokStr := fmt.Sprintf("%dtok", node.tokens)
-		statusStyle := lipgloss.NewStyle().Foreground(spanStatusColor(node.status))
-
-		line := fmt.Sprintf("%s%s%s (PID %d)  %s  %s  %s",
-			cursor, node.prefix, node.name, node.pid, dur, tokStr, statusStyle.Render(node.status))
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-
-	return b.String()
-}
-
-// traceBottomInnerH computes the inner height of the bottom-right pane from terminal height.
+// traceBottomInnerH is a thin wrapper around trace.BottomInnerH (Story 38-5
+// PR11 Step 4(c)). Preserved for traceAdjustScroll / spanAdjustScroll callers.
+//
+//nolint:unused // 保留供 atdd grep 契约
 func traceBottomInnerH(termHeight int) int {
-	contentHeight := max(termHeight-4, 3)
-	bottomRightH := contentHeight - contentHeight/2
-	return max(bottomRightH-2, 1) // subtract border
+	return trace.BottomInnerH(termHeight)
 }
 
-// traceAdjustScroll ensures traceCursor is visible within the viewport.
+// traceAdjustScroll is a thin wrapper around trace.AdjustListScroll (Story
+// 38-5 PR11 Step 4(c)). Preserved for handleTraceKey + ATDD 27-9 AC-3.7
+// callsites.
 func traceAdjustScroll(m *dashboardModel) {
-	visibleLines := max(traceBottomInnerH(m.height)-3, 1) // match renderTraceListView
-	if m.traceCursor < m.traceScrollOffset {
-		m.traceScrollOffset = m.traceCursor
+	if m == nil {
+		return
 	}
-	if m.traceCursor >= m.traceScrollOffset+visibleLines {
-		m.traceScrollOffset = m.traceCursor - visibleLines + 1
-	}
+	visibleLines := max(trace.BottomInnerH(m.height)-3, 1) // match renderTraceListView
+	trace.AdjustListScroll(&m.trace, visibleLines)
 }
 
-// spanAdjustScroll ensures spanCursor is visible within the viewport.
+// spanAdjustScroll is a thin wrapper around trace.AdjustSpanScroll (Story
+// 38-5 PR11 Step 4(c)). Preserved for handleTraceKey + ATDD 27-9 AC-4.11
+// callsites.
 func spanAdjustScroll(m *dashboardModel) {
-	visibleLines := max(traceBottomInnerH(m.height)-2, 1) // match renderTraceTreeView
-	if m.spanCursor < m.spanScrollOffset {
-		m.spanScrollOffset = m.spanCursor
+	if m == nil {
+		return
 	}
-	if m.spanCursor >= m.spanScrollOffset+visibleLines {
-		m.spanScrollOffset = m.spanCursor - visibleLines + 1
-	}
+	visibleLines := max(trace.BottomInnerH(m.height)-2, 1) // match renderTraceTreeView
+	trace.AdjustSpanScroll(&m.trace, visibleLines)
 }

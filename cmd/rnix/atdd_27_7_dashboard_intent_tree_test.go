@@ -151,8 +151,8 @@ func TestATDD_27_7_AC1_TabCycles5Panes(t *testing.T) {
 // --- AC-1.3: [P0] Intent pane border highlights when active ---
 func TestATDD_27_7_AC1_IntentPaneBorderHighlight(t *testing.T) {
 	m := newIntentTreeModel()
-	m.intentTrees = []*ipc.IntentTreeWire{makeSingleTree()}
-	m.intentFlatNodes = flattenIntentTrees(m.intentTrees)
+	m.intent.Trees = []*ipc.IntentTreeWire{makeSingleTree()}
+	m.intent.FlatNodes = flattenIntentTrees(m.intent.Trees)
 
 	output := m.renderIntentPane(60, 20)
 
@@ -171,16 +171,16 @@ func TestATDD_27_7_AC2_ModelHasIntentFields(t *testing.T) {
 	m := newIntentTreeModel()
 
 	// RED: these fields do not exist yet
-	if m.intentTrees != nil {
+	if m.intent.Trees != nil {
 		t.Error("AC-2: intentTrees should be nil initially")
 	}
-	if m.intentFlatNodes != nil {
+	if m.intent.FlatNodes != nil {
 		t.Error("AC-2: intentFlatNodes should be nil initially")
 	}
-	if m.intentCursor != 0 {
+	if m.intent.Cursor != 0 {
 		t.Error("AC-2: intentCursor should be 0 initially")
 	}
-	if m.intentTreeErr != nil {
+	if m.intent.TreeErr != nil {
 		t.Error("AC-2: intentTreeErr should be nil initially")
 	}
 }
@@ -191,7 +191,7 @@ func TestATDD_27_7_AC2_IntentTreesMsgUpdatesModel(t *testing.T) {
 	tree := makeSingleTree()
 
 	msg := intentTreesMsg{
-		trees: &ipc.IntentStatusResponse{
+		Trees: &ipc.IntentStatusResponse{
 			Intents: []*ipc.IntentTreeWire{tree},
 		},
 	}
@@ -199,13 +199,13 @@ func TestATDD_27_7_AC2_IntentTreesMsgUpdatesModel(t *testing.T) {
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if len(model.intentTrees) != 1 {
-		t.Fatalf("AC-2: intentTrees len = %d, want 1", len(model.intentTrees))
+	if len(model.intent.Trees) != 1 {
+		t.Fatalf("AC-2: intentTrees len = %d, want 1", len(model.intent.Trees))
 	}
-	if model.intentTrees[0].ID != "tree-1" {
-		t.Errorf("AC-2: intentTrees[0].ID = %q, want %q", model.intentTrees[0].ID, "tree-1")
+	if model.intent.Trees[0].ID != "tree-1" {
+		t.Errorf("AC-2: intentTrees[0].ID = %q, want %q", model.intent.Trees[0].ID, "tree-1")
 	}
-	if len(model.intentFlatNodes) == 0 {
+	if len(model.intent.FlatNodes) == 0 {
 		t.Error("AC-2: intentFlatNodes should be populated after intentTreesMsg")
 	}
 }
@@ -215,13 +215,13 @@ func TestATDD_27_7_AC2_IntentTreesMsgError(t *testing.T) {
 	m := newIntentTreeModel()
 
 	msg := intentTreesMsg{
-		err: fmt.Errorf("connection refused"),
+		Err: fmt.Errorf("connection refused"),
 	}
 
 	m2, _ := m.Update(msg)
 	model := m2.(dashboardModel)
 
-	if model.intentTreeErr == nil {
+	if model.intent.TreeErr == nil {
 		t.Error("AC-2: intentTreeErr should be set on error")
 	}
 }
@@ -241,17 +241,17 @@ func TestATDD_27_7_AC3_FlattenIntentTrees_Topology(t *testing.T) {
 	}
 
 	// First entry should be tree header
-	if !flat[0].isTreeHeader {
+	if !flat[0].IsTreeHeader {
 		t.Error("AC-3: first flat node should be isTreeHeader=true")
 	}
 
 	// Find root node
 	var rootFound bool
 	for _, n := range flat {
-		if n.nodeID == "root" {
+		if n.NodeID == "root" {
 			rootFound = true
-			if n.indent != 0 {
-				t.Errorf("AC-3: root node indent = %d, want 0", n.indent)
+			if n.Indent != 0 {
+				t.Errorf("AC-3: root node indent = %d, want 0", n.Indent)
 			}
 		}
 	}
@@ -261,18 +261,18 @@ func TestATDD_27_7_AC3_FlattenIntentTrees_Topology(t *testing.T) {
 
 	// task-1 and task-2 depend on root → indent 1
 	for _, n := range flat {
-		if n.nodeID == "task-1" || n.nodeID == "task-2" {
-			if n.indent != 1 {
-				t.Errorf("AC-3: node %s indent = %d, want 1", n.nodeID, n.indent)
+		if n.NodeID == "task-1" || n.NodeID == "task-2" {
+			if n.Indent != 1 {
+				t.Errorf("AC-3: node %s indent = %d, want 1", n.NodeID, n.Indent)
 			}
 		}
 	}
 
 	// task-3 depends on task-1 and task-2 → indent 2
 	for _, n := range flat {
-		if n.nodeID == "task-3" {
-			if n.indent != 2 {
-				t.Errorf("AC-3: task-3 indent = %d, want 2", n.indent)
+		if n.NodeID == "task-3" {
+			if n.Indent != 2 {
+				t.Errorf("AC-3: task-3 indent = %d, want 2", n.Indent)
 			}
 		}
 	}
@@ -286,8 +286,8 @@ func TestATDD_27_7_AC3_FlattenIntentTrees_SortOrder(t *testing.T) {
 	// Collect non-header nodes at indent 1 (task-1, task-2)
 	var indent1Nodes []string
 	for _, n := range flat {
-		if !n.isTreeHeader && n.indent == 1 {
-			indent1Nodes = append(indent1Nodes, n.nodeID)
+		if !n.IsTreeHeader && n.Indent == 1 {
+			indent1Nodes = append(indent1Nodes, n.NodeID)
 		}
 	}
 
@@ -329,8 +329,8 @@ func TestATDD_27_7_AC3_IntentStateColor(t *testing.T) {
 func TestATDD_27_7_AC3_RenderIntentPane_NodeFormat(t *testing.T) {
 	m := newIntentTreeModel()
 	tree := makeSingleTree()
-	m.intentTrees = []*ipc.IntentTreeWire{tree}
-	m.intentFlatNodes = flattenIntentTrees(m.intentTrees)
+	m.intent.Trees = []*ipc.IntentTreeWire{tree}
+	m.intent.FlatNodes = flattenIntentTrees(m.intent.Trees)
 
 	output := m.renderIntentPane(80, 30)
 
@@ -376,22 +376,22 @@ func TestATDD_27_7_AC3_FlattenIntentTrees_MissingDeps(t *testing.T) {
 func TestATDD_27_7_AC4_JK_MovesIntentCursor(t *testing.T) {
 	m := newIntentTreeModel()
 	tree := makeSingleTree()
-	m.intentTrees = []*ipc.IntentTreeWire{tree}
-	m.intentFlatNodes = flattenIntentTrees(m.intentTrees)
-	m.intentCursor = 0
+	m.intent.Trees = []*ipc.IntentTreeWire{tree}
+	m.intent.FlatNodes = flattenIntentTrees(m.intent.Trees)
+	m.intent.Cursor = 0
 
 	// Press 'j' to move down
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'j'})
 	model := m2.(dashboardModel)
-	if model.intentCursor != 1 {
-		t.Errorf("AC-4: after j, intentCursor = %d, want 1", model.intentCursor)
+	if model.intent.Cursor != 1 {
+		t.Errorf("AC-4: after j, intentCursor = %d, want 1", model.intent.Cursor)
 	}
 
 	// Press 'k' to move back up
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'k'})
 	model2 := m3.(dashboardModel)
-	if model2.intentCursor != 0 {
-		t.Errorf("AC-4: after k, intentCursor = %d, want 0", model2.intentCursor)
+	if model2.intent.Cursor != 0 {
+		t.Errorf("AC-4: after k, intentCursor = %d, want 0", model2.intent.Cursor)
 	}
 }
 
@@ -399,15 +399,15 @@ func TestATDD_27_7_AC4_JK_MovesIntentCursor(t *testing.T) {
 func TestATDD_27_7_AC4_Enter_LinksToProcess(t *testing.T) {
 	m := newIntentTreeModel()
 	tree := makeSingleTree()
-	m.intentTrees = []*ipc.IntentTreeWire{tree}
-	m.intentFlatNodes = flattenIntentTrees(m.intentTrees)
+	m.intent.Trees = []*ipc.IntentTreeWire{tree}
+	m.intent.FlatNodes = flattenIntentTrees(m.intent.Trees)
 	// Add process with PID=3 to process list so validation passes
 	m.processes = []vfs.ProcInfo{{PID: 3}}
 
 	// Move cursor to a node with PID=3 (task-1)
-	for i, n := range m.intentFlatNodes {
-		if n.nodeID == "task-1" {
-			m.intentCursor = i
+	for i, n := range m.intent.FlatNodes {
+		if n.NodeID == "task-1" {
+			m.intent.Cursor = i
 			break
 		}
 	}
@@ -427,13 +427,13 @@ func TestATDD_27_7_AC4_Enter_LinksToProcess(t *testing.T) {
 func TestATDD_27_7_AC4_Enter_NoPID_ShowsMessage(t *testing.T) {
 	m := newIntentTreeModel()
 	tree := makeSingleTree()
-	m.intentTrees = []*ipc.IntentTreeWire{tree}
-	m.intentFlatNodes = flattenIntentTrees(m.intentTrees)
+	m.intent.Trees = []*ipc.IntentTreeWire{tree}
+	m.intent.FlatNodes = flattenIntentTrees(m.intent.Trees)
 
 	// Move cursor to task-3 (PID=0, pending)
-	for i, n := range m.intentFlatNodes {
-		if n.nodeID == "task-3" {
-			m.intentCursor = i
+	for i, n := range m.intent.FlatNodes {
+		if n.NodeID == "task-3" {
+			m.intent.Cursor = i
 			break
 		}
 	}
@@ -456,26 +456,26 @@ func TestATDD_27_7_AC4_Enter_NoPID_ShowsMessage(t *testing.T) {
 func TestATDD_27_7_AC4_CursorBounds(t *testing.T) {
 	m := newIntentTreeModel()
 	tree := makeSingleTree()
-	m.intentTrees = []*ipc.IntentTreeWire{tree}
-	m.intentFlatNodes = flattenIntentTrees(m.intentTrees)
-	m.intentCursor = 0
+	m.intent.Trees = []*ipc.IntentTreeWire{tree}
+	m.intent.FlatNodes = flattenIntentTrees(m.intent.Trees)
+	m.intent.Cursor = 0
 
 	// Press 'k' at cursor=0 → should stay at 0
 	m2, _ := m.Update(tea.KeyPressMsg{Code: 'k'})
 	model := m2.(dashboardModel)
-	if model.intentCursor != 0 {
-		t.Errorf("AC-4: k at cursor=0 should stay 0, got %d", model.intentCursor)
+	if model.intent.Cursor != 0 {
+		t.Errorf("AC-4: k at cursor=0 should stay 0, got %d", model.intent.Cursor)
 	}
 
 	// Move cursor to last node
-	lastIdx := len(m.intentFlatNodes) - 1
-	model.intentCursor = lastIdx
+	lastIdx := len(m.intent.FlatNodes) - 1
+	model.intent.Cursor = lastIdx
 
 	// Press 'j' at last position → should stay
 	m3, _ := model.Update(tea.KeyPressMsg{Code: 'j'})
 	model2 := m3.(dashboardModel)
-	if model2.intentCursor != lastIdx {
-		t.Errorf("AC-4: j at last position should stay %d, got %d", lastIdx, model2.intentCursor)
+	if model2.intent.Cursor != lastIdx {
+		t.Errorf("AC-4: j at last position should stay %d, got %d", lastIdx, model2.intent.Cursor)
 	}
 }
 
@@ -487,8 +487,8 @@ func TestATDD_27_7_AC4_CursorBounds(t *testing.T) {
 func TestATDD_27_7_AC5_EmptyState_ShowsHint(t *testing.T) {
 	m := newIntentTreeModel()
 	// No intent trees loaded
-	m.intentTrees = nil
-	m.intentFlatNodes = nil
+	m.intent.Trees = nil
+	m.intent.FlatNodes = nil
 
 	output := m.renderIntentPane(80, 20)
 
@@ -500,9 +500,9 @@ func TestATDD_27_7_AC5_EmptyState_ShowsHint(t *testing.T) {
 // --- AC-5.2: [P1] Empty state does not crash on navigation ---
 func TestATDD_27_7_AC5_EmptyState_NavigationSafe(t *testing.T) {
 	m := newIntentTreeModel()
-	m.intentTrees = nil
-	m.intentFlatNodes = nil
-	m.intentCursor = 0
+	m.intent.Trees = nil
+	m.intent.FlatNodes = nil
+	m.intent.Cursor = 0
 
 	// j/k/Enter on empty state should not panic
 	for _, key := range []rune{'j', 'k', '\r'} {
@@ -523,7 +523,7 @@ func TestATDD_27_7_AC6_MultipleTrees_Headers(t *testing.T) {
 	// Should have headers for both trees
 	headerCount := 0
 	for _, n := range flat {
-		if n.isTreeHeader {
+		if n.IsTreeHeader {
 			headerCount++
 		}
 	}
@@ -536,12 +536,12 @@ func TestATDD_27_7_AC6_MultipleTrees_Headers(t *testing.T) {
 func TestATDD_27_7_AC6_CrossTreeNavigation(t *testing.T) {
 	m := newIntentTreeModel()
 	trees := makeTwoTrees()
-	m.intentTrees = trees
-	m.intentFlatNodes = flattenIntentTrees(trees)
-	m.intentCursor = 0
+	m.intent.Trees = trees
+	m.intent.FlatNodes = flattenIntentTrees(trees)
+	m.intent.Cursor = 0
 
 	// Navigate through all nodes — should pass through tree boundaries
-	totalNodes := len(m.intentFlatNodes)
+	totalNodes := len(m.intent.FlatNodes)
 	current := m
 	for range totalNodes - 1 {
 		m2, _ := current.Update(tea.KeyPressMsg{Code: 'j'})
@@ -549,9 +549,9 @@ func TestATDD_27_7_AC6_CrossTreeNavigation(t *testing.T) {
 	}
 
 	// Should be at last node
-	if current.intentCursor != totalNodes-1 {
+	if current.intent.Cursor != totalNodes-1 {
 		t.Errorf("AC-6: after %d j presses, cursor = %d, want %d",
-			totalNodes-1, current.intentCursor, totalNodes-1)
+			totalNodes-1, current.intent.Cursor, totalNodes-1)
 	}
 }
 
@@ -563,12 +563,12 @@ func TestATDD_27_7_AC6_FlattenPreservesTreeIndex(t *testing.T) {
 	// Nodes from tree-1 should have treeIndex 0
 	// Nodes from tree-2 should have treeIndex 1
 	for _, n := range flat {
-		if n.treeWire != nil {
-			if n.treeWire.ID == "tree-1" && n.treeIndex != 0 {
-				t.Errorf("AC-6: tree-1 node has treeIndex %d, want 0", n.treeIndex)
+		if n.TreeWire != nil {
+			if n.TreeWire.ID == "tree-1" && n.TreeIndex != 0 {
+				t.Errorf("AC-6: tree-1 node has treeIndex %d, want 0", n.TreeIndex)
 			}
-			if n.treeWire.ID == "tree-2" && n.treeIndex != 1 {
-				t.Errorf("AC-6: tree-2 node has treeIndex %d, want 1", n.treeIndex)
+			if n.TreeWire.ID == "tree-2" && n.TreeIndex != 1 {
+				t.Errorf("AC-6: tree-2 node has treeIndex %d, want 1", n.TreeIndex)
 			}
 		}
 	}
@@ -582,8 +582,8 @@ func TestATDD_27_7_AC6_FlattenPreservesTreeIndex(t *testing.T) {
 func TestATDD_27_7_AC3_6_RenderMultipleTrees(t *testing.T) {
 	m := newIntentTreeModel()
 	trees := makeTwoTrees()
-	m.intentTrees = trees
-	m.intentFlatNodes = flattenIntentTrees(trees)
+	m.intent.Trees = trees
+	m.intent.FlatNodes = flattenIntentTrees(trees)
 
 	output := m.renderIntentPane(80, 30)
 
@@ -624,9 +624,9 @@ func TestATDD_27_7_AC3_EmptyNodesMap(t *testing.T) {
 func TestATDD_27_7_AC2_CursorClampedAfterRefresh(t *testing.T) {
 	m := newIntentTreeModel()
 	tree := makeSingleTree()
-	m.intentTrees = []*ipc.IntentTreeWire{tree}
-	m.intentFlatNodes = flattenIntentTrees(m.intentTrees)
-	m.intentCursor = len(m.intentFlatNodes) - 1 // at last position
+	m.intent.Trees = []*ipc.IntentTreeWire{tree}
+	m.intent.FlatNodes = flattenIntentTrees(m.intent.Trees)
+	m.intent.Cursor = len(m.intent.FlatNodes) - 1 // at last position
 
 	// Simulate refresh with fewer nodes (tree completed, nodes removed)
 	smallTree := &ipc.IntentTreeWire{
@@ -638,7 +638,7 @@ func TestATDD_27_7_AC2_CursorClampedAfterRefresh(t *testing.T) {
 		},
 	}
 	msg := intentTreesMsg{
-		trees: &ipc.IntentStatusResponse{
+		Trees: &ipc.IntentStatusResponse{
 			Intents: []*ipc.IntentTreeWire{smallTree},
 		},
 	}
@@ -647,9 +647,9 @@ func TestATDD_27_7_AC2_CursorClampedAfterRefresh(t *testing.T) {
 	model := m2.(dashboardModel)
 
 	// Cursor should be clamped to valid range
-	if model.intentCursor >= len(model.intentFlatNodes) {
+	if model.intent.Cursor >= len(model.intent.FlatNodes) {
 		t.Errorf("AC-2: intentCursor %d out of range (flatNodes len=%d)",
-			model.intentCursor, len(model.intentFlatNodes))
+			model.intent.Cursor, len(model.intent.FlatNodes))
 	}
 }
 

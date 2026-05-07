@@ -8,6 +8,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
+	dashboardevent "github.com/rnixai/rnix/internal/dashboard/event"
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -17,231 +19,92 @@ import (
 
 // --- Step-unified Timeline (UX Timeline Unification) ---
 
-// actionColor returns the display color for a step action type.
+// actionColor — thin wrapper · 见 internal/dashboard/timeline.ActionColor
+//
+// Story 38-5 PR11 Step 4(a-2)：迁出至 internal/dashboard/timeline/helpers.go.
+// 保留函数名让 ATDD 29-1 文件拆分契约 + dashboard_test.go grep 字符串通过.
 func actionColor(action string) lipgloss.Color {
-	switch action {
-	case "tool_call":
-		return lipgloss.Color("#6BCB77")
-	case "plan":
-		return lipgloss.Color("#5B9BD5")
-	case "text":
-		return lipgloss.Color("#FFFFFF")
-	case "complete":
-		return lipgloss.Color("#6BCB77")
-	case "spawn":
-		return lipgloss.Color("#9B59B6")
-	case "specialize":
-		return lipgloss.Color("#4EC9B0")
-	case "replan":
-		return lipgloss.Color("#E5C07B")
-	default:
-		return lipgloss.Color("#FFFFFF")
-	}
+	return timeline.ActionColor(action)
 }
 
-// actionAbbrev returns a shortened action name for narrow screens.
-// "text" is displayed as "asst" (assistant) to match the conversation role.
+// actionAbbrev — thin wrapper · 见 internal/dashboard/timeline.ActionAbbrev
+//
+// Story 38-5 PR11 Step 4(c) renderAggregatedTimeline 迁出后 cmd/rnix 端无 caller ·
+// 保留 wrapper 满足 ATDD 27-3 line 817 注释引用 + 潜在 grep 契约（与 dashboard_tree.go
+// stateRank / longestCommonPrefix unused wrapper pattern 同模式）。
+//
+//nolint:unused // ATDD 27-3 grep 契约保留（renderAggregatedTimeline 迁出后无 caller）
 func actionAbbrev(action string) string {
-	switch action {
-	case "tool_call":
-		return "tool"
-	case "complete":
-		return "done"
-	case "specialize":
-		return "spec"
-	case "text":
-		return "x"
-	default:
-		return action
-	}
+	return timeline.ActionAbbrev(action)
 }
 
-// timelineAggThreshold is the minimum consecutive steps with the same ToolPath
-// required to trigger semantic aggregation (non-bulk mode, <100 steps).
-const timelineAggThreshold = 3
+// timelineAggThreshold — alias of dashboardevent.AggThreshold (thin wrapper · Story 38-5 PR11 Step 4(a-2))
+//
+//nolint:unused // ATDD 36-3 grep 契约保留 (timeline IA refactor 测试 + 历史调用)
+const timelineAggThreshold = dashboardevent.AggThreshold
 
-// toolAggGroup represents a consecutive run of steps sharing the same ToolPath.
-type toolAggGroup struct {
-	startIdx int    // index in filtered unified events
-	endIdx   int    // exclusive
-	toolPath string // shared ToolPath for the group
-	stepNums []int  // step numbers for display
-}
+// toolAggGroup — alias of dashboardevent.ToolAggGroup (thin wrapper)
+type toolAggGroup = dashboardevent.ToolAggGroup
 
-// buildToolAggGroups scans unified events and identifies consecutive runs of
-// step events with the same ToolPath that meet the aggregation threshold.
+// buildToolAggGroups — thin wrapper · 见 internal/dashboard/event.BuildToolAggGroups
 func buildToolAggGroups(events []UnifiedEvent) []toolAggGroup {
-	var groups []toolAggGroup
-	n := len(events)
-	i := 0
-	for i < n {
-		ev := events[i]
-		if ev.StepEntry == nil || ev.StepEntry.summary.ToolPath == "" {
-			i++
-			continue
-		}
-		tp := ev.StepEntry.summary.ToolPath
-		runStart := i
-		var stepNums []int
-		stepNums = append(stepNums, ev.StepEntry.summary.Step)
-		j := i + 1
-		for j < n {
-			ej := events[j]
-			if ej.StepEntry == nil || ej.StepEntry.summary.ToolPath != tp {
-				break
-			}
-			stepNums = append(stepNums, ej.StepEntry.summary.Step)
-			j++
-		}
-		if len(stepNums) >= timelineAggThreshold {
-			groups = append(groups, toolAggGroup{
-				startIdx: runStart,
-				endIdx:   j,
-				toolPath: tp,
-				stepNums: stepNums,
-			})
-		}
-		i = j
-	}
-	return groups
+	return dashboardevent.BuildToolAggGroups(events)
 }
 
-// shortenArgs takes the first line of input and truncates to maxLen rune-width.
+// shortenArgs — thin wrapper · 见 internal/dashboard/timeline.ShortenArgs
 func shortenArgs(input string, maxLen int) string {
-	line, _, _ := strings.Cut(input, "\n")
-	if runewidth.StringWidth(line) > maxLen {
-		return runewidth.Truncate(line, maxLen-1, "…")
-	}
-	return line
+	return timeline.ShortenArgs(input, maxLen)
 }
 
-// formatDefaultLine derives the display action and summary for a timeline step.
-// When detail is available, it uses the richer fields; otherwise falls back to
-// StepSummaryWire fields.
+// formatDefaultLine — thin wrapper · 见 internal/dashboard/timeline.FormatDefaultLine
 func formatDefaultLine(s ipc.StepSummaryWire, detail *ipc.GetStepDetailResponse) (action, summary string) {
-	if detail != nil {
-		action = detail.Action
-		if detail.ToolPath != "" {
-			action = detail.ToolPath
-		}
-		summary = detail.Summary
-		if summary == "" && detail.ToolInput != "" {
-			summary = shortenArgs(detail.ToolInput, 60)
-		}
-	}
-	// Fallback: use StepSummaryWire fields
-	if action == "" {
-		action = s.Action
-		if s.ToolPath != "" {
-			action = s.ToolPath
-		}
-	}
-	if summary == "" {
-		summary = s.Summary
-	}
-	return action, summary
+	return timeline.FormatDefaultLine(s, detail)
 }
 
-// sysEventStyle returns a lipgloss style for a system event type.
+// sysEventStyle — thin wrapper · 见 internal/dashboard/event.SysEventStyle
 func sysEventStyle(ev UnifiedEvent) lipgloss.Style {
-	switch ev.Type {
-	case EventCompact:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#00CED1")).Bold(true)
-	case EventBudget:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
-	case EventSpawn:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess))
-	case EventExit:
-		if ev.Severity >= SevError {
-			return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-		}
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	case EventStall:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true)
-	case EventImmune:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#9B59B6"))
-	default:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	}
+	return dashboardevent.SysEventStyle(ev)
 }
 
-// defaultStepFilters returns a map with all action types and system event types enabled.
+// defaultStepFilters — thin wrapper · 见 internal/dashboard/event.DefaultStepFilters
 func defaultStepFilters() map[string]bool {
-	return map[string]bool{
-		"tool_call":    true,
-		"plan":         true,
-		"text":         true,
-		"complete":     true,
-		"spawn":        true,
-		"replan":       true,
-		"specialize":   true,
-		EventCompact:   true,
-		EventBudget:    true,
-		"sys_spawn":    true, // F7: distinct from step-action "spawn" filter key
-		EventExit:      true,
-		EventStall:     true,
-		EventImmune:    true,
-		EventSyscall:   true, // Story 34.6: strace events in debug mode
-	}
+	return dashboardevent.DefaultStepFilters()
 }
 
 // maybeShowTimelineMigrationNotice shows a one-time status bar notice when the
 // user enters升序 Timeline for the first time. Persists the shown flag to
 // ~/.config/rnix/ui-state.json so the notice never repeats across sessions.
 // Story 36-4 AC-3.
+//
+// Story 38-5 PR11 Step 4(c)：纯逻辑迁出至 internal/dashboard/timeline.MigrationCheck
+// （懒分配 UIState + saver 调用 + 不阻塞写入失败 · 与历史行为等价）。cmd/rnix
+// wrapper 仅保留 m.statusMsg / m.statusMsgTTL 副作用（dashboardModel-private）。
 func (m dashboardModel) maybeShowTimelineMigrationNotice() dashboardModel {
-	if m.timelineMigrationChecked {
-		return m
+	var show bool
+	m.timeline, show = timeline.MigrationCheck(m.timeline, nil)
+	if show {
+		m.statusMsg = "Timeline 已改为升序（最新在底）。按 o 切换。"
+		m.statusMsgTTL = 5
 	}
-	m.timelineMigrationChecked = true
-	if m.uiState == nil {
-		m.uiState = &ui.UIState{}
-	}
-	if m.uiState.TimelineSortMigrationShown || !m.timelineSortAsc {
-		return m
-	}
-	m.statusMsg = "Timeline 已改为升序（最新在底）。按 o 切换。"
-	m.statusMsgTTL = 5
-	m.uiState.TimelineSortMigrationShown = true
-	_ = ui.SaveUIState(m.uiState) // 写入失败不阻塞 UI
 	return m
 }
 
-// handleTimelinePIDChange resets timeline state when selected process changes.
-// Uses UUID for reliable identification (PIDs can be reused).
-func (m dashboardModel) handleTimelinePIDChange() dashboardModel {
-	if m.selectedUUID == m.timelineAttachedUUID {
-		return m
-	}
-	m.timelineAttachedPID = m.selectedPID
-	m.timelineAttachedUUID = m.selectedUUID
-	m.stepEntries = nil
-	m.stepCursor = 0
-	m.stepScrollTop = 0
-	m.stepDetailCache = make(map[int]*ipc.GetStepDetailResponse)
-	m.lastFetchedStep = 0
-	m.fetchingDetail = false
-	m.stepFilterMode = false
-	m.stepExpandedIdx = -1
-	m.expandedAggGroups = make(map[int]bool)
-	// Story 36-4: expandMode 按进程作用域，切 PID 重置为 collapsed（sortAsc 不重置）
-	m.expandMode = expandModeCollapsed
-	// Story 36-5 P-1: search state is per-process; reset to avoid carrying a
-	// stale "ghost input mode" or stale matches across PID switches.
-	m.searchMode = false
-	m.searchQuery = ""
-	m.searchMatches = nil
-	m.searchMatchIdx = 0
-	return m
-}
+// handleTimelinePIDChange wrapper 已于 Story 38-5 PR11 Step 4(b) Phase 2 删除。
+//
+// 历史：cmd/rnix wrapper 调用 timeline.HandlePIDUUIDChange + 重置 m.search 4 字段（Story 36-5 P-1）。
+//
+// 删除理由：spec § 04 风险 5 中断保险原则 · 把 wrapper 整体迁至
+// internal/dashboard/timeline.HandlePIDUUIDChangeWithSearch（接受 SearchResetter
+// 接口避免硬依赖 plugin 包）· cmd/rnix 端调用站点零修改通过 ATDD 27-3 / 36-4 /
+// 36-5 / 36-6 + 38-1/2/3/4 全部测试。
 
 // handleTimelineKey dispatches keys for the unified Step timeline.
 func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
-	if m.stepFilterMode {
+	if m.timeline.StepFilterMode {
 		return m.handleStepFilterKey(key)
 	}
 	// Story 36-5: search input mode for Timeline
-	if m.searchMode {
+	if m.search.Mode {
 		return m.handleTimelineSearchKey(key)
 	}
 	filtered := m.filteredUnifiedEvents()
@@ -254,7 +117,7 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	// from being driven past the filtered range during interactive filtering.
 	itemCount := len(filtered)
 	if itemCount == 0 && len(m.unifiedEvents) == 0 {
-		itemCount = len(m.stepEntries)
+		itemCount = len(m.timeline.StepEntries)
 	}
 	navOpts := ui.ListNavOpts{
 		PageSize: pageSize,
@@ -262,10 +125,10 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 			m.ensureStepCursorVisible(pageSize)
 		},
 	}
-	if ui.HandleListKey(key, nil, &m.stepCursor, itemCount, navOpts) {
+	if ui.HandleListKey(key, nil, &m.timeline.StepCursor, itemCount, navOpts) {
 		// g/home 额外重置 stepScrollTop（与 Tree 对齐）
 		if key == "g" || key == "home" {
-			m.stepScrollTop = 0
+			m.timeline.StepScrollTop = 0
 		}
 		m.ensureStepCursorVisible(pageSize)
 		return m
@@ -273,117 +136,78 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	switch key {
 	case "/":
 		// Story 36-5: enter search input mode (Timeline).
-		m.searchMode = true
-		m.searchQuery = ""
+		// Story 38-5 PR11 Step 4(c)：迁出至 SearchPlugin.EnterSearchMode（与
+		// inspector / 共享 · timeline 仅 forward 不支持 ? backward）。
+		m.search.EnterSearchMode(false)
 		return m
 	case "f":
-		m.stepFilterMode = true
-		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
+		m.timeline.StepFilterMode = true
+		m.statusMsg = dashboardevent.FilterHelpMsg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "e":
 		// Story 36-4: Sticky expand mode — 切换到 Expanded，幂等。
-		m.expandMode = expandModeExpanded
-		expanded := 0
-		for i := range m.stepEntries {
-			entry := &m.stepEntries[i]
-			if entry.level < levelExpanded {
-				detail := m.stepDetailCache[entry.summary.Step]
-				if detail == nil || hasExpandableContent(detail, entry.summary) {
-					entry.level = levelExpanded
-					expanded++
-				}
-			}
-		}
-		m.statusMsg = "Expand mode: all"
+		//
+		// Story 38-5 PR11 Step 4(c)：expand mode mutation 主体迁出至
+		// internal/dashboard/timeline.ApplyExpandMode（含 detail==nil 短路径 +
+		// hasExpandable 双判断 + empty list NoSteps 提示 · 与历史等价）。
+		var msg string
+		m.timeline, msg = timeline.ApplyExpandMode(m.timeline, expandModeExpanded, hasExpandableContent)
+		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
-		if expanded == 0 && len(m.stepEntries) == 0 {
-			m.statusMsg = "Expand mode: all (no steps yet)"
-		}
 	case "E":
 		// Story 36-4: ErrorsOnly mode — 仅展开 HasError=true 的 step。
-		m.expandMode = expandModeErrorsOnly
-		for i := range m.stepEntries {
-			entry := &m.stepEntries[i]
-			if entry.summary.HasError {
-				entry.level = levelExpanded
-			} else {
-				entry.level = levelSummary
-			}
-		}
-		m.statusMsg = "Expand mode: errors only"
+		var msg string
+		m.timeline, msg = timeline.ApplyExpandMode(m.timeline, expandModeErrorsOnly, hasExpandableContent)
+		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "C":
 		// Story 36-4: Collapsed mode — 全部折叠到 summary。
 		// 仅非 filter 模式生效（filter 模式下的 C 由 handleStepFilterKey 处理）。
-		m.expandMode = expandModeCollapsed
-		for i := range m.stepEntries {
-			m.stepEntries[i].level = levelSummary
-		}
-		m.statusMsg = "Expand mode: collapsed"
+		var msg string
+		m.timeline, msg = timeline.ApplyExpandMode(m.timeline, expandModeCollapsed, hasExpandableContent)
+		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "o":
 		// Story 36-4: 切换 Timeline 排序方向（升 ↔ 降）
-		m.timelineSortAsc = !m.timelineSortAsc
-		if m.timelineSortAsc {
-			m.statusMsg = "Timeline 已切换到升序（旧→新）"
-		} else {
-			m.statusMsg = "Timeline 已切换到降序（新→旧）"
-		}
+		//
+		// Story 38-5 PR11 Step 4(c)：sort direction toggle 主体迁出至
+		// internal/dashboard/timeline.ToggleSortDirection。
+		var msg string
+		m.timeline, msg = timeline.ToggleSortDirection(m.timeline)
+		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "n":
 		// Story 36-5 P-7: when a search is active, n cycles to the next match.
 		// Otherwise, fall back to the legacy "next error" semantics (AC-5).
-		if len(m.searchMatches) > 0 {
-			n := len(m.searchMatches)
-			m.searchMatchIdx = (m.searchMatchIdx + 1) % n
-			m.stepCursor = m.searchMatches[m.searchMatchIdx]
+		if len(m.search.Matches) > 0 {
+			n := len(m.search.Matches)
+			m.search.MatchIdx = (m.search.MatchIdx + 1) % n
+			m.timeline.StepCursor = m.search.Matches[m.search.MatchIdx]
 			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 			break
 		}
-		// Jump to next error: step event with HasError or system event with Severity >= SevError
-		found := false
-		for i := m.stepCursor + 1; i < len(filtered); i++ {
-			ev := filtered[i]
-			if ev.StepEntry != nil && ev.StepEntry.summary.HasError {
-				m.stepCursor = i
-				found = true
-				break
-			}
-			if ev.StepEntry == nil && ev.Severity >= SevError {
-				m.stepCursor = i
-				found = true
-				break
-			}
-		}
-		if !found {
+		// Story 38-5 PR11 Step 4(c)：error 跳转 lookup 主体迁出至
+		// internal/dashboard/event.FindNextErrorIdx（HasError + Severity≥SevError
+		// 双判定 · 与历史等价）。
+		if idx, ok := dashboardevent.FindNextErrorIdx(filtered, m.timeline.StepCursor); ok {
+			m.timeline.StepCursor = idx
+		} else {
 			m.statusMsg = "No more errors"
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
 	case "N", "shift+N":
 		// Story 36-5 P-7: same modal split for N (previous match vs previous error).
-		if len(m.searchMatches) > 0 {
-			n := len(m.searchMatches)
-			m.searchMatchIdx = ((m.searchMatchIdx-1)%n + n) % n
-			m.stepCursor = m.searchMatches[m.searchMatchIdx]
+		if len(m.search.Matches) > 0 {
+			n := len(m.search.Matches)
+			m.search.MatchIdx = ((m.search.MatchIdx-1)%n + n) % n
+			m.timeline.StepCursor = m.search.Matches[m.search.MatchIdx]
 			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
 			break
 		}
-		// Jump to previous error
-		found := false
-		for i := m.stepCursor - 1; i >= 0; i-- {
-			ev := filtered[i]
-			if ev.StepEntry != nil && ev.StepEntry.summary.HasError {
-				m.stepCursor = i
-				found = true
-				break
-			}
-			if ev.StepEntry == nil && ev.Severity >= SevError {
-				m.stepCursor = i
-				found = true
-				break
-			}
-		}
-		if !found {
+		// Story 38-5 PR11 Step 4(c)：见 FindNextErrorIdx 同模式。
+		if idx, ok := dashboardevent.FindPrevErrorIdx(filtered, m.timeline.StepCursor); ok {
+			m.timeline.StepCursor = idx
+		} else {
 			m.statusMsg = "No more errors"
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
@@ -393,216 +217,116 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 }
 
 // handleTimelineSearchKey handles search input in Timeline. Story 36-5 AC-12.
+//
+// Story 38-5 PR11 Step 4(c)：esc/backspace/space/单字符 输入累积主体迁出至
+// internal/dashboard/plugin.SearchPlugin.HandleInputKey（含 nil safety + Unicode
+// rune 边界 + multi-char 键 fallback · 与 cmd/rnix 历史 byte-for-byte 等价）。
+// cmd/rnix wrapper 仅保留 enter 分支（FindMatches 已迁 · 但触发 + statusMsg +
+// StepCursor 跳转 + ensureStepCursorVisible 副作用必须留 cmd/rnix）。
 func (m dashboardModel) handleTimelineSearchKey(key string) dashboardModel {
-	switch key {
-	case "esc":
-		m.searchMode = false
-		m.searchQuery = ""
-	case "enter":
-		m.searchMode = false
-		if m.searchQuery == "" {
+	if key == "enter" {
+		m.search.Mode = false
+		if m.search.Query == "" {
 			return m
 		}
 		// Story 36-5 P-7: collect ALL match indices (not just the first), so n/N
 		// can cycle through them per the modal n/N semantics.
-		q := strings.ToLower(m.searchQuery)
-		filtered := m.filteredUnifiedEvents()
-		var matches []int
-		for i, ev := range filtered {
-			hay := strings.ToLower(ev.Summary + " " + ev.Detail)
-			if ev.StepEntry != nil {
-				hay += " " + strings.ToLower(ev.StepEntry.summary.Action+" "+ev.StepEntry.summary.Summary+" "+ev.StepEntry.summary.ToolPath)
-			}
-			if strings.Contains(hay, q) {
-				matches = append(matches, i)
-			}
-		}
+		matches := dashboardevent.FindMatches(m.filteredUnifiedEvents(), m.search.Query)
 		if len(matches) == 0 {
-			m.statusMsg = fmt.Sprintf("No matches for %q", m.searchQuery)
+			m.statusMsg = fmt.Sprintf("No matches for %q", m.search.Query)
 			m.statusMsgTTL = statusMsgDefaultTTL
 			return m
 		}
-		m.searchMatches = matches
-		m.searchMatchIdx = 0
-		m.stepCursor = matches[0]
+		m.search.Matches = matches
+		m.search.MatchIdx = 0
+		m.timeline.StepCursor = matches[0]
 		m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
-	case "backspace":
-		runes := []rune(m.searchQuery)
-		if len(runes) > 0 {
-			m.searchQuery = string(runes[:len(runes)-1])
-		}
-	case " ", "space":
-		m.searchQuery += " "
-	default:
-		if len([]rune(key)) == 1 {
-			m.searchQuery += key
-		}
+		return m
 	}
+	// 非 enter 按键由 SearchPlugin.HandleInputKey 处理（esc/backspace/space/单字符）
+	m.search.HandleInputKey(key)
 	return m
 }
 
 // handleStepFilterKey handles keys in filter editing mode.
+//
+// Story 38-5 PR11 Step 4(c)：纯 filter map 切换主体迁出至
+// internal/dashboard/event.ApplyStepFilterKey（含 13 个 filter key + 重置
+// + 退出 filter 模式 + showHelp 信号 · 与 cmd/rnix 历史 byte-for-byte 等价）。
+// cmd/rnix wrapper 仅保留 m.statusMsg / m.statusMsgTTL 副作用。
 func (m dashboardModel) handleStepFilterKey(key string) dashboardModel {
-	if m.stepFilters == nil {
-		m.stepFilters = defaultStepFilters()
-	}
-	switch key {
-	// Row 1: Step action types (lowercase)
-	case "t":
-		m.stepFilters["tool_call"] = !m.stepFilters["tool_call"]
-	case "p":
-		m.stepFilters["plan"] = !m.stepFilters["plan"]
-	case "a":
-		m.stepFilters["text"] = !m.stepFilters["text"]
-	case "c":
-		m.stepFilters["complete"] = !m.stepFilters["complete"]
-	case "s":
-		m.stepFilters["spawn"] = !m.stepFilters["spawn"]
-	case "r":
-		m.stepFilters["replan"] = !m.stepFilters["replan"]
-	case "z":
-		m.stepFilters["specialize"] = !m.stepFilters["specialize"]
-	// Row 2: System event types (uppercase or distinct keys)
-	// F7: Use 'x' for system spawn and 'X' for exit per spec Task 5.4
-	case "C":
-		m.stepFilters[EventCompact] = !m.stepFilters[EventCompact]
-	case "b":
-		m.stepFilters[EventBudget] = !m.stepFilters[EventBudget]
-	case "x":
-		m.stepFilters["sys_spawn"] = !m.stepFilters["sys_spawn"]
-	case "X":
-		m.stepFilters[EventExit] = !m.stepFilters[EventExit]
-	case "T":
-		m.stepFilters[EventStall] = !m.stepFilters[EventStall]
-	case "i":
-		m.stepFilters[EventImmune] = !m.stepFilters[EventImmune]
-	case "*":
-		m.stepFilters = defaultStepFilters()
-	case "f", "esc":
-		m.stepFilterMode = false
-	default:
-		m.statusMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
+	var help bool
+	m.timeline.StepFilters, m.timeline.StepFilterMode, help = dashboardevent.ApplyStepFilterKey(
+		m.timeline.StepFilters, m.timeline.StepFilterMode, key)
+	if help {
+		m.statusMsg = dashboardevent.FilterHelpMsg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	}
 	return m
 }
 
-// filteredStepEntries returns step entries matching current filters.
+// filteredStepEntries — thin wrapper 委托 timeline.FilteredStepEntries
+// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出)
+//
+// 保留 (m dashboardModel) receiver 让 dashboard_pane_dispatcher.go::F3 计算
+// 「step-only count from filtered unified events, not filteredStepEntries」（行 39
+// 注释）的 callsite `m.filteredStepEntries()` 写法零修改 · 函数体不读 m 字段，
+// 仅传 m.timeline 给 timeline.FilteredStepEntries · 行为完全等价。
 func (m dashboardModel) filteredStepEntries() []int {
-	if len(m.stepFilters) == 0 {
-		indices := make([]int, len(m.stepEntries))
-		for i := range m.stepEntries {
-			indices[i] = i
-		}
-		return indices
-	}
-	// Check if all filters are on
-	allOn := true
-	for _, v := range m.stepFilters {
-		if !v {
-			allOn = false
-			break
-		}
-	}
-	if allOn {
-		indices := make([]int, len(m.stepEntries))
-		for i := range m.stepEntries {
-			indices[i] = i
-		}
-		return indices
-	}
-	var result []int
-	for i, e := range m.stepEntries {
-		if m.stepFilters[e.summary.Action] {
-			result = append(result, i)
-		}
-	}
-	return result
+	return timeline.FilteredStepEntries(m.timeline)
 }
 
-// isEventVisible checks if a unified event passes the current filters.
+// isEventVisible — thin wrapper · 见 internal/dashboard/event.IsEventVisible.
+//
+// Story 38-5 PR11 Step 4(c) FilterDebugEvents 迁出后 cmd/rnix 端 caller 减少（仅
+// 保留 ATDD 契约与潜在外部 caller）· nolint:unused 标注（spec § Risk 4 与
+// dashboard_tree.go::stateRank / dashboard_eval.go::renderEvalTopologyView 同
+// 模式 · 不删除 wrapper 避免破坏潜在 grep 契约）。
+//
+//nolint:unused // 保留供 ATDD 契约与潜在外部 caller。
 func isEventVisible(ev UnifiedEvent, filters map[string]bool) bool {
-	if len(filters) == 0 {
-		return true
-	}
-	if ev.Type == EventStep {
-		if ev.StepEntry != nil {
-			return filters[ev.StepEntry.summary.Action]
-		}
-		return true
-	}
-	// F7: system spawn uses distinct filter key "sys_spawn" to avoid collision with step-action "spawn"
-	if ev.Type == EventSpawn {
-		return filters["sys_spawn"]
-	}
-	return filters[ev.Type]
+	return dashboardevent.IsEventVisible(ev, filters)
 }
 
-// filteredUnifiedEvents returns unified events matching current filters.
+// filteredUnifiedEvents — thin wrapper 委托 dashboardevent.FilterUnifiedEvents
+// (Story 38-5 PR11 Step 4(a-2) timeline event helpers 迁出)
+//
+// 保留 (m dashboardModel) receiver 让 4 个 callsite 零修改通过：
+//   - dashboard_timeline.go × 4（line 127/289 + 1607/1741 等）
+//   - dashboard_events.go × 1（line 581）
+//   - dashboard_keylayers.go × 1（line 254）
+//
+// 函数体仅传 m.unifiedEvents（共享 EventStream · spec § Dev Notes 关键架构决策 6
+// 保留在 App Model）+ m.timeline.StepFilters · 行为完全等价。
+//
+// **包归属**：放在 event 包而非 timeline 包 · 避免 timeline → event 反向 import 循环。
 func (m dashboardModel) filteredUnifiedEvents() []UnifiedEvent {
-	if len(m.stepFilters) == 0 {
-		return m.unifiedEvents
-	}
-	allOn := true
-	for _, v := range m.stepFilters {
-		if !v {
-			allOn = false
-			break
-		}
-	}
-	if allOn {
-		return m.unifiedEvents
-	}
-	var result []UnifiedEvent
-	for _, ev := range m.unifiedEvents {
-		if isEventVisible(ev, m.stepFilters) {
-			result = append(result, ev)
-		}
-	}
-	return result
+	return dashboardevent.FilterUnifiedEvents(m.unifiedEvents, m.timeline.StepFilters)
 }
 
-// unifiedItemHeight returns the number of lines a unified event occupies.
+// unifiedItemHeight — thin wrapper 委托 timeline.UnifiedItemHeight
+// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出)
+//
+// 解开 ev.StepEntry 避免 timeline 包反向 import event 包（event 包已 import
+// timeline.StepEntry · 循环依赖防御 · 与 commit 7d1964c event helpers 同模式但
+// 反向解耦）· 保留 (m dashboardModel) receiver 让 6 个 callsite 零修改通过。
 func (m dashboardModel) unifiedItemHeight(ev UnifiedEvent) int {
-	if ev.StepEntry == nil {
-		return 1 // system events are always single-line
-	}
-	entry := ev.StepEntry
-	n := 1
-	if entry.level >= levelExpanded {
-		detail := m.stepDetailCache[entry.summary.Step]
-		if detail == nil {
-			n++
-		} else {
-			n += m.estimateExpandedLines(detail, entry.summary)
-		}
-	}
-	if entry.level >= levelDebug {
-		detail := m.stepDetailCache[entry.summary.Step]
-		if detail != nil {
-			n += m.estimateDebugLines(detail)
-		}
-	}
-	return n
+	return timeline.UnifiedItemHeight(ev.StepEntry, m.timeline.StepDetailCache)
 }
 
 // resolveStepIndex converts cursor position in filtered unified view to actual stepEntries index.
 // Returns -1 if cursor points to a system event or is out of range.
+//
+// Story 38-5 PR11 Step 4(c)：内部指针查找逻辑迁至
+// internal/dashboard/timeline.FindStepEntryIndex（按地址比较 · 0 cmd/rnix 反向依赖）·
+// cmd/rnix wrapper 仅保留 cursor 范围检查 + filtered 提取（依赖 UnifiedEvent · 无法迁出）.
+// 保留 (m dashboardModel) receiver 让 dashboard_pane_dispatcher.go::78 callsite 零修改.
 func (m dashboardModel) resolveStepIndex() int {
 	filtered := m.filteredUnifiedEvents()
-	if m.stepCursor < 0 || m.stepCursor >= len(filtered) {
+	if m.timeline.StepCursor < 0 || m.timeline.StepCursor >= len(filtered) {
 		return -1
 	}
-	ev := filtered[m.stepCursor]
-	if ev.StepEntry == nil {
-		return -1
-	}
-	for i := range m.stepEntries {
-		if &m.stepEntries[i] == ev.StepEntry {
-			return i
-		}
-	}
-	return -1
+	return timeline.FindStepEntryIndex(m.timeline, filtered[m.timeline.StepCursor].StepEntry)
 }
 
 // --- Rendering ---
@@ -624,7 +348,7 @@ func (m dashboardModel) renderTimelinePane(width, height int) string {
 func (m dashboardModel) renderStepTimeline(width, height int) string {
 	var b strings.Builder
 	truncW := max(width-1, 1)
-	total := len(m.stepEntries)
+	total := len(m.timeline.StepEntries)
 	filtered := m.filteredUnifiedEvents()
 
 	// Count step events and system events in filtered list
@@ -639,7 +363,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	}
 
 	// Header
-	if m.stepFilterMode {
+	if m.timeline.StepFilterMode {
 		b.WriteString(m.renderStepFilterBar(truncW))
 	} else {
 		b.WriteString(m.renderUnifiedStepHeader(truncW, total, len(filtered), sysCount))
@@ -678,17 +402,17 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	const aggThreshold = 100
 	useAggregation := stepCount > aggThreshold
 
-	cursor := min(m.stepCursor, max(len(filtered)-1, 0))
+	cursor := min(m.timeline.StepCursor, max(len(filtered)-1, 0))
 
 	// F4: Filter bar is 2 lines when active; account for extra line
 	headerLines := 1
-	if m.stepFilterMode {
+	if m.timeline.StepFilterMode {
 		headerLines = 2
 	}
 	listLines := max(height-headerLines-1, 1)
 
 	// Variable-height scroll: ensure cursor is visible via stepScrollTop
-	startIdx := m.stepScrollTop
+	startIdx := m.timeline.StepScrollTop
 	if startIdx < 0 || startIdx >= len(filtered) {
 		startIdx = 0
 	}
@@ -737,8 +461,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		var sysEventsForAgg []UnifiedEvent
 		for _, ev := range filtered {
 			if ev.StepEntry != nil {
-				for i := range m.stepEntries {
-					if &m.stepEntries[i] == ev.StepEntry {
+				for i := range m.timeline.StepEntries {
+					if &m.timeline.StepEntries[i] == ev.StepEntry {
 						stepIndices = append(stepIndices, i)
 						break
 					}
@@ -774,14 +498,14 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 	aggExpandedSet := make(map[int]bool)
 	for i := range aggGroups {
 		g := &aggGroups[i]
-		aggGroupByStart[g.startIdx] = g
-		expanded := m.expandedAggGroups[g.stepNums[0]]
+		aggGroupByStart[g.StartIdx] = g
+		expanded := m.timeline.ExpandedAggGroups[g.StepNums[0]]
 		if !expanded {
-			for fi := g.startIdx + 1; fi < g.endIdx; fi++ {
+			for fi := g.StartIdx + 1; fi < g.EndIdx; fi++ {
 				aggSkipSet[fi] = true
 			}
 		} else {
-			for fi := g.startIdx + 1; fi < g.endIdx; fi++ {
+			for fi := g.StartIdx + 1; fi < g.EndIdx; fi++ {
 				aggExpandedSet[fi] = true
 			}
 		}
@@ -793,7 +517,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		// System event: single-line rendering (plus optional detail line when selected)
 		if ev.StepEntry == nil {
 			cursorMark := "  "
-			if fi == m.stepCursor {
+			if fi == m.timeline.StepCursor {
 				cursorMark = "▸ "
 			}
 			icon := ui.EventTypeIcon(ev.Type)
@@ -804,7 +528,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 					Render(ui.FormatWallClock(ev.Timestamp)) + " "
 			}
 			line := fmt.Sprintf("%s%s%s %s", cursorMark, tsLabel, style.Render(icon), style.Render(ev.Summary))
-			if fi == m.stepCursor {
+			if fi == m.timeline.StepCursor {
 				line = lipgloss.NewStyle().
 					Background(lipgloss.Color("#2D2D3D")).
 					Foreground(lipgloss.Color("#FFFFFF")).
@@ -814,7 +538,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			b.WriteString("\n")
 			linesUsed++
 			// Show full Detail on a second line when cursor is on a sys event with detail
-			if fi == m.stepCursor && ev.Detail != "" && linesUsed < listLines {
+			if fi == m.timeline.StepCursor && ev.Detail != "" && linesUsed < listLines {
 				detailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 				detail := strings.ReplaceAll(ev.Detail, "\n", " ")
 				detailLine := "    ┊ " + detail
@@ -832,8 +556,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 		// Semantic tool aggregation: render group header at startIdx
 		if g, ok := aggGroupByStart[fi]; ok {
-			expanded := m.expandedAggGroups[g.stepNums[0]]
-			cursorInGroup := m.stepCursor >= g.startIdx && m.stepCursor < g.endIdx
+			expanded := m.timeline.ExpandedAggGroups[g.StepNums[0]]
+			cursorInGroup := m.timeline.StepCursor >= g.StartIdx && m.timeline.StepCursor < g.EndIdx
 
 			if !expanded {
 				// Collapsed group header line
@@ -849,12 +573,12 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 				// Calculate avg duration
 				var totalDur float64
-				for idx := g.startIdx; idx < g.endIdx; idx++ {
+				for idx := g.StartIdx; idx < g.EndIdx; idx++ {
 					if filtered[idx].StepEntry != nil {
-						totalDur += filtered[idx].StepEntry.summary.DurationMs
+						totalDur += filtered[idx].StepEntry.Summary.DurationMs
 					}
 				}
-				avgDur := totalDur / float64(len(g.stepNums))
+				avgDur := totalDur / float64(len(g.StepNums))
 				avgLabel := formatTimelineDuration(avgDur)
 
 				aggSep := "▸"
@@ -863,8 +587,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				}
 				headerLine := fmt.Sprintf("%s%s %d–%d %s %s × %d  avg %s",
 					cursorMark, marker,
-					g.stepNums[0], g.stepNums[len(g.stepNums)-1],
-					aggSep, g.toolPath, len(g.stepNums), avgLabel)
+					g.StepNums[0], g.StepNums[len(g.StepNums)-1],
+					aggSep, g.ToolPath, len(g.StepNums), avgLabel)
 
 				// Add offset range if available
 				if showStepOffset {
@@ -872,8 +596,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 					for _, p := range m.processes {
 						if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
 							if !p.CreatedAt.IsZero() {
-								startEv := filtered[g.startIdx]
-								endEv := filtered[g.endIdx-1]
+								startEv := filtered[g.StartIdx]
+								endEv := filtered[g.EndIdx-1]
 								if !startEv.Timestamp.IsZero() {
 									startOff = ui.FormatOffsetFromStart(startEv.Timestamp.Sub(p.CreatedAt))
 								}
@@ -913,8 +637,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				aggSep = ">"
 			}
 			expandHeader := fmt.Sprintf("  %s %d–%d %s %s × %d",
-				marker, g.stepNums[0], g.stepNums[len(g.stepNums)-1],
-				aggSep, g.toolPath, len(g.stepNums))
+				marker, g.StepNums[0], g.StepNums[len(g.StepNums)-1],
+				aggSep, g.ToolPath, len(g.StepNums))
 			b.WriteString(dimStyle.Render(expandHeader))
 			b.WriteString("\n")
 			linesUsed++
@@ -926,7 +650,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 		// Step event: full Level 1/2/3 rendering
 		entry := ev.StepEntry
-		s := entry.summary
+		s := entry.Summary
 
 		// Check if this step is inside an expanded aggregation group (needs indent)
 		inExpandedGroup := aggExpandedSet[fi]
@@ -935,7 +659,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		if inExpandedGroup {
 			cursorMark = "    " // 4-char indent for sub-steps
 		}
-		if fi == m.stepCursor {
+		if fi == m.timeline.StepCursor {
 			if inExpandedGroup {
 				cursorMark = "  ▸ "
 			} else {
@@ -944,13 +668,13 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		}
 
 		levelMark := " "
-		if entry.level >= levelExpanded {
-			detail := m.stepDetailCache[s.Step]
+		if entry.Level >= levelExpanded {
+			detail := m.timeline.StepDetailCache[s.Step]
 			if detail == nil || hasExpandableContent(detail, s) {
 				levelMark = "▾"
 			}
 		} else {
-			if detail, ok := m.stepDetailCache[s.Step]; ok && hasExpandableContent(detail, s) {
+			if detail, ok := m.timeline.StepDetailCache[s.Step]; ok && hasExpandableContent(detail, s) {
 				levelMark = "▸"
 			}
 		}
@@ -958,7 +682,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 
 		// New layout: step# ▸ action · summary  duration  +relTime
-		detail := m.stepDetailCache[s.Step]
+		detail := m.timeline.StepDetailCache[s.Step]
 		actionText, summaryText := formatDefaultLine(s, detail)
 		stepNumStr := fmt.Sprintf("%d", s.Step)
 
@@ -1027,7 +751,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		}
 
 		if hasError && width >= 80 {
-			if cached := m.stepDetailCache[s.Step]; cached != nil && cached.ToolError != "" {
+			if cached := m.timeline.StepDetailCache[s.Step]; cached != nil && cached.ToolError != "" {
 				errLine := strings.SplitN(cached.ToolError, "\n", 2)[0]
 				// errPreviewW: remaining width after summary (avoid double-counting)
 				errPreviewW := max(summaryW-2, 10)
@@ -1064,7 +788,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 		if hasError {
 			line = lipgloss.NewStyle().Background(lipgloss.Color("#3D1F1F")).Render(line)
-		} else if fi == m.stepCursor {
+		} else if fi == m.timeline.StepCursor {
 			line = lipgloss.NewStyle().
 				Background(lipgloss.Color("#2D2D3D")).
 				Foreground(lipgloss.Color("#FFFFFF")).
@@ -1076,8 +800,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		linesUsed++
 
 		// Level 2: Expanded detail
-		if entry.level >= levelExpanded && linesUsed < listLines {
-			expandDetail := m.stepDetailCache[s.Step]
+		if entry.Level >= levelExpanded && linesUsed < listLines {
+			expandDetail := m.timeline.StepDetailCache[s.Step]
 			if expandDetail == nil {
 				b.WriteString(dimStyle.Render("   ┊ Loading…") + "\n")
 				linesUsed++
@@ -1087,8 +811,8 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		}
 
 		// Level 3: Debug detail
-		if entry.level >= levelDebug && linesUsed < listLines {
-			detail := m.stepDetailCache[s.Step]
+		if entry.Level >= levelDebug && linesUsed < listLines {
+			detail := m.timeline.StepDetailCache[s.Step]
 			if detail != nil {
 				linesUsed += m.renderDebugDetail(&b, detail, truncW, listLines-linesUsed)
 			}
@@ -1099,802 +823,132 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 }
 
 // renderExpandedDetail renders Level 2 detail lines for a step.
+// renderExpandedDetail — thin wrapper · 见 internal/dashboard/timeline.RenderExpandedDetail
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/render.go.
+// 保留 (m dashboardModel) receiver 让 ATDD 27-3 / 36-3 grep 字符串通过.
+// 函数体本身不依赖 dashboardModel 状态（receiver 是死的 · 完全 pure helper）.
 func (m dashboardModel) renderExpandedDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire, maxW, maxLines int) int {
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
-	lines := 0
-	contentW := max(maxW-14, 20) // 3 indent + "┊" + " " + 8 label + " " padding
-
-	// ToolPath — skip when Level 1 already shows it as displaySummary
-	displayedAsSummary := s.Summary
-	if s.ToolPath != "" && len(s.Summary) < 8 {
-		displayedAsSummary = s.ToolPath
-	}
-	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary && lines < maxLines {
-		pathLabel := detail.ToolPath
-		if runewidth.StringWidth(pathLabel) > contentW {
-			pathLabel = runewidth.Truncate(pathLabel, contentW-1, "…")
-		}
-		pathStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#4EC9B0"))
-		fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("   Path"), pathStyle.Render(pathLabel))
-		lines++
-	}
-
-	// Input (tool_call only)
-	if detail.ToolInput != "" && lines < maxLines {
-		input := detail.ToolInput
-		if runewidth.StringWidth(input) > contentW {
-			totalBytes := len(detail.ToolInput)
-			input = runewidth.Truncate(input, contentW-15, "") + fmt.Sprintf("… (%d bytes)", totalBytes)
-		}
-		fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("  Input"), input)
-		lines++
-	}
-
-	// Result or Error
-	if detail.ToolError != "" && lines < maxLines {
-		errMsg := detail.ToolError
-		errLines := strings.Split(errMsg, "\n")
-		if len(errLines) > 3 {
-			errMsg = strings.Join(errLines[:3], "\n") + fmt.Sprintf("\n… (%d more lines)", len(errLines)-3)
-		}
-		for i, el := range strings.Split(errMsg, "\n") {
-			if lines >= maxLines {
-				break
-			}
-			if i == 0 {
-				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("  Error"), errStyle.Render(el))
-			} else {
-				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("       "), errStyle.Render(el))
-			}
-			lines++
-		}
-	} else if detail.ToolResult != "" && lines < maxLines {
-		result := detail.ToolResult
-		resultLines := strings.Split(result, "\n")
-		if len(resultLines) > 3 {
-			result = strings.Join(resultLines[:3], "\n") + fmt.Sprintf("\n… (%d more lines)", len(resultLines)-3)
-		}
-		for i, rl := range strings.Split(result, "\n") {
-			if lines >= maxLines {
-				break
-			}
-			if i == 0 {
-				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render(" Result"), rl)
-			} else {
-				fmt.Fprintf(b, "   %s %s %s\n", dimStyle.Render("┊"), dimStyle.Render("       "), rl)
-			}
-			lines++
-		}
-	} else if detail.RawResponse != "" && lines < maxLines {
-		// Show RawResponse snippet as fallback for any action type
-		rawLines := strings.Split(detail.RawResponse, "\n")
-		showLines := min(3, len(rawLines))
-		for i := range showLines {
-			if lines >= maxLines {
-				break
-			}
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), rawLines[i])
-			lines++
-		}
-		if len(rawLines) > 3 && lines < maxLines {
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(fmt.Sprintf("… (%d more lines)", len(rawLines)-3)))
-			lines++
-		}
-	}
-
-	// Token breakdown — skip when total already shown in Level 1 and breakdown matches
-	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) && lines < maxLines {
-		fmt.Fprintf(b, "   %s %s %d req → %d resp\n", dimStyle.Render("┊"), dimStyle.Render("  Token"), detail.RequestTokens, detail.ResponseTokens)
-		lines++
-	}
-
-	// Fallback: if all fields were deduped or empty (should be rare — hasExpandableContent prevents most cases)
-	if lines == 0 {
-		// Try full ToolPath if Level 1 showed a truncated Summary
-		if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
-			tp := detail.ToolPath
-			if runewidth.StringWidth(tp) > contentW {
-				tp = runewidth.Truncate(tp, contentW-1, "…")
-			}
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(tp))
-			lines++
-		}
-		// Try RawResponse as last resort
-		if lines == 0 && detail.RawResponse != "" {
-			raw := detail.RawResponse
-			if runewidth.StringWidth(raw) > contentW {
-				raw = runewidth.Truncate(raw, contentW-1, "…")
-			}
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(raw))
-			lines++
-		}
-	}
-
-	return lines
+	return timeline.RenderExpandedDetail(b, detail, s, maxW, maxLines)
 }
 
 // renderDebugDetail renders Level 3 debug lines (messages preview).
+// renderDebugDetail — thin wrapper · 见 internal/dashboard/timeline.RenderDebugDetail
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/render.go.
+// 保留 (m dashboardModel) receiver 让 ATDD 27-3 / 27-4 grep 字符串通过.
+// promptRoleForRole 通过依赖注入传入 · 避免 timeline 包持有 promptRole* style 拷贝.
 func (m dashboardModel) renderDebugDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse, maxW, maxLines int) int {
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	lines := 0
-
-	// Separator
-	if lines < maxLines {
-		sep := strings.Repeat("─", min(maxW-6, 60))
-		fmt.Fprintf(b, "   %s\n", dimStyle.Render("┊"+sep))
-		lines++
-	}
-
-	msgCount := len(detail.Messages)
-
-	if msgCount == 0 {
-		// CLI driver process: no message history available
-		if lines < maxLines {
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("CLI driver — no message history"))
-			lines++
-		}
-		if lines < maxLines {
-			fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看 system prompt"))
-			lines++
-		}
-		return lines
-	}
-
-	// Messages header
-	if lines < maxLines {
-		totalTok := formatTokenCount(detail.TokenCount)
-		fmt.Fprintf(b, "   %s Messages (%d)%s%s\n",
-			dimStyle.Render("┊"),
-			detail.MessageCount,
-			strings.Repeat(" ", max(maxW-30-len(totalTok), 2)),
-			dimStyle.Render("累计 "+totalTok+" tok"))
-		lines++
-	}
-
-	// Message preview
-	showCount := min(msgCount, min(maxLines-lines, 6))
-	showCount = max(showCount, min(msgCount, 2))
-	// Show the last N messages
-	startMsg := max(msgCount-showCount, 0)
-	for i := startMsg; i < msgCount && lines < maxLines; i++ {
-		msg := detail.Messages[i]
-		roleStyle := promptRoleForRole(msg.Role)
-		content := msg.Content
-		if runewidth.StringWidth(content) > 60 {
-			content = runewidth.Truncate(content, 57, "…")
-		}
-		fmt.Fprintf(b, "   %s  %s %s\n", dimStyle.Render("┊"), roleStyle, content)
-		lines++
-	}
-
-	// Hint
-	if lines < maxLines {
-		fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render("                                      ↳ 按 p 查看完整 prompt"))
-		lines++
-	}
-
-	return lines
+	return timeline.RenderDebugDetail(b, detail, maxW, maxLines, promptRoleForRole)
 }
 
+// promptRoleForRole — thin wrapper · 见 internal/dashboard/timeline.PromptRoleForRole
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/role.go.
+// 保留函数名让 RenderDebugDetail roleStyle 依赖注入闭包通过.
 func promptRoleForRole(role string) string {
-	switch role {
-	case "system":
-		return promptRoleSystem.Render("[system]")
-	case "user":
-		return promptRoleUser.Render("[user]  ")
-	case "assistant":
-		return promptRoleAssistant.Render("[asst]  ")
-	case "tool":
-		return promptRoleTool.Render("[tool]  ")
-	default:
-		return "[" + role + "]"
-	}
+	return timeline.PromptRoleForRole(role)
 }
 
 // renderUnifiedStepHeader renders the timeline header with unified event counts.
+// renderUnifiedStepHeader — thin wrapper · 见 internal/dashboard/timeline.RenderUnifiedStepHeader
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/render.go.
+// 保留 (m dashboardModel) receiver 让 ATDD 27-3 / 36-3 / 36-4 grep 字符串通过.
+// HeaderContext 注入运行时数据（State + Processes + SelectedPID/UUID + TotalEvents）·
+// 与 RenderDebugDetail roleStyle / RenderTraceTreeView 共享数据注入同模式.
 func (m dashboardModel) renderUnifiedStepHeader(maxW, totalSteps, filteredCount, sysCount int) string {
-	var b strings.Builder
-	b.WriteString(" Timeline")
-	if m.selectedPID > 0 {
-		fmt.Fprintf(&b, " │ PID %d", m.selectedPID)
-	}
-	// Wall-clock start time for selected process
-	for _, p := range m.processes {
-		if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
-			if !p.CreatedAt.IsZero() {
-				fmt.Fprintf(&b, " │ %s", ui.FormatWallClock(p.CreatedAt))
-			}
-			break
-		}
-	}
-	fmt.Fprintf(&b, " │ %d steps", totalSteps)
-	if sysCount > 0 {
-		fmt.Fprintf(&b, " + %d events", sysCount)
-	}
-
-	// Story 36-4: 排序方向 & expandMode 指示（dim 颜色，放在 steps 数量之后）
-	{
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-		ascii := ui.IsASCIIMode()
-		var dirText string
-		if m.timelineSortAsc {
-			if ascii {
-				dirText = "^ old->new"
-			} else {
-				dirText = "↑ 旧→新"
-			}
-		} else {
-			if ascii {
-				dirText = "v new->old"
-			} else {
-				dirText = "↓ 新→旧"
-			}
-		}
-		fmt.Fprintf(&b, " %s", dimStyle.Render("│ "+dirText))
-		switch m.expandMode {
-		case expandModeExpanded:
-			sep := "·"
-			if ascii {
-				sep = "-"
-			}
-			fmt.Fprintf(&b, " %s", dimStyle.Render(sep+" all"))
-		case expandModeErrorsOnly:
-			sep := "·"
-			if ascii {
-				sep = "-"
-			}
-			fmt.Fprintf(&b, " %s", dimStyle.Render(sep+" errors"))
-		}
-	}
-
-	// Total tokens from step summaries
-	totalTok := 0
-	for _, e := range m.stepEntries {
-		totalTok += e.summary.TokenCount
-	}
-	if totalTok > 0 {
-		fmt.Fprintf(&b, " │ %s tok", formatTokenCount(totalTok))
-	}
-
-	// Stage statistics (wide screens only)
-	if maxW >= 100 && totalSteps > 0 {
-		counts := make(map[string]int)
-		errCount := 0
-		for _, e := range m.stepEntries {
-			counts[e.summary.Action]++
-			if e.summary.HasError {
-				errCount++
-			}
-		}
-		b.WriteString(" │")
-		for _, action := range []string{"plan", "tool_call", "spawn", "specialize", "replan", "text", "complete"} {
-			if c, ok := counts[action]; ok && c > 0 {
-				color := actionColor(action)
-				label := actionAbbrev(action)
-				fmt.Fprintf(&b, " %s", lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%s:%d", label, c)))
-			}
-		}
-		if errCount > 0 {
-			fmt.Fprintf(&b, " %s", lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf("err:%d", errCount)))
-		}
-	}
-
-	// Scroll position (medium+ screens)
-	if maxW >= 80 && filteredCount > 0 {
-		pos := min(m.stepCursor+1, filteredCount)
-		fmt.Fprintf(&b, " │ %d/%d", pos, filteredCount)
-	}
-
-	// Filter indicator
-	totalEvents := len(m.unifiedEvents)
-	if filteredCount < totalEvents {
-		// Build list of disabled type names for quick insight
-		allTypes := []struct{ key, label string }{
-			{"tool_call", "tool"}, {"plan", "plan"}, {"text", "txt"},
-			{"complete", "done"}, {"spawn", "spn"}, {"replan", "rpl"}, {"specialize", "spec"},
-			{EventCompact, "cmp"}, {EventBudget, "bgt"}, {"sys_spawn", "sspn"},
-			{EventExit, "exit"}, {EventStall, "stl"}, {EventImmune, "imm"},
-		}
-		var hidden []string
-		for _, t := range allTypes {
-			if !m.stepFilters[t.key] {
-				hidden = append(hidden, t.label)
-			}
-		}
-		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-		label := fmt.Sprintf("filter: %d/%d", filteredCount, totalEvents)
-		if len(hidden) > 0 {
-			label += " -" + strings.Join(hidden, ",")
-		}
-		fmt.Fprintf(&b, "  %s", dimStyle.Render(label))
-	}
-
-	return truncateAnsi(b.String(), maxW)
+	return timeline.RenderUnifiedStepHeader(timeline.HeaderContext{
+		State:        m.timeline,
+		Processes:    m.processes,
+		SelectedPID:  m.selectedPID,
+		SelectedUUID: m.selectedUUID,
+		TotalEvents:  len(m.unifiedEvents),
+	}, maxW, totalSteps, filteredCount, sysCount)
 }
 
-// renderStepFilterBar renders the filter editing mode header with two rows.
+// renderStepFilterBar — thin wrapper · 见 internal/dashboard/timeline.RenderStepFilterBar
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/render.go.
+// 保留函数名让 ATDD 27-3 / 36-3 / 38-3 grep 字符串通过 · 行为完全等价.
 func (m dashboardModel) renderStepFilterBar(maxW int) string {
-	var b strings.Builder
-	b.WriteString(" Step:  ")
-
-	// Row 1: Step action types
-	stepTypes := []struct {
-		key    string
-		label  string
-		action string
-	}{
-		{"t", actionAbbrev("tool_call"), "tool_call"},
-		{"p", actionAbbrev("plan"), "plan"},
-		{"a", actionAbbrev("text"), "text"},
-		{"c", actionAbbrev("complete"), "complete"},
-		{"s", actionAbbrev("spawn"), "spawn"},
-		{"r", actionAbbrev("replan"), "replan"},
-		{"z", actionAbbrev("specialize"), "specialize"},
-	}
-
-	for _, t := range stepTypes {
-		on := m.stepFilters == nil || m.stepFilters[t.action]
-		mark := "✓"
-		color := actionColor(t.action)
-		if !on {
-			mark = "·"
-			color = lipgloss.Color(ui.ColorMuted)
-		}
-		catStyle := lipgloss.NewStyle().Foreground(color)
-		fmt.Fprintf(&b, " [%s]%s %s", t.key, catStyle.Render(t.label), mark)
-	}
-
-	// Row 2: System event types
-	b.WriteString("\n Events:")
-
-	sysTypes := []struct {
-		key       string
-		label     string
-		eventType string
-	}{
-		{"C", "compact", EventCompact},
-		{"b", "budget", EventBudget},
-		{"x", "spawn", "sys_spawn"},
-		{"X", "exit", EventExit},
-		{"T", "stall", EventStall},
-		{"i", "immune", EventImmune},
-	}
-
-	for _, t := range sysTypes {
-		on := m.stepFilters == nil || m.stepFilters[t.eventType]
-		mark := "✓"
-		color := lipgloss.Color("#00CED1") // default system event color
-		if !on {
-			mark = "·"
-			color = lipgloss.Color(ui.ColorMuted)
-		}
-		catStyle := lipgloss.NewStyle().Foreground(color)
-		fmt.Fprintf(&b, " [%s]%s %s", t.key, catStyle.Render(t.label), mark)
-	}
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-	b.WriteString("  [*]all  " + dimStyle.Render("f/Esc:done"))
-	return truncateAnsi(b.String(), maxW)
+	return timeline.RenderStepFilterBar(m.timeline.StepFilters, maxW)
 }
 
-// renderAggregatedTimeline renders a timeline with aggregation groups for long tasks (>100 steps).
-// Steps are grouped into chunks of 50. Collapsed groups show a summary line;
-// expanded groups show individual step lines.
+// renderAggregatedTimeline — thin wrapper 委托 timeline.RenderAggregatedTimeline
+// (Story 38-5 PR11 Step 4(c) timeline render body 第 5 个迁出 commit · 同
+// renderStepFilterBar / renderDebugDetail / renderExpandedDetail /
+// renderUnifiedStepHeader 同模式)
+//
+// 保留 (m dashboardModel) receiver 让 dashboard_timeline.go::renderStepTimeline
+// line ~470 的 callsite 零修改通过 ATDD 27-3 + 36-3 + 36-4 契约。函数体仅依赖
+// m.timeline (TimelineState) · 直接委托至 internal/dashboard/timeline 包。
 func (m dashboardModel) renderAggregatedTimeline(b *strings.Builder, filtered []int, truncW, listLines int, showToken, showDuration bool) int {
-	const aggGroupSize = 50
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-
-	type aggGroup struct {
-		startIdx   int // index in filtered array
-		endIdx     int // exclusive
-		firstStep  int // step number of first entry
-		lastStep   int // step number of last entry
-		actionCounts map[string]int
-		errCount   int
-		totalTokens int
-	}
-
-	// Build groups
-	var groups []aggGroup
-	for i := 0; i < len(filtered); i += aggGroupSize {
-		end := min(i+aggGroupSize, len(filtered))
-		g := aggGroup{
-			startIdx:     i,
-			endIdx:       end,
-			actionCounts: make(map[string]int),
-		}
-		for fi := i; fi < end; fi++ {
-			entry := m.stepEntries[filtered[fi]]
-			s := entry.summary
-			if fi == i {
-				g.firstStep = s.Step
-			}
-			g.lastStep = s.Step
-			g.actionCounts[s.Action]++
-			if s.HasError {
-				g.errCount++
-			}
-			g.totalTokens += s.TokenCount
-		}
-		groups = append(groups, g)
-	}
-
-	linesUsed := 0
-	cursorFilterIdx := min(m.stepCursor, len(filtered)-1)
-
-	// F3: Calculate group heights and find start group for viewport scrolling
-	cursorGroupIdx := 0
-	if cursorFilterIdx >= 0 && aggGroupSize > 0 {
-		cursorGroupIdx = cursorFilterIdx / aggGroupSize
-	}
-	if cursorGroupIdx >= len(groups) {
-		cursorGroupIdx = max(len(groups)-1, 0)
-	}
-
-	groupHeights := make([]int, len(groups))
-	for gi, g := range groups {
-		if m.expandedAggGroups[gi] {
-			groupHeights[gi] = 1 + (g.endIdx - g.startIdx) // header + entries
-		} else {
-			groupHeights[gi] = 1
-		}
-	}
-
-	// Find start group: scroll forward until cursor group fits in view
-	startGi := 0
-	for startGi < cursorGroupIdx {
-		linesFromStart := 0
-		for gi := startGi; gi <= cursorGroupIdx; gi++ {
-			linesFromStart += groupHeights[gi]
-		}
-		if linesFromStart <= listLines {
-			break
-		}
-		startGi++
-	}
-
-	for gi := startGi; gi < len(groups) && linesUsed < listLines; gi++ {
-		g := groups[gi]
-		if linesUsed >= listLines {
-			break
-		}
-
-		isExpanded := m.expandedAggGroups[gi]
-		// Check if cursor is in this group
-		cursorInGroup := cursorFilterIdx >= g.startIdx && cursorFilterIdx < g.endIdx
-
-		if !isExpanded {
-			// Render aggregation summary line
-			marker := "▸"
-			cursorMark := "  "
-			if cursorInGroup {
-				cursorMark = "▸ "
-				marker = " " // cursor mark replaces fold marker to avoid double ▸
-			}
-
-			// Build action summary
-			var actionParts []string
-			for _, action := range []string{"tool_call", "plan", "text", "spawn", "specialize", "replan", "complete"} {
-				if c, ok := g.actionCounts[action]; ok && c > 0 {
-					color := actionColor(action)
-					label := actionAbbrev(action)
-					actionParts = append(actionParts, lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%d %s", c, label)))
-				}
-			}
-			actionSummary := strings.Join(actionParts, ", ")
-
-			errPart := ""
-			if g.errCount > 0 {
-				noun := "error"
-				if g.errCount > 1 {
-					noun = "errors"
-				}
-				errPart = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf(", %d %s", g.errCount, noun))
-			}
-
-			line := fmt.Sprintf("%s%s Steps %d-%d: %s%s",
-				cursorMark, marker, g.firstStep, g.lastStep, actionSummary, errPart)
-
-			if showToken && g.totalTokens > 0 {
-				line += dimStyle.Render(fmt.Sprintf("  %s", formatTokenCount(g.totalTokens)))
-			}
-
-			if cursorInGroup {
-				line = lipgloss.NewStyle().
-					Background(lipgloss.Color("#2D2D3D")).
-					Foreground(lipgloss.Color("#FFFFFF")).
-					Render(line)
-			}
-
-			b.WriteString(truncateAnsi(line, truncW))
-			b.WriteString("\n")
-			linesUsed++
-		} else {
-			// Render expanded: group header + individual steps
-			header := fmt.Sprintf("  ▾ Steps %d-%d", g.firstStep, g.lastStep)
-			b.WriteString(dimStyle.Render(header))
-			b.WriteString("\n")
-			linesUsed++
-
-			for fi := g.startIdx; fi < g.endIdx && linesUsed < listLines; fi++ {
-				idx := filtered[fi]
-				entry := m.stepEntries[idx]
-				s := entry.summary
-
-				cursorMark := "  "
-				if fi == m.stepCursor {
-					cursorMark = "▸ "
-				}
-
-				stepAction := dimStyle.Render(fmt.Sprintf("%d %s", s.Step, actionAbbrev(s.Action)))
-
-				var tokenLabel string
-				if showToken {
-					if s.TokenCount == 0 {
-						tokenLabel = dimStyle.Render("    —")
-					} else {
-						tokenLabel = dimStyle.Render(fmt.Sprintf("%5s", formatTokenCount(s.TokenCount)))
-					}
-				}
-
-				var durLabel string
-				if showDuration {
-					dur := formatTimelineDuration(s.DurationMs)
-					durStyle := dimStyle
-					if s.DurationMs > slowStepThresholdMs {
-						durStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5C07B"))
-					}
-					durLabel = durStyle.Render(fmt.Sprintf("%6s", dur))
-				}
-
-				errMark := ""
-				if s.HasError {
-					errMark = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(" ✗")
-				}
-
-				displaySummary := s.Summary
-				if s.ToolPath != "" && len(s.Summary) < 8 {
-					displaySummary = s.ToolPath
-				}
-				fixedWidth := 2 + 1 + 1 + 5
-				if showToken {
-					fixedWidth += 6
-				}
-				if showDuration {
-					fixedWidth += 7
-				}
-				if s.HasError {
-					fixedWidth += 2
-				}
-				summaryW := max(truncW-fixedWidth, 10)
-				summaryText := truncateRuneWidth(displaySummary, summaryW)
-
-				var parts []string
-				parts = append(parts, cursorMark, " ", summaryText)
-				if showDuration {
-					parts = append(parts, tokenLabel, durLabel, stepAction, errMark)
-				} else if showToken {
-					parts = append(parts, tokenLabel, stepAction, errMark)
-				} else {
-					parts = append(parts, stepAction, errMark)
-				}
-				line := strings.Join(parts, " ")
-
-				if s.HasError {
-					line = lipgloss.NewStyle().Background(lipgloss.Color("#3D1F1F")).Render(line)
-				} else if fi == m.stepCursor {
-					line = lipgloss.NewStyle().
-						Background(lipgloss.Color("#2D2D3D")).
-						Foreground(lipgloss.Color("#FFFFFF")).
-						Render(line)
-				}
-
-				b.WriteString(truncateAnsi(line, truncW))
-				b.WriteString("\n")
-				linesUsed++
-			}
-		}
-	}
-
-	return linesUsed
+	return timeline.RenderAggregatedTimeline(b, m.timeline, filtered, truncW, listLines, showToken, showDuration)
 }
 
-// hasExpandableContent checks whether expanding this step would show any new information.
-// Returns true if detail is not yet loaded (unknown), or if at least one field survives dedup.
+// hasExpandableContent — thin wrapper 委托 timeline.HasExpandableContent
+// (Story 38-5 PR11 Step 4(a-2) timeline pure helpers 迁出 · 同 hasExpandableContent
+// 函数体完全等价 · 仅依赖 detail/s 参数 · 无 dashboardModel 状态依赖)
+//
+// 保留全局函数旧名让 cmd/rnix 端 callsites（dashboard_timeline.go × 3 +
+// dashboard_pane_dispatcher.go × 1 = 4 处）零修改通过 ATDD 契约。
 func hasExpandableContent(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) bool {
-	if detail == nil {
-		return true // not loaded yet — treat as potentially expandable
-	}
-	// ToolPath — new info if different from Level 1 display
-	displayedAsSummary := s.Summary
-	if s.ToolPath != "" && len(s.Summary) < 8 {
-		displayedAsSummary = s.ToolPath
-	}
-	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
-		return true
-	}
-	// ToolInput
-	if detail.ToolInput != "" {
-		return true
-	}
-	// ToolError or ToolResult
-	if detail.ToolError != "" || detail.ToolResult != "" {
-		return true
-	}
-	// RawResponse (fallback for any action type)
-	if detail.RawResponse != "" {
-		return true
-	}
-	// Token breakdown (only if it differs from Level 1 total)
-	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) {
-		return true
-	}
-	return false
+	return timeline.HasExpandableContent(detail, s)
 }
 
 // --- Step item height estimation (for scroll) ---
+//
+// estimateExpandedLines / estimateDebugLines wrapper 已删除（Story 38-5 PR11 Step
+// 4(a-2) timeline.UnifiedItemHeight 迁出后 · 这两个 wrapper 失去唯一 caller 变 unused
+// · 直接调 timeline.EstimateExpandedLines / timeline.EstimateDebugLines 即可 · 这是
+// 重构推进中 wrapper 自然消解 · 与 PR2/PR3 「保留 wrapper 直到无 caller」模式一致）。
 
-func (m dashboardModel) estimateExpandedLines(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWire) int {
-	n := 0
-	// Path — skip when Level 1 already shows it as displaySummary
-	displayedAsSummary := s.Summary
-	if s.ToolPath != "" && len(s.Summary) < 8 {
-		displayedAsSummary = s.ToolPath
-	}
-	if detail.ToolPath != "" && detail.ToolPath != displayedAsSummary {
-		n++ // Path line
-	}
-	if detail.ToolInput != "" {
-		n++ // Input line
-	}
-	if detail.ToolError != "" {
-		errLines := strings.Count(detail.ToolError, "\n") + 1
-		n += min(errLines, 4) // Error: up to 3 lines + overflow
-	} else if detail.ToolResult != "" {
-		resLines := strings.Count(detail.ToolResult, "\n") + 1
-		n += min(resLines, 4) // Result: up to 3 lines + overflow
-	} else if detail.RawResponse != "" {
-		rawLines := strings.Count(detail.RawResponse, "\n") + 1
-		n += min(rawLines, 4) // RawResponse fallback: up to 3 lines + overflow
-	}
-	// Token breakdown — skip when total already shown in Level 1 and breakdown matches
-	if (detail.RequestTokens > 0 || detail.ResponseTokens > 0) && (s.TokenCount == 0 || detail.RequestTokens+detail.ResponseTokens != s.TokenCount) {
-		n++ // Token line
-	}
-	// Fallback line when all content was deduped
-	if n == 0 {
-		n++ // always at least 1 line for fallback (ToolPath/RawResponse/no-detail)
-	}
-	return n
-}
-
-func (m dashboardModel) estimateDebugLines(detail *ipc.GetStepDetailResponse) int {
-	n := 2 // separator + messages header
-	msgCount := len(detail.Messages)
-	n += min(msgCount, 6) // message preview lines
-	n++                   // hint line
-	return n
-}
-
-// ensureStepCursorVisible adjusts stepScrollTop so the cursor item is within the viewport.
+// ensureStepCursorVisible — thin wrapper 委托 timeline.EnsureStepCursorVisible
+// (Story 38-5 PR11 Step 4(c) 第 6 个 timeline render block 迁出 · 续 commit
+// fb28dfa renderAggregatedTimeline 节奏 · 仍严格遵循 spec § 04 风险 5 中断保险原则)
+//
+// 保留 (m *dashboardModel) receiver 让 cmd/rnix 端 ~10 处 callsite（dashboard_timeline.go
+// 6 处 + dashboard_pane_dispatcher.go 4 处）零修改通过。callback closure 捕获
+// filtered + m.unifiedItemHeight · 让 timeline 包零 UnifiedEvent 依赖（避免循环）。
 func (m *dashboardModel) ensureStepCursorVisible(viewportLines int) {
 	filtered := m.filteredUnifiedEvents()
-	if len(filtered) == 0 {
-		m.stepScrollTop = 0
-		return
-	}
-	cursor := min(m.stepCursor, len(filtered)-1)
-
-	// If cursor is above scroll top, snap to cursor
-	if cursor < m.stepScrollTop {
-		m.stepScrollTop = cursor
-		return
-	}
-
-	// Walk from scrollTop counting lines; if cursor fits, done
-	linesUsed := 0
-	for fi := m.stepScrollTop; fi <= cursor && fi < len(filtered); fi++ {
-		h := m.unifiedItemHeight(filtered[fi])
-		if fi == cursor && linesUsed+h <= viewportLines {
-			return // cursor is visible
-		}
-		linesUsed += h
-	}
-
-	// Cursor not visible: scroll down until it fits
-	// Walk backward from cursor filling the viewport
-	linesUsed = m.unifiedItemHeight(filtered[cursor])
-	newTop := cursor
-	for newTop > 0 {
-		h := m.unifiedItemHeight(filtered[newTop-1])
-		if linesUsed+h > viewportLines {
-			break
-		}
-		linesUsed += h
-		newTop--
-	}
-	m.stepScrollTop = newTop
+	m.timeline = timeline.EnsureStepCursorVisible(m.timeline, len(filtered), viewportLines, func(idx int) int {
+		return m.unifiedItemHeight(filtered[idx])
+	})
 }
 
 // --- Step timeline helpers ---
 
+// formatTokenCount — thin wrapper · 见 internal/dashboard/timeline.FormatTokenCount
 func formatTokenCount(tokens int) string {
-	if tokens >= 1000 {
-		return fmt.Sprintf("%.1fk", float64(tokens)/1000.0)
-	}
-	return fmt.Sprintf("%d", tokens)
+	return timeline.FormatTokenCount(tokens)
 }
 
+// formatTimelineDuration — thin wrapper · 见 internal/dashboard/timeline.FormatDurationMs
 func formatTimelineDuration(ms float64) string {
-	if ms < 1 {
-		return fmt.Sprintf("%.0fµs", ms*1000)
-	}
-	if ms < 1000 {
-		return fmt.Sprintf("%.0fms", ms)
-	}
-	return fmt.Sprintf("%.2fs", ms/1000)
+	return timeline.FormatDurationMs(ms)
 }
 
-// truncateRuneWidth truncates a string to fit within maxWidth display columns.
+// truncateRuneWidth — thin wrapper · 见 internal/dashboard/timeline.TruncateRuneWidth
 func truncateRuneWidth(s string, maxWidth int) string {
-	if runewidth.StringWidth(s) <= maxWidth {
-		return s
-	}
-	return runewidth.Truncate(s, maxWidth-1, "…")
+	return timeline.TruncateRuneWidth(s, maxWidth)
 }
 
-// truncateAnsi truncates ANSI-styled string by visible width.
+// truncateAnsi — thin wrapper · 见 internal/dashboard/timeline.TruncateAnsi
 func truncateAnsi(s string, maxWidth int) string {
-	if maxWidth <= 0 {
-		return ""
-	}
-	if lipgloss.Width(s) <= maxWidth {
-		return s
-	}
-	return lipgloss.NewStyle().MaxWidth(maxWidth).Render(s)
+	return timeline.TruncateAnsi(s, maxWidth)
 }
 
 // --- Step data flow ---
 
+// applyNewSteps — thin wrapper · 见 internal/dashboard/timeline.ApplyNewSteps
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/apply.go.
+// 保留 (m dashboardModel) receiver 让 cmd/rnix 端调用方零修改通过.
+// Story 36-4 expandMode + safety net 行为契约保留（迁出包内已显式测试 7 项）.
 func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardModel {
-	// Build a set of already-known step numbers for dedup protection.
-	// Concurrent fetches (e.g. PID-change fetch + tick fetch) can return
-	// overlapping step ranges; appending duplicates causes the Timeline to
-	// show the same entry twice.
-	known := make(map[int]struct{}, len(m.stepEntries))
-	for _, e := range m.stepEntries {
-		known[e.summary.Step] = struct{}{}
-	}
-
-	for _, s := range steps {
-		if _, dup := known[s.Step]; dup {
-			continue
-		}
-		known[s.Step] = struct{}{}
-		// Story 36-4: 按 expandMode 决定新 step 的初始 level。
-		level := levelSummary
-		autoExpand := false
-		switch m.expandMode {
-		case expandModeExpanded:
-			level = levelExpanded
-			autoExpand = true
-		case expandModeErrorsOnly:
-			if s.HasError {
-				level = levelExpanded
-				autoExpand = true
-			}
-		default: // expandModeCollapsed — safety net：错误始终展开
-			if s.HasError {
-				level = levelExpanded
-				autoExpand = true
-			}
-		}
-		m.stepEntries = append(m.stepEntries, stepEntry{
-			summary:    s,
-			level:      level,
-			autoExpand: autoExpand,
-		})
-	}
+	m.timeline = timeline.ApplyNewSteps(m.timeline, steps)
 	return m
 }
 
@@ -1911,7 +965,7 @@ func (m dashboardModel) isSelectedProcessDead() bool {
 	// Process not in the live list — if debug mode has loaded events for this PID,
 	// it was a dead process whose events were fetched from disk. Treat as dead to
 	// prevent the periodic running-process refresh from triggering unnecessary reloads.
-	if m.debugMode && m.debugAttachedPID == m.selectedPID && len(m.debugEvents) > 0 {
+	if m.debugState.Mode && m.debugState.AttachedPID == m.selectedPID && len(m.debugState.Events) > 0 {
 		return true
 	}
 	return false
@@ -1921,32 +975,32 @@ func (m dashboardModel) isSelectedProcessDead() bool {
 
 // fetchNextExpandedDetail returns a Cmd to fetch the next expanded step that has no cached detail.
 // Returns nil if nothing to fetch or already fetching.
+//
+// Story 38-5 PR11 Step 4(c)：纯 lookup 算法主体迁出至
+// internal/dashboard/timeline.FindNextDetailToFetch（Priority 1 expanded
+// uncached + Priority 2 visible collapsed uncached + nil entry skip · 与历史
+// byte-for-byte 等价）。cmd/rnix wrapper 仅保留 IPC fetch 副作用 +
+// fetching/PID guards + filtered StepEntry 解包.
 func (m dashboardModel) fetchNextExpandedDetail() tea.Cmd {
-	if m.fetchingDetail || m.selectedPID == 0 {
+	if m.timeline.FetchingDetail || m.selectedPID == 0 {
 		return nil
 	}
-	// Priority 1: expanded steps without cached detail
-	for _, entry := range m.stepEntries {
-		if entry.level >= levelExpanded && m.stepDetailCache[entry.summary.Step] == nil {
-			return fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
-		}
-	}
-	// Priority 2: visible collapsed steps without cached detail (for ▸ indicator)
 	filteredEvs := m.filteredUnifiedEvents()
 	pageSize := max(m.dashboardVisibleLines()-4, 1)
-	visStart := m.stepScrollTop
+	visStart := m.timeline.StepScrollTop
 	visEnd := min(visStart+pageSize, len(filteredEvs))
-	for i := visStart; i < visEnd; i++ {
-		ev := filteredEvs[i]
-		if ev.StepEntry == nil {
-			continue
-		}
-		entry := ev.StepEntry
-		if entry.level < levelExpanded && m.stepDetailCache[entry.summary.Step] == nil {
-			return fetchStepDetailCmd(m.selectedPID, entry.summary.Step)
-		}
+
+	// 解开 ev.StepEntry → []*timeline.StepEntry（避免 timeline 包反向 import event）
+	filteredEntries := make([]*timeline.StepEntry, len(filteredEvs))
+	for i, ev := range filteredEvs {
+		filteredEntries[i] = ev.StepEntry
 	}
-	return nil
+
+	step := timeline.FindNextDetailToFetch(m.timeline, filteredEntries, visStart, visEnd)
+	if step < 0 {
+		return nil
+	}
+	return fetchStepDetailCmd(m.selectedPID, step)
 }
 
 // --- Fetch commands ---
@@ -1955,7 +1009,7 @@ func fetchStepsCmd(uuid string, pid types.PID, afterStep int) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return stepListMsg{uuid: uuid, pid: pid, err: err}
+			return stepListMsg{UUID: uuid, PID: pid, Err: err}
 		}
 		defer client.Close()
 		var resp *ipc.ListStepsResponse
@@ -1965,9 +1019,9 @@ func fetchStepsCmd(uuid string, pid types.PID, afterStep int) tea.Cmd {
 			resp, err = client.ListSteps(pid, afterStep)
 		}
 		if err != nil {
-			return stepListMsg{uuid: uuid, pid: pid, err: err}
+			return stepListMsg{UUID: uuid, PID: pid, Err: err}
 		}
-		return stepListMsg{uuid: uuid, pid: pid, steps: resp.Steps, total: resp.Total}
+		return stepListMsg{UUID: uuid, PID: pid, Steps: resp.Steps, Total: resp.Total}
 	}
 }
 
@@ -1985,30 +1039,21 @@ func fetchStepDetailCmd(pid types.PID, step int) tea.Cmd {
 
 // --- Helper functions (retained from Story 27-4, used by Step Inspector) ---
 
+// formatRoleTag — thin wrapper · 见 internal/dashboard/timeline.FormatRoleTag
+//
+// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/timeline/role.go（含
+// promptRoleSystem/User/Assistant/Tool 4 个 lipgloss.Style · 包内私有 ·
+// dashboard_types.go 端旧定义随之删除）.
+//
+// **Story 38-3 AC#1 行为契约保留**：tool_use / tool_result 拆分 + ColorSuccess /
+// ColorReplay + Bold + tool name fallback 逻辑全部迁出但等价 · ATDD 27-4 / 36.1 /
+// inspector visual TestFormatRoleTag_ToolUseVsToolResult 测试通过 thin wrapper
+// 间接覆盖（cmd/rnix 端 caller 行为零变化）.
 func formatRoleTag(msg ipc.MessageWire, toolCallNames map[string]string) string {
-	switch msg.Role {
-	case "system":
-		return promptRoleSystem.Render("[system]")
-	case "user":
-		return promptRoleUser.Render("[user]")
-	case "assistant":
-		return promptRoleAssistant.Render("[assistant]")
-	case "tool":
-		label := ""
-		if name, ok := toolCallNames[msg.ToolCallID]; ok && name != "" {
-			label = ":" + name
-		} else if msg.ToolCallID != "" {
-			label = ":" + msg.ToolCallID
-		}
-		return promptRoleTool.Render("[tool" + label + "]")
-	default:
-		return "[" + msg.Role + "]"
-	}
+	return timeline.FormatRoleTag(msg, toolCallNames)
 }
 
+// formatCharCount — thin wrapper · 见 internal/dashboard/timeline.FormatCharCount
 func formatCharCount(n int) string {
-	if n >= 1000 {
-		return fmt.Sprintf("%.1fk", float64(n)/1000.0)
-	}
-	return fmt.Sprintf("%d", n)
+	return timeline.FormatCharCount(n)
 }
