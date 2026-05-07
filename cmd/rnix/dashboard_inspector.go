@@ -1314,6 +1314,15 @@ func (m dashboardModel) buildToolIOLens(detail *ipc.GetStepDetailResponse) strin
 		b.WriteString("\n")
 	}
 
+	// text/complete action: show LLM text response from RawResponse
+	if detail.ToolInput == "" && detail.ToolResult == "" && detail.RawResponse != "" {
+		text := extractRawResponseText(detail.RawResponse)
+		if text != "" {
+			b.WriteString(renderBoxedSection("Response", truncateBoxContent(text), ui.ColorMuted, false, boxWidth))
+			b.WriteString("\n")
+		}
+	}
+
 	return b.String()
 }
 
@@ -1358,11 +1367,30 @@ func (m dashboardModel) buildToolIOLensFull(detail *ipc.GetStepDetailResponse) s
 	if detail.ToolError != "" {
 		b.WriteString("\nError:\n" + detail.ToolError + "\n")
 	}
+	if detail.ToolInput == "" && detail.ToolResult == "" && detail.RawResponse != "" {
+		text := extractRawResponseText(detail.RawResponse)
+		if text != "" {
+			b.WriteString("\nResponse:\n" + text + "\n")
+		}
+	}
 	if detail.ToolDurationMs > 0 {
 		fmt.Fprintf(&b, "\nDuration: %.0fms\n", detail.ToolDurationMs)
 	}
 
 	return b.String()
+}
+
+// extractRawResponseText extracts the text content from a RawResponse string.
+// RawResponse is typically JSON with a "content" field (e.g. {"content":"..."}).
+// Falls back to the raw string if not valid JSON.
+func extractRawResponseText(rawResp string) string {
+	var parsed struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(rawResp), &parsed); err == nil && parsed.Content != "" {
+		return parsed.Content
+	}
+	return rawResp
 }
 
 // metaTokenContextWindow is the assumed default context-window cap (Claude

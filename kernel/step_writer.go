@@ -66,6 +66,9 @@ func (sw *StepWriter) Close() error {
 }
 
 // ReadStep reads a specific step from a steps.jsonl file by sequential scan.
+// Returns the LAST record with the given step number, since each step may be
+// written multiple times (once per tool call within the step), and the last
+// write contains the most complete context.
 func ReadStep(path string, targetStep int) (*types.StepRecord, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -73,6 +76,7 @@ func ReadStep(path string, targetStep int) (*types.StepRecord, error) {
 	}
 	defer f.Close()
 
+	var last *types.StepRecord
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1MB max line
 	for scanner.Scan() {
@@ -81,18 +85,27 @@ func ReadStep(path string, targetStep int) (*types.StepRecord, error) {
 			continue
 		}
 		if rec.Step == targetStep {
-			return &rec, nil
+			copy := rec
+			last = &copy
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	return nil, fmt.Errorf("step %d not found", targetStep)
+	if last == nil {
+		return nil, fmt.Errorf("step %d not found", targetStep)
+	}
+	return last, nil
 }
 
 // ReadAllSteps reads all step records from a steps.jsonl file.
 // If afterStep > 0, only records with Step > afterStep are returned.
 // Returns the matching records and the total count of all records in the file.
+//
+// Each step number may appear multiple times (one write per tool call within a
+// reasoning step). ReadAllSteps deduplicates by keeping the LAST record for
+// each step number, which contains the most complete context. The returned
+// slice preserves original step order.
 func ReadAllSteps(path string, afterStep int) ([]types.StepRecord, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -100,7 +113,10 @@ func ReadAllSteps(path string, afterStep int) ([]types.StepRecord, int, error) {
 	}
 	defer f.Close()
 
-	var all []types.StepRecord
+	// last maps step number → the most recent record seen for that step.
+	// order preserves the first-seen order of each step number.
+	last := make(map[int]types.StepRecord)
+	var order []int
 	total := 0
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -110,13 +126,21 @@ func ReadAllSteps(path string, afterStep int) ([]types.StepRecord, int, error) {
 			continue
 		}
 		total++
-		if afterStep > 0 && rec.Step <= afterStep {
-			continue
+		if _, seen := last[rec.Step]; !seen {
+			order = append(order, rec.Step)
 		}
-		all = append(all, rec)
+		last[rec.Step] = rec
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, 0, err
+	}
+
+	var all []types.StepRecord
+	for _, stepNum := range order {
+		if afterStep > 0 && stepNum <= afterStep {
+			continue
+		}
+		all = append(all, last[stepNum])
 	}
 	return all, total, nil
 }
