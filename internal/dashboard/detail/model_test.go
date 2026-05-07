@@ -29,8 +29,17 @@ func TestNewModel_Defaults(t *testing.T) {
 		t.Fatal("NewModel returned nil")
 	}
 	s := m.State()
-	if s.Detail != nil || s.PID != 0 || s.Cache != nil || s.Tick != 0 {
-		t.Errorf("expected zero-value state, got %+v", s)
+	if s.Detail != nil || s.PID != 0 || s.Tick != 0 {
+		t.Errorf("expected zero Detail/PID/Tick, got %+v", s)
+	}
+	// Cache 必须在构造时即非 nil（防止 dashboardTick 后 m.detail = m.detailM.State()
+	// 把 nil Cache 拉回去覆盖 newDashboardModel init 好的 Cache，触发后续
+	// procDetailResultMsg 写入时 "assignment to entry in nil map" panic）。
+	if s.Cache == nil {
+		t.Error("expected Cache initialized (non-nil), got nil")
+	}
+	if len(s.Cache) != 0 {
+		t.Errorf("expected Cache empty, got %d entries", len(s.Cache))
 	}
 }
 

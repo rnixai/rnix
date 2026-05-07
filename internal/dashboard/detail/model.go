@@ -22,6 +22,7 @@ import (
 	dashboardmodel "github.com/rnixai/rnix/internal/dashboard/model"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
 )
 
 // ViewDefault mirrors cmd/rnix.viewDefault (iota 0) to avoid detail → status import.
@@ -50,9 +51,19 @@ type DetailModel struct {
 	active bool
 }
 
-// NewModel 构造一个新的 DetailModel，初始 state 为零值。
+// NewModel 构造一个新的 DetailModel。
+//
+// state.Cache 必须在构造时即非 nil — App Model 端 dashboardTick 在
+// OnTick 之后会执行 `m.detail = m.detailM.State()` 把内部 state 拉回去
+// 覆盖 cmd/rnix.dashboardModel.detail，若 Cache 为 nil 会让原本在
+// newDashboardModel 中 init 好的 Cache 丢失，下次 procDetailResultMsg
+// 写入时触发 "assignment to entry in nil map" panic。
 func NewModel() *DetailModel {
-	return &DetailModel{}
+	return &DetailModel{
+		state: DetailState{
+			Cache: make(map[string]*ipc.GetProcDetailResponse),
+		},
+	}
 }
 
 // State 返回当前 DetailState 值快照（满足 StateProvider interface）。
