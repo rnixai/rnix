@@ -262,6 +262,8 @@ func (d *OpenAICompatDriver) buildMessages(req LLMRequest) ([]oaiMessage, error)
 		msgs = append([]oaiMessage{{Role: "system", Content: req.SystemPrompt}}, msgs...)
 	}
 
+	msgs = repairToolCallSequence(msgs)
+
 	return msgs, nil
 }
 
@@ -273,6 +275,51 @@ func prevAssistantHasToolCalls(msgs []oaiMessage) bool {
 		}
 	}
 	return false
+}
+
+// repairToolCallSequence enforces the OpenAI protocol invariant: every
+// assistant message with tool_calls MUST be followed by exactly one tool
+// message per tool_call_id. When upstream context bookkeeping drops a
+// tool result (e.g. ctx.MaxSize hit during AppendToolResult), DeepSeek and
+// most OpenAI-compat providers reject the request with HTTP 400
+// "insufficient tool messages following tool_calls message".
+//
+// This function scans msgs and inserts stub tool messages for any
+// missing tool_call_id, keeping the conversation legal at the protocol
+// layer regardless of upstream bugs.
+const toolResultUnavailableStub = "[Tool result unavailable: dropped due to context buffer limit]"
+
+func repairToolCallSequence(msgs []oaiMessage) []oaiMessage {
+	if len(msgs) == 0 {
+		return msgs
+	}
+	result := make([]oaiMessage, 0, len(msgs))
+	for i := 0; i < len(msgs); i++ {
+		m := msgs[i]
+		result = append(result, m)
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			continue
+		}
+		seen := make(map[string]bool, len(m.ToolCalls))
+		j := i + 1
+		for j < len(msgs) && msgs[j].Role == "tool" {
+			seen[msgs[j].ToolCallID] = true
+			result = append(result, msgs[j])
+			j++
+		}
+		for _, tc := range m.ToolCalls {
+			if seen[tc.ID] {
+				continue
+			}
+			result = append(result, oaiMessage{
+				Role:       "tool",
+				ToolCallID: tc.ID,
+				Content:    toolResultUnavailableStub,
+			})
+		}
+		i = j - 1
+	}
+	return result
 }
 
 // buildOAIRequest constructs the full OpenAI API request body.

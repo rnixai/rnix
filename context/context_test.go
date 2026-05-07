@@ -1212,3 +1212,66 @@ func TestMessage_LegacyJSONWithoutReasoning_LoadsAsEmpty(t *testing.T) {
 		t.Errorf("legacy message should have empty Reasoning, got %q", pr.Messages[0].Reasoning)
 	}
 }
+
+// TestAppendAssistantWithToolCalls_RejectsWhenInsufficientCapacity verifies
+// the atomic capacity precheck added to fix DeepSeek's "insufficient tool
+// messages following tool_calls message" 400 error. When the buffer cannot
+// hold both the assistant message AND every required tool result, the
+// append must be rejected entirely so the caller can react (e.g. compact)
+// instead of writing a half-complete state.
+func TestAppendAssistantWithToolCalls_RejectsWhenInsufficientCapacity(t *testing.T) {
+	t.Run("rejects when 1+N would overflow", func(t *testing.T) {
+		mgr := NewManager()
+		// Capacity = 5. Pre-fill with 3 messages so only 2 slots remain.
+		// Then try to append assistant + 3 tool_calls (needs 4 slots) — must reject.
+		cid, _ := mgr.CtxAlloc(5)
+		for range 3 {
+			_ = mgr.AppendMessage(cid, RoleUser, "filler")
+		}
+		err := mgr.AppendAssistantWithToolCalls(cid, "calling", "", nil, []ToolCall{
+			{ID: "a"}, {ID: "b"}, {ID: "c"},
+		})
+		if err == nil {
+			t.Fatal("expected ErrContextFull, got nil")
+		}
+		if !errors.Is(err, ErrContextFull) {
+			t.Fatalf("expected ErrContextFull, got %v", err)
+		}
+		// Critically: the assistant message must NOT be written on rejection.
+		ctx, _ := mgr.GetContext(cid)
+		if got := len(ctx.Messages); got != 3 {
+			t.Errorf("messages mutated after rejection: got %d, want 3", got)
+		}
+	})
+
+	t.Run("succeeds when exactly 1+N capacity available", func(t *testing.T) {
+		mgr := NewManager()
+		cid, _ := mgr.CtxAlloc(4)
+		// 4 capacity, 0 used → 1+2=3 needed. Should succeed.
+		err := mgr.AppendAssistantWithToolCalls(cid, "ok", "", nil, []ToolCall{
+			{ID: "x"}, {ID: "y"},
+		})
+		if err != nil {
+			t.Fatalf("expected success, got %v", err)
+		}
+		// And both AppendToolResult calls should still fit (3 used + 2 = 5 > 4 — but
+		// only 1 fits before MaxSize is reached).
+		if err := mgr.AppendToolResult(cid, "x", "rx"); err != nil {
+			t.Errorf("first tool result should fit: %v", err)
+		}
+		// Second tool result hits MaxSize (already at 2, after 'x' it's 3, MaxSize is 4).
+		// Actually we have 1 (asst) + 1 (tool x) = 2 used, capacity 4, so y also fits.
+		if err := mgr.AppendToolResult(cid, "y", "ry"); err != nil {
+			t.Errorf("second tool result should fit: %v", err)
+		}
+	})
+
+	t.Run("ErrContextFull is detectable via errors.Is", func(t *testing.T) {
+		mgr := NewManager()
+		cid, _ := mgr.CtxAlloc(1)
+		err := mgr.AppendAssistantWithToolCalls(cid, "x", "", nil, []ToolCall{{ID: "z"}})
+		if !errors.Is(err, ErrContextFull) {
+			t.Fatalf("errors.Is(err, ErrContextFull) failed for %v (%T)", err, err)
+		}
+	})
+}

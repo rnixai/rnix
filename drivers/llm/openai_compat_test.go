@@ -1072,3 +1072,164 @@ func TestOpenAICompatDriver_RoundTrip_DeepSeekReasoningContent(t *testing.T) {
 		t.Fatalf("step2 request body missing reasoning_content (would 400 on real DeepSeek): %s", step2Body)
 	}
 }
+
+// TestOpenAICompatDriver_BuildMessages_RepairsMissingToolResults verifies the
+// protocol-layer defense added for the DeepSeek HTTP 400 "insufficient tool
+// messages following tool_calls message" failure. When upstream context
+// bookkeeping drops a tool result (e.g. AppendToolResult silently failing
+// at MaxSize), buildMessages MUST insert a stub tool message for every
+// orphan tool_call_id so the outbound request is protocol-legal.
+func TestOpenAICompatDriver_BuildMessages_RepairsMissingToolResults(t *testing.T) {
+	d := NewOpenAICompatDriver("test", "http://example/v1", WithCompatModel("m"))
+
+	// Assistant turn requested 3 tool calls but only 1 tool result survived.
+	req := LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "list files"},
+			{
+				Role:    "assistant",
+				Content: "calling tools",
+				ToolCalls: []ToolCall{
+					{ID: "tc_a", Name: "list_dir", Input: map[string]any{"path": "."}},
+					{ID: "tc_b", Name: "list_dir", Input: map[string]any{"path": "src"}},
+					{ID: "tc_c", Name: "list_dir", Input: map[string]any{"path": "docs"}},
+				},
+			},
+			{Role: "tool", ToolCallID: "tc_a", Content: "a.txt\nb.txt"},
+			// tc_b and tc_c are missing — must be stubbed.
+			{Role: "user", Content: "what next?"},
+		},
+	}
+	msgs, err := d.buildMessages(req)
+	if err != nil {
+		t.Fatalf("buildMessages: %v", err)
+	}
+
+	// Expect: user, assistant(3 tool_calls), tool tc_a (real), tool tc_b (stub), tool tc_c (stub), user.
+	if len(msgs) != 6 {
+		t.Fatalf("len(msgs) = %d, want 6\nmsgs=%+v", len(msgs), msgs)
+	}
+	if msgs[1].Role != "assistant" || len(msgs[1].ToolCalls) != 3 {
+		t.Fatalf("msgs[1] expected assistant with 3 tool_calls, got %+v", msgs[1])
+	}
+	for i, want := range []struct{ role, id string }{
+		{"tool", "tc_a"}, {"tool", "tc_b"}, {"tool", "tc_c"},
+	} {
+		idx := 2 + i
+		if msgs[idx].Role != want.role || msgs[idx].ToolCallID != want.id {
+			t.Errorf("msgs[%d] = {role=%q, id=%q}, want {%q, %q}",
+				idx, msgs[idx].Role, msgs[idx].ToolCallID, want.role, want.id)
+		}
+	}
+	if msgs[2].Content != "a.txt\nb.txt" {
+		t.Errorf("real tool result was rewritten: %q", msgs[2].Content)
+	}
+	if !strings.Contains(msgs[3].Content, "Tool result unavailable") {
+		t.Errorf("tc_b stub content unexpected: %q", msgs[3].Content)
+	}
+	if !strings.Contains(msgs[4].Content, "Tool result unavailable") {
+		t.Errorf("tc_c stub content unexpected: %q", msgs[4].Content)
+	}
+	if msgs[5].Role != "user" {
+		t.Errorf("trailing user message lost: msgs[5] = %+v", msgs[5])
+	}
+}
+
+// TestOpenAICompatDriver_BuildMessages_RepairsAllToolResultsMissing covers
+// the worst case: assistant tool_calls followed directly by a user/assistant
+// message with zero tool messages between them.
+func TestOpenAICompatDriver_BuildMessages_RepairsAllToolResultsMissing(t *testing.T) {
+	d := NewOpenAICompatDriver("test", "http://example/v1", WithCompatModel("m"))
+
+	req := LLMRequest{
+		Messages: []Message{
+			{
+				Role: "assistant",
+				ToolCalls: []ToolCall{
+					{ID: "x1", Name: "shell"},
+					{ID: "x2", Name: "shell"},
+				},
+			},
+			{Role: "user", Content: "ignore prior, do this"},
+		},
+	}
+	msgs, err := d.buildMessages(req)
+	if err != nil {
+		t.Fatalf("buildMessages: %v", err)
+	}
+	// assistant(2 tc), tool x1 stub, tool x2 stub, user
+	if len(msgs) != 4 {
+		t.Fatalf("len(msgs) = %d, want 4 (2 stubs inserted)", len(msgs))
+	}
+	if msgs[1].ToolCallID != "x1" || msgs[2].ToolCallID != "x2" {
+		t.Errorf("stub IDs out of order: %q, %q", msgs[1].ToolCallID, msgs[2].ToolCallID)
+	}
+	if msgs[3].Role != "user" {
+		t.Errorf("user message dropped: %+v", msgs[3])
+	}
+}
+
+// TestOpenAICompatDriver_BuildMessages_NoRepairWhenComplete verifies the
+// repair pass is a no-op when the message sequence is already legal —
+// no spurious stubs, no reordering, no content rewrites.
+func TestOpenAICompatDriver_BuildMessages_NoRepairWhenComplete(t *testing.T) {
+	d := NewOpenAICompatDriver("test", "http://example/v1", WithCompatModel("m"))
+
+	req := LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "go"},
+			{
+				Role: "assistant",
+				ToolCalls: []ToolCall{
+					{ID: "ok1"},
+					{ID: "ok2"},
+				},
+			},
+			{Role: "tool", ToolCallID: "ok1", Content: "r1"},
+			{Role: "tool", ToolCallID: "ok2", Content: "r2"},
+		},
+	}
+	msgs, err := d.buildMessages(req)
+	if err != nil {
+		t.Fatalf("buildMessages: %v", err)
+	}
+	if len(msgs) != 4 {
+		t.Fatalf("len(msgs) = %d, want 4 (no stubs needed)", len(msgs))
+	}
+	if msgs[2].Content != "r1" || msgs[3].Content != "r2" {
+		t.Errorf("real tool content corrupted: %q %q", msgs[2].Content, msgs[3].Content)
+	}
+}
+
+// TestOpenAICompatDriver_BuildMessages_RepairsMultipleAssistantBlocks
+// covers a long conversation where two assistant turns each have orphan
+// tool_calls. Stubs must be scoped to the correct turn.
+func TestOpenAICompatDriver_BuildMessages_RepairsMultipleAssistantBlocks(t *testing.T) {
+	d := NewOpenAICompatDriver("test", "http://example/v1", WithCompatModel("m"))
+
+	req := LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "round1"},
+			{Role: "assistant", ToolCalls: []ToolCall{{ID: "a1"}, {ID: "a2"}}},
+			{Role: "tool", ToolCallID: "a1", Content: "ok1"},
+			// a2 dropped
+			{Role: "user", Content: "round2"},
+			{Role: "assistant", ToolCalls: []ToolCall{{ID: "b1"}}},
+			// b1 dropped
+		},
+	}
+	msgs, err := d.buildMessages(req)
+	if err != nil {
+		t.Fatalf("buildMessages: %v", err)
+	}
+	// user, asst(a1,a2), tool a1, tool a2-stub, user, asst(b1), tool b1-stub
+	if len(msgs) != 7 {
+		t.Fatalf("len(msgs) = %d, want 7", len(msgs))
+	}
+	if msgs[3].ToolCallID != "a2" || !strings.Contains(msgs[3].Content, "Tool result unavailable") {
+		t.Errorf("a2 stub wrong: %+v", msgs[3])
+	}
+	if msgs[6].ToolCallID != "b1" || !strings.Contains(msgs[6].Content, "Tool result unavailable") {
+		t.Errorf("b1 stub wrong: %+v", msgs[6])
+	}
+}

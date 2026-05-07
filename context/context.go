@@ -3,6 +3,7 @@ package context
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -170,6 +171,18 @@ func (e *ContextError) Error() string {
 func (e *ContextError) Unwrap() error {
 	return e.Err
 }
+
+// ErrContextFull signals the context buffer cannot accommodate a required
+// message group atomically. AppendAssistantWithToolCalls returns this
+// (wrapped in ContextError) when the remaining capacity is less than
+// 1+len(toolCalls), i.e. there isn't room for the assistant message AND
+// every required tool result. Callers MUST handle this error rather than
+// ignore it; writing the assistant message without all subsequent tool
+// messages produces a protocol-illegal state that downstream LLM
+// providers reject (e.g. DeepSeek HTTP 400 "insufficient tool messages
+// following tool_calls message"). Use errors.Is(err, ErrContextFull) to
+// detect this condition.
+var ErrContextFull = errors.New("context buffer full")
 
 // Manager manages context allocation and lifecycle.
 type Manager struct {
@@ -444,11 +457,13 @@ func (m *Manager) AppendAssistantWithToolCalls(cid types.CtxID, content string, 
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
 
-	if len(ctx.Messages) >= ctx.MaxSize {
+	required := 1 + len(toolCalls)
+	if len(ctx.Messages)+required > ctx.MaxSize {
 		return &ContextError{
-			Op:   "AppendAssistantWithToolCalls",
-			CID:  cid,
-			Err:  fmt.Errorf("context full"),
+			Op:  "AppendAssistantWithToolCalls",
+			CID: cid,
+			Err: fmt.Errorf("%w: need %d slots (1 assistant + %d tool results), have %d/%d used",
+				ErrContextFull, required, len(toolCalls), len(ctx.Messages), ctx.MaxSize),
 			Code: types.ErrInternal,
 		}
 	}
