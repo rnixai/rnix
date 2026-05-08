@@ -26,7 +26,7 @@ import (
 // tool_calls message"). With ErrContextFull surfaced atomically by
 // AppendAssistantWithToolCalls, this should rarely fail; the emitted
 // ToolResultDropped event is a visibility safety net.
-func (k *KernelImpl) appendToolResult(proc *Process, step int, toolCallID, toolName, content string) {
+func (k *KernelImpl) appendToolResult(proc *Process, step int, toolCallID, toolName, content string) error {
 	if err := k.ctxMgr.AppendToolResult(proc.CtxID, toolCallID, content); err != nil {
 		k.emitEvent(proc, "ToolResultDropped", map[string]any{
 			"cid":          int(proc.CtxID),
@@ -34,7 +34,9 @@ func (k *KernelImpl) appendToolResult(proc *Process, step int, toolCallID, toolN
 			"tool_call_id": toolCallID,
 			"tool":         toolName,
 		}, nil, err, 0)
+		return err
 	}
+	return nil
 }
 
 // executeToolCalls processes native tool calls from the LLM response.
@@ -60,12 +62,22 @@ func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int,
 
 	k.emitLog(proc, step, types.LogThink, resp.Content, "")
 
+	type droppedResult struct {
+		toolCallID string
+		toolName   string
+		content    string
+	}
+	var dropped *droppedResult
+
+toolLoop:
 	for _, tc := range resp.ToolCalls {
 		if tc.ParseError != "" {
 			errMsg := fmt.Sprintf("Tool error (%s): arguments parse failed: %s", tc.Name, tc.ParseError)
-			k.appendToolResult(proc, step, tc.ID, tc.Name,errMsg)
+			if err := k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg); err != nil {
+				dropped = &droppedResult{tc.ID, tc.Name, errMsg}
+				break
+			}
 			k.emitLog(proc, step, types.LogTool, errMsg, tc.Name)
-			// Record the failed step so it's visible in LLM viewer and step timeline
 			k.writeDriverStepRecordFull(proc, step, tc.Name,
 				fmt.Sprintf("✗ parse_error: %s", tc.Name),
 				tc.Name, tc.ParseError, errMsg, time.Since(stepStart),
@@ -84,7 +96,7 @@ func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int,
 			if thinkContent == "" {
 				thinkContent = fmt.Sprintf("%v", tc.Input)
 			}
-			k.appendToolResult(proc, step, tc.ID, tc.Name,"ok")
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, "ok")
 			k.writeDriverStepRecordFull(proc, step, tc.Name,
 				"think", tc.Name, "", thinkContent, time.Since(stepStart),
 				nil, 0)
@@ -93,10 +105,6 @@ func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int,
 
 		mapping, ok := proc.toolMap[tc.Name]
 		if !ok {
-			// MCP devices are mounted under /mnt/ after spawn, so they won't be
-			// in toolMap. Create a synthetic mapping to route through VFS.
-			// /dev/ paths are NOT included here: if a /dev/ device isn't in
-			// toolMap, it's a genuine "unknown tool" (permission denied).
 			if strings.HasPrefix(tc.Name, "/mnt/") {
 				mapping = toolMapping{Type: "vfs", VFSPath: tc.Name}
 				ok = true
@@ -105,7 +113,10 @@ func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int,
 		if !ok {
 			errMsg := "error: unknown tool " + tc.Name
 			appendToolStart := time.Now()
-			k.appendToolResult(proc, step, tc.ID, tc.Name,errMsg)
+			if err := k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg); err != nil {
+				dropped = &droppedResult{tc.ID, tc.Name, errMsg}
+				break
+			}
 			k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendToolResult", "tool": tc.Name}, nil, nil, time.Since(appendToolStart))
 			k.emitLog(proc, step, types.LogTool, errMsg, tc.Name)
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
@@ -130,7 +141,10 @@ func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int,
 			if err != nil {
 				errMsg := fmt.Sprintf("Tool error (%s): %v", tc.Name, err)
 				appendToolStart := time.Now()
-				k.appendToolResult(proc, step, tc.ID, tc.Name,errMsg)
+				if appendErr := k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg); appendErr != nil {
+					dropped = &droppedResult{tc.ID, tc.Name, errMsg}
+					break toolLoop
+				}
 				k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendToolResult", "tool": tc.Name}, nil, nil, time.Since(appendToolStart))
 				proc.mu.Lock()
 				proc.HasToolError = true
@@ -148,7 +162,10 @@ func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int,
 				continue
 			}
 			appendToolStart := time.Now()
-			k.appendToolResult(proc, step, tc.ID, tc.Name,result)
+			if appendErr := k.appendToolResult(proc, step, tc.ID, tc.Name, result); appendErr != nil {
+				dropped = &droppedResult{tc.ID, tc.Name, result}
+				break toolLoop
+			}
 			k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendToolResult", "tool": tc.Name}, nil, nil, time.Since(appendToolStart))
 			toolContent := result
 			if len(toolContent) > 500 {
@@ -189,6 +206,16 @@ func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int,
 				return false
 			}
 		}
+
+	}
+
+	if dropped != nil {
+		log.Printf("[kernel] pid=%d step=%d tool result dropped for %s, attempting compact+retry", proc.PID, step, dropped.toolName)
+		k.autoCompactIfNeeded(proc, step)
+		if err := k.appendToolResult(proc, step, dropped.toolCallID, dropped.toolName, dropped.content); err != nil {
+			log.Printf("[kernel] pid=%d step=%d tool result retry after compact still failed: %v", proc.PID, step, err)
+		}
+		return true
 	}
 
 	return true
@@ -539,7 +566,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		if agentStr != "" {
 			if k.agentLoader == nil {
 				errMsg := fmt.Sprintf("spawn error: agent %q requested but no agent loader configured", agentStr)
-				k.appendToolResult(proc, step, tc.ID, tc.Name,errMsg)
+				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
 				*consecutiveToolErrors++
@@ -553,7 +580,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			ai, loadErr := k.agentLoader(agentStr)
 			if loadErr != nil {
 				errMsg := fmt.Sprintf("spawn error: agent %q load failed: %v", agentStr, loadErr)
-				k.appendToolResult(proc, step, tc.ID, tc.Name,errMsg)
+				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, loadErr, time.Since(stepStart))
 				*consecutiveToolErrors++
@@ -570,7 +597,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		childPID, err := k.Spawn(intentStr, agentInfo, childOpts)
 		if err != nil {
 			errMsg := fmt.Sprintf("spawn failed: %v", err)
-			k.appendToolResult(proc, step, tc.ID, tc.Name,errMsg)
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, err, time.Since(stepStart))
 			*consecutiveToolErrors++
 			if *consecutiveToolErrors >= 3 {
@@ -588,7 +615,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		if result == "" {
 			result = fmt.Sprintf("child PID %d exited: %s (code %d)", childPID, childExit.Reason, childExit.Code)
 		}
-		k.appendToolResult(proc, step, tc.ID, tc.Name,result)
+		_ = k.appendToolResult(proc, step, tc.ID, tc.Name, result)
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn", "child_pid": childPID}, result, nil, time.Since(stepStart))
 		stepDur := time.Since(stepStart)
 		if k.callbacks != nil {
@@ -599,7 +626,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 	case ActionReplan:
 		reasonStr, _ := tc.Input["reason"].(string)
 		msg := fmt.Sprintf("Replanning: %s", reasonStr)
-		k.appendToolResult(proc, step, tc.ID, tc.Name,msg)
+		_ = k.appendToolResult(proc, step, tc.ID, tc.Name, msg)
 		k.emitLog(proc, step, types.LogOutput, msg, "")
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "replan"}, msg, nil, time.Since(stepStart))
 		return true
@@ -608,14 +635,14 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		skillName, _ := tc.Input["skill_name"].(string)
 		if skillName == "" {
 			errMsg := "specialize error: empty skill name"
-			k.appendToolResult(proc, step, tc.ID, tc.Name,errMsg)
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error"}, nil, nil, time.Since(stepStart))
 			return true
 		}
 		if k.skillLoader == nil {
 			errMsg := "specialize error: no skill loader configured"
-			k.appendToolResult(proc, step, tc.ID, tc.Name,errMsg)
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error"}, nil, nil, time.Since(stepStart))
 			return true
@@ -626,7 +653,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		proc.mu.Unlock()
 		if alreadyLoaded {
 			resultMsg := fmt.Sprintf("skill %q is already loaded — its instructions are in your system prompt. Follow them using available VFS devices (/dev/fs, /dev/shell, etc.). Do NOT try to call this skill as a tool.", skillName)
-			k.appendToolResult(proc, step, tc.ID, tc.Name,resultMsg)
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, resultMsg)
 			k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_already_loaded", "skill": skillName}, nil, nil, time.Since(stepStart))
 			return true
@@ -635,7 +662,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		skillInfo, loadErr := k.skillLoader(skillName)
 		if loadErr != nil {
 			errMsg := fmt.Sprintf("specialize error: skill %q load failed: %v", skillName, loadErr)
-			k.appendToolResult(proc, step, tc.ID, tc.Name,errMsg)
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error", "skill": skillName}, nil, loadErr, time.Since(stepStart))
 			return true
@@ -645,7 +672,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		if slices.Contains(proc.Skills, skillName) {
 			proc.mu.Unlock()
 			resultMsg := fmt.Sprintf("skill %q is already loaded — its instructions are in your system prompt.", skillName)
-			k.appendToolResult(proc, step, tc.ID, tc.Name,resultMsg)
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, resultMsg)
 			return true
 		}
 		proc.Skills = append(proc.Skills, skillName)
@@ -698,11 +725,34 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				body = "Base directory for this skill: " + skillInfo.Dir + "\n\n" + body
 			}
 			header := fmt.Sprintf("[Dynamic Skill Loaded: %s]", skillName)
-			_ = k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, header+"\n\n"+body)
+			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, header+"\n\n"+body); err != nil {
+				proc.mu.Lock()
+				proc.Skills = slices.DeleteFunc(proc.Skills, func(s string) bool { return s == skillName })
+				delete(proc.SkillBodies, skillName)
+				delete(proc.SkillDirs, skillName)
+				removedTools := skillInfo.Manifest.AllowedTools()
+				if len(removedTools) > 0 {
+					removeSet := make(map[string]struct{}, len(removedTools))
+					for _, t := range removedTools {
+						removeSet[t] = struct{}{}
+					}
+					proc.AllowedDevices = slices.DeleteFunc(proc.AllowedDevices, func(d string) bool {
+						_, rm := removeSet[d]
+						return rm
+					})
+				}
+				proc.mu.Unlock()
+				k.emitEvent(proc, "SpecializeRollback", map[string]any{"skill": skillName, "reason": "context_full"}, nil, err, 0)
+				errMsg := fmt.Sprintf("skill %q load failed: context full. The skill was NOT loaded. Try again after context is compacted.", skillName)
+				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
+				k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
+				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_rollback", "skill": skillName}, nil, err, time.Since(stepStart))
+				return true
+			}
 		}
 
 		resultMsg := fmt.Sprintf("skill %q loaded successfully", skillName)
-		k.appendToolResult(proc, step, tc.ID, tc.Name,resultMsg)
+		_ = k.appendToolResult(proc, step, tc.ID, tc.Name, resultMsg)
 		k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize", "skill": skillName}, nil, nil, time.Since(stepStart))
 		stepDur := time.Since(stepStart)
@@ -715,11 +765,11 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		query, _ := tc.Input["query"].(string)
 		matches, err := discoverSkills(proc, query)
 		if err != nil {
-			k.appendToolResult(proc, step, tc.ID, tc.Name,"discover_skill error: "+err.Error())
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, "discover_skill error: "+err.Error())
 			return true
 		}
 		resultStr := discoverResultJSON(query, matches)
-		k.appendToolResult(proc, step, tc.ID, tc.Name,resultStr)
+		_ = k.appendToolResult(proc, step, tc.ID, tc.Name, resultStr)
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "discover_skill", "query": query, "matches": len(matches)}, nil, nil, time.Since(stepStart))
 		return true
 
@@ -727,7 +777,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		// LLM tried to call a deferred skill placeholder — guide it to use discover_skill + specialize
 		skillName := strings.TrimPrefix(tc.Name, "skill_")
 		msg := fmt.Sprintf("This skill (%s) is deferred and not yet loaded. Use discover_skill to search for it, then specialize to load it.", skillName)
-		k.appendToolResult(proc, step, tc.ID, tc.Name,msg)
+		_ = k.appendToolResult(proc, step, tc.ID, tc.Name, msg)
 		return true
 
 	case ActionPlan:
@@ -769,7 +819,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			return false
 		}
 		k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendMessage", "role": string(rnixctx.RoleAssistant)}, nil, nil, time.Since(appendStart))
-		k.appendToolResult(proc, step, tc.ID, tc.Name,planStr)
+		_ = k.appendToolResult(proc, step, tc.ID, tc.Name, planStr)
 		k.emitLog(proc, step, types.LogOutput, planStr, "")
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "plan"}, planStr, nil, time.Since(stepStart))
 		stepDur := time.Since(stepStart)
