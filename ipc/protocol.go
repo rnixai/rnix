@@ -1107,10 +1107,13 @@ type FDEntryWire struct {
 
 // ContextStatsWire is the wire-format representation of context usage statistics.
 type ContextStatsWire struct {
-	MessageCount  int     `json:"message_count"`
-	TokensUsed    int     `json:"tokens_used"`
-	ContextBudget int     `json:"context_budget"`
-	UsagePct      float64 `json:"usage_pct"`
+	MessageCount   int     `json:"message_count"`
+	TokensUsed     int     `json:"tokens_used"`
+	ContextBudget  int     `json:"context_budget"`
+	UsagePct       float64 `json:"usage_pct"`
+	SlotUsed       int     `json:"slot_used"`
+	SlotMax        int     `json:"slot_max"`
+	SlotPercentage float64 `json:"slot_percentage"`
 }
 
 func unixMilliToTime(ms int64) time.Time {

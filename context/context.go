@@ -549,10 +549,21 @@ func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {
 
 	limit := ctx.effectiveTokenLimit()
 	pct := float64(total) / float64(limit) * 100
+
+	slotUsed := len(ctx.Messages)
+	slotMax := ctx.MaxSize
+	var slotPct float64
+	if slotMax > 0 {
+		slotPct = float64(slotUsed) / float64(slotMax) * 100
+	}
+
 	return TokenStats{
-		Used:       total,
-		Limit:      limit,
-		Percentage: pct,
+		Used:           total,
+		Limit:          limit,
+		Percentage:     pct,
+		SlotUsed:       slotUsed,
+		SlotMax:        slotMax,
+		SlotPercentage: slotPct,
 	}, nil
 }
 

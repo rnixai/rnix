@@ -126,6 +126,10 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 	// Section 4: Context stats
 	b.WriteString("  ──── Context ────\n")
 	fmt.Fprintf(&b, "    %d msgs | %s tok\n", d.ContextStats.MessageCount, ui.FormatTokens(d.ContextStats.TokensUsed))
+	if d.ContextStats.SlotMax > 0 {
+		fmt.Fprintf(&b, "    %d/%d slots (%.0f%%)\n",
+			d.ContextStats.SlotUsed, d.ContextStats.SlotMax, d.ContextStats.SlotPercentage)
+	}
 	if d.ContextStats.ContextBudget > 0 {
 		barWidth := max(innerW-10, 10)
 		filled := int(d.ContextStats.UsagePct / 100.0 * float64(barWidth))

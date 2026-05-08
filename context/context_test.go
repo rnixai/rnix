@@ -1383,3 +1383,53 @@ func TestManager_SlotUsage_NotFound(t *testing.T) {
 		t.Errorf("code: got %q, want %q", ctxErr.Code, types.ErrNotFound)
 	}
 }
+
+func TestManager_TokenUsage_SlotFields(t *testing.T) {
+	m := NewManager()
+	cid, err := m.CtxAlloc(10)
+	if err != nil {
+		t.Fatalf("CtxAlloc failed: %v", err)
+	}
+
+	_ = m.AppendMessage(cid, RoleUser, "hello")
+	_ = m.AppendMessage(cid, RoleAssistant, "world")
+	_ = m.AppendMessage(cid, RoleUser, "test")
+
+	stats, err := m.TokenUsage(cid)
+	if err != nil {
+		t.Fatalf("TokenUsage failed: %v", err)
+	}
+
+	if stats.SlotUsed != 3 {
+		t.Errorf("SlotUsed: got %d, want 3", stats.SlotUsed)
+	}
+	if stats.SlotMax != 10 {
+		t.Errorf("SlotMax: got %d, want 10", stats.SlotMax)
+	}
+	expectedPct := 30.0
+	if stats.SlotPercentage != expectedPct {
+		t.Errorf("SlotPercentage: got %.1f, want %.1f", stats.SlotPercentage, expectedPct)
+	}
+}
+
+func TestManager_TokenUsage_SlotFields_Empty(t *testing.T) {
+	m := NewManager()
+	cid, err := m.CtxAlloc(20)
+	if err != nil {
+		t.Fatalf("CtxAlloc failed: %v", err)
+	}
+
+	stats, err := m.TokenUsage(cid)
+	if err != nil {
+		t.Fatalf("TokenUsage failed: %v", err)
+	}
+	if stats.SlotUsed != 0 {
+		t.Errorf("SlotUsed: got %d, want 0", stats.SlotUsed)
+	}
+	if stats.SlotMax != 20 {
+		t.Errorf("SlotMax: got %d, want 20", stats.SlotMax)
+	}
+	if stats.SlotPercentage != 0.0 {
+		t.Errorf("SlotPercentage: got %.1f, want 0.0", stats.SlotPercentage)
+	}
+}

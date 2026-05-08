@@ -167,7 +167,8 @@ type Process struct {
 
 	// Context compact (Story 31.2) — mu protected
 	CompactThreshold     float64                       // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
-	SlotCompactThreshold float64                       // 0 = use default (80.0); >0 = trigger compact when slot usage% > threshold
+	SlotCompactThreshold  float64                       // 0 = use default (80.0); >0 = trigger compact when slot usage% > threshold
+	BackpressureThreshold float64                       // 0 = use default (70.0); >0 = inject backpressure section when slot usage% > threshold
 	ReadFileState    map[string]rnixctx.ReadFileEntry   // tracks recently read files for post-compact restore
 	compactMu        sync.Mutex                         // prevents concurrent compact operations (auto + manual IPC)
 
@@ -789,6 +790,15 @@ func (p *Process) effectiveSlotCompactThreshold() float64 {
 		return p.SlotCompactThreshold
 	}
 	return DefaultSlotCompactThreshold
+}
+
+const DefaultBackpressureThreshold = 70.0
+
+func (p *Process) effectiveBackpressureThreshold() float64 {
+	if p.BackpressureThreshold > 0 {
+		return p.BackpressureThreshold
+	}
+	return DefaultBackpressureThreshold
 }
 
 // TryLockCompact attempts to acquire the compact mutex without blocking.

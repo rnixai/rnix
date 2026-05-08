@@ -118,6 +118,42 @@ func TestAutoCompactIfNeeded_TokenThresholdStillWorks(t *testing.T) {
 	}
 }
 
+func TestAutoCompactIfNeeded_SlotThresholdTriggerLabel(t *testing.T) {
+	k, ctxMgr, proc, cid := setupCompactKernel(t, 10)
+	proc.DebugChan = make(chan types.SyscallEvent, 64)
+	fillContext(t, ctxMgr, cid, 9) // 90% slots, low tokens
+
+	usage, _ := ctxMgr.TokenUsage(cid)
+	if usage.Percentage > 80.0 {
+		t.Skipf("token%% %.1f > 80, cannot isolate slot trigger", usage.Percentage)
+	}
+
+	k.autoCompactIfNeeded(proc, 1)
+
+	found := false
+	for {
+		select {
+		case evt := <-proc.DebugChan:
+			if evt.Syscall == "Compact" {
+				trigger, ok := evt.Args["trigger"].(string)
+				if !ok {
+					t.Fatalf("trigger field missing or not string: %v", evt.Args["trigger"])
+				}
+				if trigger != "slot_threshold" {
+					t.Errorf("trigger = %q, want slot_threshold", trigger)
+				}
+				found = true
+			}
+		default:
+			goto done
+		}
+	}
+done:
+	if !found {
+		t.Fatal("no Compact event emitted for slot_threshold trigger")
+	}
+}
+
 func TestPreCompactForToolCalls_SlotsSufficient(t *testing.T) {
 	k, ctxMgr, proc, cid := setupCompactKernel(t, 10)
 	fillContext(t, ctxMgr, cid, 3) // 7 available, need 1+2=3

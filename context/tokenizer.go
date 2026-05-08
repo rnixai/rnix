@@ -6,9 +6,12 @@ import (
 
 // TokenStats holds token usage statistics for a context.
 type TokenStats struct {
-	Used       int     `json:"used"`
-	Limit      int     `json:"limit"`
-	Percentage float64 `json:"percentage"`
+	Used           int     `json:"used"`
+	Limit          int     `json:"limit"`
+	Percentage     float64 `json:"percentage"`
+	SlotUsed       int     `json:"slot_used"`
+	SlotMax        int     `json:"slot_max"`
+	SlotPercentage float64 `json:"slot_percentage"`
 }
 
 // DefaultTokenLimit is the default context window size in tokens.

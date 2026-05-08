@@ -202,6 +202,22 @@ Best practices:
 		return b.String()
 	}, false)
 
+	reg.Register("backpressure", func() string {
+		slotUsed, slotMax, err := k.ctxMgr.SlotUsage(proc.CtxID)
+		if err != nil || slotMax == 0 {
+			return ""
+		}
+		slotPct := float64(slotUsed) / float64(slotMax) * 100
+		if slotPct <= proc.effectiveBackpressureThreshold() {
+			return ""
+		}
+		return fmt.Sprintf("# Context Resource Warning\n\n"+
+			"Context message slots are %.0f%% full (%d/%d). "+
+			"Prefer sequential tool calls over parallel batches to conserve context space. "+
+			"Avoid requesting more than 2 tool calls per turn until context is compacted.",
+			slotPct, slotUsed, slotMax)
+	}, false)
+
 	// action_protocol: no longer used (text protocol removed); section returns empty.
 	// Tool definitions are passed via req.Tools for SDK providers;
 	// CLI Agent providers use their own built-in tools.

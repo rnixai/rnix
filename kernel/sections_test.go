@@ -1,7 +1,11 @@
 package kernel
 
 import (
+	"strings"
 	"testing"
+
+	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/vfs"
 )
 
 func TestScoreSkillMatch_ExactNameMatch(t *testing.T) {
@@ -58,5 +62,100 @@ func TestScoreSkillMatch_EmptyQuery(t *testing.T) {
 	score := scoreSkillMatch(ds, "")
 	if score != 0 {
 		t.Errorf("expected 0 score for empty query, got %d", score)
+	}
+}
+
+func setupBackpressureKernel(t *testing.T, maxSize int) (*KernelImpl, *rnixctx.Manager, *Process) {
+	t.Helper()
+	reg := vfs.NewDeviceRegistry()
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	t.Cleanup(k.Shutdown)
+
+	cid, err := ctxMgr.CtxAlloc(maxSize)
+	if err != nil {
+		t.Fatalf("CtxAlloc: %v", err)
+	}
+
+	proc := NewProcess(0, "backpressure test", nil)
+	proc.CtxID = cid
+	return k, ctxMgr, proc
+}
+
+func TestBackpressureSection_AboveThreshold(t *testing.T) {
+	k, ctxMgr, proc := setupBackpressureKernel(t, 10)
+	for i := range 8 {
+		role := rnixctx.RoleUser
+		if i%2 == 1 {
+			role = rnixctx.RoleAssistant
+		}
+		_ = ctxMgr.AppendMessage(proc.CtxID, role, "x")
+	}
+
+	sections := registerSections(proc, k, "")
+	result := sections.Build()
+
+	if !strings.Contains(result, "Context Resource Warning") {
+		t.Error("expected backpressure section when slot usage > 70%, got none")
+	}
+	if !strings.Contains(result, "80%") {
+		t.Error("expected slot percentage in backpressure text")
+	}
+}
+
+func TestBackpressureSection_BelowThreshold(t *testing.T) {
+	k, ctxMgr, proc := setupBackpressureKernel(t, 10)
+	for i := range 5 {
+		role := rnixctx.RoleUser
+		if i%2 == 1 {
+			role = rnixctx.RoleAssistant
+		}
+		_ = ctxMgr.AppendMessage(proc.CtxID, role, "x")
+	}
+
+	sections := registerSections(proc, k, "")
+	result := sections.Build()
+
+	if strings.Contains(result, "Context Resource Warning") {
+		t.Error("backpressure section should NOT appear when slot usage <= 70%")
+	}
+}
+
+func TestBackpressureSection_AtExactThreshold(t *testing.T) {
+	k, ctxMgr, proc := setupBackpressureKernel(t, 10)
+	for i := range 7 {
+		role := rnixctx.RoleUser
+		if i%2 == 1 {
+			role = rnixctx.RoleAssistant
+		}
+		_ = ctxMgr.AppendMessage(proc.CtxID, role, "x")
+	}
+
+	sections := registerSections(proc, k, "")
+	result := sections.Build()
+
+	if strings.Contains(result, "Context Resource Warning") {
+		t.Error("backpressure should NOT trigger at exactly 70% (must be >)")
+	}
+}
+
+func TestBackpressureSection_CustomThreshold(t *testing.T) {
+	k, ctxMgr, proc := setupBackpressureKernel(t, 10)
+	proc.BackpressureThreshold = 50.0
+
+	for i := range 6 {
+		role := rnixctx.RoleUser
+		if i%2 == 1 {
+			role = rnixctx.RoleAssistant
+		}
+		_ = ctxMgr.AppendMessage(proc.CtxID, role, "x")
+	}
+
+	sections := registerSections(proc, k, "")
+	result := sections.Build()
+
+	if !strings.Contains(result, "Context Resource Warning") {
+		t.Error("expected backpressure at 60% with custom threshold 50%")
 	}
 }

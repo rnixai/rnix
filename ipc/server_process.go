@@ -265,6 +265,14 @@ func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) 
 				resp.ContextStats.MessageCount = int(mc)
 			}
 		}
+		slotUsed, slotMax, slotErr := s.ctxMgr.SlotUsage(snap.CtxID)
+		if slotErr == nil {
+			resp.ContextStats.SlotUsed = slotUsed
+			resp.ContextStats.SlotMax = slotMax
+			if slotMax > 0 {
+				resp.ContextStats.SlotPercentage = float64(slotUsed) / float64(slotMax) * 100
+			}
+		}
 	}
 
 	payload, err := json.Marshal(resp)
