@@ -71,6 +71,7 @@ type Process struct {
 	Result         string      // final output from reasoning
 	TokensUsed     int         // cumulative token consumption
 	ContextBudget  int            // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	CtxSize        int            // context message slot limit used at allocation (for checkpoint)
 	Budget         ProcessBudget // per-process resource budget (mu protected); suspend when exhausted
 	MaxSteps       int            // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
 	AllowedDevices []string    // nil/empty = all devices allowed; non-empty = whitelist only

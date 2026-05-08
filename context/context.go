@@ -505,6 +505,17 @@ func (m *Manager) BuildPrompt(cid types.CtxID) (*PromptResult, error) {
 	}, nil
 }
 
+// AvailableSlots returns the number of remaining message slots in the context.
+func (m *Manager) AvailableSlots(cid types.CtxID) (int, error) {
+	ctx, err := m.getContext("AvailableSlots", cid)
+	if err != nil {
+		return 0, err
+	}
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+	return ctx.MaxSize - len(ctx.Messages), nil
+}
+
 // TokenUsage returns token usage statistics for the given context.
 // Estimates tokens across the system prompt and all messages.
 func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {

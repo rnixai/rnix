@@ -229,6 +229,11 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			opts.ContextBudget = agent.Manifest.ContextBudget
 		}
 
+		// CtxSize priority: opts (CLI/Compose) > agent manifest > DefaultCtxSize
+		if opts.CtxSize == 0 && agent.Manifest.CtxSize > 0 {
+			opts.CtxSize = agent.Manifest.CtxSize
+		}
+
 		// Fallback configuration (Story 23.5; CLI override per spec
 		// `anthropic-thinking-and-cli-fallback`):
 		//
@@ -389,13 +394,19 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		// Use pre-allocated context (fork-continue path)
 		cid = opts.PreallocatedCtxID
 		proc.CtxID = cid
+		proc.CtxSize = DefaultCtxSize
 	} else {
 		// Allocate context
+		effectiveCtxSize := DefaultCtxSize
+		if opts.CtxSize > 0 {
+			effectiveCtxSize = opts.CtxSize
+		}
+		proc.CtxSize = effectiveCtxSize
 		ctxAllocStart := time.Now()
 		var err error
-		cid, err = k.ctxMgr.CtxAlloc(DefaultCtxSize)
+		cid, err = k.ctxMgr.CtxAlloc(effectiveCtxSize)
 		k.emitEvent(proc, "CtxAlloc", map[string]any{
-			"size": DefaultCtxSize,
+			"size": effectiveCtxSize,
 		}, cid, err, time.Since(ctxAllocStart))
 		if err != nil {
 			return 0, NewSyscallError("Spawn", proc.PID, "", err, types.ErrInternal)

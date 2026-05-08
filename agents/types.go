@@ -22,6 +22,7 @@ type AgentManifest struct {
 	Description    string      `yaml:"description"`
 	Models         AgentModels `yaml:"models"`
 	ContextBudget  int         `yaml:"context_budget"`
+	CtxSize        int         `yaml:"ctx_size,omitempty"`
 	Skills         []string    `yaml:"skills"`
 	DeferredSkills []string    `yaml:"deferred_skills,omitempty"` // skill names loaded metadata-only (body loaded on discover_skill)
 	MCP            []string    `yaml:"mcp,omitempty"`             // MCP server references

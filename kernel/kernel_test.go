@@ -3008,3 +3008,149 @@ func TestFinishProcess_BackfillsEmptyResult(t *testing.T) {
 		t.Errorf("expected Result 'actual content', got %q", proc.Result)
 	}
 }
+
+// ========== Story 39.1: CtxSize Tests ==========
+
+func TestSpawn_CtxSize_Default(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	pid, err := k.Spawn("test", nil, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	if proc.CtxSize != DefaultCtxSize {
+		t.Errorf("CtxSize: got %d, want %d", proc.CtxSize, DefaultCtxSize)
+	}
+}
+
+func TestSpawn_CtxSize_FromOpts(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	pid, err := k.Spawn("test", nil, SpawnOpts{CtxSize: 512})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	if proc.CtxSize != 512 {
+		t.Errorf("CtxSize: got %d, want 512", proc.CtxSize)
+	}
+}
+
+func TestSpawn_CtxSize_AgentManifest(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Name:    "test-agent",
+			CtxSize: 128,
+		},
+		Instructions: "test instructions",
+	}
+
+	pid, err := k.Spawn("test", agent, SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	if proc.CtxSize != 128 {
+		t.Errorf("CtxSize: got %d, want 128", proc.CtxSize)
+	}
+}
+
+func TestSpawn_CtxSize_OptsTakesPrecedenceOverManifest(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	agent := &agents.AgentInfo{
+		Manifest: agents.AgentManifest{
+			Name:    "test-agent",
+			CtxSize: 128,
+		},
+		Instructions: "test instructions",
+	}
+
+	pid, err := k.Spawn("test", agent, SpawnOpts{CtxSize: 1024})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, ok := k.GetProcess(pid)
+	if !ok {
+		t.Fatal("process not found")
+	}
+
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	if proc.CtxSize != 1024 {
+		t.Errorf("CtxSize: got %d, want 1024 (opts should override manifest)", proc.CtxSize)
+	}
+}
+
+func TestSpawn_CtxSize_CtxAllocEventReflectsSize(t *testing.T) {
+	llmFile := &mockLLMFile{readData: makeLLMResponse("done", 10)}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	pid, err := k.Spawn("test", nil, SpawnOpts{CtxSize: 300})
+	if err != nil {
+		t.Fatalf("Spawn failed: %v", err)
+	}
+
+	proc, _ := k.GetProcess(pid)
+	select {
+	case <-proc.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	events := drainEvents(proc.DebugChan)
+	for _, ev := range events {
+		if ev.Syscall == "CtxAlloc" {
+			if ev.Args["size"] != 300 {
+				t.Errorf("CtxAlloc event size: got %v, want 300", ev.Args["size"])
+			}
+			return
+		}
+	}
+	t.Error("CtxAlloc event not found")
+}

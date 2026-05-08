@@ -37,6 +37,9 @@ func TestAgentLoader_Load_Success(t *testing.T) {
 	if info.Manifest.ContextBudget != 4096 {
 		t.Errorf("ContextBudget = %d, want %d", info.Manifest.ContextBudget, 4096)
 	}
+	if info.Manifest.CtxSize != 512 {
+		t.Errorf("CtxSize = %d, want %d", info.Manifest.CtxSize, 512)
+	}
 	if len(info.Manifest.Skills) != 1 || info.Manifest.Skills[0] != "mock-skill" {
 		t.Errorf("Skills = %v, want [mock-skill]", info.Manifest.Skills)
 	}

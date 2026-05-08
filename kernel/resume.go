@@ -137,7 +137,12 @@ func (k *KernelImpl) Resume(uuid string) (*ResumeResult, error) {
 	proc.mu.Unlock()
 
 	// 7. Allocate context and deserialize snapshot
-	cid, err := k.ctxMgr.CtxAlloc(DefaultCtxSize)
+	resumeCtxSize := DefaultCtxSize
+	if cp.CtxSize > 0 {
+		resumeCtxSize = cp.CtxSize
+	}
+	proc.CtxSize = resumeCtxSize
+	cid, err := k.ctxMgr.CtxAlloc(resumeCtxSize)
 	if err != nil {
 		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context alloc: %w", err), types.ErrInternal)
 	}

@@ -37,6 +37,7 @@ type CheckpointProcState struct {
 	MaxTokens             int64             `json:"max_tokens,omitempty"`
 	MaxCost               float64           `json:"max_cost,omitempty"`
 	UsedCost              float64           `json:"used_cost,omitempty"`
+	CtxSize               int               `json:"ctx_size,omitempty"`
 	ConsecutiveToolErrors int               `json:"consecutive_tool_errors"`
 	EnvSnapshot           map[string]string `json:"env_snapshot"`
 }
@@ -121,6 +122,7 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 			AllowedDevices:        append([]string(nil), proc.AllowedDevices...),
 			Intent:                proc.Intent,
 			MaxSteps:              proc.MaxSteps,
+			CtxSize:               proc.CtxSize,
 			UsedTokens:            tokensUsed,
 			MaxTokens:             budgetSnap.MaxTokens,
 			MaxCost:               budgetSnap.MaxCost,

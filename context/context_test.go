@@ -1275,3 +1275,55 @@ func TestAppendAssistantWithToolCalls_RejectsWhenInsufficientCapacity(t *testing
 		}
 	})
 }
+
+// ========== Story 39.1: AvailableSlots Tests ==========
+
+func TestManager_AvailableSlots_Fresh(t *testing.T) {
+	m := NewManager()
+	cid, err := m.CtxAlloc(10)
+	if err != nil {
+		t.Fatalf("CtxAlloc failed: %v", err)
+	}
+
+	slots, err := m.AvailableSlots(cid)
+	if err != nil {
+		t.Fatalf("AvailableSlots failed: %v", err)
+	}
+	if slots != 10 {
+		t.Errorf("AvailableSlots: got %d, want 10", slots)
+	}
+}
+
+func TestManager_AvailableSlots_AfterMessages(t *testing.T) {
+	m := NewManager()
+	cid, _ := m.CtxAlloc(10)
+
+	_ = m.AppendMessage(cid, RoleUser, "msg1")
+	_ = m.AppendMessage(cid, RoleAssistant, "msg2")
+	_ = m.AppendMessage(cid, RoleUser, "msg3")
+
+	slots, err := m.AvailableSlots(cid)
+	if err != nil {
+		t.Fatalf("AvailableSlots failed: %v", err)
+	}
+	if slots != 7 {
+		t.Errorf("AvailableSlots: got %d, want 7", slots)
+	}
+}
+
+func TestManager_AvailableSlots_NotFound(t *testing.T) {
+	m := NewManager()
+
+	_, err := m.AvailableSlots(999)
+	if err == nil {
+		t.Fatal("expected error for invalid CtxID, got nil")
+	}
+
+	var ctxErr *ContextError
+	if !errors.As(err, &ctxErr) {
+		t.Fatalf("expected *ContextError, got %T", err)
+	}
+	if ctxErr.Code != types.ErrNotFound {
+		t.Errorf("code: got %q, want %q", ctxErr.Code, types.ErrNotFound)
+	}
+}

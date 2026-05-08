@@ -48,7 +48,7 @@ func PIDFromContext(ctx gocontext.Context) types.PID {
 const DefaultMaxSteps = 0
 
 // DefaultCtxSize is the default context size (message count) for new contexts.
-const DefaultCtxSize = 64
+const DefaultCtxSize = 256
 
 // SpawnOpts configures optional parameters for Spawn.
 type SpawnOpts struct {
@@ -58,6 +58,7 @@ type SpawnOpts struct {
 	TimeoutMs     int64
 	ParentPID     types.PID     // parent process PID; 0 = top-level/CLI spawn
 	ContextBudget int           // 0 = no limit; >0 = terminate when TokensUsed >= ContextBudget
+	CtxSize       int           // 0 = use DefaultCtxSize; >0 = context message slot limit
 	MaxTokens     int64         // per-process token budget; 0 = unlimited; >0 = suspend when exhausted
 	MaxCost       float64       // per-process cost budget (USD); 0 = unlimited; >0 = suspend when exhausted
 	TraceID       types.TraceID // inherited trace ID; empty = no tracing
