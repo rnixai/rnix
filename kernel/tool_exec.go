@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -38,6 +39,10 @@ func (k *KernelImpl) appendToolResult(proc *Process, step int, toolCallID, toolN
 
 // executeToolCalls processes native tool calls from the LLM response.
 func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int, promptResult *rnixctx.PromptResult, rawResponseStr string) bool {
+	if err := k.preCompactForToolCalls(proc, len(resp.ToolCalls), step); err != nil {
+		log.Printf("[kernel] pid=%d precompact warning: %v", proc.PID, err)
+	}
+
 	appendStart := time.Now()
 	if err := k.ctxMgr.AppendAssistantWithToolCalls(proc.CtxID, resp.Content, resp.Reasoning, convertReasoningBlocks(resp.ReasoningBlocks), convertToolCalls(resp.ToolCalls)); err != nil {
 		k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendAssistantWithToolCalls"}, nil, err, time.Since(appendStart))

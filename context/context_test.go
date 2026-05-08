@@ -1327,3 +1327,59 @@ func TestManager_AvailableSlots_NotFound(t *testing.T) {
 		t.Errorf("code: got %q, want %q", ctxErr.Code, types.ErrNotFound)
 	}
 }
+
+func TestManager_SlotUsage_Fresh(t *testing.T) {
+	m := NewManager()
+	cid, err := m.CtxAlloc(10)
+	if err != nil {
+		t.Fatalf("CtxAlloc failed: %v", err)
+	}
+
+	used, max, err := m.SlotUsage(cid)
+	if err != nil {
+		t.Fatalf("SlotUsage failed: %v", err)
+	}
+	if used != 0 {
+		t.Errorf("SlotUsage used: got %d, want 0", used)
+	}
+	if max != 10 {
+		t.Errorf("SlotUsage max: got %d, want 10", max)
+	}
+}
+
+func TestManager_SlotUsage_AfterMessages(t *testing.T) {
+	m := NewManager()
+	cid, _ := m.CtxAlloc(10)
+
+	_ = m.AppendMessage(cid, RoleUser, "msg1")
+	_ = m.AppendMessage(cid, RoleAssistant, "msg2")
+	_ = m.AppendMessage(cid, RoleUser, "msg3")
+
+	used, max, err := m.SlotUsage(cid)
+	if err != nil {
+		t.Fatalf("SlotUsage failed: %v", err)
+	}
+	if used != 3 {
+		t.Errorf("SlotUsage used: got %d, want 3", used)
+	}
+	if max != 10 {
+		t.Errorf("SlotUsage max: got %d, want 10", max)
+	}
+}
+
+func TestManager_SlotUsage_NotFound(t *testing.T) {
+	m := NewManager()
+
+	_, _, err := m.SlotUsage(999)
+	if err == nil {
+		t.Fatal("expected error for invalid CtxID, got nil")
+	}
+
+	var ctxErr *ContextError
+	if !errors.As(err, &ctxErr) {
+		t.Fatalf("expected *ContextError, got %T", err)
+	}
+	if ctxErr.Code != types.ErrNotFound {
+		t.Errorf("code: got %q, want %q", ctxErr.Code, types.ErrNotFound)
+	}
+}

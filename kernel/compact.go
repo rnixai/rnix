@@ -13,9 +13,9 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
-// autoCompactIfNeeded checks if context token usage exceeds the compact threshold
-// and triggers automatic compaction if so. Best-effort: failures are logged but
-// do not terminate the process (AC#2).
+// autoCompactIfNeeded checks if context token usage or slot usage exceeds the
+// compact threshold and triggers automatic compaction if so. Best-effort:
+// failures are logged but do not terminate the process.
 func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 	// Prevent concurrent compact (auto + manual IPC)
 	if !proc.compactMu.TryLock() {
@@ -28,13 +28,32 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 		return
 	}
 
-	threshold := proc.effectiveCompactThreshold()
-	if usage.Percentage <= threshold {
+	tokenThreshold := proc.effectiveCompactThreshold()
+	tokenTriggered := usage.Percentage > tokenThreshold
+
+	slotTriggered := false
+	slotUsed, slotMax, slotErr := k.ctxMgr.SlotUsage(proc.CtxID)
+	if slotErr == nil && slotMax > 0 {
+		slotPct := float64(slotUsed) / float64(slotMax) * 100
+		slotThreshold := proc.effectiveSlotCompactThreshold()
+		slotTriggered = slotPct > slotThreshold
+	}
+
+	if !tokenTriggered && !slotTriggered {
 		return
 	}
 
+	trigger := "token_threshold"
+	if slotTriggered && !tokenTriggered {
+		trigger = "slot_threshold"
+	}
+	if slotTriggered && tokenTriggered {
+		trigger = "both"
+	}
+
 	compactStart := time.Now()
-	log.Printf("[kernel] pid=%d step=%d auto-compact triggered: %.1f%% > %.1f%%", proc.PID, step, usage.Percentage, threshold)
+	log.Printf("[kernel] pid=%d step=%d auto-compact triggered (%s): token=%.1f%%, slots=%d/%d",
+		proc.PID, step, trigger, usage.Percentage, slotUsed, slotMax)
 
 	// Build CompactOpts using shared helpers
 	readFileState := k.SnapshotReadFileState(proc)
@@ -45,7 +64,7 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 
 	opts := rnixctx.CompactOpts{
 		LLMCall:       k.BuildCompactLLMCall(proc),
-		Trigger:       "auto",
+		Trigger:       trigger,
 		ReadFileState: readFileState,
 		ActiveSkills:  activeSkills,
 		ActivePlan:    activePlan,
@@ -56,7 +75,7 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 		log.Printf("[kernel] pid=%d compact failed: %v", proc.PID, err)
 		k.emitEvent(proc, "Compact", map[string]any{
 			"step":    step,
-			"trigger": "auto",
+			"trigger": trigger,
 			"error":   err.Error(),
 		}, nil, err, time.Since(compactStart))
 		return
@@ -67,7 +86,7 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 
 	k.emitEvent(proc, "Compact", map[string]any{
 		"step":           step,
-		"trigger":        "auto",
+		"trigger":        trigger,
 		"pre_tokens":     result.PreTokens,
 		"post_tokens":    result.PostTokens,
 		"restored_items": result.ItemsRestored,
@@ -76,6 +95,64 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 
 	log.Printf("[kernel] pid=%d compact done: %d→%d tokens, restored %d items",
 		proc.PID, result.PreTokens, result.PostTokens, len(result.ItemsRestored))
+}
+
+// preCompactForToolCalls checks if there are enough message slots for the
+// upcoming AppendAssistantWithToolCalls (1 assistant + N tool results) and
+// triggers a compact if not. Best-effort: TryLock failure means another compact
+// is running so we skip and let the caller try the append directly.
+func (k *KernelImpl) preCompactForToolCalls(proc *Process, toolCallCount int, step int) error {
+	required := 1 + toolCallCount
+	available, err := k.ctxMgr.AvailableSlots(proc.CtxID)
+	if err != nil || available >= required {
+		return nil
+	}
+
+	if !proc.compactMu.TryLock() {
+		return nil
+	}
+	defer proc.compactMu.Unlock()
+
+	log.Printf("[kernel] pid=%d step=%d precompact: need %d slots, have %d",
+		proc.PID, step, required, available)
+
+	compactStart := time.Now()
+	opts := rnixctx.CompactOpts{
+		LLMCall:       k.BuildCompactLLMCall(proc),
+		Trigger:       "precompact",
+		ReadFileState: k.SnapshotReadFileState(proc),
+		ActiveSkills:  k.BuildActiveSkills(proc),
+		ActivePlan:    k.extractActivePlan(proc.CtxID),
+	}
+
+	result, err := k.ctxMgr.Compact(proc.CtxID, opts)
+	if err != nil {
+		k.emitEvent(proc, "Compact", map[string]any{
+			"step":    step,
+			"trigger": "precompact",
+			"error":   err.Error(),
+		}, nil, err, time.Since(compactStart))
+		return fmt.Errorf("precompact failed: %w", err)
+	}
+
+	k.ClearReadFileState(proc)
+	k.emitEvent(proc, "Compact", map[string]any{
+		"step":           step,
+		"trigger":        "precompact",
+		"pre_tokens":     result.PreTokens,
+		"post_tokens":    result.PostTokens,
+		"restored_items": result.ItemsRestored,
+		"duration_ms":    float64(result.Duration.Microseconds()) / 1000.0,
+	}, nil, nil, result.Duration)
+
+	log.Printf("[kernel] pid=%d precompact done: %d→%d tokens, restored %d items",
+		proc.PID, result.PreTokens, result.PostTokens, len(result.ItemsRestored))
+
+	available, _ = k.ctxMgr.AvailableSlots(proc.CtxID)
+	if available < required {
+		return fmt.Errorf("precompact freed space but still insufficient: need %d, have %d", required, available)
+	}
+	return nil
 }
 
 // BuildCompactLLMCall creates the LLMCall callback for compact operations.

@@ -32,7 +32,7 @@ type CompactOpts struct {
 	// CustomInstructions is optional additional instructions appended to the compact prompt.
 	CustomInstructions string
 
-	// Trigger records how this compact was initiated ("auto" or "manual").
+	// Trigger records how this compact was initiated ("token_threshold", "slot_threshold", "both", "precompact", or "manual").
 	Trigger string
 
 	// --- Post-compact restore data ---

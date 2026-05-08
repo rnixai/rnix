@@ -516,6 +516,17 @@ func (m *Manager) AvailableSlots(cid types.CtxID) (int, error) {
 	return ctx.MaxSize - len(ctx.Messages), nil
 }
 
+// SlotUsage returns the number of used and maximum message slots for the given context.
+func (m *Manager) SlotUsage(cid types.CtxID) (used int, max int, err error) {
+	ctx, err := m.getContext("SlotUsage", cid)
+	if err != nil {
+		return 0, 0, err
+	}
+	ctx.mu.RLock()
+	defer ctx.mu.RUnlock()
+	return len(ctx.Messages), ctx.MaxSize, nil
+}
+
 // TokenUsage returns token usage statistics for the given context.
 // Estimates tokens across the system prompt and all messages.
 func (m *Manager) TokenUsage(cid types.CtxID) (TokenStats, error) {
