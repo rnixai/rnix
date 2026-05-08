@@ -13,7 +13,7 @@ import (
 // suspendProcess performs the shared suspend cleanup logic:
 // closes all VFS FDs, drains checkpoint channel, transitions to Suspended.
 // Called by both Suspend (external) and selfSuspend (internal).
-func (k *KernelImpl) suspendProcess(proc *Process, reason string) error {
+func (k *KernelImpl) suspendProcess(proc *Process, reason string, exitCode int) error {
 	// Extract FD references under lock, then close outside lock to prevent
 	// deadlock if test timeout panic triggers defer → GetState → proc.mu.
 	proc.mu.Lock()
@@ -52,7 +52,7 @@ func (k *KernelImpl) suspendProcess(proc *Process, reason string) error {
 	}, nil, nil, 0)
 
 	// Set exit status so callers can inspect it.
-	exit := ExitStatus{Code: 2, Reason: "suspended: " + reason}
+	exit := ExitStatus{Code: exitCode, Reason: "suspended: " + reason}
 	proc.mu.Lock()
 	proc.Exit = &exit
 	proc.mu.Unlock()
@@ -70,7 +70,7 @@ func (k *KernelImpl) suspendProcess(proc *Process, reason string) error {
 // goroutine exit path (not from within suspendProcess) to avoid a race where
 // Wait() → reapProcess → wg.Wait() deadlocks with the still-running goroutine.
 func notifySuspendDone(proc *Process) {
-	exit := ExitStatus{Code: 2, Reason: "suspended"}
+	exit := ExitStatus{Code: ExitSuspended, Reason: "suspended"}
 	proc.mu.Lock()
 	if proc.Exit != nil {
 		exit = *proc.Exit
@@ -102,7 +102,7 @@ func (k *KernelImpl) Suspend(pid types.PID) error {
 	proc.suspendRequested.Store(true)
 
 	// Pre-set exit status so defer's notifySuspendDone sends the correct reason
-	exit := ExitStatus{Code: 2, Reason: "suspended: user_suspended"}
+	exit := ExitStatus{Code: ExitSuspended, Reason: "suspended: user_suspended"}
 	proc.mu.Lock()
 	proc.SuspendReason = "user_suspended"
 	proc.Exit = &exit
@@ -114,7 +114,7 @@ func (k *KernelImpl) Suspend(pid types.PID) error {
 	// Wait for reasoning goroutine to exit (defer fires notifySuspendDone with correct Exit)
 	proc.wg.Wait()
 
-	if err := k.suspendProcess(proc, "user_suspended"); err != nil {
+	if err := k.suspendProcess(proc, "user_suspended", ExitSuspended); err != nil {
 		return err
 	}
 
@@ -126,9 +126,9 @@ func (k *KernelImpl) Suspend(pid types.PID) error {
 // process decides to suspend itself (e.g., loop detection, budget exhaustion).
 // Unlike Suspend(), it does NOT call Cancel+Wait since the goroutine is the caller.
 // Done notification is deferred to reasonStep's exit path via notifySuspendDone.
-func (k *KernelImpl) selfSuspend(proc *Process, reason string) error {
+func (k *KernelImpl) selfSuspend(proc *Process, reason string, exitCode int) error {
 	proc.suspendRequested.Store(true)
-	return k.suspendProcess(proc, reason)
+	return k.suspendProcess(proc, reason, exitCode)
 }
 
 // reapSuspendedProcess cleans up a Suspended process that has been killed.

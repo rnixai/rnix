@@ -5,6 +5,7 @@ import (
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -56,10 +57,10 @@ func TestExecuteToolCalls_PreservesReasoning(t *testing.T) {
 }
 
 // TestExecuteToolCalls_ContextFullExitsCleanly verifies the kernel handles
-// ErrContextFull from AppendAssistantWithToolCalls by terminating the process
-// with exit code 2 and reason "context_full" instead of writing a half-state
-// (assistant tool_calls without matching tool messages) that would later
-// trigger DeepSeek's HTTP 400 "insufficient tool messages following tool_calls".
+// ErrContextFull from AppendAssistantWithToolCalls by suspending the process
+// (selfSuspend) with exit code 3 (ExitContextFull) and reason "context_full",
+// instead of writing a half-state (assistant tool_calls without matching tool
+// messages) that would later trigger DeepSeek's HTTP 400.
 func TestExecuteToolCalls_ContextFullExitsCleanly(t *testing.T) {
 	reg := vfs.NewDeviceRegistry()
 	v := vfs.NewVFS(reg)
@@ -90,7 +91,7 @@ func TestExecuteToolCalls_ContextFullExitsCleanly(t *testing.T) {
 	prompt := &rnixctx.PromptResult{}
 	cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 	if cont {
-		t.Fatal("executeToolCalls returned true; expected false (process should terminate on ErrContextFull)")
+		t.Fatal("executeToolCalls returned true; expected false (process should suspend on ErrContextFull)")
 	}
 
 	// Verify the assistant message was NOT written: ctx still has only the filler.
@@ -99,17 +100,19 @@ func TestExecuteToolCalls_ContextFullExitsCleanly(t *testing.T) {
 		t.Errorf("messages mutated despite ErrContextFull: got %d, want 1", got)
 	}
 
-	// Verify exit reason via Process.Exit (set by finishProcess).
+	// Verify process is Suspended (not Zombie).
+	if proc.GetState() != types.StateSuspended {
+		t.Errorf("expected StateSuspended, got %s", proc.GetState())
+	}
+
+	// Verify exit status set by selfSuspend.
 	proc.mu.Lock()
 	exit := proc.Exit
 	proc.mu.Unlock()
 	if exit == nil {
-		t.Fatal("proc.Exit is nil; expected finishProcess to populate it")
+		t.Fatal("proc.Exit is nil; expected selfSuspend to populate it")
 	}
-	if exit.Reason != "context_full" {
-		t.Errorf("ExitStatus.Reason = %q, want %q", exit.Reason, "context_full")
-	}
-	if exit.Code != 2 {
-		t.Errorf("ExitStatus.Code = %d, want 2", exit.Code)
+	if exit.Code != ExitContextFull {
+		t.Errorf("ExitStatus.Code = %d, want %d (ExitContextFull)", exit.Code, ExitContextFull)
 	}
 }

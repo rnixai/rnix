@@ -39,6 +39,13 @@ type ExitStatus struct {
 	Err    error  // underlying error, if any
 }
 
+const (
+	ExitOK          = 0 // normal completion
+	ExitError       = 1 // abnormal termination (circuit_breaker, append failure, unexpected exit)
+	ExitSuspended   = 2 // suspended (budget_exhausted, loop_detected, user_suspended, max_turns)
+	ExitContextFull = 3 // context full after precompact (recoverable via resume + compact)
+)
+
 // DeferredSkillMeta holds lightweight metadata for a deferred skill,
 // used by discover_skill to score relevance without loading the full skill body.
 type DeferredSkillMeta struct {

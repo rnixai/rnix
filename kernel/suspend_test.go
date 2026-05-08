@@ -35,7 +35,7 @@ func TestSuspendProcess_ClosesAllFDs(t *testing.T) {
 	proc.FDTable[types.FD(1)] = fd1
 	proc.mu.Unlock()
 
-	err := k.suspendProcess(proc, "test_reason")
+	err := k.suspendProcess(proc, "test_reason", ExitSuspended)
 	if err != nil {
 		t.Fatalf("suspendProcess failed: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestSuspendProcess_DrainsCheckpointChannel(t *testing.T) {
 	proc.checkpointErrCh <- fmt.Errorf("stale error")
 	proc.mu.Unlock()
 
-	err := k.suspendProcess(proc, "drain_test")
+	err := k.suspendProcess(proc, "drain_test", ExitSuspended)
 	if err != nil {
 		t.Fatalf("suspendProcess failed: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestSelfSuspend(t *testing.T) {
 	_ = proc.Start()
 	k.AddProcess(proc)
 
-	err := k.selfSuspend(proc, "loop_detected")
+	err := k.selfSuspend(proc, "loop_detected", ExitSuspended)
 	if err != nil {
 		t.Fatalf("selfSuspend failed: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestSuspendProcess_DoesNotRemoveFromProcTable(t *testing.T) {
 	_ = proc.Start()
 	k.AddProcess(proc)
 
-	_ = k.suspendProcess(proc, "test")
+	_ = k.suspendProcess(proc, "test", ExitSuspended)
 
 	// Process should still be in table
 	_, ok := k.GetProcess(proc.PID)
@@ -164,7 +164,7 @@ func TestKill_SuspendedProcess_Termination(t *testing.T) {
 	k.AddProcess(proc)
 
 	// Suspend first
-	_ = k.suspendProcess(proc, "test")
+	_ = k.suspendProcess(proc, "test", ExitSuspended)
 	if proc.GetState() != types.StateSuspended {
 		t.Fatalf("expected StateSuspended, got %s", proc.GetState())
 	}
@@ -195,7 +195,7 @@ func TestKill_SuspendedProcess_SIGTERM(t *testing.T) {
 	proc := NewProcess(0, "test sigterm suspended", nil)
 	_ = proc.Start()
 	k.AddProcess(proc)
-	_ = k.suspendProcess(proc, "test")
+	_ = k.suspendProcess(proc, "test", ExitSuspended)
 
 	err := k.Kill(proc.PID, types.SIGTERM)
 	if err != nil {
@@ -211,7 +211,7 @@ func TestKill_SuspendedProcess_NonTermination(t *testing.T) {
 	proc := NewProcess(0, "test sigpause suspended", nil)
 	_ = proc.Start()
 	k.AddProcess(proc)
-	_ = k.suspendProcess(proc, "test")
+	_ = k.suspendProcess(proc, "test", ExitSuspended)
 
 	err := k.Kill(proc.PID, types.SIGPAUSE)
 	if err != nil {
@@ -228,7 +228,7 @@ func TestSignal_SuspendedProcess_Termination(t *testing.T) {
 	proc := NewProcess(0, "test signal suspended", nil)
 	_ = proc.Start()
 	k.AddProcess(proc)
-	_ = k.suspendProcess(proc, "test")
+	_ = k.suspendProcess(proc, "test", ExitSuspended)
 
 	err := k.Signal(proc.PID, types.SIGKILL)
 	if err != nil {

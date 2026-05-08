@@ -46,13 +46,14 @@ func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int,
 	appendStart := time.Now()
 	if err := k.ctxMgr.AppendAssistantWithToolCalls(proc.CtxID, resp.Content, resp.Reasoning, convertReasoningBlocks(resp.ReasoningBlocks), convertToolCalls(resp.ToolCalls)); err != nil {
 		k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendAssistantWithToolCalls"}, nil, err, time.Since(appendStart))
-		reason := "append assistant with tool calls failed"
-		exitCode := 1
 		if errors.Is(err, rnixctx.ErrContextFull) {
-			reason = "context_full"
-			exitCode = 2
+			if suspErr := k.selfSuspend(proc, "context_full", ExitContextFull); suspErr != nil {
+				log.Printf("[kernel] pid=%d context_full suspend failed: %v, falling back to terminate", proc.PID, suspErr)
+				k.finishProcess(proc, ExitStatus{Code: ExitError, Reason: "context_full + suspend failed", Err: err})
+			}
+			return false
 		}
-		k.finishProcess(proc, ExitStatus{Code: exitCode, Reason: reason, Err: err})
+		k.finishProcess(proc, ExitStatus{Code: ExitError, Reason: "append assistant with tool calls failed", Err: err})
 		return false
 	}
 	k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendAssistantWithToolCalls"}, nil, nil, time.Since(appendStart))

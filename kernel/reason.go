@@ -501,7 +501,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
 				"error", "max_turns_reached", "", "", "", "", 0)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "max_turns_reached"}, nil, nil, time.Since(stepStart))
-			k.finishProcess(proc, ExitStatus{Code: 2, Reason: "max_turns_reached"})
+			k.finishProcess(proc, ExitStatus{Code: ExitSuspended, Reason: "max_turns_reached"})
 			return
 		}
 
@@ -566,7 +566,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			// Record the step that triggered budget exceeded so LLM viewer shows the interaction
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
 				"error", fmt.Sprintf("budget_exceeded: %d/%d tokens", tokens, budget), "", "", "", "", 0)
-			k.finishProcess(proc, ExitStatus{Code: 2, Reason: "budget_exceeded", Err: fmt.Errorf("token budget exceeded: %d/%d", tokens, budget)})
+			k.finishProcess(proc, ExitStatus{Code: ExitSuspended, Reason: "budget_exceeded", Err: fmt.Errorf("token budget exceeded: %d/%d", tokens, budget)})
 			return
 		}
 
@@ -603,9 +603,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				"error", fmt.Sprintf("budget_exhausted: tokens=%d/%d cost=%.4f/%.4f",
 					tokens, budgetCheck.MaxTokens, budgetCheck.UsedCost, budgetCheck.MaxCost),
 				"", "", "", "", 0)
-			if err := k.selfSuspend(proc, "budget_exhausted"); err != nil {
+			if err := k.selfSuspend(proc, "budget_exhausted", ExitSuspended); err != nil {
 				log.Printf("[kernel] pid=%d budget suspend failed: %v, falling back to terminate", proc.PID, err)
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "budget_exhausted + suspend failed"})
+				k.finishProcess(proc, ExitStatus{Code: ExitError, Reason: "budget_exhausted + suspend failed"})
 			}
 			return
 		}
@@ -752,9 +752,9 @@ func (k *KernelImpl) handleLoopDetection(proc *Process, status LoopStatus, step 
 			"threshold": 2 * DefaultLoopThreshold,
 		}, nil, nil, time.Since(stepStart))
 		log.Printf("[kernel] pid=%d loop suspend at step %d: same action repeated %d times", proc.PID, step, 2*DefaultLoopThreshold)
-		if err := k.selfSuspend(proc, "loop_detected"); err != nil {
+		if err := k.selfSuspend(proc, "loop_detected", ExitSuspended); err != nil {
 			log.Printf("[kernel] pid=%d suspend failed: %v, falling back to terminate", proc.PID, err)
-			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "loop detected + suspend failed"})
+			k.finishProcess(proc, ExitStatus{Code: ExitError, Reason: "loop detected + suspend failed"})
 		}
 		return true
 	}

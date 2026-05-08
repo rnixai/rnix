@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -194,7 +195,12 @@ func (k *KernelImpl) Resume(uuid string) (*ResumeResult, error) {
 	k.AddProcess(proc)
 	k.msgQueues.Store(proc.PID, newMessageQueue())
 
-	// 12. Launch reasoning goroutine from checkpoint step + 1
+	// 12. Restore SuspendReason for resume-time compact decision
+	proc.mu.Lock()
+	proc.SuspendReason = cp.SuspendReason
+	proc.mu.Unlock()
+
+	// 13. Launch reasoning goroutine from checkpoint step + 1
 	opts := SpawnOpts{
 		Model:     cp.Model,
 		StartStep: startStep,
@@ -211,6 +217,29 @@ func (k *KernelImpl) Resume(uuid string) (*ResumeResult, error) {
 	proc.wg.Go(func() {
 		defer func() { _ = k.vfs.CloseAll(proc.PID) }()
 		_ = proc.Start() // Created → Running
+
+		if cp.SuspendReason == "context_full" {
+			proc.compactMu.Lock()
+			compactOpts := rnixctx.CompactOpts{
+				LLMCall:       k.BuildCompactLLMCall(proc),
+				Trigger:       "context_full_resume",
+				ReadFileState: k.SnapshotReadFileState(proc),
+				ActiveSkills:  k.BuildActiveSkills(proc),
+				ActivePlan:    k.extractActivePlan(proc.CtxID),
+			}
+			_, compactErr := k.ctxMgr.Compact(proc.CtxID, compactOpts)
+			proc.compactMu.Unlock()
+			if compactErr != nil {
+				log.Printf("[kernel] pid=%d resume compact failed: %v", proc.PID, compactErr)
+				k.finishProcess(proc, ExitStatus{Code: ExitContextFull, Reason: "context_full: resume compact failed", Err: compactErr})
+				return
+			}
+			k.ClearReadFileState(proc)
+			proc.mu.Lock()
+			proc.SuspendReason = ""
+			proc.mu.Unlock()
+		}
+
 		k.reasonStep(proc, llmFD, opts)
 	})
 

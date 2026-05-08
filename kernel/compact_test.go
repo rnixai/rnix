@@ -221,7 +221,7 @@ func TestExecuteToolCalls_PrecompactSavesFromContextFull(t *testing.T) {
 
 func TestExecuteToolCalls_ContextFullAfterPrecompact(t *testing.T) {
 	// MaxSize=2, prefill 1 message. Attempt append with 2 tool calls (needs 3 slots).
-	// Precompact cannot help (too small). Process should still terminate properly.
+	// Precompact cannot help (too small). Process should suspend (not terminate).
 	reg := vfs.NewDeviceRegistry()
 	_ = reg.Register("/dev/llm/mock", compactMockLLMFactory())
 	v := vfs.NewVFS(reg)
@@ -249,19 +249,98 @@ func TestExecuteToolCalls_ContextFullAfterPrecompact(t *testing.T) {
 	cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 
 	if cont {
-		t.Fatal("expected false (process should terminate on ErrContextFull)")
+		t.Fatal("expected false (process should stop reasoning loop on ErrContextFull)")
+	}
+
+	state := proc.GetState()
+	if state != types.StateSuspended {
+		t.Errorf("expected StateSuspended, got %s", state)
 	}
 
 	proc.mu.Lock()
 	exit := proc.Exit
+	reason := proc.SuspendReason
 	proc.mu.Unlock()
 	if exit == nil {
 		t.Fatal("proc.Exit is nil")
 	}
-	if exit.Reason != "context_full" {
-		t.Errorf("exit reason = %q, want context_full", exit.Reason)
+	if exit.Code != ExitContextFull {
+		t.Errorf("exit code = %d, want %d (ExitContextFull)", exit.Code, ExitContextFull)
 	}
-	if exit.Code != 2 {
-		t.Errorf("exit code = %d, want 2", exit.Code)
+	if reason != "context_full" {
+		t.Errorf("SuspendReason = %q, want context_full", reason)
+	}
+	if !proc.IsSuspendRequested() {
+		t.Error("suspendRequested should be true")
+	}
+}
+
+func TestSelfSuspend_ContextFull_Fallback_Path(t *testing.T) {
+	// Verify the selfSuspend error path: when selfSuspend fails, it returns an error
+	// and the caller should fall back to finishProcess with ExitContextFull.
+	// This tests selfSuspend on a non-Running process (Suspended state) to trigger failure.
+	k := newSimpleKernel(t)
+	proc := NewProcess(0, "test selfSuspend fail", nil)
+	_ = proc.Start()
+	k.AddProcess(proc)
+	_ = proc.Suspend() // Running → Suspended
+
+	err := k.selfSuspend(proc, "context_full", ExitContextFull)
+	if err == nil {
+		t.Fatal("expected selfSuspend to fail on non-Running process")
+	}
+	if !proc.IsSuspendRequested() {
+		t.Error("suspendRequested should be true even on failure (set before transition)")
+	}
+}
+
+func TestExitCodeConstants(t *testing.T) {
+	if ExitOK != 0 {
+		t.Errorf("ExitOK = %d, want 0", ExitOK)
+	}
+	if ExitError != 1 {
+		t.Errorf("ExitError = %d, want 1", ExitError)
+	}
+	if ExitSuspended != 2 {
+		t.Errorf("ExitSuspended = %d, want 2", ExitSuspended)
+	}
+	if ExitContextFull != 3 {
+		t.Errorf("ExitContextFull = %d, want 3", ExitContextFull)
+	}
+}
+
+func TestSuspendProcess_ExitCodeParameterized(t *testing.T) {
+	tests := []struct {
+		name     string
+		reason   string
+		exitCode int
+	}{
+		{"budget_exhausted", "budget_exhausted", ExitSuspended},
+		{"context_full", "context_full", ExitContextFull},
+		{"loop_detected", "loop_detected", ExitSuspended},
+		{"user_suspended", "user_suspended", ExitSuspended},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k := newSimpleKernel(t)
+			proc := NewProcess(0, "test "+tt.name, nil)
+			_ = proc.Start()
+			k.AddProcess(proc)
+
+			err := k.suspendProcess(proc, tt.reason, tt.exitCode)
+			if err != nil {
+				t.Fatalf("suspendProcess failed: %v", err)
+			}
+
+			proc.mu.Lock()
+			exit := proc.Exit
+			proc.mu.Unlock()
+			if exit == nil {
+				t.Fatal("proc.Exit is nil")
+			}
+			if exit.Code != tt.exitCode {
+				t.Errorf("exit code = %d, want %d", exit.Code, tt.exitCode)
+			}
+		})
 	}
 }
