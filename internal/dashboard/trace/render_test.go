@@ -247,7 +247,7 @@ func TestRender_ListEmpty(t *testing.T) {
 	if !strings.Contains(got, "Traces") {
 		t.Errorf("expected 'Traces' header, got %q", got)
 	}
-	if !strings.Contains(got, "无活跃的 Compose 追踪数据") {
+	if !strings.Contains(got, "无追踪数据") {
 		t.Errorf("expected empty-state prompt, got %q", got)
 	}
 }

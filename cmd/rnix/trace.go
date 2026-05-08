@@ -13,7 +13,10 @@ import (
 var traceCmd = &cobra.Command{
 	Use:   "trace [trace-id]",
 	Short: "View distributed trace data",
-	Long: `View distributed trace data from completed Compose orchestrations.
+	Long: `View distributed trace data from completed process executions.
+
+All top-level processes automatically generate trace data. Compose
+orchestrations share a single trace across all agents in the DAG.
 
 Without arguments, lists all available traces.
 With a trace-id, shows the full span tree with timing and token usage.

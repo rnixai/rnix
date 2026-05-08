@@ -241,7 +241,7 @@ func Render(state TraceState, ctx RenderContext, innerW, innerH int) string {
 //
 // Behaviour preserved from cmd/rnix.renderTraceListView:
 //   - state.Err != nil → "    Error: <err>"
-//   - empty Summaries → 中文提示 "无活跃的 Compose 追踪数据..."
+//   - empty Summaries → 中文提示 "无追踪数据..."
 //   - 否则 column header (TRACE ID / ROOT / SPANS / DUR) + viewport rows。
 func renderListView(state TraceState, ctx RenderContext, _ int, height int) string {
 	var b strings.Builder
@@ -253,7 +253,7 @@ func renderListView(state TraceState, ctx RenderContext, _ int, height int) stri
 	}
 
 	if len(state.Summaries) == 0 {
-		b.WriteString("\n    无活跃的 Compose 追踪数据。使用 rnix compose up 启动编排以生成追踪。\n")
+		b.WriteString("\n    无追踪数据。使用 rnix spawn 或 rnix compose up 执行任务以生成追踪。\n")
 		return b.String()
 	}
 
