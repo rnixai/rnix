@@ -372,6 +372,10 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	if opts.TraceID != "" {
 		proc.TraceID = opts.TraceID
 		proc.ParentSpanID = opts.ParentSpanID
+	} else if opts.ParentPID == 0 {
+		proc.TraceID = debug.GenerateTraceID()
+	}
+	if proc.TraceID != "" && proc.SpanID == "" {
 		proc.SpanID = debug.GenerateSpanID()
 		if k.spanRecorder != nil {
 			k.spanRecorder.StartSpan(proc.PID, proc.TraceID, proc.SpanID, proc.ParentSpanID, intent)
