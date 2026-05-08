@@ -63,7 +63,7 @@ type Context struct {
 	SystemPrompt string
 	Sections     *SectionRegistry // When non-nil, Build() produces the system prompt
 	Messages     []Message
-	MaxSize      int // Max message count; MVP does not limit content byte size
+	MaxSize      int // Max message slots; default 256 (configurable via SpawnOpts.CtxSize)
 	TokenLimit   int // Max token budget for this context; 0 = DefaultTokenLimit
 	mu           sync.RWMutex
 }

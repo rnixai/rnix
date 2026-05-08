@@ -169,6 +169,7 @@ type Process struct {
 	CompactThreshold     float64                       // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
 	SlotCompactThreshold  float64                       // 0 = use default (80.0); >0 = trigger compact when slot usage% > threshold
 	BackpressureThreshold float64                       // 0 = use default (70.0); >0 = inject backpressure section when slot usage% > threshold
+	CompactTimeout        time.Duration                  // 0 = use default (30s); >0 = timeout for compact LLM call
 	ReadFileState    map[string]rnixctx.ReadFileEntry   // tracks recently read files for post-compact restore
 	compactMu        sync.Mutex                         // prevents concurrent compact operations (auto + manual IPC)
 
@@ -790,6 +791,15 @@ func (p *Process) effectiveSlotCompactThreshold() float64 {
 		return p.SlotCompactThreshold
 	}
 	return DefaultSlotCompactThreshold
+}
+
+const DefaultCompactTimeout = 30 * time.Second
+
+func (p *Process) effectiveCompactTimeout() time.Duration {
+	if p.CompactTimeout > 0 {
+		return p.CompactTimeout
+	}
+	return DefaultCompactTimeout
 }
 
 const DefaultBackpressureThreshold = 70.0

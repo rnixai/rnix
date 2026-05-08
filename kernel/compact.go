@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	gocontext "context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -84,17 +85,23 @@ func (k *KernelImpl) autoCompactIfNeeded(proc *Process, step int) {
 	// Clear ReadFileState after successful compact
 	k.ClearReadFileState(proc)
 
+	postSlotUsed, postSlotMax, _ := k.ctxMgr.SlotUsage(proc.CtxID)
 	k.emitEvent(proc, "Compact", map[string]any{
 		"step":           step,
 		"trigger":        trigger,
 		"pre_tokens":     result.PreTokens,
 		"post_tokens":    result.PostTokens,
+		"pre_slots":      slotUsed,
+		"post_slots":     postSlotUsed,
 		"restored_items": result.ItemsRestored,
 		"duration_ms":    float64(result.Duration.Microseconds()) / 1000.0,
 	}, nil, nil, result.Duration)
 
-	log.Printf("[kernel] pid=%d compact done: %d→%d tokens, restored %d items",
-		proc.PID, result.PreTokens, result.PostTokens, len(result.ItemsRestored))
+	log.Printf("[kernel] pid=%d compact done in %dms: %d→%d tokens, slots %d/%d→%d/%d, restored %d items",
+		proc.PID, result.Duration.Milliseconds(),
+		result.PreTokens, result.PostTokens,
+		slotUsed, slotMax, postSlotUsed, postSlotMax,
+		len(result.ItemsRestored))
 }
 
 // preCompactForToolCalls checks if there are enough message slots for the
@@ -113,6 +120,7 @@ func (k *KernelImpl) preCompactForToolCalls(proc *Process, toolCallCount int, st
 	}
 	defer proc.compactMu.Unlock()
 
+	preSlotUsed, preSlotMax, _ := k.ctxMgr.SlotUsage(proc.CtxID)
 	log.Printf("[kernel] pid=%d step=%d precompact: need %d slots, have %d",
 		proc.PID, step, required, available)
 
@@ -136,17 +144,23 @@ func (k *KernelImpl) preCompactForToolCalls(proc *Process, toolCallCount int, st
 	}
 
 	k.ClearReadFileState(proc)
+	postSlotUsed, postSlotMax, _ := k.ctxMgr.SlotUsage(proc.CtxID)
 	k.emitEvent(proc, "Compact", map[string]any{
 		"step":           step,
 		"trigger":        "precompact",
 		"pre_tokens":     result.PreTokens,
 		"post_tokens":    result.PostTokens,
+		"pre_slots":      preSlotUsed,
+		"post_slots":     postSlotUsed,
 		"restored_items": result.ItemsRestored,
 		"duration_ms":    float64(result.Duration.Microseconds()) / 1000.0,
 	}, nil, nil, result.Duration)
 
-	log.Printf("[kernel] pid=%d precompact done: %d→%d tokens, restored %d items",
-		proc.PID, result.PreTokens, result.PostTokens, len(result.ItemsRestored))
+	log.Printf("[kernel] pid=%d precompact done in %dms: %d→%d tokens, slots %d/%d→%d/%d, restored %d items",
+		proc.PID, result.Duration.Milliseconds(),
+		result.PreTokens, result.PostTokens,
+		preSlotUsed, preSlotMax, postSlotUsed, postSlotMax,
+		len(result.ItemsRestored))
 
 	available, _ = k.ctxMgr.AvailableSlots(proc.CtxID)
 	if available < required {
@@ -159,6 +173,10 @@ func (k *KernelImpl) preCompactForToolCalls(proc *Process, toolCallCount int, st
 // Exported for use by IPC server's handleCompact.
 func (k *KernelImpl) BuildCompactLLMCall(proc *Process) func(string, []rnixctx.Message) (string, error) {
 	return func(sysPrompt string, messages []rnixctx.Message) (string, error) {
+		timeout := proc.effectiveCompactTimeout()
+		compactCtx, cancel := gocontext.WithTimeout(proc.ctx, timeout)
+		defer cancel()
+
 		// Open LLM device
 		var fd types.FD
 		var err error
@@ -195,14 +213,20 @@ func (k *KernelImpl) BuildCompactLLMCall(proc *Process) func(string, []rnixctx.M
 			return "", fmt.Errorf("compact: marshal request failed: %w", err)
 		}
 
-		// Write request
-		if err := k.vfs.Write(proc.ctx, proc.PID, fd, reqJSON); err != nil {
+		// Write request — use compactCtx for timeout propagation
+		if err := k.vfs.Write(compactCtx, proc.PID, fd, reqJSON); err != nil {
+			if compactCtx.Err() != nil {
+				return "", fmt.Errorf("compact: LLM call timed out after %v", timeout)
+			}
 			return "", fmt.Errorf("compact: LLM write failed: %w", err)
 		}
 
 		// Read response
 		respData, err := k.vfs.Read(proc.PID, fd, 1<<20)
 		if err != nil {
+			if compactCtx.Err() != nil {
+				return "", fmt.Errorf("compact: LLM call timed out after %v", timeout)
+			}
 			return "", fmt.Errorf("compact: LLM read failed: %w", err)
 		}
 

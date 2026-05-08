@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	gocontext "context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -342,6 +343,144 @@ func TestExitCodeConstants(t *testing.T) {
 	}
 	if ExitContextFull != 3 {
 		t.Errorf("ExitContextFull = %d, want 3", ExitContextFull)
+	}
+}
+
+// slowMockLLMFile is a mock LLM file that blocks in Write for a configurable
+// duration, respecting context cancellation for timeout testing.
+type slowMockLLMFile struct {
+	delay    time.Duration
+	readData []byte
+}
+
+func (f *slowMockLLMFile) Write(ctx gocontext.Context, _ []byte) error {
+	select {
+	case <-time.After(f.delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (f *slowMockLLMFile) Read(_ int) ([]byte, error) {
+	return f.readData, nil
+}
+
+func (f *slowMockLLMFile) Close() error { return nil }
+
+func (f *slowMockLLMFile) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{IsDevice: true, Name: "/dev/llm/slow"}, nil
+}
+
+func slowMockLLMFactory(delay time.Duration) vfs.VFSFileFactory {
+	return func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
+		resp, _ := json.Marshal(llmResponse{Content: "<summary>\nSlow summary.\n</summary>"})
+		return &slowMockLLMFile{delay: delay, readData: resp}, nil
+	}
+}
+
+func TestBuildCompactLLMCall_Timeout(t *testing.T) {
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/slow", slowMockLLMFactory(5*time.Second))
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	t.Cleanup(k.Shutdown)
+
+	cid, _ := ctxMgr.CtxAlloc(10)
+	proc := NewProcess(0, "timeout test", nil)
+	proc.CtxID = cid
+	proc.PrimaryDevice = "/dev/llm/slow"
+	proc.CompactTimeout = 100 * time.Millisecond
+	proc.toolMap = map[string]toolMapping{}
+	if err := proc.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	llmCall := k.BuildCompactLLMCall(proc)
+	start := time.Now()
+	_, err := llmCall("system", nil)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("error should mention timeout, got: %v", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("took %v, expected ~100ms timeout", elapsed)
+	}
+}
+
+func TestBuildCompactLLMCall_CustomTimeout(t *testing.T) {
+	reg := vfs.NewDeviceRegistry()
+	_ = reg.Register("/dev/llm/slow", slowMockLLMFactory(500*time.Millisecond))
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	t.Cleanup(k.Shutdown)
+
+	cid, _ := ctxMgr.CtxAlloc(10)
+	proc := NewProcess(0, "custom timeout test", nil)
+	proc.CtxID = cid
+	proc.PrimaryDevice = "/dev/llm/slow"
+	proc.CompactTimeout = 100 * time.Millisecond
+	proc.toolMap = map[string]toolMapping{}
+	if err := proc.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	llmCall := k.BuildCompactLLMCall(proc)
+	_, err := llmCall("system", nil)
+
+	if err == nil {
+		t.Fatal("expected timeout error with 100ms timeout vs 500ms delay")
+	}
+	if !strings.Contains(err.Error(), "100ms") {
+		t.Errorf("error should mention 100ms timeout, got: %v", err)
+	}
+}
+
+func TestAutoCompactIfNeeded_EmitEvent_ContainsSlotFields(t *testing.T) {
+	k, ctxMgr, proc, cid := setupCompactKernel(t, 10)
+	proc.DebugChan = make(chan types.SyscallEvent, 64)
+	fillContext(t, ctxMgr, cid, 9) // 90% slots, low tokens
+
+	usage, _ := ctxMgr.TokenUsage(cid)
+	if usage.Percentage > 80.0 {
+		t.Skipf("token%% %.1f > 80, cannot isolate slot trigger", usage.Percentage)
+	}
+
+	k.autoCompactIfNeeded(proc, 1)
+
+	found := false
+	for {
+		select {
+		case evt := <-proc.DebugChan:
+			if evt.Syscall == "Compact" {
+				if _, ok := evt.Args["pre_slots"]; !ok {
+					t.Error("emitEvent missing pre_slots field")
+				}
+				if _, ok := evt.Args["post_slots"]; !ok {
+					t.Error("emitEvent missing post_slots field")
+				}
+				preSlots, ok1 := evt.Args["pre_slots"].(int)
+				postSlots, ok2 := evt.Args["post_slots"].(int)
+				if ok1 && ok2 {
+					if preSlots <= postSlots {
+						t.Errorf("pre_slots (%d) should be > post_slots (%d) after compact", preSlots, postSlots)
+					}
+				}
+				found = true
+			}
+		default:
+			goto done
+		}
+	}
+done:
+	if !found {
+		t.Fatal("no Compact event emitted")
 	}
 }
 
