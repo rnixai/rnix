@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,7 +22,31 @@ const (
 	// Claude Code CLI tasks vary widely (simple: ~5s, complex with tool use: 2-3min).
 	// 5 minutes provides headroom for multi-turn agentic tasks.
 	DefaultTimeout = 5 * time.Minute
+	// DefaultPermissionMode is the default Claude CLI --permission-mode value.
+	// "bypassPermissions" matches the daemon-managed, no-TTY agent loop.
+	DefaultPermissionMode = "bypassPermissions"
+	// claudeCapabilityProbeTimeout caps the help-probe subprocess at 5s so an
+	// uninstalled or stuck CLI cannot block the first Call/Stream invocation.
+	claudeCapabilityProbeTimeout = 5 * time.Second
 )
+
+// validPermissionModes is the whitelist of accepted --permission-mode values.
+var validPermissionModes = map[string]bool{
+	"bypassPermissions": true,
+	"acceptEdits":       true,
+	"plan":              true,
+	"default":           true,
+}
+
+// claudeCapabilities records which optional Claude CLI flags the locally
+// installed binary understands. Older CLIs ship without these flags; emitting
+// an unknown flag would crash spawn at the very first reasonStep, so we gate
+// every optional flag on a positive probe result.
+type claudeCapabilities struct {
+	partialMessages bool
+	addDir          bool
+	permissionMode  bool
+}
 
 // CommandBuilder is a function type that creates exec.Cmd instances.
 // In production, this wraps exec.CommandContext; in tests, it can be replaced with a mock.
@@ -39,6 +65,11 @@ type ClaudeCliDriver struct {
 	graceSec       int
 	cmdBuilder     CommandBuilder
 	extraArgs      []string
+	permissionMode string
+
+	capsOnce       sync.Once
+	caps           claudeCapabilities
+	capsWarnedOnce sync.Once
 }
 
 // ClaudeCliOption configures a ClaudeCliDriver.
@@ -87,6 +118,19 @@ func WithExtraArgs(args []string) ClaudeCliOption {
 	}
 }
 
+// WithPermissionMode sets the --permission-mode value the driver passes to
+// Claude CLI when the locally installed binary supports the flag. An empty
+// mode is treated as "no override" (default applies). Validation of the value
+// happens in NewClaudeCliDriver / ProvidersConfig.Validate.
+func WithPermissionMode(mode string) ClaudeCliOption {
+	return func(d *ClaudeCliDriver) {
+		if mode == "" {
+			return
+		}
+		d.permissionMode = mode
+	}
+}
+
 // NewClaudeCliDriver creates a new ClaudeCliDriver with the given options.
 func NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver {
 	d := &ClaudeCliDriver{
@@ -94,6 +138,7 @@ func NewClaudeCliDriver(opts ...ClaudeCliOption) *ClaudeCliDriver {
 		defaultModel:   DefaultModel,
 		defaultTimeout: DefaultTimeout,
 		cmdBuilder:     defaultCommandBuilder,
+		permissionMode: DefaultPermissionMode,
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -233,6 +278,7 @@ type claudeStreamEvent struct {
 	Type    string `json:"type"`
 	Subtype string `json:"subtype,omitempty"`
 	Message struct {
+		ID      string               `json:"id,omitempty"`
 		Content []claudeContentBlock `json:"content,omitempty"`
 		Role    string               `json:"role,omitempty"`
 	} `json:"message,omitzero"`
@@ -309,6 +355,8 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 
 	ch := make(chan StreamEvent, streamChanBuffer)
 
+	parser := newClaudeStreamParser()
+
 	go func() {
 		defer close(ch)
 		defer cancel()
@@ -362,8 +410,8 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 					return
 				}
 			case "stream_event":
-				// Raw Claude API streaming event — extract tool_use and thinking blocks
-				if se := extractClaudeStreamEvent(evt.Event); se != nil {
+				// Raw Claude API streaming event — extract tool_use, thinking, text_delta blocks
+				if se := parser.extractStreamEvent(evt.Event); se != nil {
 					select {
 					case ch <- *se:
 					case <-ctx.Done():
@@ -382,13 +430,18 @@ func (d *ClaudeCliDriver) Stream(ctx context.Context, req LLMRequest) (<-chan St
 				case <-ctx.Done():
 					return
 				}
-				// Also emit text content events for existing consumers
-				for _, c := range evt.Message.Content {
-					if c.Type == "text" {
-						select {
-						case ch <- StreamEvent{Type: "content", Content: c.Text}:
-						case <-ctx.Done():
-							return
+				// When the partial-messages stream already delivered text via
+				// text_delta, skip the legacy block re-emit to avoid doubling
+				// accumulated content. Older CLIs (no text_delta) still rely
+				// on this path for any text at all.
+				if !parser.sawTextDelta(evt.Message.ID) {
+					for _, c := range evt.Message.Content {
+						if c.Type == "text" {
+							select {
+							case ch <- StreamEvent{Type: "content", Content: c.Text}:
+							case <-ctx.Done():
+								return
+							}
 						}
 					}
 				}
@@ -502,10 +555,15 @@ func (d *ClaudeCliDriver) Info() DriverInfo {
 // The caller MUST defer os.Remove(sysPromptFile) when it is non-empty,
 // after cmd.Wait() / cmd.Run() returns.
 func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) ([]string, string, error) {
+	caps := d.ensureCapabilities()
+
 	args := []string{"--print", "-", "--output-format", outputFormat}
 
 	if outputFormat == "stream-json" {
-		args = append(args, "--verbose", "--include-partial-messages")
+		args = append(args, "--verbose")
+		if caps.partialMessages {
+			args = append(args, "--include-partial-messages")
+		}
 	}
 
 	var sysPromptFile string
@@ -537,6 +595,10 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) ([]stri
 		args = append(args, "--max-turns", strconv.Itoa(req.MaxTurns))
 	}
 
+	if caps.permissionMode && d.permissionMode != "" {
+		args = append(args, "--permission-mode", d.permissionMode)
+	}
+
 	// R5: materialize a content-addressed skills bundle so Claude CLI can
 	// discover them via --add-dir. Symlink to source skill dirs for stable
 	// paths across reasonSteps (prompt cache prefix).
@@ -545,7 +607,11 @@ func (d *ClaudeCliDriver) buildArgs(req LLMRequest, outputFormat string) ([]stri
 		return nil, sysPromptFile, fmt.Errorf("prepare skills bundle: %w", err)
 	}
 	if bundleRoot != "" {
-		args = append(args, "--add-dir", bundleRoot)
+		if caps.addDir {
+			args = append(args, "--add-dir", bundleRoot)
+		} else {
+			log.Printf("[llm] debug: claude-cli %s lacks --add-dir; skills bundle at %s left unannounced (skills are still injected via system prompt)", d.cliCommand, bundleRoot)
+		}
 	}
 
 	args = append(args, d.extraArgs...)
@@ -667,14 +733,96 @@ func detectLoginRequired(result, stderr string) (bool, string) {
 	return true, ""
 }
 
-// extractClaudeStreamEvent extracts tool_use and thinking blocks from a raw Claude API stream event.
-// Returns nil for events that don't map to a driver-level event (e.g., text_delta, ping, message_start).
-func extractClaudeStreamEvent(raw json.RawMessage) *StreamEvent {
+// ensureCapabilities lazily probes the Claude CLI binary's flag support and
+// caches the result on the driver. Multiple concurrent Call/Stream invocations
+// share the same probe via sync.Once. The probe runs through cmdBuilder so
+// tests can mock its output.
+func (d *ClaudeCliDriver) ensureCapabilities() claudeCapabilities {
+	d.capsOnce.Do(func() {
+		d.caps = d.probeCapabilities()
+	})
+	return d.caps
+}
+
+// probeCapabilities executes `<cliCommand> -p --help` with a 5s deadline and
+// scans stdout for known flag names. Any failure (timeout, missing binary,
+// non-zero exit, parse error) collapses to a zero-value claudeCapabilities so
+// downstream buildArgs falls back to the most conservative argv shape.
+func (d *ClaudeCliDriver) probeCapabilities() claudeCapabilities {
+	ctx, cancel := context.WithTimeout(context.Background(), claudeCapabilityProbeTimeout)
+	defer cancel()
+
+	cmd := d.cmdBuilder(ctx, d.cliCommand, "-p", "--help")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		d.warnCapabilityProbeFailure(fmt.Sprintf("probe exec failed: %v (stderr=%q)", err, strings.TrimSpace(stderr.String())))
+		return claudeCapabilities{}
+	}
+	if stdout.Len() > scannerMaxSize {
+		d.warnCapabilityProbeFailure(fmt.Sprintf("probe output exceeds %d bytes (got %d)", scannerMaxSize, stdout.Len()))
+		return claudeCapabilities{}
+	}
+
+	out := stdout.String()
+	return claudeCapabilities{
+		partialMessages: strings.Contains(out, "--include-partial-messages"),
+		addDir:          strings.Contains(out, "--add-dir"),
+		permissionMode:  strings.Contains(out, "--permission-mode"),
+	}
+}
+
+// warnCapabilityProbeFailure logs a single warning per driver instance when
+// the capability probe fails. Keeping the warning behind sync.Once prevents
+// log flooding when many sub-agents spawn concurrently.
+func (d *ClaudeCliDriver) warnCapabilityProbeFailure(reason string) {
+	d.capsWarnedOnce.Do(func() {
+		log.Printf("[llm] warning: claude-cli capability probe (%s) failed: %s. Falling back to conservative flag set.", d.cliCommand, reason)
+	})
+}
+
+// claudeStreamParser converts raw Claude API stream events into driver-level
+// StreamEvent values while tracking which assistant message has already
+// emitted text_delta increments. The Stream goroutine creates one parser per
+// invocation; instances are not safe for concurrent use.
+type claudeStreamParser struct {
+	currentMessageID string
+	hadTextDelta     bool
+}
+
+// newClaudeStreamParser returns a parser ready for a fresh stream.
+func newClaudeStreamParser() *claudeStreamParser {
+	return &claudeStreamParser{}
+}
+
+// sawTextDelta reports whether text_delta events have already been forwarded
+// for the assistant message identified by id. The Stream goroutine consults
+// this to decide whether the trailing assistant block should re-emit text
+// content (legacy CLI without partial messages) or stay silent (new CLI).
+func (p *claudeStreamParser) sawTextDelta(id string) bool {
+	if p.currentMessageID == "" || p.currentMessageID != id {
+		// Either the parser never observed message_start (older CLI / qwen)
+		// or the assistant block belongs to a different message.
+		return false
+	}
+	return p.hadTextDelta
+}
+
+// extractStreamEvent decodes a single inner Claude API stream frame and
+// produces the matching driver event. It also updates parser state for
+// message_start (new active message) and text_delta (mark message as having
+// emitted increments).
+func (p *claudeStreamParser) extractStreamEvent(raw json.RawMessage) *StreamEvent {
 	if len(raw) == 0 {
 		return nil
 	}
 	var event struct {
-		Type         string `json:"type"`
+		Type    string `json:"type"`
+		Message struct {
+			ID string `json:"id"`
+		} `json:"message,omitzero"`
 		ContentBlock struct {
 			Type string `json:"type"`
 			Name string `json:"name"`
@@ -684,6 +832,7 @@ func extractClaudeStreamEvent(raw json.RawMessage) *StreamEvent {
 			Type        string `json:"type"`
 			PartialJSON string `json:"partial_json"`
 			Thinking    string `json:"thinking"`
+			Text        string `json:"text"`
 		} `json:"delta,omitzero"`
 	}
 	if err := json.Unmarshal(raw, &event); err != nil {
@@ -691,6 +840,10 @@ func extractClaudeStreamEvent(raw json.RawMessage) *StreamEvent {
 	}
 
 	switch event.Type {
+	case "message_start":
+		p.currentMessageID = event.Message.ID
+		p.hadTextDelta = false
+		return nil
 	case "content_block_start":
 		switch event.ContentBlock.Type {
 		case "tool_use":
@@ -715,6 +868,12 @@ func extractClaudeStreamEvent(raw json.RawMessage) *StreamEvent {
 		return nil
 	case "content_block_delta":
 		switch event.Delta.Type {
+		case "text_delta":
+			p.hadTextDelta = true
+			return &StreamEvent{
+				Type:    "content",
+				Content: event.Delta.Text,
+			}
 		case "thinking_delta":
 			return &StreamEvent{
 				Type:    "thinking",
@@ -731,4 +890,20 @@ func extractClaudeStreamEvent(raw json.RawMessage) *StreamEvent {
 		}
 	}
 	return nil
+}
+
+// extractClaudeStreamEvent extracts tool_use and thinking blocks from a raw Claude API stream event.
+// Returns nil for events that don't map to a driver-level event (e.g., ping, message_start, text_delta).
+//
+// Deprecated: Internal Claude streaming uses claudeStreamParser to track
+// per-message text_delta state. This stateless wrapper exists for the qwen-cli
+// driver, which shares the Claude stream-json schema but historically derived
+// text from the trailing assistant block; it intentionally swallows text_delta
+// so the qwen flow keeps a single source of text events.
+func extractClaudeStreamEvent(raw json.RawMessage) *StreamEvent {
+	se := newClaudeStreamParser().extractStreamEvent(raw)
+	if se != nil && se.Type == "content" {
+		return nil
+	}
+	return se
 }

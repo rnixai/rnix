@@ -793,6 +793,82 @@ func TestResolveDefaultProvider_BuiltinDefault(t *testing.T) {
 	}
 }
 
+// --- Story 40.1: permission_mode validation ---
+
+func TestProvidersConfig_Validate_PermissionMode_Valid(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"bypassPermissions", "acceptEdits", "plan", "default"} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := ProvidersConfig{
+				Version: "1",
+				Providers: []ProviderConfig{
+					{Name: "claude", Driver: DriverClaudeCLI, PermissionMode: mode},
+				},
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() unexpected error for permission_mode=%q: %v", mode, err)
+			}
+		})
+	}
+}
+
+func TestProvidersConfig_Validate_PermissionMode_Invalid(t *testing.T) {
+	t.Parallel()
+	cfg := ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "claude", Driver: DriverClaudeCLI, PermissionMode: "yolo"},
+		},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for invalid permission_mode, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "yolo") {
+		t.Errorf("error should echo invalid value, got: %s", msg)
+	}
+	for _, valid := range []string{"bypassPermissions", "acceptEdits", "plan", "default"} {
+		if !strings.Contains(msg, valid) {
+			t.Errorf("error should list valid value %q, got: %s", valid, msg)
+		}
+	}
+}
+
+func TestProvidersConfig_Validate_PermissionMode_NonClaudeIgnored(t *testing.T) {
+	t.Parallel()
+	// Setting permission_mode on non-claude-cli drivers is forward-compatible
+	// (silently ignored at validation time).
+	cfg := ProvidersConfig{
+		Version: "1",
+		Providers: []ProviderConfig{
+			{Name: "cursor", Driver: DriverCursorCLI, PermissionMode: "anything-goes"},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("Validate() should ignore permission_mode for non-claude driver, got: %v", err)
+	}
+}
+
+func TestProvidersConfig_PermissionMode_YAMLRoundTrip(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	yaml := `version: "1"
+providers:
+  - name: claude
+    driver: claude-cli
+    permission_mode: acceptEdits
+`
+	path := writeYAML(t, dir, ProvidersConfigFile, yaml)
+	cfg, err := LoadProvidersConfig(path)
+	if err != nil {
+		t.Fatalf("LoadProvidersConfig: %v", err)
+	}
+	if got := cfg.Providers[0].PermissionMode; got != "acceptEdits" {
+		t.Errorf("PermissionMode = %q, want %q", got, "acceptEdits")
+	}
+}
+
 func TestParseProvidersConfig_WithCommand(t *testing.T) {
 	t.Parallel()
 	yaml := `version: "1"

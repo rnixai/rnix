@@ -45,6 +45,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		if cfg.GraceSec > 0 {
 			opts = append(opts, WithGrace(cfg.GraceSec))
 		}
+		if cfg.PermissionMode != "" {
+			opts = append(opts, WithPermissionMode(cfg.PermissionMode))
+		}
 		return NewClaudeCliDriver(opts...), nil
 
 	case DriverCursorCLI:

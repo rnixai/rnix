@@ -67,6 +67,7 @@ type ProviderConfig struct {
 	ExtraArgs      []string `yaml:"extra_args"`      // additional CLI arguments (claude-cli/cursor-cli only)
 	TimeoutSec     int      `yaml:"timeout_sec"`     // per-request timeout in seconds; 0 = driver default (5 min for CLI)
 	GraceSec       int      `yaml:"grace_sec"`       // CLI grace period between SIGTERM and SIGKILL; 0 = driver default (20s)
+	PermissionMode string   `yaml:"permission_mode"` // claude-cli only: --permission-mode value (bypassPermissions/acceptEdits/plan/default); empty = driver default (bypassPermissions)
 }
 
 // FindProvidersConfigPath searches for providers.yaml in CWD then
@@ -172,6 +173,10 @@ func (c *ProvidersConfig) Validate() error {
 
 		if !validModes[p.Mode] {
 			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid mode %q (valid: stream, call)", i, p.Name, p.Mode))
+		}
+
+		if p.Driver == DriverClaudeCLI && p.PermissionMode != "" && !validPermissionModes[p.PermissionMode] {
+			errs = append(errs, fmt.Errorf("provider[%d] %q: invalid permission_mode %q (valid: bypassPermissions, acceptEdits, plan, default)", i, p.Name, p.PermissionMode))
 		}
 	}
 

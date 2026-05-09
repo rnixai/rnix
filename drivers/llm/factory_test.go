@@ -644,6 +644,45 @@ func TestCreateDriver_ClaudeCLI_ExtraArgs(t *testing.T) {
 	}
 }
 
+// --- Story 40.1: PermissionMode propagation ---
+
+func TestCreateDriver_ClaudeCLI_PermissionMode(t *testing.T) {
+	t.Parallel()
+	d, err := CreateDriver(ProviderConfig{
+		Name:           "claude",
+		Driver:         DriverClaudeCLI,
+		PermissionMode: "plan",
+	})
+	if err != nil {
+		t.Fatalf("CreateDriver: %v", err)
+	}
+	claude, ok := d.(*ClaudeCliDriver)
+	if !ok {
+		t.Fatal("expected *ClaudeCliDriver")
+	}
+	if claude.permissionMode != "plan" {
+		t.Errorf("permissionMode = %q, want %q", claude.permissionMode, "plan")
+	}
+}
+
+func TestCreateDriver_ClaudeCLI_PermissionMode_DefaultsToBypass(t *testing.T) {
+	t.Parallel()
+	d, err := CreateDriver(ProviderConfig{
+		Name:   "claude",
+		Driver: DriverClaudeCLI,
+	})
+	if err != nil {
+		t.Fatalf("CreateDriver: %v", err)
+	}
+	claude, ok := d.(*ClaudeCliDriver)
+	if !ok {
+		t.Fatal("expected *ClaudeCliDriver")
+	}
+	if claude.permissionMode != DefaultPermissionMode {
+		t.Errorf("permissionMode = %q, want default %q", claude.permissionMode, DefaultPermissionMode)
+	}
+}
+
 func TestCreateDriver_CursorCLI_DefaultCommand(t *testing.T) {
 	t.Parallel()
 	d, err := CreateDriver(ProviderConfig{

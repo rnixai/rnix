@@ -16,11 +16,62 @@ import (
 
 // TestHelperProcess is a mock process used by tests to simulate the Claude CLI.
 // It checks for GO_TEST_PROCESS=1 and dispatches based on GO_TEST_CASE.
+//
+// Some cases need different output for the capability help probe (`-p --help`)
+// vs the real Call/Stream invocation. Detect the help probe by scanning argv.
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv("GO_TEST_PROCESS") != "1" {
 		return
 	}
+	isHelpProbe := slices.Contains(os.Args, "--help")
 	switch os.Getenv("GO_TEST_CASE") {
+	case "cap_probe_full":
+		if isHelpProbe {
+			fmt.Fprintln(os.Stdout, "Usage: claude [options]")
+			fmt.Fprintln(os.Stdout, "  --include-partial-messages   stream partial assistant messages")
+			fmt.Fprintln(os.Stdout, "  --add-dir <path>             additional directory the agent can read")
+			fmt.Fprintln(os.Stdout, "  --permission-mode <mode>     permission gate (bypassPermissions, acceptEdits, plan, default)")
+			os.Exit(0)
+		}
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"ok","is_error":false,"input_tokens":1,"output_tokens":1}`)
+	case "cap_probe_minimal":
+		if isHelpProbe {
+			fmt.Fprintln(os.Stdout, "Usage: claude [options]")
+			fmt.Fprintln(os.Stdout, "  --model <name>     model id")
+			fmt.Fprintln(os.Stdout, "  --max-turns <n>    maximum agent turns")
+			os.Exit(0)
+		}
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"ok","is_error":false,"input_tokens":1,"output_tokens":1}`)
+	case "cap_probe_fail":
+		if isHelpProbe {
+			fmt.Fprint(os.Stderr, "claude: command not found")
+			os.Exit(1)
+		}
+		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"ok","is_error":false,"input_tokens":1,"output_tokens":1}`)
+	case "stream_text_delta":
+		if isHelpProbe {
+			fmt.Fprintln(os.Stdout, "  --include-partial-messages")
+			fmt.Fprintln(os.Stdout, "  --add-dir <path>")
+			fmt.Fprintln(os.Stdout, "  --permission-mode <mode>")
+			os.Exit(0)
+		}
+		fmt.Fprintln(os.Stdout, `{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_01"}}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"stream_event","event":{"type":"content_block_start","content_block":{"type":"text"}}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello "}}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"world"}}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"stream_event","event":{"type":"content_block_stop"}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"id":"msg_01","content":[{"type":"text","text":"hello world"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"hello world","is_error":false,"input_tokens":10,"output_tokens":2}`)
+	case "stream_legacy_assistant_only":
+		// Older CLI without partial messages: only the trailing assistant block
+		// carries text. Capability probe returns minimal flags.
+		if isHelpProbe {
+			fmt.Fprintln(os.Stdout, "  --model <name>")
+			fmt.Fprintln(os.Stdout, "  --max-turns <n>")
+			os.Exit(0)
+		}
+		fmt.Fprintln(os.Stdout, `{"type":"assistant","message":{"id":"msg_legacy","content":[{"type":"text","text":"legacy answer"}]}}`)
+		fmt.Fprintln(os.Stdout, `{"type":"result","subtype":"success","result":"legacy answer","is_error":false,"input_tokens":5,"output_tokens":2}`)
 	case "success":
 		fmt.Fprint(os.Stdout, `{"type":"result","subtype":"success","result":"test output","cost_usd":0.001,"is_error":false,"duration_ms":100,"num_turns":1,"input_tokens":80,"output_tokens":20}`)
 	case "is_error":
@@ -846,10 +897,10 @@ func TestClaudeCliDriver_ImplementsSkillsBundleCapable(t *testing.T) {
 
 // TestClaudeCliDriver_BuildArgs_WithSkills verifies R5: when req.Skills is
 // populated with a ProjectDir, buildArgs materializes a bundle and appends
-// --add-dir <bundleRoot>.
+// --add-dir <bundleRoot> — provided the locally probed CLI advertises the flag.
 func TestClaudeCliDriver_BuildArgs_WithSkills(t *testing.T) {
 	t.Parallel()
-	d := NewClaudeCliDriver()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("cap_probe_full")))
 
 	projectDir := t.TempDir()
 	skillSrc := filepath.Join(t.TempDir(), "code-analysis")
@@ -902,5 +953,266 @@ func TestClaudeCliDriver_BuildArgs_NoSkills(t *testing.T) {
 	}
 	if slices.Contains(args, "--add-dir") {
 		t.Errorf("unexpected --add-dir in args: %v", args)
+	}
+}
+
+// --- Story 40.1: capability probing & permission_mode ---
+
+// TestClaudeCliDriver_Capabilities_Full verifies that when the help probe
+// advertises all three optional flags, buildArgs propagates them on the next
+// real invocation.
+func TestClaudeCliDriver_Capabilities_Full(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []string
+	d := NewClaudeCliDriver(WithCommandBuilder(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		// Only record the non-probe argv (the probe carries --help).
+		if !slices.Contains(args, "--help") {
+			capturedArgs = args
+		}
+		return mockCmdBuilder("cap_probe_full")(ctx, name, args...)
+	}))
+
+	if _, err := d.Call(context.Background(), LLMRequest{Intent: "ping"}); err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+
+	if !d.caps.partialMessages || !d.caps.addDir || !d.caps.permissionMode {
+		t.Fatalf("expected all caps true, got %+v", d.caps)
+	}
+	argsStr := strings.Join(capturedArgs, " ")
+	if !strings.Contains(argsStr, "--permission-mode bypassPermissions") {
+		t.Errorf("expected --permission-mode bypassPermissions, got: %s", argsStr)
+	}
+	// json output format does not get --include-partial-messages even when the
+	// CLI supports it (the flag is stream-json only).
+	if strings.Contains(argsStr, "--include-partial-messages") {
+		t.Errorf("--include-partial-messages should not appear for json output, got: %s", argsStr)
+	}
+}
+
+// TestClaudeCliDriver_Capabilities_Full_Stream verifies the stream argv carries
+// --include-partial-messages when supported.
+func TestClaudeCliDriver_Capabilities_Full_Stream(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []string
+	d := NewClaudeCliDriver(WithCommandBuilder(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if !slices.Contains(args, "--help") {
+			capturedArgs = args
+		}
+		return mockCmdBuilder("cap_probe_full")(ctx, name, args...)
+	}))
+
+	args, _, err := d.buildArgs(LLMRequest{Intent: "x"}, "stream-json")
+	if err != nil {
+		t.Fatalf("buildArgs error: %v", err)
+	}
+	// caps were probed via Call earlier? No — buildArgs triggered the probe.
+	_ = capturedArgs
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--include-partial-messages") {
+		t.Errorf("expected --include-partial-messages on stream-json, got: %s", joined)
+	}
+	if !strings.Contains(joined, "--permission-mode bypassPermissions") {
+		t.Errorf("expected --permission-mode bypassPermissions, got: %s", joined)
+	}
+}
+
+// TestClaudeCliDriver_Capabilities_Minimal verifies legacy CLIs (help shows no
+// new flags) keep argv flag-free for forward compatibility.
+func TestClaudeCliDriver_Capabilities_Minimal(t *testing.T) {
+	t.Parallel()
+	var capturedArgs []string
+	d := NewClaudeCliDriver(WithCommandBuilder(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if !slices.Contains(args, "--help") {
+			capturedArgs = args
+		}
+		return mockCmdBuilder("cap_probe_minimal")(ctx, name, args...)
+	}))
+
+	if _, err := d.Call(context.Background(), LLMRequest{Intent: "ping"}); err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+
+	if d.caps.partialMessages || d.caps.addDir || d.caps.permissionMode {
+		t.Fatalf("expected all caps false, got %+v", d.caps)
+	}
+	argsStr := strings.Join(capturedArgs, " ")
+	for _, banned := range []string{"--include-partial-messages", "--add-dir", "--permission-mode"} {
+		if strings.Contains(argsStr, banned) {
+			t.Errorf("unexpected %s in argv (legacy CLI), got: %s", banned, argsStr)
+		}
+	}
+}
+
+// TestClaudeCliDriver_Capabilities_ProbeFail verifies a failed probe collapses
+// to the conservative flag set, Call still succeeds, and sync.Once prevents
+// the probe from re-running on subsequent Calls.
+func TestClaudeCliDriver_Capabilities_ProbeFail(t *testing.T) {
+	t.Parallel()
+	var (
+		probeCount   int
+		capturedArgs []string
+	)
+	d := NewClaudeCliDriver(WithCommandBuilder(func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		if slices.Contains(args, "--help") {
+			probeCount++
+		} else {
+			capturedArgs = args
+		}
+		return mockCmdBuilder("cap_probe_fail")(ctx, name, args...)
+	}))
+
+	if _, err := d.Call(context.Background(), LLMRequest{Intent: "ping"}); err != nil {
+		t.Fatalf("Call must succeed despite probe failure, got: %v", err)
+	}
+	// Second Call must reuse cached caps and skip the help probe.
+	if _, err := d.Call(context.Background(), LLMRequest{Intent: "ping again"}); err != nil {
+		t.Fatalf("second Call: %v", err)
+	}
+
+	if probeCount != 1 {
+		t.Errorf("expected exactly 1 probe attempt across Calls, got %d", probeCount)
+	}
+	if d.caps.partialMessages || d.caps.addDir || d.caps.permissionMode {
+		t.Errorf("probe failure should yield zero-value caps, got %+v", d.caps)
+	}
+	argsStr := strings.Join(capturedArgs, " ")
+	for _, banned := range []string{"--include-partial-messages", "--add-dir", "--permission-mode"} {
+		if strings.Contains(argsStr, banned) {
+			t.Errorf("unexpected %s in argv after probe failure, got: %s", banned, argsStr)
+		}
+	}
+}
+
+// TestClaudeCliDriver_Stream_TextDelta verifies AC1 + AC2: text_delta increments
+// reach the channel as Type:"content" events while the trailing assistant
+// block does NOT re-emit the same text (de-duplication).
+func TestClaudeCliDriver_Stream_TextDelta(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_text_delta")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+
+	var (
+		contentParts []string
+		assistantSeen int
+		doneSeen      bool
+	)
+	for _, e := range events {
+		switch e.Type {
+		case "content":
+			contentParts = append(contentParts, e.Content)
+		case "assistant":
+			assistantSeen++
+		case "done":
+			doneSeen = true
+		}
+	}
+
+	if got := strings.Join(contentParts, ""); got != "hello world" {
+		t.Errorf("accumulated content = %q, want %q (text_delta increments must equal final assistant text without doubling)", got, "hello world")
+	}
+	if len(contentParts) != 2 {
+		t.Errorf("expected 2 content events (one per text_delta), got %d: %v", len(contentParts), contentParts)
+	}
+	if assistantSeen != 1 {
+		t.Errorf("expected 1 assistant metadata event, got %d", assistantSeen)
+	}
+	if !doneSeen {
+		t.Errorf("expected a done event")
+	}
+}
+
+// TestClaudeCliDriver_Stream_LegacyAssistantOnly verifies AC2: when no
+// stream_event/text_delta arrives (legacy CLI), the trailing assistant block
+// still produces a content event so single-message text is not lost.
+func TestClaudeCliDriver_Stream_LegacyAssistantOnly(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("stream_legacy_assistant_only")))
+	ch, err := d.Stream(context.Background(), LLMRequest{Intent: "test"})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	var events []StreamEvent
+	for evt := range ch {
+		events = append(events, evt)
+	}
+
+	var (
+		assistantSeen int
+		contentParts  []string
+		doneSeen      bool
+	)
+	for _, e := range events {
+		switch e.Type {
+		case "assistant":
+			assistantSeen++
+		case "content":
+			contentParts = append(contentParts, e.Content)
+		case "done":
+			doneSeen = true
+		}
+	}
+
+	if assistantSeen != 1 {
+		t.Errorf("expected 1 assistant event, got %d", assistantSeen)
+	}
+	if got := strings.Join(contentParts, ""); got != "legacy answer" {
+		t.Errorf("legacy fallback content = %q, want %q", got, "legacy answer")
+	}
+	if !doneSeen {
+		t.Errorf("expected done event")
+	}
+}
+
+// TestClaudeCliDriver_PermissionMode_Default confirms default driver argv
+// carries --permission-mode bypassPermissions when the CLI supports it.
+func TestClaudeCliDriver_PermissionMode_Default(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(WithCommandBuilder(mockCmdBuilder("cap_probe_full")))
+	args, _, err := d.buildArgs(LLMRequest{Intent: "x"}, "json")
+	if err != nil {
+		t.Fatalf("buildArgs: %v", err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--permission-mode bypassPermissions") {
+		t.Errorf("expected default --permission-mode bypassPermissions, got: %s", joined)
+	}
+}
+
+// TestClaudeCliDriver_PermissionMode_Override verifies WithPermissionMode
+// overrides the default value passed to argv.
+func TestClaudeCliDriver_PermissionMode_Override(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(
+		WithCommandBuilder(mockCmdBuilder("cap_probe_full")),
+		WithPermissionMode("acceptEdits"),
+	)
+	args, _, err := d.buildArgs(LLMRequest{Intent: "x"}, "json")
+	if err != nil {
+		t.Fatalf("buildArgs: %v", err)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--permission-mode acceptEdits") {
+		t.Errorf("expected --permission-mode acceptEdits override, got: %s", joined)
+	}
+}
+
+// TestClaudeCliDriver_PermissionMode_EmptyKeepsDefault verifies that calling
+// WithPermissionMode("") preserves the default.
+func TestClaudeCliDriver_PermissionMode_EmptyKeepsDefault(t *testing.T) {
+	t.Parallel()
+	d := NewClaudeCliDriver(
+		WithCommandBuilder(mockCmdBuilder("cap_probe_full")),
+		WithPermissionMode(""),
+	)
+	if d.permissionMode != DefaultPermissionMode {
+		t.Errorf("permissionMode = %q, want default %q", d.permissionMode, DefaultPermissionMode)
 	}
 }
