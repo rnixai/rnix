@@ -216,7 +216,10 @@ func (k *KernelImpl) BuildCompactLLMCall(proc *Process) func(string, []rnixctx.M
 		// Write request — use compactCtx for timeout propagation
 		if err := k.vfs.Write(compactCtx, proc.PID, fd, reqJSON); err != nil {
 			if compactCtx.Err() != nil {
-				return "", fmt.Errorf("compact: LLM call timed out after %v", timeout)
+				if compactCtx.Err() == gocontext.DeadlineExceeded {
+					return "", fmt.Errorf("compact: LLM call timed out after %v", timeout)
+				}
+				return "", fmt.Errorf("compact: LLM call cancelled: %w", compactCtx.Err())
 			}
 			return "", fmt.Errorf("compact: LLM write failed: %w", err)
 		}
@@ -225,7 +228,10 @@ func (k *KernelImpl) BuildCompactLLMCall(proc *Process) func(string, []rnixctx.M
 		respData, err := k.vfs.Read(proc.PID, fd, 1<<20)
 		if err != nil {
 			if compactCtx.Err() != nil {
-				return "", fmt.Errorf("compact: LLM call timed out after %v", timeout)
+				if compactCtx.Err() == gocontext.DeadlineExceeded {
+					return "", fmt.Errorf("compact: LLM call timed out after %v", timeout)
+				}
+				return "", fmt.Errorf("compact: LLM call cancelled: %w", compactCtx.Err())
 			}
 			return "", fmt.Errorf("compact: LLM read failed: %w", err)
 		}
