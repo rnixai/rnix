@@ -661,6 +661,26 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 	k.emitEvent(proc, "Spawn", spawnArgs, proc.PID, nil, time.Since(start))
 
+	// Capture FinalSystemPrompt eagerly at spawn time so process-meta.json
+	// (written at reap) always has a non-empty `system_prompt` field —
+	// independent of whether the reasonStep goroutine reaches the
+	// first-step assignment at kernel/reason.go:368-372. The reasonStep-
+	// side guard (`if FinalSystemPrompt == ""`) keeps this value pinned.
+	if proc.HasSections && proc.sections != nil {
+		built := proc.sections.Build()
+		proc.mu.Lock()
+		if proc.FinalSystemPrompt == "" {
+			proc.FinalSystemPrompt = built
+		}
+		proc.mu.Unlock()
+	} else if opts.SystemPrompt != "" {
+		proc.mu.Lock()
+		if proc.FinalSystemPrompt == "" {
+			proc.FinalSystemPrompt = opts.SystemPrompt
+		}
+		proc.mu.Unlock()
+	}
+
 	if opts.SkipReasonLoop {
 		// No reasoning goroutine — process starts in Running state immediately
 		_ = proc.Start() // Created → Running
