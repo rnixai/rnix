@@ -718,14 +718,25 @@ func (m dashboardModel) renderStepRail(w int) string {
 		}
 
 		// Token counts
-		reqTok := m.inspector.Detail.RequestTokens
-		respTok := m.inspector.Detail.ResponseTokens
+		//
+		// Spec step-inspector-data-fidelity 缺陷 3：优先用真实 Input/Output 拆分,
+		// 退化时才用旧的 Request/Response（很可能是 0/total 误导值）。
+		reqTok := m.inspector.Detail.InputTokens
+		respTok := m.inspector.Detail.OutputTokens
+		if reqTok == 0 && respTok == 0 {
+			reqTok = m.inspector.Detail.RequestTokens
+			respTok = m.inspector.Detail.ResponseTokens
+		}
+		cachedTok := m.inspector.Detail.CachedInputTokens
 		if reqTok > 0 || respTok > 0 {
 			b.WriteString(sep)
 			if ascii {
 				fmt.Fprintf(&b, "%s->%s tok", formatTokenCount(reqTok), formatTokenCount(respTok))
 			} else {
 				fmt.Fprintf(&b, "⇅%s→%s tok", formatTokenCount(reqTok), formatTokenCount(respTok))
+			}
+			if cachedTok > 0 {
+				fmt.Fprintf(&b, " (cached %s)", formatTokenCount(cachedTok))
 			}
 		}
 	}
@@ -1055,12 +1066,26 @@ func (m *dashboardModel) rebuildInspectorContents() {
 		baseDetail = m.lookupDiffBaseDetail()
 	}
 
+	// Spec step-inspector-data-fidelity 缺陷 4 修复：System lens 的 prev detail 应该是
+	// "current step - 1"（时间上的前一步）,而不是 m.inspector.PrevDetail（用户上次浏览
+	// 过的 step）。反向浏览 step 2 → 1 时,m.inspector.PrevDetail 指向 step 2,导致 step 1
+	// 显示 "unchanged from step 2" 违和。改从 timeline.StepDetailCache 中查 step-1。
+	var prevDetail *ipc.GetStepDetailResponse
+	if m.inspector.Detail != nil {
+		prevStepNum := m.inspector.Detail.Step - 1
+		if prevStepNum > 0 && m.timeline.StepDetailCache != nil {
+			if d, ok := m.timeline.StepDetailCache[prevStepNum]; ok {
+				prevDetail = d
+			}
+		}
+	}
+
 	for i := range inspectorLensCount {
 		var content string
 		if m.inspector.DiffMode && inspectorLens(i) == m.inspector.Lens && baseDetail != nil {
 			content = m.buildDiffLensContent(inspectorLens(i), baseDetail, m.inspector.Detail)
 		} else {
-			content = m.buildLensContent(inspectorLens(i), m.inspector.Detail, m.inspector.PrevDetail)
+			content = m.buildLensContent(inspectorLens(i), m.inspector.Detail, prevDetail)
 		}
 		// Story 38-3 AC#8: word-level reverse-video highlight on the active lens.
 		if inspectorLens(i) == m.inspector.Lens && m.search.Query != "" && len(m.inspector.SearchPos) > 0 {
@@ -1194,27 +1219,30 @@ func (m dashboardModel) buildConversationLensFull(detail *ipc.GetStepDetailRespo
 func (m dashboardModel) buildSystemLens(detail, prevDetail *ipc.GetStepDetailResponse) string {
 	var b strings.Builder
 
-	// First step (or no prior detail) — no diff annotation, just show the
-	// prompt. Story 38-3 review P18: use inspectorPrevStep to align with the
-	// spec L61 condition `inspectorPrevStep == 0`. inspectorStep tracks the
-	// *current* step, not the prior; using it here would mis-classify async
-	// load races where current step ≥ 1 but prevDetail hasn't yet arrived.
-	if prevDetail == nil || m.inspector.PrevStep == 0 {
+	// Spec step-inspector-data-fidelity 缺陷 4 修复：
+	// "前一步"语义必须严格 = current step - 1（时间上的前一步）,而不是 m.inspector.PrevStep
+	// （用户上次浏览过的 step,反向浏览时会指向"未来"的 step）。当 prevDetail nil(cache
+	// 未命中或 step==1 首步)时退化为 first-step 模式。
+	if prevDetail == nil || detail == nil || detail.Step <= 1 {
+		if detail == nil {
+			return ""
+		}
 		return renderSystemPromptBody(detail.SystemPrompt)
 	}
+	prevStepNum := detail.Step - 1
 
 	isUnchanged := prevDetail.SystemPrompt == detail.SystemPrompt
 
 	if isUnchanged && !m.inspector.SystemExpanded {
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-		b.WriteString(dimStyle.Render(fmt.Sprintf("unchanged from step %d [press Enter to expand]", m.inspector.PrevStep)))
+		b.WriteString(dimStyle.Render(fmt.Sprintf("unchanged from step %d [press Enter to expand]", prevStepNum)))
 		b.WriteString("\n")
 		return b.String()
 	}
 
 	if isUnchanged {
 		dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-		b.WriteString(dimStyle.Render(fmt.Sprintf("(unchanged from step %d)", m.inspector.PrevStep)))
+		b.WriteString(dimStyle.Render(fmt.Sprintf("(unchanged from step %d)", prevStepNum)))
 		b.WriteString("\n\n")
 		b.WriteString(renderSystemPromptBody(detail.SystemPrompt))
 		return b.String()
@@ -1227,7 +1255,7 @@ func (m dashboardModel) buildSystemLens(detail, prevDetail *ipc.GetStepDetailRes
 	if ui.IsASCIIMode() {
 		icon = "!"
 	}
-	b.WriteString(warnStyle.Render(fmt.Sprintf("%s changed from step %d (%s chars)", icon, m.inspector.PrevStep, formatSignedCharCount(delta))))
+	b.WriteString(warnStyle.Render(fmt.Sprintf("%s changed from step %d (%s chars)", icon, prevStepNum, formatSignedCharCount(delta))))
 	b.WriteString("\n\n")
 	b.WriteString(renderSystemPromptBody(detail.SystemPrompt))
 	return b.String()
@@ -1264,10 +1292,19 @@ func renderSystemPromptBody(prompt string) string {
 // `+`/`|`/`-`. The pre-Story-38-3 contract for the no-tool case is preserved:
 // when `Action=="" && ToolPath==""`, the lens still shows
 // `No tool information for this step.`
+//
+// Spec step-inspector-data-fidelity 修复缺陷 1：当 detail.ToolCalls 非空时,渲染
+// 全部 N 个 parallel calls(每个一个标题 [i/N] <name> + 各自 box)；为空时退化到旧
+// 单 call 渲染路径,确保旧 steps.jsonl 兼容显示。
 func (m dashboardModel) buildToolIOLens(detail *ipc.GetStepDetailResponse) string {
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Bold(true)
 	ascii := ui.IsASCIIMode()
+
+	// Parallel tool calls 路径：渲染所有 N 个 calls。
+	if len(detail.ToolCalls) > 0 {
+		return m.buildToolIOLensMultiCall(detail, dimStyle, nameStyle, ascii)
+	}
 
 	if detail.Action == "" && detail.ToolPath == "" {
 		return dimStyle.Render("No tool information for this step.")
@@ -1321,6 +1358,89 @@ func (m dashboardModel) buildToolIOLens(detail *ipc.GetStepDetailResponse) strin
 			b.WriteString(renderBoxedSection("Response", truncateBoxContent(text), ui.ColorMuted, false, boxWidth))
 			b.WriteString("\n")
 		}
+	}
+
+	return b.String()
+}
+
+// buildToolIOLensMultiCall 渲染一个 reasonStep 内 N 个 parallel tool calls。
+//
+// Spec step-inspector-data-fidelity 缺陷 1 修复：原来同 step 多 call 只显示末尾一条;
+// 现在 IPC 返回完整 ToolCalls 数组,本函数遍历渲染每个 call 的独立 box。
+//
+// 渲染格式（boxWidth 自适应终端宽度）:
+//
+//	Step N — 15 tool calls in parallel:
+//
+//	[1/15] /dev/fs — 12ms
+//	┌─ Input ──┐
+//	│ ...      │
+//	└──────────┘
+//	┌─ Result ─┐
+//	│ ...      │
+//	└──────────┘
+//
+//	[2/15] ...
+//
+// ASCII 模式下 box 边框自动降级,与单 call 路径同模式。
+func (m dashboardModel) buildToolIOLensMultiCall(detail *ipc.GetStepDetailResponse, dimStyle, nameStyle lipgloss.Style, ascii bool) string {
+	boxWidth := inspectorBoxWidth(m.width)
+	var b strings.Builder
+
+	n := len(detail.ToolCalls)
+	fmt.Fprintf(&b, "%s %d %s\n\n",
+		dimStyle.Render("Step"),
+		detail.Step,
+		dimStyle.Render(fmt.Sprintf("— %d tool calls in parallel:", n)))
+
+	for i, c := range detail.ToolCalls {
+		// 标题: [i/N] <name>
+		header := nameStyle.Render(fmt.Sprintf("[%d/%d] %s", i+1, n, c.Name))
+		if c.Path != "" && c.Path != c.Name {
+			header += " " + dimStyle.Render(c.Path)
+		}
+		b.WriteString(header)
+		if c.DurationMs > 0 {
+			durLabel := fmt.Sprintf("%.0fms", c.DurationMs)
+			if ascii {
+				fmt.Fprintf(&b, "  %s", durLabel)
+			} else {
+				fmt.Fprintf(&b, "  ⧖%s", durLabel)
+			}
+		}
+		b.WriteString("\n")
+
+		if c.Input != "" {
+			b.WriteString(renderBoxedSection("Input", truncateBoxContent(c.Input), ui.ColorMuted, false, boxWidth))
+			b.WriteString("\n")
+		}
+		if c.Result != "" {
+			b.WriteString(renderBoxedSection("Result", truncateBoxContent(c.Result), ui.ColorMuted, false, boxWidth))
+			b.WriteString("\n")
+		}
+		if c.Error != "" {
+			b.WriteString(renderBoxedSection("Error", truncateBoxContent(c.Error), ui.ColorError, true, boxWidth))
+			b.WriteString("\n")
+		}
+		if i < n-1 {
+			b.WriteString("\n")
+		}
+	}
+
+	// step-04 review patch：multicall 路径下若顶层 ToolError 非空（来自旧 reader 兼容
+	// 字段或某些边缘 callsite),且 ToolCalls 数组内 entries 都没填 Error,补一段 box
+	// 避免错误信息悄悄丢失。
+	anyEntryHasError := false
+	for _, c := range detail.ToolCalls {
+		if c.Error != "" {
+			anyEntryHasError = true
+			break
+		}
+	}
+	if !anyEntryHasError && detail.ToolError != "" {
+		b.WriteString("\n")
+		b.WriteString(renderBoxedSection("Step Error", truncateBoxContent(detail.ToolError), ui.ColorError, true, boxWidth))
+		b.WriteString("\n")
 	}
 
 	return b.String()
@@ -1419,12 +1539,40 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 
 	// ── Tokens ──
+	//
+	// Spec step-inspector-data-fidelity 缺陷 3 修复:
+	//   - 优先用真实 Input/Output/CachedInput 拆分（driver 已上报）。
+	//   - 旧文件 / 未上报拆分时退化到 Request/Response/Total 旧字段(此时旧的
+	//     "Request: 0 / Response: <total>" 误导问题仍存,但至少不再加重）。
 	headerWidth := metaSectionHeaderWidth(m.width)
 	b.WriteString(renderMetaSectionHeader("Tokens", headerWidth))
 	b.WriteString("\n")
-	if detail.RequestTokens == 0 && detail.ResponseTokens == 0 && detail.TokenCount == 0 {
+	hasSplit := detail.InputTokens > 0 || detail.OutputTokens > 0 || detail.CachedInputTokens > 0
+	switch {
+	case hasSplit:
+		b.WriteString(renderTokenLine("Input:", detail.InputTokens, metaTokenContextWindow, false))
+		b.WriteString("\n")
+		if detail.CachedInputTokens > 0 {
+			b.WriteString(renderTokenLine("Cached:", detail.CachedInputTokens, metaTokenContextWindow, false))
+			b.WriteString("\n")
+		}
+		b.WriteString(renderTokenLine("Output:", detail.OutputTokens, metaTokenContextWindow, false))
+		b.WriteString("\n")
+		total := detail.TokenCount
+		if total == 0 {
+			total = detail.InputTokens + detail.OutputTokens
+		}
+		// Edge case (step-04 review patch): driver 极端只上报 cached（cache hit only
+		// step,Input/Output 都是 0）时,fallback total 仍可能为 0,导致显示 "Total: 0"
+		// 但 Cached>0 视觉矛盾。退化到 Cached 数让用户至少看到非零总量。
+		if total == 0 && detail.CachedInputTokens > 0 {
+			total = detail.CachedInputTokens
+		}
+		b.WriteString(renderTokenLine("Total:", total, metaTokenContextWindow, true))
+		b.WriteString("\n")
+	case detail.RequestTokens == 0 && detail.ResponseTokens == 0 && detail.TokenCount == 0:
 		b.WriteString("Tokens: (no data)\n")
-	} else {
+	default:
 		b.WriteString(renderTokenLine("Request:", detail.RequestTokens, metaTokenContextWindow, false))
 		b.WriteString("\n")
 		b.WriteString(renderTokenLine("Response:", detail.ResponseTokens, metaTokenContextWindow, false))

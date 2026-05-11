@@ -97,9 +97,19 @@ func (k *KernelImpl) emitLog(proc *Process, step int, cat types.LogCategory, con
 }
 
 // writeStepRecord assembles and writes a StepRecord to the process's StepWriter.
+//
+// 设计契约（spec-step-inspector-data-fidelity）：一次调用 = 一个 reasonStep 完整快照
+// = 一行 steps.jsonl。caller 应在 step 完成时（含所有 parallel tool calls 执行完）
+// 调用本函数,不要在 toolLoop 内反复调用。
+//
+//   - toolCalls 数组承载该 step 内所有 parallel tool calls；为空表示非 tool 路径
+//     （text / complete / error 等）。当数组非空时,旧字段 toolPath/toolInput/toolResult/
+//     toolError/toolDuration 仍从 caller 传入（通常取数组末元素以兼容旧 reader）。
+//   - resp 中 InputTokens/OutputTokens/CachedInputTokens 透传至 StepRecord 同名字段。
 func (k *KernelImpl) writeStepRecord(proc *Process, step int, promptResult *rnixctx.PromptResult,
 	rawResponse string, resp *llmResponse, actionType string, summary string,
-	toolPath string, toolInput string, toolResult string, toolError string, toolDuration time.Duration) {
+	toolPath string, toolInput string, toolResult string, toolError string, toolDuration time.Duration,
+	toolCalls []types.ToolCallRecord) {
 
 	proc.mu.Lock()
 	sw := proc.stepWriter
@@ -134,10 +144,14 @@ func (k *KernelImpl) writeStepRecord(proc *Process, step int, promptResult *rnix
 		ToolResult:   toolResult,
 		ToolError:    toolError,
 		ToolDuration: toolDuration,
+		ToolCalls:    toolCalls,
 	}
 	if resp != nil {
 		rec.TokenCount = resp.TokensUsed
 		rec.ResponseTokens = resp.TokensUsed
+		rec.InputTokens = resp.InputTokens
+		rec.OutputTokens = resp.OutputTokens
+		rec.CachedInputTokens = resp.CachedInputTokens
 	}
 
 	if err := sw.WriteStep(rec); err != nil {
@@ -170,6 +184,31 @@ func (k *KernelImpl) writeDriverStepRecordFull(proc *Process, step int, action, 
 	if err := sw.WriteStep(rec); err != nil {
 		log.Printf("[step_writer] driver step write error pid=%d step=%d: %v", proc.PID, step, err)
 	}
+}
+
+// buildBatchToolSummary 为一个 reasonStep 内 N 个 parallel tool calls 生成 summary 文案。
+//
+//   - N==1：沿用 driverToolSummary 单 call 格式（向后兼容)。
+//   - N>1：返回 "tool_call ×N: <name1>, <name2>, ..."(超过 3 个名字截断)。
+func buildBatchToolSummary(calls []types.ToolCallRecord) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	if len(calls) == 1 {
+		return driverToolSummary(calls[0].Name, calls[0].Path, calls[0].Input)
+	}
+	names := make([]string, 0, len(calls))
+	for _, c := range calls {
+		name := c.Path
+		if name == "" {
+			name = c.Name
+		}
+		names = append(names, name)
+	}
+	if len(names) > 3 {
+		names = append(names[:3], "...")
+	}
+	return fmt.Sprintf("tool_call ×%d: %s", len(calls), strings.Join(names, ", "))
 }
 
 // briefToolCallSummary generates "{toolPath} -> {briefResult}" for OnStepComplete.

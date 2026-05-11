@@ -244,7 +244,7 @@ func TestExecuteToolCalls_PrecompactSavesFromContextFull(t *testing.T) {
 	}
 	consec := 0
 	prompt := &rnixctx.PromptResult{}
-	cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
+	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 
 	if !cont {
 		proc.mu.Lock()
@@ -283,7 +283,7 @@ func TestExecuteToolCalls_ContextFullAfterPrecompact(t *testing.T) {
 	}
 	consec := 0
 	prompt := &rnixctx.PromptResult{}
-	cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
+	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 
 	if cont {
 		t.Fatal("expected false (process should stop reasoning loop on ErrContextFull)")

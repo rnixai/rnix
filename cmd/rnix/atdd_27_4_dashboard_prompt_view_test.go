@@ -97,14 +97,12 @@ t.Error("System lens should show character count")
 
 func TestInspector_SystemLensUnchangedHint(t *testing.T) {
 m := newTestInspectorModelWithDetail()
-// Story 38-3 review P18: inspectorPrevStep must be ≥ 1 for the unchanged
-// path to fire — `prevStep == 0` short-circuits to the first-step branch
-// (no annotation), matching the real handleInspectorDetailMsg flow where
-// prevStep advances 0 → 1 → 2 … only after the second step loads.
-m.inspector.PrevStep = 1
-m.inspector.Step = 2
-prevDetail := &ipc.GetStepDetailResponse{SystemPrompt: "You are an agent."}
-content := m.buildLensContent(lensSystem, m.inspector.Detail, prevDetail)
+// Spec step-inspector-data-fidelity 缺陷 4 修复后：System lens 的"前一步"判定
+// 改用 detail.Step（必须 ≥ 2 才会显示 unchanged/changed 提示）,不再依赖
+// m.inspector.PrevStep 浏览历史。
+cur := &ipc.GetStepDetailResponse{Step: 2, SystemPrompt: "You are an agent."}
+prevDetail := &ipc.GetStepDetailResponse{Step: 1, SystemPrompt: "You are an agent."}
+content := m.buildLensContent(lensSystem, cur, prevDetail)
 
 if !strings.Contains(content, "unchanged") {
 t.Error("System lens should show 'unchanged' hint when system prompt matches previous step")

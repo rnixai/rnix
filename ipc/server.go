@@ -599,6 +599,28 @@ func toolDefsToWire(defs []vfs.ToolDef) []ToolDefWire {
 	return wires
 }
 
+// toolCallRecordsToWire converts kernel-side StepRecord.ToolCalls 到 wire 表示。
+// Spec step-inspector-data-fidelity：保留 nil 语义,旧 steps.jsonl 没有该数组时
+// 返回 nil,让 dashboard 退化使用顶层 ToolPath/ToolInput/... 字段。
+func toolCallRecordsToWire(calls []types.ToolCallRecord) []ToolCallDetailWire {
+	if len(calls) == 0 {
+		return nil
+	}
+	wires := make([]ToolCallDetailWire, len(calls))
+	for i, c := range calls {
+		wires[i] = ToolCallDetailWire{
+			ID:         c.ID,
+			Name:       c.Name,
+			Path:       c.Path,
+			Input:      c.Input,
+			Result:     c.Result,
+			Error:      c.Error,
+			DurationMs: c.DurationMs,
+		}
+	}
+	return wires
+}
+
 func messagesToWire(raw json.RawMessage) []MessageWire {
 	if len(raw) == 0 {
 		return []MessageWire{}

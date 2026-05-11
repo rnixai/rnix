@@ -983,22 +983,38 @@ type GetStepDetailRequest struct {
 
 // GetStepDetailResponse is the response for MethodGetStepDetail.
 type GetStepDetailResponse struct {
-	SystemPrompt   string        `json:"system_prompt"`
-	Tools          []ToolDefWire `json:"tools"`
-	Step           int           `json:"step"`
-	Messages       []MessageWire `json:"messages"`
-	MessageCount   int           `json:"message_count"`
-	TokenCount     int           `json:"token_count"`
-	RawResponse    string        `json:"raw_response"`
-	Action         string        `json:"action"`
-	Summary        string        `json:"summary"`
-	ToolPath       string        `json:"tool_path,omitempty"`
-	ToolInput      string        `json:"tool_input,omitempty"`
-	ToolResult     string        `json:"tool_result,omitempty"`
-	ToolError      string        `json:"tool_error,omitempty"`
-	ToolDurationMs float64       `json:"tool_duration_ms,omitempty"`
-	RequestTokens  int           `json:"request_tokens"`
-	ResponseTokens int           `json:"response_tokens"`
+	SystemPrompt      string                 `json:"system_prompt"`
+	Tools             []ToolDefWire          `json:"tools"`
+	Step              int                    `json:"step"`
+	Messages          []MessageWire          `json:"messages"`
+	MessageCount      int                    `json:"message_count"`
+	TokenCount        int                    `json:"token_count"`
+	RawResponse       string                 `json:"raw_response"`
+	Action            string                 `json:"action"`
+	Summary           string                 `json:"summary"`
+	ToolPath          string                 `json:"tool_path,omitempty"`
+	ToolInput         string                 `json:"tool_input,omitempty"`
+	ToolResult        string                 `json:"tool_result,omitempty"`
+	ToolError         string                 `json:"tool_error,omitempty"`
+	ToolDurationMs    float64                `json:"tool_duration_ms,omitempty"`
+	RequestTokens     int                    `json:"request_tokens"`
+	ResponseTokens    int                    `json:"response_tokens"`
+	InputTokens       int                    `json:"input_tokens,omitempty"`
+	OutputTokens      int                    `json:"output_tokens,omitempty"`
+	CachedInputTokens int                    `json:"cached_input_tokens,omitempty"`
+	ToolCalls         []ToolCallDetailWire   `json:"tool_calls,omitempty"`
+}
+
+// ToolCallDetailWire 是单次工具调用的 wire 表示,用于 Step Inspector 渲染 N 个 parallel
+// tool calls。与 ToolCallWire(只含 LLM 发起信息)不同,本结构含 result/error/duration。
+type ToolCallDetailWire struct {
+	ID         string  `json:"id,omitempty"`
+	Name       string  `json:"name"`
+	Path       string  `json:"path,omitempty"`
+	Input      string  `json:"input,omitempty"`
+	Result     string  `json:"result,omitempty"`
+	Error      string  `json:"error,omitempty"`
+	DurationMs float64 `json:"duration_ms,omitempty"`
 }
 
 // MessageWire is the wire-format representation of context.Message.

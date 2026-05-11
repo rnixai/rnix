@@ -352,17 +352,13 @@ func TestRenderLensTabs_NoDiffMarkWhenInactive(t *testing.T) {
 // TestBuildSystemLens_ChangedDelta verifies Story 38-3 AC#3: changed system
 // prompt shows "⚠ changed from step N (+/-X chars)" header.
 //
-// Story 38-3 review P18: aligned with spec L61 — the first-step branch now
-// fires when `inspectorPrevStep == 0` (no prior step recorded yet), not when
-// the *current* step is 0. So tests that exercise the changed/unchanged
-// paths must set `inspectorPrevStep ≥ 1` (matching the real handleInspector
-// DetailMsg flow where prevStep advances from 0 → 1 → 2 …).
+// Spec step-inspector-data-fidelity 缺陷 4 修复后：first-step / changed / unchanged
+// 判定改用 detail.Step（"前一步" = detail.Step - 1）,不再依赖 m.inspector.PrevStep
+// 浏览历史。测试需在 detail.Step 上显式设值。
 func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 	m := newTestInspectorModelWithDetail()
-	m.inspector.PrevStep = 1
-	m.inspector.Step = 2
-	prev := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
-	cur := &ipc.GetStepDetailResponse{SystemPrompt: "abc + 272 more chars" + strings.Repeat("x", 250)}
+	prev := &ipc.GetStepDetailResponse{Step: 1, SystemPrompt: "abc"}
+	cur := &ipc.GetStepDetailResponse{Step: 2, SystemPrompt: "abc + 272 more chars" + strings.Repeat("x", 250)}
 
 	t.Run("positive_delta", func(t *testing.T) {
 		content := m.buildLensContent(lensSystem, cur, prev)
@@ -376,7 +372,7 @@ func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 	})
 
 	t.Run("negative_delta", func(t *testing.T) {
-		shorter := &ipc.GetStepDetailResponse{SystemPrompt: "ab"}
+		shorter := &ipc.GetStepDetailResponse{Step: 2, SystemPrompt: "ab"}
 		content := m.buildLensContent(lensSystem, shorter, prev)
 		stripped := stripANSIApprox(content)
 		if !strings.Contains(stripped, "-") {
@@ -386,9 +382,8 @@ func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 
 	t.Run("first_step_no_annotation", func(t *testing.T) {
 		m2 := newTestInspectorModelWithDetail()
-		m2.inspector.PrevStep = 0
-		m2.inspector.Step = 1
-		content := m2.buildLensContent(lensSystem, cur, nil)
+		firstStepDetail := &ipc.GetStepDetailResponse{Step: 1, SystemPrompt: cur.SystemPrompt}
+		content := m2.buildLensContent(lensSystem, firstStepDetail, nil)
 		stripped := stripANSIApprox(content)
 		if strings.Contains(stripped, "changed from step") {
 			t.Errorf("first step should not include changed annotation; got %q", stripped)
@@ -397,10 +392,8 @@ func TestBuildSystemLens_ChangedDelta(t *testing.T) {
 
 	t.Run("unchanged_preserves_legacy_text", func(t *testing.T) {
 		m2 := newTestInspectorModelWithDetail()
-		m2.inspector.PrevStep = 1
-		m2.inspector.Step = 2
-		same := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
-		samePrev := &ipc.GetStepDetailResponse{SystemPrompt: "abc"}
+		same := &ipc.GetStepDetailResponse{Step: 2, SystemPrompt: "abc"}
+		samePrev := &ipc.GetStepDetailResponse{Step: 1, SystemPrompt: "abc"}
 		content := m2.buildLensContent(lensSystem, same, samePrev)
 		stripped := stripANSIApprox(content)
 		if !strings.Contains(stripped, "unchanged from step 1") {

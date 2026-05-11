@@ -452,7 +452,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				}
 				// Record the failed step with prompt data so it's visible in LLM viewer
 				k.writeStepRecord(proc, step, promptResult, "",
-					nil, "error", fmt.Sprintf("%s: %v", reason, fbErr), "", "", "", "", 0)
+					nil, "error", fmt.Sprintf("%s: %v", reason, fbErr), "", "", "", "", 0, nil)
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, fbErr, time.Since(stepStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: reason, Err: fbErr})
 				return
@@ -475,7 +475,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			if readErr != nil {
 				// Record the failed step with prompt data so it's visible in LLM viewer
 				k.writeStepRecord(proc, step, promptResult, string(respData),
-					nil, "error", fmt.Sprintf("llm read failed: %v", readErr), "", "", "", "", 0)
+					nil, "error", fmt.Sprintf("llm read failed: %v", readErr), "", "", "", "", 0, nil)
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, readErr, time.Since(stepStart))
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "llm read failed", Err: readErr})
 				return
@@ -488,7 +488,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if err := json.Unmarshal(respData, &resp); err != nil {
 			// Record the failed step with raw response so it's visible in LLM viewer
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, nil,
-				"error", fmt.Sprintf("unmarshal response failed: %v", err), "", "", "", "", 0)
+				"error", fmt.Sprintf("unmarshal response failed: %v", err), "", "", "", "", 0, nil)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "error"}, nil, err, time.Since(stepStart))
 			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "unmarshal response failed", Err: err})
 			return
@@ -499,7 +499,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		// differently from a true "empty response" configuration error. (R2)
 		if resp.StopReason == "max_turns" && len(resp.ToolCalls) == 0 {
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
-				"error", "max_turns_reached", "", "", "", "", 0)
+				"error", "max_turns_reached", "", "", "", "", 0, nil)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "max_turns_reached"}, nil, nil, time.Since(stepStart))
 			k.finishProcess(proc, ExitStatus{Code: ExitSuspended, Reason: "max_turns_reached"})
 			return
@@ -509,7 +509,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if resp.Content == "" && resp.TokensUsed == 0 && len(resp.ToolCalls) == 0 {
 			emptyErr := fmt.Errorf("LLM returned empty response (content=\"\", tokens=0, no tool_calls) — check provider/model configuration")
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
-				"error", "empty_llm_response", "", "", "", "", 0)
+				"error", "empty_llm_response", "", "", "", "", 0, nil)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "empty_response"}, nil, emptyErr, time.Since(stepStart))
 			k.finishProcess(proc, ExitStatus{Code: 1, Reason: "empty_llm_response", Err: emptyErr})
 			return
@@ -565,7 +565,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "budget_exceeded", "tokens": tokens, "budget": budget}, nil, nil, time.Since(stepStart))
 			// Record the step that triggered budget exceeded so LLM viewer shows the interaction
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
-				"error", fmt.Sprintf("budget_exceeded: %d/%d tokens", tokens, budget), "", "", "", "", 0)
+				"error", fmt.Sprintf("budget_exceeded: %d/%d tokens", tokens, budget), "", "", "", "", 0, nil)
 			k.finishProcess(proc, ExitStatus{Code: ExitSuspended, Reason: "budget_exceeded", Err: fmt.Errorf("token budget exceeded: %d/%d", tokens, budget)})
 			return
 		}
@@ -602,7 +602,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
 				"error", fmt.Sprintf("budget_exhausted: tokens=%d/%d cost=%.4f/%.4f",
 					tokens, budgetCheck.MaxTokens, budgetCheck.UsedCost, budgetCheck.MaxCost),
-				"", "", "", "", 0)
+				"", "", "", "", 0, nil)
 			if err := k.selfSuspend(proc, "budget_exhausted", ExitSuspended); err != nil {
 				log.Printf("[kernel] pid=%d budget suspend failed: %v, falling back to terminate", proc.PID, err)
 				k.finishProcess(proc, ExitStatus{Code: ExitError, Reason: "budget_exhausted + suspend failed"})
@@ -637,7 +637,27 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 				}
 			}
 
-			shouldContinue := k.executeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors, promptResult, rawResponseStr)
+			toolCallsAcc, shouldContinue := k.executeToolCalls(proc, resp, step, stepStart, &consecutiveToolErrors, promptResult, rawResponseStr)
+			// Spec step-inspector-data-fidelity：tool_calls 路径在 step 完成时
+			// 一次性写入 StepRecord（含 ToolCalls 数组）,避免循环内多次写入导致
+			// ReadStep 去重时只剩末尾一个 call。旧字段 toolPath/toolInput/toolResult
+			// 从数组末元素回填以兼容旧 reader。
+			//
+			// 缺陷 2 修复：Messages 用 step 结束后的完整快照（含本步 assistant
+			// + N 个 tool_result),而非 promptResult（调用前快照）。BuildPrompt 失败
+			// 时降级使用 promptResult。
+			if len(toolCallsAcc) > 0 {
+				freshPrompt := promptResult
+				if fp, fpErr := k.ctxMgr.BuildPrompt(proc.CtxID); fpErr == nil {
+					freshPrompt = fp
+				}
+				last := toolCallsAcc[len(toolCallsAcc)-1]
+				summary := buildBatchToolSummary(toolCallsAcc)
+				k.writeStepRecord(proc, step, freshPrompt, rawResponseStr, &resp,
+					"tool_call", summary,
+					last.Path, last.Input, last.Result, last.Error,
+					time.Duration(last.DurationMs*float64(time.Millisecond)), toolCallsAcc)
+			}
 			if !shouldContinue {
 				return
 			}
@@ -660,7 +680,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 
 		k.emitLog(proc, step, types.LogOutput, resp.Content, "")
 		k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
-			"text", briefTextSummary(resp.Content), "", "", "", "", 0)
+			"text", briefTextSummary(resp.Content), "", "", "", "", 0, nil)
 
 		proc.mu.Lock()
 		proc.Result = resp.Content

@@ -487,9 +487,17 @@ func TestATDD27_1_Integration_ProcessMetaWrittenOnExit(t *testing.T) {
 	}
 }
 
-// --- AC-6: StepRecord 写入在 AppendMessage 之前 ---
-
-func TestATDD27_1_Integration_WrittenBeforeAppendMessage(t *testing.T) {
+// --- AC-6（修订）：StepRecord.Messages 在 tool_call 路径下含本步 tool result ---
+//
+// 原 ATDD 27.1 契约："StepRecord 写入在 AppendMessage 之前,Messages 不含当前 step 的 tool result"
+// 已被 spec-step-inspector-data-fidelity 缺陷 2 翻转：
+//   - 旧契约让 Dashboard Conversation lens 永远"少看一步",用户感受到与 ToolIO/Raw JSON
+//     等面板对应不上的错位。
+//   - 新契约：tool_calls 路径下,kernel 在 executeToolCalls 返回后才 writeStepRecord,
+//     此时 conversation 已包含本步 assistant + tool result,Messages 应是 step 结束完整快照。
+//   - 非 tool_call 路径（text/error/budget 等）仍用 promptResult.Messages（LLM 调用前快照）,
+//     语义未变,因为这些路径下 step 内没有后续 tool 交互。
+func TestATDD27_1_Integration_MessagesIncludeStepToolResult(t *testing.T) {
 	baseDir := t.TempDir()
 
 	reg := vfs.NewDeviceRegistry()
@@ -544,15 +552,20 @@ func TestATDD27_1_Integration_WrittenBeforeAppendMessage(t *testing.T) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 
-	// StepRecord.Messages 应该是 AppendMessage 之前的快照
-	// 即不包含当前步骤的工具结果
+	// 新契约（spec-step-inspector-data-fidelity 缺陷 2）：tool_call 路径下,
+	// StepRecord.Messages 应是 step 结束完整快照,含本步 tool result。
 	var msgs []rnixctx.Message
 	if err := json.Unmarshal(rec.Messages, &msgs); err != nil {
 		t.Fatalf("Unmarshal Messages: %v", err)
 	}
+	found := false
 	for _, m := range msgs {
 		if m.Role == rnixctx.RoleTool && strings.Contains(m.Content, "order-result") {
-			t.Fatal("StepRecord.Messages should NOT contain current step's tool result (must be snapshot before AppendMessage)")
+			found = true
+			break
 		}
+	}
+	if !found {
+		t.Fatal("StepRecord.Messages should INCLUDE current step's tool result (snapshot after AppendToolResult, per spec-step-inspector-data-fidelity 缺陷 2)")
 	}
 }

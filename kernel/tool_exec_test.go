@@ -38,7 +38,7 @@ func TestExecuteToolCalls_PreservesReasoning(t *testing.T) {
 
 	consec := 0
 	prompt := &rnixctx.PromptResult{}
-	if !k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "") {
+	if _, ok := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, ""); !ok {
 		t.Fatalf("executeToolCalls returned false; expected continuation for empty tool_calls")
 	}
 
@@ -91,7 +91,7 @@ func TestExecuteToolCalls_ContextFullExitsCleanly(t *testing.T) {
 	}
 	consec := 0
 	prompt := &rnixctx.PromptResult{}
-	cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
+	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 	if cont {
 		t.Fatal("executeToolCalls returned true; expected false (process should suspend on ErrContextFull)")
 	}
@@ -182,7 +182,7 @@ func TestExecuteToolCalls_ToolResultDropBreaksLoop(t *testing.T) {
 	}
 	consec := 0
 	prompt := &rnixctx.PromptResult{}
-	cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
+	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 
 	if !cont {
 		t.Fatal("expected executeToolCalls to return true (compact+retry, continue reasoning)")
@@ -235,7 +235,7 @@ func TestExecuteToolCalls_CompactRetrySuccess(t *testing.T) {
 	}
 	consec := 0
 	prompt := &rnixctx.PromptResult{}
-	cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
+	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 
 	if !cont {
 		t.Fatal("expected true: compact+retry should recover without killing process")

@@ -40,7 +40,20 @@ func (k *KernelImpl) appendToolResult(proc *Process, step int, toolCallID, toolN
 }
 
 // executeToolCalls processes native tool calls from the LLM response.
-func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int, promptResult *rnixctx.PromptResult, rawResponseStr string) bool {
+//
+// 返回值（spec-step-inspector-data-fidelity）：
+//   - toolCalls：vfs 路径累积的 ToolCallRecord 列表（含成功/失败）;由 caller 在
+//     step 完成时合并写入一行 StepRecord,避免循环内多次 writeStepRecord 导致
+//     ReadStep 去重时丢前 N-1 个 call。
+//   - shouldContinue：与原返回值同语义。
+//
+// 注意：permission_denied / meta action / think 等边缘路径仍保留独立 writeStepRecord
+// 调用（向后兼容旧 reader,且这些路径单 step 内最多触发一次）。
+func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int, promptResult *rnixctx.PromptResult, rawResponseStr string) ([]types.ToolCallRecord, bool) {
+	// Spec step-inspector-data-fidelity：vfs 主路径累积器,toolLoop 内每个 call append 一项;
+	// caller 在 step 完成时合并写入一行 StepRecord。声明在函数顶部以便所有 return 点引用。
+	var toolCalls []types.ToolCallRecord
+
 	if err := k.preCompactForToolCalls(proc, len(resp.ToolCalls), step); err != nil {
 		log.Printf("[kernel] pid=%d precompact warning: %v", proc.PID, err)
 	}
@@ -53,10 +66,10 @@ func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int,
 				log.Printf("[kernel] pid=%d context_full suspend failed: %v, falling back to terminate", proc.PID, suspErr)
 				k.finishProcess(proc, ExitStatus{Code: ExitError, Reason: "context_full + suspend failed", Err: err})
 			}
-			return false
+			return toolCalls, false
 		}
 		k.finishProcess(proc, ExitStatus{Code: ExitError, Reason: "append assistant with tool calls failed", Err: err})
-		return false
+		return toolCalls, false
 	}
 	k.emitEvent(proc, "CtxWrite", map[string]any{"cid": proc.CtxID, "op": "AppendAssistantWithToolCalls"}, nil, nil, time.Since(appendStart))
 
@@ -85,7 +98,7 @@ toolLoop:
 			*consecutiveToolErrors++
 			if *consecutiveToolErrors >= 3 {
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
-				return false
+				return toolCalls, false
 			}
 			continue
 		}
@@ -121,7 +134,7 @@ toolLoop:
 			k.emitLog(proc, step, types.LogTool, errMsg, tc.Name)
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
 				"permission_denied", fmt.Sprintf("✗ unknown tool: %s", tc.Name),
-				tc.Name, "", "", errMsg, time.Since(stepStart))
+				tc.Name, "", "", errMsg, time.Since(stepStart), nil)
 			k.emitEvent(proc, "ReasonStep", map[string]any{
 				"step":   step,
 				"action": "permission_denied",
@@ -130,14 +143,16 @@ toolLoop:
 			*consecutiveToolErrors++
 			if *consecutiveToolErrors >= 3 {
 				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
-				return false
+				return toolCalls, false
 			}
 			continue
 		}
 
 		switch mapping.Type {
 		case "vfs":
+			callStart := time.Now()
 			result, err := k.executeVFSTool(proc, tc, mapping)
+			callDurMs := float64(time.Since(callStart).Microseconds()) / 1000.0
 			if err != nil {
 				errMsg := fmt.Sprintf("Tool error (%s): %v", tc.Name, err)
 				appendToolStart := time.Now()
@@ -151,13 +166,18 @@ toolLoop:
 				proc.mu.Unlock()
 				k.emitLog(proc, step, types.LogTool, errMsg, mapping.VFSPath)
 				inputJSON, _ := json.Marshal(tc.Input)
-				k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
-					"tool_call", fmt.Sprintf("✗ %s: %v", tc.Name, err),
-					mapping.VFSPath, string(inputJSON), "", errMsg, time.Since(stepStart))
+				toolCalls = append(toolCalls, types.ToolCallRecord{
+					ID:         tc.ID,
+					Name:       tc.Name,
+					Path:       mapping.VFSPath,
+					Input:      string(inputJSON),
+					Error:      errMsg,
+					DurationMs: callDurMs,
+				})
 				*consecutiveToolErrors++
 				if *consecutiveToolErrors >= 3 {
 					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
-					return false
+					return toolCalls, false
 				}
 				continue
 			}
@@ -178,9 +198,14 @@ toolLoop:
 			proc.mu.Unlock()
 
 			inputJSON, _ := json.Marshal(tc.Input)
-			k.writeStepRecord(proc, step, promptResult, rawResponseStr, &resp,
-				"tool_call", driverToolSummary(tc.Name, mapping.VFSPath, string(inputJSON)),
-				mapping.VFSPath, string(inputJSON), result, "", time.Since(stepStart))
+			toolCalls = append(toolCalls, types.ToolCallRecord{
+				ID:         tc.ID,
+				Name:       tc.Name,
+				Path:       mapping.VFSPath,
+				Input:      string(inputJSON),
+				Result:     result,
+				DurationMs: callDurMs,
+			})
 
 			k.emitEvent(proc, "ReasonStep", func() map[string]any {
 				meta := map[string]any{
@@ -203,7 +228,7 @@ toolLoop:
 		case "meta":
 			shouldContinue := k.executeMetaAction(proc, tc, mapping, step, stepStart, consecutiveToolErrors, promptResult, rawResponseStr, &resp)
 			if !shouldContinue {
-				return false
+				return toolCalls, false
 			}
 		}
 
@@ -215,10 +240,10 @@ toolLoop:
 		if err := k.appendToolResult(proc, step, dropped.toolCallID, dropped.toolName, dropped.content); err != nil {
 			log.Printf("[kernel] pid=%d step=%d tool result retry after compact still failed: %v", proc.PID, step, err)
 		}
-		return true
+		return toolCalls, true
 	}
 
-	return true
+	return toolCalls, true
 }
 
 // executeVFSTool executes a VFS tool call from native function calling.
@@ -533,7 +558,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		proc.mu.Unlock()
 		k.emitLog(proc, step, types.LogOutput, resultStr, "")
 		k.writeStepRecord(proc, step, promptResult, rawResponseStr, resp,
-			"complete", briefTextSummary(resultStr), "", "", "", "", time.Since(stepStart))
+			"complete", briefTextSummary(resultStr), "", "", "", "", time.Since(stepStart), nil)
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "complete"}, resultStr, nil, time.Since(stepStart))
 		stepDur := time.Since(stepStart)
 		if k.callbacks != nil {
