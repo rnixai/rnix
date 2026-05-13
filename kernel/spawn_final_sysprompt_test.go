@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -68,14 +69,9 @@ func TestSpawn_AgentBased_CapturesFinalSystemPromptAtSpawnTime(t *testing.T) {
 	}
 }
 
-// TestSpawn_NoAgent_FinalSystemPromptDiagnostic documents the agent=nil
-// path: it deliberately produces an empty `FinalSystemPrompt` when neither
-// `--agent` nor `opts.SystemPrompt` is provided. Existing tests
-// (TestSpawn_WithSystemPrompt, TestSpawn_Integration, TestReasonStep_*)
-// rely on the exact-match contract `ctx.SystemPrompt == opts.SystemPrompt`,
-// so injecting baseline sections at this layer is a non-starter — the
-// "no system prompt for bare spawns" behaviour is the API contract.
-func TestSpawn_NoAgent_FinalSystemPromptDiagnostic(t *testing.T) {
+// TestSpawn_NoAgent_HasSectionsAndBasePrompt verifies that all processes
+// receive Rnix's base system prompt sections regardless of agent presence.
+func TestSpawn_NoAgent_HasSectionsAndBasePrompt(t *testing.T) {
 	llmFile := &mockLLMFile{}
 	k, _, _ := newTestKernel(t, llmFile)
 
@@ -92,14 +88,52 @@ func TestSpawn_NoAgent_FinalSystemPromptDiagnostic(t *testing.T) {
 	proc.mu.Lock()
 	fsp := proc.FinalSystemPrompt
 	hasSections := proc.HasSections
+	sections := proc.sections
 	proc.mu.Unlock()
 
-	// Document the contract: agent=nil + no opts.SystemPrompt → empty.
-	if hasSections {
-		t.Fatalf("agent=nil spawn should not register sections (contract); got HasSections=true")
+	if !hasSections {
+		t.Fatalf("all spawns must register sections; got HasSections=false for agent=nil spawn")
 	}
-	if fsp != "" {
-		t.Fatalf("agent=nil + opts.SystemPrompt empty should leave FinalSystemPrompt empty; got len=%d", len(fsp))
+	if sections == nil {
+		t.Fatalf("sections registry must be non-nil for agent=nil spawn")
+	}
+	if fsp == "" {
+		t.Fatalf("FinalSystemPrompt must be non-empty for agent=nil spawn (base sections); got empty")
+	}
+}
+
+// TestSpawn_WithoutAgent_BaseSystemPrompt verifies that base sections
+// (intro, system_rules, actions) are present in the built prompt for
+// agent-less spawns, ensuring the Rnix unified prompt is always injected.
+func TestSpawn_WithoutAgent_BaseSystemPrompt(t *testing.T) {
+	llmFile := &mockLLMFile{}
+	k, _, _ := newTestKernel(t, llmFile)
+
+	pid, err := k.Spawn("test task", nil, SpawnOpts{SkipReasonLoop: true})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	defer func() {
+		_ = k.Kill(pid, 9)
+		time.Sleep(10 * time.Millisecond)
+	}()
+
+	proc, _ := k.GetProcess(pid)
+	proc.mu.Lock()
+	fsp := proc.FinalSystemPrompt
+	proc.mu.Unlock()
+
+	for _, marker := range []struct {
+		section string
+		substr  string
+	}{
+		{"intro", "You are Rnix"},
+		{"system_rules", "# System"},
+		{"actions", "Executing actions with care"},
+	} {
+		if !strings.Contains(fsp, marker.substr) {
+			t.Errorf("base section %q missing from FinalSystemPrompt: expected substring %q", marker.section, marker.substr)
+		}
 	}
 }
 

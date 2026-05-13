@@ -205,23 +205,30 @@ func TestReasonStep_Specialize_SkillBodyInjected(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	// Build prompt and check that the skill body was injected
+	// With sections enabled (all processes), skill bodies are delivered
+	// out-of-band via req.Skills rather than injected as RoleUser messages.
+	// Verify the body is stored in proc.SkillBodies for driver delivery.
+	proc.mu.Lock()
+	body, hasBody := proc.SkillBodies["code-analysis"]
+	proc.mu.Unlock()
+	if !hasBody || body == "" {
+		t.Error("expected skill body to be stored in proc.SkillBodies for out-of-band delivery")
+	}
+
+	// Verify the tool result confirms successful loading
 	prompt, err := ctxMgr.BuildPrompt(proc.CtxID)
 	if err != nil {
 		t.Fatalf("BuildPrompt failed: %v", err)
 	}
-
 	found := false
 	for _, m := range prompt.Messages {
-		if m.Role == rnixctx.RoleUser {
-			if strings.Contains(m.Content, "[Dynamic Skill Loaded: code-analysis]") {
-				found = true
-				break
-			}
+		if m.Role == rnixctx.RoleTool && strings.Contains(m.Content, `skill "code-analysis" loaded successfully`) {
+			found = true
+			break
 		}
 	}
 	if !found {
-		t.Error("expected skill body to be injected as RoleUser message with [Dynamic Skill Loaded: code-analysis]")
+		t.Error("expected tool result confirming skill loaded successfully")
 	}
 }
 
@@ -329,15 +336,18 @@ func TestReasonStep_Specialize_AlreadyLoaded(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	// skillLoader should have been called only once
+	// skillLoader is called at least once (from specialize action). Additional
+	// calls may come from the loaded_skills section's synergy detection during
+	// Build(). The TOCTOU invariant is verified by the "already loaded" tool
+	// message below — the second specialize attempt must NOT re-load the skill.
 	count := 0
 	for _, name := range *loaded {
 		if name == "code-analysis" {
 			count++
 		}
 	}
-	if count != 1 {
-		t.Errorf("skillLoader should be called once for duplicate specialize, called %d times", count)
+	if count < 1 {
+		t.Errorf("skillLoader should be called at least once for code-analysis, called %d times", count)
 	}
 
 	// The second specialize should produce "already loaded" tool message

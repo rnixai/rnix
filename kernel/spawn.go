@@ -93,6 +93,12 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	// Save original CLI model before agent manifest may override it (P1: model_source tracking)
 	cliModel := opts.Model
 
+	// Extract agent instructions (empty if no agent)
+	agentInstructions := ""
+	if agent != nil {
+		agentInstructions, _ = agent.InstructionSections()
+	}
+
 	// Load Agent information if specified
 	if agent != nil {
 		// Stem agent differentiation: auto-match skills based on intent (Story 20.3)
@@ -165,14 +171,6 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			k.emitEvent(proc, "StemDifferentiate", eventArgs, nil, eventErr, diffDuration)
 		}
 
-		// System prompt = Agent instructions only (skill bodies handled by loaded_skills section per AC4)
-		agentInstructions, _ := agent.InstructionSections()
-		if opts.SystemPrompt == "" {
-			opts.SystemPrompt = agentInstructions
-		} else {
-			opts.SystemPrompt = opts.SystemPrompt + "\n\n" + agentInstructions
-		}
-
 		// Populate skill body + dir maps for loaded_skills section and bundle drivers
 		skillBodies := make(map[string]string)
 		skillDirs := make(map[string]string)
@@ -190,10 +188,6 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		}
 		proc.SkillBodies = skillBodies
 		proc.SkillDirs = skillDirs
-
-		// Register section-based prompt assembly
-		proc.HasSections = true
-		proc.sections = registerSections(proc, k, opts.SystemPrompt)
 
 		// Aggregate AllowedTools from all Skills
 		proc.AllowedDevices = agent.AllowedTools()
@@ -310,6 +304,19 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			}, nil, nil, 0)
 		}
 	}
+
+	// System prompt = caller-provided prompt + agent instructions (skill bodies handled by loaded_skills section per AC4)
+	if agentInstructions != "" {
+		if opts.SystemPrompt == "" {
+			opts.SystemPrompt = agentInstructions
+		} else {
+			opts.SystemPrompt = opts.SystemPrompt + "\n\n" + agentInstructions
+		}
+	}
+
+	// Register section-based prompt assembly (all processes, regardless of agent)
+	proc.HasSections = true
+	proc.sections = registerSections(proc, k, opts.SystemPrompt)
 
 	proc.ContextBudget = opts.ContextBudget
 

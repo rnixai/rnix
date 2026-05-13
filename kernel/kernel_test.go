@@ -400,13 +400,17 @@ func TestSpawn_WithSystemPrompt(t *testing.T) {
 		t.Fatal("timed out")
 	}
 
-	// Verify system prompt was set
+	// Verify system prompt was set (now includes base sections + custom prompt)
 	result, err := ctxMgr.BuildPrompt(proc.CtxID)
 	if err != nil {
 		t.Fatalf("BuildPrompt failed: %v", err)
 	}
-	if result.SystemPrompt != "you are a helper" {
-		t.Fatalf("expected system prompt 'you are a helper', got %q", result.SystemPrompt)
+	if !strings.Contains(result.SystemPrompt, "you are a helper") {
+		t.Fatalf("expected system prompt to contain 'you are a helper', got %q", result.SystemPrompt)
+	}
+	// Verify base sections are present
+	if !strings.Contains(result.SystemPrompt, "You are Rnix") {
+		t.Fatalf("expected system prompt to contain base sections (intro), got %q", result.SystemPrompt)
 	}
 }
 
@@ -840,8 +844,8 @@ func TestSpawn_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPrompt failed: %v", err)
 	}
-	if prompt.SystemPrompt != "You are a test agent" {
-		t.Fatalf("expected system prompt, got %q", prompt.SystemPrompt)
+	if !strings.Contains(prompt.SystemPrompt, "You are a test agent") {
+		t.Fatalf("expected system prompt to contain 'You are a test agent', got %q", prompt.SystemPrompt)
 	}
 	if len(prompt.Messages) < 1 {
 		t.Fatal("expected at least 1 message in context")
@@ -2398,8 +2402,8 @@ func TestReasonStep_GdbEnvVarsInjection(t *testing.T) {
 		t.Fatal("timed out waiting for process to complete")
 	}
 
-	if !strings.Contains(capturedReq.SystemPrompt, "[GDB Environment Variables]") {
-		t.Error("expected system prompt to contain [GDB Environment Variables] section")
+	if !strings.Contains(capturedReq.SystemPrompt, "GDB Environment Variables") && !strings.Contains(capturedReq.SystemPrompt, "Debug Environment Variables") {
+		t.Error("expected system prompt to contain GDB/Debug Environment Variables section")
 	}
 	if !strings.Contains(capturedReq.SystemPrompt, "DEBUG=true") {
 		t.Error("expected system prompt to contain DEBUG=true")
