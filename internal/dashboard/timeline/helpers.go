@@ -243,6 +243,10 @@ func HasExpandableContent(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryWi
 	if detail.ToolInput != "" {
 		return true
 	}
+	// Multi-call view (spec-tool-error-handling-fidelity)
+	if len(detail.ToolCalls) >= 2 {
+		return true
+	}
 	// ToolError or ToolResult
 	if detail.ToolError != "" || detail.ToolResult != "" {
 		return true
@@ -283,7 +287,14 @@ func EstimateExpandedLines(detail *ipc.GetStepDetailResponse, s ipc.StepSummaryW
 	if detail.ToolInput != "" {
 		n++ // Input line
 	}
-	if detail.ToolError != "" {
+	// Multi-call view: each call is one row; >20 triggers truncation to head(10)+summary(1)+tail(5)=16.
+	if len(detail.ToolCalls) >= 2 {
+		if len(detail.ToolCalls) > 20 {
+			n += 16
+		} else {
+			n += len(detail.ToolCalls)
+		}
+	} else if detail.ToolError != "" {
 		errLines := strings.Count(detail.ToolError, "\n") + 1
 		n += min(errLines, 4) // Error: up to 3 lines + overflow
 	} else if detail.ToolResult != "" {

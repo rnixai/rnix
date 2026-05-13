@@ -965,7 +965,7 @@ func FileFactory() vfs.VFSFileFactory {
 		}
 		if info.IsDir() {
 			f.Close()
-			return nil, types.NewDriverError("Open", device, fmt.Errorf("is a directory"), types.ErrPermission)
+			return nil, types.NewDriverError("Open", device, fmt.Errorf("is a directory, use list_dir to enumerate"), types.ErrIsDirectory)
 		}
 
 		return &HostFSFile{

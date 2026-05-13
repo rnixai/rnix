@@ -310,12 +310,15 @@ func TestUnified_Spawn_CreatesChildAndWaitsResult(t *testing.T) {
 // --- Scenario 7: circuit breaker with 3 consecutive errors ---
 
 func TestUnified_CircuitBreaker_ThreeConsecutiveErrors(t *testing.T) {
+	// spec-tool-error-handling-fidelity: circuit_breaker now uses (errCode, toolPath)
+	// fingerprint deduplication. 3 consecutive same-fingerprint errors (here:
+	// PERMISSION | /dev/nonexistent) trip the breaker.
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
-			makeToolCallResponse("/dev/nonexistent1", map[string]any{}, 10),
-			makeToolCallResponse("/dev/nonexistent2", map[string]any{}, 10),
-			makeToolCallResponse("/dev/nonexistent3", map[string]any{}, 10),
+			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10),
+			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10),
+			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10),
 		},
 	}
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
@@ -340,6 +343,9 @@ func TestUnified_CircuitBreaker_ThreeConsecutiveErrors(t *testing.T) {
 		}
 		if !strings.Contains(exit.Reason, "circuit_breaker") {
 			t.Fatalf("expected reason containing 'circuit_breaker', got %q", exit.Reason)
+		}
+		if !strings.Contains(exit.Reason, "/dev/nonexistent") {
+			t.Fatalf("expected fingerprint in reason, got %q", exit.Reason)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout")
@@ -395,12 +401,15 @@ func TestUnified_CircuitBreaker_ResetsOnSuccess(t *testing.T) {
 // --- Scenario: spawn failure counts toward circuit breaker ---
 
 func TestUnified_CircuitBreaker_SpawnFailureCounts(t *testing.T) {
+	// spec-tool-error-handling-fidelity: spawn failures share the synthetic toolPath="spawn"
+	// fingerprint, so 3 consecutive spawn failures trip the breaker. Mixed tool+spawn
+	// errors would have different fingerprints (intentionally) and would NOT trip.
 	reg := vfs.NewDeviceRegistry()
 	seqFile := &sequenceLLMFile{
 		responses: [][]byte{
-			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10), // tool fail 1
-			makeToolCallResponse("/dev/nonexistent", map[string]any{}, 10), // tool fail 2
-			makeSpawnResponse("child", "nonexistent-agent", 10),             // spawn fail 3 (no agent loader)
+			makeSpawnResponse("child", "nonexistent-agent", 10), // spawn fail 1 (no agent loader)
+			makeSpawnResponse("child", "nonexistent-agent", 10), // spawn fail 2
+			makeSpawnResponse("child", "nonexistent-agent", 10), // spawn fail 3 → trip
 		},
 	}
 	_ = reg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {

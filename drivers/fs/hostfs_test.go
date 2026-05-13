@@ -238,8 +238,11 @@ func TestFileFactory_DirectoryRejected(t *testing.T) {
 	if !errors.As(err, &drvErr) {
 		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
 	}
-	if drvErr.Code != types.ErrPermission {
-		t.Errorf("expected ErrPermission, got %s", drvErr.Code)
+	if drvErr.Code != types.ErrIsDirectory {
+		t.Errorf("expected ErrIsDirectory, got %s", drvErr.Code)
+	}
+	if !strings.Contains(drvErr.Error(), "use list_dir") {
+		t.Errorf("expected error message to guide toward list_dir, got: %s", drvErr.Error())
 	}
 }
 

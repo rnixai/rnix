@@ -242,7 +242,7 @@ func TestExecuteToolCalls_PrecompactSavesFromContextFull(t *testing.T) {
 		Content:   "calling tool",
 		ToolCalls: []llmToolCall{{ID: "a", Name: "noop"}},
 	}
-	consec := 0
+	var consec errFingerprintCounter
 	prompt := &rnixctx.PromptResult{}
 	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 
@@ -281,7 +281,7 @@ func TestExecuteToolCalls_ContextFullAfterPrecompact(t *testing.T) {
 		Content:   "calling",
 		ToolCalls: []llmToolCall{{ID: "a", Name: "noop"}, {ID: "b", Name: "noop"}},
 	}
-	consec := 0
+	var consec errFingerprintCounter
 	prompt := &rnixctx.PromptResult{}
 	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 

@@ -242,7 +242,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	}()
 
 	var lastResultSummary string
-	var consecutiveToolErrors int
+	var consecutiveToolErrors errFingerprintCounter
 	var consecutiveTransientRetries int
 	loopDetector := NewLoopDetector(DefaultLoopThreshold)
 
@@ -663,7 +663,7 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 			// Auto-compact check (Story 31.2): after tool calls processed, before checkpoint
 			k.autoCompactIfNeeded(proc, step)
-			k.asyncWriteCheckpoint(proc, step, consecutiveToolErrors)
+			k.asyncWriteCheckpoint(proc, step, consecutiveToolErrors.count)
 			continue
 		}
 

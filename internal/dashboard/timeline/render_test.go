@@ -14,6 +14,7 @@
 package timeline
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1101,5 +1102,94 @@ func TestFindStepEntryIndex_PointerFromOtherState(t *testing.T) {
 	// state1 中查找 state2 的指针 → 应不匹配
 	if got := FindStepEntryIndex(state1, target); got != -1 {
 		t.Fatalf("pointer from other state: got %d, want -1", got)
+	}
+}
+
+// Spec spec-tool-error-handling-fidelity: multi-call rendering.
+// Step with multiple parallel tool_calls should render each call as its own row
+// with ✓/✗ marker + ErrorCode, instead of collapsing to a single ToolError summary.
+func TestRenderExpandedDetail_MultipleCallsWithErrors(t *testing.T) {
+	var b strings.Builder
+	calls := []ipc.ToolCallDetailWire{
+		{Name: "read_file", Path: "/dev/fs", Input: `{"path":"a.go"}`, Result: "ok", DurationMs: 3.0},
+		{Name: "read_file", Path: "/dev/fs", Input: `{"path":"bmad-help"}`, Error: "is a directory", ErrorCode: "IS_DIRECTORY"},
+		{Name: "read_file", Path: "/dev/fs", Input: `{"path":"b.go"}`, Result: "ok", DurationMs: 5.0},
+		{Name: "read_file", Path: "/dev/fs", Input: `{"path":"missing"}`, Error: "no such file", ErrorCode: "NOT_FOUND"},
+	}
+	detail := &ipc.GetStepDetailResponse{
+		Action:     "tool_call",
+		ToolPath:   "/dev/fs",
+		ToolError:  "is a directory", // last single-field fallback (must NOT be primary path)
+		ToolCalls:  calls,
+	}
+	s := ipc.StepSummaryWire{Summary: "tool_call ×4: /dev/fs, ..."}
+	lines := RenderExpandedDetail(&b, detail, s, 120, 30)
+	got := b.String()
+
+	// Expect a row per call (4 rows), regardless of the single-field ToolError.
+	for i := range calls {
+		marker := fmt.Sprintf("call[%d]", i)
+		if !strings.Contains(got, marker) {
+			t.Fatalf("missing %s row in output:\n%s", marker, got)
+		}
+	}
+	if !strings.Contains(got, "IS_DIRECTORY") {
+		t.Fatalf("expected IS_DIRECTORY code rendered, got:\n%s", got)
+	}
+	if !strings.Contains(got, "NOT_FOUND") {
+		t.Fatalf("expected NOT_FOUND code rendered, got:\n%s", got)
+	}
+	// Successful calls render ✓; failed render ✗
+	if !strings.Contains(got, "✓") || !strings.Contains(got, "✗") {
+		t.Fatalf("expected both ✓ and ✗ markers, got:\n%s", got)
+	}
+	if lines < len(calls) {
+		t.Fatalf("expected >=%d lines for %d calls, got %d", len(calls), len(calls), lines)
+	}
+}
+
+// Spec spec-tool-error-handling-fidelity: large batch truncation.
+// 100 parallel tool_calls should truncate to head(10) + summary + tail(5) = 16 rows max,
+// so dashboard does not OOM on pathological LLM responses.
+func TestRenderExpandedDetail_LargeCallBatch_TruncatesGracefully(t *testing.T) {
+	var b strings.Builder
+	calls := make([]ipc.ToolCallDetailWire, 100)
+	failedInOmitted := 0
+	for i := range calls {
+		c := ipc.ToolCallDetailWire{Name: "read_file", Path: "/dev/fs", DurationMs: 1.0}
+		// Make some omitted-section calls failures so the summary reports a non-zero failed count.
+		if i >= 10 && i < 95 && i%5 == 0 {
+			c.Error = "boom"
+			c.ErrorCode = "INTERNAL"
+			failedInOmitted++
+		}
+		calls[i] = c
+	}
+	detail := &ipc.GetStepDetailResponse{
+		Action:    "tool_call",
+		ToolCalls: calls,
+	}
+	s := ipc.StepSummaryWire{Summary: "tool_call ×100"}
+	lines := RenderExpandedDetail(&b, detail, s, 120, 200)
+	got := b.String()
+
+	// Head + summary + tail = 16 rows for ToolCalls portion; total may include Path line.
+	if lines > 20 {
+		t.Fatalf("truncation failed: got %d lines, want <=20 for 100 calls", lines)
+	}
+	if !strings.Contains(got, "+85 more") {
+		t.Fatalf("expected truncation summary '+85 more', got:\n%s", got)
+	}
+	// Head section: call[0]..call[9] must appear
+	if !strings.Contains(got, "call[0]") || !strings.Contains(got, "call[9]") {
+		t.Fatalf("expected head call[0]..call[9] present, got:\n%s", got)
+	}
+	// Tail section: call[95]..call[99] must appear
+	if !strings.Contains(got, "call[95]") || !strings.Contains(got, "call[99]") {
+		t.Fatalf("expected tail call[95]..call[99] present, got:\n%s", got)
+	}
+	// Middle slice (call[11]) must NOT appear
+	if strings.Contains(got, "call[11]") {
+		t.Fatalf("expected omitted call[11] absent, got:\n%s", got)
 	}
 }

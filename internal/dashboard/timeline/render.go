@@ -450,8 +450,14 @@ func RenderExpandedDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse,
 		lines++
 	}
 
-	// Result or Error
-	if detail.ToolError != "" && lines < maxLines {
+	// Multi-call view (spec-tool-error-handling-fidelity): when a single step contains
+	// >=2 parallel tool calls, render each call as its own row with ✓/✗ + ErrorCode.
+	// >20 calls triggers truncation (first 10 + summary + last 5). Single-call paths
+	// preserve original rendering via the ToolError/ToolResult branches below.
+	if len(detail.ToolCalls) >= 2 && lines < maxLines {
+		written := renderMultiCallView(b, detail.ToolCalls, dimStyle, errStyle, contentW, maxLines-lines)
+		lines += written
+	} else if detail.ToolError != "" && lines < maxLines {
 		errMsg := detail.ToolError
 		errLines := strings.Split(errMsg, "\n")
 		if len(errLines) > 3 {
@@ -531,6 +537,94 @@ func RenderExpandedDetail(b *strings.Builder, detail *ipc.GetStepDetailResponse,
 	}
 
 	return lines
+}
+
+// renderMultiCallView renders parallel tool_call records as individual rows.
+// Layout:
+//
+//	┊ call[i] NAME PATH ✓ Nms
+//	┊ call[i] NAME PATH ✗ CODE: ERR_SUMMARY
+//
+// Truncation: when len(calls) > multiCallTruncateThreshold (20), shows first
+// multiCallHeadKeep (10) + 1 summary row + last multiCallTailKeep (5). Returns
+// the number of lines written (capped by remaining budget).
+func renderMultiCallView(b *strings.Builder, calls []ipc.ToolCallDetailWire, dimStyle, errStyle lipgloss.Style, contentW, remaining int) int {
+	const (
+		multiCallTruncateThreshold = 20
+		multiCallHeadKeep          = 10
+		multiCallTailKeep          = 5
+	)
+
+	written := 0
+	writeRow := func(idx int, c ipc.ToolCallDetailWire) {
+		if written >= remaining {
+			return
+		}
+		name := c.Name
+		if name == "" {
+			name = "?"
+		}
+		pathLabel := c.Path
+		var marker, suffix string
+		if c.Error != "" {
+			marker = errStyle.Render("✗")
+			code := c.ErrorCode
+			if code == "" {
+				code = "ERROR"
+			}
+			errLine := strings.SplitN(c.Error, "\n", 2)[0]
+			suffix = errStyle.Render(fmt.Sprintf("%s: %s", code, errLine))
+		} else {
+			marker = "✓"
+			suffix = fmt.Sprintf("%.1fms", c.DurationMs)
+		}
+		// "┊ call[i] NAME PATH " consumes a fixed prefix; truncate body if too wide.
+		head := fmt.Sprintf("call[%d] %s %s %s ", idx, name, pathLabel, marker)
+		body := suffix
+		full := head + body
+		if runewidth.StringWidth(full) > contentW {
+			budget := max(contentW-runewidth.StringWidth(head)-1, 8)
+			body = runewidth.Truncate(suffix, budget, "…")
+		}
+		fmt.Fprintf(b, "   %s %s%s\n", dimStyle.Render("┊"), head, body)
+		written++
+	}
+
+	if len(calls) <= multiCallTruncateThreshold {
+		for i, c := range calls {
+			if written >= remaining {
+				break
+			}
+			writeRow(i, c)
+		}
+		return written
+	}
+
+	// Truncation path: first N + summary + last M
+	for i := 0; i < multiCallHeadKeep && written < remaining; i++ {
+		writeRow(i, calls[i])
+	}
+	if written < remaining {
+		failed := 0
+		succeeded := 0
+		omittedStart := multiCallHeadKeep
+		omittedEnd := len(calls) - multiCallTailKeep
+		for i := omittedStart; i < omittedEnd; i++ {
+			if calls[i].Error != "" {
+				failed++
+			} else {
+				succeeded++
+			}
+		}
+		summary := fmt.Sprintf("⋯ +%d more (%d failed, %d succeeded) ⋯", omittedEnd-omittedStart, failed, succeeded)
+		fmt.Fprintf(b, "   %s %s\n", dimStyle.Render("┊"), dimStyle.Render(summary))
+		written++
+	}
+	tailStart := len(calls) - multiCallTailKeep
+	for i := tailStart; i < len(calls) && written < remaining; i++ {
+		writeRow(i, calls[i])
+	}
+	return written
 }
 
 // AggGroupSize 定义 aggregation mode 的 step 分组大小（每 50 个连续 step 聚合为

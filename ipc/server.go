@@ -615,6 +615,7 @@ func toolCallRecordsToWire(calls []types.ToolCallRecord) []ToolCallDetailWire {
 			Input:      c.Input,
 			Result:     c.Result,
 			Error:      c.Error,
+			ErrorCode:  c.ErrorCode,
 			DurationMs: c.DurationMs,
 		}
 	}

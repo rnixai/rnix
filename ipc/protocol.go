@@ -1014,6 +1014,7 @@ type ToolCallDetailWire struct {
 	Input      string  `json:"input,omitempty"`
 	Result     string  `json:"result,omitempty"`
 	Error      string  `json:"error,omitempty"`
+	ErrorCode  string  `json:"error_code,omitempty"`
 	DurationMs float64 `json:"duration_ms,omitempty"`
 }
 

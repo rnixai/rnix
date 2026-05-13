@@ -50,5 +50,6 @@ type ToolCallRecord struct {
 	Input      string        `json:"input,omitempty"`      // 原始 JSON input
 	Result     string        `json:"result,omitempty"`     // 工具执行结果
 	Error      string        `json:"error,omitempty"`      // 错误消息 (非空表示失败)
+	ErrorCode  string        `json:"error_code,omitempty"` // 错误码 (源自 DriverError.Code, 用于指纹去重)
 	DurationMs float64       `json:"duration_ms,omitempty"`
 }

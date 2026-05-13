@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	gocontext "context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,29 @@ import (
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
+
+// errFingerprintCounter tracks consecutive tool errors by fingerprint (errorCode|toolPath).
+// When a new fingerprint appears, count resets to 1. Same fingerprint increments count.
+type errFingerprintCounter struct {
+	fp    string // "<errCode>|<toolPath>"
+	count int
+}
+
+func (c *errFingerprintCounter) bump(errCode, toolPath string) int {
+	fp := errCode + "|" + toolPath
+	if c.fp != fp {
+		c.fp = fp
+		c.count = 1
+	} else {
+		c.count++
+	}
+	return c.count
+}
+
+func (c *errFingerprintCounter) reset() {
+	c.fp = ""
+	c.count = 0
+}
 
 // appendToolResult appends a tool result to the context. Errors here used
 // to be silently dropped with `_ =` at every call site, which masked
@@ -49,10 +73,50 @@ func (k *KernelImpl) appendToolResult(proc *Process, step int, toolCallID, toolN
 //
 // 注意：permission_denied / meta action / think 等边缘路径仍保留独立 writeStepRecord
 // 调用（向后兼容旧 reader,且这些路径单 step 内最多触发一次）。
-func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, consecutiveToolErrors *int, promptResult *rnixctx.PromptResult, rawResponseStr string) ([]types.ToolCallRecord, bool) {
+// isCancellation returns true for errors that represent user/process cancellation or timeouts.
+// Such errors must not contribute to the circuit_breaker counter — they are flow control, not
+// tool failures.
+func isCancellation(err error) bool {
+	return errors.Is(err, gocontext.Canceled) || errors.Is(err, gocontext.DeadlineExceeded)
+}
+
+// extractErrCode pulls the categorized ErrCode out of a DriverError, falling back to
+// ErrInternal when the error is not a DriverError. The fallback keeps internal errors
+// clustered per device path rather than per arbitrary error chain.
+func extractErrCode(err error) string {
+	var de *types.DriverError
+	if errors.As(err, &de) {
+		return string(de.Code)
+	}
+	return string(types.ErrInternal)
+}
+
+// circuitBreakerReason formats the exit reason string with fingerprint detail for traceability.
+func circuitBreakerReason(fp string, count int) string {
+	return fmt.Sprintf("circuit_breaker: %d consecutive errors with fingerprint %s", count, fp)
+}
+
+// bumpToolError applies per-step deduplication then bumps the cross-step counter.
+// Returns (count, tripped) where tripped=true when count >= 3.
+// Cancellation errors are filtered upstream and never reach here.
+func bumpToolError(counter *errFingerprintCounter, seen map[string]bool, errCode, toolPath string) (int, bool) {
+	fp := errCode + "|" + toolPath
+	if seen[fp] {
+		return counter.count, false
+	}
+	seen[fp] = true
+	n := counter.bump(errCode, toolPath)
+	return n, n >= 3
+}
+
+func (k *KernelImpl) executeToolCalls(proc *Process, resp llmResponse, step int, stepStart time.Time, counter *errFingerprintCounter, promptResult *rnixctx.PromptResult, rawResponseStr string) ([]types.ToolCallRecord, bool) {
 	// Spec step-inspector-data-fidelity：vfs 主路径累积器,toolLoop 内每个 call append 一项;
 	// caller 在 step 完成时合并写入一行 StepRecord。声明在函数顶部以便所有 return 点引用。
 	var toolCalls []types.ToolCallRecord
+
+	// Per-step deduplication: a fingerprint that already bumped within this step
+	// is recorded but not counted again. Single step with N identical errors counts as 1.
+	seen := map[string]bool{}
 
 	if err := k.preCompactForToolCalls(proc, len(resp.ToolCalls), step); err != nil {
 		log.Printf("[kernel] pid=%d precompact warning: %v", proc.PID, err)
@@ -95,9 +159,8 @@ toolLoop:
 				fmt.Sprintf("✗ parse_error: %s", tc.Name),
 				tc.Name, tc.ParseError, errMsg, time.Since(stepStart),
 				nil, 0)
-			*consecutiveToolErrors++
-			if *consecutiveToolErrors >= 3 {
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+			if _, tripped := bumpToolError(counter, seen, string(types.ErrInvalid), tc.Name); tripped {
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
 				return toolCalls, false
 			}
 			continue
@@ -140,9 +203,8 @@ toolLoop:
 				"action": "permission_denied",
 				"tool":   tc.Name,
 			}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
-			*consecutiveToolErrors++
-			if *consecutiveToolErrors >= 3 {
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+			if _, tripped := bumpToolError(counter, seen, string(types.ErrPermission), tc.Name); tripped {
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
 				return toolCalls, false
 			}
 			continue
@@ -154,6 +216,13 @@ toolLoop:
 			result, err := k.executeVFSTool(proc, tc, mapping)
 			callDurMs := float64(time.Since(callStart).Microseconds()) / 1000.0
 			if err != nil {
+				// Cancellation/timeout errors get an empty ErrorCode so dashboards do not
+				// mislabel user-cancelled or upstream-deadline errors as INTERNAL.
+				var errCode string
+				cancelled := isCancellation(err)
+				if !cancelled {
+					errCode = extractErrCode(err)
+				}
 				errMsg := fmt.Sprintf("Tool error (%s): %v", tc.Name, err)
 				appendToolStart := time.Now()
 				if appendErr := k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg); appendErr != nil {
@@ -172,12 +241,16 @@ toolLoop:
 					Path:       mapping.VFSPath,
 					Input:      string(inputJSON),
 					Error:      errMsg,
+					ErrorCode:  errCode,
 					DurationMs: callDurMs,
 				})
-				*consecutiveToolErrors++
-				if *consecutiveToolErrors >= 3 {
-					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
-					return toolCalls, false
+				// Cancellation/timeout errors are recorded but do not contribute to the circuit
+				// breaker — they reflect user intent or upstream deadline, not tool misuse.
+				if !cancelled {
+					if _, tripped := bumpToolError(counter, seen, errCode, mapping.VFSPath); tripped {
+						k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+						return toolCalls, false
+					}
 				}
 				continue
 			}
@@ -192,7 +265,7 @@ toolLoop:
 				toolContent = toolContent[:500] + fmt.Sprintf("... (truncated, %d bytes total)", len(result))
 			}
 			k.emitLog(proc, step, types.LogTool, toolContent, mapping.VFSPath)
-			*consecutiveToolErrors = 0
+			counter.reset()
 			proc.mu.Lock()
 			proc.HasToolError = false
 			proc.mu.Unlock()
@@ -226,7 +299,7 @@ toolLoop:
 			}
 
 		case "meta":
-			shouldContinue := k.executeMetaAction(proc, tc, mapping, step, stepStart, consecutiveToolErrors, promptResult, rawResponseStr, &resp)
+			shouldContinue := k.executeMetaAction(proc, tc, mapping, step, stepStart, counter, seen, promptResult, rawResponseStr, &resp)
 			if !shouldContinue {
 				return toolCalls, false
 			}
@@ -548,7 +621,7 @@ func (k *KernelImpl) updateReadFileMtime(proc *Process, pathStr string) {
 	}
 }
 
-func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping toolMapping, step int, stepStart time.Time, consecutiveToolErrors *int, promptResult *rnixctx.PromptResult, rawResponseStr string, resp *llmResponse) bool {
+func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping toolMapping, step int, stepStart time.Time, counter *errFingerprintCounter, seen map[string]bool, promptResult *rnixctx.PromptResult, rawResponseStr string, resp *llmResponse) bool {
 	switch mapping.Action {
 	case ActionComplete:
 		resultStr, _ := tc.Input["result"].(string)
@@ -594,10 +667,9 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
-				*consecutiveToolErrors++
-				if *consecutiveToolErrors >= 3 {
-					k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": *consecutiveToolErrors}, nil, nil, time.Since(stepStart))
-					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
+				if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
+					k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": counter.count}, nil, nil, time.Since(stepStart))
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
 					return false
 				}
 				return true
@@ -608,11 +680,13 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, loadErr, time.Since(stepStart))
-				*consecutiveToolErrors++
-				if *consecutiveToolErrors >= 3 {
-					k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": *consecutiveToolErrors}, nil, nil, time.Since(stepStart))
-					k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
-					return false
+				if !isCancellation(loadErr) {
+					// Use ErrInternal so all spawn-error sub-types share fingerprint "INTERNAL|spawn".
+					if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
+						k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": counter.count}, nil, nil, time.Since(stepStart))
+						k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+						return false
+					}
 				}
 				return true
 			}
@@ -624,13 +698,20 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			errMsg := fmt.Sprintf("spawn failed: %v", err)
 			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, err, time.Since(stepStart))
-			*consecutiveToolErrors++
-			if *consecutiveToolErrors >= 3 {
-				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "circuit_breaker: 3 consecutive tool errors"})
-				return false
+			if !isCancellation(err) {
+				// All spawn-error branches share fingerprint "INTERNAL|spawn" so that mixed
+				// failure modes (no-loader / load-fail / spawn-fail) accumulate together —
+				// otherwise alternating sub-types would silently bypass the breaker.
+				if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
+					k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
+					return false
+				}
 			}
 			return true
 		}
+		// Successful spawn resets the circuit breaker — matches the vfs success path
+		// and the spec's "any tool success resets counter" rule.
+		counter.reset()
 		childExit, _ := k.Wait(childPID)
 		childProc, _ := k.GetProcess(childPID)
 		result := ""

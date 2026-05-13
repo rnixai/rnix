@@ -36,7 +36,7 @@ func TestExecuteToolCalls_PreservesReasoning(t *testing.T) {
 		ToolCalls: nil,
 	}
 
-	consec := 0
+	var consec errFingerprintCounter
 	prompt := &rnixctx.PromptResult{}
 	if _, ok := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, ""); !ok {
 		t.Fatalf("executeToolCalls returned false; expected continuation for empty tool_calls")
@@ -89,7 +89,7 @@ func TestExecuteToolCalls_ContextFullExitsCleanly(t *testing.T) {
 			{ID: "b", Name: "noop"},
 		},
 	}
-	consec := 0
+	var consec errFingerprintCounter
 	prompt := &rnixctx.PromptResult{}
 	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 	if cont {
@@ -180,7 +180,7 @@ func TestExecuteToolCalls_ToolResultDropBreaksLoop(t *testing.T) {
 			{ID: "b", Name: "tool_b"},
 		},
 	}
-	consec := 0
+	var consec errFingerprintCounter
 	prompt := &rnixctx.PromptResult{}
 	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 
@@ -233,7 +233,7 @@ func TestExecuteToolCalls_CompactRetrySuccess(t *testing.T) {
 			{ID: "b", Name: "tool_b"},
 		},
 	}
-	consec := 0
+	var consec errFingerprintCounter
 	prompt := &rnixctx.PromptResult{}
 	_, cont := k.executeToolCalls(proc, resp, 1, time.Now(), &consec, prompt, "")
 
@@ -298,9 +298,9 @@ func TestSpecialize_AppendMessageFail_Rollback(t *testing.T) {
 	// Bypass executeToolCalls (which tries AppendAssistantWithToolCalls and would fail)
 	// and call executeMetaAction directly to test the specialize rollback.
 	mapping := toolMapping{Type: "meta", Action: ActionSpecialize}
-	consec := 0
+	var consec errFingerprintCounter
 	prompt := &rnixctx.PromptResult{}
-	shouldCont := k.executeMetaAction(proc, resp.ToolCalls[0], mapping, 1, time.Now(), &consec, prompt, "", &resp)
+	shouldCont := k.executeMetaAction(proc, resp.ToolCalls[0], mapping, 1, time.Now(), &consec, map[string]bool{}, prompt, "", &resp)
 
 	if !shouldCont {
 		t.Fatal("expected executeMetaAction to return true after specialize rollback")
@@ -355,9 +355,9 @@ func TestSpecialize_AppendMessageSuccess_NoRollback(t *testing.T) {
 	resp := llmResponse{Content: "specializing"}
 	mapping := toolMapping{Type: "meta", Action: ActionSpecialize}
 	tc := llmToolCall{ID: "sp-1", Name: "specialize", Input: map[string]any{"skill_name": "good-skill"}}
-	consec := 0
+	var consec errFingerprintCounter
 	prompt := &rnixctx.PromptResult{}
-	shouldCont := k.executeMetaAction(proc, tc, mapping, 1, time.Now(), &consec, prompt, "", &resp)
+	shouldCont := k.executeMetaAction(proc, tc, mapping, 1, time.Now(), &consec, map[string]bool{}, prompt, "", &resp)
 
 	if !shouldCont {
 		t.Fatal("expected true from successful specialize")
@@ -396,3 +396,122 @@ func (f *mockVFSToolFile) Close() error                                { return 
 func (f *mockVFSToolFile) Stat() (vfs.FileStat, error) {
 	return vfs.FileStat{IsDevice: true, Name: "/dev/test"}, nil
 }
+
+// Spec spec-tool-error-handling-fidelity: circuit_breaker fingerprint deduplication.
+// Tests live close to the implementation (bumpToolError + errFingerprintCounter) to
+// keep behavior pinned independent of executeToolCalls integration plumbing.
+
+func TestErrFingerprintCounter_SameFingerprintTripsAt3(t *testing.T) {
+	var c errFingerprintCounter
+	seen1 := map[string]bool{}
+	seen2 := map[string]bool{}
+	seen3 := map[string]bool{}
+
+	if n, tripped := bumpToolError(&c, seen1, "IS_DIRECTORY", "/dev/fs"); tripped || n != 1 {
+		t.Fatalf("step1: got count=%d tripped=%v, want 1/false", n, tripped)
+	}
+	if n, tripped := bumpToolError(&c, seen2, "IS_DIRECTORY", "/dev/fs"); tripped || n != 2 {
+		t.Fatalf("step2: got count=%d tripped=%v, want 2/false", n, tripped)
+	}
+	if n, tripped := bumpToolError(&c, seen3, "IS_DIRECTORY", "/dev/fs"); !tripped || n != 3 {
+		t.Fatalf("step3: got count=%d tripped=%v, want 3/true", n, tripped)
+	}
+}
+
+func TestErrFingerprintCounter_DifferentFingerprintsDoNotTrip(t *testing.T) {
+	var c errFingerprintCounter
+	// 3 different fingerprints across 3 steps — each switches the counter back to 1.
+	codes := []string{"IS_DIRECTORY", "NOT_FOUND", "PERMISSION"}
+	for i, code := range codes {
+		seen := map[string]bool{}
+		n, tripped := bumpToolError(&c, seen, code, "/dev/fs")
+		if tripped {
+			t.Fatalf("step %d (%s): unexpectedly tripped at count=%d", i+1, code, n)
+		}
+		if n != 1 {
+			t.Fatalf("step %d (%s): got count=%d, want 1 (new fingerprint resets)", i+1, code, n)
+		}
+	}
+}
+
+func TestErrFingerprintCounter_PerStepDedupCountsAsOne(t *testing.T) {
+	var c errFingerprintCounter
+	// Single step: 3 identical fingerprints — per-step dedup means counter bumps only once.
+	seen := map[string]bool{}
+	for i := range 3 {
+		_, tripped := bumpToolError(&c, seen, "IS_DIRECTORY", "/dev/fs")
+		if tripped {
+			t.Fatalf("call %d: tripped within a single step (per-step dedup violated)", i+1)
+		}
+	}
+	if c.count != 1 {
+		t.Fatalf("after 3 same-step same-fp errors, counter=%d, want 1 (single step counts as one)", c.count)
+	}
+}
+
+func TestErrFingerprintCounter_SameDeviceDifferentInputPathStillSameFingerprint(t *testing.T) {
+	// Fingerprint uses device path (mapping.VFSPath), not input.path — LLM cannot
+	// bypass circuit_breaker by varying input.path on the same device.
+	var c errFingerprintCounter
+	// Simulate 3 steps where LLM tries different input.path but device stays /dev/fs.
+	// Fingerprint key is (errCode, devicePath), so all three should bump the same counter.
+	for step := 1; step <= 3; step++ {
+		seen := map[string]bool{}
+		_, tripped := bumpToolError(&c, seen, "IS_DIRECTORY", "/dev/fs")
+		if step < 3 && tripped {
+			t.Fatalf("step %d: unexpectedly tripped early", step)
+		}
+		if step == 3 && !tripped {
+			t.Fatalf("step 3: expected trip but got count=%d", c.count)
+		}
+	}
+}
+
+func TestErrFingerprintCounter_ResetClears(t *testing.T) {
+	var c errFingerprintCounter
+	seen := map[string]bool{}
+	bumpToolError(&c, seen, "NOT_FOUND", "/dev/fs")
+	bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/fs")
+	if c.count != 2 {
+		t.Fatalf("setup: got count=%d, want 2", c.count)
+	}
+	c.reset()
+	if c.count != 0 || c.fp != "" {
+		t.Fatalf("after reset: count=%d fp=%q, want 0/\"\"", c.count, c.fp)
+	}
+	// Bump after reset starts fresh
+	if n, _ := bumpToolError(&c, map[string]bool{}, "NOT_FOUND", "/dev/fs"); n != 1 {
+		t.Fatalf("after reset, new bump count=%d, want 1", n)
+	}
+}
+
+func TestExtractErrCode_DriverError(t *testing.T) {
+	err := types.NewDriverError("Open", "/dev/fs", errIsDir, types.ErrIsDirectory)
+	if got := extractErrCode(err); got != string(types.ErrIsDirectory) {
+		t.Fatalf("got %q, want %q", got, types.ErrIsDirectory)
+	}
+}
+
+func TestExtractErrCode_NonDriverErrorFallsBackToInternal(t *testing.T) {
+	if got := extractErrCode(errIsDir); got != string(types.ErrInternal) {
+		t.Fatalf("got %q, want %q", got, types.ErrInternal)
+	}
+}
+
+func TestIsCancellation_DetectsContextErrors(t *testing.T) {
+	if !isCancellation(gocontext.Canceled) {
+		t.Error("expected isCancellation(Canceled) = true")
+	}
+	if !isCancellation(gocontext.DeadlineExceeded) {
+		t.Error("expected isCancellation(DeadlineExceeded) = true")
+	}
+	if isCancellation(errIsDir) {
+		t.Error("expected isCancellation(other error) = false")
+	}
+}
+
+var errIsDir = errSentinel("is a directory")
+
+type errSentinel string
+
+func (e errSentinel) Error() string { return string(e) }
