@@ -413,6 +413,38 @@ func TestAnthropicFactory_BaseURL(t *testing.T) {
 	}
 }
 
+// TestAnthropicFactory_ThinkingBudget verifies thinking_budget is wired through
+// to the AnthropicDriver (required for DeepSeek V4+ thinking mode).
+func TestAnthropicFactory_ThinkingBudget(t *testing.T) {
+	cfg := ProviderConfig{
+		Name:           "deepseek",
+		Driver:         DriverAnthropic,
+		BaseURL:        "https://api.deepseek.com/anthropic",
+		ThinkingBudget: 8192,
+	}
+	drv, err := CreateDriverWithEnv(cfg, func(string) string { return "" })
+	if err != nil {
+		t.Fatalf("CreateDriverWithEnv: %v", err)
+	}
+	ad, ok := drv.(*AnthropicDriver)
+	if !ok {
+		t.Fatalf("expected *AnthropicDriver, got %T", drv)
+	}
+	if ad.thinkingBudget != 8192 {
+		t.Errorf("thinkingBudget = %d, want 8192", ad.thinkingBudget)
+	}
+
+	// Verify buildParams produces Thinking field and adjusts MaxTokens
+	params := ad.buildParams(LLMRequest{Intent: "test"}, nil)
+	if params.Thinking.GetBudgetTokens() == nil || *params.Thinking.GetBudgetTokens() != 8192 {
+		t.Errorf("buildParams Thinking budget not set to 8192")
+	}
+	// Default maxTokens (4096) < thinkingBudget (8192), so MaxTokens should be bumped
+	if params.MaxTokens <= 8192 {
+		t.Errorf("MaxTokens = %d, want > 8192 (auto-adjusted for thinking budget)", params.MaxTokens)
+	}
+}
+
 // makeAnthropicAPIError creates an *anthropic.Error for testing.
 func makeAnthropicAPIError(statusCode int) *anthropic.Error {
 	req, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", nil)

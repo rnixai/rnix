@@ -27,16 +27,18 @@ type AnthropicDriver struct {
 	defaultModel     string
 	defaultTimeout   time.Duration
 	defaultMaxTokens int
+	thinkingBudget   int
 }
 
 // AnthropicOption configures an AnthropicDriver.
 type AnthropicOption func(*anthropicDriverConfig)
 
 type anthropicDriverConfig struct {
-	model     string
-	timeout   time.Duration
-	sdkOpts   []option.RequestOption
-	maxTokens int
+	model          string
+	timeout        time.Duration
+	sdkOpts        []option.RequestOption
+	maxTokens      int
+	thinkingBudget int
 }
 
 func WithAnthropicModel(model string) AnthropicOption {
@@ -66,6 +68,14 @@ func WithAnthropicMaxTokens(n int) AnthropicOption {
 	return func(c *anthropicDriverConfig) { c.maxTokens = n }
 }
 
+// WithAnthropicThinkingBudget enables extended thinking with the given token
+// budget. Required for DeepSeek V4+ models via their Anthropic-compatible
+// endpoint — without it, multi-turn conversations with tool calls fail with
+// HTTP 400 "reasoning_content must be passed back to the API".
+func WithAnthropicThinkingBudget(n int) AnthropicOption {
+	return func(c *anthropicDriverConfig) { c.thinkingBudget = n }
+}
+
 // WithAnthropicSDKOption appends a raw SDK request option.
 func WithAnthropicSDKOption(opt option.RequestOption) AnthropicOption {
 	return func(c *anthropicDriverConfig) {
@@ -90,6 +100,7 @@ func NewAnthropicDriver(name string, opts ...AnthropicOption) *AnthropicDriver {
 		defaultModel:     cfg.model,
 		defaultTimeout:   cfg.timeout,
 		defaultMaxTokens: cfg.maxTokens,
+		thinkingBudget:   cfg.thinkingBudget,
 	}
 }
 
@@ -249,6 +260,13 @@ func (d *AnthropicDriver) buildParams(req LLMRequest, tools []ToolDef) anthropic
 		Model:     d.resolveModel(req),
 		Messages:  d.buildSDKMessages(req),
 		MaxTokens: maxTokens,
+	}
+
+	if d.thinkingBudget > 0 {
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(d.thinkingBudget))
+		if params.MaxTokens <= int64(d.thinkingBudget) {
+			params.MaxTokens = int64(d.thinkingBudget) + params.MaxTokens
+		}
 	}
 
 	if req.SystemPrompt != "" {

@@ -186,6 +186,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		if cfg.MaxTokens > 0 {
 			opts = append(opts, WithAnthropicMaxTokens(cfg.MaxTokens))
 		}
+		if cfg.ThinkingBudget > 0 {
+			opts = append(opts, WithAnthropicThinkingBudget(cfg.ThinkingBudget))
+		}
 		if cfg.BaseURL != "" {
 			opts = append(opts, WithAnthropicBaseURL(cfg.BaseURL))
 		}
