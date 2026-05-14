@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-14
+
 ### Added
 
 - **Dashboard Inspector & Tree-Timeline Unification (Epic 36)**:
@@ -17,6 +19,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Three-state expand mode: `e` (expand all, sticky), `E` (errors only), `C` (collapse all) with new-step stickiness (Story 36-4)
   - Header indicators for sort direction and expand mode with ASCII fallback (Story 36-4)
   - One-time migration notice for ascending sort change, persisted to `~/.config/rnix/ui-state.json` (Story 36-4)
+
+- **Dashboard Timeline Navigation (Epic 41)**:
+  - Fold/expand navigation: `j`/`k`/`↑`/`↓` move across visible rows; `Enter` toggles group fold or drills into leaf detail
+  - `[`/`]` jump between group headers, or cycle search matches when search is active
+  - Fold markers: `▶` collapsed / `▼` expanded (ASCII fallback: `>` / `v`)
+  - Dynamic per-model context window size displayed in timeline header
+  - Cache hit rate column per step with driver-aware semantics (openai-compat vs. Anthropic native)
+
+- **Multi-Backend Web Search**:
+  - `/dev/web` search backend registry: Tavily, Exa, and SearXNG now supported alongside the built-in fetcher
+  - Backend auto-selection and transparent fallback; configure via `TAVILY_API_KEY`, `EXA_API_KEY`, or self-hosted `SEARXNG_URL`
+
+- **Anthropic Prompt Caching**:
+  - Three `cache_control` breakpoints injected automatically (system prompt, tool definitions, last user turn)
+  - Cache hit rate computed with Anthropic-specific semantics: `CacheReadInputTokens / (input_tokens + CacheReadInputTokens)`
+
+- **LLM Permission Mode & Capability Probing**:
+  - Processes declare required permission level; kernel gates execution before the first LLM call
+  - Drivers report supported feature flags at init time; unsupported features are gracefully downgraded
+
+- **DeepSeek V4 `thinking_budget` Support**:
+  - `thinking_budget` parameter available via both `anthropic` and `openai-compat` drivers
+
+- **Context Slot Tracking**:
+  - `CtxSize()` and available-slots API expose precise slot headroom alongside token usage
+  - Auto-compact triggers on slot saturation in addition to token thresholds
+  - Atomic capacity checks for assistant messages with tool calls prevent split-turn overflow
+
+- **Kernel Observability**:
+  - TraceID auto-generated for all top-level processes (no manual `--trace` flag needed)
+  - Suspend reason recorded: `budget`, `loop_detect`, `manual`, or `timeout`
+  - `FinalSystemPrompt` captured and persisted per process for post-mortem inspection
+
+### Changed
+
+- **Dashboard Architecture Overhaul (Story 38-5 PR11)**:
+  - `PaneModel.OnTick(OnTickContext)` adopted across all 8 panes — eliminates ad-hoc poll timers and unifies the refresh contract
+  - `StateProvider` interface replaces direct field access; all panes read state through stable accessors
+  - Inspector helpers, diff state, hint builders, and status renderers extracted to `internal/dashboard/{inspector,status}` packages
+  - `selectPIDMsg` broadcast replaces per-pane PID-change handlers — single source of truth for focused process
+  - End-to-end integration test suite added for `dashboardModel`
+- Tool I/O lens now shows raw LLM response payload alongside parsed tool calls
+- Context reasoning handling enhanced in assistant messages for multi-step accuracy
+
+### Fixed
+
+- **DeepSeek V4 / Gemini compatibility**:
+  - `thinking_budget` correctly wired for both Anthropic-native and OpenAI-compat drivers
+  - Gemini rounds-trips `ThoughtSignature` on multi-turn thinking conversations
+  - LLM factory warns when `driver=openai` targets a non-OpenAI `base_url`
+- Step inspector data fidelity restored across all 5 lenses (Meta, Tool I/O, Context, Raw, Diff)
+- Dashboard `DetailModel` cache initialized correctly; no panic on first render after PID change
+- Context compaction correctly respects both timeout and slot budget simultaneously
+- LLM call timeout and cancellation errors propagate to process state machine instead of hanging
+- Tool error handling preserves original error across all three recovery layers (driver → kernel → dashboard)
+- Base system prompt injected for all processes regardless of whether an agent config is present
 
 ## [0.8.0] - 2026-04-16
 
@@ -257,6 +315,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **IPC Protocol**: NDJSON over Unix socket request/response protocol
 - **VFS Devices**: `/dev/llm/claude`, `/dev/fs`, `/dev/shell` device implementations
 
+[0.9.0]: https://github.com/rnixai/rnix/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/rnixai/rnix/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/rnixai/rnix/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/rnixai/rnix/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/rnixai/rnix/compare/v0.7.0...v0.7.1
