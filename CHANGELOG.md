@@ -7,9 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-05-14
+## [0.8.0] - 2026-05-14
 
 ### Added
+
+- **Agent Memory System (Epic 35)**:
+  - MemoryStore with dual-scope providers (global + project) and security scanning
+  - `/dev/memory/commit`: persistent memory management VFS device
+  - `/dev/memory/recall`: cross-process knowledge search VFS device
+  - `/dev/memory/profile`: user profile management VFS device
+  - Writeback: async knowledge extraction from conversation context
+  - Dynamic skill management: runtime skill add/remove/list operations
+
+- **New LLM Drivers**:
+  - Native Gemini driver (`gemini`)
+  - Anthropic official SDK driver (`anthropic`)
+  - Qwen Code CLI driver (`qwen-cli`)
+
+- **Dashboard Enhancements**:
+  - `p` key for pause/resume processes directly from process tree
+  - Enhanced debug mode event handling and error reporting
+  - Debug mode process selection stability improvements
+
+- **CLI Driver Improvements**:
+  - Claude CLI driver dynamic prompt construction
+  - `extra_args` provider config field for CLI driver sandbox bypass
 
 - **Dashboard Inspector & Tree-Timeline Unification (Epic 36)**:
   - Step Inspector merge: unified step + system event timeline replaces separate panels (Story 36-1)
@@ -54,6 +76,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Claude CLI driver uses `--bare` flag to prevent native tool interference
+- Driver-reported tools merged into existing nativeToolDefs without overwriting
+- Action execution guidelines and task handling instructions updated
 - **Dashboard Architecture Overhaul (Story 38-5 PR11)**:
   - `PaneModel.OnTick(OnTickContext)` adopted across all 8 panes — eliminates ad-hoc poll timers and unifies the refresh contract
   - `StateProvider` interface replaces direct field access; all panes read state through stable accessors
@@ -62,51 +87,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - End-to-end integration test suite added for `dashboardModel`
 - Tool I/O lens now shows raw LLM response payload alongside parsed tool calls
 - Context reasoning handling enhanced in assistant messages for multi-step accuracy
-
-### Fixed
-
-- **DeepSeek V4 / Gemini compatibility**:
-  - `thinking_budget` correctly wired for both Anthropic-native and OpenAI-compat drivers
-  - Gemini rounds-trips `ThoughtSignature` on multi-turn thinking conversations
-  - LLM factory warns when `driver=openai` targets a non-OpenAI `base_url`
-- Step inspector data fidelity restored across all 5 lenses (Meta, Tool I/O, Context, Raw, Diff)
-- Dashboard `DetailModel` cache initialized correctly; no panic on first render after PID change
-- Context compaction correctly respects both timeout and slot budget simultaneously
-- LLM call timeout and cancellation errors propagate to process state machine instead of hanging
-- Tool error handling preserves original error across all three recovery layers (driver → kernel → dashboard)
-- Base system prompt injected for all processes regardless of whether an agent config is present
-
-## [0.8.0] - 2026-04-16
-
-### Added
-
-- **Agent Memory System (Epic 35)**:
-  - MemoryStore with dual-scope providers (global + project) and security scanning
-  - `/dev/memory/commit`: persistent memory management VFS device
-  - `/dev/memory/recall`: cross-process knowledge search VFS device
-  - `/dev/memory/profile`: user profile management VFS device
-  - Writeback: async knowledge extraction from conversation context
-  - Dynamic skill management: runtime skill add/remove/list operations
-
-- **New LLM Drivers**:
-  - Native Gemini driver (`gemini`)
-  - Anthropic official SDK driver (`anthropic`)
-  - Qwen Code CLI driver (`qwen-cli`)
-
-- **Dashboard Enhancements**:
-  - `p` key for pause/resume processes directly from process tree
-  - Enhanced debug mode event handling and error reporting
-  - Debug mode process selection stability improvements
-
-- **CLI Driver Improvements**:
-  - Claude CLI driver dynamic prompt construction
-  - `extra_args` provider config field for CLI driver sandbox bypass
-
-### Changed
-
-- Claude CLI driver uses `--bare` flag to prevent native tool interference
-- Driver-reported tools merged into existing nativeToolDefs without overwriting
-- Action execution guidelines and task handling instructions updated
 
 ### Fixed
 
@@ -134,6 +114,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `P` key unresponsive when timeline has 0 steps + 0 events
 - LLM viewer showing "no step data" for processes with data
 - "No step data" message for `P`/`L` keys on 0-step processes
+- **DeepSeek V4 / Gemini compatibility**:
+  - `thinking_budget` correctly wired for both Anthropic-native and OpenAI-compat drivers
+  - Gemini rounds-trips `ThoughtSignature` on multi-turn thinking conversations
+  - LLM factory warns when `driver=openai` targets a non-OpenAI `base_url`
+- Step inspector data fidelity restored across all 5 lenses (Meta, Tool I/O, Context, Raw, Diff)
+- Dashboard `DetailModel` cache initialized correctly; no panic on first render after PID change
+- Context compaction correctly respects both timeout and slot budget simultaneously
+- LLM call timeout and cancellation errors propagate to process state machine instead of hanging
+- Tool error handling preserves original error across all three recovery layers (driver → kernel → dashboard)
+- Base system prompt injected for all processes regardless of whether an agent config is present
 
 ## [0.7.3] - 2026-04-12
 
@@ -315,7 +305,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **IPC Protocol**: NDJSON over Unix socket request/response protocol
 - **VFS Devices**: `/dev/llm/claude`, `/dev/fs`, `/dev/shell` device implementations
 
-[0.9.0]: https://github.com/rnixai/rnix/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/rnixai/rnix/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/rnixai/rnix/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/rnixai/rnix/compare/v0.7.1...v0.7.2
