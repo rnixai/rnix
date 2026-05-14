@@ -7,9 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
-	"net/url"
 	"os"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -42,8 +43,22 @@ type HTTPClient interface {
 }
 
 // SearchBackend abstracts web search for testability.
+//
+// Implementations receive a SearchParams value so future fields (e.g. region,
+// safe-search) can be added without breaking the wire interface.
 type SearchBackend interface {
-	Search(ctx context.Context, query string, allowedDomains, blockedDomains []string) ([]SearchResult, error)
+	Search(ctx context.Context, params SearchParams) ([]SearchResult, error)
+}
+
+// SearchParams aggregates the inputs forwarded to a backend.
+//
+// MaxResults == 0 means "use the backend's default" — backends are expected to
+// fill in their own DefaultMaxResults when unset, not the caller.
+type SearchParams struct {
+	Query          string
+	AllowedDomains []string
+	BlockedDomains []string
+	MaxResults     int
 }
 
 // SearchResult represents a single web search result.
@@ -70,8 +85,13 @@ type ContentExtractor interface {
 type WebDriver struct {
 	httpClient HTTPClient
 	converter  HTMLConverter
-	search     SearchBackend
-	extractor  ContentExtractor
+	// search is the fallback backend used when searchRegistry is nil
+	// (preserves the pre-41.1 single-backend NewDriver path).
+	search SearchBackend
+	// searchRegistry is the multi-backend dispatcher introduced in 41.1.
+	// When non-nil, web_search calls go to searchRegistry.Default().
+	searchRegistry *SearchBackendRegistry
+	extractor      ContentExtractor
 
 	mu    sync.Mutex
 	cache map[string]cacheEntry
@@ -133,6 +153,13 @@ func (d *WebDriver) ToolDefs() []vfs.ToolDef {
 						"items":       map[string]any{"type": "string"},
 						"description": "Domains to exclude from results",
 					},
+					"max_results": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of results to return (default 5)",
+						"minimum":     1,
+						"maximum":     20,
+						"default":     DefaultMaxResults,
+					},
 				},
 				"required": []string{"query"},
 			},
@@ -144,29 +171,42 @@ func (d *WebDriver) ToolDefs() []vfs.ToolDef {
 type DriverOpts struct {
 	HTTPClient HTTPClient
 	Converter  HTMLConverter
-	Search     SearchBackend
-	Extractor  ContentExtractor
+	// Search is the legacy single-backend wiring. Prefer SearchRegistry; this
+	// field is kept for test setups that inject a single mockSearchBackend.
+	Search SearchBackend
+	// SearchRegistry is the 41.1 multi-backend dispatcher. When set, takes
+	// precedence over Search.
+	SearchRegistry *SearchBackendRegistry
+	Extractor      ContentExtractor
 }
 
 // NewDriver creates a WebDriver with default production configuration.
+//
+// Falls back to BuildRegistryAuto so a daemon that wires NewDriver() instead
+// of NewDriverWithOptions still gets the zero-config TAVILY/EXA/SEARXNG path.
 func NewDriver() *WebDriver {
-	searchURL := os.Getenv("RNIX_SEARCH_URL")
+	client := defaultHTTPClient()
+	registry := BuildRegistryAuto(BuildOpts{
+		HTTPClient: client,
+		EnvLookup:  os.Getenv,
+	})
 	return &WebDriver{
-		httpClient: defaultHTTPClient(),
-		converter:  &simpleHTMLConverter{},
-		search:     &searxngBackend{client: defaultHTTPClient(), baseURL: searchURL},
-		cache:      make(map[string]cacheEntry),
+		httpClient:     client,
+		converter:      &simpleHTMLConverter{},
+		searchRegistry: registry,
+		cache:          make(map[string]cacheEntry),
 	}
 }
 
 // NewDriverWithOptions creates a WebDriver with custom configuration.
 func NewDriverWithOptions(opts DriverOpts) *WebDriver {
 	d := &WebDriver{
-		httpClient: opts.HTTPClient,
-		converter:  opts.Converter,
-		search:     opts.Search,
-		extractor:  opts.Extractor,
-		cache:      make(map[string]cacheEntry),
+		httpClient:     opts.HTTPClient,
+		converter:      opts.Converter,
+		search:         opts.Search,
+		searchRegistry: opts.SearchRegistry,
+		extractor:      opts.Extractor,
+		cache:          make(map[string]cacheEntry),
 	}
 	if d.httpClient == nil {
 		d.httpClient = defaultHTTPClient()
@@ -174,9 +214,8 @@ func NewDriverWithOptions(opts DriverOpts) *WebDriver {
 	if d.converter == nil {
 		d.converter = &simpleHTMLConverter{}
 	}
-	if d.search == nil {
-		searchURL := os.Getenv("RNIX_SEARCH_URL")
-		d.search = &searxngBackend{client: d.httpClient, baseURL: searchURL}
+	if d.search != nil && d.searchRegistry != nil {
+		log.Printf("[web] both Search and SearchRegistry set; using SearchRegistry default")
 	}
 	return d
 }
@@ -393,6 +432,7 @@ func (f *WebFile) Write(ctx context.Context, data []byte) error {
 		Query          string   `json:"query"`
 		AllowedDomains []string `json:"allowed_domains"`
 		BlockedDomains []string `json:"blocked_domains"`
+		MaxResults     int      `json:"max_results"`
 	}
 	if err := json.Unmarshal(data, &req); err != nil {
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("invalid JSON input: %w", err), Code: types.ErrInvalid}
@@ -406,8 +446,22 @@ func (f *WebFile) Write(ctx context.Context, data []byte) error {
 		// web_fetch operation
 		result, err = f.driver.fetch(ctx, req.URL, req.Prompt)
 	case req.Query != "":
-		// web_search operation
-		results, searchErr := f.driver.search.Search(ctx, req.Query, req.AllowedDomains, req.BlockedDomains)
+		// web_search operation — dispatched via the registry when available
+		backend, backendErr := f.driver.searchBackendFor(req.Query)
+		if backendErr != nil {
+			return backendErr
+		}
+		maxResults := req.MaxResults
+		if maxResults > 20 {
+			maxResults = 20
+		}
+		params := SearchParams{
+			Query:          req.Query,
+			AllowedDomains: req.AllowedDomains,
+			BlockedDomains: req.BlockedDomains,
+			MaxResults:     maxResults,
+		}
+		results, searchErr := backend.Search(ctx, params)
 		if searchErr != nil {
 			err = searchErr
 		} else {
@@ -419,12 +473,41 @@ func (f *WebFile) Write(ctx context.Context, data []byte) error {
 	}
 
 	if err != nil {
+		// Preserve typed *types.DriverError values produced by the backend so
+		// callers see the exact ErrCode (Permission / ServiceUnavailable /...).
+		if drvErr, ok := err.(*types.DriverError); ok {
+			return drvErr
+		}
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: err, Code: types.ErrDriver}
 	}
 
 	f.response = []byte(result)
 	f.offset = 0
 	return nil
+}
+
+// searchBackendFor returns the backend to use for the given query. Today the
+// selection is purely "the registry default"; the signature keeps `query` so a
+// future caller can add a `req.Backend` field or topic-based routing without
+// reshuffling the WebFile.Write dispatch.
+func (d *WebDriver) searchBackendFor(_ string) (SearchBackend, *types.DriverError) {
+	if d.searchRegistry != nil {
+		backend, err := d.searchRegistry.Default()
+		if err == nil {
+			return backend, nil
+		}
+		if d.search != nil {
+			return d.search, nil
+		}
+		if drvErr, ok := err.(*types.DriverError); ok {
+			return nil, drvErr
+		}
+		return nil, &types.DriverError{Op: "Search", Device: "/dev/web", Err: err, Code: types.ErrInternal}
+	}
+	if d.search != nil {
+		return d.search, nil
+	}
+	return nil, ErrSearchNotConfigured()
 }
 
 // Read returns buffered response data up to the requested length.
@@ -569,112 +652,4 @@ func removeTagBlock(s, tag string) string {
 		lower = strings.ToLower(s)
 	}
 	return s
-}
-
-// --- SearXNG search backend ---
-
-type searxngBackend struct {
-	client  HTTPClient
-	baseURL string // override via RNIX_SEARCH_URL env var
-}
-
-func (s *searxngBackend) Search(ctx context.Context, query string, allowedDomains, blockedDomains []string) ([]SearchResult, error) {
-	baseURL := s.baseURL
-	if baseURL == "" {
-		return nil, &types.DriverError{
-			Op:     "Search",
-			Device: "/dev/web",
-			Err:    fmt.Errorf("search backend not configured: set RNIX_SEARCH_URL environment variable"),
-			Code:   types.ErrServiceUnavailable,
-		}
-	}
-
-	// Build query with domain filters
-	var sb strings.Builder
-	sb.WriteString(query)
-	for _, d := range allowedDomains {
-		sb.WriteString(" site:")
-		sb.WriteString(d)
-	}
-	q := sb.String()
-
-	searchURL := fmt.Sprintf("%s/search?q=%s&format=json", strings.TrimRight(baseURL, "/"), url.QueryEscape(q))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, searchURL, nil)
-	if err != nil {
-		return nil, &types.DriverError{
-			Op:     "Search",
-			Device: "/dev/web",
-			Err:    fmt.Errorf("creating search request: %w", err),
-			Code:   types.ErrDriver,
-		}
-	}
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, &types.DriverError{
-			Op:     "Search",
-			Device: "/dev/web",
-			Err:    fmt.Errorf("search request failed: %w", err),
-			Code:   types.ErrServiceUnavailable,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, &types.DriverError{
-			Op:     "Search",
-			Device: "/dev/web",
-			Err:    fmt.Errorf("search backend returned HTTP %d", resp.StatusCode),
-			Code:   types.ErrServiceUnavailable,
-		}
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, &types.DriverError{
-			Op:     "Search",
-			Device: "/dev/web",
-			Err:    fmt.Errorf("reading search response: %w", err),
-			Code:   types.ErrDriver,
-		}
-	}
-
-	var searxResp struct {
-		Results []struct {
-			Title   string `json:"title"`
-			URL     string `json:"url"`
-			Content string `json:"content"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(body, &searxResp); err != nil {
-		return nil, &types.DriverError{
-			Op:     "Search",
-			Device: "/dev/web",
-			Err:    fmt.Errorf("parsing search response: %w", err),
-			Code:   types.ErrDriver,
-		}
-	}
-
-	var results []SearchResult
-	blocked := make(map[string]bool)
-	for _, d := range blockedDomains {
-		blocked[strings.ToLower(d)] = true
-	}
-
-	for _, r := range searxResp.Results {
-		// Apply blocked_domains filter
-		if len(blocked) > 0 {
-			u, err := url.Parse(r.URL)
-			if err == nil && blocked[strings.ToLower(u.Host)] {
-				continue
-			}
-		}
-		results = append(results, SearchResult{
-			Title:   r.Title,
-			URL:     r.URL,
-			Snippet: r.Content,
-		})
-	}
-
-	return results, nil
 }

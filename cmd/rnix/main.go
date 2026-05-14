@@ -3,9 +3,12 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -1330,8 +1333,11 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	_ = devReg.RegisterWithDriver("/dev/fs", fsDriver.FileFactory(), fsDriver)
 	shellDriver := drivershell.NewDriver()
 	_ = devReg.RegisterWithDriver("/dev/shell", drivershell.FileFactory(shellDriver, "/dev/shell"), shellDriver)
+	webSearchRegistry, webHTTPClient := buildWebSearchRegistry(globalDir)
 	webDriver := web.NewDriverWithOptions(web.DriverOpts{
-		Extractor: newLLMExtractor(driverReg, providersCfg),
+		HTTPClient:     webHTTPClient,
+		Extractor:      newLLMExtractor(driverReg, providersCfg),
+		SearchRegistry: webSearchRegistry,
 	})
 	_ = devReg.RegisterWithDriver("/dev/web", web.FileFactory(webDriver), webDriver)
 	lspDriver := lsp.NewDriver()
@@ -1792,6 +1798,52 @@ func (a *llmExtractorAdapter) Extract(ctx context.Context, content, prompt strin
 		return "", fmt.Errorf("empty response from secondary model")
 	}
 	return resp.Content, nil
+}
+
+// buildWebSearchRegistry constructs the /dev/web search backend registry from
+// (in order of precedence):
+//
+//  1. <projectDir>/.rnix/web-search.yaml
+//  2. <globalDir>/web-search.yaml
+//  3. Environment auto-detection (TAVILY_API_KEY > EXA_API_KEY > RNIX_SEARCH_URL)
+//
+// API keys are resolved through .env-aware envLookup so project-level secrets
+// in .env files (not exported to the daemon's os.Environ) still work, matching
+// the LLM driver factory pattern.
+func buildWebSearchRegistry(globalDir string) (*web.SearchBackendRegistry, *http.Client) {
+	daemonCwd, err := os.Getwd()
+	if err != nil {
+		log.Printf("[web] warning: os.Getwd failed: %v", err)
+	}
+	rnixEnv := os.Getenv("RNIX_ENV")
+	dotenvVars, dotenvErr := config.LoadDotenvDir(daemonCwd, rnixEnv)
+	if dotenvErr != nil {
+		log.Printf("[web] warning: loading project .env failed: %v", dotenvErr)
+	}
+	envLookup := config.NewEnvLookup(dotenvVars)
+
+	sharedClient := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		},
+	}
+
+	cfg, cfgErr := web.LoadWebSearchConfig(globalDir, daemonCwd)
+	if cfgErr != nil {
+		log.Printf("[web] warning: web-search.yaml load failed: %v (falling back to env auto-detect)", cfgErr)
+		cfg = nil
+	}
+
+	opts := web.BuildOpts{EnvLookup: envLookup, HTTPClient: sharedClient}
+	if cfg != nil {
+		registry := web.BuildRegistryFromConfig(cfg, opts)
+		if name, ok := registry.DefaultName(); ok {
+			log.Printf("[web] search backend configured from web-search.yaml: %s", name)
+		}
+		return registry, sharedClient
+	}
+	return web.BuildRegistryAuto(opts), sharedClient
 }
 
 // newLLMExtractor creates a ContentExtractor from the default LLM provider.
