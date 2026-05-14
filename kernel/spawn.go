@@ -565,6 +565,10 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			}
 		}
 
+		if k.contextWindowFunc != nil {
+			proc.ContextWindow = k.contextWindowFunc(proc.Provider, proc.Model)
+		}
+
 		// Determine model source: CLI --model > agent manifest preferred > driver default
 		modelSource := "driver"
 		if cliModel != "" {

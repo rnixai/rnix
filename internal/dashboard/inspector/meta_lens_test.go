@@ -381,6 +381,35 @@ func TestIsAnthropicDriver(t *testing.T) {
 //
 // 测试反向 import drivers/llm 是 ok 的（仅测试 · 生产代码 dashboard 不 import
 // drivers/llm · 单向依赖保持）。
+// =============================================================================
+// ResolveContextWindow (3 项契约)
+// =============================================================================
+
+func TestResolveContextWindow_ExplicitConfig(t *testing.T) {
+	got := ResolveContextWindow("deepseek-v4-flash", 500_000)
+	if got != 500_000 {
+		t.Errorf("ResolveContextWindow with explicit config = %d, want 500000", got)
+	}
+}
+
+func TestResolveContextWindow_PrefixMatch(t *testing.T) {
+	got := ResolveContextWindow("deepseek-v4-flash", 0)
+	if got != 1_000_000 {
+		t.Errorf("ResolveContextWindow prefix deepseek-v4-flash = %d, want 1000000", got)
+	}
+	got = ResolveContextWindow("gpt-5-turbo", 0)
+	if got != 400_000 {
+		t.Errorf("ResolveContextWindow prefix gpt-5-turbo = %d, want 400000", got)
+	}
+}
+
+func TestResolveContextWindow_UnknownFallback(t *testing.T) {
+	got := ResolveContextWindow("custom-finetune-v1", 0)
+	if got != MetaTokenContextWindow {
+		t.Errorf("ResolveContextWindow unknown model = %d, want %d (MetaTokenContextWindow)", got, MetaTokenContextWindow)
+	}
+}
+
 func TestComputeCacheHitRate_DriverConstantsInSync(t *testing.T) {
 	type pair struct {
 		dashboardLocal string

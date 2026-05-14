@@ -237,6 +237,7 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 	var toolDefs []vfs.ToolDef
 	var stepsPath string
 	var providerName string
+	var contextWindow int
 
 	proc, procFound := s.resolveProcess(req.PID, req.UUID)
 	if procFound {
@@ -244,6 +245,7 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 		toolDefs = proc.GetNativeToolDefs()
 		stepsPath = s.resolveStepsPathFromProc(proc)
 		providerName = proc.Provider
+		contextWindow = proc.ContextWindow
 	} else {
 		// Process not in memory — try UUID from request, then fall back to process history
 		uuid := req.UUID
@@ -251,10 +253,12 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 			if hist := s.kern.FindHistoryByPID(req.PID); hist != nil {
 				uuid = hist.UUID
 				providerName = hist.Provider
+				contextWindow = hist.ContextWindow
 			}
 		} else if uuid != "" {
 			if hist := s.kern.FindHistoryByUUID(uuid); hist != nil {
 				providerName = hist.Provider
+				contextWindow = hist.ContextWindow
 			}
 		}
 		stepsPath = s.resolveStepsPath(req.PID, uuid)
@@ -313,6 +317,7 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 		ToolCalls:         toolCallRecordsToWire(rec.ToolCalls),
 		Provider:          providerName,
 		DriverType:        s.driverTypeForProvider(providerName),
+		ContextWindow:     contextWindow,
 	}
 
 	payload, _ := json.Marshal(resp)

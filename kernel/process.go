@@ -133,6 +133,7 @@ type Process struct {
 	PrimaryDevice    string // primary VFS device path (e.g. "/dev/llm/claude")
 	Provider         string // resolved provider name (immutable after spawn)
 	Model            string // resolved model name (immutable after spawn)
+	ContextWindow    int    // per-model context window size (immutable after spawn); 0 = use fallback
 	PlanningEnabled  bool   // true = inject planProtocol; derived from agent manifest Planning field
 	Language         string // preferred response language (from agent manifest); empty = no preference
 

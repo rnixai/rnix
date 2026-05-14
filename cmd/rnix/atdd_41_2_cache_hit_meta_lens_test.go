@@ -113,10 +113,10 @@ func TestBuildMetaLens_CachedRow_DenominatorIsInput(t *testing.T) {
 	content := m.buildMetaLens(m.inspector.Detail)
 	stripped := stripANSIApprox(content)
 
-	if !strings.Contains(stripped, "(/ 200k context)") {
-		t.Errorf("Cached 行 should carry capacity-view suffix '(/ 200k context)'; got:\n%s", stripped)
+	if !strings.Contains(stripped, "(/ 200,000 context)") {
+		t.Errorf("Cached 行 should carry capacity-view suffix '(/ 200,000 context)'; got:\n%s", stripped)
 	}
-	// Cached 行用 RenderRateLine: "Cached: 24.5%  (3.5k / 14.1k of input  (/ 200k context))"
+	// Cached 行用 RenderRateLine: "Cached: 24.5%  (3.5k / 14.1k of input  (/ 200,000 context))"
 	// 这里 Cached 用 RenderRateLine 公式（cached / input）= 24.5%
 	if !strings.Contains(stripped, "Cached:") {
 		t.Fatalf("Cached 行 missing in:\n%s", stripped)

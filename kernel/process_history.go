@@ -138,6 +138,7 @@ type procInfoDisk struct {
 	AllowedDevices []string `json:"allowed_devices,omitempty"`
 	Provider       string   `json:"provider,omitempty"`
 	Model          string   `json:"model,omitempty"`
+	ContextWindow  int      `json:"context_window,omitempty"`
 	ComposeNode    string   `json:"compose_node,omitempty"`
 	ComposeDeps    []string `json:"compose_deps,omitempty"`
 	PipelineIndex  int      `json:"pipeline_index"`
@@ -162,6 +163,7 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		AllowedDevices: info.AllowedDevices,
 		Provider:       info.Provider,
 		Model:          info.Model,
+		ContextWindow:  info.ContextWindow,
 		ComposeNode:    info.ComposeNode,
 		ComposeDeps:    append([]string(nil), info.ComposeDeps...),
 		PipelineIndex:  info.PipelineIndex,
@@ -190,6 +192,7 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		AllowedDevices: d.AllowedDevices,
 		Provider:       d.Provider,
 		Model:          d.Model,
+		ContextWindow:  d.ContextWindow,
 		ComposeNode:    d.ComposeNode,
 		ComposeDeps:    d.ComposeDeps,
 		PipelineIndex:  d.PipelineIndex,

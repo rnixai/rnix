@@ -1513,14 +1513,6 @@ func extractRawResponseText(rawResp string) string {
 	return rawResp
 }
 
-// metaTokenContextWindow is the assumed default context-window cap (Claude
-// 3.5/4.x default). Used by the Meta lens token bar to compute fill percent.
-//
-// Story 38-5 PR11 Step 4(c)：迁出至 internal/dashboard/inspector.MetaTokenContextWindow
-// 单一权威；本 alias 仍由 buildMetaLens 引用，保持值漂移单源（包内
-// TestMetaTokenContextWindow_DriftGuard 守门）.
-const metaTokenContextWindow = inspector.MetaTokenContextWindow
-
 // buildMetaLens builds Lens ❹: metadata.
 //
 // Story 38-3 AC#4 reorganizes the metadata into three labeled sections:
@@ -1538,6 +1530,16 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 	var b strings.Builder
 	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 
+	// Resolve dynamic context window: IPC detail → prefix lookup → 200k fallback
+	modelName := ""
+	for _, p := range m.processes {
+		if p.PID == m.selectedPID {
+			modelName = p.Model
+			break
+		}
+	}
+	ctxWindow := inspector.ResolveContextWindow(modelName, detail.ContextWindow)
+
 	// ── Tokens ──
 	//
 	// Spec step-inspector-data-fidelity 缺陷 3 修复:
@@ -1550,18 +1552,15 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 	hasSplit := detail.InputTokens > 0 || detail.OutputTokens > 0 || detail.CachedInputTokens > 0
 	switch {
 	case hasSplit:
-		b.WriteString(renderTokenLine("Input:", detail.InputTokens, metaTokenContextWindow, false))
+		b.WriteString(renderTokenLine("Input:", detail.InputTokens, ctxWindow, false))
 		b.WriteString("\n")
 		if detail.CachedInputTokens > 0 {
-			// Story 41.2 AC#4: Cached 行分母改为 InputTokens（命中率维度）
-			// 文字尾标 "(/ 200k context)" 保留容量视角（双轨设计 PS S3 B4）。
-			// InputTokens == 0 时退化到旧逻辑用 metaTokenContextWindow 避免除零。
-			cachedSuffix := "of input  (/ 200k context)"
+			cachedSuffix := fmt.Sprintf("of input  (/ %s context)", inspector.FormatThousands(ctxWindow))
 			if detail.InputTokens > 0 {
 				b.WriteString(inspector.RenderRateLine("Cached:", detail.CachedInputTokens, detail.InputTokens, cachedSuffix))
 				b.WriteString("\n")
 			} else {
-				b.WriteString(renderTokenLine("Cached:", detail.CachedInputTokens, metaTokenContextWindow, false))
+				b.WriteString(renderTokenLine("Cached:", detail.CachedInputTokens, ctxWindow, false))
 				b.WriteString("\n")
 			}
 		}
@@ -1575,7 +1574,6 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 				}
 				hitLine := inspector.RenderRateLine("Cache Hit:", detail.CachedInputTokens, denom, suffix)
 				if hitLine != "" {
-					// Step <= 1 dim 风格 + prefix 共享 / 冷启动标签
 					if detail.Step <= 1 {
 						label := "[首步 · prefix 共享]"
 						if rate <= inspector.FirstStepWarmHitRateThreshold {
@@ -1587,28 +1585,25 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 				}
 			}
 		}
-		b.WriteString(renderTokenLine("Output:", detail.OutputTokens, metaTokenContextWindow, false))
+		b.WriteString(renderTokenLine("Output:", detail.OutputTokens, ctxWindow, false))
 		b.WriteString("\n")
 		total := detail.TokenCount
 		if total == 0 {
 			total = detail.InputTokens + detail.OutputTokens
 		}
-		// Edge case (step-04 review patch): driver 极端只上报 cached（cache hit only
-		// step,Input/Output 都是 0）时,fallback total 仍可能为 0,导致显示 "Total: 0"
-		// 但 Cached>0 视觉矛盾。退化到 Cached 数让用户至少看到非零总量。
 		if total == 0 && detail.CachedInputTokens > 0 {
 			total = detail.CachedInputTokens
 		}
-		b.WriteString(renderTokenLine("Total:", total, metaTokenContextWindow, true))
+		b.WriteString(renderTokenLine("Total:", total, ctxWindow, true))
 		b.WriteString("\n")
 	case detail.RequestTokens == 0 && detail.ResponseTokens == 0 && detail.TokenCount == 0:
 		b.WriteString("Tokens: (no data)\n")
 	default:
-		b.WriteString(renderTokenLine("Request:", detail.RequestTokens, metaTokenContextWindow, false))
+		b.WriteString(renderTokenLine("Request:", detail.RequestTokens, ctxWindow, false))
 		b.WriteString("\n")
-		b.WriteString(renderTokenLine("Response:", detail.ResponseTokens, metaTokenContextWindow, false))
+		b.WriteString(renderTokenLine("Response:", detail.ResponseTokens, ctxWindow, false))
 		b.WriteString("\n")
-		b.WriteString(renderTokenLine("Total:", detail.TokenCount, metaTokenContextWindow, true))
+		b.WriteString(renderTokenLine("Total:", detail.TokenCount, ctxWindow, true))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

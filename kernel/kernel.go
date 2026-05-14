@@ -146,8 +146,9 @@ type KernelImpl struct {
 	// Provider resolution callbacks (Story 23.3)
 	providerNames   func() []string
 	hasProvider     func(name string) bool
-	costPerToken    func(provider string) float64 // returns cost per token for a provider; 0 = unknown
-	defaultProvider string // injected default provider name; "" = fall back to "claude"
+	costPerToken       func(provider string) float64            // returns cost per token for a provider; 0 = unknown
+	contextWindowFunc  func(provider, model string) int         // returns context window for a provider+model; 0 = unknown
+	defaultProvider    string // injected default provider name; "" = fall back to "claude"
 
 	// Budget pools (Story 21.1)
 	budgetPools *xsync.SyncMap[types.PGID, *BudgetPool]
@@ -318,6 +319,12 @@ func (k *KernelImpl) SetDefaultProvider(name string) {
 // SetCostPerToken injects the cost-per-token lookup function for process budget tracking.
 func (k *KernelImpl) SetCostPerToken(fn func(provider string) float64) {
 	k.costPerToken = fn
+}
+
+// SetContextWindowFunc injects a function that returns the configured context window
+// for a given provider+model pair. Returns 0 when no explicit config exists.
+func (k *KernelImpl) SetContextWindowFunc(fn func(provider, model string) int) {
+	k.contextWindowFunc = fn
 }
 
 // StartRecording starts execution recording for the given PID.

@@ -1447,6 +1447,16 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		}
 		return 0
 	})
+	k.SetContextWindowFunc(func(provider, model string) int {
+		for _, p := range providersCfg.Providers {
+			if p.Name == provider && p.Models != nil {
+				if mc, ok := p.Models[model]; ok {
+					return mc.ContextWindow
+				}
+			}
+		}
+		return 0
+	})
 	k.SetAgentLoader(agentLoader.Load)
 
 	// Stem agent differentiation (Story 20.3)

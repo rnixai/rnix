@@ -180,6 +180,48 @@ func RenderTokenBar(count, total, width int) string {
 	return strings.Repeat(full, filled) + strings.Repeat(empty, width-filled)
 }
 
+// knownModelContextWindows maps model name prefixes to their known context window sizes.
+// Longer prefixes MUST appear before shorter ones (first-match-wins linear scan).
+var knownModelContextWindows = []struct {
+	prefix string
+	window int
+}{
+	{"deepseek-v4", 1_000_000},
+	{"deepseek-r1", 128_000},
+	{"deepseek-v3", 128_000},
+	{"gpt-5", 400_000},
+	{"gpt-4o", 128_000},
+	{"gpt-4.1", 1_048_576},
+	{"gpt-4-turbo", 128_000},
+	{"gpt-4", 128_000},
+	{"o4-mini", 200_000},
+	{"o3", 200_000},
+	{"o1", 200_000},
+	{"claude-opus-4", 200_000},
+	{"claude-sonnet-4", 200_000},
+	{"claude-haiku-4", 200_000},
+	{"gemini-2.5", 1_048_576},
+	{"gemini-3", 1_048_576},
+}
+
+// ResolveContextWindow returns the effective context window size for a model.
+//
+// Resolution order:
+//  1. If configured > 0, return configured (explicit per-model config from providers.yaml)
+//  2. Prefix match against known model context windows
+//  3. MetaTokenContextWindow (200k) as fallback
+func ResolveContextWindow(model string, configured int) int {
+	if configured > 0 {
+		return configured
+	}
+	for _, entry := range knownModelContextWindows {
+		if strings.HasPrefix(model, entry.prefix) {
+			return entry.window
+		}
+	}
+	return MetaTokenContextWindow
+}
+
 // Story 41.2 ：Cache Hit Rate 一等指标 + driver 语义分支。
 // =============================================================================
 

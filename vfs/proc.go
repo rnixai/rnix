@@ -47,6 +47,7 @@ type ProcInfo struct {
 	AllowedDevices []string
 	Provider       string
 	Model          string
+	ContextWindow  int
 	LastHeartbeat  time.Time
 	StepTimeout    time.Duration
 	SuspendReason  string
