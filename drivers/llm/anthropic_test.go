@@ -854,6 +854,159 @@ func TestAnthropicDriver_StreamDone_DeepSeekTextLeak(t *testing.T) {
 	}
 }
 
+// --- Cache control breakpoint tests (Story 41.4) ---
+
+func TestAnthropicDriver_CacheControl_SystemPrompt(t *testing.T) {
+	d := NewAnthropicDriver("test", WithAnthropicModel("claude-sonnet-4-20250514"))
+	req := LLMRequest{SystemPrompt: "You are helpful", Intent: "hello"}
+	params := d.buildParams(req, nil)
+
+	if len(params.System) != 1 {
+		t.Fatalf("len(System) = %d, want 1", len(params.System))
+	}
+	if params.System[0].CacheControl.Type != "ephemeral" {
+		t.Errorf("System CacheControl.Type = %q, want ephemeral", params.System[0].CacheControl.Type)
+	}
+}
+
+func TestAnthropicDriver_CacheControl_NoSystem(t *testing.T) {
+	d := NewAnthropicDriver("test", WithAnthropicModel("claude-sonnet-4-20250514"))
+	req := LLMRequest{Intent: "hello"}
+	params := d.buildParams(req, nil)
+
+	if params.System != nil {
+		t.Errorf("System = %v, want nil when SystemPrompt is empty", params.System)
+	}
+}
+
+func TestAnthropicDriver_CacheControl_LastToolOnly(t *testing.T) {
+	d := NewAnthropicDriver("test", WithAnthropicModel("claude-sonnet-4-20250514"))
+	tools := []ToolDef{
+		{Name: "tool_a", Parameters: map[string]any{"properties": map[string]any{}}},
+		{Name: "tool_b", Parameters: map[string]any{"properties": map[string]any{}}},
+		{Name: "tool_c", Parameters: map[string]any{"properties": map[string]any{}}},
+	}
+	req := LLMRequest{Intent: "hello"}
+	params := d.buildParams(req, tools)
+
+	if len(params.Tools) != 3 {
+		t.Fatalf("len(Tools) = %d, want 3", len(params.Tools))
+	}
+	for i := range 2 {
+		if params.Tools[i].OfTool.CacheControl.Type != "" {
+			t.Errorf("Tools[%d].CacheControl.Type = %q, want empty (not set)", i, params.Tools[i].OfTool.CacheControl.Type)
+		}
+	}
+	if params.Tools[2].OfTool.CacheControl.Type != "ephemeral" {
+		t.Errorf("Tools[2] (last) CacheControl.Type = %q, want ephemeral", params.Tools[2].OfTool.CacheControl.Type)
+	}
+}
+
+func TestAnthropicDriver_CacheControl_NoTools(t *testing.T) {
+	d := NewAnthropicDriver("test", WithAnthropicModel("claude-sonnet-4-20250514"))
+	req := LLMRequest{Intent: "hello"}
+	params := d.buildParams(req, nil)
+
+	if params.Tools != nil {
+		t.Errorf("Tools = %v, want nil", params.Tools)
+	}
+}
+
+func TestAnthropicDriver_CacheControl_MessageHistory_MultiTurn(t *testing.T) {
+	d := NewAnthropicDriver("test", WithAnthropicModel("claude-sonnet-4-20250514"))
+	req := LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "first question"},
+			{Role: "assistant", Content: "first answer"},
+			{Role: "user", Content: "second question"},
+		},
+	}
+	params := d.buildParams(req, nil)
+
+	if len(params.Messages) != 3 {
+		t.Fatalf("len(Messages) = %d, want 3", len(params.Messages))
+	}
+	// Second-to-last message (index 1, assistant) should have CacheControl
+	secondToLast := params.Messages[1]
+	if len(secondToLast.Content) == 0 {
+		t.Fatal("secondToLast has no content blocks")
+	}
+	cc := secondToLast.Content[len(secondToLast.Content)-1].GetCacheControl()
+	if cc == nil {
+		t.Fatal("last block of second-to-last message has no CacheControl field")
+	}
+	if cc.Type != "ephemeral" {
+		t.Errorf("second-to-last message CacheControl.Type = %q, want ephemeral", cc.Type)
+	}
+	// Last message should NOT have CacheControl
+	lastMsg := params.Messages[2]
+	for i, block := range lastMsg.Content {
+		if bcc := block.GetCacheControl(); bcc != nil && bcc.Type != "" {
+			t.Errorf("last message block[%d] has CacheControl.Type = %q, want empty", i, bcc.Type)
+		}
+	}
+}
+
+func TestAnthropicDriver_CacheControl_MessageHistory_SingleMsg(t *testing.T) {
+	d := NewAnthropicDriver("test", WithAnthropicModel("claude-sonnet-4-20250514"))
+	req := LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "only message"},
+		},
+	}
+	params := d.buildParams(req, nil)
+
+	if len(params.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(params.Messages))
+	}
+	for i, block := range params.Messages[0].Content {
+		if cc := block.GetCacheControl(); cc != nil && cc.Type != "" {
+			t.Errorf("single message block[%d] has CacheControl.Type = %q, want empty", i, cc.Type)
+		}
+	}
+}
+
+func TestAnthropicDriver_CacheControl_BreakpointBudget(t *testing.T) {
+	d := NewAnthropicDriver("test", WithAnthropicModel("claude-sonnet-4-20250514"))
+	tools := []ToolDef{
+		{Name: "tool_a", Parameters: map[string]any{"properties": map[string]any{}}},
+	}
+	req := LLMRequest{
+		SystemPrompt: "system",
+		Messages: []Message{
+			{Role: "user", Content: "q1"},
+			{Role: "assistant", Content: "a1"},
+			{Role: "user", Content: "q2"},
+		},
+	}
+	params := d.buildParams(req, tools)
+
+	count := 0
+	for _, sp := range params.System {
+		if sp.CacheControl.Type != "" {
+			count++
+		}
+	}
+	for _, tool := range params.Tools {
+		if tool.OfTool != nil && tool.OfTool.CacheControl.Type != "" {
+			count++
+		}
+	}
+	for _, msg := range params.Messages {
+		for _, block := range msg.Content {
+			if cc := block.GetCacheControl(); cc != nil && cc.Type != "" {
+				count++
+			}
+		}
+	}
+	if count > 4 {
+		t.Errorf("total cache breakpoints = %d, exceeds Anthropic API limit of 4", count)
+	}
+	if count != 3 {
+		t.Errorf("total cache breakpoints = %d, want exactly 3 (system + tool + message)", count)
+	}
+}
+
 // TestAnthropicDriver_LeakReasoningBlock_RoundTrip closes AC3: a
 // ReasoningBlock with Signature="" extracted from a DeepSeek text leak
 // must still be emitted as a ThinkingBlockParam on the next request

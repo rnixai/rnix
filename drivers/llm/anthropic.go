@@ -253,7 +253,7 @@ func (d *AnthropicDriver) buildParams(req LLMRequest, tools []ToolDef) anthropic
 
 	if req.SystemPrompt != "" {
 		params.System = []anthropic.TextBlockParam{
-			{Text: req.SystemPrompt},
+			{Text: req.SystemPrompt, CacheControl: anthropic.NewCacheControlEphemeralParam()},
 		}
 	}
 
@@ -262,10 +262,39 @@ func (d *AnthropicDriver) buildParams(req LLMRequest, tools []ToolDef) anthropic
 	}
 
 	if sdkTools := convertToolDefsToAnthropic(tools); len(sdkTools) > 0 {
+		applyCacheControlToLastTool(sdkTools)
 		params.Tools = sdkTools
 	}
 
+	applyCacheControlToMessageHistory(params.Messages)
+
 	return params
+}
+
+// --- Cache control helpers ---
+
+func applyCacheControlToLastTool(tools []anthropic.ToolUnionParam) {
+	if len(tools) == 0 {
+		return
+	}
+	last := &tools[len(tools)-1]
+	if last.OfTool != nil {
+		last.OfTool.CacheControl = anthropic.NewCacheControlEphemeralParam()
+	}
+}
+
+func applyCacheControlToMessageHistory(msgs []anthropic.MessageParam) {
+	if len(msgs) < 2 {
+		return
+	}
+	target := &msgs[len(msgs)-2]
+	for i := len(target.Content) - 1; i >= 0; i-- {
+		cc := target.Content[i].GetCacheControl()
+		if cc != nil {
+			*cc = anthropic.NewCacheControlEphemeralParam()
+			return
+		}
+	}
 }
 
 // --- Call / CallWithTools ---
