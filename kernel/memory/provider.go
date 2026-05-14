@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 )
 
 // MemoryProvider is the storage backend interface for memory files.
@@ -200,11 +199,10 @@ func (p *FileMemoryProvider) persistLocked(target string) error {
 	}
 	defer f.Close()
 
-	// POSIX flock for atomicity
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := flockExclusive(f.Fd()); err != nil {
 		return fmt.Errorf("flock %s: %w", target, err)
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	defer flockUnlock(f.Fd()) //nolint:errcheck
 
 	var sb strings.Builder
 	for _, e := range p.entries[target] {
