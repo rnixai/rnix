@@ -214,6 +214,30 @@ func TestFormatTokenCount_Boundary(t *testing.T) {
 	}
 }
 
+func TestFormatTokenCount_Millions(t *testing.T) {
+	if got := FormatTokenCount(1_642_532); got != "1.64M" {
+		t.Errorf("FormatTokenCount(1642532) = %q, want '1.64M'", got)
+	}
+	if got := FormatTokenCount(1_000_000); got != "1.00M" {
+		t.Errorf("FormatTokenCount(1000000) = %q, want '1.00M'", got)
+	}
+	if got := FormatTokenCount(999_999); got != "1000.0k" {
+		t.Errorf("FormatTokenCount(999999) = %q, want '1000.0k' (k boundary < 1M)", got)
+	}
+}
+
+func TestFormatTokenCount_Negative(t *testing.T) {
+	if got := FormatTokenCount(-1500); got != "-1.5k" {
+		t.Errorf("FormatTokenCount(-1500) = %q, want '-1.5k'", got)
+	}
+	if got := FormatTokenCount(-1_642_532); got != "-1.64M" {
+		t.Errorf("FormatTokenCount(-1642532) = %q, want '-1.64M'", got)
+	}
+	if got := FormatTokenCount(-42); got != "-42" {
+		t.Errorf("FormatTokenCount(-42) = %q, want '-42'", got)
+	}
+}
+
 // =============================================================================
 // FormatDurationMs (3 项 · 与 trace/eval 同测试矩阵)
 // =============================================================================

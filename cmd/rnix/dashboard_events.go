@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -159,7 +160,7 @@ func detectBudgetEvents(processes []vfs.ProcInfo, alertSeen map[types.PID]int) [
 			PID:       p.PID,
 			UUID:      p.UUID,
 			Summary:   fmt.Sprintf("⚠ BUDGET PID %d %d%% threshold reached", p.PID, usagePct),
-			Detail:    fmt.Sprintf("tokens_used=%d context_budget=%d usage=%d%%", p.TokensUsed, p.ContextBudget, usagePct),
+			Detail:    fmt.Sprintf("tokens_used=%s context_budget=%s usage=%d%%", timeline.FormatTokenCount(p.TokensUsed), timeline.FormatTokenCount(p.ContextBudget), usagePct),
 		})
 	}
 	return events

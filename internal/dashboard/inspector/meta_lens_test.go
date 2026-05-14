@@ -19,6 +19,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/rnixai/rnix/drivers/llm"
 )
 
 // stripANSIMeta removes ANSI escape sequences for profile-tolerant assertions
@@ -228,5 +230,178 @@ func TestRenderTokenBar_TinyWidthClampsToOne(t *testing.T) {
 	// width 1 + ratio 0.5 → filled = 0 → "░"
 	if got != "░" {
 		t.Errorf("RenderTokenBar(50,100,0) = %q, want single-cell empty bar", got)
+	}
+}
+
+// =============================================================================
+// Story 41.2 — RenderRateLine (4 项契约)
+// =============================================================================
+
+func TestRenderRateLine_NormalCase(t *testing.T) {
+	got := stripANSIMeta(RenderRateLine("Cache Hit:", 1_581_184, 1_642_532, "of input"))
+	// pct ~= 96.3%
+	if !strings.Contains(got, "96.3%") {
+		t.Errorf("RenderRateLine normal: missing '96.3%%' in %q", got)
+	}
+	// 用 timeline.FormatTokenCount 的 1.58M / 1.64M 格式
+	if !strings.Contains(got, "1.58M / 1.64M of input") {
+		t.Errorf("RenderRateLine normal: missing '1.58M / 1.64M of input' in %q", got)
+	}
+	// label 右对齐 10 字符（与 RenderTokenLine 一致）
+	if !strings.Contains(got, "Cache Hit:") {
+		t.Errorf("RenderRateLine normal: missing label in %q", got)
+	}
+}
+
+func TestRenderRateLine_ZeroNumeratorAndDenominator(t *testing.T) {
+	// numerator==0 && denom==0 → 返回空串（调用方决定不输出）
+	got := RenderRateLine("Cache Hit:", 0, 0, "of input")
+	if got != "" {
+		t.Errorf("RenderRateLine zero/zero = %q, want empty string", got)
+	}
+}
+
+func TestRenderRateLine_ZeroDenominator(t *testing.T) {
+	// numerator > 0 but denom == 0 → "—  (cached <num>)" 不 panic
+	got := stripANSIMeta(RenderRateLine("Cache Hit:", 100, 0, "of input"))
+	if !strings.Contains(got, "—") {
+		t.Errorf("RenderRateLine zero-denom: missing em-dash in %q", got)
+	}
+	if !strings.Contains(got, "cached 100") {
+		t.Errorf("RenderRateLine zero-denom: missing 'cached 100' in %q", got)
+	}
+}
+
+func TestRenderRateLine_OverHundredPercent(t *testing.T) {
+	// cached > input (Anthropic 实际不该有此情况) → clamp ">100%" + 提示
+	got := stripANSIMeta(RenderRateLine("Cache Hit:", 200, 100, "of input"))
+	if !strings.Contains(got, ">100%") {
+		t.Errorf("RenderRateLine >100%%: missing clamp marker in %q", got)
+	}
+	if !strings.Contains(got, "check driver semantics") {
+		t.Errorf("RenderRateLine >100%%: missing debug guard in %q", got)
+	}
+}
+
+// =============================================================================
+// Story 41.2 — ComputeCacheHitRate (6 项契约 driver 分支 + 边界)
+// =============================================================================
+
+func TestComputeCacheHitRate_OpenAICompat(t *testing.T) {
+	rate, denom := ComputeCacheHitRate("openai-compat", 14118, 3456)
+	wantRate := 3456.0 / 14118.0
+	if rate != wantRate {
+		t.Errorf("ComputeCacheHitRate(openai-compat,14118,3456) rate = %v, want %v", rate, wantRate)
+	}
+	if denom != 14118 {
+		t.Errorf("denom = %d, want 14118 (input only)", denom)
+	}
+}
+
+func TestComputeCacheHitRate_Anthropic(t *testing.T) {
+	rate, denom := ComputeCacheHitRate("anthropic", 14118, 3456)
+	wantDenom := 14118 + 3456
+	wantRate := 3456.0 / float64(wantDenom)
+	if rate != wantRate {
+		t.Errorf("ComputeCacheHitRate(anthropic) rate = %v, want %v", rate, wantRate)
+	}
+	if denom != wantDenom {
+		t.Errorf("denom = %d, want %d (input + cached)", denom, wantDenom)
+	}
+}
+
+func TestComputeCacheHitRate_DeepSeek(t *testing.T) {
+	rate, denom := ComputeCacheHitRate("deepseek", 1_642_532, 1_581_184)
+	wantRate := 1_581_184.0 / 1_642_532.0
+	if rate != wantRate {
+		t.Errorf("ComputeCacheHitRate(deepseek) rate = %v, want %v", rate, wantRate)
+	}
+	if denom != 1_642_532 {
+		t.Errorf("denom = %d, want 1642532", denom)
+	}
+}
+
+func TestComputeCacheHitRate_EmptyDriverFallback(t *testing.T) {
+	rate, denom := ComputeCacheHitRate("", 100, 50)
+	if rate != 0.5 {
+		t.Errorf("empty driver fallback rate = %v, want 0.5", rate)
+	}
+	if denom != 100 {
+		t.Errorf("denom = %d, want 100", denom)
+	}
+}
+
+func TestComputeCacheHitRate_ZeroInput(t *testing.T) {
+	rate, denom := ComputeCacheHitRate("openai-compat", 0, 0)
+	if rate != 0 || denom != 0 {
+		t.Errorf("zero input: got (%v, %d), want (0, 0)", rate, denom)
+	}
+	// 边界 case：cached > 0 但 input == 0 仍返回 (0, 0)
+	rate, denom = ComputeCacheHitRate("openai-compat", 0, 500)
+	if rate != 0 || denom != 0 {
+		t.Errorf("zero input cached>0: got (%v, %d), want (0, 0)", rate, denom)
+	}
+}
+
+func TestComputeCacheHitRate_OverHundred(t *testing.T) {
+	// 异常 case：cached > input（OpenAI 语义下不应出现）→ rate > 1 不 clamp
+	rate, denom := ComputeCacheHitRate("openai-compat", 100, 200)
+	if rate != 2.0 {
+		t.Errorf("over-hundred rate = %v, want 2.0 (no clamp at compute layer)", rate)
+	}
+	if denom != 100 {
+		t.Errorf("denom = %d, want 100", denom)
+	}
+}
+
+func TestComputeCacheHitRate_CLIDriversFallback(t *testing.T) {
+	// CLI drivers fallback 到 OpenAI 公式
+	cases := []string{"claude-cli", "cursor-cli", "codex-cli", "qwen-cli", "gemini", "unknown-future"}
+	for _, d := range cases {
+		rate, denom := ComputeCacheHitRate(d, 100, 50)
+		if rate != 0.5 || denom != 100 {
+			t.Errorf("driver %q fallback failed: got (%v, %d), want (0.5, 100)", d, rate, denom)
+		}
+	}
+}
+
+func TestIsAnthropicDriver(t *testing.T) {
+	if !IsAnthropicDriver("anthropic") {
+		t.Errorf("IsAnthropicDriver(anthropic) should be true")
+	}
+	for _, d := range []string{"openai-compat", "deepseek", "claude-cli", "", "unknown"} {
+		if IsAnthropicDriver(d) {
+			t.Errorf("IsAnthropicDriver(%q) should be false", d)
+		}
+	}
+}
+
+// TestComputeCacheHitRate_DriverConstantsInSync 守护本包 dashboard 端硬编码的
+// driver type 字符串常量与 drivers/llm/config.go 常量值一致（防漂移）。
+//
+// 测试反向 import drivers/llm 是 ok 的（仅测试 · 生产代码 dashboard 不 import
+// drivers/llm · 单向依赖保持）。
+func TestComputeCacheHitRate_DriverConstantsInSync(t *testing.T) {
+	type pair struct {
+		dashboardLocal string
+		driversLLM     string
+		name           string
+	}
+	// 反向 import drivers/llm 仅在测试中允许 · 当 drivers/llm 改名时本测试
+	// 自动暴露不一致（无需手动同步硬编码字符串）。
+	pairs := []pair{
+		{driverClaudeCLI, llm.DriverClaudeCLI, "ClaudeCLI"},
+		{driverCursorCLI, llm.DriverCursorCLI, "CursorCLI"},
+		{driverCodexCLI, llm.DriverCodexCLI, "CodexCLI"},
+		{driverQwenCLI, llm.DriverQwenCLI, "QwenCLI"},
+		{driverOpenAICompat, llm.DriverOpenAICompat, "OpenAICompat"},
+		{driverOpenAI, llm.DriverOpenAI, "OpenAI"},
+		{driverGemini, llm.DriverGemini, "Gemini"},
+		{driverAnthropic, llm.DriverAnthropic, "Anthropic"},
+	}
+	for _, p := range pairs {
+		if p.dashboardLocal != p.driversLLM {
+			t.Errorf("driver const %q drift: dashboard=%q drivers/llm=%q", p.name, p.dashboardLocal, p.driversLLM)
+		}
 	}
 }

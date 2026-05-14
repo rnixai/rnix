@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -137,23 +138,30 @@ func RenderComposeSummary(r *Renderer, results []compose.ScheduleResult, tokenMa
 	fmt.Fprintf(r.Writer, "  Tokens: %s | Duration: %.1fs\n", formatTokenCount(totalTokens), totalDuration.Seconds())
 }
 
-// formatTokenCount formats a token count with comma separators.
+// formatTokenCount formats a token count with k/m suffix.
+//
+// Story 41.2 AC#6/#7: behavior aligned with timeline.FormatTokenCount (single
+// authority for dashboard token display). Local re-implementation avoids a
+// cyclic import because internal/dashboard/timeline already imports internal/ui.
+//
+//   - n < 0           → recursive sign handling ("-1.5k" / "-1.64M")
+//   - 0 <= n < 1000   → "%d"            (42 / 999)
+//   - 1000 <= n < 1M  → "%.1fk"         (14.1k)
+//   - n >= 1M         → "%.2fM"         (1.64M)
 func formatTokenCount(n int) string {
-	if n == 0 {
-		return "0"
+	if n == math.MinInt {
+		return fmt.Sprintf("%d", n)
 	}
-	s := fmt.Sprintf("%d", n)
-	if len(s) <= 3 {
-		return s
+	if n < 0 {
+		return "-" + formatTokenCount(-n)
 	}
-	var result []byte
-	for i, c := range s {
-		if i > 0 && (len(s)-i)%3 == 0 {
-			result = append(result, ',')
-		}
-		result = append(result, byte(c))
+	if n >= 1_000_000 {
+		return fmt.Sprintf("%.2fM", float64(n)/1_000_000.0)
 	}
-	return string(result)
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000.0)
+	}
+	return fmt.Sprintf("%d", n)
 }
 
 // composeJSONAgent is the JSON representation of a single agent in compose summary.

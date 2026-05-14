@@ -9,6 +9,14 @@
 //   - FormatThousands — 千位分隔符插入（"200000" → "200,000"）
 //   - RenderTokenBar — 固定宽度 unicode block 字符进度条 + ASCII 降级
 //
+// Story 41.2 新增（2026-05-14）·  cache hit rate 一等指标 + driver 语义分支：
+//
+//   - RenderRateLine — 通用 "label %  (num / denom suffix)" 渲染原语
+//   - ComputeCacheHitRate — 按 driver 类型分支计算 hit rate + 分母
+//   - FirstStepWarmHitRateThreshold — 首步 prefix 共享 / 冷启动判定阈值
+//   - driverAnthropic / driverOpenAICompat / ... — 本地字符串常量
+//     （与 drivers/llm/config.go 同步 · 测试守门防漂移）
+//
 // 迁出动机（spec § 04 风险 5 中断保险原则）：
 //
 //   - 5 个 helper 全部 caller 都在 cmd/rnix.dashboard_inspector.go::buildMetaLens
@@ -31,6 +39,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/ui"
 )
 
@@ -169,4 +178,119 @@ func RenderTokenBar(count, total, width int) string {
 		empty = "."
 	}
 	return strings.Repeat(full, filled) + strings.Repeat(empty, width-filled)
+}
+
+// Story 41.2 ：Cache Hit Rate 一等指标 + driver 语义分支。
+// =============================================================================
+
+// FirstStepWarmHitRateThreshold 是首步判定 "prefix 共享" vs "冷启动" 的阈值。
+//
+// 选 0.05 = 5%：在 EchoMatrix 真实数据（DeepSeek 长进程）上，首步 prefix
+// 共享时 cache 命中率通常落在 20-30%（即跨进程 system prompt + skills 复用），
+// 冷启动则在 0-2%。5% 阈值给一个安全 buffer。
+//
+// 抽常量便于未来按 driver 微调（如 Anthropic 因接口语义首步 hit rate 可能落在
+// 不同区间）。
+const FirstStepWarmHitRateThreshold = 0.05
+
+// driver type 字符串常量（与 drivers/llm/config.go 同步 · 反向 import 仅在
+// _test.go 守门测试中，生产代码保持 dashboard → drivers 单向依赖禁止）。
+const (
+	driverOpenAICompat = "openai-compat"
+	driverOpenAI       = "openai"
+	driverDeepSeek     = "deepseek"
+	driverAnthropic    = "anthropic"
+	driverClaudeCLI    = "claude-cli"
+	driverCursorCLI    = "cursor-cli"
+	driverCodexCLI     = "codex-cli"
+	driverQwenCLI      = "qwen-cli"
+	driverGemini       = "gemini"
+)
+
+// IsAnthropicDriver 判断 driver 是否为 Anthropic 原生接口（cached 不含在 input
+// 内 · hit rate 公式分母为 input + cached）。
+func IsAnthropicDriver(driverType string) bool {
+	return driverType == driverAnthropic
+}
+
+// RenderRateLine 通用 "rate 行" 渲染原语，与 RenderTokenLine 同 label 对齐宽度。
+//
+// 输出形态（normal case）：
+//
+//	<label-10>  <pct.1f>%  (<num> / <denom> <suffix>)
+//
+// 边界 case：
+//
+//   - numerator == 0 && denominator == 0 → 返回空串，调用方决定不输出（避免空行）
+//   - denominator == 0 && numerator > 0 → "<label> —  (cached <num>)" 不 panic
+//   - pct > 100 → clamp 显示 ">100%" + 行尾追加 "(check driver semantics)"
+//
+// 数值用 timeline.FormatTokenCount（k/m 后缀）保证与 dashboard 全局单位一致。
+//
+// Story 41.2 AC#1.
+func RenderRateLine(label string, numerator, denominator int, suffix string) string {
+	if numerator == 0 && denominator == 0 {
+		return ""
+	}
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
+	labelPadded := fmt.Sprintf("%10s", label)
+	if denominator == 0 {
+		// numerator > 0 但 denom == 0 — 显示 cached 数避免 div-by-zero
+		return fmt.Sprintf("%s %s",
+			dim.Render(labelPadded),
+			dim.Render(fmt.Sprintf("—  (cached %s)", timeline.FormatTokenCount(numerator))))
+	}
+	pct := float64(numerator) / float64(denominator) * 100
+	pctStr := fmt.Sprintf("%.1f%%", pct)
+	extra := ""
+	if pct > 100 {
+		pctStr = ">100%"
+		extra = "  (check driver semantics)"
+	}
+	return fmt.Sprintf("%s %s  (%s / %s %s)%s",
+		dim.Render(labelPadded),
+		dim.Render(pctStr),
+		timeline.FormatTokenCount(numerator),
+		timeline.FormatTokenCount(denominator),
+		suffix,
+		extra,
+	)
+}
+
+// ComputeCacheHitRate 按 driver 类型分支计算 cache hit rate。
+//
+// 公式表：
+//
+//	driverType                                 公式               分母
+//	─────────────────────────────────────────────────────────────────
+//	openai-compat / openai / deepseek          cached / input     input
+//	anthropic                                  cached/(in+cached) input+cached
+//	claude-cli / cursor-cli / codex-cli /      cached / input     input   (OpenAI fallback)
+//	qwen-cli / gemini
+//	空 / 未知                                  cached / input     input   (OpenAI fallback)
+//
+// 边界：input == 0 时返回 (0, 0)，调用方决定不渲染（与 RenderRateLine 配套）。
+// cached > denom（hit rate >100%）原值返回，由渲染层 clamp。
+//
+// 返回值：
+//   - rate: 命中率（0.0 ~ N · 不 clamp · 渲染层处理 >100%）
+//   - denom: 实际使用的分母（input 或 input+cached）
+//
+// Story 41.2 AC#2.
+func ComputeCacheHitRate(driverType string, input, cached int) (rate float64, denom int) {
+	if input == 0 {
+		return 0, 0
+	}
+	switch driverType {
+	case driverAnthropic:
+		denom = input + cached
+	default:
+		// openai-compat / openai / deepseek / CLI drivers / 空 / unknown
+		// → OpenAI 语义（input 已含 cached）
+		denom = input
+	}
+	if denom == 0 {
+		return 0, 0
+	}
+	return float64(cached) / float64(denom), denom
 }

@@ -36,6 +36,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/vfs"
@@ -98,7 +99,7 @@ func RenderHistoryStats(procs []vfs.ProcInfo) string {
 		runStyle.Render(fmt.Sprintf("Running: %d●", running)),
 		doneStyle.Render(fmt.Sprintf("Done: %d✓", done)),
 		failStyle.Render(fmt.Sprintf("Failed: %d✕", failed)),
-		ui.FormatTokens(totalTokens),
+		timeline.FormatTokenCount(totalTokens),
 		avg,
 	)
 }

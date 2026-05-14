@@ -35,6 +35,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -306,7 +307,7 @@ func renderTreeView(state TraceState, ctx RenderContext, width, height int) stri
 		tid = tid[:16]
 	}
 	dur := FormatDurationMs(float64(meta.TotalDurationMs))
-	fmt.Fprintf(&b, " Trace: %s  %d spans  %s  %d tok\n", tid, meta.TotalSpans, dur, meta.TotalTokens)
+	fmt.Fprintf(&b, " Trace: %s  %d spans  %s  %s tok\n", tid, meta.TotalSpans, dur, timeline.FormatTokenCount(meta.TotalTokens))
 
 	visibleLines := max(height-2, 1)
 	startIdx := max(state.SpanScrollOffset, 0)
@@ -329,7 +330,7 @@ func renderTreeView(state TraceState, ctx RenderContext, width, height int) stri
 		}
 
 		dur := FormatDurationMs(float64(node.DurMs))
-		tokStr := fmt.Sprintf("%dtok", node.Tokens)
+		tokStr := fmt.Sprintf("%stok", timeline.FormatTokenCount(node.Tokens))
 		statusStyle := lipgloss.NewStyle().Foreground(SpanStatusColor(node.Status))
 
 		line := fmt.Sprintf("%s%s%s (PID %d)  %s  %s  %s",

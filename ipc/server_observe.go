@@ -232,22 +232,29 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 		return
 	}
 
-	// Phase A: resolve SystemPrompt + ToolDefs
+	// Phase A: resolve SystemPrompt + ToolDefs + Provider + DriverType (AC#3)
 	var systemPrompt string
 	var toolDefs []vfs.ToolDef
 	var stepsPath string
+	var providerName string
 
 	proc, procFound := s.resolveProcess(req.PID, req.UUID)
 	if procFound {
 		systemPrompt = proc.GetFinalSystemPrompt()
 		toolDefs = proc.GetNativeToolDefs()
 		stepsPath = s.resolveStepsPathFromProc(proc)
+		providerName = proc.Provider
 	} else {
 		// Process not in memory — try UUID from request, then fall back to process history
 		uuid := req.UUID
 		if uuid == "" && req.PID != 0 {
 			if hist := s.kern.FindHistoryByPID(req.PID); hist != nil {
 				uuid = hist.UUID
+				providerName = hist.Provider
+			}
+		} else if uuid != "" {
+			if hist := s.kern.FindHistoryByUUID(uuid); hist != nil {
+				providerName = hist.Provider
 			}
 		}
 		stepsPath = s.resolveStepsPath(req.PID, uuid)
@@ -304,6 +311,8 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 		OutputTokens:      rec.OutputTokens,
 		CachedInputTokens: rec.CachedInputTokens,
 		ToolCalls:         toolCallRecordsToWire(rec.ToolCalls),
+		Provider:          providerName,
+		DriverType:        s.driverTypeForProvider(providerName),
 	}
 
 	payload, _ := json.Marshal(resp)

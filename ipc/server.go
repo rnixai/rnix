@@ -102,6 +102,13 @@ type Server struct {
 	// projectProviders tracks active project-level providers for daemon status display.
 	// Key: projectDir, Value: list of project-only providers (not in global config).
 	projectProviders *xsync.SyncMap[string, []ProviderStatusWire]
+
+	// providerDriverCache lazily caches provider name → driver type from
+	// globalConfig.Providers (Story 41.2 AC#3, used by handleGetStepDetail to
+	// populate response.DriverType so dashboard can compute cache hit rate
+	// with correct driver-specific formula).
+	providerDriverCache     map[string]string
+	providerDriverCacheOnce sync.Once
 }
 
 // NewServer creates an IPC server backed by the given kernel.

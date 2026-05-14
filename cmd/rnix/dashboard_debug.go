@@ -11,6 +11,7 @@ import (
 	"github.com/rnixai/rnix/debug"
 	dashboarddebug "github.com/rnixai/rnix/internal/dashboard/debug"
 	"github.com/rnixai/rnix/internal/dashboard/event"
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -614,7 +615,7 @@ func (m dashboardModel) renderDebugDetailLeft(width, height int) string {
 	for _, o := range order {
 		r := roles[o.key]
 		if r.tokens > 0 {
-			parts = append(parts, fmt.Sprintf("%s:%s(%.0f%%)", o.label, ui.FormatTokens(r.tokens), r.pct))
+			parts = append(parts, fmt.Sprintf("%s:%s(%.0f%%)", o.label, timeline.FormatTokenCount(r.tokens), r.pct))
 		}
 	}
 
@@ -623,8 +624,8 @@ func (m dashboardModel) renderDebugDetailLeft(width, height int) string {
 		// Fallback to classification view if no TopConsumers.
 		c := p.Classification
 		line = fmt.Sprintf("active:%s(%.0f%%) %s cold:%s(%.0f%%)",
-			ui.FormatTokens(c.Active.Tokens), c.Active.Pct, sep,
-			ui.FormatTokens(c.Cold.Tokens), c.Cold.Pct,
+			timeline.FormatTokenCount(c.Active.Tokens), c.Active.Pct, sep,
+			timeline.FormatTokenCount(c.Cold.Tokens), c.Cold.Pct,
 		)
 	} else {
 		line = strings.Join(parts, " "+sep+" ")

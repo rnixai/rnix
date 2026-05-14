@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 )
@@ -125,7 +126,7 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 
 	// Section 4: Context stats
 	b.WriteString("  ──── Context ────\n")
-	fmt.Fprintf(&b, "    %d msgs | %s tok\n", d.ContextStats.MessageCount, ui.FormatTokens(d.ContextStats.TokensUsed))
+	fmt.Fprintf(&b, "    %d msgs | %s tok\n", d.ContextStats.MessageCount, timeline.FormatTokenCount(d.ContextStats.TokensUsed))
 	if d.ContextStats.SlotMax > 0 {
 		fmt.Fprintf(&b, "    %d/%d slots (%.0f%%)\n",
 			d.ContextStats.SlotUsed, d.ContextStats.SlotMax, d.ContextStats.SlotPercentage)

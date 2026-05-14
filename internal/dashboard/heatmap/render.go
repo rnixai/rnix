@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 )
@@ -53,8 +54,8 @@ func Render(state HeatmapState, ctx RenderContext, innerW, innerH int) string {
 		if state.Profile.ContextBudget > 0 {
 			pct = state.Profile.TotalTokens * 100 / state.Profile.ContextBudget
 		}
-		fmt.Fprintf(&b, " | ~%d tok / %d budget (%d%%)",
-			state.Profile.TotalTokens, state.Profile.ContextBudget, pct)
+		fmt.Fprintf(&b, " | ~%s tok / %s budget (%d%%)",
+			timeline.FormatTokenCount(state.Profile.TotalTokens), timeline.FormatTokenCount(state.Profile.ContextBudget), pct)
 	}
 	b.WriteString("\n")
 
@@ -91,15 +92,15 @@ func Render(state HeatmapState, ctx RenderContext, innerW, innerH int) string {
 			cursor = "▸ "
 		}
 		actStr := ActivityLabel(seg.Activity)
-		fmt.Fprintf(&b, "%s%-15s %4d tok  %5.1f%%  %s\n",
-			cursor, seg.Label, seg.Tokens, seg.Pct, actStr)
+		fmt.Fprintf(&b, "%s%-15s %5s tok  %5.1f%%  %s\n",
+			cursor, seg.Label, timeline.FormatTokenCount(seg.Tokens), seg.Pct, actStr)
 	}
 
 	if state.Expanded && state.Cursor < len(state.Segments) {
 		seg := state.Segments[state.Cursor]
 		actStr := ActivityLabel(seg.Activity)
 		fmt.Fprintf(&b, "\n── Selected: %s ──\n", seg.Label)
-		fmt.Fprintf(&b, "%d tokens | %.1f%% | %s\n", seg.Tokens, seg.Pct, actStr)
+		fmt.Fprintf(&b, "%s tokens | %.1f%% | %s\n", timeline.FormatTokenCount(seg.Tokens), seg.Pct, actStr)
 		if seg.Summary != "" {
 			if utf8.RuneCountInString(seg.Summary) > 60 {
 				runes := []rune(seg.Summary)

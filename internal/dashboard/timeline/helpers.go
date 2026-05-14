@@ -40,6 +40,7 @@ package timeline
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -151,10 +152,21 @@ func FormatDefaultLine(s ipc.StepSummaryWire, detail *ipc.GetStepDetailResponse)
 	return action, summary
 }
 
-// FormatTokenCount 格式化 token 数量（与 cmd/rnix.formatTokenCount 等价）：
-//   - n >= 1000 → "%.1fk"（1.5k）
-//   - n < 1000 → "%d"（500）
+// FormatTokenCount 格式化 token 数量（dashboard token 显示的单一权威）：
+//   - n >= 1_000_000 → "%.2fM"（1.64M）
+//   - 1_000 <= n < 1_000_000 → "%.1fk"（14.1k）
+//   - 0 <= n < 1000 → "%d"（42 / 999）
+//   - n < 0 → 递归处理符号（"-1.5k" / "-1.64M"）
 func FormatTokenCount(tokens int) string {
+	if tokens == math.MinInt {
+		return fmt.Sprintf("%d", tokens)
+	}
+	if tokens < 0 {
+		return "-" + FormatTokenCount(-tokens)
+	}
+	if tokens >= 1_000_000 {
+		return fmt.Sprintf("%.2fM", float64(tokens)/1_000_000.0)
+	}
 	if tokens >= 1000 {
 		return fmt.Sprintf("%.1fk", float64(tokens)/1000.0)
 	}

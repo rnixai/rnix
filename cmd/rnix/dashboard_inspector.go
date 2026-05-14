@@ -1553,8 +1553,39 @@ func (m dashboardModel) buildMetaLens(detail *ipc.GetStepDetailResponse) string 
 		b.WriteString(renderTokenLine("Input:", detail.InputTokens, metaTokenContextWindow, false))
 		b.WriteString("\n")
 		if detail.CachedInputTokens > 0 {
-			b.WriteString(renderTokenLine("Cached:", detail.CachedInputTokens, metaTokenContextWindow, false))
-			b.WriteString("\n")
+			// Story 41.2 AC#4: Cached 行分母改为 InputTokens（命中率维度）
+			// 文字尾标 "(/ 200k context)" 保留容量视角（双轨设计 PS S3 B4）。
+			// InputTokens == 0 时退化到旧逻辑用 metaTokenContextWindow 避免除零。
+			cachedSuffix := "of input  (/ 200k context)"
+			if detail.InputTokens > 0 {
+				b.WriteString(inspector.RenderRateLine("Cached:", detail.CachedInputTokens, detail.InputTokens, cachedSuffix))
+				b.WriteString("\n")
+			} else {
+				b.WriteString(renderTokenLine("Cached:", detail.CachedInputTokens, metaTokenContextWindow, false))
+				b.WriteString("\n")
+			}
+		}
+		// Story 41.2 AC#1 + #5: 注入 Cache Hit 行（位于 Cached 之后、Output 之前）。
+		if detail.InputTokens > 0 || detail.CachedInputTokens > 0 {
+			rate, denom := inspector.ComputeCacheHitRate(detail.DriverType, detail.InputTokens, detail.CachedInputTokens)
+			if rate > 0 || denom > 0 {
+				suffix := "of input"
+				if inspector.IsAnthropicDriver(detail.DriverType) {
+					suffix = "of (input + cached)"
+				}
+				hitLine := inspector.RenderRateLine("Cache Hit:", detail.CachedInputTokens, denom, suffix)
+				if hitLine != "" {
+					// Step <= 1 dim 风格 + prefix 共享 / 冷启动标签
+					if detail.Step <= 1 {
+						label := "[首步 · prefix 共享]"
+						if rate <= inspector.FirstStepWarmHitRateThreshold {
+							label = "[首步 · 冷启动]"
+						}
+						hitLine = dimStyle.Render(hitLine + "  " + label)
+					}
+					b.WriteString(hitLine + "\n")
+				}
+			}
 		}
 		b.WriteString(renderTokenLine("Output:", detail.OutputTokens, metaTokenContextWindow, false))
 		b.WriteString("\n")

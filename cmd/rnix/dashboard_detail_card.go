@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -149,7 +150,7 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 	var line1 string
 	if !ui.IsFailedResult(proc.Result) {
 		line1 = fmt.Sprintf("  %s Done (exit 0) │ %s │ %s tokens",
-			checkmark, timeRange, ui.FormatTokens(d.ContextStats.TokensUsed))
+			checkmark, timeRange, timeline.FormatTokenCount(d.ContextStats.TokensUsed))
 	} else {
 		summary := truncateRuneSafe(proc.Result, 40)
 		line1 = fmt.Sprintf("  %s Failed (exit 1) │ %s │ %s", failmark, timeRange, summary)
@@ -173,7 +174,7 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 func renderDeadDetailCardRight(m *dashboardModel, proc *selectedProcRef, width, height int, sep string) string {
 	d := m.detail.Detail
 	stepCount := len(m.timeline.StepEntries)
-	line1 := fmt.Sprintf("  Steps: %d │ Tokens: %s", stepCount, ui.FormatTokens(d.ContextStats.TokensUsed))
+	line1 := fmt.Sprintf("  Steps: %d │ Tokens: %s", stepCount, timeline.FormatTokenCount(d.ContextStats.TokensUsed))
 	line1 = fitLine(line1, width)
 
 	line2 := fmt.Sprintf("  %s", formatLivedDuration(d))

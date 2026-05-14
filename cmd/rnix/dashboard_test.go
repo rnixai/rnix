@@ -484,8 +484,8 @@ func TestDashboardModel_ViewTokenBudgetWarning(t *testing.T) {
 	m := newTestDashboardModel(procs)
 	v := m.View()
 
-	if !strings.Contains(v.Content, "4,500") && !strings.Contains(v.Content, "4500") {
-		t.Errorf("view should show token consumption, got %q", v.Content)
+	if !strings.Contains(v.Content, "4.5k") {
+		t.Errorf("view should show token consumption as '4.5k', got %q", v.Content)
 	}
 }
 

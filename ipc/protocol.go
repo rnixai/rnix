@@ -1003,6 +1003,11 @@ type GetStepDetailResponse struct {
 	OutputTokens      int                    `json:"output_tokens,omitempty"`
 	CachedInputTokens int                    `json:"cached_input_tokens,omitempty"`
 	ToolCalls         []ToolCallDetailWire   `json:"tool_calls,omitempty"`
+	// Story 41.2 AC#3: step-level provider/driver info,used to compute cache
+	// hit rate with correct driver-specific formula (Anthropic vs OpenAI 语义)。
+	// wire-backward compatible · 旧 daemon 不填这两字段时 dashboard 走 fallback。
+	Provider   string `json:"provider,omitempty"`
+	DriverType string `json:"driver_type,omitempty"`
 }
 
 // ToolCallDetailWire 是单次工具调用的 wire 表示,用于 Step Inspector 渲染 N 个 parallel

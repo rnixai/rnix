@@ -153,3 +153,12 @@ Story artifacts live in `_bmad-output/implementation-artifacts/`. Sprint status 
 
 - `TestRunTop_NoDaemon` fails in environments without `/dev/tty` (CI/containers)
 - `TestClaudeCliDriver_Call_DefaultArgs` may fail if default model constant changes
+
+## Driver Token Semantics (Cache Hit Rate)
+
+The `input_tokens` field has driver-dependent semantics:
+- **openai-compat / DeepSeek / OpenAI**: prompt_tokens INCLUDES cached_tokens; hit rate = cached / input
+- **Anthropic** (native API): input_tokens EXCLUDES CacheReadInputTokens; hit rate = cached / (input + cached)
+- **CLI drivers** (claude-cli / cursor-cli / codex-cli): use OpenAI fallback semantics
+
+See `internal/dashboard/inspector/meta_lens.go:ComputeCacheHitRate` for branching.

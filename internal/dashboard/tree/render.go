@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 )
@@ -267,13 +268,13 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 			if row.Proc.ContextBudget > 0 {
 				pct := max(0, min(int(int64(row.Proc.TokensUsed)*100/int64(row.Proc.ContextBudget)), 100))
 				tokens = fmt.Sprintf("%s/%s(%d%%)",
-					ui.FormatTokens(row.Proc.TokensUsed),
-					ui.FormatTokens(row.Proc.ContextBudget), pct)
+					timeline.FormatTokenCount(row.Proc.TokensUsed),
+					timeline.FormatTokenCount(row.Proc.ContextBudget), pct)
 				if pct >= 80 {
 					tokens = ui.WarningStyle.Render(tokens)
 				}
 			} else {
-				tokens = ui.FormatTokens(row.Proc.TokensUsed)
+				tokens = timeline.FormatTokenCount(row.Proc.TokensUsed)
 			}
 			if row.Proc.IsPaused && !row.Proc.PausedAt.IsZero() {
 				elapsed = ui.FormatDuration(row.Proc.PausedAt.Sub(row.Proc.CreatedAt))
