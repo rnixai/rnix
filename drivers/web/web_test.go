@@ -43,11 +43,11 @@ func (m *mockConverter) Convert(html string) (string, error) {
 // --- Mock Search backend ---
 
 type mockSearchBackend struct {
-	fn func(ctx context.Context, query string, allowed, blocked []string) ([]SearchResult, error)
+	fn func(ctx context.Context, params SearchParams) ([]SearchResult, error)
 }
 
-func (m *mockSearchBackend) Search(ctx context.Context, query string, allowed, blocked []string) ([]SearchResult, error) {
-	return m.fn(ctx, query, allowed, blocked)
+func (m *mockSearchBackend) Search(ctx context.Context, params SearchParams) ([]SearchResult, error) {
+	return m.fn(ctx, params)
 }
 
 // --- ToolDef metadata tests (Task 4.1) ---
@@ -467,7 +467,7 @@ func TestWebDriver_Cache_Expiry(t *testing.T) {
 
 func TestWebFile_Search_Success(t *testing.T) {
 	mockSearch := &mockSearchBackend{
-		fn: func(ctx context.Context, query string, allowed, blocked []string) ([]SearchResult, error) {
+		fn: func(ctx context.Context, params SearchParams) ([]SearchResult, error) {
 			return []SearchResult{
 				{Title: "Result 1", URL: "https://example.com/1", Snippet: "snippet 1"},
 				{Title: "Result 2", URL: "https://example.com/2", Snippet: "snippet 2"},
@@ -495,10 +495,12 @@ func TestWebFile_Search_Success(t *testing.T) {
 
 func TestWebFile_Search_WithDomainFilters(t *testing.T) {
 	var capturedAllowed, capturedBlocked []string
+	var capturedMax int
 	mockSearch := &mockSearchBackend{
-		fn: func(ctx context.Context, query string, allowed, blocked []string) ([]SearchResult, error) {
-			capturedAllowed = allowed
-			capturedBlocked = blocked
+		fn: func(ctx context.Context, params SearchParams) ([]SearchResult, error) {
+			capturedAllowed = params.AllowedDomains
+			capturedBlocked = params.BlockedDomains
+			capturedMax = params.MaxResults
 			return []SearchResult{}, nil
 		},
 	}
@@ -506,7 +508,7 @@ func TestWebFile_Search_WithDomainFilters(t *testing.T) {
 	d := NewDriverWithOptions(DriverOpts{Search: mockSearch})
 	f := &WebFile{driver: d, devicePath: "/dev/web"}
 
-	err := f.Write(context.Background(), []byte(`{"query":"test","allowed_domains":["docs.go.dev"],"blocked_domains":["spam.com"]}`))
+	err := f.Write(context.Background(), []byte(`{"query":"test","allowed_domains":["docs.go.dev"],"blocked_domains":["spam.com"],"max_results":7}`))
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
@@ -517,11 +519,14 @@ func TestWebFile_Search_WithDomainFilters(t *testing.T) {
 	if len(capturedBlocked) != 1 || capturedBlocked[0] != "spam.com" {
 		t.Errorf("unexpected blocked_domains: %v", capturedBlocked)
 	}
+	if capturedMax != 7 {
+		t.Errorf("expected max_results=7, got %d", capturedMax)
+	}
 }
 
 func TestWebFile_Search_BackendError(t *testing.T) {
 	mockSearch := &mockSearchBackend{
-		fn: func(ctx context.Context, query string, allowed, blocked []string) ([]SearchResult, error) {
+		fn: func(ctx context.Context, params SearchParams) ([]SearchResult, error) {
 			return nil, fmt.Errorf("search backend unavailable")
 		},
 	}
@@ -695,7 +700,7 @@ func TestSearxngBackend_BlockedDomains(t *testing.T) {
 	})
 
 	backend := &searxngBackend{client: client, baseURL: "http://localhost:8888"}
-	results, err := backend.Search(context.Background(), "test", nil, []string{"spam.com"})
+	results, err := backend.Search(context.Background(), SearchParams{Query: "test", BlockedDomains: []string{"spam.com"}})
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
@@ -709,7 +714,7 @@ func TestSearxngBackend_BlockedDomains(t *testing.T) {
 
 func TestSearxngBackend_NoBaseURL(t *testing.T) {
 	backend := &searxngBackend{client: nil, baseURL: ""}
-	_, err := backend.Search(context.Background(), "test", nil, nil)
+	_, err := backend.Search(context.Background(), SearchParams{Query: "test"})
 	if err == nil {
 		t.Error("expected error when baseURL is empty")
 	}
@@ -721,7 +726,7 @@ func TestDeviceRegistration_Integration(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 
 	webDriver := NewDriverWithOptions(DriverOpts{
-		Search: &mockSearchBackend{fn: func(ctx context.Context, q string, a, b []string) ([]SearchResult, error) {
+		Search: &mockSearchBackend{fn: func(ctx context.Context, params SearchParams) ([]SearchResult, error) {
 			return nil, nil
 		}},
 	})

@@ -15,4 +15,4 @@ Notes:
 - Use allowed_domains to focus on authoritative sources
 - Use blocked_domains to filter out unwanted content
 - For reading a specific URL, use web_fetch instead
-- Requires a search backend (SearXNG or Brave Search API)
+- Backend selection: configure via ~/.config/rnix/web-search.yaml or set TAVILY_API_KEY / EXA_API_KEY / RNIX_SEARCH_URL.
