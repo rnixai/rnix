@@ -63,7 +63,7 @@ type ProviderConfig struct {
 	Mode           string   `yaml:"mode"`            // "stream" (default) or "call"
 	MaxTokens      int      `yaml:"max_tokens"`      // default max output tokens; 0 = use API default
 	CostPerToken   float64  `yaml:"cost_per_token"`  // cost per token in USD; 0 = cost tracking disabled
-	ThinkingBudget int      `yaml:"thinking_budget"` // thinking budget tokens (anthropic/gemini drivers; 0 = disabled)
+	ThinkingBudget int      `yaml:"thinking_budget"` // thinking budget tokens (openai-compat/anthropic/gemini; 0 = disabled)
 	ExtraArgs      []string `yaml:"extra_args"`      // additional CLI arguments (claude-cli/cursor-cli only)
 	TimeoutSec     int      `yaml:"timeout_sec"`     // per-request timeout in seconds; 0 = driver default (5 min for CLI)
 	GraceSec       int      `yaml:"grace_sec"`       // CLI grace period between SIGTERM and SIGKILL; 0 = driver default (20s)

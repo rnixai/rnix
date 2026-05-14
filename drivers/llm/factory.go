@@ -122,6 +122,9 @@ func CreateDriverWithEnv(cfg ProviderConfig, envLookup func(string) string) (LLM
 		if cfg.TimeoutSec > 0 {
 			opts = append(opts, WithCompatTimeout(time.Duration(cfg.TimeoutSec)*time.Second))
 		}
+		if cfg.ThinkingBudget > 0 {
+			opts = append(opts, WithCompatThinkingBudget(cfg.ThinkingBudget))
+		}
 		return NewOpenAICompatDriver(cfg.Name, cfg.BaseURL, opts...), nil
 
 	case DriverOpenAI:

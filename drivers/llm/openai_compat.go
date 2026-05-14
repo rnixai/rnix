@@ -29,6 +29,7 @@ type OpenAICompatDriver struct {
 	httpClient      *http.Client
 	streamUsage     bool
 	defaultMaxTokens int
+	thinkingBudget  int
 }
 
 // CompatOption configures an OpenAICompatDriver.
@@ -62,6 +63,14 @@ func WithStreamUsage(enabled bool) CompatOption {
 // WithCompatMaxTokens sets the default max output tokens for requests that don't specify one.
 func WithCompatMaxTokens(n int) CompatOption {
 	return func(d *OpenAICompatDriver) { d.defaultMaxTokens = n }
+}
+
+// WithCompatThinkingBudget enables thinking/reasoning mode for providers that
+// support it (DeepSeek V4+). The budget is sent as budget_tokens in the request.
+// DeepSeek requires this parameter for multi-turn conversations with tool calls;
+// without it, the API returns HTTP 400 "reasoning_content must be passed back".
+func WithCompatThinkingBudget(n int) CompatOption {
+	return func(d *OpenAICompatDriver) { d.thinkingBudget = n }
 }
 
 // NewOpenAICompatDriver creates a new driver for an OpenAI-compatible endpoint.
@@ -121,6 +130,12 @@ type oaiRequest struct {
 	Stream        bool              `json:"stream"`
 	StreamOptions *oaiStreamOptions `json:"stream_options,omitempty"`
 	Tools         []oaiTool         `json:"tools,omitempty"`
+	Thinking      *oaiThinking      `json:"thinking,omitempty"`
+}
+
+type oaiThinking struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
 }
 
 type oaiMessage struct {
@@ -359,6 +374,12 @@ func (d *OpenAICompatDriver) buildOAIRequest(req LLMRequest, stream bool, tools 
 					Parameters:  td.Parameters,
 				},
 			})
+		}
+	}
+	if d.thinkingBudget > 0 {
+		oai.Thinking = &oaiThinking{
+			Type:         "enabled",
+			BudgetTokens: d.thinkingBudget,
 		}
 	}
 	return oai, nil
