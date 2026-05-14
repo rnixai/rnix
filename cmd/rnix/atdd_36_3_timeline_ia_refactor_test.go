@@ -273,9 +273,9 @@ func TestATDD_36_3_AC3_AggregatedDisplay_ShowsMultiplier(t *testing.T) {
 
 	output := m.renderTimelinePane(120, 30)
 
-	// Collapsed group should show "× 5" for the 5 consecutive shell steps
-	if !strings.Contains(output, "× 5") {
-		t.Errorf("AC-3: aggregated group should show '× 5', got:\n%s", output)
+	// Story 41-3: format changed from "× 5" to "x5"
+	if !strings.Contains(output, "x5") {
+		t.Errorf("AC-3: aggregated group should show 'x5', got:\n%s", output)
 	}
 	// Group header should contain the tool path
 	if !strings.Contains(output, "/dev/shell") {
@@ -288,9 +288,9 @@ func TestATDD_36_3_AC3_AggregatedDisplay_StepRange(t *testing.T) {
 
 	output := m.renderTimelinePane(120, 30)
 
-	// Group header should show step range "1–5"
-	if !strings.Contains(output, "1–5") {
-		t.Errorf("AC-3: aggregated group header should show step range '1–5', got:\n%s", output)
+	// Story 41-3: format changed to "step 1-5" (inside brackets)
+	if !strings.Contains(output, "step 1-5") {
+		t.Errorf("AC-3: aggregated group header should show 'step 1-5', got:\n%s", output)
 	}
 }
 

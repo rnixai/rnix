@@ -98,97 +98,150 @@ func (m dashboardModel) maybeShowTimelineMigrationNotice() dashboardModel {
 // 接口避免硬依赖 plugin 包）· cmd/rnix 端调用站点零修改通过 ATDD 27-3 / 36-4 /
 // 36-5 / 36-6 + 38-1/2/3/4 全部测试。
 
+// toFoldGroups converts event-package ToolAggGroups to timeline-package FoldGroups.
+// Needed because timeline cannot import event (circular dependency).
+func toFoldGroups(groups []toolAggGroup) []timeline.FoldGroup {
+	fg := make([]timeline.FoldGroup, len(groups))
+	for i, g := range groups {
+		fg[i] = timeline.FoldGroup{
+			StartIdx: g.StartIdx,
+			EndIdx:   g.EndIdx,
+			Key:      g.StepNums[0],
+		}
+	}
+	return fg
+}
+
 // handleTimelineKey dispatches keys for the unified Step timeline.
 func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 	if m.timeline.StepFilterMode {
 		return m.handleStepFilterKey(key)
 	}
-	// Story 36-5: search input mode for Timeline
 	if m.search.Mode {
 		return m.handleTimelineSearchKey(key)
 	}
 	filtered := m.filteredUnifiedEvents()
-	// Story 36-5: 统一导航键集合
 	pageSize := max(m.dashboardVisibleLines()-4, 1)
-	// Story 36-5 P-4: itemCount must reflect the list the cursor indexes into.
-	// Use len(filtered) in steady state. Only fall back to len(stepEntries) when
-	// unifiedEvents has not been built yet (early frame / test setup), NOT when
-	// the user's filters happen to exclude everything. This prevents stepCursor
-	// from being driven past the filtered range during interactive filtering.
-	itemCount := len(filtered)
-	if itemCount == 0 && len(m.unifiedEvents) == 0 {
-		itemCount = len(m.timeline.StepEntries)
-	}
-	navOpts := ui.ListNavOpts{
-		PageSize: pageSize,
-		OnCursorChange: func(int) {
+
+	// Story 41-3: build fold navigation data for visible-index navigation
+	aggGroups := buildToolAggGroups(filtered)
+	foldGroups := toFoldGroups(aggGroups)
+	vis := timeline.BuildVisibleIndices(len(filtered), m.timeline.ExpandedAggGroups, foldGroups)
+	hasFolding := len(vis) > 0 && len(vis) < len(filtered)
+
+	if hasFolding {
+		// Story 41-3 AC1: j/k/↑/↓ navigate by visible rows, skipping collapsed interiors
+		switch key {
+		case "j", "down", "k", "up":
+			delta := 1
+			if key == "k" || key == "up" {
+				delta = -1
+			}
+			m.timeline.StepCursor = timeline.NextVisibleIndex(m.timeline.StepCursor, vis, delta)
 			m.ensureStepCursorVisible(pageSize)
-		},
-	}
-	if ui.HandleListKey(key, nil, &m.timeline.StepCursor, itemCount, navOpts) {
-		// g/home 额外重置 stepScrollTop（与 Tree 对齐）
-		if key == "g" || key == "home" {
-			m.timeline.StepScrollTop = 0
+			return m
 		}
-		m.ensureStepCursorVisible(pageSize)
-		return m
+		// g/G/PgDn/PgUp/Home/End: map cursor to visible-index space, delegate
+		// to HandleListKey, then map back to filtered-index space.
+		visCursor := timeline.VisiblePosition(m.timeline.StepCursor, vis)
+		navOpts := ui.ListNavOpts{PageSize: pageSize}
+		if ui.HandleListKey(key, nil, &visCursor, len(vis), navOpts) {
+			visCursor = max(0, min(visCursor, len(vis)-1))
+			m.timeline.StepCursor = vis[visCursor]
+			if key == "g" || key == "home" {
+				m.timeline.StepScrollTop = 0
+			}
+			m.ensureStepCursorVisible(pageSize)
+			return m
+		}
+	} else {
+		// No folding active: original HandleListKey behavior
+		itemCount := len(filtered)
+		if itemCount == 0 && len(m.unifiedEvents) == 0 {
+			itemCount = len(m.timeline.StepEntries)
+		}
+		navOpts := ui.ListNavOpts{
+			PageSize: pageSize,
+			OnCursorChange: func(int) {
+				m.ensureStepCursorVisible(pageSize)
+			},
+		}
+		if ui.HandleListKey(key, nil, &m.timeline.StepCursor, itemCount, navOpts) {
+			if key == "g" || key == "home" {
+				m.timeline.StepScrollTop = 0
+			}
+			m.ensureStepCursorVisible(pageSize)
+			return m
+		}
 	}
+
 	switch key {
 	case "/":
-		// Story 36-5: enter search input mode (Timeline).
-		// Story 38-5 PR11 Step 4(c)：迁出至 SearchPlugin.EnterSearchMode（与
-		// inspector / 共享 · timeline 仅 forward 不支持 ? backward）。
 		m.search.EnterSearchMode(false)
 		return m
+	case "[":
+		// Story 41-3 AC6: dual-mode — search active → prev match; else → prev group
+		if len(m.search.Matches) > 0 {
+			n := len(m.search.Matches)
+			m.search.MatchIdx = ((m.search.MatchIdx-1)%n + n) % n
+			m.timeline.StepCursor = m.search.Matches[m.search.MatchIdx]
+			m.autoExpandGroupForCursor()
+		} else if len(foldGroups) > 0 {
+			prev := m.timeline.StepCursor
+			m.timeline.StepCursor = timeline.FindGroupBoundary(m.timeline.StepCursor, foldGroups, -1)
+			if m.timeline.StepCursor == prev {
+				m.statusMsg = "No more groups"
+				m.statusMsgTTL = statusMsgDefaultTTL
+			}
+		}
+	case "]":
+		// Story 41-3 AC6: dual-mode — search active → next match; else → next group
+		if len(m.search.Matches) > 0 {
+			n := len(m.search.Matches)
+			m.search.MatchIdx = (m.search.MatchIdx + 1) % n
+			m.timeline.StepCursor = m.search.Matches[m.search.MatchIdx]
+			m.autoExpandGroupForCursor()
+		} else if len(foldGroups) > 0 {
+			prev := m.timeline.StepCursor
+			m.timeline.StepCursor = timeline.FindGroupBoundary(m.timeline.StepCursor, foldGroups, 1)
+			if m.timeline.StepCursor == prev {
+				m.statusMsg = "No more groups"
+				m.statusMsgTTL = statusMsgDefaultTTL
+			}
+		}
 	case "f":
 		m.timeline.StepFilterMode = true
 		m.statusMsg = dashboardevent.FilterHelpMsg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "e":
-		// Story 36-4: Sticky expand mode — 切换到 Expanded，幂等。
-		//
-		// Story 38-5 PR11 Step 4(c)：expand mode mutation 主体迁出至
-		// internal/dashboard/timeline.ApplyExpandMode（含 detail==nil 短路径 +
-		// hasExpandable 双判断 + empty list NoSteps 提示 · 与历史等价）。
 		var msg string
 		m.timeline, msg = timeline.ApplyExpandMode(m.timeline, expandModeExpanded, hasExpandableContent)
 		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "E":
-		// Story 36-4: ErrorsOnly mode — 仅展开 HasError=true 的 step。
 		var msg string
 		m.timeline, msg = timeline.ApplyExpandMode(m.timeline, expandModeErrorsOnly, hasExpandableContent)
 		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "C":
-		// Story 36-4: Collapsed mode — 全部折叠到 summary。
-		// 仅非 filter 模式生效（filter 模式下的 C 由 handleStepFilterKey 处理）。
 		var msg string
 		m.timeline, msg = timeline.ApplyExpandMode(m.timeline, expandModeCollapsed, hasExpandableContent)
 		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "o":
-		// Story 36-4: 切换 Timeline 排序方向（升 ↔ 降）
-		//
-		// Story 38-5 PR11 Step 4(c)：sort direction toggle 主体迁出至
-		// internal/dashboard/timeline.ToggleSortDirection。
 		var msg string
 		m.timeline, msg = timeline.ToggleSortDirection(m.timeline)
 		m.statusMsg = msg
 		m.statusMsgTTL = statusMsgDefaultTTL
 	case "n":
-		// Story 36-5 P-7: when a search is active, n cycles to the next match.
-		// Otherwise, fall back to the legacy "next error" semantics (AC-5).
 		if len(m.search.Matches) > 0 {
 			n := len(m.search.Matches)
 			m.search.MatchIdx = (m.search.MatchIdx + 1) % n
 			m.timeline.StepCursor = m.search.Matches[m.search.MatchIdx]
-			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
+			m.autoExpandGroupForCursor()
+			m.ensureStepCursorVisible(pageSize)
 			break
 		}
-		// Story 38-5 PR11 Step 4(c)：error 跳转 lookup 主体迁出至
-		// internal/dashboard/event.FindNextErrorIdx（HasError + Severity≥SevError
-		// 双判定 · 与历史等价）。
 		if idx, ok := dashboardevent.FindNextErrorIdx(filtered, m.timeline.StepCursor); ok {
 			m.timeline.StepCursor = idx
 		} else {
@@ -196,15 +249,14 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
 	case "N", "shift+N":
-		// Story 36-5 P-7: same modal split for N (previous match vs previous error).
 		if len(m.search.Matches) > 0 {
 			n := len(m.search.Matches)
 			m.search.MatchIdx = ((m.search.MatchIdx-1)%n + n) % n
 			m.timeline.StepCursor = m.search.Matches[m.search.MatchIdx]
-			m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
+			m.autoExpandGroupForCursor()
+			m.ensureStepCursorVisible(pageSize)
 			break
 		}
-		// Story 38-5 PR11 Step 4(c)：见 FindNextErrorIdx 同模式。
 		if idx, ok := dashboardevent.FindPrevErrorIdx(filtered, m.timeline.StepCursor); ok {
 			m.timeline.StepCursor = idx
 		} else {
@@ -212,7 +264,7 @@ func (m dashboardModel) handleTimelineKey(key string) dashboardModel {
 			m.statusMsgTTL = statusMsgDefaultTTL
 		}
 	}
-	m.ensureStepCursorVisible(max(m.dashboardVisibleLines()-4, 1))
+	m.ensureStepCursorVisible(pageSize)
 	return m
 }
 
@@ -560,58 +612,57 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 			cursorInGroup := m.timeline.StepCursor >= g.StartIdx && m.timeline.StepCursor < g.EndIdx
 
 			if !expanded {
-				// Collapsed group header line
+				// Story 41-3 AC3/AC4: collapsed group with aggregated summary
 				cursorMark := "  "
 				if cursorInGroup {
 					cursorMark = "▸ "
 				}
-				dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-				marker := "▼"
+				marker := "▶"
 				if ui.IsASCIIMode() {
-					marker = "v"
+					marker = ">"
 				}
 
-				// Calculate avg duration
+				// Aggregate summary with three-level degradation
+				var totalTok int
 				var totalDur float64
+				var errCount int
+				loadedCount := 0
 				for idx := g.StartIdx; idx < g.EndIdx; idx++ {
 					if filtered[idx].StepEntry != nil {
-						totalDur += filtered[idx].StepEntry.Summary.DurationMs
-					}
-				}
-				avgDur := totalDur / float64(len(g.StepNums))
-				avgLabel := formatTimelineDuration(avgDur)
-
-				aggSep := "▸"
-				if ui.IsASCIIMode() {
-					aggSep = ">"
-				}
-				headerLine := fmt.Sprintf("%s%s %d–%d %s %s × %d  avg %s",
-					cursorMark, marker,
-					g.StepNums[0], g.StepNums[len(g.StepNums)-1],
-					aggSep, g.ToolPath, len(g.StepNums), avgLabel)
-
-				// Add offset range if available
-				if showStepOffset {
-					var startOff, endOff string
-					for _, p := range m.processes {
-						if p.PID == m.selectedPID && (m.selectedUUID == "" || p.UUID == m.selectedUUID) {
-							if !p.CreatedAt.IsZero() {
-								startEv := filtered[g.StartIdx]
-								endEv := filtered[g.EndIdx-1]
-								if !startEv.Timestamp.IsZero() {
-									startOff = ui.FormatOffsetFromStart(startEv.Timestamp.Sub(p.CreatedAt))
-								}
-								if !endEv.Timestamp.IsZero() {
-									endOff = ui.FormatOffsetFromStart(endEv.Timestamp.Sub(p.CreatedAt))
-								}
-							}
-							break
+						s := filtered[idx].StepEntry.Summary
+						totalDur += s.DurationMs
+						if s.HasError {
+							errCount++
+						}
+						if detail := m.timeline.StepDetailCache[s.Step]; detail != nil {
+							totalTok += detail.InputTokens + detail.OutputTokens
+							loadedCount++
 						}
 					}
-					if startOff != "" && endOff != "" {
-						headerLine += dimStyle.Render(fmt.Sprintf("  %s–%s", startOff, endOff))
-					}
 				}
+
+				stepRange := fmt.Sprintf("step %d-%d", g.StepNums[0], g.StepNums[len(g.StepNums)-1])
+				var summaryParts []string
+				summaryParts = append(summaryParts, stepRange)
+
+				allLoaded := loadedCount == len(g.StepNums)
+				if loadedCount > 0 {
+					tokLabel := formatTokenCount(totalTok)
+					if !allLoaded {
+						tokLabel = "~" + tokLabel
+					}
+					summaryParts = append(summaryParts, tokLabel+" tok")
+				}
+				if errCount > 0 {
+					summaryParts = append(summaryParts, fmt.Sprintf("%d err", errCount))
+				}
+				if allLoaded {
+					summaryParts = append(summaryParts, formatTimelineDuration(totalDur))
+				}
+
+				bracketContent := strings.Join(summaryParts, " · ")
+				headerLine := fmt.Sprintf("%s%s %s x%d [%s]",
+					cursorMark, marker, g.ToolPath, len(g.StepNums), bracketContent)
 
 				if cursorInGroup {
 					headerLine = lipgloss.NewStyle().
@@ -623,22 +674,17 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				b.WriteString(truncateAnsi(headerLine, truncW))
 				b.WriteString("\n")
 				linesUsed++
-				// Skip to end of group (startIdx handled, rest in aggSkipSet)
 				continue
 			}
-			// Expanded group: render header then fall through to individual steps
+			// Story 41-3 AC4: expanded group header — ▼ marker
 			dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
-			marker := "▽"
+			marker := "▼"
 			if ui.IsASCIIMode() {
-				marker = "V"
+				marker = "v"
 			}
-			aggSep := "▸"
-			if ui.IsASCIIMode() {
-				aggSep = ">"
-			}
-			expandHeader := fmt.Sprintf("  %s %d–%d %s %s × %d",
-				marker, g.StepNums[0], g.StepNums[len(g.StepNums)-1],
-				aggSep, g.ToolPath, len(g.StepNums))
+			expandHeader := fmt.Sprintf("  %s %s x%d [step %d-%d]",
+				marker, g.ToolPath, len(g.StepNums),
+				g.StepNums[0], g.StepNums[len(g.StepNums)-1])
 			b.WriteString(dimStyle.Render(expandHeader))
 			b.WriteString("\n")
 			linesUsed++
@@ -920,6 +966,29 @@ func (m *dashboardModel) ensureStepCursorVisible(viewportLines int) {
 
 // --- Step timeline helpers ---
 
+// autoExpandGroupForCursor auto-expands any collapsed group that contains
+// the current StepCursor, ensuring the target step is visible after a
+// cross-pane jump (Story 41-3 AC8).
+func (m *dashboardModel) autoExpandGroupForCursor() {
+	filtered := m.filteredUnifiedEvents()
+	if len(filtered) == 0 {
+		return
+	}
+	cursor := m.timeline.StepCursor
+	for _, g := range buildToolAggGroups(filtered) {
+		if cursor > g.StartIdx && cursor < g.EndIdx {
+			key := g.StepNums[0]
+			if !m.timeline.ExpandedAggGroups[key] {
+				if m.timeline.ExpandedAggGroups == nil {
+					m.timeline.ExpandedAggGroups = make(map[int]bool)
+				}
+				m.timeline.ExpandedAggGroups[key] = true
+			}
+			break
+		}
+	}
+}
+
 // formatTokenCount — thin wrapper · 见 internal/dashboard/timeline.FormatTokenCount
 func formatTokenCount(tokens int) string {
 	return timeline.FormatTokenCount(tokens)
@@ -949,6 +1018,20 @@ func truncateAnsi(s string, maxWidth int) string {
 // Story 36-4 expandMode + safety net 行为契约保留（迁出包内已显式测试 7 项）.
 func (m dashboardModel) applyNewSteps(steps []ipc.StepSummaryWire) dashboardModel {
 	m.timeline = timeline.ApplyNewSteps(m.timeline, steps)
+	// AC7: sticky mode decides initial fold state for new groups.
+	// When ExpandMode=all, auto-expand groups that have no explicit override.
+	if m.timeline.ExpandMode == expandModeExpanded {
+		filtered := m.filteredUnifiedEvents()
+		for _, g := range buildToolAggGroups(filtered) {
+			key := g.StepNums[0]
+			if _, exists := m.timeline.ExpandedAggGroups[key]; !exists {
+				if m.timeline.ExpandedAggGroups == nil {
+					m.timeline.ExpandedAggGroups = make(map[int]bool)
+				}
+				m.timeline.ExpandedAggGroups[key] = true
+			}
+		}
+	}
 	return m
 }
 

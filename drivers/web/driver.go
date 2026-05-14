@@ -451,10 +451,7 @@ func (f *WebFile) Write(ctx context.Context, data []byte) error {
 		if backendErr != nil {
 			return backendErr
 		}
-		maxResults := req.MaxResults
-		if maxResults > 20 {
-			maxResults = 20
-		}
+		maxResults := min(req.MaxResults, 20)
 		params := SearchParams{
 			Query:          req.Query,
 			AllowedDomains: req.AllowedDomains,

@@ -582,6 +582,7 @@ func (m dashboardModel) resolveAlertJumpTarget() dashboardModel {
 	for i, ev := range filtered {
 		if ev.Type == target.Type && ev.Timestamp.Equal(target.Timestamp) && ev.PID == target.PID {
 			m.timeline.StepCursor = i
+			m.autoExpandGroupForCursor()
 			break
 		}
 	}

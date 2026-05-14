@@ -35,11 +35,9 @@ type StateProvider interface {
 	TimelineState() TimelineState
 }
 
-// ExpandLabels 是 TimelineExpandMode 的标签字符串，用于 ActiveModesFn 的「expand」mode 取值。
-//
-// 顺序与 TimelineExpandMode 取值（Collapsed=0, Expanded=1, ErrorsOnly=2）严格对齐。
-// cmd/rnix 端可直接以 ExpandLabels[mode] 形式取标签（越界回退由 KeyLayer 内部处理）。
-var ExpandLabels = []string{"collapsed", "all", "errors"}
+// ExpandLabels 是 expand mode 的标签字符串集合。
+// Story 41-3 AC5: 新增 "manual" 值（当 ExpandedAggGroups 有手动 toggle 时）。
+var ExpandLabels = []string{"collapsed", "all", "errors", "manual"}
 
 // KeyLayer 返回 Timeline pane 的 Layer 2 KeyLayer 注册体。
 //
@@ -93,8 +91,7 @@ func KeyLayer(fallback ui.KeyHandler) *ui.KeyLayer {
 			if s.StepFilterMode {
 				modes = append(modes, ui.Mode{Name: "filter", Value: "on"})
 			}
-			expandLabel := expandLabel(s.ExpandMode)
-			modes = append(modes, ui.Mode{Name: "expand", Value: expandLabel})
+			modes = append(modes, ui.Mode{Name: "expand", Value: expandLabel(s)})
 			return modes
 		},
 	}
@@ -111,17 +108,19 @@ func KeyLayer(fallback ui.KeyHandler) *ui.KeyLayer {
 	return l
 }
 
-// expandLabel 把 TimelineExpandMode 映射为 ActiveModesFn 中「expand」mode 的字符串值。
-//
-// 越界保护：未知值回退为 "collapsed"（与 cmd/rnix 端 pre-PR4 默认值语义一致）。
-func expandLabel(mode TimelineExpandMode) string {
-	switch mode {
+// expandLabel returns the mode strip label for the current expand/fold state.
+// Story 41-3 AC5: returns "manual" when any group has been manually expanded.
+func expandLabel(s TimelineState) string {
+	for _, expanded := range s.ExpandedAggGroups {
+		if expanded {
+			return "manual"
+		}
+	}
+	switch s.ExpandMode {
 	case ExpandModeExpanded:
 		return "all"
 	case ExpandModeErrorsOnly:
 		return "errors"
-	case ExpandModeCollapsed:
-		return "collapsed"
 	default:
 		return "collapsed"
 	}

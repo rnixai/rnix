@@ -57,18 +57,28 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			return m, nil
 		}
 
-		// Semantic tool aggregation group toggle (Story 36.3 AC#4)
+		// Story 41-3 AC2: Enter context-aware — only toggle fold when cursor
+		// is at group StartIdx; otherwise fall through to drill-in (v/enter).
 		if key == "enter" && len(filteredStep) <= 100 {
 			filtered := m.filteredUnifiedEvents()
 			if len(filtered) > 0 {
 				aggGroups := buildToolAggGroups(filtered)
 				cursorPos := min(m.timeline.StepCursor, len(filtered)-1)
 				for _, g := range aggGroups {
-					if cursorPos >= g.StartIdx && cursorPos < g.EndIdx {
+					if cursorPos == g.StartIdx {
 						if m.timeline.ExpandedAggGroups == nil {
 							m.timeline.ExpandedAggGroups = make(map[int]bool)
 						}
-						m.timeline.ExpandedAggGroups[g.StepNums[0]] = !m.timeline.ExpandedAggGroups[g.StepNums[0]]
+						wasExpanded := m.timeline.ExpandedAggGroups[g.StepNums[0]]
+						m.timeline.ExpandedAggGroups[g.StepNums[0]] = !wasExpanded
+						start := g.StepNums[0]
+						end := g.StepNums[len(g.StepNums)-1]
+						if wasExpanded {
+							m.statusMsg = fmt.Sprintf("Group [%d-%d] collapsed", start, end)
+						} else {
+							m.statusMsg = fmt.Sprintf("Group [%d-%d] expanded", start, end)
+						}
+						m.statusMsgTTL = statusMsgDefaultTTL
 						return m, nil
 					}
 				}

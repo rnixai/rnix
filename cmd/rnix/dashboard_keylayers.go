@@ -255,6 +255,7 @@ func registerLayer0(d *ui.Dispatcher) {
 			for i, ev := range filtered {
 				if ev.Type == alert.Type && ev.Timestamp.Equal(alert.Timestamp) && ev.PID == alert.PID {
 					m.timeline.StepCursor = i
+					m.autoExpandGroupForCursor()
 					break
 				}
 			}

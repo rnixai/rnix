@@ -132,6 +132,19 @@ VFS device registration must declare full ToolDef metadata:
 - Use ShouldDefer + SearchHint for non-core devices
 - Device descriptions use Go embed templates (not hardcoded strings)
 
+### Timeline Fold & Navigation (Story 41-3)
+
+**toolAggGroup vs RootIntent**: These are distinct fold granularities. toolAggGroup (≥3 consecutive steps with same ToolPath, defined in `event.BuildToolAggGroups`) is the Timeline pane's fold unit. RootIntent is the Intent pane's collapse unit. Do not confuse them.
+
+**HasExpandableContent**: Returns false when detail is loaded but has no additional content beyond the summary. This is by design — "already loaded, nothing new to show" is not a bug.
+
+**V2.1 key bindings**:
+- `j`/`k`/`↑`/`↓` — visible-row navigation (skips collapsed group internals)
+- `Enter` — context-aware: on group header → toggle fold; on leaf → drill-in (Level 2 expand)
+- `[`/`]` — dual-mode: no search → jump to prev/next group; search active → cycle matches
+- `e`/`E`/`C` — sticky expand mode (unchanged)
+- Fold markers: `▶` = collapsed, `▼` = expanded (ASCII: `>` / `v`)
+
 ## BMAD Workflow
 
 Story artifacts live in `_bmad-output/implementation-artifacts/`. Sprint status tracked in `sprint-status.yaml`. Development follows the BMAD pipeline: create-story → ATDD → dev-story → code-review → traceability.
