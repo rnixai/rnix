@@ -31,6 +31,8 @@ type ProcInfo struct {
 	UUID           string
 	OriginUUID     string // non-empty when forked from another process (resume --fork)
 	ResumedFromStep int   // step number from which this process was resumed
+	ExitReason     string // exit reason (e.g. "context_full", "complete", ...) — used by resume to detect context_full
+	CtxSize        int    // context message slot limit at allocation (preserves original size on resume)
 	PPID           types.PID
 	ParentUUID     string // UUID of parent process — used for accurate tree building across PID reuse
 	State          types.ProcessState

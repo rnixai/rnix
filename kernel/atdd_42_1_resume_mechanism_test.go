@@ -12,11 +12,12 @@ import (
 )
 
 // =============================================================================
-// ATDD 42.1: Resume 机制层 — 红阶段测试脚手架
+// ATDD 42.1: Resume 机制层 — 验收测试
 //
-// TDD RED PHASE: 所有测试使用 t.Skip() 标记。
-// 红阶段失败原因：ResumeWithOpts 桩返回 ErrInternal("not implemented")
-// 实现时将桩替换为真实逻辑，逐步移除 t.Skip() 验证绿阶段。
+// Tests cover all 7 ACs from the story spec across 9 unit + 3 integration scenarios.
+// Helpers (setupResumeKernel, writeTestCheckpoint, cleanupResumedProc) are shared
+// with the 30-4 series in resume_test.go; 42-1-specific helpers live in
+// atdd_42_1_helpers_test.go.
 // =============================================================================
 
 // --- 42.1-UNIT-001: Dead 进程通过 ResumeFromHistory 恢复 (AC#1) ---
@@ -48,7 +49,15 @@ func TestATDD_42_1_001_DeadProcess_ResumeFromHistory(t *testing.T) {
 	if !ok {
 		t.Fatal("resumed process not in procTable")
 	}
-	time.Sleep(50 * time.Millisecond)
+	// Poll for state transition rather than blanket sleep (resilient on busy CI).
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		s := proc.GetState()
+		if s == types.StateRunning || s == types.StateZombie {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	if s := proc.GetState(); s != types.StateRunning && s != types.StateZombie {
 		t.Errorf("state = %s, want Running or Zombie", s)
 	}
@@ -98,13 +107,33 @@ func TestATDD_42_1_003_ContextFull_ResumeTriggersCompact(t *testing.T) {
 	if !ok {
 		t.Fatal("resumed process not in procTable")
 	}
-	time.Sleep(100 * time.Millisecond)
+
+	// AC#3 verification: Compact must be triggered for context_full resume.
+	// Poll DebugChan for Compact event with trigger "context_full_resume" up to 1s.
+	// Without this assertion, the Compact path could be silently broken (the
+	// original UNIT-003 only checked state, masking the isContextFull field bug).
+	deadline := time.Now().Add(1 * time.Second)
+	foundCompact := false
+	for time.Now().Before(deadline) && !foundCompact {
+		select {
+		case evt := <-proc.DebugChan:
+			if evt.Syscall == "Compact" {
+				if trigger, _ := evt.Args["trigger"].(string); trigger == "context_full_resume" {
+					foundCompact = true
+				}
+			}
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	if !foundCompact {
+		t.Errorf("AC#3 violated: no Compact event with trigger=context_full_resume observed within 1s — isContextFull detection or Compact dispatch is broken")
+	}
+
 	if s := proc.GetState(); s != types.StateRunning && s != types.StateZombie {
 		t.Errorf("state = %s, want Running or Zombie", s)
 	}
 	cleanupResumedProc(t, k, result.PID)
 }
-// PLACEHOLDER_TESTS_PART2
 
 // --- 42.1-UNIT-004: --fork 生成新 UUID + origin_uuid 记录 (AC#4) ---
 
@@ -130,6 +159,20 @@ func TestATDD_42_1_004_ForkMode_NewUUID_OriginTracked(t *testing.T) {
 
 	newStepsDir := filepath.Join(baseDir, "data", "steps", result.UUID)
 	infoPath := filepath.Join(newStepsDir, "proc-info.json")
+
+	// AC#4 verification: origin_uuid must be set in memory on the new process.
+	// proc-info.json is only written at reap time, so disk verification is
+	// best-effort here — but the in-memory field MUST be correct unconditionally
+	// (the original test silently passed when readFile failed, masking bugs).
+	newProc, ok := k.GetProcess(result.PID)
+	if !ok {
+		t.Fatalf("forked process %d not found in procTable", result.PID)
+	}
+	if newProc.OriginUUID != originalUUID {
+		t.Errorf("proc.OriginUUID = %q, want %q (AC#4)", newProc.OriginUUID, originalUUID)
+	}
+
+	// Best-effort disk verification (only if proc-info.json was written).
 	if infoData, readErr := os.ReadFile(infoPath); readErr == nil {
 		var info struct {
 			OriginUUID string `json:"origin_uuid"`
@@ -138,7 +181,7 @@ func TestATDD_42_1_004_ForkMode_NewUUID_OriginTracked(t *testing.T) {
 			t.Fatalf("parse proc-info.json: %v", err)
 		}
 		if info.OriginUUID != originalUUID {
-			t.Errorf("origin_uuid = %q, want %q", info.OriginUUID, originalUUID)
+			t.Errorf("disk origin_uuid = %q, want %q", info.OriginUUID, originalUUID)
 		}
 	}
 	cleanupResumedProc(t, k, result.PID)
@@ -169,7 +212,6 @@ func TestATDD_42_1_005_Suspended_OriginalPath(t *testing.T) {
 	}
 	cleanupResumedProc(t, k, result.PID)
 }
-// PLACEHOLDER_TESTS_PART3
 
 // --- 42.1-UNIT-006: 数据不存在返回 ErrNotFound (AC#6) ---
 

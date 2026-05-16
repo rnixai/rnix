@@ -48,6 +48,15 @@ func runResume(cmd *cobra.Command, args []string) error {
 	if _, parseErr := strconv.ParseUint(arg, 10, 64); parseErr == nil {
 		// Argument looks like a PID — resolve to UUID
 		pid, _ := strconv.ParseUint(arg, 10, 64)
+		if pid == 0 {
+			ui.RenderError(renderer,
+				"PID 0",
+				"reserved for init",
+				"resume PID 0 failed: PID 0 is reserved for init and cannot be resumed",
+				"rnix ps  to see active processes")
+			exitCode = 1
+			return nil
+		}
 		procs, listErr := client.ListAllProcs()
 		if listErr != nil {
 			ui.RenderError(renderer,
@@ -91,11 +100,11 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	mode_label := "resumed"
+	modeLabel := "resumed"
 	if resumeFork {
-		mode_label = "forked"
+		modeLabel = "forked"
 	}
 	fmt.Fprintf(os.Stdout, "Process %s: PID %d (UUID %s), continuing from step %d\n",
-		mode_label, resp.PID, resp.UUID, resp.ResumedFromStep)
+		modeLabel, resp.PID, resp.UUID, resp.ResumedFromStep)
 	return nil
 }

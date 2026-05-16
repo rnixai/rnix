@@ -125,6 +125,8 @@ type procInfoDisk struct {
 	UUID           string   `json:"uuid"`
 	OriginUUID     string   `json:"origin_uuid,omitempty"`
 	ResumedFromStep int     `json:"resumed_from_step,omitempty"`
+	ExitReason     string   `json:"exit_reason,omitempty"`
+	CtxSize        int      `json:"ctx_size,omitempty"`
 	PPID           uint64   `json:"ppid"`
 	ParentUUID     string   `json:"parent_uuid,omitempty"`
 	State          string   `json:"state"`
@@ -153,6 +155,8 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		UUID:            info.UUID,
 		OriginUUID:      info.OriginUUID,
 		ResumedFromStep: info.ResumedFromStep,
+		ExitReason:      info.ExitReason,
+		CtxSize:         info.CtxSize,
 		PPID:            uint64(info.PPID),
 		ParentUUID:      info.ParentUUID,
 		State:          info.State.String(),
@@ -185,6 +189,8 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		UUID:            d.UUID,
 		OriginUUID:      d.OriginUUID,
 		ResumedFromStep: d.ResumedFromStep,
+		ExitReason:      d.ExitReason,
+		CtxSize:         d.CtxSize,
 		PPID:            types.PID(d.PPID),
 		ParentUUID:      d.ParentUUID,
 		State:          parseProcessState(d.State),

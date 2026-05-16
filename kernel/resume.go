@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,38 @@ type ResumeOpts struct {
 	Fork bool // true = new UUID + origin_uuid tracking; false = inherit original UUID
 }
 
+// cleanupOldProcessAndHistory removes the old in-memory Process and procHistory
+// entry that share the resume UUID. It is a no-op when fork=true (preserving
+// the original lineage for the forked branch). Called by both resumeFromCheckpoint
+// and resumeFromHistory after all new-process allocations succeed.
+func (k *KernelImpl) cleanupOldProcessAndHistory(oldProc *Process, uuid string, fork bool) {
+	if fork {
+		return
+	}
+	if oldProc != nil {
+		if oldProc.CtxID > 0 {
+			_ = k.ctxMgr.CtxFree(oldProc.CtxID)
+		}
+		k.procTable.Delete(oldProc.PID)
+		if queue, ok := k.msgQueues.LoadAndDelete(oldProc.PID); ok {
+			queue.close()
+		}
+	}
+	k.procHistory.RemoveByUUID(uuid)
+}
+
+// checkpointExists reports whether a checkpoint.json file is present on disk
+// for the given UUID. Used by ResumeWithOpts to apply the spec L114-117
+// checkpoint > history preference uniformly across all routing branches.
+func checkpointExists(baseDir, uuid string) bool {
+	if baseDir == "" || uuid == "" {
+		return false
+	}
+	cpPath := filepath.Join(baseDir, "data", "steps", uuid, "checkpoint.json")
+	_, err := os.Stat(cpPath)
+	return err == nil
+}
+
 // isValidUUIDFormat validates that a UUID string contains only safe characters
 // (alphanumeric and dashes) to prevent path traversal attacks.
 func isValidUUIDFormat(uuid string) bool {
@@ -47,220 +80,14 @@ func isValidUUIDFormat(uuid string) bool {
 // It reads the checkpoint from disk, creates a new Process with a new PID,
 // restores all state, and resumes the reasoning loop from the next step.
 // The original UUID is preserved; the PID is newly allocated.
+//
+// Resume is a thin wrapper over ResumeWithOpts(uuid, ResumeOpts{}) — kept for
+// backward compatibility with existing callers (30-4 tests, IPC client). All new
+// code paths should call ResumeWithOpts directly. The previous standalone
+// implementation has been removed; ResumeWithOpts → resumeFromCheckpoint is
+// the single source of truth.
 func (k *KernelImpl) Resume(uuid string) (*ResumeResult, error) {
-	start := time.Now()
-
-	// --- Validation phase (no state mutations) ---
-
-	if uuid == "" {
-		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("empty UUID"), types.ErrInvalid)
-	}
-
-	// P5: Validate UUID format to prevent path traversal
-	if !isValidUUIDFormat(uuid) {
-		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("invalid UUID format: %s", uuid), types.ErrInvalid)
-	}
-
-	// P4: Serialize concurrent Resume calls
-	k.resumeMu.Lock()
-	defer k.resumeMu.Unlock()
-
-	// 1. Locate checkpoint directory
-	baseDir := k.stepDataDir
-	if baseDir == "" {
-		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("step data directory not configured"), types.ErrInternal)
-	}
-	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
-
-	// 2. Read and validate checkpoint
-	cpData, err := ReadCheckpointPublic(stepsDir)
-	if err != nil {
-		if os.IsNotExist(err) || strings.Contains(err.Error(), "checkpoint read") {
-			return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("checkpoint not found for UUID %s", uuid), types.ErrNotFound)
-		}
-		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("checkpoint corrupted: %w", err), types.ErrInvalid)
-	}
-
-	if cpData.UUID != uuid {
-		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("checkpoint UUID mismatch: got %s, want %s", cpData.UUID, uuid), types.ErrInvalid)
-	}
-
-	cp := cpData.ProcState
-
-	// P7: Pre-flight check — reject resume when already at max step
-	startStep := cpData.LastStep + 1
-	if cp.MaxSteps > 0 && startStep > cp.MaxSteps {
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("checkpoint at max step %d/%d — nothing to resume", cpData.LastStep, cp.MaxSteps), types.ErrInvalid)
-	}
-
-	// 3. Check if old process exists (P2: don't remove yet — validate first for AC#10)
-	var oldProc *Process
-	if found, ok := k.GetProcessByUUID(uuid); ok {
-		oldState := found.GetState()
-		if oldState != types.StateSuspended {
-			return nil, NewSyscallError("Resume", found.PID, "",
-				fmt.Errorf("process with UUID %s is in %s state, not suspended", uuid, oldState), types.ErrInvalid)
-		}
-		oldProc = found
-	}
-
-	// 4. Validate LLM provider BEFORE any mutations (AC#10: keep Suspended on failure)
-	llmDevice, _, resolveErr := k.resolveLLMDevice(nil, cp.Provider)
-	if resolveErr != nil {
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("LLM provider %q not available: %w", cp.Provider, resolveErr), types.ErrDriver)
-	}
-
-	// --- Mutation phase (all validations passed) ---
-
-	// P2+P3: Remove old Suspended process AFTER validation; free its CtxID
-	if oldProc != nil {
-		if oldProc.CtxID > 0 {
-			_ = k.ctxMgr.CtxFree(oldProc.CtxID)
-		}
-		k.procTable.Delete(oldProc.PID)
-		if queue, ok := k.msgQueues.LoadAndDelete(oldProc.PID); ok {
-			queue.close()
-		}
-	}
-
-	// 5. Clean procHistory to avoid UUID conflict (daemon restart scenario)
-	k.procHistory.RemoveByUUID(uuid)
-
-	// 6. Create new Process
-	proc := NewProcess(0, cp.Intent, cp.Skills)
-	proc.UUID = uuid // Preserve original UUID
-	proc.Provider = cp.Provider
-	proc.Model = cp.Model
-	proc.AllowedDevices = append([]string(nil), cp.AllowedDevices...)
-	proc.MaxSteps = cp.MaxSteps
-	proc.mu.Lock()
-	proc.TokensUsed = cp.UsedTokens
-	proc.Budget = ProcessBudget{
-		MaxTokens: cp.MaxTokens,
-		MaxCost:   cp.MaxCost,
-		UsedCost:  cp.UsedCost,
-	}
-	proc.mu.Unlock()
-
-	// 7. Allocate context and deserialize snapshot
-	resumeCtxSize := DefaultCtxSize
-	if cp.CtxSize > 0 {
-		resumeCtxSize = cp.CtxSize
-	}
-	proc.CtxSize = resumeCtxSize
-	cid, err := k.ctxMgr.CtxAlloc(resumeCtxSize)
-	if err != nil {
-		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context alloc: %w", err), types.ErrInternal)
-	}
-	proc.CtxID = cid
-
-	ctx, getErr := k.ctxMgr.GetContext(cid)
-	if getErr != nil {
-		_ = k.ctxMgr.CtxFree(cid)
-		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context get: %w", getErr), types.ErrInternal)
-	}
-	if err := ctx.Deserialize(cpData.ContextSnapshot); err != nil {
-		_ = k.ctxMgr.CtxFree(cid)
-		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context deserialize: %w", err), types.ErrInternal)
-	}
-
-	// P8: stepsDir and checkpointErrCh are set by reasonStep — no need to set here
-
-	// 8. StepTimeout: default 5 minutes (agent manifest not available during resume)
-	proc.mu.Lock()
-	proc.StepTimeout = 5 * time.Minute
-	proc.LastHeartbeat = time.Now()
-	proc.mu.Unlock()
-
-	// 9. Env snapshot comparison — warn on differences (non-fatal)
-	if len(cp.EnvSnapshot) > 0 {
-		k.compareEnvSnapshot(proc, cp.EnvSnapshot)
-	}
-
-	// 10. Open LLM device
-	proc.PrimaryDevice = llmDevice
-	llmFD, openErr := k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
-	if openErr != nil {
-		_ = k.ctxMgr.CtxFree(cid)
-		return nil, NewSyscallError("Resume", proc.PID, llmDevice,
-			fmt.Errorf("LLM device open failed: %w", openErr), types.ErrDriver)
-	}
-	proc.FDTable[llmFD] = nil
-
-	// Set up stream handler
-	k.setupDriverStreamHandler(proc, llmFD)
-
-	// P1: Cancel the context that NewProcess() created before overwriting
-	proc.cancel()
-	gctx, cancel := gocontext.WithCancel(gocontext.Background())
-	proc.cancel = cancel
-	proc.ctx = gctx
-
-	// 11. Register process in table
-	k.AddProcess(proc)
-	k.msgQueues.Store(proc.PID, newMessageQueue())
-
-	// 12. Restore SuspendReason for resume-time compact decision
-	proc.mu.Lock()
-	proc.SuspendReason = cp.SuspendReason
-	proc.mu.Unlock()
-
-	// 13. Launch reasoning goroutine from checkpoint step + 1
-	opts := SpawnOpts{
-		Model:     cp.Model,
-		StartStep: startStep,
-	}
-
-	k.emitEvent(proc, "Resume", map[string]any{
-		"uuid":       uuid,
-		"from_step":  startStep,
-		"provider":   cp.Provider,
-		"model":      cp.Model,
-		"checkpoint": cpData.LastStep,
-	}, proc.PID, nil, time.Since(start))
-
-	proc.wg.Go(func() {
-		defer func() { _ = k.vfs.CloseAll(proc.PID) }()
-		_ = proc.Start() // Created → Running
-
-		if cp.SuspendReason == "context_full" {
-			proc.compactMu.Lock()
-			compactOpts := rnixctx.CompactOpts{
-				LLMCall:       k.BuildCompactLLMCall(proc),
-				Trigger:       "context_full_resume",
-				ReadFileState: k.SnapshotReadFileState(proc),
-				ActiveSkills:  k.BuildActiveSkills(proc),
-				ActivePlan:    k.extractActivePlan(proc.CtxID),
-			}
-			_, compactErr := k.ctxMgr.Compact(proc.CtxID, compactOpts)
-			proc.compactMu.Unlock()
-			if compactErr != nil {
-				log.Printf("[kernel] pid=%d resume compact failed: %v", proc.PID, compactErr)
-				k.finishProcess(proc, ExitStatus{Code: ExitContextFull, Reason: "context_full: resume compact failed", Err: compactErr})
-				return
-			}
-			k.ClearReadFileState(proc)
-			proc.mu.Lock()
-			proc.SuspendReason = ""
-			proc.mu.Unlock()
-		}
-
-		k.reasonStep(proc, llmFD, opts)
-	})
-
-	if k.callbacks != nil {
-		k.callbacks.OnSpawn(proc.PID, proc.Intent, proc.Provider, proc.Model, proc.UUID)
-	}
-
-	log.Printf("[kernel] resume uuid=%s new_pid=%d from_step=%d (took %v)", uuid, proc.PID, startStep, time.Since(start))
-
-	return &ResumeResult{
-		PID:             proc.PID,
-		UUID:            uuid,
-		ResumedFromStep: startStep,
-	}, nil
+	return k.ResumeWithOpts(uuid, ResumeOpts{})
 }
 
 // compareEnvSnapshot compares checkpoint env snapshot with current environment
@@ -321,7 +148,11 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 			return nil, NewSyscallError("Resume", found.PID, "",
 				fmt.Errorf("process with UUID %s is in Running state, cannot resume", uuid), types.ErrInvalid)
 		case types.StateDead, types.StateZombie:
-			// History-based resume
+			// Prefer checkpoint.json if present (spec L114-117: checkpoint > history).
+			// Falls back to history-based resume when no checkpoint was written.
+			if checkpointExists(baseDir, uuid) {
+				return k.resumeFromCheckpoint(uuid, opts, start)
+			}
 			return k.resumeFromHistory(uuid, opts, start)
 		default:
 			return nil, NewSyscallError("Resume", found.PID, "",
@@ -340,9 +171,9 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 			fmt.Errorf("stat steps dir: %w", err), types.ErrInternal)
 	}
 
-	// Prefer checkpoint path if checkpoint.json exists
-	cpPath := filepath.Join(stepsDir, "checkpoint.json")
-	if _, err := os.Stat(cpPath); err == nil {
+	// Prefer checkpoint path if checkpoint.json exists (shared with the
+	// Dead/Zombie branch above via the checkpointExists helper).
+	if checkpointExists(baseDir, uuid) {
 		return k.resumeFromCheckpoint(uuid, opts, start)
 	}
 
@@ -386,27 +217,31 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	}
 
 	if oldProc != nil {
-		if oldProc.CtxID > 0 {
-			_ = k.ctxMgr.CtxFree(oldProc.CtxID)
-		}
-		k.procTable.Delete(oldProc.PID)
-		if queue, ok := k.msgQueues.LoadAndDelete(oldProc.PID); ok {
-			queue.close()
-		}
+		// Defer cleanup of old process to AFTER all allocations succeed
+		// (see post-Open block). This avoids destroying the original on early failure.
+		// fork=true skips cleanup entirely so original keeps running.
+		_ = oldProc
 	}
-
-	k.procHistory.RemoveByUUID(uuid)
 
 	proc := NewProcess(0, cp.Intent, cp.Skills)
 	if opts.Fork {
+		// Fork mode: NewProcess already generated a fresh UUIDv7; assert it
+		// differs from the origin to make the intent explicit (defensive against
+		// future NewProcess refactors).
+		if proc.UUID == "" || proc.UUID == uuid {
+			return nil, NewSyscallError("Resume", proc.PID, "",
+				fmt.Errorf("fork: new UUID generation produced empty or duplicate UUID %q", proc.UUID), types.ErrInternal)
+		}
 		proc.OriginUUID = uuid
 	} else {
+		// Non-fork: inherit original UUID
 		proc.UUID = uuid
 	}
 	proc.Provider = cp.Provider
 	proc.Model = cp.Model
 	proc.AllowedDevices = append([]string(nil), cp.AllowedDevices...)
 	proc.MaxSteps = cp.MaxSteps
+	proc.ResumedFromStep = startStep
 	proc.mu.Lock()
 	proc.TokensUsed = cp.UsedTokens
 	proc.Budget = ProcessBudget{MaxTokens: cp.MaxTokens, MaxCost: cp.MaxCost, UsedCost: cp.UsedCost}
@@ -452,7 +287,13 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	proc.FDTable[llmFD] = nil
 	k.setupDriverStreamHandler(proc, llmFD)
 
-	proc.cancel()
+	// All allocations and Open succeeded — now safe to clean up old process and
+	// procHistory entry (skip entirely when forking, so original keeps running).
+	k.cleanupOldProcessAndHistory(oldProc, uuid, opts.Fork)
+
+	if proc.cancel != nil {
+		proc.cancel() // release ctx created by NewProcess (no listeners yet, but be defensive)
+	}
 	gctx, cancel := gocontext.WithCancel(gocontext.Background())
 	proc.cancel = cancel
 	proc.ctx = gctx
@@ -561,6 +402,13 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 		return nil, NewSyscallError("Resume", 0, "",
 			fmt.Errorf("parse process-meta.json: %w", err), types.ErrInternal)
 	}
+	if meta.SystemPrompt == "" {
+		// Without the system prompt the LLM has no role/capability context.
+		// Reject the resume so the caller knows the snapshot is incomplete
+		// rather than silently launching a "blank-prompt" agent.
+		return nil, NewSyscallError("Resume", 0, "",
+			fmt.Errorf("system_prompt missing in process-meta.json for UUID %s", uuid), types.ErrInvalid)
+	}
 
 	// Read steps.jsonl to determine last step and rebuild messages
 	stepsPath := filepath.Join(stepsDir, "steps.jsonl")
@@ -570,10 +418,14 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	}
 
 	startStep := lastStep + 1
-	provider := diskInfo.Provider
-	if provider == "" {
-		provider = "claude"
+	if diskInfo.Provider == "" {
+		// Don't silently fall back to "claude" — the original process may have
+		// been running on cursor/openai/etc and the behavior/cost/model contract
+		// would diverge silently.
+		return nil, NewSyscallError("Resume", 0, "",
+			fmt.Errorf("provider missing in proc-info.json for UUID %s", uuid), types.ErrInvalid)
 	}
+	provider := diskInfo.Provider
 
 	llmDevice, _, resolveErr := k.resolveLLMDevice(nil, provider)
 	if resolveErr != nil {
@@ -581,36 +433,103 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 			fmt.Errorf("LLM provider %q not available: %w", provider, resolveErr), types.ErrDriver)
 	}
 
-	// Remove old Dead/Zombie process from procTable if present
+	// Locate old Dead/Zombie process if present (cleanup deferred until all
+	// allocations succeed; skipped entirely when forking so original is preserved).
+	var oldProc *Process
 	if found, ok := k.GetProcessByUUID(uuid); ok {
-		if found.CtxID > 0 {
-			_ = k.ctxMgr.CtxFree(found.CtxID)
-		}
-		k.procTable.Delete(found.PID)
-		if queue, ok := k.msgQueues.LoadAndDelete(found.PID); ok {
-			queue.close()
-		}
+		oldProc = found
 	}
-
-	k.procHistory.RemoveByUUID(uuid)
 
 	// Create new process
 	proc := NewProcess(0, diskInfo.Intent, diskInfo.Skills)
 	if opts.Fork {
+		// Fork mode: NewProcess already generated a fresh UUIDv7; assert it
+		// differs from the origin to make the intent explicit. The UUIDv7
+		// time-ordered generator makes a collision practically impossible,
+		// but defensive checking guards against future refactors of NewProcess.
+		if proc.UUID == "" || proc.UUID == uuid {
+			return nil, NewSyscallError("Resume", proc.PID, "",
+				fmt.Errorf("fork: new UUID generation produced empty or duplicate UUID %q", proc.UUID), types.ErrInternal)
+		}
 		proc.OriginUUID = uuid
 	} else {
+		// Non-fork: inherit original UUID
 		proc.UUID = uuid
 	}
 	proc.Provider = provider
 	proc.Model = diskInfo.Model
 	proc.AllowedDevices = append([]string(nil), diskInfo.AllowedDevices...)
 	proc.MaxSteps = diskInfo.MaxSteps
+	proc.ResumedFromStep = startStep
+	// Restore additional state captured on disk so the resumed process is not a
+	// stripped-down shadow of the original (Edge Case Hunter Finding #5 & #10).
+	proc.ParentUUID = diskInfo.ParentUUID
+	proc.ContextBudget = diskInfo.ContextBudget
+	proc.ContextWindow = diskInfo.ContextWindow
+	proc.ComposeNode = diskInfo.ComposeNode
+	proc.ComposeDeps = append([]string(nil), diskInfo.ComposeDeps...)
+	proc.PipelineIndex = diskInfo.PipelineIndex
+	proc.PipelineTotal = diskInfo.PipelineTotal
 	proc.mu.Lock()
 	proc.TokensUsed = diskInfo.TokensUsed
 	proc.mu.Unlock()
 
-	// Allocate context and rebuild from steps
-	resumeCtxSize := DefaultCtxSize
+	// Rebuild toolMap + nativeToolDefs from VFS DeviceRegistry + AllowedDevices.
+	// Without this, resume processes have nil tool definitions and cannot perform
+	// any tool calls (LLM gets req.Tools = nil). Mirrors observe.go:682-690.
+	vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
+	metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled, proc.DeferredSkills)
+	allDefs := make([]vfs.ToolDef, 0, len(vfsDefs)+len(metaDefs))
+	allDefs = append(allDefs, vfsDefs...)
+	allDefs = append(allDefs, metaDefs...)
+	proc.mu.Lock()
+	proc.nativeToolDefs = allDefs
+	proc.toolMap = make(map[string]toolMapping, len(vfsMap)+len(metaMap))
+	maps.Copy(proc.toolMap, vfsMap)
+	maps.Copy(proc.toolMap, metaMap)
+	proc.mu.Unlock()
+	// Rehydrate SkillBodies / SkillDirs from the skillLoader (Edge Case Hunter
+	// Finding #15). Without these, BuildPrompt degrades to skill names only and
+	// claude-cli bundle symlink creation fails.
+	if k.skillLoader != nil && len(proc.Skills) > 0 {
+		bodies := make(map[string]string, len(proc.Skills))
+		dirs := make(map[string]string, len(proc.Skills))
+		for _, skillName := range proc.Skills {
+			info, err := k.skillLoader(skillName)
+			if err != nil || info == nil {
+				log.Printf("[resume] skill %q not loadable: %v (continuing with degraded prompt)", skillName, err)
+				continue
+			}
+			if info.Body != "" {
+				body := info.Body
+				if info.Dir != "" {
+					body = "Base directory for this skill: " + info.Dir + "\n\n" + body
+				}
+				bodies[info.Manifest.Name] = body
+				if info.Dir != "" {
+					dirs[info.Manifest.Name] = info.Dir
+				}
+			}
+		}
+		proc.mu.Lock()
+		proc.SkillBodies = bodies
+		proc.SkillDirs = dirs
+		proc.mu.Unlock()
+	}
+	for _, dev := range proc.AllowedDevices {
+		if strings.HasPrefix(dev, "/dev/mcp/") || strings.HasPrefix(dev, "/mnt/mcp/") {
+			proc.mcpDevicePaths = append(proc.mcpDevicePaths, dev)
+		}
+	}
+
+	// Allocate context and rebuild from steps. Prefer the CtxSize saved on the
+	// original process; only fall back to DefaultCtxSize when the disk snapshot
+	// predates this field (or was zero) — otherwise N-step processes resumed
+	// into a 256-slot context would silently lose messages past slot 256.
+	resumeCtxSize := diskInfo.CtxSize
+	if resumeCtxSize <= 0 {
+		resumeCtxSize = DefaultCtxSize
+	}
 	proc.CtxSize = resumeCtxSize
 	cid, allocErr := k.ctxMgr.CtxAlloc(resumeCtxSize)
 	if allocErr != nil {
@@ -655,7 +574,13 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	proc.FDTable[llmFD] = nil
 	k.setupDriverStreamHandler(proc, llmFD)
 
-	proc.cancel()
+	// All allocations and Open succeeded — now safe to clean up old process and
+	// procHistory entry (skip entirely when forking, so original keeps running).
+	k.cleanupOldProcessAndHistory(oldProc, uuid, opts.Fork)
+
+	if proc.cancel != nil {
+		proc.cancel() // release ctx created by NewProcess (no listeners yet, but be defensive)
+	}
 	gctx, cancel := gocontext.WithCancel(gocontext.Background())
 	proc.cancel = cancel
 	proc.ctx = gctx
@@ -663,8 +588,14 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	k.AddProcess(proc)
 	k.msgQueues.Store(proc.PID, newMessageQueue())
 
-	// Determine if context_full exit — trigger compact after start
-	isContextFull := strings.Contains(strings.ToLower(diskInfo.Result), "context_full")
+	// Determine if context_full exit — trigger compact after start.
+	// Read ExitReason field (written by reap from proc.Exit.Reason); fall back
+	// to legacy Result field for proc-info.json written before this field existed.
+	exitReason := diskInfo.ExitReason
+	if exitReason == "" {
+		exitReason = diskInfo.Result
+	}
+	isContextFull := strings.Contains(strings.ToLower(exitReason), "context_full")
 
 	spawnOpts := SpawnOpts{Model: diskInfo.Model, StartStep: startStep}
 
@@ -682,6 +613,7 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 		_ = proc.Start()
 
 		if isContextFull {
+			compactStart := time.Now()
 			proc.compactMu.Lock()
 			compactOpts := rnixctx.CompactOpts{
 				LLMCall:       k.BuildCompactLLMCall(proc),
@@ -690,13 +622,26 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 				ActiveSkills:  k.BuildActiveSkills(proc),
 				ActivePlan:    k.extractActivePlan(proc.CtxID),
 			}
-			_, compactErr := k.ctxMgr.Compact(proc.CtxID, compactOpts)
+			compactResult, compactErr := k.ctxMgr.Compact(proc.CtxID, compactOpts)
 			proc.compactMu.Unlock()
 			if compactErr != nil {
 				log.Printf("[kernel] pid=%d resume(history) compact failed: %v", proc.PID, compactErr)
+				k.emitEvent(proc, "Compact", map[string]any{
+					"step":    startStep,
+					"trigger": "context_full_resume",
+					"error":   compactErr.Error(),
+				}, nil, compactErr, time.Since(compactStart))
 				k.finishProcess(proc, ExitStatus{Code: ExitContextFull, Reason: "context_full: resume compact failed", Err: compactErr})
 				return
 			}
+			k.emitEvent(proc, "Compact", map[string]any{
+				"step":           startStep,
+				"trigger":        "context_full_resume",
+				"pre_tokens":     compactResult.PreTokens,
+				"post_tokens":    compactResult.PostTokens,
+				"restored_items": compactResult.ItemsRestored,
+				"duration_ms":    float64(compactResult.Duration.Microseconds()) / 1000.0,
+			}, nil, nil, compactResult.Duration)
 			k.ClearReadFileState(proc)
 		}
 
@@ -718,6 +663,10 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 }
 
 // parseStepsJSONL reads steps.jsonl and extracts the last step number and messages.
+// Messages semantics: each StepRecord.Messages field already contains the cumulative
+// message history at the time of that LLM call (see observe.go writeStepRecord).
+// Therefore we use the LAST record's messages, NOT the concatenation of all records
+// (which would yield O(N^2) duplicates).
 func (k *KernelImpl) parseStepsJSONL(path string) (int, []rnixctx.Message, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -731,7 +680,7 @@ func (k *KernelImpl) parseStepsJSONL(path string) (int, []rnixctx.Message, error
 	defer f.Close()
 
 	var lastStep int
-	var messages []rnixctx.Message
+	var lastMessagesRaw json.RawMessage
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
@@ -745,14 +694,12 @@ func (k *KernelImpl) parseStepsJSONL(path string) (int, []rnixctx.Message, error
 			return 0, nil, NewSyscallError("Resume", 0, "",
 				fmt.Errorf("parse steps.jsonl line: %w", err), types.ErrInternal)
 		}
-		if record.Step > lastStep {
+		// Track the highest step record and its messages payload (overwrite, not append).
+		// Each Messages payload is the full cumulative history at that step.
+		if record.Step >= lastStep {
 			lastStep = record.Step
-		}
-		// Extract messages from the record's Messages field
-		if len(record.Messages) > 0 {
-			var msgs []rnixctx.Message
-			if err := json.Unmarshal(record.Messages, &msgs); err == nil {
-				messages = append(messages, msgs...)
+			if len(record.Messages) > 0 {
+				lastMessagesRaw = append(lastMessagesRaw[:0], record.Messages...)
 			}
 		}
 	}
@@ -761,6 +708,14 @@ func (k *KernelImpl) parseStepsJSONL(path string) (int, []rnixctx.Message, error
 			fmt.Errorf("scan steps.jsonl: %w", err), types.ErrInternal)
 	}
 
+	var messages []rnixctx.Message
+	if len(lastMessagesRaw) > 0 {
+		if err := json.Unmarshal(lastMessagesRaw, &messages); err != nil {
+			// Legacy/corrupt schema: log loud, return empty messages so caller can decide.
+			// Don't fail the resume — system_prompt + most recent steps may be enough.
+			log.Printf("[resume] parseStepsJSONL: messages unmarshal failed at step %d: %v", lastStep, err)
+		}
+	}
 	return lastStep, messages, nil
 }
 

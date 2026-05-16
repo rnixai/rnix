@@ -205,10 +205,17 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 	}
 
 	proc.mu.Lock()
+	exitReason := ""
+	if proc.Exit != nil {
+		exitReason = proc.Exit.Reason
+	}
 	info := &vfs.ProcInfo{
 		PID:             proc.PID,
 		UUID:            proc.UUID,
 		OriginUUID:      proc.OriginUUID,
+		ResumedFromStep: proc.ResumedFromStep,
+		ExitReason:      exitReason,
+		CtxSize:         proc.CtxSize,
 		PPID:            proc.PPID,
 		ParentUUID:     proc.ParentUUID,
 		State:          proc.State,
@@ -260,11 +267,18 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 	var infos []vfs.ProcInfo
 	k.procTable.Range(func(_ types.PID, proc *Process) bool {
 		proc.mu.Lock()
+		exitReason := ""
+		if proc.Exit != nil {
+			exitReason = proc.Exit.Reason
+		}
 		infos = append(infos, vfs.ProcInfo{
-			PID:            proc.PID,
-			UUID:           proc.UUID,
-			OriginUUID:     proc.OriginUUID,
-			PPID:           proc.PPID,
+			PID:             proc.PID,
+			UUID:            proc.UUID,
+			OriginUUID:      proc.OriginUUID,
+			ResumedFromStep: proc.ResumedFromStep,
+			ExitReason:      exitReason,
+			CtxSize:         proc.CtxSize,
+			PPID:            proc.PPID,
 			ParentUUID:     proc.ParentUUID,
 			State:          proc.State,
 			Intent:         proc.Intent,

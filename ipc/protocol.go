@@ -171,6 +171,10 @@ type ListProcsResponse struct {
 type ProcInfoWire struct {
 	PID             types.PID          `json:"pid"`
 	UUID            string             `json:"uuid,omitempty"`
+	OriginUUID      string             `json:"origin_uuid,omitempty"`
+	ResumedFromStep int                `json:"resumed_from_step,omitempty"`
+	ExitReason      string             `json:"exit_reason,omitempty"`
+	CtxSize         int                `json:"ctx_size,omitempty"`
 	PPID            types.PID          `json:"ppid"`
 	ParentUUID      string             `json:"parent_uuid,omitempty"`
 	State           types.ProcessState `json:"state"`
@@ -206,9 +210,13 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		skills = []string{}
 	}
 	w := ProcInfoWire{
-		PID:           p.PID,
-		UUID:          p.UUID,
-		PPID:          p.PPID,
+		PID:             p.PID,
+		UUID:            p.UUID,
+		OriginUUID:      p.OriginUUID,
+		ResumedFromStep: p.ResumedFromStep,
+		ExitReason:      p.ExitReason,
+		CtxSize:         p.CtxSize,
+		PPID:            p.PPID,
 		ParentUUID:    p.ParentUUID,
 		State:         p.State,
 		Intent:        p.Intent,
@@ -247,9 +255,13 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 // WireToProcInfo converts a ProcInfoWire back to vfs.ProcInfo.
 func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 	p := vfs.ProcInfo{
-		PID:           w.PID,
-		UUID:          w.UUID,
-		PPID:          w.PPID,
+		PID:             w.PID,
+		UUID:            w.UUID,
+		OriginUUID:      w.OriginUUID,
+		ResumedFromStep: w.ResumedFromStep,
+		ExitReason:      w.ExitReason,
+		CtxSize:         w.CtxSize,
+		PPID:            w.PPID,
 		ParentUUID:    w.ParentUUID,
 		State:         w.State,
 		Intent:        w.Intent,
