@@ -327,6 +327,7 @@ type SuspendResponse struct {
 // ResumeRequest is the payload for MethodResume.
 type ResumeRequest struct {
 	UUID string `json:"uuid"`
+	Fork bool   `json:"fork,omitempty"`
 }
 
 // ResumeResponse is the response for MethodResume.

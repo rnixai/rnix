@@ -11,10 +11,17 @@ import (
 )
 
 var resumeCmd = &cobra.Command{
-	Use:   "resume <pid|uuid>",
-	Short: "Resume a suspended agent process from checkpoint",
+	Use:   "resume [--fork] <pid|uuid>",
+	Short: "Resume a suspended or exited agent process",
+	Long:  "Resume a process from checkpoint (suspended) or history (dead/zombie). Use --fork to create a new process with a new UUID that tracks its origin.",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runResume,
+}
+
+var resumeFork bool
+
+func init() {
+	resumeCmd.Flags().BoolVar(&resumeFork, "fork", false, "Fork: create new UUID process instead of inheriting original UUID")
 }
 
 func runResume(cmd *cobra.Command, args []string) error {
@@ -73,7 +80,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		uuid = arg
 	}
 
-	resp, err := client.Resume(uuid)
+	resp, err := client.ResumeWithOpts(uuid, resumeFork)
 	if err != nil {
 		ui.RenderError(renderer,
 			fmt.Sprintf("UUID %s", uuid),
@@ -84,7 +91,11 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Fprintf(os.Stdout, "Process resumed: PID %d (UUID %s), continuing from step %d\n",
-		resp.PID, resp.UUID, resp.ResumedFromStep)
+	mode_label := "resumed"
+	if resumeFork {
+		mode_label = "forked"
+	}
+	fmt.Fprintf(os.Stdout, "Process %s: PID %d (UUID %s), continuing from step %d\n",
+		mode_label, resp.PID, resp.UUID, resp.ResumedFromStep)
 	return nil
 }

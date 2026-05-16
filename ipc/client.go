@@ -153,7 +153,12 @@ func (c *Client) Suspend(pid types.PID) (*SuspendResponse, error) {
 
 // Resume resumes a suspended process from its checkpoint.
 func (c *Client) Resume(uuid string) (*ResumeResponse, error) {
-	resp, err := c.call(MethodResume, ResumeRequest{UUID: uuid})
+	return c.ResumeWithOpts(uuid, false)
+}
+
+// ResumeWithOpts resumes a process with optional fork mode.
+func (c *Client) ResumeWithOpts(uuid string, fork bool) (*ResumeResponse, error) {
+	resp, err := c.call(MethodResume, ResumeRequest{UUID: uuid, Fork: fork})
 	if err != nil {
 		return nil, err
 	}

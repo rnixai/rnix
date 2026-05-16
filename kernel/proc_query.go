@@ -206,9 +206,10 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 
 	proc.mu.Lock()
 	info := &vfs.ProcInfo{
-		PID:            proc.PID,
-		UUID:           proc.UUID,
-		PPID:           proc.PPID,
+		PID:             proc.PID,
+		UUID:            proc.UUID,
+		OriginUUID:      proc.OriginUUID,
+		PPID:            proc.PPID,
 		ParentUUID:     proc.ParentUUID,
 		State:          proc.State,
 		Intent:         proc.Intent,
@@ -262,6 +263,7 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 		infos = append(infos, vfs.ProcInfo{
 			PID:            proc.PID,
 			UUID:           proc.UUID,
+			OriginUUID:     proc.OriginUUID,
 			PPID:           proc.PPID,
 			ParentUUID:     proc.ParentUUID,
 			State:          proc.State,

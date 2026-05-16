@@ -58,6 +58,7 @@ type DeferredSkillMeta struct {
 type Process struct {
 	PID            types.PID
 	UUID           string // UUID v7 — immutable after creation, globally unique across daemon restarts
+	OriginUUID     string // non-empty when this process was forked from another UUID (resume --fork)
 	PPID           types.PID
 	ParentUUID     string // UUID of parent process — immutable after creation
 	State          types.ProcessState // guarded by mu

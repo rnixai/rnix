@@ -149,7 +149,7 @@ func (s *Server) handleResume(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	result, err := s.kern.Resume(req.UUID)
+	result, err := s.kern.ResumeWithOpts(req.UUID, kernel.ResumeOpts{Fork: req.Fork})
 	if err != nil {
 		code := "INTERNAL"
 		var sysErr *kernel.SyscallError

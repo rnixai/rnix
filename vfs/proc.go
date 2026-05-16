@@ -29,6 +29,8 @@ type ContextSummaryProvider interface {
 type ProcInfo struct {
 	PID            types.PID
 	UUID           string
+	OriginUUID     string // non-empty when forked from another process (resume --fork)
+	ResumedFromStep int   // step number from which this process was resumed
 	PPID           types.PID
 	ParentUUID     string // UUID of parent process — used for accurate tree building across PID reuse
 	State          types.ProcessState

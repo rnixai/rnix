@@ -123,6 +123,8 @@ func (h *ProcessHistory) RemoveByUUID(uuid string) bool {
 type procInfoDisk struct {
 	PID            uint64   `json:"pid"`
 	UUID           string   `json:"uuid"`
+	OriginUUID     string   `json:"origin_uuid,omitempty"`
+	ResumedFromStep int     `json:"resumed_from_step,omitempty"`
 	PPID           uint64   `json:"ppid"`
 	ParentUUID     string   `json:"parent_uuid,omitempty"`
 	State          string   `json:"state"`
@@ -147,10 +149,12 @@ type procInfoDisk struct {
 
 func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 	d := procInfoDisk{
-		PID:            uint64(info.PID),
-		UUID:           info.UUID,
-		PPID:           uint64(info.PPID),
-		ParentUUID:     info.ParentUUID,
+		PID:             uint64(info.PID),
+		UUID:            info.UUID,
+		OriginUUID:      info.OriginUUID,
+		ResumedFromStep: info.ResumedFromStep,
+		PPID:            uint64(info.PPID),
+		ParentUUID:      info.ParentUUID,
 		State:          info.State.String(),
 		Intent:         info.Intent,
 		Skills:         info.Skills,
@@ -177,10 +181,12 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 
 func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 	info := vfs.ProcInfo{
-		PID:            types.PID(d.PID),
-		UUID:           d.UUID,
-		PPID:           types.PID(d.PPID),
-		ParentUUID:     d.ParentUUID,
+		PID:             types.PID(d.PID),
+		UUID:            d.UUID,
+		OriginUUID:      d.OriginUUID,
+		ResumedFromStep: d.ResumedFromStep,
+		PPID:            types.PID(d.PPID),
+		ParentUUID:      d.ParentUUID,
 		State:          parseProcessState(d.State),
 		Intent:         d.Intent,
 		Skills:         d.Skills,
