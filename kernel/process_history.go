@@ -316,3 +316,15 @@ func LoadProcHistory(baseDir string, maxSize int) (*ProcessHistory, error) {
 		maxSize: maxSize,
 	}, nil
 }
+
+// ListResumable scans <baseDir>/data/steps/*/proc-info.json and returns snapshots
+// whose state is "running" (i.e., processes left over from daemon crashes that
+// did not transition to Zombie/Dead before the daemon died).
+//
+// Corrupt JSON files are logged and skipped. Missing baseDir or steps dir returns
+// nil, nil (consistent with LoadProcHistory's behavior).
+//
+// RED PHASE (Story 42.2): stub returns nil, nil.
+func ListResumable(baseDir string) ([]vfs.ProcInfo, error) {
+	return nil, nil
+}

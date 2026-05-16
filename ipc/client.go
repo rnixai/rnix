@@ -169,6 +169,14 @@ func (c *Client) ResumeWithOpts(uuid string, fork bool) (*ResumeResponse, error)
 	return &result, nil
 }
 
+// ListResumable returns processes recoverable from disk (Story 42.2).
+//
+// RED PHASE: stub returns an empty list with no error so callers compile;
+// dev-story will wire this to MethodListResumable.
+func (c *Client) ListResumable() (*ListResumableResponse, error) {
+	return &ListResumableResponse{Processes: []ResumableProcessWire{}}, nil
+}
+
 // SpawnAndWatch spawns a process and streams events until completion.
 // The onEvent callback is called for each StreamEvent. Returns the final SpawnResponse PID
 // and the complete ProgressPayload (from the complete/error event).

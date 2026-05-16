@@ -63,6 +63,7 @@ const (
 	MethodCompact                Method = "compact"
 	MethodAnswerUser             Method = "answer_user"
 	MethodSignalTree             Method = "signal_tree"
+	MethodListResumable          Method = "list_resumable"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -347,6 +348,27 @@ type ResumeResponse struct {
 	PID             types.PID `json:"pid"`
 	UUID            string    `json:"uuid"`
 	ResumedFromStep int       `json:"resumed_from_step"`
+}
+
+// --- ListResumable (Story 42.2) ---
+
+// ResumableProcessWire describes a process snapshot recoverable after a daemon
+// crash. UUID/Intent/Provider/Model come from proc-info.json; LastStep prefers
+// checkpoint.json then falls back to steps.jsonl tail; LastActive is the most
+// recent timestamp available (checkpoint > DeadAt > CreatedAt).
+type ResumableProcessWire struct {
+	UUID       string `json:"uuid"`
+	Intent     string `json:"intent"`
+	Agent      string `json:"agent,omitempty"`
+	LastStep   int    `json:"last_step"`
+	LastActive int64  `json:"last_active_ms"`
+	Provider   string `json:"provider,omitempty"`
+	Model      string `json:"model,omitempty"`
+}
+
+// ListResumableResponse is the response for MethodListResumable.
+type ListResumableResponse struct {
+	Processes []ResumableProcessWire `json:"processes"`
 }
 
 // --- AttachDebug ---
