@@ -64,6 +64,7 @@ const (
 	MethodAnswerUser             Method = "answer_user"
 	MethodSignalTree             Method = "signal_tree"
 	MethodListResumable          Method = "list_resumable"
+	MethodGetResumeLineage       Method = "get_resume_lineage"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -341,6 +342,11 @@ type SuspendResponse struct {
 type ResumeRequest struct {
 	UUID string `json:"uuid"`
 	Fork bool   `json:"fork,omitempty"`
+
+	// FromStep — Story 42.3: truncate history replay at this step before
+	// continuing reasoning. 0 = no truncation. Effective only on the history
+	// path (rejected when checkpoint exists and FromStep<cpData.LastStep).
+	FromStep int `json:"from_step,omitempty"`
 }
 
 // ResumeResponse is the response for MethodResume.
@@ -1149,6 +1155,12 @@ type GetProcDetailResponse struct {
 	ComposeDeps    []string          `json:"compose_deps,omitempty"`
 	PipelineIndex  int               `json:"pipeline_index"`
 	PipelineTotal  int               `json:"pipeline_total"`
+
+	// Story 42.3 — Resume lineage fields (mirrored from proc.OriginUUID /
+	// proc.ResumedFromStep for active procs, procInfoDisk for history).
+	// Omitempty so普通 spawn 进程序列化时不带噪声字段。
+	OriginUUID      string `json:"origin_uuid,omitempty"`
+	ResumedFromStep int    `json:"resumed_from_step,omitempty"`
 }
 
 // SkillInfoWire is the wire-format representation of a loaded skill with its allowed tools.
@@ -1244,4 +1256,37 @@ type AskUserEvent struct {
 type AnswerUserRequest struct {
 	RequestID string          `json:"request_id"`
 	Answers   json.RawMessage `json:"answers"` // raw JSON array of Answer
+}
+
+// --- Resume Lineage Wire Types (Story 42.3) ---
+
+// GetResumeLineageRequest is the payload for MethodGetResumeLineage.
+type GetResumeLineageRequest struct {
+	UUID string `json:"uuid"`
+}
+
+// ResumeLineageNode is a single node in the resume lineage graph (current node,
+// ancestor, or descendant). Mirrors a subset of procInfoDisk + ProcInfoWire
+// fields relevant to lineage display in the Dashboard.
+type ResumeLineageNode struct {
+	UUID            string `json:"uuid"`
+	OriginUUID      string `json:"origin_uuid,omitempty"`
+	ResumedFromStep int    `json:"resumed_from_step,omitempty"`
+	State           string `json:"state,omitempty"`
+	Intent          string `json:"intent,omitempty"`
+	CreatedAtMs     int64  `json:"created_at_ms,omitempty"`
+}
+
+// GetResumeLineageResponse is the response for MethodGetResumeLineage.
+//
+// Truncated=true when:
+//   - OriginUUID 链中检测到循环（A→B→A），visited 集合阻断；
+//   - 链深度超过 kernel.ResumeLineageMaxDepth（默认 32）。
+//
+// Ancestors order: 直接父节点在 [0]，最远祖先在末尾。
+type GetResumeLineageResponse struct {
+	Current     ResumeLineageNode   `json:"current"`
+	Ancestors   []ResumeLineageNode `json:"ancestors"`
+	Descendants []ResumeLineageNode `json:"descendants"`
+	Truncated   bool                `json:"truncated,omitempty"`
 }

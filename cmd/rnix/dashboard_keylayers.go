@@ -535,6 +535,66 @@ func resumeSuspendedHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyC
 	return true, m, nil
 }
 
+// resumeProcessHandler — Story 42.3 stub.
+// 统一 resume handler，按 selected 进程状态分支：
+//   - StateSuspended → 走 30-4 路径（client.Resume，equivalent to resumeSuspendedHandler）
+//   - StateDead / StateZombie → 走 42-1 路径（client.Resume → resumeFromCheckpoint
+//     或 resumeFromHistory）
+//   - 其他状态 → fallback false（不消费按键，dispatcher 继续查找）
+//
+// dev-story 阶段：替换 resumeSuspendedHandler 在 Layer 1 viewDefault / viewExpanded
+// 的注册（小写 r 走本 handler；大写 R/shift+R 继续走 resumeSuspendedHandler 保持
+// 向后兼容）。
+func resumeProcessHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+	m := ctx.(dashboardModel)
+	if m.selectedPID == 0 || m.selectedUUID == "" || !m.connected {
+		return false, m, nil
+	}
+	proc := findSelectedProcess(&m)
+	if proc == nil {
+		return false, m, nil
+	}
+	switch proc.State {
+	case types.StateSuspended, types.StateDead, types.StateZombie:
+		m.statusMsg = "Resuming UUID " + shortUUIDForStatus(m.selectedUUID) + "..."
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return true, m, resumeProcessCmd(m.selectedUUID)
+	default:
+		return false, m, nil
+	}
+}
+
+// forkProcessHandler — Story 42.3 stub.
+// Tree pane 选中 Dead/Zombie 进程时按 `f` 触发 fork（fork=true → 新 UUID +
+// origin tracking）。Timeline pane 优先级由 timelineFilterHandler 在前面消费时
+// 处理（其在不命中 timeline pane 时返回 false，让此 handler 接管）。
+func forkProcessHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+	m := ctx.(dashboardModel)
+	if m.selectedPID == 0 || m.selectedUUID == "" || !m.connected {
+		return false, m, nil
+	}
+	proc := findSelectedProcess(&m)
+	if proc == nil {
+		return false, m, nil
+	}
+	if proc.State != types.StateDead && proc.State != types.StateZombie {
+		return false, m, nil
+	}
+	m.statusMsg = "Forking UUID " + shortUUIDForStatus(m.selectedUUID) + "..."
+	m.statusMsgTTL = statusMsgDefaultTTL
+	return true, m, forkProcessCmd(m.selectedUUID)
+}
+
+// shortUUIDForStatus returns the first 8 chars of a UUID for status display.
+// Story 42.3 stub helper — dashboard-wide CJK-safe truncation already in
+// detail.TruncateUUID; this thin wrapper keeps cmd/rnix package self-contained.
+func shortUUIDForStatus(uuid string) string {
+	if len(uuid) > 8 {
+		return uuid[:8]
+	}
+	return uuid
+}
+
 // timelineFilterHandler — Timeline filter mode 入口（M2：viewDefault + viewExpanded 共享）
 // 原 nav.go:227-232 行为：rightPane / activePane 任一为 paneTimeline 即生效。
 func timelineFilterHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {

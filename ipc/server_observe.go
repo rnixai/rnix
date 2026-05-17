@@ -488,3 +488,40 @@ func (s *Server) handleCompact(conn net.Conn, rawPayload json.RawMessage) {
 	compactPayload, _ := json.Marshal(compactResp)
 	writeResponse(conn, Response{OK: true, Payload: compactPayload})
 }
+
+// handleGetResumeLineage implements MethodGetResumeLineage (Story 42.3).
+//
+// Independent of handleLineage — the latter returns stem-cell skill
+// differentiation events (Epic 20). This handler returns the cross-process fork
+// graph anchored by OriginUUID.
+//
+// ATDD red-phase stub: dev-story replaces with full kernel.GetResumeLineage
+// delegation + response shaping. Currently returns ErrInvalid so e2e tests can
+// detect the stub state via t.Skip.
+func (s *Server) handleGetResumeLineage(conn net.Conn, rawPayload json.RawMessage) {
+	var req GetResumeLineageRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid get_resume_lineage request"}})
+		return
+	}
+	if req.UUID == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "uuid is required"}})
+		return
+	}
+	// RED PHASE: delegate to kernel.GetResumeLineage stub (always returns
+	// ErrNotFound). dev-story will replace this block with full lineage
+	// construction + ResumeLineageNode mapping.
+	if s.kern == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: "kernel not attached"}})
+		return
+	}
+	_, err := s.kern.GetResumeLineage(req.UUID)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: err.Error()}})
+		return
+	}
+	// Once dev-story implements lineage building, replace this empty response
+	// with a populated GetResumeLineageResponse{Current, Ancestors, Descendants}.
+	payload, _ := json.Marshal(GetResumeLineageResponse{})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}

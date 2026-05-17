@@ -19,9 +19,14 @@ var resumeCmd = &cobra.Command{
 }
 
 var resumeFork bool
+var resumeFromStep int
 
 func init() {
 	resumeCmd.Flags().BoolVar(&resumeFork, "fork", false, "Fork: create new UUID process instead of inheriting original UUID")
+	// Story 42.3 stub — flag exposed; dev-story wires it through to ResumeWithOptsV2
+	// once IPC handler propagates FromStep into ResumeOpts.
+	resumeCmd.Flags().IntVar(&resumeFromStep, "from-step", 0,
+		"Truncate history replay at this step before continuing (history path only; 0 = no truncation)")
 }
 
 func runResume(cmd *cobra.Command, args []string) error {

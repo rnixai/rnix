@@ -334,6 +334,30 @@ func resumeProcessCmd(uuid string) tea.Cmd {
 	}
 }
 
+// forkResultMsg — Story 42.3 stub.
+// Returns the Fork variant of a Resume IPC call to dashboardModel.Update.
+// Carries the new fork UUID + PID + origin UUID short hash for status display.
+type forkResultMsg struct {
+	result *ipc.ResumeResponse
+	err    error
+}
+
+// forkProcessCmd — Story 42.3 stub.
+// Sends a Resume IPC call with fork=true for the given origin UUID. Mirrors
+// resumeProcessCmd but routes to ResumeWithOpts(uuid, true) so the kernel
+// produces a new UUID with OriginUUID tracking the source.
+func forkProcessCmd(uuid string) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return forkResultMsg{err: err}
+		}
+		defer client.Close()
+		result, err := client.ResumeWithOpts(uuid, true)
+		return forkResultMsg{result: result, err: err}
+	}
+}
+
 // pauseTreeCmd sends SIGPAUSE or SIGRESUME to a process and its entire subtree via IPC.
 func pauseTreeCmd(pid types.PID, signal types.Signal) tea.Cmd {
 	paused := signal == types.SIGPAUSE

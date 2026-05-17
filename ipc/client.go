@@ -169,6 +169,37 @@ func (c *Client) ResumeWithOpts(uuid string, fork bool) (*ResumeResponse, error)
 	return &result, nil
 }
 
+// ResumeWithOptsV2 issues a resume request carrying full opts (Story 42.3).
+// fromStep > 0 truncates history replay before continuing reasoning. The legacy
+// ResumeWithOpts(uuid, fork) wrapper remains for callers that don't need
+// FromStep.
+func (c *Client) ResumeWithOptsV2(uuid string, fork bool, fromStep int) (*ResumeResponse, error) {
+	resp, err := c.call(MethodResume, ResumeRequest{UUID: uuid, Fork: fork, FromStep: fromStep})
+	if err != nil {
+		return nil, err
+	}
+	var result ResumeResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal resume response: %w", err)
+	}
+	return &result, nil
+}
+
+// GetResumeLineage returns the resume lineage (ancestors + descendants) for a
+// given UUID (Story 42.3 stub). RED PHASE: server-side handler is not yet
+// wired; dev-story will implement handleGetResumeLineage.
+func (c *Client) GetResumeLineage(uuid string) (*GetResumeLineageResponse, error) {
+	resp, err := c.call(MethodGetResumeLineage, GetResumeLineageRequest{UUID: uuid})
+	if err != nil {
+		return nil, err
+	}
+	var result GetResumeLineageResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal get_resume_lineage response: %w", err)
+	}
+	return &result, nil
+}
+
 // ListResumable returns processes recoverable from disk (Story 42.2).
 func (c *Client) ListResumable() (*ListResumableResponse, error) {
 	resp, err := c.call(MethodListResumable, nil)

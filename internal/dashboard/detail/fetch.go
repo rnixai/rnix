@@ -58,3 +58,36 @@ func FetchDetailCmd(socketPath string, pid types.PID, uuid string) tea.Cmd {
 		return DetailResultMsg{PID: pid, UUID: uuid, Detail: resp, Err: err}
 	}
 }
+
+// ResumeLineageResultMsg — Story 42.3 stub.
+// 返回给 dashboardModel.Update 的 lineage fetch 结果，承载 UUID + lineage 响应 +
+// 错误。命中后写入 DetailState.LineageCache 触发渲染刷新。
+type ResumeLineageResultMsg struct {
+	UUID    string
+	Lineage *ipc.GetResumeLineageResponse
+	Err     error
+}
+
+// FetchResumeLineageCmd — Story 42.3 stub.
+//
+// 构造 lineage fetch 的 tea.Cmd。dev-story 阶段需要在 dashboard Update 的
+// procResumeLineageResultMsg 分支处理消息，并将结果写入 DetailState.LineageCache。
+//
+// 行为契约（拟定）：
+//   - socketPath 为空 / uuid 为空时返回 nil cmd（防御性）；
+//   - 否则 ipc.Dial → client.GetResumeLineage(uuid) → defer client.Close()；
+//   - 错误时填 Err。
+func FetchResumeLineageCmd(socketPath, uuid string) tea.Cmd {
+	if socketPath == "" || uuid == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		client, err := ipc.Dial(socketPath)
+		if err != nil {
+			return ResumeLineageResultMsg{UUID: uuid, Err: err}
+		}
+		defer client.Close()
+		resp, err := client.GetResumeLineage(uuid)
+		return ResumeLineageResultMsg{UUID: uuid, Lineage: resp, Err: err}
+	}
+}

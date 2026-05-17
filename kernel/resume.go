@@ -27,6 +27,13 @@ type ResumeResult struct {
 // ResumeOpts holds options for the extended Resume call.
 type ResumeOpts struct {
 	Fork bool // true = new UUID + origin_uuid tracking; false = inherit original UUID
+
+	// FromStep — Story 42.3 stub: truncates history replay to the first FromStep
+	// records, then continues reasoning from step FromStep+1. 0 = no truncation.
+	// Negative values are rejected at the resume entry. Effective only on the
+	// history path; checkpoint path rejects (FromStep>0 + FromStep<cpData.LastStep).
+	// Behavior wired in dev-story; ATDD red-phase: field exists, logic pending.
+	FromStep int
 }
 
 // cleanupOldProcessAndHistory removes the old in-memory Process and procHistory

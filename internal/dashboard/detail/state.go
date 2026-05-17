@@ -52,4 +52,10 @@ type DetailState struct {
 
 	// 节流（dashboardTick 周期内的 mod-5 cache refresh 节流计数）
 	Tick int
+
+	// LineageCache — Story 42.3 ATDD stub.
+	// UUID-keyed cache of GetResumeLineageResponse for the Detail Lineage
+	// section. Populated lazily via FetchResumeLineageCmd; survives PID switches
+	// when OriginUUID 字段触发 lineage section 渲染。
+	LineageCache map[string]*ipc.GetResumeLineageResponse
 }
