@@ -26,6 +26,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -38,7 +39,6 @@ import (
 
 // seedRecord captures a SeedHistorical invocation for assertion.
 type seedRecord struct {
-	name   string
 	pid    types.PID
 	result string
 	tokens int
@@ -61,11 +61,10 @@ func newMockKernelSpawnerWithSeeder() *mockKernelSpawnerWithSeeder {
 }
 
 // SeedHistorical satisfies the compose.HistoricalSeeder interface (Story 42.4).
-func (m *mockKernelSpawnerWithSeeder) SeedHistorical(name string, pid types.PID, result string, tokens int, spanID types.SpanID) {
+func (m *mockKernelSpawnerWithSeeder) SeedHistorical(pid types.PID, result string, tokens int, spanID types.SpanID) {
 	m.seedMu.Lock()
 	defer m.seedMu.Unlock()
 	m.seeds = append(m.seeds, seedRecord{
-		name:   name,
 		pid:    pid,
 		result: result,
 		tokens: tokens,
@@ -162,17 +161,18 @@ func TestATDD_42_4_ENGINE_001_ExecuteFromNode_Linear(t *testing.T) {
 	}
 
 	// SeedHistorical must be called for node-A AND node-B at minimum.
+	// Identify by PID (node-A=100, node-B=200) since the interface dropped name.
 	ks.seedMu.Lock()
 	defer ks.seedMu.Unlock()
 	if len(ks.seeds) < 2 {
 		t.Fatalf("expected ≥2 SeedHistorical calls (node-A + node-B), got %d", len(ks.seeds))
 	}
-	seen := map[string]bool{}
+	seenPIDs := map[types.PID]bool{}
 	for _, s := range ks.seeds {
-		seen[s.name] = true
+		seenPIDs[s.pid] = true
 	}
-	if !seen["node-A"] || !seen["node-B"] {
-		t.Errorf("SeedHistorical missing node-A or node-B; got %v", seen)
+	if !seenPIDs[types.PID(100)] || !seenPIDs[types.PID(200)] {
+		t.Errorf("SeedHistorical missing PID 100 (node-A) or 200 (node-B); got %v", seenPIDs)
 	}
 }
 
@@ -423,6 +423,15 @@ func TestATDD_42_4_ENGINE_007_ExecuteLinearRegression(t *testing.T) {
 // -----------------------------------------------------------------------------
 // Stub sanity checks (post-GREEN: verify implementation is live, not RED stubs)
 // -----------------------------------------------------------------------------
+
+// Sentinel errors retained as post-GREEN sanity contract — the stub-sanity
+// tests below verify the GREEN-phase implementation no longer returns these
+// values. Lives in the test file (not engine.go) since they are not part of
+// the production API surface.
+var (
+	errExecuteFromNodeNotImplemented = fmt.Errorf("not implemented: Engine.ExecuteFromNode (Story 42.4 RED PHASE)")
+	errRunLayersNotImplemented       = fmt.Errorf("not implemented: Engine.runLayers (Story 42.4 RED PHASE)")
+)
 
 // TestATDD_42_4_StubSanity_ExecuteFromNode verifies that ExecuteFromNode no
 // longer returns the RED-phase sentinel error. After the GREEN-phase

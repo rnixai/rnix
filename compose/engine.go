@@ -379,7 +379,7 @@ func (e *Engine) ExecuteFromNode(
 				pids.Store(name, h.PID)
 			}
 			if seeder != nil {
-				seeder.SeedHistorical(name, h.PID, h.Output, h.Tokens, h.SpanID)
+				seeder.SeedHistorical(h.PID, h.Output, h.Tokens, h.SpanID)
 			}
 		}
 	}
@@ -397,16 +397,18 @@ func (e *Engine) ExecuteFromNode(
 		pids.Store(resumedNode, resumedResult.PID)
 	}
 	if seeder != nil {
-		seeder.SeedHistorical(resumedNode, resumedResult.PID, resumedResult.Output, resumedResult.Tokens, resumedResult.SpanID)
+		seeder.SeedHistorical(resumedResult.PID, resumedResult.Output, resumedResult.Tokens, resumedResult.SpanID)
 	}
 
 	return e.runLayers(ctx, layers, resumedLayerIdx+1, traceID, resultMap, pids, agentQuotas)
 }
 
-// transitiveUpstream returns the set of node names that resumedNode transitively
-// depends on (excluding resumedNode itself). Used by ExecuteFromNode to ensure
+// TransitiveUpstream returns the set of node names that target transitively
+// depends on (excluding target itself). Used by ExecuteFromNode to ensure
 // every reachable upstream has a historical record before scheduling downstream.
-func transitiveUpstream(dag *DAG, target string) map[string]bool {
+// Exported so CLI callers (cmd/rnix/compose_resume.go) can reuse the same walk
+// without duplicating logic.
+func TransitiveUpstream(dag *DAG, target string) map[string]bool {
 	out := make(map[string]bool)
 	var walk func(name string)
 	walk = func(name string) {
@@ -424,6 +426,12 @@ func transitiveUpstream(dag *DAG, target string) map[string]bool {
 	}
 	walk(target)
 	return out
+}
+
+// transitiveUpstream is the package-private alias kept for callers inside this
+// package; new code should call TransitiveUpstream.
+func transitiveUpstream(dag *DAG, target string) map[string]bool {
+	return TransitiveUpstream(dag, target)
 }
 
 // runLayers walks the DAG layers starting from startLayerIdx, using the
@@ -552,9 +560,3 @@ func (e *Engine) runLayers(
 
 	return allResults, nil
 }
-
-// Sentinel errors for Story 42.4 RED PHASE stubs.
-var (
-	errExecuteFromNodeNotImplemented = fmt.Errorf("not implemented: Engine.ExecuteFromNode (Story 42.4 RED PHASE)")
-	errRunLayersNotImplemented       = fmt.Errorf("not implemented: Engine.runLayers (Story 42.4 RED PHASE)")
-)

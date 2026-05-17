@@ -186,8 +186,7 @@ func (s *ipcKernelSpawner) GetTokensUsed(pid types.PID) (int, bool) {
 // from a failed node: upstream nodes' outputs (loaded from procHistory) are
 // seeded so downstream system-prompt construction works as if Execute() had
 // run the upstream nodes fresh.
-func (s *ipcKernelSpawner) SeedHistorical(name string, pid types.PID, result string, tokens int, spanID types.SpanID) {
-	_ = name
+func (s *ipcKernelSpawner) SeedHistorical(pid types.PID, result string, tokens int, spanID types.SpanID) {
 	if pid == 0 {
 		return
 	}

@@ -373,7 +373,7 @@ func TestATDD_42_4_CLI_StubSanity_RunComposeResume(t *testing.T) {
 func TestATDD_42_4_CLI_StubSanity_SeedHistorical_NoOp(t *testing.T) {
 	spawner := newIPCKernelSpawner("/tmp/no-socket", "/tmp")
 	// Must not panic.
-	spawner.SeedHistorical("node-A", types.PID(99), "seeded", 42, types.SpanID("span-x"))
+	spawner.SeedHistorical(types.PID(99), "seeded", 42, types.SpanID("span-x"))
 
 	// Verify it satisfies the compose.HistoricalSeeder interface at compile time.
 	var _ compose.HistoricalSeeder = spawner

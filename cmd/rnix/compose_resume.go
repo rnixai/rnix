@@ -47,11 +47,12 @@ layers using the standard compose engine.`,
 }
 
 var (
-	flagComposeResumeFile     string
-	flagComposeResumeNode     string
-	flagComposeResumeFork     bool
-	flagComposeResumeFromStep int
-	flagComposeResumeDryRun   bool
+	flagComposeResumeFile        string
+	flagComposeResumeNode        string
+	flagComposeResumeFork        bool
+	flagComposeResumeFromStep    int
+	flagComposeResumeDryRun      bool
+	flagComposeResumeWaitTimeout time.Duration
 )
 
 func init() {
@@ -60,13 +61,18 @@ func init() {
 	composeResumeCmd.Flags().BoolVar(&flagComposeResumeFork, "fork", false, "Fork: create new UUID instead of inheriting original")
 	composeResumeCmd.Flags().IntVar(&flagComposeResumeFromStep, "from-step", 0, "Truncate history replay at this step before resuming (0 = no truncation)")
 	composeResumeCmd.Flags().BoolVar(&flagComposeResumeDryRun, "dry-run", false, "Preview the resume plan without sending IPC requests")
+	composeResumeCmd.Flags().DurationVar(&flagComposeResumeWaitTimeout, "wait-timeout", 0, "Abort the wait after this duration if the resumed node has not exited (0 = no timeout, rely on SIGINT)")
 	_ = composeResumeCmd.MarkFlagRequired("node")
 	composeCmd.AddCommand(composeResumeCmd)
 }
 
 const (
 	composeResumePollInterval = 200 * time.Millisecond
-	composeResumePollTimeout  = 5 * time.Minute
+	// composeResumeProgressInterval controls how often `wait` prints a
+	// "still waiting" message in interactive modes. Modeled after cc-src
+	// BashTool's PROGRESS_THRESHOLD_MS pattern: keep users informed but quiet
+	// in JSON / quiet modes.
+	composeResumeProgressInterval = 5 * time.Second
 )
 
 // runComposeResume implements the `rnix compose resume` command (Story 42.4).
@@ -135,6 +141,7 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 				"resumed_node": flagComposeResumeNode,
 				"resumed_uuid": target.UUID,
 				"idempotent":   true,
+				"downstream":   []dsEntry{},
 			}
 			data, _ := json.Marshal(payload)
 			fmt.Fprintln(renderer.Writer, string(data))
@@ -150,11 +157,15 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 	downstream := downstreamComposeNodes(spec, flagComposeResumeNode)
 	if flagComposeResumeDryRun {
 		if mode == ui.ModeJSON {
+			downstreamEntries := make([]dsEntry, 0, len(downstream))
+			for _, n := range downstream {
+				downstreamEntries = append(downstreamEntries, dsEntry{Name: n, ExitCode: 0, Tokens: 0, Planned: true})
+			}
 			payload := map[string]any{
 				"ok":           true,
 				"resumed_node": flagComposeResumeNode,
 				"resumed_uuid": target.UUID,
-				"downstream":   downstream,
+				"downstream":   downstreamEntries,
 				"dry_run":      true,
 			}
 			data, _ := json.Marshal(payload)
@@ -175,12 +186,45 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 9. Wait for resumed process to exit (poll daemon)
-	resumed, err := waitResumedExit(client, resumeResp.UUID, composeResumePollTimeout)
+	// 9. Set up cancellation context + signal handling.
+	// Long-running resumed processes (multi-step reasoning, large generations)
+	// may legitimately exceed any fixed deadline. Default to no hard timeout;
+	// users press Ctrl-C (SIGINT) to abort, or set --wait-timeout for an
+	// escape hatch. Cf. cc-src BashTool: long-running shell commands rely on
+	// onTimeout/Ctrl-B rather than hard kills.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	go func() {
+		select {
+		case <-sigCh:
+			if mode != ui.ModeJSON && mode != ui.ModeQuiet {
+				prefix := ui.KernelStyle.Render("[compose-resume]")
+				fmt.Fprintf(renderer.Writer, "%s interrupted (SIGINT), cancelling...\n", prefix)
+			}
+			cancel()
+			// Second signal within 5s forces immediate exit.
+			select {
+			case <-sigCh:
+				forceExitFunc(130)
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+			}
+		case <-ctx.Done():
+			// Main flow returned normally — goroutine exits cleanly.
+		}
+	}()
+
+	// 10. Wait for resumed process to exit (poll daemon).
+	resumed, err := waitResumedExit(ctx, client, resumeResp.UUID, flagComposeResumeWaitTimeout, renderer, mode)
 	if err != nil {
 		outputError(renderer, mode, "compose-resume", err.Error(),
 			fmt.Sprintf("resumed process %s did not finish", resumeResp.UUID),
-			"check daemon logs")
+			"check daemon logs or rerun with --wait-timeout=0 (no timeout)")
 		exitCode = 1
 		return nil
 	}
@@ -194,7 +238,7 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 10. Build historical upstream map (AC#6) — refresh procs in case state changed
+	// 11. Build historical upstream map (AC#6) — refresh procs in case state changed
 	procs, err = client.ListAllProcs()
 	if err != nil {
 		outputError(renderer, mode, "compose-resume", err.Error(),
@@ -211,12 +255,21 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 11. Build engine and run ExecuteFromNode
+	// 12. Build engine and run ExecuteFromNode
 	socketPath := ipc.SocketPath()
-	cwd, _ := os.Getwd()
-	projectDir, _ := config.ProjectDir(cwd)
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		fmt.Fprintf(os.Stderr, "[compose-resume] warning: os.Getwd failed: %v (using empty path)\n", cwdErr)
+	}
+	projectDir, projectErr := config.ProjectDir(cwd)
+	if projectErr != nil {
+		fmt.Fprintf(os.Stderr, "[compose-resume] warning: config.ProjectDir failed: %v (skill/agent search confined to global dir)\n", projectErr)
+	}
 	spawner := newIPCKernelSpawner(socketPath, projectDir)
-	globalDir, _ := config.GlobalDir()
+	globalDir, globalErr := config.GlobalDir()
+	if globalErr != nil {
+		fmt.Fprintf(os.Stderr, "[compose-resume] warning: config.GlobalDir failed: %v (skill/agent search will be incomplete)\n", globalErr)
+	}
 
 	var skillSearchDirs []string
 	var agentSearchDirs []string
@@ -224,16 +277,22 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 		skillSearchDirs = append(skillSearchDirs, filepath.Join(projectDir, ".rnix", "skills"))
 		agentSearchDirs = append(agentSearchDirs, filepath.Join(projectDir, ".rnix", "agents"))
 	}
-	skillSearchDirs = append(skillSearchDirs, filepath.Join(globalDir, "skills"))
-	agentSearchDirs = append(agentSearchDirs, filepath.Join(globalDir, "agents"))
+	if globalDir != "" {
+		skillSearchDirs = append(skillSearchDirs, filepath.Join(globalDir, "skills"))
+		agentSearchDirs = append(agentSearchDirs, filepath.Join(globalDir, "agents"))
+	}
 
 	skillLoader := skills.NewSkillLoader(skillSearchDirs)
 
 	var mcpCfg *mcp.MCPGlobalConfig
-	mcpPath := filepath.Join(globalDir, "mcp.yaml")
-	if _, statErr := os.Stat(mcpPath); statErr == nil {
-		if cfg, loadErr := mcp.LoadMCPConfig(mcpPath); loadErr == nil {
-			mcpCfg = cfg
+	if globalDir != "" {
+		mcpPath := filepath.Join(globalDir, "mcp.yaml")
+		if _, statErr := os.Stat(mcpPath); statErr == nil {
+			if cfg, loadErr := mcp.LoadMCPConfig(mcpPath); loadErr == nil {
+				mcpCfg = cfg
+			} else {
+				fmt.Fprintf(os.Stderr, "[compose-resume] warning: mcp.LoadMCPConfig(%s) failed: %v (MCP servers will not be available)\n", mcpPath, loadErr)
+			}
 		}
 	}
 	agentLoader := agents.NewAgentLoader(agentSearchDirs, skillLoader, mcpCfg)
@@ -246,28 +305,6 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 		exitCode = 2
 		return nil
 	}
-
-	// 12. Signal handling
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sigCh := make(chan os.Signal, 2)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
-
-	go func() {
-		<-sigCh
-		if mode != ui.ModeJSON && mode != ui.ModeQuiet {
-			prefix := ui.KernelStyle.Render("[compose-resume]")
-			fmt.Fprintf(renderer.Writer, "%s interrupted (SIGINT), cancelling...\n", prefix)
-		}
-		cancel()
-		select {
-		case <-sigCh:
-			forceExitFunc(130)
-		case <-time.After(5 * time.Second):
-		}
-	}()
 
 	// 13. Execute downstream
 	resumedHist := compose.HistoricalNodeResult{
@@ -291,11 +328,18 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 		renderComposeResumeText(renderer.Writer, flagComposeResumeNode, resumeResp.PID, results)
 	}
 
-	// 15. Set exit code = max downstream code
+	// 15. Set exit code = max(downstream exit codes). Matches Dev Notes
+	// sequence-diagram semantics; preserves the real exit code rather than
+	// flattening every failure to 1.
 	for _, r := range results {
-		if r.Err != nil || r.ExitCode != 0 {
+		if r.Name == flagComposeResumeNode {
+			continue
+		}
+		if r.Err != nil && exitCode == 0 {
 			exitCode = 1
-			return nil
+		}
+		if r.ExitCode > exitCode {
+			exitCode = r.ExitCode
 		}
 	}
 
@@ -304,21 +348,53 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 
 // waitResumedExit polls the daemon for the resumed UUID until it reaches Dead
 // or Zombie state, returning the final ProcInfo. Story 42.4 Task 4 method B.
-func waitResumedExit(client *ipc.Client, uuid string, timeout time.Duration) (vfs.ProcInfo, error) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		procs, err := client.ListAllProcs()
-		if err != nil {
-			return vfs.ProcInfo{}, fmt.Errorf("ipc list_procs: %w", err)
-		}
-		for _, p := range procs {
-			if p.UUID == uuid && (p.State == types.StateDead || p.State == types.StateZombie) {
-				return p, nil
-			}
-		}
-		time.Sleep(composeResumePollInterval)
+//
+// timeout == 0 disables the hard deadline — callers rely on ctx cancellation
+// (typically SIGINT) to bail out of unbounded waits. This mirrors cc-src
+// BashTool's long-running model: no surprise timeouts kill genuine work.
+// When timeout > 0, the function also returns ErrTimeout after the deadline.
+func waitResumedExit(ctx context.Context, client *ipc.Client, uuid string, timeout time.Duration, renderer *ui.Renderer, mode ui.OutputMode) (vfs.ProcInfo, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return vfs.ProcInfo{}, fmt.Errorf("ErrTimeout: resumed process %s did not finish in %s", uuid, timeout)
+	start := time.Now()
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = start.Add(timeout)
+	}
+	progressTicker := time.NewTicker(composeResumeProgressInterval)
+	defer progressTicker.Stop()
+	pollTimer := time.NewTimer(0) // fire immediately on first iteration
+	defer pollTimer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return vfs.ProcInfo{}, ctx.Err()
+		case <-progressTicker.C:
+			if renderer != nil && mode != ui.ModeJSON && mode != ui.ModeQuiet {
+				prefix := ui.KernelStyle.Render("[compose-resume]")
+				elapsed := time.Since(start).Round(time.Second)
+				fmt.Fprintf(renderer.Writer, "%s still waiting for resumed UUID %s (%s elapsed)\n",
+					prefix, uuid, elapsed)
+			}
+			continue
+		case <-pollTimer.C:
+			procs, err := client.ListAllProcs()
+			if err != nil {
+				return vfs.ProcInfo{}, fmt.Errorf("ipc list_procs: %w", err)
+			}
+			for _, p := range procs {
+				if p.UUID == uuid && (p.State == types.StateDead || p.State == types.StateZombie) {
+					return p, nil
+				}
+			}
+			if timeout > 0 && time.Now().After(deadline) {
+				return vfs.ProcInfo{}, fmt.Errorf("ErrTimeout: resumed process %s did not finish in %s", uuid, timeout)
+			}
+			pollTimer.Reset(composeResumePollInterval)
+		}
+	}
 }
 
 // validateComposeNodeInSpec returns nil iff nodeName exists in spec.Agents.
@@ -377,7 +453,7 @@ func buildHistoricalUpstream(spec *compose.ComposeSpec, procs []vfs.ProcInfo, re
 	if err != nil {
 		return nil, fmt.Errorf("build DAG: %w", err)
 	}
-	required := transitiveUpstreamNames(dag, resumedNode)
+	required := compose.TransitiveUpstream(dag, resumedNode)
 
 	out := make(map[string]compose.HistoricalNodeResult, len(required))
 	for name := range required {
@@ -405,28 +481,6 @@ func buildHistoricalUpstream(spec *compose.ComposeSpec, procs []vfs.ProcInfo, re
 		}
 	}
 	return out, nil
-}
-
-// transitiveUpstreamNames returns the set of compose node names that target
-// transitively depends on (excluding target).
-func transitiveUpstreamNames(dag *compose.DAG, target string) map[string]struct{} {
-	out := make(map[string]struct{})
-	var walk func(name string)
-	walk = func(name string) {
-		node, ok := dag.Nodes[name]
-		if !ok {
-			return
-		}
-		for _, dep := range node.DependsOn {
-			if _, seen := out[dep]; seen {
-				continue
-			}
-			out[dep] = struct{}{}
-			walk(dep)
-		}
-	}
-	walk(target)
-	return out
 }
 
 // downstreamComposeNodes returns the node names that transitively depend on
@@ -501,14 +555,12 @@ func renderComposeResumeText(w io.Writer, resumedNode string, resumedPID types.P
 //
 //	{"ok": true, "resumed_node": "node-B", "resumed_uuid": "...",
 //	 "downstream": [{"name":"node-C", "exit_code":0, "tokens":N}, ...]}
+//
+// The same dsEntry schema is reused by the idempotent and dry-run paths so
+// consumers can parse a single shape regardless of which branch ran.
 func renderComposeResumeJSON(w io.Writer, resumedNode string, resumedUUID string, results []compose.ScheduleResult) {
 	if w == nil {
 		return
-	}
-	type dsEntry struct {
-		Name     string `json:"name"`
-		ExitCode int    `json:"exit_code"`
-		Tokens   int    `json:"tokens"`
 	}
 	allOK := true
 	downstream := make([]dsEntry, 0, len(results))
@@ -533,4 +585,14 @@ func renderComposeResumeJSON(w io.Writer, resumedNode string, resumedUUID string
 	}
 	data, _ := json.Marshal(payload)
 	fmt.Fprintln(w, string(data))
+}
+
+// dsEntry is the JSON shape for one downstream node entry. Shared by the
+// resumed / dry-run / idempotent renderers so all three branches emit the same
+// downstream schema. `Planned` is only set in dry-run mode.
+type dsEntry struct {
+	Name     string `json:"name"`
+	ExitCode int    `json:"exit_code"`
+	Tokens   int    `json:"tokens"`
+	Planned  bool   `json:"planned,omitempty"`
 }

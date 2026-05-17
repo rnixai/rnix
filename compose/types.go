@@ -114,7 +114,7 @@ type HistoricalNodeResult struct {
 // extension so engine_test.go's mockKernelSpawner keeps working without
 // modification.
 type HistoricalSeeder interface {
-	SeedHistorical(name string, pid types.PID, result string, tokens int, spanID types.SpanID)
+	SeedHistorical(pid types.PID, result string, tokens int, spanID types.SpanID)
 }
 
 // Priority type aliases for compose-level access to kernel.Priority.
