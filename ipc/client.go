@@ -170,11 +170,19 @@ func (c *Client) ResumeWithOpts(uuid string, fork bool) (*ResumeResponse, error)
 }
 
 // ListResumable returns processes recoverable from disk (Story 42.2).
-//
-// RED PHASE: stub returns an empty list with no error so callers compile;
-// dev-story will wire this to MethodListResumable.
 func (c *Client) ListResumable() (*ListResumableResponse, error) {
-	return &ListResumableResponse{Processes: []ResumableProcessWire{}}, nil
+	resp, err := c.call(MethodListResumable, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result ListResumableResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal list_resumable: %w", err)
+	}
+	if result.Processes == nil {
+		result.Processes = []ResumableProcessWire{}
+	}
+	return &result, nil
 }
 
 // SpawnAndWatch spawns a process and streams events until completion.

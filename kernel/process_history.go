@@ -323,8 +323,38 @@ func LoadProcHistory(baseDir string, maxSize int) (*ProcessHistory, error) {
 //
 // Corrupt JSON files are logged and skipped. Missing baseDir or steps dir returns
 // nil, nil (consistent with LoadProcHistory's behavior).
-//
-// RED PHASE (Story 42.2): stub returns nil, nil.
 func ListResumable(baseDir string) ([]vfs.ProcInfo, error) {
-	return nil, nil
+	if baseDir == "" {
+		return nil, nil
+	}
+	stepsDir := filepath.Join(baseDir, "data", "steps")
+	entries, err := os.ReadDir(stepsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("readdir %s: %w", stepsDir, err)
+	}
+
+	var infos []vfs.ProcInfo
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(stepsDir, entry.Name(), procInfoFilename)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var d procInfoDisk
+		if err := json.Unmarshal(data, &d); err != nil {
+			log.Printf("[history] corrupt %s: %v", path, err)
+			continue
+		}
+		if d.UUID == "" || d.State != "running" {
+			continue
+		}
+		infos = append(infos, procInfoFromDisk(d))
+	}
+	return infos, nil
 }

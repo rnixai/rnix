@@ -707,12 +707,22 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 // asyncWriteCheckpoint serializes context synchronously, then dispatches
 // checkpoint write to a fire-and-forget goroutine. Errors are sent to
 // proc.checkpointErrCh (buffered, cap=1); the next step checks this channel.
+//
+// Story 42.2: applies ShouldCheckpoint throttling — only writes when step-count
+// or time-window threshold is reached, and updates lastCheckpointStep/Time in the
+// main goroutine before launching the async writer (optimistic update to prevent
+// double-dispatch). Also triggers SaveProcInfo (state=running) so daemon crash
+// recovery can discover the process.
 func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveToolErrors int) {
 	proc.mu.Lock()
 	dir := proc.stepsDir
 	errCh := proc.checkpointErrCh
 	proc.mu.Unlock()
 	if dir == "" || errCh == nil {
+		return
+	}
+
+	if !k.ShouldCheckpoint(proc, step) {
 		return
 	}
 
@@ -730,6 +740,19 @@ func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveTo
 
 	cpData := buildCheckpointData(proc, step, json.RawMessage(ctxSnap), consecutiveToolErrors)
 
+	// Optimistic update: stamp the throttle fields in the main goroutine so
+	// the next ShouldCheckpoint call sees the new baseline immediately.
+	proc.mu.Lock()
+	proc.lastCheckpointStep = step
+	proc.lastCheckpointTime = time.Now()
+	proc.mu.Unlock()
+
+	// Snapshot ProcInfo for SaveProcInfo (state=running, best-effort)
+	var procInfo *vfs.ProcInfo
+	if pi, piErr := k.GetProcInfo(proc.PID); piErr == nil {
+		procInfo = pi
+	}
+
 	// Track the write goroutine in proc.wg so reapProcess and Shutdown wait for it to
 	// finish before TempDir cleanup. Safe to call Go here: this function runs inside the
 	// reasoning goroutine, which is itself tracked by proc.wg, so the counter is > 0.
@@ -738,6 +761,11 @@ func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveTo
 			select {
 			case errCh <- err:
 			default: // channel full, discard old error
+			}
+		}
+		if procInfo != nil {
+			if err := SaveProcInfo(k.stepDataDir, *procInfo); err != nil {
+				log.Printf("[checkpoint] pid=%d SaveProcInfo failed: %v", proc.PID, err)
 			}
 		}
 	})

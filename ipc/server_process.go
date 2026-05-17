@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
+	"strings"
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
@@ -350,4 +352,70 @@ func (s *Server) handleGetProcDetailFromHistory(conn net.Conn, pid types.PID, uu
 		return
 	}
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleListResumable returns proc-info snapshots that survive daemon crashes
+// (state=running on disk, UUID not in current procTable). Story 42.2 AC#7.
+func (s *Server) handleListResumable(conn net.Conn) {
+	infos, err := s.kern.ListResumable()
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("list_resumable: %v", err)}})
+		return
+	}
+	baseDir := s.kern.GetStepDataDir()
+	wires := make([]ResumableProcessWire, 0, len(infos))
+	for _, info := range infos {
+		wires = append(wires, resumableInfoToWire(info, baseDir))
+	}
+	payload, _ := json.Marshal(ListResumableResponse{Processes: wires})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// resumableInfoToWire builds a ResumableProcessWire from a proc-info snapshot,
+// preferring checkpoint.json for LastStep/LastActive when available.
+func resumableInfoToWire(info vfs.ProcInfo, baseDir string) ResumableProcessWire {
+	w := ResumableProcessWire{
+		UUID:     info.UUID,
+		Intent:   info.Intent,
+		Agent:    deriveResumableAgent(info),
+		Provider: info.Provider,
+		Model:    info.Model,
+	}
+
+	// LastStep / LastActive: prefer checkpoint.json when present (most accurate
+	// snapshot of in-flight progress); fall back to proc-info timestamps.
+	if baseDir != "" && info.UUID != "" {
+		cpPath := filepath.Join(baseDir, "data", "steps", info.UUID)
+		if cp, err := kernel.ReadCheckpointPublic(cpPath); err == nil {
+			w.LastStep = cp.LastStep
+			if !cp.Timestamp.IsZero() {
+				w.LastActive = cp.Timestamp.UnixMilli()
+			}
+		}
+	}
+	if w.LastActive == 0 {
+		switch {
+		case !info.DeadAt.IsZero():
+			w.LastActive = info.DeadAt.UnixMilli()
+		case !info.CreatedAt.IsZero():
+			w.LastActive = info.CreatedAt.UnixMilli()
+		}
+	}
+	return w
+}
+
+// deriveResumableAgent picks a short agent label: first skill name, or the
+// first word of the intent. Returns empty string when neither is available.
+func deriveResumableAgent(info vfs.ProcInfo) string {
+	if len(info.Skills) > 0 && info.Skills[0] != "" {
+		return info.Skills[0]
+	}
+	if info.Intent == "" {
+		return ""
+	}
+	fields := strings.Fields(info.Intent)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }

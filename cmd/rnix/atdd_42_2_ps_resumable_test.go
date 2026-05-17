@@ -23,7 +23,7 @@ import (
 // --- 42.2-CLI-001: --resumable 空列表渲染 (AC#6) ---
 
 func TestATDD_42_2_CLI_001_Resumable_EmptyList(t *testing.T) {
-	t.Skip("RED PHASE: dev-story replaces renderResumableTable with real implementation")
+
 
 	var buf bytes.Buffer
 	renderResumableTable(&buf, nil)
@@ -36,7 +36,7 @@ func TestATDD_42_2_CLI_001_Resumable_EmptyList(t *testing.T) {
 // --- 42.2-CLI-001b: --resumable table 模式渲染 ---
 
 func TestATDD_42_2_CLI_001b_Resumable_TableMode(t *testing.T) {
-	t.Skip("RED PHASE: pending dev-story implementation")
+
 
 	procs := []ipc.ResumableProcessWire{
 		{
@@ -78,7 +78,7 @@ func TestATDD_42_2_CLI_001b_Resumable_TableMode(t *testing.T) {
 // --- 42.2-CLI-001c: --resumable JSON 模式渲染 ---
 
 func TestATDD_42_2_CLI_001c_Resumable_JSONMode(t *testing.T) {
-	t.Skip("RED PHASE: pending dev-story implementation")
+
 
 	procs := []ipc.ResumableProcessWire{
 		{
@@ -118,7 +118,7 @@ func TestATDD_42_2_CLI_001c_Resumable_JSONMode(t *testing.T) {
 // --- 42.2-CLI-001d: --resumable quiet 模式渲染 ---
 
 func TestATDD_42_2_CLI_001d_Resumable_QuietMode(t *testing.T) {
-	t.Skip("RED PHASE: pending dev-story implementation")
+
 
 	procs := []ipc.ResumableProcessWire{
 		{UUID: "u1-quiet-test-aaaaaaaaaaaaaaaaaaaa", LastStep: 1},

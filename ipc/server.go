@@ -382,6 +382,8 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleAnswerUser(conn, req.Payload)
 		case MethodSignalTree:
 			s.handleSignalTree(conn, req.Payload)
+		case MethodListResumable:
+			s.handleListResumable(conn)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return

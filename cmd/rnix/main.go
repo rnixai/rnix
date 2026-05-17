@@ -258,6 +258,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(straceCmd)
 	psCmd.Flags().BoolVar(&flagUUID, "uuid", false, "Show UUID column in process table")
+	psCmd.Flags().BoolVar(&flagResumable, "resumable", false, "Show processes recoverable from disk (Story 42.2)")
 	rootCmd.AddCommand(psCmd)
 	rootCmd.AddCommand(killCmd)
 	rootCmd.AddCommand(suspendCmd)
@@ -973,6 +974,10 @@ func runPs(cmd *cobra.Command, args []string) error {
 	renderer := ui.NewRenderer(os.Stdout, mode)
 	ui.InitStyles(renderer.Profile)
 
+	if flagResumable {
+		return runPsResumable(renderer, mode)
+	}
+
 	client, err := ipc.Dial(ipc.SocketPath())
 	if err != nil {
 		if mode == ui.ModeJSON {
@@ -1392,6 +1397,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 	// Load global config.yaml (optional, not critical)
 	immuneCfg := kernel.DefaultImmuneConfig()
+	checkpointCfg := kernel.DefaultCheckpointConfig()
 	globalConfigPath := filepath.Join(globalDir, "config.yaml")
 	if _, err := os.Stat(globalConfigPath); err == nil {
 		data, err := os.ReadFile(globalConfigPath)
@@ -1401,11 +1407,25 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 			var parsed map[string]any
 			if err := yaml.Unmarshal(data, &parsed); err != nil {
 				fmt.Fprintf(os.Stderr, "[kernel] warn: failed to parse %s: %v\n", globalConfigPath, err)
-			} else if immuneRaw, ok := parsed["immune"].(map[string]any); ok {
-				var warnings []string
-				immuneCfg, warnings = kernel.ParseImmuneConfig(immuneRaw)
-				for _, w := range warnings {
-					fmt.Fprintf(os.Stderr, "[kernel] warn: %s\n", w)
+			} else {
+				if immuneRaw, ok := parsed["immune"].(map[string]any); ok {
+					var warnings []string
+					immuneCfg, warnings = kernel.ParseImmuneConfig(immuneRaw)
+					for _, w := range warnings {
+						fmt.Fprintf(os.Stderr, "[kernel] warn: %s\n", w)
+					}
+				}
+				if cpRaw, ok := parsed["checkpoint"].(map[string]any); ok {
+					if v, ok := cpRaw["interval_steps"]; ok {
+						if n, ok := toInt(v); ok {
+							checkpointCfg.IntervalSteps = n
+						}
+					}
+					if v, ok := cpRaw["interval_seconds"]; ok {
+						if n, ok := toInt(v); ok {
+							checkpointCfg.IntervalSeconds = n
+						}
+					}
 				}
 			}
 		}
@@ -1494,8 +1514,14 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 	// Set step data dir and load process history from disk
 	k.SetStepDataDir(filepath.Join(cwd, ".rnix"))
+	k.SetCheckpointConfig(checkpointCfg)
 	if err := k.LoadHistory(); err != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: load process history: %v\n", err)
+	}
+	if resumable, rerr := k.ListResumable(); rerr != nil {
+		fmt.Fprintf(os.Stderr, "[kernel] warn: list resumable: %v\n", rerr)
+	} else if n := len(resumable); n > 0 {
+		fmt.Fprintf(os.Stderr, "[kernel] Found %d resumable process(es), run 'rnix ps --resumable'\n", n)
 	}
 
 	// Recall cross-process search index (Story 35.4)

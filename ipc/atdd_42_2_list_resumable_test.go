@@ -70,7 +70,7 @@ func writeResumableSnapshot(t *testing.T, baseDir, uuid string, lastStep int) {
 // --- 42.2-INT-001: IPC list_resumable 返回完整 wire schema (AC#7) ---
 
 func TestATDD_42_2_INT_001_ListResumable_WireSchema(t *testing.T) {
-	t.Skip("RED PHASE: server dispatch + handler not yet implemented")
+
 
 	client, _, baseDir := setupResumeIPCTest(t)
 	uuid := "wire-schema-aaaaaaaa-bbbb-cccc-dddd-000000000001"
@@ -115,7 +115,7 @@ func TestATDD_42_2_INT_001_ListResumable_WireSchema(t *testing.T) {
 // --- 42.2-INT-002: IPC list_resumable 空列表 + procTable 协同过滤 (AC#7,#10) ---
 
 func TestATDD_42_2_INT_002_ListResumable_EmptyAndFilter(t *testing.T) {
-	t.Skip("RED PHASE: server dispatch + handler not yet implemented")
+
 
 	client, _, _ := setupResumeIPCTest(t)
 

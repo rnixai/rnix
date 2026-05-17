@@ -48,7 +48,7 @@ func writeProcInfoOnly(t *testing.T, baseDir, uuid, state, intent string) {
 // --- 42.2-UNIT-006: ListResumable 只返回 state=running 残留 (AC#4) ---
 
 func TestATDD_42_2_006_ListResumable_FiltersByRunning(t *testing.T) {
-	t.Skip("RED PHASE: ListResumable returns nil, nil; dev-story implements disk scan")
+
 
 	baseDir := t.TempDir()
 	writeProcInfoOnly(t, baseDir, "running-uuid-0000-0000-000000000001", "running", "running intent")
@@ -76,7 +76,7 @@ func TestATDD_42_2_006_ListResumable_FiltersByRunning(t *testing.T) {
 // --- 42.2-UNIT-007: ListResumable 容错（损坏 + 不存在）(AC#4) ---
 
 func TestATDD_42_2_007_ListResumable_SkipsCorruptAndMissing(t *testing.T) {
-	t.Skip("RED PHASE: error-tolerance pending dev-story implementation")
+
 
 	// Missing baseDir → nil, nil
 	infos, err := ListResumable(filepath.Join(t.TempDir(), "does", "not", "exist"))
@@ -118,7 +118,7 @@ func TestATDD_42_2_007_ListResumable_SkipsCorruptAndMissing(t *testing.T) {
 // --- 42.2-UNIT-008: KernelImpl.ListResumable 过滤已在 procTable 的 UUID (AC#10) ---
 
 func TestATDD_42_2_008_KernelListResumable_FiltersProcTable(t *testing.T) {
-	t.Skip("RED PHASE: KernelImpl.ListResumable returns nil, nil; dev-story implements filtering")
+
 
 	k := newThrottleTestKernel(t)
 	baseDir := k.GetStepDataDir()
@@ -150,7 +150,7 @@ func TestATDD_42_2_008_KernelListResumable_FiltersProcTable(t *testing.T) {
 // --- 42.2-UNIT-008b: KernelImpl.ListResumable stepDataDir 为空时返回 nil ---
 
 func TestATDD_42_2_008b_KernelListResumable_EmptyDataDir(t *testing.T) {
-	t.Skip("RED PHASE: pending dev-story implementation")
+
 
 	// Build a kernel without SetStepDataDir.
 	reg := vfs.NewDeviceRegistry()

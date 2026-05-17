@@ -16,7 +16,7 @@ import (
 // --- 42.2-UNIT-004: 默认值生效 (AC#9) ---
 
 func TestATDD_42_2_004_DefaultConfig_Values(t *testing.T) {
-	t.Skip("RED PHASE: DefaultCheckpointConfig returns zero value; dev-story sets {5, 30}")
+
 
 	cfg := DefaultCheckpointConfig()
 	if cfg.IntervalSteps != 5 {
@@ -30,7 +30,7 @@ func TestATDD_42_2_004_DefaultConfig_Values(t *testing.T) {
 // --- 42.2-UNIT-005: 零值/负值归一化 (AC#9) ---
 
 func TestATDD_42_2_005_SetCheckpointConfig_NormalizesInvalid(t *testing.T) {
-	t.Skip("RED PHASE: SetCheckpointConfig is a no-op stub; dev-story implements normalization")
+
 
 	k := newThrottleTestKernel(t)
 

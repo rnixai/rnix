@@ -66,10 +66,19 @@ func (k *KernelImpl) LoadHistory() error {
 // ListResumable returns proc-info snapshots that can be resumed: state=running
 // entries from disk whose UUIDs are NOT currently in the process table (i.e.,
 // not yet inherited by a live process). Story 42.2 AC#4 + AC#10.
-//
-// RED PHASE (Story 42.2): stub returns nil, nil.
 func (k *KernelImpl) ListResumable() ([]vfs.ProcInfo, error) {
-	return nil, nil
+	candidates, err := ListResumable(k.stepDataDir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]vfs.ProcInfo, 0, len(candidates))
+	for _, c := range candidates {
+		if _, ok := k.GetProcessByUUID(c.UUID); ok {
+			continue // AC#10: already inherited by a live process
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }
 
 // RegisterBudgetPool associates a BudgetPool with a process group.

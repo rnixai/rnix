@@ -79,7 +79,7 @@ func writeCrashLeftover(t *testing.T, baseDir, uuid string, lastStep int) {
 // --- 42.2-INT-003: 端到端 — 崩溃残留 → ListResumable → Resume → 清理 (AC#11) ---
 
 func TestATDD_42_2_INT_003_E2E_CrashRecovery(t *testing.T) {
-	t.Skip("RED PHASE: requires periodic checkpoint + ListResumable + checkpoint-priority Resume integration")
+
 
 	client, kern, baseDir := setupResumeIPCTest(t)
 	uuid := "e2e-crash-aaaaaaaa-bbbb-cccc-dddd-000000000001"

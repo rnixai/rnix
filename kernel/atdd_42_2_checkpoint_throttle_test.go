@@ -42,23 +42,19 @@ func newThrottleProc() *Process {
 	return proc
 }
 
-// setLastCheckpoint primes the proc's last-checkpoint tracking fields. The
-// field names below match the dev-story design in 42.2 Dev Notes; the test
-// is RED until those fields exist.
+// setLastCheckpoint primes the proc's last-checkpoint tracking fields used by
+// the throttle decision (kernel/process.go fields added by Story 42.2).
 func setLastCheckpoint(proc *Process, lastStep int, lastTime time.Time) {
 	proc.mu.Lock()
 	defer proc.mu.Unlock()
-	// RED PHASE: these fields do not exist yet; dev-story will add:
-	//   proc.lastCheckpointStep = lastStep
-	//   proc.lastCheckpointTime = lastTime
-	_ = lastStep
-	_ = lastTime
+	proc.lastCheckpointStep = lastStep
+	proc.lastCheckpointTime = lastTime
 }
 
 // --- 42.2-UNIT-001: step 计数触发 (AC#1) ---
 
 func TestATDD_42_2_001_StepCount_Triggers(t *testing.T) {
-	t.Skip("RED PHASE: kernel.ShouldCheckpoint always returns false; dev-story will implement step-count trigger")
+	
 
 	k := newThrottleTestKernel(t)
 	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 2, IntervalSeconds: 3600})
@@ -84,7 +80,7 @@ func TestATDD_42_2_001_StepCount_Triggers(t *testing.T) {
 // --- 42.2-UNIT-002: 时间窗口触发 (AC#2) ---
 
 func TestATDD_42_2_002_TimeWindow_Triggers(t *testing.T) {
-	t.Skip("RED PHASE: time-window trigger pending dev-story implementation")
+	
 
 	k := newThrottleTestKernel(t)
 	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1000, IntervalSeconds: 1})
@@ -110,7 +106,7 @@ func TestATDD_42_2_002_TimeWindow_Triggers(t *testing.T) {
 // --- 42.2-UNIT-003: 同 step 限流去重 (AC#3) ---
 
 func TestATDD_42_2_003_SameStep_Dedup(t *testing.T) {
-	t.Skip("RED PHASE: dedup guard pending dev-story implementation")
+	
 
 	k := newThrottleTestKernel(t)
 	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1, IntervalSeconds: 1})
@@ -128,7 +124,7 @@ func TestATDD_42_2_003_SameStep_Dedup(t *testing.T) {
 // --- 42.2-UNIT-003b: 初始状态触发 (边界 — lastStep=0, lastTime=zero) ---
 
 func TestATDD_42_2_003b_InitialState_DoesNotPanicAndAllows(t *testing.T) {
-	t.Skip("RED PHASE: pending dev-story implementation")
+	
 
 	k := newThrottleTestKernel(t)
 	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1, IntervalSeconds: 1})

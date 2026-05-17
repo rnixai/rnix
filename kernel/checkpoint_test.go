@@ -220,6 +220,7 @@ func TestCheckpoint_Integration_MultiStep(t *testing.T) {
 	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	k.SetStepDataDir(tmpDir)
+	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1, IntervalSeconds: 1}) // Story 42.2: per-step checkpoint for 30.2 regression test
 	defer k.Shutdown()
 
 	pid, err := k.Spawn("test checkpoint", nil, SpawnOpts{})
@@ -284,6 +285,7 @@ func TestCheckpoint_Integration_ContextRestore(t *testing.T) {
 	ctxMgr := rnixctx.NewManager()
 	k := NewKernel(v, ctxMgr, nil)
 	k.SetStepDataDir(tmpDir)
+	k.SetCheckpointConfig(CheckpointConfig{IntervalSteps: 1, IntervalSeconds: 1}) // Story 42.2: per-step checkpoint for 30.2 regression test
 	defer k.Shutdown()
 
 	pid, err := k.Spawn("test context restore", nil, SpawnOpts{})

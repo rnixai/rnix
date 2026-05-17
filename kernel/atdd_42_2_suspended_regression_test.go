@@ -22,7 +22,7 @@ import (
 // --- 42.2-UNIT-009: Suspended 进程 SaveProcInfo 路径不变 ---
 
 func TestATDD_42_2_009_Suspended_PreservesOriginalPath(t *testing.T) {
-	t.Skip("RED PHASE: pending dev-story implementation to confirm 30-x suspend path untouched")
+
 
 	// Build minimal kernel + process.
 	reg := vfs.NewDeviceRegistry()

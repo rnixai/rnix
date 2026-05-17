@@ -153,6 +153,10 @@ type Process struct {
 	stepsDir        string    // resolved directory for checkpoint writes; "" = no checkpoint
 	scratchDir      string    // per-process temp directory for intermediate files; "" = not created
 
+	// Periodic checkpoint throttling (Story 42.2) — mu protected
+	lastCheckpointStep int       // last step at which checkpoint was written (0 = never)
+	lastCheckpointTime time.Time // last successful checkpoint dispatch timestamp
+
 	// Two-phase shutdown (Story 31.3)
 	GracePeriod     time.Duration // 0 = use DefaultGracePeriod; >0 = custom grace period for SIGTERM
 	shutdownStarted atomic.Bool   // CAS guard: prevents duplicate twoPhaseShutdown goroutines

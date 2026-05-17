@@ -166,6 +166,9 @@ type KernelImpl struct {
 	// Step data directory override for testing (Story 27.1)
 	stepDataDir string
 
+	// Checkpoint policy (Story 42.2) — periodic best-effort checkpoint thresholds
+	checkpointCfg CheckpointConfig
+
 	// Heartbeat monitor (Story 30.6)
 	heartbeatMonitor *HeartbeatMonitor
 
