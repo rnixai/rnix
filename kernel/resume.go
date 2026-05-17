@@ -194,8 +194,8 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 
 	// Story 42.3 — reject negative FromStep on this path too (defensive symmetry).
 	if opts.FromStep < 0 {
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("from_step %d invalid (must be >= 0)", opts.FromStep), types.ErrInvalid)
+		return nil, NewCompactSyscallError("Resume", types.ErrInvalid,
+			fmt.Errorf("ErrInvalid: from_step %d invalid (must be >= 0)", opts.FromStep))
 	}
 
 	cpData, err := ReadCheckpointPublic(stepsDir)
@@ -213,11 +213,13 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	// Story 42.3 — checkpoint + --from-step conflict.
 	// checkpoint.json is a complete ContextSnapshot at cpData.LastStep; we cannot
 	// partially deserialize it back to an arbitrary earlier step. Reject when the
-	// caller asks for a truncation that would precede the checkpoint anchor.
-	if opts.FromStep > 0 && opts.FromStep < cpData.LastStep {
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("from_step %d requires history path; checkpoint at step %d (full snapshot, no partial replay)",
-				opts.FromStep, cpData.LastStep), types.ErrInvalid)
+	// caller asks for any truncation that does not exactly match the checkpoint
+	// anchor: < cpData.LastStep (would need partial replay) AND > cpData.LastStep
+	// (caller asked for steps past the snapshot — user intent silently dropped).
+	if opts.FromStep > 0 && opts.FromStep != cpData.LastStep {
+		return nil, NewCompactSyscallError("Resume", types.ErrInvalid,
+			fmt.Errorf("ErrInvalid: from_step %d requires history path; checkpoint at step %d (full snapshot, no partial replay)",
+				opts.FromStep, cpData.LastStep))
 	}
 
 	cp := cpData.ProcState
@@ -391,8 +393,8 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	// Story 42.3 — reject negative FromStep up-front (AC#2). Zero is valid (=
 	// "no truncation"); positive values get range-checked after we read steps.jsonl.
 	if opts.FromStep < 0 {
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("from_step %d invalid (must be >= 0)", opts.FromStep), types.ErrInvalid)
+		return nil, NewCompactSyscallError("Resume", types.ErrInvalid,
+			fmt.Errorf("ErrInvalid: from_step %d invalid (must be >= 0)", opts.FromStep))
 	}
 
 	// Read proc-info.json for provider/model/skills/intent
@@ -449,11 +451,10 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 		return nil, err
 	}
 
-	// Story 42.3 — out-of-range check (AC#2).
+	// Story 42.3 — out-of-range check (AC#2). Spec-literal error string.
 	if opts.FromStep > 0 && opts.FromStep > totalSteps {
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("from_step %d exceeds total steps (actual: %d)", opts.FromStep, totalSteps),
-			types.ErrInvalid)
+		return nil, NewCompactSyscallError("Resume", types.ErrInvalid,
+			fmt.Errorf("ErrInvalid: from_step %d exceeds total steps (actual: %d)", opts.FromStep, totalSteps))
 	}
 
 	// startStep semantics:
@@ -750,6 +751,7 @@ func (k *KernelImpl) parseStepsJSONL(path string, maxStep int) (int, []rnixctx.M
 	var lastStep int           // highest step considered for messages (bounded by maxStep)
 	var totalSteps int         // highest step across the entire file (for range validation)
 	var lastMessagesRaw json.RawMessage
+	var seenInWindow bool      // true once we encountered any record within [0..maxStep]
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
@@ -771,7 +773,12 @@ func (k *KernelImpl) parseStepsJSONL(path string, maxStep int) (int, []rnixctx.M
 			continue
 		}
 		// Track the highest record within the [0..maxStep] window.
-		if record.Step >= lastStep {
+		// Use strict `>` (not `>=`) so a later duplicate record at the same step
+		// cannot overwrite earlier captured messages with a shorter payload.
+		// `seenInWindow` ensures the first record is always captured even when
+		// `lastStep` is still zero-initialized.
+		if !seenInWindow || record.Step > lastStep {
+			seenInWindow = true
 			lastStep = record.Step
 			if len(record.Messages) > 0 {
 				lastMessagesRaw = append(lastMessagesRaw[:0], record.Messages...)

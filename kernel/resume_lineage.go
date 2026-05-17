@@ -32,6 +32,11 @@ import (
 // "lineage chain too deep"。
 const ResumeLineageMaxDepth = 32
 
+// ResumeLineageMaxDiskScan 是 findDescendantsByOrigin 磁盘 fallback 扫描的目录
+// 上限。超出后停止扫描；Truncated 标志由调用方根据需要标记。该上限防止累积
+// 数万历史 UUID 后 Dashboard detail focus 退化到 O(N) 磁盘 + JSON 解析。
+const ResumeLineageMaxDiskScan = 1024
+
 // ResumeLineageData 是 BuildResumeLineage 的返回类型，承载当前节点 + 祖先链 +
 // 直接后代列表。Truncated 标志用于循环检测或深度上限触发。
 type ResumeLineageData struct {
@@ -49,6 +54,14 @@ func BuildResumeLineage(uuid string, history *ProcessHistory, stepDataDir string
 	if uuid == "" {
 		return nil, NewSyscallError("GetResumeLineage", 0, "",
 			fmt.Errorf("empty UUID"), types.ErrInvalid)
+	}
+	// Reject anything that doesn't match the safe UUID alphabet (alphanumeric +
+	// dashes). Without this guard, a malicious OriginUUID on disk or in an IPC
+	// request could traverse out of the steps dir via "../..". Mirrors the
+	// kernel/resume.go entry validation.
+	if !isValidUUIDFormat(uuid) {
+		return nil, NewSyscallError("GetResumeLineage", 0, "",
+			fmt.Errorf("invalid UUID format: %s", uuid), types.ErrInvalid)
 	}
 
 	// 优先用 procHistory，磁盘兜底。
@@ -70,6 +83,13 @@ func BuildResumeLineage(uuid string, history *ProcessHistory, stepDataDir string
 			truncated = true
 			break
 		}
+		// Defensive: a corrupted proc-info.json could carry an OriginUUID with
+		// path separators. Stop the walk rather than fall into readProcInfoFromDisk
+		// where the validation is duplicated; this keeps the loop bounded.
+		if !isValidUUIDFormat(parent) {
+			truncated = true
+			break
+		}
 		if visited[parent] {
 			truncated = true // 循环检测
 			break
@@ -78,6 +98,14 @@ func BuildResumeLineage(uuid string, history *ProcessHistory, stepDataDir string
 		node := lookupAnyHistory(parent, history, stepDataDir)
 		if node == nil {
 			// 祖先数据已被 gc / 丢失 — 链截断到此节点，但不算 truncated（与循环检测/深度上限语义不同）
+			break
+		}
+		// Cycle-detection guard: when the lookup returned a node whose UUID
+		// field does not match the directory name we walked into, treat it as
+		// corrupted and stop. Otherwise a forged proc-info.json (uuid=Y inside
+		// dir X) would escape the visited set and allow re-entry via Y.
+		if node.UUID != parent {
+			truncated = true
 			break
 		}
 		ancestors = append(ancestors, *node)
@@ -114,6 +142,12 @@ func readProcInfoFromDisk(stepDataDir, uuid string) *vfs.ProcInfo {
 	if stepDataDir == "" || uuid == "" {
 		return nil
 	}
+	// Path-traversal guard: only safe alphabet allowed. Without this, an
+	// `OriginUUID` like "../../etc" on disk or an IPC request UUID could probe
+	// arbitrary files outside data/steps.
+	if !isValidUUIDFormat(uuid) {
+		return nil
+	}
 	path := filepath.Join(stepDataDir, "data", "steps", uuid, procInfoFilename)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -132,6 +166,9 @@ func readProcInfoFromDisk(stepDataDir, uuid string) *vfs.ProcInfo {
 
 // findDescendantsByOrigin 扫描 procHistory + 磁盘 entries，返回 OriginUUID==uuid
 // 的所有条目（直接后代，不递归）。procHistory 命中的 UUID 不再读磁盘以避免重复。
+//
+// 磁盘扫描有 ResumeLineageMaxDiskScan 上限，防止累积数万历史 UUID 后退化为
+// O(N) 磁盘 + JSON 解析（Dev Notes 第 285 行 MVP 备忘录强调过该风险）。
 func findDescendantsByOrigin(uuid string, history *ProcessHistory, stepDataDir string) []vfs.ProcInfo {
 	if uuid == "" {
 		return nil
@@ -154,6 +191,7 @@ func findDescendantsByOrigin(uuid string, history *ProcessHistory, stepDataDir s
 		stepsDir := filepath.Join(stepDataDir, "data", "steps")
 		entries, err := os.ReadDir(stepsDir)
 		if err == nil {
+			scanned := 0
 			for _, e := range entries {
 				if !e.IsDir() {
 					continue
@@ -161,6 +199,10 @@ func findDescendantsByOrigin(uuid string, history *ProcessHistory, stepDataDir s
 				if seen[e.Name()] {
 					continue
 				}
+				if scanned >= ResumeLineageMaxDiskScan {
+					break
+				}
+				scanned++
 				info := readProcInfoFromDisk(stepDataDir, e.Name())
 				if info == nil {
 					continue

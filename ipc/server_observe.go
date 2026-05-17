@@ -521,10 +521,12 @@ func (s *Server) handleGetResumeLineage(conn net.Conn, rawPayload json.RawMessag
 	}
 
 	resp := GetResumeLineageResponse{
-		Current:     procInfoToLineageNode(data.Current),
-		Ancestors:   procInfosToLineageNodes(data.Ancestors),
-		Descendants: procInfosToLineageNodes(data.Descendants),
-		Truncated:   data.Truncated,
+		Current:         procInfoToLineageNode(data.Current),
+		OriginUUID:      data.Current.OriginUUID,
+		ResumedFromStep: data.Current.ResumedFromStep,
+		Ancestors:       procInfosToLineageNodes(data.Ancestors),
+		Descendants:     procInfosToLineageNodes(data.Descendants),
+		Truncated:       data.Truncated,
 	}
 	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})

@@ -502,13 +502,12 @@ func registerLayer1Default(d *ui.Dispatcher) {
 	l.Bindings["shift+R"] = resumeSuspendedHandler
 	l.Docs["R"] = ui.KeyDoc{Key: "R", Description: "Resume suspended process"}
 
-	// r — Story 42.3: resume Dead/Zombie/Suspended via unified handler.
-	// Lowercase `r` covers Dead/Zombie continuation (42-1) and Suspended (30-4)
-	// while uppercase R / shift+R stays on the legacy Suspended-only path for
-	// backward compatibility (AC#9). resumeProcessHandler returns fallback
-	// false for non-resumable states so dispatcher keeps walking.
+	// r — Story 42.3: lowercase `r` resumes Dead/Zombie processes (continuation
+	// or checkpoint replay). Suspended is reserved for uppercase `R`/`shift+R`
+	// via resumeSuspendedHandler (AC#9 backwards compat). resumeProcessHandler
+	// returns fallback false for non-Dead/Zombie states so dispatcher walks on.
 	l.Bindings["r"] = resumeProcessHandler
-	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume / continue Dead/Zombie/Suspended process"}
+	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume / continue Dead/Zombie process"}
 
 	// k / l / r / shift+K 不在此 Layer 注册：原 nav.go 把这些"全局进程操作"
 	// 放在 dispatchPaneKey 的末端（晚于 pane-specific 导航 j/k），避免 Tree 的
@@ -553,16 +552,10 @@ func resumeSuspendedHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyC
 	return true, m, nil
 }
 
-// resumeProcessHandler — Story 42.3 stub.
-// 统一 resume handler，按 selected 进程状态分支：
-//   - StateSuspended → 走 30-4 路径（client.Resume，equivalent to resumeSuspendedHandler）
-//   - StateDead / StateZombie → 走 42-1 路径（client.Resume → resumeFromCheckpoint
-//     或 resumeFromHistory）
-//   - 其他状态 → fallback false（不消费按键，dispatcher 继续查找）
-//
-// dev-story 阶段：替换 resumeSuspendedHandler 在 Layer 1 viewDefault / viewExpanded
-// 的注册（小写 r 走本 handler；大写 R/shift+R 继续走 resumeSuspendedHandler 保持
-// 向后兼容）。
+// resumeProcessHandler — Story 42.3.
+// 按 spec AC#4：小写 `r` 仅用于 Dead/Zombie 进程的续跑。Suspended 继续由
+// 大写 `R`/`shift+R` 通过 resumeSuspendedHandler 处理（AC#9 回归保留），避免与
+// legacy 路径形成功能重叠 / 行为歧义。
 func resumeProcessHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 	m := ctx.(dashboardModel)
 	if m.selectedPID == 0 || m.selectedUUID == "" || !m.connected {
@@ -573,7 +566,7 @@ func resumeProcessHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyCon
 		return false, m, nil
 	}
 	switch proc.State {
-	case types.StateSuspended, types.StateDead, types.StateZombie:
+	case types.StateDead, types.StateZombie:
 		m.statusMsg = "Resuming UUID " + shortUUIDForStatus(m.selectedUUID) + "..."
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return true, m, resumeProcessCmd(m.selectedUUID)
@@ -582,12 +575,17 @@ func resumeProcessHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyCon
 	}
 }
 
-// forkProcessHandler — Story 42.3 stub.
+// forkProcessHandler — Story 42.3.
 // Tree pane 选中 Dead/Zombie 进程时按 `f` 触发 fork（fork=true → 新 UUID +
-// origin tracking）。Timeline pane 优先级由 timelineFilterHandler 在前面消费时
-// 处理（其在不命中 timeline pane 时返回 false，让此 handler 接管）。
+// origin tracking）。AC#5 明确"Tree pane 选中"：从 Detail/Heatmap/History 等
+// 其它 pane 上误触 `f` 不应导致 fork。Timeline pane 由 timelineFilterHandler
+// 在前面消费时处理。
 func forkProcessHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 	m := ctx.(dashboardModel)
+	// AC#5 spec contract: 仅 Tree pane 选中 Dead/Zombie 才触发 fork。
+	if m.activePane != paneTree {
+		return false, m, nil
+	}
 	if m.selectedPID == 0 || m.selectedUUID == "" || !m.connected {
 		return false, m, nil
 	}
@@ -656,7 +654,7 @@ func registerLayer1Expanded(d *ui.Dispatcher) {
 	// (parity with viewDefault so the user can drive resume actions from the
 	// Tree pane in expanded form too).
 	l.Bindings["r"] = resumeProcessHandler
-	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume / continue Dead/Zombie/Suspended process"}
+	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume / continue Dead/Zombie process"}
 
 	// M2: viewExpanded + paneTree + f 仍能进入 Timeline filter mode（rightPane 命中）。
 	// Story 42.3: same f chain as Layer 1 Default — timeline filter wins when

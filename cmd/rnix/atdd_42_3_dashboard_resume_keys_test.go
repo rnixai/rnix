@@ -96,17 +96,15 @@ func TestATDD_42_3_CLI_002_Zombie_R_TriggersResume(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CLI-003: Suspended + `r` → original path retained (AC#9 regression)
+// CLI-003: Suspended + `r` → fallback false (AC#4 — 小写 r 仅 Dead/Zombie；
+// Suspended 由大写 R/shift+R 通过 resumeSuspendedHandler 处理 · AC#9)
 // ---------------------------------------------------------------------------
 
-func TestATDD_42_3_CLI_003_Suspended_R_KeepsLegacyBehavior(t *testing.T) {
+func TestATDD_42_3_CLI_003_Suspended_R_FallsThroughToLegacyR(t *testing.T) {
 	m := new423ModelWithProc(types.StateSuspended, "susp-aaaaaaaa-bbbb-cccc-dddd-000000000001")
-	consumed, _, cmd := resumeProcessHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
-	if !consumed {
-		t.Error("resumeProcessHandler should still handle Suspended for legacy parity")
-	}
-	if cmd == nil {
-		t.Error("resumeProcessHandler should return resumeProcessCmd for Suspended")
+	consumed, _, _ := resumeProcessHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
+	if consumed {
+		t.Error("resumeProcessHandler should NOT consume `r` for Suspended (AC#4 — that's R/shift+R's job)")
 	}
 }
 

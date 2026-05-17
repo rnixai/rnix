@@ -343,10 +343,11 @@ type forkResultMsg struct {
 	err    error
 }
 
-// forkProcessCmd — Story 42.3 stub.
-// Sends a Resume IPC call with fork=true for the given origin UUID. Mirrors
-// resumeProcessCmd but routes to ResumeWithOpts(uuid, true) so the kernel
-// produces a new UUID with OriginUUID tracking the source.
+// forkProcessCmd — Story 42.3.
+// Sends a Resume IPC call with fork=true for the given origin UUID. Routes
+// through ResumeWithOptsV2 so the FromStep field is on the wire path even when
+// the Dashboard currently passes 0 — future expansions can pass --from-step
+// from the Dashboard without changing wire-format again.
 func forkProcessCmd(uuid string) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
@@ -354,7 +355,7 @@ func forkProcessCmd(uuid string) tea.Cmd {
 			return forkResultMsg{err: err}
 		}
 		defer client.Close()
-		result, err := client.ResumeWithOpts(uuid, true)
+		result, err := client.ResumeWithOptsV2(uuid, true, 0)
 		return forkResultMsg{result: result, err: err}
 	}
 }
@@ -363,6 +364,12 @@ func forkProcessCmd(uuid string) tea.Cmd {
 // returns the resulting model plus an optional lineage-fetch follow-up cmd
 // (Story 42.3). Extracted from dashboard.go to keep that file under the
 // Story 29.1 line-count cap.
+//
+// Lineage fetch policy: always trigger when the user has the process selected
+// and it isn't already in LineageCache, regardless of whether OriginUUID is
+// empty. A "root parent" process (OriginUUID empty but with fork descendants)
+// would otherwise never display its "Forked: N descendants" line because no
+// codepath populates the cache for it (Blind/Edge finding #1).
 func handleProcDetailResult(m dashboardModel, msg procDetailResultMsg) (dashboardModel, tea.Cmd) {
 	if msg.Err != nil || msg.Detail == nil {
 		return m, nil
@@ -372,7 +379,7 @@ func handleProcDetailResult(m dashboardModel, msg procDetailResultMsg) (dashboar
 		m.detail.Detail = msg.Detail
 		m.detail.PID = msg.PID
 	}
-	if msg.Detail.OriginUUID == "" || msg.UUID != m.selectedUUID {
+	if msg.UUID != m.selectedUUID {
 		return m, nil
 	}
 	if m.detail.LineageCache == nil {
@@ -385,20 +392,35 @@ func handleProcDetailResult(m dashboardModel, msg procDetailResultMsg) (dashboar
 }
 
 // handleResumeLineageResult writes a ResumeLineageResultMsg into the detail
-// state's LineageCache (Story 42.3). Returns the updated model.
+// state's LineageCache (Story 42.3). On error, caches a sentinel empty response
+// to prevent retry storms (handleProcDetailResult would otherwise re-fetch on
+// every detail refresh) and surfaces the error in the status line.
 func handleResumeLineageResult(m dashboardModel, msg detail.ResumeLineageResultMsg) dashboardModel {
-	if msg.Err != nil || msg.Lineage == nil {
-		return m
-	}
 	if m.detail.LineageCache == nil {
 		m.detail.LineageCache = make(map[string]*ipc.GetResumeLineageResponse)
+	}
+	if msg.Err != nil {
+		// Sentinel: empty response so the cache-hit check in
+		// handleProcDetailResult short-circuits subsequent fetches for this
+		// UUID. Without this, every tick that refreshes Detail would re-dial
+		// the kernel and re-fail.
+		m.detail.LineageCache[msg.UUID] = &ipc.GetResumeLineageResponse{}
+		m.statusMsg = fmt.Sprintf("✗ Lineage fetch: %v", msg.Err)
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return m
+	}
+	if msg.Lineage == nil {
+		m.detail.LineageCache[msg.UUID] = &ipc.GetResumeLineageResponse{}
+		return m
 	}
 	m.detail.LineageCache[msg.UUID] = msg.Lineage
 	return m
 }
 
 // handleForkResult formats fork success/error status and chains a Detail fetch
-// for the new PID (Story 42.3).
+// for the new PID (Story 42.3). On success, also invalidates the LineageCache
+// entry for the origin UUID so the "Forked: N descendants" line reflects the
+// new child immediately rather than serving stale cached descendants.
 func handleForkResult(m dashboardModel, msg forkResultMsg) (dashboardModel, tea.Cmd) {
 	if msg.err != nil {
 		m.statusMsg = fmt.Sprintf("✗ Fork: %v", msg.err)
@@ -406,8 +428,18 @@ func handleForkResult(m dashboardModel, msg forkResultMsg) (dashboardModel, tea.
 		return m, nil
 	}
 	if msg.result == nil {
+		// Defensive: kernel returned (nil, nil). Surface a fallback message so
+		// the "Forking UUID ..." status from forkProcessHandler doesn't linger
+		// silently until TTL expires.
+		m.statusMsg = "✗ Fork: empty response"
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
+	}
+	// Invalidate the origin's lineage cache so a subsequent Detail render sees
+	// the freshly-added descendant. The new selected UUID gets its own fetch
+	// chain via fetchProcDetailCmd → handleProcDetailResult below.
+	if m.detail.LineageCache != nil {
+		delete(m.detail.LineageCache, m.selectedUUID)
 	}
 	m.statusMsg = fmt.Sprintf("Forked UUID %s → PID %d (from %s)",
 		shortUUIDForStatus(msg.result.UUID),

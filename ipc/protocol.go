@@ -1279,14 +1279,20 @@ type ResumeLineageNode struct {
 
 // GetResumeLineageResponse is the response for MethodGetResumeLineage.
 //
+// Spec AC#7 字面要求顶层平铺 OriginUUID / ResumedFromStep 便于 wire-format
+// 消费者直接读取；Current 同时保留嵌套结构（含 State/Intent/CreatedAtMs 等
+// 完整字段），既满足 spec 字面，也保留富信息节点视图。
+//
 // Truncated=true when:
 //   - OriginUUID 链中检测到循环（A→B→A），visited 集合阻断；
 //   - 链深度超过 kernel.ResumeLineageMaxDepth（默认 32）。
 //
 // Ancestors order: 直接父节点在 [0]，最远祖先在末尾。
 type GetResumeLineageResponse struct {
-	Current     ResumeLineageNode   `json:"current"`
-	Ancestors   []ResumeLineageNode `json:"ancestors"`
-	Descendants []ResumeLineageNode `json:"descendants"`
-	Truncated   bool                `json:"truncated,omitempty"`
+	Current         ResumeLineageNode   `json:"current"`
+	OriginUUID      string              `json:"origin_uuid,omitempty"`
+	ResumedFromStep int                 `json:"resumed_from_step,omitempty"`
+	Ancestors       []ResumeLineageNode `json:"ancestors"`
+	Descendants     []ResumeLineageNode `json:"descendants"`
+	Truncated       bool                `json:"truncated,omitempty"`
 }

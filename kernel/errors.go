@@ -13,10 +13,19 @@ type SyscallError struct {
 	Device  string
 	Err     error
 	Code    types.ErrCode
+	// compact, when true, makes Error() return only Err.Error() verbatim. Used by
+	// specs that pin user-visible error strings (e.g. Story 42.3 AC#2:
+	// "ErrInvalid: from_step N exceeds total steps (actual: M)"). Code is still
+	// preserved for errors.As / IPC mapping.
+	compact bool
 }
 
-// Error returns a formatted error string: [Code] PID N Syscall: Device (Err)
+// Error returns a formatted error string: [Code] PID N Syscall: Device (Err).
+// When compact==true, returns only the inner Err's text for spec-pinned messages.
 func (e *SyscallError) Error() string {
+	if e.compact && e.Err != nil {
+		return e.Err.Error()
+	}
 	return fmt.Sprintf("[%s] PID %d %s: %s (%v)", e.Code, e.PID, e.Syscall, e.Device, e.Err)
 }
 
@@ -33,5 +42,17 @@ func NewSyscallError(syscall string, pid types.PID, device string, err error, co
 		Device:  device,
 		Err:     err,
 		Code:    code,
+	}
+}
+
+// NewCompactSyscallError creates a SyscallError whose Error() returns only the
+// inner err's text. Use for spec-pinned user-facing messages where the standard
+// "[CODE] PID N Syscall: Device (Err)" decoration is undesirable.
+func NewCompactSyscallError(syscall string, code types.ErrCode, err error) *SyscallError {
+	return &SyscallError{
+		Syscall: syscall,
+		Err:     err,
+		Code:    code,
+		compact: true,
 	}
 }
