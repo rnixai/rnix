@@ -14,7 +14,6 @@ package compose
 //
 // RED PHASE:
 //   ExecuteFromNode and runLayers are stubs returning sentinel errors. All
-//   ENGINE-* tests are wrapped in t.Skip("RED phase: ...") so the suite stays
 //   green at the package level. Dev-story removes the t.Skip lines as the
 //   corresponding behavior is implemented (red → green for each test).
 //
@@ -117,7 +116,6 @@ func newFanoutSpec_ABCD() *ComposeSpec {
 // -----------------------------------------------------------------------------
 
 func TestATDD_42_4_ENGINE_001_ExecuteFromNode_Linear(t *testing.T) {
-	t.Skip("RED phase: Engine.ExecuteFromNode not implemented (Story 42.4)")
 
 	spec := newLinearSpec_ABC()
 	ks := newMockKernelSpawnerWithSeeder()
@@ -183,7 +181,6 @@ func TestATDD_42_4_ENGINE_001_ExecuteFromNode_Linear(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestATDD_42_4_ENGINE_002_ExecuteFromNode_Fanout(t *testing.T) {
-	t.Skip("RED phase: Engine.ExecuteFromNode not implemented (Story 42.4)")
 
 	spec := newFanoutSpec_ABCD()
 	ks := newMockKernelSpawnerWithSeeder()
@@ -224,7 +221,6 @@ func TestATDD_42_4_ENGINE_002_ExecuteFromNode_Fanout(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestATDD_42_4_ENGINE_003_ExecuteFromNode_PartialDownstreamFailure(t *testing.T) {
-	t.Skip("RED phase: Engine.ExecuteFromNode not implemented (Story 42.4)")
 
 	spec := newFanoutSpec_ABCD()
 	ks := newMockKernelSpawnerWithSeeder()
@@ -262,7 +258,6 @@ func TestATDD_42_4_ENGINE_003_ExecuteFromNode_PartialDownstreamFailure(t *testin
 // -----------------------------------------------------------------------------
 
 func TestATDD_42_4_ENGINE_004_ResumedNodeNotRespawned(t *testing.T) {
-	t.Skip("RED phase: Engine.ExecuteFromNode not implemented (Story 42.4)")
 
 	spec := newLinearSpec_ABC()
 	ks := newMockKernelSpawnerWithSeeder()
@@ -291,7 +286,6 @@ func TestATDD_42_4_ENGINE_004_ResumedNodeNotRespawned(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestATDD_42_4_ENGINE_005_DownstreamUsesResumedOutput(t *testing.T) {
-	t.Skip("RED phase: Engine.ExecuteFromNode not implemented (Story 42.4)")
 
 	spec := newLinearSpec_ABC()
 	ks := newMockKernelSpawnerWithSeeder()
@@ -351,7 +345,6 @@ func containsStr(haystack, needle string) bool {
 // -----------------------------------------------------------------------------
 
 func TestATDD_42_4_ENGINE_006_RunLayersSharedHelper(t *testing.T) {
-	t.Skip("RED phase: runLayers helper not implemented (Story 42.4)")
 
 	spec := newLinearSpec_ABC()
 	ks := newMockKernelSpawnerWithSeeder()
@@ -397,7 +390,6 @@ func TestATDD_42_4_ENGINE_006_RunLayersSharedHelper(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestATDD_42_4_ENGINE_007_ExecuteLinearRegression(t *testing.T) {
-	t.Skip("RED phase: runLayers helper not implemented (Story 42.4)")
 
 	// This test mirrors TestEngine_Execute_LinearDeps from engine_test.go but
 	// targets the post-refactor Execute() that delegates to runLayers. Removing
@@ -429,12 +421,13 @@ func TestATDD_42_4_ENGINE_007_ExecuteLinearRegression(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Stub sanity checks (RED PHASE compile-time only; not skipped)
+// Stub sanity checks (post-GREEN: verify implementation is live, not RED stubs)
 // -----------------------------------------------------------------------------
 
-// TestATDD_42_4_StubSanity_ExecuteFromNode verifies the stub exists and returns
-// the sentinel error. This test is NOT skipped — it asserts the RED PHASE
-// contract so dev-story knows when to wire the real implementation in.
+// TestATDD_42_4_StubSanity_ExecuteFromNode verifies that ExecuteFromNode no
+// longer returns the RED-phase sentinel error. After the GREEN-phase
+// implementation is in place, calling ExecuteFromNode with an unsatisfied
+// upstream must return a real ErrInvalid (or similar) — NOT the sentinel.
 func TestATDD_42_4_StubSanity_ExecuteFromNode(t *testing.T) {
 	spec := newLinearSpec_ABC()
 	ks := newMockKernelSpawnerWithSeeder()
@@ -443,18 +436,14 @@ func TestATDD_42_4_StubSanity_ExecuteFromNode(t *testing.T) {
 		t.Fatalf("NewEngine: %v", err)
 	}
 	_, err = engine.ExecuteFromNode(context.Background(), "node-B", HistoricalNodeResult{}, nil)
-	if err == nil {
-		// Dev-story has wired the real implementation. The skipped ATDD tests
-		// above should be unskipped.
-		t.Log("ExecuteFromNode returned nil — implementation likely live; remove t.Skip from sibling tests")
-		return
-	}
-	if !errors.Is(err, errExecuteFromNodeNotImplemented) {
-		t.Errorf("expected sentinel errExecuteFromNodeNotImplemented, got %v", err)
+	if err != nil && errors.Is(err, errExecuteFromNodeNotImplemented) {
+		t.Errorf("ExecuteFromNode still returns RED sentinel; implementation expected to be live: %v", err)
 	}
 }
 
-// TestATDD_42_4_StubSanity_RunLayers verifies the runLayers stub.
+// TestATDD_42_4_StubSanity_RunLayers verifies that runLayers no longer returns
+// the RED-phase sentinel error. After the GREEN-phase implementation is live,
+// a zero-layer call must return nil (no work to do) and not the sentinel.
 func TestATDD_42_4_StubSanity_RunLayers(t *testing.T) {
 	spec := newLinearSpec_ABC()
 	ks := newMockKernelSpawnerWithSeeder()
@@ -463,11 +452,7 @@ func TestATDD_42_4_StubSanity_RunLayers(t *testing.T) {
 		t.Fatalf("NewEngine: %v", err)
 	}
 	_, err = engine.runLayers(context.Background(), nil, 0, "", nil, nil, nil)
-	if err == nil {
-		t.Log("runLayers returned nil — implementation likely live; remove t.Skip from sibling tests")
-		return
-	}
-	if !errors.Is(err, errRunLayersNotImplemented) {
-		t.Errorf("expected sentinel errRunLayersNotImplemented, got %v", err)
+	if err != nil && errors.Is(err, errRunLayersNotImplemented) {
+		t.Errorf("runLayers still returns RED sentinel; implementation expected to be live: %v", err)
 	}
 }

@@ -186,15 +186,20 @@ func (s *ipcKernelSpawner) GetTokensUsed(pid types.PID) (int, bool) {
 // from a failed node: upstream nodes' outputs (loaded from procHistory) are
 // seeded so downstream system-prompt construction works as if Execute() had
 // run the upstream nodes fresh.
-//
-// RED PHASE: stub — currently a no-op so the test harness can compile.
-// Dev-story will populate s.results / s.tokens / s.spanIDs accordingly.
 func (s *ipcKernelSpawner) SeedHistorical(name string, pid types.PID, result string, tokens int, spanID types.SpanID) {
 	_ = name
-	_ = pid
-	_ = result
-	_ = tokens
-	_ = spanID
+	if pid == 0 {
+		return
+	}
+	if result != "" {
+		s.results.Store(pid, result)
+	}
+	if tokens > 0 {
+		s.tokens.Store(pid, tokens)
+	}
+	if spanID != "" {
+		s.spanIDs.Store(pid, spanID)
+	}
 }
 
 // runComposeUp implements the `rnix compose up` command.

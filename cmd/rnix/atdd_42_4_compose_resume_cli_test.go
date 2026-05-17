@@ -23,7 +23,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -131,7 +130,6 @@ func TestATDD_42_4_CLI_001_CommandShape(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_4_CLI_002_NoResumableInstance(t *testing.T) {
-	t.Skip("RED phase: findResumableComposeProc not implemented (Story 42.4)")
 
 	procs := []vfs.ProcInfo{
 		makeProcInfo_42_4(1, "uuid-1", "node-A", types.StateZombie, "", time.Unix(1, 0), "A done", 50),
@@ -154,7 +152,6 @@ func TestATDD_42_4_CLI_002_NoResumableInstance(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_4_CLI_002b_SelectsNewestDeadZombie(t *testing.T) {
-	t.Skip("RED phase: findResumableComposeProc not implemented (Story 42.4)")
 
 	procs := []vfs.ProcInfo{
 		makeProcInfo_42_4(1, "uuid-old", "node-B", types.StateDead, "llm err", time.Unix(100, 0), "", 30),
@@ -175,7 +172,6 @@ func TestATDD_42_4_CLI_002b_SelectsNewestDeadZombie(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_4_CLI_003_NodeNotInSpec(t *testing.T) {
-	t.Skip("RED phase: validateComposeNodeInSpec not implemented (Story 42.4)")
 
 	spec := newLinearComposeSpec_42_4()
 
@@ -195,7 +191,6 @@ func TestATDD_42_4_CLI_003_NodeNotInSpec(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_4_CLI_004_IdempotentSuccess(t *testing.T) {
-	t.Skip("RED phase: isComposeProcIdempotent not implemented (Story 42.4)")
 
 	successfulZombie := makeProcInfo_42_4(1, "uuid-success", "node-B", types.StateZombie, "", time.Unix(100, 0), "done", 80)
 	if !isComposeProcIdempotent(successfulZombie) {
@@ -250,7 +245,6 @@ func TestATDD_42_4_CLI_005_ForkFlagParsing(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_4_CLI_006_DryRunPlan(t *testing.T) {
-	t.Skip("RED phase: renderComposeResumePlan not implemented (Story 42.4)")
 
 	var buf bytes.Buffer
 	renderComposeResumePlan(&buf, "node-B", "uuid-resume-target", []string{"node-C", "node-D"})
@@ -269,7 +263,6 @@ func TestATDD_42_4_CLI_006_DryRunPlan(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_4_CLI_007_JSONOutputSchema(t *testing.T) {
-	t.Skip("RED phase: renderComposeResumeJSON not implemented (Story 42.4)")
 
 	results := []compose.ScheduleResult{
 		{Name: "node-C", PID: 3, ExitCode: 0, TokensUsed: 100, Output: "C done"},
@@ -303,7 +296,6 @@ func TestATDD_42_4_CLI_007_JSONOutputSchema(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_4_CLI_008_BuildHistoricalUpstream(t *testing.T) {
-	t.Skip("RED phase: buildHistoricalUpstream not implemented (Story 42.4)")
 
 	spec := newLinearComposeSpec_42_4()
 	procs := []vfs.ProcInfo{
@@ -338,7 +330,6 @@ func TestATDD_42_4_CLI_008_BuildHistoricalUpstream(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_4_CLI_008b_BuildHistoricalUpstream_MissingSuccess(t *testing.T) {
-	t.Skip("RED phase: buildHistoricalUpstream not implemented (Story 42.4)")
 
 	spec := newLinearComposeSpec_42_4()
 	procs := []vfs.ProcInfo{
@@ -352,19 +343,28 @@ func TestATDD_42_4_CLI_008b_BuildHistoricalUpstream_MissingSuccess(t *testing.T)
 }
 
 // ---------------------------------------------------------------------------
-// Stub sanity checks (RED PHASE compile-time only; not skipped)
+// Stub sanity checks (post-GREEN: verify implementation is live, not RED stubs)
 // ---------------------------------------------------------------------------
 
-// TestATDD_42_4_CLI_StubSanity_RunComposeResume verifies that the cobra RunE
-// stub returns the sentinel error in red phase.
+// TestATDD_42_4_CLI_StubSanity_RunComposeResume verifies that runComposeResume
+// no longer panics and is wired to the cobra command. After the GREEN-phase
+// implementation, calling it from the test environment is expected to set
+// exitCode (via outputError) and return nil — NOT to return a sentinel error.
 func TestATDD_42_4_CLI_StubSanity_RunComposeResume(t *testing.T) {
+	// Reset transient global state so this test is hermetic.
+	flagComposeResumeNode = "test-only-node"
+	flagComposeResumeFile = "rnix-compose-missing.yaml"
+	defer func() {
+		flagComposeResumeNode = ""
+		flagComposeResumeFile = "rnix-compose.yaml"
+		exitCode = 0
+	}()
+
 	err := runComposeResume(composeResumeCmd, nil)
-	if err == nil {
-		t.Log("runComposeResume returned nil — implementation likely live; remove t.Skip from sibling CLI tests")
-		return
-	}
-	if !errors.Is(err, errComposeResumeNotImplemented) {
-		t.Errorf("runComposeResume err = %v, want errComposeResumeNotImplemented", err)
+	// runComposeResume returns nil even on failure (it sets exitCode and lets
+	// the cobra root print). The key contract: no panic, no sentinel error.
+	if err != nil {
+		t.Errorf("runComposeResume should return nil on error; got %v", err)
 	}
 }
 

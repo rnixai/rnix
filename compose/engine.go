@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -73,101 +74,34 @@ func (e *Engine) Execute(ctx context.Context) ([]ScheduleResult, error) {
 		return nil, err
 	}
 
-	// Calculate BudgetPool quotas for all agents (Story 21.1)
-	agentQuotas := make(map[string]int)
-	if e.budgetPool != nil {
-		// Compute weights and proportional quotas
-		totalWeight := 0
-		weights := make(map[string]int)
-		for name, spec := range e.spec.Agents {
-			w := int(kernel.ParsePriority(spec.Priority))
-			weights[name] = w
-			totalWeight += w
-		}
-		if totalWeight > 0 {
-			for name, w := range weights {
-				agentQuotas[name] = e.spec.TokenBudget * w / totalWeight
-			}
-		}
-	}
-
-	var allResults []ScheduleResult
+	agentQuotas := e.computeAgentQuotas()
 	resultMap := make(map[string]*ScheduleResult)
 	pids := xsync.NewSyncMap[string, types.PID]()
 
-	for _, layer := range layers {
-		// Check context cancellation between layers
-		if ctx.Err() != nil {
-			return allResults, ctx.Err()
-		}
+	return e.runLayers(ctx, layers, 0, traceID, resultMap, pids, agentQuotas)
+}
 
-		// Check budget pool exhaustion between layers (Story 21.1)
-		if e.budgetPool != nil && e.budgetPool.IsExhausted() {
-			for _, remainingLayer := range layers {
-				for _, name := range remainingLayer {
-					if _, exists := resultMap[name]; !exists {
-						allResults = append(allResults, ScheduleResult{
-							Name: name,
-							Err:  fmt.Errorf("budget_exhausted: token budget pool depleted"),
-						})
-						resultMap[name] = &allResults[len(allResults)-1]
-					}
-				}
-			}
-			return allResults, fmt.Errorf("budget_exhausted: token budget pool depleted")
-		}
-
-		var wg sync.WaitGroup
-		layerResults := make([]*ScheduleResult, len(layer))
-
-		for i, name := range layer {
-			// Check if upstream dependencies all succeeded
-			node := e.dag.Nodes[name]
-			allDepsOK := true
-			for _, dep := range node.DependsOn {
-				if r, ok := resultMap[dep]; ok && r.Err != nil {
-					allDepsOK = false
-					break
-				}
-			}
-
-			if !allDepsOK {
-				layerResults[i] = &ScheduleResult{
-					Name: name,
-					Err:  fmt.Errorf("upstream dependency failed"),
-				}
-				continue
-			}
-
-			wg.Add(1)
-			go func(idx int, agentName string) {
-				defer wg.Done()
-				result := e.executeNode(ctx, agentName, traceID, pids, agentQuotas)
-				layerResults[idx] = result
-			}(i, name)
-		}
-
-		wg.Wait()
-
-		// Collect results and track budget consumption
-		for _, r := range layerResults {
-			if r != nil {
-				// Record token usage to BudgetPool (Story 21.1)
-				if r.PID != 0 && r.TokensUsed > 0 && e.budgetPool != nil {
-					_ = e.budgetPool.RecordUsage(r.PID, r.TokensUsed)
-				}
-				allResults = append(allResults, *r)
-				resultMap[r.Name] = r
-			}
-		}
-
-		// Check context cancellation after layer completes
-		if ctx.Err() != nil {
-			return allResults, ctx.Err()
+// computeAgentQuotas derives per-agent token budgets from the TokenBudget pool,
+// distributing proportionally by Priority weight. Returns a name->quota map;
+// the map is empty when no budget pool is configured.
+func (e *Engine) computeAgentQuotas() map[string]int {
+	agentQuotas := make(map[string]int)
+	if e.budgetPool == nil {
+		return agentQuotas
+	}
+	totalWeight := 0
+	weights := make(map[string]int)
+	for name, spec := range e.spec.Agents {
+		w := int(kernel.ParsePriority(spec.Priority))
+		weights[name] = w
+		totalWeight += w
+	}
+	if totalWeight > 0 {
+		for name, w := range weights {
+			agentQuotas[name] = e.spec.TokenBudget * w / totalWeight
 		}
 	}
-
-	return allResults, nil
+	return agentQuotas
 }
 
 // executeNode spawns and waits for a single agent node.
@@ -376,26 +310,120 @@ func (e *Engine) buildUpstreamPrompt(name string, pids *xsync.SyncMap[string, ty
 // historical results are injected via the upstreamResults map. The resumedNode
 // itself is seeded with the supplied resumedResult, then the engine schedules
 // nodes from the next layer onward using the standard runLayers helper.
-//
-// RED PHASE: stub — returns errExecuteFromNodeNotImplemented. Dev-story will
-// implement the seedUpstream logic + delegate to runLayers from layer L+1.
 func (e *Engine) ExecuteFromNode(
 	ctx context.Context,
 	resumedNode string,
 	resumedResult HistoricalNodeResult,
 	upstreamResults map[string]HistoricalNodeResult,
 ) ([]ScheduleResult, error) {
-	_ = ctx
-	_ = resumedNode
-	_ = resumedResult
-	_ = upstreamResults
-	// RED PHASE call-graph anchor: dev-story will replace this body with the
-	// real seed + delegate-to-runLayers logic. Keeping the call here ensures
-	// the unused-method lint stays green during the red phase.
-	if false {
-		_, _ = e.runLayers(ctx, nil, 0, "", nil, nil, nil)
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 	}
-	return nil, errExecuteFromNodeNotImplemented
+
+	if _, ok := e.dag.Nodes[resumedNode]; !ok {
+		return nil, fmt.Errorf("ErrInvalid: resumed node %q not in compose DAG", resumedNode)
+	}
+
+	layers, err := e.dag.TopologicalSort()
+	if err != nil {
+		return nil, err
+	}
+
+	resumedLayerIdx := -1
+	for i, layer := range layers {
+		if slices.Contains(layer, resumedNode) {
+			resumedLayerIdx = i
+			break
+		}
+	}
+	if resumedLayerIdx < 0 {
+		return nil, fmt.Errorf("ErrInvalid: resumed node %q not found in topological sort", resumedNode)
+	}
+
+	// Validate every upstream dependency of resumedNode has a historical result.
+	// Walk transitive dependencies so a chain A→B→C resumed at C also requires
+	// A to be present (matches Story 42.4 Dev Notes: no auto-recursive resume).
+	required := transitiveUpstream(e.dag, resumedNode)
+	for dep := range required {
+		if _, ok := upstreamResults[dep]; !ok {
+			return nil, fmt.Errorf("ErrInvalid: upstream node %q has no successful run, cannot resume from %q", dep, resumedNode)
+		}
+	}
+
+	traceID := debug.GenerateTraceID()
+	agentQuotas := e.computeAgentQuotas()
+	resultMap := make(map[string]*ScheduleResult)
+	pids := xsync.NewSyncMap[string, types.PID]()
+
+	seeder, _ := e.kernel.(HistoricalSeeder)
+
+	// Seed upstream historical results in topological order so allResults stays
+	// deterministic when the seeded entries are emitted at the head.
+	for layerIdx := 0; layerIdx < resumedLayerIdx; layerIdx++ {
+		for _, name := range layers[layerIdx] {
+			h, ok := upstreamResults[name]
+			if !ok {
+				continue
+			}
+			r := &ScheduleResult{
+				Name:       name,
+				PID:        h.PID,
+				ExitCode:   h.ExitCode,
+				Output:     h.Output,
+				TokensUsed: h.Tokens,
+			}
+			resultMap[name] = r
+			if h.PID != 0 {
+				pids.Store(name, h.PID)
+			}
+			if seeder != nil {
+				seeder.SeedHistorical(name, h.PID, h.Output, h.Tokens, h.SpanID)
+			}
+		}
+	}
+
+	// Seed resumed node itself.
+	resumedSched := &ScheduleResult{
+		Name:       resumedNode,
+		PID:        resumedResult.PID,
+		ExitCode:   resumedResult.ExitCode,
+		Output:     resumedResult.Output,
+		TokensUsed: resumedResult.Tokens,
+	}
+	resultMap[resumedNode] = resumedSched
+	if resumedResult.PID != 0 {
+		pids.Store(resumedNode, resumedResult.PID)
+	}
+	if seeder != nil {
+		seeder.SeedHistorical(resumedNode, resumedResult.PID, resumedResult.Output, resumedResult.Tokens, resumedResult.SpanID)
+	}
+
+	return e.runLayers(ctx, layers, resumedLayerIdx+1, traceID, resultMap, pids, agentQuotas)
+}
+
+// transitiveUpstream returns the set of node names that resumedNode transitively
+// depends on (excluding resumedNode itself). Used by ExecuteFromNode to ensure
+// every reachable upstream has a historical record before scheduling downstream.
+func transitiveUpstream(dag *DAG, target string) map[string]bool {
+	out := make(map[string]bool)
+	var walk func(name string)
+	walk = func(name string) {
+		node, ok := dag.Nodes[name]
+		if !ok {
+			return
+		}
+		for _, dep := range node.DependsOn {
+			if out[dep] {
+				continue
+			}
+			out[dep] = true
+			walk(dep)
+		}
+	}
+	walk(target)
+	return out
 }
 
 // runLayers walks the DAG layers starting from startLayerIdx, using the
@@ -403,10 +431,6 @@ func (e *Engine) ExecuteFromNode(
 // and ExecuteFromNode (startLayerIdx > 0) call this helper so layer ordering,
 // dependency propagation, budget exhaustion, and SLA recording stay consistent
 // between the two entry points (Story 42.4).
-//
-// RED PHASE: stub — returns errRunLayersNotImplemented. Dev-story will move the
-// loop body from Execute() into this helper without behavior changes; Execute
-// will then call runLayers(ctx, layers, 0, ...).
 func (e *Engine) runLayers(
 	ctx context.Context,
 	layers [][]string,
@@ -416,14 +440,117 @@ func (e *Engine) runLayers(
 	pids *xsync.SyncMap[string, types.PID],
 	agentQuotas map[string]int,
 ) ([]ScheduleResult, error) {
-	_ = ctx
-	_ = layers
-	_ = startLayerIdx
-	_ = traceID
-	_ = resultMap
-	_ = pids
-	_ = agentQuotas
-	return nil, errRunLayersNotImplemented
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+	if resultMap == nil {
+		resultMap = make(map[string]*ScheduleResult)
+	}
+	if pids == nil {
+		pids = xsync.NewSyncMap[string, types.PID]()
+	}
+
+	// Seed allResults from any pre-populated resultMap entries (preserving
+	// topological order so ExecuteFromNode produces a deterministic result
+	// sequence: upstream historical nodes first, then resumed node, then
+	// freshly scheduled downstream nodes).
+	var allResults []ScheduleResult
+	seeded := make(map[string]bool, len(resultMap))
+	for layerIdx := 0; layerIdx < startLayerIdx && layerIdx < len(layers); layerIdx++ {
+		for _, name := range layers[layerIdx] {
+			if r, ok := resultMap[name]; ok && !seeded[name] {
+				allResults = append(allResults, *r)
+				seeded[name] = true
+			}
+		}
+	}
+
+	for layerIdx := startLayerIdx; layerIdx < len(layers); layerIdx++ {
+		layer := layers[layerIdx]
+
+		// Check context cancellation between layers
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return allResults, err
+			}
+		}
+
+		// Check budget pool exhaustion between layers (Story 21.1)
+		if e.budgetPool != nil && e.budgetPool.IsExhausted() {
+			for j := layerIdx; j < len(layers); j++ {
+				for _, name := range layers[j] {
+					if _, exists := resultMap[name]; !exists {
+						allResults = append(allResults, ScheduleResult{
+							Name: name,
+							Err:  fmt.Errorf("budget_exhausted: token budget pool depleted"),
+						})
+						resultMap[name] = &allResults[len(allResults)-1]
+					}
+				}
+			}
+			return allResults, fmt.Errorf("budget_exhausted: token budget pool depleted")
+		}
+
+		var wg sync.WaitGroup
+		layerResults := make([]*ScheduleResult, len(layer))
+
+		for i, name := range layer {
+			// Skip nodes already in resultMap (pre-seeded by ExecuteFromNode).
+			if _, alreadyDone := resultMap[name]; alreadyDone {
+				continue
+			}
+
+			// Check if upstream dependencies all succeeded
+			node := e.dag.Nodes[name]
+			allDepsOK := true
+			for _, dep := range node.DependsOn {
+				if r, ok := resultMap[dep]; ok && r.Err != nil {
+					allDepsOK = false
+					break
+				}
+			}
+
+			if !allDepsOK {
+				layerResults[i] = &ScheduleResult{
+					Name: name,
+					Err:  fmt.Errorf("upstream dependency failed"),
+				}
+				continue
+			}
+
+			wg.Add(1)
+			go func(idx int, agentName string) {
+				defer wg.Done()
+				result := e.executeNode(ctx, agentName, traceID, pids, agentQuotas)
+				layerResults[idx] = result
+			}(i, name)
+		}
+
+		wg.Wait()
+
+		// Collect results and track budget consumption
+		for _, r := range layerResults {
+			if r != nil {
+				// Record token usage to BudgetPool (Story 21.1)
+				if r.PID != 0 && r.TokensUsed > 0 && e.budgetPool != nil {
+					_ = e.budgetPool.RecordUsage(r.PID, r.TokensUsed)
+				}
+				allResults = append(allResults, *r)
+				resultMap[r.Name] = r
+			}
+		}
+
+		// Check context cancellation after layer completes
+		if ctx != nil {
+			if err := ctx.Err(); err != nil {
+				return allResults, err
+			}
+		}
+	}
+
+	return allResults, nil
 }
 
 // Sentinel errors for Story 42.4 RED PHASE stubs.
