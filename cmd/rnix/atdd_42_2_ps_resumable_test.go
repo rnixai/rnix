@@ -12,12 +12,10 @@ import (
 // =============================================================================
 // ATDD 42.2: 韧性层 — CLI `rnix ps --resumable` 渲染（AC#6）
 //
-// RED PHASE: render functions are stubs (see ps_resumable.go); tests below are
-// skipped until dev-story implements:
-//   - psCmd.Flags().BoolVar(&flagResumable, "resumable", false, "...")
-//   - runPs branch on flagResumable
-//   - real renderResumable{Table,JSON,Quiet}
-//   - formatRelativeTimeForPs duration math
+// Tests cover three render modes:
+//   - renderResumableTable: human-readable table with relative-time formatting
+//   - renderResumableJSON:  structured JSON envelope (ok + data.processes)
+//   - renderResumableQuiet: one UUID per line
 // =============================================================================
 
 // --- 42.2-CLI-001: --resumable 空列表渲染 (AC#6) ---

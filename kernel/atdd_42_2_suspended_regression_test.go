@@ -14,9 +14,6 @@ import (
 // 是额外增强而非替代。本测试验证：进程进入 Suspended 状态时，原有的
 // SaveProcInfo + writeCheckpoint 路径仍然工作，proc-info.json 的 state 字段
 // 正确写入。
-//
-// RED PHASE: 桩 ShouldCheckpoint 总是返回 false，但 Suspended 路径不经过新
-// 增的限流逻辑（走原 reap/suspend 同步路径），dev-story 必须验证两者隔离。
 // =============================================================================
 
 // --- 42.2-UNIT-009: Suspended 进程 SaveProcInfo 路径不变 ---
@@ -42,12 +39,10 @@ func TestATDD_42_2_009_Suspended_PreservesOriginalPath(t *testing.T) {
 		t.Fatalf("Suspend: %v", err)
 	}
 
-	// Sanity: state must reflect Suspended after the transition.
-	if got := proc.GetState(); got != types.StateRunning && got != types.StateZombie {
-		// Note: Suspend keeps state machine in Running (suspend is a flag, not a state).
-		// Confirming we're still in Running here is fine; the regression check is below.
-		_ = got
-	}
+	// Note: Suspend keeps the state machine in Running (suspend is a flag,
+	// not a separate state). The real regression check is the SaveProcInfo +
+	// LoadProcHistory roundtrip below — if the 30-x persistence path were
+	// broken by Story 42.2, history.Len() would be 0.
 
 	// The new periodic-checkpoint path MUST NOT interfere with the existing
 	// 30-2/30-4 path. Direct SaveProcInfo call should still succeed and produce

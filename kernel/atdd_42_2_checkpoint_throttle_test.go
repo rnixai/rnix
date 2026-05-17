@@ -15,9 +15,6 @@ import (
 // Tests target the throttling decision function only; actual disk writes are
 // validated indirectly via the proc.lastCheckpointStep / lastCheckpointTime
 // state updates after a successful trigger.
-//
-// RED PHASE: kernel.ShouldCheckpoint always returns false (see checkpoint_config.go).
-// Remove t.Skip() in dev-story once the real throttle logic lands.
 // =============================================================================
 
 // newThrottleTestKernel builds a kernel with stepDataDir set so checkpoint

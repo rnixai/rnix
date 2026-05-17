@@ -751,6 +751,8 @@ func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveTo
 	var procInfo *vfs.ProcInfo
 	if pi, piErr := k.GetProcInfo(proc.PID); piErr == nil {
 		procInfo = pi
+	} else {
+		log.Printf("[checkpoint] pid=%d GetProcInfo failed: %v", proc.PID, piErr)
 	}
 
 	// Track the write goroutine in proc.wg so reapProcess and Shutdown wait for it to
@@ -763,7 +765,12 @@ func (k *KernelImpl) asyncWriteCheckpoint(proc *Process, step int, consecutiveTo
 			default: // channel full, discard old error
 			}
 		}
-		if procInfo != nil {
+		// Avoid persisting a phantom state=running snapshot if the process
+		// transitioned to Zombie/Dead between the main-goroutine snapshot and
+		// the async write — otherwise the next daemon startup would resurrect
+		// it as resumable. We can read state without the lock because GetState
+		// is atomic.
+		if procInfo != nil && proc.GetState() == types.StateRunning {
 			if err := SaveProcInfo(k.stepDataDir, *procInfo); err != nil {
 				log.Printf("[checkpoint] pid=%d SaveProcInfo failed: %v", proc.PID, err)
 			}

@@ -2,11 +2,13 @@ package kernel
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"sync"
 	"time"
 
@@ -344,6 +346,9 @@ func ListResumable(baseDir string) ([]vfs.ProcInfo, error) {
 		path := filepath.Join(stepsDir, entry.Name(), procInfoFilename)
 		data, err := os.ReadFile(path)
 		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				log.Printf("[history] read %s: %v", path, err)
+			}
 			continue
 		}
 		var d procInfoDisk
@@ -356,5 +361,17 @@ func ListResumable(baseDir string) ([]vfs.ProcInfo, error) {
 		}
 		infos = append(infos, procInfoFromDisk(d))
 	}
+	// Most-recent-first ordering: prefer DeadAt, fall back to CreatedAt.
+	sort.SliceStable(infos, func(i, j int) bool {
+		ti := infos[i].DeadAt
+		if ti.IsZero() {
+			ti = infos[i].CreatedAt
+		}
+		tj := infos[j].DeadAt
+		if tj.IsZero() {
+			tj = infos[j].CreatedAt
+		}
+		return ti.After(tj)
+	})
 	return infos, nil
 }

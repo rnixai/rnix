@@ -367,7 +367,11 @@ func (s *Server) handleListResumable(conn net.Conn) {
 	for _, info := range infos {
 		wires = append(wires, resumableInfoToWire(info, baseDir))
 	}
-	payload, _ := json.Marshal(ListResumableResponse{Processes: wires})
+	payload, err := json.Marshal(ListResumableResponse{Processes: wires})
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("marshal list_resumable: %v", err)}})
+		return
+	}
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 

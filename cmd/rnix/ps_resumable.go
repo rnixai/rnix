@@ -46,7 +46,18 @@ func runPsResumable(renderer *ui.Renderer, mode ui.OutputMode) error {
 
 	resp, err := client.ListResumable()
 	if err != nil {
-		if mode != ui.ModeQuiet {
+		switch mode {
+		case ui.ModeJSON:
+			errResp := JSONResponse{OK: false, Error: err.Error()}
+			data, mErr := json.Marshal(errResp)
+			if mErr != nil {
+				fmt.Fprintf(os.Stderr, "✗ failed to encode JSON error: %v\n", mErr)
+			} else {
+				fmt.Fprintln(renderer.Writer, string(data))
+			}
+		case ui.ModeQuiet:
+			// silent — preserve the contract that quiet mode emits no diagnostics
+		default:
 			fmt.Fprintf(os.Stderr, "✗ failed to list resumable processes: %v\n", err)
 		}
 		exitCode = 1
@@ -71,7 +82,12 @@ func renderResumableJSON(w io.Writer, procs []ipc.ResumableProcessWire) {
 		procs = []ipc.ResumableProcessWire{}
 	}
 	resp := JSONResponse{OK: true, Data: map[string]any{"processes": procs}}
-	data, _ := json.Marshal(resp)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "✗ failed to encode JSON: %v\n", err)
+		exitCode = 1
+		return
+	}
 	fmt.Fprintln(w, string(data))
 }
 
@@ -114,13 +130,21 @@ func truncateUUIDForPs(uuid string) string {
 	return uuid[:8]
 }
 
-// truncateAgentForPs trims agent labels to 20 chars (by rune to stay CJK-safe).
+// truncateAgentForPs trims agent labels to ~20 chars (by rune to stay CJK-safe).
+// In RNIX_ASCII=1 mode the ellipsis falls back to "..." to honor the
+// terminal-compatibility convention from CLAUDE.md.
 func truncateAgentForPs(agent string) string {
 	runes := []rune(agent)
 	if len(runes) <= 20 {
 		return agent
 	}
-	return string(runes[:19]) + "…"
+	ellipsis := "…"
+	cutAt := 19
+	if os.Getenv("RNIX_ASCII") == "1" {
+		ellipsis = "..."
+		cutAt = 17
+	}
+	return string(runes[:cutAt]) + ellipsis
 }
 
 // formatRelativeTimeForPs renders a millisecond-unix timestamp as "5m ago",

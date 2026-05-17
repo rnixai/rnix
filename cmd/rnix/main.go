@@ -1419,11 +1419,15 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 					if v, ok := cpRaw["interval_steps"]; ok {
 						if n, ok := toInt(v); ok {
 							checkpointCfg.IntervalSteps = n
+						} else {
+							fmt.Fprintf(os.Stderr, "[kernel] warn: checkpoint.interval_steps invalid (%T %v), using default %d\n", v, v, checkpointCfg.IntervalSteps)
 						}
 					}
 					if v, ok := cpRaw["interval_seconds"]; ok {
 						if n, ok := toInt(v); ok {
 							checkpointCfg.IntervalSeconds = n
+						} else {
+							fmt.Fprintf(os.Stderr, "[kernel] warn: checkpoint.interval_seconds invalid (%T %v), using default %d\n", v, v, checkpointCfg.IntervalSeconds)
 						}
 					}
 				}
