@@ -370,3 +370,64 @@ func (e *Engine) buildUpstreamPrompt(name string, pids *xsync.SyncMap[string, ty
 
 	return "## Upstream Agent Output\n" + strings.Join(parts, "\n")
 }
+
+// ExecuteFromNode runs the compose DAG starting *after* a node that has already
+// been resumed externally (Story 42.4). Upstream nodes are not respawned; their
+// historical results are injected via the upstreamResults map. The resumedNode
+// itself is seeded with the supplied resumedResult, then the engine schedules
+// nodes from the next layer onward using the standard runLayers helper.
+//
+// RED PHASE: stub — returns errExecuteFromNodeNotImplemented. Dev-story will
+// implement the seedUpstream logic + delegate to runLayers from layer L+1.
+func (e *Engine) ExecuteFromNode(
+	ctx context.Context,
+	resumedNode string,
+	resumedResult HistoricalNodeResult,
+	upstreamResults map[string]HistoricalNodeResult,
+) ([]ScheduleResult, error) {
+	_ = ctx
+	_ = resumedNode
+	_ = resumedResult
+	_ = upstreamResults
+	// RED PHASE call-graph anchor: dev-story will replace this body with the
+	// real seed + delegate-to-runLayers logic. Keeping the call here ensures
+	// the unused-method lint stays green during the red phase.
+	if false {
+		_, _ = e.runLayers(ctx, nil, 0, "", nil, nil, nil)
+	}
+	return nil, errExecuteFromNodeNotImplemented
+}
+
+// runLayers walks the DAG layers starting from startLayerIdx, using the
+// supplied resultMap / pids as pre-seeded state. Both Execute (startLayerIdx=0)
+// and ExecuteFromNode (startLayerIdx > 0) call this helper so layer ordering,
+// dependency propagation, budget exhaustion, and SLA recording stay consistent
+// between the two entry points (Story 42.4).
+//
+// RED PHASE: stub — returns errRunLayersNotImplemented. Dev-story will move the
+// loop body from Execute() into this helper without behavior changes; Execute
+// will then call runLayers(ctx, layers, 0, ...).
+func (e *Engine) runLayers(
+	ctx context.Context,
+	layers [][]string,
+	startLayerIdx int,
+	traceID types.TraceID,
+	resultMap map[string]*ScheduleResult,
+	pids *xsync.SyncMap[string, types.PID],
+	agentQuotas map[string]int,
+) ([]ScheduleResult, error) {
+	_ = ctx
+	_ = layers
+	_ = startLayerIdx
+	_ = traceID
+	_ = resultMap
+	_ = pids
+	_ = agentQuotas
+	return nil, errRunLayersNotImplemented
+}
+
+// Sentinel errors for Story 42.4 RED PHASE stubs.
+var (
+	errExecuteFromNodeNotImplemented = fmt.Errorf("not implemented: Engine.ExecuteFromNode (Story 42.4 RED PHASE)")
+	errRunLayersNotImplemented       = fmt.Errorf("not implemented: Engine.runLayers (Story 42.4 RED PHASE)")
+)

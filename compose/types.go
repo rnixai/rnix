@@ -95,6 +95,28 @@ type ScheduleResult struct {
 	SLAResult  *kernel.SLAResult
 }
 
+// HistoricalNodeResult captures the persisted result of a previously executed
+// compose node, used by Engine.ExecuteFromNode to seed upstream context when
+// resuming a compose DAG from a failed node (Story 42.4).
+type HistoricalNodeResult struct {
+	PID      types.PID
+	Output   string
+	Tokens   int
+	SpanID   types.SpanID
+	ExitCode int
+}
+
+// HistoricalSeeder is an optional capability of a KernelSpawner implementation:
+// engines may type-assert to inject historical (persisted) node results into the
+// spawner's internal result/token/spanID caches before scheduling downstream
+// nodes (Story 42.4). The compose package's primary KernelSpawner interface
+// stays unchanged; concrete spawners (e.g. ipcKernelSpawner) implement this
+// extension so engine_test.go's mockKernelSpawner keeps working without
+// modification.
+type HistoricalSeeder interface {
+	SeedHistorical(name string, pid types.PID, result string, tokens int, spanID types.SpanID)
+}
+
 // Priority type aliases for compose-level access to kernel.Priority.
 type Priority = kernel.Priority
 
