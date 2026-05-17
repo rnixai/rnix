@@ -26,8 +26,6 @@ import (
 // --- 42.3-IPC-005: 活进程 detail OriginUUID 填充 (AC#6, AC#8) ---
 
 func TestATDD_42_3_IPC_005_GetProcDetail_LiveProcess_OriginUUID(t *testing.T) {
-	t.Skip("RED PHASE: handleGetProcDetail does not yet copy OriginUUID from process")
-
 	client, kern, _ := setupResumeIPCTest(t)
 
 	// 注入一个活进程，proc.OriginUUID 非空模拟 fork 结果
@@ -53,8 +51,6 @@ func TestATDD_42_3_IPC_005_GetProcDetail_LiveProcess_OriginUUID(t *testing.T) {
 // --- 42.3-IPC-006: 活进程 detail ResumedFromStep 填充 (AC#8) ---
 
 func TestATDD_42_3_IPC_006_GetProcDetail_LiveProcess_ResumedFromStep(t *testing.T) {
-	t.Skip("RED PHASE: handleGetProcDetail does not yet copy ResumedFromStep")
-
 	client, kern, _ := setupResumeIPCTest(t)
 
 	proc := kernel.NewProcess(0, "live step process", nil)
@@ -78,11 +74,11 @@ func TestATDD_42_3_IPC_006_GetProcDetail_LiveProcess_ResumedFromStep(t *testing.
 // --- 42.3-IPC-007: 历史进程 detail 从 procInfoDisk 派生 (AC#6, AC#8) ---
 
 func TestATDD_42_3_IPC_007_GetProcDetail_HistoricalProcess_LineageFromDisk(t *testing.T) {
-	t.Skip("RED PHASE: handleGetProcDetailFromHistory does not yet populate OriginUUID/ResumedFromStep")
-
 	client, kern, _ := setupResumeIPCTest(t)
-	uuid := "hist-aaaaaaaa-bbbb-cccc-dddd-000000000001"
-	origin := "hist-origin-aaaaaaaa-bbbb-cccc-dddd-000000000002"
+	// Use a standards-compliant UUID format (8-4-4-4-12 hex) so the server's
+	// isValidUUID gate accepts it on the history path.
+	uuid := "01ec9999-1234-7890-abcd-000000000001"
+	origin := "01ec9999-1234-7890-abcd-000000000002"
 
 	// procHistory 注入已 reaped 进程
 	procHist := kern.ProcHistory()
@@ -153,11 +149,9 @@ func callGetProcDetail(t *testing.T, c *Client, pid types.PID) (*GetProcDetailRe
 
 func callGetProcDetailByUUID(t *testing.T, c *Client, uuid string) (*GetProcDetailResponse, error) {
 	t.Helper()
-	// Current Client.GetProcDetail takes only PID; the history path uses
-	// resolveProcess by UUID. Once Client.GetProcDetail accepts UUID, switch
-	// to that overload. For now, t.Skip already short-circuits this call.
-	_ = uuid
-	return c.GetProcDetail(0)
+	// Client.GetProcDetail accepts (pid, uuid...); pass uuid only so the server
+	// resolves via procHistory or disk. PID 0 alone would 404 — UUID is required.
+	return c.GetProcDetail(0, uuid)
 }
 
 func containsSubstring(s, substr string) bool {

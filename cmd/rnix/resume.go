@@ -94,7 +94,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		uuid = arg
 	}
 
-	resp, err := client.ResumeWithOpts(uuid, resumeFork)
+	resp, err := client.ResumeWithOptsV2(uuid, resumeFork, resumeFromStep)
 	if err != nil {
 		ui.RenderError(renderer,
 			fmt.Sprintf("UUID %s", uuid),

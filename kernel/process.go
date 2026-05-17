@@ -325,6 +325,11 @@ type DetailSnapshot struct {
 	ComposeDeps    []string
 	PipelineIndex  int
 	PipelineTotal  int
+
+	// Story 42.3 — resume lineage fields (populated when process is the result
+	// of a fork/resume operation; empty otherwise).
+	OriginUUID      string
+	ResumedFromStep int
 }
 
 // GetDetailSnapshot returns a thread-safe copy of process detail fields.
@@ -332,27 +337,29 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return DetailSnapshot{
-		PID:            p.PID,
-		UUID:           p.UUID,
-		PPID:           p.PPID,
-		State:          p.State,
-		Intent:         p.Intent,
-		Provider:       p.Provider,
-		Model:          p.Model,
-		CreatedAt:      p.CreatedAt,
-		DeadAt:         p.DeadAt,
-		Skills:         append([]string(nil), p.Skills...),
-		AllowedDevices: append([]string(nil), p.AllowedDevices...),
-		CtxID:          p.CtxID,
-		TokensUsed:     p.TokensUsed,
-		ContextBudget:  p.ContextBudget,
-		MaxTokens:      p.Budget.MaxTokens,
-		MaxCost:        p.Budget.MaxCost,
-		UsedCost:       p.Budget.UsedCost,
-		ComposeNode:    p.ComposeNode,
-		ComposeDeps:    append([]string(nil), p.ComposeDeps...),
-		PipelineIndex:  p.PipelineIndex,
-		PipelineTotal:  p.PipelineTotal,
+		PID:             p.PID,
+		UUID:            p.UUID,
+		PPID:            p.PPID,
+		State:           p.State,
+		Intent:          p.Intent,
+		Provider:        p.Provider,
+		Model:           p.Model,
+		CreatedAt:       p.CreatedAt,
+		DeadAt:          p.DeadAt,
+		Skills:          append([]string(nil), p.Skills...),
+		AllowedDevices:  append([]string(nil), p.AllowedDevices...),
+		CtxID:           p.CtxID,
+		TokensUsed:      p.TokensUsed,
+		ContextBudget:   p.ContextBudget,
+		MaxTokens:       p.Budget.MaxTokens,
+		MaxCost:         p.Budget.MaxCost,
+		UsedCost:        p.Budget.UsedCost,
+		ComposeNode:     p.ComposeNode,
+		ComposeDeps:     append([]string(nil), p.ComposeDeps...),
+		PipelineIndex:   p.PipelineIndex,
+		PipelineTotal:   p.PipelineTotal,
+		OriginUUID:      p.OriginUUID,
+		ResumedFromStep: p.ResumedFromStep,
 	}
 }
 

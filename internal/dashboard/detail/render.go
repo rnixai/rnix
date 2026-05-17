@@ -19,12 +19,14 @@ package detail
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
+	"github.com/rnixai/rnix/ipc"
 )
 
 // RenderContext 注入 cmd/rnix 端运行时上下文（Story 38-5 PR11 Step 4(c) · 与
@@ -140,7 +142,83 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 		fmt.Fprintf(&b, "    [%s] %.0f%%\n", bar, pct)
 	}
 
+	// Section 5: Resume Lineage (Story 42.3)
+	// Only render when the process is the result of a resume/fork OR has fork
+	// descendants. Skipping the section for plain spawn processes keeps the
+	// Detail card noise-free.
+	renderLineageSection(&b, d.UUID, d.OriginUUID, d.ResumedFromStep, state.LineageCache)
+
 	return b.String()
+}
+
+// renderLineageSection emits the Story 42.3 Lineage block when the process is
+// involved in a resume / fork chain. Section is omitted entirely when both
+// OriginUUID and descendants are empty (avoids polluting plain spawn UI).
+func renderLineageSection(b *strings.Builder, uuid, originUUID string, resumedFromStep int, cache map[string]*ipc.GetResumeLineageResponse) {
+	// Resolve descendants (if any) from the lineage cache.
+	descendants := lookupDescendants(uuid, cache)
+	if originUUID == "" && len(descendants) == 0 {
+		return
+	}
+
+	b.WriteString(divider("Lineage"))
+	b.WriteString("\n")
+	if originUUID != "" {
+		short := TruncateUUID(originUUID)
+		if resumedFromStep > 0 {
+			fmt.Fprintf(b, "    Origin: %s (from step %d)\n", short, resumedFromStep)
+		} else {
+			fmt.Fprintf(b, "    Origin: %s\n", short)
+		}
+	}
+	if n := len(descendants); n > 0 {
+		// 渲染 "Forked: N descendants" 一行；后面再列出最多 3 个短哈希作为参考。
+		fmt.Fprintf(b, "    Forked: %d descendants", n)
+		if n <= 3 {
+			hashes := make([]string, 0, n)
+			for _, dst := range descendants {
+				hashes = append(hashes, TruncateUUID(dst))
+			}
+			fmt.Fprintf(b, " (%s)", strings.Join(hashes, ", "))
+		}
+		b.WriteString("\n")
+	}
+}
+
+// lookupDescendants returns the list of descendant UUIDs cached for the given
+// current UUID. Returns empty slice when cache miss or no descendants.
+func lookupDescendants(uuid string, cache map[string]*ipc.GetResumeLineageResponse) []string {
+	if cache == nil || uuid == "" {
+		return nil
+	}
+	entry, ok := cache[uuid]
+	if !ok || entry == nil {
+		return nil
+	}
+	if len(entry.Descendants) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(entry.Descendants))
+	for _, d := range entry.Descendants {
+		if d.UUID != "" {
+			out = append(out, d.UUID)
+		}
+	}
+	return out
+}
+
+// divider builds the section divider line. Honors RNIX_ASCII=1 by falling back
+// to ASCII '----' marks; otherwise uses the Unicode box-drawing '────' used by
+// the rest of the Detail card.
+func divider(label string) string {
+	if asciiMode() {
+		return "  ---- " + label + " ----"
+	}
+	return "  ──── " + label + " ────"
+}
+
+func asciiMode() bool {
+	return os.Getenv("RNIX_ASCII") == "1"
 }
 
 // TruncateUUID returns the first 8 characters of a UUID string for display.

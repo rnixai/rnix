@@ -192,6 +192,12 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	baseDir := k.stepDataDir
 	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
 
+	// Story 42.3 — reject negative FromStep on this path too (defensive symmetry).
+	if opts.FromStep < 0 {
+		return nil, NewSyscallError("Resume", 0, "",
+			fmt.Errorf("from_step %d invalid (must be >= 0)", opts.FromStep), types.ErrInvalid)
+	}
+
 	cpData, err := ReadCheckpointPublic(stepsDir)
 	if err != nil {
 		if os.IsNotExist(err) || strings.Contains(err.Error(), "checkpoint read") {
@@ -202,6 +208,16 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 
 	if cpData.UUID != uuid {
 		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("checkpoint UUID mismatch: got %s, want %s", cpData.UUID, uuid), types.ErrInvalid)
+	}
+
+	// Story 42.3 — checkpoint + --from-step conflict.
+	// checkpoint.json is a complete ContextSnapshot at cpData.LastStep; we cannot
+	// partially deserialize it back to an arbitrary earlier step. Reject when the
+	// caller asks for a truncation that would precede the checkpoint anchor.
+	if opts.FromStep > 0 && opts.FromStep < cpData.LastStep {
+		return nil, NewSyscallError("Resume", 0, "",
+			fmt.Errorf("from_step %d requires history path; checkpoint at step %d (full snapshot, no partial replay)",
+				opts.FromStep, cpData.LastStep), types.ErrInvalid)
 	}
 
 	cp := cpData.ProcState
@@ -372,6 +388,13 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	baseDir := k.stepDataDir
 	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
 
+	// Story 42.3 — reject negative FromStep up-front (AC#2). Zero is valid (=
+	// "no truncation"); positive values get range-checked after we read steps.jsonl.
+	if opts.FromStep < 0 {
+		return nil, NewSyscallError("Resume", 0, "",
+			fmt.Errorf("from_step %d invalid (must be >= 0)", opts.FromStep), types.ErrInvalid)
+	}
+
 	// Read proc-info.json for provider/model/skills/intent
 	procInfoPath := filepath.Join(stepsDir, "proc-info.json")
 	procInfoData, err := os.ReadFile(procInfoPath)
@@ -417,14 +440,31 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 			fmt.Errorf("system_prompt missing in process-meta.json for UUID %s", uuid), types.ErrInvalid)
 	}
 
-	// Read steps.jsonl to determine last step and rebuild messages
+	// Read steps.jsonl to determine last step and rebuild messages.
+	// Story 42.3: pass FromStep to apply truncation when > 0; totalSteps is
+	// returned for out-of-range validation below.
 	stepsPath := filepath.Join(stepsDir, "steps.jsonl")
-	lastStep, messages, err := k.parseStepsJSONL(stepsPath)
+	lastStep, messages, totalSteps, err := k.parseStepsJSONL(stepsPath, opts.FromStep)
 	if err != nil {
 		return nil, err
 	}
 
-	startStep := lastStep + 1
+	// Story 42.3 — out-of-range check (AC#2).
+	if opts.FromStep > 0 && opts.FromStep > totalSteps {
+		return nil, NewSyscallError("Resume", 0, "",
+			fmt.Errorf("from_step %d exceeds total steps (actual: %d)", opts.FromStep, totalSteps),
+			types.ErrInvalid)
+	}
+
+	// startStep semantics:
+	//   - opts.FromStep > 0: truncate at FromStep, continue from FromStep+1.
+	//   - opts.FromStep == 0: default → continue from lastStep+1.
+	var startStep int
+	if opts.FromStep > 0 {
+		startStep = opts.FromStep + 1
+	} else {
+		startStep = lastStep + 1
+	}
 	if diskInfo.Provider == "" {
 		// Don't silently fall back to "claude" — the original process may have
 		// been running on cursor/openai/etc and the behavior/cost/model contract
@@ -595,6 +635,17 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	k.AddProcess(proc)
 	k.msgQueues.Store(proc.PID, newMessageQueue())
 
+	// Story 42.3 — synchronously persist the resumed process's proc-info.json
+	// so downstream tooling (Dashboard lineage queries, test fixtures) can
+	// observe origin_uuid / resumed_from_step before the first checkpoint
+	// or reap. Best-effort: failure logged but not fatal — the reap path
+	// will write a fresh snapshot on exit.
+	if procInfo, piErr := k.GetProcInfo(proc.PID); piErr == nil && procInfo != nil {
+		if saveErr := SaveProcInfo(baseDir, *procInfo); saveErr != nil {
+			log.Printf("[resume] SaveProcInfo(new uuid=%s) failed: %v", proc.UUID, saveErr)
+		}
+	}
+
 	// Determine if context_full exit — trigger compact after start.
 	// Read ExitReason field (written by reap from proc.Exit.Reason); fall back
 	// to legacy Result field for proc-info.json written before this field existed.
@@ -674,19 +725,30 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 // message history at the time of that LLM call (see observe.go writeStepRecord).
 // Therefore we use the LAST record's messages, NOT the concatenation of all records
 // (which would yield O(N^2) duplicates).
-func (k *KernelImpl) parseStepsJSONL(path string) (int, []rnixctx.Message, error) {
+//
+// Story 42.3 — maxStep parameter:
+//   - maxStep == 0  → no truncation (legacy behavior preserved)
+//   - maxStep  > 0  → only records with `step <= maxStep` are considered when
+//     building the resumed-from-step boundary; the returned `lastStep` is capped
+//     at `maxStep` and `messages` is sourced from the highest step <= maxStep.
+//
+// Returns (lastStep, messages, totalSteps, err) where totalSteps is the highest
+// step number observed across the entire file (independent of maxStep) — callers
+// use it for out-of-range validation in ResumeWithOpts.
+func (k *KernelImpl) parseStepsJSONL(path string, maxStep int) (int, []rnixctx.Message, int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil, NewSyscallError("Resume", 0, "",
+			return 0, nil, 0, NewSyscallError("Resume", 0, "",
 				fmt.Errorf("steps.jsonl not found"), types.ErrNotFound)
 		}
-		return 0, nil, NewSyscallError("Resume", 0, "",
+		return 0, nil, 0, NewSyscallError("Resume", 0, "",
 			fmt.Errorf("open steps.jsonl: %w", err), types.ErrInternal)
 	}
 	defer f.Close()
 
-	var lastStep int
+	var lastStep int           // highest step considered for messages (bounded by maxStep)
+	var totalSteps int         // highest step across the entire file (for range validation)
 	var lastMessagesRaw json.RawMessage
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
@@ -698,11 +760,17 @@ func (k *KernelImpl) parseStepsJSONL(path string) (int, []rnixctx.Message, error
 		}
 		var record stepRecordPartial
 		if err := json.Unmarshal(line, &record); err != nil {
-			return 0, nil, NewSyscallError("Resume", 0, "",
+			return 0, nil, 0, NewSyscallError("Resume", 0, "",
 				fmt.Errorf("parse steps.jsonl line: %w", err), types.ErrInternal)
 		}
-		// Track the highest step record and its messages payload (overwrite, not append).
-		// Each Messages payload is the full cumulative history at that step.
+		if record.Step > totalSteps {
+			totalSteps = record.Step
+		}
+		// Apply maxStep truncation. maxStep == 0 means "no truncation".
+		if maxStep > 0 && record.Step > maxStep {
+			continue
+		}
+		// Track the highest record within the [0..maxStep] window.
 		if record.Step >= lastStep {
 			lastStep = record.Step
 			if len(record.Messages) > 0 {
@@ -711,7 +779,7 @@ func (k *KernelImpl) parseStepsJSONL(path string) (int, []rnixctx.Message, error
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return 0, nil, NewSyscallError("Resume", 0, "",
+		return 0, nil, 0, NewSyscallError("Resume", 0, "",
 			fmt.Errorf("scan steps.jsonl: %w", err), types.ErrInternal)
 	}
 
@@ -723,7 +791,7 @@ func (k *KernelImpl) parseStepsJSONL(path string) (int, []rnixctx.Message, error
 			log.Printf("[resume] parseStepsJSONL: messages unmarshal failed at step %d: %v", lastStep, err)
 		}
 	}
-	return lastStep, messages, nil
+	return lastStep, messages, totalSteps, nil
 }
 
 // stepRecordPartial is a minimal struct for parsing steps.jsonl during resume.

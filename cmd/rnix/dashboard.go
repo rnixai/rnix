@@ -377,13 +377,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case procDetailResultMsg:
-		if msg.Err == nil && msg.Detail != nil {
-			m.detail.Cache[msg.UUID] = msg.Detail
-			if msg.PID == m.selectedPID && msg.UUID == m.selectedUUID {
-				m.detail.Detail = msg.Detail
-				m.detail.PID = msg.PID
-			}
-		}
+		m, lineageCmd := handleProcDetailResult(m, msg)
+		return m, lineageCmd
+	case detail.ResumeLineageResultMsg:
+		m = handleResumeLineageResult(m, msg)
 		return m, nil
 	case intentTreesMsg:
 		if msg.Err != nil {
@@ -455,6 +452,9 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, fetchProcDetailCmd(msg.result.PID, msg.result.UUID)
 		}
 		return m, nil
+	case forkResultMsg:
+		m, forkCmd := handleForkResult(m, msg)
+		return m, forkCmd
 	case pauseToggleMsg:
 		if msg.err != nil {
 			m.statusMsg = fmt.Sprintf("✗ Pause/resume: %v", msg.err)

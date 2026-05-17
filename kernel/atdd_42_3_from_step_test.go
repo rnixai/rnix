@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -61,8 +62,6 @@ func writeStepsJSONLOnly(t *testing.T, baseDir, uuid string, totalSteps int) {
 // --- 42.3-UNIT-001: FromStep=30 截断恢复 + Origin/ResumedFromStep 字段 (AC#1) ---
 
 func TestATDD_42_3_001_FromStep_TruncatedResume_WritesOriginAndStep(t *testing.T) {
-	t.Skip("RED PHASE: kernel.ResumeOpts.FromStep field not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	originUUID := "fromstep-50-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeTestStepsAndMeta(t, baseDir, originUUID, 50, "killed")
@@ -101,8 +100,6 @@ func TestATDD_42_3_001_FromStep_TruncatedResume_WritesOriginAndStep(t *testing.T
 // --- 42.3-UNIT-002: parseStepsJSONL(path, maxStep) 截断行为 (AC#1) ---
 
 func TestATDD_42_3_002_ParseStepsJSONL_MaxStepTruncation(t *testing.T) {
-	t.Skip("RED PHASE: parseStepsJSONL(path, maxStep) extended signature not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	uuid := "parse-maxstep-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeStepsJSONLOnly(t, baseDir, uuid, 50)
@@ -129,8 +126,6 @@ func TestATDD_42_3_002_ParseStepsJSONL_MaxStepTruncation(t *testing.T) {
 // --- 42.3-UNIT-003: parseStepsJSONL maxStep=0 等价旧行为 (AC#1) ---
 
 func TestATDD_42_3_003_ParseStepsJSONL_MaxStepZero_FullHistory(t *testing.T) {
-	t.Skip("RED PHASE: parseStepsJSONL(path, maxStep) extended signature not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	uuid := "parse-zero-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeStepsJSONLOnly(t, baseDir, uuid, 20)
@@ -151,8 +146,6 @@ func TestATDD_42_3_003_ParseStepsJSONL_MaxStepZero_FullHistory(t *testing.T) {
 // --- 42.3-UNIT-004: proc-info.json 持久化 origin_uuid + resumed_from_step (AC#1) ---
 
 func TestATDD_42_3_004_ResumedProcInfo_PersistsOriginAndStep(t *testing.T) {
-	t.Skip("RED PHASE: ResumeOpts.FromStep field not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	originUUID := "persist-origin-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeTestStepsAndMeta(t, baseDir, originUUID, 40, "killed")
@@ -189,8 +182,6 @@ func TestATDD_42_3_004_ResumedProcInfo_PersistsOriginAndStep(t *testing.T) {
 // --- 42.3-UNIT-005: FromStep>totalSteps 返回 ErrInvalid (AC#2) ---
 
 func TestATDD_42_3_005_FromStep_OutOfRange_ReturnsErrInvalid(t *testing.T) {
-	t.Skip("RED PHASE: out-of-range check not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	uuid := "outrange-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeTestStepsAndMeta(t, baseDir, uuid, 50, "killed")
@@ -221,8 +212,6 @@ func TestATDD_42_3_005_FromStep_OutOfRange_ReturnsErrInvalid(t *testing.T) {
 // --- 42.3-UNIT-006: FromStep<0 返回 ErrInvalid (AC#2) ---
 
 func TestATDD_42_3_006_FromStep_Negative_ReturnsErrInvalid(t *testing.T) {
-	t.Skip("RED PHASE: negative-value check not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	uuid := "neg-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeTestStepsAndMeta(t, baseDir, uuid, 10, "killed")
@@ -247,8 +236,6 @@ func TestATDD_42_3_006_FromStep_Negative_ReturnsErrInvalid(t *testing.T) {
 // --- 42.3-UNIT-007: FromStep=0 退化为默认 (AC#2) ---
 
 func TestATDD_42_3_007_FromStep_Zero_DefaultsToLastStepPlusOne(t *testing.T) {
-	t.Skip("RED PHASE: FromStep zero-default behavior not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	uuid := "zero-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeTestStepsAndMeta(t, baseDir, uuid, 15, "killed")
@@ -270,8 +257,6 @@ func TestATDD_42_3_007_FromStep_Zero_DefaultsToLastStepPlusOne(t *testing.T) {
 // --- 42.3-UNIT-008: checkpoint 路径 + FromStep<cpData.LastStep 拒绝 (AC#2) ---
 
 func TestATDD_42_3_008_FromStep_CheckpointPath_RejectsTruncation(t *testing.T) {
-	t.Skip("RED PHASE: checkpoint+FromStep conflict rejection not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	uuid := "cp-conflict-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	// checkpoint 写入 step 30，proc-info state=suspended（走 checkpoint 路径）
@@ -298,17 +283,19 @@ func TestATDD_42_3_008_FromStep_CheckpointPath_RejectsTruncation(t *testing.T) {
 }
 
 // callParseStepsJSONLForTest is a thin wrapper that exposes the parseStepsJSONL
-// extended signature for unit tests. Once dev-story changes the signature to
-//
-//	(path string, maxStep int) (lastStep int, messages []rnixctx.Message, totalSteps int, err error)
-//
-// this wrapper should call k.parseStepsJSONL(stepsPath, maxStep) directly.
-//
-// During RED PHASE this wrapper is a stub returning zero values so the test
-// file still compiles; once GREEN PHASE lands, replace the body with the real
-// kernel invocation.
-func callParseStepsJSONLForTest(t *testing.T, _ *KernelImpl, _ string, _ int) (int, []any, int, error) {
+// extended signature for unit tests. GREEN PHASE: directly delegates to
+// k.parseStepsJSONL(stepsPath, maxStep) — returns (lastStep, messages,
+// totalSteps, err). messages is converted to []any for stub compatibility.
+func callParseStepsJSONLForTest(t *testing.T, k *KernelImpl, path string, maxStep int) (int, []any, int, error) {
 	t.Helper()
-	t.Fatal("RED PHASE stub: parseStepsJSONL(path, maxStep) signature not yet implemented")
-	return 0, nil, 0, nil
+	lastStep, msgs, totalSteps, err := k.parseStepsJSONL(path, maxStep)
+	// Convert []rnixctx.Message → []any so test assertions remain decoupled
+	// from kernel/context import in the test file (kept for compile parity
+	// with the original stub signature).
+	out := make([]any, len(msgs))
+	for i, m := range msgs {
+		out[i] = m
+	}
+	_ = rnixctx.Message{} // keep import alive even when msgs is empty
+	return lastStep, out, totalSteps, err
 }

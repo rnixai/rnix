@@ -3,6 +3,7 @@ package ipc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -494,10 +495,6 @@ func (s *Server) handleCompact(conn net.Conn, rawPayload json.RawMessage) {
 // Independent of handleLineage — the latter returns stem-cell skill
 // differentiation events (Epic 20). This handler returns the cross-process fork
 // graph anchored by OriginUUID.
-//
-// ATDD red-phase stub: dev-story replaces with full kernel.GetResumeLineage
-// delegation + response shaping. Currently returns ErrInvalid so e2e tests can
-// detect the stub state via t.Skip.
 func (s *Server) handleGetResumeLineage(conn net.Conn, rawPayload json.RawMessage) {
 	var req GetResumeLineageRequest
 	if err := json.Unmarshal(rawPayload, &req); err != nil {
@@ -508,20 +505,54 @@ func (s *Server) handleGetResumeLineage(conn net.Conn, rawPayload json.RawMessag
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "uuid is required"}})
 		return
 	}
-	// RED PHASE: delegate to kernel.GetResumeLineage stub (always returns
-	// ErrNotFound). dev-story will replace this block with full lineage
-	// construction + ResumeLineageNode mapping.
 	if s.kern == nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: "kernel not attached"}})
 		return
 	}
-	_, err := s.kern.GetResumeLineage(req.UUID)
+	data, err := s.kern.GetResumeLineage(req.UUID)
 	if err != nil {
-		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: err.Error()}})
+		code := "NOT_FOUND"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
 		return
 	}
-	// Once dev-story implements lineage building, replace this empty response
-	// with a populated GetResumeLineageResponse{Current, Ancestors, Descendants}.
-	payload, _ := json.Marshal(GetResumeLineageResponse{})
+
+	resp := GetResumeLineageResponse{
+		Current:     procInfoToLineageNode(data.Current),
+		Ancestors:   procInfosToLineageNodes(data.Ancestors),
+		Descendants: procInfosToLineageNodes(data.Descendants),
+		Truncated:   data.Truncated,
+	}
+	payload, _ := json.Marshal(resp)
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// procInfoToLineageNode maps a kernel/vfs ProcInfo snapshot to the wire-format
+// ResumeLineageNode used by the Dashboard Detail Lineage section.
+func procInfoToLineageNode(p vfs.ProcInfo) ResumeLineageNode {
+	node := ResumeLineageNode{
+		UUID:            p.UUID,
+		OriginUUID:      p.OriginUUID,
+		ResumedFromStep: p.ResumedFromStep,
+		State:           p.State.String(),
+		Intent:          p.Intent,
+	}
+	if !p.CreatedAt.IsZero() {
+		node.CreatedAtMs = p.CreatedAt.UnixMilli()
+	}
+	return node
+}
+
+func procInfosToLineageNodes(items []vfs.ProcInfo) []ResumeLineageNode {
+	if len(items) == 0 {
+		return []ResumeLineageNode{}
+	}
+	out := make([]ResumeLineageNode, len(items))
+	for i, p := range items {
+		out[i] = procInfoToLineageNode(p)
+	}
+	return out
 }

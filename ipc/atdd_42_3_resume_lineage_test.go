@@ -26,8 +26,6 @@ import (
 // --- 42.3-IPC-002: get_resume_lineage 端到端（单 fork 链）(AC#7) ---
 
 func TestATDD_42_3_IPC_002_GetResumeLineage_SingleForkChain(t *testing.T) {
-	t.Skip("RED PHASE: kernel.BuildResumeLineage not yet implemented")
-
 	client, kern, _ := setupResumeIPCTest(t)
 	parent := "lineage-parent-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	child := "lineage-child-aaaaaaaa-bbbb-cccc-dddd-000000000002"

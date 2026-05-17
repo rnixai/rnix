@@ -479,9 +479,19 @@ func registerLayer1Default(d *ui.Dispatcher) {
 	l.Bindings["@"] = evalSubView
 	l.Bindings["#"] = evalSubView
 
-	// f — Timeline filter mode: enterable from Tree pane too (nav.go:227-232)
-	l.Bindings["f"] = timelineFilterHandler
-	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Timeline filter (also from Tree pane)"}
+	// f — Timeline filter mode + Story 42.3 fork fallback.
+	// Layer 1 Default: Timeline takes priority (existing behavior); when not
+	// applicable, `f` falls through to forkProcessHandler so Tree pane selection
+	// on a Dead/Zombie process triggers a fork. Both `f` chains delegate to
+	// their respective handlers' fallback-false return when the conditions are
+	// not met, leaving any earlier behavior unchanged.
+	l.Bindings["f"] = func(msg tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+		if consumed, newCtx, cmd := timelineFilterHandler(msg, ctx); consumed {
+			return consumed, newCtx, cmd
+		}
+		return forkProcessHandler(msg, ctx)
+	}
+	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Timeline filter / fork Dead-Zombie (Tree pane)"}
 
 	// p — Pause/resume process tree (nav.go:125-145)
 	l.Bindings["p"] = pauseToggleHandler
@@ -491,6 +501,14 @@ func registerLayer1Default(d *ui.Dispatcher) {
 	l.Bindings["R"] = resumeSuspendedHandler
 	l.Bindings["shift+R"] = resumeSuspendedHandler
 	l.Docs["R"] = ui.KeyDoc{Key: "R", Description: "Resume suspended process"}
+
+	// r — Story 42.3: resume Dead/Zombie/Suspended via unified handler.
+	// Lowercase `r` covers Dead/Zombie continuation (42-1) and Suspended (30-4)
+	// while uppercase R / shift+R stays on the legacy Suspended-only path for
+	// backward compatibility (AC#9). resumeProcessHandler returns fallback
+	// false for non-resumable states so dispatcher keeps walking.
+	l.Bindings["r"] = resumeProcessHandler
+	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume / continue Dead/Zombie/Suspended process"}
 
 	// k / l / r / shift+K 不在此 Layer 注册：原 nav.go 把这些"全局进程操作"
 	// 放在 dispatchPaneKey 的末端（晚于 pane-specific 导航 j/k），避免 Tree 的
@@ -634,9 +652,22 @@ func registerLayer1Expanded(d *ui.Dispatcher) {
 	l.Docs["p"] = ui.KeyDoc{Key: "p", Description: "Pause / resume process tree"}
 	l.Docs["R"] = ui.KeyDoc{Key: "R", Description: "Resume suspended process"}
 
+	// Story 42.3: viewExpanded also gets r/f for Dead/Zombie continue/fork
+	// (parity with viewDefault so the user can drive resume actions from the
+	// Tree pane in expanded form too).
+	l.Bindings["r"] = resumeProcessHandler
+	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume / continue Dead/Zombie/Suspended process"}
+
 	// M2: viewExpanded + paneTree + f 仍能进入 Timeline filter mode（rightPane 命中）。
-	l.Bindings["f"] = timelineFilterHandler
-	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Timeline filter (when Timeline is the alternate pane)"}
+	// Story 42.3: same f chain as Layer 1 Default — timeline filter wins when
+	// Timeline pane is the alternate, otherwise fork takes over for Tree pane.
+	l.Bindings["f"] = func(msg tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+		if consumed, newCtx, cmd := timelineFilterHandler(msg, ctx); consumed {
+			return consumed, newCtx, cmd
+		}
+		return forkProcessHandler(msg, ctx)
+	}
+	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Timeline filter / fork Dead-Zombie (Tree pane)"}
 
 	d.Layer1[ui.ViewID(viewExpanded)] = l
 }

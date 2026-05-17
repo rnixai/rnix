@@ -151,7 +151,10 @@ func (s *Server) handleResume(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	result, err := s.kern.ResumeWithOpts(req.UUID, kernel.ResumeOpts{Fork: req.Fork})
+	result, err := s.kern.ResumeWithOpts(req.UUID, kernel.ResumeOpts{
+		Fork:     req.Fork,
+		FromStep: req.FromStep,
+	})
 	if err != nil {
 		code := "INTERNAL"
 		var sysErr *kernel.SyscallError
@@ -191,19 +194,21 @@ func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) 
 	fdSnap := proc.GetFDSnapshot()
 
 	resp := GetProcDetailResponse{
-		PID:            snap.PID,
-		UUID:           snap.UUID,
-		PPID:           snap.PPID,
-		State:          snap.State.String(),
-		Intent:         snap.Intent,
-		Provider:       snap.Provider,
-		Model:          snap.Model,
-		CreatedAtMs:    snap.CreatedAt.UnixMilli(),
-		AllowedDevices: snap.AllowedDevices,
-		ComposeNode:    snap.ComposeNode,
-		ComposeDeps:    snap.ComposeDeps,
-		PipelineIndex:  snap.PipelineIndex,
-		PipelineTotal:  snap.PipelineTotal,
+		PID:             snap.PID,
+		UUID:            snap.UUID,
+		PPID:            snap.PPID,
+		State:           snap.State.String(),
+		Intent:          snap.Intent,
+		Provider:        snap.Provider,
+		Model:           snap.Model,
+		CreatedAtMs:     snap.CreatedAt.UnixMilli(),
+		AllowedDevices:  snap.AllowedDevices,
+		ComposeNode:     snap.ComposeNode,
+		ComposeDeps:     snap.ComposeDeps,
+		PipelineIndex:   snap.PipelineIndex,
+		PipelineTotal:   snap.PipelineTotal,
+		OriginUUID:      snap.OriginUUID,
+		ResumedFromStep: snap.ResumedFromStep,
 	}
 	if !snap.DeadAt.IsZero() {
 		resp.DeadAtMs = snap.DeadAt.UnixMilli()
@@ -301,21 +306,23 @@ func (s *Server) handleGetProcDetailFromHistory(conn net.Conn, pid types.PID, uu
 	}
 
 	resp := GetProcDetailResponse{
-		PID:            info.PID,
-		UUID:           info.UUID,
-		PPID:           info.PPID,
-		State:          info.State.String(),
-		Intent:         info.Intent,
-		Provider:       info.Provider,
-		Model:          info.Model,
-		CreatedAtMs:    info.CreatedAt.UnixMilli(),
-		AllowedDevices: info.AllowedDevices,
-		FDTable:        []FDEntryWire{},
-		EnvSnapshot:    map[string]string{},
-		ComposeNode:    info.ComposeNode,
-		ComposeDeps:    info.ComposeDeps,
-		PipelineIndex:  info.PipelineIndex,
-		PipelineTotal:  info.PipelineTotal,
+		PID:             info.PID,
+		UUID:            info.UUID,
+		PPID:            info.PPID,
+		State:           info.State.String(),
+		Intent:          info.Intent,
+		Provider:        info.Provider,
+		Model:           info.Model,
+		CreatedAtMs:     info.CreatedAt.UnixMilli(),
+		AllowedDevices:  info.AllowedDevices,
+		FDTable:         []FDEntryWire{},
+		EnvSnapshot:     map[string]string{},
+		ComposeNode:     info.ComposeNode,
+		ComposeDeps:     info.ComposeDeps,
+		PipelineIndex:   info.PipelineIndex,
+		PipelineTotal:   info.PipelineTotal,
+		OriginUUID:      info.OriginUUID,
+		ResumedFromStep: info.ResumedFromStep,
 	}
 	if !info.DeadAt.IsZero() {
 		resp.DeadAtMs = info.DeadAt.UnixMilli()

@@ -58,8 +58,6 @@ func writeProcInfoLineage(t *testing.T, baseDir, uuid, originUUID string, resume
 // --- 42.3-UNIT-009: 单进程，无祖先无后代 (AC#7) ---
 
 func TestATDD_42_3_009_BuildLineage_SoloProcess(t *testing.T) {
-	t.Skip("RED PHASE: kernel.BuildResumeLineage not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	uuid := "solo-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeProcInfoLineage(t, baseDir, uuid, "", 0)
@@ -86,8 +84,6 @@ func TestATDD_42_3_009_BuildLineage_SoloProcess(t *testing.T) {
 // --- 42.3-UNIT-010: 3 级祖先链 (AC#7) ---
 
 func TestATDD_42_3_010_BuildLineage_ThreeLevelAncestors(t *testing.T) {
-	t.Skip("RED PHASE: kernel.BuildResumeLineage not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	uuidA := "lvlA-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	uuidB := "lvlB-aaaaaaaa-bbbb-cccc-dddd-000000000002"
@@ -124,8 +120,6 @@ func TestATDD_42_3_010_BuildLineage_ThreeLevelAncestors(t *testing.T) {
 // --- 42.3-UNIT-011: 5 个直接后代 (AC#7) ---
 
 func TestATDD_42_3_011_BuildLineage_FiveDescendants(t *testing.T) {
-	t.Skip("RED PHASE: kernel.BuildResumeLineage not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	parent := "parent-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeProcInfoLineage(t, baseDir, parent, "", 0)
@@ -168,8 +162,6 @@ func TestATDD_42_3_011_BuildLineage_FiveDescendants(t *testing.T) {
 // --- 42.3-UNIT-012: 循环链 A.Origin=B + B.Origin=A → Truncated (AC#7) ---
 
 func TestATDD_42_3_012_BuildLineage_CycleDetection(t *testing.T) {
-	t.Skip("RED PHASE: kernel.BuildResumeLineage cycle-detection not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	uuidA := "cyc-A-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	uuidB := "cyc-B-aaaaaaaa-bbbb-cccc-dddd-000000000002"
@@ -191,8 +183,6 @@ func TestATDD_42_3_012_BuildLineage_CycleDetection(t *testing.T) {
 // --- 42.3-UNIT-013: 35 级链 → 第 32 级截断 (AC#7) ---
 
 func TestATDD_42_3_013_BuildLineage_DeepChainTruncation(t *testing.T) {
-	t.Skip("RED PHASE: kernel.BuildResumeLineage depth-cap not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	// 构造 35 级链：lvl0 → lvl1 → ... → lvl34（lvl34 是根）
 	var uuids []string
@@ -228,8 +218,6 @@ func TestATDD_42_3_013_BuildLineage_DeepChainTruncation(t *testing.T) {
 // --- 42.3-UNIT-014: UUID 不存在 → ErrNotFound (AC#7) ---
 
 func TestATDD_42_3_014_BuildLineage_UUIDNotFound(t *testing.T) {
-	t.Skip("RED PHASE: kernel.BuildResumeLineage not yet implemented")
-
 	k, baseDir := setupResumeKernel(t)
 	missingUUID := "missing-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 
@@ -244,11 +232,12 @@ func TestATDD_42_3_014_BuildLineage_UUIDNotFound(t *testing.T) {
 }
 
 // =============================================================================
-// RED PHASE stubs — replace bodies once dev-story implements BuildResumeLineage.
+// GREEN PHASE: replace t.Fatal stubs with real kernel.BuildResumeLineage calls.
 // =============================================================================
 
 // resumeLineageDataStub mirrors the expected kernel.ResumeLineageData shape so
-// the test file compiles before the real type lands.
+// tests can assert on Current / Ancestors / Descendants / Truncated. We map
+// from the real ResumeLineageData here to keep the test surface stable.
 type resumeLineageDataStub struct {
 	Current     vfs.ProcInfo
 	Ancestors   []vfs.ProcInfo
@@ -256,13 +245,21 @@ type resumeLineageDataStub struct {
 	Truncated   bool
 }
 
-// callBuildResumeLineage is a thin wrapper that the GREEN PHASE replaces with
-// the real kernel.BuildResumeLineage call. During RED PHASE this stub fails
-// the test loudly via t.Fatal once the t.Skip is removed.
-func callBuildResumeLineage(t *testing.T, _ string, _ *ProcessHistory, _ string) (*resumeLineageDataStub, error) {
+// callBuildResumeLineage delegates to kernel.BuildResumeLineage and rewraps
+// the result into resumeLineageDataStub (a copy with same shape) so the
+// existing test assertions continue to work.
+func callBuildResumeLineage(t *testing.T, uuid string, history *ProcessHistory, baseDir string) (*resumeLineageDataStub, error) {
 	t.Helper()
-	t.Fatal("RED PHASE stub: kernel.BuildResumeLineage not yet implemented")
-	return nil, nil
+	data, err := BuildResumeLineage(uuid, history, baseDir)
+	if err != nil {
+		return nil, err
+	}
+	return &resumeLineageDataStub{
+		Current:     data.Current,
+		Ancestors:   data.Ancestors,
+		Descendants: data.Descendants,
+		Truncated:   data.Truncated,
+	}, nil
 }
 
 // isErrNotFound returns true when err carries an ErrNotFound semantics.

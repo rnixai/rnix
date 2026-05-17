@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -357,6 +358,69 @@ func forkProcessCmd(uuid string) tea.Cmd {
 		return forkResultMsg{result: result, err: err}
 	}
 }
+
+// handleProcDetailResult applies a procDetailResultMsg to dashboardModel and
+// returns the resulting model plus an optional lineage-fetch follow-up cmd
+// (Story 42.3). Extracted from dashboard.go to keep that file under the
+// Story 29.1 line-count cap.
+func handleProcDetailResult(m dashboardModel, msg procDetailResultMsg) (dashboardModel, tea.Cmd) {
+	if msg.Err != nil || msg.Detail == nil {
+		return m, nil
+	}
+	m.detail.Cache[msg.UUID] = msg.Detail
+	if msg.PID == m.selectedPID && msg.UUID == m.selectedUUID {
+		m.detail.Detail = msg.Detail
+		m.detail.PID = msg.PID
+	}
+	if msg.Detail.OriginUUID == "" || msg.UUID != m.selectedUUID {
+		return m, nil
+	}
+	if m.detail.LineageCache == nil {
+		m.detail.LineageCache = make(map[string]*ipc.GetResumeLineageResponse)
+	}
+	if _, ok := m.detail.LineageCache[msg.UUID]; ok {
+		return m, nil
+	}
+	return m, detail.FetchResumeLineageCmd(ipc.SocketPath(), msg.UUID)
+}
+
+// handleResumeLineageResult writes a ResumeLineageResultMsg into the detail
+// state's LineageCache (Story 42.3). Returns the updated model.
+func handleResumeLineageResult(m dashboardModel, msg detail.ResumeLineageResultMsg) dashboardModel {
+	if msg.Err != nil || msg.Lineage == nil {
+		return m
+	}
+	if m.detail.LineageCache == nil {
+		m.detail.LineageCache = make(map[string]*ipc.GetResumeLineageResponse)
+	}
+	m.detail.LineageCache[msg.UUID] = msg.Lineage
+	return m
+}
+
+// handleForkResult formats fork success/error status and chains a Detail fetch
+// for the new PID (Story 42.3).
+func handleForkResult(m dashboardModel, msg forkResultMsg) (dashboardModel, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMsg = fmt.Sprintf("✗ Fork: %v", msg.err)
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return m, nil
+	}
+	if msg.result == nil {
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return m, nil
+	}
+	m.statusMsg = fmt.Sprintf("Forked UUID %s → PID %d (from %s)",
+		shortUUIDForStatus(msg.result.UUID),
+		msg.result.PID,
+		shortUUIDForStatus(m.selectedUUID))
+	m.statusMsgTTL = statusMsgDefaultTTL
+	m.selectedPID = msg.result.PID
+	m.selectedUUID = msg.result.UUID
+	return m, fetchProcDetailCmd(msg.result.PID, msg.result.UUID)
+}
+
+// forkResultMsgEnd — Story 42.3 separator (placed below the legacy
+// resumeProcessCmd / pauseTreeCmd helpers below).
 
 // pauseTreeCmd sends SIGPAUSE or SIGRESUME to a process and its entire subtree via IPC.
 func pauseTreeCmd(pid types.PID, signal types.Signal) tea.Cmd {
