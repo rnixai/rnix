@@ -65,6 +65,10 @@ const (
 	MethodSignalTree             Method = "signal_tree"
 	MethodListResumable          Method = "list_resumable"
 	MethodGetResumeLineage       Method = "get_resume_lineage"
+
+	// Story 42.5 — disk gc (.rnix/data/steps/<uuid>/) governance.
+	MethodGc       Method = "gc"
+	MethodGcDryRun Method = "gc_dry_run"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -375,6 +379,61 @@ type ResumableProcessWire struct {
 // ListResumableResponse is the response for MethodListResumable.
 type ListResumableResponse struct {
 	Processes []ResumableProcessWire `json:"processes"`
+}
+
+// --- Gc (Story 42.5) ---
+
+// GcCandidateWire is the wire-shape of one candidate for deletion. See
+// kernel.GcCandidate for the internal twin; both use snake_case JSON tags.
+type GcCandidateWire struct {
+	UUID      string `json:"uuid"`
+	DeadAt    string `json:"dead_at"`
+	SizeBytes int64  `json:"size_bytes"`
+	Reason    string `json:"reason"`
+}
+
+// GcRequest is the payload for MethodGc / MethodGcDryRun.
+//
+// Force is honored only by MethodGc — daemon-side gc always uses force=true.
+// MethodGcDryRun ignores Force entirely; the CLI guard lives in cmd/rnix/gc.go.
+type GcRequest struct {
+	Force bool `json:"force,omitempty"`
+}
+
+// GcResponse is the response for MethodGc.
+type GcResponse struct {
+	OK           bool     `json:"ok"`
+	RemovedCount int      `json:"removed_count"`
+	FreedBytes   int64    `json:"freed_bytes"`
+	RemovedUUIDs []string `json:"removed_uuids,omitempty"`
+}
+
+// GcDryRunResponse is the response for MethodGcDryRun.
+type GcDryRunResponse struct {
+	OK         bool              `json:"ok"`
+	DryRun     bool              `json:"dry_run"`
+	Candidates []GcCandidateWire `json:"candidates"`
+}
+
+// MarshalJSON ensures RemovedUUIDs is `[]` instead of `null` when nil — JSON
+// consumers (CLI render path, scripts) expect a list shape always.
+func (r GcResponse) MarshalJSON() ([]byte, error) {
+	type Alias GcResponse
+	a := Alias(r)
+	if a.RemovedUUIDs == nil {
+		a.RemovedUUIDs = []string{}
+	}
+	return json.Marshal(a)
+}
+
+// MarshalJSON ensures Candidates is `[]` instead of `null` when nil.
+func (r GcDryRunResponse) MarshalJSON() ([]byte, error) {
+	type Alias GcDryRunResponse
+	a := Alias(r)
+	if a.Candidates == nil {
+		a.Candidates = []GcCandidateWire{}
+	}
+	return json.Marshal(a)
 }
 
 // --- AttachDebug ---

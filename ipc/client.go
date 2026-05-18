@@ -216,6 +216,41 @@ func (c *Client) ListResumable() (*ListResumableResponse, error) {
 	return &result, nil
 }
 
+// Gc triggers an actual disk garbage collection on the daemon side (Story 42.5).
+// The daemon handler invokes kernel.RunGc(dryRun=false, force=true) and returns
+// a stats payload.
+func (c *Client) Gc() (*GcResponse, error) {
+	resp, err := c.call(MethodGc, GcRequest{Force: true})
+	if err != nil {
+		return nil, err
+	}
+	var result GcResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal gc: %w", err)
+	}
+	if result.RemovedUUIDs == nil {
+		result.RemovedUUIDs = []string{}
+	}
+	return &result, nil
+}
+
+// GcDryRun asks the daemon for the candidate list without performing deletion
+// (Story 42.5 AC#4). Implementation calls kernel.RunGc(dryRun=true, _).
+func (c *Client) GcDryRun() (*GcDryRunResponse, error) {
+	resp, err := c.call(MethodGcDryRun, GcRequest{})
+	if err != nil {
+		return nil, err
+	}
+	var result GcDryRunResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal gc_dry_run: %w", err)
+	}
+	if result.Candidates == nil {
+		result.Candidates = []GcCandidateWire{}
+	}
+	return &result, nil
+}
+
 // SpawnAndWatch spawns a process and streams events until completion.
 // The onEvent callback is called for each StreamEvent. Returns the final SpawnResponse PID
 // and the complete ProgressPayload (from the complete/error event).

@@ -169,6 +169,10 @@ type KernelImpl struct {
 	// Checkpoint policy (Story 42.2) — periodic best-effort checkpoint thresholds
 	checkpointCfg CheckpointConfig
 
+	// Disk gc policy (Story 42.5) — retention thresholds for .rnix/data/steps/<uuid>/.
+	// Zero-value means gc disabled; SetGcConfig normalizes user input.
+	gcCfg GcConfig
+
 	// Heartbeat monitor (Story 30.6)
 	heartbeatMonitor *HeartbeatMonitor
 

@@ -117,6 +117,29 @@ func (h *ProcessHistory) RemoveByUUID(uuid string) bool {
 	return true
 }
 
+// HasEverSeen reports whether the given UUID is currently in history OR was
+// previously Add'd and later RemoveByUUID'd (Story 42.5 AC#6 — distinguish
+// "garbage collected" from "never spawned" in resume errors).
+//
+// RED PHASE: only checks entries (i.e., currently present). dev-story will
+// extend RemoveByUUID to record into a `removedUUIDs map[string]bool` field
+// so post-gc lookups still report true.
+func (h *ProcessHistory) HasEverSeen(uuid string) bool {
+	if uuid == "" {
+		return false
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for i := range h.entries {
+		if h.entries[i].UUID == uuid {
+			return true
+		}
+	}
+	// RED PHASE stub: dev-story replaces this with a removedUUIDs map lookup
+	// so gc'd UUIDs still report true.
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // Disk persistence for proc-info.json
 // ---------------------------------------------------------------------------

@@ -382,6 +382,55 @@ func (s *Server) handleListResumable(conn net.Conn) {
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 
+// handleGc invokes kernel.RunGc(dryRun=false, force=true) and returns a
+// summary. Story 42.5 AC#13. RED PHASE: kernel.RunGc returns a sentinel error
+// which we map to ErrorPayload.
+func (s *Server) handleGc(conn net.Conn, _ json.RawMessage) {
+	result, err := s.kern.RunGc(false, true)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("gc: %v", err)}})
+		return
+	}
+	resp := GcResponse{
+		OK:           true,
+		RemovedCount: result.RemovedCount,
+		FreedBytes:   result.FreedBytes,
+		RemovedUUIDs: result.RemovedUUIDs,
+	}
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("marshal gc: %v", err)}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleGcDryRun invokes kernel.RunGc(dryRun=true, _) and returns the
+// candidates list. Story 42.5 AC#4 / AC#13.
+func (s *Server) handleGcDryRun(conn net.Conn, _ json.RawMessage) {
+	result, err := s.kern.RunGc(true, false)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("gc_dry_run: %v", err)}})
+		return
+	}
+	cands := make([]GcCandidateWire, 0, len(result.Candidates))
+	for _, c := range result.Candidates {
+		cands = append(cands, GcCandidateWire{
+			UUID:      c.UUID,
+			DeadAt:    c.DeadAt,
+			SizeBytes: c.SizeBytes,
+			Reason:    c.Reason,
+		})
+	}
+	resp := GcDryRunResponse{OK: true, DryRun: true, Candidates: cands}
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("marshal gc_dry_run: %v", err)}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
 // resumableInfoToWire builds a ResumableProcessWire from a proc-info snapshot,
 // preferring checkpoint.json for LastStep/LastActive when available.
 func resumableInfoToWire(info vfs.ProcInfo, baseDir string) ResumableProcessWire {

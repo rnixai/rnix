@@ -386,6 +386,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleListResumable(conn)
 		case MethodGetResumeLineage:
 			s.handleGetResumeLineage(conn, req.Payload)
+		case MethodGc:
+			s.handleGc(conn, req.Payload)
+		case MethodGcDryRun:
+			s.handleGcDryRun(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return
