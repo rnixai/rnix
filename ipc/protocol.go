@@ -351,6 +351,13 @@ type ResumeRequest struct {
 	// continuing reasoning. 0 = no truncation. Effective only on the history
 	// path (rejected when checkpoint exists and FromStep<cpData.LastStep).
 	FromStep int `json:"from_step,omitempty"`
+
+	// ProjectDir — Epic 42 fix: project root for ProjectConfig (.env, providers.yaml,
+	// LLMFileOpener). Mirrors SpawnRequest.ProjectDir; required for full-state resume
+	// so the resumed process uses project-level API keys / agent dirs / skill dirs.
+	// Empty = pure global mode (back-compat with older clients).
+	ProjectDir string `json:"project_dir,omitempty"`
+	RnixEnv    string `json:"rnix_env,omitempty"`
 }
 
 // ResumeResponse is the response for MethodResume.

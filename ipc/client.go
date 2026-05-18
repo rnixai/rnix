@@ -174,7 +174,22 @@ func (c *Client) ResumeWithOpts(uuid string, fork bool) (*ResumeResponse, error)
 // ResumeWithOpts(uuid, fork) wrapper remains for callers that don't need
 // FromStep.
 func (c *Client) ResumeWithOptsV2(uuid string, fork bool, fromStep int) (*ResumeResponse, error) {
-	resp, err := c.call(MethodResume, ResumeRequest{UUID: uuid, Fork: fork, FromStep: fromStep})
+	return c.ResumeWithOptsV3(uuid, fork, fromStep, "", "")
+}
+
+// ResumeWithOptsV3 — Epic 42 fix: carries ProjectDir / RnixEnv so the daemon
+// rebuilds ProjectConfig (project .env / providers.yaml / LLMFileOpener) for
+// the resumed process, mirroring SpawnRequest. Without this, resumed processes
+// fall back to the global VFS driver and lose project-level API keys (401 root
+// cause for the Dashboard `r` key bug).
+func (c *Client) ResumeWithOptsV3(uuid string, fork bool, fromStep int, projectDir, rnixEnv string) (*ResumeResponse, error) {
+	resp, err := c.call(MethodResume, ResumeRequest{
+		UUID:       uuid,
+		Fork:       fork,
+		FromStep:   fromStep,
+		ProjectDir: projectDir,
+		RnixEnv:    rnixEnv,
+	})
 	if err != nil {
 		return nil, err
 	}

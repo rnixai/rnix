@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/vfs"
@@ -151,9 +152,26 @@ func (s *Server) handleResume(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	// Epic 42 fix: rebuild ProjectConfig for the resumed process so it inherits
+	// project-level .env / providers.yaml / LLMFileOpener (mirrors handleSpawn).
+	// Without this, resumeFromHistory falls back to the global VFS driver and the
+	// resumed process loses project-level API keys — root cause of the Dashboard
+	// `r` 401 bug. Best-effort: errors degrade to global-only mode rather than
+	// failing the resume (back-compat with older clients that don't send ProjectDir).
+	var projectCfg *config.ProjectConfig
+	if req.ProjectDir != "" {
+		cfg, _, cfgErr := s.resolveProjectContext(req.ProjectDir, req.RnixEnv)
+		if cfgErr != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "CONFIG_ERROR", Message: cfgErr.Error()}})
+			return
+		}
+		projectCfg = cfg
+	}
+
 	result, err := s.kern.ResumeWithOpts(req.UUID, kernel.ResumeOpts{
-		Fork:     req.Fork,
-		FromStep: req.FromStep,
+		Fork:          req.Fork,
+		FromStep:      req.FromStep,
+		ProjectConfig: projectCfg,
 	})
 	if err != nil {
 		code := "INTERNAL"

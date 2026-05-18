@@ -176,8 +176,12 @@ func runComposeResume(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 8. Resume target via daemon
-	resumeResp, err := client.ResumeWithOptsV2(target.UUID, flagComposeResumeFork, flagComposeResumeFromStep)
+	// 8. Resume target via daemon — Epic 42 fix: pass ProjectDir + RNIX_ENV so
+	// the resumed compose node inherits project-level API keys.
+	cwd, _ := os.Getwd()
+	projectDir, _ := config.ProjectDir(cwd)
+	rnixEnv := os.Getenv("RNIX_ENV")
+	resumeResp, err := client.ResumeWithOptsV3(target.UUID, flagComposeResumeFork, flagComposeResumeFromStep, projectDir, rnixEnv)
 	if err != nil {
 		outputError(renderer, mode, "compose-resume", err.Error(),
 			fmt.Sprintf("resume failed for UUID %s", target.UUID),

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -34,6 +35,37 @@ type ResumeOpts struct {
 	// history path; checkpoint path rejects (FromStep>0 + FromStep<cpData.LastStep).
 	// Behavior wired in dev-story; ATDD red-phase: field exists, logic pending.
 	FromStep int
+
+	// ProjectConfig — Epic 42 fix: per-resume project snapshot mirroring SpawnOpts.
+	// When non-nil, resume paths use ProjectConfig.LLMFileOpener instead of falling
+	// back to the global VFS driver, so resumed processes inherit project-level
+	// .env / providers.yaml / agent dirs. Required for full-state resume semantics
+	// per cc-src loadConversationForResume. nil = global mode (back-compat).
+	ProjectConfig *config.ProjectConfig
+}
+
+// openLLMDeviceForResume mirrors spawn.go:528-545 — prefers proc.ProjectConfig
+// .LLMFileOpener when the resumed process has a ProjectConfig, falling back to
+// the global VFS driver otherwise. This is the single fix point for the Dashboard
+// `r` 401 bug: before this helper, both resume paths called k.vfs.Open directly
+// and silently dropped project-level API keys.
+//
+// Returns the registered FD on success. On failure returns an error suitable
+// for wrapping in a SyscallError with the caller's op string.
+func (k *KernelImpl) openLLMDeviceForResume(proc *Process, llmDevice string) (types.FD, error) {
+	if proc.ProjectConfig != nil && proc.ProjectConfig.LLMFileOpener != nil {
+		providerName := strings.TrimPrefix(llmDevice, "/dev/llm/")
+		file, openErr := proc.ProjectConfig.LLMFileOpener(providerName, int(vfs.O_RDWR))
+		if openErr == nil {
+			if vfsFile, ok := file.(vfs.VFSFile); ok {
+				return k.vfs.RegisterFD(proc.PID, vfsFile), nil
+			}
+			log.Printf("[resume] warning: LLMFileOpener returned non-VFSFile type %T for provider %q, falling back to global VFS", file, providerName)
+		} else {
+			log.Printf("[resume] LLMFileOpener for provider %q failed: %v; falling back to global VFS", providerName, openErr)
+		}
+	}
+	return k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
 }
 
 // cleanupOldProcessAndHistory removes the old in-memory Process and procHistory
@@ -258,6 +290,12 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	}
 
 	proc := NewProcess(0, cp.Intent, cp.Skills)
+	// Epic 42 fix: inherit ProjectConfig so openLLMDeviceForResume + per-process
+	// VFS WorkDir match the original Spawn path.
+	proc.ProjectConfig = opts.ProjectConfig
+	if proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+		k.vfs.SetWorkDir(proc.PID, proc.ProjectConfig.ProjectDir)
+	}
 	if opts.Fork {
 		// Fork mode: NewProcess already generated a fresh UUIDv7; assert it
 		// differs from the origin to make the intent explicit (defensive against
@@ -312,7 +350,7 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 	}
 
 	proc.PrimaryDevice = llmDevice
-	llmFD, openErr := k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
+	llmFD, openErr := k.openLLMDeviceForResume(proc, llmDevice)
 	if openErr != nil {
 		_ = k.ctxMgr.CtxFree(cid)
 		return nil, NewSyscallError("Resume", proc.PID, llmDevice,
@@ -509,6 +547,12 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 
 	// Create new process
 	proc := NewProcess(0, diskInfo.Intent, diskInfo.Skills)
+	// Epic 42 fix: inherit ProjectConfig so openLLMDeviceForResume + per-process
+	// VFS WorkDir match the original Spawn path.
+	proc.ProjectConfig = opts.ProjectConfig
+	if proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+		k.vfs.SetWorkDir(proc.PID, proc.ProjectConfig.ProjectDir)
+	}
 	if opts.Fork {
 		// Fork mode: NewProcess already generated a fresh UUIDv7; assert it
 		// differs from the origin to make the intent explicit. The UUIDv7
@@ -632,7 +676,7 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	proc.mu.Unlock()
 
 	proc.PrimaryDevice = llmDevice
-	llmFD, openErr := k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
+	llmFD, openErr := k.openLLMDeviceForResume(proc, llmDevice)
 	if openErr != nil {
 		_ = k.ctxMgr.CtxFree(cid)
 		return nil, NewSyscallError("Resume", proc.PID, llmDevice,

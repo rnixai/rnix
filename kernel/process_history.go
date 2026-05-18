@@ -357,11 +357,19 @@ func LoadProcHistory(baseDir string, maxSize int) (*ProcessHistory, error) {
 }
 
 // ListResumable scans <baseDir>/data/steps/*/proc-info.json and returns snapshots
-// whose state is "running" (i.e., processes left over from daemon crashes that
-// did not transition to Zombie/Dead before the daemon died).
+// for ANY recoverable process — daemon crash leftovers (state=running), naturally
+// exited processes (state=zombie/dead), suspended processes, and created-but-never-
+// run processes. Per Epic 42 design (post-fix): resume is a session-level concept
+// that does NOT depend on daemon crashing — any process with sufficient history
+// on disk can be resumed.
+//
+// Filtering: requires both proc-info.json AND steps.jsonl to be present (otherwise
+// the resume path lacks history to replay). UUID must be non-empty.
 //
 // Corrupt JSON files are logged and skipped. Missing baseDir or steps dir returns
 // nil, nil (consistent with LoadProcHistory's behavior).
+//
+// Sorted by last activity (DeadAt > CreatedAt) most-recent-first.
 func ListResumable(baseDir string) ([]vfs.ProcInfo, error) {
 	if baseDir == "" {
 		return nil, nil
@@ -380,7 +388,8 @@ func ListResumable(baseDir string) ([]vfs.ProcInfo, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(stepsDir, entry.Name(), procInfoFilename)
+		uuidDir := filepath.Join(stepsDir, entry.Name())
+		path := filepath.Join(uuidDir, procInfoFilename)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
@@ -393,7 +402,15 @@ func ListResumable(baseDir string) ([]vfs.ProcInfo, error) {
 			log.Printf("[history] corrupt %s: %v", path, err)
 			continue
 		}
-		if d.UUID == "" || d.State != "running" {
+		if d.UUID == "" {
+			continue
+		}
+		// Require either steps.jsonl OR checkpoint.json — both are valid resume
+		// sources. The kernel.Resume path prefers checkpoint > history, so an
+		// entry is resumable if at least one is present (Epic 42 fix).
+		_, stepsErr := os.Stat(filepath.Join(uuidDir, "steps.jsonl"))
+		_, cpErr := os.Stat(filepath.Join(uuidDir, "checkpoint.json"))
+		if stepsErr != nil && cpErr != nil {
 			continue
 		}
 		infos = append(infos, procInfoFromDisk(d))

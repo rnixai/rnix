@@ -63,9 +63,16 @@ func (k *KernelImpl) LoadHistory() error {
 	return nil
 }
 
-// ListResumable returns proc-info snapshots that can be resumed: state=running
-// entries from disk whose UUIDs are NOT currently in the process table (i.e.,
-// not yet inherited by a live process). Story 42.2 AC#4 + AC#10.
+// ListResumable returns proc-info snapshots that can be resumed. Epic 42 fix:
+// resumability is decoupled from daemon crashes — ANY process with on-disk
+// history (steps.jsonl + proc-info.json) can be resumed unless it is currently
+// running in the process table (which would amount to resuming itself).
+//
+// Filter:
+//   - Include: disk entries whose UUID is NOT live, or whose live process is
+//     in Dead/Zombie/Suspended state (still resumable from the user's POV).
+//   - Exclude: disk entries whose live process is in Running state (the live
+//     process IS the resumed session; no parallel resume permitted).
 func (k *KernelImpl) ListResumable() ([]vfs.ProcInfo, error) {
 	candidates, err := ListResumable(k.stepDataDir)
 	if err != nil {
@@ -73,8 +80,10 @@ func (k *KernelImpl) ListResumable() ([]vfs.ProcInfo, error) {
 	}
 	out := make([]vfs.ProcInfo, 0, len(candidates))
 	for _, c := range candidates {
-		if _, ok := k.GetProcessByUUID(c.UUID); ok {
-			continue // AC#10: already inherited by a live process
+		if live, ok := k.GetProcessByUUID(c.UUID); ok {
+			if live.GetState() == types.StateRunning {
+				continue // would amount to resuming a process that is still running
+			}
 		}
 		out = append(out, c)
 	}

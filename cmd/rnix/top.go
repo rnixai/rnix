@@ -67,7 +67,9 @@ func topSummaryLine(procs []vfs.ProcInfo, uptime time.Duration) string {
 // showing Intent, Skills, Tokens, Elapsed, Context, Devices, and Children.
 func topDetailView(info vfs.ProcInfo, allProcs []vfs.ProcInfo) string {
 	var b strings.Builder
-	elapsed := time.Since(info.CreatedAt)
+	// Epic 42 fix: freeze elapsed at DeadAt for exited processes (see
+	// cmd/rnix/dashboard_title.go::elapsedDuration for rationale).
+	elapsed := elapsedDuration(info)
 
 	fmt.Fprintf(&b, "── Process Detail ── PID %d ──\n", info.PID)
 	fmt.Fprintf(&b, "  State:    %s\n", strings.ToLower(info.State.String()))
@@ -277,7 +279,6 @@ func (m topModel) View() tea.View {
 	b.WriteString("  " + strings.Repeat("─", 62))
 	b.WriteString("\n")
 
-	now := time.Now()
 	for i, row := range m.rows {
 		cursor := "  "
 		if i == m.cursor {
@@ -289,7 +290,7 @@ func (m topModel) View() tea.View {
 			agent = ui.FormatSkills(row.Proc.Skills, 15, "—")
 		}
 
-		elapsed := ui.FormatDuration(now.Sub(row.Proc.CreatedAt))
+		elapsed := ui.FormatDuration(elapsedDuration(row.Proc))
 		var tokens string
 		if row.Proc.ContextBudget > 0 {
 			tokens = fmt.Sprintf("%s/%s",

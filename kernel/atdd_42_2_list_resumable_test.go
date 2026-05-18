@@ -19,7 +19,9 @@ import (
 // RED PHASE: kernel.ListResumable returns nil, nil.
 // =============================================================================
 
-// writeProcInfoOnly writes a minimal proc-info.json for a given state.
+// writeProcInfoOnly writes a minimal proc-info.json + a placeholder steps.jsonl
+// for a given state. Epic 42 fix: ListResumable now requires steps.jsonl to be
+// present (no history = nothing to resume), so the helper writes both files.
 // Used to set up disk fixtures without going through SaveProcInfo (which
 // requires a live Process snapshot).
 func writeProcInfoOnly(t *testing.T, baseDir, uuid, state, intent string) {
@@ -43,9 +45,18 @@ func writeProcInfoOnly(t *testing.T, baseDir, uuid, state, intent string) {
 	if err := os.WriteFile(filepath.Join(dir, "proc-info.json"), data, 0o600); err != nil {
 		t.Fatalf("write proc-info.json: %v", err)
 	}
+	// steps.jsonl placeholder — content does not matter for ListResumable filter,
+	// only file presence (per Epic 42 fix).
+	if err := os.WriteFile(filepath.Join(dir, "steps.jsonl"), []byte("{\"step\":1}\n"), 0o600); err != nil {
+		t.Fatalf("write steps.jsonl: %v", err)
+	}
 }
 
-// --- 42.2-UNIT-006: ListResumable 只返回 state=running 残留 (AC#4) ---
+// --- 42.2-UNIT-006: ListResumable 返回所有可恢复状态 (Epic 42 fix) ---
+//
+// Renamed semantics: ListResumable now returns ANY UUID with sufficient history
+// (proc-info.json + steps.jsonl), regardless of state — daemon crash is no
+// longer the only resumable scenario. Order: most-recent-first by DeadAt/CreatedAt.
 
 func TestATDD_42_2_006_ListResumable_FiltersByRunning(t *testing.T) {
 
@@ -59,17 +70,23 @@ func TestATDD_42_2_006_ListResumable_FiltersByRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListResumable: %v", err)
 	}
-	if len(infos) != 1 {
-		t.Fatalf("got %d entries, want 1 (only running)", len(infos))
+	// Epic 42 fix: all three are resumable (running daemon-crash leftover +
+	// naturally exited zombie + dead). Previously only state=running passed.
+	if len(infos) != 3 {
+		t.Fatalf("got %d entries, want 3 (all resumable)", len(infos))
 	}
-	if infos[0].State != types.StateRunning {
-		t.Errorf("state = %s, want running", infos[0].State)
+	seen := map[string]types.ProcessState{}
+	for _, info := range infos {
+		seen[info.UUID] = info.State
 	}
-	if infos[0].UUID != "running-uuid-0000-0000-000000000001" {
-		t.Errorf("UUID = %q, want running-uuid-...", infos[0].UUID)
+	if seen["running-uuid-0000-0000-000000000001"] != types.StateRunning {
+		t.Errorf("running UUID missing or wrong state: %+v", seen)
 	}
-	if infos[0].Intent != "running intent" {
-		t.Errorf("Intent = %q, want %q", infos[0].Intent, "running intent")
+	if seen["zombie-uuid-0000-0000-000000000002"] != types.StateZombie {
+		t.Errorf("zombie UUID missing or wrong state: %+v", seen)
+	}
+	if seen["dead-uuid-0000-0000-000000000003"] != types.StateDead {
+		t.Errorf("dead UUID missing or wrong state: %+v", seen)
 	}
 }
 
@@ -115,7 +132,12 @@ func TestATDD_42_2_007_ListResumable_SkipsCorruptAndMissing(t *testing.T) {
 	}
 }
 
-// --- 42.2-UNIT-008: KernelImpl.ListResumable 过滤已在 procTable 的 UUID (AC#10) ---
+// --- 42.2-UNIT-008: KernelImpl.ListResumable 过滤 procTable 内 Running 进程 (Epic 42 fix) ---
+//
+// Epic 42 fix: instead of filtering ALL UUIDs that appear in procTable, the
+// kernel only filters Running ones — resuming a Running process is illegal
+// (it's already running), but Dead/Zombie/Suspended in the table remain
+// resumable from the user's POV.
 
 func TestATDD_42_2_008_KernelListResumable_FiltersProcTable(t *testing.T) {
 
@@ -140,10 +162,10 @@ func TestATDD_42_2_008_KernelListResumable_FiltersProcTable(t *testing.T) {
 		t.Fatalf("KernelImpl.ListResumable: %v", err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("got %d entries, want 1 (orphan only)", len(got))
+		t.Fatalf("got %d entries, want 1 (orphan only — Running in procTable filtered)", len(got))
 	}
 	if got[0].UUID != uuidOrphan {
-		t.Errorf("UUID = %q, want %q (AC#10 must filter active UUIDs)", got[0].UUID, uuidOrphan)
+		t.Errorf("UUID = %q, want %q (procTable Running must be filtered)", got[0].UUID, uuidOrphan)
 	}
 }
 

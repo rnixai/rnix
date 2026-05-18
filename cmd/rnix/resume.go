@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/spf13/cobra"
@@ -94,7 +95,15 @@ func runResume(cmd *cobra.Command, args []string) error {
 		uuid = arg
 	}
 
-	resp, err := client.ResumeWithOptsV2(uuid, resumeFork, resumeFromStep)
+	// Epic 42 fix: pass ProjectDir + RNIX_ENV so daemon rebuilds ProjectConfig
+	// (project .env / providers.yaml / LLMFileOpener). Without this, resumed
+	// processes fall back to the global VFS driver and lose project-level API
+	// keys (Dashboard `r` 401 root cause).
+	cwd, _ := os.Getwd()
+	projectDir, _ := config.ProjectDir(cwd)
+	rnixEnv := os.Getenv("RNIX_ENV")
+
+	resp, err := client.ResumeWithOptsV3(uuid, resumeFork, resumeFromStep, projectDir, rnixEnv)
 	if err != nil {
 		ui.RenderError(renderer,
 			fmt.Sprintf("UUID %s", uuid),

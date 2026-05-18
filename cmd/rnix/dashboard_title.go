@@ -92,9 +92,14 @@ func (m dashboardModel) renderDashboardTitle() string {
 	budgetSeg := pctColorStyle(budgetPct).Render(budgetPlain)
 
 	// elapsed segment
+	//
+	// Epic 42 fix: freeze elapsed time once the process is no longer running.
+	// Previously this used `time.Since(CreatedAt)` unconditionally, so killed /
+	// dead / zombie processes appeared to keep ticking — leading users to think
+	// `K` had failed when in fact only the display was stale.
 	elapsedSeg := ""
 	if selectedProc != nil {
-		elapsedSeg = formatElapsedHHMMSS(time.Since(selectedProc.CreatedAt))
+		elapsedSeg = formatElapsedHHMMSS(elapsedDuration(*selectedProc))
 	}
 
 	base := "  rnix " + connChar
@@ -340,6 +345,25 @@ func styleProviderName(connected bool, proc *vfs.ProcInfo) string {
 // elapsedSeg 计算）零修改通过。
 func formatElapsedHHMMSS(d time.Duration) string {
 	return title.FormatElapsedHHMMSS(d)
+}
+
+// elapsedDuration returns wall-clock elapsed time for the given process,
+// freezing at DeadAt once the process has exited.
+//
+// Epic 42 fix: previously `time.Since(CreatedAt)` was used unconditionally,
+// causing killed/dead/zombie processes to display a still-ticking elapsed
+// counter — making users think `K` had failed. After this fix:
+//   - DeadAt populated → return DeadAt-CreatedAt (frozen).
+//   - DeadAt zero → return time.Since(CreatedAt) (live).
+//
+// The kernel writes DeadAt during reap (`kernel/reap.go`) for both natural
+// completion and SIGTERM-triggered termination, so any process the user sees
+// as exited / killed in the tree pane will have DeadAt set.
+func elapsedDuration(proc vfs.ProcInfo) time.Duration {
+	if !proc.DeadAt.IsZero() && proc.DeadAt.After(proc.CreatedAt) {
+		return proc.DeadAt.Sub(proc.CreatedAt)
+	}
+	return time.Since(proc.CreatedAt)
 }
 
 // pctColorStyle — thin wrapper · 见 internal/dashboard/title.PctColorStyle.

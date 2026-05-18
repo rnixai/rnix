@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -9,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/dashboard/detail"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
@@ -323,6 +325,12 @@ func truncateRuneSafe(s string, maxLen int) string {
 
 // resumeProcessCmd sends a Resume IPC call for the given UUID (Story 30.8 AC#4).
 // Moved from dashboard_focus.go (Story 34-5).
+//
+// Epic 42 fix: passes ProjectDir + RNIX_ENV so the daemon rebuilds ProjectConfig
+// (project .env / providers.yaml / LLMFileOpener), letting the resumed process
+// inherit project-level API keys. Without this, resume falls back to the global
+// VFS driver and short-lived sessions get 401 from provider APIs that only have
+// keys in `.env` (e.g. DeepSeek).
 func resumeProcessCmd(uuid string) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
@@ -330,7 +338,10 @@ func resumeProcessCmd(uuid string) tea.Cmd {
 			return resumeResultMsg{err: err}
 		}
 		defer client.Close()
-		result, err := client.Resume(uuid)
+		cwd, _ := os.Getwd()
+		projectDir, _ := config.ProjectDir(cwd)
+		rnixEnv := os.Getenv("RNIX_ENV")
+		result, err := client.ResumeWithOptsV3(uuid, false, 0, projectDir, rnixEnv)
 		return resumeResultMsg{result: result, err: err}
 	}
 }
@@ -345,9 +356,9 @@ type forkResultMsg struct {
 
 // forkProcessCmd — Story 42.3.
 // Sends a Resume IPC call with fork=true for the given origin UUID. Routes
-// through ResumeWithOptsV2 so the FromStep field is on the wire path even when
-// the Dashboard currently passes 0 — future expansions can pass --from-step
-// from the Dashboard without changing wire-format again.
+// through ResumeWithOptsV3 (Epic 42 fix) so ProjectDir/RnixEnv reach the
+// daemon — without it, the forked process loses project-level API keys (same
+// 401 root cause as resumeProcessCmd).
 func forkProcessCmd(uuid string) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
@@ -355,7 +366,10 @@ func forkProcessCmd(uuid string) tea.Cmd {
 			return forkResultMsg{err: err}
 		}
 		defer client.Close()
-		result, err := client.ResumeWithOptsV2(uuid, true, 0)
+		cwd, _ := os.Getwd()
+		projectDir, _ := config.ProjectDir(cwd)
+		rnixEnv := os.Getenv("RNIX_ENV")
+		result, err := client.ResumeWithOptsV3(uuid, true, 0, projectDir, rnixEnv)
 		return forkResultMsg{result: result, err: err}
 	}
 }

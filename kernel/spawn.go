@@ -695,12 +695,19 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	if opts.SkipReasonLoop {
 		// No reasoning goroutine — process starts in Running state immediately
 		_ = proc.Start() // Created → Running
+		// Epic 42 fix: persist proc-info.json immediately so daemon crash
+		// recovery / `rnix ps --resumable` sees the process from step 0.
+		k.persistInitialProcInfo(proc)
 	} else {
 		// Launch reasoning goroutine
 		// Note: CtxFree deferred to Wait/Reap (Story 4.1) per resource release order
 		proc.wg.Go(func() {
 			defer func() { _ = k.vfs.CloseAll(proc.PID) }()
 			_ = proc.Start() // Created → Running
+			// Epic 42 fix: persist proc-info.json once on Running transition so
+			// short processes (< 5 steps / < 30 s) that die before the first
+			// checkpoint are still recoverable from `rnix ps --resumable`.
+			k.persistInitialProcInfo(proc)
 			k.reasonStep(proc, llmFD, opts)
 		})
 	}
@@ -720,4 +727,25 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	}
 
 	return proc.PID, nil
+}
+
+// persistInitialProcInfo writes a best-effort proc-info.json snapshot the
+// instant a freshly spawned process enters Running state. Without this, short
+// processes that die before the first asyncWriteCheckpoint (5 steps / 30 s)
+// leave no on-disk snapshot, defeating daemon-crash recovery and `rnix ps
+// --resumable` (Epic 42 fix).
+//
+// Errors are logged but never propagated — spawn must not fail due to a stale
+// disk snapshot, and the next checkpoint / reap will rewrite the file anyway.
+func (k *KernelImpl) persistInitialProcInfo(proc *Process) {
+	if k.stepDataDir == "" {
+		return
+	}
+	info, err := k.GetProcInfo(proc.PID)
+	if err != nil || info == nil {
+		return
+	}
+	if saveErr := SaveProcInfo(k.stepDataDir, *info); saveErr != nil {
+		log.Printf("[spawn] pid=%d persistInitialProcInfo failed: %v", proc.PID, saveErr)
+	}
 }
