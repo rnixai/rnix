@@ -43,3 +43,6 @@ logs/
 logo/
 .opencode/
 .github/skills/
+
+# Worktrees
+.worktrees/
