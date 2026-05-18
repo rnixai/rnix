@@ -22,6 +22,10 @@ type GcConfig struct {
 const (
 	defaultGcIntervalSeconds = 3600
 	minGcIntervalSeconds     = 60
+	// maxGcRetentionDays caps RetentionDays to prevent `time.Duration * 24h`
+	// from overflowing int64 (~106752 days = 292 years). 36500 ≈ 100 years is
+	// well below the wrap point and any realistic retention horizon.
+	maxGcRetentionDays = 36500
 )
 
 // DefaultGcConfig returns the policy default: gc disabled, scan period 1 hour.
@@ -39,12 +43,15 @@ func DefaultGcConfig() GcConfig {
 // normalizeGcConfig clamps user-supplied values to safe defaults.
 //
 //   - Negative RetentionDays / MaxEntries → 0 (disable that rule, do not abort).
+//   - RetentionDays > maxGcRetentionDays → maxGcRetentionDays (avoid Duration overflow).
 //   - IntervalSeconds == 0 → defaultGcIntervalSeconds.
 //   - IntervalSeconds in (0, minGcIntervalSeconds) → minGcIntervalSeconds
 //     (防止过频扫描)
 func normalizeGcConfig(cfg GcConfig) GcConfig {
 	if cfg.RetentionDays < 0 {
 		cfg.RetentionDays = 0
+	} else if cfg.RetentionDays > maxGcRetentionDays {
+		cfg.RetentionDays = maxGcRetentionDays
 	}
 	if cfg.MaxEntries < 0 {
 		cfg.MaxEntries = 0

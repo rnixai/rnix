@@ -21,13 +21,6 @@ import (
 //   - AC#1   UNIT-015  RunGc syncs procHistory in-memory via RemoveByUUID
 //   - AC#4   UNIT-016  RunGc dry-run does not delete
 //   - AC#1   UNIT-017  RunGc on empty .rnix/data/steps/ returns no error
-//
-// RED PHASE:
-//   - kernel.RunGc returns errRunGcNotImplemented (zero-value GcResult)
-//   - kernel.StartGcDaemon is a no-op
-//   - Each behavior assertion sits behind a t.Skip("RED phase: ...") guard
-//   - Stub-sanity tests (no Skip) confirm the sentinel error is in place so
-//     dev-story can rely on the marker for "implementation pending" detection
 // =============================================================================
 
 // ---------------------------------------------------------------------------

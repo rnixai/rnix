@@ -142,17 +142,9 @@ func runGcWithClient(client gcClient, out io.Writer, in io.Reader, dryRun, force
 	if needConfirm {
 		if !gcConfirm(out, in, preview.Candidates) {
 			// User declined or EOF → don't delete, exit code 0 (AC#9).
-			if jsonOut {
-				_ = json.NewEncoder(out).Encode(map[string]any{
-					"ok":             true,
-					"removed_count":  0,
-					"freed_bytes":    0,
-					"removed_uuids":  []string{},
-					"declined":       true,
-				})
-			} else {
-				fmt.Fprintln(out, "Cancelled.")
-			}
+			// jsonOut is guaranteed false here (needConfirm requires !jsonOut),
+			// so only the text branch applies.
+			fmt.Fprintln(out, "Cancelled.")
 			return nil
 		}
 	}
@@ -176,9 +168,11 @@ func renderGcDryRunTable(w io.Writer, candidates []ipc.GcCandidateWire) {
 	if w == nil {
 		return
 	}
-	fmt.Fprintln(w, "UUID                                  | DEAD_AT              | SIZE     | REASON")
+	// DEAD_AT holds RFC3339Nano timestamps (~30 chars). Reserve 32 to keep
+	// REASON aligned even for nanosecond-precision timestamps.
+	fmt.Fprintln(w, "UUID                                  | DEAD_AT                          | SIZE     | REASON")
 	for _, c := range candidates {
-		fmt.Fprintf(w, "%-36s | %-20s | %-8s | %s\n",
+		fmt.Fprintf(w, "%-36s | %-32s | %-8s | %s\n",
 			gcTruncateUUID(c.UUID), c.DeadAt, formatBytesIEC(c.SizeBytes), c.Reason)
 	}
 	if len(candidates) > 0 {

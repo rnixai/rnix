@@ -172,6 +172,7 @@ type KernelImpl struct {
 	// Disk gc policy (Story 42.5) — retention thresholds for .rnix/data/steps/<uuid>/.
 	// Zero-value means gc disabled; SetGcConfig normalizes user input.
 	gcCfg GcConfig
+	gcMu  sync.Mutex // serializes RunGc so CLI + daemon ticker don't double-count
 
 	// Heartbeat monitor (Story 30.6)
 	heartbeatMonitor *HeartbeatMonitor

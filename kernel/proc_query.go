@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"fmt"
+	"log"
 	"slices"
 	"time"
 
@@ -58,6 +59,13 @@ func (k *KernelImpl) LoadHistory() error {
 	history, err := LoadProcHistory(k.stepDataDir, 1000)
 	if err != nil {
 		return err
+	}
+	// Seed removedUUIDs from .gc-removed.json so HasEverSeen stays correct
+	// across daemon restarts (Story 42.5 AC#6, review Decision #2).
+	if removed, rerr := LoadGcRemovedUUIDs(k.stepDataDir); rerr == nil {
+		history.SeedRemovedUUIDs(removed)
+	} else {
+		log.Printf("[history] warn: load gc-removed: %v", rerr)
 	}
 	k.procHistory = history
 	return nil

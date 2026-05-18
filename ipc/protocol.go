@@ -412,7 +412,7 @@ type GcResponse struct {
 	OK           bool     `json:"ok"`
 	RemovedCount int      `json:"removed_count"`
 	FreedBytes   int64    `json:"freed_bytes"`
-	RemovedUUIDs []string `json:"removed_uuids,omitempty"`
+	RemovedUUIDs []string `json:"removed_uuids"`
 }
 
 // GcDryRunResponse is the response for MethodGcDryRun.

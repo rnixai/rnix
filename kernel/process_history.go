@@ -154,6 +154,23 @@ func (h *ProcessHistory) HasEverSeen(uuid string) bool {
 	return false
 }
 
+// SeedRemovedUUIDs merges the given UUID set into the in-memory removedUUIDs
+// map. Used by LoadHistory to restore the post-restart "ever seen" view from
+// the persisted .gc-removed.json (Story 42.5 AC#6 cross-restart correctness).
+func (h *ProcessHistory) SeedRemovedUUIDs(uuids map[string]struct{}) {
+	if len(uuids) == 0 {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.removedUUIDs == nil {
+		h.removedUUIDs = make(map[string]struct{}, len(uuids))
+	}
+	for u := range uuids {
+		h.removedUUIDs[u] = struct{}{}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Disk persistence for proc-info.json
 // ---------------------------------------------------------------------------
@@ -268,6 +285,8 @@ func parseProcessState(s string) types.ProcessState {
 		return types.StateZombie
 	case "dead":
 		return types.StateDead
+	case "suspended":
+		return types.StateSuspended
 	default:
 		return types.StateDead
 	}

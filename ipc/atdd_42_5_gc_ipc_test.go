@@ -2,7 +2,6 @@ package ipc
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,12 +18,6 @@ import (
 //   - AC#13  INT-002  gc returns GcResponse {ok, removed_count, freed_bytes,
 //                     removed_uuids: [...]}
 //   - AC#13  INT-003  Client.Gc / Client.GcDryRun marshal/unmarshal correctly
-//                     even under daemon error (RED-phase sentinel surface)
-//
-// RED PHASE: kernel.RunGc still returns errRunGcNotImplemented so the IPC
-// handlers route through to ErrorPayload; INT-001 / INT-002 are skipped until
-// dev-story lands the real kernel.RunGc. INT-003 stays live to verify the
-// wire schema is intact today.
 // =============================================================================
 
 // writeProcInfoForGcTest writes a minimal proc-info.json fixture for gc tests.
@@ -151,7 +144,5 @@ func TestATDD_42_5_INT_003_GreenPhase_DisabledGcReturnsOK(t *testing.T) {
 		t.Errorf("Candidates len = %d, want 0 (disabled gc)", len(dryResp.Candidates))
 	}
 
-	// Sanity: errors.Is against transport errors does not match (no transport
-	// failure on a happy path).
-	_ = errors.New("placeholder") // keep errors import alive for INT-001 strings.Contains usage
+	// Sanity: no transport failure on a happy path — nothing to assert.
 }

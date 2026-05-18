@@ -233,9 +233,10 @@ func (c *Client) ListResumable() (*ListResumableResponse, error) {
 
 // Gc triggers an actual disk garbage collection on the daemon side (Story 42.5).
 // The daemon handler invokes kernel.RunGc(dryRun=false, force=true) and returns
-// a stats payload.
+// a stats payload. Per AC#13 the request payload is empty — daemon always treats
+// CLI-side gc as force=true.
 func (c *Client) Gc() (*GcResponse, error) {
-	resp, err := c.call(MethodGc, GcRequest{Force: true})
+	resp, err := c.call(MethodGc, GcRequest{})
 	if err != nil {
 		return nil, err
 	}

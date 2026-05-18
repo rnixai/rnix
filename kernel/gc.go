@@ -3,7 +3,6 @@ package kernel
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -50,11 +49,6 @@ type GcResult struct {
 	Candidates   []GcCandidate
 }
 
-// errGcDisabled signals "policy says do nothing" — both retention dials are
-// zero. RunGc treats this as success with zero candidates so callers (the
-// background daemon, the CLI) don't have to special-case the disabled state.
-var errGcDisabled = errors.New("gc disabled")
-
 // RunGc scans .rnix/data/steps/ for terminated processes and removes those
 // matching the active GcCfg retention policy (Story 42.5 AC#1, #2, #3, #14).
 //
@@ -76,11 +70,44 @@ func (k *KernelImpl) RunGc(dryRun bool, force bool) (GcResult, error) {
 		return GcResult{}, nil
 	}
 
+	// Serialize concurrent RunGc invocations (CLI `rnix gc` + daemon ticker)
+	// to prevent double-counting removed UUIDs.
+	k.gcMu.Lock()
+	defer k.gcMu.Unlock()
+
 	stepsDir := filepath.Join(k.stepDataDir, "data", "steps")
 
 	candidates, err := scanGcCandidates(stepsDir, cfg)
 	if err != nil {
 		return GcResult{}, err
+	}
+
+	// Filter out UUIDs that currently have a live Process in the procTable.
+	// Defends against the gc vs active-resume race: a resumed process AddProcess'es
+	// + SaveProcInfo's its new state while a stale Dead snapshot for the same UUID
+	// still sits on disk. Without this check, gc would os.RemoveAll the directory
+	// underneath the running process, silently dropping its persistence trace
+	// (Linux unlink-while-open lets the in-memory process keep running, but
+	// daemon restart sees nothing). See review finding [Decision #1].
+	if k.procTable != nil && len(candidates) > 0 {
+		live := make(map[string]bool)
+		k.procTable.Range(func(_ types.PID, p *Process) bool {
+			if p != nil && p.UUID != "" {
+				live[p.UUID] = true
+			}
+			return true
+		})
+		if len(live) > 0 {
+			filtered := candidates[:0]
+			for _, c := range candidates {
+				if live[c.UUID] {
+					log.Printf("[gc] skip live process UUID %s", c.UUID)
+					continue
+				}
+				filtered = append(filtered, c)
+			}
+			candidates = filtered
+		}
 	}
 
 	result := GcResult{Candidates: candidates}
@@ -97,6 +124,12 @@ func (k *KernelImpl) RunGc(dryRun bool, force bool) (GcResult, error) {
 		}
 		if k.procHistory != nil {
 			k.procHistory.RemoveByUUID(c.UUID)
+		}
+		// Persist the removed UUID so HasEverSeen still returns true across
+		// daemon restarts (AC#6 cross-restart correctness, review Decision #2).
+		// Best-effort: log on failure but do not roll back the deletion.
+		if appendErr := appendGcRemovedUUID(k.stepDataDir, c.UUID); appendErr != nil {
+			log.Printf("[gc] warn: persist removed uuid %s: %v", c.UUID, appendErr)
 		}
 		result.RemovedCount++
 		result.FreedBytes += freed
@@ -192,9 +225,14 @@ func scanGcCandidates(stepsDir string, cfg GcConfig) ([]GcCandidate, error) {
 		if d.UUID == "" {
 			continue
 		}
-		// AC#3: Running / Suspended exempt. We exempt anything that is NOT
-		// dead/zombie — this also covers states we don't know about (created,
-		// suspended, unknown user-defined states).
+		// AC#3: Running / Suspended exempt. Defense-in-depth: filter by the raw
+		// disk string first so any unrecognized state (e.g., future "init",
+		// "paused") is exempt by default instead of falling through to Dead.
+		// parseProcessState retains a Dead fallback to keep procInfoFromDisk
+		// permissive, but gc must be conservative.
+		if d.State != "dead" && d.State != "zombie" {
+			continue
+		}
 		state := parseProcessState(d.State)
 		if state != types.StateDead && state != types.StateZombie {
 			continue
@@ -299,7 +337,95 @@ func dirSizeBytes(dir string) int64 {
 	return total
 }
 
-// errGcDisabled retained as a sentinel that future callers can errors.Is
-// against. Today's gc skips this and returns a zero-value GcResult — both
-// behaviors are equivalent for the CLI / daemon.
-var _ = errGcDisabled
+// gcRemovedFilename is the JSON Lines file under <stepDataDir>/data/ that
+// records UUIDs gc has reaped. Each line is {"uuid": "...", "removed_at": "..."}.
+// LoadGcRemovedUUIDs reads it at daemon startup so HasEverSeen distinguishes
+// "gc'd" from "never spawned" across restarts (Story 42.5 AC#6, review Decision #2).
+const gcRemovedFilename = ".gc-removed.json"
+
+type gcRemovedRecord struct {
+	UUID      string `json:"uuid"`
+	RemovedAt string `json:"removed_at"`
+}
+
+// appendGcRemovedUUID appends one UUID to <baseDir>/data/.gc-removed.json as a
+// JSON Lines record. Creates the file (and parent dir) on first write.
+//
+// Empty baseDir or uuid returns nil (no-op for tests with no real data dir).
+func appendGcRemovedUUID(baseDir, uuid string) error {
+	if baseDir == "" || uuid == "" {
+		return nil
+	}
+	dataDir := filepath.Join(baseDir, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dataDir, err)
+	}
+	path := filepath.Join(dataDir, gcRemovedFilename)
+	rec := gcRemovedRecord{UUID: uuid, RemovedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	line, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer f.Close()
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// LoadGcRemovedUUIDs reads <baseDir>/data/.gc-removed.json and returns the set
+// of UUIDs that gc has previously reaped. Missing file → empty set + nil err.
+// Corrupt lines are logged and skipped (best-effort).
+func LoadGcRemovedUUIDs(baseDir string) (map[string]struct{}, error) {
+	if baseDir == "" {
+		return nil, nil
+	}
+	path := filepath.Join(baseDir, "data", gcRemovedFilename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	out := make(map[string]struct{})
+	for line := range splitGcRemovedLines(data) {
+		if len(line) == 0 {
+			continue
+		}
+		var rec gcRemovedRecord
+		if err := json.Unmarshal(line, &rec); err != nil {
+			log.Printf("[gc] warn: corrupt %s line: %v", path, err)
+			continue
+		}
+		if rec.UUID != "" {
+			out[rec.UUID] = struct{}{}
+		}
+	}
+	return out, nil
+}
+
+// splitGcRemovedLines yields each newline-delimited byte slice of data (no
+// trailing newline in each yielded slice). Empty input yields no values.
+// Local to gc.go to avoid clashing with the test helper splitLines in
+// atdd_21_2_reputation_test.go.
+func splitGcRemovedLines(data []byte) func(yield func([]byte) bool) {
+	return func(yield func([]byte) bool) {
+		start := 0
+		for i, b := range data {
+			if b == '\n' {
+				if !yield(data[start:i]) {
+					return
+				}
+				start = i + 1
+			}
+		}
+		if start < len(data) {
+			yield(data[start:])
+		}
+	}
+}

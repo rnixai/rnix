@@ -23,12 +23,6 @@ import (
 //   - AC#9   CLI-007  Confirmation prompt fires above gcConfirmThreshold
 //                     and respects --force
 //   - AC#9   CLI-008  --json implies --force (no prompt in non-tty mode)
-//
-// RED PHASE:
-//   - runGc / runGcWithClient return errRunGcCLINotImplemented
-//   - Render helpers + formatBytesIEC + gcConfirm + cobra wiring are real (so
-//     dev-story can leverage them without rewriting). Tests that exercise the
-//     IPC flow are wrapped in t.Skip; format / cobra tests run live.
 // =============================================================================
 
 // ---------------------------------------------------------------------------
@@ -134,8 +128,11 @@ func TestATDD_42_5_CLI_003_DryRun_JSON_Schema(t *testing.T) {
 	// Nil candidates → empty array, not null.
 	buf.Reset()
 	renderGcDryRunJSON(&buf, nil)
-	_ = json.Unmarshal(buf.Bytes(), &parsed)
-	cands, _ = parsed["candidates"].([]any)
+	var parsedNil map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &parsedNil); err != nil {
+		t.Fatalf("nil candidates not valid JSON: %v", err)
+	}
+	cands, _ = parsedNil["candidates"].([]any)
 	if cands == nil {
 		t.Errorf("candidates must be [] not null when empty")
 	}
@@ -188,8 +185,11 @@ func TestATDD_42_5_CLI_005_Gc_JSON_Schema(t *testing.T) {
 	// nil RemovedUUIDs must still serialize as [] not null.
 	buf.Reset()
 	renderGcStatsJSON(&buf, &ipc.GcResponse{OK: true, RemovedCount: 0, FreedBytes: 0})
-	_ = json.Unmarshal(buf.Bytes(), &parsed)
-	uuids, _ := parsed["removed_uuids"].([]any)
+	var parsedNil map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &parsedNil); err != nil {
+		t.Fatalf("nil uuids not valid JSON: %v", err)
+	}
+	uuids, _ := parsedNil["removed_uuids"].([]any)
 	if uuids == nil {
 		t.Errorf("removed_uuids must be [] not null when nil")
 	}
@@ -366,14 +366,20 @@ func TestATDD_42_5_CLI_009_ConfirmThreshold_Boundary(t *testing.T) {
 // is wired to the cobra command. After GREEN-phase, calling it from the test
 // environment is expected to set exitCode (via outputError) and return nil —
 // NOT to return a sentinel error.
+//
+// Safety: dryRun is forced true so that even if a daemon happens to be running
+// on the dev box, no .rnix/data/steps/ deletion occurs.
 func TestATDD_42_5_CLI_StubSanity_RunGc(t *testing.T) {
 	prevExit := exitCode
 	prevJSON := flagGcJSON
+	prevDryRun := flagGcDryRun
 	defer func() {
 		exitCode = prevExit
 		flagGcJSON = prevJSON
+		flagGcDryRun = prevDryRun
 	}()
-	flagGcJSON = false // do not pollute stdout in this stub-sanity check
+	flagGcJSON = false   // do not pollute stdout in this stub-sanity check
+	flagGcDryRun = true  // prevent destructive client.Gc() if daemon is alive
 
 	err := runGc(gcCmd, nil)
 	// runGc returns nil even on error (it sets exitCode and lets cobra root
