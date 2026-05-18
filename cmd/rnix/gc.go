@@ -51,11 +51,6 @@ var (
 // AC#9 specifies "超过 100", so the boundary value 100 itself is below threshold.
 const gcConfirmThreshold = 100
 
-// errRunGcCLINotImplemented is the RED-phase sentinel for runGc. Tests can
-// reference it through stub-sanity checks to detect "implementation still
-// pending"; dev-story replaces the function body with the real IPC flow.
-var errRunGcCLINotImplemented = errors.New("cmd/rnix.runGc: not implemented (Story 42.5 dev-story)")
-
 func init() {
 	gcCmd.Flags().BoolVar(&flagGcDryRun, "dry-run", false, "Preview candidates without deleting")
 	gcCmd.Flags().BoolVar(&flagGcForce, "force", false, "Skip confirmation for bulk deletes (>100 entries)")
@@ -63,35 +58,115 @@ func init() {
 	rootCmd.AddCommand(gcCmd)
 }
 
-// runGc is the entry point of `rnix gc`. RED PHASE: returns nil immediately
-// after setting exitCode=1 so cobra does not print a usage banner; the stub
-// sentinel error is only surfaced to tests via stub-sanity assertions.
+// runGc is the entry point of `rnix gc`. Mirrors the dial+orchestrate pattern
+// from cmd/rnix/resume.go and cmd/rnix/compose_resume.go: a thin wrapper that
+// builds the IPC client, delegates to runGcWithClient for the testable seam,
+// and translates errors into exitCode.
 func runGc(cmd *cobra.Command, args []string) error {
 	_ = cmd
 	_ = args
-	exitCode = 1
-	if flagGcJSON {
-		// JSON mode: emit a structured "not implemented" error so scripts
-		// don't see a partial response.
-		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
-			"ok":    false,
-			"error": errRunGcCLINotImplemented.Error(),
-		})
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		// Daemon not running → emit structured error and bail.
+		if flagGcJSON {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"ok":    false,
+				"error": fmt.Sprintf("daemon unavailable: %v", err),
+			})
+		} else {
+			fmt.Fprintf(os.Stderr, "rnix gc: daemon unavailable: %v\n", err)
+		}
+		exitCode = 1
+		return nil
+	}
+	defer client.Close()
+
+	if err := runGcWithClient(client, os.Stdout, os.Stdin, flagGcDryRun, flagGcForce, flagGcJSON); err != nil {
+		if flagGcJSON {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"ok":    false,
+				"error": err.Error(),
+			})
+		} else {
+			fmt.Fprintf(os.Stderr, "rnix gc: %v\n", err)
+		}
+		exitCode = 1
+		return nil
 	}
 	return nil
 }
 
-// runGcWithClient is the testable seam — dev-story moves the IPC orchestration
-// here so unit tests can inject a mock client + writer without touching cobra
-// state. RED PHASE: returns errRunGcCLINotImplemented.
-func runGcWithClient(client *ipc.Client, out io.Writer, in io.Reader, dryRun, force, jsonOut bool) error {
-	_ = client
-	_ = out
-	_ = in
-	_ = dryRun
-	_ = force
-	_ = jsonOut
-	return errRunGcCLINotImplemented
+// gcClient is the minimal IPC surface runGcWithClient needs. *ipc.Client
+// satisfies it directly; tests pass mock implementations to exercise behavior
+// (AC#9 CLI-008 JSON_Implies_Force).
+type gcClient interface {
+	Gc() (*ipc.GcResponse, error)
+	GcDryRun() (*ipc.GcDryRunResponse, error)
+}
+
+// runGcWithClient is the testable seam — orchestrates dry-run preview,
+// optional confirmation, and the actual gc call. Writes output to `out`,
+// reads confirmation input from `in`.
+//
+// Behavior contract:
+//   - dryRun=true → emit candidates without deleting (AC#4).
+//   - force=true OR jsonOut=true → skip confirmation prompt (AC#9 last clause).
+//   - len(candidates) > gcConfirmThreshold AND prompt enabled → require [y].
+//   - any IPC error short-circuits with err return.
+func runGcWithClient(client gcClient, out io.Writer, in io.Reader, dryRun, force, jsonOut bool) error {
+	if client == nil {
+		return errors.New("nil ipc client")
+	}
+
+	if dryRun {
+		resp, err := client.GcDryRun()
+		if err != nil {
+			return fmt.Errorf("gc_dry_run: %w", err)
+		}
+		if jsonOut {
+			renderGcDryRunJSON(out, resp.Candidates)
+		} else {
+			renderGcDryRunTable(out, resp.Candidates)
+		}
+		return nil
+	}
+
+	// Real cleanup path: preview first so we can prompt the user about bulk
+	// deletes. AC#9: jsonOut implies force.
+	preview, err := client.GcDryRun()
+	if err != nil {
+		return fmt.Errorf("gc_dry_run (preview): %w", err)
+	}
+
+	needConfirm := len(preview.Candidates) > gcConfirmThreshold && !force && !jsonOut
+	if needConfirm {
+		if !gcConfirm(out, in, preview.Candidates) {
+			// User declined or EOF → don't delete, exit code 0 (AC#9).
+			if jsonOut {
+				_ = json.NewEncoder(out).Encode(map[string]any{
+					"ok":             true,
+					"removed_count":  0,
+					"freed_bytes":    0,
+					"removed_uuids":  []string{},
+					"declined":       true,
+				})
+			} else {
+				fmt.Fprintln(out, "Cancelled.")
+			}
+			return nil
+		}
+	}
+
+	resp, err := client.Gc()
+	if err != nil {
+		return fmt.Errorf("gc: %w", err)
+	}
+	if jsonOut {
+		renderGcStatsJSON(out, resp)
+	} else {
+		renderGcStats(out, resp)
+	}
+	return nil
 }
 
 // renderGcDryRunTable formats the candidate list as a UTF-friendly table for

@@ -171,8 +171,17 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 	stepsDir := filepath.Join(baseDir, "data", "steps", uuid)
 	if _, err := os.Stat(stepsDir); err != nil {
 		if os.IsNotExist(err) {
+			// Story 42.5 AC#6 — distinguish "garbage collected" from
+			// "never spawned" using procHistory.HasEverSeen (true when the
+			// UUID was Add'd then RemoveByUUID'd, the path gc takes).
+			if k.procHistory != nil && k.procHistory.HasEverSeen(uuid) {
+				return nil, NewSyscallError("Resume", 0, "",
+					fmt.Errorf("process data has been garbage collected (UUID %s)", uuid),
+					types.ErrNotFound)
+			}
 			return nil, NewSyscallError("Resume", 0, "",
-				fmt.Errorf("no data found for UUID %s", uuid), types.ErrNotFound)
+				fmt.Errorf("no data found for UUID %s: never spawned or never persisted", uuid),
+				types.ErrNotFound)
 		}
 		return nil, NewSyscallError("Resume", 0, "",
 			fmt.Errorf("stat steps dir: %w", err), types.ErrInternal)
@@ -402,8 +411,18 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	procInfoData, err := os.ReadFile(procInfoPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// Story 42.5 AC#6 — distinguish "garbage collected" from
+			// "never spawned". HasEverSeen returns true when the UUID was
+			// previously Add'd to procHistory and later RemoveByUUID'd
+			// (the path gc takes when reaping a directory).
+			if k.procHistory != nil && k.procHistory.HasEverSeen(uuid) {
+				return nil, NewSyscallError("Resume", 0, "",
+					fmt.Errorf("process data has been garbage collected (UUID %s)", uuid),
+					types.ErrNotFound)
+			}
 			return nil, NewSyscallError("Resume", 0, "",
-				fmt.Errorf("no data found for UUID %s: proc-info.json missing", uuid), types.ErrNotFound)
+				fmt.Errorf("no data found for UUID %s: never spawned or never persisted", uuid),
+				types.ErrNotFound)
 		}
 		return nil, NewSyscallError("Resume", 0, "",
 			fmt.Errorf("read proc-info.json: %w", err), types.ErrInternal)

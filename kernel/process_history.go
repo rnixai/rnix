@@ -19,17 +19,24 @@ import (
 // ProcessHistory stores snapshots of processes that have been removed from the
 // process table by the reaper. It acts as a bounded FIFO ring buffer protected
 // by a RWMutex so the reaper can write while the Dashboard reads concurrently.
+//
+// removedUUIDs tracks UUIDs that were Add'd then RemoveByUUID'd (Story 42.5
+// AC#6) so resumeFromHistory can distinguish "garbage collected" from "never
+// spawned" errors. The map grows monotonically; in practice the daemon process
+// lifetime caps it.
 type ProcessHistory struct {
-	mu      sync.RWMutex
-	entries []vfs.ProcInfo
-	maxSize int
+	mu           sync.RWMutex
+	entries      []vfs.ProcInfo
+	removedUUIDs map[string]struct{}
+	maxSize      int
 }
 
 // NewProcessHistory creates a ProcessHistory with the given capacity.
 func NewProcessHistory(maxSize int) *ProcessHistory {
 	return &ProcessHistory{
-		entries: make([]vfs.ProcInfo, 0, maxSize),
-		maxSize: maxSize,
+		entries:      make([]vfs.ProcInfo, 0, maxSize),
+		removedUUIDs: make(map[string]struct{}),
+		maxSize:      maxSize,
 	}
 }
 
@@ -95,7 +102,9 @@ func (h *ProcessHistory) Len() int {
 }
 
 // RemoveByUUID removes all entries matching the given UUID from history.
-// Returns true if any entry was removed.
+// Returns true if any entry was removed. Also marks the UUID as "ever seen"
+// (Story 42.5 AC#6) so post-gc HasEverSeen lookups still report true and
+// resumeFromHistory can emit the "garbage collected" error variant.
 func (h *ProcessHistory) RemoveByUUID(uuid string) bool {
 	if uuid == "" {
 		return false
@@ -110,20 +119,22 @@ func (h *ProcessHistory) RemoveByUUID(uuid string) bool {
 			n++
 		}
 	}
-	if n == len(h.entries) {
-		return false
+	removed := n != len(h.entries)
+	if removed {
+		h.entries = h.entries[:n]
+		// AC#6: record the UUID as ever-seen so future HasEverSeen calls hit
+		// even though the entry is no longer in the ring buffer.
+		if h.removedUUIDs == nil {
+			h.removedUUIDs = make(map[string]struct{})
+		}
+		h.removedUUIDs[uuid] = struct{}{}
 	}
-	h.entries = h.entries[:n]
-	return true
+	return removed
 }
 
 // HasEverSeen reports whether the given UUID is currently in history OR was
 // previously Add'd and later RemoveByUUID'd (Story 42.5 AC#6 — distinguish
 // "garbage collected" from "never spawned" in resume errors).
-//
-// RED PHASE: only checks entries (i.e., currently present). dev-story will
-// extend RemoveByUUID to record into a `removedUUIDs map[string]bool` field
-// so post-gc lookups still report true.
 func (h *ProcessHistory) HasEverSeen(uuid string) bool {
 	if uuid == "" {
 		return false
@@ -135,8 +146,11 @@ func (h *ProcessHistory) HasEverSeen(uuid string) bool {
 			return true
 		}
 	}
-	// RED PHASE stub: dev-story replaces this with a removedUUIDs map lookup
-	// so gc'd UUIDs still report true.
+	if h.removedUUIDs != nil {
+		if _, ok := h.removedUUIDs[uuid]; ok {
+			return true
+		}
+	}
 	return false
 }
 

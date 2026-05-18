@@ -74,6 +74,8 @@ cmd/rnix           ← Entry point, Cobra CLI, all commands
 
 **Process** (`kernel/process.go`): The primary compute unit. State machine: Created → Running → Zombie → Dead. Each process runs a `reasonStep` goroutine that loops LLM calls through VFS devices. Stores `Provider` and `Model` fields (immutable after spawn) for display in spawn/exit output. Reaped processes are persisted to `.rnix/data/steps/<uuid>/proc-info.json` and loaded on daemon startup via `LoadHistory()`. Per-process observation data is fully persisted: `steps.jsonl` (reasoning steps), `events.jsonl` (syscall events), `ctx-profile.json` (context heatmap snapshot), `process-meta.json` (system prompt + tool defs).
 
+**Resume 设计哲学** (ADR Decision 40 / Bundle 1: A5 + B1 + C1): Dead 是冻结状态而非终态——进程数据保留在 `.rnix/data/steps/<uuid>/` 直到 gc 清理。Resume = 基于历史的新 Spawn，状态机零改动（参考 ADR Decision 40 / Bundle 1: A5 + B1 + C1）；通过 `rnix resume <uuid>` (续跑保 UUID) 或 `rnix resume --fork <uuid>` (分叉新 UUID) 触发。保留策略：`gc.retention_days` + `gc.max_entries` 双重退路；Running/Suspended 进程永久豁免。详见 [docs/process-resumption.md](docs/process-resumption.md)。
+
 **VFS** (`vfs/`): All resources (LLM, filesystem, shell, MCP) are accessed as files via Open/Read/Write/Close. Devices register path prefixes. Each process has an FD table.
 
 **Context** (`context/`): Per-process message history. `CtxAlloc` → `CtxWrite` → `BuildPrompt` cycle. Fixed-size message array with configurable MaxSize (default 256). When token usage or slot usage exceeds thresholds, Compact replaces history with an LLM-generated summary plus restored context (files, skills, plan).

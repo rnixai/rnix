@@ -3,7 +3,6 @@ package kernel
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,7 +67,6 @@ func writeProcInfoWithDeadAt(t *testing.T, baseDir, uuid, state, deadAt string) 
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_5_010_RetentionDays_Cleanup(t *testing.T) {
-	t.Skip("RED phase: 42.5 RunGc not implemented (kernel/gc.go stub)")
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 30, MaxEntries: 0, IntervalSeconds: 3600})
@@ -104,7 +102,6 @@ func TestATDD_42_5_010_RetentionDays_Cleanup(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_5_011_MaxEntries_Cleanup(t *testing.T) {
-	t.Skip("RED phase: 42.5 RunGc not implemented")
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 0, MaxEntries: 5, IntervalSeconds: 3600})
@@ -138,7 +135,6 @@ func TestATDD_42_5_011_MaxEntries_Cleanup(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_5_012_RunningSuspended_Exempt(t *testing.T) {
-	t.Skip("RED phase: 42.5 RunGc not implemented")
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 1, MaxEntries: 0, IntervalSeconds: 3600})
@@ -178,7 +174,6 @@ func TestATDD_42_5_012_RunningSuspended_Exempt(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_5_013_StartGcDaemon_RunsWhenEnabled(t *testing.T) {
-	t.Skip("RED phase: 42.5 StartGcDaemon not implemented")
 
 	k := newThrottleTestKernel(t)
 	// 1-second interval so the test does not block for long.
@@ -208,7 +203,6 @@ func TestATDD_42_5_013_StartGcDaemon_RunsWhenEnabled(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_5_014_StartGcDaemon_NoopWhenDisabled(t *testing.T) {
-	t.Skip("RED phase: 42.5 StartGcDaemon not implemented")
 
 	k := newThrottleTestKernel(t)
 	// All-zero retention = disabled (AC#8).
@@ -245,7 +239,6 @@ func TestATDD_42_5_014_StartGcDaemon_NoopWhenDisabled(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_5_015_RunGc_SyncsProcHistory(t *testing.T) {
-	t.Skip("RED phase: 42.5 RunGc + RemoveByUUID(removedUUIDs) not implemented")
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 1, MaxEntries: 0, IntervalSeconds: 3600})
@@ -279,7 +272,6 @@ func TestATDD_42_5_015_RunGc_SyncsProcHistory(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_5_016_RunGc_DryRun_DoesNotDelete(t *testing.T) {
-	t.Skip("RED phase: 42.5 RunGc not implemented")
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 1, MaxEntries: 0, IntervalSeconds: 3600})
@@ -311,7 +303,6 @@ func TestATDD_42_5_016_RunGc_DryRun_DoesNotDelete(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_5_017_RunGc_EmptyDataDir(t *testing.T) {
-	t.Skip("RED phase: 42.5 RunGc not implemented")
 
 	k := newThrottleTestKernel(t)
 	k.SetGcConfig(GcConfig{RetentionDays: 30, MaxEntries: 500, IntervalSeconds: 3600})
@@ -333,18 +324,14 @@ func TestATDD_42_5_017_RunGc_EmptyDataDir(t *testing.T) {
 // Stub-sanity tests (post-GREEN: become natural no-ops)
 // ---------------------------------------------------------------------------
 
-// TestATDD_42_5_StubSanity_RunGc verifies the RED-phase RunGc sentinel.
-// After GREEN-phase implementation lands, RunGc returns nil and this test
-// degrades to a t.Log without failing.
+// TestATDD_42_5_StubSanity_RunGc was the RED-phase sentinel-detector.
+// Now that RunGc is implemented (GREEN phase), this test confirms that RunGc
+// returns nil error on an empty kernel (no gc config set ⇒ disabled ⇒ no-op).
 func TestATDD_42_5_StubSanity_RunGc(t *testing.T) {
 	k := newThrottleTestKernel(t)
 	_, err := k.RunGc(false, true)
-	if err == nil {
-		t.Log("RunGc has been implemented — sentinel no longer present")
-		return
-	}
-	if !errors.Is(err, errRunGcNotImplemented) {
-		t.Errorf("RED phase expects errRunGcNotImplemented; got %v", err)
+	if err != nil {
+		t.Errorf("RunGc on disabled kernel must succeed; got %v", err)
 	}
 }
 

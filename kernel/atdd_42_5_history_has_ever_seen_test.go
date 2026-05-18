@@ -50,8 +50,6 @@ func TestATDD_42_5_030_HasEverSeen_CurrentlyPresent(t *testing.T) {
 // --- UNIT-031 (AC#6): post-RemoveByUUID still returns true ---
 
 func TestATDD_42_5_031_HasEverSeen_AfterRemove(t *testing.T) {
-	t.Skip("RED phase: 42.5 RemoveByUUID does not yet record into removedUUIDs map")
-
 	h := NewProcessHistory(10)
 	h.Add(hesProcInfo(hesUUIDRemoved))
 

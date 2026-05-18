@@ -41,8 +41,6 @@ func newResumeAfterGcKernel(t *testing.T) *KernelImpl {
 // --- UNIT-040 (AC#6): Resume after gc returns "garbage collected" ---
 
 func TestATDD_42_5_040_Resume_AfterGc_ReturnsGarbageCollectedError(t *testing.T) {
-	t.Skip("RED phase: 42.5 resumeFromHistory error branching not implemented")
-
 	k := newResumeAfterGcKernel(t)
 	uuid := "gced-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 
@@ -72,8 +70,6 @@ func TestATDD_42_5_040_Resume_AfterGc_ReturnsGarbageCollectedError(t *testing.T)
 // --- UNIT-041 (AC#6): Resume for never-seen UUID returns "never persisted" ---
 
 func TestATDD_42_5_041_Resume_NeverSeen_ReturnsNotFoundError(t *testing.T) {
-	t.Skip("RED phase: 42.5 resumeFromHistory error branching not implemented")
-
 	k := newResumeAfterGcKernel(t)
 	uuid := "neverexists-aaaaaaaa-bbbb-cccc-dddd-000000000099"
 	// Do NOT Add() to procHistory; do NOT write to disk.

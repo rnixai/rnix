@@ -1398,6 +1398,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// Load global config.yaml (optional, not critical)
 	immuneCfg := kernel.DefaultImmuneConfig()
 	checkpointCfg := kernel.DefaultCheckpointConfig()
+	gcCfg := kernel.DefaultGcConfig()
 	globalConfigPath := filepath.Join(globalDir, "config.yaml")
 	if _, err := os.Stat(globalConfigPath); err == nil {
 		data, err := os.ReadFile(globalConfigPath)
@@ -1428,6 +1429,32 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 							checkpointCfg.IntervalSeconds = n
 						} else {
 							fmt.Fprintf(os.Stderr, "[kernel] warn: checkpoint.interval_seconds invalid (%T %v), using default %d\n", v, v, checkpointCfg.IntervalSeconds)
+						}
+					}
+				}
+				// Story 42.5 — gc retention policy. Zero / missing values keep
+				// gc disabled (AC#8: 全零 = 关闭). Invalid types log a warning and
+				// fall through to the existing default.
+				if gcRaw, ok := parsed["gc"].(map[string]any); ok {
+					if v, ok := gcRaw["retention_days"]; ok {
+						if n, ok := toInt(v); ok {
+							gcCfg.RetentionDays = n
+						} else {
+							fmt.Fprintf(os.Stderr, "[kernel] warn: gc.retention_days invalid (%T %v), using default %d\n", v, v, gcCfg.RetentionDays)
+						}
+					}
+					if v, ok := gcRaw["max_entries"]; ok {
+						if n, ok := toInt(v); ok {
+							gcCfg.MaxEntries = n
+						} else {
+							fmt.Fprintf(os.Stderr, "[kernel] warn: gc.max_entries invalid (%T %v), using default %d\n", v, v, gcCfg.MaxEntries)
+						}
+					}
+					if v, ok := gcRaw["interval_seconds"]; ok {
+						if n, ok := toInt(v); ok {
+							gcCfg.IntervalSeconds = n
+						} else {
+							fmt.Fprintf(os.Stderr, "[kernel] warn: gc.interval_seconds invalid (%T %v), using default %d\n", v, v, gcCfg.IntervalSeconds)
 						}
 					}
 				}
@@ -1519,6 +1546,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// Set step data dir and load process history from disk
 	k.SetStepDataDir(filepath.Join(cwd, ".rnix"))
 	k.SetCheckpointConfig(checkpointCfg)
+	k.SetGcConfig(gcCfg)
 	if err := k.LoadHistory(); err != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: load process history: %v\n", err)
 	}
@@ -1527,6 +1555,13 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	} else if n := len(resumable); n > 0 {
 		fmt.Fprintf(os.Stderr, "[kernel] Found %d resumable process(es), run 'rnix ps --resumable'\n", n)
 	}
+
+	// Story 42.5 — disk gc background loop. Lives for the daemon lifetime;
+	// cancelled when gcDaemonCancel fires below at shutdown. Disabled config
+	// (both retention dials 0) makes StartGcDaemon return immediately.
+	gcDaemonCtx, gcDaemonCancel := context.WithCancel(context.Background())
+	defer gcDaemonCancel()
+	go k.StartGcDaemon(gcDaemonCtx)
 
 	// Recall cross-process search index (Story 35.4)
 	if memStore != nil && memoryCfg.Recall.Enabled {

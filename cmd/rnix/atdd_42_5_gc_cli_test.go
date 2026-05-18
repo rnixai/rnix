@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -264,14 +263,89 @@ func TestATDD_42_5_CLI_007_Confirm_DefaultDeny(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_5_CLI_008_JSON_Implies_Force(t *testing.T) {
-	t.Skip("RED phase: runGcWithClient orchestration not implemented (AC#9 last clause)")
+	// Build a mock client returning more than gcConfirmThreshold candidates so
+	// the prompt branch would normally fire. With jsonOut=true the prompt MUST
+	// be skipped — runGcWithClient must not even attempt to read from stdin.
+	mock := &mockGcClient{
+		dryRun: &ipc.GcDryRunResponse{
+			OK:         true,
+			DryRun:     true,
+			Candidates: makeMockCandidates(gcConfirmThreshold + 5),
+		},
+		gc: &ipc.GcResponse{
+			OK:           true,
+			RemovedCount: gcConfirmThreshold + 5,
+			FreedBytes:   1024,
+			RemovedUUIDs: []string{"u1", "u2"},
+		},
+	}
+	var out bytes.Buffer
+	in := &panicReader{t: t} // any read = test failure
+	err := runGcWithClient(mock, &out, in, false, false, true)
+	if err != nil {
+		t.Fatalf("runGcWithClient err: %v", err)
+	}
+	if mock.gcCalls != 1 {
+		t.Errorf("Gc called %d times, want 1", mock.gcCalls)
+	}
+	if in.touched {
+		t.Error("stdin was read in --json mode (AC#9 last clause violation)")
+	}
+	// JSON output present?
+	if !strings.Contains(out.String(), `"removed_count":`) {
+		t.Errorf("expected JSON stats; got %q", out.String())
+	}
+}
 
-	// Once runGcWithClient is implemented, this test will:
-	//   - pass a mock IPC client returning >100 candidates
-	//   - pass --json true, --force false
-	//   - assert that NO prompt is read from stdin and the deletion proceeds
-	// The behavior contract: --json mode never blocks on user input even when
-	// the candidate count exceeds gcConfirmThreshold.
+// mockGcClient implements the gcClient interface for CLI-008.
+type mockGcClient struct {
+	dryRun  *ipc.GcDryRunResponse
+	gc      *ipc.GcResponse
+	dryErr  error
+	gcErr   error
+	dryCalls int
+	gcCalls  int
+}
+
+func (m *mockGcClient) Gc() (*ipc.GcResponse, error) {
+	m.gcCalls++
+	if m.gcErr != nil {
+		return nil, m.gcErr
+	}
+	return m.gc, nil
+}
+
+func (m *mockGcClient) GcDryRun() (*ipc.GcDryRunResponse, error) {
+	m.dryCalls++
+	if m.dryErr != nil {
+		return nil, m.dryErr
+	}
+	return m.dryRun, nil
+}
+
+// panicReader fails the test if read.
+type panicReader struct {
+	t       *testing.T
+	touched bool
+}
+
+func (p *panicReader) Read(_ []byte) (int, error) {
+	p.touched = true
+	p.t.Fatal("stdin must not be read in --json or --force mode")
+	return 0, nil
+}
+
+func makeMockCandidates(n int) []ipc.GcCandidateWire {
+	out := make([]ipc.GcCandidateWire, n)
+	for i := range n {
+		out[i] = ipc.GcCandidateWire{
+			UUID:      "mock-uuid-" + string(rune('a'+(i%26))),
+			DeadAt:    "2026-04-16T08:30:00Z",
+			SizeBytes: 1024,
+			Reason:    "age",
+		}
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -310,15 +384,16 @@ func TestATDD_42_5_CLI_StubSanity_RunGc(t *testing.T) {
 }
 
 // TestATDD_42_5_CLI_StubSanity_RunGcWithClient confirms that the testable
-// seam runGcWithClient still surfaces the RED-phase sentinel. dev-story
-// removes this assertion when the function body is implemented.
+// seam runGcWithClient now refuses nil client (GREEN-phase guard) — previously
+// it returned the RED-phase sentinel. Real IPC-driven coverage lives behind
+// the daemon-backed e2e tests; this only asserts the nil-guard.
 func TestATDD_42_5_CLI_StubSanity_RunGcWithClient(t *testing.T) {
 	err := runGcWithClient(nil, nil, nil, false, false, false)
 	if err == nil {
-		t.Log("runGcWithClient has been implemented — sentinel removed")
+		t.Error("runGcWithClient(nil client) must return error")
 		return
 	}
-	if !errors.Is(err, errRunGcCLINotImplemented) {
-		t.Errorf("RED phase expects errRunGcCLINotImplemented; got %v", err)
+	if !strings.Contains(err.Error(), "nil") {
+		t.Errorf("runGcWithClient(nil client) err must mention nil; got %v", err)
 	}
 }
