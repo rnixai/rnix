@@ -396,7 +396,9 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		return m.handleEvalKey(key)
 	}
 
-	// 全局進程操作（k/l/r）— 需排除面板内冲突
+	// 全局進程操作（k/l）— 需排除面板内冲突。
+	// 注：`r` 已迁移到 Layer 1 的 resumeHandler（Story 43.x 统一语义），
+	// strace 录制 toggle 改由 shift+R / R 触发（recordToggleHandler）。
 	isPaneNavConflict := (m.activePane == paneTimeline && (key == "l" || key == "h" || key == "k")) ||
 		(m.activePane == paneHeatmap && key == "k")
 	if !isPaneNavConflict && m.selectedPID > 0 && m.connected {
@@ -410,9 +412,6 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			return m, tea.ExecProcess(c, func(err error) tea.Msg {
 				return execResultMsg{err: err}
 			})
-		case "r":
-			recordID := m.recording[m.selectedUUID]
-			return m, toggleRecordCmd(m.selectedPID, m.selectedUUID, recordID)
 		}
 	}
 

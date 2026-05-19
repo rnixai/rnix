@@ -1300,15 +1300,15 @@ func TestDashboardModel_GlobalLogKey(t *testing.T) {
 	}
 }
 
-// --- CR-FIX-011: [P0] r key returns non-nil cmd for record toggle (AC2) ---
-
+// --- CR-FIX-011: [P0] R key returns non-nil cmd for record toggle (AC2) ---
+// Story 43.x: record toggle 从 `r` 迁移到 `shift+R` / `R`，因 `r` 已统一为 smart resume。
 func TestDashboardModel_GlobalRecordKey(t *testing.T) {
 	m := newTestHeatmapDashboardModel()
 
-	_, cmd := m.Update(tea.KeyPressMsg{Code: 'r'})
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'R', ShiftedCode: 'R', Mod: tea.ModShift})
 
 	if cmd == nil {
-		t.Error("r key with selectedPID > 0 should return non-nil cmd (toggleRecordCmd)")
+		t.Error("shift+R with selectedPID > 0 should return non-nil cmd (toggleRecordCmd)")
 	}
 }
 

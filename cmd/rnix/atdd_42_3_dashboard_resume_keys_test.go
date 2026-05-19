@@ -3,11 +3,17 @@ package main
 // =============================================================================
 // ATDD Story 42.3: Dashboard r/f 快捷键 + Detail Lineage 渲染
 //
+// Story 43.x 更新：`r` 已统一为 smart resume（覆盖 SIGPAUSE'd / Suspended /
+// Dead / Zombie 四种"停"），由 resumeHandler 处理。原 resumeProcessHandler /
+// resumeSuspendedHandler 已合并删除。本测试集对应改名为 resumeHandler，并
+// 调整 Suspended/Running 用例的期望（Suspended 现在被 smart-r 消费；
+// Running 现在被 smart-r 消费 + 显示 "Nothing to resume" 状态）。
+//
 // Test scenarios covered:
 //   - CLI-001 / CLI-002: 选中 Dead/Zombie 进程按 `r` 触发 resumeProcessCmd
-//   - CLI-003: 选中 Suspended 进程按 `r` 仍走原路径（AC#9 回归）
-//   - CLI-004: 选中 Running 按 `r` → fallback false
-//   - CLI-005: 大写 R / shift+R 在 Suspended 上保留行为
+//   - CLI-003: 选中 Suspended 进程按 `r` 也触发 resumeProcessCmd（统一语义）
+//   - CLI-004: 选中 Running（未 paused）按 `r` → consume + status 提示
+//   - CLI-005: 选中 Running+IsPaused 按 `r` → SIGRESUME 子树
 //   - CLI-006: 选中 Dead 按 `f` 触发 forkProcessCmd
 //   - CLI-007: Timeline pane 激活时 `f` → timelineFilterHandler 先消费
 //   - CLI-008: 选中 Running 按 `f` → fallback false
@@ -15,11 +21,6 @@ package main
 //   - CLI-010 / CLI-011: Detail render 包含 Lineage section 当 OriginUUID/Descendants 非空
 //   - CLI-012: OriginUUID 空 且 Descendants 空 → 不渲染 Lineage section
 //   - CLI-013: RNIX_ASCII=1 分隔线降级
-//
-// RED PHASE:
-//   - resumeProcessHandler / forkProcessHandler / forkProcessCmd 已 stub 但未在
-//     Layer 1 注册（dev-story 阶段替换 resumeSuspendedHandler 注册）
-//   - detail.Render 尚未输出 Lineage section
 // =============================================================================
 
 import (
@@ -69,12 +70,12 @@ func fakeKeyCtx(m dashboardModel) ui.KeyContext { return m }
 
 func TestATDD_42_3_CLI_001_Dead_R_TriggersResume(t *testing.T) {
 	m := new423ModelWithProc(types.StateDead, "dead-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000001")
-	consumed, _, cmd := resumeProcessHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
+	consumed, _, cmd := resumeHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
 	if !consumed {
-		t.Error("resumeProcessHandler should consume key for Dead state")
+		t.Error("resumeHandler should consume key for Dead state")
 	}
 	if cmd == nil {
-		t.Error("resumeProcessHandler should return non-nil cmd")
+		t.Error("resumeHandler should return non-nil cmd")
 	}
 	// Skip cmd execution — it dials a real socket which is unavailable in unit tests.
 	_ = cmd
@@ -86,52 +87,66 @@ func TestATDD_42_3_CLI_001_Dead_R_TriggersResume(t *testing.T) {
 
 func TestATDD_42_3_CLI_002_Zombie_R_TriggersResume(t *testing.T) {
 	m := new423ModelWithProc(types.StateZombie, "zombie-aaaaaaaa-bbbb-cccc-dddd-000000000001")
-	consumed, _, cmd := resumeProcessHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
+	consumed, _, cmd := resumeHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
 	if !consumed {
-		t.Error("resumeProcessHandler should consume key for Zombie state")
+		t.Error("resumeHandler should consume key for Zombie state")
 	}
 	if cmd == nil {
-		t.Error("resumeProcessHandler should return non-nil cmd")
+		t.Error("resumeHandler should return non-nil cmd")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// CLI-003: Suspended + `r` → fallback false (AC#4 — 小写 r 仅 Dead/Zombie；
-// Suspended 由大写 R/shift+R 通过 resumeSuspendedHandler 处理 · AC#9)
+// CLI-003: Suspended + `r` → consume + resumeProcessCmd（Story 43.x 统一语义：
+// smart-r 现在涵盖 Suspended，不再需要大写 R）
 // ---------------------------------------------------------------------------
 
-func TestATDD_42_3_CLI_003_Suspended_R_FallsThroughToLegacyR(t *testing.T) {
+func TestATDD_42_3_CLI_003_Suspended_R_TriggersResume(t *testing.T) {
 	m := new423ModelWithProc(types.StateSuspended, "susp-aaaaaaaa-bbbb-cccc-dddd-000000000001")
-	consumed, _, _ := resumeProcessHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
-	if consumed {
-		t.Error("resumeProcessHandler should NOT consume `r` for Suspended (AC#4 — that's R/shift+R's job)")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CLI-004: Running + `r` → fallback false (handler skipped)
-// ---------------------------------------------------------------------------
-
-func TestATDD_42_3_CLI_004_Running_R_FallthroughFalse(t *testing.T) {
-	m := new423ModelWithProc(types.StateRunning, "run-aaaaaaaa-bbbb-cccc-dddd-000000000001")
-	consumed, _, _ := resumeProcessHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
-	if consumed {
-		t.Error("resumeProcessHandler should NOT consume key for Running state (fallback false)")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// CLI-005: Suspended R / shift+R → resumeSuspendedHandler 保留 (AC#9)
-// ---------------------------------------------------------------------------
-
-func TestATDD_42_3_CLI_005_Suspended_ShiftR_LegacyHandlerPreserved(t *testing.T) {
-	m := new423ModelWithProc(types.StateSuspended, "shiftR-aaaaaaaa-bbbb-cccc-dddd-000000000001")
-	consumed, _, cmd := resumeSuspendedHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
+	consumed, _, cmd := resumeHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
 	if !consumed {
-		t.Error("resumeSuspendedHandler should consume key for Suspended state (legacy parity)")
+		t.Error("resumeHandler should consume `r` for Suspended state (Story 43.x unified semantics)")
 	}
 	if cmd == nil {
-		t.Error("resumeSuspendedHandler should return resumeProcessCmd for Suspended state")
+		t.Error("resumeHandler should return resumeProcessCmd for Suspended state")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CLI-004: Running（未 paused）+ `r` → consume + "Nothing to resume" 状态消息
+// （Story 43.x：smart-r 始终 consume，避免漏到 dispatchPaneKey 旧 `r` 录制路径）
+// ---------------------------------------------------------------------------
+
+func TestATDD_42_3_CLI_004_Running_R_ConsumesWithStatusHint(t *testing.T) {
+	m := new423ModelWithProc(types.StateRunning, "run-aaaaaaaa-bbbb-cccc-dddd-000000000001")
+	consumed, newCtx, cmd := resumeHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
+	if !consumed {
+		t.Error("resumeHandler should consume `r` for Running state (unified semantics)")
+	}
+	if cmd != nil {
+		t.Error("resumeHandler should NOT return cmd for Running (no-op + status hint)")
+	}
+	g := newCtx.(dashboardModel)
+	if !strings.Contains(g.statusMsg, "Nothing to resume") {
+		t.Errorf("expected statusMsg containing 'Nothing to resume', got %q", g.statusMsg)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CLI-005: Running + IsPaused + `r` → SIGRESUME 子树（Story 43.x 统一语义）
+// ---------------------------------------------------------------------------
+
+func TestATDD_42_3_CLI_005_RunningPaused_R_SendsSigResume(t *testing.T) {
+	m := new423ModelWithProc(types.StateRunning, "paused-aaaaaaaa-bbbb-cccc-dddd-000000000001")
+	// 标记进程为已暂停状态（IsPaused 字段在 vfs.ProcInfo 上）。
+	m.tree.Rows[0].Proc.IsPaused = true
+	m.processes[0].IsPaused = true
+	consumed, _, cmd := resumeHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
+	if !consumed {
+		t.Error("resumeHandler should consume `r` for Running+IsPaused")
+	}
+	if cmd == nil {
+		t.Error("resumeHandler should return SIGRESUME cmd for paused process")
 	}
 }
 

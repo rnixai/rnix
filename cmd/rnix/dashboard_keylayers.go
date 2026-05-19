@@ -493,86 +493,117 @@ func registerLayer1Default(d *ui.Dispatcher) {
 	}
 	l.Docs["f"] = ui.KeyDoc{Key: "f", Description: "Timeline filter / fork Dead-Zombie (Tree pane)"}
 
-	// p — Pause/resume process tree (nav.go:125-145)
-	l.Bindings["p"] = pauseToggleHandler
-	l.Docs["p"] = ui.KeyDoc{Key: "p", Description: "Pause / resume process tree"}
+	// p / r 统一语义（Story 43.x）：p = pause 专属（不再 toggle）；
+	// r = smart resume（覆盖 SIGPAUSE'd / Suspended / Dead / Zombie 三种"停"）。
+	l.Bindings["p"] = pauseHandler
+	l.Docs["p"] = ui.KeyDoc{Key: "p", Description: "Pause process tree"}
+	l.Bindings["r"] = resumeHandler
+	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume process (paused / suspended / dead / zombie)"}
 
-	// R / shift+R — Resume suspended process (nav.go:116-124)
-	l.Bindings["R"] = resumeSuspendedHandler
-	l.Bindings["shift+R"] = resumeSuspendedHandler
-	l.Docs["R"] = ui.KeyDoc{Key: "R", Description: "Resume suspended process"}
+	// shift+R / R — strace 录制 toggle（原 `r` 在 dispatchPaneKey 的 fallthrough
+	// 路径，因 `r` 统一归 resume 后迁移至 Layer 1）。
+	l.Bindings["R"] = recordToggleHandler
+	l.Bindings["shift+R"] = recordToggleHandler
+	l.Docs["R"] = ui.KeyDoc{Key: "R", Description: "Toggle strace recording"}
 
-	// r — Story 42.3: lowercase `r` resumes Dead/Zombie processes (continuation
-	// or checkpoint replay). Suspended is reserved for uppercase `R`/`shift+R`
-	// via resumeSuspendedHandler (AC#9 backwards compat). resumeProcessHandler
-	// returns fallback false for non-Dead/Zombie states so dispatcher walks on.
-	l.Bindings["r"] = resumeProcessHandler
-	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume / continue Dead/Zombie process"}
-
-	// k / l / r / shift+K 不在此 Layer 注册：原 nav.go 把这些"全局进程操作"
+	// k / l / shift+K 不在此 Layer 注册：原 nav.go 把这些"全局进程操作"
 	// 放在 dispatchPaneKey 的末端（晚于 pane-specific 导航 j/k），避免 Tree 的
 	// k=up 被 kill 抢占。Layer 2 Fallback → dispatchPaneKey 兜底已覆盖。
 
 	d.Layer1[ui.ViewID(viewDefault)] = l
 }
 
-// pauseToggleHandler — Pause/resume process tree（C4：viewDefault + viewExpanded 共享）
-func pauseToggleHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+// pauseHandler — Story 43.x: `p` 专属 pause（不再 toggle）。
+// 仅对 Running / Created 且未暂停的进程发 SIGPAUSE（递归子树）。
+// 其它状态返回 status 提示，便于用户区分"已经暂停"和"不可暂停"。
+//
+// 与 resumeHandler 配对：用户视角的语义合约是 p=暂停、r=恢复，对称且互不重叠。
+func pauseHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 	m := ctx.(dashboardModel)
-	// Skip when timeline filter mode is active (Timeline owns 'p' there).
+	// Timeline filter mode 拥有 'p'，让位。
 	if m.timeline.StepFilterMode {
 		return false, m, nil
-	}
-	if m.selectedPID > 0 && m.connected {
-		proc := findSelectedProcess(&m)
-		if proc != nil && proc.State == types.StateRunning {
-			sig := types.SIGPAUSE
-			if proc.IsPaused {
-				sig = types.SIGRESUME
-			}
-			return true, m, pauseTreeCmd(m.selectedPID, sig)
-		}
 	}
 	if m.selectedPID == 0 {
 		m.statusMsg = "Select a process first"
 		m.statusMsgTTL = statusMsgDefaultTTL
+		return true, m, nil
 	}
-	return true, m, nil
-}
-
-// resumeSuspendedHandler — Resume suspended process（C4：viewDefault + viewExpanded 共享）
-func resumeSuspendedHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
-	m := ctx.(dashboardModel)
-	if m.selectedPID > 0 && m.selectedUUID != "" && m.connected {
-		proc := findSelectedProcess(&m)
-		if proc != nil && proc.State == types.StateSuspended {
-			return true, m, resumeProcessCmd(m.selectedUUID)
-		}
-	}
-	return true, m, nil
-}
-
-// resumeProcessHandler — Story 42.3.
-// 按 spec AC#4：小写 `r` 仅用于 Dead/Zombie 进程的续跑。Suspended 继续由
-// 大写 `R`/`shift+R` 通过 resumeSuspendedHandler 处理（AC#9 回归保留），避免与
-// legacy 路径形成功能重叠 / 行为歧义。
-func resumeProcessHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
-	m := ctx.(dashboardModel)
-	if m.selectedPID == 0 || m.selectedUUID == "" || !m.connected {
-		return false, m, nil
+	if !m.connected {
+		return true, m, nil
 	}
 	proc := findSelectedProcess(&m)
 	if proc == nil {
-		return false, m, nil
+		return true, m, nil
 	}
-	switch proc.State {
-	case types.StateDead, types.StateZombie:
+	if proc.State != types.StateRunning && proc.State != types.StateCreated {
+		m.statusMsg = "Cannot pause: process is " + proc.State.String()
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return true, m, nil
+	}
+	if proc.IsPaused {
+		m.statusMsg = "Already paused — press r to resume"
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return true, m, nil
+	}
+	return true, m, pauseTreeCmd(m.selectedPID, types.SIGPAUSE)
+}
+
+// resumeHandler — Story 43.x: `r` 专属 smart resume。
+// 按状态优先级路由（始终 consume，避免漏到 dispatchPaneKey 的旧 `r` 录制路径）：
+//
+//  1. Running/Created + IsPaused → SIGRESUME（子树，与 SIGPAUSE 对称）
+//  2. StateSuspended              → resumeProcessCmd（单进程，由 immune/heartbeat/compact 触发）
+//  3. StateDead / StateZombie     → resumeProcessCmd（保 UUID 续跑，Story 42.3）
+//  4. 其他（Running 未暂停等）    → status "Nothing to resume"
+//
+// 不级联 Suspended/Dead/Zombie 的 resume——这些是单进程语义；只有 SIGPAUSE/RESUME 走子树。
+func resumeHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+	m := ctx.(dashboardModel)
+	if m.selectedPID == 0 {
+		m.statusMsg = "Select a process first"
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return true, m, nil
+	}
+	if !m.connected {
+		return true, m, nil
+	}
+	proc := findSelectedProcess(&m)
+	if proc == nil {
+		return true, m, nil
+	}
+	if proc.IsPaused && (proc.State == types.StateRunning || proc.State == types.StateCreated) {
+		return true, m, pauseTreeCmd(m.selectedPID, types.SIGRESUME)
+	}
+	if proc.State == types.StateSuspended {
+		if m.selectedUUID == "" {
+			return true, m, nil
+		}
+		return true, m, resumeProcessCmd(m.selectedUUID)
+	}
+	if proc.State == types.StateDead || proc.State == types.StateZombie {
+		if m.selectedUUID == "" {
+			return true, m, nil
+		}
 		m.statusMsg = "Resuming UUID " + shortUUIDForStatus(m.selectedUUID) + "..."
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return true, m, resumeProcessCmd(m.selectedUUID)
-	default:
-		return false, m, nil
 	}
+	m.statusMsg = "Nothing to resume: process is " + proc.State.String()
+	m.statusMsgTTL = statusMsgDefaultTTL
+	return true, m, nil
+}
+
+// recordToggleHandler — Story 43.x: shift+R / R 触发 strace 录制 toggle。
+// 原 `r` 键在 dashboard_pane_dispatcher.go 的 fallthrough 录制路径迁移至此，
+// 因 `r` 现在专属 resume。触发条件与原路径一致：选中进程 + 已连接 daemon。
+func recordToggleHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
+	m := ctx.(dashboardModel)
+	if m.selectedPID == 0 || !m.connected {
+		return true, m, nil
+	}
+	recordID := m.recording[m.selectedUUID]
+	return true, m, toggleRecordCmd(m.selectedPID, m.selectedUUID, recordID)
 }
 
 // forkProcessHandler — Story 42.3.
@@ -642,19 +673,14 @@ func registerLayer1Expanded(d *ui.Dispatcher) {
 	}
 	l.Docs["z"] = ui.KeyDoc{Key: "z", Description: "Collapse to default view"}
 
-	// C4: viewExpanded 下也支持 p / R / shift+R（process pause / resume）。
-	// 原 nav.go 旧 Layer 5 不依赖 viewMode，重构后必须显式注册才能保持等价行为。
-	l.Bindings["p"] = pauseToggleHandler
-	l.Bindings["R"] = resumeSuspendedHandler
-	l.Bindings["shift+R"] = resumeSuspendedHandler
-	l.Docs["p"] = ui.KeyDoc{Key: "p", Description: "Pause / resume process tree"}
-	l.Docs["R"] = ui.KeyDoc{Key: "R", Description: "Resume suspended process"}
-
-	// Story 42.3: viewExpanded also gets r/f for Dead/Zombie continue/fork
-	// (parity with viewDefault so the user can drive resume actions from the
-	// Tree pane in expanded form too).
-	l.Bindings["r"] = resumeProcessHandler
-	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume / continue Dead/Zombie process"}
+	// p / r / shift+R — Story 43.x: 统一语义。viewExpanded 与 viewDefault 一致。
+	l.Bindings["p"] = pauseHandler
+	l.Docs["p"] = ui.KeyDoc{Key: "p", Description: "Pause process tree"}
+	l.Bindings["r"] = resumeHandler
+	l.Docs["r"] = ui.KeyDoc{Key: "r", Description: "Resume process (paused / suspended / dead / zombie)"}
+	l.Bindings["R"] = recordToggleHandler
+	l.Bindings["shift+R"] = recordToggleHandler
+	l.Docs["R"] = ui.KeyDoc{Key: "R", Description: "Toggle strace recording"}
 
 	// M2: viewExpanded + paneTree + f 仍能进入 Timeline filter mode（rightPane 命中）。
 	// Story 42.3: same f chain as Layer 1 Default — timeline filter wins when
