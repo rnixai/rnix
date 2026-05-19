@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -26,12 +28,36 @@ func (s *Server) handleListProcs(conn net.Conn) {
 
 func (s *Server) handleListAllProcs(conn net.Conn) {
 	procs := s.kern.ListAllProcs()
+	// Diagnostic dump for tree-structure debugging — gated by RNIX_DEBUG_TREE=1
+	// to avoid spamming stderr on the ~1Hz dashboard tick. Each line: PID /
+	// UUID[:8] / PPID / ParentUUID[:8] / State / IsPaused. Use this when the
+	// user reports "pause+resume broke the tree" to pinpoint whether parent/
+	// child relationship is preserved at the data layer.
+	if os.Getenv("RNIX_DEBUG_TREE") == "1" {
+		log.Printf("[list_all] dump (%d procs):", len(procs))
+		for _, p := range procs {
+			log.Printf("[list_all]   pid=%d uuid=%s ppid=%d parent_uuid=%s state=%s paused=%v",
+				p.PID, shortUUID(p.UUID), p.PPID, shortUUID(p.ParentUUID), p.State, p.IsPaused)
+		}
+	}
 	wireProcs := make([]ProcInfoWire, len(procs))
 	for i, p := range procs {
 		wireProcs[i] = ProcInfoToWire(p)
 	}
 	payload, _ := json.Marshal(ListProcsResponse{Processes: wireProcs})
 	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// shortUUID 返回 UUID 的诊断用短串：前 8 hex（时间戳高位）+ ".." + 后 4 hex
+// （随机熵尾，区分 UUIDv7 同分钟生成的不同 UUID）。空串显示为 "-"。
+func shortUUID(u string) string {
+	if u == "" {
+		return "-"
+	}
+	if len(u) <= 13 {
+		return u
+	}
+	return u[:8] + ".." + u[len(u)-4:]
 }
 
 func (s *Server) handleKill(conn net.Conn, rawPayload json.RawMessage) {

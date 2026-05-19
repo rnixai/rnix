@@ -351,20 +351,37 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 }
 
 // ListAllProcs returns the union of active processes and historical processes.
+//
+// Dedup rules (defense against pathological inputs):
+//   - 同一非空 UUID 在结果中至多出现一次（active 优先于 historical）。
+//   - active 内部理论上不会有同 UUID（procTable 按 PID 索引、UUID 唯一），但仍做
+//     去重防御以应对未来 resume / fork 路径的不变量退化。
+//   - historical 内部允许同 UUID 多条记录（reap / cleanupExpiredDead 多次 Add 同
+//     UUID 时），此处按"先到先留"原则保留一条。
+//   - 空 UUID 不进 seen 集合，按原条目逐一保留（向后兼容老进程）。
 func (k *KernelImpl) ListAllProcs() []vfs.ProcInfo {
 	active := k.ListProcs()
 	historical := k.procHistory.List()
 
-	seen := make(map[string]bool, len(active))
+	seen := make(map[string]bool, len(active)+len(historical))
 	result := make([]vfs.ProcInfo, 0, len(active)+len(historical))
 	for _, p := range active {
-		seen[p.UUID] = true
+		if p.UUID != "" {
+			if seen[p.UUID] {
+				continue
+			}
+			seen[p.UUID] = true
+		}
 		result = append(result, p)
 	}
 	for _, p := range historical {
-		if !seen[p.UUID] {
-			result = append(result, p)
+		if p.UUID != "" {
+			if seen[p.UUID] {
+				continue
+			}
+			seen[p.UUID] = true
 		}
+		result = append(result, p)
 	}
 
 	slices.SortFunc(result, func(a, b vfs.ProcInfo) int {

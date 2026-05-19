@@ -272,6 +272,77 @@ func TestBuildProcessTree_ChildrenSorted(t *testing.T) {
 	}
 }
 
+// TestBuildProcessTree_PausedChildResumedAfterParentDead 复现用户实际报告的拓扑：
+// 父进程 dev-auto.ash 已 Dead/Failed（procHistory，PID=1 UUID 前缀 019e3e），
+// 子进程 bmad 在新 daemon 中由历史恢复后处于 Running+IsPaused（procTable，PID=1
+// 因 PID 计数器复位，UUID 前缀偶然同为 019e3e 因 UUIDv7 时间戳邻近），
+// 子的 ParentUUID 指向父的完整 UUID。期望：1 root（父）+ 1 child（子）。
+//
+// 此用例本身就是"先红再绿"的探针——若直接 PASS，说明 builder 拓扑逻辑无 bug，
+// 真实 bug 在数据层（ListAllProcs / Resume 持久化 / Reap 漏存 ParentUUID）。
+func TestBuildProcessTree_PausedChildResumedAfterParentDead(t *testing.T) {
+	t.Parallel()
+	parentUUID := "019e3e-aaaaaaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	childUUID := "019e3e-bbbbbbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	now := time.Now()
+	procs := []vfs.ProcInfo{
+		{
+			PID:        1,
+			PPID:       0,
+			UUID:       parentUUID,
+			ParentUUID: "",
+			State:      types.StateDead,
+			Intent:     "run: dev-auto.ash",
+			CreatedAt:  now.Add(-3 * time.Hour),
+			DeadAt:     now.Add(-1 * time.Minute),
+			Result:     "exit 1",
+		},
+		{
+			PID:        1,
+			PPID:       0,
+			UUID:       childUUID,
+			ParentUUID: parentUUID,
+			State:      types.StateRunning,
+			IsPaused:   true,
+			Intent:     "bmad-help loop",
+			CreatedAt:  now.Add(-1 * time.Minute),
+		},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 {
+		t.Fatalf("expected 1 root (dead parent), got %d roots", len(roots))
+	}
+	if roots[0].Proc.UUID != parentUUID {
+		t.Fatalf("expected root UUID=%s, got %s", parentUUID, roots[0].Proc.UUID)
+	}
+	if len(roots[0].Children) != 1 {
+		t.Fatalf("expected 1 child under parent, got %d", len(roots[0].Children))
+	}
+	if roots[0].Children[0].Proc.UUID != childUUID {
+		t.Errorf("expected child UUID=%s, got %s", childUUID, roots[0].Children[0].Proc.UUID)
+	}
+	if !roots[0].Children[0].Proc.IsPaused {
+		t.Errorf("expected child IsPaused=true to survive tree build, got false")
+	}
+}
+
+// TestBuildProcessTree_DuplicateUUIDInInput 验证 BuildProcessTree 对输入中同 UUID
+// 多条记录的鲁棒性：nodes map 以 UUID 为 key，后写入覆盖前者。即便 ListAllProcs
+// 漏清重复，builder 也不应输出两个同 UUID 节点。
+func TestBuildProcessTree_DuplicateUUIDInInput(t *testing.T) {
+	t.Parallel()
+	procs := []vfs.ProcInfo{
+		{PID: 1, PPID: 0, UUID: "u1", State: types.StateDead, Intent: "older"},
+		{PID: 1, PPID: 0, UUID: "u1", State: types.StateRunning, Intent: "newer"},
+	}
+	roots := BuildProcessTree(procs, 0, false)
+	if len(roots) != 1 {
+		t.Fatalf("duplicate UUID in input should produce 1 node, got %d roots", len(roots))
+	}
+	// Last-writer-wins by map semantics; not asserting which entry wins —
+	// the contract here is "at most one node per UUID", not ordering.
+}
+
 // contains is a tiny strings.Contains alias to avoid import in test (style choice).
 func contains(haystack, needle string) bool {
 	for i := 0; i+len(needle) <= len(haystack); i++ {
