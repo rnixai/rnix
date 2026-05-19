@@ -193,6 +193,7 @@ type procInfoDisk struct {
 	MaxSteps       int      `json:"max_steps,omitempty"`
 	CreatedAt      string   `json:"created_at"`
 	DeadAt         string   `json:"dead_at,omitempty"`
+	PausedTotalMs  int64    `json:"paused_total_ms,omitempty"`
 	CtxID          uint64   `json:"ctx_id"`
 	Result         string   `json:"result,omitempty"`
 	AllowedDevices []string `json:"allowed_devices,omitempty"`
@@ -236,6 +237,9 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 	if !info.DeadAt.IsZero() {
 		d.DeadAt = info.DeadAt.Format(time.RFC3339Nano)
 	}
+	if info.PausedTotal > 0 {
+		d.PausedTotalMs = info.PausedTotal.Milliseconds()
+	}
 	return d
 }
 
@@ -271,6 +275,9 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 	}
 	if d.DeadAt != "" {
 		info.DeadAt, _ = time.Parse(time.RFC3339Nano, d.DeadAt)
+	}
+	if d.PausedTotalMs > 0 {
+		info.PausedTotal = time.Duration(d.PausedTotalMs) * time.Millisecond
 	}
 	return info
 }

@@ -77,7 +77,7 @@ func RenderHistoryStats(procs []vfs.ProcInfo) string {
 				done++
 			}
 			if !p.DeadAt.IsZero() {
-				totalElapsed += p.DeadAt.Sub(p.CreatedAt)
+				totalElapsed += p.DeadAt.Sub(p.CreatedAt) - p.PausedTotal
 				deadCount++
 			}
 		case types.StateZombie:

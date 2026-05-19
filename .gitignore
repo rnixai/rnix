@@ -46,3 +46,4 @@ logo/
 
 # Worktrees
 .worktrees/
+.github/agents/

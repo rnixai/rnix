@@ -154,3 +154,86 @@ func TestRender_ZombieWithoutDeadAtOrHeartbeat_FallsBackToNow(t *testing.T) {
 		t.Errorf("expected 7s wall-clock fallback, got %q", rows[1])
 	}
 }
+
+// TestRender_RunningProc_PausedTotalSubtracted is the regression test for the
+// user-reported bug "暂停的子进程，按 r 恢复后，时间显示突变成和父进程一样了".
+//
+// Pause/Resume must accumulate paused duration into ProcInfo.PausedTotal. The
+// rendered elapsed value MUST exclude that paused time, otherwise a resumed
+// child process "jumps" to the wall-clock elapsed of its parent because the
+// entire paused window was retroactively counted as runtime.
+func TestRender_RunningProc_PausedTotalSubtracted(t *testing.T) {
+	created := time.Date(2026, 5, 18, 17, 0, 0, 0, time.UTC)
+	now := created.Add(60 * time.Second)
+
+	// Process was paused for 50s, so wall-clock=60s but runtime=10s.
+	row := FlatRow{
+		Proc: vfs.ProcInfo{
+			PID:         11,
+			UUID:        "test-resumed-child",
+			State:       types.StateRunning,
+			Intent:      "task",
+			CreatedAt:   created,
+			PausedTotal: 50 * time.Second,
+		},
+		Prefix: "",
+	}
+
+	out := Render(makeState([]FlatRow{row}), makeRenderCtx(now), 200, 10)
+	rows := strings.Split(out, "\n")
+	if len(rows) < 2 {
+		t.Fatalf("unexpected render output: %q", out)
+	}
+
+	// Must show ~10s, NOT the wall-clock 60s/1.0m.
+	if !strings.Contains(rows[1], "10.0s") && !strings.Contains(rows[1], "10s") {
+		t.Errorf("expected elapsed=10s after subtracting 50s of paused time, got %q", rows[1])
+	}
+	if strings.Contains(rows[1], "1.0m") || strings.Contains(rows[1], "60s") {
+		t.Errorf("elapsed appears to include paused window (regression), got %q", rows[1])
+	}
+}
+
+// TestRender_PausedProc_FreezesAtPausedAtMinusTotal verifies that while the
+// process is still paused, the rendered elapsed is the runtime up to (but not
+// including) the current pause — so it stays consistent with what will be
+// shown after resume.
+func TestRender_PausedProc_FreezesAtPausedAtMinusTotal(t *testing.T) {
+	created := time.Date(2026, 5, 18, 17, 0, 0, 0, time.UTC)
+	pausedAt := created.Add(30 * time.Second)
+	now1 := pausedAt.Add(5 * time.Second)
+	now2 := pausedAt.Add(120 * time.Second)
+
+	// Earlier pause cycle already accounted for 8s.
+	row := FlatRow{
+		Proc: vfs.ProcInfo{
+			PID:         12,
+			UUID:        "test-paused-child",
+			State:       types.StateRunning,
+			Intent:      "task",
+			CreatedAt:   created,
+			IsPaused:    true,
+			PausedAt:    pausedAt,
+			PausedTotal: 8 * time.Second,
+		},
+		Prefix: "",
+	}
+	state := makeState([]FlatRow{row})
+
+	out1 := Render(state, makeRenderCtx(now1), 200, 10)
+	out2 := Render(state, makeRenderCtx(now2), 200, 10)
+	rows1 := strings.Split(out1, "\n")
+	rows2 := strings.Split(out2, "\n")
+	if len(rows1) < 2 || len(rows2) < 2 {
+		t.Fatalf("unexpected render: %q / %q", out1, out2)
+	}
+
+	// Both renders MUST be identical (frozen while paused) AND must reflect
+	// runtime 30s - 8s = 22s, not the wall-clock 30s.
+	if rows1[1] != rows2[1] {
+		t.Errorf("paused elapsed not frozen across ticks:\n  now1: %q\n  now2: %q", rows1[1], rows2[1])
+	}
+	if !strings.Contains(rows1[1], "22.0s") && !strings.Contains(rows1[1], "22s") {
+		t.Errorf("expected elapsed=22s (30s wall - 8s paused-total), got %q", rows1[1])
+	}
+}

@@ -203,6 +203,7 @@ type ProcInfoWire struct {
 	SuspendReason   string             `json:"suspend_reason,omitempty"`
 	IsPaused        bool               `json:"is_paused,omitempty"`
 	PausedAtMs      int64              `json:"paused_at_ms,omitempty"`
+	PausedTotalMs   int64              `json:"paused_total_ms,omitempty"`
 	ComposeNode     string             `json:"compose_node,omitempty"`
 	ComposeDeps     []string           `json:"compose_deps,omitempty"`
 	PipelineIndex   int                `json:"pipeline_index"`
@@ -255,6 +256,9 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 	if !p.PausedAt.IsZero() {
 		w.PausedAtMs = p.PausedAt.UnixMilli()
 	}
+	if p.PausedTotal > 0 {
+		w.PausedTotalMs = p.PausedTotal.Milliseconds()
+	}
 	return w
 }
 
@@ -299,6 +303,9 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 	}
 	if w.PausedAtMs != 0 {
 		p.PausedAt = unixMilliToTime(w.PausedAtMs)
+	}
+	if w.PausedTotalMs > 0 {
+		p.PausedTotal = time.Duration(w.PausedTotalMs) * time.Millisecond
 	}
 	return p
 }
@@ -1212,6 +1219,7 @@ type GetProcDetailResponse struct {
 	Model          string            `json:"model"`
 	CreatedAtMs    int64             `json:"created_at_ms"`
 	DeadAtMs       int64             `json:"dead_at_ms,omitempty"`
+	PausedTotalMs  int64             `json:"paused_total_ms,omitempty"`
 	Skills         []SkillInfoWire   `json:"skills"`
 	AllowedDevices []string          `json:"allowed_devices"`
 	EnvSnapshot    map[string]string `json:"env_snapshot"`

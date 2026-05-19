@@ -81,7 +81,13 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 			select {
 			case k.reapCh <- proc.PID:
 			default:
-				go k.reapProcess(proc)
+				// Fallback when reapCh is full or the reaper has already exited.
+				// Track via reaperWg so Shutdown waits for this goroutine before
+				// returning — otherwise reapProcess may still be writing
+				// process-meta.json after t.TempDir() cleanup runs.
+				k.reaperWg.Go(func() {
+					k.reapProcess(proc)
+				})
 			}
 		}
 	}

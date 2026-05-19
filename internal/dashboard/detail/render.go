@@ -89,6 +89,7 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 		} else {
 			uptime = time.Since(created)
 		}
+		uptime -= time.Duration(d.PausedTotalMs) * time.Millisecond
 	}
 	fmt.Fprintf(&b, "  PID: %d  UUID: %s\n", d.PID, TruncateUUID(d.UUID))
 	fmt.Fprintf(&b, "  State: %s  Intent: %s\n", d.State, TruncateStr(d.Intent, 40))

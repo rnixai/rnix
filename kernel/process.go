@@ -107,7 +107,8 @@ type Process struct {
 	blockedSignals map[types.Signal]struct{}
 	pendingSignals map[types.Signal]struct{}
 	resumeCh       chan struct{} // nil=not paused; non-nil=paused, close to resume
-	pausedAt       time.Time    // when Pause() was called; zero if not paused
+	pausedAt       time.Time     // when Pause() was called; zero if not paused
+	pausedTotal    time.Duration // accumulated paused duration across all pause/resume cycles
 
 	// Thread system (mu protected for threads map, atomic for counter)
 	threads    map[types.TID]*Thread
@@ -313,6 +314,7 @@ type DetailSnapshot struct {
 	Model          string
 	CreatedAt      time.Time
 	DeadAt         time.Time
+	PausedTotal    time.Duration
 	Skills         []string
 	AllowedDevices []string
 	CtxID          types.CtxID
@@ -346,6 +348,7 @@ func (p *Process) GetDetailSnapshot() DetailSnapshot {
 		Model:           p.Model,
 		CreatedAt:       p.CreatedAt,
 		DeadAt:          p.DeadAt,
+		PausedTotal:     p.pausedTotal,
 		Skills:          append([]string(nil), p.Skills...),
 		AllowedDevices:  append([]string(nil), p.AllowedDevices...),
 		CtxID:           p.CtxID,
@@ -700,6 +703,9 @@ func (p *Process) Resume() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.resumeCh != nil {
+		if !p.pausedAt.IsZero() {
+			p.pausedTotal += time.Since(p.pausedAt)
+		}
 		close(p.resumeCh)
 		p.resumeCh = nil
 		p.pausedAt = time.Time{}

@@ -55,8 +55,9 @@ type ProcInfo struct {
 	LastHeartbeat  time.Time
 	StepTimeout    time.Duration
 	SuspendReason  string
-	IsPaused       bool      // true when SIGPAUSE is active (reasoning loop blocked)
-	PausedAt       time.Time // when pause started; zero if not paused
+	IsPaused       bool          // true when SIGPAUSE is active (reasoning loop blocked)
+	PausedAt       time.Time     // when pause started; zero if not paused
+	PausedTotal    time.Duration // accumulated paused duration across all pause/resume cycles
 
 	// Orchestration metadata (Story 34.7)
 	ComposeNode   string   // compose node name (e.g. "summarizer"), empty = not compose

@@ -258,17 +258,17 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 				}
 			}
 			if !row.Proc.DeadAt.IsZero() {
-				elapsed = ui.FormatDuration(row.Proc.DeadAt.Sub(row.Proc.CreatedAt))
+				elapsed = ui.FormatDuration(row.Proc.DeadAt.Sub(row.Proc.CreatedAt) - row.Proc.PausedTotal)
 			} else if row.Proc.IsPaused && !row.Proc.PausedAt.IsZero() {
-				elapsed = ui.FormatDuration(row.Proc.PausedAt.Sub(row.Proc.CreatedAt))
+				elapsed = ui.FormatDuration(row.Proc.PausedAt.Sub(row.Proc.CreatedAt) - row.Proc.PausedTotal)
 			} else if !row.Proc.LastHeartbeat.IsZero() && row.Proc.LastHeartbeat.After(row.Proc.CreatedAt) {
 				// Defensive fallback: process is Zombie/Dead but reap didn't set
 				// DeadAt (transient reap window, or daemon-crash-loaded history with
 				// state=zombie + dead_at empty). Freeze at last known heartbeat
 				// instead of wall-clock so Dashboard time stops growing.
-				elapsed = ui.FormatDuration(row.Proc.LastHeartbeat.Sub(row.Proc.CreatedAt))
+				elapsed = ui.FormatDuration(row.Proc.LastHeartbeat.Sub(row.Proc.CreatedAt) - row.Proc.PausedTotal)
 			} else {
-				elapsed = ui.FormatDuration(ctx.Now.Sub(row.Proc.CreatedAt))
+				elapsed = ui.FormatDuration(ctx.Now.Sub(row.Proc.CreatedAt) - row.Proc.PausedTotal)
 			}
 		} else {
 			if row.Proc.ContextBudget > 0 {
@@ -283,9 +283,9 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 				tokens = timeline.FormatTokenCount(row.Proc.TokensUsed)
 			}
 			if row.Proc.IsPaused && !row.Proc.PausedAt.IsZero() {
-				elapsed = ui.FormatDuration(row.Proc.PausedAt.Sub(row.Proc.CreatedAt))
+				elapsed = ui.FormatDuration(row.Proc.PausedAt.Sub(row.Proc.CreatedAt) - row.Proc.PausedTotal)
 			} else {
-				elapsed = ui.FormatDuration(ctx.Now.Sub(row.Proc.CreatedAt))
+				elapsed = ui.FormatDuration(ctx.Now.Sub(row.Proc.CreatedAt) - row.Proc.PausedTotal)
 			}
 		}
 

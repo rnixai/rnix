@@ -243,8 +243,13 @@ func (k *KernelImpl) handleOrphanChildren(parent *Process) {
 			select {
 			case k.reapCh <- childPID:
 			default:
-				// reapCh full, fall back to async reap
-				go k.reapProcess(child)
+				// Fallback when reapCh is full or the reaper has already exited.
+				// Track via reaperWg so Shutdown waits for this goroutine before
+				// returning — otherwise reapProcess may still be writing
+				// process-meta.json after t.TempDir() cleanup runs.
+				k.reaperWg.Go(func() {
+					k.reapProcess(child)
+				})
 			}
 		}
 		// StateDead: already cleaned up, ignore

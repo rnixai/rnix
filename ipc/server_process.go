@@ -195,10 +195,10 @@ func (s *Server) handleResume(conn net.Conn, rawPayload json.RawMessage) {
 	// Reap is idempotent via reapOnce, so this is safe even if the user
 	// also calls kernel.Wait(pid).
 	if proc, ok := s.kern.GetProcess(result.PID); ok {
-		go func() {
+		s.wg.Go(func() {
 			<-proc.Done
 			s.kern.Reap(result.PID)
-		}()
+		})
 	}
 
 	resp := ResumeResponse{
@@ -248,6 +248,9 @@ func (s *Server) handleGetProcDetail(conn net.Conn, rawPayload json.RawMessage) 
 	}
 	if !snap.DeadAt.IsZero() {
 		resp.DeadAtMs = snap.DeadAt.UnixMilli()
+	}
+	if snap.PausedTotal > 0 {
+		resp.PausedTotalMs = snap.PausedTotal.Milliseconds()
 	}
 
 	// FD table
@@ -362,6 +365,9 @@ func (s *Server) handleGetProcDetailFromHistory(conn net.Conn, pid types.PID, uu
 	}
 	if !info.DeadAt.IsZero() {
 		resp.DeadAtMs = info.DeadAt.UnixMilli()
+	}
+	if info.PausedTotal > 0 {
+		resp.PausedTotalMs = info.PausedTotal.Milliseconds()
 	}
 
 	// Build skill info from history
