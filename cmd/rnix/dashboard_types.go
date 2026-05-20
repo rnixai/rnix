@@ -43,6 +43,7 @@ const (
 	EventImmune  = event.EventImmune
 	EventError   = event.EventError
 	EventSyscall = event.EventSyscall
+	EventScript  = event.EventScript // Story 43-3: script trace events from ScriptExecutor
 )
 
 // UnifiedEvent merges reasoning steps and system events into a single type

@@ -121,6 +121,11 @@ func SysEventStyle(ev UnifiedEvent) lipgloss.Style {
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true)
 	case EventImmune:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#9B59B6"))
+	case EventScript:
+		if ev.Severity >= SevError {
+			return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError))
+		}
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#5B9BD5"))
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted))
 	}
@@ -152,6 +157,7 @@ func DefaultStepFilters() map[string]bool {
 		EventStall:     true,
 		EventImmune:    true,
 		EventSyscall:   true, // Story 34.6: strace events in debug mode
+		EventScript:    true, // Story 43-3: script trace events from ScriptExecutor
 	}
 }
 
@@ -213,4 +219,127 @@ func FilterUnifiedEvents(events []UnifiedEvent, filters map[string]bool) []Unifi
 		}
 	}
 	return result
+}
+
+// ScriptAggGroup 表示一段连续的、共享相同 stmt_kind 的 EventScript 事件
+// （Story 43-3 AC#5 · 与 ToolAggGroup 同 fold pattern · 独立 namespace）。
+//
+// 字段语义：
+//   - StartIdx  : events 切片中的起始下标（inclusive）
+//   - EndIdx    : 结束下标（exclusive · 与 ToolAggGroup 同模式）
+//   - StmtKind  : 本组共享的 stmt_kind（如 "assign"/"spawn"/"if"）
+//   - FirstLine : 段内首个事件的 args["line"]（fold 行 "L10-L14" 的 10）
+//   - LastLine  : 段内末个事件的 args["line"]（fold 行 "L10-L14" 的 14）
+//   - Count     : 段内事件总条数（包括 begin + end 对 · 5 对 = 10）
+type ScriptAggGroup struct {
+	StartIdx  int
+	EndIdx    int
+	StmtKind  string
+	FirstLine int
+	LastLine  int
+	Count     int
+}
+
+// BuildScriptAggGroups 扫描 unified events 识别连续相同 stmt_kind 的
+// ScriptStmtBegin / ScriptStmtEnd 事件（≥ AggThreshold）并返回聚合分组。
+//
+// 行为契约（Story 43-3 AC#5）：
+//   - 只看 Type==EventScript 的事件；其他类型直接跳过（next idx）
+//   - 仅 ScriptStmtBegin / ScriptStmtEnd 参与聚合（ScriptSpawn / ScriptWhileIter
+//     / ScriptCondition 是"事件性事件" · 每条独立显示 · 永不聚合）
+//   - 含 error 的事件（Severity >= SevError）强制切断聚合并跳过自身（不在任何
+//     group 内部 · 错误条目独立显示）
+//   - 不同 stmt_kind 不聚合（assign 与 spawn 交替 → 0 group）
+//   - 连续 ≥ AggThreshold (=3) 条同 stmt_kind 才形成 group · 否则各事件独立
+func BuildScriptAggGroups(events []UnifiedEvent) []ScriptAggGroup {
+	var groups []ScriptAggGroup
+	n := len(events)
+	i := 0
+	for i < n {
+		ev := events[i]
+		if !isAggregatableScriptEvent(ev) {
+			i++
+			continue
+		}
+		kind := scriptStmtKindArg(ev)
+		firstLine := scriptLineArg(ev)
+		lastLine := firstLine
+		count := 1
+		runStart := i
+		j := i + 1
+		for j < n {
+			ej := events[j]
+			if !isAggregatableScriptEvent(ej) {
+				break
+			}
+			if scriptStmtKindArg(ej) != kind {
+				break
+			}
+			lastLine = scriptLineArg(ej)
+			count++
+			j++
+		}
+		if count >= AggThreshold {
+			groups = append(groups, ScriptAggGroup{
+				StartIdx:  runStart,
+				EndIdx:    j,
+				StmtKind:  kind,
+				FirstLine: firstLine,
+				LastLine:  lastLine,
+				Count:     count,
+			})
+		}
+		i = j
+	}
+	return groups
+}
+
+// isAggregatableScriptEvent reports whether the event participates in
+// ScriptAggGroup folding: must be Type==EventScript, syscall in
+// {ScriptStmtBegin, ScriptStmtEnd}, Severity < SevError (error events are
+// never absorbed — Spec AC#5).
+func isAggregatableScriptEvent(ev UnifiedEvent) bool {
+	if ev.Type != EventScript || ev.Severity >= SevError || ev.RawEvent == nil {
+		return false
+	}
+	switch ev.RawEvent.Syscall {
+	case "ScriptStmtBegin", "ScriptStmtEnd":
+		return true
+	}
+	return false
+}
+
+// scriptStmtKindArg pulls args["stmt_kind"] as string (empty when missing).
+func scriptStmtKindArg(ev UnifiedEvent) string {
+	if ev.RawEvent == nil {
+		return ""
+	}
+	v, ok := ev.RawEvent.Args["stmt_kind"]
+	if !ok {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// scriptLineArg pulls args["line"] as int (0 when missing / not numeric).
+func scriptLineArg(ev UnifiedEvent) int {
+	if ev.RawEvent == nil {
+		return 0
+	}
+	v, ok := ev.RawEvent.Args["line"]
+	if !ok {
+		return 0
+	}
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
 }

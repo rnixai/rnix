@@ -1,6 +1,3 @@
-//go:build atdd_red
-// +build atdd_red
-
 // ATDD Story 43.3 - Timeline Renderer for Script Trace Events
 //
 // Red-phase tests for `BuildScriptAggGroups` + `ScriptAggGroup` type +
@@ -226,7 +223,7 @@ func TestBuildScriptAggGroups_AtThreshold(t *testing.T) {
 // 总条数（10）；fold 行 Summary 由 renderer 格式化时处理。
 func TestBuildScriptAggGroups_FivePairsAggregateAsOne(t *testing.T) {
 	var events []UnifiedEvent
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		events = append(events,
 			mkScriptEv(t, "ScriptStmtBegin", 10+i, "assign", SevInfo),
 			mkScriptEv(t, "ScriptStmtEnd", 10+i, "assign", SevInfo),

@@ -485,7 +485,7 @@ func (m dashboardModel) clearPaneUnread(p paneType) dashboardModel {
 // / Spawn / Exit all flow into Timeline.
 func eventTargetPane(eventType string) (paneType, bool) {
 	switch eventType {
-	case EventStep, EventCompact, EventBudget, EventStall, EventError, EventSyscall, EventSpawn, EventExit:
+	case EventStep, EventCompact, EventBudget, EventStall, EventError, EventSyscall, EventSpawn, EventExit, EventScript:
 		return paneTimeline, true
 	case EventImmune:
 		return paneSecurity, true

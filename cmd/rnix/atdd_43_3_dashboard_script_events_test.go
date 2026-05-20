@@ -1,6 +1,3 @@
-//go:build atdd_red
-// +build atdd_red
-
 // ATDD Story 43.3 - Timeline Renderer for Script Trace Events
 //
 // Red-phase tests for dashboardModel-level Script event handling:

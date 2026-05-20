@@ -53,6 +53,10 @@ const (
 	stepEventExit    = "exit"
 	stepEventStall   = "stall"
 	stepEventImmune  = "immune"
+	// Story 43-3: Script trace event filter key. Mirrors event.EventScript
+	// (= "script"); kept local for the same "avoid timeline → event reverse
+	// import" rationale documented above.
+	stepEventScript = "script"
 )
 
 // SlowStepThresholdMs 定义"慢 step"的判定阈值（毫秒 · 与 cmd/rnix
@@ -134,6 +138,9 @@ func RenderStepFilterBar(filters map[string]bool, maxW int) string {
 		{"X", "exit", stepEventExit},
 		{"T", "stall", stepEventStall},
 		{"i", "immune", stepEventImmune},
+		// Story 43-3: Script trace events filter (uppercase S avoids collision
+		// with row 1 step-action "[s]spawn" / "[x]/[X] spawn/exit").
+		{"S", "script", stepEventScript},
 	}
 
 	for _, t := range sysTypes {
@@ -375,6 +382,7 @@ func RenderUnifiedStepHeader(ctx HeaderContext, maxW, totalSteps, filteredCount,
 			{"complete", "done"}, {"spawn", "spn"}, {"replan", "rpl"}, {"specialize", "spec"},
 			{stepEventCompact, "cmp"}, {stepEventBudget, "bgt"}, {"sys_spawn", "sspn"},
 			{stepEventExit, "exit"}, {stepEventStall, "stl"}, {stepEventImmune, "imm"},
+			{stepEventScript, "scr"}, // Story 43-3
 		}
 		var hidden []string
 		for _, t := range allTypes {

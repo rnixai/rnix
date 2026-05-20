@@ -135,6 +135,7 @@ type dashboardModel struct {
 	stallSeen          map[types.PID]struct{}
 	compactEvents      []ipc.SyscallEventWire
 	lastCompactEventMs int64
+	lastScriptEventMs  int64 // Story 43-3: watermark for Script* syscall dedup
 	fetchingCompact    bool
 	sysEventSeen        map[string]struct{}
 	historicalSeedDone  bool // seeded EXIT events for already-dead procs on startup
@@ -431,7 +432,9 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				deduped := sysEventDedup([]UnifiedEvent{ue}, m.sysEventSeen)
 				m.sysEvents = append(m.sysEvents, deduped...)
 				m.sysEvents = sysEventFIFO(m.sysEvents, m.sysEventSeen)
+				continue
 			}
+			m = m.mergeScriptEvent(ev, msg.uuid) // Story 43-3: route Script* syscalls
 		}
 		// Cap compact events FIFO
 		if len(m.compactEvents) > maxSysEvents {
@@ -1122,6 +1125,7 @@ func toggleRecordCmd(pid types.PID, uuid string, currentRecordID string) tea.Cmd
 
 func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.lastUnreadEventKeys = nil // patch P2: first post-switch tick syncs without flooding red dots
+	m.lastScriptEventMs = 0     // Story 43-3: reset Script* watermark on every PID change
 	if m.selectedPID == 0 {
 		m.selectedUUID = ""
 		// Story 38-5 PR11 Step 4(b) Phase 2: handleTimelinePIDChange wrapper 删除·迁至 timeline 包
@@ -1137,7 +1141,7 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	m.timeline.AttachedPID = m.selectedPID
 	m.heatmap.PID = m.selectedPID
 
-	// Reset compact event tracking for new process (Story 34.1)
+	// Reset compact event tracking for new process (Story 34.1). lastScriptEventMs reset above.
 	m.compactEvents = nil
 	m.lastCompactEventMs = 0
 	m.fetchingCompact = false
@@ -1145,7 +1149,7 @@ func (m dashboardModel) handlePIDChange() (dashboardModel, tea.Cmd) {
 	// Filter out stale compact UnifiedEvents from sysEvents on PID change (F4)
 	filtered := m.sysEvents[:0]
 	for _, ev := range m.sysEvents {
-		if ev.Type != EventCompact {
+		if ev.Type != EventCompact && ev.Type != EventScript {
 			filtered = append(filtered, ev)
 		}
 	}

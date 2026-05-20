@@ -86,6 +86,13 @@ const (
 	EventImmune  = "immune"
 	EventError   = "error"
 	EventSyscall = "syscall"
+	// EventScript — Script trace events emitted by ScriptExecutor (Story 43-2/43-3).
+	// Drives the 5 ScriptEventKind syscalls (ScriptStmtBegin/End, ScriptSpawn,
+	// ScriptWhileIter, ScriptCondition) emitted under script-runner (SkipReasonLoop=true)
+	// processes. Routed to the Timeline pane with blue (#5B9BD5) styling so users
+	// can see "L47 ▸ spawn / L12 ↻ while iter=3" control-flow state at a glance
+	// when a long-lived ash script appears stuck.
+	EventScript = "script"
 )
 
 // UnifiedEvent merges reasoning steps and system events into a single type
