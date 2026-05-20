@@ -62,6 +62,8 @@ func TestEventTargetPane_OtherEventsUnchanged(t *testing.T) {
 		{EventExit, paneTimeline, true},
 		{EventStall, paneTimeline, true},
 		{EventSyscall, paneTimeline, true},
+		{EventError, paneTimeline, true},  // Review patch P10: previously missing
+		{EventScript, paneTimeline, true}, // Review patch P10: previously missing
 		{EventImmune, paneSecurity, true},
 		{"unknown_type", paneTimeline, false}, // default branch
 	}

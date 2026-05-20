@@ -53,7 +53,12 @@ func ComputeHealthCounts(
 	}
 
 	for _, e := range events {
-		if e.Type == event.EventError || (e.Type == event.EventExit && e.Severity >= event.SevError) {
+		switch {
+		case e.Type == event.EventError:
+			errorPIDs[e.PID] = struct{}{}
+		case e.Type == event.EventExit && e.Severity >= event.SevError:
+			errorPIDs[e.PID] = struct{}{}
+		case e.Type == event.EventScript && e.Severity >= event.SevError:
 			errorPIDs[e.PID] = struct{}{}
 		}
 	}

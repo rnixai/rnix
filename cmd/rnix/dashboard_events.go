@@ -322,11 +322,16 @@ func seedHistoricalSysEvents(processes []vfs.ProcInfo) []UnifiedEvent {
 }
 
 // sysEventDedup deduplicates system events using a seen map.
-// Key format: "Type:PID:UUID:TimestampMs"
+// Key format: "Type:PID:UUID:TimestampMs:Summary".
+// Summary is included so events sharing (Type, PID, UUID, ms) but rendered
+// differently — e.g. EventScript's ScriptStmtBegin vs ScriptStmtEnd in the
+// same millisecond for a fast statement — survive as separate rows. The
+// pattern remains safe for other event types since their Summary is already
+// unique per logical row.
 func sysEventDedup(events []UnifiedEvent, seen map[string]struct{}) []UnifiedEvent {
 	var result []UnifiedEvent
 	for _, e := range events {
-		key := fmt.Sprintf("%s:%d:%s:%d", e.Type, e.PID, e.UUID, e.Timestamp.UnixMilli())
+		key := fmt.Sprintf("%s:%d:%s:%d:%s", e.Type, e.PID, e.UUID, e.Timestamp.UnixMilli(), e.Summary)
 		if _, exists := seen[key]; exists {
 			continue
 		}
@@ -344,7 +349,7 @@ func sysEventFIFO(events []UnifiedEvent, seen map[string]struct{}) []UnifiedEven
 	// Prune dedup keys for evicted events
 	evicted := events[:len(events)-maxSysEvents]
 	for _, e := range evicted {
-		key := fmt.Sprintf("%s:%d:%s:%d", e.Type, e.PID, e.UUID, e.Timestamp.UnixMilli())
+		key := fmt.Sprintf("%s:%d:%s:%d:%s", e.Type, e.PID, e.UUID, e.Timestamp.UnixMilli(), e.Summary)
 		delete(seen, key)
 	}
 	return events[len(events)-maxSysEvents:]

@@ -61,4 +61,10 @@ type TimelineState struct {
 
 	// Story 30.8 AC#5 / Timeline aggregation
 	ExpandedAggGroups map[int]bool
+
+	// Story 43-3 review patch P11 / ScriptAggGroup fold UI rendering.
+	// Keyed by ScriptAggGroup.StartIdx (filtered-events slice position) so
+	// independent of ToolAggGroup's step-number namespace. Per-process,
+	// reset on PID switch alongside ExpandedAggGroups (see model.go::Reset).
+	ExpandedScriptAggGroups map[int]bool
 }

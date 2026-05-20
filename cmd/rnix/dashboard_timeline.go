@@ -51,6 +51,15 @@ func buildToolAggGroups(events []UnifiedEvent) []toolAggGroup {
 	return dashboardevent.BuildToolAggGroups(events)
 }
 
+// scriptAggGroup — alias of dashboardevent.ScriptAggGroup (Story 43-3 review patch P11).
+type scriptAggGroup = dashboardevent.ScriptAggGroup
+
+// buildScriptAggGroups — thin wrapper · 见 internal/dashboard/event.BuildScriptAggGroups.
+// Story 43-3 review patch P11 (D2 follow-through).
+func buildScriptAggGroups(events []UnifiedEvent) []scriptAggGroup {
+	return dashboardevent.BuildScriptAggGroups(events)
+}
+
 // shortenArgs — thin wrapper · 见 internal/dashboard/timeline.ShortenArgs
 func shortenArgs(input string, maxLen int) string {
 	return timeline.ShortenArgs(input, maxLen)
@@ -563,14 +572,99 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 		}
 	}
 
+	// Story 43-3 review patch P11 (D2 follow-through): build ScriptAggGroups
+	// for EventScript runs (≥3 same stmt_kind). Independent namespace from
+	// ToolAggGroup — keyed by StartIdx in filtered slice.
+	scriptGroups := buildScriptAggGroups(filtered)
+	scriptAggByStart := make(map[int]*scriptAggGroup, len(scriptGroups))
+	scriptSkipSet := make(map[int]bool)
+	scriptExpandedSet := make(map[int]bool)
+	for i := range scriptGroups {
+		g := &scriptGroups[i]
+		scriptAggByStart[g.StartIdx] = g
+		expanded := m.timeline.ExpandedScriptAggGroups[g.StartIdx]
+		if !expanded {
+			for fi := g.StartIdx + 1; fi < g.EndIdx; fi++ {
+				scriptSkipSet[fi] = true
+			}
+		} else {
+			for fi := g.StartIdx + 1; fi < g.EndIdx; fi++ {
+				scriptExpandedSet[fi] = true
+			}
+		}
+	}
+
 	for fi := startIdx; fi < endIdx && linesUsed < listLines; fi++ {
 		ev := filtered[fi]
 
 		// System event: single-line rendering (plus optional detail line when selected)
 		if ev.StepEntry == nil {
+			// Story 43-3 review patch P11: ScriptAggGroup fold handling.
+			// Skip individual events that live inside a *collapsed* group.
+			if scriptSkipSet[fi] {
+				continue
+			}
+			// Render ScriptAggGroup header at the start index. For collapsed
+			// groups this is the only row; for expanded groups it precedes
+			// the individual events (which fall through to normal sys-event
+			// rendering with indentation indicated by scriptExpandedSet).
+			if g, ok := scriptAggByStart[fi]; ok {
+				expanded := m.timeline.ExpandedScriptAggGroups[g.StartIdx]
+				cursorInGroup := m.timeline.StepCursor >= g.StartIdx && m.timeline.StepCursor < g.EndIdx
+				ascii := ui.IsASCIIMode()
+				kindGlyph := scriptGlyph("begin", ascii)
+				var marker string
+				if expanded {
+					if ascii {
+						marker = "v"
+					} else {
+						marker = "▼"
+					}
+				} else {
+					if ascii {
+						marker = ">"
+					} else {
+						marker = "▶"
+					}
+				}
+				lineRange := fmt.Sprintf("L%d-L%d", g.FirstLine, g.LastLine)
+				header := fmt.Sprintf("%s %s %s %s × %d", marker, lineRange, kindGlyph, g.StmtKind, g.Count)
+				cursorMark := "  "
+				if cursorInGroup && !expanded {
+					cursorMark = "▸ "
+				}
+				headerLine := cursorMark + header
+				if cursorInGroup && !expanded {
+					headerLine = lipgloss.NewStyle().
+						Background(lipgloss.Color("#2D2D3D")).
+						Foreground(lipgloss.Color("#FFFFFF")).
+						Render(headerLine)
+				} else if expanded {
+					headerLine = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorMuted)).Render(headerLine)
+				}
+				b.WriteString(truncateAnsi(headerLine, truncW))
+				b.WriteString("\n")
+				linesUsed++
+				if !expanded {
+					continue
+				}
+				if linesUsed >= listLines {
+					continue
+				}
+				// Fall through to render the first event of the expanded group
+				// using the normal sys-event rendering below (indented via
+				// scriptExpandedSet marker).
+			}
 			cursorMark := "  "
+			if scriptExpandedSet[fi] || (scriptAggByStart[fi] != nil && m.timeline.ExpandedScriptAggGroups[fi]) {
+				cursorMark = "    " // 4-char indent for events inside an expanded ScriptAggGroup
+			}
 			if fi == m.timeline.StepCursor {
-				cursorMark = "▸ "
+				if scriptExpandedSet[fi] || (scriptAggByStart[fi] != nil && m.timeline.ExpandedScriptAggGroups[fi]) {
+					cursorMark = "  ▸ "
+				} else {
+					cursorMark = "▸ "
+				}
 			}
 			icon := ui.EventTypeIcon(ev.Type)
 			style := sysEventStyle(ev)

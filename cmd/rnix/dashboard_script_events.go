@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -76,8 +77,8 @@ func isScriptSyscall(syscall string) bool {
 }
 
 // scriptEventIsError applies the AC#2 severity rule: args["error"] non-empty
-// OR args["exit_code"] non-zero (int / float64) → SevError. args["stopped"]
-// (break/return) is NOT an error.
+// OR args["exit_code"] non-zero (int / int64 / uint64 / float64 / json.Number)
+// → SevError. args["stopped"] (break/return) is NOT an error.
 func scriptEventIsError(args map[string]any) bool {
 	if errStr := getArgString(args, "error"); errStr != "" {
 		return true
@@ -88,8 +89,15 @@ func scriptEventIsError(args map[string]any) bool {
 			return n != 0
 		case int64:
 			return n != 0
+		case uint64:
+			return n != 0
 		case float64:
 			return n != 0
+		case json.Number:
+			// json.Number arrives when the wire decoder uses
+			// Decoder.UseNumber(); fall back to string compare against "0"
+			// to avoid losing precision on huge integers.
+			return string(n) != "0" && string(n) != ""
 		}
 	}
 	return false
@@ -172,7 +180,7 @@ func formatScriptEventSummary(syscall string, args map[string]any) string {
 		quoted := fmt.Sprintf("%q", label)
 		raw = fmt.Sprintf("%s %s spawn %s", line, scriptGlyph("spawn", ascii), quoted)
 		if assign := getArgString(args, "assign"); assign != "" {
-			raw += " → $" + assign
+			raw += " " + scriptArrow(ascii) + " $" + assign
 		}
 		if getArgBool(args, "parallel") {
 			raw += " [parallel]"
@@ -192,14 +200,15 @@ func formatScriptEventSummary(syscall string, args map[string]any) string {
 		if cond == "" {
 			cond = "?"
 		}
+		arrow := scriptArrow(ascii)
 		if errMsg := getArgString(args, "error"); errMsg != "" {
-			raw = fmt.Sprintf("%s ? %s → ERR: %s", line, cond, errMsg)
+			raw = fmt.Sprintf("%s ? %s %s ERR: %s", line, cond, arrow, errMsg)
 		} else {
 			mark := "F"
 			if getArgBool(args, "result") {
 				mark = "T"
 			}
-			raw = fmt.Sprintf("%s ? %s → %s", line, cond, mark)
+			raw = fmt.Sprintf("%s ? %s %s %s", line, cond, arrow, mark)
 		}
 	default:
 		// Unknown syscall — caller should have filtered via isScriptSyscall;
@@ -215,6 +224,17 @@ func formatScriptEventSummary(syscall string, args map[string]any) string {
 		raw = runewidth.Truncate(raw, scriptEventSummaryMaxWidth-1, "…")
 	}
 	return raw
+}
+
+// scriptArrow returns the "→" arrow used inside Summary strings (between
+// intent/condition and the rendered value). Downgrades to ASCII "->" when
+// ascii==true so RNIX_ASCII=1 terminals do not leak U+2192. Centralised so
+// every formatScriptEventSummary caller stays consistent.
+func scriptArrow(ascii bool) string {
+	if ascii {
+		return "->"
+	}
+	return "→"
 }
 
 // scriptGlyph returns the leading glyph for a Script summary, downgraded to
@@ -321,7 +341,11 @@ func getArgBool(args map[string]any, key string) bool {
 //   - the UUID is injected from msg.uuid to keep events tied to the
 //     specific process instance even when PID is later reused (Dev Notes #5).
 func (m dashboardModel) mergeScriptEvent(ev ipc.SyscallEventWire, uuid string) dashboardModel {
-	if ev.TimestampMs <= m.lastScriptEventMs {
+	// Watermark uses strict less-than so events sharing the same
+	// TimestampMs (e.g. a tight ScriptStmtBegin/End pair) both pass; the
+	// downstream sysEventDedup (key includes Summary) is the real dedup
+	// gate. See Story 43-3 review patch P4.
+	if ev.TimestampMs < m.lastScriptEventMs {
 		return m
 	}
 	ue, ok := scriptEventFromSyscall(ev)

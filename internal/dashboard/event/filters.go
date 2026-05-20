@@ -6,7 +6,7 @@ package event
 
 // FilterHelpMsg 是 default 分支显示的帮助文案，cmd/rnix wrapper 据 ApplyStepFilterKey
 // 返回的 showHelp 设置 m.statusMsg。公开常量便于测试断言文案稳定性。
-const FilterHelpMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all | Esc exit"
+const FilterHelpMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i/S (sys) | * all | Esc exit"
 
 // ApplyStepFilterKey 处理 Step Filter 输入态下的按键切换。
 //
@@ -23,7 +23,7 @@ const FilterHelpMsg = "Filter: t/p/a/c/s/r/z (step) | C/b/x/X/T/i (sys) | * all 
 //
 // 行为契约（与 cmd/rnix.handleStepFilterKey 等价）：
 //   - Row 1 step actions: t/p/a/c/s/r/z → 切换 tool_call/plan/text/complete/spawn/replan/specialize;
-//   - Row 2 system events: C/b/x/X/T/i → 切换 EventCompact/EventBudget/sys_spawn/EventExit/EventStall/EventImmune;
+//   - Row 2 system events: C/b/x/X/T/i/S → 切换 EventCompact/EventBudget/sys_spawn/EventExit/EventStall/EventImmune/EventScript;
 //   - "*" → 重置为 DefaultStepFilters（全部启用）;
 //   - "f"/"esc" → 退出 filter 输入态;
 //   - 其他 → showHelp=true（cmd/rnix wrapper 显示帮助文案）.
@@ -60,6 +60,8 @@ func ApplyStepFilterKey(filters map[string]bool, filterMode bool, key string) (n
 		filters[EventStall] = !filters[EventStall]
 	case "i":
 		filters[EventImmune] = !filters[EventImmune]
+	case "S":
+		filters[EventScript] = !filters[EventScript]
 	case "*":
 		filters = DefaultStepFilters()
 	case "f", "esc":

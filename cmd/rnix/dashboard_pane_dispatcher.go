@@ -82,6 +82,25 @@ func (m dashboardModel) dispatchPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 						return m, nil
 					}
 				}
+				// Story 43-3 review patch P11 (D2 follow-through): same Enter
+				// dispatch but for ScriptAggGroup — independent map namespace.
+				scriptGroups := buildScriptAggGroups(filtered)
+				for _, g := range scriptGroups {
+					if cursorPos == g.StartIdx {
+						if m.timeline.ExpandedScriptAggGroups == nil {
+							m.timeline.ExpandedScriptAggGroups = make(map[int]bool)
+						}
+						wasExpanded := m.timeline.ExpandedScriptAggGroups[g.StartIdx]
+						m.timeline.ExpandedScriptAggGroups[g.StartIdx] = !wasExpanded
+						if wasExpanded {
+							m.statusMsg = fmt.Sprintf("Script group L%d-L%d %s collapsed", g.FirstLine, g.LastLine, g.StmtKind)
+						} else {
+							m.statusMsg = fmt.Sprintf("Script group L%d-L%d %s expanded", g.FirstLine, g.LastLine, g.StmtKind)
+						}
+						m.statusMsgTTL = statusMsgDefaultTTL
+						return m, nil
+					}
+				}
 			}
 		}
 

@@ -386,7 +386,16 @@ func RenderUnifiedStepHeader(ctx HeaderContext, maxW, totalSteps, filteredCount,
 		}
 		var hidden []string
 		for _, t := range allTypes {
-			if !ctx.State.StepFilters[t.key] {
+			// Missing key in StepFilters (e.g. state restored from an older
+			// version that predates a filter — Story 43-3 review patch P9)
+			// would otherwise read zero-value false and falsely render as
+			// "hidden". Treat absent keys as enabled, matching
+			// event.DefaultStepFilters which sets every known filter to true.
+			enabled, present := ctx.State.StepFilters[t.key]
+			if !present {
+				enabled = true
+			}
+			if !enabled {
 				hidden = append(hidden, t.label)
 			}
 		}
