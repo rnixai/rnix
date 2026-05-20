@@ -43,4 +43,17 @@ type ProjectConfig struct {
 	EnvSnapshot     map[string]string   // .env file vars only (not full os.Environ)
 	LLMFileOpener   types.LLMFileOpener // nil = use global VFS Open
 	DefaultProvider string              // Merged providers' resolved default; "" = use global
+
+	// AgentLoader, when non-nil, supersedes the daemon's global agent loader
+	// for sub-agent Spawn actions emitted by processes in this project. Wired
+	// up by ipc/server_spawn.go:resolveProjectContext so that `.rnix/agents/`
+	// overrides are honored by ActionSpawn — without this, kernel.tool_exec
+	// would fall back to ~/.config/rnix/agents/ and silently ignore the
+	// project-level override. Returns any (actually *agents.AgentInfo).
+	AgentLoader types.AgentLoaderFunc
+
+	// SkillLoader, when non-nil, supersedes the daemon's global skill loader
+	// for ActionSpecialize. Mirrors AgentLoader for the skill lookup path.
+	// Returns any (actually *skills.SkillInfo).
+	SkillLoader types.SkillLoaderFunc
 }

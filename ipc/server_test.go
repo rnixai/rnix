@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
+	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -1997,6 +1999,145 @@ func TestResolveProjectContext_WithProjectDir(t *testing.T) {
 	// Verify the loader function is returned (project-aware)
 	if loaderFn == nil {
 		t.Error("expected non-nil project-aware loader function")
+	}
+
+	// Regression guard for the "subagent uses wrong provider/model" bug:
+	// ProjectConfig must carry the project-aware AgentLoader and SkillLoader
+	// so kernel/tool_exec.go can route ActionSpawn / ActionSpecialize through
+	// `.rnix/agents/` and `.rnix/skills/` instead of falling back to the
+	// daemon's global loaders.
+	if projCfg.AgentLoader == nil {
+		t.Error("expected ProjectConfig.AgentLoader to be populated (regression: subagent spawn would ignore .rnix/agents overrides)")
+	}
+	if projCfg.SkillLoader == nil {
+		t.Error("expected ProjectConfig.SkillLoader to be populated (regression: specialize would ignore .rnix/skills overrides)")
+	}
+}
+
+// TestResolveProjectContext_AgentLoaderHonorsProjectOverride exercises the
+// full project-loader path end-to-end: write a project-level stem/agent.yaml
+// with empty models, write a (stale) global stem/agent.yaml that pins
+// provider=claude, then ask the returned AgentLoader for "stem" and assert
+// the project version wins. This is the inverse of the bug reported via
+// strace: provider=claude [agent] when it should follow project default.
+func TestResolveProjectContext_AgentLoaderHonorsProjectOverride(t *testing.T) {
+	srv := NewServer(nil, nil, "0.1.0-test")
+
+	globalDir := t.TempDir()
+	globalAgentsDir := filepath.Join(globalDir, "agents")
+	globalSkillsDir := filepath.Join(globalDir, "skills")
+	if err := os.MkdirAll(filepath.Join(globalAgentsDir, "stem"), 0o755); err != nil {
+		t.Fatalf("mkdir global stem dir: %v", err)
+	}
+	staleStem := []byte("name: stem\nmodels:\n  provider: claude\n  preferred: sonnet\n")
+	if err := os.WriteFile(filepath.Join(globalAgentsDir, "stem", "agent.yaml"), staleStem, 0o644); err != nil {
+		t.Fatalf("write global stem agent.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalAgentsDir, "stem", "instructions.md"), []byte("global"), 0o644); err != nil {
+		t.Fatalf("write global stem instructions: %v", err)
+	}
+	srv.SetGlobalConfig(&config.GlobalConfig{
+		Dir:       globalDir,
+		AgentsDir: globalAgentsDir,
+		SkillsDir: globalSkillsDir,
+	})
+
+	projectDir := t.TempDir()
+	projStemDir := filepath.Join(projectDir, ".rnix", "agents", "stem")
+	if err := os.MkdirAll(projStemDir, 0o755); err != nil {
+		t.Fatalf("mkdir project stem dir: %v", err)
+	}
+	// Project override: empty models — agent should follow project/CLI default.
+	cleanStem := []byte("name: stem\nmodels: {}\n")
+	if err := os.WriteFile(filepath.Join(projStemDir, "agent.yaml"), cleanStem, 0o644); err != nil {
+		t.Fatalf("write project stem agent.yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projStemDir, "instructions.md"), []byte("project"), 0o644); err != nil {
+		t.Fatalf("write project stem instructions: %v", err)
+	}
+
+	projCfg, _, err := srv.resolveProjectContext(projectDir, "")
+	if err != nil {
+		t.Fatalf("resolveProjectContext: %v", err)
+	}
+	if projCfg == nil || projCfg.AgentLoader == nil {
+		t.Fatal("expected ProjectConfig with non-nil AgentLoader")
+	}
+
+	raw, err := projCfg.AgentLoader("stem")
+	if err != nil {
+		t.Fatalf("AgentLoader(stem): %v", err)
+	}
+	ai, ok := raw.(*agents.AgentInfo)
+	if !ok {
+		t.Fatalf("AgentLoader returned %T, want *agents.AgentInfo", raw)
+	}
+	if ai.Manifest.Models.Provider != "" {
+		t.Errorf("Models.Provider = %q, want \"\" (project override clears it; global stale version is being loaded — the bug)", ai.Manifest.Models.Provider)
+	}
+	if ai.Manifest.Models.Preferred != "" {
+		t.Errorf("Models.Preferred = %q, want \"\"", ai.Manifest.Models.Preferred)
+	}
+	if got := string(ai.Instructions); got != "project" {
+		t.Errorf("Instructions = %q, want %q (project version should win)", got, "project")
+	}
+}
+
+// TestResolveProjectContext_SkillLoaderHonorsProjectOverride mirrors the
+// AgentLoader override test for skills: write a project-level SKILL.md and a
+// (stale) global one, then assert the project version wins via the wired
+// ProjectConfig.SkillLoader. Without this guard kernel/tool_exec.go's
+// ActionSpecialize would silently load the global version and the project's
+// `.rnix/skills/<name>/SKILL.md` override would never take effect.
+func TestResolveProjectContext_SkillLoaderHonorsProjectOverride(t *testing.T) {
+	srv := NewServer(nil, nil, "0.1.0-test")
+
+	globalDir := t.TempDir()
+	globalSkillsDir := filepath.Join(globalDir, "skills")
+	if err := os.MkdirAll(filepath.Join(globalSkillsDir, "demo"), 0o755); err != nil {
+		t.Fatalf("mkdir global skill: %v", err)
+	}
+	staleSkill := []byte("---\nname: demo\ndescription: stale global version\n---\n\nGLOBAL BODY\n")
+	if err := os.WriteFile(filepath.Join(globalSkillsDir, "demo", "SKILL.md"), staleSkill, 0o644); err != nil {
+		t.Fatalf("write global SKILL.md: %v", err)
+	}
+	srv.SetGlobalConfig(&config.GlobalConfig{
+		Dir:       globalDir,
+		AgentsDir: filepath.Join(globalDir, "agents"),
+		SkillsDir: globalSkillsDir,
+	})
+
+	projectDir := t.TempDir()
+	projSkillDir := filepath.Join(projectDir, ".rnix", "skills", "demo")
+	if err := os.MkdirAll(projSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir project skill: %v", err)
+	}
+	projectSkill := []byte("---\nname: demo\ndescription: project override\n---\n\nPROJECT BODY\n")
+	if err := os.WriteFile(filepath.Join(projSkillDir, "SKILL.md"), projectSkill, 0o644); err != nil {
+		t.Fatalf("write project SKILL.md: %v", err)
+	}
+
+	projCfg, _, err := srv.resolveProjectContext(projectDir, "")
+	if err != nil {
+		t.Fatalf("resolveProjectContext: %v", err)
+	}
+	if projCfg == nil || projCfg.SkillLoader == nil {
+		t.Fatal("expected ProjectConfig with non-nil SkillLoader")
+	}
+
+	raw, err := projCfg.SkillLoader("demo")
+	if err != nil {
+		t.Fatalf("SkillLoader(demo): %v", err)
+	}
+	si, ok := raw.(*skills.SkillInfo)
+	if !ok {
+		t.Fatalf("SkillLoader returned %T, want *skills.SkillInfo", raw)
+	}
+	if si.Manifest.Description != "project override" {
+		t.Errorf("Description = %q, want %q (project skill should win over stale global)", si.Manifest.Description, "project override")
+	}
+	if !strings.Contains(si.Body, "PROJECT BODY") {
+		t.Errorf("Body = %q, expected to contain %q", si.Body, "PROJECT BODY")
 	}
 }
 

@@ -195,3 +195,15 @@ type LogEntry struct {
 // Returns any (actually vfs.VFSFile) to avoid types → vfs dependency;
 // callers do type assertion. Used by ProjectConfig to inject project-level drivers.
 type LLMFileOpener func(provider string, flags int) (any, error)
+
+// AgentLoaderFunc loads an agent definition by name. Returns any (actually
+// *agents.AgentInfo) so that internal/config can carry a project-level loader
+// without importing agents — which would create a cycle (agents → internal/config).
+// Callers in kernel/ipc do the type assertion. Used by ProjectConfig to inject
+// project-aware agent lookup into sub-agent spawn flows.
+type AgentLoaderFunc func(name string) (any, error)
+
+// SkillLoaderFunc loads a skill (with body) by name. Returns any (actually
+// *skills.SkillInfo) for the same circular-dependency reason as AgentLoaderFunc.
+// Used by ProjectConfig to inject project-aware skill lookup into specialize flows.
+type SkillLoaderFunc func(name string) (any, error)

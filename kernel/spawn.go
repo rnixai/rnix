@@ -593,6 +593,14 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 		}
 		k.emitEvent(proc, "ConfigResolve", configArgs, nil, nil, time.Since(resolveStart))
 
+		if providerSource == "agent" && opts.ProjectConfig != nil &&
+			opts.ProjectConfig.DefaultProvider != "" &&
+			opts.ProjectConfig.DefaultProvider != proc.Provider {
+			k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf(
+				"warning: agent %q manifest provider %q overrides project default_provider %q (pass --provider to choose explicitly, or clear models.provider in the agent manifest)",
+				agent.Manifest.Name, proc.Provider, opts.ProjectConfig.DefaultProvider), "")
+		}
+
 		// Set up stream handler for driver events (tool_call, thinking, system, etc.)
 		k.setupDriverStreamHandler(proc, llmFD)
 

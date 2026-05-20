@@ -40,6 +40,7 @@ type CheckpointProcState struct {
 	CtxSize               int               `json:"ctx_size,omitempty"`
 	ConsecutiveToolErrors int               `json:"consecutive_tool_errors"`
 	SuspendReason         string            `json:"suspend_reason,omitempty"`
+	ParentUUID            string            `json:"parent_uuid,omitempty"`
 	EnvSnapshot           map[string]string `json:"env_snapshot"`
 }
 
@@ -98,6 +99,7 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 	tokensUsed := proc.TokensUsed
 	budgetSnap := proc.Budget
 	suspendReason := proc.SuspendReason
+	parentUUID := proc.ParentUUID
 	skills := make([]string, len(proc.Skills))
 	copy(skills, proc.Skills)
 	proc.mu.Unlock()
@@ -131,6 +133,7 @@ func buildCheckpointData(proc *Process, step int, contextSnapshot json.RawMessag
 			UsedCost:              budgetSnap.UsedCost,
 			ConsecutiveToolErrors: consecutiveToolErrors,
 			SuspendReason:         suspendReason,
+			ParentUUID:            parentUUID,
 			EnvSnapshot:           envSnapshot,
 		},
 	}

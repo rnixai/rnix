@@ -17,6 +17,7 @@ import (
 	rnixctx "github.com/rnixai/rnix/context"
 	drivershell "github.com/rnixai/rnix/drivers/shell"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/skills"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -662,7 +663,8 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 
 		var agentInfo *agents.AgentInfo
 		if agentStr != "" {
-			if k.agentLoader == nil {
+			loader, hasLoader := k.resolveSpawnAgentLoader(proc)
+			if !hasLoader {
 				errMsg := fmt.Sprintf("spawn error: agent %q requested but no agent loader configured", agentStr)
 				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
@@ -674,7 +676,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				}
 				return true
 			}
-			ai, loadErr := k.agentLoader(agentStr)
+			ai, loadErr := loader(agentStr)
 			if loadErr != nil {
 				errMsg := fmt.Sprintf("spawn error: agent %q load failed: %v", agentStr, loadErr)
 				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
@@ -746,7 +748,8 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error"}, nil, nil, time.Since(stepStart))
 			return true
 		}
-		if k.skillLoader == nil {
+		loader, hasLoader := k.resolveSpecializeSkillLoader(proc)
+		if !hasLoader {
 			errMsg := "specialize error: no skill loader configured"
 			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
@@ -765,7 +768,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			return true
 		}
 
-		skillInfo, loadErr := k.skillLoader(skillName)
+		skillInfo, loadErr := loader(skillName)
 		if loadErr != nil {
 			errMsg := fmt.Sprintf("specialize error: skill %q load failed: %v", skillName, loadErr)
 			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
@@ -936,4 +939,78 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 	}
 
 	return true
+}
+
+// resolveSpawnAgentLoader returns the agent loader to use for ActionSpawn.
+// When the parent process carries a ProjectConfig with a project-aware
+// AgentLoader (wired by ipc.resolveProjectContext), that loader wins so
+// `.rnix/agents/` overrides take effect. Otherwise falls back to the
+// daemon-wide k.agentLoader. The bool reports whether any usable loader was
+// found — matching the pre-refactor "no agent loader configured" check.
+//
+// Project loader returns `any` (actually *agents.AgentInfo); the wrapper
+// performs the type assertion so callers can treat it as a typed loader.
+// Type-assertion failure and typed-nil returns BOTH fall through to the global
+// loader rather than surfacing an internal mismatch to the LLM mid-step, but
+// each fall-through is logged as a warning so the misbehavior is observable
+// instead of silently swapping which agent gets spawned.
+func (k *KernelImpl) resolveSpawnAgentLoader(proc *Process) (func(string) (*agents.AgentInfo, error), bool) {
+	if proc != nil && proc.ProjectConfig != nil && proc.ProjectConfig.AgentLoader != nil {
+		projectLoader := proc.ProjectConfig.AgentLoader
+		return func(name string) (*agents.AgentInfo, error) {
+			raw, err := projectLoader(name)
+			if err != nil {
+				return nil, err
+			}
+			ai, ok := raw.(*agents.AgentInfo)
+			if !ok || ai == nil {
+				// Project loader misbehaved (wrong concrete type, or typed-nil
+				// AgentInfo). Without this guard a typed-nil sneaks through and
+				// the caller would Spawn with agentInfo=nil — silently dropping
+				// the requested agent. Fall back to global, but emit a log so
+				// the user sees the misbehavior in strace / dashboard.
+				if k.agentLoader != nil {
+					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf(
+						"warning: project AgentLoader returned %T (ok=%v) for agent %q — falling back to global loader",
+						raw, ok, name), "")
+					return k.agentLoader(name)
+				}
+				return nil, fmt.Errorf("project agent loader returned unexpected value (type=%T ok=%v) for agent %q", raw, ok, name)
+			}
+			return ai, nil
+		}, true
+	}
+	if k.agentLoader != nil {
+		return k.agentLoader, true
+	}
+	return nil, false
+}
+
+// resolveSpecializeSkillLoader mirrors resolveSpawnAgentLoader for the
+// ActionSpecialize path. Project loader wins; falls back to global k.skillLoader.
+func (k *KernelImpl) resolveSpecializeSkillLoader(proc *Process) (func(string) (*skills.SkillInfo, error), bool) {
+	if proc != nil && proc.ProjectConfig != nil && proc.ProjectConfig.SkillLoader != nil {
+		projectLoader := proc.ProjectConfig.SkillLoader
+		return func(name string) (*skills.SkillInfo, error) {
+			raw, err := projectLoader(name)
+			if err != nil {
+				return nil, err
+			}
+			si, ok := raw.(*skills.SkillInfo)
+			if !ok || si == nil {
+				if k.skillLoader != nil {
+					k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf(
+						"warning: project SkillLoader returned %T (ok=%v) for skill %q — falling back to global loader",
+						raw, ok, name), "")
+					return k.skillLoader(name)
+				}
+				return nil, fmt.Errorf("project skill loader returned unexpected value (type=%T ok=%v) for skill %q", raw, ok, name)
+			}
+			return si, nil
+		}, true
+	}
+	if k.skillLoader != nil {
+		return k.skillLoader, true
+	}
+	return nil, false
 }

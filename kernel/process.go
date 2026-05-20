@@ -258,6 +258,20 @@ func (p *Process) GetFinalSystemPrompt() string {
 	return p.FinalSystemPrompt
 }
 
+// GetSuspendReason returns the suspend reason (thread-safe).
+func (p *Process) GetSuspendReason() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.SuspendReason
+}
+
+// SetSuspendReason updates the suspend reason (thread-safe).
+func (p *Process) SetSuspendReason(reason string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.SuspendReason = reason
+}
+
 // GetNativeToolDefs returns the native tool definitions (immutable after Spawn).
 func (p *Process) GetNativeToolDefs() []vfs.ToolDef {
 	return p.nativeToolDefs

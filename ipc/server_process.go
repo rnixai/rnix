@@ -209,12 +209,16 @@ func (s *Server) handleResume(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
-	// Epic 42 follow-up: resumed processes are top-level (PPID=0). Unlike
-	// handleSpawn — which streams events back to the client and reaps via
-	// `defer s.kern.Reap(pid)` when the stream ends — handleResume returns
-	// immediately, so no one would ever transition Zombie → Dead. Without a
-	// reaper, `proc.DeadAt` stays zero forever, and Dashboard's Agent Tree
-	// elapsed time keeps growing past kill / error (user-visible bug).
+	// Epic 42 follow-up: handleResume returns immediately (no event stream),
+	// so unlike handleSpawn's `defer s.kern.Reap(pid)`, nothing would transition
+	// the resumed Zombie → Dead. Without a reaper, `proc.DeadAt` stays zero
+	// forever and Dashboard's Agent Tree elapsed time grows past kill/error
+	// (user-visible bug).
+	//
+	// Note: resumed processes are NOT necessarily top-level. kernel.resume
+	// restoreParentLinkage re-attaches PPID + parent.AddChild when the parent
+	// (UUID-matched) is still in procTable; otherwise the resumed process
+	// becomes a root only because its parent is gone.
 	//
 	// Launch a background goroutine to wait for proc.Done (closed by
 	// finishProcess) and trigger Reap, mirroring handleSpawn's lifecycle.

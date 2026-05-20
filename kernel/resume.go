@@ -68,6 +68,83 @@ func (k *KernelImpl) openLLMDeviceForResume(proc *Process, llmDevice string) (ty
 	return k.vfs.Open(proc.PID, llmDevice, vfs.O_RDWR)
 }
 
+// restoreParentLinkage restores the parent-child linkage for a resumed process.
+// Resume creates a new in-memory Process; without this helper its PPID would
+// stay 0 and the parent's Children slice would not include the new PID, so the
+// Dashboard tree (BuildProcessTree) would render the resumed process as a
+// top-level root next to its original parent — the "脱离了进程树" bug.
+//
+// Behavior:
+//   - ParentUUID == "" → no-op (true root processes).
+//   - Parent still alive in procTable → set proc.PPID and call parent.AddChild.
+//   - Parent already dead (only on disk / procHistory) → leave PPID = 0 but
+//     proc.ParentUUID is still set, so BuildProcessTree's UUID-keyed lookup
+//     can attach the resumed node to its (dead) parent.
+//
+// In all cases proc.ParentUUID is set so the on-disk proc-info.json snapshot
+// preserves lineage for the next daemon restart.
+func (k *KernelImpl) restoreParentLinkage(proc *Process, parentUUID string) {
+	if parentUUID == "" {
+		return
+	}
+	proc.ParentUUID = parentUUID
+	if parent, ok := k.GetProcessByUUID(parentUUID); ok {
+		proc.PPID = parent.PID
+		parent.AddChild(proc.PID)
+	}
+	// Multi-level wakeup: walk up the ParentUUID chain in procTable and unsuspend
+	// any ancestor that was Suspended because the CLI client disconnected. This
+	// lets `resume` of a deep descendant (P1→P2→P3 → resume P3) reactivate the
+	// script-runner ancestor (P1), not just the immediate parent.
+	k.reactivateCliDisconnectedAncestors(parentUUID)
+}
+
+// reactivateCliDisconnectedAncestors walks up the ParentUUID chain from startUUID
+// and Unsuspends every procTable-resident ancestor whose SuspendReason is
+// "cli_disconnected". Chain walking stops at the first ancestor missing from
+// procTable (consistent with the "do not resurrect Reaped processes" policy).
+// Non-matching ancestors (e.g. a Running middle node) are skipped — traversal
+// continues upward until the chain breaks or maxDepth is hit.
+func (k *KernelImpl) reactivateCliDisconnectedAncestors(startUUID string) {
+	const maxDepth = 32 // defensive: guard against accidental UUID cycles
+	uuid := startUUID
+	depth := 0
+	for ; uuid != "" && depth < maxDepth; depth++ {
+		ancestor, ok := k.GetProcessByUUID(uuid)
+		if !ok {
+			return // chain breaks at a Reaped ancestor; do not traverse procHistory
+		}
+		if ancestor.GetState() == types.StateSuspended &&
+			ancestor.GetSuspendReason() == SuspendReasonCLIDisconnected {
+			if err := ancestor.Unsuspend(); err != nil {
+				log.Printf("[resume] unsuspend ancestor uuid=%s pid=%d failed: %v",
+					ancestor.UUID, ancestor.PID, err)
+			} else {
+				ancestor.SetSuspendReason("")
+				k.emitEvent(ancestor, "ResumeUnsuspendsAncestor", map[string]any{
+					"ancestor_pid":  ancestor.PID,
+					"ancestor_uuid": ancestor.UUID,
+					"trigger_uuid":  startUUID,
+				}, nil, nil, 0)
+			}
+		}
+		uuid = ancestor.ParentUUID
+	}
+	// Reaching maxDepth almost always means a ParentUUID cycle (self-link or
+	// A↔B oscillation) — a bug worth surfacing rather than silently truncating.
+	if depth == maxDepth && uuid != "" {
+		log.Printf("[resume] ancestor walk hit max depth %d starting at uuid=%s — possible ParentUUID cycle",
+			maxDepth, startUUID)
+	}
+}
+
+// SuspendReasonCLIDisconnected is the canonical SuspendReason value set when a
+// script-runner process is suspended because its CLI client disconnected. It
+// is the single source of truth shared between the kernel resume logic
+// (kernel/resume.go) and the IPC handler that sets the reason
+// (ipc/server_pipeline.go), so both agree on spelling at compile time.
+const SuspendReasonCLIDisconnected = "cli_disconnected"
+
 // cleanupOldProcessAndHistory removes the old in-memory Process and procHistory
 // entry that share the resume UUID. It is a no-op when fork=true (preserving
 // the original lineage for the forked branch). Called by both resumeFromCheckpoint
@@ -309,6 +386,11 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 		// Non-fork: inherit original UUID
 		proc.UUID = uuid
 	}
+	// Restore parent linkage from the checkpoint snapshot. Older checkpoints
+	// (written before ParentUUID was persisted) leave the field empty, which
+	// no-ops the helper — the resumed process becomes a true root, matching
+	// pre-fix behavior.
+	k.restoreParentLinkage(proc, cp.ParentUUID)
 	proc.Provider = cp.Provider
 	proc.Model = cp.Model
 	proc.AllowedDevices = append([]string(nil), cp.AllowedDevices...)
@@ -574,7 +656,9 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	proc.ResumedFromStep = startStep
 	// Restore additional state captured on disk so the resumed process is not a
 	// stripped-down shadow of the original (Edge Case Hunter Finding #5 & #10).
-	proc.ParentUUID = diskInfo.ParentUUID
+	// restoreParentLinkage sets ParentUUID, plus PPID + parent.AddChild when the
+	// parent is still in procTable — fixes the "resume detaches from tree" bug.
+	k.restoreParentLinkage(proc, diskInfo.ParentUUID)
 	proc.ContextBudget = diskInfo.ContextBudget
 	proc.ContextWindow = diskInfo.ContextWindow
 	proc.ComposeNode = diskInfo.ComposeNode

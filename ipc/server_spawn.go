@@ -303,5 +303,17 @@ func (s *Server) resolveProjectContext(projectDir, rnixEnv string) (*config.Proj
 	projectSkillLoader := skills.NewSkillLoader(skillDirs)
 	projectAgentLoader := agents.NewAgentLoader(agentDirs, projectSkillLoader, nil)
 
+	// Wrap both loaders into opaque types.AgentLoaderFunc / SkillLoaderFunc and
+	// stash on ProjectConfig so kernel/tool_exec.go ActionSpawn / ActionSpecialize
+	// can prefer the project-aware lookup over k.agentLoader / k.skillLoader.
+	// Without this, sub-agent spawn from a project-context process would silently
+	// fall back to ~/.config/rnix/agents/ and ignore .rnix/agents/ overrides.
+	projCfg.AgentLoader = func(name string) (any, error) {
+		return projectAgentLoader.Load(name)
+	}
+	projCfg.SkillLoader = func(name string) (any, error) {
+		return projectSkillLoader.LoadFull(name)
+	}
+
 	return projCfg, projectAgentLoader.Load, nil
 }

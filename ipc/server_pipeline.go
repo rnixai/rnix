@@ -3,6 +3,7 @@ package ipc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -14,6 +15,22 @@ import (
 	"github.com/rnixai/rnix/kernel"
 	"github.com/rnixai/rnix/shell"
 )
+
+// Sentinel errors carried by context.WithCancelCause so the post-run cleanup
+// in handleExecScript can distinguish CLI client disconnect (suspend parent,
+// preserve children) from explicit kill / daemon shutdown (finish parent as
+// failed and reap, matching legacy behaviour). Each scriptCancel goroutine
+// passes one of these as its cause.
+var (
+	errCLIDisconnected = errors.New("cli disconnected")
+	errScriptKilled    = errors.New("script process killed")
+	errDaemonShutdown  = errors.New("daemon shutdown")
+)
+
+// suspendReasonCLIDisconnected re-binds the exported kernel constant so the
+// rest of this file reads naturally. Using the kernel value (rather than a
+// duplicated literal) makes mis-spellings a compile error in either package.
+const suspendReasonCLIDisconnected = kernel.SuspendReasonCLIDisconnected
 
 // --- spawn pipeline ---
 
@@ -173,8 +190,15 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 			}
 			return info.Result, exit.Code, info.TokensUsed, nil
 		case <-ctx.Done():
-			// Don't kill paused child processes — they are intentionally suspended
-			// and should survive parent context cancellation.
+			cause := context.Cause(ctx)
+			// CLI-disconnect: preserve the child for later resume — do NOT kill
+			// or reap. Matches the script-runner parent's Suspend semantics in
+			// handleExecScript. Any child state (Running / Paused) survives.
+			if errors.Is(cause, errCLIDisconnected) {
+				return "", 1, 0, ctx.Err()
+			}
+			// Pre-existing carve-out: paused children are intentionally suspended
+			// and should survive parent context cancellation regardless of cause.
 			if info, err := s.kernel.GetProcInfo(pid); err == nil && info.IsPaused {
 				return "", 1, 0, ctx.Err()
 			}
@@ -260,15 +284,20 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	//   1. The script runner process receives SIGTERM/SIGKILL (K in rnix top)
 	//   2. The daemon is shutting down
 	//   3. The client disconnects (Ctrl+C or terminal close)
-	scriptCtx, scriptCancel := context.WithCancel(context.Background())
-	defer scriptCancel()
+	//
+	// Each goroutine passes a sentinel cause via context.WithCancelCause so the
+	// post-run block below can tell which reason fired and decide whether the
+	// script-runner parent process should be Suspended (cli disconnect, allow
+	// resume) or Finished as failed (kill / shutdown — legacy behaviour).
+	scriptCtx, scriptCancel := context.WithCancelCause(context.Background())
+	defer scriptCancel(nil)
 
 	go func() {
 		select {
 		case <-s.done:
-			scriptCancel()
+			scriptCancel(errDaemonShutdown)
 		case <-scriptProc.CancelledCh():
-			scriptCancel()
+			scriptCancel(errScriptKilled)
 		case <-scriptCtx.Done():
 		}
 	}()
@@ -278,7 +307,7 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	go func() {
 		buf := make([]byte, 1)
 		conn.Read(buf) //nolint:errcheck // intentional: only care about close, not the value
-		scriptCancel()
+		scriptCancel(errCLIDisconnected)
 	}()
 
 	spawner := &ipcKernelSpawner{
@@ -305,19 +334,24 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 
 	result, execErr := executor.Execute(scriptCtx, script)
 
-	// Finalise the script runner process so it transitions Running→Zombie and is reaped.
-	// twoPhaseShutdown (if running because of a K kill) will unblock on proc.terminated.
-	if execErr != nil {
-		scriptProc.Finish("", 1, execErr)
-	} else {
-		scriptProc.Finish(result.LastResult, result.LastExitCode, nil)
+	// Decide how to finalise the script-runner process. See finalizeScriptRunner
+	// for the full case analysis. We pass result.LastResult/LastExitCode only
+	// when execErr is nil (clean run path) so the helper has all it needs.
+	var lastResult string
+	var lastExitCode int
+	if execErr == nil && result != nil {
+		lastResult = result.LastResult
+		lastExitCode = result.LastExitCode
 	}
-	s.kern.Reap(scriptPID)
-
-	if execErr != nil {
-		ep := ErrorPayload{Code: "SCRIPT_ERROR", Message: execErr.Error()}
-		payload, _ := json.Marshal(ep)
-		_ = enc.Encode(StreamEvent{Type: StreamError, Payload: payload})
+	outcome := finalizeScriptRunner(scriptProc, context.Cause(scriptCtx), execErr, lastResult, lastExitCode)
+	if outcome.reapAfter {
+		s.kern.Reap(scriptPID)
+	}
+	if outcome.streamPayload != nil {
+		payload, _ := json.Marshal(outcome.streamPayload)
+		_ = enc.Encode(StreamEvent{Type: outcome.streamType, Payload: payload})
+	}
+	if outcome.returnEarly {
 		return
 	}
 
@@ -329,4 +363,93 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	}
 	payload, _ := json.Marshal(resp)
 	_ = enc.Encode(StreamEvent{Type: StreamComplete, Payload: payload})
+}
+
+// scriptRunnerOutcome describes what handleExecScript should do after the
+// script executor returns, decoupling the decision (testable) from the
+// side effects (streaming, reaping) that require live IPC state.
+type scriptRunnerOutcome struct {
+	// reapAfter is true when the caller should call kernel.Reap(scriptPID).
+	// false for the CLI-disconnect path where the parent stays in procTable
+	// as Suspended so a Dashboard resume can re-activate it.
+	reapAfter bool
+	// streamPayload + streamType are the StreamEvent to encode back to the
+	// client before returning, or nil/"" if nothing should be streamed by
+	// the helper (the success path encodes ExecScriptResponse itself).
+	streamPayload any
+	streamType    StreamEventType
+	// returnEarly is true when handleExecScript should return immediately
+	// (interrupted or errored paths); false when the success path should
+	// fall through to encoding the ExecScriptResponse.
+	returnEarly bool
+}
+
+// finalizeScriptRunner picks the post-execute action for the script-runner
+// process based on (cause, execErr) and applies the side effects on the
+// process itself (Suspend / Finish). Streaming + Reap are returned in
+// scriptRunnerOutcome so the caller stays in control of network I/O.
+//
+// Cases:
+//  1. execErr != nil && cause is errCLIDisconnected && parent still Running
+//     → Suspend(parent, reason=cli_disconnected), NOT reap. Stream
+//     SCRIPT_INTERRUPTED. Dashboard `R` on any descendant can re-activate
+//     via kernel.reactivateCliDisconnectedAncestors.
+//  2. execErr != nil (kill / shutdown / non-ctx error)
+//     → Finish(code=1, execErr), Reap. Stream SCRIPT_ERROR.
+//  3. execErr == nil
+//     → Finish(lastResult, lastExitCode, nil), Reap. Caller streams
+//     ExecScriptResponse on the success path (returnEarly=false).
+//
+// On Suspend transition failure (should not happen from Running) we fall
+// back to the case-2 path so a half-transitioned process is never left in
+// procTable.
+func finalizeScriptRunner(scriptProc *kernel.Process, cause, execErr error, lastResult string, lastExitCode int) scriptRunnerOutcome {
+	if execErr != nil && errors.Is(cause, errCLIDisconnected) &&
+		scriptProc.GetState() == types.StateRunning {
+		scriptProc.SetSuspendReason(suspendReasonCLIDisconnected)
+		if suspendErr := scriptProc.Suspend(); suspendErr == nil {
+			return scriptRunnerOutcome{
+				reapAfter: false,
+				streamPayload: ErrorPayload{
+					Code:    "SCRIPT_INTERRUPTED",
+					Message: "cli disconnected; script suspended",
+				},
+				streamType:  StreamError,
+				returnEarly: true,
+			}
+		}
+		// Fallback: state transition failed → revert to legacy Finish+Reap.
+		// Clear SuspendReason first so the persisted proc-info.json snapshot
+		// doesn't carry a stale "cli_disconnected" tag — that would mislead
+		// reactivateCliDisconnectedAncestors during any later descendant
+		// resume into believing this (now Dead) process is wakeable.
+		scriptProc.SetSuspendReason("")
+		scriptProc.Finish("interrupted", 1, execErr)
+		return scriptRunnerOutcome{
+			reapAfter: true,
+			streamPayload: ErrorPayload{
+				Code:    "SCRIPT_ERROR",
+				Message: execErr.Error(),
+			},
+			streamType:  StreamError,
+			returnEarly: true,
+		}
+	}
+	if execErr != nil {
+		scriptProc.Finish("", 1, execErr)
+		return scriptRunnerOutcome{
+			reapAfter: true,
+			streamPayload: ErrorPayload{
+				Code:    "SCRIPT_ERROR",
+				Message: execErr.Error(),
+			},
+			streamType:  StreamError,
+			returnEarly: true,
+		}
+	}
+	scriptProc.Finish(lastResult, lastExitCode, nil)
+	return scriptRunnerOutcome{
+		reapAfter:   true,
+		returnEarly: false,
+	}
 }

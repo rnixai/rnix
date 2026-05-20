@@ -56,11 +56,17 @@ func isASCIIMode() bool {
 
 // isFailedResult returns true when the result string indicates failure:
 // empty, or containing "error", "fail", or "timeout" (case-insensitive).
+// Exception: "interrupted" / "cli_disconnected" mark CLI-disconnect suspends
+// or user interruptions and must NOT render as failure — the script can be
+// resumed via Dashboard, so the parent process is still in-flight.
 func isFailedResult(result string) bool {
 	if result == "" {
 		return true
 	}
 	lower := strings.ToLower(result)
+	if lower == "interrupted" || lower == "cli_disconnected" {
+		return false
+	}
 	return strings.Contains(lower, "error") ||
 		strings.Contains(lower, "fail") ||
 		strings.Contains(lower, "timeout")

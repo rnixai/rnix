@@ -573,6 +573,34 @@ func TestAgentLoader_Load_RealOrchestrator(t *testing.T) {
 	}
 }
 
+// TestAgentLoader_Load_RealStem locks the contract: the built-in `stem` agent
+// must NOT pin a provider or preferred model. stem is the opinion-less base
+// agent — it follows CLI --provider > ProjectConfig.DefaultProvider > kernel
+// default. Regression guard for the bug where stem hard-coded provider=claude
+// and silently overrode project-level default_provider settings.
+func TestAgentLoader_Load_RealStem(t *testing.T) {
+	sl := skills.NewSkillLoader([]string{"../lib/skills"})
+	al := NewAgentLoader([]string{"../lib/agents"}, sl, nil)
+
+	info, err := al.Load("stem")
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if info.Manifest.Name != "stem" {
+		t.Errorf("Name = %q, want %q", info.Manifest.Name, "stem")
+	}
+	if info.Manifest.Models.Provider != "" {
+		t.Errorf("Models.Provider = %q, want empty (stem follows CLI/project default)", info.Manifest.Models.Provider)
+	}
+	if info.Manifest.Models.Preferred != "" {
+		t.Errorf("Models.Preferred = %q, want empty (stem follows driver default)", info.Manifest.Models.Preferred)
+	}
+	if info.Manifest.Models.Fallback != "" {
+		t.Errorf("Models.Fallback = %q, want empty", info.Manifest.Models.Fallback)
+	}
+}
+
 // writeAgentData creates a minimal agent directory with agent.yaml and instructions.md
 // under baseDir/agentName/.
 func writeAgentData(t *testing.T, baseDir, agentName, description, instructions string) {
