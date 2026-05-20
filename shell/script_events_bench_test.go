@@ -1,6 +1,3 @@
-//go:build atdd_red
-// +build atdd_red
-
 package shell
 
 import (
@@ -10,18 +7,15 @@ import (
 )
 
 // ============================================================
-// ATDD RED PHASE — Story 43.2: Trace overhead benchmark (AC#5)
+// Story 43.2: Trace overhead benchmark (AC#5) — green-phase
 //
 // AC#5: P95 single-statement overhead with hook installed must be
 // ≤ 5ms above the no-hook baseline. EventWriter writes ≈ 50–200µs
 // per event in production; the benchmark is mostly proving the
 // hook call chain + map allocation does not balloon the cost.
 //
-// dev-story removes the build tag once shell.ScriptEvent +
-// ScriptExecutor.OnEvent ship.
-//
-// PR description should pasted bench output. Re-publish using:
-//   go test -tags atdd_red -bench=. -benchmem ./shell/...
+// Re-run with:
+//   go test -bench=. -benchmem ./shell/...
 // ============================================================
 
 const benchScript = `

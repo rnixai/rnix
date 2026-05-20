@@ -74,6 +74,28 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 	}
 }
 
+// EmitScriptEvent is the public entry for non-reasoning processes (currently
+// the script-runner with SpawnOpts.SkipReasonLoop=true, Story 43.2 OBS-1) to
+// inject control-flow trace events into the same observation pipeline used
+// by reasonStep. Internally it forwards to emitEvent so events.jsonl,
+// DebugChan, recordMgr, and immuneDaemon all see the event consistently —
+// callers MUST NOT bypass this and write to EventWriter directly, otherwise
+// the rest of the observation stack (Dashboard subscribers, trace recorder,
+// immune monitor) silently misses the event.
+//
+// proc == nil is a no-op (defensive: the script-runner Reap path races with
+// late emit callbacks during shutdown). When the process has no EventWriter
+// attached (e.g. NewEventWriter init failed in handleExecScript), the inner
+// emitEvent gates on `ew != nil` and silently skips the disk write — the
+// other side effects (DebugChan, recordMgr, immune) still fire on the
+// best-effort principle.
+func (k *KernelImpl) EmitScriptEvent(proc *Process, syscall string, args map[string]any) {
+	if proc == nil {
+		return
+	}
+	k.emitEvent(proc, syscall, args, nil, nil, 0)
+}
+
 // emitLog sends a LogEntry to the process LogChan (non-blocking).
 func (k *KernelImpl) emitLog(proc *Process, step int, cat types.LogCategory, content, toolPath string) {
 	entry := types.LogEntry{

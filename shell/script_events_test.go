@@ -1,27 +1,15 @@
-//go:build atdd_red
-// +build atdd_red
-
 package shell
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync/atomic"
 	"testing"
 )
 
 // ============================================================
-// ATDD RED PHASE — Story 43.2: ScriptExecutor Trace Events (OBS-1)
-//
-// These tests reference symbols that do NOT yet exist:
-//   - shell.ScriptEvent struct (Kind/Line/Intent/Meta fields)
-//   - shell.ScriptEventKind string type
-//   - shell.ScriptStmtBegin / ScriptStmtEnd / ScriptSpawn /
-//     ScriptWhileIter / ScriptCondition constants
-//   - ScriptExecutor.OnEvent field
-//
-// Compile failure under `-tags atdd_red` is the RED signal.
-// dev-story removes the build tag after implementation lands.
+// Story 43.2: ScriptExecutor Trace Events (OBS-1) — green-phase tests
 //
 // Mapping to Story 43.2 ACs:
 //   AC#1 — ScriptExecutor exposes OnEvent hook + ScriptEvent type
@@ -42,9 +30,7 @@ func (r *onEventRecorder) record(ev ScriptEvent) {
 	// the recorded slice — the production hook contract does NOT promise
 	// Meta is immutable after delivery.
 	meta := make(map[string]any, len(ev.Meta))
-	for k, v := range ev.Meta {
-		meta[k] = v
-	}
+	maps.Copy(meta, ev.Meta)
 	ev.Meta = meta
 	r.events = append(r.events, ev)
 }
@@ -156,16 +142,18 @@ export B=2
 // 5 times by mutating a counter via assignment spawns, then asserts iteration
 // values 1..5 surface in ScriptWhileIter.Meta["iteration"].
 //
-// Loop shape:
+// Loop shape (note: unquoted RHS — the script parser does NOT strip quotes
+// from string literals, so `!= "5"` would compare against the literal three
+// characters `"5"` and never break):
 //
 //	export N=0
-//	while $N != "5"
+//	while $N != 5
 //	  N = spawn "increment"       # mock returns 1, 2, 3, 4, 5 on each call
 //	end
 func TestScriptExecutor_OnEvent_WhileIterEmitsCorrectIteration(t *testing.T) {
 	script, err := ParseScript(`
 export N=0
-while $N != "5"
+while $N != 5
 N = spawn "increment"
 end
 `)
@@ -262,14 +250,17 @@ spawn "hello"
 // TestScriptExecutor_OnEvent_ConditionMetaShape exercises both an `if` and a
 // `while` condition and asserts both routes emit ScriptCondition with the
 // trio of fields required by Story spec AC#2 table row 5.
+//
+// RHS values are unquoted — see TestScriptExecutor_OnEvent_WhileIterEmitsCorrectIteration
+// for the parser quirk this avoids.
 func TestScriptExecutor_OnEvent_ConditionMetaShape(t *testing.T) {
 	script, err := ParseScript(`
 export X=ready
-if $X == "ready"
+if $X == ready
 export Y=go
 end
 export N=0
-while $N != "1"
+while $N != 1
 N = spawn "once"
 end
 `)

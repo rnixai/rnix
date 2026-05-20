@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"maps"
 	"net"
 	"path/filepath"
 	"sync"
@@ -299,6 +301,25 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 		return
 	}
 
+	// OBS-1 (Epic 43, Story 43.2): give the script-runner an EventWriter
+	// before the executor starts emitting trace events. The writer follows
+	// the same resolution chain reasonStep uses (kernel.ResolveStepBaseDir)
+	// so script-runner UUID directories sit alongside reasoning-process
+	// data under .rnix/data/steps/<uuid>/events.jsonl. Init failure must
+	// NOT block execution — script-runner observability is best-effort and
+	// EmitScriptEvent already gates on `ew != nil` internally, so a missing
+	// writer degrades trace events to no-ops without affecting the user's
+	// script. Reap (kernel/reap.go) closes whichever EventWriter is
+	// attached, so we do not register an extra Close here.
+	if stepBaseDir := s.kern.ResolveStepBaseDir(scriptProc); stepBaseDir != "" {
+		if ew, ewErr := kernel.NewEventWriter(stepBaseDir, scriptProc.UUID); ewErr == nil {
+			scriptProc.AttachEventWriter(ew)
+		} else {
+			log.Printf("[exec_script] EventWriter init failed for script-runner pid=%d uuid=%s: %v",
+				scriptPID, scriptProc.UUID, ewErr)
+		}
+	}
+
 	writeResponse(conn, Response{OK: true})
 
 	enc := json.NewEncoder(conn)
@@ -373,6 +394,24 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 		}
 		payload, _ := json.Marshal(pp)
 		_ = enc.Encode(StreamEvent{Type: StreamProgress, Payload: payload})
+	}
+
+	// OBS-1 (Epic 43, Story 43.2): forward shell-side ScriptEvents into
+	// the kernel's unified emitEvent path. ScriptEvent stays a shell-only
+	// type (kernel never imports shell), so this closure does the small
+	// shape translation here at the IPC boundary: line + intent get
+	// promoted into the syscall args alongside whatever Meta the shell
+	// already filled in. The kernel side gates on `ew != nil` and
+	// `proc != nil`, so this is safe even if EventWriter init failed
+	// above.
+	executor.OnEvent = func(ev shell.ScriptEvent) {
+		args := make(map[string]any, len(ev.Meta)+2)
+		maps.Copy(args, ev.Meta)
+		args["line"] = ev.Line
+		if ev.Intent != "" {
+			args["intent"] = ev.Intent
+		}
+		s.kern.EmitScriptEvent(scriptProc, string(ev.Kind), args)
 	}
 
 	result, execErr := executor.Execute(scriptCtx, script)

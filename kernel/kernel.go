@@ -222,10 +222,22 @@ func (k *KernelImpl) GetStepDataDir() string {
 
 // resolveBaseDir returns the base .rnix directory for persistence data.
 func (k *KernelImpl) resolveBaseDir(proc *Process) string {
+	return k.ResolveStepBaseDir(proc)
+}
+
+// ResolveStepBaseDir resolves the base .rnix directory used for step /
+// event / checkpoint persistence for the given process. Returns the
+// kernel-wide override if set, otherwise the per-project `.rnix` directory,
+// otherwise "" (caller must skip writer initialisation).
+//
+// Exposed for handleExecScript (Story 43.2 OBS-1) so the script-runner can
+// initialise its EventWriter using the same resolution chain that
+// reasonStep already uses, avoiding two ad-hoc copies that could drift.
+func (k *KernelImpl) ResolveStepBaseDir(proc *Process) string {
 	if k.stepDataDir != "" {
 		return k.stepDataDir
 	}
-	if proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
+	if proc != nil && proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
 		return filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
 	}
 	return ""

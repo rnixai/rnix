@@ -1,6 +1,3 @@
-//go:build atdd_red
-// +build atdd_red
-
 package kernel
 
 import (
@@ -12,11 +9,7 @@ import (
 )
 
 // ============================================================
-// ATDD RED PHASE — Story 43.2: kernel.EmitScriptEvent + AttachEventWriter
-//
-// Symbols that do NOT yet exist:
-//   - (*KernelImpl).EmitScriptEvent(proc, syscall, args)
-//   - (*Process).AttachEventWriter(*EventWriter)
+// Story 43.2: kernel.EmitScriptEvent + AttachEventWriter — green-phase
 //
 // Mapping to ACs:
 //   AC#3 — emit path serialises into the existing SyscallEventDisk schema
@@ -24,9 +17,6 @@ import (
 //   AC#4 — AttachEventWriter setter exists, mu-protected
 //   AC#6 — nil-guard: EmitScriptEvent on a process without an attached
 //          EventWriter is silent (no panic, no error surfaced)
-//
-// Build-tagged so default `make all` stays green until dev-story lands
-// the symbols and removes the tag.
 // ============================================================
 
 // newSkipReasonLoopKernelProc spawns a SkipReasonLoop process via the real

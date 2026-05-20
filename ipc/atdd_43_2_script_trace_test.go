@@ -1,12 +1,10 @@
-//go:build atdd_red
-// +build atdd_red
-
 package ipc
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,20 +17,7 @@ import (
 )
 
 // ============================================================
-// ATDD RED PHASE — Story 43.2: handleExecScript script-trace integration
-//
-// Symbols / wiring that do NOT yet exist:
-//   - handleExecScript initialising an EventWriter for the script-runner
-//     PID before executor.Execute
-//   - executor.OnEvent set to forward ScriptEvents into
-//     s.kern.EmitScriptEvent
-//   - kernel.EmitScriptEvent + (*Process).AttachEventWriter (covered by
-//     atdd_43_2_emit_script_event_test.go in kernel/ package)
-//
-// These tests cover the IPC seam: they construct a minimal Server, drive
-// the same plumbing handleExecScript would, and assert events.jsonl ends
-// up populated. The full HTTP/Unix-socket round-trip is exercised
-// indirectly via handleExecScript's helpers.
+// Story 43.2: handleExecScript script-trace integration — green-phase
 //
 // Mapping to ACs:
 //   AC#3 — events.jsonl contents follow the existing SyscallEventDisk
@@ -43,9 +28,6 @@ import (
 //   AC#7 — end-to-end while+spawn produces the expected event sequence:
 //          ScriptStmtBegin(while) → ScriptCondition → ScriptWhileIter →
 //          ScriptSpawn → ScriptStmtEnd(spawn) → … → ScriptStmtEnd(while)
-//
-// Build-tagged so the rest of the IPC suite stays green until dev-story
-// wires the production path and removes the tag.
 // ============================================================
 
 // fakeEventSpawner is a shell.KernelSpawner that returns canned results
@@ -117,9 +99,7 @@ func runScriptRunnerLikeHandleExecScript(
 	executor := shell.NewScriptExecutor(spawner, shell.NewEnvironment())
 	executor.OnEvent = func(ev shell.ScriptEvent) {
 		args := make(map[string]any, len(ev.Meta)+2)
-		for k, v := range ev.Meta {
-			args[k] = v
-		}
+		maps.Copy(args, ev.Meta)
 		args["line"] = ev.Line
 		if ev.Intent != "" {
 			args["intent"] = ev.Intent
@@ -145,7 +125,7 @@ func TestHandleExecScript_EmitsScriptTraceEvents_E2E(t *testing.T) {
 	}
 	src := `
 export N=0
-while $N != "2"
+while $N != 2
 N = spawn "increment"
 end
 spawn "done"

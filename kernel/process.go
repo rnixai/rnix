@@ -749,6 +749,21 @@ func (p *Process) TouchHeartbeat() {
 	p.mu.Unlock()
 }
 
+// AttachEventWriter installs an EventWriter on a process whose driver is not
+// driven by reasonStep — currently the script-runner spawned with
+// SpawnOpts{SkipReasonLoop: true} (Story 43.2 OBS-1). Concurrent emitEvent
+// readers acquire p.mu, so this setter is race-safe against the publish path.
+//
+// Reasoning processes initialise their own EventWriter inside reason.go and
+// must NOT use this setter; the two write paths are mutually exclusive.
+// Reap (kernel/reap.go) closes whichever EventWriter happens to be attached,
+// so no extra cleanup is required at the call site.
+func (p *Process) AttachEventWriter(ew *EventWriter) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.eventWriter = ew
+}
+
 // LastHeartbeatSnapshot returns the current LastHeartbeat value under
 // proc.mu — use this instead of reading the field directly when racing
 // with TouchHeartbeat / reasonStep / SpawnAndWait's keeper goroutine.
