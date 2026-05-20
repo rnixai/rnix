@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rnixai/rnix/agents"
@@ -339,8 +340,18 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	// (statement gaps, condition evaluation, idle while-loop with paused
 	// children) accumulates with no heartbeat and trips HeartbeatMonitor's STALL
 	// detection. Coexists with SpawnAndWait's ticker as defence-in-depth; both
-	// call TouchHeartbeat under proc.mu and are idempotent at 10s cadence.
-	go keepScriptRunnerHeartbeat(scriptCtx, scriptProc, scriptRunnerHeartbeatInterval)
+	// call TouchHeartbeat under proc.mu — overwriting LastHeartbeat to now() is
+	// safe under concurrent writers.
+	//
+	// We track the keeper with hbWG so we can explicitly stop it before the
+	// post-run Reap below. Otherwise the keeper could race the reaper and
+	// TouchHeartbeat() on a process that has already transitioned to Dead,
+	// violating the "LastHeartbeat freezes on Dead" invariant that dashboard
+	// rendering depends on.
+	var hbWG sync.WaitGroup
+	hbWG.Go(func() {
+		keepScriptRunnerHeartbeat(scriptCtx, scriptProc, scriptRunnerHeartbeatInterval)
+	})
 
 	spawner := &ipcKernelSpawner{
 		kernel:        s.kern,
@@ -365,6 +376,16 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	result, execErr := executor.Execute(scriptCtx, script)
+
+	// HB-1 cleanup: stop the lifecycle heartbeat keeper before transitioning
+	// the process state below. scriptCancel(nil) is a no-op if a watcher
+	// goroutine already set a cause (errCLIDisconnected / errScriptKilled /
+	// errDaemonShutdown), so context.Cause(scriptCtx) still reads the real
+	// cause in finalizeScriptRunner. hbWG.Wait blocks until the keeper has
+	// returned, guaranteeing no further TouchHeartbeat races with the Reap
+	// below or with the Suspended-state transition in finalizeScriptRunner.
+	scriptCancel(nil)
+	hbWG.Wait()
 
 	// Decide how to finalise the script-runner process. See finalizeScriptRunner
 	// for the full case analysis. We pass result.LastResult/LastExitCode only

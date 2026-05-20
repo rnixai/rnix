@@ -3,6 +3,7 @@ package ipc
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
@@ -10,12 +11,17 @@ import (
 
 // newRunningScriptProc returns a script-runner-like Process in State=Running,
 // matching how handleExecScript creates it via Spawn(SkipReasonLoop:true).
+// Seeds LastHeartbeat + StepTimeout the same way Spawn does (kernel/spawn.go:363-366),
+// so HeartbeatMonitor.scan does not silently short-circuit on uninitialised
+// fields (see kernel/heartbeat_monitor.go:115-129).
 func newRunningScriptProc(t *testing.T) *kernel.Process {
 	t.Helper()
 	p := kernel.NewProcess(0, "run: test.ash", nil)
 	if err := p.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
+	p.TouchHeartbeat()
+	p.StepTimeout = 5 * time.Minute
 	return p
 }
 
