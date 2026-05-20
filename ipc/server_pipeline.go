@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"maps"
 	"net"
 	"path/filepath"
@@ -286,10 +285,21 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 		scriptIntent = "run: " + filepath.Base(f)
 	}
 
-	// Register the script itself as a kernel process (visible in rnix top, killable via K).
+	// OBS-1 (Epic 43, Story 43.2 / D4): pre-attach EventWriter via
+	// SpawnOpts.EventWriterFactory so the Spawn event itself lands in
+	// script-runner's events.jsonl. Factory is invoked inside Spawn after
+	// UUID assignment but before the first emitEvent. Failure is logged
+	// and non-fatal — EmitScriptEvent gates on `ew != nil` internally.
 	scriptPID, err := s.kern.Spawn(scriptIntent, nil, kernel.SpawnOpts{
 		SkipReasonLoop: true,
 		ProjectConfig:  projectCfg,
+		EventWriterFactory: func(proc *kernel.Process) (*kernel.EventWriter, error) {
+			stepBaseDir := s.kern.ResolveStepBaseDir(proc)
+			if stepBaseDir == "" {
+				return nil, nil
+			}
+			return kernel.NewEventWriter(stepBaseDir, proc.UUID)
+		},
 	})
 	if err != nil {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "SPAWN_ERROR", Message: err.Error()}})
@@ -299,25 +309,6 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	if !ok {
 		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INTERNAL", Message: "script runner process vanished after spawn"}})
 		return
-	}
-
-	// OBS-1 (Epic 43, Story 43.2): give the script-runner an EventWriter
-	// before the executor starts emitting trace events. The writer follows
-	// the same resolution chain reasonStep uses (kernel.ResolveStepBaseDir)
-	// so script-runner UUID directories sit alongside reasoning-process
-	// data under .rnix/data/steps/<uuid>/events.jsonl. Init failure must
-	// NOT block execution — script-runner observability is best-effort and
-	// EmitScriptEvent already gates on `ew != nil` internally, so a missing
-	// writer degrades trace events to no-ops without affecting the user's
-	// script. Reap (kernel/reap.go) closes whichever EventWriter is
-	// attached, so we do not register an extra Close here.
-	if stepBaseDir := s.kern.ResolveStepBaseDir(scriptProc); stepBaseDir != "" {
-		if ew, ewErr := kernel.NewEventWriter(stepBaseDir, scriptProc.UUID); ewErr == nil {
-			scriptProc.AttachEventWriter(ew)
-		} else {
-			log.Printf("[exec_script] EventWriter init failed for script-runner pid=%d uuid=%s: %v",
-				scriptPID, scriptProc.UUID, ewErr)
-		}
 	}
 
 	writeResponse(conn, Response{OK: true})
@@ -407,9 +398,16 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	executor.OnEvent = func(ev shell.ScriptEvent) {
 		args := make(map[string]any, len(ev.Meta)+2)
 		maps.Copy(args, ev.Meta)
-		args["line"] = ev.Line
+		// P9: don't clobber Meta["line"] / Meta["intent"] if the shell side
+		// ever starts populating them — future emit sites that set these
+		// explicitly should win over the generic ev.Line / ev.Intent fields.
+		if _, present := args["line"]; !present {
+			args["line"] = ev.Line
+		}
 		if ev.Intent != "" {
-			args["intent"] = ev.Intent
+			if _, present := args["intent"]; !present {
+				args["intent"] = ev.Intent
+			}
 		}
 		s.kern.EmitScriptEvent(scriptProc, string(ev.Kind), args)
 	}
@@ -500,6 +498,15 @@ func finalizeScriptRunner(scriptProc *kernel.Process, cause, execErr error, last
 		scriptProc.GetState() == types.StateRunning {
 		scriptProc.SetSuspendReason(suspendReasonCLIDisconnected)
 		if suspendErr := scriptProc.Suspend(); suspendErr == nil {
+			// D3 (Story 43.2): close the EventWriter on Suspend so the
+			// FD + buffered bytes don't leak for the script-runner's full
+			// Suspended lifetime (which can be indefinite — only Reap
+			// would otherwise Close, and Suspend skips Reap). EventWriter
+			// uses O_APPEND, so if the process ever transitions back to
+			// Running and a re-attach happens, prior events are preserved.
+			// The current model has no re-emit path after Suspend (the
+			// executor goroutine is gone), so this is purely cleanup.
+			scriptProc.DetachAndCloseEventWriter()
 			return scriptRunnerOutcome{
 				reapAfter: false,
 				streamPayload: ErrorPayload{

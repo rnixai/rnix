@@ -42,7 +42,7 @@ func benchExecute(b *testing.B, attachHook bool, hookFn func(ScriptEvent)) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		exec := NewScriptExecutor(spawner, NewEnvironment())
 		if attachHook {
 			exec.OnEvent = hookFn

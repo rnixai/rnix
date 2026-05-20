@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"fmt"
+	"log"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -754,6 +755,10 @@ func (p *Process) TouchHeartbeat() {
 // SpawnOpts{SkipReasonLoop: true} (Story 43.2 OBS-1). Concurrent emitEvent
 // readers acquire p.mu, so this setter is race-safe against the publish path.
 //
+// If a writer is already attached, it is Flush+Close'd before being replaced
+// so a double-attach (intentional or racy with reasonStep self-init) does not
+// leak the prior FD. Close errors are logged but otherwise non-fatal.
+//
 // Reasoning processes initialise their own EventWriter inside reason.go and
 // must NOT use this setter; the two write paths are mutually exclusive.
 // Reap (kernel/reap.go) closes whichever EventWriter happens to be attached,
@@ -761,7 +766,35 @@ func (p *Process) TouchHeartbeat() {
 func (p *Process) AttachEventWriter(ew *EventWriter) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.eventWriter != nil && p.eventWriter != ew {
+		if err := p.eventWriter.Close(); err != nil {
+			log.Printf("[event_writer] close prior writer pid=%d: %v", p.PID, err)
+		}
+	}
 	p.eventWriter = ew
+}
+
+// DetachAndCloseEventWriter flushes and closes the currently attached
+// EventWriter (if any) and clears the field. Used by the script-runner
+// Suspend path (Story 43.2 D3) where the process transitions to Suspended
+// outside of Reap and the FD would otherwise leak for the full Suspended
+// lifetime. After detach the process's emit path silently no-ops on disk
+// writes (DebugChan / recordMgr / immune still fire), which matches the
+// "no writer means best-effort" semantics in emitEvent.
+//
+// Safe to call multiple times; safe to call when no writer is attached.
+// EventWriter is opened with O_APPEND, so a later AttachEventWriter using
+// the same UUID preserves history.
+func (p *Process) DetachAndCloseEventWriter() {
+	p.mu.Lock()
+	ew := p.eventWriter
+	p.eventWriter = nil
+	p.mu.Unlock()
+	if ew != nil {
+		if err := ew.Close(); err != nil {
+			log.Printf("[event_writer] detach-close pid=%d: %v", p.PID, err)
+		}
+	}
 }
 
 // LastHeartbeatSnapshot returns the current LastHeartbeat value under

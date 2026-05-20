@@ -20,8 +20,10 @@ const (
 	ScriptStmtEnd ScriptEventKind = "ScriptStmtEnd"
 
 	// ScriptSpawn fires immediately before spawner.SpawnAndWait for any
-	// StmtSpawn (also inside StmtParallel bodies). Meta carries `intent`
-	// (already env.Expand'd), `agent`, `model`, `assign`.
+	// StmtSpawn, including spawns launched inside StmtParallel bodies (in
+	// which case the OnEvent hook is invoked from a parallel goroutine —
+	// implementations MUST be thread-safe). Meta carries `intent` (already
+	// env.Expand'd), `agent`, `model`, `assign`.
 	ScriptSpawn ScriptEventKind = "ScriptSpawn"
 
 	// ScriptWhileIter fires once per while-loop iteration, after the
@@ -47,8 +49,8 @@ type ScriptEvent struct {
 	// would otherwise need formatting on the consumer side (e.g. spawn
 	// intent). Empty string when Meta already covers the full payload.
 	Intent string
-	// Meta carries structured fields keyed in snake_case. Consumers MUST
-	// treat this map as read-only after delivery (the executor reuses
-	// allocations on the hot path).
+	// Meta carries structured fields keyed in snake_case. Consumers SHOULD
+	// treat this map as read-only after delivery; the executor allocates a
+	// fresh map per emit today, but that is not part of the contract.
 	Meta map[string]any
 }

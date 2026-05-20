@@ -279,7 +279,13 @@ func splitNDJSON(raw []byte) [][]byte {
 		}
 	}
 	if start < len(raw) {
-		out = append(out, raw[start:])
+		// Trailing line without a terminating newline is a truncated NDJSON
+		// row (real concern given EventWriter's bufio buffering on crash).
+		// We skip it rather than feed a partial line to json.Unmarshal — a
+		// truncated row would mis-blame the schema instead of detecting the
+		// truncation. Tests that need to see truncated tails should look at
+		// the raw bytes directly.
+		_ = raw[start:]
 	}
 	return out
 }

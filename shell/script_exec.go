@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"path/filepath"
 	"strconv"
@@ -32,6 +33,9 @@ type ScriptExecutor struct {
 	// nil = zero-overhead (fast-path skip). Hook implementations MUST be
 	// pure callbacks: no IO, no blocking. Panics inside the hook are
 	// recovered by emitEvent so a faulty observer never breaks execution.
+	// Thread-safety: OnEvent may be invoked from worker goroutines launched
+	// by `parallel` blocks (ScriptSpawn fires from the per-task goroutine),
+	// so implementations must be safe for concurrent calls.
 	OnEvent     func(ScriptEvent)
 	fileReader  FileReader
 	sourceStack map[string]bool
@@ -112,16 +116,20 @@ func (e *ScriptExecutor) emitEvent(kind ScriptEventKind, line int, intent string
 		return
 	}
 	defer func() {
-		// Never let observation panics break execution.
-		_ = recover()
+		if r := recover(); r != nil {
+			log.Printf("[script_exec] OnEvent hook panic (kind=%s line=%d): %v", kind, line, r)
+		}
 	}()
 	e.OnEvent(ScriptEvent{Kind: kind, Line: line, Intent: intent, Meta: meta})
 }
 
 // conditionString renders a Condition back to a short human-readable form
 // ("$var.prop == value") for the ScriptCondition / ScriptWhileIter event
-// payloads. Output is intentionally ASCII-only so Timeline can render it
-// without rune-width concerns.
+// payloads. Output is intentionally ASCII-only and unquoted so it matches
+// what the script parser would accept verbatim — copying a condition out
+// of Timeline back into a script must round-trip (the parser does not
+// strip quotes; quoting the RHS here would silently turn `!= 5` into
+// `!= "5"` and break the script).
 func conditionString(cond *Condition) string {
 	if cond == nil {
 		return ""
@@ -136,9 +144,7 @@ func conditionString(cond *Condition) string {
 	sb.WriteByte(' ')
 	sb.WriteString(cond.Operator)
 	sb.WriteByte(' ')
-	sb.WriteByte('"')
 	sb.WriteString(cond.Value)
-	sb.WriteByte('"')
 	return sb.String()
 }
 
@@ -146,20 +152,27 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 	result *ScriptResult, stageNum *int, totalStages int) error {
 
 	for _, stmt := range stmts {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-
-		// Story 43.2 (OBS-1): every statement that reaches the switch gets a
-		// paired Begin / End event, regardless of success / error / "stop block"
-		// outcome. nil OnEvent is a zero-overhead fast path inside emitEvent.
+		// Story 43.2 (OBS-1): emit Begin BEFORE the ctx.Err() check so a
+		// statement that we are about to skip due to cancellation still
+		// produces a Begin/End pair (with error="context canceled"). Without
+		// this, Timeline silently drops the cancelled-at statement and shows
+		// the previous one as the last activity.
 		if e.OnEvent != nil {
 			e.emitEvent(ScriptStmtBegin, stmt.Line, "", map[string]any{
 				"stmt_kind": string(stmt.Kind),
 			})
 		}
+		if err := ctx.Err(); err != nil {
+			if e.OnEvent != nil {
+				e.emitEvent(ScriptStmtEnd, stmt.Line, "", map[string]any{
+					"stmt_kind": string(stmt.Kind),
+					"error":     err.Error(),
+				})
+			}
+			return err
+		}
 
-		stop, stmtErr := e.executeStatement(ctx, stmt, result, stageNum, totalStages)
+		stop, stmtExitCode, stmtErr := e.executeStatement(ctx, stmt, result, stageNum, totalStages)
 
 		if e.OnEvent != nil {
 			endMeta := map[string]any{
@@ -172,8 +185,19 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 				// label so Timeline does not paint them red.
 				endMeta["error"] = stmtErr.Error()
 			}
-			if result.LastExitCode != 0 {
-				endMeta["exit_code"] = result.LastExitCode
+			// D1: exit_code reflects THIS statement's own outcome (from
+			// executeStatement), not the sticky global result.LastExitCode
+			// — wrappers (if/while/for/fn/source/parallel) do not bleed a
+			// child's exit_code into their own End event.
+			if stmtExitCode != 0 {
+				endMeta["exit_code"] = stmtExitCode
+			}
+			// P10: signal that this statement aborted the enclosing block
+			// even though it returned no error (e.g. spawn with no assign
+			// and non-zero exit). Timeline can render this distinct from
+			// a normal success.
+			if stop && stmtErr == nil {
+				endMeta["stopped"] = true
 			}
 			e.emitEvent(ScriptStmtEnd, stmt.Line, "", endMeta)
 		}
@@ -208,14 +232,19 @@ func isFlowControl(err error) bool {
 // caller whether the surrounding block should stop early. stop==true means
 // "the original switch returned nil from the block" (a non-error abort, e.g.
 // spawn failure with no on-error and no assignment); stop==false means the
-// caller should keep iterating.
+// caller should keep iterating. exitCode is the statement's own exit code
+// (NOT the sticky global result.LastExitCode) — wrapper statements
+// (if/while/for/fn/source/parallel) return 0 to avoid bleeding a child's
+// exit_code into the wrapper's End event. Leaf statements that produce an
+// exit code (spawn, pipeline, wait) capture the value at the moment it is
+// produced, even if a subsequent assign-zeroing clears the global.
 //
 // All emit points for ScriptSpawn / ScriptCondition / ScriptWhileIter live
 // inside this method so the call-site ordering required by AC#2 (Spawn
 // strictly precedes its StmtEnd, Condition precedes the body, etc.) is
 // preserved.
 func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
-	result *ScriptResult, stageNum *int, totalStages int) (stop bool, err error) {
+	result *ScriptResult, stageNum *int, totalStages int) (stop bool, stmtExitCode int, err error) {
 
 	switch stmt.Kind {
 	case StmtExport:
@@ -240,15 +269,15 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		ia := stmt.IndexAssign
 		arr, ok := e.env.GetArray(ia.VarName)
 		if !ok {
-			return false, fmt.Errorf("line %d: variable %q is not an array", stmt.Line, ia.VarName)
+			return false, 0, fmt.Errorf("line %d: variable %q is not an array", stmt.Line, ia.VarName)
 		}
 		expandedIdx := e.env.Expand(ia.Index)
 		idx, atoiErr := strconv.Atoi(expandedIdx)
 		if atoiErr != nil {
-			return false, fmt.Errorf("line %d: invalid array index %q", stmt.Line, ia.Index)
+			return false, 0, fmt.Errorf("line %d: invalid array index %q", stmt.Line, ia.Index)
 		}
 		if idx < 0 || idx >= len(arr) {
-			return false, fmt.Errorf("line %d: array %q index %d out of range (length %d)", stmt.Line, ia.VarName, idx, len(arr))
+			return false, 0, fmt.Errorf("line %d: array %q index %d out of range (length %d)", stmt.Line, ia.VarName, idx, len(arr))
 		}
 		arr[idx] = e.env.Expand(ia.Value)
 		e.env.SetArray(ia.VarName, arr)
@@ -257,7 +286,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		pa := stmt.PropAssign
 		m, ok := e.env.GetMap(pa.VarName)
 		if !ok {
-			return false, fmt.Errorf("line %d: variable %q is not a map", stmt.Line, pa.VarName)
+			return false, 0, fmt.Errorf("line %d: variable %q is not a map", stmt.Line, pa.VarName)
 		}
 		m[pa.Property] = e.env.Expand(pa.Value)
 		e.env.SetMap(pa.VarName, m)
@@ -266,7 +295,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		*stageNum++
 		expandedIntent, expandErr := e.env.ExpandStrict(stmt.Spawn.Intent)
 		if expandErr != nil {
-			return false, fmt.Errorf("line %d: %w", stmt.Line, expandErr)
+			return false, 0, fmt.Errorf("line %d: %w", stmt.Line, expandErr)
 		}
 		if e.OnStageStart != nil {
 			e.OnStageStart(*stageNum, totalStages, expandedIntent)
@@ -284,7 +313,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		}
 		res, exitCode, tokens, spawnErr := e.spawner.SpawnAndWait(ctx, expandedIntent, stmt.Spawn.Agent, stmt.Spawn.Model)
 		if spawnErr != nil {
-			return false, fmt.Errorf("spawn: %w", spawnErr)
+			return false, 0, fmt.Errorf("spawn: %w", spawnErr)
 		}
 		if stmt.Spawn.ResultLastLine {
 			res = extractLastLine(res)
@@ -292,6 +321,9 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		result.LastResult = res
 		result.LastExitCode = exitCode
 		result.TotalTokens += tokens
+		// D1: capture spawn's own exit code BEFORE the assign-zeroing below
+		// clears the global. End event must reflect what THIS spawn produced.
+		stmtExitCode = exitCode
 
 		if stmt.Assign != "" {
 			e.captures[stmt.Assign] = &SpawnResult{
@@ -304,7 +336,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			*stageNum++
 			hIntent, hExpandErr := e.env.ExpandStrict(stmt.OnError.Intent)
 			if hExpandErr != nil {
-				return false, fmt.Errorf("line %d: on-error: %w", stmt.Line, hExpandErr)
+				return false, 0, fmt.Errorf("line %d: on-error: %w", stmt.Line, hExpandErr)
 			}
 			if e.OnStageStart != nil {
 				e.OnStageStart(*stageNum, totalStages, hIntent)
@@ -312,7 +344,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(
 				ctx, hIntent, stmt.OnError.Agent, stmt.OnError.Model)
 			if hErr != nil {
-				return false, fmt.Errorf("on-error: %w", hErr)
+				return false, 0, fmt.Errorf("on-error: %w", hErr)
 			}
 			if stmt.OnError.ResultLastLine {
 				hRes = extractLastLine(hRes)
@@ -320,6 +352,9 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			result.LastResult = hRes
 			result.LastExitCode = hExitCode
 			result.TotalTokens += hTokens
+			// D1: on-error handler's exit code supersedes — the statement's
+			// final outcome IS the handler's outcome.
+			stmtExitCode = hExitCode
 
 			if stmt.Assign != "" {
 				e.captures[stmt.Assign] = &SpawnResult{
@@ -336,14 +371,14 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		}
 
 		if result.LastExitCode != 0 && stmt.Assign == "" {
-			return true, nil
+			return true, stmtExitCode, nil
 		}
 
 	case StmtPipeline:
 		*stageNum++
 		expanded, expandErr := expandPipelineIntentsStrict(e.env, stmt.Pipeline)
 		if expandErr != nil {
-			return false, fmt.Errorf("line %d: %w", stmt.Line, expandErr)
+			return false, 0, fmt.Errorf("line %d: %w", stmt.Line, expandErr)
 		}
 		if e.OnStageStart != nil {
 			e.OnStageStart(*stageNum, totalStages, "pipeline")
@@ -351,12 +386,13 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		pExec := NewPipelineExecutor(e.spawner)
 		pResult, pErr := pExec.Execute(ctx, expanded)
 		if pErr != nil {
-			return false, fmt.Errorf("pipeline: %w", pErr)
+			return false, 0, fmt.Errorf("pipeline: %w", pErr)
 		}
 		if len(pResult.Stages) > 0 {
 			last := pResult.Stages[len(pResult.Stages)-1]
 			result.LastResult = last.Result
 			result.LastExitCode = last.ExitCode
+			stmtExitCode = last.ExitCode
 		}
 		result.TotalTokens += pResult.TotalTokens
 
@@ -364,7 +400,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			*stageNum++
 			hIntent, hExpandErr := e.env.ExpandStrict(stmt.OnError.Intent)
 			if hExpandErr != nil {
-				return false, fmt.Errorf("line %d: on-error: %w", stmt.Line, hExpandErr)
+				return false, 0, fmt.Errorf("line %d: on-error: %w", stmt.Line, hExpandErr)
 			}
 			if e.OnStageStart != nil {
 				e.OnStageStart(*stageNum, totalStages, hIntent)
@@ -372,7 +408,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(
 				ctx, hIntent, stmt.OnError.Agent, stmt.OnError.Model)
 			if hErr != nil {
-				return false, fmt.Errorf("on-error: %w", hErr)
+				return false, 0, fmt.Errorf("on-error: %w", hErr)
 			}
 			if stmt.OnError.ResultLastLine {
 				hRes = extractLastLine(hRes)
@@ -380,21 +416,32 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			result.LastResult = hRes
 			result.LastExitCode = hExitCode
 			result.TotalTokens += hTokens
+			stmtExitCode = hExitCode
 		}
 
 		if result.LastExitCode != 0 {
-			return true, nil
+			return true, stmtExitCode, nil
 		}
 
 	case StmtParallel:
 		if parErr := e.executeParallel(ctx, stmt, result, stageNum, totalStages); parErr != nil {
-			return false, parErr
+			return false, 0, parErr
 		}
 
 	case StmtIf:
 		left, match, condErr := e.evalConditionWithLeft(&stmt.If.Condition)
 		if condErr != nil {
-			return false, fmt.Errorf("if condition: %w", condErr)
+			// P3: emit ScriptCondition with error BEFORE returning, so
+			// Timeline can show which condition failed to evaluate.
+			if e.OnEvent != nil {
+				e.emitEvent(ScriptCondition, stmt.Line, "", map[string]any{
+					"condition": conditionString(&stmt.If.Condition),
+					"left":      left,
+					"result":    false,
+					"error":     condErr.Error(),
+				})
+			}
+			return false, 0, fmt.Errorf("if condition: %w", condErr)
 		}
 		if e.OnEvent != nil {
 			e.emitEvent(ScriptCondition, stmt.Line, "", map[string]any{
@@ -411,10 +458,12 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		}
 		if len(branch) > 0 {
 			if blockErr := e.executeBlock(ctx, branch, result, stageNum, totalStages); blockErr != nil {
-				return false, blockErr
+				return false, 0, blockErr
 			}
 			if result.LastExitCode != 0 {
-				return true, nil
+				// Wrapper: do NOT propagate child exit to our own End event
+				// (the child's own End already carried it). Just request stop.
+				return true, 0, nil
 			}
 		}
 
@@ -428,12 +477,12 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		}
 		for _, item := range list {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				return false, ctxErr
+				return false, 0, ctxErr
 			}
 			e.env.Set(stmt.For.VarName, e.env.Expand(item))
 			if blockErr := e.executeBlock(ctx, stmt.For.Body, result, stageNum, totalStages); blockErr != nil {
 				e.env.Delete(stmt.For.VarName)
-				return false, blockErr
+				return false, 0, blockErr
 			}
 			if result.LastExitCode != 0 {
 				break
@@ -445,11 +494,20 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		iterations := 0
 		for {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				return false, ctxErr
+				return false, 0, ctxErr
 			}
 			left, match, condErr := e.evalConditionWithLeft(&stmt.While.Condition)
 			if condErr != nil {
-				return false, fmt.Errorf("while condition: %w", condErr)
+				// P3: emit ScriptCondition with error before returning.
+				if e.OnEvent != nil {
+					e.emitEvent(ScriptCondition, stmt.Line, "", map[string]any{
+						"condition": conditionString(&stmt.While.Condition),
+						"left":      left,
+						"result":    false,
+						"error":     condErr.Error(),
+					})
+				}
+				return false, 0, fmt.Errorf("while condition: %w", condErr)
 			}
 			if e.OnEvent != nil {
 				e.emitEvent(ScriptCondition, stmt.Line, "", map[string]any{
@@ -469,19 +527,26 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 				})
 			}
 			if blockErr := e.executeBlock(ctx, stmt.While.Body, result, stageNum, totalStages); blockErr != nil {
-				return false, blockErr
+				return false, 0, blockErr
 			}
 			if result.LastExitCode != 0 {
 				break
 			}
 			if iterations >= MaxLoopIterations {
-				return false, fmt.Errorf("while loop exceeded maximum iterations (%d), possible infinite loop", MaxLoopIterations)
+				return false, 0, fmt.Errorf("while loop exceeded maximum iterations (%d), possible infinite loop", MaxLoopIterations)
 			}
 		}
 
 	case StmtBuiltin:
+		// Capture LastExitCode before/after so `wait` (which sets it) surfaces
+		// in this statement's End event; other builtins (sleep, exit) leave
+		// the global untouched and we report 0.
+		preExitCode := result.LastExitCode
 		if biErr := e.executeBuiltin(ctx, stmt.Builtin, result); biErr != nil {
-			return false, biErr
+			return false, 0, biErr
+		}
+		if result.LastExitCode != preExitCode {
+			stmtExitCode = result.LastExitCode
 		}
 
 	case StmtFnDef:
@@ -491,7 +556,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		if _, isBuiltin := builtinFunctions[stmt.FnCall.Name]; isBuiltin {
 			returnVal, biErr := e.executeBuiltinFn(ctx, stmt)
 			if biErr != nil {
-				return false, fmt.Errorf("line %d: %w", stmt.Line, biErr)
+				return false, 0, fmt.Errorf("line %d: %w", stmt.Line, biErr)
 			}
 			if stmt.Assign != "" && stmt.FnCall.Name != "keys" {
 				e.env.Set(stmt.Assign, returnVal)
@@ -501,10 +566,10 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 
 		fnDef, ok := e.functions[stmt.FnCall.Name]
 		if !ok {
-			return false, fmt.Errorf("undefined function %q", stmt.FnCall.Name)
+			return false, 0, fmt.Errorf("undefined function %q", stmt.FnCall.Name)
 		}
 		if e.callDepth >= MaxCallDepth {
-			return false, fmt.Errorf("maximum call depth (%d) exceeded, possible infinite recursion", MaxCallDepth)
+			return false, 0, fmt.Errorf("maximum call depth (%d) exceeded, possible infinite recursion", MaxCallDepth)
 		}
 
 		expandedArgs := make([]string, len(stmt.FnCall.Args))
@@ -545,7 +610,7 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			fnErr = nil
 		}
 		if fnErr != nil {
-			return false, fnErr
+			return false, 0, fnErr
 		}
 		if stmt.Assign != "" {
 			e.env.Set(stmt.Assign, returnValue)
@@ -556,14 +621,14 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 		if stmt.Return.Value != "" {
 			value = e.expandReturnValue(stmt.Return.Value)
 		}
-		return false, &ErrFnReturn{Value: value}
+		return false, 0, &ErrFnReturn{Value: value}
 
 	case StmtSource:
 		if srcErr := e.executeSource(ctx, stmt, result, stageNum, totalStages); srcErr != nil {
-			return false, srcErr
+			return false, 0, srcErr
 		}
 	}
-	return false, nil
+	return false, stmtExitCode, nil
 }
 
 func (e *ScriptExecutor) executeSource(ctx context.Context, stmt Statement, result *ScriptResult, stageNum *int, totalStages int) error {
@@ -715,11 +780,34 @@ func (e *ScriptExecutor) executeParallel(ctx context.Context, stmt Statement, re
 			defer wg.Done()
 			switch t.stmt.Kind {
 			case StmtSpawn:
+				// D2: emit ScriptSpawn for spawns launched inside `parallel`.
+				// OnEvent contract requires implementations to be thread-safe
+				// because this fires from a worker goroutine, not the main
+				// executor goroutine.
+				if e.OnEvent != nil {
+					e.emitEvent(ScriptSpawn, t.stmt.Line, t.expandedIntent, map[string]any{
+						"intent":   t.expandedIntent,
+						"agent":    t.stmt.Spawn.Agent,
+						"model":    t.stmt.Spawn.Model,
+						"assign":   t.stmt.Assign,
+						"parallel": true,
+					})
+				}
 				res, exitCode, tokens, err := e.spawner.SpawnAndWait(ctx, t.expandedIntent, t.stmt.Spawn.Agent, t.stmt.Spawn.Model)
 				if err == nil && t.stmt.Spawn.ResultLastLine {
 					res = extractLastLine(res)
 				}
 				if exitCode != 0 && t.stmt.OnError != nil && err == nil {
+					if e.OnEvent != nil {
+						e.emitEvent(ScriptSpawn, t.stmt.Line, t.expandedOnError, map[string]any{
+							"intent":   t.expandedOnError,
+							"agent":    t.stmt.OnError.Agent,
+							"model":    t.stmt.OnError.Model,
+							"assign":   t.stmt.Assign,
+							"parallel": true,
+							"on_error": true,
+						})
+					}
 					hRes, hExitCode, hTokens, hErr := e.spawner.SpawnAndWait(ctx, t.expandedOnError, t.stmt.OnError.Agent, t.stmt.OnError.Model)
 					if hErr == nil {
 						if t.stmt.OnError.ResultLastLine {

@@ -663,6 +663,20 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 	// Initialize IPC message queue for the new process (Story 6.1)
 	k.msgQueues.Store(proc.PID, newMessageQueue())
 
+	// D4 (Story 43.2): invoke EventWriterFactory BEFORE the Spawn event
+	// emit so the Spawn event itself lands in the process's events.jsonl.
+	// Factory failure is logged but non-fatal — Spawn proceeds without a
+	// writer (degrades trace events to no-ops via the `ew != nil` gate in
+	// emitEvent).
+	if opts.EventWriterFactory != nil {
+		if ew, ewErr := opts.EventWriterFactory(proc); ewErr != nil {
+			log.Printf("[spawn] EventWriterFactory failed pid=%d uuid=%s: %v",
+				proc.PID, proc.UUID, ewErr)
+		} else if ew != nil {
+			proc.AttachEventWriter(ew)
+		}
+	}
+
 	// Emit Spawn syscall event
 	spawnArgs := map[string]any{
 		"intent": intent,

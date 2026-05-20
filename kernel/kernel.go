@@ -80,6 +80,19 @@ type SpawnOpts struct {
 	ComposeDeps   []string // upstream dependency node names
 	PipelineIndex int      // 0-based stage index; -1 = not pipeline
 	PipelineTotal int      // total stages; 0 = not pipeline
+
+	// EventWriterFactory is invoked after the Process is created (UUID
+	// assigned, registered in procTable) but BEFORE the first emitEvent
+	// call. This lets callers — currently the IPC handleExecScript path
+	// for script-runner (SkipReasonLoop=true) processes — attach an
+	// EventWriter early so the Spawn syscall event itself lands in
+	// events.jsonl rather than disappearing in the gap between Spawn
+	// and a post-Spawn AttachEventWriter call (Story 43.2 / OBS-1 D4).
+	//
+	// A nil factory or a factory returning (nil, nil) is a silent no-op.
+	// A non-nil error is logged via log.Printf and Spawn proceeds without
+	// a writer (best-effort observability).
+	EventWriterFactory func(proc *Process) (*EventWriter, error)
 }
 
 // KernelCallbacks allows the CLI layer to receive progress notifications
