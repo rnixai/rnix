@@ -749,6 +749,15 @@ func (p *Process) TouchHeartbeat() {
 	p.mu.Unlock()
 }
 
+// LastHeartbeatSnapshot returns the current LastHeartbeat value under
+// proc.mu — use this instead of reading the field directly when racing
+// with TouchHeartbeat / reasonStep / SpawnAndWait's keeper goroutine.
+func (p *Process) LastHeartbeatSnapshot() time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.LastHeartbeat
+}
+
 // IsSuspendRequested reports whether suspend has been requested for this process.
 func (p *Process) IsSuspendRequested() bool {
 	return p.suspendRequested.Load()

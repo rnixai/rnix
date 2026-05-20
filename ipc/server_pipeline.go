@@ -32,6 +32,28 @@ var (
 // duplicated literal) makes mis-spellings a compile error in either package.
 const suspendReasonCLIDisconnected = kernel.SuspendReasonCLIDisconnected
 
+// scriptRunnerHeartbeatInterval is how often handleExecScript pings the
+// script-runner's LastHeartbeat. See HB-1 (Epic 43, Story 43.1).
+const scriptRunnerHeartbeatInterval = 10 * time.Second
+
+// keepScriptRunnerHeartbeat ticks proc.LastHeartbeat at the given interval
+// until ctx is done. It exists so handleExecScript can run it as a goroutine
+// for the script-runner's full lifetime, complementing SpawnAndWait's
+// narrower wait-for-child ticker. Unit-tested with a small interval; the
+// real call site uses scriptRunnerHeartbeatInterval.
+func keepScriptRunnerHeartbeat(ctx context.Context, proc *kernel.Process, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			proc.TouchHeartbeat()
+		}
+	}
+}
+
 // --- spawn pipeline ---
 
 func (s *Server) handleSpawnPipeline(conn net.Conn, rawPayload json.RawMessage) {
@@ -309,6 +331,16 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 		conn.Read(buf) //nolint:errcheck // intentional: only care about close, not the value
 		scriptCancel(errCLIDisconnected)
 	}()
+
+	// HB-1 (Epic 43, Story 43.1): keep the script-runner's heartbeat alive for
+	// its entire lifetime. SkipReasonLoop processes don't get per-step heartbeat
+	// updates that reasoning processes get; SpawnAndWait's own ticker only covers
+	// the wait-for-child window. Without this, time spent between spawns
+	// (statement gaps, condition evaluation, idle while-loop with paused
+	// children) accumulates with no heartbeat and trips HeartbeatMonitor's STALL
+	// detection. Coexists with SpawnAndWait's ticker as defence-in-depth; both
+	// call TouchHeartbeat under proc.mu and are idempotent at 10s cadence.
+	go keepScriptRunnerHeartbeat(scriptCtx, scriptProc, scriptRunnerHeartbeatInterval)
 
 	spawner := &ipcKernelSpawner{
 		kernel:        s.kern,
