@@ -174,6 +174,15 @@ type Process struct {
 	suspendRequested atomic.Bool   // set by Suspend(), checked by reasonStep
 	SuspendReason    string        // reason for suspension (mu protected)
 
+	// Last completed reasoning step (Story 44.1 code review F5) — atomic so
+	// reasonStep can write without holding proc.mu, and so suspend/resume
+	// helpers can snapshot the value without coordinating locks. Reads 0 when
+	// the process has never completed a step (fresh spawn). Used by
+	// resumeOneForSubtree to decide where to restart the loop after an
+	// in-memory SIGPAUSE/SIGRESUME cycle, instead of starting at step 1 and
+	// overwriting steps.jsonl entries.
+	LastCompletedStep atomic.Int64
+
 	// Context compact (Story 31.2) — mu protected
 	CompactThreshold     float64                       // 0 = use default (80.0); >0 = trigger compact when TokenUsage > threshold
 	SlotCompactThreshold  float64                       // 0 = use default (80.0); >0 = trigger compact when slot usage% > threshold
@@ -846,9 +855,18 @@ func (p *Process) Suspend() error {
 }
 
 // Unsuspend transitions the process from Suspended to Running.
+//
+// Order matters: the suspendRequested flag is cleared only AFTER a successful
+// state transition. If Transition fails (e.g. the process raced to Dead
+// concurrently) we leave suspendRequested as-is so the reasonStep defer path
+// observes a consistent (suspendRequested=true, state=Dead) tuple instead of
+// a phantom "cleared but never resumed" state.
 func (p *Process) Unsuspend() error {
+	if err := p.Transition(types.StateRunning); err != nil {
+		return err
+	}
 	p.suspendRequested.Store(false)
-	return p.Transition(types.StateRunning)
+	return nil
 }
 
 // GetStepsDir returns the checkpoint steps directory (thread-safe).

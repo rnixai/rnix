@@ -375,14 +375,30 @@ func TestResumeSubtree_BreaksOnReapedDescendant(t *testing.T) {
 
 	// Tree: root (Suspended) → child (Suspended) → grandchild (Suspended).
 	// We simulate "child was reaped between Suspend and Resume" by removing it
-	// from the proc table but leaving the grandchild parent linkage in place.
+	// from the proc table while seeding procHistory with its record. Story
+	// 44.1 code review F3 fix: ResumeSubtree must now fall back through
+	// procHistory + ParentUUID and reach the grandchild.
 	root := makeSuspendedProc44_1(t, k, 0, "root", "user_paused")
 	child := makeSuspendedProc44_1(t, k, root.PID, "child", "user_paused")
 	grandchild := makeSuspendedProc44_1(t, k, child.PID, "grandchild", "user_paused")
 
-	// Simulate reap of child: remove from procTable. Parent's Children list
-	// still references child.PID — ResumeSubtree must tolerate the dangling
-	// reference (GetProcess returns ok=false).
+	// Set ParentUUID linkage explicitly — NewProcess does not populate it
+	// (production Spawn / restoreParentLinkage do). The F3 fallback path
+	// walks ParentUUID to reach grandchild when child is no longer in
+	// procTable.
+	grandchild.ParentUUID = child.UUID
+
+	// Capture child's UUID so the fallback path can locate grandchild via
+	// ParentUUID. Seed procHistory before removing from procTable so the
+	// fallback lookup succeeds.
+	k.procHistory.Add(vfs.ProcInfo{
+		PID:        child.PID,
+		UUID:       child.UUID,
+		PPID:       root.PID,
+		ParentUUID: root.UUID,
+		State:      types.StateDead,
+		Intent:     child.Intent,
+	})
 	k.RemoveProcess(child.PID)
 
 	if _, _, err := k.ResumeSubtree(root.PID); err != nil {
@@ -390,17 +406,10 @@ func TestResumeSubtree_BreaksOnReapedDescendant(t *testing.T) {
 	}
 
 	assertProcState44_1(t, root, types.StateRunning, "root must resume even though child was reaped")
-	// grandchild is unreachable through child; whether it resumes depends on
-	// how ResumeSubtree handles the dangling child PID. We assert that the
-	// kernel did not crash and that grandchild is at least in a consistent
-	// state (Running OR Suspended — never an undefined transition).
-	switch grandchild.GetState() {
-	case types.StateRunning, types.StateSuspended:
-		// OK either way; the documented contract permits both paths so long
-		// as the kernel does not panic.
-	default:
-		t.Errorf("grandchild state = %v, want Running or Suspended", grandchild.GetState())
-	}
+	// Story 44.1 code review F21: now that collectSubtreePIDs falls back via
+	// procHistory + ParentUUID, the grandchild is reachable and must resume.
+	assertProcState44_1(t, grandchild, types.StateRunning,
+		"grandchild must resume via procHistory→ParentUUID fallback")
 }
 
 func TestResume_ProcInfo_ReflectsRestoredLinkage(t *testing.T) {

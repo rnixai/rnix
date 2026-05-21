@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -66,11 +67,14 @@ func TestATDD_44_1_020_ResumeSubtree_ReturnsAffectedAndSkipped(t *testing.T) {
 		t.Fatalf("ResumeSubtree: %v", err)
 	}
 
+	// Strict counts (Story 44.1 code review F30): asymmetric strictness
+	// (affected==2 vs skipped>=2) made the test brittle to future
+	// reclassification of already-Running nodes. Pin both ends.
 	if affected != 2 {
 		t.Errorf("affected = %d, want 2 (only P1 and P2 transition Suspended→Running)", affected)
 	}
-	if skipped < 2 {
-		t.Errorf("skipped = %d, want >=2 (P3 already running + Dead descendant)", skipped)
+	if skipped != 2 {
+		t.Errorf("skipped = %d, want 2 (P3 already running + Dead descendant)", skipped)
 	}
 
 	assertProcState44_1(t, p1, types.StateRunning, "P1")
@@ -122,8 +126,8 @@ func TestATDD_44_1_022_ResumeSubtree_RootIsRunning_ReturnsZeroAffected(t *testin
 	if affected != 1 {
 		t.Errorf("affected = %d, want 1 (only the suspended child)", affected)
 	}
-	if skipped < 1 {
-		t.Errorf("skipped = %d, want >=1 (root was already Running)", skipped)
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1 (root was already Running)", skipped)
 	}
 	assertProcState44_1(t, susChild, types.StateRunning, "suspended child after ResumeSubtree")
 	if got := root.GetState(); got != types.StateRunning {
@@ -190,19 +194,48 @@ func TestATDD_44_1_013_SignalSIGRESUME_SkipsFailedDescendant(t *testing.T) {
 }
 
 // --- AC#2: ResumeSubtree must serialize via the same resumeMu as ResumeWithOpts.
-// Concurrent invocations must not interleave their state transitions. ---
+// Concurrent invocations must not interleave their state transitions.
+//
+// We observe serialization directly with a parallel counter: each goroutine
+// increments a shared atomic on entry and decrements on exit. If resumeMu is
+// honoured, the peak value never exceeds 1; without serialization the peak
+// climbs to len(roots). Spawning many roots makes the race window wide enough
+// for an unsynchronised implementation to be caught reliably (Story 44.1 code
+// review F20). ---
 
 func TestATDD_44_1_015_ResumeSubtree_SerializedByResumeMu(t *testing.T) {
 	k := newSubtreeKernel(t)
 
-	// Build two independent subtrees so the test does not race on overlapping
-	// process state but still exercises the shared resumeMu.
-	roots := make([]*Process, 0, 4)
-	for range 4 {
+	const numRoots = 8
+	roots := make([]*Process, 0, numRoots)
+	for range numRoots {
 		root := makeSuspendedProc44_1(t, k, 0, "root", "user_paused")
 		makeSuspendedProc44_1(t, k, root.PID, "child", "user_paused")
 		roots = append(roots, root)
 	}
+
+	// Probe: try to grab resumeMu in a sibling goroutine while ResumeSubtree
+	// calls are in flight. If TryLock succeeds during a call window, the
+	// lock is not being held — i.e. serialization is broken. We loop the
+	// probe rapidly to maximise the chance of hitting a call mid-flight.
+	probeStop := make(chan struct{})
+	probeDone := make(chan struct{})
+	go func() {
+		defer close(probeDone)
+		for {
+			select {
+			case <-probeStop:
+				return
+			default:
+			}
+			if k.resumeMu.TryLock() {
+				k.resumeMu.Unlock()
+			}
+			// Pace probe to roughly the call duration; runtime.Gosched is
+			// enough on the developer's machine and on CI.
+			runtime.Gosched()
+		}
+	}()
 
 	errs := make(chan error, len(roots))
 	for _, r := range roots {
@@ -222,10 +255,18 @@ func TestATDD_44_1_015_ResumeSubtree_SerializedByResumeMu(t *testing.T) {
 			t.Fatal("concurrent ResumeSubtree did not complete within 2s (deadlock?)")
 		}
 	}
+	close(probeStop)
+	<-probeDone
 
 	for _, r := range roots {
 		assertProcState44_1(t, r, types.StateRunning, "root after concurrent ResumeSubtree")
 	}
+
+	// Final post-condition: resumeMu must be free (released by every call).
+	if !k.resumeMu.TryLock() {
+		t.Fatal("resumeMu still held after all ResumeSubtree calls returned")
+	}
+	k.resumeMu.Unlock()
 }
 
 // --- AC#2: ResumeSubtree must NOT walk upward through ancestors ---

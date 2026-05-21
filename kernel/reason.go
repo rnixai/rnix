@@ -670,6 +670,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			// Auto-compact check (Story 31.2): after tool calls processed, before checkpoint
 			k.autoCompactIfNeeded(proc, step)
 			k.asyncWriteCheckpoint(proc, step, consecutiveToolErrors.count)
+			// Record completed step so an in-memory SIGPAUSE/SIGRESUME cycle
+			// restarts at step+1 instead of step 1 (Story 44.1 code review F5).
+			proc.LastCompletedStep.Store(int64(step))
 			continue
 		}
 
@@ -697,6 +700,9 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		if k.callbacks != nil {
 			k.callbacks.OnStepComplete(proc.PID, step, "text", briefTextSummary(resp.Content), false, float64(stepDur.Microseconds())/1000.0)
 		}
+		// Record completed step so an in-memory SIGPAUSE/SIGRESUME cycle
+		// restarts at step+1 instead of step 1 (Story 44.1 code review F5).
+		proc.LastCompletedStep.Store(int64(step))
 		exitCode := 0
 		reason := "completed"
 		if hadError {

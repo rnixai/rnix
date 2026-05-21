@@ -15,24 +15,38 @@ import (
 // to the file that defines the methods.
 var _ SubtreeManager = (*KernelImpl)(nil)
 
+// subtreeMaxDepth bounds the recursion depth in collectSubtreePIDs. The old
+// reactivateCliDisconnectedAncestors used the same value as a defensive cap;
+// keeping it here protects against pathological trees and stack overflow on
+// hosts with small Go stacks.
+const subtreeMaxDepth = 32
+
 // SuspendSubtree is the public entry point for AC#1: SIGPAUSE semantics
 // expressed as a single state-machine transition over the target subtree.
-// It exists so callers that already know they want subtree semantics can
-// avoid the Signal layer entirely.
+//
+// Concurrency: holds resumeMu for the duration of the walk, symmetric with
+// ResumeSubtree. Without this, a concurrent ResumeSubtree on the same tree
+// can interleave per-node transitions and leave the subtree in a mixed
+// Running/Suspended state.
 func (k *KernelImpl) SuspendSubtree(rootPID types.PID) (int, error) {
 	root, ok := k.GetProcess(rootPID)
 	if !ok {
 		return 0, NewSyscallError("SuspendSubtree", rootPID, "",
 			fmt.Errorf("process not found"), types.ErrNotFound)
 	}
+
+	k.resumeMu.Lock()
+	defer k.resumeMu.Unlock()
+
 	return k.suspendSubtree(root)
 }
 
 // ResumeSubtree is the public entry point for AC#3.
 //
 // Concurrency: holds resumeMu for the duration of the walk so that
-// ResumeSubtree and ResumeWithOpts cannot interleave their state transitions
-// (review red-line — see Epic 44.1 dev-notes "resumeMu & concurrency").
+// ResumeSubtree, SuspendSubtree and ResumeWithOpts cannot interleave their
+// state transitions (review red-line — see Epic 44.1 dev-notes "resumeMu &
+// concurrency").
 func (k *KernelImpl) ResumeSubtree(rootPID types.PID) (int, int, error) {
 	if rootPID == 0 {
 		return 0, 0, NewSyscallError("ResumeSubtree", rootPID, "",
@@ -50,6 +64,7 @@ func (k *KernelImpl) ResumeSubtree(rootPID types.PID) (int, int, error) {
 
 	pids := k.collectSubtreePIDs(root)
 	var affected, skipped int
+	allAlreadyRunning := true
 
 	for _, pid := range pids {
 		proc, ok := k.GetProcess(pid)
@@ -62,6 +77,7 @@ func (k *KernelImpl) ResumeSubtree(rootPID types.PID) (int, int, error) {
 		state := proc.GetState()
 		switch state {
 		case types.StateSuspended:
+			allAlreadyRunning = false
 			if err := k.resumeOneForSubtree(proc); err != nil {
 				log.Printf("[subtree] resume pid=%d failed: %v", pid, err)
 				skipped++
@@ -69,26 +85,51 @@ func (k *KernelImpl) ResumeSubtree(rootPID types.PID) (int, int, error) {
 			}
 			affected++
 		case types.StateDead:
+			allAlreadyRunning = false
 			// AC#2: emit skipped_dead / skipped_failed depending on exit code.
 			isFailed := false
+			exitUnknown := false
 			proc.mu.Lock()
-			if proc.Exit != nil && proc.Exit.Code != 0 {
+			switch {
+			case proc.Exit == nil:
+				exitUnknown = true
+			case proc.Exit.Code != 0:
 				isFailed = true
 			}
 			proc.mu.Unlock()
-			k.emitResumeSkipped(proc, isFailed, state)
+			k.emitResumeSkipped(proc, isFailed, exitUnknown, state)
 			skipped++
 		case types.StateZombie:
-			k.emitResumeSkipped(proc, false, state)
+			allAlreadyRunning = false
+			k.emitResumeSkipped(proc, false, false, state)
 			skipped++
 		case types.StateRunning:
-			// Already running — no-op for state but still counted as skipped.
-			k.emitResumeSkipped(proc, false, state)
+			// Already running. Suppress per-node Resume(skipped) events when
+			// the ENTIRE subtree is already Running (review F15: avoid event
+			// spam from nested ResumeSubtree(parent) → ResumeSubtree(child)).
+			// We emit a single rollup event below if that turns out to be the
+			// case; for now just count.
 			skipped++
 		default:
+			allAlreadyRunning = false
 			skipped++
 		}
 	}
+
+	if affected == 0 && allAlreadyRunning && len(pids) > 0 {
+		// Whole-subtree-already-Running: emit one rollup noop instead of
+		// noise from nested ResumeSubtree(parent) → ResumeSubtree(child)
+		// chains where the inner call sees every node Running.
+		k.emitEvent(root, "Resume", map[string]any{
+			"pid":     root.PID,
+			"action":  "noop_all_running",
+			"skipped": skipped,
+		}, nil, nil, 0)
+	}
+	// Dead / Zombie / Failed already emitted distinguished events via
+	// emitResumeSkipped; already-Running nodes intentionally emit nothing so
+	// they do not flood the timeline pane.
+
 	return affected, skipped, nil
 }
 
@@ -97,64 +138,96 @@ func (k *KernelImpl) ResumeSubtree(rootPID types.PID) (int, int, error) {
 // rooted at root and transitions every Running node to Suspended with
 // reason="user_paused".
 //
-// Returning a non-nil error is reserved for kernel-level failures — per-node
-// errors (e.g. racy state transitions) are logged and skipped to keep the
-// fan-out best-effort, matching the "subtree resume tolerates a reaped
-// descendant" contract on the reverse side.
+// A second-pass scan catches descendants that were spawned during the first
+// pass — without this, a fork between collectSubtreePIDs and the per-node
+// Suspend leaves the new child Running while its parent is Suspended,
+// violating the "subtree paused" invariant the user expects.
 func (k *KernelImpl) suspendSubtree(root *Process) (int, error) {
-	pids := k.collectSubtreePIDs(root)
-	affected := 0
-	for _, pid := range pids {
-		proc, ok := k.GetProcess(pid)
-		if !ok {
-			continue
+	totalAffected := 0
+	const maxPasses = 3 // bounded to avoid pathological fork loops
+	for range maxPasses {
+		pids := k.collectSubtreePIDs(root)
+		passAffected := 0
+		for _, pid := range pids {
+			proc, ok := k.GetProcess(pid)
+			if !ok {
+				continue
+			}
+			if proc.GetState() != types.StateRunning {
+				continue
+			}
+			if err := k.suspendOneForSubtree(proc, "user_paused"); err != nil {
+				log.Printf("[subtree] suspend pid=%d failed: %v", pid, err)
+				continue
+			}
+			passAffected++
 		}
-		if proc.GetState() != types.StateRunning {
-			continue
+		totalAffected += passAffected
+		if passAffected == 0 {
+			break // converged: no new Running descendants
 		}
-		if err := k.suspendOneForSubtree(proc, "user_paused"); err != nil {
-			log.Printf("[subtree] suspend pid=%d failed: %v", pid, err)
-			continue
-		}
-		affected++
 	}
-	return affected, nil
+	return totalAffected, nil
 }
 
 // collectSubtreePIDs returns root.PID followed by every descendant PID
-// reachable through GetChildren, in pre-order. It does NOT filter on state
-// (the caller is expected to inspect each node).
+// reachable through GetChildren, in pre-order. When a child PID is no longer
+// in procTable (already reaped) we fall back to procHistory to look up its
+// UUID, then scan the live procTable for grandchildren whose ParentUUID
+// matches — this prevents a reaped intermediate from stranding deeper
+// descendants outside the subtree walk.
 func (k *KernelImpl) collectSubtreePIDs(root *Process) []types.PID {
 	if root == nil {
 		return nil
 	}
 	pids := make([]types.PID, 0, 8)
 	visited := make(map[types.PID]struct{})
-	var visit func(p *Process)
-	visit = func(p *Process) {
+
+	var visit func(p *Process, depth int)
+	visit = func(p *Process, depth int) {
 		if _, seen := visited[p.PID]; seen {
+			return
+		}
+		if depth > subtreeMaxDepth {
+			log.Printf("[subtree] depth bound %d hit at pid=%d; truncating walk",
+				subtreeMaxDepth, p.PID)
 			return
 		}
 		visited[p.PID] = struct{}{}
 		pids = append(pids, p.PID)
 		for _, cpid := range p.GetChildren() {
-			cp, ok := k.GetProcess(cpid)
-			if !ok {
-				// Dangling child reference (reaped descendant) — tolerated.
+			if cp, ok := k.GetProcess(cpid); ok {
+				visit(cp, depth+1)
 				continue
 			}
-			visit(cp)
+			// Dangling child reference (reaped descendant). Try to recover
+			// living grandchildren via ParentUUID lookup in procHistory →
+			// procTable.
+			if k.procHistory == nil {
+				continue
+			}
+			pi := k.procHistory.FindByPID(cpid)
+			if pi == nil || pi.UUID == "" {
+				continue
+			}
+			k.procTable.Range(func(_ types.PID, gc *Process) bool {
+				if gc.ParentUUID == pi.UUID {
+					visit(gc, depth+1)
+				}
+				return true
+			})
 		}
 	}
-	visit(root)
+	visit(root, 0)
 	return pids
 }
 
 // suspendOneForSubtree transitions a single Running process to Suspended
-// using the caller-supplied reason. It reuses the existing suspendProcess
-// helper so the FD close + Suspend event + callback wiring stay in one place,
-// while letting the subtree path use the canonical "user_paused" reason
-// instead of k.Suspend's "user_suspended" string.
+// using the caller-supplied reason. suspendProcess is the sole writer of
+// SuspendReason/Exit — we set suspendRequested (atomic, observed by the
+// reasonStep defer path) and snapshot the step counter so a future
+// ResumeSubtree continues from where reasonStep left off rather than
+// restarting at step 1.
 func (k *KernelImpl) suspendOneForSubtree(proc *Process, reason string) error {
 	// Defensive idempotency — a racy state change between collectSubtreePIDs
 	// and this call must not surface as an illegal-transition error.
@@ -163,11 +236,14 @@ func (k *KernelImpl) suspendOneForSubtree(proc *Process, reason string) error {
 	}
 
 	proc.suspendRequested.Store(true)
-	exit := ExitStatus{Code: ExitSuspended, Reason: "suspended: " + reason}
-	proc.mu.Lock()
-	proc.SuspendReason = reason
-	proc.Exit = &exit
-	proc.mu.Unlock()
+
+	// Snapshot last completed step into ResumedFromStep so the eventual
+	// reasonStep restart starts at LastCompletedStep+1 instead of step 1.
+	if last := proc.LastCompletedStep.Load(); last > 0 {
+		proc.mu.Lock()
+		proc.ResumedFromStep = int(last) + 1
+		proc.mu.Unlock()
+	}
 
 	// Cancel ctx and wait for any reasonStep goroutine to exit. For test
 	// fixtures and script-runners the wg is zero so Wait() returns immediately.
@@ -183,55 +259,94 @@ func (k *KernelImpl) suspendOneForSubtree(proc *Process, reason string) error {
 // reasoning loop. Script-runner resume is handed off to Story 44.2 — for
 // those processes we only transition state and let the IPC layer drive the
 // script forward.
+//
+// Failure mode: if the FD re-open fails, we roll back the Unsuspend so the
+// process does not end up Running-but-undriven (which would cause the
+// heartbeat monitor to escalate stall recovery indefinitely).
 func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 	if err := proc.Unsuspend(); err != nil {
 		return fmt.Errorf("unsuspend: %w", err)
 	}
 	proc.SetSuspendReason("")
-	k.emitEvent(proc, "Resume", map[string]any{
-		"pid":    proc.PID,
-		"action": "resumed_subtree",
-	}, nil, nil, 0)
 
 	// Script-runners and test fixtures have no PrimaryDevice; nothing to
 	// restart. The caller (44.2 in the script-runner case) is responsible
-	// for continuing execution.
+	// for continuing execution. Emit Resume event so consumers see the
+	// transition, but do NOT touch LastHeartbeat — without a driver writing
+	// heartbeats the monitor would otherwise escalate to stall recovery.
 	if proc.PrimaryDevice == "" {
+		k.emitEvent(proc, "Resume", map[string]any{
+			"pid":    proc.PID,
+			"action": "awaiting_script_driver",
+		}, nil, nil, 0)
 		return nil
 	}
 
-	// Rebuild the cancelable ctx (Suspend cancelled the old one).
-	if proc.cancel != nil {
-		proc.cancel()
-	}
+	// Snapshot the old cancel under lock, replace with a fresh ctx, then
+	// invoke the old cancel outside the lock. This avoids reading proc.cancel
+	// without the mutex (the read+invoke pattern races any concurrent writer).
 	gctx, cancel := gocontext.WithCancel(gocontext.Background())
 	proc.mu.Lock()
+	oldCancel := proc.cancel
 	proc.ctx = gctx
 	proc.cancel = cancel
 	proc.LastHeartbeat = time.Now()
 	proc.mu.Unlock()
+	if oldCancel != nil {
+		oldCancel()
+	}
 
 	// Re-open LLM device FD (the old one was closed by suspendProcess).
 	llmFD, openErr := k.openLLMDeviceForResume(proc, proc.PrimaryDevice)
 	if openErr != nil {
+		// Rollback: re-Suspend so the process is not left Running-but-undriven.
+		// Best-effort — log any rollback failure but propagate the original
+		// open error to the caller.
+		if rerr := k.suspendProcess(proc, "resume_failed", ExitSuspended); rerr != nil {
+			log.Printf("[subtree] rollback suspend after failed FD reopen failed: pid=%d err=%v",
+				proc.PID, rerr)
+		}
+		k.emitEvent(proc, "Resume", map[string]any{
+			"pid":    proc.PID,
+			"action": "resume_failed",
+			"error":  openErr.Error(),
+		}, nil, openErr, 0)
 		return fmt.Errorf("reopen llm device %q: %w", proc.PrimaryDevice, openErr)
 	}
 	proc.FDTable[llmFD] = nil
 	k.setupDriverStreamHandler(proc, llmFD)
 
-	spawnOpts := SpawnOpts{Model: proc.Model, StartStep: proc.ResumedFromStep}
+	// Use ResumedFromStep if set by suspendOneForSubtree (in-memory pause), or
+	// LastCompletedStep+1 as a fallback for processes that were Suspended by
+	// some other path (e.g. heartbeat stall → k.Suspend → SIGRESUME).
+	startStep := proc.ResumedFromStep
+	if startStep == 0 {
+		if last := proc.LastCompletedStep.Load(); last > 0 {
+			startStep = int(last) + 1
+		}
+	}
+	spawnOpts := SpawnOpts{Model: proc.Model, StartStep: startStep}
 	proc.wg.Go(func() {
 		defer func() { _ = k.vfs.CloseAll(proc.PID) }()
 		k.reasonStep(proc, llmFD, spawnOpts)
 	})
+
+	// Emit Resume event AFTER the goroutine is queued so observers never see
+	// "resumed_subtree" before the reasoning loop is actually live.
+	k.emitEvent(proc, "Resume", map[string]any{
+		"pid":    proc.PID,
+		"action": "resumed_subtree",
+	}, nil, nil, 0)
 	return nil
 }
 
 // emitResumeSkipped records why a descendant was passed over during
 // ResumeSubtree. The shape of the args map is part of the contract observed
 // by ATDD tests (skipped_dead / skipped_failed boolean flags) and by future
-// Dashboard renderers.
-func (k *KernelImpl) emitResumeSkipped(proc *Process, isFailed bool, state types.ProcessState) {
+// Dashboard renderers. exitUnknown==true distinguishes "Dead with no Exit
+// payload" (likely a race between Terminate and Transition) from a normal
+// completion for forensic clarity.
+func (k *KernelImpl) emitResumeSkipped(proc *Process, isFailed, exitUnknown bool, state types.ProcessState) {
 	args := map[string]any{
 		"pid":    proc.PID,
 		"action": "skipped",
@@ -246,6 +361,9 @@ func (k *KernelImpl) emitResumeSkipped(proc *Process, isFailed bool, state types
 		args["skipped_zombie"] = true
 	case state == types.StateRunning:
 		args["skipped_running"] = true
+	}
+	if exitUnknown {
+		args["exit_unknown"] = true
 	}
 	k.emitEvent(proc, "Resume", args, nil, nil, 0)
 }

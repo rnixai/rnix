@@ -109,13 +109,12 @@ func (hm *HeartbeatMonitor) scan() {
 		proc.mu.Lock()
 		lastHB := proc.LastHeartbeat
 		timeout := proc.StepTimeout
-		// Story 44.1 — SIGPAUSE now routes through k.Suspend → State=Suspended
-		// instead of the legacy SoftPause path. Treat either signal as
-		// "paused" so the heartbeat monitor still skips STALL detection for
-		// both the SoftPause sync primitive (resumeCh, retained for
-		// kernel/reason.go:WaitIfPaused) and the unified state-machine
-		// Suspended state introduced by Story 44.1.
-		isPaused := proc.resumeCh != nil || proc.State == types.StateSuspended
+		// Story 44.1 — only the resumeCh sync primitive (retained for
+		// kernel/reason.go:WaitIfPaused) is checked here; the outer guard
+		// above (`state != types.StateRunning`) already filters out
+		// Suspended processes, so a StateSuspended check at this point is
+		// unreachable (Story 44.1 code review F25).
+		isPaused := proc.resumeCh != nil
 		proc.mu.Unlock()
 
 		// StepTimeout == 0 means user disabled timeout detection

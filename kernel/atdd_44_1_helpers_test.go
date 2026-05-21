@@ -2,6 +2,7 @@ package kernel
 
 import (
 	gocontext "context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 //   - Process fixtures use kernel.newSimpleKernel as the underlying builder
 //     (see kernel/kernel_test.go) so behaviour stays in step with the canonical
 //     kernel constructor.
+//   - Dead/Failed fixtures walk Running→Zombie→Dead, mirroring the production
+//     reaper invariants (Story 44.1 code review D1).
 // =============================================================================
 
 // newSubtreeKernel returns a freshly initialised kernel suitable for
@@ -25,6 +28,18 @@ import (
 func newSubtreeKernel(t *testing.T) *KernelImpl {
 	t.Helper()
 	return newSimpleKernel(t)
+}
+
+// registerProcessForTest installs proc into the kernel's process table and
+// allocates its message queue. Mirrors the production sequence used by Spawn /
+// Resume / Supervisor (see kernel/spawn.go:664, kernel/resume.go:427,
+// kernel/supervisor.go:127) so a future refactor of how msgQueues are
+// allocated only needs to update those production sites — the test fixtures
+// pick up the change through this helper rather than poking the internals
+// directly (Story 44.1 code review F22).
+func registerProcessForTest(k *KernelImpl, p *Process) {
+	k.AddProcess(p)
+	k.msgQueues.Store(p.PID, newMessageQueue())
 }
 
 // makeRunningProc44_1 creates a Running process registered in the kernel and
@@ -40,8 +55,7 @@ func makeRunningProc44_1(t *testing.T, k *KernelImpl, parentPID types.PID, inten
 	if err := proc.Start(); err != nil {
 		t.Fatalf("proc.Start: %v", err)
 	}
-	k.AddProcess(proc)
-	k.msgQueues.Store(proc.PID, newMessageQueue())
+	registerProcessForTest(k, proc)
 	if parentPID != 0 {
 		if parent, ok := k.GetProcess(parentPID); ok {
 			parent.AddChild(proc.PID)
@@ -63,22 +77,24 @@ func makeSuspendedProc44_1(t *testing.T, k *KernelImpl, parentPID types.PID, int
 	return proc
 }
 
-// makeDeadProc44_1 creates a process directly in Dead state (no reasonStep
-// goroutine ever runs). Used to assert that ResumeSubtree skips dead
-// descendants without panicking.
+// makeDeadProc44_1 creates a process that has gone through the full
+// Running→Zombie→Dead lifecycle, matching what the production reaper produces.
+// Used to assert that ResumeSubtree skips dead descendants without panicking.
 func makeDeadProc44_1(t *testing.T, k *KernelImpl, parentPID types.PID, intent string) *Process {
 	t.Helper()
 	proc := NewProcess(parentPID, intent, nil)
 	if err := proc.Start(); err != nil {
 		t.Fatalf("proc.Start: %v", err)
 	}
+	// Terminate moves Running → Zombie (sets Exit, transitions state).
 	if err := proc.Terminate(ExitStatus{Code: 0, Reason: "completed"}); err != nil {
 		t.Fatalf("proc.Terminate: %v", err)
 	}
+	// Then Zombie → Dead, mirroring reapProcess.
 	if err := proc.Transition(types.StateDead); err != nil {
 		t.Fatalf("proc.Transition(Dead): %v", err)
 	}
-	k.AddProcess(proc)
+	registerProcessForTest(k, proc)
 	if parentPID != 0 {
 		if parent, ok := k.GetProcess(parentPID); ok {
 			parent.AddChild(proc.PID)
@@ -90,7 +106,8 @@ func makeDeadProc44_1(t *testing.T, k *KernelImpl, parentPID types.PID, intent s
 // makeFailedProc44_1 creates a Dead-state process whose Exit reason marks it
 // as failed (non-zero exit). The story's AC2 distinguishes "Failed" from "Dead"
 // for the purpose of emitted Resume events even though there is no
-// StateFailed in the process state machine.
+// StateFailed in the process state machine. Walks the full Running→Zombie→Dead
+// transition path (Story 44.1 code review D1).
 func makeFailedProc44_1(t *testing.T, k *KernelImpl, parentPID types.PID, intent string) *Process {
 	t.Helper()
 	proc := NewProcess(parentPID, intent, nil)
@@ -103,7 +120,7 @@ func makeFailedProc44_1(t *testing.T, k *KernelImpl, parentPID types.PID, intent
 	if err := proc.Transition(types.StateDead); err != nil {
 		t.Fatalf("proc.Transition(Dead): %v", err)
 	}
-	k.AddProcess(proc)
+	registerProcessForTest(k, proc)
 	if parentPID != 0 {
 		if parent, ok := k.GetProcess(parentPID); ok {
 			parent.AddChild(proc.PID)
@@ -147,8 +164,10 @@ func assertProcState44_1(t *testing.T, proc *Process, want types.ProcessState, m
 }
 
 // findEvent44_1 returns the first event in events whose Syscall matches name
-// and whose Args[k] matches v for every (k,v) pair in want. Returns nil if not
-// found. Used to assert specific Suspend/Resume event payloads.
+// and whose Args[k] DeepEquals v for every (k,v) pair in want. Returns nil if
+// not found. Uses reflect.DeepEqual rather than `!=` so that producer-side
+// numeric widening (int vs int32 vs types.PID) does not cause silent misses
+// (Story 44.1 code review F9).
 func findEvent44_1(events []types.SyscallEvent, name string, want map[string]any) *types.SyscallEvent {
 	for i := range events {
 		ev := &events[i]
@@ -157,7 +176,12 @@ func findEvent44_1(events []types.SyscallEvent, name string, want map[string]any
 		}
 		match := true
 		for k, v := range want {
-			if ev.Args[k] != v {
+			got, ok := ev.Args[k]
+			if !ok {
+				match = false
+				break
+			}
+			if !reflect.DeepEqual(got, v) && !looselyEqual(got, v) {
 				match = false
 				break
 			}
@@ -167,4 +191,48 @@ func findEvent44_1(events []types.SyscallEvent, name string, want map[string]any
 		}
 	}
 	return nil
+}
+
+// looselyEqual returns true when `got` and `want` represent the same value
+// even if their concrete types differ — e.g. an int producer matched against
+// an int64 expectation. We compare numeric kinds via reflection rather than
+// hard-coding every PID/FD/CtxID alias.
+func looselyEqual(got, want any) bool {
+	if got == nil || want == nil {
+		return got == want
+	}
+	rg := reflect.ValueOf(got)
+	rw := reflect.ValueOf(want)
+	if rg.Kind() == rw.Kind() {
+		return false // would have matched DeepEqual above
+	}
+	if isInt(rg.Kind()) && isInt(rw.Kind()) {
+		return rg.Int() == rw.Int()
+	}
+	if isUint(rg.Kind()) && isUint(rw.Kind()) {
+		return rg.Uint() == rw.Uint()
+	}
+	if isInt(rg.Kind()) && isUint(rw.Kind()) {
+		return rg.Int() >= 0 && uint64(rg.Int()) == rw.Uint()
+	}
+	if isUint(rg.Kind()) && isInt(rw.Kind()) {
+		return rw.Int() >= 0 && rg.Uint() == uint64(rw.Int())
+	}
+	return false
+}
+
+func isInt(k reflect.Kind) bool {
+	switch k {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return true
+	}
+	return false
+}
+
+func isUint(k reflect.Kind) bool {
+	switch k {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return true
+	}
+	return false
 }

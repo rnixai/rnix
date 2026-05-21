@@ -3,6 +3,7 @@ package kernel
 import (
 	"fmt"
 	"log"
+	"maps"
 	"slices"
 	"time"
 
@@ -194,14 +195,19 @@ func (k *KernelImpl) Kill(pid types.PID, signal types.Signal) error {
 		return nil
 	}
 
-	action := k.deliverSignal(proc, signal)
+	action, extraArgs, deliverErr := k.deliverSignal(proc, signal)
 
-	k.emitEvent(proc, "Kill", map[string]any{
+	args := map[string]any{
 		"pid":    pid,
 		"signal": signal.String(),
 		"action": action,
-	}, nil, nil, time.Since(start))
+	}
+	maps.Copy(args, extraArgs)
+	k.emitEvent(proc, "Kill", args, nil, deliverErr, time.Since(start))
 
+	if deliverErr != nil {
+		return NewSyscallError("Kill", pid, "", deliverErr, types.ErrInternal)
+	}
 	return nil
 }
 

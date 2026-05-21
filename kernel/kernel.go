@@ -142,6 +142,12 @@ type SubtreeManager interface {
 	ResumeSubtree(rootPID types.PID) (affected, skipped int, err error)
 }
 
+// Compile-time interface compliance check (kept here next to the
+// ProcessManager assertion so a future refactor that drops kernel/subtree.go
+// still surfaces interface drift at compile time — Story 44.1 code review
+// F26).
+var _ SubtreeManager = (*KernelImpl)(nil)
+
 // KernelImpl is the core microkernel implementation.
 type KernelImpl struct {
 	procTable *xsync.SyncMap[types.PID, *Process]

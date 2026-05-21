@@ -63,13 +63,17 @@ func TestATDD_44_1_002_SignalSIGPAUSE_DoesNotAffectAncestor(t *testing.T) {
 }
 
 // --- AC#1: SIGPAUSE on P2 must not affect a sibling P0 ---
+//
+// AC1 wording: "P0 = P1 的兄弟" — P0 and P1 are top-level siblings (both have
+// PPID=0). SIGPAUSE on P2 (child of P1) must not propagate to P0's branch
+// (Story 44.1 code review F29).
 
 func TestATDD_44_1_003_SignalSIGPAUSE_DoesNotAffectSibling(t *testing.T) {
 	k := newSubtreeKernel(t)
 
+	p0 := makeRunningProc44_1(t, k, 0, "P0 sibling of P1")
 	p1 := makeRunningProc44_1(t, k, 0, "P1 root")
-	p2 := makeRunningProc44_1(t, k, p1.PID, "P2 child")
-	p0 := makeRunningProc44_1(t, k, p1.PID, "P0 sibling")
+	p2 := makeRunningProc44_1(t, k, p1.PID, "P2 child of P1")
 
 	if err := k.Signal(p2.PID, types.SIGPAUSE); err != nil {
 		t.Fatalf("Signal SIGPAUSE on P2: %v", err)
@@ -77,7 +81,10 @@ func TestATDD_44_1_003_SignalSIGPAUSE_DoesNotAffectSibling(t *testing.T) {
 
 	assertProcState44_1(t, p2, types.StateSuspended, "P2 target")
 	if got := p0.GetState(); got != types.StateRunning {
-		t.Errorf("P0 (sibling) state = %s, want Running (no sibling propagation)", got)
+		t.Errorf("P0 (P1's sibling) state = %s, want Running (no sibling propagation)", got)
+	}
+	if got := p1.GetState(); got != types.StateRunning {
+		t.Errorf("P1 (ancestor) state = %s, want Running (no upward propagation)", got)
 	}
 }
 
@@ -148,14 +155,18 @@ func TestATDD_44_1_010_SignalSIGRESUME_SubtreeRestoresRunning(t *testing.T) {
 	}
 }
 
-// --- AC#2: SIGRESUME restarts reasonStep on the resumed process ---
+// --- AC#2: SIGRESUME on Suspended target restores it to Running ---
 //
-// We assert this indirectly: after SIGRESUME the process must transition back
-// to Running, suspendRequested cleared, and IsSuspendRequested() must return
-// false. The reasonStep restart itself is observed via the proc.wg, but here
-// we settle for "the process accepts subsequent state-machine operations".
+// Renamed from the misleading "RestartsReasonStep" — the fixture has no
+// PrimaryDevice and therefore exercises the script-runner branch of
+// resumeOneForSubtree (state transition only, no goroutine launch). The
+// reasonStep-restart code path is exercised end-to-end by the project's
+// integration smoke (see Story 44.1 Tasks 7.3 dev-notes) and by the broader
+// resume tests in resume_parent_linkage_test.go; covering it via unit test
+// would require standing up a fake LLM device, which the rest of this
+// package's tests intentionally avoid (Story 44.1 code review F19).
 
-func TestATDD_44_1_011_SignalSIGRESUME_RestartsReasonStep(t *testing.T) {
+func TestATDD_44_1_011_SignalSIGRESUME_RestoresRunningState(t *testing.T) {
 	k := newSubtreeKernel(t)
 	proc := makeSuspendedProc44_1(t, k, 0, "needs restart", "user_paused")
 
