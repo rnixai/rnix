@@ -703,6 +703,15 @@ func (p *Process) ClearPending(sig types.Signal) {
 
 // Pause creates a resumeCh channel, putting the process into paused state.
 // Idempotent — if already paused, this is a no-op.
+//
+// Note: as of Epic 44.1, business code must NOT call this method directly.
+// Use k.Suspend(pid) / k.SuspendSubtree(pid) / k.ResumeSubtree(pid) or the
+// SIGPAUSE / SIGRESUME signals instead — those route through the canonical
+// Suspended state machine, emit standard Suspend/Resume events, propagate
+// to descendants, and survive daemon restart (44.3). The resumeCh-based
+// SoftPause path here is retained only as an internal sync primitive for
+// kernel/reason.go:WaitIfPaused defensive checks and for kernel/coroutine.go
+// (which uses a separately-typed resumeCh and is unaffected by this note).
 func (p *Process) Pause() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -714,6 +723,10 @@ func (p *Process) Pause() {
 
 // Resume closes the resumeCh channel, unblocking any goroutine waiting on WaitIfPaused.
 // Idempotent — if not paused, this is a no-op.
+//
+// Note: as of Epic 44.1, business code must NOT call this method directly.
+// See the Pause godoc above — k.ResumeSubtree(pid) or SIGRESUME is the
+// supported wake path.
 func (p *Process) Resume() {
 	p.mu.Lock()
 	defer p.mu.Unlock()

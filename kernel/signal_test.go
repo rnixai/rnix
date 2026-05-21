@@ -112,7 +112,10 @@ func TestSignal_ZombieProcess(t *testing.T) {
 	}
 }
 
-// TestSignal_SIGPAUSE verifies SIGPAUSE puts process into paused state.
+// TestSignal_SIGPAUSE verifies SIGPAUSE puts process into Suspended state.
+// Story 44.1 — SIGPAUSE now routes through the Suspended state machine
+// instead of the legacy SoftPause path. The observable invariant moved from
+// `proc.IsPaused()` (resumeCh != nil) to `proc.GetState() == StateSuspended`.
 func TestSignal_SIGPAUSE(t *testing.T) {
 	k := newSimpleKernel(t)
 	proc := newSignalTestProcess(t, k)
@@ -121,12 +124,13 @@ func TestSignal_SIGPAUSE(t *testing.T) {
 		t.Fatalf("Signal SIGPAUSE failed: %v", err)
 	}
 
-	if !proc.IsPaused() {
-		t.Fatal("expected process to be paused after SIGPAUSE")
+	if got := proc.GetState(); got != types.StateSuspended {
+		t.Fatalf("state after SIGPAUSE = %s, want Suspended", got)
 	}
 }
 
-// TestSignal_SIGRESUME verifies SIGRESUME resumes a paused process.
+// TestSignal_SIGRESUME verifies SIGRESUME restores a Suspended process to Running.
+// Story 44.1 — state transitions Running → Suspended (SIGPAUSE) → Running (SIGRESUME).
 func TestSignal_SIGRESUME(t *testing.T) {
 	k := newSimpleKernel(t)
 	proc := newSignalTestProcess(t, k)
@@ -135,30 +139,31 @@ func TestSignal_SIGRESUME(t *testing.T) {
 	if err := k.Signal(proc.PID, types.SIGPAUSE); err != nil {
 		t.Fatalf("SIGPAUSE failed: %v", err)
 	}
-	if !proc.IsPaused() {
-		t.Fatal("expected paused")
+	if got := proc.GetState(); got != types.StateSuspended {
+		t.Fatalf("after SIGPAUSE state = %s, want Suspended", got)
 	}
 
 	// Then resume
 	if err := k.Signal(proc.PID, types.SIGRESUME); err != nil {
 		t.Fatalf("SIGRESUME failed: %v", err)
 	}
-	if proc.IsPaused() {
-		t.Fatal("expected not paused after SIGRESUME")
+	if got := proc.GetState(); got != types.StateRunning {
+		t.Fatalf("after SIGRESUME state = %s, want Running", got)
 	}
 }
 
-// TestSignal_ResumeNotPaused verifies SIGRESUME on non-paused process is noop.
+// TestSignal_ResumeNotPaused verifies SIGRESUME on Running process is benign.
+// Under 44.1 SIGRESUME on a Running root walks the subtree; the root itself is
+// counted as skipped but the call must not error or change its state.
 func TestSignal_ResumeNotPaused(t *testing.T) {
 	k := newSimpleKernel(t)
 	proc := newSignalTestProcess(t, k)
 
-	// Not paused — SIGRESUME should be noop
 	if err := k.Signal(proc.PID, types.SIGRESUME); err != nil {
 		t.Fatalf("SIGRESUME failed: %v", err)
 	}
-	if proc.IsPaused() {
-		t.Fatal("should not be paused")
+	if got := proc.GetState(); got != types.StateRunning {
+		t.Fatalf("state after SIGRESUME on Running = %s, want Running (unchanged)", got)
 	}
 	// Context should still be alive
 	select {
@@ -342,7 +347,9 @@ func TestKill_DelegatesToSignal(t *testing.T) {
 	}
 }
 
-// TestKill_WithSIGPAUSE verifies Kill(pid, SIGPAUSE) pauses the process.
+// TestKill_WithSIGPAUSE verifies Kill(pid, SIGPAUSE) suspends the process.
+// Story 44.1 — Kill is a thin wrapper over Signal; SIGPAUSE goes through
+// the Suspended state machine, observable as proc.GetState() == Suspended.
 func TestKill_WithSIGPAUSE(t *testing.T) {
 	k := newSimpleKernel(t)
 	proc := newSignalTestProcess(t, k)
@@ -351,12 +358,15 @@ func TestKill_WithSIGPAUSE(t *testing.T) {
 		t.Fatalf("Kill with SIGPAUSE failed: %v", err)
 	}
 
-	if !proc.IsPaused() {
-		t.Fatal("expected process to be paused after Kill(SIGPAUSE)")
+	if got := proc.GetState(); got != types.StateSuspended {
+		t.Fatalf("state after Kill(SIGPAUSE) = %s, want Suspended", got)
 	}
 }
 
-// TestSignalGroup_WithNewSignals verifies SignalGroup + SIGPAUSE pauses all members.
+// TestSignalGroup_WithNewSignals verifies SignalGroup + SIGPAUSE suspends all members.
+// Story 44.1 — group signal still works; each member's SIGPAUSE drives the
+// state machine independently (the per-member subtree is just the member
+// itself since these are independent processes).
 func TestSignalGroup_WithNewSignals(t *testing.T) {
 	k := newSimpleKernel(t)
 
@@ -373,8 +383,8 @@ func TestSignalGroup_WithNewSignals(t *testing.T) {
 	}
 
 	for i, proc := range procs {
-		if !proc.IsPaused() {
-			t.Errorf("proc[%d] should be paused", i)
+		if got := proc.GetState(); got != types.StateSuspended {
+			t.Errorf("proc[%d] state = %s, want Suspended", i, got)
 		}
 	}
 }
@@ -448,27 +458,41 @@ func TestSignal_Concurrent(t *testing.T) {
 	// No race detected = pass (test runs with -race flag)
 }
 
-// TestSignal_SyscallEvent verifies DebugChan receives Signal/SigBlock/SigUnblock events.
+// TestSignal_SyscallEvent verifies DebugChan receives Suspend + Signal events
+// for SIGPAUSE, and SigBlock/SigUnblock events for the related syscalls.
+// Story 44.1 — SIGPAUSE now drives the Suspended state machine; the event
+// trace shows a "Suspend" event (reason="user_paused") followed by a
+// "Signal" event whose action records the subtree fan-out result.
 func TestSignal_SyscallEvent(t *testing.T) {
 	k := newSimpleKernel(t)
 	proc := newSignalTestProcess(t, k)
 
-	// Signal event
+	// Trigger SIGPAUSE → drain events until both Suspend and Signal show up.
 	_ = k.Signal(proc.PID, types.SIGPAUSE)
 
-	select {
-	case ev := <-proc.DebugChan:
-		if ev.Syscall != "Signal" {
-			t.Errorf("Syscall = %q, want Signal", ev.Syscall)
+	var sawSuspend, sawSignal bool
+	deadline := time.After(time.Second)
+	for !sawSuspend || !sawSignal {
+		select {
+		case ev := <-proc.DebugChan:
+			switch ev.Syscall {
+			case "Suspend":
+				sawSuspend = true
+				if reason, _ := ev.Args["reason"].(string); reason != "user_paused" {
+					t.Errorf("Suspend reason = %q, want user_paused", reason)
+				}
+			case "Signal":
+				sawSignal = true
+				if ev.Args["signal"] != "SIGPAUSE" {
+					t.Errorf("signal = %v, want SIGPAUSE", ev.Args["signal"])
+				}
+				if act, _ := ev.Args["action"].(string); act == "" {
+					t.Errorf("Signal event missing action; got args=%v", ev.Args)
+				}
+			}
+		case <-deadline:
+			t.Fatalf("missing events after SIGPAUSE: sawSuspend=%v sawSignal=%v", sawSuspend, sawSignal)
 		}
-		if ev.Args["signal"] != "SIGPAUSE" {
-			t.Errorf("signal = %v, want SIGPAUSE", ev.Args["signal"])
-		}
-		if ev.Args["action"] != "paused" {
-			t.Errorf("action = %v, want paused", ev.Args["action"])
-		}
-	case <-time.After(time.Second):
-		t.Fatal("no Signal event received")
 	}
 
 	// SigBlock event
@@ -496,7 +520,13 @@ func TestSignal_SyscallEvent(t *testing.T) {
 	}
 }
 
-// TestSignal_PauseResumeIntegration verifies pause blocks WaitIfPaused and resume unblocks it.
+// TestSignal_PauseResumeIntegration verifies Signal(SIGPAUSE) → state Suspended
+// and Signal(SIGRESUME) → state Running, fully driven by the state machine.
+//
+// Story 44.1 — the legacy WaitIfPaused/resumeCh sync primitive is no longer
+// the integration point for SIGPAUSE/SIGRESUME. WaitIfPaused remains as an
+// in-process primitive (kernel/reason.go defensive check), but business
+// callers must observe state transitions instead.
 func TestSignal_PauseResumeIntegration(t *testing.T) {
 	k := newSimpleKernel(t)
 	proc := newSignalTestProcess(t, k)
@@ -505,41 +535,29 @@ func TestSignal_PauseResumeIntegration(t *testing.T) {
 	if err := k.Signal(proc.PID, types.SIGPAUSE); err != nil {
 		t.Fatalf("SIGPAUSE failed: %v", err)
 	}
-
-	ch := proc.WaitIfPaused()
-	if ch == nil {
-		t.Fatal("expected non-nil channel from WaitIfPaused")
+	if got := proc.GetState(); got != types.StateSuspended {
+		t.Fatalf("state after SIGPAUSE = %s, want Suspended", got)
 	}
 
-	// Verify channel blocks
-	select {
-	case <-ch:
-		t.Fatal("channel should be blocking")
-	default:
-	}
-
-	// Resume via signal
-	resumed := make(chan struct{})
-	go func() {
-		<-ch
-		close(resumed)
-	}()
-
-	time.Sleep(10 * time.Millisecond)
+	// Resume
 	if err := k.Signal(proc.PID, types.SIGRESUME); err != nil {
 		t.Fatalf("SIGRESUME failed: %v", err)
 	}
-
-	select {
-	case <-resumed:
-		// expected
-	case <-time.After(2 * time.Second):
-		t.Fatal("WaitIfPaused did not unblock after SIGRESUME")
+	if got := proc.GetState(); got != types.StateRunning {
+		t.Fatalf("state after SIGRESUME = %s, want Running", got)
 	}
 
-	// Verify not paused anymore
-	if proc.IsPaused() {
-		t.Fatal("should not be paused after resume")
+	// Re-pause / re-resume should be idempotent over the cycle.
+	for i := range 3 {
+		if err := k.Signal(proc.PID, types.SIGPAUSE); err != nil {
+			t.Fatalf("cycle %d SIGPAUSE: %v", i, err)
+		}
+		if err := k.Signal(proc.PID, types.SIGRESUME); err != nil {
+			t.Fatalf("cycle %d SIGRESUME: %v", i, err)
+		}
+		if got := proc.GetState(); got != types.StateRunning {
+			t.Fatalf("cycle %d end state = %s, want Running", i, got)
+		}
 	}
 }
 

@@ -83,6 +83,14 @@ func (k *KernelImpl) openLLMDeviceForResume(proc *Process, llmDevice string) (ty
 //
 // In all cases proc.ParentUUID is set so the on-disk proc-info.json snapshot
 // preserves lineage for the next daemon restart.
+//
+// Story 44.1 — the previous "walk up and Unsuspend cli_disconnected ancestors"
+// branch (`reactivateCliDisconnectedAncestors`) was removed. Subtree resume is
+// now the user's explicit choice via SIGRESUME / `rnix resume <ancestor-uuid>`
+// / dashboard `R` on the ancestor row, not an implicit side effect of resuming
+// any descendant. The dashboard-`r` regression that motivated Epic 44 is gone
+// because the "child resume silently fails to wake the script runner ancestor"
+// path no longer exists — the user is in control.
 func (k *KernelImpl) restoreParentLinkage(proc *Process, parentUUID string) {
 	if parentUUID == "" {
 		return
@@ -92,50 +100,6 @@ func (k *KernelImpl) restoreParentLinkage(proc *Process, parentUUID string) {
 		proc.PPID = parent.PID
 		parent.AddChild(proc.PID)
 	}
-	// Multi-level wakeup: walk up the ParentUUID chain in procTable and unsuspend
-	// any ancestor that was Suspended because the CLI client disconnected. This
-	// lets `resume` of a deep descendant (P1→P2→P3 → resume P3) reactivate the
-	// script-runner ancestor (P1), not just the immediate parent.
-	k.reactivateCliDisconnectedAncestors(parentUUID)
-}
-
-// reactivateCliDisconnectedAncestors walks up the ParentUUID chain from startUUID
-// and Unsuspends every procTable-resident ancestor whose SuspendReason is
-// "cli_disconnected". Chain walking stops at the first ancestor missing from
-// procTable (consistent with the "do not resurrect Reaped processes" policy).
-// Non-matching ancestors (e.g. a Running middle node) are skipped — traversal
-// continues upward until the chain breaks or maxDepth is hit.
-func (k *KernelImpl) reactivateCliDisconnectedAncestors(startUUID string) {
-	const maxDepth = 32 // defensive: guard against accidental UUID cycles
-	uuid := startUUID
-	depth := 0
-	for ; uuid != "" && depth < maxDepth; depth++ {
-		ancestor, ok := k.GetProcessByUUID(uuid)
-		if !ok {
-			return // chain breaks at a Reaped ancestor; do not traverse procHistory
-		}
-		if ancestor.GetState() == types.StateSuspended &&
-			ancestor.GetSuspendReason() == SuspendReasonCLIDisconnected {
-			if err := ancestor.Unsuspend(); err != nil {
-				log.Printf("[resume] unsuspend ancestor uuid=%s pid=%d failed: %v",
-					ancestor.UUID, ancestor.PID, err)
-			} else {
-				ancestor.SetSuspendReason("")
-				k.emitEvent(ancestor, "ResumeUnsuspendsAncestor", map[string]any{
-					"ancestor_pid":  ancestor.PID,
-					"ancestor_uuid": ancestor.UUID,
-					"trigger_uuid":  startUUID,
-				}, nil, nil, 0)
-			}
-		}
-		uuid = ancestor.ParentUUID
-	}
-	// Reaching maxDepth almost always means a ParentUUID cycle (self-link or
-	// A↔B oscillation) — a bug worth surfacing rather than silently truncating.
-	if depth == maxDepth && uuid != "" {
-		log.Printf("[resume] ancestor walk hit max depth %d starting at uuid=%s — possible ParentUUID cycle",
-			maxDepth, startUUID)
-	}
 }
 
 // SuspendReasonCLIDisconnected is the canonical SuspendReason value set when a
@@ -143,6 +107,13 @@ func (k *KernelImpl) reactivateCliDisconnectedAncestors(startUUID string) {
 // is the single source of truth shared between the kernel resume logic
 // (kernel/resume.go) and the IPC handler that sets the reason
 // (ipc/server_pipeline.go), so both agree on spelling at compile time.
+//
+// Story 44.1 — this constant is intentionally retained even though
+// reactivateCliDisconnectedAncestors was removed. Story 44.2 (script-runner
+// suspend redesign) still emits this reason string when the CLI disconnects,
+// but the new contract is: the user manually `rnix resume <uuid>` or hits
+// dashboard `R` on the ancestor to wake the subtree. No automatic ancestor
+// wakeup happens on descendant resume anymore.
 const SuspendReasonCLIDisconnected = "cli_disconnected"
 
 // cleanupOldProcessAndHistory removes the old in-memory Process and procHistory

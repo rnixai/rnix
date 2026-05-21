@@ -46,7 +46,38 @@ func (k *KernelImpl) Signal(pid types.PID, sig types.Signal) error {
 		if sig.IsTermination() {
 			return k.killSuspendedProcess(proc, sig, "Signal", start)
 		}
-		// Non-termination signals on suspended: ignored (SIGPAUSE redundant, SIGRESUME for 30.4)
+		// Story 44.1 — Suspended-state SIGPAUSE/SIGRESUME branch:
+		//   SIGPAUSE: true no-op (already suspended). Event renamed from
+		//             "noop_suspended" to "noop_already_suspended" so the
+		//             observable trace distinguishes "redundant pause on a
+		//             suspended target" from the legacy bag-of-no-ops.
+		//   SIGRESUME: delegates to ResumeSubtree so resuming a Suspended
+		//             root cascades to every Suspended descendant. This is
+		//             the dashboard-`r` path that pre-44.1 silently did
+		//             nothing because the branch returned without state
+		//             change.
+		switch sig {
+		case types.SIGPAUSE:
+			k.emitEvent(proc, "Signal", map[string]any{
+				"pid":    pid,
+				"signal": sig.String(),
+				"action": "noop_already_suspended",
+			}, nil, nil, time.Since(start))
+			return nil
+		case types.SIGRESUME:
+			if _, _, err := k.ResumeSubtree(pid); err != nil {
+				return err
+			}
+			k.emitEvent(proc, "Signal", map[string]any{
+				"pid":    pid,
+				"signal": sig.String(),
+				"action": "resumed_subtree",
+			}, nil, nil, time.Since(start))
+			return nil
+		}
+		// Other non-termination signals on Suspended: silently ignored,
+		// preserving the legacy event name for backward-compat with any
+		// trace tooling that still keys on "noop_suspended".
 		k.emitEvent(proc, "Signal", map[string]any{
 			"pid":    pid,
 			"signal": sig.String(),
@@ -107,11 +138,25 @@ func (k *KernelImpl) defaultSignalAction(proc *Process, sig types.Signal) string
 		proc.Cancel()
 		return "terminated"
 	case sig == types.SIGPAUSE:
-		proc.Pause()
-		return "paused"
+		// Story 44.1 — route through the state machine instead of the
+		// legacy SoftPause path. suspendSubtree puts proc and every Running
+		// descendant into Suspended; the dashboard-p / SIGPAUSE / Ctrl+C
+		// (44.2) callers all funnel here so semantics stay unified.
+		affected, err := k.suspendSubtree(proc)
+		if err != nil {
+			return "suspend_failed"
+		}
+		return fmt.Sprintf("suspended_subtree(%d)", affected)
 	case sig == types.SIGRESUME:
-		proc.Resume()
-		return "resumed"
+		// Story 44.1 — mirror of SIGPAUSE: subtree-scoped resume via the
+		// state machine. ResumeSubtree acquires resumeMu, so the caller MUST
+		// NOT already hold it (Signal's call chain does not — neither Signal
+		// nor deliverSignal touches resumeMu).
+		affected, _, err := k.ResumeSubtree(proc.PID)
+		if err != nil {
+			return "resume_failed"
+		}
+		return fmt.Sprintf("resumed_subtree(%d)", affected)
 	default:
 		return "ignored"
 	}
@@ -120,10 +165,24 @@ func (k *KernelImpl) defaultSignalAction(proc *Process, sig types.Signal) string
 // SignalTree delivers a signal to the target process and all its living descendants.
 // It traverses the process tree recursively via Children, skipping zombie/dead processes.
 // Returns the total number of processes affected (including the root).
+//
+// Story 44.1 — SIGPAUSE / SIGRESUME short-circuit: those signals already
+// fan out across the subtree via SuspendSubtree / ResumeSubtree inside
+// defaultSignalAction. Letting SignalTree also recurse would yield O(N²)
+// transitions and duplicate events, so we delegate to the subtree APIs and
+// skip the per-node recursion entirely.
 func (k *KernelImpl) SignalTree(pid types.PID, sig types.Signal) (int, error) {
 	if !sig.Valid() {
 		return 0, NewSyscallError("SignalTree", pid, "",
 			fmt.Errorf("invalid signal: %d", sig), types.ErrInvalid)
+	}
+
+	if sig == types.SIGPAUSE {
+		return k.SuspendSubtree(pid)
+	}
+	if sig == types.SIGRESUME {
+		affected, _, err := k.ResumeSubtree(pid)
+		return affected, err
 	}
 
 	proc, ok := k.GetProcess(pid)

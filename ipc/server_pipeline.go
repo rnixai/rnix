@@ -482,8 +482,10 @@ type scriptRunnerOutcome struct {
 // Cases:
 //  1. execErr != nil && cause is errCLIDisconnected && parent still Running
 //     → Suspend(parent, reason=cli_disconnected), NOT reap. Stream
-//     SCRIPT_INTERRUPTED. Dashboard `R` on any descendant can re-activate
-//     via kernel.reactivateCliDisconnectedAncestors.
+//     SCRIPT_INTERRUPTED. Story 44.1 redefined the wake path: the user must
+//     explicitly resume this ancestor (dashboard `R`, `rnix resume <uuid>`,
+//     or SIGRESUME) to wake the whole subtree. There is no longer any
+//     automatic ancestor wakeup triggered by descendant resume.
 //  2. execErr != nil (kill / shutdown / non-ctx error)
 //     → Finish(code=1, execErr), Reap. Stream SCRIPT_ERROR.
 //  3. execErr == nil
@@ -519,9 +521,7 @@ func finalizeScriptRunner(scriptProc *kernel.Process, cause, execErr error, last
 		}
 		// Fallback: state transition failed → revert to legacy Finish+Reap.
 		// Clear SuspendReason first so the persisted proc-info.json snapshot
-		// doesn't carry a stale "cli_disconnected" tag — that would mislead
-		// reactivateCliDisconnectedAncestors during any later descendant
-		// resume into believing this (now Dead) process is wakeable.
+		// doesn't carry a stale "cli_disconnected" tag.
 		scriptProc.SetSuspendReason("")
 		scriptProc.Finish("interrupted", 1, execErr)
 		return scriptRunnerOutcome{

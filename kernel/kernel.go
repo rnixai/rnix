@@ -116,6 +116,32 @@ type ProcessManager interface {
 // Compile-time interface compliance check.
 var _ ProcessManager = (*KernelImpl)(nil)
 
+// SubtreeManager exposes pause/resume operations whose scope is the target
+// PID's entire subtree (the PID itself plus all living descendants). It is
+// intentionally separate from SignalManager because the semantics differ from
+// "deliver one signal to one PID": these methods walk the process tree and
+// fan out the state transition. Story 44.1 introduces this interface so the
+// IPC layer (Story 44.4) can wire a `resume_subtree` method without
+// overloading the existing Signal contract.
+//
+// The "subtree" of pid P is defined as P itself plus every PID reachable
+// through GetChildren transitively (i.e. P's living descendants). It does
+// NOT include ancestors — neither suspend nor resume propagates upward.
+type SubtreeManager interface {
+	// SuspendSubtree puts rootPID and every Running descendant into
+	// Suspended. Non-Running nodes (already Suspended / Zombie / Dead) are
+	// silently skipped. Returns the count of actually transitioned nodes.
+	// Returns ErrNotFound when rootPID is not in procTable.
+	SuspendSubtree(rootPID types.PID) (int, error)
+
+	// ResumeSubtree restores rootPID and every Suspended descendant to
+	// Running. Dead / Zombie / Failed / already-Running descendants are
+	// reported via the second return value (skipped). The third return
+	// value is non-nil only for kernel-level failures (e.g. invalid PID,
+	// root not in procTable).
+	ResumeSubtree(rootPID types.PID) (affected, skipped int, err error)
+}
+
 // KernelImpl is the core microkernel implementation.
 type KernelImpl struct {
 	procTable *xsync.SyncMap[types.PID, *Process]

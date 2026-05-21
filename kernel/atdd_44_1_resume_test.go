@@ -36,7 +36,7 @@ func repoRootFromCaller(t *testing.T) string {
 		t.Skip("runtime.Caller failed; cannot locate repo root")
 	}
 	dir := filepath.Dir(here)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}

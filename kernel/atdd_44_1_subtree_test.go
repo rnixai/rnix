@@ -198,7 +198,7 @@ func TestATDD_44_1_015_ResumeSubtree_SerializedByResumeMu(t *testing.T) {
 	// Build two independent subtrees so the test does not race on overlapping
 	// process state but still exercises the shared resumeMu.
 	roots := make([]*Process, 0, 4)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		root := makeSuspendedProc44_1(t, k, 0, "root", "user_paused")
 		makeSuspendedProc44_1(t, k, root.PID, "child", "user_paused")
 		roots = append(roots, root)
