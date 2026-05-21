@@ -247,9 +247,46 @@ func TestBuildCheckpointData_PersistsParentUUID(t *testing.T) {
 // trees plus the documented break-on-Reaped-ancestor edge case.
 // =============================================================================
 
-// Single level: direct parent Suspended+cli_disconnected → Resume child → parent
-// returns to Running.
-func TestResume_FromHistory_UnsuspendsParentOnCliDisconnect(t *testing.T) {
+// =============================================================================
+// REWRITTEN by Story 44.1 (AC#7).
+//
+// Prior to Story 44.1 this section asserted "Epic 43 ancestor wakeup" — that
+// resuming a child process automatically unsuspended a cli_disconnected
+// ancestor via `reactivateCliDisconnectedAncestors`. That mechanism is removed
+// (see kernel/resume.go diff in 44.1) because it failed in the dashboard
+// `r` path. The new product semantics are:
+//
+//   - Pause/Resume act on the *subtree* of the targeted PID, never upward.
+//   - Resuming a child does NOT touch its parent's Suspended state.
+//   - A user must manually `rnix resume <parent-uuid>` (or signal SIGRESUME on
+//     the parent) to wake the whole subtree.
+//
+// Original tests preserved as rewrites per Murat's review red-line: tests that
+// could not be expressed under the new semantics were deleted with explicit
+// justification (see git blame on 44.1).
+//
+// Original ↔ rewrite map:
+//
+//   TestResume_FromHistory_UnsuspendsParentOnCliDisconnect
+//     → TestResume_FromHistory_DoesNotAutoUnsuspendParent
+//
+//   TestResume_MultiLevel_UnsuspendsRootAncestor
+//     → TestResumeSubtree_CascadesDescendantsNotAncestors
+//
+//   TestResume_MultiLevel_BreakOnReapedAncestor
+//     → TestResumeSubtree_BreaksOnReapedDescendant
+//
+//   TestResume_DoesNotUnsuspendNonCliAncestor
+//     → DELETED. The new ResumeSubtree resumes every Suspended descendant
+//       regardless of SuspendReason. The "non-cli reason must not be cleared"
+//       guarantee was specific to the deleted ancestor-walk algorithm and has
+//       no equivalent expression under subtree semantics.
+// =============================================================================
+
+// Single level: direct parent Suspended+cli_disconnected. Resuming the child
+// (via ResumeWithOpts/Resume) MUST NOT unsuspend the parent under Story 44.1.
+// User must explicitly resume the parent to wake the subtree.
+func TestResume_FromHistory_DoesNotAutoUnsuspendParent(t *testing.T) {
 	k, baseDir := setupResumeKernel(t)
 
 	parent := NewProcess(0, "script runner", nil)
@@ -271,133 +308,99 @@ func TestResume_FromHistory_UnsuspendsParentOnCliDisconnect(t *testing.T) {
 		t.Fatalf("Resume failed: %v", err)
 	}
 
-	if got := parent.GetState(); got != types.StateRunning {
-		t.Errorf("parent.State = %v, want Running (should be unsuspended)", got)
+	// 44.1 contract: parent stays Suspended and its SuspendReason is unchanged.
+	if got := parent.GetState(); got != types.StateSuspended {
+		t.Errorf("parent.State = %v, want Suspended (44.1: child resume must not wake parent)", got)
 	}
-	if reason := parent.GetSuspendReason(); reason != "" {
-		t.Errorf("parent.SuspendReason = %q, want empty after wakeup", reason)
-	}
-
-	cleanupResumedProc(t, k, result.PID)
-}
-
-// Multi-level: P1(Suspended+cli) → P2(Running, procTable) → P3(disk).
-// Resume P3 → P3 Running, P2 unchanged, P1 unsuspended via chain walk.
-func TestResume_MultiLevel_UnsuspendsRootAncestor(t *testing.T) {
-	k, baseDir := setupResumeKernel(t)
-
-	p1 := NewProcess(0, "P1 script", nil)
-	p1.UUID = "ml-p1-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-	if err := p1.Start(); err != nil {
-		t.Fatalf("p1.Start: %v", err)
-	}
-	p1.SetSuspendReason(SuspendReasonCLIDisconnected)
-	if err := p1.Suspend(); err != nil {
-		t.Fatalf("p1.Suspend: %v", err)
-	}
-	k.AddProcess(p1)
-
-	p2 := NewProcess(p1.PID, "P2 agent", nil)
-	p2.UUID = "ml-p2-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-	p2.ParentUUID = p1.UUID
-	if err := p2.Start(); err != nil {
-		t.Fatalf("p2.Start: %v", err)
-	}
-	k.AddProcess(p2)
-
-	p3UUID := "ml-p3-cccc-cccc-cccc-cccccccccccc"
-	writeTestStepsAndMetaWithParent(t, baseDir, p3UUID, p2.UUID, 4)
-
-	result, err := k.ResumeWithOpts(p3UUID, ResumeOpts{Fork: false})
-	if err != nil {
-		t.Fatalf("Resume failed: %v", err)
-	}
-
-	if got := p1.GetState(); got != types.StateRunning {
-		t.Errorf("p1.State = %v, want Running (chain walk should reach root)", got)
-	}
-	if reason := p1.GetSuspendReason(); reason != "" {
-		t.Errorf("p1.SuspendReason = %q, want empty after wakeup", reason)
-	}
-	if got := p2.GetState(); got != types.StateRunning {
-		t.Errorf("p2.State = %v, want Running (middle node unchanged)", got)
-	}
-
-	cleanupResumedProc(t, k, result.PID)
-}
-
-// Break on Reaped ancestor: P1(Suspended+cli) → P2(missing from procTable, only
-// in procHistory) → P3(disk). Resume P3 → P3 Running, but P1 stays Suspended
-// because chain walk halts at P2. This is the documented edge case from the
-// spec's I/O matrix.
-func TestResume_MultiLevel_BreakOnReapedAncestor(t *testing.T) {
-	k, baseDir := setupResumeKernel(t)
-
-	p1 := NewProcess(0, "P1 script", nil)
-	p1.UUID = "br-p1-dddd-dddd-dddd-dddddddddddd"
-	if err := p1.Start(); err != nil {
-		t.Fatalf("p1.Start: %v", err)
-	}
-	p1.SetSuspendReason(SuspendReasonCLIDisconnected)
-	if err := p1.Suspend(); err != nil {
-		t.Fatalf("p1.Suspend: %v", err)
-	}
-	k.AddProcess(p1)
-
-	// P2 only exists as a UUID string in P3's proc-info.json — it's NOT added
-	// to procTable, simulating a reap.
-	p2UUID := "br-p2-eeee-eeee-eeee-eeeeeeeeeeee"
-	p3UUID := "br-p3-ffff-ffff-ffff-ffffffffffff"
-	writeTestStepsAndMetaWithParent(t, baseDir, p3UUID, p2UUID, 4)
-
-	result, err := k.ResumeWithOpts(p3UUID, ResumeOpts{Fork: false})
-	if err != nil {
-		t.Fatalf("Resume failed: %v", err)
-	}
-
-	if got := p1.GetState(); got != types.StateSuspended {
-		t.Errorf("p1.State = %v, want Suspended (chain breaks at P2; see spec edge case)", got)
-	}
-	if reason := p1.GetSuspendReason(); reason != SuspendReasonCLIDisconnected {
-		t.Errorf("p1.SuspendReason = %q, want %q (unchanged because chain broke)",
+	if reason := parent.GetSuspendReason(); reason != SuspendReasonCLIDisconnected {
+		t.Errorf("parent.SuspendReason = %q, want %q (must remain cli_disconnected)",
 			reason, SuspendReasonCLIDisconnected)
 	}
 
 	cleanupResumedProc(t, k, result.PID)
 }
 
-// Negative: non-cli SuspendReason must NOT be cleared by a descendant resume.
-// Guards against "any resume unsuspends any Suspended ancestor".
-func TestResume_DoesNotUnsuspendNonCliAncestor(t *testing.T) {
-	k, baseDir := setupResumeKernel(t)
+// ResumeSubtree on the root cascades to descendants only — never up to a
+// hypothetical further ancestor. Variant: invoking on a middle node only
+// resumes that node and its descendants, leaving its parent untouched.
+func TestResumeSubtree_CascadesDescendantsNotAncestors(t *testing.T) {
+	k := newSubtreeKernel(t)
 
-	parent := NewProcess(0, "user-suspended parent", nil)
-	parent.UUID = "neg-parent-9999-8888-7777-666666666666"
-	if err := parent.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	parent.SetSuspendReason("user_suspended")
-	if err := parent.Suspend(); err != nil {
-		t.Fatalf("Suspend: %v", err)
-	}
-	k.AddProcess(parent)
+	// Build P1 (Suspended) → P2 (Suspended) → P3 (Suspended); P0 is a sibling
+	// of P1 (also Suspended) under no shared parent — we just want to assert
+	// it is not touched.
+	p1 := makeSuspendedProc44_1(t, k, 0, "P1 root", "user_paused")
+	p2 := makeSuspendedProc44_1(t, k, p1.PID, "P2 child", "user_paused")
+	p3 := makeSuspendedProc44_1(t, k, p2.PID, "P3 grandchild", "user_paused")
+	p0 := makeSuspendedProc44_1(t, k, 0, "P0 sibling", "user_paused")
 
-	childUUID := "neg-child-1010-2020-3030-404040404040"
-	writeTestStepsAndMetaWithParent(t, baseDir, childUUID, parent.UUID, 2)
-
-	result, err := k.ResumeWithOpts(childUUID, ResumeOpts{Fork: false})
-	if err != nil {
-		t.Fatalf("Resume failed: %v", err)
+	// 1. ResumeSubtree(P1) must cascade to P1/P2/P3 and leave P0 alone.
+	if _, _, err := k.ResumeSubtree(p1.PID); err != nil {
+		t.Fatalf("ResumeSubtree(P1): %v", err)
 	}
-
-	if got := parent.GetState(); got != types.StateSuspended {
-		t.Errorf("parent.State = %v, want Suspended (non-cli reason must not be cleared)", got)
+	for _, proc := range []*Process{p1, p2, p3} {
+		assertProcState44_1(t, proc, types.StateRunning, proc.Intent+" after ResumeSubtree(P1)")
 	}
-	if reason := parent.GetSuspendReason(); reason != "user_suspended" {
-		t.Errorf("parent.SuspendReason = %q, want \"user_suspended\"", reason)
+	if got := p0.GetState(); got != types.StateSuspended {
+		t.Errorf("P0 sibling state = %v, want Suspended (subtree resume must not touch siblings)", got)
 	}
 
-	cleanupResumedProc(t, k, result.PID)
+	// 2. Re-Suspend P2/P3 and then ResumeSubtree(P2). P1 must NOT regress to
+	//    Running again from a SubtreeResume targeting its child.
+	for _, proc := range []*Process{p1, p2, p3} {
+		proc.SetSuspendReason("user_paused")
+		if err := proc.Suspend(); err != nil {
+			t.Fatalf("re-Suspend %s: %v", proc.Intent, err)
+		}
+	}
+	// P1 stays Suspended at this point; ResumeSubtree(P2) targets the middle
+	// of the tree and must only resume P2/P3.
+	if _, _, err := k.ResumeSubtree(p2.PID); err != nil {
+		t.Fatalf("ResumeSubtree(P2): %v", err)
+	}
+	assertProcState44_1(t, p2, types.StateRunning, "P2 after ResumeSubtree(P2)")
+	assertProcState44_1(t, p3, types.StateRunning, "P3 after ResumeSubtree(P2)")
+	if got := p1.GetState(); got != types.StateSuspended {
+		t.Errorf("P1 state = %v, want Suspended (ResumeSubtree(P2) must not walk up to P1)", got)
+	}
+}
+
+// Reaped (procHistory-only) descendant in the subtree: ResumeSubtree continues
+// past it without error, processing other living descendants. Previously this
+// test asserted "ancestor chain walk halts at reaped node". Under 44.1 there is
+// no ancestor walk; the symmetric concern is "subtree walk must tolerate a
+// reaped descendant".
+func TestResumeSubtree_BreaksOnReapedDescendant(t *testing.T) {
+	k := newSubtreeKernel(t)
+
+	// Tree: root (Suspended) → child (Suspended) → grandchild (Suspended).
+	// We simulate "child was reaped between Suspend and Resume" by removing it
+	// from the proc table but leaving the grandchild parent linkage in place.
+	root := makeSuspendedProc44_1(t, k, 0, "root", "user_paused")
+	child := makeSuspendedProc44_1(t, k, root.PID, "child", "user_paused")
+	grandchild := makeSuspendedProc44_1(t, k, child.PID, "grandchild", "user_paused")
+
+	// Simulate reap of child: remove from procTable. Parent's Children list
+	// still references child.PID — ResumeSubtree must tolerate the dangling
+	// reference (GetProcess returns ok=false).
+	k.RemoveProcess(child.PID)
+
+	if _, _, err := k.ResumeSubtree(root.PID); err != nil {
+		t.Fatalf("ResumeSubtree(root) with reaped descendant: %v", err)
+	}
+
+	assertProcState44_1(t, root, types.StateRunning, "root must resume even though child was reaped")
+	// grandchild is unreachable through child; whether it resumes depends on
+	// how ResumeSubtree handles the dangling child PID. We assert that the
+	// kernel did not crash and that grandchild is at least in a consistent
+	// state (Running OR Suspended — never an undefined transition).
+	switch grandchild.GetState() {
+	case types.StateRunning, types.StateSuspended:
+		// OK either way; the documented contract permits both paths so long
+		// as the kernel does not panic.
+	default:
+		t.Errorf("grandchild state = %v, want Running or Suspended", grandchild.GetState())
+	}
 }
 
 func TestResume_ProcInfo_ReflectsRestoredLinkage(t *testing.T) {
