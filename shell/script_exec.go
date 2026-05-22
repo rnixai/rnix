@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -58,15 +59,39 @@ type ScriptExecutor struct {
 	scriptDir   string
 	// suspendCtrl bridges to the kernel Suspend state machine (Story 44.2).
 	// nil = fast-path skip (mock spawner / unit-test scenarios), so the
-	// existing shell tests stay unaffected.
-	suspendCtrl SuspendController
+	// existing shell tests stay unaffected. Wrapped in atomic.Pointer
+	// (Story 44.2 review P6) so SetSuspendController/load are race-safe
+	// even though the production path (`server_pipeline.go:373` → Execute)
+	// is sequential — the public setter cannot rely on caller ordering.
+	suspendCtrl atomic.Pointer[suspendCtrlHolder]
+}
+
+// suspendCtrlHolder boxes the interface so atomic.Pointer can store a stable
+// concrete type. Storing the interface directly via atomic.Value would require
+// the same concrete type on every Store, which we can't guarantee.
+type suspendCtrlHolder struct {
+	ctrl SuspendController
 }
 
 // SetSuspendController injects the SuspendController used to park execution at
 // statement boundaries when a SIGPAUSE-driven suspend is requested. Passing
 // nil restores the zero-overhead fast path (Story 44.2 AC#2 / AC#3).
 func (e *ScriptExecutor) SetSuspendController(ctrl SuspendController) {
-	e.suspendCtrl = ctrl
+	if ctrl == nil {
+		e.suspendCtrl.Store(nil)
+		return
+	}
+	e.suspendCtrl.Store(&suspendCtrlHolder{ctrl: ctrl})
+}
+
+// loadSuspendController returns the currently injected controller or nil if
+// none / cleared. The fast path through this loader is a single atomic.Load.
+func (e *ScriptExecutor) loadSuspendController() SuspendController {
+	h := e.suspendCtrl.Load()
+	if h == nil {
+		return nil
+	}
+	return h.ctrl
 }
 
 // waitIfSuspended parks the executor at a statement boundary while the injected
@@ -74,17 +99,38 @@ func (e *ScriptExecutor) SetSuspendController(ctrl SuspendController) {
 // before parking and ScriptStmtResumed after the wait. Returns ctx.Err() if the
 // context is cancelled during the wait (daemon shutdown / SIGKILL), else nil
 // once resumed. nil controller → immediate no-op fast path (Story 44.2 AC#2).
+//
+// Story 44.2 review P3+P4: emit ScriptStmtResumed on every exit path that
+// emitted ScriptStmtPaused (including ctx-cancellation) to keep Timeline
+// pairings symmetric. Fetch ResumedCh() BEFORE the IsSuspendRequested check
+// to close the TOCTOU race where a fast Unsuspend between the check and the
+// fetch could hand back the new (unclosed) chan instead of the about-to-close
+// old chan.
 func (e *ScriptExecutor) waitIfSuspended(ctx context.Context, stmtKind string, line int) error {
-	if e.suspendCtrl == nil || !e.suspendCtrl.IsSuspendRequested() {
+	ctrl := e.loadSuspendController()
+	if ctrl == nil {
+		return nil
+	}
+	// Fetch the chan BEFORE the IsSuspendRequested check so that a concurrent
+	// Unsuspend either (a) hands us the old chan that it then closes — select
+	// wakes immediately, OR (b) hands us the new chan but IsSuspendRequested
+	// already reads false — we short-circuit without emitting an unpaired
+	// Paused. Reversing the order would let case-(b) hand back a stale-old
+	// chan that the post-Unsuspend close has already missed.
+	ch := ctrl.ResumedCh()
+	if !ctrl.IsSuspendRequested() {
 		return nil
 	}
 	e.emitEvent(ScriptStmtPaused, line, "", map[string]any{
 		"stmt_kind": stmtKind,
 		"reason":    "user_paused",
 	})
-	ch := e.suspendCtrl.ResumedCh()
 	select {
 	case <-ctx.Done():
+		e.emitEvent(ScriptStmtResumed, line, "", map[string]any{
+			"stmt_kind": stmtKind,
+			"reason":    "ctx_cancelled",
+		})
 		return ctx.Err()
 	case <-ch:
 		// resumed; fall through to run the statement

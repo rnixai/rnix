@@ -203,7 +203,14 @@ func (k *KernelImpl) killSuspendedProcess(proc *Process, sig types.Signal, sysca
 	proc.mu.Lock()
 	proc.Exit = &exit
 	proc.DeadAt = time.Now()
+	// Story 44.2 review P1: wake any ScriptExecutor parked on ResumedCh().
+	// Without this close, a SIGKILL on a Suspended script-runner leaves the
+	// executor blocked forever on `<-resumedCh` (scriptCtx is also not
+	// cancelled on this path), leaking the handleExecScript goroutine + FDs.
+	oldCh := proc.resumedCh
+	oldClose := proc.resumedClose
 	proc.mu.Unlock()
+	oldClose.Do(func() { close(oldCh) })
 	k.emitEvent(proc, syscall, map[string]any{
 		"pid":    proc.PID,
 		"signal": sig.String(),
