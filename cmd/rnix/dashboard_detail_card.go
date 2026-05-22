@@ -216,23 +216,48 @@ func findSelectedProcess(m *dashboardModel) *selectedProcRef {
 }
 
 // countSuspendedDescendants returns how many processes in procs are Suspended
-// and directly parented (by ParentUUID or PPID) to the origin identified by
-// originPID/originUUID (Story 44.4 AC#5). Used by handleForkResult to warn the
-// user that fork left the origin's Suspended subtree intact (Decision D2: fork
-// does not copy the subtree). A scan one level deep matches the "descendants
-// left intact" phrasing — the user resumes them via dashboard r on each subtree
-// root, so we only need to know whether any survive.
+// anywhere in the origin's subtree (Story 44.4 AC#5). Used by handleForkResult
+// to warn the user that fork left the origin's Suspended subtree intact
+// (Decision D2: fork does not copy the subtree).
+//
+// The walk descends the full subtree via the parent link, so a Suspended
+// grandchild behind a Dead/Running intermediate child is still counted (a
+// one-level scan would miss it and falsely report "none left intact"). UUID
+// lineage is authoritative; PPID is consulted only for rows that carry no
+// ParentUUID, so PID reuse cannot cross-link an unrelated process whose UUID
+// lineage points elsewhere. A per-PID visited set bounds the walk against
+// cycles.
 func countSuspendedDescendants(procs []vfs.ProcInfo, originPID types.PID, originUUID string) int {
+	type ident struct {
+		uuid string
+		pid  types.PID
+	}
+	frontier := []ident{{uuid: originUUID, pid: originPID}}
+	visited := map[types.PID]struct{}{}
+	if originPID != 0 {
+		visited[originPID] = struct{}{}
+	}
 	count := 0
-	for i := range procs {
-		p := procs[i]
-		if p.State != types.StateSuspended {
-			continue
-		}
-		linkedByUUID := originUUID != "" && p.ParentUUID == originUUID
-		linkedByPID := originPID != 0 && p.PPID == originPID
-		if linkedByUUID || linkedByPID {
-			count++
+	for len(frontier) > 0 {
+		parent := frontier[len(frontier)-1]
+		frontier = frontier[:len(frontier)-1]
+		for i := range procs {
+			p := procs[i]
+			linkedByUUID := parent.uuid != "" && p.ParentUUID == parent.uuid
+			linkedByPID := p.ParentUUID == "" && parent.pid != 0 && p.PPID == parent.pid
+			if !linkedByUUID && !linkedByPID {
+				continue
+			}
+			if p.PID != 0 {
+				if _, seen := visited[p.PID]; seen {
+					continue
+				}
+				visited[p.PID] = struct{}{}
+			}
+			if p.State == types.StateSuspended {
+				count++
+			}
+			frontier = append(frontier, ident{uuid: p.UUID, pid: p.PID})
 		}
 	}
 	return count
@@ -567,6 +592,11 @@ func handlePauseSubtreeResult(m dashboardModel, msg pauseSubtreeResultMsg) dashb
 	switch {
 	case msg.err != nil:
 		m.statusMsg = fmt.Sprintf("✗ Pause: %v", msg.err)
+	case msg.affected == 0:
+		// SuspendSubtree only acts on Running nodes (kernel/subtree.go); a
+		// zero count means the target was not Running (e.g. Created not yet
+		// started, already Suspended, or reaped in a race) — do not claim success.
+		m.statusMsg = fmt.Sprintf("Nothing paused: PID %d is not running", msg.pid)
 	case msg.affected > 1:
 		m.statusMsg = fmt.Sprintf("Paused PID %d (+%d descendants)", msg.pid, msg.affected-1)
 	default:
@@ -579,9 +609,15 @@ func handlePauseSubtreeResult(m dashboardModel, msg pauseSubtreeResultMsg) dashb
 // handleResumeSubtreeResult applies a resumeSubtreeResultMsg (Story 44.4 AC#3,
 // dashboard `r` on Suspended → client.ResumeSubtree) to the model's status line.
 func handleResumeSubtreeResult(m dashboardModel, msg resumeSubtreeResultMsg) dashboardModel {
-	if msg.err != nil {
+	switch {
+	case msg.err != nil:
 		m.statusMsg = fmt.Sprintf("✗ Resume: %v", msg.err)
-	} else {
+	case msg.affected == 0:
+		// Nothing resumed — the subtree had no Suspended node (e.g. all Dead,
+		// or already Running). Surface a no-op rather than a misleading
+		// "Resumed 0" success.
+		m.statusMsg = fmt.Sprintf("Nothing to resume (skipped %d)", msg.skipped)
+	default:
 		m.statusMsg = fmt.Sprintf("Resumed %d (skipped %d)", msg.affected, msg.skipped)
 	}
 	m.statusMsgTTL = statusMsgDefaultTTL

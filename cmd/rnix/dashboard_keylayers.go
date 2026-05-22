@@ -578,13 +578,13 @@ func resumeHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, t
 		return true, m, nil
 	}
 	if proc.State == types.StateSuspended {
-		if m.selectedPID == 0 {
-			return true, m, nil
-		}
+		// selectedPID != 0 is guaranteed by the early return above.
 		return true, m, resumeSubtreeCmd(m.selectedPID)
 	}
 	if proc.State == types.StateDead || proc.State == types.StateZombie {
 		if m.selectedUUID == "" {
+			m.statusMsg = "Cannot resume: no UUID for this process"
+			m.statusMsgTTL = statusMsgDefaultTTL
 			return true, m, nil
 		}
 		m.statusMsg = "Resuming UUID " + shortUUIDForStatus(m.selectedUUID) + "..."
