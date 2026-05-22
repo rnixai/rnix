@@ -62,6 +62,15 @@ func (k *KernelImpl) ResumeSubtree(rootPID types.PID) (int, int, error) {
 			fmt.Errorf("process not found"), types.ErrNotFound)
 	}
 
+	return k.resumeSubtreeLocked(root)
+}
+
+// resumeSubtreeLocked is the inner worker that performs the ResumeSubtree
+// walk. Callers MUST already hold k.resumeMu. This split lets ResumeWithOpts
+// (Story 44.3 AC#4) trigger subtree wakeup from inside its own
+// resumeMu-locked critical section without re-acquiring the lock and
+// deadlocking.
+func (k *KernelImpl) resumeSubtreeLocked(root *Process) (int, int, error) {
 	pids := k.collectSubtreePIDs(root)
 	var affected, skipped int
 	allAlreadyRunning := true
@@ -268,6 +277,18 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 		return fmt.Errorf("unsuspend: %w", err)
 	}
 	proc.SetSuspendReason("")
+
+	// Story 44.3 AC#2 — persist proc-info.json on the Unsuspend leg so disk
+	// no longer carries the stale state=suspended + suspend_reason after a
+	// dashboard R / SIGRESUME. Done in the kernel layer rather than inside
+	// Process.Unsuspend() to keep the Process → Kernel one-way dependency
+	// intact (策略 A from Story 44.3 §Tasks/2.2). Best-effort.
+	if info, ierr := k.GetProcInfo(proc.PID); ierr == nil && info != nil {
+		if perr := SaveProcInfo(k.stepDataDir, *info); perr != nil {
+			log.Printf("[subtree] proc-info.json write error pid=%d uuid=%s: %v",
+				proc.PID, proc.UUID, perr)
+		}
+	}
 
 	// Script-runners and test fixtures have no PrimaryDevice; nothing to
 	// restart. The caller (44.2 in the script-runner case) is responsible

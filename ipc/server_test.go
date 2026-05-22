@@ -2,6 +2,7 @@ package ipc
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"net"
 	"os"
@@ -25,6 +26,14 @@ func setupTestServer(t *testing.T) (*Server, string, *rnixctx.Manager) {
 	t.Helper()
 
 	devReg := vfs.NewDeviceRegistry()
+	// Register a no-op mock for /dev/llm/claude so tests that exercise Resume
+	// (Story 44.3 AC#4 / AC#8) can open the LLM device without a real driver.
+	// Returning a non-StreamObserver file means setupDriverStreamHandler is a
+	// no-op, and the resumed process's reasonStep loop will exit on its first
+	// LLM call attempt — that's enough for AC#4 to assert state transitions.
+	_ = devReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return &noopLLMFile{}, nil
+	})
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 
@@ -50,6 +59,20 @@ func setupTestServer(t *testing.T) (*Server, string, *rnixctx.Manager) {
 	})
 
 	return srv, sockPath, ctxMgr
+}
+
+// noopLLMFile is a minimal vfs.VFSFile implementation used as a placeholder
+// LLM device file in setupTestServer. It does NOT implement StreamObserver
+// so kernel.setupDriverStreamHandler skips it; Write returns success without
+// emitting any tool/text deltas, which is enough for tests that exercise the
+// process-state side of Resume (Story 44.3) without needing a real driver.
+type noopLLMFile struct{}
+
+func (f *noopLLMFile) Read(_ int) ([]byte, error)                       { return nil, nil }
+func (f *noopLLMFile) Write(_ context.Context, _ []byte) error          { return nil }
+func (f *noopLLMFile) Close() error                                     { return nil }
+func (f *noopLLMFile) Stat() (vfs.FileStat, error) {
+	return vfs.FileStat{Name: "/dev/llm/claude", IsDevice: true, DevicePath: "/dev/llm/claude"}, nil
 }
 
 func dial(t *testing.T, sockPath string) net.Conn {

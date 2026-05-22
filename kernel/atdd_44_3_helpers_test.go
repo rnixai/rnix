@@ -51,6 +51,12 @@ func newReloadKernel(t *testing.T) (*KernelImpl, string) {
 // dataDir, simulating a daemon restart that picks up the same on-disk
 // .rnix/data/steps/. Returns the fresh kernel; old kernel must be Shutdown
 // separately by the caller (or its t.Cleanup will run).
+//
+// Currently exercised by the ipc-package end-to-end test only; kept here as
+// a shared helper so kernel-package smoke tests can re-emulate restart
+// without copying the wiring. Marked nolint until that consumer lands.
+//
+//nolint:unused
 func rebuildKernelOnSameDir(t *testing.T, dataDir string) *KernelImpl {
 	t.Helper()
 	reg := vfs.NewDeviceRegistry()
@@ -194,6 +200,8 @@ func uuidForTest(tag string) string {
 // 44.1 already provides findEvent44_1 but only matches when ALL want args are
 // equal; the 44.3 Resurrect / Resume assertions want presence-only matching
 // because the args map carries dynamic values (timestamps, derived counts).
+//
+//nolint:unused
 func findATDDEvent(events []types.SyscallEvent, name string) *types.SyscallEvent {
 	for i := range events {
 		if events[i].Syscall == name {

@@ -194,6 +194,13 @@ type procInfoDisk struct {
 	CreatedAt      string   `json:"created_at"`
 	DeadAt         string   `json:"dead_at,omitempty"`
 	PausedTotalMs  int64    `json:"paused_total_ms,omitempty"`
+	// Story 44.3 AC#1 — suspend metadata persisted across daemon restart so
+	// LoadSuspendedFromDisk can recreate accurate Suspended placeholders.
+	// SuspendReason intentionally typed as string (not enum) to stay
+	// decoupled from Epic 45's planned HeartbeatMonitor removal.
+	SuspendReason  string   `json:"suspend_reason,omitempty"`
+	PausedAt       string   `json:"paused_at,omitempty"`
+	IsPaused       bool     `json:"is_paused,omitempty"`
 	CtxID          uint64   `json:"ctx_id"`
 	Result         string   `json:"result,omitempty"`
 	AllowedDevices []string `json:"allowed_devices,omitempty"`
@@ -233,9 +240,16 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		ComposeDeps:    append([]string(nil), info.ComposeDeps...),
 		PipelineIndex:  info.PipelineIndex,
 		PipelineTotal:  info.PipelineTotal,
+		// Story 44.3 AC#1 — persist suspend metadata so daemon restart can
+		// reload Suspended placeholders into procTable.
+		SuspendReason: info.SuspendReason,
+		IsPaused:      info.IsPaused,
 	}
 	if !info.DeadAt.IsZero() {
 		d.DeadAt = info.DeadAt.Format(time.RFC3339Nano)
+	}
+	if !info.PausedAt.IsZero() {
+		d.PausedAt = info.PausedAt.Format(time.RFC3339Nano)
 	}
 	if info.PausedTotal > 0 {
 		d.PausedTotalMs = info.PausedTotal.Milliseconds()
@@ -269,12 +283,20 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		ComposeDeps:    d.ComposeDeps,
 		PipelineIndex:  d.PipelineIndex,
 		PipelineTotal:  d.PipelineTotal,
+		// Story 44.3 AC#1 — restore suspend metadata. SuspendReason is a
+		// transparent string passthrough; PausedAt parses best-effort and
+		// stays zero on parse failure.
+		SuspendReason: d.SuspendReason,
+		IsPaused:      d.IsPaused,
 	}
 	if d.CreatedAt != "" {
 		info.CreatedAt, _ = time.Parse(time.RFC3339Nano, d.CreatedAt)
 	}
 	if d.DeadAt != "" {
 		info.DeadAt, _ = time.Parse(time.RFC3339Nano, d.DeadAt)
+	}
+	if d.PausedAt != "" {
+		info.PausedAt, _ = time.Parse(time.RFC3339Nano, d.PausedAt)
 	}
 	if d.PausedTotalMs > 0 {
 		info.PausedTotal = time.Duration(d.PausedTotalMs) * time.Millisecond

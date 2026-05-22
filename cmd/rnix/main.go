@@ -1550,6 +1550,14 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	if err := k.LoadHistory(); err != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: load process history: %v\n", err)
 	}
+	// Story 44.3 — reload Suspended placeholders from disk so daemon restart
+	// preserves the user's pause state without auto-resuming. Failure here is
+	// non-fatal: dashboard / top will simply not show the placeholders.
+	if loaded, lerr := k.LoadSuspendedFromDisk(); lerr != nil {
+		fmt.Fprintf(os.Stderr, "[kernel] warn: load suspended placeholders: %v\n", lerr)
+	} else if loaded > 0 {
+		fmt.Fprintf(os.Stderr, "[kernel] reloaded %d suspended placeholder(s) — use 'rnix resume <uuid>' to wake\n", loaded)
+	}
 	if resumable, rerr := k.ListResumable(); rerr != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: list resumable: %v\n", rerr)
 	} else if n := len(resumable); n > 0 {

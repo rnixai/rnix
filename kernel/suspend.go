@@ -57,6 +57,18 @@ func (k *KernelImpl) suspendProcess(proc *Process, reason string, exitCode int) 
 	proc.Exit = &exit
 	proc.mu.Unlock()
 
+	// Story 44.3 AC#2 — persist proc-info.json synchronously so the disk
+	// snapshot reflects state=suspended + suspend_reason before the next
+	// daemon restart. Best-effort: a write failure must NOT block the state
+	// transition (44.1 dashboard p / Ctrl+C hot path). Mirrors the
+	// reapSuspendedProcess SaveProcInfo block.
+	if info, ierr := k.GetProcInfo(proc.PID); ierr == nil && info != nil {
+		if perr := SaveProcInfo(k.stepDataDir, *info); perr != nil {
+			log.Printf("[suspend] proc-info.json write error pid=%d uuid=%s: %v",
+				proc.PID, proc.UUID, perr)
+		}
+	}
+
 	// Notify callbacks
 	if k.callbacks != nil {
 		k.callbacks.OnComplete(proc.PID, "", exit)

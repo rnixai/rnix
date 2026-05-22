@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -229,8 +230,16 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 		state := found.GetState()
 		switch state {
 		case types.StateSuspended:
-			// Original 30-4 checkpoint path (delegate to existing Resume logic)
-			return k.resumeFromCheckpoint(uuid, opts, start)
+			// Story 44.3 AC#4 — daemon-restart placeholders (created by
+			// LoadSuspendedFromDisk) have no checkpoint.json. Fall back to
+			// the history path when checkpoint is absent, mirroring the
+			// Dead/Zombie branch below. The pre-44.3 behaviour always called
+			// resumeFromCheckpoint, which failed with ErrNotFound for these
+			// placeholders.
+			if checkpointExists(baseDir, uuid) {
+				return k.resumeFromCheckpoint(uuid, opts, start)
+			}
+			return k.resumeFromHistory(uuid, opts, start)
 		case types.StateRunning:
 			return nil, NewSyscallError("Resume", found.PID, "",
 				fmt.Errorf("process with UUID %s is in Running state, cannot resume", uuid), types.ErrInvalid)
@@ -824,6 +833,43 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 
 		k.reasonStep(proc, llmFD, spawnOpts)
 	})
+
+	// Story 44.3 AC#4 — subtree wakeup. When the just-resumed process is the
+	// parent of any disk-reloaded Suspended placeholders (LoadSuspendedFromDisk
+	// reconstructs ParentUUID-based linkage), trigger ResumeSubtree so the
+	// entire subtree comes back together. Without this the user would have to
+	// manually resume each descendant after every daemon restart, breaking the
+	// "整子树恢复" guarantee from Epic 44 §AC-EA1.
+	//
+	// Re-attach Suspended children scanned by ParentUUID — cleanupOldProcessAndHistory
+	// removed the old placeholder, so the new proc starts with empty Children.
+	// Done synchronously while we still hold resumeMu (we are inside a critical
+	// section started by ResumeWithOpts), and uses resumeSubtreeLocked to avoid
+	// the double-lock that would deadlock on the public ResumeSubtree entry.
+	if !opts.Fork {
+		k.procTable.Range(func(_ types.PID, candidate *Process) bool {
+			if candidate.PID == proc.PID {
+				return true
+			}
+			if candidate.ParentUUID != proc.UUID {
+				return true
+			}
+			if candidate.GetState() != types.StateSuspended {
+				return true
+			}
+			if !slices.Contains(proc.GetChildren(), candidate.PID) {
+				proc.AddChild(candidate.PID)
+				candidate.PPID = proc.PID
+			}
+			return true
+		})
+		// Best-effort: failures are logged inside resumeSubtreeLocked / per
+		// child; do not block the Resume return on subtree-wakeup errors.
+		if _, _, subErr := k.resumeSubtreeLocked(proc); subErr != nil {
+			log.Printf("[resume] subtree wakeup after history-resume uuid=%s failed: %v",
+				uuid, subErr)
+		}
+	}
 
 	if k.callbacks != nil {
 		k.callbacks.OnSpawn(proc.PID, proc.Intent, proc.Provider, proc.Model, proc.UUID)

@@ -102,6 +102,11 @@ func TestATDD_44_3_080_EndToEnd_DaemonRestart_SuspendedPersist_Resume(t *testing
 	// the same stepDataDir, with its own VFS + ContextManager (no public
 	// accessors exist on KernelImpl for those, so we construct fresh ones).
 	freshReg := vfs.NewDeviceRegistry()
+	// Register the same noopLLMFile mock setupTestServer uses, so the
+	// freshly-built kernel can open /dev/llm/claude during Resume.
+	_ = freshReg.Register("/dev/llm/claude", func(_ string, _ vfs.OpenFlag, _ string) (vfs.VFSFile, error) {
+		return &noopLLMFile{}, nil
+	})
 	freshVFS := vfs.NewVFS(freshReg)
 	freshCtxMgr := rnixctx.NewManager()
 	freshKern := kernel.NewKernel(freshVFS, freshCtxMgr, nil)
