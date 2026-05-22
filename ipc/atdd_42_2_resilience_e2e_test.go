@@ -81,7 +81,7 @@ func writeCrashLeftover(t *testing.T, baseDir, uuid string, lastStep int) {
 func TestATDD_42_2_INT_003_E2E_CrashRecovery(t *testing.T) {
 
 
-	client, kern, baseDir := setupResumeIPCTest(t)
+	client, kern, baseDir, llmFile := setupResumeIPCTest(t)
 	uuid := "e2e-crash-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeCrashLeftover(t, baseDir, uuid, 12)
 
@@ -104,10 +104,18 @@ func TestATDD_42_2_INT_003_E2E_CrashRecovery(t *testing.T) {
 	}
 
 	// 用户 resume：ResumeWithOpts(fork=false) 走 checkpoint 路径（42-1）。
+	//
+	// 安装握手 gate：让 resumed 进程在首次 LLM Read 处停住（此刻已 past
+	// proc.Start() → Running），消除原 flaky 来源——mock 默认返回 complete 会
+	// 使进程秒退被 reap，导致随后的 ListResumable 把磁盘残留（state=running）
+	// 重新算作可恢复。等收到 reached 再断言，断言完 close(release) 放行。
+	reached, release := llmFile.parkOnRead()
 	resumeResp, err := client.ResumeWithOpts(uuid, false)
 	if err != nil {
 		t.Fatalf("ResumeWithOpts: %v", err)
 	}
+	<-reached
+	defer close(release)
 	if resumeResp.UUID != uuid {
 		t.Errorf("resumed UUID = %q, want %q (fork=false inherits)", resumeResp.UUID, uuid)
 	}

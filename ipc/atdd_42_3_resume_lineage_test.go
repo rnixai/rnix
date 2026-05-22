@@ -26,7 +26,7 @@ import (
 // --- 42.3-IPC-002: get_resume_lineage 端到端（单 fork 链）(AC#7) ---
 
 func TestATDD_42_3_IPC_002_GetResumeLineage_SingleForkChain(t *testing.T) {
-	client, kern, _ := setupResumeIPCTest(t)
+	client, kern, _, _ := setupResumeIPCTest(t)
 	parent := "lineage-parent-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	child := "lineage-child-aaaaaaaa-bbbb-cccc-dddd-000000000002"
 
@@ -61,7 +61,7 @@ func TestATDD_42_3_IPC_002_GetResumeLineage_SingleForkChain(t *testing.T) {
 // --- 42.3-IPC-003: 空 UUID → ErrInvalid (AC#7) ---
 
 func TestATDD_42_3_IPC_003_GetResumeLineage_EmptyUUID(t *testing.T) {
-	client, _, _ := setupResumeIPCTest(t)
+	client, _, _, _ := setupResumeIPCTest(t)
 
 	_, err := client.GetResumeLineage("")
 	if err == nil {
@@ -80,7 +80,7 @@ func TestATDD_42_3_IPC_004_GetResumeLineage_RoutingIndependent(t *testing.T) {
 	// （而非 fallthrough 到 handleLineage 的 stem-cell 分化语义）。
 	// RED PHASE：handleGetResumeLineage stub 已注册，所以这条断言可立即生效。
 
-	client, kern, _ := setupResumeIPCTest(t)
+	client, kern, _, _ := setupResumeIPCTest(t)
 	uuid := "route-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	procHist := kern.ProcHistory()
 	procHist.Add(vfs.ProcInfo{

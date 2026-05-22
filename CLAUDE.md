@@ -155,7 +155,7 @@ Story artifacts live in `_bmad-output/implementation-artifacts/`. Sprint status 
 
 - `TestRunTop_NoDaemon` fails in environments without `/dev/tty` (CI/containers)
 - `TestClaudeCliDriver_Call_DefaultArgs` may fail if default model constant changes
-- `TestATDD_42_2_INT_003_E2E_CrashRecovery`（ipc）低频 flaky：resume 后 mock LLM 返回 `complete` 使进程秒退→reap 移出 procTable，与随后的 `ListResumable` 形成时序竞态（`ListResumable` 只过滤 Running 状态，符合 Epic 42 "Dead 可重新 resume" 哲学）。确定性修复需让 resumed 进程在断言期间保持 Running（改 42.2 共享 mock 基础设施）。详见 deferred-work.md
+- `TestATDD_42_2_INT_003_E2E_CrashRecovery`（ipc）原低频 flaky 已修复：resume 后 mock LLM 返回 `complete` 会使进程秒退→reap 移出 procTable，与随后的 `ListResumable` 形成时序竞态（`ListResumable` 只过滤 Running 状态，符合 Epic 42 "Dead 可重新 resume" 哲学）。修复方式：给共享 mock（`atdd_42_1_resume_ipc_test.go` 的 `mockLLMFile.parkOnRead`）加握手 gate，让 resumed 进程在首次 LLM Read 处停住（已 past `proc.Start()` → Running），E2E 测试等 `reached` 信号后再断言、断言完 `close(release)` 放行，消除竞态。
 
 ## Driver Token Semantics (Cache Hit Rate)
 

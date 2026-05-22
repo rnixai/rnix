@@ -72,7 +72,7 @@ func writeResumableSnapshot(t *testing.T, baseDir, uuid string, lastStep int) {
 func TestATDD_42_2_INT_001_ListResumable_WireSchema(t *testing.T) {
 
 
-	client, _, baseDir := setupResumeIPCTest(t)
+	client, _, baseDir, _ := setupResumeIPCTest(t)
 	uuid := "wire-schema-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeResumableSnapshot(t, baseDir, uuid, 17)
 
@@ -117,7 +117,7 @@ func TestATDD_42_2_INT_001_ListResumable_WireSchema(t *testing.T) {
 func TestATDD_42_2_INT_002_ListResumable_EmptyAndFilter(t *testing.T) {
 
 
-	client, _, _ := setupResumeIPCTest(t)
+	client, _, _, _ := setupResumeIPCTest(t)
 
 	// No snapshots on disk → empty list, no error.
 	resp, err := client.ListResumable()

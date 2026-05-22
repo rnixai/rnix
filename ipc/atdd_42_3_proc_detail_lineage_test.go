@@ -26,7 +26,7 @@ import (
 // --- 42.3-IPC-005: 活进程 detail OriginUUID 填充 (AC#6, AC#8) ---
 
 func TestATDD_42_3_IPC_005_GetProcDetail_LiveProcess_OriginUUID(t *testing.T) {
-	client, kern, _ := setupResumeIPCTest(t)
+	client, kern, _, _ := setupResumeIPCTest(t)
 
 	// 注入一个活进程，proc.OriginUUID 非空模拟 fork 结果
 	proc := kernel.NewProcess(0, "live forked process", nil)
@@ -51,7 +51,7 @@ func TestATDD_42_3_IPC_005_GetProcDetail_LiveProcess_OriginUUID(t *testing.T) {
 // --- 42.3-IPC-006: 活进程 detail ResumedFromStep 填充 (AC#8) ---
 
 func TestATDD_42_3_IPC_006_GetProcDetail_LiveProcess_ResumedFromStep(t *testing.T) {
-	client, kern, _ := setupResumeIPCTest(t)
+	client, kern, _, _ := setupResumeIPCTest(t)
 
 	proc := kernel.NewProcess(0, "live step process", nil)
 	proc.OriginUUID = "step-origin-aaaaaaaa-bbbb-cccc-dddd-000000000001"
@@ -74,7 +74,7 @@ func TestATDD_42_3_IPC_006_GetProcDetail_LiveProcess_ResumedFromStep(t *testing.
 // --- 42.3-IPC-007: 历史进程 detail 从 procInfoDisk 派生 (AC#6, AC#8) ---
 
 func TestATDD_42_3_IPC_007_GetProcDetail_HistoricalProcess_LineageFromDisk(t *testing.T) {
-	client, kern, _ := setupResumeIPCTest(t)
+	client, kern, _, _ := setupResumeIPCTest(t)
 	// Use a standards-compliant UUID format (8-4-4-4-12 hex) so the server's
 	// isValidUUID gate accepts it on the history path.
 	uuid := "01ec9999-1234-7890-abcd-000000000001"

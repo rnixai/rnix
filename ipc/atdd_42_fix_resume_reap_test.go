@@ -25,7 +25,7 @@ import (
 // When:  通过 IPC client.Resume 启动新进程，mock LLM 立即返回 complete
 // Then:  ≤ 2 秒内新 PID 应进入 StateDead 且 DeadAt 被设置（不为零值）
 func TestATDD_42_Fix_ResumeReap_001_KillReapsAndSetsDeadAt(t *testing.T) {
-	client, kern, baseDir := setupResumeIPCTest(t)
+	client, kern, baseDir, _ := setupResumeIPCTest(t)
 	uuid := "fix-reap-resume-0000-0000-000000000001"
 	writeIPCTestData(t, baseDir, uuid, 3)
 
@@ -72,7 +72,7 @@ func TestATDD_42_Fix_ResumeReap_001_KillReapsAndSetsDeadAt(t *testing.T) {
 //
 // Verifies that the reap goroutine fires for fork mode too (new UUID branch).
 func TestATDD_42_Fix_ResumeReap_002_ForkAlsoReaps(t *testing.T) {
-	client, kern, baseDir := setupResumeIPCTest(t)
+	client, kern, baseDir, _ := setupResumeIPCTest(t)
 	uuid := "fix-reap-fork-0000-0000-000000000001"
 	writeIPCTestData(t, baseDir, uuid, 3)
 

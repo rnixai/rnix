@@ -52,7 +52,7 @@ func writeProcInfoForGcTest(t *testing.T, baseDir, uuid, state, deadAt string) {
 // --- INT-001 (AC#13): gc_dry_run wire schema after dev-story activation ---
 
 func TestATDD_42_5_INT_001_GcDryRun_Schema(t *testing.T) {
-	client, kern, baseDir := setupResumeIPCTest(t)
+	client, kern, baseDir, _ := setupResumeIPCTest(t)
 	// Enable gc with a 1-day retention so the stale fixture below is a candidate.
 	kern.SetGcConfig(kernel.GcConfig{RetentionDays: 1, MaxEntries: 0, IntervalSeconds: 3600})
 
@@ -90,7 +90,7 @@ func TestATDD_42_5_INT_001_GcDryRun_Schema(t *testing.T) {
 // --- INT-002 (AC#13): gc actually cleans and returns stats ---
 
 func TestATDD_42_5_INT_002_Gc_End2End(t *testing.T) {
-	client, kern, baseDir := setupResumeIPCTest(t)
+	client, kern, baseDir, _ := setupResumeIPCTest(t)
 	kern.SetGcConfig(kernel.GcConfig{RetentionDays: 1, MaxEntries: 0, IntervalSeconds: 3600})
 
 	uuid := "ipc-gc-e2e-aaaaaaaa-bbbb-cccc-dddd-000000000001"
@@ -120,7 +120,7 @@ func TestATDD_42_5_INT_002_Gc_End2End(t *testing.T) {
 // kernel.RunGc returns nil with zero candidates when gc is disabled (the
 // default for setupResumeIPCTest), so client.Gc()/.GcDryRun() must succeed.
 func TestATDD_42_5_INT_003_GreenPhase_DisabledGcReturnsOK(t *testing.T) {
-	client, _, _ := setupResumeIPCTest(t)
+	client, _, _, _ := setupResumeIPCTest(t)
 
 	gcResp, err := client.Gc()
 	if err != nil {

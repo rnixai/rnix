@@ -19,7 +19,7 @@ import (
 // --- 42.3-IPC-001: ResumeRequest.FromStep 透传 (AC#1) ---
 
 func TestATDD_42_3_IPC_001_ResumeRequest_FromStep_Propagation(t *testing.T) {
-	client, _, baseDir := setupResumeIPCTest(t)
+	client, _, baseDir, _ := setupResumeIPCTest(t)
 	uuid := "ipc-fromstep-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeIPCTestData(t, baseDir, uuid, 50)
 
@@ -43,7 +43,7 @@ func TestATDD_42_3_IPC_001_ResumeRequest_FromStep_Propagation(t *testing.T) {
 // --- 42.3-IPC-001b: FromStep 越界经 IPC 返回错误 (AC#2) ---
 
 func TestATDD_42_3_IPC_001b_ResumeRequest_FromStep_OutOfRange(t *testing.T) {
-	client, _, baseDir := setupResumeIPCTest(t)
+	client, _, baseDir, _ := setupResumeIPCTest(t)
 	uuid := "ipc-oor-aaaaaaaa-bbbb-cccc-dddd-000000000001"
 	writeIPCTestData(t, baseDir, uuid, 20)
 

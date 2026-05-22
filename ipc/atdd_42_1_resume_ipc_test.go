@@ -15,16 +15,49 @@ import (
 )
 
 // mockLLMFile is a minimal VFS file mock for resume IPC tests.
+//
+// By default Read returns readData immediately (the resumed process completes
+// in one step). Tests that need the resumed process to stay Running during an
+// assertion window install a handshake gate via parkOnRead: Read signals
+// reachedCh once it is entered (the process is now past proc.Start() and thus
+// Running) and then blocks until gateCh is closed.
 type mockLLMFile struct {
-	mu       sync.Mutex
-	readData []byte
+	mu        sync.Mutex
+	readData  []byte
+	reachedCh chan struct{} // closed once when Read is first entered (optional)
+	gateCh    chan struct{} // Read blocks until this is closed (optional)
+	reached   bool
+}
+
+// parkOnRead installs the handshake gate. The returned reached channel is
+// closed when the resumed process enters Read (guaranteeing it is Running);
+// closing the returned release channel lets Read return so the process can
+// finish.
+func (f *mockLLMFile) parkOnRead() (reached <-chan struct{}, release chan<- struct{}) {
+	reachedCh := make(chan struct{})
+	gateCh := make(chan struct{})
+	f.mu.Lock()
+	f.reachedCh = reachedCh
+	f.gateCh = gateCh
+	f.reached = false
+	f.mu.Unlock()
+	return reachedCh, gateCh
 }
 
 func (f *mockLLMFile) Write(_ gocontext.Context, _ []byte) error { return nil }
 func (f *mockLLMFile) Read(_ int) ([]byte, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.readData, nil
+	data := f.readData
+	gateCh := f.gateCh
+	if f.reachedCh != nil && !f.reached {
+		f.reached = true
+		close(f.reachedCh)
+	}
+	f.mu.Unlock()
+	if gateCh != nil {
+		<-gateCh
+	}
+	return data, nil
 }
 func (f *mockLLMFile) Close() error                    { return nil }
 func (f *mockLLMFile) Stat() (vfs.FileStat, error)     { return vfs.FileStat{IsDevice: true, Name: "/dev/llm/claude"}, nil }
@@ -34,7 +67,7 @@ func (f *mockLLMFile) SupportsToolCalling() bool       { return true }
 // ATDD 42.1: Resume 机制层 — IPC 集成测试
 // =============================================================================
 
-func setupResumeIPCTest(t *testing.T) (*Client, *kernel.KernelImpl, string) {
+func setupResumeIPCTest(t *testing.T) (*Client, *kernel.KernelImpl, string, *mockLLMFile) {
 	t.Helper()
 
 	completeResp := `{"action":"complete","summary":"done","content":"done"}`
@@ -70,7 +103,7 @@ func setupResumeIPCTest(t *testing.T) (*Client, *kernel.KernelImpl, string) {
 	}
 	t.Cleanup(func() { client.Close() })
 
-	return client, kern, baseDir
+	return client, kern, baseDir, llmFile
 }
 
 func writeIPCTestData(t *testing.T, baseDir, uuid string, lastStep int) {
@@ -103,7 +136,7 @@ func writeIPCTestData(t *testing.T, baseDir, uuid string, lastStep int) {
 // --- 42.1-INT-001: IPC resume fork=false 走续跑路径 (AC#7) ---
 
 func TestATDD_42_1_INT_001_IPC_Resume_NoFork(t *testing.T) {
-	client, _, baseDir := setupResumeIPCTest(t)
+	client, _, baseDir, _ := setupResumeIPCTest(t)
 	uuid := "ipc-nofork-0000-0000-000000000001"
 	writeIPCTestData(t, baseDir, uuid, 5)
 
@@ -125,7 +158,7 @@ func TestATDD_42_1_INT_001_IPC_Resume_NoFork(t *testing.T) {
 // --- 42.1-INT-002: IPC resume fork=true 走分叉路径 (AC#7) ---
 
 func TestATDD_42_1_INT_002_IPC_Resume_Fork(t *testing.T) {
-	client, _, baseDir := setupResumeIPCTest(t)
+	client, _, baseDir, _ := setupResumeIPCTest(t)
 	uuid := "ipc-fork-0000-0000-000000000001"
 	writeIPCTestData(t, baseDir, uuid, 10)
 
@@ -144,7 +177,7 @@ func TestATDD_42_1_INT_002_IPC_Resume_Fork(t *testing.T) {
 // --- 42.1-INT-003: 向后兼容（Client.Resume 无 Fork = fork=false）(AC#7) ---
 
 func TestATDD_42_1_INT_003_IPC_Resume_BackwardCompat(t *testing.T) {
-	client, _, baseDir := setupResumeIPCTest(t)
+	client, _, baseDir, _ := setupResumeIPCTest(t)
 	uuid := "ipc-compat-0000-0000-000000000001"
 	writeIPCTestData(t, baseDir, uuid, 3)
 
