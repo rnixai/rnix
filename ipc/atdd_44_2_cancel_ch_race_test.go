@@ -39,11 +39,11 @@ import (
 // extracted helper that dev-story creates per §AC1.b). If dev-story
 // inlines the logic, this test still validates the OBSERVABLE invariant:
 // "given a Suspend-driven Cancel, scriptCtx must remain alive". We use a
-// minimal façade `runCancelWatcherForTest` that dev-story is expected to
+// minimal façade `runCancelWatcher` that dev-story is expected to
 // add (or this test is rewritten to call the inlined version).
 // =============================================================================
 
-// runCancelWatcherForTest is the testable extraction of the CancelledCh
+// runCancelWatcher is the testable extraction of the CancelledCh
 // watcher in handleExecScript (44.2 §AC1.b). It must exist on the ipc
 // package as a package-level helper so unit tests can drive the race
 // window without spinning up a full handleExecScript / conn pair.
@@ -86,7 +86,7 @@ func TestATDD_44_2_040_CancelWatcher_SuspendDrivenCancel_DoesNotCancelCtx(t *tes
 
 	go func() {
 		defer close(watcherDone)
-		runCancelWatcherForTest(done, scriptCtx, proc, wrappedCancel)
+		runCancelWatcher(done, scriptCtx, proc, wrappedCancel)
 	}()
 
 	// Emulate suspendOneForSubtree's ordering:
@@ -146,7 +146,7 @@ func TestATDD_44_2_041_CancelWatcher_KillDrivenCancel_DoesCancelCtx(t *testing.T
 	}
 
 	done := make(chan struct{})
-	go runCancelWatcherForTest(done, scriptCtx, proc, wrappedCancel)
+	go runCancelWatcher(done, scriptCtx, proc, wrappedCancel)
 
 	// Plain Cancel() (no suspendRequested.Store(true)) — emulates SIGKILL
 	// /SIGTERM dispatch which never touches the suspend flag.
@@ -196,7 +196,7 @@ func TestATDD_44_2_042_CancelWatcher_DaemonShutdownCancelsCtx(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	go runCancelWatcherForTest(done, scriptCtx, proc, wrappedCancel)
+	go runCancelWatcher(done, scriptCtx, proc, wrappedCancel)
 
 	close(done)
 	select {

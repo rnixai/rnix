@@ -21,6 +21,22 @@ type ScriptResult struct {
 	Elapsed      time.Duration
 }
 
+// SuspendController bridges the shell-side executor to the kernel's Suspend
+// state machine without violating the "shell imports nothing" dependency rule
+// (see project-context.md §"依赖方向（严格单向）"). The ipc layer provides the
+// concrete *kernel.Process adapter (Story 44.2 AC#3).
+type SuspendController interface {
+	// IsSuspendRequested reports whether the controlled process has been
+	// asked to suspend (Ctrl+C → SIGPAUSE → SuspendSubtree).
+	IsSuspendRequested() bool
+	// ResumedCh returns a channel that is closed when the controlled process
+	// transitions back to Running. The returned channel may differ between
+	// calls — the executor must re-fetch it after each Resume cycle.
+	// Implementations must be safe for concurrent ResumedCh() calls (multiple
+	// goroutines may observe the same suspend, e.g. parallel block).
+	ResumedCh() <-chan struct{}
+}
+
 // ScriptExecutor runs a parsed Script sequentially.
 type ScriptExecutor struct {
 	spawner      KernelSpawner
@@ -40,6 +56,43 @@ type ScriptExecutor struct {
 	fileReader  FileReader
 	sourceStack map[string]bool
 	scriptDir   string
+	// suspendCtrl bridges to the kernel Suspend state machine (Story 44.2).
+	// nil = fast-path skip (mock spawner / unit-test scenarios), so the
+	// existing shell tests stay unaffected.
+	suspendCtrl SuspendController
+}
+
+// SetSuspendController injects the SuspendController used to park execution at
+// statement boundaries when a SIGPAUSE-driven suspend is requested. Passing
+// nil restores the zero-overhead fast path (Story 44.2 AC#2 / AC#3).
+func (e *ScriptExecutor) SetSuspendController(ctrl SuspendController) {
+	e.suspendCtrl = ctrl
+}
+
+// waitIfSuspended parks the executor at a statement boundary while the injected
+// SuspendController reports IsSuspendRequested(). It emits ScriptStmtPaused
+// before parking and ScriptStmtResumed after the wait. Returns ctx.Err() if the
+// context is cancelled during the wait (daemon shutdown / SIGKILL), else nil
+// once resumed. nil controller → immediate no-op fast path (Story 44.2 AC#2).
+func (e *ScriptExecutor) waitIfSuspended(ctx context.Context, stmtKind string, line int) error {
+	if e.suspendCtrl == nil || !e.suspendCtrl.IsSuspendRequested() {
+		return nil
+	}
+	e.emitEvent(ScriptStmtPaused, line, "", map[string]any{
+		"stmt_kind": stmtKind,
+		"reason":    "user_paused",
+	})
+	ch := e.suspendCtrl.ResumedCh()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-ch:
+		// resumed; fall through to run the statement
+	}
+	e.emitEvent(ScriptStmtResumed, line, "", map[string]any{
+		"stmt_kind": stmtKind,
+	})
+	return nil
 }
 
 // NewScriptExecutor creates a ScriptExecutor with the given spawner and environment.
@@ -152,6 +205,13 @@ func (e *ScriptExecutor) executeBlock(ctx context.Context, stmts []Statement,
 	result *ScriptResult, stageNum *int, totalStages int) error {
 
 	for _, stmt := range stmts {
+		// Story 44.2: park at the statement boundary if a SIGPAUSE-driven
+		// suspend is in flight, BEFORE emitting Begin / checking ctx — so the
+		// suspend anchor lands at the not-yet-run statement and resume picks
+		// up exactly here (no skip, no replay).
+		if err := e.waitIfSuspended(ctx, string(stmt.Kind), stmt.Line); err != nil {
+			return err
+		}
 		// Story 43.2 (OBS-1): emit Begin BEFORE the ctx.Err() check so a
 		// statement that we are about to skip due to cancellation still
 		// produces a Begin/End pair (with error="context canceled"). Without
@@ -476,6 +536,11 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 			}
 		}
 		for _, item := range list {
+			// Story 44.2: suspend boundary at each iteration head — a SIGPAUSE
+			// arriving mid-loop parks here before the next iteration body.
+			if susErr := e.waitIfSuspended(ctx, string(stmt.Kind), stmt.Line); susErr != nil {
+				return false, 0, susErr
+			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return false, 0, ctxErr
 			}
@@ -493,6 +558,12 @@ func (e *ScriptExecutor) executeStatement(ctx context.Context, stmt Statement,
 	case StmtWhile:
 		iterations := 0
 		for {
+			// Story 44.2: suspend boundary at each iteration head — without
+			// this, a while-true loop (dev-auto.ash) would keep evaluating its
+			// condition and never park after a SIGPAUSE between iterations.
+			if susErr := e.waitIfSuspended(ctx, string(stmt.Kind), stmt.Line); susErr != nil {
+				return false, 0, susErr
+			}
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return false, 0, ctxErr
 			}

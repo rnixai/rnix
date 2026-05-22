@@ -198,6 +198,9 @@ func TestATDD_42_3_CLI_008_Running_F_FallthroughFalse(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestATDD_42_3_CLI_009_ForkProcessCmd_ReturnsForkResultMsg(t *testing.T) {
+	// Socket isolation handled by TestMain — Dial fails fast (daemon not
+	// available) so cmd() returns forkResultMsg with err set, regardless of
+	// whether a real daemon is running locally.
 	cmd := forkProcessCmd("any-uuid-aaaaaaaa-bbbb-cccc-dddd-000000000001")
 	if cmd == nil {
 		t.Fatal("forkProcessCmd returned nil")

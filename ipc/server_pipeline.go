@@ -3,8 +3,8 @@ package ipc
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"net"
 	"path/filepath"
@@ -18,21 +18,16 @@ import (
 	"github.com/rnixai/rnix/shell"
 )
 
-// Sentinel errors carried by context.WithCancelCause so the post-run cleanup
-// in handleExecScript can distinguish CLI client disconnect (suspend parent,
-// preserve children) from explicit kill / daemon shutdown (finish parent as
-// failed and reap, matching legacy behaviour). Each scriptCancel goroutine
-// passes one of these as its cause.
-var (
-	errCLIDisconnected = errors.New("cli disconnected")
-	errScriptKilled    = errors.New("script process killed")
-	errDaemonShutdown  = errors.New("daemon shutdown")
-)
-
-// suspendReasonCLIDisconnected re-binds the exported kernel constant so the
-// rest of this file reads naturally. Using the kernel value (rather than a
-// duplicated literal) makes mis-spellings a compile error in either package.
-const suspendReasonCLIDisconnected = kernel.SuspendReasonCLIDisconnected
+// Story 44.2 ADR-section: Ctrl+C semantics redefined. CLI disconnect no longer
+// cancels scriptCtx; the daemon emits SignalTree(scriptPID, SIGPAUSE) and the
+// ScriptExecutor parks at the next statement boundary via SuspendController,
+// keeping the whole subtree resumable. The three sentinel errors that the
+// pre-44.2 finalizeScriptRunner used to distinguish CLI-disconnect from
+// kill/shutdown (errCLIDisconnected / errScriptKilled / errDaemonShutdown) are
+// deleted — finalize now branches purely on the process state (Suspended) and
+// execErr. See finalizeScriptRunner below for the case analysis. The canonical
+// SuspendReason for this path lives in kernel.SuspendReasonCLIDisconnected and
+// is set by the kernel SignalTree → SuspendSubtree path, not by ipc.
 
 // scriptRunnerHeartbeatInterval is how often handleExecScript pings the
 // script-runner's LastHeartbeat. See HB-1 (Epic 43, Story 43.1).
@@ -214,16 +209,13 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 			}
 			return info.Result, exit.Code, info.TokensUsed, nil
 		case <-ctx.Done():
-			cause := context.Cause(ctx)
-			// CLI-disconnect: preserve the child for later resume — do NOT kill
-			// or reap. Matches the script-runner parent's Suspend semantics in
-			// handleExecScript. Any child state (Running / Paused) survives.
-			if errors.Is(cause, errCLIDisconnected) {
-				return "", 1, 0, ctx.Err()
-			}
-			// Pre-existing carve-out: paused children are intentionally suspended
-			// and should survive parent context cancellation regardless of cause.
-			if info, err := s.kernel.GetProcInfo(pid); err == nil && info.IsPaused {
+			// Story 44.2: scriptCtx is only cancelled on real termination
+			// (SIGKILL/SIGTERM/daemon shutdown) — CLI disconnect now suspends
+			// the subtree instead, so a suspended child never reaches here via
+			// disconnect. Preserve intentionally-suspended/paused children;
+			// otherwise tear the child down to match the parent termination.
+			if info, err := s.kernel.GetProcInfo(pid); err == nil &&
+				(info.IsPaused || info.State == types.StateSuspended) {
 				return "", 1, 0, ctx.Err()
 			}
 			_ = s.kernel.Kill(pid, types.SIGTERM)
@@ -315,34 +307,34 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 
 	enc := json.NewEncoder(conn)
 
-	// Build a context that is cancelled when:
-	//   1. The script runner process receives SIGTERM/SIGKILL (K in rnix top)
+	// Build a context that is cancelled when the script-runner is truly
+	// terminating:
+	//   1. The script-runner process receives SIGTERM/SIGKILL (K in rnix top)
 	//   2. The daemon is shutting down
-	//   3. The client disconnects (Ctrl+C or terminal close)
 	//
-	// Each goroutine passes a sentinel cause via context.WithCancelCause so the
-	// post-run block below can tell which reason fired and decide whether the
-	// script-runner parent process should be Suspended (cli disconnect, allow
-	// resume) or Finished as failed (kill / shutdown — legacy behaviour).
+	// Story 44.2: client disconnect (Ctrl+C) is NO LONGER a cancellation — see
+	// the conn.Read goroutine below, which now emits SignalTree(SIGPAUSE)
+	// instead, so the subtree suspends (and stays resumable) rather than
+	// tearing down. The CancelledCh watcher distinguishes a suspend-driven
+	// proc.Cancel() (suspendRequested==true) from a real kill: see
+	// runCancelWatcher (AC#1.b).
 	scriptCtx, scriptCancel := context.WithCancelCause(context.Background())
 	defer scriptCancel(nil)
 
-	go func() {
-		select {
-		case <-s.done:
-			scriptCancel(errDaemonShutdown)
-		case <-scriptProc.CancelledCh():
-			scriptCancel(errScriptKilled)
-		case <-scriptCtx.Done():
-		}
-	}()
+	go runCancelWatcher(s.done, scriptCtx, scriptProc, scriptCancel)
 
-	// Detect client disconnect: the client only writes the initial request, so any
-	// subsequent read returns EOF/error when the client closes the connection.
+	// Detect client disconnect: the client only writes the initial request, so
+	// any subsequent read returns EOF/error when the client closes the
+	// connection. Story 44.2 (AC#1): on disconnect we emit SIGPAUSE on the
+	// whole subtree — equivalent to pressing `p` on the root script-runner —
+	// rather than cancelling scriptCtx. The executor parks at the next
+	// statement boundary; `rnix resume <uuid>` / dashboard `R` continues it.
 	go func() {
 		buf := make([]byte, 1)
 		conn.Read(buf) //nolint:errcheck // intentional: only care about close, not the value
-		scriptCancel(errCLIDisconnected)
+		if _, err := s.kern.SignalTree(scriptPID, types.SIGPAUSE); err != nil {
+			log.Printf("[exec_script] SignalTree(SIGPAUSE) on CLI disconnect: pid=%d err=%v", scriptPID, err)
+		}
 	}()
 
 	// HB-1 (Epic 43, Story 43.1): keep the script-runner's heartbeat alive for
@@ -376,6 +368,9 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	if req.ScriptDir != "" {
 		executor.SetScriptDir(req.ScriptDir)
 	}
+	// Story 44.2 (AC#3): wire the SuspendController so the executor parks at a
+	// statement boundary when SignalTree(SIGPAUSE) suspends the subtree.
+	executor.SetSuspendController(processSuspendController{proc: scriptProc})
 	executor.OnStageStart = func(stage, total int, intent string) {
 		pp := ProgressPayload{
 			Event:  "script_step",
@@ -415,12 +410,11 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	result, execErr := executor.Execute(scriptCtx, script)
 
 	// HB-1 cleanup: stop the lifecycle heartbeat keeper before transitioning
-	// the process state below. scriptCancel(nil) is a no-op if a watcher
-	// goroutine already set a cause (errCLIDisconnected / errScriptKilled /
-	// errDaemonShutdown), so context.Cause(scriptCtx) still reads the real
-	// cause in finalizeScriptRunner. hbWG.Wait blocks until the keeper has
-	// returned, guaranteeing no further TouchHeartbeat races with the Reap
-	// below or with the Suspended-state transition in finalizeScriptRunner.
+	// the process state below. scriptCancel(nil) is a no-op if the watcher
+	// goroutine already cancelled (kill / daemon shutdown). hbWG.Wait blocks
+	// until the keeper has returned, guaranteeing no further TouchHeartbeat
+	// races with the Reap below or with the Suspended-state branch in
+	// finalizeScriptRunner.
 	scriptCancel(nil)
 	hbWG.Wait()
 
@@ -433,7 +427,7 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 		lastResult = result.LastResult
 		lastExitCode = result.LastExitCode
 	}
-	outcome := finalizeScriptRunner(scriptProc, context.Cause(scriptCtx), execErr, lastResult, lastExitCode)
+	outcome := finalizeScriptRunner(scriptProc, execErr, lastResult, lastExitCode)
 	if outcome.reapAfter {
 		s.kern.Reap(scriptPID)
 	}
@@ -475,65 +469,46 @@ type scriptRunnerOutcome struct {
 }
 
 // finalizeScriptRunner picks the post-execute action for the script-runner
-// process based on (cause, execErr) and applies the side effects on the
-// process itself (Suspend / Finish). Streaming + Reap are returned in
-// scriptRunnerOutcome so the caller stays in control of network I/O.
+// process. Story 44.2 simplified the decision to two inputs — the process
+// state and execErr — after deleting the three sentinel causes. Streaming +
+// Reap are returned in scriptRunnerOutcome so the caller stays in control of
+// network I/O.
 //
 // Cases:
-//  1. execErr != nil && cause is errCLIDisconnected && parent still Running
-//     → Suspend(parent, reason=cli_disconnected), NOT reap. Stream
-//     SCRIPT_INTERRUPTED. Story 44.1 redefined the wake path: the user must
-//     explicitly resume this ancestor (dashboard `R`, `rnix resume <uuid>`,
-//     or SIGRESUME) to wake the whole subtree. There is no longer any
-//     automatic ancestor wakeup triggered by descendant resume.
-//  2. execErr != nil (kill / shutdown / non-ctx error)
-//     → Finish(code=1, execErr), Reap. Stream SCRIPT_ERROR.
-//  3. execErr == nil
-//     → Finish(lastResult, lastExitCode, nil), Reap. Caller streams
-//     ExecScriptResponse on the success path (returnEarly=false).
 //
-// On Suspend transition failure (should not happen from Running) we fall
-// back to the case-2 path so a half-transitioned process is never left in
-// procTable.
-func finalizeScriptRunner(scriptProc *kernel.Process, cause, execErr error, lastResult string, lastExitCode int) scriptRunnerOutcome {
-	if execErr != nil && errors.Is(cause, errCLIDisconnected) &&
-		scriptProc.GetState() == types.StateRunning {
-		scriptProc.SetSuspendReason(suspendReasonCLIDisconnected)
-		if suspendErr := scriptProc.Suspend(); suspendErr == nil {
-			// D3 (Story 43.2): close the EventWriter on Suspend so the
-			// FD + buffered bytes don't leak for the script-runner's full
-			// Suspended lifetime (which can be indefinite — only Reap
-			// would otherwise Close, and Suspend skips Reap). EventWriter
-			// uses O_APPEND, so if the process ever transitions back to
-			// Running and a re-attach happens, prior events are preserved.
-			// The current model has no re-emit path after Suspend (the
-			// executor goroutine is gone), so this is purely cleanup.
-			scriptProc.DetachAndCloseEventWriter()
-			return scriptRunnerOutcome{
-				reapAfter: false,
-				streamPayload: ErrorPayload{
-					Code:    "SCRIPT_INTERRUPTED",
-					Message: "cli disconnected; script suspended",
-				},
-				streamType:  StreamError,
-				returnEarly: true,
-			}
-		}
-		// Fallback: state transition failed → revert to legacy Finish+Reap.
-		// Clear SuspendReason first so the persisted proc-info.json snapshot
-		// doesn't carry a stale "cli_disconnected" tag.
-		scriptProc.SetSuspendReason("")
-		scriptProc.Finish("interrupted", 1, execErr)
+//	case-0: scriptProc is Suspended
+//	        The SignalTree(SIGPAUSE) path (CLI disconnect / dashboard `p`)
+//	        suspended the subtree before the executor returned. Under normal
+//	        Ctrl+C the executor parks at the statement boundary and never
+//	        reaches finalize while Suspended; this branch only fires in the
+//	        rare race where ctx was also cancelled at the same instant. Keep
+//	        the process in procTable (NO reap), preserve its SuspendReason,
+//	        and stream SCRIPT_SUSPENDED so a future `rnix resume` / dashboard
+//	        `R` can continue the whole subtree.
+//
+//	case-1: execErr != nil (and state != Suspended)
+//	        Real failure / kill / daemon shutdown → Finish(code=1, execErr),
+//	        Reap, stream SCRIPT_ERROR.
+//
+//	case-2: execErr == nil
+//	        Clean run → Finish(lastResult, lastExitCode, nil), Reap. Caller
+//	        streams ExecScriptResponse on the success path (returnEarly=false).
+func finalizeScriptRunner(scriptProc *kernel.Process, execErr error, lastResult string, lastExitCode int) scriptRunnerOutcome {
+	// case-0: subtree was SIGPAUSE-suspended. Suspended takes precedence over
+	// execErr — surface SCRIPT_SUSPENDED, never a misleading success/error.
+	// Do NOT reap (keep it resumable) and do NOT overwrite SuspendReason.
+	if scriptProc.GetState() == types.StateSuspended {
 		return scriptRunnerOutcome{
-			reapAfter: true,
+			reapAfter: false,
 			streamPayload: ErrorPayload{
-				Code:    "SCRIPT_ERROR",
-				Message: execErr.Error(),
+				Code:    "SCRIPT_SUSPENDED",
+				Message: "script subtree suspended; resume to continue",
 			},
 			streamType:  StreamError,
 			returnEarly: true,
 		}
 	}
+	// case-1: real error path (kill / shutdown / non-ctx error).
 	if execErr != nil {
 		scriptProc.Finish("", 1, execErr)
 		return scriptRunnerOutcome{
@@ -546,6 +521,7 @@ func finalizeScriptRunner(scriptProc *kernel.Process, cause, execErr error, last
 			returnEarly: true,
 		}
 	}
+	// case-2: clean run.
 	scriptProc.Finish(lastResult, lastExitCode, nil)
 	return scriptRunnerOutcome{
 		reapAfter:   true,

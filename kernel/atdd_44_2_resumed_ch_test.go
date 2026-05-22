@@ -122,9 +122,9 @@ func TestATDD_44_2_011_ResumedCh_MultipleSuspendResumeCycles(t *testing.T) {
 				t.Fatalf("cycle %d: freshly rotated chan should be open", cycle)
 			default:
 			}
-			ch = next
-			// The Unsuspend at the top of the next loop iteration will close
-			// this one — but we Unsuspend here so the loop's Suspend can run.
+			// Unsuspend here so the loop's next Suspend can run; the rotated
+			// chan (next) is verified open above — that's the assertion that
+			// matters for this cycle.
 			if err := proc.Unsuspend(); err != nil {
 				t.Fatalf("cycle %d: cleanup Unsuspend: %v", cycle, err)
 			}
@@ -151,7 +151,7 @@ func TestATDD_44_2_012_ResumedCh_ConcurrentReaders(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(readers)
 	woke := make(chan int, readers)
-	for i := 0; i < readers; i++ {
+	for i := range readers {
 		go func(id int) {
 			defer wg.Done()
 			ch := proc.ResumedCh()

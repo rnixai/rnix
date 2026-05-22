@@ -70,18 +70,28 @@ func (c *captureEvents) findKind(kind shell.ScriptEventKind) (int, bool) {
 // in the real ipcKernelSpawner machinery (which depends on
 // resolveProjectContext) so the test scope stays on the suspend/resume
 // boundary behaviour.
+//
+// To make the "SIGPAUSE arrives mid-execution" window deterministic (instant
+// statements like `export` would otherwise finish before any sleep-based
+// signal), the FIRST SpawnAndWait closes `started` and then blocks on
+// `release`. The test fires SignalTree(SIGPAUSE) after `started` and before
+// closing `release`, guaranteeing suspendRequested is set by the time the
+// executor reaches the next statement boundary.
 type e2eSpawner struct {
-	calls atomic.Int32
-	// delay each SpawnAndWait so the test has a chance to observe the
-	// "between statements" window.
-	delay time.Duration
+	calls   atomic.Int32
+	started chan struct{} // closed when the first SpawnAndWait is entered
+	release chan struct{} // test closes this to let the first spawn return
+}
+
+func newE2ESpawner() *e2eSpawner {
+	return &e2eSpawner{started: make(chan struct{}), release: make(chan struct{})}
 }
 
 func (e *e2eSpawner) SpawnAndWait(ctx context.Context, _, _, _ string) (string, int, int, error) {
-	e.calls.Add(1)
-	if e.delay > 0 {
+	if e.calls.Add(1) == 1 {
+		close(e.started)
 		select {
-		case <-time.After(e.delay):
+		case <-e.release:
 		case <-ctx.Done():
 			return "", 1, 0, ctx.Err()
 		}
@@ -119,15 +129,16 @@ func TestATDD_44_2_080_EndToEnd_SignalTreeSIGPAUSE_ParkExecutor_Resume_Continues
 	// Wire the production-shape SuspendController adapter (Task 3.1).
 	ctrl := processSuspendController{proc: scriptProc}
 
-	// Parse a minimal 2-statement script — first statement runs, second
-	// statement must wait at the boundary until ResumeSubtree fires.
-	src := "export PHASE=one\nexport PHASE=two\n"
+	// Parse a minimal 2-statement script: a (gated) spawn first, then an
+	// export. The gated spawn gives the test a deterministic window to fire
+	// SIGPAUSE; the export is the statement that must park at the boundary.
+	src := "spawn \"warmup\"\nexport PHASE=two\n"
 	script, err := shell.ParseScript(src)
 	if err != nil {
 		t.Fatalf("ParseScript: %v", err)
 	}
 
-	spawner := &e2eSpawner{delay: 10 * time.Millisecond}
+	spawner := newE2ESpawner()
 	env := shell.NewEnvironment()
 	executor := shell.NewScriptExecutor(spawner, env)
 	executor.SetSuspendController(ctrl)
@@ -144,9 +155,14 @@ func TestATDD_44_2_080_EndToEnd_SignalTreeSIGPAUSE_ParkExecutor_Resume_Continues
 		execDone <- err
 	}()
 
-	// Allow the first export to land, then fire SIGPAUSE on the subtree —
-	// emulates conn.Read goroutine's new behaviour from AC#1.
-	time.Sleep(30 * time.Millisecond)
+	// Wait until the executor is provably inside the first spawn, then fire
+	// SIGPAUSE on the subtree — emulates conn.Read goroutine's new behaviour
+	// from AC#1 landing while a child spawn is in flight.
+	select {
+	case <-spawner.started:
+	case <-time.After(1 * time.Second):
+		t.Fatal("first spawn never started")
+	}
 	if _, err := k.SignalTree(scriptPID, types.SIGPAUSE); err != nil {
 		t.Fatalf("SignalTree(SIGPAUSE): %v", err)
 	}
@@ -170,12 +186,25 @@ func TestATDD_44_2_080_EndToEnd_SignalTreeSIGPAUSE_ParkExecutor_Resume_Continues
 		t.Fatalf("script-runner state = %s, want Suspended after SignalTree(SIGPAUSE)", got)
 	}
 
-	// The executor must NOT have completed yet — it is parked at the
-	// boundary before "export PHASE=two".
+	// Let the first spawn return now that suspendRequested is set; the
+	// executor will advance to the export statement and park at its boundary.
+	close(spawner.release)
+
+	// The executor must NOT complete — it is parked at the boundary before
+	// "export PHASE=two".
 	select {
 	case got := <-execDone:
 		t.Fatalf("Execute returned prematurely (err=%v) while parent was Suspended", got)
 	case <-time.After(150 * time.Millisecond):
+	}
+
+	// Wait for the park to register via ScriptStmtPaused before resuming.
+	pausedDeadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(pausedDeadline) {
+		if _, ok := cap.findKind(shell.ScriptStmtPaused); ok {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	// Executor must have emitted ScriptStmtPaused before parking.

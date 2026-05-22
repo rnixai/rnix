@@ -41,7 +41,7 @@ func TestRunImmuneResume_Success(t *testing.T) {
 // --- 22.2-CLI-002: [P0] immune resume no daemon shows error (AC3) ---
 
 func TestRunImmuneResume_NoDaemon(t *testing.T) {
-	// Given: no daemon running
+	// Given: no daemon running (socket isolation handled by TestMain)
 	flagJSON = false
 	defer func() { exitCode = 0; flagJSON = false }()
 
@@ -80,7 +80,7 @@ func TestRunImmuneStatus_WithAlerts(t *testing.T) {
 // --- 22.2-CLI-004: [P1] immune status JSON includes alerts and threat_count (AC4) ---
 
 func TestRunImmuneStatus_JSONWithAlerts(t *testing.T) {
-	// Given: JSON mode enabled, no daemon (tests JSON structure)
+	// Given: JSON mode enabled, no daemon (socket isolation handled by TestMain)
 	flagJSON = true
 	defer func() { exitCode = 0; flagJSON = false }()
 

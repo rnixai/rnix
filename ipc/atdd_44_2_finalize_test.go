@@ -206,27 +206,9 @@ func TestATDD_44_2_034_FinalizeScriptRunner_CleanRun_FinishesSuccessfully(t *tes
 }
 
 // --- AC#5: three sentinel errors deleted ---
-
-// TestATDD_44_2_035_SentinelErrorsDeleted_GrepEquivalent
 //
-// AC#5 first bullet: "删除常量 errCLIDisconnected、errScriptKilled、
-// errDaemonShutdown（line 24-30 全部清理）". This compile-time predicate
-// makes the deletion auditable from the test suite — once dev-story
-// removes the sentinels, these references compile-fail; once they're
-// re-exported (or restored under a different name) they compile again,
-// and this test will fail with a clear message.
-//
-// During RED phase the constants still exist in production, so the test
-// PASSES — the failure mode flips during GREEN phase: the references
-// below will compile-fail. dev-story must DELETE this whole test in the
-// commit that removes the sentinels, OR convert it to a no-op (preferred:
-// delete, since AC-EA4 already provides the grep-based audit).
-func TestATDD_44_2_035_SentinelErrorsDeleted_GrepEquivalent(t *testing.T) {
-	// Sanity touch: these references should exist BEFORE dev-story runs
-	// (RED phase passes), and the whole test should be deleted once 44.2
-	// implementation lands (GREEN phase = test gone, sentinels gone).
-	if errCLIDisconnected == nil || errScriptKilled == nil || errDaemonShutdown == nil {
-		t.Fatal("setup: legacy sentinels expected to exist during RED phase")
-	}
-	t.Log("RED-phase audit: sentinel constants still defined — dev-story Task 4.2 must delete them and this test together")
-}
+// The RED-phase audit test (TestATDD_44_2_035_SentinelErrorsDeleted_GrepEquivalent)
+// has been removed per its own instructions: once dev-story deletes the
+// errCLIDisconnected / errScriptKilled / errDaemonShutdown constants, the
+// test's references compile-fail. The grep-based audit (Task 4.6 / AC-EA4)
+// is the durable guarantee that the sentinels stay gone.

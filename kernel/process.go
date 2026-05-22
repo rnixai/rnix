@@ -174,6 +174,15 @@ type Process struct {
 	suspendRequested atomic.Bool   // set by Suspend(), checked by reasonStep
 	SuspendReason    string        // reason for suspension (mu protected)
 
+	// Resume notification (Story 44.2) — mu protected. resumedCh is closed by
+	// Unsuspend() so a parked script-runner ScriptExecutor (waiting at a
+	// statement boundary) wakes up. Each Suspend cycle hands out a fresh chan:
+	// ResumedCh() returns the CURRENT chan, callers MUST re-fetch it after each
+	// Resume. resumedClose guards the one-shot close so a duplicate Unsuspend
+	// (illegal-transition path) never double-closes the same chan.
+	resumedCh    chan struct{}
+	resumedClose *sync.Once
+
 	// Last completed reasoning step (Story 44.1 code review F5) — atomic so
 	// reasonStep can write without holding proc.mu, and so suspend/resume
 	// helpers can snapshot the value without coordinating locks. Reads 0 when
@@ -232,6 +241,8 @@ func NewProcess(ppid types.PID, intent string, skills []string) *Process {
 		LogChan:         make(chan types.LogEntry, 256),
 		Done:            make(chan ExitStatus, 1),
 		terminated:      make(chan struct{}),
+		resumedCh:       make(chan struct{}),
+		resumedClose:    &sync.Once{},
 		CreatedAt:       time.Now(),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -833,6 +844,28 @@ func (p *Process) IsSuspendRequested() bool {
 	return p.suspendRequested.Load()
 }
 
+// RequestSuspend sets the suspend-requested flag without touching state.
+// suspendOneForSubtree (kernel/subtree.go) is the production writer; this
+// exported setter lets the ipc package drive the same atomic in unit tests
+// that exercise the CancelledCh-watcher race window (Story 44.2 AC#1.b).
+func (p *Process) RequestSuspend() {
+	p.suspendRequested.Store(true)
+}
+
+// ResumedCh returns the channel that Unsuspend() closes when this process
+// transitions back to Running. ScriptExecutor parks on it at a statement
+// boundary while the subtree is Suspended (Story 44.2 AC#3 / AC#4).
+//
+// Each Suspend cycle hands out a DIFFERENT chan instance — callers MUST
+// re-fetch via ResumedCh() after every Resume, never cache it across cycles.
+// Safe for concurrent readers (parallel-block workers may all observe the
+// same close).
+func (p *Process) ResumedCh() <-chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.resumedCh
+}
+
 // SetStepCancel sets the cancel function for the current step's LLM call.
 func (p *Process) SetStepCancel(cancel context.CancelFunc) {
 	p.mu.Lock()
@@ -866,6 +899,21 @@ func (p *Process) Unsuspend() error {
 		return err
 	}
 	p.suspendRequested.Store(false)
+
+	// Story 44.2: wake any ScriptExecutor parked on ResumedCh(). Ordering is
+	// load-bearing — suspendRequested.Store(false) above MUST happen before
+	// the close so a waiter that wakes and re-checks IsSuspendRequested() sees
+	// false (otherwise it would re-park immediately, an infinite loop). Under
+	// proc.mu we first install a FRESH chan + once for the next Suspend cycle,
+	// then close the OLD chan outside the critical-section snapshot. The
+	// sync.Once guards against a double Unsuspend double-closing the same chan.
+	p.mu.Lock()
+	oldCh := p.resumedCh
+	oldClose := p.resumedClose
+	p.resumedCh = make(chan struct{})
+	p.resumedClose = &sync.Once{}
+	p.mu.Unlock()
+	oldClose.Do(func() { close(oldCh) })
 	return nil
 }
 

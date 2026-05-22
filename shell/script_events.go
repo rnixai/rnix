@@ -35,6 +35,18 @@ const (
 	// StmtWhile (each pass). Meta carries `condition` (textualised),
 	// `left` (evaluated LHS string), and `result` (bool).
 	ScriptCondition ScriptEventKind = "ScriptCondition"
+
+	// ScriptStmtPaused fires when the executor parks at a statement boundary
+	// because the injected SuspendController reports IsSuspendRequested()
+	// (Story 44.2 / Ctrl+C → SIGPAUSE). Meta carries `stmt_kind` and
+	// `reason` ("user_paused"). Lets dashboard Timeline render a suspend
+	// anchor at the exact statement where execution halted.
+	ScriptStmtPaused ScriptEventKind = "ScriptStmtPaused"
+
+	// ScriptStmtResumed fires when ResumedCh() closes and the executor leaves
+	// the suspend wait, immediately before running the parked statement. Meta
+	// carries `stmt_kind`.
+	ScriptStmtResumed ScriptEventKind = "ScriptStmtResumed"
 )
 
 // ScriptEvent is the payload delivered to ScriptExecutor.OnEvent. The shell
