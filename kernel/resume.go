@@ -239,6 +239,7 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 			if checkpointExists(baseDir, uuid) {
 				return k.resumeFromCheckpoint(uuid, opts, start)
 			}
+			log.Printf("[resume] uuid=%s suspended placeholder has no checkpoint; falling back to history path", uuid)
 			return k.resumeFromHistory(uuid, opts, start)
 		case types.StateRunning:
 			return nil, NewSyscallError("Resume", found.PID, "",

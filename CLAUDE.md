@@ -155,6 +155,7 @@ Story artifacts live in `_bmad-output/implementation-artifacts/`. Sprint status 
 
 - `TestRunTop_NoDaemon` fails in environments without `/dev/tty` (CI/containers)
 - `TestClaudeCliDriver_Call_DefaultArgs` may fail if default model constant changes
+- `TestATDD_42_2_INT_003_E2E_CrashRecovery`（ipc）低频 flaky：resume 后 mock LLM 返回 `complete` 使进程秒退→reap 移出 procTable，与随后的 `ListResumable` 形成时序竞态（`ListResumable` 只过滤 Running 状态，符合 Epic 42 "Dead 可重新 resume" 哲学）。确定性修复需让 resumed 进程在断言期间保持 Running（改 42.2 共享 mock 基础设施）。详见 deferred-work.md
 
 ## Driver Token Semantics (Cache Hit Rate)
 

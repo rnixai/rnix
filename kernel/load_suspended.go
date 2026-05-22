@@ -133,23 +133,28 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 	// most-recent-first (DeadAt / CreatedAt After) — children typically load
 	// before their parent, so during the first pass parent.AddChild would
 	// no-op when the parent is not yet in procTable.
-	if loaded > 0 {
-		k.procTable.Range(func(_ types.PID, child *Process) bool {
-			if child.ParentUUID == "" {
-				return true
-			}
-			parent, ok := k.GetProcessByUUID(child.ParentUUID)
-			if !ok {
-				return true
-			}
-			// Idempotent: skip if already a child to survive double-reload.
-			if slices.Contains(parent.GetChildren(), child.PID) {
-				return true
-			}
-			parent.AddChild(child.PID)
-			child.PPID = parent.PID
+	//
+	// Run unconditionally (not gated on loaded>0): when a parent's proc-info
+	// lands on disk in a later daemon cycle than its children, the children
+	// were reloaded in an earlier call (so this call's loaded counts only the
+	// parent, but the AddChild target is a child reloaded previously). The
+	// scan is idempotent and cheap (one procTable.Range), so there is no
+	// reason to risk leaving orphans stranded behind a fragile loaded>0 proxy.
+	k.procTable.Range(func(_ types.PID, child *Process) bool {
+		if child.ParentUUID == "" {
 			return true
-		})
-	}
+		}
+		parent, ok := k.GetProcessByUUID(child.ParentUUID)
+		if !ok {
+			return true
+		}
+		// Idempotent: skip if already a child to survive double-reload.
+		if slices.Contains(parent.GetChildren(), child.PID) {
+			return true
+		}
+		parent.AddChild(child.PID)
+		child.PPID = parent.PID
+		return true
+	})
 	return loaded, nil
 }

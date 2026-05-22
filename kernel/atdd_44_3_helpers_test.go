@@ -7,9 +7,7 @@ import (
 	"testing"
 	"time"
 
-	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
-	"github.com/rnixai/rnix/vfs"
 )
 
 // =============================================================================
@@ -45,27 +43,6 @@ func newReloadKernel(t *testing.T) (*KernelImpl, string) {
 	dataDir := t.TempDir()
 	k.SetStepDataDir(dataDir)
 	return k, dataDir
-}
-
-// rebuildKernelOnSameDir constructs a NEW KernelImpl pointing at the supplied
-// dataDir, simulating a daemon restart that picks up the same on-disk
-// .rnix/data/steps/. Returns the fresh kernel; old kernel must be Shutdown
-// separately by the caller (or its t.Cleanup will run).
-//
-// Currently exercised by the ipc-package end-to-end test only; kept here as
-// a shared helper so kernel-package smoke tests can re-emulate restart
-// without copying the wiring. Marked nolint until that consumer lands.
-//
-//nolint:unused
-func rebuildKernelOnSameDir(t *testing.T, dataDir string) *KernelImpl {
-	t.Helper()
-	reg := vfs.NewDeviceRegistry()
-	v := vfs.NewVFS(reg)
-	ctxMgr := rnixctx.NewManager()
-	k := NewKernel(v, ctxMgr, nil)
-	t.Cleanup(k.Shutdown)
-	k.SetStepDataDir(dataDir)
-	return k
 }
 
 // suspendDiskInfo describes the JSON we want a synthetic .rnix/data/steps/
@@ -194,21 +171,6 @@ func uuidForTest(tag string) string {
 		return string(out)
 	}
 	return pad(tag, 8) + "-" + pad("4433", 4) + "-" + pad("44a3", 4) + "-" + pad("44a3", 4) + "-" + pad(tag+"44a3", 12)
-}
-
-// findATDDEvent finds the first event in events whose Syscall matches name.
-// 44.1 already provides findEvent44_1 but only matches when ALL want args are
-// equal; the 44.3 Resurrect / Resume assertions want presence-only matching
-// because the args map carries dynamic values (timestamps, derived counts).
-//
-//nolint:unused
-func findATDDEvent(events []types.SyscallEvent, name string) *types.SyscallEvent {
-	for i := range events {
-		if events[i].Syscall == name {
-			return &events[i]
-		}
-	}
-	return nil
 }
 
 // drainAllEvents pulls every event currently queued on proc.DebugChan,

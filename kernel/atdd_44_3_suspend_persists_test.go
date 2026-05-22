@@ -1,6 +1,8 @@
 package kernel
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/rnixai/rnix/internal/types"
@@ -117,15 +119,23 @@ func TestATDD_44_3_021_ResumeSubtree_PersistsRunningState(t *testing.T) {
 // where the state machine is Suspended but the caller saw an error and
 // might attempt to roll back.
 func TestATDD_44_3_022_SuspendProcess_BestEffortSurvivesDirError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0o500 does not block writes, cannot deterministically exercise the failure path")
+	}
 	k, _ := newReloadKernel(t)
 	proc := makeRunningProc44_1(t, k, 0, "AC#2 best-effort")
 
-	// Repoint stepDataDir at a non-existent root with a non-creatable parent
-	// (root-owned /sys read-only path on Linux test machines is the
-	// canonical trick; if /sys is writable on the sandbox, the test
-	// degrades to a no-op assertion — that's acceptable, the contract is
-	// "no error propagation" not "guaranteed write failure").
-	k.SetStepDataDir("/sys/cannot-write-here-44-3-best-effort")
+	// Point stepDataDir at a child of a read-only (0o500) directory so
+	// SaveProcInfo's MkdirAll fails deterministically with EACCES. Using a
+	// chmod'd TempDir rather than /sys avoids the previous no-op degradation
+	// on sandboxes where /sys happens to be writable.
+	roDir := filepath.Join(t.TempDir(), "readonly")
+	if err := os.Mkdir(roDir, 0o500); err != nil {
+		t.Fatalf("mkdir readonly dir: %v", err)
+	}
+	// Restore writable perms so t.TempDir cleanup can remove the tree.
+	t.Cleanup(func() { _ = os.Chmod(roDir, 0o700) })
+	k.SetStepDataDir(filepath.Join(roDir, "stepdata"))
 
 	_, err := k.SuspendSubtree(proc.PID)
 	if err != nil {
