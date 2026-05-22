@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/rnixai/rnix/internal/dashboard/status"
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 )
 
@@ -77,6 +78,12 @@ func (m dashboardModel) renderDashboardStatus() string {
 		exit = hint("d/Esc", "monitor")
 	default: // viewDefault
 		core = []string{hint("j/k", "nav"), hint("s/S", "sort"), hint("z", "expand"), hint("p", "pause"), hint("f", "filter"), hint("?", "help")}
+		// Story 44.4 AC#4: when the selected process is Suspended (incl.
+		// daemon-restart placeholders), surface an explicit subtree-resume
+		// affordance so the橙色 process doesn't look like a dead end.
+		if proc := findSelectedProcess(&m); proc != nil && proc.State == types.StateSuspended {
+			core = append([]string{hint("r", "resume subtree")}, core...)
+		}
 	}
 
 	hints := hintGroup(core...) + "    " + exit

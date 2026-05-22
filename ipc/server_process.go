@@ -118,6 +118,53 @@ func (s *Server) handleSignalTree(conn net.Conn, rawPayload json.RawMessage) {
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 
+// handlePauseSubtree (Story 44.4 AC#1) suspends the target process and its
+// living descendants via kernel.SuspendSubtree. dashboard `p` routes here.
+func (s *Server) handlePauseSubtree(conn net.Conn, rawPayload json.RawMessage) {
+	var req PauseSubtreeRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid pause_subtree request"}})
+		return
+	}
+
+	affected, err := s.kern.SuspendSubtree(req.PID)
+	if err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+	payload, _ := json.Marshal(PauseSubtreeResponse{Affected: affected})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleResumeSubtree (Story 44.4 AC#1) resumes every Suspended node in the
+// target subtree via kernel.ResumeSubtree, skipping Dead/Failed/Zombie nodes.
+// dashboard `r` on a Suspended process routes here (Decker bug core fix).
+func (s *Server) handleResumeSubtree(conn net.Conn, rawPayload json.RawMessage) {
+	var req ResumeSubtreeRequest
+	if err := json.Unmarshal(rawPayload, &req); err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "invalid resume_subtree request"}})
+		return
+	}
+
+	affected, skipped, err := s.kern.ResumeSubtree(req.PID)
+	if err != nil {
+		code := "INTERNAL"
+		var sysErr *kernel.SyscallError
+		if errors.As(err, &sysErr) {
+			code = string(sysErr.Code)
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: code, Message: err.Error()}})
+		return
+	}
+	payload, _ := json.Marshal(ResumeSubtreeResponse{Affected: affected, Skipped: skipped})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
 func (s *Server) handleSuspend(conn net.Conn, rawPayload json.RawMessage) {
 	var req SuspendRequest
 	if err := json.Unmarshal(rawPayload, &req); err != nil {

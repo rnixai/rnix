@@ -130,29 +130,31 @@ func TestATDD_44_4_060_EndToEnd_DeckerSixSteps(t *testing.T) {
 // on the same final Running set. Disk placeholders + LoadSuspendedFromDisk
 // mirror the daemon-restart shape so ResumeWithOptsV3 has history to replay.
 func TestATDD_44_4_061_EndToEnd_CLIvsDashboardResumeEquivalence(t *testing.T) {
-	srv, sockPath, _ := setupTestServer(t)
-	tmpDir := t.TempDir()
-	srv.kern.SetStepDataDir(tmpDir)
+	// setupResumeIPCTest wires a parkable mockLLMFile (vs setupTestServer's
+	// fire-and-exit noopLLMFile). The CLI path (ResumeWithOpts) rebuilds a full
+	// reasonStep loop; without a gate that loop would race to completion → Dead
+	// under load (the documented 42.x flaky). parkOnRead holds every resumed
+	// reasonStep at its first LLM Read so the processes stay Running for the
+	// convergence assertion — mirroring a real driver, where a resumed process
+	// stays Running while the LLM is thinking.
+	cli, kern, baseDir, llmFile := setupResumeIPCTest(t)
+
+	_, release := llmFile.parkOnRead()
+	defer close(release) // unblock parked reasonSteps before kernel.Shutdown
 
 	// Tree A — resumed via the CLI path (ResumeWithOptsV3 on the parent UUID).
 	parentAUUID := uuidIPCForTest("e2a060")
 	childAUUID := uuidIPCForTest("e2a061")
-	writeSuspendedPairFixture(t, tmpDir, parentAUUID, childAUUID, 60, 61)
+	writeSuspendedPairFixture(t, baseDir, parentAUUID, childAUUID, 60, 61)
 
 	// Tree B — resumed via the dashboard path (ResumeSubtree on the parent PID).
 	parentBUUID := uuidIPCForTest("e2b060")
 	childBUUID := uuidIPCForTest("e2b061")
-	writeSuspendedPairFixture(t, tmpDir, parentBUUID, childBUUID, 62, 63)
+	writeSuspendedPairFixture(t, baseDir, parentBUUID, childBUUID, 62, 63)
 
-	if _, err := srv.kern.LoadSuspendedFromDisk(); err != nil {
+	if _, err := kern.LoadSuspendedFromDisk(); err != nil {
 		t.Fatalf("LoadSuspendedFromDisk: %v", err)
 	}
-
-	cli, err := Dial(sockPath)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	t.Cleanup(func() { cli.Close() })
 
 	// CLI path.
 	if _, err := cli.ResumeWithOptsV3(parentAUUID, false, 0, "", ""); err != nil {
@@ -160,7 +162,7 @@ func TestATDD_44_4_061_EndToEnd_CLIvsDashboardResumeEquivalence(t *testing.T) {
 	}
 
 	// Dashboard path — resolve the reloaded parent's fresh PID by UUID.
-	parentBProc, ok := srv.kern.GetProcessByUUID(parentBUUID)
+	parentBProc, ok := kern.GetProcessByUUID(parentBUUID)
 	if !ok {
 		t.Fatalf("tree B parent placeholder missing after reload")
 	}
@@ -169,10 +171,10 @@ func TestATDD_44_4_061_EndToEnd_CLIvsDashboardResumeEquivalence(t *testing.T) {
 	}
 
 	// Both subtrees must end with parent + child Running.
-	waitUUIDRunning(t, srv.kern, parentAUUID)
-	waitUUIDRunning(t, srv.kern, childAUUID)
-	waitUUIDRunning(t, srv.kern, parentBUUID)
-	waitUUIDRunning(t, srv.kern, childBUUID)
+	waitUUIDRunning(t, kern, parentAUUID)
+	waitUUIDRunning(t, kern, childAUUID)
+	waitUUIDRunning(t, kern, parentBUUID)
+	waitUUIDRunning(t, kern, childBUUID)
 }
 
 // writeSuspendedPairFixture writes a Suspended parent + Suspended child pair to
@@ -236,7 +238,7 @@ func waitUUIDRunning(t *testing.T, kern *kernel.KernelImpl, uuid string) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	proc, _ := kern.GetProcessByUUID(uuid)
-	var st types.ProcessState = types.StateDead
+	st := types.StateDead
 	if proc != nil {
 		st = proc.GetState()
 	}

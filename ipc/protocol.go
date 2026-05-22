@@ -66,6 +66,12 @@ const (
 	MethodListResumable          Method = "list_resumable"
 	MethodGetResumeLineage       Method = "get_resume_lineage"
 
+	// Story 44.4 — dedicated subtree pause/resume methods. dashboard p/r keys
+	// route through these instead of emitting raw SIGPAUSE/SIGRESUME via
+	// SignalTree, so the wire intent ("pause this subtree") is self-describing.
+	MethodPauseSubtree  Method = "pause_subtree"
+	MethodResumeSubtree Method = "resume_subtree"
+
 	// Story 42.5 — disk gc (.rnix/data/steps/<uuid>/) governance.
 	MethodGc       Method = "gc"
 	MethodGcDryRun Method = "gc_dry_run"
@@ -329,6 +335,33 @@ type SignalTreeRequest struct {
 // SignalTreeResponse is the response for MethodSignalTree.
 type SignalTreeResponse struct {
 	Affected int `json:"affected"`
+}
+
+// --- Pause / Resume Subtree (Story 44.4) ---
+
+// PauseSubtreeRequest is the payload for MethodPauseSubtree.
+type PauseSubtreeRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// PauseSubtreeResponse mirrors kernel.SuspendSubtree's (affected int, error)
+// return: Affected counts the Running nodes transitioned to Suspended.
+type PauseSubtreeResponse struct {
+	Affected int `json:"affected"`
+}
+
+// ResumeSubtreeRequest is the payload for MethodResumeSubtree.
+type ResumeSubtreeRequest struct {
+	PID types.PID `json:"pid"`
+}
+
+// ResumeSubtreeResponse mirrors kernel.ResumeSubtree's
+// (affected, skipped int, error) return: Affected counts Suspended nodes
+// resumed to Running; Skipped counts Dead/Failed/Zombie/already-Running nodes
+// passed over.
+type ResumeSubtreeResponse struct {
+	Affected int `json:"affected"`
+	Skipped  int `json:"skipped"`
 }
 
 // --- Suspend ---

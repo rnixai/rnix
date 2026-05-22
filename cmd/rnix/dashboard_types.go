@@ -348,6 +348,25 @@ type pauseToggleMsg struct {
 	err      error
 }
 
+// pauseSubtreeResultMsg — Story 44.4: result of dashboard `p` → client.PauseSubtree.
+// Distinct from the legacy pauseToggleMsg (SignalTree) so the resume/pause
+// handler ATDD can assert the new subtree command identity.
+type pauseSubtreeResultMsg struct {
+	pid      types.PID
+	affected int
+	err      error
+}
+
+// resumeSubtreeResultMsg — Story 44.4: result of dashboard `r` on a Suspended
+// process → client.ResumeSubtree. Distinct from resumeResultMsg (single-process
+// ResumeWithOptsV3, kept for Dead/Zombie Epic 42 UUID 续跑).
+type resumeSubtreeResultMsg struct {
+	pid      types.PID
+	affected int
+	skipped  int
+	err      error
+}
+
 // --- Prompt Pager styles (Story 27-4) ---
 //
 // Story 38-5 PR11 Step 4(c)：promptRoleSystem/User/Assistant/Tool 全部迁出至

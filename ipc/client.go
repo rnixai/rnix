@@ -138,6 +138,36 @@ func (c *Client) SignalTree(pid types.PID, signal types.Signal) (*SignalTreeResp
 	return &result, nil
 }
 
+// PauseSubtree suspends the target process and all its living descendants
+// (Story 44.4 AC#1). dashboard `p` routes here instead of emitting a raw
+// SIGPAUSE via SignalTree.
+func (c *Client) PauseSubtree(pid types.PID) (*PauseSubtreeResponse, error) {
+	resp, err := c.call(MethodPauseSubtree, PauseSubtreeRequest{PID: pid})
+	if err != nil {
+		return nil, err
+	}
+	var result PauseSubtreeResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal pause_subtree response: %w", err)
+	}
+	return &result, nil
+}
+
+// ResumeSubtree resumes every Suspended node in the target subtree, skipping
+// Dead/Failed/Zombie nodes (Story 44.4 AC#1). dashboard `r` on a Suspended
+// process routes here (Decker bug core fix).
+func (c *Client) ResumeSubtree(pid types.PID) (*ResumeSubtreeResponse, error) {
+	resp, err := c.call(MethodResumeSubtree, ResumeSubtreeRequest{PID: pid})
+	if err != nil {
+		return nil, err
+	}
+	var result ResumeSubtreeResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal resume_subtree response: %w", err)
+	}
+	return &result, nil
+}
+
 // Suspend suspends the specified running process.
 func (c *Client) Suspend(pid types.PID) (*SuspendResponse, error) {
 	resp, err := c.call(MethodSuspend, SuspendRequest{PID: pid})

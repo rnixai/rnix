@@ -133,20 +133,30 @@ func TestATDD_42_3_CLI_004_Running_R_ConsumesWithStatusHint(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CLI-005: Running + IsPaused + `r` → SIGRESUME 子树（Story 43.x 统一语义）
+// CLI-005: Running + IsPaused + `r` → "Nothing to resume"（Story 44.4 语义收口）
+//
+// Story 43.x 让 Running+IsPaused → SIGRESUME 子树。Story 44.1 把 SIGPAUSE 路由到
+// SuspendSubtree（状态机）后，按 p 暂停的进程进入 StateSuspended，proc.Pause()
+// 已无业务调用方，Running+IsPaused 在生产中不可达。Story 44.4 AC#3 据此删除了
+// resumeHandler 的 IsPaused 死分支：IsPaused 字段对 resume 路由不再起作用，
+// Running（无论 IsPaused 真假）一律走默认的 "Nothing to resume"。
 // ---------------------------------------------------------------------------
 
-func TestATDD_42_3_CLI_005_RunningPaused_R_SendsSigResume(t *testing.T) {
+func TestATDD_42_3_CLI_005_RunningPaused_R_NothingToResume(t *testing.T) {
 	m := new423ModelWithProc(types.StateRunning, "paused-aaaaaaaa-bbbb-cccc-dddd-000000000001")
-	// 标记进程为已暂停状态（IsPaused 字段在 vfs.ProcInfo 上）。
+	// 即便标记 IsPaused，44.4 后该字段不再触发 resume（死分支已删除）。
 	m.tree.Rows[0].Proc.IsPaused = true
 	m.processes[0].IsPaused = true
-	consumed, _, cmd := resumeHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
+	consumed, newCtx, cmd := resumeHandler(tea.KeyPressMsg{}, fakeKeyCtx(m))
 	if !consumed {
 		t.Error("resumeHandler should consume `r` for Running+IsPaused")
 	}
-	if cmd == nil {
-		t.Error("resumeHandler should return SIGRESUME cmd for paused process")
+	if cmd != nil {
+		t.Error("resumeHandler should NOT return a cmd for Running+IsPaused (IsPaused dead-branch removed in 44.4)")
+	}
+	g := newCtx.(dashboardModel)
+	if !strings.Contains(g.statusMsg, "Nothing to resume") {
+		t.Errorf("expected statusMsg containing 'Nothing to resume', got %q", g.statusMsg)
 	}
 }
 

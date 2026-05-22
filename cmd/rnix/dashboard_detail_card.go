@@ -215,6 +215,29 @@ func findSelectedProcess(m *dashboardModel) *selectedProcRef {
 	return nil
 }
 
+// countSuspendedDescendants returns how many processes in procs are Suspended
+// and directly parented (by ParentUUID or PPID) to the origin identified by
+// originPID/originUUID (Story 44.4 AC#5). Used by handleForkResult to warn the
+// user that fork left the origin's Suspended subtree intact (Decision D2: fork
+// does not copy the subtree). A scan one level deep matches the "descendants
+// left intact" phrasing — the user resumes them via dashboard r on each subtree
+// root, so we only need to know whether any survive.
+func countSuspendedDescendants(procs []vfs.ProcInfo, originPID types.PID, originUUID string) int {
+	count := 0
+	for i := range procs {
+		p := procs[i]
+		if p.State != types.StateSuspended {
+			continue
+		}
+		linkedByUUID := originUUID != "" && p.ParentUUID == originUUID
+		linkedByPID := originPID != 0 && p.PPID == originPID
+		if linkedByUUID || linkedByPID {
+			count++
+		}
+	}
+	return count
+}
+
 // compactStats returns the count of compact events and average compaction percentage for a PID.
 func compactStats(events []UnifiedEvent, pid types.PID) (count int, avgPct int) {
 	var totalPct float64
@@ -449,6 +472,12 @@ func handleForkResult(m dashboardModel, msg forkResultMsg) (dashboardModel, tea.
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
 	}
+	// Story 44.4 AC#5 / Decision D2: fork does NOT copy the subtree (kernel
+	// resume.go:850 `if !opts.Fork` guard unchanged). Count the origin's
+	// Suspended descendants BEFORE reassigning m.selectedPID/UUID below so we
+	// can tell the user they were left intact and must be resumed separately.
+	suspendedDescendants := countSuspendedDescendants(m.processes, m.selectedPID, m.selectedUUID)
+
 	// Invalidate the origin's lineage cache so a subsequent Detail render sees
 	// the freshly-added descendant. The new selected UUID gets its own fetch
 	// chain via fetchProcDetailCmd → handleProcDetailResult below.
@@ -459,6 +488,10 @@ func handleForkResult(m dashboardModel, msg forkResultMsg) (dashboardModel, tea.
 		shortUUIDForStatus(msg.result.UUID),
 		msg.result.PID,
 		shortUUIDForStatus(m.selectedUUID))
+	if suspendedDescendants > 0 {
+		m.statusMsg += fmt.Sprintf(" (%d suspended descendants left intact — resume them separately)",
+			suspendedDescendants)
+	}
 	m.statusMsgTTL = statusMsgDefaultTTL
 	m.selectedPID = msg.result.PID
 	m.selectedUUID = msg.result.UUID
@@ -468,22 +501,91 @@ func handleForkResult(m dashboardModel, msg forkResultMsg) (dashboardModel, tea.
 // forkResultMsgEnd — Story 42.3 separator (placed below the legacy
 // resumeProcessCmd / pauseTreeCmd helpers below).
 
-// pauseTreeCmd sends SIGPAUSE or SIGRESUME to a process and its entire subtree via IPC.
-func pauseTreeCmd(pid types.PID, signal types.Signal) tea.Cmd {
-	paused := signal == types.SIGPAUSE
+// pauseTreeSubtreeCmd sends a dedicated PauseSubtree IPC call (Story 44.4 AC#2),
+// suspending the selected process and all its descendants. dashboard `p` routes
+// here instead of pauseTreeCmd (raw SIGPAUSE via SignalTree).
+func pauseTreeSubtreeCmd(pid types.PID) tea.Cmd {
 	return func() tea.Msg {
 		client, err := ipc.Dial(ipc.SocketPath())
 		if err != nil {
-			return pauseToggleMsg{pid: pid, paused: paused, err: err}
+			return pauseSubtreeResultMsg{pid: pid, err: err}
 		}
 		defer client.Close()
-		result, err := client.SignalTree(pid, signal)
+		result, err := client.PauseSubtree(pid)
 		affected := 0
 		if result != nil {
 			affected = result.Affected
 		}
-		return pauseToggleMsg{pid: pid, affected: affected, paused: paused, err: err}
+		return pauseSubtreeResultMsg{pid: pid, affected: affected, err: err}
 	}
+}
+
+// resumeSubtreeCmd sends a dedicated ResumeSubtree IPC call (Story 44.4 AC#3),
+// resuming every Suspended node in the selected process's subtree and skipping
+// Dead/Failed nodes. dashboard `r` on a Suspended process routes here — the
+// direct fix for Decker's "父进程橙色恢复后整树停滞" bug.
+func resumeSubtreeCmd(pid types.PID) tea.Cmd {
+	return func() tea.Msg {
+		client, err := ipc.Dial(ipc.SocketPath())
+		if err != nil {
+			return resumeSubtreeResultMsg{pid: pid, err: err}
+		}
+		defer client.Close()
+		result, err := client.ResumeSubtree(pid)
+		affected, skipped := 0, 0
+		if result != nil {
+			affected = result.Affected
+			skipped = result.Skipped
+		}
+		return resumeSubtreeResultMsg{pid: pid, affected: affected, skipped: skipped, err: err}
+	}
+}
+
+// handleResumeResult applies a resumeResultMsg (single-process resume via
+// resumeProcessCmd → ResumeWithOptsV3; Epic 42 UUID 续跑 for Dead/Zombie). On
+// success it retargets the selection to the resumed PID and chains a Detail
+// fetch. Extracted from dashboard.go to keep that file under the Story 29.1 cap.
+func handleResumeResult(m dashboardModel, msg resumeResultMsg) (dashboardModel, tea.Cmd) {
+	if msg.err != nil {
+		m.statusMsg = fmt.Sprintf("✗ Resume: %v", msg.err)
+	} else if msg.result != nil {
+		m.statusMsg = fmt.Sprintf("Resumed PID %d from step %d", msg.result.PID, msg.result.ResumedFromStep)
+		// Update selectedPID to the new PID (may change after resume)
+		m.selectedPID = msg.result.PID
+		m.selectedUUID = msg.result.UUID
+	}
+	m.statusMsgTTL = statusMsgDefaultTTL
+	if msg.err == nil && msg.result != nil {
+		return m, fetchProcDetailCmd(msg.result.PID, msg.result.UUID)
+	}
+	return m, nil
+}
+
+// handlePauseSubtreeResult applies a pauseSubtreeResultMsg (Story 44.4 AC#2,
+// dashboard `p` → client.PauseSubtree) to the model's status line.
+func handlePauseSubtreeResult(m dashboardModel, msg pauseSubtreeResultMsg) dashboardModel {
+	switch {
+	case msg.err != nil:
+		m.statusMsg = fmt.Sprintf("✗ Pause: %v", msg.err)
+	case msg.affected > 1:
+		m.statusMsg = fmt.Sprintf("Paused PID %d (+%d descendants)", msg.pid, msg.affected-1)
+	default:
+		m.statusMsg = fmt.Sprintf("Paused PID %d", msg.pid)
+	}
+	m.statusMsgTTL = statusMsgDefaultTTL
+	return m
+}
+
+// handleResumeSubtreeResult applies a resumeSubtreeResultMsg (Story 44.4 AC#3,
+// dashboard `r` on Suspended → client.ResumeSubtree) to the model's status line.
+func handleResumeSubtreeResult(m dashboardModel, msg resumeSubtreeResultMsg) dashboardModel {
+	if msg.err != nil {
+		m.statusMsg = fmt.Sprintf("✗ Resume: %v", msg.err)
+	} else {
+		m.statusMsg = fmt.Sprintf("Resumed %d (skipped %d)", msg.affected, msg.skipped)
+	}
+	m.statusMsgTTL = statusMsgDefaultTTL
+	return m
 }
 
 // fetchHeartbeatStatusCmd fetches the heartbeat monitor status via IPC (Story 30.8).

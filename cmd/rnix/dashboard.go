@@ -442,19 +442,7 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case resumeResultMsg:
-		if msg.err != nil {
-			m.statusMsg = fmt.Sprintf("✗ Resume: %v", msg.err)
-		} else if msg.result != nil {
-			m.statusMsg = fmt.Sprintf("Resumed PID %d from step %d", msg.result.PID, msg.result.ResumedFromStep)
-			// Update selectedPID to the new PID (may change after resume)
-			m.selectedPID = msg.result.PID
-			m.selectedUUID = msg.result.UUID
-		}
-		m.statusMsgTTL = statusMsgDefaultTTL
-		if msg.err == nil && msg.result != nil {
-			return m, fetchProcDetailCmd(msg.result.PID, msg.result.UUID)
-		}
-		return m, nil
+		return handleResumeResult(m, msg)
 	case forkResultMsg:
 		m, forkCmd := handleForkResult(m, msg)
 		return m, forkCmd
@@ -474,6 +462,10 @@ func (m dashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return m, nil
+	case pauseSubtreeResultMsg:
+		return handlePauseSubtreeResult(m, msg), nil
+	case resumeSubtreeResultMsg:
+		return handleResumeSubtreeResult(m, msg), nil
 	case traceListMsg:
 		if msg.Err != nil {
 			m.trace.Err = msg.Err

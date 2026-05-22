@@ -513,11 +513,13 @@ func registerLayer1Default(d *ui.Dispatcher) {
 	d.Layer1[ui.ViewID(viewDefault)] = l
 }
 
-// pauseHandler — Story 43.x: `p` 专属 pause（不再 toggle）。
-// 仅对 Running / Created 且未暂停的进程发 SIGPAUSE（递归子树）。
-// 其它状态返回 status 提示，便于用户区分"已经暂停"和"不可暂停"。
+// pauseHandler — Story 44.4: `p` 专属 pause（不再 toggle）。
+// 仅对 Running / Created 进程发起子树暂停（走 client.PauseSubtree，不再发原始
+// SIGPAUSE 信号）；其它状态返回区分化 status 提示。
 //
 // 与 resumeHandler 配对：用户视角的语义合约是 p=暂停、r=恢复，对称且互不重叠。
+// Story 44.1 后进程暂停后进入 StateSuspended（不再是旧 SoftPause 的
+// Running+IsPaused），故旧的 proc.IsPaused 死分支已删除。
 func pauseHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 	m := ctx.(dashboardModel)
 	// Timeline filter mode 拥有 'p'，让位。
@@ -536,28 +538,31 @@ func pauseHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, te
 	if proc == nil {
 		return true, m, nil
 	}
-	if proc.State != types.StateRunning && proc.State != types.StateCreated {
+	switch proc.State {
+	case types.StateRunning, types.StateCreated:
+		return true, m, pauseTreeSubtreeCmd(m.selectedPID)
+	case types.StateSuspended:
+		m.statusMsg = "Already suspended — press r to resume"
+		m.statusMsgTTL = statusMsgDefaultTTL
+		return true, m, nil
+	default:
 		m.statusMsg = "Cannot pause: process is " + proc.State.String()
 		m.statusMsgTTL = statusMsgDefaultTTL
 		return true, m, nil
 	}
-	if proc.IsPaused {
-		m.statusMsg = "Already paused — press r to resume"
-		m.statusMsgTTL = statusMsgDefaultTTL
-		return true, m, nil
-	}
-	return true, m, pauseTreeCmd(m.selectedPID, types.SIGPAUSE)
 }
 
-// resumeHandler — Story 43.x: `r` 专属 smart resume。
+// resumeHandler — Story 44.4: `r` 专属 smart resume。
 // 按状态优先级路由（始终 consume，避免漏到 dispatchPaneKey 的旧 `r` 录制路径）：
 //
-//  1. Running/Created + IsPaused → SIGRESUME（子树，与 SIGPAUSE 对称）
-//  2. StateSuspended              → resumeProcessCmd（单进程，由 immune/heartbeat/compact 触发）
-//  3. StateDead / StateZombie     → resumeProcessCmd（保 UUID 续跑，Story 42.3）
-//  4. 其他（Running 未暂停等）    → status "Nothing to resume"
+//  1. StateSuspended              → resumeSubtreeCmd（子树恢复，client.ResumeSubtree）
+//  2. StateDead / StateZombie     → resumeProcessCmd（保 UUID 续跑，Epic 42）
+//  3. 其他（Running 未暂停等）    → status "Nothing to resume"
 //
-// 不级联 Suspended/Dead/Zombie 的 resume——这些是单进程语义；只有 SIGPAUSE/RESUME 走子树。
+// Story 44.1 后进程暂停后进入 StateSuspended，旧的 proc.IsPaused+Running SIGRESUME
+// 死分支已删除。Suspended 改走子树恢复（修复 Decker 第 4-6 步"父进程橙色恢复后整树
+// 停滞"的根因——旧实现走单进程 resumeProcessCmd 不联动子树）；Dead/Zombie 仍是
+// 单进程 UUID 续跑语义，不走子树。
 func resumeHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, tea.Cmd) {
 	m := ctx.(dashboardModel)
 	if m.selectedPID == 0 {
@@ -572,14 +577,11 @@ func resumeHandler(_ tea.KeyPressMsg, ctx ui.KeyContext) (bool, ui.KeyContext, t
 	if proc == nil {
 		return true, m, nil
 	}
-	if proc.IsPaused && (proc.State == types.StateRunning || proc.State == types.StateCreated) {
-		return true, m, pauseTreeCmd(m.selectedPID, types.SIGRESUME)
-	}
 	if proc.State == types.StateSuspended {
-		if m.selectedUUID == "" {
+		if m.selectedPID == 0 {
 			return true, m, nil
 		}
-		return true, m, resumeProcessCmd(m.selectedUUID)
+		return true, m, resumeSubtreeCmd(m.selectedPID)
 	}
 	if proc.State == types.StateDead || proc.State == types.StateZombie {
 		if m.selectedUUID == "" {
