@@ -47,3 +47,4 @@ logo/
 # Worktrees
 .worktrees/
 .github/agents/
+.codegraph/.gitignore
