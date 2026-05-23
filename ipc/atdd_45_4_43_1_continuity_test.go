@@ -61,6 +61,31 @@ import (
 //   - ipc/atdd_45_3_no_hb1_test.go#173-187 newSkipReasonLoopProcForATDD45_3 (参考模式)
 // =============================================================================
 
+// findRepoRelativePathForATDD45_4 walks up from cwd until a go.mod is found,
+// then joins the supplied repo-relative path. Robust to both `go test` (cwd =
+// pkg dir) and `go test -c` compiled binaries (cwd = caller dir).
+//
+// Suffix "_ATDD45_4" disambiguates from any other repo-root helpers added to
+// sibling test files (same convention as kernel/atdd_45_4_30_5_continuity_test.go
+// findRepoRootForATDD45_4).
+func findRepoRelativePathForATDD45_4(rel string) (string, error) {
+	abs, err := filepath.Abs(".")
+	if err != nil {
+		return "", err
+	}
+	for range 8 {
+		if _, err := os.Stat(filepath.Join(abs, "go.mod")); err == nil {
+			return filepath.Join(abs, rel), nil
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			break
+		}
+		abs = parent
+	}
+	return "", os.ErrNotExist
+}
+
 // newSkipReasonLoopProcForATDD45_4 spawns a SkipReasonLoop process via
 // kernel.Spawn（命中 spawn.go:466 / :692 / :717 三处 SkipReasonLoop 分支）
 // + 准备 stepDataDir 以便 AttachEventWriter / events.jsonl 写盘。
@@ -301,7 +326,14 @@ func TestATDD_45_4_43_1_003_StepTimeoutFieldStillUsedForDashboard(t *testing.T) 
 
 	// (2) Verify wire schema field still exists in ipc/protocol.go
 	// (epic-45 §不在本 Epic 范围内 line 69 — step_timeout 字段彻底删除留待后续)
-	protocolPath := "protocol.go" // 测试 cwd 为 ipc 包目录
+	//
+	// Use repo-root walker for cwd independence: `go test` sets cwd to package
+	// dir, but `go test -c -o bin` binaries inherit the caller's cwd. Walking
+	// up to the go.mod root makes both invocation modes robust.
+	protocolPath, err := findRepoRelativePathForATDD45_4("ipc/protocol.go")
+	if err != nil {
+		t.Fatalf("Story 45.4 AC3.003: locate ipc/protocol.go: %v", err)
+	}
 	body, err := os.ReadFile(protocolPath)
 	if err != nil {
 		t.Fatalf("Story 45.4 AC3.003: read ipc/protocol.go: %v", err)
