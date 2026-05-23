@@ -75,6 +75,12 @@ const (
 	// Story 42.5 — disk gc (.rnix/data/steps/<uuid>/) governance.
 	MethodGc       Method = "gc"
 	MethodGcDryRun Method = "gc_dry_run"
+
+	// Story 45.1 — daemon build provenance (commit + build_date + pid +
+	// started_at). Distinct from MethodPing (which only returns version) so
+	// downstream consumers can verify which rnix commit the running daemon
+	// was built from without a Ping wire change.
+	MethodDaemonStatus Method = "daemon_status"
 )
 
 // --- Trace Wire Types (Story 27.9) ---
@@ -687,6 +693,22 @@ func SyscallEventToWire(e types.SyscallEvent) SyscallEventWire {
 // PingResponse is the payload for MethodPing.
 type PingResponse struct {
 	Version string `json:"version"`
+}
+
+// --- Daemon Status (Story 45.1) ---
+
+// DaemonStatusResponse is the payload for MethodDaemonStatus. Extends
+// MethodPing by surfacing build provenance so downstream consumers (e.g.
+// EchoMatrix) can verify which rnix commit the running daemon was built from
+// without reading rnix's git log.
+//
+// Wire field naming follows project convention: JSON snake_case + Go PascalCase.
+type DaemonStatusResponse struct {
+	Version         string `json:"version"`                   // SemVer (e.g. "0.8.0")
+	DaemonCommit    string `json:"daemon_commit"`             // short SHA (e.g. "abc1234" or "abc1234+dirty")
+	DaemonBuildDate string `json:"daemon_build_date"`         // RFC3339 (e.g. "2026-05-23T10:00:00Z") or ""
+	DaemonPID      int    `json:"daemon_pid,omitempty"`      // daemon's OS PID (informational)
+	StartedAt      int64  `json:"started_at_ms,omitempty"`   // daemon start time (UnixMilli)
 }
 
 // --- Spawn Pipeline ---

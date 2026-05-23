@@ -49,17 +49,16 @@ import (
 )
 
 var (
-	version   = "0.1.0"
-	gitCommit = ""
-	buildDate = ""
+	// Story 45.1 — `version` is retained as the very-last-resort fallback
+	// for versionString() when buildVersionInfo somehow returns an empty
+	// version (defensively unreachable but keeps the function total). The
+	// legacy gitCommit / buildDate vars have been removed: Makefile ldflags
+	// now target ldVersion / ldGitCommit / ldBuildDate (see version.go), so
+	// the legacy names served no remaining purpose.
+	version = "0.1.0"
 )
 
-func versionString() string {
-	if gitCommit == "" {
-		return version + "-dev"
-	}
-	return version
-}
+// versionString is defined in version.go (Story 45.1 — three-source fallback).
 
 // Global flags
 var (
@@ -217,11 +216,14 @@ var flagDaemonInternal bool
 func runVersion(cmd *cobra.Command, args []string) {
 	w := cmd.OutOrStdout()
 
+	v, c, d, dirty := buildVersionInfo()
+
 	if flagJSON {
 		data := map[string]any{
-			"version":    versionString(),
-			"git_commit": gitCommit,
-			"build_date": buildDate,
+			"version":    v,
+			"git_commit": c,
+			"build_date": d,
+			"dirty":      dirty,
 		}
 		resp := JSONResponse{OK: true, Data: data}
 		out, _ := json.Marshal(resp)
@@ -229,12 +231,19 @@ func runVersion(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	fmt.Fprintf(w, "rnix v%s\n", versionString())
-	if gitCommit != "" {
-		fmt.Fprintf(w, "commit:  %s\n", gitCommit)
+	// Story 45.1: SemVer values often arrive prefixed with "v" (e.g. git
+	// describe → "v0.8.0", BuildInfo pseudo-version → "v0.0.0-..."). Avoid
+	// emitting "rnix vv0.8.0" when the prefix is already present.
+	if strings.HasPrefix(v, "v") {
+		fmt.Fprintf(w, "rnix %s\n", v)
+	} else {
+		fmt.Fprintf(w, "rnix v%s\n", v)
 	}
-	if buildDate != "" {
-		fmt.Fprintf(w, "built:   %s\n", buildDate)
+	if c != "" {
+		fmt.Fprintf(w, "commit:  %s\n", c)
+	}
+	if d != "" {
+		fmt.Fprintf(w, "built:   %s\n", d)
 	}
 }
 
@@ -1269,7 +1278,11 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	version, err := client.Ping()
+	// Story 45.1 — switched from client.Ping() to client.DaemonStatus() so the
+	// rendered output surfaces commit + built lines (build provenance) that
+	// downstream consumers grep for to verify they're running the expected
+	// rnix commit.
+	ds, err := client.DaemonStatus()
 	if err != nil {
 		fmt.Fprintf(w, "status: unreachable\nsocket: %s\nerror:  %v\n", sockPath, err)
 		return nil
@@ -1283,8 +1296,13 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	fmt.Fprintf(w, "status:  running\nversion: %s\nsocket:  %s\nprocs:   %d active / %d total\n",
-		version, sockPath, active, len(procs))
+	fmt.Fprintf(w, "status:  running\nversion: %s\ncommit:  %s\nbuilt:   %s\nsocket:  %s\nprocs:   %d active / %d total\n",
+		ds.Version,
+		defaultIfEmpty(ds.DaemonCommit, "unknown"),
+		defaultIfEmpty(ds.DaemonBuildDate, "unknown"),
+		sockPath,
+		active,
+		len(procs))
 
 	// Provider health status
 	providers, err := client.ProviderStatus()
@@ -1485,7 +1503,8 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	}
 	mountMgr := vfs.NewMountManager(devReg, transportFactory)
 
-	srv := ipc.NewServer(nil, agentLoader.Load, versionString())
+	v, c, d, _ := buildVersionInfo()
+	srv := ipc.NewServer(nil, agentLoader.Load, v, c, d)
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	k.SetMountManager(mountMgr)
 	k.SetProviderResolver(driverReg.Names, func(name string) bool { _, ok := driverReg.Get(name); return ok })
@@ -1782,6 +1801,19 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	if err := srv.ListenAndServe(socketPath); err != nil {
 		return fmt.Errorf("daemon: listen failed: %w", err)
 	}
+
+	// Story 45.1 AC#4 — daemon startup banner. Output AFTER ListenAndServe
+	// succeeds (so the banner is a deterministic signal "daemon is ready to
+	// accept IPC") and BEFORE Bootstrap (so downstream tail -F can grep
+	// commit= without waiting for every init service to come online). The
+	// banner is a single stderr line; existing [init] ✓ output is preserved.
+	bv, bc, bd, _ := buildVersionInfo()
+	fmt.Fprintf(os.Stderr, "[rnix] starting daemon version=%s commit=%s built=%s pid=%d socket=%s\n",
+		bv,
+		defaultIfEmpty(bc, "unknown"),
+		defaultIfEmpty(bd, "unknown"),
+		os.Getpid(),
+		socketPath)
 
 	// Register signal handler early so Ctrl+C works during bootstrap and cleanup.
 	sigCh := make(chan os.Signal, 2)

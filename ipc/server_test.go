@@ -37,7 +37,7 @@ func setupTestServer(t *testing.T) (*Server, string, *rnixctx.Manager) {
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	srv.kern = kern
 	srv.SetContextManager(ctxMgr)
@@ -456,7 +456,7 @@ func TestCallbackMux_ImplementsKernelCallbacks(t *testing.T) {
 
 // TestNewServer verifies server creation.
 func TestNewServer(t *testing.T) {
-	srv := NewServer(nil, nil, "test")
+	srv := NewServer(nil, nil, "test", "", "")
 	if srv == nil {
 		t.Fatal("server should not be nil")
 	}
@@ -473,7 +473,7 @@ func TestServer_ListenAndServe_SocketDirCreation(t *testing.T) {
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
 	defer kern.Shutdown()
 
-	srv := NewServer(kern, nil, "test")
+	srv := NewServer(kern, nil, "test", "", "")
 	sockDir := t.TempDir()
 	sockPath := filepath.Join(sockDir, "sub", "test.sock")
 
@@ -1908,7 +1908,7 @@ func TestServer_CtxGrowth_ValidPID_Running(t *testing.T) {
 // --- 25.3-SRV-001: Empty projectDir returns nil config and global loader ---
 
 func TestResolveProjectContext_EmptyProjectDir(t *testing.T) {
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 
 	// Set a mock agent loader so we can verify it is returned
 	mockLoader := func(name string) (*agents.AgentInfo, error) {
@@ -1931,7 +1931,7 @@ func TestResolveProjectContext_EmptyProjectDir(t *testing.T) {
 // --- 25.3-SRV-002: Empty projectDir with no global config ---
 
 func TestResolveProjectContext_EmptyProjectDir_NoGlobalConfig(t *testing.T) {
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 	// globalConfig is nil
 
 	projCfg, loaderFn, err := srv.resolveProjectContext("", "")
@@ -1950,7 +1950,7 @@ func TestResolveProjectContext_EmptyProjectDir_NoGlobalConfig(t *testing.T) {
 // --- 25.3-SRV-003: Non-empty projectDir but no global config falls back ---
 
 func TestResolveProjectContext_WithProjectDir_NoGlobalConfig(t *testing.T) {
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 	// globalConfig is nil, so even with projectDir, should fall back to global-only mode
 
 	projCfg, _, err := srv.resolveProjectContext("/some/project", "")
@@ -1965,7 +1965,7 @@ func TestResolveProjectContext_WithProjectDir_NoGlobalConfig(t *testing.T) {
 // --- 25.3-SRV-004: Non-empty projectDir with global config returns ProjectConfig ---
 
 func TestResolveProjectContext_WithProjectDir(t *testing.T) {
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 
 	// Set up global config
 	globalAgentsDir := t.TempDir()
@@ -2044,7 +2044,7 @@ func TestResolveProjectContext_WithProjectDir(t *testing.T) {
 // the project version wins. This is the inverse of the bug reported via
 // strace: provider=claude [agent] when it should follow project default.
 func TestResolveProjectContext_AgentLoaderHonorsProjectOverride(t *testing.T) {
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 
 	globalDir := t.TempDir()
 	globalAgentsDir := filepath.Join(globalDir, "agents")
@@ -2113,7 +2113,7 @@ func TestResolveProjectContext_AgentLoaderHonorsProjectOverride(t *testing.T) {
 // ActionSpecialize would silently load the global version and the project's
 // `.rnix/skills/<name>/SKILL.md` override would never take effect.
 func TestResolveProjectContext_SkillLoaderHonorsProjectOverride(t *testing.T) {
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 
 	globalDir := t.TempDir()
 	globalSkillsDir := filepath.Join(globalDir, "skills")
@@ -2167,7 +2167,7 @@ func TestResolveProjectContext_SkillLoaderHonorsProjectOverride(t *testing.T) {
 // --- 25.3-SRV-005: Invalid project providers.yaml returns error ---
 
 func TestResolveProjectContext_InvalidProjectProviders(t *testing.T) {
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 
 	globalDir := t.TempDir()
 	srv.SetGlobalConfig(&config.GlobalConfig{

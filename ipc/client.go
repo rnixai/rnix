@@ -59,6 +59,23 @@ func (c *Client) Ping() (string, error) {
 	return pr.Version, nil
 }
 
+// DaemonStatus returns the daemon's version + commit + build_date metadata.
+// Story 45.1: used by `rnix daemon status` CLI and downstream consumers
+// verifying which rnix build the running daemon was produced from. Distinct
+// from Ping (which only returns Version) so Ping remains the lightweight
+// alive probe used by EnsureDaemon.
+func (c *Client) DaemonStatus() (*DaemonStatusResponse, error) {
+	resp, err := c.call(MethodDaemonStatus, nil)
+	if err != nil {
+		return nil, err
+	}
+	var dr DaemonStatusResponse
+	if err := json.Unmarshal(resp.Payload, &dr); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal daemon_status: %w", err)
+	}
+	return &dr, nil
+}
+
 // ListProcs returns all processes visible to the daemon.
 func (c *Client) ListProcs() ([]vfs.ProcInfo, error) {
 	resp, err := c.call(MethodListProcs, nil)

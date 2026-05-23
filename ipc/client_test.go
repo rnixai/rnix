@@ -18,7 +18,7 @@ func setupClientTest(t *testing.T) (*Client, *Server, *kernel.KernelImpl) {
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	srv.kern = kern
 
@@ -81,7 +81,7 @@ func TestClient_Shutdown(t *testing.T) {
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 
-	srv := NewServer(nil, nil, "test")
+	srv := NewServer(nil, nil, "test", "", "")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
 	srv.kern = kern
 

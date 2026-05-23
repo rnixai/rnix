@@ -21,7 +21,7 @@ func setupIntegrationServer(t *testing.T) (*Server, *kernel.KernelImpl, string) 
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
 
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 	kern := kernel.NewKernel(vfsInst, rnixctx.NewManager(), srv.CallbackMux())
 	srv.SetKernel(kern)
 
@@ -389,7 +389,7 @@ func TestIntegration_IdleAutoShutdown(t *testing.T) {
 	devReg := vfs.NewDeviceRegistry()
 	vfsInst := vfs.NewVFS(devReg)
 
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 	srv.IdleTimeout = 500 * time.Millisecond
 	kern := kernel.NewKernel(vfsInst, rnixctx.NewManager(), srv.CallbackMux())
 	srv.SetKernel(kern)

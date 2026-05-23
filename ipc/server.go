@@ -58,6 +58,13 @@ type Server struct {
 	agentLoader AgentLoaderFunc
 	callbackMux *callbackMux
 	version     string
+	// Story 45.1 — daemon build provenance, surfaced via MethodDaemonStatus.
+	// commit and buildDate are populated at NewServer construction and treated
+	// as immutable metadata thereafter; startedAt records construction wall
+	// time for downstream uptime calculations.
+	commit      string
+	buildDate   string
+	startedAt   time.Time
 	IdleTimeout time.Duration
 	ctxMgr      *rnixctx.Manager
 	skillLoader *skills.SkillLoader
@@ -113,12 +120,21 @@ type Server struct {
 
 // NewServer creates an IPC server backed by the given kernel.
 // The callbackMux is registered as the kernel's callback handler for per-PID routing.
-func NewServer(kern *kernel.KernelImpl, agentLoader AgentLoaderFunc, version string) *Server {
+//
+// Story 45.1: NewServer takes version + commit + buildDate. commit and
+// buildDate are surfaced via MethodDaemonStatus so downstream consumers can
+// verify which rnix commit the running daemon was built from. Tests may pass
+// empty strings for the provenance fields when they only exercise non-status
+// methods.
+func NewServer(kern *kernel.KernelImpl, agentLoader AgentLoaderFunc, version, commit, buildDate string) *Server {
 	s := &Server{
 		kern:             kern,
 		agentLoader:      agentLoader,
 		callbackMux:      newCallbackMux(),
 		version:          version,
+		commit:           commit,
+		buildDate:        buildDate,
+		startedAt:        time.Now(),
 		IdleTimeout:      DefaultIdleTimeout,
 		done:             make(chan struct{}),
 		projectProviders: xsync.NewSyncMap[string, []ProviderStatusWire](),
@@ -285,6 +301,8 @@ func (s *Server) handleConn(conn net.Conn) {
 		switch req.Method {
 		case MethodPing:
 			s.handlePing(conn)
+		case MethodDaemonStatus:
+			s.handleDaemonStatus(conn)
 		case MethodListProcs:
 			s.handleListProcs(conn)
 		case MethodKill:
@@ -406,6 +424,20 @@ func (s *Server) handleConn(conn net.Conn) {
 
 func (s *Server) handlePing(conn net.Conn) {
 	payload, _ := json.Marshal(PingResponse{Version: s.version})
+	writeResponse(conn, Response{OK: true, Payload: payload})
+}
+
+// handleDaemonStatus (Story 45.1 AC#3) surfaces daemon build provenance.
+// Distinct from handlePing so the lightweight ping path stays free of
+// extra fields (ipc/daemon.go:56 EnsureDaemon still polls Ping).
+func (s *Server) handleDaemonStatus(conn net.Conn) {
+	payload, _ := json.Marshal(DaemonStatusResponse{
+		Version:         s.version,
+		DaemonCommit:    s.commit,
+		DaemonBuildDate: s.buildDate,
+		DaemonPID:       os.Getpid(),
+		StartedAt:       s.startedAt.UnixMilli(),
+	})
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 

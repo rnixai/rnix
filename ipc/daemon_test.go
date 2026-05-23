@@ -28,7 +28,7 @@ func TestTryConnect_Success(t *testing.T) {
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
 	defer kern.Shutdown()
 
-	srv := NewServer(kern, nil, "0.1.0-test")
+	srv := NewServer(kern, nil, "0.1.0-test", "", "")
 	sockDir := t.TempDir()
 	sockPath := filepath.Join(sockDir, "test.sock")
 
@@ -100,7 +100,7 @@ func TestIsDaemonRunning_WithDaemon(t *testing.T) {
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
 	defer kern.Shutdown()
 
-	srv := NewServer(kern, nil, "test")
+	srv := NewServer(kern, nil, "test", "", "")
 	sockDir := t.TempDir()
 	sockPath := filepath.Join(sockDir, "rnix", "rnix.sock")
 
@@ -144,7 +144,7 @@ func TestWaitForDaemon_ServerStartsLate(t *testing.T) {
 	kern := kernel.NewKernel(vfsInst, ctxMgr, nil)
 	defer kern.Shutdown()
 
-	srv := NewServer(kern, nil, "test")
+	srv := NewServer(kern, nil, "test", "", "")
 	sockDir := t.TempDir()
 	sockPath := filepath.Join(sockDir, "test.sock")
 

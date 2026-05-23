@@ -24,7 +24,7 @@ func TestTryAutoShutdown_ZombieOnlyProcs(t *testing.T) {
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 
-	srv := NewServer(nil, nil, "test")
+	srv := NewServer(nil, nil, "test", "", "")
 	srv.IdleTimeout = 100 * time.Millisecond
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	srv.kern = kern
@@ -67,7 +67,7 @@ func TestTryAutoShutdown_RunningProcsPreventShutdown(t *testing.T) {
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 
-	srv := NewServer(nil, nil, "test")
+	srv := NewServer(nil, nil, "test", "", "")
 	srv.IdleTimeout = 100 * time.Millisecond
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	srv.kern = kern

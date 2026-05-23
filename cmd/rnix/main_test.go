@@ -326,13 +326,23 @@ func TestExitCode_InitialZero(t *testing.T) {
 }
 
 // --- Version command tests (Task 1 / AC #5) ---
-// These tests modify package-level vars (gitCommit, buildDate, flagJSON, claudeVersionChecker)
-// via save/restore. Do NOT add t.Parallel() to any of these tests.
+// Story 45.1 rewrote the version system to three-source fallback (ldflags >
+// BuildInfo > hardcoded "0.0.0"). The legacy "-dev" suffix is gone; runVersion
+// now sources its values from buildVersionInfo() instead of reading
+// package-level vars directly. These tests still modify package-level
+// ldflags-injection vars (ldVersion, ldGitCommit, ldBuildDate, flagJSON,
+// claudeVersionChecker) via save/restore. Do NOT add t.Parallel().
 
 func TestVersion_Basic(t *testing.T) {
 	savedJSON := flagJSON
-	defer func() { flagJSON = savedJSON }()
+	savedV, savedC, savedD := ldVersion, ldGitCommit, ldBuildDate
+	defer func() {
+		flagJSON = savedJSON
+		ldVersion, ldGitCommit, ldBuildDate = savedV, savedC, savedD
+	}()
 	flagJSON = false
+	// Pin ldflags so the test does not depend on the test binary's BuildInfo.
+	ldVersion, ldGitCommit, ldBuildDate = "v9.9.9-test", "deadbee", "2026-05-23T00:00:00Z"
 
 	var buf bytes.Buffer
 	cmd := &cobra.Command{Use: "test"}
@@ -340,9 +350,12 @@ func TestVersion_Basic(t *testing.T) {
 	runVersion(cmd, nil)
 
 	output := buf.String()
-	wantVersion := "rnix v" + version + "-dev"
-	if !strings.Contains(output, wantVersion) {
-		t.Errorf("expected %q, got %q", wantVersion, output)
+	// Story 45.1 §AC#1 dropped the "-dev" suffix — version is just SemVer now.
+	if !strings.Contains(output, "rnix v9.9.9-test") {
+		t.Errorf("expected version line, got %q", output)
+	}
+	if strings.Contains(output, "-dev") {
+		t.Errorf("legacy '-dev' suffix must not appear in new version output, got %q", output)
 	}
 	if strings.Contains(output, "claude-code") {
 		t.Errorf("version should not contain claude-code info, got %q", output)
@@ -351,8 +364,13 @@ func TestVersion_Basic(t *testing.T) {
 
 func TestVersion_JSON_Basic(t *testing.T) {
 	savedJSON := flagJSON
-	defer func() { flagJSON = savedJSON }()
+	savedV, savedC, savedD := ldVersion, ldGitCommit, ldBuildDate
+	defer func() {
+		flagJSON = savedJSON
+		ldVersion, ldGitCommit, ldBuildDate = savedV, savedC, savedD
+	}()
 	flagJSON = true
+	ldVersion, ldGitCommit, ldBuildDate = "v9.9.9-test", "deadbee", "2026-05-23T00:00:00Z"
 
 	var buf bytes.Buffer
 	cmd := &cobra.Command{Use: "test"}
@@ -372,8 +390,8 @@ func TestVersion_JSON_Basic(t *testing.T) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		t.Fatalf("failed to parse data: %v", err)
 	}
-	if m["version"] != versionString() {
-		t.Errorf("expected version %q, got %v", versionString(), m["version"])
+	if m["version"] != "v9.9.9-test" {
+		t.Errorf("expected version %q, got %v", "v9.9.9-test", m["version"])
 	}
 	if _, ok := m["git_commit"]; !ok {
 		t.Error("expected git_commit field in JSON output")
@@ -381,46 +399,70 @@ func TestVersion_JSON_Basic(t *testing.T) {
 	if _, ok := m["build_date"]; !ok {
 		t.Error("expected build_date field in JSON output")
 	}
+	// Story 45.1 AC#1 added the dirty bool — must be present and boolean.
+	if _, ok := m["dirty"]; !ok {
+		t.Error("expected dirty field in JSON output (Story 45.1 AC#1)")
+	}
+	if _, ok := m["dirty"].(bool); !ok {
+		t.Errorf("dirty field must be bool, got %T (%v)", m["dirty"], m["dirty"])
+	}
 	if _, exists := m["claude_code_available"]; exists {
 		t.Errorf("version JSON should not contain claude_code_available field")
 	}
 }
 
-func TestVersionString_Dev(t *testing.T) {
-	savedCommit := gitCommit
-	defer func() { gitCommit = savedCommit }()
+// TestVersionString_NoLdflags_FallbackToBuildInfo (was TestVersionString_Dev).
+// Story 45.1 §AC#1 dropped the "-dev" suffix; when ldflags are not injected,
+// versionString falls back to BuildInfo (or the hardcoded floor when BuildInfo
+// has no VCS data). The test only asserts that the legacy "-dev" suffix is
+// gone — the exact fallback value depends on the test binary's BuildInfo.
+func TestVersionString_NoLdflags_FallbackToBuildInfo(t *testing.T) {
+	savedV, savedC, savedD := ldVersion, ldGitCommit, ldBuildDate
+	defer func() {
+		ldVersion, ldGitCommit, ldBuildDate = savedV, savedC, savedD
+	}()
+	ldVersion, ldGitCommit, ldBuildDate = "", "", ""
 
-	gitCommit = ""
 	got := versionString()
-	want := version + "-dev"
-	if got != want {
-		t.Errorf("versionString() = %q, want %q", got, want)
+	if strings.HasSuffix(got, "-dev") {
+		t.Errorf("versionString() = %q, legacy '-dev' suffix must be gone (Story 45.1 AC#1)", got)
+	}
+	if got == "" {
+		t.Errorf("versionString() returned empty string — must fall back to BuildInfo or hardcoded floor")
 	}
 }
 
+// TestVersionString_Release covers the ldflags-injection path (Story 45.1 §AC#1
+// priority 1). When the Makefile injects ldVersion, versionString must return
+// it verbatim (with no "-dev" suffix).
 func TestVersionString_Release(t *testing.T) {
-	savedCommit := gitCommit
-	defer func() { gitCommit = savedCommit }()
+	savedV, savedC, savedD := ldVersion, ldGitCommit, ldBuildDate
+	defer func() {
+		ldVersion, ldGitCommit, ldBuildDate = savedV, savedC, savedD
+	}()
+	ldVersion, ldGitCommit, ldBuildDate = "v0.8.0", "abc1234", "2026-05-23T00:00:00Z"
 
-	gitCommit = "abc1234"
 	got := versionString()
-	if got != version {
-		t.Errorf("versionString() = %q, want %q", got, version)
+	if got != "v0.8.0" {
+		t.Errorf("versionString() = %q, want %q (ldflags path)", got, "v0.8.0")
 	}
 }
 
+// TestVersion_WithBuildInfo: when ldflags inject commit/buildDate, runVersion
+// prints the commit/built lines (no '-dev' suffix). Story 45.1 §AC#1 routes
+// these through buildVersionInfo() rather than reading gitCommit/buildDate
+// directly.
 func TestVersion_WithBuildInfo(t *testing.T) {
-	savedCommit := gitCommit
-	savedDate := buildDate
+	savedV, savedC, savedD := ldVersion, ldGitCommit, ldBuildDate
 	savedJSON := flagJSON
 	defer func() {
-		gitCommit = savedCommit
-		buildDate = savedDate
+		ldVersion, ldGitCommit, ldBuildDate = savedV, savedC, savedD
 		flagJSON = savedJSON
 	}()
 
-	gitCommit = "abc1234"
-	buildDate = "2026-03-15T00:00:00Z"
+	ldVersion = "v0.8.0"
+	ldGitCommit = "abc1234"
+	ldBuildDate = "2026-03-15T00:00:00Z"
 	flagJSON = false
 
 	var buf bytes.Buffer
@@ -429,11 +471,11 @@ func TestVersion_WithBuildInfo(t *testing.T) {
 	runVersion(cmd, nil)
 
 	output := buf.String()
-	if !strings.Contains(output, "rnix v"+version) {
-		t.Errorf("expected rnix v%s, got %q", version, output)
+	if !strings.Contains(output, "rnix v0.8.0") {
+		t.Errorf("expected rnix v0.8.0, got %q", output)
 	}
 	if strings.Contains(output, "-dev") {
-		t.Errorf("expected no -dev suffix with gitCommit set, got %q", output)
+		t.Errorf("expected no -dev suffix with ldGitCommit set, got %q", output)
 	}
 	if !strings.Contains(output, "commit:  abc1234") {
 		t.Errorf("expected commit line, got %q", output)
@@ -642,7 +684,7 @@ func setupTestIPCServer(t *testing.T) (string, *kernel.KernelImpl) {
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 
-	srv := ipc.NewServer(nil, nil, "0.1.0-test")
+	srv := ipc.NewServer(nil, nil, "0.1.0-test", "", "")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	srv.SetKernel(kern)
 

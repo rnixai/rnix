@@ -79,7 +79,7 @@ func setupResumeIPCTest(t *testing.T) (*Client, *kernel.KernelImpl, string, *moc
 	vfsInst := vfs.NewVFS(devReg)
 	ctxMgr := rnixctx.NewManager()
 
-	srv := NewServer(nil, nil, "0.1.0-test")
+	srv := NewServer(nil, nil, "0.1.0-test", "", "")
 	kern := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	srv.kern = kern
 

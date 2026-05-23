@@ -2,9 +2,10 @@ BINARY := rnix
 PKG := github.com/rnixai/rnix
 GITHUB_REPO := rnixai/rnix
 GIT_VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "0.1.0")
-GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null)
+GIT_DIRTY := $(shell test -n "$$(git status --porcelain --ignore-submodules=dirty 2>/dev/null)" && echo "+dirty")
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null)$(GIT_DIRTY)
 BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-LDFLAGS := -X main.version=$(GIT_VERSION) -X main.gitCommit=$(GIT_COMMIT) -X main.buildDate=$(BUILD_DATE)
+LDFLAGS := -X main.ldVersion=$(GIT_VERSION) -X main.ldGitCommit=$(GIT_COMMIT) -X main.ldBuildDate=$(BUILD_DATE)
 
 .PHONY: build install test lint vet modernize modernize-check clean cache-clean all release help \
 	gh-status gh-view gh-repo-edit gh-pr gh-pr-list gh-issue gh-issue-list gh-release-publish gh-push
@@ -56,7 +57,7 @@ release:
 	@echo "==> Creating tag v$(VERSION)..."
 	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
 	@echo "==> Building release binary..."
-	go build -ldflags "-X main.version=$(VERSION) -X main.gitCommit=$$(git rev-parse --short HEAD) -X main.buildDate=$$(date -u '+%Y-%m-%dT%H:%M:%SZ')" -o $(BINARY) ./cmd/rnix/
+	go build -ldflags "-X main.ldVersion=$(VERSION) -X main.ldGitCommit=$$(git rev-parse --short HEAD) -X main.ldBuildDate=$$(date -u '+%Y-%m-%dT%H:%M:%SZ')" -o $(BINARY) ./cmd/rnix/
 	@echo ""
 	@echo "Done! Release v$(VERSION) tagged and built."
 	@echo "To publish: git push origin v$(VERSION)"
