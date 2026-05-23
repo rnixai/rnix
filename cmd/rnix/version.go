@@ -72,6 +72,14 @@ func buildVersionInfo() (version, commit, buildDate string, dirty bool) {
 		}
 
 		if bv != "" || bc != "" || bd != "" {
+			// Invariant: v must never leave buildVersionInfo as "".
+			// When Main.Version is "(devel)" or empty but vcs.* settings
+			// are present, fill bv with the floor so all downstream
+			// renderers (runVersion / runDaemonStatus / startup banner)
+			// have a SemVer-shape value to print.
+			if bv == "" {
+				bv = "0.0.0"
+			}
 			return bv, bc, bd, bdirty
 		}
 	}
@@ -99,12 +107,11 @@ func shortSHA(sha string) string {
 // primary identifier).
 func versionString() string {
 	v, _, _, _ := buildVersionInfo()
-	if v == "" {
-		// ldflags path with empty ldVersion but non-empty ldGitCommit:
-		// fall back to the legacy placeholder to avoid blank output.
-		return version
-	}
-	return v
+	// Defense in depth: buildVersionInfo already enforces a non-empty v
+	// (Priority 3 returns "0.0.0"; Priority 2 fills bv when empty). The
+	// defaultIfEmpty here protects against a Priority-1 ldflags injection
+	// that populates ldGitCommit but leaves ldVersion empty (partial CI).
+	return defaultIfEmpty(v, "0.0.0")
 }
 
 // defaultIfEmpty returns fallback if s is empty, otherwise s. Used by

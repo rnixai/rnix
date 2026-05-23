@@ -48,15 +48,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	// Story 45.1 — `version` is retained as the very-last-resort fallback
-	// for versionString() when buildVersionInfo somehow returns an empty
-	// version (defensively unreachable but keeps the function total). The
-	// legacy gitCommit / buildDate vars have been removed: Makefile ldflags
-	// now target ldVersion / ldGitCommit / ldBuildDate (see version.go), so
-	// the legacy names served no remaining purpose.
-	version = "0.1.0"
-)
+// Story 45.1 — Legacy package vars (`version`/`gitCommit`/`buildDate`) have
+// been fully removed. Makefile ldflags now target ldVersion / ldGitCommit /
+// ldBuildDate (see version.go). The hardcoded floor "0.0.0" lives inside
+// buildVersionInfo() — no caller of versionString() ever observes empty or
+// legacy values.
 
 // versionString is defined in version.go (Story 45.1 — three-source fallback).
 
@@ -234,10 +230,11 @@ func runVersion(cmd *cobra.Command, args []string) {
 	// Story 45.1: SemVer values often arrive prefixed with "v" (e.g. git
 	// describe → "v0.8.0", BuildInfo pseudo-version → "v0.0.0-..."). Avoid
 	// emitting "rnix vv0.8.0" when the prefix is already present.
-	if strings.HasPrefix(v, "v") {
-		fmt.Fprintf(w, "rnix %s\n", v)
+	display := defaultIfEmpty(v, "0.0.0")
+	if strings.HasPrefix(display, "v") {
+		fmt.Fprintf(w, "rnix %s\n", display)
 	} else {
-		fmt.Fprintf(w, "rnix v%s\n", v)
+		fmt.Fprintf(w, "rnix v%s\n", display)
 	}
 	if c != "" {
 		fmt.Fprintf(w, "commit:  %s\n", c)
@@ -1297,7 +1294,7 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(w, "status:  running\nversion: %s\ncommit:  %s\nbuilt:   %s\nsocket:  %s\nprocs:   %d active / %d total\n",
-		ds.Version,
+		defaultIfEmpty(ds.Version, "unknown"),
 		defaultIfEmpty(ds.DaemonCommit, "unknown"),
 		defaultIfEmpty(ds.DaemonBuildDate, "unknown"),
 		sockPath,
@@ -1809,7 +1806,7 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	// banner is a single stderr line; existing [init] ✓ output is preserved.
 	bv, bc, bd, _ := buildVersionInfo()
 	fmt.Fprintf(os.Stderr, "[rnix] starting daemon version=%s commit=%s built=%s pid=%d socket=%s\n",
-		bv,
+		defaultIfEmpty(bv, "0.0.0"),
 		defaultIfEmpty(bc, "unknown"),
 		defaultIfEmpty(bd, "unknown"),
 		os.Getpid(),

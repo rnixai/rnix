@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"runtime/debug"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // =============================================================================
@@ -217,32 +221,51 @@ func TestATDD_45_1_004_BuildVersionInfo_DirtyFlag_AppendsSuffix(t *testing.T) {
 // TestATDD_45_1_005_RunVersion_JSON_IncludesDirtyField
 //
 // AC#1 §runVersion 输出格式更新: "JSON 模式 {version, git_commit, build_date,
-// dirty} 四字段（新增 dirty bool）". The legacy main_test.go:TestVersion_JSON_Basic
-// asserted 3 fields; the new ATDD asserts the 4th (dirty) is present and is a
-// real bool, not a string.
+// dirty} 四字段（新增 dirty bool）". This test invokes `runVersion` end-to-end
+// in JSON mode and asserts the marshalled payload exposes `dirty` as a real
+// bool key — protecting against future refactors that drop the field from
+// the JSON map in `runVersion`.
 func TestATDD_45_1_005_RunVersion_JSON_IncludesDirtyField(t *testing.T) {
 	withLdflagsSet(t, "v0.8.0", "abc1234+dirty", "2026-05-23T10:00:00Z")
 
-	// runVersion is a top-level entry point; we exercise it indirectly through
-	// buildVersionInfo + a small JSON shape check on the package's marshaller.
-	// dev-story Task 1.3 wires `runVersion` to include `dirty` as a top-level
-	// JSON field — until then, the field will be missing and this fails.
-	_, _, _, dirty := buildVersionInfo()
-	if !dirty {
-		t.Fatalf("precondition: buildVersionInfo dirty must be true with ldflags '+dirty' suffix")
+	prevJSON := flagJSON
+	flagJSON = true
+	t.Cleanup(func() { flagJSON = prevJSON })
+
+	var buf bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
+	runVersion(cmd, nil)
+
+	var resp struct {
+		OK   bool           `json:"ok"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
+		t.Fatalf("runVersion JSON parse failed: %v\nraw: %s", err, buf.String())
+	}
+	if !resp.OK {
+		t.Fatalf("runVersion JSON ok = false, want true; raw: %s", buf.String())
 	}
 
-	// Smoke check that the JSON serialization contract for `runVersion`
-	// (Task 1.3) includes "dirty" as a boolean. We do not call runVersion
-	// here (that test belongs in main_test.go re-write per AC#6); we only
-	// confirm the package exposes a helper that emits the new shape.
-	//
-	// Per AC#1 line 62: helper returns (version, commit, buildDate string).
-	// The dirty field is a NEW return — its mere presence in the signature
-	// (4th value) is the contract proof.
-	//
-	// If dev-story Task 1.1 ships a 3-return helper instead of 4, this file
-	// fails to COMPILE on the `_, _, _, dirty := buildVersionInfo()` line —
-	// exactly the RED signal we want.
-	_ = dirty
+	dirtyVal, present := resp.Data["dirty"]
+	if !present {
+		t.Fatalf("runVersion JSON missing `dirty` key; raw: %s", buf.String())
+	}
+	dirty, ok := dirtyVal.(bool)
+	if !ok {
+		t.Fatalf("runVersion JSON `dirty` not bool (got %T = %v); raw: %s", dirtyVal, dirtyVal, buf.String())
+	}
+	if !dirty {
+		t.Errorf("runVersion JSON `dirty` = false, want true (ldGitCommit suffix '+dirty')")
+	}
+
+	// AC#1 four-field contract: also verify the other three keys are
+	// present so any future deletion is caught here, not only in
+	// TestVersion_JSON_Basic.
+	for _, k := range []string{"version", "git_commit", "build_date"} {
+		if _, ok := resp.Data[k]; !ok {
+			t.Errorf("runVersion JSON missing `%s` key; raw: %s", k, buf.String())
+		}
+	}
 }
