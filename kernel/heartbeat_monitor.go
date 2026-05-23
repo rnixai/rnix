@@ -205,6 +205,9 @@ func (hm *HeartbeatMonitor) handleStalled(pid types.PID, proc *Process, stalledD
 	switch action {
 	case "suspend":
 		log.Printf("[heartbeat] pid=%d stalled %d times, would suspend (passive mode, no action)", pid, consecutiveStalls)
+		hm.mu.Lock()
+		record.LastActionAt = time.Now()
+		hm.mu.Unlock()
 	case "cancel_step":
 		log.Printf("[heartbeat] pid=%d stalled %d times, would cancel step (passive mode, no action)", pid, consecutiveStalls)
 		hm.mu.Lock()

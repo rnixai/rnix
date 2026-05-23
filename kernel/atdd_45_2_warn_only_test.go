@@ -25,7 +25,7 @@ import (
 // 引用：
 //   - _bmad-output/implementation-artifacts/45-2-heartbeat-monitor-warn-only.md
 //     §Acceptance-Criteria AC1-AC4
-//   - kernel/heartbeat_monitor.go#149-220 handleStalled（改动主体）
+//   - kernel/heartbeat_monitor.go#195-216 handleStalled switch action（改动主体）
 //   - kernel/heartbeat_monitor_unit_test.go#322-329 newHeartbeatTestKernel（复用）
 //   - kernel/atdd_44_3_helpers_test.go#181 drainAllEvents（同包跨文件可见，
 //     用于断言 DebugChan 上的 ProcessStalled event）
@@ -132,8 +132,10 @@ func TestATDD_45_2_001_LevelSuspend_NoStateChange(t *testing.T) {
 	hm.mu.Lock()
 	rec, exists := hm.stalledProcs[proc.PID]
 	cs := 0
+	var lastActionAt time.Time
 	if exists {
 		cs = rec.ConsecutiveStalls
+		lastActionAt = rec.LastActionAt
 	}
 	hm.mu.Unlock()
 	if !exists {
@@ -141,6 +143,13 @@ func TestATDD_45_2_001_LevelSuspend_NoStateChange(t *testing.T) {
 	}
 	if cs != 4 {
 		t.Errorf("Story 45.2 AC1: ConsecutiveStalls after Level 4 scan = %d, want 4 (3 pre-seed + 1 this scan)", cs)
+	}
+	// Code-review F1 (2026-05-23): Level 4 (highest stall severity) MUST refresh
+	// LastActionAt symmetrically with cancel_step — pre-seed used -500ms past
+	// LastActionAt; after scan it must be advanced to a newer instant so
+	// dashboard "last warned at" reflects the most recent emit.
+	if lastActionAt.IsZero() {
+		t.Error("Story 45.2 AC1: LastActionAt MUST be set after Level 4 scan (code-review F1: symmetric with cancel_step)")
 	}
 
 	// (4) emit ProcessStalled with action="suspend" must still fire.
@@ -369,6 +378,10 @@ func TestATDD_45_2_004_PersistentStalled_ConsecutiveAccumulates(t *testing.T) {
 	// (1)(4) ConsecutiveStalls == 5, stallRecord still present.
 	hm.mu.Lock()
 	rec, exists := hm.stalledProcs[proc.PID]
+	var lastActionAt time.Time
+	if exists {
+		lastActionAt = rec.LastActionAt
+	}
 	hm.mu.Unlock()
 	if !exists {
 		t.Fatal("Story 45.2 AC4: stallRecord MUST persist after Level 4 scan (passive mode — delete(stalledProcs) removed)")
@@ -376,6 +389,13 @@ func TestATDD_45_2_004_PersistentStalled_ConsecutiveAccumulates(t *testing.T) {
 	if rec.ConsecutiveStalls != totalScans {
 		t.Errorf("Story 45.2 AC4: ConsecutiveStalls after %d scans = %d, want %d (no auto-reset after Level 4)",
 			totalScans, rec.ConsecutiveStalls, totalScans)
+	}
+	// Code-review F1 (2026-05-23): Level 4 must refresh LastActionAt every scan
+	// — symmetric with cancel_step path. After 5 sustained scans the timestamp
+	// must be non-zero (and recent), not stuck at zero / the first Level-3
+	// crossing instant.
+	if lastActionAt.IsZero() {
+		t.Error("Story 45.2 AC4: LastActionAt MUST be set after sustained Level 4 scans (code-review F1: symmetric with cancel_step)")
 	}
 
 	// (5) Five emits — one per scan. Drain after the loop to avoid racing
