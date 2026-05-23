@@ -1,5 +1,25 @@
 package kernel
 
+// =============================================================================
+// Story 30.5 ATDD 守护 — P4 等价语义引用 (Epic 45 / Story 45.4)
+//
+// 本文件 7 个测试守护 Story 30.5（heartbeat liveness detection）原 AC#1-#4：
+//   - heartbeat 字段初始化 (LastHeartbeat / StepTimeout)
+//   - SpawnOpts.StepTimeout 字段 + AgentManifest.step_timeout 解析
+//   - StepTimeout 解析优先级 (SpawnOpts > AgentManifest > default 5m)
+//   - StepTimeout=0 表示禁用
+//   - LastHeartbeat 并发安全
+//   - reasonStep 每步更新 LastHeartbeat
+//
+// Story 45.2 (warn-only) + 45.3 (HB-1 keeper 删除) + 45.4 (ATDD 改写) 后这些
+// 断言**仍然有效**——P4 daemon-passive 仅删除"破坏性动作"与"假心跳路径"，未动
+// "心跳字段语义"与"reasonStep 边界更新"。
+//
+// 进一步的 P4 等价语义在以下文件中显式指名锚定：
+//   - kernel/atdd_45_4_30_5_continuity_test.go (AC1 4 用例 — 30.5 P4 等价)
+//   - kernel/atdd_45_4_long_run_test.go (AC4 2 用例 — epic AC-EA2 长跑承诺)
+// =============================================================================
+
 import (
 	"testing"
 	"time"

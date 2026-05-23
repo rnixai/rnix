@@ -26,6 +26,12 @@ import (
 // (compile-fail on Task 3.1 absence). Runtime behaviour is already correct
 // today thanks to 44.1's guard; this test pins it as protection against
 // a future refactor that might inadvertently regress.
+//
+// Story 45.4 P4 引用 (Epic 45): 本测试守护的 "outer-scan guard skip-Suspended"
+// 不变量在 Epic 45 P4 daemon-passive 框架后**仍然有效**——passive mode 仅改
+// handleStalled case body，未动 outer scan() guard。等价语义在
+// kernel/atdd_45_4_30_6_continuity_test.go (AC2 用例) 与
+// kernel/atdd_45_2_warn_only_test.go (45.2 既有) 中显式指名锚定。
 // =============================================================================
 
 // TestATDD_44_3_050_HeartbeatMonitor_SkipsReloadedSuspendedPlaceholder
