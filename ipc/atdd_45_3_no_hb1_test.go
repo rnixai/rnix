@@ -48,6 +48,14 @@ import (
 // os.ReadFile + strings.Contains 遍历" 完全一致。
 // =============================================================================
 
+// atdd45_3SelfFileName 是本 ATDD 文件的文件名，被 scanIPCGoFilesExceptSelf 用于
+// 跳过自身（避免 hb1AndWaitGroupSymbols 列表本身被 strings.Contains 匹配到造成
+// self-FAIL）。提升为包级常量以集中维护：**若本 ATDD 文件被重命名，必须同步更新
+// 此常量，否则 TestATDD_45_3_001 会立即 false-positive FAIL**（self-reference 被
+// 当作真实 HB-1 残留）。Code review patch 2026-05-23：原 inline literal 在 self-ref
+// 排除上脆弱（Blind+Edge 共识 minor），提取为常量 + 加注释作为重命名预警栏。
+const atdd45_3SelfFileName = "atdd_45_3_no_hb1_test.go"
+
 // hb1AndWaitGroupSymbols 列出 HB-1 keeper 与 handleExecScript 内 sync.WaitGroup
 // 局部变量的标识符。pre-impl 阶段，server_pipeline.go + server_pipeline_heartbeat_test.go
 // 必含这些符号；post-impl 阶段，整个 ipc/ 包内归零。
@@ -78,7 +86,6 @@ var spawnAndWaitTickerSymbols = []string{
 // 测试运行时 cwd 为 ipc 包目录，所以 filepath.Walk(".") 即遍历 ipc/。
 func scanIPCGoFilesExceptSelf(t *testing.T) []string {
 	t.Helper()
-	const selfName = "atdd_45_3_no_hb1_test.go"
 	var files []string
 	err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -87,7 +94,7 @@ func scanIPCGoFilesExceptSelf(t *testing.T) []string {
 		if info.IsDir() {
 			return nil
 		}
-		if filepath.Base(path) == selfName {
+		if filepath.Base(path) == atdd45_3SelfFileName {
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") {

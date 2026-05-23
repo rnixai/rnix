@@ -776,10 +776,16 @@ func (p *Process) IsPaused() bool {
 }
 
 // TouchHeartbeat updates LastHeartbeat to now (thread-safe).
-// Driven by reasonStep step boundaries (kernel/reason.go) and driver streaming
-// events (kernel/observe.go) — the only honest activity signals. Fake-heartbeat
-// ticker paths in ipc/server_pipeline.go that previously called this on behalf
-// of parent processes were removed by Story 45.3 (P4 daemon-passive).
+//
+// Production callers: driver streaming events (kernel/observe.go) — these are
+// the honest activity signals from the reasoning loop. Note that the field
+// LastHeartbeat itself is also written directly (without going through this
+// method) at spawn-time seeding (kernel/spawn.go), reasonStep boundaries
+// (kernel/reason.go), Resume / Resume-subtree (kernel/resume.go,
+// kernel/subtree.go), and suspended-state load (kernel/load_suspended.go);
+// see those sites for their respective invariants. Fake-heartbeat ticker paths
+// in ipc/server_pipeline.go that previously called this on behalf of parent
+// processes were removed by Story 45.3 (P4 daemon-passive).
 func (p *Process) TouchHeartbeat() {
 	p.mu.Lock()
 	p.LastHeartbeat = time.Now()
@@ -835,8 +841,11 @@ func (p *Process) DetachAndCloseEventWriter() {
 
 // LastHeartbeatSnapshot returns the current LastHeartbeat value under
 // proc.mu — use this instead of reading the field directly when racing
-// with TouchHeartbeat / reasonStep (driver streaming and reason-loop step
-// boundaries are the only writers post-Story 45.3).
+// with any of LastHeartbeat's writers. Post-Story 45.3 the writer set is:
+// driver streaming (via TouchHeartbeat at kernel/observe.go), reasonStep
+// boundary updates (kernel/reason.go), spawn-time seeding (kernel/spawn.go),
+// Resume / Resume-subtree (kernel/resume.go, kernel/subtree.go), and
+// suspended-state load (kernel/load_suspended.go).
 func (p *Process) LastHeartbeatSnapshot() time.Time {
 	p.mu.Lock()
 	defer p.mu.Unlock()
