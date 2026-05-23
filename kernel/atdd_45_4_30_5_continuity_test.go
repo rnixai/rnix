@@ -153,23 +153,62 @@ func TestATDD_45_4_30_5_001_LastHeartbeatWritersAreFinite(t *testing.T) {
 
 	// Part 2: 验证 ipc/server_pipeline.go 内无任一 fake-heartbeat 符号
 	// （P4 哲学红线 — 30.5 字段语义诚实性的 epic 级保护）
+	//
+	// Line-level filter: 跳过 `//` 单行注释 + `/* ... */` 块注释，避免未来的
+	// doc-comment（如 `// keepScriptRunnerHeartbeat was removed in 45.3`）误触
+	// 报警。仅在**代码行**中搜索禁用符号——若禁用符号出现在 declarative position
+	// （variable / func / const decl 或 usage call），即视为 P4 违规。
 	pipelinePath := filepath.Join(repoRoot, "ipc", "server_pipeline.go")
 	pipelineBody, err := os.ReadFile(pipelinePath)
 	if err != nil {
 		t.Fatalf("Story 45.4 AC1.001: read ipc/server_pipeline.go: %v", err)
 	}
-	pipelineText := string(pipelineBody)
+	pipelineText := stripGoComments(string(pipelineBody))
 	for _, sym := range hb1ProhibitedSymbols {
 		if strings.Contains(pipelineText, sym) {
-			t.Errorf("Story 45.4 AC1.001: ipc/server_pipeline.go contains forbidden fake-heartbeat symbol %q — P4 violation: daemon must not actively push LastHeartbeat (30.5 字段语义诚实性的 epic 级保护; 与 ipc/atdd_45_3_no_hb1_test.go 形成双层防护)",
+			t.Errorf("Story 45.4 AC1.001: ipc/server_pipeline.go contains forbidden fake-heartbeat symbol %q in non-comment code — P4 violation: daemon must not actively push LastHeartbeat (30.5 字段语义诚实性的 epic 级保护; 与 ipc/atdd_45_3_no_hb1_test.go 形成双层防护)",
 				sym)
 		}
 	}
 }
 
+// stripGoComments removes `//` line comments and `/* ... */` block comments
+// from a Go source text. Used by AC1.001 to avoid false-positive symbol
+// matches inside doc-comments referencing removed APIs.
+//
+// 简化实现：不处理 string literals 内的 `//` / `/* */`，因为 server_pipeline.go
+// 的字符串字面量中不太可能包含 HB-1 / fake-heartbeat 符号名（且即使包含也是
+// false-positive 的小概率边界情况，不值得拉 go/parser 这么重的依赖）。
+func stripGoComments(text string) string {
+	var b strings.Builder
+	b.Grow(len(text))
+	for i := 0; i < len(text); i++ {
+		// /* ... */ block comment
+		if i+1 < len(text) && text[i] == '/' && text[i+1] == '*' {
+			end := strings.Index(text[i+2:], "*/")
+			if end == -1 {
+				return b.String() // unterminated block — discard rest
+			}
+			i += 2 + end + 1 // skip past "*/"
+			continue
+		}
+		// // line comment
+		if i+1 < len(text) && text[i] == '/' && text[i+1] == '/' {
+			nl := strings.IndexByte(text[i:], '\n')
+			if nl == -1 {
+				return b.String() // last line is a comment
+			}
+			i += nl // jump to newline; outer loop's i++ moves past it
+			b.WriteByte('\n')
+			continue
+		}
+		b.WriteByte(text[i])
+	}
+	return b.String()
+}
+
 // findRepoRootForATDD45_4 walks up from start until a go.mod is found, returning
-// the directory containing it. Returns an error if no go.mod is found within
-// 8 levels (defensive cap, enough for test binary cwd = pkg dir).
+// the directory containing it. Terminates on filesystem root (parent == abs).
 //
 // Suffix "_ATDD45_4" disambiguates from any other repo-root helpers that might
 // be added in sibling test files.
@@ -178,17 +217,16 @@ func findRepoRootForATDD45_4(start string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for range 8 {
+	for {
 		if _, err := os.Stat(filepath.Join(abs, "go.mod")); err == nil {
 			return abs, nil
 		}
 		parent := filepath.Dir(abs)
 		if parent == abs {
-			break
+			return "", os.ErrNotExist
 		}
 		abs = parent
 	}
-	return "", os.ErrNotExist
 }
 
 // -----------------------------------------------------------------------------
@@ -242,13 +280,15 @@ func TestATDD_45_4_30_5_002_ReasonStepHeartbeatUpdateIsPrimaryHonestSignal(t *te
 		t.Fatal("Story 45.4 AC1.002: Spawn did not seed LastHeartbeat (30.5 AC#1 precondition broken)")
 	}
 
-	// Wait for completion.
+	// Wait for completion. 30s deadline matches kernel/heartbeat_test.go
+	// convention — 5s was too tight under -race (3-10x wall-time multiplier)
+	// + slow CI runners.
 	select {
 	case exit := <-proc.Done:
 		if exit.Code != 0 {
 			t.Fatalf("Story 45.4 AC1.002: unexpected exit code %d: %s", exit.Code, exit.Reason)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("Story 45.4 AC1.002: timed out waiting for process to complete")
 	}
 

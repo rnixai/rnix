@@ -1,11 +1,9 @@
 package kernel
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -256,104 +254,17 @@ func TestATDD_45_4_30_6_002_StalledRecordPersistsUntilRecoveryOrExit(t *testing.
 }
 
 // -----------------------------------------------------------------------------
-// AC2 用例 003 — IPC heartbeat_status wire schema 在 P4 下完全不变
+// AC2 用例 003 — 已迁移至 ipc/atdd_45_4_30_6_wire_schema_test.go
 // -----------------------------------------------------------------------------
-
-// TestATDD_45_4_30_6_003_HeartbeatStatusIPCWireSchemaInvariant
 //
-// 守护 Story 30.6 原 AC#10 (IPC heartbeat_status wire schema) 在 P4 框架下
-// 完全不变——下游消费者（dashboard / rnix heartbeat status CLI / EchoMatrix 等）
-// 字段消费零风险。passive mode 仅改 handleStalled case body，不动 wire schema。
+// AC2.003 wire schema 不变量 ATDD 已迁移到 ipc 包：直接 instance 化
+// ipc.HeartbeatStatusResponse{} + ipc.StalledProcWire{} 并 json.Marshal 验证
+// 字段集精确匹配 spec 列出的 4+6 snake_case key（含负向断言：marshal 结果中
+// 无意外字段）。该路径避免 kernel→ipc 反向 import 循环，且证据强度优于 kernel
+// 包内的 source-grep。
 //
-// 通过 json.Marshal 构造实例 + 解析序列化结果，断言字段集精确匹配（不多不少）。
-// 测试 wire schema 而非内部类型——下游真正消费的是 JSON 字段名，与 Go 字段名
-// 解耦。
-//
-// 引用：
-//   - ipc/protocol.go#1327-1333 HeartbeatStatusResponse 4 字段
-//   - ipc/protocol.go#1335-1343 StalledProcWire 6 字段
-//
-// 注：本文件在 kernel 包，但 ipc 包能 import kernel（依赖方向允许）；反向
-// import 会循环。所以这里通过 reading ipc/protocol.go 源码做"schema 不变"
-// 静态证据；既保留可机器验证性，又避免 kernel → ipc 反向依赖。
-func TestATDD_45_4_30_6_003_HeartbeatStatusIPCWireSchemaInvariant(t *testing.T) {
-	repoRoot, err := findRepoRootForATDD45_4(".")
-	if err != nil {
-		t.Fatalf("Story 45.4 AC2.003: locate repo root: %v", err)
-	}
-	protocolPath := filepath.Join(repoRoot, "ipc", "protocol.go")
-	body, err := os.ReadFile(protocolPath)
-	if err != nil {
-		t.Fatalf("Story 45.4 AC2.003: read ipc/protocol.go: %v", err)
-	}
-	text := string(body)
-
-	// HeartbeatStatusResponse 必含的 4 个 snake_case JSON 字段
-	expectedResponseFields := []string{
-		`json:"running"`,
-		`json:"check_interval_ms"`,
-		`json:"total_stalled_detected"`,
-		`json:"current_stalled"`,
-	}
-	for _, f := range expectedResponseFields {
-		if !strings.Contains(text, f) {
-			t.Errorf("Story 45.4 AC2.003: HeartbeatStatusResponse missing wire field %q in ipc/protocol.go (30.6 AC#10 wire schema 退步)", f)
-		}
-	}
-
-	// StalledProcWire 必含的 6 个 snake_case JSON 字段
-	expectedStalledFields := []string{
-		`json:"pid"`,
-		`json:"uuid"`,
-		`json:"consecutive_stalls"`,
-		`json:"stalled_duration_ms"`,
-		`json:"heartbeat_gap_ms"`,
-		`json:"last_action"`,
-	}
-	for _, f := range expectedStalledFields {
-		if !strings.Contains(text, f) {
-			t.Errorf("Story 45.4 AC2.003: StalledProcWire missing wire field %q in ipc/protocol.go (30.6 AC#10 wire schema 退步)", f)
-		}
-	}
-
-	// Sanity: ensure the kernel-side data source types (HeartbeatStatusInfo +
-	// StalledProcInfo) still produce the 4 + 6 fields. We exercise the
-	// pre-wire data path using the kernel-internal types and json.Marshal —
-	// the wire conversion logic in ipc/server_status.go simply maps these
-	// 1:1, so if the kernel side stays correct the wire stays correct.
-	k := newHeartbeatTestKernel(t)
-	proc := NewProcess(0, "test-atdd-45-4-30-6-003", nil)
-	proc.mu.Lock()
-	proc.State = types.StateRunning
-	proc.StepTimeout = 100 * time.Millisecond
-	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
-	proc.mu.Unlock()
-	k.procTable.Store(proc.PID, proc)
-
-	hm := NewHeartbeatMonitor(k, 30*time.Second)
-	hm.scan() // populate one stalled record
-
-	info := hm.Status()
-	if info.CheckInterval != 30*time.Second {
-		t.Errorf("Story 45.4 AC2.003: HeartbeatStatusInfo.CheckInterval = %v, want 30s", info.CheckInterval)
-	}
-	if info.TotalStalledDetected != 1 {
-		t.Errorf("Story 45.4 AC2.003: HeartbeatStatusInfo.TotalStalledDetected = %d, want 1", info.TotalStalledDetected)
-	}
-	if len(info.CurrentStalled) != 1 {
-		t.Fatalf("Story 45.4 AC2.003: len(CurrentStalled) = %d, want 1", len(info.CurrentStalled))
-	}
-	sp := info.CurrentStalled[0]
-	if sp.PID != proc.PID || sp.ConsecutiveStalls != 1 || sp.LastAction != "warn" {
-		t.Errorf("Story 45.4 AC2.003: StalledProcInfo fields mismatch — got %+v", sp)
-	}
-
-	// Marshal the StalledProcInfo for completeness — even though wire conversion
-	// happens in ipc/, the internal struct must produce non-error JSON.
-	if _, err := json.Marshal(sp); err != nil {
-		t.Errorf("Story 45.4 AC2.003: StalledProcInfo json.Marshal error: %v", err)
-	}
-}
+// 详见: ipc/atdd_45_4_30_6_wire_schema_test.go (TestATDD_45_4_30_6_003_*)
+// 决策来源: code review 2026-05-24 — Decision-needed 选项 A 解决
 
 // -----------------------------------------------------------------------------
 // AC2 用例 004 — checkInterval 可配置 + 默认 30s (cmd/rnix/main.go)
@@ -405,10 +316,3 @@ func TestATDD_45_4_30_6_004_CheckIntervalIsConfigurableAndDefaults30s(t *testing
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Helper — observe that the t.Helper / sync package import lines are
-// already pulled in via other dependencies of this file. The unused sync
-// reference below silences linters if no test in this file uses sync directly.
-// -----------------------------------------------------------------------------
-
-var _ = sync.Mutex{} // touch sync to keep import set stable across edits

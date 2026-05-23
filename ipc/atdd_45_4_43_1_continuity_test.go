@@ -62,8 +62,9 @@ import (
 // =============================================================================
 
 // findRepoRelativePathForATDD45_4 walks up from cwd until a go.mod is found,
-// then joins the supplied repo-relative path. Robust to both `go test` (cwd =
-// pkg dir) and `go test -c` compiled binaries (cwd = caller dir).
+// then joins the supplied repo-relative path. Terminates on filesystem root.
+// Robust to both `go test` (cwd = pkg dir) and `go test -c` compiled binaries
+// (cwd = caller dir) and to deeply-nested CI checkouts.
 //
 // Suffix "_ATDD45_4" disambiguates from any other repo-root helpers added to
 // sibling test files (same convention as kernel/atdd_45_4_30_5_continuity_test.go
@@ -73,17 +74,16 @@ func findRepoRelativePathForATDD45_4(rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for range 8 {
+	for {
 		if _, err := os.Stat(filepath.Join(abs, "go.mod")); err == nil {
 			return filepath.Join(abs, rel), nil
 		}
 		parent := filepath.Dir(abs)
 		if parent == abs {
-			break
+			return "", os.ErrNotExist
 		}
 		abs = parent
 	}
-	return "", os.ErrNotExist
 }
 
 // newSkipReasonLoopProcForATDD45_4 spawns a SkipReasonLoop process via
@@ -145,6 +145,13 @@ func TestATDD_45_4_43_1_001_ScriptRunnerActivityViaEventsJSONLOnly(t *testing.T)
 	}
 	proc.AttachEventWriter(ew)
 	t.Cleanup(func() { _ = ew.Close() })
+	// Re-register kern.Shutdown so LIFO ordering runs it BEFORE ew.Close
+	// (helper.t.Cleanup(kern.Shutdown) at line ~105 was registered first and
+	// would otherwise run AFTER ew.Close, allowing late emits to write into
+	// a closed event-writer and silently drop). kern.Shutdown is idempotent
+	// via sync.Once (kernel/reap.go:422), so the helper's earlier registration
+	// becomes a no-op when it eventually runs.
+	t.Cleanup(func() { kern.Shutdown() })
 
 	// 记录初始 LastHeartbeat（spawn-time seed，30.5 AC#1 合法 writer）。
 	initialHB := proc.LastHeartbeatSnapshot()
@@ -250,8 +257,10 @@ func TestATDD_45_4_43_1_002_GenuineDeadlockNoLongerMaskedByFakeHeartbeat(t *test
 	defer hm.Stop()
 
 	// (1) Drain events 寻找 ProcessStalled with action="warn"
-	// 等 ticker fire 一次 (50ms checkInterval) + buffer
-	deadline := time.After(500 * time.Millisecond)
+	// 等 ticker fire 一次 (50ms checkInterval) + 大幅余量。3s 让 -race 慢 CI
+	// 上的 ticker 调度多次 fire 仍能赶上；最早 emit 触发后 break 立即返回，
+	// healthy 场景下 wall-time 仍 < 100ms。
+	deadline := time.After(3 * time.Second)
 	var stalledFound bool
 	var stalledAction string
 collectLoop:

@@ -59,11 +59,26 @@ import (
 
 // longRunScanCount returns the number of scans to run for parameterized tests.
 // Default 30 (≈15 minutes simulation at 30s checkInterval). Override via
-// RNIX_45_4_LONG_RUN_SCANS env var; values <= 0 or > 1000 → t.Skipf (防止恶意
-// 大值阻塞 CI 或资源耗尽).
+// RNIX_45_4_LONG_RUN_SCANS env var; values <= 0 or > 200 → t.Skipf.
+//
+// Upper bound rationale: DebugChan buffer is 256 (kernel/process.go:240) and
+// emit is non-blocking with drop-on-full (debug/event.go:12-20). Since the
+// scan loop emits without intermediate drain, totalScans must stay safely
+// below 256 — 200 gives a 56-event headroom for any out-of-band emits from
+// other code paths (e.g. event_writer flushes, recordMgr). Going higher would
+// silently drop events and break the `count == totalScans` assertion.
+//
+// For 1-hour simulation coverage (epic AC-EA2 line 98), 120 × 30s = 60min is
+// well within 200. EchoMatrix cross-repo verification scenarios up to ~1.5h
+// fit; longer runs require a redesign (drain mid-loop or increase buffer).
 func longRunScanCount(t *testing.T) int {
 	t.Helper()
-	const defaultScans = 30
+	const (
+		defaultScans = 30
+		// maxScans must stay below DebugChan buffer (256) to avoid silent
+		// drop-on-full corrupting the emit-count assertion.
+		maxScans = 200
+	)
 	v := os.Getenv("RNIX_45_4_LONG_RUN_SCANS")
 	if v == "" {
 		return defaultScans
@@ -73,8 +88,8 @@ func longRunScanCount(t *testing.T) int {
 		t.Skipf("Story 45.4 AC4: invalid RNIX_45_4_LONG_RUN_SCANS=%q: %v (skipping parameterized run)", v, err)
 		return 0
 	}
-	if n <= 0 || n > 1000 {
-		t.Skipf("Story 45.4 AC4: RNIX_45_4_LONG_RUN_SCANS=%d out of bounds (1..1000); skipping parameterized run", n)
+	if n <= 0 || n > maxScans {
+		t.Skipf("Story 45.4 AC4: RNIX_45_4_LONG_RUN_SCANS=%d out of bounds (1..%d); skipping parameterized run", n, maxScans)
 		return 0
 	}
 	return n
@@ -276,16 +291,16 @@ func TestATDD_45_4_LongRun_002_ParameterizedLongRunViaEnvVar(t *testing.T) {
 		t.Error("Story 45.4 AC4.002: cancelCallback MUST NOT fire during long-run")
 	}
 
-	// Drain window scales with scan count — DebugChan buffer is 256, so for
-	// totalScans up to ~256 a single drain captures all events; for larger
-	// values we'd need a drain-loop, but 1000 ceiling means buffer overflow
-	// is impossible (emit is non-blocking, scan synchronous → drains every
-	// 256 events from DebugChan before the next scan would block).
+	// Drain window — DebugChan buffer is 256 (kernel/process.go:240) and emit
+	// is non-blocking + drop-on-full (debug/event.go:12-20). The scan loop
+	// emits without intermediate drain, so totalScans must stay below 256 to
+	// avoid silent drops corrupting the emit-count assertion. longRunScanCount
+	// caps the env-var input at 200, giving a 56-event headroom for any
+	// out-of-band emits from other code paths.
 	//
-	// For correctness with totalScans potentially > 256, we drain a window
-	// proportional to scan count. Each scan synchronously emits one event;
-	// total emits == totalScans (defensive — proves emit-per-scan invariant
-	// holds even at long-run scale).
+	// The drain window scales linearly with scan count to give drainAllEvents
+	// enough idle-tick budget to read all queued events; once the channel
+	// empties, drainAllEvents returns immediately on the next deadline tick.
 	drainWindow := time.Duration(50+totalScans*2) * time.Millisecond
 	events := drainAllEvents(t, proc, drainWindow)
 	action, count, found := findStalledEventAction(events)
