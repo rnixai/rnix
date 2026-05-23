@@ -776,7 +776,10 @@ func (p *Process) IsPaused() bool {
 }
 
 // TouchHeartbeat updates LastHeartbeat to now (thread-safe).
-// Used by SpawnAndWait to keep the parent alive while waiting for a child.
+// Driven by reasonStep step boundaries (kernel/reason.go) and driver streaming
+// events (kernel/observe.go) — the only honest activity signals. Fake-heartbeat
+// ticker paths in ipc/server_pipeline.go that previously called this on behalf
+// of parent processes were removed by Story 45.3 (P4 daemon-passive).
 func (p *Process) TouchHeartbeat() {
 	p.mu.Lock()
 	p.LastHeartbeat = time.Now()
@@ -832,7 +835,8 @@ func (p *Process) DetachAndCloseEventWriter() {
 
 // LastHeartbeatSnapshot returns the current LastHeartbeat value under
 // proc.mu — use this instead of reading the field directly when racing
-// with TouchHeartbeat / reasonStep / SpawnAndWait's keeper goroutine.
+// with TouchHeartbeat / reasonStep (driver streaming and reason-loop step
+// boundaries are the only writers post-Story 45.3).
 func (p *Process) LastHeartbeatSnapshot() time.Time {
 	p.mu.Lock()
 	defer p.mu.Unlock()

@@ -8,8 +8,6 @@ import (
 	"maps"
 	"net"
 	"path/filepath"
-	"sync"
-	"time"
 
 	"github.com/rnixai/rnix/agents"
 	"github.com/rnixai/rnix/internal/config"
@@ -28,28 +26,6 @@ import (
 // execErr. See finalizeScriptRunner below for the case analysis. The canonical
 // SuspendReason for this path lives in kernel.SuspendReasonCLIDisconnected and
 // is set by the kernel SignalTree → SuspendSubtree path, not by ipc.
-
-// scriptRunnerHeartbeatInterval is how often handleExecScript pings the
-// script-runner's LastHeartbeat. See HB-1 (Epic 43, Story 43.1).
-const scriptRunnerHeartbeatInterval = 10 * time.Second
-
-// keepScriptRunnerHeartbeat ticks proc.LastHeartbeat at the given interval
-// until ctx is done. It exists so handleExecScript can run it as a goroutine
-// for the script-runner's full lifetime, complementing SpawnAndWait's
-// narrower wait-for-child ticker. Unit-tested with a small interval; the
-// real call site uses scriptRunnerHeartbeatInterval.
-func keepScriptRunnerHeartbeat(ctx context.Context, proc *kernel.Process, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			proc.TouchHeartbeat()
-		}
-	}
-}
 
 // --- spawn pipeline ---
 
@@ -181,24 +157,6 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 		return "", 1, 0, fmt.Errorf("process vanished after spawn")
 	}
 
-	// Keep parent's heartbeat alive while waiting for child, so
-	// HeartbeatMonitor doesn't mistake the idle parent for stalled.
-	var heartbeatTicker *time.Ticker
-	var parentProc *kernel.Process
-	if s.parentPID > 0 {
-		if pp, ppOK := s.kernel.GetProcess(s.parentPID); ppOK {
-			parentProc = pp
-			heartbeatTicker = time.NewTicker(10 * time.Second)
-			defer heartbeatTicker.Stop()
-		}
-	}
-	hbCh := func() <-chan time.Time {
-		if heartbeatTicker != nil {
-			return heartbeatTicker.C
-		}
-		return nil
-	}()
-
 	for {
 		select {
 		case exit := <-proc.Done:
@@ -221,8 +179,6 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 			_ = s.kernel.Kill(pid, types.SIGTERM)
 			s.kernel.Reap(pid)
 			return "", 1, 0, ctx.Err()
-		case <-hbCh:
-			parentProc.TouchHeartbeat()
 		}
 	}
 }
@@ -337,26 +293,6 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 		}
 	}()
 
-	// HB-1 (Epic 43, Story 43.1): keep the script-runner's heartbeat alive for
-	// its entire lifetime. SkipReasonLoop processes don't get per-step heartbeat
-	// updates that reasoning processes get; SpawnAndWait's own ticker only covers
-	// the wait-for-child window. Without this, time spent between spawns
-	// (statement gaps, condition evaluation, idle while-loop with paused
-	// children) accumulates with no heartbeat and trips HeartbeatMonitor's STALL
-	// detection. Coexists with SpawnAndWait's ticker as defence-in-depth; both
-	// call TouchHeartbeat under proc.mu — overwriting LastHeartbeat to now() is
-	// safe under concurrent writers.
-	//
-	// We track the keeper with hbWG so we can explicitly stop it before the
-	// post-run Reap below. Otherwise the keeper could race the reaper and
-	// TouchHeartbeat() on a process that has already transitioned to Dead,
-	// violating the "LastHeartbeat freezes on Dead" invariant that dashboard
-	// rendering depends on.
-	var hbWG sync.WaitGroup
-	hbWG.Go(func() {
-		keepScriptRunnerHeartbeat(scriptCtx, scriptProc, scriptRunnerHeartbeatInterval)
-	})
-
 	spawner := &ipcKernelSpawner{
 		kernel:        s.kern,
 		agentLoader:   agentLoaderFn,
@@ -408,15 +344,6 @@ func (s *Server) handleExecScript(conn net.Conn, rawPayload json.RawMessage) {
 	}
 
 	result, execErr := executor.Execute(scriptCtx, script)
-
-	// HB-1 cleanup: stop the lifecycle heartbeat keeper before transitioning
-	// the process state below. scriptCancel(nil) is a no-op if the watcher
-	// goroutine already cancelled (kill / daemon shutdown). hbWG.Wait blocks
-	// until the keeper has returned, guaranteeing no further TouchHeartbeat
-	// races with the Reap below or with the Suspended-state branch in
-	// finalizeScriptRunner.
-	scriptCancel(nil)
-	hbWG.Wait()
 
 	// Decide how to finalise the script-runner process. See finalizeScriptRunner
 	// for the full case analysis. We pass result.LastResult/LastExitCode only
