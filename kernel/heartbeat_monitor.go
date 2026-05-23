@@ -195,21 +195,18 @@ func (hm *HeartbeatMonitor) handleStalled(pid types.PID, proc *Process, stalledD
 		"action":            action,
 	}, nil, nil, 0)
 
+	// Story 45.2 (P4 daemon-passive supervision): case bodies emit warn signals
+	// only — destructive actions (Suspend(pid), CancelStep, SuspendReason write,
+	// delete(stalledProcs)) are intentionally removed. The daemon no longer
+	// adjudicates whether an LLM call is "really" hung; driver error
+	// propagation, skill business flow, and explicit user K own that decision.
+	// Case labels + emit ProcessStalled (with action field for dashboard /
+	// 45.5 stall-intensity heatmap) are preserved.
 	switch action {
 	case "suspend":
-		log.Printf("[heartbeat] pid=%d stalled %d times, suspending (heartbeat_timeout)", pid, consecutiveStalls)
-		proc.mu.Lock()
-		proc.SuspendReason = "heartbeat_timeout"
-		proc.mu.Unlock()
-		if err := hm.kernel.Suspend(pid); err != nil {
-			log.Printf("[heartbeat] pid=%d suspend failed: %v", pid, err)
-		}
-		hm.mu.Lock()
-		delete(hm.stalledProcs, pid)
-		hm.mu.Unlock()
+		log.Printf("[heartbeat] pid=%d stalled %d times, would suspend (passive mode, no action)", pid, consecutiveStalls)
 	case "cancel_step":
-		log.Printf("[heartbeat] pid=%d stalled %d times, cancelling step for retry", pid, consecutiveStalls)
-		proc.CancelStep()
+		log.Printf("[heartbeat] pid=%d stalled %d times, would cancel step (passive mode, no action)", pid, consecutiveStalls)
 		hm.mu.Lock()
 		record.LastActionAt = time.Now()
 		hm.mu.Unlock()

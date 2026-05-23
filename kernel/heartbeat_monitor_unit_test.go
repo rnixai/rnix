@@ -150,6 +150,12 @@ func TestHeartbeatMonitor_Level1WarnOnly(t *testing.T) {
 	}
 }
 
+// TestHeartbeatMonitor_Level3CancelStep
+//
+// Story 45.2: passive mode — CancelStep is NOT called, only warn event emitted.
+// Pre-impl behavior (CancelStep invoked at Level 3) was removed; the assertion
+// is inverted to defend the new contract. See AC5 / Task 5.1 + Decision D2
+// (in-place rewrite to preserve git blame trace to Story 30.5 / 30.6 / 43.1).
 func TestHeartbeatMonitor_Level3CancelStep(t *testing.T) {
 	k := newHeartbeatTestKernel(t)
 	proc := NewProcess(0, "test-level3", nil)
@@ -160,7 +166,7 @@ func TestHeartbeatMonitor_Level3CancelStep(t *testing.T) {
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
-	// Set a step cancel to verify it gets called at Level 3
+	// Set a step cancel to verify it does NOT get called at Level 3 (Story 45.2).
 	var cancelCalled bool
 	var mu sync.Mutex
 	proc.SetStepCancel(func() {
@@ -186,11 +192,34 @@ func TestHeartbeatMonitor_Level3CancelStep(t *testing.T) {
 	mu.Lock()
 	called := cancelCalled
 	mu.Unlock()
-	if !called {
-		t.Error("expected CancelStep to be called at Level 3")
+	if called {
+		t.Error("Story 45.2: passive mode — CancelStep MUST NOT be called at Level 3")
+	}
+
+	// Story 45.2: stallRecord must persist (not deleted), accumulate ConsecutiveStalls,
+	// and update LastActionAt so dashboard renders "last warned at" timestamps.
+	hm.mu.Lock()
+	record, exists := hm.stalledProcs[proc.PID]
+	hm.mu.Unlock()
+	if !exists {
+		t.Fatal("Story 45.2: stallRecord MUST persist after Level 3 scan (passive mode keeps tracking)")
+	}
+	if record.ConsecutiveStalls != 3 {
+		t.Errorf("Story 45.2: ConsecutiveStalls = %d, want 3 (2 pre-seed + 1 this scan)", record.ConsecutiveStalls)
+	}
+	if record.LastActionAt.IsZero() {
+		t.Error("Story 45.2: LastActionAt MUST be set after Level 3 scan (kept for dashboard 'last warned' timestamp)")
 	}
 }
 
+// TestHeartbeatMonitor_Level4Suspend
+//
+// Story 45.2: passive mode — process MUST remain StateRunning after Level 4,
+// SuspendReason MUST NOT be written, stallRecord MUST persist for continued
+// tracking. Pre-impl behavior (Suspend(pid) + delete(stalledProcs)) was
+// removed; the assertions are inverted to defend the new contract. See AC5 /
+// Task 5.2 + Decision D2 (in-place rewrite to preserve git blame trace to
+// Story 30.5 / 30.6 / 43.1).
 func TestHeartbeatMonitor_Level4Suspend(t *testing.T) {
 	k := newHeartbeatTestKernel(t)
 	proc := NewProcess(0, "test-level4", nil)
@@ -201,10 +230,9 @@ func TestHeartbeatMonitor_Level4Suspend(t *testing.T) {
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
-	// Start the process goroutine so Suspend can wait on wg
-	proc.wg.Go(func() {
-		<-proc.ctx.Done()
-	})
+	// Story 45.2: passive mode no longer invokes Suspend(pid), so the goroutine
+	// setup `proc.wg.Go(func() { <-proc.ctx.Done() })` is no longer needed and
+	// is intentionally omitted (would leak past t.Cleanup boundary).
 
 	hm := NewHeartbeatMonitor(k, 50*time.Millisecond)
 
@@ -222,16 +250,24 @@ func TestHeartbeatMonitor_Level4Suspend(t *testing.T) {
 	hm.scan()
 
 	state := proc.GetState()
-	if state != types.StateSuspended {
-		t.Errorf("expected StateSuspended after Level 4, got %s", state)
+	if state != types.StateRunning {
+		t.Errorf("Story 45.2: passive mode — process MUST remain StateRunning after Level 4, got %s", state)
 	}
 
-	// Verify removed from stalledProcs
+	// Story 45.2: stallRecord MUST persist (passive mode no longer deletes).
 	hm.mu.Lock()
-	_, exists := hm.stalledProcs[proc.PID]
+	record, exists := hm.stalledProcs[proc.PID]
 	hm.mu.Unlock()
-	if exists {
-		t.Error("expected stall record to be removed after suspend")
+	if !exists {
+		t.Fatal("Story 45.2: passive mode — stall record MUST persist after Level 4 for continued tracking")
+	}
+	if record.ConsecutiveStalls != 4 {
+		t.Errorf("Story 45.2: ConsecutiveStalls = %d, want 4 (3 pre-seed + 1 this scan)", record.ConsecutiveStalls)
+	}
+
+	// Story 45.2: SuspendReason MUST NOT be written by HeartbeatMonitor.
+	if reason := proc.GetSuspendReason(); reason != "" {
+		t.Errorf("Story 45.2: SuspendReason MUST remain empty (was %q) — daemon no longer writes \"heartbeat_timeout\"", reason)
 	}
 }
 
