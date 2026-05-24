@@ -16,17 +16,29 @@ import (
 
 // mockLLMFile is a minimal VFS file mock for resume IPC tests.
 //
-// By default Read returns readData immediately (the resumed process completes
-// in one step). Tests that need the resumed process to stay Running during an
-// assertion window install a handshake gate via parkOnRead: Read signals
-// reachedCh once it is entered (the process is now past proc.Start() and thus
-// Running) and then blocks until gateCh is closed.
+// By default Read returns readData immediately and Write returns nil (the
+// resumed process completes in one step). Tests that need the process to stay
+// Running during an assertion window install a handshake gate via parkOnRead
+// (for the Read leg) or parkOnWrite (for the Write leg). The gated leg signals
+// reachedCh once it is entered (the process is past proc.Start() and thus
+// Running) and then blocks until either gateCh is closed (graceful release) or
+// ctx is cancelled (Story 44.5 — simulates driver behaviour under
+// proc.Cancel() so the suspend-during-LLM-Write race can be exercised).
 type mockLLMFile struct {
-	mu        sync.Mutex
-	readData  []byte
-	reachedCh chan struct{} // closed once when Read is first entered (optional)
-	gateCh    chan struct{} // Read blocks until this is closed (optional)
-	reached   bool
+	mu sync.Mutex
+
+	readData       []byte
+	reachedCh      chan struct{} // closed once when Read is first entered (optional)
+	gateCh         chan struct{} // Read blocks until this is closed (optional)
+	reached        bool
+
+	// Story 44.5 AC4 — symmetric Write gate. Parallel to readReachedCh /
+	// gateCh / reached above. ctx.Done branch is the load-bearing piece: it
+	// lets SIGPAUSE → proc.Cancel() unblock Write the same way a real driver
+	// would, returning context.Canceled so reason.go's err path is exercised.
+	writeReachedCh chan struct{}
+	writeGateCh    chan struct{}
+	writeReached   bool
 }
 
 // parkOnRead installs the handshake gate. The returned reached channel is
@@ -44,7 +56,42 @@ func (f *mockLLMFile) parkOnRead() (reached <-chan struct{}, release chan<- stru
 	return reachedCh, gateCh
 }
 
-func (f *mockLLMFile) Write(_ gocontext.Context, _ []byte) error { return nil }
+// parkOnWrite installs the Write-side handshake gate (Story 44.5 AC4). The
+// returned reached channel is closed when the process enters Write
+// (guaranteeing it is Running and the Write syscall is in progress); closing
+// the returned release channel lets Write return nil, OR a cancelled ctx will
+// make Write return ctx.Err() — whichever happens first. The ctx.Err() branch
+// is the production-equivalent path that drives the suspend-during-LLM-Write
+// scenario exercised by atdd_44_5_suspend_during_llm_write_test.go.
+func (f *mockLLMFile) parkOnWrite() (reached <-chan struct{}, release chan<- struct{}) {
+	reachedCh := make(chan struct{})
+	gateCh := make(chan struct{})
+	f.mu.Lock()
+	f.writeReachedCh = reachedCh
+	f.writeGateCh = gateCh
+	f.writeReached = false
+	f.mu.Unlock()
+	return reachedCh, gateCh
+}
+
+func (f *mockLLMFile) Write(ctx gocontext.Context, _ []byte) error {
+	f.mu.Lock()
+	gateCh := f.writeGateCh
+	if f.writeReachedCh != nil && !f.writeReached {
+		f.writeReached = true
+		close(f.writeReachedCh)
+	}
+	f.mu.Unlock()
+	if gateCh != nil {
+		select {
+		case <-gateCh:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
 func (f *mockLLMFile) Read(_ int) ([]byte, error) {
 	f.mu.Lock()
 	data := f.readData
