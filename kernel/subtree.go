@@ -274,6 +274,19 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 	}
 	proc.SetSuspendReason("")
 
+	// Story 44.5 v2 — close the pausedAt → pausedTotal accounting cycle that
+	// suspendProcess opened. Mirror of SoftPause Resume() (kernel/process.go:754).
+	// Epic 44.1's HardSuspend rewrite did not migrate this accumulation, so
+	// Dashboard tree render.go's `(PausedTotal subtract)` branch never had a
+	// non-zero PausedTotal to subtract and elapsed-time kept advancing with
+	// wall clock during the Suspended interval.
+	proc.mu.Lock()
+	if !proc.pausedAt.IsZero() {
+		proc.pausedTotal += time.Since(proc.pausedAt)
+		proc.pausedAt = time.Time{}
+	}
+	proc.mu.Unlock()
+
 	// Story 44.5 AC8 — drain any stale ExitSuspended event left in proc.Done
 	// by notifySuspendDone during the previous Suspend cycle. proc.Done is
 	// cap=1 with non-blocking sends (see kernel/process.go:242 + select-default

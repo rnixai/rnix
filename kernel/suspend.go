@@ -45,6 +45,17 @@ func (k *KernelImpl) suspendProcess(proc *Process, reason string, exitCode int) 
 		return NewSyscallError("Suspend", proc.PID, "", err, types.ErrInternal)
 	}
 
+	// Story 44.5 v2 — record the suspend wall-clock anchor so dashboard
+	// elapsed-time rendering can freeze at PausedAt instead of advancing with
+	// wall clock. Mirror of SoftPause Pause() (kernel/process.go:735) which
+	// was the SoftPause field maintainer; Epic 44.1's HardSuspend rewrite
+	// switched the SIGPAUSE entry from Pause() to Suspend() but did NOT
+	// migrate the pausedAt write — leaving Dashboard tree render.go's
+	// `IsPaused && !PausedAt.IsZero()` freeze branch unreachable.
+	proc.mu.Lock()
+	proc.pausedAt = time.Now()
+	proc.mu.Unlock()
+
 	// Emit suspend event
 	k.emitEvent(proc, "Suspend", map[string]any{
 		"pid":    proc.PID,

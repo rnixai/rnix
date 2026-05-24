@@ -302,3 +302,111 @@ func TestATDD_44_5_022_ResumeOneForSubtree_DrainsStaleDone(t *testing.T) {
 		t.Fatal("SpawnAndWait did not return within 3s — drain may have failed")
 	}
 }
+
+// TestATDD_44_5_023_PausedAt_Frozen_PausedTotal_Accumulates
+//
+// Epic 44.1 SoftPause→HardSuspend 重构遗漏 — suspendProcess 未维护 pausedAt，
+// resumeOneForSubtree 未累加 pausedTotal，导致 dashboard 在 state=Suspended 期间
+// 仍按 wall clock 增长显示 elapsed time（用户报告"按 p 后时间还在增长"）。
+//
+// v2 修复后断言：
+//   - Suspend 时 GetProcInfo().IsPaused == true（不只看 resumeCh，也认 Suspended state）
+//   - Suspend 时 GetProcInfo().PausedAt != zero（dashboard freeze 分支前置条件）
+//   - Resume 后 GetProcInfo().PausedTotal > 0（累加了 Suspended 期间的时间）
+//   - Resume 后 IsPaused == false, PausedAt == zero（清理干净）
+func TestATDD_44_5_023_PausedAt_Frozen_PausedTotal_Accumulates(t *testing.T) {
+	_, kern, _, llmFile := setupResumeIPCTest(t)
+
+	reached, release := llmFile.parkOnWrite()
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+
+	spawner := &ipcKernelSpawner{kernel: kern, parentPID: 0}
+
+	resultCh := make(chan spawnAndWaitResult, 1)
+	go func() {
+		res, code, toks, err := spawner.SpawnAndWait(
+			gocontext.Background(), "atdd 44.5 — pausedAt/pausedTotal accounting", "", "")
+		resultCh <- spawnAndWaitResult{res, code, toks, err}
+	}()
+
+	select {
+	case <-reached:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("child did not enter LLM Write within 2s")
+	}
+
+	childPID := waitChildEnterRunning(t, kern, 0, 1*time.Second)
+
+	// Pre-suspend invariant: not paused, PausedAt zero, PausedTotal zero.
+	preInfo, err := kern.GetProcInfo(childPID)
+	if err != nil {
+		t.Fatalf("GetProcInfo pre-suspend: %v", err)
+	}
+	if preInfo.IsPaused {
+		t.Errorf("pre-suspend IsPaused = true, want false")
+	}
+	if !preInfo.PausedAt.IsZero() {
+		t.Errorf("pre-suspend PausedAt = %v, want zero", preInfo.PausedAt)
+	}
+
+	// Pause the child.
+	if _, err := kern.SignalTree(childPID, types.SIGPAUSE); err != nil {
+		t.Fatalf("SignalTree(SIGPAUSE): %v", err)
+	}
+	childProc, _ := kern.GetProcess(childPID)
+	waitState(t, childProc, types.StateSuspended, 500*time.Millisecond)
+
+	// Mid-suspend invariant: IsPaused == true, PausedAt set.
+	midInfo, err := kern.GetProcInfo(childPID)
+	if err != nil {
+		t.Fatalf("GetProcInfo mid-suspend: %v", err)
+	}
+	if !midInfo.IsPaused {
+		t.Error("mid-suspend IsPaused = false, want true " +
+			"(Epic 44.1 missed: HardSuspend needs to surface as IsPaused for dashboard freeze branch)")
+	}
+	if midInfo.PausedAt.IsZero() {
+		t.Error("mid-suspend PausedAt = zero, want non-zero " +
+			"(suspendProcess must record the suspend wall-clock anchor)")
+	}
+
+	// Hold the suspended state for ~100ms so PausedTotal has a measurable delta.
+	suspendDuration := 100 * time.Millisecond
+	time.Sleep(suspendDuration)
+
+	// Resume.
+	if _, _, err := kern.ResumeSubtree(childPID); err != nil {
+		t.Fatalf("ResumeSubtree: %v", err)
+	}
+
+	// Post-resume invariant: IsPaused cleared, PausedAt zero, PausedTotal accumulated.
+	postInfo, err := kern.GetProcInfo(childPID)
+	if err != nil {
+		t.Fatalf("GetProcInfo post-resume: %v", err)
+	}
+	if postInfo.IsPaused {
+		t.Error("post-resume IsPaused = true, want false (resumeOneForSubtree must clear)")
+	}
+	if !postInfo.PausedAt.IsZero() {
+		t.Errorf("post-resume PausedAt = %v, want zero", postInfo.PausedAt)
+	}
+	if postInfo.PausedTotal < suspendDuration {
+		t.Errorf("post-resume PausedTotal = %v, want >= %v "+
+			"(resumeOneForSubtree must accumulate the suspended-interval)",
+			postInfo.PausedTotal, suspendDuration)
+	}
+
+	// Cleanup: let the child complete so the test does not leak.
+	close(release)
+	released = true
+	select {
+	case <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SpawnAndWait did not return within 2s")
+	}
+}
