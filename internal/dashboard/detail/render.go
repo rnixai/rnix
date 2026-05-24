@@ -155,8 +155,12 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 	// but no longer drives cancel_step / suspend automatically. This
 	// section surfaces stall intensity in the Detail pane so the user can
 	// decide whether to press K to intervene. Section is omitted when the
-	// selected process is not in HeartbeatStatus.CurrentStalled.
-	renderStallSection(&b, ctx.SelectedPID, ctx.SelectedUUID, ctx.HeartbeatStatus, innerW)
+	// selected process is not in HeartbeatStatus.CurrentStalled OR when the
+	// process is no longer Running (cleanupIfTracked may lag one tick when
+	// the daemon reaps a process between heartbeat snapshots).
+	if d.State == "running" {
+		renderStallSection(&b, ctx.SelectedPID, ctx.SelectedUUID, ctx.HeartbeatStatus, innerW)
+	}
 
 	// Section 6: Resume Lineage (Story 42.3)
 	// Only render when the process is the result of a resume/fork OR has fork
@@ -263,10 +267,30 @@ func renderStallSection(b *strings.Builder, selectedPID types.PID, selectedUUID 
 		return
 	}
 
+	// Defensive lower-bound clamp: matcher arrived here because the wire
+	// was in CurrentStalled, but a daemon producer race could ship a wire
+	// with ConsecutiveStalls == 0 (record was just reset on recovery). The
+	// UI scale starts at 1, so 0 / negative means "not really stalled" —
+	// skip rendering the section rather than emit "level 0/4" + empty bar.
+	if match.ConsecutiveStalls < 1 {
+		return
+	}
+
 	// Clamp ConsecutiveStalls into the 4-level scale (Decision D5): daemon
 	// accumulates ConsecutiveStalls without an upper bound (Story 45.2 D3),
 	// but the UI scale tops out at 4 = "would suspend".
 	levelN := min(match.ConsecutiveStalls, 4)
+
+	// UUID is the unique, immutable identifier (matcher key above); the PID
+	// shown in the summary is purely a label for the user's reference and
+	// must stay in sync with the Detail header (selectedPID), not the wire's
+	// match.PID. In rare PID-reuse + snapshot-skew scenarios the two would
+	// otherwise disagree, producing a confusing "header says 42, stall says
+	// 99" Detail card.
+	action := match.LastAction
+	if action == "" {
+		action = "warn"
+	}
 
 	stalledDur := time.Duration(match.StalledDurationMs) * time.Millisecond
 	gap := time.Duration(match.HeartbeatGapMs) * time.Millisecond
@@ -280,8 +304,8 @@ func renderStallSection(b *strings.Builder, selectedPID types.PID, selectedUUID 
 	// time.Duration.String() produces "3m5s" / "4m0s" form which surfaces
 	// both the minute and the residual seconds — denser signal than
 	// ui.FormatDuration's "%.1fm" for stall durations near the minute mark.
-	fmt.Fprintf(b, "    PID %d · level %d/4\n", match.PID, levelN)
-	fmt.Fprintf(b, "    would %s\n", match.LastAction)
+	fmt.Fprintf(b, "    PID %d · level %d/4\n", selectedPID, levelN)
+	fmt.Fprintf(b, "    would %s\n", action)
 	fmt.Fprintf(b, "    idle %s · gap %s\n", stalledDur.String(), gap.String())
 
 	// Intensity bar (Decision D2): fill ratio uses min(ConsecutiveStalls, 4) / 4

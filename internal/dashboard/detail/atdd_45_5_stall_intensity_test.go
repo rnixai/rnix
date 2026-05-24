@@ -34,6 +34,7 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 )
 
@@ -96,10 +97,13 @@ func stallHeartbeat(wires ...ipc.StalledProcWire) *ipc.HeartbeatStatusResponse {
 // measure lines that belong to the new section. Returns empty string when
 // no Stall section is present.
 //
-// The header line itself ends with "----" / "────" (the divider closing
-// dashes). Naïvely searching from `len(marker)` would terminate the
-// section on those dashes, so we first advance past the header's newline
-// before scanning for the next divider.
+// Boundary scan is LINE-BASED: we look for the next line whose leading
+// whitespace is followed by a divider sequence ("  ----" / "  ────").
+// A substring search over the body would be unsafe because the intensity
+// bar's unfilled portion (`barWidth - filled` repeats of '-' in ASCII
+// mode) can include a 4+ '-' run that collides with the divider pattern,
+// truncating the section mid-bar and silently weakening downstream
+// assertions like width checks.
 func stallSection(out string) string {
 	const marker = "Stall"
 	idx := strings.Index(out, marker)
@@ -113,11 +117,25 @@ func stallSection(out string) string {
 	}
 	bodyStart := nl + 1
 	body := rest[bodyStart:]
-	if next := strings.Index(body, "────"); next >= 0 {
-		return rest[:bodyStart+next]
-	}
-	if next := strings.Index(body, "----"); next >= 0 {
-		return rest[:bodyStart+next]
+	// Scan body line by line; a divider always starts a line (after the
+	// two-space indent), so leading-whitespace check rules out the bar.
+	offset := 0
+	for {
+		lineEnd := strings.Index(body[offset:], "\n")
+		var line string
+		if lineEnd < 0 {
+			line = body[offset:]
+		} else {
+			line = body[offset : offset+lineEnd]
+		}
+		trimmed := strings.TrimLeft(line, " ")
+		if strings.HasPrefix(trimmed, "────") || strings.HasPrefix(trimmed, "----") {
+			return rest[:bodyStart+offset]
+		}
+		if lineEnd < 0 {
+			break
+		}
+		offset += lineEnd + 1
 	}
 	return rest
 }
@@ -126,8 +144,8 @@ func stallSection(out string) string {
 
 // TestATDD_45_5_001_RenderStallSummary_Level3 asserts the header + summary
 // line content for a level-3 stall: idle / gap durations are formatted via
-// ui.FormatDuration; `level N/4` uses min(ConsecutiveStalls,4); action is
-// prefixed with "would ".
+// time.Duration.String() ("3m5s" form); `level N/4` uses min(ConsecutiveStalls,4);
+// action is prefixed with "would ".
 func TestATDD_45_5_001_RenderStallSummary_Level3(t *testing.T) {
 	pid := types.PID(42)
 	uuid := "abc12345-xxxx"
@@ -143,7 +161,7 @@ func TestATDD_45_5_001_RenderStallSummary_Level3(t *testing.T) {
 	cases := []string{
 		"Stall",            // section header
 		"PID 42",           // selected PID in summary
-		"3m5s",             // 185000ms via ui.FormatDuration
+		"3m5s",             // 185000ms via time.Duration.String()
 		"level 3/4",        // ConsecutiveStalls=3 → "3/4"
 		"would cancel_step", // LastAction prefixed with "would "
 	}
@@ -171,9 +189,12 @@ func TestATDD_45_5_001_RenderStallSummary_Level3(t *testing.T) {
 // where barWidth = max(innerW-10, 10) and innerW = 80 here. The suffix
 // N/4 must use min(level, 4). ConsecutiveStalls=7 is the clamp probe.
 //
-// Color assertion is a loose ANSI-escape presence check (matches the
-// established internal/ui/*_test.go pattern) — guarantees the renderer
-// emits styled output without depending on a specific RGB hex.
+// Per-level color gradient assertion (Decision D3): levelN < 3 → ColorWarning
+// only; levelN == 3 → ColorWarning + Bold (transition stage); levelN >= 4 →
+// ColorError. We probe by rendering the same filled glyph through the
+// expected lipgloss style and checking the resulting ANSI-wrapped substring
+// is present in the stall section. This guards D3 against regressions that
+// would swap colors or drop the Bold transition.
 func TestATDD_45_5_002_IntensityBarFillRatio_ConsecutiveStalls(t *testing.T) {
 	pid := types.PID(42)
 	uuid := "abc12345-xxxx"
@@ -184,12 +205,15 @@ func TestATDD_45_5_002_IntensityBarFillRatio_ConsecutiveStalls(t *testing.T) {
 		stalls       int
 		wantSuffixN  int // N/4 suffix value
 		wantClampLvl int // value used in fill-ratio calc (post-clamp)
+		wantColor    string
+		wantBold     bool
+		forbidColor  string // a color that must NOT appear at this level
 	}{
-		{stalls: 1, wantSuffixN: 1, wantClampLvl: 1},
-		{stalls: 2, wantSuffixN: 2, wantClampLvl: 2},
-		{stalls: 3, wantSuffixN: 3, wantClampLvl: 3},
-		{stalls: 4, wantSuffixN: 4, wantClampLvl: 4},
-		{stalls: 7, wantSuffixN: 4, wantClampLvl: 4}, // clamp probe
+		{stalls: 1, wantSuffixN: 1, wantClampLvl: 1, wantColor: ui.ColorWarning, wantBold: false, forbidColor: ui.ColorError},
+		{stalls: 2, wantSuffixN: 2, wantClampLvl: 2, wantColor: ui.ColorWarning, wantBold: false, forbidColor: ui.ColorError},
+		{stalls: 3, wantSuffixN: 3, wantClampLvl: 3, wantColor: ui.ColorWarning, wantBold: true, forbidColor: ui.ColorError},
+		{stalls: 4, wantSuffixN: 4, wantClampLvl: 4, wantColor: ui.ColorError, wantBold: false, forbidColor: ui.ColorWarning},
+		{stalls: 7, wantSuffixN: 4, wantClampLvl: 4, wantColor: ui.ColorError, wantBold: false, forbidColor: ui.ColorWarning}, // clamp probe
 	}
 
 	for _, tc := range cases {
@@ -222,13 +246,64 @@ func TestATDD_45_5_002_IntensityBarFillRatio_ConsecutiveStalls(t *testing.T) {
 				tc.stalls, expected, filled, clean)
 		}
 
-		// Loose ANSI escape presence — assert renderer emits styled output.
-		// Pre-impl this fails because no Stall section is emitted at all.
-		if !strings.Contains(out, "\x1b[") {
-			t.Errorf("stalls=%d: expected ANSI color escape in stall section output, got plain text:\n%s",
-				tc.stalls, out)
+		// Per-level color gradient (D3 guard). Build the ANSI-open prefix
+		// (escape + glyph, without closing reset) that the renderer emits
+		// when wrapping the entire filled run, and assert it is present.
+		// We can't match the full `style.Render("█")` because that string
+		// ends in a reset escape, while production wraps N consecutive '█'
+		// in a single open/close pair — the closing reset comes after the
+		// run, not after each glyph.
+		wantStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(tc.wantColor))
+		if tc.wantBold {
+			wantStyle = wantStyle.Bold(true)
+		}
+		if !strings.Contains(out, styledOpenPrefix(wantStyle, "█")) {
+			t.Errorf("stalls=%d: expected %s%s styled fill glyph in output; got:\n%s",
+				tc.stalls, tc.wantColor, boldLabel(tc.wantBold), out)
+		}
+
+		// The wrong palette color must NOT appear at this level.
+		forbidStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(tc.forbidColor))
+		if strings.Contains(out, styledOpenPrefix(forbidStyle, "█")) {
+			t.Errorf("stalls=%d: must NOT contain %s styled fill glyph; got:\n%s",
+				tc.stalls, tc.forbidColor, out)
+		}
+
+		// Bold-only differentiator at level 3: when Bold is expected the
+		// non-bold ColorWarning prefix must NOT be the one emitted; when
+		// Bold is NOT expected the Bold ColorWarning prefix must NOT appear.
+		// Rules out the regression where the Bold transition silently drops.
+		if tc.wantColor == ui.ColorWarning {
+			plainPrefix := styledOpenPrefix(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)), "█")
+			boldPrefix := styledOpenPrefix(lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true), "█")
+			if tc.wantBold && !strings.Contains(out, boldPrefix) {
+				t.Errorf("stalls=%d: expected Bold ColorWarning glyph at level 3 transition; output missing bold escape", tc.stalls)
+			}
+			if !tc.wantBold && plainPrefix != boldPrefix && strings.Contains(out, boldPrefix) {
+				t.Errorf("stalls=%d: must NOT emit Bold style below level 3; got bold warning glyph", tc.stalls)
+			}
 		}
 	}
+}
+
+func boldLabel(bold bool) string {
+	if bold {
+		return "+Bold"
+	}
+	return ""
+}
+
+// styledOpenPrefix returns the ANSI open-escape + glyph portion of a
+// lipgloss render — i.e. everything before the trailing reset. Used to
+// substring-match into production output where N consecutive glyphs are
+// wrapped in a single open/close pair (e.g. "\x1b[33m█████\x1b[0m").
+func styledOpenPrefix(style lipgloss.Style, glyph string) string {
+	rendered := style.Render(glyph)
+	idx := strings.Index(rendered, glyph)
+	if idx < 0 {
+		return glyph
+	}
+	return rendered[:idx+len(glyph)]
 }
 
 // --- AC2 (#003): RNIX_ASCII=1 fallback ---
@@ -280,10 +355,16 @@ func TestATDD_45_5_003_IntensityBar_ASCIIMode(t *testing.T) {
 
 // --- AC3 (#004): skip-if-empty / no stall section ---
 
-// TestATDD_45_5_004_NoStallSection_WhenNotStalled covers 3 skip paths:
+// TestATDD_45_5_004_NoStallSection_WhenNotStalled covers 4 skip paths:
 //  1. HeartbeatStatus == nil
 //  2. CurrentStalled empty slice
-//  3. CurrentStalled holds different PID
+//  3. UUID mismatch (selectedUUID non-empty branch — stale-data guard)
+//  4. PID mismatch (selectedUUID empty branch — true PID-fallback skip)
+//
+// Subcase 4 was missing before review (the previous "PID mismatch" actually
+// exercised the UUID branch because selectedUUID was non-empty). It now
+// explicitly drives the PID-fallback matcher and asserts skip on PID
+// disagreement.
 //
 // Note: pre-impl this trivially passes (no stall code emits anything). The
 // test's role is regression-guard once renderStallSection lands — it must
@@ -291,40 +372,50 @@ func TestATDD_45_5_003_IntensityBar_ASCIIMode(t *testing.T) {
 func TestATDD_45_5_004_NoStallSection_WhenNotStalled(t *testing.T) {
 	pid := types.PID(42)
 	uuid := "abc12345-xxxx"
-	state := stallTestState(pid, uuid)
 
 	subcases := []struct {
-		name string
-		hb   *ipc.HeartbeatStatusResponse
+		name         string
+		selectedUUID string
+		hb           *ipc.HeartbeatStatusResponse
 	}{
 		{
-			name: "HeartbeatStatus is nil",
-			hb:   nil,
+			name:         "HeartbeatStatus is nil",
+			selectedUUID: uuid,
+			hb:           nil,
 		},
 		{
-			name: "CurrentStalled is empty",
-			hb:   &ipc.HeartbeatStatusResponse{Running: true, CurrentStalled: nil},
+			name:         "CurrentStalled is empty",
+			selectedUUID: uuid,
+			hb:           &ipc.HeartbeatStatusResponse{Running: true, CurrentStalled: nil},
 		},
 		{
-			name: "PID mismatch (stalled PID 99, selected PID 42)",
-			hb:   stallHeartbeat(stalledFixture(types.PID(99), "other-uuid")),
+			name:         "UUID mismatch (selectedUUID set, wire UUID different)",
+			selectedUUID: uuid,
+			hb:           stallHeartbeat(stalledFixture(pid, "other-uuid")),
+		},
+		{
+			name:         "PID fallback PID mismatch (selectedUUID empty, wire PID=99)",
+			selectedUUID: "",
+			hb:           stallHeartbeat(stalledFixture(types.PID(99), "irrelevant-uuid")),
 		},
 	}
 
 	for _, sc := range subcases {
 		t.Run(sc.name, func(t *testing.T) {
+			state := stallTestState(pid, sc.selectedUUID)
 			ctx := RenderContext{
 				SelectedPID:     pid,
-				SelectedUUID:    uuid,
+				SelectedUUID:    sc.selectedUUID,
 				HeartbeatStatus: sc.hb,
 			}
 			out := Render(state, ctx, 80)
 
-			forbidden := []string{"Stall", "level", "would"}
-			for _, bad := range forbidden {
-				if strings.Contains(out, bad) {
-					t.Errorf("%s: must NOT contain %q; got:\n%s", sc.name, bad, out)
-				}
+			// Only check for the Stall section header — the most specific
+			// substring. The previous `level` / `would` forbids were too
+			// generic and would false-positive against any future Detail
+			// section that legitimately contains those English words.
+			if strings.Contains(out, "Stall") {
+				t.Errorf("%s: must NOT contain Stall section header; got:\n%s", sc.name, out)
 			}
 		})
 	}
@@ -378,48 +469,64 @@ func TestATDD_45_5_005_UUIDMismatchSkipsStallSection(t *testing.T) {
 // TestATDD_45_5_007_StallSectionFitsInnerW asserts every emitted stall
 // section line satisfies lipgloss.Width(line) <= innerW for 4 widths.
 //
-// Uses ASCII mode to keep the assertion deterministic (no ANSI escapes
-// to confuse lipgloss.Width on some terminal profiles) — the width
-// contract is independent of color profile, so testing under ASCII is
-// sufficient. Color path is covered by 002.
+// Runs across BOTH render paths:
+//   - ASCII mode (RNIX_ASCII=1): bar uses '#'/'-' glyphs, no ANSI escapes;
+//     visibleWidth = rune-count after stripping any incidental escapes.
+//   - Unicode + colored mode: bar uses '█'/'░' glyphs wrapped in lipgloss
+//     foreground styles; width must be computed via lipgloss.Width which
+//     accounts for ANSI escape bytes and runewidth correctly (the spec
+//     line 180 explicitly requires lipgloss.Width).
 func TestATDD_45_5_007_StallSectionFitsInnerW(t *testing.T) {
-	t.Setenv("RNIX_ASCII", "1")
-
 	pid := types.PID(42)
 	uuid := "abc12345-xxxx"
 	wire := stalledFixture(pid, uuid)
 	wire.ConsecutiveStalls = 4 // worst case — bar fully filled
 
-	for _, innerW := range []int{40, 60, 80, 120} {
-		t.Run("innerW="+itoaSmall(innerW), func(t *testing.T) {
-			state := stallTestState(pid, uuid)
-			ctx := RenderContext{
-				SelectedPID:     pid,
-				SelectedUUID:    uuid,
-				HeartbeatStatus: stallHeartbeat(wire),
-			}
-			out := Render(state, ctx, innerW)
+	modes := []struct {
+		name       string
+		asciiOn    bool
+		widthOfFn  func(string) int
+	}{
+		{name: "ascii", asciiOn: true, widthOfFn: visibleWidth},
+		{name: "unicode-colored", asciiOn: false, widthOfFn: lipgloss.Width},
+	}
 
-			// Sanity: stall section must be present so we are actually
-			// exercising the width constraint (not vacuously passing).
-			if !strings.Contains(out, "Stall") {
-				t.Fatalf("innerW=%d: expected Stall section in output:\n%s", innerW, out)
-			}
+	for _, mode := range modes {
+		for _, innerW := range []int{40, 60, 80, 120} {
+			t.Run(mode.name+"/innerW="+itoaSmall(innerW), func(t *testing.T) {
+				if mode.asciiOn {
+					t.Setenv("RNIX_ASCII", "1")
+				}
 
-			section := stallSection(out)
-			if section == "" {
-				t.Fatalf("innerW=%d: could not isolate stall section from:\n%s", innerW, out)
-			}
-			for line := range strings.SplitSeq(section, "\n") {
-				if line == "" {
-					continue
+				state := stallTestState(pid, uuid)
+				ctx := RenderContext{
+					SelectedPID:     pid,
+					SelectedUUID:    uuid,
+					HeartbeatStatus: stallHeartbeat(wire),
 				}
-				if w := visibleWidth(line); w > innerW {
-					t.Errorf("innerW=%d: stall line width %d > innerW; line=%q",
-						innerW, w, line)
+				out := Render(state, ctx, innerW)
+
+				// Sanity: stall section must be present so we are actually
+				// exercising the width constraint (not vacuously passing).
+				if !strings.Contains(out, "Stall") {
+					t.Fatalf("mode=%s innerW=%d: expected Stall section in output:\n%s", mode.name, innerW, out)
 				}
-			}
-		})
+
+				section := stallSection(out)
+				if section == "" {
+					t.Fatalf("mode=%s innerW=%d: could not isolate stall section from:\n%s", mode.name, innerW, out)
+				}
+				for line := range strings.SplitSeq(section, "\n") {
+					if line == "" {
+						continue
+					}
+					if w := mode.widthOfFn(line); w > innerW {
+						t.Errorf("mode=%s innerW=%d: stall line width %d > innerW; line=%q",
+							mode.name, innerW, w, line)
+					}
+				}
+			})
+		}
 	}
 }
 

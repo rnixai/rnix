@@ -73,7 +73,7 @@ func TestATDD_45_5_006_RenderDetailPaneWiresHeartbeat(t *testing.T) {
 		"PID 42",        // selected PID echoed in summary
 		"4/4",           // level suffix uses clamped value
 		"would suspend", // P4-framing prefix on LastAction
-		"4m0s",          // 240_000ms via ui.FormatDuration (idle / gap)
+		"4m0s",          // 240_000ms via time.Duration.String() (idle / gap)
 	}
 	for _, want := range wants {
 		if !strings.Contains(out, want) {
