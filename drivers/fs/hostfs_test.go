@@ -28,7 +28,7 @@ func TestFileFactory_ReadSuccess(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestFileFactory_PermissionDenied(t *testing.T) {
 	defer os.Chmod(path, 0o644) // cleanup
 
 	factory := FileFactory()
-	_, err := factory(path, vfs.O_RDONLY, "")
+	_, err := factory("/"+path, vfs.O_RDONLY, "")
 	if err == nil {
 		t.Fatal("expected error for permission-denied file, got nil")
 	}
@@ -94,7 +94,7 @@ func TestHostFSFile_Stat(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestHostFSFile_Write_ReadOnlyMode(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestHostFSFile_Close_DoubleClose(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestHostFSFile_Read_AfterClose(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestFileFactory_NestedPath(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	file, err := factory(filepath.Join(dir, "nested", "deep.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "nested", "deep.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open nested file failed: %v", err)
 	}
@@ -229,7 +229,8 @@ func TestFileFactory_DirectoryRejected(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	_, err := factory(dir, vfs.O_RDONLY, "")
+	// "/"+dir = "//<abs>" — VFS double-slash escape for explicit host-absolute path.
+	_, err := factory("/"+dir, vfs.O_RDONLY, "")
 	if err == nil {
 		t.Fatal("expected error when opening a directory, got nil")
 	}
@@ -250,7 +251,7 @@ func TestHostFSFile_Read_PartialLength(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -282,7 +283,7 @@ func TestHostFSFile_Write_AfterClose(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -305,7 +306,7 @@ func TestHostFSFile_Write_ReturnsDriverError(t *testing.T) {
 	factory := FileFactory()
 
 	// Read-mode file should reject writes with DriverError.
-	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -329,7 +330,7 @@ func TestHostFSFile_Stat_AfterClose(t *testing.T) {
 	dir := testdataDir(t)
 	factory := FileFactory()
 
-	file, err := factory(filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
+	file, err := factory("/"+filepath.Join(dir, "sample.txt"), vfs.O_RDONLY, "")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -711,6 +712,33 @@ func TestHostFSDriver_ToolDefs(t *testing.T) {
 		if !found {
 			t.Fatalf("missing tool def: %q", name)
 		}
+	}
+}
+
+func TestResolvePath(t *testing.T) {
+	cases := []struct {
+		name    string
+		subpath string
+		workDir string
+		want    string
+	}{
+		{"relative subpath under workDir", "/.rnix/skills/x", "/proj/echo", "/proj/echo/.rnix/skills/x"},
+		{"simple relative under workDir", "/src/main.go", "/proj/echo", "/proj/echo/src/main.go"},
+		{"root subpath with workDir", "/", "/proj/echo", "/proj/echo"},
+		{"empty subpath with workDir", "", "/proj/echo", "/proj/echo"},
+		{"relative subpath without workDir does not become absolute", "/.rnix/skills/x", "", ".rnix/skills/x"},
+		{"root subpath without workDir falls back to CWD marker", "/", "", "."},
+		{"empty subpath without workDir falls back to CWD marker", "", "", "."},
+		{"absolute-looking input (double-slash escape) penetrates workDir", "//etc/passwd", "/proj/echo", "/etc/passwd"},
+		{"absolute-looking input without workDir still penetrates", "//etc/passwd", "", "/etc/passwd"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolvePath(tc.subpath, tc.workDir)
+			if got != tc.want {
+				t.Fatalf("resolvePath(%q, %q) = %q, want %q", tc.subpath, tc.workDir, got, tc.want)
+			}
+		})
 	}
 }
 

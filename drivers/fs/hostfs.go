@@ -918,17 +918,37 @@ func (f *HostFSFile) Stat() (vfs.FileStat, error) {
 }
 
 // resolvePath resolves a VFS subpath to a host filesystem path using workDir.
+//
+// A VFS subpath always carries a single leading "/" introduced by device-prefix
+// stripping (e.g. /dev/fs/foo → subpath "/foo"). That "/" is a VFS-layer artifact,
+// NOT a signal that the LLM asked for a host-absolute path — the list_dir / read_file
+// prompts require paths relative to the process working directory.
+//
+// When workDir is empty (e.g. spawn without ProjectConfig), the previous fallback
+// returned the subpath verbatim, which silently promoted ".rnix/x" → "/.rnix/x" and
+// caused os.Open to look at the filesystem root. The fix below treats the single
+// leading "/" as a VFS artifact and lets the relative path resolve against the
+// daemon's CWD when no workDir is registered.
+//
+// The IsAbs branch ("//abs/path" double-slash input) is preserved for backwards
+// compatibility with existing callers — it is NOT a new contract. checkSandbox()
+// (and the lack of sandbox enforcement when workDir is empty) governs whether
+// such a path is allowed; resolvePath only computes the host path.
 func resolvePath(subpath, workDir string) string {
 	trimmed := strings.TrimPrefix(subpath, "/")
-	if workDir != "" {
-		if trimmed == "" {
-			return workDir // subpath "/" → workDir root
+	if trimmed == "" {
+		if workDir != "" {
+			return workDir
 		}
-		if !filepath.IsAbs(trimmed) {
-			return filepath.Join(workDir, trimmed)
-		}
+		return "."
 	}
-	return subpath
+	if filepath.IsAbs(trimmed) {
+		return trimmed
+	}
+	if workDir != "" {
+		return filepath.Join(workDir, trimmed)
+	}
+	return trimmed
 }
 
 // FileFactory returns a VFSFileFactory that opens host filesystem files.
