@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -37,10 +39,15 @@ import (
 //     校验 · 防 stale data 跨 PID 切换 · Story 28-4 AC-4 contract）；
 //   - IsActive: 当前 pane 是否为 activePane（影响 border 颜色 · 由 wrapper 应用
 //     · Render() 本身不输出 border，只输出 inner content）。
+//   - HeartbeatStatus: render-time stall snapshot（Story 45.5 · 与
+//     heatmap.RenderContext 同模式 render-time 注入运行时数据 · nil 时
+//     renderStallSection skip · UUID-first / PID-fallback 匹配防止
+//     PID 复用后的 stale stall 残留）。
 type RenderContext struct {
-	SelectedPID  types.PID
-	SelectedUUID string
-	IsActive     bool
+	SelectedPID     types.PID
+	SelectedUUID    string
+	IsActive        bool
+	HeartbeatStatus *ipc.HeartbeatStatusResponse
 }
 
 // Render renders the Detail pane inner content (excluding outer border).
@@ -143,7 +150,15 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 		fmt.Fprintf(&b, "    [%s] %.0f%%\n", bar, pct)
 	}
 
-	// Section 5: Resume Lineage (Story 42.3)
+	// Section 5: Stall intensity heatmap (Story 45.5)
+	// P4 daemon-passive supervision: daemon emits ProcessStalled events
+	// but no longer drives cancel_step / suspend automatically. This
+	// section surfaces stall intensity in the Detail pane so the user can
+	// decide whether to press K to intervene. Section is omitted when the
+	// selected process is not in HeartbeatStatus.CurrentStalled.
+	renderStallSection(&b, ctx.SelectedPID, ctx.SelectedUUID, ctx.HeartbeatStatus, innerW)
+
+	// Section 6: Resume Lineage (Story 42.3)
 	// Only render when the process is the result of a resume/fork OR has fork
 	// descendants. Skipping the section for plain spawn processes keeps the
 	// Detail card noise-free.
@@ -206,6 +221,108 @@ func lookupDescendants(uuid string, cache map[string]*ipc.GetResumeLineageRespon
 		}
 	}
 	return out
+}
+
+// renderStallSection emits the Story 45.5 Stall intensity block when the
+// selected process appears in HeartbeatStatus.CurrentStalled. Borrows the
+// fade-to-red intensity concept from cc-src Spinner/useStalledAnimation.ts
+// (3s/2s thresholds → ConsecutiveStalls 4-level mapping aligned with daemon
+// escalation: warn (<3) / cancel_step (==3) / suspend (>=4)).
+//
+// Skip cases (same skip-if-empty pattern as renderLineageSection):
+//   - hb == nil
+//   - len(hb.CurrentStalled) == 0
+//   - selectedPID == 0
+//   - no matching wire (UUID-first when selectedUUID != "", else PID fallback)
+//
+// Under P4 daemon-passive supervision (Epic 45) daemon no longer auto-cancels
+// or auto-suspends — this section gives the user a direct visual signal so
+// they can decide whether to intervene (press K) themselves.
+func renderStallSection(b *strings.Builder, selectedPID types.PID, selectedUUID string, hb *ipc.HeartbeatStatusResponse, innerW int) {
+	if hb == nil || len(hb.CurrentStalled) == 0 || selectedPID == 0 {
+		return
+	}
+
+	// UUID-first matching prevents PID-reuse stale data leak (Story 28-4 AC-4
+	// equivalent guard). When the caller did not supply a UUID (backward-
+	// compatible fallback for older daemons), fall back to PID equality.
+	var match *ipc.StalledProcWire
+	for i := range hb.CurrentStalled {
+		sp := &hb.CurrentStalled[i]
+		if selectedUUID != "" {
+			if sp.UUID == selectedUUID {
+				match = sp
+				break
+			}
+		} else if sp.PID == selectedPID {
+			match = sp
+			break
+		}
+	}
+	if match == nil {
+		return
+	}
+
+	// Clamp ConsecutiveStalls into the 4-level scale (Decision D5): daemon
+	// accumulates ConsecutiveStalls without an upper bound (Story 45.2 D3),
+	// but the UI scale tops out at 4 = "would suspend".
+	levelN := min(match.ConsecutiveStalls, 4)
+
+	stalledDur := time.Duration(match.StalledDurationMs) * time.Millisecond
+	gap := time.Duration(match.HeartbeatGapMs) * time.Millisecond
+
+	b.WriteString(divider("Stall"))
+	b.WriteString("\n")
+	// Summary spans three short lines so the section fits inside narrow
+	// Detail panes (innerW 40 still common on split-screen layouts). Each
+	// field surfaces independently (PID/level/action/idle/gap), so the
+	// content-search assertions in AC1 work regardless of line wrapping.
+	// time.Duration.String() produces "3m5s" / "4m0s" form which surfaces
+	// both the minute and the residual seconds — denser signal than
+	// ui.FormatDuration's "%.1fm" for stall durations near the minute mark.
+	fmt.Fprintf(b, "    PID %d · level %d/4\n", match.PID, levelN)
+	fmt.Fprintf(b, "    would %s\n", match.LastAction)
+	fmt.Fprintf(b, "    idle %s · gap %s\n", stalledDur.String(), gap.String())
+
+	// Intensity bar (Decision D2): fill ratio uses min(ConsecutiveStalls, 4) / 4
+	// to align with the daemon's 4-level escalation mapping rather than the
+	// per-process StepTimeout (which varies and would break cross-process
+	// comparability). Width matches the Context budget bar (innerW-10).
+	barWidth := max(innerW-10, 10)
+	filled := int(float64(levelN) / 4.0 * float64(barWidth))
+	filled = min(filled, barWidth)
+
+	filledChar, unfilledChar := "█", "░"
+	if asciiMode() {
+		filledChar, unfilledChar = "#", "-"
+	}
+
+	filledStr := strings.Repeat(filledChar, filled)
+	unfilledStr := strings.Repeat(unfilledChar, barWidth-filled)
+
+	if !asciiMode() {
+		// Color gradient (Decision D3): reuse project palette ColorWarning
+		// (yellow) for warn / cancel_step levels, ColorError (red) for the
+		// "would suspend" terminal level. Bold acts as the visual transition
+		// between warn (1-2) and the cancel_step boundary (3). Only the
+		// filled portion is styled — unfilled stays muted, matching the
+		// Context budget bar's "color only the fill" pattern.
+		color := ui.ColorWarning
+		bold := false
+		switch {
+		case levelN >= 4:
+			color = ui.ColorError
+		case levelN == 3:
+			bold = true
+		}
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+		if bold {
+			style = style.Bold(true)
+		}
+		filledStr = style.Render(filledStr)
+	}
+
+	fmt.Fprintf(b, "    [%s%s] %d/4\n", filledStr, unfilledStr, levelN)
 }
 
 // divider builds the section divider line. Honors RNIX_ASCII=1 by falling back

@@ -30,9 +30,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/ipc"
 )
+
+// Force lipgloss into a colorful profile when tests run without a TTY (the
+// default `go test` environment sets the profile to Ascii, which would strip
+// every ANSI escape that the renderer emits). The Stall intensity bar's
+// gradient assertions in 002 require ANSI escapes to be present, and the
+// ASCII-mode path (003) is governed by our own RNIX_ASCII fallback inside
+// renderStallSection rather than by the lipgloss profile — so flipping the
+// global profile to TrueColor is safe for the entire detail test package.
+func init() {
+	lipgloss.DefaultRenderer().SetColorProfile(termenv.TrueColor)
+}
 
 // --- Fixtures / helpers ---
 
@@ -81,22 +95,29 @@ func stallHeartbeat(wires ...ipc.StalledProcWire) *ipc.HeartbeatStatusResponse {
 // and the next divider (or end-of-string). Used by width tests so we only
 // measure lines that belong to the new section. Returns empty string when
 // no Stall section is present.
+//
+// The header line itself ends with "----" / "────" (the divider closing
+// dashes). Naïvely searching from `len(marker)` would terminate the
+// section on those dashes, so we first advance past the header's newline
+// before scanning for the next divider.
 func stallSection(out string) string {
 	const marker = "Stall"
 	idx := strings.Index(out, marker)
 	if idx < 0 {
 		return ""
 	}
-	// Find next divider after the marker. "──── " (unicode) or "---- "
-	// (ascii) both contain "─" or "-" sequences — the simpler heuristic is
-	// to scan for the next "────" occurrence after our header, since
-	// renderStallSection is sandwiched between Context and Lineage sections.
 	rest := out[idx:]
-	if next := strings.Index(rest[len(marker):], "────"); next >= 0 {
-		return rest[:len(marker)+next]
+	nl := strings.Index(rest, "\n")
+	if nl < 0 {
+		return rest
 	}
-	if next := strings.Index(rest[len(marker):], "----"); next >= 0 {
-		return rest[:len(marker)+next]
+	bodyStart := nl + 1
+	body := rest[bodyStart:]
+	if next := strings.Index(body, "────"); next >= 0 {
+		return rest[:bodyStart+next]
+	}
+	if next := strings.Index(body, "----"); next >= 0 {
+		return rest[:bodyStart+next]
 	}
 	return rest
 }
@@ -389,7 +410,7 @@ func TestATDD_45_5_007_StallSectionFitsInnerW(t *testing.T) {
 			if section == "" {
 				t.Fatalf("innerW=%d: could not isolate stall section from:\n%s", innerW, out)
 			}
-			for _, line := range strings.Split(section, "\n") {
+			for line := range strings.SplitSeq(section, "\n") {
 				if line == "" {
 					continue
 				}

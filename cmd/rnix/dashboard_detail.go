@@ -57,9 +57,10 @@ func (m dashboardModel) renderDetailPane(width, height int) string {
 	innerW := max(width-2, 1)
 
 	content := detail.Render(m.detail, detail.RenderContext{
-		SelectedPID:  m.selectedPID,
-		SelectedUUID: m.selectedUUID,
-		IsActive:     isActive,
+		SelectedPID:     m.selectedPID,
+		SelectedUUID:    m.selectedUUID,
+		IsActive:        isActive,
+		HeartbeatStatus: m.heartbeatStatus,
 	}, innerW)
 
 	return renderFixedPanel(content, width, height, borderColor)
