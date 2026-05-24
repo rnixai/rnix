@@ -88,6 +88,7 @@ func TestATDD_45_2_001_LevelSuspend_NoStateChange(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -194,6 +195,7 @@ func TestATDD_45_2_002_LevelCancelStep_NoCancelCall(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -283,6 +285,7 @@ func TestATDD_45_2_003_DefaultLevelWarn(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -361,6 +364,7 @@ func TestATDD_45_2_004_PersistentStalled_ConsecutiveAccumulates(t *testing.T) {
 	// LastHeartbeat 设置一次，5 次 scan 期间都保持远过期 (testing 不依赖
 	// 真实时钟推进——scan() 用 time.Since(lastHB) 比较)。
 	proc.LastHeartbeat = time.Now().Add(-10 * time.Minute)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 

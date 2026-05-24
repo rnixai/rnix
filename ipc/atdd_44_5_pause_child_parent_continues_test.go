@@ -235,17 +235,34 @@ func TestATDD_44_5_021_PauseChild_NoStaleOnError_StateConsistent(t *testing.T) {
 // (before SpawnAndWait reads), the stale ExitSuspended in proc.Done must be
 // drained so the next finishProcess write is not silently dropped.
 //
-// Sequence:
-//   1. Parent SpawnAndWait starts; child in parkOnWrite.
-//   2. SignalTree(SIGPAUSE) — notifySuspendDone writes Code=2 to proc.Done.
-//   3. Immediately ResumeSubtree without giving SpawnAndWait a chance to read.
-//      AC8 drain clears the stale Code=2.
-//   4. close(release) — Write returns nil → Read returns "complete" →
-//      finishProcess writes Code=0 to proc.Done (succeeds because drained).
-//   5. SpawnAndWait reads Code=0 + state=Zombie → return exitCode=0.
+// Story 44.5 v2 review (Edge Case Hunter) — the original version of this test
+// asserted AC8 only via the SpawnAndWait black-box exit code, but the 5ms
+// poll in waitState gave the SpawnAndWait reader goroutine ample opportunity
+// to read the stale Done BEFORE the drain executed, making the drain a no-op
+// while AC7's Suspended-loop alone carried the assertion. To force the AC8
+// path to fail observably when the drain is missing, we now assert directly
+// on the proc.Done channel length: after Pause, len(proc.Done)==1; after
+// Resume, drain must have emptied it BEFORE reasonStep restarts and writes
+// a new Done. We DO NOT launch the SpawnAndWait reader for this assertion —
+// it would race the drain.
 //
-// Pre-AC8: step 4's send is dropped (cap=1 full with stale Code=2);
-// SpawnAndWait reads Code=2 + state=Zombie → returns exitCode=2.
+// Sequence (white-box on the kernel Process.Done channel):
+//   1. Spawn child stuck in parkOnWrite (no SpawnAndWait reader competing).
+//   2. SignalTree(SIGPAUSE) — notifySuspendDone writes Code=2 to proc.Done
+//      via the reasonStep defer at kernel/reason.go:248-259.
+//   3. Assert len(proc.Done) == 1 — the stale ExitSuspended is sitting in
+//      the buffered cap=1 channel.
+//   4. ResumeSubtree — AC8 drain at kernel/subtree.go:297-300 must clear
+//      proc.Done before reasonStep restarts.
+//   5. Assert len(proc.Done) == 0 immediately after ResumeSubtree returns
+//      and BEFORE the new reasonStep writes finishProcess's terminal Done.
+//      Pre-AC8: len would still be 1 (the stale Code=2 was never drained),
+//      causing the post-resume finishProcess write to be silently dropped.
+//   6. Cleanup: close(release) so reasonStep can complete and not leak.
+//
+// Pre-AC8 failure mode: step 5 sees len==1 because the drain block is
+// missing, and a subsequent SpawnAndWait reader would observe Code=2 instead
+// of Code=0.
 func TestATDD_44_5_022_ResumeOneForSubtree_DrainsStaleDone(t *testing.T) {
 	_, kern, _, llmFile := setupResumeIPCTest(t)
 
@@ -257,14 +274,13 @@ func TestATDD_44_5_022_ResumeOneForSubtree_DrainsStaleDone(t *testing.T) {
 		}
 	}()
 
-	spawner := &ipcKernelSpawner{kernel: kern, parentPID: 0}
-
-	resultCh := make(chan spawnAndWaitResult, 1)
-	go func() {
-		res, code, toks, err := spawner.SpawnAndWait(
-			gocontext.Background(), "atdd 44.5 — drain stale Done", "", "")
-		resultCh <- spawnAndWaitResult{res, code, toks, err}
-	}()
+	// Spawn the child via the same path SpawnAndWait would, but without
+	// launching the SpawnAndWait reader goroutine — we own proc.Done for the
+	// duration of the assertion.
+	childPID, err := kern.Spawn("atdd 44.5 — drain stale Done", nil, kernel.SpawnOpts{})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
 
 	select {
 	case <-reached:
@@ -272,34 +288,52 @@ func TestATDD_44_5_022_ResumeOneForSubtree_DrainsStaleDone(t *testing.T) {
 		t.Fatalf("child did not enter LLM Write within 2s")
 	}
 
-	childPID := waitChildEnterRunning(t, kern, 0, 1*time.Second)
+	childProc, ok := kern.GetProcess(childPID)
+	if !ok {
+		t.Fatalf("GetProcess(%d) returned !ok", childPID)
+	}
 
-	// Pause and immediately Resume — give the goroutine no chance to read the
-	// stale Done in between.
+	// Pause — notifySuspendDone writes Code=2 to proc.Done via reasonStep defer.
 	if _, err := kern.SignalTree(childPID, types.SIGPAUSE); err != nil {
 		t.Fatalf("SignalTree(SIGPAUSE): %v", err)
 	}
-	childProc, _ := kern.GetProcess(childPID)
 	waitState(t, childProc, types.StateSuspended, 500*time.Millisecond)
 
+	// AC8 precondition: the stale ExitSuspended must be sitting in proc.Done.
+	// If it is not, the test fixture itself is broken — either notifySuspendDone
+	// did not fire (AC1 regressed) or proc.Done has unexpected cap.
+	if got := len(childProc.Done); got != 1 {
+		t.Fatalf("AC8 precondition: len(proc.Done) = %d, want 1 "+
+			"(notifySuspendDone must have written ExitSuspended via reasonStep defer)", got)
+	}
+
+	// AC8 load-bearing assertion: ResumeSubtree must drain proc.Done BEFORE
+	// reasonStep restarts.
 	if _, _, err := kern.ResumeSubtree(childPID); err != nil {
 		t.Fatalf("ResumeSubtree: %v", err)
 	}
 
+	// Snapshot proc.Done length immediately. The new reasonStep was kicked off
+	// by ResumeSubtree but is still parked in parkOnWrite (we haven't closed
+	// release), so finishProcess has not yet run and cannot have written a new
+	// Done. If len > 0 here, the drain block is missing.
+	if got := len(childProc.Done); got != 0 {
+		t.Errorf("AC8: len(proc.Done) = %d immediately after ResumeSubtree, want 0 "+
+			"(kernel/subtree.go:297-300 drain block must clear the stale "+
+			"ExitSuspended so the next finishProcess write is not dropped by "+
+			"cap=1 saturation)", got)
+	}
+
+	// Cleanup: let the new reasonStep complete so the test does not leak.
 	close(release)
 	released = true
 
+	// Wait for the child to finish so its goroutine is reaped before the test
+	// fixture teardown.
 	select {
-	case r := <-resultCh:
-		if r.err != nil {
-			t.Fatalf("SpawnAndWait err: %v", r.err)
-		}
-		if r.exitCode != 0 {
-			t.Errorf("exitCode = %d, want 0 (AC8 drain ensures the new "+
-				"finishProcess Code=0 write is not dropped by stale Code=2)", r.exitCode)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("SpawnAndWait did not return within 3s — drain may have failed")
+	case <-childProc.Done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("child did not exit within 2s after Resume + release")
 	}
 }
 

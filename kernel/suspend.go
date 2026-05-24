@@ -13,11 +13,22 @@ import (
 // suspendProcess performs the shared suspend cleanup logic:
 // closes all VFS FDs, drains checkpoint channel, transitions to Suspended.
 // Called by both Suspend (external) and selfSuspend (internal).
+//
+// Story 44.5 v2 review Decision 1 — SuspendReason is written AFTER the
+// state transition succeeds. The previous "write reason before transition"
+// pattern leaked SuspendReason onto Zombie/Dead processes when finishProcess
+// won a race against SIGPAUSE (the happy-exit race: reasonStep completed
+// normally with exit.Code=0 just as SIGPAUSE arrived; AC3's
+// `exit.Code != 0 → clear SuspendReason` did not fire because the exit was
+// a successful one, leaving SuspendReason=user_paused on a Zombie/Dead
+// snapshot that violated the AC6 invariant matrix). Writing after the
+// transition guarantees: transition succeeded → state=Suspended +
+// SuspendReason=reason (consistent); transition failed → state unchanged +
+// SuspendReason untouched (no leak).
 func (k *KernelImpl) suspendProcess(proc *Process, reason string, exitCode int) error {
 	// Extract FD references under lock, then close outside lock to prevent
 	// deadlock if test timeout panic triggers defer → GetState → proc.mu.
 	proc.mu.Lock()
-	proc.SuspendReason = reason
 	fds := make([]vfs.VFSFile, 0, len(proc.FDTable))
 	for fd, f := range proc.FDTable {
 		fds = append(fds, f)
@@ -52,7 +63,11 @@ func (k *KernelImpl) suspendProcess(proc *Process, reason string, exitCode int) 
 	// switched the SIGPAUSE entry from Pause() to Suspend() but did NOT
 	// migrate the pausedAt write — leaving Dashboard tree render.go's
 	// `IsPaused && !PausedAt.IsZero()` freeze branch unreachable.
+	//
+	// Decision 1 — write SuspendReason here, AFTER the transition succeeded,
+	// not before (see function docstring).
 	proc.mu.Lock()
+	proc.SuspendReason = reason
 	proc.pausedAt = time.Now()
 	proc.mu.Unlock()
 
@@ -124,10 +139,14 @@ func (k *KernelImpl) Suspend(pid types.PID) error {
 	// Mark suspend requested (reasonStep checks this to skip finishProcess)
 	proc.suspendRequested.Store(true)
 
-	// Pre-set exit status so defer's notifySuspendDone sends the correct reason
+	// Pre-set Exit so the reasonStep defer's notifySuspendDone sends the
+	// correct exit reason on the Done channel. SuspendReason is NOT written
+	// here — Decision 1 moved that write into suspendProcess (after the
+	// state transition succeeds) so a happy-exit race (reasonStep already
+	// past finishProcess when SIGPAUSE arrives) cannot leak SuspendReason
+	// onto a Zombie/Dead snapshot. See suspendProcess docstring.
 	exit := ExitStatus{Code: ExitSuspended, Reason: "suspended: user_suspended"}
 	proc.mu.Lock()
-	proc.SuspendReason = "user_suspended"
 	proc.Exit = &exit
 	proc.mu.Unlock()
 

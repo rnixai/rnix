@@ -59,6 +59,7 @@ func TestHeartbeatMonitor_ScanSkipsStepTimeoutZero(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 0 // disabled
 	proc.LastHeartbeat = time.Now().Add(-10 * time.Minute)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -78,6 +79,7 @@ func TestHeartbeatMonitor_ScanSkipsNonRunning(t *testing.T) {
 	proc.State = types.StateZombie
 	proc.StepTimeout = 5 * time.Second
 	proc.LastHeartbeat = time.Now().Add(-10 * time.Minute)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -97,6 +99,7 @@ func TestHeartbeatMonitor_ScanDetectsStalled(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond) // way past timeout
+	proc.PrimaryDevice = "/dev/llm/claude"                       // non-empty → reasonStep-driven
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -109,6 +112,172 @@ func TestHeartbeatMonitor_ScanDetectsStalled(t *testing.T) {
 	}
 }
 
+// TestHeartbeatMonitor_ScanSkipsScriptRunnerWithActiveChild asserts that a
+// script-runner (empty PrimaryDevice) WITH a Running child is NOT scanned for
+// heartbeat staleness — it is parked in SpawnAndWait waiting for the child,
+// which is the happy path. The user-visible regression on dev-auto.ash
+// (PID 1 "STALL no heartbeat 328s") is exactly this case.
+//
+// Story 44.5 v2 review (附 heartbeat fix). Coexists with the Story 45.4
+// AC3.002 invariant — see TestHeartbeatMonitor_ScanDetectsIdleScriptRunner
+// below for the inverse "no children → genuine deadlock → still report" case.
+func TestHeartbeatMonitor_ScanSkipsScriptRunnerWithActiveChild(t *testing.T) {
+	k := newHeartbeatTestKernel(t)
+
+	parent := NewProcess(0, "test-script-runner-with-child", nil)
+	parent.mu.Lock()
+	parent.State = types.StateRunning
+	parent.StepTimeout = 100 * time.Millisecond
+	parent.LastHeartbeat = time.Now().Add(-10 * time.Minute) // way past any timeout
+	parent.PrimaryDevice = ""                                // script-runner marker
+	parent.mu.Unlock()
+	k.procTable.Store(parent.PID, parent)
+
+	child := NewProcess(parent.PID, "child-of-script-runner", nil)
+	child.mu.Lock()
+	child.State = types.StateRunning
+	child.LastHeartbeat = time.Now()
+	child.PrimaryDevice = "/dev/llm/claude"
+	child.mu.Unlock()
+	k.procTable.Store(child.PID, child)
+	parent.AddChild(child.PID)
+
+	hm := NewHeartbeatMonitor(k, 50*time.Millisecond)
+	hm.scan()
+
+	status := hm.Status()
+	if status.TotalStalledDetected != 0 {
+		t.Errorf("script-runner with active Running child must NOT be detected "+
+			"as stalled, got TotalStalledDetected=%d "+
+			"(parent is parked in SpawnAndWait waiting for the child — that is "+
+			"the happy path, not a deadlock)", status.TotalStalledDetected)
+	}
+	for _, s := range status.CurrentStalled {
+		if s.PID == parent.PID {
+			t.Errorf("script-runner parent (pid=%d) must not appear in CurrentStalled while "+
+				"a child is Running", parent.PID)
+		}
+	}
+}
+
+// TestHeartbeatMonitor_ScanSkipsScriptRunnerWithSuspendedChild is the
+// EchoMatrix-observed case: the user pressed `p` on a child (PID 3 in the
+// real-world repro), which suspended it; the script-runner parent (PID 1)
+// is parked in SpawnAndWait waiting for ResumeSubtree. The Running-only
+// child filter would have classified this as "idle" and fired STALL. The
+// corrected filter recognises Suspended children as a wait-for-user signal,
+// not a deadlock.
+func TestHeartbeatMonitor_ScanSkipsScriptRunnerWithSuspendedChild(t *testing.T) {
+	k := newHeartbeatTestKernel(t)
+
+	parent := NewProcess(0, "test-script-runner-suspended-child", nil)
+	parent.mu.Lock()
+	parent.State = types.StateRunning
+	parent.StepTimeout = 100 * time.Millisecond
+	parent.LastHeartbeat = time.Now().Add(-10 * time.Minute)
+	parent.PrimaryDevice = ""
+	parent.mu.Unlock()
+	k.procTable.Store(parent.PID, parent)
+
+	deadChild := NewProcess(parent.PID, "previous-child-now-dead", nil)
+	deadChild.mu.Lock()
+	deadChild.State = types.StateDead
+	deadChild.PrimaryDevice = "/dev/llm/claude"
+	deadChild.mu.Unlock()
+	k.procTable.Store(deadChild.PID, deadChild)
+	parent.AddChild(deadChild.PID)
+
+	suspendedChild := NewProcess(parent.PID, "user-paused-child", nil)
+	suspendedChild.mu.Lock()
+	suspendedChild.State = types.StateSuspended
+	suspendedChild.PrimaryDevice = "/dev/llm/claude"
+	suspendedChild.mu.Unlock()
+	k.procTable.Store(suspendedChild.PID, suspendedChild)
+	parent.AddChild(suspendedChild.PID)
+
+	hm := NewHeartbeatMonitor(k, 50*time.Millisecond)
+	hm.scan()
+
+	status := hm.Status()
+	if status.TotalStalledDetected != 0 {
+		t.Errorf("script-runner with a Suspended child must NOT be detected "+
+			"as stalled, got TotalStalledDetected=%d "+
+			"(parent is parked in SpawnAndWait waiting for the user to Resume; "+
+			"this is the EchoMatrix PID 1 + paused PID 3 case observed at "+
+			"16:45:21 STALL — Running-only filter mis-classified it as idle)",
+			status.TotalStalledDetected)
+	}
+}
+
+
+// previous case: a script-runner WITHOUT any active children is still scanned
+// for staleness — this preserves the Story 45.4 AC3.002 invariant that HB-1's
+// removal must leave genuine deadlocks observable, just without surfacing
+// happy-path "waiting for child" idleness as STALL.
+func TestHeartbeatMonitor_ScanDetectsIdleScriptRunner(t *testing.T) {
+	k := newHeartbeatTestKernel(t)
+	proc := NewProcess(0, "test-script-runner-idle", nil)
+	proc.mu.Lock()
+	proc.State = types.StateRunning
+	proc.StepTimeout = 100 * time.Millisecond
+	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond) // past timeout
+	proc.PrimaryDevice = ""                                      // script-runner marker
+	// No children added — the genuinely-idle case.
+	proc.mu.Unlock()
+	k.procTable.Store(proc.PID, proc)
+
+	hm := NewHeartbeatMonitor(k, 50*time.Millisecond)
+	hm.scan()
+
+	status := hm.Status()
+	if status.TotalStalledDetected != 1 {
+		t.Errorf("idle script-runner (no active children) must still be detected "+
+			"as stalled, got TotalStalledDetected=%d "+
+			"(Story 45.4 AC3.002 invariant: HB-1 removal must leave genuine "+
+			"deadlocks observable)", status.TotalStalledDetected)
+	}
+}
+
+// TestHeartbeatMonitor_ScanScriptRunnerCleansStaleRecord asserts that a
+// previously-tracked stall record for a script-runner is cleaned up once it
+// gains an active child (e.g., its SpawnAndWait kicks in).
+func TestHeartbeatMonitor_ScanScriptRunnerCleansStaleRecord(t *testing.T) {
+	k := newHeartbeatTestKernel(t)
+	parent := NewProcess(0, "test-script-runner-clean", nil)
+	parent.mu.Lock()
+	parent.State = types.StateRunning
+	parent.StepTimeout = 100 * time.Millisecond
+	parent.LastHeartbeat = time.Now().Add(-10 * time.Minute)
+	parent.PrimaryDevice = ""
+	parent.mu.Unlock()
+	k.procTable.Store(parent.PID, parent)
+
+	child := NewProcess(parent.PID, "child", nil)
+	child.mu.Lock()
+	child.State = types.StateRunning
+	child.PrimaryDevice = "/dev/llm/claude"
+	child.mu.Unlock()
+	k.procTable.Store(child.PID, child)
+	parent.AddChild(child.PID)
+
+	hm := NewHeartbeatMonitor(k, 50*time.Millisecond)
+
+	// Pre-seed a stale record from an earlier scan (simulating the
+	// pre-fix state where this process WAS tracked).
+	hm.mu.Lock()
+	hm.stalledProcs[parent.PID] = &stallRecord{PID: parent.PID, UUID: parent.UUID}
+	hm.mu.Unlock()
+
+	hm.scan()
+
+	hm.mu.Lock()
+	_, exists := hm.stalledProcs[parent.PID]
+	hm.mu.Unlock()
+	if exists {
+		t.Error("stale stall record for script-runner with active child must be removed on the next scan")
+	}
+}
+
 func TestHeartbeatMonitor_Level1WarnOnly(t *testing.T) {
 	k := newHeartbeatTestKernel(t)
 	proc := NewProcess(0, "test-level1", nil)
@@ -116,6 +285,7 @@ func TestHeartbeatMonitor_Level1WarnOnly(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -163,6 +333,7 @@ func TestHeartbeatMonitor_Level3CancelStep(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -227,6 +398,7 @@ func TestHeartbeatMonitor_Level4Suspend(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -278,6 +450,7 @@ func TestHeartbeatMonitor_Recovery(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now() // healthy heartbeat
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 

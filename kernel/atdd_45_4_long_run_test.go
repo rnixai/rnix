@@ -121,6 +121,7 @@ func TestATDD_45_4_LongRun_001_30ScansNeverAutoSuspend(t *testing.T) {
 	// LastHeartbeat 远过期，30 次 scan 期间不推进 — 模拟"daemon 视角下业务持续
 	// 静默"（实际生产中 dev-auto.ash 父进程可能在等子任务长时间执行 LLM call）
 	proc.LastHeartbeat = time.Now().Add(-10 * time.Minute)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -237,6 +238,7 @@ func TestATDD_45_4_LongRun_002_ParameterizedLongRunViaEnvVar(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now().Add(-10 * time.Minute)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 

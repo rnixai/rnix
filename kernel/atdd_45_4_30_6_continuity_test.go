@@ -73,6 +73,7 @@ func TestATDD_45_4_30_6_001_EscalationActionFieldMappingPreserved(t *testing.T) 
 	proc.State = types.StateRunning
 	proc.StepTimeout = 100 * time.Millisecond
 	proc.LastHeartbeat = time.Now().Add(-10 * time.Minute) // 远过期，保持 stalled
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 
@@ -154,6 +155,7 @@ func TestATDD_45_4_30_6_002_StalledRecordPersistsUntilRecoveryOrExit(t *testing.
 		proc.State = types.StateRunning
 		proc.StepTimeout = 100 * time.Millisecond
 		proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
+		proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 		proc.mu.Unlock()
 		k.procTable.Store(proc.PID, proc)
 
@@ -222,6 +224,7 @@ func TestATDD_45_4_30_6_002_StalledRecordPersistsUntilRecoveryOrExit(t *testing.
 		proc.State = types.StateRunning
 		proc.StepTimeout = 100 * time.Millisecond
 		proc.LastHeartbeat = time.Now().Add(-500 * time.Millisecond)
+		proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 		proc.mu.Unlock()
 		k.procTable.Store(proc.PID, proc)
 

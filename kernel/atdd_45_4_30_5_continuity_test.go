@@ -351,6 +351,7 @@ func TestATDD_45_4_30_5_003_StepTimeoutZeroSkipsScan(t *testing.T) {
 	proc.State = types.StateRunning
 	proc.StepTimeout = 0 // 30.5 AC#4: explicit "user opted out of liveness detection"
 	proc.LastHeartbeat = time.Now().Add(-10 * time.Minute)
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.mu.Unlock()
 	k.procTable.Store(proc.PID, proc)
 

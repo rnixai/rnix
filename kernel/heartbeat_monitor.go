@@ -106,6 +106,51 @@ func (hm *HeartbeatMonitor) scan() {
 			return true
 		}
 
+		// Story 44.5 v2 review — script-runner processes (SpawnOpts.SkipReasonLoop=true,
+		// identified by empty PrimaryDevice — see kernel/subtree.go:306 for the
+		// established convention) have no reasonStep boundary and no driver
+		// streaming, so nothing writes proc.LastHeartbeat after the spawn-time
+		// seed at kernel/spawn.go:365. Story 45.3 (commit 0a1ec95) removed the
+		// keepScriptRunnerHeartbeat fake-ticker that previously masked this,
+		// surfacing two scenarios with different intent:
+		//
+		//   (a) script-runner with any non-terminal child (Running / Suspended /
+		//       Created) — it is parked in SpawnAndWait waiting on the child.
+		//       Running = child is reasoning; Suspended = user paused the child
+		//       and parent waits for ResumeSubtree (the EchoMatrix PID 1 case
+		//       observed after dashboard `p` on PID 3); Created = spawn is
+		//       still completing. None of these is a deadlock. Skip.
+		//   (b) script-runner with all children Zombie/Dead (or none) —
+		//       genuinely idle/wedged. This is the Story 45.4 AC3.002 invariant:
+		//       HB-1 removal must leave genuine deadlocks observable. Treat
+		//       it like a reasoning process so the warn-only stall pipeline
+		//       still fires.
+		proc.mu.Lock()
+		primaryDevice := proc.PrimaryDevice
+		childrenSnapshot := append([]types.PID(nil), proc.Children...)
+		proc.mu.Unlock()
+		if primaryDevice == "" {
+			hasActiveChild := false
+			for _, childPID := range childrenSnapshot {
+				childProc, ok := hm.kernel.procTable.Load(childPID)
+				if !ok {
+					continue
+				}
+				switch childProc.GetState() {
+				case types.StateRunning, types.StateSuspended, types.StateCreated:
+					hasActiveChild = true
+				}
+				if hasActiveChild {
+					break
+				}
+			}
+			if hasActiveChild {
+				hm.cleanupIfTracked(pid)
+				return true
+			}
+			// fall through to normal stall detection for the idle case
+		}
+
 		proc.mu.Lock()
 		lastHB := proc.LastHeartbeat
 		timeout := proc.StepTimeout

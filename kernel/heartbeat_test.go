@@ -140,6 +140,7 @@ func TestProcess_HeartbeatConcurrency(t *testing.T) {
 	proc := NewProcess(0, "concurrent test", nil)
 	proc.mu.Lock()
 	proc.LastHeartbeat = time.Now()
+	proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 	proc.StepTimeout = 5 * time.Minute
 	proc.mu.Unlock()
 
@@ -150,6 +151,7 @@ func TestProcess_HeartbeatConcurrency(t *testing.T) {
 		for range 100 {
 			proc.mu.Lock()
 			proc.LastHeartbeat = time.Now()
+			proc.PrimaryDevice = "/dev/llm/claude" // simulate reasonStep-driven proc (Story 44.5 v2 review附 heartbeat fix)
 			proc.mu.Unlock()
 		}
 		done <- struct{}{}

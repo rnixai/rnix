@@ -64,6 +64,13 @@ func ValidateProcInfoInvariant(info *vfs.ProcInfo) error {
 				info.ExitReason)
 		}
 	case types.StateZombie:
+		if info.SuspendReason != "" {
+			return fmt.Errorf("state=Zombie must have empty SuspendReason, got %q "+
+				"(Story 44.5 v2 review — Zombie is the post-Terminate transition "+
+				"window before Reap; SuspendReason here surfaces as a contradictory "+
+				"dashboard read and indicates a suspendProcess/finishProcess race)",
+				info.SuspendReason)
+		}
 		if info.ExitReason == "" {
 			return fmt.Errorf("state=Zombie must have non-empty ExitReason " +
 				"(Terminate records exit before transition)")
