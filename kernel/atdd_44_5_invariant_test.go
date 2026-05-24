@@ -52,7 +52,6 @@ type procInfoCase struct {
 func runInvariantCases(t *testing.T, cases []procInfoCase) {
 	t.Helper()
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			err := ValidateProcInfoInvariant(&tc.info)
 			if tc.wantErrSubstring == "" {

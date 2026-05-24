@@ -160,12 +160,30 @@ func (s *ipcKernelSpawner) SpawnAndWait(ctx context.Context, intent, agentName, 
 	for {
 		select {
 		case exit := <-proc.Done:
-			info, infoErr := s.kernel.GetProcInfo(pid)
-			s.kernel.Reap(pid)
-			if infoErr != nil {
-				return "", exit.Code, 0, nil
+			// Story 44.5 AC7 — proc.Done double-loads "terminal exit" and
+			// "mid-state suspend" notifications (kernel/suspend.go
+			// notifySuspendDone writes ExitSuspended on every Pause cycle).
+			// Without checking state here, a SIGPAUSE on the child surfaces
+			// to ScriptExecutor as exitCode=ExitSuspended=2 and triggers
+			// on-error (the dev-auto.ash "上一轮执行异常" regression).
+			// Unix wait(2) semantics: wait blocks across SIGSTOP, returning
+			// only on terminal exit. Mid-state Done events are discarded.
+			switch proc.GetState() {
+			case types.StateZombie, types.StateDead:
+				info, infoErr := s.kernel.GetProcInfo(pid)
+				s.kernel.Reap(pid)
+				if infoErr != nil {
+					return "", exit.Code, 0, nil
+				}
+				return info.Result, exit.Code, info.TokensUsed, nil
+			default:
+				// StateRunning (Suspend transition window — notifySuspendDone
+				// writes Done before suspendProcess flips state) or
+				// StateSuspended: discard the exit and re-arm select. The
+				// next Done write will come from finishProcess when the
+				// resumed reasonStep actually completes.
+				continue
 			}
-			return info.Result, exit.Code, info.TokensUsed, nil
 		case <-ctx.Done():
 			// Story 44.2: scriptCtx is only cancelled on real termination
 			// (SIGKILL/SIGTERM/daemon shutdown) — CLI disconnect now suspends

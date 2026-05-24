@@ -247,23 +247,28 @@ func TestATDD_44_5_012_PauseDuringLLMWrite_ProcInfoDiskFieldsConsistent(t *testi
 		t.Fatalf("unmarshal proc-info.json: %v", err)
 	}
 
-	if got, _ := snap["State"].(string); got != "suspended" {
+	// proc-info.json uses snake_case JSON keys (see procInfoDisk in
+	// kernel/process_history.go) — assertions read by JSON tag name, not Go
+	// field name.
+	if got, _ := snap["state"].(string); got != "suspended" {
 		// State serializes as the ProcessState String() value. The bug surfaces
 		// here as "dead".
-		t.Errorf("proc-info.json State = %q, want %q (Story 44.5 AC5 + AC1)", got, "suspended")
+		t.Errorf("proc-info.json state = %q, want %q (Story 44.5 AC5 + AC1)", got, "suspended")
 	}
-	if got, _ := snap["SuspendReason"].(string); got != "user_paused" {
-		t.Errorf("proc-info.json SuspendReason = %q, want %q", got, "user_paused")
+	if got, _ := snap["suspend_reason"].(string); got != "user_paused" {
+		t.Errorf("proc-info.json suspend_reason = %q, want %q", got, "user_paused")
 	}
-	if got, _ := snap["ExitReason"].(string); strings.Contains(got, "llm write failed") {
-		t.Errorf("proc-info.json ExitReason = %q must NOT contain \"llm write failed\" "+
+	if got, _ := snap["exit_reason"].(string); strings.Contains(got, "llm write failed") {
+		t.Errorf("proc-info.json exit_reason = %q must NOT contain \"llm write failed\" "+
 			"— pause must clear the kill-path exit string (Story 44.5 AC3)", got)
 	}
-	// AC2 green-guard for the LastCompletedStep=0 spawn path: ResumedFromStep
+	// AC2 green-guard for the LastCompletedStep=0 spawn path: resumed_from_step
 	// must be 0 because pause must never pre-fill it (regardless of whether the
 	// pre-fill code block was deleted or not, this case is naturally clean).
-	if got, _ := snap["ResumedFromStep"].(float64); got != 0 {
-		t.Errorf("proc-info.json ResumedFromStep = %v, want 0 (Story 44.5 AC2 — "+
+	// Note: omitempty drops the key entirely when zero, so a missing key reads
+	// back as the float64 zero value — the assertion still holds.
+	if got, _ := snap["resumed_from_step"].(float64); got != 0 {
+		t.Errorf("proc-info.json resumed_from_step = %v, want 0 (Story 44.5 AC2 — "+
 			"pause must not pre-fill the resume cursor)", got)
 	}
 }

@@ -234,9 +234,13 @@ func (k *KernelImpl) collectSubtreePIDs(root *Process) []types.PID {
 // suspendOneForSubtree transitions a single Running process to Suspended
 // using the caller-supplied reason. suspendProcess is the sole writer of
 // SuspendReason/Exit — we set suspendRequested (atomic, observed by the
-// reasonStep defer path) and snapshot the step counter so a future
-// ResumeSubtree continues from where reasonStep left off rather than
-// restarting at step 1.
+// reasonStep defer path) and then cancel + wait so the reasoning goroutine
+// observes the flag and exits cleanly. The eventual resume reads
+// LastCompletedStep on the resume leg (resumeOneForSubtree fallback at
+// subtree.go:343-348) rather than pre-filling ResumedFromStep here —
+// Story 44.5 AC2 removed that pre-fill because writing ResumedFromStep on
+// the pause leg made the field meaningless on failed-exit snapshots
+// (state=dead with a non-zero resumed_from_step that no resume ever ran).
 func (k *KernelImpl) suspendOneForSubtree(proc *Process, reason string) error {
 	// Defensive idempotency — a racy state change between collectSubtreePIDs
 	// and this call must not surface as an illegal-transition error.
@@ -245,14 +249,6 @@ func (k *KernelImpl) suspendOneForSubtree(proc *Process, reason string) error {
 	}
 
 	proc.suspendRequested.Store(true)
-
-	// Snapshot last completed step into ResumedFromStep so the eventual
-	// reasonStep restart starts at LastCompletedStep+1 instead of step 1.
-	if last := proc.LastCompletedStep.Load(); last > 0 {
-		proc.mu.Lock()
-		proc.ResumedFromStep = int(last) + 1
-		proc.mu.Unlock()
-	}
 
 	// Cancel ctx and wait for any reasonStep goroutine to exit. For test
 	// fixtures and script-runners the wg is zero so Wait() returns immediately.
@@ -277,6 +273,18 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 		return fmt.Errorf("unsuspend: %w", err)
 	}
 	proc.SetSuspendReason("")
+
+	// Story 44.5 AC8 — drain any stale ExitSuspended event left in proc.Done
+	// by notifySuspendDone during the previous Suspend cycle. proc.Done is
+	// cap=1 with non-blocking sends (see kernel/process.go:242 + select-default
+	// pattern in notifySuspendDone); without this drain, the next reasonStep's
+	// finishProcess write would be silently dropped (channel already full),
+	// leaving SpawnAndWait blocked on a dry channel and the script-runner
+	// hung forever on a successfully-resumed child.
+	select {
+	case <-proc.Done:
+	default:
+	}
 
 	// Story 44.3 AC#2 — persist proc-info.json on the Unsuspend leg so disk
 	// no longer carries the stale state=suspended + suspend_reason after a

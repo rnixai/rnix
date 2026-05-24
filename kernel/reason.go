@@ -27,6 +27,17 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	if proc.Result == "" && exit.Code != 0 && exit.Reason != "" {
 		proc.Result = exit.Reason
 	}
+	// Story 44.5 AC3 — failed exits clear stale SuspendReason. The
+	// pause-during-LLM-Write race (Story 44.5 AC1) is the primary case where
+	// suspendProcess has already stamped SuspendReason before reasonStep
+	// races it to a kill path; without this clear the persisted proc-info.json
+	// shows the contradiction (state=dead + suspend_reason=user_paused +
+	// exit_reason="llm write failed"). AC1 is the primary defence; this is the
+	// tuple-invariant safety net for any future code path that hits the same
+	// race (Story 44.5 AC6 ValidateProcInfoInvariant enforces it).
+	if exit.Code != 0 {
+		proc.SuspendReason = ""
+	}
 	proc.mu.Unlock()
 	if k.mountMgr != nil {
 		for _, mountPath := range mcpMounts {
@@ -437,6 +448,19 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 			stepCancel()
 
+			// Story 44.5 AC1 — when SIGPAUSE arrives while the LLM Write is in
+			// flight, suspendOneForSubtree (subtree.go) flips suspendRequested
+			// and cancels proc.ctx. The cancel surfaces here as a Write error.
+			// Returning directly hands control to the defer at reason.go:237,
+			// which observes IsSuspendRequested and notifies the waiting
+			// suspendProcess. Without this guard reasonStep proceeds into
+			// attemptFallback → finishProcess(failed), killing the process and
+			// leaving proc-info.json with state=dead +
+			// suspend_reason=user_paused + exit_reason="llm write failed".
+			if proc.IsSuspendRequested() && errors.Is(proc.ctx.Err(), gocontext.Canceled) {
+				return
+			}
+
 			// Transient error retry (socket disconnect, overloaded, etc.)
 			if isTransientLLMError(err) && consecutiveTransientRetries < 2 {
 				consecutiveTransientRetries++
@@ -479,6 +503,13 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 			}
 			k.emitEvent(proc, "Read", readArgs, len(respData), readErr, time.Since(readStart))
 			if readErr != nil {
+				// Story 44.5 AC1 — same suspend-vs-kill race as the Write path
+				// above. ctx cancel triggered by SIGPAUSE surfaces as a Read
+				// error; return so the defer at reason.go:237 hands off to
+				// suspendProcess instead of finishProcess.
+				if proc.IsSuspendRequested() && errors.Is(proc.ctx.Err(), gocontext.Canceled) {
+					return
+				}
 				// Record the failed step with prompt data so it's visible in LLM viewer
 				k.writeStepRecord(proc, step, promptResult, string(respData),
 					nil, "error", fmt.Sprintf("llm read failed: %v", readErr), "", "", "", "", 0, nil)
@@ -492,6 +523,13 @@ func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 		var resp llmResponse
 		rawResponseStr := string(respData)
 		if err := json.Unmarshal(respData, &resp); err != nil {
+			// Story 44.5 AC1 — completing the pause-protocol coverage: if the
+			// driver was mid-stream when SIGPAUSE arrived, the Read can return
+			// a truncated/empty buffer that fails unmarshal. Treat as suspend
+			// instead of error so reasonStep yields to suspendProcess.
+			if proc.IsSuspendRequested() && errors.Is(proc.ctx.Err(), gocontext.Canceled) {
+				return
+			}
 			// Record the failed step with raw response so it's visible in LLM viewer
 			k.writeStepRecord(proc, step, promptResult, rawResponseStr, nil,
 				"error", fmt.Sprintf("unmarshal response failed: %v", err), "", "", "", "", 0, nil)
