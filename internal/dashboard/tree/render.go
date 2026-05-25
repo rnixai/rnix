@@ -216,8 +216,9 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 		pidPart := fmt.Sprintf("%d", row.Proc.PID)
 
 		isDead := row.Proc.State == types.StateDead || row.Proc.State == types.StateZombie
-		isDeadOk := isDead && !ui.IsFailedResult(row.Proc.Result)
-		isDeadFail := isDead && ui.IsFailedResult(row.Proc.Result)
+		failed := isDead && ui.IsProcessFailed(row.Proc.ExitCode, row.Proc.ExitCodeSet, row.Proc.Result)
+		isDeadOk := isDead && !failed
+		isDeadFail := failed
 		var tokens string
 		var elapsed string
 
@@ -237,13 +238,13 @@ func Render(state TreeState, ctx RenderContext, innerW, innerH int) string {
 				if len(runes) > 22 {
 					resultText = string(runes[:21]) + "…"
 				}
-				if ui.IsFailedResult(row.Proc.Result) {
+				if failed {
 					tokens = ui.ErrorStyle.Render("✗ " + resultText)
 				} else {
 					tokens = "✓ " + resultText
 				}
 			} else {
-				if ui.IsFailedResult(row.Proc.Result) {
+				if failed {
 					if ui.IsASCIIMode() {
 						tokens = ui.ErrorStyle.Render("x")
 					} else {

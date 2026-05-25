@@ -47,7 +47,7 @@ func ComputeHealthCounts(
 	errorPIDs := make(map[types.PID]struct{})
 
 	for _, p := range processes {
-		if p.State == types.StateDead && ui.IsFailedResult(p.Result) {
+		if p.State == types.StateDead && ui.IsProcessFailed(p.ExitCode, p.ExitCodeSet, p.Result) {
 			errorPIDs[p.PID] = struct{}{}
 		}
 	}

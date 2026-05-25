@@ -64,6 +64,12 @@ type ProcInfo struct {
 	ComposeDeps   []string // depends_on node names (e.g. ["researcher", "analyst"])
 	PipelineIndex int      // 0-based stage index in pipeline (only meaningful when PipelineTotal > 0)
 	PipelineTotal int      // total stages in pipeline, 0 = not pipeline
+
+	// Exit code authoritative signal: 0 = success, non-zero = failure.
+	// Only meaningful when ExitCodeSet=true; otherwise unknown (legacy data or
+	// process not yet exited) and dashboard falls back to result-text heuristic.
+	ExitCode    int
+	ExitCodeSet bool
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.

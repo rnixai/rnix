@@ -33,3 +33,39 @@ func TestIsFailedResult_InterruptedNotFailed(t *testing.T) {
 		})
 	}
 }
+
+// TestIsProcessFailed exercises the authoritative ExitCode path and the
+// legacy text-heuristic fallback. The first case is the regression we are
+// fixing: a code-review reviewer's success output containing "error" must
+// no longer be flagged as a failed process.
+func TestIsProcessFailed(t *testing.T) {
+	cases := []struct {
+		name        string
+		exitCode    int
+		exitCodeSet bool
+		result      string
+		want        bool
+	}{
+		// Authoritative path — ExitCode wins, result text is ignored.
+		{"success with error keyword in output", 0, true, "found [HIGH] error in archive.go", false},
+		{"success with fail keyword in output", 0, true, "this code will fail under load", false},
+		{"success empty result", 0, true, "", false},
+		{"non-zero exit code", 1, true, "ok", true},
+		{"negative exit code (defensive)", -1, true, "ok", true},
+
+		// Fallback path — ExitCodeSet=false defers to isFailedResult.
+		{"legacy empty result is failure", 0, false, "", true},
+		{"legacy result with error keyword", 0, false, "operation error", true},
+		{"legacy success result", 0, false, "ok", false},
+		{"legacy interrupted not failure", 0, false, "interrupted", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsProcessFailed(tc.exitCode, tc.exitCodeSet, tc.result)
+			if got != tc.want {
+				t.Errorf("IsProcessFailed(%d,%v,%q) = %v, want %v",
+					tc.exitCode, tc.exitCodeSet, tc.result, got, tc.want)
+			}
+		})
+	}
+}

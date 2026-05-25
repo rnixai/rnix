@@ -101,7 +101,7 @@ func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo)
 				Timestamp: time.Now(),
 				PID:       pid,
 				UUID:      prevProc.UUID,
-				Summary:   exitEventSummary(pid, prevProc.Intent, prevProc.Result),
+				Summary:   exitEventSummary(prevProc),
 				Detail:    prevProc.Result,
 			})
 			continue
@@ -121,7 +121,7 @@ func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo)
 				Timestamp: ts,
 				PID:       pid,
 				UUID:      currProc.UUID,
-				Summary:   exitEventSummary(pid, currProc.Intent, currProc.Result),
+				Summary:   exitEventSummary(currProc),
 				Detail:    currProc.Result,
 			})
 		}
@@ -301,7 +301,7 @@ func seedHistoricalSysEvents(processes []vfs.ProcInfo) []UnifiedEvent {
 			exitTs = spawnTs.Add(time.Millisecond)
 		}
 		sev := SevInfo
-		if ui.IsFailedResult(p.Result) {
+		if ui.IsProcessFailed(p.ExitCode, p.ExitCodeSet, p.Result) {
 			sev = SevError
 		}
 		events = append(events, UnifiedEvent{
@@ -310,7 +310,7 @@ func seedHistoricalSysEvents(processes []vfs.ProcInfo) []UnifiedEvent {
 			Timestamp: exitTs,
 			PID:       p.PID,
 			UUID:      p.UUID,
-			Summary:   exitEventSummary(p.PID, p.Intent, p.Result),
+			Summary:   exitEventSummary(p),
 			Detail:    p.Result,
 		})
 	}
@@ -374,12 +374,14 @@ func pruneBudgetAlertSeen(alertSeen map[types.PID]int, processes []vfs.ProcInfo)
 // For failed exits with a non-empty result, the result snippet replaces the intent
 // so the user can see why the process failed directly in the timeline.
 // For successful or result-less exits, shows the intent as before.
-func exitEventSummary(pid types.PID, intent, result string) string {
-	if result != "" && ui.IsFailedResult(result) {
-		snippet := truncateRuneSafe(result, 70)
-		return fmt.Sprintf("↓ EXIT PID %d ✗ %s", pid, snippet)
+// Failure judgement uses the authoritative ExitCode path (with text-heuristic
+// fallback for legacy snapshots) via ui.IsProcessFailed.
+func exitEventSummary(p vfs.ProcInfo) string {
+	if p.Result != "" && ui.IsProcessFailed(p.ExitCode, p.ExitCodeSet, p.Result) {
+		snippet := truncateRuneSafe(p.Result, 70)
+		return fmt.Sprintf("↓ EXIT PID %d ✗ %s", p.PID, snippet)
 	}
-	return fmt.Sprintf("↓ EXIT PID %d %q", pid, intent)
+	return fmt.Sprintf("↓ EXIT PID %d %q", p.PID, p.Intent)
 }
 
 func inferExitError(p vfs.ProcInfo) bool {

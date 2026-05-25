@@ -122,6 +122,22 @@ func IsFailedResult(result string) bool {
 	return isFailedResult(result)
 }
 
+// IsProcessFailed returns true when the process is known to have failed.
+//
+// Authoritative path: when exitCodeSet=true, ExitCode != 0 marks failure.
+// Fallback path: when exitCodeSet=false (legacy proc-info.json without these
+// fields, or processes that haven't recorded an exit yet), falls back to the
+// result-text heuristic. The fallback exists only for backward compatibility —
+// new snapshots always set ExitCodeSet, eliminating false positives where a
+// successful process's output happens to contain "error" / "fail" / "timeout"
+// (e.g. code-review reports).
+func IsProcessFailed(exitCode int, exitCodeSet bool, result string) bool {
+	if exitCodeSet {
+		return exitCode != 0
+	}
+	return isFailedResult(result)
+}
+
 // EventTypeIcon returns the display icon for a unified event type.
 // In ASCII mode, emoji/Unicode symbols are replaced with terminal-safe equivalents.
 func EventTypeIcon(eventType string) string {

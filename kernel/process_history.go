@@ -211,6 +211,11 @@ type procInfoDisk struct {
 	ComposeDeps    []string `json:"compose_deps,omitempty"`
 	PipelineIndex  int      `json:"pipeline_index"`
 	PipelineTotal  int      `json:"pipeline_total"`
+	// Authoritative exit signal: 0 = success, non-zero = failure.
+	// ExitCodeSet=false (zero value, e.g. legacy snapshots without these fields)
+	// means dashboard must fall back to result-text heuristic.
+	ExitCode    int  `json:"exit_code,omitempty"`
+	ExitCodeSet bool `json:"exit_code_set,omitempty"`
 }
 
 func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
@@ -244,6 +249,8 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		// reload Suspended placeholders into procTable.
 		SuspendReason: info.SuspendReason,
 		IsPaused:      info.IsPaused,
+		ExitCode:      info.ExitCode,
+		ExitCodeSet:   info.ExitCodeSet,
 	}
 	if !info.DeadAt.IsZero() {
 		d.DeadAt = info.DeadAt.Format(time.RFC3339Nano)
@@ -288,6 +295,8 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		// stays zero on parse failure.
 		SuspendReason: d.SuspendReason,
 		IsPaused:      d.IsPaused,
+		ExitCode:      d.ExitCode,
+		ExitCodeSet:   d.ExitCodeSet,
 	}
 	if d.CreatedAt != "" {
 		info.CreatedAt, _ = time.Parse(time.RFC3339Nano, d.CreatedAt)

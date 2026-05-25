@@ -151,7 +151,7 @@ func renderDeadDetailCard(m *dashboardModel, proc *selectedProcRef, width, heigh
 	// Time range: "HH:MM:SS→HH:MM:SS dur" or just "HH:MM:SS dur"
 	timeRange := formatDetailTimeRange(d)
 	var line1 string
-	if !ui.IsFailedResult(proc.Result) {
+	if !ui.IsProcessFailed(proc.ExitCode, proc.ExitCodeSet, proc.Result) {
 		line1 = fmt.Sprintf("  %s Done (exit 0) │ %s │ %s tokens",
 			checkmark, timeRange, timeline.FormatTokenCount(d.ContextStats.TokensUsed))
 	} else {
@@ -191,10 +191,12 @@ func renderDeadDetailCardRight(m *dashboardModel, proc *selectedProcRef, width, 
 
 // selectedProcRef caches selected process fields for detail card rendering.
 type selectedProcRef struct {
-	State    types.ProcessState
-	Intent   string
-	Result   string
-	IsPaused bool
+	State       types.ProcessState
+	Intent      string
+	Result      string
+	IsPaused    bool
+	ExitCode    int
+	ExitCodeSet bool
 }
 
 // findSelectedProcess returns a reference to the selected process, or nil.
@@ -205,10 +207,12 @@ func findSelectedProcess(m *dashboardModel) *selectedProcRef {
 	for i := range m.processes {
 		if m.processes[i].PID == m.selectedPID && (m.selectedUUID == "" || m.processes[i].UUID == m.selectedUUID) {
 			return &selectedProcRef{
-				State:    m.processes[i].State,
-				Intent:   m.processes[i].Intent,
-				Result:   m.processes[i].Result,
-				IsPaused: m.processes[i].IsPaused,
+				State:       m.processes[i].State,
+				Intent:      m.processes[i].Intent,
+				Result:      m.processes[i].Result,
+				IsPaused:    m.processes[i].IsPaused,
+				ExitCode:    m.processes[i].ExitCode,
+				ExitCodeSet: m.processes[i].ExitCodeSet,
 			}
 		}
 	}

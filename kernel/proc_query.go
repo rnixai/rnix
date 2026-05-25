@@ -247,8 +247,12 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 
 	proc.mu.Lock()
 	exitReason := ""
+	exitCode := 0
+	exitCodeSet := false
 	if proc.Exit != nil {
 		exitReason = proc.Exit.Reason
+		exitCode = proc.Exit.Code
+		exitCodeSet = true
 	}
 	info := &vfs.ProcInfo{
 		PID:             proc.PID,
@@ -286,6 +290,8 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		ComposeDeps:    append([]string(nil), proc.ComposeDeps...),
 		PipelineIndex:  proc.PipelineIndex,
 		PipelineTotal:  proc.PipelineTotal,
+		ExitCode:       exitCode,
+		ExitCodeSet:    exitCodeSet,
 	}
 	proc.mu.Unlock()
 	return info, nil
@@ -310,8 +316,12 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 	k.procTable.Range(func(_ types.PID, proc *Process) bool {
 		proc.mu.Lock()
 		exitReason := ""
+		exitCode := 0
+		exitCodeSet := false
 		if proc.Exit != nil {
 			exitReason = proc.Exit.Reason
+			exitCode = proc.Exit.Code
+			exitCodeSet = true
 		}
 		infos = append(infos, vfs.ProcInfo{
 			PID:             proc.PID,
@@ -349,6 +359,8 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			ComposeDeps:    append([]string(nil), proc.ComposeDeps...),
 			PipelineIndex:  proc.PipelineIndex,
 			PipelineTotal:  proc.PipelineTotal,
+			ExitCode:       exitCode,
+			ExitCodeSet:    exitCodeSet,
 		})
 		proc.mu.Unlock()
 		return true

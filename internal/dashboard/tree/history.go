@@ -71,7 +71,7 @@ func RenderHistoryStats(procs []vfs.ProcInfo) string {
 		case types.StateRunning, types.StateCreated:
 			running++
 		case types.StateDead:
-			if ui.IsFailedResult(p.Result) {
+			if ui.IsProcessFailed(p.ExitCode, p.ExitCodeSet, p.Result) {
 				failed++
 			} else {
 				done++

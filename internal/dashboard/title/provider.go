@@ -45,7 +45,7 @@ func StyleProviderName(connected bool, proc *vfs.ProcInfo) string {
 	switch {
 	case !connected:
 		color = ui.ColorError
-	case proc.State == types.StateDead && ui.IsFailedResult(proc.Result):
+	case proc.State == types.StateDead && ui.IsProcessFailed(proc.ExitCode, proc.ExitCodeSet, proc.Result):
 		color = ui.ColorError
 	case proc.ContextBudget > 0 && int64(proc.TokensUsed)*100/int64(proc.ContextBudget) >= 80:
 		color = ui.ColorWarning

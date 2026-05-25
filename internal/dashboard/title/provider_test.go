@@ -4,10 +4,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/vfs"
 )
+
+// Force lipgloss into TrueColor so SGR codes are actually emitted in tests
+// (default `go test` sees no TTY and lipgloss strips escapes). This lets the
+// 方案 B regression test compare SGR output between the authoritative-success
+// path and the legacy text-heuristic path.
+func init() {
+	lipgloss.DefaultRenderer().SetColorProfile(termenv.TrueColor)
+}
 
 // TestStyleProviderName_NilProc covers the nil-safe contract — nil proc must
 // return empty string (no provider segment in title bar).
@@ -73,6 +84,43 @@ func TestStyleProviderName_DeadFailedRed(t *testing.T) {
 	s := StyleProviderName(true, proc)
 	if !strings.Contains(s, "claude-sonnet") {
 		t.Errorf("dead+failed provider name expected, got %q", s)
+	}
+}
+
+// TestStyleProviderName_DeadSuccessWithErrorKeyword pins the方案 B 回归 fix:
+// a successful Dead process whose result text happens to contain "error" /
+// "fail" / "timeout" (typical of code-review reviewer agents reporting found
+// problems) must NOT render red anymore — the authoritative ExitCode path
+// suppresses the text-heuristic false positive. We verify this by comparing
+// SGR output against the legacy fallback (ExitCodeSet=false), which still
+// flags red on the same result text.
+func TestStyleProviderName_DeadSuccessWithErrorKeyword(t *testing.T) {
+	auth := &vfs.ProcInfo{
+		Provider:    "claude-sonnet",
+		State:       types.StateDead,
+		ExitCode:    0,
+		ExitCodeSet: true,
+		Result:      "found [HIGH] error in archive.go",
+	}
+	authOut := StyleProviderName(true, auth)
+	if !strings.Contains(authOut, "claude-sonnet") {
+		t.Fatalf("authoritative-success provider name expected, got %q", authOut)
+	}
+
+	legacy := *auth
+	legacy.ExitCodeSet = false
+	legacyOut := StyleProviderName(true, &legacy)
+
+	// Sanity: legacy fallback must agree the result text is failure-looking,
+	// otherwise this test is not actually exercising the regression we fixed.
+	if !ui.IsFailedResult(legacy.Result) {
+		t.Skip("ui.IsFailedResult contract changed — test result text no longer trips heuristic")
+	}
+
+	// Authoritative path (success) and legacy path (red) must render
+	// different SGR codes for the same provider name + result text.
+	if authOut == legacyOut {
+		t.Errorf("ExitCodeSet=true must suppress text-heuristic false positive — auth=%q legacy=%q", authOut, legacyOut)
 	}
 }
 
