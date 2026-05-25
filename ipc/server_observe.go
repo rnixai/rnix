@@ -325,6 +325,19 @@ func (s *Server) handleGetStepDetail(conn net.Conn, rawPayload json.RawMessage) 
 	writeResponse(conn, Response{OK: true, Payload: payload})
 }
 
+// hasToolCallError reports whether any tool call in a step record carries an error.
+// Used to compute StepSummaryWire.HasError so a step whose last tool call succeeded
+// but earlier calls failed is still surfaced in the Timeline. (Without this, a step
+// that parallel-invokes Agent(failed) + Read(ok) would render as a clean step.)
+func hasToolCallError(calls []types.ToolCallRecord) bool {
+	for _, c := range calls {
+		if c.Error != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // handleListSteps returns step summaries for a process (Story 27.3).
 func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 	var req ListStepsRequest
@@ -361,7 +374,7 @@ func (s *Server) handleListSteps(conn net.Conn, rawPayload json.RawMessage) {
 			Action:      r.Action,
 			Summary:     r.Summary,
 			ToolPath:    r.ToolPath,
-			HasError:    r.ToolError != "",
+			HasError:    r.ToolError != "" || hasToolCallError(r.ToolCalls),
 			DurationMs:  float64(r.ToolDuration.Microseconds()) / 1000.0,
 			TokenCount:  r.TokenCount,
 			TimestampMs: r.Timestamp.Milliseconds(),

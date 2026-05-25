@@ -245,6 +245,16 @@ toolLoop:
 					ErrorCode:  errCode,
 					DurationMs: callDurMs,
 				})
+				// Symmetric with the success path (line ~284): emit a ReasonStep event so
+				// events.jsonl / Debug timeline / immune monitor see the failed tool call.
+				// Without this, failed vfs tool calls were silent at the syscall layer —
+				// only the CtxWrite (AppendToolResult) trace remained.
+				k.emitEvent(proc, "ReasonStep", map[string]any{
+					"step":   step,
+					"action": "native_tool_call",
+					"tool":   tc.Name,
+					"error":  errMsg,
+				}, nil, err, time.Since(stepStart))
 				// Cancellation/timeout errors are recorded but do not contribute to the circuit
 				// breaker — they reflect user intent or upstream deadline, not tool misuse.
 				if !cancelled {
@@ -361,12 +371,12 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		proc.mu.Unlock()
 
 		vfsPath := mapping.VFSPath + "/" + pathStr
-		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_RDONLY)
+		fd, err := k.vfsOpenWithEvent(proc, vfsPath, vfs.O_RDONLY)
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
-		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
-		_ = k.vfs.Close(proc.PID, fd)
+		data, err := k.vfsReadWithEvent(proc, fd, 1<<20)
+		_ = k.vfsCloseWithEvent(proc, fd)
 		if err != nil {
 			return "", fmt.Errorf("read failed: %w", err)
 		}
@@ -389,17 +399,17 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 
 		contentStr, _ := tc.Input["content"].(string)
 		vfsPath := mapping.VFSPath + "/" + pathStr
-		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_WRONLY)
+		fd, err := k.vfsOpenWithEvent(proc, vfsPath, vfs.O_WRONLY)
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
 		writeData, _ := json.Marshal(map[string]string{"content": contentStr})
-		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
-			_ = k.vfs.Close(proc.PID, fd)
+		if err := k.vfsWriteWithEvent(proc, fd, writeData); err != nil {
+			_ = k.vfsCloseWithEvent(proc, fd)
 			return "", fmt.Errorf("write failed: %w", err)
 		}
-		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
-		_ = k.vfs.Close(proc.PID, fd)
+		data, err := k.vfsReadWithEvent(proc, fd, 1<<20)
+		_ = k.vfsCloseWithEvent(proc, fd)
 		if err != nil {
 			return "", fmt.Errorf("read result failed: %w", err)
 		}
@@ -417,17 +427,17 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 			return "", fmt.Errorf("list_dir: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\"}", string(received))
 		}
 		vfsPath := mapping.VFSPath + "/" + pathStr
-		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_WRONLY)
+		fd, err := k.vfsOpenWithEvent(proc, vfsPath, vfs.O_WRONLY)
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
 		writeData, _ := json.Marshal(map[string]string{"op": "list"})
-		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
-			_ = k.vfs.Close(proc.PID, fd)
+		if err := k.vfsWriteWithEvent(proc, fd, writeData); err != nil {
+			_ = k.vfsCloseWithEvent(proc, fd)
 			return "", fmt.Errorf("write failed: %w", err)
 		}
-		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
-		_ = k.vfs.Close(proc.PID, fd)
+		data, err := k.vfsReadWithEvent(proc, fd, 1<<20)
+		_ = k.vfsCloseWithEvent(proc, fd)
 		if err != nil {
 			return "", fmt.Errorf("read result failed: %w", err)
 		}
@@ -457,17 +467,17 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		}
 
 		vfsPath := mapping.VFSPath + "/" + pathStr
-		fd, err := k.vfs.Open(proc.PID, vfsPath, vfs.O_WRONLY)
+		fd, err := k.vfsOpenWithEvent(proc, vfsPath, vfs.O_WRONLY)
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
 		writeData, _ := json.Marshal(editReq)
-		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
-			_ = k.vfs.Close(proc.PID, fd)
+		if err := k.vfsWriteWithEvent(proc, fd, writeData); err != nil {
+			_ = k.vfsCloseWithEvent(proc, fd)
 			return "", fmt.Errorf("write failed: %w", err)
 		}
-		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
-		_ = k.vfs.Close(proc.PID, fd)
+		data, err := k.vfsReadWithEvent(proc, fd, 1<<20)
+		_ = k.vfsCloseWithEvent(proc, fd)
 		if err != nil {
 			return "", fmt.Errorf("read result failed: %w", err)
 		}
@@ -493,17 +503,17 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		}
 
 		// Open at the workDir root (no subpath)
-		fd, err := k.vfs.Open(proc.PID, mapping.VFSPath+"/.", vfs.O_WRONLY)
+		fd, err := k.vfsOpenWithEvent(proc, mapping.VFSPath+"/.", vfs.O_WRONLY)
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
 		writeData, _ := json.Marshal(globReq)
-		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
-			_ = k.vfs.Close(proc.PID, fd)
+		if err := k.vfsWriteWithEvent(proc, fd, writeData); err != nil {
+			_ = k.vfsCloseWithEvent(proc, fd)
 			return "", fmt.Errorf("write failed: %w", err)
 		}
-		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
-		_ = k.vfs.Close(proc.PID, fd)
+		data, err := k.vfsReadWithEvent(proc, fd, 1<<20)
+		_ = k.vfsCloseWithEvent(proc, fd)
 		if err != nil {
 			return "", fmt.Errorf("read result failed: %w", err)
 		}
@@ -522,17 +532,17 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 			}
 		}
 
-		fd, err := k.vfs.Open(proc.PID, mapping.VFSPath+"/.", vfs.O_WRONLY)
+		fd, err := k.vfsOpenWithEvent(proc, mapping.VFSPath+"/.", vfs.O_WRONLY)
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
 		writeData, _ := json.Marshal(grepReq)
-		if err := k.vfs.Write(proc.ctx, proc.PID, fd, writeData); err != nil {
-			_ = k.vfs.Close(proc.PID, fd)
+		if err := k.vfsWriteWithEvent(proc, fd, writeData); err != nil {
+			_ = k.vfsCloseWithEvent(proc, fd)
 			return "", fmt.Errorf("write failed: %w", err)
 		}
-		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
-		_ = k.vfs.Close(proc.PID, fd)
+		data, err := k.vfsReadWithEvent(proc, fd, 1<<20)
+		_ = k.vfsCloseWithEvent(proc, fd)
 		if err != nil {
 			return "", fmt.Errorf("read result failed: %w", err)
 		}
@@ -545,27 +555,18 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		if isEmpty {
 			openFlags = vfs.O_RDONLY
 		}
-		openStart := time.Now()
-		fd, err := k.vfs.Open(proc.PID, mapping.VFSPath, openFlags)
-		k.emitEvent(proc, "Open", map[string]any{"path": mapping.VFSPath, "flags": int(openFlags)}, fd, err, time.Since(openStart))
+		fd, err := k.vfsOpenWithEvent(proc, mapping.VFSPath, openFlags)
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
 		if !isEmpty {
-			writeStart := time.Now()
-			if err := k.vfs.Write(proc.ctx, proc.PID, fd, inputData); err != nil {
-				k.emitEvent(proc, "Write", map[string]any{"fd": fd, "size": len(inputData)}, nil, err, time.Since(writeStart))
-				_ = k.vfs.Close(proc.PID, fd)
+			if err := k.vfsWriteWithEvent(proc, fd, inputData); err != nil {
+				_ = k.vfsCloseWithEvent(proc, fd)
 				return "", fmt.Errorf("write failed: %w", err)
 			}
-			k.emitEvent(proc, "Write", map[string]any{"fd": fd, "size": len(inputData)}, nil, nil, time.Since(writeStart))
 		}
-		readStart := time.Now()
-		data, err := k.vfs.Read(proc.PID, fd, 1<<20)
-		k.emitEvent(proc, "Read", map[string]any{"fd": fd, "length": 1 << 20}, len(data), err, time.Since(readStart))
-		closeStart := time.Now()
-		closeErr := k.vfs.Close(proc.PID, fd)
-		k.emitEvent(proc, "Close", map[string]any{"fd": fd}, nil, closeErr, time.Since(closeStart))
+		data, err := k.vfsReadWithEvent(proc, fd, 1<<20)
+		_ = k.vfsCloseWithEvent(proc, fd)
 		if err != nil {
 			return "", fmt.Errorf("read failed: %w", err)
 		}
@@ -669,6 +670,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
+				k.writeSpawnFailureStepRecord(proc, step, tc, errMsg, promptResult, rawResponseStr, resp, stepStart)
 				if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
 					k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "circuit_breaker", "consecutive_errors": counter.count}, nil, nil, time.Since(stepStart))
 					k.finishProcess(proc, ExitStatus{Code: 1, Reason: circuitBreakerReason(counter.fp, counter.count)})
@@ -682,6 +684,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, loadErr, time.Since(stepStart))
+				k.writeSpawnFailureStepRecord(proc, step, tc, errMsg, promptResult, rawResponseStr, resp, stepStart)
 				if !isCancellation(loadErr) {
 					// Use ErrInternal so all spawn-error sub-types share fingerprint "INTERNAL|spawn".
 					if _, tripped := bumpToolError(counter, seen, string(types.ErrInternal), "spawn"); tripped {
@@ -700,6 +703,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			errMsg := fmt.Sprintf("Agent failed: %v", err)
 			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, err, time.Since(stepStart))
+			k.writeSpawnFailureStepRecord(proc, step, tc, errMsg, promptResult, rawResponseStr, resp, stepStart)
 			if !isCancellation(err) {
 				// All spawn-error branches share fingerprint "INTERNAL|spawn" so that mixed
 				// failure modes (no-loader / load-fail / spawn-fail) accumulate together —
@@ -961,6 +965,69 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 	}
 
 	return true
+}
+
+// vfsOpenWithEvent wraps VFS.Open with an Open syscall emit so events.jsonl
+// reflects every tool's underlying file activity — including the 6 fast-path
+// tools (Read/Write/Edit/Glob/Grep/list_dir) that previously bypassed emit and
+// left strace/heatmap/Debug timeline blind to vfs interactions.
+func (k *KernelImpl) vfsOpenWithEvent(proc *Process, path string, flags vfs.OpenFlag) (types.FD, error) {
+	start := time.Now()
+	fd, err := k.vfs.Open(proc.PID, path, flags)
+	k.emitEvent(proc, "Open", map[string]any{"path": path, "flags": int(flags)}, fd, err, time.Since(start))
+	return fd, err
+}
+
+// vfsWriteWithEvent wraps VFS.Write with a Write syscall emit. Mirrors the
+// default-branch emit pattern so fast-path tools that internally Write request
+// payloads (Edit/Glob/Grep/list_dir/Write) participate in observation.
+func (k *KernelImpl) vfsWriteWithEvent(proc *Process, fd types.FD, data []byte) error {
+	start := time.Now()
+	err := k.vfs.Write(proc.ctx, proc.PID, fd, data)
+	k.emitEvent(proc, "Write", map[string]any{"fd": fd, "size": len(data)}, nil, err, time.Since(start))
+	return err
+}
+
+// vfsReadWithEvent wraps VFS.Read with a Read syscall emit. Returns both data
+// and error so fast-path callers retain their existing fallthrough semantics.
+func (k *KernelImpl) vfsReadWithEvent(proc *Process, fd types.FD, length int) ([]byte, error) {
+	start := time.Now()
+	data, err := k.vfs.Read(proc.PID, fd, length)
+	k.emitEvent(proc, "Read", map[string]any{"fd": fd, "length": length}, len(data), err, time.Since(start))
+	return data, err
+}
+
+// vfsCloseWithEvent wraps VFS.Close with a Close syscall emit so fd lifecycle
+// is visible in events.jsonl. Matches the default-branch emit (line ~568).
+func (k *KernelImpl) vfsCloseWithEvent(proc *Process, fd types.FD) error {
+	start := time.Now()
+	err := k.vfs.Close(proc.PID, fd)
+	k.emitEvent(proc, "Close", map[string]any{"fd": fd}, nil, err, time.Since(start))
+	return err
+}
+
+// writeSpawnFailureStepRecord persists an ActionSpawn failure as a steps.jsonl row.
+// Without this, a step whose only LLM tool call is a failing Agent() would never
+// appear in the Timeline pane — executeMetaAction does not feed toolCallsAcc, and
+// reason.go's "tool_call" writeStepRecord path only fires when toolCallsAcc is
+// non-empty. The synthetic ToolCallRecord lets the IPC layer's HasError aggregation
+// (server_observe.hasToolCallError) light up the err marker on the step row.
+func (k *KernelImpl) writeSpawnFailureStepRecord(proc *Process, step int, tc llmToolCall,
+	errMsg string, promptResult *rnixctx.PromptResult, rawResponseStr string,
+	resp *llmResponse, stepStart time.Time) {
+
+	inputJSON, _ := json.Marshal(tc.Input)
+	rec := types.ToolCallRecord{
+		ID:    tc.ID,
+		Name:  tc.Name,
+		Path:  "spawn",
+		Input: string(inputJSON),
+		Error: errMsg,
+	}
+	k.writeStepRecord(proc, step, promptResult, rawResponseStr, resp,
+		"spawn", briefTextSummary(errMsg),
+		"spawn", string(inputJSON), "", errMsg, time.Since(stepStart),
+		[]types.ToolCallRecord{rec})
 }
 
 // resolveSpawnAgentLoader returns the agent loader to use for ActionSpawn.
