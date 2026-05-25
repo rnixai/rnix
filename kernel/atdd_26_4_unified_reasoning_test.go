@@ -21,7 +21,7 @@ func makePlanResponse(steps []string, reason string, tokens int) []byte {
 		TokensUsed: tokens,
 		ToolCalls: []llmToolCall{{
 			ID:    "call_plan",
-			Name:  "plan",
+			Name:  "EnterPlanMode",
 			Input: map[string]any{"steps": steps, "reason": reason},
 		}},
 	}
@@ -51,7 +51,7 @@ func makeSpawnResponse(intent string, agent string, tokens int) []byte {
 		TokensUsed: tokens,
 		ToolCalls: []llmToolCall{{
 			ID:    "call_spawn",
-			Name:  "spawn",
+			Name:  "Agent",
 			Input: input,
 		}},
 	}

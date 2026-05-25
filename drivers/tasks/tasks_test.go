@@ -28,10 +28,10 @@ func TestTasksDriver_ToolDefs_Metadata(t *testing.T) {
 		deferred   bool
 		hint       string
 	}{
-		{"task_create", false, true, false, false, "task create manage todo"},
-		{"task_update", false, true, false, false, "task update status progress"},
-		{"task_list", true, true, false, false, "task list query filter"},
-		{"task_get", true, true, false, false, "task get detail info"},
+		{"TaskCreate", false, true, false, false, "task create manage todo"},
+		{"TaskUpdate", false, true, false, false, "task update status progress"},
+		{"TaskList", true, true, false, false, "task list query filter"},
+		{"TaskGet", true, true, false, false, "task get detail info"},
 	}
 
 	for i, tt := range tests {

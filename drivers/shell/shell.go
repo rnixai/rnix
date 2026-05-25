@@ -55,8 +55,8 @@ var _ vfs.ToolDescriptor = (*ShellDriver)(nil)
 func (d *ShellDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:            "shell",
-			Description:     loadPrompt("shell"),
+			Name:            "Bash",
+			Description:     loadPrompt("Bash"),
 			MaxResultTokens: 30000,
 			Parameters: map[string]any{
 				"type": "object",

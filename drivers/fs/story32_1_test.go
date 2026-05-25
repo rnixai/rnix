@@ -493,60 +493,60 @@ func TestToolDefs_MetadataAnnotations(t *testing.T) {
 		defMap[d.Name] = d
 	}
 
-	// read_file: read-only, concurrency safe
-	if rd, ok := defMap["read_file"]; ok {
+	// Read: read-only, concurrency safe
+	if rd, ok := defMap["Read"]; ok {
 		if !rd.IsReadOnly {
-			t.Error("read_file should be IsReadOnly")
+			t.Error("Read should be IsReadOnly")
 		}
 		if !rd.IsConcurrencySafe {
-			t.Error("read_file should be IsConcurrencySafe")
+			t.Error("Read should be IsConcurrencySafe")
 		}
 		if rd.IsDestructive {
-			t.Error("read_file should not be IsDestructive")
+			t.Error("Read should not be IsDestructive")
 		}
 	} else {
-		t.Error("read_file ToolDef not found")
+		t.Error("Read ToolDef not found")
 	}
 
-	// write_file: concurrency safe, not destructive (per spec table)
-	if wr, ok := defMap["write_file"]; ok {
+	// Write: concurrency safe, not destructive (per spec table)
+	if wr, ok := defMap["Write"]; ok {
 		if !wr.IsConcurrencySafe {
-			t.Error("write_file should be IsConcurrencySafe")
+			t.Error("Write should be IsConcurrencySafe")
 		}
 		if wr.IsReadOnly {
-			t.Error("write_file should not be IsReadOnly")
+			t.Error("Write should not be IsReadOnly")
 		}
 	} else {
-		t.Error("write_file ToolDef not found")
+		t.Error("Write ToolDef not found")
 	}
 
-	// edit_file: not explicitly destructive (surgical edit)
-	if _, ok := defMap["edit_file"]; !ok {
-		t.Error("edit_file ToolDef not found")
+	// Edit: not explicitly destructive (surgical edit)
+	if _, ok := defMap["Edit"]; !ok {
+		t.Error("Edit ToolDef not found")
 	}
 
-	// glob: read-only, concurrency safe
-	if g, ok := defMap["glob"]; ok {
+	// Glob: read-only, concurrency safe
+	if g, ok := defMap["Glob"]; ok {
 		if !g.IsReadOnly {
-			t.Error("glob should be IsReadOnly")
+			t.Error("Glob should be IsReadOnly")
 		}
 		if !g.IsConcurrencySafe {
-			t.Error("glob should be IsConcurrencySafe")
+			t.Error("Glob should be IsConcurrencySafe")
 		}
 	} else {
-		t.Error("glob ToolDef not found")
+		t.Error("Glob ToolDef not found")
 	}
 
-	// grep: read-only, concurrency safe
-	if g, ok := defMap["grep"]; ok {
+	// Grep: read-only, concurrency safe
+	if g, ok := defMap["Grep"]; ok {
 		if !g.IsReadOnly {
-			t.Error("grep should be IsReadOnly")
+			t.Error("Grep should be IsReadOnly")
 		}
 		if !g.IsConcurrencySafe {
-			t.Error("grep should be IsConcurrencySafe")
+			t.Error("Grep should be IsConcurrencySafe")
 		}
 	} else {
-		t.Error("grep ToolDef not found")
+		t.Error("Grep ToolDef not found")
 	}
 }
 
@@ -568,7 +568,7 @@ func TestToolDefs_EmbedDescriptions(t *testing.T) {
 }
 
 func TestLoadPrompt_KnownTemplates(t *testing.T) {
-	for _, name := range []string{"read_file", "write_file", "list_dir", "edit_file", "glob", "grep"} {
+	for _, name := range []string{"Read", "Write", "list_dir", "Edit", "Glob", "Grep"} {
 		content := loadPrompt(name)
 		if content == "" {
 			t.Errorf("loadPrompt(%q) returned empty", name)

@@ -32,8 +32,8 @@ func NewDriverWithStore(store *TaskStore) *TasksDriver {
 func (d *TasksDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "task_create",
-			Description:       loadPrompt("task_create"),
+			Name:              "TaskCreate",
+			Description:       loadPrompt("TaskCreate"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: true,
 			IsDestructive:     false,
@@ -74,8 +74,8 @@ func (d *TasksDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "task_update",
-			Description:       loadPrompt("task_update"),
+			Name:              "TaskUpdate",
+			Description:       loadPrompt("TaskUpdate"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: true,
 			IsDestructive:     false,
@@ -120,8 +120,8 @@ func (d *TasksDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "task_list",
-			Description:       loadPrompt("task_list"),
+			Name:              "TaskList",
+			Description:       loadPrompt("TaskList"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
 			IsDestructive:     false,
@@ -139,8 +139,8 @@ func (d *TasksDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "task_get",
-			Description:       loadPrompt("task_get"),
+			Name:              "TaskGet",
+			Description:       loadPrompt("TaskGet"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
 			IsDestructive:     false,

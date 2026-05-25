@@ -62,8 +62,8 @@ func TestWebDriver_ToolDefs_Metadata(t *testing.T) {
 
 	// Verify web_fetch ToolDef
 	fetch := defs[0]
-	if fetch.Name != "web_fetch" {
-		t.Errorf("expected name 'web_fetch', got %q", fetch.Name)
+	if fetch.Name != "WebFetch" {
+		t.Errorf("expected name 'WebFetch', got %q", fetch.Name)
 	}
 	if !fetch.IsReadOnly {
 		t.Error("web_fetch should be ReadOnly")
@@ -86,8 +86,8 @@ func TestWebDriver_ToolDefs_Metadata(t *testing.T) {
 
 	// Verify web_search ToolDef
 	search := defs[1]
-	if search.Name != "web_search" {
-		t.Errorf("expected name 'web_search', got %q", search.Name)
+	if search.Name != "WebSearch" {
+		t.Errorf("expected name 'WebSearch', got %q", search.Name)
 	}
 	if !search.IsReadOnly {
 		t.Error("web_search should be ReadOnly")
@@ -749,11 +749,11 @@ func TestDeviceRegistration_Integration(t *testing.T) {
 	if len(defs) != 2 {
 		t.Errorf("expected 2 ToolDefs, got %d", len(defs))
 	}
-	if defs[0].Name != "web_fetch" {
-		t.Errorf("expected first ToolDef name 'web_fetch', got %q", defs[0].Name)
+	if defs[0].Name != "WebFetch" {
+		t.Errorf("expected first ToolDef name 'WebFetch', got %q", defs[0].Name)
 	}
-	if defs[1].Name != "web_search" {
-		t.Errorf("expected second ToolDef name 'web_search', got %q", defs[1].Name)
+	if defs[1].Name != "WebSearch" {
+		t.Errorf("expected second ToolDef name 'WebSearch', got %q", defs[1].Name)
 	}
 
 	found := false

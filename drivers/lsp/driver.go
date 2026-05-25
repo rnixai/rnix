@@ -46,8 +46,8 @@ var _ vfs.ToolDescriptor = (*LspDriver)(nil)
 func (d *LspDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "lsp",
-			Description:       loadPrompt("lsp"),
+			Name:              "LSP",
+			Description:       loadPrompt("LSP"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
 			IsDestructive:     false,

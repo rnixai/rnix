@@ -287,7 +287,7 @@ toolLoop:
 					"action": "native_tool_call",
 					"tool":   tc.Name,
 				}
-				if tc.Name == "shell" {
+				if tc.Name == "Bash" {
 					if cmd, _ := tc.Input["command"].(string); cmd != "" {
 						meta["is_read_only"] = drivershell.IsReadOnlyCommand(cmd)
 					}
@@ -337,11 +337,11 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 	}
 
 	switch mapping.FSOperation {
-	case "read_file":
+	case "Read":
 		pathStr, _ := tc.Input["path"].(string)
 		if pathStr == "" {
 			received, _ := json.Marshal(tc.Input)
-			return "", fmt.Errorf("read_file: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\"}", string(received))
+			return "", fmt.Errorf("tool %q: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\"}", "Read", string(received))
 		}
 
 		// Get file mtime for dedup and tracking
@@ -374,11 +374,11 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		k.trackReadFile(proc, pathStr, string(data), fileMtime)
 		return string(data), nil
 
-	case "write_file":
+	case "Write":
 		pathStr, _ := tc.Input["path"].(string)
 		if pathStr == "" {
 			received, _ := json.Marshal(tc.Input)
-			return "", fmt.Errorf("write_file: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\", \"content\": \"<text>\"}", string(received))
+			return "", fmt.Errorf("tool %q: missing required 'path' parameter. Received: %s. Expected: {\"path\": \"<relative_path>\", \"content\": \"<text>\"}", "Write", string(received))
 		}
 
 		// Read-before-write safety check (Story 32.1 AC#3)
@@ -433,11 +433,11 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		}
 		return string(data), nil
 
-	case "edit_file":
+	case "Edit":
 		pathStr, _ := tc.Input["path"].(string)
 		if pathStr == "" {
 			received, _ := json.Marshal(tc.Input)
-			return "", fmt.Errorf("edit_file: missing required 'path' parameter. Received: %s", string(received))
+			return "", fmt.Errorf("tool %q: missing required 'path' parameter. Received: %s", "Edit", string(received))
 		}
 
 		// Read-before-write safety check (Story 32.1 AC#3)
@@ -478,11 +478,11 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		k.updateReadFileMtime(proc, pathStr)
 		return result, nil
 
-	case "glob":
+	case "Glob":
 		patternStr, _ := tc.Input["pattern"].(string)
 		if patternStr == "" {
 			received, _ := json.Marshal(tc.Input)
-			return "", fmt.Errorf("glob: missing required 'pattern' parameter. Received: %s", string(received))
+			return "", fmt.Errorf("tool %q: missing required 'pattern' parameter. Received: %s", "Glob", string(received))
 		}
 		globReq := map[string]any{"op": "glob", "pattern": patternStr}
 		if v, ok := tc.Input["path"]; ok {
@@ -509,11 +509,11 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 		}
 		return string(data), nil
 
-	case "grep":
+	case "Grep":
 		patternStr, _ := tc.Input["pattern"].(string)
 		if patternStr == "" {
 			received, _ := json.Marshal(tc.Input)
-			return "", fmt.Errorf("grep: missing required 'pattern' parameter. Received: %s", string(received))
+			return "", fmt.Errorf("tool %q: missing required 'pattern' parameter. Received: %s", "Grep", string(received))
 		}
 		grepReq := map[string]any{"op": "grep", "pattern": patternStr}
 		for _, key := range []string{"path", "output_mode", "case_insensitive", "glob", "context", "head_limit"} {
@@ -665,7 +665,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		if agentStr != "" {
 			loader, hasLoader := k.resolveSpawnAgentLoader(proc)
 			if !hasLoader {
-				errMsg := fmt.Sprintf("spawn error: agent %q requested but no agent loader configured", agentStr)
+				errMsg := fmt.Sprintf("Agent error: agent %q requested but no agent loader configured", agentStr)
 				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, fmt.Errorf("%s", errMsg), time.Since(stepStart))
@@ -678,7 +678,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			}
 			ai, loadErr := loader(agentStr)
 			if loadErr != nil {
-				errMsg := fmt.Sprintf("spawn error: agent %q load failed: %v", agentStr, loadErr)
+				errMsg := fmt.Sprintf("Agent error: agent %q load failed: %v", agentStr, loadErr)
 				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "spawn")
 				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, loadErr, time.Since(stepStart))
@@ -697,7 +697,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 
 		childPID, err := k.Spawn(intentStr, agentInfo, childOpts)
 		if err != nil {
-			errMsg := fmt.Sprintf("spawn failed: %v", err)
+			errMsg := fmt.Sprintf("Agent failed: %v", err)
 			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_error"}, nil, err, time.Since(stepStart))
 			if !isCancellation(err) {
@@ -714,7 +714,20 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		// Successful spawn resets the circuit breaker — matches the vfs success path
 		// and the spec's "any tool success resets counter" rule.
 		counter.reset()
-		childExit, _ := k.Wait(childPID)
+		// WaitChildInReason is cancellable on parent.ctx (so SuspendSubtree on
+		// the parent can unwind reasonStep instead of deadlocking on a child
+		// that may run for many minutes) and refreshes parent.LastHeartbeat
+		// periodically (so heartbeat_monitor does not escalate stall recovery
+		// on a parent legitimately blocked on its child).
+		childExit, cancelled := k.WaitChildInReason(proc, childPID)
+		if cancelled {
+			// Parent ctx cancelled (Suspend / Kill). Don't append a tool result
+			// or fall through — the reasonStep top-of-loop ctx check on the
+			// next iteration drives the clean suspend/exit path. Returning
+			// here also lets proc.wg.Wait() in suspendOneForSubtree complete.
+			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_cancelled", "child_pid": childPID}, nil, nil, time.Since(stepStart))
+			return false
+		}
 		childProc, _ := k.GetProcess(childPID)
 		result := ""
 		if childProc != nil {
@@ -740,9 +753,9 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		return true
 
 	case ActionSpecialize:
-		skillName, _ := tc.Input["skill_name"].(string)
+		skillName, _ := tc.Input["skill"].(string)
 		if skillName == "" {
-			errMsg := "specialize error: empty skill name"
+			errMsg := "Skill error: empty skill name"
 			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error"}, nil, nil, time.Since(stepStart))
@@ -750,7 +763,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		}
 		loader, hasLoader := k.resolveSpecializeSkillLoader(proc)
 		if !hasLoader {
-			errMsg := "specialize error: no skill loader configured"
+			errMsg := "Skill error: no skill loader configured"
 			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error"}, nil, nil, time.Since(stepStart))
@@ -770,7 +783,7 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 
 		skillInfo, loadErr := loader(skillName)
 		if loadErr != nil {
-			errMsg := fmt.Sprintf("specialize error: skill %q load failed: %v", skillName, loadErr)
+			errMsg := fmt.Sprintf("Skill error: skill %q load failed: %v", skillName, loadErr)
 			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 			k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_error", "skill": skillName}, nil, loadErr, time.Since(stepStart))
@@ -872,9 +885,18 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 
 	case ActionDiscoverSkill:
 		query, _ := tc.Input["query"].(string)
-		matches, err := discoverSkills(proc, query)
+		maxResults := 0
+		if v, ok := tc.Input["max_results"]; ok {
+			switch n := v.(type) {
+			case float64:
+				maxResults = int(n)
+			case int:
+				maxResults = n
+			}
+		}
+		matches, err := discoverSkills(proc, query, maxResults)
 		if err != nil {
-			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, "discover_skill error: "+err.Error())
+			_ = k.appendToolResult(proc, step, tc.ID, tc.Name, "ToolSearch error: "+err.Error())
 			return true
 		}
 		resultStr := discoverResultJSON(query, matches)
@@ -883,9 +905,9 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		return true
 
 	case ActionDeferredSkillPlaceholder:
-		// LLM tried to call a deferred skill placeholder — guide it to use discover_skill + specialize
+		// LLM tried to call a deferred skill placeholder — guide it to use ToolSearch + Skill
 		skillName := strings.TrimPrefix(tc.Name, "skill_")
-		msg := fmt.Sprintf("This skill (%s) is deferred and not yet loaded. Use discover_skill to search for it, then specialize to load it.", skillName)
+		msg := fmt.Sprintf("This skill (%s) is deferred and not yet loaded. Use ToolSearch to search for it, then Skill to load it.", skillName)
 		_ = k.appendToolResult(proc, step, tc.ID, tc.Name, msg)
 		return true
 

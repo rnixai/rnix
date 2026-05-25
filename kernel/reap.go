@@ -287,6 +287,72 @@ func (k *KernelImpl) Wait(pid types.PID) (ExitStatus, error) {
 	return exit, nil
 }
 
+// WaitChildInReason is the cancellable + heartbeat-aware variant of Wait used
+// by the parent's reasonStep when handling ActionSpawn. Unlike Wait it:
+//
+//   - selects on parent.ctx.Done() so a SuspendSubtree / Kill on the parent can
+//     unwind the reasonStep goroutine instead of deadlocking proc.wg.Wait()
+//     (which suspendOneForSubtree depends on for state transitions)
+//   - periodically calls parent.TouchHeartbeat() so the heartbeat monitor does
+//     not flag the parent as STALLED while it is legitimately waiting on a
+//     long-running child (the heartbeat monitor's `primaryDevice == ""` skip
+//     only covers script-runners, not reasoning parents)
+//
+// Returns (childExit, cancelled). When cancelled is true the caller MUST
+// return from reasonStep without appending tool results — the loop's
+// top-of-iteration ctx check then drives the clean suspend/exit path.
+//
+// On normal child completion this performs the same emit + reapProcess as
+// Wait; on cancellation the child is left in its current state for the
+// SuspendSubtree walker (or the reaper) to clean up.
+func (k *KernelImpl) WaitChildInReason(parent *Process, childPID types.PID) (ExitStatus, bool) {
+	start := time.Now()
+
+	child, ok := k.GetProcess(childPID)
+	if !ok {
+		return ExitStatus{}, false
+	}
+
+	k.emitEvent(child, "Wait", map[string]any{
+		"pid": childPID,
+	}, nil, nil, 0)
+
+	// Heartbeat refresh cadence: third of StepTimeout, capped at 30s. The
+	// cap matters when StepTimeout is large (10m+) — refresh every 30s is
+	// still cheap (single mutex + time.Now) and keeps the LastHeartbeat-vs-
+	// StepTimeout gap well below the threshold even under skewed clocks.
+	hbInterval := parent.StepTimeout / 3
+	if hbInterval <= 0 || hbInterval > 30*time.Second {
+		hbInterval = 30 * time.Second
+	}
+	ticker := time.NewTicker(hbInterval)
+	defer ticker.Stop()
+
+	parentCtxDone := parent.CancelledCh()
+
+	for {
+		select {
+		case exit := <-child.Done:
+			k.emitEvent(child, "Wait", map[string]any{
+				"pid":    childPID,
+				"action": "completed",
+			}, exit, nil, time.Since(start))
+			k.reapProcess(child)
+			return exit, false
+
+		case <-parentCtxDone:
+			k.emitEvent(child, "Wait", map[string]any{
+				"pid":    childPID,
+				"action": "parent_cancelled",
+			}, nil, nil, time.Since(start))
+			return ExitStatus{}, true
+
+		case <-ticker.C:
+			parent.TouchHeartbeat()
+		}
+	}
+}
+
 // Reap triggers cleanup of a zombie process by PID.
 // Safe to call even if the process has already been reaped (idempotent via reapOnce).
 // This is used by the IPC server to reap top-level processes (PPID=0) after

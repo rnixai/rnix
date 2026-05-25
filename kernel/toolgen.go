@@ -13,7 +13,7 @@ type toolMapping struct {
 	Type        string     // "vfs" or "meta"
 	VFSPath     string     // VFS device path (for Type="vfs")
 	Action      ActionType // meta action type (for Type="meta")
-	FSOperation string     // "read_file", "write_file", "list_dir" for /dev/fs tools
+	FSOperation string     // "Read", "Write", "list_dir", "Edit", "Glob", "Grep" for /dev/fs tools (PascalCase canonical names; list_dir kept as-is — CC has no equivalent)
 }
 
 // buildToolDefs collects ToolDefs from registered VFS device drivers.
@@ -43,7 +43,7 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 			m := toolMapping{Type: "vfs", VFSPath: vfsPath}
 			// Tag FS operations for special handling in executeVFSTool
 			switch def.Name {
-			case "read_file", "write_file", "list_dir", "edit_file", "glob", "grep":
+			case "Read", "Write", "list_dir", "Edit", "Glob", "Grep":
 				m.FSOperation = def.Name
 			}
 			toolMap[def.Name] = m
@@ -68,7 +68,8 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 	return defs, toolMap
 }
 
-// metaToolDefs returns ToolDefs for kernel meta actions (complete, spawn, replan, specialize, plan).
+// metaToolDefs returns ToolDefs for kernel meta actions (complete, Agent, replan, Skill, EnterPlanMode).
+// Tool names follow Claude Code canonical form to match LLM training distribution anchors.
 func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]vfs.ToolDef, map[string]toolMapping) {
 	defs := []vfs.ToolDef{
 		{
@@ -87,8 +88,8 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 			},
 		},
 		{
-			Name:            "spawn",
-			Description:     "Spawn a child process to handle a sub-task.",
+			Name:            "Agent",
+			Description:     "Spawn a child process (sub-agent) to handle a sub-task. Returns the agent's report when it completes.",
 			MaxResultTokens: 0, // unlimited — meta action
 			Parameters: map[string]any{
 				"type": "object",
@@ -125,23 +126,27 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 			},
 		},
 		{
-			Name:            "specialize",
+			Name:            "Skill",
 			Description:     "Dynamically load a skill to gain new capabilities.",
 			MaxResultTokens: 0, // unlimited — meta action
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"skill_name": map[string]any{
+					"skill": map[string]any{
 						"type":        "string",
 						"description": "Name of the skill to load",
 					},
+					"args": map[string]any{
+						"type":        "string",
+						"description": "Optional arguments for the skill (reserved; currently ignored)",
+					},
 				},
-				"required": []string{"skill_name"},
+				"required": []string{"skill"},
 			},
 		},
 		{
-			Name:            "discover_skill",
-			Description:     "Search deferred skills by keyword to find relevant capabilities without loading them. Returns matching skill names with descriptions and relevance scores.",
+			Name:            "ToolSearch",
+			Description:     "Search deferred tools by keyword to find relevant capabilities without loading them. Returns matching tool names with descriptions and relevance scores.",
 			MaxResultTokens: 0,
 			Parameters: map[string]any{
 				"type": "object",
@@ -150,6 +155,10 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 						"type":        "string",
 						"description": "Keywords describing the capability you need",
 					},
+					"max_results": map[string]any{
+						"type":        "number",
+						"description": "Maximum number of results to return (default 5)",
+					},
 				},
 				"required": []string{"query"},
 			},
@@ -157,16 +166,16 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 	}
 
 	metaMap := map[string]toolMapping{
-		"complete":       {Type: "meta", Action: ActionComplete},
-		"spawn":          {Type: "meta", Action: ActionSpawn},
-		"replan":         {Type: "meta", Action: ActionReplan},
-		"specialize":     {Type: "meta", Action: ActionSpecialize},
-		"discover_skill": {Type: "meta", Action: ActionDiscoverSkill},
+		"complete":   {Type: "meta", Action: ActionComplete},
+		"Agent":      {Type: "meta", Action: ActionSpawn},
+		"replan":     {Type: "meta", Action: ActionReplan},
+		"Skill":      {Type: "meta", Action: ActionSpecialize},
+		"ToolSearch": {Type: "meta", Action: ActionDiscoverSkill},
 	}
 
 	if planningEnabled {
 		defs = append(defs, vfs.ToolDef{
-			Name:            "plan",
+			Name:            "EnterPlanMode",
 			Description:     "Create an execution plan before acting. Use when the task requires multiple coordinated steps.",
 			MaxResultTokens: 0, // unlimited — meta action
 			Parameters: map[string]any{
@@ -185,7 +194,7 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 				"required": []string{"steps", "reason"},
 			},
 		})
-		metaMap["plan"] = toolMapping{Type: "meta", Action: ActionPlan}
+		metaMap["EnterPlanMode"] = toolMapping{Type: "meta", Action: ActionPlan}
 	}
 
 	// Add placeholder ToolDefs for each deferred skill (D6: ShouldDefer on individual ToolDefs)
@@ -193,7 +202,7 @@ func metaToolDefs(planningEnabled bool, deferredSkills []DeferredSkillMeta) ([]v
 		toolName := "skill_" + ds.Name
 		defs = append(defs, vfs.ToolDef{
 			Name:        toolName,
-			Description: fmt.Sprintf("[Deferred Skill] %s — %s. Use discover_skill to search, then specialize to load.", ds.Name, ds.Description),
+			Description: fmt.Sprintf("[Deferred Skill] %s — %s. Use ToolSearch to search, then Skill to load.", ds.Name, ds.Description),
 			ShouldDefer: true,
 			Parameters: map[string]any{
 				"type":       "object",

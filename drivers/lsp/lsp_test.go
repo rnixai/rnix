@@ -20,11 +20,11 @@ func TestLspDriver_ToolDefs_Metadata(t *testing.T) {
 	}
 
 	def := defs[0]
-	if def.Name != "lsp" {
-		t.Errorf("expected name 'lsp', got %q", def.Name)
+	if def.Name != "LSP" {
+		t.Errorf("expected name 'LSP', got %q", def.Name)
 	}
 	if !def.IsReadOnly {
-		t.Error("lsp should be ReadOnly")
+		t.Error("LSP should be ReadOnly")
 	}
 	if !def.IsConcurrencySafe {
 		t.Error("lsp should be ConcurrencySafe")
@@ -526,7 +526,7 @@ func TestDeviceRegistration_Integration(t *testing.T) {
 	}
 
 	defs := td.ToolDefs()
-	if len(defs) != 1 || defs[0].Name != "lsp" {
+	if len(defs) != 1 || defs[0].Name != "LSP" {
 		t.Errorf("unexpected ToolDefs: %+v", defs)
 	}
 

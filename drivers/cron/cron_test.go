@@ -128,9 +128,9 @@ func TestCronDriver_ToolDefs_Metadata(t *testing.T) {
 		deferred   bool
 		hint       string
 	}{
-		{"cron_create", false, false, false, true, "cron schedule timer periodic recurring"},
-		{"cron_list", true, false, false, true, "cron list scheduled jobs"},
-		{"cron_delete", false, false, false, true, "cron delete remove job"},
+		{"CronCreate", false, false, false, true, "cron schedule timer periodic recurring"},
+		{"CronList", true, false, false, true, "cron list scheduled jobs"},
+		{"CronDelete", false, false, false, true, "cron delete remove job"},
 	}
 
 	for i, tt := range tests {

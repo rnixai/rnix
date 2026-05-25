@@ -22,8 +22,8 @@ func TestTtyDriver_ToolDefs_Metadata(t *testing.T) {
 	}
 
 	ask := defs[0]
-	if ask.Name != "ask" {
-		t.Errorf("expected name 'ask', got %q", ask.Name)
+	if ask.Name != "AskUserQuestion" {
+		t.Errorf("expected name 'AskUserQuestion', got %q", ask.Name)
 	}
 	if !ask.IsReadOnly {
 		t.Error("ask should be ReadOnly")
@@ -364,8 +364,8 @@ func TestDeviceRegistration_Integration(t *testing.T) {
 	if len(defs) != 1 {
 		t.Fatalf("expected 1 ToolDef, got %d", len(defs))
 	}
-	if defs[0].Name != "ask" {
-		t.Errorf("expected tool name 'ask', got %q", defs[0].Name)
+	if defs[0].Name != "AskUserQuestion" {
+		t.Errorf("expected tool name 'AskUserQuestion', got %q", defs[0].Name)
 	}
 
 	// Verify RangeDrivers can discover

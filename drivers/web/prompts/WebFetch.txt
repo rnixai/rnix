@@ -16,4 +16,4 @@ Notes:
 - Results may be summarized if the content is very large
 - Cross-domain redirects are reported but not followed automatically
 - Use this for reading documentation, blog posts, API specs, or any web content
-- For searching the web, use web_search instead
+- For searching the web, use WebSearch instead

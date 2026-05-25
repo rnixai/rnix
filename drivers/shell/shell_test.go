@@ -520,8 +520,8 @@ func TestShellDriver_ToolDefs(t *testing.T) {
 	if len(defs) != 1 {
 		t.Fatalf("expected 1 tool def, got %d", len(defs))
 	}
-	if defs[0].Name != "shell" {
-		t.Fatalf("expected tool name 'shell', got %q", defs[0].Name)
+	if defs[0].Name != "Bash" {
+		t.Fatalf("expected tool name 'Bash', got %q", defs[0].Name)
 	}
 	if defs[0].Description == "" {
 		t.Fatal("expected non-empty description")

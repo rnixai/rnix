@@ -276,7 +276,7 @@ func TestSpecialize_AppendMessageFail_Rollback(t *testing.T) {
 	proc.CtxID = cid
 	proc.PrimaryDevice = "/dev/llm/mock"
 	proc.toolMap = map[string]toolMapping{
-		"specialize": {Type: "meta", Action: ActionSpecialize},
+		"Skill": {Type: "meta", Action: ActionSpecialize},
 	}
 	if err := proc.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -291,7 +291,7 @@ func TestSpecialize_AppendMessageFail_Rollback(t *testing.T) {
 	resp := llmResponse{
 		Content: "specializing",
 		ToolCalls: []llmToolCall{
-			{ID: "sp-1", Name: "specialize", Input: map[string]any{"skill_name": "test-skill"}},
+			{ID: "sp-1", Name: "Skill", Input: map[string]any{"skill": "test-skill"}},
 		},
 	}
 
@@ -349,12 +349,12 @@ func TestSpecialize_AppendMessageSuccess_NoRollback(t *testing.T) {
 	proc := NewProcess(0, "test specialize success", nil)
 	proc.CtxID = cid
 	proc.toolMap = map[string]toolMapping{
-		"specialize": {Type: "meta", Action: ActionSpecialize},
+		"Skill": {Type: "meta", Action: ActionSpecialize},
 	}
 
 	resp := llmResponse{Content: "specializing"}
 	mapping := toolMapping{Type: "meta", Action: ActionSpecialize}
-	tc := llmToolCall{ID: "sp-1", Name: "specialize", Input: map[string]any{"skill_name": "good-skill"}}
+	tc := llmToolCall{ID: "sp-1", Name: "Skill", Input: map[string]any{"skill": "good-skill"}}
 	var consec errFingerprintCounter
 	prompt := &rnixctx.PromptResult{}
 	shouldCont := k.executeMetaAction(proc, tc, mapping, 1, time.Now(), &consec, map[string]bool{}, prompt, "", &resp)

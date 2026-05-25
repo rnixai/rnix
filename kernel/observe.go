@@ -267,10 +267,10 @@ func driverToolSummary(tool, toolPath, toolInput string) string {
 	switch tool {
 	case "Bash":
 		key = "command"
-	case "glob", "Grep":
+	case "Glob", "Grep":
 		key = "pattern"
 	case "Read", "Write", "Edit":
-		key = "file_path"
+		key = "path"
 	case "WebFetch":
 		key = "url"
 	default:

@@ -34,8 +34,8 @@ func NewDriver() *HostFSDriver {
 func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "read_file",
-			Description:       loadPrompt("read_file"),
+			Name:              "Read",
+			Description:       loadPrompt("Read"),
 			MaxResultTokens:   25000,
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
@@ -51,8 +51,8 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "write_file",
-			Description:       loadPrompt("write_file"),
+			Name:              "Write",
+			Description:       loadPrompt("Write"),
 			IsConcurrencySafe: true,
 			Parameters: map[string]any{
 				"type": "object",
@@ -87,8 +87,8 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:        "edit_file",
-			Description: loadPrompt("edit_file"),
+			Name:        "Edit",
+			Description: loadPrompt("Edit"),
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -113,8 +113,8 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "glob",
-			Description:       loadPrompt("glob"),
+			Name:              "Glob",
+			Description:       loadPrompt("Glob"),
 			MaxResultTokens:   5000,
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
@@ -138,8 +138,8 @@ func (d *HostFSDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "grep",
-			Description:       loadPrompt("grep"),
+			Name:              "Grep",
+			Description:       loadPrompt("Grep"),
 			MaxResultTokens:   10000,
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,

@@ -244,10 +244,20 @@ func findTopConsumers(data *ContextData, totalTokens, topN int) []ConsumerEntry 
 }
 
 func extractToolName(msg CtxMessage) string {
+	// Order matters: longer/more-specific names first so substring matching
+	// doesn't return a prefix (e.g. "read" matching "read_file result").
 	knownTools := []string{
-		"read_file", "write_file", "list_files", "list_dir",
-		"search_repo", "grep", "edit_file", "create_file",
+		// Legacy snake_case names (backward-compat for historical step records — must precede short PascalCase tokens like "read"/"write"/"edit")
+		"read_file", "write_file", "list_files",
+		"search_repo", "edit_file", "create_file",
 		"run_command", "execute",
+		// Current PascalCase canonical names — long, multi-word names first
+		"askuserquestion", "enterplanmode", "toolsearch", "websearch", "webfetch",
+		"croncreate", "cronlist", "crondelete",
+		"taskcreate", "taskupdate", "tasklist", "taskget",
+		"list_dir", "agent", "skill", "bash", "glob", "grep", "lsp",
+		// Short PascalCase tokens last (risk of false-positive substring match in content)
+		"read", "write", "edit",
 	}
 	lower := strings.ToLower(msg.Content)
 	for _, tool := range knownTools {

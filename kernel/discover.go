@@ -7,8 +7,9 @@ import (
 	"strings"
 )
 
-// maxDiscoverResults is the maximum number of results returned by discover_skill.
-const maxDiscoverResults = 5
+// defaultDiscoverResults is the default maximum number of results returned by ToolSearch
+// when the caller doesn't supply max_results. Matches Claude Code ToolSearch default.
+const defaultDiscoverResults = 5
 
 type discoverResult struct {
 	Query   string        `json:"query"`
@@ -21,13 +22,19 @@ type discoverHit struct {
 	Score       float64 `json:"score"`
 }
 
-// discoverSkills searches all registered skills (deferred + loaded metadata)
-// and returns the top maxDiscoverResults matches.
+// discoverSkills searches all deferred skill metadata and returns the top maxResults matches.
 // Already-loaded skills are excluded from results.
-func discoverSkills(proc *Process, query string) ([]discoverHit, error) {
+// When maxResults <= 0, defaults to defaultDiscoverResults (5).
+// Caller-supplied maxResults is capped at 50 to bound result size.
+func discoverSkills(proc *Process, query string, maxResults int) ([]discoverHit, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, fmt.Errorf("empty query")
+	}
+	if maxResults <= 0 {
+		maxResults = defaultDiscoverResults
+	} else if maxResults > 50 {
+		maxResults = 50
 	}
 
 	proc.mu.Lock()
@@ -64,14 +71,14 @@ func discoverSkills(proc *Process, query string) ([]discoverHit, error) {
 		return 0
 	})
 
-	if len(matches) > maxDiscoverResults {
-		matches = matches[:maxDiscoverResults]
+	if len(matches) > maxResults {
+		matches = matches[:maxResults]
 	}
 
 	return matches, nil
 }
 
-// discoverResultJSON marshals a discover_skill result to JSON with error fallback.
+// discoverResultJSON marshals a ToolSearch result to JSON with error fallback.
 func discoverResultJSON(query string, matches []discoverHit) string {
 	result := discoverResult{Query: query, Matches: matches}
 	resultJSON, err := json.Marshal(result)

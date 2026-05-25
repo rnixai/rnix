@@ -22,11 +22,11 @@ func TestBuildToolDefs_ShellAndFS(t *testing.T) {
 	}
 
 	shellDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
-		{Name: "shell", Description: "Run command"},
+		{Name: "Bash", Description: "Run command"},
 	}}
 	fsDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
-		{Name: "read_file", Description: "Read"},
-		{Name: "write_file", Description: "Write"},
+		{Name: "Read", Description: "Read"},
+		{Name: "Write", Description: "Write"},
 		{Name: "list_dir", Description: "List"},
 	}}
 
@@ -39,14 +39,14 @@ func TestBuildToolDefs_ShellAndFS(t *testing.T) {
 		t.Fatalf("expected 4 tool defs, got %d", len(defs))
 	}
 
-	if _, ok := toolMap["shell"]; !ok {
-		t.Fatal("expected 'shell' in toolMap")
+	if _, ok := toolMap["Bash"]; !ok {
+		t.Fatal("expected 'Bash' in toolMap")
 	}
-	if toolMap["shell"].VFSPath != "/dev/shell" {
-		t.Fatalf("expected VFSPath '/dev/shell', got %q", toolMap["shell"].VFSPath)
+	if toolMap["Bash"].VFSPath != "/dev/shell" {
+		t.Fatalf("expected VFSPath '/dev/shell', got %q", toolMap["Bash"].VFSPath)
 	}
-	if toolMap["read_file"].FSOperation != "read_file" {
-		t.Fatalf("expected FSOperation 'read_file', got %q", toolMap["read_file"].FSOperation)
+	if toolMap["Read"].FSOperation != "Read" {
+		t.Fatalf("expected FSOperation 'Read', got %q", toolMap["Read"].FSOperation)
 	}
 }
 
@@ -57,10 +57,10 @@ func TestBuildToolDefs_AllowedDevicesFilter(t *testing.T) {
 	}
 
 	shellDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
-		{Name: "shell", Description: "Run command"},
+		{Name: "Bash", Description: "Run command"},
 	}}
 	fsDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
-		{Name: "read_file", Description: "Read"},
+		{Name: "Read", Description: "Read"},
 	}}
 
 	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)
@@ -72,11 +72,11 @@ func TestBuildToolDefs_AllowedDevicesFilter(t *testing.T) {
 	if len(defs) != 1 {
 		t.Fatalf("expected 1 tool def (shell only), got %d", len(defs))
 	}
-	if defs[0].Name != "shell" {
-		t.Fatalf("expected tool name 'shell', got %q", defs[0].Name)
+	if defs[0].Name != "Bash" {
+		t.Fatalf("expected tool name 'Bash', got %q", defs[0].Name)
 	}
-	if _, ok := toolMap["read_file"]; ok {
-		t.Fatal("read_file should not be in toolMap when only /dev/shell is allowed")
+	if _, ok := toolMap["Read"]; ok {
+		t.Fatal("Read should not be in toolMap when only /dev/shell is allowed")
 	}
 }
 
@@ -87,7 +87,7 @@ func TestBuildToolDefs_NilAllowedDevices_SkipsLLMDevices(t *testing.T) {
 	}
 
 	shellDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
-		{Name: "shell", Description: "Run command"},
+		{Name: "Bash", Description: "Run command"},
 	}}
 	llmDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
 		{Name: "llm_call", Description: "Call LLM"},
@@ -141,7 +141,7 @@ func TestBuildToolDefs_SubpathRouting(t *testing.T) {
 		{Name: "intent_execute", Subpath: "/execute"},
 	}}
 	shellDriver := &mockToolDescriptor{defs: []vfs.ToolDef{
-		{Name: "shell"}, // empty Subpath → opens device root
+		{Name: "Bash"}, // empty Subpath → opens device root
 	}}
 
 	_ = reg.RegisterWithDriver("/dev/intent", factory, intentDriver)
@@ -154,7 +154,7 @@ func TestBuildToolDefs_SubpathRouting(t *testing.T) {
 		"intent_status":    "/dev/intent/status",
 		"intent_confirm":   "/dev/intent/confirm",
 		"intent_execute":   "/dev/intent/execute",
-		"shell":            "/dev/shell",
+		"Bash":             "/dev/shell",
 	}
 	for name, want := range wantPaths {
 		got, ok := toolMap[name]
@@ -172,7 +172,7 @@ func TestMetaToolDefs(t *testing.T) {
 	defs, metaMap := metaToolDefs(true, nil)
 
 	expectedNames := map[string]bool{
-		"complete": false, "spawn": false, "replan": false, "specialize": false, "plan": false,
+		"complete": false, "Agent": false, "replan": false, "Skill": false, "ToolSearch": false, "EnterPlanMode": false,
 	}
 	for _, d := range defs {
 		if _, ok := expectedNames[d.Name]; ok {
@@ -197,12 +197,12 @@ func TestMetaToolDefs_PlanningDisabled(t *testing.T) {
 	defs, metaMap := metaToolDefs(false, nil)
 
 	for _, d := range defs {
-		if d.Name == "plan" {
-			t.Fatal("plan should not be included when planning is disabled")
+		if d.Name == "EnterPlanMode" {
+			t.Fatal("EnterPlanMode should not be included when planning is disabled")
 		}
 	}
-	if _, ok := metaMap["plan"]; ok {
-		t.Fatal("plan should not be in metaMap when planning is disabled")
+	if _, ok := metaMap["EnterPlanMode"]; ok {
+		t.Fatal("EnterPlanMode should not be in metaMap when planning is disabled")
 	}
 }
 
@@ -229,16 +229,16 @@ func TestSystemEventMergesToolDefs(t *testing.T) {
 	// Simulate kernel-initialized nativeToolDefs (VFS + meta tools)
 	proc := &Process{}
 	proc.nativeToolDefs = []vfs.ToolDef{
-		{Name: "read_file", Description: "Read a file"},
-		{Name: "write_file", Description: "Write a file"},
-		{Name: "shell", Description: "Run command"},
+		{Name: "Read", Description: "Read a file"},
+		{Name: "Write", Description: "Write a file"},
+		{Name: "Bash", Description: "Run command"},
 		{Name: "complete", Description: "Finish task"},
-		{Name: "spawn", Description: "Spawn child"},
+		{Name: "Agent", Description: "Spawn child"},
 	}
 
-	// Simulate driver system event with tools: [LSP, mcp_auth, read_file]
-	// (read_file is a duplicate that should be skipped)
-	driverTools := []string{"LSP", "mcp__gateway__authenticate", "read_file"}
+	// Simulate driver system event with tools: [LSP, mcp_auth, Read]
+	// (Read is a duplicate that should be skipped)
+	driverTools := []string{"LSP", "mcp__gateway__authenticate", "Read"}
 
 	// Apply the merge logic (mirrors observe.go system event handler)
 	proc.mu.Lock()
@@ -267,7 +267,7 @@ func TestSystemEventMergesToolDefs(t *testing.T) {
 	}
 
 	// Original kernel tools must be preserved
-	for _, required := range []string{"read_file", "write_file", "shell", "complete", "spawn"} {
+	for _, required := range []string{"Read", "Write", "Bash", "complete", "Agent"} {
 		if !names[required] {
 			t.Fatalf("kernel tool %q was lost after driver event merge", required)
 		}

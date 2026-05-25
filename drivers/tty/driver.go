@@ -50,8 +50,8 @@ func NewDriver(askFunc AskUserFunc) *TtyDriver {
 func (d *TtyDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "ask",
-			Description:       loadPrompt("tty"),
+			Name:              "AskUserQuestion",
+			Description:       loadPrompt("AskUserQuestion"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: false,
 			IsDestructive:     false,

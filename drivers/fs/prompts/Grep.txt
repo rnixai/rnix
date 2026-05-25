@@ -1,7 +1,7 @@
 A search operation built on regex matching, similar to ripgrep.
 
 Usage:
-- ALWAYS use grep for content search tasks. NEVER invoke `grep` or `rg` as a /dev/shell command. The grep operation has been optimized for correct permissions, sandbox enforcement, and context-aware output
+- ALWAYS use Grep for content search tasks. NEVER invoke `grep` or `rg` as a /dev/shell command. The Grep operation has been optimized for correct permissions, sandbox enforcement, and context-aware output
 - Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
 - Filter files with the glob parameter (e.g., "*.js", "**/*.tsx")
 - Output modes: "files_with_matches" shows only file paths (default), "content" shows matching lines with context, "count" shows match counts per file

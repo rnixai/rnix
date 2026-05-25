@@ -121,23 +121,23 @@ func TestToolDefs_ShellMetadata(t *testing.T) {
 	}
 
 	shell := defs[0]
-	if shell.Name != "shell" {
-		t.Fatalf("expected shell tool, got %q", shell.Name)
+	if shell.Name != "Bash" {
+		t.Fatalf("expected Bash tool, got %q", shell.Name)
 	}
 	if shell.IsDestructive {
-		t.Error("shell should not be IsDestructive (per spec table)")
+		t.Error("Bash should not be IsDestructive (per spec table)")
 	}
 	if shell.Description == "" {
-		t.Error("shell description should not be empty (embed)")
+		t.Error("Bash description should not be empty (embed)")
 	}
 }
 
 func TestToolDefs_ShellEmbedDescription(t *testing.T) {
-	content := loadPrompt("shell")
+	content := loadPrompt("Bash")
 	if content == "" {
-		t.Error("loadPrompt(shell) returned empty")
+		t.Error("loadPrompt(Bash) returned empty")
 	}
 	if len(content) < 50 {
-		t.Errorf("shell prompt seems too short: %d chars", len(content))
+		t.Errorf("Bash prompt seems too short: %d chars", len(content))
 	}
 }

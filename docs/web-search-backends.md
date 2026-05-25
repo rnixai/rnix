@@ -2,10 +2,10 @@
 
 The `/dev/web` device exposes two tools:
 
-- `web_fetch(url, prompt?)` — fetch a single URL, return Markdown.
-- `web_search(query, allowed_domains?, blocked_domains?, max_results?)` — query a search backend.
+- `WebFetch(url, prompt?)` — fetch a single URL, return Markdown.
+- `WebSearch(query, allowed_domains?, blocked_domains?, max_results?)` — query a search backend.
 
-`web_search` dispatches to one of three pluggable backends. This guide covers configuration.
+`WebSearch` dispatches to one of three pluggable backends. This guide covers configuration.
 
 ## Quick start (one env var)
 
@@ -50,7 +50,7 @@ falling back to the host environment — keep keys out of the YAML itself.
 
 ## Domain filters
 
-`web_search` accepts `allowed_domains` and `blocked_domains` arrays. They map to:
+`WebSearch` accepts `allowed_domains` and `blocked_domains` arrays. They map to:
 
 - Tavily: `include_domains` / `exclude_domains` (server-side)
 - Exa: `includeDomains` / `excludeDomains` (server-side, note camelCase)
@@ -60,7 +60,7 @@ falling back to the host environment — keep keys out of the YAML itself.
 
 | Symptom                                                 | Fix                                                         |
 |---------------------------------------------------------|-------------------------------------------------------------|
-| `web_search backend not configured...`                  | Set one of the three env vars, or write `web-search.yaml`.  |
+| `WebSearch backend not configured...`                   | Set one of the three env vars, or write `web-search.yaml`.  |
 | `tavily: HTTP 401` / `exa: HTTP 401`                    | API key invalid or revoked — verify the env var value.      |
 | `tavily: HTTP 429`                                      | Free-tier rate limit. Wait or upgrade your plan.            |
 | `[web] backend X skipped: missing API key`              | YAML lists backend X but its `api_key_env` resolves empty.  |

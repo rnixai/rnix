@@ -3,11 +3,11 @@ Executes a shell command in the process working directory and returns its output
 The working directory persists between commands within the same process. Each command runs in a new shell instance (via sh -c), so shell state (variables, aliases) does not persist between calls.
 
 IMPORTANT: Avoid using /dev/shell to run grep, find, cat, head, tail, sed, awk, or echo commands, unless explicitly instructed or after you have verified that a dedicated VFS device operation cannot accomplish your task. Instead, use the appropriate dedicated operation as it provides structured output, sandbox enforcement, and context-aware behavior:
-- File search: Use glob (NOT find or ls via /dev/shell)
-- Content search: Use grep (NOT grep or rg via /dev/shell)
-- Read files: Use read_file (NOT cat/head/tail via /dev/shell)
-- Edit files: Use edit_file (NOT sed/awk via /dev/shell)
-- Write files: Use write_file (NOT echo >/cat <<EOF via /dev/shell)
+- File search: Use Glob (NOT find or ls via /dev/shell)
+- Content search: Use Grep (NOT grep or rg via /dev/shell)
+- Read files: Use Read (NOT cat/head/tail via /dev/shell)
+- Edit files: Use Edit (NOT sed/awk via /dev/shell)
+- Write files: Use Write (NOT echo >/cat <<EOF via /dev/shell)
 - Communication: Output text directly (NOT echo/printf via /dev/shell)
 
 ## Instructions

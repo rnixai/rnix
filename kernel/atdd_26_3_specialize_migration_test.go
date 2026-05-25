@@ -58,8 +58,8 @@ func makeSpecializeResponse(skillName string, tokens int) []byte {
 		TokensUsed: tokens,
 		ToolCalls: []llmToolCall{{
 			ID:    "call_specialize",
-			Name:  "specialize",
-			Input: map[string]any{"skill_name": skillName},
+			Name:  "Skill",
+			Input: map[string]any{"skill": skillName},
 		}},
 	}
 	data, _ := json.Marshal(resp)
@@ -73,8 +73,8 @@ func makeSpecializeResponseWithContent(skillName, extraContent string, tokens in
 		TokensUsed: tokens,
 		ToolCalls: []llmToolCall{{
 			ID:    "call_specialize",
-			Name:  "specialize",
-			Input: map[string]any{"skill_name": skillName},
+			Name:  "Skill",
+			Input: map[string]any{"skill": skillName},
 		}},
 	}
 	data, _ := json.Marshal(resp)
@@ -497,7 +497,7 @@ func TestReasonStep_Specialize_SkillNotFound(t *testing.T) {
 	foundErr := false
 	for _, m := range prompt.Messages {
 		if m.Role == rnixctx.RoleTool {
-			if strings.Contains(m.Content, "specialize error") && strings.Contains(m.Content, "nonexistent-skill") {
+			if strings.Contains(m.Content, "Skill error") && strings.Contains(m.Content, "nonexistent-skill") {
 				foundErr = true
 				break
 			}
@@ -552,14 +552,14 @@ func TestReasonStep_Specialize_EmptySkillName(t *testing.T) {
 	foundErr := false
 	for _, m := range prompt.Messages {
 		if m.Role == rnixctx.RoleTool {
-			if strings.Contains(m.Content, "specialize error: empty skill name") {
+			if strings.Contains(m.Content, "Skill error: empty skill name") {
 				foundErr = true
 				break
 			}
 		}
 	}
 	if !foundErr {
-		t.Error("expected tool message: specialize error: empty skill name")
+		t.Error("expected tool message: Skill error: empty skill name")
 	}
 }
 

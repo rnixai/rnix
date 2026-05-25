@@ -104,8 +104,8 @@ var _ vfs.ToolDescriptor = (*WebDriver)(nil)
 func (d *WebDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "web_fetch",
-			Description:       loadPrompt("web_fetch"),
+			Name:              "WebFetch",
+			Description:       loadPrompt("WebFetch"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
 			IsDestructive:     false,
@@ -128,8 +128,8 @@ func (d *WebDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "web_search",
-			Description:       loadPrompt("web_search"),
+			Name:              "WebSearch",
+			Description:       loadPrompt("WebSearch"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: true,
 			IsDestructive:     false,

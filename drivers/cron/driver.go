@@ -74,8 +74,8 @@ func (d *CronDriver) Close() {
 func (d *CronDriver) ToolDefs() []vfs.ToolDef {
 	return []vfs.ToolDef{
 		{
-			Name:              "cron_create",
-			Description:       loadPrompt("cron_create"),
+			Name:              "CronCreate",
+			Description:       loadPrompt("CronCreate"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: false,
 			IsDestructive:     false,
@@ -105,8 +105,8 @@ func (d *CronDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "cron_list",
-			Description:       loadPrompt("cron_list"),
+			Name:              "CronList",
+			Description:       loadPrompt("CronList"),
 			IsReadOnly:        true,
 			IsConcurrencySafe: false,
 			IsDestructive:     false,
@@ -118,8 +118,8 @@ func (d *CronDriver) ToolDefs() []vfs.ToolDef {
 			},
 		},
 		{
-			Name:              "cron_delete",
-			Description:       loadPrompt("cron_delete"),
+			Name:              "CronDelete",
+			Description:       loadPrompt("CronDelete"),
 			IsReadOnly:        false,
 			IsConcurrencySafe: false,
 			IsDestructive:     false,
@@ -234,10 +234,10 @@ func (f *CronFile) opCreate(raw map[string]any) (*CronJob, error) {
 	durable, _ := raw["durable"].(bool)
 
 	if schedule == "" {
-		return nil, &types.DriverError{Op: "cron_create", Device: f.devicePath, Err: fmt.Errorf("schedule is required"), Code: types.ErrInvalid}
+		return nil, &types.DriverError{Op: "CronCreate", Device: f.devicePath, Err: fmt.Errorf("schedule is required"), Code: types.ErrInvalid}
 	}
 	if prompt == "" {
-		return nil, &types.DriverError{Op: "cron_create", Device: f.devicePath, Err: fmt.Errorf("prompt is required"), Code: types.ErrInvalid}
+		return nil, &types.DriverError{Op: "CronCreate", Device: f.devicePath, Err: fmt.Errorf("prompt is required"), Code: types.ErrInvalid}
 	}
 	if agent == "" {
 		agent = "stem"
@@ -245,14 +245,14 @@ func (f *CronFile) opCreate(raw map[string]any) (*CronJob, error) {
 
 	expr, err := ParseCron(schedule)
 	if err != nil {
-		return nil, &types.DriverError{Op: "cron_create", Device: f.devicePath, Err: fmt.Errorf("invalid schedule: %w", err), Code: types.ErrInvalid}
+		return nil, &types.DriverError{Op: "CronCreate", Device: f.devicePath, Err: fmt.Errorf("invalid schedule: %w", err), Code: types.ErrInvalid}
 	}
 
 	nextRun := expr.NextAfter(time.Now())
 
 	job, err := f.driver.store.Add(schedule, prompt, agent, durable, nextRun)
 	if err != nil {
-		return nil, &types.DriverError{Op: "cron_create", Device: f.devicePath, Err: err, Code: types.ErrResourceExhausted}
+		return nil, &types.DriverError{Op: "CronCreate", Device: f.devicePath, Err: err, Code: types.ErrResourceExhausted}
 	}
 
 	f.driver.scheduleJob(job)
@@ -267,7 +267,7 @@ func (f *CronFile) opList() ([]*CronJob, error) {
 func (f *CronFile) opDelete(raw map[string]any) (map[string]any, error) {
 	id, _ := raw["id"].(string)
 	if id == "" {
-		return nil, &types.DriverError{Op: "cron_delete", Device: f.devicePath, Err: fmt.Errorf("id is required"), Code: types.ErrInvalid}
+		return nil, &types.DriverError{Op: "CronDelete", Device: f.devicePath, Err: fmt.Errorf("id is required"), Code: types.ErrInvalid}
 	}
 
 	f.driver.mu.Lock()
@@ -278,7 +278,7 @@ func (f *CronFile) opDelete(raw map[string]any) (map[string]any, error) {
 	f.driver.mu.Unlock()
 
 	if !f.driver.store.Delete(id) {
-		return nil, &types.DriverError{Op: "cron_delete", Device: f.devicePath, Err: fmt.Errorf("job %q not found", id), Code: types.ErrNotFound}
+		return nil, &types.DriverError{Op: "CronDelete", Device: f.devicePath, Err: fmt.Errorf("job %q not found", id), Code: types.ErrNotFound}
 	}
 
 	return map[string]any{"deleted": id}, nil
