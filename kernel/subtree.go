@@ -269,6 +269,14 @@ func (k *KernelImpl) suspendOneForSubtree(proc *Process, reason string) error {
 // process does not end up Running-but-undriven (which would cause the
 // heartbeat monitor to escalate stall recovery indefinitely).
 func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
+	preSnap := proc.GetDetailSnapshot()
+	log.Printf("[resume-trace] resumeOneForSubtree enter pid=%d uuid=%s state=%s tokens=%d ctx_id=%d",
+		preSnap.PID, preSnap.UUID, preSnap.State, preSnap.TokensUsed, preSnap.CtxID)
+	defer func() {
+		postSnap := proc.GetDetailSnapshot()
+		log.Printf("[resume-trace] resumeOneForSubtree exit  pid=%d uuid=%s state=%s tokens=%d ctx_id=%d",
+			postSnap.PID, postSnap.UUID, postSnap.State, postSnap.TokensUsed, postSnap.CtxID)
+	}()
 	if err := proc.Unsuspend(); err != nil {
 		return fmt.Errorf("unsuspend: %w", err)
 	}

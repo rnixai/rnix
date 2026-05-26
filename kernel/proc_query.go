@@ -22,18 +22,33 @@ func (k *KernelImpl) GetProcess(pid types.PID) (*Process, bool) {
 }
 
 // GetProcessByUUID finds a process by UUID in the process table.
+//
+// Diagnostic note: a full Range scan (rather than early-return on first match)
+// is performed to detect the pathological case where two procTable entries
+// share the same UUID. If a duplicate is observed, a [resume-trace] warning is
+// emitted so the resume race that produced the duplicate is auditable in
+// daemon stderr; the first match is still returned to preserve historical
+// behaviour. Hot-path scans are bounded by procTable size (typically < 100).
 func (k *KernelImpl) GetProcessByUUID(uuid string) (*Process, bool) {
 	if uuid == "" {
 		return nil, false
 	}
 	var found *Process
+	var dup *Process
 	k.procTable.Range(func(pid types.PID, proc *Process) bool {
 		if proc.UUID == uuid {
-			found = proc
-			return false
+			if found == nil {
+				found = proc
+			} else if dup == nil {
+				dup = proc
+			}
 		}
 		return true
 	})
+	if dup != nil {
+		log.Printf("[resume-trace] WARN GetProcessByUUID duplicate uuid=%s pid_a=%d state_a=%s pid_b=%d state_b=%s",
+			uuid, found.PID, found.GetState(), dup.PID, dup.GetState())
+	}
 	return found, found != nil
 }
 

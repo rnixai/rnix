@@ -123,9 +123,13 @@ const SuspendReasonCLIDisconnected = "cli_disconnected"
 // and resumeFromHistory after all new-process allocations succeed.
 func (k *KernelImpl) cleanupOldProcessAndHistory(oldProc *Process, uuid string, fork bool) {
 	if fork {
+		log.Printf("[resume-trace] cleanupOldProcessAndHistory skipped (fork=true) uuid=%s", uuid)
 		return
 	}
 	if oldProc != nil {
+		snap := oldProc.GetDetailSnapshot()
+		log.Printf("[resume-trace] cleanupOldProcessAndHistory delete uuid=%s pid=%d state=%s tokens=%d ctx_id=%d",
+			uuid, snap.PID, snap.State, snap.TokensUsed, snap.CtxID)
 		if oldProc.CtxID > 0 {
 			_ = k.ctxMgr.CtxFree(oldProc.CtxID)
 		}
@@ -133,6 +137,8 @@ func (k *KernelImpl) cleanupOldProcessAndHistory(oldProc *Process, uuid string, 
 		if queue, ok := k.msgQueues.LoadAndDelete(oldProc.PID); ok {
 			queue.close()
 		}
+	} else {
+		log.Printf("[resume-trace] cleanupOldProcessAndHistory no-oldProc uuid=%s (procHistory.RemoveByUUID only)", uuid)
 	}
 	k.procHistory.RemoveByUUID(uuid)
 }
@@ -220,6 +226,11 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 	k.resumeMu.Lock()
 	defer k.resumeMu.Unlock()
 
+	log.Printf("[resume-trace] ResumeWithOpts enter uuid=%s fork=%v from_step=%d", uuid, opts.Fork, opts.FromStep)
+	defer func() {
+		log.Printf("[resume-trace] ResumeWithOpts exit uuid=%s elapsed=%s", uuid, time.Since(start))
+	}()
+
 	baseDir := k.stepDataDir
 	if baseDir == "" {
 		return nil, NewSyscallError("Resume", 0, "", fmt.Errorf("step data directory not configured"), types.ErrInternal)
@@ -227,7 +238,10 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 
 	// Route based on process state in procTable
 	if found, ok := k.GetProcessByUUID(uuid); ok {
-		state := found.GetState()
+		snap := found.GetDetailSnapshot()
+		state := snap.State
+		log.Printf("[resume-trace] live proc found uuid=%s pid=%d state=%s tokens=%d ctx_id=%d",
+			uuid, snap.PID, state, snap.TokensUsed, snap.CtxID)
 		switch state {
 		case types.StateSuspended:
 			// Story 44.3 AC#4 — daemon-restart placeholders (created by
@@ -237,9 +251,10 @@ func (k *KernelImpl) ResumeWithOpts(uuid string, opts ResumeOpts) (*ResumeResult
 			// resumeFromCheckpoint, which failed with ErrNotFound for these
 			// placeholders.
 			if checkpointExists(baseDir, uuid) {
+				log.Printf("[resume-trace] route=resumeFromCheckpoint (Suspended+checkpoint) uuid=%s", uuid)
 				return k.resumeFromCheckpoint(uuid, opts, start)
 			}
-			log.Printf("[resume] uuid=%s suspended placeholder has no checkpoint; falling back to history path", uuid)
+			log.Printf("[resume-trace] route=resumeFromHistory (Suspended+no-checkpoint) uuid=%s pid=%d", uuid, found.PID)
 			return k.resumeFromHistory(uuid, opts, start)
 		case types.StateRunning:
 			return nil, NewSyscallError("Resume", found.PID, "",
@@ -424,6 +439,8 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 
 	// All allocations and Open succeeded — now safe to clean up old process and
 	// procHistory entry (skip entirely when forking, so original keeps running).
+	log.Printf("[resume-trace] resumeFromCheckpoint pre-cleanup uuid=%s newPID=%d oldProc=%v",
+		uuid, proc.PID, oldProc != nil)
 	k.cleanupOldProcessAndHistory(oldProc, uuid, opts.Fork)
 
 	if proc.cancel != nil {
@@ -435,6 +452,8 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 
 	k.AddProcess(proc)
 	k.msgQueues.Store(proc.PID, newMessageQueue())
+	log.Printf("[resume-trace] resumeFromCheckpoint post-AddProcess uuid=%s newPID=%d state=%s tokens=%d",
+		uuid, proc.PID, proc.GetState(), proc.TokensUsed)
 
 	proc.mu.Lock()
 	proc.SuspendReason = cp.SuspendReason
@@ -752,6 +771,8 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 
 	// All allocations and Open succeeded — now safe to clean up old process and
 	// procHistory entry (skip entirely when forking, so original keeps running).
+	log.Printf("[resume-trace] resumeFromHistory pre-cleanup uuid=%s newPID=%d oldProc=%v",
+		uuid, proc.PID, oldProc != nil)
 	k.cleanupOldProcessAndHistory(oldProc, uuid, opts.Fork)
 
 	if proc.cancel != nil {
@@ -763,6 +784,8 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 
 	k.AddProcess(proc)
 	k.msgQueues.Store(proc.PID, newMessageQueue())
+	log.Printf("[resume-trace] resumeFromHistory post-AddProcess uuid=%s newPID=%d state=%s tokens=%d ctx_id=%d",
+		uuid, proc.PID, proc.GetState(), proc.TokensUsed, proc.CtxID)
 
 	// Story 42.3 — synchronously persist the resumed process's proc-info.json
 	// so downstream tooling (Dashboard lineage queries, test fixtures) can

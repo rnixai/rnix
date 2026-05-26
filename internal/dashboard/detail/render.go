@@ -98,7 +98,7 @@ func Render(state DetailState, ctx RenderContext, innerW int) string {
 		}
 		uptime -= time.Duration(d.PausedTotalMs) * time.Millisecond
 	}
-	fmt.Fprintf(&b, "  PID: %d  UUID: %s\n", d.PID, TruncateUUID(d.UUID))
+	fmt.Fprintf(&b, "  PID: %d  UUID: %s\n", d.PID, d.UUID)
 	fmt.Fprintf(&b, "  State: %s  Intent: %s\n", d.State, TruncateStr(d.Intent, 40))
 	fmt.Fprintf(&b, "  Provider: %s  Model: %s\n", d.Provider, d.Model)
 	fmt.Fprintf(&b, "  Uptime: %s\n", ui.FormatDuration(uptime))
@@ -184,20 +184,25 @@ func renderLineageSection(b *strings.Builder, uuid, originUUID string, resumedFr
 	b.WriteString(divider("Lineage"))
 	b.WriteString("\n")
 	if originUUID != "" {
-		short := TruncateUUID(originUUID)
 		if resumedFromStep > 0 {
-			fmt.Fprintf(b, "    Origin: %s (from step %d)\n", short, resumedFromStep)
+			fmt.Fprintf(b, "    Origin: %s (from step %d)\n", originUUID, resumedFromStep)
 		} else {
-			fmt.Fprintf(b, "    Origin: %s\n", short)
+			fmt.Fprintf(b, "    Origin: %s\n", originUUID)
 		}
 	}
 	if n := len(descendants); n > 0 {
 		// 渲染 "Forked: N descendants" 一行；后面再列出最多 3 个短哈希作为参考。
+		// 12 字符短哈希在 UUIDv7 同秒生成场景下比 8 字符识别度更高（前 8 hex 为时间戳上半段，
+		// 同一秒内的进程容易冲突；扩到 12 字符引入随机段，显著降低视觉混淆）。
 		fmt.Fprintf(b, "    Forked: %d descendants", n)
 		if n <= 3 {
 			hashes := make([]string, 0, n)
 			for _, dst := range descendants {
-				hashes = append(hashes, TruncateUUID(dst))
+				short := dst
+				if len(short) > 12 {
+					short = short[:12]
+				}
+				hashes = append(hashes, short)
 			}
 			fmt.Fprintf(b, " (%s)", strings.Join(hashes, ", "))
 		}
