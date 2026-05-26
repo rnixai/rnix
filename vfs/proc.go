@@ -51,6 +51,13 @@ type ProcInfo struct {
 	AllowedDevices []string
 	Provider       string
 	Model          string
+	// PrimaryDevice is the LLM VFS device path (e.g. "/dev/llm/claude") this
+	// process was wired to at spawn / resume time. Persisted to proc-info.json so
+	// daemon-restart placeholder revival (kernel/load_suspended.go) can route
+	// reasonStep-driven processes back through openLLMDeviceForResume instead of
+	// being misclassified as script-runners (PrimaryDevice == "" branch in
+	// kernel/subtree.go:resumeOneForSubtree).
+	PrimaryDevice  string
 	ContextWindow  int
 	LastHeartbeat  time.Time
 	StepTimeout    time.Duration

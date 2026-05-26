@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -554,57 +553,6 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 			fmt.Errorf("parse proc-info.json: %w", err), types.ErrInternal)
 	}
 
-	// Read process-meta.json for system_prompt
-	metaPath := filepath.Join(stepsDir, "process-meta.json")
-	metaData, err := os.ReadFile(metaPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, NewSyscallError("Resume", 0, "",
-				fmt.Errorf("process-meta.json missing for UUID %s", uuid), types.ErrNotFound)
-		}
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("read process-meta.json: %w", err), types.ErrInternal)
-	}
-
-	var meta struct {
-		SystemPrompt string `json:"system_prompt"`
-	}
-	if err := json.Unmarshal(metaData, &meta); err != nil {
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("parse process-meta.json: %w", err), types.ErrInternal)
-	}
-	if meta.SystemPrompt == "" {
-		// Without the system prompt the LLM has no role/capability context.
-		// Reject the resume so the caller knows the snapshot is incomplete
-		// rather than silently launching a "blank-prompt" agent.
-		return nil, NewSyscallError("Resume", 0, "",
-			fmt.Errorf("system_prompt missing in process-meta.json for UUID %s", uuid), types.ErrInvalid)
-	}
-
-	// Read steps.jsonl to determine last step and rebuild messages.
-	// Story 42.3: pass FromStep to apply truncation when > 0; totalSteps is
-	// returned for out-of-range validation below.
-	stepsPath := filepath.Join(stepsDir, "steps.jsonl")
-	lastStep, messages, totalSteps, err := k.parseStepsJSONL(stepsPath, opts.FromStep)
-	if err != nil {
-		return nil, err
-	}
-
-	// Story 42.3 — out-of-range check (AC#2). Spec-literal error string.
-	if opts.FromStep > 0 && opts.FromStep > totalSteps {
-		return nil, NewCompactSyscallError("Resume", types.ErrInvalid,
-			fmt.Errorf("ErrInvalid: from_step %d exceeds total steps (actual: %d)", opts.FromStep, totalSteps))
-	}
-
-	// startStep semantics:
-	//   - opts.FromStep > 0: truncate at FromStep, continue from FromStep+1.
-	//   - opts.FromStep == 0: default → continue from lastStep+1.
-	var startStep int
-	if opts.FromStep > 0 {
-		startStep = opts.FromStep + 1
-	} else {
-		startStep = lastStep + 1
-	}
 	if diskInfo.Provider == "" {
 		// Don't silently fall back to "claude" — the original process may have
 		// been running on cursor/openai/etc and the behavior/cost/model contract
@@ -651,9 +599,10 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	}
 	proc.Provider = provider
 	proc.Model = diskInfo.Model
+	proc.PrimaryDevice = llmDevice // must be set before rehydrate so the caller
+	// can route reasonStep-driven processes correctly on later resume legs.
 	proc.AllowedDevices = append([]string(nil), diskInfo.AllowedDevices...)
 	proc.MaxSteps = diskInfo.MaxSteps
-	proc.ResumedFromStep = startStep
 	// Restore additional state captured on disk so the resumed process is not a
 	// stripped-down shadow of the original (Edge Case Hunter Finding #5 & #10).
 	// restoreParentLinkage sets ParentUUID, plus PPID + parent.AddChild when the
@@ -669,100 +618,55 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	proc.TokensUsed = diskInfo.TokensUsed
 	proc.mu.Unlock()
 
-	// Rebuild toolMap + nativeToolDefs from VFS DeviceRegistry + AllowedDevices.
-	// Without this, resume processes have nil tool definitions and cannot perform
-	// any tool calls (LLM gets req.Tools = nil). Mirrors observe.go:682-690.
-	vfsDefs, vfsMap := buildToolDefs(k.vfs.DeviceRegistry(), proc.AllowedDevices, proc.PlanningEnabled)
-	metaDefs, metaMap := metaToolDefs(proc.PlanningEnabled, proc.DeferredSkills)
-	allDefs := make([]vfs.ToolDef, 0, len(vfsDefs)+len(metaDefs))
-	allDefs = append(allDefs, vfsDefs...)
-	allDefs = append(allDefs, metaDefs...)
-	proc.mu.Lock()
-	proc.nativeToolDefs = allDefs
-	proc.toolMap = make(map[string]toolMapping, len(vfsMap)+len(metaMap))
-	maps.Copy(proc.toolMap, vfsMap)
-	maps.Copy(proc.toolMap, metaMap)
-	proc.mu.Unlock()
-	// Rehydrate SkillBodies / SkillDirs from the skillLoader (Edge Case Hunter
-	// Finding #15). Without these, BuildPrompt degrades to skill names only and
-	// claude-cli bundle symlink creation fails.
-	if k.skillLoader != nil && len(proc.Skills) > 0 {
-		bodies := make(map[string]string, len(proc.Skills))
-		dirs := make(map[string]string, len(proc.Skills))
-		for _, skillName := range proc.Skills {
-			info, err := k.skillLoader(skillName)
-			if err != nil || info == nil {
-				log.Printf("[resume] skill %q not loadable: %v (continuing with degraded prompt)", skillName, err)
-				continue
-			}
-			if info.Body != "" {
-				body := info.Body
-				if info.Dir != "" {
-					body = "Base directory for this skill: " + info.Dir + "\n\n" + body
-				}
-				bodies[info.Manifest.Name] = body
-				if info.Dir != "" {
-					dirs[info.Manifest.Name] = info.Dir
-				}
-			}
+	// Rehydrate the in-memory runtime state (toolMap + nativeToolDefs,
+	// SkillBodies + SkillDirs, mcpDevicePaths, freshly-allocated ctx with
+	// system prompt + messages deserialized in) from the on-disk artifacts.
+	// This is the same helper that LoadSuspendedFromDisk uses to revive
+	// placeholders — keeping both paths funneled through one function
+	// prevents the "daemon-restart placeholder misroutes through script
+	// runner branch" silent-divergence bug.
+	lastStep, totalSteps, rehydrateErr := k.rehydrateRuntimeStateFromDisk(proc, stepsDir, diskInfo.CtxSize, opts.FromStep)
+	if rehydrateErr != nil {
+		// rehydrate already freed any partial ctx it allocated; relabel the
+		// SyscallError's Syscall field as "Resume" so IPC consumers see the
+		// caller op and not the helper's name (the underlying error / code
+		// are preserved).
+		if se, ok := rehydrateErr.(*SyscallError); ok {
+			se.Syscall = "Resume"
 		}
-		proc.mu.Lock()
-		proc.SkillBodies = bodies
-		proc.SkillDirs = dirs
-		proc.mu.Unlock()
-	}
-	for _, dev := range proc.AllowedDevices {
-		if strings.HasPrefix(dev, "/dev/mcp/") || strings.HasPrefix(dev, "/mnt/mcp/") {
-			proc.mcpDevicePaths = append(proc.mcpDevicePaths, dev)
-		}
+		return nil, rehydrateErr
 	}
 
-	// Allocate context and rebuild from steps. Prefer the CtxSize saved on the
-	// original process; only fall back to DefaultCtxSize when the disk snapshot
-	// predates this field (or was zero) — otherwise N-step processes resumed
-	// into a 256-slot context would silently lose messages past slot 256.
-	resumeCtxSize := diskInfo.CtxSize
-	if resumeCtxSize <= 0 {
-		resumeCtxSize = DefaultCtxSize
-	}
-	proc.CtxSize = resumeCtxSize
-	cid, allocErr := k.ctxMgr.CtxAlloc(resumeCtxSize)
-	if allocErr != nil {
-		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context alloc: %w", allocErr), types.ErrInternal)
-	}
-	proc.CtxID = cid
-
-	ctx, getErr := k.ctxMgr.GetContext(cid)
-	if getErr != nil {
-		_ = k.ctxMgr.CtxFree(cid)
-		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context get: %w", getErr), types.ErrInternal)
+	// Story 42.3 — out-of-range check (AC#2). Spec-literal error string.
+	// Done after rehydrate because totalSteps comes from parseStepsJSONL which
+	// rehydrate runs.
+	if opts.FromStep > 0 && opts.FromStep > totalSteps {
+		_ = k.ctxMgr.CtxFree(proc.CtxID)
+		proc.CtxID = 0
+		return nil, NewCompactSyscallError("Resume", types.ErrInvalid,
+			fmt.Errorf("ErrInvalid: from_step %d exceeds total steps (actual: %d)", opts.FromStep, totalSteps))
 	}
 
-	// Rebuild context via Deserialize (same mechanism as checkpoint path)
-	snapshot := struct {
-		SystemPrompt string             `json:"system_prompt"`
-		Messages     []rnixctx.Message  `json:"messages"`
-		MaxSize      int                `json:"max_size"`
-	}{
-		SystemPrompt: meta.SystemPrompt,
-		Messages:     messages,
-		MaxSize:      resumeCtxSize,
+	// startStep semantics:
+	//   - opts.FromStep > 0: truncate at FromStep, continue from FromStep+1.
+	//   - opts.FromStep == 0: default → continue from lastStep+1.
+	var startStep int
+	if opts.FromStep > 0 {
+		startStep = opts.FromStep + 1
+	} else {
+		startStep = lastStep + 1
 	}
-	snapJSON, _ := json.Marshal(snapshot)
-	if err := ctx.Deserialize(snapJSON); err != nil {
-		_ = k.ctxMgr.CtxFree(cid)
-		return nil, NewSyscallError("Resume", proc.PID, "", fmt.Errorf("context rebuild: %w", err), types.ErrInternal)
-	}
+	proc.ResumedFromStep = startStep
 
 	proc.mu.Lock()
 	proc.StepTimeout = 5 * time.Minute
 	proc.LastHeartbeat = time.Now()
 	proc.mu.Unlock()
 
-	proc.PrimaryDevice = llmDevice
 	llmFD, openErr := k.openLLMDeviceForResume(proc, llmDevice)
 	if openErr != nil {
-		_ = k.ctxMgr.CtxFree(cid)
+		_ = k.ctxMgr.CtxFree(proc.CtxID)
+		proc.CtxID = 0
 		return nil, NewSyscallError("Resume", proc.PID, llmDevice,
 			fmt.Errorf("LLM device open failed: %w", openErr), types.ErrDriver)
 	}

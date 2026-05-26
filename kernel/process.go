@@ -145,6 +145,14 @@ type Process struct {
 	FinalSystemPrompt string       // Full system prompt captured on first reasonStep (mu protected)
 	stepWriter        *StepWriter  // NDJSON step recorder (mu protected)
 	eventWriter       *EventWriter // NDJSON syscall event recorder (mu protected)
+	// eventDropWarned ensures emitEvent logs at most one warning per process
+	// when it discovers the EventWriter is nil and a disk drop happens. This
+	// converts the previously-silent skip (observe.go:55) into a per-process
+	// audit line so daemon-restart placeholders and other niche misroutes
+	// (e.g. PrimaryDevice=="" path in subtree.go:resumeOneForSubtree) are
+	// visible in daemon stderr. Once-style guard so a chatty script-runner
+	// does not flood the log with one line per syscall.
+	eventDropWarned atomic.Bool
 
 	// Heartbeat liveness (Story 30.5) — mu protected
 	LastHeartbeat time.Time     // updated at each step start

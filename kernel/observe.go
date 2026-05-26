@@ -54,6 +54,19 @@ func (k *KernelImpl) emitEvent(proc *Process, syscall string, args map[string]an
 	// Persist syscall event to disk (always-on)
 	if ew != nil {
 		_ = ew.WriteEvent(event)
+	} else if k.stepDataDir != "" && shouldWarnEventDrop(proc) && proc.eventDropWarned.CompareAndSwap(false, true) {
+		// First-time warning per process that we are dropping disk events.
+		// This is the breadcrumb that would have saved hours during Epic 44
+		// follow-up debugging — before this line, a placeholder revived by
+		// LoadSuspendedFromDisk silently swallowed every Resume / Resurrect /
+		// Suspend audit event because reasonStep had not yet built an
+		// EventWriter. The shouldWarnEventDrop filter scopes the noise to
+		// processes that SHOULD have an EventWriter: reasonStep-driven (i.e.
+		// PrimaryDevice non-empty) and live (Running / Suspended). Tests
+		// using bare NewProcess fixtures, script-runners that detach their
+		// writer on purpose, and post-reap finalize emits stay silent.
+		log.Printf("[event-drop] pid=%d uuid=%s syscall=%s state=%s — reasonStep-driven proc has no EventWriter; further drops on this proc will be silent",
+			proc.PID, proc.UUID, syscall, proc.GetState())
 	}
 
 	// Recording hook (Story 14.1)
@@ -94,6 +107,26 @@ func (k *KernelImpl) EmitScriptEvent(proc *Process, syscall string, args map[str
 		return
 	}
 	k.emitEvent(proc, syscall, args, nil, nil, 0)
+}
+
+// shouldWarnEventDrop reports whether the calling emitEvent should surface a
+// "no EventWriter" warning for this proc. We scope the warning to processes
+// that are SUPPOSED to have an EventWriter:
+//   - PrimaryDevice non-empty → reasonStep-driven LLM agent (script-runners
+//     and bare test fixtures stay quiet).
+//   - State Running or Suspended → live processes only. Post-reap finalize
+//     emits, NewProcess test fixtures sitting in StateCreated, and Zombie/Dead
+//     are excluded.
+func shouldWarnEventDrop(proc *Process) bool {
+	if proc.PrimaryDevice == "" {
+		return false
+	}
+	switch proc.GetState() {
+	case types.StateRunning, types.StateSuspended:
+		return true
+	default:
+		return false
+	}
 }
 
 // emitLog sends a LogEntry to the process LogChan (non-blocking).

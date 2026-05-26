@@ -3,6 +3,7 @@ package kernel
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"slices"
 
 	"github.com/rnixai/rnix/internal/types"
@@ -63,6 +64,27 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		proc.MaxSteps = info.MaxSteps
 		proc.Provider = info.Provider
 		proc.Model = info.Model
+		// PrimaryDevice — Epic 44 follow-up fix: persist + restore so a
+		// daemon-restart placeholder routes through resumeOneForSubtree's
+		// reasonStep-driven branch instead of falling into the PrimaryDevice==""
+		// script-runner branch (which silently returns without launching
+		// reasonStep — the "Running but no progress" bug).
+		//
+		// Legacy compatibility: snapshots written before primary_device was
+		// persisted carry an empty string. When Provider is set we derive
+		// PrimaryDevice via the same resolveLLMDevice helper that Spawn/Resume
+		// use, so old proc-info.json files still revive correctly. Failure
+		// here leaves PrimaryDevice="" — dashboard `r` will then misroute,
+		// but the user can still rescue the placeholder via `rnix resume`.
+		proc.PrimaryDevice = info.PrimaryDevice
+		if proc.PrimaryDevice == "" && info.Provider != "" {
+			if dev, _, derr := k.resolveLLMDevice(nil, info.Provider); derr == nil {
+				proc.PrimaryDevice = dev
+			} else {
+				log.Printf("[load_suspended] uuid=%s: cannot derive PrimaryDevice for provider %q: %v (placeholder loaded but dashboard `r` may misroute)",
+					info.UUID, info.Provider, derr)
+			}
+		}
 		proc.ContextWindow = info.ContextWindow
 		proc.AllowedDevices = append([]string(nil), info.AllowedDevices...)
 		proc.ContextBudget = info.ContextBudget
@@ -81,6 +103,33 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		proc.LastHeartbeat = info.LastHeartbeat
 		proc.mu.Unlock()
 
+		// Rehydrate the in-memory runtime state (ctx + tool defs + skill
+		// bodies + mcp paths) before the state transition so an observable
+		// "Suspended" placeholder is already complete. resumeOneForSubtree
+		// must NOT have to rebuild any of this — without it the placeholder
+		// is a stripped-down shadow and tool calls / BuildPrompt fail on the
+		// next resume.
+		//
+		// Best-effort: when stepDataDir is empty (some test harnesses) or the
+		// on-disk artifacts are corrupted, log + skip the placeholder rather
+		// than publish a half-ctx revived proc that crashes on resume. The
+		// skip is silent to procTable callers — daemon comes up either way.
+		//
+		// Reasoned-tool placeholders are required to carry primary_device on
+		// disk. When the snapshot predates this field (legacy data) we still
+		// load the placeholder so the user can manually `rnix resume <uuid>`
+		// — that path goes through ResumeWithOpts → resumeFromHistory which
+		// re-derives PrimaryDevice from Provider. The dashboard `r` path,
+		// however, will misroute legacy placeholders into the script-runner
+		// branch until a re-resume rewrites their proc-info.json.
+		if k.stepDataDir != "" {
+			stepsDir := filepath.Join(k.stepDataDir, "data", "steps", info.UUID)
+			if _, _, rehErr := k.rehydrateRuntimeStateFromDisk(proc, stepsDir, info.CtxSize, 0); rehErr != nil {
+				log.Printf("[load_suspended] rehydrate uuid=%s failed: %v — skipping placeholder", info.UUID, rehErr)
+				continue
+			}
+		}
+
 		// Carry the suspend-requested atomic so the placeholder is
 		// behaviourally identical to one produced by SuspendSubtree (44.1
 		// invariant — reasonStep / IsSuspendRequested observers must see the
@@ -95,10 +144,18 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		// procTable yet, no events fire, no goroutine is spawned.
 		if err := proc.Start(); err != nil {
 			log.Printf("[load_suspended] start uuid=%s failed: %v", info.UUID, err)
+			if proc.CtxID > 0 {
+				_ = k.ctxMgr.CtxFree(proc.CtxID)
+				proc.CtxID = 0
+			}
 			continue
 		}
 		if err := proc.Suspend(); err != nil {
 			log.Printf("[load_suspended] suspend uuid=%s failed: %v", info.UUID, err)
+			if proc.CtxID > 0 {
+				_ = k.ctxMgr.CtxFree(proc.CtxID)
+				proc.CtxID = 0
+			}
 			continue
 		}
 
