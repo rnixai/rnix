@@ -333,12 +333,39 @@ func (k *KernelImpl) WaitChildInReason(parent *Process, childPID types.PID) (Exi
 	for {
 		select {
 		case exit := <-child.Done:
-			k.emitEvent(child, "Wait", map[string]any{
-				"pid":    childPID,
-				"action": "completed",
-			}, exit, nil, time.Since(start))
-			k.reapProcess(child)
-			return exit, false
+			// Story 44.5 v2 AC7 对称收尾(spec: spec-fix-pause-child-reaped-as-dead.md):
+			// proc.Done 是双载 channel —— 既承载终态退出,也承载 notifySuspendDone
+			// (kernel/suspend.go:106-121)写入的 mid-state suspend 信号(Code=
+			// ExitSuspended=2)。接收侧必须用 GetState() 判别,否则会把 Suspended
+			// child 当成 completed 立即 reap,让父进程拿 Code=2 错误推进
+			// (EchoMatrix 现场症状)。本治理与 ipc/server_pipeline.go:160-186
+			// SpawnAndWait 完全对称。
+			switch child.GetState() {
+			case types.StateZombie, types.StateDead:
+				k.emitEvent(child, "Wait", map[string]any{
+					"pid":    childPID,
+					"action": "completed",
+				}, exit, nil, time.Since(start))
+				k.reapProcess(child)
+				return exit, false
+			default:
+				// StateRunning(notifySuspendDone 写 Done 早于 suspendProcess
+				// transition Suspended 的过渡窗口)或 StateSuspended:丢弃
+				// mid-state Done,继续 select 等真正的 finishProcess 写下一个
+				// Done(ResumeSubtree 重启 reasonStep 后)。default 必须覆盖
+				// Running 过渡窗口,只 case StateSuspended 会漏判。
+				//
+				// Step-04 review patch (Blind Hunter #2):emit 一条 discard 事件
+				// 让 dashboard timeline 能观察到 mid-state Done 被丢弃,避免
+				// silent loop spin 时无迹可循。
+				k.emitEvent(child, "Wait", map[string]any{
+					"pid":         childPID,
+					"action":      "discard_midstate",
+					"exit_code":   exit.Code,
+					"exit_reason": exit.Reason,
+				}, nil, nil, 0)
+				continue
+			}
 
 		case <-parentCtxDone:
 			k.emitEvent(child, "Wait", map[string]any{

@@ -65,6 +65,14 @@ func TestWaitChildInReason_NormalCompletion(t *testing.T) {
 	}()
 
 	time.Sleep(20 * time.Millisecond)
+	// Production fidelity: in real reasonStep paths, finishProcess transitions
+	// Running → Zombie *before* writing to proc.Done. The state-guard added in
+	// kernel/reap.go (spec: spec-fix-pause-child-reaped-as-dead.md / Story 44.5
+	// v2 AC7 对称收尾) only treats Zombie/Dead Done as terminal; a stale Done
+	// write while child is still Running would be discarded as mid-state suspend.
+	if err := child.Terminate(exitWant); err != nil {
+		t.Fatalf("child.Terminate: %v", err)
+	}
 	child.Done <- exitWant
 
 	select {
