@@ -350,6 +350,61 @@ func parseProcessState(s string) types.ProcessState {
 // procInfoFilename is the name of the ProcInfo snapshot file.
 const procInfoFilename = "proc-info.json"
 
+// SeedPIDCounterFromDisk scans every proc-info.json under
+// <baseDir>/data/steps/ and lifts pidCounter to max(disk PIDs) so the next
+// nextPID() returns a value strictly larger than every persisted PID. This
+// closes the daemon-restart PID-reuse hole that surfaced in EchoMatrix on
+// 2026-05-26: pidCounter (a process-local atomic.Uint64) reset to 0 on
+// daemon start, then LoadSuspendedFromDisk reloaded a parent placeholder
+// that the user later Resumed — Resume's downstream Spawn calls allocated
+// PID=1 for the new child while the on-disk parent snapshot still carried
+// PID=2, producing the dashboard layout "child PID=1 under parent PID=2"
+// and the visual impression of swapped lineage.
+//
+// Best-effort: a corrupt or unreadable entry is skipped without failing
+// the seed. Daemon startup MUST call this before any code path that
+// invokes NewProcess (which calls nextPID).
+func SeedPIDCounterFromDisk(baseDir string) error {
+	if baseDir == "" {
+		return nil
+	}
+	stepsDir := filepath.Join(baseDir, "data", "steps")
+	entries, err := os.ReadDir(stepsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("readdir %s: %w", stepsDir, err)
+	}
+	var maxPID uint64
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(stepsDir, entry.Name(), procInfoFilename)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var d procInfoDisk
+		if err := json.Unmarshal(data, &d); err != nil {
+			continue
+		}
+		if d.PID > maxPID {
+			maxPID = d.PID
+		}
+	}
+	for {
+		current := pidCounter.Load()
+		if current >= maxPID {
+			return nil
+		}
+		if pidCounter.CompareAndSwap(current, maxPID) {
+			return nil
+		}
+	}
+}
+
 // SaveProcInfo writes a ProcInfo snapshot to <baseDir>/data/steps/<uuid>/proc-info.json.
 // Best-effort: returns nil silently if baseDir or UUID is empty.
 func SaveProcInfo(baseDir string, info vfs.ProcInfo) error {

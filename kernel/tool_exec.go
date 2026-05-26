@@ -725,11 +725,32 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 		// on a parent legitimately blocked on its child).
 		childExit, cancelled := k.WaitChildInReason(proc, childPID)
 		if cancelled {
-			// Parent ctx cancelled (Suspend / Kill). Don't append a tool result
-			// or fall through — the reasonStep top-of-loop ctx check on the
-			// next iteration drives the clean suspend/exit path. Returning
-			// here also lets proc.wg.Wait() in suspendOneForSubtree complete.
+			// Parent ctx cancelled while waiting on child. Don't append a tool
+			// result — the conversation flow is broken (assistant.tool_calls
+			// without a paired tool result). Returning false here also lets
+			// proc.wg.Wait() in suspendOneForSubtree complete.
+			//
+			// Distinguish two cancel sources:
+			//
+			//   (a) SuspendSubtree(parent) — suspendOneForSubtree did
+			//       suspendRequested.Store(true) BEFORE Cancel(), so the
+			//       reasonStep defer observes the flag and routes to
+			//       notifySuspendDone. State transitions to Suspended via
+			//       suspendOneForSubtree -> suspendProcess. No action needed.
+			//
+			//   (b) Any other cancel — Kill (SIGTERM/SIGKILL), external
+			//       proc.Cancel(), defensive ctx mishandling, etc. — leaves
+			//       suspendRequested=false. The reasonStep defer then sees
+			//       state=Running and mislabels the exit as "unexpected exit"
+			//       (Code=1), giving operators a false "kernel bug" signal
+			//       for what is actually an explicit cancel. Surface the
+			//       cancel cleanly here by transitioning to Zombie with a
+			//       descriptive reason; the defer's state==Running guard
+			//       then skips the unexpected-exit branch.
 			k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "spawn_cancelled", "child_pid": childPID}, nil, nil, time.Since(stepStart))
+			if !proc.IsSuspendRequested() {
+				k.finishProcess(proc, ExitStatus{Code: 1, Reason: "cancelled while waiting on child", Err: proc.ctx.Err()})
+			}
 			return false
 		}
 		childProc, _ := k.GetProcess(childPID)

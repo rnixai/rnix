@@ -17,13 +17,16 @@ import (
 )
 
 // pidCounter is the global PID allocator. PIDs start at 1 and monotonically
-// increase. They are never recycled.
+// increase. They are never recycled within a daemon's lifetime; daemon restart
+// re-seeds the counter from on-disk proc-info via SeedPIDCounterFromDisk so
+// fresh allocations don't collide with persisted PIDs.
 var pidCounter atomic.Uint64
 
 // nextPID returns the next unique PID.
 func nextPID() types.PID {
 	return types.PID(pidCounter.Add(1))
 }
+
 
 // ProcessBudget tracks per-process resource budget for cost/token limiting.
 // When a budget limit is reached, the process is suspended (not terminated).

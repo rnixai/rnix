@@ -523,9 +523,39 @@ func (k *KernelImpl) Shutdown() {
 	// directory: without this, a checkpoint goroutine spawned by asyncWriteCheckpoint
 	// may still be writing files when Go's TempDir cleanup tries to remove the dir.
 	// proc.Cancel() is idempotent — safe to call even if already cancelled.
+	//
+	// For Running procs: mark suspendRequested BEFORE Cancel so reasonStep's
+	// defer routes to notifySuspendDone instead of the "unexpected exit"
+	// branch. After the goroutine exits, transition Running → Suspended and
+	// stamp the same fields suspendProcess would so SaveProcInfo below writes
+	// a resumable snapshot that LoadSuspended can rehydrate on next daemon
+	// startup. We deliberately skip suspendProcess here because it emits a
+	// "Suspend" syscall event — during teardown of a test fixture with
+	// stepMode==StepSyscall set, that emit deadlocks on GdbPause waiting for
+	// a resume that will never come (kernel/breakpoint.go:240).
+	//
+	// Without this rewrite, daemon-shutdown that interrupts a parent waiting
+	// on a child (ActionSpawn's WaitChildInReason) left the parent
+	// zombie+exit_code=1 — the dashboard's red ✗ marker — even though the
+	// user only paused the child. EchoMatrix 2026-05-26 reproduction.
 	k.procTable.Range(func(_ types.PID, proc *Process) bool {
+		preState := proc.GetState()
+		if preState == types.StateRunning {
+			proc.suspendRequested.Store(true)
+		}
 		proc.Cancel()
 		proc.wg.Wait()
+		if preState == types.StateRunning && proc.GetState() == types.StateRunning {
+			if err := proc.Suspend(); err != nil {
+				log.Printf("[shutdown] suspend pid=%d failed: %v", proc.PID, err)
+			} else {
+				proc.mu.Lock()
+				proc.SuspendReason = "daemon_shutdown"
+				proc.Exit = &ExitStatus{Code: ExitSuspended, Reason: "suspended: daemon_shutdown"}
+				proc.pausedAt = time.Now()
+				proc.mu.Unlock()
+			}
+		}
 		return true
 	})
 

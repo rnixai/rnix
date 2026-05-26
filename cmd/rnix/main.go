@@ -1579,6 +1579,15 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	k.SetStepDataDir(filepath.Join(cwd, ".rnix"))
 	k.SetCheckpointConfig(checkpointCfg)
 	k.SetGcConfig(gcCfg)
+	// Seed pidCounter from disk BEFORE LoadHistory / LoadSuspendedFromDisk so
+	// any NewProcess invoked during reload (e.g. Suspended placeholder
+	// creation) draws a PID strictly larger than every persisted PID.
+	// Without this, daemon restart resets the counter to 0 and the next
+	// Spawn collides with reloaded placeholder PIDs — EchoMatrix 2026-05-26
+	// "child PID < parent PID" dashboard symptom.
+	if err := kernel.SeedPIDCounterFromDisk(filepath.Join(cwd, ".rnix")); err != nil {
+		fmt.Fprintf(os.Stderr, "[kernel] warn: seed pid counter: %v\n", err)
+	}
 	if err := k.LoadHistory(); err != nil {
 		fmt.Fprintf(os.Stderr, "[kernel] warn: load process history: %v\n", err)
 	}

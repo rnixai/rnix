@@ -120,6 +120,63 @@ func TestTwoPhaseShutdown_CustomGracePeriod(t *testing.T) {
 	}
 }
 
+// TestShutdown_RunningProcsTransitionToSuspended is the regression test for
+// the EchoMatrix dashboard symptom captured on 2026-05-26: pausing a child
+// then restarting the daemon left the root process showing ✗ (zombie +
+// exit_code=1) because the shutdown drain loop did a bare proc.Cancel()
+// without setting proc.suspendRequested. reasonStep's defer
+// (kernel/reason.go:248-259) then saw state=Running with
+// suspendRequested=false and routed to "unexpected exit" — even though the
+// user only paused a child, never killed the root.
+//
+// The Shutdown drain loop now stamps suspendRequested before Cancel and
+// transitions Running → Suspended with reason="daemon_shutdown" before
+// SaveProcInfo, so the disk snapshot is what LoadSuspended needs on the
+// next daemon startup to rehydrate the process as resumable.
+func TestShutdown_RunningProcsTransitionToSuspended(t *testing.T) {
+	k := newSimpleKernel(t)
+
+	// Skip the t.Cleanup Shutdown — we drive Shutdown explicitly below.
+	proc := NewProcess(0, "shutdown-suspend-test", nil)
+	ctx, cancel := gocontext.WithCancel(gocontext.Background())
+	proc.ctx = ctx
+	proc.cancel = cancel
+	if err := proc.Start(); err != nil {
+		t.Fatalf("proc.Start: %v", err)
+	}
+	k.AddProcess(proc)
+	k.msgQueues.Store(proc.PID, newMessageQueue())
+
+	if got := proc.GetState(); got != types.StateRunning {
+		t.Fatalf("precondition: proc state = %s, want Running", got)
+	}
+
+	// First Shutdown drains the process; t.Cleanup's second Shutdown is a no-op.
+	k.Shutdown()
+
+	if got := proc.GetState(); got != types.StateSuspended {
+		t.Errorf("after Shutdown: proc state = %s, want Suspended (was Running)", got)
+	}
+	if !proc.suspendRequested.Load() {
+		t.Error("after Shutdown: suspendRequested should be true so reasonStep defer takes the notifySuspendDone path")
+	}
+
+	proc.mu.Lock()
+	suspendReason := proc.SuspendReason
+	exit := proc.Exit
+	proc.mu.Unlock()
+
+	if suspendReason != "daemon_shutdown" {
+		t.Errorf("SuspendReason = %q, want %q", suspendReason, "daemon_shutdown")
+	}
+	if exit == nil {
+		t.Fatal("Exit is nil after Shutdown")
+	}
+	if exit.Code != ExitSuspended {
+		t.Errorf("Exit.Code = %d, want ExitSuspended (%d) — anything else (esp. 1) shows up red in dashboard", exit.Code, ExitSuspended)
+	}
+}
+
 // TestEffectiveGracePeriod verifies the method returns the default when unset.
 func TestEffectiveGracePeriod(t *testing.T) {
 	proc := NewProcess(0, "grace-test", nil)
