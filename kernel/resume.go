@@ -446,6 +446,7 @@ func (k *KernelImpl) resumeFromCheckpoint(uuid string, opts ResumeOpts, start ti
 		proc.cancel() // release ctx created by NewProcess (no listeners yet, but be defensive)
 	}
 	gctx, cancel := gocontext.WithCancel(gocontext.Background())
+	gctx = ContextWithPID(gctx, proc.PID)
 	proc.cancel = cancel
 	proc.ctx = gctx
 
@@ -683,6 +684,7 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 		proc.cancel() // release ctx created by NewProcess (no listeners yet, but be defensive)
 	}
 	gctx, cancel := gocontext.WithCancel(gocontext.Background())
+	gctx = ContextWithPID(gctx, proc.PID)
 	proc.cancel = cancel
 	proc.ctx = gctx
 

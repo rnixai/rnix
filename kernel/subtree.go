@@ -325,6 +325,19 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 	// transition, but do NOT touch LastHeartbeat — without a driver writing
 	// heartbeats the monitor would otherwise escalate to stall recovery.
 	if proc.PrimaryDevice == "" {
+		// Defensive ctx patch for the LoadSuspendedFromDisk → ResumeSubtree
+		// path: the placeholder restored from disk has proc.ctx set to a
+		// PID-less Background ctx, and this branch returns without
+		// reconstructing ctx, so any later /dev/tty Write driven by the
+		// script-runner would read PID=0 from ctx and trip extractAskUserPID's
+		// guard. Layer ContextWithPID onto the existing ctx — cheaper than
+		// rebuilding cancel/cancelFunc and safe even when ctx already has the
+		// key (context.WithValue treats it as a shadow, not a mutation).
+		if proc.ctx != nil {
+			proc.mu.Lock()
+			proc.ctx = ContextWithPID(proc.ctx, proc.PID)
+			proc.mu.Unlock()
+		}
 		k.emitEvent(proc, "Resume", map[string]any{
 			"pid":    proc.PID,
 			"action": "awaiting_script_driver",
@@ -336,6 +349,7 @@ func (k *KernelImpl) resumeOneForSubtree(proc *Process) error {
 	// invoke the old cancel outside the lock. This avoids reading proc.cancel
 	// without the mutex (the read+invoke pattern races any concurrent writer).
 	gctx, cancel := gocontext.WithCancel(gocontext.Background())
+	gctx = ContextWithPID(gctx, proc.PID)
 	proc.mu.Lock()
 	oldCancel := proc.cancel
 	proc.ctx = gctx

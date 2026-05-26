@@ -141,6 +141,24 @@ func (c *cliCallbacks) OnAskUser(pid types.PID, requestID string, questions []by
 	return nil, fmt.Errorf("ask_user not supported in embedded mode")
 }
 
+// extractAskUserPID resolves the PID from the per-process ctx that VFS passes
+// to /dev/tty Write. Returns a descriptive error when ctx lacks the kernel PID
+// key — surfacing a clear "kernel bug" signal to operators and an actionable
+// "unavailable" status to the LLM, instead of leaking the IPC-layer
+// "cannot send to PID 0" string. Kept as a top-level helper so the guard is
+// testable without standing up the full daemon + IPC server.
+func extractAskUserPID(ctx context.Context) (types.PID, error) {
+	pid := kernel.PIDFromContext(ctx)
+	if pid == 0 {
+		// Operator-side diagnostics live in daemon logs (callers may log the
+		// returned error). Keep the LLM-facing wording short and neutral so
+		// the model treats AskUserQuestion as situationally unavailable
+		// without inferring "kernel bug" or "PID 0" implementation details.
+		return 0, fmt.Errorf("AskUserQuestion unavailable: no process context")
+	}
+	return pid, nil
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "rnix [command]",
 	Short: "Rnix — Agent OS for AI agents",
@@ -1770,8 +1788,10 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return nil, fmt.Errorf("marshal questions: %w", err)
 		}
-		// Extract PID from process context (uses kernel context key)
-		pid := kernel.PIDFromContext(ctx)
+		pid, pidErr := extractAskUserPID(ctx)
+		if pidErr != nil {
+			return nil, pidErr
+		}
 		requestID := fmt.Sprintf("ask-%d-%d", pid, time.Now().UnixNano())
 
 		// Run OnAskUser in a goroutine so we can select on ctx.Done()

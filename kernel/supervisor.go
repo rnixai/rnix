@@ -120,6 +120,7 @@ func (k *KernelImpl) SpawnSupervisor(spec SupervisorSpec) (types.PID, error) {
 
 	proc := NewProcess(0, "supervisor:"+string(spec.Strategy), nil)
 	ctx, cancel := gocontext.WithCancel(gocontext.Background())
+	ctx = ContextWithPID(ctx, proc.PID)
 	proc.cancel = cancel
 	proc.ctx = ctx
 
