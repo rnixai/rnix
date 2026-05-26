@@ -869,12 +869,10 @@ func (m dashboardModel) dashboardTick() (tea.Model, tea.Cmd) {
 	// Story 38-5 PR11 Step 4(b) Phase 3: DetailModel.OnTick 真实化路径
 	// detailCardNeedsData logic migrated to DetailModel.OnTick (ViewMode==ViewDefault guard).
 	// ctx.Active 由 makeTickCtx(paneDetail) 设置；ViewMode==viewDefault 由 OnTick 内部判断。
-	{
-		ctx := m.makeTickCtx(paneDetail)
-		if cmd := m.detailM.OnTick(ctx); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		m.detail = m.detailM.State()
+	var detailCmd tea.Cmd
+	m, detailCmd = m.tickDetailPane()
+	if detailCmd != nil {
+		cmds = append(cmds, detailCmd)
 	}
 
 	// Story 38-5 PR11 Step 4(b) Phase 3: IntentModel.OnTick 真实化路径

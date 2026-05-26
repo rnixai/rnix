@@ -38,6 +38,26 @@ func fetchProcDetailCmd(pid types.PID, uuid string) tea.Cmd {
 	}
 }
 
+// tickDetailPane 是 dashboardTick 中 Detail pane 同步块的提取版（push + OnTick + pull）。
+//
+// push+pull 双向同步契约（与 broadcastSelectPID 对称）：handleProcDetailResult
+// 在 procDetailResultMsg 到达时写入 m.detail.Detail（cmd/rnix 端字段），但不会
+// 直接落到 m.detailM.state.Detail。若没有 push，下一个 tick 末 pull 会用
+// stale state.Detail 覆盖刚写入的新值，detail 面板在 fetch 周期上闪烁
+// （表现：State / FD / Context 在 running ↔ suspended 间反复跳）。SetState 让
+// OnTick 看到 cmd/rnix 端最新 Detail，避免周期性回退到旧值。
+//
+// 抽成独立方法的目的是让 regression test 直接调用，覆盖整个同步链 —— 测试
+// 内嵌复制实现会让"删掉 push 后测试照样过"的情形不可见，重新引入 flicker
+// 时无法察觉。
+func (m dashboardModel) tickDetailPane() (dashboardModel, tea.Cmd) {
+	ctx := m.makeTickCtx(paneDetail)
+	m.detailM.SetState(m.detail)
+	cmd := m.detailM.OnTick(ctx)
+	m.detail = m.detailM.State()
+	return m, cmd
+}
+
 // renderDetailPane is a thin wrapper around detail.Render (Story 38-5 PR11 Step 4(c)).
 //
 // cmd/rnix wrapper responsibilities:
