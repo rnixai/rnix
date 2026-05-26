@@ -459,7 +459,8 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 
 	filtered := m.filteredDebugEvents()
 
-	// Header
+	// Header — 固定身份段 `Events [DEBUG PID N]` 不可被截，intent 作为可裁剪尾巴。
+	// truncW 不够容纳尾巴时优雅省略，避免长 intent 把 `]` 推出可视区。
 	debugLabel := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true).Render("DEBUG")
 	var agentName string
 	for _, p := range m.processes {
@@ -468,7 +469,14 @@ func (m dashboardModel) renderDebugTimelineContent(width, height int) string {
 			break
 		}
 	}
-	header := fmt.Sprintf("Events [%s PID %d %s]", debugLabel, m.selectedPID, agentName)
+	prefix := fmt.Sprintf("Events [%s PID %d]", debugLabel, m.selectedPID)
+	header := prefix
+	if agentName != "" {
+		remain := truncW - lipgloss.Width(prefix) - 1
+		if remain >= 4 {
+			header = prefix + " " + timeline.TruncateRuneWidth(agentName, remain)
+		}
+	}
 	b.WriteString(truncateAnsi(header, truncW))
 	b.WriteString("\n")
 

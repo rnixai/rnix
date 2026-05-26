@@ -104,19 +104,6 @@ func (m dashboardModel) renderDashboardTitle() string {
 
 	base := "  rnix " + connChar
 
-	// Story 34.6: Add DEBUG marker with PID and agent name when in debug mode
-	if m.debugState.Mode {
-		debugInfo := fmt.Sprintf("DEBUG: PID %d", m.selectedPID)
-		for _, p := range m.processes {
-			if p.PID == m.selectedPID && p.Intent != "" {
-				debugInfo = fmt.Sprintf("DEBUG: PID %d (%s)", m.selectedPID, p.Intent)
-				break
-			}
-		}
-		debugLabel := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true).Render(debugInfo)
-		base += " " + debugLabel
-	}
-
 	// Build left part (base + optional provider)
 	leftPart := base
 	leftPlain := base

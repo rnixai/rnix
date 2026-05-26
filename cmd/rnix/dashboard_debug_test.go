@@ -178,6 +178,76 @@ func TestDebugLayout_Structure(t *testing.T) {
 	}
 }
 
+// 验证 debug 模式下顶部 titleBar 不再重复 DEBUG/PID/intent —— 该信息已由
+// Timeline 面板 header 承担，避免上下重复展示。
+func TestRenderDashboardTitle_DebugMode_NoDebugSegment(t *testing.T) {
+	m := newDashboardModel(nil)
+	m.width = 120
+	m.height = 40
+	m.connected = true
+	m.selectedPID = 7
+	m.debugState.Mode = true
+	m.viewMode = viewDebug
+	m.processes = []vfs.ProcInfo{{PID: 7, Intent: "analyze churn"}}
+
+	title := m.renderDashboardTitle()
+	if strings.Contains(title, "DEBUG:") || strings.Contains(title, "DEBUG: PID") {
+		t.Errorf("titleBar 不应再包含 'DEBUG:' 段（重复信息已交给 Timeline header），got: %s", title)
+	}
+}
+
+// 验证 Timeline header 在长 intent 时不会把固定身份段 `Events [DEBUG PID N]` 撞出
+// 可视区，且超长 intent 末尾被截断为 `…`。
+func TestRenderDebugTimelineContent_LongIntentTruncation(t *testing.T) {
+	m := newDashboardModel(nil)
+	m.width = 120
+	m.height = 40
+	m.selectedPID = 42
+	m.debugState.Mode = true
+	m.viewMode = viewDebug
+	longIntent := strings.Repeat("analyze customer churn quarterly report ", 6)
+	m.processes = []vfs.ProcInfo{{PID: 42, Intent: longIntent}}
+
+	out := m.renderDebugTimelineContent(60, 20)
+	firstLine := strings.SplitN(out, "\n", 2)[0]
+
+	// 固定段必须完整出现
+	if !strings.Contains(firstLine, "PID 42]") {
+		t.Errorf("固定身份段 'PID 42]' 应完整出现在 header 首行，got: %q", firstLine)
+	}
+	if !strings.Contains(firstLine, "DEBUG") {
+		t.Errorf("header 应含 DEBUG 标签, got: %q", firstLine)
+	}
+	// 超长 intent 应被截断为 …
+	if strings.Contains(firstLine, longIntent) {
+		t.Errorf("长 intent 应被截断, 但完整出现在 header: %q", firstLine)
+	}
+	if !strings.Contains(firstLine, "…") {
+		t.Errorf("长 intent 截断后应以 '…' 结尾, got: %q", firstLine)
+	}
+}
+
+// 验证 Timeline header 在宽度极窄时优雅省略 intent（不会破坏固定段）。
+func TestRenderDebugTimelineContent_NarrowWidth_DropsIntent(t *testing.T) {
+	m := newDashboardModel(nil)
+	m.width = 30
+	m.height = 20
+	m.selectedPID = 3
+	m.debugState.Mode = true
+	m.viewMode = viewDebug
+	m.processes = []vfs.ProcInfo{{PID: 3, Intent: "long-intent-string"}}
+
+	out := m.renderDebugTimelineContent(22, 20)
+	firstLine := strings.SplitN(out, "\n", 2)[0]
+	if !strings.Contains(firstLine, "PID 3]") {
+		t.Errorf("窄宽下固定段 'PID 3]' 必须保留, got: %q", firstLine)
+	}
+	// 窄宽下 intent 应被整体省略，而不是带着 `…` 挤进来撞破固定段。
+	if strings.Contains(firstLine, "long-intent") {
+		t.Errorf("窄宽下 intent 应整体省略, 但出现在 header: %q", firstLine)
+	}
+}
+
 func TestDeviceLatencyAggregation(t *testing.T) {
 	m := newDashboardModel(nil)
 
