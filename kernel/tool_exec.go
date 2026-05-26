@@ -845,13 +845,20 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 			})
 		}
 
-		if !proc.HasSections && skillInfo.Body != "" {
-			body := skillInfo.Body
-			if skillInfo.Dir != "" {
-				body = "Base directory for this skill: " + skillInfo.Dir + "\n\n" + body
-			}
-			header := fmt.Sprintf("[Dynamic Skill Loaded: %s]", skillName)
-			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, header+"\n\n"+body); err != nil {
+		// Specialize 必须先 appendToolResult,再 AppendMessage(user, skill body)。
+		// 否则消息序列变成:
+		//   assistant + tool_calls [Skill] → user(skill body) → tool(skill loaded)
+		// 这违反 OpenAI/DeepSeek 协议「tool 必须紧跟 assistant.tool_calls」,
+		// 触发 HTTP 400 "Messages with role 'tool' must be a response to a
+		// preceding message with 'tool_calls'"。改为先 tool result 后 user 消息,
+		// 序列就是 assistant+tc → tool → user — 合法且语义不变。
+		needsUserMessage := !proc.HasSections && skillInfo.Body != ""
+
+		// reasonStep 是单线程,这里的 slot 预检相对于后续两次 append 是可靠的。
+		// 需要 1 个 tool 槽位 + (可选) 1 个 user 槽位。
+		if needsUserMessage {
+			slots, _ := k.ctxMgr.AvailableSlots(proc.CtxID)
+			if slots < 2 {
 				proc.mu.Lock()
 				proc.Skills = slices.DeleteFunc(proc.Skills, func(s string) bool { return s == skillName })
 				delete(proc.SkillBodies, skillName)
@@ -868,17 +875,29 @@ func (k *KernelImpl) executeMetaAction(proc *Process, tc llmToolCall, mapping to
 					})
 				}
 				proc.mu.Unlock()
-				k.emitEvent(proc, "SpecializeRollback", map[string]any{"skill": skillName, "reason": "context_full"}, nil, err, 0)
+				k.emitEvent(proc, "SpecializeRollback", map[string]any{"skill": skillName, "reason": "context_full"}, nil, nil, 0)
 				errMsg := fmt.Sprintf("skill %q load failed: context full. The skill was NOT loaded. Try again after context is compacted.", skillName)
 				_ = k.appendToolResult(proc, step, tc.ID, tc.Name, errMsg)
 				k.emitLog(proc, step, types.LogTool, errMsg, "specialize")
-				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_rollback", "skill": skillName}, nil, err, time.Since(stepStart))
+				k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize_rollback", "skill": skillName}, nil, nil, time.Since(stepStart))
 				return true
 			}
 		}
 
 		resultMsg := fmt.Sprintf("skill %q loaded successfully", skillName)
 		_ = k.appendToolResult(proc, step, tc.ID, tc.Name, resultMsg)
+
+		if needsUserMessage {
+			body := skillInfo.Body
+			if skillInfo.Dir != "" {
+				body = "Base directory for this skill: " + skillInfo.Dir + "\n\n" + body
+			}
+			header := fmt.Sprintf("[Dynamic Skill Loaded: %s]", skillName)
+			if err := k.ctxMgr.AppendMessage(proc.CtxID, rnixctx.RoleUser, header+"\n\n"+body); err != nil {
+				log.Printf("[kernel] pid=%d specialize: AppendMessage failed after slot precheck (skill=%q): %v", proc.PID, skillName, err)
+			}
+		}
+
 		k.emitLog(proc, step, types.LogTool, resultMsg, "specialize")
 		k.emitEvent(proc, "ReasonStep", map[string]any{"step": step, "action": "specialize", "skill": skillName}, nil, nil, time.Since(stepStart))
 		stepDur := time.Since(stepStart)

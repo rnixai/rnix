@@ -2,6 +2,7 @@ package kernel
 
 import (
 	gocontext "context"
+	"strings"
 	"testing"
 	"time"
 
@@ -382,6 +383,88 @@ func TestSpecialize_AppendMessageSuccess_NoRollback(t *testing.T) {
 	}
 	if !hasDir {
 		t.Error("proc.SkillDirs should contain good-skill")
+	}
+}
+
+// TestSpecialize_MessageOrderToolResultBeforeUser is the regression test for
+// the DeepSeek HTTP 400 captured in EchoMatrix on 2026-05-26:
+//
+//	llm write failed: ... (status 400): Error from provider (DeepSeek):
+//	Messages with role 'tool' must be a response to a preceding message
+//	with 'tool_calls'
+//
+// Old order injected the skill-body user message BEFORE the tool result,
+// producing assistant+tc → user(body) → tool(MgcP) — illegal at the OpenAI
+// protocol layer. New order must be assistant+tc → tool(MgcP) → user(body).
+//
+// Test setup: HasSections=false (drives the AppendMessage branch) and a
+// pre-existing assistant+tool_calls turn (simulating what executeToolCalls
+// would have written). Then executeMetaAction for ActionSpecialize must
+// leave the context as [assistant+tc, tool, user] with the tool result
+// glued to its parent.
+func TestSpecialize_MessageOrderToolResultBeforeUser(t *testing.T) {
+	reg := vfs.NewDeviceRegistry()
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	t.Cleanup(k.Shutdown)
+
+	k.SetSkillLoader(func(name string) (*skills.SkillInfo, error) {
+		return &skills.SkillInfo{
+			Manifest: skills.SkillManifest{Name: name, AllowedToolsRaw: "/dev/fs"},
+			Body:     "skill body content for " + name,
+			Dir:      "/tmp/skills/" + name,
+		}, nil
+	})
+
+	cid, _ := ctxMgr.CtxAlloc(16)
+	proc := NewProcess(0, "verify specialize message ordering", nil)
+	proc.CtxID = cid
+	proc.HasSections = false
+	proc.toolMap = map[string]toolMapping{
+		"Skill": {Type: "meta", Action: ActionSpecialize},
+	}
+
+	if err := ctxMgr.AppendAssistantWithToolCalls(cid, "loading skill", "", nil, []rnixctx.ToolCall{
+		{ID: "MgcP", Name: "Skill", Input: map[string]any{"skill": "bmad-code-review"}},
+	}); err != nil {
+		t.Fatalf("pre-fill assistant+tool_calls: %v", err)
+	}
+
+	mapping := toolMapping{Type: "meta", Action: ActionSpecialize}
+	tc := llmToolCall{ID: "MgcP", Name: "Skill", Input: map[string]any{"skill": "bmad-code-review"}}
+	resp := llmResponse{Content: "loading skill"}
+	var consec errFingerprintCounter
+	prompt := &rnixctx.PromptResult{}
+	if !k.executeMetaAction(proc, tc, mapping, 1, time.Now(), &consec, map[string]bool{}, prompt, "", &resp) {
+		t.Fatal("executeMetaAction unexpectedly returned false")
+	}
+
+	out, err := ctxMgr.BuildPrompt(cid)
+	if err != nil {
+		t.Fatalf("BuildPrompt: %v", err)
+	}
+	if len(out.Messages) != 3 {
+		t.Fatalf("len(messages) = %d, want 3 (assistant+tc, tool, user). Got: %+v", len(out.Messages), out.Messages)
+	}
+
+	if out.Messages[0].Role != rnixctx.RoleAssistant || len(out.Messages[0].ToolCalls) != 1 {
+		t.Fatalf("msg[0] = %+v, want assistant with tool_calls", out.Messages[0])
+	}
+	if out.Messages[1].Role != rnixctx.RoleTool {
+		t.Errorf("msg[1] role = %q, want tool (must follow assistant.tool_calls immediately)", out.Messages[1].Role)
+	}
+	if out.Messages[1].ToolCallID != "MgcP" {
+		t.Errorf("msg[1] tool_call_id = %q, want MgcP", out.Messages[1].ToolCallID)
+	}
+	if !strings.Contains(out.Messages[1].Content, "loaded successfully") {
+		t.Errorf("msg[1] content unexpected: %q", out.Messages[1].Content)
+	}
+	if out.Messages[2].Role != rnixctx.RoleUser {
+		t.Errorf("msg[2] role = %q, want user (skill body injected after tool result)", out.Messages[2].Role)
+	}
+	if !strings.Contains(out.Messages[2].Content, "Dynamic Skill Loaded") {
+		t.Errorf("msg[2] content missing skill-load header: %q", out.Messages[2].Content)
 	}
 }
 

@@ -309,6 +309,9 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		ExitCode:       exitCode,
 		ExitCodeSet:    exitCodeSet,
 	}
+	if proc.ProjectConfig != nil {
+		info.ProjectDir = proc.ProjectConfig.ProjectDir
+	}
 	proc.mu.Unlock()
 	return info, nil
 }
@@ -379,6 +382,13 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			ExitCode:       exitCode,
 			ExitCodeSet:    exitCodeSet,
 		})
+		// Stamp ProjectDir on the just-appended entry. proc.ProjectConfig is
+		// pointer-safe to read under proc.mu (set once at Spawn, immutable
+		// afterwards — see kernel/spawn.go:71). Empty when the process was
+		// spawned without a project context (test fixtures, global-only runs).
+		if proc.ProjectConfig != nil {
+			infos[len(infos)-1].ProjectDir = proc.ProjectConfig.ProjectDir
+		}
 		proc.mu.Unlock()
 		return true
 	})

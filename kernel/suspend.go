@@ -95,6 +95,16 @@ func (k *KernelImpl) suspendProcess(proc *Process, reason string, exitCode int) 
 		}
 	}
 
+	// Epic 44 follow-up — also persist process-meta.json on the suspend leg.
+	// Previously this file was written only by reapProcess, which never runs
+	// on the Suspended path. The omission left LoadSuspendedFromDisk +
+	// rehydrateRuntimeStateFromDisk without the system_prompt they need to
+	// revive the placeholder after a daemon restart — dashboard `r` would
+	// silently skip the placeholder ("process-meta.json missing"). Same
+	// best-effort contract as SaveProcInfo above: log on failure, do not
+	// block the state transition.
+	writeProcessMetaBestEffort(k.stepDataDir, proc, "suspend")
+
 	// Notify callbacks
 	if k.callbacks != nil {
 		k.callbacks.OnComplete(proc.PID, "", exit)

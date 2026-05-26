@@ -103,6 +103,49 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		proc.LastHeartbeat = info.LastHeartbeat
 		proc.mu.Unlock()
 
+		// Re-attach ProjectConfig. Without this, placeholders for processes
+		// that used a project-only LLM provider (e.g. EchoMatrix's
+		// opencodego) fail their resume with "device not found:
+		// /dev/llm/<provider>" because the global VFS has no such device.
+		// resolveProjectContext (wrapped by k.projectConfigLoader) re-runs
+		// the same .env / providers.yaml / loader merge that handleSpawn
+		// performs, so the revived placeholder behaves identically to a
+		// freshly-spawned one with the same ProjectDir.
+		//
+		// projectDirCandidate resolution order:
+		//   1. info.ProjectDir from proc-info.json — set by post-Epic-44.8
+		//      spawn/suspend writes; the authoritative source.
+		//   2. Fallback: filepath.Dir(k.stepDataDir). The daemon spawned
+		//      these processes from its own cwd, and SetStepDataDir uses
+		//      filepath.Join(cwd, ".rnix"), so the parent of stepDataDir
+		//      points back at the original project root. Without this fallback
+		//      every legacy snapshot — written before project_dir persistence
+		//      landed — would be silently stuck after a daemon restart.
+		//
+		// Best-effort: a loader error degrades to "no project context", in
+		// which case the placeholder still loads but its first resume will
+		// surface the underlying error (missing device / bad providers.yaml)
+		// to the user instead of silently hanging.
+		projectDirCandidate := info.ProjectDir
+		if projectDirCandidate == "" && k.stepDataDir != "" {
+			if guessed := filepath.Dir(k.stepDataDir); guessed != "" && guessed != "." && guessed != "/" {
+				projectDirCandidate = guessed
+				log.Printf("[load_suspended] uuid=%s: project_dir missing on disk — fallback to filepath.Dir(stepDataDir) = %q",
+					info.UUID, projectDirCandidate)
+			}
+		}
+		if projectDirCandidate != "" && k.projectConfigLoader != nil {
+			if pcfg, perr := k.projectConfigLoader(projectDirCandidate); perr != nil {
+				log.Printf("[load_suspended] uuid=%s: projectConfigLoader(%q) failed: %v — placeholder loaded without project context",
+					info.UUID, projectDirCandidate, perr)
+			} else if pcfg != nil {
+				proc.ProjectConfig = pcfg
+				if pcfg.ProjectDir != "" {
+					k.vfs.SetWorkDir(proc.PID, pcfg.ProjectDir)
+				}
+			}
+		}
+
 		// Rehydrate the in-memory runtime state (ctx + tool defs + skill
 		// bodies + mcp paths) before the state transition so an observable
 		// "Suspended" placeholder is already complete. resumeOneForSubtree

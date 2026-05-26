@@ -62,28 +62,32 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 	}
 
 	// 1. Read process-meta.json for system_prompt.
+	//
+	// Pre-Epic-44.8 daemons only wrote process-meta.json on reap, leaving
+	// Suspended placeholders without one. We now write it on suspend too
+	// (kernel/suspend.go), but legacy snapshots on disk still lack the file.
+	// For those we fall back to synthesizing a fresh SystemPrompt by re-running
+	// the section registry. The fallback is intentionally lossy — agent_instructions
+	// is empty because we did not persist the agent identity — but it lets the
+	// placeholder revive instead of being permanently silently broken.
+	systemPrompt := ""
 	metaPath := filepath.Join(stepsDir, "process-meta.json")
-	metaData, err := os.ReadFile(metaPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, 0, NewSyscallError("Rehydrate", proc.PID, "",
-				fmt.Errorf("process-meta.json missing for UUID %s", proc.UUID),
-				types.ErrNotFound)
+	metaData, metaErr := os.ReadFile(metaPath)
+	switch {
+	case metaErr == nil:
+		var meta struct {
+			SystemPrompt string `json:"system_prompt"`
 		}
+		if err := json.Unmarshal(metaData, &meta); err != nil {
+			return 0, 0, NewSyscallError("Rehydrate", proc.PID, "",
+				fmt.Errorf("parse process-meta.json: %w", err), types.ErrInternal)
+		}
+		systemPrompt = meta.SystemPrompt
+	case os.IsNotExist(metaErr):
+		log.Printf("[rehydrate] uuid=%s: process-meta.json missing (legacy snapshot or pre-suspend-meta daemon) — will synthesize fallback prompt", proc.UUID)
+	default:
 		return 0, 0, NewSyscallError("Rehydrate", proc.PID, "",
-			fmt.Errorf("read process-meta.json: %w", err), types.ErrInternal)
-	}
-	var meta struct {
-		SystemPrompt string `json:"system_prompt"`
-	}
-	if err := json.Unmarshal(metaData, &meta); err != nil {
-		return 0, 0, NewSyscallError("Rehydrate", proc.PID, "",
-			fmt.Errorf("parse process-meta.json: %w", err), types.ErrInternal)
-	}
-	if meta.SystemPrompt == "" {
-		return 0, 0, NewSyscallError("Rehydrate", proc.PID, "",
-			fmt.Errorf("system_prompt missing in process-meta.json for UUID %s", proc.UUID),
-			types.ErrInvalid)
+			fmt.Errorf("read process-meta.json: %w", metaErr), types.ErrInternal)
 	}
 
 	// 2. Parse steps.jsonl. maxStep applies the Story 42.3 FromStep truncation
@@ -174,12 +178,31 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 			fmt.Errorf("context get: %w", getErr), types.ErrInternal)
 	}
 
+	// Fallback synthesis when process-meta.json was missing. Run after
+	// SkillBodies / mcpDevicePaths / Skills have been rebuilt so the
+	// section registry sees a fully-furnished Process. agent_instructions
+	// stays empty — we never persisted agent identity — but the static
+	// sections (intro / system_rules / actions / using_devices / ...) plus
+	// the dynamic ones (env_info / loaded_skills / mcp_instructions / ...)
+	// are enough for the LLM to keep operating. The legacy resume is
+	// intentionally lossy and surfaced via the log line above.
+	if systemPrompt == "" {
+		sections := registerSections(proc, k, "")
+		proc.mu.Lock()
+		proc.HasSections = true
+		proc.sections = sections
+		proc.mu.Unlock()
+		systemPrompt = sections.Build()
+		log.Printf("[rehydrate] uuid=%s: synthesized fallback SystemPrompt (%d bytes, agent_instructions empty)",
+			proc.UUID, len(systemPrompt))
+	}
+
 	snapshot := struct {
 		SystemPrompt string            `json:"system_prompt"`
 		Messages     []rnixctx.Message `json:"messages"`
 		MaxSize      int               `json:"max_size"`
 	}{
-		SystemPrompt: meta.SystemPrompt,
+		SystemPrompt: systemPrompt,
 		Messages:     messages,
 		MaxSize:      resumeCtxSize,
 	}

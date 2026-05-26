@@ -258,11 +258,20 @@ func (d *OpenAICompatDriver) buildMessages(req LLMRequest) ([]oaiMessage, error)
 					})
 				}
 			}
-			// Convert role=tool to role=user when the preceding assistant message
-			// lacks tool_calls (rnix action protocol uses JSON-in-content, not
-			// OpenAI tool_calls). Without this, DeepSeek/OpenAI APIs reject with
-			// "Messages with role 'tool' must follow a 'tool_calls' message".
-			if om.Role == "tool" && !prevAssistantHasToolCalls(msgs) {
+			// Convert role=tool to role=user when the IMMEDIATELY preceding
+			// message is not assistant.tool_calls. DeepSeek/OpenAI require
+			// `tool` to directly follow its `assistant.tool_calls` parent;
+			// any intervening user/system/assistant message breaks the
+			// pairing and triggers HTTP 400 "Messages with role 'tool' must
+			// be a response to a preceding message with 'tool_calls'".
+			//
+			// Earlier this check used "most recent assistant" which missed
+			// the orphan case [assistant+tc, user, tool] — kernel ActionSpecialize
+			// used to insert a skill-body user message between the assistant
+			// turn and its tool result. The kernel side is now fixed but
+			// this guard also catches any future kernel path that breaks
+			// the invariant.
+			if om.Role == "tool" && !prevMessageIsAssistantWithToolCalls(msgs) {
 				om.Role = "user"
 				om.Content = fmt.Sprintf("[Tool Result: %s]\n%s", om.ToolCallID, om.Content)
 				om.ToolCallID = ""
@@ -282,12 +291,21 @@ func (d *OpenAICompatDriver) buildMessages(req LLMRequest) ([]oaiMessage, error)
 	return msgs, nil
 }
 
-// prevAssistantHasToolCalls checks if the last assistant message in msgs has tool_calls.
-func prevAssistantHasToolCalls(msgs []oaiMessage) bool {
+// prevMessageIsAssistantWithToolCalls reports whether the soon-to-be-appended
+// `tool` message would land in a legal position per the OpenAI/DeepSeek
+// protocol — i.e. the run of messages immediately before it is one or more
+// `tool` messages (siblings under the same assistant.tool_calls turn) and the
+// first non-tool message before them is `assistant` with non-empty
+// tool_calls. Peeking at the very last entry alone is too strict (it would
+// flag the second tool result of a multi-call turn) and scanning backwards
+// for any assistant is too loose (the bug fixed here: an intervening user
+// message between `assistant.tool_calls` and its `tool` result was missed).
+func prevMessageIsAssistantWithToolCalls(msgs []oaiMessage) bool {
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == "assistant" {
-			return len(msgs[i].ToolCalls) > 0
+		if msgs[i].Role == "tool" {
+			continue
 		}
+		return msgs[i].Role == "assistant" && len(msgs[i].ToolCalls) > 0
 	}
 	return false
 }

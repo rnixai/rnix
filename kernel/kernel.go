@@ -195,6 +195,16 @@ type KernelImpl struct {
 	contextWindowFunc  func(provider, model string) int         // returns context window for a provider+model; 0 = unknown
 	defaultProvider    string // injected default provider name; "" = fall back to "claude"
 
+	// projectConfigLoader rebuilds a full ProjectConfig (LLMFileOpener,
+	// AgentLoader, SkillLoader, EnvSnapshot, ...) from a stored project
+	// directory. Injected by the IPC daemon at startup so LoadSuspendedFromDisk
+	// can re-attach project context to placeholders revived after a daemon
+	// restart. nil = no project rebuild capability (test fixtures / global-only
+	// mode) — placeholders that used a project-only provider then fail to
+	// resume with a clear "device not found" error rather than silently
+	// hanging. (Epic 44 follow-up to the dashboard-`r` regression.)
+	projectConfigLoader func(projectDir string) (*config.ProjectConfig, error)
+
 	// Budget pools (Story 21.1)
 	budgetPools *xsync.SyncMap[types.PGID, *BudgetPool]
 
@@ -379,6 +389,16 @@ func (k *KernelImpl) SetProviderResolver(names func() []string, has func(name st
 // SetDefaultProvider injects the default LLM provider name.
 func (k *KernelImpl) SetDefaultProvider(name string) {
 	k.defaultProvider = name
+}
+
+// SetProjectConfigLoader injects a rebuilder that maps a project directory
+// back to a full ProjectConfig. LoadSuspendedFromDisk uses this to re-attach
+// project context (LLMFileOpener / AgentLoader / SkillLoader / EnvSnapshot)
+// to Suspended placeholders on daemon restart. Without this, a placeholder
+// for a process using a project-only LLM provider (e.g. EchoMatrix's
+// opencodego) cannot reopen its LLM device on the next resume.
+func (k *KernelImpl) SetProjectConfigLoader(fn func(projectDir string) (*config.ProjectConfig, error)) {
+	k.projectConfigLoader = fn
 }
 
 // SetCostPerToken injects the cost-per-token lookup function for process budget tracking.

@@ -458,6 +458,24 @@ func (s *Server) SetKernel(k *kernel.KernelImpl) {
 	s.kern = k
 }
 
+// LoadProjectConfig is the kernel-facing wrapper around resolveProjectContext,
+// exposing only the ProjectConfig (the agent-loader return value is consumed
+// internally by the spawn IPC path and irrelevant to kernel callers). Used by
+// kernel.LoadSuspendedFromDisk via the SetProjectConfigLoader injection so
+// placeholders revived after a daemon restart can re-attach project context
+// (LLMFileOpener / AgentLoader / SkillLoader / EnvSnapshot) and successfully
+// reopen project-only LLM devices on resume.
+//
+// rnixEnv defaults to "" — resolveProjectContext interprets that as the
+// canonical "development" env. Future work may persist RnixEnv to
+// proc-info.json so post-restart resume honors the original env. The current
+// caller (LoadSuspendedFromDisk) accepts that limitation in exchange for not
+// stashing a stale env identifier on disk.
+func (s *Server) LoadProjectConfig(projectDir string) (*config.ProjectConfig, error) {
+	cfg, _, err := s.resolveProjectContext(projectDir, "")
+	return cfg, err
+}
+
 // SetContextManager sets the context manager for inspect context support.
 func (s *Server) SetContextManager(mgr *rnixctx.Manager) {
 	s.ctxMgr = mgr

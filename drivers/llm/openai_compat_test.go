@@ -1233,3 +1233,100 @@ func TestOpenAICompatDriver_BuildMessages_RepairsMultipleAssistantBlocks(t *test
 		t.Errorf("b1 stub wrong: %+v", msgs[6])
 	}
 }
+
+// TestOpenAICompatDriver_BuildMessages_OrphanToolAfterUser is the regression
+// test for the DeepSeek HTTP 400 seen in EchoMatrix on 2026-05-26:
+//
+//	llm write failed: ... (status 400): Error from provider (DeepSeek):
+//	Messages with role 'tool' must be a response to a preceding message
+//	with 'tool_calls'
+//
+// Real captured sequence (kernel ActionSpecialize used to inject the skill
+// body as a user message between the assistant tool_calls turn and its
+// tool result):
+//
+//	assistant + tool_calls [MgcP] → user (skill body) → tool (MgcP)
+//
+// The "tool" message there is an orphan w.r.t. its IMMEDIATE predecessor —
+// the assistant tool_calls turn is no longer adjacent. The driver must
+// detect this with neighbor-only inspection (not "most recent assistant")
+// and rewrite the tool message into a user message so the outbound request
+// stays protocol-legal.
+func TestOpenAICompatDriver_BuildMessages_OrphanToolAfterUser(t *testing.T) {
+	d := NewOpenAICompatDriver("test", "http://example/v1", WithCompatModel("m"))
+
+	req := LLMRequest{
+		Messages: []Message{
+			{Role: "user", Content: "load a skill"},
+			{
+				Role:    "assistant",
+				Content: "loading skill",
+				ToolCalls: []ToolCall{
+					{ID: "MgcP", Name: "Skill", Input: map[string]any{"skill": "bmad-code-review"}},
+				},
+			},
+			{Role: "user", Content: "[Dynamic Skill Loaded: bmad-code-review]\n\nBase directory..."},
+			{Role: "tool", ToolCallID: "MgcP", Content: "skill loaded successfully"},
+		},
+	}
+	msgs, err := d.buildMessages(req)
+	if err != nil {
+		t.Fatalf("buildMessages: %v", err)
+	}
+
+	// Expected outbound shape:
+	//   [0] user             — original prompt
+	//   [1] assistant + tc   — Skill call
+	//   [2] tool MgcP (stub) — repair pass inserts stub so tc is paired
+	//   [3] user             — the skill-body user message
+	//   [4] user             — the original tool result, rewritten because its
+	//                           immediate predecessor is user, not assistant.tc
+	if len(msgs) != 5 {
+		t.Fatalf("len(msgs) = %d, want 5\nmsgs=%+v", len(msgs), msgs)
+	}
+
+	if msgs[1].Role != "assistant" || len(msgs[1].ToolCalls) != 1 || msgs[1].ToolCalls[0].ID != "MgcP" {
+		t.Fatalf("msgs[1] = %+v, want assistant with tool_call MgcP", msgs[1])
+	}
+
+	// msgs[2]: the stub tool — paired immediately after assistant.tool_calls.
+	if msgs[2].Role != "tool" || msgs[2].ToolCallID != "MgcP" {
+		t.Errorf("msgs[2] = {role=%q, id=%q}, want tool/MgcP stub", msgs[2].Role, msgs[2].ToolCallID)
+	}
+	if !strings.Contains(msgs[2].Content, "Tool result unavailable") {
+		t.Errorf("msgs[2] stub content unexpected: %q", msgs[2].Content)
+	}
+
+	// msgs[3]: the skill-body user message preserved verbatim.
+	if msgs[3].Role != "user" || !strings.Contains(msgs[3].Content, "Dynamic Skill Loaded") {
+		t.Errorf("msgs[3] = %+v, want user with skill-load header", msgs[3])
+	}
+
+	// msgs[4]: the originally orphan tool message — rewritten to user role.
+	if msgs[4].Role != "user" {
+		t.Errorf("orphan tool not rewritten: msgs[4] = %+v", msgs[4])
+	}
+	if msgs[4].ToolCallID != "" {
+		t.Errorf("rewritten tool message kept tool_call_id: %q", msgs[4].ToolCallID)
+	}
+	if !strings.Contains(msgs[4].Content, "Tool Result: MgcP") {
+		t.Errorf("orphan tool content lost provenance: %q", msgs[4].Content)
+	}
+
+	// Final invariant: no `tool` role message in the outbound payload may
+	// follow anything other than assistant.tool_calls.
+	for i := range msgs {
+		if msgs[i].Role != "tool" {
+			continue
+		}
+		if i == 0 {
+			t.Errorf("msgs[0] is tool — illegal as first message")
+			continue
+		}
+		prev := msgs[i-1]
+		if prev.Role != "assistant" || len(prev.ToolCalls) == 0 {
+			t.Errorf("msgs[%d] is tool but prev (msgs[%d]) = {role=%q, tool_calls=%d}",
+				i, i-1, prev.Role, len(prev.ToolCalls))
+		}
+	}
+}

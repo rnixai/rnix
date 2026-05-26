@@ -65,38 +65,20 @@ func (k *KernelImpl) reapProcess(proc *Process) {
 		proc.stepWriter = nil
 		ew := proc.eventWriter
 		proc.eventWriter = nil
-		fsp := proc.FinalSystemPrompt
-		toolDefs := proc.nativeToolDefs
 		proc.mu.Unlock()
 		if ew != nil {
 			if err := ew.Close(); err != nil {
 				log.Printf("[event_writer] close error pid=%d: %v", proc.PID, err)
 			}
 		}
+		// Persist process-meta.json. Epic 44 follow-up: this used to live
+		// inline here and only fired on reap, leaving Suspended placeholders
+		// without a meta file — daemon restart could not rehydrate them.
+		// Both reap and suspendProcess now share writeProcessMeta so the
+		// invariant "every UUID with proc-info.json on disk has a sibling
+		// process-meta.json" holds.
+		writeProcessMetaBestEffort(k.stepDataDir, proc, "reap")
 		if sw != nil {
-			// Write process-meta.json to the same directory
-			metaDir := filepath.Dir(sw.file.Name())
-			meta := struct {
-				PID          types.PID `json:"pid"`
-				SystemPrompt string    `json:"system_prompt"`
-				ToolDefs     []any     `json:"tool_defs"`
-			}{
-				PID:          proc.PID,
-				SystemPrompt: fsp,
-			}
-			if toolDefs != nil {
-				meta.ToolDefs = make([]any, len(toolDefs))
-				for i, td := range toolDefs {
-					meta.ToolDefs[i] = td
-				}
-			}
-			if metaJSON, err := json.Marshal(meta); err == nil {
-				if err := os.WriteFile(filepath.Join(metaDir, "process-meta.json"), metaJSON, 0o644); err != nil {
-					log.Printf("[step_writer] process-meta.json write error pid=%d: %v", proc.PID, err)
-				}
-			} else {
-				log.Printf("[step_writer] process-meta.json marshal error pid=%d: %v", proc.PID, err)
-			}
 			if err := sw.Close(); err != nil {
 				log.Printf("[step_writer] close error pid=%d: %v", proc.PID, err)
 			}

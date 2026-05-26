@@ -58,6 +58,13 @@ type ProcInfo struct {
 	// being misclassified as script-runners (PrimaryDevice == "" branch in
 	// kernel/subtree.go:resumeOneForSubtree).
 	PrimaryDevice  string
+	// ProjectDir is the absolute path to the project root the process was
+	// spawned from (parent of .rnix/). Persisted so LoadSuspendedFromDisk can
+	// invoke the kernel's projectConfigLoader to re-attach a full ProjectConfig
+	// — without this, dashboard `r` against a placeholder using a project-only
+	// LLM provider (e.g. EchoMatrix's opencodego) fails with `device not
+	// found: /dev/llm/<provider>` because the global VFS has no such device.
+	ProjectDir     string
 	ContextWindow  int
 	LastHeartbeat  time.Time
 	StepTimeout    time.Duration

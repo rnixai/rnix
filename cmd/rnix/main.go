@@ -1502,8 +1502,24 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 
 	v, c, d, _ := buildVersionInfo()
 	srv := ipc.NewServer(nil, agentLoader.Load, v, c, d)
+	// Wire globalConfig + globalProvidersRaw onto the server eagerly so
+	// k.SetProjectConfigLoader(srv.LoadProjectConfig) below can succeed
+	// before LoadSuspendedFromDisk runs. The same setters are also called
+	// later in the original spot (idempotent) so nearby code that assumes
+	// they fire post-kernel-wire keeps working.
+	srv.SetGlobalConfig(globalConfig)
+	srv.SetGlobalProvidersRaw(globalProvidersRaw)
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	k.SetMountManager(mountMgr)
+	// Epic 44 follow-up — give the kernel a way to rebuild ProjectConfig from
+	// a project directory so LoadSuspendedFromDisk can re-attach project
+	// context to revived placeholders. Without this, placeholders for
+	// processes using project-only providers (e.g. EchoMatrix's opencodego)
+	// cannot reopen their LLM device on resume because the global VFS has no
+	// such device. The loader must be injected before LoadSuspendedFromDisk
+	// runs, and srv.SetGlobalConfig/SetGlobalProvidersRaw above ensure it has
+	// the data it needs.
+	k.SetProjectConfigLoader(srv.LoadProjectConfig)
 	k.SetProviderResolver(driverReg.Names, func(name string) bool { _, ok := driverReg.Get(name); return ok })
 	k.SetDefaultProvider(providersCfg.ResolveDefaultProvider())
 	k.SetCostPerToken(func(provider string) float64 {

@@ -211,6 +211,14 @@ type procInfoDisk struct {
 	// LoadSuspendedFromDisk leaves PrimaryDevice="" and resumeOneForSubtree
 	// silently routes the placeholder into the script-runner branch.
 	PrimaryDevice  string   `json:"primary_device,omitempty"`
+	// ProjectDir — Epic 44 follow-up: persist the project root so
+	// LoadSuspendedFromDisk can call the injected projectConfigLoader to
+	// rebuild a full ProjectConfig (LLMFileOpener / AgentLoader / SkillLoader)
+	// on placeholder revival. Without this, processes using a project-only
+	// provider (e.g. opencodego) cannot reopen their LLM device after a
+	// daemon restart — see EchoMatrix `device not found: /dev/llm/opencodego`
+	// regression.
+	ProjectDir     string   `json:"project_dir,omitempty"`
 	ContextWindow  int      `json:"context_window,omitempty"`
 	ComposeNode    string   `json:"compose_node,omitempty"`
 	ComposeDeps    []string `json:"compose_deps,omitempty"`
@@ -246,6 +254,7 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 		Provider:       info.Provider,
 		Model:          info.Model,
 		PrimaryDevice:  info.PrimaryDevice,
+		ProjectDir:     info.ProjectDir,
 		ContextWindow:  info.ContextWindow,
 		ComposeNode:    info.ComposeNode,
 		ComposeDeps:    append([]string(nil), info.ComposeDeps...),
@@ -292,6 +301,7 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 		Provider:       d.Provider,
 		Model:          d.Model,
 		PrimaryDevice:  d.PrimaryDevice,
+		ProjectDir:     d.ProjectDir,
 		ContextWindow:  d.ContextWindow,
 		ComposeNode:    d.ComposeNode,
 		ComposeDeps:    d.ComposeDeps,
