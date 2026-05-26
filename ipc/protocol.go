@@ -220,6 +220,15 @@ type ProcInfoWire struct {
 	ComposeDeps     []string           `json:"compose_deps,omitempty"`
 	PipelineIndex   int                `json:"pipeline_index"`
 	PipelineTotal   int                `json:"pipeline_total"`
+
+	// Authoritative exit signal mirrored from vfs.ProcInfo. Without these two
+	// fields the dashboard falls back to a result-text heuristic that misfires
+	// when a successful process's Result contains words like "Error" (e.g. a
+	// code-review report listing "AbortError"). ExitCode is meaningful only
+	// when ExitCodeSet=true; omitempty keeps the wire compact for legacy and
+	// not-yet-exited processes.
+	ExitCode    int  `json:"exit_code,omitempty"`
+	ExitCodeSet bool `json:"exit_code_set,omitempty"`
 }
 
 // ProcInfoToWire converts a vfs.ProcInfo to wire format.
@@ -258,6 +267,8 @@ func ProcInfoToWire(p vfs.ProcInfo) ProcInfoWire {
 		ComposeDeps:   append([]string(nil), p.ComposeDeps...),
 		PipelineIndex: p.PipelineIndex,
 		PipelineTotal: p.PipelineTotal,
+		ExitCode:      p.ExitCode,
+		ExitCodeSet:   p.ExitCodeSet,
 	}
 	if !p.DeadAt.IsZero() {
 		w.DeadAt = p.DeadAt.UnixMilli()
@@ -306,6 +317,8 @@ func WireToProcInfo(w ProcInfoWire) vfs.ProcInfo {
 		ComposeDeps:   w.ComposeDeps,
 		PipelineIndex: w.PipelineIndex,
 		PipelineTotal: w.PipelineTotal,
+		ExitCode:      w.ExitCode,
+		ExitCodeSet:   w.ExitCodeSet,
 	}
 	if w.DeadAt != 0 {
 		p.DeadAt = unixMilliToTime(w.DeadAt)

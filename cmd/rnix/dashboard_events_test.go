@@ -149,12 +149,12 @@ func TestDetectSpawnExitEvents(t *testing.T) {
 		}
 	})
 
-	t.Run("detect exit by state change", func(t *testing.T) {
+	t.Run("clean exit with authoritative ExitCode=0", func(t *testing.T) {
 		prev := map[types.PID]vfs.ProcInfo{
 			1: {PID: 1, State: types.StateRunning, Intent: "init", CreatedAt: now},
 		}
 		curr := []vfs.ProcInfo{
-			{PID: 1, State: types.StateDead, Intent: "init", CreatedAt: now, DeadAt: now},
+			{PID: 1, State: types.StateDead, Intent: "init", CreatedAt: now, DeadAt: now, ExitCode: 0, ExitCodeSet: true},
 		}
 		events := detectSpawnExitEvents(prev, curr)
 		if len(events) != 1 {
@@ -168,12 +168,12 @@ func TestDetectSpawnExitEvents(t *testing.T) {
 		}
 	})
 
-	t.Run("detect exit with error", func(t *testing.T) {
+	t.Run("failed exit with authoritative ExitCode=1", func(t *testing.T) {
 		prev := map[types.PID]vfs.ProcInfo{
 			1: {PID: 1, State: types.StateRunning, Intent: "build", CreatedAt: now},
 		}
 		curr := []vfs.ProcInfo{
-			{PID: 1, State: types.StateDead, Intent: "build", Result: "error: timeout", CreatedAt: now, DeadAt: now},
+			{PID: 1, State: types.StateDead, Intent: "build", Result: "error: timeout", CreatedAt: now, DeadAt: now, ExitCode: 1, ExitCodeSet: true},
 		}
 		events := detectSpawnExitEvents(prev, curr)
 		if len(events) != 1 {
@@ -181,6 +181,74 @@ func TestDetectSpawnExitEvents(t *testing.T) {
 		}
 		if events[0].Severity != SevError {
 			t.Errorf("expected error severity for failed exit, got %d", events[0].Severity)
+		}
+	})
+
+	// Legacy success path: ExitCodeSet=false (older snapshots) with a neutral
+	// result text. The fallback heuristic in IsProcessFailed must classify
+	// this as success — proves the fallback isn't biased toward failure for
+	// non-empty, non-error Result text.
+	t.Run("legacy success exit with neutral result text", func(t *testing.T) {
+		prev := map[types.PID]vfs.ProcInfo{
+			1: {PID: 1, State: types.StateRunning, Intent: "noop", CreatedAt: now},
+		}
+		curr := []vfs.ProcInfo{
+			{PID: 1, State: types.StateDead, Intent: "noop", Result: "completed", CreatedAt: now, DeadAt: now, ExitCodeSet: false},
+		}
+		events := detectSpawnExitEvents(prev, curr)
+		if len(events) != 1 {
+			t.Fatalf("expected 1 exit event, got %d", len(events))
+		}
+		if events[0].Severity != SevInfo {
+			t.Errorf("legacy fallback with non-error result should be SevInfo; got %d", events[0].Severity)
+		}
+	})
+
+	// Regression for the user-reported bug: Edge Case Hunter / code review subagents
+	// completed successfully (ExitCode=0, ExitCodeSet=true) but whose Result text
+	// contains words like "error" / "fail" must NOT render as red in the Timeline.
+	// Before the fix, detectSpawnExitEvents used inferExitError (a result-text
+	// heuristic) and misclassified these as SevError, contradicting the Agent Tree
+	// which already showed the process as ✓ via ui.IsProcessFailed.
+	t.Run("successful exit with error-like result text stays SevInfo", func(t *testing.T) {
+		prev := map[types.PID]vfs.ProcInfo{
+			1: {PID: 1, State: types.StateRunning, Intent: "edge-case-hunter", CreatedAt: now},
+		}
+		curr := []vfs.ProcInfo{
+			{
+				PID: 1, State: types.StateDead, Intent: "edge-case-hunter",
+				Result:      "Here are the edge case findings:\n\n### Finding 1: AbortError detection missing — failure path silently swallowed",
+				CreatedAt:   now,
+				DeadAt:      now,
+				ExitCode:    0,
+				ExitCodeSet: true,
+			},
+		}
+		events := detectSpawnExitEvents(prev, curr)
+		if len(events) != 1 {
+			t.Fatalf("expected 1 exit event, got %d", len(events))
+		}
+		if events[0].Severity != SevInfo {
+			t.Errorf("authoritative ExitCode=0 must outrank result-text heuristic; "+
+				"expected SevInfo, got severity=%d", events[0].Severity)
+		}
+	})
+
+	// Legacy fallback path: when ExitCodeSet=false (older snapshots) and Result
+	// contains "error", IsProcessFailed walks the text heuristic and marks failure.
+	t.Run("legacy exit without ExitCodeSet falls back to result heuristic", func(t *testing.T) {
+		prev := map[types.PID]vfs.ProcInfo{
+			1: {PID: 1, State: types.StateRunning, Intent: "legacy", CreatedAt: now},
+		}
+		curr := []vfs.ProcInfo{
+			{PID: 1, State: types.StateDead, Intent: "legacy", Result: "error: boom", CreatedAt: now, DeadAt: now, ExitCodeSet: false},
+		}
+		events := detectSpawnExitEvents(prev, curr)
+		if len(events) != 1 {
+			t.Fatalf("expected 1 exit event, got %d", len(events))
+		}
+		if events[0].Severity != SevError {
+			t.Errorf("legacy fallback should flag 'error' in result as failure; got severity=%d", events[0].Severity)
 		}
 	})
 
@@ -201,6 +269,54 @@ func TestDetectSpawnExitEvents(t *testing.T) {
 		}
 		if events[0].PID != 2 {
 			t.Errorf("expected PID 2, got %d", events[0].PID)
+		}
+	})
+
+	// Disappearance branch must apply the same authoritative ExitCode judgement
+	// as the state-change branch, otherwise a reap-between-ticks for a failed
+	// process would render green in Timeline while Agent Tree shows it red.
+	t.Run("disappearance with authoritative ExitCode=0 stays SevInfo", func(t *testing.T) {
+		prev := map[types.PID]vfs.ProcInfo{
+			2: {
+				PID: 2, State: types.StateDead, Intent: "review", CreatedAt: now, DeadAt: now,
+				Result:      "Finding: AbortError detection missing",
+				ExitCode:    0,
+				ExitCodeSet: true,
+			},
+			3: {PID: 3, State: types.StateRunning, Intent: "anchor", CreatedAt: now},
+		}
+		curr := []vfs.ProcInfo{
+			{PID: 3, State: types.StateRunning, Intent: "anchor", CreatedAt: now},
+		}
+		events := detectSpawnExitEvents(prev, curr)
+		if len(events) != 1 {
+			t.Fatalf("expected 1 exit event, got %d", len(events))
+		}
+		if events[0].PID != 2 {
+			t.Fatalf("expected PID 2, got %d", events[0].PID)
+		}
+		if events[0].Severity != SevInfo {
+			t.Errorf("disappearance of ExitCode=0 process must be SevInfo; got %d", events[0].Severity)
+		}
+	})
+
+	t.Run("disappearance with authoritative ExitCode=1 is SevError", func(t *testing.T) {
+		prev := map[types.PID]vfs.ProcInfo{
+			2: {
+				PID: 2, State: types.StateDead, Intent: "build", CreatedAt: now, DeadAt: now,
+				Result: "compile failed", ExitCode: 1, ExitCodeSet: true,
+			},
+			3: {PID: 3, State: types.StateRunning, Intent: "anchor", CreatedAt: now},
+		}
+		curr := []vfs.ProcInfo{
+			{PID: 3, State: types.StateRunning, Intent: "anchor", CreatedAt: now},
+		}
+		events := detectSpawnExitEvents(prev, curr)
+		if len(events) != 1 {
+			t.Fatalf("expected 1 exit event, got %d", len(events))
+		}
+		if events[0].Severity != SevError {
+			t.Errorf("disappearance of ExitCode=1 process must be SevError; got %d", events[0].Severity)
 		}
 	})
 

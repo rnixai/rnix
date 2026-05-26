@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -94,10 +93,17 @@ func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo)
 	for pid, prevProc := range prev {
 		currProc, stillExists := currMap[pid]
 		if !stillExists {
-			// Process disappeared entirely
+			// Process disappeared entirely from the procTable (e.g. reaped between
+			// ticks). Apply the same authoritative ExitCode judgement as the
+			// state-change branch so a failed reap path doesn't render green here
+			// while the Agent Tree shows it red.
+			sev := SevInfo
+			if ui.IsProcessFailed(prevProc.ExitCode, prevProc.ExitCodeSet, prevProc.Result) {
+				sev = SevError
+			}
 			events = append(events, UnifiedEvent{
 				Type:      EventExit,
-				Severity:  SevInfo,
+				Severity:  sev,
 				Timestamp: time.Now(),
 				PID:       pid,
 				UUID:      prevProc.UUID,
@@ -108,7 +114,7 @@ func detectSpawnExitEvents(prev map[types.PID]vfs.ProcInfo, curr []vfs.ProcInfo)
 		}
 		if currProc.State == types.StateDead && prevProc.State != types.StateDead {
 			sev := SevInfo
-			if inferExitError(currProc) {
+			if ui.IsProcessFailed(currProc.ExitCode, currProc.ExitCodeSet, currProc.Result) {
 				sev = SevError
 			}
 			ts := currProc.DeadAt
@@ -382,14 +388,6 @@ func exitEventSummary(p vfs.ProcInfo) string {
 		return fmt.Sprintf("↓ EXIT PID %d ✗ %s", p.PID, snippet)
 	}
 	return fmt.Sprintf("↓ EXIT PID %d %q", p.PID, p.Intent)
-}
-
-func inferExitError(p vfs.ProcInfo) bool {
-	if p.Result == "" {
-		return false
-	}
-	lower := strings.ToLower(p.Result)
-	return strings.Contains(lower, "error") || strings.Contains(lower, "fail") || strings.Contains(lower, "timeout")
 }
 
 func getArgInt(args map[string]any, key string) int {
