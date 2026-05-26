@@ -9,6 +9,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	dashboardevent "github.com/rnixai/rnix/internal/dashboard/event"
+	"github.com/rnixai/rnix/internal/dashboard/inspector"
 	"github.com/rnixai/rnix/internal/dashboard/timeline"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/ui"
@@ -717,7 +718,7 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 				}
 
 				// Aggregate summary with three-level degradation
-				var totalTok int
+				var totalFreshTok int
 				var totalDur float64
 				var errCount int
 				loadedCount := 0
@@ -729,7 +730,16 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 							errCount++
 						}
 						if detail := m.timeline.StepDetailCache[s.Step]; detail != nil {
-							totalTok += detail.InputTokens + detail.OutputTokens
+							// Show "fresh" tokens (non-cached input + output) so high
+							// cache-hit scenarios don't display misleading megaton-scale
+							// numbers. openai-compat semantics include cached inside
+							// InputTokens; Anthropic semantics exclude it (see CLAUDE.md
+							// "Driver Token Semantics").
+							freshInput := detail.InputTokens
+							if !inspector.IsAnthropicDriver(detail.DriverType) {
+								freshInput = max(0, detail.InputTokens-detail.CachedInputTokens)
+							}
+							totalFreshTok += freshInput + detail.OutputTokens
 							loadedCount++
 						}
 					}
@@ -741,11 +751,11 @@ func (m dashboardModel) renderStepTimeline(width, height int) string {
 
 				allLoaded := loadedCount == len(g.StepNums)
 				if loadedCount > 0 {
-					tokLabel := formatTokenCount(totalTok)
+					tokLabel := formatTokenCount(totalFreshTok)
 					if !allLoaded {
 						tokLabel = "~" + tokLabel
 					}
-					summaryParts = append(summaryParts, tokLabel+" tok")
+					summaryParts = append(summaryParts, tokLabel+" fresh tok")
 				}
 				if errCount > 0 {
 					summaryParts = append(summaryParts, fmt.Sprintf("%d err", errCount))

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -19,6 +20,13 @@ import (
 const (
 	// DefaultTimeout is the default timeout for shell command execution.
 	DefaultTimeout = 30 * time.Second
+	// waitDelay is the grace period after ctx cancellation before stdlib
+	// forcibly closes stdin/stdout/stderr to unblock readers (see
+	// golang/go#23019). Required because shell commands may fork background
+	// daemons that inherit the pipe fds; without WaitDelay, io.Copy on those
+	// pipes hangs forever and Cmd.Wait → awaitGoroutines deadlocks the
+	// reasonStep goroutine.
+	waitDelay = 5 * time.Second
 	// maxOutputChars is the maximum character count before shell output is truncated.
 	maxOutputChars = 30000
 	// headLines is the number of leading lines to preserve when truncating.
@@ -129,13 +137,22 @@ func (f *ShellFile) Write(ctx context.Context, data []byte) error {
 		cmd.Dir = f.workDir
 	}
 
+	// Isolate the child into its own process group so cmd.Cancel can kill
+	// the whole tree (including background daemons the command might fork)
+	// instead of just the sh entrypoint. Without this, grandchildren that
+	// inherit cmd.Stdout/cmd.Stderr keep the pipes open and io.Copy never
+	// returns — see waitDelay comment above and golang/go#23019.
+	// Implementation is platform-specific (no-op on Windows).
+	applyProcessGroupIsolation(cmd)
+	cmd.WaitDelay = waitDelay
+
 	var combined bytes.Buffer
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
 
 	err := cmd.Run()
 
-	if ctx.Err() == context.DeadlineExceeded {
+	if ctx.Err() == context.DeadlineExceeded || errors.Is(err, exec.ErrWaitDelay) {
 		return &types.DriverError{Op: "Write", Device: f.devicePath, Err: fmt.Errorf("command timed out after %v", f.driver.defaultTimeout), Code: types.ErrTimeout}
 	}
 

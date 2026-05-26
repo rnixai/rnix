@@ -32,6 +32,11 @@ IMPORTANT: Avoid using /dev/shell to run grep, find, cat, head, tail, sed, awk, 
 - Avoid unnecessary sleep commands:
   - Do not sleep between commands that can run immediately — just run them.
   - Do not retry failing commands in a sleep loop — diagnose the root cause.
+- Long-running services: when starting a daemon, server, or watcher that should outlive this command, you MUST detach its I/O so the device does not hang on the inherited stdout/stderr pipes. Use either of:
+  - `nohup CMD </dev/null >/dev/null 2>&1 &` (also redirect to a log file if you need output)
+  - `setsid CMD </dev/null >/dev/null 2>&1 &`
+
+  Plain `CMD &` is NOT enough — the background process still inherits the device's pipes and will block the device timeout for the lifetime of that process.
 
 ## Dangerous command protection
 The system blocks obviously dangerous commands (rm -rf /, mkfs, dd of=/dev/, etc.). If a command is blocked, you will receive an error explaining why.

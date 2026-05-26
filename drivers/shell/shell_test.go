@@ -441,6 +441,50 @@ func TestExtractCommand(t *testing.T) {
 	}
 }
 
+// TestShellFile_Write_BackgroundProcessPipeLeak guards against the EchoMatrix
+// PID 9 STALL regression: shell command forks a background process that
+// inherits cmd.Stdout/cmd.Stderr pipes; main sh exits but grandchild keeps
+// pipes open, io.Copy hangs on os.File.Read, Cmd.Wait → awaitGoroutines
+// deadlocks the reasonStep goroutine.
+//
+// Without WaitDelay + Setpgid + Cancel(kill -pgid), Write would hang for the
+// duration of the background sleep (here 30s). With the fix, ctx cancellation
+// kills the whole process group and Write returns within seconds.
+//
+// Uses a real exec.Command (not mockCmdBuilder) because the bug is specific
+// to how stdlib os/exec handles inherited pipe fds.
+func TestShellFile_Write_BackgroundProcessPipeLeak(t *testing.T) {
+	driver := NewDriverWithOptions(DriverOpts{
+		Timeout: 500 * time.Millisecond,
+	})
+	f := &ShellFile{driver: driver, devicePath: "/dev/shell"}
+
+	// Background sleep 30s holds stdout/stderr; main sh exits immediately.
+	// Pre-fix: Write hangs ≥30s waiting for sleep to release the pipes.
+	// Post-fix: ctx timeout (500ms) triggers cmd.Cancel which SIGKILLs the
+	// whole pgrp, freeing pipes; Write returns ErrTimeout in <1s.
+	// Ceiling 10s = defaultTimeout (500ms) + waitDelay (5s) + headroom for
+	// race detector / virtualized CI overhead.
+	start := time.Now()
+	err := f.Write(context.Background(), []byte("(sleep 30 &); exit 0"))
+	elapsed := time.Since(start)
+
+	if elapsed > 10*time.Second {
+		t.Fatalf("Write took %v, expected ≤10s (regression: WaitDelay/Setpgid/Cancel missing?)", elapsed)
+	}
+	if err == nil {
+		t.Fatal("expected timeout error, got nil")
+	}
+
+	var drvErr *types.DriverError
+	if !errors.As(err, &drvErr) {
+		t.Fatalf("expected *types.DriverError, got %T: %v", err, err)
+	}
+	if drvErr.Code != types.ErrTimeout {
+		t.Errorf("expected ErrTimeout code, got %q (err=%v)", drvErr.Code, drvErr.Err)
+	}
+}
+
 // Task 2.15: TestFileFactory_ReturnsShellFile
 func TestFileFactory_ReturnsShellFile(t *testing.T) {
 	driver := NewDriver()
