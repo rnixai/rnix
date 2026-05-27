@@ -282,11 +282,32 @@ func renderDiagnosticsToStderr(diag skillpkg.LoadDiagnostics) {
 	for _, l := range diag.Lenient {
 		fmt.Fprintf(os.Stderr, "[skill] warning: %s: %s: %s (%s)\n", l.Path, l.Field, l.Reason, l.Detail)
 	}
+	// Story 47.4 review patch P3: quote ProjectDir/Recommendation so paths
+	// with spaces / newlines / control characters cannot tear the single-line
+	// stderr contract; pick the dash glyph from RNIX_ASCII so ASCII-only
+	// terminals see plain `-` instead of `—`.
+	dash := "—"
+	if os.Getenv("RNIX_ASCII") == "1" {
+		dash = "-"
+	}
 	for _, t := range diag.Trust {
 		fmt.Fprintf(os.Stderr,
-			"[skill] warning: untrusted project %s: %d skill root(s) will load — %s. Policy: %s. %s\n",
-			t.ProjectDir, len(t.SkillsRootPaths), t.Reason, t.Policy, t.Recommendation)
+			"[skill] warning: untrusted project %q: %d skill root(s) will load %s %s. Policy: %s. %s\n",
+			t.ProjectDir, len(t.SkillsRootPaths), dash, t.Reason, t.Policy, t.Recommendation)
 	}
+}
+
+// emitTrustPrecheck runs CheckProjectTrust and, in non-JSON modes, renders
+// the result to stderr. Returns the slice so JSON renderers can embed it in
+// the wire payload. Centralizes the install/update pre-check (Story 47.4
+// review patch P8) so adding a new CLI entry point (e.g. `skill search`) is
+// one call site, not yet another copy of the same 5 lines.
+func emitTrustPrecheck(scopes []config.ScopePath, mode ui.OutputMode) []skillpkg.TrustWarning {
+	warnings := skillpkg.CheckProjectTrust(scopes)
+	if mode != ui.ModeJSON && len(warnings) > 0 {
+		renderDiagnosticsToStderr(skillpkg.LoadDiagnostics{Trust: warnings})
+	}
+	return warnings
 }
 
 // resolveSkillScopesAndPaths runs ResolveSkillScopes(cwd) and converts the
@@ -325,9 +346,11 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// resolveWriteScope may have created the user-native (or other) directory
+	// via MkdirAll; computing scopes AFTERWARDS lets ResolveSkillScopes see
+	// the freshly-created directory and avoid an empty-scope install error
+	// in the "no project / no pre-existing user dir" path.
 	scopes, paths := resolveSkillScopesAndPaths(cwd)
-	// Ensure writeScope's loader path is visible to SkillLoader (so validate
-	// after extract can locate the newly-installed skill).
 	if writeScope.Path != "" && !slices.Contains(paths, writeScope.Path) {
 		paths = append(paths, writeScope.Path)
 	}
@@ -336,12 +359,12 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 	skillLoader := skills.NewSkillLoader(paths)
 	installer := skillpkg.NewInstaller(client, skillLoader, scopes, writeScope)
 
-	// Story 47.4 AC9: emit trust advisories exactly once per CLI invocation
-	// (outside the install for-loop so multiple args do not duplicate).
-	trustWarnings := skillpkg.CheckProjectTrust(scopes)
-	if mode != ui.ModeJSON && len(trustWarnings) > 0 {
-		renderDiagnosticsToStderr(skillpkg.LoadDiagnostics{Trust: trustWarnings})
-	}
+	// Story 47.4 AC9 + review patch P8: emit trust advisories exactly once
+	// per CLI invocation via the shared helper (kept BELOW resolveWriteScope
+	// so scopes is computed after MkdirAll). Trust check only inspects
+	// project scopes which resolveWriteScope cannot create — the advisory
+	// would not change either way.
+	trustWarnings := emitTrustPrecheck(scopes, mode)
 
 	var results []skillpkg.InstallResult
 	var installErrors []installErrorEntry
@@ -433,7 +456,7 @@ func renderSkillInstallJSON(r *ui.Renderer, results []skillpkg.InstallResult, er
 	}
 
 	data := skillInstallJSONData{Installed: results, Errors: errs}
-	if !diagIsEmpty(diag) {
+	if !diag.IsEmpty() {
 		d := diag
 		data.Diagnostics = &d
 	}
@@ -442,14 +465,6 @@ func renderSkillInstallJSON(r *ui.Renderer, results []skillpkg.InstallResult, er
 	resp := JSONResponse{OK: ok, Data: data}
 	raw, _ := json.Marshal(resp)
 	fmt.Fprintln(r.Writer, string(raw))
-}
-
-// diagIsEmpty reports whether every diagnostic channel is empty.
-// LoadDiagnostics is a struct, so encoding/json's `omitempty` cannot elide it
-// automatically; this helper drives the pointer assignment in install/update
-// JSON renderers (Story 47.4 AC10).
-func diagIsEmpty(d skillpkg.LoadDiagnostics) bool {
-	return len(d.Warnings) == 0 && len(d.Skipped) == 0 && len(d.Lenient) == 0 && len(d.Trust) == 0
 }
 
 // --- Story 8.2: skill search ---
@@ -538,6 +553,12 @@ func runSkillUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	scopes, paths := resolveSkillScopesAndPaths(cwd)
+
+	// Story 47.4 AC9 + review patch P6 + P8: emit trust advisories via the
+	// shared helper, once per CLI invocation. Hoisted above installer
+	// construction so UpdateAll failures still surface the advisory in JSON.
+	trustWarnings := emitTrustPrecheck(scopes, mode)
+
 	// Update pivots writeScope internally to each skill's origin scope; the
 	// initial value here is only a safe default and never used in practice.
 	var defaultWrite config.ScopePath
@@ -548,13 +569,6 @@ func runSkillUpdate(cmd *cobra.Command, args []string) error {
 	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
 	skillLoader := skills.NewSkillLoader(paths)
 	installer := skillpkg.NewInstaller(client, skillLoader, scopes, defaultWrite)
-
-	// Story 47.4 AC9: emit trust advisories once per CLI invocation (outside
-	// the per-skill loop) so multi-arg / UpdateAll do not duplicate.
-	trustWarnings := skillpkg.CheckProjectTrust(scopes)
-	if mode != ui.ModeJSON && len(trustWarnings) > 0 {
-		renderDiagnosticsToStderr(skillpkg.LoadDiagnostics{Trust: trustWarnings})
-	}
 
 	var results []skillpkg.UpdateResult
 	var updateErrors []updateErrorEntry
@@ -593,7 +607,19 @@ func runSkillUpdate(cmd *cobra.Command, args []string) error {
 		allResults, err := installer.UpdateAll(skillpkg.UpdateOpts{})
 		if err != nil {
 			if mode == ui.ModeJSON {
-				resp := JSONResponse{OK: false, Error: map[string]string{"code": "UPDATE_ERROR", "message": err.Error()}}
+				// Story 47.4 review patch P6: UpdateAll's error response must
+				// still carry diagnostics.trust so JSON consumers do not lose
+				// the advisory.
+				errData := skillUpdateJSONData{Results: []skillpkg.UpdateResult{}}
+				if len(trustWarnings) > 0 {
+					d := skillpkg.LoadDiagnostics{Trust: trustWarnings}
+					errData.Diagnostics = &d
+				}
+				resp := JSONResponse{
+					OK:    false,
+					Error: map[string]string{"code": "UPDATE_ERROR", "message": err.Error()},
+					Data:  errData,
+				}
 				data, _ := json.Marshal(resp)
 				fmt.Fprintln(renderer.Writer, string(data))
 			} else {
@@ -668,7 +694,7 @@ func renderSkillUpdateJSON(r *ui.Renderer, results []skillpkg.UpdateResult, errs
 	}
 
 	data := skillUpdateJSONData{Results: results, Errors: errs}
-	if !diagIsEmpty(diag) {
+	if !diag.IsEmpty() {
 		d := diag
 		data.Diagnostics = &d
 	}

@@ -36,13 +36,16 @@ import (
 //
 // Mirrors skillpkg/trust_test.go::markTrusted (skillpkg is a separate
 // package; the helper cannot be reused directly across package boundaries).
+//
+// Marker path is sourced from skillpkg.TrustMarkerRelPath (review patch P4)
+// so renaming the marker is a one-place change.
 func markTrustedInProject(t *testing.T, projectDir string) {
 	t.Helper()
-	stateDir := filepath.Join(projectDir, ".rnix", "state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+	markerPath := filepath.Join(projectDir, skillpkg.TrustMarkerRelPath)
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
 		t.Fatalf("mkdir state: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "trusted"), nil, 0o644); err != nil {
+	if err := os.WriteFile(markerPath, nil, 0o600); err != nil {
 		t.Fatalf("write trusted marker: %v", err)
 	}
 }
@@ -159,20 +162,22 @@ func TestRunSkillInstall_UntrustedProject_TrustWarningOnStderr(t *testing.T) {
 //
 // Pins AC9 dedup: trust pre-check must sit OUTSIDE the install for-loop.
 // Three install args means three Install calls, but only one trust warning.
+// Review patch P2: switched to mockPkgServeFixtures so all three installs
+// actually reach the for-loop body — the dedup contract is now exercised on
+// the success path, not on three early failures.
 func TestRunSkillInstall_MultipleArgs_TrustWarningOnlyOnce(t *testing.T) {
 	projectDir := setupUntrustedProject(t)
 	t.Chdir(projectDir)
-	mockPkgServeFixture(t, "foo", "1.0.0")
-	mockPkgServeFixture(t, "bar", "1.0.0")
-	mockPkgServeFixture(t, "baz", "1.0.0")
+	mockPkgServeFixtures(t, map[string]string{
+		"foo": "1.0.0",
+		"bar": "1.0.0",
+		"baz": "1.0.0",
+	})
 
-	stderr := captureStderr(t, func() {
-		// Note: subsequent calls to mockPkgServeFixture replace the URL via
-		// overrideSkillRegistryURL — only the last fixture (baz) is reachable.
-		// To exercise three args under a single registry, the dev-story phase
-		// will refactor the helper; for the red-phase scaffold, count occurrences
-		// against the trust warning text only (the install errors are tolerable).
-		_, _ = runSkillCmdForTest(t, "skill", "install", "foo", "bar", "baz")
+	stdout, stderr := bytes.Buffer{}, ""
+	stderr = captureStderr(t, func() {
+		out, _ := runSkillCmdForTest(t, "skill", "install", "foo", "bar", "baz")
+		stdout = *out
 	})
 
 	count := strings.Count(stderr, "untrusted project")
@@ -180,18 +185,29 @@ func TestRunSkillInstall_MultipleArgs_TrustWarningOnlyOnce(t *testing.T) {
 		t.Errorf("expected exactly 1 trust warning across 3 install args (dedup outside for-loop), got %d in stderr=%q",
 			count, stderr)
 	}
+	// Cross-check that the install for-loop actually ran each arg — otherwise
+	// the dedup count above would be meaningless (review patch P2 evidence).
+	for _, name := range []string{"foo", "bar", "baz"} {
+		if !strings.Contains(stdout.String(), name) {
+			t.Errorf("install must process arg %q (stdout should mention it for dedup test to be meaningful); stdout=%q",
+				name, stdout.String())
+		}
+	}
 }
 
 // --- 47.4-CLI-AC9-003: [P0] runSkillUpdate under untrusted project → stderr trust warning ---
 
 func TestRunSkillUpdate_UntrustedProject_TrustWarningOnStderr(t *testing.T) {
 	projectDir := setupUntrustedProject(t)
+	t.Chdir(projectDir)
 	mockPkgServeFixture(t, "upd", "1.0.0")
 
 	// Pre-step: install once so update has a target. Install also emits a
-	// trust warning, but captureStderr only wraps the update call.
-	t.Chdir(projectDir)
-	_, _ = runSkillCmdForTest(t, "skill", "install", "upd")
+	// trust warning to stderr — wrap with captureStderr so test logs are not
+	// polluted by the pre-step's advisory (review patch P12).
+	_ = captureStderr(t, func() {
+		_, _ = runSkillCmdForTest(t, "skill", "install", "upd")
+	})
 
 	stderr := captureStderr(t, func() {
 		_, _ = runSkillCmdForTest(t, "skill", "update", "upd")
@@ -259,11 +275,15 @@ func TestSkillInstall_JSON_TrustedProject_NoDiagnosticsField(t *testing.T) {
 
 func TestSkillUpdate_JSON_UntrustedProject_DiagnosticsTrustField(t *testing.T) {
 	projectDir := setupUntrustedProject(t)
+	t.Chdir(projectDir)
 	mockPkgServeFixture(t, "upd-json", "1.0.0")
 
-	// Install first (target must exist for Update to find it).
-	t.Chdir(projectDir)
-	_, _ = runSkillCmdForTest(t, "skill", "install", "upd-json")
+	// Install first (target must exist for Update to find it). Wrap stderr
+	// so the pre-step trust warning does not pollute test logs (review
+	// patch P12).
+	_ = captureStderr(t, func() {
+		_, _ = runSkillCmdForTest(t, "skill", "install", "upd-json")
+	})
 
 	stdout, _ := runSkillCmdForTest(t, "skill", "update", "upd-json", "--json")
 	raw := stdout.String()

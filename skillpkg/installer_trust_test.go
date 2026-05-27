@@ -171,11 +171,10 @@ func TestListAll_TrustedProject_NoTrustWarning(t *testing.T) {
 
 // --- 47.4-INT-AC7-003: [P1] empty scopes → errNoScopes BEFORE trust check ---
 //
-// Pins AC7 ordering: trust check must NOT run when scopes is empty. We
-// validate the post-condition: ListAll returns errNoScopes AND diag.Trust is
-// nil (zero-value). If the production code calls CheckProjectTrust first,
-// diag.Trust would still be nil (empty input → nil output), so this test
-// asserts the error path is unchanged.
+// Pins AC7 ordering by observing the trust-check counter: when scopes is
+// empty the errNoScopes early-return must fire BEFORE isProjectTrusted is
+// invoked. Without the counter this test would be a tautology — both
+// orderings produce the same diag.Trust=nil output (review patch P1).
 func TestListAll_EmptyScopes_NoTrustCheck(t *testing.T) {
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
@@ -183,14 +182,49 @@ func TestListAll_EmptyScopes_NoTrustCheck(t *testing.T) {
 
 	installer := NewInstaller(client, skillLoader, nil, config.ScopePath{})
 
+	ResetTrustChecksForTest()
 	_, diag, err := installer.ListAll()
 	if err == nil {
 		t.Fatal("ListAll with empty scopes: expected error, got nil")
+	}
+	if got := TrustChecksPerformedForTest(); got != 0 {
+		t.Errorf("empty-scope ListAll must skip the trust check entirely, got %d isProjectTrusted call(s)", got)
 	}
 	if len(diag.Trust) != 0 {
 		t.Errorf("empty scopes must yield empty diag.Trust (no trust check), got %d entries",
 			len(diag.Trust))
 	}
+}
+
+// --- 47.4-INT-AC7-004: [P1] non-empty scopes → trust check DOES run ---
+//
+// Sibling assertion to TestListAll_EmptyScopes_NoTrustCheck: confirms that
+// when scopes contain a project entry, isProjectTrusted is invoked. Together
+// they pin the AC7 ordering contract (errNoScopes early-return BEFORE the
+// trust check, NOT after) (review patch P1).
+func TestListAll_NonEmptyScopes_RunsTrustCheck(t *testing.T) {
+	scopes, dirs := setupFourScopes(t)
+	createTestSkillDir(t, dirs.projectRnix, "foo", "")
+
+	srv, _, _ := setupMockRegistry(t, "dummy")
+	client := NewRegistryClient(srv.URL, srv.Client())
+	skillLoader := skills.NewSkillLoader([]string{dirs.projectRnix})
+
+	projScope := []config.ScopePath{
+		{Path: dirs.projectRnix, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceRnix},
+	}
+	installer := NewInstaller(client, skillLoader, projScope, projScope[0])
+
+	ResetTrustChecksForTest()
+	_, _, err := installer.ListAll()
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	if got := TrustChecksPerformedForTest(); got == 0 {
+		t.Errorf("non-empty project scope must trigger at least one isProjectTrusted call, got %d", got)
+	}
+
+	_ = scopes
 }
 
 // --- 47.4-INT-AC3-003: [P1] untrusted ListAll preserves existing diagnostics ---

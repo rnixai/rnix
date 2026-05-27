@@ -30,13 +30,15 @@ import (
 
 // markTrusted creates <projectDir>/.rnix/state/trusted as an empty marker
 // file. The body is intentionally empty — AC2 pins existence-only semantics.
+// Path is sourced from TrustMarkerRelPath (review patch P4) so renaming the
+// marker is a one-place change.
 func markTrusted(t *testing.T, projectDir string) {
 	t.Helper()
-	stateDir := filepath.Join(projectDir, ".rnix", "state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatalf("mkdir %q: %v", stateDir, err)
+	markerPath := filepath.Join(projectDir, TrustMarkerRelPath)
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
+		t.Fatalf("mkdir %q: %v", filepath.Dir(markerPath), err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "trusted"), nil, 0o644); err != nil {
+	if err := os.WriteFile(markerPath, nil, 0o600); err != nil {
 		t.Fatalf("write trusted marker: %v", err)
 	}
 }
@@ -45,11 +47,11 @@ func markTrusted(t *testing.T, projectDir string) {
 // pins that content is ignored.
 func markTrustedWithBody(t *testing.T, projectDir, body string) {
 	t.Helper()
-	stateDir := filepath.Join(projectDir, ".rnix", "state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatalf("mkdir %q: %v", stateDir, err)
+	markerPath := filepath.Join(projectDir, TrustMarkerRelPath)
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
+		t.Fatalf("mkdir %q: %v", filepath.Dir(markerPath), err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "trusted"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(markerPath, []byte(body), 0o600); err != nil {
 		t.Fatalf("write trusted marker body: %v", err)
 	}
 }
@@ -134,36 +136,62 @@ func TestCheckProjectTrust_TrustedFile_AnyContent_NoWarning(t *testing.T) {
 	}
 }
 
-// --- 47.4-UNIT-AC2-003: [P2] trusted marker as symlink → no warning ---
+// --- 47.4-UNIT-AC2-003: [P0] trust marker as symlink → STILL warns ---
 //
-// Validates AC2 dev-note: os.Stat follows symlinks; broken symlink → not-found.
-// This test exercises the "follows to a valid target" branch.
-func TestCheckProjectTrust_TrustedFile_AsSymlink_NoWarning(t *testing.T) {
-	_, dirs := setupFourScopes(t)
-	createTestSkillDir(t, dirs.projectRnix, "foo", "foo skill")
+// Review decision DN1: symbolic links are rejected so a malicious repo
+// cannot commit `.rnix/state/trusted -> /etc/hostname` (or any other
+// commonly-present file) to silently mark itself trusted. isProjectTrusted
+// uses os.Lstat + mode.IsRegular() to enforce the regular-file requirement.
+// This test exercises BOTH the symlink-to-valid-target branch (must NOT be
+// trusted) and the broken-symlink branch (must NOT be trusted).
+func TestCheckProjectTrust_TrustedFile_AsSymlink_StillWarns(t *testing.T) {
+	t.Run("symlink_to_valid_target", func(t *testing.T) {
+		_, dirs := setupFourScopes(t)
+		createTestSkillDir(t, dirs.projectRnix, "foo", "foo skill")
 
-	// Build the target file outside the project and symlink the trust marker to it.
-	stateDir := filepath.Join(dirs.projectDir, ".rnix", "state")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		t.Fatalf("mkdir state dir: %v", err)
-	}
-	target := filepath.Join(t.TempDir(), "elsewhere-trusted")
-	if err := os.WriteFile(target, []byte("ok"), 0o644); err != nil {
-		t.Fatalf("write target: %v", err)
-	}
-	link := filepath.Join(stateDir, "trusted")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("symlink unsupported on this platform: %v", err)
-	}
+		markerPath := filepath.Join(dirs.projectDir, TrustMarkerRelPath)
+		if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
+			t.Fatalf("mkdir state dir: %v", err)
+		}
+		target := filepath.Join(dirs.projectDir, "elsewhere-trusted")
+		if err := os.WriteFile(target, []byte("ok"), 0o600); err != nil {
+			t.Fatalf("write target: %v", err)
+		}
+		if err := os.Symlink(target, markerPath); err != nil {
+			t.Skipf("symlink unsupported on this platform: %v", err)
+		}
 
-	scopes := []config.ScopePath{
-		{Path: dirs.projectRnix, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceRnix},
-	}
+		scopes := []config.ScopePath{
+			{Path: dirs.projectRnix, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceRnix},
+		}
 
-	warns := CheckProjectTrust(scopes)
-	if len(warns) != 0 {
-		t.Fatalf("trusted symlink to existing target must yield 0 warnings, got %d", len(warns))
-	}
+		warns := CheckProjectTrust(scopes)
+		if len(warns) != 1 {
+			t.Fatalf("symlink trust marker must STILL trigger 1 warning (DN1), got %d", len(warns))
+		}
+	})
+
+	t.Run("broken_symlink", func(t *testing.T) {
+		_, dirs := setupFourScopes(t)
+		createTestSkillDir(t, dirs.projectRnix, "foo", "foo skill")
+
+		markerPath := filepath.Join(dirs.projectDir, TrustMarkerRelPath)
+		if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
+			t.Fatalf("mkdir state dir: %v", err)
+		}
+		if err := os.Symlink("/nonexistent-trust-target", markerPath); err != nil {
+			t.Skipf("symlink unsupported on this platform: %v", err)
+		}
+
+		scopes := []config.ScopePath{
+			{Path: dirs.projectRnix, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceRnix},
+		}
+
+		warns := CheckProjectTrust(scopes)
+		if len(warns) != 1 {
+			t.Fatalf("broken symlink marker must trigger 1 warning, got %d", len(warns))
+		}
+	})
 }
 
 // --- 47.4-UNIT-AC4-001: [P0] user scope only → no warning ---

@@ -135,6 +135,22 @@ type LenientWarning struct {
 // Story 47.4 AC6: Trust is added as the 4th channel for project-scope trust
 // warnings; omitempty preserves backward compatibility with JSON consumers
 // authored against the 47.2/47.3 three-channel shape.
+//
+// Wire shape contract — two coexisting conventions, do NOT unify without
+// updating both consumers:
+//
+//   - `rnix skill list --json` (Story 47.3 AC10 decision): `diagnostics` is
+//     ALWAYS present, even at zero-value. List uses the plain struct field
+//     and accepts the empty JSON object `{}`.
+//   - `rnix skill install --json` / `rnix skill update --json` (Story 47.4
+//     AC10 decision): `diagnostics` is omitted entirely when every channel is
+//     empty. Install/Update use `*LoadDiagnostics` (pointer + omitempty) plus
+//     the IsEmpty() helper to keep the 47.3 install/update wire shape
+//     byte-identical for trusted projects.
+//
+// When adding a new channel here, decide explicitly which wire convention
+// each downstream consumer follows; encoding/json's `omitempty` cannot elide
+// zero-value structs on its own.
 type LoadDiagnostics struct {
 	Warnings []ShadowWarning  `json:"warnings,omitempty"`
 	Skipped  []SkipEntry      `json:"skipped,omitempty"`
@@ -142,11 +158,27 @@ type LoadDiagnostics struct {
 	Trust    []TrustWarning   `json:"trust,omitempty"`
 }
 
+// IsEmpty reports whether every diagnostic channel is nil/empty. Used by the
+// install/update JSON renderers to decide whether to attach a non-nil
+// pointer for the `diagnostics` key (Story 47.4 AC10).
+//
+// Defined here so adding a new channel forces a compile-error free update
+// in one place — cross-package field enumeration would silently miss it.
+func (d LoadDiagnostics) IsEmpty() bool {
+	return len(d.Warnings) == 0 &&
+		len(d.Skipped) == 0 &&
+		len(d.Lenient) == 0 &&
+		len(d.Trust) == 0
+}
+
 // TrustWarning is emitted by CheckProjectTrust (Story 47.4) when a project
 // scope is loaded without an explicit trust marker. The CLI surfaces it as a
-// stderr advisory and a JSON `diagnostics.trust` array entry. agentskills.io
-// regulation: untrusted repositories can silently inject instructions into
-// the agent's context.
+// stderr advisory and a JSON `diagnostics.trust` array entry.
+//
+// Background: see Story 47.4 spec at
+// _bmad-output/implementation-artifacts/47-4-trust-check-mvp-warn-only.md
+// (epic-47 §Story 47.4) — untrusted repositories can silently inject
+// instructions into the agent's context.
 //
 // Story 47.4 AC6.
 type TrustWarning struct {

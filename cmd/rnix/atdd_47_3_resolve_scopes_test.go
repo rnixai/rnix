@@ -355,3 +355,63 @@ func mockPkgServeFixture(t *testing.T, name, version string) {
 	srv := startMockSkillRegistry(t, name, version)
 	overrideSkillRegistryURL(t, srv.URL)
 }
+
+// mockPkgServeFixtures stands up a single mock registry serving multiple
+// skill fixtures at once. Use when a test invokes install with several args
+// that must all succeed. Story 47.4 review patch P2 added this helper so the
+// multi-arg trust-warning dedup test exercises the actual install path
+// instead of relying on every install failing fast.
+func mockPkgServeFixtures(t *testing.T, fixtures map[string]string) {
+	t.Helper()
+	if len(fixtures) == 0 {
+		t.Fatal("mockPkgServeFixtures: empty fixtures map")
+	}
+
+	type pkgFixture struct {
+		name     string
+		version  string
+		tarData  []byte
+		checksum string
+	}
+	pkgs := make([]pkgFixture, 0, len(fixtures))
+	indexEntries := make([]string, 0, len(fixtures))
+	for name, version := range fixtures {
+		tarData := buildSkillTarball(t, name)
+		checksum := fmt.Sprintf("sha256:%x", sha256.Sum256(tarData))
+		pkgs = append(pkgs, pkgFixture{
+			name:     name,
+			version:  version,
+			tarData:  tarData,
+			checksum: checksum,
+		})
+		indexEntries = append(indexEntries, fmt.Sprintf(
+			"  - name: %s\n    description: \"A test skill\"\n    latest: \"%s\"\n",
+			name, version))
+	}
+	indexYAML := "skills:\n" + strings.Join(indexEntries, "")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/index.yaml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/yaml")
+		_, _ = w.Write([]byte(indexYAML))
+	})
+	for _, pkg := range pkgs {
+		latestYAML := fmt.Sprintf("version: \"%s\"\nchecksum: \"%s\"\n", pkg.version, pkg.checksum)
+		latestPath := fmt.Sprintf("/packages/%s/latest.yaml", pkg.name)
+		tarPath := fmt.Sprintf("/packages/%s/%s.tar.gz", pkg.name, pkg.version)
+		latestBody := latestYAML
+		tarBody := pkg.tarData
+		mux.HandleFunc(latestPath, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/yaml")
+			_, _ = w.Write([]byte(latestBody))
+		})
+		mux.HandleFunc(tarPath, func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/gzip")
+			_, _ = w.Write(tarBody)
+		})
+	}
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	overrideSkillRegistryURL(t, srv.URL)
+}
