@@ -122,7 +122,7 @@ func resolveSkillCwd(renderer *ui.Renderer, mode ui.OutputMode) (string, bool) {
 //
 // Mkdir behavior: the returned ScopePath.Path is MkdirAll'd before return so
 // downstream Installer.extract can safely create <path>/<skillName>/.
-func resolveWriteScope(cwd string, _ []config.ScopePath, global, shared bool) (config.ScopePath, error) {
+func resolveWriteScope(cwd string, global, shared bool) (config.ScopePath, error) {
 	var (
 		path  string
 		scope config.SkillScope
@@ -302,7 +302,7 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	writeScope, err := resolveWriteScope(cwd, nil, flagSkillInstallGlobal, flagSkillInstallShared)
+	writeScope, err := resolveWriteScope(cwd, flagSkillInstallGlobal, flagSkillInstallShared)
 	if err != nil {
 		if mode == ui.ModeJSON {
 			resp := JSONResponse{OK: false, Error: map[string]string{"code": "WRITE_SCOPE_ERROR", "message": err.Error()}}

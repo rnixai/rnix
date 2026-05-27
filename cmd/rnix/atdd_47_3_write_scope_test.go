@@ -133,8 +133,7 @@ func TestResolveWriteScope_5Combinations(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			scopes := config.ResolveSkillScopes(tc.cwd)
-			got, err := resolveWriteScope(tc.cwd, scopes, tc.global, tc.shared)
+			got, err := resolveWriteScope(tc.cwd, tc.global, tc.shared)
 			if err != nil {
 				t.Fatalf("resolveWriteScope: %v", err)
 			}
@@ -165,8 +164,7 @@ func TestResolveWriteScope_CreatesTargetDir(t *testing.T) {
 		t.Fatalf("expected target not to exist pre-call, got err=%v", err)
 	}
 
-	scopes := config.ResolveSkillScopes(cwd)
-	if _, err := resolveWriteScope(cwd, scopes, true, true); err != nil {
+	if _, err := resolveWriteScope(cwd, true, true); err != nil {
 		t.Fatalf("resolveWriteScope: %v", err)
 	}
 
