@@ -638,10 +638,10 @@ func TestSkillList_JSONOutput(t *testing.T) {
 
 	// Given: list entries with known data
 	entries := []skillpkg.ListEntry{
-		{Name: "code-analysis", Version: "1.0.0", Path: "lib/skills/code-analysis/", Description: "Analyze code quality and patterns", Source: "builtin"},
-		{Name: "pr-reviewer", Version: "2.1.0", Path: "lib/skills/pr-reviewer/", Description: "Review pull requests with AI", Source: "community"},
+		{Name: "code-analysis", Version: "1.0.0", Path: "lib/skills/code-analysis/", Description: "Analyze code quality and patterns", Source: "builtin", Scope: "project", Namespace: "native"},
+		{Name: "pr-reviewer", Version: "2.1.0", Path: "lib/skills/pr-reviewer/", Description: "Review pull requests with AI", Source: "community", Scope: "user", Namespace: "native"},
 	}
-	renderSkillListJSON(r, entries)
+	renderSkillListJSON(r, entries, skillpkg.LoadDiagnostics{})
 
 	// Then: valid JSON with snake_case fields
 	var resp JSONResponse
@@ -686,7 +686,7 @@ func TestSkillList_EmptyResult_JSONOutput(t *testing.T) {
 
 	// Given: empty skill list
 	entries := []skillpkg.ListEntry{}
-	renderSkillListJSON(r, entries)
+	renderSkillListJSON(r, entries, skillpkg.LoadDiagnostics{})
 
 	// Then: valid JSON with ok=true and skills=[]
 	var resp JSONResponse
@@ -712,7 +712,7 @@ func TestSkillList_NilEntries_JSONOutput(t *testing.T) {
 	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
 
 	// Given: nil entries
-	renderSkillListJSON(r, nil)
+	renderSkillListJSON(r, nil, skillpkg.LoadDiagnostics{})
 
 	// Then: valid JSON with skills=[] not null
 	var resp JSONResponse

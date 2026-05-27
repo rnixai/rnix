@@ -53,18 +53,33 @@ type InstallOpts struct {
 }
 
 // InstallResult captures the outcome of a skill installation.
+//
+// Story 47.3 AC3: Scope/Namespace/Path record the writeScope where the skill
+// landed; CLI uses these to render `(<scope>/<ns>: <path>)` metadata while
+// keeping the legacy three-field shape (Name/Version/Fresh) intact for
+// downstream JSON consumers.
 type InstallResult struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Fresh   bool   `json:"fresh"` // true if newly installed, false if overwritten
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Fresh     bool   `json:"fresh"`               // true if newly installed, false if overwritten
+	Scope     string `json:"scope,omitempty"`     // "project" / "user"
+	Namespace string `json:"namespace,omitempty"` // "native" / "agents"
+	Path      string `json:"path,omitempty"`      // absolute path to the installed skill directory
 }
 
 // UpdateResult captures the outcome of a skill update check.
+//
+// Story 47.3 AC4: Scope/Namespace/Path record where the updated skill lives —
+// Update writes back to the origin scope (no silent migration), so these fields
+// reflect the origin location not the installer's configured writeScope.
 type UpdateResult struct {
 	Name       string `json:"name"`
 	OldVersion string `json:"old_version"`
 	NewVersion string `json:"new_version"`
 	Updated    bool   `json:"updated"`
+	Scope      string `json:"scope,omitempty"`     // "project" / "user" — origin scope
+	Namespace  string `json:"namespace,omitempty"` // "native" / "agents" — origin namespace
+	Path       string `json:"path,omitempty"`      // absolute path to the skill directory under origin scope
 }
 
 // UpdateOpts configures update behavior.

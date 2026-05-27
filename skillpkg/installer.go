@@ -185,9 +185,12 @@ func (inst *Installer) Install(name string, opts InstallOpts) (*InstallResult, e
 	}
 
 	return &InstallResult{
-		Name:    name,
-		Version: ver.Version,
-		Fresh:   fresh,
+		Name:      name,
+		Version:   ver.Version,
+		Fresh:     fresh,
+		Scope:     inst.writeScope.Scope.String(),
+		Namespace: inst.writeScope.Namespace.String(),
+		Path:      targetDir,
 	}, nil
 }
 
@@ -301,20 +304,26 @@ func (inst *Installer) Update(name string, opts UpdateOpts) (*UpdateResult, erro
 		return nil, fmt.Errorf("resolve latest version: %w", err)
 	}
 
+	// Resolve origin scope upfront so both no-op and update paths can report it.
+	originScope, ok := inst.findScopeByPath(originPath)
+	if !ok {
+		return nil, fmt.Errorf("internal: origin scope %q not in scopes slice", originPath)
+	}
+	originDir := filepath.Join(originScope.Path, name)
+
 	if existing.Version == ver.Version && !opts.Force {
 		return &UpdateResult{
 			Name:       name,
 			OldVersion: existing.Version,
 			NewVersion: ver.Version,
 			Updated:    false,
+			Scope:      originScope.Scope.String(),
+			Namespace:  originScope.Namespace.String(),
+			Path:       originDir,
 		}, nil
 	}
 
 	// Pivot writeScope to the origin so Install writes back to the same scope.
-	originScope, ok := inst.findScopeByPath(originPath)
-	if !ok {
-		return nil, fmt.Errorf("internal: origin scope %q not in scopes slice", originPath)
-	}
 	savedWrite := inst.writeScope
 	inst.writeScope = originScope
 	defer func() { inst.writeScope = savedWrite }()
@@ -330,6 +339,9 @@ func (inst *Installer) Update(name string, opts UpdateOpts) (*UpdateResult, erro
 		OldVersion: oldVersion,
 		NewVersion: ver.Version,
 		Updated:    true,
+		Scope:      originScope.Scope.String(),
+		Namespace:  originScope.Namespace.String(),
+		Path:       originDir,
 	}, nil
 }
 
