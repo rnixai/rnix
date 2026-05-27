@@ -10,10 +10,10 @@ package config
 //
 // Resulting in four root paths (when all exist):
 //
-//	1. <projectDir>/.rnix/skills/        (project / native)
-//	2. <projectDir>/.agents/skills/      (project / agents)
-//	3. $XDG_CONFIG_HOME/rnix/skills/     (user / native)
-//	4. $HOME/.agents/skills/             (user / agents)
+//	1. <projectDir>/.rnix/skills        (project / native)
+//	2. <projectDir>/.agents/skills      (project / agents)
+//	3. $XDG_CONFIG_HOME/rnix/skills     (user / native)
+//	4. $HOME/.agents/skills             (user / agents)
 //
 // The SkillScope/SkillNamespace types defined here are intentionally separate
 // from the package-level Scope (types.go) — Scope describes XDG-style config
@@ -154,14 +154,12 @@ func WithMaxDirs(n int) ResolveOption {
 	}
 }
 
-// WithSkipDirs overrides the list of directory base names that ancestor
-// traversal skips (without checking for skill subdirectories within them).
-// Default is [".git", "node_modules"].
+// WithSkipDirs appends directory base names to the ancestor traversal skip
+// list (without checking for skill subdirectories within them).
+// Default list is [".git", "node_modules"]; this option extends it.
 func WithSkipDirs(names ...string) ResolveOption {
 	return func(o *resolveOpts) {
-		if len(names) > 0 {
-			o.skipDirs = names
-		}
+		o.skipDirs = append(o.skipDirs, names...)
 	}
 }
 
@@ -214,8 +212,8 @@ func ResolveSkillScopes(cwd string, opts ...ResolveOption) []ScopePath {
 	}
 
 	// checkAndAppend stats path; on success and IsDir(), appends a ScopePath.
-	// Always increments dirCounter (each stat counts toward the cap). Returns
-	// false once truncation has been observed so the caller can stop.
+	// Always increments dirCounter (each stat counts toward the cap).
+	// Returns true = "keep going", false = "truncation hit, stop now".
 	checkAndAppend := func(path string, scope SkillScope, namespace SkillNamespace) bool {
 		if truncated {
 			return false
@@ -227,7 +225,7 @@ func ResolveSkillScopes(cwd string, opts ...ResolveOption) []ScopePath {
 		}
 		info, err := os.Stat(path)
 		if err != nil || !info.IsDir() {
-			return true
+			return true // path absent or not a dir — not an error, just skip
 		}
 		result = append(result, ScopePath{
 			Path:      path,
@@ -241,7 +239,11 @@ func ResolveSkillScopes(cwd string, opts ...ResolveOption) []ScopePath {
 	// AC2 ordering: project/native, project/agents, user/native, user/agents.
 	if cwd != "" {
 		absCwd, err := filepath.Abs(cwd)
-		if err == nil {
+		if err != nil {
+			if o.warningWriter != nil {
+				fmt.Fprintf(o.warningWriter, "[skillscope] ResolveSkillScopes: could not resolve cwd %q: %v; project scope skipped.\n", cwd, err)
+			}
+		} else {
 			if !checkAndAppend(filepath.Join(absCwd, ".rnix", "skills"), SkillScopeProject, SkillNamespaceRnix) {
 				return result
 			}
@@ -259,7 +261,11 @@ func ResolveSkillScopes(cwd string, opts ...ResolveOption) []ScopePath {
 	}
 
 	// --- User scope ---
-	if globalDir, err := GlobalDir(); err == nil {
+	if globalDir, err := GlobalDir(); err != nil {
+		if o.warningWriter != nil {
+			fmt.Fprintf(o.warningWriter, "[skillscope] ResolveSkillScopes: could not resolve user config dir: %v; user-native scope skipped.\n", err)
+		}
+	} else {
 		if !checkAndAppend(filepath.Join(globalDir, "skills"), SkillScopeUser, SkillNamespaceRnix) {
 			return result
 		}
@@ -302,6 +308,11 @@ func walkAncestors(absCwd string, o *resolveOpts, result *[]ScopePath, dirCounte
 	}
 	home := os.Getenv("HOME")
 
+	// If cwd itself is $HOME, don't scan into its parents at all.
+	if home != "" && absCwd == home {
+		return true
+	}
+
 	dir := absCwd
 	for depth := 1; depth <= o.maxAncestorDepth; depth++ {
 		parent := filepath.Dir(dir)
@@ -310,9 +321,9 @@ func walkAncestors(absCwd string, o *resolveOpts, result *[]ScopePath, dirCounte
 		}
 		dir = parent
 
-		// Stop at $HOME boundary (cwd's home — we don't want ancestor scan to
-		// leak into the user's home directory and accidentally re-enter
-		// ~/.agents/skills via the project path).
+		// Stop at $HOME boundary — ancestor scan must not leak into the user's
+		// home directory and accidentally re-enter ~/.agents/skills via the
+		// project path.
 		if home != "" && dir == home {
 			return true
 		}
@@ -360,15 +371,19 @@ func walkAncestors(absCwd string, o *resolveOpts, result *[]ScopePath, dirCounte
 			})
 		}
 
-		// Detect git root — when this layer contains .git/, treat it as the
-		// repository root and stop after processing this layer.
-		if *dirCounter+1 > o.maxDirs {
-			noteTruncation()
+		// Detect repository root — any .git entry (directory or file, covering
+		// worktrees and submodules where .git is a file) marks the boundary.
+		// Stop after processing this layer's skill paths.
+		if *truncated {
 			return false
 		}
 		*dirCounter++
+		if *dirCounter > o.maxDirs {
+			noteTruncation()
+			return false
+		}
 		gitPath := filepath.Join(dir, ".git")
-		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
+		if _, err := os.Stat(gitPath); err == nil {
 			return true
 		}
 	}

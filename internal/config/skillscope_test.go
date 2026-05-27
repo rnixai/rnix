@@ -50,9 +50,9 @@ func TestSkillNamespace_String(t *testing.T) {
 // AC2/AC3/AC4: ResolveSkillScopes default (no ancestor) behavior
 // ============================================================
 
-// setupIsolatedEnv redirects HOME and clears XDG_CONFIG_HOME so the test runs
+// skillscopeIsolatedEnv redirects HOME and clears XDG_CONFIG_HOME so the test runs
 // without leakage from the developer's actual home directory.
-func setupIsolatedEnv(t *testing.T) (home string) {
+func skillscopeIsolatedEnv(t *testing.T) (home string) {
 	t.Helper()
 	home = t.TempDir()
 	t.Setenv("HOME", home)
@@ -60,8 +60,8 @@ func setupIsolatedEnv(t *testing.T) (home string) {
 	return home
 }
 
-// mkdirAll is a thin wrapper that fails the test on error.
-func mkdirAll(t *testing.T, path string) {
+// skillscopeMkdirAll is a thin wrapper that fails the test on error.
+func skillscopeMkdirAll(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatalf("mkdir %q: %v", path, err)
@@ -69,7 +69,7 @@ func mkdirAll(t *testing.T, path string) {
 }
 
 func TestResolveSkillScopes_AllFourExist(t *testing.T) {
-	home := setupIsolatedEnv(t)
+	home := skillscopeIsolatedEnv(t)
 	projectDir := t.TempDir()
 
 	projectRnix := filepath.Join(projectDir, ".rnix", "skills")
@@ -77,10 +77,10 @@ func TestResolveSkillScopes_AllFourExist(t *testing.T) {
 	userRnix := filepath.Join(home, ".config", "rnix", "skills")
 	userAgents := filepath.Join(home, ".agents", "skills")
 
-	mkdirAll(t, projectRnix)
-	mkdirAll(t, projectAgents)
-	mkdirAll(t, userRnix)
-	mkdirAll(t, userAgents)
+	skillscopeMkdirAll(t, projectRnix)
+	skillscopeMkdirAll(t, projectAgents)
+	skillscopeMkdirAll(t, userRnix)
+	skillscopeMkdirAll(t, userAgents)
 
 	result := ResolveSkillScopes(projectDir)
 	if len(result) != 4 {
@@ -102,11 +102,11 @@ func TestResolveSkillScopes_AllFourExist(t *testing.T) {
 
 func TestResolveSkillScopes_OnlyUserNative(t *testing.T) {
 	// EchoMatrix reproduction: cwd has no .rnix/.agents, only user-native exists.
-	home := setupIsolatedEnv(t)
+	home := skillscopeIsolatedEnv(t)
 	projectDir := t.TempDir() // no skill dirs
 
 	userRnix := filepath.Join(home, ".config", "rnix", "skills")
-	mkdirAll(t, userRnix)
+	skillscopeMkdirAll(t, userRnix)
 	// Intentionally NOT creating user-agents, project-rnix, project-agents.
 
 	result := ResolveSkillScopes(projectDir)
@@ -120,10 +120,10 @@ func TestResolveSkillScopes_OnlyUserNative(t *testing.T) {
 }
 
 func TestResolveSkillScopes_OnlyProjectRnix(t *testing.T) {
-	setupIsolatedEnv(t)
+	skillscopeIsolatedEnv(t)
 	projectDir := t.TempDir()
 	projectRnix := filepath.Join(projectDir, ".rnix", "skills")
-	mkdirAll(t, projectRnix)
+	skillscopeMkdirAll(t, projectRnix)
 
 	result := ResolveSkillScopes(projectDir)
 	if len(result) != 1 {
@@ -136,7 +136,7 @@ func TestResolveSkillScopes_OnlyProjectRnix(t *testing.T) {
 }
 
 func TestResolveSkillScopes_NoneExist(t *testing.T) {
-	setupIsolatedEnv(t)
+	skillscopeIsolatedEnv(t)
 	projectDir := t.TempDir()
 
 	result := ResolveSkillScopes(projectDir)
@@ -156,8 +156,8 @@ func TestResolveSkillScopes_XDGConfigHome(t *testing.T) {
 
 	userNativeXDG := filepath.Join(xdg, "rnix", "skills")
 	userAgents := filepath.Join(home, ".agents", "skills")
-	mkdirAll(t, userNativeXDG)
-	mkdirAll(t, userAgents)
+	skillscopeMkdirAll(t, userNativeXDG)
+	skillscopeMkdirAll(t, userAgents)
 
 	result := ResolveSkillScopes(projectDir)
 	if len(result) != 2 {
@@ -178,12 +178,12 @@ func TestResolveSkillScopes_XDGConfigHome(t *testing.T) {
 // AC7: ancestor traversal disabled by default (does not climb into parent
 // directory's .rnix/skills/).
 func TestResolveSkillScopes_DefaultNoAncestor(t *testing.T) {
-	setupIsolatedEnv(t)
+	skillscopeIsolatedEnv(t)
 	repoRoot := t.TempDir()
 	// Create .rnix/skills at repo root, but NOT in nested cwd.
-	mkdirAll(t, filepath.Join(repoRoot, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(repoRoot, ".rnix", "skills"))
 	cwd := filepath.Join(repoRoot, "sub1", "sub2")
-	mkdirAll(t, cwd)
+	skillscopeMkdirAll(t, cwd)
 
 	result := ResolveSkillScopes(cwd) // default opts: ancestor disabled
 	// No project-level skill dir at cwd, no user dirs. Should return empty.
@@ -192,23 +192,40 @@ func TestResolveSkillScopes_DefaultNoAncestor(t *testing.T) {
 	}
 }
 
+// cwd="" edge case: project scope is skipped entirely; user scope is still
+// checked and returned when it exists.
+func TestResolveSkillScopes_EmptyCwd(t *testing.T) {
+	home := skillscopeIsolatedEnv(t)
+	userRnix := filepath.Join(home, ".config", "rnix", "skills")
+	skillscopeMkdirAll(t, userRnix)
+
+	result := ResolveSkillScopes("") // empty cwd — project scope must be skipped
+	if len(result) != 1 {
+		t.Fatalf("len(result) = %d, want 1 (user-native only); got %+v", len(result), result)
+	}
+	want := ScopePath{Path: userRnix, Scope: SkillScopeUser, Namespace: SkillNamespaceRnix}
+	if result[0] != want {
+		t.Errorf("result[0] = %+v, want %+v", result[0], want)
+	}
+}
+
 // ============================================================
 // AC5: walker limits — blacklist, max depth, max dirs truncation
 // ============================================================
 
 func TestResolveSkillScopes_BlacklistGitNodeModules(t *testing.T) {
-	setupIsolatedEnv(t)
+	skillscopeIsolatedEnv(t)
 	// Build: <root>/.git/.rnix/skills (under blacklist; should be ignored)
 	//        <root>/.rnix/skills (should be found via ancestor traversal)
 	root := t.TempDir()
-	mkdirAll(t, filepath.Join(root, ".rnix", "skills"))
-	mkdirAll(t, filepath.Join(root, ".git"))
+	skillscopeMkdirAll(t, filepath.Join(root, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(root, ".git"))
 	// Create skills inside .git/ to ensure blacklist actually prevents it
-	mkdirAll(t, filepath.Join(root, ".git", ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(root, ".git", ".rnix", "skills"))
 
 	// cwd is two levels deep, but second level is a blacklisted name.
 	deep := filepath.Join(root, ".git", "objects")
-	mkdirAll(t, deep)
+	skillscopeMkdirAll(t, deep)
 
 	result := ResolveSkillScopes(deep, WithAncestorTraversal(true))
 
@@ -234,7 +251,7 @@ func TestResolveSkillScopes_BlacklistGitNodeModules(t *testing.T) {
 }
 
 func TestResolveSkillScopes_AncestorDepthLimit(t *testing.T) {
-	setupIsolatedEnv(t)
+	skillscopeIsolatedEnv(t)
 	// Build 10-layer nesting; place .rnix/skills at the deepest cwd's
 	// 8-th ancestor (out of reach with default depth 6).
 	root := t.TempDir()
@@ -243,11 +260,11 @@ func TestResolveSkillScopes_AncestorDepthLimit(t *testing.T) {
 	for i := range 10 {
 		dir = filepath.Join(dir, fmt.Sprintf("L%d", i))
 		layers = append(layers, dir)
-		mkdirAll(t, dir)
+		skillscopeMkdirAll(t, dir)
 	}
 	// Put .rnix/skills/ at L0 (8 levels above the deepest cwd L9). With
 	// maxAncestorDepth=6 we should NOT find it.
-	mkdirAll(t, filepath.Join(layers[0], ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(layers[0], ".rnix", "skills"))
 
 	cwd := layers[9]
 	result := ResolveSkillScopes(cwd, WithAncestorTraversal(true))
@@ -276,13 +293,13 @@ func TestResolveSkillScopes_AncestorDepthLimit(t *testing.T) {
 }
 
 func TestResolveSkillScopes_MaxDirsTruncation(t *testing.T) {
-	home := setupIsolatedEnv(t)
+	home := skillscopeIsolatedEnv(t)
 	projectDir := t.TempDir()
 	// Set up all four paths to maximize stat opportunities.
-	mkdirAll(t, filepath.Join(projectDir, ".rnix", "skills"))
-	mkdirAll(t, filepath.Join(projectDir, ".agents", "skills"))
-	mkdirAll(t, filepath.Join(home, ".config", "rnix", "skills"))
-	mkdirAll(t, filepath.Join(home, ".agents", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(projectDir, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(projectDir, ".agents", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(home, ".config", "rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(home, ".agents", "skills"))
 
 	var buf bytes.Buffer
 	// MaxDirs=1 forces truncation after the first stat call.
@@ -307,11 +324,11 @@ func TestResolveSkillScopes_MaxDirsTruncation(t *testing.T) {
 }
 
 func TestResolveSkillScopes_MaxDirsTruncation_WarnOnce(t *testing.T) {
-	home := setupIsolatedEnv(t)
+	home := skillscopeIsolatedEnv(t)
 	projectDir := t.TempDir()
-	mkdirAll(t, filepath.Join(projectDir, ".rnix", "skills"))
-	mkdirAll(t, filepath.Join(projectDir, ".agents", "skills"))
-	mkdirAll(t, filepath.Join(home, ".config", "rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(projectDir, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(projectDir, ".agents", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(home, ".config", "rnix", "skills"))
 
 	var buf bytes.Buffer
 	ResolveSkillScopes(projectDir, WithMaxDirs(1), WithWarningWriter(&buf))
@@ -327,13 +344,13 @@ func TestResolveSkillScopes_MaxDirsTruncation_WarnOnce(t *testing.T) {
 // ============================================================
 
 func TestResolveSkillScopes_AncestorTraversal_Monorepo(t *testing.T) {
-	setupIsolatedEnv(t)
+	skillscopeIsolatedEnv(t)
 	repoRoot := t.TempDir()
 	// Set up: <repoRoot>/.git/, <repoRoot>/.rnix/skills/, <repoRoot>/sub1/sub2/
-	mkdirAll(t, filepath.Join(repoRoot, ".git"))
-	mkdirAll(t, filepath.Join(repoRoot, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(repoRoot, ".git"))
+	skillscopeMkdirAll(t, filepath.Join(repoRoot, ".rnix", "skills"))
 	cwd := filepath.Join(repoRoot, "sub1", "sub2")
-	mkdirAll(t, cwd)
+	skillscopeMkdirAll(t, cwd)
 
 	result := ResolveSkillScopes(cwd, WithAncestorTraversal(true))
 
@@ -354,21 +371,21 @@ func TestResolveSkillScopes_AncestorTraversal_Monorepo(t *testing.T) {
 }
 
 func TestResolveSkillScopes_AncestorTraversal_StopsAtGitRoot(t *testing.T) {
-	setupIsolatedEnv(t)
+	skillscopeIsolatedEnv(t)
 	// Set up nested git repos:
 	// /tmp/<outer>/.rnix/skills/         (outer project; outside any inner git)
 	// /tmp/<outer>/repo/.git/
 	// /tmp/<outer>/repo/.rnix/skills/    (inner repo; this should be the stop)
 	// /tmp/<outer>/repo/sub1/sub2/       (cwd)
 	outer := t.TempDir()
-	mkdirAll(t, filepath.Join(outer, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(outer, ".rnix", "skills"))
 
 	repo := filepath.Join(outer, "repo")
-	mkdirAll(t, filepath.Join(repo, ".git"))
-	mkdirAll(t, filepath.Join(repo, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(repo, ".git"))
+	skillscopeMkdirAll(t, filepath.Join(repo, ".rnix", "skills"))
 
 	cwd := filepath.Join(repo, "sub1", "sub2")
-	mkdirAll(t, cwd)
+	skillscopeMkdirAll(t, cwd)
 
 	result := ResolveSkillScopes(cwd, WithAncestorTraversal(true))
 
@@ -397,16 +414,16 @@ func TestResolveSkillScopes_AncestorTraversal_StopsAtGitRoot(t *testing.T) {
 func TestResolveSkillScopes_AncestorTraversal_NestedPriority(t *testing.T) {
 	// When ancestor traversal finds multiple project paths, the closest to
 	// cwd should come first in the result list.
-	setupIsolatedEnv(t)
+	skillscopeIsolatedEnv(t)
 	repoRoot := t.TempDir()
-	mkdirAll(t, filepath.Join(repoRoot, ".git"))
-	mkdirAll(t, filepath.Join(repoRoot, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(repoRoot, ".git"))
+	skillscopeMkdirAll(t, filepath.Join(repoRoot, ".rnix", "skills"))
 
 	mid := filepath.Join(repoRoot, "mid")
-	mkdirAll(t, filepath.Join(mid, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(mid, ".rnix", "skills"))
 
 	cwd := filepath.Join(mid, "leaf")
-	mkdirAll(t, cwd)
+	skillscopeMkdirAll(t, cwd)
 
 	result := ResolveSkillScopes(cwd, WithAncestorTraversal(true))
 
@@ -435,11 +452,14 @@ func TestResolveSkillScopes_AncestorTraversal_NestedPriority(t *testing.T) {
 // ============================================================
 
 func TestResolveSkillScopes_DefaultUnder50ms(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping timing test in short mode")
+	}
 	// Sanity: default call (4 stats) finishes well under 50ms in normal cases.
-	home := setupIsolatedEnv(t)
+	home := skillscopeIsolatedEnv(t)
 	projectDir := t.TempDir()
-	mkdirAll(t, filepath.Join(projectDir, ".rnix", "skills"))
-	mkdirAll(t, filepath.Join(home, ".config", "rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(projectDir, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(home, ".config", "rnix", "skills"))
 
 	start := time.Now()
 	ResolveSkillScopes(projectDir)
@@ -450,16 +470,19 @@ func TestResolveSkillScopes_DefaultUnder50ms(t *testing.T) {
 }
 
 func TestResolveSkillScopes_AncestorUnder500ms(t *testing.T) {
-	setupIsolatedEnv(t)
+	if testing.Short() {
+		t.Skip("skipping timing test in short mode")
+	}
+	skillscopeIsolatedEnv(t)
 	repoRoot := t.TempDir()
-	mkdirAll(t, filepath.Join(repoRoot, ".git"))
-	mkdirAll(t, filepath.Join(repoRoot, ".rnix", "skills"))
+	skillscopeMkdirAll(t, filepath.Join(repoRoot, ".git"))
+	skillscopeMkdirAll(t, filepath.Join(repoRoot, ".rnix", "skills"))
 
 	cwd := repoRoot
 	for i := range 5 {
 		cwd = filepath.Join(cwd, fmt.Sprintf("L%d", i))
 	}
-	mkdirAll(t, cwd)
+	skillscopeMkdirAll(t, cwd)
 
 	start := time.Now()
 	ResolveSkillScopes(cwd, WithAncestorTraversal(true))
