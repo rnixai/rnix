@@ -45,9 +45,9 @@ func TestInstaller_Update_HasUpdate(t *testing.T) {
 	dir := t.TempDir()
 
 	clientV1 := NewRegistryClient(srvV1.URL, srvV1.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installerV1 := NewInstaller(clientV1, registry, skillLoader, dir)
+	installerV1 := newSingleScopeInstaller(clientV1, skillLoader, dir)
+	registry := singleScopeRegistry(installerV1, dir)
 
 	_, err := installerV1.Install("test-skill", InstallOpts{})
 	if err != nil {
@@ -66,7 +66,8 @@ func TestInstaller_Update_HasUpdate(t *testing.T) {
 	// When: registry now returns v2.0.0 and we call Update
 	srvV2, _, _ := setupMockRegistryWithVersion(t, "test-skill", "2.0.0")
 	clientV2 := NewRegistryClient(srvV2.URL, srvV2.Client())
-	installerV2 := NewInstaller(clientV2, registry, skillLoader, dir)
+	installerV2 := newSingleScopeInstaller(clientV2, skillLoader, dir)
+	_ = registry // accessed via installerV1 above; installerV2 owns an equivalent instance pointing at same .registry.yaml
 
 	result, err := installerV2.Update("test-skill", UpdateOpts{})
 	if err != nil {
@@ -105,9 +106,8 @@ func TestInstaller_Update_AlreadyUpToDate(t *testing.T) {
 	dir := t.TempDir()
 
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	_, err := installer.Install("test-skill", InstallOpts{})
 	if err != nil {
@@ -140,9 +140,8 @@ func TestInstaller_Update_NotInstalled(t *testing.T) {
 	dir := t.TempDir()
 
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	// When: calling Update for a skill that is not installed
 	_, err := installer.Update("nonexistent", UpdateOpts{})
@@ -161,9 +160,8 @@ func TestInstaller_UpdateAll_MultipleSkills(t *testing.T) {
 	dir := t.TempDir()
 
 	client1 := NewRegistryClient(srv1.URL, srv1.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer1 := NewInstaller(client1, registry, skillLoader, dir)
+	installer1 := newSingleScopeInstaller(client1, skillLoader, dir)
 
 	_, err := installer1.Install("skill-a", InstallOpts{})
 	if err != nil {
@@ -172,7 +170,7 @@ func TestInstaller_UpdateAll_MultipleSkills(t *testing.T) {
 
 	srv2, _, _ := setupMockRegistry(t, "skill-b")
 	client2 := NewRegistryClient(srv2.URL, srv2.Client())
-	installer2 := NewInstaller(client2, registry, skillLoader, dir)
+	installer2 := newSingleScopeInstaller(client2, skillLoader, dir)
 
 	_, err = installer2.Install("skill-b", InstallOpts{})
 	if err != nil {
@@ -207,7 +205,7 @@ func TestInstaller_UpdateAll_MultipleSkills(t *testing.T) {
 	t.Cleanup(srvAll.Close)
 
 	clientAll := NewRegistryClient(srvAll.URL, srvAll.Client())
-	installerAll := NewInstaller(clientAll, registry, skillLoader, dir)
+	installerAll := newSingleScopeInstaller(clientAll, skillLoader, dir)
 
 	results, err := installerAll.UpdateAll(UpdateOpts{})
 	if err != nil {
@@ -252,9 +250,9 @@ func TestInstaller_UpdateAll_SkipBuiltin(t *testing.T) {
 	dir := t.TempDir()
 
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
+	registry := singleScopeRegistry(installer, dir)
 
 	// Manually add a builtin entry to the registry
 	builtinEntry := RegistryEntry{

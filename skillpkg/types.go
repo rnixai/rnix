@@ -76,7 +76,48 @@ type UpdateOpts struct {
 type ListEntry struct {
 	Name        string `json:"name"`
 	Version     string `json:"version"`
-	Path        string `json:"path"`
+	Path        string `json:"path"` // absolute path under the winning scope (Story 47.2 AC2)
 	Description string `json:"description"`
-	Source      string `json:"source"` // "builtin" or "community"
+	Source      string `json:"source"`    // "builtin" or "community"
+	Scope       string `json:"scope"`     // "project" / "user" — winning ScopePath.Scope (Story 47.2 AC4)
+	Namespace   string `json:"namespace"` // "native" / "agents" — winning ScopePath.Namespace (Story 47.2 AC4)
+	Shadowed    bool   `json:"shadowed"`  // reserved for 47.3 --include-shadowed flag; always false in 47.2 result
+}
+
+// ShadowWarning describes a same-name skill conflict between two scopes,
+// emitted by ListAll for every shadowed (lower-priority) entry. Story 47.2 AC3.
+type ShadowWarning struct {
+	SkillName     string `json:"skill_name"`
+	WinningPath   string `json:"winning_path"` // absolute path of the winning scope's skill dir
+	WinningScope  string `json:"winning_scope"`
+	WinningNS     string `json:"winning_ns"`
+	ShadowedPath  string `json:"shadowed_path"`
+	ShadowedScope string `json:"shadowed_scope"`
+	ShadowedNS    string `json:"shadowed_ns"`
+}
+
+// SkipEntry records a skill that was skipped during ListAll because its
+// SKILL.md failed lenient validation. Story 47.2 AC7.
+type SkipEntry struct {
+	Path   string `json:"path"`   // absolute path to the offending SKILL.md directory
+	Reason string `json:"reason"` // e.g. "missing description", "yaml parse error: ..."
+}
+
+// LenientWarning records a non-fatal SKILL.md issue surfaced by the loader
+// (e.g. name mismatch with parent dir, name too long). The skill is still
+// loaded. Story 47.2 AC6.
+type LenientWarning struct {
+	Path   string `json:"path"`   // absolute path to the offending SKILL.md directory
+	Field  string `json:"field"`  // e.g. "name", "description"
+	Reason string `json:"reason"` // short categorical reason
+	Detail string `json:"detail"` // human-readable details
+}
+
+// LoadDiagnostics is the aggregate of non-fatal diagnostics surfaced by
+// Installer.ListAll. The CLI (Story 47.3) renders these to stderr / JSON;
+// 47.2 only populates the channel. Story 47.2 AC8.
+type LoadDiagnostics struct {
+	Warnings []ShadowWarning  `json:"warnings,omitempty"`
+	Skipped  []SkipEntry      `json:"skipped,omitempty"`
+	Lenient  []LenientWarning `json:"lenient,omitempty"`
 }

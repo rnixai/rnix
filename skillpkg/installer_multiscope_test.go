@@ -301,10 +301,12 @@ func TestListEntry_NewFields(t *testing.T) {
 
 func TestListEntry_NewFields_PerScopeMapping(t *testing.T) {
 	scopes, dirs := setupFourScopes(t)
-	createTestSkillDir(t, dirs.projectRnix, "p-native", "")
-	createTestSkillDir(t, dirs.projectAgents, "p-agents", "")
-	createTestSkillDir(t, dirs.userRnix, "u-native", "")
-	createTestSkillDir(t, dirs.userAgents, "u-agents", "")
+	// Description must be non-empty per AC7 lenient skip; the test exercises
+	// per-scope Scope/Namespace mapping rather than empty-description handling.
+	createTestSkillDir(t, dirs.projectRnix, "p-native", "project native skill")
+	createTestSkillDir(t, dirs.projectAgents, "p-agents", "project agents skill")
+	createTestSkillDir(t, dirs.userRnix, "u-native", "user native skill")
+	createTestSkillDir(t, dirs.userAgents, "u-agents", "user agents skill")
 
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())

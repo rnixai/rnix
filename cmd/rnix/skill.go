@@ -8,10 +8,24 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/skillpkg"
 	"github.com/rnixai/rnix/skills"
 )
+
+// singleScopeFromBasePath wraps the legacy lib/skills CLI basePath as a single
+// project/native ScopePath. Story 47.2 keeps CLI behavior unchanged (lib/skills
+// remains the only scope) — 47.3 will replace this with
+// config.ResolveSkillScopes(cwd).
+func singleScopeFromBasePath(basePath string) (scopes []config.ScopePath, writeScope config.ScopePath) {
+	sp := config.ScopePath{
+		Path:      basePath,
+		Scope:     config.SkillScopeProject,
+		Namespace: config.SkillNamespaceRnix,
+	}
+	return []config.ScopePath{sp}, sp
+}
 
 var skillCmd = &cobra.Command{
 	Use:   "skill",
@@ -86,9 +100,9 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 	// Set up components
 	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
 	basePath := "lib/skills"
-	registry := skillpkg.NewLocalRegistry(basePath)
 	skillLoader := skills.NewSkillLoader([]string{basePath})
-	installer := skillpkg.NewInstaller(client, registry, skillLoader, basePath)
+	scopes, writeScope := singleScopeFromBasePath(basePath)
+	installer := skillpkg.NewInstaller(client, skillLoader, scopes, writeScope)
 
 	var results []skillpkg.InstallResult
 	var installErrors []installErrorEntry
@@ -263,9 +277,9 @@ func runSkillUpdate(cmd *cobra.Command, args []string) error {
 
 	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
 	basePath := "lib/skills"
-	registry := skillpkg.NewLocalRegistry(basePath)
 	skillLoader := skills.NewSkillLoader([]string{basePath})
-	installer := skillpkg.NewInstaller(client, registry, skillLoader, basePath)
+	scopes, writeScope := singleScopeFromBasePath(basePath)
+	installer := skillpkg.NewInstaller(client, skillLoader, scopes, writeScope)
 
 	var results []skillpkg.UpdateResult
 	var updateErrors []updateErrorEntry
@@ -394,11 +408,13 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 
 	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
 	basePath := "lib/skills"
-	registry := skillpkg.NewLocalRegistry(basePath)
 	skillLoader := skills.NewSkillLoader([]string{basePath})
-	installer := skillpkg.NewInstaller(client, registry, skillLoader, basePath)
+	scopes, writeScope := singleScopeFromBasePath(basePath)
+	installer := skillpkg.NewInstaller(client, skillLoader, scopes, writeScope)
 
-	entries, err := installer.ListAll()
+	// 47.2 ListAll returns diagnostics as second value; 47.3 will render them
+	// to stderr / JSON. For now we drop them to preserve current CLI behavior.
+	entries, _, err := installer.ListAll()
 	if err != nil {
 		if mode == ui.ModeJSON {
 			resp := JSONResponse{OK: false, Error: map[string]string{"code": "LIST_ERROR", "message": err.Error()}}

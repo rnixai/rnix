@@ -147,7 +147,11 @@ func TestSkillLoader_LoadFull_MissingRequiredFields(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing Name field, got nil")
 	}
-	expected := `missing required field: name`
+	// Story 47.2 AC7: missing-name skill now surfaces as *LenientSkipError. The
+	// backward-compat shim (LoadFull/LoadMetadata) keeps the 2-value signature
+	// but returns the lenient error directly, so the user-visible message wording
+	// changed from "missing required field: name" to "missing name".
+	expected := "missing name"
 	if !strings.Contains(err.Error(), expected) {
 		t.Errorf("error = %q, want substring %q", err.Error(), expected)
 	}

@@ -45,9 +45,8 @@ func TestInstaller_Install_LocalDirExists_NotInRegistry(t *testing.T) {
 	dir := t.TempDir()
 
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	// Create a local skill directory with valid SKILL.md (but not in registry)
 	writeValidSkillMD(t, dir, "local-skill")
@@ -77,9 +76,8 @@ func TestInstaller_Install_LocalDirExists_ForceBypass(t *testing.T) {
 	dir := t.TempDir()
 
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	// Create local skill directory
 	writeValidSkillMD(t, dir, "local-skill")
@@ -103,9 +101,8 @@ func TestInstaller_Install_LocalDirExists_InvalidSkill(t *testing.T) {
 	dir := t.TempDir()
 
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	// Create directory but WITHOUT a valid SKILL.md
 	invalidDir := filepath.Join(dir, "invalid-local")

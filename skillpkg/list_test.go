@@ -47,12 +47,11 @@ func TestInstaller_ListAll_BuiltinOnly(t *testing.T) {
 
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	// When: calling ListAll
-	entries, err := installer.ListAll()
+	entries, _, err := installer.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll failed: %v", err)
 	}
@@ -96,9 +95,9 @@ func TestInstaller_ListAll_Mixed(t *testing.T) {
 
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
+	registry := singleScopeRegistry(installer, dir)
 
 	// Register the community skill in the registry
 	regEntry := RegistryEntry{
@@ -111,7 +110,7 @@ func TestInstaller_ListAll_Mixed(t *testing.T) {
 	}
 
 	// When: calling ListAll
-	entries, err := installer.ListAll()
+	entries, _, err := installer.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll failed: %v", err)
 	}
@@ -161,12 +160,11 @@ func TestInstaller_ListAll_Empty(t *testing.T) {
 
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	// When: calling ListAll
-	entries, err := installer.ListAll()
+	entries, _, err := installer.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll failed: %v", err)
 	}
@@ -195,12 +193,11 @@ func TestInstaller_ListAll_InvalidSkillSkipped(t *testing.T) {
 
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	// When: calling ListAll
-	entries, err := installer.ListAll()
+	entries, _, err := installer.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll failed: %v", err)
 	}
@@ -232,9 +229,9 @@ func TestInstaller_ListAll_RegisteredSkillWithCorruptedSKILLMD(t *testing.T) {
 
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
+	registry := singleScopeRegistry(installer, dir)
 
 	// Register the community skill
 	if err := registry.Add(RegistryEntry{
@@ -246,7 +243,7 @@ func TestInstaller_ListAll_RegisteredSkillWithCorruptedSKILLMD(t *testing.T) {
 	}
 
 	// When: calling ListAll
-	entries, err := installer.ListAll()
+	entries, _, err := installer.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll failed: %v", err)
 	}
@@ -289,12 +286,11 @@ func TestInstaller_ListAll_SortedByName(t *testing.T) {
 
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	// When: calling ListAll
-	entries, err := installer.ListAll()
+	entries, _, err := installer.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll failed: %v", err)
 	}
@@ -320,12 +316,11 @@ func TestInstaller_ListAll_PathField(t *testing.T) {
 
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
 
 	// When: calling ListAll
-	entries, err := installer.ListAll()
+	entries, _, err := installer.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll failed: %v", err)
 	}
@@ -348,9 +343,9 @@ func TestInstaller_ListAll_RegistrySkipsDotFiles(t *testing.T) {
 
 	srv, _, _ := setupMockRegistry(t, "dummy")
 	client := NewRegistryClient(srv.URL, srv.Client())
-	registry := NewLocalRegistry(dir)
 	skillLoader := skills.NewSkillLoader([]string{dir})
-	installer := NewInstaller(client, registry, skillLoader, dir)
+	installer := newSingleScopeInstaller(client, skillLoader, dir)
+	registry := singleScopeRegistry(installer, dir)
 
 	// Create a registry entry to ensure .registry.yaml exists
 	if err := registry.Add(RegistryEntry{Name: "real-skill", Version: "1.0.0", Source: "community"}); err != nil {
@@ -358,7 +353,7 @@ func TestInstaller_ListAll_RegistrySkipsDotFiles(t *testing.T) {
 	}
 
 	// When: calling ListAll
-	entries, err := installer.ListAll()
+	entries, _, err := installer.ListAll()
 	if err != nil {
 		t.Fatalf("ListAll failed: %v", err)
 	}
