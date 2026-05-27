@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-27
+
+Theme: **Process lifecycle reshape** — resume from history, unified subtree pause/resume, and heartbeat subsystem redirected from "active supervision" to "passive observation".
+
+### Added
+
+- **Process Session Resumption from History (Epic 42)**:
+  - `rnix resume <uuid>` now works on any Dead / Zombie / context_full / circuit-broken process — no longer requires Suspended as a precondition (Story 42-1)
+  - `rnix resume --fork <uuid>` forks a new UUID process while the original UUID remains independently resumable; `proc-info.json` records the `origin_uuid` lineage field
+  - Periodic best-effort checkpoints: long-running processes refresh recoverable snapshots under `.rnix/data/steps/<uuid>/` (Story 42-2)
+  - Daemon startup scans Suspended processes from disk and loads them into procTable (`LoadSuspendedFromDisk`); manual resume continues to work across restarts (Story 42-2)
+  - `--from-step` step-level fork + Dashboard Lineage view (Story 42-3)
+  - Disk GC governance: `gc.retention_days` + `gc.max_entries` dual safeguards; Running / Suspended processes are permanently exempt (Story 42-5)
+  - Design doc: `docs/process-resumption.md`
+
+- **Unified Subtree Pause/Resume Semantics (Epic 44)**:
+  - New `SubtreeManager`: all pause/resume entry points (dashboard `p` / CLI `rnix kill -SIGPAUSE` / Ctrl+C) converge on the Suspended state machine (Story 44-1)
+  - Pausing PID=X recursively suspends **X and all descendants**; parents and siblings are untouched. Resume symmetrically restores every Suspended node in X's subtree (Story 44-1)
+  - Script-runners are now suspendable: Ctrl+C is equivalent to "press `p` on the root script-runner" — daemon does not cancel ctx; awaits manual resume (Story 44-2)
+  - Suspended processes persist across daemon restarts: new paused fields in `proc-info.json`; after restart, `reasonStep` does not auto-start — it waits for `rnix resume` (Story 44-3)
+  - In-flight LLM call suspension protocol: pending LLM calls are cancelled on suspend; replayed from historical context on resume (Story 44-5)
+
+- **Heartbeat Subsystem Reform (Epic 45)**:
+  - Cross-repo version observability: three-source version fallback — ldflags injection → BuildInfo VCS → `(devel)` fallback; `rnix --version` / `rnix daemon status` / startup banner uniformly show commit + dirty flag (Story 45-1)
+  - HeartbeatMonitor switched to **warn-only**: emits `HEARTBEAT_STALL` events for observability only; no more `cancel_step`, no more auto-suspend (Story 45-2)
+  - **Dashboard Stall Intensity Heatmap**: detail pane renders stall intensity so heartbeat anomalies surface as signals to the user rather than daemon-decided actions (Story 45-5)
+
+- **Script-Runner Observability (Epic 43)**:
+  - ScriptExecutor now writes to `events.jsonl`: while-iter, spawn-return, variable assignment, and condition eval become first-class observable events (Story 43-2)
+  - Dashboard Timeline gains formatters for 5 Script* syscalls + a ScriptAggGroup fold (Story 43-3)
+  - HB-1 heartbeat lifecycle is hoisted to `handleExecScript` so coverage extends across statement gaps, paused children, and user operations (Story 43-1) — retained as a warn-only signal under the Epic 45 P4 philosophy
+
+- **Shell Process Group Isolation (Unix)**:
+  - Shell driver launches subprocesses in their own process group by default; Ctrl+C no longer kills the wrong group. Background process behavior is also enhanced
+
+### Changed
+
+- **HeartbeatMonitor passive mode** — daemon stops guessing whether a business process has died. The HB-1 lifecycle ticker and the supervisor auto-recovery path are removed (Story 45-3). Slow LLM inference, retries, and long-running calls are normal business — hard failures are handled by the driver / `reasonStep` error-propagation chain
+- **Tool names standardized to PascalCase**: unified naming style across drivers; docs updated in lock-step (commit `6dea40a`)
+- **Dashboard ExitCode source change** — Timeline EXIT severity now uses the authoritative process `ExitCode` field instead of inferring from the result message (commit `6f6bc61`)
+- **`IsFailedResult` → `IsProcessFailed`** — Dashboard failure judgement now uses process state rather than result text (commit `8e39604`)
+
+### Fixed
+
+- **PID reuse bug**: after daemon restart, the PID counter is seeded from disk to avoid colliding with persisted historical-process UUIDs (commit `fccd5ea`)
+- **Lost project context for Suspended processes**: rehydrate correctly restores project context and placeholder runtime state (commits `7e033bf`, `3b901e7`)
+- **`WaitChildInReason` guard**: race during the mid-state Suspend → Done transition (commit `cb6fbf9`)
+- **Preserve relative paths when FS workDir is unset**: avoids being mistakenly resolved against CWD (commit `e333bc2`)
+- **Dashboard rendering**: UUID truncation removed for clarity; DEBUG header deduplicated between titleBar and Timeline pane; detail-pane state-flicker regression test (commits `14311b8`, `4fd56d0`, `996fdaf`)
+- **`TestATDD_42_2_INT_003_E2E_CrashRecovery` flakiness**: mock-LLM handshake gate eliminates the timing race between reap and `ListResumable` (commits `b6f056c`, `4cbd755`)
+
+### Removed
+
+- **HB-1 lifecycle ticker** — the 10s self-heartbeat ticker inside `ipc/handleExecScript` is gone (Story 45-3)
+- **Supervisor auto-recovery path** — no more automatic restart or resume of children based on stall signals (Story 45-3)
+- **Legacy version variables** — `version` / `gitCommit` / `buildDate` in package `main` are removed; resolution is unified through `buildVersionInfo()` (Story 45-1)
+- **`reactivateCliDisconnectedAncestors`** — the Epic 43 ancestor-wakeup chain is deleted; resume is now strictly manual with no automatic ancestor cascade (Epic 44 background)
+
+### Breaking Changes
+
+> Upgrade note: the following behavioral changes may be observable from external scripts / automation
+
+- **Daemon no longer auto-suspends or cancels processes**: scripts relying on `HeartbeatMonitor`-driven suspends will find the daemon no longer "intervenes" — only the `HEARTBEAT_STALL` warn event remains. LLM error recovery falls back to the driver / `reasonStep` error-propagation chain
+- **Pause/resume semantics unified on the Suspended state machine**: the old SoftPause (process State stays Running on the signal path) is gone; all of `p` / `r` / Ctrl+C / `rnix kill -SIGPAUSE` now trigger state transitions. Clients that read `process_state` directly should expect Suspended to appear more often
+- **Ctrl+C no longer terminates script-runners**: it is equivalent to "subtree SIGPAUSE"; the CLI exits to the shell but the daemon keeps the process Suspended — call `rnix resume <uuid>` to continue. Any assumption that "Ctrl+C kills the daemon-side task" is invalid
+- **Tool names changed to PascalCase**: driver-layer tool registration names changed case; skill manifests / test fixtures with hard-coded old names need to be updated
+
 ## [0.8.0] - 2026-05-14
 
 ### Added
