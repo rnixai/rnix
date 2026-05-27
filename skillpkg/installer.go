@@ -502,11 +502,10 @@ func (inst *Installer) ListAll() ([]ListEntry, LoadDiagnostics, error) {
 					Scope:     winningScope.Scope.String(),
 					Namespace: winningScope.Namespace.String(),
 				})
+				// Only emit shadow warnings when the entry actually appears in
+				// the result list; shadowing a non-listed skill is misleading.
+				emitShadowWarnings(&diag, name, winningScope, winningDir, allByName[name], winIdx, inst.scopes)
 			}
-			// Skip shadow warning emission below because there's no useful
-			// "winning" entry, but if a non-lenient hard error occurred and we
-			// have no registry fallback either, just continue.
-			emitShadowWarnings(&diag, name, winningScope, winningDir, allByName[name], winIdx, inst.scopes)
 			continue
 		}
 
