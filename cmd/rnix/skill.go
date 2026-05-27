@@ -264,9 +264,13 @@ func pathStatus(path string) string {
 	return "existed-but-empty"
 }
 
-// renderDiagnosticsToStderr writes lenient/shadow/skipped warnings collected by
-// Installer.ListAll to os.Stderr (one line per entry). Called only in non-JSON
-// modes — JSON mode embeds the same data inside the top-level diagnostics node.
+// renderDiagnosticsToStderr writes shadow/skipped/lenient/trust diagnostics
+// collected by Installer.ListAll (or a stand-alone trust pre-check) to
+// os.Stderr (one line per entry). Called only in non-JSON modes — JSON mode
+// embeds the same data inside the top-level diagnostics node.
+//
+// Render order: Warnings → Skipped → Lenient → Trust. Story 47.4 places Trust
+// last because it is a project-level advisory, not per-skill noise.
 func renderDiagnosticsToStderr(diag skillpkg.LoadDiagnostics) {
 	for _, w := range diag.Warnings {
 		fmt.Fprintf(os.Stderr, "[skill] warning: shadowed skill %q: winner=%s (%s/%s); shadowed=%s (%s/%s)\n",
@@ -277,6 +281,11 @@ func renderDiagnosticsToStderr(diag skillpkg.LoadDiagnostics) {
 	}
 	for _, l := range diag.Lenient {
 		fmt.Fprintf(os.Stderr, "[skill] warning: %s: %s: %s (%s)\n", l.Path, l.Field, l.Reason, l.Detail)
+	}
+	for _, t := range diag.Trust {
+		fmt.Fprintf(os.Stderr,
+			"[skill] warning: untrusted project %s: %d skill root(s) will load — %s. Policy: %s. %s\n",
+			t.ProjectDir, len(t.SkillsRootPaths), t.Reason, t.Policy, t.Recommendation)
 	}
 }
 
@@ -326,6 +335,13 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 	client := skillpkg.NewRegistryClient(skillRegistryURL, nil)
 	skillLoader := skills.NewSkillLoader(paths)
 	installer := skillpkg.NewInstaller(client, skillLoader, scopes, writeScope)
+
+	// Story 47.4 AC9: emit trust advisories exactly once per CLI invocation
+	// (outside the install for-loop so multiple args do not duplicate).
+	trustWarnings := skillpkg.CheckProjectTrust(scopes)
+	if mode != ui.ModeJSON && len(trustWarnings) > 0 {
+		renderDiagnosticsToStderr(skillpkg.LoadDiagnostics{Trust: trustWarnings})
+	}
 
 	var results []skillpkg.InstallResult
 	var installErrors []installErrorEntry
@@ -384,7 +400,7 @@ func runSkillInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	if mode == ui.ModeJSON {
-		renderSkillInstallJSON(renderer, results, installErrors)
+		renderSkillInstallJSON(renderer, results, installErrors, skillpkg.LoadDiagnostics{Trust: trustWarnings})
 	}
 
 	if len(installErrors) > 0 {
@@ -400,23 +416,40 @@ type installErrorEntry struct {
 	Message string `json:"message"`
 }
 
+// skillInstallJSONData carries the wire shape of `rnix skill install --json`.
+// Story 47.4 AC10: Diagnostics is a pointer + omitempty so the 47.3 wire
+// shape stays byte-identical (no `diagnostics` key at all) when no
+// trust/lenient/shadow/skipped advisories surfaced — encoding/json's
+// omitempty does not elide zero-value structs, so a pointer is required.
 type skillInstallJSONData struct {
-	Installed []skillpkg.InstallResult `json:"installed"`
-	Errors    []installErrorEntry      `json:"errors,omitempty"`
+	Installed   []skillpkg.InstallResult  `json:"installed"`
+	Errors      []installErrorEntry       `json:"errors,omitempty"`
+	Diagnostics *skillpkg.LoadDiagnostics `json:"diagnostics,omitempty"`
 }
 
-func renderSkillInstallJSON(r *ui.Renderer, results []skillpkg.InstallResult, errs []installErrorEntry) {
+func renderSkillInstallJSON(r *ui.Renderer, results []skillpkg.InstallResult, errs []installErrorEntry, diag skillpkg.LoadDiagnostics) {
 	if results == nil {
 		results = []skillpkg.InstallResult{}
 	}
 
-	ok := len(errs) == 0
-	resp := JSONResponse{
-		OK:   ok,
-		Data: skillInstallJSONData{Installed: results, Errors: errs},
+	data := skillInstallJSONData{Installed: results, Errors: errs}
+	if !diagIsEmpty(diag) {
+		d := diag
+		data.Diagnostics = &d
 	}
-	data, _ := json.Marshal(resp)
-	fmt.Fprintln(r.Writer, string(data))
+
+	ok := len(errs) == 0
+	resp := JSONResponse{OK: ok, Data: data}
+	raw, _ := json.Marshal(resp)
+	fmt.Fprintln(r.Writer, string(raw))
+}
+
+// diagIsEmpty reports whether every diagnostic channel is empty.
+// LoadDiagnostics is a struct, so encoding/json's `omitempty` cannot elide it
+// automatically; this helper drives the pointer assignment in install/update
+// JSON renderers (Story 47.4 AC10).
+func diagIsEmpty(d skillpkg.LoadDiagnostics) bool {
+	return len(d.Warnings) == 0 && len(d.Skipped) == 0 && len(d.Lenient) == 0 && len(d.Trust) == 0
 }
 
 // --- Story 8.2: skill search ---
@@ -516,6 +549,13 @@ func runSkillUpdate(cmd *cobra.Command, args []string) error {
 	skillLoader := skills.NewSkillLoader(paths)
 	installer := skillpkg.NewInstaller(client, skillLoader, scopes, defaultWrite)
 
+	// Story 47.4 AC9: emit trust advisories once per CLI invocation (outside
+	// the per-skill loop) so multi-arg / UpdateAll do not duplicate.
+	trustWarnings := skillpkg.CheckProjectTrust(scopes)
+	if mode != ui.ModeJSON && len(trustWarnings) > 0 {
+		renderDiagnosticsToStderr(skillpkg.LoadDiagnostics{Trust: trustWarnings})
+	}
+
 	var results []skillpkg.UpdateResult
 	var updateErrors []updateErrorEntry
 
@@ -571,7 +611,7 @@ func runSkillUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	if mode == ui.ModeJSON {
-		renderSkillUpdateJSON(renderer, results, updateErrors)
+		renderSkillUpdateJSON(renderer, results, updateErrors, skillpkg.LoadDiagnostics{Trust: trustWarnings})
 	}
 
 	if len(updateErrors) > 0 {
@@ -613,23 +653,30 @@ type updateErrorEntry struct {
 	Message string `json:"message"`
 }
 
+// skillUpdateJSONData carries the wire shape of `rnix skill update --json`.
+// Story 47.4 AC10: Diagnostics is a pointer + omitempty so trusted-project
+// updates emit the same 47.3 wire shape (no diagnostics key).
 type skillUpdateJSONData struct {
-	Results []skillpkg.UpdateResult `json:"results"`
-	Errors  []updateErrorEntry      `json:"errors,omitempty"`
+	Results     []skillpkg.UpdateResult   `json:"results"`
+	Errors      []updateErrorEntry        `json:"errors,omitempty"`
+	Diagnostics *skillpkg.LoadDiagnostics `json:"diagnostics,omitempty"`
 }
 
-func renderSkillUpdateJSON(r *ui.Renderer, results []skillpkg.UpdateResult, errs []updateErrorEntry) {
+func renderSkillUpdateJSON(r *ui.Renderer, results []skillpkg.UpdateResult, errs []updateErrorEntry, diag skillpkg.LoadDiagnostics) {
 	if results == nil {
 		results = []skillpkg.UpdateResult{}
 	}
 
-	ok := len(errs) == 0
-	resp := JSONResponse{
-		OK:   ok,
-		Data: skillUpdateJSONData{Results: results, Errors: errs},
+	data := skillUpdateJSONData{Results: results, Errors: errs}
+	if !diagIsEmpty(diag) {
+		d := diag
+		data.Diagnostics = &d
 	}
-	data, _ := json.Marshal(resp)
-	fmt.Fprintln(r.Writer, string(data))
+
+	ok := len(errs) == 0
+	resp := JSONResponse{OK: ok, Data: data}
+	raw, _ := json.Marshal(resp)
+	fmt.Fprintln(r.Writer, string(raw))
 }
 
 // --- Story 8.4 + 47.3: skill list ---

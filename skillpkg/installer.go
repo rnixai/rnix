@@ -415,6 +415,10 @@ func (inst *Installer) ListAll() ([]ListEntry, LoadDiagnostics, error) {
 		return nil, diag, errNoScopes
 	}
 
+	// Story 47.4 AC7: surface project-scope trust advisories before discovery.
+	// CheckProjectTrust is a pure read; it never blocks the listing path.
+	diag.Trust = CheckProjectTrust(inst.scopes)
+
 	// Step 1: discover all (scopeIdx, name) candidates from filesystem + registries.
 	winners := make(map[string]int)              // name -> winning scopeIdx
 	allByName := make(map[string][]int)          // name -> all scope indices where it appears

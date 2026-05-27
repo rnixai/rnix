@@ -61,7 +61,7 @@ func TestSkillInstall_SingleSkill_JSONOutput(t *testing.T) {
 	results := []skillpkg.InstallResult{
 		{Name: "code-analysis", Version: "1.0.0", Fresh: true},
 	}
-	renderSkillInstallJSON(r, results, nil)
+	renderSkillInstallJSON(r, results, nil, skillpkg.LoadDiagnostics{})
 
 	var resp JSONResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -91,7 +91,7 @@ func TestSkillInstall_BatchInstall_JSONOutput(t *testing.T) {
 		{Name: "pr-reviewer", Version: "1.0.0", Fresh: true},
 		{Name: "code-analyst", Version: "2.0.0", Fresh: true},
 	}
-	renderSkillInstallJSON(r, results, nil)
+	renderSkillInstallJSON(r, results, nil, skillpkg.LoadDiagnostics{})
 
 	var resp JSONResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -120,7 +120,7 @@ func TestSkillInstall_AlreadyInstalled_JSONOutput(t *testing.T) {
 	errs := []installErrorEntry{
 		{Name: "code-analysis", Code: "ALREADY_INSTALLED", Message: "already installed v1.0.0"},
 	}
-	renderSkillInstallJSON(r, nil, errs)
+	renderSkillInstallJSON(r, nil, errs, skillpkg.LoadDiagnostics{})
 
 	var resp JSONResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -187,7 +187,7 @@ func TestRenderSkillInstallJSON_EmptyResults(t *testing.T) {
 	var buf bytes.Buffer
 	r := &ui.Renderer{Writer: &buf, OutputMode: ui.ModeJSON, Profile: ui.TerminalProfile{ColorLevel: 0}}
 
-	renderSkillInstallJSON(r, nil, nil)
+	renderSkillInstallJSON(r, nil, nil, skillpkg.LoadDiagnostics{})
 
 	var resp JSONResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -214,7 +214,7 @@ func TestRenderSkillInstallJSON_MixedResults(t *testing.T) {
 	errs := []installErrorEntry{
 		{Name: "fail-skill", Code: "INSTALL_ERROR", Message: "network error"},
 	}
-	renderSkillInstallJSON(r, results, errs)
+	renderSkillInstallJSON(r, results, errs, skillpkg.LoadDiagnostics{})
 
 	var resp JSONResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {
@@ -368,7 +368,7 @@ func TestSkillUpdate_JSONOutput(t *testing.T) {
 	results := []skillpkg.UpdateResult{
 		{Name: "code-analysis", OldVersion: "1.0.0", NewVersion: "1.1.0", Updated: true},
 	}
-	renderSkillUpdateJSON(r, results, nil)
+	renderSkillUpdateJSON(r, results, nil, skillpkg.LoadDiagnostics{})
 
 	// Then: valid JSON with snake_case fields
 	var resp JSONResponse
@@ -407,7 +407,7 @@ func TestSkillUpdate_EmptyResult_JSONOutput(t *testing.T) {
 
 	// Given: empty update results (all skills up to date)
 	results := []skillpkg.UpdateResult{}
-	renderSkillUpdateJSON(r, results, nil)
+	renderSkillUpdateJSON(r, results, nil, skillpkg.LoadDiagnostics{})
 
 	// Then: valid JSON with ok=true and empty results array
 	var resp JSONResponse
@@ -507,7 +507,7 @@ func TestSkillUpdate_MixedResults_JSONOutput(t *testing.T) {
 	errs := []updateErrorEntry{
 		{Name: "nonexistent", Code: "NOT_INSTALLED", Message: `skill "nonexistent" is not installed`},
 	}
-	renderSkillUpdateJSON(r, results, errs)
+	renderSkillUpdateJSON(r, results, errs, skillpkg.LoadDiagnostics{})
 
 	var resp JSONResponse
 	if err := json.Unmarshal(buf.Bytes(), &resp); err != nil {

@@ -58,11 +58,11 @@ func markTrustedWithBody(t *testing.T, projectDir, body string) {
 
 func TestCheckProjectTrust_UntrustedProjectScope_EmitsWarning(t *testing.T) {
 	// Given: a project scope ScopePath whose parent projectDir has no trust marker.
-	scopes, dirs := setupFourScopes(t)
+	_, dirs := setupFourScopes(t)
 	createTestSkillDir(t, dirs.projectRnix, "foo", "foo skill")
 
 	// Only keep the project/native scope so the fixture is unambiguous.
-	scopes = []config.ScopePath{
+	scopes := []config.ScopePath{
 		{Path: dirs.projectRnix, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceRnix},
 	}
 
@@ -103,11 +103,11 @@ func TestCheckProjectTrust_UntrustedProjectScope_EmitsWarning(t *testing.T) {
 // --- 47.4-UNIT-AC2-001: [P0] trusted marker → no warning ---
 
 func TestCheckProjectTrust_TrustedProjectScope_NoWarning(t *testing.T) {
-	scopes, dirs := setupFourScopes(t)
+	_, dirs := setupFourScopes(t)
 	createTestSkillDir(t, dirs.projectRnix, "foo", "foo skill")
 	markTrusted(t, dirs.projectDir)
 
-	scopes = []config.ScopePath{
+	scopes := []config.ScopePath{
 		{Path: dirs.projectRnix, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceRnix},
 	}
 
@@ -120,11 +120,11 @@ func TestCheckProjectTrust_TrustedProjectScope_NoWarning(t *testing.T) {
 // --- 47.4-UNIT-AC2-002: [P1] trusted marker content is ignored (existence-only) ---
 
 func TestCheckProjectTrust_TrustedFile_AnyContent_NoWarning(t *testing.T) {
-	scopes, dirs := setupFourScopes(t)
+	_, dirs := setupFourScopes(t)
 	createTestSkillDir(t, dirs.projectRnix, "foo", "foo skill")
 	markTrustedWithBody(t, dirs.projectDir, "trusted by decker 2026-05-27\n# arbitrary content\n")
 
-	scopes = []config.ScopePath{
+	scopes := []config.ScopePath{
 		{Path: dirs.projectRnix, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceRnix},
 	}
 
@@ -139,7 +139,7 @@ func TestCheckProjectTrust_TrustedFile_AnyContent_NoWarning(t *testing.T) {
 // Validates AC2 dev-note: os.Stat follows symlinks; broken symlink → not-found.
 // This test exercises the "follows to a valid target" branch.
 func TestCheckProjectTrust_TrustedFile_AsSymlink_NoWarning(t *testing.T) {
-	scopes, dirs := setupFourScopes(t)
+	_, dirs := setupFourScopes(t)
 	createTestSkillDir(t, dirs.projectRnix, "foo", "foo skill")
 
 	// Build the target file outside the project and symlink the trust marker to it.
@@ -156,7 +156,7 @@ func TestCheckProjectTrust_TrustedFile_AsSymlink_NoWarning(t *testing.T) {
 		t.Skipf("symlink unsupported on this platform: %v", err)
 	}
 
-	scopes = []config.ScopePath{
+	scopes := []config.ScopePath{
 		{Path: dirs.projectRnix, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceRnix},
 	}
 
@@ -198,11 +198,11 @@ func TestCheckProjectTrust_EmptyScopes_NoWarning(t *testing.T) {
 // --- 47.4-UNIT-AC5-001: [P0] same project, both namespaces → 1 merged warning ---
 
 func TestCheckProjectTrust_BothNamespaces_SameProject_OneMergedWarning(t *testing.T) {
-	scopes, dirs := setupFourScopes(t)
+	_, dirs := setupFourScopes(t)
 	createTestSkillDir(t, dirs.projectRnix, "native-skill", "")
 	createTestSkillDir(t, dirs.projectAgents, "agents-skill", "")
 
-	scopes = []config.ScopePath{
+	scopes := []config.ScopePath{
 		{Path: dirs.projectRnix, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceRnix},
 		{Path: dirs.projectAgents, Scope: config.SkillScopeProject, Namespace: config.SkillNamespaceAgents},
 	}
