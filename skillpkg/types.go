@@ -131,8 +131,28 @@ type LenientWarning struct {
 // LoadDiagnostics is the aggregate of non-fatal diagnostics surfaced by
 // Installer.ListAll. The CLI (Story 47.3) renders these to stderr / JSON;
 // 47.2 only populates the channel. Story 47.2 AC8.
+//
+// Story 47.4 AC6: Trust is added as the 4th channel for project-scope trust
+// warnings; omitempty preserves backward compatibility with JSON consumers
+// authored against the 47.2/47.3 three-channel shape.
 type LoadDiagnostics struct {
 	Warnings []ShadowWarning  `json:"warnings,omitempty"`
 	Skipped  []SkipEntry      `json:"skipped,omitempty"`
 	Lenient  []LenientWarning `json:"lenient,omitempty"`
+	Trust    []TrustWarning   `json:"trust,omitempty"`
+}
+
+// TrustWarning is emitted by CheckProjectTrust (Story 47.4) when a project
+// scope is loaded without an explicit trust marker. The CLI surfaces it as a
+// stderr advisory and a JSON `diagnostics.trust` array entry. agentskills.io
+// regulation: untrusted repositories can silently inject instructions into
+// the agent's context.
+//
+// Story 47.4 AC6.
+type TrustWarning struct {
+	ProjectDir      string   `json:"project_dir"`
+	SkillsRootPaths []string `json:"skills_root_paths"`
+	Reason          string   `json:"reason"`
+	Policy          string   `json:"policy"`
+	Recommendation  string   `json:"recommendation"`
 }
