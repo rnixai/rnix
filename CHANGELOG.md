@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-28
+
+Theme: **Skill Trust & Installer Hardening** — project trust checks, single-scope installer refactor, and comprehensive test coverage for the skill management subsystem.
+
+### Added
+
+- **Project trust checks in skill operations**: skill installation and update now verify project-level trust before modifying `.rnix/` directories; enhanced diagnostics surface trust status clearly
+- **Comprehensive skill management documentation**: `docs/skill-loading.md` covering skill lifecycle, scope resolution, and trust mechanics
+- **Test coverage expansion**: tests for multi-scope installer, skill list filtering/diagnostics, `SkillScope`/`SkillNamespace` string representations, `resolveSkillScopes`, and project trust checks for project scope handling (5 test files, ~6200 lines)
+
+### Changed
+
+- **Installer single-scope migration**: installer refactored from multi-scope to single-scope approach, replacing `MultiScopeInstaller` with simplified `Installer` and streamlined loading diagnostics
+- **`resolveWriteScope` signature simplified**: unused parameter removed
+
+### Fixed
+
+- **Shadow warning emission**: `ListAll` now only emits shadow warnings when a skill is genuinely shadowed, eliminating false positives
+
 ## [0.9.0] - 2026-05-27
 
 Theme: **Process lifecycle reshape** — resume from history, unified subtree pause/resume, and heartbeat subsystem redirected from "active supervision" to "passive observation".
@@ -372,6 +391,8 @@ Theme: **Process lifecycle reshape** — resume from history, unified subtree pa
 - **IPC Protocol**: NDJSON over Unix socket request/response protocol
 - **VFS Devices**: `/dev/llm/claude`, `/dev/fs`, `/dev/shell` device implementations
 
+[0.9.1]: https://github.com/rnixai/rnix/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/rnixai/rnix/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/rnixai/rnix/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/rnixai/rnix/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/rnixai/rnix/compare/v0.7.1...v0.7.2
