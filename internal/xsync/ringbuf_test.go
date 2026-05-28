@@ -1,5 +1,3 @@
-//go:build atdd_48_5_red
-
 package xsync
 
 import (
@@ -65,7 +63,7 @@ func TestATDD_48_5_002_RingBuffer_CapacityOverwrite(t *testing.T) {
 	rb := NewRingBuffer[string](cap)
 
 	// Push 300 lines into a 256-slot buffer → first 44 are evicted.
-	for i := 0; i < 300; i++ {
+	for i := range 300 {
 		rb.Push(fmt.Sprintf("line-%d", i))
 	}
 
@@ -120,24 +118,21 @@ func TestATDD_48_5_004_RingBuffer_ConcurrentPushSnapshot(t *testing.T) {
 
 	var wg sync.WaitGroup
 	// 8 writers hammer Push; 4 readers hammer Snapshot/Len concurrently.
-	for w := 0; w < 8; w++ {
-		wg.Add(1)
-		go func(base int) {
-			defer wg.Done()
-			for i := 0; i < 500; i++ {
+	for w := range 8 {
+		base := w
+		wg.Go(func() {
+			for i := range 500 {
 				rb.Push(base*1000 + i)
 			}
-		}(w)
+		})
 	}
-	for r := 0; r < 4; r++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < 500; i++ {
+	for range 4 {
+		wg.Go(func() {
+			for range 500 {
 				_ = rb.Snapshot()
 				_ = rb.Len()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 

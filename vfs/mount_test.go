@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/rnixai/rnix/internal/types"
 )
@@ -50,6 +51,15 @@ func (m *mockMCPTransport) Ping(ctx context.Context) error {
 	}
 	return nil
 }
+
+// --- Story 48.5 health/status surface (no-op defaults for legacy mocks) ---
+func (m *mockMCPTransport) Status() MCPStatus    { return MCPStatusConnected }
+func (m *mockMCPTransport) Alive() bool          { return true }
+func (m *mockMCPTransport) ToolCount() int       { return 0 }
+func (m *mockMCPTransport) ResourceCount() int   { return 0 }
+func (m *mockMCPTransport) LastCheck() time.Time { return time.Time{} }
+func (m *mockMCPTransport) ReconnectCount() int  { return 0 }
+func (m *mockMCPTransport) StderrTail() []string { return nil }
 
 // mockTransportFactory creates a TransportFactory that returns mock transports.
 func mockTransportFactory(transport *mockMCPTransport) TransportFactory {

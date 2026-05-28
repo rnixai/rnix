@@ -106,6 +106,15 @@ func (m *mockMCPTransport) Ping(ctx context.Context) error {
 	return m.pingErr
 }
 
+// --- Story 48.5 health/status surface (no-op defaults for legacy mocks) ---
+func (m *mockMCPTransport) Status() vfs.MCPStatus { return vfs.MCPStatusConnected }
+func (m *mockMCPTransport) Alive() bool           { return true }
+func (m *mockMCPTransport) ToolCount() int        { return 0 }
+func (m *mockMCPTransport) ResourceCount() int    { return 0 }
+func (m *mockMCPTransport) LastCheck() time.Time  { return time.Time{} }
+func (m *mockMCPTransport) ReconnectCount() int   { return 0 }
+func (m *mockMCPTransport) StderrTail() []string  { return nil }
+
 // snapshot returns a copy of the mock's call accounting for assertions.
 // Avoids races between the test goroutine and the transport's Call goroutine
 // (vfs/mcp.go reads the response asynchronously inside mcpToolListFile.Read).

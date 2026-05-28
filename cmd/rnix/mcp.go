@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
@@ -57,9 +58,107 @@ avoid orphan subprocesses. Daemon-down therefore exits 1, unlike ` + "`mcp list`
 	RunE: runMCPTest,
 }
 
+var mcpLogsCmd = &cobra.Command{
+	Use:   "logs <name>",
+	Short: "Show captured stderr of a mounted MCP server",
+	Long: `Print the recent stderr lines (most recent 256) captured from a mounted
+MCP server's child process — the first place to look when an MCP tool starts
+failing (e.g. ` + "`npx error: ENOENT`" + `, ` + "`chromium not found`" + `).
+
+Like ` + "`mcp list`" + `, this is a pure read: when the daemon is not running it
+prints a friendly hint and exits 0. An unknown / unmounted server name exits 1
+with the list of available servers.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runMCPLogs,
+}
+
 func init() {
 	mcpCmd.AddCommand(mcpListCmd)
 	mcpCmd.AddCommand(mcpTestCmd)
+	mcpCmd.AddCommand(mcpLogsCmd)
+}
+
+// runMCPLogs implements `rnix mcp logs <name>` (Story 48.5 AC4). Daemon-down is
+// graceful (exit 0, parity with `mcp list`); an unknown server is a hard fail
+// (exit 1) with the available-server hint surfaced from the daemon.
+func runMCPLogs(cmd *cobra.Command, args []string) error {
+	mode := resolveOutputMode()
+	w := cmd.OutOrStdout()
+	name := args[0]
+
+	client, err := ipc.Dial(ipc.SocketPath())
+	if err != nil {
+		// Daemon down → friendly, exit 0 (parity with `mcp list`).
+		switch mode {
+		case ui.ModeJSON:
+			resp := JSONResponse{OK: true, Data: map[string]any{"lines": []any{}}}
+			data, _ := json.Marshal(resp)
+			fmt.Fprintln(w, string(data))
+		case ui.ModeQuiet:
+			// silent
+		default:
+			fmt.Fprintln(w, "Daemon not running, no MCP logs to show.")
+		}
+		return nil
+	}
+	defer client.Close()
+
+	resp, err := client.MCPLogs(name)
+	if err != nil {
+		exitCode = 1
+		if mode == ui.ModeJSON {
+			payload := JSONResponse{OK: false, Error: map[string]any{
+				"code":    classifyMCPTestErr(err),
+				"message": err.Error(),
+			}}
+			data, _ := json.Marshal(payload)
+			fmt.Fprintln(w, string(data))
+			return nil
+		}
+		if mode != ui.ModeQuiet {
+			fmt.Fprintln(cmd.ErrOrStderr(), formatMCPLogsErr(name, err))
+		}
+		return nil
+	}
+
+	switch mode {
+	case ui.ModeJSON:
+		payload := JSONResponse{OK: true, Data: map[string]any{"lines": resp.Lines}}
+		data, _ := json.Marshal(payload)
+		fmt.Fprintln(w, string(data))
+	case ui.ModeQuiet:
+		for _, line := range resp.Lines {
+			fmt.Fprintln(w, line)
+		}
+	default:
+		renderMCPLogsHuman(w, resp.Lines)
+	}
+	return nil
+}
+
+// renderMCPLogsHuman prints each captured stderr line verbatim, or a friendly
+// note when the buffer is empty.
+func renderMCPLogsHuman(w io.Writer, lines []string) {
+	if len(lines) == 0 {
+		fmt.Fprintln(w, "No stderr captured for this MCP server yet.")
+		return
+	}
+	for _, line := range lines {
+		fmt.Fprintln(w, line)
+	}
+}
+
+// formatMCPLogsErr produces a human-friendly NOT_FOUND/INVALID message, reusing
+// the `ipc: [` prefix-strip from formatMCPTestErr's pattern.
+func formatMCPLogsErr(name string, err error) string {
+	msg := err.Error()
+	const prefix = "ipc: ["
+	if strings.HasPrefix(msg, prefix) {
+		if i := strings.Index(msg, "] "); i >= 0 {
+			msg = msg[i+2:]
+		}
+	}
+	return fmt.Sprintf("MCP server %q: %s", name, msg)
 }
 
 // runMCPList implements `rnix mcp list` (Story 48.3 AC1).
@@ -161,11 +260,22 @@ func placeholderIfZero(n int) string {
 	return fmt.Sprintf("%d", n)
 }
 
-// lastCheckLabel returns a placeholder for un-probed mounts, otherwise a
-// wall-clock label. Story 48.3 always emits the placeholder because 48.5
-// owns the probing cadence.
-func lastCheckLabel(_ int64) string {
-	return mcpPlaceholder()
+// lastCheckLabel renders the LAST CHECK column (Story 48.5 AC5). ms is the age
+// of the last L2 readiness ping in milliseconds (0 / negative = never checked →
+// placeholder). Non-zero renders a coarse relative label like "12s ago".
+func lastCheckLabel(ms int64) string {
+	if ms <= 0 {
+		return mcpPlaceholder()
+	}
+	d := time.Duration(ms) * time.Millisecond
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
 }
 
 // mcpPlaceholder returns the placeholder glyph for empty cells, honoring

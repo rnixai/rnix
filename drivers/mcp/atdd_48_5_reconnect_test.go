@@ -1,4 +1,4 @@
-//go:build atdd_48_5_red && unix
+//go:build unix
 
 package mcp
 
@@ -181,7 +181,7 @@ func TestATDD_48_5_023_ReconnectCount_Monotonic(t *testing.T) {
 	defer cancel()
 
 	start := tr.ReconnectCount()
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if err := tr.reconnect(ctx); err != nil {
 			t.Fatalf("reconnect #%d: %v", i, err)
 		}

@@ -192,8 +192,17 @@ func (m *hangingMockTransport) Call(ctx context.Context, _ string, _ json.RawMes
 	return json.RawMessage(`{}`), nil
 }
 
-func (m *hangingMockTransport) Close() error                   { m.closed = true; return nil }
+func (m *hangingMockTransport) Close() error                 { m.closed = true; return nil }
 func (m *hangingMockTransport) Ping(_ context.Context) error { return nil }
+
+// --- Story 48.5 health/status surface (no-op defaults for legacy mocks) ---
+func (m *hangingMockTransport) Status() vfs.MCPStatus { return vfs.MCPStatusConnected }
+func (m *hangingMockTransport) Alive() bool           { return true }
+func (m *hangingMockTransport) ToolCount() int        { return 0 }
+func (m *hangingMockTransport) ResourceCount() int    { return 0 }
+func (m *hangingMockTransport) LastCheck() time.Time  { return time.Time{} }
+func (m *hangingMockTransport) ReconnectCount() int   { return 0 }
+func (m *hangingMockTransport) StderrTail() []string  { return nil }
 
 func containsCh(s string, ch byte) bool {
 	for i := 0; i < len(s); i++ {

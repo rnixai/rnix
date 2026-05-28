@@ -85,6 +85,10 @@ const (
 	// the payload (so cmd/rnix can render the failure with full context).
 	MethodMCPList Method = "mcp_list"
 	MethodMCPTest Method = "mcp_test"
+	// Story 48.5 — MethodMCPLogs projects a mounted server's stderr ring buffer
+	// (drivers/mcp StdioTransport.StderrTail) so `rnix mcp logs <name>` can show
+	// recent child-process diagnostics.
+	MethodMCPLogs Method = "mcp_logs"
 
 	// Story 45.1 — daemon build provenance (commit + build_date + pid +
 	// started_at). Distinct from MethodPing (which only returns version) so
@@ -1475,6 +1479,30 @@ func (r MCPTestResponse) MarshalJSON() ([]byte, error) {
 	a := Alias(r)
 	if a.Stages == nil {
 		a.Stages = []MCPTestStageWire{}
+	}
+	return json.Marshal(a)
+}
+
+// MCPLogsRequest is the payload for MethodMCPLogs (Story 48.5 AC4).
+type MCPLogsRequest struct {
+	Name string `json:"name"`
+}
+
+// MCPLogsResponse carries the server's captured stderr lines (oldest→newest).
+//
+// MarshalJSON normalises Lines to `[]` instead of `null` when nil so consumers
+// (rnix mcp logs --json, scripts) always see a list shape — mirror of
+// MCPListResponse.Mounts.
+type MCPLogsResponse struct {
+	Lines []string `json:"lines"`
+}
+
+// MarshalJSON ensures Lines is `[]` instead of `null` when nil.
+func (r MCPLogsResponse) MarshalJSON() ([]byte, error) {
+	type Alias MCPLogsResponse
+	a := Alias(r)
+	if a.Lines == nil {
+		a.Lines = []string{}
 	}
 	return json.Marshal(a)
 }

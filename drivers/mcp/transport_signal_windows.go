@@ -4,6 +4,16 @@ package mcp
 
 import "os/exec"
 
+// isChildAlive is a degraded implementation on Windows (Story 48.5 §易错点 7):
+// there is no syscall.Kill(pid, 0) equivalent, so L1 liveness can only assert a
+// PID was recorded. True liveness/zombie detection via OpenProcess +
+// GetExitCodeProcess is deferred along with the rest of Windows MCP support
+// (Story 48.2 already defers process-group signalling here). On Windows the
+// real safety net is the stdio scan error surfaced by the subsequent Call.
+func isChildAlive(pid int) bool {
+	return pid > 0
+}
+
 // sendGroupSIGTERM is a no-op on Windows.
 //
 // Windows lacks a direct equivalent of `kill -SIGTERM -pgid`. A full

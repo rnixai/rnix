@@ -1,4 +1,4 @@
-//go:build atdd_48_5_red && unix
+//go:build unix
 
 package kernel
 
@@ -46,7 +46,6 @@ import (
 // boundary observes the ErrDeviceDisconnected sentinel; reconnectCount is a
 // settable counter the kernel compares across tool calls.
 type healthMockTransport struct {
-	serverName     string
 	callErr        error
 	status         vfs.MCPStatus
 	reconnectCount atomic.Int32
@@ -223,7 +222,7 @@ func TestATDD_48_5_072_McpEvents_NoNoiseOnHealthy(t *testing.T) {
 	tr := &healthMockTransport{status: vfs.MCPStatusConnected}
 	k, proc, baseDir, path := setupMCPEventKernel(t, "healthy", tr)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := driveMCPToolCall(t, k, proc, path); err != nil {
 			t.Fatalf("healthy call #%d: %v", i, err)
 		}

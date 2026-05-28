@@ -1015,6 +1015,11 @@ func (k *KernelImpl) vfsOpenWithEvent(proc *Process, path string, flags vfs.Open
 	start := time.Now()
 	fd, err := k.vfs.Open(proc.PID, path, flags)
 	k.emitEvent(proc, "Open", map[string]any{"path": path, "flags": int(flags)}, fd, err, time.Since(start))
+	// Story 48.5: remember MCP tool paths so Write/Read can attribute health
+	// events to a server. No-op for non-MCP paths (AC6 zero-overhead).
+	if err == nil {
+		proc.recordMCPOpenPath(fd, path)
+	}
 	return fd, err
 }
 
@@ -1025,6 +1030,11 @@ func (k *KernelImpl) vfsWriteWithEvent(proc *Process, fd types.FD, data []byte) 
 	start := time.Now()
 	err := k.vfs.Write(proc.ctx, proc.PID, fd, data)
 	k.emitEvent(proc, "Write", map[string]any{"fd": fd, "size": len(data)}, nil, err, time.Since(start))
+	// Story 48.5: observe MCP health at the tool-call boundary (mcp.error /
+	// mcp.reconnect). Gated to MCP fds — non-MCP writes skip this entirely.
+	if mcpPath := proc.mcpPathForFD(fd); mcpPath != "" {
+		k.observeMCPHealth(proc, mcpPath, err)
+	}
 	return err
 }
 
@@ -1034,6 +1044,11 @@ func (k *KernelImpl) vfsReadWithEvent(proc *Process, fd types.FD, length int) ([
 	start := time.Now()
 	data, err := k.vfs.Read(proc.PID, fd, length)
 	k.emitEvent(proc, "Read", map[string]any{"fd": fd, "length": length}, len(data), err, time.Since(start))
+	// Story 48.5: MCP tool results are delivered via Read (tools/list,
+	// resources/read); observe health here too. Gated to MCP fds.
+	if mcpPath := proc.mcpPathForFD(fd); mcpPath != "" {
+		k.observeMCPHealth(proc, mcpPath, err)
+	}
 	return data, err
 }
 
@@ -1043,6 +1058,7 @@ func (k *KernelImpl) vfsCloseWithEvent(proc *Process, fd types.FD) error {
 	start := time.Now()
 	err := k.vfs.Close(proc.PID, fd)
 	k.emitEvent(proc, "Close", map[string]any{"fd": fd}, nil, err, time.Since(start))
+	proc.clearMCPOpenPath(fd) // Story 48.5: drop fd→MCP-path tracking
 	return err
 }
 

@@ -1,4 +1,4 @@
-//go:build atdd_48_5_red && unix
+//go:build unix
 
 package mcp
 

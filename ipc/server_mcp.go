@@ -27,13 +27,26 @@ func (s *Server) handleMCPList(conn net.Conn) {
 
 	if s.kern != nil {
 		for _, m := range s.kern.ListMounts() {
-			wires = append(wires, MCPMountWire{
+			w := MCPMountWire{
 				Name:      mcpMountNameFromPath(m.Path),
 				Path:      m.Path,
 				Transport: mcpTransportLabel(m.Config),
 				Status:    vfs.MCPStatusString(m.Status),
-				// Tools / Resources / LastCheckMs stay 0 — see 48.5.
-			})
+			}
+			// Story 48.5 AC5 — backfill from the live transport: Status becomes
+			// the authoritative transport state (MCPMount.Status is a stale
+			// Mount-time projection), and Tools/Resources/LastCheckMs are filled
+			// from the cached counters. LastCheckMs is the age of the last L2
+			// ping in ms (0 = never checked → cmd renders the placeholder).
+			if tr := m.Transport(); tr != nil {
+				w.Status = vfs.MCPStatusString(tr.Status())
+				w.Tools = tr.ToolCount()
+				w.Resources = tr.ResourceCount()
+				if lc := tr.LastCheck(); !lc.IsZero() {
+					w.LastCheckMs = time.Since(lc).Milliseconds()
+				}
+			}
+			wires = append(wires, w)
 		}
 	}
 
@@ -104,6 +117,62 @@ func (s *Server) handleMCPTest(conn net.Conn, payload json.RawMessage) {
 		return
 	}
 	writeResponse(conn, Response{OK: true, Payload: body})
+}
+
+// handleMCPLogs implements MethodMCPLogs (Story 48.5 AC4). Resolves the
+// server's live transport via the kernel surface and returns its stderr ring
+// buffer. An unknown server returns NOT_FOUND with the available (mounted)
+// server list as a copy-paste hint — mirroring handleMCPTest's NOT_FOUND.
+func (s *Server) handleMCPLogs(conn net.Conn, payload json.RawMessage) {
+	var req MCPLogsRequest
+	if len(payload) > 0 {
+		if err := json.Unmarshal(payload, &req); err != nil {
+			writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: fmt.Sprintf("parse mcp_logs request: %v", err)}})
+			return
+		}
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "INVALID", Message: "name required"}})
+		return
+	}
+	if s.kern == nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: "kernel not wired"}})
+		return
+	}
+
+	tr, ok := s.kern.MCPTransportByServer(req.Name)
+	if !ok {
+		available := s.mountedMCPServerNames()
+		msg := fmt.Sprintf("mcp server %q not found", req.Name)
+		if len(available) > 0 {
+			msg = fmt.Sprintf("%s. Available: %s", msg, strings.Join(available, ", "))
+		}
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "NOT_FOUND", Message: msg}})
+		return
+	}
+
+	body, err := json.Marshal(MCPLogsResponse{Lines: tr.StderrTail()})
+	if err != nil {
+		writeResponse(conn, Response{OK: false, Error: &ErrorPayload{Code: "internal", Message: fmt.Sprintf("marshal mcp_logs: %v", err)}})
+		return
+	}
+	writeResponse(conn, Response{OK: true, Payload: body})
+}
+
+// mountedMCPServerNames returns the server names currently held in the mount
+// table, sorted. Unlike availableMCPServerNames (which reads the mcp.yaml
+// registry), this reflects what is actually MOUNTED — the right hint for a
+// `mcp logs` NOT_FOUND, since logs only exist for live mounts.
+func (s *Server) mountedMCPServerNames() []string {
+	if s.kern == nil {
+		return nil
+	}
+	var out []string
+	for _, m := range s.kern.ListMounts() {
+		out = append(out, mcpMountNameFromPath(m.Path))
+	}
+	sort.Strings(out)
+	return out
 }
 
 // mcpMountNameFromPath parses the server name from a `/mnt/mcp/<pid>-<name>`

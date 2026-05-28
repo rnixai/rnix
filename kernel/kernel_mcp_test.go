@@ -222,5 +222,14 @@ func (m *probeMockTransport) Call(ctx context.Context, method string, _ json.Raw
 	}
 }
 
-func (m *probeMockTransport) Close() error           { m.closed = true; return nil }
+func (m *probeMockTransport) Close() error                 { m.closed = true; return nil }
 func (m *probeMockTransport) Ping(_ context.Context) error { return nil }
+
+// --- Story 48.5 health/status surface (no-op defaults for legacy mocks) ---
+func (m *probeMockTransport) Status() vfs.MCPStatus { return vfs.MCPStatusConnected }
+func (m *probeMockTransport) Alive() bool           { return true }
+func (m *probeMockTransport) ToolCount() int        { return 0 }
+func (m *probeMockTransport) ResourceCount() int    { return 0 }
+func (m *probeMockTransport) LastCheck() time.Time  { return time.Time{} }
+func (m *probeMockTransport) ReconnectCount() int   { return 0 }
+func (m *probeMockTransport) StderrTail() []string  { return nil }

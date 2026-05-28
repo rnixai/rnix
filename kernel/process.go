@@ -97,6 +97,17 @@ type Process struct {
 	// normal case) means MCPMounts and the unmount set are identical.
 	// Protected by proc.mu in the same critical section as MCPMounts.
 	mcpReusedMounts []string
+	// mcpFDPaths maps an open FD to its MCP tool path (e.g.
+	// /mnt/mcp/100-playwright/tools/screenshot), populated by vfsOpenWithEvent
+	// only for /mnt/mcp/ opens. This gates Story 48.5 health observation to the
+	// MCP fast path (non-MCP fds never enter the map → zero overhead, AC6) and
+	// lets Write/Read resolve the owning server without an fd→path syscall.
+	// Protected by proc.mu.
+	mcpFDPaths map[types.FD]string
+	// mcpReconnectSeen records the last-observed transport ReconnectCount per
+	// server so the kernel emits mcp.reconnect exactly once per delta (Story
+	// 48.5 AC3 / §易错点 13). Protected by proc.mu.
+	mcpReconnectSeen map[string]int
 	TraceID        types.TraceID
 	SpanID         types.SpanID
 	ParentSpanID   types.SpanID

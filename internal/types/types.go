@@ -54,6 +54,15 @@ const (
 	// Lives in internal/types — not drivers/mcp — to avoid a kernel →
 	// drivers/mcp reverse dependency (Story 48.2 易错点 #8).
 	ErrForceKilled ErrCode = "FORCE_KILLED"
+	// ErrDeviceDisconnected is returned by drivers/mcp/transport.Call when the
+	// L1 liveness check (Story 48.5 AC1) detects the MCP child process is dead
+	// — or when the transport is in the BackoffExhausted terminal state — so
+	// the call fast-fails instead of blocking on the 30s stdio scan. The kernel
+	// observes this sentinel at the VFS tool-call boundary (kernel/mcp_events.go)
+	// to emit a PID-attributed `mcp.error` event. Distinct from
+	// ErrServiceUnavailable (a transient in-flight call error) so the kernel can
+	// tell "known disconnected" from "errored mid-call" (Story 48.5 易错点 #12).
+	ErrDeviceDisconnected ErrCode = "DEVICE_DISCONNECTED"
 )
 
 // Signal represents a process signal.

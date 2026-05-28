@@ -92,6 +92,15 @@ func (t *trackingMCPTransport) Call(ctx context.Context, method string, params j
 
 func (t *trackingMCPTransport) Ping(ctx context.Context) error { return nil }
 
+// --- Story 48.5 health/status surface (no-op defaults for legacy mocks) ---
+func (t *trackingMCPTransport) Status() vfs.MCPStatus { return vfs.MCPStatusConnected }
+func (t *trackingMCPTransport) Alive() bool           { return true }
+func (t *trackingMCPTransport) ToolCount() int        { return 0 }
+func (t *trackingMCPTransport) ResourceCount() int    { return 0 }
+func (t *trackingMCPTransport) LastCheck() time.Time  { return time.Time{} }
+func (t *trackingMCPTransport) ReconnectCount() int   { return 0 }
+func (t *trackingMCPTransport) StderrTail() []string  { return nil }
+
 func (t *trackingMCPTransport) Close() error {
 	t.mu.Lock()
 	t.closeStart = time.Now()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/rnixai/rnix/vfs"
 )
@@ -114,5 +115,14 @@ func (s *mcpListStubTransport) Connect(_ context.Context) error { return nil }
 func (s *mcpListStubTransport) Call(_ context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
 	return json.RawMessage(`{}`), nil
 }
-func (s *mcpListStubTransport) Close() error                  { return nil }
+func (s *mcpListStubTransport) Close() error                 { return nil }
 func (s *mcpListStubTransport) Ping(_ context.Context) error { return nil }
+
+// --- Story 48.5 health/status surface (no-op defaults for legacy stubs) ---
+func (s *mcpListStubTransport) Status() vfs.MCPStatus { return vfs.MCPStatusConnected }
+func (s *mcpListStubTransport) Alive() bool           { return true }
+func (s *mcpListStubTransport) ToolCount() int        { return 0 }
+func (s *mcpListStubTransport) ResourceCount() int    { return 0 }
+func (s *mcpListStubTransport) LastCheck() time.Time  { return time.Time{} }
+func (s *mcpListStubTransport) ReconnectCount() int   { return 0 }
+func (s *mcpListStubTransport) StderrTail() []string  { return nil }

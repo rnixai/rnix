@@ -3,6 +3,7 @@ package vfs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -35,6 +36,33 @@ type MCPTransport interface {
 	Call(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
 	Close() error
 	Ping(ctx context.Context) error
+
+	// --- Story 48.5 health / status surface ---
+	// These let the kernel project live transport state into observability
+	// surfaces (rnix mcp list / mcp logs) and emit mcp.error/mcp.reconnect
+	// events at the tool-call boundary, WITHOUT vfs or kernel importing
+	// drivers/mcp (the mechanism lives in drivers/mcp; only this read-only
+	// interface crosses the boundary — Story 48.5 §决策 1/2).
+
+	// Status returns the transport's authoritative connection status. MCPMount.
+	// Status is a stale projection set at Mount time; callers wanting live state
+	// must consult this.
+	Status() MCPStatus
+	// Alive reports the most recent L1 liveness verdict (child process up).
+	Alive() bool
+	// ToolCount / ResourceCount return the cached counts from the last
+	// tools/list / resources/list (refreshed on connect + reconnect).
+	ToolCount() int
+	ResourceCount() int
+	// LastCheck is the wall-clock time of the last successful L2 readiness ping
+	// (zero time = never pinged).
+	LastCheck() time.Time
+	// ReconnectCount is a monotonic counter of successful reconnects; the kernel
+	// compares deltas across tool calls to emit mcp.reconnect exactly once.
+	ReconnectCount() int
+	// StderrTail returns the captured child-process stderr ring buffer
+	// (oldest→newest), surfaced by `rnix mcp logs <name>`.
+	StderrTail() []string
 }
 
 // TransportFactory creates an MCPTransport from an MCPConfig.
@@ -47,11 +75,16 @@ const (
 	MCPStatusConnected MCPStatus = iota
 	MCPStatusDisconnected
 	MCPStatusError
+	// Story 48.5 §易错点 5: the two states below are APPENDED after Error so
+	// the existing iota values (Connected=0 / Disconnected=1 / Error=2) — which
+	// IPC wire serialization and potential persistence reference — never shift.
+	MCPStatusReconnecting     // reconnecter is mid-backoff re-exec
+	MCPStatusBackoffExhausted // all reconnect attempts failed; calls fast-fail
 )
 
 // MCPStatusString returns the human-readable form of an MCPStatus. Used by
-// IPC wire serialization (Story 48.3 §AC1). 48.5 will extend the enum to 5
-// states (Reconnecting / BackoffExhausted); this function must grow with it.
+// IPC wire serialization (Story 48.3 §AC1). Story 48.5 extended the enum to 5
+// states (Reconnecting / BackoffExhausted).
 func MCPStatusString(s MCPStatus) string {
 	switch s {
 	case MCPStatusConnected:
@@ -60,6 +93,10 @@ func MCPStatusString(s MCPStatus) string {
 		return "disconnected"
 	case MCPStatusError:
 		return "error"
+	case MCPStatusReconnecting:
+		return "reconnecting"
+	case MCPStatusBackoffExhausted:
+		return "backoff_exhausted"
 	default:
 		return "unknown"
 	}
@@ -84,6 +121,15 @@ type MCPMount struct {
 	transport MCPTransport
 	refCount  int
 }
+
+// Transport exposes the mount's transport for read-only observability
+// projection (Story 48.5): the kernel reads live Status()/ToolCount()/
+// LastCheck()/StderrTail() off it to back `rnix mcp list` and `rnix mcp logs`
+// without vfs growing a kernel/driver dependency. Returns nil for mounts
+// created without a transport (defensive — never in the normal Mount path).
+// The returned value is a copy of the interface held by the MCPMount value
+// copy that ListMounts hands out; it points at the same underlying transport.
+func (m MCPMount) Transport() MCPTransport { return m.transport }
 
 // mcpFile implements VFSFile for MCP tool invocations.
 // Each Open on an MCP path creates one mcpFile instance.
@@ -153,7 +199,16 @@ func (f *mcpFile) Write(ctx context.Context, data []byte) error {
 	}
 	if err != nil {
 		f.writeErr = err
-		return types.NewDriverError("Write", subpath, err, types.ErrServiceUnavailable)
+		// Story 48.5 §易错点 12: preserve the L1 ErrDeviceDisconnected sentinel
+		// so the kernel can tell a known-disconnected device from a transient
+		// in-flight failure (which stays ErrServiceUnavailable). Any other
+		// transport error keeps the legacy ErrServiceUnavailable mapping.
+		code := types.ErrServiceUnavailable
+		var de *types.DriverError
+		if errors.As(err, &de) && de.Code == types.ErrDeviceDisconnected {
+			code = types.ErrDeviceDisconnected
+		}
+		return types.NewDriverError("Write", subpath, err, code)
 	}
 	f.response = resp
 	f.writeErr = nil

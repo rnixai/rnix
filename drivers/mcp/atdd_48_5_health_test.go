@@ -1,4 +1,4 @@
-//go:build atdd_48_5_red && unix
+//go:build unix
 
 package mcp
 
@@ -129,7 +129,7 @@ func TestATDD_48_5_011_L1_HealthyFastPath(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := tr.Call(ctx, "tools/call", nil); err != nil {
 			t.Fatalf("healthy Call #%d failed: %v", i, err)
 		}

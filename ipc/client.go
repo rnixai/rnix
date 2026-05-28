@@ -355,6 +355,25 @@ func (c *Client) MCPTest(name string) (*MCPTestResponse, error) {
 	return &result, nil
 }
 
+// MCPLogs fetches a mounted MCP server's captured stderr ring buffer (Story
+// 48.5 AC4). Lines is normalised to `[]` when the daemon emits null so cmd-side
+// renderers never crash on a nil slice. An unknown server surfaces as an err
+// (NOT_FOUND) carrying the available-server hint.
+func (c *Client) MCPLogs(name string) (*MCPLogsResponse, error) {
+	resp, err := c.call(MethodMCPLogs, MCPLogsRequest{Name: name})
+	if err != nil {
+		return nil, err
+	}
+	var result MCPLogsResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal mcp_logs: %w", err)
+	}
+	if result.Lines == nil {
+		result.Lines = []string{}
+	}
+	return &result, nil
+}
+
 // SpawnAndWatch spawns a process and streams events until completion.
 // The onEvent callback is called for each StreamEvent. Returns the final SpawnResponse PID
 // and the complete ProgressPayload (from the complete/error event).

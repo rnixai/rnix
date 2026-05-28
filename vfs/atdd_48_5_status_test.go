@@ -1,5 +1,3 @@
-//go:build atdd_48_5_red
-
 package vfs
 
 import "testing"
