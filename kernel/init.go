@@ -8,7 +8,9 @@ import (
 
 	"github.com/goccy/go-yaml"
 	"github.com/rnixai/rnix/agents"
+	"github.com/rnixai/rnix/drivers/mcp"
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // AgentLoaderFunc loads an agent definition by name.
@@ -136,6 +138,15 @@ func Bootstrap(k *KernelImpl, cfg *InitConfig, agentLoader AgentLoaderFunc) (*In
 			result.Warnings = append(result.Warnings, fmt.Sprintf("optional service %q: %v", svcCfg.Name, err))
 			result.Failed = append(result.Failed, se)
 			continue
+		}
+
+		// Story 48.3 — type-switch on the just-initialized service to wire
+		// registries that kernel needs to expose via its public surface.
+		// Avoids broadening ServiceInitializer (which would force
+		// skill_registry / log_aggregator to grow no-op kernel injection
+		// methods).
+		if mm, ok := svc.(*mcpManagerService); ok && mm != nil {
+			k.SetMCPRegistry(mm.Servers())
 		}
 
 		result.Started = append(result.Started, svcCfg.Name)
@@ -294,8 +305,28 @@ func (s *skillRegistryService) Init(cfg map[string]any) error {
 	return nil
 }
 
-// mcpManagerService validates MCP configuration.
-type mcpManagerService struct{}
+// mcpManagerService loads the global MCP configuration into an in-memory
+// map[serverName]→vfs.MCPConfig. Story 48.3 — rewritten from the 28-line
+// schema-only stub. Bootstrap type-switches the service post-Init and feeds
+// Servers() into kernel.SetMCPRegistry so IPC handleMCPList / handleMCPTest
+// can resolve server names without re-parsing mcp.yaml.
+//
+// The service deliberately does NOT pre-connect any server (avoids slow
+// daemon startup); spawn-path Mount continues to be the only place a real
+// transport is created in steady-state. The `mcp_test` IPC path uses
+// kernel.RunMCPProbe to spin up a one-shot transport using this registry as
+// the lookup table.
+//
+// Naming note: Story Dev Notes §决策 #2 acknowledges this struct is
+// effectively `mcp_validator` now, but renaming is epic-out-of-scope.
+type mcpManagerService struct {
+	// servers is nil before Init succeeds and after Init failures so callers
+	// can distinguish "not loaded" from "loaded empty". Bootstrap type-asserts
+	// post-Init; if Init failed and Required=false the service stays
+	// installed with nil servers, which propagates as a nil registry into
+	// kernel — IPC handlers must tolerate that (AC4 §易错点 10).
+	servers map[string]vfs.MCPConfig
+}
 
 func (s *mcpManagerService) Name() string { return "mcp-manager" }
 
@@ -309,20 +340,38 @@ func (s *mcpManagerService) Init(cfg map[string]any) error {
 
 	if _, err := os.Stat(configPath); err != nil {
 		if os.IsNotExist(err) {
-			return nil // no MCP config, not an error
+			return nil // no MCP config, not an error — servers stays nil
 		}
 		return fmt.Errorf("stat mcp config %q: %w", configPath, err)
 	}
 
-	data, err := os.ReadFile(configPath)
+	global, err := mcp.LoadMCPConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("read mcp config %q: %w", configPath, err)
+		return fmt.Errorf("load mcp config %q: %w", configPath, err)
 	}
-	var parsed map[string]any
-	if err := yaml.Unmarshal(data, &parsed); err != nil {
-		return fmt.Errorf("parse mcp config %q: %w", configPath, err)
+
+	// Build the canonical name→vfs.MCPConfig map. ServerName is populated
+	// from the yaml key (MCPServerConfig itself has no name field). This
+	// matches agentLoader's behaviour at cmd/rnix/main.go:1423.
+	registry := make(map[string]vfs.MCPConfig, len(global.Servers))
+	for name, server := range global.Servers {
+		if server.Command == "" {
+			return fmt.Errorf("mcp server %q: command is required", name)
+		}
+		if server.TransportType != "" && server.TransportType != "stdio" {
+			return fmt.Errorf("mcp server %q: transport_type=%q unsupported (only stdio in 48.3)", name, server.TransportType)
+		}
+		registry[name] = server.ToMCPConfig(name)
 	}
+	s.servers = registry
 	return nil
+}
+
+// Servers returns the parsed registry. Bootstrap uses this to inject into
+// kernel.SetMCPRegistry; ATDD tests use it to verify Init populated the map.
+// Returns nil before Init runs, on Init failure, or when mcp.yaml is absent.
+func (s *mcpManagerService) Servers() map[string]vfs.MCPConfig {
+	return s.servers
 }
 
 // logAggregatorService initializes the log aggregation channel (no-op placeholder).

@@ -2,6 +2,7 @@ package kernel
 
 import (
 	gocontext "context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -183,6 +184,18 @@ type KernelImpl struct {
 
 	// MCP mount manager (Story 9.1)
 	mountMgr MountManager
+
+	// MCP registry + transport factory (Story 48.3).
+	// mcpRegistry is the canonical map[serverName]→config built by
+	// mcpManagerService at Bootstrap time. IPC handlers (mcp_list /
+	// mcp_test) consume it without re-parsing mcp.yaml. nil = no mcp.yaml
+	// or empty config; callers must treat it as a zero-value read-only map.
+	mcpRegistry map[string]vfs.MCPConfig
+	// transportFactory mirrors the factory MountManager already owns, but is
+	// stored directly on the kernel so RunMCPProbe can spin up a one-shot
+	// transport without going through MountManager (probe ≠ mount: no
+	// registry entry, no ref-count, immediate Close).
+	transportFactory vfs.TransportFactory
 
 	// Execution recording (Story 14.1)
 	recordMgr *debug.RecordManager
@@ -472,6 +485,200 @@ func (k *KernelImpl) Mount(path string, config vfs.MCPConfig) error {
 		return NewSyscallError("Mount", 0, path, err, types.ErrDriver)
 	}
 	return nil
+}
+
+// SetMCPRegistry records the canonical map[serverName]→config built by
+// mcpManagerService at Bootstrap time. IPC handlers (mcp_list / mcp_test —
+// Story 48.3) read it via MCPRegistry() without re-parsing mcp.yaml.
+//
+// Caller convention: the registry is treated as read-only after injection;
+// SetMCPRegistry stores the reference verbatim and does not deep-copy.
+func (k *KernelImpl) SetMCPRegistry(servers map[string]vfs.MCPConfig) {
+	k.mcpRegistry = servers
+}
+
+// MCPRegistry returns the registry stored via SetMCPRegistry. Returns nil
+// when no mcp.yaml was loaded — callers MUST tolerate nil (Story 48.3 §AC4
+// 易错点 10 — `for k := range nilMap` is a valid zero iteration in Go).
+//
+// The returned map is the live reference; mutation would corrupt other
+// handlers' view. Treat as read-only.
+func (k *KernelImpl) MCPRegistry() map[string]vfs.MCPConfig {
+	return k.mcpRegistry
+}
+
+// SetTransportFactory injects the MCP transport factory used by RunMCPProbe.
+// Mirrors the factory MountManager already owns (cmd/rnix/main.go:1508), but
+// is stored separately so RunMCPProbe can spin up a one-shot transport
+// without going through MountManager. (Story 48.3 §决策 4 — avoids letting
+// the kernel reverse-depend on drivers/mcp.)
+func (k *KernelImpl) SetTransportFactory(f vfs.TransportFactory) {
+	k.transportFactory = f
+}
+
+// MCPProbeStage records the result of a single phase of RunMCPProbe.
+// Story 48.3 §AC5 — wire type `MCPTestStageWire` is the IPC mirror of this.
+type MCPProbeStage struct {
+	Name       string // "connect" | "tools_list" | "resources_list" | "prompts_list"
+	OK         bool
+	DurationMs int64
+	Error      string
+}
+
+// MCPProbeResult is the outcome of a one-shot RunMCPProbe invocation.
+// Story 48.3 §AC2 + §RunMCPProbe 时序图.
+//
+// OK reflects only the connect stage's success — tools/resources/prompts
+// list failures are recorded per-stage but never demote the overall result
+// (many MCP servers do not implement resources/prompts and that is not a
+// failure to "reach" the server).
+type MCPProbeResult struct {
+	Stages     []MCPProbeStage
+	OK         bool
+	Tools      int
+	Resources  int
+	Prompts    int
+	ServerInfo string // best-effort; empty until transport.go exposes initialize serverInfo (post-48.3)
+}
+
+// RunMCPProbe spins up a fresh transport for cfg, walks the 4-stage probe
+// (connect → tools/list → resources/list → prompts/list), then guarantees
+// transport.Close via defer. Used by the IPC `mcp_test` method (Story 48.3
+// §AC2 / §AC5) — independent of MountManager so the probe leaves no mount
+// in the registry and no ref-count perturbation.
+//
+// The probe derives its own 10s deadline from ctx so a generous caller ctx
+// (e.g. 60s daemon-side request) cannot stretch the probe into a denial of
+// service window. resources/list and prompts/list failures do NOT fail the
+// overall result (Story §决策 6 — server may not implement them).
+//
+// Returns a zero-stage result with OK=false when transportFactory is nil
+// (mis-wired daemon: factor up via cmd/rnix/main.go:1519's SetTransportFactory).
+func (k *KernelImpl) RunMCPProbe(ctx gocontext.Context, cfg vfs.MCPConfig) MCPProbeResult {
+	res := MCPProbeResult{}
+
+	if k.transportFactory == nil {
+		res.Stages = []MCPProbeStage{{Name: "connect", OK: false, Error: "transport factory not configured"}}
+		return res
+	}
+
+	probeCtx, cancel := gocontext.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	transport, err := k.transportFactory(cfg)
+	if err != nil {
+		res.Stages = []MCPProbeStage{{Name: "connect", OK: false, Error: fmt.Sprintf("factory: %v", err)}}
+		return res
+	}
+	defer func() { _ = transport.Close() }()
+
+	// Stage 1 — connect (includes initialize handshake).
+	start := time.Now()
+	if err := transport.Connect(probeCtx); err != nil {
+		res.Stages = append(res.Stages, MCPProbeStage{
+			Name:       "connect",
+			OK:         false,
+			DurationMs: time.Since(start).Milliseconds(),
+			Error:      err.Error(),
+		})
+		return res
+	}
+	res.Stages = append(res.Stages, MCPProbeStage{
+		Name:       "connect",
+		OK:         true,
+		DurationMs: time.Since(start).Milliseconds(),
+	})
+
+	// Stage 2 — tools/list. Counts ANY top-level "tools" array length.
+	start = time.Now()
+	if toolsRaw, err := transport.Call(probeCtx, "tools/list", nil); err != nil {
+		res.Stages = append(res.Stages, MCPProbeStage{
+			Name:       "tools_list",
+			OK:         false,
+			DurationMs: time.Since(start).Milliseconds(),
+			Error:      err.Error(),
+		})
+	} else {
+		res.Tools = countListField(toolsRaw, "tools")
+		res.Stages = append(res.Stages, MCPProbeStage{
+			Name:       "tools_list",
+			OK:         true,
+			DurationMs: time.Since(start).Milliseconds(),
+		})
+	}
+
+	// Stage 3 — resources/list. Failure is NON-fatal (Story §决策 6).
+	start = time.Now()
+	if resRaw, err := transport.Call(probeCtx, "resources/list", nil); err != nil {
+		res.Stages = append(res.Stages, MCPProbeStage{
+			Name:       "resources_list",
+			OK:         false,
+			DurationMs: time.Since(start).Milliseconds(),
+			Error:      err.Error(),
+		})
+	} else {
+		res.Resources = countListField(resRaw, "resources")
+		res.Stages = append(res.Stages, MCPProbeStage{
+			Name:       "resources_list",
+			OK:         true,
+			DurationMs: time.Since(start).Milliseconds(),
+		})
+	}
+
+	// Stage 4 — prompts/list. Failure is NON-fatal.
+	start = time.Now()
+	if promptsRaw, err := transport.Call(probeCtx, "prompts/list", nil); err != nil {
+		res.Stages = append(res.Stages, MCPProbeStage{
+			Name:       "prompts_list",
+			OK:         false,
+			DurationMs: time.Since(start).Milliseconds(),
+			Error:      err.Error(),
+		})
+	} else {
+		res.Prompts = countListField(promptsRaw, "prompts")
+		res.Stages = append(res.Stages, MCPProbeStage{
+			Name:       "prompts_list",
+			OK:         true,
+			DurationMs: time.Since(start).Milliseconds(),
+		})
+	}
+
+	// OK is gated on connect alone — Story §决策 6 / §AC2 acceptance criteria.
+	res.OK = res.Stages[0].OK
+	return res
+}
+
+// countListField parses a JSON-RPC `result` payload and returns the length of
+// the named top-level array (`tools`, `resources`, or `prompts`). Returns 0
+// when the payload is malformed or the field is absent — RunMCPProbe still
+// records the stage as OK because the call itself returned success.
+func countListField(raw []byte, field string) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return 0
+	}
+	listRaw, ok := envelope[field]
+	if !ok || len(listRaw) == 0 {
+		return 0
+	}
+	var arr []json.RawMessage
+	if err := json.Unmarshal(listRaw, &arr); err != nil {
+		return 0
+	}
+	return len(arr)
+}
+
+// ListMounts proxies MountManager.ListMounts so the IPC layer can read the
+// live mount table via the kernel surface (Story 48.3 §AC1). Returns an
+// empty slice when no mount manager is wired — callers must tolerate that.
+func (k *KernelImpl) ListMounts() []vfs.MCPMount {
+	if k.mountMgr == nil {
+		return nil
+	}
+	return k.mountMgr.ListMounts()
 }
 
 // Unmount unmounts the MCP server at the given path.

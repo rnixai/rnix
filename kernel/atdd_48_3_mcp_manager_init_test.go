@@ -55,7 +55,6 @@ func writeMCPYaml(t *testing.T, path string, body string) {
 // _016: happy path — mcp.yaml with 2 servers loads into Servers() map
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_016_McpManager_LoadsServers(t *testing.T) {
-	t.Skip("RED: 等待 Story 48.3 Task 1.1 — mcpManagerService rewrite + Servers() method")
 
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "mcp.yaml")
@@ -102,8 +101,6 @@ servers:
 // _017: malformed YAML + required=true Service → Bootstrap propagates error
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_017_McpManager_InvalidYaml_RequiredFails(t *testing.T) {
-	t.Skip("RED: 等待 Story 48.3 Task 1.1 — Init returns error on parse failure")
-
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "mcp.yaml")
 	// Malformed: `command` value is a list where scalar expected; LoadMCPConfig
@@ -132,8 +129,6 @@ servers:
 // _018: mcp.yaml absent → Init returns nil, Servers() nil/empty (graceful)
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_018_McpManager_NoYaml_GracefulEmpty(t *testing.T) {
-	t.Skip("RED: 等待 Story 48.3 Task 1.3 — os.IsNotExist branch preserved")
-
 	dir := t.TempDir()
 	// Intentionally do NOT create mcp.yaml; just point at the path.
 	yamlPath := filepath.Join(dir, "mcp.yaml")
@@ -153,8 +148,6 @@ func TestATDD_48_3_018_McpManager_NoYaml_GracefulEmpty(t *testing.T) {
 // _019: Bootstrap injects mcpManagerService.Servers() into kernel.MCPRegistry
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_019_McpManager_InjectsToKernel(t *testing.T) {
-	t.Skip("RED: 等待 Story 48.3 Task 1.4 + 1.5 — kernel.SetMCPRegistry + Bootstrap type-switch")
-
 	dir := t.TempDir()
 	yamlPath := filepath.Join(dir, "mcp.yaml")
 	writeMCPYaml(t, yamlPath, `
@@ -196,7 +189,7 @@ servers:
 
 	// Verify wire-level shape matches vfs.MCPConfig (the registry value type
 	// is what IPC handleMCPList / handleMCPTest will consume).
-	var _ vfs.MCPConfig = reg["playwright"]
+	_ = reg["playwright"]
 }
 
 // mapKeys returns the keys of m sorted-ish for stable error messages.

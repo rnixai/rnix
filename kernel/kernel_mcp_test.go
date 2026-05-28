@@ -53,7 +53,7 @@ func TestKernel_SetMCPRegistry_RoundTrip(t *testing.T) {
 	// must return either nil or an empty map. AC4 §"kernel.MCPRegistry() 返回
 	// nil 还是空 map: IPC handler 必须容忍 nil".
 	pre := k.MCPRegistry()
-	if pre != nil && len(pre) != 0 {
+	if len(pre) != 0 {
 		t.Errorf("pre-Set MCPRegistry should be nil/empty, got %d entries", len(pre))
 	}
 

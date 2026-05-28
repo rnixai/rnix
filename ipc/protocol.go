@@ -76,6 +76,16 @@ const (
 	MethodGc       Method = "gc"
 	MethodGcDryRun Method = "gc_dry_run"
 
+	// Story 48.3 — MCP CLI 运维面.
+	// MethodMCPList projects MountManager.ListMounts + MCPRegistry into a
+	// CLI-friendly table without re-parsing mcp.yaml client-side.
+	// MethodMCPTest spins up a one-shot kernel.RunMCPProbe (4 stages:
+	// connect / tools_list / resources_list / prompts_list); the IPC layer
+	// returns OK=true even when the probe itself fails, with details inside
+	// the payload (so cmd/rnix can render the failure with full context).
+	MethodMCPList Method = "mcp_list"
+	MethodMCPTest Method = "mcp_test"
+
 	// Story 45.1 — daemon build provenance (commit + build_date + pid +
 	// started_at). Distinct from MethodPing (which only returns version) so
 	// downstream consumers can verify which rnix commit the running daemon
@@ -1394,6 +1404,79 @@ func SocketPath() string {
 		return filepath.Join(dir, "rnix", "rnix.sock")
 	}
 	return filepath.Join(os.TempDir(), fmt.Sprintf("rnix-%d", os.Getuid()), "rnix.sock")
+}
+
+// --- MCP CLI Wire Types (Story 48.3) ---
+
+// MCPMountWire is the wire-format projection of one MountManager entry. Tools
+// / Resources / LastCheckMs are placeholders pre-48.5; they round-trip the
+// daemon's current best-knowledge (typically zero) so that 48.5 can start
+// populating them without bumping the protocol.
+type MCPMountWire struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Transport   string `json:"transport"`
+	Status      string `json:"status"`                  // see vfs.MCPStatusString
+	Tools       int    `json:"tools"`                   // 0 until 48.5 registry cache
+	Resources   int    `json:"resources"`               // 0 until 48.5
+	LastCheckMs int64  `json:"last_check_ms,omitempty"` // 0 = never; 48.5 will fill on Ping
+}
+
+// MCPListResponse is the response for MethodMCPList.
+//
+// MarshalJSON normalises Mounts to `[]` instead of `null` when nil so JSON
+// consumers (rnix mcp list --json, scripts) always see a list shape — mirror
+// of GcResponse.RemovedUUIDs / GcDryRunResponse.Candidates.
+type MCPListResponse struct {
+	Mounts []MCPMountWire `json:"mounts"`
+}
+
+// MarshalJSON ensures Mounts is `[]` instead of `null` when nil.
+func (r MCPListResponse) MarshalJSON() ([]byte, error) {
+	type Alias MCPListResponse
+	a := Alias(r)
+	if a.Mounts == nil {
+		a.Mounts = []MCPMountWire{}
+	}
+	return json.Marshal(a)
+}
+
+// MCPTestRequest is the payload for MethodMCPTest.
+type MCPTestRequest struct {
+	Name string `json:"name"`
+}
+
+// MCPTestStageWire mirrors kernel.MCPProbeStage on the wire.
+type MCPTestStageWire struct {
+	Name       string `json:"name"`
+	OK         bool   `json:"ok"`
+	DurationMs int64  `json:"duration_ms"`
+	Error      string `json:"error,omitempty"`
+}
+
+// MCPTestResponse is the response for MethodMCPTest.
+//
+// OK reflects the probe outcome (Connect success); MCPTestStageWire entries
+// always describe what was attempted. IPC layer wraps this in Response{OK:
+// true} even on probe failure — see Story §易错点 4.
+type MCPTestResponse struct {
+	Server     string             `json:"server"`
+	OK         bool               `json:"ok"`
+	Stages     []MCPTestStageWire `json:"stages"`
+	Tools      int                `json:"tools"`
+	Resources  int                `json:"resources"`
+	Prompts    int                `json:"prompts"`
+	ServerInfo string             `json:"server_info,omitempty"`
+}
+
+// MarshalJSON ensures Stages is `[]` instead of `null` when nil.
+func (r MCPTestResponse) MarshalJSON() ([]byte, error) {
+	type Alias MCPTestResponse
+	a := Alias(r)
+	if a.Stages == nil {
+		a.Stages = []MCPTestStageWire{}
+	}
+	return json.Marshal(a)
 }
 
 // --- /dev/tty AskUser Wire Types (Story 33-2) ---

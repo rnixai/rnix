@@ -49,6 +49,22 @@ const (
 	MCPStatusError
 )
 
+// MCPStatusString returns the human-readable form of an MCPStatus. Used by
+// IPC wire serialization (Story 48.3 §AC1). 48.5 will extend the enum to 5
+// states (Reconnecting / BackoffExhausted); this function must grow with it.
+func MCPStatusString(s MCPStatus) string {
+	switch s {
+	case MCPStatusConnected:
+		return "connected"
+	case MCPStatusDisconnected:
+		return "disconnected"
+	case MCPStatusError:
+		return "error"
+	default:
+		return "unknown"
+	}
+}
+
 // MCPMount holds the state of a mounted MCP server.
 //
 // refCount is the number of live owners (1 from the initial Mount; +1 per

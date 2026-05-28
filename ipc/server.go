@@ -412,6 +412,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.handleGc(conn, req.Payload)
 		case MethodGcDryRun:
 			s.handleGcDryRun(conn, req.Payload)
+		case MethodMCPList:
+			s.handleMCPList(conn)
+		case MethodMCPTest:
+			s.handleMCPTest(conn, req.Payload)
 		case MethodShutdown:
 			s.handleShutdown(conn)
 			return

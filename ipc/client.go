@@ -314,6 +314,47 @@ func (c *Client) GcDryRun() (*GcDryRunResponse, error) {
 	return &result, nil
 }
 
+// MCPList projects the daemon's MountManager + MCPRegistry into a wire
+// snapshot (Story 48.3 AC1). Mounts is normalised to `[]` when the daemon
+// emits null so cmd-side renderers never crash on a nil slice; mirror of
+// ListResumable.
+func (c *Client) MCPList() (*MCPListResponse, error) {
+	resp, err := c.call(MethodMCPList, nil)
+	if err != nil {
+		return nil, err
+	}
+	var result MCPListResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal mcp_list: %w", err)
+	}
+	if result.Mounts == nil {
+		result.Mounts = []MCPMountWire{}
+	}
+	return &result, nil
+}
+
+// MCPTest invokes the daemon's one-shot probe for a registered server
+// (Story 48.3 AC2). The returned response always carries the per-stage
+// timeline; resp.OK reflects probe success (connect stage) — IPC-layer
+// errors are returned via the err channel only for routing/validation
+// failures (empty name, unknown server). Probe failures (connect_fail,
+// timeout) still produce err=nil with resp.OK=false so callers can render
+// the stage timeline.
+func (c *Client) MCPTest(name string) (*MCPTestResponse, error) {
+	resp, err := c.call(MethodMCPTest, MCPTestRequest{Name: name})
+	if err != nil {
+		return nil, err
+	}
+	var result MCPTestResponse
+	if err := json.Unmarshal(resp.Payload, &result); err != nil {
+		return nil, fmt.Errorf("ipc: unmarshal mcp_test: %w", err)
+	}
+	if result.Stages == nil {
+		result.Stages = []MCPTestStageWire{}
+	}
+	return &result, nil
+}
+
 // SpawnAndWatch spawns a process and streams events until completion.
 // The onEvent callback is called for each StreamEvent. Returns the final SpawnResponse PID
 // and the complete ProgressPayload (from the complete/error event).

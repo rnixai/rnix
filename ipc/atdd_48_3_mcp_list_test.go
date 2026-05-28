@@ -1,127 +1,118 @@
 package ipc
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
+
+	"github.com/rnixai/rnix/vfs"
 )
 
 // =============================================================================
 // Story 48.3 AC5 (IPC mcp_list wire) — daemon → CLI registry projection
 //
-// **RED PHASE — all tests t.Skip until Story 48.3 Task 3 lands.**
+// GREEN tests for:
+//   - ipc.MethodMCPList + MCPListResponse + MCPMountWire (protocol.go)
+//   - Server.handleMCPList (server_mcp.go)
+//   - Client.MCPList (client.go)
 //
-// Once Task 3 ships:
-//   - ipc/protocol.go gains MethodMCPList constant + MCPMountWire +
-//     MCPListResponse
-//   - ipc/server.go switch routes MethodMCPList → s.handleMCPList
-//   - ipc/server_mcp.go implements handleMCPList(conn) that reads
-//     s.kern.ListMounts() + s.kern.MCPRegistry() and emits wires
-//   - ipc/client.go gains (c *Client).MCPList() with nil-normalize
-//     mirror of ListResumable (client.go:266-279)
-//
-// Compile-safety contract for this RED file:
-//   - We use the literal Method("mcp_list") (no constant reference)
-//   - We unmarshal payload bytes into a local wireRow/wireResp type
-//     defined below (no reference to ipc.MCPMountWire which doesn't exist
-//     yet)
-//   - We bypass client.MCPList() until it lands; instead the Skip body
-//     describes what to assert when the suite goes GREEN
-//
-// dev-story GREEN edits: in each test, remove t.Skip and replace local
-// wireResp with ipc.MCPListResponse (or call client.MCPList()).
+// setupResumeIPCTest builds the Server / Client over a unix socket. We wire
+// an independent MountManager + DeviceRegistry onto the kernel so Mount calls
+// succeed without spawning real subprocesses; mcp_list only reads the mount
+// table so a parallel devReg is fine here.
 // =============================================================================
 
-// localMCPMountWire mirrors the wire shape from Story §AC5 Task 3.2; defined
-// locally so this RED file compiles before the symbol exists in protocol.go.
-// dev-story Task 3.2 introduces ipc.MCPMountWire — at that point delete this
-// type and switch tests to ipc.MCPMountWire / MCPListResponse.
-type localMCPMountWire struct {
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Transport   string `json:"transport"`
-	Status      string `json:"status"`
-	Tools       int    `json:"tools"`
-	Resources   int    `json:"resources"`
-	LastCheckMs int64  `json:"last_check_ms,omitempty"`
-}
-
-type localMCPListResp struct {
-	Mounts []localMCPMountWire `json:"mounts"`
-}
-
 // -----------------------------------------------------------------------------
-// _020: empty mount registry → wires=[]  (NOT null) — AC5 nil-normalize
+// _020: empty mount registry → wires=[] (NOT null) — AC5 nil-normalize
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_020_IPC_McpList_Empty(t *testing.T) {
-	t.Skip("RED: 等待 Story 48.3 Task 3 — MethodMCPList + handleMCPList + client.MCPList")
+	client, _, _, _ := setupResumeIPCTest(t)
 
-	// GREEN-phase plan (executable after Task 3 lands):
-	//
-	//   client, _, _, _ := setupResumeIPCTest(t)
-	//   resp, err := client.MCPList()
-	//   if err != nil { t.Fatalf("MCPList: %v", err) }
-	//   if resp == nil { t.Fatal("response nil") }
-	//   if resp.Mounts == nil {
-	//       t.Error("Mounts must be non-nil slice ([]), not nil (Story §wire nil-normalize)")
-	//   }
-	//   if len(resp.Mounts) != 0 {
-	//       t.Errorf("Mounts len=%d, want 0 on empty kernel", len(resp.Mounts))
-	//   }
-	//
-	// Until then, this Skip documents the AC5 expectation so the test
-	// suite annotates the gap for dev-story handoff.
-	_ = localMCPListResp{}
+	resp, err := client.MCPList()
+	if err != nil {
+		t.Fatalf("MCPList: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("response nil")
+	}
+	if resp.Mounts == nil {
+		t.Error("Mounts must be non-nil slice ([]), not nil (wire nil-normalize)")
+	}
+	if len(resp.Mounts) != 0 {
+		t.Errorf("Mounts len=%d, want 0 on empty kernel", len(resp.Mounts))
+	}
 }
 
 // -----------------------------------------------------------------------------
 // _020b: two mounts → wires reflect Path / Name / Status round-trip
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_020b_IPC_McpList_TwoMounts(t *testing.T) {
-	t.Skip("RED: 等待 Story 48.3 Task 3 + Task 1 — registry + mounts wired")
+	client, kern, _, _ := setupResumeIPCTest(t)
 
-	// GREEN-phase plan:
-	//
-	// 1. setupResumeIPCTest gives us a *KernelImpl with MountManager (Story
-	//    48.1 helper). We need to:
-	//    a. Inject mcpRegistry via k.SetMCPRegistry(...)  (Task 1.4)
-	//    b. Mount 2 paths via k.Mount("/mnt/mcp/1-playwright", cfg)  (Task 9.1)
-	// 2. client.MCPList() returns 2 wires.
-	// 3. Assert each wire has:
-	//    - Name parsed from path (`<pid>-<server>` → `<server>`)
-	//    - Path = mount path
-	//    - Transport ∈ {"stdio"}
-	//    - Status = "connected" (initial mount state)
-	//    - Tools = 0 (Story keeps placeholder until 48.5)
-	//    - Resources = 0
-	//    - LastCheckMs = 0 (no probe yet)
-	//
-	// Sketch (do not execute until Task 3):
-	//
-	//   client, kern, _, _ := setupResumeIPCTest(t)
-	//   // ... wire MountManager + Mount 2 paths ...
-	//   resp, err := client.MCPList()
-	//   if err != nil { t.Fatalf("MCPList: %v", err) }
-	//   if len(resp.Mounts) != 2 {
-	//       t.Fatalf("Mounts len=%d, want 2", len(resp.Mounts))
-	//   }
-	//   names := map[string]bool{}
-	//   for _, m := range resp.Mounts {
-	//       names[m.Name] = true
-	//       if m.Status != "connected" {
-	//           t.Errorf("mount %q Status=%q, want \"connected\"", m.Name, m.Status)
-	//       }
-	//       if m.Transport != "stdio" {
-	//           t.Errorf("mount %q Transport=%q, want \"stdio\"", m.Name, m.Transport)
-	//       }
-	//       if m.Tools != 0 || m.Resources != 0 {
-	//           t.Errorf("mount %q Tools/Resources non-zero pre-48.5", m.Name)
-	//       }
-	//   }
-	//   if !names["playwright"] || !names["deepwiki"] {
-	//       t.Errorf("expected mounts {playwright, deepwiki}, got %v", names)
-	//   }
-	_ = kern_unused()
+	devReg := vfs.NewDeviceRegistry()
+	factory := func(_ vfs.MCPConfig) (vfs.MCPTransport, error) {
+		return &mcpListStubTransport{}, nil
+	}
+	mgr := vfs.NewMountManager(devReg, factory)
+	kern.SetMountManager(mgr)
+
+	cfgA := vfs.MCPConfig{ServerName: "playwright", Command: "npx", TransportType: "stdio"}
+	cfgB := vfs.MCPConfig{ServerName: "deepwiki", Command: "deepwiki-mcp", TransportType: ""}
+	pathA := "/mnt/mcp/100-playwright"
+	pathB := "/mnt/mcp/101-deepwiki"
+	if err := kern.Mount(pathA, cfgA); err != nil {
+		t.Fatalf("Mount A: %v", err)
+	}
+	if err := kern.Mount(pathB, cfgB); err != nil {
+		t.Fatalf("Mount B: %v", err)
+	}
+
+	resp, err := client.MCPList()
+	if err != nil {
+		t.Fatalf("MCPList: %v", err)
+	}
+	if len(resp.Mounts) != 2 {
+		t.Fatalf("Mounts len=%d, want 2; got=%+v", len(resp.Mounts), resp.Mounts)
+	}
+
+	got := map[string]MCPMountWire{}
+	for _, m := range resp.Mounts {
+		got[m.Name] = m
+	}
+	playwright, ok := got["playwright"]
+	if !ok {
+		t.Fatalf("missing playwright in wire mounts: %+v", got)
+	}
+	if playwright.Path != pathA {
+		t.Errorf("playwright.Path = %q, want %q", playwright.Path, pathA)
+	}
+	if playwright.Status != "connected" {
+		t.Errorf("playwright.Status = %q, want \"connected\"", playwright.Status)
+	}
+	if playwright.Transport != "stdio" {
+		t.Errorf("playwright.Transport = %q, want \"stdio\"", playwright.Transport)
+	}
+	if playwright.Tools != 0 || playwright.Resources != 0 {
+		t.Errorf("playwright tools/resources non-zero pre-48.5: %+v", playwright)
+	}
+
+	deepwiki, ok := got["deepwiki"]
+	if !ok {
+		t.Fatalf("missing deepwiki in wire mounts: %+v", got)
+	}
+	if deepwiki.Transport != "stdio" {
+		t.Errorf("deepwiki.Transport = %q, want \"stdio\" (empty defaults)", deepwiki.Transport)
+	}
 }
 
-// kern_unused keeps the file in-package importing nothing exotic. dev-story
-// can delete once setupResumeIPCTest is exercised in the GREEN body.
-func kern_unused() bool { return true }
+// mcpListStubTransport stands in for a real MCP server during AC1 mount tests.
+// Connect always succeeds; Call returns empty payloads (mcp_list does not RPC,
+// but Mount->transport.Connect calls Connect, hence we satisfy the interface).
+type mcpListStubTransport struct{}
+
+func (s *mcpListStubTransport) Connect(_ context.Context) error { return nil }
+func (s *mcpListStubTransport) Call(_ context.Context, _ string, _ json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
+func (s *mcpListStubTransport) Close() error                  { return nil }
+func (s *mcpListStubTransport) Ping(_ context.Context) error { return nil }

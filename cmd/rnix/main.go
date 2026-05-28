@@ -301,6 +301,8 @@ func init() {
 	rootCmd.AddCommand(intentCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(checkCmd)
 }
 
 // levenshtein computes the standard Levenshtein distance between two strings
@@ -1529,6 +1531,11 @@ func runDaemon(cmd *cobra.Command, args []string) error {
 	srv.SetGlobalProvidersRaw(globalProvidersRaw)
 	k := kernel.NewKernel(vfsInst, ctxMgr, srv.CallbackMux())
 	k.SetMountManager(mountMgr)
+	// Story 48.3 — the kernel needs the same transport factory MountManager
+	// uses, but stored independently so RunMCPProbe (the `mcp test` IPC path)
+	// can spin up a one-shot transport without leaving a mount in the
+	// registry. mountMgr keeps its own copy for the Mount syscall.
+	k.SetTransportFactory(transportFactory)
 	// Epic 44 follow-up — give the kernel a way to rebuild ProjectConfig from
 	// a project directory so LoadSuspendedFromDisk can re-attach project
 	// context to revived placeholders. Without this, placeholders for

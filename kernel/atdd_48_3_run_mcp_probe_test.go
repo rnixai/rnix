@@ -41,8 +41,6 @@ import (
 // _022: resources/list and prompts/list errors don't fail the overall probe
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_022_RunMCPProbe_OptionalCallsFail_OverallOK(t *testing.T) {
-	t.Skip("RED: 等待 Story 48.3 Task 2.3 — RunMCPProbe 5-stage 实现")
-
 	tp := &probeMockTransport{
 		toolsResp: json.RawMessage(`{"tools":[{"name":"echo"}]}`),
 		callErr: map[string]error{
@@ -96,8 +94,6 @@ func TestATDD_48_3_022_RunMCPProbe_OptionalCallsFail_OverallOK(t *testing.T) {
 // _023: connect hangs past 10s ctx deadline → timeout stage + Close still runs
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_023_RunMCPProbe_ConnectTimeout(t *testing.T) {
-	t.Skip("RED: 等待 Story 48.3 Task 2.3 — ctx 10s budget + defer Close")
-
 	tp := &hangingMockTransport{hangFor: 12 * time.Second}
 	k := newKernelOnly(t)
 	k.SetTransportFactory(func(_ vfs.MCPConfig) (vfs.MCPTransport, error) { return tp, nil })
@@ -147,8 +143,6 @@ func TestATDD_48_3_023_RunMCPProbe_ConnectTimeout(t *testing.T) {
 // _024: ServerInfo passthrough is best-effort (current Story 48.3 §决策 7)
 // -----------------------------------------------------------------------------
 func TestATDD_48_3_024_RunMCPProbe_ServerInfo_BestEffort(t *testing.T) {
-	t.Skip("RED: 等待 Story 48.3 Task 2.4 — ServerInfo 接入 (待后续 Story 完整 plumbing)")
-
 	tp := &probeMockTransport{
 		toolsResp: json.RawMessage(`{"tools":[]}`),
 	}
