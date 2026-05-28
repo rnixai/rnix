@@ -1,20 +1,10 @@
-//go:build atdd_48_4_red
-
 // =============================================================================
-// Story 48.4 — playwright-demo agent 资源 (RED PHASE) — AC5
+// Story 48.4 — playwright-demo agent 资源 ATDD (GREEN) — AC5
 //
-// 这些测试断言:
+// Asserts:
 //   1. embed.FS 含 lib/agents/playwright-demo/agent.yaml + instructions.md
 //   2. agent.yaml 解析为 AgentManifest 且 MCP=["playwright"]
 //   3. instructions.md 含 4 个工作流锚点 (navigate / wait / screenshot / report)
-//
-// 运行: go test -tags=atdd_48_4_red ./cmd/rnix/...
-//
-// dev-story 阶段需新建:
-//   lib/agents/playwright-demo/agent.yaml      — name=playwright-demo, mcp=[playwright]
-//   lib/agents/playwright-demo/instructions.md — 4 锚点工作流 + 失败 hint
-//
-// embedded.go 的 //go:embed lib/agents 会自动包含新子目录,无需修改 embedded.go.
 // =============================================================================
 
 package main

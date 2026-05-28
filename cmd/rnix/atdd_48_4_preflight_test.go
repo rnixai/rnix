@@ -1,45 +1,12 @@
-//go:build atdd_48_4_red
-
 // =============================================================================
-// Story 48.4 — `rnix --agent playwright-demo` spawn preflight (RED PHASE)
+// Story 48.4 — `rnix --agent playwright-demo` spawn preflight ATDD (GREEN)
 //
-// 这些测试断言 Story 48.4 AC3 / AC4 / AC6 / AC7 的期望行为:
+// Asserts Story 48.4 AC3 / AC4 / AC6 / AC7:
 //   - playwright-demo 触发预检 (mcp.yaml / npx / chromium)
 //   - 非 playwright-demo agent 完全 bypass
 //   - ERROR 阻断 spawn + 引导式三段式输出 + exit 1
 //   - WARN 不阻断 + 继续 spawn (ok=true)
 //   - JSON / ASCII / quiet 三模式渲染正确
-//
-// 运行: go test -tags=atdd_48_4_red ./cmd/rnix/...
-//
-// dev-story 阶段需新建 cmd/rnix/spawn_preflight.go,包含:
-//
-//   type preflightResult struct {
-//       Code    string
-//       Level   checkLevelMCP   // 复用 check.go
-//       Message string
-//       Detail  string
-//       Hint    string
-//   }
-//
-//   var ( // 测试注入点
-//       preflightLookPath       = lookPath        // 复用 check.go
-//       preflightDetectChromium = detectChromium  // 复用 check.go
-//       preflightMcpYamlPath    = ""              // ""=用 globalDirForInit/mcp.yaml
-//   )
-//
-//   // runSpawnPreflight returns ok=false 时 cobra 应设 exitCode=1 + 不发 spawn.
-//   func runSpawnPreflight(cmd *cobra.Command, agentName string) (ok bool, err error)
-//
-// 同时需要 main.go::runRoot 在 SpawnRequest 构造前插入:
-//
-//   if flagAgent == "playwright-demo" {
-//       ok, _ := runSpawnPreflight(cmd, flagAgent)
-//       if !ok {
-//           exitCode = 1
-//           return nil
-//       }
-//   }
 // =============================================================================
 
 package main
@@ -76,6 +43,10 @@ func swapPreflightMcpYamlPath(path string) func() {
 	preflightMcpYamlPath = path
 	return func() { preflightMcpYamlPath = old }
 }
+
+// fakePreflightCmd is reserved for future renderer ATDD tests that need a
+// scratch cobra.Command container. Currently unused — silence linter.
+var _ = fakePreflightCmd
 
 // fakePreflightCmd 构造一个 cobra command 用于测试 renderer 路径
 // (preflight 直接调用 cmd.OutOrStdout / Stderr).

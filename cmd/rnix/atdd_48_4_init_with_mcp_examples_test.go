@@ -1,24 +1,9 @@
-//go:build atdd_48_4_red
-
 // =============================================================================
-// Story 48.4 — `rnix init --with-mcp-examples` (RED PHASE)
+// Story 48.4 — `rnix init --with-mcp-examples` ATDD (GREEN)
 //
-// 这些测试断言 Story 48.4 AC1 + AC6 的期望行为。当前红阶段尚未实现,运行需要:
+// Asserts Story 48.4 AC1 + AC6.
 //
-//   go test -tags=atdd_48_4_red ./cmd/rnix/...
-//
-// 编译失败/断言失败即为红信号; dev-story 阶段需依次完成:
-//
-//   1. 在 cmd/rnix/init.go 添加:
-//        - const mcpExampleYAML = `...` (≤ 60 行模板,见 Story §"mcp.yaml 模板设计")
-//        - cobra flag: initCmd.Flags().Bool("with-mcp-examples", false, "...")
-//        - func writeMcpYamlExample(dir string) (wrote bool, err error)
-//        - func renderInitMcpGuidance(w io.Writer, mcpPath string, asciiMode bool, quiet bool)
-//        - 修改 runInit 调度上述新逻辑
-//   2. 实现完毕跑红:
-//        go test -tags=atdd_48_4_red -run TestATDD_48_4_00 ./cmd/rnix/
-//      → 应看到全部断言通过 (转绿)
-//   3. dev-story 完成后移除文件顶端 build tag,测试纳入主 `make test` 套件
+//	go test -run TestATDD_48_4_00 ./cmd/rnix/
 // =============================================================================
 
 package main
@@ -50,6 +35,13 @@ func swapGlobalDirForInit(t *testing.T, dir string) func() {
 // the captured stdout/stderr buffer.
 func runInitCmd(t *testing.T, args ...string) string {
 	t.Helper()
+	// Other ATDD tests in this package call rootCmd.SetArgs([...]) without
+	// resetting it. cobra v1.10.2 bubbles initCmd.Execute() up to rootCmd
+	// and reads root.args, so leftover values from earlier tests would
+	// reroute this dispatch to whatever sub-command they last invoked.
+	// Clear root args here and after the run to keep this helper hermetic.
+	rootCmd.SetArgs(nil)
+	t.Cleanup(func() { rootCmd.SetArgs(nil) })
 	var buf bytes.Buffer
 	cmd, _, err := rootCmd.Find(append([]string{"init"}, args...))
 	if err != nil {
