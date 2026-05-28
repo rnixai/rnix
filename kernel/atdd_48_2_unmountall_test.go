@@ -44,12 +44,14 @@ import (
 //           but with all 3 mocks healthy we expect nil err)
 //   - One of the 3 transports is configured to SIMULATE the slow forced-kill
 //     path: its Close blocks 4.95s then returns *types.DriverError with
-//     Code="force_killed". This proves Shutdown is willing to wait the full
+//     Code=ErrForceKilled. This proves Shutdown is willing to wait the full
 //     graceful budget without timing out itself.
 //
-// Compile note: tests reference `types.ErrCode("force_killed")` as a string
-// literal, NOT `types.ErrForceKilled` directly — that constant is added by
-// Task 3.2 and we want this file to compile against the current baseline.
+// Compile note: tests reference the exported `types.ErrForceKilled` constant.
+// (Earlier RED-phase drafts used `types.ErrCode("force_killed")` literal so
+// the file could compile before Task 2.5 / 3.2 added the constant; code
+// review F5 then renamed the underlying string to "FORCE_KILLED" so the
+// literal would have diverged.)
 // =============================================================================
 
 // trackingMCPTransport is a vfs.MCPTransport mock customised for AC2:
@@ -139,7 +141,7 @@ func TestATDD_48_2_002_DaemonShutdown_CleansAllMCPSubprocesses(t *testing.T) {
 	transports := map[string]*trackingMCPTransport{
 		"github":     {},
 		"slack":      {},
-		"playwright": {closeDelay: 4950 * time.Millisecond, closeErr: types.NewDriverError("Close", "/mnt/mcp/3-playwright", errors.New("SIGTERM ignored, force-killed"), types.ErrCode("force_killed"))},
+		"playwright": {closeDelay: 4950 * time.Millisecond, closeErr: types.NewDriverError("Close", "/mnt/mcp/3-playwright", errors.New("SIGTERM ignored, force-killed"), types.ErrForceKilled)},
 	}
 	factory := newTrackingTransportFactory(transports)
 
@@ -229,7 +231,7 @@ func TestATDD_48_2_002_DaemonShutdown_CleansAllMCPSubprocesses(t *testing.T) {
 // pins the behaviour.
 func TestATDD_48_2_002b_UnmountAll_PerTransportErrorDoesNotAbort(t *testing.T) {
 	transports := map[string]*trackingMCPTransport{
-		"first": {closeErr: types.NewDriverError("Close", "/mnt/mcp/1-first", errors.New("forced"), types.ErrCode("force_killed"))},
+		"first": {closeErr: types.NewDriverError("Close", "/mnt/mcp/1-first", errors.New("forced"), types.ErrForceKilled)},
 		"second":  {},
 		"third":   {closeErr: errors.New("transport stream already closed")},
 	}

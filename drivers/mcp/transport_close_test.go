@@ -65,12 +65,23 @@ done
 // syscall.Kill(-pgid, 0) per Story 48.2 ATDD spec: ESRCH ⇒ group gone.
 //
 // Note: signal 0 is a no-op delivery probe; it returns errno only.
-func processGroupAlive(pgid int) bool {
+//
+// Caller-supplied t lets us distinguish "group alive" / "group gone" from
+// "indeterminate" errors (EPERM in restricted namespaces, PID-reused into a
+// process the test user cannot signal). Earlier this helper folded EPERM into
+// "alive", which produces silent false-greens/reds; now indeterminate errnos
+// fail the test loud (code review F7, 2026-05-28).
+func processGroupAlive(t *testing.T, pgid int) bool {
+	t.Helper()
 	err := syscall.Kill(-pgid, 0)
 	if err == nil {
 		return true
 	}
-	return !errors.Is(err, syscall.ESRCH)
+	if errors.Is(err, syscall.ESRCH) {
+		return false
+	}
+	t.Fatalf("processGroupAlive(%d): unexpected errno %v — refusing to interpret as alive/dead", pgid, err)
+	return false // unreachable
 }
 
 // -----------------------------------------------------------------------------
@@ -127,7 +138,7 @@ func TestATDD_48_2_001_Close_KillsSubprocessTree_Graceful(t *testing.T) {
 	// "process tree" assertion becomes trivially true.
 	time.Sleep(150 * time.Millisecond)
 
-	if !processGroupAlive(pgid) {
+	if !processGroupAlive(t, pgid) {
 		t.Fatalf("process group %d unexpectedly dead before Close — fixture failed to start", pgid)
 	}
 
@@ -149,12 +160,12 @@ func TestATDD_48_2_001_Close_KillsSubprocessTree_Graceful(t *testing.T) {
 	// pgid to the sleep children before observing ESRCH.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if !processGroupAlive(pgid) {
+		if !processGroupAlive(t, pgid) {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if processGroupAlive(pgid) {
+	if processGroupAlive(t, pgid) {
 		t.Errorf("process group %d still alive 2s after Close — entire tree not cleaned up", pgid)
 	}
 }
@@ -256,9 +267,10 @@ func TestATDD_48_2_004_Close_TimeoutFallbackToSIGKILL(t *testing.T) {
 	}
 
 	// Sentinel: dev-story (Task 2.5 / 3.2) decided to express this as
-	// *types.DriverError{Code: types.ErrForceKilled}. We compare against the
-	// literal "force_killed" string so this assertion compiles before
-	// types.ErrForceKilled lands.
+	// *types.DriverError{Code: types.ErrForceKilled}. Compare against the
+	// constant rather than a hard-coded literal so the assertion tracks any
+	// future rename (code review F5 renamed "force_killed" → "FORCE_KILLED" for
+	// consistency with the rest of the ErrCode set).
 	if closeErr == nil {
 		t.Fatal("Close returned nil err on SIGKILL escalation path — sentinel missing")
 	}
@@ -266,8 +278,8 @@ func TestATDD_48_2_004_Close_TimeoutFallbackToSIGKILL(t *testing.T) {
 	if !errors.As(closeErr, &drvErr) {
 		t.Fatalf("Close err not *types.DriverError: %T (%v)", closeErr, closeErr)
 	}
-	if string(drvErr.Code) != "force_killed" {
-		t.Errorf("DriverError.Code = %q, want %q (ErrForceKilled)", drvErr.Code, "force_killed")
+	if drvErr.Code != types.ErrForceKilled {
+		t.Errorf("DriverError.Code = %q, want %q (ErrForceKilled)", drvErr.Code, types.ErrForceKilled)
 	}
 }
 
@@ -323,7 +335,7 @@ func TestATDD_48_2_005_Connect_FailureCleansSubprocessTree(t *testing.T) {
 	// Allow up to 1s for cleanup to propagate.
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
-		if !processGroupAlive(pgid) {
+		if !processGroupAlive(t, pgid) {
 			return // pass
 		}
 		time.Sleep(50 * time.Millisecond)

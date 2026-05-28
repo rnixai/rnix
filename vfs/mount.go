@@ -109,15 +109,23 @@ func (m *MountManager) Unmount(path string) error {
 
 	m.mounts.Delete(path)
 
-	// Close transport
+	// Close transport. Story 48.2 AC4/AC7 — propagate Close error (notably
+	// *types.DriverError{Code: ErrForceKilled} on SIGKILL escalation) so that
+	// kernel/reason.go::finishProcess can annotate the Unmount event with
+	// forced=true via errors.As + DriverError.Code check. Earlier `_ = Close()`
+	// silently dropped the sentinel, leaving the duration ≥ 4.9s heuristic as
+	// the only AC7 signal (code review F1, 2026-05-28).
+	var closeErr error
 	if mount.transport != nil {
-		_ = mount.transport.Close()
+		closeErr = mount.transport.Close()
 	}
 
-	// Unregister from DeviceRegistry
+	// Unregister from DeviceRegistry — best effort, regardless of Close
+	// outcome. A force-killed transport still needs its registry entry removed
+	// so VFS Open/Read/Write/Close don't keep routing to a dead device.
 	_ = m.devReg.Unregister(path)
 
-	return nil
+	return closeErr
 }
 
 // Acquire records an additional owner for an existing mount. Used by the

@@ -29,9 +29,10 @@ import (
 // drainMountEvents in atdd_48_1_helpers_test.go — so this is backward
 // compatible for 48.1's regression tests).
 //
-// Compile note: like atdd_48_2_unmountall_test.go we use
-// `types.ErrCode("force_killed")` literal rather than `types.ErrForceKilled`
-// so this file compiles before Task 2.5 / 3.2 add the constant.
+// Compile note: use the exported `types.ErrForceKilled` constant directly.
+// (Earlier RED-phase drafts used `types.ErrCode("force_killed")` literal to
+// compile before Task 2.5 added the constant; code review F5 then renamed the
+// underlying string to "FORCE_KILLED" so any remaining literal would diverge.)
 // =============================================================================
 
 // -----------------------------------------------------------------------------
@@ -39,12 +40,12 @@ import (
 // -----------------------------------------------------------------------------
 func TestATDD_48_2_007_UnmountEvent_ForcedKill_AnnotatesArgs(t *testing.T) {
 	// Single mount with a transport that simulates the SIGTERM-timeout path:
-	// Close blocks 4.95s and returns *types.DriverError{Code: "force_killed"}.
+	// Close blocks 4.95s and returns *types.DriverError{Code: ErrForceKilled}.
 	transports := map[string]*trackingMCPTransport{
 		"playwright": {
 			closeDelay: 4950 * time.Millisecond,
 			closeErr: types.NewDriverError("Close", "/mnt/mcp/100-playwright",
-				errors.New("SIGTERM ignored, force-killed"), types.ErrCode("force_killed")),
+				errors.New("SIGTERM ignored, force-killed"), types.ErrForceKilled),
 		},
 	}
 	factory := newTrackingTransportFactory(transports)

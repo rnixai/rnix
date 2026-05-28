@@ -116,15 +116,20 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 			// to SIGKILL after 5s". Two detection paths:
 			//   (a) primary  — DriverError.Code == ErrForceKilled, set by
 			//       drivers/mcp/transport.Close when escalation occurred.
-			//   (b) fallback — Unmount duration ≥ gracefulShutdownTimeout
-			//       minus 100ms scheduler slack. Catches any future driver
-			//       that fails to wrap with the sentinel.
+			//       Code review F1 (2026-05-28) restored this as the real
+			//       primary by making vfs/mount.go::Unmount propagate the
+			//       Close return value.
+			//   (b) fallback — duration ≥ gracefulShutdownTimeout - 100ms AND
+			//       err != nil. The err != nil guard (code review F3)
+			//       prevents marking a graceful Unmount as forced on slow
+			//       machines / GC pauses where the wall clock approaches 5s
+			//       even though SIGTERM was honoured.
 			forced := false
 			var dErr *types.DriverError
 			if errors.As(err, &dErr) && dErr.Code == types.ErrForceKilled {
 				forced = true
 			}
-			if !forced && duration >= 4900*time.Millisecond {
+			if !forced && err != nil && duration >= 4900*time.Millisecond {
 				forced = true
 			}
 			if forced {

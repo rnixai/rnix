@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
@@ -216,6 +217,11 @@ func (t *StdioTransport) closeProcessLocked() error {
 	t.stdout = nil
 
 	// AC8 zero-overhead: nothing to clean up if we never Started a process.
+	// Note: lastChildPID is intentionally NOT cleared here — it is a post-mortem
+	// observation field used by AC5 tests to verify process-group cleanup AFTER
+	// t.cmd has been niled out (see transport_close_test.go:314). Clearing it
+	// would break that assertion; PID reuse race is mitigated by the AC5 test
+	// reading it within 1s of Connect failure (test:323-330).
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
@@ -226,9 +232,13 @@ func (t *StdioTransport) closeProcessLocked() error {
 	// equivalent), so we proceed straight to the SIGKILL escalation when the
 	// 5s wait expires.
 	if err := sendGroupSIGTERM(cmd); err != nil {
-		// Fall back to single-process Kill if the platform rejected the
-		// group-wide signal — continue into the wait path either way.
-		_ = cmd.Process.Kill()
+		// Fall back to single-process SIGTERM if the platform rejected the
+		// group-wide signal (e.g., EPERM in restricted namespaces). Preserve
+		// the graceful semantics by sending SIGTERM (not SIGKILL — earlier
+		// code used cmd.Process.Kill() here, which is SIGKILL on Unix and
+		// collapsed the 5s window down to zero, defeating the whole purpose
+		// of the two-phase escalation. Code review F2, 2026-05-28).
+		_ = cmd.Process.Signal(syscall.SIGTERM)
 	}
 
 	// Story 48.2 易错点 #4: launch the Wait goroutine BEFORE entering the

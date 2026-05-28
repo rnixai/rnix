@@ -53,7 +53,7 @@ const (
 	// ErrForceKilled to annotate the Unmount event (Story 48.2 AC4 + AC7).
 	// Lives in internal/types — not drivers/mcp — to avoid a kernel →
 	// drivers/mcp reverse dependency (Story 48.2 易错点 #8).
-	ErrForceKilled ErrCode = "force_killed"
+	ErrForceKilled ErrCode = "FORCE_KILLED"
 )
 
 // Signal represents a process signal.
