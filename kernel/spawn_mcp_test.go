@@ -90,6 +90,18 @@ func (m *spawnMockMountManager) ListMounts() []vfs.MCPMount {
 	return out
 }
 
+// Acquire satisfies the MountManager interface (Story 48.1 code-review P2/P4).
+// The mock does not track refcounts; returns an error if the path is not
+// mounted so resume-path tests behave like the real manager would.
+func (m *spawnMockMountManager) Acquire(path string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.mounted[path] {
+		return fmt.Errorf("not mounted: %s", path)
+	}
+	return nil
+}
+
 func (m *spawnMockMountManager) getMountCalls() []mountCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

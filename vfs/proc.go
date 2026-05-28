@@ -108,7 +108,12 @@ type ProcInfo struct {
 	// MountManager.Mount with the original PID + complete vfs.MCPConfig, so
 	// dashboard `r` after daemon restart or `rnix resume <uuid>` after reap no
 	// longer silently strips MCP tool access.
-	MCPMounts []MCPMountSnapshot
+	//
+	// json tag uses snake_case to match the on-disk schema (procInfoDisk
+	// stores the same data under `mcp_mounts`) and the rest of ProcInfo's
+	// effective IPC contract — Story 48.1 code-review P11 fixed the prior
+	// silent PascalCase/snake_case split.
+	MCPMounts []MCPMountSnapshot `json:"mcp_mounts,omitempty"`
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.

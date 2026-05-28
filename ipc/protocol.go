@@ -229,6 +229,17 @@ type ProcInfoWire struct {
 	// not-yet-exited processes.
 	ExitCode    int  `json:"exit_code,omitempty"`
 	ExitCodeSet bool `json:"exit_code_set,omitempty"`
+
+	// Story 48.1 / code-review P7 — vfs.ProcInfo.MCPMounts is INTENTIONALLY
+	// not mirrored onto this wire type. The field is consumed only by the
+	// kernel-internal resume / load_suspended path (kernel/rehydrate.go); no
+	// IPC client renders or replays MCP mount metadata today (dashboard
+	// surfaces are deferred to Story 48.3 `rnix mcp list`). Adding the field
+	// here would balloon every ListProcs response with redundant config that
+	// the daemon already has on disk. Re-introduce it when the CLI / dashboard
+	// gains a first-class MCP view; until then keep ProcInfoToWire /
+	// WireToProcInfo silent on the field rather than copying through a value
+	// no consumer reads.
 }
 
 // ProcInfoToWire converts a vfs.ProcInfo to wire format.

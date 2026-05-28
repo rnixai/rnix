@@ -50,11 +50,23 @@ const (
 )
 
 // MCPMount holds the state of a mounted MCP server.
+//
+// refCount is the number of live owners (1 from the initial Mount; +1 per
+// Acquire). Unmount decrements it; only when it hits zero does the transport
+// actually close and the mount leave the registry. Story 48.1 code-review
+// P2 / P4 — without ref-counting, a fork-resume reuser shared the parent's
+// mount but the parent's finishProcess unmounted it; or Suspended-resume
+// cleanup deleted the old proc entry while leaving the mount live, so the
+// reuser's eventual Unmount happened against an entry whose only owner was
+// already gone, stranding the mount forever.
+//
+// Protected by MountManager.mu; never mutated outside of the manager.
 type MCPMount struct {
 	Path      string
 	Config    MCPConfig
 	Status    MCPStatus
 	transport MCPTransport
+	refCount  int
 }
 
 // mcpFile implements VFSFile for MCP tool invocations.

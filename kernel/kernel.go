@@ -29,6 +29,14 @@ type MountManager interface {
 	// reattachMCPMounts (Story 48.1) to detect AC7 fork-resume collisions
 	// without racing against another goroutine's Mount call.
 	ListMounts() []vfs.MCPMount
+	// Acquire records an additional owner for an existing mount path
+	// (Story 48.1 code-review P2 / P4). The resume path calls Acquire when
+	// reattachMCPMounts finds the canonical `/mnt/mcp/<orig-pid>-<server>`
+	// already present, so the reuser's eventual Unmount only releases ONE
+	// reference rather than tearing the transport down under the original
+	// owner. Returns an error when the path is not mounted — callers should
+	// fall back to a fresh Mount in that case.
+	Acquire(path string) error
 }
 
 // pidContextKey is used to store PID in context for VFS device callbacks.

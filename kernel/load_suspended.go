@@ -220,6 +220,15 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		k.procTable.Store(proc.PID, proc)
 		k.msgQueues.Store(proc.PID, newMessageQueue())
 
+		// Attach event/step writers BEFORE the Resurrect emit so the
+		// Resurrect + downstream Mount events land in events.jsonl rather
+		// than the [event-drop] warning sink. Suspended placeholders never
+		// run reasonStep (the legacy attachment site), so without this
+		// hook every event a placeholder ever emits — across this load
+		// cycle and any subsequent dashboard inspection — would be lost
+		// from disk. Story 48.1 code-review P1.
+		k.attachStepObservation(proc)
+
 		// Emit a Resurrect audit-trail event so the Timeline pane can show
 		// the daemon-restart anchor. Args carry trigger + provenance so
 		// downstream consumers (Inspector / Timeline) can distinguish a

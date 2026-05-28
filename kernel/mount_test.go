@@ -70,6 +70,17 @@ func (m *mockMountManager) ListMounts() []vfs.MCPMount {
 	return out
 }
 
+// Acquire satisfies the MountManager interface (Story 48.1 code-review P2/P4).
+// The mock does not track refcounts (it just stores presence in a bool-set);
+// tests that need refcount semantics should use a real vfs.MountManager.
+// Returns an error if the path is not mounted, mirroring the real manager.
+func (m *mockMountManager) Acquire(path string) error {
+	if !m.mounted[path] {
+		return fmt.Errorf("not mounted: %s", path)
+	}
+	return nil
+}
+
 // --- Kernel Mount Syscall Tests ---
 
 func TestKernel_Mount(t *testing.T) {

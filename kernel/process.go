@@ -225,6 +225,14 @@ type Process struct {
 	// Tool calling support (immutable after Spawn)
 	HasSections       bool                // true when SectionRegistry is attached to context
 	sections          *rnixctx.SectionRegistry // prompt section registry (nil for bare spawns)
+	// synthesizedPrompt records whether this process's system prompt was
+	// produced by rehydrate.go's fallback path (no process-meta.json on
+	// disk, sections re-registered from skill registry + mcpConfigs).
+	// reattachMCPMounts uses this to decide whether to rebuild + SetSystemPrompt
+	// after mount pruning so a legacy snapshot whose synthesis ran BEFORE
+	// mount pruning does not leave the LLM with phantom tool advertisements.
+	// Story 48.1 code-review P5. Protected by proc.mu.
+	synthesizedPrompt bool
 	toolMap           map[string]toolMapping // tool name → VFS path mapping; immutable after Spawn
 	nativeToolDefs    []vfs.ToolDef       // collected ToolDefs for req.Tools; immutable after Spawn
 	mcpDevicePaths    []string            // MCP device paths for mixed mode text injection; immutable after Spawn

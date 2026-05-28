@@ -252,16 +252,30 @@ func (k *KernelImpl) GetSpanID(pid types.PID) (types.SpanID, bool) {
 // (vfs.MCPConfig slice) into [{Path, Config}] tuples for persistence.
 //
 // MUST be called with proc.mu held — both source slices are mu-protected
-// (kernel/spawn.go:646-650 writes them under lock, and rehydrate will too).
+// (kernel/spawn.go:646-650 writes them under lock, and rehydrate writes them
+// under lock too). Callers in this file (GetProcInfo / ListProcs) invoke this
+// helper inline inside their proc.mu critical section, so the contract is
+// satisfied by construction; Story 48.1 code-review P6 verified both sites.
 //
 // Pairing strategy: the path format is `/mnt/mcp/<pid>-<server>`; we extract
-// the suffix after the LAST `-` and match it to mcpCfg.ServerName. This is
+// the suffix after the FIRST `-` and match it to mcpCfg.ServerName. PIDs are
+// purely numeric, so the first dash is always the pid/server boundary even
+// when the server name itself contains dashes ("deepwiki-test"). This is
 // resilient to PID renumbering between snapshots (rehydrate may write a path
 // using the original PID while the in-memory proc carries a new one) and to
-// slice-order drift. Unpaired paths are skipped silently — they would otherwise
-// poison resume by feeding zero-value MCPConfig into mountMgr.Mount.
+// slice-order drift.
+//
+// Skipped paths log a warning: a non-empty MCPMounts with no matching
+// mcpConfig means the two slices have drifted out of sync — exactly the
+// kind of silent-drop that masks the original Investigation Finding 9 this
+// story was meant to eliminate (Story 48.1 code-review B10).
 func buildMCPMountSnapshots(proc *Process) []vfs.MCPMountSnapshot {
-	if len(proc.MCPMounts) == 0 || len(proc.mcpConfigs) == 0 {
+	if len(proc.MCPMounts) == 0 {
+		return nil
+	}
+	if len(proc.mcpConfigs) == 0 {
+		log.Printf("[proc_query] uuid=%s: MCPMounts non-empty (%d paths) but mcpConfigs empty — snapshot will be empty, mounts will not survive resume",
+			proc.UUID, len(proc.MCPMounts))
 		return nil
 	}
 	cfgByName := make(map[string]vfs.MCPConfig, len(proc.mcpConfigs))
@@ -274,6 +288,8 @@ func buildMCPMountSnapshots(proc *Process) []vfs.MCPMountSnapshot {
 		serverName := mcpServerNameFromPath(path)
 		cfg, ok := cfgByName[serverName]
 		if !ok {
+			log.Printf("[proc_query] uuid=%s: MCPMount path %q has no matching mcpConfig (server=%q) — skipping; resume will lose this mount",
+				proc.UUID, path, serverName)
 			continue
 		}
 		out = append(out, vfs.MCPMountSnapshot{Path: path, Config: cfg})
@@ -286,6 +302,9 @@ func buildMCPMountSnapshots(proc *Process) []vfs.MCPMountSnapshot {
 
 // mcpServerNameFromPath extracts the server name suffix from a canonical
 // `/mnt/mcp/<pid>-<server>` mount path. Returns "" if the path doesn't match.
+// Splits on the FIRST `-`, which is the pid/server boundary as long as PIDs
+// stay purely numeric (server names may legitimately contain dashes like
+// "deepwiki-test"). Story 48.1 code-review P9.
 func mcpServerNameFromPath(path string) string {
 	const prefix = "/mnt/mcp/"
 	if len(path) <= len(prefix) || path[:len(prefix)] != prefix {

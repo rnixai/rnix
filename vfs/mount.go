@@ -56,12 +56,15 @@ func (m *MountManager) Mount(path string, config MCPConfig) error {
 		return fmt.Errorf("transport connect failed for %s: %w", path, err)
 	}
 
-	// Create mount record
+	// Create mount record. refCount starts at 1 (this Mount call is the
+	// first owner); subsequent Acquire calls bump it and Unmount drops it,
+	// with the real Close+Unregister happening only when it returns to 0.
 	mount := &MCPMount{
 		Path:      path,
 		Config:    config,
 		Status:    MCPStatusConnected,
 		transport: transport,
+		refCount:  1,
 	}
 
 	// Register in DeviceRegistry so VFS Open/Read/Write/Close can route to it.
@@ -84,16 +87,27 @@ func (m *MountManager) Mount(path string, config MCPConfig) error {
 	return nil
 }
 
-// Unmount unmounts the MCP server at the given path.
-// Closes the transport connection and removes from DeviceRegistry.
+// Unmount releases one reference to the MCP server at the given path. The
+// transport is closed and the registry entry removed only when the reference
+// count drops to zero — this lets fork-resume reusers (Story 48.1 AC7) and
+// Suspended-resume reusers each hold an independent owner without one's exit
+// stranding the other (code-review P2 / P4).
 func (m *MountManager) Unmount(path string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	mount, ok := m.mounts.LoadAndDelete(path)
+	mount, ok := m.mounts.Load(path)
 	if !ok {
 		return fmt.Errorf("not mounted: %s", path)
 	}
+
+	mount.refCount--
+	if mount.refCount > 0 {
+		// Other owners still hold the mount; only this owner has released.
+		return nil
+	}
+
+	m.mounts.Delete(path)
 
 	// Close transport
 	if mount.transport != nil {
@@ -103,6 +117,27 @@ func (m *MountManager) Unmount(path string) error {
 	// Unregister from DeviceRegistry
 	_ = m.devReg.Unregister(path)
 
+	return nil
+}
+
+// Acquire records an additional owner for an existing mount. Used by the
+// resume path (Story 48.1) when reattachMCPMounts finds the canonical
+// `/mnt/mcp/<original-pid>-<server>` already present (either a fork-resume
+// sibling beat us to it, or the original Suspended owner has not been
+// cleaned up yet). Returns an error when the path is not currently mounted —
+// callers should fall back to a fresh Mount in that case.
+//
+// Unmount must be called exactly once per Mount + Acquire (i.e. once per
+// owner) for the transport to actually close.
+func (m *MountManager) Acquire(path string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	mount, ok := m.mounts.Load(path)
+	if !ok {
+		return fmt.Errorf("not mounted: %s", path)
+	}
+	mount.refCount++
 	return nil
 }
 

@@ -193,6 +193,7 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 		proc.mu.Lock()
 		proc.HasSections = true
 		proc.sections = sections
+		proc.synthesizedPrompt = true
 		proc.mu.Unlock()
 		systemPrompt = sections.Build()
 		log.Printf("[rehydrate] uuid=%s: synthesized fallback SystemPrompt (%d bytes, agent_instructions empty)",
@@ -282,11 +283,16 @@ func (k *KernelImpl) reattachMCPMounts(proc *Process, info vfs.ProcInfo) int {
 
 	for _, snap := range info.MCPMounts {
 		path := snap.Path
-		// Value copy of MCPConfig — safe to mutate WorkDir without touching
-		// the disk snapshot (info.MCPMounts retains the original path so a
-		// later daemon restart can re-attempt the original WorkDir if the
-		// user restored the directory).
-		cfg := snap.Config
+		// persistCfg is the value we publish back into proc.mcpConfigs so a
+		// subsequent SaveProcInfo writes the ORIGINAL WorkDir back to disk.
+		// Story 48.1 code-review P3 — the previous implementation mutated
+		// cfg.WorkDir on fallback and appended that mutated value to
+		// successConfigs, so the next reap silently overwrote the original
+		// path and broke AC4's "restore the directory then resume" promise.
+		persistCfg := snap.Config
+		// mountCfg is the value handed to mountMgr.Mount — only this copy
+		// gets the fallback WorkDir applied.
+		mountCfg := snap.Config
 		mountStart := time.Now()
 
 		eventArgs := map[string]any{
@@ -298,31 +304,34 @@ func (k *KernelImpl) reattachMCPMounts(proc *Process, info vfs.ProcInfo) int {
 			eventArgs["daemon_restart_recovery"] = true
 		}
 
-		// AC4 — cwd fallback chain. Only triggered when the persisted dir
-		// exists AND is missing on disk. Empty WorkDir is passed through
-		// verbatim (transport defaults to its own cwd).
-		if cfg.WorkDir != "" {
-			if _, statErr := os.Stat(cfg.WorkDir); os.IsNotExist(statErr) {
-				original := cfg.WorkDir
+		// AC4 — cwd fallback chain. Triggered when the persisted dir is set
+		// AND os.Stat fails for ANY reason (missing, EACCES, ELOOP, …).
+		// Story 48.1 code-review P10 — the prior IsNotExist-only check let
+		// permission / loop errors fall through and the transport would
+		// fail to chdir mid-startup, surfacing as an obscure exec error.
+		if mountCfg.WorkDir != "" {
+			if _, statErr := os.Stat(mountCfg.WorkDir); statErr != nil {
+				original := mountCfg.WorkDir
 				resolved := "/tmp"
 				if wd, werr := os.Getwd(); werr == nil {
 					if _, sErr := os.Stat(wd); sErr == nil {
 						resolved = wd
 					}
 				}
-				cfg.WorkDir = resolved
+				mountCfg.WorkDir = resolved
 				eventArgs["cwd_fallback"] = true
 				eventArgs["cwd_original"] = original
 				eventArgs["cwd_resolved"] = resolved
 				k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf(
-					"MCP server %q: original WorkDir %q missing, falling back to %q",
-					cfg.ServerName, original, resolved), "")
+					"MCP server %q: original WorkDir %q unusable (%v), falling back to %q",
+					mountCfg.ServerName, original, statErr, resolved), "")
 			}
 		}
 
 		// AC7 — already mounted (fork-resume collision or daemon-internal
-		// concurrent resume). Skip the Mount call but treat as success so
-		// proc.MCPMounts / mcpConfigs preserve the path for buildToolDefs.
+		// concurrent resume). Use Acquire so the MountManager bumps the
+		// refcount; later finishProcess Unmount drops exactly one owner,
+		// preventing the parent-kills-fork bug (code-review P2).
 		alreadyMounted := false
 		for _, existing := range k.mountMgr.ListMounts() {
 			if existing.Path == path {
@@ -336,17 +345,39 @@ func (k *KernelImpl) reattachMCPMounts(proc *Process, info vfs.ProcInfo) int {
 			reused   bool
 		)
 		if alreadyMounted {
-			reused = true
-			eventArgs["reused"] = true
-		} else {
-			mountErr = k.mountMgr.Mount(path, cfg)
-			// Defensive: Mount itself can race with another goroutine and
-			// return ErrAlreadyMounted between our ListMounts check and the
-			// Mount call. Treat as reuse rather than a hard failure.
-			if mountErr != nil && isAlreadyMountedErr(mountErr) {
+			if acqErr := k.mountMgr.Acquire(path); acqErr != nil {
+				// Pre-check saw the mount but Acquire failed — almost
+				// certainly the other owner Unmount'd in the race window
+				// between ListMounts and Acquire. Fall back to a fresh
+				// Mount; the worst case is one extra exec.Cmd, the best
+				// case avoids stranding the resumed proc without a
+				// transport.
+				mountErr = k.mountMgr.Mount(path, mountCfg)
+				if mountErr != nil && isAlreadyMountedErr(mountErr) {
+					// Real race: someone re-mounted between our Acquire
+					// failure and our Mount. Treat as reuse and retry
+					// Acquire so we own a reference.
+					if retryErr := k.mountMgr.Acquire(path); retryErr == nil {
+						mountErr = nil
+						reused = true
+						eventArgs["reused"] = true
+					}
+				}
+			} else {
 				reused = true
 				eventArgs["reused"] = true
-				mountErr = nil
+			}
+		} else {
+			mountErr = k.mountMgr.Mount(path, mountCfg)
+			// Defensive: Mount itself can race with another goroutine and
+			// return ErrAlreadyMounted between our ListMounts check and the
+			// Mount call. Demote to Acquire so we still hold a reference.
+			if mountErr != nil && isAlreadyMountedErr(mountErr) {
+				if acqErr := k.mountMgr.Acquire(path); acqErr == nil {
+					mountErr = nil
+					reused = true
+					eventArgs["reused"] = true
+				}
 			}
 		}
 
@@ -354,7 +385,7 @@ func (k *KernelImpl) reattachMCPMounts(proc *Process, info vfs.ProcInfo) int {
 
 		if mountErr == nil {
 			successPaths = append(successPaths, path)
-			successConfigs = append(successConfigs, cfg)
+			successConfigs = append(successConfigs, persistCfg)
 			if reused {
 				reusedPaths = append(reusedPaths, path)
 			}
@@ -366,22 +397,56 @@ func (k *KernelImpl) reattachMCPMounts(proc *Process, info vfs.ProcInfo) int {
 	// Three-way alignment: proc.MCPMounts (paths), proc.mcpConfigs (configs),
 	// proc.AllowedDevices (LLM-prompt whitelist) MUST agree on the surviving
 	// set. Without this AC3 fails with "声称有工具实则调不通" — the prompt
-	// advertises a tool whose mount never came up.
+	// advertises a tool whose mount never came up. The alignment runs in two
+	// directions: (a) failed paths are pruned from AllowedDevices, and (b)
+	// successful paths are added if missing, so legacy snapshots whose
+	// AllowedDevices was written before mcp paths were standardized do not
+	// silently strand the freshly-mounted tools (code-review P8).
 	proc.mu.Lock()
+	hadSynthesizedSections := proc.HasSections && proc.sections != nil && proc.synthesizedPrompt
 	proc.MCPMounts = successPaths
 	proc.mcpConfigs = successConfigs
 	proc.mcpReusedMounts = reusedPaths
-	if len(failedPaths) > 0 {
+	if len(failedPaths) > 0 || len(successPaths) > 0 {
+		already := make(map[string]struct{}, len(proc.AllowedDevices))
 		filtered := proc.AllowedDevices[:0:0]
 		for _, dev := range proc.AllowedDevices {
 			if _, drop := failedPaths[dev]; drop {
 				continue
 			}
+			already[dev] = struct{}{}
 			filtered = append(filtered, dev)
+		}
+		for _, p := range successPaths {
+			if _, have := already[p]; have {
+				continue
+			}
+			filtered = append(filtered, p)
 		}
 		proc.AllowedDevices = filtered
 	}
 	proc.mu.Unlock()
+
+	// Story 48.1 code-review P5 — when rehydrate fell back to synthesizing
+	// the system prompt (no process-meta.json), sections.Build() ran with
+	// the PRE-prune mcpConfigs. If any mount just failed, the LLM's prompt
+	// still advertises tools whose transport never came up — exactly the
+	// "声称有工具实则调不通" symptom AC3 was meant to eliminate. Rebuild
+	// the prompt now that mcpConfigs reflects the surviving set and push
+	// the new text back into the context so the first reasoning step sees
+	// a clean tool inventory.
+	if hadSynthesizedSections && len(failedPaths) > 0 && k.ctxMgr != nil && proc.CtxID != 0 {
+		var sections *rnixctx.SectionRegistry
+		proc.mu.Lock()
+		sections = proc.sections
+		proc.mu.Unlock()
+		if sections != nil {
+			rebuilt := sections.Build()
+			if err := k.ctxMgr.SetSystemPrompt(proc.CtxID, rebuilt); err != nil {
+				log.Printf("[rehydrate] uuid=%s: rebuild system prompt after mount prune failed: %v", proc.UUID, err)
+			}
+		}
+	}
 
 	return len(successPaths)
 }

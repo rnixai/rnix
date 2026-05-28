@@ -18,30 +18,72 @@ import (
 	"github.com/rnixai/rnix/vfs"
 )
 
+// attachStepObservation initialises the per-process step/event writers and
+// resolves stepsDir / scratchDir + checkpointErrCh on disk. Safe to call
+// repeatedly: a subsequent invocation is a no-op when stepWriter is already
+// set, so resume / load_suspended (which need writers attached BEFORE they
+// emit Resurrect / ResumeFromHistory / Mount) and reasonStep (the legacy
+// attachment site for fresh-spawn paths) can both invoke it without racing.
+//
+// Story 48.1 code-review P1 — before this helper existed, only reasonStep
+// attached the writer, so the resume hot path emitted its events into a nil
+// writer and the [event-drop] warning fired. LoadSuspendedFromDisk was
+// even worse: Suspended placeholders never run reasonStep, so Resurrect
+// + Mount events were permanently dropped from events.jsonl.
+func (k *KernelImpl) attachStepObservation(proc *Process) {
+	if proc == nil {
+		return
+	}
+	proc.mu.Lock()
+	already := proc.stepWriter != nil && proc.eventWriter != nil && proc.stepsDir != ""
+	proc.mu.Unlock()
+	if already {
+		return
+	}
+
+	stepBaseDir := k.ResolveStepBaseDir(proc)
+	if stepBaseDir == "" {
+		return
+	}
+
+	proc.mu.Lock()
+	if proc.stepWriter == nil {
+		if sw, err := NewStepWriter(stepBaseDir, proc.UUID); err == nil {
+			proc.stepWriter = sw
+		}
+	}
+	if proc.eventWriter == nil {
+		if ew, err := NewEventWriter(stepBaseDir, proc.UUID); err == nil {
+			proc.eventWriter = ew
+		}
+	}
+	if proc.stepsDir == "" {
+		proc.stepsDir = filepath.Join(stepBaseDir, "data", "steps", proc.UUID)
+	}
+	if proc.scratchDir == "" {
+		proc.scratchDir = filepath.Join(stepBaseDir, "data", "scratch", proc.UUID)
+	}
+	if proc.checkpointErrCh == nil {
+		proc.checkpointErrCh = make(chan error, 1)
+	}
+	scratch := proc.scratchDir
+	proc.mu.Unlock()
+
+	_ = os.MkdirAll(scratch, 0o755)
+}
+
 // finishProcess terminates the process and writes the exit status to the Done channel.
 func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	proc.mu.Lock()
-	// Story 48.1 AC7 — exclude mcpReusedMounts from exit-time unmount so a
-	// fork-resume sibling or original parent that still owns the shared mount
-	// retains access. mcpReusedMounts is non-empty only when resume's
-	// reattachMCPMounts hit the AC7 collision branch (path already in
-	// mountMgr at resume time); the normal spawn / non-fork resume case
-	// leaves it empty and the loop below unmounts everything in MCPMounts.
-	var mcpMounts []string
-	if len(proc.mcpReusedMounts) == 0 {
-		mcpMounts = append([]string(nil), proc.MCPMounts...)
-	} else {
-		reused := make(map[string]struct{}, len(proc.mcpReusedMounts))
-		for _, p := range proc.mcpReusedMounts {
-			reused[p] = struct{}{}
-		}
-		for _, p := range proc.MCPMounts {
-			if _, skip := reused[p]; skip {
-				continue
-			}
-			mcpMounts = append(mcpMounts, p)
-		}
-	}
+	// Story 48.1 code-review P2/P4 — mount lifetime is now ref-counted in
+	// the MountManager (see vfs/mount.go). finishProcess always releases
+	// ONE reference per path the process held (whether obtained via the
+	// original Mount or via Acquire on the resume / fork path); the real
+	// teardown happens only when the last owner releases. The old
+	// mcpReusedMounts skip-list became unnecessary and is no longer
+	// consulted — the field is still populated by reattachMCPMounts for
+	// the Mount event's reused=true marker.
+	mcpMounts := append([]string(nil), proc.MCPMounts...)
 	// Backfill Result from exit reason when empty — ensures Dashboard always has
 	// diagnostic info for failed processes (e.g., empty LLM response, context cancelled).
 	if proc.Result == "" && exit.Code != 0 && exit.Reason != "" {
@@ -235,35 +277,11 @@ func (k *KernelImpl) attemptFallback(proc *Process, req llmRequest, primaryDevic
 func (k *KernelImpl) reasonStep(proc *Process, llmFD types.FD, opts SpawnOpts) {
 	maxSteps := proc.MaxSteps
 
-	stepBaseDir := k.stepDataDir
-	if stepBaseDir == "" {
-		if proc.ProjectConfig != nil && proc.ProjectConfig.ProjectDir != "" {
-			stepBaseDir = filepath.Join(proc.ProjectConfig.ProjectDir, ".rnix")
-		}
-	}
-	if stepBaseDir != "" {
-		sw, err := NewStepWriter(stepBaseDir, proc.UUID)
-		if err == nil {
-			proc.mu.Lock()
-			proc.stepWriter = sw
-			proc.mu.Unlock()
-		}
-		ew, err := NewEventWriter(stepBaseDir, proc.UUID)
-		if err == nil {
-			proc.mu.Lock()
-			proc.eventWriter = ew
-			proc.mu.Unlock()
-		}
-		// Initialize checkpoint channel and resolve steps directory (Story 30.2)
-		stepsDir := filepath.Join(stepBaseDir, "data", "steps", proc.UUID)
-		scratchDir := filepath.Join(stepBaseDir, "data", "scratch", proc.UUID)
-		_ = os.MkdirAll(scratchDir, 0o755)
-		proc.mu.Lock()
-		proc.checkpointErrCh = make(chan error, 1)
-		proc.stepsDir = stepsDir
-		proc.scratchDir = scratchDir
-		proc.mu.Unlock()
-	}
+	// Idempotent: when resume.go / load_suspended.go has already attached
+	// the writers via attachStepObservation, this call is a fast no-op
+	// (Story 48.1 code-review P1 — resume-path Mount/Resurrect events were
+	// dropped because reasonStep was the only attachment site).
+	k.attachStepObservation(proc)
 
 	defer func() {
 		// Check atomic flag first (no lock needed) to avoid deadlock if

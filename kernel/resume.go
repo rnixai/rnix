@@ -120,6 +120,13 @@ const SuspendReasonCLIDisconnected = "cli_disconnected"
 // entry that share the resume UUID. It is a no-op when fork=true (preserving
 // the original lineage for the forked branch). Called by both resumeFromCheckpoint
 // and resumeFromHistory after all new-process allocations succeed.
+//
+// Story 48.1 code-review P4 — also releases the old process's MCP mount
+// references. Without this, a non-fork resume of a Suspended process left
+// oldProc's mounts (Status=Connected, refCount=1) live in the registry; the
+// new proc's reattachMCPMounts then took an Acquire on each path, so when
+// the new proc exited its Unmount only dropped refCount to 1 and the
+// transport leaked until daemon shutdown.
 func (k *KernelImpl) cleanupOldProcessAndHistory(oldProc *Process, uuid string, fork bool) {
 	if fork {
 		log.Printf("[resume-trace] cleanupOldProcessAndHistory skipped (fork=true) uuid=%s", uuid)
@@ -131,6 +138,18 @@ func (k *KernelImpl) cleanupOldProcessAndHistory(oldProc *Process, uuid string, 
 			uuid, snap.PID, snap.State, snap.TokensUsed, snap.CtxID)
 		if oldProc.CtxID > 0 {
 			_ = k.ctxMgr.CtxFree(oldProc.CtxID)
+		}
+		// Release oldProc's MCP mount references before we drop the
+		// process record. Mounts that aren't reused by the resumer drop to
+		// refCount 0 and are torn down; mounts the resumer will Acquire
+		// stay live with their refcount carried forward.
+		if k.mountMgr != nil && len(oldProc.MCPMounts) > 0 {
+			for _, path := range oldProc.MCPMounts {
+				if err := k.mountMgr.Unmount(path); err != nil {
+					log.Printf("[resume-trace] cleanupOldProcessAndHistory unmount uuid=%s path=%s: %v",
+						uuid, path, err)
+				}
+			}
 		}
 		k.procTable.Delete(oldProc.PID)
 		if queue, ok := k.msgQueues.LoadAndDelete(oldProc.PID); ok {
@@ -710,6 +729,12 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 
 	k.AddProcess(proc)
 	k.msgQueues.Store(proc.PID, newMessageQueue())
+	// Attach step / event writers BEFORE we emit ResumeFromHistory + Mount
+	// events so events.jsonl carries the full audit trail. Without this the
+	// reasonStep goroutine started below is the only attachment site and
+	// every emitEvent in this critical section falls into the [event-drop]
+	// warning path — Story 48.1 code-review P1.
+	k.attachStepObservation(proc)
 	log.Printf("[resume-trace] resumeFromHistory post-AddProcess uuid=%s newPID=%d state=%s tokens=%d ctx_id=%d",
 		uuid, proc.PID, proc.GetState(), proc.TokensUsed, proc.CtxID)
 
