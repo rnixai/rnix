@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -130,8 +131,11 @@ func mcpTransportLabel(cfg vfs.MCPConfig) string {
 	return cfg.TransportType
 }
 
-// availableMCPServerNames returns sorted-ish keys (deterministic enough for
-// error messages — full sort would force ordering test brittleness).
+// availableMCPServerNames returns the registry keys sorted alphabetically.
+// Code review patch P2 — earlier "sorted-ish" map iteration produced
+// non-deterministic NOT_FOUND error messages flickering across daemon restarts
+// and ATDD asserting substring match still passed; sort.Strings makes the
+// "Available: ..." hint copy-paste reproducible.
 func availableMCPServerNames(registry map[string]vfs.MCPConfig) []string {
 	if len(registry) == 0 {
 		return nil
@@ -140,6 +144,7 @@ func availableMCPServerNames(registry map[string]vfs.MCPConfig) []string {
 	for k := range registry {
 		out = append(out, k)
 	}
+	sort.Strings(out)
 	return out
 }
 

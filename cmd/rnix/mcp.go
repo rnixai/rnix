@@ -150,18 +150,30 @@ func renderMCPListQuiet(w io.Writer, mounts []ipc.MCPMountWire) {
 	}
 }
 
-// placeholderIfZero renders integer placeholders ("—") for fields that
-// Story 48.3 deliberately leaves at zero pending Story 48.5 cache work.
+// placeholderIfZero renders integer placeholders for fields that Story 48.3
+// deliberately leaves at zero pending Story 48.5 cache work. Code review
+// patch P4 — honor RNIX_ASCII=1 (project convention from CLAUDE.md) so the
+// table renders on non-UTF-8 terminals.
 func placeholderIfZero(n int) string {
 	if n == 0 {
-		return "—"
+		return mcpPlaceholder()
 	}
 	return fmt.Sprintf("%d", n)
 }
 
-// lastCheckLabel returns "—" for un-probed mounts, otherwise a wall-clock
-// label. Story 48.3 always emits "—" because 48.5 owns the probing cadence.
+// lastCheckLabel returns a placeholder for un-probed mounts, otherwise a
+// wall-clock label. Story 48.3 always emits the placeholder because 48.5
+// owns the probing cadence.
 func lastCheckLabel(_ int64) string {
+	return mcpPlaceholder()
+}
+
+// mcpPlaceholder returns the placeholder glyph for empty cells, honoring
+// RNIX_ASCII=1 (em-dash → hyphen for ASCII-only terminals).
+func mcpPlaceholder() string {
+	if ui.IsASCIIMode() {
+		return "-"
+	}
 	return "—"
 }
 
@@ -222,8 +234,13 @@ func runMCPTest(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// mcpProbeTotalStages is the fixed denominator used in human-mode stage
+// labels. Code review patch P6 — earlier `len(resp.Stages)` made the connect-
+// failure path render `[1/1]` instead of `[1/4]`, hiding from the operator
+// that 3 more stages were planned but skipped.
+const mcpProbeTotalStages = 4
+
 func renderMCPTestHuman(w io.Writer, resp *ipc.MCPTestResponse) {
-	totalStages := len(resp.Stages)
 	for i, s := range resp.Stages {
 		label := mcpStageLabel(s.Name)
 		marker := "OK"
@@ -249,7 +266,7 @@ func renderMCPTestHuman(w io.Writer, resp *ipc.MCPTestResponse) {
 			}
 			detail += ")"
 		}
-		fmt.Fprintf(w, "[%d/%d] %s ... %s%s\n", i+1, totalStages, label, marker, detail)
+		fmt.Fprintf(w, "[%d/%d] %s ... %s%s\n", i+1, mcpProbeTotalStages, label, marker, detail)
 	}
 	// Summary line — emit a final FAILED/OK marker when the probe finishes
 	// (covers the rare "all stages skipped" path).
@@ -305,11 +322,18 @@ func classifyMCPTestErr(err error) string {
 
 // formatMCPTestErr produces a three-segment what/why/how message for the
 // human render path (Story §AC7).
+//
+// Code review patch P3 — anchor the prefix strip on the literal `ipc: [`
+// produced by `ipc.Client.readResponse` (client.go:861). Without the anchor,
+// any error message containing `] ` (e.g. a server name with that substring)
+// would be silently chopped at the first occurrence.
 func formatMCPTestErr(name string, err error) string {
 	msg := err.Error()
-	// Strip the leading "ipc: [CODE]" wrapper to surface the human reason.
-	if i := strings.Index(msg, "] "); i >= 0 {
-		msg = msg[i+2:]
+	const prefix = "ipc: ["
+	if strings.HasPrefix(msg, prefix) {
+		if i := strings.Index(msg, "] "); i >= 0 {
+			msg = msg[i+2:]
+		}
 	}
 	return fmt.Sprintf("MCP server %q probe failed: %s. Run `rnix check mcp` for environment diagnostics.", name, msg)
 }

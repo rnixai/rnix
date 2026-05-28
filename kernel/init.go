@@ -9,6 +9,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/rnixai/rnix/agents"
 	"github.com/rnixai/rnix/drivers/mcp"
+	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
@@ -331,11 +332,21 @@ type mcpManagerService struct {
 func (s *mcpManagerService) Name() string { return "mcp-manager" }
 
 func (s *mcpManagerService) Init(cfg map[string]any) error {
-	configPath := "mcp.yaml"
+	// Code review patch P1: clear stale state so a re-Init after failure does
+	// not surface a previous run's servers via Servers() / kernel.MCPRegistry().
+	s.servers = nil
+
+	// Code review patch P5: default to the global config path (consistent with
+	// `cmd/rnix/check.go::resolveMCPConfigPath`) rather than a CWD-relative
+	// "mcp.yaml" — daemon CWD is not guaranteed to be the user's project root.
+	configPath := defaultMCPConfigPath()
 	if p, ok := cfg["config_path"]; ok {
-		if cp, ok := p.(string); ok {
+		if cp, ok := p.(string); ok && cp != "" {
 			configPath = cp
 		}
+	}
+	if configPath == "" {
+		return nil // no resolvable config path, no MCP servers — same shape as IsNotExist
 	}
 
 	if _, err := os.Stat(configPath); err != nil {
@@ -372,6 +383,17 @@ func (s *mcpManagerService) Init(cfg map[string]any) error {
 // Returns nil before Init runs, on Init failure, or when mcp.yaml is absent.
 func (s *mcpManagerService) Servers() map[string]vfs.MCPConfig {
 	return s.servers
+}
+
+// defaultMCPConfigPath returns the canonical mcp.yaml location (mirrors
+// `cmd/rnix/check.go::resolveMCPConfigPath`). Returns "" when GlobalDir is
+// not resolvable so Init can short-circuit instead of stat()'ing CWD.
+func defaultMCPConfigPath() string {
+	globalDir, err := config.GlobalDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(globalDir, "mcp.yaml")
 }
 
 // logAggregatorService initializes the log aggregation channel (no-op placeholder).
