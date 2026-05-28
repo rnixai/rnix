@@ -47,6 +47,13 @@ const (
 	ErrServiceUnavailable ErrCode = "SERVICE_UNAVAILABLE"
 	ErrAlreadyMounted     ErrCode = "ALREADY_MOUNTED"
 	ErrResourceExhausted  ErrCode = "RESOURCE_EXHAUSTED"
+	// ErrForceKilled is returned by drivers/mcp/transport.Close when the
+	// graceful SIGTERM timeout expires and the transport had to escalate to
+	// SIGKILL. Kernel finishProcess uses errors.As + DriverError.Code ==
+	// ErrForceKilled to annotate the Unmount event (Story 48.2 AC4 + AC7).
+	// Lives in internal/types — not drivers/mcp — to avoid a kernel →
+	// drivers/mcp reverse dependency (Story 48.2 易错点 #8).
+	ErrForceKilled ErrCode = "force_killed"
 )
 
 // Signal represents a process signal.

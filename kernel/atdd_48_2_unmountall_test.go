@@ -135,8 +135,6 @@ func newTrackingTransportFactory(transports map[string]*trackingMCPTransport) vf
 // AC2: daemon 优雅 shutdown → 全部 MCP server 子进程树清理（≤ 5.5s）
 // -----------------------------------------------------------------------------
 func TestATDD_48_2_002_DaemonShutdown_CleansAllMCPSubprocesses(t *testing.T) {
-	t.Skip("RED: 待 Task 2.3 (transport.Close 两阶段) + Task 2.4 (closeProcess helper) 落地")
-
 	// Three transports — two healthy fast-closers, one forced-kill simulator.
 	transports := map[string]*trackingMCPTransport{
 		"github":     {},
@@ -230,8 +228,6 @@ func TestATDD_48_2_002_DaemonShutdown_CleansAllMCPSubprocesses(t *testing.T) {
 // force_killed sentinel) is the most likely future regressor. This test
 // pins the behaviour.
 func TestATDD_48_2_002b_UnmountAll_PerTransportErrorDoesNotAbort(t *testing.T) {
-	t.Skip("RED: 待 Task 2.3 (Close 返回 ErrForceKilled sentinel) 落地")
-
 	transports := map[string]*trackingMCPTransport{
 		"first": {closeErr: types.NewDriverError("Close", "/mnt/mcp/1-first", errors.New("forced"), types.ErrCode("force_killed"))},
 		"second":  {},

@@ -22,8 +22,6 @@ import (
 // =============================================================================
 
 func TestATDD_48_2_006b_OtherUnixSetpgidOnly(t *testing.T) {
-	t.Skip("RED: 待 Task 1.2 (drivers/mcp/transport_pgrp_other_unix.go) + Task 4.1 落地")
-
 	transport := NewStdioTransport(TransportConfig{
 		Command:       "bash",
 		Args:          []string{"-c", mockMCPServer},

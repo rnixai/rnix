@@ -38,8 +38,6 @@ import (
 // AC7: forced path (Close returned ErrForceKilled + slow elapsed)
 // -----------------------------------------------------------------------------
 func TestATDD_48_2_007_UnmountEvent_ForcedKill_AnnotatesArgs(t *testing.T) {
-	t.Skip("RED: 待 Task 3.1 (finishProcess args 含 forced/duration_ms/reason) 落地")
-
 	// Single mount with a transport that simulates the SIGTERM-timeout path:
 	// Close blocks 4.95s and returns *types.DriverError{Code: "force_killed"}.
 	transports := map[string]*trackingMCPTransport{
@@ -172,8 +170,6 @@ func TestATDD_48_2_007_UnmountEvent_ForcedKill_AnnotatesArgs(t *testing.T) {
 // Bench against the same finishProcess invocation but with a healthy
 // transport that closes in <50ms.
 func TestATDD_48_2_007b_UnmountEvent_GracefulPath_NoForcedFlag(t *testing.T) {
-	t.Skip("RED: 待 Task 3.1 (duration_ms 在 graceful 路径也注入) 落地")
-
 	transports := map[string]*trackingMCPTransport{
 		"fast": {}, // no closeDelay, no closeErr
 	}

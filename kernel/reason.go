@@ -105,10 +105,33 @@ func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 		for _, mountPath := range mcpMounts {
 			unmountStart := time.Now()
 			err := k.mountMgr.Unmount(mountPath)
-			k.emitEvent(proc, "Unmount", map[string]any{
-				"path": mountPath,
-				"auto": true,
-			}, nil, err, time.Since(unmountStart))
+			duration := time.Since(unmountStart)
+			args := map[string]any{
+				"path":        mountPath,
+				"auto":        true,
+				"duration_ms": duration.Milliseconds(),
+			}
+			// Story 48.2 AC7: annotate forced-kill Unmount events so the
+			// dashboard timeline can surface "SIGTERM was ignored, escalated
+			// to SIGKILL after 5s". Two detection paths:
+			//   (a) primary  — DriverError.Code == ErrForceKilled, set by
+			//       drivers/mcp/transport.Close when escalation occurred.
+			//   (b) fallback — Unmount duration ≥ gracefulShutdownTimeout
+			//       minus 100ms scheduler slack. Catches any future driver
+			//       that fails to wrap with the sentinel.
+			forced := false
+			var dErr *types.DriverError
+			if errors.As(err, &dErr) && dErr.Code == types.ErrForceKilled {
+				forced = true
+			}
+			if !forced && duration >= 4900*time.Millisecond {
+				forced = true
+			}
+			if forced {
+				args["forced"] = true
+				args["reason"] = "sigterm_ignored"
+			}
+			k.emitEvent(proc, "Unmount", args, nil, err, duration)
 		}
 	}
 

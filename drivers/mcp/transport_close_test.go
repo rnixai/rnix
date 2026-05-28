@@ -94,8 +94,6 @@ func processGroupAlive(pgid int) bool {
 //
 // Activating this test (remove t.Skip) will surface that gap.
 func TestATDD_48_2_001_Close_KillsSubprocessTree_Graceful(t *testing.T) {
-	t.Skip("RED: 待 Task 1 + Task 2.3 + Task 4.1 落地 (Setpgid + 两阶段 Close + Connect 接入)")
-
 	transport := NewStdioTransport(TransportConfig{
 		Command:       "bash",
 		Args:          []string{"-c", mockMCPServerWithChildren},
@@ -172,8 +170,6 @@ func TestATDD_48_2_001_Close_KillsSubprocessTree_Graceful(t *testing.T) {
 //   - This is exactly the bug Story §易错点 #5 names: dev-story MUST gate via
 //     `closed` flag or sync.Once.
 func TestATDD_48_2_003_Close_Idempotent(t *testing.T) {
-	t.Skip("RED: 待 Task 2.3 §1-2 closed flag 落地")
-
 	transport := NewStdioTransport(TransportConfig{
 		Command:       "bash",
 		Args:          []string{"-c", mockMCPServer},
@@ -222,8 +218,6 @@ func TestATDD_48_2_003_Close_Idempotent(t *testing.T) {
 //     well-behaved servers also lose their cleanup window. This test asserts
 //     the 5s SIGTERM-first contract.
 func TestATDD_48_2_004_Close_TimeoutFallbackToSIGKILL(t *testing.T) {
-	t.Skip("RED: 待 Task 2.3 §8-9 (5s graceful timeout + SIGKILL 升级) + Task 2.5 (ErrForceKilled sentinel)")
-
 	fixtureSrc, err := filepath.Abs("testdata/mcp_ignore_sigterm")
 	if err != nil {
 		t.Fatalf("resolve fixture src dir: %v", err)
@@ -295,8 +289,6 @@ exit 0
 `
 
 func TestATDD_48_2_005_Connect_FailureCleansSubprocessTree(t *testing.T) {
-	t.Skip("RED: 待 Task 2.4 (Connect 失败回滚复用 closeProcess helper)")
-
 	transport := NewStdioTransport(TransportConfig{
 		Command:       "bash",
 		Args:          []string{"-c", mockConnectFailureWithChildren},
@@ -306,22 +298,11 @@ func TestATDD_48_2_005_Connect_FailureCleansSubprocessTree(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// We need to capture the cmd PID BEFORE Connect returns and clears it.
-	// Workaround: use a polling probe — start Connect in a goroutine, snapshot
-	// PID while the shell is still alive, then await Connect failure.
-	pidCh := make(chan int, 1)
-	go func() {
-		// Wait briefly for cmd to be assigned inside Connect.
-		for range 50 {
-			if transport.cmd != nil && transport.cmd.Process != nil {
-				pidCh <- transport.cmd.Process.Pid
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		pidCh <- 0
-	}()
-
+	// Capture the child PID via the transport's lastChildPID atomic counter,
+	// which is set inside Connect after cmd.Start (before initialize). Reading
+	// it after Connect returns gives a deterministic, race-free snapshot of
+	// the PID that was launched and then cleaned up — exactly what we need
+	// to verify the process group is gone.
 	err := transport.Connect(ctx)
 	if err == nil {
 		t.Fatal("Connect should fail on non-JSON-RPC response")
@@ -330,9 +311,9 @@ func TestATDD_48_2_005_Connect_FailureCleansSubprocessTree(t *testing.T) {
 		t.Logf("Connect err (informational): %v", err)
 	}
 
-	pid := <-pidCh
+	pid := int(transport.lastChildPID.Load())
 	if pid == 0 {
-		t.Skip("could not capture cmd PID before Connect returned — flaky probe; rerun")
+		t.Fatal("lastChildPID not recorded — Connect must atomically capture pid after cmd.Start")
 	}
 
 	// After Connect returns, the cmd field is cleared (line 102-104) but pgid

@@ -21,8 +21,6 @@ import (
 // =============================================================================
 
 func TestATDD_48_2_006a_LinuxPdeathsigConfigured(t *testing.T) {
-	t.Skip("RED: 待 Task 1.1 (drivers/mcp/transport_pgrp_linux.go) + Task 4.1 落地")
-
 	transport := NewStdioTransport(TransportConfig{
 		Command:       "bash",
 		Args:          []string{"-c", mockMCPServer},
