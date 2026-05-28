@@ -39,9 +39,15 @@ func runInitCmd(t *testing.T, args ...string) string {
 	// resetting it. cobra v1.10.2 bubbles initCmd.Execute() up to rootCmd
 	// and reads root.args, so leftover values from earlier tests would
 	// reroute this dispatch to whatever sub-command they last invoked.
-	// Clear root args here and after the run to keep this helper hermetic.
+	// Reset BOTH rootCmd and initCmd args (the dispatch hack in runRoot also
+	// reads initCmd.args via reflect) and re-clear in cleanup so this helper
+	// is hermetic regardless of who runs after.
 	rootCmd.SetArgs(nil)
-	t.Cleanup(func() { rootCmd.SetArgs(nil) })
+	initCmd.SetArgs(nil)
+	t.Cleanup(func() {
+		rootCmd.SetArgs(nil)
+		initCmd.SetArgs(nil)
+	})
 	var buf bytes.Buffer
 	cmd, _, err := rootCmd.Find(append([]string{"init"}, args...))
 	if err != nil {
@@ -96,13 +102,16 @@ func TestATDD_48_4_001_InitWithMcpExamples_GeneratesYaml(t *testing.T) {
 	}
 
 	// 模板**禁止**嵌入 timestamp / username (idempotency + byte-stable 断言)
-	for _, banned := range []string{
-		"@" + os.Getenv("USER"),
-		"generated at 20",
-		"timestamp:",
-	} {
-		if banned != "@" && strings.Contains(string(got), banned) {
-			t.Errorf("mcpExampleYAML must not embed per-machine token %q", banned)
+	banned := []string{"generated at 20", "timestamp:"}
+	if user := os.Getenv("USER"); user != "" {
+		// Guard: when USER is unset (some CI containers / Docker / `su -`),
+		// "@"+USER collapses to "@" and would falsely match every `@scope/pkg`
+		// reference in the template.
+		banned = append(banned, "@"+user)
+	}
+	for _, b := range banned {
+		if strings.Contains(string(got), b) {
+			t.Errorf("mcpExampleYAML must not embed per-machine token %q", b)
 		}
 	}
 }

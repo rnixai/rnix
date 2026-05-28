@@ -504,8 +504,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	// Story 48.4 — spawn preflight for playwright-demo agent.
 	// Bypassed for every other agent name so existing spawn flows are zero-impact.
 	if flagAgent == "playwright-demo" {
-		ok, _ := runSpawnPreflight(cmd, flagAgent)
-		if !ok {
+		if !runSpawnPreflight(cmd, flagAgent) {
 			return nil
 		}
 	}

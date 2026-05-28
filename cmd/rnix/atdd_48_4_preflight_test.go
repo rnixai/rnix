@@ -44,18 +44,6 @@ func swapPreflightMcpYamlPath(path string) func() {
 	return func() { preflightMcpYamlPath = old }
 }
 
-// fakePreflightCmd is reserved for future renderer ATDD tests that need a
-// scratch cobra.Command container. Currently unused — silence linter.
-var _ = fakePreflightCmd
-
-// fakePreflightCmd 构造一个 cobra command 用于测试 renderer 路径
-// (preflight 直接调用 cmd.OutOrStdout / Stderr).
-func fakePreflightCmd(buf *bytes.Buffer) *bytes.Buffer {
-	// runSpawnPreflight 用 rootCmd.Find 失败时 fallback,但 ATDD 直接调用
-	// runSpawnPreflight,所以我们准备一个 cobra Command 容器:
-	return buf
-}
-
 // seedMcpYamlWithPlaywright writes a minimal mcp.yaml that references playwright.
 func seedMcpYamlWithPlaywright(t *testing.T) string {
 	t.Helper()
@@ -73,21 +61,20 @@ func seedMcpYamlWithPlaywright(t *testing.T) string {
 	return path
 }
 
-// runPreflightForAgent invokes runSpawnPreflight against a fresh in-memory cobra
-// command and returns (ok, output).
+// runPreflightForAgent invokes runSpawnPreflight against the rootCmd-derived
+// container and returns (ok, output). rootCmd.Find(nil) returns root itself
+// with err==nil per cobra contract, so the only failure mode worth defending
+// is the panic-on-deref path, not an explicit error branch.
 func runPreflightForAgent(t *testing.T, agentName string) (bool, string) {
 	t.Helper()
-	cmd, _, err := rootCmd.Find([]string{})
-	if err != nil {
-		t.Fatalf("rootCmd not initialized: %v", err)
+	cmd, _, _ := rootCmd.Find(nil)
+	if cmd == nil {
+		t.Fatalf("rootCmd.Find(nil) returned nil cobra.Command — rootCmd init regression")
 	}
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
-	ok, err := runSpawnPreflight(cmd, agentName)
-	if err != nil {
-		t.Fatalf("runSpawnPreflight unexpected error: %v", err)
-	}
+	ok := runSpawnPreflight(cmd, agentName)
 	return ok, buf.String()
 }
 
@@ -291,9 +278,10 @@ func TestATDD_48_4_011_Preflight_NoChromium_WarnsButContinues(t *testing.T) {
 	if !strings.Contains(out, "playwright install chromium") {
 		t.Errorf("expected 'playwright install chromium' hint, got:\n%s", out)
 	}
-	// 应继续提示 spawn 继续
-	if !strings.Contains(strings.ToLower(out), "continu") {
-		t.Errorf("expected 'continuing' hint, got:\n%s", out)
+	// 应继续提示 spawn 继续 — exact-match "Continuing anyway" so a future
+	// negation like "Operation discontinued" can't sneak past the assertion.
+	if !strings.Contains(out, "Continuing anyway") {
+		t.Errorf("expected exact 'Continuing anyway' phrase, got:\n%s", out)
 	}
 }
 

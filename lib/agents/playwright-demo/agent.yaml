@@ -9,3 +9,4 @@ skills: []
 mcp:
   - playwright
 max_steps: 20
+step_timeout: "60s"

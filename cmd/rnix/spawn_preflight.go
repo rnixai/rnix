@@ -6,7 +6,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 
+	"github.com/rnixai/rnix/drivers/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -45,32 +48,35 @@ type preflightResult struct {
 	Hint    string
 }
 
-// runSpawnPreflight returns ok=false when the spawn must be aborted. When ok
-// is false, the caller should set exitCode=1 and return early WITHOUT calling
-// EnsureDaemon or any IPC method (Story §决策 4 + 易错点 8).
+// runSpawnPreflight returns false when the spawn must be aborted. When false
+// is returned, the caller should set exitCode=1 and return early WITHOUT
+// calling EnsureDaemon or any IPC method (Story §决策 4 + 易错点 8).
 //
 // The function writes any user-facing output (errors / warnings) to
 // cmd.OutOrStdout(). The cobra command is only used as an io.Writer container;
 // no Cobra flags / args are read here.
-func runSpawnPreflight(cmd *cobra.Command, agentName string) (bool, error) {
+func runSpawnPreflight(cmd *cobra.Command, agentName string) bool {
 	if agentName != "playwright-demo" {
-		return true, nil
+		return true
 	}
 
 	w := cmd.OutOrStdout()
 
-	// Check 1: mcp.yaml exists.
+	// Check 1: mcp.yaml exists AND declares the playwright server. Just
+	// checking file presence (the old impl) lets a user-authored mcp.yaml
+	// that only declares `github` etc. slip through preflight, then fail
+	// noisily at MountManager.Mount with a much less actionable error.
 	if r := preflightCheckMcpYaml(); r.Level == checkMCPError {
 		emitPreflightError(w, r)
 		exitCode = 1
-		return false, nil
+		return false
 	}
 
 	// Check 2: npx exists.
 	if r := preflightCheckNpx(); r.Level == checkMCPError {
 		emitPreflightError(w, r)
 		exitCode = 1
-		return false, nil
+		return false
 	}
 
 	// Check 3: Chromium exists (WARN-only).
@@ -79,7 +85,7 @@ func runSpawnPreflight(cmd *cobra.Command, agentName string) (bool, error) {
 		// fall through, ok remains true
 	}
 
-	return true, nil
+	return true
 }
 
 func preflightCheckMcpYaml() preflightResult {
@@ -111,7 +117,31 @@ func preflightCheckMcpYaml() preflightResult {
 			Hint:    "Check filesystem permissions on " + path + ".",
 		}
 	}
-	return preflightResult{Code: "PREFLIGHT_MCP_YAML", Level: checkMCPInfo, Message: "mcp.yaml found", Detail: path}
+
+	// Parse + verify playwright server is actually declared. Without this,
+	// a user-authored mcp.yaml that omits `playwright:` would let preflight
+	// pass and the failure would surface only at MountManager time as an
+	// opaque "server not found" error.
+	cfg, err := mcp.LoadMCPConfig(path)
+	if err != nil {
+		return preflightResult{
+			Code:    "PREFLIGHT_MCP_YAML_INVALID",
+			Level:   checkMCPError,
+			Message: "mcp.yaml failed to parse at " + path,
+			Detail:  err.Error(),
+			Hint:    "Fix YAML syntax and re-run, or `rnix init --with-mcp-examples` to overwrite (rename your file first if you want to keep it).",
+		}
+	}
+	if _, ok := cfg.Servers["playwright"]; !ok {
+		return preflightResult{
+			Code:    "PREFLIGHT_MCP_YAML_NO_PLAYWRIGHT",
+			Level:   checkMCPError,
+			Message: "mcp.yaml does not declare the `playwright` server",
+			Detail:  fmt.Sprintf("mcp.yaml at %s parsed OK but has no `servers.playwright` entry; playwright-demo cannot mount without it.", path),
+			Hint:    "Append the playwright server block from `rnix init --with-mcp-examples` output, or re-run init in a fresh global dir.",
+		}
+	}
+	return preflightResult{Code: "PREFLIGHT_MCP_YAML", Level: checkMCPInfo, Message: "mcp.yaml found with playwright server", Detail: path}
 }
 
 func preflightCheckNpx() preflightResult {
@@ -172,15 +202,42 @@ func emitPreflightError(w io.Writer, r preflightResult) {
 	switch r.Code {
 	case "PREFLIGHT_NPX_MISSING":
 		fmt.Fprintln(w, "How to fix (pick one for your OS):")
-		fmt.Fprintln(w, "  Linux/macOS:  npm install -g npm    (npx ships with npm)")
-		fmt.Fprintln(w, "  macOS:        brew install node     (node + npm together)")
-		fmt.Fprintln(w, "  Any OS:       https://nodejs.org    (download installer >= 18)")
+		if runtime.GOOS == "windows" {
+			fmt.Fprintln(w, "  Windows:      winget install OpenJS.NodeJS")
+			fmt.Fprintln(w, "  Windows:      choco install nodejs    (Chocolatey)")
+			fmt.Fprintln(w, "  Any OS:       https://nodejs.org    (download installer >= 18)")
+		} else {
+			fmt.Fprintln(w, "  Linux/macOS:  npm install -g npm    (npx ships with npm)")
+			fmt.Fprintln(w, "  macOS:        brew install node     (node + npm together)")
+			fmt.Fprintln(w, "  Any OS:       https://nodejs.org    (download installer >= 18)")
+		}
 	case "PREFLIGHT_MCP_YAML_MISSING", "PREFLIGHT_MCP_YAML_PATH_UNRESOLVED":
 		fmt.Fprintln(w, "How to fix:")
 		fmt.Fprintln(w, "  rnix init --with-mcp-examples       # generates ~/.config/rnix/mcp.yaml")
 	case "PREFLIGHT_MCP_YAML_UNREADABLE":
+		path := r.Message
+		// Message is "mcp.yaml not readable at <path>" — strip prefix for the
+		// hint so the user sees a copy-pastable command.
+		const prefix = "mcp.yaml not readable at "
+		if len(path) > len(prefix) && path[:len(prefix)] == prefix {
+			path = path[len(prefix):]
+		} else {
+			path = "<mcp.yaml path>"
+		}
 		fmt.Fprintln(w, "How to fix:")
-		fmt.Fprintln(w, "  Check filesystem permissions on the mcp.yaml file.")
+		fmt.Fprintf(w, "  ls -l %s                # inspect permissions/owner\n", path)
+		fmt.Fprintf(w, "  chmod 600 %s            # restore read access for your user\n", path)
+	case "PREFLIGHT_MCP_YAML_INVALID":
+		fmt.Fprintln(w, "How to fix:")
+		fmt.Fprintln(w, "  rnix check mcp                      # shows the parse error verbatim")
+		fmt.Fprintln(w, "  Then edit mcp.yaml to repair YAML, or rename it and run:")
+		fmt.Fprintln(w, "  rnix init --with-mcp-examples       # regenerates from the byte-stable template")
+	case "PREFLIGHT_MCP_YAML_NO_PLAYWRIGHT":
+		fmt.Fprintln(w, "How to fix:")
+		fmt.Fprintln(w, "  Append the playwright server block to mcp.yaml. The simplest path:")
+		fmt.Fprintln(w, "  mv ~/.config/rnix/mcp.yaml ~/.config/rnix/mcp.yaml.bak")
+		fmt.Fprintln(w, "  rnix init --with-mcp-examples       # regenerates the example with playwright")
+		fmt.Fprintln(w, "  Then merge your custom servers from the backup file.")
 	default:
 		if r.Hint != "" {
 			fmt.Fprintln(w, "How to fix:")
@@ -211,8 +268,23 @@ func emitPreflightErrorJSON(w io.Writer, r preflightResult) {
 
 func emitPreflightWarn(w io.Writer, r preflightResult) {
 	if flagJSON {
-		// JSON mode swallows WARN output (preflight only blocks on ERROR, so
-		// the spawn JSON path stays clean).
+		// Emit a structured warning record so automation pipelines can
+		// surface it instead of silently losing context. The OK field stays
+		// true (warnings don't block); callers using NDJSON-style parsing
+		// will see this line plus the eventual spawn response.
+		payload := map[string]any{
+			"code":    r.Code,
+			"message": r.Message,
+			"hint":    r.Hint,
+		}
+		if r.Detail != "" {
+			payload["detail"] = r.Detail
+		}
+		data, _ := json.Marshal(map[string]any{
+			"ok":       true,
+			"warnings": []any{payload},
+		})
+		fmt.Fprintln(w, string(data))
 		return
 	}
 	if flagQuiet {
@@ -241,7 +313,7 @@ func resolvePreflightMcpYamlPath() string {
 	// Honor init.go's globalDirForInit override (kept disjoint from
 	// check.go's mcpConfigPathForCheck so preflight tests are isolated).
 	if globalDirForInit != "" {
-		return globalDirForInit + string(os.PathSeparator) + "mcp.yaml"
+		return filepath.Join(globalDirForInit, "mcp.yaml")
 	}
 	// Fall back to resolveMCPConfigPath which honors check.go's override
 	// (no-op in normal CLI usage); this keeps a single source of truth for

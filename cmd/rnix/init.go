@@ -65,6 +65,9 @@ servers:
   #   args: ["-y", "@modelcontextprotocol/server-github"]
   #   transport_type: stdio
   #   env:
+  #     # NOTE: rnix does not expand ${VAR} placeholders. Replace this with
+  #     # the actual token value before use, or wire your secret manager to
+  #     # rewrite this file at provisioning time.
   #     GITHUB_TOKEN: "${GITHUB_TOKEN}"
 `
 
@@ -147,7 +150,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Fprintf(w, "mcp.yaml already exists, skipping (path: %s)\n", mcpPath)
 		}
-		renderInitMcpGuidance(w, mcpPath, asciiMode(), quiet)
+		renderInitMcpGuidance(w, mcpPath, quiet)
 	}
 
 	return nil
@@ -234,15 +237,21 @@ func writeDefaultConfig(dir string) error {
 
 // writeMcpYamlExample writes mcpExampleYAML to <dir>/mcp.yaml. Returns
 // wrote=false (no error) if the file already exists — idempotent with the
-// same byte-stable contract as writeDefaultProviders.
+// same byte-stable contract as writeDefaultProviders. Uses O_EXCL for an
+// atomic create (defeats the stat+write TOCTOU race when two `rnix init`
+// processes run concurrently) and 0o600 because the template documents an
+// env block that users typically populate with secrets (GITHUB_TOKEN etc).
 func writeMcpYamlExample(dir string) (bool, error) {
 	mcpPath := filepath.Join(dir, "mcp.yaml")
-	if _, err := os.Stat(mcpPath); err == nil {
-		return false, nil
-	} else if !os.IsNotExist(err) {
+	f, err := os.OpenFile(mcpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return false, nil
+		}
 		return false, err
 	}
-	if err := os.WriteFile(mcpPath, []byte(mcpExampleYAML), 0o644); err != nil {
+	defer f.Close()
+	if _, err := f.Write([]byte(mcpExampleYAML)); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -255,10 +264,10 @@ func writeMcpYamlExample(dir string) (bool, error) {
 //	2. quick verification commands
 //	3. prerequisites
 //
-// quiet=true suppresses sections 2 + 3. The ascii flag is reserved for future
-// glyph additions; the current copy is intentionally ASCII-safe.
-func renderInitMcpGuidance(w io.Writer, mcpPath string, ascii bool, quiet bool) {
-	_ = ascii
+// quiet=true suppresses sections 2 + 3. The copy is intentionally ASCII-safe
+// so RNIX_ASCII=1 needs no special branching here; if Unicode glyphs are
+// added in the future, gate them on asciiMode().
+func renderInitMcpGuidance(w io.Writer, mcpPath string, quiet bool) {
 	if quiet {
 		return
 	}
@@ -276,11 +285,10 @@ func renderInitMcpGuidance(w io.Writer, mcpPath string, ascii bool, quiet bool) 
 	fmt.Fprintln(w, "  - chromium 浏览器 (npx playwright install chromium)")
 }
 
-// asciiMode reports whether RNIX_ASCII=1 forces ASCII fallback rendering.
-func asciiMode() bool {
-	v := strings.TrimSpace(os.Getenv("RNIX_ASCII"))
-	return v != "" && v != "0" && strings.ToLower(v) != "false"
-}
+// asciiMode helper was previously consumed by renderInitMcpGuidance for a
+// reserved-for-future ascii flag. Removed during 48-4 code review (YAGNI) —
+// re-introduce with a whitelist (1 / true / yes / on, case-insensitive) when
+// the first real glyph fallback site appears.
 
 // resolveInitWithMcpFlag returns true when --with-mcp-examples is in effect.
 //
@@ -301,8 +309,14 @@ func resolveInitWithMcpFlag(cmd *cobra.Command) bool {
 		return true
 	}
 	for _, a := range readCommandArgs(cmd) {
-		if a == "--with-mcp-examples" || a == "--with-mcp-examples=true" {
+		if a == "--with-mcp-examples" {
 			return true
+		}
+		if eq := strings.IndexByte(a, '='); eq > 0 && a[:eq] == "--with-mcp-examples" {
+			switch strings.ToLower(a[eq+1:]) {
+			case "1", "true", "yes", "on":
+				return true
+			}
 		}
 	}
 	return false

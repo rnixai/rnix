@@ -31,7 +31,7 @@
 3. **Screenshot** — 用 take_screenshot 截图。
    - **保存约定**：默认路径 `.rnix/data/screenshots/<unix_timestamp>-<slug>.png`
    - 如目录不存在，请用 /dev/fs 创建（mkdir -p 等价）
-   - 如果 `.rnix/` 目录不存在（用户在 rnix 项目外跑）请 fallback 到 `/tmp/rnix-screenshots/`
+   - 如果 `.rnix/` 目录不存在（用户在 rnix 项目外跑）请 fallback 到 `/tmp/rnix-$UID/screenshots/`（按当前用户 UID 隔离，与 Rnix IPC socket 路径约定一致）
 4. **Report** — 用 /dev/fs 写一条 markdown 摘要，含：
    - 访问的 URL
    - 截图保存路径

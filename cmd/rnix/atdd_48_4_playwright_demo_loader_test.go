@@ -37,10 +37,27 @@ func TestATDD_48_4_005_PlaywrightDemoAgent_EmbedExtracted(t *testing.T) {
 		}
 	}
 
-	// 完整目录确认 (defensive: 防止意外把 agent.yaml 放在错误层级)
-	matches, _ := fs.Glob(rnix.EmbeddedAgents, "lib/agents/playwright-demo/*")
-	if len(matches) < 2 {
-		t.Errorf("expected ≥ 2 files under lib/agents/playwright-demo/, got: %v", matches)
+	// 完整目录确认 (defensive: 防止意外把 agent.yaml 放在错误层级,
+	// 但也要拒绝任何意外混入的文件 — 例如 .DS_Store / swp / 备份).
+	matches, err := fs.Glob(rnix.EmbeddedAgents, "lib/agents/playwright-demo/*")
+	if err != nil {
+		t.Fatalf("fs.Glob embedded playwright-demo failed: %v", err)
+	}
+	want := map[string]bool{
+		"lib/agents/playwright-demo/agent.yaml":      false,
+		"lib/agents/playwright-demo/instructions.md": false,
+	}
+	for _, m := range matches {
+		if _, ok := want[m]; !ok {
+			t.Errorf("unexpected file embedded under playwright-demo: %q", m)
+			continue
+		}
+		want[m] = true
+	}
+	for path, found := range want {
+		if !found {
+			t.Errorf("expected embedded file missing: %q", path)
+		}
 	}
 }
 
