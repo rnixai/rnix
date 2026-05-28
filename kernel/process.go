@@ -89,6 +89,14 @@ type Process struct {
 	MaxSteps       int            // max reasoning steps for this process (from SpawnOpts.MaxTurns or DefaultMaxSteps)
 	AllowedDevices []string    // nil/empty = all devices allowed; non-empty = whitelist only
 	MCPMounts      []string    // MCP mount paths auto-mounted by Spawn
+	// mcpReusedMounts contains MCP paths this process did NOT mount itself
+	// (Story 48.1 AC7 — fork-resume collision: an existing mount under the
+	// shared `/mnt/mcp/<original-pid>-<server>` path is reused rather than
+	// duplicated). finishProcess SKIPS these on exit-time unmount so a sibling
+	// fork or the original parent still sees the mount. Empty slice (the
+	// normal case) means MCPMounts and the unmount set are identical.
+	// Protected by proc.mu in the same critical section as MCPMounts.
+	mcpReusedMounts []string
 	TraceID        types.TraceID
 	SpanID         types.SpanID
 	ParentSpanID   types.SpanID

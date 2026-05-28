@@ -64,9 +64,17 @@ func (m *MountManager) Mount(path string, config MCPConfig) error {
 		transport: transport,
 	}
 
-	// Register in DeviceRegistry so VFS Open/Read/Write/Close can route to it
+	// Register in DeviceRegistry so VFS Open/Read/Write/Close can route to it.
+	// Story 48.1 — use RegisterWithDriver instead of Register so DeviceRegistry.
+	// GetDriver(path) returns (*MCPMount, true) rather than (nil, false). This
+	// lets observability surfaces (Dashboard "is this MCP path live?" probes,
+	// ATDD tests that grep DeviceRegistry directly) confirm a mount succeeded
+	// without having to call Open. buildToolDefs (kernel/toolgen.go) is
+	// unaffected — *MCPMount does not implement ToolDescriptor, so the
+	// "silently skip unknown paths (e.g., MCP devices)" branch still applies
+	// and the toolMap does not gain spurious MCP entries.
 	factory := mcpFileFactory(transport)
-	if err := m.devReg.Register(path, factory); err != nil {
+	if err := m.devReg.RegisterWithDriver(path, factory, mount); err != nil {
 		_ = transport.Close()
 		return fmt.Errorf("device register failed for %s: %w", path, err)
 	}

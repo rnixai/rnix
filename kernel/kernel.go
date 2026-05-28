@@ -25,6 +25,10 @@ type MountManager interface {
 	Mount(path string, config vfs.MCPConfig) error
 	Unmount(path string) error
 	UnmountAll() error
+	// ListMounts returns all currently registered mounts. Used by
+	// reattachMCPMounts (Story 48.1) to detect AC7 fork-resume collisions
+	// without racing against another goroutine's Mount call.
+	ListMounts() []vfs.MCPMount
 }
 
 // pidContextKey is used to store PID in context for VFS device callbacks.

@@ -229,6 +229,25 @@ type procInfoDisk struct {
 	// means dashboard must fall back to result-text heuristic.
 	ExitCode    int  `json:"exit_code,omitempty"`
 	ExitCodeSet bool `json:"exit_code_set,omitempty"`
+
+	// Story 48.1 — MCP mount snapshots persisted alongside AllowedDevices so
+	// the resume / load_suspended path can re-mount transports without
+	// re-reading agent.yaml (which may have changed or be missing post-reap).
+	// `omitempty` ensures legacy snapshots without this field re-marshal
+	// cleanly (TestProcInfoDisk_MCPMounts_BackwardCompat) and the AC6
+	// zero-overhead path stays branch-free in JSON.
+	MCPMounts []mcpMountDisk `json:"mcp_mounts,omitempty"`
+}
+
+// mcpMountDisk mirrors vfs.MCPMountSnapshot on disk. Defined here (instead of
+// reusing vfs.MCPMountSnapshot directly in procInfoDisk) so the kernel-side
+// disk schema can evolve independently of the vfs in-memory snapshot. Today
+// the two are structurally identical; an explicit conversion layer keeps the
+// boundary obvious if the disk format ever needs to add transport-specific
+// fields (e.g. mcp_subprocess_pids, deferred to Story 48.2).
+type mcpMountDisk struct {
+	Path   string        `json:"path"`
+	Config vfs.MCPConfig `json:"config"`
 }
 
 func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
@@ -275,6 +294,15 @@ func procInfoToDisk(info vfs.ProcInfo) procInfoDisk {
 	}
 	if info.PausedTotal > 0 {
 		d.PausedTotalMs = info.PausedTotal.Milliseconds()
+	}
+	// Story 48.1 — translate vfs.MCPMountSnapshot ↔ mcpMountDisk. nil / empty
+	// slices stay nil so `omitempty` keeps the JSON field absent on legacy or
+	// non-MCP processes.
+	if len(info.MCPMounts) > 0 {
+		d.MCPMounts = make([]mcpMountDisk, 0, len(info.MCPMounts))
+		for _, m := range info.MCPMounts {
+			d.MCPMounts = append(d.MCPMounts, mcpMountDisk{Path: m.Path, Config: m.Config})
+		}
 	}
 	return d
 }
@@ -326,6 +354,16 @@ func procInfoFromDisk(d procInfoDisk) vfs.ProcInfo {
 	}
 	if d.PausedTotalMs > 0 {
 		info.PausedTotal = time.Duration(d.PausedTotalMs) * time.Millisecond
+	}
+	// Story 48.1 — translate mcpMountDisk back into vfs.MCPMountSnapshot.
+	// Legacy snapshots without the field arrive as nil here; the loop is
+	// skipped and info.MCPMounts stays nil — exactly what the AC6 zero-overhead
+	// path and the BackwardCompat test expect.
+	if len(d.MCPMounts) > 0 {
+		info.MCPMounts = make([]vfs.MCPMountSnapshot, 0, len(d.MCPMounts))
+		for _, m := range d.MCPMounts {
+			info.MCPMounts = append(info.MCPMounts, vfs.MCPMountSnapshot{Path: m.Path, Config: m.Config})
+		}
 	}
 	return info
 }

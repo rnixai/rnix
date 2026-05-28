@@ -24,6 +24,22 @@ type ContextSummaryProvider interface {
 	GetContextSummary(ctxID types.CtxID) (string, error)
 }
 
+// MCPMountSnapshot captures one MCP mount's path + full transport config so
+// proc-info.json carries everything required to re-mount on resume / daemon
+// restart. Story 48.1 — Resume path must rebuild MCP transports from disk;
+// before this struct existed, procInfoDisk only persisted PID/UUID/AllowedDevices,
+// so the resumed process silently lost MCP tool access (Investigation Finding 9).
+//
+// Path is the canonical `/mnt/mcp/<original-pid>-<server-name>` string written
+// at first spawn (kernel/spawn.go:619). The resume path MUST re-use this PID
+// rather than the new PID assigned by NewProcess — AllowedDevices stores the
+// same path string, and toolMap construction depends on three-way alignment
+// (Path ↔ AllowedDevices entry ↔ DeviceRegistry key). See Story 48.1 易错点 #1.
+type MCPMountSnapshot struct {
+	Path   string    `json:"path"`
+	Config MCPConfig `json:"config"`
+}
+
 // ProcInfo is a snapshot of process information at a point in time.
 // Value type (not a reference to *Process) to avoid concurrency issues and cross-package dependencies.
 type ProcInfo struct {
@@ -84,6 +100,15 @@ type ProcInfo struct {
 	// process not yet exited) and dashboard falls back to result-text heuristic.
 	ExitCode    int
 	ExitCodeSet bool
+
+	// MCPMounts is the persisted snapshot of every MCP server mounted onto this
+	// process at its most recent live observation (Story 48.1 Task 1.1). Empty /
+	// nil for processes that did not reference MCP servers (the AC6 zero-overhead
+	// path). The resume path consumes this slice in rehydrate to re-call
+	// MountManager.Mount with the original PID + complete vfs.MCPConfig, so
+	// dashboard `r` after daemon restart or `rnix resume <uuid>` after reap no
+	// longer silently strips MCP tool access.
+	MCPMounts []MCPMountSnapshot
 }
 
 // ProcFS implements a read-only /proc filesystem that exposes process runtime state.

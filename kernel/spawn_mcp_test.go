@@ -77,6 +77,19 @@ func (m *spawnMockMountManager) UnmountAll() error {
 	return nil
 }
 
+// ListMounts satisfies the MountManager interface (Story 48.1). Returns one
+// MCPMount per registered path; Config not populated because the spawn tests
+// only assert path presence, not transport state.
+func (m *spawnMockMountManager) ListMounts() []vfs.MCPMount {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]vfs.MCPMount, 0, len(m.mounted))
+	for path := range m.mounted {
+		out = append(out, vfs.MCPMount{Path: path})
+	}
+	return out
+}
+
 func (m *spawnMockMountManager) getMountCalls() []mountCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

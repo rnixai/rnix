@@ -75,9 +75,6 @@ func makeMountedProcWithMCP(t *testing.T, baseDir, uuid string,
 // silently lose MCP capability (the bug Investigation Finding 9 documented).
 //
 func TestATDD_48_1_001_RehydrateRestoresMCPMount_Reap(t *testing.T) {
-	t.Skip("RED PHASE: story 48.1 Task 1.1-1.5 + Task 2 + Task 3.1 not implemented yet — " +
-		"remove this Skip after dev wires reattachMCPMounts() into resumeFromHistory")
-
 	uuid := "48-1-ac1-reap-resume-0000-000000000001"
 	serverName := "deepwiki"
 	mock := &mockMCPTransport{}
@@ -198,9 +195,6 @@ func TestATDD_48_1_001_RehydrateRestoresMCPMount_Reap(t *testing.T) {
 // returns — no user-issued resume needed.
 //
 func TestATDD_48_1_002_RehydrateRestoresMCPMount_LoadSuspended(t *testing.T) {
-	t.Skip("RED PHASE: story 48.1 Task 1 + Task 2 + Task 3.2 not implemented yet — " +
-		"remove this Skip after dev wires reattachMCPMounts() into LoadSuspendedFromDisk")
-
 	uuid := "48-1-ac2-suspended-revive-0000-00000000002"
 	serverName := "playwright"
 	mock := &mockMCPTransport{}
@@ -279,9 +273,6 @@ func TestATDD_48_1_002_RehydrateRestoresMCPMount_LoadSuspended(t *testing.T) {
 //   - NOT abort the resume
 //
 func TestATDD_48_1_003_PartialMountFailure_PreservesSuccessful(t *testing.T) {
-	t.Skip("RED PHASE: story 48.1 Task 2.2 partial-failure handling not implemented yet — " +
-		"remove this Skip after dev implements three-way slice alignment")
-
 	uuid := "48-1-ac3-partial-fail-0000-000000000003"
 	serverA := "deepwiki"
 	serverB := "broken-server"
@@ -370,9 +361,6 @@ func TestATDD_48_1_003_PartialMountFailure_PreservesSuccessful(t *testing.T) {
 // fallback order: original WorkDir → os.Getwd() → /tmp
 //
 func TestATDD_48_1_004_CwdFallback_OriginalMissing(t *testing.T) {
-	t.Skip("RED PHASE: story 48.1 Task 2.2 cwd fallback not implemented yet — " +
-		"remove this Skip after dev implements WorkDir os.Stat fallback chain")
-
 	uuid := "48-1-ac4-cwd-fallback-0000-000000000004"
 	serverName := "deepwiki"
 
@@ -466,9 +454,6 @@ func TestATDD_48_1_004_CwdFallback_OriginalMissing(t *testing.T) {
 // daemon_restart_recovery=true flag.
 //
 func TestATDD_48_1_005_DaemonRestart_MountSucceedsWithRecoveryFlag(t *testing.T) {
-	t.Skip("RED PHASE: story 48.1 Task 2.2 daemon_restart_recovery flag not implemented yet — " +
-		"remove this Skip after dev adds the recovery-flag heuristic")
-
 	uuid := "48-1-ac5-daemon-restart-0000-000000000005"
 	serverName := "deepwiki"
 	mock := &mockMCPTransport{}
@@ -519,9 +504,6 @@ func TestATDD_48_1_005_DaemonRestart_MountSucceedsWithRecoveryFlag(t *testing.T)
 // regress next.
 //
 func TestATDD_48_1_006_NoMCP_RehydrateUnchanged(t *testing.T) {
-	t.Skip("RED PHASE: story 48.1 Task 2.2 zero-overhead skip not implemented yet — " +
-		"remove this Skip alongside AC1 (one PR should activate AC1 and AC6 together)")
-
 	uuid := "48-1-ac6-no-mcp-0000-0000-0000-000000000006"
 	k, baseDir, mgr := setupResumeKernelWithMockMCP(t, nil)
 
@@ -575,9 +557,6 @@ func TestATDD_48_1_006_NoMCP_RehydrateUnchanged(t *testing.T) {
 // proc.MCPMounts so buildToolDefs picks up the existing DeviceRegistry entry.
 //
 func TestATDD_48_1_007_ForkResume_AlreadyMountedReused(t *testing.T) {
-	t.Skip("RED PHASE: story 48.1 Task 2.2 ErrAlreadyMounted reuse path not implemented yet — " +
-		"remove this Skip after dev adds the ErrAlreadyMounted branch")
-
 	uuid := "48-1-ac7-fork-resume-0000-000000000007"
 	serverName := "deepwiki"
 	mock := &mockMCPTransport{}

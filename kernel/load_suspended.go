@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/rnixai/rnix/internal/types"
+	"github.com/rnixai/rnix/vfs"
 )
 
 // LoadSuspendedFromDisk scans <stepDataDir>/data/steps/*/proc-info.json and
@@ -101,6 +102,20 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 		proc.TokensUsed = info.TokensUsed
 		proc.CreatedAt = info.CreatedAt
 		proc.LastHeartbeat = info.LastHeartbeat
+		// Story 48.1 — pre-populate MCPMounts / mcpConfigs from disk so
+		// downstream rehydrate consumers (mcp_instructions section if the
+		// SystemPrompt fallback path triggers) see the original set BEFORE
+		// reattachMCPMounts (called after Resurrect emit) prunes failures.
+		if len(info.MCPMounts) > 0 {
+			paths := make([]string, 0, len(info.MCPMounts))
+			cfgs := make([]vfs.MCPConfig, 0, len(info.MCPMounts))
+			for _, m := range info.MCPMounts {
+				paths = append(paths, m.Path)
+				cfgs = append(cfgs, m.Config)
+			}
+			proc.MCPMounts = paths
+			proc.mcpConfigs = cfgs
+		}
 		proc.mu.Unlock()
 
 		// Re-attach ProjectConfig. Without this, placeholders for processes
@@ -216,6 +231,15 @@ func (k *KernelImpl) LoadSuspendedFromDisk() (int, error) {
 			"trigger":        "daemon_restart",
 			"suspend_reason": info.SuspendReason,
 		}, nil, nil, 0)
+
+		// Story 48.1 — Re-mount MCP transports for the revived placeholder.
+		// Sequenced AFTER procTable.Store + Resurrect emit so the Mount
+		// events follow Resurrect in chronological order on DebugChan (the
+		// only sink available here — LoadSuspendedFromDisk does not yet
+		// attach an EventWriter; tests assert via drainMountEvents).
+		// daemon_restart_recovery=true is set automatically by the helper
+		// when mountMgr was empty AND info.State==suspended (AC5).
+		k.reattachMCPMounts(proc, info)
 
 		loaded++
 	}

@@ -2,12 +2,14 @@ package kernel
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"maps"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	rnixctx "github.com/rnixai/rnix/context"
 	"github.com/rnixai/rnix/internal/types"
@@ -224,4 +226,177 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 	}
 
 	return lastStep, totalSteps, nil
+}
+
+// reattachMCPMounts re-mounts every MCP server persisted in info.MCPMounts
+// (Story 48.1). This is the ONLY entry point that issues mountMgr.Mount on
+// the resume / load_suspended hot path; do NOT call mountMgr.Mount directly
+// from resumeFromHistory or LoadSuspendedFromDisk.
+//
+// MUST be invoked AFTER k.AddProcess(proc) AND after any AttachEventWriter
+// hook so emitEvent reaches both DebugChan and events.jsonl — calling it
+// inside rehydrateRuntimeStateFromDisk would emit Mount events into the void
+// (Edge Case Hunter Finding #8). Spawn's MCP mount loop (kernel/spawn.go:607-651)
+// achieves the same ordering by emitting before AddProcess; that path is left
+// untouched because it lives upstream of any persistence we control.
+//
+// Behaviour:
+//   - info.MCPMounts empty / nil → no-op (AC6 zero-overhead path).
+//   - k.mountMgr nil → log warning, no-op (test fixtures without mountMgr).
+//   - Per mount: WorkDir fallback chain (original → os.Getwd → /tmp) when the
+//     persisted dir is missing (AC4).
+//   - Path already in mountMgr (AC7 fork-resume collision) → skip Mount call
+//     but record path / config so toolMap rebuilds against the existing
+//     DeviceRegistry entry; Mount event carries reused=true.
+//   - mountMgr.Mount returning ErrAlreadyMounted is also treated as reuse.
+//   - Per-server mount failure → emit Mount event with err, drop the server
+//     from proc.MCPMounts / proc.AllowedDevices / proc.mcpConfigs (AC3 three-
+//     way alignment), keep going so a single bad server does not strand the
+//     rest of the agent.
+//
+// Returns the count of successfully (re)mounted servers — primarily for tests;
+// production callers ignore it because partial failure is not a resume abort
+// condition.
+func (k *KernelImpl) reattachMCPMounts(proc *Process, info vfs.ProcInfo) int {
+	if proc == nil || len(info.MCPMounts) == 0 {
+		return 0
+	}
+	if k.mountMgr == nil {
+		log.Printf("[rehydrate] uuid=%s: mount manager not initialized, skipping %d MCP mount(s) — resumed process will lack MCP tool access until daemon restart with mountMgr",
+			proc.UUID, len(info.MCPMounts))
+		return 0
+	}
+
+	// Capture entry-time mountMgr state so we can flag the AC5 daemon-restart-
+	// recovery scenario (mountMgr empty + on-disk State=suspended). Snapshot
+	// once outside the per-mount loop because the first successful mount in
+	// the loop would otherwise flip the result for subsequent iterations.
+	daemonRestartRecovery := info.State == types.StateSuspended && len(k.mountMgr.ListMounts()) == 0
+
+	var (
+		successPaths   []string
+		successConfigs []vfs.MCPConfig
+		reusedPaths    []string
+		failedPaths    = make(map[string]struct{})
+	)
+
+	for _, snap := range info.MCPMounts {
+		path := snap.Path
+		// Value copy of MCPConfig — safe to mutate WorkDir without touching
+		// the disk snapshot (info.MCPMounts retains the original path so a
+		// later daemon restart can re-attempt the original WorkDir if the
+		// user restored the directory).
+		cfg := snap.Config
+		mountStart := time.Now()
+
+		eventArgs := map[string]any{
+			"path":   path,
+			"auto":   true,
+			"source": "resume",
+		}
+		if daemonRestartRecovery {
+			eventArgs["daemon_restart_recovery"] = true
+		}
+
+		// AC4 — cwd fallback chain. Only triggered when the persisted dir
+		// exists AND is missing on disk. Empty WorkDir is passed through
+		// verbatim (transport defaults to its own cwd).
+		if cfg.WorkDir != "" {
+			if _, statErr := os.Stat(cfg.WorkDir); os.IsNotExist(statErr) {
+				original := cfg.WorkDir
+				resolved := "/tmp"
+				if wd, werr := os.Getwd(); werr == nil {
+					if _, sErr := os.Stat(wd); sErr == nil {
+						resolved = wd
+					}
+				}
+				cfg.WorkDir = resolved
+				eventArgs["cwd_fallback"] = true
+				eventArgs["cwd_original"] = original
+				eventArgs["cwd_resolved"] = resolved
+				k.emitLog(proc, 0, types.LogOutput, fmt.Sprintf(
+					"MCP server %q: original WorkDir %q missing, falling back to %q",
+					cfg.ServerName, original, resolved), "")
+			}
+		}
+
+		// AC7 — already mounted (fork-resume collision or daemon-internal
+		// concurrent resume). Skip the Mount call but treat as success so
+		// proc.MCPMounts / mcpConfigs preserve the path for buildToolDefs.
+		alreadyMounted := false
+		for _, existing := range k.mountMgr.ListMounts() {
+			if existing.Path == path {
+				alreadyMounted = true
+				break
+			}
+		}
+
+		var (
+			mountErr error
+			reused   bool
+		)
+		if alreadyMounted {
+			reused = true
+			eventArgs["reused"] = true
+		} else {
+			mountErr = k.mountMgr.Mount(path, cfg)
+			// Defensive: Mount itself can race with another goroutine and
+			// return ErrAlreadyMounted between our ListMounts check and the
+			// Mount call. Treat as reuse rather than a hard failure.
+			if mountErr != nil && isAlreadyMountedErr(mountErr) {
+				reused = true
+				eventArgs["reused"] = true
+				mountErr = nil
+			}
+		}
+
+		k.emitEvent(proc, "Mount", eventArgs, nil, mountErr, time.Since(mountStart))
+
+		if mountErr == nil {
+			successPaths = append(successPaths, path)
+			successConfigs = append(successConfigs, cfg)
+			if reused {
+				reusedPaths = append(reusedPaths, path)
+			}
+		} else {
+			failedPaths[path] = struct{}{}
+		}
+	}
+
+	// Three-way alignment: proc.MCPMounts (paths), proc.mcpConfigs (configs),
+	// proc.AllowedDevices (LLM-prompt whitelist) MUST agree on the surviving
+	// set. Without this AC3 fails with "声称有工具实则调不通" — the prompt
+	// advertises a tool whose mount never came up.
+	proc.mu.Lock()
+	proc.MCPMounts = successPaths
+	proc.mcpConfigs = successConfigs
+	proc.mcpReusedMounts = reusedPaths
+	if len(failedPaths) > 0 {
+		filtered := proc.AllowedDevices[:0:0]
+		for _, dev := range proc.AllowedDevices {
+			if _, drop := failedPaths[dev]; drop {
+				continue
+			}
+			filtered = append(filtered, dev)
+		}
+		proc.AllowedDevices = filtered
+	}
+	proc.mu.Unlock()
+
+	return len(successPaths)
+}
+
+// isAlreadyMountedErr unwraps the given error chain searching for a
+// types.DriverError whose Code == types.ErrAlreadyMounted. Returns true on
+// match. Used by reattachMCPMounts to demote a Mount→ErrAlreadyMounted into
+// the reuse path even when the ListMounts pre-check missed the race window.
+func isAlreadyMountedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var de *types.DriverError
+	if errors.As(err, &de) {
+		return de.Code == types.ErrAlreadyMounted
+	}
+	return false
 }

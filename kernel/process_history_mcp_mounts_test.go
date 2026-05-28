@@ -2,9 +2,11 @@ package kernel
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/vfs"
 )
 
@@ -37,65 +39,52 @@ import (
 // memory → JSON → memory round trip. JSON field naming uses snake_case per
 // project-context.md §输出格式.
 func TestProcInfoDisk_MCPMounts_Roundtrip(t *testing.T) {
-	t.Skip("RED PHASE: story 48.1 Task 1.2-1.3 procInfoDisk.MCPMounts field not yet implemented. " +
-		"After dev lands the schema field, this test must pass without further changes.")
+	original := vfs.ProcInfo{
+		PID: 100, UUID: "abc", State: types.StateDead,
+		MCPMounts: []vfs.MCPMountSnapshot{
+			{
+				Path: "/mnt/mcp/100-deepwiki",
+				Config: vfs.MCPConfig{
+					ServerName:    "deepwiki",
+					Command:       "/usr/local/bin/deepwiki",
+					Args:          []string{"--mode", "stdio"},
+					Env:           map[string]string{"DW_TOKEN": "xyz", "LOG_LEVEL": "info"},
+					TransportType: "stdio",
+					WorkDir:       "/var/run/deepwiki",
+					Instructions:  "use deepwiki for documentation lookups",
+				},
+			},
+		},
+	}
 
-	// NOTE: The assertions below reference types that do not exist until
-	// Task 1.1-1.3 ships (vfs.MCPMountSnapshot, procInfoDisk.MCPMounts).
-	// Once the t.Skip is removed AND the types exist, the test compiles
-	// and runs. Until then this body is dead code by virtue of t.Skip.
-	//
-	// Suggested implementation (kept commented to keep the file compiling):
-	//
-	// original := vfs.ProcInfo{
-	//     PID: 100, UUID: "abc", State: types.StateDead,
-	//     MCPMounts: []vfs.MCPMountSnapshot{
-	//         {
-	//             Path: "/mnt/mcp/100-deepwiki",
-	//             Config: vfs.MCPConfig{
-	//                 ServerName:    "deepwiki",
-	//                 Command:       "/usr/local/bin/deepwiki",
-	//                 Args:          []string{"--mode", "stdio"},
-	//                 Env:           map[string]string{"DW_TOKEN": "xyz", "LOG_LEVEL": "info"},
-	//                 TransportType: "stdio",
-	//                 WorkDir:       "/var/run/deepwiki",
-	//                 Instructions:  "use deepwiki for documentation lookups",
-	//             },
-	//         },
-	//     },
-	// }
-	//
-	// disk := procInfoToDisk(original)
-	// data, err := json.Marshal(disk)
-	// if err != nil { t.Fatalf("marshal: %v", err) }
-	//
-	// // Field name + position assertions: the JSON must contain "mcp_mounts"
-	// // (snake_case per project-context.md §输出格式).
-	// if !strings.Contains(string(data), `"mcp_mounts"`) {
-	//     t.Errorf("serialized JSON missing snake_case mcp_mounts field: %s", string(data))
-	// }
-	//
-	// var roundtrip procInfoDisk
-	// if err := json.Unmarshal(data, &roundtrip); err != nil {
-	//     t.Fatalf("unmarshal: %v", err)
-	// }
-	//
-	// got := procInfoFromDisk(roundtrip)
-	// if len(got.MCPMounts) != 1 {
-	//     t.Fatalf("MCPMounts len = %d, want 1", len(got.MCPMounts))
-	// }
-	// gotMount := got.MCPMounts[0]
-	// wantMount := original.MCPMounts[0]
-	// if gotMount.Path != wantMount.Path {
-	//     t.Errorf("Path = %q, want %q", gotMount.Path, wantMount.Path)
-	// }
-	// if !reflect.DeepEqual(gotMount.Config, wantMount.Config) {
-	//     t.Errorf("Config differs:\n  got:  %+v\n  want: %+v", gotMount.Config, wantMount.Config)
-	// }
+	disk := procInfoToDisk(original)
+	data, err := json.Marshal(disk)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 
-	// Until the types exist, this assertion is a no-op placeholder that
-	// keeps the test compiling. Remove together with the t.Skip.
-	_ = vfs.MCPConfig{}
+	// Field name assertion: the JSON must contain snake_case mcp_mounts.
+	if !strings.Contains(string(data), `"mcp_mounts"`) {
+		t.Errorf("serialized JSON missing snake_case mcp_mounts field: %s", string(data))
+	}
+
+	var roundtrip procInfoDisk
+	if err := json.Unmarshal(data, &roundtrip); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	got := procInfoFromDisk(roundtrip)
+	if len(got.MCPMounts) != 1 {
+		t.Fatalf("MCPMounts len = %d, want 1", len(got.MCPMounts))
+	}
+	gotMount := got.MCPMounts[0]
+	wantMount := original.MCPMounts[0]
+	if gotMount.Path != wantMount.Path {
+		t.Errorf("Path = %q, want %q", gotMount.Path, wantMount.Path)
+	}
+	if !reflect.DeepEqual(gotMount.Config, wantMount.Config) {
+		t.Errorf("Config differs:\n  got:  %+v\n  want: %+v", gotMount.Config, wantMount.Config)
+	}
 }
 
 // TestProcInfoDisk_MCPMounts_BackwardCompat — Story 48.1 Task 1.6 (compat).

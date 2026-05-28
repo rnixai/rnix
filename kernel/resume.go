@@ -554,6 +554,10 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 			fmt.Errorf("parse proc-info.json: %w", err), types.ErrInternal)
 	}
 
+	// Story 48.1 — promote diskInfo to vfs.ProcInfo so MCPMounts is in the
+	// shape reattachMCPMounts (called after AddProcess below) expects.
+	resumeInfo := procInfoFromDisk(diskInfo)
+
 	if diskInfo.Provider == "" {
 		// Don't silently fall back to "claude" — the original process may have
 		// been running on cursor/openai/etc and the behavior/cost/model contract
@@ -617,6 +621,22 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 	proc.PipelineTotal = diskInfo.PipelineTotal
 	proc.mu.Lock()
 	proc.TokensUsed = diskInfo.TokensUsed
+	// Story 48.1 — pre-populate MCPMounts / mcpConfigs from disk so
+	// downstream consumers that may run inside rehydrate's
+	// SystemPrompt-synthesis fallback path (sections registry → mcp_instructions
+	// section reads mcpConfigs) see the original set BEFORE reattachMCPMounts
+	// prunes failures. fork and non-fork take the same path because the
+	// snapshot belongs to the source UUID, not the new PID.
+	if len(resumeInfo.MCPMounts) > 0 {
+		paths := make([]string, 0, len(resumeInfo.MCPMounts))
+		cfgs := make([]vfs.MCPConfig, 0, len(resumeInfo.MCPMounts))
+		for _, m := range resumeInfo.MCPMounts {
+			paths = append(paths, m.Path)
+			cfgs = append(cfgs, m.Config)
+		}
+		proc.MCPMounts = paths
+		proc.mcpConfigs = cfgs
+	}
 	proc.mu.Unlock()
 
 	// Rehydrate the in-memory runtime state (toolMap + nativeToolDefs,
@@ -723,6 +743,14 @@ func (k *KernelImpl) resumeFromHistory(uuid string, opts ResumeOpts, start time.
 		"fork":      opts.Fork,
 		"last_step": lastStep,
 	}, proc.PID, nil, time.Since(start))
+
+	// Story 48.1 — Re-mount MCP transports from the disk snapshot. Sequenced
+	// after AddProcess + ResumeFromHistory emit so events.jsonl ordering matches
+	// AC1 §Then 5 (ResumeFromHistory → Mount(source="resume") → ...) and the
+	// Mount events reach both DebugChan and the writer if any. Partial failure
+	// (AC3) is non-fatal; reattachMCPMounts records the err and prunes the
+	// failed paths from proc.MCPMounts / mcpConfigs / AllowedDevices internally.
+	k.reattachMCPMounts(proc, resumeInfo)
 
 	proc.wg.Go(func() {
 		defer func() { _ = k.vfs.CloseAll(proc.PID) }()

@@ -58,6 +58,18 @@ func (m *mockMountManager) UnmountAll() error {
 	return nil
 }
 
+// ListMounts satisfies the MountManager interface (Story 48.1). The mock
+// tracks mounts via a bool-set rather than full *MCPMount records so the
+// returned slice carries only Path; tests that need richer fields should
+// use a real vfs.MountManager instead.
+func (m *mockMountManager) ListMounts() []vfs.MCPMount {
+	out := make([]vfs.MCPMount, 0, len(m.mounted))
+	for path := range m.mounted {
+		out = append(out, vfs.MCPMount{Path: path})
+	}
+	return out
+}
+
 // --- Kernel Mount Syscall Tests ---
 
 func TestKernel_Mount(t *testing.T) {

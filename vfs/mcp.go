@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rnixai/rnix/internal/types"
@@ -59,9 +60,18 @@ type MCPMount struct {
 // mcpFile implements VFSFile for MCP tool invocations.
 // Each Open on an MCP path creates one mcpFile instance.
 // Write sends a tools/call request; Read returns the result.
+//
+// Story 48.1 — mu guards every field below (response / closed / writeErr).
+// Without it the resume path can race Close (triggered by finishProcess →
+// vfs.CloseAll) against the test goroutine's Read, since both run on
+// independent goroutines after `rnix resume` returns. The race manifested
+// in TestATDD_48_1_001 once the test exercised concurrent Read + Close;
+// the race-detector report fingered mcp.go:111 (Read of closed) and
+// mcp.go:132 (Close write of closed) on the same word.
 type mcpFile struct {
+	mu        sync.Mutex
 	subpath   string       // e.g. "/tools/create-issue"
-	transport MCPTransport // shared transport for the mount
+	transport MCPTransport // shared transport for the mount (immutable)
 	response  []byte       // buffered response from Write
 	closed    bool
 	writeErr  error // error from Write, surfaced on Read
@@ -77,13 +87,23 @@ func newMCPFile(subpath string, transport MCPTransport) *mcpFile {
 
 // Write sends a tools/call request to the MCP server.
 // data contains the JSON arguments for the tool call.
+//
+// Note: the transport.Call invocation is intentionally outside the per-file
+// mu — Call may block on stdio I/O for up to 30s and holding the lock would
+// stall a concurrent Close called by finishProcess. mu protects only the
+// short pre/post field assignments.
 func (f *mcpFile) Write(ctx context.Context, data []byte) error {
+	f.mu.Lock()
 	if f.closed {
+		f.mu.Unlock()
 		return types.NewDriverError("Write", f.subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
+	transport := f.transport
+	subpath := f.subpath
+	f.mu.Unlock()
 
 	// Parse tool name from subpath: /tools/create-issue -> create-issue
-	toolName := parseToolName(f.subpath)
+	toolName := parseToolName(subpath)
 
 	// Build tools/call params
 	params := map[string]any{
@@ -92,15 +112,21 @@ func (f *mcpFile) Write(ctx context.Context, data []byte) error {
 	}
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
-		return types.NewDriverError("Write", f.subpath, err, types.ErrInternal)
+		return types.NewDriverError("Write", subpath, err, types.ErrInternal)
 	}
 
-	resp, err := f.transport.Call(ctx, "tools/call", paramsJSON)
+	resp, err := transport.Call(ctx, "tools/call", paramsJSON)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		// File was closed while Call was in flight. Drop the response without
+		// publishing it, mirroring the "Close wins" semantics of Read.
+		return types.NewDriverError("Write", subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
+	}
 	if err != nil {
 		f.writeErr = err
-		return types.NewDriverError("Write", f.subpath, err, types.ErrServiceUnavailable)
+		return types.NewDriverError("Write", subpath, err, types.ErrServiceUnavailable)
 	}
-
 	f.response = resp
 	f.writeErr = nil
 	return nil
@@ -108,6 +134,8 @@ func (f *mcpFile) Write(ctx context.Context, data []byte) error {
 
 // Read returns the buffered response from the last Write (tool call).
 func (f *mcpFile) Read(length int) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.closed {
 		return nil, types.NewDriverError("Read", f.subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}
@@ -126,6 +154,8 @@ func (f *mcpFile) Read(length int) ([]byte, error) {
 // Close marks the file as closed. Does NOT close the MCP transport
 // (the transport is shared across all files for the same mount).
 func (f *mcpFile) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.closed {
 		return types.NewDriverError("Close", f.subpath, fmt.Errorf("mcp file already closed"), types.ErrDriver)
 	}
@@ -136,6 +166,8 @@ func (f *mcpFile) Close() error {
 
 // Stat returns metadata about this MCP tool file.
 func (f *mcpFile) Stat() (FileStat, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.closed {
 		return FileStat{}, types.NewDriverError("Stat", f.subpath, fmt.Errorf("mcp file closed"), types.ErrDriver)
 	}

@@ -248,6 +248,58 @@ func (k *KernelImpl) GetSpanID(pid types.PID) (types.SpanID, bool) {
 	return spanID, spanID != ""
 }
 
+// buildMCPMountSnapshots pairs proc.MCPMounts (path slice) with proc.mcpConfigs
+// (vfs.MCPConfig slice) into [{Path, Config}] tuples for persistence.
+//
+// MUST be called with proc.mu held — both source slices are mu-protected
+// (kernel/spawn.go:646-650 writes them under lock, and rehydrate will too).
+//
+// Pairing strategy: the path format is `/mnt/mcp/<pid>-<server>`; we extract
+// the suffix after the LAST `-` and match it to mcpCfg.ServerName. This is
+// resilient to PID renumbering between snapshots (rehydrate may write a path
+// using the original PID while the in-memory proc carries a new one) and to
+// slice-order drift. Unpaired paths are skipped silently — they would otherwise
+// poison resume by feeding zero-value MCPConfig into mountMgr.Mount.
+func buildMCPMountSnapshots(proc *Process) []vfs.MCPMountSnapshot {
+	if len(proc.MCPMounts) == 0 || len(proc.mcpConfigs) == 0 {
+		return nil
+	}
+	cfgByName := make(map[string]vfs.MCPConfig, len(proc.mcpConfigs))
+	for _, cfg := range proc.mcpConfigs {
+		cfgByName[cfg.ServerName] = cfg
+	}
+	out := make([]vfs.MCPMountSnapshot, 0, len(proc.MCPMounts))
+	for _, path := range proc.MCPMounts {
+		// extract `<server>` from `/mnt/mcp/<pid>-<server>`
+		serverName := mcpServerNameFromPath(path)
+		cfg, ok := cfgByName[serverName]
+		if !ok {
+			continue
+		}
+		out = append(out, vfs.MCPMountSnapshot{Path: path, Config: cfg})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// mcpServerNameFromPath extracts the server name suffix from a canonical
+// `/mnt/mcp/<pid>-<server>` mount path. Returns "" if the path doesn't match.
+func mcpServerNameFromPath(path string) string {
+	const prefix = "/mnt/mcp/"
+	if len(path) <= len(prefix) || path[:len(prefix)] != prefix {
+		return ""
+	}
+	tail := path[len(prefix):]
+	for i := 0; i < len(tail); i++ {
+		if tail[i] == '-' {
+			return tail[i+1:]
+		}
+	}
+	return ""
+}
+
 // GetProcInfo returns a snapshot of process information for the given PID.
 func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 	proc, ok := k.GetProcess(pid)
@@ -308,6 +360,7 @@ func (k *KernelImpl) GetProcInfo(pid types.PID) (*vfs.ProcInfo, error) {
 		PipelineTotal:  proc.PipelineTotal,
 		ExitCode:       exitCode,
 		ExitCodeSet:    exitCodeSet,
+		MCPMounts:      buildMCPMountSnapshots(proc),
 	}
 	if proc.ProjectConfig != nil {
 		info.ProjectDir = proc.ProjectConfig.ProjectDir
@@ -381,6 +434,7 @@ func (k *KernelImpl) ListProcs() []vfs.ProcInfo {
 			PipelineTotal:  proc.PipelineTotal,
 			ExitCode:       exitCode,
 			ExitCodeSet:    exitCodeSet,
+			MCPMounts:      buildMCPMountSnapshots(proc),
 		})
 		// Stamp ProjectDir on the just-appended entry. proc.ProjectConfig is
 		// pointer-safe to read under proc.mu (set once at Spawn, immutable

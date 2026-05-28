@@ -21,7 +21,27 @@ import (
 // finishProcess terminates the process and writes the exit status to the Done channel.
 func (k *KernelImpl) finishProcess(proc *Process, exit ExitStatus) {
 	proc.mu.Lock()
-	mcpMounts := append([]string(nil), proc.MCPMounts...)
+	// Story 48.1 AC7 — exclude mcpReusedMounts from exit-time unmount so a
+	// fork-resume sibling or original parent that still owns the shared mount
+	// retains access. mcpReusedMounts is non-empty only when resume's
+	// reattachMCPMounts hit the AC7 collision branch (path already in
+	// mountMgr at resume time); the normal spawn / non-fork resume case
+	// leaves it empty and the loop below unmounts everything in MCPMounts.
+	var mcpMounts []string
+	if len(proc.mcpReusedMounts) == 0 {
+		mcpMounts = append([]string(nil), proc.MCPMounts...)
+	} else {
+		reused := make(map[string]struct{}, len(proc.mcpReusedMounts))
+		for _, p := range proc.mcpReusedMounts {
+			reused[p] = struct{}{}
+		}
+		for _, p := range proc.MCPMounts {
+			if _, skip := reused[p]; skip {
+				continue
+			}
+			mcpMounts = append(mcpMounts, p)
+		}
+	}
 	// Backfill Result from exit reason when empty — ensures Dashboard always has
 	// diagnostic info for failed processes (e.g., empty LLM response, context cancelled).
 	if proc.Result == "" && exit.Code != 0 && exit.Reason != "" {
