@@ -170,3 +170,67 @@ func TestMCPServerConfig_ToMCPConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestMergeGlobalConfig(t *testing.T) {
+	mk := func(servers ...string) *MCPGlobalConfig {
+		m := &MCPGlobalConfig{Servers: map[string]MCPServerConfig{}}
+		for _, s := range servers {
+			m.Servers[s] = MCPServerConfig{Command: s, TransportType: "stdio"}
+		}
+		return m
+	}
+
+	t.Run("both nil returns nil", func(t *testing.T) {
+		if got := MergeGlobalConfig(nil, nil); got != nil {
+			t.Fatalf("MergeGlobalConfig(nil, nil) = %v, want nil", got)
+		}
+	})
+
+	t.Run("nil override returns copy of base", func(t *testing.T) {
+		base := mk("playwright")
+		got := MergeGlobalConfig(base, nil)
+		if got == nil || len(got.Servers) != 1 {
+			t.Fatalf("got %v, want 1 server (playwright)", got)
+		}
+		if _, ok := got.Servers["playwright"]; !ok {
+			t.Errorf("merged missing 'playwright': %v", got.Servers)
+		}
+		// Mutating the result must not affect base (fresh map).
+		got.Servers["extra"] = MCPServerConfig{}
+		if _, ok := base.Servers["extra"]; ok {
+			t.Error("mutating merged result leaked into base map")
+		}
+	})
+
+	t.Run("nil base returns copy of override", func(t *testing.T) {
+		got := MergeGlobalConfig(nil, mk("github"))
+		if got == nil || len(got.Servers) != 1 {
+			t.Fatalf("got %v, want 1 server (github)", got)
+		}
+		if _, ok := got.Servers["github"]; !ok {
+			t.Errorf("merged missing 'github': %v", got.Servers)
+		}
+	})
+
+	t.Run("override adds and replaces by server name", func(t *testing.T) {
+		base := mk("playwright", "github")
+		override := &MCPGlobalConfig{Servers: map[string]MCPServerConfig{
+			"github": {Command: "custom-github", TransportType: "stdio"}, // replaces
+			"slack":  {Command: "slack", TransportType: "stdio"},         // adds
+		}}
+		got := MergeGlobalConfig(base, override)
+		if len(got.Servers) != 3 {
+			t.Fatalf("merged server count = %d, want 3 (playwright, github, slack)", len(got.Servers))
+		}
+		if got.Servers["github"].Command != "custom-github" {
+			t.Errorf("github.Command = %q, want override value 'custom-github'", got.Servers["github"].Command)
+		}
+		if got.Servers["playwright"].Command != "playwright" {
+			t.Errorf("playwright.Command = %q, want base value 'playwright'", got.Servers["playwright"].Command)
+		}
+		// Base must remain unmutated.
+		if base.Servers["github"].Command != "github" {
+			t.Errorf("base github mutated: Command = %q, want 'github'", base.Servers["github"].Command)
+		}
+	})
+}

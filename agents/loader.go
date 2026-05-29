@@ -98,9 +98,16 @@ func (l *AgentLoader) Load(agentName string) (*AgentInfo, error) {
 		deferredSkills = append(deferredSkills, skillInfo)
 	}
 
-	// Resolve MCP references from global config
+	// Resolve MCP references from global config. An agent that declares `mcp:`
+	// servers but whose loader has no mcp.yaml configuration is a misconfiguration
+	// (or a wiring bug, see ipc/server_spawn.go:resolveProjectContext) — fail loudly
+	// rather than silently dropping the MCP devices, which would leave the spawned
+	// process without any MCP tool and no error to explain why.
 	var mcpConfigs []vfs.MCPConfig
-	if len(manifest.MCP) > 0 && l.mcpConfig != nil {
+	if len(manifest.MCP) > 0 {
+		if l.mcpConfig == nil {
+			return nil, fmt.Errorf("agent %q declares mcp servers %q but no mcp.yaml configuration was loaded", agentName, manifest.MCP)
+		}
 		for _, serverName := range manifest.MCP {
 			serverCfg, ok := l.mcpConfig.Servers[serverName]
 			if !ok {

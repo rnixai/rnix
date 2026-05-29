@@ -394,23 +394,26 @@ func TestAgentLoader_Load_MCPResolvesToAgentInfo(t *testing.T) {
 	}
 }
 
-func TestAgentLoader_Load_NilMCPConfig_SkipsMCPResolution(t *testing.T) {
-	// Given: an agent.yaml with mcp field but mcpConfig is nil (no mcp.yaml)
+func TestAgentLoader_Load_NilMCPConfig_ReturnsError(t *testing.T) {
+	// Given: an agent.yaml declaring mcp servers but mcpConfig is nil (no mcp.yaml
+	// loaded). This used to silently drop the MCP devices — a spawned process would
+	// get no MCP tool and no explanation. The loader now fails loudly instead.
+	// See investigations/spawn-mcp-not-available-investigation.md (Finding 6).
 	sl := skills.NewSkillLoader([]string{"../skills/testdata"})
 	al := NewAgentLoader([]string{"testdata"}, sl, nil)
 
-	// When: loading the mcp-agent
-	info, err := al.Load("mcp-agent")
+	// When: loading the mcp-agent (declares ["github", "slack"])
+	_, err := al.Load("mcp-agent")
 
-	// Then: MCP field is parsed but MCPConfigs is empty (no resolution)
-	if err != nil {
-		t.Fatalf("Load returned error: %v", err)
+	// Then: an error explaining the missing mcp.yaml config is returned
+	if err == nil {
+		t.Fatal("expected error when agent declares mcp but mcpConfig is nil, got nil")
 	}
-	if len(info.Manifest.MCP) != 2 {
-		t.Fatalf("Manifest.MCP length = %d, want 2", len(info.Manifest.MCP))
+	if !strings.Contains(err.Error(), "mcp-agent") {
+		t.Errorf("error = %q, want substring 'mcp-agent'", err.Error())
 	}
-	if len(info.MCPConfigs) != 0 {
-		t.Errorf("MCPConfigs = %v, want empty when mcpConfig is nil", info.MCPConfigs)
+	if !strings.Contains(err.Error(), "mcp.yaml") {
+		t.Errorf("error = %q, want substring 'mcp.yaml'", err.Error())
 	}
 }
 

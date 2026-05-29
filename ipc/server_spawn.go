@@ -10,6 +10,7 @@ import (
 
 	"github.com/rnixai/rnix/agents"
 	"github.com/rnixai/rnix/drivers/llm"
+	"github.com/rnixai/rnix/drivers/mcp"
 	"github.com/rnixai/rnix/internal/config"
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/kernel"
@@ -299,9 +300,39 @@ func (s *Server) resolveProjectContext(projectDir, rnixEnv string) (*config.Proj
 		projCfg.DefaultProvider = mergedProvidersCfg.ResolveDefaultProvider()
 	}
 
+	// Resolve MCP config for the project-aware agent loader: the daemon's global
+	// mcp.yaml (cached on globalConfig.MCP) merged with the project's optional
+	// .rnix/mcp.yaml (project overrides global). Passing this — instead of nil —
+	// is what lets an agent's declared `mcp:` servers (e.g. stem's playwright)
+	// actually resolve and mount when spawned in a project context. A project with
+	// no .rnix/mcp.yaml falls back to the global config (the EchoMatrix case).
+	// See investigations/spawn-mcp-not-available-investigation.md.
+	var globalMCP *mcp.MCPGlobalConfig
+	if gc.MCP != nil {
+		if gm, ok := gc.MCP.(*mcp.MCPGlobalConfig); ok {
+			globalMCP = gm
+		} else {
+			// Defensive: globalConfig.MCP should always be *mcp.MCPGlobalConfig
+			// (set in cmd/rnix/main.go). A type mismatch would otherwise silently
+			// drop global MCP servers — the exact failure class this fix removes —
+			// so surface it rather than swallow it.
+			log.Printf("[ipc] warning: globalConfig.MCP has unexpected type %T; ignoring global MCP servers", gc.MCP)
+		}
+	}
+	var projectMCP *mcp.MCPGlobalConfig
+	projectMCPPath := filepath.Join(projectDir, ".rnix", "mcp.yaml")
+	if _, statErr := os.Stat(projectMCPPath); statErr == nil {
+		loaded, loadErr := mcp.LoadMCPConfig(projectMCPPath)
+		if loadErr != nil {
+			return nil, nil, fmt.Errorf("loading project mcp config %s: %w", projectMCPPath, loadErr)
+		}
+		projectMCP = loaded
+	}
+	mergedMCP := mcp.MergeGlobalConfig(globalMCP, projectMCP)
+
 	// Create project-aware skill and agent loaders
 	projectSkillLoader := skills.NewSkillLoader(skillDirs)
-	projectAgentLoader := agents.NewAgentLoader(agentDirs, projectSkillLoader, nil)
+	projectAgentLoader := agents.NewAgentLoader(agentDirs, projectSkillLoader, mergedMCP)
 
 	// Wrap both loaders into opaque types.AgentLoaderFunc / SkillLoaderFunc and
 	// stash on ProjectConfig so kernel/tool_exec.go ActionSpawn / ActionSpecialize

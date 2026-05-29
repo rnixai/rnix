@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"time"
 
@@ -114,6 +115,33 @@ func int64OrDefault(v, def int64) int64 {
 // MCPGlobalConfig holds the global MCP configuration loaded from mcp.yaml.
 type MCPGlobalConfig struct {
 	Servers map[string]MCPServerConfig `yaml:"servers"`
+}
+
+// MergeGlobalConfig returns a NEW MCPGlobalConfig whose Servers are base's
+// servers overlaid by override's (override wins on name collision, mirroring the
+// project-overrides-global semantics used for providers.yaml in
+// ipc/server_spawn.go:resolveProjectContext). Neither input is mutated.
+//
+//   - both nil           → nil
+//   - one nil            → a shallow copy of the other (fresh map, same entries)
+//   - both non-nil       → base entries + override entries, override replacing
+//     any same-named base entry
+//
+// Used by the daemon's project-context spawn path so an agent's declared `mcp:`
+// servers resolve against global ~/.config/rnix/mcp.yaml even when the project
+// has no .rnix/mcp.yaml of its own (the EchoMatrix case).
+func MergeGlobalConfig(base, override *MCPGlobalConfig) *MCPGlobalConfig {
+	if base == nil && override == nil {
+		return nil
+	}
+	merged := &MCPGlobalConfig{Servers: make(map[string]MCPServerConfig)}
+	if base != nil {
+		maps.Copy(merged.Servers, base.Servers)
+	}
+	if override != nil {
+		maps.Copy(merged.Servers, override.Servers)
+	}
+	return merged
 }
 
 // LoadMCPConfig reads and parses a global MCP configuration file.
