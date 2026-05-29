@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-05-29
+
+Theme: **MCP Subsystem Production Hardening (Epic 48)** — MCP server tools surface as first-class agent capabilities, survive process resume, shut down cleanly, and gain operational tooling for inspection, health checks, and per-server tuning.
+
+### Added
+
+- **MCP tools as native agent capabilities**: tools exposed by mounted MCP servers are now presented to agents like any built-in capability, so an agent can call them directly without special handling
+- **`rnix mcp list` / `rnix mcp test`**: inspect configured MCP servers and verify connectivity from the command line
+- **`rnix mcp logs`**: capture and review an MCP server's diagnostic output for troubleshooting
+- **`rnix check mcp`**: subsystem diagnostics command that reports MCP configuration and runtime health at a glance
+- **`rnix init --with-mcp-examples`**: bootstrap a project with ready-to-use MCP example configuration and an example agent
+- **MCP health checks and liveness probes**: mounted servers are monitored for availability, with automatic reconnection on transient failures
+- **Per-server configuration**: each MCP server can set its own mount timeout, request timeout, and output size limit
+- **MCP mount restoration on resume**: resumed processes automatically re-establish their MCP server mounts, so resumed agents retain full tool access
+
+### Changed
+
+- **Concurrent MCP mounting**: multiple MCP servers now mount in parallel rather than sequentially, substantially reducing startup time when several servers (including slow-starting ones) are configured
+- **Graceful MCP shutdown**: MCP server processes are now torn down cleanly with proper process-group isolation, preventing orphaned child processes
+- **Default compose file path**: the default multi-agent workflow file now resolves to `.rnix/compose.yaml`
+
+### Fixed
+
+- **MCP server tool availability**: agents that declare MCP servers now reliably receive those tools; a missing MCP configuration surfaces a clear error instead of silently dropping the servers
+- **MCP permissions no longer override base devices**: mounting an MCP server adds to an agent's capabilities rather than restricting it to only those servers
+- **Output truncation and validation**: improved handling of large MCP tool outputs and stricter configuration validation
+
 ## [0.9.1] - 2026-05-28
 
 Theme: **Skill Trust & Installer Hardening** — project trust checks, single-scope installer refactor, and comprehensive test coverage for the skill management subsystem.
