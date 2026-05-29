@@ -80,6 +80,15 @@ func (t *StdioTransport) reconnectLocked(ctx context.Context) error {
 	policy := t.effectivePolicy()
 	t.status.Store(int32(vfs.MCPStatusReconnecting))
 
+	// Tear down the unresponsive child up front (before the first backoff
+	// sleep that releases t.mu). This sets connected=false and drops the
+	// stale stdin/stdout/reader, so a concurrent Call that grabs t.mu during a
+	// backoff window fails fast on the `!t.connected` guard instead of issuing
+	// a request on a child we are about to SIGKILL (use-after-teardown)
+	// ([Review][Patch] P3). teardown is idempotent, so the per-attempt teardown
+	// below still handles a failed start.
+	t.teardownCurrentProcessLocked()
+
 	var lastErr error
 	for attempt := 0; attempt < policy.MaxRetries; attempt++ {
 		// Backoff BEFORE the attempt (1s → 2s → 4s). Release t.mu while sleeping.
@@ -97,7 +106,7 @@ func (t *StdioTransport) reconnectLocked(ctx context.Context) error {
 			t.mu.Lock()
 		}
 
-		// Tear down whatever is left of the previous child, then re-exec.
+		// Tear down whatever is left of the previous attempt, then re-exec.
 		t.teardownCurrentProcessLocked()
 		if err := t.startProcessLocked(ctx); err != nil {
 			lastErr = err

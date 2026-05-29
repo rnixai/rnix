@@ -166,6 +166,20 @@ func newMCPFile(subpath string, transport MCPTransport) *mcpFile {
 // mu — Call may block on stdio I/O for up to 30s and holding the lock would
 // stall a concurrent Close called by finishProcess. mu protects only the
 // short pre/post field assignments.
+// mcpCallErrCode maps a transport.Call failure to an ErrCode, preserving the
+// L1 ErrDeviceDisconnected sentinel so the kernel can tell a known-disconnected
+// device (→ mcp.error) from a transient in-flight failure (→ ErrServiceUnavailable).
+// Used on every MCP call path, including the read-only ones (tools/list,
+// resources/read, resources/list) so AC1 / Decision 4 hold there too
+// ([Review][Patch] P4). Story 48.5 §易错点 12.
+func mcpCallErrCode(err error) types.ErrCode {
+	var de *types.DriverError
+	if errors.As(err, &de) && de.Code == types.ErrDeviceDisconnected {
+		return types.ErrDeviceDisconnected
+	}
+	return types.ErrServiceUnavailable
+}
+
 func (f *mcpFile) Write(ctx context.Context, data []byte) error {
 	f.mu.Lock()
 	if f.closed {
@@ -199,16 +213,7 @@ func (f *mcpFile) Write(ctx context.Context, data []byte) error {
 	}
 	if err != nil {
 		f.writeErr = err
-		// Story 48.5 §易错点 12: preserve the L1 ErrDeviceDisconnected sentinel
-		// so the kernel can tell a known-disconnected device from a transient
-		// in-flight failure (which stays ErrServiceUnavailable). Any other
-		// transport error keeps the legacy ErrServiceUnavailable mapping.
-		code := types.ErrServiceUnavailable
-		var de *types.DriverError
-		if errors.As(err, &de) && de.Code == types.ErrDeviceDisconnected {
-			code = types.ErrDeviceDisconnected
-		}
-		return types.NewDriverError("Write", subpath, err, code)
+		return types.NewDriverError("Write", subpath, err, mcpCallErrCode(err))
 	}
 	f.response = resp
 	f.writeErr = nil
@@ -374,7 +379,7 @@ func (f *mcpToolListFile) Read(length int) ([]byte, error) {
 		defer cancel()
 		resp, err := f.transport.Call(ctx, "tools/list", nil)
 		if err != nil {
-			return nil, types.NewDriverError("Read", "/tools", err, types.ErrServiceUnavailable)
+			return nil, types.NewDriverError("Read", "/tools", err, mcpCallErrCode(err))
 		}
 		f.response = resp
 		f.loaded = true
@@ -433,7 +438,7 @@ func (f *mcpResourceFile) Read(length int) ([]byte, error) {
 		defer cancel()
 		resp, err := f.transport.Call(ctx, "resources/read", params)
 		if err != nil {
-			return nil, types.NewDriverError("Read", f.subpath, err, types.ErrServiceUnavailable)
+			return nil, types.NewDriverError("Read", f.subpath, err, mcpCallErrCode(err))
 		}
 		f.response = resp
 		f.loaded = true
@@ -495,7 +500,7 @@ func (f *mcpResourceListFile) Read(length int) ([]byte, error) {
 		defer cancel()
 		resp, err := f.transport.Call(ctx, "resources/list", nil)
 		if err != nil {
-			return nil, types.NewDriverError("Read", "/resources", err, types.ErrServiceUnavailable)
+			return nil, types.NewDriverError("Read", "/resources", err, mcpCallErrCode(err))
 		}
 		f.response = resp
 		f.loaded = true

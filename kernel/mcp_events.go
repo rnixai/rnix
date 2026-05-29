@@ -78,10 +78,17 @@ func (k *KernelImpl) observeMCPHealth(proc *Process, mcpPath string, opErr error
 	if proc.mcpReconnectSeen == nil {
 		proc.mcpReconnectSeen = make(map[string]int)
 	}
-	prev, seen := proc.mcpReconnectSeen[server]
+	// Implicit baseline 0 on first observation ([Review][Patch] P7). MCP mounts
+	// are per-process (path carries <pid>-<server>) so the transport is always
+	// freshly created with ReconnectCount 0 at spawn/reattach, and a reconnect
+	// only ever fires inside a Call — never before this process's first tool
+	// call. Hence any cur>0 at first observation is a reconnect this process
+	// drove, including one triggered by its FIRST call. The previous `seen &&`
+	// guard swallowed exactly that first-call-triggered reconnect.
+	prev := proc.mcpReconnectSeen[server]
 	proc.mcpReconnectSeen[server] = cur
 	proc.mu.Unlock()
-	if seen && cur > prev {
+	if cur > prev {
 		k.emitEvent(proc, "mcp.reconnect", map[string]any{
 			"server":          server,
 			"reconnect_count": cur,

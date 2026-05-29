@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,10 @@ const (
 	l2IdleThreshold    = 30 * time.Second
 	l2PingTimeout      = 2 * time.Second
 	stderrRingCapacity = 256
+	// stderrMaxLineBytes caps a single captured stderr line. An oversized line
+	// (e.g. a multi-MB stack dump) is truncated to this length rather than
+	// permanently stopping the stderr pump ([Review][Patch] P5).
+	stderrMaxLineBytes = 256 * 1024
 )
 
 // nowFunc is the injectable clock for L2 idle-window math. Tests swap it to
@@ -116,9 +121,12 @@ type StdioTransport struct {
 	readDone chan struct{}
 }
 
-// readResult is one line (or terminal error) from the stdout reader pump.
+// readResult is one response line (or terminal error) from the stdout reader
+// pump. id is the parsed JSON-RPC response id used to correlate the line with
+// the request that asked for it ([Review][Patch] P1).
 type readResult struct {
 	data []byte
+	id   int64
 	err  error
 }
 
@@ -194,15 +202,25 @@ func (t *StdioTransport) startProcessLocked(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
-	// Story 48.5 AC4: capture stderr. Must be wired BEFORE Start.
-	stderrPipe, err := cmd.StderrPipe()
+	// Story 48.5 AC4: capture stderr. We use our OWN os.Pipe (not
+	// cmd.StderrPipe) so cmd.Wait — launched concurrently on teardown — never
+	// races the pump by closing the pipe out from under it (the cmd.StderrPipe
+	// contract forbids Wait before reads complete) ([Review][Patch] P2). Must be
+	// wired BEFORE Start.
+	stderrR, stderrW, err := os.Pipe()
 	if err != nil {
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
+	cmd.Stderr = stderrW
 
 	if err := cmd.Start(); err != nil {
+		_ = stderrR.Close()
+		_ = stderrW.Close()
 		return fmt.Errorf("start process: %w", err)
 	}
+	// Close the parent's write end; the child holds its own dup. This lets the
+	// pump's read end EOF when the child exits.
+	_ = stderrW.Close()
 
 	t.cmd = cmd
 	t.lastChildPID.Store(int64(cmd.Process.Pid))
@@ -221,9 +239,9 @@ func (t *StdioTransport) startProcessLocked(ctx context.Context) error {
 
 	// Spawn the stderr pump for THIS cmd. It exits on pipe EOF when the child
 	// dies/Close runs, so it never outlives the process (Story 48.5 §易错点 9).
-	go t.pumpStderr(stderrPipe)
+	go t.pumpStderr(stderrR)
 
-	if err := t.initialize(handshakeTimeout(ctx)); err != nil {
+	if err := t.initialize(ctx, handshakeTimeout(ctx)); err != nil {
 		return fmt.Errorf("initialize handshake: %w", err)
 	}
 	return nil
@@ -254,8 +272,17 @@ func (t *StdioTransport) readLoop(sc *bufio.Scanner, ch chan readResult, done ch
 		b := sc.Bytes()
 		cp := make([]byte, len(b))
 		copy(cp, b)
+		// Correlate responses by JSON-RPC id. Request ids start at 1 (nextID),
+		// so a line with id==0 is a notification (notifications/*), a server log
+		// line, or non-JSON garbage — drop it here so it never fills respCh and
+		// stalls the pump, and so a caller can never misattribute it to a
+		// request ([Review][Patch] P1).
+		var probe jsonRPCResponse
+		if err := json.Unmarshal(cp, &probe); err != nil || probe.ID == 0 {
+			continue
+		}
 		select {
-		case ch <- readResult{data: cp}:
+		case ch <- readResult{data: cp, id: probe.ID}:
 		case <-done:
 			return
 		}
@@ -270,32 +297,51 @@ func (t *StdioTransport) readLoop(sc *bufio.Scanner, ch chan readResult, done ch
 	}
 }
 
-// readResponseLocked consumes one response line from the reader pump. timeout
-// <= 0 blocks (normal request); a positive timeout bounds the wait (L2 ping /
-// tools-list refresh) so a hung child cannot stall the call. Caller MUST hold
-// t.mu. On timeout the pending line stays queued in the pump (or is discarded
-// when the transport reconnects and abandons the channel) — no goroutine is
-// orphaned mid-Scan.
-func (t *StdioTransport) readResponseLocked(timeout time.Duration) ([]byte, error) {
+// readResponseLocked consumes response lines from the reader pump until one
+// matches wantID, returning its payload. Lines whose id does not match wantID
+// are stale/out-of-order replies (e.g. a timed-out ping reply that lands after
+// we moved on) and are discarded ([Review][Patch] P1). wantID==0 accepts the
+// next line regardless (callers that do not correlate).
+//
+// timeout <= 0 means no internal timer; ctx cancellation always unblocks the
+// wait so a hung child can never pin t.mu past the caller's ctx deadline
+// ([Review][Patch] P6). A positive timeout additionally bounds the wait (L2
+// ping / tools-list refresh). Caller MUST hold t.mu. On timeout/cancel the
+// pending line stays queued in the pump (or is discarded when the transport
+// reconnects and abandons the channel) — no goroutine is orphaned mid-Scan.
+func (t *StdioTransport) readResponseLocked(ctx context.Context, wantID int64, timeout time.Duration) ([]byte, error) {
 	ch := t.respCh
 	if ch == nil {
 		return nil, fmt.Errorf("no reader")
 	}
-	if timeout <= 0 {
-		r, ok := <-ch
-		if !ok {
-			return nil, fmt.Errorf("reader closed")
-		}
-		return r.data, r.err
+	var timerC <-chan time.Time
+	if timeout > 0 {
+		tm := time.NewTimer(timeout)
+		defer tm.Stop()
+		timerC = tm.C
 	}
-	select {
-	case r, ok := <-ch:
-		if !ok {
-			return nil, fmt.Errorf("reader closed")
+	var ctxDone <-chan struct{}
+	if ctx != nil {
+		ctxDone = ctx.Done()
+	}
+	for {
+		select {
+		case r, ok := <-ch:
+			if !ok {
+				return nil, fmt.Errorf("reader closed")
+			}
+			if r.err != nil {
+				return nil, r.err
+			}
+			if wantID != 0 && r.id != wantID {
+				continue // stale / out-of-order reply — discard
+			}
+			return r.data, nil
+		case <-timerC:
+			return nil, fmt.Errorf("timeout after %v", timeout)
+		case <-ctxDone:
+			return nil, ctx.Err()
 		}
-		return r.data, r.err
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("timeout after %v", timeout)
 	}
 }
 
@@ -310,12 +356,40 @@ func (t *StdioTransport) stopReaderLocked() {
 }
 
 // pumpStderr reads the child's stderr line-by-line into the shared ring buffer
-// until EOF. One goroutine per cmd; bounded by stderrRingCapacity.
+// until EOF, then closes the read end. One goroutine per cmd; bounded by
+// stderrRingCapacity. It uses bufio.Reader.ReadLine (not Scanner) so a single
+// oversized line — e.g. a multi-MB panic stack dump — is truncated to
+// stderrMaxLineBytes and the pump keeps scanning, instead of Scanner's
+// ErrTooLong permanently halting capture and dropping every later line, which
+// is exactly the diagnostic we most need on a crash ([Review][Patch] P5).
 func (t *StdioTransport) pumpStderr(rc io.ReadCloser) {
-	sc := bufio.NewScanner(rc)
-	sc.Buffer(make([]byte, 0, 16*1024), 256*1024)
-	for sc.Scan() {
-		t.stderrBuf.Push(sc.Text())
+	defer func() { _ = rc.Close() }()
+	br := bufio.NewReaderSize(rc, 64*1024)
+	var line []byte
+	truncated := false
+	for {
+		chunk, isPrefix, err := br.ReadLine()
+		if len(chunk) > 0 {
+			if len(line) < stderrMaxLineBytes {
+				line = append(line, chunk...)
+			} else {
+				truncated = true
+			}
+		}
+		if !isPrefix && err == nil {
+			if truncated {
+				line = append(line, " ...[truncated]"...)
+			}
+			t.stderrBuf.Push(string(line))
+			line = line[:0]
+			truncated = false
+		}
+		if err != nil {
+			if len(line) > 0 {
+				t.stderrBuf.Push(string(line))
+			}
+			return
+		}
 	}
 }
 
@@ -355,7 +429,7 @@ func (t *StdioTransport) Call(ctx context.Context, method string, params json.Ra
 	// L2 readiness (AC2): only after >30s idle. Zero overhead on the hot path.
 	if last := t.lastCall.Load(); last != 0 {
 		if nowFunc().Sub(time.Unix(0, last)) > l2IdleThreshold {
-			if err := t.pingLocked(l2PingTimeout); err != nil {
+			if err := t.pingLocked(ctx, l2PingTimeout); err != nil {
 				// Server unresponsive → mark + reconnect. A failed reconnect
 				// leaves the transport in a non-Connected terminal state and the
 				// call fast-fails.
@@ -373,7 +447,7 @@ func (t *StdioTransport) Call(ctx context.Context, method string, params json.Ra
 		}
 	}
 
-	result, err := t.requestLocked(method, params)
+	result, err := t.requestLocked(ctx, method, params)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +460,7 @@ func (t *StdioTransport) Call(ctx context.Context, method string, params json.Ra
 // stdout scan is unbounded by design — after L1+L2 the server is known
 // responsive, and the existing 30s ctx budget (vfs.mcpCallTimeout) still
 // governs the broader VFS Read path.
-func (t *StdioTransport) requestLocked(method string, params json.RawMessage) (json.RawMessage, error) {
+func (t *StdioTransport) requestLocked(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	id := t.nextID.Add(1)
 	req := jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: params}
 
@@ -394,7 +468,11 @@ func (t *StdioTransport) requestLocked(method string, params json.RawMessage) (j
 		return nil, fmt.Errorf("write request: %w", err)
 	}
 
-	line, err := t.readResponseLocked(0)
+	// timeout 0: the request is unbounded by design (the server is known
+	// responsive after L1+L2), but ctx cancellation (the VFS mcpCallTimeout)
+	// still unblocks the wait so a server that hangs AFTER ping-OK cannot pin
+	// t.mu and stall every concurrent Call ([Review][Patch] P6).
+	line, err := t.readResponseLocked(ctx, id, 0)
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -412,13 +490,13 @@ func (t *StdioTransport) requestLocked(method string, params json.RawMessage) (j
 // pingLocked sends a JSON-RPC ping and waits up to timeout for any response,
 // bounding the wait so a hung-but-alive child cannot stall the call. Caller
 // MUST hold t.mu.
-func (t *StdioTransport) pingLocked(timeout time.Duration) error {
+func (t *StdioTransport) pingLocked(ctx context.Context, timeout time.Duration) error {
 	id := t.nextID.Add(1)
 	req := jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: "ping"}
 	if err := t.stdin.Encode(req); err != nil {
 		return fmt.Errorf("send ping: %w", err)
 	}
-	if _, err := t.readResponseLocked(timeout); err != nil {
+	if _, err := t.readResponseLocked(ctx, id, timeout); err != nil {
 		return fmt.Errorf("ping: %w", err)
 	}
 	return nil
@@ -435,21 +513,23 @@ func (t *StdioTransport) refreshCountsLocked(ctx context.Context) {
 // refreshToolsLocked issues tools/list (mandatory) + resources/list (best
 // effort) with a bounded read, caching the counts. Returns the tools/list
 // error so reconnect can treat an unresponsive child as a failed attempt.
-func (t *StdioTransport) refreshToolsLocked(_ context.Context) error {
-	req := jsonRPCRequest{JSONRPC: "2.0", ID: t.nextID.Add(1), Method: "tools/list"}
+func (t *StdioTransport) refreshToolsLocked(ctx context.Context) error {
+	tid := t.nextID.Add(1)
+	req := jsonRPCRequest{JSONRPC: "2.0", ID: tid, Method: "tools/list"}
 	if err := t.stdin.Encode(req); err != nil {
 		return fmt.Errorf("tools/list send: %w", err)
 	}
-	line, err := t.readResponseLocked(l2PingTimeout)
+	line, err := t.readResponseLocked(ctx, tid, l2PingTimeout)
 	if err != nil {
 		return fmt.Errorf("tools/list: %w", err)
 	}
 	t.toolCount.Store(int64(countResultArray(line, "tools")))
 
 	// resources/list — best effort; a server without resources still reconnects.
-	rreq := jsonRPCRequest{JSONRPC: "2.0", ID: t.nextID.Add(1), Method: "resources/list"}
+	rid := t.nextID.Add(1)
+	rreq := jsonRPCRequest{JSONRPC: "2.0", ID: rid, Method: "resources/list"}
 	if err := t.stdin.Encode(rreq); err == nil {
-		if rline, rerr := t.readResponseLocked(l2PingTimeout); rerr == nil {
+		if rline, rerr := t.readResponseLocked(ctx, rid, l2PingTimeout); rerr == nil {
 			t.resourceCount.Store(int64(countResultArray(rline, "resources")))
 		}
 	}
@@ -633,7 +713,7 @@ func (t *StdioTransport) Ping(ctx context.Context) error {
 // initialize performs the MCP protocol initialize handshake.
 // Sends initialize request, validates response, then sends initialized notification.
 // Must be called with mu held.
-func (t *StdioTransport) initialize(timeout time.Duration) error {
+func (t *StdioTransport) initialize(ctx context.Context, timeout time.Duration) error {
 	initParams := map[string]any{
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]any{},
@@ -660,8 +740,13 @@ func (t *StdioTransport) initialize(timeout time.Duration) error {
 	}
 
 	// Read initialize response via the reader pump (bounded by the connect ctx
-	// deadline, if any).
-	line, err := t.readResponseLocked(timeout)
+	// deadline, if any). wantID==0: the handshake is a serialized first exchange
+	// on a freshly started child — no prior in-flight request can have left a
+	// stale reply, and readLoop already dropped notifications — so we accept the
+	// first response line regardless of id. (Strict id correlation still applies
+	// to every steady-state request/ping/refresh; ditto a reconnect, whose
+	// nextID has advanced past the value a minimal server may echo for init.)
+	line, err := t.readResponseLocked(ctx, 0, timeout)
 	if err != nil {
 		return fmt.Errorf("read initialize response: %w", err)
 	}
