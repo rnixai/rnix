@@ -743,6 +743,9 @@ func (k *KernelImpl) setupDriverStreamHandler(proc *Process, llmFD types.FD) {
 		proc.toolMap = make(map[string]toolMapping, len(vfsMap)+len(metaMap))
 		maps.Copy(proc.toolMap, vfsMap)
 		maps.Copy(proc.toolMap, metaMap)
+		// 路线 B 的 MCP native ToolDef 注入不在此处——MCP 挂载发生在工具集组装之后
+		// (spawn.go 的 auto-mount、resume 的 reattachMCPMounts)，故 MCP 工具由
+		// k.attachMCPToolDefs 在挂载完成后追加。见 kernel/mcp_toolgen.go。
 	}
 
 	for _, dev := range proc.AllowedDevices {

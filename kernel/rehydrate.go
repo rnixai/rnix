@@ -116,6 +116,8 @@ func (k *KernelImpl) rehydrateRuntimeStateFromDisk(proc *Process, stepsDir strin
 	maps.Copy(proc.toolMap, vfsMap)
 	maps.Copy(proc.toolMap, metaMap)
 	proc.mu.Unlock()
+	// 路线 B 的 MCP native ToolDef 在此之后由 reattachMCPMounts 末尾的
+	// k.attachMCPToolDefs 追加——彼时 transport 已重连、proc.MCPMounts 已就绪。
 
 	// 4. Rehydrate SkillBodies / SkillDirs from skillLoader (Edge Case Hunter
 	//    Finding #15). Without these BuildPrompt degrades to skill names only
@@ -447,6 +449,13 @@ func (k *KernelImpl) reattachMCPMounts(proc *Process, info vfs.ProcInfo) int {
 			}
 		}
 	}
+
+	// 路线 B: transports are now reconnected and proc.MCPMounts reflects the
+	// surviving set — expose each server's tools as native ToolDefs. The base/
+	// meta tool set was rebuilt earlier in rehydrateRuntimeStateFromDisk (before
+	// this reattach), so MCP tools are appended here. Covers both resume paths
+	// (resume.go and load_suspended.go call reattachMCPMounts after rehydrate).
+	k.attachMCPToolDefs(proc)
 
 	return len(successPaths)
 }

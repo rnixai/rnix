@@ -648,6 +648,13 @@ func (k *KernelImpl) Spawn(intent string, agent *agents.AgentInfo, opts SpawnOpt
 			proc.AllowedDevices = append(proc.AllowedDevices, mountedPaths...)
 			proc.mcpConfigs = agent.MCPConfigs
 			proc.mu.Unlock()
+
+			// 路线 B: now that the MCP transports are mounted and live, expose
+			// each server's tools as native ToolDefs. buildToolDefs (run inside
+			// setupDriverStreamHandler above, BEFORE this mount loop) skips MCP
+			// devices, so this is where the LLM gains the mcp__<server>__<tool>
+			// tools + toolMap routing.
+			k.attachMCPToolDefs(proc)
 		}
 	}
 

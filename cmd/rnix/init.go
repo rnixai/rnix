@@ -50,8 +50,9 @@ servers:
     transport_type: stdio
     instructions: |
       Use this server for browser automation: navigate to URLs,
-      take screenshots, click elements, fill forms. Tools are
-      exposed under /dev/mcp/playwright/.
+      take screenshots, click elements, fill forms. Tools appear in
+      the agent's tool list as native functions named
+      mcp__playwright__<tool> (e.g. mcp__playwright__browser_navigate).
 
   # Add additional servers below. Examples:
   #

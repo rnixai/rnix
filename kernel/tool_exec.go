@@ -558,16 +558,26 @@ func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolM
 	default:
 		inputData, _ := json.Marshal(tc.Input)
 		isEmpty := len(tc.Input) == 0
+		// MCP tools require a Write (the tools/call) before Read returns a
+		// result — mcpFile.Read errors ("write a request first") without a
+		// prior Write. So an MCP target ALWAYS opens O_RDWR and writes, even
+		// with no arguments (empty input → "{}"), unlike read-only base-device
+		// opens which skip the write when input is empty. 路线 B 无参数工具边界。
+		targetIsMCP := strings.HasPrefix(mapping.VFSPath, mcpPathPrefix)
 		openFlags := vfs.O_RDWR
-		if isEmpty {
+		if isEmpty && !targetIsMCP {
 			openFlags = vfs.O_RDONLY
 		}
 		fd, err := k.vfsOpenWithEvent(proc, mapping.VFSPath, openFlags)
 		if err != nil {
 			return "", fmt.Errorf("open failed: %w", err)
 		}
-		if !isEmpty {
-			if err := k.vfsWriteWithEvent(proc, fd, inputData); err != nil {
+		if !isEmpty || targetIsMCP {
+			writeData := inputData
+			if isEmpty {
+				writeData = []byte("{}")
+			}
+			if err := k.vfsWriteWithEvent(proc, fd, writeData); err != nil {
 				_ = k.vfsCloseWithEvent(proc, fd)
 				return "", fmt.Errorf("write failed: %w", err)
 			}
