@@ -332,8 +332,15 @@ toolLoop:
 
 // executeVFSTool executes a VFS tool call from native function calling.
 func (k *KernelImpl) executeVFSTool(proc *Process, tc llmToolCall, mapping toolMapping) (string, error) {
-	if len(proc.AllowedDevices) > 0 {
-		cleanPath := path.Clean(mapping.VFSPath)
+	// Permission model: MCP mount paths in AllowedDevices are additive permits,
+	// not a base-device whitelist. Enforce the whitelist for an MCP target always
+	// (it must be one of this process's own mounts), but for a base /dev target
+	// only when a non-MCP whitelist exists (a skill declared allowed_tools). An
+	// agent with MCP mounts but no skills keeps base devices unrestricted —
+	// appending MCP must extend access, never revoke it.
+	cleanPath := path.Clean(mapping.VFSPath)
+	targetIsMCP := strings.HasPrefix(cleanPath, mcpPathPrefix)
+	if len(proc.AllowedDevices) > 0 && (targetIsMCP || baseDeviceWhitelistActive(proc.AllowedDevices)) {
 		allowed := false
 		for _, dev := range proc.AllowedDevices {
 			if cleanPath == dev || strings.HasPrefix(cleanPath, dev+"/") {

@@ -50,7 +50,7 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 		}
 	}
 
-	if len(allowedDevices) > 0 {
+	if baseDeviceWhitelistActive(allowedDevices) {
 		for _, devPath := range allowedDevices {
 			driver, ok := devReg.GetDriver(devPath)
 			if !ok {
@@ -59,6 +59,10 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 			collectFromDriver(devPath, driver)
 		}
 	} else {
+		// No skill-declared base-device whitelist (empty, or only MCP mounts):
+		// expose every base device. MCP mounts are additive permits and must not
+		// suppress base-device tools — an agent with `mcp:` but no `skills:` (e.g.
+		// stem) still needs /dev/fs, /dev/shell, etc.
 		devReg.RangeDrivers(func(devPath string, driver any) bool {
 			collectFromDriver(devPath, driver)
 			return true
@@ -66,6 +70,22 @@ func buildToolDefs(devReg *vfs.DeviceRegistry, allowedDevices []string, planning
 	}
 
 	return defs, toolMap
+}
+
+// baseDeviceWhitelistActive reports whether allowedDevices imposes a whitelist on
+// base /dev devices. MCP mount paths (mcpPathPrefix, e.g. /mnt/mcp/<pid>-server)
+// are additive permits — they grant access to that mount without restricting base
+// devices. The base-device whitelist therefore activates only when at least one
+// NON-MCP device path is present (i.e. a skill declared allowed_tools). Without
+// this, appending an MCP mount to an otherwise-empty AllowedDevices would flip the
+// process from "unrestricted" to "MCP-only" and revoke /dev/fs, /dev/shell, etc.
+func baseDeviceWhitelistActive(allowedDevices []string) bool {
+	for _, dev := range allowedDevices {
+		if !strings.HasPrefix(dev, mcpPathPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // metaToolDefs returns ToolDefs for kernel meta actions (complete, Agent, replan, Skill, EnterPlanMode).

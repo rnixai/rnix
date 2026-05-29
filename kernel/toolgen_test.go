@@ -122,6 +122,57 @@ func TestBuildToolDefs_UnknownPath_SkipsSilently(t *testing.T) {
 	}
 }
 
+// TestBuildToolDefs_MCPOnly_ExposesBaseDevices verifies that an AllowedDevices
+// list containing ONLY MCP mount paths (an agent with `mcp:` but no `skills:`,
+// e.g. stem) still exposes all base device tools. MCP mounts are additive permits,
+// not a base-device whitelist — without this, such an agent would lose /dev/fs,
+// /dev/shell, etc. See spawn-mcp-not-available-investigation.md (Follow-up #2).
+func TestBuildToolDefs_MCPOnly_ExposesBaseDevices(t *testing.T) {
+	reg := vfs.NewDeviceRegistry()
+	factory := func(subpath string, flags vfs.OpenFlag, workDir string) (vfs.VFSFile, error) {
+		return nil, nil
+	}
+	shellDriver := &mockToolDescriptor{defs: []vfs.ToolDef{{Name: "Bash"}}}
+	fsDriver := &mockToolDescriptor{defs: []vfs.ToolDef{{Name: "Read"}}}
+	_ = reg.RegisterWithDriver("/dev/shell", factory, shellDriver)
+	_ = reg.RegisterWithDriver("/dev/fs", factory, fsDriver)
+
+	// AllowedDevices has only an MCP mount path → base whitelist inactive.
+	defs, toolMap := buildToolDefs(reg, []string{"/mnt/mcp/5-playwright"}, true)
+
+	if _, ok := toolMap["Bash"]; !ok {
+		t.Error("expected base device tool 'Bash' to be exposed when only MCP paths are allowed")
+	}
+	if _, ok := toolMap["Read"]; !ok {
+		t.Error("expected base device tool 'Read' to be exposed when only MCP paths are allowed")
+	}
+	if len(defs) != 2 {
+		t.Fatalf("expected 2 base device tool defs, got %d", len(defs))
+	}
+}
+
+func TestBaseDeviceWhitelistActive(t *testing.T) {
+	cases := []struct {
+		name    string
+		allowed []string
+		want    bool
+	}{
+		{"nil", nil, false},
+		{"empty", []string{}, false},
+		{"mcp only", []string{"/mnt/mcp/5-playwright"}, false},
+		{"multiple mcp only", []string{"/mnt/mcp/5-playwright", "/mnt/mcp/5-github"}, false},
+		{"base device", []string{"/dev/fs"}, true},
+		{"base plus mcp", []string{"/dev/fs", "/mnt/mcp/5-playwright"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := baseDeviceWhitelistActive(tc.allowed); got != tc.want {
+				t.Errorf("baseDeviceWhitelistActive(%v) = %v, want %v", tc.allowed, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestBuildToolDefs_SubpathRouting verifies that drivers multiplexing multiple
 // tools onto distinct subpaths (e.g. /dev/intent dispatching /decompose,
 // /confirm, /status, /execute) get their tool name → full-path mapping

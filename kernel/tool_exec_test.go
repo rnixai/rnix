@@ -708,3 +708,46 @@ var errIsDir = errSentinel("is a directory")
 type errSentinel string
 
 func (e errSentinel) Error() string { return string(e) }
+
+// TestExecuteVFSTool_MCPAdditivePermission locks the permission model: MCP mount
+// paths in AllowedDevices are additive permits and must not revoke base /dev
+// access, while a foreign MCP mount stays denied. Regression for an agent with
+// `mcp:` but no `skills:` (stem) being locked out of base devices.
+// See spawn-mcp-not-available-investigation.md (Follow-up #2).
+func TestExecuteVFSTool_MCPAdditivePermission(t *testing.T) {
+	reg := vfs.NewDeviceRegistry()
+	v := vfs.NewVFS(reg)
+	ctxMgr := rnixctx.NewManager()
+	k := NewKernel(v, ctxMgr, nil)
+	t.Cleanup(k.Shutdown)
+
+	// Returns true iff the error is a permission-gate rejection (vs a downstream
+	// device-not-found, which proves the call passed the gate).
+	deniedByGate := func(allowed []string, vfsPath string) bool {
+		proc := NewProcess(0, "t", nil)
+		proc.AllowedDevices = allowed
+		_, err := k.executeVFSTool(proc, llmToolCall{Name: "X", Input: map[string]any{}}, toolMapping{Type: "vfs", VFSPath: vfsPath})
+		return err != nil && strings.Contains(err.Error(), "permission denied")
+	}
+
+	// MCP-only whitelist (stem): base device passes the gate (additive MCP).
+	if deniedByGate([]string{"/mnt/mcp/5-playwright"}, "/dev/web") {
+		t.Error("base /dev/web wrongly denied under MCP-only AllowedDevices")
+	}
+	// MCP-only whitelist: the process's own MCP mount passes the gate.
+	if deniedByGate([]string{"/mnt/mcp/5-playwright"}, "/mnt/mcp/5-playwright") {
+		t.Error("own MCP mount wrongly denied")
+	}
+	// MCP-only whitelist: a foreign MCP mount is still denied (security preserved).
+	if !deniedByGate([]string{"/mnt/mcp/5-playwright"}, "/mnt/mcp/9-foreign") {
+		t.Error("foreign MCP mount should be denied")
+	}
+	// Active base whitelist (skills): a device outside it is denied.
+	if !deniedByGate([]string{"/dev/fs"}, "/dev/web") {
+		t.Error("/dev/web should be denied when whitelist is [/dev/fs]")
+	}
+	// Empty AllowedDevices: fully unrestricted, base device passes the gate.
+	if deniedByGate(nil, "/dev/web") {
+		t.Error("unrestricted proc wrongly denied /dev/web")
+	}
+}
