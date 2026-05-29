@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/rnixai/rnix/drivers/mcp"
 	"github.com/rnixai/rnix/internal/ui"
 	"github.com/rnixai/rnix/ipc"
 	"github.com/spf13/cobra"
@@ -220,6 +222,14 @@ func renderMCPListEmpty(w io.Writer, mode ui.OutputMode, humanHint string) {
 func renderMCPListHuman(w io.Writer, mounts []ipc.MCPMountWire) {
 	if len(mounts) == 0 {
 		fmt.Fprintln(w, "No active MCP mounts.")
+		// Investigation mcp-list-empty: the common confusion is that `check mcp`
+		// and `mcp test` look healthy while `mcp list` is empty. They measure
+		// different layers — mounts are per-process and created at spawn
+		// (kernel/spawn.go `/mnt/mcp/<pid>-<name>`), so a configured-but-unmounted
+		// server is expected, not a fault. Surface that distinction additively.
+		if names := mcpConfiguredServerNames(); len(names) > 0 {
+			fmt.Fprintln(w, formatConfiguredMCPHint(names))
+		}
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
@@ -235,6 +245,44 @@ func renderMCPListHuman(w io.Writer, mounts []ipc.MCPMountWire) {
 		)
 	}
 	_ = tw.Flush()
+}
+
+// mcpConfiguredServerNames returns the server names declared in mcp.yaml,
+// sorted, as a best-effort hint source for `mcp list`. Any error (config
+// missing / unreadable / unparseable) yields nil: the hint is purely additive
+// and must never make `mcp list` fail or emit noise. Reuses resolveMCPConfigPath
+// (and its `mcpConfigPathForCheck` test hook) so the lookup matches `check mcp`.
+func mcpConfiguredServerNames() []string {
+	path := resolveMCPConfigPath()
+	if path == "" {
+		return nil
+	}
+	cfg, err := mcp.LoadMCPConfig(path)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(cfg.Servers))
+	for name := range cfg.Servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// formatConfiguredMCPHint builds the additive line shown after "No active MCP
+// mounts." when mcp.yaml declares servers that simply aren't mounted yet.
+// names must be non-empty. ASCII-safe (no Unicode glyphs) per RNIX_ASCII.
+func formatConfiguredMCPHint(names []string) string {
+	if len(names) == 1 {
+		return fmt.Sprintf(
+			"1 server configured in mcp.yaml (%s) but not mounted yet. Mounts appear when an agent using it is running; probe it now with `rnix mcp test %s`.",
+			names[0], names[0],
+		)
+	}
+	return fmt.Sprintf(
+		"%d servers configured in mcp.yaml (%s) but not mounted yet. Mounts appear when an agent using them is running; probe one with `rnix mcp test <name>`.",
+		len(names), strings.Join(names, ", "),
+	)
 }
 
 func renderMCPListJSON(w io.Writer, mounts []ipc.MCPMountWire) {
