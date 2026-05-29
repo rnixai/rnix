@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rnixai/rnix/internal/types"
 	"github.com/rnixai/rnix/internal/xsync"
@@ -550,16 +551,136 @@ func (t *StdioTransport) effectiveRequestTimeout(ctx context.Context) time.Durat
 // truncateResultLocked caps a result at max_output_bytes (Story 48.6 Task 3),
 // recording a warning in the stderr ring (surfaced by `rnix mcp logs <name>`)
 // when it has to cut. Caller MUST hold t.mu.
+//
+// Story 48.6 [Review][Patch] P0: the cut PRESERVES JSON validity. A raw
+// result[:max] byte slice emits a severed JSON / UTF-8 fragment that any
+// downstream parser rejects. Instead we shrink the largest string payload(s)
+// inside the result (e.g. MCP content[].text / contents[].text) and re-marshal;
+// when the result is not parseable JSON or has no shrinkable text (e.g. a giant
+// numeric array), we substitute a valid sentinel envelope. Either way the caller
+// receives parseable JSON within the byte budget.
 func (t *StdioTransport) truncateResultLocked(method string, result json.RawMessage) json.RawMessage {
-	max := t.config.MaxOutputBytes
-	if max <= 0 || int64(len(result)) <= max {
+	limit := t.config.MaxOutputBytes
+	if limit <= 0 || int64(len(result)) <= limit {
 		return result
 	}
 	orig := len(result)
 	t.stderrBuf.Push(fmt.Sprintf(
 		"[mcp] WARN: %s result truncated from %d to %d bytes (max_output_bytes)",
-		method, orig, max))
-	return result[:max]
+		method, orig, limit))
+
+	if out, ok := truncateJSONText(result, limit); ok {
+		return out
+	}
+
+	// Fallback: unparseable or no shrinkable string payload. Emit a valid
+	// sentinel envelope rather than a severed byte fragment.
+	env, err := json.Marshal(struct {
+		Truncated     bool   `json:"truncated"`
+		OriginalBytes int    `json:"original_bytes"`
+		MaxBytes      int64  `json:"max_output_bytes"`
+		Method        string `json:"method"`
+		Note          string `json:"note"`
+	}{
+		Truncated:     true,
+		OriginalBytes: orig,
+		MaxBytes:      limit,
+		Method:        method,
+		Note:          "result exceeded max_output_bytes and was dropped (no shrinkable text payload)",
+	})
+	if err != nil {
+		return result[:limit] // unreachable in practice; last-resort byte cut
+	}
+	return env
+}
+
+// truncationMarker is appended to a string value that truncateUTF8 shortens.
+const truncationMarker = "...[truncated]"
+
+// truncateJSONText shrinks the largest string values inside a decoded JSON
+// document until the re-marshaled form fits within limit bytes, preserving JSON
+// validity. Returns (_, false) when result is not a JSON value or contains no
+// string long enough to bring it under budget (caller falls back to a sentinel
+// envelope).
+func truncateJSONText(result json.RawMessage, limit int64) (json.RawMessage, bool) {
+	var v any
+	if err := json.Unmarshal(result, &v); err != nil {
+		return nil, false
+	}
+	// Bounded loop: each pass shrinks the current longest string by at least the
+	// overage, so realistic single-blob results converge in one or two passes.
+	for range 64 {
+		out, err := json.Marshal(v)
+		if err != nil {
+			return nil, false
+		}
+		if int64(len(out)) <= limit {
+			return out, true
+		}
+		over := int(int64(len(out)) - limit)
+		if !shrinkLongestString(v, over) {
+			return nil, false // nothing left to shrink
+		}
+	}
+	if out, err := json.Marshal(v); err == nil && int64(len(out)) <= limit {
+		return out, true
+	}
+	return nil, false
+}
+
+// shrinkLongestString finds the longest string leaf in a decoded JSON tree
+// (map[string]any / []any nesting) and truncates it by at least `over` bytes
+// (plus the marker), mutating the tree in place. Returns false when no string
+// leaf exists.
+func shrinkLongestString(root any, over int) bool {
+	var bestLen int
+	var apply func()
+	var walk func(node any)
+	walk = func(node any) {
+		switch n := node.(type) {
+		case map[string]any:
+			for k, val := range n {
+				if s, ok := val.(string); ok {
+					if len(s) > bestLen {
+						bestLen = len(s)
+						key, str := k, s
+						apply = func() { n[key] = truncateUTF8(str, over) }
+					}
+					continue
+				}
+				walk(val)
+			}
+		case []any:
+			for i, val := range n {
+				if s, ok := val.(string); ok {
+					if len(s) > bestLen {
+						bestLen = len(s)
+						idx, str := i, s
+						apply = func() { n[idx] = truncateUTF8(str, over) }
+					}
+					continue
+				}
+				walk(val)
+			}
+		}
+	}
+	walk(root)
+	if apply == nil {
+		return false
+	}
+	apply()
+	return true
+}
+
+// truncateUTF8 removes at least `over` bytes from the tail of s (plus headroom
+// for the marker and JSON-escaping slack), cutting on a rune boundary, then
+// appends the truncation marker.
+func truncateUTF8(s string, over int) string {
+	keep := max(0, len(s)-over-len(truncationMarker)-16)
+	for keep > 0 && !utf8.RuneStart(s[keep]) {
+		keep--
+	}
+	return s[:keep] + truncationMarker
 }
 
 // pingLocked sends a JSON-RPC ping and waits up to timeout for any response,

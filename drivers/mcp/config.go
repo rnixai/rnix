@@ -22,6 +22,12 @@ const (
 	defaultMountTimeout   = 5 * time.Second
 	defaultRequestTimeout = 60 * time.Second
 	defaultMaxOutputBytes = int64(4 << 20) // 4 MiB = 4194304
+	// minMaxOutputBytes is the floor for a positive max_output_bytes (Story 48.6
+	// [Review][Patch] P4). A value of 0 means "use default"; any positive value
+	// below this would truncate every result down to an unusable fragment and is
+	// almost certainly a misconfiguration (e.g. forgetting the unit is raw bytes,
+	// not KiB/MiB). 1 KiB comfortably holds a minimal JSON envelope.
+	minMaxOutputBytes = int64(1024)
 )
 
 // MCPServerConfig describes a single MCP server's connection parameters.
@@ -56,6 +62,12 @@ func (c MCPServerConfig) Validate() error {
 		if _, err := time.ParseDuration(c.RequestTimeout); err != nil {
 			return fmt.Errorf("invalid request_timeout %q: %w", c.RequestTimeout, err)
 		}
+	}
+	// Story 48.6 [Review][Patch] P4 — reject a positive-but-tiny max_output_bytes
+	// before it truncates every result into garbage. 0 = use default.
+	if c.MaxOutputBytes != 0 && c.MaxOutputBytes < minMaxOutputBytes {
+		return fmt.Errorf("max_output_bytes %d too small (minimum %d bytes; use 0 for default %d)",
+			c.MaxOutputBytes, minMaxOutputBytes, defaultMaxOutputBytes)
 	}
 	return nil
 }
@@ -118,6 +130,16 @@ func LoadMCPConfig(path string) (*MCPGlobalConfig, error) {
 
 	if cfg.Servers == nil {
 		cfg.Servers = make(map[string]MCPServerConfig)
+	}
+
+	// Story 48.6 [Review][Patch] P3 — validate every server here so ALL callers
+	// (rnix check / compose / preflight, not just daemon init) fail fast on a
+	// malformed mount_timeout / request_timeout / max_output_bytes instead of
+	// silently defaulting it in ToMCPConfig.
+	for name, server := range cfg.Servers {
+		if err := server.Validate(); err != nil {
+			return nil, fmt.Errorf("mcp server %q: %w", name, err)
+		}
 	}
 
 	return &cfg, nil

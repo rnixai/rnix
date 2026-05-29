@@ -143,6 +143,24 @@ func (m *MountManager) Unmount(path string) error {
 	}
 
 	mount.lock()
+
+	// Story 48.6 [Review][Patch] P2: re-validate identity after potentially
+	// blocking on an in-flight Mount (mirror Acquire). The entry we loaded may
+	// have been deleted (Connect failed) or replaced by a fresh Mount on the same
+	// path; without this guard a stray/duplicate Unmount could Delete(path) the
+	// REPLACEMENT entry (SyncMap.Delete keys on path, not identity).
+	if cur, ok := m.mounts.Load(path); !ok || cur != mount {
+		mount.unlock()
+		return fmt.Errorf("not mounted: %s", path)
+	}
+	// Underflow guard: a stray/duplicate Unmount (or one landing on a Connecting
+	// placeholder whose refCount is still 0) must not drive refCount negative or
+	// tear down a mount this caller never owned.
+	if mount.refCount <= 0 {
+		mount.unlock()
+		return fmt.Errorf("not mounted: %s", path)
+	}
+
 	mount.refCount--
 	if mount.refCount > 0 {
 		// Other owners still hold the mount; only this owner has released.
@@ -206,19 +224,35 @@ func (m *MountManager) Acquire(path string) error {
 }
 
 // GetStatus returns the status of the mount at the given path.
+//
+// Story 48.6 [Review][Patch] P1: take the per-entry lock before reading Status.
+// SyncMap only makes the *MCPMount slot atomic — it grants no happens-before on
+// the struct's fields, which Mount finalize / Acquire / Unmount mutate UNDER
+// mount.mu. A lock-free read here races those writes (caught by -race), so the
+// observed Status could be a stale/torn value mid-finalize.
 func (m *MountManager) GetStatus(path string) (MCPStatus, error) {
 	mount, ok := m.mounts.Load(path)
 	if !ok {
 		return 0, fmt.Errorf("not mounted: %s", path)
 	}
-	return mount.Status, nil
+	mount.lock()
+	status := mount.Status
+	mount.unlock()
+	return status, nil
 }
 
 // ListMounts returns all current mounts.
+//
+// Story 48.6 [Review][Patch] P1: copy each entry UNDER its per-entry lock. The
+// value copy reads Status / refCount / transport, all of which Mount finalize
+// writes while holding mount.mu — copying without the lock races those writes
+// (the placeholder is published by LoadOrStore before its fields are filled in).
 func (m *MountManager) ListMounts() []MCPMount {
 	result := make([]MCPMount, 0)
 	m.mounts.Range(func(_ string, mount *MCPMount) bool {
+		mount.lock()
 		result = append(result, *mount)
+		mount.unlock()
 		return true
 	})
 	return result

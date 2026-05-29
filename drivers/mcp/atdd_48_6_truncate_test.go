@@ -4,6 +4,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,11 @@ func TestATDD_48_6_020_ToolsCall_TruncatedToMaxOutputBytes(t *testing.T) {
 	}
 	if len(result) == 0 {
 		t.Error("result empty after truncation; want a truncated-but-present payload")
+	}
+	// [Review][Patch] P0: the truncated result must stay valid JSON — a raw
+	// byte cut would emit a severed fragment that downstream parsers reject.
+	if !json.Valid(result) {
+		t.Errorf("truncated result is not valid JSON (P0 — must preserve JSON skeleton): %q", result)
 	}
 }
 

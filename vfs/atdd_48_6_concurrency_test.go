@@ -157,3 +157,58 @@ func TestATDD_48_6_003_DefaultMountTimeoutIs5s(t *testing.T) {
 		t.Errorf("mount not registered after a successful Connect: %v", gerr)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// _004 [Review][Patch] P1: the observability read paths (GetStatus / ListMounts)
+//        must not data-race Mount's finalize. While a Mount is mid-Connect its
+//        placeholder is already published in the SyncMap but its Status/refCount/
+//        transport fields are written under the per-entry lock at finalize. A
+//        lock-free reader hammering GetStatus+ListMounts during that window trips
+//        -race unless the read paths also take the per-entry lock. This is the
+//        regression guard for the race the original concurrency tests missed
+//        (they only read AFTER wg.Wait(), never in-flight).
+// -----------------------------------------------------------------------------
+func TestATDD_48_6_004_ReadPathsDoNotRaceFinalize(t *testing.T) {
+	var inFlight, peak int64
+	devReg := NewDeviceRegistry()
+	// A 200ms Connect window keeps placeholders in Connecting state long enough
+	// for the readers below to observe them mid-finalize.
+	mgr := NewMountManager(devReg, newDelayedConnectFactory(200*time.Millisecond, &inFlight, &peak))
+
+	const n = 8
+	stop := make(chan struct{})
+	var readers sync.WaitGroup
+	for range 4 {
+		readers.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					for i := range n {
+						_, _ = mgr.GetStatus(fmt.Sprintf("/mnt/mcp/race%d", i))
+					}
+					_ = mgr.ListMounts()
+				}
+			}
+		})
+	}
+
+	var mounters sync.WaitGroup
+	for i := range n {
+		mounters.Go(func() {
+			path := fmt.Sprintf("/mnt/mcp/race%d", i)
+			cfg := MCPConfig{ServerName: path, Command: "test", TransportType: "stdio"}
+			if err := mgr.Mount(path, cfg); err != nil {
+				t.Errorf("Mount %s: %v", path, err)
+			}
+		})
+	}
+	mounters.Wait()
+	close(stop)
+	readers.Wait()
+
+	if got := len(mgr.ListMounts()); got != n {
+		t.Errorf("ListMounts = %d, want %d", got, n)
+	}
+}

@@ -372,11 +372,9 @@ func (s *mcpManagerService) Init(cfg map[string]any) error {
 		if server.TransportType != "" && server.TransportType != "stdio" {
 			return fmt.Errorf("mcp server %q: transport_type=%q unsupported (only stdio in 48.3)", name, server.TransportType)
 		}
-		// Story 48.6 — fail fast on a malformed mount_timeout / request_timeout
-		// duration string instead of silently defaulting it in ToMCPConfig.
-		if err := server.Validate(); err != nil {
-			return fmt.Errorf("mcp server %q: %w", name, err)
-		}
+		// Story 48.6 — duration / max_output_bytes validation now happens inside
+		// mcp.LoadMCPConfig ([Review][Patch] P3), so this loop only needs the
+		// command / transport_type checks above.
 		registry[name] = server.ToMCPConfig(name)
 	}
 	s.servers = registry
